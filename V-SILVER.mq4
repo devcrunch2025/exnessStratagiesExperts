@@ -7,10 +7,11 @@ input int MomentumCandles = 2;
 
 input double FixedLot = 0.01;
 
-input double StopLossMoney = 20;
+input double StopLossMoney = 100;
 input double TakeProfitMoney = 2;
 
-input int MaxLiveTrades = 5;
+input int MaxBuyTrades = 5;
+input int MaxSellTrades = 5;
 
 input int MinTradeIntervalSeconds = 60;
 
@@ -19,6 +20,7 @@ input double MaxSpread = 60;
 input int MagicNumber = 555;
 
 datetime LastTradeTime = 0;
+datetime LastBarTime = 0;
 
 //------------------------------------------------------------
 
@@ -30,6 +32,25 @@ bool SpreadOK()
 
 //------------------------------------------------------------
 
+bool TradeIntervalOK()
+{
+   return (TimeCurrent() - LastTradeTime >= MinTradeIntervalSeconds);
+}
+
+//------------------------------------------------------------
+
+bool NewBar()
+{
+   if(Time[0] != LastBarTime)
+   {
+      LastBarTime = Time[0];
+      return true;
+   }
+   return false;
+}
+
+//------------------------------------------------------------
+
 bool BullishMomentum()
 {
    for(int i=1;i<=MomentumCandles;i++)
@@ -37,6 +58,7 @@ bool BullishMomentum()
       if(Close[i] <= Open[i])
          return false;
    }
+
    return true;
 }
 
@@ -49,21 +71,42 @@ bool BearishMomentum()
       if(Close[i] >= Open[i])
          return false;
    }
+
    return true;
 }
 
 //------------------------------------------------------------
 
-int CountTrades()
+int CountBuyTrades()
 {
    int count=0;
 
    for(int i=0;i<OrdersTotal();i++)
    {
-      if(!OrderSelect(i,SELECT_BY_POS,MODE_TRADES))
-         continue;
+      if(!OrderSelect(i,SELECT_BY_POS,MODE_TRADES)) continue;
 
-      if(OrderMagicNumber()==MagicNumber && OrderSymbol()==Symbol())
+      if(OrderMagicNumber()==MagicNumber &&
+         OrderSymbol()==Symbol() &&
+         OrderType()==OP_BUY)
+         count++;
+   }
+
+   return count;
+}
+
+//------------------------------------------------------------
+
+int CountSellTrades()
+{
+   int count=0;
+
+   for(int i=0;i<OrdersTotal();i++)
+   {
+      if(!OrderSelect(i,SELECT_BY_POS,MODE_TRADES)) continue;
+
+      if(OrderMagicNumber()==MagicNumber &&
+         OrderSymbol()==Symbol() &&
+         OrderType()==OP_SELL)
          count++;
    }
 
@@ -84,6 +127,10 @@ double TradeProfit(int index)
 
 void OpenBuy()
 {
+   if(!TradeIntervalOK()) return;
+
+   if(CountBuyTrades() >= MaxBuyTrades) return;
+
    RefreshRates();
 
    if(OrderSend(Symbol(),OP_BUY,FixedLot,Ask,10,0,0,"BUY",MagicNumber,0,clrGreen)>0)
@@ -94,6 +141,10 @@ void OpenBuy()
 
 void OpenSell()
 {
+   if(!TradeIntervalOK()) return;
+
+   if(CountSellTrades() >= MaxSellTrades) return;
+
    RefreshRates();
 
    if(OrderSend(Symbol(),OP_SELL,FixedLot,Bid,10,0,0,"SELL",MagicNumber,0,clrRed)>0)
@@ -106,8 +157,7 @@ void ManageTrades()
 {
    for(int i=OrdersTotal()-1;i>=0;i--)
    {
-      if(!OrderSelect(i,SELECT_BY_POS,MODE_TRADES))
-         continue;
+      if(!OrderSelect(i,SELECT_BY_POS,MODE_TRADES)) continue;
 
       if(OrderMagicNumber()!=MagicNumber || OrderSymbol()!=Symbol())
          continue;
@@ -121,17 +171,13 @@ void ManageTrades()
          if(type==OP_BUY)
          {
             OrderClose(OrderTicket(),OrderLots(),Bid,10);
-
-            if(CountTrades() < MaxLiveTrades)
-               OpenBuy();
+            OpenBuy();
          }
 
          if(type==OP_SELL)
          {
             OrderClose(OrderTicket(),OrderLots(),Ask,10);
-
-            if(CountTrades() < MaxLiveTrades)
-               OpenSell();
+            OpenSell();
          }
 
          return;
@@ -158,7 +204,9 @@ void ShowStatus()
    "MOMENTUM EA\n",
    "----------------------\n",
    "MomentumCandles: ",MomentumCandles,"\n",
-   "ActiveTrades: ",CountTrades(),"\n",
+   "BUY Trades: ",CountBuyTrades(),"\n",
+   "SELL Trades: ",CountSellTrades(),"\n",
+   "SecondsSinceLastTrade: ",TimeCurrent()-LastTradeTime,"\n",
    "BullishMomentum: ",BullishMomentum(),"\n",
    "BearishMomentum: ",BearishMomentum()
    );
@@ -172,25 +220,19 @@ void OnTick()
 
    if(!SpreadOK()) return;
 
-   if(TimeCurrent() - LastTradeTime < MinTradeIntervalSeconds)
-      return;
-
-   if(CountTrades() >= MaxLiveTrades)
+   if(NewBar())
    {
-      ShowStatus();
-      return;
-   }
+      if(BullishMomentum())
+      {
+         OpenBuy();
+         return;
+      }
 
-   if(BullishMomentum())
-   {
-      OpenBuy();
-      return;
-   }
-
-   if(BearishMomentum())
-   {
-      OpenSell();
-      return;
+      if(BearishMomentum())
+      {
+         OpenSell();
+         return;
+      }
    }
 
    ShowStatus();
