@@ -7,13 +7,13 @@ input int MomentumCandles = 2;
 
 input double FixedLot = 0.01;
 
-input double StopLossMoney = 100;
-input double TakeProfitMoney = 2;
+input double StopLossMoney = 10;
+input double TakeProfitMoney = 3;
 
 input int MaxBuyTrades = 5;
 input int MaxSellTrades = 5;
 
-input int MinTradeIntervalSeconds = 60;
+input int MinTradeIntervalSeconds = 60*3;
 
 input double MaxSpread = 60;
 
