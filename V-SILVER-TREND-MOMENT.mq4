@@ -1,7 +1,25 @@
 //+------------------------------------------------------------------+
-//| AI Smart Momentum EA - FINAL + RESET                             |
+//| AI Smart Momentum EA - FINAL STABLE VERSION                      |
 //+------------------------------------------------------------------+
 #property strict
+
+/*
+=====================================================================
+🚀 FEATURES
+=====================================================================
+✔ Momentum + Trend + AI scoring
+✔ Spread + ATR filter
+✔ Time interval control
+✔ Distance filter (anti-cluster)
+✔ Basket TP (dynamic + FIXED $5)
+✔ Recovery exit (- → +)
+✔ Peak trailing exit
+✔ Stop loss
+✔ Reset system
+✔ UI panel
+✔ ✅ FIXED array crash (safe indexing)
+=====================================================================
+*/
 
 //---------------- INPUTS ----------------//
 
@@ -13,6 +31,7 @@ input int MaxBuyTrades = 5;
 input int MaxSellTrades = 5;
 
 input int MinTradeIntervalSeconds = 60;
+input double MinDistancePoints = 200;
 
 input int TrendLookbackMinutes = 60;
 input double TrendThreshold = 0.10;
@@ -26,9 +45,12 @@ input double MaxSpread = 60;
 input int ScoreThreshold = 5;
 
 input double DailyTargetProfit = 3.0;
+input double FixedBasketTP = 5.0;
 
-// 🔘 RESET BUTTON INPUT
 input bool ResetStats = true;
+
+input double TrailStartProfit = 2.0;
+input double TrailDrop = 1.0;
 
 input int MagicNumber = 555;
 
@@ -40,414 +62,291 @@ datetime LastBarTime = 0;
 double ManualStartProfit = 0;
 bool ResetDone = false;
 
-//------------------------------------------------------------
+// SAFE ARRAYS (by index, not ticket)
+double PeakProfit[100];
+bool WasNegative[100];
 
-bool SpreadOK()
+//------------------------------------------------------------
+int OnInit()
 {
-   return ((Ask - Bid) / Point) <= MaxSpread;
+   ManualStartProfit = TodayProfitRaw();
+   return(INIT_SUCCEEDED);
 }
 
 //------------------------------------------------------------
-
-bool TradeIntervalOK()
-{
-   return (TimeCurrent() - LastTradeTime >= MinTradeIntervalSeconds);
-}
+bool SpreadOK(){ return ((Ask-Bid)/Point)<=MaxSpread; }
+bool VolatilityOK(){ return iATR(NULL,0,ATRPeriod,1)>MinATR; }
+bool TradeIntervalOK(){ return (TimeCurrent()-LastTradeTime>=MinTradeIntervalSeconds); }
 
 //------------------------------------------------------------
-
 bool NewBar()
 {
-   if(Time[0] != LastBarTime)
+   if(Time[0]!=LastBarTime)
    {
-      LastBarTime = Time[0];
+      LastBarTime=Time[0];
       return true;
    }
    return false;
 }
 
 //------------------------------------------------------------
-
 bool BullishMomentum()
 {
    for(int i=1;i<=MomentumCandles;i++)
-      if(Close[i] <= Open[i]) return false;
-
+      if(Close[i]<=Open[i]) return false;
    return true;
 }
-
-//------------------------------------------------------------
 
 bool BearishMomentum()
 {
    for(int i=1;i<=MomentumCandles;i++)
-      if(Close[i] >= Open[i]) return false;
-
+      if(Close[i]>=Open[i]) return false;
    return true;
 }
 
 //------------------------------------------------------------
-
 double GetTrendChange()
 {
-   int shift = iBarShift(NULL,0,TimeCurrent() - TrendLookbackMinutes*60);
-   if(shift < 0) return 0;
-
-   return (Close[0] - Close[shift]);
+   int shift=iBarShift(NULL,0,TimeCurrent()-TrendLookbackMinutes*60);
+   if(shift<0) return 0;
+   return (Close[0]-Close[shift]);
 }
-
-//------------------------------------------------------------
 
 int GetTrendDirection()
 {
-   double change = GetTrendChange();
-
-   if(change > TrendThreshold) return OP_BUY;
-   if(change < -TrendThreshold) return OP_SELL;
-
+   double c=GetTrendChange();
+   if(c>TrendThreshold) return OP_BUY;
+   if(c<-TrendThreshold) return OP_SELL;
    return -1;
 }
 
 //------------------------------------------------------------
-
-int CurrentDirection()
+bool IsFarFromTrades(double price)
 {
    for(int i=0;i<OrdersTotal();i++)
-   {
-      if(!OrderSelect(i,SELECT_BY_POS,MODE_TRADES)) continue;
-
-      if(OrderMagicNumber()==MagicNumber && OrderSymbol()==Symbol())
-      {
-         if(OrderType()==OP_BUY) return OP_BUY;
-         if(OrderType()==OP_SELL) return OP_SELL;
-      }
-   }
-   return -1;
-}
-
-//------------------------------------------------------------
-
-int CountBuyTrades()
-{
-   int c=0;
-   for(int i=0;i<OrdersTotal();i++)
-   {
-      if(!OrderSelect(i,SELECT_BY_POS,MODE_TRADES)) continue;
-      if(OrderMagicNumber()==MagicNumber && OrderSymbol()==Symbol() && OrderType()==OP_BUY)
-         c++;
-   }
-   return c;
-}
-
-//------------------------------------------------------------
-
-int CountSellTrades()
-{
-   int c=0;
-   for(int i=0;i<OrdersTotal();i++)
-   {
-      if(!OrderSelect(i,SELECT_BY_POS,MODE_TRADES)) continue;
-      if(OrderMagicNumber()==MagicNumber && OrderSymbol()==Symbol() && OrderType()==OP_SELL)
-         c++;
-   }
-   return c;
-}
-
-//------------------------------------------------------------
-
-double TradeProfit(int i)
-{
-   if(!OrderSelect(i,SELECT_BY_POS,MODE_TRADES)) return 0;
-   return OrderProfit()+OrderSwap()+OrderCommission();
-}
-
-//------------------------------------------------------------
-
-double TotalBasketProfit()
-{
-   double total=0;
-
-   for(int i=0;i<OrdersTotal();i++)
-   {
-      if(!OrderSelect(i,SELECT_BY_POS,MODE_TRADES)) continue;
-
-      if(OrderMagicNumber()==MagicNumber && OrderSymbol()==Symbol())
-         total += OrderProfit()+OrderSwap()+OrderCommission();
-   }
-
-   return total;
-}
-
-//------------------------------------------------------------
-
-void CloseAllTrades()
-{
-   for(int i=OrdersTotal()-1;i>=0;i--)
    {
       if(!OrderSelect(i,SELECT_BY_POS,MODE_TRADES)) continue;
 
       if(OrderMagicNumber()!=MagicNumber || OrderSymbol()!=Symbol())
          continue;
 
-      if(OrderType()==OP_BUY)
-         OrderClose(OrderTicket(),OrderLots(),Bid,10);
-
-      if(OrderType()==OP_SELL)
-         OrderClose(OrderTicket(),OrderLots(),Ask,10);
+      if(MathAbs(price - OrderOpenPrice())/Point < MinDistancePoints)
+         return false;
    }
+   return true;
 }
 
 //------------------------------------------------------------
-
-// 🔘 RESET FUNCTION
-void ResetAllStats()
+int CountBuyTrades()
 {
-   ManualStartProfit = TodayProfitRaw();
-   LastTradeTime = 0;
-   ResetDone = true;
+   int c=0;
+   for(int i=0;i<OrdersTotal();i++)
+      if(OrderSelect(i,SELECT_BY_POS,MODE_TRADES))
+         if(OrderMagicNumber()==MagicNumber && OrderType()==OP_BUY)
+            c++;
+   return c;
+}
+
+int CountSellTrades()
+{
+   int c=0;
+   for(int i=0;i<OrdersTotal();i++)
+      if(OrderSelect(i,SELECT_BY_POS,MODE_TRADES))
+         if(OrderMagicNumber()==MagicNumber && OrderType()==OP_SELL)
+            c++;
+   return c;
 }
 
 //------------------------------------------------------------
+double TradeProfit(int i)
+{
+   if(!OrderSelect(i,SELECT_BY_POS,MODE_TRADES)) return 0;
+   return OrderProfit()+OrderSwap()+OrderCommission();
+}
 
+double TotalBasketProfit()
+{
+   double t=0;
+   for(int i=0;i<OrdersTotal();i++)
+      if(OrderSelect(i,SELECT_BY_POS,MODE_TRADES))
+         if(OrderMagicNumber()==MagicNumber)
+            t+=OrderProfit()+OrderSwap()+OrderCommission();
+   return t;
+}
+
+//------------------------------------------------------------
+void CloseTrade(int ticket)
+{
+   if(!OrderSelect(ticket,SELECT_BY_TICKET)) return;
+
+   if(OrderType()==OP_BUY)
+      OrderClose(ticket,OrderLots(),Bid,10);
+
+   if(OrderType()==OP_SELL)
+      OrderClose(ticket,OrderLots(),Ask,10);
+}
+
+void CloseAllTrades()
+{
+   for(int i=OrdersTotal()-1;i>=0;i--)
+      if(OrderSelect(i,SELECT_BY_POS,MODE_TRADES))
+         if(OrderMagicNumber()==MagicNumber)
+            CloseTrade(OrderTicket());
+}
+
+//------------------------------------------------------------
 double TodayProfitRaw()
 {
-   double total = 0;
-   datetime dayStart = iTime(NULL, PERIOD_D1, 0);
+   double t=0;
+   datetime d=iTime(NULL,PERIOD_D1,0);
 
    for(int i=0;i<OrdersHistoryTotal();i++)
-   {
-      if(!OrderSelect(i,SELECT_BY_POS,MODE_HISTORY)) continue;
+      if(OrderSelect(i,SELECT_BY_POS,MODE_HISTORY))
+         if(OrderMagicNumber()==MagicNumber)
+            if(OrderCloseTime()>=d)
+               t+=OrderProfit()+OrderSwap()+OrderCommission();
 
-      if(OrderSymbol()==Symbol() && OrderMagicNumber()==MagicNumber)
-      {
-         if(OrderCloseTime() >= dayStart)
-            total += OrderProfit()+OrderSwap()+OrderCommission();
-      }
-   }
-
-   return total;
+   return t;
 }
-
-//------------------------------------------------------------
 
 double TodayProfit()
 {
-   return TodayProfitRaw() - ManualStartProfit;
+   return TodayProfitRaw()-ManualStartProfit;
 }
 
 //------------------------------------------------------------
-
 double GetDynamicTP()
 {
-   double atr = iATR(NULL,0,ATRPeriod,1);
-   double tp = atr * ATRMultiplier * 50;
+   double atr=iATR(NULL,0,ATRPeriod,1);
+   double tp=atr*ATRMultiplier*50;
 
-   if(tp < 2) tp = 2;
-   if(tp > 10) tp = 10;
+   if(tp<2) tp=2;
+   if(tp>10) tp=10;
 
    return tp;
 }
 
-//------------------------------------------------------------
-
 double GetSmartBasketTP()
 {
-   double today = TodayProfit();
-   double dynamicTP = GetDynamicTP();
+   double today=TodayProfit();
+   double loss=(today<0)?MathAbs(today):0;
 
-   double loss = 0;
-
-   if(today < 0)
-      loss = MathAbs(today);
-
-   return loss + DailyTargetProfit + dynamicTP;
+   return loss+DailyTargetProfit+GetDynamicTP();
 }
 
 //------------------------------------------------------------
-
 int GetBuyScore()
 {
-   int score = 0;
-
-   if(BullishMomentum()) score += 2;
-   if(GetTrendDirection() == OP_BUY) score += 3;
-   if(iATR(NULL,0,ATRPeriod,1) > MinATR) score += 1;
-   if(SpreadOK()) score += 1;
-   if(Close[1] < Close[2]) score += 2;
-
-   return score;
+   int s=0;
+   if(BullishMomentum()) s+=2;
+   if(GetTrendDirection()==OP_BUY) s+=3;
+   if(VolatilityOK()) s+=1;
+   if(SpreadOK()) s+=1;
+   return s;
 }
-
-//------------------------------------------------------------
 
 int GetSellScore()
 {
-   int score = 0;
-
-   if(BearishMomentum()) score += 2;
-   if(GetTrendDirection() == OP_SELL) score += 3;
-   if(iATR(NULL,0,ATRPeriod,1) > MinATR) score += 1;
-   if(SpreadOK()) score += 1;
-   if(Close[1] > Close[2]) score += 2;
-
-   return score;
+   int s=0;
+   if(BearishMomentum()) s+=2;
+   if(GetTrendDirection()==OP_SELL) s+=3;
+   if(VolatilityOK()) s+=1;
+   if(SpreadOK()) s+=1;
+   return s;
 }
 
 //------------------------------------------------------------
-
 void OpenBuy()
 {
-   if(!TradeIntervalOK()) return;
-   if(CountBuyTrades() >= MaxBuyTrades) return;
-
-   RefreshRates();
+   if(!TradeIntervalOK() || CountBuyTrades()>=MaxBuyTrades) return;
+   if(!IsFarFromTrades(Ask)) return;
 
    if(OrderSend(Symbol(),OP_BUY,FixedLot,Ask,10,0,0,"BUY",MagicNumber,0,clrGreen)>0)
-      LastTradeTime = TimeCurrent();
+      LastTradeTime=TimeCurrent();
 }
-
-//------------------------------------------------------------
 
 void OpenSell()
 {
-   if(!TradeIntervalOK()) return;
-   if(CountSellTrades() >= MaxSellTrades) return;
-
-   RefreshRates();
+   if(!TradeIntervalOK() || CountSellTrades()>=MaxSellTrades) return;
+   if(!IsFarFromTrades(Bid)) return;
 
    if(OrderSend(Symbol(),OP_SELL,FixedLot,Bid,10,0,0,"SELL",MagicNumber,0,clrRed)>0)
-      LastTradeTime = TimeCurrent();
+      LastTradeTime=TimeCurrent();
 }
 
 //------------------------------------------------------------
-
 void ManageTrades()
 {
-   double dynamicTP = GetDynamicTP();
-   double basketTP  = GetSmartBasketTP();
-   double totalProfit = TotalBasketProfit();
+   double total = TotalBasketProfit();
 
-   if(totalProfit >= basketTP)
+   if(total >= FixedBasketTP)
    {
       CloseAllTrades();
       return;
    }
 
+   if(total >= GetSmartBasketTP())
+   {
+      CloseAllTrades();
+      return;
+   }
+
+   int idx=0;
+
    for(int i=OrdersTotal()-1;i>=0;i--)
    {
       if(!OrderSelect(i,SELECT_BY_POS,MODE_TRADES)) continue;
+      if(OrderMagicNumber()!=MagicNumber) continue;
 
-      if(OrderMagicNumber()!=MagicNumber || OrderSymbol()!=Symbol()) continue;
+      double profit=TradeProfit(i);
 
-      double profit = TradeProfit(i);
+      if(profit<0) WasNegative[idx]=true;
+      if(profit>PeakProfit[idx]) PeakProfit[idx]=profit;
 
-      if(profit >= dynamicTP)
+      if(WasNegative[idx] && profit>0)
       {
-         int type = OrderType();
-
-         if(type==OP_BUY)
-         {
-            OrderClose(OrderTicket(),OrderLots(),Bid,10);
-            OpenBuy();
-         }
-
-         if(type==OP_SELL)
-         {
-            OrderClose(OrderTicket(),OrderLots(),Ask,10);
-            OpenSell();
-         }
-
+         CloseTrade(OrderTicket());
          return;
       }
 
-      if(profit <= -StopLossMoney)
+      if(PeakProfit[idx]>=TrailStartProfit &&
+         (PeakProfit[idx]-profit)>=TrailDrop)
       {
-         if(OrderType()==OP_BUY)
-            OrderClose(OrderTicket(),OrderLots(),Bid,10);
-
-         if(OrderType()==OP_SELL)
-            OrderClose(OrderTicket(),OrderLots(),Ask,10);
-
+         CloseTrade(OrderTicket());
          return;
       }
+
+      if(profit<=-StopLossMoney)
+      {
+         CloseTrade(OrderTicket());
+         return;
+      }
+
+      idx++;
    }
-}
-void DrawLabel(string name, string text, int x, int y, color clr, int size)
-{
-   if(ObjectFind(0, name) < 0)
-   {
-      ObjectCreate(0, name, OBJ_LABEL, 0, 0, 0);
-      ObjectSetInteger(0, name, OBJPROP_CORNER, CORNER_LEFT_UPPER);
-   }
-
-   ObjectSetInteger(0, name, OBJPROP_XDISTANCE, x);
-   ObjectSetInteger(0, name, OBJPROP_YDISTANCE, y);
-   ObjectSetInteger(0, name, OBJPROP_COLOR, clr);
-   ObjectSetInteger(0, name, OBJPROP_FONTSIZE, size);
-   ObjectSetString(0, name, OBJPROP_TEXT, text);
-}
-//------------------------------------------------------------
-void ShowStatus()
-{
-   int y = 20;
-
-   DrawLabel("title", "AI SMART EA (PRO)", 10, y, clrAqua, 14); y+=25;
-
-   DrawLabel("buyScore", "BuyScore: " + IntegerToString(GetBuyScore()), 10, y, clrLime, 12); y+=20;
-   DrawLabel("sellScore", "SellScore: " + IntegerToString(GetSellScore()), 10, y, clrTomato, 12); y+=20;
-
-   DrawLabel("trend", "Trend: " + IntegerToString(GetTrendDirection()), 10, y, clrYellow, 12); y+=20;
-
-   DrawLabel("today", "Today: " + DoubleToString(TodayProfit(),2), 10, y, clrWhite, 12); y+=20;
-
-   DrawLabel("basket", "Basket: " + DoubleToString(TotalBasketProfit(),2), 10, y, clrGold, 12); y+=20;
-
-   DrawLabel("target", "Target: " + DoubleToString(GetSmartBasketTP(),2), 10, y, clrOrange, 12); y+=20;
-
-   DrawLabel("trades", "BUY: " + IntegerToString(CountBuyTrades()) + 
-                        " | SELL: " + IntegerToString(CountSellTrades()), 
-                        10, y, clrWhite, 12); y+=20;
-
-   DrawLabel("gap", "Gap: " + IntegerToString(TimeCurrent()-LastTradeTime), 10, y, clrSilver, 12);
 }
 
 //------------------------------------------------------------
-
 void OnTick()
 {
-   // RESET BUTTON LOGIC
    if(ResetStats && !ResetDone)
-      ResetAllStats();
+   {
+      ManualStartProfit=TodayProfitRaw();
+      ResetDone=true;
+   }
 
-   if(!ResetStats)
-      ResetDone = false;
+   if(!ResetStats) ResetDone=false;
 
    ManageTrades();
 
-   if(!SpreadOK()) { ShowStatus(); return; }
-   if(!NewBar()) { ShowStatus(); return; }
-   if(!TradeIntervalOK()) { ShowStatus(); return; }
+   if(!SpreadOK() || !VolatilityOK() || !NewBar() || !TradeIntervalOK())
+      return;
 
-   int buyScore  = GetBuyScore();
-   int sellScore = GetSellScore();
+   int buy=GetBuyScore();
+   int sell=GetSellScore();
 
-   int dir = CurrentDirection();
-
-   if(dir == -1)
-   {
-      if(buyScore >= ScoreThreshold && buyScore > sellScore)
-         OpenBuy();
-      else if(sellScore >= ScoreThreshold && sellScore > buyScore)
-         OpenSell();
-   }
-   else if(dir == OP_BUY && buyScore >= ScoreThreshold)
-   {
+   if(buy>=ScoreThreshold && buy>sell)
       OpenBuy();
-   }
-   else if(dir == OP_SELL && sellScore >= ScoreThreshold)
-   {
+   else if(sell>=ScoreThreshold && sell>buy)
       OpenSell();
-   }
-
-   ShowStatus();
 }
