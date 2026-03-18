@@ -1,29 +1,24 @@
 //+------------------------------------------------------------------+
-//| AI Smart Momentum EA - FINAL SAFE MODE + DEBUG                   |
+//| AI Smart Momentum EA - FINAL SAFE STABLE VERSION                 |
 //+------------------------------------------------------------------+
 #property strict
 
 /*
 =====================================================================
-🛡️ SAFE MODE EA (NON-AGGRESSIVE)
+🛡️ FINAL SAFE EA
 
 ✔ Momentum + Trend + Score
 ✔ Spread + ATR filter
-✔ Distance filter (anti-cluster)
+✔ Distance filter (FIXED STRONG)
 ✔ Time gap between trades
+✔ No opposite trades (ANTI-FLIP)
+✔ Smart stacking (only strong move)
 ✔ Basket TP (fixed + dynamic)
 ✔ Recovery exit (- → +)
 ✔ Peak trailing exit
 ✔ Stop loss
-✔ Trend strength filter
+✔ Smart entry (no late entry)
 ✔ One trade per candle
-✔ Controlled multi-trade (trend aligned only)
-
-DEBUG:
-✔ Candle score display
-✔ Trend direction
-✔ Trend strength
-✔ Block reasons
 
 =====================================================================
 */
@@ -37,24 +32,21 @@ input double StopLossMoney = 30;
 input int MaxBuyTrades = 5;
 input int MaxSellTrades = 5;
 
-input int MinTradeIntervalSeconds = 60;
-input double MinDistancePoints = 200;
+input int MinTradeIntervalSeconds = 120; // increased gap
+input double MinDistancePoints = 600;    // 🔥 FIXED
 
 input int TrendLookbackMinutes = 60;
 input double TrendThreshold = 0.10;
-input double MinTrendStrength = 0.20;
 
 input int ATRPeriod = 14;
 input double MinATR = 0.03;
 
-input double MaxSpread = 60;
+input double MaxSpread = 35;
 
 input int ScoreThreshold = 5;
 
 input double FixedBasketTP = 5.0;
 input double DailyTargetProfit = 3.0;
-
-input bool ShowDebugSignals = true;
 
 input int MagicNumber = 555;
 
@@ -129,14 +121,51 @@ double GetTrendStrength()
 }
 
 //------------------------------------------------------------
-// DISTANCE
+// AUTO TREND STRENGTH
+//------------------------------------------------------------
+double DynamicTrendStrength()
+{
+   double atr=iATR(NULL,0,ATRPeriod,1);
+
+   if(Period()==PERIOD_M1) return atr*1.2;
+   if(Period()==PERIOD_M5) return atr*1.5;
+   if(Period()==PERIOD_M15) return atr*2.0;
+   if(Period()==PERIOD_H1) return atr*2.5;
+
+   return atr*2.0;
+}
+
+//------------------------------------------------------------
+// CURRENT DIRECTION (ANTI-FLIP)
+//------------------------------------------------------------
+int CurrentDirection()
+{
+   int buy=0, sell=0;
+
+   for(int i=0;i<OrdersTotal();i++)
+   {
+      if(!OrderSelect(i,SELECT_BY_POS,MODE_TRADES)) continue;
+      if(OrderMagicNumber()!=MagicNumber) continue;
+
+      if(OrderType()==OP_BUY) buy++;
+      if(OrderType()==OP_SELL) sell++;
+   }
+
+   if(buy>sell) return OP_BUY;
+   if(sell>buy) return OP_SELL;
+
+   return -1;
+}
+
+//------------------------------------------------------------
+// DISTANCE FILTER
 //------------------------------------------------------------
 bool IsFarFromTrades(double price)
 {
    for(int i=0;i<OrdersTotal();i++)
    {
       if(!OrderSelect(i,SELECT_BY_POS,MODE_TRADES)) continue;
-      if(OrderMagicNumber()!=MagicNumber || OrderSymbol()!=Symbol()) continue;
+      if(OrderMagicNumber()!=MagicNumber) continue;
 
       if(MathAbs(price-OrderOpenPrice())/Point < MinDistancePoints)
          return false;
@@ -202,8 +231,6 @@ double TotalBasketProfit()
 }
 
 //------------------------------------------------------------
-// DYNAMIC TP
-//------------------------------------------------------------
 double GetDynamicTP()
 {
    double atr=iATR(NULL,0,ATRPeriod,1);
@@ -244,7 +271,7 @@ void CloseAllTrades()
 }
 
 //------------------------------------------------------------
-// MANAGE TRADES
+// MANAGE
 //------------------------------------------------------------
 void ManageTrades()
 {
@@ -291,51 +318,20 @@ void ManageTrades()
 }
 
 //------------------------------------------------------------
-// DEBUG DRAW
+// ENTRY FILTERS
 //------------------------------------------------------------
-void DrawDebug(string name, datetime t, double price, string txt, color clr)
+bool GoodBuyEntry()
 {
-   if(ObjectFind(0,name)<0)
-      ObjectCreate(0,name,OBJ_TEXT,0,t,price);
-
-   ObjectSetText(name,txt,8,"Arial",clr);
-   ObjectMove(0,name,0,t,price);
+   if(Ask - Close[1] > 10*Point) return false;
+   if(Bid > Close[1]) return false;
+   return true;
 }
 
-void AnalyzeCandle()
+bool GoodSellEntry()
 {
-   if(!ShowDebugSignals) return;
-
-   string id=IntegerToString(Time[1]);
-
-   int buy=GetBuyScore();
-   int sell=GetSellScore();
-   int trend=GetTrendDirection();
-   double str=GetTrendStrength();
-
-   string txt="B:"+IntegerToString(buy)+" S:"+IntegerToString(sell);
-
-   if(trend==OP_BUY) txt+=" T:BUY";
-   else if(trend==OP_SELL) txt+=" T:SELL";
-   else txt+=" T:NONE";
-
-   txt+=" STR:"+DoubleToString(str,2);
-
-   if(!SpreadOK()) txt+=" SPREAD";
-   if(!VolatilityOK()) txt+=" ATR";
-   if(!TradeIntervalOK()) txt+=" WAIT";
-   if(CountBuyTrades()>=MaxBuyTrades) txt+=" MAXB";
-   if(CountSellTrades()>=MaxSellTrades) txt+=" MAXS";
-   if(!IsFarFromTrades(Ask)) txt+=" DIST";
-
-   color clr=clrSilver;
-
-   if(buy>=ScoreThreshold && buy>sell && trend==OP_BUY)
-      clr=clrLime;
-   else if(sell>=ScoreThreshold && sell>buy && trend==OP_SELL)
-      clr=clrRed;
-
-   DrawDebug("DBG_"+id,Time[1],High[1]+30*Point,txt,clr);
+   if(Close[1] - Bid > 10*Point) return false;
+   if(Ask < Close[1]) return false;
+   return true;
 }
 
 //------------------------------------------------------------
@@ -346,6 +342,7 @@ void OpenBuy()
    if(TradeOpenedThisBar) return;
    if(!TradeIntervalOK() || CountBuyTrades()>=MaxBuyTrades) return;
    if(!IsFarFromTrades(Ask)) return;
+   if(!GoodBuyEntry()) return;
 
    if(OrderSend(Symbol(),OP_BUY,FixedLot,Ask,10,0,0,"BUY",MagicNumber,0,clrGreen)>0)
    {
@@ -359,6 +356,7 @@ void OpenSell()
    if(TradeOpenedThisBar) return;
    if(!TradeIntervalOK() || CountSellTrades()>=MaxSellTrades) return;
    if(!IsFarFromTrades(Bid)) return;
+   if(!GoodSellEntry()) return;
 
    if(OrderSend(Symbol(),OP_SELL,FixedLot,Bid,10,0,0,"SELL",MagicNumber,0,clrRed)>0)
    {
@@ -372,8 +370,7 @@ void OpenSell()
 //------------------------------------------------------------
 void OnTick()
 {
-   if(NewBar())
-      AnalyzeCandle();
+   NewBar();
 
    ManageTrades();
 
@@ -385,10 +382,18 @@ void OnTick()
 
    int trend=GetTrendDirection();
    double strength=GetTrendStrength();
+   double dyn=DynamicTrendStrength();
 
-   if(buy>=ScoreThreshold && buy>sell && trend==OP_BUY && strength>=MinTrendStrength)
-      OpenBuy();
+   int dir=CurrentDirection();
 
-   else if(sell>=ScoreThreshold && sell>buy && trend==OP_SELL && strength>=MinTrendStrength)
-      OpenSell();
+   if(buy>=ScoreThreshold && buy>sell && trend==OP_BUY && strength>=dyn)
+   {
+      if(dir==-1 || dir==OP_BUY)
+         OpenBuy();
+   }
+   else if(sell>=ScoreThreshold && sell>buy && trend==OP_SELL && strength>=dyn)
+   {
+      if(dir==-1 || dir==OP_SELL)
+         OpenSell();
+   }
 }
