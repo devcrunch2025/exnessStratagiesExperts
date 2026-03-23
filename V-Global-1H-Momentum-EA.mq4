@@ -8,11 +8,12 @@ input double FixedLot = 0.01;
 input int    Slippage = 10;
 input int    MagicNumber = 260318;
 input double TakeProfitMoney = 5.0;
-input double StopLossMoney   = 100.0;
+input double StopLossMoney   = 10.0;
 
 double TodayProfit = 0;
 double TodayLoss = 0;
 datetime lastTradeTime = 0;
+int lastClosedTicket = -1;
 
 void OnTick()
 {
@@ -37,6 +38,22 @@ void OnTick()
          myTrades++;
          myTicket = OrderTicket();
       }
+   }
+
+   // Detect manual close: check for new closed order
+   for(int i = OrdersHistoryTotal() - 1; i >= 0; i--)
+   {
+      if(!OrderSelect(i, SELECT_BY_POS, MODE_HISTORY)) continue;
+      if(OrderSymbol() != sym || OrderMagicNumber() != MagicNumber) continue;
+      int ticket = OrderTicket();
+      if(ticket != lastClosedTicket && OrderCloseTime() > 0 && OrderCloseTime() >= TimeCurrent() - 60)
+      {
+         lastClosedTicket = ticket;
+         // Manual close detected, trigger next process here
+         Print("Order manually closed: ", ticket, ", profit=", OrderProfit());
+         // Place your next process logic here
+      }
+      break;
    }
 
    // Check for close by profit/loss
@@ -104,13 +121,41 @@ void DisplayStatus()
    double h1close = iClose(sym, PERIOD_H1, 1);
    double pct = (price - h1close) / h1close * 100.0;
    string momentum = "Unclear";
-   if(pct > 1.0) momentum = "Bullish (Buy Signal)";
-   else if(pct < -1.0) momentum = "Bearish (Sell Signal)";
+   color momentumColor = clrWhite;
+   if(pct > 1.0) { momentum = "Bullish (Buy Signal)"; momentumColor = clrLime; }
+   else if(pct < -1.0) { momentum = "Bearish (Sell Signal)"; momentumColor = clrRed; }
    string msg = StringFormat(
-      "Status: %s | Price: %.3f | 1H Close: %.3f\nMomentum: %s\nToday Profit: $%.2f | Today Loss: $%.2f",
-      sym, price, h1close, momentum, TodayProfit, TodayLoss
+      "Status: %s | Price: %.3f | 1H Close: %.3f\n",
+      sym, price, h1close
    );
    Comment(msg);
+   // Draw momentum as a label with color
+   string labelName = "MomentumLabel";
+   if(ObjectFind(0, labelName) < 0)
+   {
+      ObjectCreate(0, labelName, OBJ_LABEL, 0, 0, 0);
+      ObjectSetInteger(0, labelName, OBJPROP_CORNER, 0);
+      ObjectSetInteger(0, labelName, OBJPROP_XDISTANCE, 10);
+      ObjectSetInteger(0, labelName, OBJPROP_YDISTANCE, 40);
+   }
+   ObjectSetString(0, labelName, OBJPROP_TEXT, "Momentum: " + momentum);
+   ObjectSetInteger(0, labelName, OBJPROP_COLOR, momentumColor);
+   ObjectSetInteger(0, labelName, OBJPROP_FONTSIZE, 12);
+
+   // Show profit/loss and SL/TP as before
+   string msg2 = StringFormat("TP: $%.2f | SL: $%.2f\nToday Profit: $%.2f | Today Loss: $%.2f",
+      TakeProfitMoney, StopLossMoney, TodayProfit, TodayLoss);
+   string labelName2 = "PLLabel";
+   if(ObjectFind(0, labelName2) < 0)
+   {
+      ObjectCreate(0, labelName2, OBJ_LABEL, 0, 0, 0);
+      ObjectSetInteger(0, labelName2, OBJPROP_CORNER, 0);
+      ObjectSetInteger(0, labelName2, OBJPROP_XDISTANCE, 10);
+      ObjectSetInteger(0, labelName2, OBJPROP_YDISTANCE, 60);
+   }
+   ObjectSetString(0, labelName2, OBJPROP_TEXT, msg2);
+   ObjectSetInteger(0, labelName2, OBJPROP_COLOR, clrWhite);
+   ObjectSetInteger(0, labelName2, OBJPROP_FONTSIZE, 10);
 }
 
 int OnInit()
