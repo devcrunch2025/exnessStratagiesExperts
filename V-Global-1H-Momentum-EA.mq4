@@ -7,10 +7,12 @@
 input double FixedLot = 0.01;
 input int    Slippage = 10;
 input int    MagicNumber = 260318;
-input double TakeProfitMoney = 3.0;
-input double StopLossMoney   = 10.0;
+input double TakeProfitMoney = 1.0;
+input double StopLossMoney   = 20.0;
+//stop loss 10 is very fast moment 
+//stop loss 20 is slow moment 
 
-input int StopLossWaitTime = 3600; // Wait time in seconds after stop loss before new trade
+input int StopLossWaitTime = 60*60*2; // Wait time in seconds after stop loss before new trade
 
 input double MaxDailyProfit = 100.0; // Max profit to stop trading for the day
 input double MaxDailyLoss = 20.0;   // Max loss to stop trading for the day
