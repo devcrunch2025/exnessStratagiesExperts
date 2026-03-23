@@ -7,18 +7,35 @@
 input double FixedLot = 0.01;
 input int    Slippage = 10;
 input int    MagicNumber = 260318;
-input double TakeProfitMoney = 5.0;
-input double StopLossMoney   = 20.0;
+input double TakeProfitMoney = 3.0;
+input double StopLossMoney   = 10.0;
+
+input int StopLossWaitTime = 3600; // Wait time in seconds after stop loss before new trade
+
+input double MaxDailyProfit = 100.0; // Max profit to stop trading for the day
+input double MaxDailyLoss = 20.0;   // Max loss to stop trading for the day
 
 double TodayProfit = 0;
 double TodayLoss = 0;
 datetime lastTradeTime = 0;
 int lastClosedTicket = -1;
 datetime lastSLTime = 0;
+int minWait = 0;
+bool tradingStopped = false;
+string tradingStopReason = "";
 
 void OnTick()
 {
-   int minWait = 60*5; //5 minutes
+   // Check if trading should be stopped for the day
+   if(!tradingStopped) {
+      if(TodayProfit >= MaxDailyProfit) {
+         tradingStopped = true;
+         tradingStopReason = "Trading stopped: Max daily profit reached.";
+      } else if(TodayLoss >= MaxDailyLoss) {
+         tradingStopped = true;
+         tradingStopReason = "Trading stopped: Max daily loss reached.";
+      }
+   }
    string sym = Symbol();
    double price = Bid;
    datetime compareTime = TimeCurrent() - 3600; // 1 hour before now
@@ -78,10 +95,10 @@ void OnTick()
    }
 
    // Only open new trade if none open for this symbol and time since last trade/SL is sufficient
-   if(lastSLTime > 0 && (TimeCurrent() - lastSLTime < 3600))
-      minWait = 60*30; // 60 minutes if last trade was SL
+   if(lastSLTime > 0 && (TimeCurrent() - lastSLTime < StopLossWaitTime))
+      minWait = StopLossWaitTime; // Wait time after stop loss before new trade
 
-   if(myTrades == 0 && (TimeCurrent() - lastTradeTime >= minWait))
+   if(!tradingStopped && myTrades == 0 && (TimeCurrent() - lastTradeTime >= minWait))
    {
       if(pct > 1.0)
       {
@@ -93,20 +110,66 @@ void OnTick()
          OrderSend(sym, OP_SELL, FixedLot, Bid, Slippage, 0, 0, "SELL", MagicNumber, 0, clrRed);
          lastTradeTime = TimeCurrent();
       }
+      else
+      {
+         // No trade if momentum is unclear
+         string unclearLabel = "MomentumUnclearLabel";
+         if(ObjectFind(0, unclearLabel) < 0)
+         {
+            ObjectCreate(0, unclearLabel, OBJ_LABEL, 0, 0, 0);
+            ObjectSetInteger(0, unclearLabel, OBJPROP_CORNER, 0);
+            ObjectSetInteger(0, unclearLabel, OBJPROP_XDISTANCE, 10);
+            ObjectSetInteger(0, unclearLabel, OBJPROP_YDISTANCE, 120);
+         }
+         ObjectSetString(0, unclearLabel, OBJPROP_TEXT, "No trade: Momentum unclear");
+         ObjectSetInteger(0, unclearLabel, OBJPROP_COLOR, clrYellow);
+         ObjectSetInteger(0, unclearLabel, OBJPROP_FONTSIZE, 12);
+      }
+   } else {
+      string unclearLabel = "MomentumUnclearLabel";
+      if(ObjectFind(0, unclearLabel) >= 0)
+         ObjectDelete(0, unclearLabel);
    }
    // Display status on chart
-   string msg = StringFormat("Status: %s | Price: %.3f | 1H Ago: %.3f\nMomentum: %s\nTP: $%.2f | SL: $%.2f\nToday Profit: $%.2f | Today Loss: $%.2f",
+   string waitMsg = "";
+   if(lastSLTime > 0 && (TimeCurrent() - lastSLTime < StopLossWaitTime)) {
+      int waitSec = (int)(StopLossWaitTime - (TimeCurrent() - lastSLTime));
+      if(waitSec > 0) {
+         int waitMin = waitSec / 60;
+         int waitRemSec = waitSec % 60;
+         waitMsg = StringFormat("\n-----------------------------\nWAIT: Next trade in %d min %02d sec", waitMin, waitRemSec);
+      }
+   }
+   string msg = StringFormat("Status: %s | Price: %.3f | 1H Ago: %.3f\nMomentum: %s\nTP: $%.2f | SL: $%.2f\nToday Profit: $%.2f | Today Loss: $%.2f%s",
       sym, price, comparePrice,
       (pct > 1.0 ? "Bullish (Buy Signal)" : (pct < -1.0 ? "Bearish (Sell Signal)" : "Unclear")),
       TakeProfitMoney, StopLossMoney,
-      TodayProfit, TodayLoss);
+      TodayProfit, TodayLoss,
+      waitMsg);
    Comment(msg);
+   if(tradingStopped) {
+      string stopLabel = "TradingStopLabel";
+      if(ObjectFind(0, stopLabel) < 0)
+      {
+         ObjectCreate(0, stopLabel, OBJ_LABEL, 0, 0, 0);
+         ObjectSetInteger(0, stopLabel, OBJPROP_CORNER, 0);
+         ObjectSetInteger(0, stopLabel, OBJPROP_XDISTANCE, 10);
+         ObjectSetInteger(0, stopLabel, OBJPROP_YDISTANCE, 100);
+      }
+      ObjectSetString(0, stopLabel, OBJPROP_TEXT, tradingStopReason);
+      ObjectSetInteger(0, stopLabel, OBJPROP_COLOR, clrRed);
+      ObjectSetInteger(0, stopLabel, OBJPROP_FONTSIZE, 14);
+   } else {
+      string stopLabel = "TradingStopLabel";
+      if(ObjectFind(0, stopLabel) >= 0)
+         ObjectDelete(0, stopLabel);
+   }
    DrawH1ComparisonLine();
 }
 
 void DrawH1ComparisonLine()
 {
-   datetime compareTime = TimeCurrent() - 3600; // 1 hour before now
+   datetime compareTime = TimeCurrent() - (3600*2); // 1 hour before now
    string vlineName = "H1CompareLine";
    if(ObjectFind(0, vlineName) < 0)
    {
