@@ -8,15 +8,17 @@ input double FixedLot = 0.01;
 input int    Slippage = 10;
 input int    MagicNumber = 260318;
 input double TakeProfitMoney = 5.0;
-input double StopLossMoney   = 10.0;
+input double StopLossMoney   = 20.0;
 
 double TodayProfit = 0;
 double TodayLoss = 0;
 datetime lastTradeTime = 0;
 int lastClosedTicket = -1;
+datetime lastSLTime = 0;
 
 void OnTick()
 {
+   int minWait = 60*5; //5 minutes
    string sym = Symbol();
    double price = Bid;
    datetime compareTime = TimeCurrent() - 3600; // 1 hour before now
@@ -71,11 +73,15 @@ void OnTick()
       {
          OrderClose(OrderTicket(), OrderLots(), (OrderType() == OP_BUY ? Bid : Ask), Slippage, clrRed);
          TodayLoss += -profit;
+         lastSLTime = TimeCurrent(); // Record time of SL hit
       }
    }
 
-   // Only open new trade if none open for this symbol and 5 minutes have passed since last trade
-   if(myTrades == 0 && (TimeCurrent() - lastTradeTime >= 300))
+   // Only open new trade if none open for this symbol and time since last trade/SL is sufficient
+   if(lastSLTime > 0 && (TimeCurrent() - lastSLTime < 3600))
+      minWait = 60*30; // 60 minutes if last trade was SL
+
+   if(myTrades == 0 && (TimeCurrent() - lastTradeTime >= minWait))
    {
       if(pct > 1.0)
       {
