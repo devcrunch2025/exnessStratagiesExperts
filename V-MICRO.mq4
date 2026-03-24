@@ -8,7 +8,7 @@ input int SlowPeriod = 50;
 
 input double LotSize = 0.01;
 input int StopLoss = 200;
-input int TakeProfit = 5;
+input int TakeProfit = 20;
 
 input int Slippage = 3;
 input int Magic = 20260315;
