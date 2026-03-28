@@ -15,12 +15,13 @@ input int TrendEMA  = 200;
 input int RSI_Period = 14;
 input double RSI_Buy  = 55;
 input double RSI_Sell = 45;
+input int ReversalStreakCandles = 3;
 
 input bool EnableAlert = false;
 input bool EnableSound = true;
 input bool EnableLogMessages = false;
 input bool EnableAutoTrading = true;
-input int TradeDirectionMode = 2; // 0=both, 1=buy only, 2=sell only
+input int TradeDirectionMode = 0; // 0=both, 1=buy only, 2=sell only
 input bool EnableTestBuyEvery5Min = false; // turn off after testing
 input bool ExecuteEverySignalInTester = false;
 input double LotSize = 0.01;
@@ -44,10 +45,10 @@ input double ProfitBookingUSD = 0.10;
 input bool EnableLossCut = true;
 input double LossCutUSD = 10.00;
 input bool CloseOppositeOnEntry = false;
-input int MaxBuyOrders = 0;
-input int MaxSellOrders = 0;
+input int MaxBuyOrders = 5;
+input int MaxSellOrders = 5;
 input int MaxTotalOrders = 0; // 0 = unlimited
-input bool EnableMaxOrderAutoUnlock = false;
+input bool EnableMaxOrderAutoUnlock = true;
 input int MaxOrderUnlockMinutes = 60;
 input int MaxBuyOrdersAfterUnlock = 10;
 input int MaxSellOrdersAfterUnlock = 10;
@@ -68,6 +69,7 @@ datetime lastSellOrderUpdateTime = 0;
 bool tradeUpdateTimesInitialized = false;
 datetime lastProcessedClosedBar = 0;
 bool wasSessionPauseWindow = false;
+datetime lastDashboardRefreshTime = 0;
 
 //+------------------------------------------------------------------+
 //| DRAW MARKER                                                     |
@@ -90,6 +92,32 @@ void DrawMarker(string prefix, string text, color clr, int arrow, datetime t, do
    {
       ObjectCreate(0, textId, OBJ_TEXT, 0, t, price);
       ObjectSetText(textId, " " + text + " ", 9, "Arial Bold", clr);
+   }
+}
+
+//+------------------------------------------------------------------+
+bool IsSignalMarkerObject(string name)
+{
+   if(StringFind(name, "MOM_BUY_") == 0) return true;
+   if(StringFind(name, "MOM_SELL_") == 0) return true;
+   if(StringFind(name, "TB_") == 0) return true;
+   if(StringFind(name, "RB_") == 0) return true;
+   if(StringFind(name, "SB_") == 0) return true;
+   if(StringFind(name, "TS_") == 0) return true;
+   if(StringFind(name, "RS_") == 0) return true;
+   if(StringFind(name, "SS_") == 0) return true;
+
+   return false;
+}
+
+//+------------------------------------------------------------------+
+void DeleteSignalMarkers()
+{
+   for(int i = ObjectsTotal() - 1; i >= 0; i--)
+   {
+      string name = ObjectName(i);
+      if(IsSignalMarkerObject(name))
+         ObjectDelete(name);
    }
 }
 
@@ -151,7 +179,7 @@ string GetTradeDirectionText()
 }
 
 //+------------------------------------------------------------------+
-string GetDirectionBlockReason(int orderType)
+string GetDirectionBlockReason(int orderType, string signalName = "")
 {
    if(orderType == OP_BUY && !IsBuyDirectionAllowed())
       return "SELL ONLY MODE";
@@ -317,6 +345,18 @@ string FormatDashboardDateTime(datetime value)
       return "-";
 
    return TimeToString(value, TIME_DATE|TIME_MINUTES);
+}
+
+//+------------------------------------------------------------------+
+string GetSignalDisplayName(string signalName)
+{
+   if(signalName == "REV BUY")
+      return "W SHAPE BUY";
+
+   if(signalName == "REV SELL")
+      return "V SHAPE SELL";
+
+   return signalName;
 }
 
 //+------------------------------------------------------------------+
@@ -646,6 +686,35 @@ void ResetAnalysisState()
 }
 
 //+------------------------------------------------------------------+
+int CountConsecutiveCandleDirection(int startShift, bool bullishCandles)
+{
+   int count = 0;
+
+   for(int i = startShift; i < Bars; i++)
+   {
+      bool isBull = Close[i] > Open[i];
+      bool isBear = Close[i] < Open[i];
+
+      if(bullishCandles)
+      {
+         if(isBull)
+            count++;
+         else
+            break;
+      }
+      else
+      {
+         if(isBear)
+            count++;
+         else
+            break;
+      }
+   }
+
+   return count;
+}
+
+//+------------------------------------------------------------------+
 void EvaluateSignalFlags(int shift,
                          bool &bullMomentum,
                          bool &bearMomentum,
@@ -680,6 +749,7 @@ void EvaluateSignalFlags(int shift,
    double emaGap = MathAbs(emaFast - emaSlow);
    double closeToLow  = (range > 0.0) ? ((Close[shift] - Low[shift]) / range) : 0.0;
    double closeToHigh = (range > 0.0) ? ((High[shift] - Close[shift]) / range) : 0.0;
+   double prevBody = MathAbs(Open[shift+1] - Close[shift+1]);
 
    bool strongCandle = (range > 0.0) && (body > (range * 0.6));
    bool strongTrend  = emaGap > (10 * Point);
@@ -703,13 +773,26 @@ void EvaluateSignalFlags(int shift,
    bool prevBull = Close[shift+1] > Open[shift+1];
    bool currBull = Close[shift] > Open[shift];
    bool currBear = Close[shift] < Open[shift];
+   int previousBearStreak = CountConsecutiveCandleDirection(shift + 1, false);
+   int previousBullStreak = CountConsecutiveCandleDirection(shift + 1, true);
 
    bool engulfBuy  = prevBear && currBull && Open[shift] <= Close[shift+1] && Close[shift] >= Open[shift+1];
    bool engulfSell = prevBull && currBear && Open[shift] >= Close[shift+1] && Close[shift] <= Open[shift+1];
    bool bullishCloseStrong = currBull && closeToLow >= 0.65;
    bool bearishCloseStrong = currBear && closeToHigh >= 0.65;
-   bool reversalBuyStructure = vReversalBuy && Low[shift+1] < Low[shift+2] && currBull && closeToLow >= 0.55;
-   bool reversalSellStructure = vReversalSell && High[shift+1] > High[shift+2] && currBear && closeToHigh >= 0.55;
+   bool reversalBodyStronger = body > prevBody;
+   bool bullishReverseBreak = Close[shift] > High[shift+1];
+   bool bearishReverseBreak = Close[shift] < Low[shift+1];
+   bool streakReversalBuy = currBull && previousBearStreak >= ReversalStreakCandles && closeToLow >= 0.45 &&
+                            reversalBodyStronger && bullishReverseBreak;
+   bool streakReversalSell = currBear && previousBullStreak >= ReversalStreakCandles && closeToHigh >= 0.45 &&
+                             reversalBodyStronger && bearishReverseBreak;
+   bool reversalBuyStructure = streakReversalBuy ||
+                               (vReversalBuy && Low[shift+1] < Low[shift+2] && currBull && closeToLow >= 0.55 &&
+                                reversalBodyStronger && bullishReverseBreak);
+   bool reversalSellStructure = streakReversalSell ||
+                                (vReversalSell && High[shift+1] > High[shift+2] && currBear && closeToHigh >= 0.55 &&
+                                 reversalBodyStronger && bearishReverseBreak);
 
    trendBuy = bullMomentum && breakoutBuy && rsiVal > RSI_Buy && strongCandle && bullishCloseStrong;
    trendSell = bearMomentum && breakoutSell && rsiVal < RSI_Sell && strongCandle && bearishCloseStrong;
@@ -793,25 +876,25 @@ void UpdateDashboard(string status, string liveReason)
 
    SetDashboardLine("statshead", 20, 264, "Signal Stats  (closed trades)", clrBlack, 10);
    SetDashboardValueLine("stat_tb", 286, "TREND BUY", BuildSignalStatsValueText(tbTrades, tbWins, tbLosses, tbProfit), GetProfitColor(tbProfit), 130);
-   SetDashboardValueLine("stat_rb", 304, "REV BUY", BuildSignalStatsValueText(rbTrades, rbWins, rbLosses, rbProfit), GetProfitColor(rbProfit), 130);
+   SetDashboardValueLine("stat_rb", 304, "V SHAPE BUY", BuildSignalStatsValueText(rbTrades, rbWins, rbLosses, rbProfit), GetProfitColor(rbProfit), 130);
    SetDashboardValueLine("stat_sb", 322, "STRONG BUY", BuildSignalStatsValueText(sbTrades, sbWins, sbLosses, sbProfit), GetProfitColor(sbProfit), 130);
    SetDashboardValueLine("stat_ts", 340, "TREND SELL", BuildSignalStatsValueText(tsTrades, tsWins, tsLosses, tsProfit), GetProfitColor(tsProfit), 130);
-   SetDashboardValueLine("stat_rs", 358, "REV SELL", BuildSignalStatsValueText(rsTrades, rsWins, rsLosses, rsProfit), GetProfitColor(rsProfit), 130);
+   SetDashboardValueLine("stat_rs", 358, "V SHAPE SELL", BuildSignalStatsValueText(rsTrades, rsWins, rsLosses, rsProfit), GetProfitColor(rsProfit), 130);
    SetDashboardValueLine("stat_ss", 376, "STRONG SELL", BuildSignalStatsValueText(ssTrades, ssWins, ssLosses, ssProfit), GetProfitColor(ssProfit), 130);
-   SetDashboardValueLine("best", 398, "Best Signal", bestSignal +
+   SetDashboardValueLine("best", 398, "Best Signal", GetDashboardSignalDisplayName(bestSignal) +
                          (bestSignal == "NO CLOSED TRADES" ? "" : ("  P/L:$" + DoubleToString(bestProfit, 2))),
                          bestSignal == "NO CLOSED TRADES" ? clrDimGray : GetProfitColor(bestProfit), 130);
 
    SetDashboardLine("openstatshead", 20, 426, "Signal Stats  (open trades / unrealised)", clrBlack, 10);
    SetDashboardValueLine("open_tb", 448, "TREND BUY", BuildOpenSignalStatsValueText(tbOpen, tbOpenProfit),
                          tbOpen > 0 ? GetProfitColor(tbOpenProfit) : clrDimGray, 130);
-   SetDashboardValueLine("open_rb", 466, "REV BUY", BuildOpenSignalStatsValueText(rbOpen, rbOpenProfit),
+   SetDashboardValueLine("open_rb", 466, "V SHAPE BUY", BuildOpenSignalStatsValueText(rbOpen, rbOpenProfit),
                          rbOpen > 0 ? GetProfitColor(rbOpenProfit) : clrDimGray, 130);
    SetDashboardValueLine("open_sb", 484, "STRONG BUY", BuildOpenSignalStatsValueText(sbOpen, sbOpenProfit),
                          sbOpen > 0 ? GetProfitColor(sbOpenProfit) : clrDimGray, 130);
    SetDashboardValueLine("open_ts", 502, "TREND SELL", BuildOpenSignalStatsValueText(tsOpen, tsOpenProfit),
                          tsOpen > 0 ? GetProfitColor(tsOpenProfit) : clrDimGray, 130);
-   SetDashboardValueLine("open_rs", 520, "REV SELL", BuildOpenSignalStatsValueText(rsOpen, rsOpenProfit),
+   SetDashboardValueLine("open_rs", 520, "V SHAPE SELL", BuildOpenSignalStatsValueText(rsOpen, rsOpenProfit),
                          rsOpen > 0 ? GetProfitColor(rsOpenProfit) : clrDimGray, 130);
    SetDashboardValueLine("open_ss", 538, "STRONG SELL", BuildOpenSignalStatsValueText(ssOpen, ssOpenProfit),
                          ssOpen > 0 ? GetProfitColor(ssOpenProfit) : clrDimGray, 130);
@@ -919,6 +1002,17 @@ void RefreshDashboard()
    UpdateDashboard(status, liveReason);
    Comment("");
    ChartRedraw();
+   lastDashboardRefreshTime = GetTradeClock();
+}
+
+//+------------------------------------------------------------------+
+void MaybeRefreshDashboardOnTick()
+{
+   datetime now = GetTradeClock();
+   int refreshSeconds = MathMax(1, DashboardRefreshSeconds);
+
+   if(lastDashboardRefreshTime == 0 || (now - lastDashboardRefreshTime) >= refreshSeconds)
+      RefreshDashboard();
 }
 
 //+------------------------------------------------------------------+
@@ -1275,7 +1369,7 @@ string GetEntryReason(int orderType, string readyText, double signalPrice)
 {
    InitializeTradeUpdateTimes();
 
-   string directionBlock = GetDirectionBlockReason(orderType);
+   string directionBlock = GetDirectionBlockReason(orderType, readyText);
    if(directionBlock != "")
       return directionBlock;
 
@@ -1330,7 +1424,7 @@ bool OpenOrderByType(int orderType, string orderComment, color clr, double signa
 {
    InitializeTradeUpdateTimes();
 
-   string directionBlock = GetDirectionBlockReason(orderType);
+   string directionBlock = GetDirectionBlockReason(orderType, orderComment);
    if(directionBlock != "")
    {
       LogMessage(orderComment + " skipped: " + directionBlock);
@@ -1445,7 +1539,10 @@ bool OpenOrderByType(int orderType, string orderComment, color clr, double signa
 void OnTick()
 {
    if(Bars < 5)
+   {
+      MaybeRefreshDashboardOnTick();
       return;
+   }
 
    InitializeTradeUpdateTimes();
 
@@ -1463,13 +1560,16 @@ void OnTick()
       if(Bars > 1)
          lastProcessedClosedBar = Time[1];
 
+      MaybeRefreshDashboardOnTick();
       return;
    }
 
    if(wasSessionPauseWindow)
    {
       ResetAnalysisState();
+      DeleteSignalMarkers();
       wasSessionPauseWindow = false;
+      MaybeRefreshDashboardOnTick();
       return;
    }
 
@@ -1704,6 +1804,8 @@ void OnTick()
 
       lastProcessedClosedBar = Time[1];
    }
+
+   MaybeRefreshDashboardOnTick();
 
 }
 
