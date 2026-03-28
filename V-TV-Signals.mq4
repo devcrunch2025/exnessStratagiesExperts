@@ -3,6 +3,10 @@
 //+------------------------------------------------------------------+
 #property strict
 
+#define TRADE_DIRECTION_BOTH 0
+#define TRADE_DIRECTION_BUY_ONLY 1
+#define TRADE_DIRECTION_SELL_ONLY 2
+
 // ----- INPUTS ----- //
 input int FastEMA   = 21;
 input int SlowEMA   = 50;
@@ -16,6 +20,7 @@ input bool EnableAlert = false;
 input bool EnableSound = true;
 input bool EnableLogMessages = false;
 input bool EnableAutoTrading = true;
+input int TradeDirectionMode = 2; // 0=both, 1=buy only, 2=sell only
 input bool EnableTestBuyEvery5Min = false; // turn off after testing
 input bool ExecuteEverySignalInTester = false;
 input double LotSize = 0.01;
@@ -23,6 +28,15 @@ input int MagicNumber = 260328;
 input int Slippage = 3;
 input bool EnableSpreadFilter = false;
 input int MaxSpreadPoints = 30;
+input int MaxEntryDistancePoints = 25; // 0 = no late-entry distance filter
+input int MinSameDirectionGapPoints = 0; // 0 = no spacing filter between same-side orders
+input int DashboardRefreshSeconds = 30;
+input bool EnablePreOpenClose = true;
+input int SessionOpenHour = 11;
+input int SessionOpenMinute = 0;
+input int CloseBeforeOpenMinutes = 60;
+input int WaitAfterOpenMinutes = 60;
+input double PreOpenCloseProfitUSD = 0.10;
 input int StopLossPoints = 0;   // keep 0 for no broker-side stop loss
 input int TakeProfitPoints = 0; // keep 0 for no broker-side take profit
 input bool EnableProfitBooking = true;
@@ -30,10 +44,10 @@ input double ProfitBookingUSD = 0.10;
 input bool EnableLossCut = true;
 input double LossCutUSD = 10.00;
 input bool CloseOppositeOnEntry = false;
-input int MaxBuyOrders = 5;
-input int MaxSellOrders = 5;
+input int MaxBuyOrders = 0;
+input int MaxSellOrders = 0;
 input int MaxTotalOrders = 0; // 0 = unlimited
-input bool EnableMaxOrderAutoUnlock = true;
+input bool EnableMaxOrderAutoUnlock = false;
 input int MaxOrderUnlockMinutes = 60;
 input int MaxBuyOrdersAfterUnlock = 10;
 input int MaxSellOrdersAfterUnlock = 10;
@@ -44,12 +58,16 @@ datetime lastTestBuySlot = 0;
 datetime lastTrendBuyTradeTime = 0;
 datetime lastRevBuyTradeTime = 0;
 datetime lastStrongBuyTradeTime = 0;
+datetime lastMomBuyTradeTime = 0;
 datetime lastTrendSellTradeTime = 0;
 datetime lastRevSellTradeTime = 0;
 datetime lastStrongSellTradeTime = 0;
+datetime lastMomSellTradeTime = 0;
 datetime lastBuyOrderUpdateTime = 0;
 datetime lastSellOrderUpdateTime = 0;
 bool tradeUpdateTimesInitialized = false;
+datetime lastProcessedClosedBar = 0;
+bool wasSessionPauseWindow = false;
 
 //+------------------------------------------------------------------+
 //| DRAW MARKER                                                     |
@@ -107,6 +125,117 @@ string GetTimeframeText()
    if(Period() == PERIOD_D1)  return "D1";
 
    return "TF";
+}
+
+//+------------------------------------------------------------------+
+bool IsBuyDirectionAllowed()
+{
+   return (TradeDirectionMode != TRADE_DIRECTION_SELL_ONLY);
+}
+
+//+------------------------------------------------------------------+
+bool IsSellDirectionAllowed()
+{
+   return (TradeDirectionMode != TRADE_DIRECTION_BUY_ONLY);
+}
+
+//+------------------------------------------------------------------+
+string GetTradeDirectionText()
+{
+   if(TradeDirectionMode == TRADE_DIRECTION_BUY_ONLY)
+      return "BUY ONLY";
+   if(TradeDirectionMode == TRADE_DIRECTION_SELL_ONLY)
+      return "SELL ONLY";
+
+   return "BOTH";
+}
+
+//+------------------------------------------------------------------+
+string GetDirectionBlockReason(int orderType)
+{
+   if(orderType == OP_BUY && !IsBuyDirectionAllowed())
+      return "SELL ONLY MODE";
+
+   if(orderType == OP_SELL && !IsSellDirectionAllowed())
+      return "BUY ONLY MODE";
+
+   return "";
+}
+
+//+------------------------------------------------------------------+
+int GetMinutesOfDay(datetime value)
+{
+   return (TimeHour(value) * 60) + TimeMinute(value);
+}
+
+//+------------------------------------------------------------------+
+bool IsTimeWithinWindow(int currentMinutes, int windowStartMinutes, int windowEndMinutes)
+{
+   if(windowStartMinutes == windowEndMinutes)
+      return true;
+
+   if(windowStartMinutes < windowEndMinutes)
+      return (currentMinutes >= windowStartMinutes && currentMinutes < windowEndMinutes);
+
+   return (currentMinutes >= windowStartMinutes || currentMinutes < windowEndMinutes);
+}
+
+//+------------------------------------------------------------------+
+bool IsPreOpenCloseWindow()
+{
+   if(!EnablePreOpenClose || CloseBeforeOpenMinutes <= 0)
+      return false;
+
+   datetime now = GetTradeClock();
+   int currentMinutes = GetMinutesOfDay(now);
+   int openMinutes = (SessionOpenHour * 60) + SessionOpenMinute;
+   int startMinutes = openMinutes - CloseBeforeOpenMinutes;
+
+   while(startMinutes < 0)
+      startMinutes += 1440;
+
+   while(openMinutes >= 1440)
+      openMinutes -= 1440;
+
+   return IsTimeWithinWindow(currentMinutes, startMinutes, openMinutes);
+}
+
+//+------------------------------------------------------------------+
+bool IsPostOpenWaitWindow()
+{
+   if(!EnablePreOpenClose || WaitAfterOpenMinutes <= 0)
+      return false;
+
+   datetime now = GetTradeClock();
+   int currentMinutes = GetMinutesOfDay(now);
+   int openMinutes = (SessionOpenHour * 60) + SessionOpenMinute;
+   int endMinutes = openMinutes + WaitAfterOpenMinutes;
+
+   while(openMinutes >= 1440)
+      openMinutes -= 1440;
+
+   while(endMinutes >= 1440)
+      endMinutes -= 1440;
+
+   return IsTimeWithinWindow(currentMinutes, openMinutes, endMinutes);
+}
+
+//+------------------------------------------------------------------+
+bool IsSessionPauseWindow()
+{
+   return (IsPreOpenCloseWindow() || IsPostOpenWaitWindow());
+}
+
+//+------------------------------------------------------------------+
+string GetSessionPauseReason()
+{
+   if(IsPreOpenCloseWindow())
+      return "PRE-OPEN CLOSE WINDOW";
+
+   if(IsPostOpenWaitWindow())
+      return "WAIT AFTER OPEN WINDOW";
+
+   return "SESSION PAUSE WINDOW";
 }
 
 //+------------------------------------------------------------------+
@@ -191,6 +320,15 @@ string FormatDashboardDateTime(datetime value)
 }
 
 //+------------------------------------------------------------------+
+string FormatLimitValue(int limit)
+{
+   if(limit <= 0)
+      return "UNL";
+
+   return IntegerToString(limit);
+}
+
+//+------------------------------------------------------------------+
 int GetEffectiveMaxOrdersForType(int orderType)
 {
    int baseMax = (orderType == OP_BUY) ? MaxBuyOrders : MaxSellOrders;
@@ -232,6 +370,9 @@ color GetLimitColor(int orderType)
    int baseMax = (orderType == OP_BUY) ? MaxBuyOrders : MaxSellOrders;
    int openCount = CountOpenOrdersByType(orderType);
 
+   if(baseMax <= 0)
+      return clrDarkGreen;
+
    if(IsMaxOrderUnlocked(orderType))
       return clrDodgerBlue;
 
@@ -270,9 +411,15 @@ color GetReasonColor(string reason)
       return clrGreen;
    if(StringFind(reason, "SELL READY") >= 0)
       return clrRed;
+   if(StringFind(reason, "ONLY MODE") >= 0)
+      return clrDodgerBlue;
+   if(StringFind(reason, "WAIT") >= 0)
+      return clrOrange;
+   if(StringFind(reason, "WINDOW") >= 0)
+      return clrOrange;
    if(StringFind(reason, "OFF") >= 0)
       return clrDimGray;
-   if(StringFind(reason, "HIGH") >= 0 || StringFind(reason, "MAX") >= 0)
+   if(StringFind(reason, "HIGH") >= 0 || StringFind(reason, "MAX") >= 0 || StringFind(reason, "FAR") >= 0 || StringFind(reason, "GAP") >= 0)
       return clrOrange;
 
    return clrBlack;
@@ -480,6 +627,99 @@ string BuildOpenSignalStatsValueText(int openCount, double floatingProfit)
 }
 
 //+------------------------------------------------------------------+
+void ResetAnalysisState()
+{
+   lastAlertTime = 0;
+   lastTrendBuyTradeTime = 0;
+   lastRevBuyTradeTime = 0;
+   lastStrongBuyTradeTime = 0;
+   lastMomBuyTradeTime = 0;
+   lastTrendSellTradeTime = 0;
+   lastRevSellTradeTime = 0;
+   lastStrongSellTradeTime = 0;
+   lastMomSellTradeTime = 0;
+
+   if(Bars > 1)
+      lastProcessedClosedBar = Time[1];
+   else
+      lastProcessedClosedBar = 0;
+}
+
+//+------------------------------------------------------------------+
+void EvaluateSignalFlags(int shift,
+                         bool &bullMomentum,
+                         bool &bearMomentum,
+                         bool &trendBuy,
+                         bool &reversalBuy,
+                         bool &strongBuy,
+                         bool &trendSell,
+                         bool &reversalSell,
+                         bool &strongSell)
+{
+   bullMomentum = false;
+   bearMomentum = false;
+   trendBuy = false;
+   reversalBuy = false;
+   strongBuy = false;
+   trendSell = false;
+   reversalSell = false;
+   strongSell = false;
+
+   if(shift < 1 || shift + 2 >= Bars)
+      return;
+
+   double emaFast  = iMA(NULL,0,FastEMA,0,MODE_EMA,PRICE_CLOSE,shift);
+   double emaSlow  = iMA(NULL,0,SlowEMA,0,MODE_EMA,PRICE_CLOSE,shift);
+   double emaTrend = iMA(NULL,0,TrendEMA,0,MODE_EMA,PRICE_CLOSE,shift);
+
+   double rsiVal   = iRSI(NULL,0,RSI_Period,PRICE_CLOSE,shift);
+   double rsiPrev  = iRSI(NULL,0,RSI_Period,PRICE_CLOSE,shift+1);
+
+   double body   = MathAbs(Open[shift] - Close[shift]);
+   double range  = High[shift] - Low[shift];
+   double emaGap = MathAbs(emaFast - emaSlow);
+   double closeToLow  = (range > 0.0) ? ((Close[shift] - Low[shift]) / range) : 0.0;
+   double closeToHigh = (range > 0.0) ? ((High[shift] - Close[shift]) / range) : 0.0;
+
+   bool strongCandle = (range > 0.0) && (body > (range * 0.6));
+   bool strongTrend  = emaGap > (10 * Point);
+
+   bool rsiUp   = rsiVal > rsiPrev;
+   bool rsiDown = rsiVal < rsiPrev;
+
+   bool bullTrend = Close[shift] > emaTrend && emaFast > emaSlow;
+   bool bearTrend = Close[shift] < emaTrend && emaFast < emaSlow;
+
+   bullMomentum = bullTrend && rsiUp && strongTrend;
+   bearMomentum = bearTrend && rsiDown && strongTrend;
+
+   bool breakoutBuy  = Close[shift] > High[shift+1];
+   bool breakoutSell = Close[shift] < Low[shift+1];
+
+   bool vReversalBuy  = Close[shift] > Close[shift+1] && Close[shift+1] < Close[shift+2];
+   bool vReversalSell = Close[shift] < Close[shift+1] && Close[shift+1] > Close[shift+2];
+
+   bool prevBear = Close[shift+1] < Open[shift+1];
+   bool prevBull = Close[shift+1] > Open[shift+1];
+   bool currBull = Close[shift] > Open[shift];
+   bool currBear = Close[shift] < Open[shift];
+
+   bool engulfBuy  = prevBear && currBull && Open[shift] <= Close[shift+1] && Close[shift] >= Open[shift+1];
+   bool engulfSell = prevBull && currBear && Open[shift] >= Close[shift+1] && Close[shift] <= Open[shift+1];
+   bool bullishCloseStrong = currBull && closeToLow >= 0.65;
+   bool bearishCloseStrong = currBear && closeToHigh >= 0.65;
+   bool reversalBuyStructure = vReversalBuy && Low[shift+1] < Low[shift+2] && currBull && closeToLow >= 0.55;
+   bool reversalSellStructure = vReversalSell && High[shift+1] > High[shift+2] && currBear && closeToHigh >= 0.55;
+
+   trendBuy = bullMomentum && breakoutBuy && rsiVal > RSI_Buy && strongCandle && bullishCloseStrong;
+   trendSell = bearMomentum && breakoutSell && rsiVal < RSI_Sell && strongCandle && bearishCloseStrong;
+   reversalBuy = reversalBuyStructure && strongCandle && rsiUp && Close[shift] > emaFast;
+   reversalSell = reversalSellStructure && strongCandle && rsiDown && Close[shift] < emaFast;
+   strongBuy = engulfBuy && bullTrend && strongCandle && bullishCloseStrong;
+   strongSell = engulfSell && bearTrend && strongCandle && bearishCloseStrong;
+}
+
+//+------------------------------------------------------------------+
 void UpdateDashboard(string status, string liveReason)
 {
    InitializeTradeUpdateTimes();
@@ -534,7 +774,7 @@ void UpdateDashboard(string status, string liveReason)
    SetDashboardLine("symbol",  20,  46, Symbol() + "  " + GetTimeframeText(), clrBlack, 9);
    SetDashboardValueLine("status",  68, "Status", status, GetStatusColor(status), 108);
    SetDashboardValueLine("reason",  86, "Reason", liveReason, GetReasonColor(liveReason), 108);
-   SetDashboardValueLine("mode",   104, "Mode", EnableAutoTrading ? "AUTO TRADING" : "SIGNALS ONLY",
+   SetDashboardValueLine("mode",   104, "Mode", (EnableAutoTrading ? "AUTO " : "SIGNALS ") + GetTradeDirectionText(),
                          EnableAutoTrading ? clrGreen : clrDimGray, 108);
    SetDashboardValueLine("totalpl",126, "Total P/L", "$" + DoubleToString(totalPL, 2), GetProfitColor(totalPL), 108);
    SetDashboardValueLine("orders", 146, "Total Orders", IntegerToString(totalOrders), GetCountColor(totalOrders, clrBlue), 108);
@@ -581,18 +821,124 @@ void UpdateDashboard(string status, string liveReason)
                          GetProfitColor(tbOpenProfit + rbOpenProfit + sbOpenProfit +
                                         tsOpenProfit + rsOpenProfit + ssOpenProfit), 130);
    SetDashboardValueLine("buylimit", 582, "Buy Limit",
-                         IntegerToString(buyOrders) + "/" + IntegerToString(effectiveBuyMax) +
+                         IntegerToString(buyOrders) + "/" + FormatLimitValue(effectiveBuyMax) +
                          "  Upd " + FormatDashboardDateTime(lastBuyOrderUpdateTime),
                          GetLimitColor(OP_BUY), 108);
    SetDashboardValueLine("selllimit", 604, "Sell Limit",
-                         IntegerToString(sellOrders) + "/" + IntegerToString(effectiveSellMax) +
+                         IntegerToString(sellOrders) + "/" + FormatLimitValue(effectiveSellMax) +
                          "  Upd " + FormatDashboardDateTime(lastSellOrderUpdateTime),
                          GetLimitColor(OP_SELL), 108);
 }
 
 //+------------------------------------------------------------------+
+void BuildDashboardState(string &status, string &liveReason)
+{
+   status = "WAIT";
+   liveReason = "WAITING BARS";
+
+   if(Bars < 5)
+      return;
+
+   double emaFast0 = iMA(NULL,0,FastEMA,0,MODE_EMA,PRICE_CLOSE,0);
+   double emaSlow0 = iMA(NULL,0,SlowEMA,0,MODE_EMA,PRICE_CLOSE,0);
+   double emaTrend0 = iMA(NULL,0,TrendEMA,0,MODE_EMA,PRICE_CLOSE,0);
+
+   if(emaFast0 > emaSlow0 && Close[0] > emaTrend0)
+      status = "BULL TREND";
+
+   if(emaFast0 < emaSlow0 && Close[0] < emaTrend0)
+      status = "BEAR TREND";
+
+   liveReason = "NO SIGNAL";
+   int signalShift = 1;
+
+   if(IsSessionPauseWindow())
+   {
+      liveReason = GetSessionPauseReason();
+      return;
+   }
+
+   bool bullMomentum1 = false, bearMomentum1 = false;
+   bool trendBuy1 = false, reversalBuy1 = false, strongBuy1 = false;
+   bool trendSell1 = false, reversalSell1 = false, strongSell1 = false;
+   bool prevBullMomentum2 = false, prevBearMomentum2 = false;
+   bool trendBuy2 = false, reversalBuy2 = false, strongBuy2 = false;
+   bool trendSell2 = false, reversalSell2 = false, strongSell2 = false;
+
+   EvaluateSignalFlags(signalShift, bullMomentum1, bearMomentum1,
+                       trendBuy1, reversalBuy1, strongBuy1,
+                       trendSell1, reversalSell1, strongSell1);
+   EvaluateSignalFlags(signalShift + 1, prevBullMomentum2, prevBearMomentum2,
+                       trendBuy2, reversalBuy2, strongBuy2,
+                       trendSell2, reversalSell2, strongSell2);
+
+   bool trendBuyConfirmed1 = trendBuy1 && trendBuy2;
+   bool trendSellConfirmed1 = trendSell1 && trendSell2;
+
+   if(trendBuy1)
+   {
+      if(trendBuyConfirmed1)
+         liveReason = GetEntryReason(OP_BUY, "TREND BUY READY", Close[signalShift]);
+      else
+         liveReason = "TREND BUY WAIT 2X";
+   }
+   else if(reversalBuy1)
+      liveReason = GetEntryReason(OP_BUY, "REV BUY READY", Close[signalShift]);
+   else if(strongBuy1)
+      liveReason = GetEntryReason(OP_BUY, "STRONG BUY READY", Close[signalShift]);
+   else if(trendSell1)
+   {
+      if(trendSellConfirmed1)
+         liveReason = GetEntryReason(OP_SELL, "TREND SELL READY", Close[signalShift]);
+      else
+         liveReason = "TREND SELL WAIT 2X";
+   }
+   else if(reversalSell1)
+      liveReason = GetEntryReason(OP_SELL, "REV SELL READY", Close[signalShift]);
+   else if(strongSell1)
+      liveReason = GetEntryReason(OP_SELL, "STRONG SELL READY", Close[signalShift]);
+   else if(bullMomentum1)
+      liveReason = GetEntryReason(OP_BUY, "MOM BUY READY", Close[signalShift]);
+   else if(bearMomentum1)
+      liveReason = GetEntryReason(OP_SELL, "MOM SELL READY", Close[signalShift]);
+   else if(!EnableAutoTrading)
+      liveReason = "AUTO TRADING INPUT OFF";
+   else if(!IsTradeAllowed())
+      liveReason = "MT4 LIVE TRADING OFF";
+   else if(!IsSpreadOK())
+      liveReason = "SPREAD HIGH";
+}
+
+//+------------------------------------------------------------------+
+void RefreshDashboard()
+{
+   string status = "WAIT";
+   string liveReason = "WAITING BARS";
+
+   BuildDashboardState(status, liveReason);
+   UpdateDashboard(status, liveReason);
+   Comment("");
+   ChartRedraw();
+}
+
+//+------------------------------------------------------------------+
+int OnInit()
+{
+   EventSetTimer(MathMax(1, DashboardRefreshSeconds));
+   RefreshDashboard();
+   return(INIT_SUCCEEDED);
+}
+
+//+------------------------------------------------------------------+
+void OnTimer()
+{
+   RefreshDashboard();
+}
+
+//+------------------------------------------------------------------+
 void OnDeinit(const int reason)
 {
+   EventKillTimer();
    DeleteDashboard();
    Comment("");
 }
@@ -634,6 +980,44 @@ bool IsSpreadOK()
    RefreshRates();
    double spread = (Ask - Bid) / Point;
    return (spread <= MaxSpreadPoints);
+}
+
+//+------------------------------------------------------------------+
+bool IsEntryDistanceOK(int orderType, double signalPrice)
+{
+   if(MaxEntryDistancePoints <= 0 || signalPrice <= 0.0)
+      return true;
+
+   RefreshRates();
+   double currentPrice = (orderType == OP_BUY) ? Ask : Bid;
+   double distancePoints = MathAbs(currentPrice - signalPrice) / Point;
+
+   return (distancePoints <= MaxEntryDistancePoints);
+}
+
+//+------------------------------------------------------------------+
+bool IsSameDirectionGapOK(int orderType)
+{
+   if(MinSameDirectionGapPoints <= 0)
+      return true;
+
+   RefreshRates();
+   double currentPrice = (orderType == OP_BUY) ? Ask : Bid;
+
+   for(int i = OrdersTotal() - 1; i >= 0; i--)
+   {
+      if(!OrderSelect(i, SELECT_BY_POS, MODE_TRADES))
+         continue;
+
+      if(OrderSymbol() != Symbol() || OrderMagicNumber() != MagicNumber || OrderType() != orderType)
+         continue;
+
+      double gapPoints = MathAbs(currentPrice - OrderOpenPrice()) / Point;
+      if(gapPoints < MinSameDirectionGapPoints)
+         return false;
+   }
+
+   return true;
 }
 
 //+------------------------------------------------------------------+
@@ -775,6 +1159,26 @@ void CloseOrdersAtLossLimit()
 }
 
 //+------------------------------------------------------------------+
+void CloseOrdersBeforeSessionOpen()
+{
+   if(!EnableAutoTrading || !EnablePreOpenClose)
+      return;
+
+   if(!IsPreOpenCloseWindow())
+      return;
+
+   if(CountOpenOrders() <= 0)
+      return;
+
+    double totalOpenProfit = GetOpenProfitByType(OP_BUY) + GetOpenProfitByType(OP_SELL);
+    if(totalOpenProfit < PreOpenCloseProfitUSD)
+       return;
+
+   CloseOrdersByType(OP_BUY, clrSilver);
+   CloseOrdersByType(OP_SELL, clrSilver);
+}
+
+//+------------------------------------------------------------------+
 bool CloseOrdersByType(int orderType, color clr)
 {
    bool allClosed = true;
@@ -867,18 +1271,31 @@ bool CanTradeSignalBar(int shift)
    return (ExecuteEverySignalInTester && IsTesting());
 }
 
-string GetEntryReason(int orderType, string readyText)
+string GetEntryReason(int orderType, string readyText, double signalPrice)
 {
    InitializeTradeUpdateTimes();
 
+   string directionBlock = GetDirectionBlockReason(orderType);
+   if(directionBlock != "")
+      return directionBlock;
+
    if(!EnableAutoTrading)
       return "AUTO TRADING INPUT OFF";
+
+   if(IsSessionPauseWindow())
+      return GetSessionPauseReason();
 
    if(!IsTradeAllowed())
       return "MT4 LIVE TRADING OFF";
 
    if(!IsSpreadOK())
       return "SPREAD HIGH";
+
+   if(!IsEntryDistanceOK(orderType, signalPrice))
+      return "ENTRY TOO FAR";
+
+   if(!IsSameDirectionGapOK(orderType))
+      return (orderType == OP_BUY) ? "BUY GAP SMALL" : "SELL GAP SMALL";
 
    int oppositeType = (orderType == OP_BUY) ? OP_SELL : OP_BUY;
    int sameCount = CountOpenOrdersByType(orderType);
@@ -909,12 +1326,25 @@ string GetCloseReason(int orderType, string readyText)
 }
 
 //+------------------------------------------------------------------+
-bool OpenOrderByType(int orderType, string orderComment, color clr)
+bool OpenOrderByType(int orderType, string orderComment, color clr, double signalPrice)
 {
    InitializeTradeUpdateTimes();
 
+   string directionBlock = GetDirectionBlockReason(orderType);
+   if(directionBlock != "")
+   {
+      LogMessage(orderComment + " skipped: " + directionBlock);
+      return false;
+   }
+
    if(!EnableAutoTrading)
       return false;
+
+   if(IsSessionPauseWindow())
+   {
+      LogMessage(orderComment + " skipped: " + GetSessionPauseReason());
+      return false;
+   }
 
    if(!IsTradeAllowed())
    {
@@ -925,6 +1355,18 @@ bool OpenOrderByType(int orderType, string orderComment, color clr)
    if(!IsSpreadOK())
    {
       LogMessage("Spread too high for new order on " + Symbol());
+      return false;
+   }
+
+   if(!IsEntryDistanceOK(orderType, signalPrice))
+   {
+      LogMessage(orderComment + " skipped: entry moved too far from signal close on " + Symbol());
+      return false;
+   }
+
+   if(!IsSameDirectionGapOK(orderType))
+   {
+      LogMessage(orderComment + " skipped: same-direction order gap too small on " + Symbol());
       return false;
    }
 
@@ -1007,12 +1449,32 @@ void OnTick()
 
    InitializeTradeUpdateTimes();
 
+   CloseOrdersBeforeSessionOpen();
    CloseOrdersAtLossLimit();
    CloseOrdersAtProfitTarget();
 
+   if(IsSessionPauseWindow())
+   {
+      if(!wasSessionPauseWindow)
+         ResetAnalysisState();
+
+      wasSessionPauseWindow = true;
+
+      if(Bars > 1)
+         lastProcessedClosedBar = Time[1];
+
+      return;
+   }
+
+   if(wasSessionPauseWindow)
+   {
+      ResetAnalysisState();
+      wasSessionPauseWindow = false;
+      return;
+   }
+
    RunTestBuyEvery5Minutes();
 
-   static datetime lastProcessedClosedBar = 0;
    bool firstRun = (lastProcessedClosedBar == 0);
    bool hasNewClosedBar = (Time[1] != lastProcessedClosedBar);
 
@@ -1028,59 +1490,22 @@ void OnTick()
    {
       for(int i = startBar; i >= 1; i--)
       {
-         // ----- INDICATORS ----- //
-         double emaFast  = iMA(NULL,0,FastEMA,0,MODE_EMA,PRICE_CLOSE,i);
-         double emaSlow  = iMA(NULL,0,SlowEMA,0,MODE_EMA,PRICE_CLOSE,i);
-         double emaTrend = iMA(NULL,0,TrendEMA,0,MODE_EMA,PRICE_CLOSE,i);
+         bool bullMomentum = false, bearMomentum = false;
+         bool trendBuy = false, reversalBuy = false, strongBuy = false;
+         bool trendSell = false, reversalSell = false, strongSell = false;
+         bool prevBullMomentum = false, prevBearMomentum = false;
+         bool prevTrendBuy = false, prevReversalBuy = false, prevStrongBuy = false;
+         bool prevTrendSell = false, prevReversalSell = false, prevStrongSell = false;
 
-         double rsiVal   = iRSI(NULL,0,RSI_Period,PRICE_CLOSE,i);
-         double rsiPrev  = iRSI(NULL,0,RSI_Period,PRICE_CLOSE,i+1);
+         EvaluateSignalFlags(i, bullMomentum, bearMomentum,
+                             trendBuy, reversalBuy, strongBuy,
+                             trendSell, reversalSell, strongSell);
+         EvaluateSignalFlags(i + 1, prevBullMomentum, prevBearMomentum,
+                             prevTrendBuy, prevReversalBuy, prevStrongBuy,
+                             prevTrendSell, prevReversalSell, prevStrongSell);
 
-         // ----- CANDLE DATA ----- //
-         double body   = MathAbs(Open[i] - Close[i]);
-         double range  = High[i] - Low[i];
-         double emaGap = MathAbs(emaFast - emaSlow);
-
-         bool strongCandle = (range > 0.0) && (body > (range * 0.6));
-         bool strongTrend  = emaGap > (10 * Point);
-
-         bool rsiUp   = rsiVal > rsiPrev;
-         bool rsiDown = rsiVal < rsiPrev;
-
-         // ----- TREND ----- //
-         bool bullTrend = Close[i] > emaTrend && emaFast > emaSlow;
-         bool bearTrend = Close[i] < emaTrend && emaFast < emaSlow;
-
-         // ----- MOMENTUM ----- //
-         bool bullMomentum = bullTrend && rsiUp && strongTrend;
-         bool bearMomentum = bearTrend && rsiDown && strongTrend;
-
-         // ----- BREAKOUT ----- //
-         bool breakoutBuy  = Close[i] > High[i+1];
-         bool breakoutSell = Close[i] < Low[i+1];
-
-         // ----- REVERSAL (V SHAPE) ----- //
-         bool vReversalBuy  = Close[i] > Close[i+1] && Close[i+1] < Close[i+2];
-         bool vReversalSell = Close[i] < Close[i+1] && Close[i+1] > Close[i+2];
-
-         // ----- ENGULFING ----- //
-         bool prevBear = Close[i+1] < Open[i+1];
-         bool prevBull = Close[i+1] > Open[i+1];
-         bool currBull = Close[i] > Open[i];
-         bool currBear = Close[i] < Open[i];
-
-         bool engulfBuy  = prevBear && currBull && Open[i] <= Close[i+1] && Close[i] >= Open[i+1];
-         bool engulfSell = prevBull && currBear && Open[i] >= Close[i+1] && Close[i] <= Open[i+1];
-
-         // ----- FINAL SIGNAL TYPES ----- //
-         bool trendBuy    = bullMomentum && breakoutBuy && rsiVal > RSI_Buy;
-         bool trendSell   = bearMomentum && breakoutSell && rsiVal < RSI_Sell;
-
-         bool reversalBuy  = vReversalBuy && strongCandle && rsiUp;
-         bool reversalSell = vReversalSell && strongCandle && rsiDown;
-
-         bool strongBuy  = engulfBuy && bullTrend;
-         bool strongSell = engulfSell && bearTrend;
+         bool trendBuyConfirmed = trendBuy && prevTrendBuy;
+         bool trendSellConfirmed = trendSell && prevTrendSell;
 
          datetime t = Time[i];
 
@@ -1130,11 +1555,11 @@ void OnTick()
          // =========================
          if(CanTradeSignalBar(i))
          {
-            if(trendBuy && lastTrendBuyTradeTime != t)
+            if(trendBuyConfirmed && IsBuyDirectionAllowed() && lastTrendBuyTradeTime != t)
             {
                if(EnableAutoTrading)
                {
-                  if(OpenOrderByType(OP_BUY, "TREND BUY", clrLime))
+                  if(OpenOrderByType(OP_BUY, "TREND BUY", clrLime, Close[i]))
                      lastTrendBuyTradeTime = t;
                }
                else
@@ -1148,11 +1573,11 @@ void OnTick()
                   lastAlertTime = t;
                }
             }
-            else if(reversalBuy && lastRevBuyTradeTime != t)
+            else if(reversalBuy && IsBuyDirectionAllowed() && lastRevBuyTradeTime != t)
             {
                if(EnableAutoTrading)
                {
-                  if(OpenOrderByType(OP_BUY, "REV BUY", clrAqua))
+                  if(OpenOrderByType(OP_BUY, "REV BUY", clrAqua, Close[i]))
                      lastRevBuyTradeTime = t;
                }
                else
@@ -1166,11 +1591,11 @@ void OnTick()
                   lastAlertTime = t;
                }
             }
-            else if(strongBuy && lastStrongBuyTradeTime != t)
+            else if(strongBuy && IsBuyDirectionAllowed() && lastStrongBuyTradeTime != t)
             {
                if(EnableAutoTrading)
                {
-                  if(OpenOrderByType(OP_BUY, "STRONG BUY", clrGreen))
+                  if(OpenOrderByType(OP_BUY, "STRONG BUY", clrGreen, Close[i]))
                      lastStrongBuyTradeTime = t;
                }
                else
@@ -1184,11 +1609,29 @@ void OnTick()
                   lastAlertTime = t;
                }
             }
-            else if(trendSell && lastTrendSellTradeTime != t)
+            else if(bullMomentum && IsBuyDirectionAllowed() && lastMomBuyTradeTime != t)
             {
                if(EnableAutoTrading)
                {
-                  if(OpenOrderByType(OP_SELL, "TREND SELL", clrRed))
+                  if(OpenOrderByType(OP_BUY, "MOM BUY", clrYellow, Close[i]))
+                     lastMomBuyTradeTime = t;
+               }
+               else
+               {
+                  lastMomBuyTradeTime = t;
+               }
+
+               if(i == 1 && lastAlertTime != t)
+               {
+                  SendSignalAlert("MOM BUY - " + Symbol());
+                  lastAlertTime = t;
+               }
+            }
+            else if(trendSellConfirmed && IsSellDirectionAllowed() && lastTrendSellTradeTime != t)
+            {
+               if(EnableAutoTrading)
+               {
+                  if(OpenOrderByType(OP_SELL, "TREND SELL", clrRed, Close[i]))
                      lastTrendSellTradeTime = t;
                }
                else
@@ -1202,11 +1645,11 @@ void OnTick()
                   lastAlertTime = t;
                }
             }
-            else if(reversalSell && lastRevSellTradeTime != t)
+            else if(reversalSell && IsSellDirectionAllowed() && lastRevSellTradeTime != t)
             {
                if(EnableAutoTrading)
                {
-                  if(OpenOrderByType(OP_SELL, "REV SELL", clrMagenta))
+                  if(OpenOrderByType(OP_SELL, "REV SELL", clrMagenta, Close[i]))
                      lastRevSellTradeTime = t;
                }
                else
@@ -1220,11 +1663,11 @@ void OnTick()
                   lastAlertTime = t;
                }
             }
-            else if(strongSell && lastStrongSellTradeTime != t)
+            else if(strongSell && IsSellDirectionAllowed() && lastStrongSellTradeTime != t)
             {
                if(EnableAutoTrading)
                {
-                  if(OpenOrderByType(OP_SELL, "STRONG SELL", clrOrangeRed))
+                  if(OpenOrderByType(OP_SELL, "STRONG SELL", clrOrangeRed, Close[i]))
                      lastStrongSellTradeTime = t;
                }
                else
@@ -1238,94 +1681,30 @@ void OnTick()
                   lastAlertTime = t;
                }
             }
+            else if(bearMomentum && IsSellDirectionAllowed() && lastMomSellTradeTime != t)
+            {
+               if(EnableAutoTrading)
+               {
+                  if(OpenOrderByType(OP_SELL, "MOM SELL", clrOrange, Close[i]))
+                     lastMomSellTradeTime = t;
+               }
+               else
+               {
+                  lastMomSellTradeTime = t;
+               }
+
+               if(i == 1 && lastAlertTime != t)
+               {
+                  SendSignalAlert("MOM SELL - " + Symbol());
+                  lastAlertTime = t;
+               }
+            }
          }
       }
 
       lastProcessedClosedBar = Time[1];
    }
 
-   // ----- DASHBOARD ----- //
-   double emaFast0 = iMA(NULL,0,FastEMA,0,MODE_EMA,PRICE_CLOSE,0);
-   double emaSlow0 = iMA(NULL,0,SlowEMA,0,MODE_EMA,PRICE_CLOSE,0);
-   double emaTrend0 = iMA(NULL,0,TrendEMA,0,MODE_EMA,PRICE_CLOSE,0);
-
-   string status = "WAIT";
-
-   if(emaFast0 > emaSlow0 && Close[0] > emaTrend0)
-      status = "BULL TREND";
-
-   if(emaFast0 < emaSlow0 && Close[0] < emaTrend0)
-      status = "BEAR TREND";
-
-   string liveReason = "NO SIGNAL";
-   int signalShift = 1;
-
-   double emaFast1  = iMA(NULL,0,FastEMA,0,MODE_EMA,PRICE_CLOSE,signalShift);
-   double emaSlow1  = iMA(NULL,0,SlowEMA,0,MODE_EMA,PRICE_CLOSE,signalShift);
-   double emaTrend1 = iMA(NULL,0,TrendEMA,0,MODE_EMA,PRICE_CLOSE,signalShift);
-
-   double rsiVal1   = iRSI(NULL,0,RSI_Period,PRICE_CLOSE,signalShift);
-   double rsiPrev1  = iRSI(NULL,0,RSI_Period,PRICE_CLOSE,signalShift+1);
-
-   double body1   = MathAbs(Open[signalShift] - Close[signalShift]);
-   double range1  = High[signalShift] - Low[signalShift];
-   double emaGap1 = MathAbs(emaFast1 - emaSlow1);
-
-   bool strongCandle1 = (range1 > 0.0) && (body1 > (range1 * 0.6));
-   bool strongTrend1  = emaGap1 > (10 * Point);
-
-   bool rsiUp1   = rsiVal1 > rsiPrev1;
-   bool rsiDown1 = rsiVal1 < rsiPrev1;
-
-   bool bullTrend1 = Close[signalShift] > emaTrend1 && emaFast1 > emaSlow1;
-   bool bearTrend1 = Close[signalShift] < emaTrend1 && emaFast1 < emaSlow1;
-
-   bool bullMomentum1 = bullTrend1 && rsiUp1 && strongTrend1;
-   bool bearMomentum1 = bearTrend1 && rsiDown1 && strongTrend1;
-
-   bool breakoutBuy1  = Close[signalShift] > High[signalShift+1];
-   bool breakoutSell1 = Close[signalShift] < Low[signalShift+1];
-
-   bool vReversalBuy1  = Close[signalShift] > Close[signalShift+1] && Close[signalShift+1] < Close[signalShift+2];
-   bool vReversalSell1 = Close[signalShift] < Close[signalShift+1] && Close[signalShift+1] > Close[signalShift+2];
-
-   bool prevBear1 = Close[signalShift+1] < Open[signalShift+1];
-   bool prevBull1 = Close[signalShift+1] > Open[signalShift+1];
-   bool currBull1 = Close[signalShift] > Open[signalShift];
-   bool currBear1 = Close[signalShift] < Open[signalShift];
-
-   bool engulfBuy1  = prevBear1 && currBull1 && Open[signalShift] <= Close[signalShift+1] && Close[signalShift] >= Open[signalShift+1];
-   bool engulfSell1 = prevBull1 && currBear1 && Open[signalShift] >= Close[signalShift+1] && Close[signalShift] <= Open[signalShift+1];
-
-   bool trendBuy1    = bullMomentum1 && breakoutBuy1 && rsiVal1 > RSI_Buy;
-   bool trendSell1   = bearMomentum1 && breakoutSell1 && rsiVal1 < RSI_Sell;
-   bool reversalBuy1  = vReversalBuy1 && strongCandle1 && rsiUp1;
-   bool reversalSell1 = vReversalSell1 && strongCandle1 && rsiDown1;
-   bool strongBuy1  = engulfBuy1 && bullTrend1;
-   bool strongSell1 = engulfSell1 && bearTrend1;
-
-   if(trendBuy1)
-      liveReason = GetEntryReason(OP_BUY, "TREND BUY READY");
-   else if(reversalBuy1)
-      liveReason = GetEntryReason(OP_BUY, "REV BUY READY");
-   else if(strongBuy1)
-      liveReason = GetEntryReason(OP_BUY, "STRONG BUY READY");
-   else if(trendSell1)
-      liveReason = GetEntryReason(OP_SELL, "TREND SELL READY");
-   else if(reversalSell1)
-      liveReason = GetEntryReason(OP_SELL, "REV SELL READY");
-   else if(strongSell1)
-      liveReason = GetEntryReason(OP_SELL, "STRONG SELL READY");
-   else if(!EnableAutoTrading)
-      liveReason = "AUTO TRADING INPUT OFF";
-   else if(!IsTradeAllowed())
-      liveReason = "MT4 LIVE TRADING OFF";
-   else if(!IsSpreadOK())
-      liveReason = "SPREAD HIGH";
-
-   UpdateDashboard(status, liveReason);
-   Comment("");
-   ChartRedraw();
 }
 
 
