@@ -3,6 +3,7 @@
 //+------------------------------------------------------------------+
 string currentSignal = "";
 string prevSignal = "";
+string lastAppearedStrongSignal = ""; // tracks last STRONG signal even if no order placed
 //+------------------------------------------------------------------+
 //| Calculate spread cost in USD for current symbol and lot size     |
 //+------------------------------------------------------------------+
@@ -1800,6 +1801,10 @@ bool OpenOrderByType(int orderType, string orderComment, color clr, double signa
    bool isPrevStrong    = StringFind(prevSignal, "STRONG") >= 0;
    bool isCurrentStrong = StringFind(currentSignal, "STRONG") >= 0;
 
+   // Exception: STRONG BUY -> TREND BUY -> TREND BUY sequence
+   bool isStrongBuyTrendBuySeq  = (lastAppearedStrongSignal == "STRONG BUY"  && prevSignal == "TREND BUY"  && currentSignal == "TREND BUY");
+   // Exception: STRONG SELL -> TREND SELL -> TREND SELL sequence
+   bool isStrongSellTrendSellSeq = (lastAppearedStrongSignal == "STRONG SELL" && prevSignal == "TREND SELL" && currentSignal == "TREND SELL");
 
    if(prevSignal=="STRONG BUY" && currentSignal=="TREND BUY" && Symbol()!="EURUSDm")
      {
@@ -1810,13 +1815,16 @@ bool OpenOrderByType(int orderType, string orderComment, color clr, double signa
         {
          //continue
         }
-
       else
-         if(prevSignal == currentSignal ||   isCurrentStrong ||   isPrevStrong)
+         if(isStrongBuyTrendBuySeq || isStrongSellTrendSellSeq)
            {
-            //Print("Blocked: Contains STRONG or duplicate | prev=" + prevSignal + " curr=" + currentSignal);
-            return false;
+            //continue - allow STRONG->TREND->TREND sequence
            }
+         else
+            if(prevSignal == currentSignal || isCurrentStrong || isPrevStrong)
+              {
+               return false;
+              }
 
 
    if(IsInitialPauseActive())
@@ -2118,7 +2126,11 @@ void OnTick()
                if(EnableAutoTrading)
                  {
                   if(OpenOrderByType(OP_BUY, "TREND BUY", clrLime, Close[i]))
+                    {
                      lastTrendBuyTradeTime = t;
+                     prevSignal = "TREND BUY";
+                     lastAppearedStrongSignal = ""; // consume strong sequence token
+                    }
                  }
                else
                  {
@@ -2137,7 +2149,10 @@ void OnTick()
                   if(EnableAutoTrading)
                     {
                      if(OpenOrderByType(OP_BUY, reversalBuyName, clrAqua, Close[i]))
+                       {
                         lastRevBuyTradeTime = t;
+                        prevSignal = reversalBuyName;
+                       }
                     }
                   else
                     {
@@ -2153,10 +2168,14 @@ void OnTick()
                else
                   if(strongBuy && IsBuyDirectionAllowed() && lastStrongBuyTradeTime != t)
                     {
+                     lastAppearedStrongSignal = "STRONG BUY"; // track for STRONG->TREND->TREND sequence
                      if(EnableAutoTrading)
                        {
                         if(OpenOrderByType(OP_BUY, "STRONG BUY", clrGreen, Close[i]))
+                          {
                            lastStrongBuyTradeTime = t;
+                           prevSignal = "STRONG BUY";
+                          }
                        }
                      else
                        {
@@ -2177,7 +2196,10 @@ void OnTick()
                            if(EnableAutoTrading)
                              {
                               if(OpenOrderByType(OP_BUY, "MOM BUY", clrYellow, Close[i]))
+                                {
                                  lastMomBuyTradeTime = t;
+                                 prevSignal = "MOM BUY";
+                                }
                              }
                            else
                              {
@@ -2214,7 +2236,11 @@ void OnTick()
 
 
                               if(OpenOrderByType(OP_SELL, "TREND SELL", clrRed, Close[i]))
+                                {
                                  lastTrendSellTradeTime = t;
+                                 prevSignal = "TREND SELL";
+                                 lastAppearedStrongSignal = ""; // consume strong sequence token
+                                }
                              }
 
 
@@ -2237,7 +2263,10 @@ void OnTick()
                               if(EnableAutoTrading)
                                 {
                                  if(OpenOrderByType(OP_SELL, reversalSellName, clrMagenta, Close[i]))
+                                   {
                                     lastRevSellTradeTime = t;
+                                    prevSignal = reversalSellName;
+                                   }
                                 }
                               else
                                 {
@@ -2253,10 +2282,14 @@ void OnTick()
                            else
                               if(strongSell && IsSellDirectionAllowed() && lastStrongSellTradeTime != t)
                                 {
+                                 lastAppearedStrongSignal = "STRONG SELL"; // track for STRONG->TREND->TREND sequence
                                  if(EnableAutoTrading)
                                    {
                                     if(OpenOrderByType(OP_SELL, "STRONG SELL", clrOrangeRed, Close[i]))
+                                      {
                                        lastStrongSellTradeTime = t;
+                                       prevSignal = "STRONG SELL";
+                                      }
                                    }
                                  else
                                    {
@@ -2277,7 +2310,10 @@ void OnTick()
                                        if(EnableAutoTrading)
                                          {
                                           if(OpenOrderByType(OP_SELL, "MOM SELL", clrOrange, Close[i]))
+                                            {
                                              lastMomSellTradeTime = t;
+                                             prevSignal = "MOM SELL";
+                                            }
                                          }
                                        else
                                          {
@@ -2298,7 +2334,7 @@ void OnTick()
 
 
 
-      prevSignal= currentSignal;
+      // prevSignal updated only on successful trade (see each signal block above)
 
 
 
