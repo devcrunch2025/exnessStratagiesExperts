@@ -1,4 +1,32 @@
 ﻿//+------------------------------------------------------------------+
+//| Global signal tracking variables                                 |
+//+------------------------------------------------------------------+
+string currentSignal = "";
+string prevSignal = "";
+//+------------------------------------------------------------------+
+//| Calculate spread cost in USD for current symbol and lot size     |
+//+------------------------------------------------------------------+
+double GetSpreadCostUSD(double lotSize)
+{
+   double spread = Ask - Bid;
+   double spreadPoints = spread / Point;
+   double tickValue = MarketInfo(Symbol(), MODE_TICKVALUE);
+   return spreadPoints * lotSize * tickValue;
+}
+//+------------------------------------------------------------------+
+//| Global enable/disable for each signal type (default true)        |
+//+------------------------------------------------------------------+
+bool EnableTrendBuy = true;
+bool EnableVShapeBuy = false;
+bool EnableWShapeBuy = false;
+bool EnableStrongBuy = false;
+bool EnableMomBuy = false;   // Added for MOM_BUY
+bool EnableTrendSell = true;
+bool EnableVShapeSell = false;
+bool EnableWShapeSell = false;
+bool EnableStrongSell = true;
+bool EnableMomSell = false;  // Added for MOM_SELL
+//+------------------------------------------------------------------+
 //| EDGE ALGO - SMART PATTERN DETECTION (PRO ELITE)                 |
 //+------------------------------------------------------------------+
 #property strict
@@ -19,17 +47,20 @@ input int ReversalStreakCandles = 3;
 
 
 //-----------------------------------------------------------------------------
-input string version="V1.2";
+input string version="V1.3";
 input int TradeDirectionMode = 0; // 0=both, 1=buy only, 2=sell only
 input double ProfitBookingUSD = 0.10;
-input double LossCutUSD = 10.00;
+input double LossCutUSD = 5.00; //stop loss
 
 
 input double EquityProfitPauseUSD = 5.00;
-input int MaxBuyOrders = 5;
-input int MaxSellOrders = 5;
-
+input int MaxBuyOrders = 1;
+input int MaxSellOrders = 1;
 input int MaxTotalOrders = 10; // 0 = unlimited
+
+input int waitStartSessiontime=1;
+
+
 
 //------------------------------------------------------------------------------
 
@@ -44,7 +75,7 @@ input double LotSize = 0.01;
 input int MagicNumber = 260328;
 input int Slippage = 3;
 input bool EnableSpreadFilter = false;
-input int MaxSpreadPoints = 30;
+input int MaxSpreadPoints = 10; // Stricter spread filter
 input int MaxEntryDistancePoints = 25; // 0 = no late-entry distance filter
 input int MinSameDirectionGapPoints = 0; // 0 = no spacing filter between same-side orders
 input int DashboardRefreshSeconds = 30;
@@ -72,6 +103,7 @@ input int MaxBuyOrdersAfterUnlock = 10;
 input int MaxSellOrdersAfterUnlock = 10;
 
 // ----- GLOBALS ----- //
+datetime eaStartTime = 0; // For initial 30-min pause
 datetime lastAlertTime = 0;
 datetime lastTestBuySlot = 0;
 datetime lastTrendBuyTradeTime = 0;
@@ -91,6 +123,9 @@ bool wasEquityProfitPauseWindow = false;
 datetime lastDashboardRefreshTime = 0;
 datetime equityProfitPauseUntil = 0;
 double equityProfitPauseBaseline = 0.0;
+
+
+
 
 //+------------------------------------------------------------------+
 //| DRAW MARKER                                                     |
@@ -1006,7 +1041,8 @@ void UpdateDashboard(string status, string liveReason)
                          EnableProfitBooking ? clrDarkGreen : clrDimGray, 108);
    SetDashboardValueLine("stop",   218, "Stop Loss", EnableLossCut ? ("$" + DoubleToString(LossCutUSD, 2)) : "OFF",
                          EnableLossCut ? clrRed : clrDimGray, 108);
-   SetDashboardValueLine("spread", 236, "Spread", DoubleToString(spreadPoints, 0) + " pts",
+   double spreadCostUSD = GetSpreadCostUSD(LotSize);
+   SetDashboardValueLine("spread", 236, "Spread", DoubleToString(spreadPoints, 0) + " pts ($" + DoubleToString(spreadCostUSD, 2) + ")",
                          (!EnableSpreadFilter || IsSpreadOK()) ? clrDarkGreen : clrOrange, 108);
    SetDashboardValueLine("test",   236, "Test", EnableTestBuyEvery5Min ? "ON" : "OFF",
                          EnableTestBuyEvery5Min ? clrBlue : clrDimGray, 285);
@@ -1105,8 +1141,8 @@ void BuildDashboardState(string &status, string &liveReason)
                        trendBuy2, reversalBuy2, strongBuy2,
                        trendSell2, reversalSell2, strongSell2);
 
-   bool trendBuyConfirmed1 = trendBuy1 && trendBuy2;
-   bool trendSellConfirmed1 = trendSell1 && trendSell2;
+   bool trendBuyConfirmed1 =true;// trendBuy1 && trendBuy2;
+   bool trendSellConfirmed1 = true;//trendSell1 && trendSell2;
 
    if(trendBuy1)
    {
@@ -1168,11 +1204,25 @@ void MaybeRefreshDashboardOnTick()
 //+------------------------------------------------------------------+
 int OnInit()
 {
+   eaStartTime = TimeCurrent();
    ResetEquityProfitPauseBaseline();
    EventSetTimer(MathMax(1, DashboardRefreshSeconds));
    RefreshDashboard();
    return(INIT_SUCCEEDED);
 }
+//+------------------------------------------------------------------+
+//| Check if initial 30-min pause is active                          |
+//+------------------------------------------------------------------+
+bool IsInitialPauseActive()
+{
+   return (TimeCurrent() - eaStartTime) < (waitStartSessiontime * 60); // 30 minutes in seconds
+}
+
+//+------------------------------------------------------------------+
+//| Check if MOM_BUY/MOM_SELL signals are enabled                    |
+//+------------------------------------------------------------------+
+bool IsMomBuyEnabled() { return EnableMomBuy; }
+bool IsMomSellEnabled() { return EnableMomSell; }
 
 //+------------------------------------------------------------------+
 void OnTimer()
@@ -1617,11 +1667,66 @@ string GetCloseReason(int orderType, string readyText)
 
    return (orderType == OP_BUY) ? "NO BUY TO CLOSE" : "NO SELL TO CLOSE";
 }
-
+//+------------------------------------------------------------------+
+//| Returns the highest high over the last N bars (excluding current)|
+//+------------------------------------------------------------------+
+double GetRecentHighestHigh(int barsBack)
+{
+    double highest = High[1];
+    for(int i = 2; i <= barsBack; i++)
+    {
+        if(High[i] > highest)
+            highest = High[i];
+    }
+    return highest;
+}
 //+------------------------------------------------------------------+
 bool OpenOrderByType(int orderType, string orderComment, color clr, double signalPrice)
 {
+   // Extra spread check for stricter filtering
+   RefreshRates();
+   double spreadPoints = (Ask - Bid) / Point;
+   /*if(spreadPoints > 10) {
+      LogMessage("Spread too high (" + DoubleToString(spreadPoints, 1) + " pts). No new order placed.");
+      printf("Spread too high  " + spreadPoints +   " - "+  DoubleToString(spreadPoints, 1) + " pts). No new order placed.");
+      return false;
+   }*/
+
    InitializeTradeUpdateTimes();
+
+   // Block order if signal type is disabled
+   string commentUpper = orderComment;
+   if ((commentUpper == "TREND BUY" && !EnableTrendBuy) ||
+       (commentUpper == "V SHAPE BUY" && !EnableVShapeBuy) ||
+       (commentUpper == "W SHAPE BUY" && !EnableWShapeBuy) ||
+       (commentUpper == "STRONG BUY" && !EnableStrongBuy) ||
+       (commentUpper == "MOM BUY" && !EnableMomBuy) ||
+       (commentUpper == "TREND SELL" && !EnableTrendSell) ||
+       (commentUpper == "V SHAPE SELL" && !EnableVShapeSell) ||
+       (commentUpper == "W SHAPE SELL" && !EnableWShapeSell) ||
+       (commentUpper == "STRONG SELL" && !EnableStrongSell) ||
+       (commentUpper == "MOM SELL" && !EnableMomSell))
+   {
+      LogMessage(orderComment + " signal is disabled. No new order placed.");
+      return false;
+   }
+ 
+ 
+ 
+  if ((commentUpper == "TREND BUY" && !EnableTrendBuy) )
+   {
+      LogMessage(orderComment + " signal is disabled. No new order placed.");
+      return false;
+   }
+   
+ 
+
+       
+   if (IsInitialPauseActive())
+   {
+      LogMessage("Initial 30-minute pause active. No new orders allowed.");
+      return false;
+   }
 
    string directionBlock = GetDirectionBlockReason(orderType, orderComment);
    if(directionBlock != "")
@@ -1743,6 +1848,8 @@ bool OpenOrderByType(int orderType, string orderComment, color clr, double signa
 //+------------------------------------------------------------------+
 void OnTick()
 {
+
+DrawEMALines();
    if(Bars < 5)
    {
       MaybeRefreshDashboardOnTick();
@@ -1885,11 +1992,21 @@ void OnTick()
          {
             if(trendBuyConfirmed && IsBuyDirectionAllowed() && lastTrendBuyTradeTime != t)
             {
-               if(EnableAutoTrading)
-               {
-                  if(OpenOrderByType(OP_BUY, "TREND BUY", clrLime, Close[i]))
-                     lastTrendBuyTradeTime = t;
-               }
+               int lookback = 60;
+    double recentHigh = GetRecentHighestHigh(lookback);
+    double minDistancePoints = 20;
+    if((recentHigh - Ask) < minDistancePoints * Point)
+    {
+        Print("Trend Buy blocked: price too close to recent high.");
+        return;
+    }
+
+    // Place order as usual
+    if(EnableAutoTrading)
+    {
+        if(OpenOrderByType(OP_BUY, "TREND BUY", clrLime, Close[i]))
+            lastTrendBuyTradeTime = t;
+    }
                else
                {
                   lastTrendBuyTradeTime = t;
@@ -1939,29 +2056,52 @@ void OnTick()
             }
             else if(bullMomentum && IsBuyDirectionAllowed() && lastMomBuyTradeTime != t)
             {
-               if(EnableAutoTrading)
-               {
-                  if(OpenOrderByType(OP_BUY, "MOM BUY", clrYellow, Close[i]))
+               if(EnableMomBuy) {
+                  if(EnableAutoTrading)
+                  {
+                     if(OpenOrderByType(OP_BUY, "MOM BUY", clrYellow, Close[i]))
+                        lastMomBuyTradeTime = t;
+                  }
+                  else
+                  {
                      lastMomBuyTradeTime = t;
-               }
-               else
-               {
-                  lastMomBuyTradeTime = t;
-               }
+                  }
 
-               if(i == 1 && lastAlertTime != t)
-               {
-                  SendSignalAlert("MOM BUY - " + Symbol());
-                  lastAlertTime = t;
+                  if(i == 1 && lastAlertTime != t)
+                  {
+                     SendSignalAlert("MOM BUY - " + Symbol());
+                     lastAlertTime = t;
+                  }
                }
             }
             else if(trendSellConfirmed && IsSellDirectionAllowed() && lastTrendSellTradeTime != t)
             {
                if(EnableAutoTrading)
                {
+               
+               
+               int lookback = 60; // Number of bars to look back
+double recentLow = GetRecentLowestLow(lookback);
+double minDistancePoints = 20; // Minimum distance from low in points
+
+if((Bid - recentLow) < minDistancePoints * Point)
+{
+    Print("Trend Sell blocked: price too close to recent low.");
+    return; // or return false; depending on your function
+}
+               
+               
+               
+               
+               
+               
                   if(OpenOrderByType(OP_SELL, "TREND SELL", clrRed, Close[i]))
                      lastTrendSellTradeTime = t;
                }
+               
+               
+               
+               
                else
                {
                   lastTrendSellTradeTime = t;
@@ -2011,20 +2151,22 @@ void OnTick()
             }
             else if(bearMomentum && IsSellDirectionAllowed() && lastMomSellTradeTime != t)
             {
-               if(EnableAutoTrading)
-               {
-                  if(OpenOrderByType(OP_SELL, "MOM SELL", clrOrange, Close[i]))
+               if(EnableMomSell) {
+                  if(EnableAutoTrading)
+                  {
+                     if(OpenOrderByType(OP_SELL, "MOM SELL", clrOrange, Close[i]))
+                        lastMomSellTradeTime = t;
+                  }
+                  else
+                  {
                      lastMomSellTradeTime = t;
-               }
-               else
-               {
-                  lastMomSellTradeTime = t;
-               }
+                  }
 
-               if(i == 1 && lastAlertTime != t)
-               {
-                  SendSignalAlert("MOM SELL - " + Symbol());
-                  lastAlertTime = t;
+                  if(i == 1 && lastAlertTime != t)
+                  {
+                     SendSignalAlert("MOM SELL - " + Symbol());
+                     lastAlertTime = t;
+                  }
                }
             }
          }
@@ -2037,4 +2179,43 @@ void OnTick()
 
 }
 
+//+------------------------------------------------------------------+
+//| Draw EMA lines on the chart                                      |
+//+------------------------------------------------------------------+
+void DrawEMALines()
+{
+   // Draw Fast EMA (Blue)
+   string fastName = "EMA_Fast";
+   if(ObjectFind(0, fastName) < 0)
+      ObjectCreate(0, fastName, OBJ_TREND, 0, Time[0], iMA(NULL,0,FastEMA,0,MODE_EMA,PRICE_CLOSE,0), Time[50], iMA(NULL,0,FastEMA,0,MODE_EMA,PRICE_CLOSE,50));
+   ObjectSetInteger(0, fastName, OBJPROP_COLOR, clrBlue);
+   ObjectSetInteger(0, fastName, OBJPROP_WIDTH, 2);
 
+   // Draw Slow EMA (Red)
+   string slowName = "EMA_Slow";
+   if(ObjectFind(0, slowName) < 0)
+      ObjectCreate(0, slowName, OBJ_TREND, 0, Time[0], iMA(NULL,0,SlowEMA,0,MODE_EMA,PRICE_CLOSE,0), Time[50], iMA(NULL,0,SlowEMA,0,MODE_EMA,PRICE_CLOSE,50));
+   ObjectSetInteger(0, slowName, OBJPROP_COLOR, clrRed);
+   ObjectSetInteger(0, slowName, OBJPROP_WIDTH, 2);
+
+   // Draw Trend EMA (Green)
+   string trendName = "EMA_Trend";
+   if(ObjectFind(0, trendName) < 0)
+      ObjectCreate(0, trendName, OBJ_TREND, 0, Time[0], iMA(NULL,0,TrendEMA,0,MODE_EMA,PRICE_CLOSE,0), Time[50], iMA(NULL,0,TrendEMA,0,MODE_EMA,PRICE_CLOSE,50));
+   ObjectSetInteger(0, trendName, OBJPROP_COLOR, clrGreen);
+   ObjectSetInteger(0, trendName, OBJPROP_WIDTH, 2);
+}
+
+//+------------------------------------------------------------------+
+//| Returns the lowest low over the last N bars (excluding current)  |
+//+------------------------------------------------------------------+
+double GetRecentLowestLow(int barsBack)
+{
+    double lowest = Low[1];
+    for(int i = 2; i <= barsBack; i++)
+    {
+        if(Low[i] < lowest)
+            lowest = Low[i];
+    }
+    return lowest;
+}
