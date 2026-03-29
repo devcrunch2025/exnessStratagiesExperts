@@ -17,11 +17,27 @@ input double RSI_Buy  = 55;
 input double RSI_Sell = 45;
 input int ReversalStreakCandles = 3;
 
+
+//-----------------------------------------------------------------------------
+input string version="V1.2";
+input int TradeDirectionMode = 0; // 0=both, 1=buy only, 2=sell only
+input double ProfitBookingUSD = 0.10;
+input double LossCutUSD = 10.00;
+
+
+input double EquityProfitPauseUSD = 5.00;
+input int MaxBuyOrders = 5;
+input int MaxSellOrders = 5;
+
+input int MaxTotalOrders = 10; // 0 = unlimited
+
+//------------------------------------------------------------------------------
+
 input bool EnableAlert = false;
 input bool EnableSound = true;
 input bool EnableLogMessages = false;
 input bool EnableAutoTrading = true;
-input int TradeDirectionMode = 0; // 0=both, 1=buy only, 2=sell only
+
 input bool EnableTestBuyEvery5Min = false; // turn off after testing
 input bool ExecuteEverySignalInTester = false;
 input double LotSize = 0.01;
@@ -33,7 +49,7 @@ input int MaxEntryDistancePoints = 25; // 0 = no late-entry distance filter
 input int MinSameDirectionGapPoints = 0; // 0 = no spacing filter between same-side orders
 input int DashboardRefreshSeconds = 30;
 input bool EnableEquityProfitPause = true;
-input double EquityProfitPauseUSD = 5.00;
+
 input int EquityProfitPauseMinutes = 60;
 input bool EnablePreOpenClose = true;
 input int SessionOpenHour = 11;
@@ -44,13 +60,12 @@ input double PreOpenCloseProfitUSD = 0.10;
 input int StopLossPoints = 0;   // keep 0 for no broker-side stop loss
 input int TakeProfitPoints = 0; // keep 0 for no broker-side take profit
 input bool EnableProfitBooking = true;
-input double ProfitBookingUSD = 0.10;
+
 input bool EnableLossCut = true;
-input double LossCutUSD = 10.00;
+
 input bool CloseOppositeOnEntry = false;
-input int MaxBuyOrders = 5;
-input int MaxSellOrders = 5;
-input int MaxTotalOrders = 0; // 0 = unlimited
+
+
 input bool EnableMaxOrderAutoUnlock = true;
 input int MaxOrderUnlockMinutes = 60;
 input int MaxBuyOrdersAfterUnlock = 10;
@@ -810,6 +825,9 @@ string GetReversalSignalName(int shift, int orderType)
                     reversalBodyStronger && bullishReverseBreak;
    bool vShapeSell = vReversalSell && High[shift+1] > High[shift+2] && currBear && closeToHigh >= 0.55 &&
                      reversalBodyStronger && bearishReverseBreak;
+                     
+                     vShapeBuy=false;
+                     vShapeSell=false;
 
    if(orderType == OP_BUY)
    {
@@ -972,7 +990,7 @@ void UpdateDashboard(string status, string liveReason)
 
    SetDashboardPanel();
 
-   SetDashboardLine("title",   20,  24, "EDGE ALGO V1.1", clrNavy, 11);
+   SetDashboardLine("title",   20,  24, "EDGE ALGO "+version, clrNavy, 11);
    SetDashboardLine("symbol",  20,  46, Symbol() + "  " + GetTimeframeText(), clrBlack, 9);
    SetDashboardValueLine("status",  68, "Status", status, GetStatusColor(status), 108);
    SetDashboardValueLine("reason",  86, "Reason", liveReason, GetReasonColor(liveReason), 108);
