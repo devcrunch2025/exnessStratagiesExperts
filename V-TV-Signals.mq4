@@ -24,7 +24,7 @@ bool EnableMomBuy = false;   // Added for MOM_BUY
 bool EnableTrendSell = true;
 bool EnableVShapeSell = false;
 bool EnableWShapeSell = false;
-bool EnableStrongSell = true;
+bool EnableStrongSell = false;
 bool EnableMomSell = false;  // Added for MOM_SELL
 //+------------------------------------------------------------------+
 //| EDGE ALGO - SMART PATTERN DETECTION (PRO ELITE)                 |
@@ -49,14 +49,15 @@ input int ReversalStreakCandles = 3;
 //-----------------------------------------------------------------------------
 input string version="V1.3";
 input int TradeDirectionMode = 0; // 0=both, 1=buy only, 2=sell only
-input double ProfitBookingUSD = 0.10;
-input double LossCutUSD = 5.00; //stop loss
+input double ProfitBookingUSD = 0.20;
+input double PreOpenCloseProfitUSD = 0.20;
+input double LossCutUSD = 20.00; //stop loss// 5 for AUD 20 for XAG /BTC
 
 
 input double EquityProfitPauseUSD = 5.00;
 input int MaxBuyOrders = 1;
 input int MaxSellOrders = 1;
-input int MaxTotalOrders = 2; // 0 = unlimited
+input int MaxTotalOrders = 10; // 0 = unlimited
 
 input int waitStartSessiontime=0;
 
@@ -87,7 +88,7 @@ input int SessionOpenHour = 11;
 input int SessionOpenMinute = 0;
 input int CloseBeforeOpenMinutes = 60;
 input int WaitAfterOpenMinutes = 60;
-input double PreOpenCloseProfitUSD = 0.10;
+
 input int StopLossPoints = 0;   // keep 0 for no broker-side stop loss
 input int TakeProfitPoints = 0; // keep 0 for no broker-side take profit
 input bool EnableProfitBooking = true;
@@ -1205,8 +1206,8 @@ void BuildDashboardState(string &status, string &liveReason)
                        trendBuy2, reversalBuy2, strongBuy2,
                        trendSell2, reversalSell2, strongSell2);
 
-   bool trendBuyConfirmed1 =  trendBuy1 && trendBuy2;
-   bool trendSellConfirmed1 =  trendSell1 && trendSell2;
+   bool trendBuyConfirmed1 = trendBuy1;// true;//trendBuy1 && trendBuy2;
+   bool trendSellConfirmed1 = trendSell1;// true;//trendSell1 && trendSell2;
 
    if(trendBuy1)
      {
@@ -1796,14 +1797,26 @@ bool OpenOrderByType(int orderType, string orderComment, color clr, double signa
       return false;
      }
 //2026.03.29 15:51:03.395  2026.03.16 07:29:06  V-TV-Signals EURUSDm,M1: STRONG SELL TREND SELL
-  bool isPrevStrong    = StringFind(prevSignal, "STRONG") >= 0;
-bool isCurrentStrong = StringFind(currentSignal, "STRONG") >= 0;
+   bool isPrevStrong    = StringFind(prevSignal, "STRONG") >= 0;
+   bool isCurrentStrong = StringFind(currentSignal, "STRONG") >= 0;
 
-if (prevSignal == currentSignal || isPrevStrong || isCurrentStrong)
-{
-   Print("Blocked: Contains STRONG or duplicate | prev=" + prevSignal + " curr=" + currentSignal);
-   return false;
-}
+
+   if(prevSignal=="STRONG BUY" && currentSignal=="TREND BUY" && Symbol()!="EURUSDm")
+     {
+      //continue
+     }
+   else
+      if(prevSignal=="STRONG SELL" && currentSignal=="TREND SELL" && Symbol()!="EURUSDm")
+        {
+         //continue
+        }
+
+      else
+         if(prevSignal == currentSignal ||   isCurrentStrong ||   isPrevStrong)
+           {
+            //Print("Blocked: Contains STRONG or duplicate | prev=" + prevSignal + " curr=" + currentSignal);
+            return false;
+           }
 
 
    if(IsInitialPauseActive())
@@ -1886,7 +1899,7 @@ if (prevSignal == currentSignal || isPrevStrong || isCurrentStrong)
      }
 
    RefreshRates();
- 
+
    double price = (orderType == OP_BUY) ? Ask : Bid;
    double sl = 0;
    double tp = 0;
@@ -1916,10 +1929,13 @@ if (prevSignal == currentSignal || isPrevStrong || isCurrentStrong)
       tp = NormalizeDouble(tp, Digits);
      }
 
+// if(currentSignal=="TREND SELL")
+//     orderType=OP_SELL;
+
    int ticket = OrderSend(Symbol(), orderType, lots, price, Slippage, sl, tp,
                           orderComment, MagicNumber, 0, clr);
 
-   printf(currentSignal+" "+prevSignal);
+   printf(prevSignal+" "+currentSignal);
 
    if(ticket < 0)
      {
@@ -1935,7 +1951,7 @@ if (prevSignal == currentSignal || isPrevStrong || isCurrentStrong)
 void OnTick()
   {
 
-   DrawEMALines();
+
    if(Bars < 5)
      {
       MaybeRefreshDashboardOnTick();
@@ -1990,7 +2006,7 @@ void OnTick()
       return;
      }
 
-   RunTestBuyEvery5Minutes();
+//RunTestBuyEvery5Minutes();
 
    bool firstRun = (lastProcessedClosedBar == 0);
    bool hasNewClosedBar = (Time[1] != lastProcessedClosedBar);
@@ -2055,7 +2071,7 @@ void OnTick()
             else
                if(strongBuy)
                  {
-                  DrawMarker("SB","STRONG BUY",clrGreen,233,t,Low[i]-10*Point);
+                  DrawMarker("SB","STRONG BUY",clrBlue,233,t,Low[i]-10*Point);
                  }
 
          // =========================
@@ -2073,7 +2089,7 @@ void OnTick()
             else
                if(strongSell)
                  {
-                  DrawMarker("SS","STRONG SELL",clrOrangeRed,234,t,High[i]+10*Point);
+                  DrawMarker("SS","STRONG SELL",clrPink,234,t,High[i]+10*Point);
                  }
 
          // =========================
@@ -2088,7 +2104,7 @@ void OnTick()
                double minDistancePoints = 10;
                if((recentHigh - Ask) < minDistancePoints * Point)
                  {
-                  Print("Trend Buy blocked: price too close to recent high.");
+                  //Print("Trend Buy blocked: price too close to recent high.");
                   //return;
                  }
 
@@ -2188,7 +2204,7 @@ void OnTick()
 
                               if((Bid - recentLow) < minDistancePoints * Point)
                                 {
-                                 Print("Trend Sell blocked: price too close to recent low.");
+                                 // Print("Trend Sell blocked: price too close to recent low.");
                                  //return; // or return false; depending on your function
                                 }
 
@@ -2290,6 +2306,14 @@ void OnTick()
 
    MaybeRefreshDashboardOnTick();
 
+// Place this in your OnTick() or OnTimer() function
+   static datetime lastCall = 0;
+   if(TimeCurrent() - lastCall >= 3600)  // 3600 seconds = 1 hour
+     {
+      lastCall = TimeCurrent();
+      // prevSignal="";
+     }
+   DrawEMALines();
   }
 
 //+------------------------------------------------------------------+
