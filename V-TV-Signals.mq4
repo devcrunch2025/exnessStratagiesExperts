@@ -3,7 +3,6 @@
 //+------------------------------------------------------------------+
 string currentSignal = "";
 string prevSignal = "";
-string lastAppearedStrongSignal = ""; // tracks last STRONG signal even if no order placed
 //+------------------------------------------------------------------+
 //| Calculate spread cost in USD for current symbol and lot size     |
 //+------------------------------------------------------------------+
@@ -50,17 +49,20 @@ input int ReversalStreakCandles = 3;
 //-----------------------------------------------------------------------------
 input string version="V1.3";
 input int TradeDirectionMode = 0; // 0=both, 1=buy only, 2=sell only
-input double ProfitBookingUSD = 0.20;
+input double ProfitBookingUSD      = 0.50;
 input double PreOpenCloseProfitUSD = 0.20;
-input double LossCutUSD = 20.00; //stop loss// 5 for AUD 20 for XAG /BTC
+input double LossCutUSD            = 10.00; // fallback default when symbol not in ApplySymbolDefaults()
 
+double effProfitBookingUSD      = 0.50;  // runtime effective value (set by ApplySymbolDefaults)
+double effPreOpenCloseProfitUSD = 0.20;
+double effLossCutUSD            = 10.00;
 
-input double EquityProfitPauseUSD = 5.00;
+input double EquityProfitPauseUSD = 100.00;
 input int MaxBuyOrders = 1;
 input int MaxSellOrders = 1;
-input int MaxTotalOrders = 10; // 0 = unlimited
+input int MaxTotalOrders = 2; // 0 = unlimited
 
-input int waitStartSessiontime=0;
+input int waitStartSessiontime=5;
 
 
 
@@ -1103,9 +1105,9 @@ void UpdateDashboard(string status, string liveReason)
                          buyOrders > 0 ? GetProfitColor(buyPL) : clrDimGray, 108);
    SetDashboardValueLine("sellpl", 182, "Sell Orders", IntegerToString(sellOrders) + "  P/L $" + DoubleToString(sellPL, 2),
                          sellOrders > 0 ? GetProfitColor(sellPL) : clrDimGray, 108);
-   SetDashboardValueLine("book",   200, "Profit Book", EnableProfitBooking ? ("$" + DoubleToString(ProfitBookingUSD, 2)) : "OFF",
+   SetDashboardValueLine("book",   200, "Profit Book", EnableProfitBooking ? ("$" + DoubleToString(effProfitBookingUSD, 2)) : "OFF",
                          EnableProfitBooking ? clrDarkGreen : clrDimGray, 108);
-   SetDashboardValueLine("stop",   218, "Stop Loss", EnableLossCut ? ("$" + DoubleToString(LossCutUSD, 2)) : "OFF",
+   SetDashboardValueLine("stop",   218, "Stop Loss", EnableLossCut ? ("$" + DoubleToString(effLossCutUSD, 2)) : "OFF",
                          EnableLossCut ? clrRed : clrDimGray, 108);
    double spreadCostUSD = GetSpreadCostUSD(LotSize);
    SetDashboardValueLine("spread", 236, "Spread",   DoubleToString((Ask - Bid),5)  +" "+   DoubleToString(spreadPoints, 0) + " pts ($" + DoubleToString(spreadCostUSD, 2) + ")",
@@ -1278,9 +1280,56 @@ void MaybeRefreshDashboardOnTick()
   }
 
 //+------------------------------------------------------------------+
+// Set LossCut / ProfitBooking / PreOpen values per symbol name.
+// Add or edit entries below. Unrecognised symbols use the input defaults.
+//+------------------------------------------------------------------+
+void ApplySymbolDefaults()
+  { 
+   string name = Symbol();
+
+   // start from input defaults
+   effLossCutUSD            = LossCutUSD;
+   effProfitBookingUSD      = ProfitBookingUSD;
+   effPreOpenCloseProfitUSD = PreOpenCloseProfitUSD;
+
+   if(name == "BTCUSDm" || name == "BTCUSDt" || name == "BTCUSD")
+     { effLossCutUSD = 20.00; effProfitBookingUSD = 1.00; effPreOpenCloseProfitUSD = 0.50; }
+
+   else if(name == "ETHUSDm" || name == "ETHUSDt" || name == "ETHUSD")
+     { effLossCutUSD = 20.00; effProfitBookingUSD = 1.00; effPreOpenCloseProfitUSD = 0.50; }
+
+   else if(name == "XAGUSDm" || name == "XAGUSDt" || name == "XAGUSD")
+     { effLossCutUSD = 20.00; effProfitBookingUSD = 1.00; effPreOpenCloseProfitUSD = 0.50; }
+
+   else if(name == "XAUUSDm" || name == "XAUUSDt" || name == "XAUUSD")
+     { effLossCutUSD = 20.00; effProfitBookingUSD = 1.00; effPreOpenCloseProfitUSD = 0.50; }
+
+   else if(name == "US30m" || name == "US30")
+     { effLossCutUSD = 20.00; effProfitBookingUSD = 1.00; effPreOpenCloseProfitUSD = 0.50; }
+
+   else if(name == "NAS100m" || name == "NAS100" || name == "NASm")
+     { effLossCutUSD = 20.00; effProfitBookingUSD = 1.00; effPreOpenCloseProfitUSD = 0.50; }
+
+   else if(name == "SPX500m" || name == "SPX500" || name == "SPXm")
+     { effLossCutUSD = 20.00; effProfitBookingUSD = 1.00; effPreOpenCloseProfitUSD = 0.50; }
+
+   else if(name == "AUDUSDm" || name == "AUDUSDt" || name == "AUDUSD")
+     { effLossCutUSD =  5.00; effProfitBookingUSD = 0.50; effPreOpenCloseProfitUSD = 0.20; }
+
+   else if(name == "AUDJPYm" || name == "AUDJPYt" || name == "AUDJPY")
+     { effLossCutUSD =  5.00; effProfitBookingUSD = 0.50; effPreOpenCloseProfitUSD = 0.20; }
+
+   else if(name == "EURUSDm" || name == "EURUSDt" || name == "EURUSD")
+     { effLossCutUSD = 10.00; effProfitBookingUSD = 0.20; effPreOpenCloseProfitUSD = 0.20; }
+
+   // else: symbol not listed — uses input defaults loaded above
+  }
+
+//+------------------------------------------------------------------+
 int OnInit()
   {
    eaStartTime = TimeCurrent();
+   ApplySymbolDefaults();
    ResetEquityProfitPauseBaseline();
    EventSetTimer(MathMax(1, DashboardRefreshSeconds));
    RefreshDashboard();
@@ -1458,7 +1507,7 @@ double GetOpenProfitByType(int orderType)
 //+------------------------------------------------------------------+
 void CloseOrdersAtProfitTarget()
   {
-   if(!EnableAutoTrading || !EnableProfitBooking || ProfitBookingUSD <= 0.0)
+   if(!EnableAutoTrading || !EnableProfitBooking || effProfitBookingUSD <= 0.0)
       return;
 
    for(int i = OrdersTotal() - 1; i >= 0; i--)
@@ -1474,7 +1523,7 @@ void CloseOrdersAtProfitTarget()
          continue;
 
       double orderProfit = OrderProfit() + OrderSwap() + OrderCommission();
-      if(orderProfit < ProfitBookingUSD)
+      if(orderProfit < effProfitBookingUSD)
          continue;
 
       RefreshRates();
@@ -1496,7 +1545,7 @@ void CloseOrdersAtProfitTarget()
 //+------------------------------------------------------------------+
 void CloseOrdersAtLossLimit()
   {
-   if(!EnableAutoTrading || !EnableLossCut || LossCutUSD <= 0.0)
+   if(!EnableAutoTrading || !EnableLossCut || effLossCutUSD <= 0.0)
       return;
 
    for(int i = OrdersTotal() - 1; i >= 0; i--)
@@ -1512,7 +1561,7 @@ void CloseOrdersAtLossLimit()
          continue;
 
       double orderProfit = OrderProfit() + OrderSwap() + OrderCommission();
-      if(orderProfit > -LossCutUSD)
+      if(orderProfit > -effLossCutUSD)
          continue;
 
       RefreshRates();
@@ -1544,7 +1593,7 @@ void CloseOrdersBeforeSessionOpen()
       return;
 
    double totalOpenProfit = GetOpenProfitByType(OP_BUY) + GetOpenProfitByType(OP_SELL);
-   if(totalOpenProfit < PreOpenCloseProfitUSD)
+   if(totalOpenProfit < effPreOpenCloseProfitUSD)
       return;
 
    CloseOrdersByType(OP_BUY, clrSilver);
@@ -1801,10 +1850,6 @@ bool OpenOrderByType(int orderType, string orderComment, color clr, double signa
    bool isPrevStrong    = StringFind(prevSignal, "STRONG") >= 0;
    bool isCurrentStrong = StringFind(currentSignal, "STRONG") >= 0;
 
-   // Exception: STRONG BUY -> TREND BUY -> TREND BUY sequence
-   bool isStrongBuyTrendBuySeq  = (lastAppearedStrongSignal == "STRONG BUY"  && prevSignal == "TREND BUY"  && currentSignal == "TREND BUY");
-   // Exception: STRONG SELL -> TREND SELL -> TREND SELL sequence
-   bool isStrongSellTrendSellSeq = (lastAppearedStrongSignal == "STRONG SELL" && prevSignal == "TREND SELL" && currentSignal == "TREND SELL");
 
    if(prevSignal=="STRONG BUY" && currentSignal=="TREND BUY" && Symbol()!="EURUSDm")
      {
@@ -1815,16 +1860,13 @@ bool OpenOrderByType(int orderType, string orderComment, color clr, double signa
         {
          //continue
         }
+
       else
-         if(isStrongBuyTrendBuySeq || isStrongSellTrendSellSeq)
+         if(prevSignal == currentSignal ||   isCurrentStrong ||   isPrevStrong)
            {
-            //continue - allow STRONG->TREND->TREND sequence
+            //Print("Blocked: Contains STRONG or duplicate | prev=" + prevSignal + " curr=" + currentSignal);
+            return false;
            }
-         else
-            if(prevSignal == currentSignal || isCurrentStrong || isPrevStrong)
-              {
-               return false;
-              }
 
 
    if(IsInitialPauseActive())
@@ -2129,7 +2171,6 @@ void OnTick()
                     {
                      lastTrendBuyTradeTime = t;
                      prevSignal = "TREND BUY";
-                     lastAppearedStrongSignal = ""; // consume strong sequence token
                     }
                  }
                else
@@ -2168,7 +2209,6 @@ void OnTick()
                else
                   if(strongBuy && IsBuyDirectionAllowed() && lastStrongBuyTradeTime != t)
                     {
-                     lastAppearedStrongSignal = "STRONG BUY"; // track for STRONG->TREND->TREND sequence
                      if(EnableAutoTrading)
                        {
                         if(OpenOrderByType(OP_BUY, "STRONG BUY", clrGreen, Close[i]))
@@ -2239,7 +2279,6 @@ void OnTick()
                                 {
                                  lastTrendSellTradeTime = t;
                                  prevSignal = "TREND SELL";
-                                 lastAppearedStrongSignal = ""; // consume strong sequence token
                                 }
                              }
 
@@ -2282,7 +2321,6 @@ void OnTick()
                            else
                               if(strongSell && IsSellDirectionAllowed() && lastStrongSellTradeTime != t)
                                 {
-                                 lastAppearedStrongSignal = "STRONG SELL"; // track for STRONG->TREND->TREND sequence
                                  if(EnableAutoTrading)
                                    {
                                     if(OpenOrderByType(OP_SELL, "STRONG SELL", clrOrangeRed, Close[i]))
