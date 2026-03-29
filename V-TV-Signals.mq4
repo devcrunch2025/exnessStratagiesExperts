@@ -16,16 +16,16 @@ double GetSpreadCostUSD(double lotSize)
 //+------------------------------------------------------------------+
 //| Global enable/disable for each signal type (default true)        |
 //+------------------------------------------------------------------+
-bool EnableTrendBuy = true;
-bool EnableVShapeBuy = false;
-bool EnableWShapeBuy = false;
-bool EnableStrongBuy = false;
-bool EnableMomBuy = false;   // Added for MOM_BUY
-bool EnableTrendSell = true;
-bool EnableVShapeSell = false;
-bool EnableWShapeSell = false;
-bool EnableStrongSell = false;
-bool EnableMomSell = false;  // Added for MOM_SELL
+bool EnableTrendBuy   = true;
+bool EnableStrongBuy  = true;   // sequence starter for STRONG→TREND→TREND
+bool EnableWShapeBuy  = true;   // reversal entry
+bool EnableVShapeBuy  = false;  // broken in logic (hardcoded off) — leave false
+bool EnableMomBuy     = false;  // no sequence guard — risky
+bool EnableTrendSell  = true;
+bool EnableStrongSell = true;   // sequence starter for STRONG→TREND→TREND
+bool EnableWShapeSell = true;   // reversal entry
+bool EnableVShapeSell = false;  // broken in logic (hardcoded off) — leave false
+bool EnableMomSell    = false;  // no sequence guard — risky
 //+------------------------------------------------------------------+
 //| EDGE ALGO - SMART PATTERN DETECTION (PRO ELITE)                 |
 //+------------------------------------------------------------------+
@@ -58,9 +58,9 @@ double effPreOpenCloseProfitUSD = 0.20;
 double effLossCutUSD            = 10.00;
 
 input double EquityProfitPauseUSD = 100.00;
-input int MaxBuyOrders = 1;
-input int MaxSellOrders = 1;
-input int MaxTotalOrders = 2; // 0 = unlimited
+input int MaxBuyOrders = 2;
+input int MaxSellOrders = 2;
+input int MaxTotalOrders = 4; // 0 = unlimited
 
 input int waitStartSessiontime=5;
 
@@ -865,6 +865,7 @@ string GetReversalSignalName(int shift, int orderType)
       return "";
 
    double emaFast  = iMA(NULL,0,FastEMA,0,MODE_EMA,PRICE_CLOSE,shift);
+   double emaTrend = iMA(NULL,0,TrendEMA,0,MODE_EMA,PRICE_CLOSE,shift);
    double rsiVal   = iRSI(NULL,0,RSI_Period,PRICE_CLOSE,shift);
    double rsiPrev  = iRSI(NULL,0,RSI_Period,PRICE_CLOSE,shift+1);
    double body     = MathAbs(Open[shift] - Close[shift]);
@@ -901,7 +902,7 @@ string GetReversalSignalName(int shift, int orderType)
 
    if(orderType == OP_BUY)
      {
-      if(streakReversalBuy && strongCandle && rsiUp && Close[shift] > emaFast)
+      if(streakReversalBuy && strongCandle && rsiUp && Close[shift] > emaFast && Close[shift] > emaTrend)
          return "W SHAPE BUY";
 
       if(vShapeBuy && strongCandle && rsiUp && Close[shift] > emaFast)
@@ -910,7 +911,7 @@ string GetReversalSignalName(int shift, int orderType)
    else
       if(orderType == OP_SELL)
         {
-         if(streakReversalSell && strongCandle && rsiDown && Close[shift] < emaFast)
+         if(streakReversalSell && strongCandle && rsiDown && Close[shift] < emaFast && Close[shift] < emaTrend)
             return "W SHAPE SELL";
 
          if(vShapeSell && strongCandle && rsiDown && Close[shift] < emaFast)
@@ -1576,6 +1577,9 @@ void CloseOrdersAtLossLimit()
       else
         {
          MarkTradeUpdate(orderType);
+         // Reset signal lock so the next signal in same direction is not blocked
+         prevSignal = "";
+         LogMessage("Loss cut hit — prevSignal reset for fresh re-entry.");
         }
      }
   }
@@ -2185,7 +2189,8 @@ void OnTick()
                  }
               }
             else
-               if(reversalBuy && IsBuyDirectionAllowed() && lastRevBuyTradeTime != t)
+               if(reversalBuy && IsBuyDirectionAllowed() && lastRevBuyTradeTime != t &&
+                  ((reversalBuyName == "W SHAPE BUY" && EnableWShapeBuy) || (reversalBuyName == "V SHAPE BUY" && EnableVShapeBuy)))
                  {
                   if(EnableAutoTrading)
                     {
@@ -2297,7 +2302,8 @@ void OnTick()
                              }
                           }
                         else
-                           if(reversalSell && IsSellDirectionAllowed() && lastRevSellTradeTime != t)
+                           if(reversalSell && IsSellDirectionAllowed() && lastRevSellTradeTime != t &&
+                              ((reversalSellName == "W SHAPE SELL" && EnableWShapeSell) || (reversalSellName == "V SHAPE SELL" && EnableVShapeSell)))
                              {
                               if(EnableAutoTrading)
                                 {
