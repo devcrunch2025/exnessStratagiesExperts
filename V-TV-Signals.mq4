@@ -48,10 +48,10 @@ input int ReversalStreakCandles = 3;
 
 //-----------------------------------------------------------------------------
 input string version="V1.3";
-input int TradeDirectionMode = 0; // 0=both, 1=buy only, 2=sell only
-input double ProfitBookingUSD      = 0.50;
-input double PreOpenCloseProfitUSD = 0.20;
-input double LossCutUSD            = 10.00; // fallback default when symbol not in ApplySymbolDefaults()
+input int    TradeDirectionMode    = 0;     // Trade Direction: 0=both, 1=buy only, 2=sell only
+input double ProfitBookingUSD      = 0.50;  // Profit Booking USD (default, overridden per symbol)
+input double PreOpenCloseProfitUSD = 0.20;  // Pre-Open Close Profit USD
+input double LossCutUSD            = 10.00; // Loss Cut USD (default, overridden per symbol)
 
 double effProfitBookingUSD      = 0.50;  // runtime effective value (set by ApplySymbolDefaults)
 double effPreOpenCloseProfitUSD = 0.20;
@@ -60,9 +60,9 @@ double effLossCutUSD            = 10.00;
 input double EquityProfitPauseUSD = 100.00;
 input int MaxBuyOrders = 2;
 input int MaxSellOrders = 2;
-input int MaxTotalOrders = 4; // 0 = unlimited
+input int MaxTotalOrders = 4; // Max Total Orders (0 = unlimited)
 
-input int waitStartSessiontime=5;
+input int waitStartSessiontime=1;
 
 
 
@@ -86,27 +86,42 @@ input int DashboardRefreshSeconds = 30;
 input bool EnableEquityProfitPause = true;
 
 input int EquityProfitPauseMinutes = 60;
-input bool EnablePreOpenClose = true;
-input int SessionOpenHour = 11;
-input int SessionOpenMinute = 0;
-input int CloseBeforeOpenMinutes = 60;
-input int WaitAfterOpenMinutes = 60;
+input bool EnablePreOpenClose      = true;
+input int  SessionOpenHour         = 21; // fallback open hour (GMT+2 server time)
+input int  SessionOpenMinute       = 0;  // fallback open minute
+input int  CloseBeforeOpenMinutes  = 30; // block trading X min BEFORE market open (spikes)
+input int  WaitAfterOpenMinutes    = 30; // block trading X min AFTER  market open (spikes)
 
-input int StopLossPoints = 0;   // keep 0 for no broker-side stop loss
-input int TakeProfitPoints = 0; // keep 0 for no broker-side take profit
+// Effective session times — set automatically per symbol in ApplySymbolSessionTimes()
+int effSessionOpenHour   = 21;
+int effSessionOpenMinute = 0;
+
+input int  StopLossPoints   = 500; // broker-side SL safety net (500 = 50 pips on 5-digit broker)
+input int  TakeProfitPoints = 0;   // 0 = no broker-side TP
+
 input bool EnableProfitBooking = true;
+input bool EnableLossCut       = true;
 
-input bool EnableLossCut = true;
+input bool EnableDurationClose = true;
+input int  MaxOrderDurationMin = 15; // close order after 15 min (M1 chart — cut losses fast)
+
+input bool EnableTrendReversalClose = true; // close BUY if market turns bearish, SELL if bullish
+
+input bool EnableDailyLossLimit  = true;
+input double DailyLossLimitUSD   = 50.00; // stop ALL trading today if account drops this much
 
 input bool CloseOppositeOnEntry = false;
 
-
-input bool EnableMaxOrderAutoUnlock = true;
-input int MaxOrderUnlockMinutes = 60;
-input int MaxBuyOrdersAfterUnlock = 10;
-input int MaxSellOrdersAfterUnlock = 10;
+input bool EnableMaxOrderAutoUnlock  = true;
+input int  MaxOrderUnlockMinutes     = 60;
+input int  MaxBuyOrdersAfterUnlock   = 2;  // reduced from 10 — prevents overexposure
+input int  MaxSellOrdersAfterUnlock  = 2;
 
 // ----- GLOBALS ----- //
+double   dailyStartBalance  = 0;   // account balance at start of trading day
+bool     dailyLossTriggered = false; // true = daily loss limit hit, no more orders today
+datetime lastDailyResetDate = 0;   // tracks when daily balance was last reset
+
 datetime eaStartTime = 0; // For initial 30-min pause
 datetime lastAlertTime = 0;
 datetime lastTestBuySlot = 0;
@@ -301,12 +316,12 @@ bool IsTimeWithinWindow(int currentMinutes, int windowStartMinutes, int windowEn
 //+------------------------------------------------------------------+
 bool IsPreOpenCloseWindow()
   {
-   if(!EnablePreOpenClose || CloseBeforeOpenMinutes <= 0)
+   if(!EnablePreOpenClose || CloseBeforeOpenMinutes <= 0 || effSessionOpenHour < 0)
       return false;
 
    datetime now = GetTradeClock();
    int currentMinutes = GetMinutesOfDay(now);
-   int openMinutes = (SessionOpenHour * 60) + SessionOpenMinute;
+   int openMinutes = (effSessionOpenHour * 60) + effSessionOpenMinute;
    int startMinutes = openMinutes - CloseBeforeOpenMinutes;
 
    while(startMinutes < 0)
@@ -321,12 +336,12 @@ bool IsPreOpenCloseWindow()
 //+------------------------------------------------------------------+
 bool IsPostOpenWaitWindow()
   {
-   if(!EnablePreOpenClose || WaitAfterOpenMinutes <= 0)
+   if(!EnablePreOpenClose || WaitAfterOpenMinutes <= 0 || effSessionOpenHour < 0)
       return false;
 
    datetime now = GetTradeClock();
    int currentMinutes = GetMinutesOfDay(now);
-   int openMinutes = (SessionOpenHour * 60) + SessionOpenMinute;
+   int openMinutes = (effSessionOpenHour * 60) + effSessionOpenMinute;
    int endMinutes = openMinutes + WaitAfterOpenMinutes;
 
    while(openMinutes >= 1440)
@@ -1281,6 +1296,54 @@ void MaybeRefreshDashboardOnTick()
   }
 
 //+------------------------------------------------------------------+
+// Set market open time per symbol (GMT+2 broker server time).
+// 30 min before and after this time will be blocked from trading.
+// Add or edit entries below. Unrecognised symbols use input defaults.
+//+------------------------------------------------------------------+
+void ApplySymbolSessionTimes()
+  {
+   string name = Symbol();
+
+   // start from input defaults
+   effSessionOpenHour   = SessionOpenHour;
+   effSessionOpenMinute = SessionOpenMinute;
+
+   // --- Forex major pairs — weekly open Sunday 21:00 GMT+2 ---
+   if(name=="EURUSDm" || name=="EURUSDt" || name=="EURUSD" ||
+      name=="GBPUSDm" || name=="GBPUSDt" || name=="GBPUSD" ||
+      name=="USDJPYm" || name=="USDJPYt" || name=="USDJPY" ||
+      name=="USDCHFm" || name=="USDCHFt" || name=="USDCHF" ||
+      name=="AUDUSDm" || name=="AUDUSDt" || name=="AUDUSD" ||
+      name=="USDCADm" || name=="USDCADt" || name=="USDCAD" ||
+      name=="NZDUSDm" || name=="NZDUSDt" || name=="NZDUSD")
+     { effSessionOpenHour = 21; effSessionOpenMinute = 0; }
+
+   // --- XAU/XAG (Gold/Silver) — commodity open Sunday 21:00 GMT+2 ---
+   else if(name=="XAUUSDm" || name=="XAUUSDt" || name=="XAUUSD" ||
+           name=="XAGUSDm" || name=="XAGUSDt" || name=="XAGUSD")
+     { effSessionOpenHour = 21; effSessionOpenMinute = 0; }
+
+   // --- US Indices — NYSE/NASDAQ open 15:30 GMT+2 (9:30 AM EST) ---
+   else if(name=="US30m"   || name=="US30"   ||
+           name=="NAS100m" || name=="NAS100" ||
+           name=="SPX500m" || name=="SPX500")
+     { effSessionOpenHour = 15; effSessionOpenMinute = 30; }
+
+   // --- BTC/ETH — trades 24/7, disable session pause ---
+   else if(name=="BTCUSDm" || name=="BTCUSDt" || name=="BTCUSD" ||
+           name=="ETHUSDm" || name=="ETHUSDt" || name=="ETHUSD")
+     { effSessionOpenHour = -1; effSessionOpenMinute = 0; } // -1 = no pause
+
+   // else: uses input SessionOpenHour / SessionOpenMinute
+
+   if(effSessionOpenHour >= 0)
+      LogMessage(StringFormat("Session times: Symbol=%s  Open=%02d:%02d  Pause=±30min",
+                 name, effSessionOpenHour, effSessionOpenMinute));
+   else
+      LogMessage("Session times: Symbol=" + name + "  24/7 — no session pause");
+  }
+
+//+------------------------------------------------------------------+
 // Set LossCut / ProfitBooking / PreOpen values per symbol name.
 // Add or edit entries below. Unrecognised symbols use the input defaults.
 //+------------------------------------------------------------------+
@@ -1294,25 +1357,25 @@ void ApplySymbolDefaults()
    effPreOpenCloseProfitUSD = PreOpenCloseProfitUSD;
 
    if(name == "BTCUSDm" || name == "BTCUSDt" || name == "BTCUSD")
-     { effLossCutUSD = 20.00; effProfitBookingUSD = 1.00; effPreOpenCloseProfitUSD = 0.50; }
+     { effLossCutUSD = 20.00; effProfitBookingUSD = 0.50; effPreOpenCloseProfitUSD = 0.50; }
 
    else if(name == "ETHUSDm" || name == "ETHUSDt" || name == "ETHUSD")
-     { effLossCutUSD = 20.00; effProfitBookingUSD = 1.00; effPreOpenCloseProfitUSD = 0.50; }
+     { effLossCutUSD = 20.00; effProfitBookingUSD = 0.50; effPreOpenCloseProfitUSD = 0.50; }
 
    else if(name == "XAGUSDm" || name == "XAGUSDt" || name == "XAGUSD")
-     { effLossCutUSD = 20.00; effProfitBookingUSD = 1.00; effPreOpenCloseProfitUSD = 0.50; }
+     { effLossCutUSD = 20.00; effProfitBookingUSD = 0.50; effPreOpenCloseProfitUSD = 0.50; }
 
    else if(name == "XAUUSDm" || name == "XAUUSDt" || name == "XAUUSD")
-     { effLossCutUSD = 20.00; effProfitBookingUSD = 1.00; effPreOpenCloseProfitUSD = 0.50; }
+     { effLossCutUSD = 20.00; effProfitBookingUSD = 0.50; effPreOpenCloseProfitUSD = 0.50; }
 
    else if(name == "US30m" || name == "US30")
-     { effLossCutUSD = 20.00; effProfitBookingUSD = 1.00; effPreOpenCloseProfitUSD = 0.50; }
+     { effLossCutUSD = 20.00; effProfitBookingUSD = 0.50; effPreOpenCloseProfitUSD = 0.50; }
 
    else if(name == "NAS100m" || name == "NAS100" || name == "NASm")
-     { effLossCutUSD = 20.00; effProfitBookingUSD = 1.00; effPreOpenCloseProfitUSD = 0.50; }
+     { effLossCutUSD = 20.00; effProfitBookingUSD = 0.50; effPreOpenCloseProfitUSD = 0.50; }
 
    else if(name == "SPX500m" || name == "SPX500" || name == "SPXm")
-     { effLossCutUSD = 20.00; effProfitBookingUSD = 1.00; effPreOpenCloseProfitUSD = 0.50; }
+     { effLossCutUSD = 20.00; effProfitBookingUSD = 0.50; effPreOpenCloseProfitUSD = 0.50; }
 
    else if(name == "AUDUSDm" || name == "AUDUSDt" || name == "AUDUSD")
      { effLossCutUSD =  5.00; effProfitBookingUSD = 0.50; effPreOpenCloseProfitUSD = 0.20; }
@@ -1321,7 +1384,7 @@ void ApplySymbolDefaults()
      { effLossCutUSD =  5.00; effProfitBookingUSD = 0.50; effPreOpenCloseProfitUSD = 0.20; }
 
    else if(name == "EURUSDm" || name == "EURUSDt" || name == "EURUSD")
-     { effLossCutUSD = 10.00; effProfitBookingUSD = 0.20; effPreOpenCloseProfitUSD = 0.20; }
+     { effLossCutUSD = 10.00; effProfitBookingUSD = 0.10; effPreOpenCloseProfitUSD = 0.20; }
 
    // else: symbol not listed — uses input defaults loaded above
   }
@@ -1330,6 +1393,7 @@ void ApplySymbolDefaults()
 int OnInit()
   {
    eaStartTime = TimeCurrent();
+   ApplySymbolSessionTimes();
    ApplySymbolDefaults();
    ResetEquityProfitPauseBaseline();
    EventSetTimer(MathMax(1, DashboardRefreshSeconds));
@@ -1580,6 +1644,137 @@ void CloseOrdersAtLossLimit()
          // Reset signal lock so the next signal in same direction is not blocked
          prevSignal = "";
          LogMessage("Loss cut hit — prevSignal reset for fresh re-entry.");
+        }
+     }
+  }
+
+//+------------------------------------------------------------------+
+// Daily loss limit — resets at midnight, blocks all new orders if hit
+//+------------------------------------------------------------------+
+void CheckDailyLossLimit()
+  {
+   if(!EnableDailyLossLimit || DailyLossLimitUSD <= 0)
+      return;
+
+   // Reset at start of new day
+   datetime now       = GetTradeClock();
+   datetime todayDate = now - (now % 86400); // midnight of today
+   if(lastDailyResetDate != todayDate)
+     {
+      dailyStartBalance   = AccountBalance();
+      dailyLossTriggered  = false;
+      lastDailyResetDate  = todayDate;
+      LogMessage(StringFormat("Daily loss limit reset. Start balance: %.2f", dailyStartBalance));
+     }
+
+   if(dailyLossTriggered)
+      return;
+
+   double todayLoss = dailyStartBalance - AccountEquity();
+   if(todayLoss >= DailyLossLimitUSD)
+     {
+      dailyLossTriggered = true;
+      LogMessage(StringFormat("Daily loss limit hit: -$%.2f. No more orders today.", todayLoss));
+
+      // Close all open orders immediately
+      for(int i = OrdersTotal() - 1; i >= 0; i--)
+        {
+         if(!OrderSelect(i, SELECT_BY_POS, MODE_TRADES)) continue;
+         if(OrderSymbol() != Symbol() || OrderMagicNumber() != MagicNumber) continue;
+         int ot = OrderType();
+         if(ot != OP_BUY && ot != OP_SELL) continue;
+         RefreshRates();
+         double cp = (ot == OP_BUY) ? Bid : Ask;
+         if(OrderClose(OrderTicket(), OrderLots(), cp, Slippage, clrRed))
+           { MarkTradeUpdate(ot); prevSignal = ""; }
+        }
+     }
+  }
+
+bool IsDailyLossLimitActive()
+  {
+   return (EnableDailyLossLimit && dailyLossTriggered);
+  }
+
+//+------------------------------------------------------------------+
+// Condition 2: Close order if it has been open longer than MaxOrderDurationMin
+//+------------------------------------------------------------------+
+void CloseOrdersByDuration()
+  {
+   if(!EnableAutoTrading || !EnableDurationClose || MaxOrderDurationMin <= 0)
+      return;
+
+   datetime now = GetTradeClock();
+
+   for(int i = OrdersTotal() - 1; i >= 0; i--)
+     {
+      if(!OrderSelect(i, SELECT_BY_POS, MODE_TRADES))
+         continue;
+      if(OrderSymbol() != Symbol() || OrderMagicNumber() != MagicNumber)
+         continue;
+      int orderType = OrderType();
+      if(orderType != OP_BUY && orderType != OP_SELL)
+         continue;
+
+      int openMinutes = (int)((now - OrderOpenTime()) / 60);
+      if(openMinutes < MaxOrderDurationMin)
+         continue;
+
+      RefreshRates();
+      double closePrice = (orderType == OP_BUY) ? Bid : Ask;
+      if(!OrderClose(OrderTicket(), OrderLots(), closePrice, Slippage, clrSilver))
+         LogMessage("Duration close failed ticket " + IntegerToString(OrderTicket()) + ": " + IntegerToString(GetLastError()));
+      else
+        {
+         MarkTradeUpdate(orderType);
+         prevSignal = "";
+         LogMessage("Order closed: duration exceeded " + IntegerToString(MaxOrderDurationMin) + " min.");
+        }
+     }
+  }
+
+//+------------------------------------------------------------------+
+// Condition 3: Close BUY if market turns bearish, close SELL if bullish
+//+------------------------------------------------------------------+
+void CloseOrdersByTrendReversal()
+  {
+   if(!EnableAutoTrading || !EnableTrendReversalClose)
+      return;
+
+   double emaFast  = iMA(NULL, 0, FastEMA,  0, MODE_EMA, PRICE_CLOSE, 1);
+   double emaSlow  = iMA(NULL, 0, SlowEMA,  0, MODE_EMA, PRICE_CLOSE, 1);
+   double emaTrend = iMA(NULL, 0, TrendEMA, 0, MODE_EMA, PRICE_CLOSE, 1);
+
+   bool marketBearish = (emaFast < emaSlow) && (Bid < emaTrend);
+   bool marketBullish = (emaFast > emaSlow) && (Ask > emaTrend);
+
+   for(int i = OrdersTotal() - 1; i >= 0; i--)
+     {
+      if(!OrderSelect(i, SELECT_BY_POS, MODE_TRADES))
+         continue;
+      if(OrderSymbol() != Symbol() || OrderMagicNumber() != MagicNumber)
+         continue;
+
+      int orderType = OrderType();
+      bool shouldClose = false;
+      string reason = "";
+
+      if(orderType == OP_BUY && marketBearish)
+        { shouldClose = true; reason = "BUY closed: market turned bearish"; }
+      else if(orderType == OP_SELL && marketBullish)
+        { shouldClose = true; reason = "SELL closed: market turned bullish"; }
+
+      if(!shouldClose) continue;
+
+      RefreshRates();
+      double closePrice = (orderType == OP_BUY) ? Bid : Ask;
+      if(!OrderClose(OrderTicket(), OrderLots(), closePrice, Slippage, clrOrange))
+         LogMessage("Trend reversal close failed ticket " + IntegerToString(OrderTicket()) + ": " + IntegerToString(GetLastError()));
+      else
+        {
+         MarkTradeUpdate(orderType);
+         prevSignal = "";
+         LogMessage(reason);
         }
      }
   }
@@ -1889,6 +2084,12 @@ bool OpenOrderByType(int orderType, string orderComment, color clr, double signa
    if(!EnableAutoTrading)
       return false;
 
+   if(IsDailyLossLimitActive())
+     {
+      LogMessage(orderComment + " skipped: daily loss limit active — no more orders today.");
+      return false;
+     }
+
    if(IsEquityProfitPauseWindow())
      {
       LogMessage(orderComment + " skipped: " + GetEquityProfitPauseReason());
@@ -2033,9 +2234,12 @@ void OnTick()
       return;
      }
 
+   CheckDailyLossLimit();
    CloseOrdersBeforeSessionOpen();
    CloseOrdersAtLossLimit();
    CloseOrdersAtProfitTarget();
+   CloseOrdersByDuration();
+   CloseOrdersByTrendReversal();
 
    if(IsSessionPauseWindow())
      {
