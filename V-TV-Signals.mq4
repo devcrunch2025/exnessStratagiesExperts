@@ -81,7 +81,7 @@ input int MaxSpreadPoints = 10; // Stricter spread filter
 input int MaxEntryDistancePoints = 25; // 0 = no late-entry distance filter
 input int MinSameDirectionGapPoints = 0; // 0 = no spacing filter between same-side orders
 input int DashboardRefreshSeconds = 30;
-input bool EnableEquityProfitPause = true;
+input bool EnableEquityProfitPause = false;
 
 input int EquityProfitPauseMinutes = 60;
 input bool EnablePreOpenClose = true;
