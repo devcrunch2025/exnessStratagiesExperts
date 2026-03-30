@@ -1,14 +1,9 @@
 ﻿//+------------------------------------------------------------------+
 //| Global signal tracking variables                                 |
 //+------------------------------------------------------------------+
-string currentSignal            = "";
-string prevSignal               = "";
-string lastAppearedStrongSignal = "";
-
-// Per-bar single-order guard: prevents two different signal types from both
-// firing on the same bar (e.g. TREND BUY fires tick 1, EMA PULLBACK fires tick 2).
-datetime lastAnyBuyBarTime  = 0;
-datetime lastAnySellBarTime = 0;
+string currentSignal = "";
+string prevSignal = "";
+string lastAppearedStrongSignal = ""; // tracks last STRONG signal even if no order placed
 //+------------------------------------------------------------------+
 //| Calculate spread cost in USD for current symbol and lot size     |
 //+------------------------------------------------------------------+
@@ -22,16 +17,16 @@ double GetSpreadCostUSD(double lotSize)
 //+------------------------------------------------------------------+
 //| Global enable/disable for each signal type (default true)        |
 //+------------------------------------------------------------------+
-bool EnableTrendBuy   = true;
-bool EnableStrongBuy  = true;   // sequence starter for STRONG→TREND→TREND
-bool EnableWShapeBuy  = false;   // reversal entry
-bool EnableVShapeBuy  = false;  // broken in logic (hardcoded off) — leave false
-bool EnableMomBuy     = false;  // no sequence guard — risky
-bool EnableTrendSell  = true;
-bool EnableStrongSell = true;   // sequence starter for STRONG→TREND→TREND
-bool EnableWShapeSell = false;   // reversal entry
-bool EnableVShapeSell = false;  // broken in logic (hardcoded off) — leave false
-bool EnableMomSell    = false;  // no sequence guard — risky
+bool EnableTrendBuy = true;
+bool EnableVShapeBuy = false;
+bool EnableWShapeBuy = false;
+bool EnableStrongBuy = false;
+bool EnableMomBuy = false;   // Added for MOM_BUY
+bool EnableTrendSell = true;
+bool EnableVShapeSell = false;
+bool EnableWShapeSell = false;
+bool EnableStrongSell = false;
+bool EnableMomSell = false;  // Added for MOM_SELL
 //+------------------------------------------------------------------+
 //| EDGE ALGO - SMART PATTERN DETECTION (PRO ELITE)                 |
 //+------------------------------------------------------------------+
@@ -54,21 +49,18 @@ input int ReversalStreakCandles = 3;
 
 //-----------------------------------------------------------------------------
 input string version="V1.3";
-input int    TradeDirectionMode    = 0;     // Trade Direction: 0=both, 1=buy only, 2=sell only
-input double ProfitBookingUSD      = 0.50;  // Profit Booking USD (default, overridden per symbol)
-input double PreOpenCloseProfitUSD = 0.20;  // Pre-Open Close Profit USD
-input double LossCutUSD            = 1.00;  // Loss Cut USD — set to 2x profit target (default, overridden per symbol)
+input int TradeDirectionMode = 0; // 0=both, 1=buy only, 2=sell only
+input double ProfitBookingUSD = 0.50;
+input double PreOpenCloseProfitUSD = 0.20;
+input double LossCutUSD = 20.00; //stop loss// 5 for AUD 20 for XAG /BTC
 
-double effProfitBookingUSD      = 0.50;
-double effPreOpenCloseProfitUSD = 0.20;
-double effLossCutUSD            = 1.00;
 
-input double EquityProfitPauseUSD = 100.00;
+input double EquityProfitPauseUSD = 5.00;
 input int MaxBuyOrders = 2;
 input int MaxSellOrders = 2;
-input int MaxTotalOrders = 4; // Max Total Orders (0 = unlimited)
+input int MaxTotalOrders = 4; // 0 = unlimited
 
-input int waitStartSessiontime=1;
+input int waitStartSessiontime=0;
 
 
 
@@ -92,84 +84,27 @@ input int DashboardRefreshSeconds = 30;
 input bool EnableEquityProfitPause = true;
 
 input int EquityProfitPauseMinutes = 60;
-input bool EnablePreOpenClose      = true;
-input int  SessionOpenHour         = 21; // fallback open hour (GMT+2 server time)
-input int  SessionOpenMinute       = 0;  // fallback open minute
-input int  CloseBeforeOpenMinutes  = 30; // block trading X min BEFORE market open (spikes)
-input int  WaitAfterOpenMinutes    = 30; // block trading X min AFTER  market open (spikes)
+input bool EnablePreOpenClose = true;
+input int SessionOpenHour = 11;
+input int SessionOpenMinute = 0;
+input int CloseBeforeOpenMinutes = 60;
+input int WaitAfterOpenMinutes = 60;
 
-// Effective session times — set automatically per symbol in ApplySymbolSessionTimes()
-int effSessionOpenHour   = 21;
-int effSessionOpenMinute = 0;
+input int StopLossPoints = 0;   // keep 0 for no broker-side stop loss
+input int TakeProfitPoints = 0; // keep 0 for no broker-side take profit
+input bool EnableProfitBooking = true;
 
-input int  StopLossPoints   = 0;//500; // broker-side SL safety net (500 = 50 pips on 5-digit broker)
-input int  TakeProfitPoints = 0;   // 0 = no broker-side TP
-
-input bool EnableProfitBooking = false;
-input bool EnableLossCut       = false;
-
-input bool   EnableDurationClose       = false;
-input int    MaxOrderDurationMin       = 10;   // close stalled order after 10 min
-input double DurationSkipIfProfitUSD   = 0.20; // skip duration close if already this profitable — let it run to target
-
-input bool EnableTrendReversalClose = false; // close BUY if market turns bearish, SELL if bullish
-
-input bool EnableDailyLossLimit  = true;
-input double DailyLossLimitUSD   = 50.00; // stop ALL trading today if account drops this much
+input bool EnableLossCut = true;
 
 input bool CloseOppositeOnEntry = false;
 
-input bool EnableMaxOrderAutoUnlock  = true;
-input int  MaxOrderUnlockMinutes     = 60;
-input int  MaxBuyOrdersAfterUnlock   = 2;
-input int  MaxSellOrdersAfterUnlock  = 2;
 
-// --- Break-Even Stop ---
-input bool   EnableBreakEven      = true;
-input double BreakEvenProfitUSD   = 0.15; // move SL to entry once up $0.15 — trade becomes risk-free
-
-// --- Trailing Stop ---
-input bool   EnableTrailingStop   = true;
-input double TrailingStopUSD      = 0.10; // lock in $0.10 profit as price moves further in favor
-
-// --- Daily Profit Target ---
-input bool   EnableDailyProfitTarget = true;
-input double DailyProfitTargetUSD    = 30.00; // stop trading today after this profit
-
-// --- Consecutive Loss Pause ---
-input bool EnableConsecutiveLossPause = true;
-input int  MaxConsecutiveLosses       = 3;    // pause after this many losses in a row
-input int  ConsecutiveLossPauseMin    = 60;   // pause duration in minutes
-
-// --- Weekend Close ---
-input bool EnableWeekendClose     = true;
-input int  WeekendCloseHour       = 21;   // GMT+2: close all orders at Friday 21:00
-input int  WeekendCloseMinute     = 0;
-
-// --- Higher Timeframe Filter ---
-input bool EnableH1Filter         = false;  // only trade in direction of H1 trend (EMA crossover)
-input bool EnableStrictH1Filter   = false; // also require H1 price > H1 200 EMA (very strict, may block signals for hours)
-
-// --- EMA Pullback Signal ---
-input bool EnableEmaPullback      = true; // buy dip to 21 EMA in uptrend
-
-// --- RSI Bounce Signal ---
-input bool EnableRsiBounce        = true; // buy RSI cross above 30, sell cross below 70
-input double RsiOversold          = 30.0;
-input double RsiOverbought        = 70.0;
+input bool EnableMaxOrderAutoUnlock = true;
+input int MaxOrderUnlockMinutes = 60;
+input int MaxBuyOrdersAfterUnlock = 10;
+input int MaxSellOrdersAfterUnlock = 10;
 
 // ----- GLOBALS ----- //
-double   dailyStartBalance      = 0;
-bool     dailyLossTriggered     = false;
-bool     dailyProfitTriggered   = false;
-datetime lastDailyResetDate     = 0;
-int      consecutiveLosses      = 0;
-datetime consecutiveLossPauseUntil = 0;
-datetime lastEmaPullbackBuyTime = 0;
-datetime lastEmaPullbackSellTime= 0;
-datetime lastRsiBounceByTime    = 0;
-datetime lastRsiBounceSellTime  = 0;
-
 datetime eaStartTime = 0; // For initial 30-min pause
 datetime lastAlertTime = 0;
 datetime lastTestBuySlot = 0;
@@ -364,12 +299,12 @@ bool IsTimeWithinWindow(int currentMinutes, int windowStartMinutes, int windowEn
 //+------------------------------------------------------------------+
 bool IsPreOpenCloseWindow()
   {
-   if(!EnablePreOpenClose || CloseBeforeOpenMinutes <= 0 || effSessionOpenHour < 0)
+   if(!EnablePreOpenClose || CloseBeforeOpenMinutes <= 0)
       return false;
 
    datetime now = GetTradeClock();
    int currentMinutes = GetMinutesOfDay(now);
-   int openMinutes = (effSessionOpenHour * 60) + effSessionOpenMinute;
+   int openMinutes = (SessionOpenHour * 60) + SessionOpenMinute;
    int startMinutes = openMinutes - CloseBeforeOpenMinutes;
 
    while(startMinutes < 0)
@@ -384,12 +319,12 @@ bool IsPreOpenCloseWindow()
 //+------------------------------------------------------------------+
 bool IsPostOpenWaitWindow()
   {
-   if(!EnablePreOpenClose || WaitAfterOpenMinutes <= 0 || effSessionOpenHour < 0)
+   if(!EnablePreOpenClose || WaitAfterOpenMinutes <= 0)
       return false;
 
    datetime now = GetTradeClock();
    int currentMinutes = GetMinutesOfDay(now);
-   int openMinutes = (effSessionOpenHour * 60) + effSessionOpenMinute;
+   int openMinutes = (SessionOpenHour * 60) + SessionOpenMinute;
    int endMinutes = openMinutes + WaitAfterOpenMinutes;
 
    while(openMinutes >= 1440)
@@ -928,7 +863,6 @@ string GetReversalSignalName(int shift, int orderType)
       return "";
 
    double emaFast  = iMA(NULL,0,FastEMA,0,MODE_EMA,PRICE_CLOSE,shift);
-   double emaTrend = iMA(NULL,0,TrendEMA,0,MODE_EMA,PRICE_CLOSE,shift);
    double rsiVal   = iRSI(NULL,0,RSI_Period,PRICE_CLOSE,shift);
    double rsiPrev  = iRSI(NULL,0,RSI_Period,PRICE_CLOSE,shift+1);
    double body     = MathAbs(Open[shift] - Close[shift]);
@@ -963,14 +897,9 @@ string GetReversalSignalName(int shift, int orderType)
    vShapeBuy=false;
    vShapeSell=false;
 
-   // W SHAPE: RSI at the bottom of the bear streak must be below 50 (genuine weakness before reversal).
-   // W SHAPE: RSI at the top of the bull streak must be above 50 (genuine strength before reversal).
-   double rsiAtStreakBottom = (shift+1 < Bars) ? iRSI(NULL, 0, RSI_Period, PRICE_CLOSE, shift+1) : 50;
-
    if(orderType == OP_BUY)
      {
-      if(streakReversalBuy && strongCandle && rsiUp && rsiAtStreakBottom < 50 &&
-         Close[shift] > emaFast && Close[shift] > emaTrend)
+      if(streakReversalBuy && strongCandle && rsiUp && Close[shift] > emaFast)
          return "W SHAPE BUY";
 
       if(vShapeBuy && strongCandle && rsiUp && Close[shift] > emaFast)
@@ -979,8 +908,7 @@ string GetReversalSignalName(int shift, int orderType)
    else
       if(orderType == OP_SELL)
         {
-         if(streakReversalSell && strongCandle && rsiDown && rsiAtStreakBottom > 50 &&
-            Close[shift] < emaFast && Close[shift] < emaTrend)
+         if(streakReversalSell && strongCandle && rsiDown && Close[shift] < emaFast)
             return "W SHAPE SELL";
 
          if(vShapeSell && strongCandle && rsiDown && Close[shift] < emaFast)
@@ -991,33 +919,6 @@ string GetReversalSignalName(int shift, int orderType)
   }
 
 //+------------------------------------------------------------------+
-// Returns true if H1 trend aligns with the requested direction
-bool IsH1TrendBullish()
-  {
-   double h1Fast  = iMA(NULL, PERIOD_H1, FastEMA,  0, MODE_EMA, PRICE_CLOSE, 0);
-   double h1Slow  = iMA(NULL, PERIOD_H1, SlowEMA,  0, MODE_EMA, PRICE_CLOSE, 0);
-   bool crossoverOK = (h1Fast > h1Slow);
-   if(!EnableStrictH1Filter)
-      return crossoverOK;
-   // Strict mode: also require H1 close above H1 200 EMA (macro uptrend)
-   double h1Trend = iMA(NULL, PERIOD_H1, TrendEMA, 0, MODE_EMA, PRICE_CLOSE, 0);
-   double h1Close = iClose(NULL, PERIOD_H1, 0);
-   return (crossoverOK && h1Close > h1Trend);
-  }
-
-bool IsH1TrendBearish()
-  {
-   double h1Fast  = iMA(NULL, PERIOD_H1, FastEMA,  0, MODE_EMA, PRICE_CLOSE, 0);
-   double h1Slow  = iMA(NULL, PERIOD_H1, SlowEMA,  0, MODE_EMA, PRICE_CLOSE, 0);
-   bool crossoverOK = (h1Fast < h1Slow);
-   if(!EnableStrictH1Filter)
-      return crossoverOK;
-   // Strict mode: also require H1 close below H1 200 EMA (macro downtrend)
-   double h1Trend = iMA(NULL, PERIOD_H1, TrendEMA, 0, MODE_EMA, PRICE_CLOSE, 0);
-   double h1Close = iClose(NULL, PERIOD_H1, 0);
-   return (crossoverOK && h1Close < h1Trend);
-  }
-
 void EvaluateSignalFlags(int shift,
                          bool &bullMomentum,
                          bool &bearMomentum,
@@ -1026,39 +927,19 @@ void EvaluateSignalFlags(int shift,
                          bool &strongBuy,
                          bool &trendSell,
                          bool &reversalSell,
-                         bool &strongSell,
-                         bool &emaPullbackBuy,
-                         bool &emaPullbackSell,
-                         bool &rsiBounceBuy,
-                         bool &rsiBounceSell)
+                         bool &strongSell)
   {
-   bullMomentum    = false;
-   bearMomentum    = false;
-   trendBuy        = false;
-   reversalBuy     = false;
-   strongBuy       = false;
-   trendSell       = false;
-   reversalSell    = false;
-   strongSell      = false;
-   emaPullbackBuy  = false;
-   emaPullbackSell = false;
-   rsiBounceBuy    = false;
-   rsiBounceSell   = false;
+   bullMomentum = false;
+   bearMomentum = false;
+   trendBuy = false;
+   reversalBuy = false;
+   strongBuy = false;
+   trendSell = false;
+   reversalSell = false;
+   strongSell = false;
 
    if(shift < 0 || shift + 2 >= Bars)
       return;
-
-   // Bar 0 just opened — High==Low (zero range). strongCandle and bullishCloseStrong
-   // will always be false on the first tick, causing valid bar-1 signals to be missed.
-   // Inherit bar 1's confirmed signal instead so the order fires on bar 0's first tick.
-   if(shift == 0 && Bars > 1 && (High[0] - Low[0]) == 0.0)
-     {
-      EvaluateSignalFlags(1, bullMomentum, bearMomentum,
-                          trendBuy, reversalBuy, strongBuy,
-                          trendSell, reversalSell, strongSell,
-                          emaPullbackBuy, emaPullbackSell, rsiBounceBuy, rsiBounceSell);
-      return;
-     }
 
    double emaFast  = iMA(NULL,0,FastEMA,0,MODE_EMA,PRICE_CLOSE,shift);
    double emaSlow  = iMA(NULL,0,SlowEMA,0,MODE_EMA,PRICE_CLOSE,shift);
@@ -1074,8 +955,7 @@ void EvaluateSignalFlags(int shift,
    double closeToHigh = (range > 0.0) ? ((High[shift] - Close[shift]) / range) : 0.0;
    double prevBody = MathAbs(Open[shift+1] - Close[shift+1]);
 
-   // Reduced from 0.6 to 0.5: M1 candles have more wicks; 50% body still shows directional strength
-   bool strongCandle = (range > 0.0) && (body > (range * 0.5));
+   bool strongCandle = (range > 0.0) && (body > (range * 0.6));
    bool strongTrend  = emaGap > (10 * Point);
 
    bool rsiUp   = rsiVal > rsiPrev;
@@ -1087,10 +967,8 @@ void EvaluateSignalFlags(int shift,
    bullMomentum = bullTrend && rsiUp && strongTrend;
    bearMomentum = bearTrend && rsiDown && strongTrend;
 
-   // Breakout: strong = close above prev HIGH; moderate = close above prev midpoint in confirmed trend
-   double prevMid    = (High[shift+1] + Low[shift+1]) / 2.0;
-   bool breakoutBuy  = Close[shift] > High[shift+1] || (Close[shift] > prevMid && bullTrend);
-   bool breakoutSell = Close[shift] < Low[shift+1]  || (Close[shift] < prevMid && bearTrend);
+   bool breakoutBuy  = Close[shift] > High[shift+1];
+   bool breakoutSell = Close[shift] < Low[shift+1];
 
    bool vReversalBuy  = Close[shift] > Close[shift+1] && Close[shift+1] < Close[shift+2];
    bool vReversalSell = Close[shift] < Close[shift+1] && Close[shift+1] > Close[shift+2];
@@ -1104,9 +982,8 @@ void EvaluateSignalFlags(int shift,
 
    bool engulfBuy  = prevBear && currBull && Open[shift] <= Close[shift+1] && Close[shift] >= Open[shift+1];
    bool engulfSell = prevBull && currBear && Open[shift] >= Close[shift+1] && Close[shift] <= Open[shift+1];
-   // Reduced from 0.65 to 0.55: allows close in top 45% of range (was top 35%)
-   bool bullishCloseStrong = currBull && closeToLow >= 0.55;
-   bool bearishCloseStrong = currBear && closeToHigh >= 0.55;
+   bool bullishCloseStrong = currBull && closeToLow >= 0.65;
+   bool bearishCloseStrong = currBear && closeToHigh >= 0.65;
    bool reversalBodyStronger = body > prevBody;
    bool bullishReverseBreak = Close[shift] > High[shift+1];
    bool bearishReverseBreak = Close[shift] < Low[shift+1];
@@ -1117,40 +994,12 @@ void EvaluateSignalFlags(int shift,
    bool reversalBuyStructure = (GetReversalSignalName(shift, OP_BUY) != "");
    bool reversalSellStructure = (GetReversalSignalName(shift, OP_SELL) != "");
 
-   // H1 filter
-   bool h1Bull = !EnableH1Filter || IsH1TrendBullish();
-   bool h1Bear = !EnableH1Filter || IsH1TrendBearish();
-
-   // TREND BUY: RSI capped at 72 — avoid overbought exhaustion entries.
-   // TREND SELL: RSI floored at 28 — avoid oversold exhaustion entries.
-   trendBuy  = bullMomentum && breakoutBuy  && rsiVal > RSI_Buy  && rsiVal < 72 && strongCandle && bullishCloseStrong && h1Bull;
-   trendSell = bearMomentum && breakoutSell && rsiVal < RSI_Sell && rsiVal > 28 && strongCandle && bearishCloseStrong && h1Bear;
-
-   reversalBuy  = reversalBuyStructure;
+   trendBuy = bullMomentum && breakoutBuy && rsiVal > RSI_Buy && strongCandle && bullishCloseStrong;
+   trendSell = bearMomentum && breakoutSell && rsiVal < RSI_Sell && strongCandle && bearishCloseStrong;
+   reversalBuy = reversalBuyStructure;
    reversalSell = reversalSellStructure;
-
-   // STRONG BUY: bullish engulf must occur near FastEMA (pullback support level).
-   // Requiring Low[shift] close to FastEMA prevents firing at overextended price.
-   bool nearFastEmaBuy  = Low[shift]  <= emaFast * 1.002;
-   bool nearFastEmaSell = High[shift] >= emaFast * 0.998;
-   strongBuy  = engulfBuy  && bullTrend && strongCandle && bullishCloseStrong && nearFastEmaBuy  && h1Bull;
-   strongSell = engulfSell && bearTrend && strongCandle && bearishCloseStrong && nearFastEmaSell && h1Bear;
-
-   // EMA PULLBACK: check last 3 bars for EMA touch — pullbacks take 2-5 bars, not just 1.
-   bool prevBelowFast = (shift+3 < Bars) &&
-                        (Low[shift+1] <= emaFast || Low[shift+2] <= emaFast || Low[shift+3] <= emaFast);
-   bool prevAboveFast = (shift+3 < Bars) &&
-                        (High[shift+1] >= emaFast || High[shift+2] >= emaFast || High[shift+3] >= emaFast);
-   emaPullbackBuy  = EnableEmaPullback && bullTrend && prevBelowFast && currBull &&
-                     Close[shift] > emaFast && rsiVal > 45 && h1Bull;
-   emaPullbackSell = EnableEmaPullback && bearTrend && prevAboveFast && currBear &&
-                     Close[shift] < emaFast && rsiVal < 55 && h1Bear;
-
-   // RSI BOUNCE: rsiPrev (shift+1) already holds the previous RSI — reuse it directly.
-   // Buy: RSI was below oversold level, now crosses back up — bounce from bottom.
-   // Sell: RSI was above overbought level, now crosses back down — bounce from top.
-   rsiBounceBuy  = EnableRsiBounce && bullTrend && rsiPrev < RsiOversold  && rsiVal >= RsiOversold  && h1Bull;
-   rsiBounceSell = EnableRsiBounce && bearTrend && rsiPrev > RsiOverbought && rsiVal <= RsiOverbought && h1Bear;
+   strongBuy = engulfBuy && bullTrend && strongCandle && bullishCloseStrong;
+   strongSell = engulfSell && bearTrend && strongCandle && bearishCloseStrong;
   }
 
 //+------------------------------------------------------------------+
@@ -1254,9 +1103,9 @@ void UpdateDashboard(string status, string liveReason)
                          buyOrders > 0 ? GetProfitColor(buyPL) : clrDimGray, 108);
    SetDashboardValueLine("sellpl", 182, "Sell Orders", IntegerToString(sellOrders) + "  P/L $" + DoubleToString(sellPL, 2),
                          sellOrders > 0 ? GetProfitColor(sellPL) : clrDimGray, 108);
-   SetDashboardValueLine("book",   200, "Profit Book", EnableProfitBooking ? ("$" + DoubleToString(effProfitBookingUSD, 2)) : "OFF",
+   SetDashboardValueLine("book",   200, "Profit Book", EnableProfitBooking ? ("$" + DoubleToString(ProfitBookingUSD, 2)) : "OFF",
                          EnableProfitBooking ? clrDarkGreen : clrDimGray, 108);
-   SetDashboardValueLine("stop",   218, "Stop Loss", EnableLossCut ? ("$" + DoubleToString(effLossCutUSD, 2)) : "OFF",
+   SetDashboardValueLine("stop",   218, "Stop Loss", EnableLossCut ? ("$" + DoubleToString(LossCutUSD, 2)) : "OFF",
                          EnableLossCut ? clrRed : clrDimGray, 108);
    double spreadCostUSD = GetSpreadCostUSD(LotSize);
    SetDashboardValueLine("spread", 236, "Spread",   DoubleToString((Ask - Bid),5)  +" "+   DoubleToString(spreadPoints, 0) + " pts ($" + DoubleToString(spreadCostUSD, 2) + ")",
@@ -1347,22 +1196,16 @@ void BuildDashboardState(string &status, string &liveReason)
    bool bullMomentum1 = false, bearMomentum1 = false;
    bool trendBuy1 = false, reversalBuy1 = false, strongBuy1 = false;
    bool trendSell1 = false, reversalSell1 = false, strongSell1 = false;
-   bool emaPullbackBuy1 = false, emaPullbackSell1 = false;
-   bool rsiBounceBuy1 = false, rsiBounceSell1 = false;
    bool prevBullMomentum2 = false, prevBearMomentum2 = false;
    bool trendBuy2 = false, reversalBuy2 = false, strongBuy2 = false;
    bool trendSell2 = false, reversalSell2 = false, strongSell2 = false;
-   bool emaPullbackBuy2 = false, emaPullbackSell2 = false;
-   bool rsiBounceBuy2 = false, rsiBounceSell2 = false;
 
    EvaluateSignalFlags(signalShift, bullMomentum1, bearMomentum1,
                        trendBuy1, reversalBuy1, strongBuy1,
-                       trendSell1, reversalSell1, strongSell1,
-                       emaPullbackBuy1, emaPullbackSell1, rsiBounceBuy1, rsiBounceSell1);
+                       trendSell1, reversalSell1, strongSell1);
    EvaluateSignalFlags(signalShift + 1, prevBullMomentum2, prevBearMomentum2,
                        trendBuy2, reversalBuy2, strongBuy2,
-                       trendSell2, reversalSell2, strongSell2,
-                       emaPullbackBuy2, emaPullbackSell2, rsiBounceBuy2, rsiBounceSell2);
+                       trendSell2, reversalSell2, strongSell2);
 
    bool trendBuyConfirmed1 = trendBuy1;// true;//trendBuy1 && trendBuy2;
    bool trendSellConfirmed1 = trendSell1;// true;//trendSell1 && trendSell2;
@@ -1435,107 +1278,9 @@ void MaybeRefreshDashboardOnTick()
   }
 
 //+------------------------------------------------------------------+
-// Set market open time per symbol (GMT+2 broker server time).
-// 30 min before and after this time will be blocked from trading.
-// Add or edit entries below. Unrecognised symbols use input defaults.
-//+------------------------------------------------------------------+
-void ApplySymbolSessionTimes()
-  {
-   string name = Symbol();
-
-   // start from input defaults
-   effSessionOpenHour   = SessionOpenHour;
-   effSessionOpenMinute = SessionOpenMinute;
-
-   // --- Forex major pairs — weekly open Sunday 21:00 GMT+2 ---
-   if(name=="EURUSDm" || name=="EURUSDt" || name=="EURUSD" ||
-      name=="GBPUSDm" || name=="GBPUSDt" || name=="GBPUSD" ||
-      name=="USDJPYm" || name=="USDJPYt" || name=="USDJPY" ||
-      name=="USDCHFm" || name=="USDCHFt" || name=="USDCHF" ||
-      name=="AUDUSDm" || name=="AUDUSDt" || name=="AUDUSD" ||
-      name=="USDCADm" || name=="USDCADt" || name=="USDCAD" ||
-      name=="NZDUSDm" || name=="NZDUSDt" || name=="NZDUSD")
-     { effSessionOpenHour = 21; effSessionOpenMinute = 0; }
-
-   // --- XAU/XAG (Gold/Silver) — commodity open Sunday 21:00 GMT+2 ---
-   else if(name=="XAUUSDm" || name=="XAUUSDt" || name=="XAUUSD" ||
-           name=="XAGUSDm" || name=="XAGUSDt" || name=="XAGUSD")
-     { effSessionOpenHour = 21; effSessionOpenMinute = 0; }
-
-   // --- US Indices — NYSE/NASDAQ open 15:30 GMT+2 (9:30 AM EST) ---
-   else if(name=="US30m"   || name=="US30"   ||
-           name=="NAS100m" || name=="NAS100" ||
-           name=="SPX500m" || name=="SPX500")
-     { effSessionOpenHour = 15; effSessionOpenMinute = 30; }
-
-   // --- BTC/ETH — trades 24/7, disable session pause ---
-   else if(name=="BTCUSDm" || name=="BTCUSDt" || name=="BTCUSD" ||
-           name=="ETHUSDm" || name=="ETHUSDt" || name=="ETHUSD")
-     { effSessionOpenHour = -1; effSessionOpenMinute = 0; } // -1 = no pause
-
-   // else: uses input SessionOpenHour / SessionOpenMinute
-
-   if(effSessionOpenHour >= 0)
-      LogMessage(StringFormat("Session times: Symbol=%s  Open=%02d:%02d  Pause=±30min",
-                 name, effSessionOpenHour, effSessionOpenMinute));
-   else
-      LogMessage("Session times: Symbol=" + name + "  24/7 — no session pause");
-  }
-
-//+------------------------------------------------------------------+
-// Set LossCut / ProfitBooking / PreOpen values per symbol name.
-// Add or edit entries below. Unrecognised symbols use the input defaults.
-//+------------------------------------------------------------------+
-void ApplySymbolDefaults()
-  { 
-   string name = Symbol();
-
-   // start from input defaults
-   effLossCutUSD            = LossCutUSD;
-   effProfitBookingUSD      = ProfitBookingUSD;
-   effPreOpenCloseProfitUSD = PreOpenCloseProfitUSD;
-
-   // Loss cut is set to 2× profit target — risk is always proportional to reward.
-   // Break-even at $0.15 means most trades become risk-free before reaching $0.50 target.
-   if(name == "BTCUSDm" || name == "BTCUSDt" || name == "BTCUSD")
-     { effLossCutUSD = 1.00; effProfitBookingUSD = 0.50; effPreOpenCloseProfitUSD = 0.20; }
-
-   else if(name == "ETHUSDm" || name == "ETHUSDt" || name == "ETHUSD")
-     { effLossCutUSD = 1.00; effProfitBookingUSD = 0.50; effPreOpenCloseProfitUSD = 0.20; }
-
-   else if(name == "XAGUSDm" || name == "XAGUSDt" || name == "XAGUSD")
-     { effLossCutUSD = 1.00; effProfitBookingUSD = 0.50; effPreOpenCloseProfitUSD = 0.20; }
-
-   else if(name == "XAUUSDm" || name == "XAUUSDt" || name == "XAUUSD")
-     { effLossCutUSD = 1.00; effProfitBookingUSD = 0.50; effPreOpenCloseProfitUSD = 0.20; }
-
-   else if(name == "US30m" || name == "US30")
-     { effLossCutUSD = 1.00; effProfitBookingUSD = 0.50; effPreOpenCloseProfitUSD = 0.20; }
-
-   else if(name == "NAS100m" || name == "NAS100" || name == "NASm")
-     { effLossCutUSD = 1.00; effProfitBookingUSD = 0.50; effPreOpenCloseProfitUSD = 0.20; }
-
-   else if(name == "SPX500m" || name == "SPX500" || name == "SPXm")
-     { effLossCutUSD = 1.00; effProfitBookingUSD = 0.50; effPreOpenCloseProfitUSD = 0.20; }
-
-   else if(name == "AUDUSDm" || name == "AUDUSDt" || name == "AUDUSD")
-     { effLossCutUSD = 1.00; effProfitBookingUSD = 0.50; effPreOpenCloseProfitUSD = 0.20; }
-
-   else if(name == "AUDJPYm" || name == "AUDJPYt" || name == "AUDJPY")
-     { effLossCutUSD = 1.00; effProfitBookingUSD = 0.50; effPreOpenCloseProfitUSD = 0.20; }
-
-   else if(name == "EURUSDm" || name == "EURUSDt" || name == "EURUSD")
-     { effLossCutUSD = 1.00; effProfitBookingUSD = 0.50; effPreOpenCloseProfitUSD = 0.20; }
-
-   // else: symbol not listed — uses input defaults loaded above
-  }
-
-//+------------------------------------------------------------------+
 int OnInit()
   {
    eaStartTime = TimeCurrent();
-   ApplySymbolSessionTimes();
-   ApplySymbolDefaults();
    ResetEquityProfitPauseBaseline();
    EventSetTimer(MathMax(1, DashboardRefreshSeconds));
    RefreshDashboard();
@@ -1713,7 +1458,7 @@ double GetOpenProfitByType(int orderType)
 //+------------------------------------------------------------------+
 void CloseOrdersAtProfitTarget()
   {
-   if(!EnableAutoTrading || !EnableProfitBooking || effProfitBookingUSD <= 0.0)
+   if(!EnableAutoTrading || !EnableProfitBooking || ProfitBookingUSD <= 0.0)
       return;
 
    for(int i = OrdersTotal() - 1; i >= 0; i--)
@@ -1729,7 +1474,7 @@ void CloseOrdersAtProfitTarget()
          continue;
 
       double orderProfit = OrderProfit() + OrderSwap() + OrderCommission();
-      if(orderProfit < effProfitBookingUSD)
+      if(orderProfit < ProfitBookingUSD)
          continue;
 
       RefreshRates();
@@ -1744,9 +1489,6 @@ void CloseOrdersAtProfitTarget()
       else
         {
          MarkTradeUpdate(orderType);
-         prevSignal = "";
-         lastAppearedStrongSignal = "";
-         LogMessage("Profit target hit — prevSignal reset for fresh re-entry.");
         }
      }
   }
@@ -1754,7 +1496,7 @@ void CloseOrdersAtProfitTarget()
 //+------------------------------------------------------------------+
 void CloseOrdersAtLossLimit()
   {
-   if(!EnableAutoTrading || !EnableLossCut || effLossCutUSD <= 0.0)
+   if(!EnableAutoTrading || !EnableLossCut || LossCutUSD <= 0.0)
       return;
 
    for(int i = OrdersTotal() - 1; i >= 0; i--)
@@ -1770,7 +1512,7 @@ void CloseOrdersAtLossLimit()
          continue;
 
       double orderProfit = OrderProfit() + OrderSwap() + OrderCommission();
-      if(orderProfit > -effLossCutUSD)
+      if(orderProfit > -LossCutUSD)
          continue;
 
       RefreshRates();
@@ -1785,296 +1527,6 @@ void CloseOrdersAtLossLimit()
       else
         {
          MarkTradeUpdate(orderType);
-         // Reset signal lock so the next signal in same direction is not blocked
-         prevSignal = "";
-         LogMessage("Loss cut hit — prevSignal reset for fresh re-entry.");
-         RecordOrderResult(true);
-        }
-     }
-  }
-
-//+------------------------------------------------------------------+
-// Daily loss limit — resets at midnight, blocks all new orders if hit
-//+------------------------------------------------------------------+
-void CheckDailyLossLimit()
-  {
-   if(!EnableDailyLossLimit || DailyLossLimitUSD <= 0)
-      return;
-
-   // Reset at start of new day
-   datetime now       = GetTradeClock();
-   datetime todayDate = now - (now % 86400);
-   if(lastDailyResetDate != todayDate)
-     {
-      dailyStartBalance     = AccountBalance();
-      dailyLossTriggered    = false;
-      dailyProfitTriggered  = false;
-      lastDailyResetDate  = todayDate;
-      LogMessage(StringFormat("Daily loss limit reset. Start balance: %.2f", dailyStartBalance));
-     }
-
-   if(dailyLossTriggered)
-      return;
-
-   double todayLoss = dailyStartBalance - AccountEquity();
-   if(todayLoss >= DailyLossLimitUSD)
-     {
-      dailyLossTriggered = true;
-      LogMessage(StringFormat("Daily loss limit hit: -$%.2f. No more orders today.", todayLoss));
-
-      // Close all open orders immediately
-      for(int i = OrdersTotal() - 1; i >= 0; i--)
-        {
-         if(!OrderSelect(i, SELECT_BY_POS, MODE_TRADES)) continue;
-         if(OrderSymbol() != Symbol() || OrderMagicNumber() != MagicNumber) continue;
-         int ot = OrderType();
-         if(ot != OP_BUY && ot != OP_SELL) continue;
-         RefreshRates();
-         double cp = (ot == OP_BUY) ? Bid : Ask;
-         if(OrderClose(OrderTicket(), OrderLots(), cp, Slippage, clrRed))
-           { MarkTradeUpdate(ot); prevSignal = ""; }
-        }
-     }
-  }
-
-bool IsDailyLossLimitActive()
-  {
-   return (EnableDailyLossLimit && dailyLossTriggered);
-  }
-
-//+------------------------------------------------------------------+
-// Break-Even: move SL to entry when profit reaches BreakEvenProfitUSD
-// Trailing Stop: keep locking in profit as price moves further
-//+------------------------------------------------------------------+
-void ManageBreakEvenAndTrailing()
-  {
-   if(!EnableBreakEven && !EnableTrailingStop) return;
-
-   for(int i = OrdersTotal() - 1; i >= 0; i--)
-     {
-      if(!OrderSelect(i, SELECT_BY_POS, MODE_TRADES)) continue;
-      if(OrderSymbol() != Symbol() || OrderMagicNumber() != MagicNumber) continue;
-      int    ot      = OrderType();
-      if(ot != OP_BUY && ot != OP_SELL) continue;
-
-      double openPrice = OrderOpenPrice();
-      double currentSL = OrderStopLoss();
-      double profit    = OrderProfit() + OrderSwap() + OrderCommission();
-      double point     = MarketInfo(Symbol(), MODE_POINT);
-      double tickVal   = MarketInfo(Symbol(), MODE_TICKVALUE);
-      double lots      = OrderLots();
-      double newSL     = currentSL;
-
-      RefreshRates();
-
-      if(ot == OP_BUY)
-        {
-         // Break-Even
-         if(EnableBreakEven && profit >= BreakEvenProfitUSD && currentSL < openPrice)
-            newSL = openPrice + point; // 1 point above entry = risk-free
-
-         // Trailing Stop — lock in profit above breakeven
-         if(EnableTrailingStop && profit >= BreakEvenProfitUSD)
-           {
-            double trailPrice = Bid - (TrailingStopUSD / (lots * tickVal / point)) * point;
-            if(trailPrice > newSL)
-               newSL = trailPrice;
-           }
-
-         if(newSL > currentSL && newSL < Bid)
-            OrderModify(OrderTicket(), openPrice, NormalizeDouble(newSL, Digits), OrderTakeProfit(), 0, clrAqua);
-        }
-      else if(ot == OP_SELL)
-        {
-         // Break-Even
-         if(EnableBreakEven && profit >= BreakEvenProfitUSD && (currentSL == 0 || currentSL > openPrice))
-            newSL = openPrice - point;
-
-         // Trailing Stop
-         if(EnableTrailingStop && profit >= BreakEvenProfitUSD)
-           {
-            double trailPrice = Ask + (TrailingStopUSD / (lots * tickVal / point)) * point;
-            if(currentSL == 0 || trailPrice < newSL)
-               newSL = trailPrice;
-           }
-
-         if(newSL > 0 && (currentSL == 0 || newSL < currentSL) && newSL > Ask)
-            OrderModify(OrderTicket(), openPrice, NormalizeDouble(newSL, Digits), OrderTakeProfit(), 0, clrOrange);
-        }
-     }
-  }
-
-//+------------------------------------------------------------------+
-// Daily Profit Target — stop trading today when profit goal reached
-//+------------------------------------------------------------------+
-void CheckDailyProfitTarget()
-  {
-   if(!EnableDailyProfitTarget || DailyProfitTargetUSD <= 0 || dailyProfitTriggered) return;
-
-   datetime now      = GetTradeClock();
-   datetime today    = now - (now % 86400);
-   if(lastDailyResetDate != today) return; // let CheckDailyLossLimit handle reset
-
-   double todayProfit = AccountEquity() - dailyStartBalance;
-   if(todayProfit >= DailyProfitTargetUSD)
-     {
-      dailyProfitTriggered = true;
-      LogMessage(StringFormat("Daily profit target reached: +$%.2f. No more orders today.", todayProfit));
-     }
-  }
-
-bool IsDailyProfitTargetActive()
-  {
-   return (EnableDailyProfitTarget && dailyProfitTriggered);
-  }
-
-//+------------------------------------------------------------------+
-// Consecutive Loss Pause — pause trading after N losses in a row
-//+------------------------------------------------------------------+
-void RecordOrderResult(bool wasLoss)
-  {
-   if(!EnableConsecutiveLossPause) return;
-   if(wasLoss)
-     {
-      consecutiveLosses++;
-      if(consecutiveLosses >= MaxConsecutiveLosses)
-        {
-         consecutiveLossPauseUntil = GetTradeClock() + ConsecutiveLossPauseMin * 60;
-         consecutiveLosses = 0;
-         LogMessage(StringFormat("Consecutive loss pause: %d losses. Pausing %d min.", MaxConsecutiveLosses, ConsecutiveLossPauseMin));
-        }
-     }
-   else
-      consecutiveLosses = 0; // reset on any win
-  }
-
-bool IsConsecutiveLossPauseActive()
-  {
-   return (EnableConsecutiveLossPause && GetTradeClock() < consecutiveLossPauseUntil);
-  }
-
-//+------------------------------------------------------------------+
-// Weekend Close — close all orders on Friday before market closes
-//+------------------------------------------------------------------+
-void CheckWeekendClose()
-  {
-   if(!EnableWeekendClose) return;
-
-   datetime now = GetTradeClock();
-   MqlDateTime dt;
-   TimeToStruct(now, dt);
-
-   // Friday = day 5
-   if(dt.day_of_week != 5) return;
-
-   int currentMin = dt.hour * 60 + dt.min;
-   int closeMin   = WeekendCloseHour * 60 + WeekendCloseMinute;
-   if(currentMin < closeMin) return;
-
-   for(int i = OrdersTotal() - 1; i >= 0; i--)
-     {
-      if(!OrderSelect(i, SELECT_BY_POS, MODE_TRADES)) continue;
-      if(OrderSymbol() != Symbol() || OrderMagicNumber() != MagicNumber) continue;
-      int ot = OrderType();
-      if(ot != OP_BUY && ot != OP_SELL) continue;
-      RefreshRates();
-      double cp = (ot == OP_BUY) ? Bid : Ask;
-      if(OrderClose(OrderTicket(), OrderLots(), cp, Slippage, clrGray))
-        { MarkTradeUpdate(ot); prevSignal = ""; LogMessage("Weekend close executed."); }
-     }
-  }
-
-//+------------------------------------------------------------------+
-// Condition 2: Close order if it has been open longer than MaxOrderDurationMin
-//+------------------------------------------------------------------+
-void CloseOrdersByDuration()
-  {
-   if(!EnableAutoTrading || !EnableDurationClose || MaxOrderDurationMin <= 0)
-      return;
-
-   datetime now = GetTradeClock();
-
-   for(int i = OrdersTotal() - 1; i >= 0; i--)
-     {
-      if(!OrderSelect(i, SELECT_BY_POS, MODE_TRADES))
-         continue;
-      if(OrderSymbol() != Symbol() || OrderMagicNumber() != MagicNumber)
-         continue;
-      int orderType = OrderType();
-      if(orderType != OP_BUY && orderType != OP_SELL)
-         continue;
-
-      int openMinutes = (int)((now - OrderOpenTime()) / 60);
-      if(openMinutes < MaxOrderDurationMin)
-         continue;
-
-      double profit = OrderProfit() + OrderSwap() + OrderCommission();
-
-      // Skip duration close if trade is already profitable enough — let profit booking or
-      // trailing stop handle it. Closing a +$0.40 trade early kills your scalping gains.
-      if(DurationSkipIfProfitUSD > 0 && profit >= DurationSkipIfProfitUSD)
-        {
-         LogMessage("Duration elapsed but profit $" + DoubleToString(profit,2) + " — letting it run to target.");
-         continue;
-        }
-
-      RefreshRates();
-      double closePrice = (orderType == OP_BUY) ? Bid : Ask;
-      bool wasLoss = (profit < 0); // capture before close — OrderProfit() becomes 0 after close
-      if(!OrderClose(OrderTicket(), OrderLots(), closePrice, Slippage, clrSilver))
-         LogMessage("Duration close failed ticket " + IntegerToString(OrderTicket()) + ": " + IntegerToString(GetLastError()));
-      else
-        {
-         MarkTradeUpdate(orderType);
-         prevSignal = "";
-         LogMessage("Duration close: " + IntegerToString(MaxOrderDurationMin) + " min elapsed. P/L $" + DoubleToString(profit,2));
-         RecordOrderResult(wasLoss);
-        }
-     }
-  }
-
-//+------------------------------------------------------------------+
-// Condition 3: Close BUY if market turns bearish, close SELL if bullish
-//+------------------------------------------------------------------+
-void CloseOrdersByTrendReversal()
-  {
-   if(!EnableAutoTrading || !EnableTrendReversalClose)
-      return;
-
-   double emaFast  = iMA(NULL, 0, FastEMA,  0, MODE_EMA, PRICE_CLOSE, 1);
-   double emaSlow  = iMA(NULL, 0, SlowEMA,  0, MODE_EMA, PRICE_CLOSE, 1);
-   double emaTrend = iMA(NULL, 0, TrendEMA, 0, MODE_EMA, PRICE_CLOSE, 1);
-
-   bool marketBearish = (emaFast < emaSlow) && (Bid < emaTrend);
-   bool marketBullish = (emaFast > emaSlow) && (Ask > emaTrend);
-
-   for(int i = OrdersTotal() - 1; i >= 0; i--)
-     {
-      if(!OrderSelect(i, SELECT_BY_POS, MODE_TRADES))
-         continue;
-      if(OrderSymbol() != Symbol() || OrderMagicNumber() != MagicNumber)
-         continue;
-
-      int orderType = OrderType();
-      bool shouldClose = false;
-      string reason = "";
-
-      if(orderType == OP_BUY && marketBearish)
-        { shouldClose = true; reason = "BUY closed: market turned bearish"; }
-      else if(orderType == OP_SELL && marketBullish)
-        { shouldClose = true; reason = "SELL closed: market turned bullish"; }
-
-      if(!shouldClose) continue;
-
-      RefreshRates();
-      double closePrice = (orderType == OP_BUY) ? Bid : Ask;
-      if(!OrderClose(OrderTicket(), OrderLots(), closePrice, Slippage, clrOrange))
-         LogMessage("Trend reversal close failed ticket " + IntegerToString(OrderTicket()) + ": " + IntegerToString(GetLastError()));
-      else
-        {
-         MarkTradeUpdate(orderType);
-         prevSignal = "";
-         LogMessage(reason);
         }
      }
   }
@@ -2092,13 +1544,11 @@ void CloseOrdersBeforeSessionOpen()
       return;
 
    double totalOpenProfit = GetOpenProfitByType(OP_BUY) + GetOpenProfitByType(OP_SELL);
-   if(totalOpenProfit < effPreOpenCloseProfitUSD)
+   if(totalOpenProfit < PreOpenCloseProfitUSD)
       return;
 
    CloseOrdersByType(OP_BUY, clrSilver);
    CloseOrdersByType(OP_SELL, clrSilver);
-   prevSignal = "";
-   lastAppearedStrongSignal = "";
   }
 
 //+------------------------------------------------------------------+
@@ -2351,6 +1801,10 @@ bool OpenOrderByType(int orderType, string orderComment, color clr, double signa
    bool isPrevStrong    = StringFind(prevSignal, "STRONG") >= 0;
    bool isCurrentStrong = StringFind(currentSignal, "STRONG") >= 0;
 
+   // Exception: STRONG BUY -> TREND BUY -> TREND BUY sequence
+   bool isStrongBuyTrendBuySeq  = (lastAppearedStrongSignal == "STRONG BUY"  && prevSignal == "TREND BUY"  && currentSignal == "TREND BUY");
+   // Exception: STRONG SELL -> TREND SELL -> TREND SELL sequence
+   bool isStrongSellTrendSellSeq = (lastAppearedStrongSignal == "STRONG SELL" && prevSignal == "TREND SELL" && currentSignal == "TREND SELL");
 
    if(prevSignal=="STRONG BUY" && currentSignal=="TREND BUY" && Symbol()!="EURUSDm")
      {
@@ -2361,13 +1815,16 @@ bool OpenOrderByType(int orderType, string orderComment, color clr, double signa
         {
          //continue
         }
-
       else
-         if(prevSignal == currentSignal ||   isCurrentStrong ||   isPrevStrong)
+         if(isStrongBuyTrendBuySeq || isStrongSellTrendSellSeq)
            {
-            //Print("Blocked: Contains STRONG or duplicate | prev=" + prevSignal + " curr=" + currentSignal);
-           // return false;
+            //continue - allow STRONG->TREND->TREND sequence
            }
+         else
+            if(prevSignal == currentSignal || isCurrentStrong || isPrevStrong)
+              {
+               //return false;
+              }
 
 
    if(IsInitialPauseActive())
@@ -2385,24 +1842,6 @@ bool OpenOrderByType(int orderType, string orderComment, color clr, double signa
 
    if(!EnableAutoTrading)
       return false;
-
-   if(IsDailyLossLimitActive())
-     {
-      LogMessage(orderComment + " skipped: daily loss limit active — no more orders today.");
-      return false;
-     }
-
-   if(IsDailyProfitTargetActive())
-     {
-      LogMessage(orderComment + " skipped: daily profit target reached — protecting gains.");
-      return false;
-     }
-
-   if(IsConsecutiveLossPauseActive())
-     {
-      LogMessage(orderComment + " skipped: consecutive loss pause active.");
-      return false;
-     }
 
    if(IsEquityProfitPauseWindow())
      {
@@ -2548,15 +1987,9 @@ void OnTick()
       return;
      }
 
-   CheckDailyLossLimit();
-   CheckDailyProfitTarget();
-   CheckWeekendClose();
    CloseOrdersBeforeSessionOpen();
    CloseOrdersAtLossLimit();
    CloseOrdersAtProfitTarget();
-   CloseOrdersByDuration();
-   CloseOrdersByTrendReversal();
-   ManageBreakEvenAndTrailing();
 
    if(IsSessionPauseWindow())
      {
@@ -2604,22 +2037,16 @@ void OnTick()
          bool bullMomentum = false, bearMomentum = false;
          bool trendBuy = false, reversalBuy = false, strongBuy = false;
          bool trendSell = false, reversalSell = false, strongSell = false;
-         bool emaPullbackBuy = false, emaPullbackSell = false;
-         bool rsiBounceBuy = false, rsiBounceSell = false;
          bool prevBullMomentum = false, prevBearMomentum = false;
          bool prevTrendBuy = false, prevReversalBuy = false, prevStrongBuy = false;
          bool prevTrendSell = false, prevReversalSell = false, prevStrongSell = false;
-         bool prevEmaPullbackBuy = false, prevEmaPullbackSell = false;
-         bool prevRsiBounceBuy = false, prevRsiBounceSell = false;
 
          EvaluateSignalFlags(i, bullMomentum, bearMomentum,
                              trendBuy, reversalBuy, strongBuy,
-                             trendSell, reversalSell, strongSell,
-                             emaPullbackBuy, emaPullbackSell, rsiBounceBuy, rsiBounceSell);
+                             trendSell, reversalSell, strongSell);
          EvaluateSignalFlags(i + 1, prevBullMomentum, prevBearMomentum,
                              prevTrendBuy, prevReversalBuy, prevStrongBuy,
-                             prevTrendSell, prevReversalSell, prevStrongSell,
-                             prevEmaPullbackBuy, prevEmaPullbackSell, prevRsiBounceBuy, prevRsiBounceSell);
+                             prevTrendSell, prevReversalSell, prevStrongSell);
 
          bool trendBuyConfirmed = true;//trendBuy && prevTrendBuy;
          bool trendSellConfirmed = true;//trendSell && prevTrendSell;
@@ -2678,7 +2105,7 @@ void OnTick()
          // =========================
          if(CanTradeSignalBar(i))
            {
-            if(trendBuyConfirmed && IsBuyDirectionAllowed() && lastTrendBuyTradeTime != t && lastAnyBuyBarTime != t)
+            if(trendBuyConfirmed && IsBuyDirectionAllowed() && lastTrendBuyTradeTime != t)
               {
                int lookback = 10;
                double recentHigh = GetRecentHighestHigh(lookback);
@@ -2701,8 +2128,8 @@ void OnTick()
                   if(OpenOrderByType(OP_BUY, "TREND BUY", clrLime, Close[i]))
                     {
                      lastTrendBuyTradeTime = t;
-                     lastAnyBuyBarTime     = t;
                      prevSignal = "TREND BUY";
+                     lastAppearedStrongSignal = ""; // consume strong sequence token
                     }
                  }
                else
@@ -2717,15 +2144,13 @@ void OnTick()
                  }
               }
             else
-               if(reversalBuy && IsBuyDirectionAllowed() && lastRevBuyTradeTime != t && lastAnyBuyBarTime != t &&
-                  ((reversalBuyName == "W SHAPE BUY" && EnableWShapeBuy) || (reversalBuyName == "V SHAPE BUY" && EnableVShapeBuy)))
+               if(reversalBuy && IsBuyDirectionAllowed() && lastRevBuyTradeTime != t)
                  {
                   if(EnableAutoTrading)
                     {
                      if(OpenOrderByType(OP_BUY, reversalBuyName, clrAqua, Close[i]))
                        {
                         lastRevBuyTradeTime = t;
-                        lastAnyBuyBarTime   = t;
                         prevSignal = reversalBuyName;
                        }
                     }
@@ -2741,14 +2166,14 @@ void OnTick()
                     }
                  }
                else
-                  if(strongBuy && IsBuyDirectionAllowed() && lastStrongBuyTradeTime != t && lastAnyBuyBarTime != t)
+                  if(strongBuy && IsBuyDirectionAllowed() && lastStrongBuyTradeTime != t)
                     {
+                     lastAppearedStrongSignal = "STRONG BUY"; // track for STRONG->TREND->TREND sequence
                      if(EnableAutoTrading)
                        {
                         if(OpenOrderByType(OP_BUY, "STRONG BUY", clrGreen, Close[i]))
                           {
                            lastStrongBuyTradeTime = t;
-                           lastAnyBuyBarTime      = t;
                            prevSignal = "STRONG BUY";
                           }
                        }
@@ -2789,37 +2214,7 @@ void OnTick()
                           }
                        }
                      else
-                        if(emaPullbackBuy && EnableEmaPullback && IsBuyDirectionAllowed() && lastEmaPullbackBuyTime != t && lastAnyBuyBarTime != t)
-                          {
-                           if(EnableAutoTrading)
-                             {
-                              if(OpenOrderByType(OP_BUY, "EMA PULLBACK BUY", clrCyan, Close[i]))
-                                {
-                                 lastEmaPullbackBuyTime = t;
-                                 lastAnyBuyBarTime      = t;
-                                 prevSignal = "EMA PULLBACK BUY";
-                                }
-                             }
-                           else
-                              lastEmaPullbackBuyTime = t;
-                          }
-                        else
-                           if(rsiBounceBuy && EnableRsiBounce && IsBuyDirectionAllowed() && lastRsiBounceByTime != t && lastAnyBuyBarTime != t)
-                             {
-                              if(EnableAutoTrading)
-                                {
-                                 if(OpenOrderByType(OP_BUY, "RSI BOUNCE BUY", clrLimeGreen, Close[i]))
-                                   {
-                                    lastRsiBounceByTime = t;
-                                    lastAnyBuyBarTime   = t;
-                                    prevSignal = "RSI BOUNCE BUY";
-                                   }
-                                }
-                              else
-                                 lastRsiBounceByTime = t;
-                             }
-                           else
-                              if(trendSellConfirmed && IsSellDirectionAllowed() && lastTrendSellTradeTime != t && lastAnySellBarTime != t && lastAnyBuyBarTime != t)
+                        if(trendSellConfirmed && IsSellDirectionAllowed() && lastTrendSellTradeTime != t)
                           {
                            if(EnableAutoTrading)
                              {
@@ -2843,8 +2238,8 @@ void OnTick()
                               if(OpenOrderByType(OP_SELL, "TREND SELL", clrRed, Close[i]))
                                 {
                                  lastTrendSellTradeTime = t;
-                                 lastAnySellBarTime     = t;
                                  prevSignal = "TREND SELL";
+                                 lastAppearedStrongSignal = ""; // consume strong sequence token
                                 }
                              }
 
@@ -2863,15 +2258,13 @@ void OnTick()
                              }
                           }
                         else
-                           if(reversalSell && IsSellDirectionAllowed() && lastRevSellTradeTime != t && lastAnySellBarTime != t && lastAnyBuyBarTime != t &&
-                              ((reversalSellName == "W SHAPE SELL" && EnableWShapeSell) || (reversalSellName == "V SHAPE SELL" && EnableVShapeSell)))
+                           if(reversalSell && IsSellDirectionAllowed() && lastRevSellTradeTime != t)
                              {
                               if(EnableAutoTrading)
                                 {
                                  if(OpenOrderByType(OP_SELL, reversalSellName, clrMagenta, Close[i]))
                                    {
                                     lastRevSellTradeTime = t;
-                                    lastAnySellBarTime   = t;
                                     prevSignal = reversalSellName;
                                    }
                                 }
@@ -2887,14 +2280,14 @@ void OnTick()
                                 }
                              }
                            else
-                              if(strongSell && IsSellDirectionAllowed() && lastStrongSellTradeTime != t && lastAnySellBarTime != t && lastAnyBuyBarTime != t)
+                              if(strongSell && IsSellDirectionAllowed() && lastStrongSellTradeTime != t)
                                 {
+                                 lastAppearedStrongSignal = "STRONG SELL"; // track for STRONG->TREND->TREND sequence
                                  if(EnableAutoTrading)
                                    {
                                     if(OpenOrderByType(OP_SELL, "STRONG SELL", clrOrangeRed, Close[i]))
                                       {
                                        lastStrongSellTradeTime = t;
-                                       lastAnySellBarTime      = t;
                                        prevSignal = "STRONG SELL";
                                       }
                                    }
@@ -2934,38 +2327,6 @@ void OnTick()
                                          }
                                       }
                                    }
-
-         // EMA Pullback SELL
-         if(emaPullbackSell && EnableEmaPullback && IsSellDirectionAllowed() && lastEmaPullbackSellTime != t && lastAnySellBarTime != t && lastAnyBuyBarTime != t)
-           {
-            if(EnableAutoTrading)
-              {
-               if(OpenOrderByType(OP_SELL, "EMA PULLBACK SELL", clrAquamarine, Close[i]))
-                 {
-                  lastEmaPullbackSellTime = t;
-                  lastAnySellBarTime      = t;
-                  prevSignal = "EMA PULLBACK SELL";
-                 }
-              }
-            else
-               lastEmaPullbackSellTime = t;
-           }
-
-         // RSI Bounce SELL
-         if(rsiBounceSell && EnableRsiBounce && IsSellDirectionAllowed() && lastRsiBounceSellTime != t && lastAnySellBarTime != t && lastAnyBuyBarTime != t)
-           {
-            if(EnableAutoTrading)
-              {
-               if(OpenOrderByType(OP_SELL, "RSI BOUNCE SELL", clrTomato, Close[i]))
-                 {
-                  lastRsiBounceSellTime = t;
-                  lastAnySellBarTime    = t;
-                  prevSignal = "RSI BOUNCE SELL";
-                 }
-              }
-            else
-               lastRsiBounceSellTime = t;
-           }
            }
         }
 
