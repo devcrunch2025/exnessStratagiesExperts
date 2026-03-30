@@ -4,15 +4,6 @@
 string currentSignal = "";
 string prevSignal = "";
 string lastAppearedStrongSignal = ""; // tracks last STRONG signal even if no order placed
-
-datetime lastAnyBuyBarTime         = 0; // per-bar guard: prevents 2 buy signals on same bar
-datetime lastAnySellBarTime        = 0; // per-bar guard: prevents 2 sell signals on same bar
-datetime lastEquityTargetCheckTime = 0; // throttle: check equity target once per hour
-string   g_csvFileName             = ""; // trade log CSV file path
-
-// Starting balance — captured once at EA load (investment / deposit amount)
-double startingBalance = 0.0;
-
 //+------------------------------------------------------------------+
 //| Calculate spread cost in USD for current symbol and lot size     |
 //+------------------------------------------------------------------+
@@ -61,20 +52,15 @@ input string version="V1.31";
 input int TradeDirectionMode = 0; // 0=both, 1=buy only, 2=sell only
 input double ProfitBookingUSD = 0.30;//0.50 is good 
 input double PreOpenCloseProfitUSD = 0.20;
-input double LossCutUSD = 30.00; //stop loss// 5 for AUD 20 for XAG /BTC
+input double LossCutUSD = 20.00; //stop loss// 5 for AUD 20 for XAG /BTC
 
 
 input double EquityProfitPauseUSD = 5.00;
-
-// --- Starting Balance Equity Target ---
-input bool   EnableEquityTarget      = true;   // close all orders when equity reaches StartingBalance + EquityTargetUSD
-input double EquityTargetUSD         = 5.00;   // close all when equity = starting balance + this amount
-
 input int MaxBuyOrders = 2;
 input int MaxSellOrders = 2;
 input int MaxTotalOrders = 4; // 0 = unlimited
 
-input int waitStartSessiontime=15;
+input int waitStartSessiontime=0;
 
 
 
@@ -98,8 +84,8 @@ input int DashboardRefreshSeconds = 30;
 input bool EnableEquityProfitPause = false;
 
 input int EquityProfitPauseMinutes = 60;
-input bool EnablePreOpenClose = false;
-input int SessionOpenHour = 15;
+input bool EnablePreOpenClose = true;
+input int SessionOpenHour = 11;
 input int SessionOpenMinute = 0;
 input int CloseBeforeOpenMinutes = 60;
 input int WaitAfterOpenMinutes = 60;
@@ -108,12 +94,9 @@ input int StopLossPoints = 0;   // keep 0 for no broker-side stop loss
 input int TakeProfitPoints = 0; // keep 0 for no broker-side take profit
 input bool EnableProfitBooking = true;
 
-input bool   EnableLossCut            = true;
-input bool   EnableTotalDrawdownGuard  = false;   // close ALL orders if total floating loss exceeds limit
-input double TotalDrawdownLimitUSD     = 20.00;   // max total floating loss across all open orders
+input bool EnableLossCut = true;
 
 input bool CloseOppositeOnEntry = false;
-input bool TrendFollowCreateSecondOrder = false; // after profitable TREND BUY/SELL, allow immediate re-entry on next same signal
 
 
 input bool EnableMaxOrderAutoUnlock = true;
@@ -142,8 +125,6 @@ bool wasEquityProfitPauseWindow = false;
 datetime lastDashboardRefreshTime = 0;
 datetime equityProfitPauseUntil = 0;
 double equityProfitPauseBaseline = 0.0;
-bool lastTrendBuyClosedProfit  = false; // set when TREND BUY closes with profit
-bool lastTrendSellClosedProfit = false; // set when TREND SELL closes with profit
 
 
 
@@ -233,60 +214,6 @@ void LogMessage(string msg)
   {
    if(EnableLogMessages)
       Print(msg);
-  }
-
-//+------------------------------------------------------------------+
-void InitCSVLog()
-  {
-   string dateStr = TimeToString(TimeCurrent(), TIME_DATE);
-   StringReplace(dateStr, ".", "");
-   g_csvFileName = dateStr + "_" + Symbol() + ".csv";
-
-   // Write header only if file is new/empty
-   int handle = FileOpen(g_csvFileName, FILE_TXT|FILE_READ|FILE_SHARE_READ|FILE_SHARE_WRITE);
-   if(handle != INVALID_HANDLE)
-     {
-      ulong sz = FileSize(handle);
-      FileClose(handle);
-      if(sz > 0) return; // already has content
-     }
-
-   handle = FileOpen(g_csvFileName, FILE_TXT|FILE_WRITE|FILE_SHARE_READ|FILE_SHARE_WRITE);
-   if(handle == INVALID_HANDLE) return;
-   FileWriteString(handle, "DateTime,Symbol,Ticket,Direction,Action,Signal_Reason,Price,Profit\n");
-   FileClose(handle);
-  }
-
-//+------------------------------------------------------------------+
-// action  = "OPEN" or "CLOSE"
-// reason  = signal name (open) or close reason (close)
-// profit  = 0.0 for opens, actual P/L for closes
-//+------------------------------------------------------------------+
-void AppendTradeLog(string action, int ticket, int orderType, string reason, double price, double profit)
-  {
-   if(g_csvFileName == "") return;
-
-   int handle = FileOpen(g_csvFileName, FILE_TXT|FILE_READ|FILE_WRITE|FILE_SHARE_READ|FILE_SHARE_WRITE);
-   if(handle == INVALID_HANDLE)
-     {
-      handle = FileOpen(g_csvFileName, FILE_TXT|FILE_WRITE|FILE_SHARE_READ|FILE_SHARE_WRITE);
-      if(handle == INVALID_HANDLE) return;
-      FileWriteString(handle, "DateTime,Symbol,Ticket,Direction,Action,Signal_Reason,Price,Profit\n");
-     }
-   else
-      FileSeek(handle, 0, SEEK_END);
-
-   string line = TimeToString(TimeCurrent(), TIME_DATE|TIME_SECONDS) + "," +
-                 Symbol() + "," +
-                 IntegerToString(ticket) + "," +
-                 (orderType == OP_BUY ? "BUY" : "SELL") + "," +
-                 action + "," +
-                 reason + "," +
-                 DoubleToString(price, Digits) + "," +
-                 DoubleToString(profit, 2) + "\n";
-
-   FileWriteString(handle, line);
-   FileClose(handle);
   }
 
 //+------------------------------------------------------------------+
@@ -1170,72 +1097,62 @@ void UpdateDashboard(string status, string liveReason)
    SetDashboardValueLine("reason",  86, "Reason", liveReason, GetReasonColor(liveReason), 108);
    SetDashboardValueLine("mode",   104, "Mode", (EnableAutoTrading ? "AUTO " : "SIGNALS ") + GetTradeDirectionText(),
                          EnableAutoTrading ? clrGreen : clrDimGray, 108);
-
-   double currentEquity  = AccountEquity();
-   double currentBalance = AccountBalance();
-   double equityDiff     = currentEquity - startingBalance;
-   SetDashboardValueLine("startbal", 122, "Start Balance", "$" + DoubleToString(startingBalance, 2), clrBlack, 108);
-   SetDashboardValueLine("equity",   140, "Equity",        "$" + DoubleToString(currentEquity,  2) +
-                         "  (" + (equityDiff >= 0 ? "+" : "") + DoubleToString(equityDiff, 2) + ")",
-                         GetProfitColor(equityDiff), 108);
-   SetDashboardValueLine("balance",  158, "Balance",       "$" + DoubleToString(currentBalance, 2), clrDarkBlue, 108);
-
-   SetDashboardValueLine("totalpl",180, "Total P/L", "$" + DoubleToString(totalPL, 2), GetProfitColor(totalPL), 108);
-   SetDashboardValueLine("orders", 200, "Total Orders", IntegerToString(totalOrders), GetCountColor(totalOrders, clrBlue), 108);
-   SetDashboardValueLine("buypl",  218, "Buy Orders", IntegerToString(buyOrders) + "  P/L $" + DoubleToString(buyPL, 2),
+   SetDashboardValueLine("totalpl",126, "Total P/L", "$" + DoubleToString(totalPL, 2), GetProfitColor(totalPL), 108);
+   SetDashboardValueLine("orders", 146, "Total Orders", IntegerToString(totalOrders), GetCountColor(totalOrders, clrBlue), 108);
+   SetDashboardValueLine("buypl",  164, "Buy Orders", IntegerToString(buyOrders) + "  P/L $" + DoubleToString(buyPL, 2),
                          buyOrders > 0 ? GetProfitColor(buyPL) : clrDimGray, 108);
-   SetDashboardValueLine("sellpl", 236, "Sell Orders", IntegerToString(sellOrders) + "  P/L $" + DoubleToString(sellPL, 2),
+   SetDashboardValueLine("sellpl", 182, "Sell Orders", IntegerToString(sellOrders) + "  P/L $" + DoubleToString(sellPL, 2),
                          sellOrders > 0 ? GetProfitColor(sellPL) : clrDimGray, 108);
-   SetDashboardValueLine("book",   254, "Profit Book", EnableProfitBooking ? ("$" + DoubleToString(ProfitBookingUSD, 2)) : "OFF",
+   SetDashboardValueLine("book",   200, "Profit Book", EnableProfitBooking ? ("$" + DoubleToString(ProfitBookingUSD, 2)) : "OFF",
                          EnableProfitBooking ? clrDarkGreen : clrDimGray, 108);
-   SetDashboardValueLine("stop",   272, "Stop Loss", EnableLossCut ? ("$" + DoubleToString(LossCutUSD, 2)) : "OFF",
+   SetDashboardValueLine("stop",   218, "Stop Loss", EnableLossCut ? ("$" + DoubleToString(LossCutUSD, 2)) : "OFF",
                          EnableLossCut ? clrRed : clrDimGray, 108);
    double spreadCostUSD = GetSpreadCostUSD(LotSize);
-   SetDashboardValueLine("spread", 290, "Spread",   DoubleToString((Ask - Bid),5)  +" "+   DoubleToString(spreadPoints, 0) + " pts ($" + DoubleToString(spreadCostUSD, 2) + ")",
+   SetDashboardValueLine("spread", 236, "Spread",   DoubleToString((Ask - Bid),5)  +" "+   DoubleToString(spreadPoints, 0) + " pts ($" + DoubleToString(spreadCostUSD, 2) + ")",
                          (!EnableSpreadFilter || IsSpreadOK()) ? clrDarkGreen : clrOrange, 108);
-   SetDashboardValueLine("test",   290, "Test", EnableTestBuyEvery5Min ? "ON" : "OFF",
+   SetDashboardValueLine("test",   236, "Test", EnableTestBuyEvery5Min ? "ON" : "OFF",
                          EnableTestBuyEvery5Min ? clrBlue : clrDimGray, 285);
 
-   SetDashboardLine("statshead", 20, 318, "Signal Stats  (closed trades)", clrBlack, 10);
-   SetDashboardValueLine("stat_tb", 340, "TREND BUY", BuildSignalStatsValueText(tbTrades, tbWins, tbLosses, tbProfit), GetProfitColor(tbProfit), 130);
-   SetDashboardValueLine("stat_vb", 358, "V SHAPE BUY", BuildSignalStatsValueText(vbTrades, vbWins, vbLosses, vbProfit), GetProfitColor(vbProfit), 130);
-   SetDashboardValueLine("stat_wb", 376, "W SHAPE BUY", BuildSignalStatsValueText(wbTrades, wbWins, wbLosses, wbProfit), GetProfitColor(wbProfit), 130);
-   SetDashboardValueLine("stat_sb", 394, "STRONG BUY", BuildSignalStatsValueText(sbTrades, sbWins, sbLosses, sbProfit), GetProfitColor(sbProfit), 130);
-   SetDashboardValueLine("stat_ts", 412, "TREND SELL", BuildSignalStatsValueText(tsTrades, tsWins, tsLosses, tsProfit), GetProfitColor(tsProfit), 130);
-   SetDashboardValueLine("stat_vs", 430, "V SHAPE SELL", BuildSignalStatsValueText(vsTrades, vsWins, vsLosses, vsProfit), GetProfitColor(vsProfit), 130);
-   SetDashboardValueLine("stat_ws", 448, "W SHAPE SELL", BuildSignalStatsValueText(wsTrades, wsWins, wsLosses, wsProfit), GetProfitColor(wsProfit), 130);
-   SetDashboardValueLine("stat_ss", 466, "STRONG SELL", BuildSignalStatsValueText(ssTrades, ssWins, ssLosses, ssProfit), GetProfitColor(ssProfit), 130);
-   SetDashboardValueLine("best", 488, "Best Signal", GetSignalDisplayName(bestSignal) +
+   SetDashboardLine("statshead", 20, 264, "Signal Stats  (closed trades)", clrBlack, 10);
+   SetDashboardValueLine("stat_tb", 286, "TREND BUY", BuildSignalStatsValueText(tbTrades, tbWins, tbLosses, tbProfit), GetProfitColor(tbProfit), 130);
+   SetDashboardValueLine("stat_vb", 304, "V SHAPE BUY", BuildSignalStatsValueText(vbTrades, vbWins, vbLosses, vbProfit), GetProfitColor(vbProfit), 130);
+   SetDashboardValueLine("stat_wb", 322, "W SHAPE BUY", BuildSignalStatsValueText(wbTrades, wbWins, wbLosses, wbProfit), GetProfitColor(wbProfit), 130);
+   SetDashboardValueLine("stat_sb", 340, "STRONG BUY", BuildSignalStatsValueText(sbTrades, sbWins, sbLosses, sbProfit), GetProfitColor(sbProfit), 130);
+   SetDashboardValueLine("stat_ts", 358, "TREND SELL", BuildSignalStatsValueText(tsTrades, tsWins, tsLosses, tsProfit), GetProfitColor(tsProfit), 130);
+   SetDashboardValueLine("stat_vs", 376, "V SHAPE SELL", BuildSignalStatsValueText(vsTrades, vsWins, vsLosses, vsProfit), GetProfitColor(vsProfit), 130);
+   SetDashboardValueLine("stat_ws", 394, "W SHAPE SELL", BuildSignalStatsValueText(wsTrades, wsWins, wsLosses, wsProfit), GetProfitColor(wsProfit), 130);
+   SetDashboardValueLine("stat_ss", 412, "STRONG SELL", BuildSignalStatsValueText(ssTrades, ssWins, ssLosses, ssProfit), GetProfitColor(ssProfit), 130);
+   SetDashboardValueLine("best", 434, "Best Signal", GetSignalDisplayName(bestSignal) +
                          (bestSignal == "NO CLOSED TRADES" ? "" : ("  P/L:$" + DoubleToString(bestProfit, 2))),
                          bestSignal == "NO CLOSED TRADES" ? clrDimGray : GetProfitColor(bestProfit), 130);
 
-   SetDashboardLine("openstatshead", 20, 516, "Signal Stats  (open trades / unrealised)", clrBlack, 10);
-   SetDashboardValueLine("open_tb", 538, "TREND BUY", BuildOpenSignalStatsValueText(tbOpen, tbOpenProfit),
+   SetDashboardLine("openstatshead", 20, 462, "Signal Stats  (open trades / unrealised)", clrBlack, 10);
+   SetDashboardValueLine("open_tb", 484, "TREND BUY", BuildOpenSignalStatsValueText(tbOpen, tbOpenProfit),
                          tbOpen > 0 ? GetProfitColor(tbOpenProfit) : clrDimGray, 130);
-   SetDashboardValueLine("open_vb", 556, "V SHAPE BUY", BuildOpenSignalStatsValueText(vbOpen, vbOpenProfit),
+   SetDashboardValueLine("open_vb", 502, "V SHAPE BUY", BuildOpenSignalStatsValueText(vbOpen, vbOpenProfit),
                          vbOpen > 0 ? GetProfitColor(vbOpenProfit) : clrDimGray, 130);
-   SetDashboardValueLine("open_wb", 574, "W SHAPE BUY", BuildOpenSignalStatsValueText(wbOpen, wbOpenProfit),
+   SetDashboardValueLine("open_wb", 520, "W SHAPE BUY", BuildOpenSignalStatsValueText(wbOpen, wbOpenProfit),
                          wbOpen > 0 ? GetProfitColor(wbOpenProfit) : clrDimGray, 130);
-   SetDashboardValueLine("open_sb", 592, "STRONG BUY", BuildOpenSignalStatsValueText(sbOpen, sbOpenProfit),
+   SetDashboardValueLine("open_sb", 538, "STRONG BUY", BuildOpenSignalStatsValueText(sbOpen, sbOpenProfit),
                          sbOpen > 0 ? GetProfitColor(sbOpenProfit) : clrDimGray, 130);
-   SetDashboardValueLine("open_ts", 610, "TREND SELL", BuildOpenSignalStatsValueText(tsOpen, tsOpenProfit),
+   SetDashboardValueLine("open_ts", 556, "TREND SELL", BuildOpenSignalStatsValueText(tsOpen, tsOpenProfit),
                          tsOpen > 0 ? GetProfitColor(tsOpenProfit) : clrDimGray, 130);
-   SetDashboardValueLine("open_vs", 628, "V SHAPE SELL", BuildOpenSignalStatsValueText(vsOpen, vsOpenProfit),
+   SetDashboardValueLine("open_vs", 574, "V SHAPE SELL", BuildOpenSignalStatsValueText(vsOpen, vsOpenProfit),
                          vsOpen > 0 ? GetProfitColor(vsOpenProfit) : clrDimGray, 130);
-   SetDashboardValueLine("open_ws", 646, "W SHAPE SELL", BuildOpenSignalStatsValueText(wsOpen, wsOpenProfit),
+   SetDashboardValueLine("open_ws", 592, "W SHAPE SELL", BuildOpenSignalStatsValueText(wsOpen, wsOpenProfit),
                          wsOpen > 0 ? GetProfitColor(wsOpenProfit) : clrDimGray, 130);
-   SetDashboardValueLine("open_ss", 664, "STRONG SELL", BuildOpenSignalStatsValueText(ssOpen, ssOpenProfit),
+   SetDashboardValueLine("open_ss", 610, "STRONG SELL", BuildOpenSignalStatsValueText(ssOpen, ssOpenProfit),
                          ssOpen > 0 ? GetProfitColor(ssOpenProfit) : clrDimGray, 130);
-   SetDashboardValueLine("open_total", 686, "Open Signal P/L",
+   SetDashboardValueLine("open_total", 632, "Open Signal P/L",
                          "$" + DoubleToString(tbOpenProfit + vbOpenProfit + wbOpenProfit + sbOpenProfit +
                                tsOpenProfit + vsOpenProfit + wsOpenProfit + ssOpenProfit, 2),
                          GetProfitColor(tbOpenProfit + vbOpenProfit + wbOpenProfit + sbOpenProfit +
                                         tsOpenProfit + vsOpenProfit + wsOpenProfit + ssOpenProfit), 130);
-   SetDashboardValueLine("buylimit", 708, "Buy Limit",
+   SetDashboardValueLine("buylimit", 654, "Buy Limit",
                          IntegerToString(buyOrders) + "/" + FormatLimitValue(effectiveBuyMax) +
                          "  Upd " + FormatDashboardDateTime(lastBuyOrderUpdateTime),
                          GetLimitColor(OP_BUY), 108);
-   SetDashboardValueLine("selllimit", 726, "Sell Limit",
+   SetDashboardValueLine("selllimit", 676, "Sell Limit",
                          IntegerToString(sellOrders) + "/" + FormatLimitValue(effectiveSellMax) +
                          "  Upd " + FormatDashboardDateTime(lastSellOrderUpdateTime),
                          GetLimitColor(OP_SELL), 108);
@@ -1363,9 +1280,7 @@ void MaybeRefreshDashboardOnTick()
 //+------------------------------------------------------------------+
 int OnInit()
   {
-   eaStartTime      = TimeCurrent();
-   startingBalance  = AccountBalance(); // capture investment amount at EA load
-   InitCSVLog();
+   eaStartTime = TimeCurrent();
    ResetEquityProfitPauseBaseline();
    EventSetTimer(MathMax(1, DashboardRefreshSeconds));
    RefreshDashboard();
@@ -1562,70 +1477,20 @@ void CloseOrdersAtProfitTarget()
       if(orderProfit < ProfitBookingUSD)
          continue;
 
-      int    logTicket  = OrderTicket();
-      string logComment = OrderComment();
       RefreshRates();
       double closePrice = (orderType == OP_BUY) ? Bid : Ask;
 
-      if(!OrderClose(logTicket, OrderLots(), closePrice, Slippage, clrGold))
+      if(!OrderClose(OrderTicket(), OrderLots(), closePrice, Slippage, clrGold))
         {
          LogMessage("Profit booking close failed for ticket " +
-                    IntegerToString(logTicket) + ": " +
+                    IntegerToString(OrderTicket()) + ": " +
                     IntegerToString(GetLastError()));
         }
       else
         {
          MarkTradeUpdate(orderType);
-         AppendTradeLog("CLOSE", logTicket, orderType,
-                        "PROFIT TARGET $" + DoubleToString(orderProfit, 2) +
-                        " [opened:" + logComment + "]",
-                        closePrice, orderProfit);
-         // Set follow flag so next identical signal gets immediate re-entry
-         if(TrendFollowCreateSecondOrder)
-           {
-            if(logComment == "TREND BUY")  lastTrendBuyClosedProfit  = true;
-            if(logComment == "TREND SELL") lastTrendSellClosedProfit = true;
-           }
         }
      }
-  }
-
-//+------------------------------------------------------------------+
-void CheckTotalDrawdownGuard()
-  {
-   if(!EnableAutoTrading || !EnableTotalDrawdownGuard || TotalDrawdownLimitUSD <= 0.0)
-      return;
-
-   double totalFloating = GetOpenProfitByType(OP_BUY) + GetOpenProfitByType(OP_SELL);
-
-   // Trigger 1: total floating loss exceeds limit
-   bool drawdownHit = (totalFloating <= -TotalDrawdownLimitUSD);
-
-   // Trigger 2: basket is full (max orders reached on both sides) AND still in loss
-   int buyCount    = CountOpenOrdersByType(OP_BUY);
-   int sellCount   = CountOpenOrdersByType(OP_SELL);
-   int buyMax      = GetEffectiveMaxOrdersForType(OP_BUY);
-   int sellMax     = GetEffectiveMaxOrdersForType(OP_SELL);
-   bool basketFull = (buyMax > 0 && buyCount >= buyMax) || (sellMax > 0 && sellCount >= sellMax);
-   bool basketLoss = basketFull && (totalFloating < 0);
-
-   if(!drawdownHit && !basketLoss)
-      return;
-
-   string reason = drawdownHit
-                   ? ("Drawdown $" + DoubleToString(totalFloating, 2) + " <= -$" + DoubleToString(TotalDrawdownLimitUSD, 2))
-                   : ("Basket full (" + IntegerToString(buyCount) + "B/" + IntegerToString(sellCount) +
-                      "S) with floating $" + DoubleToString(totalFloating, 2));
-
-   LogMessage("DrawdownGuard triggered: " + reason + ". Closing ALL orders.");
-
-   CloseOrdersByType(OP_BUY,  clrTomato, drawdownHit ? "DRAWDOWN GUARD" : "BASKET FULL LOSS");
-   CloseOrdersByType(OP_SELL, clrTomato, drawdownHit ? "DRAWDOWN GUARD" : "BASKET FULL LOSS");
-
-   prevSignal               = "";
-   lastAppearedStrongSignal = "";
-   lastAnyBuyBarTime        = 0;
-   lastAnySellBarTime       = 0;
   }
 
 //+------------------------------------------------------------------+
@@ -1650,24 +1515,18 @@ void CloseOrdersAtLossLimit()
       if(orderProfit > -LossCutUSD)
          continue;
 
-      int    logTicket  = OrderTicket();
-      string logComment = OrderComment();
       RefreshRates();
       double closePrice = (orderType == OP_BUY) ? Bid : Ask;
 
-      if(!OrderClose(logTicket, OrderLots(), closePrice, Slippage, clrTomato))
+      if(!OrderClose(OrderTicket(), OrderLots(), closePrice, Slippage, clrTomato))
         {
          LogMessage("Loss cut close failed for ticket " +
-                    IntegerToString(logTicket) + ": " +
+                    IntegerToString(OrderTicket()) + ": " +
                     IntegerToString(GetLastError()));
         }
       else
         {
          MarkTradeUpdate(orderType);
-         AppendTradeLog("CLOSE", logTicket, orderType,
-                        "LOSS CUT $" + DoubleToString(orderProfit, 2) +
-                        " [opened:" + logComment + "]",
-                        closePrice, orderProfit);
         }
      }
   }
@@ -1688,12 +1547,12 @@ void CloseOrdersBeforeSessionOpen()
    if(totalOpenProfit < PreOpenCloseProfitUSD)
       return;
 
-   CloseOrdersByType(OP_BUY, clrSilver, "PRE-SESSION CLOSE");
-   CloseOrdersByType(OP_SELL, clrSilver, "PRE-SESSION CLOSE");
+   CloseOrdersByType(OP_BUY, clrSilver);
+   CloseOrdersByType(OP_SELL, clrSilver);
   }
 
 //+------------------------------------------------------------------+
-bool CloseOrdersByType(int orderType, color clr, string closeReason = "CLOSE")
+bool CloseOrdersByType(int orderType, color clr)
   {
    bool allClosed = true;
 
@@ -1709,24 +1568,18 @@ bool CloseOrdersByType(int orderType, color clr, string closeReason = "CLOSE")
          continue;
         }
 
-      int    logTicket  = OrderTicket();
-      string logComment = OrderComment();
-      double logProfit  = OrderProfit() + OrderSwap() + OrderCommission();
       RefreshRates();
       double closePrice = (orderType == OP_BUY) ? Bid : Ask;
 
-      if(!OrderClose(logTicket, OrderLots(), closePrice, Slippage, clr))
+      if(!OrderClose(OrderTicket(), OrderLots(), closePrice, Slippage, clr))
         {
-         LogMessage("OrderClose failed for ticket " + IntegerToString(logTicket) +
+         LogMessage("OrderClose failed for ticket " + IntegerToString(OrderTicket()) +
                     ": " + IntegerToString(GetLastError()));
          allClosed = false;
         }
       else
         {
          MarkTradeUpdate(orderType);
-         AppendTradeLog("CLOSE", logTicket, orderType,
-                        closeReason + " [opened:" + logComment + "]",
-                        closePrice, logProfit);
         }
      }
 
@@ -1734,52 +1587,12 @@ bool CloseOrdersByType(int orderType, color clr, string closeReason = "CLOSE")
   }
 
 //+------------------------------------------------------------------+
-void CheckEquityTarget()
-  {
-   if(!EnableEquityTarget || EquityTargetUSD <= 0.0)
-      return;
-
-   // Run only once per hour
-   datetime now = TimeCurrent();
-   if(now - lastEquityTargetCheckTime < (60*30))
-      return;
-   lastEquityTargetCheckTime = now;
-
-   double equity  = AccountEquity();
-   double balance = AccountBalance();
-
-   if(equity < startingBalance + EquityTargetUSD)
-      return;
-
-   // Only close if equity is within 5% of balance (no large open floating loss)
-   if(balance > 0 && equity < balance * 0.80 &&  balance >= startingBalance * 1.30)
-     {
-      LogMessage("Equity target reached but floating loss too large (equity $" +
-                 DoubleToString(equity, 2) + " < 95% of balance $" +
-                 DoubleToString(balance, 2) + "). Waiting.");
-      return;
-     }
-
-   LogMessage("Equity target reached: $" + DoubleToString(equity, 2) +
-              " >= Start $" + DoubleToString(startingBalance, 2) +
-              " + $" + DoubleToString(EquityTargetUSD, 2) + " target. Closing all orders.");
-
-   CloseOrdersByType(OP_BUY,  clrGold, "EQUITY TARGET REACHED");
-   CloseOrdersByType(OP_SELL, clrGold, "EQUITY TARGET REACHED");
-
-   prevSignal               = "";
-   lastAppearedStrongSignal = "";
-   lastAnyBuyBarTime        = 0;
-   lastAnySellBarTime       = 0;
-  }
-
-//+------------------------------------------------------------------+
 void StartEquityProfitPause()
   {
    datetime now = GetTradeClock();
 
-   CloseOrdersByType(OP_BUY, clrSilver, "EQUITY PROFIT PAUSE");
-   CloseOrdersByType(OP_SELL, clrSilver, "EQUITY PROFIT PAUSE");
+   CloseOrdersByType(OP_BUY, clrSilver);
+   CloseOrdersByType(OP_SELL, clrSilver);
 
    equityProfitPauseUntil = now + (EquityProfitPauseMinutes * 60);
    wasEquityProfitPauseWindow = true;
@@ -1795,8 +1608,8 @@ void HandleEquityProfitPause()
      {
       if(CountOpenOrders() > 0)
         {
-         CloseOrdersByType(OP_BUY, clrSilver, "EQUITY PROFIT PAUSE");
-         CloseOrdersByType(OP_SELL, clrSilver, "EQUITY PROFIT PAUSE");
+         CloseOrdersByType(OP_BUY, clrSilver);
+         CloseOrdersByType(OP_SELL, clrSilver);
         }
       return;
      }
@@ -2139,7 +1952,6 @@ bool OpenOrderByType(int orderType, string orderComment, color clr, double signa
      }
 
    MarkTradeUpdate(orderType);
-   AppendTradeLog("OPEN", ticket, orderType, orderComment, price, 0.0);
    return true;
   }
 
@@ -2175,8 +1987,6 @@ void OnTick()
       return;
      }
 
-   CheckTotalDrawdownGuard();
-   CheckEquityTarget();
    CloseOrdersBeforeSessionOpen();
    CloseOrdersAtLossLimit();
    CloseOrdersAtProfitTarget();
@@ -2295,10 +2105,6 @@ void OnTick()
          // =========================
          if(CanTradeSignalBar(i))
            {
-            // Trend-follow re-entry: if last TREND BUY closed profitable, allow bypass of time guard
-            if(TrendFollowCreateSecondOrder && lastTrendBuyClosedProfit && trendBuyConfirmed)
-               lastTrendBuyTradeTime = 0;
-
             if(trendBuyConfirmed && IsBuyDirectionAllowed() && lastTrendBuyTradeTime != t)
               {
                int lookback = 10;
@@ -2324,7 +2130,6 @@ void OnTick()
                      lastTrendBuyTradeTime = t;
                      prevSignal = "TREND BUY";
                      lastAppearedStrongSignal = ""; // consume strong sequence token
-                     lastTrendBuyClosedProfit  = false; // consume follow flag
                     }
                  }
                else
@@ -2409,10 +2214,6 @@ void OnTick()
                           }
                        }
                      else
-                        // Trend-follow re-entry: if last TREND SELL closed profitable, allow bypass of time guard
-                        if(TrendFollowCreateSecondOrder && lastTrendSellClosedProfit && trendSellConfirmed)
-                           lastTrendSellTradeTime = 0;
-
                         if(trendSellConfirmed && IsSellDirectionAllowed() && lastTrendSellTradeTime != t)
                           {
                            if(EnableAutoTrading)
@@ -2439,7 +2240,6 @@ void OnTick()
                                  lastTrendSellTradeTime = t;
                                  prevSignal = "TREND SELL";
                                  lastAppearedStrongSignal = ""; // consume strong sequence token
-                                 lastTrendSellClosedProfit = false; // consume follow flag
                                 }
                              }
 
