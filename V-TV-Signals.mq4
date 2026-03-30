@@ -48,9 +48,9 @@ input int ReversalStreakCandles = 3;
 
 
 //-----------------------------------------------------------------------------
-input string version="V1.3";
+input string version="V1.31";
 input int TradeDirectionMode = 0; // 0=both, 1=buy only, 2=sell only
-input double ProfitBookingUSD = 0.50;
+input double ProfitBookingUSD = 0.30;//0.50 is good 
 input double PreOpenCloseProfitUSD = 0.20;
 input double LossCutUSD = 20.00; //stop loss// 5 for AUD 20 for XAG /BTC
 
