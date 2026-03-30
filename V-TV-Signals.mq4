@@ -61,7 +61,7 @@ input string version="V1.31";
 input int TradeDirectionMode = 0; // 0=both, 1=buy only, 2=sell only
 input double ProfitBookingUSD = 0.30;//0.50 is good 
 input double PreOpenCloseProfitUSD = 0.20;
-input double LossCutUSD = 20.00; //stop loss// 5 for AUD 20 for XAG /BTC
+input double LossCutUSD = 30.00; //stop loss// 5 for AUD 20 for XAG /BTC
 
 
 input double EquityProfitPauseUSD = 5.00;
@@ -74,7 +74,7 @@ input int MaxBuyOrders = 2;
 input int MaxSellOrders = 2;
 input int MaxTotalOrders = 4; // 0 = unlimited
 
-input int waitStartSessiontime=0;
+input int waitStartSessiontime=15;
 
 
 
@@ -113,7 +113,7 @@ input bool   EnableTotalDrawdownGuard  = false;   // close ALL orders if total f
 input double TotalDrawdownLimitUSD     = 20.00;   // max total floating loss across all open orders
 
 input bool CloseOppositeOnEntry = false;
-input bool TrendFollowCreateSecondOrder = true; // after profitable TREND BUY/SELL, allow immediate re-entry on next same signal
+input bool TrendFollowCreateSecondOrder = false; // after profitable TREND BUY/SELL, allow immediate re-entry on next same signal
 
 
 input bool EnableMaxOrderAutoUnlock = true;
