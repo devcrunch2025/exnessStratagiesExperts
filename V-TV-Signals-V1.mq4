@@ -50,12 +50,12 @@ input int ReversalStreakCandles = 3;
 //-----------------------------------------------------------------------------
 input string version="V1.31";
 input int TradeDirectionMode = 0; // 0=both, 1=buy only, 2=sell only
-input double ProfitBookingUSD = 0.50;//0.50 is good 
-input double PreOpenCloseProfitUSD = 0.30;
-input double LossCutUSD = 1.00; //stop loss// 5 for AUD 20 for XAG /BTC
+input double ProfitBookingUSD = 0.30;//0.50 is good 
+input double PreOpenCloseProfitUSD = 0.20;
+input double LossCutUSD = 20.00; //stop loss// 5 for AUD 20 for XAG /BTC
 
 
-input double EquityProfitPauseUSD = 100.00;
+input double EquityProfitPauseUSD = 5.00;
 input int MaxBuyOrders = 2;
 input int MaxSellOrders = 2;
 input int MaxTotalOrders = 4; // 0 = unlimited
@@ -104,9 +104,6 @@ input int MaxOrderUnlockMinutes = 60;
 input int MaxBuyOrdersAfterUnlock = 10;
 input int MaxSellOrdersAfterUnlock = 10;
 
-input double TrendSellSeqMinDistUSD    = 1;  // min price drop value ($) between sequence re-entries (0 = disabled)
-input double TrendSellDailyLowGapPrice = 400.0; // minimum price distance ($) above daily low to allow TREND SELL entry (0 = disabled)
-
 // ----- GLOBALS ----- //
 datetime eaStartTime = 0; // For initial 30-min pause
 datetime lastAlertTime = 0;
@@ -128,11 +125,6 @@ bool wasEquityProfitPauseWindow = false;
 datetime lastDashboardRefreshTime = 0;
 datetime equityProfitPauseUntil = 0;
 double equityProfitPauseBaseline = 0.0;
-string   g_csvFileName = "";
-// Rule 1 — TREND SELL re-entry sequence
-int    trendSellSeqCount      = 0;     // how many orders opened in current TREND SELL sequence (0-3)
-bool   trendSellProfitClosed  = false; // set true when the last TREND SELL order closed at profit
-double trendSellLastOrderPrice = 0.0;  // Bid at which the last TREND SELL sequence order was opened
 
 
 
@@ -1276,114 +1268,13 @@ void RefreshDashboard()
   }
 
 //+------------------------------------------------------------------+
-// Draw daily low line + no-sell zone boundary on chart
-void UpdateDailyLowProximityLines()
-  {
-   double dailyLow = iLow(Symbol(), PERIOD_D1, 0);
-   if(dailyLow <= 0) return;
-
-   double zoneTop    = dailyLow + TrendSellDailyLowGapPrice; // direct price gap, e.g. $200 above daily low
-
-   // --- Daily Low line (red dashed) ---
-   string lowLine = "TS_DailyLow";
-   if(ObjectFind(0, lowLine) < 0)
-      ObjectCreate(0, lowLine, OBJ_HLINE, 0, 0, dailyLow);
-   ObjectMove(0, lowLine, 0, 0, dailyLow);
-   ObjectSetInteger(0, lowLine, OBJPROP_COLOR, clrRed);
-   ObjectSetInteger(0, lowLine, OBJPROP_STYLE, STYLE_DASH);
-   ObjectSetInteger(0, lowLine, OBJPROP_WIDTH, 2);
-   ObjectSetString(0,  lowLine, OBJPROP_TOOLTIP,
-                   "Daily Low: " + DoubleToString(dailyLow, Digits));
-
-   // Label on daily low line
-   string lowLabel = "TS_DailyLow_Lbl";
-   if(ObjectFind(0, lowLabel) < 0)
-      ObjectCreate(0, lowLabel, OBJ_TEXT, 0, Time[5], dailyLow);
-   ObjectMove(0, lowLabel, 0, Time[5], dailyLow);
-   ObjectSetText(lowLabel, " Daily Low: " + DoubleToString(dailyLow, Digits), 8, "Arial Bold", clrRed);
-
-   // --- No-sell zone top line (orange dotted) ---
-   string zoneLine = "TS_NoSellZone";
-   if(ObjectFind(0, zoneLine) < 0)
-      ObjectCreate(0, zoneLine, OBJ_HLINE, 0, 0, zoneTop);
-   ObjectMove(0, zoneLine, 0, 0, zoneTop);
-   ObjectSetInteger(0, zoneLine, OBJPROP_COLOR, clrOrangeRed);
-   ObjectSetInteger(0, zoneLine, OBJPROP_STYLE, STYLE_DOT);
-   ObjectSetInteger(0, zoneLine, OBJPROP_WIDTH, 1);
-   ObjectSetString(0,  zoneLine, OBJPROP_TOOLTIP,
-                   "No-Sell Zone: $" + DoubleToString(TrendSellDailyLowGapPrice, 2) + " above Daily Low");
-
-   // Label on zone top line
-   string zoneLabel = "TS_NoSellZone_Lbl";
-   if(ObjectFind(0, zoneLabel) < 0)
-      ObjectCreate(0, zoneLabel, OBJ_TEXT, 0, Time[5], zoneTop);
-   ObjectMove(0, zoneLabel, 0, Time[5], zoneTop);
-   ObjectSetText(zoneLabel, " No-Sell Zone ($" + DoubleToString(TrendSellDailyLowGapPrice, 0) + " above daily low)", 8, "Arial Bold", clrOrangeRed);
-  }
-
 void MaybeRefreshDashboardOnTick()
   {
    datetime now = GetTradeClock();
    int refreshSeconds = MathMax(1, DashboardRefreshSeconds);
 
    if(lastDashboardRefreshTime == 0 || (now - lastDashboardRefreshTime) >= refreshSeconds)
-     {
       RefreshDashboard();
-      UpdateDailyLowProximityLines();
-     }
-  }
-
-//+------------------------------------------------------------------+
-//+------------------------------------------------------------------+
-//| CSV Trade / Signal Logger                                        |
-//+------------------------------------------------------------------+
-void InitCSVLog()
-  {
-   string dateStr = TimeToString(TimeCurrent(), TIME_DATE);
-   StringReplace(dateStr, ".", "");
-   g_csvFileName = dateStr + "_" + Symbol() + ".csv";
-   // Write header only if file is new/empty
-   int handle = FileOpen(g_csvFileName, FILE_TXT|FILE_READ|FILE_SHARE_READ|FILE_SHARE_WRITE);
-   if(handle != INVALID_HANDLE)
-     {
-      ulong sz = FileSize(handle);
-      FileClose(handle);
-      if(sz > 0) return;
-     }
-   handle = FileOpen(g_csvFileName, FILE_TXT|FILE_WRITE|FILE_SHARE_READ|FILE_SHARE_WRITE);
-   if(handle == INVALID_HANDLE) return;
-   FileWriteString(handle, "DateTime,Symbol,Ticket,Direction,Action,Signal_Name,Prev_Signal,Curr_Signal,Price,Profit\n");
-   FileClose(handle);
-  }
-
-// action  : "SIGNAL" (no order) or "CLOSE"
-// signalName : e.g. "TREND BUY"
-// prevSig    : value of prevSignal BEFORE this event
-// currSig    : the new / current signal name
-void AppendTradeLog(string action, int ticket, int orderType, string signalName, string prevSig, string currSig, double price, double profit)
-  {
-   if(g_csvFileName == "") return;
-   int handle = FileOpen(g_csvFileName, FILE_TXT|FILE_READ|FILE_WRITE|FILE_SHARE_READ|FILE_SHARE_WRITE);
-   if(handle == INVALID_HANDLE)
-     {
-      handle = FileOpen(g_csvFileName, FILE_TXT|FILE_WRITE|FILE_SHARE_READ|FILE_SHARE_WRITE);
-      if(handle == INVALID_HANDLE) return;
-      FileWriteString(handle, "DateTime,Symbol,Ticket,Direction,Action,Signal_Name,Prev_Signal,Curr_Signal,Price,Profit\n");
-     }
-   else
-      FileSeek(handle, 0, SEEK_END);
-   string line = TimeToString(TimeCurrent(), TIME_DATE|TIME_SECONDS) + "," +
-                 Symbol() + "," +
-                 IntegerToString(ticket) + "," +
-                 (orderType == OP_BUY ? "BUY" : "SELL") + "," +
-                 action + "," +
-                 signalName + "," +
-                 (prevSig == "" ? "NONE" : prevSig) + "," +
-                 (currSig  == "" ? "NONE" : currSig)  + "," +
-                 DoubleToString(price, Digits) + "," +
-                 DoubleToString(profit, 2) + "\n";
-   FileWriteString(handle, line);
-   FileClose(handle);
   }
 
 //+------------------------------------------------------------------+
@@ -1391,10 +1282,8 @@ int OnInit()
   {
    eaStartTime = TimeCurrent();
    ResetEquityProfitPauseBaseline();
-   InitCSVLog();
    EventSetTimer(MathMax(1, DashboardRefreshSeconds));
    RefreshDashboard();
-   UpdateDailyLowProximityLines();
    return(INIT_SUCCEEDED);
   }
 //+------------------------------------------------------------------+
@@ -1422,10 +1311,6 @@ void OnDeinit(const int reason)
   {
    EventKillTimer();
    DeleteDashboard();
-   ObjectDelete(0, "TS_DailyLow");
-   ObjectDelete(0, "TS_DailyLow_Lbl");
-   ObjectDelete(0, "TS_NoSellZone");
-   ObjectDelete(0, "TS_NoSellZone_Lbl");
    Comment("");
   }
 
@@ -1550,40 +1435,6 @@ int CountOpenOrders()
   }
 
 //+------------------------------------------------------------------+
-// Returns true if any open order for this EA on this symbol has the given comment
-bool HasOpenOrderByComment(string cmt)
-  {
-   for(int i = OrdersTotal() - 1; i >= 0; i--)
-     {
-      if(!OrderSelect(i, SELECT_BY_POS, MODE_TRADES))
-         continue;
-      if(OrderSymbol()      == Symbol()     &&
-         OrderMagicNumber() == MagicNumber  &&
-         OrderComment()     == cmt)
-         return true;
-     }
-   return false;
-  }
-
-//+------------------------------------------------------------------+
-// Returns the lowest open price among all active SELL orders for this EA/symbol
-// (lowest entry = the sell order placed at the cheapest price this session)
-double GetLowestOpenSellPrice()
-  {
-   double lowest = 0.0;
-   for(int i = OrdersTotal() - 1; i >= 0; i--)
-     {
-      if(!OrderSelect(i, SELECT_BY_POS, MODE_TRADES)) continue;
-      if(OrderSymbol()      != Symbol())    continue;
-      if(OrderMagicNumber() != MagicNumber) continue;
-      if(OrderType()        != OP_SELL)     continue;
-      if(lowest == 0.0 || OrderOpenPrice() < lowest)
-         lowest = OrderOpenPrice();
-     }
-   return lowest;
-  }
-
-//+------------------------------------------------------------------+
 double GetOpenProfitByType(int orderType)
   {
    double profit = 0.0;
@@ -1627,29 +1478,17 @@ void CloseOrdersAtProfitTarget()
          continue;
 
       RefreshRates();
-      double closePrice  = (orderType == OP_BUY) ? Bid : Ask;
-      string closedCmt   = OrderComment();
-      int    closedTkt   = OrderTicket();
-      double closedProfit= orderProfit;
+      double closePrice = (orderType == OP_BUY) ? Bid : Ask;
 
-      if(!OrderClose(closedTkt, OrderLots(), closePrice, Slippage, clrGold))
+      if(!OrderClose(OrderTicket(), OrderLots(), closePrice, Slippage, clrGold))
         {
          LogMessage("Profit booking close failed for ticket " +
-                    IntegerToString(closedTkt) + ": " +
+                    IntegerToString(OrderTicket()) + ": " +
                     IntegerToString(GetLastError()));
         }
       else
         {
          MarkTradeUpdate(orderType);
-         AppendTradeLog("CLOSE_PROFIT", closedTkt, orderType, closedCmt, prevSignal, currentSignal, closePrice, closedProfit);
-         // Rule 1: track TREND SELL profitable close for re-entry
-         if(closedCmt == "TREND SELL")
-           {
-            if(trendSellSeqCount >= 3)
-              { trendSellSeqCount = 0; trendSellProfitClosed = false; } // 3rd order done — reset
-            else
-              { trendSellProfitClosed = true; }  // allow next re-entry
-           }
         }
      }
   }
@@ -1677,24 +1516,17 @@ void CloseOrdersAtLossLimit()
          continue;
 
       RefreshRates();
-      double closePrice  = (orderType == OP_BUY) ? Bid : Ask;
-      string closedCmt   = OrderComment();
-      int    closedTkt   = OrderTicket();
-      double closedProfit= orderProfit;
+      double closePrice = (orderType == OP_BUY) ? Bid : Ask;
 
-      if(!OrderClose(closedTkt, OrderLots(), closePrice, Slippage, clrTomato))
+      if(!OrderClose(OrderTicket(), OrderLots(), closePrice, Slippage, clrTomato))
         {
          LogMessage("Loss cut close failed for ticket " +
-                    IntegerToString(closedTkt) + ": " +
+                    IntegerToString(OrderTicket()) + ": " +
                     IntegerToString(GetLastError()));
         }
       else
         {
          MarkTradeUpdate(orderType);
-         AppendTradeLog("CLOSE_LOSS", closedTkt, orderType, closedCmt, prevSignal, currentSignal, closePrice, closedProfit);
-         // Rule 1: loss on TREND SELL order resets the sequence
-         if(closedCmt == "TREND SELL")
-           { trendSellSeqCount = 0; trendSellProfitClosed = false; trendSellLastOrderPrice = 0.0; }
         }
      }
   }
@@ -1717,44 +1549,6 @@ void CloseOrdersBeforeSessionOpen()
 
    CloseOrdersByType(OP_BUY, clrSilver);
    CloseOrdersByType(OP_SELL, clrSilver);
-  }
-
-//+------------------------------------------------------------------+
-// Immediate exit: close any TREND SELL order the moment price ticks UP
-// above its entry price (price moved against the trade direction)
-void CheckTrendSellImmediateExit()
-  {
-   if(!EnableAutoTrading) return;
-   RefreshRates();
-
-   for(int i = OrdersTotal() - 1; i >= 0; i--)
-     {
-      if(!OrderSelect(i, SELECT_BY_POS, MODE_TRADES)) continue;
-      if(OrderSymbol()      != Symbol())     continue;
-      if(OrderMagicNumber() != MagicNumber)  continue;
-      if(OrderType()        != OP_SELL)      continue;
-      if(OrderComment()     != "TREND SELL") continue;
-
-      // For a SELL order, if Bid is now ABOVE the entry price → price went up → exit immediately
-      if(Bid <= OrderOpenPrice()) continue;
-
-      double closePrice  = Ask;
-      string closedCmt   = OrderComment();
-      int    closedTkt   = OrderTicket();
-      double closedProfit= OrderProfit() + OrderSwap() + OrderCommission();
-
-      if(OrderClose(closedTkt, OrderLots(), closePrice, Slippage, clrOrangeRed))
-        {
-         MarkTradeUpdate(OP_SELL);
-         AppendTradeLog("CLOSE_PRICE_UP", closedTkt, OP_SELL, closedCmt, prevSignal, currentSignal, closePrice, closedProfit);
-         // Price went up = not a profit close → reset sequence
-         trendSellSeqCount      = 0;
-         trendSellProfitClosed  = false;
-         trendSellLastOrderPrice = 0.0;
-        }
-      else
-         LogMessage("Immediate exit failed for ticket " + IntegerToString(closedTkt) + ": " + IntegerToString(GetLastError()));
-     }
   }
 
 //+------------------------------------------------------------------+
@@ -2149,7 +1943,7 @@ bool OpenOrderByType(int orderType, string orderComment, color clr, double signa
    int ticket = OrderSend(Symbol(), orderType, lots, price, Slippage, sl, tp,
                           orderComment, MagicNumber, 0, clr);
 
-   
+   printf(prevSignal+" "+currentSignal);
 
    if(ticket < 0)
      {
@@ -2193,7 +1987,6 @@ void OnTick()
       return;
      }
 
-   // CheckTrendSellImmediateExit();   // Rule: close TREND SELL immediately if next tick price goes UP [DISABLED]
    CloseOrdersBeforeSessionOpen();
    CloseOrdersAtLossLimit();
    CloseOrdersAtProfitTarget();
@@ -2314,31 +2107,6 @@ void OnTick()
            {
             if(trendBuyConfirmed && IsBuyDirectionAllowed() && lastTrendBuyTradeTime != t)
               {
-               // Reversal close: TREND BUY fired → close all open TREND SELL orders regardless of prevSignal
-               if(HasOpenOrderByComment("TREND SELL"))
-                 {
-                  for(int ci = OrdersTotal() - 1; ci >= 0; ci--)
-                    {
-                     if(!OrderSelect(ci, SELECT_BY_POS, MODE_TRADES)) continue;
-                     if(OrderSymbol() != Symbol() || OrderMagicNumber() != MagicNumber) continue;
-                     if(OrderType() != OP_SELL || OrderComment() != "TREND SELL") continue;
-                     RefreshRates();
-                     double cPrice   = Ask;
-                     int    cTkt     = OrderTicket();
-                     double cProfit  = OrderProfit() + OrderSwap() + OrderCommission();
-                     if(OrderClose(cTkt, OrderLots(), cPrice, Slippage, clrAqua))
-                       {
-                        MarkTradeUpdate(OP_SELL);
-                        AppendTradeLog("CLOSE_REVERSAL", cTkt, OP_SELL, "TREND SELL",
-                                       "TREND SELL", "TREND BUY", cPrice, cProfit);
-                        // Reversal close is NOT a profit close — reset sequence
-                        trendSellSeqCount      = 0;
-                        trendSellProfitClosed  = false;
-                        trendSellLastOrderPrice = 0.0;
-                       }
-                    }
-                 }
-
                int lookback = 10;
                double recentHigh = GetRecentHighestHigh(lookback);
                double minDistancePoints = 10;
@@ -2357,11 +2125,12 @@ void OnTick()
                // Place order as usual
                if(EnableAutoTrading)
                  {
-                  // [ORDER CREATION COMMENTED OUT] OpenOrderByType(OP_BUY, "TREND BUY", clrLime, Close[i])
-                  AppendTradeLog("SIGNAL", 0, OP_BUY, "TREND BUY", prevSignal, "TREND BUY", Close[i], 0.0);
-                  lastTrendBuyTradeTime = t;
-                  prevSignal = "TREND BUY";
-                  lastAppearedStrongSignal = ""; // consume strong sequence token
+                  if(OpenOrderByType(OP_BUY, "TREND BUY", clrLime, Close[i]))
+                    {
+                     lastTrendBuyTradeTime = t;
+                     prevSignal = "TREND BUY";
+                     lastAppearedStrongSignal = ""; // consume strong sequence token
+                    }
                  }
                else
                  {
@@ -2379,10 +2148,11 @@ void OnTick()
                  {
                   if(EnableAutoTrading)
                     {
-                     // [ORDER CREATION COMMENTED OUT] OpenOrderByType(OP_BUY, reversalBuyName, clrAqua, Close[i])
-                     AppendTradeLog("SIGNAL", 0, OP_BUY, reversalBuyName, prevSignal, reversalBuyName, Close[i], 0.0);
-                     lastRevBuyTradeTime = t;
-                     prevSignal = reversalBuyName;
+                     if(OpenOrderByType(OP_BUY, reversalBuyName, clrAqua, Close[i]))
+                       {
+                        lastRevBuyTradeTime = t;
+                        prevSignal = reversalBuyName;
+                       }
                     }
                   else
                     {
@@ -2401,10 +2171,11 @@ void OnTick()
                      lastAppearedStrongSignal = "STRONG BUY"; // track for STRONG->TREND->TREND sequence
                      if(EnableAutoTrading)
                        {
-                        // [ORDER CREATION COMMENTED OUT] OpenOrderByType(OP_BUY, "STRONG BUY", clrGreen, Close[i])
-                        AppendTradeLog("SIGNAL", 0, OP_BUY, "STRONG BUY", prevSignal, "STRONG BUY", Close[i], 0.0);
-                        lastStrongBuyTradeTime = t;
-                        prevSignal = "STRONG BUY";
+                        if(OpenOrderByType(OP_BUY, "STRONG BUY", clrGreen, Close[i]))
+                          {
+                           lastStrongBuyTradeTime = t;
+                           prevSignal = "STRONG BUY";
+                          }
                        }
                      else
                        {
@@ -2424,10 +2195,11 @@ void OnTick()
                           {
                            if(EnableAutoTrading)
                              {
-                              // [ORDER CREATION COMMENTED OUT] OpenOrderByType(OP_BUY, "MOM BUY", clrYellow, Close[i])
-                              AppendTradeLog("SIGNAL", 0, OP_BUY, "MOM BUY", prevSignal, "MOM BUY", Close[i], 0.0);
-                              lastMomBuyTradeTime = t;
-                              prevSignal = "MOM BUY";
+                              if(OpenOrderByType(OP_BUY, "MOM BUY", clrYellow, Close[i]))
+                                {
+                                 lastMomBuyTradeTime = t;
+                                 prevSignal = "MOM BUY";
+                                }
                              }
                            else
                              {
@@ -2458,76 +2230,16 @@ void OnTick()
                                  //return; // or return false; depending on your function
                                 }
 
-                              // Rule 1 — TREND SELL: strict max 3 orders total
-                              // seqCount resets ONLY on: loss close / reversal close / 3rd-order profit close
-                              // Different signals (STRONG SELL etc.) between TREND SELLs do NOT reset counter
-                              // MOM SELL is transparent (ignored)
-                              bool tsNoOpenOrder    = !HasOpenOrderByComment("TREND SELL");
-                              double tsLowestSell   = iLow(Symbol(), PERIOD_D1, 0);
-                              bool   tsNearLowest   = (TrendSellDailyLowGapPrice > 0 && tsLowestSell > 0 &&
-                                                       (Bid - tsLowestSell) < TrendSellDailyLowGapPrice);
-                              double tsPriceDrop    = (trendSellLastOrderPrice > 0)
-                                                      ? (trendSellLastOrderPrice - Bid) / Point : 999999;
-                              double tsTickVal      = MarketInfo(Symbol(), MODE_TICKVALUE);
-                              double tsValPerPoint  = (tsTickVal > 0 && LotSize > 0) ? tsTickVal * LotSize : 0;
-                              double tsMinDistPts   = (TrendSellSeqMinDistUSD <= 0 || tsValPerPoint <= 0)
-                                                      ? 0 : TrendSellSeqMinDistUSD / tsValPerPoint;
-                              bool tsPriceOk        = (tsMinDistPts <= 0 || tsPriceDrop >= tsMinDistPts);
-                              // Fresh: first order in sequence (seqCount==0)
-                              bool tsIsFresh        = (trendSellSeqCount == 0);
-                              // Re-entry: seqCount 1-2, no open order, price gap ok
-                              //   - prev was TREND SELL / MOM SELL → need profit close
-                              //   - prev was different signal       → independent, profit not required
-                              bool tsPrevIsTSSeq    = (prevSignal == "TREND SELL" || prevSignal == "MOM SELL");
-                              bool tsIsReentry      = (!tsIsFresh && tsPriceOk &&
-                                                       (trendSellProfitClosed || !tsPrevIsTSSeq));
-                              if(tsNoOpenOrder && trendSellSeqCount < 3 && (tsIsFresh || tsIsReentry) && !tsNearLowest)
+
+
+
+
+
+                              if(OpenOrderByType(OP_SELL, "TREND SELL", clrRed, Close[i]))
                                 {
-                                 string prevSigCapture = prevSignal;
-
-
-
-                                 if(OpenOrderByType(OP_SELL, "TREND SELL", clrRed, Close[i]))
-                                   {
-                                    lastTrendSellTradeTime  = t;
-                                    trendSellSeqCount++;
-                                    trendSellProfitClosed   = false;
-                                    trendSellLastOrderPrice = Bid;
-                                    prevSignal              = "TREND SELL";
-                                    lastAppearedStrongSignal = "";
-                                    AppendTradeLog("OPEN #" + IntegerToString(trendSellSeqCount), 0, OP_SELL,
-                                                   "TREND SELL", prevSigCapture, "TREND SELL", Close[i], 0.0);
-                                   }
-                                 else
-                                   {
-                                    // OpenOrderByType returned false — log all state for diagnosis
-                                    string dbg = "fresh="   + (string)tsIsFresh    +
-                                                 " reentry="+ (string)tsIsReentry  +
-                                                 " noOpen=" + (string)tsNoOpenOrder+
-                                                 " nearLow="+ (string)tsNearLowest +
-                                                 " seq="    + IntegerToString(trendSellSeqCount) + "/3" +
-                                                 " profitClosed=" + (string)trendSellProfitClosed +
-                                                 " prevSig="+ prevSigCapture       +
-                                                 " Bid="    + DoubleToString(Bid,Digits);
-                                    AppendTradeLog("OPEN_FAILED", 0, OP_SELL, "TREND SELL " + dbg,
-                                                   prevSigCapture, "TREND SELL", Close[i], 0.0);
-                                    Print("TREND SELL OPEN_FAILED: " + dbg);
-                                   }
-                                }
-                              else
-                                {
-                                 // TREND SELL fired but skipped
-                                 string skipReason = tsNearLowest             ? "NEAR_DAILY_LOW(" + DoubleToString(Bid-tsLowestSell,2) + "<$" + DoubleToString(TrendSellDailyLowGapPrice,0) + ")" :
-                                                     !tsNoOpenOrder         ? "ORDER_STILL_OPEN" :
-                                                     trendSellSeqCount >= 3 ? "SEQ_LIMIT_3_REACHED" :
-                                                     !tsPriceOk             ? "PRICE_TOO_CLOSE(" + DoubleToString(tsPriceDrop,0) + "pts<" + DoubleToString(tsMinDistPts,0) + ")" :
-                                                     !trendSellProfitClosed ? "WAITING_PROFIT_CLOSE" :
-                                                                              "BLOCKED";
-                                 AppendTradeLog("SIGNAL_SKIPPED", 0, OP_SELL,
-                                                "TREND SELL [seq=" + IntegerToString(trendSellSeqCount) + "/3 " + skipReason + "]",
-                                                prevSignal, "TREND SELL", Close[i], 0.0);
                                  lastTrendSellTradeTime = t;
                                  prevSignal = "TREND SELL";
+                                 lastAppearedStrongSignal = ""; // consume strong sequence token
                                 }
                              }
 
@@ -2550,10 +2262,11 @@ void OnTick()
                              {
                               if(EnableAutoTrading)
                                 {
-                                 // [ORDER CREATION COMMENTED OUT] OpenOrderByType(OP_SELL, reversalSellName, clrMagenta, Close[i])
-                                 AppendTradeLog("SIGNAL", 0, OP_SELL, reversalSellName, prevSignal, reversalSellName, Close[i], 0.0);
-                                 lastRevSellTradeTime = t;
-                                 prevSignal = reversalSellName;
+                                 if(OpenOrderByType(OP_SELL, reversalSellName, clrMagenta, Close[i]))
+                                   {
+                                    lastRevSellTradeTime = t;
+                                    prevSignal = reversalSellName;
+                                   }
                                 }
                               else
                                 {
@@ -2572,10 +2285,11 @@ void OnTick()
                                  lastAppearedStrongSignal = "STRONG SELL"; // track for STRONG->TREND->TREND sequence
                                  if(EnableAutoTrading)
                                    {
-                                    // [ORDER CREATION COMMENTED OUT] OpenOrderByType(OP_SELL, "STRONG SELL", clrOrangeRed, Close[i])
-                                    AppendTradeLog("SIGNAL", 0, OP_SELL, "STRONG SELL", prevSignal, "STRONG SELL", Close[i], 0.0);
-                                    lastStrongSellTradeTime = t;
-                                    prevSignal = "STRONG SELL";
+                                    if(OpenOrderByType(OP_SELL, "STRONG SELL", clrOrangeRed, Close[i]))
+                                      {
+                                       lastStrongSellTradeTime = t;
+                                       prevSignal = "STRONG SELL";
+                                      }
                                    }
                                  else
                                    {
@@ -2595,10 +2309,11 @@ void OnTick()
                                       {
                                        if(EnableAutoTrading)
                                          {
-                                          // [ORDER CREATION COMMENTED OUT] OpenOrderByType(OP_SELL, "MOM SELL", clrOrange, Close[i])
-                                          AppendTradeLog("SIGNAL", 0, OP_SELL, "MOM SELL", prevSignal, "MOM SELL", Close[i], 0.0);
-                                          lastMomSellTradeTime = t;
-                                          prevSignal = "MOM SELL";
+                                          if(OpenOrderByType(OP_SELL, "MOM SELL", clrOrange, Close[i]))
+                                            {
+                                             lastMomSellTradeTime = t;
+                                             prevSignal = "MOM SELL";
+                                            }
                                          }
                                        else
                                          {
@@ -2634,7 +2349,7 @@ void OnTick()
       lastCall = TimeCurrent();
       // prevSignal="";
      }
-   DrawEMALines();
+   //DrawEMALines();
   }
 
 //+------------------------------------------------------------------+
