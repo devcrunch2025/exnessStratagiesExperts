@@ -1,35 +1,34 @@
 //+------------------------------------------------------------------+
 //| V_TV_SeqCloseOrders.mqh                                          |
 //| Closes SELL and BUY orders on profit target or stop loss         |
+//| Separate profit/loss targets for SELL and BUY                    |
 //+------------------------------------------------------------------+
 #ifndef V_TV_SEQ_CLOSE_ORDERS_MQH
 #define V_TV_SEQ_CLOSE_ORDERS_MQH
 
 //--- Inputs ----------------------------------------------------------
-input string _SeqClose_           = "--- SEQ CLOSE ORDERS ---";
-input int    SeqSellMaxOrders     = 1;     // Max open SELL orders allowed
-input double SeqCloseProfitTarget = 0.50;  // Close when profit reaches this USD amount
-input double SeqCloseStopLossUSD  = 0.80;  // Close when loss reaches this USD amount (positive value)
-input int    SeqCloseSlippage     = 30;    // Slippage in points
+input string _SeqClose_              = "--- SEQ CLOSE ORDERS ---";
+input int    SeqSellMaxOrders        = 2;     // Max open SELL orders allowed
+
+input string _SeqCloseSell_          = "--- SELL Close Settings ---";
+input double SeqSellProfitTarget     = 0.50;  // SELL: Close when profit >= this USD
+input double SeqSellStopLossUSD      = 1.00;  // SELL: Close when loss >= this USD
+
+input string _SeqCloseBuy_           = "--- BUY Close Settings ---";
+input double SeqBuyProfitTarget      = 1;  // BUY: Close when profit >= this USD
+input double SeqBuyStopLossUSD       = 2.00;  // BUY: Close when loss >= this USD
+
+input int    SeqCloseSlippage        = 30;    // Slippage in points
 
 //+------------------------------------------------------------------+
-//| Close a single order with appropriate price (BUY=bid, SELL=ask)  |
+//| Close a single order with appropriate price                      |
 //+------------------------------------------------------------------+
 void CloseOrder(int ticket, double profit, string reason)
   {
-   double closePrice;
-   color  clr;
-
-   if(OrderType() == OP_SELL)
-     {
-      closePrice = MarketInfo(Symbol(), MODE_ASK);
-      clr        = (profit >= 0) ? clrGreen : clrRed;
-     }
-   else
-     {
-      closePrice = MarketInfo(Symbol(), MODE_BID);
-      clr        = (profit >= 0) ? clrGreen : clrRed;
-     }
+   double closePrice = (OrderType() == OP_SELL)
+                       ? MarketInfo(Symbol(), MODE_ASK)
+                       : MarketInfo(Symbol(), MODE_BID);
+   color clr = (profit >= 0) ? clrGreen : clrRed;
 
    bool closed = OrderClose(ticket, OrderLots(), closePrice, SeqCloseSlippage, clr);
 
@@ -52,24 +51,28 @@ void ProcessSeqCloseOrders()
       if(!OrderSelect(i, SELECT_BY_POS, MODE_TRADES)) continue;
       if(OrderSymbol() != Symbol())                   continue;
 
-      // Only handle orders placed by this EA (SELL or BUY magic numbers)
       int magicNo = OrderMagicNumber();
       if(magicNo != SeqSellMagicNo && magicNo != SeqBuyMagicNo) continue;
 
-      // Only handle SELL and BUY market orders
-      int orderType = OrderType();
-      if(orderType != OP_SELL && orderType != OP_BUY) continue;
+      int    orderType = OrderType();
+      if(orderType != OP_SELL && orderType != OP_BUY)           continue;
 
       double profit = OrderProfit() + OrderSwap() + OrderCommission();
       int    ticket = OrderTicket();
 
-      if(profit >= SeqCloseProfitTarget)
+      if(orderType == OP_SELL)
         {
-         CloseOrder(ticket, profit, "PROFIT TARGET $" + DoubleToString(SeqCloseProfitTarget,2));
+         if(profit >= SeqSellProfitTarget)
+            CloseOrder(ticket, profit, "SELL PROFIT TARGET $" + DoubleToString(SeqSellProfitTarget,2));
+         else if(profit <= -SeqSellStopLossUSD)
+            CloseOrder(ticket, profit, "SELL STOP LOSS $" + DoubleToString(SeqSellStopLossUSD,2));
         }
-      else if(profit <= -SeqCloseStopLossUSD)
+      else // OP_BUY
         {
-         CloseOrder(ticket, profit, "STOP LOSS $" + DoubleToString(SeqCloseStopLossUSD,2));
+         if(profit >= SeqBuyProfitTarget)
+            CloseOrder(ticket, profit, "BUY PROFIT TARGET $" + DoubleToString(SeqBuyProfitTarget,2));
+         else if(profit <= -SeqBuyStopLossUSD)
+            CloseOrder(ticket, profit, "BUY STOP LOSS $" + DoubleToString(SeqBuyStopLossUSD,2));
         }
      }
   }

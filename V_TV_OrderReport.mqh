@@ -56,8 +56,8 @@ void InitOrderReport()
          FileWriteString(h,
             "Ticket,Type,Pattern,OpenTime,OpenPrice,"
             "CloseTime,ClosePrice,Profit(USD),"
-            "EMA1_at_Open,EMA2_at_Open,EMA_Trend_OK,EMA_Structure_OK,"
-            "CloseReason,ProfitReason,LossReason\n");
+            "EMA1_at_Open,EMA2_at_Open,EMA1_Below_EMA2,EMA1_Falling,"
+            "ProfitReason,LossReason\n");
          FileClose(h);
         }
      }
@@ -137,28 +137,32 @@ string AnalyseLossReason(OrderRecord &rec, double closePrice, double profit)
 //+------------------------------------------------------------------+
 //| Write one closed order row to CSV                                |
 //+------------------------------------------------------------------+
-void WriteOrderReportRow(OrderRecord &rec, datetime closeTime, double closePrice,
-                         double profit, string closeReason)
+void WriteOrderReportRow(OrderRecord &rec, datetime closeTime, double closePrice, double profit)
   {
    string profitReason = (profit >= 0) ? AnalyseProfitReason(rec, closePrice, profit) : "";
    string lossReason   = (profit <  0) ? AnalyseLossReason (rec, closePrice, profit) : "";
 
+   // EMA1_Below_EMA2: for SELL emaTrendOK=EMA1<EMA2, for BUY emaStructureOK=EMA1>EMA2
+   string ema1BelowEma2 = (rec.orderType == "SELL") ? (rec.emaStructureOK ? "YES" : "NO")
+                                                     : (rec.emaStructureOK ? "NO"  : "YES");
+   // EMA1_Falling: emaTrendOK = EMA1 sloping in the right direction
+   string ema1Falling   = rec.emaTrendOK ? "YES" : "NO";
+
    string row =
-      IntegerToString(rec.ticket)                              + "," +
-      rec.orderType                                            + "," +
-      "\"" + rec.pattern + "\""                               + "," +
-      TimeToString(rec.openTime,  TIME_DATE|TIME_SECONDS)     + "," +
-      DoubleToString(rec.openPrice,  2)                       + "," +
-      TimeToString(closeTime,     TIME_DATE|TIME_SECONDS)     + "," +
-      DoubleToString(closePrice,     2)                       + "," +
-      DoubleToString(profit,         2)                       + "," +
-      DoubleToString(rec.ema1AtOpen, 2)                       + "," +
-      DoubleToString(rec.ema2AtOpen, 2)                       + "," +
-      (rec.emaTrendOK     ? "YES" : "NO")                    + "," +
-      (rec.emaStructureOK ? "YES" : "NO")                    + "," +
-      "\"" + closeReason  + "\""                              + "," +
-      "\"" + profitReason + "\""                              + "," +
-      "\"" + lossReason   + "\""                              + "\n";
+      IntegerToString(rec.ticket)                          + "," +
+      rec.orderType                                        + "," +
+      "\"" + rec.pattern + "\""                           + "," +
+      TimeToString(rec.openTime, TIME_DATE|TIME_SECONDS)  + "," +
+      DoubleToString(rec.openPrice, 2)                    + "," +
+      TimeToString(closeTime,    TIME_DATE|TIME_SECONDS)  + "," +
+      DoubleToString(closePrice,    2)                    + "," +
+      DoubleToString(profit,        2)                    + "," +
+      DoubleToString(rec.ema1AtOpen,2)                    + "," +
+      DoubleToString(rec.ema2AtOpen,2)                    + "," +
+      ema1BelowEma2                                       + "," +
+      ema1Falling                                         + "," +
+      "\"" + profitReason + "\""                          + "," +
+      "\"" + lossReason   + "\""                          + "\n";
 
    int h = FileOpen(g_orderReportFile,
                     FILE_TXT|FILE_READ|FILE_WRITE|FILE_SHARE_READ|FILE_SHARE_WRITE);
@@ -170,8 +174,7 @@ void WriteOrderReportRow(OrderRecord &rec, datetime closeTime, double closePrice
    FileClose(h);
 
    Print("OrderReport: #" + IntegerToString(rec.ticket) +
-         " [" + rec.orderType + "]" +
-         " closed [" + closeReason + "] P/L=" + DoubleToString(profit,2) +
+         " [" + rec.orderType + "] P/L=" + DoubleToString(profit,2) +
          (profit >= 0 ? " PROFIT: " + profitReason : " LOSS: " + lossReason));
   }
 
@@ -205,14 +208,7 @@ void CheckClosedOrders()
          datetime closeTime  = OrderCloseTime();
          double   closePrice = OrderClosePrice();
 
-         // Determine close reason from profit vs targets
-         string closeReason = "MANUAL";
-         if(profit >= SeqCloseProfitTarget)
-            closeReason = "PROFIT_TARGET($" + DoubleToString(SeqCloseProfitTarget,2) + ")";
-         else if(profit <= -SeqCloseStopLossUSD)
-            closeReason = "STOP_LOSS($" + DoubleToString(SeqCloseStopLossUSD,2) + ")";
-
-         WriteOrderReportRow(g_orderRecords[s], closeTime, closePrice, profit, closeReason);
+         WriteOrderReportRow(g_orderRecords[s], closeTime, closePrice, profit);
          g_orderRecords[s].tracked = false;
          break;
         }

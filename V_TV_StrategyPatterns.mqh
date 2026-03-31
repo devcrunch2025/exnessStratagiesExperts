@@ -131,7 +131,8 @@ AddSeqRule(  "TREND SELL 5", "PRE SELL 1","TREND SELL 1",  "NEW_ORDER", "SELL");
 
 
 //buy rules
-AddSeqRule("", "TREND BUY 1", "TREND BUY 2", "NEW_ORDER", "BUY");
+//AddSeqRule("", "", "TREND BUY 1", "NEW_ORDER", "BUY");
+//AddSeqRule("", "TREND BUY 1", "TREND BUY 2", "NEW_ORDER", "BUY");
 AddSeqRule("PRE BUY 1", "TREND BUY 1", "TREND BUY 2", "NEW_ORDER", "BUY");
 AddSeqRule("TREND BUY 1", "TREND BUY 2", "TREND BUY 3", "NEW_ORDER", "BUY");
 
