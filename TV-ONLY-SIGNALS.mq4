@@ -1,4 +1,4 @@
-﻿//+------------------------------------------------------------------+
+//+------------------------------------------------------------------+
 //| EDGE ALGO - SMART PATTERN DETECTION (PRO ELITE)                 |
 //| Signals + Markers + No-Sell Zone display only                   |
 //+------------------------------------------------------------------+
@@ -340,12 +340,6 @@ void UpdateCurrentSignalLabel()
    else if(StringFind(sig, "SELL") >= 0)  clr = clrOrangeRed;
    else if(StringFind(sig, "BUY")  >= 0)  clr = clrAqua;
 
-
-   if(sig=="STRONG SELL") clr = clrPink;
-
-   if(sig=="STRONG BUY") clr = clrBlue;
-
-
    if(ObjectFind(0, lbl) < 0)
       ObjectCreate(0, lbl, OBJ_LABEL, 0, 0, 0);
    ObjectSetInteger(0, lbl, OBJPROP_CORNER,    CORNER_RIGHT_UPPER);
@@ -365,9 +359,6 @@ void UpdateCurrentSignalLabel()
    else if(prev == "TREND BUY")           clrPrev = clrLime;
    else if(StringFind(prev, "SELL") >= 0) clrPrev = clrOrangeRed;
    else if(StringFind(prev, "BUY")  >= 0) clrPrev = clrAqua;
-
-      if(prev=="STRONG BUY")  clrPrev = clrBlue;
-      if(prev=="STRONG SELL")  clrPrev = clrPink;
 
    if(ObjectFind(0, lblPrev) < 0)
       ObjectCreate(0, lblPrev, OBJ_LABEL, 0, 0, 0);
