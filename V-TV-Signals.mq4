@@ -24,7 +24,7 @@ input double RSI_Buy             = 55;
 input double RSI_Sell            = 45;
 input int    ReversalStreakCandles = 3;
 input int    TradeDirectionMode  = 0;       // 0=both 1=buy only 2=sell only
-input double TrendSellDailyLowGapPrice  =200; // NO SELL zone: min $ above daily low
+input double TrendSellDailyLowGapPrice  =100; // NO SELL zone: min $ above daily low
 input double TrendBuyDailyHighGapPrice  = 100; // NO BUY zone: min $ below daily high
 input bool   EnableAlert         = false;
 input bool   EnableSound         = true;
@@ -65,6 +65,7 @@ datetime lastProcessedClosedBar   = 0;
 datetime lastDashboardRefreshTime = 0;
 datetime g_startupWaitUntil       = 0;  // orders blocked until this time on first load
 double   g_initialBalance         = 0;  // account balance captured at EA startup
+bool     g_newSignalDetected      = false; // set true when a new signal fires this tick
 
 datetime lastTrendBuyTradeTime  = 0;
 datetime lastRevBuyTradeTime    = 0;
@@ -131,6 +132,35 @@ void DrawMarker(string prefix, string text, color clr, int arrow, datetime t, do
 
    if(text != ".") currentSignal = text;
   }
+
+//+------------------------------------------------------------------+
+// Draw entry quality circle at signal bar                           |
+// Blue = EMA conditions good (Cond8+Cond9 pass) = good entry zone  |
+// Red  = EMA conditions bad = bad entry zone                        |
+//+------------------------------------------------------------------+
+void DrawEntryMark(string prefix, datetime t, double price, int period)
+  {
+
+   return  ;
+   double ema1      = iMA(Symbol(), 0, SeqSellEMAPeriod,  0, MODE_EMA, PRICE_CLOSE, 0);
+   double ema2      = iMA(Symbol(), 0, SeqSellEMA2Period, 0, MODE_EMA, PRICE_CLOSE, 0);
+   double ema1Past  = iMA(Symbol(), 0, SeqSellEMAPeriod,  0, MODE_EMA, PRICE_CLOSE, SeqSellEMAShift);
+   bool   cond8     = (ema1 < ema1Past);       // EMA1 sloping down
+   bool   cond9     = (ema1 < ema2);           // EMA1 below EMA2
+
+   color  clr  = (cond8 && cond9) ? clrDodgerBlue : clrRed;
+   string name = prefix + "_EQ_" + IntegerToString(t);
+
+   if(ObjectFind(0, name) == -1)
+      ObjectCreate(0, name, OBJ_ARROW, 0, t, price);
+   ObjectMove(0, name, 0, t, price);
+   ObjectSetInteger(0, name, OBJPROP_ARROWCODE, 159); // filled circle
+   ObjectSetInteger(0, name, OBJPROP_COLOR,     clr);
+   ObjectSetInteger(0, name, OBJPROP_WIDTH,     4);
+   ObjectSetInteger(0, name, OBJPROP_BACK,      false);
+   ObjectSetInteger(0, name, OBJPROP_SELECTABLE,false);
+  }
+
 
 //+------------------------------------------------------------------+
 // Signal detection helpers
@@ -559,6 +589,34 @@ void DashRow(string id, string text, color clr, int y)
   }
 
 //+------------------------------------------------------------------+
+// Draw EMA line as connected segments across last N bars            |
+//+------------------------------------------------------------------+
+void DrawEMALine(int period, color clr, string prefix, int barsBack = 300)
+  {
+   int limit = MathMin(barsBack, Bars - 1);
+   for(int i = limit; i >= 1; i--)
+     {
+      double e1 = iMA(NULL, 0, period, 0, MODE_EMA, PRICE_CLOSE, i);
+      double e0 = iMA(NULL, 0, period, 0, MODE_EMA, PRICE_CLOSE, i - 1);
+      if(e1 <= 0 || e0 <= 0) continue;
+
+      string name = prefix + "_" + IntegerToString(i);
+      if(ObjectFind(0, name) == -1)
+         ObjectCreate(0, name, OBJ_TREND, 0, Time[i], e1, Time[i-1], e0);
+      else
+        {
+         ObjectMove(0, name, 0, Time[i],   e1);
+         ObjectMove(0, name, 1, Time[i-1], e0);
+        }
+      ObjectSetInteger(0, name, OBJPROP_COLOR,   clr);
+      ObjectSetInteger(0, name, OBJPROP_WIDTH,   1);
+      ObjectSetInteger(0, name, OBJPROP_RAY,     false);
+      ObjectSetInteger(0, name, OBJPROP_BACK,    true);
+      ObjectSetInteger(0, name, OBJPROP_SELECTABLE, false);
+     }
+  }
+
+//+------------------------------------------------------------------+
 // Main dashboard draw: call every tick
 //+------------------------------------------------------------------+
 void DrawDashboard()
@@ -791,6 +849,7 @@ if(trendSell)
       tsDiffStr = " (" + (diff >= 0 ? "+" : "") + DoubleToString(diff, 0) + ")";
      }
    DrawMarker("TS", "TREND SELL " + IntegerToString(g_seqCount) + tsDiffStr, clrRed, 234, t, High[i] + 10*Point);
+   DrawEntryMark("TS", t, High[i] + 25*Point, SeqSellEMAPeriod);
   }
 
 // 🟣 REVERSAL SELL
@@ -826,6 +885,7 @@ else if(preTrendSell)     newSig = "PRE SELL";
             g_liveSignalName       = newSig;
             g_currSeqCount         = g_seqCount;
             g_lastDisplayBarTime   = Time[i];
+            g_newSignalDetected    = true;  // trigger order check this tick
            }
 
          if(i == 0) UpdateCurrentSignalLabel();
@@ -889,12 +949,19 @@ else if(preTrendSell)     newSig = "PRE SELL";
       lastProcessedClosedBar = Time[1];
 
    // --- Sequence-based order execution ---
-   ProcessSeqSellOrders();
-   ProcessSeqBuyOrders();
+   // --- Order logic: only when a new signal was detected this tick ---
+   if(g_newSignalDetected)
+     {
+      ProcessSeqSellOrders();
+      ProcessSeqBuyOrders();
+      g_newSignalDetected = false;
+     }
 
-   // --- Close orders that reached profit target ---
+   // --- Close orders that reached profit target (checked every tick) ---
    ProcessSeqCloseOrders();
 
+   DrawEMALine(SeqSellEMAPeriod,  clrDodgerBlue, "EMA_SELL");
+   DrawEMALine(SeqSellEMA2Period, clrOrange,     "EMA_SELL2");
    DrawDashboard();
    MaybeRefreshDashboard();
   }
