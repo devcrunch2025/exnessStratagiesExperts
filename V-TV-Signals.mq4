@@ -37,6 +37,10 @@ string   g_prevDisplaySignal  = "";  // previous display (signal before current)
 datetime g_lastDisplayBarTime = 0;   // bar time of last curr/prev shift
 string   g_csvFileName  = "";
 
+string   g_seqSignalName = "";  // signal type currently being counted
+int      g_seqCount      = 0;   // consecutive count for that signal type
+datetime g_seqBarTime    = 0;   // bar time of last sequence update (prevents re-increment per tick)
+
 datetime lastAlertTime            = 0;
 datetime lastProcessedClosedBar   = 0;
 datetime lastDashboardRefreshTime = 0;
@@ -499,21 +503,38 @@ void OnTick()
       string reversalBuyName  = GetReversalSignalName(i, OP_BUY);
       string reversalSellName = GetReversalSignalName(i, OP_SELL);
 
+      // === Sequence counter: increment if same signal, reset if different ===
+      string detectedSig = "";
+      if(trendSell)        detectedSig = "TREND SELL";
+      else if(trendBuy)    detectedSig = "TREND BUY";
+      else if(strongSell)  detectedSig = "STRONG SELL";
+      else if(strongBuy)   detectedSig = "STRONG BUY";
+      else if(reversalSell)detectedSig = reversalSellName;
+      else if(reversalBuy) detectedSig = reversalBuyName;
+
+      if(detectedSig != "" && t != g_seqBarTime)
+        {
+         if(detectedSig == g_seqSignalName) g_seqCount++;
+         else { g_seqCount = 1; g_seqSignalName = detectedSig; }
+         g_seqBarTime = t;
+        }
+      string seqLabel = detectedSig + (detectedSig != "" ? IntegerToString(g_seqCount) : "");
+
       // === Buy signals ===
       if(trendBuy)
-         DrawMarker("TB", "TREND BUY",  clrLime, 233, t, Low[i] - 10*Point);
+         DrawMarker("TB", "TREND BUY " + IntegerToString(g_seqCount),  clrLime, 233, t, Low[i] - 10*Point);
       else if(reversalBuy)
-         DrawMarker("RB", reversalBuyName, clrAqua, 233, t, Low[i] - 10*Point);
+         DrawMarker("RB", reversalBuyName + " " + IntegerToString(g_seqCount), clrAqua, 233, t, Low[i] - 10*Point);
       else if(strongBuy)
-         DrawMarker("SB", "STRONG BUY", clrBlue, 233, t, Low[i] - 10*Point);
+         DrawMarker("SB", "STRONG BUY " + IntegerToString(g_seqCount), clrBlue, 233, t, Low[i] - 10*Point);
 
       // === Sell signals ===
       if(trendSell)
-         DrawMarker("TS", "TREND SELL",  clrRed,    234, t, High[i] + 10*Point);
+         DrawMarker("TS", "TREND SELL " + IntegerToString(g_seqCount),  clrRed,    234, t, High[i] + 10*Point);
       else if(reversalSell)
-         DrawMarker("RS", reversalSellName, clrMagenta, 234, t, High[i] + 10*Point);
+         DrawMarker("RS", reversalSellName + " " + IntegerToString(g_seqCount), clrMagenta, 234, t, High[i] + 10*Point);
       else if(strongSell)
-         DrawMarker("SS", "STRONG SELL", clrPink,   234, t, High[i] + 10*Point);
+         DrawMarker("SS", "STRONG SELL " + IntegerToString(g_seqCount), clrPink,   234, t, High[i] + 10*Point);
 
       // === Update Curr/Prev display labels (i=0 live bar, i=1 just-closed bar) ===
       if(i == 0 || i == 1)
