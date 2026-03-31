@@ -9,6 +9,7 @@
 input string _SeqClose_          = "--- SEQ CLOSE ORDERS ---";
 input double SeqCloseProfitTarget = 0.50;  // Close when profit reaches this USD amount
 input int    SeqCloseSlippage     = 30;    // Slippage in points
+input double SeqCloseStopLossUSD  = 0.60;  // Close when loss reaches this USD amount
 
 //--- Close all SELL orders that reached the profit target ------------
 void ProcessSeqCloseOrders()
@@ -33,7 +34,22 @@ void ProcessSeqCloseOrders()
             Print("SeqClose: FAILED to close #", OrderTicket(),
                   " Error=", GetLastError());
         }
+     
+
+     //--- CLOSE ON STOP LOSS (USD BASED)
+      else if(profit <= -SeqCloseStopLossUSD)
+        {
+         double ask = MarketInfo(Symbol(), MODE_ASK);
+         bool closed = OrderClose(OrderTicket(), OrderLots(), ask,
+                                  SeqCloseSlippage, clrRed);
+         if(closed)
+            Print("SeqClose SL: #", OrderTicket(), " closed at loss=", profit);
+         else
+            Print("SeqClose SL FAILED: #", OrderTicket(),
+                  " Error=", GetLastError());
+        }
      }
+      
   }
 
 #endif

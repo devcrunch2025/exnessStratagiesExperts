@@ -19,10 +19,13 @@
 input string   _SeqSell_        = "--- SEQ SELL ORDERS ---";
 input double   SeqSellLotSize   = 0.01;   // Lot size
 input int      SeqSellMagicNo   = 22001;  // Magic number
-input int      SeqSellMaxOrders = 1;      // Max open SELL orders allowed
+input int      SeqSellMaxOrders = 5;      // Max open SELL orders allowed
 input int      SeqSellSlippage  = 30;     // Slippage in points
 input double   SeqSellMinGapUSD = 20.0;   // Condition 5: Min price drop from last SELL entry (USD)
 
+
+input int SeqSellEMAPeriod = 20;   // EMA period for trend confirmation
+input int SeqSellEMAShift  = 3;    // How many candles to compare slope
 //+------------------------------------------------------------------+
 //| CONDITION HELPERS                                                |
 //+------------------------------------------------------------------+
@@ -220,9 +223,31 @@ void ProcessSeqSellOrders()
    int ruleIdx = -1;
    if(!SellCond7_PatternMatched(ruleIdx)) return;
 
+
+   // Condition 8: EMA downtrend confirmation
+if(!SellCond8_EMADowntrend()) return;
+
    // All conditions passed - place order
    Print("SeqSell | ALL CONDITIONS PASSED - Placing SELL order");
    PlaceSeqSellOrder(ruleIdx);
   }
+// Condition 8: EMA must be trending DOWN
+bool SellCond8_EMADowntrend()
+  {
+   double emaCurrent = iMA(Symbol(), 0, SeqSellEMAPeriod, 0, MODE_EMA, PRICE_CLOSE, 0);
+   double emaPast    = iMA(Symbol(), 0, SeqSellEMAPeriod, 0, MODE_EMA, PRICE_CLOSE, SeqSellEMAShift);
 
+   if(emaCurrent < emaPast)
+     {
+      LogMessage("SeqSell | Cond8 PASSED - EMA Downtrend (" +
+                 DoubleToString(emaPast,2) + " -> " +
+                 DoubleToString(emaCurrent,2) + ")");
+      return true;
+     }
+
+   LogMessage("SeqSell | Cond8 FAILED - EMA NOT Downtrend (" +
+              DoubleToString(emaPast,2) + " -> " +
+              DoubleToString(emaCurrent,2) + ")");
+   return false;
+  }
 #endif

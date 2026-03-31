@@ -81,7 +81,9 @@ void InitStrategyRules()
 
 //AddSeqRule("", "", "TREND SELL 1", "NEW_ORDER", "SELL");
 //AddSeqRule("", "TREND SELL 1", "TREND SELL 2", "NEW_ORDER", "SELL");
-AddSeqRule("TREND SELL 1", "TREND SELL 2", "TREND SELL 3", "NEW_ORDER", "SELL");
+AddSeqRule("TREND SELL 2", "TREND SELL 3", "TREND SELL 4", "NEW_ORDER", "SELL");
+AddSeqRule("TREND SELL 3", "TREND SELL 4", "TREND SELL 5", "NEW_ORDER", "SELL");
+AddSeqRule("TREND SELL 5", "TREND SELL 6", "TREND SELL 7", "NEW_ORDER", "SELL");
    
 
 /*
