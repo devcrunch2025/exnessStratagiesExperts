@@ -5,8 +5,10 @@
 #property strict
 
 #include "V_TV_StrategyPatterns.mqh"
-#include "V_TV_includeTrendSellOrders.mqh"
-#include "V_TV_includeTrendBuyOrders.mqh"
+#include "V_TV_SeqSellOrders.mqh"
+#include "V_TV_SeqBuyOrders.mqh"
+#include "V_TV_SeqCloseOrders.mqh"
+ 
 
 #define TRADE_DIRECTION_BOTH      0
 #define TRADE_DIRECTION_BUY_ONLY  1
@@ -734,6 +736,13 @@ else if(preTrendSell)     newSig = "PRE SELL";
 
    if(hasNewClosedBar || firstRun)
       lastProcessedClosedBar = Time[1];
+
+   // --- Sequence-based order execution ---
+   ProcessSeqSellOrders();
+   ProcessSeqBuyOrders();
+
+   // --- Close orders that reached profit target ---
+   ProcessSeqCloseOrders();
 
    MaybeRefreshDashboard();
   }

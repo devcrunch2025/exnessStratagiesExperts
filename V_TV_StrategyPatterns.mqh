@@ -67,6 +67,14 @@ void InitStrategyRules()
   {
    ArrayResize(g_seqRules, 0); // clear any previous rules
 
+
+// W SHAPE SELL 1 → TREND SELL 1 → TREND SELL 2  ==>  NEW SELL order
+
+
+AddSeqRule("", "TREND SELL 1", "TREND SELL 2", "NEW_ORDER", "SELL");
+   
+
+/*
    // ------------------------------------------------------------------
    // SELL patterns
    // ------------------------------------------------------------------
@@ -107,7 +115,7 @@ void InitStrategyRules()
    AddSeqRule("",               "",             "STRONG BUY 1", "CLOSE",     "SELL");
 
    // any → any → STRONG SELL 1  ==>  CLOSE BUY positions
-   AddSeqRule("",               "",             "STRONG SELL 1","CLOSE",     "BUY");
+   AddSeqRule("",               "",             "STRONG SELL 1","CLOSE",     "BUY");*/
   }
 
 #endif
