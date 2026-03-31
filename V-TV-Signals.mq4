@@ -26,9 +26,11 @@ input int    DashboardRefreshSeconds = 30;
 input bool   ExecuteEverySignalInTester = false;
 
 // ----- GLOBALS ----- //
-string   currentSignal  = "";
-string   prevSignal     = "";
-string   g_liveSignalName = "";
+string   currentSignal      = "";
+string   prevSignal         = "";
+string   g_liveSignalName      = "";  // current display (sticky, last valid signal)
+string   g_prevDisplaySignal  = "";  // previous display (signal before current)
+datetime g_lastDisplayBarTime = 0;   // bar time of last curr/prev shift
 string   g_csvFileName  = "";
 
 datetime lastAlertTime            = 0;
@@ -38,11 +40,9 @@ datetime lastDashboardRefreshTime = 0;
 datetime lastTrendBuyTradeTime  = 0;
 datetime lastRevBuyTradeTime    = 0;
 datetime lastStrongBuyTradeTime = 0;
-datetime lastMomBuyTradeTime    = 0;
 datetime lastTrendSellTradeTime = 0;
 datetime lastRevSellTradeTime   = 0;
 datetime lastStrongSellTradeTime= 0;
-datetime lastMomSellTradeTime   = 0;
 
 //+------------------------------------------------------------------+
 // Utility
@@ -150,11 +150,9 @@ string GetReversalSignalName(int shift, int orderType)
   }
 
 void EvaluateSignalFlags(int shift,
-                         bool &bullMomentum, bool &bearMomentum,
                          bool &trendBuy,     bool &reversalBuy,  bool &strongBuy,
                          bool &trendSell,    bool &reversalSell, bool &strongSell)
   {
-   bullMomentum = bearMomentum = false;
    trendBuy = reversalBuy = strongBuy = false;
    trendSell = reversalSell = strongSell = false;
 
@@ -180,8 +178,8 @@ void EvaluateSignalFlags(int shift,
    bool bullTrend = Close[shift] > emaTrend && emaFast > emaSlow;
    bool bearTrend = Close[shift] < emaTrend && emaFast < emaSlow;
 
-   bullMomentum = bullTrend && rsiUp   && strongTrend;
-   bearMomentum = bearTrend && rsiDown && strongTrend;
+   bool bullMomentum = bullTrend && rsiUp   && strongTrend;
+   bool bearMomentum = bearTrend && rsiDown && strongTrend;
 
    bool breakoutBuy  = Close[shift] > High[shift+1];
    bool breakoutSell = Close[shift] < Low[shift+1];
@@ -257,23 +255,45 @@ void UpdateDailyLowProximityLines()
 //+------------------------------------------------------------------+
 void UpdateCurrentSignalLabel()
   {
+   // --- Current Signal ---
    string lbl = "TS_LiveSignal";
-   string sig = (g_liveSignalName == "") ? "No Signal" : g_liveSignalName;
+   string sig = (g_liveSignalName == "") ? "---" : g_liveSignalName;
    color  clr = clrGray;
-   if(sig == "TREND SELL")                  clr = clrRed;
-   else if(sig == "TREND BUY")              clr = clrLime;
-   else if(StringFind(sig, "SELL") >= 0)   clr = clrOrangeRed;
-   else if(StringFind(sig, "BUY")  >= 0)   clr = clrAqua;
+   if(sig == "TREND SELL")                clr = clrRed;
+   else if(sig == "TREND BUY")            clr = clrLime;
+   else if(StringFind(sig, "SELL") >= 0)  clr = clrOrangeRed;
+   else if(StringFind(sig, "BUY")  >= 0)  clr = clrAqua;
 
    if(ObjectFind(0, lbl) < 0)
       ObjectCreate(0, lbl, OBJ_LABEL, 0, 0, 0);
    ObjectSetInteger(0, lbl, OBJPROP_CORNER,    CORNER_RIGHT_UPPER);
+   ObjectSetInteger(0, lbl, OBJPROP_ANCHOR,    ANCHOR_RIGHT_UPPER);
    ObjectSetInteger(0, lbl, OBJPROP_XDISTANCE, 10);
    ObjectSetInteger(0, lbl, OBJPROP_YDISTANCE, 20);
-   ObjectSetString(0,  lbl, OBJPROP_TEXT,      "Signal: " + sig);
+   ObjectSetString(0,  lbl, OBJPROP_TEXT,      "Curr : " + sig);
    ObjectSetInteger(0, lbl, OBJPROP_COLOR,     clr);
    ObjectSetInteger(0, lbl, OBJPROP_FONTSIZE,  12);
    ObjectSetString(0,  lbl, OBJPROP_FONT,      "Arial Bold");
+
+   // --- Previous Signal ---
+   string lblPrev = "TS_PrevSignal";
+   string prev    = (g_prevDisplaySignal == "") ? "---" : g_prevDisplaySignal;
+   color  clrPrev = clrGray;
+   if(prev == "TREND SELL")               clrPrev = clrRed;
+   else if(prev == "TREND BUY")           clrPrev = clrLime;
+   else if(StringFind(prev, "SELL") >= 0) clrPrev = clrOrangeRed;
+   else if(StringFind(prev, "BUY")  >= 0) clrPrev = clrAqua;
+
+   if(ObjectFind(0, lblPrev) < 0)
+      ObjectCreate(0, lblPrev, OBJ_LABEL, 0, 0, 0);
+   ObjectSetInteger(0, lblPrev, OBJPROP_CORNER,    CORNER_RIGHT_UPPER);
+   ObjectSetInteger(0, lblPrev, OBJPROP_ANCHOR,    ANCHOR_RIGHT_UPPER);
+   ObjectSetInteger(0, lblPrev, OBJPROP_XDISTANCE, 10);
+   ObjectSetInteger(0, lblPrev, OBJPROP_YDISTANCE, 44);
+   ObjectSetString(0,  lblPrev, OBJPROP_TEXT,      "Prev : " + prev);
+   ObjectSetInteger(0, lblPrev, OBJPROP_COLOR,     clrPrev);
+   ObjectSetInteger(0, lblPrev, OBJPROP_FONTSIZE,  12);
+   ObjectSetString(0,  lblPrev, OBJPROP_FONT,      "Arial Bold");
   }
 
 //+------------------------------------------------------------------+
@@ -346,8 +366,8 @@ void MaybeRefreshDashboard()
 //+------------------------------------------------------------------+
 int OnInit()
   {
-   lastTrendBuyTradeTime = lastRevBuyTradeTime = lastStrongBuyTradeTime = lastMomBuyTradeTime = 0;
-   lastTrendSellTradeTime = lastRevSellTradeTime = lastStrongSellTradeTime = lastMomSellTradeTime = 0;
+   lastTrendBuyTradeTime = lastRevBuyTradeTime = lastStrongBuyTradeTime = 0;
+   lastTrendSellTradeTime = lastRevSellTradeTime = lastStrongSellTradeTime = 0;
    lastProcessedClosedBar = (Bars > 1) ? Time[1] : 0;
    InitCSVLog();
    EventSetTimer(MathMax(1, DashboardRefreshSeconds));
@@ -371,6 +391,7 @@ void OnDeinit(const int reason)
    ObjectDelete(0, "TS_NoSellZone");
    ObjectDelete(0, "TS_NoSellZone_Lbl");
    ObjectDelete(0, "TS_LiveSignal");
+   ObjectDelete(0, "TS_PrevSignal");
    Comment("");
   }
 
@@ -390,21 +411,15 @@ void OnTick()
 
    for(int i = startBar; i >= 0; i--)
      {
-      bool bullMomentum = false, bearMomentum = false;
       bool trendBuy = false, reversalBuy = false, strongBuy = false;
       bool trendSell = false, reversalSell = false, strongSell = false;
 
-      EvaluateSignalFlags(i, bullMomentum, bearMomentum,
-                          trendBuy, reversalBuy, strongBuy,
-                          trendSell, reversalSell, strongSell);
+      EvaluateSignalFlags(i, trendBuy, reversalBuy, strongBuy,
+                             trendSell, reversalSell, strongSell);
 
       datetime t = Time[i];
       string reversalBuyName  = GetReversalSignalName(i, OP_BUY);
       string reversalSellName = GetReversalSignalName(i, OP_SELL);
-
-      // === Momentum dots ===
-      if(bullMomentum) DrawMarker("MOM_BUY",  ".", clrYellow, 159, t, Low[i]  - 5*Point);
-      if(bearMomentum) DrawMarker("MOM_SELL", ".", clrOrange, 159, t, High[i] + 5*Point);
 
       // === Buy signals ===
       if(trendBuy)
@@ -422,19 +437,27 @@ void OnTick()
       else if(strongSell)
          DrawMarker("SS", "STRONG SELL", clrPink,   234, t, High[i] + 10*Point);
 
-      // === Update live signal label (i=0 only) ===
-      if(i == 0)
+      // === Update Curr/Prev display labels (i=0 live bar, i=1 just-closed bar) ===
+      if(i == 0 || i == 1)
         {
-         if(trendSell)        g_liveSignalName = "TREND SELL";
-         else if(trendBuy)    g_liveSignalName = "TREND BUY";
-         else if(strongSell)  g_liveSignalName = "STRONG SELL";
-         else if(strongBuy)   g_liveSignalName = "STRONG BUY";
-         else if(reversalSell)g_liveSignalName = reversalSellName;
-         else if(reversalBuy) g_liveSignalName = reversalBuyName;
-         else if(bearMomentum)g_liveSignalName = "MOM SELL";
-         else if(bullMomentum)g_liveSignalName = "MOM BUY";
-         else                 g_liveSignalName = "No Signal";
-         UpdateCurrentSignalLabel();
+         string newSig = "";
+         if(trendSell)        newSig = "TREND SELL";
+         else if(trendBuy)    newSig = "TREND BUY";
+         else if(strongSell)  newSig = "STRONG SELL";
+         else if(strongBuy)   newSig = "STRONG BUY";
+         else if(reversalSell)newSig = reversalSellName;
+         else if(reversalBuy) newSig = reversalBuyName;
+
+         // Shift prev←curr whenever a valid signal appears on a new bar
+         // (bar-time guard prevents re-shifting on every tick for the same bar)
+         if(newSig != "" && Time[i] != g_lastDisplayBarTime)
+           {
+            g_prevDisplaySignal  = g_liveSignalName;
+            g_liveSignalName     = newSig;
+            g_lastDisplayBarTime = Time[i];
+           }
+
+         if(i == 0) UpdateCurrentSignalLabel();
         }
 
       // === Signal event logging (on tradeable bars only) ===
