@@ -110,6 +110,8 @@ bool BuyCond5_MinUpriseGap(int openCount)
    string pvLabel = g_prevDisplaySignal + " " + IntegerToString(g_prevSeqCount);
    string crLabel = g_liveSignalName    + " " + IntegerToString(g_currSeqCount);
 
+ bool finalStatus1=true;
+ bool finalStatus2=true;
    // Level 1: prev must be higher than prePrev
    if(g_prePrevSignalPrice > 0 && g_prevSignalPrice > 0)
      {
@@ -121,12 +123,12 @@ bool BuyCond5_MinUpriseGap(int openCount)
                " vs " + pvLabel + "=" + DoubleToString(g_prevSignalPrice,2) +
                " gap=" + IntegerToString(gap1) + "pts (need >=" +
                IntegerToString(SeqBuyMinGapPoints) + "pts) " + BuyPatternContext());
-         return false;
+         finalStatus1= false;
         }
      }
 
    // Level 2: curr must be higher than prev
-   if(g_prevSignalPrice > 0 && g_currSignalPrice > 0)
+   if(g_prevSignalPrice > 0 && g_currSignalPrice > 0  )
      {
       int gap2 = (Point > 0) ? (int)MathRound((g_currSignalPrice - g_prevSignalPrice) / Point) : 0;
       if(gap2 < SeqBuyMinGapPoints)
@@ -136,10 +138,15 @@ bool BuyCond5_MinUpriseGap(int openCount)
                " vs " + crLabel + "=" + DoubleToString(g_currSignalPrice,2) +
                " gap=" + IntegerToString(gap2) + "pts (need >=" +
                IntegerToString(SeqBuyMinGapPoints) + "pts) " + BuyPatternContext());
-         return false;
+         finalStatus2= false;
         }
      }
 
+
+if(!finalStatus1 && !finalStatus2)
+{
+  return false;
+}
    LogMessage("SeqBuy | Cond5 PASSED - Uprise chain: " +
               ppLabel + "=" + DoubleToString(g_prePrevSignalPrice,2) +
               " < " + pvLabel + "=" + DoubleToString(g_prevSignalPrice,2) +
@@ -263,6 +270,8 @@ bool PlaceSeqBuyOrder(int ruleIdx)
    Print("SeqBuy | *** ORDER CREATED #" + IntegerToString(ticket) + " ***" +
          " Pattern=[" + pattern + "]" +
          " Ask=" + DoubleToString(ask,2) + " Lot=" + DoubleToString(SeqBuyLotSize,2));
+
+   ReportOrderOpened(ticket, pattern, "BUY");
    return true;
   }
 

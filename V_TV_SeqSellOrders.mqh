@@ -32,8 +32,7 @@ input int SeqSellEMAShift   = 3;  // How many candles to compare slope
 //| CONDITION HELPERS                                                |
 //+------------------------------------------------------------------+
 
-input int      SeqSellMaxOrders = 1;      // Max open SELL orders allowed
-
+ 
 // Returns current pattern context string for log messages
 string SellPatternContext()
   {
@@ -237,7 +236,7 @@ bool PlaceSeqSellOrder(int ruleIdx)
          " Pattern=[" + pattern + "]" +
          " Bid=" + DoubleToString(bid,2) + " Lot=" + DoubleToString(SeqSellLotSize,2));
 
-   ReportOrderOpened(ticket, pattern);
+   ReportOrderOpened(ticket, pattern, "SELL");
    return true;
   }
 

@@ -1,27 +1,30 @@
 //+------------------------------------------------------------------+
 //| V_TV_OrderReport.mqh                                             |
-//| Tracks each order open/close with pattern, P/L, analysis        |
+//| Tracks each SELL and BUY order open/close with pattern, P/L     |
 //| CSV columns:                                                     |
-//|  Ticket, Type, Pattern, OpenTime, OpenPrice,                    |
-//|  CloseTime, ClosePrice, Profit, ProfitReason, LossReason        |
+//|  Ticket,Type,Pattern,OpenTime,OpenPrice,                        |
+//|  CloseTime,ClosePrice,Profit(USD),                              |
+//|  EMA1_at_Open,EMA2_at_Open,EMA1_Trend_OK,EMA_Structure_OK,      |
+//|  CloseReason,ProfitReason,LossReason                            |
 //+------------------------------------------------------------------+
 #ifndef V_TV_ORDER_REPORT_MQH
 #define V_TV_ORDER_REPORT_MQH
 
 string g_orderReportFile = "";
 
-//--- In-memory record for open orders (to detect close events) -----
+//--- In-memory record for tracking open orders --------------------
 struct OrderRecord
   {
    int      ticket;
+   string   orderType;     // "SELL" or "BUY"
    string   pattern;       // "prePrev | prev | curr" at time of entry
    datetime openTime;
    double   openPrice;
-   double   ema1AtOpen;    // EMA1 value when order placed
-   double   ema2AtOpen;    // EMA2 value when order placed
-   bool     ema1BelowEma2; // Cond9 state at open
-   bool     ema1Falling;   // Cond8 state at open
-   bool     tracked;       // slot in use
+   double   ema1AtOpen;
+   double   ema2AtOpen;
+   bool     emaTrendOK;    // Cond8: EMA1 sloping in correct direction
+   bool     emaStructureOK;// Cond9: EMA1/EMA2 correct side
+   bool     tracked;
   };
 
 #define ORDER_RECORD_MAX 50
@@ -36,37 +39,40 @@ void InitOrderReport()
    StringReplace(dateStr, ".", "");
    g_orderReportFile = "OrderReport_" + dateStr + "_" + Symbol() + ".csv";
 
-   // Only write header if file is new/empty
+   bool needHeader = true;
    int h = FileOpen(g_orderReportFile, FILE_TXT|FILE_READ|FILE_SHARE_READ|FILE_SHARE_WRITE);
    if(h != INVALID_HANDLE)
      {
       ulong sz = FileSize(h);
       FileClose(h);
-      if(sz > 0) return;
+      if(sz > 0) needHeader = false;
      }
 
-   h = FileOpen(g_orderReportFile, FILE_TXT|FILE_WRITE|FILE_SHARE_READ|FILE_SHARE_WRITE);
-   if(h == INVALID_HANDLE) return;
-   FileWriteString(h,
-      "Ticket,Type,Pattern,OpenTime,OpenPrice,"
-      "CloseTime,ClosePrice,Profit(USD),"
-      "EMA1_at_Open,EMA2_at_Open,EMA1_Below_EMA2,EMA1_Falling,"
-      "ProfitReason,LossReason\n");
-   FileClose(h);
+   if(needHeader)
+     {
+      h = FileOpen(g_orderReportFile, FILE_TXT|FILE_WRITE|FILE_SHARE_READ|FILE_SHARE_WRITE);
+      if(h != INVALID_HANDLE)
+        {
+         FileWriteString(h,
+            "Ticket,Type,Pattern,OpenTime,OpenPrice,"
+            "CloseTime,ClosePrice,Profit(USD),"
+            "EMA1_at_Open,EMA2_at_Open,EMA_Trend_OK,EMA_Structure_OK,"
+            "CloseReason,ProfitReason,LossReason\n");
+         FileClose(h);
+        }
+     }
 
-   // Init record slots
    for(int i = 0; i < ORDER_RECORD_MAX; i++)
       g_orderRecords[i].tracked = false;
   }
 
 //+------------------------------------------------------------------+
-//| Called right after a SELL order is placed                        |
+//| Called right after any order is placed                           |
 //+------------------------------------------------------------------+
-void ReportOrderOpened(int ticket, string pattern)
+void ReportOrderOpened(int ticket, string pattern, string orderType)
   {
    if(g_orderReportFile == "") return;
 
-   // Find free slot
    int slot = -1;
    for(int i = 0; i < ORDER_RECORD_MAX; i++)
       if(!g_orderRecords[i].tracked) { slot = i; break; }
@@ -74,21 +80,28 @@ void ReportOrderOpened(int ticket, string pattern)
 
    if(!OrderSelect(ticket, SELECT_BY_TICKET)) return;
 
-   double ema1 = iMA(Symbol(), 0, SeqSellEMAPeriod,  0, MODE_EMA, PRICE_CLOSE, 0);
-   double ema2 = iMA(Symbol(), 0, SeqSellEMA2Period, 0, MODE_EMA, PRICE_CLOSE, 0);
-   double ema1Past = iMA(Symbol(), 0, SeqSellEMAPeriod, 0, MODE_EMA, PRICE_CLOSE, SeqSellEMAShift);
+   bool isSell = (orderType == "SELL");
+   int  emaPeriod  = isSell ? SeqSellEMAPeriod  : SeqBuyEMAPeriod;
+   int  ema2Period = isSell ? SeqSellEMA2Period  : SeqBuyEMA2Period;
+   int  emaShift   = isSell ? SeqSellEMAShift    : SeqBuyEMAShift;
 
-   g_orderRecords[slot].ticket       = ticket;
-   g_orderRecords[slot].pattern      = pattern;
-   g_orderRecords[slot].openTime     = OrderOpenTime();
-   g_orderRecords[slot].openPrice    = OrderOpenPrice();
-   g_orderRecords[slot].ema1AtOpen   = ema1;
-   g_orderRecords[slot].ema2AtOpen   = ema2;
-   g_orderRecords[slot].ema1BelowEma2= (ema1 < ema2);
-   g_orderRecords[slot].ema1Falling  = (ema1 < ema1Past);
-   g_orderRecords[slot].tracked      = true;
+   double ema1     = iMA(Symbol(), 0, emaPeriod,  0, MODE_EMA, PRICE_CLOSE, 0);
+   double ema2     = iMA(Symbol(), 0, ema2Period, 0, MODE_EMA, PRICE_CLOSE, 0);
+   double ema1Past = iMA(Symbol(), 0, emaPeriod,  0, MODE_EMA, PRICE_CLOSE, emaShift);
 
-   Print("OrderReport: tracking #" + IntegerToString(ticket) + " pattern=[" + pattern + "]");
+   g_orderRecords[slot].ticket         = ticket;
+   g_orderRecords[slot].orderType      = orderType;
+   g_orderRecords[slot].pattern        = pattern;
+   g_orderRecords[slot].openTime       = OrderOpenTime();
+   g_orderRecords[slot].openPrice      = OrderOpenPrice();
+   g_orderRecords[slot].ema1AtOpen     = ema1;
+   g_orderRecords[slot].ema2AtOpen     = ema2;
+   g_orderRecords[slot].emaTrendOK     = isSell ? (ema1 < ema1Past) : (ema1 > ema1Past);
+   g_orderRecords[slot].emaStructureOK = isSell ? (ema1 < ema2)     : (ema1 > ema2);
+   g_orderRecords[slot].tracked        = true;
+
+   Print("OrderReport: tracking #" + IntegerToString(ticket) +
+         " [" + orderType + "] pattern=[" + pattern + "]");
   }
 
 //+------------------------------------------------------------------+
@@ -97,9 +110,10 @@ void ReportOrderOpened(int ticket, string pattern)
 string AnalyseProfitReason(OrderRecord &rec, double closePrice, double profit)
   {
    string reasons = "";
-   if(rec.ema1BelowEma2)  reasons += "EMA_bearish_structure;";
-   if(rec.ema1Falling)    reasons += "EMA1_falling_at_entry;";
-   if(closePrice < rec.openPrice) reasons += "price_dropped_as_expected;";
+   if(rec.emaTrendOK)     reasons += "EMA_trend_confirmed_at_entry;";
+   if(rec.emaStructureOK) reasons += "EMA_structure_confirmed_at_entry;";
+   if(rec.orderType == "SELL" && closePrice < rec.openPrice) reasons += "price_dropped_as_expected;";
+   if(rec.orderType == "BUY"  && closePrice > rec.openPrice) reasons += "price_rose_as_expected;";
    if(profit > 1.0)       reasons += "strong_move(>$1);";
    if(reasons == "")      reasons  = "no_specific_reason";
    return reasons;
@@ -111,25 +125,27 @@ string AnalyseProfitReason(OrderRecord &rec, double closePrice, double profit)
 string AnalyseLossReason(OrderRecord &rec, double closePrice, double profit)
   {
    string reasons = "";
-   if(!rec.ema1BelowEma2) reasons += "EMA1_above_EMA2_at_entry(Cond9_failed_or_disabled);";
-   if(!rec.ema1Falling)   reasons += "EMA1_not_falling_at_entry(Cond8_issue);";
-   if(closePrice > rec.openPrice) reasons += "price_rose_against_sell;";
-   if(profit < -5.0)      reasons += "large_loss(>$5)_check_trend;";
-   if(reasons == "")      reasons  = "no_specific_reason";
+   if(!rec.emaTrendOK)     reasons += "EMA_trend_not_confirmed(Cond8);";
+   if(!rec.emaStructureOK) reasons += "EMA_structure_wrong(Cond9);";
+   if(rec.orderType == "SELL" && closePrice > rec.openPrice) reasons += "price_rose_against_sell;";
+   if(rec.orderType == "BUY"  && closePrice < rec.openPrice) reasons += "price_dropped_against_buy;";
+   if(profit < -5.0) reasons += "large_loss(>$5)_check_trend;";
+   if(reasons == "") reasons  = "no_specific_reason";
    return reasons;
   }
 
 //+------------------------------------------------------------------+
 //| Write one closed order row to CSV                                |
 //+------------------------------------------------------------------+
-void WriteOrderReportRow(OrderRecord &rec, datetime closeTime, double closePrice, double profit)
+void WriteOrderReportRow(OrderRecord &rec, datetime closeTime, double closePrice,
+                         double profit, string closeReason)
   {
    string profitReason = (profit >= 0) ? AnalyseProfitReason(rec, closePrice, profit) : "";
    string lossReason   = (profit <  0) ? AnalyseLossReason (rec, closePrice, profit) : "";
 
    string row =
       IntegerToString(rec.ticket)                              + "," +
-      "SELL"                                                   + "," +
+      rec.orderType                                            + "," +
       "\"" + rec.pattern + "\""                               + "," +
       TimeToString(rec.openTime,  TIME_DATE|TIME_SECONDS)     + "," +
       DoubleToString(rec.openPrice,  2)                       + "," +
@@ -138,8 +154,9 @@ void WriteOrderReportRow(OrderRecord &rec, datetime closeTime, double closePrice
       DoubleToString(profit,         2)                       + "," +
       DoubleToString(rec.ema1AtOpen, 2)                       + "," +
       DoubleToString(rec.ema2AtOpen, 2)                       + "," +
-      (rec.ema1BelowEma2 ? "YES" : "NO")                     + "," +
-      (rec.ema1Falling   ? "YES" : "NO")                     + "," +
+      (rec.emaTrendOK     ? "YES" : "NO")                    + "," +
+      (rec.emaStructureOK ? "YES" : "NO")                    + "," +
+      "\"" + closeReason  + "\""                              + "," +
       "\"" + profitReason + "\""                              + "," +
       "\"" + lossReason   + "\""                              + "\n";
 
@@ -153,7 +170,8 @@ void WriteOrderReportRow(OrderRecord &rec, datetime closeTime, double closePrice
    FileClose(h);
 
    Print("OrderReport: #" + IntegerToString(rec.ticket) +
-         " closed P/L=" + DoubleToString(profit,2) +
+         " [" + rec.orderType + "]" +
+         " closed [" + closeReason + "] P/L=" + DoubleToString(profit,2) +
          (profit >= 0 ? " PROFIT: " + profitReason : " LOSS: " + lossReason));
   }
 
@@ -168,7 +186,6 @@ void CheckClosedOrders()
      {
       if(!g_orderRecords[s].tracked) continue;
 
-      // Check if still in open orders
       bool stillOpen = false;
       for(int i = OrdersTotal() - 1; i >= 0; i--)
         {
@@ -184,11 +201,18 @@ void CheckClosedOrders()
          if(!OrderSelect(i, SELECT_BY_POS, MODE_HISTORY)) continue;
          if(OrderTicket() != g_orderRecords[s].ticket)   continue;
 
-         double profit     = OrderProfit() + OrderSwap() + OrderCommission();
+         double   profit     = OrderProfit() + OrderSwap() + OrderCommission();
          datetime closeTime  = OrderCloseTime();
-         double closePrice = OrderClosePrice();
+         double   closePrice = OrderClosePrice();
 
-         WriteOrderReportRow(g_orderRecords[s], closeTime, closePrice, profit);
+         // Determine close reason from profit vs targets
+         string closeReason = "MANUAL";
+         if(profit >= SeqCloseProfitTarget)
+            closeReason = "PROFIT_TARGET($" + DoubleToString(SeqCloseProfitTarget,2) + ")";
+         else if(profit <= -SeqCloseStopLossUSD)
+            closeReason = "STOP_LOSS($" + DoubleToString(SeqCloseStopLossUSD,2) + ")";
+
+         WriteOrderReportRow(g_orderRecords[s], closeTime, closePrice, profit, closeReason);
          g_orderRecords[s].tracked = false;
          break;
         }
