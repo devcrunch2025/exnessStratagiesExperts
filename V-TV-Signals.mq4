@@ -1,8 +1,11 @@
-//+------------------------------------------------------------------+
+﻿//+------------------------------------------------------------------+
 //| EDGE ALGO - SMART PATTERN DETECTION (PRO ELITE)                 |
 //| Signals + Markers + No-Sell Zone display only                   |
 //+------------------------------------------------------------------+
 #property strict
+
+#include "TrendSellOrders.mqh"
+#include "TrendBuyOrders.mqh"
 
 #define TRADE_DIRECTION_BOTH      0
 #define TRADE_DIRECTION_BUY_ONLY  1
@@ -18,7 +21,8 @@ input double RSI_Buy             = 55;
 input double RSI_Sell            = 45;
 input int    ReversalStreakCandles = 3;
 input int    TradeDirectionMode  = 0;       // 0=both 1=buy only 2=sell only
-input double TrendSellDailyLowGapPrice = 400; // NO SELL zone: min $ above daily low
+input double TrendSellDailyLowGapPrice  =100; // NO SELL zone: min $ above daily low
+input double TrendBuyDailyHighGapPrice  = 100; // NO BUY zone: min $ below daily high
 input bool   EnableAlert         = false;
 input bool   EnableSound         = true;
 input bool   EnableLogMessages   = false;
@@ -246,8 +250,76 @@ void UpdateDailyLowProximityLines()
    if(ObjectFind(0, zoneLabel) < 0)
       ObjectCreate(0, zoneLabel, OBJ_TEXT, 0, Time[5], zoneTop);
    ObjectMove(0, zoneLabel, 0, Time[5], zoneTop);
-   ObjectSetText(zoneLabel, " No-Sell Zone ($" + DoubleToString(TrendSellDailyLowGapPrice,0) +
+   ObjectSetText(zoneLabel, " NO TREND SELL ZONE ($" + DoubleToString(TrendSellDailyLowGapPrice,0) +
                  " above daily low)", 8, "Arial Bold", clrOrangeRed);
+
+   // No-Sell Zone background rectangle (light red, drawn behind candles)
+   datetime bgStart = (Bars > 2) ? Time[Bars-2] : Time[0];
+   datetime bgEnd   = D'2099.12.31 00:00';
+   string sellBg = "TS_NoSellZone_Bg";
+   if(ObjectFind(0, sellBg) < 0)
+      ObjectCreate(0, sellBg, OBJ_RECTANGLE, 0, bgStart, zoneTop, bgEnd, dailyLow);
+   ObjectMove(0, sellBg, 0, bgStart, zoneTop);
+   ObjectMove(0, sellBg, 1, bgEnd,   dailyLow);
+   ObjectSetInteger(0, sellBg, OBJPROP_COLOR,   clrIndianRed);
+   ObjectSetInteger(0, sellBg, OBJPROP_FILL,    true);
+   ObjectSetInteger(0, sellBg, OBJPROP_BACK,    true);
+   ObjectSetInteger(0, sellBg, OBJPROP_WIDTH,   1);
+   ObjectSetInteger(0, sellBg, OBJPROP_SELECTED,false);
+
+   // ---- NO BUY ZONE (daily high) ----
+   double dailyHigh = iHigh(Symbol(), PERIOD_D1, 0);
+   if(dailyHigh <= 0) return;
+
+   double noBuyBottom = dailyHigh - TrendBuyDailyHighGapPrice;
+
+   // Daily High line (blue dashed)
+   string highLine = "TB_DailyHigh";
+   if(ObjectFind(0, highLine) < 0)
+      ObjectCreate(0, highLine, OBJ_HLINE, 0, 0, dailyHigh);
+   ObjectMove(0, highLine, 0, 0, dailyHigh);
+   ObjectSetInteger(0, highLine, OBJPROP_COLOR, clrDodgerBlue);
+   ObjectSetInteger(0, highLine, OBJPROP_STYLE, STYLE_DASH);
+   ObjectSetInteger(0, highLine, OBJPROP_WIDTH, 2);
+   ObjectSetString(0,  highLine, OBJPROP_TOOLTIP, "Daily High: " + DoubleToString(dailyHigh, Digits));
+
+   string highLabel = "TB_DailyHigh_Lbl";
+   if(ObjectFind(0, highLabel) < 0)
+      ObjectCreate(0, highLabel, OBJ_TEXT, 0, Time[5], dailyHigh);
+   ObjectMove(0, highLabel, 0, Time[5], dailyHigh);
+   ObjectSetText(highLabel, " Daily High: " + DoubleToString(dailyHigh, Digits), 8, "Arial Bold", clrDodgerBlue);
+
+   // No-Buy Zone boundary (cyan dotted)
+   string noBuyLine = "TB_NoBuyZone";
+   if(ObjectFind(0, noBuyLine) < 0)
+      ObjectCreate(0, noBuyLine, OBJ_HLINE, 0, 0, noBuyBottom);
+   ObjectMove(0, noBuyLine, 0, 0, noBuyBottom);
+   ObjectSetInteger(0, noBuyLine, OBJPROP_COLOR, clrAqua);
+   ObjectSetInteger(0, noBuyLine, OBJPROP_STYLE, STYLE_DOT);
+   ObjectSetInteger(0, noBuyLine, OBJPROP_WIDTH, 1);
+   ObjectSetString(0,  noBuyLine, OBJPROP_TOOLTIP,
+                   "NO TREND BUY ZONE: $" + DoubleToString(TrendBuyDailyHighGapPrice,2) + " below Daily High");
+
+   string noBuyLabel = "TB_NoBuyZone_Lbl";
+   if(ObjectFind(0, noBuyLabel) < 0)
+      ObjectCreate(0, noBuyLabel, OBJ_TEXT, 0, Time[5], noBuyBottom);
+   ObjectMove(0, noBuyLabel, 0, Time[5], noBuyBottom);
+   ObjectSetText(noBuyLabel, " NO TREND BUY ZONE ($" + DoubleToString(TrendBuyDailyHighGapPrice,0) +
+                 " below daily high)", 8, "Arial Bold", clrAqua);
+
+   // No-Buy Zone background rectangle (light red, drawn behind candles)
+   datetime bgStart2 = (Bars > 2) ? Time[Bars-2] : Time[0];
+   datetime bgEnd2   = D'2099.12.31 00:00';
+   string buyBg = "TB_NoBuyZone_Bg";
+   if(ObjectFind(0, buyBg) < 0)
+      ObjectCreate(0, buyBg, OBJ_RECTANGLE, 0, bgStart2, dailyHigh, bgEnd2, noBuyBottom);
+   ObjectMove(0, buyBg, 0, bgStart2, dailyHigh);
+   ObjectMove(0, buyBg, 1, bgEnd2,   noBuyBottom);
+   ObjectSetInteger(0, buyBg, OBJPROP_COLOR,   clrIndianRed);
+   ObjectSetInteger(0, buyBg, OBJPROP_FILL,    true);
+   ObjectSetInteger(0, buyBg, OBJPROP_BACK,    true);
+   ObjectSetInteger(0, buyBg, OBJPROP_WIDTH,   1);
+   ObjectSetInteger(0, buyBg, OBJPROP_SELECTED,false);
   }
 
 //+------------------------------------------------------------------+
@@ -390,6 +462,12 @@ void OnDeinit(const int reason)
    ObjectDelete(0, "TS_DailyLow_Lbl");
    ObjectDelete(0, "TS_NoSellZone");
    ObjectDelete(0, "TS_NoSellZone_Lbl");
+   ObjectDelete(0, "TB_DailyHigh");
+   ObjectDelete(0, "TB_DailyHigh_Lbl");
+   ObjectDelete(0, "TB_NoBuyZone");
+   ObjectDelete(0, "TB_NoBuyZone_Lbl");
+   ObjectDelete(0, "TS_NoSellZone_Bg");
+   ObjectDelete(0, "TB_NoBuyZone_Bg");
    ObjectDelete(0, "TS_LiveSignal");
    ObjectDelete(0, "TS_PrevSignal");
    Comment("");
