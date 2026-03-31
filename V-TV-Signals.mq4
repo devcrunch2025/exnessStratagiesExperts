@@ -28,6 +28,7 @@ input bool   EnableSound         = true;
 input bool   EnableLogMessages   = false;
 input int    DashboardRefreshSeconds = 30;
 input bool   ExecuteEverySignalInTester = false;
+input bool EnablePreSignals = true;
 
 // ----- GLOBALS ----- //
 string   currentSignal      = "";
@@ -161,6 +162,12 @@ void EvaluateSignalFlags(int shift,
                          bool &trendBuy,     bool &reversalBuy,  bool &strongBuy,
                          bool &trendSell,    bool &reversalSell, bool &strongSell)
   {
+
+    bool preTrendSell = false;
+if(EnablePreSignals)
+preTrendSell = DetectPreTrendSell(shift);
+
+
    trendBuy = reversalBuy = strongBuy = false;
    trendSell = reversalSell = strongSell = false;
 
@@ -489,6 +496,10 @@ void OnDeinit(const int reason)
 //+------------------------------------------------------------------+
 void OnTick()
   {
+
+    
+
+ 
    if(Bars < 5) return;
 
    bool firstRun      = (lastProcessedClosedBar == 0);
@@ -502,6 +513,9 @@ void OnTick()
 
    for(int i = startBar; i >= 0; i--)
      {
+      bool preTrendSell = false;
+if(EnablePreSignals)
+   preTrendSell = DetectPreTrendSell(i);
       bool trendBuy = false, reversalBuy = false, strongBuy = false;
       bool trendSell = false, reversalSell = false, strongSell = false;
 
@@ -514,7 +528,8 @@ void OnTick()
 
       // === Sequence counter: increment if same signal, reset if different ===
       string detectedSig = "";
-      if(trendSell)        detectedSig = "TREND SELL";
+    if(trendSell)             detectedSig = "TREND SELL";
+else if(preTrendSell)     detectedSig = "PRE SELL";
       else if(trendBuy)    detectedSig = "TREND BUY";
       else if(strongSell)  detectedSig = "STRONG SELL";
       else if(strongBuy)   detectedSig = "STRONG BUY";
@@ -538,18 +553,28 @@ void OnTick()
          DrawMarker("SB", "STRONG BUY " + IntegerToString(g_seqCount), clrBlue, 233, t, Low[i] - 10*Point);
 
       // === Sell signals ===
-      if(trendSell)
-         DrawMarker("TS", "TREND SELL " + IntegerToString(g_seqCount),  clrRed,    234, t, High[i] + 10*Point);
-      else if(reversalSell)
-         DrawMarker("RS", reversalSellName + " " + IntegerToString(g_seqCount), clrMagenta, 234, t, High[i] + 10*Point);
-      else if(strongSell)
-         DrawMarker("SS", "STRONG SELL " + IntegerToString(g_seqCount), clrPink,   234, t, High[i] + 10*Point);
 
+// 🔥 PRE SELL (NEW)
+if(preTrendSell)
+   DrawMarker("PTS", "PRE SELL " + IntegerToString(g_seqCount), clrOrange, 234, t, High[i] + 15*Point);
+
+// 🔴 TREND SELL
+if(trendSell)
+   DrawMarker("TS", "TREND SELL " + IntegerToString(g_seqCount),  clrRed, 234, t, High[i] + 10*Point);
+
+// 🟣 REVERSAL SELL
+if(reversalSell)
+   DrawMarker("RS", reversalSellName + " " + IntegerToString(g_seqCount), clrMagenta, 234, t, High[i] + 10*Point);
+
+// 🌸 STRONG SELL
+if(strongSell)
+   DrawMarker("SS", "STRONG SELL " + IntegerToString(g_seqCount), clrPink, 234, t, High[i] + 10*Point);
       // === Update Curr/Prev display labels (i=0 live bar, i=1 just-closed bar) ===
       if(i == 0 || i == 1)
         {
          string newSig = "";
-         if(trendSell)        newSig = "TREND SELL";
+        if(trendSell)             newSig = "TREND SELL";
+else if(preTrendSell)     newSig = "PRE SELL";
          else if(trendBuy)    newSig = "TREND BUY";
          else if(strongSell)  newSig = "STRONG SELL";
          else if(strongBuy)   newSig = "STRONG BUY";
@@ -627,3 +652,38 @@ void OnTick()
 
    MaybeRefreshDashboard();
   }
+
+
+// ===== ADD THIS FUNCTION (below EvaluateSignalFlags) =====
+bool DetectPreTrendSell(int i)
+{
+   if(i < 0 || i + 2 >= Bars) return false;
+
+   double emaFast  = iMA(NULL,0,FastEMA,0,MODE_EMA,PRICE_CLOSE,i);
+   double emaSlow  = iMA(NULL,0,SlowEMA,0,MODE_EMA,PRICE_CLOSE,i);
+   double emaTrend = iMA(NULL,0,TrendEMA,0,MODE_EMA,PRICE_CLOSE,i);
+
+   double rsi      = iRSI(NULL,0,RSI_Period,PRICE_CLOSE,i);
+   double rsiPrev  = iRSI(NULL,0,RSI_Period,PRICE_CLOSE,i+1);
+
+   double body  = MathAbs(Open[i] - Close[i]);
+   double range = High[i] - Low[i];
+
+   if(range <= 0) return false;
+
+   bool currBear = Close[i] < Open[i];
+
+   bool rsiDown      = rsi < rsiPrev;
+   bool belowFastEMA = Close[i] < emaFast;
+   bool weakTrend    = (Close[i] < emaTrend || emaFast < emaSlow);
+   bool noBreakout   = Close[i] >= Low[i+1];
+
+   bool exhaustion =
+      Close[i+1] > Close[i+2] &&
+      Close[i]   < Close[i+1];
+
+   bool decentCandle = body > (range * 0.4);
+
+   return (currBear && rsiDown && belowFastEMA &&
+           weakTrend && noBreakout && exhaustion && decentCandle);
+}
