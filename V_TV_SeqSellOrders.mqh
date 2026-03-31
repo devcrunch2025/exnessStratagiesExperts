@@ -21,7 +21,7 @@ input double   SeqSellLotSize   = 0.01;   // Lot size
 input int      SeqSellMagicNo   = 22001;  // Magic number
 
 input int      SeqSellSlippage  = 30;     // Slippage in points
-input double   SeqSellMinGapUSD = 20.0;   // Condition 5: Min price drop from last SELL entry (USD)
+input int      SeqSellMinGapPoints = 200; // Condition 5: Min price drop from prev signal (in points)
 
 
 input int SeqSellMinSecsBetweenOrders = 15; // Min seconds between two SELL orders
@@ -101,34 +101,51 @@ bool SellCond4_MaxOrdersNotReached(int openCount)
    return false;
   }
 
-// Condition 5: Each new SELL signal must be lower than previous signal by MinGapUSD
-//              Uses g_trendSellSeq[] array built in the main tick loop
+// Condition 5: All 3 signal levels must form a downfall chain (each lower than previous)
+//              prePrevPrice > prevPrice > currPrice  (each gap >= SeqSellMinGapPoints)
 bool SellCond5_MinDownfallGap(int openCount)
   {
-   if(SeqSellMinGapUSD <= 0) return true; // gap check disabled
+   if(SeqSellMinGapPoints <= 0) return true; // gap check disabled
 
-   int n = ArraySize(g_trendSellSeq);
-   if(n < 2)
+   string ppLabel = g_prePrevSeqSignalText;
+   string pvLabel = g_prevDisplaySignal + " " + IntegerToString(g_prevSeqCount);
+   string crLabel = g_liveSignalName    + " " + IntegerToString(g_currSeqCount);
+
+   // Level 1: prev must be lower than prePrev
+   if(g_prePrevSignalPrice > 0 && g_prevSignalPrice > 0)
      {
-      LogMessage("SeqSell | Cond5 PASSED - Only 1 signal in sequence, no prev to compare");
-      return true;
+      int gap1 = (Point > 0) ? (int)MathRound((g_prePrevSignalPrice - g_prevSignalPrice) / Point) : 0;
+      if(gap1 < SeqSellMinGapPoints)
+        {
+         Print("SeqSell | BLOCKED [Cond5-Level1] " +
+               ppLabel + "=" + DoubleToString(g_prePrevSignalPrice,2) +
+               " vs " + pvLabel + "=" + DoubleToString(g_prevSignalPrice,2) +
+               " gap=" + IntegerToString(gap1) + "pts (need >=" +
+               IntegerToString(SeqSellMinGapPoints) + "pts) " + SellPatternContext());
+         return false;
+        }
      }
 
-   double prevPrice = g_trendSellSeq[n - 2].price;
-   double currPrice = g_trendSellSeq[n - 1].price;
-   double gap       = prevPrice - currPrice; // positive = current signal is lower (good)
+   // Level 2: curr must be lower than prev
+   if(g_prevSignalPrice > 0 && g_currSignalPrice > 0)
+     {
+      int gap2 = (Point > 0) ? (int)MathRound((g_prevSignalPrice - g_currSignalPrice) / Point) : 0;
+      if(gap2 < SeqSellMinGapPoints)
+        {
+         Print("SeqSell | BLOCKED [Cond5-Level2] " +
+               pvLabel + "=" + DoubleToString(g_prevSignalPrice,2) +
+               " vs " + crLabel + "=" + DoubleToString(g_currSignalPrice,2) +
+               " gap=" + IntegerToString(gap2) + "pts (need >=" +
+               IntegerToString(SeqSellMinGapPoints) + "pts) " + SellPatternContext());
+         return false;
+        }
+     }
 
-   string prevLbl = g_trendSellSeq[n - 2].label;
-   string currLbl = g_trendSellSeq[n - 1].label;
-
-   if(gap >= SeqSellMinGapUSD)
-      return true;
-
-   Print("SeqSell | BLOCKED [Cond5-MinGap] " + prevLbl + "=" + DoubleToString(prevPrice,2) +
-         " vs " + currLbl + "=" + DoubleToString(currPrice,2) +
-         " gap=" + DoubleToString(gap,2) + " (need >=" + DoubleToString(SeqSellMinGapUSD,2) + ") " +
-         SellPatternContext());
-   return false;
+   LogMessage("SeqSell | Cond5 PASSED - Downfall chain: " +
+              ppLabel + "=" + DoubleToString(g_prePrevSignalPrice,2) +
+              " > " + pvLabel + "=" + DoubleToString(g_prevSignalPrice,2) +
+              " > " + crLabel + "=" + DoubleToString(g_currSignalPrice,2));
+   return true;
   }
 
 // Condition 6: No existing SELL order is in loss

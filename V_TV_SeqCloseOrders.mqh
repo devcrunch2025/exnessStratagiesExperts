@@ -9,7 +9,7 @@
 input string _SeqClose_          = "--- SEQ CLOSE ORDERS ---";
 input double SeqCloseProfitTarget = 1;  // Close when profit reaches this USD amount
 input int    SeqCloseSlippage     = 30;    // Slippage in points
-input double SeqCloseStopLossUSD  = 0.40;  // Close when loss reaches this USD amount
+input double SeqCloseStopLossUSD  = 0.80;  // Close when loss reaches this USD amount
 
 
 //--- Close all SELL orders that reached the profit target ------------

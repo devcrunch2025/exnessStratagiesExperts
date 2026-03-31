@@ -13,14 +13,45 @@
 #ifndef V_TV_STRATEGY_PATTERNS_MQH
 #define V_TV_STRATEGY_PATTERNS_MQH
 
-//--- Seq signal price history (built fresh each tick loop pass) -------
+//--- Universal signal price history -----------------------------------
+// Stores price of every signal bar, keyed by full label (e.g. "TREND SELL 2")
+// Used by Cond5 to find gap between any two signals in a matched pattern
 struct SeqSignalEntry
   {
-   string label;   // e.g. "TREND SELL 2"
-   double price;   // High[i] of the bar where this signal fired
+   string label;   // full signal+seq label e.g. "TREND SELL 2", "PRE SELL 1"
+   double price;   // bar price (High for SELL, Low for BUY) when signal fired
   };
 
-SeqSignalEntry g_trendSellSeq[];   // current SELL sequence entries
+#define SIG_HISTORY_MAX 200
+SeqSignalEntry g_sigHistory[SIG_HISTORY_MAX];
+int            g_sigHistoryCount = 0;
+
+// Record a signal price (overwrites if same label seen again)
+void RecordSignalPrice(string label, double price)
+  {
+   // Update existing entry if label already exists
+   for(int i = g_sigHistoryCount - 1; i >= 0; i--)
+      if(g_sigHistory[i].label == label)
+        { g_sigHistory[i].price = price; return; }
+   // Add new entry (ring buffer)
+   int idx = g_sigHistoryCount % SIG_HISTORY_MAX;
+   g_sigHistory[idx].label = label;
+   g_sigHistory[idx].price = price;
+   if(g_sigHistoryCount < SIG_HISTORY_MAX) g_sigHistoryCount++;
+  }
+
+// Get price for a signal label; returns -1 if not found
+double GetSignalPrice(string label)
+  {
+   if(label == "") return -1;
+   for(int i = g_sigHistoryCount - 1; i >= 0; i--)
+      if(g_sigHistory[i % SIG_HISTORY_MAX].label == label)
+         return g_sigHistory[i % SIG_HISTORY_MAX].price;
+   return -1;
+  }
+
+// Keep g_trendSellSeq for the diff display on chart markers
+SeqSignalEntry g_trendSellSeq[];   // TREND SELL sequence for marker diff display only
 
 //--- Struct -----------------------------------------------------------
 struct SeqRule

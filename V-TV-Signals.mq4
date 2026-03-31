@@ -60,6 +60,10 @@ int      g_prevSeqCount = 0;  // sequence number of the previous signal (at time
 string   g_prePrevSignal       = "";  // signal name 2 steps back
 string   g_prePrevSeqSignalText = ""; // signal name + seq number 2 steps back (e.g. "TREND SELL 2")
 
+double   g_prePrevSignalPrice = 0; // bar price when pre-previous signal fired
+double   g_prevSignalPrice    = 0; // bar price when previous signal fired
+double   g_currSignalPrice    = 0; // bar price when current signal fired
+
 
 datetime lastAlertTime            = 0;
 datetime lastProcessedClosedBar   = 0;
@@ -820,32 +824,55 @@ void OnTick()
       // === Buy signals ===
       // 🔥 PRE BUY
 if(preTrendBuy)
-   DrawMarker("PTB", "PRE BUY " + IntegerToString(g_seqCount), clrAqua, 233, t, Low[i] - 15*Point);
+  {
+   string _lbl = "PRE BUY " + IntegerToString(g_seqCount);
+   DrawMarker("PTB", _lbl, clrAqua, 233, t, Low[i] - 15*Point);
+   RecordSignalPrice(_lbl, Low[i]);
+  }
 
 // 🟢 TREND BUY
 if(trendBuy)
-   DrawMarker("TB", "TREND BUY " + IntegerToString(g_seqCount), clrLime, 233, t, Low[i] - 10*Point);
+  {
+   string _lbl = "TREND BUY " + IntegerToString(g_seqCount);
+   DrawMarker("TB", _lbl, clrLime, 233, t, Low[i] - 10*Point);
+   RecordSignalPrice(_lbl, Low[i]);
+  }
 
 // 🔵 REVERSAL BUY
 if(reversalBuy)
-   DrawMarker("RB", reversalBuyName + " " + IntegerToString(g_seqCount), clrBlue, 233, t, Low[i] - 10*Point);
+  {
+   string _lbl = reversalBuyName + " " + IntegerToString(g_seqCount);
+   DrawMarker("RB", _lbl, clrBlue, 233, t, Low[i] - 10*Point);
+   RecordSignalPrice(_lbl, Low[i]);
+  }
 
 // 💙 STRONG BUY
 if(strongBuy)
-   DrawMarker("SB", "STRONG BUY " + IntegerToString(g_seqCount), clrDeepSkyBlue, 233, t, Low[i] - 10*Point);
+  {
+   string _lbl = "STRONG BUY " + IntegerToString(g_seqCount);
+   DrawMarker("SB", _lbl, clrDeepSkyBlue, 233, t, Low[i] - 10*Point);
+   RecordSignalPrice(_lbl, Low[i]);
+  }
+
       // === Sell signals ===
 
-// 🔥 PRE SELL (NEW)
+// 🔥 PRE SELL
 if(preTrendSell)
-   DrawMarker("PTS", "PRE SELL " + IntegerToString(g_seqCount), clrOrange, 234, t, High[i] + 15*Point);
+  {
+   string _lbl = "PRE SELL " + IntegerToString(g_seqCount);
+   DrawMarker("PTS", _lbl, clrOrange, 234, t, High[i] + 15*Point);
+   RecordSignalPrice(_lbl, High[i]);
+  }
 
 // 🔴 TREND SELL
 if(trendSell)
   {
+   string _lbl = "TREND SELL " + IntegerToString(g_seqCount);
+   // Build g_trendSellSeq for chart diff display
    int idx = g_seqCount - 1;
-   if(g_seqCount == 1) ArrayResize(g_trendSellSeq, 0); // reset sequence
+   if(g_seqCount == 1) ArrayResize(g_trendSellSeq, 0);
    if(ArraySize(g_trendSellSeq) <= idx) ArrayResize(g_trendSellSeq, idx + 1);
-   g_trendSellSeq[idx].label = "TREND SELL " + IntegerToString(g_seqCount);
+   g_trendSellSeq[idx].label = _lbl;
    g_trendSellSeq[idx].price = High[i];
 
    string tsDiffStr = "";
@@ -854,17 +881,26 @@ if(trendSell)
       double diff = High[i] - g_trendSellSeq[idx - 1].price;
       tsDiffStr = " (" + (diff >= 0 ? "+" : "") + DoubleToString(diff, 0) + ")";
      }
-   DrawMarker("TS", "TREND SELL " + IntegerToString(g_seqCount) + tsDiffStr, clrRed, 234, t, High[i] + 10*Point);
+   DrawMarker("TS", _lbl + tsDiffStr, clrRed, 234, t, High[i] + 10*Point);
    DrawEntryMark("TS", t, High[i] + 25*Point, SeqSellEMAPeriod);
+   RecordSignalPrice(_lbl, High[i]);
   }
 
 // 🟣 REVERSAL SELL
 if(reversalSell)
-   DrawMarker("RS", reversalSellName + " " + IntegerToString(g_seqCount), clrMagenta, 234, t, High[i] + 10*Point);
+  {
+   string _lbl = reversalSellName + " " + IntegerToString(g_seqCount);
+   DrawMarker("RS", _lbl, clrMagenta, 234, t, High[i] + 10*Point);
+   RecordSignalPrice(_lbl, High[i]);
+  }
 
 // 🌸 STRONG SELL
 if(strongSell)
-   DrawMarker("SS", "STRONG SELL " + IntegerToString(g_seqCount), clrPink, 234, t, High[i] + 10*Point);
+  {
+   string _lbl = "STRONG SELL " + IntegerToString(g_seqCount);
+   DrawMarker("SS", _lbl, clrPink, 234, t, High[i] + 10*Point);
+   RecordSignalPrice(_lbl, High[i]);
+  }
       // === Update Curr/Prev display labels (i=0 live bar, i=1 just-closed bar) ===
       if(i == 0 || i == 1)
         {
@@ -886,10 +922,14 @@ else if(preTrendSell)     newSig = "PRE SELL";
             g_prePrevSignal        = g_prevDisplaySignal;
             g_prePrevSeqSignalText = g_prevDisplaySignal == "" ? "" :
                                      g_prevDisplaySignal + " " + IntegerToString(g_prevSeqCount);
+            g_prePrevSignalPrice   = g_prevSignalPrice;   // shift: prePrev ← prev ← curr
             g_prevDisplaySignal    = g_liveSignalName;
             g_prevSeqCount         = g_currSeqCount;
+            g_prevSignalPrice      = g_currSignalPrice;
             g_liveSignalName       = newSig;
             g_currSeqCount         = g_seqCount;
+            bool _isSellSig        = (StringFind(newSig, "SELL") >= 0);
+            g_currSignalPrice      = _isSellSig ? High[i] : Low[i];
             g_lastDisplayBarTime   = Time[i];
             g_newSignalDetected    = true;  // trigger order check this tick
            }
