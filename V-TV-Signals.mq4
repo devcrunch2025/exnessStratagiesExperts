@@ -4,6 +4,7 @@
 //+------------------------------------------------------------------+
 #property strict
 
+#include "V_TV_StrategyPatterns.mqh"
 #include "V_TV_includeTrendSellOrders.mqh"
 #include "V_TV_includeTrendBuyOrders.mqh"
 
@@ -42,6 +43,19 @@ string   g_seqSignalName = "";  // signal type currently being counted
 int      g_seqCount      = 0;   // consecutive count for that signal type
 datetime g_seqBarTime    = 0;   // bar time of last sequence update (prevents re-increment per tick)
 
+string   g_currSignalLabel    = "TS_LiveSignal";      // chart object name for current signal label
+string   g_prevSignalLabel    = "TS_PrevSignal";      // chart object name for previous signal label
+string   g_currSeqLabel       = "TS_CurrSeqSignal";   // chart object name for current signal+seq label
+string   g_prevSeqLabel       = "TS_PrevSeqSignal";   // chart object name for previous signal+seq label
+string   g_prePrevSignalLabel = "TS_PrePrevSignal";   // chart object name for pre-prev signal label
+string   g_prePrevSeqLabel    = "TS_PrePrevSeqSignal";// chart object name for pre-prev signal+seq label
+
+int      g_currSeqCount = 0;  // sequence number of the current signal
+int      g_prevSeqCount = 0;  // sequence number of the previous signal (at time of shift)
+
+string   g_prePrevSignal       = "";  // signal name 2 steps back
+string   g_prePrevSeqSignalText = ""; // signal name + seq number 2 steps back (e.g. "TREND SELL 2")
+
 datetime lastAlertTime            = 0;
 datetime lastProcessedClosedBar   = 0;
 datetime lastDashboardRefreshTime = 0;
@@ -65,6 +79,21 @@ void SendSignalAlert(string msg)
   {
    if(EnableAlert)  Alert(msg);
    if(EnableSound)  PlaySound("alert.wav");
+  }
+
+color GetSignalColor(string sig)
+  {
+   if(sig == "TREND SELL")               return clrRed;
+   if(sig == "PRE SELL")                 return clrOrange;
+   if(sig == "STRONG SELL")              return clrPink;
+   if(StringFind(sig, "SHAPE SELL") >= 0)return clrMagenta;
+   if(StringFind(sig, "SELL") >= 0)      return clrOrangeRed;
+   if(sig == "TREND BUY")                return clrLime;
+   if(sig == "PRE BUY")                  return clrAqua;
+   if(sig == "STRONG BUY")               return clrDeepSkyBlue;
+   if(StringFind(sig, "SHAPE BUY") >= 0) return clrBlue;
+   if(StringFind(sig, "BUY") >= 0)       return clrAqua;
+   return clrDimGray;
   }
 
 datetime GetTradeClock()
@@ -162,12 +191,6 @@ void EvaluateSignalFlags(int shift,
                          bool &trendBuy,     bool &reversalBuy,  bool &strongBuy,
                          bool &trendSell,    bool &reversalSell, bool &strongSell)
   {
-
-    bool preTrendSell = false;
-if(EnablePreSignals)
-preTrendSell = DetectPreTrendSell(shift);
-
-
    trendBuy = reversalBuy = strongBuy = false;
    trendSell = reversalSell = strongSell = false;
 
@@ -339,18 +362,9 @@ void UpdateDailyLowProximityLines()
 void UpdateCurrentSignalLabel()
   {
    // --- Current Signal ---
-   string lbl = "TS_LiveSignal";
+   string lbl = g_currSignalLabel;
    string sig = (g_liveSignalName == "") ? "---" : g_liveSignalName;
-   color  clr = clrGray;
-   if(sig == "TREND SELL")                clr = clrRed;
-   else if(sig == "TREND BUY")            clr = clrLime;
-   else if(StringFind(sig, "SELL") >= 0)  clr = clrOrangeRed;
-   else if(StringFind(sig, "BUY")  >= 0)  clr = clrAqua;
-
-
-   if(sig=="STRONG SELL") clr = clrPink;
-
-   if(sig=="STRONG BUY") clr = clrBlue;
+   color  clr = GetSignalColor(sig);
 
 
    if(ObjectFind(0, lbl) < 0)
@@ -359,22 +373,15 @@ void UpdateCurrentSignalLabel()
    ObjectSetInteger(0, lbl, OBJPROP_ANCHOR,    ANCHOR_RIGHT_UPPER);
    ObjectSetInteger(0, lbl, OBJPROP_XDISTANCE, 10);
    ObjectSetInteger(0, lbl, OBJPROP_YDISTANCE, 20);
-   ObjectSetString(0,  lbl, OBJPROP_TEXT,      "Curr : " + sig);
+   ObjectSetString(0,  lbl, OBJPROP_TEXT,      "Curr     : " + sig);
    ObjectSetInteger(0, lbl, OBJPROP_COLOR,     clr);
    ObjectSetInteger(0, lbl, OBJPROP_FONTSIZE,  12);
    ObjectSetString(0,  lbl, OBJPROP_FONT,      "Arial Bold");
 
    // --- Previous Signal ---
-   string lblPrev = "TS_PrevSignal";
+   string lblPrev = g_prevSignalLabel;
    string prev    = (g_prevDisplaySignal == "") ? "---" : g_prevDisplaySignal;
-   color  clrPrev = clrGray;
-   if(prev == "TREND SELL")               clrPrev = clrRed;
-   else if(prev == "TREND BUY")           clrPrev = clrLime;
-   else if(StringFind(prev, "SELL") >= 0) clrPrev = clrOrangeRed;
-   else if(StringFind(prev, "BUY")  >= 0) clrPrev = clrAqua;
-
-      if(prev=="STRONG BUY")  clrPrev = clrBlue;
-      if(prev=="STRONG SELL")  clrPrev = clrPink;
+   color  clrPrev = GetSignalColor(prev);
 
    if(ObjectFind(0, lblPrev) < 0)
       ObjectCreate(0, lblPrev, OBJ_LABEL, 0, 0, 0);
@@ -382,10 +389,67 @@ void UpdateCurrentSignalLabel()
    ObjectSetInteger(0, lblPrev, OBJPROP_ANCHOR,    ANCHOR_RIGHT_UPPER);
    ObjectSetInteger(0, lblPrev, OBJPROP_XDISTANCE, 10);
    ObjectSetInteger(0, lblPrev, OBJPROP_YDISTANCE, 44);
-   ObjectSetString(0,  lblPrev, OBJPROP_TEXT,      "Prev : " + prev);
+   ObjectSetString(0,  lblPrev, OBJPROP_TEXT,      "Prev     : " + prev);
    ObjectSetInteger(0, lblPrev, OBJPROP_COLOR,     clrPrev);
    ObjectSetInteger(0, lblPrev, OBJPROP_FONTSIZE,  12);
    ObjectSetString(0,  lblPrev, OBJPROP_FONT,      "Arial Bold");
+
+   // --- Curr + Sequence ---
+   string currSeqText = (g_liveSignalName == "") ? "---" :
+                        g_liveSignalName + " " + IntegerToString(g_currSeqCount);
+   color  clrCS = GetSignalColor(g_liveSignalName);
+   if(ObjectFind(0, g_currSeqLabel) < 0)
+      ObjectCreate(0, g_currSeqLabel, OBJ_LABEL, 0, 0, 0);
+   ObjectSetInteger(0, g_currSeqLabel, OBJPROP_CORNER,    CORNER_RIGHT_UPPER);
+   ObjectSetInteger(0, g_currSeqLabel, OBJPROP_ANCHOR,    ANCHOR_RIGHT_UPPER);
+   ObjectSetInteger(0, g_currSeqLabel, OBJPROP_XDISTANCE, 10);
+   ObjectSetInteger(0, g_currSeqLabel, OBJPROP_YDISTANCE, 68);
+   ObjectSetString(0,  g_currSeqLabel, OBJPROP_TEXT,      "Seq.Curr : " + currSeqText);
+   ObjectSetInteger(0, g_currSeqLabel, OBJPROP_COLOR,     clrCS);
+   ObjectSetInteger(0, g_currSeqLabel, OBJPROP_FONTSIZE,  12);
+   ObjectSetString(0,  g_currSeqLabel, OBJPROP_FONT,      "Arial Bold");
+
+   // --- Prev + Sequence ---
+   string prevSeqText = (g_prevDisplaySignal == "") ? "---" :
+                        g_prevDisplaySignal + " " + IntegerToString(g_prevSeqCount);
+   color  clrPS = GetSignalColor(g_prevDisplaySignal);
+   if(ObjectFind(0, g_prevSeqLabel) < 0)
+      ObjectCreate(0, g_prevSeqLabel, OBJ_LABEL, 0, 0, 0);
+   ObjectSetInteger(0, g_prevSeqLabel, OBJPROP_CORNER,    CORNER_RIGHT_UPPER);
+   ObjectSetInteger(0, g_prevSeqLabel, OBJPROP_ANCHOR,    ANCHOR_RIGHT_UPPER);
+   ObjectSetInteger(0, g_prevSeqLabel, OBJPROP_XDISTANCE, 10);
+   ObjectSetInteger(0, g_prevSeqLabel, OBJPROP_YDISTANCE, 92);
+   ObjectSetString(0,  g_prevSeqLabel, OBJPROP_TEXT,      "Seq.Prev : " + prevSeqText);
+   ObjectSetInteger(0, g_prevSeqLabel, OBJPROP_COLOR,     clrPS);
+   ObjectSetInteger(0, g_prevSeqLabel, OBJPROP_FONTSIZE,  12);
+   ObjectSetString(0,  g_prevSeqLabel, OBJPROP_FONT,      "Arial Bold");
+
+   // --- Pre-Previous signal name ---
+   string prePrev    = (g_prePrevSignal == "") ? "---" : g_prePrevSignal;
+   color  clrPP      = GetSignalColor(g_prePrevSignal);
+   if(ObjectFind(0, g_prePrevSignalLabel) < 0)
+      ObjectCreate(0, g_prePrevSignalLabel, OBJ_LABEL, 0, 0, 0);
+   ObjectSetInteger(0, g_prePrevSignalLabel, OBJPROP_CORNER,    CORNER_RIGHT_UPPER);
+   ObjectSetInteger(0, g_prePrevSignalLabel, OBJPROP_ANCHOR,    ANCHOR_RIGHT_UPPER);
+   ObjectSetInteger(0, g_prePrevSignalLabel, OBJPROP_XDISTANCE, 10);
+   ObjectSetInteger(0, g_prePrevSignalLabel, OBJPROP_YDISTANCE, 116);
+   ObjectSetString(0,  g_prePrevSignalLabel, OBJPROP_TEXT,      "Pre.Prev : " + prePrev);
+   ObjectSetInteger(0, g_prePrevSignalLabel, OBJPROP_COLOR,     clrPP);
+   ObjectSetInteger(0, g_prePrevSignalLabel, OBJPROP_FONTSIZE,  12);
+   ObjectSetString(0,  g_prePrevSignalLabel, OBJPROP_FONT,      "Arial Bold");
+
+   // --- Pre-Previous signal + sequence text ---
+   string prePrevSeq = (g_prePrevSeqSignalText == "") ? "---" : g_prePrevSeqSignalText;
+   if(ObjectFind(0, g_prePrevSeqLabel) < 0)
+      ObjectCreate(0, g_prePrevSeqLabel, OBJ_LABEL, 0, 0, 0);
+   ObjectSetInteger(0, g_prePrevSeqLabel, OBJPROP_CORNER,    CORNER_RIGHT_UPPER);
+   ObjectSetInteger(0, g_prePrevSeqLabel, OBJPROP_ANCHOR,    ANCHOR_RIGHT_UPPER);
+   ObjectSetInteger(0, g_prePrevSeqLabel, OBJPROP_XDISTANCE, 10);
+   ObjectSetInteger(0, g_prePrevSeqLabel, OBJPROP_YDISTANCE, 140);
+   ObjectSetString(0,  g_prePrevSeqLabel, OBJPROP_TEXT,      "Seq.Pre  : " + prePrevSeq);
+   ObjectSetInteger(0, g_prePrevSeqLabel, OBJPROP_COLOR,     clrPP);
+   ObjectSetInteger(0, g_prePrevSeqLabel, OBJPROP_FONTSIZE,  12);
+   ObjectSetString(0,  g_prePrevSeqLabel, OBJPROP_FONT,      "Arial Bold");
   }
 
 //+------------------------------------------------------------------+
@@ -461,6 +525,8 @@ int OnInit()
    lastTrendBuyTradeTime = lastRevBuyTradeTime = lastStrongBuyTradeTime = 0;
    lastTrendSellTradeTime = lastRevSellTradeTime = lastStrongSellTradeTime = 0;
    lastProcessedClosedBar = (Bars > 1) ? Time[1] : 0;
+
+   InitStrategyRules();
    InitCSVLog();
    EventSetTimer(MathMax(1, DashboardRefreshSeconds));
    UpdateDailyLowProximityLines();
@@ -488,18 +554,18 @@ void OnDeinit(const int reason)
    ObjectDelete(0, "TB_NoBuyZone_Lbl");
    ObjectDelete(0, "TS_NoSellZone_Bg");
    ObjectDelete(0, "TB_NoBuyZone_Bg");
-   ObjectDelete(0, "TS_LiveSignal");
-   ObjectDelete(0, "TS_PrevSignal");
+   ObjectDelete(0, g_currSignalLabel);
+   ObjectDelete(0, g_prevSignalLabel);
+   ObjectDelete(0, g_currSeqLabel);
+   ObjectDelete(0, g_prevSeqLabel);
+   ObjectDelete(0, g_prePrevSignalLabel);
+   ObjectDelete(0, g_prePrevSeqLabel);
    Comment("");
   }
 
 //+------------------------------------------------------------------+
 void OnTick()
   {
-
-    
-
- 
    if(Bars < 5) return;
 
    bool firstRun      = (lastProcessedClosedBar == 0);
@@ -513,9 +579,12 @@ void OnTick()
 
    for(int i = startBar; i >= 0; i--)
      {
-      bool preTrendSell = false;
-if(EnablePreSignals)
-   preTrendSell = DetectPreTrendSell(i);
+      bool preTrendSell = false, preTrendBuy = false;
+      if(EnablePreSignals)
+        {
+         preTrendSell = DetectPreTrendSell(i);
+         preTrendBuy  = DetectPreTrendBuy(i);
+        }
       bool trendBuy = false, reversalBuy = false, strongBuy = false;
       bool trendSell = false, reversalSell = false, strongSell = false;
 
@@ -528,9 +597,10 @@ if(EnablePreSignals)
 
       // === Sequence counter: increment if same signal, reset if different ===
       string detectedSig = "";
-    if(trendSell)             detectedSig = "TREND SELL";
-else if(preTrendSell)     detectedSig = "PRE SELL";
+      if(trendSell)        detectedSig = "TREND SELL";
+      else if(preTrendSell)detectedSig = "PRE SELL";
       else if(trendBuy)    detectedSig = "TREND BUY";
+      else if(preTrendBuy) detectedSig = "PRE BUY";
       else if(strongSell)  detectedSig = "STRONG SELL";
       else if(strongBuy)   detectedSig = "STRONG BUY";
       else if(reversalSell)detectedSig = reversalSellName;
@@ -545,13 +615,21 @@ else if(preTrendSell)     detectedSig = "PRE SELL";
       string seqLabel = detectedSig + (detectedSig != "" ? IntegerToString(g_seqCount) : "");
 
       // === Buy signals ===
-      if(trendBuy)
-         DrawMarker("TB", "TREND BUY " + IntegerToString(g_seqCount),  clrLime, 233, t, Low[i] - 10*Point);
-      else if(reversalBuy)
-         DrawMarker("RB", reversalBuyName + " " + IntegerToString(g_seqCount), clrAqua, 233, t, Low[i] - 10*Point);
-      else if(strongBuy)
-         DrawMarker("SB", "STRONG BUY " + IntegerToString(g_seqCount), clrBlue, 233, t, Low[i] - 10*Point);
+      // 🔥 PRE BUY
+if(preTrendBuy)
+   DrawMarker("PTB", "PRE BUY " + IntegerToString(g_seqCount), clrAqua, 233, t, Low[i] - 15*Point);
 
+// 🟢 TREND BUY
+if(trendBuy)
+   DrawMarker("TB", "TREND BUY " + IntegerToString(g_seqCount), clrLime, 233, t, Low[i] - 10*Point);
+
+// 🔵 REVERSAL BUY
+if(reversalBuy)
+   DrawMarker("RB", reversalBuyName + " " + IntegerToString(g_seqCount), clrBlue, 233, t, Low[i] - 10*Point);
+
+// 💙 STRONG BUY
+if(strongBuy)
+   DrawMarker("SB", "STRONG BUY " + IntegerToString(g_seqCount), clrDeepSkyBlue, 233, t, Low[i] - 10*Point);
       // === Sell signals ===
 
 // 🔥 PRE SELL (NEW)
@@ -576,6 +654,7 @@ if(strongSell)
         if(trendSell)             newSig = "TREND SELL";
 else if(preTrendSell)     newSig = "PRE SELL";
          else if(trendBuy)    newSig = "TREND BUY";
+         else if(preTrendBuy)     newSig = "PRE BUY";
          else if(strongSell)  newSig = "STRONG SELL";
          else if(strongBuy)   newSig = "STRONG BUY";
          else if(reversalSell)newSig = reversalSellName;
@@ -585,9 +664,15 @@ else if(preTrendSell)     newSig = "PRE SELL";
          // (bar-time guard prevents re-shifting on every tick for the same bar)
          if(newSig != "" && Time[i] != g_lastDisplayBarTime)
            {
-            g_prevDisplaySignal  = g_liveSignalName;
-            g_liveSignalName     = newSig;
-            g_lastDisplayBarTime = Time[i];
+            // shift: pre-prev ← prev ← curr ← new
+            g_prePrevSignal        = g_prevDisplaySignal;
+            g_prePrevSeqSignalText = g_prevDisplaySignal == "" ? "" :
+                                     g_prevDisplaySignal + " " + IntegerToString(g_prevSeqCount);
+            g_prevDisplaySignal    = g_liveSignalName;
+            g_prevSeqCount         = g_currSeqCount;
+            g_liveSignalName       = newSig;
+            g_currSeqCount         = g_seqCount;
+            g_lastDisplayBarTime   = Time[i];
            }
 
          if(i == 0) UpdateCurrentSignalLabel();
@@ -686,4 +771,40 @@ bool DetectPreTrendSell(int i)
 
    return (currBear && rsiDown && belowFastEMA &&
            weakTrend && noBreakout && exhaustion && decentCandle);
+}
+bool DetectPreTrendBuy(int i)
+{
+   if(i < 0 || i + 2 >= Bars) return false;
+
+   double emaFast  = iMA(NULL,0,FastEMA,0,MODE_EMA,PRICE_CLOSE,i);
+   double emaSlow  = iMA(NULL,0,SlowEMA,0,MODE_EMA,PRICE_CLOSE,i);
+   double emaTrend = iMA(NULL,0,TrendEMA,0,MODE_EMA,PRICE_CLOSE,i);
+
+   double rsi      = iRSI(NULL,0,RSI_Period,PRICE_CLOSE,i);
+   double rsiPrev  = iRSI(NULL,0,RSI_Period,PRICE_CLOSE,i+1);
+
+   double body  = MathAbs(Open[i] - Close[i]);
+   double range = High[i] - Low[i];
+
+   if(range <= 0) return false;
+
+   bool currBull = Close[i] > Open[i];
+
+   // 🔥 Mirror logic of SELL
+   bool rsiUp        = rsi > rsiPrev;
+   bool aboveFastEMA = Close[i] > emaFast;
+   bool strongTrend  = (Close[i] > emaTrend || emaFast > emaSlow);
+
+   // ❗ No breakout yet
+   bool noBreakout   = Close[i] <= High[i+1];
+
+   // 🔥 Seller exhaustion
+   bool exhaustion =
+      Close[i+1] < Close[i+2] &&
+      Close[i]   > Close[i+1];
+
+   bool decentCandle = body > (range * 0.4);
+
+   return (currBull && rsiUp && aboveFastEMA &&
+           strongTrend && noBreakout && exhaustion && decentCandle);
 }
