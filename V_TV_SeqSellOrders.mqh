@@ -24,7 +24,7 @@ input int      SeqSellSlippage  = 30;     // Slippage in points
 input double   SeqSellMinGapUSD = 20.0;   // Condition 5: Min price drop from last SELL entry (USD)
 
 
-input int SeqSellMinSecsBetweenOrders = 5; // Min seconds between two SELL orders
+input int SeqSellMinSecsBetweenOrders = 15; // Min seconds between two SELL orders
 input int SeqSellEMAPeriod  = 20;  // EMA1 period for trend confirmation
 input int SeqSellEMA2Period = 50;  // EMA2 period (slow)
 input int SeqSellEMAShift   = 3;  // How many candles to compare slope
@@ -212,11 +212,15 @@ bool PlaceSeqSellOrder(int ruleIdx)
       return false;
      }
 
+   string pattern = g_seqRules[ruleIdx].prePrev + " | " +
+                    g_seqRules[ruleIdx].prev    + " | " +
+                    g_seqRules[ruleIdx].curr;
+
    Print("SeqSell | *** ORDER CREATED #" + IntegerToString(ticket) + " ***" +
-         " Pattern=[" + g_seqRules[ruleIdx].prePrev + " | " +
-                        g_seqRules[ruleIdx].prev    + " | " +
-                        g_seqRules[ruleIdx].curr    + "]" +
+         " Pattern=[" + pattern + "]" +
          " Bid=" + DoubleToString(bid,2) + " Lot=" + DoubleToString(SeqSellLotSize,2));
+
+   ReportOrderOpened(ticket, pattern);
    return true;
   }
 

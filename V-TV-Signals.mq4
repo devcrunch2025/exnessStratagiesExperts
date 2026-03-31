@@ -8,6 +8,7 @@
 #include "V_TV_SeqSellOrders.mqh"
 #include "V_TV_SeqBuyOrders.mqh"
 #include "V_TV_SeqCloseOrders.mqh"
+#include "V_TV_OrderReport.mqh"
  
 
 #define TRADE_DIRECTION_BOTH      0
@@ -629,6 +630,9 @@ void DrawDashboard()
    double pl          = equity - balance;
    double initPL      = equity - g_initialBalance;
    int    spread      = (int)MarketInfo(Symbol(), MODE_SPREAD);
+   double tickSize    = MarketInfo(Symbol(), MODE_TICKSIZE);
+   double tickValue   = MarketInfo(Symbol(), MODE_TICKVALUE);
+   double spreadUSD   = (tickSize > 0) ? (spread * Point / tickSize) * tickValue * SeqSellLotSize : 0;
 
    // Count open orders and sum profit
    int    openBuy = 0, openSell = 0;
@@ -695,7 +699,8 @@ void DrawDashboard()
    DashRow("DB_Ask",      "  Ask       : " +
                           DoubleToString(MarketInfo(Symbol(),MODE_ASK),Digits), clrWhite, y); y += step;
    DashRow("DB_Spread",   "  Spread    : " +
-                          IntegerToString(spread) + " pts",   clrSilver,    y); y += step;
+                          IntegerToString(spread) + " pts  $" +
+                          DoubleToString(spreadUSD, 2),        clrSilver,    y); y += step;
    DashRow("DB_Footer",   "└─────────────────────┘",          clrGold,      y);
   }
 
@@ -724,6 +729,7 @@ int OnInit()
          TimeToString(g_startupWaitUntil, TIME_DATE|TIME_SECONDS));
    InitStrategyRules();
    InitCSVLog();
+   InitOrderReport();
    EventSetTimer(MathMax(1, DashboardRefreshSeconds));
    UpdateDailyLowProximityLines();
    UpdateCurrentSignalLabel();
@@ -959,6 +965,7 @@ else if(preTrendSell)     newSig = "PRE SELL";
 
    // --- Close orders that reached profit target (checked every tick) ---
    ProcessSeqCloseOrders();
+   CheckClosedOrders();
 
    DrawEMALine(SeqSellEMAPeriod,  clrDodgerBlue, "EMA_SELL");
    DrawEMALine(SeqSellEMA2Period, clrOrange,     "EMA_SELL2");
