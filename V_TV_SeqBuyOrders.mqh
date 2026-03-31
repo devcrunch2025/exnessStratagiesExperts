@@ -10,8 +10,23 @@
 input string   _SeqBuy_        = "--- SEQ BUY ORDERS ---";
 input double   SeqBuyLotSize   = 0.01;  // Lot size
 input int      SeqBuyMagicNo   = 22002; // Magic number
-input int      SeqBuyMaxOrders = 5;     // Max open BUY orders allowed
+input int      SeqBuyMaxOrders = 1;     // Max open BUY orders allowed
 input int      SeqBuySlippage  = 30;    // Slippage in points
+
+//--- Returns true if any open BUY order by this module is in loss ---
+bool HasSeqBuyOrderInLoss()
+  {
+   for(int i = OrdersTotal() - 1; i >= 0; i--)
+     {
+      if(!OrderSelect(i, SELECT_BY_POS, MODE_TRADES)) continue;
+      if(OrderSymbol()      != Symbol())      continue;
+      if(OrderMagicNumber() != SeqBuyMagicNo) continue;
+      if(OrderType()        != OP_BUY)        continue;
+      double profit = OrderProfit() + OrderSwap() + OrderCommission();
+      if(profit < 0) return true;
+     }
+   return false;
+  }
 
 //--- Count open BUY orders placed by this module --------------------
 int CountOpenSeqBuyOrders()
@@ -67,6 +82,13 @@ void ProcessSeqBuyOrders()
   {
    if(g_liveSignalName == "") return;
 
+   // Block orders during startup warm-up period
+   if(TimeCurrent() < g_startupWaitUntil)
+     {
+      LogMessage("SeqBuy: skipped - startup warm-up active");
+      return;
+     }
+
    if(IsInNoBuyZone())
      {
       LogMessage("SeqBuy: skipped - price inside NO TREND BUY ZONE");
@@ -74,6 +96,13 @@ void ProcessSeqBuyOrders()
      }
 
    if(CountOpenSeqBuyOrders() >= SeqBuyMaxOrders) return;
+
+   // Block new order if any existing BUY order is in loss
+   if(HasSeqBuyOrderInLoss())
+     {
+      LogMessage("SeqBuy: skipped - existing BUY order in loss");
+      return;
+     }
 
    int ruleIdx = CheckSeqRules();
    if(ruleIdx < 0) return;

@@ -24,14 +24,15 @@ input double RSI_Buy             = 55;
 input double RSI_Sell            = 45;
 input int    ReversalStreakCandles = 3;
 input int    TradeDirectionMode  = 0;       // 0=both 1=buy only 2=sell only
-input double TrendSellDailyLowGapPrice  =100; // NO SELL zone: min $ above daily low
+input double TrendSellDailyLowGapPrice  =200; // NO SELL zone: min $ above daily low
 input double TrendBuyDailyHighGapPrice  = 100; // NO BUY zone: min $ below daily high
 input bool   EnableAlert         = false;
 input bool   EnableSound         = true;
 input bool   EnableLogMessages   = false;
 input int    DashboardRefreshSeconds = 30;
 input bool   ExecuteEverySignalInTester = false;
-input bool EnablePreSignals = true;
+input bool   EnablePreSignals           = true;
+input int    StartupWaitMinutes         = 5;   // Wait N minutes on first load before placing orders
 
 // ----- GLOBALS ----- //
 string   currentSignal      = "";
@@ -58,9 +59,12 @@ int      g_prevSeqCount = 0;  // sequence number of the previous signal (at time
 string   g_prePrevSignal       = "";  // signal name 2 steps back
 string   g_prePrevSeqSignalText = ""; // signal name + seq number 2 steps back (e.g. "TREND SELL 2")
 
+
 datetime lastAlertTime            = 0;
 datetime lastProcessedClosedBar   = 0;
 datetime lastDashboardRefreshTime = 0;
+datetime g_startupWaitUntil       = 0;  // orders blocked until this time on first load
+double   g_initialBalance         = 0;  // account balance captured at EA startup
 
 datetime lastTrendBuyTradeTime  = 0;
 datetime lastRevBuyTradeTime    = 0;
@@ -452,6 +456,36 @@ void UpdateCurrentSignalLabel()
    ObjectSetInteger(0, g_prePrevSeqLabel, OBJPROP_COLOR,     clrPP);
    ObjectSetInteger(0, g_prePrevSeqLabel, OBJPROP_FONTSIZE,  12);
    ObjectSetString(0,  g_prePrevSeqLabel, OBJPROP_FONT,      "Arial Bold");
+
+   // --- Startup warm-up status ---
+   string warmupLbl = "TS_WarmupStatus";
+   datetime now = TimeCurrent();
+   string warmupText;
+   color  warmupClr;
+   if(now < g_startupWaitUntil)
+     {
+      int secsLeft = (int)(g_startupWaitUntil - now);
+      int minsLeft = secsLeft / 60;
+      int sLeft    = secsLeft % 60;
+      warmupText = "Warmup  : " + IntegerToString(minsLeft) + "m " +
+                   IntegerToString(sLeft) + "s (no orders)";
+      warmupClr  = clrYellow;
+     }
+   else
+     {
+      warmupText = "Warmup  : READY - Orders active";
+      warmupClr  = clrLime;
+     }
+   if(ObjectFind(0, warmupLbl) < 0)
+      ObjectCreate(0, warmupLbl, OBJ_LABEL, 0, 0, 0);
+   ObjectSetInteger(0, warmupLbl, OBJPROP_CORNER,    CORNER_RIGHT_UPPER);
+   ObjectSetInteger(0, warmupLbl, OBJPROP_ANCHOR,    ANCHOR_RIGHT_UPPER);
+   ObjectSetInteger(0, warmupLbl, OBJPROP_XDISTANCE, 10);
+   ObjectSetInteger(0, warmupLbl, OBJPROP_YDISTANCE, 164);
+   ObjectSetString(0,  warmupLbl, OBJPROP_TEXT,      warmupText);
+   ObjectSetInteger(0, warmupLbl, OBJPROP_COLOR,     warmupClr);
+   ObjectSetInteger(0, warmupLbl, OBJPROP_FONTSIZE,  12);
+   ObjectSetString(0,  warmupLbl, OBJPROP_FONT,      "Arial Bold");
   }
 
 //+------------------------------------------------------------------+
@@ -510,6 +544,104 @@ bool CanTradeSignalBar(int shift, bool isFirstRun = false)
   }
 
 //+------------------------------------------------------------------+
+// Dashboard helper: create/update one left-side label row
+//+------------------------------------------------------------------+
+void DashRow(string id, string text, color clr, int y)
+  {
+   if(ObjectFind(0, id) < 0) ObjectCreate(0, id, OBJ_LABEL, 0, 0, 0);
+   ObjectSetInteger(0, id, OBJPROP_CORNER,    CORNER_LEFT_UPPER);
+   ObjectSetInteger(0, id, OBJPROP_XDISTANCE, 8);
+   ObjectSetInteger(0, id, OBJPROP_YDISTANCE, y);
+   ObjectSetString(0,  id, OBJPROP_TEXT,      text);
+   ObjectSetInteger(0, id, OBJPROP_COLOR,     clr);
+   ObjectSetInteger(0, id, OBJPROP_FONTSIZE,  10);
+   ObjectSetString(0,  id, OBJPROP_FONT,      "Arial Bold");
+  }
+
+//+------------------------------------------------------------------+
+// Main dashboard draw: call every tick
+//+------------------------------------------------------------------+
+void DrawDashboard()
+  {
+   double balance     = AccountBalance();
+   double equity      = AccountEquity();
+   double margin      = AccountMargin();
+   double freeMargin  = AccountFreeMargin();
+   double marginLevel = (margin > 0) ? (equity / margin * 100.0) : 0;
+   double pl          = equity - balance;
+   double initPL      = equity - g_initialBalance;
+   int    spread      = (int)MarketInfo(Symbol(), MODE_SPREAD);
+
+   // Count open orders and sum profit
+   int    openBuy = 0, openSell = 0;
+   double openProfit = 0;
+   for(int i = OrdersTotal() - 1; i >= 0; i--)
+     {
+      if(!OrderSelect(i, SELECT_BY_POS, MODE_TRADES)) continue;
+      if(OrderSymbol() != Symbol()) continue;
+      if(OrderType() == OP_BUY)  openBuy++;
+      if(OrderType() == OP_SELL) openSell++;
+      openProfit += OrderProfit() + OrderSwap() + OrderCommission();
+     }
+
+   color plClr      = (pl      >= 0) ? clrLime      : clrRed;
+   color initPlClr  = (initPL  >= 0) ? clrLime      : clrRed;
+   color profitClr  = (openProfit >= 0) ? clrLime   : clrOrangeRed;
+   color marginClr  = (marginLevel > 200) ? clrLime :
+                      (marginLevel > 100) ? clrYellow : clrRed;
+
+   int y = 8; int step = 18;
+
+   // Title
+   DashRow("DB_Title",    "┌─  EDGE ALGO  v2.0  ─┐",         clrGold,      y); y += step+2;
+   DashRow("DB_Symbol",   "  " + Symbol() + "  " +
+                          EnumToString((ENUM_TIMEFRAMES)Period()),clrWhite,  y); y += step;
+   DashRow("DB_Time",     "  " + TimeToString(TimeCurrent(),
+                          TIME_DATE|TIME_MINUTES),             clrSilver,    y); y += step+4;
+
+   // Account
+   DashRow("DB_Hdr1",     "── Account ───────────",           clrDimGray,   y); y += step;
+   DashRow("DB_InitBal",  "  Init Bal  : $" +
+                          DoubleToString(g_initialBalance,2),  clrSilver,    y); y += step;
+   DashRow("DB_Bal",      "  Balance   : $" +
+                          DoubleToString(balance,2),           clrWhite,     y); y += step;
+   DashRow("DB_Equity",   "  Equity    : $" +
+                          DoubleToString(equity,2),            clrWhite,     y); y += step;
+   DashRow("DB_PL",       "  P / L     : $" +
+                          DoubleToString(pl,2),                plClr,        y); y += step;
+   DashRow("DB_InitPL",   "  Since Load: $" +
+                          DoubleToString(initPL,2),            initPlClr,    y); y += step+4;
+
+   // Margin
+   DashRow("DB_Hdr2",     "── Margin ────────────",           clrDimGray,   y); y += step;
+   DashRow("DB_Margin",   "  Used      : $" +
+                          DoubleToString(margin,2),            clrSilver,    y); y += step;
+   DashRow("DB_FreeMgn",  "  Free      : $" +
+                          DoubleToString(freeMargin,2),        clrSilver,    y); y += step;
+   DashRow("DB_MgnLvl",   "  Level     : " +
+                          DoubleToString(marginLevel,1) + "%", marginClr,    y); y += step+4;
+
+   // Orders
+   DashRow("DB_Hdr3",     "── Open Orders ───────",           clrDimGray,   y); y += step;
+   DashRow("DB_BuyOrds",  "  BUY       : " +
+                          IntegerToString(openBuy),            clrLime,      y); y += step;
+   DashRow("DB_SellOrds", "  SELL      : " +
+                          IntegerToString(openSell),           clrOrangeRed, y); y += step;
+   DashRow("DB_OProfit",  "  Profit    : $" +
+                          DoubleToString(openProfit,2),        profitClr,    y); y += step+4;
+
+   // Market
+   DashRow("DB_Hdr4",     "── Market ────────────",           clrDimGray,   y); y += step;
+   DashRow("DB_Bid",      "  Bid       : " +
+                          DoubleToString(MarketInfo(Symbol(),MODE_BID),Digits), clrWhite, y); y += step;
+   DashRow("DB_Ask",      "  Ask       : " +
+                          DoubleToString(MarketInfo(Symbol(),MODE_ASK),Digits), clrWhite, y); y += step;
+   DashRow("DB_Spread",   "  Spread    : " +
+                          IntegerToString(spread) + " pts",   clrSilver,    y); y += step;
+   DashRow("DB_Footer",   "└─────────────────────┘",          clrGold,      y);
+  }
+
+//+------------------------------------------------------------------+
 void MaybeRefreshDashboard()
   {
    datetime now = GetTradeClock();
@@ -528,6 +660,10 @@ int OnInit()
    lastTrendSellTradeTime = lastRevSellTradeTime = lastStrongSellTradeTime = 0;
    lastProcessedClosedBar = (Bars > 1) ? Time[1] : 0;
 
+   g_initialBalance   = AccountBalance();
+   g_startupWaitUntil = TimeCurrent() + StartupWaitMinutes * 60;
+   Print("EDGE ALGO: Startup warm-up active. Orders blocked until ",
+         TimeToString(g_startupWaitUntil, TIME_DATE|TIME_SECONDS));
    InitStrategyRules();
    InitCSVLog();
    EventSetTimer(MathMax(1, DashboardRefreshSeconds));
@@ -562,6 +698,7 @@ void OnDeinit(const int reason)
    ObjectDelete(0, g_prevSeqLabel);
    ObjectDelete(0, g_prePrevSignalLabel);
    ObjectDelete(0, g_prePrevSeqLabel);
+   ObjectDelete(0, "TS_WarmupStatus");
    Comment("");
   }
 
@@ -640,7 +777,21 @@ if(preTrendSell)
 
 // 🔴 TREND SELL
 if(trendSell)
-   DrawMarker("TS", "TREND SELL " + IntegerToString(g_seqCount),  clrRed, 234, t, High[i] + 10*Point);
+  {
+   int idx = g_seqCount - 1;
+   if(g_seqCount == 1) ArrayResize(g_trendSellSeq, 0); // reset sequence
+   if(ArraySize(g_trendSellSeq) <= idx) ArrayResize(g_trendSellSeq, idx + 1);
+   g_trendSellSeq[idx].label = "TREND SELL " + IntegerToString(g_seqCount);
+   g_trendSellSeq[idx].price = High[i];
+
+   string tsDiffStr = "";
+   if(g_seqCount > 1)
+     {
+      double diff = High[i] - g_trendSellSeq[idx - 1].price;
+      tsDiffStr = " (" + (diff >= 0 ? "+" : "") + DoubleToString(diff, 0) + ")";
+     }
+   DrawMarker("TS", "TREND SELL " + IntegerToString(g_seqCount) + tsDiffStr, clrRed, 234, t, High[i] + 10*Point);
+  }
 
 // 🟣 REVERSAL SELL
 if(reversalSell)
@@ -744,6 +895,7 @@ else if(preTrendSell)     newSig = "PRE SELL";
    // --- Close orders that reached profit target ---
    ProcessSeqCloseOrders();
 
+   DrawDashboard();
    MaybeRefreshDashboard();
   }
 

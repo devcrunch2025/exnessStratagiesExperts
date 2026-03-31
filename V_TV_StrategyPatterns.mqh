@@ -13,6 +13,15 @@
 #ifndef V_TV_STRATEGY_PATTERNS_MQH
 #define V_TV_STRATEGY_PATTERNS_MQH
 
+//--- Seq signal price history (built fresh each tick loop pass) -------
+struct SeqSignalEntry
+  {
+   string label;   // e.g. "TREND SELL 2"
+   double price;   // High[i] of the bar where this signal fired
+  };
+
+SeqSignalEntry g_trendSellSeq[];   // current SELL sequence entries
+
 //--- Struct -----------------------------------------------------------
 struct SeqRule
   {
@@ -70,8 +79,9 @@ void InitStrategyRules()
 
 // W SHAPE SELL 1 → TREND SELL 1 → TREND SELL 2  ==>  NEW SELL order
 
-
-AddSeqRule("", "TREND SELL 1", "TREND SELL 2", "NEW_ORDER", "SELL");
+//AddSeqRule("", "", "TREND SELL 1", "NEW_ORDER", "SELL");
+//AddSeqRule("", "TREND SELL 1", "TREND SELL 2", "NEW_ORDER", "SELL");
+AddSeqRule("TREND SELL 1", "TREND SELL 2", "TREND SELL 3", "NEW_ORDER", "SELL");
    
 
 /*
