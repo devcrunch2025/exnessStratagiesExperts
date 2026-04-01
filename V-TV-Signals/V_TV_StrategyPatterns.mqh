@@ -421,7 +421,7 @@ AddSeqRule("","","PRE BUY 1","CLOSE","SELL");
 
 */
 
-AddColorRule( "ANY GREEN SIGNAL","COUNT_2","NEW_ORDER","BUY", "", "UP");
+AddColorRule( "ANY GREEN SIGNAL","COUNT_2","NEW_ORDER","BUY", "UPTREND", "UP");
 
 
 AddColorRule( "ANY ORANGE SIGNAL","COUNT_1","CLOSE","BUY");
@@ -433,7 +433,7 @@ AddSeqRule("","","W SHAPE SELL 1","CLOSE","BUY");
 
 
 
-AddColorRule( "ANY RED SIGNAL","COUNT_2","NEW_ORDER","SELL", "", "DOWN");
+AddColorRule( "ANY RED SIGNAL","COUNT_2","NEW_ORDER","SELL", "DOWNTREND", "DOWN");
 // AddColorRule( "ANY ORANGE SIGNAL","COUNT_2","NEW_ORDER","SELL");
 
 
