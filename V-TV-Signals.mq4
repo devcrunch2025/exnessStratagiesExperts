@@ -32,6 +32,10 @@ input double TrendBuyDailyHighGapPrice  = 10; // NO BUY zone: min $ below daily 
 input bool   EnableAlert         = false;
 input bool   EnableSound         = true;
 input bool   EnableLogMessages   = false;
+input string _Spike_             = "--- SPIKE MARKERS ---";
+input bool   EnableSpikeMarkers  = true;   // Draw spike arrows on chart
+input double SpikeMultiplier     = 2.5;    // Candle range must be X times avg to count as spike
+input int    SpikeLookback       = 20;     // Bars used to calculate average candle size
 input int    DashboardRefreshSeconds = 30;
 input bool   ExecuteEverySignalInTester = false;
 input bool   EnablePreSignals           = true;
@@ -624,6 +628,81 @@ void DrawEMALine(int period, color clr, string prefix, int barsBack = 300)
   }
 
 //+------------------------------------------------------------------+
+// Spike marker: arrow above spike-up candles, below spike-down      |
+// Spike UP  (wick up)   → RED   down arrow above High               |
+// Spike DOWN (wick down) → BLUE  up arrow below Low                 |
+//+------------------------------------------------------------------+
+void DrawSpikeMarkers(int barsBack = 300)
+  {
+   if(!EnableSpikeMarkers) return;
+   int limit = MathMin(barsBack, Bars - SpikeLookback - 2);
+
+   for(int i = limit; i >= 1; i--)
+     {
+      // Average candle range over SpikeLookback bars before this candle
+      double avgRange = 0;
+      for(int k = i + 1; k <= i + SpikeLookback; k++)
+         avgRange += (High[k] - Low[k]);
+      avgRange /= SpikeLookback;
+      if(avgRange <= 0) continue;
+
+      double candleRange = High[i] - Low[i];
+      if(candleRange < avgRange * SpikeMultiplier) continue; // not a spike
+
+      double body      = MathAbs(Open[i] - Close[i]);
+      double upperWick = High[i]  - MathMax(Open[i], Close[i]);
+      double lowerWick = MathMin(Open[i], Close[i]) - Low[i];
+
+      bool spikeUp   = (upperWick > body * 1.5); // long upper wick → spike shot UP
+      bool spikeDown = (lowerWick > body * 1.5); // long lower wick → spike shot DOWN
+
+      // Full-body spike: no clear wick dominance → use candle direction
+      if(!spikeUp && !spikeDown)
+        {
+         if(Close[i] > Open[i]) spikeDown = true; // bullish full spike = shot down then recovered
+         else                   spikeUp   = true;  // bearish full spike = shot up then sold off
+        }
+
+      if(spikeUp)
+        {
+         string name = "SPIKE_UP_" + IntegerToString(i);
+         if(ObjectFind(0, name) == -1)
+           {
+            ObjectCreate(0, name, OBJ_ARROW, 0, Time[i], High[i] + 3 * Point);
+            ObjectSetInteger(0, name, OBJPROP_ARROWCODE, 242);   // down arrow
+            ObjectSetInteger(0, name, OBJPROP_COLOR,     clrRed);
+            ObjectSetInteger(0, name, OBJPROP_WIDTH,     2);
+            ObjectSetInteger(0, name, OBJPROP_BACK,      false);
+            ObjectSetInteger(0, name, OBJPROP_SELECTABLE,false);
+            // Tooltip shows spike size
+            string tip = "SPIKE UP | Range=" + DoubleToString(candleRange/Point,0) +
+                         "pts (" + DoubleToString(candleRange/avgRange,1) + "x avg)" +
+                         " | Wick=" + DoubleToString(upperWick/Point,0) + "pts";
+            ObjectSetString(0, name, OBJPROP_TOOLTIP, tip);
+           }
+        }
+
+      if(spikeDown)
+        {
+         string name = "SPIKE_DN_" + IntegerToString(i);
+         if(ObjectFind(0, name) == -1)
+           {
+            ObjectCreate(0, name, OBJ_ARROW, 0, Time[i], Low[i] - 3 * Point);
+            ObjectSetInteger(0, name, OBJPROP_ARROWCODE, 241);   // up arrow
+            ObjectSetInteger(0, name, OBJPROP_COLOR,     clrDodgerBlue);
+            ObjectSetInteger(0, name, OBJPROP_WIDTH,     2);
+            ObjectSetInteger(0, name, OBJPROP_BACK,      false);
+            ObjectSetInteger(0, name, OBJPROP_SELECTABLE,false);
+            string tip = "SPIKE DOWN | Range=" + DoubleToString(candleRange/Point,0) +
+                         "pts (" + DoubleToString(candleRange/avgRange,1) + "x avg)" +
+                         " | Wick=" + DoubleToString(lowerWick/Point,0) + "pts";
+            ObjectSetString(0, name, OBJPROP_TOOLTIP, tip);
+           }
+        }
+     }
+  }
+
+//+------------------------------------------------------------------+
 // Main dashboard draw: call every tick
 //+------------------------------------------------------------------+
 void DrawDashboard()
@@ -1027,6 +1106,7 @@ else if(preTrendSell)     newSig = "PRE SELL";
 
    DrawEMALine(SeqSellEMAPeriod,  clrDodgerBlue, "EMA_SELL");
    DrawEMALine(SeqSellEMA2Period, clrOrange,     "EMA_SELL2");
+   DrawSpikeMarkers();
    DrawDashboard();
    MaybeRefreshDashboard();
   }
