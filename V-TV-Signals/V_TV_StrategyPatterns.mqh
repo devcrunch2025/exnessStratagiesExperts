@@ -389,7 +389,7 @@ AddSeqRule("","","W SHAPE SELL 1","CLOSE","BUY");
 
 
 AddColorRule( "ANY RED SIGNAL","COUNT_2","NEW_ORDER","SELL");
-AddColorRule( "ANY ORANGE SIGNAL","COUNT_2","NEW_ORDER","SELL");
+// AddColorRule( "ANY ORANGE SIGNAL","COUNT_2","NEW_ORDER","SELL");
 
 
 
