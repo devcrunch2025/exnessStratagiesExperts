@@ -42,6 +42,14 @@ input int SeqBuyMaxOrders   = 2;     // Max simultaneous BUY orders
 input int SeqSellMinSecsBetweenOrders = 30; // SELL: min seconds between orders
 input int SeqBuyMinSecsBetweenOrders  = 30; // BUY:  min seconds between orders
 
+//--- Fake tick / broker manipulation protection (Condition 10) ------
+input string _FakeTick_            = "--- FAKE TICK PROTECTION ---";
+input bool   EnableFakeDetection   = true;  // Enable Cond10
+input int    MaxSpreadPoints       = 30;    // Block if spread > this (absolute points)
+input double SpreadSpikeMultiplier = 2.5;   // Block if spread > running avg × this
+input double VolumeMinRatio        = 0.25;  // Block if bar volume < avg × this (0=disabled)
+input int    VolumeAvgBars         = 20;    // Bars used for average volume
+
 //--- 0.01; Profit / StopLoss (auto-calculated in InitLotDependentVars) ----
 double SeqSellProfitTarget = 0.50;
 double SeqSellStopLossUSD  = 20.00;

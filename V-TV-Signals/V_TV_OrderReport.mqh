@@ -35,9 +35,7 @@ OrderRecord g_orderRecords[ORDER_RECORD_MAX];
 //+------------------------------------------------------------------+
 void InitOrderReport()
   {
-   string dateStr = TimeToString(TimeCurrent(), TIME_DATE);
-   StringReplace(dateStr, ".", "");
-   g_orderReportFile = "OrderReport_" + dateStr + "_" + Symbol() + ".csv";
+   g_orderReportFile = "OrderReport_" + g_runTimestamp + "_" + Symbol() + ".csv";
 
    bool needHeader = true;
    int h = FileOpen(g_orderReportFile, FILE_TXT|FILE_READ|FILE_SHARE_READ|FILE_SHARE_WRITE);

@@ -11,6 +11,7 @@
 #include "V_TV_SeqCloseOrders.mqh"
 #include "V_TV_OrderReport.mqh"
 #include "V_TV_LearningSuggestions.mqh"
+#include "V_TV_MarkerSuggestions.mqh"
  
 
 #define TRADE_DIRECTION_BOTH      0
@@ -69,6 +70,8 @@ string   g_prePrevSeqSignalText = ""; // signal name + seq number 2 steps back (
 double   g_prePrevSignalPrice = 0; // bar price when pre-previous signal fired
 double   g_prevSignalPrice    = 0; // bar price when previous signal fired
 double   g_currSignalPrice    = 0; // bar price when current signal fired
+
+string   g_runTimestamp = ""; // set once in OnInit — used as postfix for all CSV filenames
 
 
 datetime lastAlertTime            = 0;
@@ -534,9 +537,7 @@ void UpdateCurrentSignalLabel()
 //+------------------------------------------------------------------+
 void InitCSVLog()
   {
-   string dateStr = TimeToString(TimeCurrent(), TIME_DATE);
-   StringReplace(dateStr, ".", "");
-   g_csvFileName = dateStr + "_" + Symbol() + ".csv";
+   g_csvFileName = "SignalLog_" + g_runTimestamp + "_" + Symbol() + ".csv";
    int handle = FileOpen(g_csvFileName, FILE_TXT|FILE_READ|FILE_SHARE_READ|FILE_SHARE_WRITE);
    if(handle != INVALID_HANDLE)
      {
@@ -811,6 +812,14 @@ int OnInit()
       ChartSetSymbolPeriod(0, Symbol(), PERIOD_M1);
      }
 
+   // Build run timestamp once — YYYYMMDD_HHMMSS — shared by all CSV files
+   datetime now = TimeCurrent();
+   string d = TimeToString(now, TIME_DATE);   // "YYYY.MM.DD"
+   string t = TimeToString(now, TIME_SECONDS);// "HH:MM:SS"
+   StringReplace(d, ".", "");
+   StringReplace(t, ":", "");
+   g_runTimestamp = d + "_" + t;             // e.g. "20260401_143022"
+
    InitLotDependentVars();
 
    lastTrendBuyTradeTime = lastRevBuyTradeTime = lastStrongBuyTradeTime = 0;
@@ -825,6 +834,7 @@ int OnInit()
    InitCSVLog();
    InitOrderReport();
    InitLearningSuggestions();
+   InitMarkerSuggestions();
    EventSetTimer(MathMax(1, DashboardRefreshSeconds));
    UpdateDailyLowProximityLines();
    UpdateCurrentSignalLabel();
@@ -920,6 +930,7 @@ if(preTrendBuy)
    DrawMarker("PTB", _lbl, clrAqua, 233, t, Low[i] - 15*Point);
    RecordSignalPrice(_lbl, Low[i]);
    LearnRecordSignal(_lbl, g_prevDisplaySignal + " " + IntegerToString(g_prevSeqCount), g_prePrevSeqSignalText, Low[i], false);
+   RecordMarkerObs("PRE BUY", g_seqCount, Low[i], false);
   }
 
 // 🟢 TREND BUY
@@ -929,6 +940,7 @@ if(trendBuy)
    DrawMarker("TB", _lbl, clrLime, 233, t, Low[i] - 10*Point);
    RecordSignalPrice(_lbl, Low[i]);
    LearnRecordSignal(_lbl, g_prevDisplaySignal + " " + IntegerToString(g_prevSeqCount), g_prePrevSeqSignalText, Low[i], false);
+   RecordMarkerObs("TREND BUY", g_seqCount, Low[i], false);
   }
 
 // 🔵 REVERSAL BUY
@@ -937,6 +949,7 @@ if(reversalBuy)
    string _lbl = reversalBuyName + " " + IntegerToString(g_seqCount);
    DrawMarker("RB", _lbl, clrBlue, 233, t, Low[i] - 10*Point);
    RecordSignalPrice(_lbl, Low[i]);
+   RecordMarkerObs(reversalBuyName, g_seqCount, Low[i], false);
   }
 
 // 💙 STRONG BUY
@@ -945,6 +958,7 @@ if(strongBuy)
    string _lbl = "STRONG BUY " + IntegerToString(g_seqCount);
    DrawMarker("SB", _lbl, clrDeepSkyBlue, 233, t, Low[i] - 10*Point);
    RecordSignalPrice(_lbl, Low[i]);
+   RecordMarkerObs("STRONG BUY", g_seqCount, Low[i], false);
   }
 
       // === Sell signals ===
@@ -956,6 +970,7 @@ if(preTrendSell)
    DrawMarker("PTS", _lbl, clrOrange, 234, t, High[i] + 15*Point);
    RecordSignalPrice(_lbl, High[i]);
    LearnRecordSignal(_lbl, g_prevDisplaySignal + " " + IntegerToString(g_prevSeqCount), g_prePrevSeqSignalText, High[i], true);
+   RecordMarkerObs("PRE SELL", g_seqCount, High[i], true);
   }
 
 // 🔴 TREND SELL
@@ -979,6 +994,7 @@ if(trendSell)
    DrawEntryMark("TS", t, High[i] + 25*Point, SeqSellEMAPeriod);
    RecordSignalPrice(_lbl, High[i]);
    LearnRecordSignal(_lbl, g_prevDisplaySignal + " " + IntegerToString(g_prevSeqCount), g_prePrevSeqSignalText, High[i], true);
+   RecordMarkerObs("TREND SELL", g_seqCount, High[i], true);
   }
 
 // 🟣 REVERSAL SELL
@@ -987,6 +1003,7 @@ if(reversalSell)
    string _lbl = reversalSellName + " " + IntegerToString(g_seqCount);
    DrawMarker("RS", _lbl, clrMagenta, 234, t, High[i] + 10*Point);
    RecordSignalPrice(_lbl, High[i]);
+   RecordMarkerObs(reversalSellName, g_seqCount, High[i], true);
   }
 
 // 🌸 STRONG SELL
@@ -996,6 +1013,7 @@ if(strongSell)
    DrawMarker("SS", _lbl, clrPink, 234, t, High[i] + 10*Point);
    RecordSignalPrice(_lbl, High[i]);
    LearnRecordSignal(_lbl, g_prevDisplaySignal + " " + IntegerToString(g_prevSeqCount), g_prePrevSeqSignalText, High[i], true);
+   RecordMarkerObs("STRONG SELL", g_seqCount, High[i], true);
   }
       // === Update Curr/Prev display labels (i=0 live bar, i=1 just-closed bar) ===
       if(i == 0 || i == 1)
@@ -1103,6 +1121,7 @@ else if(preTrendSell)     newSig = "PRE SELL";
    ProcessSeqCloseOrders();
    CheckClosedOrders();
    LearnUpdateObservations();
+   UpdateMarkerObs();
 
    DrawEMALine(SeqSellEMAPeriod,  clrDodgerBlue, "EMA_SELL");
    DrawEMALine(SeqSellEMA2Period, clrOrange,     "EMA_SELL2");

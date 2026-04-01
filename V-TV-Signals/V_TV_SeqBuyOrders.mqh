@@ -321,9 +321,70 @@ void ProcessSeqBuyOrders()
    // Condition 9: EMA1 above EMA2 (bullish structure)
    if(!BuyCond9_EMA1AboveEMA2()) return;
 
+   // Condition 10: Real market — no fake ticks, no spread spike, sufficient volume
+   if(!BuyCond10_RealMarket()) return;
+   LogMessage("SeqBuy | Cond10 PASSED - Market is real");
+
    // All conditions passed - place order
    Print("SeqBuy | ALL CONDITIONS PASSED - Placing BUY order " + BuyPatternContext());
    PlaceSeqBuyOrder(ruleIdx);
+  }
+
+// Condition 10: Real market check — block fake ticks / broker manipulation
+//   A) Spread must not exceed MaxSpreadPoints (absolute)
+//   B) Spread must not be spiking vs running average (x SpreadSpikeMultiplier)
+//   C) Last closed bar volume must not be suspiciously low vs average
+bool BuyCond10_RealMarket()
+  {
+   if(!EnableFakeDetection) return true;
+
+   double currentSpread = MarketInfo(Symbol(), MODE_SPREAD);
+
+   // --- Running average spread (exponential smoothing, persists across ticks) ---
+   static double avgSpread = 0;
+   if(avgSpread <= 0) avgSpread = currentSpread;
+   avgSpread = avgSpread * 0.98 + currentSpread * 0.02;  // slow EMA, ~50 tick memory
+
+   // A) Absolute spread limit
+   if(currentSpread > MaxSpreadPoints)
+     {
+      Print("SeqBuy | BLOCKED [Cond10-SpreadHigh] Spread=" + DoubleToString(currentSpread,1) +
+            "pts > max=" + IntegerToString(MaxSpreadPoints) + "pts" +
+            " (possible news or broker manipulation) " + BuyPatternContext());
+      return false;
+     }
+
+   // B) Spread spike vs running average
+   if(avgSpread > 0 && currentSpread > avgSpread * SpreadSpikeMultiplier)
+     {
+      Print("SeqBuy | BLOCKED [Cond10-SpreadSpike] Spread=" + DoubleToString(currentSpread,1) +
+            "pts is " + DoubleToString(currentSpread / avgSpread, 1) +
+            "x avg=" + DoubleToString(avgSpread,1) +
+            "pts (fake spike suspected) " + BuyPatternContext());
+      return false;
+     }
+
+   // C) Volume check — last closed bar must have meaningful volume
+   if(VolumeMinRatio > 0 && VolumeAvgBars >= 2 && Bars > VolumeAvgBars + 2)
+     {
+      double avgVol = 0;
+      for(int k = 2; k <= VolumeAvgBars + 1; k++) avgVol += (double)Volume[k];
+      avgVol /= VolumeAvgBars;
+
+      double lastVol = (double)Volume[1];
+      if(avgVol > 0 && lastVol < avgVol * VolumeMinRatio)
+        {
+         Print("SeqBuy | BLOCKED [Cond10-LowVolume] Last bar volume=" + DoubleToString(lastVol,0) +
+               " < " + DoubleToString(VolumeMinRatio * 100,0) +
+               "% of avg=" + DoubleToString(avgVol,0) +
+               " (no real conviction) " + BuyPatternContext());
+         return false;
+        }
+     }
+
+   LogMessage("SeqBuy | Cond10 PASSED - Spread=" + DoubleToString(currentSpread,1) +
+              "pts AvgSpread=" + DoubleToString(avgSpread,1) + "pts Volume OK");
+   return true;
   }
 
 #endif

@@ -157,10 +157,8 @@ void InitLearningSuggestions()
   {
    if(!LearnEnabled) return;
 
-   string dateStr = TimeToString(TimeCurrent(), TIME_DATE);
-   StringReplace(dateStr, ".", "");
-   g_suggestFile = "Suggestions_" + dateStr + "_" + Symbol() + ".csv";
-   g_statsFile   = "PatternStats_" + Symbol() + ".csv";
+   g_suggestFile = "Suggestions_" + g_runTimestamp + "_" + Symbol() + ".csv";
+   g_statsFile   = "PatternStats_" + g_runTimestamp + "_" + Symbol() + ".csv";
 
    // Suggestions CSV — write header only for new file
    bool needHeader = true;
@@ -188,7 +186,7 @@ void InitLearningSuggestions()
      }
 
    // LiveTraining CSV — always fresh on init
-   g_liveFile = "LiveTraining_" + Symbol() + ".csv";
+   g_liveFile = "LiveTraining_" + g_runTimestamp + "_" + Symbol() + ".csv";
    h = FileOpen(g_liveFile, FILE_TXT|FILE_WRITE|FILE_SHARE_READ|FILE_SHARE_WRITE);
    if(h != INVALID_HANDLE)
      {
