@@ -12,6 +12,23 @@
 // SeqSellMaxOrders, SeqBuyMaxOrders, SeqCloseSlippage
 input string _SeqClose_ = "--- SEQ CLOSE ORDERS ---";
 
+// Track which tickets already had partial close this session (avoid repeat)
+int g_partialClosedTickets[];
+int g_partialClosedCount = 0;
+
+bool IsPartialAlreadyClosed(int ticket)
+  {
+   for(int i = 0; i < g_partialClosedCount; i++)
+      if(g_partialClosedTickets[i] == ticket) return true;
+   return false;
+  }
+
+void MarkPartialClosed(int ticket)
+  {
+   ArrayResize(g_partialClosedTickets, g_partialClosedCount + 1);
+   g_partialClosedTickets[g_partialClosedCount++] = ticket;
+  }
+
 //+------------------------------------------------------------------+
 //| Close a single order with appropriate price                      |
 //+------------------------------------------------------------------+
@@ -31,6 +48,77 @@ void CloseOrder(int ticket, double profit, string reason)
    else
       Print("SeqClose | FAILED #" + IntegerToString(ticket) +
             " [" + reason + "] Error=" + IntegerToString(GetLastError()));
+  }
+
+//+------------------------------------------------------------------+
+//| Partial profit close — called every tick                        |
+//| Closes PartialProfitCloseRatio of lot when profit >= trigger $  |
+//| Each order is only partially closed ONCE per session            |
+//+------------------------------------------------------------------+
+void ProcessPartialProfitClose()
+  {
+   if(!EnablePartialProfit) return;
+
+   double minLot  = MarketInfo(Symbol(), MODE_MINLOT);
+   double lotStep = MarketInfo(Symbol(), MODE_LOTSTEP);
+
+   for(int i = OrdersTotal() - 1; i >= 0; i--)
+     {
+      if(!OrderSelect(i, SELECT_BY_POS, MODE_TRADES)) continue;
+      if(OrderSymbol() != Symbol())                   continue;
+
+      int magicNo = OrderMagicNumber();
+      if(magicNo != SeqSellMagicNo && magicNo != SeqBuyMagicNo) continue;
+
+      int orderType = OrderType();
+      if(orderType != OP_SELL && orderType != OP_BUY) continue;
+
+      int ticket = OrderTicket();
+      if(IsPartialAlreadyClosed(ticket)) continue;
+
+      double profit = OrderProfit() + OrderSwap() + OrderCommission();
+      if(profit < PartialProfitTriggerUSD) continue;
+
+      // Calculate partial lot to close
+      double fullLot     = OrderLots();
+      double partialLot  = NormalizeDouble(fullLot * PartialProfitCloseRatio, 2);
+
+      // Round to lot step and enforce minimum
+      partialLot = MathFloor(partialLot / lotStep) * lotStep;
+      partialLot = NormalizeDouble(partialLot, 2);
+
+      if(partialLot < minLot)
+        {
+         Print("SeqClose | PARTIAL SKIP #" + IntegerToString(ticket) +
+               " partialLot=" + DoubleToString(partialLot,2) +
+               " < minLot=" + DoubleToString(minLot,2) + " — closing full order instead");
+         // Lot too small to partial close — close full order
+         CloseOrder(ticket, profit, "PARTIAL->FULL profit=$" + DoubleToString(profit,2) +
+                    " >= $" + DoubleToString(PartialProfitTriggerUSD,2));
+         MarkPartialClosed(ticket);
+         continue;
+        }
+
+      double closePrice = (orderType == OP_SELL)
+                          ? MarketInfo(Symbol(), MODE_ASK)
+                          : MarketInfo(Symbol(), MODE_BID);
+
+      bool closed = OrderClose(ticket, partialLot, closePrice, SeqCloseSlippage, clrGold);
+
+      if(closed)
+        {
+         MarkPartialClosed(ticket);
+         Print("SeqClose | *** PARTIAL PROFIT *** #" + IntegerToString(ticket) +
+               " [" + (orderType == OP_SELL ? "SELL" : "BUY") + "]" +
+               " closed " + DoubleToString(partialLot,2) + " of " + DoubleToString(fullLot,2) + " lot" +
+               " | profit=$" + DoubleToString(profit,2) +
+               " >= trigger=$" + DoubleToString(PartialProfitTriggerUSD,2) +
+               " | remaining lot=" + DoubleToString(fullLot - partialLot,2));
+        }
+      else
+         Print("SeqClose | PARTIAL FAILED #" + IntegerToString(ticket) +
+               " Error=" + IntegerToString(GetLastError()));
+     }
   }
 
 //+------------------------------------------------------------------+
@@ -87,6 +175,9 @@ void ProcessPatternClose(string tradeType, string patternLabel,
 //+------------------------------------------------------------------+
 void ProcessSeqCloseOrders()
   {
+   // --- 0. Partial profit booking (every tick, once per ticket) ---
+   ProcessPartialProfitClose();
+
    // --- 1a. SeqRule pattern-triggered close (action = "CLOSE") ---
    int ruleIdx = CheckSeqRules();
    if(ruleIdx >= 0 && g_seqRules[ruleIdx].action == "CLOSE")

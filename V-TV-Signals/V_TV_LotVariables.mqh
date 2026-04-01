@@ -56,6 +56,12 @@ input bool   EnableTrendFilter     = true;  // Enable Cond11
 input int    TrendLookbackBars     = 3;     // M30 bars back to compare (3 bars = 90 min trend)
 input double TrendMinMovePercent   = 0.01;  // Min price move % required (e.g. 0.15 = 0.15% of price)
 
+//--- Partial profit booking -------------------------------------------
+input string _PartialProfit_          = "--- PARTIAL PROFIT ---";
+input bool   EnablePartialProfit      = true;   // Book partial profit at threshold
+input double PartialProfitTriggerUSD  = 3.00;   // Close half lot when profit reaches this $
+input double PartialProfitCloseRatio  = 0.5;    // Fraction of lot to close (0.5 = 50%)
+
 //--- 0.01; Profit / StopLoss (auto-calculated in InitLotDependentVars) ----
 double SeqSellProfitTarget = 5;
 double SeqSellStopLossUSD  = 20.00;

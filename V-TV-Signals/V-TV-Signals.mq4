@@ -903,6 +903,7 @@ int OnInit()
    InitOrderReport();
    InitLearningSuggestions();
    InitMarkerSuggestions();
+   RefreshBlockedBuyMarkersVisibility();   // apply ShowBlockedBuyMarkers toggle on (re)load
    EventSetTimer(MathMax(1, DashboardRefreshSeconds));
    UpdateDailyLowProximityLines();
    UpdateCurrentSignalLabel();

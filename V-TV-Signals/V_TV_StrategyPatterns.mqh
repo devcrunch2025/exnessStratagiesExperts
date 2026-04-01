@@ -201,8 +201,8 @@ int CheckColorRules(string forAction, string forTrade)
       string tr = g_colorRules[i].trendRequired;
       if(tr != "")
         {
-         double closeCurrent = iClose(Symbol(), PERIOD_M30, 0);
-         double closePast    = iClose(Symbol(), PERIOD_M30, TrendLookbackBars);
+         double closeCurrent = iClose(Symbol(), PERIOD_M5, 0);
+         double closePast    = iClose(Symbol(), PERIOD_M5, TrendLookbackBars);
          if(closePast > 0)
            {
             double move       = closeCurrent - closePast;   // +ve = rising, -ve = falling
@@ -421,12 +421,14 @@ AddSeqRule("","","PRE BUY 1","CLOSE","SELL");
 
 */
 
-AddColorRule( "ANY GREEN SIGNAL","COUNT_2","NEW_ORDER","BUY", "UPTREND", "UP");
+AddColorRule( "ANY GREEN SIGNAL","COUNT_2","NEW_ORDER","BUY", "", "UP");
 
 
 AddColorRule( "ANY ORANGE SIGNAL","COUNT_1","CLOSE","BUY");
 AddColorRule( "ANY RED SIGNAL","COUNT_2","CLOSE","BUY");
 AddSeqRule("","","W SHAPE SELL 1","CLOSE","BUY");
+AddSeqRule("","","PRE SELL 1","CLOSE","BUY");
+
 
 
 
@@ -434,16 +436,27 @@ AddSeqRule("","","W SHAPE SELL 1","CLOSE","BUY");
 
 
 AddColorRule( "ANY RED SIGNAL","COUNT_2","NEW_ORDER","SELL", "DOWNTREND", "DOWN");
+AddSeqRule("TREND SELL 1","TREND SELL 2","TREND SELL 3","SELL","BUY");
+AddSeqRule("","TREND SELL 1","TREND SELL 2","SELL","BUY");
+AddSeqRule("","","W SHAPE BUY 1","SELL","BUY");
+AddSeqRule("","","W STRONG BUY 1","SELL","BUY");
+
+
+AddColorRule( "ANY BLUE SIGNAL","COUNT_1","NEW_ORDER","SELL", "", "");
+
+
+
 // AddColorRule( "ANY ORANGE SIGNAL","COUNT_2","NEW_ORDER","SELL");
 
 
 
 AddColorRule( "ANY GREEN SIGNAL","COUNT_1","CLOSE","SELL");
-AddSeqRule("","","STRONG SELL 4","CLOSE","SELL");
-AddSeqRule("","","STRONG SELL 2","CLOSE","SELL");
+// AddSeqRule("","","STRONG SELL 4","CLOSE","SELL");
+// AddSeqRule("","","STRONG SELL 2","CLOSE","SELL");
 AddSeqRule("","","W SHAPE SELL 1","CLOSE","SELL");
 
 
+//WRONG ENTRIES - BLOCK 
 
 
 

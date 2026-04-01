@@ -30,6 +30,7 @@ input int      SeqBuyEMAPeriod = 20;    // EMA1 period for trend confirmation
 input int      SeqBuyEMA2Period= 50;    // EMA2 period (slow)
 input int      SeqBuyEMAShift  = 3;     // How many candles to compare slope
 input int      SeqBuyEMAFlatMinPts = 3; // Min EMA movement in points to be considered trending (0=disable flat filter)
+input bool     ShowBlockedBuyMarkers = false; // Show/hide blue blocked-BUY rectangles on chart
 
 //+------------------------------------------------------------------+
 //| CONDITION HELPERS                                                |
@@ -312,6 +313,22 @@ bool PlaceSeqBuyOrder(int ruleIdx)
   }
 
 //+------------------------------------------------------------------+
+//| Apply ShowBlockedBuyMarkers toggle to all existing BlkBuy_ objs  |
+//+------------------------------------------------------------------+
+void RefreshBlockedBuyMarkersVisibility()
+  {
+   long timeframes = ShowBlockedBuyMarkers ? OBJ_ALL_PERIODS : OBJ_NO_PERIODS;
+   int total = ObjectsTotal();
+   for(int i = total - 1; i >= 0; i--)
+     {
+      string name = ObjectName(i);
+      if(StringFind(name, "BlkBuy_") == 0)
+         ObjectSetInteger(0, name, OBJPROP_TIMEFRAMES, timeframes);
+     }
+   ChartRedraw(0);
+  }
+
+//+------------------------------------------------------------------+
 //| Draw blue dashed rectangle on current bar when BUY is blocked   |
 //| Tooltip shows on mouse-hover in MetaTrader chart                 |
 //+------------------------------------------------------------------+
@@ -363,6 +380,11 @@ void DrawBlockedBuySignal(string reason)
       ObjectSetString(0,  nameT, OBJPROP_TOOLTIP,
                       "BUY BLOCKED: " + reason);
      }
+
+   // Apply current visibility toggle to the just-created objects
+   long timeframes = ShowBlockedBuyMarkers ? OBJ_ALL_PERIODS : OBJ_NO_PERIODS;
+   ObjectSetInteger(0, nameR, OBJPROP_TIMEFRAMES, timeframes);
+   ObjectSetInteger(0, nameT, OBJPROP_TIMEFRAMES, timeframes);
 
    ChartRedraw(0);
   }
