@@ -19,16 +19,15 @@
 #define V_TV_SEQ_BUY_ORDERS_MQH
 
 //--- Inputs ----------------------------------------------------------
-input string   _SeqBuy_                  = "--- SEQ BUY ORDERS ---";
-input double   SeqBuyLotSize             = 0.01;  // Lot size
-input int      SeqBuyMagicNo             = 22002; // Magic number
-
-input int      SeqBuySlippage            = 30;    // Slippage in points
-input int      SeqBuyMinGapPoints        = 200;   // Condition 5: Min price rise from prev signal (in points)
-
-input int      SeqBuyEMAPeriod           = 20;    // EMA1 period for trend confirmation
-input int      SeqBuyEMA2Period          = 50;    // EMA2 period (slow)
-input int      SeqBuyEMAShift            = 3;     // How many candles to compare slope
+// Lot/risk inputs are in V_TV_LotVariables.mqh:
+// SeqBuyLotSize, SeqBuySlippage, SeqBuyMinGapPoints,
+// SeqBuyMaxOrders, SeqBuyMinSecsBetweenOrders,
+// SeqBuyProfitTarget, SeqBuyStopLossUSD
+input string   _SeqBuy_        = "--- SEQ BUY ORDERS ---";
+input int      SeqBuyMagicNo   = 22002; // Magic number
+input int      SeqBuyEMAPeriod = 20;    // EMA1 period for trend confirmation
+input int      SeqBuyEMA2Period= 50;    // EMA2 period (slow)
+input int      SeqBuyEMAShift  = 3;     // How many candles to compare slope
 
 //+------------------------------------------------------------------+
 //| CONDITION HELPERS                                                |

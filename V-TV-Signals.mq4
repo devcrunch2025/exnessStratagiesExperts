@@ -4,6 +4,7 @@
 //+------------------------------------------------------------------+
 #property strict
 
+#include "V_TV_LotVariables.mqh"
 #include "V_TV_StrategyPatterns.mqh"
 #include "V_TV_SeqSellOrders.mqh"
 #include "V_TV_SeqBuyOrders.mqh"
@@ -730,6 +731,8 @@ int OnInit()
       Print("EDGE ALGO: Chart is not M1 (current=" + IntegerToString(Period()) + "). Switching to M1.");
       ChartSetSymbolPeriod(0, Symbol(), PERIOD_M1);
      }
+
+   InitLotDependentVars();
 
    lastTrendBuyTradeTime = lastRevBuyTradeTime = lastStrongBuyTradeTime = 0;
    lastTrendSellTradeTime = lastRevSellTradeTime = lastStrongSellTradeTime = 0;

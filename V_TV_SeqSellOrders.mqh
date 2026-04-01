@@ -16,17 +16,15 @@
 #define V_TV_SEQ_SELL_ORDERS_MQH
 
 //--- Inputs ----------------------------------------------------------
+// Lot/risk inputs are in V_TV_LotVariables.mqh:
+// SeqSellLotSize, SeqSellSlippage, SeqSellMinGapPoints,
+// SeqSellMaxOrders, SeqSellMinSecsBetweenOrders,
+// SeqSellProfitTarget, SeqSellStopLossUSD
 input string   _SeqSell_        = "--- SEQ SELL ORDERS ---";
-input double   SeqSellLotSize   = 0.01;   // Lot size
 input int      SeqSellMagicNo   = 22001;  // Magic number
-
-input int      SeqSellSlippage  = 30;     // Slippage in points
-input int      SeqSellMinGapPoints = 200; // Condition 5: Min price drop from prev signal (in points)
-
-
-input int SeqSellEMAPeriod  = 20;  // EMA1 period for trend confirmation
-input int SeqSellEMA2Period = 50;  // EMA2 period (slow)
-input int SeqSellEMAShift   = 3;  // How many candles to compare slope
+input int      SeqSellEMAPeriod = 20;     // EMA1 period for trend confirmation
+input int      SeqSellEMA2Period= 50;     // EMA2 period (slow)
+input int      SeqSellEMAShift  = 3;      // How many candles to compare slope
 //+------------------------------------------------------------------+
 //| CONDITION HELPERS                                                |
 //+------------------------------------------------------------------+

@@ -7,26 +7,10 @@
 #define V_TV_SEQ_CLOSE_ORDERS_MQH
 
 //--- Inputs ----------------------------------------------------------
-input string _SeqClose_              = "--- SEQ CLOSE ORDERS ---";
-
-
-input string _SeqCloseSell_          = "--- SELL Close Settings ---";
-input double SeqSellProfitTarget     = 0.50;  // SELL: Close when profit >= this USD
-input double SeqSellStopLossUSD      = 20.00;  // SELL: Close when loss >= this USD
-
-input string _SeqCloseBuy_           = "--- BUY Close Settings ---";
-input double SeqBuyProfitTarget      = 0.50;  // BUY: Close when profit >= this USD
-input double SeqBuyStopLossUSD       = 20.00;  // BUY: Close when loss >= this USD
-
-input int    SeqSellMaxOrders        = 2;     // Max open SELL orders allowed
-input int      SeqBuyMaxOrders           = 2;     // Max open BUY orders allowed
-
-
-input int      SeqBuyMinSecsBetweenOrders= 30;    // Min seconds between two BUY orders
-input int SeqSellMinSecsBetweenOrders = 30; // Min seconds between two SELL orders
-
-
-input int    SeqCloseSlippage        = 30;    // Slippage in points
+// All lot/risk inputs are in V_TV_LotVariables.mqh:
+// SeqSellProfitTarget, SeqSellStopLossUSD, SeqBuyProfitTarget, SeqBuyStopLossUSD,
+// SeqSellMaxOrders, SeqBuyMaxOrders, SeqCloseSlippage
+input string _SeqClose_ = "--- SEQ CLOSE ORDERS ---";
 
 //+------------------------------------------------------------------+
 //| Close a single order with appropriate price                      |

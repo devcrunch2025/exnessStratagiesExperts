@@ -1,0 +1,70 @@
+//+------------------------------------------------------------------+
+//| V_TV_LotVariables.mqh                                            |
+//| Central place for ALL lot-size-sensitive variables               |
+//|                                                                  |
+//| HOW TO USE:                                                      |
+//|   Change ONLY SeqSellLotSize / SeqBuyLotSize.                   |
+//|   ProfitTarget and StopLossUSD are calculated automatically      |
+//|   in OnInit() via InitLotDependentVars().                        |
+//|                                                                  |
+//| AUTO-SCALING REFERENCE (base: 0.01 lot = $0.50 TP / $20 SL):   |
+//|   LOT 0.01  ->  TP $0.50    SL $20.00                           |
+//|   LOT 0.10  ->  TP $5.00    SL $200.00                          |
+//|   LOT 1.00  ->  TP $50.00   SL $2000.00                         |
+//|   LOT 10.00 ->  TP $500.00  SL $20000.00                        |
+//|                                                                  |
+//| NOTE: MinGapPoints, MaxOrders, Slippage, MinSecsBetweenOrders   |
+//|       do NOT scale with lot — keep them the same always.         |
+//+------------------------------------------------------------------+
+#ifndef V_TV_LOT_VARIABLES_MQH
+#define V_TV_LOT_VARIABLES_MQH
+
+input string _LotVars_ = "======= LOT & RISK SETTINGS =======";
+
+//--- Lot sizes (CHANGE ONLY THESE) ----------------------------------
+input double SeqSellLotSize = 0.01;  // SELL lot size
+input double SeqBuyLotSize  = 0.01;  // BUY lot size
+
+//--- Slippage (lot-independent) -------------------------------------
+input int SeqSellSlippage   = 30;    // SELL slippage in points
+input int SeqBuySlippage    = 30;    // BUY slippage in points
+input int SeqCloseSlippage  = 30;    // Close slippage in points
+
+//--- Min price gap between signals (lot-independent) ----------------
+input int SeqSellMinGapPoints = 200; // SELL: min drop between signals (pts)
+input int SeqBuyMinGapPoints  = 200; // BUY:  min rise between signals (pts)
+
+//--- Max open orders (lot-independent) ------------------------------
+input int SeqSellMaxOrders  = 2;     // Max simultaneous SELL orders
+input int SeqBuyMaxOrders   = 2;     // Max simultaneous BUY orders
+
+//--- Min time between orders (lot-independent) ----------------------
+input int SeqSellMinSecsBetweenOrders = 30; // SELL: min seconds between orders
+input int SeqBuyMinSecsBetweenOrders  = 30; // BUY:  min seconds between orders
+
+//--- 0.01; Profit / StopLoss (auto-calculated in InitLotDependentVars) ----
+double SeqSellProfitTarget = 0.50;
+double SeqSellStopLossUSD  = 20.00;
+double SeqBuyProfitTarget  = 0.50;
+double SeqBuyStopLossUSD   = 20.00;
+
+//+------------------------------------------------------------------+
+//| Call this once in OnInit() — scales TP/SL to the chosen lot size |
+//+------------------------------------------------------------------+
+void InitLotDependentVars()
+  {
+   double sellScale = (SeqSellLotSize > 0) ? SeqSellLotSize / 0.01 : 1.0;
+   double buyScale  = (SeqBuyLotSize  > 0) ? SeqBuyLotSize  / 0.01 : 1.0;
+
+   SeqSellProfitTarget = NormalizeDouble(0.50  * sellScale, 2);
+   SeqSellStopLossUSD  = NormalizeDouble(20.00 * sellScale, 2);
+   SeqBuyProfitTarget  = NormalizeDouble(0.50  * buyScale,  2);
+   SeqBuyStopLossUSD   = NormalizeDouble(20.00 * buyScale,  2);
+
+   Print("LotVars | SELL lot=", SeqSellLotSize,
+         "  TP=$", SeqSellProfitTarget, "  SL=$", SeqSellStopLossUSD);
+   Print("LotVars | BUY  lot=", SeqBuyLotSize,
+         "  TP=$", SeqBuyProfitTarget,  "  SL=$", SeqBuyStopLossUSD);
+  }
+
+#endif
