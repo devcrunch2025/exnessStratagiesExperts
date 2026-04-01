@@ -136,7 +136,20 @@ AddSeqRule(  "TREND SELL 5", "PRE SELL 1","TREND SELL 1",  "NEW_ORDER", "SELL");
 //buy rules
 //AddSeqRule("", "", "TREND BUY 1", "NEW_ORDER", "BUY");
 //AddSeqRule("", "TREND BUY 1", "TREND BUY 2", "NEW_ORDER", "BUY");
+
+/*
 AddSeqRule("PRE BUY 1", "TREND BUY 1", "TREND BUY 2", "NEW_ORDER", "BUY");
+AddSeqRule("PRE BUY 1", "TREND BUY 1", "PRE BUY 1", "NEW_ORDER", "BUY");
+AddSeqRule("PRE BUY 1", "TREND BUY 1", "TREND BUY 1", "NEW_ORDER", "BUY");
+AddSeqRule("PRE BUY 1", "PRE BUY 2", "PRE BUY 3", "NEW_ORDER", "BUY");
+AddSeqRule("PRE BUY 3", "PRE BUY 1", "PRE BUY 2", "NEW_ORDER", "BUY");
+
+AddSeqRule("PRE BUY 1", "PRE BUY 2", "TREND BUY 3", "NEW_ORDER", "BUY");
+AddSeqRule("PRE BUY 1", "PRE BUY 3", "TREND BUY 1", "NEW_ORDER", "BUY");
+
+ 
+
+
 AddSeqRule("TREND BUY 1", "TREND BUY 2", "TREND BUY 3", "NEW_ORDER", "BUY");
 
 AddSeqRule("TREND BUY 2", "TREND BUY 3", "PRE BUY 1", "NEW_ORDER", "BUY");
@@ -149,6 +162,45 @@ AddSeqRule(  "TREND BUY 2", "PRE BUY 1","TREND BUY 1", "NEW_ORDER", "BUY");
 AddSeqRule(  "TREND BUY 3", "PRE BUY 1","TREND BUY 1", "NEW_ORDER", "BUY");
 AddSeqRule(  "TREND BUY 4", "PRE BUY 1","TREND BUY 1",  "NEW_ORDER", "BUY");
 AddSeqRule(  "TREND BUY 5", "PRE BUY 1","TREND BUY 1",  "NEW_ORDER", "BUY");
+
+*/
+//practical my idea 
+
+AddSeqRule("PRE BUY 1", "TREND BUY 1", "TREND BUY 2", "NEW_ORDER", "BUY");
+AddSeqRule("PRE BUY 1", "TREND BUY 1", "PRE BUY 1", "NEW_ORDER", "BUY");
+AddSeqRule("PRE BUY 1", "TREND BUY 1", "TREND BUY 1", "NEW_ORDER", "BUY");
+AddSeqRule("PRE BUY 1", "PRE BUY 2", "PRE BUY 3", "NEW_ORDER", "BUY");
+AddSeqRule("PRE BUY 3", "PRE BUY 1", "PRE BUY 2", "NEW_ORDER", "BUY");
+
+AddSeqRule("PRE BUY 1", "PRE BUY 2", "TREND BUY 3", "NEW_ORDER", "BUY");
+AddSeqRule("PRE BUY 1", "PRE BUY 3", "TREND BUY 1", "NEW_ORDER", "BUY");
+
+ 
+
+
+AddSeqRule("TREND BUY 1", "TREND BUY 2", "TREND BUY 3", "NEW_ORDER", "BUY");
+
+AddSeqRule("TREND BUY 2", "TREND BUY 3", "PRE BUY 1", "NEW_ORDER", "BUY");
+
+//RISK - AddSeqRule("TREND BUY 2", "TREND BUY 3", "TREND BUY 4", "NEW_ORDER", "BUY");
+AddSeqRule("TREND BUY 3", "TREND BUY 4", "TREND BUY 5", "NEW_ORDER", "BUY");
+
+AddSeqRule(  "TREND BUY 1", "PRE BUY 1","TREND BUY 1", "NEW_ORDER", "BUY");
+AddSeqRule(  "TREND BUY 2", "PRE BUY 1","TREND BUY 1", "NEW_ORDER", "BUY");
+AddSeqRule(  "TREND BUY 3", "PRE BUY 1","TREND BUY 1", "NEW_ORDER", "BUY");
+AddSeqRule(  "TREND BUY 4", "PRE BUY 1","TREND BUY 1",  "NEW_ORDER", "BUY");
+AddSeqRule(  "TREND BUY 5", "PRE BUY 1","TREND BUY 1",  "NEW_ORDER", "BUY");
+
+///***********************************************************************
+
+//suggestions from chat
+AddSeqRule("PRE BUY 3", "PRE BUY 1", "PRE BUY 2", "NEW_ORDER", "BUY");
+AddSeqRule("PRE BUY 3", "TREND BUY 1", "PRE BUY 1", "NEW_ORDER", "BUY");
+//AddSeqRule("PRE BUY 3", "PRE BUY 1", "PRE BUY 2", "NEW_ORDER", "BUY");
+AddSeqRule("PRE BUY 2", "PRE BUY 3", "PRE BUY 1", "NEW_ORDER", "BUY");
+
+ 
+
 
    
 
