@@ -110,6 +110,10 @@ int CheckSeqRules()
 //|                 "DOWNTREND" = M30 close must be falling           |
 //|                 "UPTREND"   = M30 close must be rising            |
 //|                 Uses TrendLookbackBars + TrendMinMovePercent      |
+//| emaRequired   : "" = no EMA check (default)                      |
+//|                 "UP"   = EMA1 must be sloping UP (not flat)       |
+//|                 "DOWN" = EMA1 must be sloping DOWN (not flat)     |
+//|                 Uses SeqBuy/SellEMAPeriod, EMAShift, EMAFlatMinPts|
 //+------------------------------------------------------------------+
 struct ColorRule
   {
@@ -118,13 +122,15 @@ struct ColorRule
    string action;         // "NEW_ORDER" or "CLOSE"
    string tradeType;      // "BUY" or "SELL"
    string trendRequired;  // "" / "DOWNTREND" / "UPTREND"
+   string emaRequired;    // "" / "UP" / "DOWN"
   };
 
 ColorRule g_colorRules[];
 
 void AddColorRule(string colorType,     string countType,
                   string action,        string tradeType,
-                  string trendRequired = "")
+                  string trendRequired = "",
+                  string emaRequired   = "")
   {
    // Parse count: "COUNT_3" → 3, "COUNT_ANY" or "" → 1
    int minCount = 1;
@@ -142,6 +148,7 @@ void AddColorRule(string colorType,     string countType,
    g_colorRules[n].action        = action;
    g_colorRules[n].tradeType     = tradeType;
    g_colorRules[n].trendRequired = trendRequired;
+   g_colorRules[n].emaRequired   = emaRequired;
   }
 
 // Signal colour groups (matches GetSignalColor in main EA):
@@ -217,6 +224,44 @@ int CheckColorRules(string forAction, string forTrade)
                      " need UPTREND >=" + DoubleToString(TrendMinMovePercent,4) + "% rise");
                continue;
               }
+           }
+        }
+
+      // --- EMA trend / flat check (Cond2 for ColorRules) ---
+      string er = g_colorRules[i].emaRequired;
+      if(er != "")
+        {
+         // Pick EMA params based on trade direction
+         int emaPeriod   = (g_colorRules[i].tradeType == "SELL") ? SeqSellEMAPeriod    : SeqBuyEMAPeriod;
+         int emaShift    = (g_colorRules[i].tradeType == "SELL") ? SeqSellEMAShift     : SeqBuyEMAShift;
+         int emaFlatMin  = (g_colorRules[i].tradeType == "SELL") ? SeqSellEMAFlatMinPts: SeqBuyEMAFlatMinPts;
+
+         double emaNow  = iMA(Symbol(), 0, emaPeriod, 0, MODE_EMA, PRICE_CLOSE, 0);
+         double emaPast = iMA(Symbol(), 0, emaPeriod, 0, MODE_EMA, PRICE_CLOSE, emaShift);
+         double slopePts = (emaNow - emaPast) / Point;  // +ve = rising, -ve = falling
+
+         // Flat check: slope magnitude must exceed minimum
+         if(emaFlatMin > 0 && MathAbs(slopePts) < emaFlatMin)
+           {
+            Print("ColorRule | BLOCKED [EMA-Flat] " + ct +
+                  " EMA(" + IntegerToString(emaPeriod) + ") slope=" +
+                  DoubleToString(slopePts,1) + "pts over " + IntegerToString(emaShift) +
+                  " bars — FLAT (min " + IntegerToString(emaFlatMin) + "pts required)");
+            continue;
+           }
+
+         // Direction check
+         if(er == "UP" && slopePts <= 0)
+           {
+            Print("ColorRule | BLOCKED [EMA-NotUp] " + ct +
+                  " EMA slope=" + DoubleToString(slopePts,1) + "pts — not rising");
+            continue;
+           }
+         if(er == "DOWN" && slopePts >= 0)
+           {
+            Print("ColorRule | BLOCKED [EMA-NotDown] " + ct +
+                  " EMA slope=" + DoubleToString(slopePts,1) + "pts — not falling");
+            continue;
            }
         }
 
@@ -376,7 +421,7 @@ AddSeqRule("","","PRE BUY 1","CLOSE","SELL");
 
 */
 
-AddColorRule( "ANY GREEN SIGNAL","COUNT_2","NEW_ORDER","BUY");
+AddColorRule( "ANY GREEN SIGNAL","COUNT_2","NEW_ORDER","BUY", "", "UP");
 
 
 AddColorRule( "ANY ORANGE SIGNAL","COUNT_1","CLOSE","BUY");
@@ -388,7 +433,7 @@ AddSeqRule("","","W SHAPE SELL 1","CLOSE","BUY");
 
 
 
-AddColorRule( "ANY RED SIGNAL","COUNT_2","NEW_ORDER","SELL");
+AddColorRule( "ANY RED SIGNAL","COUNT_2","NEW_ORDER","SELL", "", "DOWN");
 // AddColorRule( "ANY ORANGE SIGNAL","COUNT_2","NEW_ORDER","SELL");
 
 
@@ -403,8 +448,30 @@ AddSeqRule("","","W SHAPE SELL 1","CLOSE","SELL");
 
 
 
+// // No EMA check (existing behaviour — unchanged)
+// AddColorRule("ANY GREEN SIGNAL", "COUNT_2", "NEW_ORDER", "BUY");
+
+// // BUY only when EMA is trending UP and not flat
+// AddColorRule("ANY GREEN SIGNAL", "COUNT_2", "NEW_ORDER", "BUY", "", "UP");
+
+// // SELL only when EMA is trending DOWN and not flat  
+// AddColorRule("ANY RED SIGNAL",   "COUNT_2", "NEW_ORDER", "SELL", "", "DOWN");
+
+// // Both M30 downtrend AND EMA falling required
+// AddColorRule("ANY RED SIGNAL",   "COUNT_2", "NEW_ORDER", "SELL", "DOWNTREND", "DOWN");
 
 
+// // No trend check (existing behaviour — default)
+// AddColorRule("ANY GREEN SIGNAL", "COUNT_2", "NEW_ORDER", "BUY");
+
+// // Only BUY when M30 is confirmed rising
+// AddColorRule("ANY GREEN SIGNAL", "COUNT_2", "NEW_ORDER", "BUY", "UPTREND");
+
+// // Only SELL when M30 is confirmed falling
+// AddColorRule("ANY RED SIGNAL",   "COUNT_2", "NEW_ORDER", "SELL", "DOWNTREND");
+
+// // CLOSE rules usually don't need trend filter (leave blank)
+// AddColorRule("ANY ORANGE SIGNAL","COUNT_1", "CLOSE",     "BUY");
 
 
 
