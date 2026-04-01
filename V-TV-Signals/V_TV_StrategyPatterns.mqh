@@ -139,14 +139,37 @@ void AddColorRule(string colorType, string countType,
    g_colorRules[n].tradeType  = tradeType;
   }
 
-// Returns index of first matching ColorRule for given action+tradeType, or -1
-// A "green" signal has "BUY" in its name; a "red" signal has "SELL" in its name
+// Signal colour groups (matches GetSignalColor in main EA):
+//   GREEN  : TREND BUY, W SHAPE BUY               (clrLime / clrGreen)
+//   BLUE   : STRONG BUY                            (clrDeepSkyBlue)
+//   AQUA   : PRE BUY                               (clrAqua)
+//   RED    : TREND SELL, W SHAPE SELL              (clrRed / clrCrimson)
+//   PINK   : STRONG SELL                           (clrPink)
+//   ORANGE : PRE SELL                              (clrOrange)
+//
+// ColorType keywords:
+//   "ANY GREEN SIGNAL"  — any BUY-direction signal (TREND BUY, W SHAPE BUY, STRONG BUY, PRE BUY)
+//   "ANY RED SIGNAL"    — any SELL-direction signal (TREND SELL, W SHAPE SELL, STRONG SELL, PRE SELL)
+//   "ANY ORANGE SIGNAL" — PRE SELL only
+//   "ANY AQUA SIGNAL"   — PRE BUY only
+//   "ANY PINK SIGNAL"   — STRONG SELL only
+//   "ANY BLUE SIGNAL"   — STRONG BUY only
 int CheckColorRules(string forAction, string forTrade)
   {
    if(g_liveSignalName == "") return -1;
 
-   bool isGreen = (StringFind(g_liveSignalName, "BUY")  >= 0);
-   bool isRed   = (StringFind(g_liveSignalName, "SELL") >= 0);
+   bool hasBuy  = (StringFind(g_liveSignalName, "BUY")    >= 0);
+   bool hasSell = (StringFind(g_liveSignalName, "SELL")   >= 0);
+   bool isPre   = (StringFind(g_liveSignalName, "PRE")    >= 0);
+   bool isStrong= (StringFind(g_liveSignalName, "STRONG") >= 0);
+
+   // Derived colour flags
+   bool isGreen  = hasBuy;                   // any BUY signal
+   bool isRed    = hasSell;                  // any SELL signal
+   bool isOrange = (isPre   && hasSell);     // PRE SELL
+   bool isAqua   = (isPre   && hasBuy);      // PRE BUY
+   bool isPink   = (isStrong && hasSell);    // STRONG SELL
+   bool isBlue   = (isStrong && hasBuy);     // STRONG BUY
 
    for(int i = 0; i < ArraySize(g_colorRules); i++)
      {
@@ -155,8 +178,12 @@ int CheckColorRules(string forAction, string forTrade)
       if(g_currSeqCount < g_colorRules[i].minCount) continue;
 
       string ct = g_colorRules[i].colorType;
-      if(ct == "ANY GREEN SIGNAL" && !isGreen) continue;
-      if(ct == "ANY RED SIGNAL"   && !isRed)   continue;
+      if(ct == "ANY GREEN SIGNAL"  && !isGreen)  continue;
+      if(ct == "ANY RED SIGNAL"    && !isRed)    continue;
+      if(ct == "ANY ORANGE SIGNAL" && !isOrange) continue;
+      if(ct == "ANY AQUA SIGNAL"   && !isAqua)   continue;
+      if(ct == "ANY PINK SIGNAL"   && !isPink)   continue;
+      if(ct == "ANY BLUE SIGNAL"   && !isBlue)   continue;
 
       return i;
      }
@@ -314,11 +341,29 @@ AddSeqRule("","","PRE BUY 1","CLOSE","SELL");
 
 */
 
-AddColorRule( "ANY GREEN SIGNAL","COUNT_3","NEW_ORDER","BUY");
-AddColorRule( "ANY GREEN SIGNAL","COUNT_3","CLOSE","SELL");
+AddColorRule( "ANY GREEN SIGNAL","COUNT_2","NEW_ORDER","BUY");
 
-AddColorRule( "ANY RED SIGNAL","COUNT_3","NEW_ORDER","SELL");
-AddColorRule( "ANY RED SIGNAL","COUNT_3","CLOSE","BUY");
+
+AddColorRule( "ANY ORANGE SIGNAL","COUNT_1","CLOSE","BUY");
+AddColorRule( "ANY RED SIGNAL","COUNT_2","CLOSE","BUY");
+AddSeqRule("","","W SHAPE SELL 1","CLOSE","BUY");
+
+
+
+
+
+
+AddColorRule( "ANY RED SIGNAL","COUNT_2","NEW_ORDER","SELL");
+AddColorRule( "ANY ORANGE SIGNAL","COUNT_1","NEW_ORDER","SELL");
+AddSeqRule("","","W SHAPE SELL 1","NEW_ORDER","SELL");
+
+
+AddColorRule( "ANY GREEN SIGNAL","COUNT_2","CLOSE","SELL");
+
+
+
+
+
 
 
 
