@@ -24,7 +24,6 @@ input int      SeqSellSlippage  = 30;     // Slippage in points
 input int      SeqSellMinGapPoints = 200; // Condition 5: Min price drop from prev signal (in points)
 
 
-input int SeqSellMinSecsBetweenOrders = 15; // Min seconds between two SELL orders
 input int SeqSellEMAPeriod  = 20;  // EMA1 period for trend confirmation
 input int SeqSellEMA2Period = 50;  // EMA2 period (slow)
 input int SeqSellEMAShift   = 3;  // How many candles to compare slope

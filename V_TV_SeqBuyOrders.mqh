@@ -22,10 +22,10 @@
 input string   _SeqBuy_                  = "--- SEQ BUY ORDERS ---";
 input double   SeqBuyLotSize             = 0.01;  // Lot size
 input int      SeqBuyMagicNo             = 22002; // Magic number
-input int      SeqBuyMaxOrders           = 2;     // Max open BUY orders allowed
+
 input int      SeqBuySlippage            = 30;    // Slippage in points
 input int      SeqBuyMinGapPoints        = 200;   // Condition 5: Min price rise from prev signal (in points)
-input int      SeqBuyMinSecsBetweenOrders= 15;    // Min seconds between two BUY orders
+
 input int      SeqBuyEMAPeriod           = 20;    // EMA1 period for trend confirmation
 input int      SeqBuyEMA2Period          = 50;    // EMA2 period (slow)
 input int      SeqBuyEMAShift            = 3;     // How many candles to compare slope

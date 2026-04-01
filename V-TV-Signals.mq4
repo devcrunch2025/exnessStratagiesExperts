@@ -9,6 +9,7 @@
 #include "V_TV_SeqBuyOrders.mqh"
 #include "V_TV_SeqCloseOrders.mqh"
 #include "V_TV_OrderReport.mqh"
+#include "V_TV_LearningSuggestions.mqh"
  
 
 #define TRADE_DIRECTION_BOTH      0
@@ -25,15 +26,15 @@ input double RSI_Buy             = 55;
 input double RSI_Sell            = 45;
 input int    ReversalStreakCandles = 3;
 input int    TradeDirectionMode  = 0;       // 0=both 1=buy only 2=sell only
-input double TrendSellDailyLowGapPrice  =100; // NO SELL zone: min $ above daily low
-input double TrendBuyDailyHighGapPrice  = 100; // NO BUY zone: min $ below daily high
+input double TrendSellDailyLowGapPrice  =10; // NO SELL zone: min $ above daily low
+input double TrendBuyDailyHighGapPrice  = 10; // NO BUY zone: min $ below daily high
 input bool   EnableAlert         = false;
 input bool   EnableSound         = true;
 input bool   EnableLogMessages   = false;
 input int    DashboardRefreshSeconds = 30;
 input bool   ExecuteEverySignalInTester = false;
 input bool   EnablePreSignals           = true;
-input int    StartupWaitMinutes         = 5;   // Wait N minutes on first load before placing orders
+input int    StartupWaitMinutes         = 30;   // Wait N minutes on first load before placing orders
 
 // ----- GLOBALS ----- //
 string   currentSignal      = "";
@@ -723,6 +724,13 @@ void MaybeRefreshDashboard()
 //+------------------------------------------------------------------+
 int OnInit()
   {
+   // Force chart to M1 if not already
+   if(Period() != PERIOD_M1)
+     {
+      Print("EDGE ALGO: Chart is not M1 (current=" + IntegerToString(Period()) + "). Switching to M1.");
+      ChartSetSymbolPeriod(0, Symbol(), PERIOD_M1);
+     }
+
    lastTrendBuyTradeTime = lastRevBuyTradeTime = lastStrongBuyTradeTime = 0;
    lastTrendSellTradeTime = lastRevSellTradeTime = lastStrongSellTradeTime = 0;
    lastProcessedClosedBar = (Bars > 1) ? Time[1] : 0;
@@ -734,6 +742,7 @@ int OnInit()
    InitStrategyRules();
    InitCSVLog();
    InitOrderReport();
+   InitLearningSuggestions();
    EventSetTimer(MathMax(1, DashboardRefreshSeconds));
    UpdateDailyLowProximityLines();
    UpdateCurrentSignalLabel();
@@ -828,6 +837,7 @@ if(preTrendBuy)
    string _lbl = "PRE BUY " + IntegerToString(g_seqCount);
    DrawMarker("PTB", _lbl, clrAqua, 233, t, Low[i] - 15*Point);
    RecordSignalPrice(_lbl, Low[i]);
+   LearnRecordSignal(_lbl, g_prevDisplaySignal + " " + IntegerToString(g_prevSeqCount), g_prePrevSeqSignalText, Low[i], false);
   }
 
 // 🟢 TREND BUY
@@ -836,6 +846,7 @@ if(trendBuy)
    string _lbl = "TREND BUY " + IntegerToString(g_seqCount);
    DrawMarker("TB", _lbl, clrLime, 233, t, Low[i] - 10*Point);
    RecordSignalPrice(_lbl, Low[i]);
+   LearnRecordSignal(_lbl, g_prevDisplaySignal + " " + IntegerToString(g_prevSeqCount), g_prePrevSeqSignalText, Low[i], false);
   }
 
 // 🔵 REVERSAL BUY
@@ -862,6 +873,7 @@ if(preTrendSell)
    string _lbl = "PRE SELL " + IntegerToString(g_seqCount);
    DrawMarker("PTS", _lbl, clrOrange, 234, t, High[i] + 15*Point);
    RecordSignalPrice(_lbl, High[i]);
+   LearnRecordSignal(_lbl, g_prevDisplaySignal + " " + IntegerToString(g_prevSeqCount), g_prePrevSeqSignalText, High[i], true);
   }
 
 // 🔴 TREND SELL
@@ -884,6 +896,7 @@ if(trendSell)
    DrawMarker("TS", _lbl + tsDiffStr, clrRed, 234, t, High[i] + 10*Point);
    DrawEntryMark("TS", t, High[i] + 25*Point, SeqSellEMAPeriod);
    RecordSignalPrice(_lbl, High[i]);
+   LearnRecordSignal(_lbl, g_prevDisplaySignal + " " + IntegerToString(g_prevSeqCount), g_prePrevSeqSignalText, High[i], true);
   }
 
 // 🟣 REVERSAL SELL
@@ -900,6 +913,7 @@ if(strongSell)
    string _lbl = "STRONG SELL " + IntegerToString(g_seqCount);
    DrawMarker("SS", _lbl, clrPink, 234, t, High[i] + 10*Point);
    RecordSignalPrice(_lbl, High[i]);
+   LearnRecordSignal(_lbl, g_prevDisplaySignal + " " + IntegerToString(g_prevSeqCount), g_prePrevSeqSignalText, High[i], true);
   }
       // === Update Curr/Prev display labels (i=0 live bar, i=1 just-closed bar) ===
       if(i == 0 || i == 1)
@@ -1006,6 +1020,7 @@ else if(preTrendSell)     newSig = "PRE SELL";
    // --- Close orders that reached profit target (checked every tick) ---
    ProcessSeqCloseOrders();
    CheckClosedOrders();
+   LearnUpdateObservations();
 
    DrawEMALine(SeqSellEMAPeriod,  clrDodgerBlue, "EMA_SELL");
    DrawEMALine(SeqSellEMA2Period, clrOrange,     "EMA_SELL2");
