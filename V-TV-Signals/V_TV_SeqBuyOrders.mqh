@@ -322,8 +322,8 @@ void ProcessSeqBuyOrders()
    if(!BuyCond9_EMA1AboveEMA2()) return;
 
    // Condition 10: Real market — no fake ticks, no spread spike, sufficient volume
-   if(!BuyCond10_RealMarket()) return;
-   LogMessage("SeqBuy | Cond10 PASSED - Market is real");
+   ////////if(!BuyCond10_RealMarket()) return;
+   ////////LogMessage("SeqBuy | Cond10 PASSED - Market is real");
 
    // All conditions passed - place order
    Print("SeqBuy | ALL CONDITIONS PASSED - Placing BUY order " + BuyPatternContext());

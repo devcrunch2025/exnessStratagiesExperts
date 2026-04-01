@@ -52,9 +52,9 @@ input int    VolumeAvgBars         = 20;    // Bars used for average volume
 
 //--- 0.01; Profit / StopLoss (auto-calculated in InitLotDependentVars) ----
 double SeqSellProfitTarget = 0.50;
-double SeqSellStopLossUSD  = 20.00;
+double SeqSellStopLossUSD  = 1.00;
 double SeqBuyProfitTarget  = 0.50;
-double SeqBuyStopLossUSD   = 20.00;
+double SeqBuyStopLossUSD   = 1.00;
 
 //+------------------------------------------------------------------+
 //| Call this once in OnInit() — scales TP/SL to the chosen lot size |

@@ -287,8 +287,8 @@ void ProcessSeqSellOrders()
    if(!SellCond9_EMA1BelowEMA2()) return;
 
    // Condition 10: Real market — no fake ticks, no spread spike, sufficient volume
-   if(!SellCond10_RealMarket()) return;
-   LogMessage("SeqSell | Cond10 PASSED - Market is real");
+   //////if(!SellCond10_RealMarket()) return;
+   //////LogMessage("SeqSell | Cond10 PASSED - Market is real");
 
    // All conditions passed - place order
    Print("SeqSell | ALL CONDITIONS PASSED - Placing SELL order " + SellPatternContext());

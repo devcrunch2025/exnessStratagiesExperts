@@ -482,7 +482,7 @@ void InitMarkerSuggestions()
   {
    if(!MarkerAIEnabled) return;
 
-   g_markerSuggestFile = "MarkerSuggestions_" + g_runTimestamp + "_" + Symbol() + ".csv";
+   g_markerSuggestFile = "AI_MarkerSuggestions_" + g_runTimestamp + "_" + Symbol() + ".csv";
    g_markerStatsFile   = "MarkerStats_"       + g_runTimestamp + "_" + Symbol() + ".csv";
 
    // MarkerSuggestions — header for new file only
