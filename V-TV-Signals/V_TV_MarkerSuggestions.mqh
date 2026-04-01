@@ -82,6 +82,10 @@ struct MarkerTypeStats
    int    seq3plusWins; int seq3plusTotal;
    int    hourWins[24];
    int    hourTotal[24];
+   // Stop loss tracking
+   int    slHits;
+   int    slPrematureHits;
+   double totalSlLossUSD;
    bool   active;
   };
 
@@ -162,6 +166,9 @@ int FindOrCreateMStats(string markerType, string dir)
    g_mstats[s].seq2Wins         = 0; g_mstats[s].seq2Total     = 0;
    g_mstats[s].seq3plusWins     = 0; g_mstats[s].seq3plusTotal = 0;
    for(int h = 0; h < 24; h++) { g_mstats[s].hourWins[h] = 0; g_mstats[s].hourTotal[h] = 0; }
+   g_mstats[s].slHits          = 0;
+   g_mstats[s].slPrematureHits = 0;
+   g_mstats[s].totalSlLossUSD  = 0;
    g_mstats[s].active = true;
    return s;
   }
@@ -263,6 +270,7 @@ void WriteMarkerStatsCSV()
       "Spike_Accurate%,NoSpike_Accurate%,"
       "Seq1_Accurate%,Seq2_Accurate%,Seq3plus_Accurate%,"
       "BestHour,BestHourRate%,WorstHour,WorstHourRate%,"
+      "SL_HitRate%,SL_PrematureRate%,AvgSL_Loss_USD,SL_Warning,"
       "Verdict,ImprovementSuggestion\n");
 
    for(int i = 0; i < g_mstatsCount; i++)
@@ -327,6 +335,16 @@ void WriteMarkerStatsCSV()
          (bh >= 0 ? DoubleToString(bhr,0) : "N/A")                    + "," +
          (wh >= 0 ? IntegerToString(wh) : "N/A")                      + "," +
          (wh >= 0 ? DoubleToString(whr,0) : "N/A")                    + "," +
+         // SL stats
+         DoubleToString(s.count > 0 ? s.slHits*100.0/s.count : 0, 1) + "," +
+         DoubleToString(s.slHits > 0 ? s.slPrematureHits*100.0/s.slHits : 0, 1) + "," +
+         DoubleToString(s.slHits > 0 ? s.totalSlLossUSD/s.slHits : 0, 2) + "," +
+         (s.count > 0 && s.slHits*100.0/s.count >= 60 && s.slHits > 0 && s.slPrematureHits*100.0/s.slHits >= 40
+            ? "SL_TOO_TIGHT" :
+          s.count > 0 && s.slHits*100.0/s.count >= 60
+            ? "FREQUENT_SL_HITS" :
+          s.count > 0 && s.slHits*100.0/s.count >= 35
+            ? "MODERATE_SL_RISK" : "OK")                              + "," +
          verdict                               + "," +
          "\"" + suggestion + "\""             + "\n";
 
@@ -347,6 +365,12 @@ void WriteMarkerSuggestionRow(int slot)
    double favUSD    = MkrPointsToUSD(r.maxFavour,  r.isSell);
    double advUSD    = MkrPointsToUSD(r.maxAdverse, r.isSell);
    bool   isWin     = (r.maxFavour > r.maxAdverse);
+
+   // SL hit analysis
+   double slSetting   = r.isSell ? SeqSellStopLossUSD : SeqBuyStopLossUSD;
+   double tpSetting   = r.isSell ? SeqSellProfitTarget : SeqBuyProfitTarget;
+   bool   slWouldHit  = (advUSD >= slSetting);
+   bool   slPremature = slWouldHit && (favUSD >= tpSetting);
 
    // Marker quality
    string quality = "FALSE";
@@ -399,6 +423,9 @@ void WriteMarkerSuggestionRow(int slot)
       DoubleToString(rr, 2)                              + "," +
       quality                                            + "," +
       r.finalizeReason                                   + "," +
+      DoubleToString(slSetting, 2)                       + "," +
+      (slWouldHit  ? "YES" : "NO")                       + "," +
+      (slPremature ? "YES_PREMATURE" : "NO")             + "," +
       "\"" + suggestion + "\""                           + "\n";
 
    int h = FileOpen(g_markerSuggestFile,
@@ -449,6 +476,14 @@ void WriteMarkerSuggestionRow(int slot)
       else if(r.seqCount == 2) g_mstats[si].seq2Total++;
       else                     g_mstats[si].seq3plusTotal++;
       if(r.hourOfDay >= 0 && r.hourOfDay < 24) g_mstats[si].hourTotal[r.hourOfDay]++;
+
+      // SL tracking
+      if(slWouldHit)
+        {
+         g_mstats[si].slHits++;
+         g_mstats[si].totalSlLossUSD += slSetting;
+         if(slPremature) g_mstats[si].slPrematureHits++;
+        }
 
       WriteMarkerStatsCSV();
      }
@@ -503,7 +538,9 @@ void InitMarkerSuggestions()
             "EMA_Aligned,EMA_Structure,SpikeContext,SpikeSize_pts,HourOfDay,"
             "MaxFavourPts,MaxFavourUSD,MaxAdversePts,MaxAdverseUSD,"
             "BarsToFavourPeak,RewardRisk,"
-            "MarkerQuality,FinalizeReason,Suggestion\n");
+            "MarkerQuality,FinalizeReason,"
+            "SL_Setting_USD,SL_WouldHit,SL_PrematureHit,"
+            "Suggestion\n");
          FileClose(h);
         }
      }

@@ -83,6 +83,15 @@ struct PatternStats
    int    spikeTotal;        // total observations after a spike
    int    noSpikeWins;       // wins with no recent spike
    int    noSpikeTotal;      // total observations without spike
+   // Stop loss analysis
+   int    slHits;            // times SL would have been triggered
+   int    slPrematureHits;   // SL hit BUT price later went in favour (SL too tight)
+   double totalSlLossUSD;    // cumulative loss from SL hits
+   // ALL-observation totals for TP/SL recommendation
+   double totalObsFavourUSD;  // sum of maxFavourUSD across every observation
+   double totalObsAdverseUSD; // sum of maxAdverseUSD across every observation
+   double maxObsFavourUSD;    // single best favour seen (upper bound for TP)
+   double maxObsAdverseUSD;   // worst adverse seen (absolute SL floor needed)
    bool   active;
   };
 
@@ -92,6 +101,7 @@ int          g_statsCount = 0;
 
 string   g_suggestFile    = "";
 string   g_statsFile      = "";
+string   g_top5File       = "";   // Top5Patterns_SYMBOL.csv — best actionable patterns
 string   g_liveFile       = "";   // LiveTraining_SYMBOL.csv — rewritten every bar
 datetime g_lastLiveBar    = 0;    // last bar time when live CSV was updated
 
@@ -159,6 +169,7 @@ void InitLearningSuggestions()
 
    g_suggestFile = "AI_Suggestions_" + g_runTimestamp + "_" + Symbol() + ".csv";
    g_statsFile   = "PatternStats_" + g_runTimestamp + "_" + Symbol() + ".csv";
+   g_top5File    = "Top5Patterns_" + g_runTimestamp + "_" + Symbol() + ".csv";
 
    // Suggestions CSV — write header only for new file
    bool needHeader = true;
@@ -179,6 +190,7 @@ void InitLearningSuggestions()
             "SpikeContext,BarsAfterSpike,SpikeSize_pts,"
             "MaxFavourPts,MaxFavourUSD,MaxAdversePts,MaxAdverseUSD,"
             "RewardRisk,Outcome,FinalizeReason,MissedProfit_USD,"
+            "SL_Setting_USD,SL_WouldHit,SL_PrematureHit,"
             "SuggestedTP_pts,SuggestedTP_USD,SuggestedSL_pts,SuggestedSL_USD,"
             "Rating,BotAdvice\n");
          FileClose(h);
@@ -207,6 +219,9 @@ void InitLearningSuggestions()
          "BestProfit_USD,WorstLoss_USD,"
          "EMA_WinRate%,"
          "SpikeWinRate%,NoSpikeWinRate%,SpikeSamples,NoSpikeSamples,"
+         "SL_HitRate%,SL_PrematureRate%,AvgSL_Loss_USD,SL_Warning,SL_Advice,"
+         "AvgMaxFavour_USD,AvgMaxAdverse_USD,BestFavour_USD,WorstAdverse_USD,"
+         "Recommended_TP_USD,Recommended_SL_USD,TP_Assessment,SL_Assessment,Action_Required,"
          "Verdict,BotAdvice\n");
       FileClose(h);
      }
@@ -305,8 +320,171 @@ int FindOrCreateStats(string prePrev, string prev, string label, string dir)
    g_stats[s].spikeTotal      = 0;
    g_stats[s].noSpikeWins     = 0;
    g_stats[s].noSpikeTotal    = 0;
-   g_stats[s].active          = true;
+   g_stats[s].slHits             = 0;
+   g_stats[s].slPrematureHits    = 0;
+   g_stats[s].totalSlLossUSD     = 0;
+   g_stats[s].totalObsFavourUSD  = 0;
+   g_stats[s].totalObsAdverseUSD = 0;
+   g_stats[s].maxObsFavourUSD    = 0;
+   g_stats[s].maxObsAdverseUSD   = 0;
+   g_stats[s].active             = true;
    return s;
+  }
+
+//+------------------------------------------------------------------+
+//| Write Top5Patterns CSV — best actionable patterns ranked by score|
+//| Score = WinRate% * 0.5 + AvgRR * 25 + AvgProfit * 5            |
+//| Rewritten every time stats are updated                          |
+//+------------------------------------------------------------------+
+void WriteTop5PatternsCSV()
+  {
+   if(g_top5File == "") return;
+
+   // --- Score each eligible pattern ---
+   int    ranked[STATS_MAX];
+   double scores[STATS_MAX];
+   int    eligibleCount = 0;
+
+   for(int i = 0; i < g_statsCount; i++)
+     {
+      if(!g_stats[i].active || g_stats[i].count < 3) continue;  // need min 3 samples
+
+      PatternStats s = g_stats[i];
+      int    losses      = s.count - s.wins;
+      double winRate     = s.wins  * 100.0 / s.count;
+      double avgProfit   = (s.wins   > 0) ? s.totalFavourUSD  / s.wins  : 0;
+      double avgRR       = (s.count  > 0) ? s.totalRR         / s.count : 0;
+      double slHitRate   = (s.count  > 0) ? s.slHits * 100.0  / s.count : 0;
+
+      // Score formula: win rate is most important, then RR, then avg profit
+      // Penalise heavy SL hit rate (subtract 0.3 per % above 30%)
+      double slPenalty = (slHitRate > 30) ? (slHitRate - 30) * 0.3 : 0;
+      double score     = winRate * 0.5 + avgRR * 25.0 + avgProfit * 5.0 - slPenalty;
+
+      ranked[eligibleCount] = i;
+      scores[eligibleCount] = score;
+      eligibleCount++;
+     }
+
+   // --- Bubble sort descending by score (top 5 only, small array) ---
+   for(int a = 0; a < eligibleCount - 1; a++)
+      for(int b = a + 1; b < eligibleCount; b++)
+         if(scores[b] > scores[a])
+           {
+            double tmpS = scores[a]; scores[a] = scores[b]; scores[b] = tmpS;
+            int    tmpI = ranked[a]; ranked[a] = ranked[b]; ranked[b] = tmpI;
+           }
+
+   int top = (eligibleCount < 5) ? eligibleCount : 5;
+
+   // --- Write CSV ---
+   int h = FileOpen(g_top5File, FILE_TXT|FILE_WRITE|FILE_SHARE_READ|FILE_SHARE_WRITE);
+   if(h == INVALID_HANDLE) return;
+
+   FileWriteString(h,
+      "Rank,Pattern,Direction,Samples,WinRate%,AvgRR,"
+      "AvgMaxFavour_USD,AvgMaxAdverse_USD,"
+      "Recommended_TP_USD,Recommended_SL_USD,"
+      "Current_TP_USD,Current_SL_USD,"
+      "TP_Assessment,SL_Assessment,"
+      "SL_HitRate%,SL_PrematureRate%,"
+      "BestProfit_USD,Score,"
+      "Action,Trade_Advice\n");
+
+   for(int r = 0; r < top; r++)
+     {
+      int i = ranked[r];
+      PatternStats s = g_stats[i];
+
+      int    losses       = s.count - s.wins;
+      double winRate      = s.wins  * 100.0 / s.count;
+      double avgProfit    = (s.wins  > 0) ? s.totalFavourUSD  / s.wins   : 0;
+      double avgLoss      = (losses  > 0) ? s.totalAdverseUSD / losses   : 0;
+      double avgRR        = (s.count > 0) ? s.totalRR         / s.count  : 0;
+      double avgFavour    = (s.count > 0) ? s.totalObsFavourUSD  / s.count : 0;
+      double avgAdverse   = (s.count > 0) ? s.totalObsAdverseUSD / s.count : 0;
+      double recTP        = NormalizeDouble(avgFavour  * 0.75, 2);
+      double recSL        = NormalizeDouble(avgAdverse * 1.20, 2);
+      if(recSL < 0.01) recSL = 0.01;
+      double curTP        = (s.direction == "SELL") ? SeqSellProfitTarget : SeqBuyProfitTarget;
+      double curSL        = (s.direction == "SELL") ? SeqSellStopLossUSD  : SeqBuyStopLossUSD;
+      double slHitRate    = (s.count  > 0) ? s.slHits          * 100.0 / s.count  : 0;
+      double slPremRate   = (s.slHits > 0) ? s.slPrematureHits * 100.0 / s.slHits : 0;
+
+      // TP assessment
+      string tpAssess = "OK";
+      if(curTP > avgFavour * 0.9)       tpAssess = "TOO_AMBITIOUS";
+      else if(curTP < avgFavour * 0.4)  tpAssess = "TOO_TIGHT";
+
+      // SL assessment
+      string slAssess = "OK";
+      if(curSL < avgAdverse * 0.8)                       slAssess = "TOO_TIGHT";
+      else if(curSL > avgAdverse * 2.5 && avgAdverse > 0) slAssess = "TOO_WIDE";
+
+      // Action label
+      string action = "TRADE_IT";
+      if(winRate < 55)      action = "MONITOR";
+      if(winRate < 40)      action = "AVOID";
+      if(slHitRate >= 60)   action = "REDUCE_LOT";
+
+      // Plain-English trade advice
+      string advice = "";
+      advice += "Win rate " + DoubleToString(winRate,0) + "% over " + IntegerToString(s.count) + " trades. ";
+      advice += "Set TP=$" + DoubleToString(recTP,2) + " SL=$" + DoubleToString(recSL,2) + ". ";
+      if(tpAssess == "TOO_AMBITIOUS")
+         advice += "Lower your TP — market rarely reaches current target ($" + DoubleToString(curTP,2) + "). ";
+      else if(tpAssess == "TOO_TIGHT")
+         advice += "Raise your TP — market has more room. ";
+      if(slAssess == "TOO_TIGHT")
+         advice += "SL too tight! Hits " + DoubleToString(slHitRate,0) + "% of trades — widen to $" + DoubleToString(recSL,2) + ". ";
+      else if(slAssess == "TOO_WIDE")
+         advice += "SL wider than needed — tighten to $" + DoubleToString(recSL,2) + " to protect capital. ";
+      if(slPremRate >= 40)
+         advice += "WARNING: " + DoubleToString(slPremRate,0) + "% of SL hits were premature (price recovered). ";
+      if(s.spikeTotal > 0 && s.noSpikeTotal > 0)
+        {
+         double swr = s.spikeWins   * 100.0 / s.spikeTotal;
+         double nwr = s.noSpikeWins * 100.0 / s.noSpikeTotal;
+         if(swr > nwr + 20)       advice += "Best after spikes (" + DoubleToString(swr,0) + "% win). ";
+         else if(nwr > swr + 20)  advice += "Avoid after spikes (" + DoubleToString(swr,0) + "% vs " + DoubleToString(nwr,0) + "%). ";
+        }
+
+      string pattern = s.prePrev + " > " + s.prev + " > " + s.label;
+
+      string row =
+         IntegerToString(r + 1)           + "," +
+         "\"" + pattern + "\""            + "," +
+         s.direction                      + "," +
+         IntegerToString(s.count)         + "," +
+         DoubleToString(winRate,   1)     + "," +
+         DoubleToString(avgRR,     2)     + "," +
+         DoubleToString(avgFavour, 2)     + "," +
+         DoubleToString(avgAdverse,2)     + "," +
+         DoubleToString(recTP,     2)     + "," +
+         DoubleToString(recSL,     2)     + "," +
+         DoubleToString(curTP,     2)     + "," +
+         DoubleToString(curSL,     2)     + "," +
+         tpAssess                         + "," +
+         slAssess                         + "," +
+         DoubleToString(slHitRate, 1)     + "," +
+         DoubleToString(slPremRate,1)     + "," +
+         DoubleToString(s.bestProfitUSD,2)+ "," +
+         DoubleToString(scores[r], 1)     + "," +
+         action                           + "," +
+         "\"" + advice + "\""             + "\n";
+
+      FileWriteString(h, row);
+     }
+
+   // Footer: summary line
+   if(top == 0)
+      FileWriteString(h, "\"No patterns with 3+ samples yet. Keep running the EA.\"\n");
+   else
+      FileWriteString(h, "\n\"Updated: " + TimeToString(TimeCurrent(), TIME_DATE|TIME_SECONDS) +
+                         " | Total patterns: " + IntegerToString(g_statsCount) +
+                         " | Eligible (3+ samples): " + IntegerToString(eligibleCount) + "\"\n");
+
+   FileClose(h);
   }
 
 //+------------------------------------------------------------------+
@@ -323,6 +501,9 @@ void WritePatternStatsCSV()
       "BestProfit_USD,WorstLoss_USD,"
       "EMA_WinRate%,"
       "SpikeWinRate%,NoSpikeWinRate%,SpikeSamples,NoSpikeSamples,"
+      "SL_HitRate%,SL_PrematureRate%,AvgSL_Loss_USD,SL_Warning,SL_Advice,"
+      "AvgMaxFavour_USD,AvgMaxAdverse_USD,BestFavour_USD,WorstAdverse_USD,"
+      "Recommended_TP_USD,Recommended_SL_USD,TP_Assessment,SL_Assessment,Action_Required,"
       "Verdict,BotAdvice\n");
 
    for(int i = 0; i < g_statsCount; i++)
@@ -406,7 +587,96 @@ void WritePatternStatsCSV()
 
       string spikeWRStr   = (spikeWinRate >= 0) ? DoubleToString(spikeWinRate,1) : "N/A";
       string noSpikeWRStr = (noSpikeWR    >= 0) ? DoubleToString(noSpikeWR,   1) : "N/A";
-      string pattern      = s.prePrev + " > " + s.prev + " > " + s.label;
+
+      // --- SL analysis ---
+      double slHitRate       = (s.count > 0)    ? (s.slHits          * 100.0 / s.count) : 0;
+      double slPremRate      = (s.slHits > 0)   ? (s.slPrematureHits * 100.0 / s.slHits): 0;
+      double avgSlLoss       = (s.slHits > 0)   ? (s.totalSlLossUSD  / s.slHits)         : 0;
+
+      string slWarning = "OK";
+      string slAdvice  = "SL is rarely hit.";
+      if(slHitRate >= 60 && slPremRate >= 40)
+        {
+         slWarning = "SL_TOO_TIGHT";
+         slAdvice  = "SL too tight! Hit " + DoubleToString(slHitRate,0) + "% of trades and " +
+                     DoubleToString(slPremRate,0) + "% were premature (price recovered). " +
+                     "Widen SL to $" + DoubleToString(avgSlLoss * 1.5, 2) + " to avoid early exits.";
+        }
+      else if(slHitRate >= 60)
+        {
+         slWarning = "FREQUENT_SL_HITS";
+         slAdvice  = "SL hit " + DoubleToString(slHitRate,0) + "% of trades! Avg loss $" +
+                     DoubleToString(avgSlLoss,2) + " per hit. " +
+                     "Consider skipping this pattern OR reduce lot size to limit damage.";
+        }
+      else if(slHitRate >= 35)
+        {
+         slWarning = "MODERATE_SL_RISK";
+         slAdvice  = "SL hit " + DoubleToString(slHitRate,0) + "% of trades. Avg loss $" +
+                     DoubleToString(avgSlLoss,2) + ". " +
+                     (slPremRate >= 30 ? "Some premature hits — consider widening SL slightly." :
+                                         "Pattern is marginal. Use EMA/spike filters.");
+        }
+      else if(s.slHits == 0 && s.count >= 3)
+        {
+         slWarning = "SAFE";
+         slAdvice  = "SL never hit in " + IntegerToString(s.count) + " trades. Pattern stays within SL.";
+        }
+
+      // --- TP/SL recommendation from ALL-observation totals ---
+      double avgMaxFavour  = (s.count > 0) ? (s.totalObsFavourUSD  / s.count) : 0;
+      double avgMaxAdverse = (s.count > 0) ? (s.totalObsAdverseUSD / s.count) : 0;
+      // Recommend TP at 75% of avg max favour, SL at 120% of avg max adverse
+      double recTP = NormalizeDouble(avgMaxFavour  * 0.75, 2);
+      double recSL = NormalizeDouble(avgMaxAdverse * 1.20, 2);
+      if(recSL < 0.01) recSL = 0.01;
+
+      double curTP = (s.direction == "SELL") ? SeqSellProfitTarget : SeqBuyProfitTarget;
+      double curSL = (s.direction == "SELL") ? SeqSellStopLossUSD  : SeqBuyStopLossUSD;
+
+      string tpAssess = "OK";
+      string slAssess = "OK";
+      string actionReq = "No change needed.";
+
+      if(s.count >= 3)
+        {
+         // TP assessment
+         if(curTP > avgMaxFavour * 0.9)
+            tpAssess = "TOO_AMBITIOUS";
+         else if(curTP < avgMaxFavour * 0.4)
+            tpAssess = "TOO_TIGHT";
+
+         // SL assessment
+         if(curSL < avgMaxAdverse * 0.8)
+            slAssess = "TOO_TIGHT";
+         else if(curSL > avgMaxAdverse * 2.5 && avgMaxAdverse > 0)
+            slAssess = "TOO_WIDE";
+
+         // Action required
+         bool tpBad = (tpAssess != "OK");
+         bool slBad = (slAssess != "OK");
+         if(tpBad && slBad)
+            actionReq = "ADJUST BOTH: Set TP=$" + DoubleToString(recTP,2) +
+                        " SL=$" + DoubleToString(recSL,2) +
+                        " (market avg favour=$" + DoubleToString(avgMaxFavour,2) +
+                        " adverse=$" + DoubleToString(avgMaxAdverse,2) + ")";
+         else if(tpBad)
+            actionReq = "ADJUST TP: Set to $" + DoubleToString(recTP,2) +
+                        " (current=$" + DoubleToString(curTP,2) +
+                        " avg market favour=$" + DoubleToString(avgMaxFavour,2) + ")";
+         else if(slBad)
+            actionReq = "ADJUST SL: Set to $" + DoubleToString(recSL,2) +
+                        " (current=$" + DoubleToString(curSL,2) +
+                        " avg market adverse=$" + DoubleToString(avgMaxAdverse,2) + ")";
+        }
+      else
+        {
+         tpAssess  = "LEARNING";
+         slAssess  = "LEARNING";
+         actionReq = "Need " + IntegerToString(3 - s.count) + " more sample(s) for TP/SL advice.";
+        }
+
+      string pattern = s.prePrev + " > " + s.prev + " > " + s.label;
 
       string row =
          "\"" + pattern + "\""              + "," +
@@ -425,12 +695,29 @@ void WritePatternStatsCSV()
          noSpikeWRStr                       + "," +
          IntegerToString(s.spikeTotal)      + "," +
          IntegerToString(s.noSpikeTotal)    + "," +
+         DoubleToString(slHitRate,  1)      + "," +
+         DoubleToString(slPremRate, 1)      + "," +
+         DoubleToString(avgSlLoss,  2)      + "," +
+         slWarning                          + "," +
+         "\"" + slAdvice + "\""             + "," +
+         DoubleToString(avgMaxFavour,  2)   + "," +
+         DoubleToString(avgMaxAdverse, 2)   + "," +
+         DoubleToString(s.maxObsFavourUSD,  2) + "," +
+         DoubleToString(s.maxObsAdverseUSD, 2) + "," +
+         DoubleToString(recTP, 2)           + "," +
+         DoubleToString(recSL, 2)           + "," +
+         tpAssess                           + "," +
+         slAssess                           + "," +
+         "\"" + actionReq + "\""            + "," +
          verdict                            + "," +
          "\"" + botAdvice + "\""            + "\n";
 
       FileWriteString(h, row);
      }
    FileClose(h);
+
+   // Also refresh Top 5 whenever PatternStats is updated
+   WriteTop5PatternsCSV();
   }
 
 //+------------------------------------------------------------------+
@@ -452,6 +739,13 @@ void LearnWriteSuggestion(int slot)
    double suggestedTPUSD  = PointsToUSD(suggestedTP,  r.isSell);
    double suggestedSLUSD  = PointsToUSD(suggestedSL,  r.isSell);
    double missedProfitUSD = NormalizeDouble(maxFavourUSD - suggestedTPUSD, 2);
+
+   // --- SL hit analysis ---
+   double slSetting      = r.isSell ? SeqSellStopLossUSD : SeqBuyStopLossUSD;
+   double tpSetting      = r.isSell ? SeqSellProfitTarget : SeqBuyProfitTarget;
+   bool   slWouldHit     = (maxAdverseUSD >= slSetting);
+   // Premature = SL would have triggered BUT max favour also reached TP (price recovered)
+   bool   slPremature    = slWouldHit && (maxFavourUSD >= tpSetting);
 
    // Outcome
    string outcome = "NEUTRAL";
@@ -521,6 +815,9 @@ void LearnWriteSuggestion(int slot)
       outcome                                           + "," +
       r.finalizeReason                                  + "," +
       DoubleToString(missedProfitUSD, 2)                + "," +
+      DoubleToString(slSetting, 2)                      + "," +
+      (slWouldHit  ? "YES" : "NO")                      + "," +
+      (slPremature ? "YES" : "NO")                      + "," +
       IntegerToString(suggestedTP)                      + "," +
       DoubleToString(suggestedTPUSD, 2)                 + "," +
       IntegerToString(suggestedSL)                      + "," +
@@ -562,6 +859,13 @@ void LearnWriteSuggestion(int slot)
          g_stats[si].emaAlignedTotal++;
          if(isWin) g_stats[si].emaAlignedWins++;
         }
+      // SL tracking
+      if(slWouldHit)
+        {
+         g_stats[si].slHits++;
+         g_stats[si].totalSlLossUSD += slSetting;
+         if(slPremature) g_stats[si].slPrematureHits++;
+        }
       // Spike split
       if(hasSpike)
         {
@@ -573,6 +877,11 @@ void LearnWriteSuggestion(int slot)
          g_stats[si].noSpikeTotal++;
          if(isWin) g_stats[si].noSpikeWins++;
         }
+      // ALL-observation TP/SL tracking (every signal, not just wins/losses)
+      g_stats[si].totalObsFavourUSD  += maxFavourUSD;
+      g_stats[si].totalObsAdverseUSD += maxAdverseUSD;
+      if(maxFavourUSD  > g_stats[si].maxObsFavourUSD)  g_stats[si].maxObsFavourUSD  = maxFavourUSD;
+      if(maxAdverseUSD > g_stats[si].maxObsAdverseUSD) g_stats[si].maxObsAdverseUSD = maxAdverseUSD;
       WritePatternStatsCSV();
      }
 
@@ -590,6 +899,21 @@ void LearnWriteSuggestion(int slot)
          " | " + rating +
          " | EMA=" + emaStructure +
          spikeTag);
+
+   // SL warning journal
+   if(slWouldHit)
+     {
+      if(slPremature)
+         Print("AI BOT | *** SL PREMATURE *** [" + r.label + "]" +
+               " SL($" + DoubleToString(slSetting,2) + ") was hit BUT price later reached TP($" +
+               DoubleToString(tpSetting,2) + "). SL is TOO TIGHT — widen it!");
+      else
+         Print("AI BOT | *** SL HIT *** [" + r.label + "]" +
+               " Adverse=$" + DoubleToString(maxAdverseUSD,2) +
+               " exceeded SL=$" + DoubleToString(slSetting,2) +
+               " | Cumulative SL hits this session: " +
+               (si >= 0 ? IntegerToString(g_stats[si].slHits) : "?"));
+     }
 
    if(rating == "STRONG")
       Print("AI BOT | *** STRONG *** " + r.label +

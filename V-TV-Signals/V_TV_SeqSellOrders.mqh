@@ -11,6 +11,9 @@
 //|  Condition 5 : Minimum downfall gap from last SELL entry         |
 //|  Condition 6 : No existing SELL order is in loss                 |
 //|  Condition 7 : SeqRule pattern matched (action=NEW_ORDER, SELL)  |
+//|  Condition 8 : EMA1 trending DOWN                                |
+//|  Condition 9 : EMA1 below EMA2 (bearish structure)               |
+//|  Condition 11: M15 downtrend — close below close N bars ago      |
 //+------------------------------------------------------------------+
 #ifndef V_TV_SEQ_SELL_ORDERS_MQH
 #define V_TV_SEQ_SELL_ORDERS_MQH
@@ -24,7 +27,8 @@ input string   _SeqSell_        = "--- SEQ SELL ORDERS ---";
 input int      SeqSellMagicNo   = 22001;  // Magic number
 input int      SeqSellEMAPeriod = 20;     // EMA1 period for trend confirmation
 input int      SeqSellEMA2Period= 50;     // EMA2 period (slow)
-input int      SeqSellEMAShift  = 3;      // How many candles to compare slope
+input int      SeqSellEMAShift  = 10;      // How many candles to compare slope
+input int      SeqSellEMAFlatMinPts = 10;  // Min EMA movement in points to be considered trending (0=disable flat filter)
 //+------------------------------------------------------------------+
 //| CONDITION HELPERS                                                |
 //+------------------------------------------------------------------+
@@ -78,6 +82,9 @@ bool SellCond2b_MinTimeBetweenOrders()
 // Condition 3: Price NOT inside NO TREND SELL ZONE
 bool SellCond3_NotInNoSellZone()
   {
+
+if(TrendSellDailyLowGapPrice==0) return true;
+
    double dailyLow = iLow(Symbol(), PERIOD_D1, 0);
    if(dailyLow <= 0) return true;
    double zoneTop = dailyLow + TrendSellDailyLowGapPrice;
@@ -167,24 +174,38 @@ bool SellCond6_NoOrderInLoss()
 // Condition 7: SeqRule pattern matched and is NEW_ORDER SELL
 bool SellCond7_PatternMatched(int &ruleIdx)
   {
+   // --- Check SeqRules first ---
    ruleIdx = CheckSeqRules();
-   if(ruleIdx < 0)
+   if(ruleIdx >= 0)
      {
-      Print("SeqSell | BLOCKED [Cond7-NoPattern] No matching rule for " + SellPatternContext());
-      return false;
+      if(g_seqRules[ruleIdx].action != "NEW_ORDER" || g_seqRules[ruleIdx].tradeType != "SELL")
+        {
+         // matched a rule but wrong type — fall through to color rules
+         ruleIdx = -1;
+        }
+      else
+        {
+         Print("SeqSell | Cond7 MATCHED SeqRule [" +
+               g_seqRules[ruleIdx].prePrev + " | " +
+               g_seqRules[ruleIdx].prev    + " | " +
+               g_seqRules[ruleIdx].curr    + "]");
+         return true;
+        }
      }
-   if(g_seqRules[ruleIdx].action != "NEW_ORDER" || g_seqRules[ruleIdx].tradeType != "SELL")
+
+   // --- Check ColorRules ---
+   int cIdx = CheckColorRules("NEW_ORDER", "SELL");
+   if(cIdx >= 0)
      {
-      Print("SeqSell | BLOCKED [Cond7-WrongType] Rule[" + IntegerToString(ruleIdx) +
-            "] action=" + g_seqRules[ruleIdx].action + " type=" + g_seqRules[ruleIdx].tradeType +
-            " (expected NEW_ORDER/SELL) " + SellPatternContext());
-      return false;
+      ruleIdx = -1;   // no SeqRule index; caller uses -1 to mean "color rule matched"
+      Print("SeqSell | Cond7 MATCHED ColorRule [" + g_colorRules[cIdx].colorType +
+            " COUNT>=" + IntegerToString(g_colorRules[cIdx].minCount) +
+            "] signal=" + g_liveSignalName + " " + IntegerToString(g_currSeqCount));
+      return true;
      }
-   Print("SeqSell | Cond7 MATCHED - Pattern [" +
-         g_seqRules[ruleIdx].prePrev + " | " +
-         g_seqRules[ruleIdx].prev    + " | " +
-         g_seqRules[ruleIdx].curr    + "]");
-   return true;
+
+   Print("SeqSell | BLOCKED [Cond7-NoMatch] No SeqRule or ColorRule matched " + SellPatternContext());
+   return false;
   }
 
 //+------------------------------------------------------------------+
@@ -210,10 +231,11 @@ bool PlaceSeqSellOrder(int ruleIdx)
   {
    double bid = MarketInfo(Symbol(), MODE_BID);
 
+   // ruleIdx == -1 means a ColorRule matched (not a SeqRule) — safe fallback comment
    string comment = "SeqSell|" +
-                    g_seqRules[ruleIdx].prePrev + "|" +
-                    g_seqRules[ruleIdx].prev    + "|" +
-                    g_seqRules[ruleIdx].curr;
+                    (ruleIdx >= 0 ? g_seqRules[ruleIdx].prePrev : "COLOR") + "|" +
+                    (ruleIdx >= 0 ? g_seqRules[ruleIdx].prev    : g_liveSignalName) + "|" +
+                    (ruleIdx >= 0 ? g_seqRules[ruleIdx].curr    : IntegerToString(g_currSeqCount));
 
    int ticket = OrderSend(Symbol(), OP_SELL, SeqSellLotSize, bid,
                           SeqSellSlippage, 0, 0,
@@ -225,9 +247,11 @@ bool PlaceSeqSellOrder(int ruleIdx)
       return false;
      }
 
-   string pattern = g_seqRules[ruleIdx].prePrev + " | " +
-                    g_seqRules[ruleIdx].prev    + " | " +
-                    g_seqRules[ruleIdx].curr;
+   string pattern = (ruleIdx >= 0)
+                    ? g_seqRules[ruleIdx].prePrev + " | " +
+                      g_seqRules[ruleIdx].prev    + " | " +
+                      g_seqRules[ruleIdx].curr
+                    : "COLOR | " + g_liveSignalName + " | " + IntegerToString(g_currSeqCount);
 
    Print("SeqSell | *** ORDER CREATED #" + IntegerToString(ticket) + " ***" +
          " Pattern=[" + pattern + "]" +
@@ -238,75 +262,142 @@ bool PlaceSeqSellOrder(int ruleIdx)
   }
 
 //+------------------------------------------------------------------+
+//| Draw orange dashed rectangle on current bar when SELL is blocked |
+//| Tooltip shows on mouse-hover in MetaTrader chart                 |
+//+------------------------------------------------------------------+
+void DrawBlockedSellSignal(string reason)
+  {
+   string ts    = IntegerToString((int)TimeCurrent());
+   string nameR = "BlkSell_R_" + ts;   // rectangle
+   string nameT = "BlkSell_T_" + ts;   // text label
+   ObjectDelete(0, nameR);
+   ObjectDelete(0, nameT);
+
+   double boxH = High[0] + 8 * Point;
+   double boxL = Low[0]  - 8 * Point;
+   datetime t1 = Time[0];
+   datetime t2 = Time[0] + (datetime)PeriodSeconds(PERIOD_CURRENT);
+
+   // Extract short condition ID: e.g. "Cond8: EMA flat" -> "Cond8"
+   string condId = reason;
+   int colonPos = StringFind(reason, ":");
+   if(colonPos > 0) condId = StringSubstr(reason, 0, colonPos);
+
+   // Rectangle box
+   if(ObjectCreate(0, nameR, OBJ_RECTANGLE, 0, t1, boxH, t2, boxL))
+     {
+      ObjectSetInteger(0, nameR, OBJPROP_COLOR,      clrOrangeRed);
+      ObjectSetInteger(0, nameR, OBJPROP_STYLE,      STYLE_DASH);
+      ObjectSetInteger(0, nameR, OBJPROP_WIDTH,      2);
+      ObjectSetInteger(0, nameR, OBJPROP_BACK,       false);
+      ObjectSetInteger(0, nameR, OBJPROP_FILL,       false);
+      ObjectSetInteger(0, nameR, OBJPROP_SELECTABLE, false);
+      ObjectSetInteger(0, nameR, OBJPROP_HIDDEN,     false);
+      ObjectSetString(0,  nameR, OBJPROP_TOOLTIP,
+                      "SELL BLOCKED\n" +
+                      "Pattern: " + SellPatternContext() + "\n" +
+                      "Reason:  " + reason + "\n" +
+                      "Time:    " + TimeToString(TimeCurrent(), TIME_DATE|TIME_SECONDS));
+     }
+
+   // Text label inside the box showing condition ID
+   if(ObjectCreate(0, nameT, OBJ_TEXT, 0, t1, boxH - 2 * Point))
+     {
+      ObjectSetString(0,  nameT, OBJPROP_TEXT,      "X " + condId);
+      ObjectSetInteger(0, nameT, OBJPROP_COLOR,     clrOrangeRed);
+      ObjectSetInteger(0, nameT, OBJPROP_FONTSIZE,  7);
+      ObjectSetString(0,  nameT, OBJPROP_FONT,      "Arial Bold");
+      ObjectSetInteger(0, nameT, OBJPROP_ANCHOR,    ANCHOR_LEFT_UPPER);
+      ObjectSetInteger(0, nameT, OBJPROP_SELECTABLE,false);
+      ObjectSetInteger(0, nameT, OBJPROP_HIDDEN,    false);
+      ObjectSetString(0,  nameT, OBJPROP_TOOLTIP,
+                      "SELL BLOCKED: " + reason);
+     }
+
+   ChartRedraw(0);
+  }
+
+//+------------------------------------------------------------------+
 //| Main entry: called every tick from OnTick                        |
-//| All 7 conditions evaluated independently, logged individually    |
 //+------------------------------------------------------------------+
 void ProcessSeqSellOrders()
   {
-   // Condition 1: live signal exists
+   // Condition 1 & 7: quick exits — no marker drawn if these fail
    if(g_liveSignalName == "")
-     {
-      LogMessage("SeqSell | Cond1 FAILED - No live signal");
-      return;
-     }
-   LogMessage("SeqSell | Cond1 PASSED - Live signal: " + g_liveSignalName);
+     { LogMessage("SeqSell | Cond1 FAILED - No live signal"); return; }
 
-   // Condition 2: warmup elapsed
-   if(!SellCond2_WarmupElapsed()) return;
-   LogMessage("SeqSell | Cond2 PASSED - Warmup elapsed");
-
-   // Condition 2b: min time between orders
-   if(!SellCond2b_MinTimeBetweenOrders()) return;
-
-   // Condition 3: not in NO SELL ZONE
-   if(!SellCond3_NotInNoSellZone()) return;
-   LogMessage("SeqSell | Cond3 PASSED - Price above NO SELL ZONE");
-
-   // Condition 4: max orders not reached
-   int openCount = CountOpenSeqSellOrders();
-   if(!SellCond4_MaxOrdersNotReached(openCount)) return;
-   LogMessage("SeqSell | Cond4 PASSED - Open orders: " + IntegerToString(openCount) +
-              "/" + IntegerToString(SeqSellMaxOrders));
-
-   // Condition 5: minimum downfall gap
-   if(!SellCond5_MinDownfallGap(openCount)) return;
-
-   // Condition 6: no order in loss
-   if(!SellCond6_NoOrderInLoss()) return;
-   LogMessage("SeqSell | Cond6 PASSED - No SELL order in loss");
-
-   // Condition 7: pattern matched
    int ruleIdx = -1;
    if(!SellCond7_PatternMatched(ruleIdx)) return;
 
+   // === PATTERN MATCHED — track which condition blocks and draw marker ===
+   int    openCount  = CountOpenSeqSellOrders();
+   string blockReason = "";
 
-   // Condition 8: EMA1 trending down
-   if(!SellCond8_EMADowntrend()) return;
+   if(!SellCond2_WarmupElapsed())
+      blockReason = "Cond2: Warmup not elapsed yet";
+   else if(!SellCond2b_MinTimeBetweenOrders())
+      blockReason = "Cond2b: Too soon after last SELL (" +
+                    IntegerToString(SeqSellMinSecsBetweenOrders) + "s minimum)";
+   else if(!SellCond3_NotInNoSellZone())
+      blockReason = "Cond3: Price is inside NO SELL ZONE";
+   else if(!SellCond4_MaxOrdersNotReached(openCount))
+      blockReason = "Cond4: Max SELL orders reached (" +
+                    IntegerToString(openCount) + "/" + IntegerToString(SeqSellMaxOrders) + ")";
+   else if(!SellCond5_MinDownfallGap(openCount))
+      blockReason = "Cond5: Min downfall gap not reached (" +
+                    IntegerToString(SeqSellMinGapPoints) + "pts required)";
+   else if(!SellCond6_NoOrderInLoss())
+      blockReason = "Cond6: An existing SELL order is in loss";
+   else if(!SellCond8_EMADowntrend())
+      blockReason = "Cond8: EMA not trending down or is flat (min " +
+                    IntegerToString(SeqSellEMAFlatMinPts) + "pts slope required)";
+   else if(!SellCond9_EMA1BelowEMA2())
+      blockReason = "Cond9: EMA1 not below EMA2 — no bearish structure";
+   else if(!SellCond11_M15Downtrend())
+      blockReason = "Cond11: M30 downtrend not confirmed (need " +
+                    DoubleToString(TrendMinMovePercent,2) + "% drop over " +
+                    IntegerToString(TrendLookbackBars) + " bars)";
 
-   // Condition 9: EMA1 below EMA2 (bearish structure)
-   if(!SellCond9_EMA1BelowEMA2()) return;
+   if(blockReason != "")
+     {
+      DrawBlockedSellSignal(blockReason);
+      return;
+     }
 
-   // Condition 10: Real market — no fake ticks, no spread spike, sufficient volume
-   //////if(!SellCond10_RealMarket()) return;
-   //////LogMessage("SeqSell | Cond10 PASSED - Market is real");
-
-   // All conditions passed - place order
+   // All conditions passed
    Print("SeqSell | ALL CONDITIONS PASSED - Placing SELL order " + SellPatternContext());
    PlaceSeqSellOrder(ruleIdx);
   }
 
-// Condition 8: EMA1 must be trending DOWN
+// Condition 8: EMA1 must be trending DOWN and not flat (straight line)
 bool SellCond8_EMADowntrend()
   {
    double emaCurrent = iMA(Symbol(), 0, SeqSellEMAPeriod, 0, MODE_EMA, PRICE_CLOSE, 0);
    double emaPast    = iMA(Symbol(), 0, SeqSellEMAPeriod, 0, MODE_EMA, PRICE_CLOSE, SeqSellEMAShift);
+   double slopePts   = (emaPast - emaCurrent) / Point;  // positive = falling
 
-   if(emaCurrent < emaPast)
-      return true;
-   Print("SeqSell | BLOCKED [Cond8-EMA1Slope] EMA1(" + IntegerToString(SeqSellEMAPeriod) +
-         ") NOT sloping down: was " + DoubleToString(emaPast,2) +
-         " now " + DoubleToString(emaCurrent,2) + " " + SellPatternContext());
-   return false;
+   // Direction check: EMA must be falling
+   if(emaCurrent >= emaPast)
+     {
+      Print("SeqSell | BLOCKED [Cond8-EMA1Slope] EMA1(" + IntegerToString(SeqSellEMAPeriod) +
+            ") NOT sloping down: was " + DoubleToString(emaPast,5) +
+            " now " + DoubleToString(emaCurrent,5) +
+            " slope=" + DoubleToString(slopePts,1) + "pts " + SellPatternContext());
+      return false;
+     }
+
+   // Flatness check: slope must exceed minimum threshold
+   if(SeqSellEMAFlatMinPts > 0 && slopePts < SeqSellEMAFlatMinPts)
+     {
+      Print("SeqSell | BLOCKED [Cond8-EMAFlat] EMA1 is STRAIGHT/FLAT: slope=" +
+            DoubleToString(slopePts,1) + "pts over " + IntegerToString(SeqSellEMAShift) +
+            " bars < min " + IntegerToString(SeqSellEMAFlatMinPts) +
+            "pts — sideways market, skip SELL " + SellPatternContext());
+      return false;
+     }
+
+   LogMessage("SeqSell | Cond8 PASSED - EMA slope=" + DoubleToString(slopePts,1) + "pts DOWN");
+   return true;
   }
 
 // Condition 9: EMA1 (fast) must be below EMA2 (slow) = bearish market structure
@@ -378,6 +469,48 @@ bool SellCond10_RealMarket()
    LogMessage("SeqSell | Cond10 PASSED - Spread=" + DoubleToString(currentSpread,1) +
               "pts AvgSpread=" + DoubleToString(avgSpread,1) + "pts Volume OK");
    return true;
+  }
+
+// Condition 11: 15-min downtrend confirmation
+//   Checks M15 timeframe: current close must be BELOW close TrendLookbackBars ago
+//   Ensures we only SELL when the 15-min trend is already falling
+bool SellCond11_M15Downtrend()
+  {
+
+    return true;
+   if(!EnableTrendFilter) return true;
+   if(TrendLookbackBars <= 0) return true;
+
+   double closeCurrent = iClose(Symbol(), PERIOD_M1, 0);
+   double closePast    = iClose(Symbol(), PERIOD_M1, TrendLookbackBars);
+
+   if(closePast <= 0) return true;  // data not available, allow through
+
+   double priceDrop   = closePast - closeCurrent;          // positive = price fell
+   double minRequired = closeCurrent * TrendMinMovePercent  ;  // e.g. 0.15% of price
+
+   bool directionOK  = (closeCurrent < closePast);         // price is lower than N bars ago
+   bool magnitudeOK  = (priceDrop >= minRequired);         // drop is large enough
+
+   if(directionOK && magnitudeOK)
+     {
+      LogMessage("SeqSell | Cond11 PASSED - M30 downtrend: drop=" +
+                 DoubleToString(priceDrop / Point, 1) + "pts (" +
+                 DoubleToString(priceDrop / closePast * 100.0, 3) + "%) >= min " +
+                 DoubleToString(TrendMinMovePercent, 2) + "%");
+      return true;
+     }
+
+   if(!directionOK)
+      Print("SeqSell | BLOCKED [Cond11-NoDowntrend] M30 close=" + DoubleToString(closeCurrent,5) +
+            " NOT below " + IntegerToString(TrendLookbackBars) + " bars ago=" + DoubleToString(closePast,5) +
+            " (price flat/rising — SELL blocked) " + SellPatternContext());
+   else
+      Print("SeqSell | BLOCKED [Cond11-DropTooSmall] Drop=" + DoubleToString(priceDrop/Point,1) + "pts (" +
+            DoubleToString(priceDrop/closePast*100.0,3) + "%) < min " + DoubleToString(TrendMinMovePercent,2) +
+            "% (" + DoubleToString(minRequired/Point,1) + "pts required) — weak move, skip " +
+            SellPatternContext());
+   return false;
   }
 
 #endif

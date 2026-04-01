@@ -26,17 +26,17 @@ input double SeqSellLotSize = 0.01;  // SELL lot size
 input double SeqBuyLotSize  = 0.01;  // BUY lot size
 
 //--- Slippage (lot-independent) -------------------------------------
-input int SeqSellSlippage   = 30;    // SELL slippage in points
-input int SeqBuySlippage    = 30;    // BUY slippage in points
-input int SeqCloseSlippage  = 30;    // Close slippage in points
+input int SeqSellSlippage   = 100;    // SELL slippage in points
+input int SeqBuySlippage    = 100;    // BUY slippage in points
+input int SeqCloseSlippage  = 0;    // Close slippage in points
 
 //--- Min price gap between signals (lot-independent) ----------------
 input int SeqSellMinGapPoints = 200; // SELL: min drop between signals (pts)
 input int SeqBuyMinGapPoints  = 200; // BUY:  min rise between signals (pts)
 
 //--- Max open orders (lot-independent) ------------------------------
-input int SeqSellMaxOrders  = 2;     // Max simultaneous SELL orders
-input int SeqBuyMaxOrders   = 2;     // Max simultaneous BUY orders
+input int SeqSellMaxOrders  = 1;     // Max simultaneous SELL orders
+input int SeqBuyMaxOrders   = 1;     // Max simultaneous BUY orders
 
 //--- Min time between orders (lot-independent) ----------------------
 input int SeqSellMinSecsBetweenOrders = 30; // SELL: min seconds between orders
@@ -50,11 +50,17 @@ input double SpreadSpikeMultiplier = 2.5;   // Block if spread > running avg × 
 input double VolumeMinRatio        = 0.25;  // Block if bar volume < avg × this (0=disabled)
 input int    VolumeAvgBars         = 20;    // Bars used for average volume
 
+//--- 15-min trend confirmation (Condition 11) -----------------------
+input string _TrendCond_           = "--- 15-MIN TREND FILTER ---";
+input bool   EnableTrendFilter     = true;  // Enable Cond11
+input int    TrendLookbackBars     = 3;     // M30 bars back to compare (3 bars = 90 min trend)
+input double TrendMinMovePercent   = 0.01;  // Min price move % required (e.g. 0.15 = 0.15% of price)
+
 //--- 0.01; Profit / StopLoss (auto-calculated in InitLotDependentVars) ----
-double SeqSellProfitTarget = 0.50;
-double SeqSellStopLossUSD  = 1.00;
-double SeqBuyProfitTarget  = 0.50;
-double SeqBuyStopLossUSD   = 1.00;
+double SeqSellProfitTarget = 10;
+double SeqSellStopLossUSD  = 20.00;
+double SeqBuyProfitTarget  =10;
+double SeqBuyStopLossUSD   = 20.00;
 
 //+------------------------------------------------------------------+
 //| Call this once in OnInit() — scales TP/SL to the chosen lot size |
@@ -64,10 +70,10 @@ void InitLotDependentVars()
    double sellScale = (SeqSellLotSize > 0) ? SeqSellLotSize / 0.01 : 1.0;
    double buyScale  = (SeqBuyLotSize  > 0) ? SeqBuyLotSize  / 0.01 : 1.0;
 
-   SeqSellProfitTarget = NormalizeDouble(0.50  * sellScale, 2);
-   SeqSellStopLossUSD  = NormalizeDouble(20.00 * sellScale, 2);
-   SeqBuyProfitTarget  = NormalizeDouble(0.50  * buyScale,  2);
-   SeqBuyStopLossUSD   = NormalizeDouble(20.00 * buyScale,  2);
+   SeqSellProfitTarget = NormalizeDouble(SeqSellProfitTarget  * sellScale, 2);
+   SeqSellStopLossUSD  = NormalizeDouble(SeqSellStopLossUSD  * sellScale, 2);
+   SeqBuyProfitTarget  = NormalizeDouble(SeqBuyProfitTarget  * buyScale,  2);
+   SeqBuyStopLossUSD   = NormalizeDouble(SeqBuyStopLossUSD   * buyScale,  2);
 
    Print("LotVars | SELL lot=", SeqSellLotSize,
          "  TP=$", SeqSellProfitTarget, "  SL=$", SeqSellStopLossUSD);

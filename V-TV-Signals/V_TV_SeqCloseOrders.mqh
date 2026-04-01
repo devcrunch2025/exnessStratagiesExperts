@@ -34,10 +34,88 @@ void CloseOrder(int ticket, double profit, string reason)
   }
 
 //+------------------------------------------------------------------+
+//| Pattern-triggered close: called when a CLOSE rule matches       |
+//| checkProfit=false (default) → close immediately regardless      |
+//| checkProfit=true            → only close if profit >= target     |
+//+------------------------------------------------------------------+
+void ProcessPatternClose(string tradeType, string patternLabel,
+                         bool checkProfit = false)
+  {
+   int    closeType   = (tradeType == "SELL") ? OP_SELL : OP_BUY;
+   int    magicClose  = (tradeType == "SELL") ? SeqSellMagicNo : SeqBuyMagicNo;
+   double profitTarget= (tradeType == "SELL") ? SeqSellProfitTarget : SeqBuyProfitTarget;
+
+   int closed  = 0;
+   int skipped = 0;
+
+   for(int i = OrdersTotal() - 1; i >= 0; i--)
+     {
+      if(!OrderSelect(i, SELECT_BY_POS, MODE_TRADES)) continue;
+      if(OrderSymbol()      != Symbol())   continue;
+      if(OrderMagicNumber() != magicClose) continue;
+      if(OrderType()        != closeType)  continue;
+
+      double profit = OrderProfit() + OrderSwap() + OrderCommission();
+
+      if(checkProfit && profit < profitTarget)
+        {
+         Print("SeqClose | PATTERN CLOSE [" + patternLabel + "] SKIPPED #" +
+               IntegerToString(OrderTicket()) + " profit=$" + DoubleToString(profit,2) +
+               " < target=$" + DoubleToString(profitTarget,2));
+         skipped++;
+         continue;
+        }
+
+      CloseOrder(OrderTicket(), profit, "PATTERN CLOSE [" + patternLabel + "] P/L=$" +
+                 DoubleToString(profit,2));
+      closed++;
+     }
+
+   if(closed > 0)
+      Print("SeqClose | PATTERN CLOSE [" + patternLabel + "] closed " +
+            IntegerToString(closed) + " " + tradeType + " order(s)" +
+            (skipped > 0 ? " | " + IntegerToString(skipped) + " skipped (below target)" : ""));
+   else if(skipped > 0)
+      Print("SeqClose | PATTERN CLOSE [" + patternLabel + "] no " + tradeType +
+            " orders at profit target — none closed");
+   else
+      Print("SeqClose | PATTERN CLOSE [" + patternLabel + "] no open " + tradeType + " orders found");
+  }
+
+//+------------------------------------------------------------------+
 //| Main entry: called every tick                                    |
 //+------------------------------------------------------------------+
 void ProcessSeqCloseOrders()
   {
+   // --- 1a. SeqRule pattern-triggered close (action = "CLOSE") ---
+   int ruleIdx = CheckSeqRules();
+   if(ruleIdx >= 0 && g_seqRules[ruleIdx].action == "CLOSE")
+     {
+      string patLabel = g_seqRules[ruleIdx].prePrev + "|" +
+                        g_seqRules[ruleIdx].prev    + "|" +
+                        g_seqRules[ruleIdx].curr;
+      ProcessPatternClose(g_seqRules[ruleIdx].tradeType, patLabel);
+     }
+
+   // --- 1b. ColorRule pattern-triggered close ---
+   // Check SELL close (red signal closes SELL orders)
+   int cIdxSell = CheckColorRules("CLOSE", "SELL");
+   if(cIdxSell >= 0)
+     {
+      string label = g_colorRules[cIdxSell].colorType + " COUNT>=" +
+                     IntegerToString(g_colorRules[cIdxSell].minCount);
+      ProcessPatternClose("SELL", label);
+     }
+   // Check BUY close (green signal closes BUY orders)
+   int cIdxBuy = CheckColorRules("CLOSE", "BUY");
+   if(cIdxBuy >= 0)
+     {
+      string label = g_colorRules[cIdxBuy].colorType + " COUNT>=" +
+                     IntegerToString(g_colorRules[cIdxBuy].minCount);
+      ProcessPatternClose("BUY", label);
+     }
+
+   // --- 2. TP / SL threshold close (runs always) ---
    for(int i = OrdersTotal() - 1; i >= 0; i--)
      {
       if(!OrderSelect(i, SELECT_BY_POS, MODE_TRADES)) continue;

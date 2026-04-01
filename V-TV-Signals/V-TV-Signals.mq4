@@ -28,8 +28,8 @@ input double RSI_Buy             = 55;
 input double RSI_Sell            = 45;
 input int    ReversalStreakCandles = 3;
 input int    TradeDirectionMode  = 0;       // 0=both 1=buy only 2=sell only
-input double TrendSellDailyLowGapPrice  =10; // NO SELL zone: min $ above daily low
-input double TrendBuyDailyHighGapPrice  = 10; // NO BUY zone: min $ below daily high
+input double TrendSellDailyLowGapPrice  =0; // NO SELL zone: min $ above daily low
+input double TrendBuyDailyHighGapPrice  = 0; // NO BUY zone: min $ below daily high
 input bool   EnableAlert         = false;
 input bool   EnableSound         = true;
 input bool   EnableLogMessages   = false;
@@ -586,18 +586,53 @@ bool CanTradeSignalBar(int shift, bool isFirstRun = false)
   }
 
 //+------------------------------------------------------------------+
-// Dashboard helper: create/update one left-side label row
+// Dashboard background: white card with shadow effect              |
+//+------------------------------------------------------------------+
+void DrawDashBG(int totalHeight)
+  {
+   // Shadow layer (dark, slightly offset)
+   string sid = "DB_Shadow";
+   if(ObjectFind(0, sid) < 0) ObjectCreate(0, sid, OBJ_RECTANGLE_LABEL, 0, 0, 0);
+   ObjectSetInteger(0, sid, OBJPROP_CORNER,      CORNER_LEFT_UPPER);
+   ObjectSetInteger(0, sid, OBJPROP_XDISTANCE,   3);
+   ObjectSetInteger(0, sid, OBJPROP_YDISTANCE,   3);
+   ObjectSetInteger(0, sid, OBJPROP_XSIZE,       210);
+   ObjectSetInteger(0, sid, OBJPROP_YSIZE,       totalHeight);
+   ObjectSetInteger(0, sid, OBJPROP_BGCOLOR,     C'190,190,190');
+   ObjectSetInteger(0, sid, OBJPROP_BORDER_TYPE, BORDER_FLAT);
+   ObjectSetInteger(0, sid, OBJPROP_COLOR,       C'190,190,190');
+   ObjectSetInteger(0, sid, OBJPROP_BACK,        true);
+   ObjectSetInteger(0, sid, OBJPROP_SELECTABLE,  false);
+
+   // Main white card
+   string bid = "DB_BG";
+   if(ObjectFind(0, bid) < 0) ObjectCreate(0, bid, OBJ_RECTANGLE_LABEL, 0, 0, 0);
+   ObjectSetInteger(0, bid, OBJPROP_CORNER,      CORNER_LEFT_UPPER);
+   ObjectSetInteger(0, bid, OBJPROP_XDISTANCE,   0);
+   ObjectSetInteger(0, bid, OBJPROP_YDISTANCE,   0);
+   ObjectSetInteger(0, bid, OBJPROP_XSIZE,       210);
+   ObjectSetInteger(0, bid, OBJPROP_YSIZE,       totalHeight);
+   ObjectSetInteger(0, bid, OBJPROP_BGCOLOR,     clrWhite);
+   ObjectSetInteger(0, bid, OBJPROP_BORDER_TYPE, BORDER_FLAT);
+   ObjectSetInteger(0, bid, OBJPROP_COLOR,       C'210,210,210');
+   ObjectSetInteger(0, bid, OBJPROP_BACK,        true);
+   ObjectSetInteger(0, bid, OBJPROP_SELECTABLE,  false);
+  }
+
+//+------------------------------------------------------------------+
+// Dashboard helper: create/update one left-side label row          |
 //+------------------------------------------------------------------+
 void DashRow(string id, string text, color clr, int y)
   {
    if(ObjectFind(0, id) < 0) ObjectCreate(0, id, OBJ_LABEL, 0, 0, 0);
    ObjectSetInteger(0, id, OBJPROP_CORNER,    CORNER_LEFT_UPPER);
-   ObjectSetInteger(0, id, OBJPROP_XDISTANCE, 8);
+   ObjectSetInteger(0, id, OBJPROP_XDISTANCE, 10);
    ObjectSetInteger(0, id, OBJPROP_YDISTANCE, y);
    ObjectSetString(0,  id, OBJPROP_TEXT,      text);
    ObjectSetInteger(0, id, OBJPROP_COLOR,     clr);
-   ObjectSetInteger(0, id, OBJPROP_FONTSIZE,  10);
+   ObjectSetInteger(0, id, OBJPROP_FONTSIZE,  9);
    ObjectSetString(0,  id, OBJPROP_FONT,      "Arial Bold");
+   ObjectSetInteger(0, id, OBJPROP_BACK,      false);
   }
 
 //+------------------------------------------------------------------+
@@ -732,62 +767,95 @@ void DrawDashboard()
       openProfit += OrderProfit() + OrderSwap() + OrderCommission();
      }
 
-   color plClr      = (pl      >= 0) ? clrLime      : clrRed;
-   color initPlClr  = (initPL  >= 0) ? clrLime      : clrRed;
-   color profitClr  = (openProfit >= 0) ? clrLime   : clrOrangeRed;
-   color marginClr  = (marginLevel > 200) ? clrLime :
-                      (marginLevel > 100) ? clrYellow : clrRed;
+   // --- Color palette for white background ---
+   // Status-driven colors
+   color plClr      = (pl >= 0)         ? C'27,94,32'   : C'183,28,28';   // dark green / dark red
+   color initPlClr  = (initPL >= 0)     ? C'27,94,32'   : C'183,28,28';
+   color profitClr  = (openProfit >= 0) ? C'27,94,32'   : C'198,40,40';
+   color marginClr  = (marginLevel > 200) ? C'27,94,32' :
+                      (marginLevel > 100) ? C'230,81,0'  : C'183,28,28';  // green/orange/red
+   color spreadClr  = (spread <= MaxSpreadPoints)       ? C'97,97,97'  : C'198,40,40';
 
-   int y = 8; int step = 18;
+   // Fixed palette
+   color cTitle     = C'26,35,126';    // deep indigo
+   color cSymbol    = C'21,101,192';   // material blue
+   color cTime      = C'97,97,97';     // medium gray
+   color cHdr       = C'38,50,56';     // blue-gray dark  (section headers)
+   color cValue     = C'33,33,33';     // near-black (normal values)
+   color cSubtle    = C'117,117,117';  // gray (secondary values)
+   color cSell      = C'183,28,28';    // dark red  (SELL)
+   color cBuy       = C'27,94,32';     // dark green (BUY)
+   color cTP        = C'27,94,32';     // forest green
+   color cSL        = C'183,28,28';    // crimson
+   color cLot       = C'74,20,140';    // deep purple
 
-   // Title
-   DashRow("DB_Title",    "┌─  EDGE ALGO  v2.0  ─┐",         clrGold,      y); y += step+2;
-   DashRow("DB_Symbol",   "  " + Symbol() + "  " +
-                          EnumToString((ENUM_TIMEFRAMES)Period()),clrWhite,  y); y += step;
+   int y = 10; int step = 17;
+
+   // Background card (calculated height: ~31 rows × step + padding)
+   DrawDashBG(31 * step + 55);
+
+   // Title block
+   DashRow("DB_Title",    "  EDGE ALGO  v2.0",               cTitle,    y); y += step+3;
+   DashRow("DB_Symbol",   "  " + Symbol() + "   " +
+                          EnumToString((ENUM_TIMEFRAMES)Period()), cSymbol, y); y += step;
    DashRow("DB_Time",     "  " + TimeToString(TimeCurrent(),
-                          TIME_DATE|TIME_MINUTES),             clrSilver,    y); y += step+4;
+                          TIME_DATE|TIME_MINUTES),            cTime,     y); y += step+6;
 
    // Account
-   DashRow("DB_Hdr1",     "── Account ───────────",           clrDimGray,   y); y += step;
+   DashRow("DB_Hdr1",     " ACCOUNT",                        cHdr,      y); y += step;
    DashRow("DB_InitBal",  "  Init Bal  : $" +
-                          DoubleToString(g_initialBalance,2),  clrSilver,    y); y += step;
+                          DoubleToString(g_initialBalance,2), cSubtle,   y); y += step;
    DashRow("DB_Bal",      "  Balance   : $" +
-                          DoubleToString(balance,2),           clrWhite,     y); y += step;
+                          DoubleToString(balance,2),          cValue,    y); y += step;
    DashRow("DB_Equity",   "  Equity    : $" +
-                          DoubleToString(equity,2),            clrWhite,     y); y += step;
+                          DoubleToString(equity,2),           cValue,    y); y += step;
    DashRow("DB_PL",       "  P / L     : $" +
-                          DoubleToString(pl,2),                plClr,        y); y += step;
+                          DoubleToString(pl,2),               plClr,     y); y += step;
    DashRow("DB_InitPL",   "  Since Load: $" +
-                          DoubleToString(initPL,2),            initPlClr,    y); y += step+4;
+                          DoubleToString(initPL,2),           initPlClr, y); y += step+6;
 
    // Margin
-   DashRow("DB_Hdr2",     "── Margin ────────────",           clrDimGray,   y); y += step;
+   DashRow("DB_Hdr2",     " MARGIN",                         cHdr,      y); y += step;
    DashRow("DB_Margin",   "  Used      : $" +
-                          DoubleToString(margin,2),            clrSilver,    y); y += step;
+                          DoubleToString(margin,2),           cSubtle,   y); y += step;
    DashRow("DB_FreeMgn",  "  Free      : $" +
-                          DoubleToString(freeMargin,2),        clrSilver,    y); y += step;
+                          DoubleToString(freeMargin,2),       cSubtle,   y); y += step;
    DashRow("DB_MgnLvl",   "  Level     : " +
-                          DoubleToString(marginLevel,1) + "%", marginClr,    y); y += step+4;
+                          DoubleToString(marginLevel,1) + "%",marginClr, y); y += step+6;
 
    // Orders
-   DashRow("DB_Hdr3",     "── Open Orders ───────",           clrDimGray,   y); y += step;
+   DashRow("DB_Hdr3",     " OPEN ORDERS",                    cHdr,      y); y += step;
    DashRow("DB_BuyOrds",  "  BUY       : " +
-                          IntegerToString(openBuy),            clrLime,      y); y += step;
+                          IntegerToString(openBuy),           (openBuy  > 0 ? cBuy  : cSubtle), y); y += step;
    DashRow("DB_SellOrds", "  SELL      : " +
-                          IntegerToString(openSell),           clrOrangeRed, y); y += step;
-   DashRow("DB_OProfit",  "  Profit    : $" +
-                          DoubleToString(openProfit,2),        profitClr,    y); y += step+4;
+                          IntegerToString(openSell),          (openSell > 0 ? cSell : cSubtle), y); y += step;
+   DashRow("DB_OProfit",  "  Float P/L : $" +
+                          DoubleToString(openProfit,2),       profitClr, y); y += step+6;
+
+   // Risk Settings
+   DashRow("DB_Hdr5",     " RISK SETTINGS",                  cHdr,      y); y += step;
+   DashRow("DB_SellLot",  "  SELL Lot  : " +
+                          DoubleToString(SeqSellLotSize,2),   cLot,      y); y += step;
+   DashRow("DB_SellTP",   "  SELL TP   : $" +
+                          DoubleToString(SeqSellProfitTarget,2), cTP,    y); y += step;
+   DashRow("DB_SellSL",   "  SELL SL   : $" +
+                          DoubleToString(SeqSellStopLossUSD,2),  cSL,    y); y += step;
+   DashRow("DB_BuyLot",   "  BUY  Lot  : " +
+                          DoubleToString(SeqBuyLotSize,2),    cLot,      y); y += step;
+   DashRow("DB_BuyTP",    "  BUY  TP   : $" +
+                          DoubleToString(SeqBuyProfitTarget,2),  cTP,    y); y += step;
+   DashRow("DB_BuySL",    "  BUY  SL   : $" +
+                          DoubleToString(SeqBuyStopLossUSD,2),   cSL,    y); y += step+6;
 
    // Market
-   DashRow("DB_Hdr4",     "── Market ────────────",           clrDimGray,   y); y += step;
+   DashRow("DB_Hdr4",     " MARKET",                         cHdr,      y); y += step;
    DashRow("DB_Bid",      "  Bid       : " +
-                          DoubleToString(MarketInfo(Symbol(),MODE_BID),Digits), clrWhite, y); y += step;
+                          DoubleToString(MarketInfo(Symbol(),MODE_BID),Digits), cValue,  y); y += step;
    DashRow("DB_Ask",      "  Ask       : " +
-                          DoubleToString(MarketInfo(Symbol(),MODE_ASK),Digits), clrWhite, y); y += step;
+                          DoubleToString(MarketInfo(Symbol(),MODE_ASK),Digits), cValue,  y); y += step;
    DashRow("DB_Spread",   "  Spread    : " +
                           IntegerToString(spread) + " pts  $" +
-                          DoubleToString(spreadUSD, 2),        clrSilver,    y); y += step;
-   DashRow("DB_Footer",   "└─────────────────────┘",          clrGold,      y);
+                          DoubleToString(spreadUSD,2),        spreadClr, y);
   }
 
 //+------------------------------------------------------------------+

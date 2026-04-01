@@ -100,6 +100,70 @@ int CheckSeqRules()
   }
 
 //+------------------------------------------------------------------+
+//| COLOR RULES — trigger by signal colour + sequence count          |
+//|                                                                  |
+//| colorType : "ANY GREEN SIGNAL"  (any signal name containing BUY) |
+//|             "ANY RED SIGNAL"    (any signal name containing SELL) |
+//| countType : "COUNT_1" .. "COUNT_N" — fires when seqCount >= N   |
+//|             "COUNT_ANY"              — fires at any seqCount     |
+//| action    : "NEW_ORDER" or "CLOSE"                               |
+//| tradeType : "BUY" or "SELL"                                      |
+//+------------------------------------------------------------------+
+struct ColorRule
+  {
+   string colorType;   // "ANY GREEN SIGNAL" or "ANY RED SIGNAL"
+   int    minCount;    // minimum seqCount required (1 = any)
+   string action;      // "NEW_ORDER" or "CLOSE"
+   string tradeType;   // "BUY" or "SELL"
+  };
+
+ColorRule g_colorRules[];
+
+void AddColorRule(string colorType, string countType,
+                  string action,    string tradeType)
+  {
+   // Parse count: "COUNT_3" → 3, "COUNT_ANY" or "" → 1
+   int minCount = 1;
+   if(StringFind(countType, "COUNT_") == 0)
+     {
+      string numStr = StringSubstr(countType, 6);   // everything after "COUNT_"
+      if(numStr != "ANY" && numStr != "")
+         minCount = (int)StringToInteger(numStr);
+     }
+
+   int n = ArraySize(g_colorRules);
+   ArrayResize(g_colorRules, n + 1);
+   g_colorRules[n].colorType  = colorType;
+   g_colorRules[n].minCount   = minCount;
+   g_colorRules[n].action     = action;
+   g_colorRules[n].tradeType  = tradeType;
+  }
+
+// Returns index of first matching ColorRule for given action+tradeType, or -1
+// A "green" signal has "BUY" in its name; a "red" signal has "SELL" in its name
+int CheckColorRules(string forAction, string forTrade)
+  {
+   if(g_liveSignalName == "") return -1;
+
+   bool isGreen = (StringFind(g_liveSignalName, "BUY")  >= 0);
+   bool isRed   = (StringFind(g_liveSignalName, "SELL") >= 0);
+
+   for(int i = 0; i < ArraySize(g_colorRules); i++)
+     {
+      if(g_colorRules[i].action    != forAction) continue;
+      if(g_colorRules[i].tradeType != forTrade)  continue;
+      if(g_currSeqCount < g_colorRules[i].minCount) continue;
+
+      string ct = g_colorRules[i].colorType;
+      if(ct == "ANY GREEN SIGNAL" && !isGreen) continue;
+      if(ct == "ANY RED SIGNAL"   && !isRed)   continue;
+
+      return i;
+     }
+   return -1;
+  }
+
+//+------------------------------------------------------------------+
 //| Define all strategy patterns here                                |
 //| Called once from OnInit()                                        |
 //+------------------------------------------------------------------+
@@ -168,125 +232,28 @@ AddSeqRule(  "TREND BUY 5", "PRE BUY 1","TREND BUY 1",  "NEW_ORDER", "BUY");
 
 //AddSeqRule("PRE BUY 1", "TREND BUY 1", "TREND BUY 2", "NEW_ORDER", "BUY");
 
- 
- 
-
-AddSeqRule("TREND BUY 1","TREND BUY 1","TREND BUY 2","NEW_ORDER","BUY");
-
-AddSeqRule("TREND BUY 2","PRE BUY 1","TREND BUY 1","NEW_ORDER","BUY");
-
-
-
-
-
-
-AddSeqRule("","","STRONG BUY","NEW_ORDER","BUY");
-
-
-
-AddSeqRule("PRE BUY 1","TREND BUY 1","PRE BUY 1","NEW_ORDER","BUY");
-AddSeqRule("PRE BUY 1","TREND BUY 1","TREND BUY 1","NEW_ORDER","BUY");
-AddSeqRule("PRE BUY 1","PRE BUY 2","PRE BUY 3","NEW_ORDER","BUY");
-AddSeqRule("PRE BUY 3","PRE BUY 1","PRE BUY 2","NEW_ORDER","BUY");
-AddSeqRule("PRE BUY 1","PRE BUY 2","TREND BUY 3","NEW_ORDER","BUY");
-AddSeqRule("PRE BUY 1","PRE BUY 3","TREND BUY 1","NEW_ORDER","BUY");
-
+ /*
 AddSeqRule("TREND BUY 1","TREND BUY 2","TREND BUY 3","NEW_ORDER","BUY");
-AddSeqRule("TREND BUY 2","TREND BUY 3","PRE BUY 1","NEW_ORDER","BUY");
+// AddSeqRule("TREND BUY 2","TREND BUY 3","TREND BUY 4","NEW_ORDER","BUY");
 AddSeqRule("TREND BUY 3","TREND BUY 4","TREND BUY 5","NEW_ORDER","BUY");
-
+// AddSeqRule("TREND BUY 4","TREND BUY 5","TREND BUY 6","NEW_ORDER","BUY");
+AddSeqRule("TREND BUY 5","TREND BUY 6","TREND BUY 7","NEW_ORDER","BUY");
  
-AddSeqRule("TREND BUY 3","PRE BUY 1","TREND BUY 1","NEW_ORDER","BUY");
-AddSeqRule("TREND BUY 4","PRE BUY 1","TREND BUY 1","NEW_ORDER","BUY");
-AddSeqRule("TREND BUY 5","PRE BUY 1","TREND BUY 1","NEW_ORDER","BUY");
-
-AddSeqRule("PRE BUY 3","TREND BUY 1","PRE BUY 1","NEW_ORDER","BUY");
-AddSeqRule("PRE BUY 2","PRE BUY 3","PRE BUY 1","NEW_ORDER","BUY");
-
-AddSeqRule("TREND BUY 1","PRE BUY 1","PRE BUY 2","NEW_ORDER","BUY");
-AddSeqRule("TREND BUY 1","PRE BUY 2","PRE BUY 3","NEW_ORDER","BUY");
-AddSeqRule("TREND BUY 1","TREND BUY 2","PRE BUY 1","NEW_ORDER","BUY");
  
 
-AddSeqRule("TREND BUY 4","TREND BUY 1","TREND BUY 2","NEW_ORDER","BUY");
-AddSeqRule("TREND BUY 5","TREND BUY 2","TREND BUY 3","NEW_ORDER","BUY");
-AddSeqRule("TREND BUY 5","TREND BUY 3","TREND BUY 4","NEW_ORDER","BUY");
-AddSeqRule("TREND BUY 6","TREND BUY 3","TREND BUY 4","NEW_ORDER","BUY");
-AddSeqRule("TREND BUY 6","TREND BUY 4","TREND BUY 5","NEW_ORDER","BUY");
-AddSeqRule("TREND BUY 7","TREND BUY 5","TREND BUY 6","NEW_ORDER","BUY");
-
-AddSeqRule("PRE BUY 7","TREND BUY 10","PRE BUY 1","NEW_ORDER","BUY");
-AddSeqRule("TREND BUY 1","PRE BUY 10","PRE BUY 2","NEW_ORDER","BUY");
-
-AddSeqRule("TREND SELL 2","PRE SELL 1","TREND SELL 1","NEW_ORDER","SELL");
-AddSeqRule("TREND SELL 3","PRE SELL 1","TREND SELL 1","NEW_ORDER","SELL");
-AddSeqRule("TREND SELL 3","TREND SELL 1","TREND SELL 2","NEW_ORDER","SELL");
-
-AddSeqRule("PRE BUY 1","PRE SELL 2","TREND SELL 1","NEW_ORDER","BUY");
-AddSeqRule("PRE BUY 1","TREND SELL 1","PRE SELL 1","NEW_ORDER","BUY");
-
-AddSeqRule("TREND SELL 4","TREND SELL 1","TREND SELL 2","NEW_ORDER","SELL");
-AddSeqRule("TREND SELL 4","TREND SELL 2","TREND SELL 3","NEW_ORDER","SELL");
-
-AddSeqRule("TREND SELL 1","TREND SELL 1","PRE SELL 1","NEW_ORDER","SELL");
-AddSeqRule("TREND SELL 1","PRE SELL 1","PRE SELL 2","NEW_ORDER","SELL");
-AddSeqRule("TREND SELL 1","PRE SELL 2","TREND SELL 1","NEW_ORDER","SELL");
-
-AddSeqRule("PRE BUY 2","PRE BUY 1","TREND BUY 1","NEW_ORDER","BUY");
-// AddSeqRule("PRE BUY 2","TREND BUY 1","PRE BUY 1","NEW_ORDER","BUY");
-
-AddSeqRule("","PRE SELL 1","PRE SELL 2","NEW_ORDER","SELL");
-AddSeqRule("PRE SELL 3","PRE SELL 1","PRE SELL 2","NEW_ORDER","SELL");
-AddSeqRule("STRONG SELL 3","PRE SELL 1","PRE SELL 2","NEW_ORDER","SELL");
-AddSeqRule("TREND SELL 3","PRE SELL 1","PRE SELL 2","NEW_ORDER","SELL");
-
-AddSeqRule("PRE BUY 1","TREND BUY 1","TREND BUY 3","NEW_ORDER","BUY");
-AddSeqRule("STRONG BUY 1","PRE SELL 1","TREND BUY 1","NEW_ORDER","BUY");
-AddSeqRule("PRE BUY 2","PRE BUY 3","PRE SELL 1","NEW_ORDER","BUY");
-AddSeqRule("TREND BUY 1","PRE BUY 1","PRE SELL 1","NEW_ORDER","BUY");
-AddSeqRule("PRE BUY 1","STRONG BUY 1","PRE SELL 1","NEW_ORDER","BUY");
-AddSeqRule("TREND BUY 1","PRE BUY 1","PRE BUY 3","NEW_ORDER","BUY");
-AddSeqRule("PRE BUY 2","PRE BUY 3","PRE BUY 4","NEW_ORDER","BUY");
-
-AddSeqRule("","","PRE BUY 1","NEW_ORDER","BUY");
-AddSeqRule("","TREND BUY 1","PRE BUY 1","NEW_ORDER","BUY");
-
-AddSeqRule("PRE BUY 1","STRONG BUY 1","PRE BUY 1","NEW_ORDER","BUY");
-
-AddSeqRule("PRE BUY 3","TREND SELL 1","TREND SELL 1","NEW_ORDER","SELL");
-AddSeqRule("TREND SELL 1","PRE SELL 1","TREND BUY 1","NEW_ORDER","SELL");
-AddSeqRule("PRE SELL 1","PRE BUY 1","TREND BUY 2","NEW_ORDER","BUY");
-
-AddSeqRule("TREND BUY 1","TREND BUY 2","PRE BUY 3","NEW_ORDER","BUY");
-AddSeqRule("PRE BUY 3","PRE BUY 4","TREND BUY 2","NEW_ORDER","BUY");
-
-AddSeqRule("TREND BUY 2","TREND BUY 3","TREND BUY 1","NEW_ORDER","BUY");
-
-AddSeqRule("TREND SELL 2","TREND SELL 3","PRE SELL 1","NEW_ORDER","SELL");
-AddSeqRule("PRE SELL 2","TREND SELL 1","TREND SELL 1","NEW_ORDER","SELL");
-AddSeqRule("TREND SELL 1","TREND SELL 2","TREND SELL 3","NEW_ORDER","SELL");
-
-AddSeqRule("PRE SELL 2","TREND SELL 1","STRONG SELL 1","NEW_ORDER","SELL");
-
-AddSeqRule("TREND SELL 1","PRE SELL 1","TREND SELL 2","NEW_ORDER","SELL");
-
-AddSeqRule("PRE SELL 1","PRE SELL 2","TREND SELL 1","NEW_ORDER","SELL");
-AddSeqRule("PRE SELL 1","PRE SELL 2","PRE SELL 1","NEW_ORDER","SELL");
-
+ 
 AddSeqRule("PRE BUY 1","TREND BUY 1","TREND BUY 2","NEW_ORDER","BUY");
-
-AddSeqRule("PRE SELL 1","TREND SELL 1","TREND SELL 2","NEW_ORDER","SELL");
-
-AddSeqRule("TREND BUY 1","PRE BUY 1","PRE BUY 1","NEW_ORDER","BUY");
-
-AddSeqRule("PRE SELL 1","TREND SELL 1","TREND SELL 3","NEW_ORDER","SELL");
-
-AddSeqRule("PRE BUY 1","TREND BUY 1","PRE BUY 2","NEW_ORDER","BUY");
-
-AddSeqRule("TREND BUY 3","PRE BUY 1","PRE BUY 1","NEW_ORDER","BUY");
+ 
 
 
+AddSeqRule("","TREND SELL 1","TREND SELL 2","NEW_ORDER","SELL");
+AddSeqRule("TREND SELL 1","TREND SELL 2","TREND SELL 3","NEW_ORDER","SELL");
+// AddSeqRule("TREND SELL 2","TREND SELL 3","TREND SELL 4","NEW_ORDER","SELL");
+AddSeqRule("TREND SELL 3","TREND SELL 4","TREND SELL 5","NEW_ORDER","SELL");
+// AddSeqRule("TREND SELL 4","TREND SELL 5","TREND SELL 6","NEW_ORDER","SELL");
+AddSeqRule("TREND SELL 5","TREND SELL 6","TREND SELL 7","NEW_ORDER","SELL");
 
+*/
 /*
    // ------------------------------------------------------------------
    // SELL patterns
@@ -329,6 +296,35 @@ AddSeqRule("TREND BUY 3","PRE BUY 1","PRE BUY 1","NEW_ORDER","BUY");
 
    // any → any → STRONG SELL 1  ==>  CLOSE BUY positions
    AddSeqRule("",               "",             "STRONG SELL 1","CLOSE",     "BUY");*/
+
+/*
+
+AddSeqRule("PRE BUY 1","TREND BUY 1","TREND BUY 2","NEW_ORDER","BUY");
+
+AddSeqRule("","","PRE SELL 1","CLOSE","BUY");
+AddSeqRule("","","W SHAPE SELL 1","CLOSE","BUY");
+
+
+
+
+AddSeqRule("TREND SELL 2","TREND SELL 3","TREND SELL 4","NEW_ORDER","SELL");
+
+ 
+AddSeqRule("","","PRE BUY 1","CLOSE","SELL");
+
+*/
+
+AddColorRule( "ANY GREEN SIGNAL","COUNT_3","NEW_ORDER","BUY");
+AddColorRule( "ANY GREEN SIGNAL","COUNT_3","CLOSE","SELL");
+
+AddColorRule( "ANY RED SIGNAL","COUNT_3","NEW_ORDER","SELL");
+AddColorRule( "ANY RED SIGNAL","COUNT_3","CLOSE","BUY");
+
+
+
+
+
+
   }
 
 #endif

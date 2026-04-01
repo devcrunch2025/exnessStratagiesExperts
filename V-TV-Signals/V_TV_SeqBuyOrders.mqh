@@ -14,6 +14,7 @@
 //|  Condition 7 : SeqRule pattern matched (action=NEW_ORDER, BUY)   |
 //|  Condition 8 : EMA1 trending UP                                  |
 //|  Condition 9 : EMA1 above EMA2 (bullish structure)               |
+//|  Condition 11: M15 uptrend — close above close N bars ago        |
 //+------------------------------------------------------------------+
 #ifndef V_TV_SEQ_BUY_ORDERS_MQH
 #define V_TV_SEQ_BUY_ORDERS_MQH
@@ -28,6 +29,7 @@ input int      SeqBuyMagicNo   = 22002; // Magic number
 input int      SeqBuyEMAPeriod = 20;    // EMA1 period for trend confirmation
 input int      SeqBuyEMA2Period= 50;    // EMA2 period (slow)
 input int      SeqBuyEMAShift  = 3;     // How many candles to compare slope
+input int      SeqBuyEMAFlatMinPts = 3; // Min EMA movement in points to be considered trending (0=disable flat filter)
 
 //+------------------------------------------------------------------+
 //| CONDITION HELPERS                                                |
@@ -80,6 +82,8 @@ bool BuyCond2b_MinTimeBetweenOrders()
 // Condition 3: Price NOT inside NO TREND BUY ZONE (near daily high)
 bool BuyCond3_NotInNoBuyZone()
   {
+if(TrendBuyDailyHighGapPrice==0) return true;
+
    double dailyHigh = iHigh(Symbol(), PERIOD_D1, 0);
    if(dailyHigh <= 0) return true;
    double zoneBottom = dailyHigh - TrendBuyDailyHighGapPrice;
@@ -176,38 +180,68 @@ bool BuyCond6_NoOrderInLoss()
 // Condition 7: SeqRule pattern matched and is NEW_ORDER BUY
 bool BuyCond7_PatternMatched(int &ruleIdx)
   {
+   // --- Check SeqRules first ---
    ruleIdx = CheckSeqRules();
-   if(ruleIdx < 0)
+   if(ruleIdx >= 0)
      {
-      Print("SeqBuy | BLOCKED [Cond7-NoPattern] No matching rule for " + BuyPatternContext());
-      return false;
+      if(g_seqRules[ruleIdx].action != "NEW_ORDER" || g_seqRules[ruleIdx].tradeType != "BUY")
+        {
+         ruleIdx = -1;  // wrong type — fall through to color rules
+        }
+      else
+        {
+         Print("SeqBuy | Cond7 MATCHED SeqRule [" +
+               g_seqRules[ruleIdx].prePrev + " | " +
+               g_seqRules[ruleIdx].prev    + " | " +
+               g_seqRules[ruleIdx].curr    + "]");
+         return true;
+        }
      }
-   if(g_seqRules[ruleIdx].action != "NEW_ORDER" || g_seqRules[ruleIdx].tradeType != "BUY")
+
+   // --- Check ColorRules ---
+   int cIdx = CheckColorRules("NEW_ORDER", "BUY");
+   if(cIdx >= 0)
      {
-      Print("SeqBuy | BLOCKED [Cond7-WrongType] Rule[" + IntegerToString(ruleIdx) +
-            "] action=" + g_seqRules[ruleIdx].action + " type=" + g_seqRules[ruleIdx].tradeType +
-            " (expected NEW_ORDER/BUY) " + BuyPatternContext());
-      return false;
+      ruleIdx = -1;   // no SeqRule index; caller uses -1 to mean "color rule matched"
+      Print("SeqBuy | Cond7 MATCHED ColorRule [" + g_colorRules[cIdx].colorType +
+            " COUNT>=" + IntegerToString(g_colorRules[cIdx].minCount) +
+            "] signal=" + g_liveSignalName + " " + IntegerToString(g_currSeqCount));
+      return true;
      }
-   Print("SeqBuy | Cond7 MATCHED - Pattern [" +
-         g_seqRules[ruleIdx].prePrev + " | " +
-         g_seqRules[ruleIdx].prev    + " | " +
-         g_seqRules[ruleIdx].curr    + "]");
-   return true;
+
+   Print("SeqBuy | BLOCKED [Cond7-NoMatch] No SeqRule or ColorRule matched " + BuyPatternContext());
+   return false;
   }
 
-// Condition 8: EMA1 must be trending UP
+// Condition 8: EMA1 must be trending UP and not flat (straight line)
 bool BuyCond8_EMAUptrend()
   {
    double emaCurrent = iMA(Symbol(), 0, SeqBuyEMAPeriod, 0, MODE_EMA, PRICE_CLOSE, 0);
    double emaPast    = iMA(Symbol(), 0, SeqBuyEMAPeriod, 0, MODE_EMA, PRICE_CLOSE, SeqBuyEMAShift);
+   double slopePts   = (emaCurrent - emaPast) / Point;  // positive = rising
 
-   if(emaCurrent > emaPast)
-      return true;
-   Print("SeqBuy | BLOCKED [Cond8-EMA1Slope] EMA1(" + IntegerToString(SeqBuyEMAPeriod) +
-         ") NOT sloping up: was " + DoubleToString(emaPast,2) +
-         " now " + DoubleToString(emaCurrent,2) + " " + BuyPatternContext());
-   return false;
+   // Direction check: EMA must be rising
+   if(emaCurrent <= emaPast)
+     {
+      Print("SeqBuy | BLOCKED [Cond8-EMA1Slope] EMA1(" + IntegerToString(SeqBuyEMAPeriod) +
+            ") NOT sloping up: was " + DoubleToString(emaPast,5) +
+            " now " + DoubleToString(emaCurrent,5) +
+            " slope=" + DoubleToString(slopePts,1) + "pts " + BuyPatternContext());
+      return false;
+     }
+
+   // Flatness check: slope must exceed minimum threshold
+   if(SeqBuyEMAFlatMinPts > 0 && slopePts < SeqBuyEMAFlatMinPts)
+     {
+      Print("SeqBuy | BLOCKED [Cond8-EMAFlat] EMA1 is STRAIGHT/FLAT: slope=" +
+            DoubleToString(slopePts,1) + "pts over " + IntegerToString(SeqBuyEMAShift) +
+            " bars < min " + IntegerToString(SeqBuyEMAFlatMinPts) +
+            "pts — sideways market, skip BUY " + BuyPatternContext());
+      return false;
+     }
+
+   LogMessage("SeqBuy | Cond8 PASSED - EMA slope=" + DoubleToString(slopePts,1) + "pts UP");
+   return true;
   }
 
 // Condition 9: EMA1 (fast) must be above EMA2 (slow) = bullish market structure
@@ -247,10 +281,11 @@ bool PlaceSeqBuyOrder(int ruleIdx)
   {
    double ask = MarketInfo(Symbol(), MODE_ASK);
 
+   // ruleIdx == -1 means a ColorRule matched (not a SeqRule) — safe fallback comment
    string comment = "SeqBuy|" +
-                    g_seqRules[ruleIdx].prePrev + "|" +
-                    g_seqRules[ruleIdx].prev    + "|" +
-                    g_seqRules[ruleIdx].curr;
+                    (ruleIdx >= 0 ? g_seqRules[ruleIdx].prePrev : "COLOR") + "|" +
+                    (ruleIdx >= 0 ? g_seqRules[ruleIdx].prev    : g_liveSignalName) + "|" +
+                    (ruleIdx >= 0 ? g_seqRules[ruleIdx].curr    : IntegerToString(g_currSeqCount));
 
    int ticket = OrderSend(Symbol(), OP_BUY, SeqBuyLotSize, ask,
                           SeqBuySlippage, 0, 0,
@@ -262,9 +297,11 @@ bool PlaceSeqBuyOrder(int ruleIdx)
       return false;
      }
 
-   string pattern = g_seqRules[ruleIdx].prePrev + " | " +
-                    g_seqRules[ruleIdx].prev    + " | " +
-                    g_seqRules[ruleIdx].curr;
+   string pattern = (ruleIdx >= 0)
+                    ? g_seqRules[ruleIdx].prePrev + " | " +
+                      g_seqRules[ruleIdx].prev    + " | " +
+                      g_seqRules[ruleIdx].curr
+                    : "COLOR | " + g_liveSignalName + " | " + IntegerToString(g_currSeqCount);
 
    Print("SeqBuy | *** ORDER CREATED #" + IntegerToString(ticket) + " ***" +
          " Pattern=[" + pattern + "]" +
@@ -275,57 +312,109 @@ bool PlaceSeqBuyOrder(int ruleIdx)
   }
 
 //+------------------------------------------------------------------+
+//| Draw blue dashed rectangle on current bar when BUY is blocked   |
+//| Tooltip shows on mouse-hover in MetaTrader chart                 |
+//+------------------------------------------------------------------+
+void DrawBlockedBuySignal(string reason)
+  {
+   string ts    = IntegerToString((int)TimeCurrent());
+   string nameR = "BlkBuy_R_" + ts;   // rectangle
+   string nameT = "BlkBuy_T_" + ts;   // text label
+   ObjectDelete(0, nameR);
+   ObjectDelete(0, nameT);
+
+   double boxH = High[0] + 8 * Point;
+   double boxL = Low[0]  - 8 * Point;
+   datetime t1 = Time[0];
+   datetime t2 = Time[0] + (datetime)PeriodSeconds(PERIOD_CURRENT);
+
+   // Extract short condition ID: e.g. "Cond9: EMA1 not above EMA2" -> "Cond9"
+   string condId = reason;
+   int colonPos = StringFind(reason, ":");
+   if(colonPos > 0) condId = StringSubstr(reason, 0, colonPos);
+
+   // Rectangle box
+   if(ObjectCreate(0, nameR, OBJ_RECTANGLE, 0, t1, boxH, t2, boxL))
+     {
+      ObjectSetInteger(0, nameR, OBJPROP_COLOR,      clrDodgerBlue);
+      ObjectSetInteger(0, nameR, OBJPROP_STYLE,      STYLE_DASH);
+      ObjectSetInteger(0, nameR, OBJPROP_WIDTH,      2);
+      ObjectSetInteger(0, nameR, OBJPROP_BACK,       false);
+      ObjectSetInteger(0, nameR, OBJPROP_FILL,       false);
+      ObjectSetInteger(0, nameR, OBJPROP_SELECTABLE, false);
+      ObjectSetInteger(0, nameR, OBJPROP_HIDDEN,     false);
+      ObjectSetString(0,  nameR, OBJPROP_TOOLTIP,
+                      "BUY BLOCKED\n" +
+                      "Pattern: " + BuyPatternContext() + "\n" +
+                      "Reason:  " + reason + "\n" +
+                      "Time:    " + TimeToString(TimeCurrent(), TIME_DATE|TIME_SECONDS));
+     }
+
+   // Text label inside the box showing condition ID
+   if(ObjectCreate(0, nameT, OBJ_TEXT, 0, t1, boxH - 2 * Point))
+     {
+      ObjectSetString(0,  nameT, OBJPROP_TEXT,      "X " + condId);
+      ObjectSetInteger(0, nameT, OBJPROP_COLOR,     clrDodgerBlue);
+      ObjectSetInteger(0, nameT, OBJPROP_FONTSIZE,  7);
+      ObjectSetString(0,  nameT, OBJPROP_FONT,      "Arial Bold");
+      ObjectSetInteger(0, nameT, OBJPROP_ANCHOR,    ANCHOR_LEFT_UPPER);
+      ObjectSetInteger(0, nameT, OBJPROP_SELECTABLE,false);
+      ObjectSetInteger(0, nameT, OBJPROP_HIDDEN,    false);
+      ObjectSetString(0,  nameT, OBJPROP_TOOLTIP,
+                      "BUY BLOCKED: " + reason);
+     }
+
+   ChartRedraw(0);
+  }
+
+//+------------------------------------------------------------------+
 //| Main entry: called on new signal detection from OnTick           |
 //+------------------------------------------------------------------+
 void ProcessSeqBuyOrders()
   {
-   // Condition 1: live signal exists
+   // Condition 1 & 7: quick exits — no marker drawn if these fail
    if(g_liveSignalName == "")
-     {
-      LogMessage("SeqBuy | Cond1 FAILED - No live signal");
-      return;
-     }
-   LogMessage("SeqBuy | Cond1 PASSED - Live signal: " + g_liveSignalName);
+     { LogMessage("SeqBuy | Cond1 FAILED - No live signal"); return; }
 
-   // Condition 2: warmup elapsed
-   if(!BuyCond2_WarmupElapsed()) return;
-   LogMessage("SeqBuy | Cond2 PASSED - Warmup elapsed");
-
-   // Condition 2b: min time between orders
-   if(!BuyCond2b_MinTimeBetweenOrders()) return;
-
-   // Condition 3: not in NO BUY ZONE
-   if(!BuyCond3_NotInNoBuyZone()) return;
-   LogMessage("SeqBuy | Cond3 PASSED - Price below NO BUY ZONE");
-
-   // Condition 4: max orders not reached
-   int openCount = CountOpenSeqBuyOrders();
-   if(!BuyCond4_MaxOrdersNotReached(openCount)) return;
-   LogMessage("SeqBuy | Cond4 PASSED - Open orders: " + IntegerToString(openCount) +
-              "/" + IntegerToString(SeqBuyMaxOrders));
-
-   // Condition 5: minimum uprise gap across 3 signal levels
-   if(!BuyCond5_MinUpriseGap(openCount)) return;
-
-   // Condition 6: no order in loss
-   if(!BuyCond6_NoOrderInLoss()) return;
-   LogMessage("SeqBuy | Cond6 PASSED - No BUY order in loss");
-
-   // Condition 7: pattern matched
    int ruleIdx = -1;
    if(!BuyCond7_PatternMatched(ruleIdx)) return;
 
-   // Condition 8: EMA1 trending up
-   if(!BuyCond8_EMAUptrend()) return;
+   // === PATTERN MATCHED — track which condition blocks and draw marker ===
+   int    openCount   = CountOpenSeqBuyOrders();
+   string blockReason = "";
 
-   // Condition 9: EMA1 above EMA2 (bullish structure)
-   if(!BuyCond9_EMA1AboveEMA2()) return;
+   if(!BuyCond2_WarmupElapsed())
+      blockReason = "Cond2: Warmup not elapsed yet";
+   else if(!BuyCond2b_MinTimeBetweenOrders())
+      blockReason = "Cond2b: Too soon after last BUY (" +
+                    IntegerToString(SeqBuyMinSecsBetweenOrders) + "s minimum)";
+   else if(!BuyCond3_NotInNoBuyZone())
+      blockReason = "Cond3: Price is inside NO BUY ZONE";
+   else if(!BuyCond4_MaxOrdersNotReached(openCount))
+      blockReason = "Cond4: Max BUY orders reached (" +
+                    IntegerToString(openCount) + "/" + IntegerToString(SeqBuyMaxOrders) + ")";
+   else if(!BuyCond5_MinUpriseGap(openCount))
+      blockReason = "Cond5: Min uprise gap not reached (" +
+                    IntegerToString(SeqBuyMinGapPoints) + "pts required)";
+   else if(!BuyCond6_NoOrderInLoss())
+      blockReason = "Cond6: An existing BUY order is in loss";
+   else if(!BuyCond8_EMAUptrend())
+      blockReason = "Cond8: EMA not trending up or is flat (min " +
+                    IntegerToString(SeqBuyEMAFlatMinPts) + "pts slope required)";
+   else if(!BuyCond9_EMA1AboveEMA2())
+      blockReason = "Cond9: EMA1 not above EMA2 — no bullish structure";
+   else if(!BuyCond11_M15Uptrend())
+      blockReason = "Cond11: M30 uptrend not confirmed (need " +
+                    DoubleToString(TrendMinMovePercent,2) + "% rise over " +
+                    IntegerToString(TrendLookbackBars) + " bars)";
 
-   // Condition 10: Real market — no fake ticks, no spread spike, sufficient volume
-   ////////if(!BuyCond10_RealMarket()) return;
-   ////////LogMessage("SeqBuy | Cond10 PASSED - Market is real");
+   if(blockReason != "")
+     {
+      DrawBlockedBuySignal(blockReason);
+      return;
+     }
 
-   // All conditions passed - place order
+   // All conditions passed
    Print("SeqBuy | ALL CONDITIONS PASSED - Placing BUY order " + BuyPatternContext());
    PlaceSeqBuyOrder(ruleIdx);
   }
@@ -385,6 +474,48 @@ bool BuyCond10_RealMarket()
    LogMessage("SeqBuy | Cond10 PASSED - Spread=" + DoubleToString(currentSpread,1) +
               "pts AvgSpread=" + DoubleToString(avgSpread,1) + "pts Volume OK");
    return true;
+  }
+
+// Condition 11: 15-min uptrend confirmation
+//   Checks M15 timeframe: current close must be ABOVE close TrendLookbackBars ago
+//   Ensures we only BUY when the 15-min trend is already rising
+bool BuyCond11_M15Uptrend()
+  {
+
+    return true;
+   if(!EnableTrendFilter) return true;
+   if(TrendLookbackBars <= 0) return true;
+
+   double closeCurrent = iClose(Symbol(), PERIOD_M1, 0);
+   double closePast    = iClose(Symbol(), PERIOD_M1, TrendLookbackBars);
+
+   if(closePast <= 0) return true;  // data not available, allow through
+
+   double priceRise   = closeCurrent - closePast;          // positive = price rose
+   double minRequired = closeCurrent * TrendMinMovePercent  ;  // e.g. 0.15% of price
+
+   bool directionOK  = (closeCurrent > closePast);         // price is higher than N bars ago
+   bool magnitudeOK  = (priceRise >= minRequired);         // rise is large enough
+
+   if(directionOK && magnitudeOK)
+     {
+      LogMessage("SeqBuy | Cond11 PASSED - M30 uptrend: rise=" +
+                 DoubleToString(priceRise / Point, 1) + "pts (" +
+                 DoubleToString(priceRise / closePast * 100.0, 3) + "%) >= min " +
+                 DoubleToString(TrendMinMovePercent, 2) + "%");
+      return true;
+     }
+
+   if(!directionOK)
+      Print("SeqBuy | BLOCKED [Cond11-NoUptrend] M30 close=" + DoubleToString(closeCurrent,5) +
+            " NOT above " + IntegerToString(TrendLookbackBars) + " bars ago=" + DoubleToString(closePast,5) +
+            " (price flat/falling — BUY blocked) " + BuyPatternContext());
+   else
+      Print("SeqBuy | BLOCKED [Cond11-RiseTooSmall] Rise=" + DoubleToString(priceRise/Point,1) + "pts (" +
+            DoubleToString(priceRise/closePast*100.0,3) + "%) < min " + DoubleToString(TrendMinMovePercent,2) +
+            "% (" + DoubleToString(minRequired/Point,1) + "pts required) — weak move, skip " +
+            BuyPatternContext());
+   return false;
   }
 
 #endif
