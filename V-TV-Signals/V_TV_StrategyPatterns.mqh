@@ -102,41 +102,46 @@ int CheckSeqRules()
 //+------------------------------------------------------------------+
 //| COLOR RULES — trigger by signal colour + sequence count          |
 //|                                                                  |
-//| colorType : "ANY GREEN SIGNAL"  (any signal name containing BUY) |
-//|             "ANY RED SIGNAL"    (any signal name containing SELL) |
-//| countType : "COUNT_1" .. "COUNT_N" — fires when seqCount >= N   |
-//|             "COUNT_ANY"              — fires at any seqCount     |
-//| action    : "NEW_ORDER" or "CLOSE"                               |
-//| tradeType : "BUY" or "SELL"                                      |
+//| colorType     : "ANY GREEN SIGNAL" / "ANY RED SIGNAL" etc.       |
+//| countType     : "COUNT_1".."COUNT_N" or "COUNT_ANY"              |
+//| action        : "NEW_ORDER" or "CLOSE"                           |
+//| tradeType     : "BUY" or "SELL"                                  |
+//| trendRequired : "" = no trend check (default)                    |
+//|                 "DOWNTREND" = M30 close must be falling           |
+//|                 "UPTREND"   = M30 close must be rising            |
+//|                 Uses TrendLookbackBars + TrendMinMovePercent      |
 //+------------------------------------------------------------------+
 struct ColorRule
   {
-   string colorType;   // "ANY GREEN SIGNAL" or "ANY RED SIGNAL"
-   int    minCount;    // minimum seqCount required (1 = any)
-   string action;      // "NEW_ORDER" or "CLOSE"
-   string tradeType;   // "BUY" or "SELL"
+   string colorType;      // signal colour group
+   int    minCount;       // minimum seqCount required (1 = any)
+   string action;         // "NEW_ORDER" or "CLOSE"
+   string tradeType;      // "BUY" or "SELL"
+   string trendRequired;  // "" / "DOWNTREND" / "UPTREND"
   };
 
 ColorRule g_colorRules[];
 
-void AddColorRule(string colorType, string countType,
-                  string action,    string tradeType)
+void AddColorRule(string colorType,     string countType,
+                  string action,        string tradeType,
+                  string trendRequired = "")
   {
    // Parse count: "COUNT_3" → 3, "COUNT_ANY" or "" → 1
    int minCount = 1;
    if(StringFind(countType, "COUNT_") == 0)
      {
-      string numStr = StringSubstr(countType, 6);   // everything after "COUNT_"
+      string numStr = StringSubstr(countType, 6);
       if(numStr != "ANY" && numStr != "")
          minCount = (int)StringToInteger(numStr);
      }
 
    int n = ArraySize(g_colorRules);
    ArrayResize(g_colorRules, n + 1);
-   g_colorRules[n].colorType  = colorType;
-   g_colorRules[n].minCount   = minCount;
-   g_colorRules[n].action     = action;
-   g_colorRules[n].tradeType  = tradeType;
+   g_colorRules[n].colorType     = colorType;
+   g_colorRules[n].minCount      = minCount;
+   g_colorRules[n].action        = action;
+   g_colorRules[n].tradeType     = tradeType;
+   g_colorRules[n].trendRequired = trendRequired;
   }
 
 // Signal colour groups (matches GetSignalColor in main EA):
@@ -184,6 +189,36 @@ int CheckColorRules(string forAction, string forTrade)
       if(ct == "ANY AQUA SIGNAL"   && !isAqua)   continue;
       if(ct == "ANY PINK SIGNAL"   && !isPink)   continue;
       if(ct == "ANY BLUE SIGNAL"   && !isBlue)   continue;
+
+      // --- Trend confirmation (Cond1 for ColorRules) ---
+      string tr = g_colorRules[i].trendRequired;
+      if(tr != "")
+        {
+         double closeCurrent = iClose(Symbol(), PERIOD_M30, 0);
+         double closePast    = iClose(Symbol(), PERIOD_M30, TrendLookbackBars);
+         if(closePast > 0)
+           {
+            double move       = closeCurrent - closePast;   // +ve = rising, -ve = falling
+            double minMove    = closeCurrent * TrendMinMovePercent;
+            bool   isUptrend  = (move >=  minMove);
+            bool   isDowntrend= (move <= -minMove);
+
+            if(tr == "DOWNTREND" && !isDowntrend)
+              {
+               Print("ColorRule | BLOCKED [Trend-NoDowntrend] " + ct +
+                     " move=" + DoubleToString(move/Point,1) + "pts" +
+                     " need DOWNTREND >=" + DoubleToString(TrendMinMovePercent,4) + "% drop");
+               continue;
+              }
+            if(tr == "UPTREND" && !isUptrend)
+              {
+               Print("ColorRule | BLOCKED [Trend-NoUptrend] " + ct +
+                     " move=" + DoubleToString(move/Point,1) + "pts" +
+                     " need UPTREND >=" + DoubleToString(TrendMinMovePercent,4) + "% rise");
+               continue;
+              }
+           }
+        }
 
       return i;
      }
@@ -354,11 +389,16 @@ AddSeqRule("","","W SHAPE SELL 1","CLOSE","BUY");
 
 
 AddColorRule( "ANY RED SIGNAL","COUNT_2","NEW_ORDER","SELL");
-AddColorRule( "ANY ORANGE SIGNAL","COUNT_1","NEW_ORDER","SELL");
-AddSeqRule("","","W SHAPE SELL 1","NEW_ORDER","SELL");
+AddColorRule( "ANY ORANGE SIGNAL","COUNT_2","NEW_ORDER","SELL");
 
 
-AddColorRule( "ANY GREEN SIGNAL","COUNT_2","CLOSE","SELL");
+
+AddColorRule( "ANY GREEN SIGNAL","COUNT_1","CLOSE","SELL");
+AddSeqRule("","","STRONG SELL 4","CLOSE","SELL");
+AddSeqRule("","","STRONG SELL 2","CLOSE","SELL");
+AddSeqRule("","","W SHAPE SELL 1","CLOSE","SELL");
+
+
 
 
 

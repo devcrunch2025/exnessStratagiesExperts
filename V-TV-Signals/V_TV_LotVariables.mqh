@@ -57,9 +57,9 @@ input int    TrendLookbackBars     = 3;     // M30 bars back to compare (3 bars 
 input double TrendMinMovePercent   = 0.01;  // Min price move % required (e.g. 0.15 = 0.15% of price)
 
 //--- 0.01; Profit / StopLoss (auto-calculated in InitLotDependentVars) ----
-double SeqSellProfitTarget = 10;
+double SeqSellProfitTarget = 5;
 double SeqSellStopLossUSD  = 20.00;
-double SeqBuyProfitTarget  =10;
+double SeqBuyProfitTarget  =5;
 double SeqBuyStopLossUSD   = 20.00;
 
 //+------------------------------------------------------------------+
