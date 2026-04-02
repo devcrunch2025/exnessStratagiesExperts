@@ -420,36 +420,27 @@ AddSeqRule("TREND SELL 2","TREND SELL 3","TREND SELL 4","NEW_ORDER","SELL");
 AddSeqRule("","","PRE BUY 1","CLOSE","SELL");
 
 */
-
+//-----------------BUY NEW ORDER--------------
 AddColorRule( "ANY GREEN SIGNAL","COUNT_2","NEW_ORDER","BUY", "", "UP");
 
+//-----------------BUY CLOSE ORDER--------------
 
-AddColorRule( "ANY ORANGE SIGNAL","COUNT_1","CLOSE","BUY");
+// AddColorRule( "ANY ORANGE SIGNAL","COUNT_1","CLOSE","BUY");
 AddColorRule( "ANY RED SIGNAL","COUNT_2","CLOSE","BUY");
-AddSeqRule("","","W SHAPE SELL 1","CLOSE","BUY");
-AddSeqRule("","","PRE SELL 1","CLOSE","BUY");
-
-
-
-
-
-
-
+// AddSeqRule("","","W SHAPE SELL 1","CLOSE","BUY"); //sometimes stop loss hitting
+// AddSeqRule("","","PRE SELL 1","CLOSE","BUY");
+// AddSeqRule("","","STRONG BUY 1","CLOSE","BUY");
+// AddSeqRule("","","STRONG BUY 2","CLOSE","BUY");
+//-----------------  SELL NEW_ORDER--------------
+AddColorRule( "ANY RED SIGNAL","COUNT_2","NEW_ORDER","SELL", "", "DOWN");
 AddColorRule( "ANY RED SIGNAL","COUNT_2","NEW_ORDER","SELL", "DOWNTREND", "DOWN");
-AddSeqRule("TREND SELL 1","TREND SELL 2","TREND SELL 3","SELL","BUY");
-AddSeqRule("","TREND SELL 1","TREND SELL 2","SELL","BUY");
-AddSeqRule("","","W SHAPE BUY 1","SELL","BUY");
-AddSeqRule("","","W STRONG BUY 1","SELL","BUY");
-
-
+AddSeqRule("TREND SELL 1","TREND SELL 2","TREND SELL 3","NEW_ORDER","SELL");
+AddSeqRule("","TREND SELL 1","TREND SELL 2","NEW_ORDER","SELL");
+AddSeqRule("","","W SHAPE BUY 1","NEW_ORDER","SELL");
+AddSeqRule("","","W STRONG BUY 1","NEW_ORDER","SELL"); 
 AddColorRule( "ANY BLUE SIGNAL","COUNT_1","NEW_ORDER","SELL", "", "");
-
-
-
 // AddColorRule( "ANY ORANGE SIGNAL","COUNT_2","NEW_ORDER","SELL");
-
-
-
+//-----------------CLOSE SELL ORDER--------------
 AddColorRule( "ANY GREEN SIGNAL","COUNT_1","CLOSE","SELL");
 // AddSeqRule("","","STRONG SELL 4","CLOSE","SELL");
 // AddSeqRule("","","STRONG SELL 2","CLOSE","SELL");
