@@ -327,7 +327,7 @@ return -1;
       string ct = g_colorRules[i].colorType;
 
       // --- PURE COLOR MATCH ---
-      if(ct == "ANY GREEN SIGNAL"  && anyBuy)  return i;
+      if(ct == "ANY GREEN SIGNAL"  && hasBuy)  return i;
       if(ct == "ANY RED SIGNAL"    && anySell)    return i;
       if(ct == "ANY ORANGE SIGNAL" && isOrange) return i;
       if(ct == "ANY AQUA SIGNAL"   && isAqua)   return i;
@@ -684,8 +684,10 @@ AddColorRule( "ANY GREEN SIGNAL","COUNT_1","NEW_ORDER","BUY");
 AddColorRule( "ANY RED SIGNAL","COUNT_1","CLOSE","BUY");
 AddColorRule( "ANY PINK SIGNAL","COUNT_1","CLOSE","BUY");
 AddColorRule( "ANY ORANGE SIGNAL","COUNT_1","CLOSE","BUY");
- 
+ AddSeqRule("TREND BUY 1","","TREND BUY 1","CLOSE","BUY");// this just for stop loss
+ AddSeqRule("TREND BUY 4","","TREND BUY 1","CLOSE","BUY");// this just for stop loss 
 
+ 
 
 // AddSeqRule("","","W SHAPE SELL 1","CLOSE","BUY"); //sometimes stop loss hitting
 // AddSeqRule("","","PRE SELL 1","CLOSE","BUY");

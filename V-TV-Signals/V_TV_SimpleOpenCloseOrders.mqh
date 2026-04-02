@@ -5,7 +5,15 @@
    string currSeqText = (g_liveSignalName == "") ? "---" :
                         g_liveSignalName + " " + IntegerToString(g_currSeqCount);
 
+ 
 
+      if((  StringFind(g_liveSignalName, "PRE SELL")    >= 0)  )
+      { 
+       CloseAllBuyOrders();
+
+      }
+
+     
 
    // if(currSeqText=="TREND BUY 1"  ) {
    //   SeqBuyProfitTarget=0.10;
@@ -38,6 +46,8 @@
 
 void CheckForNewClosedBarAndProcessSignals()
 {
+
+   return ;
 string curveDir = GetEMACurveDirection(50);
 
    Print("EMA Curve: ", curveDir);
