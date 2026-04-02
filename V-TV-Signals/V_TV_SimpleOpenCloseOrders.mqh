@@ -1,3 +1,41 @@
+
+
+ void ProcessSimplyBuyandCloseOrders()
+ {
+   string currSeqText = (g_liveSignalName == "") ? "---" :
+                        g_liveSignalName + " " + IntegerToString(g_currSeqCount);
+
+
+
+   // if(currSeqText=="TREND BUY 1"  ) {
+   //   SeqBuyProfitTarget=0.10;
+   //   SeqSellProfitTarget=0.10;
+
+      
+
+   //   }
+//  if(currSeqText=="PRE BUY 3" || currSeqText=="STRONG BUY 1" ||  currSeqText=="TREND BUY 2" ||  currSeqText=="TREND BUY 3" || currSeqText=="TREND BUY 4"  )
+//      { 
+//       CloseAllBuyOrders();
+
+//      }
+
+if( currSeqText=="PRE BUY 3" || currSeqText=="STRONG BUY 1" || currSeqText=="TREND BUY 3"   )
+     { 
+      CloseAllBuyOrders();
+
+     }
+
+
+
+
+ }
+
+
+
+
+
+
 void CheckForNewClosedBarAndProcessSignals()
 {
 string curveDir = GetEMACurveDirection(50);

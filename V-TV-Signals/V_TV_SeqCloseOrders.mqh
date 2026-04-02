@@ -187,23 +187,7 @@ void ProcessSeqCloseOrders()
       ProcessPatternClose(g_seqRules[ruleIdx].tradeType, patLabel);
      }
 
-   // --- 1b. ColorRule pattern-triggered close ---
-   // Check SELL close (red signal closes SELL orders)
-   int cIdxSell = CheckColorRules("CLOSE", "SELL");
-   if(cIdxSell >= 0)
-     {
-      string label = g_colorRules[cIdxSell].colorType + " COUNT>=" +
-                     IntegerToString(g_colorRules[cIdxSell].minCount);
-      ProcessPatternClose("SELL", label);
-     }
-   // Check BUY close (green signal closes BUY orders)
-   int cIdxBuy = CheckColorRules("CLOSE", "BUY");
-   if(cIdxBuy >= 0)
-     {
-      string label = g_colorRules[cIdxBuy].colorType + " COUNT>=" +
-                     IntegerToString(g_colorRules[cIdxBuy].minCount);
-      ProcessPatternClose("BUY", label);
-     }
+  
 
    // --- 2. TP / SL threshold close (runs always) ---
    for(int i = OrdersTotal() - 1; i >= 0; i--)
@@ -235,6 +219,28 @@ void ProcessSeqCloseOrders()
             CloseOrder(ticket, profit, "BUY STOP LOSS $" + DoubleToString(SeqBuyStopLossUSD,2));
         }
      }
+
+      // --- 1b. ColorRule pattern-triggered close ---
+   // Check SELL close (red signal closes SELL orders)
+   int cIdxSell = CheckColorRules("CLOSE", "SELL");
+   if(cIdxSell >= 0)
+     {
+      string label = g_colorRules[cIdxSell].colorType + " COUNT>=" +
+                     IntegerToString(g_colorRules[cIdxSell].minCount);
+      ProcessPatternClose("SELL", label);
+     }
+   // Check BUY close (green signal closes BUY orders)
+   int cIdxBuy = CheckColorRules("CLOSE", "BUY");
+   if(cIdxBuy >= 0)
+     {
+      string label = g_colorRules[cIdxBuy].colorType + " COUNT>=" +
+                     IntegerToString(g_colorRules[cIdxBuy].minCount);
+      ProcessPatternClose("BUY", label);
+     }
+
+
+     SeqBuyProfitTarget=DefaultBuyTP;
+SeqSellProfitTarget=DefaultSellTP;
   }
 
 #endif

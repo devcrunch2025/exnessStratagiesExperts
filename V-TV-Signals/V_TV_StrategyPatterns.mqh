@@ -183,6 +183,31 @@ int CheckColorRules(string forAction, string forTrade)
 
    bool isShape = (StringFind(g_liveSignalName, "SHAPE") >= 0);
 
+
+
+
+      
+  
+
+     if((StringFind(g_liveSignalName, "PRE BUY")    >= 0))
+    // if(g_liveSignalName=="PRE BUY 1" || g_liveSignalName=="PRE BUY 2" || g_liveSignalName=="PRE BUY 4"  )
+     {
+     anyBuy=false;
+     hasBuy=false;
+
+
+     }
+
+
+/*
+
+if(g_liveSignalName=="TREND BUY 1"  ) {
+     anyBuy=false;
+     hasBuy=false;
+
+     }
+
+
    if(  StringFind(g_liveSignalName, "W SHAPE BUY")  >= 0 || StringFind(g_liveSignalName, "STRONG BUY")  >= 0  )
      {
      anyBuy=false;
@@ -202,7 +227,7 @@ if((StringFind(g_liveSignalName, "PRE BUY")    >= 0))
      hasBuy=false;
 
 
-     }
+     } */
 
 
 
@@ -580,6 +605,8 @@ AddColorRule( "ANY GREEN SIGNAL","COUNT_1","NEW_ORDER","BUY");
 AddColorRule( "ANY RED SIGNAL","COUNT_1","CLOSE","BUY");
 AddColorRule( "ANY PINK SIGNAL","COUNT_1","CLOSE","BUY");
 AddColorRule( "ANY ORANGE SIGNAL","COUNT_1","CLOSE","BUY");
+ 
+
 
 // AddSeqRule("","","W SHAPE SELL 1","CLOSE","BUY"); //sometimes stop loss hitting
 // AddSeqRule("","","PRE SELL 1","CLOSE","BUY");

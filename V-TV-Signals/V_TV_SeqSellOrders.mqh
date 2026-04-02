@@ -174,6 +174,7 @@ bool SellCond6_NoOrderInLoss()
 // Condition 7: SeqRule pattern matched and is NEW_ORDER SELL
 bool SellCond7_PatternMatched(int &ruleIdx)
   {
+    /*
    // --- Check SeqRules first ---
    ruleIdx = CheckSeqRules();
    if(ruleIdx >= 0)
@@ -192,7 +193,7 @@ bool SellCond7_PatternMatched(int &ruleIdx)
          return true;
         }
      }
-
+*/
    // --- Check ColorRules ---
    int cIdx = CheckColorRules("NEW_ORDER", "SELL");
    if(cIdx >= 0)

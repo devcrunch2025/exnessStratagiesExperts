@@ -42,7 +42,7 @@ input int    SpikeLookback       = 20;     // Bars used to calculate average can
 input int    DashboardRefreshSeconds = 30;
 input bool   ExecuteEverySignalInTester = false;
 input bool   EnablePreSignals           = true;
-input int    StartupWaitMinutes         = 30;   // Wait N minutes on first load before placing orders
+input int    StartupWaitMinutes         = 5;   // Wait N minutes on first load before placing orders
 
 // ----- GLOBALS ----- //
 string   currentSignal      = "";
@@ -423,12 +423,37 @@ void UpdateCurrentSignalLabel()
    color  clr = GetSignalColor(sig);
 
 
+
+ // --- Curr + Sequence ---
+   string currSeqText = (g_liveSignalName == "") ? "---" :
+                        g_liveSignalName + " " + IntegerToString(g_currSeqCount);
+   color  clrCS = GetSignalColor(g_liveSignalName);
+   if(ObjectFind(0, g_currSeqLabel) < 0)
+      ObjectCreate(0, g_currSeqLabel, OBJ_LABEL, 0, 0, 0);
+   ObjectSetInteger(0, g_currSeqLabel, OBJPROP_CORNER,    CORNER_RIGHT_UPPER);
+   ObjectSetInteger(0, g_currSeqLabel, OBJPROP_ANCHOR,    ANCHOR_RIGHT_UPPER);
+   ObjectSetInteger(0, g_currSeqLabel, OBJPROP_XDISTANCE, 10);
+   ObjectSetInteger(0, g_currSeqLabel, OBJPROP_YDISTANCE, 20);
+   ObjectSetString(0,  g_currSeqLabel, OBJPROP_TEXT,      "Seq.Curr : " + currSeqText);
+   ObjectSetInteger(0, g_currSeqLabel, OBJPROP_COLOR,     clrCS);
+   ObjectSetInteger(0, g_currSeqLabel, OBJPROP_FONTSIZE,  12);
+   ObjectSetString(0,  g_currSeqLabel, OBJPROP_FONT,      "Arial Bold");
+
+
+
+
+
+
+
+
+
+
    if(ObjectFind(0, lbl) < 0)
       ObjectCreate(0, lbl, OBJ_LABEL, 0, 0, 0);
    ObjectSetInteger(0, lbl, OBJPROP_CORNER,    CORNER_RIGHT_UPPER);
    ObjectSetInteger(0, lbl, OBJPROP_ANCHOR,    ANCHOR_RIGHT_UPPER);
    ObjectSetInteger(0, lbl, OBJPROP_XDISTANCE, 10);
-   ObjectSetInteger(0, lbl, OBJPROP_YDISTANCE, 20);
+   ObjectSetInteger(0, lbl, OBJPROP_YDISTANCE, 68);
    ObjectSetString(0,  lbl, OBJPROP_TEXT,      "Curr     : " + sig);
    ObjectSetInteger(0, lbl, OBJPROP_COLOR,     clr);
    ObjectSetInteger(0, lbl, OBJPROP_FONTSIZE,  12);
@@ -450,20 +475,7 @@ void UpdateCurrentSignalLabel()
    ObjectSetInteger(0, lblPrev, OBJPROP_FONTSIZE,  12);
    ObjectSetString(0,  lblPrev, OBJPROP_FONT,      "Arial Bold");
 
-   // --- Curr + Sequence ---
-   string currSeqText = (g_liveSignalName == "") ? "---" :
-                        g_liveSignalName + " " + IntegerToString(g_currSeqCount);
-   color  clrCS = GetSignalColor(g_liveSignalName);
-   if(ObjectFind(0, g_currSeqLabel) < 0)
-      ObjectCreate(0, g_currSeqLabel, OBJ_LABEL, 0, 0, 0);
-   ObjectSetInteger(0, g_currSeqLabel, OBJPROP_CORNER,    CORNER_RIGHT_UPPER);
-   ObjectSetInteger(0, g_currSeqLabel, OBJPROP_ANCHOR,    ANCHOR_RIGHT_UPPER);
-   ObjectSetInteger(0, g_currSeqLabel, OBJPROP_XDISTANCE, 10);
-   ObjectSetInteger(0, g_currSeqLabel, OBJPROP_YDISTANCE, 68);
-   ObjectSetString(0,  g_currSeqLabel, OBJPROP_TEXT,      "Seq.Curr : " + currSeqText);
-   ObjectSetInteger(0, g_currSeqLabel, OBJPROP_COLOR,     clrCS);
-   ObjectSetInteger(0, g_currSeqLabel, OBJPROP_FONTSIZE,  12);
-   ObjectSetString(0,  g_currSeqLabel, OBJPROP_FONT,      "Arial Bold");
+  
 
    // --- Prev + Sequence ---
    string prevSeqText = (g_prevDisplaySignal == "") ? "---" :
@@ -953,19 +965,25 @@ void OnDeinit(const int reason)
   }
 bool IsTradingTime()
 {
-   int hour = TimeHour(TimeCurrent());  // server time
+  //  int hour = TimeHour(TimeCurrent());  // server time
 
-   if(hour >= 0 && hour < 13)
-      return true;
+  //  if(hour >= 0 && hour < 13)
+  //     return true;
 
-   return false;
+  //  return false;
+
+
+     int hour = TimeHour(TimeLocal());
+    if(hour >= 18 && hour < 24)
+        return true;  
+        else return false;
 }
 //+------------------------------------------------------------------+
 void OnTick()
   {
 
-     if(!IsTradingTime())
-      return;
+    //  if(!IsTradingTime())
+    //   return;
 
    // --- Close orders that reached profit target (checked every tick) ---
    ProcessSeqCloseOrders();
@@ -1213,6 +1231,7 @@ else if(preTrendSell)     newSig = "PRE SELL";
      {
        ProcessSeqSellOrders();
        ProcessSeqBuyOrders();
+       ProcessSimplyBuyandCloseOrders();
       g_newSignalDetected = false;
      }
 
