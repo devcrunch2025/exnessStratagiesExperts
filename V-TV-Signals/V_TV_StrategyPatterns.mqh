@@ -182,10 +182,119 @@ int CheckColorRules(string forAction, string forTrade)
    bool isStrong = (StringFind(g_liveSignalName, "STRONG") >= 0);
 
    bool isShape = (StringFind(g_liveSignalName, "SHAPE") >= 0);
+double emaFast = iMA(Symbol(), 0, 9,  0, MODE_EMA, PRICE_CLOSE, 0);
+double emaSlow = iMA(Symbol(), 0, 21, 0, MODE_EMA, PRICE_CLOSE, 0);
+
+double gapPoints =  MathAbs(emaFast - emaSlow) / Point;
+// double minGap = 150;   // 🔥 adjust this
+
+double atr = iATR(Symbol(), 0, 14, 0) / Point;
+double minGap = atr * 0.5;   // 50% of volatility
+
+// --- APPLY ONLY FOR NEW ORDER ---
+if(forAction == "NEW_ORDER")
+{
+
+ 
+   if(gapPoints < minGap)
+   {
+      Print("EMA GAP TOO SMALL → Skip trade | Gap=", gapPoints);
+      return -1;
+   }
+ 
+
+   // 1️⃣ Flat market filter
+   if(gapPoints < 20    )
+   {
+      Print("Market is flat → skip trade");
+      return -1;
+   }
+
+   // 2️⃣ Price position
+   double price = iClose(Symbol(), 0, 0);
+
+   double upper = MathMax(emaFast, emaSlow);
+   double lower = MathMin(emaFast, emaSlow);
+
+   // --- ABOVE both EMAs ---
+   if(price > upper)
+   {
+      if(forTrade != "BUY"  )
+      {
+         Print("ABOVE → Block SELL");
+         return -1;
+      }
+   }
+
+   // --- BELOW both EMAs ---
+   else if(price < lower  )
+   {
+      if(forTrade != "SELL")
+      {
+         Print("BELOW → Block BUY");
+         return -1;
+      }
+   }
+
+   // --- INSIDE zone ---
+   else if(forAction == "NEW_ORDER")
+   {
+      Print("INSIDE → Skip trade");
+      return -1;
+   }
+}
+/*
+//block case1
+ if((  StringFind(g_liveSignalName, "TREND BUY  1")    >= 0)  )
+      {
+     anyBuy=false;
+     hasBuy=false;
+
+return -1;
+     }
+
+//block case 2
+ if((  g_liveSignalName=="PRE BUY 4" || g_liveSignalName=="PRE BUY 1"     ) )
+      {
+     anyBuy=false;
+     hasBuy=false;
+
+return -1;
+     }
+//block case 2
+      if(  StringFind(g_liveSignalName, "TREND BUY 1")    >= 0)
+      {
+     anyBuy=false;
+     hasBuy=false;
+
+return -1;
+     }
+*/
+
+/*
+ if((  StringFind(g_liveSignalName, "STRONG BUY 1")    >= 0))
+      {
+     anyBuy=false;
+     hasBuy=false;
 
 
+     }
+      if((  StringFind(g_liveSignalName, "STRONG BUY 2")    >= 0))
+      {
+     anyBuy=false;
+     hasBuy=false;
 
 
+     }
+
+ if((  StringFind(g_liveSignalName, "TREND BUY 4")    >= 0))
+    // if(g_liveSignalName=="PRE BUY 1" || g_liveSignalName=="PRE BUY 2" || g_liveSignalName=="PRE BUY 4"  )
+     {
+     anyBuy=false;
+     hasBuy=false;
+
+
+     }
       
   
 
@@ -197,37 +306,7 @@ int CheckColorRules(string forAction, string forTrade)
 
 
      }
-
-
-/*
-
-if(g_liveSignalName=="TREND BUY 1"  ) {
-     anyBuy=false;
-     hasBuy=false;
-
-     }
-
-
-   if(  StringFind(g_liveSignalName, "W SHAPE BUY")  >= 0 || StringFind(g_liveSignalName, "STRONG BUY")  >= 0  )
-     {
-     anyBuy=false;
-     hasBuy=false;
-     }
-
-     if(g_liveSignalName=="TREND BUY 4" || g_liveSignalName=="TREND BUY 5" || g_liveSignalName=="TREND BUY 6" || g_liveSignalName=="TREND BUY 7" || g_liveSignalName=="TREND BUY 8"  )
-     {
-     anyBuy=false;
-     hasBuy=false;
-
-     }
-if((StringFind(g_liveSignalName, "PRE BUY")    >= 0))
-    // if(g_liveSignalName=="PRE BUY 1" || g_liveSignalName=="PRE BUY 2" || g_liveSignalName=="PRE BUY 4"  )
-     {
-     anyBuy=false;
-     hasBuy=false;
-
-
-     } */
+ */
 
 
 

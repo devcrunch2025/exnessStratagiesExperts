@@ -21,9 +21,7 @@
 
 input string _LotVars_ = "======= LOT & RISK SETTINGS =======";
 
-//--- Lot sizes (CHANGE ONLY THESE) ----------------------------------
-input double SeqSellLotSize = 0.01;  // SELL lot size
-input double SeqBuyLotSize  = 0.01;  // BUY lot size
+
 
 //--- Slippage (lot-independent) -------------------------------------
 input int SeqSellSlippage   = 100;    // SELL slippage in points
@@ -34,9 +32,7 @@ input int SeqCloseSlippage  = 0;    // Close slippage in points
 input int SeqSellMinGapPoints = 200; // SELL: min drop between signals (pts)
 input int SeqBuyMinGapPoints  = 200; // BUY:  min rise between signals (pts)
 
-//--- Max open orders (lot-independent) ------------------------------
-input int SeqSellMaxOrders  = 1;     // Max simultaneous SELL orders
-input int SeqBuyMaxOrders   = 1;     // Max simultaneous BUY orders
+
 
 //--- Min time between orders (lot-independent) ----------------------
 input int SeqSellMinSecsBetweenOrders = 5; // SELL: min seconds between orders seconds
@@ -67,6 +63,14 @@ double SeqSellProfitTarget = 5;
 double SeqSellStopLossUSD  = 20.00;
 double SeqBuyProfitTarget  =5;
 double SeqBuyStopLossUSD   = 20.00;
+
+//--- Lot sizes (CHANGE ONLY THESE) ----------------------------------
+input double SeqSellLotSize = 0.01;  // SELL lot size
+input double SeqBuyLotSize  = 0.01;  // BUY lot size
+
+//--- Max open orders (lot-independent) ------------------------------
+input int SeqSellMaxOrders  = 1;     // Max simultaneous SELL orders
+input int SeqBuyMaxOrders   = 1;     // Max simultaneous BUY orders
 
 //+------------------------------------------------------------------+
 //| Call this once in OnInit() — scales TP/SL to the chosen lot size |

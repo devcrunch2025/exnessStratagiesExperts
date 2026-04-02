@@ -20,11 +20,11 @@
 
 //      }
 
-if( currSeqText=="PRE BUY 3" || currSeqText=="STRONG BUY 1" || currSeqText=="TREND BUY 3"   )
-     { 
-      CloseAllBuyOrders();
+// if( currSeqText=="PRE BUY 3" || currSeqText=="STRONG BUY 1" || currSeqText=="TREND BUY 3"   )
+//      { 
+//       CloseAllBuyOrders();
 
-     }
+//      }
 
 
 
