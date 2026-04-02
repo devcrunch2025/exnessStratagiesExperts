@@ -182,6 +182,7 @@ bool BuyCond6_NoOrderInLoss()
 bool BuyCond7_PatternMatched(int &ruleIdx)
   {
    // --- Check SeqRules first ---
+   /*
    ruleIdx = CheckSeqRules();
    if(ruleIdx >= 0)
      {
@@ -198,7 +199,7 @@ bool BuyCond7_PatternMatched(int &ruleIdx)
          return true;
         }
      }
-
+*/
    // --- Check ColorRules ---
    int cIdx = CheckColorRules("NEW_ORDER", "BUY");
    if(cIdx >= 0)
@@ -208,9 +209,9 @@ bool BuyCond7_PatternMatched(int &ruleIdx)
             " COUNT>=" + IntegerToString(g_colorRules[cIdx].minCount) +
             "] signal=" + g_liveSignalName + " " + IntegerToString(g_currSeqCount));
       return true;
-     }
+     } 
 
-   Print("SeqBuy | BLOCKED [Cond7-NoMatch] No SeqRule or ColorRule matched " + BuyPatternContext());
+   Print("SeqBuy | BLOCKED [Cond7-NoMatch] No SeqRule or ColorRule matched---------- "+g_liveSignalName+" " + BuyPatternContext());
    return false;
   }
 
@@ -302,7 +303,7 @@ bool PlaceSeqBuyOrder(int ruleIdx)
                     ? g_seqRules[ruleIdx].prePrev + " | " +
                       g_seqRules[ruleIdx].prev    + " | " +
                       g_seqRules[ruleIdx].curr
-                    : "COLOR | " + g_liveSignalName + " | " + IntegerToString(g_currSeqCount);
+                    : "" + g_liveSignalName + "  " + IntegerToString(g_currSeqCount)+" | COLOR   ";
 
    Print("SeqBuy | *** ORDER CREATED #" + IntegerToString(ticket) + " ***" +
          " Pattern=[" + pattern + "]" +

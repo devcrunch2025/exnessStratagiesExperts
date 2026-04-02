@@ -175,13 +175,34 @@ int CheckColorRules(string forAction, string forTrade)
    bool hasBuy  = (StringFind(g_liveSignalName, "TREND BUY")  >= 0);
    bool hasSell = (StringFind(g_liveSignalName, "TREND SELL") >= 0);
 
-   bool anyBuy  = (StringFind(g_liveSignalName, "BUY")  >= 0);
+   bool anyBuy  =  (StringFind(g_liveSignalName, "BUY")  >= 0);
    bool anySell = (StringFind(g_liveSignalName, "SELL") >= 0);
 
    bool isPre    = (StringFind(g_liveSignalName, "PRE")    >= 0);
    bool isStrong = (StringFind(g_liveSignalName, "STRONG") >= 0);
 
    bool isShape = (StringFind(g_liveSignalName, "SHAPE") >= 0);
+
+   if(  StringFind(g_liveSignalName, "W SHAPE BUY")  >= 0 || StringFind(g_liveSignalName, "STRONG BUY")  >= 0  )
+     {
+     anyBuy=false;
+     hasBuy=false;
+     }
+
+     if(g_liveSignalName=="TREND BUY 4" || g_liveSignalName=="TREND BUY 5" || g_liveSignalName=="TREND BUY 6" || g_liveSignalName=="TREND BUY 7" || g_liveSignalName=="TREND BUY 8"  )
+     {
+     anyBuy=false;
+     hasBuy=false;
+
+     }
+if((StringFind(g_liveSignalName, "PRE BUY")    >= 0))
+    // if(g_liveSignalName=="PRE BUY 1" || g_liveSignalName=="PRE BUY 2" || g_liveSignalName=="PRE BUY 4"  )
+     {
+     anyBuy=false;
+     hasBuy=false;
+
+
+     }
 
 
 
@@ -210,8 +231,8 @@ int CheckColorRules(string forAction, string forTrade)
       if(ct == "ANY BLUE SIGNAL"   && isBlue)   return i;
 
       // --- OPTIONAL fallback (if you want generic BUY/SELL) ---
-      if(ct == "ANY BUY SIGNAL"  && anyBuy)  return i;
-      if(ct == "ANY SELL SIGNAL" && anySell) return i;
+      // if(ct == "ANY BUY SIGNAL"  && anyBuy)  return i;
+      // if(ct == "ANY SELL SIGNAL" && anySell) return i;
    }
 
    return -1;

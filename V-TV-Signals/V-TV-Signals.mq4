@@ -951,10 +951,21 @@ void OnDeinit(const int reason)
    ObjectDelete(0, "TS_WarmupStatus");
    Comment("");
   }
+bool IsTradingTime()
+{
+   int hour = TimeHour(TimeCurrent());  // server time
 
+   if(hour >= 0 && hour < 13)
+      return true;
+
+   return false;
+}
 //+------------------------------------------------------------------+
 void OnTick()
   {
+
+     if(!IsTradingTime())
+      return;
 
    // --- Close orders that reached profit target (checked every tick) ---
    ProcessSeqCloseOrders();
@@ -1200,8 +1211,8 @@ else if(preTrendSell)     newSig = "PRE SELL";
    // --- Order logic: only when a new signal was detected this tick ---
    if(g_newSignalDetected)
      {
-      ProcessSeqSellOrders();
-      ProcessSeqBuyOrders();
+       ProcessSeqSellOrders();
+       ProcessSeqBuyOrders();
       g_newSignalDetected = false;
      }
 

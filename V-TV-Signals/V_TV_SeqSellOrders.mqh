@@ -251,7 +251,7 @@ bool PlaceSeqSellOrder(int ruleIdx)
                     ? g_seqRules[ruleIdx].prePrev + " | " +
                       g_seqRules[ruleIdx].prev    + " | " +
                       g_seqRules[ruleIdx].curr
-                    : "COLOR | " + g_liveSignalName + " | " + IntegerToString(g_currSeqCount);
+                    : "" + g_liveSignalName + " " + IntegerToString(g_currSeqCount)+" | COLOR ";
 
    Print("SeqSell | *** ORDER CREATED #" + IntegerToString(ticket) + " ***" +
          " Pattern=[" + pattern + "]" +
