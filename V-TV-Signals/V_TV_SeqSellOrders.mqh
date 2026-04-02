@@ -338,25 +338,25 @@ void ProcessSeqSellOrders()
    else if(!SellCond2b_MinTimeBetweenOrders())
       blockReason = "Cond2b: Too soon after last SELL (" +
                     IntegerToString(SeqSellMinSecsBetweenOrders) + "s minimum)";
-   else if(!SellCond3_NotInNoSellZone())
-      blockReason = "Cond3: Price is inside NO SELL ZONE";
+  //  else if(!SellCond3_NotInNoSellZone())
+  //     blockReason = "Cond3: Price is inside NO SELL ZONE";
    else if(!SellCond4_MaxOrdersNotReached(openCount))
       blockReason = "Cond4: Max SELL orders reached (" +
                     IntegerToString(openCount) + "/" + IntegerToString(SeqSellMaxOrders) + ")";
-   else if(!SellCond5_MinDownfallGap(openCount))
-      blockReason = "Cond5: Min downfall gap not reached (" +
-                    IntegerToString(SeqSellMinGapPoints) + "pts required)";
+  //  else if(!SellCond5_MinDownfallGap(openCount))
+  //     blockReason = "Cond5: Min downfall gap not reached (" +
+  //                   IntegerToString(SeqSellMinGapPoints) + "pts required)";
    else if(!SellCond6_NoOrderInLoss())
       blockReason = "Cond6: An existing SELL order is in loss";
-   else if(!SellCond8_EMADowntrend())
-      blockReason = "Cond8: EMA not trending down or is flat (min " +
-                    IntegerToString(SeqSellEMAFlatMinPts) + "pts slope required)";
-   else if(!SellCond9_EMA1BelowEMA2())
-      blockReason = "Cond9: EMA1 not below EMA2 — no bearish structure";
-   else if(!SellCond11_M15Downtrend())
-      blockReason = "Cond11: M30 downtrend not confirmed (need " +
-                    DoubleToString(TrendMinMovePercent,2) + "% drop over " +
-                    IntegerToString(TrendLookbackBars) + " bars)";
+  //  else if(!SellCond8_EMADowntrend())
+  //     blockReason = "Cond8: EMA not trending down or is flat (min " +
+  //                   IntegerToString(SeqSellEMAFlatMinPts) + "pts slope required)";
+  //  else if(!SellCond9_EMA1BelowEMA2())
+  //     blockReason = "Cond9: EMA1 not below EMA2 — no bearish structure";
+  //  else if(!SellCond11_M15Downtrend())
+  //     blockReason = "Cond11: M30 downtrend not confirmed (need " +
+  //                   DoubleToString(TrendMinMovePercent,2) + "% drop over " +
+  //                   IntegerToString(TrendLookbackBars) + " bars)";
 
    if(blockReason != "")
      {

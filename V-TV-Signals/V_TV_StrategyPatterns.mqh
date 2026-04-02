@@ -549,7 +549,7 @@ AddSeqRule("","","PRE BUY 1","CLOSE","SELL");
 */
 //-----------------BUY NEW ORDER--------------
 // AddColorRule( "ANY GREEN SIGNAL","COUNT_3","NEW_ORDER","BUY", "", "UP");
-AddColorRule( "ANY GREEN SIGNAL","COUNT_2","NEW_ORDER","BUY");
+AddColorRule( "ANY GREEN SIGNAL","COUNT_1","NEW_ORDER","BUY");
 
 
 //-----------------BUY CLOSE ORDER--------------

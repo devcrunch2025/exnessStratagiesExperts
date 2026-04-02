@@ -72,6 +72,7 @@ string GetEMACurveDirection(int period)
    if(curve < -minCurve)  return "CURVING DOWN";
    return "FLAT";
 }
+
 void CloseAllBuyOrders()
 {
    for(int i = OrdersTotal() - 1; i >= 0; i--)
@@ -95,10 +96,55 @@ void CloseAllBuyOrders()
                Print("Failed to close BUY order: ", OrderTicket(),
                      " Error: ", GetLastError());
             }
-            else
-            {
-               Print("Closed BUY order: ", OrderTicket());
-            }
+             
+if(result)
+{
+   Print("Closed BUY order: ", OrderTicket());
+   UpdateTPBasedOnLastClosed();   // 🔥 ADD THIS
+}
+
+         }
+      }
+   }
+}
+
+void UpdateTPBasedOnLastClosed()
+{
+   int total = OrdersHistoryTotal();
+   if(total == 0) return;
+
+   // Get last closed order
+   if(OrderSelect(total - 1, SELECT_BY_POS, MODE_HISTORY))
+   {
+      if(OrderSymbol() != Symbol()) return;
+
+      double profit = OrderProfit() + OrderSwap() + OrderCommission();
+
+      if(OrderType() == OP_BUY)
+      {
+         if(profit < 0)
+         {
+            CurrentBuyTP = DefaultBuyTP / 2.0;
+            Print("BUY LOSS → TP reduced to ", CurrentBuyTP);
+         }
+         else
+         {
+            CurrentBuyTP = DefaultBuyTP;
+            Print("BUY PROFIT → TP reset to ", CurrentBuyTP);
+         }
+      }
+
+      if(OrderType() == OP_SELL)
+      {
+         if(profit < 0)
+         {
+            CurrentSellTP = DefaultSellTP / 2.0;
+            Print("SELL LOSS → TP reduced to ", CurrentSellTP);
+         }
+         else
+         {
+            CurrentSellTP = DefaultSellTP;
+            Print("SELL PROFIT → TP reset to ", CurrentSellTP);
          }
       }
    }

@@ -74,7 +74,11 @@ double   g_prevSignalPrice    = 0; // bar price when previous signal fired
 double   g_currSignalPrice    = 0; // bar price when current signal fired
 
 string   g_runTimestamp = ""; // set once in OnInit — used as postfix for all CSV filenames
+double CurrentBuyTP  = 0;
+double CurrentSellTP = 0;
 
+double DefaultBuyTP  = 0;
+double DefaultSellTP = 0;
 
 datetime lastAlertTime            = 0;
 datetime lastProcessedClosedBar   = 0;
@@ -875,6 +879,12 @@ void MaybeRefreshDashboard()
 //+------------------------------------------------------------------+
 int OnInit()
   {
+
+    DefaultBuyTP  = SeqBuyProfitTarget;
+DefaultSellTP = SeqSellProfitTarget;
+
+CurrentBuyTP  = DefaultBuyTP;
+CurrentSellTP = DefaultSellTP;
    // Force chart to M1 if not already
    if(Period() != PERIOD_M1)
      {
