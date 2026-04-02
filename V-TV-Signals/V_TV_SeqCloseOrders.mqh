@@ -120,7 +120,6 @@ void ProcessPartialProfitClose()
                " Error=" + IntegerToString(GetLastError()));
      }
   }
-
 //+------------------------------------------------------------------+
 //| Pattern-triggered close: called when a CLOSE rule matches       |
 //| checkProfit=false (default) → close immediately regardless      |

@@ -166,22 +166,76 @@ void AddColorRule(string colorType,     string countType,
 //   "ANY AQUA SIGNAL"   — PRE BUY only
 //   "ANY PINK SIGNAL"   — STRONG SELL only
 //   "ANY BLUE SIGNAL"   — STRONG BUY only
+
 int CheckColorRules(string forAction, string forTrade)
+{
+   if(g_liveSignalName == "") return -1;
+
+   // --- Base detection ---
+   bool hasBuy  = (StringFind(g_liveSignalName, "TREND BUY")  >= 0);
+   bool hasSell = (StringFind(g_liveSignalName, "TREND SELL") >= 0);
+
+   bool anyBuy  = (StringFind(g_liveSignalName, "BUY")  >= 0);
+   bool anySell = (StringFind(g_liveSignalName, "SELL") >= 0);
+
+   bool isPre    = (StringFind(g_liveSignalName, "PRE")    >= 0);
+   bool isStrong = (StringFind(g_liveSignalName, "STRONG") >= 0);
+
+   bool isShape = (StringFind(g_liveSignalName, "SHAPE") >= 0);
+
+
+
+   // --- Derived colors ---
+   bool isGreen  = hasBuy;                   // TREND BUY
+   bool isRed    = hasSell;                  // TREND SELL
+   bool isOrange = (isPre   && anySell);     // PRE SELL
+   bool isAqua   = (isPre   && anyBuy);      // PRE BUY
+   bool isPink   = ((isStrong || isShape) && anySell);    // STRONG SELL
+   bool isBlue   = ((isStrong || isShape) && anyBuy);     // STRONG BUY
+
+   for(int i = 0; i < ArraySize(g_colorRules); i++)
+   {
+      if(g_colorRules[i].action    != forAction) continue;
+      if(g_colorRules[i].tradeType != forTrade)  continue;
+      if(g_currSeqCount < g_colorRules[i].minCount) continue;
+
+      string ct = g_colorRules[i].colorType;
+
+      // --- PURE COLOR MATCH ---
+      if(ct == "ANY GREEN SIGNAL"  && anyBuy)  return i;
+      if(ct == "ANY RED SIGNAL"    && anySell)    return i;
+      if(ct == "ANY ORANGE SIGNAL" && isOrange) return i;
+      if(ct == "ANY AQUA SIGNAL"   && isAqua)   return i;
+      if(ct == "ANY PINK SIGNAL"   && isPink)   return i;
+      if(ct == "ANY BLUE SIGNAL"   && isBlue)   return i;
+
+      // --- OPTIONAL fallback (if you want generic BUY/SELL) ---
+      if(ct == "ANY BUY SIGNAL"  && anyBuy)  return i;
+      if(ct == "ANY SELL SIGNAL" && anySell) return i;
+   }
+
+   return -1;
+}
+int CheckColorRules_OLD(string forAction, string forTrade)
   {
    if(g_liveSignalName == "") return -1;
 
-   bool hasBuy  = (StringFind(g_liveSignalName, "BUY")    >= 0);
-   bool hasSell = (StringFind(g_liveSignalName, "SELL")   >= 0);
+   bool hasBuy  = (StringFind(g_liveSignalName, "TREND BUY")    >= 0);
+   bool hasSell = (StringFind(g_liveSignalName, "TREND SELL")   >= 0);
+
+   bool anyBuy  = (StringFind(g_liveSignalName, "BUY")    >= 0);
+   bool anySell = (StringFind(g_liveSignalName, "SELL")   >= 0);
+
    bool isPre   = (StringFind(g_liveSignalName, "PRE")    >= 0);
    bool isStrong= (StringFind(g_liveSignalName, "STRONG") >= 0);
 
    // Derived colour flags
    bool isGreen  = hasBuy;                   // any BUY signal
    bool isRed    = hasSell;                  // any SELL signal
-   bool isOrange = (isPre   && hasSell);     // PRE SELL
-   bool isAqua   = (isPre   && hasBuy);      // PRE BUY
-   bool isPink   = (isStrong && hasSell);    // STRONG SELL
-   bool isBlue   = (isStrong && hasBuy);     // STRONG BUY
+   bool isOrange = (isPre   && anySell);     // PRE SELL
+   bool isAqua   = (isPre   && anyBuy);      // PRE BUY
+   bool isPink   = (isStrong && anySell);    // STRONG SELL
+   bool isBlue   = (isStrong && anyBuy);     // STRONG BUY
 
    for(int i = 0; i < ArraySize(g_colorRules); i++)
      {
@@ -227,43 +281,116 @@ int CheckColorRules(string forAction, string forTrade)
            }
         }
 
+        //check price gap between signals (Cond5 for ColorRules) - compare current signal price to previous signal price in pattern
+      // --- Direction check (NEW CONDITION) ---
+if(hasBuy)
+  {
+/*int emaPeriod   =SeqBuyEMAPeriod ;
+  
+double ema = iMA(Symbol(),0,emaPeriod,0,MODE_EMA,PRICE_CLOSE,0);
+double distancePts = MathAbs(Bid - ema) / Point;
+
+// 🔧 tune this per pair
+double maxDistance = 150; 
+
+if(distancePts > maxDistance)
+{
+   Print("BLOCKED: Price too far from EMA (overextended)");
+   continue;
+}*/
+/*
+   // BUY: current price must be higher than previous signal price
+   if(g_currSignalPrice <= g_prevSignalPrice)
+     {
+      Print("ColorRule | BLOCKED [BUY-PriceDirection] " + ct +
+            " current=" + DoubleToString(g_currSignalPrice,Digits) +
+            " <= prev=" + DoubleToString(g_prevSignalPrice,Digits));
+      continue;
+     }
+  }
+
+if(hasSell)
+  {
+   // SELL: current price must be lower than previous signal price
+   if(g_currSignalPrice >= g_prevSignalPrice)
+     {
+      Print("ColorRule | BLOCKED [SELL-PriceDirection] " + ct +
+            " current=" + DoubleToString(g_currSignalPrice,Digits) +
+            " >= prev=" + DoubleToString(g_prevSignalPrice,Digits));
+      continue;
+     }*/
+  }
+
       // --- EMA trend / flat check (Cond2 for ColorRules) ---
-      string er = g_colorRules[i].emaRequired;
-      if(er != "")
-        {
-         // Pick EMA params based on trade direction
-         int emaPeriod   = (g_colorRules[i].tradeType == "SELL") ? SeqSellEMAPeriod    : SeqBuyEMAPeriod;
-         int emaShift    = (g_colorRules[i].tradeType == "SELL") ? SeqSellEMAShift     : SeqBuyEMAShift;
-         int emaFlatMin  = (g_colorRules[i].tradeType == "SELL") ? SeqSellEMAFlatMinPts: SeqBuyEMAFlatMinPts;
+     string er = g_colorRules[i].emaRequired;
+if(er != "")
+{
+   // Params
+   int emaPeriod   = (g_colorRules[i].tradeType == "SELL") ? SeqSellEMAPeriod     : SeqBuyEMAPeriod;
+   int emaShift    = (g_colorRules[i].tradeType == "SELL") ? SeqSellEMAShift      : SeqBuyEMAShift;
+   int emaFlatMin  = (g_colorRules[i].tradeType == "SELL") ? SeqSellEMAFlatMinPts : SeqBuyEMAFlatMinPts;
 
-         double emaNow  = iMA(Symbol(), 0, emaPeriod, 0, MODE_EMA, PRICE_CLOSE, 0);
-         double emaPast = iMA(Symbol(), 0, emaPeriod, 0, MODE_EMA, PRICE_CLOSE, emaShift);
-         double slopePts = (emaNow - emaPast) / Point;  // +ve = rising, -ve = falling
+   // EMA values
+   double emaNow  = iMA(Symbol(), 0, emaPeriod, 0, MODE_EMA, PRICE_CLOSE, 0);
+   double emaPast = iMA(Symbol(), 0, emaPeriod, 0, MODE_EMA, PRICE_CLOSE, emaShift);
 
-         // Flat check: slope magnitude must exceed minimum
-         if(emaFlatMin > 0 && MathAbs(slopePts) < emaFlatMin)
-           {
-            Print("ColorRule | BLOCKED [EMA-Flat] " + ct +
-                  " EMA(" + IntegerToString(emaPeriod) + ") slope=" +
-                  DoubleToString(slopePts,1) + "pts over " + IntegerToString(emaShift) +
-                  " bars — FLAT (min " + IntegerToString(emaFlatMin) + "pts required)");
-            continue;
-           }
+   // Slope in points
+   double slopePts = (emaNow - emaPast) / Point;
 
-         // Direction check
-         if(er == "UP" && slopePts <= 0)
-           {
-            Print("ColorRule | BLOCKED [EMA-NotUp] " + ct +
-                  " EMA slope=" + DoubleToString(slopePts,1) + "pts — not rising");
-            continue;
-           }
-         if(er == "DOWN" && slopePts >= 0)
-           {
-            Print("ColorRule | BLOCKED [EMA-NotDown] " + ct +
-                  " EMA slope=" + DoubleToString(slopePts,1) + "pts — not falling");
-            continue;
-           }
-        }
+   // 👉 Convert to ANGLE (degrees)
+   double angle = MathArctan(slopePts) * 180.0 / M_PI;
+
+   // --- FLAT CHECK ---
+   if(emaFlatMin > 0 && MathAbs(slopePts) < emaFlatMin)
+   {
+      Print("ColorRule | BLOCKED [EMA-FLAT] " + ct +
+            " slope=" + DoubleToString(slopePts,1) +
+            " angle=" + DoubleToString(angle,1));
+      continue;
+   }
+
+   // --- DIRECTION + STRENGTH CHECK ---
+   // Tune these thresholds
+   double weakAngle   = 5.0;
+   double strongAngle = 20.0;
+
+   // UP required
+   if(er == "UP")
+   {
+      if(angle <= weakAngle)
+      {
+         Print("ColorRule | BLOCKED [EMA-NOT-UP] " + ct +
+               " angle=" + DoubleToString(angle,1));
+         continue;
+      }
+   }
+
+   // DOWN required
+   if(er == "DOWN")
+   {
+      if(angle >= -weakAngle)
+      {
+         Print("ColorRule | BLOCKED [EMA-NOT-DOWN] " + ct +
+               " angle=" + DoubleToString(angle,1));
+         continue;
+      }
+   }
+
+   // --- OPTIONAL: STRONG FILTER (very useful for TREND signals) ---
+   if(er == "STRONG_UP" && angle < strongAngle)
+   {
+      Print("ColorRule | BLOCKED [EMA-WEAK-UP] " + ct +
+            " angle=" + DoubleToString(angle,1));
+      continue;
+   }
+
+   if(er == "STRONG_DOWN" && angle > -strongAngle)
+   {
+      Print("ColorRule | BLOCKED [EMA-WEAK-DOWN] " + ct +
+            " angle=" + DoubleToString(angle,1));
+      continue;
+   }
+}
 
       return i;
      }
@@ -421,18 +548,24 @@ AddSeqRule("","","PRE BUY 1","CLOSE","SELL");
 
 */
 //-----------------BUY NEW ORDER--------------
-AddColorRule( "ANY GREEN SIGNAL","COUNT_2","NEW_ORDER","BUY", "", "UP");
+// AddColorRule( "ANY GREEN SIGNAL","COUNT_3","NEW_ORDER","BUY", "", "UP");
+AddColorRule( "ANY GREEN SIGNAL","COUNT_2","NEW_ORDER","BUY");
+
 
 //-----------------BUY CLOSE ORDER--------------
+// AddSeqRule("","","STRONG BUY 1","CLOSE","BUY");// this just for stop loss 
 
 // AddColorRule( "ANY ORANGE SIGNAL","COUNT_1","CLOSE","BUY");
-AddColorRule( "ANY RED SIGNAL","COUNT_2","CLOSE","BUY");
+AddColorRule( "ANY RED SIGNAL","COUNT_1","CLOSE","BUY");
+AddColorRule( "ANY PINK SIGNAL","COUNT_1","CLOSE","BUY");
+AddColorRule( "ANY ORANGE SIGNAL","COUNT_1","CLOSE","BUY");
+
 // AddSeqRule("","","W SHAPE SELL 1","CLOSE","BUY"); //sometimes stop loss hitting
 // AddSeqRule("","","PRE SELL 1","CLOSE","BUY");
 // AddSeqRule("","","STRONG BUY 1","CLOSE","BUY");
 // AddSeqRule("","","STRONG BUY 2","CLOSE","BUY");
 //-----------------  SELL NEW_ORDER--------------
-AddColorRule( "ANY RED SIGNAL","COUNT_2","NEW_ORDER","SELL", "", "DOWN");
+/*AddColorRule( "ANY RED SIGNAL","COUNT_2","NEW_ORDER","SELL", "", "DOWN");
 AddColorRule( "ANY RED SIGNAL","COUNT_2","NEW_ORDER","SELL", "DOWNTREND", "DOWN");
 AddSeqRule("TREND SELL 1","TREND SELL 2","TREND SELL 3","NEW_ORDER","SELL");
 AddSeqRule("","TREND SELL 1","TREND SELL 2","NEW_ORDER","SELL");
@@ -444,7 +577,7 @@ AddColorRule( "ANY BLUE SIGNAL","COUNT_1","NEW_ORDER","SELL", "", "");
 AddColorRule( "ANY GREEN SIGNAL","COUNT_1","CLOSE","SELL");
 // AddSeqRule("","","STRONG SELL 4","CLOSE","SELL");
 // AddSeqRule("","","STRONG SELL 2","CLOSE","SELL");
-AddSeqRule("","","W SHAPE SELL 1","CLOSE","SELL");
+AddSeqRule("","","W SHAPE SELL 1","CLOSE","SELL");*/
 
 
 //WRONG ENTRIES - BLOCK 

@@ -410,25 +410,25 @@ void ProcessSeqBuyOrders()
    else if(!BuyCond2b_MinTimeBetweenOrders())
       blockReason = "Cond2b: Too soon after last BUY (" +
                     IntegerToString(SeqBuyMinSecsBetweenOrders) + "s minimum)";
-   else if(!BuyCond3_NotInNoBuyZone())
-      blockReason = "Cond3: Price is inside NO BUY ZONE";
+  //  else if(!BuyCond3_NotInNoBuyZone())
+  //     blockReason = "Cond3: Price is inside NO BUY ZONE";
    else if(!BuyCond4_MaxOrdersNotReached(openCount))
       blockReason = "Cond4: Max BUY orders reached (" +
                     IntegerToString(openCount) + "/" + IntegerToString(SeqBuyMaxOrders) + ")";
-   else if(!BuyCond5_MinUpriseGap(openCount))
-      blockReason = "Cond5: Min uprise gap not reached (" +
-                    IntegerToString(SeqBuyMinGapPoints) + "pts required)";
+  //  else if(!BuyCond5_MinUpriseGap(openCount))
+  //     blockReason = "Cond5: Min uprise gap not reached (" +
+  //                   IntegerToString(SeqBuyMinGapPoints) + "pts required)";
    else if(!BuyCond6_NoOrderInLoss())
       blockReason = "Cond6: An existing BUY order is in loss";
-   else if(!BuyCond8_EMAUptrend())
-      blockReason = "Cond8: EMA not trending up or is flat (min " +
-                    IntegerToString(SeqBuyEMAFlatMinPts) + "pts slope required)";
-   else if(!BuyCond9_EMA1AboveEMA2())
-      blockReason = "Cond9: EMA1 not above EMA2 — no bullish structure";
-   else if(!BuyCond11_M15Uptrend())
-      blockReason = "Cond11: M30 uptrend not confirmed (need " +
-                    DoubleToString(TrendMinMovePercent,2) + "% rise over " +
-                    IntegerToString(TrendLookbackBars) + " bars)";
+  //  else if(!BuyCond8_EMAUptrend())
+  //     blockReason = "Cond8: EMA not trending up or is flat (min " +
+  //                   IntegerToString(SeqBuyEMAFlatMinPts) + "pts slope required)";
+  //  else if(!BuyCond9_EMA1AboveEMA2())
+  //     blockReason = "Cond9: EMA1 not above EMA2 — no bullish structure";
+  //  else if(!BuyCond11_M15Uptrend())
+  //     blockReason = "Cond11: M30 uptrend not confirmed (need " +
+  //                   DoubleToString(TrendMinMovePercent,2) + "% rise over " +
+  //                   IntegerToString(TrendLookbackBars) + " bars)";
 
    if(blockReason != "")
      {

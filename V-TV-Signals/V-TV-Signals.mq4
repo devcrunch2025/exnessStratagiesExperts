@@ -12,6 +12,8 @@
 #include "V_TV_OrderReport.mqh"
 #include "V_TV_LearningSuggestions.mqh"
 #include "V_TV_MarkerSuggestions.mqh"
+#include "V_TV_SimpleOpenCloseOrders.mqh"
+
  
 
 #define TRADE_DIRECTION_BOTH      0
@@ -943,7 +945,14 @@ void OnDeinit(const int reason)
 //+------------------------------------------------------------------+
 void OnTick()
   {
-   if(Bars < 5) return;
+
+   // --- Close orders that reached profit target (checked every tick) ---
+   ProcessSeqCloseOrders();
+   CheckClosedOrders();
+//CheckForNewClosedBarAndProcessSignals();
+
+
+  //  if(Bars < 5) return;
 
    bool firstRun      = (lastProcessedClosedBar == 0);
    bool hasNewClosedBar = (Time[1] != lastProcessedClosedBar);
@@ -1186,9 +1195,7 @@ else if(preTrendSell)     newSig = "PRE SELL";
       g_newSignalDetected = false;
      }
 
-   // --- Close orders that reached profit target (checked every tick) ---
-   ProcessSeqCloseOrders();
-   CheckClosedOrders();
+
    LearnUpdateObservations();
    UpdateMarkerObs();
 
