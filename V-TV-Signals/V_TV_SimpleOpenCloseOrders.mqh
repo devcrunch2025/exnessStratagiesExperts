@@ -42,7 +42,26 @@
 
 
 
+void verfyEMAInsideLogic()
+{
+ double emaFast = iMA(Symbol(), 0, 9,  0, MODE_EMA, PRICE_CLOSE, 0);
+double emaSlow = iMA(Symbol(), 0, 21, 0, MODE_EMA, PRICE_CLOSE, 0);
 
+// Use LIVE tick price
+double price = Bid;
+
+double upper = MathMax(emaFast, emaSlow);
+double lower = MathMin(emaFast, emaSlow);
+
+// --- INSIDE CHECK ---
+bool isInside = (price > lower && price < upper);
+
+if(isInside)
+{
+   Print("Tick is INSIDE EMA zone");
+   CloseAllBuyOrders(); // Close BUY if inside
+}
+}
 
 void CheckForNewClosedBarAndProcessSignals()
 {

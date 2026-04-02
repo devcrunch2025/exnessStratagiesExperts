@@ -190,7 +190,11 @@ double gapPoints =  MathAbs(emaFast - emaSlow) / Point;
 
 double atr = iATR(Symbol(), 0, 14, 0) / Point;
 double minGap = atr * 0.5;   // 50% of volatility
+// 2️⃣ Price position
+   double price = iClose(Symbol(), 0, 0);
 
+   double upper = MathMax(emaFast, emaSlow);
+   double lower = MathMin(emaFast, emaSlow);
 // --- APPLY ONLY FOR NEW ORDER ---
 if(forAction == "NEW_ORDER")
 {
@@ -210,11 +214,7 @@ if(forAction == "NEW_ORDER")
       return -1;
    }
 
-   // 2️⃣ Price position
-   double price = iClose(Symbol(), 0, 0);
-
-   double upper = MathMax(emaFast, emaSlow);
-   double lower = MathMin(emaFast, emaSlow);
+   
 
    // --- ABOVE both EMAs ---
    if(price > upper)
@@ -229,6 +229,8 @@ if(forAction == "NEW_ORDER")
    // --- BELOW both EMAs ---
    else if(price < lower  )
    {
+
+    
       if(forTrade != "SELL")
       {
          Print("BELOW → Block BUY");
@@ -243,6 +245,7 @@ if(forAction == "NEW_ORDER")
       return -1;
    }
 }
+
 /*
 //block case1
  if((  StringFind(g_liveSignalName, "TREND BUY  1")    >= 0)  )
@@ -684,8 +687,10 @@ AddColorRule( "ANY GREEN SIGNAL","COUNT_1","NEW_ORDER","BUY");
 AddColorRule( "ANY RED SIGNAL","COUNT_1","CLOSE","BUY");
 AddColorRule( "ANY PINK SIGNAL","COUNT_1","CLOSE","BUY");
 AddColorRule( "ANY ORANGE SIGNAL","COUNT_1","CLOSE","BUY");
- AddSeqRule("TREND BUY 1","","TREND BUY 1","CLOSE","BUY");// this just for stop loss
- AddSeqRule("TREND BUY 4","","TREND BUY 1","CLOSE","BUY");// this just for stop loss 
+ AddSeqRule("TREND BUY 1","TREND BUY 2","TREND BUY 3","CLOSE","BUY");// this just for stop loss
+ 
+
+
 
  
 

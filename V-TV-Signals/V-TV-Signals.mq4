@@ -984,7 +984,7 @@ void OnTick()
 
     //  if(!IsTradingTime())
     //   return;
-
+  ////////// verfyEMAInsideLogic();
    // --- Close orders that reached profit target (checked every tick) ---
    ProcessSeqCloseOrders();
    CheckClosedOrders();
