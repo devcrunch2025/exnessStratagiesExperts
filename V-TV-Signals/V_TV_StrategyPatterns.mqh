@@ -210,7 +210,7 @@ if(forAction == "NEW_ORDER")
    // 1️⃣ Flat market filter
    if(gapPoints < 20    )
    {
-      Print("Market is flat → skip trade");
+     //////// Print("Market is flat → skip trade");
       return -1;
    }
 
@@ -221,7 +221,7 @@ if(forAction == "NEW_ORDER")
    {
       if(forTrade != "BUY"  )
       {
-         Print("ABOVE → Block SELL");
+         ///////Print("ABOVE → Block SELL");
          return -1;
       }
    }
@@ -233,7 +233,7 @@ if(forAction == "NEW_ORDER")
     
       if(forTrade != "SELL")
       {
-         Print("BELOW → Block BUY");
+         //Print("BELOW → Block BUY");
          return -1;
       }
    }
@@ -241,7 +241,7 @@ if(forAction == "NEW_ORDER")
    // --- INSIDE zone ---
    else if(forAction == "NEW_ORDER")
    {
-      Print("INSIDE → Skip trade");
+      /////Print("INSIDE → Skip trade");
       return -1;
    }
 }

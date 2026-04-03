@@ -42,7 +42,7 @@ input int    SpikeLookback       = 20;     // Bars used to calculate average can
 input int    DashboardRefreshSeconds = 30;
 input bool   ExecuteEverySignalInTester = false;
 input bool   EnablePreSignals           = true;
-input int    StartupWaitMinutes         = 5;   // Wait N minutes on first load before placing orders
+input int    StartupWaitMinutes         = 1;   // Wait N minutes on first load before placing orders
 
 // ----- GLOBALS ----- //
 string   currentSignal      = "";
@@ -986,11 +986,19 @@ void OnTick()
     //   return;
   ////////// verfyEMAInsideLogic();
    // --- Close orders that reached profit target (checked every tick) ---
-    if(g_newSignalDetected)
-     {
 
-   ProcessSeqCloseOrders();
+   double balance     = AccountBalance();
+   double equity      = AccountEquity();
+   if(equity  == balance && balance>20)
+     {
+       CloseAllBuyOrders();
+       CloseAllSellOrders();
+
+       Print("No open trades but balance is healthy. Closed any lingering orders just in case. Equity="+DoubleToString(equity,2)+" Balance="+DoubleToString(balance,2 ));
+
+       return;
      }
+   
    CheckClosedOrders();
 //CheckForNewClosedBarAndProcessSignals();
 
@@ -1237,6 +1245,11 @@ else if(preTrendSell)     newSig = "PRE SELL";
        ProcessSeqBuyOrders();
        ProcessSimplyBuyandCloseOrders();
       g_newSignalDetected = false;
+
+        
+
+   ProcessSeqCloseOrders();
+      
      }
 
 

@@ -55,7 +55,7 @@ void InitOrderReport()
             "Ticket,Type,Pattern,OpenTime,OpenPrice,"
             "CloseTime,ClosePrice,Profit(USD),"
             "EMA1_at_Open,EMA2_at_Open,EMA1_Below_EMA2,EMA1_Falling,"
-            "ProfitReason,LossReason\n");
+            "ProfitReason,LossReason,Dubai Time\n");
          FileClose(h);
         }
      }
@@ -160,7 +160,8 @@ void WriteOrderReportRow(OrderRecord &rec, datetime closeTime, double closePrice
       ema1BelowEma2                                       + "," +
       ema1Falling                                         + "," +
       "\"" + profitReason + "\""                          + "," +
-      "\"" + lossReason   + "\""                          + "\n";
+      "\"" + lossReason   + "\""                          + "," +
+      "\"" + TimeToString(TimeLocal(), TIME_DATE|TIME_SECONDS) + "\"" + "\n";
 
    int h = FileOpen(g_orderReportFile,
                     FILE_TXT|FILE_READ|FILE_WRITE|FILE_SHARE_READ|FILE_SHARE_WRITE);

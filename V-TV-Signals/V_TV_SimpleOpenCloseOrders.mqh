@@ -181,7 +181,7 @@ void CloseAllSellOrders()
    }
 
    // 🔥 Call ONLY ONCE after all orders processed
-   //if(anyClosed)
+    if(anyClosed)
    {
       UpdateTPBasedOnLastClosed();
    }
@@ -210,7 +210,7 @@ void CloseAllBuyOrders()
                      " Error: ", GetLastError());
             }
              
-//if(result)
+ if(result)
 {
    Print("Closed BUY order: ", OrderTicket());
    UpdateTPBasedOnLastClosed();   // 🔥 ADD THIS
@@ -239,13 +239,13 @@ void UpdateTPBasedOnLastClosed()
          {
             CurrentBuyTP = DefaultBuyTP / 2.0;
             SeqBuyProfitTarget = SeqBuyProfitTarget / 2.0; // also reduce SL for next BUY
-            Print("BUY LOSS → TP reduced to ", CurrentBuyTP);
+            Print("BUY LOSS → TP reduced to ", CurrentBuyTP," #"+total);
          }
          else
          {
             CurrentBuyTP = DefaultBuyTP;
             SeqBuyProfitTarget = DefaultBuyTP; // increase SL for next BUY
-            Print("BUY PROFIT → TP reset to ", CurrentBuyTP);
+            Print("BUY PROFIT → TP reset to ", CurrentBuyTP," #"+total);
          }
       }
 
@@ -256,13 +256,13 @@ void UpdateTPBasedOnLastClosed()
             CurrentSellTP = DefaultSellTP / 2.0;
             
             SeqSellProfitTarget = SeqSellProfitTarget / 2.0; // also reduce SL for next SELL
-            Print("SELL LOSS → TP reduced to ", CurrentSellTP);
+            Print("SELL LOSS → TP reduced to ", CurrentSellTP," #"+total);
          }
          else
          {
             CurrentSellTP = DefaultSellTP;
                SeqSellProfitTarget = DefaultSellTP; // increase SL for next SELL
-            Print("SELL PROFIT → TP reset to ", CurrentSellTP);
+            Print("SELL PROFIT → TP reset to ", CurrentSellTP," #"+total);
          }
       }
    }
