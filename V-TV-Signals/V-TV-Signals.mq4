@@ -989,7 +989,7 @@ void OnTick()
 
    double balance     = AccountBalance();
    double equity      = AccountEquity();
-   if(equity  == balance && balance>20)
+   if(equity  == balance && balance>20 && OrdersTotal() > 0) // no open trades but balance is healthy (e.g. after TP hit) - close any lingering orders just in case
      {
        CloseAllBuyOrders();
        CloseAllSellOrders();

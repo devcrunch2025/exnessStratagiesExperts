@@ -267,7 +267,7 @@ if(forAction == "NEW_ORDER")
 
       // --- PURE COLOR MATCH ---
       if(ct == "ANY GREEN SIGNAL"  && hasBuy)  return i;
-      if(ct == "ANY RED SIGNAL"    && anySell)    return i;
+      if(ct == "ANY RED SIGNAL"    && hasSell)    return i;
       if(ct == "ANY ORANGE SIGNAL" && isOrange) return i;
       if(ct == "ANY AQUA SIGNAL"   && isAqua)   return i;
       if(ct == "ANY PINK SIGNAL"   && isPink)   return i;
