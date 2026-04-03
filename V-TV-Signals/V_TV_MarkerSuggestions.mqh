@@ -489,24 +489,24 @@ void WriteMarkerSuggestionRow(int slot)
      }
 
    // Journal
-   Print("MARKER AI | [" + r.markerType + " #" + IntegerToString(r.seqCount) + "] " +
+   /*Print("MARKER AI | [" + r.markerType + " #" + IntegerToString(r.seqCount) + "] " +
          quality + " | " + (isWin ? "WIN" : "LOSS") +
          " Favour=$" + DoubleToString(favUSD,2) +
          " Adverse=$" + DoubleToString(advUSD,2) +
          " RR=" + DoubleToString(rr,2) +
          " BarsToFavour=" + IntegerToString(r.barsToFavourPeak) +
          " | EMA=" + (r.emaAligned ? "YES" : "NO") +
-         " Spike=" + r.spikeContext);
+         " Spike=" + r.spikeContext);*/
 
    // Cross-check journal
    if(si >= 0 && g_mstats[si].count >= 3)
      {
       double ar = (g_mstats[si].accurate + g_mstats[si].good) * 100.0 / g_mstats[si].count;
       string mkrVerdict = (ar >= 70) ? "RELIABLE" : (ar >= 50) ? "MODERATE" : "NEEDS IMPROVEMENT";
-      Print("MARKER AI | STATS [" + r.markerType + "] " +
+      /*Print("MARKER AI | STATS [" + r.markerType + "] " +
             IntegerToString(g_mstats[si].count) + " markers: " +
             DoubleToString(ar,0) + "% accurate -> " + mkrVerdict +
-            " | " + BuildMarkerSuggestion(si));
+            " | " + BuildMarkerSuggestion(si));*/
      }
   }
 
@@ -564,8 +564,8 @@ void InitMarkerSuggestions()
    for(int i = 0; i < MSTATS_MAX; i++) g_mstats[i].active  = false;
    g_mstatsCount = 0;
 
-   Print("MARKER AI: Initialised -> " + g_markerSuggestFile);
-   Print("MARKER AI: Stats file  -> " + g_markerStatsFile);
+   //Print("MARKER AI: Initialised -> " + g_markerSuggestFile);
+   //Print("MARKER AI: Stats file  -> " + g_markerStatsFile);
   }
 
 //+------------------------------------------------------------------+
@@ -661,19 +661,19 @@ void UpdateMarkerObs()
         {
          g_mobs[s].milestone50 = 1;
          string trend = (rr >= 1.5) ? "GOOD" : (rr >= 0.8) ? "MIXED" : "POOR";
-         Print("MARKER AI | [" + g_mobs[s].markerType + " #" + IntegerToString(g_mobs[s].seqCount) +
+         /*Print("MARKER AI | [" + g_mobs[s].markerType + " #" + IntegerToString(g_mobs[s].seqCount) +
                "] 50% | Favour=$" + DoubleToString(favUSD,2) +
                " Adverse=$" + DoubleToString(advUSD,2) +
-               " RR=" + DoubleToString(rr,2) + " -> " + trend);
+               " RR=" + DoubleToString(rr,2) + " -> " + trend);*/
         }
 
       // Early finalization: clear win
       if(barsNow >= MarkerEarlyMinBars && rr >= MarkerEarlyWinRR && g_mobs[s].maxFavour >= 80)
         {
          g_mobs[s].finalizeReason = "EARLY_WIN";
-         Print("MARKER AI | [" + g_mobs[s].markerType + " #" + IntegerToString(g_mobs[s].seqCount) +
+         /*Print("MARKER AI | [" + g_mobs[s].markerType + " #" + IntegerToString(g_mobs[s].seqCount) +
                "] EARLY WIN R:R=" + DoubleToString(rr,2) +
-               " $" + DoubleToString(favUSD,2) + " in " + IntegerToString(barsNow) + " bars");
+               " $" + DoubleToString(favUSD,2) + " in " + IntegerToString(barsNow) + " bars");*/
          WriteMarkerSuggestionRow(s);
          g_mobs[s].written = true;
          g_mobs[s].active  = false;
@@ -686,9 +686,9 @@ void UpdateMarkerObs()
          && g_mobs[s].maxAdverse >= 80)
         {
          g_mobs[s].finalizeReason = "EARLY_LOSS";
-         Print("MARKER AI | [" + g_mobs[s].markerType + " #" + IntegerToString(g_mobs[s].seqCount) +
+         /*Print("MARKER AI | [" + g_mobs[s].markerType + " #" + IntegerToString(g_mobs[s].seqCount) +
                "] EARLY LOSS Adverse=$" + DoubleToString(advUSD,2) +
-               " in " + IntegerToString(barsNow) + " bars - FALSE MARKER");
+               " in " + IntegerToString(barsNow) + " bars - FALSE MARKER");*/
          WriteMarkerSuggestionRow(s);
          g_mobs[s].written = true;
          g_mobs[s].active  = false;

@@ -48,8 +48,8 @@ string BuyPatternContext()
 bool BuyCond2_WarmupElapsed()
   {
    if(TimeCurrent() >= g_startupWaitUntil) return true;
-   Print("SeqBuy | BLOCKED [Cond2-Warmup] Order blocked - warming up until " +
-         TimeToString(g_startupWaitUntil, TIME_MINUTES) + " " + BuyPatternContext());
+  //  printdummy("SeqBuy | BLOCKED [Cond2-Warmup] Order blocked - warming up until " +
+  //        TimeToString(g_startupWaitUntil, TIME_MINUTES) + " " + BuyPatternContext());
    return false;
   }
 
@@ -74,9 +74,9 @@ bool BuyCond2b_MinTimeBetweenOrders()
    int elapsed = (int)(TimeCurrent() - lastOrderTime);
    if(elapsed >= SeqBuyMinSecsBetweenOrders) return true;
 
-   Print("SeqBuy | BLOCKED [Cond2b-MinTime] Only " + IntegerToString(elapsed) +
-         "s since last real order at " + TimeToString(lastOrderTime, TIME_SECONDS) +
-         " (need >=" + IntegerToString(SeqBuyMinSecsBetweenOrders) + "s) " + BuyPatternContext());
+  //  printdummy("SeqBuy | BLOCKED [Cond2b-MinTime] Only " + IntegerToString(elapsed) +
+  //        "s since last real order at " + TimeToString(lastOrderTime, TIME_SECONDS) +
+  //        " (need >=" + IntegerToString(SeqBuyMinSecsBetweenOrders) + "s) " + BuyPatternContext());
    return false;
   }
 
@@ -90,17 +90,21 @@ if(TrendBuyDailyHighGapPrice==0) return true;
    double zoneBottom = dailyHigh - TrendBuyDailyHighGapPrice;
    double ask        = MarketInfo(Symbol(), MODE_ASK);
    if(ask < zoneBottom) return true;
-   Print("SeqBuy | BLOCKED [Cond3-NoBuyZone] Price " + DoubleToString(ask,2) +
-         " is inside NO BUY ZONE (must be < " + DoubleToString(zoneBottom,2) + ") " + BuyPatternContext());
+  //  printdummy("SeqBuy | BLOCKED [Cond3-NoBuyZone] Price " + DoubleToString(ask,2) +
+  //        " is inside NO BUY ZONE (must be < " + DoubleToString(zoneBottom,2) + ") " + BuyPatternContext());
    return false;
   }
-
+void printdummy(string msg)
+  {
+   // Print(msg);
+  }
+ 
 // Condition 4: Max open orders not reached
 bool BuyCond4_MaxOrdersNotReached(int openCount)
   {
    if(openCount < SeqBuyMaxOrders) return true;
-   Print("SeqBuy | BLOCKED [Cond4-MaxOrders] Already " + IntegerToString(openCount) +
-         "/" + IntegerToString(SeqBuyMaxOrders) + " BUY orders open " + BuyPatternContext());
+  //  printdummy("SeqBuy | BLOCKED [Cond4-MaxOrders] Already " + IntegerToString(openCount) +
+  //        "/" + IntegerToString(SeqBuyMaxOrders) + " BUY orders open " + BuyPatternContext());
    return false;
   }
 
@@ -122,7 +126,7 @@ bool BuyCond5_MinUpriseGap(int openCount)
       int gap1 = (Point > 0) ? (int)MathRound((g_prevSignalPrice - g_prePrevSignalPrice) / Point) : 0;
       if(gap1 < SeqBuyMinGapPoints)
         {
-         Print("SeqBuy | BLOCKED [Cond5-Level1] " +
+         printdummy("SeqBuy | BLOCKED [Cond5-Level1] " +
                ppLabel + "=" + DoubleToString(g_prePrevSignalPrice,2) +
                " vs " + pvLabel + "=" + DoubleToString(g_prevSignalPrice,2) +
                " gap=" + IntegerToString(gap1) + "pts (need >=" +
@@ -137,7 +141,7 @@ bool BuyCond5_MinUpriseGap(int openCount)
       int gap2 = (Point > 0) ? (int)MathRound((g_currSignalPrice - g_prevSignalPrice) / Point) : 0;
       if(gap2 < SeqBuyMinGapPoints)
         {
-         Print("SeqBuy | BLOCKED [Cond5-Level2] " +
+         printdummy("SeqBuy | BLOCKED [Cond5-Level2] " +
                pvLabel + "=" + DoubleToString(g_prevSignalPrice,2) +
                " vs " + crLabel + "=" + DoubleToString(g_currSignalPrice,2) +
                " gap=" + IntegerToString(gap2) + "pts (need >=" +
@@ -170,7 +174,7 @@ bool BuyCond6_NoOrderInLoss()
       double profit = OrderProfit() + OrderSwap() + OrderCommission();
       if(profit < 0)
         {
-         Print("SeqBuy | BLOCKED [Cond6-OrderInLoss] Order #" + IntegerToString(OrderTicket()) +
+         printdummy("SeqBuy | BLOCKED [Cond6-OrderInLoss] Order #" + IntegerToString(OrderTicket()) +
                " P/L=" + DoubleToString(profit,2) + " is in loss " + BuyPatternContext());
          return false;
         }
@@ -211,7 +215,7 @@ bool BuyCond7_PatternMatched(int &ruleIdx)
       return true;
      } 
 
-   Print("SeqBuy | BLOCKED [Cond7-NoMatch] No SeqRule or ColorRule matched---------- "+g_liveSignalName+" " + BuyPatternContext());
+   printdummy("SeqBuy | BLOCKED [Cond7-NoMatch] No SeqRule or ColorRule matched---------- "+g_liveSignalName+" " + BuyPatternContext());
    return false;
   }
 
@@ -225,7 +229,7 @@ bool BuyCond8_EMAUptrend()
    // Direction check: EMA must be rising
    if(emaCurrent <= emaPast)
      {
-      Print("SeqBuy | BLOCKED [Cond8-EMA1Slope] EMA1(" + IntegerToString(SeqBuyEMAPeriod) +
+      printdummy("SeqBuy | BLOCKED [Cond8-EMA1Slope] EMA1(" + IntegerToString(SeqBuyEMAPeriod) +
             ") NOT sloping up: was " + DoubleToString(emaPast,5) +
             " now " + DoubleToString(emaCurrent,5) +
             " slope=" + DoubleToString(slopePts,1) + "pts " + BuyPatternContext());
@@ -235,7 +239,7 @@ bool BuyCond8_EMAUptrend()
    // Flatness check: slope must exceed minimum threshold
    if(SeqBuyEMAFlatMinPts > 0 && slopePts < SeqBuyEMAFlatMinPts)
      {
-      Print("SeqBuy | BLOCKED [Cond8-EMAFlat] EMA1 is STRAIGHT/FLAT: slope=" +
+      printdummy("SeqBuy | BLOCKED [Cond8-EMAFlat] EMA1 is STRAIGHT/FLAT: slope=" +
             DoubleToString(slopePts,1) + "pts over " + IntegerToString(SeqBuyEMAShift) +
             " bars < min " + IntegerToString(SeqBuyEMAFlatMinPts) +
             "pts — sideways market, skip BUY " + BuyPatternContext());
@@ -254,7 +258,7 @@ bool BuyCond9_EMA1AboveEMA2()
 
    if(ema1 > ema2)
       return true;
-   Print("SeqBuy | BLOCKED [Cond9-EMAStructure] EMA1(" + IntegerToString(SeqBuyEMAPeriod) + ")=" +
+   printdummy("SeqBuy | BLOCKED [Cond9-EMAStructure] EMA1(" + IntegerToString(SeqBuyEMAPeriod) + ")=" +
          DoubleToString(ema1,2) + " is NOT above EMA2(" + IntegerToString(SeqBuyEMA2Period) + ")=" +
          DoubleToString(ema2,2) + " (no bullish structure) " + BuyPatternContext());
    return false;
@@ -460,7 +464,7 @@ bool BuyCond10_RealMarket()
    // A) Absolute spread limit
    if(currentSpread > MaxSpreadPoints)
      {
-      Print("SeqBuy | BLOCKED [Cond10-SpreadHigh] Spread=" + DoubleToString(currentSpread,1) +
+      printdummy("SeqBuy | BLOCKED [Cond10-SpreadHigh] Spread=" + DoubleToString(currentSpread,1) +
             "pts > max=" + IntegerToString(MaxSpreadPoints) + "pts" +
             " (possible news or broker manipulation) " + BuyPatternContext());
       return false;
@@ -469,7 +473,7 @@ bool BuyCond10_RealMarket()
    // B) Spread spike vs running average
    if(avgSpread > 0 && currentSpread > avgSpread * SpreadSpikeMultiplier)
      {
-      Print("SeqBuy | BLOCKED [Cond10-SpreadSpike] Spread=" + DoubleToString(currentSpread,1) +
+      printdummy("SeqBuy | BLOCKED [Cond10-SpreadSpike] Spread=" + DoubleToString(currentSpread,1) +
             "pts is " + DoubleToString(currentSpread / avgSpread, 1) +
             "x avg=" + DoubleToString(avgSpread,1) +
             "pts (fake spike suspected) " + BuyPatternContext());
@@ -486,7 +490,7 @@ bool BuyCond10_RealMarket()
       double lastVol = (double)Volume[1];
       if(avgVol > 0 && lastVol < avgVol * VolumeMinRatio)
         {
-         Print("SeqBuy | BLOCKED [Cond10-LowVolume] Last bar volume=" + DoubleToString(lastVol,0) +
+         printdummy("SeqBuy | BLOCKED [Cond10-LowVolume] Last bar volume=" + DoubleToString(lastVol,0) +
                " < " + DoubleToString(VolumeMinRatio * 100,0) +
                "% of avg=" + DoubleToString(avgVol,0) +
                " (no real conviction) " + BuyPatternContext());
@@ -530,11 +534,11 @@ bool BuyCond11_M15Uptrend()
      }
 
    if(!directionOK)
-      Print("SeqBuy | BLOCKED [Cond11-NoUptrend] M30 close=" + DoubleToString(closeCurrent,5) +
+      printdummy("SeqBuy | BLOCKED [Cond11-NoUptrend] M30 close=" + DoubleToString(closeCurrent,5) +
             " NOT above " + IntegerToString(TrendLookbackBars) + " bars ago=" + DoubleToString(closePast,5) +
             " (price flat/falling — BUY blocked) " + BuyPatternContext());
    else
-      Print("SeqBuy | BLOCKED [Cond11-RiseTooSmall] Rise=" + DoubleToString(priceRise/Point,1) + "pts (" +
+      printdummy("SeqBuy | BLOCKED [Cond11-RiseTooSmall] Rise=" + DoubleToString(priceRise/Point,1) + "pts (" +
             DoubleToString(priceRise/closePast*100.0,3) + "%) < min " + DoubleToString(TrendMinMovePercent,2) +
             "% (" + DoubleToString(minRequired/Point,1) + "pts required) — weak move, skip " +
             BuyPatternContext());

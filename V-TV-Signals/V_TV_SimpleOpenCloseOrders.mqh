@@ -13,26 +13,21 @@
 
       }
 
-     
+       if((  StringFind(g_liveSignalName, "PRE BUY")    >= 0)  )
+      { 
+       CloseAllSellOrders();
 
-   // if(currSeqText=="TREND BUY 1"  ) {
-   //   SeqBuyProfitTarget=0.10;
-   //   SeqSellProfitTarget=0.10;
+      }
+  if((  StringFind(g_liveSignalName, "W SHAPE SELL")    >= 0)  )
+      { 
+       CloseAllSellOrders();
 
-      
+      }
+      if((  StringFind(g_liveSignalName, "STRONG SELL")    >= 0)  )
+      { 
+       CloseAllSellOrders();
 
-   //   }
-//  if(currSeqText=="PRE BUY 3" || currSeqText=="STRONG BUY 1" ||  currSeqText=="TREND BUY 2" ||  currSeqText=="TREND BUY 3" || currSeqText=="TREND BUY 4"  )
-//      { 
-//       CloseAllBuyOrders();
-
-//      }
-
-// if( currSeqText=="PRE BUY 3" || currSeqText=="STRONG BUY 1" || currSeqText=="TREND BUY 3"   )
-//      { 
-//       CloseAllBuyOrders();
-
-//      }
+      }
 
 
 
@@ -60,6 +55,7 @@ if(isInside)
 {
    Print("Tick is INSIDE EMA zone");
    CloseAllBuyOrders(); // Close BUY if inside
+   CloseAllSellOrders(); // Close SELL if inside
 }
 }
 
@@ -96,12 +92,20 @@ if(strongDown && curveDown)
    Print("EXIT BUY: Strong Downtrend Confirmed");
    CloseAllBuyOrders();
 } 
+else
+{
+   Print("BUY allowed: No strong downtrend");
+      CloseAllSellOrders();
+
+}
 
    if(curveDir == "FLAT")
    {
       // Caution: flat market, maybe skip new entries or tighten filters
        // Allow SELL logic
       CloseAllBuyOrders();
+      CloseAllSellOrders();
+
    }
 }
  
@@ -140,6 +144,48 @@ string GetEMACurveDirection(int period)
    return "FLAT";
 }
 
+void CloseAllSellOrders()
+{
+   bool anyClosed = false;
+
+   RefreshRates(); // 🔥 always refresh prices
+
+   for(int i = OrdersTotal() - 1; i >= 0; i--)
+   {
+      if(OrderSelect(i, SELECT_BY_POS, MODE_TRADES))
+      {
+         if(OrderSymbol() == Symbol() && OrderType() == OP_SELL)
+         {
+            double closePrice = Ask;
+
+            bool result = OrderClose(
+               OrderTicket(),
+               OrderLots(),
+               closePrice,
+               5,
+               clrRed
+            );
+
+            if(!result)
+            {
+               Print("Failed to close SELL order: ", OrderTicket(),
+                     " Error: ", GetLastError());
+            }
+            else
+            {
+               Print("Closed SELL order: ", OrderTicket());
+               anyClosed = true;
+            }
+         }
+      }
+   }
+
+   // 🔥 Call ONLY ONCE after all orders processed
+   //if(anyClosed)
+   {
+      UpdateTPBasedOnLastClosed();
+   }
+}
 void CloseAllBuyOrders()
 {
    for(int i = OrdersTotal() - 1; i >= 0; i--)
@@ -164,7 +210,7 @@ void CloseAllBuyOrders()
                      " Error: ", GetLastError());
             }
              
-if(result)
+//if(result)
 {
    Print("Closed BUY order: ", OrderTicket());
    UpdateTPBasedOnLastClosed();   // 🔥 ADD THIS
@@ -192,11 +238,13 @@ void UpdateTPBasedOnLastClosed()
          if(profit < 0)
          {
             CurrentBuyTP = DefaultBuyTP / 2.0;
+            SeqBuyProfitTarget = SeqBuyProfitTarget / 2.0; // also reduce SL for next BUY
             Print("BUY LOSS → TP reduced to ", CurrentBuyTP);
          }
          else
          {
             CurrentBuyTP = DefaultBuyTP;
+            SeqBuyProfitTarget = DefaultBuyTP; // increase SL for next BUY
             Print("BUY PROFIT → TP reset to ", CurrentBuyTP);
          }
       }
@@ -206,11 +254,14 @@ void UpdateTPBasedOnLastClosed()
          if(profit < 0)
          {
             CurrentSellTP = DefaultSellTP / 2.0;
+            
+            SeqSellProfitTarget = SeqSellProfitTarget / 2.0; // also reduce SL for next SELL
             Print("SELL LOSS → TP reduced to ", CurrentSellTP);
          }
          else
          {
             CurrentSellTP = DefaultSellTP;
+               SeqSellProfitTarget = DefaultSellTP; // increase SL for next SELL
             Print("SELL PROFIT → TP reset to ", CurrentSellTP);
          }
       }

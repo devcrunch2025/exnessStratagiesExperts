@@ -230,8 +230,8 @@ void InitLearningSuggestions()
    for(int i = 0; i < STATS_MAX; i++) g_stats[i].active  = false;
    g_statsCount = 0;
 
-   Print("AI BOT: Initialised -> " + g_suggestFile);
-   Print("AI BOT: Pattern stats -> " + g_statsFile);
+   //Print("AI BOT: Initialised -> " + g_suggestFile);
+   //Print("AI BOT: Pattern stats -> " + g_statsFile);
   }
 
 //+------------------------------------------------------------------+
@@ -285,10 +285,10 @@ void LearnRecordSignal(string label, string prevSig, string prePrevSig,
    g_obs[slot].milestone75     = 0;
 
    // Immediate journal note if spike detected
-   if(barsAgo >= 0)
-      Print("AI BOT | [" + label + "] fired " + IntegerToString(barsAgo) +
+   //if(barsAgo >= 0)
+     /*Print("AI BOT | [" + label + "] fired " + IntegerToString(barsAgo) +
             " bar(s) after " + spikeCtx + " (" + DoubleToString(spikeSize,0) + "pts)" +
-            " - tracking reversal quality...");
+            " - tracking reversal quality...");*/
   }
 
 //+------------------------------------------------------------------+
@@ -894,32 +894,32 @@ void LearnWriteSuggestion(int slot)
       ? (" | SPIKE=" + r.spikeContext + " " + DoubleToString(r.spikeSizePts,0) + "pts")
       : " | NO_SPIKE";
 
-   Print("AI BOT | [" + r.label + "] " + outcomeStr +
+   /*Print("AI BOT | [" + r.label + "] " + outcomeStr +
          " | R:R=" + DoubleToString(rr,2) +
          " | " + rating +
          " | EMA=" + emaStructure +
-         spikeTag);
+         spikeTag);*/
 
    // SL warning journal
    if(slWouldHit)
      {
-      if(slPremature)
-         Print("AI BOT | *** SL PREMATURE *** [" + r.label + "]" +
+    /*  if(slPremature)
+         //Print("AI BOT | *** SL PREMATURE *** [" + r.label + "]" +
                " SL($" + DoubleToString(slSetting,2) + ") was hit BUT price later reached TP($" +
                DoubleToString(tpSetting,2) + "). SL is TOO TIGHT — widen it!");
       else
-         Print("AI BOT | *** SL HIT *** [" + r.label + "]" +
+         //Print("AI BOT | *** SL HIT *** [" + r.label + "]" +
                " Adverse=$" + DoubleToString(maxAdverseUSD,2) +
                " exceeded SL=$" + DoubleToString(slSetting,2) +
                " | Cumulative SL hits this session: " +
-               (si >= 0 ? IntegerToString(g_stats[si].slHits) : "?"));
+               (si >= 0 ? IntegerToString(g_stats[si].slHits) : "?"));*/
      }
 
-   if(rating == "STRONG")
-      Print("AI BOT | *** STRONG *** " + r.label +
-            " TP=$" + DoubleToString(suggestedTPUSD,2) +
-            " SL=$" + DoubleToString(suggestedSLUSD,2) +
-            spikeTag + " | See PatternStats_" + Symbol() + ".csv");
+  //  if(rating == "STRONG")
+  //     //Print("AI BOT | *** STRONG *** " + r.label +
+  //           " TP=$" + DoubleToString(suggestedTPUSD,2) +
+  //           " SL=$" + DoubleToString(suggestedSLUSD,2) +
+  //           spikeTag + " | See PatternStats_" + Symbol() + ".csv");
 
    // Cross-verify with spike context
    if(si >= 0 && g_stats[si].count >= 3)
@@ -940,9 +940,9 @@ void LearnWriteSuggestion(int slot)
                            DoubleToString(swr,0) + "% spike vs " + DoubleToString(nwr,0) + "% no-spike)";
         }
 
-      Print("AI BOT | CROSS-CHECK [" + r.label + "] " +
-            IntegerToString(g_stats[si].count) + " trades: " +
-            DoubleToString(wr,0) + "% win -> " + verdict + spikeCompare);
+      // //Print("AI BOT | CROSS-CHECK [" + r.label + "] " +
+      //       IntegerToString(g_stats[si].count) + " trades: " +
+      //       DoubleToString(wr,0) + "% win -> " + verdict + spikeCompare);
      }
   }
 
@@ -1060,20 +1060,20 @@ void LearnUpdateObservations()
          if(barsNow >= LearnObserveBars / 4  && g_obs[s].milestone25 == 0)
            {
             g_obs[s].milestone25 = 1;
-            Print("AI BOT | [" + g_obs[s].label + "] 25% | " +
+            /*Print("AI BOT | [" + g_obs[s].label + "] 25% | " +
                   "Favour=$" + DoubleToString(favUSD,2) +
                   " Adverse=$" + DoubleToString(advUSD,2) +
                   " R:R=" + DoubleToString(rr,2) +
-                  " | " + g_obs[s].spikeContext);
+                  " | " + g_obs[s].spikeContext);*/
            }
          if(barsNow >= LearnObserveBars / 2  && g_obs[s].milestone50 == 0)
            {
             g_obs[s].milestone50 = 1;
-            Print("AI BOT | [" + g_obs[s].label + "] 50% | " +
+            /*Print("AI BOT | [" + g_obs[s].label + "] 50% | " +
                   "Favour=$" + DoubleToString(favUSD,2) +
                   " Adverse=$" + DoubleToString(advUSD,2) +
                   " R:R=" + DoubleToString(rr,2) +
-                  (rr >= 1.5 ? " -> LOOKING GOOD" : (rr < 0.5 ? " -> LOSING" : " -> MIXED")));
+                  (rr >= 1.5 ? " -> LOOKING GOOD" : (rr < 0.5 ? " -> LOSING" : " -> MIXED")));*/
            }
          if(barsNow >= (LearnObserveBars * 3) / 4 && g_obs[s].milestone75 == 0)
            {
@@ -1081,11 +1081,11 @@ void LearnUpdateObservations()
             string verdict75 = (rr >= LearnMinRR) ? "LIKELY STRONG" :
                                (rr >= 1.0)        ? "MODERATE"      :
                                (rr >= 0.5)        ? "WEAK"          : "LIKELY LOSS";
-            Print("AI BOT | [" + g_obs[s].label + "] 75% | " +
+           /*Print("AI BOT | [" + g_obs[s].label + "] 75% | " +
                   "Favour=$" + DoubleToString(favUSD,2) +
                   " Adverse=$" + DoubleToString(advUSD,2) +
                   " R:R=" + DoubleToString(rr,2) +
-                  " -> " + verdict75);
+                  " -> " + verdict75);*/
            }
         }
 
@@ -1095,10 +1095,10 @@ void LearnUpdateObservations()
          && g_obs[s].maxFavour >= 100)
         {
          g_obs[s].finalizeReason = "EARLY_WIN";
-         Print("AI BOT | [" + g_obs[s].label + "] *** EARLY WIN *** " +
+        /*Print("AI BOT | [" + g_obs[s].label + "] *** EARLY WIN *** " +
                "R:R=" + DoubleToString(rr,2) +
                " Profit=$" + DoubleToString(favUSD,2) +
-               " after only " + IntegerToString(barsNow) + " bars");
+               " after only " + IntegerToString(barsNow) + " bars");*/
          LearnWriteSuggestion(s);
          g_obs[s].written = true;
          g_obs[s].active  = false;
@@ -1111,10 +1111,10 @@ void LearnUpdateObservations()
          && g_obs[s].maxAdverse >= 100)
         {
          g_obs[s].finalizeReason = "EARLY_LOSS";
-         Print("AI BOT | [" + g_obs[s].label + "] *** EARLY LOSS *** " +
+         /*Print("AI BOT | [" + g_obs[s].label + "] *** EARLY LOSS *** " +
                "Adverse=$" + DoubleToString(advUSD,2) +
                " >> Favour=$" + DoubleToString(favUSD,2) +
-               " after " + IntegerToString(barsNow) + " bars - PATTERN FAILED");
+               " after " + IntegerToString(barsNow) + " bars - PATTERN FAILED");*/
          LearnWriteSuggestion(s);
          g_obs[s].written = true;
          g_obs[s].active  = false;
