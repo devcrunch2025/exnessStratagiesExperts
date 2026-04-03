@@ -986,7 +986,11 @@ void OnTick()
     //   return;
   ////////// verfyEMAInsideLogic();
    // --- Close orders that reached profit target (checked every tick) ---
+    if(g_newSignalDetected)
+     {
+
    ProcessSeqCloseOrders();
+     }
    CheckClosedOrders();
 //CheckForNewClosedBarAndProcessSignals();
 
