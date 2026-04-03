@@ -411,7 +411,37 @@ void UpdateDailyLowProximityLines()
    ObjectSetInteger(0, buyBg, OBJPROP_WIDTH,   1);
    ObjectSetInteger(0, buyBg, OBJPROP_SELECTED,false);
   }
+void dipslayCurrentTime()
+{
+  
+string name = "TimeLabel";
 
+   datetime serverTime = TimeCurrent();
+   datetime dubaiTime  = TimeLocal();
+
+   string text = "Server: " + TimeToString(serverTime, TIME_SECONDS) +
+                 " | Dubai: " + TimeToString(dubaiTime, TIME_SECONDS);
+
+   // ✅ Create only once
+   if(ObjectFind(0, name) == -1)
+   {
+
+      int chartWidth = (int)ChartGetInteger(0, CHART_WIDTH_IN_PIXELS, 0);
+   int x = chartWidth / 2 - 150;
+      ObjectCreate(0, name, OBJ_LABEL, 0, 0, 0);
+
+      ObjectSetInteger(0, name, OBJPROP_CORNER, CORNER_LEFT_UPPER);
+      ObjectSetInteger(0, name, OBJPROP_XDISTANCE, x);
+      ObjectSetInteger(0, name, OBJPROP_YDISTANCE, 50);
+
+      ObjectSetInteger(0, name, OBJPROP_COLOR, clrYellow);
+      ObjectSetInteger(0, name, OBJPROP_FONTSIZE, 12);
+   }
+
+   // ✅ Only update text (NO overlap)
+   ObjectSetString(0, name, OBJPROP_TEXT, text);
+ 
+}
 //+------------------------------------------------------------------+
 // Current live signal label (top-right, updates every tick)
 //+------------------------------------------------------------------+
@@ -421,6 +451,9 @@ void UpdateCurrentSignalLabel()
    string lbl = g_currSignalLabel;
    string sig = (g_liveSignalName == "") ? "---" : g_liveSignalName;
    color  clr = GetSignalColor(sig);
+
+
+
 
 
 
@@ -987,6 +1020,9 @@ void OnTick()
   ////////// verfyEMAInsideLogic();
    // --- Close orders that reached profit target (checked every tick) ---
 
+
+   GetEMACrossDirection();
+
    double balance     = AccountBalance();
    double equity      = AccountEquity();
    if(equity  == balance && balance>20 && OrdersTotal() > 0) // no open trades but balance is healthy (e.g. after TP hit) - close any lingering orders just in case
@@ -1261,6 +1297,8 @@ else if(preTrendSell)     newSig = "PRE SELL";
    DrawSpikeMarkers();
    DrawDashboard();
    MaybeRefreshDashboard();
+
+   dipslayCurrentTime();
   }
 
 

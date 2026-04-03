@@ -349,11 +349,11 @@ void ProcessSeqSellOrders()
   //                   IntegerToString(SeqSellMinGapPoints) + "pts required)";
    else if(!SellCond6_NoOrderInLoss())
       blockReason = "Cond6: An existing SELL order is in loss";
-  //  else if(!SellCond8_EMADowntrend())
-  //     blockReason = "Cond8: EMA not trending down or is flat (min " +
-  //                   IntegerToString(SeqSellEMAFlatMinPts) + "pts slope required)";
-  //  else if(!SellCond9_EMA1BelowEMA2())
-  //     blockReason = "Cond9: EMA1 not below EMA2 — no bearish structure";
+   else if(!SellCond8_EMADowntrend())
+      blockReason = "Cond8: EMA not trending down or is flat (min " +
+                    IntegerToString(SeqSellEMAFlatMinPts) + "pts slope required)";
+   else if(!SellCond9_EMA1BelowEMA2())
+      blockReason = "Cond9: EMA1 not below EMA2 — no bearish structure";
   //  else if(!SellCond11_M15Downtrend())
   //     blockReason = "Cond11: M30 downtrend not confirmed (need " +
   //                   DoubleToString(TrendMinMovePercent,2) + "% drop over " +

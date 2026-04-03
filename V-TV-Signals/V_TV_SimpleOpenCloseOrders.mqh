@@ -30,15 +30,87 @@
       }
 
 
+      
+
+
 
 
  }
 
+void GetEMACrossDirection()
+{
 
+   return ;
+   int seconds = 10;  // ✅ fixed
 
+   static datetime lastCrossTime = 0;
+   static int lastDirection = 0; // 1 = BUY, -1 = SELL
+   static double prevFast = 0;
+   static double prevSlow = 0;
 
+   double emaFast = iMA(Symbol(), 0, 9,  0, MODE_EMA, PRICE_CLOSE, 0);
+   double emaSlow = iMA(Symbol(), 0, 21, 0, MODE_EMA, PRICE_CLOSE, 0);
+
+   // --- Detect cross ---
+   if(prevFast != 0 && prevSlow != 0)
+   {
+      // 🔺 CROSS UP → BUY
+      if(prevFast < prevSlow && emaFast > emaSlow)
+      {
+         lastCrossTime = TimeCurrent();
+         lastDirection = 1;
+
+         Print("EMA CROSS UP → BUY");
+      }
+
+      // 🔻 CROSS DOWN → SELL
+      else if(prevFast > prevSlow && emaFast < emaSlow)
+      {
+         lastCrossTime = TimeCurrent();
+         lastDirection = -1;
+
+         Print("EMA CROSS DOWN → SELL");
+      }
+   }
+
+   prevFast = emaFast;
+   prevSlow = emaSlow;
+
+   // --- No cross yet ---
+   if(lastCrossTime == 0)
+      return  ;
+
+   int diff = (int)(TimeCurrent() - lastCrossTime);
+
+   // --- Within 10 seconds ---
+   if(diff <= seconds)
+   {
+      // ✅ Execute only once per cross
+      static datetime lastHandled = 0;
+
+      if(lastHandled != lastCrossTime)
+      {
+         lastHandled = lastCrossTime;
+
+         if(lastDirection == 1)
+         {
+            ProcessSeqBuyOrders();
+         }
+         else if(lastDirection == -1)
+         {
+            ProcessSeqSellOrders();
+         }
+      }
+
+      return  ;
+   }
+
+   return  ;
+}
 void verfyEMAInsideLogic()
 {
+
+   return ;
  double emaFast = iMA(Symbol(), 0, 9,  0, MODE_EMA, PRICE_CLOSE, 0);
 double emaSlow = iMA(Symbol(), 0, 21, 0, MODE_EMA, PRICE_CLOSE, 0);
 

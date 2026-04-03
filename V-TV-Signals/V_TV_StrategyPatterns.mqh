@@ -495,6 +495,8 @@ AddColorRule( "ANY GREEN SIGNAL","COUNT_1","CLOSE","SELL");
 AddColorRule( "ANY BLUE SIGNAL","COUNT_1","CLOSE","SELL");
 AddColorRule( "ANY PINK SIGNAL","COUNT_1","CLOSE","SELL");
  AddSeqRule("TREND SELL 1","TREND SELL 2","TREND SELL 3","CLOSE","SELL");// this just for stop loss
+
+  
  
 
   }
