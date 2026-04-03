@@ -1014,6 +1014,7 @@ bool IsTradingTime()
 //+------------------------------------------------------------------+
 void OnTick()
   {
+   dipslayCurrentTime();
 
     //  if(!IsTradingTime())
     //   return;
@@ -1023,17 +1024,6 @@ void OnTick()
 
    GetEMACrossDirection();
 
-   double balance     = AccountBalance();
-   double equity      = AccountEquity();
-   if(equity  == balance && balance>20 && OrdersTotal() > 0) // no open trades but balance is healthy (e.g. after TP hit) - close any lingering orders just in case
-     {
-       CloseAllBuyOrders();
-       CloseAllSellOrders();
-
-       Print("No open trades but balance is healthy. Closed any lingering orders just in case. Equity="+DoubleToString(equity,2)+" Balance="+DoubleToString(balance,2 ));
-
-       return;
-     }
    
    CheckClosedOrders();
 //CheckForNewClosedBarAndProcessSignals();
@@ -1289,16 +1279,29 @@ else if(preTrendSell)     newSig = "PRE SELL";
      }
 
 
-   LearnUpdateObservations();
-   UpdateMarkerObs();
+  //  LearnUpdateObservations();
+  //  UpdateMarkerObs();
 
    DrawEMALine(SeqSellEMAPeriod,  clrDodgerBlue, "EMA_SELL");
    DrawEMALine(SeqSellEMA2Period, clrOrange,     "EMA_SELL2");
-   DrawSpikeMarkers();
+  //  DrawSpikeMarkers();
    DrawDashboard();
    MaybeRefreshDashboard();
 
    dipslayCurrentTime();
+
+   
+   double balance     = AccountBalance();
+   double equity      = AccountEquity();
+   if(equity  == balance && balance>20 && OrdersTotal() > 0) // no open trades but balance is healthy (e.g. after TP hit) - close any lingering orders just in case
+     {
+       CloseAllBuyOrders();
+       CloseAllSellOrders();
+
+       Print("No open trades but balance is healthy. Closed any lingering orders just in case. Equity="+DoubleToString(equity,2)+" Balance="+DoubleToString(balance,2 ));
+
+       return;
+     }
   }
 
 
