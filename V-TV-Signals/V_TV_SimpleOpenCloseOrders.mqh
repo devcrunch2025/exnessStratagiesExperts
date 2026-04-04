@@ -91,7 +91,7 @@ bool HandleOldBuyOrder()
       {
          buyModified = true;
 
-         Print("BUY order > 0.5 hours");
+         ///Print("BUY order > 0.5 hours");
            SeqBuyMaxOrders=2;
         /// SeqSellProfitTarget=0.5;
          SeqBuyProfitTarget=0.5;
@@ -141,7 +141,7 @@ bool HandleOldSellOrder()
       {
          sellModified = true;
 
-         Print("SELL order > 5 hours");
+         ///Print("SELL order > 5 hours");
 
                 SeqSellMaxOrders=2;
          SeqSellProfitTarget=0.5;
