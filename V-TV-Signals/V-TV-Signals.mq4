@@ -429,8 +429,9 @@ string name = "TimeLabel";
    string text = "Sr: " + TimeToString(serverTime, TIME_SECONDS) +
                  " | Du: " + TimeToString(dubaiTime, TIME_SECONDS);
 
-             text += " | B: $" + DoubleToString(balance, 2) +
-                     " E: $" + DoubleToString(equity, 2) ;
+             text += " O: $" + DoubleToString(g_initialBalance, 2) +
+                     "| B: $" + DoubleToString(balance, 2) +
+                     " |  E: $" + DoubleToString(equity, 2) ;
                     //  " M: $" + DoubleToString(margin, 2)   
 
    // ✅ Create only once
