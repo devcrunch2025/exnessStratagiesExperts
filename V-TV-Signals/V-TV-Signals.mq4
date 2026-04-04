@@ -42,7 +42,7 @@ input int    SpikeLookback       = 20;     // Bars used to calculate average can
 input int    DashboardRefreshSeconds = 30;
 input bool   ExecuteEverySignalInTester = false;
 input bool   EnablePreSignals           = true;
-input int    StartupWaitMinutes         = 1;   // Wait N minutes on first load before placing orders
+input int    StartupWaitMinutes         = 10;   // Wait N minutes on first load before placing orders
 
 // ----- GLOBALS ----- //
 string   currentSignal      = "";

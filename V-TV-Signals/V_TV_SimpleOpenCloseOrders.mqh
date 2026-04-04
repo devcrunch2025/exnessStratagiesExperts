@@ -1,7 +1,7 @@
 
 int isFirstBuyOrderClosed=false;
 int isFirstSellOrderClosed=false;
-
+double FirstOrderLossThreshold = -4.0; // $4 loss threshold to trigger close of oldest order
 void CloseOldestBuyIfLoss()
 {
 if(isFirstBuyOrderClosed)
@@ -34,14 +34,14 @@ if(isFirstBuyOrderClosed)
    {
       double profit = OrderProfit() + OrderSwap() + OrderCommission();
 
-      if(profit < -5.0)
+      if(profit < FirstOrderLossThreshold)
       {
          RefreshRates();
 
          bool result = OrderClose(ticket, lots, Bid, 5, clrRed);
          isFirstBuyOrderClosed = true; // Set flag to prevent multiple closures in same session
          if(result)
-            Print("Closed oldest BUY (loss > $5): ", ticket);
+            Print("Closed oldest BUY (loss > $", DoubleToString(-FirstOrderLossThreshold, 2), "): ", ticket);
          else
             Print("Failed to close BUY: ", GetLastError());
       }
@@ -78,7 +78,7 @@ if(isFirstBuyOrderClosed)
    {
       double profit = OrderProfit() + OrderSwap() + OrderCommission();
 
-      if(profit < -5.0)
+      if(profit < FirstOrderLossThreshold)
       {
          RefreshRates();
 
@@ -87,7 +87,7 @@ if(isFirstBuyOrderClosed)
          isFirstSellOrderClosed = true; // Set flag to prevent multiple closures in same session
 
          if(result)
-            Print("Closed oldest SELL (loss > $5): ", ticket);
+            Print("Closed oldest SELL (loss > $", DoubleToString(-FirstOrderLossThreshold, 2), "): ", ticket);
          else
             Print("Failed to close SELL: ", GetLastError());
       }
