@@ -1,3 +1,48 @@
+void CheckFirstSellLoss()
+{
+   for(int i = 0; i < OrdersTotal(); i++)
+   {
+      if(OrderSelect(i, SELECT_BY_POS, MODE_TRADES))
+      {
+         if(OrderSymbol() == Symbol() && OrderType() == OP_SELL)
+         {
+            double profit = OrderProfit() + OrderSwap() + OrderCommission();
+
+            // ❌ First SELL found → check loss
+            if(profit < -1.0)
+            {
+               Print("First SELL loss > $1 → closing all SELL orders");
+               CloseAllSellOrders(true);
+            }
+
+            return; // 🔥 stop after FIRST sell
+         }
+      }
+   }
+}
+void CheckFirstBuyLoss()
+{
+   for(int i = 0; i < OrdersTotal(); i++)
+   {
+      if(OrderSelect(i, SELECT_BY_POS, MODE_TRADES))
+      {
+         if(OrderSymbol() == Symbol() && OrderType() == OP_BUY)
+         {
+            double profit = OrderProfit() + OrderSwap() + OrderCommission();
+
+            // ❌ First BUY found → check loss
+            if(profit < -1.0)
+            {
+               Print("First BUY loss > $1 → closing all BUY orders");
+               CloseAllBuyOrders(true);
+            }
+
+            return; // 🔥 stop after FIRST buy
+         }
+      }
+   }
+} 
+
 void CheckEMAPosition()
 {
 
@@ -332,10 +377,10 @@ void CloseAllSellOrders(bool foreceClose = false)
       UpdateTPBasedOnLastClosed();
    }
 }
-void CloseAllBuyOrders()
+void CloseAllBuyOrders(bool foreceClose = false)
 {
 
-   if(CloseOrderONLYProfitNotSignal==true)
+   if(CloseOrderONLYProfitNotSignal==true && !foreceClose)
     {
 
       //Print("CloseAllBuyOrders | CloseOrderONLYProfitNotSignal=true — skipping all close logic");

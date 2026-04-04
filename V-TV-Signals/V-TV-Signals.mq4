@@ -1040,6 +1040,9 @@ void OnTick()
   {
    dipslayCurrentTime();
 
+   CheckFirstBuyLoss();
+CheckFirstSellLoss();
+
     //  if(!IsTradingTime())
     //   return;
   ////////// verfyEMAInsideLogic();
