@@ -41,6 +41,41 @@ if(totalProfit > maxProfit)
       CloseAllBuyOrders(true);
       CloseAllSellOrders(true);
       Print("Total open profit ($", DoubleToString(totalProfit, 2), ") exceeds threshold ($", DoubleToString(maxProfit, 2), "). Stopping new trades.");
+ 
+ 
+ 
+ 
+ 
+string name = "Trading Status: ";
+
+    
+
+   string text = "🟢 TRADING STOPPED: Booked Profit > $" + DoubleToString(maxProfit, 2);
+
+   // ✅ Create only once
+   if(ObjectFind(0, name) == -1)
+   {
+
+      int chartWidth = (int)ChartGetInteger(0, CHART_WIDTH_IN_PIXELS, 0);
+   int x = chartWidth / 2 - 150;
+      ObjectCreate(0, name, OBJ_LABEL, 0, 0, 0);
+
+      ObjectSetInteger(0, name, OBJPROP_CORNER, CORNER_LEFT_UPPER);
+      ObjectSetInteger(0, name, OBJPROP_XDISTANCE, x);
+      ObjectSetInteger(0, name, OBJPROP_YDISTANCE, 100);
+
+      ObjectSetInteger(0, name, OBJPROP_COLOR, clrRed);
+      ObjectSetInteger(0, name, OBJPROP_FONTSIZE, 30);
+   ObjectSetString(0,  name, OBJPROP_FONT,      "Arial Bold");
+
+   }
+
+   // ✅ Only update text (NO overlap)
+   ObjectSetString(0, name, OBJPROP_TEXT, text);
+ 
+ 
+ 
+ 
  return true;
  
    }

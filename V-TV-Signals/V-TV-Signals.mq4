@@ -436,6 +436,8 @@ string name = "TimeLabel";
 
       ObjectSetInteger(0, name, OBJPROP_COLOR, clrYellow);
       ObjectSetInteger(0, name, OBJPROP_FONTSIZE, 12);
+   ObjectSetString(0,  name, OBJPROP_FONT,      "Arial Bold");
+
    }
 
    // ✅ Only update text (NO overlap)
