@@ -241,6 +241,8 @@ int CountOpenSeqSellOrders()
 //+------------------------------------------------------------------+
 bool PlaceSeqSellOrder(int ruleIdx)
   {
+
+    
    double bid = MarketInfo(Symbol(), MODE_BID);
 
    // ruleIdx == -1 means a ColorRule matched (not a SeqRule) — safe fallback comment
@@ -270,6 +272,7 @@ bool PlaceSeqSellOrder(int ruleIdx)
          " Bid=" + DoubleToString(bid,2) + " Lot=" + DoubleToString(SeqSellLotSize,2));
 
    ReportOrderOpened(ticket, pattern, "SELL");
+   
    return true;
   }
 
@@ -358,8 +361,8 @@ void ProcessSeqSellOrders()
   //  else if(!SellCond5_MinDownfallGap(openCount))
   //     blockReason = "Cond5: Min downfall gap not reached (" +
   //                   IntegerToString(SeqSellMinGapPoints) + "pts required)";
-   else if(!SellCond6_NoOrderInLoss())
-      blockReason = "Cond6: An existing SELL order is in loss";
+  //  else if(!SellCond6_NoOrderInLoss())
+  //     blockReason = "Cond6: An existing SELL order is in loss";
    else if(!SellCond8_EMADowntrend())
       blockReason = "Cond8: EMA not trending down or is flat (min " +
                     IntegerToString(SeqSellEMAFlatMinPts) + "pts slope required)";
@@ -369,6 +372,7 @@ void ProcessSeqSellOrders()
   //     blockReason = "Cond11: M30 downtrend not confirmed (need " +
   //                   DoubleToString(TrendMinMovePercent,2) + "% drop over " +
   //                   IntegerToString(TrendLookbackBars) + " bars)";
+   Print("Blocked---------  SELL order Reason " + blockReason);
 
    if(blockReason != "")
      {

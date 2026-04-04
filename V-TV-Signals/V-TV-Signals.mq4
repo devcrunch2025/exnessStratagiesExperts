@@ -80,6 +80,9 @@ double CurrentSellTP = 0;
 double DefaultBuyTP  = 0;
 double DefaultSellTP = 0;
 
+double DefaultBuyMaxBuyOrders  = 0;
+double DefaultSellMaxSellOrders = 0;
+
 datetime lastAlertTime            = 0;
 datetime lastProcessedClosedBar   = 0;
 datetime lastDashboardRefreshTime = 0;
@@ -427,8 +430,8 @@ string name = "TimeLabel";
                  " | Du: " + TimeToString(dubaiTime, TIME_SECONDS);
 
              text += " | B: $" + DoubleToString(balance, 2) +
-                     " E: $" + DoubleToString(equity, 2) +
-                     " M: $" + DoubleToString(margin, 2);   
+                     " E: $" + DoubleToString(equity, 2) ;
+                    //  " M: $" + DoubleToString(margin, 2)   
 
    // ✅ Create only once
    if(ObjectFind(0, name) == -1)
@@ -461,16 +464,18 @@ int hour = TimeHour(now);
 // ❌ Weekend / restricted time
 if(day == 6 || day == 0 || (day == 1 && hour < 16))
 {
-   SeqBuyProfitTarget  = 0.05;
-   SeqSellProfitTarget = 0.05;
+   SeqBuyProfitTarget  = 0.10;
+   SeqSellProfitTarget = 0.10;
 
    //Print("Weekend mode → Reduced TP");
 }
 else
 {
    // ✅ Normal trading
-   SeqBuyProfitTarget  = DefaultBuyTP;
-   SeqSellProfitTarget = DefaultSellTP;
+changeMaxOrdersLogic();
+  //  Print("NORMAL mode → Default TP");
+  //  SeqBuyProfitTarget  = DefaultBuyTP;
+  //  SeqSellProfitTarget = DefaultSellTP;
 
    //Print("Normal mode → Default TP");
 }
@@ -909,7 +914,7 @@ void DrawDashboard()
                           DoubleToString(marginLevel,1) + "%",marginClr, y); y += step+6;
 
    // Orders
-   DashRow("DB_Hdr3",     " OPEN ORDERS",                    cHdr,      y); y += step;
+   DashRow("DB_Hdr3",     " OPEN ORDERS "+SeqBuyMaxOrders+"/"+SeqSellMaxOrders,                    cHdr,      y); y += step;
    DashRow("DB_BuyOrds",  "  BUY       : " +
                           IntegerToString(openBuy),           (openBuy  > 0 ? cBuy  : cSubtle), y); y += step;
    DashRow("DB_SellOrds", "  SELL      : " +
@@ -961,6 +966,9 @@ int OnInit()
 
     DefaultBuyTP  = SeqBuyProfitTarget;
 DefaultSellTP = SeqSellProfitTarget;
+
+  DefaultBuyMaxBuyOrders  = SeqBuyMaxOrders;
+  DefaultSellMaxSellOrders = SeqSellMaxOrders;
 
 CurrentBuyTP  = DefaultBuyTP;
 CurrentSellTP = DefaultSellTP;
@@ -1049,7 +1057,7 @@ bool IsTradingTime()
 void OnTick()
   {
 
-
+changeMaxOrdersLogic();
 if(stopTrading())
 {
   Print("Trading is currently stopped due to Booked Profit restrictions.");

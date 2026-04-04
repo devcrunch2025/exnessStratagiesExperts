@@ -295,6 +295,8 @@ int CountOpenSeqBuyOrders()
 //+------------------------------------------------------------------+
 bool PlaceSeqBuyOrder(int ruleIdx)
   {
+
+     
    double ask = MarketInfo(Symbol(), MODE_ASK);
 
    // ruleIdx == -1 means a ColorRule matched (not a SeqRule) — safe fallback comment
@@ -324,6 +326,7 @@ bool PlaceSeqBuyOrder(int ruleIdx)
          " Ask=" + DoubleToString(ask,2) + " Lot=" + DoubleToString(SeqBuyLotSize,2));
 
    ReportOrderOpened(ticket, pattern, "BUY");
+  
    return true;
   }
 
@@ -433,8 +436,8 @@ void ProcessSeqBuyOrders()
    else if(!BuyCond5_MinUpriseGap(openCount))
       blockReason = "Cond5: Min uprise gap not reached (" +
                     IntegerToString(SeqBuyMinGapPoints) + "pts required)";
-   else if(!BuyCond6_NoOrderInLoss())
-      blockReason = "Cond6: An existing BUY order is in loss";
+  //  else if(!BuyCond6_NoOrderInLoss())
+  //     blockReason = "Cond6: An existing BUY order is in loss";
    else if(!BuyCond8_EMAUptrend())
       blockReason = "Cond8: EMA not trending up or is flat (min " +
                     IntegerToString(SeqBuyEMAFlatMinPts) + "pts slope required)";
@@ -444,6 +447,7 @@ void ProcessSeqBuyOrders()
   //     blockReason = "Cond11: M30 uptrend not confirmed (need " +
   //                   DoubleToString(TrendMinMovePercent,2) + "% rise over " +
   //                   IntegerToString(TrendLookbackBars) + " bars)";
+   Print("Blocked---------  BUY order Reason " + blockReason);
 
    if(blockReason != "")
      {

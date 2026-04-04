@@ -1,6 +1,149 @@
 
 
 
+void changeMaxOrdersLogic()
+{
+   
+//   DefaultBuyMaxBuyOrders  = SeqBuyMaxOrders;
+//   DefaultSellMaxSellOrders = SeqSellMaxOrders;
+   
+   // HandleOldBuyOrder();
+   // HandleOldSellOrder();
+
+ int  buyCount = 0;
+ int  sellCount = 0;
+
+   for(int i = 0; i < OrdersTotal(); i++)
+   {
+      if(OrderSelect(i, SELECT_BY_POS, MODE_TRADES))
+      {
+         if(OrderSymbol() == Symbol()) // optional filter (current pair)
+         {
+            if(OrderType() == OP_BUY)
+               buyCount++;
+
+            else if(OrderType() == OP_SELL)
+               sellCount++;
+         }
+      }
+   }
+
+   // Print("Current BUY orders: ", buyCount, " | Current SELL orders: ", sellCount,SeqSellProfitTarget);
+
+   if(buyCount>1)
+   {
+SeqBuyProfitTarget=0.5;
+ 
+   }
+   else
+   {
+      SeqBuyProfitTarget = DefaultBuyTP;
+  
+
+   }
+     if(sellCount > 1)
+   {
+SeqSellProfitTarget=0.5;
+//  Print(" SeqSellProfitTarget is uPdated  ", sellCount,SeqSellProfitTarget);
+
+   }
+   else
+   {
+  SeqSellProfitTarget = DefaultSellTP;
+
+   }
+
+   
+}
+/*
+void HandleOldBuyOrder()
+{
+   int ticket = -1;
+   datetime latestTime = 0;
+
+   for(int i = 0; i < OrdersTotal(); i++)
+   {
+      if(OrderSelect(i, SELECT_BY_POS, MODE_TRADES))
+      {
+         if(OrderSymbol() == Symbol() && OrderType() == OP_BUY)
+         {
+            if(OrderOpenTime() > latestTime)
+            {
+               latestTime = OrderOpenTime();
+               ticket = OrderTicket();
+            }
+         }
+      }
+   }
+
+   if(ticket != -1 && OrderSelect(ticket, SELECT_BY_TICKET))
+   {
+      int secondsOpen = TimeCurrent() - OrderOpenTime();
+
+      static bool buyModified = false;
+
+      if(secondsOpen > 3600  )
+      {
+         buyModified = true;
+
+         Print("BUY order > 1 hour");
+         SeqBuyMaxOrders=2;
+         SeqBuyProfitTarget=1;
+ 
+      }
+      // else
+      // {  buyModified = false;
+      //    SeqBuyMaxOrders=DefaultBuyMaxBuyOrders;
+      //    SeqBuyProfitTarget=DefaultBuyTP;
+      // }
+   }
+}
+*/
+/*
+void HandleOldSellOrder()
+{
+   int ticket = -1;
+   datetime latestTime = 0;
+
+   for(int i = 0; i < OrdersTotal(); i++)
+   {
+      if(OrderSelect(i, SELECT_BY_POS, MODE_TRADES))
+      {
+         if(OrderSymbol() == Symbol() && OrderType() == OP_SELL)
+         {
+            if(OrderOpenTime() > latestTime)
+            {
+               latestTime = OrderOpenTime();
+               ticket = OrderTicket();
+            }
+         }
+      }
+   }
+
+   if(ticket != -1 && OrderSelect(ticket, SELECT_BY_TICKET))
+   {
+      int secondsOpen = TimeCurrent() - OrderOpenTime();
+
+      static bool sellModified = false;
+
+      if(secondsOpen > 3600  )
+      {
+         sellModified = true;
+
+         Print("SELL order > 1 hour");
+
+                  SeqSellMaxOrders=2;
+         SeqSellProfitTarget=1.00;
+ 
+      }
+      // else
+      // {  sellModified = false;
+      //    SeqSellMaxOrders=DefaultSellMaxSellOrders;
+      //    SeqSellProfitTarget=DefaultSellTP;
+      // }
+   }
+}
+*/
 bool stopTrading()
 {
    double maxProfit=5.00; // 🔧 adjust this threshold (e.g. 10.00 for $10 profit)
@@ -33,14 +176,14 @@ double totalProfit = 0;
       }
    }
 
-      Print("Total open profit ($", DoubleToString(totalProfit, 2), ")   threshold ($", DoubleToString(maxProfit, 2), "). ");
+      // Print("Total open profit ($", DoubleToString(totalProfit, 2), ")   threshold ($", DoubleToString(maxProfit, 2), "). ");
 
 if(totalProfit > maxProfit)
    {
 
       CloseAllBuyOrders(true);
       CloseAllSellOrders(true);
-      Print("Total open profit ($", DoubleToString(totalProfit, 2), ") exceeds threshold ($", DoubleToString(maxProfit, 2), "). Stopping new trades.");
+      // Print("Total open profit ($", DoubleToString(totalProfit, 2), ") exceeds threshold ($", DoubleToString(maxProfit, 2), "). Stopping new trades.");
  
  
  
@@ -236,7 +379,10 @@ void CheckEMAPosition()
       return ;
      }
 
-     Print("Tick is INSIDE EMAs → NO TRADE");
+
+     
+
+   //   Print("----------------------------------Tick is INSIDE EMAs → NO TRADE-----------------------------------------------------------------------");
 
      isEMATouchesInsideLines=true;
 
@@ -579,7 +725,7 @@ void UpdateTPBasedOnLastClosed()
          else
          {
             CurrentBuyTP = DefaultBuyTP;
-            SeqBuyProfitTarget = DefaultBuyTP; // increase SL for next BUY
+            ////////////SeqBuyProfitTarget = DefaultBuyTP; // increase SL for next BUY
             Print("BUY PROFIT → TP reset to ", CurrentBuyTP," #"+total);
          }
       }
@@ -595,8 +741,10 @@ void UpdateTPBasedOnLastClosed()
          }
          else
          {
+   Print("UpdateTPBasedOnLastClosed mode → Default TP");
+
             CurrentSellTP = DefaultSellTP;
-               SeqSellProfitTarget = DefaultSellTP; // increase SL for next SELL
+                SeqSellProfitTarget = DefaultSellTP; // increase SL for next SELL
             Print("SELL PROFIT → TP reset to ", CurrentSellTP," #"+total);
          }
       }

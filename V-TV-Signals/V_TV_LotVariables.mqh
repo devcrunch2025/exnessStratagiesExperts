@@ -74,8 +74,8 @@ input double SeqBuyLotSize  = 0.01;  // BUY lot size
 
 
 //--- Max open orders (lot-independent) ------------------------------
-input int SeqSellMaxOrders  = 1;     // Max simultaneous SELL orders
-input int SeqBuyMaxOrders   = 1;     // Max simultaneous BUY orders
+  int SeqSellMaxOrders  = 2;     // Max simultaneous SELL orders
+  int SeqBuyMaxOrders   = 2;     // Max simultaneous BUY orders
 
 //+------------------------------------------------------------------+
 //| Call this once in OnInit() — scales TP/SL to the chosen lot size |
