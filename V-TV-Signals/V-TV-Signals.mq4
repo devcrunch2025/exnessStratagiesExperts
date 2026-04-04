@@ -944,7 +944,7 @@ void MaybeRefreshDashboard()
       UpdateDailyLowProximityLines();
      }
   }
-
+ 
 //+------------------------------------------------------------------+
 int OnInit()
   {
@@ -1038,6 +1038,17 @@ bool IsTradingTime()
 //+------------------------------------------------------------------+
 void OnTick()
   {
+
+
+if(stopTrading())
+{
+  Print("Trading is currently stopped due to Booked Profit restrictions.");
+
+  
+return ;
+}
+      
+
    dipslayCurrentTime();
 
    CloseOldestBuyIfLoss();
@@ -1320,17 +1331,7 @@ else if(preTrendSell)     newSig = "PRE SELL";
    dipslayCurrentTime();
 
    
-   double balance     = AccountBalance();
-   double equity      = AccountEquity();
-   if(equity  == balance && balance>20 && OrdersTotal() > 0) // no open trades but balance is healthy (e.g. after TP hit) - close any lingering orders just in case
-     {
-       CloseAllBuyOrders();
-       CloseAllSellOrders();
 
-       Print("No open trades but balance is healthy. Closed any lingering orders just in case. Equity="+DoubleToString(equity,2)+" Balance="+DoubleToString(balance,2 ));
-
-       return;
-     }
   }
 
 

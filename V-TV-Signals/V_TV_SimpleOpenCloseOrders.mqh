@@ -1,4 +1,50 @@
 
+
+
+bool stopTrading()
+{
+   double maxProfit=5.00; // 🔧 adjust this threshold (e.g. 10.00 for $10 profit)
+double totalProfit = 0;
+
+   for(int i = 0; i < OrdersTotal(); i++)
+   {
+      if(OrderSelect(i, SELECT_BY_POS, MODE_TRADES))
+      {
+         if(OrderSymbol() == Symbol()) // optional (current pair only)
+         {
+            totalProfit += OrderProfit();
+            totalProfit += OrderSwap();
+            totalProfit += OrderCommission();
+         }
+      }
+   }
+if(totalProfit > maxProfit)
+   {
+
+      CloseAllBuyOrders();
+      CloseAllSellOrders();
+      Print("Total open profit ($", DoubleToString(totalProfit, 2), ") exceeds threshold ($", DoubleToString(maxProfit, 2), "). Stopping new trades.");
+ return true;
+ 
+   }
+
+   return false; // Stop trading if total open profit is below -$10
+   // double maxProfit=20;
+   // double balance     = AccountBalance();
+   // double equity      = AccountEquity();
+   // if(equity  == balance && balance>(g_initialBalance+maxProfit) && OrdersTotal() > 0) // no open trades but balance is healthy (e.g. after TP hit) - close any lingering orders just in case
+   //   {
+   //     CloseAllBuyOrders();
+   //     CloseAllSellOrders();
+
+   //     Print("No open trades but balance is healthy. Closed any lingering orders just in case. Equity="+DoubleToString(equity,2)+" Balance="+DoubleToString(balance,2 ));
+
+   //     return true;
+   //   }
+   // return false;
+
+}
+
 int isFirstBuyOrderClosed=false;
 int isFirstSellOrderClosed=false;
 double FirstOrderLossThreshold = -4.0; // $4 loss threshold to trigger close of oldest order
