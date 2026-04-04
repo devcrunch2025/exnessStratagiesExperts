@@ -1,47 +1,98 @@
-void CheckFirstSellLoss()
+
+int isFirstBuyOrderClosed=false;
+int isFirstSellOrderClosed=false;
+
+void CloseOldestBuyIfLoss()
 {
-   for(int i = 0; i < OrdersTotal(); i++)
+if(isFirstBuyOrderClosed)
    {
-      if(OrderSelect(i, SELECT_BY_POS, MODE_TRADES))
-      {
-         if(OrderSymbol() == Symbol() && OrderType() == OP_SELL)
-         {
-            double profit = OrderProfit() + OrderSwap() + OrderCommission();
-
-            // ❌ First SELL found → check loss
-            if(profit < -1.0)
-            {
-               Print("First SELL loss > $1 → closing all SELL orders");
-               CloseAllSellOrders(true);
-            }
-
-            return; // 🔥 stop after FIRST sell
-         }
-      }
+      return ;
    }
-}
-void CheckFirstBuyLoss()
-{
+
+   int ticket = -1;
+   datetime oldestTime = 0;
+   double lots = 0;
+
    for(int i = 0; i < OrdersTotal(); i++)
    {
       if(OrderSelect(i, SELECT_BY_POS, MODE_TRADES))
       {
          if(OrderSymbol() == Symbol() && OrderType() == OP_BUY)
          {
-            double profit = OrderProfit() + OrderSwap() + OrderCommission();
-
-            // ❌ First BUY found → check loss
-            if(profit < -1.0)
+            if(ticket == -1 || OrderOpenTime() < oldestTime)
             {
-               Print("First BUY loss > $1 → closing all BUY orders");
-               CloseAllBuyOrders(true);
+               ticket = OrderTicket();
+               oldestTime = OrderOpenTime();
+               lots = OrderLots();
             }
-
-            return; // 🔥 stop after FIRST buy
          }
       }
    }
-} 
+
+   // 👉 Check and close ONLY oldest BUY
+   if(ticket != -1 && OrderSelect(ticket, SELECT_BY_TICKET))
+   {
+      double profit = OrderProfit() + OrderSwap() + OrderCommission();
+
+      if(profit < -5.0)
+      {
+         RefreshRates();
+
+         bool result = OrderClose(ticket, lots, Bid, 5, clrRed);
+         isFirstBuyOrderClosed = true; // Set flag to prevent multiple closures in same session
+         if(result)
+            Print("Closed oldest BUY (loss > $5): ", ticket);
+         else
+            Print("Failed to close BUY: ", GetLastError());
+      }
+   }
+}void CloseOldestSellIfLoss()
+{
+
+   if(isFirstSellOrderClosed)
+   {
+      return ;
+   }
+   int ticket = -1;
+   datetime oldestTime = 0;
+   double lots = 0;
+
+   for(int i = 0; i < OrdersTotal(); i++)
+   {
+      if(OrderSelect(i, SELECT_BY_POS, MODE_TRADES))
+      {
+         if(OrderSymbol() == Symbol() && OrderType() == OP_SELL)
+         {
+            if(ticket == -1 || OrderOpenTime() < oldestTime)
+            {
+               ticket = OrderTicket();
+               oldestTime = OrderOpenTime();
+               lots = OrderLots();
+            }
+         }
+      }
+   }
+
+   // 👉 Check and close ONLY oldest SELL
+   if(ticket != -1 && OrderSelect(ticket, SELECT_BY_TICKET))
+   {
+      double profit = OrderProfit() + OrderSwap() + OrderCommission();
+
+      if(profit < -5.0)
+      {
+         RefreshRates();
+
+         bool result = OrderClose(ticket, lots, Ask, 5, clrRed);
+
+         isFirstSellOrderClosed = true; // Set flag to prevent multiple closures in same session
+
+         if(result)
+            Print("Closed oldest SELL (loss > $5): ", ticket);
+         else
+            Print("Failed to close SELL: ", GetLastError());
+      }
+   }
+}
 
 void CheckEMAPosition()
 {

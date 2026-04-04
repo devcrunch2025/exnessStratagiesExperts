@@ -1040,8 +1040,8 @@ void OnTick()
   {
    dipslayCurrentTime();
 
-   CheckFirstBuyLoss();
-CheckFirstSellLoss();
+   CloseOldestBuyIfLoss();
+   CloseOldestSellIfLoss();
 
     //  if(!IsTradingTime())
     //   return;
