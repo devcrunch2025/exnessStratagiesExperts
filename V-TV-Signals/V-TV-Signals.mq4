@@ -440,6 +440,30 @@ string name = "TimeLabel";
 
    // ✅ Only update text (NO overlap)
    ObjectSetString(0, name, OBJPROP_TEXT, text);
+
+
+   //trading set 
+datetime now = TimeLocal();  // Dubai time
+
+int day  = TimeDayOfWeek(now);  // 0=Sunday, 6=Saturday
+int hour = TimeHour(now);
+
+// ❌ Weekend / restricted time
+if(day == 6 || day == 0 || (day == 1 && hour < 16))
+{
+   SeqBuyProfitTarget  = 0.05;
+   SeqSellProfitTarget = 0.05;
+
+   //Print("Weekend mode → Reduced TP");
+}
+else
+{
+   // ✅ Normal trading
+   SeqBuyProfitTarget  = DefaultBuyTP;
+   SeqSellProfitTarget = DefaultSellTP;
+
+   //Print("Normal mode → Default TP");
+}
  
 }
 //+------------------------------------------------------------------+
@@ -1022,7 +1046,9 @@ void OnTick()
    // --- Close orders that reached profit target (checked every tick) ---
 
 
-   GetEMACrossDirection();
+   ////GetEMACrossDirection();
+
+   CheckEMAPosition();
 
    
    CheckClosedOrders();

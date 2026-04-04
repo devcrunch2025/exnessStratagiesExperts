@@ -35,8 +35,8 @@ input int SeqBuyMinGapPoints  = 200; // BUY:  min rise between signals (pts)
 
 
 //--- Min time between orders (lot-independent) ----------------------
-input int SeqSellMinSecsBetweenOrders = 5; // SELL: min seconds between orders seconds
-input int SeqBuyMinSecsBetweenOrders  = 5; // BUY:  min seconds between orders seconds
+input int SeqSellMinSecsBetweenOrders = 0; // SELL: min seconds between orders seconds
+input int SeqBuyMinSecsBetweenOrders  = 0; // BUY:  min seconds between orders seconds
 
 //--- Fake tick / broker manipulation protection (Condition 10) ------
 input string _FakeTick_            = "--- FAKE TICK PROTECTION ---";
@@ -58,6 +58,8 @@ input bool   EnablePartialProfit      = false;   // Book partial profit at thres
 input double PartialProfitTriggerUSD  = 1.00;   // Close half lot when profit reaches this $
 input double PartialProfitCloseRatio  = 1;    // Fraction of lot to close (0.5 = 50%)
 
+bool isEMATouchesInsideLines=true;;
+
 //--- 0.01; Profit / StopLoss (auto-calculated in InitLotDependentVars) ----
 double SeqSellProfitTarget = 5;
 double SeqSellStopLossUSD  = 20.00;
@@ -67,6 +69,9 @@ double SeqBuyStopLossUSD   = 20.00;
 //--- Lot sizes (CHANGE ONLY THESE) ----------------------------------
 input double SeqSellLotSize = 0.01;  // SELL lot size
 input double SeqBuyLotSize  = 0.01;  // BUY lot size
+
+  bool CloseOrderONLYProfitNotSignal  = true;  // BUY lot size
+
 
 //--- Max open orders (lot-independent) ------------------------------
 input int SeqSellMaxOrders  = 1;     // Max simultaneous SELL orders

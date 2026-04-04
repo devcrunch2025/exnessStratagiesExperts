@@ -469,33 +469,34 @@ void InitStrategyRules()
   {
    ArrayResize(g_seqRules, 0); // clear any previous rules
  
-//-----------------BUY NEW ORDER--------------
-// AddColorRule( "ANY GREEN SIGNAL","COUNT_3","NEW_ORDER","BUY", "", "UP");
 AddColorRule( "ANY GREEN SIGNAL","COUNT_1","NEW_ORDER","BUY");
 
 
 //-----------------BUY CLOSE ORDER--------------
-// AddSeqRule("","","STRONG BUY 1","CLOSE","BUY");// this just for stop loss 
-
-// AddColorRule( "ANY ORANGE SIGNAL","COUNT_1","CLOSE","BUY");
+ if(CloseOrderONLYProfitNotSignal==false)
+    {
 AddColorRule( "ANY RED SIGNAL","COUNT_1","CLOSE","BUY");
 AddColorRule( "ANY PINK SIGNAL","COUNT_1","CLOSE","BUY");
 AddColorRule( "ANY ORANGE SIGNAL","COUNT_1","CLOSE","BUY");
  AddSeqRule("TREND BUY 1","TREND BUY 2","TREND BUY 3","CLOSE","BUY");// this just for stop loss
  
-
+    }
 
 
 //-----------------SELL NEW ORDER--------------
 
 AddColorRule( "ANY RED SIGNAL","COUNT_1","NEW_ORDER","SELL");
 
+if(CloseOrderONLYProfitNotSignal==false)
+    {
 
-AddColorRule( "ANY GREEN SIGNAL","COUNT_1","CLOSE","SELL");
+    AddColorRule( "ANY GREEN SIGNAL","COUNT_1","CLOSE","SELL");
 AddColorRule( "ANY BLUE SIGNAL","COUNT_1","CLOSE","SELL");
 AddColorRule( "ANY PINK SIGNAL","COUNT_1","CLOSE","SELL");
  AddSeqRule("TREND SELL 1","TREND SELL 2","TREND SELL 3","CLOSE","SELL");// this just for stop loss
 
+    }
+ 
   
  
 

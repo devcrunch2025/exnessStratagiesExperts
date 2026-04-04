@@ -1,4 +1,37 @@
+void CheckEMAPosition()
+{
 
+   double emaFast = iMA(Symbol(), 0, 9,  0, MODE_EMA, PRICE_CLOSE, 0);
+   double emaSlow = iMA(Symbol(), 0, 21, 0, MODE_EMA, PRICE_CLOSE, 0);
+
+   if(emaFast > emaSlow)
+   {
+      // Print("EMA: FAST above SLOW");
+      // Maybe allow BUY logic or close SELL orders
+
+      ProcessSeqBuyOrders();
+      CloseAllSellOrders(); // 🔥 close opposite SELL orders immediately
+   }
+   else if(emaFast < emaSlow)
+   {
+      // Print("EMA: FAST below SLOW");
+      // Maybe allow SELL logic or close BUY orders
+
+      ProcessSeqSellOrders();
+      CloseAllBuyOrders(); // 🔥 close opposite BUY orders immediately
+   }
+   else
+   {
+
+      isEMATouchesInsideLines=true;
+      // Print("EMA: FAST equals SLOW");
+      // Maybe skip new entries or tighten filters
+
+      // Optionally close all orders if you want to be very strict
+      CloseAllBuyOrders();
+      CloseAllSellOrders();
+   }
+}
 
  void ProcessSimplyBuyandCloseOrders()
  {
@@ -41,6 +74,7 @@ void GetEMACrossDirection()
 {
 
    return ;
+   /*
    int seconds = 10;  // ✅ fixed
 
    static datetime lastCrossTime = 0;
@@ -105,12 +139,13 @@ void GetEMACrossDirection()
       return  ;
    }
 
-   return  ;
+   return  ;*/
 }
 void verfyEMAInsideLogic()
 {
 
    return ;
+   /*
  double emaFast = iMA(Symbol(), 0, 9,  0, MODE_EMA, PRICE_CLOSE, 0);
 double emaSlow = iMA(Symbol(), 0, 21, 0, MODE_EMA, PRICE_CLOSE, 0);
 
@@ -179,6 +214,7 @@ else
       CloseAllSellOrders();
 
    }
+   */
 }
  
 string GetEMACurveDirection(int period)
@@ -218,6 +254,13 @@ string GetEMACurveDirection(int period)
 
 void CloseAllSellOrders()
 {
+
+  if(CloseOrderONLYProfitNotSignal==true)
+    {
+
+     // Print("CloseAllSellOrders | CloseOrderONLYProfitNotSignal=true — skipping all close logic");
+       return ;
+    }
    bool anyClosed = false;
 
    RefreshRates(); // 🔥 always refresh prices
@@ -260,6 +303,13 @@ void CloseAllSellOrders()
 }
 void CloseAllBuyOrders()
 {
+
+   if(CloseOrderONLYProfitNotSignal==true)
+    {
+
+      //Print("CloseAllBuyOrders | CloseOrderONLYProfitNotSignal=true — skipping all close logic");
+       return ;
+    }
    for(int i = OrdersTotal() - 1; i >= 0; i--)
    {
       if(OrderSelect(i, SELECT_BY_POS, MODE_TRADES))

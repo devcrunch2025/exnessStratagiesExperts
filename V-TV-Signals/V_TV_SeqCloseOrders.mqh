@@ -162,11 +162,11 @@ void ProcessPatternClose(string tradeType, string patternLabel,
       Print("SeqClose | PATTERN CLOSE [" + patternLabel + "] closed " +
             IntegerToString(closed) + " " + tradeType + " order(s)" +
             (skipped > 0 ? " | " + IntegerToString(skipped) + " skipped (below target)" : ""));
-   else if(skipped > 0)
-      Print("SeqClose | PATTERN CLOSE [" + patternLabel + "] no " + tradeType +
-            " orders at profit target — none closed");
-   else
-      Print("SeqClose | PATTERN CLOSE [" + patternLabel + "] no open " + tradeType + " orders found");
+  //  else if(skipped > 0)
+  //     Print("SeqClose | PATTERN CLOSE [" + patternLabel + "] no " + tradeType +
+  //           " orders at profit target — none closed");
+  //  else
+  //     Print("SeqClose | PATTERN CLOSE [" + patternLabel + "] no open " + tradeType + " orders found");
   }
 
 //+------------------------------------------------------------------+
@@ -174,6 +174,7 @@ void ProcessPatternClose(string tradeType, string patternLabel,
 //+------------------------------------------------------------------+
 void ProcessSeqCloseOrders()
   {
+     
    // --- 0. Partial profit booking (every tick, once per ticket) ---
    ProcessPartialProfitClose();
 

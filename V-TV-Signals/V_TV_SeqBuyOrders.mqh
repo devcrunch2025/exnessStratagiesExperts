@@ -47,6 +47,16 @@ string BuyPatternContext()
 // Condition 2: Startup warm-up elapsed
 bool BuyCond2_WarmupElapsed()
   {
+
+if(isEMATouchesInsideLines==true)
+{
+
+}
+else
+{
+  return  false;
+}
+
    if(TimeCurrent() >= g_startupWaitUntil) return true;
   //  printdummy("SeqBuy | BLOCKED [Cond2-Warmup] Order blocked - warming up until " +
   //        TimeToString(g_startupWaitUntil, TIME_MINUTES) + " " + BuyPatternContext());
