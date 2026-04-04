@@ -45,6 +45,17 @@ string SellPatternContext()
 // Condition 2: Startup warm-up elapsed
 bool SellCond2_WarmupElapsed()
   {
+
+
+if(isEMATouchesInsideLines==true)
+{
+
+}
+else
+{
+  return  false;
+}
+
    if(TimeCurrent() >= g_startupWaitUntil) return true;
    printdummy("SeqSell | BLOCKED [Cond2-Warmup] Order blocked - warming up until " +
          TimeToString(g_startupWaitUntil, TIME_MINUTES) + " " + SellPatternContext());

@@ -58,7 +58,7 @@ input bool   EnablePartialProfit      = false;   // Book partial profit at thres
 input double PartialProfitTriggerUSD  = 1.00;   // Close half lot when profit reaches this $
 input double PartialProfitCloseRatio  = 1;    // Fraction of lot to close (0.5 = 50%)
 
-bool isEMATouchesInsideLines=true;;
+bool isEMATouchesInsideLines=false;;
 
 //--- 0.01; Profit / StopLoss (auto-calculated in InitLotDependentVars) ----
 double SeqSellProfitTarget = 5;

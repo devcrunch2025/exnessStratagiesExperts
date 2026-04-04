@@ -1,60 +1,67 @@
 void CheckEMAPosition()
 {
-   static int lastState = 0; // 1=BUY, -1=SELL, 0=UNKNOWN
 
+   // Return:
+//  1  = Above EMAs (BUY zone)
+// -1  = Below EMAs (SELL zone)
+//  0  = Inside EMAs (no trade)
+//  2  = EMAs tight (no trade - squeeze)
+
+ 
    double emaFast = iMA(Symbol(), 0, 9,  0, MODE_EMA, PRICE_CLOSE, 0);
    double emaSlow = iMA(Symbol(), 0, 21, 0, MODE_EMA, PRICE_CLOSE, 0);
 
+   double price = Bid;
+
+   double upper = MathMax(emaFast, emaSlow);
+   double lower = MathMin(emaFast, emaSlow);
+
    double gapPoints = MathAbs(emaFast - emaSlow) / Point;
 
-   // 🔧 Define "inside zone" (very important fix)
-   double minGap = 50; // adjust (BTC: 100–200)
+   double minGap = 100; // 🔧 adjust (BTC: 100–200, Forex: 20–50)
 
-   // --- INSIDE / TOUCH ZONE ---
+   // 🔹 4️⃣ EMAs tight → squeeze zone
    if(gapPoints < minGap)
-   {
-      if(lastState != 0)
+       
       {
-         Print("EMA: INSIDE / TOUCH ZONE");
-         isEMATouchesInsideLines = true;
+//          Print("EMAs tight (gap: " + DoubleToString(gapPoints, 1) + " pts) → NO TRADE");
+// CloseAllSellOrders(true); 
+// CloseAllBuyOrders(); 
+      return ;
 
-         CloseAllBuyOrders();
-         CloseAllSellOrders();
-
-         lastState = 0;
+       
       }
-      return;
-   }
 
-   isEMATouchesInsideLines = false;
-
-   // --- BUY TREND ---
-   if(emaFast > emaSlow)
-   {
-      if(lastState != 1) // 🔥 only on change
+   // 🔹 1️⃣ Above both EMAs → BUY zone
+   if(price > upper)
+      
       {
-         Print("EMA: FAST above SLOW → BUY MODE");
+      //    Print("Tick is ABOVE EMAs → BUY zone");
+      //     ProcessSeqBuyOrders();
+      // CloseAllSellOrders(true); // 🔥 close opposite SELL orders immediately
+      return ;
 
-         ProcessSeqBuyOrders();
-         CloseAllSellOrders();
-
-         lastState = 1;
       }
-   }
 
-   // --- SELL TREND ---
-   else if(emaFast < emaSlow)
-   {
-      if(lastState != -1) // 🔥 only on change
-      {
-         Print("EMA: FAST below SLOW → SELL MODE");
+   // 🔹 2️⃣ Below both EMAs → SELL zone
+   if(price < lower)
+     
+     {
+      // Print("Tick is BELOW EMAs → SELL zone");
+      //   ProcessSeqSellOrders();
+      // CloseAllBuyOrders(); // 🔥 close opposite BUY orders immediately
 
-         ProcessSeqSellOrders();
-         CloseAllBuyOrders();
+      return ;
+     }
 
-         lastState = -1;
-      }
-   }
+     Print("Tick is INSIDE EMAs → NO TRADE");
+
+     isEMATouchesInsideLines=true;
+
+   // // 🔹 3️⃣ Between EMAs → Inside
+   //    CloseAllSellOrders(true);
+   //    CloseAllBuyOrders(); // 🔥 close opposite BUY orders immediately
+ 
 }
 
  void ProcessSimplyBuyandCloseOrders()
@@ -276,10 +283,10 @@ string GetEMACurveDirection(int period)
    return "FLAT";
 }
 
-void CloseAllSellOrders()
+void CloseAllSellOrders(bool foreceClose = false)
 {
 
-  if(CloseOrderONLYProfitNotSignal==true)
+  if(CloseOrderONLYProfitNotSignal==true && !foreceClose)
     {
 
      // Print("CloseAllSellOrders | CloseOrderONLYProfitNotSignal=true — skipping all close logic");
