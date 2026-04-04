@@ -419,8 +419,16 @@ string name = "TimeLabel";
    datetime serverTime = TimeCurrent();
    datetime dubaiTime  = TimeLocal();
 
-   string text = "Server: " + TimeToString(serverTime, TIME_SECONDS) +
-                 " | Dubai: " + TimeToString(dubaiTime, TIME_SECONDS);
+    double balance     = AccountBalance();
+   double equity      = AccountEquity();
+   double margin      = AccountMargin();
+
+   string text = "Sr: " + TimeToString(serverTime, TIME_SECONDS) +
+                 " | Du: " + TimeToString(dubaiTime, TIME_SECONDS);
+
+             text += " | B: $" + DoubleToString(balance, 2) +
+                     " E: $" + DoubleToString(equity, 2) +
+                     " M: $" + DoubleToString(margin, 2);   
 
    // ✅ Create only once
    if(ObjectFind(0, name) == -1)
