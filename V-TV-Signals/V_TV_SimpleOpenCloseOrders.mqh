@@ -1,14 +1,17 @@
 
 
 
-void changeMaxOrdersLogic()
+bool changeMaxOrdersLogic()
 {
    
-//   DefaultBuyMaxBuyOrders  = SeqBuyMaxOrders;
-//   DefaultSellMaxSellOrders = SeqSellMaxOrders;
+ 
    
-   // HandleOldBuyOrder();
-   // HandleOldSellOrder();
+    if(HandleOldBuyOrder() || HandleOldSellOrder())
+   {
+      //nothing
+   }
+
+   
 
  int  buyCount = 0;
  int  sellCount = 0;
@@ -54,9 +57,11 @@ SeqSellProfitTarget=0.5;
    }
 
    
+return false;
+   
 }
-/*
-void HandleOldBuyOrder()
+ 
+bool HandleOldBuyOrder()
 {
    int ticket = -1;
    datetime latestTime = 0;
@@ -82,25 +87,31 @@ void HandleOldBuyOrder()
 
       static bool buyModified = false;
 
-      if(secondsOpen > 3600  )
+      if(secondsOpen > 3600 *0.5  )
       {
          buyModified = true;
 
-         Print("BUY order > 1 hour");
-         SeqBuyMaxOrders=2;
-         SeqBuyProfitTarget=1;
+         Print("BUY order > 0.5 hours");
+           SeqBuyMaxOrders=2;
+         SeqSellProfitTarget=0.5;
+         SeqBuyProfitTarget=0.5;
+
+         return true;
  
       }
-      // else
-      // {  buyModified = false;
-      //    SeqBuyMaxOrders=DefaultBuyMaxBuyOrders;
-      //    SeqBuyProfitTarget=DefaultBuyTP;
-      // }
+      else
+      {  
+         // buyModified = false;
+           SeqBuyMaxOrders=DefaultBuyMaxBuyOrders;
+         SeqBuyProfitTarget=DefaultBuyTP;
+         //SeqSellProfitTarget=DefaultSellTP;
+      }
    }
+
+   return false;
 }
-*/
-/*
-void HandleOldSellOrder()
+ 
+bool HandleOldSellOrder()
 {
    int ticket = -1;
    datetime latestTime = 0;
@@ -126,24 +137,29 @@ void HandleOldSellOrder()
 
       static bool sellModified = false;
 
-      if(secondsOpen > 3600  )
+      if(secondsOpen > 3600 *0.5 )
       {
          sellModified = true;
 
-         Print("SELL order > 1 hour");
+         Print("SELL order > 5 hours");
 
-                  SeqSellMaxOrders=2;
-         SeqSellProfitTarget=1.00;
- 
+                SeqSellMaxOrders=2;
+         SeqSellProfitTarget=0.5;
+         SeqBuyProfitTarget=0.5;
+ return true;
       }
-      // else
-      // {  sellModified = false;
-      //    SeqSellMaxOrders=DefaultSellMaxSellOrders;
-      //    SeqSellProfitTarget=DefaultSellTP;
-      // }
+      else
+      {  
+         // sellModified = false;
+         SeqSellMaxOrders=DefaultSellMaxSellOrders;
+         SeqSellProfitTarget=DefaultSellTP;
+         //SeqBuyProfitTarget=DefaultBuyTP;
+      }
    }
+
+   return false;
 }
-*/
+ 
 bool stopTrading()
 {
    double maxProfit=5.00; // 🔧 adjust this threshold (e.g. 10.00 for $10 profit)
@@ -744,7 +760,7 @@ void UpdateTPBasedOnLastClosed()
    Print("UpdateTPBasedOnLastClosed mode → Default TP");
 
             CurrentSellTP = DefaultSellTP;
-                SeqSellProfitTarget = DefaultSellTP; // increase SL for next SELL
+              ////////////////  SeqSellProfitTarget = DefaultSellTP; // increase SL for next SELL
             Print("SELL PROFIT → TP reset to ", CurrentSellTP," #"+total);
          }
       }

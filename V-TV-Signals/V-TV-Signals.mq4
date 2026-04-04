@@ -416,7 +416,44 @@ void UpdateDailyLowProximityLines()
   }
 void dipslayCurrentTime()
 {
+
+  string weekend="";
   
+   //trading set 
+datetime now = TimeLocal();  // Dubai time
+
+int day  = TimeDayOfWeek(now);  // 0=Sunday, 6=Saturday
+int hour = TimeHour(now);
+
+// ❌ Weekend / restricted time
+if(day == 6 || day == 0 || (day == 1 && hour < 16))
+{
+   SeqBuyProfitTarget  = 0.10;
+   SeqSellProfitTarget = 0.10;
+
+   weekend = "W-END:";
+
+   //Print("Weekend mode → Reduced TP");
+}
+else
+{
+   // ✅ Normal trading
+  
+  
+SeqBuyProfitTarget  = DefaultBuyTP;
+   SeqSellProfitTarget = DefaultSellTP;
+
+  
+  //  Print("NORMAL mode → Default TP");
+   
+   weekend = "";
+
+   //Print("Normal mode → Default TP");
+}
+
+bool test=changeMaxOrdersLogic();
+
+
 string name = "TimeLabel";
 
    datetime serverTime = TimeCurrent();
@@ -426,12 +463,12 @@ string name = "TimeLabel";
    double equity      = AccountEquity();
    double margin      = AccountMargin();
 
-   string text = "Sr: " + TimeToString(serverTime, TIME_SECONDS) +
-                 " | Du: " + TimeToString(dubaiTime, TIME_SECONDS);
+   string text = weekend+"S: " + TimeToString(serverTime, TIME_SECONDS) +
+                 " | D: " + TimeToString(dubaiTime, TIME_SECONDS);
 
-             text += " O: $" + DoubleToString(g_initialBalance, 2) +
-                     "| B: $" + DoubleToString(balance, 2) +
-                     " |  E: $" + DoubleToString(equity, 2) ;
+             text += "O:$" + DoubleToString(g_initialBalance, 2) +
+                     "|B:$" + DoubleToString(balance, 2) +
+                     "|E:$" + DoubleToString(equity, 2) ;
                     //  " M: $" + DoubleToString(margin, 2)   
 
    // ✅ Create only once
@@ -456,30 +493,6 @@ string name = "TimeLabel";
    ObjectSetString(0, name, OBJPROP_TEXT, text);
 
 
-   //trading set 
-datetime now = TimeLocal();  // Dubai time
-
-int day  = TimeDayOfWeek(now);  // 0=Sunday, 6=Saturday
-int hour = TimeHour(now);
-
-// ❌ Weekend / restricted time
-if(day == 6 || day == 0 || (day == 1 && hour < 16))
-{
-   SeqBuyProfitTarget  = 0.10;
-   SeqSellProfitTarget = 0.10;
-
-   //Print("Weekend mode → Reduced TP");
-}
-else
-{
-   // ✅ Normal trading
-changeMaxOrdersLogic();
-  //  Print("NORMAL mode → Default TP");
-  //  SeqBuyProfitTarget  = DefaultBuyTP;
-  //  SeqSellProfitTarget = DefaultSellTP;
-
-   //Print("Normal mode → Default TP");
-}
  
 }
 //+------------------------------------------------------------------+
