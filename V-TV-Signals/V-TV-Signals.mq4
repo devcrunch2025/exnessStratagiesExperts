@@ -478,7 +478,7 @@ void UpdateCurrentSignalLabel()
 
 
 
-
+/*
 
 
  // --- Curr + Sequence ---
@@ -575,7 +575,7 @@ void UpdateCurrentSignalLabel()
    ObjectSetInteger(0, g_prePrevSeqLabel, OBJPROP_COLOR,     clrPP);
    ObjectSetInteger(0, g_prePrevSeqLabel, OBJPROP_FONTSIZE,  12);
    ObjectSetString(0,  g_prePrevSeqLabel, OBJPROP_FONT,      "Arial Bold");
-
+*/
    // --- Startup warm-up status ---
    string warmupLbl = "TS_WarmupStatus";
    datetime now = TimeCurrent();

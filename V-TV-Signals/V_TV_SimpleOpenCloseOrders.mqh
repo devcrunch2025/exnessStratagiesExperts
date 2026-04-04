@@ -18,30 +18,35 @@ double totalProfit = 0;
          }
       }
    }
+
+    // 🔹 2. Closed Orders (history)
+   for(int i = 0; i < OrdersHistoryTotal(); i++)
+   {
+      if(OrderSelect(i, SELECT_BY_POS, MODE_HISTORY))
+      {
+         if(OrderSymbol() == Symbol()) // optional filter
+         {
+            totalProfit += OrderProfit();
+            totalProfit += OrderSwap();
+            totalProfit += OrderCommission();
+         }
+      }
+   }
+
+      Print("Total open profit ($", DoubleToString(totalProfit, 2), ")   threshold ($", DoubleToString(maxProfit, 2), "). ");
+
 if(totalProfit > maxProfit)
    {
 
-      CloseAllBuyOrders();
-      CloseAllSellOrders();
+      CloseAllBuyOrders(true);
+      CloseAllSellOrders(true);
       Print("Total open profit ($", DoubleToString(totalProfit, 2), ") exceeds threshold ($", DoubleToString(maxProfit, 2), "). Stopping new trades.");
  return true;
  
    }
 
    return false; // Stop trading if total open profit is below -$10
-   // double maxProfit=20;
-   // double balance     = AccountBalance();
-   // double equity      = AccountEquity();
-   // if(equity  == balance && balance>(g_initialBalance+maxProfit) && OrdersTotal() > 0) // no open trades but balance is healthy (e.g. after TP hit) - close any lingering orders just in case
-   //   {
-   //     CloseAllBuyOrders();
-   //     CloseAllSellOrders();
-
-   //     Print("No open trades but balance is healthy. Closed any lingering orders just in case. Equity="+DoubleToString(equity,2)+" Balance="+DoubleToString(balance,2 ));
-
-   //     return true;
-   //   }
-   // return false;
+    
 
 }
 
