@@ -961,7 +961,12 @@ void DrawDashboard()
                           DoubleToString(MarketInfo(Symbol(),MODE_ASK),Digits), cValue,  y); y += step;
    DashRow("DB_Spread",   "  Spread    : " +
                           IntegerToString(spread) + " pts  $" +
-                          DoubleToString(spreadUSD,2),        spreadClr, y);
+                          DoubleToString(spreadUSD,2),        spreadClr, y);y += step;
+
+                          DashRow("DB_Chartheight",   "  Chart Height : $" +
+                          DoubleToString(getChartHeightPrice(),2),        cValue, y);
+
+                          
   }
 
 //+------------------------------------------------------------------+
@@ -975,10 +980,38 @@ void MaybeRefreshDashboard()
       UpdateDailyLowProximityLines();
      }
   }
- 
+ datetime eaStartTime;
+double getChartHeightPrice()
+{
+   double priceTop    = ChartGetDouble(0, CHART_PRICE_MAX);
+double priceBottom = ChartGetDouble(0, CHART_PRICE_MIN);
+
+// distance price moves
+double priceMove = priceTop - priceBottom;
+
+// tick info
+double tickValue = MarketInfo(Symbol(), MODE_TICKVALUE);
+double tickSize  = MarketInfo(Symbol(), MODE_TICKSIZE);
+
+// value per price unit
+double valuePerPrice = tickValue / tickSize;
+
+// lot size (change if needed)
+double lotSize =SeqBuyLotSize;
+
+// final profit
+double profitBuy = priceMove * valuePerPrice * lotSize;
+return profitBuy;
+  //  Print(
+  //     "Chart Range: ", DoubleToString(chartRange, Digits), "\n",
+  //     "Points: ", DoubleToString(pointsRange, 0), "\n",
+  //     "Value ($): ", DoubleToString(dollarValue, 2)
+  //  );
+}
 //+------------------------------------------------------------------+
 int OnInit()
   {
+   eaStartTime = TimeCurrent();   // store EA start time
 
     DefaultBuyTP  = SeqBuyProfitTarget;
 DefaultSellTP = SeqSellProfitTarget;

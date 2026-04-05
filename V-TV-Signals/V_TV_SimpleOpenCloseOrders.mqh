@@ -8,7 +8,7 @@ double totalProfit = 0;
    {
       if(OrderSelect(i, SELECT_BY_POS, MODE_TRADES))
       {
-         if(OrderSymbol() == Symbol()) // optional (current pair only)
+         if(OrderSymbol() == Symbol()  && OrderCloseTime() >= eaStartTime) // optional (current pair only)
          {
             totalProfit += OrderProfit();
             totalProfit += OrderSwap();
@@ -22,7 +22,8 @@ double totalProfit = 0;
    {
       if(OrderSelect(i, SELECT_BY_POS, MODE_HISTORY))
       {
-         if(OrderSymbol() == Symbol()) // optional filter
+         if(OrderSymbol() == Symbol() && OrderCloseTime() >= eaStartTime)   // ✅ KEY FILTER
+          // optional filter
          {
             totalProfit += OrderProfit();
             totalProfit += OrderSwap();
@@ -48,7 +49,7 @@ string name = "Trading Status: ";
 
     
 
-   string text = "🟢 TRADING STOPPED: Booked Profit > $" + DoubleToString(StopTradingMaxProfit, 2);
+   string text = "🟢 TRADING STOPPED: Booked Profit > $" + DoubleToString(totalProfit, 2);
 
    // ✅ Create only once
    if(ObjectFind(0, name) == -1)
