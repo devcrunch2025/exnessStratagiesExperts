@@ -430,8 +430,8 @@ int hour = TimeHour(now);
 // ❌ Weekend / restricted time
 if(day == 6 || day == 0 || (day == 1 && hour < 16))
 {
-   SeqBuyProfitTarget  = 0.10;
-   SeqSellProfitTarget = 0.10;
+  //  SeqBuyProfitTarget  = 0.10;
+  //  SeqSellProfitTarget = 0.10;
 
    weekend = "W-END:";
 
@@ -966,8 +966,54 @@ void DrawDashboard()
                           DashRow("DB_Chartheight",   "  Chart Height : $" +
                           DoubleToString(getChartHeightPrice(),2),        cValue, y);
 
+                          y += step;
+
+                          DashRow("DB_Chart1HourProfit",   "  1 Hour Profit : $" +
+                          DoubleToString(getLast1HourProfit(SeqBuyLotSize),2),        cValue, y);
+
                           
   }
+double CalculateProfit(int type, double lot, double openPrice, double closePrice)
+{
+   double tickValue = MarketInfo(Symbol(), MODE_TICKVALUE);
+   double tickSize  = MarketInfo(Symbol(), MODE_TICKSIZE);
+
+   double valuePerPrice = tickValue / tickSize;
+
+   double profit = (closePrice - openPrice) * valuePerPrice * lot;
+
+   if(type == OP_SELL)
+      profit = (openPrice - closePrice) * valuePerPrice * lot;
+
+   return profit;
+}
+  double getLast1HourProfit(double lotSize)
+{
+   datetime now = TimeCurrent();
+   datetime fromTime = now - 3600; // last 1 hour
+
+   double high = -1e10;
+   double low  =  1e10;
+
+   // scan candles
+   for(int i = 0; i < Bars; i++)
+   {
+      datetime t = Time[i];
+      if(t < fromTime) break;
+
+      if(High[i] > high) high = High[i];
+      if(Low[i]  < low)  low  = Low[i];
+   }
+
+   // calculate profit using broker
+   double profit =    CalculateProfit(OP_BUY, lotSize, low, high);
+
+   SeqBuyProfitTarget = profit/2;
+   SeqSellProfitTarget = profit/2;
+
+
+   return profit;
+}
 
 //+------------------------------------------------------------------+
 void MaybeRefreshDashboard()
