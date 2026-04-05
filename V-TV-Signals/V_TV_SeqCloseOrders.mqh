@@ -239,13 +239,13 @@ void ProcessSeqCloseOrders()
       ProcessPatternClose("BUY", label);
      }
 
-  if(weekend!="")
+  if(weekend=="")
   {
-     SeqBuyProfitTarget=DefaultBuyTP;
-SeqSellProfitTarget=DefaultSellTP;
+     SeqBuyProfitTarget = DefaultBuyTP;
+     SeqSellProfitTarget = DefaultSellTP;
 }
-SeqSellMaxOrders=DefaultSellMaxSellOrders;
-       SeqBuyMaxOrders=DefaultBuyMaxBuyOrders;
+SeqSellMaxOrders = DefaultSellMaxSellOrders;
+       SeqBuyMaxOrders = DefaultBuyMaxBuyOrders;
 
   }
 

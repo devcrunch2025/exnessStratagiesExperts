@@ -123,7 +123,7 @@ SeqBuyProfitTarget=0.5;
  
    }
    else
-   {
+   { if(weekend=="")
       SeqBuyProfitTarget = DefaultBuyTP;
   
 
@@ -134,7 +134,7 @@ SeqSellProfitTarget=0.5;
 //  Print(" SeqSellProfitTarget is uPdated  ", sellCount,SeqSellProfitTarget);
 
    }
-   else if(weekend!="")
+   else if(weekend=="")
    {
   SeqSellProfitTarget = DefaultSellTP;
 

@@ -1011,6 +1011,15 @@ return profitBuy;
 //+------------------------------------------------------------------+
 int OnInit()
   {
+
+
+
+SeqBuyProfitTarget =getChartHeightPrice()/5;;
+SeqSellProfitTarget = getChartHeightPrice()/5;
+
+
+
+
    eaStartTime = TimeCurrent();   // store EA start time
 
     DefaultBuyTP  = SeqBuyProfitTarget;
