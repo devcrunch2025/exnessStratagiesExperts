@@ -414,10 +414,12 @@ void UpdateDailyLowProximityLines()
    ObjectSetInteger(0, buyBg, OBJPROP_WIDTH,   1);
    ObjectSetInteger(0, buyBg, OBJPROP_SELECTED,false);
   }
+
+  string weekend="";
 void dipslayCurrentTime()
 {
 
-  string weekend="";
+  
   
    //trading set 
 datetime now = TimeLocal();  // Dubai time

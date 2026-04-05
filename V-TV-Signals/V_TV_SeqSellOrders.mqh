@@ -76,7 +76,7 @@ bool SellCond2b_MinTimeBetweenOrders()
       if(OrderSymbol()      != Symbol())       continue;
       if(OrderMagicNumber() != SeqSellMagicNo) continue;
       if(OrderType()        != OP_SELL)        continue;
-      if(OrderOpenTime() > lastOrderTime) lastOrderTime = OrderOpenTime();
+      if(OrderCloseTime() > lastOrderTime) lastOrderTime = OrderCloseTime();
      }
 
    if(lastOrderTime == 0) return true; // no existing orders, allow
@@ -84,7 +84,7 @@ bool SellCond2b_MinTimeBetweenOrders()
    int elapsed = (int)(TimeCurrent() - lastOrderTime);
    if(elapsed >= SeqSellMinSecsBetweenOrders) return true;
 
-   printdummy("SeqSell | BLOCKED [Cond2b-MinTime] Only " + IntegerToString(elapsed) +
+   Print("SeqSell | BLOCKED [Cond2b-MinTime] Only " + IntegerToString(elapsed) +
          "s since last real order at " + TimeToString(lastOrderTime, TIME_SECONDS) +
          " (need >=" + IntegerToString(SeqSellMinSecsBetweenOrders) + "s) " + SellPatternContext());
    return false;

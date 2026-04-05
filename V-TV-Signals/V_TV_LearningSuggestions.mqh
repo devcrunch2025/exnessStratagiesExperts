@@ -789,7 +789,7 @@ void LearnWriteSuggestion(int slot)
                   " SL=$" + DoubleToString(suggestedSLUSD,2) + spikeNote;
    else
       botAdvice = "SKIP: R:R=" + DoubleToString(rr,2) +
-                  " MaxProfit=$" + DoubleToString(maxFavourUSD,2) +
+                  " StopTradingMaxProfit=$" + DoubleToString(maxFavourUSD,2) +
                   " MaxLoss=$"   + DoubleToString(maxAdverseUSD,2) + spikeNote;
 
    // Write Suggestions row

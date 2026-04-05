@@ -71,6 +71,9 @@ input double SeqSellLotSize = 0.01;  // SELL lot size
 input double SeqBuyLotSize  = 0.01;  // BUY lot size
 
   bool CloseOrderONLYProfitNotSignal  = true;  // BUY lot size
+  bool OpenNewOrderAfter30MinLessPrice  = true;  // BUY lot size
+  
+double StopTradingMaxProfit=100.00;
 
 
 //--- Max open orders (lot-independent) ------------------------------

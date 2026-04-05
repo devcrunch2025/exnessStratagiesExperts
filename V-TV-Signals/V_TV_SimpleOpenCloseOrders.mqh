@@ -1,16 +1,99 @@
 
+bool stopTrading()
+{
+    // 🔧 adjust this threshold (e.g. 10.00 for $10 profit)
+double totalProfit = 0;
 
+   for(int i = 0; i < OrdersTotal(); i++)
+   {
+      if(OrderSelect(i, SELECT_BY_POS, MODE_TRADES))
+      {
+         if(OrderSymbol() == Symbol()) // optional (current pair only)
+         {
+            totalProfit += OrderProfit();
+            totalProfit += OrderSwap();
+            totalProfit += OrderCommission();
+         }
+      }
+   }
+
+    // 🔹 2. Closed Orders (history)
+   for(int i = 0; i < OrdersHistoryTotal(); i++)
+   {
+      if(OrderSelect(i, SELECT_BY_POS, MODE_HISTORY))
+      {
+         if(OrderSymbol() == Symbol()) // optional filter
+         {
+            totalProfit += OrderProfit();
+            totalProfit += OrderSwap();
+            totalProfit += OrderCommission();
+         }
+      }
+   }
+
+      // Print("Total open profit ($", DoubleToString(totalProfit, 2), ")   threshold ($", DoubleToString(StopTradingMaxProfit, 2), "). ");
+
+if(totalProfit > StopTradingMaxProfit)
+   {
+
+      CloseAllBuyOrders(true);
+      CloseAllSellOrders(true);
+      // Print("Total open profit ($", DoubleToString(totalProfit, 2), ") exceeds threshold ($", DoubleToString(StopTradingMaxProfit, 2), "). Stopping new trades.");
+ 
+ 
+ 
+ 
+ 
+string name = "Trading Status: ";
+
+    
+
+   string text = "🟢 TRADING STOPPED: Booked Profit > $" + DoubleToString(StopTradingMaxProfit, 2);
+
+   // ✅ Create only once
+   if(ObjectFind(0, name) == -1)
+   {
+
+      int chartWidth = (int)ChartGetInteger(0, CHART_WIDTH_IN_PIXELS, 0);
+   int x = chartWidth / 2 - 150;
+      ObjectCreate(0, name, OBJ_LABEL, 0, 0, 0);
+
+      ObjectSetInteger(0, name, OBJPROP_CORNER, CORNER_LEFT_UPPER);
+      ObjectSetInteger(0, name, OBJPROP_XDISTANCE, x);
+      ObjectSetInteger(0, name, OBJPROP_YDISTANCE, 100);
+
+      ObjectSetInteger(0, name, OBJPROP_COLOR, clrRed);
+      ObjectSetInteger(0, name, OBJPROP_FONTSIZE, 30);
+   ObjectSetString(0,  name, OBJPROP_FONT,      "Arial Bold");
+
+   }
+
+   // ✅ Only update text (NO overlap)
+   ObjectSetString(0, name, OBJPROP_TEXT, text);
+ 
+ 
+ 
+ 
+ return true;
+ 
+   }
+
+   return false; // Stop trading if total open profit is below -$10
+    
+
+}
 
 bool changeMaxOrdersLogic()
 {
    
  
-   
+   if(OpenNewOrderAfter30MinLessPrice)
+   {
     if(HandleOldBuyOrder() || HandleOldSellOrder())
    {
       //nothing
    }
-
+}
    
 
  int  buyCount = 0;
@@ -50,7 +133,7 @@ SeqSellProfitTarget=0.5;
 //  Print(" SeqSellProfitTarget is uPdated  ", sellCount,SeqSellProfitTarget);
 
    }
-   else
+   else if(weekend!="")
    {
   SeqSellProfitTarget = DefaultSellTP;
 
@@ -160,89 +243,7 @@ bool HandleOldSellOrder()
    return false;
 }
  
-bool stopTrading()
-{
-   double maxProfit=5.00; // 🔧 adjust this threshold (e.g. 10.00 for $10 profit)
-double totalProfit = 0;
 
-   for(int i = 0; i < OrdersTotal(); i++)
-   {
-      if(OrderSelect(i, SELECT_BY_POS, MODE_TRADES))
-      {
-         if(OrderSymbol() == Symbol()) // optional (current pair only)
-         {
-            totalProfit += OrderProfit();
-            totalProfit += OrderSwap();
-            totalProfit += OrderCommission();
-         }
-      }
-   }
-
-    // 🔹 2. Closed Orders (history)
-   for(int i = 0; i < OrdersHistoryTotal(); i++)
-   {
-      if(OrderSelect(i, SELECT_BY_POS, MODE_HISTORY))
-      {
-         if(OrderSymbol() == Symbol()) // optional filter
-         {
-            totalProfit += OrderProfit();
-            totalProfit += OrderSwap();
-            totalProfit += OrderCommission();
-         }
-      }
-   }
-
-      // Print("Total open profit ($", DoubleToString(totalProfit, 2), ")   threshold ($", DoubleToString(maxProfit, 2), "). ");
-
-if(totalProfit > maxProfit)
-   {
-
-      CloseAllBuyOrders(true);
-      CloseAllSellOrders(true);
-      // Print("Total open profit ($", DoubleToString(totalProfit, 2), ") exceeds threshold ($", DoubleToString(maxProfit, 2), "). Stopping new trades.");
- 
- 
- 
- 
- 
-string name = "Trading Status: ";
-
-    
-
-   string text = "🟢 TRADING STOPPED: Booked Profit > $" + DoubleToString(maxProfit, 2);
-
-   // ✅ Create only once
-   if(ObjectFind(0, name) == -1)
-   {
-
-      int chartWidth = (int)ChartGetInteger(0, CHART_WIDTH_IN_PIXELS, 0);
-   int x = chartWidth / 2 - 150;
-      ObjectCreate(0, name, OBJ_LABEL, 0, 0, 0);
-
-      ObjectSetInteger(0, name, OBJPROP_CORNER, CORNER_LEFT_UPPER);
-      ObjectSetInteger(0, name, OBJPROP_XDISTANCE, x);
-      ObjectSetInteger(0, name, OBJPROP_YDISTANCE, 100);
-
-      ObjectSetInteger(0, name, OBJPROP_COLOR, clrRed);
-      ObjectSetInteger(0, name, OBJPROP_FONTSIZE, 30);
-   ObjectSetString(0,  name, OBJPROP_FONT,      "Arial Bold");
-
-   }
-
-   // ✅ Only update text (NO overlap)
-   ObjectSetString(0, name, OBJPROP_TEXT, text);
- 
- 
- 
- 
- return true;
- 
-   }
-
-   return false; // Stop trading if total open profit is below -$10
-    
-
-}
 
 int isFirstBuyOrderClosed=false;
 int isFirstSellOrderClosed=false;

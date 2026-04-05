@@ -76,7 +76,7 @@ bool BuyCond2b_MinTimeBetweenOrders()
       if(OrderSymbol()      != Symbol())      continue;
       if(OrderMagicNumber() != SeqBuyMagicNo) continue;
       if(OrderType()        != OP_BUY)        continue;
-      if(OrderOpenTime() > lastOrderTime) lastOrderTime = OrderOpenTime();
+      if(OrderCloseTime() > lastOrderTime) lastOrderTime = OrderCloseTime();
      }
 
    if(lastOrderTime == 0) return true;
@@ -84,9 +84,9 @@ bool BuyCond2b_MinTimeBetweenOrders()
    int elapsed = (int)(TimeCurrent() - lastOrderTime);
    if(elapsed >= SeqBuyMinSecsBetweenOrders) return true;
 
-  //  printdummy("SeqBuy | BLOCKED [Cond2b-MinTime] Only " + IntegerToString(elapsed) +
-  //        "s since last real order at " + TimeToString(lastOrderTime, TIME_SECONDS) +
-  //        " (need >=" + IntegerToString(SeqBuyMinSecsBetweenOrders) + "s) " + BuyPatternContext());
+   Print("SeqBuy | BLOCKED [Cond2b-MinTime] Only " + IntegerToString(elapsed) +
+         "s since last real order at " + TimeToString(lastOrderTime, TIME_SECONDS) +
+         " (need >=" + IntegerToString(SeqBuyMinSecsBetweenOrders) + "s) " + BuyPatternContext());
    return false;
   }
 
