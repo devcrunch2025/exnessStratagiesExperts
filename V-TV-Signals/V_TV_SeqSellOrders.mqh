@@ -41,7 +41,16 @@ string SellPatternContext()
           " | Prev=" + g_prevDisplaySignal + " " + IntegerToString(g_prevSeqCount) +
           " | Curr=" + g_liveSignalName    + " " + IntegerToString(g_currSeqCount) + "]";
   }
+bool General_WarmupElapsed()
+  {
 
+ 
+
+   if(TimeCurrent() >= g_startupWaitUntil) return true;
+   printdummy("SeqSell | BLOCKED [Cond2-Warmup] Order blocked - warming up until " +
+         TimeToString(g_startupWaitUntil, TIME_MINUTES) + " " + SellPatternContext());
+   return false;
+  }
 // Condition 2: Startup warm-up elapsed
 bool SellCond2_WarmupElapsed()
   {

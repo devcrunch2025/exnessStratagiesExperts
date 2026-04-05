@@ -971,6 +971,14 @@ void DrawDashboard()
                           DashRow("DB_Chart1HourProfit",   "  1 Hour Profit : $" +
                           DoubleToString(getLast1HourProfit(SeqBuyLotSize),2),        cValue, y);
 
+y += step;
+
+                          DashRow("DB_isEMATouchesInsideLines",   "  EMA Cross Lines : " +
+                          (isEMATouchesInsideLines ? "YES" : "NO"),        cValue, y);
+
+
+                          
+
                           
   }
 double CalculateProfit(int type, double lot, double openPrice, double closePrice)
@@ -1184,7 +1192,7 @@ return ;
 
    ////GetEMACrossDirection();
 
-   CheckEMAPosition();
+   CheckEMAPositionTouchedCross();
 
    
    CheckClosedOrders();

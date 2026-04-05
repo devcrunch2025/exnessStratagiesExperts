@@ -31,6 +31,18 @@ double totalProfit = 0;
          }
       }
    }
+double openProfit = 0;
+   for(int i = OrdersTotal() - 1; i >= 0; i--)
+     {
+      
+      openProfit += OrderProfit() + OrderSwap() + OrderCommission();
+     }
+   if(openProfit >0 && (openProfit < SeqBuyProfitTarget || openProfit < SeqSellProfitTarget)
+   )
+   {
+      SeqBuyProfitTarget = openProfit;
+      SeqSellProfitTarget = openProfit;
+   }
 
       // Print("Total open profit ($", DoubleToString(totalProfit, 2), ")   threshold ($", DoubleToString(StopTradingMaxProfit, 2), "). ");
 
@@ -340,8 +352,42 @@ if(isFirstBuyOrderClosed)
       }
    }
 }
+void CheckEMAPositionTouchedCross()
+{
+ 
+ int seconds = 20; // ✅ fixed time window (10 seconds)
+   static double prevFast = 0;
+   static double prevSlow = 0;
+   static datetime lastCrossTime = 0;
 
-void CheckEMAPosition()
+   double emaFast = iMA(Symbol(), 0, FastEMA, 0, MODE_EMA, PRICE_CLOSE, 0);
+   double emaSlow = iMA(Symbol(), 0, SlowEMA, 0, MODE_EMA, PRICE_CLOSE, 0);
+
+   if(prevFast != 0 && prevSlow != 0)
+   {
+      bool wasAbove = prevFast > prevSlow;
+      bool isAbove  = emaFast > emaSlow;
+
+      // 🔄 Interchange detected
+      if(wasAbove != isAbove)
+      {
+         lastCrossTime = TimeCurrent();
+
+isEMATouchesInsideLines = true;
+
+      }
+   }
+
+   prevFast = emaFast;
+   prevSlow = emaSlow;
+
+   // ⏱ Check within time window
+   if(lastCrossTime > 0 && (TimeCurrent() - lastCrossTime <= seconds))
+isEMATouchesInsideLines = true;
+}
+
+
+void CheckEMAPositionTouchedCross_old()
 {
 
    // Return:
@@ -367,6 +413,8 @@ void CheckEMAPosition()
    if(gapPoints < minGap)
        
       {
+
+
 //          Print("EMAs tight (gap: " + DoubleToString(gapPoints, 1) + " pts) → NO TRADE");
 // CloseAllSellOrders(true); 
 // CloseAllBuyOrders(); 
@@ -397,12 +445,14 @@ void CheckEMAPosition()
       return ;
      }
 
+     if(General_WarmupElapsed())
+              isEMATouchesInsideLines=true;
+return ;
 
      
 
    //   Print("----------------------------------Tick is INSIDE EMAs → NO TRADE-----------------------------------------------------------------------");
 
-     isEMATouchesInsideLines=true;
 
    // // 🔹 3️⃣ Between EMAs → Inside
    //    CloseAllSellOrders(true);
