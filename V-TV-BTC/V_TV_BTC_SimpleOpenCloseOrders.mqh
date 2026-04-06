@@ -249,7 +249,7 @@ bool HandleOldSellOrder()
 
 int isFirstBuyOrderClosed=false;
 int isFirstSellOrderClosed=false;
-double FirstOrderLossThreshold = -4.0; // $4 loss threshold to trigger close of oldest order = 4
+double FirstOrderLossThreshold = -2.0; // $4 loss threshold to trigger close of oldest order = 4
 void CloseOldestBuyIfLoss()
 {
 if(isFirstBuyOrderClosed)
