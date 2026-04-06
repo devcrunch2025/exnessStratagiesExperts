@@ -29,8 +29,8 @@ input int SeqBuySlippage    = 100;    // BUY slippage in points
 input int SeqCloseSlippage  = 0;    // Close slippage in points
 
 //--- Min price gap between signals (lot-independent) ----------------
-input int SeqSellMinGapPoints = 200; // SELL: min drop between signals (pts)
-input int SeqBuyMinGapPoints  = 200; // BUY:  min rise between signals (pts)
+input int SeqSellMinGapPoints = 50; // SELL: min drop between signals (pts)
+input int SeqBuyMinGapPoints  = 50; // BUY:  min rise between signals (pts)
 
 
 

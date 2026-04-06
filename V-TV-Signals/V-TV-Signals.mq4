@@ -42,7 +42,7 @@ input int    SpikeLookback       = 20;     // Bars used to calculate average can
 input int    DashboardRefreshSeconds = 30;
 input bool   ExecuteEverySignalInTester = false;
 input bool   EnablePreSignals           = true;
-input int    StartupWaitMinutes         = 10;   // Wait N minutes on first load before placing orders
+input int    StartupWaitMinutes         = 1;   // Wait N minutes on first load before placing orders
 
 // ----- GLOBALS ----- //
 string   currentSignal      = "";
@@ -1016,8 +1016,29 @@ double CalculateProfit(int type, double lot, double openPrice, double closePrice
    // calculate profit using broker
    double profit =    CalculateProfit(OP_BUY, lotSize, low, high);
 
-   SeqBuyProfitTarget = profit/2;
+   
+
+   double openProfit = 0;
+   for(int i = OrdersTotal() - 1; i >= 0; i--)
+     {
+      
+      openProfit += OrderProfit() + OrderSwap() + OrderCommission();
+     }
+   if(openProfit >0 && (openProfit < SeqBuyProfitTarget || openProfit < SeqSellProfitTarget)
+   )
+   
+    if(openProfit < DefaultBuyTP)
+    {
+SeqBuyProfitTarget = openProfit;
+      SeqSellProfitTarget = openProfit;
+    
+      
+   }
+   else
+   {
+    SeqBuyProfitTarget = profit/2;
    SeqSellProfitTarget = profit/2;
+   }
 
 
    return profit;

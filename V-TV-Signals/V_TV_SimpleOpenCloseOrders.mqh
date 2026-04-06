@@ -31,18 +31,7 @@ double totalProfit = 0;
          }
       }
    }
-double openProfit = 0;
-   for(int i = OrdersTotal() - 1; i >= 0; i--)
-     {
-      
-      openProfit += OrderProfit() + OrderSwap() + OrderCommission();
-     }
-   if(openProfit >0 && (openProfit < SeqBuyProfitTarget || openProfit < SeqSellProfitTarget)
-   )
-   {
-      SeqBuyProfitTarget = openProfit;
-      SeqSellProfitTarget = openProfit;
-   }
+ 
 
       // Print("Total open profit ($", DoubleToString(totalProfit, 2), ")   threshold ($", DoubleToString(StopTradingMaxProfit, 2), "). ");
 
