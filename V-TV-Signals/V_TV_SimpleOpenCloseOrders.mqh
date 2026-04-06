@@ -372,7 +372,76 @@ isEMATouchesInsideLines = true;
 
    // ⏱ Check within time window
    if(lastCrossTime > 0 && (TimeCurrent() - lastCrossTime <= seconds))
-isEMATouchesInsideLines = true;
+   {
+      isEMATouchesInsideLines = true;
+   }
+    
+ }
+
+
+void CheckEMAPositionInsideLines1111111111()
+{
+
+   // Return:
+//  1  = Above EMAs (BUY zone)
+// -1  = Below EMAs (SELL zone)
+//  0  = Inside EMAs (no trade)
+//  2  = EMAs tight (no trade - squeeze)
+
+ 
+   double emaFast = iMA(Symbol(), 0, 9,  0, MODE_EMA, PRICE_CLOSE, 0);
+   double emaSlow = iMA(Symbol(), 0, 21, 0, MODE_EMA, PRICE_CLOSE, 0);
+
+   double price = Bid;
+
+   double upper = MathMax(emaFast, emaSlow);
+   double lower = MathMin(emaFast, emaSlow);
+
+   double gapPoints = MathAbs(emaFast - emaSlow) / Point;
+
+   double minGap = 100; // 🔧 adjust (BTC: 100–200, Forex: 20–50)
+
+   // 🔹 4️⃣ EMAs tight → squeeze zone
+   if(gapPoints < minGap)
+       
+      {
+
+
+//          Print("EMAs tight (gap: " + DoubleToString(gapPoints, 1) + " pts) → NO TRADE");
+// CloseAllSellOrders(true); 
+// CloseAllBuyOrders(); 
+      return ;
+
+       
+      }
+
+   // 🔹 1️⃣ Above both EMAs → BUY zone
+   if(price > upper)
+      
+      {
+      //    Print("Tick is ABOVE EMAs → BUY zone");
+      //     ProcessSeqBuyOrders();
+      // CloseAllSellOrders(true); // 🔥 close opposite SELL orders immediately
+      return ;
+
+      }
+
+   // 🔹 2️⃣ Below both EMAs → SELL zone
+   if(price < lower)
+     
+     {
+      // Print("Tick is BELOW EMAs → SELL zone");
+      //   ProcessSeqSellOrders();
+      // CloseAllBuyOrders(); // 🔥 close opposite BUY orders immediately
+
+      return ;
+     }
+
+     if(General_WarmupElapsed())
+              isEMATouchesInsideLines=true;
+return ;
+
+      
 }
 
 

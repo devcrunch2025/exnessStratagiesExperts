@@ -1029,15 +1029,21 @@ double CalculateProfit(int type, double lot, double openPrice, double closePrice
    
     if(openProfit < DefaultBuyTP)
     {
+
+      if(openProfit<SeqBuyProfitTarget)
+{
 SeqBuyProfitTarget = openProfit;
       SeqSellProfitTarget = openProfit;
     
-      
+      }
    }
    else
    {
+    if(profit<SeqBuyProfitTarget)
+{
     SeqBuyProfitTarget = profit/2;
    SeqSellProfitTarget = profit/2;
+}
    }
 
 
@@ -1088,9 +1094,12 @@ int OnInit()
   {
 
 
-
+if(getChartHeightPrice()<SeqBuyProfitTarget)
+{
 SeqBuyProfitTarget =getChartHeightPrice()/5;;
 SeqSellProfitTarget = getChartHeightPrice()/5;
+
+}
 
 
 
