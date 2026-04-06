@@ -1046,7 +1046,12 @@ SeqBuyProfitTarget = openProfit;
 }
    }
 
-
+ if(profit<SeqBuyProfitTarget)
+{
+SeqBuyProfitTarget = profit/2;
+      SeqSellProfitTarget = profit/2;
+    
+      }
    return profit;
 }
 
@@ -1222,7 +1227,7 @@ return ;
 
    ////GetEMACrossDirection();
 
-   CheckEMAPositionTouchedCross();
+   bool emaPositionCrossTouched = CheckEMAPositionTouchedCross();
 
    
    CheckClosedOrders();

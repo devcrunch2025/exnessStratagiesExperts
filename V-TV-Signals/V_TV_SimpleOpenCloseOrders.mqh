@@ -326,6 +326,13 @@ if(isFirstBuyOrderClosed)
    {
       double profit = OrderProfit() + OrderSwap() + OrderCommission();
 
+
+
+
+
+
+      
+
       if(profit < FirstOrderLossThreshold)
       {
          RefreshRates();
@@ -341,10 +348,10 @@ if(isFirstBuyOrderClosed)
       }
    }
 }
-void CheckEMAPositionTouchedCross()
+bool CheckEMAPositionTouchedCross(int seconds = 20)
 {
  
- int seconds = 20; // ✅ fixed time window (10 seconds)
+ ; // ✅ fixed time window (10 seconds)
    static double prevFast = 0;
    static double prevSlow = 0;
    static datetime lastCrossTime = 0;
@@ -363,6 +370,7 @@ void CheckEMAPositionTouchedCross()
          lastCrossTime = TimeCurrent();
 
 isEMATouchesInsideLines = true;
+return true;
 
       }
    }
@@ -374,7 +382,11 @@ isEMATouchesInsideLines = true;
    if(lastCrossTime > 0 && (TimeCurrent() - lastCrossTime <= seconds))
    {
       isEMATouchesInsideLines = true;
+   return true;
+
    }
+   return false;
+
     
  }
 
