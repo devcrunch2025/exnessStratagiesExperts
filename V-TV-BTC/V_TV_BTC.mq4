@@ -4,15 +4,15 @@
 //+------------------------------------------------------------------+
 #property strict
 
-#include "V_TV_LotVariables.mqh"
-#include "V_TV_StrategyPatterns.mqh"
-#include "V_TV_SeqSellOrders.mqh"
-#include "V_TV_SeqBuyOrders.mqh"
-#include "V_TV_SeqCloseOrders.mqh"
-#include "V_TV_OrderReport.mqh"
-#include "V_TV_LearningSuggestions.mqh"
-#include "V_TV_MarkerSuggestions.mqh"
-#include "V_TV_SimpleOpenCloseOrders.mqh"
+#include "V_TV_BTC_LotVariables.mqh"
+#include "V_TV_BTC_StrategyPatterns.mqh"
+#include "V_TV_BTC_SeqSellOrders.mqh"
+#include "V_TV_BTC_SeqBuyOrders.mqh"
+#include "V_TV_BTC_SeqCloseOrders.mqh"
+#include "V_TV_BTC_OrderReport.mqh"
+#include "V_TV_BTC_LearningSuggestions.mqh"
+#include "V_TV_BTC_MarkerSuggestions.mqh"
+#include "V_TV_BTC_SimpleOpenCloseOrders.mqh"
 
  
 
@@ -843,45 +843,7 @@ void DrawSpikeMarkers(int barsBack = 300)
         }
      }
   }
-void DrawRSIBackground()
- 
-{
-   double rsi = iRSI(NULL, 0, 14, PRICE_CLOSE, 0);
 
-   string name = "RSI_BOX";
-
-   int x = 100;   // 👉 horizontal position (pixels from left)
-   int y = 50;    // 👉 vertical position (pixels from top)
-
-   int width  = 100; // 👉 box width
-   int height = 40;  // 👉 box height
-
-   // Create object if not exists
-   if(ObjectFind(0, name) < 0)
-   {
-      ObjectCreate(0, name, OBJ_RECTANGLE_LABEL, 0, 0, 0);
-      ObjectSetInteger(0, name, OBJPROP_CORNER, 0);
-   }
-
-   // Position
-   ObjectSetInteger(0, name, OBJPROP_XDISTANCE, x);
-   ObjectSetInteger(0, name, OBJPROP_YDISTANCE, y);
-   ObjectSetInteger(0, name, OBJPROP_XSIZE, width);
-   ObjectSetInteger(0, name, OBJPROP_YSIZE, height);
-
-   // 🔹 Transparent color
-   color bgColor;
-
-   if(rsi < 30)
-      bgColor = ColorToARGB(clrDodgerBlue, 40);
-   else if(rsi > 70)
-      bgColor = ColorToARGB(clrTomato, 40);
-   else
-      bgColor = ColorToARGB(clrGray, 25);
-
-   ObjectSetInteger(0, name, OBJPROP_BGCOLOR, bgColor);
-   ObjectSetInteger(0, name, OBJPROP_BACK, false);
-}
 //+------------------------------------------------------------------+
 // Main dashboard draw: call every tick
 //+------------------------------------------------------------------+
@@ -1013,12 +975,8 @@ y += step;
 
                           DashRow("DB_isEMATouchesInsideLines",   "  EMA Cross Lines : " +
                           (isEMATouchesInsideLines ? "YES" : "NO"),        cValue, y);
-y += step;
-    DashRow("DB_RelativeStrengthIndex",   "  RSI : " +
-                          iRSI(NULL, 0, 14, PRICE_CLOSE, 0),        cValue, y);
 
 
-  
                           
 
                           
@@ -1076,9 +1034,6 @@ double CalculateProfit(int type, double lot, double openPrice, double closePrice
 {
 SeqBuyProfitTarget = openProfit;
       SeqSellProfitTarget = openProfit;
-
-      Print("Adjusting OpenProfit targets based on 1-hour profit 3: ", DoubleToString(openProfit,2));
-
     
       }
    }
@@ -1088,9 +1043,6 @@ SeqBuyProfitTarget = openProfit;
 {
     SeqBuyProfitTarget = profit/2;
    SeqSellProfitTarget = profit/2;
-      Print("Adjusting profit targets based on 1-hour profit 1/2: ", DoubleToString(profit,2));
-
-   
 }
    }
 
@@ -1098,8 +1050,6 @@ SeqBuyProfitTarget = openProfit;
 {
 SeqBuyProfitTarget = profit/2;
       SeqSellProfitTarget = profit/2;
-
-      Print("Adjusting profit targets based on 1-hour profit 2/2: ", DoubleToString(profit,2));
     
       }
    return profit;
@@ -1148,20 +1098,13 @@ return profitBuy;
 int OnInit()
   {
 
-double chartMaxProfit = getChartHeightPrice();
-if(chartMaxProfit < SeqBuyProfitTarget)
+
+if(getChartHeightPrice()<SeqBuyProfitTarget)
 {
-SeqBuyProfitTarget = chartMaxProfit / 5;
-SeqSellProfitTarget = chartMaxProfit / 5;
+SeqBuyProfitTarget =getChartHeightPrice()/5;;
+SeqSellProfitTarget = getChartHeightPrice()/5;
 
- 
-  
 }
-
-SeqSellStopLossUSD  = chartMaxProfit*2;
- 
-  SeqBuyStopLossUSD   = chartMaxProfit*2;
-
 
 
 
@@ -1260,7 +1203,7 @@ bool IsTradingTime()
 //+------------------------------------------------------------------+
 void OnTick()
   {
-DrawRSIBackground();
+
 changeMaxOrdersLogic();
 if(stopTrading())
 {

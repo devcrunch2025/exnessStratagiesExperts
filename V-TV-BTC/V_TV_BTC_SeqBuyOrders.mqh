@@ -108,99 +108,6 @@ void printdummy(string msg)
   {
    // Print(msg);
   }
-
-  //+------------------------------------------------------------------+
-//| Allow trade only if RSI is between 30 and 70                     |
-//| Works for BOTH BUY & SELL                                       |
-//+------------------------------------------------------------------+
-bool CanOpenOrder_RSI_Range_old(int rsiPeriod = 14, double minRSI = 35, double maxRSI = 65)
-{
-   double rsi = iRSI(NULL, 0, rsiPeriod, PRICE_CLOSE, 0);
-
-
-   // 🔴 Block if outside range
-   if(rsi < minRSI || rsi > maxRSI)
-   {
-      Print("❌ Trade blocked (RSI outside range)");
-      return false;
-   }
-
-   Print("RSI = ", rsi);
-
-
-   // ✅ Allow trade
-   return true;
-
-  
-
-}
-
-//+------------------------------------------------------------------+
-//| Smart Entry Filter (RSI + EMA + Reversal)                        |
-//| Returns true = SAFE to trade                                     |
-//+------------------------------------------------------------------+
-bool CanOpenOrder_RSI_Range(int orderType)
-{
-   // 🔹 1. RSI Filter
-   double rsi = iRSI(NULL, 0, 14, PRICE_CLOSE, 0);
-
-   if(rsi < 30 || rsi > 70)
-   {
-      Print("❌ Blocked: RSI danger zone (", rsi, ")");
-      return false;
-   }
-
-   // 🔹 2. EMA Filter (trend + distance)
-   double ema = iMA(NULL, 0, 50, 0, MODE_EMA, PRICE_CLOSE, 0);
-   double price = (orderType == OP_BUY) ? Ask : Bid;
-
-   // Auto adjust for BTC / XAG
-   double maxDistance;
-   if(Symbol() == "XAGUSDm")
-      maxDistance = 30 * Point;
-   else
-      maxDistance = 300 * Point; // BTC default
-
-  //  // Too far from EMA → possible exhaustion
-  //  if(MathAbs(price - ema) > maxDistance)
-  //  {
-  //     Print("❌ Blocked: Price too far from EMA");
-  //     return false;
-  //  }
-
-  //  // Trend direction filter
-  //  if(orderType == OP_BUY && price < ema)
-  //  {
-  //     Print("❌ Blocked: BUY below EMA (downtrend)");
-  //     return false;
-  //  }
-
-  //  if(orderType == OP_SELL && price > ema)
-  //  {
-  //     Print("❌ Blocked: SELL above EMA (uptrend)");
-  //     return false;
-  //  }
-
-   // 🔹 3. Reversal Detection (last candle)
-   double body = MathAbs(Close[1] - Open[1]);
-   double upperWick = High[1] - MathMax(Open[1], Close[1]);
-   double lowerWick = MathMin(Open[1], Close[1]) - Low[1];
-
-   // Strong rejection = reversal signal
-   if(orderType == OP_BUY && upperWick > 2 * body)
-   {
-      Print("❌ Blocked: Bearish rejection (top)");
-      return false;
-   }
-
-   if(orderType == OP_SELL && lowerWick > 2 * body)
-   {
-      Print("❌ Blocked: Bullish rejection (bottom)");
-      return false;
-   }
-
-   return true; // ✅ SAFE
-}
  
 // Condition 4: Max open orders not reached
 bool BuyCond4_MaxOrdersNotReached(int openCount)
@@ -515,10 +422,6 @@ void ProcessSeqBuyOrders()
    // === PATTERN MATCHED — track which condition blocks and draw marker ===
    int    openCount   = CountOpenSeqBuyOrders();
    string blockReason = "";
-
-   if(!CanOpenOrder_RSI_Range(OP_BUY))
-      blockReason = "Cond1: RSI not in allowed range (30-70)";
-    else
 
    if(!BuyCond2_WarmupElapsed())
       blockReason = "Cond2: Warmup not elapsed yet";

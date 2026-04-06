@@ -356,9 +356,6 @@ void ProcessSeqSellOrders()
    // === PATTERN MATCHED — track which condition blocks and draw marker ===
    int    openCount  = CountOpenSeqSellOrders();
    string blockReason = "";
-if(!CanOpenOrder_RSI_Range(OP_SELL))
-      blockReason = "Cond1: RSI not in allowed range (30-70)";
-    else
 
    if(!SellCond2_WarmupElapsed())
       blockReason = "Cond2: Warmup not elapsed yet";

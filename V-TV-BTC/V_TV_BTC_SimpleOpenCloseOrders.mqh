@@ -31,12 +31,11 @@ double totalProfit = 0;
          }
       }
    }
- double equity = AccountEquity();
-// Print("Equity = ", equity);
+ 
 
       // Print("Total open profit ($", DoubleToString(totalProfit, 2), ")   threshold ($", DoubleToString(StopTradingMaxProfit, 2), "). ");
 
-if(equity > StopTradingMaxProfit+g_initialBalance)
+if(totalProfit > StopTradingMaxProfit)
    {
 
       CloseAllBuyOrders(true);
@@ -867,13 +866,10 @@ void UpdateTPBasedOnLastClosed()
             CurrentBuyTP = DefaultBuyTP / 2.0;
             SeqBuyProfitTarget = SeqBuyProfitTarget / 2.0; // also reduce SL for next BUY
             Print("BUY LOSS → TP reduced to ", CurrentBuyTP," #"+total);
-      Print("Adjusting  Profit targets based on UpdateTPBasedOnLastClosed: ", DoubleToString(SeqBuyProfitTarget,2));
-
          }
          else
          {
             CurrentBuyTP = DefaultBuyTP;
-            SeqBuyProfitTarget = DefaultBuyTP;
             ////////////SeqBuyProfitTarget = DefaultBuyTP; // increase SL for next BUY
             Print("BUY PROFIT → TP reset to ", CurrentBuyTP," #"+total);
          }
@@ -893,7 +889,7 @@ void UpdateTPBasedOnLastClosed()
    Print("UpdateTPBasedOnLastClosed mode → Default TP");
 
             CurrentSellTP = DefaultSellTP;
-              SeqSellProfitTarget = DefaultSellTP; // increase SL for next SELL
+              ////////////////  SeqSellProfitTarget = DefaultSellTP; // increase SL for next SELL
             Print("SELL PROFIT → TP reset to ", CurrentSellTP," #"+total);
          }
       }
