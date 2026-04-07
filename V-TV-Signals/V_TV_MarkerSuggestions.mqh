@@ -28,6 +28,15 @@ input int    MarkerEarlyMinBars    = 4;     // Min bars before early finalizatio
 input double MarkerEarlyWinRR     = 2.0;   // Finalize early on clear win
 input double MarkerEarlyLossRatio  = 3.0;  // Finalize early on clear loss
 
+bool AllowMarkerSuggestionsCSV()
+  {
+#ifdef ORDER_HISTORY_ONLY_CSV
+   return false;
+#else
+   return MarkerAIEnabled;
+#endif
+  }
+
 //+------------------------------------------------------------------+
 //| Per-marker observation                                           |
 //+------------------------------------------------------------------+
@@ -515,7 +524,7 @@ void WriteMarkerSuggestionRow(int slot)
 //+------------------------------------------------------------------+
 void InitMarkerSuggestions()
   {
-   if(!MarkerAIEnabled) return;
+  if(!AllowMarkerSuggestionsCSV()) return;
 
    g_markerSuggestFile = "AI_MarkerSuggestions_" + g_runTimestamp + "_" + Symbol() + ".csv";
    g_markerStatsFile   = "MarkerStats_"       + g_runTimestamp + "_" + Symbol() + ".csv";
@@ -574,7 +583,7 @@ void InitMarkerSuggestions()
 void RecordMarkerObs(string markerType, int seqCount,
                      double markerPrice, bool isSell)
   {
-   if(!MarkerAIEnabled) return;
+  if(!AllowMarkerSuggestionsCSV()) return;
 
    int slot = -1;
    for(int i = 0; i < MOBS_MAX; i++)
@@ -619,7 +628,7 @@ void RecordMarkerObs(string markerType, int seqCount,
 //+------------------------------------------------------------------+
 void UpdateMarkerObs()
   {
-   if(!MarkerAIEnabled) return;
+  if(!AllowMarkerSuggestionsCSV()) return;
    if(g_markerSuggestFile == "") return;
 
    double bid = MarketInfo(Symbol(), MODE_BID);

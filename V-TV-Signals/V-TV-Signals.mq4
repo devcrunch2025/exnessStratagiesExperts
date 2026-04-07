@@ -4,14 +4,16 @@
 //+------------------------------------------------------------------+
 #property strict
 
+#define ORDER_HISTORY_ONLY_CSV
+
 #include "V_TV_LotVariables.mqh"
 #include "V_TV_StrategyPatterns.mqh"
 #include "V_TV_SeqSellOrders.mqh"
 #include "V_TV_SeqBuyOrders.mqh"
 #include "V_TV_SeqCloseOrders.mqh"
 #include "V_TV_OrderReport.mqh"
-#include "V_TV_LearningSuggestions.mqh"
-#include "V_TV_MarkerSuggestions.mqh"
+//#include "V_TV_LearningSuggestions.mqh"
+//#include "V_TV_MarkerSuggestions.mqh"
 #include "V_TV_SimpleOpenCloseOrders.mqh"
 
  
@@ -643,6 +645,10 @@ void UpdateCurrentSignalLabel()
 //+------------------------------------------------------------------+
 void InitCSVLog()
   {
+#ifdef ORDER_HISTORY_ONLY_CSV
+   g_csvFileName = "";
+   return;
+#else
    g_csvFileName = "SignalLog_" + g_runTimestamp + "_" + Symbol() + ".csv";
    int handle = FileOpen(g_csvFileName, FILE_TXT|FILE_READ|FILE_SHARE_READ|FILE_SHARE_WRITE);
    if(handle != INVALID_HANDLE)
@@ -655,10 +661,14 @@ void InitCSVLog()
    if(handle == INVALID_HANDLE) return;
    FileWriteString(handle, "DateTime,Symbol,Action,Signal_Name,Prev_Signal,Curr_Signal,Price\n");
    FileClose(handle);
+#endif
   }
 
 void AppendSignalLog(string action, string signalName, string prevSig, string currSig, double price)
   {
+#ifdef ORDER_HISTORY_ONLY_CSV
+   return;
+#else
    if(g_csvFileName == "") return;
    int handle = FileOpen(g_csvFileName, FILE_TXT|FILE_READ|FILE_WRITE|FILE_SHARE_READ|FILE_SHARE_WRITE);
    if(handle == INVALID_HANDLE)
@@ -678,6 +688,7 @@ void AppendSignalLog(string action, string signalName, string prevSig, string cu
                  DoubleToString(price, Digits) + "\n";
    FileWriteString(handle, line);
    FileClose(handle);
+#endif
   }
 
 //+------------------------------------------------------------------+
@@ -1228,8 +1239,8 @@ CurrentSellTP = DefaultSellTP;
    InitStrategyRules();
    InitCSVLog();
    InitOrderReport();
-   InitLearningSuggestions();
-   InitMarkerSuggestions();
+   //InitLearningSuggestions();
+   //InitMarkerSuggestions();
    RefreshBlockedBuyMarkersVisibility();   // apply ShowBlockedBuyMarkers toggle on (re)load
    EventSetTimer(MathMax(1, DashboardRefreshSeconds));
    UpdateDailyLowProximityLines();
@@ -1369,9 +1380,9 @@ if(preTrendBuy)
   {
    string _lbl = "PRE BUY " + IntegerToString(g_seqCount);
    DrawMarker("PTB", _lbl, clrAqua, 233, t, Low[i] - 15*Point);
-   RecordSignalPrice(_lbl, Low[i]);
-   LearnRecordSignal(_lbl, g_prevDisplaySignal + " " + IntegerToString(g_prevSeqCount), g_prePrevSeqSignalText, Low[i], false);
-   RecordMarkerObs("PRE BUY", g_seqCount, Low[i], false);
+   //RecordSignalPrice(_lbl, Low[i]);
+   //LearnRecordSignal(_lbl, g_prevDisplaySignal + " " + IntegerToString(g_prevSeqCount), g_prePrevSeqSignalText, Low[i], false);
+   //RecordMarkerObs("PRE BUY", g_seqCount, Low[i], false);
   }
 
 // 🟢 TREND BUY
@@ -1380,8 +1391,8 @@ if(trendBuy)
    string _lbl = "TREND BUY " + IntegerToString(g_seqCount);
    DrawMarker("TB", _lbl, clrLime, 233, t, Low[i] - 10*Point);
    RecordSignalPrice(_lbl, Low[i]);
-   LearnRecordSignal(_lbl, g_prevDisplaySignal + " " + IntegerToString(g_prevSeqCount), g_prePrevSeqSignalText, Low[i], false);
-   RecordMarkerObs("TREND BUY", g_seqCount, Low[i], false);
+   //LearnRecordSignal(_lbl, g_prevDisplaySignal + " " + IntegerToString(g_prevSeqCount), g_prePrevSeqSignalText, Low[i], false);
+   //RecordMarkerObs("TREND BUY", g_seqCount, Low[i], false);
   }
 
 // 🔵 REVERSAL BUY
@@ -1390,7 +1401,7 @@ if(reversalBuy)
    string _lbl = reversalBuyName + " " + IntegerToString(g_seqCount);
    DrawMarker("RB", _lbl, clrBlue, 233, t, Low[i] - 10*Point);
    RecordSignalPrice(_lbl, Low[i]);
-   RecordMarkerObs(reversalBuyName, g_seqCount, Low[i], false);
+   //RecordMarkerObs(reversalBuyName, g_seqCount, Low[i], false);
   }
 
 // 💙 STRONG BUY
@@ -1399,7 +1410,7 @@ if(strongBuy)
    string _lbl = "STRONG BUY " + IntegerToString(g_seqCount);
    DrawMarker("SB", _lbl, clrDeepSkyBlue, 233, t, Low[i] - 10*Point);
    RecordSignalPrice(_lbl, Low[i]);
-   RecordMarkerObs("STRONG BUY", g_seqCount, Low[i], false);
+   //RecordMarkerObs("STRONG BUY", g_seqCount, Low[i], false);
   }
 
       // === Sell signals ===
@@ -1410,8 +1421,8 @@ if(preTrendSell)
    string _lbl = "PRE SELL " + IntegerToString(g_seqCount);
    DrawMarker("PTS", _lbl, clrOrange, 234, t, High[i] + 15*Point);
    RecordSignalPrice(_lbl, High[i]);
-   LearnRecordSignal(_lbl, g_prevDisplaySignal + " " + IntegerToString(g_prevSeqCount), g_prePrevSeqSignalText, High[i], true);
-   RecordMarkerObs("PRE SELL", g_seqCount, High[i], true);
+   //LearnRecordSignal(_lbl, g_prevDisplaySignal + " " + IntegerToString(g_prevSeqCount), g_prePrevSeqSignalText, High[i], true);
+   //RecordMarkerObs("PRE SELL", g_seqCount, High[i], true);
   }
 
 // 🔴 TREND SELL
@@ -1434,8 +1445,8 @@ if(trendSell)
    DrawMarker("TS", _lbl + tsDiffStr, clrRed, 234, t, High[i] + 10*Point);
    DrawEntryMark("TS", t, High[i] + 25*Point, SeqSellEMAPeriod);
    RecordSignalPrice(_lbl, High[i]);
-   LearnRecordSignal(_lbl, g_prevDisplaySignal + " " + IntegerToString(g_prevSeqCount), g_prePrevSeqSignalText, High[i], true);
-   RecordMarkerObs("TREND SELL", g_seqCount, High[i], true);
+   //LearnRecordSignal(_lbl, g_prevDisplaySignal + " " + IntegerToString(g_prevSeqCount), g_prePrevSeqSignalText, High[i], true);
+   //RecordMarkerObs("TREND SELL", g_seqCount, High[i], true);
   }
 
 // 🟣 REVERSAL SELL
@@ -1444,7 +1455,7 @@ if(reversalSell)
    string _lbl = reversalSellName + " " + IntegerToString(g_seqCount);
    DrawMarker("RS", _lbl, clrMagenta, 234, t, High[i] + 10*Point);
    RecordSignalPrice(_lbl, High[i]);
-   RecordMarkerObs(reversalSellName, g_seqCount, High[i], true);
+   //RecordMarkerObs(reversalSellName, g_seqCount, High[i], true);
   }
 
 // 🌸 STRONG SELL
@@ -1453,8 +1464,8 @@ if(strongSell)
    string _lbl = "STRONG SELL " + IntegerToString(g_seqCount);
    DrawMarker("SS", _lbl, clrPink, 234, t, High[i] + 10*Point);
    RecordSignalPrice(_lbl, High[i]);
-   LearnRecordSignal(_lbl, g_prevDisplaySignal + " " + IntegerToString(g_prevSeqCount), g_prePrevSeqSignalText, High[i], true);
-   RecordMarkerObs("STRONG SELL", g_seqCount, High[i], true);
+   //LearnRecordSignal(_lbl, g_prevDisplaySignal + " " + IntegerToString(g_prevSeqCount), g_prePrevSeqSignalText, High[i], true);
+   //RecordMarkerObs("STRONG SELL", g_seqCount, High[i], true);
   }
       // === Update Curr/Prev display labels (i=0 live bar, i=1 just-closed bar) ===
       if(i == 0 || i == 1)

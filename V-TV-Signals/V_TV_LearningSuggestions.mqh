@@ -27,6 +27,15 @@ input double LearnEarlyWinRR      = 2.5; // Finalize early if R:R reaches this (
 input double LearnEarlyLossRatio  = 3.0; // Finalize early if adverse > favour * this (clear loss)
 input int    LearnEarlyMinBars    = 5;   // Min bars before early finalization allowed
 
+bool AllowLearningSuggestionsCSV()
+  {
+#ifdef ORDER_HISTORY_ONLY_CSV
+   return false;
+#else
+   return LearnEnabled;
+#endif
+  }
+
 //+------------------------------------------------------------------+
 //| Per-signal observation (one row in Suggestions CSV)              |
 //+------------------------------------------------------------------+
@@ -165,7 +174,7 @@ int DetectRecentSpike(int &spikeDir, double &spikeSizePts)
 //+------------------------------------------------------------------+
 void InitLearningSuggestions()
   {
-   if(!LearnEnabled) return;
+  if(!AllowLearningSuggestionsCSV()) return;
 
    g_suggestFile = "AI_Suggestions_" + g_runTimestamp + "_" + Symbol() + ".csv";
    g_statsFile   = "PatternStats_" + g_runTimestamp + "_" + Symbol() + ".csv";
@@ -240,7 +249,7 @@ void InitLearningSuggestions()
 void LearnRecordSignal(string label, string prevSig, string prePrevSig,
                        double entryPrice, bool isSell)
   {
-   if(!LearnEnabled) return;
+  if(!AllowLearningSuggestionsCSV()) return;
 
    int slot = -1;
    for(int i = 0; i < OBS_MAX; i++)
@@ -1019,7 +1028,7 @@ void WriteLiveStatusCSV()
 //+------------------------------------------------------------------+
 void LearnUpdateObservations()
   {
-   if(!LearnEnabled) return;
+  if(!AllowLearningSuggestionsCSV()) return;
    if(g_suggestFile == "") return;
 
    double bid = MarketInfo(Symbol(), MODE_BID);

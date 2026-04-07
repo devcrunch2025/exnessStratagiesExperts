@@ -1,11 +1,10 @@
 //+------------------------------------------------------------------+
 //| V_TV_OrderReport.mqh                                             |
-//| Tracks each SELL and BUY order open/close with pattern, P/L     |
+//| Tracks each SELL and BUY order open/close with full trade data  |
 //| CSV columns:                                                     |
-//|  Ticket,Type,Pattern,OpenTime,OpenPrice,                        |
-//|  CloseTime,ClosePrice,Profit(USD),                              |
-//|  EMA1_at_Open,EMA2_at_Open,EMA1_Trend_OK,EMA_Structure_OK,      |
-//|  CloseReason,ProfitReason,LossReason                            |
+//|  TradeDate,Symbol,Ticket,Type,Pattern,Lots,MagicNumber,         |
+//|  OrderComment,OpenTime,OpenPrice,CloseTime,ClosePrice,          |
+//|  GrossProfit,Swap,Commission,NetProfit,EMA data, reasons        |
 //+------------------------------------------------------------------+
 #ifndef V_TV_ORDER_REPORT_MQH
 #define V_TV_ORDER_REPORT_MQH
@@ -20,6 +19,12 @@ struct OrderRecord
    string   pattern;       // "prePrev | prev | curr" at time of entry
    datetime openTime;
    double   openPrice;
+  double   lots;
+  int      magicNumber;
+  string   orderComment;
+  double   rsiAtOpen;
+  double   buyProfitTargetAtOpen;
+  double   sellProfitTargetAtOpen;
    double   ema1AtOpen;
    double   ema2AtOpen;
    bool     emaTrendOK;    // Cond8: EMA1 sloping in correct direction
@@ -35,7 +40,7 @@ OrderRecord g_orderRecords[ORDER_RECORD_MAX];
 //+------------------------------------------------------------------+
 void InitOrderReport()
   {
-   g_orderReportFile = "OrderReport_" + g_runTimestamp + "_" + Symbol() + ".csv";
+  g_orderReportFile = "order_history_" + g_runTimestamp + "_" + Symbol() + ".csv";
 
    bool needHeader = true;
    int h = FileOpen(g_orderReportFile, FILE_TXT|FILE_READ|FILE_SHARE_READ|FILE_SHARE_WRITE);
@@ -52,8 +57,10 @@ void InitOrderReport()
       if(h != INVALID_HANDLE)
         {
          FileWriteString(h,
-            "Ticket,Type,Pattern,OpenTime,OpenPrice,"
-            "CloseTime,ClosePrice,Profit(USD),"
+            "TradeDate,Symbol,Ticket,Type,Pattern,Lots,MagicNumber,OrderComment,"
+            "OpenTime,OpenPrice,RSI_at_Open,SeqBuyProfitTarget_at_Open,SeqSellProfitTarget_at_Open,"
+            "CloseTime,ClosePrice,EMA_Gap_at_Close,"
+            "GrossProfit,Swap,Commission,NetProfit,"
             "EMA1_at_Open,EMA2_at_Open,EMA1_Below_EMA2,EMA1_Falling,"
             "ProfitReason,LossReason,Dubai Time\n");
          FileClose(h);
@@ -86,12 +93,19 @@ void ReportOrderOpened(int ticket, string pattern, string orderType)
    double ema1     = iMA(Symbol(), 0, emaPeriod,  0, MODE_EMA, PRICE_CLOSE, 0);
    double ema2     = iMA(Symbol(), 0, ema2Period, 0, MODE_EMA, PRICE_CLOSE, 0);
    double ema1Past = iMA(Symbol(), 0, emaPeriod,  0, MODE_EMA, PRICE_CLOSE, emaShift);
+  double rsiAtOpen = iRSI(Symbol(), 0, RSI_Period, PRICE_CLOSE, 0);
 
    g_orderRecords[slot].ticket         = ticket;
    g_orderRecords[slot].orderType      = orderType;
    g_orderRecords[slot].pattern        = pattern;
    g_orderRecords[slot].openTime       = OrderOpenTime();
    g_orderRecords[slot].openPrice      = OrderOpenPrice();
+  g_orderRecords[slot].lots           = OrderLots();
+  g_orderRecords[slot].magicNumber    = OrderMagicNumber();
+  g_orderRecords[slot].orderComment   = OrderComment();
+  g_orderRecords[slot].rsiAtOpen      = rsiAtOpen;
+  g_orderRecords[slot].buyProfitTargetAtOpen  = SeqBuyProfitTarget;
+  g_orderRecords[slot].sellProfitTargetAtOpen = SeqSellProfitTarget;
    g_orderRecords[slot].ema1AtOpen     = ema1;
    g_orderRecords[slot].ema2AtOpen     = ema2;
    g_orderRecords[slot].emaTrendOK     = isSell ? (ema1 < ema1Past) : (ema1 > ema1Past);
@@ -135,10 +149,18 @@ string AnalyseLossReason(OrderRecord &rec, double closePrice, double profit)
 //+------------------------------------------------------------------+
 //| Write one closed order row to CSV                                |
 //+------------------------------------------------------------------+
-void WriteOrderReportRow(OrderRecord &rec, datetime closeTime, double closePrice, double profit)
+void WriteOrderReportRow(OrderRecord &rec, datetime closeTime, double closePrice,
+                         double grossProfit, double swap, double commission)
   {
-   string profitReason = (profit >= 0) ? AnalyseProfitReason(rec, closePrice, profit) : "";
-   string lossReason   = (profit <  0) ? AnalyseLossReason (rec, closePrice, profit) : "";
+   double netProfit = grossProfit + swap + commission;
+   string profitReason = (netProfit >= 0) ? AnalyseProfitReason(rec, closePrice, netProfit) : "";
+   string lossReason   = (netProfit <  0) ? AnalyseLossReason (rec, closePrice, netProfit) : "";
+  bool   isSell = (rec.orderType == "SELL");
+  int    closeEmaPeriod  = isSell ? SeqSellEMAPeriod : SeqBuyEMAPeriod;
+  int    closeEma2Period = isSell ? SeqSellEMA2Period : SeqBuyEMA2Period;
+  double closeEma1 = iMA(Symbol(), 0, closeEmaPeriod,  0, MODE_EMA, PRICE_CLOSE, 0);
+  double closeEma2 = iMA(Symbol(), 0, closeEma2Period, 0, MODE_EMA, PRICE_CLOSE, 0);
+  double emaGapAtClose = closeEma1 - closeEma2;
 
    // EMA1_Below_EMA2: for SELL emaTrendOK=EMA1<EMA2, for BUY emaStructureOK=EMA1>EMA2
    string ema1BelowEma2 = (rec.orderType == "SELL") ? (rec.emaStructureOK ? "YES" : "NO")
@@ -147,14 +169,26 @@ void WriteOrderReportRow(OrderRecord &rec, datetime closeTime, double closePrice
    string ema1Falling   = rec.emaTrendOK ? "YES" : "NO";
 
    string row =
+      TimeToString(rec.openTime, TIME_DATE)               + "," +
+      Symbol()                                            + "," +
       IntegerToString(rec.ticket)                          + "," +
       rec.orderType                                        + "," +
       "\"" + rec.pattern + "\""                           + "," +
+      DoubleToString(rec.lots, 2)                          + "," +
+      IntegerToString(rec.magicNumber)                     + "," +
+      "\"" + rec.orderComment + "\""                      + "," +
       TimeToString(rec.openTime, TIME_DATE|TIME_SECONDS)  + "," +
       DoubleToString(rec.openPrice, 2)                    + "," +
+      DoubleToString(rec.rsiAtOpen, 2)                    + "," +
+      DoubleToString(rec.buyProfitTargetAtOpen, 2)        + "," +
+      DoubleToString(rec.sellProfitTargetAtOpen, 2)       + "," +
       TimeToString(closeTime,    TIME_DATE|TIME_SECONDS)  + "," +
       DoubleToString(closePrice,    2)                    + "," +
-      DoubleToString(profit,        2)                    + "," +
+      DoubleToString(emaGapAtClose, Digits)              + "," +
+      DoubleToString(grossProfit,   2)                    + "," +
+      DoubleToString(swap,          2)                    + "," +
+      DoubleToString(commission,    2)                    + "," +
+      DoubleToString(netProfit,     2)                    + "," +
       DoubleToString(rec.ema1AtOpen,2)                    + "," +
       DoubleToString(rec.ema2AtOpen,2)                    + "," +
       ema1BelowEma2                                       + "," +
@@ -173,8 +207,8 @@ void WriteOrderReportRow(OrderRecord &rec, datetime closeTime, double closePrice
    FileClose(h);
 
    Print("OrderReport: #" + IntegerToString(rec.ticket) +
-         " [" + rec.orderType + "] P/L=" + DoubleToString(profit,2) +
-         (profit >= 0 ? " PROFIT: " + profitReason : " LOSS: " + lossReason));
+       " [" + rec.orderType + "] Net P/L=" + DoubleToString(netProfit,2) +
+       (netProfit >= 0 ? " PROFIT: " + profitReason : " LOSS: " + lossReason));
   }
 
 //+------------------------------------------------------------------+
@@ -203,11 +237,14 @@ void CheckClosedOrders()
          if(!OrderSelect(i, SELECT_BY_POS, MODE_HISTORY)) continue;
          if(OrderTicket() != g_orderRecords[s].ticket)   continue;
 
-         double   profit     = OrderProfit() + OrderSwap() + OrderCommission();
+        double   grossProfit = OrderProfit();
+        double   swap        = OrderSwap();
+        double   commission  = OrderCommission();
          datetime closeTime  = OrderCloseTime();
          double   closePrice = OrderClosePrice();
 
-         WriteOrderReportRow(g_orderRecords[s], closeTime, closePrice, profit);
+        WriteOrderReportRow(g_orderRecords[s], closeTime, closePrice,
+                      grossProfit, swap, commission);
          g_orderRecords[s].tracked = false;
          break;
         }
