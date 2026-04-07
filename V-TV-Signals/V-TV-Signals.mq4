@@ -631,7 +631,7 @@ void UpdateCurrentSignalLabel()
    ObjectSetInteger(0, warmupLbl, OBJPROP_CORNER,    CORNER_RIGHT_UPPER);
    ObjectSetInteger(0, warmupLbl, OBJPROP_ANCHOR,    ANCHOR_RIGHT_UPPER);
    ObjectSetInteger(0, warmupLbl, OBJPROP_XDISTANCE, 10);
-   ObjectSetInteger(0, warmupLbl, OBJPROP_YDISTANCE, 164);
+   ObjectSetInteger(0, warmupLbl, OBJPROP_YDISTANCE, 20);
    ObjectSetString(0,  warmupLbl, OBJPROP_TEXT,      warmupText);
    ObjectSetInteger(0, warmupLbl, OBJPROP_COLOR,     warmupClr);
    ObjectSetInteger(0, warmupLbl, OBJPROP_FONTSIZE,  12);
@@ -885,6 +885,8 @@ void DrawRSIBackground()
 //+------------------------------------------------------------------+
 // Main dashboard draw: call every tick
 //+------------------------------------------------------------------+
+   int    openBuy = 0, openSell = 0;
+
 void DrawDashboard()
   {
    double balance     = AccountBalance();
@@ -900,7 +902,6 @@ void DrawDashboard()
    double spreadUSD   = (tickSize > 0) ? (spread * Point / tickSize) * tickValue * SeqSellLotSize : 0;
 
    // Count open orders and sum profit
-   int    openBuy = 0, openSell = 0;
    double openProfit = 0;
    for(int i = OrdersTotal() - 1; i >= 0; i--)
      {
@@ -1080,6 +1081,8 @@ double CalculateProfit(int type, double lot, double openPrice, double closePrice
 SeqBuyProfitTarget = openProfit;
       SeqSellProfitTarget = openProfit;
 
+      
+
       Print("Adjusting OpenProfit targets based on 1-hour profit 3: ", DoubleToString(openProfit,2));
 
     
@@ -1089,6 +1092,7 @@ SeqBuyProfitTarget = openProfit;
    {
     if(profit<SeqBuyProfitTarget)
 {
+
     SeqBuyProfitTarget = profit/2;
    SeqSellProfitTarget = profit/2;
       Print("Adjusting profit targets based on 1-hour profit 1/2: ", DoubleToString(profit,2));
@@ -1101,6 +1105,13 @@ SeqBuyProfitTarget = openProfit;
 {
 SeqBuyProfitTarget = profit/2;
       SeqSellProfitTarget = profit/2;
+
+  if(openBuy>1)
+       SeqBuyProfitTarget = 0.10;
+
+       if(openSell>1)
+       SeqSellProfitTarget = 0.10;
+      
 
       Print("Adjusting profit targets based on 1-hour profit 2/2: ", DoubleToString(profit,2));
     
@@ -1166,6 +1177,16 @@ SeqSellStopLossUSD  = chartMaxProfit*2;
   SeqBuyStopLossUSD   = chartMaxProfit*2;
 
 
+bool test1=CanOpenOrder_RSI_Range(OP_BUY);
+bool test2=CanOpenOrder_RSI_Range(OP_SELL);
+if(DoubleToString(SeqSellProfitTarget,2)=="0.00")
+{
+  SeqSellProfitTarget = 0.10; 
+}
+if(DoubleToString(SeqBuyProfitTarget,2)=="0.00")
+{
+  SeqBuyProfitTarget = 0.10; 
+}
 
 
 

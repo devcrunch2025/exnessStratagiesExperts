@@ -144,22 +144,29 @@ bool CanOpenOrder_RSI_Range(int orderType)
    // 🔹 1. RSI Filter
    double rsi = iRSI(NULL, 0, 14, PRICE_CLOSE, 0);
 
-   if(rsi < 30 )
+   if(rsi < 40 )
    {
        SeqSellProfitTarget=0.10;
+      Print("RSI is low (", rsi, ") - setting lower profit target for SELL orders: $", SeqSellProfitTarget);
+
    }
    else 
    {
        SeqSellProfitTarget=DefaultSellTP;
+      Print("RSI is high (", rsi, ") - setting DefaultSellTP profit target for SELL orders: $", DefaultSellTP);
+
    }
 
-   if(rsi > 70 )
+   if(rsi > 60 )
    {
        SeqBuyProfitTarget=0.10;
+      Print("RSI is high (", rsi, ") - setting lower profit target for BUY orders: $", SeqBuyProfitTarget);
+
    }
    else 
    {
        SeqBuyProfitTarget=DefaultBuyTP;
+      Print("RSI is low (", rsi, ") - setting DefaultBuyTP profit target for BUY orders: $", DefaultBuyTP);
    }
 
    return true;
