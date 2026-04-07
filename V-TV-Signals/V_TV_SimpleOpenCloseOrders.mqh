@@ -1,4 +1,4 @@
-
+string GlobalMessage="";
 bool stopTrading()
 {
     // 🔧 adjust this threshold (e.g. 10.00 for $10 profit)
@@ -35,23 +35,23 @@ double totalProfit = 0;
 // Print("Equity = ", equity);
 
       // Print("Total open profit ($", DoubleToString(totalProfit, 2), ")   threshold ($", DoubleToString(StopTradingMaxProfit, 2), "). ");
+string name = "Trading Status: ";
 
 if(equity > StopTradingMaxProfit+g_initialBalance)
    {
 
-      CloseAllBuyOrders(true);
-      CloseAllSellOrders(true);
+      CloseAllBuyOrders(true,"Total profit $"+DoubleToString(totalProfit, 2)+" exceeds threshold");
+      CloseAllSellOrders(true,"Total profit $"+DoubleToString(totalProfit, 2)+" exceeds threshold");
       // Print("Total open profit ($", DoubleToString(totalProfit, 2), ") exceeds threshold ($", DoubleToString(StopTradingMaxProfit, 2), "). Stopping new trades.");
  
  
  
  
  
-string name = "Trading Status: ";
 
     
 
-   string text = "🟢 TRADING STOPPED: Booked Profit > $" + DoubleToString(totalProfit, 2);
+    GlobalMessage = "🟢 TRADING STOPPED: Booked Profit > $" + DoubleToString(totalProfit, 2);
 
    // ✅ Create only once
    if(ObjectFind(0, name) == -1)
@@ -71,15 +71,21 @@ string name = "Trading Status: ";
 
    }
 
-   // ✅ Only update text (NO overlap)
-   ObjectSetString(0, name, OBJPROP_TEXT, text);
- 
  
  
  
  return true;
  
    }
+   else
+   {
+      GlobalMessage="";
+   }
+
+   
+   // ✅ Only update text (NO overlap)
+   ObjectSetString(0, name, OBJPROP_TEXT, GlobalMessage);
+ 
 
    return false; // Stop trading if total open profit is below -$10
     
@@ -352,8 +358,8 @@ if(isFirstBuyOrderClosed)
 bool CheckEMAPositionTouchedCross(int seconds = 20)
 {
  
-// isEMATouchesInsideLines = true;
-// return true;
+isEMATouchesInsideLines = true;
+ return true;
 
 
 
@@ -378,6 +384,9 @@ bool CheckEMAPositionTouchedCross(int seconds = 20)
          lastCrossTime = TimeCurrent();
 
 isEMATouchesInsideLines = true;
+
+CloseAllSellOrders(true,"EMA cross detected - closing SELL orders");
+CloseAllBuyOrders(true,"EMA cross detected - closing BUY orders");
 return true;
 
       }
@@ -547,23 +556,23 @@ return ;
 
       if((  StringFind(g_liveSignalName, "PRE SELL")    >= 0)  )
       { 
-       CloseAllBuyOrders();
+       CloseAllBuyOrders(false,"Signal: "+g_liveSignalName);
 
       }
 
        if((  StringFind(g_liveSignalName, "PRE BUY")    >= 0)  )
       { 
-       CloseAllSellOrders();
+       CloseAllSellOrders(false,"Signal: "+g_liveSignalName);
 
       }
   if((  StringFind(g_liveSignalName, "W SHAPE SELL")    >= 0)  )
       { 
-       CloseAllSellOrders();
+       CloseAllSellOrders(false,"Signal: "+g_liveSignalName);
 
       }
       if((  StringFind(g_liveSignalName, "STRONG SELL")    >= 0)  )
       { 
-       CloseAllSellOrders();
+       CloseAllSellOrders(false,"Signal: "+g_liveSignalName);
 
       }
 
@@ -757,7 +766,7 @@ string GetEMACurveDirection(int period)
    return "FLAT";
 }
 
-void CloseAllSellOrders(bool foreceClose = false)
+void CloseAllSellOrders(bool foreceClose = false,string reason="")
 {
 
   if(CloseOrderONLYProfitNotSignal==true && !foreceClose)
@@ -793,7 +802,7 @@ void CloseAllSellOrders(bool foreceClose = false)
             }
             else
             {
-               Print("Closed SELL order: ", OrderTicket());
+               Print("Closed SELL order: ", OrderTicket(), " Reason: ", reason);
                anyClosed = true;
             }
          }
@@ -806,7 +815,7 @@ void CloseAllSellOrders(bool foreceClose = false)
       UpdateTPBasedOnLastClosed();
    }
 }
-void CloseAllBuyOrders(bool foreceClose = false)
+void CloseAllBuyOrders(bool foreceClose = false,string reason="")
 {
 
    if(CloseOrderONLYProfitNotSignal==true && !foreceClose)
@@ -839,7 +848,7 @@ void CloseAllBuyOrders(bool foreceClose = false)
              
  if(result)
 {
-   Print("Closed BUY order: ", OrderTicket());
+   Print("Closed BUY order: ", OrderTicket(), " Reason: ", reason);
    UpdateTPBasedOnLastClosed();   // 🔥 ADD THIS
 }
 
@@ -850,6 +859,8 @@ void CloseAllBuyOrders(bool foreceClose = false)
 
 void UpdateTPBasedOnLastClosed()
 {
+
+   return ;
    int total = OrdersHistoryTotal();
    if(total == 0) return;
 

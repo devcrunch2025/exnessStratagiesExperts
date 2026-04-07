@@ -144,6 +144,26 @@ bool CanOpenOrder_RSI_Range(int orderType)
    // 🔹 1. RSI Filter
    double rsi = iRSI(NULL, 0, 14, PRICE_CLOSE, 0);
 
+   if(rsi < 30 )
+   {
+       SeqSellProfitTarget=0.10;
+   }
+   else 
+   {
+       SeqSellProfitTarget=DefaultSellTP;
+   }
+
+   if(rsi > 70 )
+   {
+       SeqBuyProfitTarget=0.10;
+   }
+   else 
+   {
+       SeqBuyProfitTarget=DefaultBuyTP;
+   }
+
+   return true;
+
    if(rsi < 40 || rsi > 60)
    {
       Print("❌ Blocked: RSI danger zone (", rsi, ")");

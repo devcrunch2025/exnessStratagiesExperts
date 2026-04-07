@@ -935,6 +935,9 @@ void DrawDashboard()
 
    int y = 10; int step = 17;
 
+
+   GlobalMessage="P/L : "+DoubleToString(initPL,2);
+
    // Background card (calculated height: ~31 rows × step + padding)
    DrawDashBG(31 * step + 55);
 
@@ -1295,7 +1298,7 @@ return ;
 
    bool firstRun      = (lastProcessedClosedBar == 0);
    bool hasNewClosedBar = (Time[1] != lastProcessedClosedBar);
-
+   
    int maxStartBar = Bars - 3;
    int startBar;
    if(firstRun)          startBar = MathMin(maxStartBar, 300);
