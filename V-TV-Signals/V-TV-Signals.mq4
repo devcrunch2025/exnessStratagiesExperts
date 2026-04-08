@@ -1190,6 +1190,7 @@ return profitBuy;
 //+------------------------------------------------------------------+
 int OnInit()
   {
+        openBuy = 0; openSell = 0;
 
 double chartMaxProfit = getChartHeightPrice();
 if(chartMaxProfit >SeqBuyProfitTarget)

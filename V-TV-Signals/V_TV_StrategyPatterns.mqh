@@ -237,6 +237,20 @@ if(forAction == "NEW_ORDER")
    // --- ABOVE both EMAs ---
    if(price > upper)
    {
+
+
+
+
+
+
+if(StringFind(g_liveSignalName, "STRONG SELL") >= 0 || StringFind(g_liveSignalName, "PRE BUY") >= 0  )
+  {
+CloseAllSellOrders(true); 
+  }
+
+
+
+
       if(forTrade != "BUY"  )
       {
          ///////Print("ABOVE → Block SELL");
@@ -247,6 +261,11 @@ if(forAction == "NEW_ORDER")
    // --- BELOW both EMAs ---
    else if(price < lower  )
    {
+
+if(  StringFind(g_liveSignalName, "STRONG BUY") >= 0 || StringFind(g_liveSignalName, "PRE SELL") >= 0 )
+  {
+CloseAllBuyOrders(true); 
+  }
 
     
       if(forTrade != "SELL")
