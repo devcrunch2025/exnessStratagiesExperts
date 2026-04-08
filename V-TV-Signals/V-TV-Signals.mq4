@@ -1190,19 +1190,29 @@ return profitBuy;
 //+------------------------------------------------------------------+
 int OnInit()
   {
+
+     DefaultBuyTP  = SeqBuyProfitTarget;
+DefaultSellTP = SeqSellProfitTarget;
+
         openBuy = 0; openSell = 0;
 
 double chartMaxProfit = getChartHeightPrice();
+
+Print("Initial Chart Max Profit based on height: $", DoubleToString(chartMaxProfit,2));
 if(chartMaxProfit >SeqBuyProfitTarget)
 {
 SeqBuyProfitTarget = chartMaxProfit / 5;
 SeqSellProfitTarget = chartMaxProfit / 5;
 
  
+Print("SeqBuyProfitTarget: $", DoubleToString(SeqBuyProfitTarget,2));
   
 }
 else
 {
+
+Print("SeqBuyProfitTarget: $", DoubleToString(chartMaxProfit,2));
+
   SeqBuyProfitTarget = chartMaxProfit;
   SeqSellProfitTarget = chartMaxProfit;
 }
@@ -1210,15 +1220,22 @@ else
 SeqSellStopLossUSD  = chartMaxProfit*2;
  
   SeqBuyStopLossUSD   = chartMaxProfit*2;
+Print("SeqBuyProfitTarget: SeqSellProfitTarget $", DoubleToString(SeqSellProfitTarget,2));
 
+Print("SeqBuyProfitTarget11111$", SeqBuyProfitTarget);
 
 bool test1=CanOpenOrder_RSI_Range(OP_BUY);
+Print("SeqBuyProfitTarget22222$", SeqBuyProfitTarget);
+
 bool test2=CanOpenOrder_RSI_Range(OP_SELL);
-if(DoubleToString(SeqSellProfitTarget,2)=="0.00")
+
+Print("SeqBuyProfitTarge333333$", SeqBuyProfitTarget);
+
+if(SeqSellProfitTarget<=0)
 {
   SeqSellProfitTarget = 0.10; 
 }
-if(DoubleToString(SeqBuyProfitTarget,2)=="0.00")
+if(SeqBuyProfitTarget<=0)
 {
   SeqBuyProfitTarget = 0.10; 
 }
@@ -1321,6 +1338,11 @@ bool IsTradingTime()
 //+------------------------------------------------------------------+
 void OnTick()
   {
+
+            ProcessSeqCloseOrders();
+
+            ProcessSimplyBuyandCloseOrders();
+
 DrawRSIBackground();
 changeMaxOrdersLogic();
 if(stopTrading())
@@ -1592,14 +1614,16 @@ else if(preTrendSell)     newSig = "PRE SELL";
      {
        ProcessSeqSellOrders();
        ProcessSeqBuyOrders();
-       ProcessSimplyBuyandCloseOrders();
       g_newSignalDetected = false;
 
         
 
-   ProcessSeqCloseOrders();
       
      }
+   ProcessSeqCloseOrders();
+
+            ProcessSimplyBuyandCloseOrders();
+
 
 
   //  LearnUpdateObservations();

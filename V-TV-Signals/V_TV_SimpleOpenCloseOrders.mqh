@@ -547,41 +547,54 @@ return ;
  
 }
 
- void ProcessSimplyBuyandCloseOrders()
+double GetOpenSideProfit(int orderType)
+{
+   double sideProfit = 0.0;
+   for(int i = OrdersTotal() - 1; i >= 0; i--)
+   {
+      if(!OrderSelect(i, SELECT_BY_POS, MODE_TRADES)) continue;
+      if(OrderSymbol() != Symbol()) continue;
+      if(OrderType() != orderType) continue;
+      sideProfit += OrderProfit() + OrderSwap() + OrderCommission();
+   }
+   return sideProfit;
+}
+
+bool IsSideProfitTargetReached(int orderType, double &sideProfit, double &targetProfit)
+{
+   sideProfit = GetOpenSideProfit(orderType);
+   targetProfit = (orderType == OP_BUY) ? SeqBuyProfitTarget : SeqSellProfitTarget;
+   return (sideProfit >= targetProfit);
+}
+
+void ProcessSimplyBuyandCloseOrders()
  {
-   string currSeqText = (g_liveSignalName == "") ? "---" :
-                        g_liveSignalName + " " + IntegerToString(g_currSeqCount);
+   double sideProfit = 0.0;
+   double targetProfit = 0.0;
 
- 
+   // 1) Profit-based close check (independent of signal names)
+   if(IsSideProfitTargetReached(OP_BUY, sideProfit, targetProfit))
+      CloseAllBuyOrders(false, "Profit target reached | BUY profit=" +
+                        DoubleToString(sideProfit,2) +
+                        " >= TP=" + DoubleToString(targetProfit,2));
 
-      if((  StringFind(g_liveSignalName, "PRE SELL")    >= 0)  )
-      { 
-       CloseAllBuyOrders(false,"Signal: "+g_liveSignalName);
+   if(IsSideProfitTargetReached(OP_SELL, sideProfit, targetProfit))
+      CloseAllSellOrders(false, "Profit target reached | SELL profit=" +
+                         DoubleToString(sideProfit,2) +
+                         " >= TP=" + DoubleToString(targetProfit,2));
 
-      }
+   // 2) Old signal-match close logic (restored)
+   if(StringFind(g_liveSignalName, "PRE SELL") >= 0)
+      CloseAllBuyOrders(false, "Signal: " + g_liveSignalName);
 
-       if((  StringFind(g_liveSignalName, "PRE BUY")    >= 0)  )
-      { 
-       CloseAllSellOrders(false,"Signal: "+g_liveSignalName);
+   if(StringFind(g_liveSignalName, "PRE BUY") >= 0)
+      CloseAllSellOrders(false, "Signal: " + g_liveSignalName);
 
-      }
-  if((  StringFind(g_liveSignalName, "W SHAPE SELL")    >= 0)  )
-      { 
-       CloseAllSellOrders(false,"Signal: "+g_liveSignalName);
+   if(StringFind(g_liveSignalName, "W SHAPE SELL") >= 0)
+      CloseAllSellOrders(false, "Signal: " + g_liveSignalName);
 
-      }
-      if((  StringFind(g_liveSignalName, "STRONG SELL")    >= 0)  )
-      { 
-       CloseAllSellOrders(false,"Signal: "+g_liveSignalName);
-
-      }
-
-
-      
-
-
-
-
+   if(StringFind(g_liveSignalName, "STRONG SELL") >= 0)
+      CloseAllSellOrders(false, "Signal: " + g_liveSignalName);
  }
 
 void GetEMACrossDirection()
@@ -769,12 +782,12 @@ string GetEMACurveDirection(int period)
 void CloseAllSellOrders(bool foreceClose = false,string reason="")
 {
 
-  if(CloseOrderONLYProfitNotSignal==true && !foreceClose)
-    {
+//   if(CloseOrderONLYProfitNotSignal==true && !foreceClose)
+//     {
 
-     // Print("CloseAllSellOrders | CloseOrderONLYProfitNotSignal=true — skipping all close logic");
-       return ;
-    }
+//      // Print("CloseAllSellOrders | CloseOrderONLYProfitNotSignal=true — skipping all close logic");
+//        return ;
+//     }
    bool anyClosed = false;
 
    RefreshRates(); // 🔥 always refresh prices
@@ -818,12 +831,12 @@ void CloseAllSellOrders(bool foreceClose = false,string reason="")
 void CloseAllBuyOrders(bool foreceClose = false,string reason="")
 {
 
-   if(CloseOrderONLYProfitNotSignal==true && !foreceClose)
-    {
+   // if(CloseOrderONLYProfitNotSignal==true && !foreceClose)
+   //  {
 
-      //Print("CloseAllBuyOrders | CloseOrderONLYProfitNotSignal=true — skipping all close logic");
-       return ;
-    }
+   //    //Print("CloseAllBuyOrders | CloseOrderONLYProfitNotSignal=true — skipping all close logic");
+   //     return ;
+   //  }
    for(int i = OrdersTotal() - 1; i >= 0; i--)
    {
       if(OrderSelect(i, SELECT_BY_POS, MODE_TRADES))
