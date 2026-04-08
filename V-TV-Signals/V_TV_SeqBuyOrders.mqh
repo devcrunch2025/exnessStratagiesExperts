@@ -146,7 +146,7 @@ bool CanOpenOrder_RSI_Range(int orderType)
 
    if(rsi < 40 )
    {
-       SeqSellProfitTarget=0.10;
+       SeqSellProfitTarget=0.50;
       Print("RSI is low (", rsi, ") - setting lower profit target for SELL orders: $", SeqSellProfitTarget);
 
    }
@@ -159,7 +159,7 @@ bool CanOpenOrder_RSI_Range(int orderType)
 
    if(rsi > 60 )
    {
-       SeqBuyProfitTarget=0.10;
+       SeqBuyProfitTarget=0.50;
       Print("RSI is high (", rsi, ") - setting lower profit target for BUY orders: $", SeqBuyProfitTarget);
 
    }
@@ -552,14 +552,14 @@ void ProcessSeqBuyOrders()
    else if(!BuyCond2b_MinTimeBetweenOrders())
       blockReason = "Cond2b: Too soon after last BUY (" +
                     IntegerToString(SeqBuyMinSecsBetweenOrders) + "s minimum)";
-  //  else if(!BuyCond3_NotInNoBuyZone())
-  //     blockReason = "Cond3: Price is inside NO BUY ZONE";
+   else if(!BuyCond3_NotInNoBuyZone())
+      blockReason = "Cond3: Price is inside NO BUY ZONE";
    else if(!BuyCond4_MaxOrdersNotReached(openCount))
       blockReason = "Cond4: Max BUY orders reached (" +
                     IntegerToString(openCount) + "/" + IntegerToString(SeqBuyMaxOrders) + ")";
-   else if(!BuyCond5_MinUpriseGap(openCount))
-      blockReason = "Cond5: Min uprise gap not reached (" +
-                    IntegerToString(SeqBuyMinGapPoints) + "pts required)";
+  //  else if(!BuyCond5_MinUpriseGap(openCount))
+  //     blockReason = "Cond5: Min uprise gap not reached (" +
+  //                   IntegerToString(SeqBuyMinGapPoints) + "pts required)";
   //  else if(!BuyCond6_NoOrderInLoss())
   //     blockReason = "Cond6: An existing BUY order is in loss";
    else if(!BuyCond8_EMAUptrend())

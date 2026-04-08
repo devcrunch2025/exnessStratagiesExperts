@@ -362,8 +362,8 @@ void ProcessSeqSellOrders()
    else if(!SellCond2b_MinTimeBetweenOrders())
       blockReason = "Cond2b: Too soon after last SELL (" +
                     IntegerToString(SeqSellMinSecsBetweenOrders) + "s minimum)";
-  //  else if(!SellCond3_NotInNoSellZone())
-  //     blockReason = "Cond3: Price is inside NO SELL ZONE";
+     else if(!SellCond3_NotInNoSellZone())
+        blockReason = "Cond3: Price is inside NO SELL ZONE";
    else if(!SellCond4_MaxOrdersNotReached(openCount))
       blockReason = "Cond4: Max SELL orders reached (" +
                     IntegerToString(openCount) + "/" + IntegerToString(SeqSellMaxOrders) + ")";

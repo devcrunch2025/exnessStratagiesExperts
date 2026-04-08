@@ -195,6 +195,24 @@ double minGap = atr * 0.5;   // 50% of volatility
 
    double upper = MathMax(emaFast, emaSlow);
    double lower = MathMin(emaFast, emaSlow);
+
+
+
+if(g_liveSignalName    + " " + IntegerToString(g_currSeqCount) == "TREND BUY 1"  )
+  {
+CloseAllSellOrders(true); 
+  }
+
+
+if(g_liveSignalName    + " " + IntegerToString(g_currSeqCount) == "TREND SELL 1"  )
+  {
+CloseAllBuyOrders(true); 
+  }
+
+
+
+
+
 // --- APPLY ONLY FOR NEW ORDER ---
 if(forAction == "NEW_ORDER")
 {

@@ -32,8 +32,8 @@ input double RSI_Buy             = 55;
 input double RSI_Sell            = 45;
 input int    ReversalStreakCandles = 3;
 input int    TradeDirectionMode  = 0;       // 0=both 1=buy only 2=sell only
-input double TrendSellDailyLowGapPrice  =0; // NO SELL zone: min $ above daily low
-input double TrendBuyDailyHighGapPrice  = 0; // NO BUY zone: min $ below daily high
+input double TrendSellDailyLowGapPrice  =1; // NO SELL zone: min $ above daily low
+input double TrendBuyDailyHighGapPrice  = 1; // NO BUY zone: min $ below daily high
 input bool   EnableAlert         = false;
 input bool   EnableSound         = true;
 input bool   EnableLogMessages   = false;
@@ -393,13 +393,13 @@ void UpdateDailyLowProximityLines()
    ObjectSetInteger(0, noBuyLine, OBJPROP_STYLE, STYLE_DOT);
    ObjectSetInteger(0, noBuyLine, OBJPROP_WIDTH, 1);
    ObjectSetString(0,  noBuyLine, OBJPROP_TOOLTIP,
-                   "NO TREND BUY ZONE: $" + DoubleToString(TrendBuyDailyHighGapPrice,2) + " below Daily High");
+                   TrendBuyDailyHighGapPrice+" NO TREND BUY ZONE: $" + DoubleToString(TrendBuyDailyHighGapPrice,2) + " below Daily High");
 
    string noBuyLabel = "TB_NoBuyZone_Lbl";
    if(ObjectFind(0, noBuyLabel) < 0)
       ObjectCreate(0, noBuyLabel, OBJ_TEXT, 0, Time[5], noBuyBottom);
    ObjectMove(0, noBuyLabel, 0, Time[5], noBuyBottom);
-   ObjectSetText(noBuyLabel, " NO TREND BUY ZONE ($" + DoubleToString(TrendBuyDailyHighGapPrice,0) +
+   ObjectSetText(noBuyLabel, TrendBuyDailyHighGapPrice+" - NO TREND BUY ZONE ($" + DoubleToString(TrendBuyDailyHighGapPrice,0) +
                  " below daily high)", 8, "Arial Bold", clrAqua);
 
    // No-Buy Zone background rectangle (light red, drawn behind candles)
@@ -1174,13 +1174,18 @@ int OnInit()
   {
 
 double chartMaxProfit = getChartHeightPrice();
-if(chartMaxProfit < SeqBuyProfitTarget)
+if(chartMaxProfit >SeqBuyProfitTarget)
 {
 SeqBuyProfitTarget = chartMaxProfit / 5;
 SeqSellProfitTarget = chartMaxProfit / 5;
 
  
   
+}
+else
+{
+  SeqBuyProfitTarget = chartMaxProfit;
+  SeqSellProfitTarget = chartMaxProfit;
 }
 
 SeqSellStopLossUSD  = chartMaxProfit*2;

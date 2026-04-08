@@ -428,8 +428,8 @@ void ProcessSeqBuyOrders()
    else if(!BuyCond2b_MinTimeBetweenOrders())
       blockReason = "Cond2b: Too soon after last BUY (" +
                     IntegerToString(SeqBuyMinSecsBetweenOrders) + "s minimum)";
-  //  else if(!BuyCond3_NotInNoBuyZone())
-  //     blockReason = "Cond3: Price is inside NO BUY ZONE";
+    else if(!BuyCond3_NotInNoBuyZone())
+       blockReason = "Cond3: Price is inside NO BUY ZONE";
    else if(!BuyCond4_MaxOrdersNotReached(openCount))
       blockReason = "Cond4: Max BUY orders reached (" +
                     IntegerToString(openCount) + "/" + IntegerToString(SeqBuyMaxOrders) + ")";
