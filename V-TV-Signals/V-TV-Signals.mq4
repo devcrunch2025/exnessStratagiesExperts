@@ -32,8 +32,8 @@ input double RSI_Buy             = 55;
 input double RSI_Sell            = 45;
 input int    ReversalStreakCandles = 3;
 input int    TradeDirectionMode  = 0;       // 0=both 1=buy only 2=sell only
-input double TrendSellDailyLowGapPrice  =1; // NO SELL zone: min $ above daily low
-input double TrendBuyDailyHighGapPrice  = 1; // NO BUY zone: min $ below daily high
+input double TrendSellDailyLowGapPrice  =100; //min-50  NO SELL zone: min $ above daily low
+input double TrendBuyDailyHighGapPrice  = 100; //min-50  NO BUY zone: min $ below daily high
 input bool   EnableAlert         = false;
 input bool   EnableSound         = true;
 input bool   EnableLogMessages   = false;
@@ -309,10 +309,14 @@ void EvaluateSignalFlags(int shift,
 //+------------------------------------------------------------------+
 void UpdateDailyLowProximityLines()
   {
+  double minGapPrice = 100 * Point;
+  double sellGapPrice = MathMax(TrendSellDailyLowGapPrice, minGapPrice);
+  double buyGapPrice  = MathMax(TrendBuyDailyHighGapPrice, minGapPrice);
+
    double dailyLow = iLow(Symbol(), PERIOD_D1, 0);
    if(dailyLow <= 0) return;
 
-   double zoneTop = dailyLow + TrendSellDailyLowGapPrice;
+  double zoneTop = dailyLow + sellGapPrice;
 
    // Daily Low line (red dashed)
    string lowLine = "TS_DailyLow";
@@ -321,14 +325,15 @@ void UpdateDailyLowProximityLines()
    ObjectMove(0, lowLine, 0, 0, dailyLow);
    ObjectSetInteger(0, lowLine, OBJPROP_COLOR, clrRed);
    ObjectSetInteger(0, lowLine, OBJPROP_STYLE, STYLE_DASH);
-   ObjectSetInteger(0, lowLine, OBJPROP_WIDTH, 2);
+  ObjectSetInteger(0, lowLine, OBJPROP_WIDTH, 3);
+  ObjectSetInteger(0, lowLine, OBJPROP_BACK, false);
    ObjectSetString(0,  lowLine, OBJPROP_TOOLTIP, "Daily Low: " + DoubleToString(dailyLow, Digits));
 
    string lowLabel = "TS_DailyLow_Lbl";
    if(ObjectFind(0, lowLabel) < 0)
       ObjectCreate(0, lowLabel, OBJ_TEXT, 0, Time[5], dailyLow);
    ObjectMove(0, lowLabel, 0, Time[5], dailyLow);
-   ObjectSetText(lowLabel, " Daily Low: " + DoubleToString(dailyLow, Digits), 8, "Arial Bold", clrRed);
+  ObjectSetText(lowLabel, " DAILY LOW: " + DoubleToString(dailyLow, Digits), 10, "Arial Bold", clrRed);
 
    // No-sell zone boundary (orange dotted)
    string zoneLine = "TS_NoSellZone";
@@ -336,17 +341,24 @@ void UpdateDailyLowProximityLines()
       ObjectCreate(0, zoneLine, OBJ_HLINE, 0, 0, zoneTop);
    ObjectMove(0, zoneLine, 0, 0, zoneTop);
    ObjectSetInteger(0, zoneLine, OBJPROP_COLOR, clrOrangeRed);
-   ObjectSetInteger(0, zoneLine, OBJPROP_STYLE, STYLE_DOT);
-   ObjectSetInteger(0, zoneLine, OBJPROP_WIDTH, 1);
+  ObjectSetInteger(0, zoneLine, OBJPROP_STYLE, STYLE_DASHDOT);
+  ObjectSetInteger(0, zoneLine, OBJPROP_WIDTH, 2);
+  ObjectSetInteger(0, zoneLine, OBJPROP_BACK, false);
    ObjectSetString(0,  zoneLine, OBJPROP_TOOLTIP,
-                   "No-Sell Zone: $" + DoubleToString(TrendSellDailyLowGapPrice,2) + " above Daily Low");
+                   "No-Sell Zone: $" + DoubleToString(sellGapPrice,2) + " above Daily Low (min 100 pts)");
 
-   string zoneLabel = "TS_NoSellZone_Lbl";
-   if(ObjectFind(0, zoneLabel) < 0)
-      ObjectCreate(0, zoneLabel, OBJ_TEXT, 0, Time[5], zoneTop);
-   ObjectMove(0, zoneLabel, 0, Time[5], zoneTop);
-   ObjectSetText(zoneLabel, " NO TREND SELL ZONE ($" + DoubleToString(TrendSellDailyLowGapPrice,0) +
-                 " above daily low)", 8, "Arial Bold", clrOrangeRed);
+  // Keep a single label for this blocked area to avoid overlap
+  ObjectDelete(0, "TS_NoSellZone_Lbl");
+
+  string sellRangeLabel = "TS_NoSellZone_RangeLbl";
+  double sellMid = (dailyLow + zoneTop) / 2.0;
+  if(ObjectFind(0, sellRangeLabel) < 0)
+    ObjectCreate(0, sellRangeLabel, OBJ_TEXT, 0, Time[5], sellMid);
+  ObjectMove(0, sellRangeLabel, 0, Time[5], sellMid);
+  ObjectSetText(sellRangeLabel,
+            " SELL BLOCKED FROM " + DoubleToString(dailyLow, Digits) +
+            " TO " + DoubleToString(zoneTop, Digits),
+            10, "Arial Bold", clrOrangeRed);
 
    // No-Sell Zone background rectangle (light red, drawn behind candles)
    datetime bgStart = (Bars > 2) ? Time[Bars-2] : Time[0];
@@ -356,7 +368,7 @@ void UpdateDailyLowProximityLines()
       ObjectCreate(0, sellBg, OBJ_RECTANGLE, 0, bgStart, zoneTop, bgEnd, dailyLow);
    ObjectMove(0, sellBg, 0, bgStart, zoneTop);
    ObjectMove(0, sellBg, 1, bgEnd,   dailyLow);
-   ObjectSetInteger(0, sellBg, OBJPROP_COLOR,   clrIndianRed);
+  ObjectSetInteger(0, sellBg, OBJPROP_COLOR,   C'170,60,60');
    ObjectSetInteger(0, sellBg, OBJPROP_FILL,    true);
    ObjectSetInteger(0, sellBg, OBJPROP_BACK,    true);
    ObjectSetInteger(0, sellBg, OBJPROP_WIDTH,   1);
@@ -366,7 +378,7 @@ void UpdateDailyLowProximityLines()
    double dailyHigh = iHigh(Symbol(), PERIOD_D1, 0);
    if(dailyHigh <= 0) return;
 
-   double noBuyBottom = dailyHigh - TrendBuyDailyHighGapPrice;
+  double noBuyBottom = dailyHigh - buyGapPrice;
 
    // Daily High line (blue dashed)
    string highLine = "TB_DailyHigh";
@@ -375,14 +387,12 @@ void UpdateDailyLowProximityLines()
    ObjectMove(0, highLine, 0, 0, dailyHigh);
    ObjectSetInteger(0, highLine, OBJPROP_COLOR, clrDodgerBlue);
    ObjectSetInteger(0, highLine, OBJPROP_STYLE, STYLE_DASH);
-   ObjectSetInteger(0, highLine, OBJPROP_WIDTH, 2);
-   ObjectSetString(0,  highLine, OBJPROP_TOOLTIP, "Daily High: " + DoubleToString(dailyHigh, Digits));
+  ObjectSetInteger(0, highLine, OBJPROP_WIDTH, 3);
+  ObjectSetInteger(0, highLine, OBJPROP_BACK, false);
+  ObjectSetString(0,  highLine, OBJPROP_TOOLTIP, "BUY BLOCK TOP (Daily High): " + DoubleToString(dailyHigh, Digits));
 
-   string highLabel = "TB_DailyHigh_Lbl";
-   if(ObjectFind(0, highLabel) < 0)
-      ObjectCreate(0, highLabel, OBJ_TEXT, 0, Time[5], dailyHigh);
-   ObjectMove(0, highLabel, 0, Time[5], dailyHigh);
-   ObjectSetText(highLabel, " Daily High: " + DoubleToString(dailyHigh, Digits), 8, "Arial Bold", clrDodgerBlue);
+  // Keep top boundary as line only; range label below explains full area
+  ObjectDelete(0, "TB_DailyHigh_Lbl");
 
    // No-Buy Zone boundary (cyan dotted)
    string noBuyLine = "TB_NoBuyZone";
@@ -390,17 +400,25 @@ void UpdateDailyLowProximityLines()
       ObjectCreate(0, noBuyLine, OBJ_HLINE, 0, 0, noBuyBottom);
    ObjectMove(0, noBuyLine, 0, 0, noBuyBottom);
    ObjectSetInteger(0, noBuyLine, OBJPROP_COLOR, clrAqua);
-   ObjectSetInteger(0, noBuyLine, OBJPROP_STYLE, STYLE_DOT);
-   ObjectSetInteger(0, noBuyLine, OBJPROP_WIDTH, 1);
+  ObjectSetInteger(0, noBuyLine, OBJPROP_STYLE, STYLE_DASHDOT);
+  ObjectSetInteger(0, noBuyLine, OBJPROP_WIDTH, 2);
+  ObjectSetInteger(0, noBuyLine, OBJPROP_BACK, false);
    ObjectSetString(0,  noBuyLine, OBJPROP_TOOLTIP,
-                   TrendBuyDailyHighGapPrice+" NO TREND BUY ZONE: $" + DoubleToString(TrendBuyDailyHighGapPrice,2) + " below Daily High");
+                   "BUY BLOCK BOTTOM: " + DoubleToString(noBuyBottom, Digits) +
+                   " | Gap: $" + DoubleToString(buyGapPrice,2) + " below Daily High (min 100 pts)");
 
-   string noBuyLabel = "TB_NoBuyZone_Lbl";
-   if(ObjectFind(0, noBuyLabel) < 0)
-      ObjectCreate(0, noBuyLabel, OBJ_TEXT, 0, Time[5], noBuyBottom);
-   ObjectMove(0, noBuyLabel, 0, Time[5], noBuyBottom);
-   ObjectSetText(noBuyLabel, TrendBuyDailyHighGapPrice+" - NO TREND BUY ZONE ($" + DoubleToString(TrendBuyDailyHighGapPrice,0) +
-                 " below daily high)", 8, "Arial Bold", clrAqua);
+  // Keep bottom boundary as line only; range label below explains full area
+  ObjectDelete(0, "TB_NoBuyZone_Lbl");
+
+  string noBuyRangeLabel = "TB_NoBuyZone_RangeLbl";
+  double noBuyMid = (dailyHigh + noBuyBottom) / 2.0;
+  if(ObjectFind(0, noBuyRangeLabel) < 0)
+    ObjectCreate(0, noBuyRangeLabel, OBJ_TEXT, 0, Time[5], noBuyMid);
+  ObjectMove(0, noBuyRangeLabel, 0, Time[5], noBuyMid);
+  ObjectSetText(noBuyRangeLabel,
+            " BUY BLOCKED FROM " + DoubleToString(noBuyBottom, Digits) +
+            " TO " + DoubleToString(dailyHigh, Digits),
+            10, "Arial Bold", clrAqua);
 
    // No-Buy Zone background rectangle (light red, drawn behind candles)
    datetime bgStart2 = (Bars > 2) ? Time[Bars-2] : Time[0];
@@ -410,7 +428,7 @@ void UpdateDailyLowProximityLines()
       ObjectCreate(0, buyBg, OBJ_RECTANGLE, 0, bgStart2, dailyHigh, bgEnd2, noBuyBottom);
    ObjectMove(0, buyBg, 0, bgStart2, dailyHigh);
    ObjectMove(0, buyBg, 1, bgEnd2,   noBuyBottom);
-   ObjectSetInteger(0, buyBg, OBJPROP_COLOR,   clrIndianRed);
+  ObjectSetInteger(0, buyBg, OBJPROP_COLOR,   C'50,110,150');
    ObjectSetInteger(0, buyBg, OBJPROP_FILL,    true);
    ObjectSetInteger(0, buyBg, OBJPROP_BACK,    true);
    ObjectSetInteger(0, buyBg, OBJPROP_WIDTH,   1);
@@ -1267,10 +1285,12 @@ void OnDeinit(const int reason)
    ObjectDelete(0, "TS_DailyLow_Lbl");
    ObjectDelete(0, "TS_NoSellZone");
    ObjectDelete(0, "TS_NoSellZone_Lbl");
+  ObjectDelete(0, "TS_NoSellZone_RangeLbl");
    ObjectDelete(0, "TB_DailyHigh");
    ObjectDelete(0, "TB_DailyHigh_Lbl");
    ObjectDelete(0, "TB_NoBuyZone");
    ObjectDelete(0, "TB_NoBuyZone_Lbl");
+  ObjectDelete(0, "TB_NoBuyZone_RangeLbl");
    ObjectDelete(0, "TS_NoSellZone_Bg");
    ObjectDelete(0, "TB_NoBuyZone_Bg");
    ObjectDelete(0, g_currSignalLabel);

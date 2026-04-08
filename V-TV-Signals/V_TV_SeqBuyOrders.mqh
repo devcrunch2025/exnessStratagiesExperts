@@ -93,11 +93,11 @@ bool BuyCond2b_MinTimeBetweenOrders()
 // Condition 3: Price NOT inside NO TREND BUY ZONE (near daily high)
 bool BuyCond3_NotInNoBuyZone()
   {
-if(TrendBuyDailyHighGapPrice==0) return true;
-
+  double minGapPrice = 100 * Point;
+  double gapPrice = MathMax(TrendBuyDailyHighGapPrice, minGapPrice);
    double dailyHigh = iHigh(Symbol(), PERIOD_D1, 0);
    if(dailyHigh <= 0) return true;
-   double zoneBottom = dailyHigh - TrendBuyDailyHighGapPrice;
+  double zoneBottom = dailyHigh - gapPrice;
    double ask        = MarketInfo(Symbol(), MODE_ASK);
    if(ask < zoneBottom) return true;
   //  printdummy("SeqBuy | BLOCKED [Cond3-NoBuyZone] Price " + DoubleToString(ask,2) +

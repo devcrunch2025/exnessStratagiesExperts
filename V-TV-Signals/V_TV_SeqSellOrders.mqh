@@ -102,12 +102,12 @@ bool SellCond2b_MinTimeBetweenOrders()
 // Condition 3: Price NOT inside NO TREND SELL ZONE
 bool SellCond3_NotInNoSellZone()
   {
-
-if(TrendSellDailyLowGapPrice==0) return true;
+  double minGapPrice = 100 * Point;
+  double gapPrice = MathMax(TrendSellDailyLowGapPrice, minGapPrice);
 
    double dailyLow = iLow(Symbol(), PERIOD_D1, 0);
    if(dailyLow <= 0) return true;
-   double zoneTop = dailyLow + TrendSellDailyLowGapPrice;
+  double zoneTop = dailyLow + gapPrice;
    double bid     = MarketInfo(Symbol(), MODE_BID);
    if(bid > zoneTop) return true;
    printdummy("SeqSell | BLOCKED [Cond3-NoSellZone] Price " + DoubleToString(bid,2) +
