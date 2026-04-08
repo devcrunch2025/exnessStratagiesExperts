@@ -313,7 +313,7 @@ void UpdateDailyLowProximityLines()
   double sellGapPrice = MathMax(TrendSellDailyLowGapPrice, minGapPrice);
   double buyGapPrice  = MathMax(TrendBuyDailyHighGapPrice, minGapPrice);
 
-   double dailyLow = iLow(Symbol(), PERIOD_D1, 0);
+   double dailyLow = iLow(Symbol(), PERIOD_H4, 0);
    if(dailyLow <= 0) return;
 
   double zoneTop = dailyLow + sellGapPrice;
@@ -375,7 +375,7 @@ void UpdateDailyLowProximityLines()
    ObjectSetInteger(0, sellBg, OBJPROP_SELECTED,false);
 
    // ---- NO BUY ZONE (daily high) ----
-   double dailyHigh = iHigh(Symbol(), PERIOD_D1, 0);
+   double dailyHigh = iHigh(Symbol(), PERIOD_H4, 0);
    if(dailyHigh <= 0) return;
 
   double noBuyBottom = dailyHigh - buyGapPrice;

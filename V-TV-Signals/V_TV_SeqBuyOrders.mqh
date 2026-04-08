@@ -95,7 +95,7 @@ bool BuyCond3_NotInNoBuyZone()
   {
   double minGapPrice = 100 * Point;
   double gapPrice = MathMax(TrendBuyDailyHighGapPrice, minGapPrice);
-   double dailyHigh = iHigh(Symbol(), PERIOD_D1, 0);
+   double dailyHigh = iHigh(Symbol(), PERIOD_H4, 0);
    if(dailyHigh <= 0) return true;
   double zoneBottom = dailyHigh - gapPrice;
    double ask        = MarketInfo(Symbol(), MODE_ASK);

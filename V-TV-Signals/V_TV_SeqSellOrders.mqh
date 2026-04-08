@@ -105,7 +105,7 @@ bool SellCond3_NotInNoSellZone()
   double minGapPrice = 100 * Point;
   double gapPrice = MathMax(TrendSellDailyLowGapPrice, minGapPrice);
 
-   double dailyLow = iLow(Symbol(), PERIOD_D1, 0);
+   double dailyLow = iLow(Symbol(), PERIOD_H4, 0);
    if(dailyLow <= 0) return true;
   double zoneTop = dailyLow + gapPrice;
    double bid     = MarketInfo(Symbol(), MODE_BID);

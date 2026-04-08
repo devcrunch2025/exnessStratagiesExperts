@@ -61,9 +61,9 @@ input double PartialProfitCloseRatio  = 1;    // Fraction of lot to close (0.5 =
 bool isEMATouchesInsideLines=false;;
 
 //--- 0.01; Profit / StopLoss (auto-calculated in InitLotDependentVars) ----
-double SeqSellProfitTarget = 1;
+double SeqSellProfitTarget = 0.20;
 double SeqSellStopLossUSD  = 50.00;
-double SeqBuyProfitTarget  =1;
+double SeqBuyProfitTarget  =0.20;
 double SeqBuyStopLossUSD   = 50.00;
 
 //--- Lot sizes (CHANGE ONLY THESE) ----------------------------------
