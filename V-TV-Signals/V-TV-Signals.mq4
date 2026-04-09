@@ -15,6 +15,8 @@
 //#include "V_TV_LearningSuggestions.mqh"
 //#include "V_TV_MarkerSuggestions.mqh"
 #include "V_TV_SimpleOpenCloseOrders.mqh"
+#include "V_TV_NewordersCrossLimit2Condition.mqh"
+
 
  
 
@@ -1339,6 +1341,7 @@ bool IsTradingTime()
 void OnTick()
   {
 
+DetectEMACross();
             ProcessSeqCloseOrders();
 
             ProcessSimplyBuyandCloseOrders();

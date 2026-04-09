@@ -554,6 +554,16 @@ void ProcessSeqBuyOrders()
                     IntegerToString(SeqBuyMinSecsBetweenOrders) + "s minimum)";
    else if(!BuyCond3_NotInNoBuyZone())
       blockReason = "Cond3: Price is inside NO BUY ZONE";
+
+else if(!CanOpenTradeAfterCross(OP_BUY))
+      blockReason = "Cond10: 2 orders after cross not allowed (possible fake signal)";
+
+ 
+
+
+
+
+
    else if(!BuyCond4_MaxOrdersNotReached(openCount))
       blockReason = "Cond4: Max BUY orders reached (" +
                     IntegerToString(openCount) + "/" + IntegerToString(SeqBuyMaxOrders) + ")";

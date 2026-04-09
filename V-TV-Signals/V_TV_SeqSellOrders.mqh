@@ -378,6 +378,12 @@ if(!CanOpenOrder_RSI_Range(OP_SELL))
    else if(!SellCond8_EMADowntrend())
       blockReason = "Cond8: EMA not trending down or is flat (min " +
                     IntegerToString(SeqSellEMAFlatMinPts) + "pts slope required)";
+
+
+else if(!CanOpenTradeAfterCross(OP_SELL))
+      blockReason = "Cond10: 2 orders after cross not allowed (possible fake signal)";
+
+
    else if(!SellCond9_EMA1BelowEMA2())
       blockReason = "Cond9: EMA1 not below EMA2 — no bearish structure";
   //  else if(!SellCond11_M15Downtrend())
