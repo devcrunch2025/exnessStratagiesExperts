@@ -11,6 +11,51 @@
 
 string g_orderReportFile = "";
 
+string BuildOrderReportDateKey(datetime t)
+  {
+   string d = TimeToString(t, TIME_DATE); // YYYY.MM.DD
+   StringReplace(d, ".", "");
+   return d;
+  }
+
+void EnsureOrderReportFile(datetime refTime)
+  {
+   if(refTime <= 0) refTime = TimeCurrent();
+
+   string dateKey = BuildOrderReportDateKey(refTime);
+   string targetFile = "order_history_" + dateKey + "_000000_" + Symbol() + ".csv";
+
+   if(g_orderReportFile == targetFile)
+      return;
+
+   g_orderReportFile = targetFile;
+
+   bool needHeader = true;
+   int h = FileOpen(g_orderReportFile, FILE_TXT|FILE_READ|FILE_SHARE_READ|FILE_SHARE_WRITE);
+   if(h != INVALID_HANDLE)
+     {
+      ulong sz = FileSize(h);
+      FileClose(h);
+      if(sz > 0) needHeader = false;
+     }
+
+   if(needHeader)
+     {
+      h = FileOpen(g_orderReportFile, FILE_TXT|FILE_WRITE|FILE_SHARE_READ|FILE_SHARE_WRITE);
+      if(h != INVALID_HANDLE)
+        {
+         FileWriteString(h,
+            "TradeDate,Symbol,Ticket,Type,Pattern,Lots,MagicNumber,OrderComment,"
+            "OpenTime,OpenPrice,RSI_at_Open,SeqBuyProfitTarget_at_Open,SeqSellProfitTarget_at_Open,"
+            "CloseTime,ClosePrice,EMA_Gap_at_Close,"
+            "GrossProfit,Swap,Commission,NetProfit,"
+            "EMA1_at_Open,EMA2_at_Open,EMA1_Below_EMA2,EMA1_Falling,"
+            "ProfitReason,LossReason,Dubai Time\n");
+         FileClose(h);
+        }
+     }
+  }
+
 //--- In-memory record for tracking open orders --------------------
 struct OrderRecord
   {
@@ -40,32 +85,7 @@ OrderRecord g_orderRecords[ORDER_RECORD_MAX];
 //+------------------------------------------------------------------+
 void InitOrderReport()
   {
-  g_orderReportFile = "order_history_" + g_runTimestamp + "_" + Symbol() + ".csv";
-
-   bool needHeader = true;
-   int h = FileOpen(g_orderReportFile, FILE_TXT|FILE_READ|FILE_SHARE_READ|FILE_SHARE_WRITE);
-   if(h != INVALID_HANDLE)
-     {
-      ulong sz = FileSize(h);
-      FileClose(h);
-      if(sz > 0) needHeader = false;
-     }
-
-   if(needHeader)
-     {
-      h = FileOpen(g_orderReportFile, FILE_TXT|FILE_WRITE|FILE_SHARE_READ|FILE_SHARE_WRITE);
-      if(h != INVALID_HANDLE)
-        {
-         FileWriteString(h,
-            "TradeDate,Symbol,Ticket,Type,Pattern,Lots,MagicNumber,OrderComment,"
-            "OpenTime,OpenPrice,RSI_at_Open,SeqBuyProfitTarget_at_Open,SeqSellProfitTarget_at_Open,"
-            "CloseTime,ClosePrice,EMA_Gap_at_Close,"
-            "GrossProfit,Swap,Commission,NetProfit,"
-            "EMA1_at_Open,EMA2_at_Open,EMA1_Below_EMA2,EMA1_Falling,"
-            "ProfitReason,LossReason,Dubai Time\n");
-         FileClose(h);
-        }
-     }
+   EnsureOrderReportFile(TimeCurrent());
 
    for(int i = 0; i < ORDER_RECORD_MAX; i++)
       g_orderRecords[i].tracked = false;
@@ -76,6 +96,7 @@ void InitOrderReport()
 //+------------------------------------------------------------------+
 void ReportOrderOpened(int ticket, string pattern, string orderType)
   {
+  EnsureOrderReportFile(TimeCurrent());
    if(g_orderReportFile == "") return;
 
    int slot = -1;
@@ -152,6 +173,9 @@ string AnalyseLossReason(OrderRecord &rec, double closePrice, double profit)
 void WriteOrderReportRow(OrderRecord &rec, datetime closeTime, double closePrice,
                          double grossProfit, double swap, double commission)
   {
+  EnsureOrderReportFile(closeTime);
+  if(g_orderReportFile == "") return;
+
    double netProfit = grossProfit + swap + commission;
    string profitReason = (netProfit >= 0) ? AnalyseProfitReason(rec, closePrice, netProfit) : "";
    string lossReason   = (netProfit <  0) ? AnalyseLossReason (rec, closePrice, netProfit) : "";
