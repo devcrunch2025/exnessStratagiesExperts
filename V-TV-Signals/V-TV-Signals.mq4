@@ -1359,8 +1359,8 @@ return ;
 
    dipslayCurrentTime();
 
-   CloseOldestBuyIfLoss();
-   CloseOldestSellIfLoss();
+  //  CloseOldestBuyIfLoss();
+  //  CloseOldestSellIfLoss();
 
     //  if(!IsTradingTime())
     //   return;
