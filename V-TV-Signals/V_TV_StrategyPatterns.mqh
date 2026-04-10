@@ -211,7 +211,7 @@ double minGap = atr * 0.5;   // 50% of volatility
 
 
 
-
+/*
 
 // --- APPLY ONLY FOR NEW ORDER ---
 if(forAction == "NEW_ORDER")
@@ -281,7 +281,7 @@ CloseAllBuyOrders(true);
       /////Print("INSIDE → Skip trade");
       return -1;
    }
-}
+}*/
  
 
 

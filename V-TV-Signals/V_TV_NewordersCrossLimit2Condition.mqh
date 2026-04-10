@@ -9,6 +9,8 @@ void DetectEMACross()
    double emaFast = iMA(Symbol(), 0, FastEMA, 0, MODE_EMA, PRICE_CLOSE, 0);
    double emaSlow = iMA(Symbol(), 0, SlowEMA, 0, MODE_EMA, PRICE_CLOSE, 0);
 
+   
+
    if(prevFast != 0 && prevSlow != 0)
    {
       bool wasAbove = prevFast > prevSlow;
@@ -73,4 +75,47 @@ bool CanOpenTradeAfterCross(int direction)
       return false;
 
    return true;
+}
+
+
+ double GetEMAGapPoints(int fastPeriod, int slowPeriod, int shift = 0)
+{
+   double emaFast = iMA(Symbol(), 0, fastPeriod, 0, MODE_EMA, PRICE_CLOSE, shift);
+   double emaSlow = iMA(Symbol(), 0, slowPeriod, 0, MODE_EMA, PRICE_CLOSE, shift);
+
+   double gap = MathAbs(emaFast - emaSlow);
+
+   if(gap/Point<20000)
+   {
+       g_lastCrossTime = TimeCurrent();
+
+         Print("EMA NEAR CROSS DETECTED at: ", TimeToString(g_lastCrossTime), " | Gap: ", DoubleToString(gap/Point,1), " pts");
+
+   }
+
+   return gap / Point; // return in points
+}
+
+void ShowEMAGapLabel()
+{
+   string name = "EMA_GAP_LABEL";
+
+   double gap = GetEMAGapPoints(FastEMA, SlowEMA);
+   string text = "EMA Gap: " + DoubleToString(gap, 1) + " pts";
+
+   if(ObjectFind(0, name) == -1)
+   {
+      ObjectCreate(0, name, OBJ_LABEL, 0, 0, 0);
+
+      // ✅ RIGHT TOP
+      ObjectSetInteger(0, name, OBJPROP_CORNER, CORNER_RIGHT_UPPER);
+      ObjectSetInteger(0, name, OBJPROP_XDISTANCE, 200);   // from right
+      ObjectSetInteger(0, name, OBJPROP_YDISTANCE, 50);   // from top
+
+      ObjectSetInteger(0, name, OBJPROP_COLOR, clrYellow);
+      ObjectSetInteger(0, name, OBJPROP_FONTSIZE, 12);
+      ObjectSetString(0, name, OBJPROP_FONT, "Arial Bold");
+   }
+
+   ObjectSetString(0, name, OBJPROP_TEXT, text);
 }

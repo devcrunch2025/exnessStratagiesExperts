@@ -584,17 +584,21 @@ void ProcessSimplyBuyandCloseOrders()
                          " >= TP=" + DoubleToString(targetProfit,2));
 
    // 2) Old signal-match close logic (restored)
-   if(StringFind(g_liveSignalName, "PRE SELL") >= 0)
+   if(StringFind(g_liveSignalName, "PRE SELL 2") >= 0)
       CloseAllBuyOrders(false, "Signal: " + g_liveSignalName);
 
-   if(StringFind(g_liveSignalName, "PRE BUY") >= 0)
+   if(StringFind(g_liveSignalName, "PRE BUY 2") >= 0)
       CloseAllSellOrders(false, "Signal: " + g_liveSignalName);
 
-   if(StringFind(g_liveSignalName, "W SHAPE SELL") >= 0)
+   if(StringFind(g_liveSignalName, "W SHAPE") >= 0)
+   {
       CloseAllSellOrders(false, "Signal: " + g_liveSignalName);
+      CloseAllBuyOrders(false, "Signal: " + g_liveSignalName);
 
-   if(StringFind(g_liveSignalName, "STRONG SELL") >= 0)
-      CloseAllSellOrders(false, "Signal: " + g_liveSignalName);
+   }
+
+   // if(StringFind(g_liveSignalName, "STRONG SELL") >= 0)
+   //    CloseAllSellOrders(false, "Signal: " + g_liveSignalName);
  }
 
 void GetEMACrossDirection()

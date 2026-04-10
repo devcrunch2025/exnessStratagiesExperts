@@ -356,15 +356,22 @@ void ProcessSeqSellOrders()
    // === PATTERN MATCHED — track which condition blocks and draw marker ===
    int    openCount  = CountOpenSeqSellOrders();
    string blockReason = "";
-if(!CanOpenOrder_RSI_Range(OP_SELL))
-      blockReason = "Cond1: RSI not in allowed range (30-70)";
-    else
+// if(!CanOpenOrder_RSI_Range(OP_SELL))
+//       blockReason = "Cond1: RSI not in allowed range (30-70)";
+//     else
+double gap=GetEMAGapPoints(FastEMA, SlowEMA);
+ if(  gap<=40000)
+                     {
+blockReason = "Cond1: EMI gap too tight: " + DoubleToString(gap,1);
+
+                    }
+                    else
 
    if(!SellCond2_WarmupElapsed())
       blockReason = "Cond2: Warmup not elapsed yet";
-   else if(!SellCond2b_MinTimeBetweenOrders())
-      blockReason = "Cond2b: Too soon after last SELL (" +
-                    IntegerToString(SeqSellMinSecsBetweenOrders) + "s minimum)";
+  //  else if(!SellCond2b_MinTimeBetweenOrders())
+  //     blockReason = "Cond2b: Too soon after last SELL (" +
+                    // IntegerToString(SeqSellMinSecsBetweenOrders) + "s minimum)";
   //  else if(!SellCond3_NotInNoSellZone())
   //     blockReason = "Cond3: Price is inside NO SELL ZONE";
    else if(!SellCond4_MaxOrdersNotReached(openCount))
@@ -375,17 +382,17 @@ if(!CanOpenOrder_RSI_Range(OP_SELL))
   //                   IntegerToString(SeqSellMinGapPoints) + "pts required)";
   //  else if(!SellCond6_NoOrderInLoss())
   //     blockReason = "Cond6: An existing SELL order is in loss";
-   else if(!SellCond8_EMADowntrend())
-      blockReason = "Cond8: EMA not trending down or is flat (min " +
-                    IntegerToString(SeqSellEMAFlatMinPts) + "pts slope required)";
+  //  else if(!SellCond8_EMADowntrend())
+  //     blockReason = "Cond8: EMA not trending down or is flat (min " +
+  //                   IntegerToString(SeqSellEMAFlatMinPts) + "pts slope required)";
 
 
 else if(!CanOpenTradeAfterCross(OP_SELL))
       blockReason = "Cond10: 2 orders after cross not allowed (possible fake signal)";
 
 
-   else if(!SellCond9_EMA1BelowEMA2())
-      blockReason = "Cond9: EMA1 not below EMA2 — no bearish structure";
+  //  else if(!SellCond9_EMA1BelowEMA2())
+  //     blockReason = "Cond9: EMA1 not below EMA2 — no bearish structure";
   //  else if(!SellCond11_M15Downtrend())
   //     blockReason = "Cond11: M30 downtrend not confirmed (need " +
   //                   DoubleToString(TrendMinMovePercent,2) + "% drop over " +

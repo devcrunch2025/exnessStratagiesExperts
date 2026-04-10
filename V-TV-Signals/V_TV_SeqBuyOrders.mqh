@@ -543,15 +543,21 @@ void ProcessSeqBuyOrders()
    int    openCount   = CountOpenSeqBuyOrders();
    string blockReason = "";
 
-   if(!CanOpenOrder_RSI_Range(OP_BUY))
-      blockReason = "Cond1: RSI not in allowed range (30-70)";
-    else
+  //  if(!CanOpenOrder_RSI_Range(OP_BUY))
+  //     blockReason = "Cond1: RSI not in allowed range (30-70)";
+  //   else
+double gap=GetEMAGapPoints(FastEMA, SlowEMA);
+ if(  gap<=40000)
+                     {
+blockReason = "Cond1: EMI gap too tight: " + DoubleToString(gap,1);
 
+                    }
+                    else
    if(!BuyCond2_WarmupElapsed())
       blockReason = "Cond2: Warmup not elapsed yet";
-   else if(!BuyCond2b_MinTimeBetweenOrders())
-      blockReason = "Cond2b: Too soon after last BUY (" +
-                    IntegerToString(SeqBuyMinSecsBetweenOrders) + "s minimum)";
+  //  else if(!BuyCond2b_MinTimeBetweenOrders())
+  //     blockReason = "Cond2b: Too soon after last BUY (" +
+  //                   IntegerToString(SeqBuyMinSecsBetweenOrders) + "s minimum)";
    else if(!BuyCond3_NotInNoBuyZone())
       blockReason = "Cond3: Price is inside NO BUY ZONE";
 
@@ -572,11 +578,11 @@ else if(!CanOpenTradeAfterCross(OP_BUY))
   //                   IntegerToString(SeqBuyMinGapPoints) + "pts required)";
   //  else if(!BuyCond6_NoOrderInLoss())
   //     blockReason = "Cond6: An existing BUY order is in loss";
-   else if(!BuyCond8_EMAUptrend())
-      blockReason = "Cond8: EMA not trending up or is flat (min " +
-                    IntegerToString(SeqBuyEMAFlatMinPts) + "pts slope required)";
-   else if(!BuyCond9_EMA1AboveEMA2())
-      blockReason = "Cond9: EMA1 not above EMA2 — no bullish structure";
+  //  else if(!BuyCond8_EMAUptrend())
+  //     blockReason = "Cond8: EMA not trending up or is flat (min " +
+  //                   IntegerToString(SeqBuyEMAFlatMinPts) + "pts slope required)";
+  //  else if(!BuyCond9_EMA1AboveEMA2())
+  //     blockReason = "Cond9: EMA1 not above EMA2 — no bullish structure";
   //  else if(!BuyCond11_M15Uptrend())
   //     blockReason = "Cond11: M30 uptrend not confirmed (need " +
   //                   DoubleToString(TrendMinMovePercent,2) + "% rise over " +
