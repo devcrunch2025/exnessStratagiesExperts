@@ -73,6 +73,10 @@ if(equity > StopTradingMaxProfit+g_initialBalance)
 
  
  
+   
+   // ✅ Only update text (NO overlap)
+   ObjectSetString(0, name, OBJPROP_TEXT, GlobalMessage);
+ 
  
  return true;
  
@@ -80,6 +84,8 @@ if(equity > StopTradingMaxProfit+g_initialBalance)
    else
    {
       GlobalMessage="";
+ return false;
+
    }
 
    
