@@ -250,6 +250,7 @@ int CountOpenSeqSellOrders()
 //+------------------------------------------------------------------+
 bool PlaceSeqSellOrder(int ruleIdx)
   {
+   double gap = GetEMAGapPoints(FastEMA, SlowEMA);
 
     
    double bid = MarketInfo(Symbol(), MODE_BID);
@@ -258,7 +259,7 @@ bool PlaceSeqSellOrder(int ruleIdx)
    string comment = "SeqSell|" +
                     (ruleIdx >= 0 ? g_seqRules[ruleIdx].prePrev : "COLOR") + "|" +
                     (ruleIdx >= 0 ? g_seqRules[ruleIdx].prev    : g_liveSignalName) + "|" +
-                    (ruleIdx >= 0 ? g_seqRules[ruleIdx].curr    : IntegerToString(g_currSeqCount));
+                    (ruleIdx >= 0 ? g_seqRules[ruleIdx].curr    : IntegerToString(g_currSeqCount))+"| gap=" + DoubleToString(gap,1) + "pts  ";
 
    int ticket = OrderSend(Symbol(), OP_SELL, SeqSellLotSize, bid,
                           SeqSellSlippage, 0, 0,
@@ -360,7 +361,7 @@ void ProcessSeqSellOrders()
 //       blockReason = "Cond1: RSI not in allowed range (30-70)";
 //     else
 double gap=GetEMAGapPoints(FastEMA, SlowEMA);
- if(  gap<=40000)
+ if(  gap<=3000)
                      {
 blockReason = "Cond1: EMI gap too tight: " + DoubleToString(gap,1);
 

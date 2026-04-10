@@ -583,6 +583,7 @@ void ProcessSimplyBuyandCloseOrders()
                          DoubleToString(sideProfit,2) +
                          " >= TP=" + DoubleToString(targetProfit,2));
 
+/*
    // 2) Old signal-match close logic (restored)
    if(StringFind(g_liveSignalName, "PRE SELL 2") >= 0)
       CloseAllBuyOrders(false, "Signal: " + g_liveSignalName);
@@ -596,6 +597,7 @@ void ProcessSimplyBuyandCloseOrders()
       CloseAllBuyOrders(false, "Signal: " + g_liveSignalName);
 
    }
+   */
 
    // if(StringFind(g_liveSignalName, "STRONG SELL") >= 0)
    //    CloseAllSellOrders(false, "Signal: " + g_liveSignalName);

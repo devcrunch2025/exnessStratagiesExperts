@@ -85,7 +85,7 @@ bool CanOpenTradeAfterCross(int direction)
 
    double gap = MathAbs(emaFast - emaSlow);
 
-   if(gap/Point<20000)
+   if(gap/Point<1000)
    {
        g_lastCrossTime = TimeCurrent();
 

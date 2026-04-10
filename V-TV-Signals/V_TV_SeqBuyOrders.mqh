@@ -342,6 +342,8 @@ bool BuyCond7_PatternMatched(int &ruleIdx)
       Print("SeqBuy | Cond7 MATCHED ColorRule [" + g_colorRules[cIdx].colorType +
             " COUNT>=" + IntegerToString(g_colorRules[cIdx].minCount) +
             "] signal=" + g_liveSignalName + " " + IntegerToString(g_currSeqCount));
+
+            
       return true;
      } 
 
@@ -418,12 +420,13 @@ bool PlaceSeqBuyOrder(int ruleIdx)
 
      
    double ask = MarketInfo(Symbol(), MODE_ASK);
+   double gap = GetEMAGapPoints(FastEMA, SlowEMA);
 
    // ruleIdx == -1 means a ColorRule matched (not a SeqRule) — safe fallback comment
    string comment = "SeqBuy|" +
                     (ruleIdx >= 0 ? g_seqRules[ruleIdx].prePrev : "COLOR") + "|" +
                     (ruleIdx >= 0 ? g_seqRules[ruleIdx].prev    : g_liveSignalName) + "|" +
-                    (ruleIdx >= 0 ? g_seqRules[ruleIdx].curr    : IntegerToString(g_currSeqCount));
+                    (ruleIdx >= 0 ? g_seqRules[ruleIdx].curr    : IntegerToString(g_currSeqCount)) + "| gap=" + DoubleToString(gap,1) + "pts";
 
    int ticket = OrderSend(Symbol(), OP_BUY, SeqBuyLotSize, ask,
                           SeqBuySlippage, 0, 0,
@@ -547,7 +550,7 @@ void ProcessSeqBuyOrders()
   //     blockReason = "Cond1: RSI not in allowed range (30-70)";
   //   else
 double gap=GetEMAGapPoints(FastEMA, SlowEMA);
- if(  gap<=40000)
+ if(  gap<=3000)
                      {
 blockReason = "Cond1: EMI gap too tight: " + DoubleToString(gap,1);
 
