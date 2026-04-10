@@ -1189,12 +1189,18 @@ return profitBuy;
   //     "Value ($): ", DoubleToString(dollarValue, 2)
   //  );
 }
+
+int defaultMaxBuyOrders = 0;
+int defaultMaxSellOrders = 0;
 //+------------------------------------------------------------------+
 int OnInit()
   {
 
      DefaultBuyTP  = SeqBuyProfitTarget;
 DefaultSellTP = SeqSellProfitTarget;
+
+defaultMaxBuyOrders  = SeqBuyMaxOrders;
+defaultMaxSellOrders = SeqSellMaxOrders;
 
         openBuy = 0; openSell = 0;
 
@@ -1341,6 +1347,7 @@ bool IsTradingTime()
 void OnTick()
   {
 ShowEMAGapLabel();
+createNewOrderBeforeCandle();
 DetectEMACross();
             ProcessSeqCloseOrders();
 
