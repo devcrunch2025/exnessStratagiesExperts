@@ -1556,6 +1556,10 @@ else if(preTrendSell)     newSig = "PRE SELL";
             g_currSignalPrice      = _isSellSig ? High[i] : Low[i];
             g_lastDisplayBarTime   = Time[i];
             g_newSignalDetected    = true;  // trigger order check this tick
+
+            Print("New signal detected: ", newSig, " at ", TimeToString(Time[i], TIME_DATE|TIME_SECONDS),
+                  " Price: ", DoubleToString(g_currSignalPrice, Digits),
+                  " SeqCount: ", g_currSeqCount);
            }
 
          if(i == 0) UpdateCurrentSignalLabel();

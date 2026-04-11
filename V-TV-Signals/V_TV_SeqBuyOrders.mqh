@@ -535,6 +535,13 @@ void DrawBlockedBuySignal(string reason)
 //+------------------------------------------------------------------+
 void ProcessSeqBuyOrders()
   {
+
+
+
+double gap=GetEMAGapPoints(FastEMA, SlowEMA);
+
+if(  gap<=3000) return;
+
    // Condition 1 & 7: quick exits — no marker drawn if these fail
    if(g_liveSignalName == "")
      { LogMessage("SeqBuy | Cond1 FAILED - No live signal"); return; }
@@ -549,7 +556,6 @@ void ProcessSeqBuyOrders()
   //  if(!CanOpenOrder_RSI_Range(OP_BUY))
   //     blockReason = "Cond1: RSI not in allowed range (30-70)";
   //   else
-double gap=GetEMAGapPoints(FastEMA, SlowEMA);
  if(  gap<=3000)
                      {
 blockReason = "Cond1: EMI gap too tight: " + DoubleToString(gap,1);
@@ -565,7 +571,7 @@ blockReason = "Cond1: EMI gap too tight: " + DoubleToString(gap,1);
       blockReason = "Cond3: Price is inside NO BUY ZONE";
 
 else if(!CanOpenTradeAfterCross(OP_BUY))
-      blockReason = "Cond10: 2 orders after cross not allowed (possible fake signal)";
+      blockReason = "Cond10: CROSS Pending - 2 orders after cross not allowed (possible fake signal)";
 
  
 

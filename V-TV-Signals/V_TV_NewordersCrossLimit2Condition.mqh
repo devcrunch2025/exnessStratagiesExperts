@@ -35,6 +35,8 @@ void DetectEMACross()
 
 bool CanOpenTradeAfterCross(int direction)
 {
+
+   //return true; // TEMP: Remove this line to enable the full logic
    // direction: OP_BUY or OP_SELL
 
    if(g_lastCrossTime == 0)
@@ -102,7 +104,7 @@ void ShowEMAGapLabel()
 
    double gap = GetEMAGapPoints(FastEMA, SlowEMA);
    string text = "EMA Gap: " + DoubleToString(gap, 1) + " pts. "+IntegerToString(SeqBuyMaxOrders)+"/"+IntegerToString(SeqSellMaxOrders);
-Print("Current EMA Gap: ", DoubleToString(gap,1), " pts. Max Orders: ", SeqBuyMaxOrders, "/", SeqSellMaxOrders);
+//Print("Current EMA Gap: ", DoubleToString(gap,1), " pts. Max Orders: ", SeqBuyMaxOrders, "/", SeqSellMaxOrders);
    if(ObjectFind(0, name) == -1)
    {
       ObjectCreate(0, name, OBJ_LABEL, 0, 0, 0);
