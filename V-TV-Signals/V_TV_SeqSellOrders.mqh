@@ -375,7 +375,7 @@ return ;
      { LogMessage("SeqSell | Cond1 FAILED - No live signal"); return; }
 
    int ruleIdx = -1;
-   if(!SellCond7_PatternMatched(ruleIdx)) return;
+  //  if(!SellCond7_PatternMatched(ruleIdx)) return;
 
    // === PATTERN MATCHED — track which condition blocks and draw marker ===
        openCountS  = CountOpenSeqSellOrders();
@@ -397,9 +397,9 @@ blockReason = "Cond1: EMI gap too tight: " + DoubleToString(gap,1);
                     //  (openCountS) + "/" +  (SeqSellMaxOrders) + ")");
 
    }
-  //  else if(!SellCond2b_MinTimeBetweenOrders())
-  //     blockReason = "Cond2b: Too soon after last SELL (" +
-                    // IntegerToString(SeqSellMinSecsBetweenOrders) + "s minimum)";
+   else if(!SellCond2b_MinTimeBetweenOrders())
+      blockReason = "Cond2b: Too soon after last SELL (" +
+                    IntegerToString(SeqSellMinSecsBetweenOrders) + "s minimum)";
    else if(!SellCond3_NotInNoSellZone()){ 
       blockReason = "Cond3: Price is inside NO SELL ZONE";
 //  Print("Cond455555555555: Max SELL orders reached (" +
@@ -428,7 +428,7 @@ blockReason = "Cond1: EMI gap too tight: " + DoubleToString(gap,1);
 
 
 else if(!CanOpenTradeAfterCross(OP_SELL))
-      blockReason = "Cond10: CROSS Pending -  orders after cross not allowed (possible fake signal)";
+      blockReason = "Cond10: CROSS Pending or Max orders Reached after cross not allowed (possible fake signal)";
 
 
   //  else if(!SellCond9_EMA1BelowEMA2())
@@ -444,7 +444,7 @@ else if(!CanOpenTradeAfterCross(OP_SELL))
 
       g_blockReason = blockReason;
 
-      DrawBlockedSellSignal(blockReason);
+      // DrawBlockedSellSignal(blockReason);
       return;
      }
 

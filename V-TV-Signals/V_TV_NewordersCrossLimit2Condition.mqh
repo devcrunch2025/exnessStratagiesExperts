@@ -171,24 +171,24 @@ void createNewOrderBeforeCandle()
 
    if(gap>20000)
    {
-      SeqBuyMaxOrders=4;
-      SeqSellMaxOrders=4;
+      SeqBuyMaxOrders=defaultMaxBuyOrders*4;
+      SeqSellMaxOrders=defaultMaxSellOrders*4;
       //g_blockReason = "EMA Gap > 20000 pts: Allowing up to "+ SeqBuyMaxOrders+ " new orders. Current gap: "+ DoubleToString(gap,1)+ " pts";
       // Print("EMA Gap > 20000 pts: Allowing up to ", SeqBuyMaxOrders, " new orders. Current gap: ", DoubleToString(gap,1), " pts");
    }
    else
    if(gap>10000)
    {
-      SeqBuyMaxOrders=3;
-      SeqSellMaxOrders=3;
+      SeqBuyMaxOrders=defaultMaxBuyOrders*3;
+      SeqSellMaxOrders=defaultMaxSellOrders*3;
      // g_blockReason = "EMA Gap > 10000 pts: Allowing up to "+ SeqBuyMaxOrders+ " new orders. Current gap: "+ DoubleToString(gap,1)+ " pts";
 
       // Print("EMA Gap > 10000 pts: Allowing up to ", SeqBuyMaxOrders, " new orders. Current gap: ", DoubleToString(gap,1), " pts");
    }else
    if(gap>6000)
    {
-      SeqBuyMaxOrders=2;
-      SeqSellMaxOrders=2;
+      SeqBuyMaxOrders=defaultMaxBuyOrders*2;
+      SeqSellMaxOrders=defaultMaxSellOrders*2;;
       //g_blockReason = "EMA Gap > 5000 pts: Allowing up to "+ SeqBuyMaxOrders+" new orders. Current gap: "+ DoubleToString(gap,1)+ " pts";
 
       // Print("EMA Gap > 10000 pts: Allowing up to ", SeqBuyMaxOrders, " new orders. Current gap: ", DoubleToString(gap,1), " pts");

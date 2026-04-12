@@ -318,7 +318,8 @@ bool BuyCond6_NoOrderInLoss()
 // Condition 7: SeqRule pattern matched and is NEW_ORDER BUY
 bool BuyCond7_PatternMatched(int &ruleIdx)
   {
-   // --- Check SeqRules first ---
+
+    // --- Check SeqRules first ---
    /*
    ruleIdx = CheckSeqRules();
    if(ruleIdx >= 0)
@@ -555,7 +556,7 @@ return ;
      { LogMessage("SeqBuy | Cond1 FAILED - No live signal"); return; }
 
    int ruleIdx = -1;
-   if(!BuyCond7_PatternMatched(ruleIdx)) return;
+  //  if(!BuyCond7_PatternMatched(ruleIdx)) return;
 
    // === PATTERN MATCHED — track which condition blocks and draw marker ===
         openCountS   = CountOpenSeqBuyOrders();
@@ -571,9 +572,9 @@ blockReason = "Cond1: EMI gap too tight: " + DoubleToString(gap,1);
                     else
    if(!BuyCond2_WarmupElapsed())
       blockReason = "Cond2: Warmup not elapsed yet";
-  //  else if(!BuyCond2b_MinTimeBetweenOrders())
-  //     blockReason = "Cond2b: Too soon after last BUY (" +
-  //                   IntegerToString(SeqBuyMinSecsBetweenOrders) + "s minimum)";
+   else if(!BuyCond2b_MinTimeBetweenOrders())
+      blockReason = "Cond2b: Too soon after last BUY (" +
+                    IntegerToString(SeqBuyMinSecsBetweenOrders) + "s minimum)";
    else if(!BuyCond3_NotInNoBuyZone())
       blockReason = "Cond3: Price is inside NO BUY ZONE";
 

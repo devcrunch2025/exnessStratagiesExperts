@@ -35,8 +35,8 @@ input int SeqBuyMinGapPoints  = 0; // BUY:  min rise between signals (pts)
 
 
 //--- Min time between orders (lot-independent) ----------------------
-input int SeqSellMinSecsBetweenOrders = 0; // SELL: min seconds between orders seconds
-input int SeqBuyMinSecsBetweenOrders  = 0; // BUY:  min seconds between orders seconds
+input int SeqSellMinSecsBetweenOrders = 30; // SELL: min seconds between orders seconds
+input int SeqBuyMinSecsBetweenOrders  = 30; // BUY:  min seconds between orders seconds
 
 //--- Fake tick / broker manipulation protection (Condition 10) ------
 input string _FakeTick_            = "--- FAKE TICK PROTECTION ---";

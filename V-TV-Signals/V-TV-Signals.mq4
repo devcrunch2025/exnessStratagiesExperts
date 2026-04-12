@@ -1347,12 +1347,14 @@ bool IsTradingTime()
 //+------------------------------------------------------------------+
 void OnTick()
   {
+
+            ProcessSeqCloseOrders();
+
 ShowEMAGapLabel();
 createNewOrderBeforeCandle();
 
 DetectEMACross();
 
-            ProcessSeqCloseOrders();
  
 
 
