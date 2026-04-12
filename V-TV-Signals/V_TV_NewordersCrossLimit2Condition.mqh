@@ -63,8 +63,9 @@ bool CanOpenTradeAfterCross(int direction)
    // 🔒 Limit 2 trades after cross
    if(tradeCount >= SeqBuyMaxOrders)
    {
-      Print("Blocked: Max ", SeqBuyMaxOrders, " trades reached after last EMA cross");
-      g_blockReason = "Max " + IntegerToString(SeqBuyMaxOrders) + " trades reached after last EMA cross";
+      Print("Blocked: Max "+tradeCount+"/"+SeqBuyMaxOrders+" trades reached after last EMA cross");
+       
+      g_blockReason = "Blocked: Max "+tradeCount+"/"+SeqBuyMaxOrders+" trades reached after last EMA cross";
       return false;
    }
 
@@ -91,7 +92,7 @@ bool CanOpenTradeAfterCross(int direction)
 
    if(gap/Point<1000)
    {
-       g_lastCrossTime = TimeCurrent();
+       //g_lastCrossTime = TimeCurrent();
 
          //Print("EMA NEAR CROSS DETECTED at: ", TimeToString(g_lastCrossTime), " | Gap: ", DoubleToString(gap/Point,1), " pts");
 
@@ -227,14 +228,15 @@ else if(price < ema9 && ema9 < ema20 && ema20 < ema50)
 else
 {
    Print("Gap above 3000 but No UPTREND or NO DownTREND detected");
-   //g_blockReason = "No clear trend (SIDEWAYS) — orders blocked";
+   g_blockReason = "Gap above 3000 but No UPTREND or NO DownTREND detected";
 }
  
   
     }
     else
     {
-   //g_blockReason = "EMA GAP is less than 3000 — orders are blocked";
+   g_blockReason = "EMA GAP is less than 3000 — orders are blocked";
+    
 
     }
 

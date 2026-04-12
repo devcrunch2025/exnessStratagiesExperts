@@ -578,7 +578,7 @@ blockReason = "Cond1: EMI gap too tight: " + DoubleToString(gap,1);
       blockReason = "Cond3: Price is inside NO BUY ZONE";
 
 else if(!CanOpenTradeAfterCross(OP_BUY))
-      blockReason = "Cond10: CROSS Pending - 2 orders after cross not allowed (possible fake signal)";
+      blockReason = "Cond10: CROSS Pending -  orders after cross not allowed (possible fake signal)";
 
  
 
