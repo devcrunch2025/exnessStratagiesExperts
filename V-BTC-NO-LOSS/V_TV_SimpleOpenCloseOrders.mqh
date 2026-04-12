@@ -837,7 +837,7 @@ void CloseAllSellOrders(bool foreceClose = false,string reason="")
    // 🔥 Call ONLY ONCE after all orders processed
     if(anyClosed)
    {
-      //UpdateTPBasedOnLastClosed();
+      UpdateTPBasedOnLastClosed();
    }
 }
 void CloseAllBuyOrders(bool foreceClose = false,string reason="")
@@ -874,7 +874,7 @@ void CloseAllBuyOrders(bool foreceClose = false,string reason="")
  if(result)
 {
    Print("Closed BUY order: ", OrderTicket(), " Reason: ", reason);
-  // UpdateTPBasedOnLastClosed();   // 🔥 ADD THIS
+   UpdateTPBasedOnLastClosed();   // 🔥 ADD THIS
 }
 
          }

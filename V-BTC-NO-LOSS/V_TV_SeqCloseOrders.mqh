@@ -244,8 +244,8 @@ void ProcessSeqCloseOrders()
      SeqBuyProfitTarget = DefaultBuyTP;
      SeqSellProfitTarget = DefaultSellTP;
 }
-// SeqSellMaxOrders = DefaultSellMaxSellOrders;
-//        SeqBuyMaxOrders = DefaultBuyMaxBuyOrders;
+SeqSellMaxOrders = DefaultSellMaxSellOrders;
+       SeqBuyMaxOrders = DefaultBuyMaxBuyOrders;
 
   }
 

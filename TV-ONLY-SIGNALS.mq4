@@ -21,8 +21,8 @@ input double RSI_Buy             = 55;
 input double RSI_Sell            = 45;
 input int    ReversalStreakCandles = 3;
 input int    TradeDirectionMode  = 0;       // 0=both 1=buy only 2=sell only
-input double TrendSellDailyLowGapPrice  =100; // NO SELL zone: min $ above daily low
-input double TrendBuyDailyHighGapPrice  = 100; // NO BUY zone: min $ below daily high
+input double TrendSellDailyLowGapPrice  =0; // NO SELL zone: min $ above daily low
+input double TrendBuyDailyHighGapPrice  = 0; // NO BUY zone: min $ below daily high
 input bool   EnableAlert         = false;
 input bool   EnableSound         = true;
 input bool   EnableLogMessages   = false;

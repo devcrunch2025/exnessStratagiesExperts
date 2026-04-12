@@ -475,7 +475,7 @@ SeqBuyProfitTarget  = DefaultBuyTP;
    //Print("Normal mode → Default TP");
 }
 
-// bool test=changeMaxOrdersLogic();
+bool test=changeMaxOrdersLogic();
 
 
 string name = "TimeLabel";
@@ -933,7 +933,6 @@ void DrawDashboard()
    double spreadUSD   = (tickSize > 0) ? (spread * Point / tickSize) * tickValue * SeqSellLotSize : 0;
 
    // Count open orders and sum profit
-   openBuy = 0; openSell = 0;
    double openProfit = 0;
    for(int i = OrdersTotal() - 1; i >= 0; i--)
      {
@@ -1110,12 +1109,12 @@ double CalculateProfit(int type, double lot, double openPrice, double closePrice
 
       if(openProfit<SeqBuyProfitTarget)
 {
-// SeqBuyProfitTarget = openProfit;
-//       SeqSellProfitTarget = openProfit;
+SeqBuyProfitTarget = openProfit;
+      SeqSellProfitTarget = openProfit;
 
       
 
-      // Print("Adjusting OpenProfit targets based on 1-hour profit 3: ", DoubleToString(openProfit,2));
+      Print("Adjusting OpenProfit targets based on 1-hour profit 3: ", DoubleToString(openProfit,2));
 
     
       }
@@ -1125,29 +1124,29 @@ double CalculateProfit(int type, double lot, double openPrice, double closePrice
     if(profit<SeqBuyProfitTarget)
 {
 
-  //   SeqBuyProfitTarget = profit/2;
-  //  SeqSellProfitTarget = profit/2;
-  //     Print("Adjusting profit targets based on 1-hour profit 1/2: ", DoubleToString(profit,2));
+    SeqBuyProfitTarget = profit/2;
+   SeqSellProfitTarget = profit/2;
+      Print("Adjusting profit targets based on 1-hour profit 1/2: ", DoubleToString(profit,2));
 
    
 }
    }
 
-//  if(profit<SeqBuyProfitTarget)
-// {
-// SeqBuyProfitTarget = profit/2;
-//       SeqSellProfitTarget = profit/2;
+ if(profit<SeqBuyProfitTarget)
+{
+SeqBuyProfitTarget = profit/2;
+      SeqSellProfitTarget = profit/2;
 
-//   if(openBuy>1)
-//        SeqBuyProfitTarget = 0.10;
+  if(openBuy>1)
+       SeqBuyProfitTarget = 0.10;
 
-//        if(openSell>1)
-//        SeqSellProfitTarget = 0.10;
+       if(openSell>1)
+       SeqSellProfitTarget = 0.10;
       
 
-//       Print("Adjusting profit targets based on 1-hour profit 2/2: ", DoubleToString(profit,2));
+      Print("Adjusting profit targets based on 1-hour profit 2/2: ", DoubleToString(profit,2));
     
-//       }
+      }
    return profit;
 }
 
@@ -1210,8 +1209,8 @@ double chartMaxProfit = getChartHeightPrice();
 Print("Initial Chart Max Profit based on height: $", DoubleToString(chartMaxProfit,2));
 if(chartMaxProfit >SeqBuyProfitTarget)
 {
-// SeqBuyProfitTarget = chartMaxProfit / 5;
-// SeqSellProfitTarget = chartMaxProfit / 5;
+SeqBuyProfitTarget = chartMaxProfit / 5;
+SeqSellProfitTarget = chartMaxProfit / 5;
 
  
 Print("SeqBuyProfitTarget: $", DoubleToString(SeqBuyProfitTarget,2));
@@ -1222,8 +1221,8 @@ else
 
 Print("SeqBuyProfitTarget: $", DoubleToString(chartMaxProfit,2));
 
-  // SeqBuyProfitTarget = chartMaxProfit;
-  // SeqSellProfitTarget = chartMaxProfit;
+  SeqBuyProfitTarget = chartMaxProfit;
+  SeqSellProfitTarget = chartMaxProfit;
 }
 
 //SeqSellStopLossUSD  = chartMaxProfit*2;
@@ -1349,17 +1348,13 @@ void OnTick()
   {
 ShowEMAGapLabel();
 createNewOrderBeforeCandle();
-
 DetectEMACross();
-
             ProcessSeqCloseOrders();
- 
-
 
             ProcessSimplyBuyandCloseOrders();
 
 DrawRSIBackground();
-// changeMaxOrdersLogic();
+changeMaxOrdersLogic();
 if(stopTrading())
 {
   Print("Trading is currently stopped due to Booked Profit restrictions.");

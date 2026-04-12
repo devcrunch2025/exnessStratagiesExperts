@@ -50,7 +50,7 @@ input int    VolumeAvgBars         = 20;    // Bars used for average volume
 input string _TrendCond_           = "--- 15-MIN TREND FILTER ---";
 input bool   EnableTrendFilter     = true;  // Enable Cond11
 input int    TrendLookbackBars     = 3;     // M30 bars back to compare (3 bars = 90 min trend)
-input double TrendMinMovePercent   = 1;  // Min price move % required (e.g. 0.15 = 0.15% of price)
+input double TrendMinMovePercent   = 0.01;  // Min price move % required (e.g. 0.15 = 0.15% of price)
 
 //--- Partial profit booking -------------------------------------------
 input string _PartialProfit_          = "--- PARTIAL PROFIT ---";

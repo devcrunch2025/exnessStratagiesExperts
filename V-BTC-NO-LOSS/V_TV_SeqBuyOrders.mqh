@@ -93,9 +93,6 @@ bool BuyCond2b_MinTimeBetweenOrders()
 // Condition 3: Price NOT inside NO TREND BUY ZONE (near daily high)
 bool BuyCond3_NotInNoBuyZone()
   {
-
-if(TrendBuyDailyHighGapPrice==0) return true;
-
   double minGapPrice = 100 * Point;
   double gapPrice = MathMax(TrendBuyDailyHighGapPrice, minGapPrice);
    double dailyHigh = iHigh(Symbol(), PERIOD_H4, 0);
@@ -342,9 +339,9 @@ bool BuyCond7_PatternMatched(int &ruleIdx)
    if(cIdx >= 0)
      {
       ruleIdx = -1;   // no SeqRule index; caller uses -1 to mean "color rule matched"
-      // Print("SeqBuy | Cond7 MATCHED ColorRule [" + g_colorRules[cIdx].colorType +
-      //       " COUNT>=" + IntegerToString(g_colorRules[cIdx].minCount) +
-      //       "] signal=" + g_liveSignalName + " " + IntegerToString(g_currSeqCount));
+      Print("SeqBuy | Cond7 MATCHED ColorRule [" + g_colorRules[cIdx].colorType +
+            " COUNT>=" + IntegerToString(g_colorRules[cIdx].minCount) +
+            "] signal=" + g_liveSignalName + " " + IntegerToString(g_currSeqCount));
 
             
       return true;
@@ -539,16 +536,11 @@ void DrawBlockedBuySignal(string reason)
 void ProcessSeqBuyOrders()
   {
 
-     blockReason = "";
 
 
 double gap=GetEMAGapPoints(FastEMA, SlowEMA);
 
-if(  gap<=3000)
-                     {
-blockReason = "Cond1: EMI gap too tight: " + DoubleToString(gap,1);
-return ;
-                    }
+if(  gap<=3000) return;
 
    // Condition 1 & 7: quick exits — no marker drawn if these fail
    if(g_liveSignalName == "")
@@ -558,7 +550,8 @@ return ;
    if(!BuyCond7_PatternMatched(ruleIdx)) return;
 
    // === PATTERN MATCHED — track which condition blocks and draw marker ===
-        openCountS   = CountOpenSeqBuyOrders();
+   int    openCount   = CountOpenSeqBuyOrders();
+   string blockReason = "";
 
   //  if(!CanOpenOrder_RSI_Range(OP_BUY))
   //     blockReason = "Cond1: RSI not in allowed range (30-70)";
@@ -586,9 +579,9 @@ else if(!CanOpenTradeAfterCross(OP_BUY))
 
 
 
-   else if(!BuyCond4_MaxOrdersNotReached(openCountS))
+   else if(!BuyCond4_MaxOrdersNotReached(openCount))
       blockReason = "Cond4: Max BUY orders reached (" +
-                     (openCountS) + "/" +  (SeqBuyMaxOrders) + ")";
+                    IntegerToString(openCount) + "/" + IntegerToString(SeqBuyMaxOrders) + ")";
   //  else if(!BuyCond5_MinUpriseGap(openCount))
   //     blockReason = "Cond5: Min uprise gap not reached (" +
   //                   IntegerToString(SeqBuyMinGapPoints) + "pts required)";
@@ -607,8 +600,6 @@ else if(!CanOpenTradeAfterCross(OP_BUY))
 
    if(blockReason != "")
      {
-      g_blockReason = blockReason;
-
       DrawBlockedBuySignal(blockReason);
       return;
      }

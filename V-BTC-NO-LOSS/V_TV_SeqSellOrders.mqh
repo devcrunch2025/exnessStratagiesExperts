@@ -102,8 +102,6 @@ bool SellCond2b_MinTimeBetweenOrders()
 // Condition 3: Price NOT inside NO TREND SELL ZONE
 bool SellCond3_NotInNoSellZone()
   {
-
-    if(TrendSellDailyLowGapPrice==0) return true;
   double minGapPrice = 100 * Point;
   double gapPrice = MathMax(TrendSellDailyLowGapPrice, minGapPrice);
 
@@ -221,9 +219,9 @@ bool SellCond7_PatternMatched(int &ruleIdx)
    if(cIdx >= 0)
      {
       ruleIdx = -1;   // no SeqRule index; caller uses -1 to mean "color rule matched"
-      // Print("SeqSell | Cond7 MATCHED ColorRule [" + g_colorRules[cIdx].colorType +
-      //       " COUNT>=" + IntegerToString(g_colorRules[cIdx].minCount) +
-      //       "] signal=" + g_liveSignalName + " " + IntegerToString(g_currSeqCount));
+      Print("SeqSell | Cond7 MATCHED ColorRule [" + g_colorRules[cIdx].colorType +
+            " COUNT>=" + IntegerToString(g_colorRules[cIdx].minCount) +
+            "] signal=" + g_liveSignalName + " " + IntegerToString(g_currSeqCount));
       return true;
      }
 
@@ -234,11 +232,9 @@ bool SellCond7_PatternMatched(int &ruleIdx)
 //+------------------------------------------------------------------+
 //| Count open SELL orders by this module                            |
 //+------------------------------------------------------------------+
-   int count = 0;
-
 int CountOpenSeqSellOrders()
   {
-    count=0;
+   int count = 0;
    for(int i = OrdersTotal() - 1; i >= 0; i--)
      {
       if(!OrderSelect(i, SELECT_BY_POS, MODE_TRADES)) continue;
@@ -345,29 +341,16 @@ void DrawBlockedSellSignal(string reason)
 
    ChartRedraw(0);
   }
-   string blockReason = "";
 
 //+------------------------------------------------------------------+
 //| Main entry: called every tick from OnTick                        |
 //+------------------------------------------------------------------+
-
-int openCountS = 0;
-
 void ProcessSeqSellOrders()
   {
 
-blockReason="";
-    //  Print("Cond44444444444444: Max SELL orders reached (" +
-    //                  (openCountS) + "/" +  (SeqSellMaxOrders) + ")");
-
-
     double gap=GetEMAGapPoints(FastEMA, SlowEMA);
 
-if(  gap<=3000)
-                     {
-blockReason = "Cond1: EMI gap too tight: " + DoubleToString(gap,1);
-return ;
-                    }
+if(  gap<=3000) return;
 
 
    // Condition 1 & 7: quick exits — no marker drawn if these fail
@@ -378,7 +361,8 @@ return ;
    if(!SellCond7_PatternMatched(ruleIdx)) return;
 
    // === PATTERN MATCHED — track which condition blocks and draw marker ===
-       openCountS  = CountOpenSeqSellOrders();
+   int    openCount  = CountOpenSeqSellOrders();
+   string blockReason = "";
 // if(!CanOpenOrder_RSI_Range(OP_SELL))
 //       blockReason = "Cond1: RSI not in allowed range (30-70)";
 //     else
@@ -391,32 +375,15 @@ blockReason = "Cond1: EMI gap too tight: " + DoubleToString(gap,1);
                     else
 
    if(!SellCond2_WarmupElapsed())
-   { 
       blockReason = "Cond2: Warmup not elapsed yet";
-//  Print("Cond666666666666: Max SELL orders reached (" +
-                    //  (openCountS) + "/" +  (SeqSellMaxOrders) + ")");
-
-   }
   //  else if(!SellCond2b_MinTimeBetweenOrders())
   //     blockReason = "Cond2b: Too soon after last SELL (" +
                     // IntegerToString(SeqSellMinSecsBetweenOrders) + "s minimum)";
-   else if(!SellCond3_NotInNoSellZone()){ 
-      blockReason = "Cond3: Price is inside NO SELL ZONE";
-//  Print("Cond455555555555: Max SELL orders reached (" +
-                    //  (openCountS) + "/" +  (SeqSellMaxOrders) + ")");
-
-   }
-   else if(!SellCond4_MaxOrdersNotReached(openCountS))
+  //  else if(!SellCond3_NotInNoSellZone())
+  //     blockReason = "Cond3: Price is inside NO SELL ZONE";
+   else if(!SellCond4_MaxOrdersNotReached(openCount))
       blockReason = "Cond4: Max SELL orders reached (" +
-                     (openCountS) + "/" +  (SeqSellMaxOrders) + ")";
-
-
-
-
-
-
-                      // Print("CondFinal : Max SELL orders reached (" +
-                    //  (openCountS) + "/" +  (SeqSellMaxOrders) + ")");
+                    IntegerToString(openCount) + "/" + IntegerToString(SeqSellMaxOrders) + ")";
   //  else if(!SellCond5_MinDownfallGap(openCount))
   //     blockReason = "Cond5: Min downfall gap not reached (" +
   //                   IntegerToString(SeqSellMinGapPoints) + "pts required)";
@@ -428,7 +395,7 @@ blockReason = "Cond1: EMI gap too tight: " + DoubleToString(gap,1);
 
 
 else if(!CanOpenTradeAfterCross(OP_SELL))
-      blockReason = "Cond10: CROSS Pending -  orders after cross not allowed (possible fake signal)";
+      blockReason = "Cond10: CROSS Pending - 2 orders after cross not allowed (possible fake signal)";
 
 
   //  else if(!SellCond9_EMA1BelowEMA2())
@@ -441,9 +408,6 @@ else if(!CanOpenTradeAfterCross(OP_SELL))
 
    if(blockReason != "")
      {
-
-      g_blockReason = blockReason;
-
       DrawBlockedSellSignal(blockReason);
       return;
      }
