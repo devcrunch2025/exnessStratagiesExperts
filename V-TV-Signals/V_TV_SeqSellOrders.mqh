@@ -353,7 +353,7 @@ void DrawBlockedSellSignal(string reason)
 
 int openCountS = 0;
 
-void ProcessSeqSellOrders()
+void ProcessSeqSellOrders(bool checkpattern=true)
   {
 
 blockReason="";
@@ -375,6 +375,7 @@ return ;
      { LogMessage("SeqSell | Cond1 FAILED - No live signal"); return; }
 
    int ruleIdx = -1;
+   if(checkpattern)
    if(!SellCond7_PatternMatched(ruleIdx)) return;
 
    // === PATTERN MATCHED — track which condition blocks and draw marker ===

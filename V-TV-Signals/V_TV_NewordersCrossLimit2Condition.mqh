@@ -217,13 +217,13 @@ if(price > ema9 && ema9 > ema20 && ema20 > ema50)
 {
    trend = "UPTREND";
    // g_blockReason = "";
-   ProcessSeqBuyOrders();
+   ProcessSeqBuyOrders(false);
 }
 else if(price < ema9 && ema9 < ema20 && ema20 < ema50)
 {
    trend = "DOWNTREND";
    // g_blockReason = "";
-   ProcessSeqSellOrders();
+   ProcessSeqSellOrders(false);
 }
 else
 {

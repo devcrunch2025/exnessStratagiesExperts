@@ -176,7 +176,7 @@ void ProcessSeqCloseOrders()
   {
      
    // --- 0. Partial profit booking (every tick, once per ticket) ---
-   ProcessPartialProfitClose();
+   //ProcessPartialProfitClose();
 
    // --- 1a. SeqRule pattern-triggered close (action = "CLOSE") ---
    int ruleIdx = CheckSeqRules();

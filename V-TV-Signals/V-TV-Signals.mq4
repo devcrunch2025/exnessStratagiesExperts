@@ -1197,6 +1197,13 @@ int defaultMaxSellOrders = 0;
 int OnInit()
   {
 
+//updates from input forms 
+SeqBuyProfitTarget=BuyProfitTargetInput;
+SeqSellProfitTarget=SellProfitTargetInput;
+
+
+
+
      DefaultBuyTP  = SeqBuyProfitTarget;
 DefaultSellTP = SeqSellProfitTarget;
 

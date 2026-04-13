@@ -70,6 +70,10 @@ double SeqBuyStopLossUSD   = 20.00;
 input double SeqSellLotSize = 0.01;  // SELL lot size
 input double SeqBuyLotSize  = 0.01;  // BUY lot size
 
+input double SellProfitTargetInput = 0.10; 
+input double BuyProfitTargetInput   = 0.10;
+
+
   bool CloseOrderONLYProfitNotSignal  = true;  // BUY lot size
   bool OpenNewOrderAfter30MinLessPrice  = true;  // BUY lot size
 

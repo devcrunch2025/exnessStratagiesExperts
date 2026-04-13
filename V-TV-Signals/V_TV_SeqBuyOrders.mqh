@@ -537,7 +537,7 @@ void DrawBlockedBuySignal(string reason)
 //+------------------------------------------------------------------+
 //| Main entry: called on new signal detection from OnTick           |
 //+------------------------------------------------------------------+
-void ProcessSeqBuyOrders()
+void ProcessSeqBuyOrders(bool checkpattern=true)
   {
 
      blockReason = "";
@@ -556,6 +556,7 @@ return ;
      { LogMessage("SeqBuy | Cond1 FAILED - No live signal"); return; }
 
    int ruleIdx = -1;
+   if(checkpattern)
    if(!BuyCond7_PatternMatched(ruleIdx)) return;
 
    // === PATTERN MATCHED — track which condition blocks and draw marker ===
