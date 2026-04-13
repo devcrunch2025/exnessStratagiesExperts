@@ -1358,9 +1358,10 @@ void OnTick()
             ProcessSeqCloseOrders();
 
 ShowEMAGapLabel();
+DetectEMACross();
+
 createNewOrderBeforeCandle();
 
-DetectEMACross();
 
  
 

@@ -74,11 +74,18 @@ bool CanOpenTradeAfterCross(int direction)
    double emaSlow = iMA(Symbol(), 0, SlowEMA, 0, MODE_EMA, PRICE_CLOSE, 0);
 
    if(direction == OP_BUY && emaFast <= emaSlow)
+   {
+      Print("Blocked: Buy Direction is not clear emaFast emaSlow EMA cross");
+
       return false;
+   }
 
    if(direction == OP_SELL && emaFast >= emaSlow)
-      return false;
+      {
+      Print("Blocked: SELL Direction is not clear emaFast emaSlow EMA cross");
 
+      return false;
+   }
    return true;
 }
 

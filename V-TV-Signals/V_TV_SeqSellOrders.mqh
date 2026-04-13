@@ -429,7 +429,7 @@ blockReason = "Cond1: EMI gap too tight: " + DoubleToString(gap,1);
 
 
 else if(!CanOpenTradeAfterCross(OP_SELL))
-      blockReason = "Cond10: CROSS Pending or Max orders Reached after cross not allowed (possible fake signal)";
+      blockReason = "Cond10: CROSS Pending or orders Reached after cross not allowed (possible fake signal)";
 
 
   //  else if(!SellCond9_EMA1BelowEMA2())
