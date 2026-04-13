@@ -408,7 +408,7 @@ else if(!CanOpenTradeAfterCross(OP_SELL))
 
    if(blockReason != "")
      {
-      DrawBlockedSellSignal(blockReason);
+      // DrawBlockedSellSignal(blockReason);
       return;
      }
 

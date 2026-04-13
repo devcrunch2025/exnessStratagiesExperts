@@ -375,7 +375,7 @@ return ;
      { LogMessage("SeqSell | Cond1 FAILED - No live signal"); return; }
 
    int ruleIdx = -1;
-  //  if(!SellCond7_PatternMatched(ruleIdx)) return;
+   if(!SellCond7_PatternMatched(ruleIdx)) return;
 
    // === PATTERN MATCHED — track which condition blocks and draw marker ===
        openCountS  = CountOpenSeqSellOrders();
