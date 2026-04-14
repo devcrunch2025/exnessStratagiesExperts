@@ -16,6 +16,9 @@
 //#include "V_TV_MarkerSuggestions.mqh"
 #include "V_TV_SimpleOpenCloseOrders.mqh"
 #include "V_TV_NewordersCrossLimit2Condition.mqh"
+#include "V_TV_CreateNewOrderCrossimmidiate.mqh"
+
+ 
 
 
  
@@ -975,7 +978,7 @@ void DrawDashboard()
    DrawDashBG(31 * step + 55);
 
    // Title block
-   DashRow("DB_Title",    "  EDGE ALGO  v2.0",               cTitle,    y); y += step+3;
+   DashRow("DB_Title",    "  EDGE ALGO CROSSOVER v3.0",               cTitle,    y); y += step+3;
    DashRow("DB_Symbol",   "  " + Symbol() + "   " +
                           EnumToString((ENUM_TIMEFRAMES)Period()), cSymbol, y); y += step;
    DashRow("DB_Time",     "  " + TimeToString(TimeCurrent(),
@@ -1360,14 +1363,16 @@ void OnTick()
 ShowEMAGapLabel();
 DetectEMACross();
 
-createNewOrderBeforeCandle();
-
+CreateTradeCROSSOVER_EMA20_EMA50_Trend();
+ProcessSeqCloseOrders();
+createNewOrder3000BeforeCandle();
+ProcessSeqCloseOrders();
 
  
 
 
             ProcessSimplyBuyandCloseOrders();
-
+ProcessSeqCloseOrders();
 DrawRSIBackground();
 // changeMaxOrdersLogic();
 if(stopTrading())
@@ -1572,9 +1577,9 @@ else if(preTrendSell)     newSig = "PRE SELL";
             g_lastDisplayBarTime   = Time[i];
             g_newSignalDetected    = true;  // trigger order check this tick
 
-            Print("New signal detected: ", newSig, " at ", TimeToString(Time[i], TIME_DATE|TIME_SECONDS),
-                  " Price: ", DoubleToString(g_currSignalPrice, Digits),
-                  " SeqCount: ", g_currSeqCount);
+            // Print("New signal detected: ", newSig, " at ", TimeToString(Time[i], TIME_DATE|TIME_SECONDS),
+            //       " Price: ", DoubleToString(g_currSignalPrice, Digits),
+            //       " SeqCount: ", g_currSeqCount);
            }
 
          if(i == 0) UpdateCurrentSignalLabel();
@@ -1665,7 +1670,7 @@ else if(preTrendSell)     newSig = "PRE SELL";
    MaybeRefreshDashboard();
 
    dipslayCurrentTime();
-
+ProcessSeqCloseOrders();
    
 
   }

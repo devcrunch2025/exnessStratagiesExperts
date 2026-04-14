@@ -123,7 +123,7 @@ void ShowEMAGapLabel()
       ObjectSetInteger(0, name, OBJPROP_CORNER, CORNER_RIGHT_UPPER);
       ObjectSetInteger(0, name, OBJPROP_XDISTANCE, 200);   // from right
       ObjectSetInteger(0, name, OBJPROP_YDISTANCE, 50);   // from top
-if(gap<=3000)
+if(gap<=EMAGAP3000Condition)
       ObjectSetInteger(0, name, OBJPROP_COLOR, clrRed);
 else if(gap<=10000)
       ObjectSetInteger(0, name, OBJPROP_COLOR, clrYellow);
@@ -167,7 +167,7 @@ void ShowBlockReasonLabel()
    }
 }
 
-void createNewOrderBeforeCandle()
+void createNewOrder3000BeforeCandle()
 {
 
    double gap = GetEMAGapPoints(FastEMA, SlowEMA);
@@ -184,7 +184,7 @@ void createNewOrderBeforeCandle()
       // Print("EMA Gap > 20000 pts: Allowing up to ", SeqBuyMaxOrders, " new orders. Current gap: ", DoubleToString(gap,1), " pts");
    }
    else
-   if(gap>10000)
+   if(gap>15000)
    {
       SeqBuyMaxOrders=defaultMaxBuyOrders*3;
       SeqSellMaxOrders=defaultMaxSellOrders*3;
@@ -192,7 +192,7 @@ void createNewOrderBeforeCandle()
 
       // Print("EMA Gap > 10000 pts: Allowing up to ", SeqBuyMaxOrders, " new orders. Current gap: ", DoubleToString(gap,1), " pts");
    }else
-   if(gap>6000)
+   if(gap>8000)
    {
       SeqBuyMaxOrders=defaultMaxBuyOrders*2;
       SeqSellMaxOrders=defaultMaxSellOrders*2;;
@@ -209,7 +209,7 @@ void createNewOrderBeforeCandle()
       // Print("EMA Gap <= 10000 pts: Using default max orders. Current gap: ", DoubleToString(gap,1), " pts");
       }
 
-    if(  gap>3000)
+    if(  gap>EMAGAP3000Condition)
     {
 
 

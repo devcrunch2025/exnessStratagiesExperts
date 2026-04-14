@@ -537,7 +537,7 @@ void DrawBlockedBuySignal(string reason)
 //+------------------------------------------------------------------+
 //| Main entry: called on new signal detection from OnTick           |
 //+------------------------------------------------------------------+
-void ProcessSeqBuyOrders(bool checkpattern=true)
+void ProcessSeqBuyOrders(bool checkpattern=true,bool check3000=true)
   {
 
      blockReason = "";
@@ -545,7 +545,7 @@ void ProcessSeqBuyOrders(bool checkpattern=true)
 
 double gap=GetEMAGapPoints(FastEMA, SlowEMA);
 
-if(  gap<=3000)
+if(  gap<=EMAGAP3000Condition && check3000)
                      {
 blockReason = "Cond1: EMI gap too tight: " + DoubleToString(gap,1);
 return ;
@@ -565,7 +565,7 @@ return ;
   //  if(!CanOpenOrder_RSI_Range(OP_BUY))
   //     blockReason = "Cond1: RSI not in allowed range (30-70)";
   //   else
- if(  gap<=3000)
+ if(  gap<=EMAGAP3000Condition && check3000)
                      {
 blockReason = "Cond1: EMI gap too tight: " + DoubleToString(gap,1);
 

@@ -353,7 +353,7 @@ void DrawBlockedSellSignal(string reason)
 
 int openCountS = 0;
 
-void ProcessSeqSellOrders(bool checkpattern=true)
+void ProcessSeqSellOrders(bool checkpattern=true,bool check3000=true)
   {
 
 blockReason="";
@@ -363,7 +363,7 @@ blockReason="";
 
     double gap=GetEMAGapPoints(FastEMA, SlowEMA);
 
-if(  gap<=3000)
+if(  gap<=EMAGAP3000Condition && check3000)
                      {
 blockReason = "Cond1: EMI gap too tight: " + DoubleToString(gap,1);
 return ;
@@ -384,7 +384,7 @@ return ;
 //       blockReason = "Cond1: RSI not in allowed range (30-70)";
 //     else
 // double gap=GetEMAGapPoints(FastEMA, SlowEMA);
- if(  gap<=3000)
+ if(  gap<=EMAGAP3000Condition && check3000)
                      {
 blockReason = "Cond1: EMI gap too tight: " + DoubleToString(gap,1);
 

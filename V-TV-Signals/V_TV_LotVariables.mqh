@@ -79,10 +79,12 @@ input double BuyProfitTargetInput   = 0.10;
 
 double StopTradingMaxProfit=100.00;
 
+int EMAGAP3000Condition=4000;
+
 
 //--- Max open orders (lot-independent) ------------------------------
-  int SeqSellMaxOrders  = 1;     // Max simultaneous SELL orders
-  int SeqBuyMaxOrders   = 1;     // Max simultaneous BUY orders
+  int SeqSellMaxOrders  = 2;     // Max simultaneous SELL orders
+  int SeqBuyMaxOrders   = 2;     // Max simultaneous BUY orders
 
 //+------------------------------------------------------------------+
 //| Call this once in OnInit() — scales TP/SL to the chosen lot size |

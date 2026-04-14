@@ -197,8 +197,13 @@ void ProcessSeqCloseOrders()
       if(OrderSymbol() != Symbol())                   continue;
 
       int magicNo = OrderMagicNumber();
-      if(magicNo != SeqSellMagicNo && magicNo != SeqBuyMagicNo) continue;
+      if(magicNo != SeqSellMagicNo && magicNo != SeqBuyMagicNo)
+      {  
+        Print("Close Order - magicNo is not matched "+magicNo+" - "+SeqSellMagicNo+" - "+SeqBuyMagicNo);
+        continue;
 
+
+      }
       int    orderType = OrderType();
       if(orderType != OP_SELL && orderType != OP_BUY)           continue;
 
@@ -207,6 +212,12 @@ void ProcessSeqCloseOrders()
 
       if(orderType == OP_SELL)
         {
+
+          if(profit>0)
+        Print("Close Order - SELL Order Profiit "+profit+" >="+SeqSellProfitTarget);
+
+
+
          if(profit >= SeqSellProfitTarget)
             CloseOrder(ticket, profit, "SELL PROFIT TARGET $" + DoubleToString(SeqSellProfitTarget,2));
          else if(profit <= -SeqSellStopLossUSD)
@@ -214,6 +225,11 @@ void ProcessSeqCloseOrders()
         }
       else // OP_BUY
         {
+
+ if(profit>0)
+        Print("Close Order - BUY Order Profiit "+profit+" >="+SeqBuyProfitTarget);
+
+
          if(profit >= SeqBuyProfitTarget)
             CloseOrder(ticket, profit, "BUY PROFIT TARGET $" + DoubleToString(SeqBuyProfitTarget,2));
          else if(profit <= -SeqBuyStopLossUSD)
