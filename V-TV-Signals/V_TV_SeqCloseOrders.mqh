@@ -210,6 +210,10 @@ void ProcessSeqCloseOrders()
       double profit = OrderProfit() + OrderSwap() + OrderCommission();
       int    ticket = OrderTicket();
 
+
+         int openSeconds = (int)(TimeCurrent() - OrderOpenTime());
+
+
       if(orderType == OP_SELL)
         {
 
@@ -222,6 +226,9 @@ void ProcessSeqCloseOrders()
             CloseOrder(ticket, profit, "SELL PROFIT TARGET $" + DoubleToString(SeqSellProfitTarget,2));
          else if(profit <= -SeqSellStopLossUSD)
             CloseOrder(ticket, profit, "SELL STOP LOSS $" + DoubleToString(SeqSellStopLossUSD,2));
+
+            else if(openSeconds >= 3600 && profit <= -1.0)
+      CloseOrder(ticket, profit, "SELL TIME LOSS >1H and LOSS > $1.00");
         }
       else // OP_BUY
         {
@@ -234,6 +241,8 @@ void ProcessSeqCloseOrders()
             CloseOrder(ticket, profit, "BUY PROFIT TARGET $" + DoubleToString(SeqBuyProfitTarget,2));
          else if(profit <= -SeqBuyStopLossUSD)
             CloseOrder(ticket, profit, "BUY STOP LOSS $" + DoubleToString(SeqBuyStopLossUSD,2));
+            else if(openSeconds >= 3600 && profit <= -1.0)
+      CloseOrder(ticket, profit, "SELL TIME LOSS >1H and LOSS > $1.00");
         }
      }
 

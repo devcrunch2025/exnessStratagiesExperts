@@ -66,18 +66,34 @@ else
 // Condition 2b: Minimum seconds between consecutive BUY orders
 //               Reads the actual open time of the last placed BUY order from MT4
 bool BuyCond2b_MinTimeBetweenOrders()
-  {
+{
    if(SeqBuyMinSecsBetweenOrders <= 0) return true;
 
    datetime lastOrderTime = 0;
+
+   // --- Open BUY orders
    for(int i = OrdersTotal() - 1; i >= 0; i--)
-     {
+   {
       if(!OrderSelect(i, SELECT_BY_POS, MODE_TRADES)) continue;
       if(OrderSymbol()      != Symbol())      continue;
       if(OrderMagicNumber() != SeqBuyMagicNo) continue;
       if(OrderType()        != OP_BUY)        continue;
-      if(OrderCloseTime() > lastOrderTime) lastOrderTime = OrderCloseTime();
-     }
+
+      if(OrderOpenTime() > lastOrderTime)
+         lastOrderTime = OrderOpenTime();
+   }
+
+   // --- Closed BUY orders
+   for(int i = OrdersHistoryTotal() - 1; i >= 0; i--)
+   {
+      if(!OrderSelect(i, SELECT_BY_POS, MODE_HISTORY)) continue;
+      if(OrderSymbol()      != Symbol())      continue;
+      if(OrderMagicNumber() != SeqBuyMagicNo) continue;
+      if(OrderType()        != OP_BUY)        continue;
+
+      if(OrderCloseTime() > lastOrderTime)
+         lastOrderTime = OrderCloseTime();
+   }
 
    if(lastOrderTime == 0) return true;
 
@@ -85,10 +101,12 @@ bool BuyCond2b_MinTimeBetweenOrders()
    if(elapsed >= SeqBuyMinSecsBetweenOrders) return true;
 
    Print("SeqBuy | BLOCKED [Cond2b-MinTime] Only " + IntegerToString(elapsed) +
-         "s since last real order at " + TimeToString(lastOrderTime, TIME_SECONDS) +
-         " (need >=" + IntegerToString(SeqBuyMinSecsBetweenOrders) + "s) " + BuyPatternContext());
+         "s since last BUY activity at " + TimeToString(lastOrderTime, TIME_SECONDS) +
+         " (need >= " + IntegerToString(SeqBuyMinSecsBetweenOrders) + "s) " +
+         BuyPatternContext());
+
    return false;
-  }
+}
 
 // Condition 3: Price NOT inside NO TREND BUY ZONE (near daily high)
 bool BuyCond3_NotInNoBuyZone()

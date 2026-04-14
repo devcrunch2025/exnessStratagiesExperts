@@ -74,30 +74,47 @@ else
 // Condition 2b: Minimum seconds between consecutive SELL orders
 //               Reads the actual open time of the last placed SELL order from MT4
 bool SellCond2b_MinTimeBetweenOrders()
-  {
+{
    if(SeqSellMinSecsBetweenOrders <= 0) return true;
 
-   // Find the most recently opened SELL order by this EA
    datetime lastOrderTime = 0;
+
+   // --- Open SELL orders
    for(int i = OrdersTotal() - 1; i >= 0; i--)
-     {
+   {
       if(!OrderSelect(i, SELECT_BY_POS, MODE_TRADES)) continue;
       if(OrderSymbol()      != Symbol())       continue;
       if(OrderMagicNumber() != SeqSellMagicNo) continue;
       if(OrderType()        != OP_SELL)        continue;
-      if(OrderCloseTime() > lastOrderTime) lastOrderTime = OrderCloseTime();
-     }
 
-   if(lastOrderTime == 0) return true; // no existing orders, allow
+      if(OrderOpenTime() > lastOrderTime)
+         lastOrderTime = OrderOpenTime();
+   }
+
+   // --- Closed SELL orders
+   for(int i = OrdersHistoryTotal() - 1; i >= 0; i--)
+   {
+      if(!OrderSelect(i, SELECT_BY_POS, MODE_HISTORY)) continue;
+      if(OrderSymbol()      != Symbol())       continue;
+      if(OrderMagicNumber() != SeqSellMagicNo) continue;
+      if(OrderType()        != OP_SELL)        continue;
+
+      if(OrderCloseTime() > lastOrderTime)
+         lastOrderTime = OrderCloseTime();
+   }
+
+   if(lastOrderTime == 0) return true;
 
    int elapsed = (int)(TimeCurrent() - lastOrderTime);
    if(elapsed >= SeqSellMinSecsBetweenOrders) return true;
 
    Print("SeqSell | BLOCKED [Cond2b-MinTime] Only " + IntegerToString(elapsed) +
-         "s since last real order at " + TimeToString(lastOrderTime, TIME_SECONDS) +
-         " (need >=" + IntegerToString(SeqSellMinSecsBetweenOrders) + "s) " + SellPatternContext());
+         "s since last SELL activity at " + TimeToString(lastOrderTime, TIME_SECONDS) +
+         " (need >= " + IntegerToString(SeqSellMinSecsBetweenOrders) + "s) " +
+         SellPatternContext());
+
    return false;
-  }
+}
 
 // Condition 3: Price NOT inside NO TREND SELL ZONE
 bool SellCond3_NotInNoSellZone()
