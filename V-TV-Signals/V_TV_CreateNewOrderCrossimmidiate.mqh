@@ -6,6 +6,8 @@ void  CreateTradeCROSSOVER_EMA20_EMA50_Trend()
 {
 
 
+return ;
+
    static int   lastTrendSignal = 0;
    static datetime lastBarTime  = 0; // ← ties signal to a specific bar
 

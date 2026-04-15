@@ -1358,6 +1358,8 @@ bool IsTradingTime()
 void OnTick()
   {
 
+
+//Print("Tick is started at ",TimeToString(TimeCurrent()));
             ProcessSeqCloseOrders();
 
 ShowEMAGapLabel();
@@ -1374,6 +1376,9 @@ ProcessSeqCloseOrders();
             ProcessSimplyBuyandCloseOrders();
 ProcessSeqCloseOrders();
 DrawRSIBackground();
+
+//Print("Tick is Signals Started  at ",TimeToString(TimeCurrent()));
+
 // changeMaxOrdersLogic();
 if(stopTrading())
 {
@@ -1654,6 +1659,9 @@ else if(preTrendSell)     newSig = "PRE SELL";
 
       
      }
+
+//Print("Tick is Signals End  at ",TimeToString(TimeCurrent()));
+
    ProcessSeqCloseOrders();
 
             ProcessSimplyBuyandCloseOrders();
@@ -1671,6 +1679,9 @@ else if(preTrendSell)     newSig = "PRE SELL";
 
    dipslayCurrentTime();
 ProcessSeqCloseOrders();
+
+//Print("Tick is  End  at ",TimeToString(TimeCurrent()));
+
    
 
   }

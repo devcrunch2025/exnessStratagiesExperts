@@ -560,6 +560,12 @@ void ProcessSeqBuyOrders(bool checkpattern=true,bool check3000=true)
 
      blockReason = "";
 
+     if(g_lastCrossTime == 0)
+   { 
+blockReason = "Cond1: EMI CROSS Pending";
+
+    }
+
 
 double gap=GetEMAGapPoints(FastEMA, SlowEMA);
 

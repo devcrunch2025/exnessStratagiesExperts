@@ -377,7 +377,11 @@ blockReason="";
     //  Print("Cond44444444444444: Max SELL orders reached (" +
     //                  (openCountS) + "/" +  (SeqSellMaxOrders) + ")");
 
+ if(g_lastCrossTime == 0)
+   { 
+blockReason = "Cond1: EMI CROSS Pending";
 
+    }
     double gap=GetEMAGapPoints(FastEMA, SlowEMA);
 
 if(  gap<=EMAGAP3000Condition && check3000)

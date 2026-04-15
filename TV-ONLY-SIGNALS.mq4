@@ -4,8 +4,8 @@
 //+------------------------------------------------------------------+
 #property strict
 
-#include "V_TV_includeTrendSellOrders.mqh"
-#include "V_TV_includeTrendBuyOrders.mqh"
+//#include "V_TV_includeTrendSellOrders.mqh"
+//#include "V_TV_includeTrendBuyOrders.mqh"
 
 #define TRADE_DIRECTION_BOTH      0
 #define TRADE_DIRECTION_BUY_ONLY  1
