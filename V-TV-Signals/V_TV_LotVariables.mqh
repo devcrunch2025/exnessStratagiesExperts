@@ -35,8 +35,8 @@ input int SeqBuyMinGapPoints  = 0; // BUY:  min rise between signals (pts)
 
 
 //--- Min time between orders (lot-independent) ----------------------
-input int SeqSellMinSecsBetweenOrders = 60; // SELL: min seconds between orders seconds
-input int SeqBuyMinSecsBetweenOrders  = 60; // BUY:  min seconds between orders seconds
+input int SeqSellMinSecsBetweenOrders = 60*2; // SELL: min seconds between orders seconds
+input int SeqBuyMinSecsBetweenOrders  = 60*2; // BUY:  min seconds between orders seconds
 
 //--- Fake tick / broker manipulation protection (Condition 10) ------
 input string _FakeTick_            = "--- FAKE TICK PROTECTION ---";
@@ -83,7 +83,7 @@ int EMAGAP3000Condition=3100;
 
 
 //--- Max open orders (lot-independent) ------------------------------
-  int SeqSellMaxOrders  = 1;     // Max simultaneous SELL orders
+  int SeqSellMaxOrders  =1;     // Max simultaneous SELL orders
   int SeqBuyMaxOrders   = 1;     // Max simultaneous BUY orders
 
 //+------------------------------------------------------------------+
