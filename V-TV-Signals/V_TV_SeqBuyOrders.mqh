@@ -440,7 +440,7 @@ int CountOpenSeqBuyOrders()
 bool PlaceSeqBuyOrder(int ruleIdx)
   {
 
-if(openSell>2)     
+if(openSell>1)     
 CloseAllSellOrders(true, "BUY Signal - Close SELL before opening BUY");
 
    double ask = MarketInfo(Symbol(), MODE_ASK);

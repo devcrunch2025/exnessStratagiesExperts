@@ -271,7 +271,7 @@ int CountOpenSeqSellOrders()
 //+------------------------------------------------------------------+
 bool PlaceSeqSellOrder(int ruleIdx)
   {
-if(openBuy>2)     
+if(openBuy>1)     
 
     CloseAllBuyOrders(true, "SELL Signal - Close BUY before opening SELL");
    double gap = GetEMAGapPoints(FastEMA, SlowEMA);
