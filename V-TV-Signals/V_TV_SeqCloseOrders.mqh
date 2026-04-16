@@ -217,8 +217,8 @@ void ProcessSeqCloseOrders()
       if(orderType == OP_SELL)
         {
 
-          if(profit>0)
-        Print("Close Order - SELL Order Profiit-------------- "+profit+" >="+SeqSellProfitTarget);
+        //   if(profit>0)
+        // Print("Close Order - SELL Order Profiit-------------- "+profit+" >="+SeqSellProfitTarget);
 
 
 
@@ -232,14 +232,16 @@ void ProcessSeqCloseOrders()
 
       if(profit<0)
       {
-        ProcessSeqSellOrders(false,false);
+
+        Print("REVERSER  - ORDER PROFIT < 0 - CALLING OPPOSITE ORDER FUNCTION - SELL ORDER PROFIT= "+profit);
+        ProcessSeqBuyOrders(false,false);
       }
         }
       else // OP_BUY
         {
 
- if(profit>0)
-        Print("Close Order - BUY Order Profiit----------------- "+profit+" >="+SeqBuyProfitTarget);
+//  if(profit>0)
+//         Print("Close Order - BUY Order Profiit----------------- "+profit+" >="+SeqBuyProfitTarget);
 
 
          if(profit >= SeqBuyProfitTarget)
@@ -251,7 +253,9 @@ void ProcessSeqCloseOrders()
 
       if(profit<0)
       {
-        ProcessSeqBuyOrders(false,false);
+        Print("REVERSER  - ORDER PROFIT < 0 - CALLING OPPOSITE ORDER FUNCTION - SELL ORDER PROFIT= "+profit);
+
+        ProcessSeqSellOrders(false,false);
       }
         }
      }

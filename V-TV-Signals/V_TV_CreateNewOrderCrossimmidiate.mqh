@@ -31,7 +31,7 @@ bool CheckOrderJumpAcrossEMAsFiltered()
 if(gap>1000)
 {
 Print("BUY Signal: Price jumped above EMA20. MidPrice=", DoubleToString(midPrice, 5), " EMA5=", DoubleToString(ema5, 5), " EMA20=", DoubleToString(ema20, 5));
-         ProcessSeqBuyOrders(false,false);
+         ProcessSeqBuyOrders(true,false);
 
 }
       return true;
@@ -46,7 +46,7 @@ Print("BUY Signal: Price jumped above EMA20. MidPrice=", DoubleToString(midPrice
 
 if(gap>1000)
 { 
-         ProcessSeqSellOrders(false,false);
+         ProcessSeqSellOrders(true,false);
 
 Print("SELL Signal: Price jumped below EMA20. MidPrice=", DoubleToString(midPrice, 5), " EMA5=", DoubleToString(ema5, 5), " EMA20=", DoubleToString(ema20, 5));
 }
@@ -57,6 +57,7 @@ Print("SELL Signal: Price jumped below EMA20. MidPrice=", DoubleToString(midPric
    prevMidPrice = midPrice;
    return false;
 }
+/*
 void  CreateTradeCROSSOVER_EMA20_EMA50_Trend()
 {
 
@@ -108,7 +109,7 @@ Print(" CROSSOVER - SELL Trade");
 
     
 }
-
+*/
 //+------------------------------------------------------------------+
 //| Returns: 1 = BUY, -1 = SELL, 0 = No trade                      |
 //+------------------------------------------------------------------+

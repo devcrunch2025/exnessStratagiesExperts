@@ -266,7 +266,7 @@ if(price > ema9 && ema9 > ema20 && ema20 > ema50)
 {
    trend = "UPTREND";
    // g_blockReason = "";
-   ProcessSeqBuyOrders(false);
+   ProcessSeqBuyOrders(true);
 }
 else if(price < ema9 && ema9 < ema20 && ema20 < ema50)
 {
@@ -274,7 +274,7 @@ else if(price < ema9 && ema9 < ema20 && ema20 < ema50)
 
    trend = "DOWNTREND";
    // g_blockReason = "";
-   ProcessSeqSellOrders(false);
+   ProcessSeqSellOrders(true);
 }
 else
 {

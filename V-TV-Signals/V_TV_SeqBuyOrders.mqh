@@ -564,7 +564,7 @@ void ProcessSeqBuyOrders(bool checkpattern=true,bool check3000=true)
      blockReason = "";
 
      
-if(openBuy>0)
+if(openBuy>0 && check3000 && checkpattern)
 blockReason = "Cond1: Buy Order is waiting to close " + IntegerToString(openBuy) + "";
 
 

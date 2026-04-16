@@ -379,7 +379,8 @@ void ProcessSeqSellOrders(bool checkpattern=true,bool check3000=true)
 blockReason="";
 
 
-if(openSell>0)
+if(openSell>0 && check3000 && checkpattern)
+
 blockReason = "Cond1: Sell Order is waiting to close " + IntegerToString(openSell) + "";
 
 

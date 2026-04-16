@@ -1408,7 +1408,7 @@ void OnTick()
 ShowEMAGapLabel();
 DetectEMACross();
 int test111=CheckOrderJumpAcrossEMAsFiltered();
-CreateTradeCROSSOVER_EMA20_EMA50_Trend();
+// CreateTradeCROSSOVER_EMA20_EMA50_Trend();
 ProcessSeqCloseOrders();
 createNewOrder3000BeforeCandle();
 ProcessSeqCloseOrders();
