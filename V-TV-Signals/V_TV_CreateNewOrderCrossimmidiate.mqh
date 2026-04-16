@@ -26,8 +26,14 @@ bool CheckOrderJumpAcrossEMAsFiltered()
    {
       signalText = "BUY";
       prevMidPrice = midPrice;
+   double gap = GetEMAGapPoints(FastEMA, SlowEMA);
 
+if(gap>1000)
+{
+Print("BUY Signal: Price jumped above EMA20. MidPrice=", DoubleToString(midPrice, 5), " EMA5=", DoubleToString(ema5, 5), " EMA20=", DoubleToString(ema20, 5));
          ProcessSeqBuyOrders(false,false);
+
+}
       return true;
    }
 
@@ -35,7 +41,15 @@ bool CheckOrderJumpAcrossEMAsFiltered()
    {
       signalText = "SELL";
       prevMidPrice = midPrice;
+
+       double gap = GetEMAGapPoints(FastEMA, SlowEMA);
+
+if(gap>1000)
+{ 
          ProcessSeqSellOrders(false,false);
+
+Print("SELL Signal: Price jumped below EMA20. MidPrice=", DoubleToString(midPrice, 5), " EMA5=", DoubleToString(ema5, 5), " EMA20=", DoubleToString(ema20, 5));
+}
 
       return true;
    }

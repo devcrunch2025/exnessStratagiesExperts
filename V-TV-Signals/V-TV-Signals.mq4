@@ -1239,16 +1239,16 @@ Print("SeqBuyProfitTarget: $", DoubleToString(chartMaxProfit,2));
 //SeqSellStopLossUSD  = chartMaxProfit*2;
  
   //SeqBuyStopLossUSD   = chartMaxProfit*2;
-Print("SeqBuyProfitTarget: SeqSellProfitTarget $", DoubleToString(SeqSellProfitTarget,2));
+// Print("SeqBuyProfitTarget: SeqSellProfitTarget $", DoubleToString(SeqSellProfitTarget,2));
 
-Print("SeqBuyProfitTarget11111$", SeqBuyProfitTarget);
+// Print("SeqBuyProfitTarget11111$", SeqBuyProfitTarget);
 
-bool test1=CanOpenOrder_RSI_Range(OP_BUY);
-Print("SeqBuyProfitTarget22222$", SeqBuyProfitTarget);
+// bool test1=CanOpenOrder_RSI_Range(OP_BUY);
+// Print("SeqBuyProfitTarget22222$", SeqBuyProfitTarget);
 
-bool test2=CanOpenOrder_RSI_Range(OP_SELL);
+// bool test2=CanOpenOrder_RSI_Range(OP_SELL);
 
-Print("SeqBuyProfitTarge333333$", SeqBuyProfitTarget);
+// Print("SeqBuyProfitTarge333333$", SeqBuyProfitTarget);
 
 if(SeqSellProfitTarget<=0)
 {
@@ -1322,7 +1322,7 @@ void SetCandleColors()
    ChartSetInteger(0, CHART_COLOR_CHART_DOWN, clrBlack);
 
    // Wick colors
-   ChartSetInteger(0, CHART_COLOR_CHART_LINE, clrWhite);
+   ChartSetInteger(0, CHART_COLOR_CHART_LINE, clrGreen);
 }
   void drawEMA50Line()
   {

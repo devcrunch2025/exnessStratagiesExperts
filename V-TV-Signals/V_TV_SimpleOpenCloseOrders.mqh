@@ -98,66 +98,68 @@ if(equity > StopTradingMaxProfit+g_initialBalance)
 
 }
 
-bool changeMaxOrdersLogic()
-{
+// bool changeMaxOrdersLogic()
+// {
    
  
-   if(OpenNewOrderAfter30MinLessPrice)
-   {
-    if(HandleOldBuyOrder() || HandleOldSellOrder())
-   {
-      //nothing
-   }
-}
+//    if(OpenNewOrderAfter30MinLessPrice)
+//    {
+//     if(HandleOldBuyOrder() || HandleOldSellOrder())
+//    {
+//       //nothing
+//    }
+// }
    
 
- int  buyCount = 0;
- int  sellCount = 0;
+//  int  buyCount = 0;
+//  int  sellCount = 0;
 
-   for(int i = 0; i < OrdersTotal(); i++)
-   {
-      if(OrderSelect(i, SELECT_BY_POS, MODE_TRADES))
-      {
-         if(OrderSymbol() == Symbol()) // optional filter (current pair)
-         {
-            if(OrderType() == OP_BUY)
-               buyCount++;
+//    for(int i = 0; i < OrdersTotal(); i++)
+//    {
+//       if(OrderSelect(i, SELECT_BY_POS, MODE_TRADES))
+//       {
+//          if(OrderSymbol() == Symbol()) // optional filter (current pair)
+//          {
+//             if(OrderType() == OP_BUY)
+//                buyCount++;
 
-            else if(OrderType() == OP_SELL)
-               sellCount++;
-         }
-      }
-   }
+//             else if(OrderType() == OP_SELL)
+//                sellCount++;
+//          }
+//       }
+//    }
 
-   // Print("Current BUY orders: ", buyCount, " | Current SELL orders: ", sellCount,SeqSellProfitTarget);
+//    // Print("Current BUY orders: ", buyCount, " | Current SELL orders: ", sellCount,SeqSellProfitTarget);
 
-   if(buyCount>1)
-   {
-SeqBuyProfitTarget=0.5;
+//    if(buyCount>1)
+//    {
+// SeqBuyProfitTarget=0.5;
  
-   }
-   else
-   { if(weekend=="")
-      SeqBuyProfitTarget = DefaultBuyTP;
+//    }
+//    else
+//    { if(weekend=="")
+//       SeqBuyProfitTarget = DefaultBuyTP;
   
 
-   }
-     if(sellCount > 1)
-   {
-SeqSellProfitTarget=0.5;
-//  Print(" SeqSellProfitTarget is uPdated  ", sellCount,SeqSellProfitTarget);
+//    }
+//      if(sellCount > 1)
+//    {
+// SeqSellProfitTarget=0.5;
+// //  Print(" SeqSellProfitTarget is uPdated  ", sellCount,SeqSellProfitTarget);
 
-   }
-   else if(weekend=="")
-   {
-  SeqSellProfitTarget = DefaultSellTP;
+//    }
+//    else if(weekend=="")
+//    {
+//   SeqSellProfitTarget = DefaultSellTP;
 
-   }
+//    }
 
    
-return false;
+// return false;
    
-}
+// }
+
+/*
  
 bool HandleOldBuyOrder()
 {
@@ -208,7 +210,8 @@ bool HandleOldBuyOrder()
 
    return false;
 }
- 
+*/
+ /*
 bool HandleOldSellOrder()
 {
    int ticket = -1;
@@ -258,12 +261,12 @@ bool HandleOldSellOrder()
    return false;
 }
  
-
+*/
 
 int isFirstBuyOrderClosed=false;
 int isFirstSellOrderClosed=false;
 double FirstOrderLossThreshold = -5.0; // $4 loss threshold to trigger close of oldest order = 4
-void CloseOldestBuyIfLoss()
+/*void CloseOldestBuyIfLoss()
 {
 if(isFirstBuyOrderClosed)
    {
@@ -307,7 +310,9 @@ if(isFirstBuyOrderClosed)
             Print("Failed to close BUY: ", GetLastError());
       }
    }
-}void CloseOldestSellIfLoss()
+}
+*/
+void CloseOldestSellIfLoss()
 {
 
    if(isFirstSellOrderClosed)
@@ -881,7 +886,7 @@ void CloseAllBuyOrders(bool foreceClose = false,string reason="")
       }
    }
 }
-
+/*
 void UpdateTPBasedOnLastClosed()
 {
 
@@ -934,4 +939,4 @@ void UpdateTPBasedOnLastClosed()
          }
       }
    }
-}
+}*/

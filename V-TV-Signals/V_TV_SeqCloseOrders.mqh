@@ -218,7 +218,7 @@ void ProcessSeqCloseOrders()
         {
 
           if(profit>0)
-        Print("Close Order - SELL Order Profiit "+profit+" >="+SeqSellProfitTarget);
+        Print("Close Order - SELL Order Profiit-------------- "+profit+" >="+SeqSellProfitTarget);
 
 
 
@@ -239,7 +239,7 @@ void ProcessSeqCloseOrders()
         {
 
  if(profit>0)
-        Print("Close Order - BUY Order Profiit "+profit+" >="+SeqBuyProfitTarget);
+        Print("Close Order - BUY Order Profiit----------------- "+profit+" >="+SeqBuyProfitTarget);
 
 
          if(profit >= SeqBuyProfitTarget)

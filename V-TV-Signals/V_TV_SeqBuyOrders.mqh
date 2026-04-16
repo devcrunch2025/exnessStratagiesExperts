@@ -160,6 +160,7 @@ bool CanOpenOrder_RSI_Range_old(int rsiPeriod = 14, double minRSI = 35, double m
 //| Smart Entry Filter (RSI + EMA + Reversal)                        |
 //| Returns true = SAFE to trade                                     |
 //+------------------------------------------------------------------+
+/*
 bool CanOpenOrder_RSI_Range(int orderType)
 {
    // 🔹 1. RSI Filter
@@ -248,7 +249,7 @@ bool CanOpenOrder_RSI_Range(int orderType)
    }
 
    return true; // ✅ SAFE
-}
+}*/
  
 // Condition 4: Max open orders not reached
 bool BuyCond4_MaxOrdersNotReached(int openCount)
@@ -567,11 +568,11 @@ if(openBuy>0)
 blockReason = "Cond1: Buy Order is waiting to close " + IntegerToString(openBuy) + "";
 
 
-     if(g_lastCrossTime == 0)
-   { 
-blockReason = "Cond1: EMI CROSS Pending";
+//      if(g_lastCrossTime == 0)
+//    { 
+// blockReason = "Cond1: EMI CROSS Pending";
 
-    }
+//     }
 
 
 double gap=GetEMAGapPoints(FastEMA, SlowEMA);

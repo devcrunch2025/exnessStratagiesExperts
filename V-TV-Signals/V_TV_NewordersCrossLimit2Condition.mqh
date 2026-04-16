@@ -22,7 +22,7 @@ void DetectEMACross()
       {
          g_lastCrossTime = TimeCurrent();
 
-         Print("EMA CROSS DETECTED at: ", TimeToString(g_lastCrossTime));
+         // Print("EMA CROSS DETECTED at: ", TimeToString(g_lastCrossTime));
 
          // Optional: close trades
          // CloseAllBuyOrders(true, "EMA Cross");
@@ -40,16 +40,17 @@ int openTradeSellCount=0;
 bool CanOpenTradeAfterCross(int direction)
 {
 
-   
+     openTradeBuyCount=0;
+  openTradeSellCount=0;
 
    //return true; // TEMP: Remove this line to enable the full logic
    // direction: OP_BUY or OP_SELL
 
    if(g_lastCrossTime == 0)
    { 
-      Print("Blocked: Cross is not Reached");
+      // Print("Blocked: Cross is not Reached");
 
-      return false; // ❌ no cross yet
+     // return false; // ❌ no cross yet
    }
    int tradeCount = 0;
 
@@ -64,8 +65,20 @@ bool CanOpenTradeAfterCross(int direction)
             break;
 
          if(OrderType() == direction)
+         {
             tradeCount++;
+
+         }
       }
+   }
+
+   if(direction == OP_BUY)
+   {
+      openTradeBuyCount=tradeCount;
+   }
+   else
+   {
+      openTradeSellCount=tradeCount;
    }
 
    // 🔒 Limit 2 trades after cross
@@ -109,7 +122,7 @@ bool CanOpenTradeAfterCross(int direction)
    {
        g_lastCrossTime = TimeCurrent();
 
-         Print("EMA NEAR CROSS DETECTED at: ", TimeToString(g_lastCrossTime), " | Gap: ", DoubleToString(gap/Point,1), " pts");
+         // Print("EMA NEAR CROSS DETECTED at: ", TimeToString(g_lastCrossTime), " | Gap: ", DoubleToString(gap/Point,1), " pts");
 
    }
 
@@ -125,7 +138,7 @@ void ShowEMAGapLabel()
 //Print("Current EMA Gap: ", DoubleToString(gap,1), " pts. Max Orders: ", SeqBuyMaxOrders, "/", SeqSellMaxOrders);
   
 
-  text=text+" B("+openSell+") S("+openBuy+")";
+  text=text+" B("+openTradeBuyCount+") S("+openTradeSellCount+")";
   text=text+"  :"+trend; 
 
 

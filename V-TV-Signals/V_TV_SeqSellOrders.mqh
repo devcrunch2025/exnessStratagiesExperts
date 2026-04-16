@@ -386,11 +386,11 @@ blockReason = "Cond1: Sell Order is waiting to close " + IntegerToString(openSel
     //  Print("Cond44444444444444: Max SELL orders reached (" +
     //                  (openCountS) + "/" +  (SeqSellMaxOrders) + ")");
 
- if(g_lastCrossTime == 0)
-   { 
-blockReason = "Cond1: EMI CROSS Pending";
+//  if(g_lastCrossTime == 0)
+//    { 
+// blockReason = "Cond1: EMI CROSS Pending";
 
-    }
+//     }
     double gap=GetEMAGapPoints(FastEMA, SlowEMA);
 
 if(  gap<=EMAGAP3000Condition && check3000)
