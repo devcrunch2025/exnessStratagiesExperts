@@ -2,6 +2,47 @@
 //| Returns: 1 = BUY, -1 = SELL, 0 = No trade                       |
 //| Logic: EMA20 vs EMA50 — first fresh cross on closed bars only    |
 //+------------------------------------------------------------------+
+
+bool CheckOrderJumpAcrossEMAsFiltered()
+{
+   static double prevMidPrice = 0.0;
+
+   RefreshRates();
+
+   double midPrice = (Bid + Ask) / 2.0;
+
+   double ema5  = iMA(Symbol(), 0, 5,  0, MODE_EMA, PRICE_CLOSE, 0);
+   double ema20 = iMA(Symbol(), 0, 20, 0, MODE_EMA, PRICE_CLOSE, 0);
+
+   string signalText = "";
+
+   if(prevMidPrice == 0.0)
+   {
+      prevMidPrice = midPrice;
+      return false;
+   }
+
+   if(prevMidPrice < ema20 && midPrice > ema5 && ema5 > ema20)
+   {
+      signalText = "BUY";
+      prevMidPrice = midPrice;
+
+         ProcessSeqBuyOrders(false,false);
+      return true;
+   }
+
+   if(prevMidPrice > ema20 && midPrice < ema5 && ema5 < ema20)
+   {
+      signalText = "SELL";
+      prevMidPrice = midPrice;
+         ProcessSeqSellOrders(false,false);
+
+      return true;
+   }
+
+   prevMidPrice = midPrice;
+   return false;
+}
 void  CreateTradeCROSSOVER_EMA20_EMA50_Trend()
 {
 

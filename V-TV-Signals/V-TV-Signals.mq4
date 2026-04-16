@@ -1199,7 +1199,7 @@ int defaultMaxSellOrders = 0;
 //+------------------------------------------------------------------+
 int OnInit()
   {
-
+SetCandleColors();
 //updates from input forms 
 SeqBuyProfitTarget=BuyProfitTargetInput;
 SeqSellProfitTarget=SellProfitTargetInput;
@@ -1305,7 +1305,49 @@ CurrentSellTP = DefaultSellTP;
    EventSetTimer(MathMax(1, DashboardRefreshSeconds));
    UpdateDailyLowProximityLines();
    UpdateCurrentSignalLabel();
+   ChartSetInteger(0, CHART_MODE, CHART_CANDLES);
+
    return(INIT_SUCCEEDED);
+  }
+void SetCandleColors()
+{
+   // Bullish candle (close > open)
+   ChartSetInteger(0, CHART_COLOR_CANDLE_BULL, clrGreen);
+
+   // Bearish candle (close < open)
+   ChartSetInteger(0, CHART_COLOR_CANDLE_BEAR, clrRed);
+
+   // Candle border colors
+   ChartSetInteger(0, CHART_COLOR_CHART_UP, clrWhite);
+   ChartSetInteger(0, CHART_COLOR_CHART_DOWN, clrBlack);
+
+   // Wick colors
+   ChartSetInteger(0, CHART_COLOR_CHART_LINE, clrWhite);
+}
+  void drawEMA50Line()
+  {
+
+    return ;
+  string name = "EMA50_Line";
+
+   // Create indicator if not exists
+   if(ObjectFind(0, name) == -1)
+   {
+      ObjectCreate(0, name, OBJ_TREND, 0, 0, 0);
+      ObjectSetInteger(0, name, OBJPROP_COLOR, clrYellow);
+      ObjectSetInteger(0, name, OBJPROP_WIDTH, 2);
+   }
+
+   // Get EMA values
+   datetime t1 = Time[50];
+   datetime t2 = Time[0];
+
+   double p1 = iMA(NULL, 0, 50, 0, MODE_EMA, PRICE_CLOSE, 50);
+   double p2 = iMA(NULL, 0, 50, 0, MODE_EMA, PRICE_CLOSE, 0);
+
+   // Update line
+   ObjectMove(0, name, 0, t1, p1);
+   ObjectMove(0, name, 1, t2, p2);
   }
 
 //+------------------------------------------------------------------+
@@ -1361,10 +1403,11 @@ void OnTick()
 
 //Print("Tick is started at ",TimeToString(TimeCurrent()));
             ProcessSeqCloseOrders();
+   drawEMA50Line();
 
 ShowEMAGapLabel();
 DetectEMACross();
-
+int test111=CheckOrderJumpAcrossEMAsFiltered();
 CreateTradeCROSSOVER_EMA20_EMA50_Trend();
 ProcessSeqCloseOrders();
 createNewOrder3000BeforeCandle();

@@ -34,8 +34,13 @@ void DetectEMACross()
    prevSlow = emaSlow;
 }
 
+int openTradeBuyCount=0;
+int openTradeSellCount=0;
+
 bool CanOpenTradeAfterCross(int direction)
 {
+
+   
 
    //return true; // TEMP: Remove this line to enable the full logic
    // direction: OP_BUY or OP_SELL
@@ -119,14 +124,19 @@ void ShowEMAGapLabel()
    string text = "EMA Gap: " + DoubleToString(gap, 1) + " pts. "+IntegerToString(SeqBuyMaxOrders)+"/"+IntegerToString(SeqSellMaxOrders);
 //Print("Current EMA Gap: ", DoubleToString(gap,1), " pts. Max Orders: ", SeqBuyMaxOrders, "/", SeqSellMaxOrders);
   
-  text=text+" Trend:"+trend;
+
+  text=text+" B("+openSell+") S("+openBuy+")";
+  text=text+"  :"+trend; 
+
+
+  
    if(ObjectFind(0, name) == -1)
    { 
       ObjectCreate(0, name, OBJ_LABEL, 0, 0, 0);
 }
       // ✅ RIGHT TOP
       ObjectSetInteger(0, name, OBJPROP_CORNER, CORNER_RIGHT_UPPER);
-      ObjectSetInteger(0, name, OBJPROP_XDISTANCE, 300);   // from right
+      ObjectSetInteger(0, name, OBJPROP_XDISTANCE, 500);   // from right
       ObjectSetInteger(0, name, OBJPROP_YDISTANCE, 50);   // from top
 if(gap<=EMAGAP3000Condition)
       ObjectSetInteger(0, name, OBJPROP_COLOR, clrRed);
@@ -180,7 +190,7 @@ void createNewOrder3000BeforeCandle()
    // Print("gap","-",gap," - ",DoubleToString(gap,1));
 
 
-if(gap<2000)
+if(gap<1000)
    {
        CloseAllSellOrders(true, "EMA Gap < 2000 pts");
        CloseAllBuyOrders(true, "EMA Gap < 2000 pts");

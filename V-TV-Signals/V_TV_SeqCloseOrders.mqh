@@ -229,6 +229,11 @@ void ProcessSeqCloseOrders()
 
             // else if(openSeconds >= 3600 && profit <= -1.0)
       // CloseOrder(ticket, profit, "SELL TIME LOSS >1H and LOSS > $1.00");
+
+      if(profit<0)
+      {
+        ProcessSeqSellOrders(false,false);
+      }
         }
       else // OP_BUY
         {
@@ -243,6 +248,11 @@ void ProcessSeqCloseOrders()
             CloseOrder(ticket, profit, "BUY STOP LOSS $" + DoubleToString(SeqBuyStopLossUSD,2));
             // else if(openSeconds >= 3600 && profit <= -1.0)
       // CloseOrder(ticket, profit, "SELL TIME LOSS >1H and LOSS > $1.00");
+
+      if(profit<0)
+      {
+        ProcessSeqBuyOrders(false,false);
+      }
         }
      }
 
