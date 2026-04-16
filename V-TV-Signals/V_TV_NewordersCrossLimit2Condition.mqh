@@ -226,18 +226,18 @@ if(gap<1000)
 
       // Print("EMA Gap > 10000 pts: Allowing up to ", SeqBuyMaxOrders, " new orders. Current gap: ", DoubleToString(gap,1), " pts");
     } else
-   if(gap>10000)
+   if(gap>8000)
    {
-      //SeqBuyMaxOrders=defaultMaxBuyOrders+4;
-      //SeqSellMaxOrders=defaultMaxSellOrders+4;
+      SeqBuyMaxOrders=defaultMaxBuyOrders+2;
+      SeqSellMaxOrders=defaultMaxSellOrders+2;
      // g_blockReason = "EMA Gap > 10000 pts: Allowing up to "+ SeqBuyMaxOrders+ " new orders. Current gap: "+ DoubleToString(gap,1)+ " pts";
 
       // Print("EMA Gap > 10000 pts: Allowing up to ", SeqBuyMaxOrders, " new orders. Current gap: ", DoubleToString(gap,1), " pts");
    }else
-   if(gap>4000)
+   if(gap>5000)
    {
-      //SeqBuyMaxOrders=defaultMaxBuyOrders+1;
-      //SeqSellMaxOrders=defaultMaxSellOrders+1;;
+      SeqBuyMaxOrders=defaultMaxBuyOrders+1;
+      SeqSellMaxOrders=defaultMaxSellOrders+1;;
       //g_blockReason = "EMA Gap > 5000 pts: Allowing up to "+ SeqBuyMaxOrders+" new orders. Current gap: "+ DoubleToString(gap,1)+ " pts";
 
       // Print("EMA Gap > 10000 pts: Allowing up to ", SeqBuyMaxOrders, " new orders. Current gap: ", DoubleToString(gap,1), " pts");
