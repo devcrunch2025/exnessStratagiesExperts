@@ -271,7 +271,7 @@ int CountOpenSeqSellOrders()
 //+------------------------------------------------------------------+
 bool PlaceSeqSellOrder(int ruleIdx)
   {
-if(openBuy>1)     
+// if(openBuy>1)     
 
     CloseAllBuyOrders(true, "SELL Signal - Close BUY before opening SELL");
    double gap = GetEMAGapPoints(FastEMA, SlowEMA);
@@ -377,6 +377,12 @@ void ProcessSeqSellOrders(bool checkpattern=true,bool check3000=true)
   {
 
 blockReason="";
+
+
+if(openSell>0)
+blockReason = "Cond1: Sell Order is waiting to close " + IntegerToString(openSell) + "";
+
+
     //  Print("Cond44444444444444: Max SELL orders reached (" +
     //                  (openCountS) + "/" +  (SeqSellMaxOrders) + ")");
 
@@ -390,7 +396,7 @@ blockReason = "Cond1: EMI CROSS Pending";
 if(  gap<=EMAGAP3000Condition && check3000)
                      {
 blockReason = "Cond1: EMI gap too tight: " + DoubleToString(gap,1);
-return ;
+// return ;
                     }
 
 

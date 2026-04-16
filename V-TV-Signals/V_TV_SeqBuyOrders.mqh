@@ -440,7 +440,7 @@ int CountOpenSeqBuyOrders()
 bool PlaceSeqBuyOrder(int ruleIdx)
   {
 
-if(openSell>1)     
+// if(openSell>1)     
 CloseAllSellOrders(true, "BUY Signal - Close SELL before opening BUY");
 
    double ask = MarketInfo(Symbol(), MODE_ASK);
@@ -561,6 +561,11 @@ void ProcessSeqBuyOrders(bool checkpattern=true,bool check3000=true)
   {
 
      blockReason = "";
+
+     
+if(openBuy>0)
+blockReason = "Cond1: Buy Order is waiting to close " + IntegerToString(openBuy) + "";
+
 
      if(g_lastCrossTime == 0)
    { 

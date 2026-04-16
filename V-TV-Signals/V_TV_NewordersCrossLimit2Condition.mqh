@@ -179,36 +179,42 @@ void createNewOrder3000BeforeCandle()
 
    // Print("gap","-",gap," - ",DoubleToString(gap,1));
 
+
+if(gap<2000)
+   {
+       CloseAllSellOrders(true, "EMA Gap < 2000 pts");
+       CloseAllBuyOrders(true, "EMA Gap < 2000 pts");
+   }
    
 
    if(gap>20000)
    {
-      SeqBuyMaxOrders=defaultMaxBuyOrders;
-      SeqSellMaxOrders=defaultMaxSellOrders;
+     /// SeqBuyMaxOrders=defaultMaxBuyOrders;
+     /// SeqSellMaxOrders=defaultMaxSellOrders;
       //g_blockReason = "EMA Gap > 20000 pts: Allowing up to "+ SeqBuyMaxOrders+ " new orders. Current gap: "+ DoubleToString(gap,1)+ " pts";
       // Print("EMA Gap > 20000 pts: Allowing up to ", SeqBuyMaxOrders, " new orders. Current gap: ", DoubleToString(gap,1), " pts");
    }
    else
    if(gap>15000)
    {
-      SeqBuyMaxOrders=defaultMaxBuyOrders+5;
-      SeqSellMaxOrders=defaultMaxSellOrders+5;
+      ///SeqBuyMaxOrders=defaultMaxBuyOrders+5;
+      ///SeqSellMaxOrders=defaultMaxSellOrders+5;
      // g_blockReason = "EMA Gap > 10000 pts: Allowing up to "+ SeqBuyMaxOrders+ " new orders. Current gap: "+ DoubleToString(gap,1)+ " pts";
 
       // Print("EMA Gap > 10000 pts: Allowing up to ", SeqBuyMaxOrders, " new orders. Current gap: ", DoubleToString(gap,1), " pts");
     } else
    if(gap>10000)
    {
-      SeqBuyMaxOrders=defaultMaxBuyOrders+4;
-      SeqSellMaxOrders=defaultMaxSellOrders+4;
+      //SeqBuyMaxOrders=defaultMaxBuyOrders+4;
+      //SeqSellMaxOrders=defaultMaxSellOrders+4;
      // g_blockReason = "EMA Gap > 10000 pts: Allowing up to "+ SeqBuyMaxOrders+ " new orders. Current gap: "+ DoubleToString(gap,1)+ " pts";
 
       // Print("EMA Gap > 10000 pts: Allowing up to ", SeqBuyMaxOrders, " new orders. Current gap: ", DoubleToString(gap,1), " pts");
    }else
    if(gap>4000)
    {
-      SeqBuyMaxOrders=defaultMaxBuyOrders+3;
-      SeqSellMaxOrders=defaultMaxSellOrders+3;;
+      //SeqBuyMaxOrders=defaultMaxBuyOrders+1;
+      //SeqSellMaxOrders=defaultMaxSellOrders+1;;
       //g_blockReason = "EMA Gap > 5000 pts: Allowing up to "+ SeqBuyMaxOrders+" new orders. Current gap: "+ DoubleToString(gap,1)+ " pts";
 
       // Print("EMA Gap > 10000 pts: Allowing up to ", SeqBuyMaxOrders, " new orders. Current gap: ", DoubleToString(gap,1), " pts");
