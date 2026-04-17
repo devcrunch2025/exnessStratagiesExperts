@@ -35,8 +35,8 @@ input int SeqBuyMinGapPoints  = 0; // BUY:  min rise between signals (pts)
 
 
 //--- Min time between orders (lot-independent) ----------------------
-input int SeqSellMinSecsBetweenOrders = 5; // SELL: min seconds between orders seconds
-input int SeqBuyMinSecsBetweenOrders  = 5; // BUY:  min seconds between orders seconds
+input int SeqSellMinSecsBetweenOrders = 30; // SELL: min seconds between orders seconds
+input int SeqBuyMinSecsBetweenOrders  = 30; // BUY:  min seconds between orders seconds
 
 //--- Fake tick / broker manipulation protection (Condition 10) ------
 input string _FakeTick_            = "--- FAKE TICK PROTECTION ---";
@@ -62,9 +62,9 @@ bool isEMATouchesInsideLines=false;;
 
 //--- 0.01; Profit / StopLoss (auto-calculated in InitLotDependentVars) ----
 double SeqSellProfitTarget = 0.10;
-double SeqSellStopLossUSD  =1;
+double SeqSellStopLossUSD  = 20.00;
 double SeqBuyProfitTarget  =0.10;
-double SeqBuyStopLossUSD   =1;
+double SeqBuyStopLossUSD   = 20.00;
 
 //--- Lot sizes (CHANGE ONLY THESE) ----------------------------------
 input double SeqSellLotSize = 0.01;  // SELL lot size
@@ -79,14 +79,10 @@ input double BuyProfitTargetInput   = 0.10;
 
 double StopTradingMaxProfit=100.00;
 
-int EMAGAP3000Condition=4000;
-
 
 //--- Max open orders (lot-independent) ------------------------------
-  int SeqSellMaxOrders  =1;     // Max simultaneous SELL orders
+  int SeqSellMaxOrders  = 1;     // Max simultaneous SELL orders
   int SeqBuyMaxOrders   = 1;     // Max simultaneous BUY orders
-
-  bool enableEMAGapDynamicMaxOrders = true; // Adjust max orders based on EMA gap (Condition 9)
 
 //+------------------------------------------------------------------+
 //| Call this once in OnInit() — scales TP/SL to the chosen lot size |

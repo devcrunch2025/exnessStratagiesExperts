@@ -74,47 +74,30 @@ else
 // Condition 2b: Minimum seconds between consecutive SELL orders
 //               Reads the actual open time of the last placed SELL order from MT4
 bool SellCond2b_MinTimeBetweenOrders()
-{
+  {
    if(SeqSellMinSecsBetweenOrders <= 0) return true;
 
+   // Find the most recently opened SELL order by this EA
    datetime lastOrderTime = 0;
-
-   // --- Open SELL orders
    for(int i = OrdersTotal() - 1; i >= 0; i--)
-   {
+     {
       if(!OrderSelect(i, SELECT_BY_POS, MODE_TRADES)) continue;
       if(OrderSymbol()      != Symbol())       continue;
       if(OrderMagicNumber() != SeqSellMagicNo) continue;
       if(OrderType()        != OP_SELL)        continue;
+      if(OrderCloseTime() > lastOrderTime) lastOrderTime = OrderCloseTime();
+     }
 
-      if(OrderOpenTime() > lastOrderTime)
-         lastOrderTime = OrderOpenTime();
-   }
-
-   // --- Closed SELL orders
-   for(int i = OrdersHistoryTotal() - 1; i >= 0; i--)
-   {
-      if(!OrderSelect(i, SELECT_BY_POS, MODE_HISTORY)) continue;
-      if(OrderSymbol()      != Symbol())       continue;
-      if(OrderMagicNumber() != SeqSellMagicNo) continue;
-      if(OrderType()        != OP_SELL)        continue;
-
-      if(OrderCloseTime() > lastOrderTime)
-         lastOrderTime = OrderCloseTime();
-   }
-
-   if(lastOrderTime == 0) return true;
+   if(lastOrderTime == 0) return true; // no existing orders, allow
 
    int elapsed = (int)(TimeCurrent() - lastOrderTime);
    if(elapsed >= SeqSellMinSecsBetweenOrders) return true;
 
    Print("SeqSell | BLOCKED [Cond2b-MinTime] Only " + IntegerToString(elapsed) +
-         "s since last SELL activity at " + TimeToString(lastOrderTime, TIME_SECONDS) +
-         " (need >= " + IntegerToString(SeqSellMinSecsBetweenOrders) + "s) " +
-         SellPatternContext());
-
+         "s since last real order at " + TimeToString(lastOrderTime, TIME_SECONDS) +
+         " (need >=" + IntegerToString(SeqSellMinSecsBetweenOrders) + "s) " + SellPatternContext());
    return false;
-}
+  }
 
 // Condition 3: Price NOT inside NO TREND SELL ZONE
 bool SellCond3_NotInNoSellZone()
@@ -271,9 +254,6 @@ int CountOpenSeqSellOrders()
 //+------------------------------------------------------------------+
 bool PlaceSeqSellOrder(int ruleIdx)
   {
-// if(openBuy>1)     
-
-    CloseAllBuyOrders(true, "SELL Signal - Close BUY before opening SELL");
    double gap = GetEMAGapPoints(FastEMA, SlowEMA);
 
     
@@ -373,31 +353,20 @@ void DrawBlockedSellSignal(string reason)
 
 int openCountS = 0;
 
-void ProcessSeqSellOrders(bool checkpattern=true,bool check3000=true,bool checkMaxorders=true)
+void ProcessSeqSellOrders(bool checkpattern=true)
   {
 
 blockReason="";
-
-
-if(openSell>0 && check3000 && checkpattern)
-
-blockReason = "Cond1: Sell Order is waiting to close " + IntegerToString(openSell) + "";
-
-
     //  Print("Cond44444444444444: Max SELL orders reached (" +
     //                  (openCountS) + "/" +  (SeqSellMaxOrders) + ")");
 
-//  if(g_lastCrossTime == 0)
-//    { 
-// blockReason = "Cond1: EMI CROSS Pending";
 
-//     }
     double gap=GetEMAGapPoints(FastEMA, SlowEMA);
 
-if(  gap<=EMAGAP3000Condition && check3000)
+if(  gap<=3000)
                      {
 blockReason = "Cond1: EMI gap too tight: " + DoubleToString(gap,1);
-// return ;
+return ;
                     }
 
 
@@ -415,7 +384,7 @@ blockReason = "Cond1: EMI gap too tight: " + DoubleToString(gap,1);
 //       blockReason = "Cond1: RSI not in allowed range (30-70)";
 //     else
 // double gap=GetEMAGapPoints(FastEMA, SlowEMA);
- if(  gap<=EMAGAP3000Condition && check3000)
+ if(  gap<=3000)
                      {
 blockReason = "Cond1: EMI gap too tight: " + DoubleToString(gap,1);
 
@@ -438,7 +407,7 @@ blockReason = "Cond1: EMI gap too tight: " + DoubleToString(gap,1);
                     //  (openCountS) + "/" +  (SeqSellMaxOrders) + ")");
 
    }
-   else if(!SellCond4_MaxOrdersNotReached(openCountS) && checkMaxorders)
+   else if(!SellCond4_MaxOrdersNotReached(openCountS))
       blockReason = "Cond4: Max SELL orders reached (" +
                      (openCountS) + "/" +  (SeqSellMaxOrders) + ")";
 
@@ -459,7 +428,7 @@ blockReason = "Cond1: EMI gap too tight: " + DoubleToString(gap,1);
   //                   IntegerToString(SeqSellEMAFlatMinPts) + "pts slope required)";
 
 
-else if(!CanOpenTradeAfterCross(OP_SELL) && checkMaxorders)
+else if(!CanOpenTradeAfterCross(OP_SELL))
       blockReason = "Cond10: CROSS Pending or orders Reached after cross not allowed (possible fake signal)";
 
 

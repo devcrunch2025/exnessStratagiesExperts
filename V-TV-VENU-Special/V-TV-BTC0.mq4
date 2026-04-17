@@ -16,9 +16,6 @@
 //#include "V_TV_MarkerSuggestions.mqh"
 #include "V_TV_SimpleOpenCloseOrders.mqh"
 #include "V_TV_NewordersCrossLimit2Condition.mqh"
-#include "V_TV_CreateNewOrderCrossimmidiate.mqh"
-
- 
 
 
  
@@ -978,7 +975,7 @@ void DrawDashboard()
    DrawDashBG(31 * step + 55);
 
    // Title block
-   DashRow("DB_Title",    "  EDGE ALGO CROSSOVER v3.0",               cTitle,    y); y += step+3;
+   DashRow("DB_Title",    "  BTC 0.01",               cTitle,    y); y += step+3;
    DashRow("DB_Symbol",   "  " + Symbol() + "   " +
                           EnumToString((ENUM_TIMEFRAMES)Period()), cSymbol, y); y += step;
    DashRow("DB_Time",     "  " + TimeToString(TimeCurrent(),
@@ -1199,7 +1196,7 @@ int defaultMaxSellOrders = 0;
 //+------------------------------------------------------------------+
 int OnInit()
   {
-SetCandleColors();
+
 //updates from input forms 
 SeqBuyProfitTarget=BuyProfitTargetInput;
 SeqSellProfitTarget=SellProfitTargetInput;
@@ -1305,49 +1302,7 @@ CurrentSellTP = DefaultSellTP;
    EventSetTimer(MathMax(1, DashboardRefreshSeconds));
    UpdateDailyLowProximityLines();
    UpdateCurrentSignalLabel();
-   ChartSetInteger(0, CHART_MODE, CHART_CANDLES);
-
    return(INIT_SUCCEEDED);
-  }
-void SetCandleColors()
-{
-   // Bullish candle (close > open)
-   ChartSetInteger(0, CHART_COLOR_CANDLE_BULL, clrGreen);
-
-   // Bearish candle (close < open)
-   ChartSetInteger(0, CHART_COLOR_CANDLE_BEAR, clrRed);
-
-   // Candle border colors
-   ChartSetInteger(0, CHART_COLOR_CHART_UP, clrWhite);
-   ChartSetInteger(0, CHART_COLOR_CHART_DOWN, clrBlack);
-
-   // Wick colors
-   ChartSetInteger(0, CHART_COLOR_CHART_LINE, clrGreen);
-}
-  void drawEMA50Line()
-  {
-
-    return ;
-  string name = "EMA50_Line";
-
-   // Create indicator if not exists
-   if(ObjectFind(0, name) == -1)
-   {
-      ObjectCreate(0, name, OBJ_TREND, 0, 0, 0);
-      ObjectSetInteger(0, name, OBJPROP_COLOR, clrYellow);
-      ObjectSetInteger(0, name, OBJPROP_WIDTH, 2);
-   }
-
-   // Get EMA values
-   datetime t1 = Time[50];
-   datetime t2 = Time[0];
-
-   double p1 = iMA(NULL, 0, 50, 0, MODE_EMA, PRICE_CLOSE, 50);
-   double p2 = iMA(NULL, 0, 50, 0, MODE_EMA, PRICE_CLOSE, 0);
-
-   // Update line
-   ObjectMove(0, name, 0, t1, p1);
-   ObjectMove(0, name, 1, t2, p2);
   }
 
 //+------------------------------------------------------------------+
@@ -1400,29 +1355,20 @@ bool IsTradingTime()
 void OnTick()
   {
 
-
-//Print("Tick is started at ",TimeToString(TimeCurrent()));
             ProcessSeqCloseOrders();
-   drawEMA50Line();
 
 ShowEMAGapLabel();
 DetectEMACross();
-// int test123=DetectPrevCandleAndCurrentMoveSignal();
-// int test111=CheckOrderJumpAcrossEMAsFiltered();
-// CreateTradeCROSSOVER_EMA20_EMA50_Trend();
-ProcessSeqCloseOrders();
-createNewOrder3000BeforeCandle();
-ProcessSeqCloseOrders();
+
+createNewOrderBeforeCandle();
+
 
  
 
 
             ProcessSimplyBuyandCloseOrders();
-ProcessSeqCloseOrders();
+
 DrawRSIBackground();
-
-//Print("Tick is Signals Started  at ",TimeToString(TimeCurrent()));
-
 // changeMaxOrdersLogic();
 if(stopTrading())
 {
@@ -1626,9 +1572,9 @@ else if(preTrendSell)     newSig = "PRE SELL";
             g_lastDisplayBarTime   = Time[i];
             g_newSignalDetected    = true;  // trigger order check this tick
 
-            // Print("New signal detected: ", newSig, " at ", TimeToString(Time[i], TIME_DATE|TIME_SECONDS),
-            //       " Price: ", DoubleToString(g_currSignalPrice, Digits),
-            //       " SeqCount: ", g_currSeqCount);
+            Print("New signal detected: ", newSig, " at ", TimeToString(Time[i], TIME_DATE|TIME_SECONDS),
+                  " Price: ", DoubleToString(g_currSignalPrice, Digits),
+                  " SeqCount: ", g_currSeqCount);
            }
 
          if(i == 0) UpdateCurrentSignalLabel();
@@ -1703,9 +1649,6 @@ else if(preTrendSell)     newSig = "PRE SELL";
 
       
      }
-
-//Print("Tick is Signals End  at ",TimeToString(TimeCurrent()));
-
    ProcessSeqCloseOrders();
 
             ProcessSimplyBuyandCloseOrders();
@@ -1722,9 +1665,6 @@ else if(preTrendSell)     newSig = "PRE SELL";
    MaybeRefreshDashboard();
 
    dipslayCurrentTime();
-ProcessSeqCloseOrders();
-
-//Print("Tick is  End  at ",TimeToString(TimeCurrent()));
 
    
 

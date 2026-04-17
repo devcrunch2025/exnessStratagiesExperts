@@ -22,7 +22,7 @@ void DetectEMACross()
       {
          g_lastCrossTime = TimeCurrent();
 
-         // Print("EMA CROSS DETECTED at: ", TimeToString(g_lastCrossTime));
+         Print("EMA CROSS DETECTED at: ", TimeToString(g_lastCrossTime));
 
          // Optional: close trades
          // CloseAllBuyOrders(true, "EMA Cross");
@@ -34,24 +34,15 @@ void DetectEMACross()
    prevSlow = emaSlow;
 }
 
-int openTradeBuyCount=0;
-int openTradeSellCount=0;
-
 bool CanOpenTradeAfterCross(int direction)
 {
-
-     openTradeBuyCount=0;
-  openTradeSellCount=0;
 
    //return true; // TEMP: Remove this line to enable the full logic
    // direction: OP_BUY or OP_SELL
 
    if(g_lastCrossTime == 0)
-   { 
-      // Print("Blocked: Cross is not Reached");
+      return false; // ❌ no cross yet
 
-     // return false; // ❌ no cross yet
-   }
    int tradeCount = 0;
 
    for(int i = OrdersHistoryTotal()-1; i >= 0; i--)
@@ -65,20 +56,8 @@ bool CanOpenTradeAfterCross(int direction)
             break;
 
          if(OrderType() == direction)
-         {
             tradeCount++;
-
-         }
       }
-   }
-
-   if(direction == OP_BUY)
-   {
-      openTradeBuyCount=tradeCount;
-   }
-   else
-   {
-      openTradeSellCount=tradeCount;
    }
 
    // 🔒 Limit 2 trades after cross
@@ -118,17 +97,17 @@ bool CanOpenTradeAfterCross(int direction)
 
    double gap = MathAbs(emaFast - emaSlow);
 
-   if(gap/Point<100)
+   if(gap/Point<1000)
    {
-       g_lastCrossTime = TimeCurrent();
+       //g_lastCrossTime = TimeCurrent();
 
-         // Print("EMA NEAR CROSS DETECTED at: ", TimeToString(g_lastCrossTime), " | Gap: ", DoubleToString(gap/Point,1), " pts");
+         //Print("EMA NEAR CROSS DETECTED at: ", TimeToString(g_lastCrossTime), " | Gap: ", DoubleToString(gap/Point,1), " pts");
 
    }
 
    return gap / Point; // return in points
 }
-string trend="";
+
 void ShowEMAGapLabel()
 {
    string name = "EMA_GAP_LABEL";
@@ -136,22 +115,15 @@ void ShowEMAGapLabel()
    double gap = GetEMAGapPoints(FastEMA, SlowEMA);
    string text = "EMA Gap: " + DoubleToString(gap, 1) + " pts. "+IntegerToString(SeqBuyMaxOrders)+"/"+IntegerToString(SeqSellMaxOrders);
 //Print("Current EMA Gap: ", DoubleToString(gap,1), " pts. Max Orders: ", SeqBuyMaxOrders, "/", SeqSellMaxOrders);
-  
-
-  text=text+" B("+openTradeBuyCount+") S("+openTradeSellCount+")";
-  text=text+"  :"+trend; 
-
-
-  
    if(ObjectFind(0, name) == -1)
    { 
       ObjectCreate(0, name, OBJ_LABEL, 0, 0, 0);
 }
       // ✅ RIGHT TOP
       ObjectSetInteger(0, name, OBJPROP_CORNER, CORNER_RIGHT_UPPER);
-      ObjectSetInteger(0, name, OBJPROP_XDISTANCE, 500);   // from right
+      ObjectSetInteger(0, name, OBJPROP_XDISTANCE, 200);   // from right
       ObjectSetInteger(0, name, OBJPROP_YDISTANCE, 50);   // from top
-if(gap<=EMAGAP3000Condition)
+if(gap<=3000)
       ObjectSetInteger(0, name, OBJPROP_COLOR, clrRed);
 else if(gap<=10000)
       ObjectSetInteger(0, name, OBJPROP_COLOR, clrYellow);
@@ -195,49 +167,35 @@ void ShowBlockReasonLabel()
    }
 }
 
-void createNewOrder3000BeforeCandle()
+void createNewOrderBeforeCandle()
 {
 
    double gap = GetEMAGapPoints(FastEMA, SlowEMA);
 
    // Print("gap","-",gap," - ",DoubleToString(gap,1));
 
-
-if(gap<1000)
-   {
-       CloseAllSellOrders(true, "EMA Gap < 2000 pts");
-       CloseAllBuyOrders(true, "EMA Gap < 2000 pts");
-   }
    
 
-   if(gap>20000 && enableEMAGapDynamicMaxOrders)
+   if(gap>20000)
    {
-      //SeqBuyMaxOrders=defaultMaxBuyOrders+4;
-      // SeqSellMaxOrders=defaultMaxSellOrders+4;
+      SeqBuyMaxOrders=defaultMaxBuyOrders*4;
+      SeqSellMaxOrders=defaultMaxSellOrders*4;
       //g_blockReason = "EMA Gap > 20000 pts: Allowing up to "+ SeqBuyMaxOrders+ " new orders. Current gap: "+ DoubleToString(gap,1)+ " pts";
       // Print("EMA Gap > 20000 pts: Allowing up to ", SeqBuyMaxOrders, " new orders. Current gap: ", DoubleToString(gap,1), " pts");
    }
    else
-   if(gap>15000 && enableEMAGapDynamicMaxOrders)
+   if(gap>10000)
    {
-      //SeqBuyMaxOrders=defaultMaxBuyOrders+3;
-      //SeqSellMaxOrders=defaultMaxSellOrders+3;
-     // g_blockReason = "EMA Gap > 10000 pts: Allowing up to "+ SeqBuyMaxOrders+ " new orders. Current gap: "+ DoubleToString(gap,1)+ " pts";
-
-      // Print("EMA Gap > 10000 pts: Allowing up to ", SeqBuyMaxOrders, " new orders. Current gap: ", DoubleToString(gap,1), " pts");
-    } else
-   if(gap>8000 && enableEMAGapDynamicMaxOrders)
-   {
-      //SeqBuyMaxOrders=defaultMaxBuyOrders+2;
-      //SeqSellMaxOrders=defaultMaxSellOrders+2;
+      SeqBuyMaxOrders=defaultMaxBuyOrders*3;
+      SeqSellMaxOrders=defaultMaxSellOrders*3;
      // g_blockReason = "EMA Gap > 10000 pts: Allowing up to "+ SeqBuyMaxOrders+ " new orders. Current gap: "+ DoubleToString(gap,1)+ " pts";
 
       // Print("EMA Gap > 10000 pts: Allowing up to ", SeqBuyMaxOrders, " new orders. Current gap: ", DoubleToString(gap,1), " pts");
    }else
-   if(gap>5000 && enableEMAGapDynamicMaxOrders)
+   if(gap>6000)
    {
-     // SeqBuyMaxOrders=defaultMaxBuyOrders+1;
-      //SeqSellMaxOrders=defaultMaxSellOrders+1;;
+      SeqBuyMaxOrders=defaultMaxBuyOrders*2;
+      SeqSellMaxOrders=defaultMaxSellOrders*2;;
       //g_blockReason = "EMA Gap > 5000 pts: Allowing up to "+ SeqBuyMaxOrders+" new orders. Current gap: "+ DoubleToString(gap,1)+ " pts";
 
       // Print("EMA Gap > 10000 pts: Allowing up to ", SeqBuyMaxOrders, " new orders. Current gap: ", DoubleToString(gap,1), " pts");
@@ -251,7 +209,7 @@ if(gap<1000)
       // Print("EMA Gap <= 10000 pts: Using default max orders. Current gap: ", DoubleToString(gap,1), " pts");
       }
 
-    if(  gap>EMAGAP3000Condition)
+    if(  gap>3000)
     {
 
 
@@ -260,34 +218,31 @@ double ema20 = iMA(Symbol(), 0, 20, 0, MODE_EMA, PRICE_CLOSE, 0);
 double ema50 = iMA(Symbol(), 0, 50, 0, MODE_EMA, PRICE_CLOSE, 0);
 double price = Close[0];
 
- trend = "SIDEWAYS";
+string trend = "SIDEWAYS";
 
 if(price > ema9 && ema9 > ema20 && ema20 > ema50)
 {
    trend = "UPTREND";
    // g_blockReason = "";
-   ProcessSeqBuyOrders(true);
+   ProcessSeqBuyOrders(false);
 }
 else if(price < ema9 && ema9 < ema20 && ema20 < ema50)
 {
-
-
    trend = "DOWNTREND";
    // g_blockReason = "";
-   ProcessSeqSellOrders(true);
+   ProcessSeqSellOrders(false);
 }
 else
 {
-   // Print("Gap above "+EMAGAP3000Condition+" but No UPTREND or NO DownTREND detected");
-   g_blockReason = "Gap above "+EMAGAP3000Condition+" but No UPTREND or NO DownTREND detected";
+   Print("Gap above 3000 but No UPTREND or NO DownTREND detected");
+   g_blockReason = "Gap above 3000 but No UPTREND or NO DownTREND detected";
 }
  
-   // Print("Trend is ", trend);
   
     }
     else
     {
-   g_blockReason = "EMA GAP is less than "+EMAGAP3000Condition+" — orders are blocked";
+   g_blockReason = "EMA GAP is less than 3000 — orders are blocked";
     
 
     }

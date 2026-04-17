@@ -198,8 +198,6 @@ double minGap = atr * 0.5;   // 50% of volatility
 
 
 
-
-
 // if(g_liveSignalName    + " " + IntegerToString(g_currSeqCount) == "TREND BUY 1"  )
 //   {
 // CloseAllSellOrders(true); 

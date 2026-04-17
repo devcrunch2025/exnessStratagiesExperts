@@ -66,34 +66,18 @@ else
 // Condition 2b: Minimum seconds between consecutive BUY orders
 //               Reads the actual open time of the last placed BUY order from MT4
 bool BuyCond2b_MinTimeBetweenOrders()
-{
+  {
    if(SeqBuyMinSecsBetweenOrders <= 0) return true;
 
    datetime lastOrderTime = 0;
-
-   // --- Open BUY orders
    for(int i = OrdersTotal() - 1; i >= 0; i--)
-   {
+     {
       if(!OrderSelect(i, SELECT_BY_POS, MODE_TRADES)) continue;
       if(OrderSymbol()      != Symbol())      continue;
       if(OrderMagicNumber() != SeqBuyMagicNo) continue;
       if(OrderType()        != OP_BUY)        continue;
-
-      if(OrderOpenTime() > lastOrderTime)
-         lastOrderTime = OrderOpenTime();
-   }
-
-   // --- Closed BUY orders
-   for(int i = OrdersHistoryTotal() - 1; i >= 0; i--)
-   {
-      if(!OrderSelect(i, SELECT_BY_POS, MODE_HISTORY)) continue;
-      if(OrderSymbol()      != Symbol())      continue;
-      if(OrderMagicNumber() != SeqBuyMagicNo) continue;
-      if(OrderType()        != OP_BUY)        continue;
-
-      if(OrderCloseTime() > lastOrderTime)
-         lastOrderTime = OrderCloseTime();
-   }
+      if(OrderCloseTime() > lastOrderTime) lastOrderTime = OrderCloseTime();
+     }
 
    if(lastOrderTime == 0) return true;
 
@@ -101,12 +85,10 @@ bool BuyCond2b_MinTimeBetweenOrders()
    if(elapsed >= SeqBuyMinSecsBetweenOrders) return true;
 
    Print("SeqBuy | BLOCKED [Cond2b-MinTime] Only " + IntegerToString(elapsed) +
-         "s since last BUY activity at " + TimeToString(lastOrderTime, TIME_SECONDS) +
-         " (need >= " + IntegerToString(SeqBuyMinSecsBetweenOrders) + "s) " +
-         BuyPatternContext());
-
+         "s since last real order at " + TimeToString(lastOrderTime, TIME_SECONDS) +
+         " (need >=" + IntegerToString(SeqBuyMinSecsBetweenOrders) + "s) " + BuyPatternContext());
    return false;
-}
+  }
 
 // Condition 3: Price NOT inside NO TREND BUY ZONE (near daily high)
 bool BuyCond3_NotInNoBuyZone()
@@ -160,7 +142,6 @@ bool CanOpenOrder_RSI_Range_old(int rsiPeriod = 14, double minRSI = 35, double m
 //| Smart Entry Filter (RSI + EMA + Reversal)                        |
 //| Returns true = SAFE to trade                                     |
 //+------------------------------------------------------------------+
-/*
 bool CanOpenOrder_RSI_Range(int orderType)
 {
    // 🔹 1. RSI Filter
@@ -249,7 +230,7 @@ bool CanOpenOrder_RSI_Range(int orderType)
    }
 
    return true; // ✅ SAFE
-}*/
+}
  
 // Condition 4: Max open orders not reached
 bool BuyCond4_MaxOrdersNotReached(int openCount)
@@ -441,9 +422,7 @@ int CountOpenSeqBuyOrders()
 bool PlaceSeqBuyOrder(int ruleIdx)
   {
 
-// if(openSell>1)     
-CloseAllSellOrders(true, "BUY Signal - Close SELL before opening BUY");
-
+     
    double ask = MarketInfo(Symbol(), MODE_ASK);
    double gap = GetEMAGapPoints(FastEMA, SlowEMA);
 
@@ -558,26 +537,15 @@ void DrawBlockedBuySignal(string reason)
 //+------------------------------------------------------------------+
 //| Main entry: called on new signal detection from OnTick           |
 //+------------------------------------------------------------------+
-void ProcessSeqBuyOrders(bool checkpattern=true,bool check3000=true,bool checkMaxorders=true)
+void ProcessSeqBuyOrders(bool checkpattern=true)
   {
 
      blockReason = "";
 
-     
-if(openBuy>0 && check3000 && checkpattern)
-blockReason = "Cond1: Buy Order is waiting to close " + IntegerToString(openBuy) + "";
-
-
-//      if(g_lastCrossTime == 0)
-//    { 
-// blockReason = "Cond1: EMI CROSS Pending";
-
-//     }
-
 
 double gap=GetEMAGapPoints(FastEMA, SlowEMA);
 
-if(  gap<=EMAGAP3000Condition && check3000)
+if(  gap<=3000)
                      {
 blockReason = "Cond1: EMI gap too tight: " + DoubleToString(gap,1);
 return ;
@@ -597,7 +565,7 @@ return ;
   //  if(!CanOpenOrder_RSI_Range(OP_BUY))
   //     blockReason = "Cond1: RSI not in allowed range (30-70)";
   //   else
- if(  gap<=EMAGAP3000Condition && check3000)
+ if(  gap<=3000)
                      {
 blockReason = "Cond1: EMI gap too tight: " + DoubleToString(gap,1);
 
@@ -611,7 +579,7 @@ blockReason = "Cond1: EMI gap too tight: " + DoubleToString(gap,1);
    else if(!BuyCond3_NotInNoBuyZone())
       blockReason = "Cond3: Price is inside NO BUY ZONE";
 
-else if(!CanOpenTradeAfterCross(OP_BUY) && checkMaxorders)
+else if(!CanOpenTradeAfterCross(OP_BUY))
       blockReason = "Cond10: CROSS Pending -  orders after cross not allowed (possible fake signal)";
 
  
@@ -620,7 +588,7 @@ else if(!CanOpenTradeAfterCross(OP_BUY) && checkMaxorders)
 
 
 
-   else if(!BuyCond4_MaxOrdersNotReached(openCountS) && checkMaxorders)
+   else if(!BuyCond4_MaxOrdersNotReached(openCountS))
       blockReason = "Cond4: Max BUY orders reached (" +
                      (openCountS) + "/" +  (SeqBuyMaxOrders) + ")";
   //  else if(!BuyCond5_MinUpriseGap(openCount))
