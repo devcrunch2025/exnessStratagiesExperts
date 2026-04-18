@@ -194,7 +194,175 @@ void ShowBlockReasonLabel()
       ObjectSetString( 0, name, OBJPROP_TEXT,  "BLOCKED: " + g_blockReason);
    }
 }
+//+------------------------------------------------------------------+
+//| Market strength classifier                                       |
+//| Returns:                                                         |
+//|  2 = strong buy                                                  |
+//|  1 = weak buy                                                    |
+//|  0 = sideways / no trade                                         |
+//| -1 = weak sell                                                   |
+//| -2 = strong sell                                                 |
+//+------------------------------------------------------------------+
+int GetMarketTrendStrength()
+{
+   if(Bars < 10) return 0;
 
+   // ===== EMA values =====
+   double ema9_1  = iMA(Symbol(), 0, 9,  0, MODE_EMA, PRICE_CLOSE, 1);
+   double ema9_2  = iMA(Symbol(), 0, 9,  0, MODE_EMA, PRICE_CLOSE, 2);
+
+   double ema20_1 = iMA(Symbol(), 0, 20, 0, MODE_EMA, PRICE_CLOSE, 1);
+   double ema20_2 = iMA(Symbol(), 0, 20, 0, MODE_EMA, PRICE_CLOSE, 2);
+
+   double ema50_1 = iMA(Symbol(), 0, 50, 0, MODE_EMA, PRICE_CLOSE, 1);
+   double ema50_2 = iMA(Symbol(), 0, 50, 0, MODE_EMA, PRICE_CLOSE, 2);
+
+   double price = Close[1];
+
+   // ===== EMA direction =====
+   bool emaUpStrong =
+      (price   > ema9_1)  &&
+      (ema9_1  > ema20_1) &&
+      (ema20_1 > ema50_1) &&
+      (ema9_1  > ema9_2)  &&
+      (ema20_1 >= ema20_2) &&
+      (ema50_1 >= ema50_2);
+
+   bool emaDownStrong =
+      (price   < ema9_1)  &&
+      (ema9_1  < ema20_1) &&
+      (ema20_1 < ema50_1) &&
+      (ema9_1  < ema9_2)  &&
+      (ema20_1 <= ema20_2) &&
+      (ema50_1 <= ema50_2);
+
+   bool emaUpWeak =
+      (price > ema9_1) &&
+      (ema9_1 > ema20_1) &&
+      (ema9_1 > ema9_2);
+
+   bool emaDownWeak =
+      (price < ema9_1) &&
+      (ema9_1 < ema20_1) &&
+      (ema9_1 < ema9_2);
+
+   // ===== EMA gaps =====
+   double gap9_20  = MathAbs(ema9_1  - ema20_1) / Point;
+   double gap20_50 = MathAbs(ema20_1 - ema50_1) / Point;
+
+   // ===== Candle movement =====
+   double avg1 = (High[1] + Low[1]) / 2.0;
+   double avg2 = (High[2] + Low[2]) / 2.0;
+   double avg3 = (High[3] + Low[3]) / 2.0;
+   double avg4 = (High[4] + Low[4]) / 2.0;
+   double avg5 = (High[5] + Low[5]) / 2.0;
+
+   double step1 = (avg1 - avg2) / Point;
+   double step2 = (avg2 - avg3) / Point;
+   double step3 = (avg3 - avg4) / Point;
+   double step4 = (avg4 - avg5) / Point;
+
+   bool avgUp =
+      (step1 > 0 && step2 > 0) ||
+      (step1 > 0 && step2 > 0 && step3 > 0);
+
+   bool avgDown =
+      (step1 < 0 && step2 < 0) ||
+      (step1 < 0 && step2 < 0 && step3 < 0);
+
+   double highestAvg = avg1;
+   double lowestAvg  = avg1;
+
+   for(int i = 1; i <= 5; i++)
+   {
+      double avg = (High[i] + Low[i]) / 2.0;
+      if(avg > highestAvg) highestAvg = avg;
+      if(avg < lowestAvg)  lowestAvg  = avg;
+   }
+
+   double avgRangePoints = (highestAvg - lowestAvg) / Point;
+
+   // ===== Candle size =====
+   double c1Height = (High[1] - Low[1]) / Point;
+   double c2Height = (High[2] - Low[2]) / Point;
+   double c3Height = (High[3] - Low[3]) / Point;
+
+   double b1 = MathAbs(Close[1] - Open[1]) / Point;
+   double b2 = MathAbs(Close[2] - Open[2]) / Point;
+   double b3 = MathAbs(Close[3] - Open[3]) / Point;
+
+   // ===== BTCUSD values - tune if needed =====
+   double strongGap9_20   = 800;
+   double strongGap20_50  = 1200;
+   double weakGap9_20Min  = 250;
+   double minAvgRangeWeak = 800;
+   double minAvgRangeStrong = 1500;
+   double minHeightWeak   = 250;
+   double minHeightStrong = 500;
+   double minBodyWeak     = 100;
+   double minBodyStrong   = 200;
+
+   // ===== Sideways filter =====
+   bool sideways =
+      (gap9_20 < weakGap9_20Min) ||
+      (avgRangePoints < minAvgRangeWeak) ||
+      ((b1 < minBodyWeak) && (b2 < minBodyWeak) && (b3 < minBodyWeak));
+
+   if(sideways)
+      return 0;
+
+   // ===== Strong BUY =====
+   if(emaUpStrong &&
+      avgUp &&
+      gap9_20 >= strongGap9_20 &&
+      gap20_50 >= strongGap20_50 &&
+      avgRangePoints >= minAvgRangeStrong &&
+      c1Height >= minHeightStrong &&
+      c2Height >= minHeightStrong &&
+      b1 >= minBodyStrong &&
+      b2 >= minBodyStrong)
+   {
+      return 2;
+   }
+
+   // ===== Strong SELL =====
+   if(emaDownStrong &&
+      avgDown &&
+      gap9_20 >= strongGap9_20 &&
+      gap20_50 >= strongGap20_50 &&
+      avgRangePoints >= minAvgRangeStrong &&
+      c1Height >= minHeightStrong &&
+      c2Height >= minHeightStrong &&
+      b1 >= minBodyStrong &&
+      b2 >= minBodyStrong)
+   {
+      return -2;
+   }
+
+   // ===== Weak BUY =====
+   if(emaUpWeak &&
+      avgUp &&
+      gap9_20 >= weakGap9_20Min &&
+      avgRangePoints >= minAvgRangeWeak &&
+      c1Height >= minHeightWeak &&
+      b1 >= minBodyWeak)
+   {
+      return 1;
+   }
+
+   // ===== Weak SELL =====
+   if(emaDownWeak &&
+      avgDown &&
+      gap9_20 >= weakGap9_20Min &&
+      avgRangePoints >= minAvgRangeWeak &&
+      c1Height >= minHeightWeak &&
+      b1 >= minBodyWeak)
+   {
+      return -1;
+   }
+
+   return 0;
+}
 void createNewOrder3000BeforeCandle()
 {
 
@@ -212,7 +380,56 @@ if(gap<2000)
    SeqBuyMaxOrders=gap/1000;
    SeqSellMaxOrders=gap/1000;
 
-    SeqSellMaxOrders=defaultMaxSellOrders+4;
+   trend="";
+
+   //  SeqSellMaxOrders=defaultMaxSellOrders+4;
+
+   if(gap>EMAGAP3000Condition)
+   {
+
+       int trendnumber = GetMarketTrendStrength();
+
+   if(trendnumber == 2)
+   {
+      Print("Strong BUY trend");
+      trend="UPTREND";
+      ProcessSeqBuyOrders(true,true,true);
+   }
+   else if(trendnumber == 1)
+   {
+      Print("Weak BUY trend");
+      trend="Weak BUY trend";
+      g_blockReason = "EMA Gap Weak trend detected: "+trend;
+   }
+   else if(trendnumber == -1)
+   {
+      Print("Weak SELL trend");
+      trend="Weak SELL trend";
+
+      g_blockReason = "EMA Gap Weak trend detected: "+trend;
+
+   }
+   else if(trendnumber == -2)
+   {
+      Print("Strong SELL trend");
+      trend="DOWNTREND";
+       ProcessSeqSellOrders(true,true,true);
+   }
+   else
+   {
+      Print("SIDEWAYS / NO TRADE");
+      trend="SIDEWAYS / NO TRADE";
+
+      g_blockReason = "EMA Gap > "+EMAGAP3000Condition+" pts but Market is SIDEWAYS / NO CLEAR TREND";
+   }
+   }
+   else
+   {
+      Print("EMA Gap is less than "+EMAGAP3000Condition+" pts: No new orders allowed");
+      trend="";
+
+      g_blockReason = "EMA Gap is less than "+EMAGAP3000Condition+" pts: No new orders allowed";   
+   }
      
    
 /*
@@ -259,6 +476,8 @@ if(gap<2000)
 
       */
 
+
+/*
     if(  gap>EMAGAP3000Condition)
     {
 
@@ -312,7 +531,7 @@ if(gap<2000)
       g_blockReason = "EMA GAP is less than "+EMAGAP3000Condition+" — orders are blocked";
     }
  
-
+*/
 /*
 
    double ema9  = iMA(Symbol(), 0, 9, 0, MODE_EMA, PRICE_CLOSE, 0);

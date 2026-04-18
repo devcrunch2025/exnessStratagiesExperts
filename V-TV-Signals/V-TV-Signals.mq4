@@ -387,59 +387,59 @@ void UpdateDailyLowProximityLines()
 
   double noBuyBottom = dailyHigh - buyGapPrice;
 
-   // Daily High line (blue dashed)
-   string highLine = "TB_DailyHigh";
-   if(ObjectFind(0, highLine) < 0)
-      ObjectCreate(0, highLine, OBJ_HLINE, 0, 0, dailyHigh);
-   ObjectMove(0, highLine, 0, 0, dailyHigh);
-   ObjectSetInteger(0, highLine, OBJPROP_COLOR, clrDodgerBlue);
-   ObjectSetInteger(0, highLine, OBJPROP_STYLE, STYLE_DASH);
-  ObjectSetInteger(0, highLine, OBJPROP_WIDTH, 3);
-  ObjectSetInteger(0, highLine, OBJPROP_BACK, false);
-  ObjectSetString(0,  highLine, OBJPROP_TOOLTIP, "BUY BLOCK TOP (Daily High): " + DoubleToString(dailyHigh, Digits));
+  //  // Daily High line (blue dashed)
+  //  string highLine = "TB_DailyHigh";
+  //  if(ObjectFind(0, highLine) < 0)
+  //     ObjectCreate(0, highLine, OBJ_HLINE, 0, 0, dailyHigh);
+  //  ObjectMove(0, highLine, 0, 0, dailyHigh);
+  //  ObjectSetInteger(0, highLine, OBJPROP_COLOR, clrDodgerBlue);
+  //  ObjectSetInteger(0, highLine, OBJPROP_STYLE, STYLE_DASH);
+  // ObjectSetInteger(0, highLine, OBJPROP_WIDTH, 3);
+  // ObjectSetInteger(0, highLine, OBJPROP_BACK, false);
+  // ObjectSetString(0,  highLine, OBJPROP_TOOLTIP, "BUY BLOCK TOP (Daily High): " + DoubleToString(dailyHigh, Digits));
 
-  // Keep top boundary as line only; range label below explains full area
-  ObjectDelete(0, "TB_DailyHigh_Lbl");
+  // // Keep top boundary as line only; range label below explains full area
+  // ObjectDelete(0, "TB_DailyHigh_Lbl");
 
-   // No-Buy Zone boundary (cyan dotted)
-   string noBuyLine = "TB_NoBuyZone";
-   if(ObjectFind(0, noBuyLine) < 0)
-      ObjectCreate(0, noBuyLine, OBJ_HLINE, 0, 0, noBuyBottom);
-   ObjectMove(0, noBuyLine, 0, 0, noBuyBottom);
-   ObjectSetInteger(0, noBuyLine, OBJPROP_COLOR, clrAqua);
-  ObjectSetInteger(0, noBuyLine, OBJPROP_STYLE, STYLE_DASHDOT);
-  ObjectSetInteger(0, noBuyLine, OBJPROP_WIDTH, 2);
-  ObjectSetInteger(0, noBuyLine, OBJPROP_BACK, false);
-   ObjectSetString(0,  noBuyLine, OBJPROP_TOOLTIP,
-                   "BUY BLOCK BOTTOM: " + DoubleToString(noBuyBottom, Digits) +
-                   " | Gap: $" + DoubleToString(buyGapPrice,2) + " below Daily High (min 100 pts)");
+  //  // No-Buy Zone boundary (cyan dotted)
+  //  string noBuyLine = "TB_NoBuyZone";
+  //  if(ObjectFind(0, noBuyLine) < 0)
+  //     ObjectCreate(0, noBuyLine, OBJ_HLINE, 0, 0, noBuyBottom);
+  //  ObjectMove(0, noBuyLine, 0, 0, noBuyBottom);
+  //  ObjectSetInteger(0, noBuyLine, OBJPROP_COLOR, clrAqua);
+  // ObjectSetInteger(0, noBuyLine, OBJPROP_STYLE, STYLE_DASHDOT);
+  // ObjectSetInteger(0, noBuyLine, OBJPROP_WIDTH, 2);
+  // ObjectSetInteger(0, noBuyLine, OBJPROP_BACK, false);
+  //  ObjectSetString(0,  noBuyLine, OBJPROP_TOOLTIP,
+  //                  "BUY BLOCK BOTTOM: " + DoubleToString(noBuyBottom, Digits) +
+  //                  " | Gap: $" + DoubleToString(buyGapPrice,2) + " below Daily High (min 100 pts)");
 
-  // Keep bottom boundary as line only; range label below explains full area
-  ObjectDelete(0, "TB_NoBuyZone_Lbl");
+  // // Keep bottom boundary as line only; range label below explains full area
+  // ObjectDelete(0, "TB_NoBuyZone_Lbl");
 
-  string noBuyRangeLabel = "TB_NoBuyZone_RangeLbl";
-  double noBuyMid = (dailyHigh + noBuyBottom) / 2.0;
-  if(ObjectFind(0, noBuyRangeLabel) < 0)
-    ObjectCreate(0, noBuyRangeLabel, OBJ_TEXT, 0, Time[5], noBuyMid);
-  ObjectMove(0, noBuyRangeLabel, 0, Time[5], noBuyMid);
-  ObjectSetText(noBuyRangeLabel,
-            " BUY BLOCKED FROM " + DoubleToString(noBuyBottom, Digits) +
-            " TO " + DoubleToString(dailyHigh, Digits),
-            10, "Arial Bold", clrAqua);
+  // string noBuyRangeLabel = "TB_NoBuyZone_RangeLbl";
+  // double noBuyMid = (dailyHigh + noBuyBottom) / 2.0;
+  // if(ObjectFind(0, noBuyRangeLabel) < 0)
+  //   ObjectCreate(0, noBuyRangeLabel, OBJ_TEXT, 0, Time[5], noBuyMid);
+  // ObjectMove(0, noBuyRangeLabel, 0, Time[5], noBuyMid);
+  // ObjectSetText(noBuyRangeLabel,
+  //           " BUY BLOCKED FROM " + DoubleToString(noBuyBottom, Digits) +
+  //           " TO " + DoubleToString(dailyHigh, Digits),
+  //           10, "Arial Bold", clrAqua);
 
    // No-Buy Zone background rectangle (light red, drawn behind candles)
-   datetime bgStart2 = (Bars > 2) ? Time[Bars-2] : Time[0];
-   datetime bgEnd2   = D'2099.12.31 00:00';
-   string buyBg = "TB_NoBuyZone_Bg";
-   if(ObjectFind(0, buyBg) < 0)
-      ObjectCreate(0, buyBg, OBJ_RECTANGLE, 0, bgStart2, dailyHigh, bgEnd2, noBuyBottom);
-   ObjectMove(0, buyBg, 0, bgStart2, dailyHigh);
-   ObjectMove(0, buyBg, 1, bgEnd2,   noBuyBottom);
-  ObjectSetInteger(0, buyBg, OBJPROP_COLOR,   C'50,110,150');
-   ObjectSetInteger(0, buyBg, OBJPROP_FILL,    true);
-   ObjectSetInteger(0, buyBg, OBJPROP_BACK,    true);
-   ObjectSetInteger(0, buyBg, OBJPROP_WIDTH,   1);
-   ObjectSetInteger(0, buyBg, OBJPROP_SELECTED,false);
+  //  datetime bgStart2 = (Bars > 2) ? Time[Bars-2] : Time[0];
+  //  datetime bgEnd2   = D'2099.12.31 00:00';
+  //  string buyBg = "TB_NoBuyZone_Bg";
+  //  if(ObjectFind(0, buyBg) < 0)
+  //     ObjectCreate(0, buyBg, OBJ_RECTANGLE, 0, bgStart2, dailyHigh, bgEnd2, noBuyBottom);
+  //  ObjectMove(0, buyBg, 0, bgStart2, dailyHigh);
+  //  ObjectMove(0, buyBg, 1, bgEnd2,   noBuyBottom);
+  // ObjectSetInteger(0, buyBg, OBJPROP_COLOR,   C'50,110,150');
+  //  ObjectSetInteger(0, buyBg, OBJPROP_FILL,    true);
+  //  ObjectSetInteger(0, buyBg, OBJPROP_BACK,    true);
+  //  ObjectSetInteger(0, buyBg, OBJPROP_WIDTH,   1);
+  //  ObjectSetInteger(0, buyBg, OBJPROP_SELECTED,false);
   }
 
   string weekend="";
