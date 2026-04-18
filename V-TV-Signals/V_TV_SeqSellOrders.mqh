@@ -77,55 +77,64 @@ bool SellCond2b_MinTimeBetweenOrders()
 {
    if(SeqSellMinSecsBetweenOrders <= 0) return true;
 
-   datetime lastOrderTime = 0;
-
-   // --- Open SELL orders
+  // 1) Never allow if any BUY or BUYSTOP is currently open/pending
    for(int i = OrdersTotal() - 1; i >= 0; i--)
    {
       if(!OrderSelect(i, SELECT_BY_POS, MODE_TRADES)) continue;
-      if(OrderSymbol()      != Symbol())       continue;
+      if(OrderSymbol()      != Symbol())      continue;
       if(OrderMagicNumber() != SeqSellMagicNo) continue;
-      if(OrderType()        != OP_SELL)        continue;
 
-      if(OrderOpenTime() > lastOrderTime)
-         lastOrderTime = OrderOpenTime();
+      int type = OrderType();
+
+      if(type == OP_SELL || type == OP_SELLSTOP)
+      {
+         Print("SeqSell | BLOCKED [NoDuplicateSell] Existing open SELL-side order Ticket=", OrderTicket());
+         return false;
+      }
    }
 
-   // --- Closed SELL orders
-   for(int i = OrdersHistoryTotal() - 1; i >= 0; i--)
+   // 2) Optional recent-history block
+   // prevents immediate reopen right after close/delete/trigger
+   if(SeqSellMinSecsBetweenOrders > 0)
    {
-      if(!OrderSelect(i, SELECT_BY_POS, MODE_HISTORY)) continue;
-      if(OrderSymbol()      != Symbol())       continue;
-      if(OrderMagicNumber() != SeqSellMagicNo) continue;
-      if(OrderType()        != OP_SELL)        continue;
+      datetime lastSellActivity = 0;
 
-      if(OrderCloseTime() > lastOrderTime)
-         lastOrderTime = OrderCloseTime();
+      for(int i = OrdersHistoryTotal() - 1; i >= 0; i--)
+      {
+         if(!OrderSelect(i, SELECT_BY_POS, MODE_HISTORY)) continue;
+         if(OrderSymbol()      != Symbol())      continue;
+         if(OrderMagicNumber() != SeqSellMagicNo) continue;
+
+         int type = OrderType();
+         if(type != OP_SELL && type != OP_SELLSTOP) continue;
+
+         datetime t = 0;
+
+         if(OrderCloseTime() > 0)
+            t = OrderCloseTime();
+         else
+            t = OrderOpenTime();
+
+         if(t > lastSellActivity)
+            lastSellActivity = t;
+      }
+
+      if(lastSellActivity > 0)
+      {
+         int elapsed = (int)(TimeCurrent() - lastSellActivity);
+
+         if(elapsed < SeqSellMinSecsBetweenOrders)
+         {
+            Print("SeqSell | BLOCKED [RecentSellActivity] Only ", elapsed,
+                  "s since last SELL-side activity at ",
+                  TimeToString(lastSellActivity, TIME_SECONDS),
+                  " (need >= ", SeqSellMinSecsBetweenOrders, "s)");
+            return false;
+         }
+      }
    }
-   
-   // --- Closed SELL orders
-   for(int i = OrdersHistoryTotal() - 1; i >= 0; i--)
-   {
-      if(!OrderSelect(i, SELECT_BY_POS, MODE_HISTORY)) continue;
-      if(OrderSymbol()      != Symbol())       continue;
-      if(OrderMagicNumber() != SeqSellMagicNo) continue;
-      if(OrderType()        != OP_SELLSTOP)        continue;
 
-      if(OrderCloseTime() > lastOrderTime)
-         lastOrderTime = OrderCloseTime();
-   }
-
-   if(lastOrderTime == 0) return true;
-
-   int elapsed = (int)(TimeCurrent() - lastOrderTime);
-   if(elapsed >= SeqSellMinSecsBetweenOrders) return true;
-
-   Print("SeqSell | BLOCKED [Cond2b-MinTime] Only " + IntegerToString(elapsed) +
-         "s since last SELL activity at " + TimeToString(lastOrderTime, TIME_SECONDS) +
-         " (need >= " + IntegerToString(SeqSellMinSecsBetweenOrders) + "s) " +
-         SellPatternContext());
-
-   return false;
+   return true;
 }
 
 // Condition 3: Price NOT inside NO TREND SELL ZONE

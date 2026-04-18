@@ -67,60 +67,66 @@ else
 //               Reads the actual open time of the last placed BUY order from MT4
 bool BuyCond2b_MinTimeBetweenOrders()
 {
-   if(SeqBuyMinSecsBetweenOrders <= 0) return true;
-
-   datetime lastOrderTime = 0;
-
-   // --- Open BUY orders
+  
+  // 1) Never allow if any BUY or BUYSTOP is currently open/pending
    for(int i = OrdersTotal() - 1; i >= 0; i--)
    {
       if(!OrderSelect(i, SELECT_BY_POS, MODE_TRADES)) continue;
       if(OrderSymbol()      != Symbol())      continue;
       if(OrderMagicNumber() != SeqBuyMagicNo) continue;
-      if(OrderType()        != OP_BUY)        continue;
 
-      if(OrderOpenTime() > lastOrderTime)
-         lastOrderTime = OrderOpenTime();
+      int type = OrderType();
+
+      if(type == OP_BUY || type == OP_BUYSTOP)
+      {
+         Print("SeqBuy | BLOCKED [NoDuplicateBuy] Existing open BUY-side order Ticket=", OrderTicket());
+         return false;
+      }
    }
 
-   // --- Closed BUY orders
-   for(int i = OrdersHistoryTotal() - 1; i >= 0; i--)
+   // 2) Optional recent-history block
+   // prevents immediate reopen right after close/delete/trigger
+   if(SeqBuyMinSecsBetweenOrders > 0)
    {
-      if(!OrderSelect(i, SELECT_BY_POS, MODE_HISTORY)) continue;
-      if(OrderSymbol()      != Symbol())      continue;
-      if(OrderMagicNumber() != SeqBuyMagicNo) continue;
-      if(OrderType()        != OP_BUY)        continue;
+      datetime lastBuyActivity = 0;
 
-      if(OrderCloseTime() > lastOrderTime)
-         lastOrderTime = OrderCloseTime();
+      for(int i = OrdersHistoryTotal() - 1; i >= 0; i--)
+      {
+         if(!OrderSelect(i, SELECT_BY_POS, MODE_HISTORY)) continue;
+         if(OrderSymbol()      != Symbol())      continue;
+         if(OrderMagicNumber() != SeqBuyMagicNo) continue;
+
+         int type = OrderType();
+         if(type != OP_BUY && type != OP_BUYSTOP) continue;
+
+         datetime t = 0;
+
+         if(OrderCloseTime() > 0)
+            t = OrderCloseTime();
+         else
+            t = OrderOpenTime();
+
+         if(t > lastBuyActivity)
+            lastBuyActivity = t;
+      }
+
+      if(lastBuyActivity > 0)
+      {
+         int elapsed = (int)(TimeCurrent() - lastBuyActivity);
+
+         if(elapsed < SeqBuyMinSecsBetweenOrders)
+         {
+            Print("SeqBuy | BLOCKED [RecentBuyActivity] Only ", elapsed,
+                  "s since last BUY-side activity at ",
+                  TimeToString(lastBuyActivity, TIME_SECONDS),
+                  " (need >= ", SeqBuyMinSecsBetweenOrders, "s)");
+            return false;
+         }
+      }
    }
 
-   // --- Closed BUY orders
-   for(int i = OrdersHistoryTotal() - 1; i >= 0; i--)
-   {
-      if(!OrderSelect(i, SELECT_BY_POS, MODE_HISTORY)) continue;
-      if(OrderSymbol()      != Symbol())      continue;
-      if(OrderMagicNumber() != SeqBuyMagicNo) continue;
-      if(OrderType()        != OP_BUYSTOP)        continue;
-
-      if(OrderCloseTime() > lastOrderTime)
-         lastOrderTime = OrderCloseTime();
-   }
-
-
-   if(lastOrderTime == 0) return true;
-
-   int elapsed = (int)(TimeCurrent() - lastOrderTime);
-   if(elapsed >= SeqBuyMinSecsBetweenOrders) return true;
-
-   Print("SeqBuy | BLOCKED [Cond2b-MinTime] Only " + IntegerToString(elapsed) +
-         "s since last BUY activity at " + TimeToString(lastOrderTime, TIME_SECONDS) +
-         " (need >= " + IntegerToString(SeqBuyMinSecsBetweenOrders) + "s) " +
-         BuyPatternContext());
-
-   return false;
+   return true;
 }
-
 // Condition 3: Price NOT inside NO TREND BUY ZONE (near daily high)
 bool BuyCond3_NotInNoBuyZone()
   {
