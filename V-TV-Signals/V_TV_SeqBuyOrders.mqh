@@ -465,12 +465,12 @@ CloseAllSellOrders(true, "BUY Signal - Close SELL before opening BUY");
                     (ruleIdx >= 0 ? g_seqRules[ruleIdx].prev    : g_liveSignalName) + "|" +
                     (ruleIdx >= 0 ? g_seqRules[ruleIdx].curr    : IntegerToString(g_currSeqCount)) + "| gap=" + DoubleToString(gap,1) + "pts";
 
-  //  int ticket = OrderSend(Symbol(), OP_BUY, SeqBuyLotSize, ask,
-  //                         SeqBuySlippage, 0, 0,
-  //                         comment, SeqBuyMagicNo, 0, clrLime);
+   int ticket = OrderSend(Symbol(), OP_BUY, SeqBuyLotSize, ask,
+                          SeqBuySlippage, 0, 0,
+                          comment, SeqBuyMagicNo, 0, clrLime);
 
 
-                                        int ticket=  PlaceTrendPendingOrderSafe(1, SeqBuyLotSize, 2000, SeqBuySlippage, SeqBuyMagicNo);
+              //                          int ticket=  PlaceTrendPendingOrderSafe(1, SeqBuyLotSize, 2000, SeqBuySlippage, SeqBuyMagicNo);
 
    if(ticket <= 0)
      {

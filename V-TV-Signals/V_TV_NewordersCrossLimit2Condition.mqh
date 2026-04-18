@@ -194,6 +194,94 @@ void ShowBlockReasonLabel()
       ObjectSetString( 0, name, OBJPROP_TEXT,  "BLOCKED: " + g_blockReason);
    }
 }
+
+// Returns:
+// true  = NO TRADE zone
+// false = market is tradable
+bool IsNoTradeZoneBTC()
+{
+   if(Bars < 15) return true;
+
+   // --- EMA flat check
+   double ema9_1  = iMA(Symbol(), 0, 9,  0, MODE_EMA, PRICE_CLOSE, 1);
+   double ema20_1 = iMA(Symbol(), 0, 20, 0, MODE_EMA, PRICE_CLOSE, 1);
+   double ema50_1 = iMA(Symbol(), 0, 50, 0, MODE_EMA, PRICE_CLOSE, 1);
+
+   double emaGap9_20  = MathAbs(ema9_1 - ema20_1) / Point;
+   double emaGap20_50 = MathAbs(ema20_1 - ema50_1) / Point;
+
+   // --- recent range box
+   int lookback = 8;
+   double highest = High[1];
+   double lowest  = Low[1];
+
+   for(int i = 1; i <= lookback; i++)
+   {
+      if(High[i] > highest) highest = High[i];
+      if(Low[i]  < lowest)  lowest  = Low[i];
+   }
+
+   double boxRange = (highest - lowest) / Point;
+
+   // --- candle body analysis
+   int smallBodyCount = 0;
+   int overlapCount   = 0;
+
+   for(int j = 1; j <= 5; j++)
+   {
+      double body = MathAbs(Close[j] - Open[j]) / Point;
+      if(body < 200) smallBodyCount++;
+
+      // overlap with previous candle
+      double highA = High[j];
+      double lowA  = Low[j];
+      double highB = High[j+1];
+      double lowB  = Low[j+1];
+
+      double overlapHigh = MathMin(highA, highB);
+      double overlapLow  = MathMax(lowA, lowB);
+
+      if(overlapHigh > overlapLow)
+      {
+         double overlapSize = (overlapHigh - overlapLow) / Point;
+         double rangeA = (highA - lowA) / Point;
+         if(rangeA > 0 && overlapSize >= rangeA * 0.5)
+            overlapCount++;
+      }
+   }
+
+   // --- direction consistency
+   int upCount = 0;
+   int downCount = 0;
+
+   for(int k = 1; k <= 5; k++)
+   {
+      double avgNow  = (High[k] + Low[k]) / 2.0;
+      double avgPrev = (High[k+1] + Low[k+1]) / 2.0;
+
+      if(avgNow > avgPrev) upCount++;
+      if(avgNow < avgPrev) downCount++;
+   }
+
+   bool mixedDirection = (upCount >= 2 && downCount >= 2);
+
+   // --- no trade conditions for BTCUSD
+   bool emaFlat      = (emaGap9_20 < 500);
+   bool emaCompressed= (emaGap20_50 < 1200);
+   bool tightBox     = (boxRange < 2500);
+   bool smallBodies  = (smallBodyCount >= 3);
+   bool heavyOverlap = (overlapCount >= 3);
+
+   if((emaFlat && tightBox) ||
+      (emaCompressed && smallBodies) ||
+      (heavyOverlap && mixedDirection) ||
+      (tightBox && mixedDirection))
+   {
+      return true;
+   }
+
+   return false;
+}
 //+------------------------------------------------------------------+
 //| Market strength classifier                                       |
 //| Returns:                                                         |
@@ -371,18 +459,28 @@ void createNewOrder3000BeforeCandle()
    // Print("gap","-",gap," - ",DoubleToString(gap,1));
 
 
-if(gap<2000)
-   {
-       CloseAllSellOrders(true, "EMA Gap < 2000 pts");
-       CloseAllBuyOrders(true, "EMA Gap < 2000 pts");
-   }
+// if(gap<2000)
+//    {
+//        CloseAllSellOrders(true, "EMA Gap < 2000 pts");
+//        CloseAllBuyOrders(true, "EMA Gap < 2000 pts");
+//    }
 
-   SeqBuyMaxOrders=gap/1000;
-   SeqSellMaxOrders=gap/1000;
+   //SeqBuyMaxOrders=gap/1000;
+   //SeqSellMaxOrders=gap/1000;
 
    trend="";
 
    //  SeqSellMaxOrders=defaultMaxSellOrders+4;
+
+   if(IsNoTradeZoneBTC())
+   {
+      Print("BTCUSD detected: Market is in NO TRADE zone based on EMA and price action analysis.");
+      g_blockReason = "BTCUSD detected: Market is in NO TRADE zone based on EMA and price action analysis.";
+
+        Print("NO Trade ZONE");
+      trend="NO TRADE ZONE";
+      return;
+   }
 
    if(gap>EMAGAP3000Condition)
    {

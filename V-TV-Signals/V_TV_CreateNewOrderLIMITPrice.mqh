@@ -20,6 +20,8 @@ int signal = DetectBTCUSDTrendSignal();
 //+------------------------------------------------------------------+
 void CancelExpiredPendingOrders(int expirySeconds, int magicNo)
 {
+
+   /*
    datetime now = TimeCurrent();
 
     ;
@@ -69,6 +71,8 @@ void CancelExpiredPendingOrders(int expirySeconds, int magicNo)
          }
       }
    }
+
+   */
 }
 
 int CountAllPendingOrders(int magicNo)
