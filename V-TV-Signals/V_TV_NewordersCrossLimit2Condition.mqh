@@ -90,23 +90,23 @@ bool CanOpenTradeAfterCross(int direction)
       return false;
    }
 
-   // 🔹 Trend validation
-   double emaFast = iMA(Symbol(), 0, FastEMA, 0, MODE_EMA, PRICE_CLOSE, 0);
-   double emaSlow = iMA(Symbol(), 0, SlowEMA, 0, MODE_EMA, PRICE_CLOSE, 0);
+   // // 🔹 Trend validation
+   // double emaFast = iMA(Symbol(), 0, FastEMA, 0, MODE_EMA, PRICE_CLOSE, 0);
+   // double emaSlow = iMA(Symbol(), 0, SlowEMA, 0, MODE_EMA, PRICE_CLOSE, 0);
 
-   if(direction == OP_BUY && emaFast <= emaSlow)
-   {
-      Print("Blocked: Buy Direction is not clear emaFast emaSlow EMA cross");
+   // if(direction == OP_BUY && emaFast <= emaSlow)
+   // {
+   //    Print("Blocked: Buy Direction is not clear emaFast emaSlow EMA cross");
 
-      return false;
-   }
+   //    return false;
+   // }
 
-   if(direction == OP_SELL && emaFast >= emaSlow)
-      {
-      Print("Blocked: SELL Direction is not clear emaFast emaSlow EMA cross");
+   // if(direction == OP_SELL && emaFast >= emaSlow)
+   //    {
+   //    Print("Blocked: SELL Direction is not clear emaFast emaSlow EMA cross");
 
-      return false;
-   }
+   //    return false;
+   // }
    return true;
 }
 

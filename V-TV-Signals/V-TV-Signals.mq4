@@ -17,6 +17,8 @@
 #include "V_TV_SimpleOpenCloseOrders.mqh"
 #include "V_TV_NewordersCrossLimit2Condition.mqh"
 #include "V_TV_CreateNewOrderCrossimmidiate.mqh"
+#include "V_TV_CreateNewOrderLIMITPrice.mqh"
+
 
  
 
@@ -1404,6 +1406,8 @@ void OnTick()
 //Print("Tick is started at ",TimeToString(TimeCurrent()));
             ProcessSeqCloseOrders();
    drawEMA50Line();
+
+// V_TV_CreateNewOrderLIMITPrice();
 
 ShowEMAGapLabel();
 DetectEMACross();

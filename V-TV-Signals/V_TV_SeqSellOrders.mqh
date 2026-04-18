@@ -285,9 +285,13 @@ bool PlaceSeqSellOrder(int ruleIdx)
                     (ruleIdx >= 0 ? g_seqRules[ruleIdx].prev    : g_liveSignalName) + "|" +
                     (ruleIdx >= 0 ? g_seqRules[ruleIdx].curr    : IntegerToString(g_currSeqCount))+"| gap=" + DoubleToString(gap,1) + "pts  ";
 
-   int ticket = OrderSend(Symbol(), OP_SELL, SeqSellLotSize, bid,
-                          SeqSellSlippage, 0, 0,
-                          comment, SeqSellMagicNo, 0, clrRed);
+  //  int ticket = OrderSend(Symbol(), OP_SELL, SeqSellLotSize, bid,
+  //                         SeqSellSlippage, 0, 0,
+  //                         comment, SeqSellMagicNo, 0, clrRed);
+
+
+                                        int ticket=  PlaceTrendPendingOrderSafe(-1, SeqSellLotSize, 2000, SeqSellSlippage, SeqSellMagicNo);
+
    if(ticket <= 0)
      {
       Print("SeqSell | ORDER FAILED Error=" + IntegerToString(GetLastError()) +

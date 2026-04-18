@@ -254,6 +254,18 @@ bool CanOpenOrder_RSI_Range(int orderType)
 // Condition 4: Max open orders not reached
 bool BuyCond4_MaxOrdersNotReached(int openCount)
   {
+
+
+
+
+
+
+
+
+
+
+
+    
    if(openCount < SeqBuyMaxOrders) return true;
   //  printdummy("SeqBuy | BLOCKED [Cond4-MaxOrders] Already " + IntegerToString(openCount) +
   //        "/" + IntegerToString(SeqBuyMaxOrders) + " BUY orders open " + BuyPatternContext());
@@ -453,9 +465,12 @@ CloseAllSellOrders(true, "BUY Signal - Close SELL before opening BUY");
                     (ruleIdx >= 0 ? g_seqRules[ruleIdx].prev    : g_liveSignalName) + "|" +
                     (ruleIdx >= 0 ? g_seqRules[ruleIdx].curr    : IntegerToString(g_currSeqCount)) + "| gap=" + DoubleToString(gap,1) + "pts";
 
-   int ticket = OrderSend(Symbol(), OP_BUY, SeqBuyLotSize, ask,
-                          SeqBuySlippage, 0, 0,
-                          comment, SeqBuyMagicNo, 0, clrLime);
+  //  int ticket = OrderSend(Symbol(), OP_BUY, SeqBuyLotSize, ask,
+  //                         SeqBuySlippage, 0, 0,
+  //                         comment, SeqBuyMagicNo, 0, clrLime);
+
+                                        int ticket=  PlaceTrendPendingOrderSafe(1, SeqBuyLotSize, 2000, SeqBuySlippage, SeqBuyMagicNo);
+
    if(ticket <= 0)
      {
       Print("SeqBuy | ORDER FAILED Error=" + IntegerToString(GetLastError()) +

@@ -174,6 +174,15 @@ void ProcessPatternClose(string tradeType, string patternLabel,
 //+------------------------------------------------------------------+
 void ProcessSeqCloseOrders()
   {
+
+
+   double gap = GetEMAGapPoints(FastEMA, SlowEMA);
+
+    if(gap<500)
+    {
+      CloseAllSellOrders(true, "EMA Gap < 500");
+      CloseAllBuyOrders(true, "EMA Gap < 500");
+    }
      
    // --- 0. Partial profit booking (every tick, once per ticket) ---
    //ProcessPartialProfitClose();
@@ -233,8 +242,8 @@ void ProcessSeqCloseOrders()
       if(profit<0)
       {
 
-        Print("REVERSER  - ORDER PROFIT < 0 - CALLING OPPOSITE ORDER FUNCTION - SELL ORDER PROFIT= "+profit);
-        ProcessSeqBuyOrders(false,false);
+        // Print("REVERSER  - ORDER PROFIT < 0 - CALLING OPPOSITE ORDER FUNCTION - SELL ORDER PROFIT= "+profit);
+        // ProcessSeqBuyOrders(false,false);
       }
         }
       else // OP_BUY
@@ -253,9 +262,9 @@ void ProcessSeqCloseOrders()
 
       if(profit<0)
       {
-        Print("REVERSER  - ORDER PROFIT < 0 - CALLING OPPOSITE ORDER FUNCTION - SELL ORDER PROFIT= "+profit);
+        // Print("REVERSER  - ORDER PROFIT < 0 - CALLING OPPOSITE ORDER FUNCTION - SELL ORDER PROFIT= "+profit);
 
-        ProcessSeqSellOrders(false,false);
+        // ProcessSeqSellOrders(false,false);
       }
         }
      }

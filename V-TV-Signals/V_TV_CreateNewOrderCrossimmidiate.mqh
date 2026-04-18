@@ -154,6 +154,16 @@ int DetectBTCUSDTrendSignal()
 int DetectPrevCandleAndCurrentMoveSignal()
 {
 
+   return 0;
+
+      // CancelExpiredPendingOrders(10, 12345);
+      CancelExpiredPendingOrders(60, SeqBuyMagicNo);
+      CancelExpiredPendingOrders(60, SeqSellMagicNo);
+
+
+
+
+
  static datetime lastTradeTime = 0;
 
    // minimum 10 sec gap
@@ -184,6 +194,8 @@ int DetectPrevCandleAndCurrentMoveSignal()
       if(buyCount == 0)   // only 1 BUY allowed
       {
          ProcessSeqBuyOrders(false, false, false);
+             //  PlaceTrendPendingOrderSafe(1, 0.01, 1000, 5, 12345);
+
          lastTradeTime = TimeCurrent();
       }
    }
@@ -194,6 +206,8 @@ int DetectPrevCandleAndCurrentMoveSignal()
       if(sellCount == 0)  // only 1 SELL allowed
       {
          ProcessSeqSellOrders(false, false, false);
+              // PlaceTrendPendingOrderSafe(-1, 0.01, 1000, 5, 12345);
+
          lastTradeTime = TimeCurrent();
       }
    }
