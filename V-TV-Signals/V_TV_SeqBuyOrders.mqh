@@ -469,6 +469,7 @@ CloseAllSellOrders(true, "BUY Signal - Close SELL before opening BUY");
   //                         SeqBuySlippage, 0, 0,
   //                         comment, SeqBuyMagicNo, 0, clrLime);
 
+
                                         int ticket=  PlaceTrendPendingOrderSafe(1, SeqBuyLotSize, 2000, SeqBuySlippage, SeqBuyMagicNo);
 
    if(ticket <= 0)
