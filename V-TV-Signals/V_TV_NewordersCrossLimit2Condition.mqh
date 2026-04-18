@@ -203,13 +203,19 @@ void createNewOrder3000BeforeCandle()
    // Print("gap","-",gap," - ",DoubleToString(gap,1));
 
 
-if(gap<1000)
+if(gap<2000)
    {
        CloseAllSellOrders(true, "EMA Gap < 2000 pts");
        CloseAllBuyOrders(true, "EMA Gap < 2000 pts");
    }
-   
 
+   SeqBuyMaxOrders=gap/1000;
+   SeqSellMaxOrders=gap/1000;
+
+    SeqSellMaxOrders=defaultMaxSellOrders+4;
+     
+   
+/*
    if(gap>20000 && enableEMAGapDynamicMaxOrders)
    {
       //SeqBuyMaxOrders=defaultMaxBuyOrders+4;
@@ -251,9 +257,60 @@ if(gap<1000)
       // Print("EMA Gap <= 10000 pts: Using default max orders. Current gap: ", DoubleToString(gap,1), " pts");
       }
 
+      */
+
     if(  gap>EMAGAP3000Condition)
     {
 
+ double ema9_0  = iMA(Symbol(), 0, 9,  0, MODE_EMA, PRICE_CLOSE, 0);
+   double ema9_1  = iMA(Symbol(), 0, 9,  0, MODE_EMA, PRICE_CLOSE, 1);
+
+   double ema20_0 = iMA(Symbol(), 0, 20, 0, MODE_EMA, PRICE_CLOSE, 0);
+   double ema20_1 = iMA(Symbol(), 0, 20, 0, MODE_EMA, PRICE_CLOSE, 1);
+
+   double ema50_0 = iMA(Symbol(), 0, 50, 0, MODE_EMA, PRICE_CLOSE, 0);
+   double ema50_1 = iMA(Symbol(), 0, 50, 0, MODE_EMA, PRICE_CLOSE, 1);
+
+   double price = Close[0];
+
+   bool emaUp =
+      (ema9_0 > ema9_1) &&
+      (ema20_0 >= ema20_1) &&
+      (ema50_0 >= ema50_1);
+
+   bool emaDown =
+      (ema9_0 < ema9_1) &&
+      (ema20_0 <= ema20_1) &&
+      (ema50_0 <= ema50_1);
+
+   // UPTREND
+   if(price > ema9_0 && ema9_0 > ema20_0 && ema20_0 > ema50_0 && emaUp)
+      
+      {
+         trend="UPTREND";
+            ProcessSeqBuyOrders(true);
+
+      }
+
+   // DOWNTREND
+  else if(price < ema9_0 && ema9_0 < ema20_0 && ema20_0 < ema50_0 && emaDown)
+      {
+         trend="DOWNTREND";
+         ProcessSeqSellOrders(true);
+      }
+      {
+   g_blockReason = "Gap above "+EMAGAP3000Condition+" but No UPTREND or NO DownTREND detected";
+
+      }
+
+    }
+    else
+    {
+      g_blockReason = "EMA GAP is less than "+EMAGAP3000Condition+" — orders are blocked";
+    }
+ 
+
+/*
 
    double ema9  = iMA(Symbol(), 0, 9, 0, MODE_EMA, PRICE_CLOSE, 0);
 double ema20 = iMA(Symbol(), 0, 20, 0, MODE_EMA, PRICE_CLOSE, 0);
@@ -291,7 +348,7 @@ else
     
 
     }
-
+*/
 
    //  Print(g_blockReason);
 }

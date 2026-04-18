@@ -1699,8 +1699,8 @@ else if(preTrendSell)     newSig = "PRE SELL";
    // --- Order logic: only when a new signal was detected this tick ---
    if(g_newSignalDetected)
      {
-       ProcessSeqSellOrders();
-       ProcessSeqBuyOrders();
+      //  ProcessSeqSellOrders();
+      //  ProcessSeqBuyOrders();
       g_newSignalDetected = false;
 
         

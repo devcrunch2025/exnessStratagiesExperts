@@ -62,9 +62,9 @@ bool isEMATouchesInsideLines=false;;
 
 //--- 0.01; Profit / StopLoss (auto-calculated in InitLotDependentVars) ----
 double SeqSellProfitTarget = 0.5;
-double SeqSellStopLossUSD  =10;
+double SeqSellStopLossUSD  =1;
 double SeqBuyProfitTarget  =0.5;
-double SeqBuyStopLossUSD   =10;
+double SeqBuyStopLossUSD   =1;
 
 //--- Lot sizes (CHANGE ONLY THESE) ----------------------------------
 input double SeqSellLotSize = 0.01;  // SELL lot size
@@ -79,12 +79,12 @@ input double BuyProfitTargetInput   = 0.5;
 
 double StopTradingMaxProfit=100.00;
 
-int EMAGAP3000Condition=3000;
+int EMAGAP3000Condition=2000;
 
 
 //--- Max open orders (lot-independent) ------------------------------
-  int SeqSellMaxOrders  =5;     // Max simultaneous SELL orders
-  int SeqBuyMaxOrders   = 5;     // Max simultaneous BUY orders
+  int SeqSellMaxOrders  =1;     // Max simultaneous SELL orders
+  int SeqBuyMaxOrders   = 1;     // Max simultaneous BUY orders
 
   bool enableEMAGapDynamicMaxOrders = true; // Adjust max orders based on EMA gap (Condition 9)
 

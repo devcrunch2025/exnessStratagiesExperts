@@ -155,7 +155,8 @@ int DetectPrevCandleAndCurrentMoveSignal()
 {
 
    return 0;
-
+   
+/*
       // CancelExpiredPendingOrders(10, 12345);
       CancelExpiredPendingOrders(60, SeqBuyMagicNo);
       CancelExpiredPendingOrders(60, SeqSellMagicNo);
@@ -223,7 +224,7 @@ int DetectPrevCandleAndCurrentMoveSignal()
 
 
    return 0;
-
+*/
 bool checkPattern = false; // Set to true to enable pattern checks in order processing (e.g. no buy/sell zones, EMA gap, etc.)
 bool check3000      = false;
    bool checkMaxOrders = false;
@@ -261,7 +262,7 @@ if(g_liveSignalName == "W SHAPE SELL" || g_liveSignalName == "STRONG SELL")
 
 */
 
-
+/*
  double ema5  = iMA(Symbol(),0,5,0,MODE_EMA,PRICE_CLOSE,0);
 double ema20 = iMA(Symbol(),0,20,0,MODE_EMA,PRICE_CLOSE,0);
 
@@ -293,7 +294,7 @@ if(ema5 < ema20)  rawSignal = -1;  // SELL
 
    }
 
-
+*/
 
 
 return 0;
@@ -463,6 +464,8 @@ int Detect2CandlePriceTrend()
 }
 bool CheckOrderJumpAcrossEMAsFiltered()
 {
+
+   /*
    static double prevMidPrice = 0.0;
 
    RefreshRates();
@@ -513,6 +516,8 @@ Print("SELL Signal: Price jumped below EMA20. MidPrice=", DoubleToString(midPric
    }
 
    prevMidPrice = midPrice;
+
+   */
    return false;
 }
 /*
