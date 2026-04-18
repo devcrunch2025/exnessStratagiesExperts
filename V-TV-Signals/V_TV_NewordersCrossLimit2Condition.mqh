@@ -273,6 +273,9 @@ if(gap<2000)
 
    double price = Close[0];
 
+   double emaGap = MathAbs(ema9 - ema20) / Point;
+
+
    bool emaUp =
       (ema9_0 > ema9_1) &&
       (ema20_0 >= ema20_1) &&
@@ -284,7 +287,7 @@ if(gap<2000)
       (ema50_0 <= ema50_1);
 
    // UPTREND
-   if(price > ema9_0 && ema9_0 > ema20_0 && ema20_0 > ema50_0 && emaUp)
+   if(price > ema9_0 && ema9_0 > ema20_0 && ema20_0 > ema50_0 && emaUp && emaGap>500)
       
       {
          trend="UPTREND";
@@ -293,7 +296,7 @@ if(gap<2000)
       }
 
    // DOWNTREND
-  else if(price < ema9_0 && ema9_0 < ema20_0 && ema20_0 < ema50_0 && emaDown)
+  else if(price < ema9_0 && ema9_0 < ema20_0 && ema20_0 < ema50_0 && emaDown && emaGap>500)
       {
          trend="DOWNTREND";
          ProcessSeqSellOrders(true);

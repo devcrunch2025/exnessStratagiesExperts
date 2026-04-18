@@ -79,7 +79,7 @@ input double BuyProfitTargetInput   = 0.5;
 
 double StopTradingMaxProfit=100.00;
 
-int EMAGAP3000Condition=2000;
+int EMAGAP3000Condition=3200;
 
 
 //--- Max open orders (lot-independent) ------------------------------
