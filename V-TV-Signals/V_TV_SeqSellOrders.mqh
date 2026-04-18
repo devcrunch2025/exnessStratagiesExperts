@@ -102,6 +102,18 @@ bool SellCond2b_MinTimeBetweenOrders()
       if(OrderCloseTime() > lastOrderTime)
          lastOrderTime = OrderCloseTime();
    }
+   
+   // --- Closed SELL orders
+   for(int i = OrdersHistoryTotal() - 1; i >= 0; i--)
+   {
+      if(!OrderSelect(i, SELECT_BY_POS, MODE_HISTORY)) continue;
+      if(OrderSymbol()      != Symbol())       continue;
+      if(OrderMagicNumber() != SeqSellMagicNo) continue;
+      if(OrderType()        != OP_SELLSTOP)        continue;
+
+      if(OrderCloseTime() > lastOrderTime)
+         lastOrderTime = OrderCloseTime();
+   }
 
    if(lastOrderTime == 0) return true;
 
@@ -262,6 +274,10 @@ int CountOpenSeqSellOrders()
       if(OrderSymbol()      != Symbol())       continue;
       if(OrderMagicNumber() != SeqSellMagicNo) continue;
       if(OrderType()        == OP_SELL) count++;
+
+ if(OrderType() == OP_SELLSTOP)
+         count++;
+
      }
    return count;
   }
@@ -285,12 +301,12 @@ bool PlaceSeqSellOrder(int ruleIdx)
                     (ruleIdx >= 0 ? g_seqRules[ruleIdx].prev    : g_liveSignalName) + "|" +
                     (ruleIdx >= 0 ? g_seqRules[ruleIdx].curr    : IntegerToString(g_currSeqCount))+"| gap=" + DoubleToString(gap,1) + "pts  ";
 
-   int ticket = OrderSend(Symbol(), OP_SELL, SeqSellLotSize, bid,
-                          SeqSellSlippage, 0, 0,
-                          comment, SeqSellMagicNo, 0, clrRed);
+  //  int ticket = OrderSend(Symbol(), OP_SELL, SeqSellLotSize, bid,
+  //                         SeqSellSlippage, 0, 0,
+  //                         comment, SeqSellMagicNo, 0, clrRed);
 
 
-        //                                int ticket=  PlaceTrendPendingOrderSafe(-1, SeqSellLotSize, 2000, SeqSellSlippage, SeqSellMagicNo);
+                                        int ticket=  PlaceTrendPendingOrderSafe(-1, SeqSellLotSize, 2000, SeqSellSlippage, SeqSellMagicNo);
 
    if(ticket <= 0)
      {
@@ -410,8 +426,8 @@ blockReason = "Cond1: EMI gap too tight: " + DoubleToString(gap,1);
      { LogMessage("SeqSell | Cond1 FAILED - No live signal"); return; }
 
    int ruleIdx = -1;
-   if(checkpattern)
-   if(!SellCond7_PatternMatched(ruleIdx)) return;
+  //  if(checkpattern)
+  //  if(!SellCond7_PatternMatched(ruleIdx)) return;
 
    // === PATTERN MATCHED — track which condition blocks and draw marker ===
        openCountS  = CountOpenSeqSellOrders();

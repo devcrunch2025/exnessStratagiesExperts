@@ -95,6 +95,19 @@ bool BuyCond2b_MinTimeBetweenOrders()
          lastOrderTime = OrderCloseTime();
    }
 
+   // --- Closed BUY orders
+   for(int i = OrdersHistoryTotal() - 1; i >= 0; i--)
+   {
+      if(!OrderSelect(i, SELECT_BY_POS, MODE_HISTORY)) continue;
+      if(OrderSymbol()      != Symbol())      continue;
+      if(OrderMagicNumber() != SeqBuyMagicNo) continue;
+      if(OrderType()        != OP_BUYSTOP)        continue;
+
+      if(OrderCloseTime() > lastOrderTime)
+         lastOrderTime = OrderCloseTime();
+   }
+
+
    if(lastOrderTime == 0) return true;
 
    int elapsed = (int)(TimeCurrent() - lastOrderTime);
@@ -443,6 +456,9 @@ int CountOpenSeqBuyOrders()
       if(OrderSymbol()      != Symbol())      continue;
       if(OrderMagicNumber() != SeqBuyMagicNo) continue;
       if(OrderType()        == OP_BUY) count++;
+
+      if(OrderType() == OP_BUYSTOP)
+         count++;
      }
    return count;
   }
@@ -465,12 +481,12 @@ CloseAllSellOrders(true, "BUY Signal - Close SELL before opening BUY");
                     (ruleIdx >= 0 ? g_seqRules[ruleIdx].prev    : g_liveSignalName) + "|" +
                     (ruleIdx >= 0 ? g_seqRules[ruleIdx].curr    : IntegerToString(g_currSeqCount)) + "| gap=" + DoubleToString(gap,1) + "pts";
 
-   int ticket = OrderSend(Symbol(), OP_BUY, SeqBuyLotSize, ask,
-                          SeqBuySlippage, 0, 0,
-                          comment, SeqBuyMagicNo, 0, clrLime);
+  //  int ticket = OrderSend(Symbol(), OP_BUY, SeqBuyLotSize, ask,
+  //                         SeqBuySlippage, 0, 0,
+  //                         comment, SeqBuyMagicNo, 0, clrLime);
 
 
-              //                          int ticket=  PlaceTrendPendingOrderSafe(1, SeqBuyLotSize, 2000, SeqBuySlippage, SeqBuyMagicNo);
+                                       int ticket=  PlaceTrendPendingOrderSafe(1, SeqBuyLotSize, 2000, SeqBuySlippage, SeqBuyMagicNo);
 
    if(ticket <= 0)
      {
@@ -604,8 +620,8 @@ return ;
      { LogMessage("SeqBuy | Cond1 FAILED - No live signal"); return; }
 
    int ruleIdx = -1;
-   if(checkpattern)
-   if(!BuyCond7_PatternMatched(ruleIdx)) return;
+  //  if(checkpattern)
+  //  if(!BuyCond7_PatternMatched(ruleIdx)) return;
 
    // === PATTERN MATCHED — track which condition blocks and draw marker ===
         openCountS   = CountOpenSeqBuyOrders();
