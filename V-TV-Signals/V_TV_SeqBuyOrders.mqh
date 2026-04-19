@@ -80,6 +80,7 @@ bool BuyCond2b_MinTimeBetweenOrders()
       if(type == OP_BUY || type == OP_BUYSTOP)
       {
          Print("SeqBuy | BLOCKED [NoDuplicateBuy] Existing open BUY-side order Ticket=", OrderTicket());
+         g_blockReason = "Cond2b: Existing open BUY-side order Ticket=" + IntegerToString(OrderTicket());
          return false;
       }
    }
@@ -592,7 +593,7 @@ void DrawBlockedBuySignal(string reason)
 
    ChartRedraw(0);
   }
-
+ int  trendnumber =0;
 //+------------------------------------------------------------------+
 //| Main entry: called on new signal detection from OnTick           |
 //+------------------------------------------------------------------+
@@ -635,6 +636,16 @@ return ;
   //  if(!CanOpenOrder_RSI_Range(OP_BUY))
   //     blockReason = "Cond1: RSI not in allowed range (30-70)";
   //   else
+
+       trendnumber = GetMarketTrendStrength();
+
+
+ if(trendnumber ==2)
+   {
+    
+   blockReason = "Cond1: Market trend too weak (trend number=" + IntegerToString(trendnumber) + ")";
+   }
+   else
  if(  gap<=EMAGAP3000Condition && check3000)
                      {
 blockReason = "Cond1: EMI gap too tight: " + DoubleToString(gap,1);

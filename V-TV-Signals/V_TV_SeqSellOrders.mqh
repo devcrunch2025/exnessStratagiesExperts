@@ -89,6 +89,7 @@ bool SellCond2b_MinTimeBetweenOrders()
       if(type == OP_SELL || type == OP_SELLSTOP)
       {
          Print("SeqSell | BLOCKED [NoDuplicateSell] Existing open SELL-side order Ticket=", OrderTicket());
+         g_blockReason = "Cond2b: Existing open SELL-side order Ticket=" + IntegerToString(OrderTicket());
          return false;
       }
    }
@@ -444,6 +445,17 @@ blockReason = "Cond1: EMI gap too tight: " + DoubleToString(gap,1);
 //       blockReason = "Cond1: RSI not in allowed range (30-70)";
 //     else
 // double gap=GetEMAGapPoints(FastEMA, SlowEMA);
+
+ int trendnumber = GetMarketTrendStrength();
+
+
+ if(trendnumber ==-2)
+   {
+    
+   blockReason = "Cond1: Market trend too weak (trend number=" + IntegerToString(trendnumber) + ")";
+   }
+   else
+
  if(  gap<=EMAGAP3000Condition && check3000)
                      {
 blockReason = "Cond1: EMI gap too tight: " + DoubleToString(gap,1);

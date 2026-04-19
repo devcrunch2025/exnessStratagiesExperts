@@ -1415,7 +1415,7 @@ DetectEMACross();
 // int test111=CheckOrderJumpAcrossEMAsFiltered();
 // CreateTradeCROSSOVER_EMA20_EMA50_Trend();
 ProcessSeqCloseOrders();
-createNewOrder3000BeforeCandle();
+//  createNewOrder3000BeforeCandle();
 ProcessSeqCloseOrders();
 
  
@@ -1699,14 +1699,36 @@ else if(preTrendSell)     newSig = "PRE SELL";
    // --- Order logic: only when a new signal was detected this tick ---
    if(g_newSignalDetected)
      {
-      //  ProcessSeqSellOrders();
-      //  ProcessSeqBuyOrders();
+       ProcessSeqSellOrders();
+       ProcessSeqBuyOrders();
       g_newSignalDetected = false;
 
         
+ int strongTrend=GetMarketTrendStrengthCluade();
+     if(strongTrend==2 || strongTrend==4)
+     {
 
+      SeqSellMaxOrders = SeqSellMaxOrders+1;
+      SeqBuyMaxOrders = SeqBuyMaxOrders+1;
+  ProcessSeqBuyOrders(true);
+     }
+     
+     else  if(strongTrend==-2 || strongTrend==-4)
+     {
+      SeqSellMaxOrders = SeqSellMaxOrders+1;
+      SeqBuyMaxOrders = SeqBuyMaxOrders+1;
+  ProcessSeqSellOrders(true);
+     }
+     else
+     {
+      SeqSellMaxOrders = defaultMaxSellOrders;
+      SeqBuyMaxOrders = defaultMaxBuyOrders;
+     }
       
      }
+
+    
+     
 
 //Print("Tick is Signals End  at ",TimeToString(TimeCurrent()));
 
