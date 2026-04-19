@@ -327,6 +327,12 @@ int GetMinuteTrend(int minMinutes = 3, int maxMinutes = 60, int minAnglePoints =
          " | ", maxMinutes, "m ago=", DoubleToString(priceMax, 2),
          " | Move=", DoubleToString(moveLong, 0), "pts");
 
+         g_blockReason = "Minute Trend: "+ label+
+         " | Angle="+ angleStr+     
+            " | Now="+ DoubleToString(priceNow, 2)+
+            " | "+ maxMinutes+"m ago="+ DoubleToString(priceMax, 2)+
+            " | Move="+ DoubleToString(moveLong, 0)+"pts";
+
    return result;
 }
 
