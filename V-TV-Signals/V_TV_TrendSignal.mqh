@@ -282,9 +282,9 @@ int GetMinuteTrend(int minMinutes = 3, int maxMinutes = 60, int minAnglePoints =
    color  lineColor = clrGray;
 
    if(hasAngleUp)
-   { label = "UP";   result =  1; lineColor = clrLime; }
+   { label = "UP";   result =  1; lineColor = clrWhite; }
    else if(hasAngleDown)
-   { label = "DOWN"; result = -1; lineColor = clrRed;  }
+   { label = "DOWN"; result = -1; lineColor = clrWhite;  }
 
    string angleStr = DoubleToString(angleDeg, 1) + "°";
 
@@ -347,8 +347,9 @@ int GetMinuteTrend(int minMinutes = 3, int maxMinutes = 60, int minAnglePoints =
 //           0 = No signal / insufficient data
 // ===================================================
 // Returns the computed angle in degrees, or EMPTY_VALUE if insufficient data.
+// outCount receives the number of signals found after the cross.
 // Draws the trend line and angle label as a side effect.
-double DrawCrossSignalLine(string prefix, string sigLabel, color lineCol, color textCol)
+double DrawCrossSignalLine(string prefix, string sigLabel, color lineCol, color textCol, int &outCount)
 {
    datetime firstTime   = 0;
    double   firstPrice  = 0;
@@ -378,6 +379,7 @@ double DrawCrossSignalLine(string prefix, string sigLabel, color lineCol, color 
    ObjectDelete(0, lineName);
    ObjectDelete(0, angleName);
 
+   outCount = count;
    if(count < 5 || firstTime == latestTime) return EMPTY_VALUE;
 
    double movePoints      = (latestPrice - firstPrice) / Point;
@@ -390,9 +392,13 @@ double DrawCrossSignalLine(string prefix, string sigLabel, color lineCol, color 
    double angleDeg = 0;
    if(normX > 0) angleDeg = MathArctan(normY / normX) * 180.0 / 3.14159265358979;
 
+//    double threshold = (count > 10) ? 40.0 : (count > 8) ? 45.0 : (count > 5) ? 50.0 : 60.0;
+
+   double threshold=50;
+
    string label = "STRAIGHT";
-   if(angleDeg >=  50.0) label = "UP";
-   else if(angleDeg <= -50.0) label = "DOWN";
+   if(angleDeg >=  threshold) label = "UP";
+   else if(angleDeg <= -threshold) label = "DOWN";
 
    string angleStr = DoubleToString(angleDeg, 1) + "°";
 
@@ -431,21 +437,31 @@ double DrawCrossSignalLine(string prefix, string sigLabel, color lineCol, color 
 }
 
 // ===================================================
-// Returns:  1 = TREND BUY  angle >= +50° (up move)
-//          -1 = TREND SELL angle <= -50° (down move)
+// Returns:  1 = TREND BUY  angle above count-based threshold
+//          -1 = TREND SELL angle below count-based threshold
 //           0 = no clear direction / insufficient data
+// Threshold: count >8 → 40°, count >5 → 50°, else 60°
 // ===================================================
 int GetMinuteTrendAftercross()
 {
    if(g_lastCrossTime == 0) return 0;
 
-   double tbAngle = DrawCrossSignalLine("TB", "TREND BUY",  clrLime, clrLime);
-   double tsAngle = DrawCrossSignalLine("TS", "TREND SELL", clrRed,  clrRed);
+   int    tbCount = 0, tsCount = 0;
+   double tbAngle = DrawCrossSignalLine("TB", "TREND BUY",  clrLime, clrLime, tbCount);
+   double tsAngle = DrawCrossSignalLine("TS", "TREND SELL", clrRed,  clrRed,  tsCount);
 
    ChartRedraw(0);
 
-   if(tbAngle != EMPTY_VALUE && tbAngle >=  50.0) return  1;
-   if(tsAngle != EMPTY_VALUE && tsAngle <= -50.0) return -1;
+   if(tbAngle != EMPTY_VALUE)
+   {
+      double tbThreshold = (tbCount > 10) ? 30.0 : (tbCount > 8) ? 40.0 : (tbCount > 5) ? 50.0 : 60.0;
+      if(tbAngle >= tbThreshold) return 1;
+   }
+   if(tsAngle != EMPTY_VALUE)
+   {
+      double tsThreshold = (tsCount > 10) ? 30.0 : (tsCount > 8) ? 40.0 : (tsCount > 5) ? 50.0 : 60.0;
+      if(tsAngle <= -tsThreshold) return -1;
+   }
    return 0;
 }
 
