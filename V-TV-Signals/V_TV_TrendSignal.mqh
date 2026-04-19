@@ -378,7 +378,7 @@ double DrawCrossSignalLine(string prefix, string sigLabel, color lineCol, color 
    ObjectDelete(0, lineName);
    ObjectDelete(0, angleName);
 
-   if(count < 2 || firstTime == latestTime) return EMPTY_VALUE;
+   if(count < 5 || firstTime == latestTime) return EMPTY_VALUE;
 
    double movePoints      = (latestPrice - firstPrice) / Point;
    double chartPriceRange = ChartGetDouble(0, CHART_PRICE_MAX) - ChartGetDouble(0, CHART_PRICE_MIN);
