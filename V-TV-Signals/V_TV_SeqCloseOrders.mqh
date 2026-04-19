@@ -176,16 +176,16 @@ void ProcessSeqCloseOrders()
   {
 
 
-   double gap = GetEMAGapPoints(FastEMA, SlowEMA);
+  //  double gap = GetEMAGapPoints(FastEMA, SlowEMA);
 
-    if(gap<500)
-    {
-      CloseAllSellOrders(true, "EMA Gap < 500");
-      CloseAllBuyOrders(true, "EMA Gap < 500");
-    }
+  //   if(gap<500)
+  //   {
+  //     CloseAllSellOrders(true, "EMA Gap < 500");
+  //     CloseAllBuyOrders(true, "EMA Gap < 500");
+  //   }
      
    // --- 0. Partial profit booking (every tick, once per ticket) ---
-   //ProcessPartialProfitClose();
+   ProcessPartialProfitClose();
 
    // --- 1a. SeqRule pattern-triggered close (action = "CLOSE") ---
    int ruleIdx = CheckSeqRules();

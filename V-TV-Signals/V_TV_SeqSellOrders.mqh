@@ -446,15 +446,15 @@ blockReason = "Cond1: EMI gap too tight: " + DoubleToString(gap,1);
 //     else
 // double gap=GetEMAGapPoints(FastEMA, SlowEMA);
 
- int trendnumber = GetMarketTrendStrength();
+//  int trendnumber = GetMarketTrendStrength();
 
 
- if(trendnumber ==-2)
-   {
+//  if(trendnumber ==-2)
+//    {
     
-   blockReason = "Cond1: Market trend too weak (trend number=" + IntegerToString(trendnumber) + ")";
-   }
-   else
+//    blockReason = "Cond1: Market trend too weak (trend number=" + IntegerToString(trendnumber) + ")";
+//    }
+//    else
 
  if(  gap<=EMAGAP3000Condition && check3000)
                      {

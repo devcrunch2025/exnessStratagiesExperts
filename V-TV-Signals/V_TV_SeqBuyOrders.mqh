@@ -637,15 +637,15 @@ return ;
   //     blockReason = "Cond1: RSI not in allowed range (30-70)";
   //   else
 
-       trendnumber = GetMarketTrendStrength();
+//        trendnumber = GetMarketTrendStrength();
 
 
- if(trendnumber ==2)
-   {
+//  if(trendnumber ==2)
+//    {
     
-   blockReason = "Cond1: Market trend too weak (trend number=" + IntegerToString(trendnumber) + ")";
-   }
-   else
+//    blockReason = "Cond1: Market trend too weak (trend number=" + IntegerToString(trendnumber) + ")";
+//    }
+//    else
  if(  gap<=EMAGAP3000Condition && check3000)
                      {
 blockReason = "Cond1: EMI gap too tight: " + DoubleToString(gap,1);

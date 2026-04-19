@@ -1459,7 +1459,7 @@ return ;
    bool emaPositionCrossTouched = CheckEMAPositionTouchedCross();
 
    
-   CheckClosedOrders();
+  //  CheckClosedOrders();
 //CheckForNewClosedBarAndProcessSignals();
 
 
@@ -1805,14 +1805,14 @@ else
    // Do NOT process any orders
 }
 */
-Print("M15 Trend Direction: ", GetM15TrendDirection(), " | Live Signal: ", g_liveSignalName);
-if(GetM15TrendDirection() == 1 && g_liveSignalName=="TREND BUY")
+// Print("M15 Trend Direction: ", GetM15TrendDirection(), " | Live Signal: ", g_liveSignalName);
+if(GetMinuteTrend() == 1 && g_liveSignalName=="TREND BUY")
 {
     
   ProcessSeqBuyOrders(true); 
 
   }
-  else if(GetM15TrendDirection() == -1 && g_liveSignalName=="TREND SELL")
+  else if(GetMinuteTrend() == -1 && g_liveSignalName=="TREND SELL")
   {
       
       ProcessSeqSellOrders(true);

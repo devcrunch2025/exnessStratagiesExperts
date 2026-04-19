@@ -246,6 +246,91 @@ void UpdateProfitTargets(int trend)
 }
 
 // ===================================================
+// MINUTE TREND DETECTOR — last 3 to 10 minutes (M1 bars)
+// Returns:  1 = Up trend
+//          -1 = Down trend
+//           0 = Straight (mixed / no clear direction)
+// ===================================================
+int GetMinuteTrend(int minMinutes = 3, int maxMinutes = 60, int minAnglePoints = 1000)
+{
+   double priceNow  = iClose(Symbol(), PERIOD_M1, 1);
+   double priceMin  = iClose(Symbol(), PERIOD_M1, minMinutes);
+   double priceMax  = iClose(Symbol(), PERIOD_M1, maxMinutes);
+
+   datetime timeNow = iTime(Symbol(), PERIOD_M1, 1);
+   datetime timeMax = iTime(Symbol(), PERIOD_M1, maxMinutes);
+
+   double moveShort = (priceNow - priceMin) / Point;
+   double moveLong  = (priceNow - priceMax) / Point;
+
+   // Calculate angle in degrees using chart visible scale
+   double chartPriceRange = ChartGetDouble(0, CHART_PRICE_MAX) - ChartGetDouble(0, CHART_PRICE_MIN);
+   double chartTimeSecs   = (double)ChartGetInteger(0, CHART_VISIBLE_BARS) * PeriodSeconds(PERIOD_CURRENT);
+   double timeSecs        = (double)(timeNow - timeMax);
+
+   double normY = (chartPriceRange > 0) ? (moveLong * Point) / chartPriceRange : 0;
+   double normX = (chartTimeSecs  > 0) ? timeSecs / chartTimeSecs : 0;
+   double angleDeg = 0;
+   if(normX > 0) angleDeg = MathArctan(normY / normX) * 180.0 / 3.14159265358979;
+
+   // Direction requires angle above 50° (or below -50°)
+   bool hasAngleUp   = (angleDeg >=  50.0);
+   bool hasAngleDown = (angleDeg <= -50.0);
+
+   string label = "STRAIGHT";
+   int    result = 0;
+   color  lineColor = clrGray;
+
+   if(hasAngleUp)
+   { label = "UP";   result =  1; lineColor = clrLime; }
+   else if(hasAngleDown)
+   { label = "DOWN"; result = -1; lineColor = clrRed;  }
+
+   string angleStr = DoubleToString(angleDeg, 1) + "°";
+
+   // Draw trend line from maxMinutes ago → now
+   string lineName  = "MinuteTrendLine";
+   string angleName = "MinuteTrendAngle";
+   ObjectDelete(0, lineName);
+   ObjectDelete(0, angleName);
+
+   if(ObjectCreate(0, lineName, OBJ_TREND, 0, timeMax, priceMax, timeNow, priceNow))
+   {
+      ObjectSetInteger(0, lineName, OBJPROP_COLOR,     lineColor);
+      ObjectSetInteger(0, lineName, OBJPROP_WIDTH,     2);
+      ObjectSetInteger(0, lineName, OBJPROP_STYLE,     STYLE_SOLID);
+      ObjectSetInteger(0, lineName, OBJPROP_RAY_RIGHT, false);
+      ObjectSetInteger(0, lineName, OBJPROP_SELECTABLE,false);
+      ObjectSetString(0,  lineName, OBJPROP_TOOLTIP,
+                      "Minute Trend: " + label +
+                      "\nAngle: " + angleStr +
+                      "\n" + IntegerToString(maxMinutes) + "m ago: " + DoubleToString(priceMax, 2) +
+                      "\nNow: " + DoubleToString(priceNow, 2) +
+                      "\nMove: " + DoubleToString(moveLong, 0) + " pts");
+   }
+
+   // Angle label at the right end of the line
+   if(ObjectCreate(0, angleName, OBJ_TEXT, 0, timeNow, priceNow))
+   {
+      ObjectSetString(0,  angleName, OBJPROP_TEXT,      label + " " + angleStr);
+      ObjectSetInteger(0, angleName, OBJPROP_COLOR,     lineColor);
+      ObjectSetInteger(0, angleName, OBJPROP_FONTSIZE,  9);
+      ObjectSetString(0,  angleName, OBJPROP_FONT,      "Arial Bold");
+      ObjectSetInteger(0, angleName, OBJPROP_ANCHOR,    ANCHOR_LEFT_LOWER);
+      ObjectSetInteger(0, angleName, OBJPROP_SELECTABLE,false);
+   }
+   ChartRedraw(0);
+
+   Print("Minute Trend (", minMinutes, "-", maxMinutes, "min): ", label,
+         " | Angle=", angleStr,
+         " | Now=", DoubleToString(priceNow, 2),
+         " | ", maxMinutes, "m ago=", DoubleToString(priceMax, 2),
+         " | Move=", DoubleToString(moveLong, 0), "pts");
+
+   return result;
+}
+
+// ===================================================
 // M15 TREND DIRECTION DETECTOR
 // Returns:  1 = Up trend
 //          -1 = Down trend
