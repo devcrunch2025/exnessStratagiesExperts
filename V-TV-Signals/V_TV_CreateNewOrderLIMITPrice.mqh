@@ -112,7 +112,9 @@ if(CountAllPendingOrders(magicNo) > 0)
    }
 
    RefreshRates();
-triggerPoints=500;
+   // ATR-based trigger: 1.5x ATR(14) filters fake spikes dynamically
+   int atrPoints = (int)(iATR(Symbol(), 0, 14, 1) / Point * 1.5);
+   if(atrPoints > 500) triggerPoints = atrPoints;
    int stopLevel = (int)MarketInfo(Symbol(), MODE_STOPLEVEL);
    if(triggerPoints < stopLevel)
       triggerPoints = stopLevel + 10;

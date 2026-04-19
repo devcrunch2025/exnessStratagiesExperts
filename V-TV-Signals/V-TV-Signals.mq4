@@ -1709,7 +1709,7 @@ else if(preTrendSell)     newSig = "PRE SELL";
       //  ProcessSeqBuyOrders();
 
 // Then run your trend logic
-   CreateNewTrendStrengthClaude();
+  //  CreateNewTrendStrengthClaude();
       /*
 int strongTrend = GetMarketTrendStrengthCluade();
 
@@ -1805,6 +1805,21 @@ else
    // Do NOT process any orders
 }
 */
+Print("M15 Trend Direction: ", GetM15TrendDirection(), " | Live Signal: ", g_liveSignalName);
+if(GetM15TrendDirection() == 1 && g_liveSignalName=="TREND BUY")
+{
+    
+  ProcessSeqBuyOrders(true); 
+
+  }
+  else if(GetM15TrendDirection() == -1 && g_liveSignalName=="TREND SELL")
+  {
+      
+      ProcessSeqSellOrders(true);
+}
+
+    
+
       g_newSignalDetected = false;
 
       
