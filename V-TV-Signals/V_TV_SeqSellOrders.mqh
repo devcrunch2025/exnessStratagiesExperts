@@ -346,6 +346,7 @@ bool PlaceSeqSellOrder(int ruleIdx)
 //+------------------------------------------------------------------+
 void DrawBlockedSellSignal(string reason)
   {
+    return ;
    string ts    = IntegerToString((int)TimeCurrent());
    string nameR = "BlkSell_R_" + ts;   // rectangle
    string nameT = "BlkSell_T_" + ts;   // text label

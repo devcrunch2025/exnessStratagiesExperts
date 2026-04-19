@@ -318,6 +318,8 @@ void EvaluateSignalFlags(int shift,
 //+------------------------------------------------------------------+
 void UpdateDailyLowProximityLines()
   {
+
+    return;
   double minGapPrice = 100 * Point;
   double sellGapPrice = MathMax(TrendSellDailyLowGapPrice, minGapPrice);
   double buyGapPrice  = MathMax(TrendBuyDailyHighGapPrice, minGapPrice);
@@ -1806,13 +1808,15 @@ else
 }
 */
 // Print("M15 Trend Direction: ", GetM15TrendDirection(), " | Live Signal: ", g_liveSignalName);
-if(GetMinuteTrend() == 1 && g_liveSignalName=="TREND BUY")
+
+// int trendBuyAftercross=GetMinuteTrendAftercross();
+if(GetMinuteTrendAftercross() == 1 && g_liveSignalName=="TREND BUY")
 {
     
   ProcessSeqBuyOrders(true); 
 
   }
-  else if(GetMinuteTrend() == -1 && g_liveSignalName=="TREND SELL")
+  else if(GetMinuteTrendAftercross() == -1 && g_liveSignalName=="TREND SELL")
   {
       
       ProcessSeqSellOrders(true);

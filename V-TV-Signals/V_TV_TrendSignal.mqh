@@ -337,6 +337,119 @@ int GetMinuteTrend(int minMinutes = 3, int maxMinutes = 60, int minAnglePoints =
 }
 
 // ===================================================
+// TREND BUY ANGLE AFTER CROSS
+// 1. Requires g_lastCrossTime set by DetectEMACross()
+// 2. Scans all "TB_*_A" chart objects placed after the cross
+// 3. Draws a line from first → latest TREND BUY signal
+// 4. Calculates visual angle; 50° threshold same as GetMinuteTrend
+// Returns:  1 = Up trend
+//          -1 = Down trend
+//           0 = No signal / insufficient data
+// ===================================================
+// Returns the computed angle in degrees, or EMPTY_VALUE if insufficient data.
+// Draws the trend line and angle label as a side effect.
+double DrawCrossSignalLine(string prefix, string sigLabel, color lineCol, color textCol)
+{
+   datetime firstTime   = 0;
+   double   firstPrice  = 0;
+   datetime latestTime  = 0;
+   double   latestPrice = 0;
+   int      count       = 0;
+
+   int total = ObjectsTotal();
+   for(int k = 0; k < total; k++)
+   {
+      string name = ObjectName(k);
+      if(StringFind(name, prefix + "_") != 0)             continue;
+      if(StringSubstr(name, StringLen(name) - 2) != "_A") continue;
+
+      datetime objTime  = (datetime)ObjectGetInteger(0, name, OBJPROP_TIME,  0);
+      double   objPrice =           ObjectGetDouble( 0, name, OBJPROP_PRICE, 0);
+
+      if(objTime < g_lastCrossTime) continue;
+
+      count++;
+      if(firstTime == 0 || objTime < firstTime) { firstTime  = objTime;  firstPrice  = objPrice; }
+      if(objTime > latestTime)                  { latestTime = objTime;  latestPrice = objPrice; }
+   }
+
+   string lineName  = prefix + "CrossLine";
+   string angleName = prefix + "CrossAngle";
+   ObjectDelete(0, lineName);
+   ObjectDelete(0, angleName);
+
+   if(count < 2 || firstTime == latestTime) return EMPTY_VALUE;
+
+   double movePoints      = (latestPrice - firstPrice) / Point;
+   double chartPriceRange = ChartGetDouble(0, CHART_PRICE_MAX) - ChartGetDouble(0, CHART_PRICE_MIN);
+   double chartTimeSecs   = (double)ChartGetInteger(0, CHART_VISIBLE_BARS) * PeriodSeconds(PERIOD_CURRENT);
+   double timeSecs        = (double)(latestTime - firstTime);
+
+   double normY    = (chartPriceRange > 0) ? (movePoints * Point) / chartPriceRange : 0;
+   double normX    = (chartTimeSecs   > 0) ? timeSecs / chartTimeSecs : 0;
+   double angleDeg = 0;
+   if(normX > 0) angleDeg = MathArctan(normY / normX) * 180.0 / 3.14159265358979;
+
+   string label = "STRAIGHT";
+   if(angleDeg >=  50.0) label = "UP";
+   else if(angleDeg <= -50.0) label = "DOWN";
+
+   string angleStr = DoubleToString(angleDeg, 1) + "°";
+
+   if(ObjectCreate(0, lineName, OBJ_TREND, 0, firstTime, firstPrice, latestTime, latestPrice))
+   {
+      ObjectSetInteger(0, lineName, OBJPROP_COLOR,      lineCol);
+      ObjectSetInteger(0, lineName, OBJPROP_WIDTH,      2);
+      ObjectSetInteger(0, lineName, OBJPROP_STYLE,      STYLE_DASH);
+      ObjectSetInteger(0, lineName, OBJPROP_RAY_RIGHT,  false);
+      ObjectSetInteger(0, lineName, OBJPROP_SELECTABLE, false);
+      ObjectSetString( 0, lineName, OBJPROP_TOOLTIP,
+                       "AfterCross " + sigLabel + ": " + label +
+                       "\nAngle: " + angleStr +
+                       "\nFirst:  " + DoubleToString(firstPrice,  2) + " @ " + TimeToString(firstTime) +
+                       "\nLatest: " + DoubleToString(latestPrice, 2) + " @ " + TimeToString(latestTime) +
+                       "\nCount: " + IntegerToString(count));
+   }
+
+   if(ObjectCreate(0, angleName, OBJ_TEXT, 0, latestTime, latestPrice))
+   {
+      ObjectSetString( 0, angleName, OBJPROP_TEXT,       prefix + " " + label + " " + angleStr + " (" + IntegerToString(count) + ")");
+      ObjectSetInteger(0, angleName, OBJPROP_COLOR,      textCol);
+      ObjectSetInteger(0, angleName, OBJPROP_FONTSIZE,   9);
+      ObjectSetString( 0, angleName, OBJPROP_FONT,       "Arial Bold");
+      ObjectSetInteger(0, angleName, OBJPROP_ANCHOR,     ANCHOR_LEFT_LOWER);
+      ObjectSetInteger(0, angleName, OBJPROP_SELECTABLE, false);
+   }
+
+   Print(sigLabel, " AfterCross | ", label,
+         " | Angle=", angleStr,
+         " | First=",  DoubleToString(firstPrice,  2), " @ ", TimeToString(firstTime),
+         " | Latest=", DoubleToString(latestPrice, 2), " @ ", TimeToString(latestTime),
+         " | Signals=", count);
+
+   return angleDeg;
+}
+
+// ===================================================
+// Returns:  1 = TREND BUY  angle >= +50° (up move)
+//          -1 = TREND SELL angle <= -50° (down move)
+//           0 = no clear direction / insufficient data
+// ===================================================
+int GetMinuteTrendAftercross()
+{
+   if(g_lastCrossTime == 0) return 0;
+
+   double tbAngle = DrawCrossSignalLine("TB", "TREND BUY",  clrLime, clrLime);
+   double tsAngle = DrawCrossSignalLine("TS", "TREND SELL", clrRed,  clrRed);
+
+   ChartRedraw(0);
+
+   if(tbAngle != EMPTY_VALUE && tbAngle >=  50.0) return  1;
+   if(tsAngle != EMPTY_VALUE && tsAngle <= -50.0) return -1;
+   return 0;
+}
+
+// ===================================================
 // M15 TREND DIRECTION DETECTOR
 // Returns:  1 = Up trend
 //          -1 = Down trend
