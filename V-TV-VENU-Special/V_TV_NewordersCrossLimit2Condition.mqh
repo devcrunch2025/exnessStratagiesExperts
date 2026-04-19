@@ -113,7 +113,7 @@ void ShowEMAGapLabel()
    string name = "EMA_GAP_LABEL";
 
    double gap = GetEMAGapPoints(FastEMA, SlowEMA);
-   string text = "EMA Gap: " + DoubleToString(gap, 1) + " pts. "+IntegerToString(SeqBuyMaxOrders)+"/"+IntegerToString(SeqSellMaxOrders);
+   string text = "EMA Gap: " + DoubleToString(gap, 1) + " pts. "+IntegerToString(SeqBuyMaxOrders)+"/"+IntegerToString(SeqSellMaxOrders)+" TREND "+trendnumber;
 //Print("Current EMA Gap: ", DoubleToString(gap,1), " pts. Max Orders: ", SeqBuyMaxOrders, "/", SeqSellMaxOrders);
    if(ObjectFind(0, name) == -1)
    { 

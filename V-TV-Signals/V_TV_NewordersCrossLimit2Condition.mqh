@@ -317,7 +317,7 @@ bool IsNoTradeZoneBTC()
 // -4  = strong sell (long trend)
 
 // Global loss tracker — declare outside function in your EA
-int g_consecutiveLosses = 0;
+// int g_consecutiveLosses = 0;
 
 int GetMarketTrendStrengthCluade()
 {
@@ -740,13 +740,13 @@ int GetMarketTrendStrengthCluade()
 // ===================================================
 // Call this from your EA after each closed trade
 // ===================================================
-void UpdateLossTracker(bool wasLoss)
-{
-   if(wasLoss)
-      g_consecutiveLosses++;
-   else
-      g_consecutiveLosses = 0; // reset on any win
-}
+// void UpdateLossTracker(bool wasLoss)
+// {
+//    if(wasLoss)
+//       g_consecutiveLosses++;
+//    else
+//       g_consecutiveLosses = 0; // reset on any win
+// }
 
 int GetMarketTrendStrength()
 {

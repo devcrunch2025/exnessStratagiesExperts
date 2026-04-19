@@ -18,6 +18,8 @@
 #include "V_TV_NewordersCrossLimit2Condition.mqh"
 #include "V_TV_CreateNewOrderCrossimmidiate.mqh"
 #include "V_TV_CreateNewOrderLIMITPrice.mqh"
+#include "V_TV_TrendSignal.mqh"
+
 
 
  
@@ -1201,6 +1203,9 @@ int defaultMaxSellOrders = 0;
 //+------------------------------------------------------------------+
 int OnInit()
   {
+
+    // Print full history stats on startup
+   PrintLossStats();
 SetCandleColors();
 //updates from input forms 
 SeqBuyProfitTarget=BuyProfitTargetInput;
@@ -1401,7 +1406,8 @@ bool IsTradingTime()
 //+------------------------------------------------------------------+
 void OnTick()
   {
-
+// Always auto-detect losses first
+   AutoUpdateLossTracker();
 
 //Print("Tick is started at ",TimeToString(TimeCurrent()));
             ProcessSeqCloseOrders();
@@ -1699,31 +1705,108 @@ else if(preTrendSell)     newSig = "PRE SELL";
    // --- Order logic: only when a new signal was detected this tick ---
    if(g_newSignalDetected)
      {
-       ProcessSeqSellOrders();
-       ProcessSeqBuyOrders();
+      //  ProcessSeqSellOrders();
+      //  ProcessSeqBuyOrders();
+
+// Then run your trend logic
+   CreateNewTrendStrengthClaude();
+      /*
+int strongTrend = GetMarketTrendStrengthCluade();
+
+int strongTrend2=GetMarketTrendStrength();
+
+if(strongTrend2==2)
+{
+   ProcessSeqBuyOrders(true);
+
+}
+else if(strongTrend2==-2)
+{
+    ProcessSeqSellOrders(true);
+}
+trendnumber = strongTrend;
+
+Print("Detected market trend strength: ", strongTrend);
+
+// ===================================================
+// LONG TREND SIGNALS (±3, ±4)
+// ===================================================
+if(strongTrend == 4)
+{
+   // Strong BUY - Long trend
+   // Increase max orders AND process
+   SeqBuyMaxOrders  = defaultMaxBuyOrders + 2;  // allow more orders on strong trend
+   SeqSellMaxOrders = defaultMaxSellOrders;      // reset sell side
+   ProcessSeqBuyOrders(true);
+}
+else if(strongTrend == 3)
+{
+   // Weak BUY - Long trend
+   SeqBuyMaxOrders  = defaultMaxBuyOrders + 1;  // slight increase
+   SeqSellMaxOrders = defaultMaxSellOrders;
+   ProcessSeqBuyOrders(true);
+}
+else if(strongTrend == -4)
+{
+   // Strong SELL - Long trend
+   SeqSellMaxOrders = defaultMaxSellOrders + 2; // allow more orders on strong trend
+   SeqBuyMaxOrders  = defaultMaxBuyOrders;       // reset buy side
+   ProcessSeqSellOrders(true);
+}
+else if(strongTrend == -3)
+{
+   // Weak SELL - Long trend
+   SeqSellMaxOrders = defaultMaxSellOrders + 1;
+   SeqBuyMaxOrders  = defaultMaxBuyOrders;
+   ProcessSeqSellOrders(true);
+}
+
+// ===================================================
+// MEDIUM TREND SIGNALS (±1, ±2)
+// ===================================================
+else if(strongTrend == 2)
+{
+   // Strong BUY - Medium trend
+   SeqBuyMaxOrders  = defaultMaxBuyOrders;
+   SeqSellMaxOrders = defaultMaxSellOrders;
+   ProcessSeqBuyOrders(true);
+}
+else if(strongTrend == 1)
+{
+   // Weak BUY - Medium trend
+   // Optional: process with reduced orders
+   SeqBuyMaxOrders  = MathMax(1, defaultMaxBuyOrders - 1);
+   SeqSellMaxOrders = defaultMaxSellOrders;
+   ProcessSeqBuyOrders(true);
+}
+else if(strongTrend == -2)
+{
+   // Strong SELL - Medium trend
+   SeqSellMaxOrders = defaultMaxSellOrders;
+   SeqBuyMaxOrders  = defaultMaxBuyOrders;
+   ProcessSeqSellOrders(true);
+}
+else if(strongTrend == -1)
+{
+   // Weak SELL - Medium trend
+   SeqSellMaxOrders = MathMax(1, defaultMaxSellOrders - 1);
+   SeqBuyMaxOrders  = defaultMaxBuyOrders;
+   ProcessSeqSellOrders(true);
+}
+
+// ===================================================
+// NO TREND / SIDEWAYS
+// ===================================================
+else
+{
+   // Always reset both sides when no trend
+   SeqBuyMaxOrders  = defaultMaxBuyOrders;
+   SeqSellMaxOrders = defaultMaxSellOrders;
+   // Do NOT process any orders
+}
+*/
       g_newSignalDetected = false;
 
-        
- int strongTrend=GetMarketTrendStrengthCluade();
-     if(strongTrend==2 || strongTrend==4)
-     {
-
-      SeqSellMaxOrders = SeqSellMaxOrders+1;
-      SeqBuyMaxOrders = SeqBuyMaxOrders+1;
-  ProcessSeqBuyOrders(true);
-     }
-     
-     else  if(strongTrend==-2 || strongTrend==-4)
-     {
-      SeqSellMaxOrders = SeqSellMaxOrders+1;
-      SeqBuyMaxOrders = SeqBuyMaxOrders+1;
-  ProcessSeqSellOrders(true);
-     }
-     else
-     {
-      SeqSellMaxOrders = defaultMaxSellOrders;
-      SeqBuyMaxOrders = defaultMaxBuyOrders;
-     }
       
      }
 
