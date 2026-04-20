@@ -438,12 +438,27 @@ double DrawCrossSignalLine(string prefix, string sigLabel, color lineCol, color 
 
    Print(sigLabel, " AfterCross | ", label,
          " | Angle=", angleStr,
-         // " | First=",  DoubleToString(firstPrice,  2), " @ ", TimeToString(firstTime),
-         // " | Latest=", DoubleToString(latestPrice, 2), " @ ", TimeToString(latestTime),
-         " | Signals=", count);
+          " | Signals=", count);
 
- 
+   // Top-right chart label — same text as Print(), TB=row3 (Y=100), TS=row4 (Y=125)
+   string statusName = prefix + "CrossStatus";
+   int    statusY    = (prefix == "TB") ? 100 : 125;
+   string statusText = sigLabel + " AfterCross | " + label +
+                       " | Angle=" + angleStr +
+                       " | Signals=" + IntegerToString(count);
+   color  statusCol  = (label == "UP") ? clrLime : (label == "DOWN") ? clrRed : clrGray;
 
+   if(ObjectFind(0, statusName) == -1)
+      ObjectCreate(0, statusName, OBJ_LABEL, 0, 0, 0);
+   ObjectSetInteger(0, statusName, OBJPROP_CORNER,    CORNER_RIGHT_UPPER);
+   ObjectSetInteger(0, statusName, OBJPROP_XDISTANCE, 500);
+   ObjectSetInteger(0, statusName, OBJPROP_YDISTANCE, statusY);
+   ObjectSetInteger(0, statusName, OBJPROP_COLOR,     statusCol);
+   ObjectSetInteger(0, statusName, OBJPROP_FONTSIZE,  11);
+   ObjectSetString( 0, statusName, OBJPROP_FONT,      "Arial Bold");
+   ObjectSetString( 0, statusName, OBJPROP_TEXT,      statusText);
+
+   if(count < 5 ) return EMPTY_VALUE;
 
    return angleDeg;
 }
