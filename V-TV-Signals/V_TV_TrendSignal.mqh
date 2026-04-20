@@ -460,13 +460,21 @@ double DrawCrossSignalLine(string prefix, string sigLabel, color lineCol, color 
 
    // if(count < 5 || angleDeg <50) return EMPTY_VALUE;
 
-   int minimumCount = 5;
+   int minimumCount = 8;
    double minimumAngle = 50.0;
 
 Print("NOOOOOOOOOOOO ORDER  ------------------  Signal: ", sigLabel,
        " | Count: ", count,
        " | Angle: ", angleStr,
        "  ");
+
+
+          double gap = GetEMAGapPoints(FastEMA, SlowEMA);
+if(gap>4000)
+{
+   minimumCount = 3;
+   minimumAngle = 40.0;
+}
 
  if(count<minimumCount) return  EMPTY_VALUE;
 

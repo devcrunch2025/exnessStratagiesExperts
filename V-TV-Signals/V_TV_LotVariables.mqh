@@ -61,17 +61,17 @@ input double PartialProfitCloseRatio  = 1;    // Fraction of lot to close (0.5 =
 bool isEMATouchesInsideLines=false;;
 
 //--- 0.01; Profit / StopLoss (auto-calculated in InitLotDependentVars) ----
-double SeqSellProfitTarget = 1;
-double SeqSellStopLossUSD  =2;
-double SeqBuyProfitTarget  =1;
-double SeqBuyStopLossUSD   =2;
+double SeqSellProfitTarget = 0.50;
+double SeqSellStopLossUSD  =3;
+double SeqBuyProfitTarget  =0.50;
+double SeqBuyStopLossUSD   =3;
 
 //--- Lot sizes (CHANGE ONLY THESE) ----------------------------------
 input double SeqSellLotSize = 0.01;  // SELL lot size
 input double SeqBuyLotSize  = 0.01;  // BUY lot size
 
-input double SellProfitTargetInput = 1; 
-input double BuyProfitTargetInput   =1;
+input double SellProfitTargetInput = 0.50; 
+input double BuyProfitTargetInput   =0.50;
 
 
   bool CloseOrderONLYProfitNotSignal  = true;  // BUY lot size

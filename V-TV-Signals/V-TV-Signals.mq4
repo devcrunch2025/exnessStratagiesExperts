@@ -1408,6 +1408,15 @@ bool IsTradingTime()
 //+------------------------------------------------------------------+
 void OnTick()
   {
+
+//reset g_lastCrossTime at midnight 
+if(TimeDay(TimeCurrent()) != TimeDay(g_lastCrossTime))
+{
+  g_lastCrossTime = 0;
+  Print("Resetting last cross time at midnight.");
+}
+
+
 // Always auto-detect losses first
    AutoUpdateLossTracker();
 
