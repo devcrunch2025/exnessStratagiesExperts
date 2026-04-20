@@ -1809,20 +1809,25 @@ else
 */
 // Print("M15 Trend Direction: ", GetM15TrendDirection(), " | Live Signal: ", g_liveSignalName);
 
-// int trendBuyAftercross=GetMinuteTrendAftercross();
-if(GetMinuteTrendAftercross() == 1 && g_liveSignalName=="TREND BUY")
+
+if(g_liveSignalName=="TREND SELL" || g_liveSignalName=="TREND BUY")
+{
+ int trendBuyAftercross=GetMinuteTrendAftercross();
+
+//  Print("M1 Trend After Cross: ", trendBuyAftercross, " | Live Signal: ", g_liveSignalName);
+if(trendBuyAftercross == 1 && g_liveSignalName=="TREND BUY")
 {
     
   ProcessSeqBuyOrders(true); 
 
   }
-  else if(GetMinuteTrendAftercross() == -1 && g_liveSignalName=="TREND SELL")
+  else if(trendBuyAftercross == -1 && g_liveSignalName=="TREND SELL")
   {
       
       ProcessSeqSellOrders(true);
 }
 
-    
+    }
 
       g_newSignalDetected = false;
 

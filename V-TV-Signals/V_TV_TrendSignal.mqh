@@ -458,7 +458,33 @@ double DrawCrossSignalLine(string prefix, string sigLabel, color lineCol, color 
    ObjectSetString( 0, statusName, OBJPROP_FONT,      "Arial Bold");
    ObjectSetString( 0, statusName, OBJPROP_TEXT,      statusText);
 
-   if(count < 5 ) return EMPTY_VALUE;
+   // if(count < 5 || angleDeg <50) return EMPTY_VALUE;
+
+   int minimumCount = 5;
+   double minimumAngle = 50.0;
+
+Print("NOOOOOOOOOOOO ORDER  ------------------  Signal: ", sigLabel,
+       " | Count: ", count,
+       " | Angle: ", angleStr,
+       "  ");
+
+ if(count<minimumCount) return  EMPTY_VALUE;
+
+//  if(angleDeg <minimumAngle) return  EMPTY_VALUE;
+
+ if(prefix == "TB" && angleDeg <minimumAngle) return EMPTY_VALUE;
+  if(prefix == "TS" && angleDeg >minimumAngle) return EMPTY_VALUE;
+ 
+
+
+ 
+
+
+
+ Print("ORDER  ------------------  Signal: ", sigLabel,
+       " | Count: ", count,
+       " | Angle: ", angleStr,
+       "  ");
 
    return angleDeg;
 }
@@ -472,28 +498,49 @@ double DrawCrossSignalLine(string prefix, string sigLabel, color lineCol, color 
 int GetMinuteTrendAftercross()
 {
 
+string statusName = "TrendAfterCrossStatus";
 
    if(g_lastCrossTime == 0) 
    {
 
    Print("Checking TREND signals after last cross at ", TimeToString(g_lastCrossTime));
+string statusText = "Checking TREND signals after last cross at " + TimeToString(g_lastCrossTime);
+   if(ObjectFind(0, statusName) == -1)
+      ObjectCreate(0, statusName, OBJ_LABEL, 0, 0, 0);
+   ObjectSetInteger(0, statusName, OBJPROP_CORNER,    CORNER_RIGHT_UPPER);
+   ObjectSetInteger(0, statusName, OBJPROP_XDISTANCE, 500);
+   ObjectSetInteger(0, statusName, OBJPROP_YDISTANCE, 300);
+   ObjectSetInteger(0, statusName, OBJPROP_COLOR,     clrRed);
+   ObjectSetInteger(0, statusName, OBJPROP_FONTSIZE,  11);
+   ObjectSetString( 0, statusName, OBJPROP_FONT,      "Arial Bold");
+   ObjectSetString( 0, statusName, OBJPROP_TEXT,      statusText);
 
       return 0;
 
    }
+   else
+   {
+         //if(ObjectFind(0, statusName) == 1)
+         {
+            ObjectDelete(0, statusName);
+         }
+
+   }
 
    int    tbCount = 0, tsCount = 0;
-   double tbAngle = DrawCrossSignalLine("TB", "TREND BUY",  clrLime, clrLime, tbCount);
-   double tsAngle = DrawCrossSignalLine("TS", "TREND SELL", clrRed,  clrRed,  tsCount);
+   double tbAngle = DrawCrossSignalLine("TB", "TREND BUY",  clrYellow, clrYellow, tbCount);
+   double tsAngle = DrawCrossSignalLine("TS", "TREND SELL", clrYellow,  clrYellow,  tsCount);
 
    ChartRedraw(0);
 
-   Print(tbAngle, " | ", tsAngle);
+   // Print(tbAngle, " | ", tsAngle);
 
    if(tbAngle != EMPTY_VALUE)
    {
       // double tbThreshold = (tbCount > 10) ? 30.0 : (tbCount > 8) ? 40.0 : (tbCount > 5) ? 50.0 : 60.0;
       // if(tbAngle >= tbThreshold) return 1;
+
+
 
       return 1;
    }
