@@ -1409,6 +1409,17 @@ bool IsTradingTime()
 void OnTick()
   {
 
+
+    //stop trading on loss 
+
+    if(stopTradingOnLoss())
+    {
+      Print("Trading is stopped due to loss limit reached.");
+      return;
+    }
+//  CancelExpiredPendingOrders(60, SeqBuyMagicNo);
+//       CancelExpiredPendingOrders(60, SeqSellMagicNo);
+
 //reset g_lastCrossTime at midnight 
 if(TimeDay(TimeCurrent()) != TimeDay(g_lastCrossTime))
 {
@@ -1821,6 +1832,22 @@ else
 
 if(g_liveSignalName=="TREND SELL" || g_liveSignalName=="TREND BUY")
 {
+
+
+
+
+
+// if(g_liveSignalName == "TREND SELL" || g_liveSignalName == "PRE SELL")
+// {
+//    CloseAllBuyOrders(true,"REVERSE close for TS signal");
+// }
+// else if(g_liveSignalName == "TREND BUY" || g_liveSignalName == "PRE BUY")
+// {
+//    CloseAllSellOrders(true,"REVERSE close for TB signal");
+// }
+
+
+
  int trendBuyAftercross=GetMinuteTrendAftercross();
 
 //  Print("M1 Trend After Cross: ", trendBuyAftercross, " | Live Signal: ", g_liveSignalName);

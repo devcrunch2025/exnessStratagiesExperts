@@ -1,4 +1,63 @@
 string GlobalMessage="";
+
+
+
+
+bool stopTradingOnLoss()
+{
+   
+      double equity      = AccountEquity();
+    
+   double initPL      = equity - g_initialBalance;
+
+   double maxLoss=g_initialBalance/2;
+
+   if(equity < g_initialBalance/2)
+   {
+        Print("Equity loss ($", DoubleToString(-initPL, 2), ") exceeds threshold ($", DoubleToString(maxLoss, 2), "). Stopping new trades.");
+      
+       GlobalMessage = "🔴 TRADING STOPPED: Equity Loss > $" + DoubleToString(-maxLoss, 2)    ;
+
+string name="lbl_LossStop";
+   // ✅ Create only once
+   if(ObjectFind(0, name) == -1)
+   {
+
+      int chartWidth = (int)ChartGetInteger(0, CHART_WIDTH_IN_PIXELS, 0);
+   int x = chartWidth / 2 - 150;
+      ObjectCreate(0, name, OBJ_LABEL, 0, 0, 0);
+
+      ObjectSetInteger(0, name, OBJPROP_CORNER, CORNER_LEFT_UPPER);
+      ObjectSetInteger(0, name, OBJPROP_XDISTANCE, x);
+      ObjectSetInteger(0, name, OBJPROP_YDISTANCE, 100);
+
+      ObjectSetInteger(0, name, OBJPROP_COLOR, clrRed);
+      ObjectSetInteger(0, name, OBJPROP_FONTSIZE, 30);
+   ObjectSetString(0,  name, OBJPROP_FONT,      "Arial Bold");
+
+   }
+
+ 
+ 
+   
+   // ✅ Only update text (NO overlap)
+   ObjectSetString(0, name, OBJPROP_TEXT, GlobalMessage);
+
+   return true;
+   }
+   else
+   {
+      GlobalMessage="";
+
+      return false;
+   }
+
+   return false;
+}
+
+
+
+
 bool stopTrading()
 {
     // 🔧 adjust this threshold (e.g. 10.00 for $10 profit)
