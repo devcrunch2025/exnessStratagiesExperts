@@ -19,6 +19,7 @@
 #include "V_TV_CreateNewOrderCrossimmidiate.mqh"
 #include "V_TV_CreateNewOrderLIMITPrice.mqh"
 #include "V_TV_TrendSignal.mqh"
+#include "V_TV_SpikeDetection.mqh"
 
 
 
@@ -1417,6 +1418,16 @@ void OnTick()
       Print("Trading is stopped due to loss limit reached.");
       return;
     }
+
+    // Step 1: always detect tick spike first
+  //  DetectTickSpike();
+
+  //  // Step 2: check spike before any trading
+  //  if(IsSpikeActive())
+  //  {
+  //     Print("Trading PAUSED — spike active.");
+  //     return;
+  //  }
 //  CancelExpiredPendingOrders(60, SeqBuyMagicNo);
 //       CancelExpiredPendingOrders(60, SeqSellMagicNo);
 
@@ -1846,21 +1857,35 @@ if(g_liveSignalName=="TREND SELL" || g_liveSignalName=="TREND BUY")
 //    CloseAllSellOrders(true,"REVERSE close for TB signal");
 // }
 
+ bool isSpikeActive1 =false;// IsSpikeActive();
 
+if(!isSpikeActive1)
+{
+
+  // Print("Spike is NOT active");
 
  int trendBuyAftercross=GetMinuteTrendAftercross();
 
+
+
+
 //  Print("M1 Trend After Cross: ", trendBuyAftercross, " | Live Signal: ", g_liveSignalName);
-if(trendBuyAftercross == 1 && g_liveSignalName=="TREND BUY")
+if(trendBuyAftercross == 1 && g_liveSignalName=="TREND BUY" && !isSpikeActive1)
 {
     
   ProcessSeqBuyOrders(true); 
 
   }
-  else if(trendBuyAftercross == -1 && g_liveSignalName=="TREND SELL")
+  else if(trendBuyAftercross == -1 && g_liveSignalName=="TREND SELL" && !isSpikeActive1)
   {
       
       ProcessSeqSellOrders(true);
+}
+
+}
+else
+{
+  Print("Spike active, skipping order processing for trend signals.");
 }
 
     }

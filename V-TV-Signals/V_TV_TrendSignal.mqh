@@ -466,7 +466,7 @@ double DrawCrossSignalLine(string prefix, string sigLabel, color lineCol, color 
    // if(count < 5 || angleDeg <50) return EMPTY_VALUE;
 
    int minimumCount = 10;
-   double minimumAngle = 70.0;
+   double minimumAngle =60.0;
 
 // Print("NOOOOOOOOOOOO ORDER  ------------------  Signal: ", sigLabel,
 //        " | Count: ", count,
@@ -474,29 +474,69 @@ double DrawCrossSignalLine(string prefix, string sigLabel, color lineCol, color 
 //        "  ");
 
 
-//           double gap = GetEMAGapPoints(FastEMA, SlowEMA);
+            double gap = GetEMAGapPoints(FastEMA, SlowEMA);
 // if(gap>4000)
 // {
 //    minimumCount = 4;
 //    minimumAngle = 40.0;
 // }
-if(angleDeg>50 || angleDeg<-50)
-{
-      minimumCount = 25;
-     
-}
+
+// if(gap<1000)
+// {
+//    Print("Small EMA gap detected: ", gap, " pts — increasing thresholds");
+
+//    return EMPTY_VALUE;
+// }
+
 if(angleDeg>80 || angleDeg<-80)
 {
-      minimumCount = 3;
+      minimumCount =5;//spike with very strong angle, allow even 3 signals to count as valid trend
+      // Print("Minimum count increased to ", minimumCount, " due to strong angle of ", angleStr);
+
      
+}
+else if(angleDeg>60 || angleDeg<-60)
+{
+      minimumCount = 10;
+      // Print("Minimum count increased to ", minimumCount, " due to strong angle of ", angleStr);
+     
+   //   SeqBuyMaxOrders  = 1;
+   //    SeqSellMaxOrders =1;
+}else if(angleDeg>50 || angleDeg<-50)
+{
+      minimumCount = 15;
+      // Print("Minimum count increased to ", minimumCount, " due to strong angle of ", angleStr);
+     
+   //   SeqBuyMaxOrders  = 1;
+   //    SeqSellMaxOrders =1;
+}
+else
+{
+   // SeqBuyMaxOrders  = defaultMaxBuyOrders;
+   //    SeqSellMaxOrders =defaultMaxSellOrders;
 }
 
 
- if(count<minimumCount) return  EMPTY_VALUE;
 
  
- if(prefix == "TB" && angleDeg <= minimumAngle) return EMPTY_VALUE;
-   if(prefix == "TS" && angleDeg >= -minimumAngle) return EMPTY_VALUE;
+ 
+ if(prefix == "TB" && angleDeg <= minimumAngle) {
+      Print("TB angle is   ", angleStr, " < ", minimumAngle, " — ignoring signal");
+
+   return EMPTY_VALUE;
+ } 
+  else if(prefix == "TS" && angleDeg >= -minimumAngle){
+      Print("TS angle is   ", angleStr, " > ", -minimumAngle, " — ignoring signal");
+   return EMPTY_VALUE;
+
+   }
+
+   else if(count<minimumCount)
+ {  
+      Print("count ", count, " < ", minimumCount, " — ignoring signal", angleStr);
+   
+   return  EMPTY_VALUE;
+ }
 
 
 
