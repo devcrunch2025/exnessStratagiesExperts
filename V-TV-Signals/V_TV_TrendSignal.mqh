@@ -351,6 +351,18 @@ int GetMinuteTrend(int minMinutes = 3, int maxMinutes = 60, int minAnglePoints =
 // Draws the trend line and angle label as a side effect.
 double DrawCrossSignalLine(string prefix, string sigLabel, color lineCol, color textCol, int &outCount)
 {
+
+// if(prefix == "TS")
+// {
+//    CloseAllSeqBuyOrders(true,"REVERSE close for TS signal");
+// }
+// else if(prefix == "TB")
+// {
+//    CloseAllSeqSellOrders(true,"REVERSE close for TB signal");
+// }
+
+
+
    datetime firstTime   = 0;
    double   firstPrice  = 0;
    datetime latestTime  = 0;
@@ -437,7 +449,7 @@ double DrawCrossSignalLine(string prefix, string sigLabel, color lineCol, color 
    }
 
    Print(sigLabel, " AfterCross | ", label,
-         " | Angle=", angleStr,
+         " | Angle=", angleStr,angleDeg,
           " | Signals=", count);
 
    // Top-right chart label — same text as Print(), TB=row3 (Y=100), TS=row4 (Y=125)
@@ -463,26 +475,26 @@ double DrawCrossSignalLine(string prefix, string sigLabel, color lineCol, color 
    int minimumCount = 8;
    double minimumAngle = 50.0;
 
-Print("NOOOOOOOOOOOO ORDER  ------------------  Signal: ", sigLabel,
-       " | Count: ", count,
-       " | Angle: ", angleStr,
-       "  ");
+// Print("NOOOOOOOOOOOO ORDER  ------------------  Signal: ", sigLabel,
+//        " | Count: ", count,
+//        " | Angle: ", angleStr,
+//        "  ");
 
 
           double gap = GetEMAGapPoints(FastEMA, SlowEMA);
 if(gap>4000)
 {
-   minimumCount = 3;
+   minimumCount = 4;
    minimumAngle = 40.0;
 }
 
+
  if(count<minimumCount) return  EMPTY_VALUE;
 
-//  if(angleDeg <minimumAngle) return  EMPTY_VALUE;
-
- if(prefix == "TB" && angleDeg <minimumAngle) return EMPTY_VALUE;
-  if(prefix == "TS" && angleDeg >minimumAngle) return EMPTY_VALUE;
  
+ if(prefix == "TB" && angleDeg < minimumAngle) return EMPTY_VALUE;
+   if(prefix == "TS" && angleDeg > -minimumAngle) return EMPTY_VALUE;
+
 
 
  
