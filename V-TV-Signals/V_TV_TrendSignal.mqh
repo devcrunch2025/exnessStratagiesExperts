@@ -367,7 +367,7 @@ double DrawCrossSignalLine(string prefix, string sigLabel, color lineCol, color 
       datetime objTime  = (datetime)ObjectGetInteger(0, name, OBJPROP_TIME,  0);
       double   objPrice =           ObjectGetDouble( 0, name, OBJPROP_PRICE, 0);
 
-      // if(objTime < g_lastCrossTime) continue;
+      if(objTime < g_lastCrossTime) continue;
 
       count++;
       if(firstTime == 0 || objTime < firstTime) { firstTime  = objTime;  firstPrice  = objPrice; }
@@ -380,9 +380,16 @@ double DrawCrossSignalLine(string prefix, string sigLabel, color lineCol, color 
    ObjectDelete(0, angleName);
 
    outCount = count;
+   // if(count < 5 || firstTime == latestTime) return EMPTY_VALUE;
 
-   Print(sigLabel, " Signals after cross: ", count);
-   
+   // if(count>1 )
+   // {
+
+   // }
+   // else
+   // {
+   //    return EMPTY_VALUE
+   // }
 
    double movePoints      = (latestPrice - firstPrice) / Point;
    double chartPriceRange = ChartGetDouble(0, CHART_PRICE_MAX) - ChartGetDouble(0, CHART_PRICE_MIN);
@@ -398,38 +405,9 @@ double DrawCrossSignalLine(string prefix, string sigLabel, color lineCol, color 
 
    double threshold=50;
 
-   
-
-
-
    string label = "STRAIGHT";
    if(angleDeg >=  threshold) label = "UP";
    else if(angleDeg <= -threshold) label = "DOWN";
-
-if(angleDeg<10)
-{
-   CloseAllBuyOrders();
-   CloseAllSellOrders();
-}
-    double gap=GetEMAGapPoints(FastEMA, SlowEMA);
-
-   // if(count < 5 || firstTime == latestTime) return EMPTY_VALUE;
-
-   if(count > 1) 
-   {threshold = 80;}
-   else
-   if(count > 2) {threshold = 70;}
-   else if(count > 5) {threshold = 50;
-   
-     if(gap<3500) return EMPTY_VALUE;
-   
-   }
-
-
-
-
-
-   //  if(gap<3500) return EMPTY_VALUE;
 
    string angleStr = DoubleToString(angleDeg, 1) + "°";
 
@@ -460,28 +438,12 @@ if(angleDeg<10)
 
    Print(sigLabel, " AfterCross | ", label,
          " | Angle=", angleStr,
-         " | First=",  DoubleToString(firstPrice,  2), " @ ", TimeToString(firstTime),
-         " | Latest=", DoubleToString(latestPrice, 2), " @ ", TimeToString(latestTime),
+         // " | First=",  DoubleToString(firstPrice,  2), " @ ", TimeToString(firstTime),
+         // " | Latest=", DoubleToString(latestPrice, 2), " @ ", TimeToString(latestTime),
          " | Signals=", count);
 
-   // Top-right status label: TB = row 3 (Y=100), TS = row 4 (Y=125)
-   string statusName = prefix + "CrossStatus";
-   int    statusY    = (prefix == "TB") ? 100 : 125;
-   string statusText = sigLabel + " | Count:" + IntegerToString(count) +
-                       "  Threshold:" + DoubleToString(threshold, 0) + "°" +
-                       "  Angle:" + angleStr +
-                       "  [" + label + "]";
-   color  statusCol  = (label == "UP") ? clrLime : (label == "DOWN") ? clrRed : clrGray;
+ 
 
-   if(ObjectFind(0, statusName) == -1)
-      ObjectCreate(0, statusName, OBJ_LABEL, 0, 0, 0);
-   ObjectSetInteger(0, statusName, OBJPROP_CORNER,    CORNER_RIGHT_UPPER);
-   ObjectSetInteger(0, statusName, OBJPROP_XDISTANCE, 500);
-   ObjectSetInteger(0, statusName, OBJPROP_YDISTANCE, statusY);
-   ObjectSetInteger(0, statusName, OBJPROP_COLOR,     statusCol);
-   ObjectSetInteger(0, statusName, OBJPROP_FONTSIZE,  11);
-   ObjectSetString( 0, statusName, OBJPROP_FONT,      "Arial Bold");
-   ObjectSetString( 0, statusName, OBJPROP_TEXT,      statusText);
 
    return angleDeg;
 }
@@ -494,7 +456,16 @@ if(angleDeg<10)
 // ===================================================
 int GetMinuteTrendAftercross()
 {
-   // if(g_lastCrossTime == 0) return 0;
+
+
+   if(g_lastCrossTime == 0) 
+   {
+
+   Print("Checking TREND signals after last cross at ", TimeToString(g_lastCrossTime));
+
+      return 0;
+
+   }
 
    int    tbCount = 0, tsCount = 0;
    double tbAngle = DrawCrossSignalLine("TB", "TREND BUY",  clrLime, clrLime, tbCount);
@@ -502,15 +473,21 @@ int GetMinuteTrendAftercross()
 
    ChartRedraw(0);
 
+   Print(tbAngle, " | ", tsAngle);
+
    if(tbAngle != EMPTY_VALUE)
    {
-      double tbThreshold = (tbCount > 10) ? 30.0 : (tbCount > 8) ? 40.0 : (tbCount > 5) ? 50.0 : 60.0;
-      if(tbAngle >= tbThreshold) return 1;
+      // double tbThreshold = (tbCount > 10) ? 30.0 : (tbCount > 8) ? 40.0 : (tbCount > 5) ? 50.0 : 60.0;
+      // if(tbAngle >= tbThreshold) return 1;
+
+      return 1;
    }
    if(tsAngle != EMPTY_VALUE)
    {
-      double tsThreshold = (tsCount > 10) ? 30.0 : (tsCount > 8) ? 40.0 : (tsCount > 5) ? 50.0 : 60.0;
-      if(tsAngle <= -tsThreshold) return -1;
+      // double tsThreshold = (tsCount > 10) ? 30.0 : (tsCount > 8) ? 40.0 : (tsCount > 5) ? 50.0 : 60.0;
+      // if(tsAngle <= -tsThreshold) return -1;
+
+      return -1;
    }
    return 0;
 }
