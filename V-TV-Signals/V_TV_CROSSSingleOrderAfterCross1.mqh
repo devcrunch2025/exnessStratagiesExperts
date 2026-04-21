@@ -95,9 +95,9 @@ datetime timeMinus5 = TimeCurrent() -5 * 60;
       ObjectSetInteger(0, angleName, OBJPROP_SELECTABLE, false);
    }
 
-   Print(sigLabel, " AfterCross | ", label,
-         " | Angle=", angleStr,angleDeg,
-          " | Signals=", count);
+   // Print(sigLabel, " AfterCross | ", label,
+   //       " | Angle=", angleStr,angleDeg,
+   //        " | Signals=", count);
 
    // Top-right chart label — same text as Print(), TB=row3 (Y=100), TS=row4 (Y=125)
    string statusName = prefix + "CrossStatus";
@@ -119,10 +119,10 @@ datetime timeMinus5 = TimeCurrent() -5 * 60;
 
    // if(count < 5 || angleDeg <50) return EMPTY_VALUE;
 
-   int minimumCount = 6;
+   int minimumCount = 5;
    int maximumCount = 10;
 
-   double minimumAngle =70.0;
+   double minimumAngle =80.0;
 
   double candleLength = (High[1] - Low[1]) / Point;
    double candleLength2 = (High[2] - Low[2]) / Point;
@@ -148,42 +148,67 @@ bool isBearish2 = (Close[2] < Open[2]); // red candle
    
 // } 
 //    }
-
+g_order_creation_reason_signal_count_angle = "";
 
             double gap = GetEMAGapPoints(FastEMA, SlowEMA);
-// if(gap<2000)
-// {
-//            //return EMPTY_VALUE;
-
-// }
+ 
  if(g_liveSignalName=="TREND BUY" && g_currSeqCount<=3 && angleDeg > 80 && count<=5  )
  {
       //DO NEW ORDER 
+
+      
+
+g_order_creation_reason_signal_count_angle = "111111111111111111 "+sigLabel + " signal : " +
+      "Count=" + IntegerToString(count) + " (min " + IntegerToString(minimumCount) + "), " +
+      "Angle=" + angleStr + " (min " + DoubleToString(minimumAngle, 1) + ")";
+
+   return angleDeg;
 
  }
  else
  
  
- if(g_liveSignalName=="TREND SELL" && g_currSeqCount<=3 && angleDeg > 80  && count<=5 )
+ if(g_liveSignalName=="TREND SELL" && g_currSeqCount<=3 && angleDeg <= -80  && count<=5 )
  {
       //DO NEW ORDER 
 
+      
+
+g_order_creation_reason_signal_count_angle = "2222222222222222222 "+sigLabel + " signal : " +
+      "Count=" + IntegerToString(count) + " (min " + IntegerToString(minimumCount) + "), " +
+      "Angle=" + angleStr + " (min " + DoubleToString(minimumAngle, 1) + ")";
+   return angleDeg;
+
  }
+
+ 
  else
  
 
  if(count < minimumCount && count>10 && angleDeg > 70 && gap>3000  )
  {
       //DO NEW ORDER 
+
+      // Print("BLOCKED - count ", count, " < ", minimumCount, " — ignoring signal", angleStr);
+
+   return EMPTY_VALUE;
+       
  }
+
+ 
  
  else if(prefix == "TB" && angleDeg <= minimumAngle) {
       // Print("TB angle is   ", angleStr, " < ", minimumAngle, " — ignoring signal");
+
+      // Print("BLOCKED - TB angle is   ", angleStr, " < ", minimumAngle, " — ignoring signal");
+
 
    return EMPTY_VALUE;
  } 
   else if(prefix == "TS" && angleDeg >= -minimumAngle){
       // Print("TS angle is   ", angleStr, " > ", -minimumAngle, " — ignoring signal");
+
+      // Print("BLOCKED - TS angle is   ", angleStr, " > ", -minimumAngle, " — ignoring signal");
    return EMPTY_VALUE;
 
    }
@@ -195,15 +220,15 @@ bool isBearish2 = (Close[2] < Open[2]); // red candle
    return  EMPTY_VALUE;
  }
 
-
+//  LASTTTTTTTTTTTTTTTTTT TREND SELL signal : Count=6 (min 6), Angle=-80.2° (min 70.0)
 
  
 
-g_order_creation_reason_signal_count_angle = "2222222222 "+sigLabel + " signal : " +
+g_order_creation_reason_signal_count_angle = "LASTTTTTTTTTTTTTTTTTT "+sigLabel + " signal : " +
       "Count=" + IntegerToString(count) + " (min " + IntegerToString(minimumCount) + "), " +
       "Angle=" + angleStr + " (min " + DoubleToString(minimumAngle, 1) + ")";
 
- Print("ORDER  ------------------  Signal: ", sigLabel,
+ Print("LASTTTTTTTTTTTTTTTTTT  ------------------  Signal: ", sigLabel,
        " | Count: ", count,
        " | Angle: ", angleStr,
        "  ");

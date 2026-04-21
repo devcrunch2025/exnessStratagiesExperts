@@ -62,9 +62,9 @@ bool isEMATouchesInsideLines=false;;
 
 //--- 0.01; Profit / StopLoss (auto-calculated in InitLotDependentVars) ----
 double SeqSellProfitTarget = 0.30;
-double SeqSellStopLossUSD  =1;
+double SeqSellStopLossUSD  =1.5;
 double SeqBuyProfitTarget  =0.30;
-double SeqBuyStopLossUSD   =1;
+double SeqBuyStopLossUSD   =1.5;
 
 //--- Lot sizes (CHANGE ONLY THESE) ----------------------------------
 input double SeqSellLotSize = 0.01;  // SELL lot size

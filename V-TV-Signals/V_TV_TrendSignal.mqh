@@ -441,9 +441,9 @@ double DrawCrossSignalLine(string prefix, string sigLabel, color lineCol, color 
       ObjectSetInteger(0, angleName, OBJPROP_SELECTABLE, false);
    }
 
-   Print(sigLabel, " AfterCross | ", label,
-         " | Angle=", angleStr,angleDeg,
-          " | Signals=", count);
+   // Print(sigLabel, " AfterCross | ", label,
+   //       " | Angle=", angleStr,angleDeg,
+   //        " | Signals=", count);
 
    // Top-right chart label — same text as Print(), TB=row3 (Y=100), TS=row4 (Y=125)
    string statusName = prefix + "CrossStatus";
@@ -616,8 +616,21 @@ double tsAngle=EMPTY_VALUE;
 SeqBuyMaxOrders  = 1;
 SeqSellMaxOrders = 1;
 
+
+ if(g_liveSignalName=="TREND BUY")
 tbAngle =DrawCrossSignalLine1OrderAftercross("TB", "TREND BUY",  clrYellow, clrYellow, tbCount);
+ if(g_liveSignalName=="TREND SELL")
+
 tsAngle =DrawCrossSignalLine1OrderAftercross("TS", "TREND SELL", clrYellow,  clrYellow,  tsCount);
+
+
+//  if(g_liveSignalName=="TREND BUY" && g_seqCount==1)
+// return 1;
+
+//  if(g_liveSignalName=="TREND SELL" && g_seqCount==1)
+// return -1;
+
+
 
 
    ChartRedraw(0);

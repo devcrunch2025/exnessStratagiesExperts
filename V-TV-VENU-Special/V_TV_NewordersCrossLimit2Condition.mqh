@@ -63,7 +63,7 @@ bool CanOpenTradeAfterCross(int direction)
    // 🔒 Limit 2 trades after cross
    if(tradeCount >= SeqBuyMaxOrders)
    {
-      Print("Blocked: Max "+tradeCount+"/"+SeqBuyMaxOrders+" trades reached after last EMA cross");
+      // Print("Blocked: Max "+tradeCount+"/"+SeqBuyMaxOrders+" trades reached after last EMA cross");
        
       g_blockReason = "Blocked: Max "+tradeCount+"/"+SeqBuyMaxOrders+" trades reached after last EMA cross";
       return false;

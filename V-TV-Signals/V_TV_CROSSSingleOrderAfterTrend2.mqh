@@ -95,9 +95,9 @@ datetime timeMinus5 = TimeCurrent() -5 * 60;
       ObjectSetInteger(0, angleName, OBJPROP_SELECTABLE, false);
    }
 
-   Print(sigLabel, " AfterCross | ", label,
-         " | Angle=", angleStr,angleDeg,
-          " | Signals=", count);
+   // Print(sigLabel, " AfterCross | ", label,
+   //       " | Angle=", angleStr,angleDeg,
+   //        " | Signals=", count);
 
    // Top-right chart label — same text as Print(), TB=row3 (Y=100), TS=row4 (Y=125)
    string statusName = prefix + "CrossStatus";
