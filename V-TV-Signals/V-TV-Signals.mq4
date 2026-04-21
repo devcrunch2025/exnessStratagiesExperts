@@ -21,7 +21,7 @@
 #include "V_TV_TrendSignal.mqh"
 #include "V_TV_SpikeDetection.mqh"
 #include "V_TV_PatternAngle2.mqh"
-#include "V_TV_CROSSSingleOrderAfterCross.mqh"
+#include "V_TV_CROSSSingleOrderAfterCross1.mqh"
 
 
 
@@ -1421,6 +1421,10 @@ void OnTick()
       //return;
     }
 
+    //for second orders 
+    
+
+// GetCreateNewOrderCandleReversalSignalStrong();
     // checkCandleLength();
 
     // Step 1: always detect tick spike first
@@ -1876,6 +1880,14 @@ if(!isSpikeActive1)
  int trendBuyAftercross=GetMinuteTrendAftercross();
 
 
+// if(g_liveSignalName=="TREND SELL")
+// {
+//   ProcessSeqSellOrders(true); 
+// }
+// else if(g_liveSignalName=="TREND BUY")
+// {
+//   ProcessSeqBuyOrders(true);
+// }
 
 
 //  Print("M1 Trend After Cross: ", trendBuyAftercross, " | Live Signal: ", g_liveSignalName);

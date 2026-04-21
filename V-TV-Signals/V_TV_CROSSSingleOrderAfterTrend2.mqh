@@ -25,8 +25,8 @@ datetime timeMinus5 = TimeCurrent() -5 * 60;
       datetime objTime  = (datetime)ObjectGetInteger(0, name, OBJPROP_TIME,  0);
       double   objPrice =           ObjectGetDouble( 0, name, OBJPROP_PRICE, 0);
 
-      if(objTime < g_lastCrossTime) continue;
-    //   if(objTime < timeMinus5) continue; // ignore signals older than 5 minutes
+     // if(objTime < g_lastCrossTime) continue;
+       if(objTime < timeMinus5) continue; // ignore signals older than 5 minutes
 
       count++;
       if(firstTime == 0 || objTime < firstTime) { firstTime  = objTime;  firstPrice  = objPrice; }
@@ -127,12 +127,14 @@ datetime timeMinus5 = TimeCurrent() -5 * 60;
  
 
 
-//             double gap = GetEMAGapPoints(FastEMA, SlowEMA);
-// // if(gap>4000)
-// // {
-// //    minimumCount = 4;
-// //    minimumAngle = 40.0;
-// // }
+            double gap = GetEMAGapPoints(FastEMA, SlowEMA);
+if(gap<3000 )
+{
+   return EMPTY_VALUE;
+    
+}
+
+ 
  
 
  

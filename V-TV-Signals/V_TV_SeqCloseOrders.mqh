@@ -245,7 +245,7 @@ void ProcessSeqCloseOrders()
 
         // ProcessSeqSellOrders(false,false);
   //  SeqBuyMaxOrders  = 1;
-      SeqSellMaxOrders =1;
+      // SeqSellMaxOrders =1;
         
       }
       else
@@ -273,7 +273,7 @@ void ProcessSeqCloseOrders()
         // Print("REVERSER  - ORDER PROFIT < 0 - CALLING OPPOSITE ORDER FUNCTION - SELL ORDER PROFIT= "+profit);
 
         // ProcessSeqSellOrders(false,false);
-   SeqBuyMaxOrders  = 1;
+  //  SeqBuyMaxOrders  = 1;
       // SeqSellMaxOrders =1;
         
       }
