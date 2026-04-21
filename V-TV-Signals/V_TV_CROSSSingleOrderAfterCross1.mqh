@@ -119,7 +119,7 @@ datetime timeMinus5 = TimeCurrent() -5 * 60;
 
    // if(count < 5 || angleDeg <50) return EMPTY_VALUE;
 
-   int minimumCount = 5;
+   int minimumCount = 6;
    int maximumCount = 10;
 
    double minimumAngle =70.0;
@@ -151,14 +151,28 @@ bool isBearish2 = (Close[2] < Open[2]); // red candle
 
 
             double gap = GetEMAGapPoints(FastEMA, SlowEMA);
-if(gap<2000)
-{
-           return EMPTY_VALUE;
+// if(gap<2000)
+// {
+//            //return EMPTY_VALUE;
 
-}
+// }
+ if(g_liveSignalName=="TREND BUY" && g_currSeqCount<=3 && angleDeg > 80 && count<=5  )
+ {
+      //DO NEW ORDER 
+
+ }
+ else
+ 
+ 
+ if(g_liveSignalName=="TREND SELL" && g_currSeqCount<=3 && angleDeg > 80  && count<=5 )
+ {
+      //DO NEW ORDER 
+
+ }
+ else
  
 
- if(count>10 && angleDeg > 70 && gap>3000  && gap<6000)
+ if(count < minimumCount && count>10 && angleDeg > 70 && gap>3000  )
  {
       //DO NEW ORDER 
  }
