@@ -354,7 +354,7 @@ double DrawCrossSignalLine(string prefix, string sigLabel, color lineCol, color 
 
 
 
-g_order_creation_reason_signal_count_angle="";
+// g_order_creation_reason_signal_count_angle="";
 
    datetime firstTime   = 0;
    double   firstPrice  = 0;
@@ -558,14 +558,14 @@ else
 
  
 
-g_order_creation_reason_signal_count_angle = sigLabel + " signal : " +
+g_order_creation_reason_signal_count_angle = "111111111111111111 "+sigLabel + " signal : " +
       "Count=" + IntegerToString(count) + " (min " + IntegerToString(minimumCount) + "), " +
       "Angle=" + angleStr + " (min " + DoubleToString(minimumAngle, 1) + ")";
 
- Print("ORDER  ------------------  Signal: ", sigLabel,
-       " | Count: ", count,
-       " | Angle: ", angleStr,
-       "  ");
+//  Print("ORDER  ------------------  Signal: ", sigLabel,
+//        " | Count: ", count,
+//        " | Angle: ", angleStr,
+//        "  ");
 
    return angleDeg;
 }
@@ -609,27 +609,48 @@ string statusText = "Checking TREND signals after last cross at " + TimeToString
    }
 
    int    tbCount = 0, tsCount = 0;
-   double tbAngle = DrawCrossSignalLine("TB", "TREND BUY",  clrYellow, clrYellow, tbCount);
-   double tsAngle = DrawCrossSignalLine("TS", "TREND SELL", clrYellow,  clrYellow,  tsCount);
+
+double tbAngle=EMPTY_VALUE;
+double tsAngle=EMPTY_VALUE;
+
+SeqBuyMaxOrders  = 1;
+SeqSellMaxOrders = 1;
+
+tbAngle =DrawCrossSignalLine1OrderAftercross("TB", "TREND BUY",  clrYellow, clrYellow, tbCount);
+tsAngle =DrawCrossSignalLine1OrderAftercross("TS", "TREND SELL", clrYellow,  clrYellow,  tsCount);
+
 
    ChartRedraw(0);
+/*
+   if(tbAngle == EMPTY_VALUE && tsAngle == EMPTY_VALUE)
+   { 
 
+     tbAngle = DrawCrossSignalLine("TB", "TREND BUY",  clrYellow, clrYellow, tbCount);
+     tsAngle = DrawCrossSignalLine("TS", "TREND SELL", clrYellow,  clrYellow,  tsCount);
+
+   ChartRedraw(0);
+   }
+
+   else if(tbAngle == EMPTY_VALUE && tsAngle == EMPTY_VALUE)
+   {
+       
+
+          tbAngle = DrawCrossSignalLine2("TB", "TREND BUY",  clrYellow, clrYellow, tbCount);
+     tsAngle = DrawCrossSignalLine2("TS", "TREND SELL", clrYellow,  clrYellow,  tsCount);
+
+   }
+*/
    // Print(tbAngle, " | ", tsAngle);
 
    if(tbAngle != EMPTY_VALUE)
    {
-      // double tbThreshold = (tbCount > 10) ? 30.0 : (tbCount > 8) ? 40.0 : (tbCount > 5) ? 50.0 : 60.0;
-      // if(tbAngle >= tbThreshold) return 1;
-
-
+       
 
       return 1;
    }
    if(tsAngle != EMPTY_VALUE)
    {
-      // double tsThreshold = (tsCount > 10) ? 30.0 : (tsCount > 8) ? 40.0 : (tsCount > 5) ? 50.0 : 60.0;
-      // if(tsAngle <= -tsThreshold) return -1;
-
+      
       return -1;
    }
    return 0;

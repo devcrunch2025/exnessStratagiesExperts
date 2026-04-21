@@ -20,6 +20,8 @@
 #include "V_TV_CreateNewOrderLIMITPrice.mqh"
 #include "V_TV_TrendSignal.mqh"
 #include "V_TV_SpikeDetection.mqh"
+#include "V_TV_PatternAngle2.mqh"
+#include "V_TV_CROSSSingleOrderAfterCross.mqh"
 
 
 
@@ -1419,6 +1421,8 @@ void OnTick()
       //return;
     }
 
+    // checkCandleLength();
+
     // Step 1: always detect tick spike first
   //  DetectTickSpike();
 
@@ -1432,10 +1436,15 @@ void OnTick()
 //       CancelExpiredPendingOrders(60, SeqSellMagicNo);
 
 //reset g_lastCrossTime at midnight 
-if(TimeDay(TimeCurrent()) != TimeDay(g_lastCrossTime))
+// if(TimeDay(TimeCurrent()) != TimeDay(g_lastCrossTime))
+// {
+//   g_lastCrossTime = 0;
+//   Print("Resetting last cross time at midnight.");
+// }
+
+if(g_lastCrossTime==0)
 {
-  g_lastCrossTime = 0;
-  Print("Resetting last cross time at midnight.");
+  g_lastCrossTime = TimeCurrent();
 }
 
 
