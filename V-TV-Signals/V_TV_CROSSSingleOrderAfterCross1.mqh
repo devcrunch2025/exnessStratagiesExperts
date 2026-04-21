@@ -152,7 +152,7 @@ g_order_creation_reason_signal_count_angle = "";
 
             double gap = GetEMAGapPoints(FastEMA, SlowEMA);
  
- if(g_liveSignalName=="TREND BUY" && g_currSeqCount<=3 && angleDeg > 80 && count<=5  )
+ if(g_liveSignalName=="TREND BUY" && g_currSeqCount<=3 && angleDeg > 85 && count<=5  )
  {
       //DO NEW ORDER 
 
@@ -168,7 +168,7 @@ g_order_creation_reason_signal_count_angle = "111111111111111111 "+sigLabel + " 
  else
  
  
- if(g_liveSignalName=="TREND SELL" && g_currSeqCount<=3 && angleDeg <= -80  && count<=5 )
+ if(g_liveSignalName=="TREND SELL" && g_currSeqCount<=3 && angleDeg <= -85  && count<=5 )
  {
       //DO NEW ORDER 
 
