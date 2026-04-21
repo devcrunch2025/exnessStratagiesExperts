@@ -576,7 +576,7 @@ string g_order_creation_reason_signal_count_angle="";
 //           0 = no clear direction / insufficient data
 // Threshold: count >8 → 40°, count >5 → 50°, else 60°
 // ===================================================
-int GetMinuteTrendAftercross()
+int CreateOrderImmediateTrendAftercross()
 {
 
 string statusName = "TrendAfterCrossStatus";

@@ -22,6 +22,8 @@
 #include "V_TV_SpikeDetection.mqh"
 #include "V_TV_PatternAngle2.mqh"
 #include "V_TV_CROSSSingleOrderAfterCross1.mqh"
+// #include "V_TV_CROSSSingleCandleCluademethod4.mqh"
+#include "V_TV_CROSSSingleCandleReversal3.mqh"
 
 
 
@@ -1871,13 +1873,15 @@ if(g_liveSignalName=="TREND SELL" || g_liveSignalName=="TREND BUY")
 // }
 
  bool isSpikeActive1 =false;// IsSpikeActive();
+// V_TV_CROSSSingleCandleCluademethod4OnTick();
+//  CreateOrderImmediateTrendAftercross();
 
 if(!isSpikeActive1)
 {
 
   // Print("Spike is NOT active");
 
- int trendBuyAftercross=GetMinuteTrendAftercross();
+ int trendBuyAftercross=CreateOrderImmediateTrendAftercross();
 
 
 // if(g_liveSignalName=="TREND SELL")
@@ -1903,6 +1907,8 @@ if(trendBuyAftercross == 1 && g_liveSignalName=="TREND BUY" && !isSpikeActive1)
       ProcessSeqSellOrders(true);
 }
 
+
+
 }
 else
 {
@@ -1916,7 +1922,8 @@ else
       
      }
 
-    
+    int test1111=GetCreateNewOrderCandleReversalSignalStrong();
+
      
 
 //Print("Tick is Signals End  at ",TimeToString(TimeCurrent()));
