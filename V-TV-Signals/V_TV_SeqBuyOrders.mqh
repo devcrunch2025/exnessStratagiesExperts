@@ -487,6 +487,7 @@ CloseAllSellOrders(true, "BUY Signal - Close SELL before opening BUY");
                     (ruleIdx >= 0 ? g_seqRules[ruleIdx].prePrev : "COLOR") + "|" +
                     (ruleIdx >= 0 ? g_seqRules[ruleIdx].prev    : g_liveSignalName) + "|" +
                     (ruleIdx >= 0 ? g_seqRules[ruleIdx].curr    : IntegerToString(g_currSeqCount)) + "| gap=" + DoubleToString(gap,1) + "pts";
+Print(g_order_creation_reason_signal_count_angle);
 
    int ticket = OrderSend(Symbol(), OP_BUY, SeqBuyLotSize, ask,
                           SeqBuySlippage, 0, 0,

@@ -1416,7 +1416,7 @@ void OnTick()
     if(stopTradingOnLoss())
     {
       Print("Trading is stopped due to loss limit reached.");
-      return;
+      //return;
     }
 
     // Step 1: always detect tick spike first

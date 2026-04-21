@@ -354,7 +354,7 @@ double DrawCrossSignalLine(string prefix, string sigLabel, color lineCol, color 
 
 
 
-
+g_order_creation_reason_signal_count_angle="";
 
    datetime firstTime   = 0;
    double   firstPrice  = 0;
@@ -465,7 +465,7 @@ double DrawCrossSignalLine(string prefix, string sigLabel, color lineCol, color 
 
    // if(count < 5 || angleDeg <50) return EMPTY_VALUE;
 
-   int minimumCount = 10;
+   int minimumCount = 15;
    double minimumAngle =60.0;
 
 // Print("NOOOOOOOOOOOO ORDER  ------------------  Signal: ", sigLabel,
@@ -495,16 +495,32 @@ if(angleDeg>80 || angleDeg<-80)
 
      
 }
-else if(angleDeg>60 || angleDeg<-60)
+else if(angleDeg>75 || angleDeg<-75)
 {
       minimumCount = 10;
       // Print("Minimum count increased to ", minimumCount, " due to strong angle of ", angleStr);
      
    //   SeqBuyMaxOrders  = 1;
    //    SeqSellMaxOrders =1;
-}else if(angleDeg>50 || angleDeg<-50)
+}else if(angleDeg>65 || angleDeg<-65)
 {
       minimumCount = 15;
+      // Print("Minimum count increased to ", minimumCount, " due to strong angle of ", angleStr);
+     
+   //   SeqBuyMaxOrders  = 1;
+   //    SeqSellMaxOrders =1;
+}else if(angleDeg>50 || angleDeg<-50)
+{
+      minimumCount = 30;
+      minimumAngle = 50.0;
+      // Print("Minimum count increased to ", minimumCount, " due to strong angle of ", angleStr);
+     
+   //   SeqBuyMaxOrders  = 1;
+   //    SeqSellMaxOrders =1;
+}else if(angleDeg>40 || angleDeg<-40)
+{
+      minimumCount = 40;
+      minimumAngle = 40.0;
       // Print("Minimum count increased to ", minimumCount, " due to strong angle of ", angleStr);
      
    //   SeqBuyMaxOrders  = 1;
@@ -542,7 +558,9 @@ else
 
  
 
-
+g_order_creation_reason_signal_count_angle = sigLabel + " signal : " +
+      "Count=" + IntegerToString(count) + " (min " + IntegerToString(minimumCount) + "), " +
+      "Angle=" + angleStr + " (min " + DoubleToString(minimumAngle, 1) + ")";
 
  Print("ORDER  ------------------  Signal: ", sigLabel,
        " | Count: ", count,
@@ -551,7 +569,7 @@ else
 
    return angleDeg;
 }
-
+string g_order_creation_reason_signal_count_angle="";
 // ===================================================
 // Returns:  1 = TREND BUY  angle above count-based threshold
 //          -1 = TREND SELL angle below count-based threshold
