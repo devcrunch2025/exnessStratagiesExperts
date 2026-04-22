@@ -24,6 +24,7 @@
 #include "V_TV_CROSSSingleOrderAfterCross1.mqh"
 // #include "V_TV_CROSSSingleCandleCluademethod4.mqh"
 #include "V_TV_CROSSSingleCandleReversal3.mqh"
+#include "V_TV_CROSSSingleOrderAfterEverySignal5.mqh"
 
 
 
@@ -1068,7 +1069,8 @@ y += step;
                           iRSI(NULL, 0, 14, PRICE_CLOSE, 0),        cValue, y);
 
 
-  
+  SeqSellStopLossUSD=getLast1HourProfit(SeqBuyLotSize);
+SeqBuyStopLossUSD=getLast1HourProfit(SeqBuyLotSize);
                           
 
                           
@@ -1856,6 +1858,8 @@ else
 // Print("M15 Trend Direction: ", GetM15TrendDirection(), " | Live Signal: ", g_liveSignalName);
 
 
+V_TV_CROSSSingleOrderAfterEverySignal5();
+
 if(g_liveSignalName=="TREND SELL" || g_liveSignalName=="TREND BUY")
 {
 
@@ -1872,7 +1876,7 @@ if(g_liveSignalName=="TREND SELL" || g_liveSignalName=="TREND BUY")
 //    CloseAllSellOrders(true,"REVERSE close for TB signal");
 // }
 
- bool isSpikeActive1 =false;// IsSpikeActive();
+ bool isSpikeActive1 =true;// IsSpikeActive();
 // V_TV_CROSSSingleCandleCluademethod4OnTick();
 //  CreateOrderImmediateTrendAftercross();
 
@@ -1922,7 +1926,7 @@ else
       
      }
 
-    int test1111=GetCreateNewOrderCandleReversalSignalStrong();
+    // int test1111=GetCreateNewOrderCandleReversalSignalStrong();
 
      
 

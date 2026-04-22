@@ -1,0 +1,1220 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>MM Flip CodePro V10 — EA Flow Diagram</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Share+Tech+Mono&family=Orbitron:wght@400;700;900&family=Rajdhani:wght@300;400;600&display=swap');
+
+  :root {
+    --bg:        #040a0f;
+    --bg2:       #070e15;
+    --panel:     #0a1520;
+    --border:    #0d2a3a;
+    --green:     #00ff9d;
+    --green2:    #00cc7a;
+    --red:       #ff2d55;
+    --yellow:    #ffcc00;
+    --cyan:      #00cfff;
+    --orange:    #ff7c2a;
+    --purple:    #b06aff;
+    --white:     #e8f4ff;
+    --dim:       #4a7090;
+    --glow-g:    0 0 12px #00ff9d88, 0 0 30px #00ff9d33;
+    --glow-r:    0 0 12px #ff2d5588, 0 0 30px #ff2d5533;
+    --glow-c:    0 0 12px #00cfff88, 0 0 30px #00cfff33;
+    --glow-y:    0 0 12px #ffcc0088, 0 0 30px #ffcc0033;
+  }
+
+  * { margin:0; padding:0; box-sizing:border-box; }
+
+  body {
+    background: var(--bg);
+    color: var(--white);
+    font-family: 'Rajdhani', sans-serif;
+    overflow-x: hidden;
+    min-height: 100vh;
+  }
+
+  /* Scanline overlay */
+  body::before {
+    content:'';
+    position:fixed; inset:0; pointer-events:none; z-index:999;
+    background: repeating-linear-gradient(0deg,
+      transparent, transparent 2px,
+      rgba(0,0,0,0.03) 2px, rgba(0,0,0,0.03) 4px);
+  }
+
+  /* ── HEADER ── */
+  header {
+    text-align:center;
+    padding: 36px 20px 24px;
+    border-bottom: 1px solid var(--border);
+    background: linear-gradient(180deg, #051020 0%, var(--bg) 100%);
+    position: relative;
+    overflow: hidden;
+  }
+  header::after {
+    content:'';
+    position:absolute; bottom:0; left:50%; transform:translateX(-50%);
+    width:60%; height:1px;
+    background: linear-gradient(90deg, transparent, var(--cyan), transparent);
+  }
+  .header-badge {
+    font-family:'Share Tech Mono';
+    font-size:11px;
+    color: var(--cyan);
+    letter-spacing:4px;
+    margin-bottom:8px;
+    opacity:0.7;
+  }
+  h1 {
+    font-family:'Orbitron', monospace;
+    font-size: clamp(18px,3vw,32px);
+    font-weight:900;
+    color: var(--white);
+    letter-spacing:2px;
+    text-shadow: 0 0 20px #00cfff55;
+  }
+  h1 span { color: var(--cyan); }
+  .subtitle {
+    font-family:'Share Tech Mono';
+    font-size:12px;
+    color: var(--dim);
+    margin-top:6px;
+    letter-spacing:2px;
+  }
+
+  /* ── LEGEND ── */
+  .legend {
+    display:flex; flex-wrap:wrap; gap:16px; justify-content:center;
+    padding: 16px 24px;
+    background: var(--bg2);
+    border-bottom: 1px solid var(--border);
+  }
+  .leg-item {
+    display:flex; align-items:center; gap:8px;
+    font-family:'Share Tech Mono'; font-size:11px;
+    color: var(--dim);
+  }
+  .leg-dot {
+    width:12px; height:12px; border-radius:3px;
+    flex-shrink:0;
+  }
+
+  /* ── MAIN CANVAS ── */
+  .canvas {
+    padding: 40px 20px 60px;
+    max-width: 1400px;
+    margin: 0 auto;
+  }
+
+  /* ── FLOW COLUMNS ── */
+  .flow-root {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 0;
+  }
+
+  /* ── NODE STYLES ── */
+  .node {
+    position: relative;
+    border-radius: 6px;
+    padding: 12px 20px;
+    cursor: pointer;
+    transition: transform 0.2s, box-shadow 0.2s;
+    text-align: center;
+    min-width: 200px;
+    max-width: 280px;
+  }
+  .node:hover { transform: translateY(-2px) scale(1.02); }
+  .node-title {
+    font-family:'Orbitron'; font-size:10px; font-weight:700;
+    letter-spacing:1.5px; margin-bottom:4px;
+  }
+  .node-sub {
+    font-family:'Share Tech Mono'; font-size:10px;
+    opacity:0.7; line-height:1.4;
+  }
+  .node-badge {
+    position:absolute; top:-10px; left:50%; transform:translateX(-50%);
+    font-family:'Share Tech Mono'; font-size:9px;
+    padding:2px 8px; border-radius:20px;
+    font-weight:700; letter-spacing:1px;
+    white-space:nowrap;
+  }
+
+  /* Node color themes */
+  .n-start {
+    background: linear-gradient(135deg, #051a30, #0a2540);
+    border: 1.5px solid var(--cyan);
+    box-shadow: var(--glow-c);
+  }
+  .n-start .node-title { color: var(--cyan); }
+
+  .n-check {
+    background: linear-gradient(135deg, #1a0a00, #2a1500);
+    border: 1.5px solid var(--yellow);
+    box-shadow: var(--glow-y);
+  }
+  .n-check .node-title { color: var(--yellow); }
+
+  .n-kill {
+    background: linear-gradient(135deg, #1a0010, #250015);
+    border: 1.5px solid var(--red);
+    box-shadow: var(--glow-r);
+  }
+  .n-kill .node-title { color: var(--red); }
+
+  .n-action {
+    background: linear-gradient(135deg, #00100a, #001a10);
+    border: 1.5px solid var(--green);
+    box-shadow: var(--glow-g);
+  }
+  .n-action .node-title { color: var(--green); }
+
+  .n-signal {
+    background: linear-gradient(135deg, #0a0020, #150030);
+    border: 1.5px solid var(--purple);
+    box-shadow: 0 0 12px #b06aff88, 0 0 30px #b06aff33;
+  }
+  .n-signal .node-title { color: var(--purple); }
+
+  .n-trade {
+    background: linear-gradient(135deg, #001020, #001830);
+    border: 1.5px solid var(--cyan);
+    box-shadow: var(--glow-c);
+    min-width: 240px;
+  }
+  .n-trade .node-title { color: var(--cyan); }
+
+  .n-manage {
+    background: linear-gradient(135deg, #100a00, #200f00);
+    border: 1.5px solid var(--orange);
+    box-shadow: 0 0 12px #ff7c2a88;
+  }
+  .n-manage .node-title { color: var(--orange); }
+
+  .n-end {
+    background: linear-gradient(135deg, #050510, #0a0a20);
+    border: 1.5px solid var(--dim);
+  }
+  .n-end .node-title { color: var(--dim); }
+
+  /* ── CONNECTORS ── */
+  .conn {
+    display:flex; flex-direction:column; align-items:center;
+    position:relative;
+  }
+  .arrow-line {
+    width:2px;
+    background: linear-gradient(180deg, var(--cyan) 0%, transparent 100%);
+    position:relative;
+    animation: flowDown 2s linear infinite;
+  }
+  .arrow-line::after {
+    content:'▼';
+    position:absolute; bottom:-12px; left:50%;
+    transform:translateX(-50%);
+    font-size:10px; color:var(--cyan);
+  }
+  .arrow-yes {
+    background: linear-gradient(180deg, var(--green) 0%, transparent 100%);
+  }
+  .arrow-yes::after { color:var(--green); }
+  .arrow-no {
+    background: linear-gradient(180deg, var(--red) 0%, transparent 100%);
+  }
+  .arrow-no::after { color:var(--red); }
+
+  .conn-label {
+    font-family:'Share Tech Mono'; font-size:10px;
+    padding:2px 8px; border-radius:3px; margin:2px 0;
+  }
+  .lbl-yes { color:var(--green); border:1px solid var(--green2); background:#001a0a; }
+  .lbl-no  { color:var(--red);   border:1px solid #550020;        background:#1a0008; }
+  .lbl-ok  { color:var(--cyan);  border:1px solid #004455;        background:#00111a; }
+
+  @keyframes flowDown {
+    0%   { opacity:0.4; }
+    50%  { opacity:1; }
+    100% { opacity:0.4; }
+  }
+
+  /* ── BRANCH LAYOUT ── */
+  .branch-row {
+    display:flex; align-items:flex-start; gap:0;
+    width:100%; justify-content:center;
+    position:relative;
+  }
+  .branch-col {
+    display:flex; flex-direction:column; align-items:center;
+  }
+
+  /* ── HORIZONTAL LINE for branches ── */
+  .h-line {
+    height:2px;
+    background: linear-gradient(90deg, transparent, var(--dim), transparent);
+    width:100%;
+  }
+  .h-line-green {
+    background: linear-gradient(90deg, transparent, var(--green2), transparent);
+  }
+  .h-line-red {
+    background: linear-gradient(90deg, transparent, var(--red), transparent);
+  }
+  .h-line-orange {
+    background: linear-gradient(90deg, transparent, var(--orange), transparent);
+  }
+
+  /* ── SECTION HEADERS ── */
+  .section-header {
+    font-family:'Orbitron'; font-size:11px; font-weight:700;
+    letter-spacing:3px; color:var(--dim);
+    text-transform:uppercase;
+    padding: 6px 20px;
+    border: 1px solid var(--border);
+    border-radius:3px;
+    background: var(--bg2);
+    margin: 30px 0 10px;
+    text-align:center;
+  }
+
+  /* ── MODES PANEL ── */
+  .modes-grid {
+    display:grid;
+    grid-template-columns: repeat(2, 1fr);
+    gap: 12px;
+    max-width: 640px;
+    margin: 0 auto;
+  }
+  .mode-card {
+    border-radius:6px; padding:14px;
+    border: 1px solid;
+    position:relative; overflow:hidden;
+  }
+  .mode-card::before {
+    content:'';
+    position:absolute; top:0; left:0; right:0; height:2px;
+  }
+  .mode-1 { border-color:#004455; background:#00080f; }
+  .mode-1::before { background: var(--cyan); }
+  .mode-2 { border-color:#004455; background:#00080f; }
+  .mode-2::before { background: var(--green); }
+  .mode-3 { border-color:#2a1500; background:#0f0600; }
+  .mode-3::before { background: var(--orange); }
+  .mode-4 { border-color:#1a0030; background:#0a000f; }
+  .mode-4::before { background: var(--purple); }
+  .mode-num {
+    font-family:'Orbitron'; font-size:20px; font-weight:900;
+    float:right; opacity:0.15;
+    margin-top:-4px;
+  }
+  .mode-title {
+    font-family:'Orbitron'; font-size:10px; font-weight:700;
+    letter-spacing:1px; margin-bottom:6px;
+  }
+  .mode-1 .mode-title { color:var(--cyan); }
+  .mode-2 .mode-title { color:var(--green); }
+  .mode-3 .mode-title { color:var(--orange); }
+  .mode-4 .mode-title { color:var(--purple); }
+  .mode-steps {
+    font-family:'Share Tech Mono'; font-size:10px;
+    color:var(--dim); line-height:1.6;
+  }
+  .mode-steps span { color:var(--white); }
+
+  /* ── LOT TABLE ── */
+  .lot-table {
+    border-collapse:collapse;
+    width:100%; max-width:500px;
+    margin:0 auto;
+    font-family:'Share Tech Mono'; font-size:11px;
+  }
+  .lot-table th {
+    background:#0a1520; color:var(--cyan);
+    padding:8px 12px; text-align:left;
+    border:1px solid var(--border);
+    font-size:10px; letter-spacing:1px;
+  }
+  .lot-table td {
+    padding:6px 12px; border:1px solid var(--border);
+    color:var(--dim);
+  }
+  .lot-table tr:nth-child(even) td { background:#050d15; }
+  .lot-table .hi { color:var(--yellow); }
+  .lot-table .reset-row td { color:var(--orange); border-top:1px solid var(--orange); }
+
+  /* ── STEP LOCK VISUAL ── */
+  .step-lock {
+    display:flex; flex-direction:column; gap:4px;
+    max-width:400px; margin:0 auto;
+  }
+  .sl-bar {
+    display:flex; align-items:center; gap:10px;
+    font-family:'Share Tech Mono'; font-size:10px;
+  }
+  .sl-fill {
+    height:20px; border-radius:3px;
+    display:flex; align-items:center; padding:0 8px;
+    font-size:10px; color:#000; font-weight:700;
+    min-width:60px;
+  }
+  .sl-label { color:var(--dim); width:100px; flex-shrink:0; }
+  .sl-lock  { color:var(--green); }
+
+  /* ── TIMELINE (tick flow) ── */
+  .timeline {
+    position:relative;
+    max-width:700px;
+    margin:0 auto;
+    padding-left:24px;
+  }
+  .timeline::before {
+    content:'';
+    position:absolute; left:0; top:0; bottom:0;
+    width:2px;
+    background: linear-gradient(180deg, var(--cyan), var(--purple), var(--green));
+  }
+  .tl-item {
+    position:relative;
+    margin-bottom:12px;
+    padding:10px 14px;
+    background:var(--panel);
+    border:1px solid var(--border);
+    border-radius:5px;
+    border-left: 2px solid;
+  }
+  .tl-item::before {
+    content:'';
+    position:absolute; left:-30px; top:50%; transform:translateY(-50%);
+    width:10px; height:10px; border-radius:50%;
+    border:2px solid;
+  }
+  .tl-step {
+    font-family:'Orbitron'; font-size:9px;
+    letter-spacing:1px; margin-bottom:3px;
+  }
+  .tl-desc {
+    font-family:'Share Tech Mono'; font-size:10px;
+    color:var(--dim); line-height:1.4;
+  }
+  .tl-desc span { color:var(--white); }
+
+  .tl-1  { border-color:#004455; } .tl-1::before  { background:var(--cyan);   border-color:var(--cyan); }   .tl-1  .tl-step { color:var(--cyan); }
+  .tl-2  { border-color:#003300; } .tl-2::before  { background:var(--green);  border-color:var(--green); }  .tl-2  .tl-step { color:var(--green); }
+  .tl-3  { border-color:#330000; } .tl-3::before  { background:var(--red);    border-color:var(--red); }    .tl-3  .tl-step { color:var(--red); }
+  .tl-4  { border-color:#332200; } .tl-4::before  { background:var(--yellow); border-color:var(--yellow); } .tl-4  .tl-step { color:var(--yellow); }
+  .tl-5  { border-color:#330000; } .tl-5::before  { background:var(--red);    border-color:var(--red); }    .tl-5  .tl-step { color:var(--red); }
+  .tl-6  { border-color:#332200; } .tl-6::before  { background:var(--yellow); border-color:var(--yellow); } .tl-6  .tl-step { color:var(--yellow); }
+  .tl-7  { border-color:#332200; } .tl-7::before  { background:var(--yellow); border-color:var(--yellow); } .tl-7  .tl-step { color:var(--yellow); }
+  .tl-8  { border-color:#332800; } .tl-8::before  { background:var(--orange); border-color:var(--orange); } .tl-8  .tl-step { color:var(--orange); }
+  .tl-9  { border-color:#003300; } .tl-9::before  { background:var(--green);  border-color:var(--green); }  .tl-9  .tl-step { color:var(--green); }
+  .tl-10 { border-color:#1a0030; } .tl-10::before { background:var(--purple); border-color:var(--purple); } .tl-10 .tl-step { color:var(--purple); }
+  .tl-11 { border-color:#004455; } .tl-11::before { background:var(--cyan);   border-color:var(--cyan); }   .tl-11 .tl-step { color:var(--cyan); }
+  .tl-12 { border-color:#003300; } .tl-12::before { background:var(--green);  border-color:var(--green); }  .tl-12 .tl-step { color:var(--green); }
+
+  /* ── INFO BOXES ── */
+  .info-box {
+    border-radius:6px; padding:14px 18px;
+    border:1px solid; margin:0 auto;
+    max-width:600px;
+  }
+  .info-box.cyan  { border-color:#004455; background:#00080f; }
+  .info-box.green { border-color:#003320; background:#000a04; }
+  .info-box.red   { border-color:#330010; background:#0a0003; }
+  .info-row {
+    display:flex; justify-content:space-between; align-items:center;
+    padding:4px 0; border-bottom:1px solid var(--border);
+    font-family:'Share Tech Mono'; font-size:11px;
+  }
+  .info-row:last-child { border-bottom:none; }
+  .ir-key  { color:var(--dim); }
+  .ir-val  { color:var(--white); }
+  .ir-val.green { color:var(--green); }
+  .ir-val.red   { color:var(--red); }
+  .ir-val.cyan  { color:var(--cyan); }
+  .ir-val.yellow{ color:var(--yellow); }
+
+  /* ── TOOLTIP ── */
+  [data-tip] {
+    position:relative; cursor:help;
+  }
+  [data-tip]:hover::after {
+    content: attr(data-tip);
+    position:absolute; bottom:calc(100% + 8px); left:50%;
+    transform:translateX(-50%);
+    background:#0a1a2a; border:1px solid var(--cyan);
+    color:var(--white); font-family:'Share Tech Mono'; font-size:10px;
+    padding:6px 10px; border-radius:4px; white-space:nowrap;
+    z-index:100; pointer-events:none;
+    box-shadow: 0 0 20px #00cfff33;
+  }
+
+  /* ── SECTION WRAPPERS ── */
+  .section {
+    margin: 40px 0;
+    padding: 24px;
+    background: var(--bg2);
+    border: 1px solid var(--border);
+    border-radius:8px;
+    position:relative;
+    overflow:hidden;
+  }
+  .section::before {
+    content:'';
+    position:absolute; top:0; left:0; right:0; height:2px;
+  }
+  .section.s-cyan::before   { background: linear-gradient(90deg, transparent, var(--cyan), transparent); }
+  .section.s-green::before  { background: linear-gradient(90deg, transparent, var(--green), transparent); }
+  .section.s-yellow::before { background: linear-gradient(90deg, transparent, var(--yellow), transparent); }
+  .section.s-orange::before { background: linear-gradient(90deg, transparent, var(--orange), transparent); }
+  .section.s-purple::before { background: linear-gradient(90deg, transparent, var(--purple), transparent); }
+  .section.s-red::before    { background: linear-gradient(90deg, transparent, var(--red), transparent); }
+
+  .sec-title {
+    font-family:'Orbitron'; font-size:13px; font-weight:700;
+    letter-spacing:2px; margin-bottom:16px;
+    display:flex; align-items:center; gap:10px;
+  }
+  .sec-title .num {
+    width:24px; height:24px; border-radius:50%;
+    display:flex; align-items:center; justify-content:center;
+    font-size:11px; font-weight:900;
+    flex-shrink:0;
+  }
+
+  /* ── VISUAL FLOW DIAGRAM (SVG-based) ── */
+  .flow-svg-wrap { overflow-x:auto; }
+  svg text { font-family:'Share Tech Mono', monospace; }
+
+  /* ── GRID LAYOUT ── */
+  .two-col {
+    display:grid; grid-template-columns:1fr 1fr;
+    gap:16px;
+  }
+  @media(max-width:700px) {
+    .two-col { grid-template-columns:1fr; }
+    .modes-grid { grid-template-columns:1fr; }
+    h1 { font-size:18px; }
+  }
+
+  /* ── ANIMATED PULSE ── */
+  @keyframes pulse {
+    0%,100% { opacity:1; }
+    50% { opacity:0.5; }
+  }
+  .pulse { animation: pulse 2s ease-in-out infinite; }
+
+  /* ── SCROLLBAR ── */
+  ::-webkit-scrollbar { width:6px; height:6px; }
+  ::-webkit-scrollbar-track { background:var(--bg); }
+  ::-webkit-scrollbar-thumb { background:var(--border); border-radius:3px; }
+</style>
+</head>
+<body>
+
+<!-- ═══════ HEADER ═══════ -->
+<header>
+  <div class="header-badge">EXPERT ADVISOR ARCHITECTURE</div>
+  <h1>MM FLIP <span>CODEPRO</span> V10</h1>
+  <p class="subtitle">dxb_ prefix · MQL4 · Full System Flow Diagram</p>
+</header>
+
+<!-- ═══════ LEGEND ═══════ -->
+<div class="legend">
+  <div class="leg-item"><div class="leg-dot" style="background:#00cfff;box-shadow:0 0 6px #00cfff;"></div>Entry / Init / Info</div>
+  <div class="leg-item"><div class="leg-dot" style="background:#ffcc00;box-shadow:0 0 6px #ffcc00;"></div>Gate / Filter (PASS or STOP)</div>
+  <div class="leg-item"><div class="leg-dot" style="background:#ff2d55;box-shadow:0 0 6px #ff2d55;"></div>Kill / Close / Stop</div>
+  <div class="leg-item"><div class="leg-dot" style="background:#00ff9d;box-shadow:0 0 6px #00ff9d;"></div>Action / Trade</div>
+  <div class="leg-item"><div class="leg-dot" style="background:#b06aff;box-shadow:0 0 6px #b06aff;"></div>Signal / Detection</div>
+  <div class="leg-item"><div class="leg-dot" style="background:#ff7c2a;box-shadow:0 0 6px #ff7c2a;"></div>Management / Protection</div>
+</div>
+
+<div class="canvas">
+
+<!-- ══════════════════════════════════════════════════
+     SECTION 1: MAIN ONTICK FLOW (TIMELINE)
+══════════════════════════════════════════════════ -->
+<div class="section s-cyan">
+  <div class="sec-title" style="color:var(--cyan);">
+    <div class="num" style="background:#00cfff22;border:1px solid var(--cyan);color:var(--cyan);">1</div>
+    OnTick() — FULL EXECUTION FLOW
+    <span style="font-family:'Share Tech Mono';font-size:10px;color:var(--dim);font-weight:400;margin-left:auto;">Runs every price tick</span>
+  </div>
+
+  <div class="timeline">
+
+    <div class="tl-item tl-1">
+      <div class="tl-step">STEP 1 · dxb_ResetDailyLimitsIfNewDay()</div>
+      <div class="tl-desc">Checks if today's date ≠ last stored date.<br>
+      If new day → resets <span>dxb_g_dailyProfit=0</span>, <span>dxb_g_dailyLoss=0</span>, <span>dxb_g_dailyLimitHit=false</span>.<br>
+      Panel shows "Status: ACTIVE" again each morning.</div>
+    </div>
+
+    <div class="tl-item tl-2">
+      <div class="tl-step">STEP 2 · DAILY LIMIT GATE</div>
+      <div class="tl-desc">IF <span>dxb_Use_Daily_Limits=true</span> AND <span>dxb_g_dailyLimitHit=true</span><br>
+      → <span style="color:var(--red);">RETURN</span> — EA silent for rest of day.<br>
+      Triggered when daily profit ≥ $100 OR daily loss ≥ $50.</div>
+    </div>
+
+    <div class="tl-item tl-3">
+      <div class="tl-step">STEP 3 · FLOATING LOSS GATE</div>
+      <div class="tl-desc">Calls <span>dxb_GetFloatingLoss()</span> — sums all negative open P&amp;L.<br>
+      IF float loss ≥ <span>dxb_Floating_Loss_Limit_Per_Symbol ($50)</span><br>
+      → <span style="color:var(--red);">dxb_CloseAllTrades()</span> then RETURN. Emergency exit.</div>
+    </div>
+
+    <div class="tl-item tl-4">
+      <div class="tl-step">STEP 4 · TRADE COUNT GATE</div>
+      <div class="tl-desc">IF <span>dxb_Enable_Trade_Limits=true</span>:<br>
+      Wins ≥ <span>dxb_Max_Winning_Trades (5)</span> OR Losses ≥ <span>dxb_Max_Losing_Trades (3)</span><br>
+      → <span style="color:var(--red);">RETURN</span> — session limit reached.</div>
+    </div>
+
+    <div class="tl-item tl-5">
+      <div class="tl-step">STEP 5 · MANUAL RESET CHECK</div>
+      <div class="tl-desc">IF <span>dxb_Set_TRUE_to_Reset_All_Limits=true</span>:<br>
+      Clears all counters and flags — unlocks a stopped EA.<br>
+      User manually sets this in the Inputs panel.</div>
+    </div>
+
+    <div class="tl-item tl-6">
+      <div class="tl-step">STEP 6 · SPREAD FILTER</div>
+      <div class="tl-desc">Reads live spread via <span>MarketInfo(MODE_SPREAD)</span>.<br>
+      IF spread &gt; <span>dxb_MaximumSpread (20 pts)</span> → <span style="color:var(--red);">RETURN</span>.<br>
+      Prevents trading during news spikes with wide spreads.</div>
+    </div>
+
+    <div class="tl-item tl-7">
+      <div class="tl-step">STEP 7 · NEW BAR FILTER</div>
+      <div class="tl-desc">IF <span>Time[0] == dxb_g_lastBarTime</span> → <span style="color:var(--red);">RETURN</span>.<br>
+      Locks to one action per M1 candle open. Prevents multi-entry on same bar.<br>
+      Updates <span>dxb_g_lastBarTime = Time[0]</span> on pass.</div>
+    </div>
+
+    <div class="tl-item tl-8">
+      <div class="tl-step">STEP 8 · dxb_ManageOpenTrades()</div>
+      <div class="tl-desc">Runs profit protection on ALL open trades BEFORE new entries.<br>
+      Tracks <span>dxb_g_highestProfit</span>. Applies MODE 1/2/3/4 if enabled.<br>
+      Step lock: if profit drops to locked floor → close all and exit.</div>
+    </div>
+
+    <div class="tl-item tl-9">
+      <div class="tl-step">STEP 9 · OPEN TRADE BRANCH</div>
+      <div class="tl-desc">IF <span>dxb_CountOpenTrades() &gt; 0</span>:<br>
+      → Calls <span>dxb_CheckAdditionalEntry()</span> — grid/averaging logic.<br>
+      IF price moved ≥ 50 pts against trade → open same-direction entry. RETURN.</div>
+    </div>
+
+    <div class="tl-item tl-10">
+      <div class="tl-step">STEP 10 · dxb_GetSARSignal()</div>
+      <div class="tl-desc">No open trades → look for new signal.<br>
+      Reads Parabolic SAR (step=0.0014, maxstep=0.0126).<br>
+      <span>SAR flips below price</span> → BUY (1) | <span>SAR flips above price</span> → SELL (-1) | <span>No flip</span> → 0 (RETURN)</div>
+    </div>
+
+    <div class="tl-item tl-11">
+      <div class="tl-step">STEP 11 · dxb_GetCurrentLotSize()</div>
+      <div class="tl-desc">Auto: <span>Base(0.01) + TradeCount × Increment(0.01)</span>, capped at 0.10.<br>
+      Custom: reads Trade1..Trade10 array, cycles with modulo.<br>
+      Both normalize to broker's min/max/step requirements.</div>
+    </div>
+
+    <div class="tl-item tl-12">
+      <div class="tl-step">STEP 12 · dxb_OpenTrade(signal, lot)</div>
+      <div class="tl-desc">Sends <span>OrderSend()</span> BUY or SELL at market.<br>
+      SL = entry ± <span>530 points</span>. TP = 0 (managed by EA, not broker).<br>
+      On success: <span>dxb_g_tradeCount++</span>, stores ticket number.</div>
+    </div>
+
+  </div>
+</div>
+
+
+<!-- ══════════════════════════════════════════════════
+     SECTION 2: GATE DECISION DIAGRAM (SVG)
+══════════════════════════════════════════════════ -->
+<div class="section s-yellow">
+  <div class="sec-title" style="color:var(--yellow);">
+    <div class="num" style="background:#ffcc0022;border:1px solid var(--yellow);color:var(--yellow);">2</div>
+    Gate System — Decision Tree
+  </div>
+
+  <div class="flow-svg-wrap">
+  <svg viewBox="0 0 900 520" xmlns="http://www.w3.org/2000/svg" style="width:100%;max-width:900px;display:block;margin:0 auto;">
+    <defs>
+      <marker id="ah-cyan"   markerWidth="8" markerHeight="8" refX="6" refY="3" orient="auto"><path d="M0,0 L0,6 L8,3 z" fill="#00cfff"/></marker>
+      <marker id="ah-green"  markerWidth="8" markerHeight="8" refX="6" refY="3" orient="auto"><path d="M0,0 L0,6 L8,3 z" fill="#00ff9d"/></marker>
+      <marker id="ah-red"    markerWidth="8" markerHeight="8" refX="6" refY="3" orient="auto"><path d="M0,0 L0,6 L8,3 z" fill="#ff2d55"/></marker>
+      <marker id="ah-yellow" markerWidth="8" markerHeight="8" refX="6" refY="3" orient="auto"><path d="M0,0 L0,6 L8,3 z" fill="#ffcc00"/></marker>
+    </defs>
+
+    <!-- ONTICK START -->
+    <rect x="350" y="10" width="200" height="36" rx="5" fill="#00111a" stroke="#00cfff" stroke-width="1.5"/>
+    <text x="450" y="28" text-anchor="middle" fill="#00cfff" font-size="11" font-weight="bold">OnTick() FIRED</text>
+    <text x="450" y="40" text-anchor="middle" fill="#4a7090" font-size="9">every price change</text>
+
+    <!-- Arrow down -->
+    <line x1="450" y1="46" x2="450" y2="68" stroke="#00cfff" stroke-width="1.5" marker-end="url(#ah-cyan)"/>
+
+    <!-- Gate 1: Daily Reset -->
+    <rect x="310" y="70" width="280" height="32" rx="5" fill="#00080a" stroke="#00cfff" stroke-width="1"/>
+    <text x="450" y="88" text-anchor="middle" fill="#00cfff" font-size="10">dxb_ResetDailyLimitsIfNewDay()</text>
+    <text x="450" y="98" text-anchor="middle" fill="#4a7090" font-size="9">resets counters at midnight</text>
+
+    <line x1="450" y1="102" x2="450" y2="122" stroke="#00cfff" stroke-width="1.5" marker-end="url(#ah-cyan)"/>
+
+    <!-- Gate 2: Daily Limit -->
+    <polygon points="450,124 570,148 450,172 330,148" fill="#0a0800" stroke="#ffcc00" stroke-width="1.5"/>
+    <text x="450" y="145" text-anchor="middle" fill="#ffcc00" font-size="10">Daily Limit Hit?</text>
+    <text x="450" y="158" text-anchor="middle" fill="#4a7090" font-size="9">dxb_g_dailyLimitHit</text>
+
+    <!-- YES right → STOP -->
+    <line x1="570" y1="148" x2="720" y2="148" stroke="#ff2d55" stroke-width="1.5" marker-end="url(#ah-red)"/>
+    <text x="640" y="143" text-anchor="middle" fill="#ff2d55" font-size="9">YES</text>
+    <rect x="720" y="132" width="80" height="32" rx="4" fill="#1a0008" stroke="#ff2d55" stroke-width="1"/>
+    <text x="760" y="152" text-anchor="middle" fill="#ff2d55" font-size="10">RETURN</text>
+
+    <!-- NO down -->
+    <line x1="450" y1="172" x2="450" y2="192" stroke="#00ff9d" stroke-width="1.5" marker-end="url(#ah-green)"/>
+    <text x="462" y="186" fill="#00ff9d" font-size="9">NO</text>
+
+    <!-- Gate 3: Float Loss -->
+    <polygon points="450,194 570,218 450,242 330,218" fill="#0a0800" stroke="#ffcc00" stroke-width="1.5"/>
+    <text x="450" y="215" text-anchor="middle" fill="#ffcc00" font-size="10">Float Loss ≥ $50?</text>
+    <text x="450" y="228" text-anchor="middle" fill="#4a7090" font-size="9">dxb_GetFloatingLoss()</text>
+
+    <!-- YES right → CLOSE -->
+    <line x1="570" y1="218" x2="720" y2="218" stroke="#ff2d55" stroke-width="1.5" marker-end="url(#ah-red)"/>
+    <text x="640" y="213" text-anchor="middle" fill="#ff2d55" font-size="9">YES</text>
+    <rect x="720" y="202" width="120" height="32" rx="4" fill="#1a0008" stroke="#ff2d55" stroke-width="1"/>
+    <text x="780" y="218" text-anchor="middle" fill="#ff2d55" font-size="9">CloseAllTrades()</text>
+    <text x="780" y="229" text-anchor="middle" fill="#ff2d55" font-size="8">+ RETURN</text>
+
+    <!-- NO down -->
+    <line x1="450" y1="242" x2="450" y2="262" stroke="#00ff9d" stroke-width="1.5" marker-end="url(#ah-green)"/>
+    <text x="462" y="256" fill="#00ff9d" font-size="9">NO</text>
+
+    <!-- Gate 4: Spread -->
+    <polygon points="450,264 570,288 450,312 330,288" fill="#0a0800" stroke="#ffcc00" stroke-width="1.5"/>
+    <text x="450" y="285" text-anchor="middle" fill="#ffcc00" font-size="10">Spread &gt; 20 pts?</text>
+    <text x="450" y="298" text-anchor="middle" fill="#4a7090" font-size="9">MarketInfo(MODE_SPREAD)</text>
+
+    <!-- YES right → RETURN -->
+    <line x1="570" y1="288" x2="720" y2="288" stroke="#ff2d55" stroke-width="1.5" marker-end="url(#ah-red)"/>
+    <text x="640" y="283" text-anchor="middle" fill="#ff2d55" font-size="9">YES</text>
+    <rect x="720" y="272" width="80" height="32" rx="4" fill="#1a0008" stroke="#ff2d55" stroke-width="1"/>
+    <text x="760" y="292" text-anchor="middle" fill="#ff2d55" font-size="10">RETURN</text>
+
+    <!-- NO down -->
+    <line x1="450" y1="312" x2="450" y2="332" stroke="#00ff9d" stroke-width="1.5" marker-end="url(#ah-green)"/>
+    <text x="462" y="326" fill="#00ff9d" font-size="9">NO</text>
+
+    <!-- Gate 5: New Bar -->
+    <polygon points="450,334 570,358 450,382 330,358" fill="#0a0800" stroke="#ffcc00" stroke-width="1.5"/>
+    <text x="450" y="355" text-anchor="middle" fill="#ffcc00" font-size="10">Same Bar as Last?</text>
+    <text x="450" y="368" text-anchor="middle" fill="#4a7090" font-size="9">Time[0] == lastBarTime</text>
+
+    <!-- YES right → RETURN -->
+    <line x1="570" y1="358" x2="720" y2="358" stroke="#ff2d55" stroke-width="1.5" marker-end="url(#ah-red)"/>
+    <text x="640" y="353" text-anchor="middle" fill="#ff2d55" font-size="9">YES</text>
+    <rect x="720" y="342" width="80" height="32" rx="4" fill="#1a0008" stroke="#ff2d55" stroke-width="1"/>
+    <text x="760" y="362" text-anchor="middle" fill="#ff2d55" font-size="10">RETURN</text>
+
+    <!-- NO down → PROCESSING -->
+    <line x1="450" y1="382" x2="450" y2="402" stroke="#00ff9d" stroke-width="1.5" marker-end="url(#ah-green)"/>
+    <text x="462" y="396" fill="#00ff9d" font-size="9">NO → NEW BAR</text>
+
+    <!-- Continue -->
+    <rect x="310" y="404" width="280" height="32" rx="5" fill="#001a0a" stroke="#00ff9d" stroke-width="1.5"/>
+    <text x="450" y="421" text-anchor="middle" fill="#00ff9d" font-size="10" font-weight="bold">PROCEED TO TRADE LOGIC</text>
+    <text x="450" y="434" text-anchor="middle" fill="#4a7090" font-size="9">ManageOpenTrades → Signal → Open</text>
+
+    <!-- Left side labels -->
+    <text x="120" y="148" text-anchor="middle" fill="#4a7090" font-size="9">profit ≥ $100</text>
+    <text x="120" y="160" text-anchor="middle" fill="#4a7090" font-size="9">OR loss ≥ $50</text>
+    <text x="120" y="218" text-anchor="middle" fill="#4a7090" font-size="9">unrealized</text>
+    <text x="120" y="230" text-anchor="middle" fill="#4a7090" font-size="9">loss ≥ $50</text>
+  </svg>
+  </div>
+</div>
+
+
+<!-- ══════════════════════════════════════════════════
+     SECTION 3: TRADE BRANCH LOGIC
+══════════════════════════════════════════════════ -->
+<div class="section s-green">
+  <div class="sec-title" style="color:var(--green);">
+    <div class="num" style="background:#00ff9d22;border:1px solid var(--green);color:var(--green);">3</div>
+    Trade Branch — Open Trades vs New Signal
+  </div>
+
+  <div class="flow-svg-wrap">
+  <svg viewBox="0 0 900 380" xmlns="http://www.w3.org/2000/svg" style="width:100%;max-width:900px;display:block;margin:0 auto;">
+    <defs>
+      <marker id="b-cyan"  markerWidth="8" markerHeight="8" refX="6" refY="3" orient="auto"><path d="M0,0 L0,6 L8,3 z" fill="#00cfff"/></marker>
+      <marker id="b-green" markerWidth="8" markerHeight="8" refX="6" refY="3" orient="auto"><path d="M0,0 L0,6 L8,3 z" fill="#00ff9d"/></marker>
+      <marker id="b-purple"markerWidth="8" markerHeight="8" refX="6" refY="3" orient="auto"><path d="M0,0 L0,6 L8,3 z" fill="#b06aff"/></marker>
+      <marker id="b-red"   markerWidth="8" markerHeight="8" refX="6" refY="3" orient="auto"><path d="M0,0 L0,6 L8,3 z" fill="#ff2d55"/></marker>
+      <marker id="b-orange"markerWidth="8" markerHeight="8" refX="6" refY="3" orient="auto"><path d="M0,0 L0,6 L8,3 z" fill="#ff7c2a"/></marker>
+    </defs>
+
+    <!-- Entry point -->
+    <rect x="330" y="10" width="240" height="34" rx="5" fill="#00111a" stroke="#00cfff" stroke-width="1.5"/>
+    <text x="450" y="24" text-anchor="middle" fill="#00cfff" font-size="10" font-weight="bold">New Bar Confirmed</text>
+    <text x="450" y="36" text-anchor="middle" fill="#4a7090" font-size="9">Step 8: ManageOpenTrades() runs first</text>
+
+    <line x1="450" y1="44" x2="450" y2="64" stroke="#00cfff" stroke-width="1.5" marker-end="url(#b-cyan)"/>
+
+    <!-- Branch diamond -->
+    <polygon points="450,66 580,96 450,126 320,96" fill="#070e15" stroke="#00cfff" stroke-width="1.5"/>
+    <text x="450" y="90" text-anchor="middle" fill="#00cfff" font-size="10">Open Trades</text>
+    <text x="450" y="104" text-anchor="middle" fill="#00cfff" font-size="10">Exist?</text>
+
+    <!-- YES → LEFT BRANCH (Grid) -->
+    <line x1="320" y1="96" x2="140" y2="96" stroke="#00ff9d" stroke-width="1.5" marker-end="url(#b-green)"/>
+    <text x="228" y="90" text-anchor="middle" fill="#00ff9d" font-size="9">YES</text>
+
+    <rect x="30" y="80" width="110" height="34" rx="5" fill="#001a0a" stroke="#00ff9d" stroke-width="1.5"/>
+    <text x="85" y="95" text-anchor="middle" fill="#00ff9d" font-size="9" font-weight="bold">dxb_CheckAdditional</text>
+    <text x="85" y="107" text-anchor="middle" fill="#00ff9d" font-size="9">Entry()</text>
+
+    <line x1="85" y1="114" x2="85" y2="150" stroke="#00ff9d" stroke-width="1.5" marker-end="url(#b-green)"/>
+
+    <polygon points="85,152 185,176 85,200 -15,176" fill="#070e15" stroke="#ffcc00" stroke-width="1"/>
+    <text x="85" y="172" text-anchor="middle" fill="#ffcc00" font-size="9">Price vs trade</text>
+    <text x="85" y="184" text-anchor="middle" fill="#ffcc00" font-size="9">≥ 50 pts away?</text>
+
+    <!-- YES add trade -->
+    <line x1="85" y1="200" x2="85" y2="230" stroke="#00ff9d" stroke-width="1.5" marker-end="url(#b-green)"/>
+    <text x="97" y="220" fill="#00ff9d" font-size="9">YES</text>
+    <rect x="20" y="232" width="130" height="42" rx="5" fill="#001a0a" stroke="#00ff9d" stroke-width="1.5"/>
+    <text x="85" y="249" text-anchor="middle" fill="#00ff9d" font-size="9" font-weight="bold">Add Grid Trade</text>
+    <text x="85" y="261" text-anchor="middle" fill="#4a7090" font-size="8">Same direction</text>
+    <text x="85" y="271" text-anchor="middle" fill="#4a7090" font-size="8">Next lot in sequence</text>
+
+    <!-- NO skip -->
+    <line x1="185" y1="176" x2="240" y2="176" stroke="#ff2d55" stroke-width="1" marker-end="url(#b-red)"/>
+    <text x="210" y="170" fill="#ff2d55" font-size="8">NO</text>
+    <rect x="240" y="162" width="60" height="28" rx="3" fill="#1a0008" stroke="#ff2d55" stroke-width="1"/>
+    <text x="270" y="180" text-anchor="middle" fill="#ff2d55" font-size="9">RETURN</text>
+
+    <!-- NO → RIGHT BRANCH (New Signal) -->
+    <line x1="580" y1="96" x2="760" y2="96" stroke="#b06aff" stroke-width="1.5" marker-end="url(#b-purple)"/>
+    <text x="672" y="90" text-anchor="middle" fill="#b06aff" font-size="9">NO (no open trades)</text>
+
+    <rect x="760" y="80" width="130" height="34" rx="5" fill="#0a0020" stroke="#b06aff" stroke-width="1.5"/>
+    <text x="825" y="95" text-anchor="middle" fill="#b06aff" font-size="9" font-weight="bold">dxb_GetSARSignal()</text>
+    <text x="825" y="107" text-anchor="middle" fill="#b06aff" font-size="9">SAR flip detection</text>
+
+    <line x1="825" y1="114" x2="825" y2="150" stroke="#b06aff" stroke-width="1.5" marker-end="url(#b-purple)"/>
+
+    <polygon points="825,152 895,176 825,200 755,176" fill="#070e15" stroke="#b06aff" stroke-width="1"/>
+    <text x="825" y="172" text-anchor="middle" fill="#b06aff" font-size="9">Signal</text>
+    <text x="825" y="184" text-anchor="middle" fill="#b06aff" font-size="9">= 0?</text>
+
+    <!-- signal=0 no trade -->
+    <line x1="895" y1="176" x2="880" y2="176" stroke="#ff2d55" stroke-width="1"/>
+    <line x1="880" y1="176" x2="880" y2="240" stroke="#ff2d55" stroke-width="1"/>
+    <rect x="830" y="240" width="90" height="28" rx="3" fill="#1a0008" stroke="#ff2d55" stroke-width="1"/>
+    <text x="875" y="258" text-anchor="middle" fill="#ff2d55" font-size="9">RETURN (wait)</text>
+    <text x="898" y="170" fill="#ff2d55" font-size="8">YES=0</text>
+
+    <!-- signal ≠ 0 → open trade -->
+    <line x1="825" y1="200" x2="825" y2="230" stroke="#00ff9d" stroke-width="1.5" marker-end="url(#b-green)"/>
+    <text x="837" y="220" fill="#00ff9d" font-size="9">BUY/SELL</text>
+
+    <rect x="755" y="232" width="140" height="52" rx="5" fill="#001a0a" stroke="#00ff9d" stroke-width="1.5"/>
+    <text x="825" y="249" text-anchor="middle" fill="#00ff9d" font-size="9" font-weight="bold">dxb_OpenTrade()</text>
+    <text x="825" y="261" text-anchor="middle" fill="#4a7090" font-size="8">GetCurrentLotSize()</text>
+    <text x="825" y="272" text-anchor="middle" fill="#4a7090" font-size="8">OrderSend() at market</text>
+    <text x="825" y="279" text-anchor="middle" fill="#4a7090" font-size="8">SL = ±530 pts</text>
+
+    <!-- SAR explanation box -->
+    <rect x="600" y="290" width="290" height="70" rx="5" fill="#0a0020" stroke="#b06aff" stroke-width="1" stroke-dasharray="4,3"/>
+    <text x="745" y="308" text-anchor="middle" fill="#b06aff" font-size="9" font-weight="bold">SAR SIGNAL LOGIC</text>
+    <text x="745" y="322" text-anchor="middle" fill="#4a7090" font-size="8">step = 0.56 × 25 / 10000 = 0.0014</text>
+    <text x="745" y="334" text-anchor="middle" fill="#4a7090" font-size="8">maxstep = 0.0014 × 9 = 0.0126</text>
+    <text x="745" y="346" text-anchor="middle" fill="#00ff9d" font-size="8">sarCur &lt; Close[0] &amp;&amp; sarPrev ≥ Close[1] → BUY</text>
+    <text x="745" y="358" text-anchor="middle" fill="#ff2d55" font-size="8">sarCur &gt; Close[0] &amp;&amp; sarPrev ≤ Close[1] → SELL</text>
+
+  </svg>
+  </div>
+</div>
+
+
+<!-- ══════════════════════════════════════════════════
+     SECTION 4: PROFIT PROTECTION MODES
+══════════════════════════════════════════════════ -->
+<div class="section s-orange">
+  <div class="sec-title" style="color:var(--orange);">
+    <div class="num" style="background:#ff7c2a22;border:1px solid var(--orange);color:var(--orange);">4</div>
+    Profit Protection — 4 Modes
+    <span style="font-family:'Share Tech Mono';font-size:10px;color:var(--dim);font-weight:400;margin-left:auto;">Master switch must be ON · Activates after $5 profit</span>
+  </div>
+
+  <div class="modes-grid">
+
+    <div class="mode-card mode-1" data-tip="Moves SL to entry price once profit threshold hit">
+      <span class="mode-num">M1</span>
+      <div class="mode-title">BREAK-EVEN + LOCK</div>
+      <div class="mode-steps">
+        <span>Trigger:</span> total profit ≥ Mode1_Lock_Profit ($1)<br>
+        <span>Action:</span> moves SL of ALL trades to OrderOpenPrice()<br>
+        <span>Result:</span> guaranteed $0 loss if market reverses<br>
+        <span>Direction:</span> BUY SL moves up · SELL SL moves down<br>
+        <span>Default:</span> DISABLED
+      </div>
+    </div>
+
+    <div class="mode-card mode-2" data-tip="Follows price with SL, locks more profit as market moves">
+      <span class="mode-num">M2</span>
+      <div class="mode-title">TRAILING STOP</div>
+      <div class="mode-steps">
+        <span>Trail Distance:</span> $3 behind current price<br>
+        <span>BUY:</span> new SL = Bid − trail (rises with price)<br>
+        <span>SELL:</span> new SL = Ask + trail (falls with price)<br>
+        <span>Rule:</span> SL only improves — never widens<br>
+        <span>Default:</span> DISABLED
+      </div>
+    </div>
+
+    <div class="mode-card mode-3" data-tip="Closes 50% of position while in profit, keeps rest running">
+      <span class="mode-num">M3</span>
+      <div class="mode-title">PARTIAL CLOSE</div>
+      <div class="mode-steps">
+        <span>Close %:</span> 50% of each profitable trade's volume<br>
+        <span>e.g.</span> 0.10 lot → closes 0.05 lot · keeps 0.05 open<br>
+        <span>Filter:</span> only applies to trades with profit &gt; 0<br>
+        <span>Result:</span> banks partial gain, stays in the market<br>
+        <span>Default:</span> DISABLED
+      </div>
+    </div>
+
+    <div class="mode-card mode-4" data-tip="Recommended: Ratchets a profit floor upward through steps">
+      <span class="mode-num">M4</span>
+      <div class="mode-title">STEP LOCK ★ RECOMMENDED</div>
+      <div class="mode-steps">
+        <span>Tracks</span> highest profit ever reached (dxb_g_highestProfit)<br>
+        <span>As profit grows</span> through steps, floor ratchets up:<br>
+        Profit $5 → Lock $1 | Profit $10 → Lock $5<br>
+        Profit $15 → Lock $10 | Profit $20 → Lock $15<br>
+        IF profit drops to locked floor → <span>CLOSE ALL TRADES</span><br>
+        <span>Default:</span> ENABLED ✓
+      </div>
+    </div>
+
+  </div>
+
+  <!-- Step Lock Visual Bars -->
+  <div style="margin-top:20px;">
+    <div style="font-family:'Share Tech Mono';font-size:10px;color:var(--dim);text-align:center;margin-bottom:12px;letter-spacing:2px;">STEP LOCK RATCHET VISUALIZATION</div>
+    <div class="step-lock">
+      <div class="sl-bar">
+        <div class="sl-label">Profit hits $5</div>
+        <div class="sl-fill" style="background:linear-gradient(90deg,#00ff9d22,#00ff9d44);border:1px solid #00ff9d44;width:120px;">Floor: $1</div>
+        <div class="sl-lock">← locked</div>
+      </div>
+      <div class="sl-bar">
+        <div class="sl-label">Profit hits $10</div>
+        <div class="sl-fill" style="background:linear-gradient(90deg,#00ff9d33,#00ff9d66);border:1px solid #00ff9d66;width:200px;">Floor: $5</div>
+        <div class="sl-lock">← ratchets up</div>
+      </div>
+      <div class="sl-bar">
+        <div class="sl-label">Profit hits $15</div>
+        <div class="sl-fill" style="background:linear-gradient(90deg,#00ff9d44,#00ff9d88);border:1px solid #00ff9d88;width:280px;">Floor: $10</div>
+        <div class="sl-lock">← ratchets up</div>
+      </div>
+      <div class="sl-bar">
+        <div class="sl-label">Profit hits $20</div>
+        <div class="sl-fill" style="background:linear-gradient(90deg,#00ff9d66,#00ff9dcc);border:1px solid #00ff9d;width:360px;color:#000;">Floor: $15</div>
+        <div class="sl-lock" style="color:var(--yellow);">← max step</div>
+      </div>
+      <div class="sl-bar" style="margin-top:8px;border-top:1px solid var(--border);padding-top:8px;">
+        <div class="sl-label" style="color:var(--red);">Drops to floor</div>
+        <div class="sl-fill" style="background:linear-gradient(90deg,#ff2d5522,#ff2d5544);border:1px solid var(--red);width:160px;color:var(--red);">CLOSE ALL !</div>
+        <div style="color:var(--dim);font-family:'Share Tech Mono';font-size:10px;">profit locked in</div>
+      </div>
+    </div>
+  </div>
+</div>
+
+
+<!-- ══════════════════════════════════════════════════
+     SECTION 5: LOT SIZE SYSTEM
+══════════════════════════════════════════════════ -->
+<div class="section s-purple">
+  <div class="sec-title" style="color:var(--purple);">
+    <div class="num" style="background:#b06aff22;border:1px solid var(--purple);color:var(--purple);">5</div>
+    Lot Size System — Auto vs Custom
+  </div>
+
+  <div class="two-col">
+    <div>
+      <div style="font-family:'Share Tech Mono';font-size:10px;color:var(--purple);letter-spacing:2px;margin-bottom:10px;">AUTO MODE (dxb_Auto_Increment_Lots = true)</div>
+      <div class="info-box cyan">
+        <div class="info-row"><span class="ir-key">Formula</span><span class="ir-val cyan">Base + (TradeCount × Increment)</span></div>
+        <div class="info-row"><span class="ir-key">Base Lot</span><span class="ir-val">0.01</span></div>
+        <div class="info-row"><span class="ir-key">Increment</span><span class="ir-val">0.01 per trade</span></div>
+        <div class="info-row"><span class="ir-key">Maximum</span><span class="ir-val yellow">0.10 (hard cap)</span></div>
+        <div class="info-row"><span class="ir-key">Trade #1</span><span class="ir-val green">0.01</span></div>
+        <div class="info-row"><span class="ir-key">Trade #2</span><span class="ir-val green">0.02</span></div>
+        <div class="info-row"><span class="ir-key">Trade #3</span><span class="ir-val green">0.03</span></div>
+        <div class="info-row"><span class="ir-key">...</span><span class="ir-val">...</span></div>
+        <div class="info-row"><span class="ir-key">Trade #10+</span><span class="ir-val yellow">0.10 (capped)</span></div>
+      </div>
+      <div style="font-family:'Share Tech Mono';font-size:10px;color:var(--dim);margin-top:8px;">
+        Screenshot: "Next Trade: #3 @ 0.03 lot" = auto formula output
+      </div>
+    </div>
+
+    <div>
+      <div style="font-family:'Share Tech Mono';font-size:10px;color:var(--purple);letter-spacing:2px;margin-bottom:10px;">CUSTOM MODE (dxb_Auto_Increment_Lots = false)</div>
+      <table class="lot-table">
+        <tr><th>Trade #</th><th>Lot Size</th><th>Index (mod 10)</th></tr>
+        <tr><td>1</td><td>0.01</td><td>0</td></tr>
+        <tr><td>2</td><td>0.01</td><td>1</td></tr>
+        <tr><td>3</td><td>0.01</td><td>2</td></tr>
+        <tr><td>4</td><td>0.01</td><td>3</td></tr>
+        <tr><td>5</td><td class="hi">0.01</td><td>4</td></tr>
+        <tr><td>6</td><td class="hi">0.02</td><td>5</td></tr>
+        <tr><td>7</td><td class="hi">0.02</td><td>6</td></tr>
+        <tr><td>8</td><td class="hi">0.02</td><td>7</td></tr>
+        <tr><td>9</td><td class="hi">0.02</td><td>8</td></tr>
+        <tr><td>10</td><td class="hi">0.10</td><td>9</td></tr>
+        <tr class="reset-row"><td>11 (reset)</td><td>0.01</td><td>0 again</td></tr>
+      </table>
+    </div>
+  </div>
+</div>
+
+
+<!-- ══════════════════════════════════════════════════
+     SECTION 6: DAILY LIMIT SYSTEM
+══════════════════════════════════════════════════ -->
+<div class="section s-red">
+  <div class="sec-title" style="color:var(--red);">
+    <div class="num" style="background:#ff2d5522;border:1px solid var(--red);color:var(--red);">6</div>
+    Daily Limit &amp; Close Flow
+  </div>
+
+  <div class="two-col">
+    <div>
+      <div style="font-family:'Share Tech Mono';font-size:10px;color:var(--red);letter-spacing:2px;margin-bottom:10px;">DAILY LIMITS</div>
+      <div class="info-box red">
+        <div class="info-row"><span class="ir-key">Daily Profit Cap</span><span class="ir-val green">$100.00</span></div>
+        <div class="info-row"><span class="ir-key">Daily Loss Cap</span><span class="ir-val red">$50.00</span></div>
+        <div class="info-row"><span class="ir-key">Float Loss Cap</span><span class="ir-val red">$50.00</span></div>
+        <div class="info-row"><span class="ir-key">Reset Time</span><span class="ir-val cyan">Midnight (auto)</span></div>
+        <div class="info-row"><span class="ir-key">Manual Override</span><span class="ir-val">Set Reset=true in Inputs</span></div>
+      </div>
+    </div>
+
+    <div>
+      <div style="font-family:'Share Tech Mono';font-size:10px;color:var(--red);letter-spacing:2px;margin-bottom:10px;">ON TRADE CLOSE — WHAT HAPPENS</div>
+      <div class="info-box red">
+        <div class="info-row"><span class="ir-key">Win or Loss?</span><span class="ir-val">profit&gt;0 → winCount++ else lossCount++</span></div>
+        <div class="info-row"><span class="ir-key">Accumulate</span><span class="ir-val">dailyProfit or dailyLoss += amount</span></div>
+        <div class="info-row"><span class="ir-key">Check Cap</span><span class="ir-val">dailyProfit≥$100 OR dailyLoss≥$50?</span></div>
+        <div class="info-row"><span class="ir-key">If YES</span><span class="ir-val red">dailyLimitHit = true → EA stops</span></div>
+        <div class="info-row"><span class="ir-key">Reset Peak</span><span class="ir-val">highestProfit=0, lockedProfit=0</span></div>
+      </div>
+    </div>
+  </div>
+</div>
+
+
+<!-- ══════════════════════════════════════════════════
+     SECTION 7: VISUAL SYSTEM
+══════════════════════════════════════════════════ -->
+<div class="section s-cyan">
+  <div class="sec-title" style="color:var(--cyan);">
+    <div class="num" style="background:#00cfff22;border:1px solid var(--cyan);color:var(--cyan);">7</div>
+    Visual System — Chart Objects &amp; Panel
+  </div>
+
+  <div class="two-col">
+    <div>
+      <div style="font-family:'Share Tech Mono';font-size:10px;color:var(--cyan);letter-spacing:2px;margin-bottom:10px;">CHART OBJECTS (OnChartEvent)</div>
+      <div class="info-box cyan">
+        <div class="info-row"><span class="ir-key">DXB_MMFLIP_HH</span><span class="ir-val" style="color:clrCrimson;">─── Crimson (HH Line)</span></div>
+        <div class="info-row"><span class="ir-key">DXB_MMFLIP_LL</span><span class="ir-val green">─── Lime (LL Line)</span></div>
+        <div class="info-row"><span class="ir-key">DXB_MMFLIP_Supply</span><span class="ir-val red">█ Dark Red Box (Supply Zone)</span></div>
+        <div class="info-row"><span class="ir-key">DXB_MMFLIP_Demand</span><span class="ir-val green">█ Dark Green Box (Demand)</span></div>
+        <div class="info-row"><span class="ir-key">DXB_MMFLIP_Panel</span><span class="ir-val cyan">Stats Label (top-left)</span></div>
+        <div class="info-row"><span class="ir-key">Lookback</span><span class="ir-val">50 candles for HH/LL scan</span></div>
+        <div class="info-row"><span class="ir-key">Cleanup</span><span class="ir-val">OnDeinit() → ObjectsDeleteAll("DXB_MMFLIP_")</span></div>
+      </div>
+    </div>
+
+    <div>
+      <div style="font-family:'Share Tech Mono';font-size:10px;color:var(--cyan);letter-spacing:2px;margin-bottom:10px;">MTF ZONE COLORS (screenshot markers)</div>
+      <div class="info-box cyan">
+        <div class="info-row"><span class="ir-key">M5 Zones</span><span class="ir-val" style="color:#ff00ff;">● Magenta</span></div>
+        <div class="info-row"><span class="ir-key">M15 Zones</span><span class="ir-val" style="color:#008b8b;">● Teal (0,139,139)</span></div>
+        <div class="info-row"><span class="ir-key">M30 Zones</span><span class="ir-val" style="color:#808000;">● Olive</span></div>
+        <div class="info-row"><span class="ir-key">H1 Zones</span><span class="ir-val" style="color:#4169e1;">● Royal Blue</span></div>
+        <div class="info-row"><span class="ir-key">H4 Zones</span><span class="ir-val" style="color:#a0522d;">● Sienna</span></div>
+        <div class="info-row"><span class="ir-key">News Lines</span><span class="ir-val" style="color:#f9104f;">┊ Pink Dotted (Style_Dot)</span></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Panel display mockup -->
+  <div style="margin-top:20px;max-width:400px;">
+    <div style="font-family:'Share Tech Mono';font-size:10px;color:var(--dim);letter-spacing:2px;margin-bottom:8px;">PANEL OUTPUT (dxb_DrawInfoPanel)</div>
+    <div style="background:#040810;border:1px solid #0d2a3a;border-radius:4px;padding:12px;font-family:'Share Tech Mono';font-size:11px;line-height:1.8;">
+      <div style="color:#f9104f;font-weight:bold;">MM Flip CodePro V10 [dxb]</div>
+      <div><span style="color:var(--dim);">Magic: </span><span style="color:var(--cyan);">222222</span><span style="color:var(--dim);"> | Spread: </span><span style="color:var(--white);">12 pts</span></div>
+      <div><span style="color:var(--dim);">Trades: </span><span style="color:var(--white);">5</span><span style="color:var(--dim);"> | Open: </span><span style="color:var(--yellow);">2</span></div>
+      <div><span style="color:var(--dim);">Win: </span><span style="color:var(--green);">5</span><span style="color:var(--dim);"> | Loss: </span><span style="color:var(--red);">0</span></div>
+      <div><span style="color:var(--dim);">Daily Profit: </span><span style="color:var(--green);">$6.16</span></div>
+      <div><span style="color:var(--dim);">Daily Loss:   </span><span style="color:var(--white);">$0.00</span></div>
+      <div><span style="color:var(--dim);">Float Loss:   </span><span style="color:var(--white);">$0.00</span></div>
+      <div><span style="color:var(--dim);">Protect: </span><span style="color:var(--red);">OFF</span><span style="color:var(--dim);"> | Float Limit: </span><span style="color:var(--yellow);">$50</span></div>
+    </div>
+  </div>
+</div>
+
+
+<!-- ══════════════════════════════════════════════════
+     SECTION 8: FUNCTION REFERENCE MAP
+══════════════════════════════════════════════════ -->
+<div class="section s-green">
+  <div class="sec-title" style="color:var(--green);">
+    <div class="num" style="background:#00ff9d22;border:1px solid var(--green);color:var(--green);">8</div>
+    Function Reference Map
+  </div>
+
+  <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(280px,1fr));gap:10px;">
+
+    <div class="info-box green">
+      <div style="font-family:'Orbitron';font-size:9px;color:var(--green);letter-spacing:1px;margin-bottom:6px;">OnInit()</div>
+      <div style="font-family:'Share Tech Mono';font-size:10px;color:var(--dim);">Resets all dxb_g_ globals to zero.<br>Fires once on chart attach.</div>
+    </div>
+
+    <div class="info-box green">
+      <div style="font-family:'Orbitron';font-size:9px;color:var(--green);letter-spacing:1px;margin-bottom:6px;">OnDeinit()</div>
+      <div style="font-family:'Share Tech Mono';font-size:10px;color:var(--dim);">ObjectsDeleteAll(0,"DXB_MMFLIP_")<br>Cleans chart on removal.</div>
+    </div>
+
+    <div class="info-box cyan">
+      <div style="font-family:'Orbitron';font-size:9px;color:var(--cyan);letter-spacing:1px;margin-bottom:6px;">dxb_GetSARSignal() → int</div>
+      <div style="font-family:'Share Tech Mono';font-size:10px;color:var(--dim);">Returns 1=BUY, -1=SELL, 0=none<br>Detects Parabolic SAR flip.</div>
+    </div>
+
+    <div class="info-box cyan">
+      <div style="font-family:'Orbitron';font-size:9px;color:var(--cyan);letter-spacing:1px;margin-bottom:6px;">dxb_GetCurrentLotSize() → double</div>
+      <div style="font-family:'Share Tech Mono';font-size:10px;color:var(--dim);">Auto or custom sequence.<br>Always passes through NormalizeLot.</div>
+    </div>
+
+    <div class="info-box cyan">
+      <div style="font-family:'Orbitron';font-size:9px;color:var(--cyan);letter-spacing:1px;margin-bottom:6px;">dxb_NormalizeLot(lot) → double</div>
+      <div style="font-family:'Share Tech Mono';font-size:10px;color:var(--dim);">Clamps to broker min/max/step.<br>Prevents ERR_INVALID_TRADE_VOLUME.</div>
+    </div>
+
+    <div class="info-box green">
+      <div style="font-family:'Orbitron';font-size:9px;color:var(--green);letter-spacing:1px;margin-bottom:6px;">dxb_OpenTrade(dir, lot)</div>
+      <div style="font-family:'Share Tech Mono';font-size:10px;color:var(--dim);">OrderSend() BUY or SELL.<br>SL=±530pts, TP=0 (EA managed).</div>
+    </div>
+
+    <div class="info-box green">
+      <div style="font-family:'Orbitron';font-size:9px;color:var(--green);letter-spacing:1px;margin-bottom:6px;">dxb_CheckAdditionalEntry()</div>
+      <div style="font-family:'Share Tech Mono';font-size:10px;color:var(--dim);">Grid logic. Opens same-direction<br>trade if price moves 50+ pts vs us.</div>
+    </div>
+
+    <div class="info-box" style="border-color:#ff7c2a44;background:#0a0400;">
+      <div style="font-family:'Orbitron';font-size:9px;color:var(--orange);letter-spacing:1px;margin-bottom:6px;">dxb_ManageOpenTrades()</div>
+      <div style="font-family:'Share Tech Mono';font-size:10px;color:var(--dim);">Runs all 4 protection modes.<br>Tracks highestProfit, lockedProfit.</div>
+    </div>
+
+    <div class="info-box" style="border-color:#ff7c2a44;background:#0a0400;">
+      <div style="font-family:'Orbitron';font-size:9px;color:var(--orange);letter-spacing:1px;margin-bottom:6px;">dxb_MoveToBreakEven()</div>
+      <div style="font-family:'Share Tech Mono';font-size:10px;color:var(--dim);">OrderModify SL → OpenPrice<br>for all open trades.</div>
+    </div>
+
+    <div class="info-box" style="border-color:#ff7c2a44;background:#0a0400;">
+      <div style="font-family:'Orbitron';font-size:9px;color:var(--orange);letter-spacing:1px;margin-bottom:6px;">dxb_TrailAllTrades(dist)</div>
+      <div style="font-family:'Share Tech Mono';font-size:10px;color:var(--dim);">Moves SL behind price by dist.<br>Only improves SL — never widens.</div>
+    </div>
+
+    <div class="info-box" style="border-color:#ff7c2a44;background:#0a0400;">
+      <div style="font-family:'Orbitron';font-size:9px;color:var(--orange);letter-spacing:1px;margin-bottom:6px;">dxb_PartialCloseAllTrades(pct)</div>
+      <div style="font-family:'Share Tech Mono';font-size:10px;color:var(--dim);">Closes pct% of profitable lots.<br>50% of 0.10 → closes 0.05 lot.</div>
+    </div>
+
+    <div class="info-box red">
+      <div style="font-family:'Orbitron';font-size:9px;color:var(--red);letter-spacing:1px;margin-bottom:6px;">dxb_CloseAllTrades()</div>
+      <div style="font-family:'Share Tech Mono';font-size:10px;color:var(--dim);">Force-closes ALL open trades.<br>Updates win/loss/daily counters.</div>
+    </div>
+
+    <div class="info-box cyan">
+      <div style="font-family:'Orbitron';font-size:9px;color:var(--cyan);letter-spacing:1px;margin-bottom:6px;">dxb_CountOpenTrades() → int</div>
+      <div style="font-family:'Share Tech Mono';font-size:10px;color:var(--dim);">Counts open trades by Symbol<br>+ MagicNumber filter.</div>
+    </div>
+
+    <div class="info-box cyan">
+      <div style="font-family:'Orbitron';font-size:9px;color:var(--cyan);letter-spacing:1px;margin-bottom:6px;">dxb_GetTotalOpenProfit() → double</div>
+      <div style="font-family:'Share Tech Mono';font-size:10px;color:var(--dim);">Sum profit+swap+commission<br>for all open trades.</div>
+    </div>
+
+    <div class="info-box cyan">
+      <div style="font-family:'Orbitron';font-size:9px;color:var(--cyan);letter-spacing:1px;margin-bottom:6px;">dxb_GetFloatingLoss() → double</div>
+      <div style="font-family:'Share Tech Mono';font-size:10px;color:var(--dim);">Sum of NEGATIVE open P&amp;L only.<br>Checked against $50 limit every tick.</div>
+    </div>
+
+    <div class="info-box cyan">
+      <div style="font-family:'Orbitron';font-size:9px;color:var(--cyan);letter-spacing:1px;margin-bottom:6px;">dxb_ResetDailyLimitsIfNewDay()</div>
+      <div style="font-family:'Share Tech Mono';font-size:10px;color:var(--dim);">Static datetime compare.<br>Resets all daily vars at midnight.</div>
+    </div>
+
+    <div class="info-box green">
+      <div style="font-family:'Orbitron';font-size:9px;color:var(--green);letter-spacing:1px;margin-bottom:6px;">dxb_DrawZones() / dxb_DrawHLine()</div>
+      <div style="font-family:'Share Tech Mono';font-size:10px;color:var(--dim);">HH/LL lines + Supply/Demand rects.<br>Scans last 50 candles.</div>
+    </div>
+
+    <div class="info-box green">
+      <div style="font-family:'Orbitron';font-size:9px;color:var(--green);letter-spacing:1px;margin-bottom:6px;">dxb_DrawInfoPanel()</div>
+      <div style="font-family:'Share Tech Mono';font-size:10px;color:var(--dim);">OBJ_LABEL with all stats.<br>Position: X=10, Y=280 (configurable).</div>
+    </div>
+
+    <div class="info-box green">
+      <div style="font-family:'Orbitron';font-size:9px;color:var(--green);letter-spacing:1px;margin-bottom:6px;">OnChartEvent()</div>
+      <div style="font-family:'Share Tech Mono';font-size:10px;color:var(--dim);">Fires on chart interaction.<br>Calls DrawZones + DrawInfoPanel.</div>
+    </div>
+
+  </div>
+</div>
+
+<!-- Footer -->
+<div style="text-align:center;padding:30px 0 10px;font-family:'Share Tech Mono';font-size:10px;color:var(--dim);letter-spacing:2px;">
+  MM FLIP CODEPRO V10 · dxb_ PREFIX NAMESPACE · MQL4 EXPERT ADVISOR<br>
+  <span style="color:#0d2a3a;">Contact: +971544735060</span>
+</div>
+
+</div><!-- end .canvas -->
+
+<script>
+// Animate arrow lines on load
+document.querySelectorAll('.arrow-line').forEach((el,i) => {
+  el.style.animationDelay = (i*0.3)+'s';
+});
+
+// Subtle grid hover highlight
+document.querySelectorAll('.mode-card, .info-box').forEach(el => {
+  el.addEventListener('mouseenter', function() {
+    this.style.transform = 'translateY(-2px)';
+    this.style.transition = 'transform 0.2s';
+  });
+  el.addEventListener('mouseleave', function() {
+    this.style.transform = 'translateY(0)';
+  });
+});
+</script>
+
+</body>
+</html>

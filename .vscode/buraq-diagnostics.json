@@ -1,0 +1,564 @@
+{
+    "c:\\Users\\venuadmin\\AppData\\Roaming\\MetaQuotes\\Terminal\\2191F4A3D14D7B4B1EBB84F924777883\\MQL4\\Experts\\V-TV-Signals\\V_TV_CROSSSingleOrderAfterEverySignal5.mqh": [
+        {
+            "file": "c:\\Users\\venuadmin\\AppData\\Roaming\\MetaQuotes\\Terminal\\2191F4A3D14D7B4B1EBB84F924777883\\MQL4\\Experts\\V-TV-Signals\\V_TV_CROSSSingleOrderAfterEverySignal5.mqh",
+            "message": "wrong parameters count",
+            "range": {
+                "start": {
+                    "line": 10,
+                    "character": 15
+                },
+                "end": {
+                    "line": 10,
+                    "character": 115
+                }
+            },
+            "severity": "Error",
+            "code": "199"
+        },
+        {
+            "file": "c:\\Users\\venuadmin\\AppData\\Roaming\\MetaQuotes\\Terminal\\2191F4A3D14D7B4B1EBB84F924777883\\MQL4\\Experts\\V-TV-Signals\\V_TV_CROSSSingleOrderAfterEverySignal5.mqh",
+            "message": "wrong parameters count",
+            "range": {
+                "start": {
+                    "line": 16,
+                    "character": 20
+                },
+                "end": {
+                    "line": 16,
+                    "character": 120
+                }
+            },
+            "severity": "Error",
+            "code": "199"
+        },
+        {
+            "file": "c:\\Users\\venuadmin\\AppData\\Roaming\\MetaQuotes\\Terminal\\2191F4A3D14D7B4B1EBB84F924777883\\MQL4\\Experts\\V-TV-Signals\\V_TV_CROSSSingleOrderAfterEverySignal5.mqh",
+            "message": "implicit conversion from 'unknown' to 'string'",
+            "range": {
+                "start": {
+                    "line": 16,
+                    "character": 20
+                },
+                "end": {
+                    "line": 16,
+                    "character": 120
+                }
+            },
+            "severity": "Warning",
+            "code": "94"
+        },
+        {
+            "file": "c:\\Users\\venuadmin\\AppData\\Roaming\\MetaQuotes\\Terminal\\2191F4A3D14D7B4B1EBB84F924777883\\MQL4\\Experts\\V-TV-Signals\\V_TV_CROSSSingleOrderAfterEverySignal5.mqh",
+            "message": "wrong parameters count",
+            "range": {
+                "start": {
+                    "line": 33,
+                    "character": 20
+                },
+                "end": {
+                    "line": 33,
+                    "character": 120
+                }
+            },
+            "severity": "Error",
+            "code": "199"
+        },
+        {
+            "file": "c:\\Users\\venuadmin\\AppData\\Roaming\\MetaQuotes\\Terminal\\2191F4A3D14D7B4B1EBB84F924777883\\MQL4\\Experts\\V-TV-Signals\\V_TV_CROSSSingleOrderAfterEverySignal5.mqh",
+            "message": "implicit conversion from 'unknown' to 'string'",
+            "range": {
+                "start": {
+                    "line": 33,
+                    "character": 20
+                },
+                "end": {
+                    "line": 33,
+                    "character": 120
+                }
+            },
+            "severity": "Warning",
+            "code": "94"
+        },
+        {
+            "file": "c:\\Users\\venuadmin\\AppData\\Roaming\\MetaQuotes\\Terminal\\2191F4A3D14D7B4B1EBB84F924777883\\MQL4\\Experts\\V-TV-Signals\\V_TV_CROSSSingleOrderAfterEverySignal5.mqh",
+            "message": "undeclared identifier 'g_lastCrossTime'",
+            "range": {
+                "start": {
+                    "line": 40,
+                    "character": 19
+                },
+                "end": {
+                    "line": 40,
+                    "character": 119
+                }
+            },
+            "severity": "Error",
+            "code": "256"
+        },
+        {
+            "file": "c:\\Users\\venuadmin\\AppData\\Roaming\\MetaQuotes\\Terminal\\2191F4A3D14D7B4B1EBB84F924777883\\MQL4\\Experts\\V-TV-Signals\\V_TV_CROSSSingleOrderAfterEverySignal5.mqh",
+            "message": "open parenthesis expected",
+            "range": {
+                "start": {
+                    "line": 52,
+                    "character": 64
+                },
+                "end": {
+                    "line": 52,
+                    "character": 164
+                }
+            },
+            "severity": "Error",
+            "code": "132"
+        },
+        {
+            "file": "c:\\Users\\venuadmin\\AppData\\Roaming\\MetaQuotes\\Terminal\\2191F4A3D14D7B4B1EBB84F924777883\\MQL4\\Experts\\V-TV-Signals\\V_TV_CROSSSingleOrderAfterEverySignal5.mqh",
+            "message": "open parenthesis expected",
+            "range": {
+                "start": {
+                    "line": 57,
+                    "character": 64
+                },
+                "end": {
+                    "line": 57,
+                    "character": 164
+                }
+            },
+            "severity": "Error",
+            "code": "132"
+        },
+        {
+            "file": "c:\\Users\\venuadmin\\AppData\\Roaming\\MetaQuotes\\Terminal\\2191F4A3D14D7B4B1EBB84F924777883\\MQL4\\Experts\\V-TV-Signals\\V_TV_CROSSSingleOrderAfterEverySignal5.mqh",
+            "message": "undeclared identifier 'SeqSellStopLossUSD'",
+            "range": {
+                "start": {
+                    "line": 77,
+                    "character": 39
+                },
+                "end": {
+                    "line": 77,
+                    "character": 139
+                }
+            },
+            "severity": "Error",
+            "code": "256"
+        },
+        {
+            "file": "c:\\Users\\venuadmin\\AppData\\Roaming\\MetaQuotes\\Terminal\\2191F4A3D14D7B4B1EBB84F924777883\\MQL4\\Experts\\V-TV-Signals\\V_TV_CROSSSingleOrderAfterEverySignal5.mqh",
+            "message": "undeclared identifier 'SeqBuyStopLossUSD'",
+            "range": {
+                "start": {
+                    "line": 78,
+                    "character": 35
+                },
+                "end": {
+                    "line": 78,
+                    "character": 135
+                }
+            },
+            "severity": "Error",
+            "code": "256"
+        },
+        {
+            "file": "c:\\Users\\venuadmin\\AppData\\Roaming\\MetaQuotes\\Terminal\\2191F4A3D14D7B4B1EBB84F924777883\\MQL4\\Experts\\V-TV-Signals\\V_TV_CROSSSingleOrderAfterEverySignal5.mqh",
+            "message": "undeclared identifier 'GetEMAGapPoints'",
+            "range": {
+                "start": {
+                    "line": 86,
+                    "character": 14
+                },
+                "end": {
+                    "line": 86,
+                    "character": 114
+                }
+            },
+            "severity": "Error",
+            "code": "256"
+        },
+        {
+            "file": "c:\\Users\\venuadmin\\AppData\\Roaming\\MetaQuotes\\Terminal\\2191F4A3D14D7B4B1EBB84F924777883\\MQL4\\Experts\\V-TV-Signals\\V_TV_CROSSSingleOrderAfterEverySignal5.mqh",
+            "message": "undeclared identifier 'FastEMA'",
+            "range": {
+                "start": {
+                    "line": 86,
+                    "character": 30
+                },
+                "end": {
+                    "line": 86,
+                    "character": 130
+                }
+            },
+            "severity": "Error",
+            "code": "256"
+        },
+        {
+            "file": "c:\\Users\\venuadmin\\AppData\\Roaming\\MetaQuotes\\Terminal\\2191F4A3D14D7B4B1EBB84F924777883\\MQL4\\Experts\\V-TV-Signals\\V_TV_CROSSSingleOrderAfterEverySignal5.mqh",
+            "message": "',' - unexpected token",
+            "range": {
+                "start": {
+                    "line": 86,
+                    "character": 37
+                },
+                "end": {
+                    "line": 86,
+                    "character": 137
+                }
+            },
+            "severity": "Error",
+            "code": "149"
+        },
+        {
+            "file": "c:\\Users\\venuadmin\\AppData\\Roaming\\MetaQuotes\\Terminal\\2191F4A3D14D7B4B1EBB84F924777883\\MQL4\\Experts\\V-TV-Signals\\V_TV_CROSSSingleOrderAfterEverySignal5.mqh",
+            "message": "'FastEMA' - some operator expected",
+            "range": {
+                "start": {
+                    "line": 86,
+                    "character": 30
+                },
+                "end": {
+                    "line": 86,
+                    "character": 130
+                }
+            },
+            "severity": "Error",
+            "code": "152"
+        },
+        {
+            "file": "c:\\Users\\venuadmin\\AppData\\Roaming\\MetaQuotes\\Terminal\\2191F4A3D14D7B4B1EBB84F924777883\\MQL4\\Experts\\V-TV-Signals\\V_TV_CROSSSingleOrderAfterEverySignal5.mqh",
+            "message": "semicolon expected",
+            "range": {
+                "start": {
+                    "line": 86,
+                    "character": 39
+                },
+                "end": {
+                    "line": 86,
+                    "character": 139
+                }
+            },
+            "severity": "Error",
+            "code": "154"
+        },
+        {
+            "file": "c:\\Users\\venuadmin\\AppData\\Roaming\\MetaQuotes\\Terminal\\2191F4A3D14D7B4B1EBB84F924777883\\MQL4\\Experts\\V-TV-Signals\\V_TV_CROSSSingleOrderAfterEverySignal5.mqh",
+            "message": "undeclared identifier 'SlowEMA'",
+            "range": {
+                "start": {
+                    "line": 86,
+                    "character": 39
+                },
+                "end": {
+                    "line": 86,
+                    "character": 139
+                }
+            },
+            "severity": "Error",
+            "code": "256"
+        },
+        {
+            "file": "c:\\Users\\venuadmin\\AppData\\Roaming\\MetaQuotes\\Terminal\\2191F4A3D14D7B4B1EBB84F924777883\\MQL4\\Experts\\V-TV-Signals\\V_TV_CROSSSingleOrderAfterEverySignal5.mqh",
+            "message": "')' - unexpected token",
+            "range": {
+                "start": {
+                    "line": 86,
+                    "character": 46
+                },
+                "end": {
+                    "line": 86,
+                    "character": 146
+                }
+            },
+            "severity": "Error",
+            "code": "149"
+        },
+        {
+            "file": "c:\\Users\\venuadmin\\AppData\\Roaming\\MetaQuotes\\Terminal\\2191F4A3D14D7B4B1EBB84F924777883\\MQL4\\Experts\\V-TV-Signals\\V_TV_CROSSSingleOrderAfterEverySignal5.mqh",
+            "message": "undeclared identifier 'g_liveSignalName'",
+            "range": {
+                "start": {
+                    "line": 95,
+                    "character": 7
+                },
+                "end": {
+                    "line": 95,
+                    "character": 107
+                }
+            },
+            "severity": "Error",
+            "code": "256"
+        },
+        {
+            "file": "c:\\Users\\venuadmin\\AppData\\Roaming\\MetaQuotes\\Terminal\\2191F4A3D14D7B4B1EBB84F924777883\\MQL4\\Experts\\V-TV-Signals\\V_TV_CROSSSingleOrderAfterEverySignal5.mqh",
+            "message": "implicit conversion from 'unknown' to 'string'",
+            "range": {
+                "start": {
+                    "line": 95,
+                    "character": 7
+                },
+                "end": {
+                    "line": 95,
+                    "character": 107
+                }
+            },
+            "severity": "Warning",
+            "code": "94"
+        },
+        {
+            "file": "c:\\Users\\venuadmin\\AppData\\Roaming\\MetaQuotes\\Terminal\\2191F4A3D14D7B4B1EBB84F924777883\\MQL4\\Experts\\V-TV-Signals\\V_TV_CROSSSingleOrderAfterEverySignal5.mqh",
+            "message": "undeclared identifier 'g_liveSignalName'",
+            "range": {
+                "start": {
+                    "line": 100,
+                    "character": 107
+                },
+                "end": {
+                    "line": 100,
+                    "character": 207
+                }
+            },
+            "severity": "Error",
+            "code": "256"
+        },
+        {
+            "file": "c:\\Users\\venuadmin\\AppData\\Roaming\\MetaQuotes\\Terminal\\2191F4A3D14D7B4B1EBB84F924777883\\MQL4\\Experts\\V-TV-Signals\\V_TV_CROSSSingleOrderAfterEverySignal5.mqh",
+            "message": "undeclared identifier 'ProcessSeqSellOrders'",
+            "range": {
+                "start": {
+                    "line": 110,
+                    "character": 9
+                },
+                "end": {
+                    "line": 110,
+                    "character": 109
+                }
+            },
+            "severity": "Error",
+            "code": "256"
+        },
+        {
+            "file": "c:\\Users\\venuadmin\\AppData\\Roaming\\MetaQuotes\\Terminal\\2191F4A3D14D7B4B1EBB84F924777883\\MQL4\\Experts\\V-TV-Signals\\V_TV_CROSSSingleOrderAfterEverySignal5.mqh",
+            "message": "',' - unexpected token",
+            "range": {
+                "start": {
+                    "line": 110,
+                    "character": 35
+                },
+                "end": {
+                    "line": 110,
+                    "character": 135
+                }
+            },
+            "severity": "Error",
+            "code": "149"
+        },
+        {
+            "file": "c:\\Users\\venuadmin\\AppData\\Roaming\\MetaQuotes\\Terminal\\2191F4A3D14D7B4B1EBB84F924777883\\MQL4\\Experts\\V-TV-Signals\\V_TV_CROSSSingleOrderAfterEverySignal5.mqh",
+            "message": "'false' - some operator expected",
+            "range": {
+                "start": {
+                    "line": 110,
+                    "character": 30
+                },
+                "end": {
+                    "line": 110,
+                    "character": 130
+                }
+            },
+            "severity": "Error",
+            "code": "152"
+        },
+        {
+            "file": "c:\\Users\\venuadmin\\AppData\\Roaming\\MetaQuotes\\Terminal\\2191F4A3D14D7B4B1EBB84F924777883\\MQL4\\Experts\\V-TV-Signals\\V_TV_CROSSSingleOrderAfterEverySignal5.mqh",
+            "message": "',' - unexpected token",
+            "range": {
+                "start": {
+                    "line": 110,
+                    "character": 41
+                },
+                "end": {
+                    "line": 110,
+                    "character": 141
+                }
+            },
+            "severity": "Error",
+            "code": "149"
+        },
+        {
+            "file": "c:\\Users\\venuadmin\\AppData\\Roaming\\MetaQuotes\\Terminal\\2191F4A3D14D7B4B1EBB84F924777883\\MQL4\\Experts\\V-TV-Signals\\V_TV_CROSSSingleOrderAfterEverySignal5.mqh",
+            "message": "')' - unexpected token",
+            "range": {
+                "start": {
+                    "line": 110,
+                    "character": 47
+                },
+                "end": {
+                    "line": 110,
+                    "character": 147
+                }
+            },
+            "severity": "Error",
+            "code": "149"
+        },
+        {
+            "file": "c:\\Users\\venuadmin\\AppData\\Roaming\\MetaQuotes\\Terminal\\2191F4A3D14D7B4B1EBB84F924777883\\MQL4\\Experts\\V-TV-Signals\\V_TV_CROSSSingleOrderAfterEverySignal5.mqh",
+            "message": "expression has no effect",
+            "range": {
+                "start": {
+                    "line": 110,
+                    "character": 42
+                },
+                "end": {
+                    "line": 110,
+                    "character": 142
+                }
+            },
+            "severity": "Warning",
+            "code": "95"
+        },
+        {
+            "file": "c:\\Users\\venuadmin\\AppData\\Roaming\\MetaQuotes\\Terminal\\2191F4A3D14D7B4B1EBB84F924777883\\MQL4\\Experts\\V-TV-Signals\\V_TV_CROSSSingleOrderAfterEverySignal5.mqh",
+            "message": "undeclared identifier 'g_liveSignalName'",
+            "range": {
+                "start": {
+                    "line": 113,
+                    "character": 15
+                },
+                "end": {
+                    "line": 113,
+                    "character": 115
+                }
+            },
+            "severity": "Error",
+            "code": "256"
+        },
+        {
+            "file": "c:\\Users\\venuadmin\\AppData\\Roaming\\MetaQuotes\\Terminal\\2191F4A3D14D7B4B1EBB84F924777883\\MQL4\\Experts\\V-TV-Signals\\V_TV_CROSSSingleOrderAfterEverySignal5.mqh",
+            "message": "implicit conversion from 'unknown' to 'string'",
+            "range": {
+                "start": {
+                    "line": 113,
+                    "character": 15
+                },
+                "end": {
+                    "line": 113,
+                    "character": 115
+                }
+            },
+            "severity": "Warning",
+            "code": "94"
+        },
+        {
+            "file": "c:\\Users\\venuadmin\\AppData\\Roaming\\MetaQuotes\\Terminal\\2191F4A3D14D7B4B1EBB84F924777883\\MQL4\\Experts\\V-TV-Signals\\V_TV_CROSSSingleOrderAfterEverySignal5.mqh",
+            "message": "undeclared identifier 'g_liveSignalName'",
+            "range": {
+                "start": {
+                    "line": 121,
+                    "character": 107
+                },
+                "end": {
+                    "line": 121,
+                    "character": 207
+                }
+            },
+            "severity": "Error",
+            "code": "256"
+        },
+        {
+            "file": "c:\\Users\\venuadmin\\AppData\\Roaming\\MetaQuotes\\Terminal\\2191F4A3D14D7B4B1EBB84F924777883\\MQL4\\Experts\\V-TV-Signals\\V_TV_CROSSSingleOrderAfterEverySignal5.mqh",
+            "message": "undeclared identifier 'ProcessSeqBuyOrders'",
+            "range": {
+                "start": {
+                    "line": 133,
+                    "character": 12
+                },
+                "end": {
+                    "line": 133,
+                    "character": 112
+                }
+            },
+            "severity": "Error",
+            "code": "256"
+        },
+        {
+            "file": "c:\\Users\\venuadmin\\AppData\\Roaming\\MetaQuotes\\Terminal\\2191F4A3D14D7B4B1EBB84F924777883\\MQL4\\Experts\\V-TV-Signals\\V_TV_CROSSSingleOrderAfterEverySignal5.mqh",
+            "message": "',' - unexpected token",
+            "range": {
+                "start": {
+                    "line": 133,
+                    "character": 37
+                },
+                "end": {
+                    "line": 133,
+                    "character": 137
+                }
+            },
+            "severity": "Error",
+            "code": "149"
+        },
+        {
+            "file": "c:\\Users\\venuadmin\\AppData\\Roaming\\MetaQuotes\\Terminal\\2191F4A3D14D7B4B1EBB84F924777883\\MQL4\\Experts\\V-TV-Signals\\V_TV_CROSSSingleOrderAfterEverySignal5.mqh",
+            "message": "'false' - some operator expected",
+            "range": {
+                "start": {
+                    "line": 133,
+                    "character": 32
+                },
+                "end": {
+                    "line": 133,
+                    "character": 132
+                }
+            },
+            "severity": "Error",
+            "code": "152"
+        },
+        {
+            "file": "c:\\Users\\venuadmin\\AppData\\Roaming\\MetaQuotes\\Terminal\\2191F4A3D14D7B4B1EBB84F924777883\\MQL4\\Experts\\V-TV-Signals\\V_TV_CROSSSingleOrderAfterEverySignal5.mqh",
+            "message": "',' - unexpected token",
+            "range": {
+                "start": {
+                    "line": 133,
+                    "character": 43
+                },
+                "end": {
+                    "line": 133,
+                    "character": 143
+                }
+            },
+            "severity": "Error",
+            "code": "149"
+        },
+        {
+            "file": "c:\\Users\\venuadmin\\AppData\\Roaming\\MetaQuotes\\Terminal\\2191F4A3D14D7B4B1EBB84F924777883\\MQL4\\Experts\\V-TV-Signals\\V_TV_CROSSSingleOrderAfterEverySignal5.mqh",
+            "message": "')' - unexpected token",
+            "range": {
+                "start": {
+                    "line": 133,
+                    "character": 49
+                },
+                "end": {
+                    "line": 133,
+                    "character": 149
+                }
+            },
+            "severity": "Error",
+            "code": "149"
+        },
+        {
+            "file": "c:\\Users\\venuadmin\\AppData\\Roaming\\MetaQuotes\\Terminal\\2191F4A3D14D7B4B1EBB84F924777883\\MQL4\\Experts\\V-TV-Signals\\V_TV_CROSSSingleOrderAfterEverySignal5.mqh",
+            "message": "expression has no effect",
+            "range": {
+                "start": {
+                    "line": 133,
+                    "character": 44
+                },
+                "end": {
+                    "line": 133,
+                    "character": 144
+                }
+            },
+            "severity": "Warning",
+            "code": "95"
+        }
+    ]
+}

@@ -7,22 +7,37 @@
 // ===================================================
 
 string BuyPatterns[]  = {
-   //"RRRG",
-   //"RRXG",
-   "RRRR",
-   // "RRRG"
-  // "GGGGGG",
+    
+   // "RRRR", //50 50  <3000
+   // "RRR"//loss <3000
+   // "GGGG"// GAP >4000 //loss
+   //  "RRRR"// GAP >4000 // loss
+   // "GRRR" loss
 
+   // "GGGG", //50 50  >4000
+"GGG"
+
+
+   
 
    // add more buy patterns here...
 };
 
 string SellPatterns[] = {
-   //"GGGR",
-   //"GGXR",
-      "GGGG",
-      // "GGGR"
-  // "RRRRRR"
+    
+      // "GGGG",//50 50 <3000
+      // "GGG"//loss <3000
+
+      // "RRRR"//gap >4000//loss
+      //  "GGGG"//gap >4000// loss
+      // "RRRG" loss
+   // "RRRR", //50 50  >4000
+   "RRR"
+
+
+
+
+
 
 
    // add more sell patterns here...
@@ -51,7 +66,7 @@ int GetCreateNewOrderCandleReversalSignalStrong()
 
             double gap = GetEMAGapPoints(FastEMA, SlowEMA);
 
-if(gap>3000) return 0;
+//  if(gap<4000) return 0;
 
    // Build 10-candle color string: index 0 = C9 (oldest), index 9 = C0 (newest)
    string colors = "";
@@ -70,7 +85,14 @@ if(gap>3000) return 0;
       if(MatchPattern(colors, BuyPatterns[b]))
       {
          Print(">>> BUY pattern matched: ", BuyPatterns[b], " in ", colors);
+         Print("999999999999999999 ORDER Placed: BUY - Color Count Pattern", colors);
+SeqSellProfitTarget=0.30;
+SeqBuyProfitTarget=0.30;
+
          ProcessSeqBuyOrders(false,false,false);
+
+         SeqSellProfitTarget=SellProfitTargetInput;
+         SeqBuyProfitTarget=BuyProfitTargetInput;
          return 1;
       }
    }
@@ -80,8 +102,16 @@ if(gap>3000) return 0;
    {
       if(MatchPattern(colors, SellPatterns[s]))
       {
-         Print(">>> SELL pattern matched: ", SellPatterns[s], " in ", colors);
+         // Print(">>> SELL pattern matched: ", SellPatterns[s], " in ", colors);
+         Print("999999999999999999 ORDER Placed: SELL - Color Count Pattern", colors);
+
+         SeqSellProfitTarget=0.30;
+SeqBuyProfitTarget=0.30;
+
          ProcessSeqSellOrders(false,false,false);
+
+         SeqSellProfitTarget=SellProfitTargetInput;
+         SeqBuyProfitTarget=BuyProfitTargetInput;
          return -1;
       }
    }
