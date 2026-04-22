@@ -1645,7 +1645,7 @@ if(reversalSell)
    //RecordMarkerObs(reversalSellName, g_seqCount, High[i], true);
   }
 
-// 🌸 STRONG SELL
+// 🌸 STRONG SELL 
 if(strongSell)
   {
    string _lbl = "STRONG SELL " + IntegerToString(g_seqCount);

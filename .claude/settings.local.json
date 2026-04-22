@@ -3,7 +3,11 @@
     "allow": [
       "Bash(grep -v \"//\")",
       "Bash(python3 -c ' *)",
-      "Bash(node -e ' *)"
+      "Bash(node -e ' *)",
+      "Bash(python -c ' *)",
+      "Bash(where python *)",
+      "Bash(where py *)",
+      "Bash(where pwsh *)"
     ]
   }
 }
