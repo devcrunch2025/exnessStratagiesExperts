@@ -1,527 +1,47 @@
 {
-    "c:\\Users\\venuadmin\\AppData\\Roaming\\MetaQuotes\\Terminal\\2191F4A3D14D7B4B1EBB84F924777883\\MQL4\\Experts\\V-TV-VENU-Special\\V_TV_SimpleOpenCloseOrders.mqh": [
+    "c:\\Users\\venuadmin\\AppData\\Roaming\\MetaQuotes\\Terminal\\2191F4A3D14D7B4B1EBB84F924777883\\MQL4\\Experts\\V-TV-Signals\\V_TV_CROSSSingleCandleCluademethod4.mqh": [
         {
-            "file": "c:\\Users\\venuadmin\\AppData\\Roaming\\MetaQuotes\\Terminal\\2191F4A3D14D7B4B1EBB84F924777883\\MQL4\\Experts\\V-TV-VENU-Special\\V_TV_SimpleOpenCloseOrders.mqh",
-            "message": "undeclared identifier 'SELECT_BY_POS'",
+            "file": "c:\\Users\\venuadmin\\AppData\\Roaming\\MetaQuotes\\Terminal\\2191F4A3D14D7B4B1EBB84F924777883\\MQL4\\Experts\\V-TV-Signals\\V_TV_CROSSSingleCandleCluademethod4.mqh",
+            "message": "undeclared identifier 'Time'",
             "range": {
                 "start": {
-                    "line": 8,
-                    "character": 24
+                    "line": 44,
+                    "character": 6
                 },
                 "end": {
-                    "line": 8,
-                    "character": 124
+                    "line": 44,
+                    "character": 106
                 }
             },
             "severity": "Error",
             "code": "256"
         },
         {
-            "file": "c:\\Users\\venuadmin\\AppData\\Roaming\\MetaQuotes\\Terminal\\2191F4A3D14D7B4B1EBB84F924777883\\MQL4\\Experts\\V-TV-VENU-Special\\V_TV_SimpleOpenCloseOrders.mqh",
-            "message": "undeclared identifier 'MODE_TRADES'",
+            "file": "c:\\Users\\venuadmin\\AppData\\Roaming\\MetaQuotes\\Terminal\\2191F4A3D14D7B4B1EBB84F924777883\\MQL4\\Experts\\V-TV-Signals\\V_TV_CROSSSingleCandleCluademethod4.mqh",
+            "message": "'[' - array required",
             "range": {
                 "start": {
-                    "line": 8,
-                    "character": 39
+                    "line": 44,
+                    "character": 10
                 },
                 "end": {
-                    "line": 8,
-                    "character": 139
+                    "line": 44,
+                    "character": 110
                 }
             },
             "severity": "Error",
-            "code": "256"
+            "code": "241"
         },
         {
-            "file": "c:\\Users\\venuadmin\\AppData\\Roaming\\MetaQuotes\\Terminal\\2191F4A3D14D7B4B1EBB84F924777883\\MQL4\\Experts\\V-TV-VENU-Special\\V_TV_SimpleOpenCloseOrders.mqh",
-            "message": "wrong parameters count",
+            "file": "c:\\Users\\venuadmin\\AppData\\Roaming\\MetaQuotes\\Terminal\\2191F4A3D14D7B4B1EBB84F924777883\\MQL4\\Experts\\V-TV-Signals\\V_TV_CROSSSingleCandleCluademethod4.mqh",
+            "message": "undeclared identifier 'Time'",
             "range": {
                 "start": {
-                    "line": 8,
-                    "character": 9
-                },
-                "end": {
-                    "line": 8,
-                    "character": 109
-                }
-            },
-            "severity": "Error",
-            "code": "199"
-        },
-        {
-            "file": "c:\\Users\\venuadmin\\AppData\\Roaming\\MetaQuotes\\Terminal\\2191F4A3D14D7B4B1EBB84F924777883\\MQL4\\Experts\\V-TV-VENU-Special\\V_TV_SimpleOpenCloseOrders.mqh",
-            "message": "undeclared identifier 'OrderSymbol'",
-            "range": {
-                "start": {
-                    "line": 10,
-                    "character": 12
-                },
-                "end": {
-                    "line": 10,
-                    "character": 112
-                }
-            },
-            "severity": "Error",
-            "code": "256"
-        },
-        {
-            "file": "c:\\Users\\venuadmin\\AppData\\Roaming\\MetaQuotes\\Terminal\\2191F4A3D14D7B4B1EBB84F924777883\\MQL4\\Experts\\V-TV-VENU-Special\\V_TV_SimpleOpenCloseOrders.mqh",
-            "message": "')' - expression expected",
-            "range": {
-                "start": {
-                    "line": 10,
-                    "character": 24
-                },
-                "end": {
-                    "line": 10,
-                    "character": 124
-                }
-            },
-            "severity": "Error",
-            "code": "157"
-        },
-        {
-            "file": "c:\\Users\\venuadmin\\AppData\\Roaming\\MetaQuotes\\Terminal\\2191F4A3D14D7B4B1EBB84F924777883\\MQL4\\Experts\\V-TV-VENU-Special\\V_TV_SimpleOpenCloseOrders.mqh",
-            "message": "implicit conversion from 'unknown' to 'string'",
-            "range": {
-                "start": {
-                    "line": 10,
-                    "character": 12
-                },
-                "end": {
-                    "line": 10,
-                    "character": 112
-                }
-            },
-            "severity": "Warning",
-            "code": "94"
-        },
-        {
-            "file": "c:\\Users\\venuadmin\\AppData\\Roaming\\MetaQuotes\\Terminal\\2191F4A3D14D7B4B1EBB84F924777883\\MQL4\\Experts\\V-TV-VENU-Special\\V_TV_SimpleOpenCloseOrders.mqh",
-            "message": "undeclared identifier 'OrderCloseTime'",
-            "range": {
-                "start": {
-                    "line": 10,
-                    "character": 42
-                },
-                "end": {
-                    "line": 10,
-                    "character": 142
-                }
-            },
-            "severity": "Error",
-            "code": "256"
-        },
-        {
-            "file": "c:\\Users\\venuadmin\\AppData\\Roaming\\MetaQuotes\\Terminal\\2191F4A3D14D7B4B1EBB84F924777883\\MQL4\\Experts\\V-TV-VENU-Special\\V_TV_SimpleOpenCloseOrders.mqh",
-            "message": "')' - expression expected",
-            "range": {
-                "start": {
-                    "line": 10,
-                    "character": 57
-                },
-                "end": {
-                    "line": 10,
-                    "character": 157
-                }
-            },
-            "severity": "Error",
-            "code": "157"
-        },
-        {
-            "file": "c:\\Users\\venuadmin\\AppData\\Roaming\\MetaQuotes\\Terminal\\2191F4A3D14D7B4B1EBB84F924777883\\MQL4\\Experts\\V-TV-VENU-Special\\V_TV_SimpleOpenCloseOrders.mqh",
-            "message": "undeclared identifier 'eaStartTime'",
-            "range": {
-                "start": {
-                    "line": 10,
-                    "character": 62
-                },
-                "end": {
-                    "line": 10,
-                    "character": 162
-                }
-            },
-            "severity": "Error",
-            "code": "256"
-        },
-        {
-            "file": "c:\\Users\\venuadmin\\AppData\\Roaming\\MetaQuotes\\Terminal\\2191F4A3D14D7B4B1EBB84F924777883\\MQL4\\Experts\\V-TV-VENU-Special\\V_TV_SimpleOpenCloseOrders.mqh",
-            "message": "undeclared identifier 'OrderProfit'",
-            "range": {
-                "start": {
-                    "line": 12,
-                    "character": 27
-                },
-                "end": {
-                    "line": 12,
-                    "character": 127
-                }
-            },
-            "severity": "Error",
-            "code": "256"
-        },
-        {
-            "file": "c:\\Users\\venuadmin\\AppData\\Roaming\\MetaQuotes\\Terminal\\2191F4A3D14D7B4B1EBB84F924777883\\MQL4\\Experts\\V-TV-VENU-Special\\V_TV_SimpleOpenCloseOrders.mqh",
-            "message": "')' - expression expected",
-            "range": {
-                "start": {
-                    "line": 12,
-                    "character": 39
-                },
-                "end": {
-                    "line": 12,
-                    "character": 139
-                }
-            },
-            "severity": "Error",
-            "code": "157"
-        },
-        {
-            "file": "c:\\Users\\venuadmin\\AppData\\Roaming\\MetaQuotes\\Terminal\\2191F4A3D14D7B4B1EBB84F924777883\\MQL4\\Experts\\V-TV-VENU-Special\\V_TV_SimpleOpenCloseOrders.mqh",
-            "message": "undeclared identifier 'OrderSwap'",
-            "range": {
-                "start": {
-                    "line": 13,
-                    "character": 27
-                },
-                "end": {
-                    "line": 13,
-                    "character": 127
-                }
-            },
-            "severity": "Error",
-            "code": "256"
-        },
-        {
-            "file": "c:\\Users\\venuadmin\\AppData\\Roaming\\MetaQuotes\\Terminal\\2191F4A3D14D7B4B1EBB84F924777883\\MQL4\\Experts\\V-TV-VENU-Special\\V_TV_SimpleOpenCloseOrders.mqh",
-            "message": "')' - expression expected",
-            "range": {
-                "start": {
-                    "line": 13,
-                    "character": 37
-                },
-                "end": {
-                    "line": 13,
-                    "character": 137
-                }
-            },
-            "severity": "Error",
-            "code": "157"
-        },
-        {
-            "file": "c:\\Users\\venuadmin\\AppData\\Roaming\\MetaQuotes\\Terminal\\2191F4A3D14D7B4B1EBB84F924777883\\MQL4\\Experts\\V-TV-VENU-Special\\V_TV_SimpleOpenCloseOrders.mqh",
-            "message": "undeclared identifier 'OrderCommission'",
-            "range": {
-                "start": {
-                    "line": 14,
-                    "character": 27
-                },
-                "end": {
-                    "line": 14,
-                    "character": 127
-                }
-            },
-            "severity": "Error",
-            "code": "256"
-        },
-        {
-            "file": "c:\\Users\\venuadmin\\AppData\\Roaming\\MetaQuotes\\Terminal\\2191F4A3D14D7B4B1EBB84F924777883\\MQL4\\Experts\\V-TV-VENU-Special\\V_TV_SimpleOpenCloseOrders.mqh",
-            "message": "')' - expression expected",
-            "range": {
-                "start": {
-                    "line": 14,
-                    "character": 43
-                },
-                "end": {
-                    "line": 14,
-                    "character": 143
-                }
-            },
-            "severity": "Error",
-            "code": "157"
-        },
-        {
-            "file": "c:\\Users\\venuadmin\\AppData\\Roaming\\MetaQuotes\\Terminal\\2191F4A3D14D7B4B1EBB84F924777883\\MQL4\\Experts\\V-TV-VENU-Special\\V_TV_SimpleOpenCloseOrders.mqh",
-            "message": "undeclared identifier 'OrdersHistoryTotal'",
-            "range": {
-                "start": {
-                    "line": 20,
-                    "character": 22
-                },
-                "end": {
-                    "line": 20,
-                    "character": 122
-                }
-            },
-            "severity": "Error",
-            "code": "256"
-        },
-        {
-            "file": "c:\\Users\\venuadmin\\AppData\\Roaming\\MetaQuotes\\Terminal\\2191F4A3D14D7B4B1EBB84F924777883\\MQL4\\Experts\\V-TV-VENU-Special\\V_TV_SimpleOpenCloseOrders.mqh",
-            "message": "')' - expression expected",
-            "range": {
-                "start": {
-                    "line": 20,
-                    "character": 41
-                },
-                "end": {
-                    "line": 20,
-                    "character": 141
-                }
-            },
-            "severity": "Error",
-            "code": "157"
-        },
-        {
-            "file": "c:\\Users\\venuadmin\\AppData\\Roaming\\MetaQuotes\\Terminal\\2191F4A3D14D7B4B1EBB84F924777883\\MQL4\\Experts\\V-TV-VENU-Special\\V_TV_SimpleOpenCloseOrders.mqh",
-            "message": "undeclared identifier 'SELECT_BY_POS'",
-            "range": {
-                "start": {
-                    "line": 22,
-                    "character": 24
-                },
-                "end": {
-                    "line": 22,
-                    "character": 124
-                }
-            },
-            "severity": "Error",
-            "code": "256"
-        },
-        {
-            "file": "c:\\Users\\venuadmin\\AppData\\Roaming\\MetaQuotes\\Terminal\\2191F4A3D14D7B4B1EBB84F924777883\\MQL4\\Experts\\V-TV-VENU-Special\\V_TV_SimpleOpenCloseOrders.mqh",
-            "message": "undeclared identifier 'MODE_HISTORY'",
-            "range": {
-                "start": {
-                    "line": 22,
-                    "character": 39
-                },
-                "end": {
-                    "line": 22,
-                    "character": 139
-                }
-            },
-            "severity": "Error",
-            "code": "256"
-        },
-        {
-            "file": "c:\\Users\\venuadmin\\AppData\\Roaming\\MetaQuotes\\Terminal\\2191F4A3D14D7B4B1EBB84F924777883\\MQL4\\Experts\\V-TV-VENU-Special\\V_TV_SimpleOpenCloseOrders.mqh",
-            "message": "wrong parameters count",
-            "range": {
-                "start": {
-                    "line": 22,
-                    "character": 9
-                },
-                "end": {
-                    "line": 22,
-                    "character": 109
-                }
-            },
-            "severity": "Error",
-            "code": "199"
-        },
-        {
-            "file": "c:\\Users\\venuadmin\\AppData\\Roaming\\MetaQuotes\\Terminal\\2191F4A3D14D7B4B1EBB84F924777883\\MQL4\\Experts\\V-TV-VENU-Special\\V_TV_SimpleOpenCloseOrders.mqh",
-            "message": "undeclared identifier 'OrderSymbol'",
-            "range": {
-                "start": {
-                    "line": 24,
-                    "character": 12
-                },
-                "end": {
-                    "line": 24,
-                    "character": 112
-                }
-            },
-            "severity": "Error",
-            "code": "256"
-        },
-        {
-            "file": "c:\\Users\\venuadmin\\AppData\\Roaming\\MetaQuotes\\Terminal\\2191F4A3D14D7B4B1EBB84F924777883\\MQL4\\Experts\\V-TV-VENU-Special\\V_TV_SimpleOpenCloseOrders.mqh",
-            "message": "')' - expression expected",
-            "range": {
-                "start": {
-                    "line": 24,
-                    "character": 24
-                },
-                "end": {
-                    "line": 24,
-                    "character": 124
-                }
-            },
-            "severity": "Error",
-            "code": "157"
-        },
-        {
-            "file": "c:\\Users\\venuadmin\\AppData\\Roaming\\MetaQuotes\\Terminal\\2191F4A3D14D7B4B1EBB84F924777883\\MQL4\\Experts\\V-TV-VENU-Special\\V_TV_SimpleOpenCloseOrders.mqh",
-            "message": "implicit conversion from 'unknown' to 'string'",
-            "range": {
-                "start": {
-                    "line": 24,
-                    "character": 12
-                },
-                "end": {
-                    "line": 24,
-                    "character": 112
-                }
-            },
-            "severity": "Warning",
-            "code": "94"
-        },
-        {
-            "file": "c:\\Users\\venuadmin\\AppData\\Roaming\\MetaQuotes\\Terminal\\2191F4A3D14D7B4B1EBB84F924777883\\MQL4\\Experts\\V-TV-VENU-Special\\V_TV_SimpleOpenCloseOrders.mqh",
-            "message": "undeclared identifier 'OrderCloseTime'",
-            "range": {
-                "start": {
-                    "line": 24,
-                    "character": 41
-                },
-                "end": {
-                    "line": 24,
-                    "character": 141
-                }
-            },
-            "severity": "Error",
-            "code": "256"
-        },
-        {
-            "file": "c:\\Users\\venuadmin\\AppData\\Roaming\\MetaQuotes\\Terminal\\2191F4A3D14D7B4B1EBB84F924777883\\MQL4\\Experts\\V-TV-VENU-Special\\V_TV_SimpleOpenCloseOrders.mqh",
-            "message": "')' - expression expected",
-            "range": {
-                "start": {
-                    "line": 24,
-                    "character": 56
-                },
-                "end": {
-                    "line": 24,
-                    "character": 156
-                }
-            },
-            "severity": "Error",
-            "code": "157"
-        },
-        {
-            "file": "c:\\Users\\venuadmin\\AppData\\Roaming\\MetaQuotes\\Terminal\\2191F4A3D14D7B4B1EBB84F924777883\\MQL4\\Experts\\V-TV-VENU-Special\\V_TV_SimpleOpenCloseOrders.mqh",
-            "message": "undeclared identifier 'eaStartTime'",
-            "range": {
-                "start": {
-                    "line": 24,
-                    "character": 61
-                },
-                "end": {
-                    "line": 24,
-                    "character": 161
-                }
-            },
-            "severity": "Error",
-            "code": "256"
-        },
-        {
-            "file": "c:\\Users\\venuadmin\\AppData\\Roaming\\MetaQuotes\\Terminal\\2191F4A3D14D7B4B1EBB84F924777883\\MQL4\\Experts\\V-TV-VENU-Special\\V_TV_SimpleOpenCloseOrders.mqh",
-            "message": "undeclared identifier 'OrderProfit'",
-            "range": {
-                "start": {
-                    "line": 27,
-                    "character": 27
-                },
-                "end": {
-                    "line": 27,
-                    "character": 127
-                }
-            },
-            "severity": "Error",
-            "code": "256"
-        },
-        {
-            "file": "c:\\Users\\venuadmin\\AppData\\Roaming\\MetaQuotes\\Terminal\\2191F4A3D14D7B4B1EBB84F924777883\\MQL4\\Experts\\V-TV-VENU-Special\\V_TV_SimpleOpenCloseOrders.mqh",
-            "message": "')' - expression expected",
-            "range": {
-                "start": {
-                    "line": 27,
-                    "character": 39
-                },
-                "end": {
-                    "line": 27,
-                    "character": 139
-                }
-            },
-            "severity": "Error",
-            "code": "157"
-        },
-        {
-            "file": "c:\\Users\\venuadmin\\AppData\\Roaming\\MetaQuotes\\Terminal\\2191F4A3D14D7B4B1EBB84F924777883\\MQL4\\Experts\\V-TV-VENU-Special\\V_TV_SimpleOpenCloseOrders.mqh",
-            "message": "undeclared identifier 'OrderSwap'",
-            "range": {
-                "start": {
-                    "line": 28,
-                    "character": 27
-                },
-                "end": {
-                    "line": 28,
-                    "character": 127
-                }
-            },
-            "severity": "Error",
-            "code": "256"
-        },
-        {
-            "file": "c:\\Users\\venuadmin\\AppData\\Roaming\\MetaQuotes\\Terminal\\2191F4A3D14D7B4B1EBB84F924777883\\MQL4\\Experts\\V-TV-VENU-Special\\V_TV_SimpleOpenCloseOrders.mqh",
-            "message": "')' - expression expected",
-            "range": {
-                "start": {
-                    "line": 28,
-                    "character": 37
-                },
-                "end": {
-                    "line": 28,
-                    "character": 137
-                }
-            },
-            "severity": "Error",
-            "code": "157"
-        },
-        {
-            "file": "c:\\Users\\venuadmin\\AppData\\Roaming\\MetaQuotes\\Terminal\\2191F4A3D14D7B4B1EBB84F924777883\\MQL4\\Experts\\V-TV-VENU-Special\\V_TV_SimpleOpenCloseOrders.mqh",
-            "message": "undeclared identifier 'OrderCommission'",
-            "range": {
-                "start": {
-                    "line": 29,
-                    "character": 27
-                },
-                "end": {
-                    "line": 29,
-                    "character": 127
-                }
-            },
-            "severity": "Error",
-            "code": "256"
-        },
-        {
-            "file": "c:\\Users\\venuadmin\\AppData\\Roaming\\MetaQuotes\\Terminal\\2191F4A3D14D7B4B1EBB84F924777883\\MQL4\\Experts\\V-TV-VENU-Special\\V_TV_SimpleOpenCloseOrders.mqh",
-            "message": "')' - expression expected",
-            "range": {
-                "start": {
-                    "line": 29,
-                    "character": 43
-                },
-                "end": {
-                    "line": 29,
-                    "character": 143
-                }
-            },
-            "severity": "Error",
-            "code": "157"
-        },
-        {
-            "file": "c:\\Users\\venuadmin\\AppData\\Roaming\\MetaQuotes\\Terminal\\2191F4A3D14D7B4B1EBB84F924777883\\MQL4\\Experts\\V-TV-VENU-Special\\V_TV_SimpleOpenCloseOrders.mqh",
-            "message": "undeclared identifier 'AccountEquity'",
-            "range": {
-                "start": {
-                    "line": 33,
+                    "line": 45,
                     "character": 17
                 },
                 "end": {
-                    "line": 33,
+                    "line": 45,
                     "character": 117
                 }
             },
@@ -529,335 +49,367 @@
             "code": "256"
         },
         {
-            "file": "c:\\Users\\venuadmin\\AppData\\Roaming\\MetaQuotes\\Terminal\\2191F4A3D14D7B4B1EBB84F924777883\\MQL4\\Experts\\V-TV-VENU-Special\\V_TV_SimpleOpenCloseOrders.mqh",
-            "message": "')' - expression expected",
+            "file": "c:\\Users\\venuadmin\\AppData\\Roaming\\MetaQuotes\\Terminal\\2191F4A3D14D7B4B1EBB84F924777883\\MQL4\\Experts\\V-TV-Signals\\V_TV_CROSSSingleCandleCluademethod4.mqh",
+            "message": "'[' - array required",
             "range": {
                 "start": {
-                    "line": 33,
-                    "character": 31
+                    "line": 45,
+                    "character": 21
                 },
                 "end": {
-                    "line": 33,
-                    "character": 131
+                    "line": 45,
+                    "character": 121
                 }
             },
             "severity": "Error",
-            "code": "157"
+            "code": "241"
         },
         {
-            "file": "c:\\Users\\venuadmin\\AppData\\Roaming\\MetaQuotes\\Terminal\\2191F4A3D14D7B4B1EBB84F924777883\\MQL4\\Experts\\V-TV-VENU-Special\\V_TV_SimpleOpenCloseOrders.mqh",
-            "message": "undeclared identifier 'StopTradingMaxProfit'",
+            "file": "c:\\Users\\venuadmin\\AppData\\Roaming\\MetaQuotes\\Terminal\\2191F4A3D14D7B4B1EBB84F924777883\\MQL4\\Experts\\V-TV-Signals\\V_TV_CROSSSingleCandleCluademethod4.mqh",
+            "message": "undeclared identifier 'MarketInfo'",
             "range": {
                 "start": {
-                    "line": 39,
-                    "character": 12
+                    "line": 48,
+                    "character": 26
                 },
                 "end": {
-                    "line": 39,
-                    "character": 112
-                }
-            },
-            "severity": "Error",
-            "code": "256"
-        },
-        {
-            "file": "c:\\Users\\venuadmin\\AppData\\Roaming\\MetaQuotes\\Terminal\\2191F4A3D14D7B4B1EBB84F924777883\\MQL4\\Experts\\V-TV-VENU-Special\\V_TV_SimpleOpenCloseOrders.mqh",
-            "message": "undeclared identifier 'g_initialBalance'",
-            "range": {
-                "start": {
-                    "line": 39,
-                    "character": 33
-                },
-                "end": {
-                    "line": 39,
-                    "character": 133
+                    "line": 48,
+                    "character": 126
                 }
             },
             "severity": "Error",
             "code": "256"
         },
         {
-            "file": "c:\\Users\\venuadmin\\AppData\\Roaming\\MetaQuotes\\Terminal\\2191F4A3D14D7B4B1EBB84F924777883\\MQL4\\Experts\\V-TV-VENU-Special\\V_TV_SimpleOpenCloseOrders.mqh",
-            "message": "undeclared identifier 'OpenNewOrderAfter30MinLessPrice'",
+            "file": "c:\\Users\\venuadmin\\AppData\\Roaming\\MetaQuotes\\Terminal\\2191F4A3D14D7B4B1EBB84F924777883\\MQL4\\Experts\\V-TV-Signals\\V_TV_CROSSSingleCandleCluademethod4.mqh",
+            "message": "',' - unexpected token",
             "range": {
                 "start": {
-                    "line": 104,
-                    "character": 6
+                    "line": 48,
+                    "character": 45
                 },
                 "end": {
-                    "line": 104,
-                    "character": 106
+                    "line": 48,
+                    "character": 145
                 }
             },
             "severity": "Error",
-            "code": "256"
+            "code": "149"
         },
         {
-            "file": "c:\\Users\\venuadmin\\AppData\\Roaming\\MetaQuotes\\Terminal\\2191F4A3D14D7B4B1EBB84F924777883\\MQL4\\Experts\\V-TV-VENU-Special\\V_TV_SimpleOpenCloseOrders.mqh",
-            "message": "undeclared identifier 'SELECT_BY_POS'",
+            "file": "c:\\Users\\venuadmin\\AppData\\Roaming\\MetaQuotes\\Terminal\\2191F4A3D14D7B4B1EBB84F924777883\\MQL4\\Experts\\V-TV-Signals\\V_TV_CROSSSingleCandleCluademethod4.mqh",
+            "message": "'Symbol' - some operator expected",
             "range": {
                 "start": {
-                    "line": 118,
-                    "character": 24
+                    "line": 48,
+                    "character": 37
                 },
                 "end": {
-                    "line": 118,
-                    "character": 124
+                    "line": 48,
+                    "character": 137
                 }
             },
             "severity": "Error",
-            "code": "256"
+            "code": "152"
         },
         {
-            "file": "c:\\Users\\venuadmin\\AppData\\Roaming\\MetaQuotes\\Terminal\\2191F4A3D14D7B4B1EBB84F924777883\\MQL4\\Experts\\V-TV-VENU-Special\\V_TV_SimpleOpenCloseOrders.mqh",
-            "message": "undeclared identifier 'MODE_TRADES'",
+            "file": "c:\\Users\\venuadmin\\AppData\\Roaming\\MetaQuotes\\Terminal\\2191F4A3D14D7B4B1EBB84F924777883\\MQL4\\Experts\\V-TV-Signals\\V_TV_CROSSSingleCandleCluademethod4.mqh",
+            "message": "semicolon expected",
             "range": {
                 "start": {
-                    "line": 118,
-                    "character": 39
+                    "line": 48,
+                    "character": 47
                 },
                 "end": {
-                    "line": 118,
-                    "character": 139
+                    "line": 48,
+                    "character": 147
                 }
             },
             "severity": "Error",
-            "code": "256"
+            "code": "154"
         },
         {
-            "file": "c:\\Users\\venuadmin\\AppData\\Roaming\\MetaQuotes\\Terminal\\2191F4A3D14D7B4B1EBB84F924777883\\MQL4\\Experts\\V-TV-VENU-Special\\V_TV_SimpleOpenCloseOrders.mqh",
+            "file": "c:\\Users\\venuadmin\\AppData\\Roaming\\MetaQuotes\\Terminal\\2191F4A3D14D7B4B1EBB84F924777883\\MQL4\\Experts\\V-TV-Signals\\V_TV_CROSSSingleCandleCluademethod4.mqh",
+            "message": "')' - unexpected token",
+            "range": {
+                "start": {
+                    "line": 48,
+                    "character": 58
+                },
+                "end": {
+                    "line": 48,
+                    "character": 158
+                }
+            },
+            "severity": "Error",
+            "code": "149"
+        },
+        {
+            "file": "c:\\Users\\venuadmin\\AppData\\Roaming\\MetaQuotes\\Terminal\\2191F4A3D14D7B4B1EBB84F924777883\\MQL4\\Experts\\V-TV-Signals\\V_TV_CROSSSingleCandleCluademethod4.mqh",
+            "message": "expression has no effect",
+            "range": {
+                "start": {
+                    "line": 48,
+                    "character": 47
+                },
+                "end": {
+                    "line": 48,
+                    "character": 147
+                }
+            },
+            "severity": "Warning",
+            "code": "95"
+        },
+        {
+            "file": "c:\\Users\\venuadmin\\AppData\\Roaming\\MetaQuotes\\Terminal\\2191F4A3D14D7B4B1EBB84F924777883\\MQL4\\Experts\\V-TV-Signals\\V_TV_CROSSSingleCandleCluademethod4.mqh",
             "message": "wrong parameters count",
             "range": {
                 "start": {
-                    "line": 118,
-                    "character": 9
+                    "line": 59,
+                    "character": 22
                 },
                 "end": {
-                    "line": 118,
-                    "character": 109
+                    "line": 59,
+                    "character": 122
                 }
             },
             "severity": "Error",
             "code": "199"
         },
         {
-            "file": "c:\\Users\\venuadmin\\AppData\\Roaming\\MetaQuotes\\Terminal\\2191F4A3D14D7B4B1EBB84F924777883\\MQL4\\Experts\\V-TV-VENU-Special\\V_TV_SimpleOpenCloseOrders.mqh",
-            "message": "undeclared identifier 'OrderSymbol'",
+            "file": "c:\\Users\\venuadmin\\AppData\\Roaming\\MetaQuotes\\Terminal\\2191F4A3D14D7B4B1EBB84F924777883\\MQL4\\Experts\\V-TV-Signals\\V_TV_CROSSSingleCandleCluademethod4.mqh",
+            "message": "wrong parameters count",
             "range": {
                 "start": {
-                    "line": 120,
-                    "character": 12
+                    "line": 60,
+                    "character": 22
                 },
                 "end": {
-                    "line": 120,
-                    "character": 112
+                    "line": 60,
+                    "character": 122
                 }
             },
             "severity": "Error",
-            "code": "256"
+            "code": "199"
         },
         {
-            "file": "c:\\Users\\venuadmin\\AppData\\Roaming\\MetaQuotes\\Terminal\\2191F4A3D14D7B4B1EBB84F924777883\\MQL4\\Experts\\V-TV-VENU-Special\\V_TV_SimpleOpenCloseOrders.mqh",
-            "message": "')' - expression expected",
+            "file": "c:\\Users\\venuadmin\\AppData\\Roaming\\MetaQuotes\\Terminal\\2191F4A3D14D7B4B1EBB84F924777883\\MQL4\\Experts\\V-TV-Signals\\V_TV_CROSSSingleCandleCluademethod4.mqh",
+            "message": "wrong parameters count",
             "range": {
                 "start": {
-                    "line": 120,
-                    "character": 24
-                },
-                "end": {
-                    "line": 120,
-                    "character": 124
-                }
-            },
-            "severity": "Error",
-            "code": "157"
-        },
-        {
-            "file": "c:\\Users\\venuadmin\\AppData\\Roaming\\MetaQuotes\\Terminal\\2191F4A3D14D7B4B1EBB84F924777883\\MQL4\\Experts\\V-TV-VENU-Special\\V_TV_SimpleOpenCloseOrders.mqh",
-            "message": "implicit conversion from 'unknown' to 'string'",
-            "range": {
-                "start": {
-                    "line": 120,
-                    "character": 12
-                },
-                "end": {
-                    "line": 120,
-                    "character": 112
-                }
-            },
-            "severity": "Warning",
-            "code": "94"
-        },
-        {
-            "file": "c:\\Users\\venuadmin\\AppData\\Roaming\\MetaQuotes\\Terminal\\2191F4A3D14D7B4B1EBB84F924777883\\MQL4\\Experts\\V-TV-VENU-Special\\V_TV_SimpleOpenCloseOrders.mqh",
-            "message": "undeclared identifier 'OrderType'",
-            "range": {
-                "start": {
-                    "line": 122,
-                    "character": 15
-                },
-                "end": {
-                    "line": 122,
-                    "character": 115
-                }
-            },
-            "severity": "Error",
-            "code": "256"
-        },
-        {
-            "file": "c:\\Users\\venuadmin\\AppData\\Roaming\\MetaQuotes\\Terminal\\2191F4A3D14D7B4B1EBB84F924777883\\MQL4\\Experts\\V-TV-VENU-Special\\V_TV_SimpleOpenCloseOrders.mqh",
-            "message": "')' - expression expected",
-            "range": {
-                "start": {
-                    "line": 122,
+                    "line": 65,
                     "character": 25
                 },
                 "end": {
-                    "line": 122,
+                    "line": 65,
                     "character": 125
                 }
             },
             "severity": "Error",
-            "code": "157"
+            "code": "199"
         },
         {
-            "file": "c:\\Users\\venuadmin\\AppData\\Roaming\\MetaQuotes\\Terminal\\2191F4A3D14D7B4B1EBB84F924777883\\MQL4\\Experts\\V-TV-VENU-Special\\V_TV_SimpleOpenCloseOrders.mqh",
-            "message": "undeclared identifier 'OP_BUY'",
+            "file": "c:\\Users\\venuadmin\\AppData\\Roaming\\MetaQuotes\\Terminal\\2191F4A3D14D7B4B1EBB84F924777883\\MQL4\\Experts\\V-TV-Signals\\V_TV_CROSSSingleCandleCluademethod4.mqh",
+            "message": "wrong parameters count",
             "range": {
                 "start": {
-                    "line": 122,
-                    "character": 30
+                    "line": 66,
+                    "character": 25
                 },
                 "end": {
-                    "line": 122,
-                    "character": 130
+                    "line": 66,
+                    "character": 125
                 }
             },
             "severity": "Error",
-            "code": "256"
+            "code": "199"
         },
         {
-            "file": "c:\\Users\\venuadmin\\AppData\\Roaming\\MetaQuotes\\Terminal\\2191F4A3D14D7B4B1EBB84F924777883\\MQL4\\Experts\\V-TV-VENU-Special\\V_TV_SimpleOpenCloseOrders.mqh",
-            "message": "undeclared identifier 'OrderType'",
+            "file": "c:\\Users\\venuadmin\\AppData\\Roaming\\MetaQuotes\\Terminal\\2191F4A3D14D7B4B1EBB84F924777883\\MQL4\\Experts\\V-TV-Signals\\V_TV_CROSSSingleCandleCluademethod4.mqh",
+            "message": "wrong parameters count",
             "range": {
                 "start": {
-                    "line": 125,
+                    "line": 67,
+                    "character": 25
+                },
+                "end": {
+                    "line": 67,
+                    "character": 125
+                }
+            },
+            "severity": "Error",
+            "code": "199"
+        },
+        {
+            "file": "c:\\Users\\venuadmin\\AppData\\Roaming\\MetaQuotes\\Terminal\\2191F4A3D14D7B4B1EBB84F924777883\\MQL4\\Experts\\V-TV-Signals\\V_TV_CROSSSingleCandleCluademethod4.mqh",
+            "message": "wrong parameters count",
+            "range": {
+                "start": {
+                    "line": 68,
+                    "character": 25
+                },
+                "end": {
+                    "line": 68,
+                    "character": 125
+                }
+            },
+            "severity": "Error",
+            "code": "199"
+        },
+        {
+            "file": "c:\\Users\\venuadmin\\AppData\\Roaming\\MetaQuotes\\Terminal\\2191F4A3D14D7B4B1EBB84F924777883\\MQL4\\Experts\\V-TV-Signals\\V_TV_CROSSSingleCandleCluademethod4.mqh",
+            "message": "wrong parameters count",
+            "range": {
+                "start": {
+                    "line": 70,
                     "character": 20
                 },
                 "end": {
-                    "line": 125,
+                    "line": 70,
                     "character": 120
                 }
             },
             "severity": "Error",
-            "code": "256"
+            "code": "199"
         },
         {
-            "file": "c:\\Users\\venuadmin\\AppData\\Roaming\\MetaQuotes\\Terminal\\2191F4A3D14D7B4B1EBB84F924777883\\MQL4\\Experts\\V-TV-VENU-Special\\V_TV_SimpleOpenCloseOrders.mqh",
-            "message": "')' - expression expected",
+            "file": "c:\\Users\\venuadmin\\AppData\\Roaming\\MetaQuotes\\Terminal\\2191F4A3D14D7B4B1EBB84F924777883\\MQL4\\Experts\\V-TV-Signals\\V_TV_CROSSSingleCandleCluademethod4.mqh",
+            "message": "undeclared identifier 'MODE_MAIN'",
             "range": {
                 "start": {
-                    "line": 125,
-                    "character": 30
+                    "line": 73,
+                    "character": 45
                 },
                 "end": {
-                    "line": 125,
-                    "character": 130
-                }
-            },
-            "severity": "Error",
-            "code": "157"
-        },
-        {
-            "file": "c:\\Users\\venuadmin\\AppData\\Roaming\\MetaQuotes\\Terminal\\2191F4A3D14D7B4B1EBB84F924777883\\MQL4\\Experts\\V-TV-VENU-Special\\V_TV_SimpleOpenCloseOrders.mqh",
-            "message": "undeclared identifier 'OP_SELL'",
-            "range": {
-                "start": {
-                    "line": 125,
-                    "character": 35
-                },
-                "end": {
-                    "line": 125,
-                    "character": 135
+                    "line": 73,
+                    "character": 145
                 }
             },
             "severity": "Error",
             "code": "256"
         },
         {
-            "file": "c:\\Users\\venuadmin\\AppData\\Roaming\\MetaQuotes\\Terminal\\2191F4A3D14D7B4B1EBB84F924777883\\MQL4\\Experts\\V-TV-VENU-Special\\V_TV_SimpleOpenCloseOrders.mqh",
-            "message": "undeclared identifier 'SeqBuyProfitTarget'",
+            "file": "c:\\Users\\venuadmin\\AppData\\Roaming\\MetaQuotes\\Terminal\\2191F4A3D14D7B4B1EBB84F924777883\\MQL4\\Experts\\V-TV-Signals\\V_TV_CROSSSingleCandleCluademethod4.mqh",
+            "message": "wrong parameters count",
             "range": {
                 "start": {
-                    "line": 135,
-                    "character": 0
+                    "line": 72,
+                    "character": 20
                 },
                 "end": {
-                    "line": 135,
-                    "character": 100
+                    "line": 72,
+                    "character": 120
+                }
+            },
+            "severity": "Error",
+            "code": "199"
+        },
+        {
+            "file": "c:\\Users\\venuadmin\\AppData\\Roaming\\MetaQuotes\\Terminal\\2191F4A3D14D7B4B1EBB84F924777883\\MQL4\\Experts\\V-TV-Signals\\V_TV_CROSSSingleCandleCluademethod4.mqh",
+            "message": "undeclared identifier 'MODE_SIGNAL'",
+            "range": {
+                "start": {
+                    "line": 75,
+                    "character": 45
+                },
+                "end": {
+                    "line": 75,
+                    "character": 145
                 }
             },
             "severity": "Error",
             "code": "256"
         },
         {
-            "file": "c:\\Users\\venuadmin\\AppData\\Roaming\\MetaQuotes\\Terminal\\2191F4A3D14D7B4B1EBB84F924777883\\MQL4\\Experts\\V-TV-VENU-Special\\V_TV_SimpleOpenCloseOrders.mqh",
-            "message": "undeclared identifier 'weekend'",
+            "file": "c:\\Users\\venuadmin\\AppData\\Roaming\\MetaQuotes\\Terminal\\2191F4A3D14D7B4B1EBB84F924777883\\MQL4\\Experts\\V-TV-Signals\\V_TV_CROSSSingleCandleCluademethod4.mqh",
+            "message": "wrong parameters count",
             "range": {
                 "start": {
-                    "line": 139,
-                    "character": 8
+                    "line": 74,
+                    "character": 20
                 },
                 "end": {
-                    "line": 139,
-                    "character": 108
+                    "line": 74,
+                    "character": 120
+                }
+            },
+            "severity": "Error",
+            "code": "199"
+        },
+        {
+            "file": "c:\\Users\\venuadmin\\AppData\\Roaming\\MetaQuotes\\Terminal\\2191F4A3D14D7B4B1EBB84F924777883\\MQL4\\Experts\\V-TV-Signals\\V_TV_CROSSSingleCandleCluademethod4.mqh",
+            "message": "undeclared identifier 'MODE_MAIN'",
+            "range": {
+                "start": {
+                    "line": 77,
+                    "character": 45
+                },
+                "end": {
+                    "line": 77,
+                    "character": 145
                 }
             },
             "severity": "Error",
             "code": "256"
         },
         {
-            "file": "c:\\Users\\venuadmin\\AppData\\Roaming\\MetaQuotes\\Terminal\\2191F4A3D14D7B4B1EBB84F924777883\\MQL4\\Experts\\V-TV-VENU-Special\\V_TV_SimpleOpenCloseOrders.mqh",
-            "message": "implicit conversion from 'unknown' to 'string'",
+            "file": "c:\\Users\\venuadmin\\AppData\\Roaming\\MetaQuotes\\Terminal\\2191F4A3D14D7B4B1EBB84F924777883\\MQL4\\Experts\\V-TV-Signals\\V_TV_CROSSSingleCandleCluademethod4.mqh",
+            "message": "wrong parameters count",
             "range": {
                 "start": {
-                    "line": 139,
-                    "character": 8
+                    "line": 76,
+                    "character": 20
                 },
                 "end": {
-                    "line": 139,
-                    "character": 108
+                    "line": 76,
+                    "character": 120
                 }
             },
-            "severity": "Warning",
-            "code": "94"
+            "severity": "Error",
+            "code": "199"
         },
         {
-            "file": "c:\\Users\\venuadmin\\AppData\\Roaming\\MetaQuotes\\Terminal\\2191F4A3D14D7B4B1EBB84F924777883\\MQL4\\Experts\\V-TV-VENU-Special\\V_TV_SimpleOpenCloseOrders.mqh",
-            "message": "undeclared identifier 'SeqBuyProfitTarget'",
+            "file": "c:\\Users\\venuadmin\\AppData\\Roaming\\MetaQuotes\\Terminal\\2191F4A3D14D7B4B1EBB84F924777883\\MQL4\\Experts\\V-TV-Signals\\V_TV_CROSSSingleCandleCluademethod4.mqh",
+            "message": "undeclared identifier 'MODE_SIGNAL'",
             "range": {
                 "start": {
-                    "line": 140,
-                    "character": 6
+                    "line": 79,
+                    "character": 45
                 },
                 "end": {
-                    "line": 140,
-                    "character": 106
+                    "line": 79,
+                    "character": 145
                 }
             },
             "severity": "Error",
             "code": "256"
         },
         {
-            "file": "c:\\Users\\venuadmin\\AppData\\Roaming\\MetaQuotes\\Terminal\\2191F4A3D14D7B4B1EBB84F924777883\\MQL4\\Experts\\V-TV-VENU-Special\\V_TV_SimpleOpenCloseOrders.mqh",
-            "message": "undeclared identifier 'DefaultBuyTP'",
+            "file": "c:\\Users\\venuadmin\\AppData\\Roaming\\MetaQuotes\\Terminal\\2191F4A3D14D7B4B1EBB84F924777883\\MQL4\\Experts\\V-TV-Signals\\V_TV_CROSSSingleCandleCluademethod4.mqh",
+            "message": "wrong parameters count",
             "range": {
                 "start": {
-                    "line": 140,
+                    "line": 78,
+                    "character": 20
+                },
+                "end": {
+                    "line": 78,
+                    "character": 120
+                }
+            },
+            "severity": "Error",
+            "code": "199"
+        },
+        {
+            "file": "c:\\Users\\venuadmin\\AppData\\Roaming\\MetaQuotes\\Terminal\\2191F4A3D14D7B4B1EBB84F924777883\\MQL4\\Experts\\V-TV-Signals\\V_TV_CROSSSingleCandleCluademethod4.mqh",
+            "message": "undeclared identifier 'High'",
+            "range": {
+                "start": {
+                    "line": 96,
                     "character": 27
                 },
                 "end": {
-                    "line": 140,
+                    "line": 96,
                     "character": 127
                 }
             },
@@ -865,271 +417,127 @@
             "code": "256"
         },
         {
-            "file": "c:\\Users\\venuadmin\\AppData\\Roaming\\MetaQuotes\\Terminal\\2191F4A3D14D7B4B1EBB84F924777883\\MQL4\\Experts\\V-TV-VENU-Special\\V_TV_SimpleOpenCloseOrders.mqh",
-            "message": "undeclared identifier 'SeqSellProfitTarget'",
+            "file": "c:\\Users\\venuadmin\\AppData\\Roaming\\MetaQuotes\\Terminal\\2191F4A3D14D7B4B1EBB84F924777883\\MQL4\\Experts\\V-TV-Signals\\V_TV_CROSSSingleCandleCluademethod4.mqh",
+            "message": "'[' - array required",
             "range": {
                 "start": {
-                    "line": 146,
-                    "character": 0
+                    "line": 96,
+                    "character": 31
                 },
                 "end": {
-                    "line": 146,
-                    "character": 100
+                    "line": 96,
+                    "character": 131
+                }
+            },
+            "severity": "Error",
+            "code": "241"
+        },
+        {
+            "file": "c:\\Users\\venuadmin\\AppData\\Roaming\\MetaQuotes\\Terminal\\2191F4A3D14D7B4B1EBB84F924777883\\MQL4\\Experts\\V-TV-Signals\\V_TV_CROSSSingleCandleCluademethod4.mqh",
+            "message": "undeclared identifier 'Low'",
+            "range": {
+                "start": {
+                    "line": 97,
+                    "character": 27
+                },
+                "end": {
+                    "line": 97,
+                    "character": 127
                 }
             },
             "severity": "Error",
             "code": "256"
         },
         {
-            "file": "c:\\Users\\venuadmin\\AppData\\Roaming\\MetaQuotes\\Terminal\\2191F4A3D14D7B4B1EBB84F924777883\\MQL4\\Experts\\V-TV-VENU-Special\\V_TV_SimpleOpenCloseOrders.mqh",
-            "message": "undeclared identifier 'weekend'",
+            "file": "c:\\Users\\venuadmin\\AppData\\Roaming\\MetaQuotes\\Terminal\\2191F4A3D14D7B4B1EBB84F924777883\\MQL4\\Experts\\V-TV-Signals\\V_TV_CROSSSingleCandleCluademethod4.mqh",
+            "message": "'[' - array required",
             "range": {
                 "start": {
-                    "line": 150,
-                    "character": 11
+                    "line": 97,
+                    "character": 31
                 },
                 "end": {
-                    "line": 150,
-                    "character": 111
+                    "line": 97,
+                    "character": 131
+                }
+            },
+            "severity": "Error",
+            "code": "241"
+        },
+        {
+            "file": "c:\\Users\\venuadmin\\AppData\\Roaming\\MetaQuotes\\Terminal\\2191F4A3D14D7B4B1EBB84F924777883\\MQL4\\Experts\\V-TV-Signals\\V_TV_CROSSSingleCandleCluademethod4.mqh",
+            "message": "undeclared identifier 'Close'",
+            "range": {
+                "start": {
+                    "line": 98,
+                    "character": 22
+                },
+                "end": {
+                    "line": 98,
+                    "character": 122
                 }
             },
             "severity": "Error",
             "code": "256"
         },
         {
-            "file": "c:\\Users\\venuadmin\\AppData\\Roaming\\MetaQuotes\\Terminal\\2191F4A3D14D7B4B1EBB84F924777883\\MQL4\\Experts\\V-TV-VENU-Special\\V_TV_SimpleOpenCloseOrders.mqh",
-            "message": "implicit conversion from 'unknown' to 'string'",
+            "file": "c:\\Users\\venuadmin\\AppData\\Roaming\\MetaQuotes\\Terminal\\2191F4A3D14D7B4B1EBB84F924777883\\MQL4\\Experts\\V-TV-Signals\\V_TV_CROSSSingleCandleCluademethod4.mqh",
+            "message": "'[' - array required",
             "range": {
                 "start": {
-                    "line": 150,
-                    "character": 11
+                    "line": 98,
+                    "character": 27
                 },
                 "end": {
-                    "line": 150,
-                    "character": 111
+                    "line": 98,
+                    "character": 127
                 }
             },
-            "severity": "Warning",
-            "code": "94"
+            "severity": "Error",
+            "code": "241"
         },
         {
-            "file": "c:\\Users\\venuadmin\\AppData\\Roaming\\MetaQuotes\\Terminal\\2191F4A3D14D7B4B1EBB84F924777883\\MQL4\\Experts\\V-TV-VENU-Special\\V_TV_SimpleOpenCloseOrders.mqh",
-            "message": "undeclared identifier 'SeqSellProfitTarget'",
+            "file": "c:\\Users\\venuadmin\\AppData\\Roaming\\MetaQuotes\\Terminal\\2191F4A3D14D7B4B1EBB84F924777883\\MQL4\\Experts\\V-TV-Signals\\V_TV_CROSSSingleCandleCluademethod4.mqh",
+            "message": "undeclared identifier 'Close'",
             "range": {
                 "start": {
-                    "line": 152,
-                    "character": 2
+                    "line": 99,
+                    "character": 22
                 },
                 "end": {
-                    "line": 152,
-                    "character": 102
+                    "line": 99,
+                    "character": 122
                 }
             },
             "severity": "Error",
             "code": "256"
         },
         {
-            "file": "c:\\Users\\venuadmin\\AppData\\Roaming\\MetaQuotes\\Terminal\\2191F4A3D14D7B4B1EBB84F924777883\\MQL4\\Experts\\V-TV-VENU-Special\\V_TV_SimpleOpenCloseOrders.mqh",
-            "message": "undeclared identifier 'DefaultSellTP'",
+            "file": "c:\\Users\\venuadmin\\AppData\\Roaming\\MetaQuotes\\Terminal\\2191F4A3D14D7B4B1EBB84F924777883\\MQL4\\Experts\\V-TV-Signals\\V_TV_CROSSSingleCandleCluademethod4.mqh",
+            "message": "'[' - array required",
             "range": {
                 "start": {
-                    "line": 152,
-                    "character": 24
+                    "line": 99,
+                    "character": 27
                 },
                 "end": {
-                    "line": 152,
-                    "character": 124
+                    "line": 99,
+                    "character": 127
                 }
             },
             "severity": "Error",
-            "code": "256"
+            "code": "241"
         },
         {
-            "file": "c:\\Users\\venuadmin\\AppData\\Roaming\\MetaQuotes\\Terminal\\2191F4A3D14D7B4B1EBB84F924777883\\MQL4\\Experts\\V-TV-VENU-Special\\V_TV_SimpleOpenCloseOrders.mqh",
-            "message": "undeclared identifier 'SELECT_BY_POS'",
-            "range": {
-                "start": {
-                    "line": 168,
-                    "character": 24
-                },
-                "end": {
-                    "line": 168,
-                    "character": 124
-                }
-            },
-            "severity": "Error",
-            "code": "256"
-        },
-        {
-            "file": "c:\\Users\\venuadmin\\AppData\\Roaming\\MetaQuotes\\Terminal\\2191F4A3D14D7B4B1EBB84F924777883\\MQL4\\Experts\\V-TV-VENU-Special\\V_TV_SimpleOpenCloseOrders.mqh",
-            "message": "undeclared identifier 'MODE_TRADES'",
-            "range": {
-                "start": {
-                    "line": 168,
-                    "character": 39
-                },
-                "end": {
-                    "line": 168,
-                    "character": 139
-                }
-            },
-            "severity": "Error",
-            "code": "256"
-        },
-        {
-            "file": "c:\\Users\\venuadmin\\AppData\\Roaming\\MetaQuotes\\Terminal\\2191F4A3D14D7B4B1EBB84F924777883\\MQL4\\Experts\\V-TV-VENU-Special\\V_TV_SimpleOpenCloseOrders.mqh",
-            "message": "wrong parameters count",
-            "range": {
-                "start": {
-                    "line": 168,
-                    "character": 9
-                },
-                "end": {
-                    "line": 168,
-                    "character": 109
-                }
-            },
-            "severity": "Error",
-            "code": "199"
-        },
-        {
-            "file": "c:\\Users\\venuadmin\\AppData\\Roaming\\MetaQuotes\\Terminal\\2191F4A3D14D7B4B1EBB84F924777883\\MQL4\\Experts\\V-TV-VENU-Special\\V_TV_SimpleOpenCloseOrders.mqh",
-            "message": "undeclared identifier 'OrderSymbol'",
-            "range": {
-                "start": {
-                    "line": 170,
-                    "character": 12
-                },
-                "end": {
-                    "line": 170,
-                    "character": 112
-                }
-            },
-            "severity": "Error",
-            "code": "256"
-        },
-        {
-            "file": "c:\\Users\\venuadmin\\AppData\\Roaming\\MetaQuotes\\Terminal\\2191F4A3D14D7B4B1EBB84F924777883\\MQL4\\Experts\\V-TV-VENU-Special\\V_TV_SimpleOpenCloseOrders.mqh",
-            "message": "')' - expression expected",
-            "range": {
-                "start": {
-                    "line": 170,
-                    "character": 24
-                },
-                "end": {
-                    "line": 170,
-                    "character": 124
-                }
-            },
-            "severity": "Error",
-            "code": "157"
-        },
-        {
-            "file": "c:\\Users\\venuadmin\\AppData\\Roaming\\MetaQuotes\\Terminal\\2191F4A3D14D7B4B1EBB84F924777883\\MQL4\\Experts\\V-TV-VENU-Special\\V_TV_SimpleOpenCloseOrders.mqh",
-            "message": "implicit conversion from 'unknown' to 'string'",
-            "range": {
-                "start": {
-                    "line": 170,
-                    "character": 12
-                },
-                "end": {
-                    "line": 170,
-                    "character": 112
-                }
-            },
-            "severity": "Warning",
-            "code": "94"
-        },
-        {
-            "file": "c:\\Users\\venuadmin\\AppData\\Roaming\\MetaQuotes\\Terminal\\2191F4A3D14D7B4B1EBB84F924777883\\MQL4\\Experts\\V-TV-VENU-Special\\V_TV_SimpleOpenCloseOrders.mqh",
-            "message": "undeclared identifier 'OrderType'",
-            "range": {
-                "start": {
-                    "line": 170,
-                    "character": 41
-                },
-                "end": {
-                    "line": 170,
-                    "character": 141
-                }
-            },
-            "severity": "Error",
-            "code": "256"
-        },
-        {
-            "file": "c:\\Users\\venuadmin\\AppData\\Roaming\\MetaQuotes\\Terminal\\2191F4A3D14D7B4B1EBB84F924777883\\MQL4\\Experts\\V-TV-VENU-Special\\V_TV_SimpleOpenCloseOrders.mqh",
-            "message": "')' - expression expected",
-            "range": {
-                "start": {
-                    "line": 170,
-                    "character": 51
-                },
-                "end": {
-                    "line": 170,
-                    "character": 151
-                }
-            },
-            "severity": "Error",
-            "code": "157"
-        },
-        {
-            "file": "c:\\Users\\venuadmin\\AppData\\Roaming\\MetaQuotes\\Terminal\\2191F4A3D14D7B4B1EBB84F924777883\\MQL4\\Experts\\V-TV-VENU-Special\\V_TV_SimpleOpenCloseOrders.mqh",
+            "file": "c:\\Users\\venuadmin\\AppData\\Roaming\\MetaQuotes\\Terminal\\2191F4A3D14D7B4B1EBB84F924777883\\MQL4\\Experts\\V-TV-Signals\\V_TV_CROSSSingleCandleCluademethod4.mqh",
             "message": "undeclared identifier 'OP_BUY'",
             "range": {
                 "start": {
-                    "line": 170,
-                    "character": 56
-                },
-                "end": {
-                    "line": 170,
-                    "character": 156
-                }
-            },
-            "severity": "Error",
-            "code": "256"
-        },
-        {
-            "file": "c:\\Users\\venuadmin\\AppData\\Roaming\\MetaQuotes\\Terminal\\2191F4A3D14D7B4B1EBB84F924777883\\MQL4\\Experts\\V-TV-VENU-Special\\V_TV_SimpleOpenCloseOrders.mqh",
-            "message": "undeclared identifier 'OrderOpenTime'",
-            "range": {
-                "start": {
-                    "line": 172,
-                    "character": 15
-                },
-                "end": {
-                    "line": 172,
-                    "character": 115
-                }
-            },
-            "severity": "Error",
-            "code": "256"
-        },
-        {
-            "file": "c:\\Users\\venuadmin\\AppData\\Roaming\\MetaQuotes\\Terminal\\2191F4A3D14D7B4B1EBB84F924777883\\MQL4\\Experts\\V-TV-VENU-Special\\V_TV_SimpleOpenCloseOrders.mqh",
-            "message": "')' - expression expected",
-            "range": {
-                "start": {
-                    "line": 172,
-                    "character": 29
-                },
-                "end": {
-                    "line": 172,
-                    "character": 129
-                }
-            },
-            "severity": "Error",
-            "code": "157"
-        },
-        {
-            "file": "c:\\Users\\venuadmin\\AppData\\Roaming\\MetaQuotes\\Terminal\\2191F4A3D14D7B4B1EBB84F924777883\\MQL4\\Experts\\V-TV-VENU-Special\\V_TV_SimpleOpenCloseOrders.mqh",
-            "message": "undeclared identifier 'OrderOpenTime'",
-            "range": {
-                "start": {
-                    "line": 174,
+                    "line": 107,
                     "character": 28
                 },
                 "end": {
-                    "line": 174,
+                    "line": 107,
                     "character": 128
                 }
             },
@@ -1137,415 +545,15 @@
             "code": "256"
         },
         {
-            "file": "c:\\Users\\venuadmin\\AppData\\Roaming\\MetaQuotes\\Terminal\\2191F4A3D14D7B4B1EBB84F924777883\\MQL4\\Experts\\V-TV-VENU-Special\\V_TV_SimpleOpenCloseOrders.mqh",
-            "message": "')' - expression expected",
-            "range": {
-                "start": {
-                    "line": 174,
-                    "character": 42
-                },
-                "end": {
-                    "line": 174,
-                    "character": 142
-                }
-            },
-            "severity": "Error",
-            "code": "157"
-        },
-        {
-            "file": "c:\\Users\\venuadmin\\AppData\\Roaming\\MetaQuotes\\Terminal\\2191F4A3D14D7B4B1EBB84F924777883\\MQL4\\Experts\\V-TV-VENU-Special\\V_TV_SimpleOpenCloseOrders.mqh",
-            "message": "undeclared identifier 'OrderTicket'",
-            "range": {
-                "start": {
-                    "line": 175,
-                    "character": 24
-                },
-                "end": {
-                    "line": 175,
-                    "character": 124
-                }
-            },
-            "severity": "Error",
-            "code": "256"
-        },
-        {
-            "file": "c:\\Users\\venuadmin\\AppData\\Roaming\\MetaQuotes\\Terminal\\2191F4A3D14D7B4B1EBB84F924777883\\MQL4\\Experts\\V-TV-VENU-Special\\V_TV_SimpleOpenCloseOrders.mqh",
-            "message": "')' - expression expected",
-            "range": {
-                "start": {
-                    "line": 175,
-                    "character": 36
-                },
-                "end": {
-                    "line": 175,
-                    "character": 136
-                }
-            },
-            "severity": "Error",
-            "code": "157"
-        },
-        {
-            "file": "c:\\Users\\venuadmin\\AppData\\Roaming\\MetaQuotes\\Terminal\\2191F4A3D14D7B4B1EBB84F924777883\\MQL4\\Experts\\V-TV-VENU-Special\\V_TV_SimpleOpenCloseOrders.mqh",
-            "message": "undeclared identifier 'SELECT_BY_TICKET'",
-            "range": {
-                "start": {
-                    "line": 181,
-                    "character": 42
-                },
-                "end": {
-                    "line": 181,
-                    "character": 142
-                }
-            },
-            "severity": "Error",
-            "code": "256"
-        },
-        {
-            "file": "c:\\Users\\venuadmin\\AppData\\Roaming\\MetaQuotes\\Terminal\\2191F4A3D14D7B4B1EBB84F924777883\\MQL4\\Experts\\V-TV-VENU-Special\\V_TV_SimpleOpenCloseOrders.mqh",
-            "message": "wrong parameters count",
-            "range": {
-                "start": {
-                    "line": 181,
-                    "character": 22
-                },
-                "end": {
-                    "line": 181,
-                    "character": 122
-                }
-            },
-            "severity": "Error",
-            "code": "199"
-        },
-        {
-            "file": "c:\\Users\\venuadmin\\AppData\\Roaming\\MetaQuotes\\Terminal\\2191F4A3D14D7B4B1EBB84F924777883\\MQL4\\Experts\\V-TV-VENU-Special\\V_TV_SimpleOpenCloseOrders.mqh",
-            "message": "undeclared identifier 'OrderOpenTime'",
-            "range": {
-                "start": {
-                    "line": 183,
-                    "character": 40
-                },
-                "end": {
-                    "line": 183,
-                    "character": 140
-                }
-            },
-            "severity": "Error",
-            "code": "256"
-        },
-        {
-            "file": "c:\\Users\\venuadmin\\AppData\\Roaming\\MetaQuotes\\Terminal\\2191F4A3D14D7B4B1EBB84F924777883\\MQL4\\Experts\\V-TV-VENU-Special\\V_TV_SimpleOpenCloseOrders.mqh",
-            "message": "')' - expression expected",
-            "range": {
-                "start": {
-                    "line": 183,
-                    "character": 54
-                },
-                "end": {
-                    "line": 183,
-                    "character": 154
-                }
-            },
-            "severity": "Error",
-            "code": "157"
-        },
-        {
-            "file": "c:\\Users\\venuadmin\\AppData\\Roaming\\MetaQuotes\\Terminal\\2191F4A3D14D7B4B1EBB84F924777883\\MQL4\\Experts\\V-TV-VENU-Special\\V_TV_SimpleOpenCloseOrders.mqh",
-            "message": "possible loss of data due to type conversion from 'datetime' to 'int'",
-            "range": {
-                "start": {
-                    "line": 183,
-                    "character": 22
-                },
-                "end": {
-                    "line": 183,
-                    "character": 122
-                }
-            },
-            "severity": "Warning",
-            "code": "43"
-        },
-        {
-            "file": "c:\\Users\\venuadmin\\AppData\\Roaming\\MetaQuotes\\Terminal\\2191F4A3D14D7B4B1EBB84F924777883\\MQL4\\Experts\\V-TV-VENU-Special\\V_TV_SimpleOpenCloseOrders.mqh",
-            "message": "undeclared identifier 'SeqBuyMaxOrders'",
-            "range": {
-                "start": {
-                    "line": 192,
-                    "character": 11
-                },
-                "end": {
-                    "line": 192,
-                    "character": 111
-                }
-            },
-            "severity": "Error",
-            "code": "256"
-        },
-        {
-            "file": "c:\\Users\\venuadmin\\AppData\\Roaming\\MetaQuotes\\Terminal\\2191F4A3D14D7B4B1EBB84F924777883\\MQL4\\Experts\\V-TV-VENU-Special\\V_TV_SimpleOpenCloseOrders.mqh",
-            "message": "undeclared identifier 'SeqBuyProfitTarget'",
-            "range": {
-                "start": {
-                    "line": 194,
-                    "character": 9
-                },
-                "end": {
-                    "line": 194,
-                    "character": 109
-                }
-            },
-            "severity": "Error",
-            "code": "256"
-        },
-        {
-            "file": "c:\\Users\\venuadmin\\AppData\\Roaming\\MetaQuotes\\Terminal\\2191F4A3D14D7B4B1EBB84F924777883\\MQL4\\Experts\\V-TV-VENU-Special\\V_TV_SimpleOpenCloseOrders.mqh",
-            "message": "undeclared identifier 'SeqBuyMaxOrders'",
-            "range": {
-                "start": {
-                    "line": 202,
-                    "character": 11
-                },
-                "end": {
-                    "line": 202,
-                    "character": 111
-                }
-            },
-            "severity": "Error",
-            "code": "256"
-        },
-        {
-            "file": "c:\\Users\\venuadmin\\AppData\\Roaming\\MetaQuotes\\Terminal\\2191F4A3D14D7B4B1EBB84F924777883\\MQL4\\Experts\\V-TV-VENU-Special\\V_TV_SimpleOpenCloseOrders.mqh",
-            "message": "undeclared identifier 'DefaultBuyMaxBuyOrders'",
-            "range": {
-                "start": {
-                    "line": 202,
-                    "character": 27
-                },
-                "end": {
-                    "line": 202,
-                    "character": 127
-                }
-            },
-            "severity": "Error",
-            "code": "256"
-        },
-        {
-            "file": "c:\\Users\\venuadmin\\AppData\\Roaming\\MetaQuotes\\Terminal\\2191F4A3D14D7B4B1EBB84F924777883\\MQL4\\Experts\\V-TV-VENU-Special\\V_TV_SimpleOpenCloseOrders.mqh",
-            "message": "undeclared identifier 'SeqBuyProfitTarget'",
-            "range": {
-                "start": {
-                    "line": 203,
-                    "character": 9
-                },
-                "end": {
-                    "line": 203,
-                    "character": 109
-                }
-            },
-            "severity": "Error",
-            "code": "256"
-        },
-        {
-            "file": "c:\\Users\\venuadmin\\AppData\\Roaming\\MetaQuotes\\Terminal\\2191F4A3D14D7B4B1EBB84F924777883\\MQL4\\Experts\\V-TV-VENU-Special\\V_TV_SimpleOpenCloseOrders.mqh",
-            "message": "undeclared identifier 'DefaultBuyTP'",
-            "range": {
-                "start": {
-                    "line": 203,
-                    "character": 28
-                },
-                "end": {
-                    "line": 203,
-                    "character": 128
-                }
-            },
-            "severity": "Error",
-            "code": "256"
-        },
-        {
-            "file": "c:\\Users\\venuadmin\\AppData\\Roaming\\MetaQuotes\\Terminal\\2191F4A3D14D7B4B1EBB84F924777883\\MQL4\\Experts\\V-TV-VENU-Special\\V_TV_SimpleOpenCloseOrders.mqh",
-            "message": "undeclared identifier 'SELECT_BY_POS'",
-            "range": {
-                "start": {
-                    "line": 218,
-                    "character": 24
-                },
-                "end": {
-                    "line": 218,
-                    "character": 124
-                }
-            },
-            "severity": "Error",
-            "code": "256"
-        },
-        {
-            "file": "c:\\Users\\venuadmin\\AppData\\Roaming\\MetaQuotes\\Terminal\\2191F4A3D14D7B4B1EBB84F924777883\\MQL4\\Experts\\V-TV-VENU-Special\\V_TV_SimpleOpenCloseOrders.mqh",
-            "message": "undeclared identifier 'MODE_TRADES'",
-            "range": {
-                "start": {
-                    "line": 218,
-                    "character": 39
-                },
-                "end": {
-                    "line": 218,
-                    "character": 139
-                }
-            },
-            "severity": "Error",
-            "code": "256"
-        },
-        {
-            "file": "c:\\Users\\venuadmin\\AppData\\Roaming\\MetaQuotes\\Terminal\\2191F4A3D14D7B4B1EBB84F924777883\\MQL4\\Experts\\V-TV-VENU-Special\\V_TV_SimpleOpenCloseOrders.mqh",
-            "message": "wrong parameters count",
-            "range": {
-                "start": {
-                    "line": 218,
-                    "character": 9
-                },
-                "end": {
-                    "line": 218,
-                    "character": 109
-                }
-            },
-            "severity": "Error",
-            "code": "199"
-        },
-        {
-            "file": "c:\\Users\\venuadmin\\AppData\\Roaming\\MetaQuotes\\Terminal\\2191F4A3D14D7B4B1EBB84F924777883\\MQL4\\Experts\\V-TV-VENU-Special\\V_TV_SimpleOpenCloseOrders.mqh",
-            "message": "undeclared identifier 'OrderSymbol'",
-            "range": {
-                "start": {
-                    "line": 220,
-                    "character": 12
-                },
-                "end": {
-                    "line": 220,
-                    "character": 112
-                }
-            },
-            "severity": "Error",
-            "code": "256"
-        },
-        {
-            "file": "c:\\Users\\venuadmin\\AppData\\Roaming\\MetaQuotes\\Terminal\\2191F4A3D14D7B4B1EBB84F924777883\\MQL4\\Experts\\V-TV-VENU-Special\\V_TV_SimpleOpenCloseOrders.mqh",
-            "message": "')' - expression expected",
-            "range": {
-                "start": {
-                    "line": 220,
-                    "character": 24
-                },
-                "end": {
-                    "line": 220,
-                    "character": 124
-                }
-            },
-            "severity": "Error",
-            "code": "157"
-        },
-        {
-            "file": "c:\\Users\\venuadmin\\AppData\\Roaming\\MetaQuotes\\Terminal\\2191F4A3D14D7B4B1EBB84F924777883\\MQL4\\Experts\\V-TV-VENU-Special\\V_TV_SimpleOpenCloseOrders.mqh",
-            "message": "implicit conversion from 'unknown' to 'string'",
-            "range": {
-                "start": {
-                    "line": 220,
-                    "character": 12
-                },
-                "end": {
-                    "line": 220,
-                    "character": 112
-                }
-            },
-            "severity": "Warning",
-            "code": "94"
-        },
-        {
-            "file": "c:\\Users\\venuadmin\\AppData\\Roaming\\MetaQuotes\\Terminal\\2191F4A3D14D7B4B1EBB84F924777883\\MQL4\\Experts\\V-TV-VENU-Special\\V_TV_SimpleOpenCloseOrders.mqh",
-            "message": "undeclared identifier 'OrderType'",
-            "range": {
-                "start": {
-                    "line": 220,
-                    "character": 41
-                },
-                "end": {
-                    "line": 220,
-                    "character": 141
-                }
-            },
-            "severity": "Error",
-            "code": "256"
-        },
-        {
-            "file": "c:\\Users\\venuadmin\\AppData\\Roaming\\MetaQuotes\\Terminal\\2191F4A3D14D7B4B1EBB84F924777883\\MQL4\\Experts\\V-TV-VENU-Special\\V_TV_SimpleOpenCloseOrders.mqh",
-            "message": "')' - expression expected",
-            "range": {
-                "start": {
-                    "line": 220,
-                    "character": 51
-                },
-                "end": {
-                    "line": 220,
-                    "character": 151
-                }
-            },
-            "severity": "Error",
-            "code": "157"
-        },
-        {
-            "file": "c:\\Users\\venuadmin\\AppData\\Roaming\\MetaQuotes\\Terminal\\2191F4A3D14D7B4B1EBB84F924777883\\MQL4\\Experts\\V-TV-VENU-Special\\V_TV_SimpleOpenCloseOrders.mqh",
+            "file": "c:\\Users\\venuadmin\\AppData\\Roaming\\MetaQuotes\\Terminal\\2191F4A3D14D7B4B1EBB84F924777883\\MQL4\\Experts\\V-TV-Signals\\V_TV_CROSSSingleCandleCluademethod4.mqh",
             "message": "undeclared identifier 'OP_SELL'",
             "range": {
                 "start": {
-                    "line": 220,
-                    "character": 56
-                },
-                "end": {
-                    "line": 220,
-                    "character": 156
-                }
-            },
-            "severity": "Error",
-            "code": "256"
-        },
-        {
-            "file": "c:\\Users\\venuadmin\\AppData\\Roaming\\MetaQuotes\\Terminal\\2191F4A3D14D7B4B1EBB84F924777883\\MQL4\\Experts\\V-TV-VENU-Special\\V_TV_SimpleOpenCloseOrders.mqh",
-            "message": "undeclared identifier 'OrderOpenTime'",
-            "range": {
-                "start": {
-                    "line": 222,
-                    "character": 15
-                },
-                "end": {
-                    "line": 222,
-                    "character": 115
-                }
-            },
-            "severity": "Error",
-            "code": "256"
-        },
-        {
-            "file": "c:\\Users\\venuadmin\\AppData\\Roaming\\MetaQuotes\\Terminal\\2191F4A3D14D7B4B1EBB84F924777883\\MQL4\\Experts\\V-TV-VENU-Special\\V_TV_SimpleOpenCloseOrders.mqh",
-            "message": "')' - expression expected",
-            "range": {
-                "start": {
-                    "line": 222,
-                    "character": 29
-                },
-                "end": {
-                    "line": 222,
-                    "character": 129
-                }
-            },
-            "severity": "Error",
-            "code": "157"
-        },
-        {
-            "file": "c:\\Users\\venuadmin\\AppData\\Roaming\\MetaQuotes\\Terminal\\2191F4A3D14D7B4B1EBB84F924777883\\MQL4\\Experts\\V-TV-VENU-Special\\V_TV_SimpleOpenCloseOrders.mqh",
-            "message": "undeclared identifier 'OrderOpenTime'",
-            "range": {
-                "start": {
-                    "line": 224,
+                    "line": 108,
                     "character": 28
                 },
                 "end": {
-                    "line": 224,
+                    "line": 108,
                     "character": 128
                 }
             },
@@ -1553,143 +561,15 @@
             "code": "256"
         },
         {
-            "file": "c:\\Users\\venuadmin\\AppData\\Roaming\\MetaQuotes\\Terminal\\2191F4A3D14D7B4B1EBB84F924777883\\MQL4\\Experts\\V-TV-VENU-Special\\V_TV_SimpleOpenCloseOrders.mqh",
-            "message": "')' - expression expected",
+            "file": "c:\\Users\\venuadmin\\AppData\\Roaming\\MetaQuotes\\Terminal\\2191F4A3D14D7B4B1EBB84F924777883\\MQL4\\Experts\\V-TV-Signals\\V_TV_CROSSSingleCandleCluademethod4.mqh",
+            "message": "undeclared identifier 'MarketInfo'",
             "range": {
                 "start": {
-                    "line": 224,
-                    "character": 42
-                },
-                "end": {
-                    "line": 224,
-                    "character": 142
-                }
-            },
-            "severity": "Error",
-            "code": "157"
-        },
-        {
-            "file": "c:\\Users\\venuadmin\\AppData\\Roaming\\MetaQuotes\\Terminal\\2191F4A3D14D7B4B1EBB84F924777883\\MQL4\\Experts\\V-TV-VENU-Special\\V_TV_SimpleOpenCloseOrders.mqh",
-            "message": "undeclared identifier 'OrderTicket'",
-            "range": {
-                "start": {
-                    "line": 225,
-                    "character": 24
-                },
-                "end": {
-                    "line": 225,
-                    "character": 124
-                }
-            },
-            "severity": "Error",
-            "code": "256"
-        },
-        {
-            "file": "c:\\Users\\venuadmin\\AppData\\Roaming\\MetaQuotes\\Terminal\\2191F4A3D14D7B4B1EBB84F924777883\\MQL4\\Experts\\V-TV-VENU-Special\\V_TV_SimpleOpenCloseOrders.mqh",
-            "message": "')' - expression expected",
-            "range": {
-                "start": {
-                    "line": 225,
-                    "character": 36
-                },
-                "end": {
-                    "line": 225,
-                    "character": 136
-                }
-            },
-            "severity": "Error",
-            "code": "157"
-        },
-        {
-            "file": "c:\\Users\\venuadmin\\AppData\\Roaming\\MetaQuotes\\Terminal\\2191F4A3D14D7B4B1EBB84F924777883\\MQL4\\Experts\\V-TV-VENU-Special\\V_TV_SimpleOpenCloseOrders.mqh",
-            "message": "undeclared identifier 'SELECT_BY_TICKET'",
-            "range": {
-                "start": {
-                    "line": 231,
-                    "character": 42
-                },
-                "end": {
-                    "line": 231,
-                    "character": 142
-                }
-            },
-            "severity": "Error",
-            "code": "256"
-        },
-        {
-            "file": "c:\\Users\\venuadmin\\AppData\\Roaming\\MetaQuotes\\Terminal\\2191F4A3D14D7B4B1EBB84F924777883\\MQL4\\Experts\\V-TV-VENU-Special\\V_TV_SimpleOpenCloseOrders.mqh",
-            "message": "wrong parameters count",
-            "range": {
-                "start": {
-                    "line": 231,
-                    "character": 22
-                },
-                "end": {
-                    "line": 231,
-                    "character": 122
-                }
-            },
-            "severity": "Error",
-            "code": "199"
-        },
-        {
-            "file": "c:\\Users\\venuadmin\\AppData\\Roaming\\MetaQuotes\\Terminal\\2191F4A3D14D7B4B1EBB84F924777883\\MQL4\\Experts\\V-TV-VENU-Special\\V_TV_SimpleOpenCloseOrders.mqh",
-            "message": "undeclared identifier 'OrderOpenTime'",
-            "range": {
-                "start": {
-                    "line": 233,
-                    "character": 40
-                },
-                "end": {
-                    "line": 233,
-                    "character": 140
-                }
-            },
-            "severity": "Error",
-            "code": "256"
-        },
-        {
-            "file": "c:\\Users\\venuadmin\\AppData\\Roaming\\MetaQuotes\\Terminal\\2191F4A3D14D7B4B1EBB84F924777883\\MQL4\\Experts\\V-TV-VENU-Special\\V_TV_SimpleOpenCloseOrders.mqh",
-            "message": "')' - expression expected",
-            "range": {
-                "start": {
-                    "line": 233,
-                    "character": 54
-                },
-                "end": {
-                    "line": 233,
-                    "character": 154
-                }
-            },
-            "severity": "Error",
-            "code": "157"
-        },
-        {
-            "file": "c:\\Users\\venuadmin\\AppData\\Roaming\\MetaQuotes\\Terminal\\2191F4A3D14D7B4B1EBB84F924777883\\MQL4\\Experts\\V-TV-VENU-Special\\V_TV_SimpleOpenCloseOrders.mqh",
-            "message": "possible loss of data due to type conversion from 'datetime' to 'int'",
-            "range": {
-                "start": {
-                    "line": 233,
-                    "character": 22
-                },
-                "end": {
-                    "line": 233,
-                    "character": 122
-                }
-            },
-            "severity": "Warning",
-            "code": "43"
-        },
-        {
-            "file": "c:\\Users\\venuadmin\\AppData\\Roaming\\MetaQuotes\\Terminal\\2191F4A3D14D7B4B1EBB84F924777883\\MQL4\\Experts\\V-TV-VENU-Special\\V_TV_SimpleOpenCloseOrders.mqh",
-            "message": "undeclared identifier 'SeqSellMaxOrders'",
-            "range": {
-                "start": {
-                    "line": 243,
+                    "line": 116,
                     "character": 16
                 },
                 "end": {
-                    "line": 243,
+                    "line": 116,
                     "character": 116
                 }
             },
@@ -1697,36 +577,612 @@
             "code": "256"
         },
         {
-            "file": "c:\\Users\\venuadmin\\AppData\\Roaming\\MetaQuotes\\Terminal\\2191F4A3D14D7B4B1EBB84F924777883\\MQL4\\Experts\\V-TV-VENU-Special\\V_TV_SimpleOpenCloseOrders.mqh",
-            "message": "undeclared identifier 'SeqSellProfitTarget'",
+            "file": "c:\\Users\\venuadmin\\AppData\\Roaming\\MetaQuotes\\Terminal\\2191F4A3D14D7B4B1EBB84F924777883\\MQL4\\Experts\\V-TV-Signals\\V_TV_CROSSSingleCandleCluademethod4.mqh",
+            "message": "',' - unexpected token",
             "range": {
                 "start": {
-                    "line": 244,
-                    "character": 9
+                    "line": 116,
+                    "character": 35
                 },
                 "end": {
-                    "line": 244,
-                    "character": 109
+                    "line": 116,
+                    "character": 135
+                }
+            },
+            "severity": "Error",
+            "code": "149"
+        },
+        {
+            "file": "c:\\Users\\venuadmin\\AppData\\Roaming\\MetaQuotes\\Terminal\\2191F4A3D14D7B4B1EBB84F924777883\\MQL4\\Experts\\V-TV-Signals\\V_TV_CROSSSingleCandleCluademethod4.mqh",
+            "message": "'Symbol' - some operator expected",
+            "range": {
+                "start": {
+                    "line": 116,
+                    "character": 27
+                },
+                "end": {
+                    "line": 116,
+                    "character": 127
+                }
+            },
+            "severity": "Error",
+            "code": "152"
+        },
+        {
+            "file": "c:\\Users\\venuadmin\\AppData\\Roaming\\MetaQuotes\\Terminal\\2191F4A3D14D7B4B1EBB84F924777883\\MQL4\\Experts\\V-TV-Signals\\V_TV_CROSSSingleCandleCluademethod4.mqh",
+            "message": "semicolon expected",
+            "range": {
+                "start": {
+                    "line": 116,
+                    "character": 37
+                },
+                "end": {
+                    "line": 116,
+                    "character": 137
+                }
+            },
+            "severity": "Error",
+            "code": "154"
+        },
+        {
+            "file": "c:\\Users\\venuadmin\\AppData\\Roaming\\MetaQuotes\\Terminal\\2191F4A3D14D7B4B1EBB84F924777883\\MQL4\\Experts\\V-TV-Signals\\V_TV_CROSSSingleCandleCluademethod4.mqh",
+            "message": "undeclared identifier 'MODE_ASK'",
+            "range": {
+                "start": {
+                    "line": 116,
+                    "character": 37
+                },
+                "end": {
+                    "line": 116,
+                    "character": 137
                 }
             },
             "severity": "Error",
             "code": "256"
         },
         {
-            "file": "c:\\Users\\venuadmin\\AppData\\Roaming\\MetaQuotes\\Terminal\\2191F4A3D14D7B4B1EBB84F924777883\\MQL4\\Experts\\V-TV-VENU-Special\\V_TV_SimpleOpenCloseOrders.mqh",
-            "message": "undeclared identifier 'SeqSellMaxOrders'",
+            "file": "c:\\Users\\venuadmin\\AppData\\Roaming\\MetaQuotes\\Terminal\\2191F4A3D14D7B4B1EBB84F924777883\\MQL4\\Experts\\V-TV-Signals\\V_TV_CROSSSingleCandleCluademethod4.mqh",
+            "message": "')' - unexpected token",
             "range": {
                 "start": {
-                    "line": 251,
-                    "character": 9
+                    "line": 116,
+                    "character": 45
                 },
                 "end": {
-                    "line": 251,
-                    "character": 109
+                    "line": 116,
+                    "character": 145
+                }
+            },
+            "severity": "Error",
+            "code": "149"
+        },
+        {
+            "file": "c:\\Users\\venuadmin\\AppData\\Roaming\\MetaQuotes\\Terminal\\2191F4A3D14D7B4B1EBB84F924777883\\MQL4\\Experts\\V-TV-Signals\\V_TV_CROSSSingleCandleCluademethod4.mqh",
+            "message": "undeclared identifier 'MarketInfo'",
+            "range": {
+                "start": {
+                    "line": 117,
+                    "character": 16
+                },
+                "end": {
+                    "line": 117,
+                    "character": 116
                 }
             },
             "severity": "Error",
             "code": "256"
+        },
+        {
+            "file": "c:\\Users\\venuadmin\\AppData\\Roaming\\MetaQuotes\\Terminal\\2191F4A3D14D7B4B1EBB84F924777883\\MQL4\\Experts\\V-TV-Signals\\V_TV_CROSSSingleCandleCluademethod4.mqh",
+            "message": "',' - unexpected token",
+            "range": {
+                "start": {
+                    "line": 117,
+                    "character": 35
+                },
+                "end": {
+                    "line": 117,
+                    "character": 135
+                }
+            },
+            "severity": "Error",
+            "code": "149"
+        },
+        {
+            "file": "c:\\Users\\venuadmin\\AppData\\Roaming\\MetaQuotes\\Terminal\\2191F4A3D14D7B4B1EBB84F924777883\\MQL4\\Experts\\V-TV-Signals\\V_TV_CROSSSingleCandleCluademethod4.mqh",
+            "message": "'Symbol' - some operator expected",
+            "range": {
+                "start": {
+                    "line": 117,
+                    "character": 27
+                },
+                "end": {
+                    "line": 117,
+                    "character": 127
+                }
+            },
+            "severity": "Error",
+            "code": "152"
+        },
+        {
+            "file": "c:\\Users\\venuadmin\\AppData\\Roaming\\MetaQuotes\\Terminal\\2191F4A3D14D7B4B1EBB84F924777883\\MQL4\\Experts\\V-TV-Signals\\V_TV_CROSSSingleCandleCluademethod4.mqh",
+            "message": "semicolon expected",
+            "range": {
+                "start": {
+                    "line": 117,
+                    "character": 37
+                },
+                "end": {
+                    "line": 117,
+                    "character": 137
+                }
+            },
+            "severity": "Error",
+            "code": "154"
+        },
+        {
+            "file": "c:\\Users\\venuadmin\\AppData\\Roaming\\MetaQuotes\\Terminal\\2191F4A3D14D7B4B1EBB84F924777883\\MQL4\\Experts\\V-TV-Signals\\V_TV_CROSSSingleCandleCluademethod4.mqh",
+            "message": "undeclared identifier 'MODE_BID'",
+            "range": {
+                "start": {
+                    "line": 117,
+                    "character": 37
+                },
+                "end": {
+                    "line": 117,
+                    "character": 137
+                }
+            },
+            "severity": "Error",
+            "code": "256"
+        },
+        {
+            "file": "c:\\Users\\venuadmin\\AppData\\Roaming\\MetaQuotes\\Terminal\\2191F4A3D14D7B4B1EBB84F924777883\\MQL4\\Experts\\V-TV-Signals\\V_TV_CROSSSingleCandleCluademethod4.mqh",
+            "message": "')' - unexpected token",
+            "range": {
+                "start": {
+                    "line": 117,
+                    "character": 45
+                },
+                "end": {
+                    "line": 117,
+                    "character": 145
+                }
+            },
+            "severity": "Error",
+            "code": "149"
+        },
+        {
+            "file": "c:\\Users\\venuadmin\\AppData\\Roaming\\MetaQuotes\\Terminal\\2191F4A3D14D7B4B1EBB84F924777883\\MQL4\\Experts\\V-TV-Signals\\V_TV_CROSSSingleCandleCluademethod4.mqh",
+            "message": "undeclared identifier 'MarketInfo'",
+            "range": {
+                "start": {
+                    "line": 118,
+                    "character": 22
+                },
+                "end": {
+                    "line": 118,
+                    "character": 122
+                }
+            },
+            "severity": "Error",
+            "code": "256"
+        },
+        {
+            "file": "c:\\Users\\venuadmin\\AppData\\Roaming\\MetaQuotes\\Terminal\\2191F4A3D14D7B4B1EBB84F924777883\\MQL4\\Experts\\V-TV-Signals\\V_TV_CROSSSingleCandleCluademethod4.mqh",
+            "message": "',' - unexpected token",
+            "range": {
+                "start": {
+                    "line": 118,
+                    "character": 41
+                },
+                "end": {
+                    "line": 118,
+                    "character": 141
+                }
+            },
+            "severity": "Error",
+            "code": "149"
+        },
+        {
+            "file": "c:\\Users\\venuadmin\\AppData\\Roaming\\MetaQuotes\\Terminal\\2191F4A3D14D7B4B1EBB84F924777883\\MQL4\\Experts\\V-TV-Signals\\V_TV_CROSSSingleCandleCluademethod4.mqh",
+            "message": "'Symbol' - some operator expected",
+            "range": {
+                "start": {
+                    "line": 118,
+                    "character": 33
+                },
+                "end": {
+                    "line": 118,
+                    "character": 133
+                }
+            },
+            "severity": "Error",
+            "code": "152"
+        },
+        {
+            "file": "c:\\Users\\venuadmin\\AppData\\Roaming\\MetaQuotes\\Terminal\\2191F4A3D14D7B4B1EBB84F924777883\\MQL4\\Experts\\V-TV-Signals\\V_TV_CROSSSingleCandleCluademethod4.mqh",
+            "message": "semicolon expected",
+            "range": {
+                "start": {
+                    "line": 118,
+                    "character": 43
+                },
+                "end": {
+                    "line": 118,
+                    "character": 143
+                }
+            },
+            "severity": "Error",
+            "code": "154"
+        },
+        {
+            "file": "c:\\Users\\venuadmin\\AppData\\Roaming\\MetaQuotes\\Terminal\\2191F4A3D14D7B4B1EBB84F924777883\\MQL4\\Experts\\V-TV-Signals\\V_TV_CROSSSingleCandleCluademethod4.mqh",
+            "message": "undeclared identifier 'MODE_TICKVALUE'",
+            "range": {
+                "start": {
+                    "line": 118,
+                    "character": 43
+                },
+                "end": {
+                    "line": 118,
+                    "character": 143
+                }
+            },
+            "severity": "Error",
+            "code": "256"
+        },
+        {
+            "file": "c:\\Users\\venuadmin\\AppData\\Roaming\\MetaQuotes\\Terminal\\2191F4A3D14D7B4B1EBB84F924777883\\MQL4\\Experts\\V-TV-Signals\\V_TV_CROSSSingleCandleCluademethod4.mqh",
+            "message": "')' - unexpected token",
+            "range": {
+                "start": {
+                    "line": 118,
+                    "character": 57
+                },
+                "end": {
+                    "line": 118,
+                    "character": 157
+                }
+            },
+            "severity": "Error",
+            "code": "149"
+        },
+        {
+            "file": "c:\\Users\\venuadmin\\AppData\\Roaming\\MetaQuotes\\Terminal\\2191F4A3D14D7B4B1EBB84F924777883\\MQL4\\Experts\\V-TV-Signals\\V_TV_CROSSSingleCandleCluademethod4.mqh",
+            "message": "undeclared identifier 'MarketInfo'",
+            "range": {
+                "start": {
+                    "line": 119,
+                    "character": 22
+                },
+                "end": {
+                    "line": 119,
+                    "character": 122
+                }
+            },
+            "severity": "Error",
+            "code": "256"
+        },
+        {
+            "file": "c:\\Users\\venuadmin\\AppData\\Roaming\\MetaQuotes\\Terminal\\2191F4A3D14D7B4B1EBB84F924777883\\MQL4\\Experts\\V-TV-Signals\\V_TV_CROSSSingleCandleCluademethod4.mqh",
+            "message": "',' - unexpected token",
+            "range": {
+                "start": {
+                    "line": 119,
+                    "character": 41
+                },
+                "end": {
+                    "line": 119,
+                    "character": 141
+                }
+            },
+            "severity": "Error",
+            "code": "149"
+        },
+        {
+            "file": "c:\\Users\\venuadmin\\AppData\\Roaming\\MetaQuotes\\Terminal\\2191F4A3D14D7B4B1EBB84F924777883\\MQL4\\Experts\\V-TV-Signals\\V_TV_CROSSSingleCandleCluademethod4.mqh",
+            "message": "'Symbol' - some operator expected",
+            "range": {
+                "start": {
+                    "line": 119,
+                    "character": 33
+                },
+                "end": {
+                    "line": 119,
+                    "character": 133
+                }
+            },
+            "severity": "Error",
+            "code": "152"
+        },
+        {
+            "file": "c:\\Users\\venuadmin\\AppData\\Roaming\\MetaQuotes\\Terminal\\2191F4A3D14D7B4B1EBB84F924777883\\MQL4\\Experts\\V-TV-Signals\\V_TV_CROSSSingleCandleCluademethod4.mqh",
+            "message": "semicolon expected",
+            "range": {
+                "start": {
+                    "line": 119,
+                    "character": 43
+                },
+                "end": {
+                    "line": 119,
+                    "character": 143
+                }
+            },
+            "severity": "Error",
+            "code": "154"
+        },
+        {
+            "file": "c:\\Users\\venuadmin\\AppData\\Roaming\\MetaQuotes\\Terminal\\2191F4A3D14D7B4B1EBB84F924777883\\MQL4\\Experts\\V-TV-Signals\\V_TV_CROSSSingleCandleCluademethod4.mqh",
+            "message": "undeclared identifier 'MODE_TICKSIZE'",
+            "range": {
+                "start": {
+                    "line": 119,
+                    "character": 43
+                },
+                "end": {
+                    "line": 119,
+                    "character": 143
+                }
+            },
+            "severity": "Error",
+            "code": "256"
+        },
+        {
+            "file": "c:\\Users\\venuadmin\\AppData\\Roaming\\MetaQuotes\\Terminal\\2191F4A3D14D7B4B1EBB84F924777883\\MQL4\\Experts\\V-TV-Signals\\V_TV_CROSSSingleCandleCluademethod4.mqh",
+            "message": "')' - unexpected token",
+            "range": {
+                "start": {
+                    "line": 119,
+                    "character": 56
+                },
+                "end": {
+                    "line": 119,
+                    "character": 156
+                }
+            },
+            "severity": "Error",
+            "code": "149"
+        },
+        {
+            "file": "c:\\Users\\venuadmin\\AppData\\Roaming\\MetaQuotes\\Terminal\\2191F4A3D14D7B4B1EBB84F924777883\\MQL4\\Experts\\V-TV-Signals\\V_TV_CROSSSingleCandleCluademethod4.mqh",
+            "message": "undeclared identifier 'OP_BUY'",
+            "range": {
+                "start": {
+                    "line": 135,
+                    "character": 19
+                },
+                "end": {
+                    "line": 135,
+                    "character": 119
+                }
+            },
+            "severity": "Error",
+            "code": "256"
+        },
+        {
+            "file": "c:\\Users\\venuadmin\\AppData\\Roaming\\MetaQuotes\\Terminal\\2191F4A3D14D7B4B1EBB84F924777883\\MQL4\\Experts\\V-TV-Signals\\V_TV_CROSSSingleCandleCluademethod4.mqh",
+            "message": "open parenthesis expected",
+            "range": {
+                "start": {
+                    "line": 138,
+                    "character": 58
+                },
+                "end": {
+                    "line": 138,
+                    "character": 158
+                }
+            },
+            "severity": "Error",
+            "code": "132"
+        },
+        {
+            "file": "c:\\Users\\venuadmin\\AppData\\Roaming\\MetaQuotes\\Terminal\\2191F4A3D14D7B4B1EBB84F924777883\\MQL4\\Experts\\V-TV-Signals\\V_TV_CROSSSingleCandleCluademethod4.mqh",
+            "message": "open parenthesis expected",
+            "range": {
+                "start": {
+                    "line": 139,
+                    "character": 58
+                },
+                "end": {
+                    "line": 139,
+                    "character": 158
+                }
+            },
+            "severity": "Error",
+            "code": "132"
+        },
+        {
+            "file": "c:\\Users\\venuadmin\\AppData\\Roaming\\MetaQuotes\\Terminal\\2191F4A3D14D7B4B1EBB84F924777883\\MQL4\\Experts\\V-TV-Signals\\V_TV_CROSSSingleCandleCluademethod4.mqh",
+            "message": "open parenthesis expected",
+            "range": {
+                "start": {
+                    "line": 145,
+                    "character": 58
+                },
+                "end": {
+                    "line": 145,
+                    "character": 158
+                }
+            },
+            "severity": "Error",
+            "code": "132"
+        },
+        {
+            "file": "c:\\Users\\venuadmin\\AppData\\Roaming\\MetaQuotes\\Terminal\\2191F4A3D14D7B4B1EBB84F924777883\\MQL4\\Experts\\V-TV-Signals\\V_TV_CROSSSingleCandleCluademethod4.mqh",
+            "message": "open parenthesis expected",
+            "range": {
+                "start": {
+                    "line": 146,
+                    "character": 58
+                },
+                "end": {
+                    "line": 146,
+                    "character": 158
+                }
+            },
+            "severity": "Error",
+            "code": "132"
+        },
+        {
+            "file": "c:\\Users\\venuadmin\\AppData\\Roaming\\MetaQuotes\\Terminal\\2191F4A3D14D7B4B1EBB84F924777883\\MQL4\\Experts\\V-TV-Signals\\V_TV_CROSSSingleCandleCluademethod4.mqh",
+            "message": "undeclared identifier 'OP_BUY'",
+            "range": {
+                "start": {
+                    "line": 161,
+                    "character": 20
+                },
+                "end": {
+                    "line": 161,
+                    "character": 120
+                }
+            },
+            "severity": "Error",
+            "code": "256"
+        },
+        {
+            "file": "c:\\Users\\venuadmin\\AppData\\Roaming\\MetaQuotes\\Terminal\\2191F4A3D14D7B4B1EBB84F924777883\\MQL4\\Experts\\V-TV-Signals\\V_TV_CROSSSingleCandleCluademethod4.mqh",
+            "message": "wrong parameters count",
+            "range": {
+                "start": {
+                    "line": 150,
+                    "character": 16
+                },
+                "end": {
+                    "line": 150,
+                    "character": 116
+                }
+            },
+            "severity": "Error",
+            "code": "199"
+        },
+        {
+            "file": "c:\\Users\\venuadmin\\AppData\\Roaming\\MetaQuotes\\Terminal\\2191F4A3D14D7B4B1EBB84F924777883\\MQL4\\Experts\\V-TV-Signals\\V_TV_CROSSSingleCandleCluademethod4.mqh",
+            "message": "undeclared identifier 'SELECT_BY_POS'",
+            "range": {
+                "start": {
+                    "line": 180,
+                    "character": 24
+                },
+                "end": {
+                    "line": 180,
+                    "character": 124
+                }
+            },
+            "severity": "Error",
+            "code": "256"
+        },
+        {
+            "file": "c:\\Users\\venuadmin\\AppData\\Roaming\\MetaQuotes\\Terminal\\2191F4A3D14D7B4B1EBB84F924777883\\MQL4\\Experts\\V-TV-Signals\\V_TV_CROSSSingleCandleCluademethod4.mqh",
+            "message": "undeclared identifier 'MODE_TRADES'",
+            "range": {
+                "start": {
+                    "line": 180,
+                    "character": 39
+                },
+                "end": {
+                    "line": 180,
+                    "character": 139
+                }
+            },
+            "severity": "Error",
+            "code": "256"
+        },
+        {
+            "file": "c:\\Users\\venuadmin\\AppData\\Roaming\\MetaQuotes\\Terminal\\2191F4A3D14D7B4B1EBB84F924777883\\MQL4\\Experts\\V-TV-Signals\\V_TV_CROSSSingleCandleCluademethod4.mqh",
+            "message": "wrong parameters count",
+            "range": {
+                "start": {
+                    "line": 180,
+                    "character": 9
+                },
+                "end": {
+                    "line": 180,
+                    "character": 109
+                }
+            },
+            "severity": "Error",
+            "code": "199"
+        },
+        {
+            "file": "c:\\Users\\venuadmin\\AppData\\Roaming\\MetaQuotes\\Terminal\\2191F4A3D14D7B4B1EBB84F924777883\\MQL4\\Experts\\V-TV-Signals\\V_TV_CROSSSingleCandleCluademethod4.mqh",
+            "message": "undeclared identifier 'OrderSymbol'",
+            "range": {
+                "start": {
+                    "line": 181,
+                    "character": 12
+                },
+                "end": {
+                    "line": 181,
+                    "character": 112
+                }
+            },
+            "severity": "Error",
+            "code": "256"
+        },
+        {
+            "file": "c:\\Users\\venuadmin\\AppData\\Roaming\\MetaQuotes\\Terminal\\2191F4A3D14D7B4B1EBB84F924777883\\MQL4\\Experts\\V-TV-Signals\\V_TV_CROSSSingleCandleCluademethod4.mqh",
+            "message": "')' - expression expected",
+            "range": {
+                "start": {
+                    "line": 181,
+                    "character": 24
+                },
+                "end": {
+                    "line": 181,
+                    "character": 124
+                }
+            },
+            "severity": "Error",
+            "code": "157"
+        },
+        {
+            "file": "c:\\Users\\venuadmin\\AppData\\Roaming\\MetaQuotes\\Terminal\\2191F4A3D14D7B4B1EBB84F924777883\\MQL4\\Experts\\V-TV-Signals\\V_TV_CROSSSingleCandleCluademethod4.mqh",
+            "message": "implicit conversion from 'unknown' to 'string'",
+            "range": {
+                "start": {
+                    "line": 181,
+                    "character": 12
+                },
+                "end": {
+                    "line": 181,
+                    "character": 112
+                }
+            },
+            "severity": "Warning",
+            "code": "94"
+        },
+        {
+            "file": "c:\\Users\\venuadmin\\AppData\\Roaming\\MetaQuotes\\Terminal\\2191F4A3D14D7B4B1EBB84F924777883\\MQL4\\Experts\\V-TV-Signals\\V_TV_CROSSSingleCandleCluademethod4.mqh",
+            "message": "undeclared identifier 'OrderMagicNumber'",
+            "range": {
+                "start": {
+                    "line": 181,
+                    "character": 41
+                },
+                "end": {
+                    "line": 181,
+                    "character": 141
+                }
+            },
+            "severity": "Error",
+            "code": "256"
+        },
+        {
+            "file": "c:\\Users\\venuadmin\\AppData\\Roaming\\MetaQuotes\\Terminal\\2191F4A3D14D7B4B1EBB84F924777883\\MQL4\\Experts\\V-TV-Signals\\V_TV_CROSSSingleCandleCluademethod4.mqh",
+            "message": "')' - expression expected",
+            "range": {
+                "start": {
+                    "line": 181,
+                    "character": 58
+                },
+                "end": {
+                    "line": 181,
+                    "character": 158
+                }
+            },
+            "severity": "Error",
+            "code": "157"
         }
     ]
 }
