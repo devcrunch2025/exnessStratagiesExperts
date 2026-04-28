@@ -1,479 +1,431 @@
 {
-    "c:\\Users\\venuadmin\\AppData\\Roaming\\MetaQuotes\\Terminal\\2191F4A3D14D7B4B1EBB84F924777883\\MQL4\\Experts\\V-TV-Signals\\V_TV_SeqSellOrders.mqh": [
+    "c:\\Users\\venuadmin\\AppData\\Roaming\\MetaQuotes\\Terminal\\2191F4A3D14D7B4B1EBB84F924777883\\MQL4\\Experts\\OLD2\\V-TV-VENU-Special\\V_TV_ColorPatternAnalysis.mqh": [
         {
-            "file": "c:\\Users\\venuadmin\\AppData\\Roaming\\MetaQuotes\\Terminal\\2191F4A3D14D7B4B1EBB84F924777883\\MQL4\\Experts\\V-TV-Signals\\V_TV_SeqSellOrders.mqh",
-            "message": "undeclared identifier 'g_prePrevSeqSignalText'",
+            "file": "c:\\Users\\venuadmin\\AppData\\Roaming\\MetaQuotes\\Terminal\\2191F4A3D14D7B4B1EBB84F924777883\\MQL4\\Experts\\OLD2\\V-TV-VENU-Special\\V_TV_ColorPatternAnalysis.mqh",
+            "message": "undeclared identifier 'g_runTimestamp'",
             "range": {
                 "start": {
-                    "line": 39,
-                    "character": 24
+                    "line": 78,
+                    "character": 41
                 },
                 "end": {
-                    "line": 39,
-                    "character": 124
+                    "line": 78,
+                    "character": 141
                 }
             },
             "severity": "Error",
             "code": "256"
         },
         {
-            "file": "c:\\Users\\venuadmin\\AppData\\Roaming\\MetaQuotes\\Terminal\\2191F4A3D14D7B4B1EBB84F924777883\\MQL4\\Experts\\V-TV-Signals\\V_TV_SeqSellOrders.mqh",
+            "file": "c:\\Users\\venuadmin\\AppData\\Roaming\\MetaQuotes\\Terminal\\2191F4A3D14D7B4B1EBB84F924777883\\MQL4\\Experts\\OLD2\\V-TV-VENU-Special\\V_TV_ColorPatternAnalysis.mqh",
             "message": "implicit conversion from 'unknown' to 'string'",
             "range": {
                 "start": {
-                    "line": 39,
-                    "character": 24
+                    "line": 78,
+                    "character": 41
                 },
                 "end": {
-                    "line": 39,
-                    "character": 124
+                    "line": 78,
+                    "character": 141
                 }
             },
             "severity": "Warning",
             "code": "94"
         },
         {
-            "file": "c:\\Users\\venuadmin\\AppData\\Roaming\\MetaQuotes\\Terminal\\2191F4A3D14D7B4B1EBB84F924777883\\MQL4\\Experts\\V-TV-Signals\\V_TV_SeqSellOrders.mqh",
-            "message": "undeclared identifier 'g_prevDisplaySignal'",
+            "file": "c:\\Users\\venuadmin\\AppData\\Roaming\\MetaQuotes\\Terminal\\2191F4A3D14D7B4B1EBB84F924777883\\MQL4\\Experts\\OLD2\\V-TV-VENU-Special\\V_TV_ColorPatternAnalysis.mqh",
+            "message": "undeclared identifier 'g_runTimestamp'",
             "range": {
                 "start": {
-                    "line": 40,
-                    "character": 23
+                    "line": 79,
+                    "character": 41
                 },
                 "end": {
-                    "line": 40,
-                    "character": 123
+                    "line": 79,
+                    "character": 141
                 }
             },
             "severity": "Error",
             "code": "256"
         },
         {
-            "file": "c:\\Users\\venuadmin\\AppData\\Roaming\\MetaQuotes\\Terminal\\2191F4A3D14D7B4B1EBB84F924777883\\MQL4\\Experts\\V-TV-Signals\\V_TV_SeqSellOrders.mqh",
+            "file": "c:\\Users\\venuadmin\\AppData\\Roaming\\MetaQuotes\\Terminal\\2191F4A3D14D7B4B1EBB84F924777883\\MQL4\\Experts\\OLD2\\V-TV-VENU-Special\\V_TV_ColorPatternAnalysis.mqh",
             "message": "implicit conversion from 'unknown' to 'string'",
             "range": {
                 "start": {
-                    "line": 40,
-                    "character": 23
+                    "line": 79,
+                    "character": 41
                 },
                 "end": {
-                    "line": 40,
-                    "character": 123
+                    "line": 79,
+                    "character": 141
                 }
             },
             "severity": "Warning",
             "code": "94"
         },
         {
-            "file": "c:\\Users\\venuadmin\\AppData\\Roaming\\MetaQuotes\\Terminal\\2191F4A3D14D7B4B1EBB84F924777883\\MQL4\\Experts\\V-TV-Signals\\V_TV_SeqSellOrders.mqh",
-            "message": "undeclared identifier 'g_prevSeqCount'",
+            "file": "c:\\Users\\venuadmin\\AppData\\Roaming\\MetaQuotes\\Terminal\\2191F4A3D14D7B4B1EBB84F924777883\\MQL4\\Experts\\OLD2\\V-TV-VENU-Special\\V_TV_ColorPatternAnalysis.mqh",
+            "message": "undeclared identifier 'g_colorRules'",
             "range": {
                 "start": {
-                    "line": 40,
-                    "character": 67
+                    "line": 145,
+                    "character": 52
                 },
                 "end": {
-                    "line": 40,
-                    "character": 167
+                    "line": 145,
+                    "character": 152
                 }
             },
             "severity": "Error",
             "code": "256"
         },
         {
-            "file": "c:\\Users\\venuadmin\\AppData\\Roaming\\MetaQuotes\\Terminal\\2191F4A3D14D7B4B1EBB84F924777883\\MQL4\\Experts\\V-TV-Signals\\V_TV_SeqSellOrders.mqh",
+            "file": "c:\\Users\\venuadmin\\AppData\\Roaming\\MetaQuotes\\Terminal\\2191F4A3D14D7B4B1EBB84F924777883\\MQL4\\Experts\\OLD2\\V-TV-VENU-Special\\V_TV_ColorPatternAnalysis.mqh",
+            "message": "lvalue expected",
+            "range": {
+                "start": {
+                    "line": 145,
+                    "character": 52
+                },
+                "end": {
+                    "line": 145,
+                    "character": 152
+                }
+            },
+            "severity": "Error",
+            "code": "137"
+        },
+        {
+            "file": "c:\\Users\\venuadmin\\AppData\\Roaming\\MetaQuotes\\Terminal\\2191F4A3D14D7B4B1EBB84F924777883\\MQL4\\Experts\\OLD2\\V-TV-VENU-Special\\V_TV_ColorPatternAnalysis.mqh",
+            "message": "undeclared identifier 'ColorRule'",
+            "range": {
+                "start": {
+                    "line": 156,
+                    "character": 3
+                },
+                "end": {
+                    "line": 156,
+                    "character": 103
+                }
+            },
+            "severity": "Error",
+            "code": "256"
+        },
+        {
+            "file": "c:\\Users\\venuadmin\\AppData\\Roaming\\MetaQuotes\\Terminal\\2191F4A3D14D7B4B1EBB84F924777883\\MQL4\\Experts\\OLD2\\V-TV-VENU-Special\\V_TV_ColorPatternAnalysis.mqh",
+            "message": "undeclared identifier 'cr'",
+            "range": {
+                "start": {
+                    "line": 156,
+                    "character": 13
+                },
+                "end": {
+                    "line": 156,
+                    "character": 113
+                }
+            },
+            "severity": "Error",
+            "code": "256"
+        },
+        {
+            "file": "c:\\Users\\venuadmin\\AppData\\Roaming\\MetaQuotes\\Terminal\\2191F4A3D14D7B4B1EBB84F924777883\\MQL4\\Experts\\OLD2\\V-TV-VENU-Special\\V_TV_ColorPatternAnalysis.mqh",
+            "message": "'cr' - some operator expected",
+            "range": {
+                "start": {
+                    "line": 156,
+                    "character": 13
+                },
+                "end": {
+                    "line": 156,
+                    "character": 113
+                }
+            },
+            "severity": "Error",
+            "code": "152"
+        },
+        {
+            "file": "c:\\Users\\venuadmin\\AppData\\Roaming\\MetaQuotes\\Terminal\\2191F4A3D14D7B4B1EBB84F924777883\\MQL4\\Experts\\OLD2\\V-TV-VENU-Special\\V_TV_ColorPatternAnalysis.mqh",
+            "message": "undeclared identifier 'g_colorRules'",
+            "range": {
+                "start": {
+                    "line": 156,
+                    "character": 18
+                },
+                "end": {
+                    "line": 156,
+                    "character": 118
+                }
+            },
+            "severity": "Error",
+            "code": "256"
+        },
+        {
+            "file": "c:\\Users\\venuadmin\\AppData\\Roaming\\MetaQuotes\\Terminal\\2191F4A3D14D7B4B1EBB84F924777883\\MQL4\\Experts\\OLD2\\V-TV-VENU-Special\\V_TV_ColorPatternAnalysis.mqh",
+            "message": "'[' - array required",
+            "range": {
+                "start": {
+                    "line": 156,
+                    "character": 30
+                },
+                "end": {
+                    "line": 156,
+                    "character": 130
+                }
+            },
+            "severity": "Error",
+            "code": "241"
+        },
+        {
+            "file": "c:\\Users\\venuadmin\\AppData\\Roaming\\MetaQuotes\\Terminal\\2191F4A3D14D7B4B1EBB84F924777883\\MQL4\\Experts\\OLD2\\V-TV-VENU-Special\\V_TV_ColorPatternAnalysis.mqh",
+            "message": "undeclared identifier 'cr'",
+            "range": {
+                "start": {
+                    "line": 158,
+                    "character": 33
+                },
+                "end": {
+                    "line": 158,
+                    "character": 133
+                }
+            },
+            "severity": "Error",
+            "code": "256"
+        },
+        {
+            "file": "c:\\Users\\venuadmin\\AppData\\Roaming\\MetaQuotes\\Terminal\\2191F4A3D14D7B4B1EBB84F924777883\\MQL4\\Experts\\OLD2\\V-TV-VENU-Special\\V_TV_ColorPatternAnalysis.mqh",
+            "message": "implicit conversion from 'unknown' to 'string'",
+            "range": {
+                "start": {
+                    "line": 158,
+                    "character": 33
+                },
+                "end": {
+                    "line": 158,
+                    "character": 133
+                }
+            },
+            "severity": "Warning",
+            "code": "94"
+        },
+        {
+            "file": "c:\\Users\\venuadmin\\AppData\\Roaming\\MetaQuotes\\Terminal\\2191F4A3D14D7B4B1EBB84F924777883\\MQL4\\Experts\\OLD2\\V-TV-VENU-Special\\V_TV_ColorPatternAnalysis.mqh",
             "message": "undeclared identifier 'g_liveSignalName'",
             "range": {
                 "start": {
-                    "line": 41,
-                    "character": 23
+                    "line": 159,
+                    "character": 33
                 },
                 "end": {
-                    "line": 41,
-                    "character": 123
+                    "line": 159,
+                    "character": 133
                 }
             },
             "severity": "Error",
             "code": "256"
         },
         {
-            "file": "c:\\Users\\venuadmin\\AppData\\Roaming\\MetaQuotes\\Terminal\\2191F4A3D14D7B4B1EBB84F924777883\\MQL4\\Experts\\V-TV-Signals\\V_TV_SeqSellOrders.mqh",
+            "file": "c:\\Users\\venuadmin\\AppData\\Roaming\\MetaQuotes\\Terminal\\2191F4A3D14D7B4B1EBB84F924777883\\MQL4\\Experts\\OLD2\\V-TV-VENU-Special\\V_TV_ColorPatternAnalysis.mqh",
             "message": "implicit conversion from 'unknown' to 'string'",
             "range": {
                 "start": {
-                    "line": 41,
-                    "character": 23
+                    "line": 159,
+                    "character": 33
                 },
                 "end": {
-                    "line": 41,
-                    "character": 123
+                    "line": 159,
+                    "character": 133
                 }
             },
             "severity": "Warning",
             "code": "94"
         },
         {
-            "file": "c:\\Users\\venuadmin\\AppData\\Roaming\\MetaQuotes\\Terminal\\2191F4A3D14D7B4B1EBB84F924777883\\MQL4\\Experts\\V-TV-Signals\\V_TV_SeqSellOrders.mqh",
+            "file": "c:\\Users\\venuadmin\\AppData\\Roaming\\MetaQuotes\\Terminal\\2191F4A3D14D7B4B1EBB84F924777883\\MQL4\\Experts\\OLD2\\V-TV-VENU-Special\\V_TV_ColorPatternAnalysis.mqh",
             "message": "undeclared identifier 'g_currSeqCount'",
             "range": {
                 "start": {
-                    "line": 41,
-                    "character": 67
+                    "line": 160,
+                    "character": 33
                 },
                 "end": {
-                    "line": 41,
-                    "character": 167
+                    "line": 160,
+                    "character": 133
                 }
             },
             "severity": "Error",
             "code": "256"
         },
         {
-            "file": "c:\\Users\\venuadmin\\AppData\\Roaming\\MetaQuotes\\Terminal\\2191F4A3D14D7B4B1EBB84F924777883\\MQL4\\Experts\\V-TV-Signals\\V_TV_SeqSellOrders.mqh",
-            "message": "undeclared identifier 'g_startupWaitUntil'",
+            "file": "c:\\Users\\venuadmin\\AppData\\Roaming\\MetaQuotes\\Terminal\\2191F4A3D14D7B4B1EBB84F924777883\\MQL4\\Experts\\OLD2\\V-TV-VENU-Special\\V_TV_ColorPatternAnalysis.mqh",
+            "message": "undeclared identifier 'cr'",
             "range": {
                 "start": {
-                    "line": 48,
-                    "character": 23
+                    "line": 161,
+                    "character": 33
                 },
                 "end": {
-                    "line": 48,
-                    "character": 123
+                    "line": 161,
+                    "character": 133
                 }
             },
             "severity": "Error",
             "code": "256"
         },
         {
-            "file": "c:\\Users\\venuadmin\\AppData\\Roaming\\MetaQuotes\\Terminal\\2191F4A3D14D7B4B1EBB84F924777883\\MQL4\\Experts\\V-TV-Signals\\V_TV_SeqSellOrders.mqh",
-            "message": "undeclared identifier 'printdummy'",
-            "range": {
-                "start": {
-                    "line": 49,
-                    "character": 3
-                },
-                "end": {
-                    "line": 49,
-                    "character": 103
-                }
-            },
-            "severity": "Error",
-            "code": "256"
-        },
-        {
-            "file": "c:\\Users\\venuadmin\\AppData\\Roaming\\MetaQuotes\\Terminal\\2191F4A3D14D7B4B1EBB84F924777883\\MQL4\\Experts\\V-TV-Signals\\V_TV_SeqSellOrders.mqh",
-            "message": "undeclared identifier 'g_startupWaitUntil'",
-            "range": {
-                "start": {
-                    "line": 50,
-                    "character": 22
-                },
-                "end": {
-                    "line": 50,
-                    "character": 122
-                }
-            },
-            "severity": "Error",
-            "code": "256"
-        },
-        {
-            "file": "c:\\Users\\venuadmin\\AppData\\Roaming\\MetaQuotes\\Terminal\\2191F4A3D14D7B4B1EBB84F924777883\\MQL4\\Experts\\V-TV-Signals\\V_TV_SeqSellOrders.mqh",
-            "message": "'+' - some operator expected",
-            "range": {
-                "start": {
-                    "line": 50,
-                    "character": 62
-                },
-                "end": {
-                    "line": 50,
-                    "character": 162
-                }
-            },
-            "severity": "Error",
-            "code": "152"
-        },
-        {
-            "file": "c:\\Users\\venuadmin\\AppData\\Roaming\\MetaQuotes\\Terminal\\2191F4A3D14D7B4B1EBB84F924777883\\MQL4\\Experts\\V-TV-Signals\\V_TV_SeqSellOrders.mqh",
-            "message": "undeclared identifier 'isEMATouchesInsideLines'",
-            "range": {
-                "start": {
-                    "line": 58,
-                    "character": 3
-                },
-                "end": {
-                    "line": 58,
-                    "character": 103
-                }
-            },
-            "severity": "Error",
-            "code": "256"
-        },
-        {
-            "file": "c:\\Users\\venuadmin\\AppData\\Roaming\\MetaQuotes\\Terminal\\2191F4A3D14D7B4B1EBB84F924777883\\MQL4\\Experts\\V-TV-Signals\\V_TV_SeqSellOrders.mqh",
-            "message": "undeclared identifier 'g_startupWaitUntil'",
-            "range": {
-                "start": {
-                    "line": 67,
-                    "character": 23
-                },
-                "end": {
-                    "line": 67,
-                    "character": 123
-                }
-            },
-            "severity": "Error",
-            "code": "256"
-        },
-        {
-            "file": "c:\\Users\\venuadmin\\AppData\\Roaming\\MetaQuotes\\Terminal\\2191F4A3D14D7B4B1EBB84F924777883\\MQL4\\Experts\\V-TV-Signals\\V_TV_SeqSellOrders.mqh",
-            "message": "undeclared identifier 'printdummy'",
-            "range": {
-                "start": {
-                    "line": 68,
-                    "character": 3
-                },
-                "end": {
-                    "line": 68,
-                    "character": 103
-                }
-            },
-            "severity": "Error",
-            "code": "256"
-        },
-        {
-            "file": "c:\\Users\\venuadmin\\AppData\\Roaming\\MetaQuotes\\Terminal\\2191F4A3D14D7B4B1EBB84F924777883\\MQL4\\Experts\\V-TV-Signals\\V_TV_SeqSellOrders.mqh",
-            "message": "undeclared identifier 'g_startupWaitUntil'",
-            "range": {
-                "start": {
-                    "line": 69,
-                    "character": 22
-                },
-                "end": {
-                    "line": 69,
-                    "character": 122
-                }
-            },
-            "severity": "Error",
-            "code": "256"
-        },
-        {
-            "file": "c:\\Users\\venuadmin\\AppData\\Roaming\\MetaQuotes\\Terminal\\2191F4A3D14D7B4B1EBB84F924777883\\MQL4\\Experts\\V-TV-Signals\\V_TV_SeqSellOrders.mqh",
-            "message": "'+' - some operator expected",
-            "range": {
-                "start": {
-                    "line": 69,
-                    "character": 62
-                },
-                "end": {
-                    "line": 69,
-                    "character": 162
-                }
-            },
-            "severity": "Error",
-            "code": "152"
-        },
-        {
-            "file": "c:\\Users\\venuadmin\\AppData\\Roaming\\MetaQuotes\\Terminal\\2191F4A3D14D7B4B1EBB84F924777883\\MQL4\\Experts\\V-TV-Signals\\V_TV_SeqSellOrders.mqh",
-            "message": "undeclared identifier 'SeqSellMinSecsBetweenOrders'",
-            "range": {
-                "start": {
-                    "line": 77,
-                    "character": 6
-                },
-                "end": {
-                    "line": 77,
-                    "character": 106
-                }
-            },
-            "severity": "Error",
-            "code": "256"
-        },
-        {
-            "file": "c:\\Users\\venuadmin\\AppData\\Roaming\\MetaQuotes\\Terminal\\2191F4A3D14D7B4B1EBB84F924777883\\MQL4\\Experts\\V-TV-Signals\\V_TV_SeqSellOrders.mqh",
-            "message": "undeclared identifier 'SELECT_BY_POS'",
-            "range": {
-                "start": {
-                    "line": 82,
-                    "character": 25
-                },
-                "end": {
-                    "line": 82,
-                    "character": 125
-                }
-            },
-            "severity": "Error",
-            "code": "256"
-        },
-        {
-            "file": "c:\\Users\\venuadmin\\AppData\\Roaming\\MetaQuotes\\Terminal\\2191F4A3D14D7B4B1EBB84F924777883\\MQL4\\Experts\\V-TV-Signals\\V_TV_SeqSellOrders.mqh",
-            "message": "undeclared identifier 'MODE_TRADES'",
-            "range": {
-                "start": {
-                    "line": 82,
-                    "character": 40
-                },
-                "end": {
-                    "line": 82,
-                    "character": 140
-                }
-            },
-            "severity": "Error",
-            "code": "256"
-        },
-        {
-            "file": "c:\\Users\\venuadmin\\AppData\\Roaming\\MetaQuotes\\Terminal\\2191F4A3D14D7B4B1EBB84F924777883\\MQL4\\Experts\\V-TV-Signals\\V_TV_SeqSellOrders.mqh",
-            "message": "wrong parameters count",
-            "range": {
-                "start": {
-                    "line": 82,
-                    "character": 10
-                },
-                "end": {
-                    "line": 82,
-                    "character": 110
-                }
-            },
-            "severity": "Error",
-            "code": "199"
-        },
-        {
-            "file": "c:\\Users\\venuadmin\\AppData\\Roaming\\MetaQuotes\\Terminal\\2191F4A3D14D7B4B1EBB84F924777883\\MQL4\\Experts\\V-TV-Signals\\V_TV_SeqSellOrders.mqh",
-            "message": "undeclared identifier 'OrderSymbol'",
-            "range": {
-                "start": {
-                    "line": 83,
-                    "character": 9
-                },
-                "end": {
-                    "line": 83,
-                    "character": 109
-                }
-            },
-            "severity": "Error",
-            "code": "256"
-        },
-        {
-            "file": "c:\\Users\\venuadmin\\AppData\\Roaming\\MetaQuotes\\Terminal\\2191F4A3D14D7B4B1EBB84F924777883\\MQL4\\Experts\\V-TV-Signals\\V_TV_SeqSellOrders.mqh",
-            "message": "')' - expression expected",
-            "range": {
-                "start": {
-                    "line": 83,
-                    "character": 21
-                },
-                "end": {
-                    "line": 83,
-                    "character": 121
-                }
-            },
-            "severity": "Error",
-            "code": "157"
-        },
-        {
-            "file": "c:\\Users\\venuadmin\\AppData\\Roaming\\MetaQuotes\\Terminal\\2191F4A3D14D7B4B1EBB84F924777883\\MQL4\\Experts\\V-TV-Signals\\V_TV_SeqSellOrders.mqh",
+            "file": "c:\\Users\\venuadmin\\AppData\\Roaming\\MetaQuotes\\Terminal\\2191F4A3D14D7B4B1EBB84F924777883\\MQL4\\Experts\\OLD2\\V-TV-VENU-Special\\V_TV_ColorPatternAnalysis.mqh",
             "message": "implicit conversion from 'unknown' to 'string'",
             "range": {
                 "start": {
-                    "line": 83,
-                    "character": 9
+                    "line": 161,
+                    "character": 33
                 },
                 "end": {
-                    "line": 83,
-                    "character": 109
+                    "line": 161,
+                    "character": 133
                 }
             },
             "severity": "Warning",
             "code": "94"
         },
         {
-            "file": "c:\\Users\\venuadmin\\AppData\\Roaming\\MetaQuotes\\Terminal\\2191F4A3D14D7B4B1EBB84F924777883\\MQL4\\Experts\\V-TV-Signals\\V_TV_SeqSellOrders.mqh",
-            "message": "undeclared identifier 'OrderMagicNumber'",
+            "file": "c:\\Users\\venuadmin\\AppData\\Roaming\\MetaQuotes\\Terminal\\2191F4A3D14D7B4B1EBB84F924777883\\MQL4\\Experts\\OLD2\\V-TV-VENU-Special\\V_TV_ColorPatternAnalysis.mqh",
+            "message": "undeclared identifier 'cr'",
             "range": {
                 "start": {
-                    "line": 84,
-                    "character": 9
+                    "line": 162,
+                    "character": 33
                 },
                 "end": {
-                    "line": 84,
-                    "character": 109
+                    "line": 162,
+                    "character": 133
                 }
             },
             "severity": "Error",
             "code": "256"
         },
         {
-            "file": "c:\\Users\\venuadmin\\AppData\\Roaming\\MetaQuotes\\Terminal\\2191F4A3D14D7B4B1EBB84F924777883\\MQL4\\Experts\\V-TV-Signals\\V_TV_SeqSellOrders.mqh",
-            "message": "')' - expression expected",
+            "file": "c:\\Users\\venuadmin\\AppData\\Roaming\\MetaQuotes\\Terminal\\2191F4A3D14D7B4B1EBB84F924777883\\MQL4\\Experts\\OLD2\\V-TV-VENU-Special\\V_TV_ColorPatternAnalysis.mqh",
+            "message": "implicit conversion from 'unknown' to 'string'",
             "range": {
                 "start": {
-                    "line": 84,
-                    "character": 26
+                    "line": 162,
+                    "character": 33
                 },
                 "end": {
-                    "line": 84,
-                    "character": 126
+                    "line": 162,
+                    "character": 133
                 }
             },
-            "severity": "Error",
-            "code": "157"
+            "severity": "Warning",
+            "code": "94"
         },
         {
-            "file": "c:\\Users\\venuadmin\\AppData\\Roaming\\MetaQuotes\\Terminal\\2191F4A3D14D7B4B1EBB84F924777883\\MQL4\\Experts\\V-TV-Signals\\V_TV_SeqSellOrders.mqh",
-            "message": "undeclared identifier 'OrderType'",
+            "file": "c:\\Users\\venuadmin\\AppData\\Roaming\\MetaQuotes\\Terminal\\2191F4A3D14D7B4B1EBB84F924777883\\MQL4\\Experts\\OLD2\\V-TV-VENU-Special\\V_TV_ColorPatternAnalysis.mqh",
+            "message": "undeclared identifier 'cr'",
             "range": {
                 "start": {
-                    "line": 86,
-                    "character": 17
+                    "line": 163,
+                    "character": 33
                 },
                 "end": {
-                    "line": 86,
-                    "character": 117
-                }
-            },
-            "severity": "Error",
-            "code": "256"
-        },
-        {
-            "file": "c:\\Users\\venuadmin\\AppData\\Roaming\\MetaQuotes\\Terminal\\2191F4A3D14D7B4B1EBB84F924777883\\MQL4\\Experts\\V-TV-Signals\\V_TV_SeqSellOrders.mqh",
-            "message": "')' - expression expected",
-            "range": {
-                "start": {
-                    "line": 86,
-                    "character": 27
-                },
-                "end": {
-                    "line": 86,
-                    "character": 127
-                }
-            },
-            "severity": "Error",
-            "code": "157"
-        },
-        {
-            "file": "c:\\Users\\venuadmin\\AppData\\Roaming\\MetaQuotes\\Terminal\\2191F4A3D14D7B4B1EBB84F924777883\\MQL4\\Experts\\V-TV-Signals\\V_TV_SeqSellOrders.mqh",
-            "message": "undeclared identifier 'OP_SELL'",
-            "range": {
-                "start": {
-                    "line": 88,
-                    "character": 17
-                },
-                "end": {
-                    "line": 88,
-                    "character": 117
+                    "line": 163,
+                    "character": 133
                 }
             },
             "severity": "Error",
             "code": "256"
         },
         {
-            "file": "c:\\Users\\venuadmin\\AppData\\Roaming\\MetaQuotes\\Terminal\\2191F4A3D14D7B4B1EBB84F924777883\\MQL4\\Experts\\V-TV-Signals\\V_TV_SeqSellOrders.mqh",
-            "message": "undeclared identifier 'OP_SELLSTOP'",
+            "file": "c:\\Users\\venuadmin\\AppData\\Roaming\\MetaQuotes\\Terminal\\2191F4A3D14D7B4B1EBB84F924777883\\MQL4\\Experts\\OLD2\\V-TV-VENU-Special\\V_TV_ColorPatternAnalysis.mqh",
+            "message": "implicit conversion from 'unknown' to 'string'",
             "range": {
                 "start": {
-                    "line": 88,
+                    "line": 163,
+                    "character": 33
+                },
+                "end": {
+                    "line": 163,
+                    "character": 133
+                }
+            },
+            "severity": "Warning",
+            "code": "94"
+        },
+        {
+            "file": "c:\\Users\\venuadmin\\AppData\\Roaming\\MetaQuotes\\Terminal\\2191F4A3D14D7B4B1EBB84F924777883\\MQL4\\Experts\\OLD2\\V-TV-VENU-Special\\V_TV_ColorPatternAnalysis.mqh",
+            "message": "undeclared identifier 'cr'",
+            "range": {
+                "start": {
+                    "line": 164,
+                    "character": 33
+                },
+                "end": {
+                    "line": 164,
+                    "character": 133
+                }
+            },
+            "severity": "Error",
+            "code": "256"
+        },
+        {
+            "file": "c:\\Users\\venuadmin\\AppData\\Roaming\\MetaQuotes\\Terminal\\2191F4A3D14D7B4B1EBB84F924777883\\MQL4\\Experts\\OLD2\\V-TV-VENU-Special\\V_TV_ColorPatternAnalysis.mqh",
+            "message": "implicit conversion from 'unknown' to 'string'",
+            "range": {
+                "start": {
+                    "line": 164,
+                    "character": 33
+                },
+                "end": {
+                    "line": 164,
+                    "character": 133
+                }
+            },
+            "severity": "Warning",
+            "code": "94"
+        },
+        {
+            "file": "c:\\Users\\venuadmin\\AppData\\Roaming\\MetaQuotes\\Terminal\\2191F4A3D14D7B4B1EBB84F924777883\\MQL4\\Experts\\OLD2\\V-TV-VENU-Special\\V_TV_ColorPatternAnalysis.mqh",
+            "message": "undeclared identifier 'cr'",
+            "range": {
+                "start": {
+                    "line": 166,
+                    "character": 34
+                },
+                "end": {
+                    "line": 166,
+                    "character": 134
+                }
+            },
+            "severity": "Error",
+            "code": "256"
+        },
+        {
+            "file": "c:\\Users\\venuadmin\\AppData\\Roaming\\MetaQuotes\\Terminal\\2191F4A3D14D7B4B1EBB84F924777883\\MQL4\\Experts\\OLD2\\V-TV-VENU-Special\\V_TV_ColorPatternAnalysis.mqh",
+            "message": "implicit conversion from 'unknown' to 'string'",
+            "range": {
+                "start": {
+                    "line": 166,
+                    "character": 34
+                },
+                "end": {
+                    "line": 166,
+                    "character": 134
+                }
+            },
+            "severity": "Warning",
+            "code": "94"
+        },
+        {
+            "file": "c:\\Users\\venuadmin\\AppData\\Roaming\\MetaQuotes\\Terminal\\2191F4A3D14D7B4B1EBB84F924777883\\MQL4\\Experts\\OLD2\\V-TV-VENU-Special\\V_TV_ColorPatternAnalysis.mqh",
+            "message": "undeclared identifier 'MarketInfo'",
+            "range": {
+                "start": {
+                    "line": 168,
                     "character": 36
                 },
                 "end": {
-                    "line": 88,
+                    "line": 168,
                     "character": 136
                 }
             },
@@ -481,367 +433,319 @@
             "code": "256"
         },
         {
-            "file": "c:\\Users\\venuadmin\\AppData\\Roaming\\MetaQuotes\\Terminal\\2191F4A3D14D7B4B1EBB84F924777883\\MQL4\\Experts\\V-TV-Signals\\V_TV_SeqSellOrders.mqh",
-            "message": "undeclared identifier 'OrderTicket'",
+            "file": "c:\\Users\\venuadmin\\AppData\\Roaming\\MetaQuotes\\Terminal\\2191F4A3D14D7B4B1EBB84F924777883\\MQL4\\Experts\\OLD2\\V-TV-VENU-Special\\V_TV_ColorPatternAnalysis.mqh",
+            "message": "',' - unexpected token",
             "range": {
                 "start": {
-                    "line": 90,
-                    "character": 92
+                    "line": 168,
+                    "character": 55
                 },
                 "end": {
-                    "line": 90,
-                    "character": 192
+                    "line": 168,
+                    "character": 155
+                }
+            },
+            "severity": "Error",
+            "code": "149"
+        },
+        {
+            "file": "c:\\Users\\venuadmin\\AppData\\Roaming\\MetaQuotes\\Terminal\\2191F4A3D14D7B4B1EBB84F924777883\\MQL4\\Experts\\OLD2\\V-TV-VENU-Special\\V_TV_ColorPatternAnalysis.mqh",
+            "message": "'Symbol' - some operator expected",
+            "range": {
+                "start": {
+                    "line": 168,
+                    "character": 47
+                },
+                "end": {
+                    "line": 168,
+                    "character": 147
+                }
+            },
+            "severity": "Error",
+            "code": "152"
+        },
+        {
+            "file": "c:\\Users\\venuadmin\\AppData\\Roaming\\MetaQuotes\\Terminal\\2191F4A3D14D7B4B1EBB84F924777883\\MQL4\\Experts\\OLD2\\V-TV-VENU-Special\\V_TV_ColorPatternAnalysis.mqh",
+            "message": "'MODE_BID' - colon ':' expected",
+            "range": {
+                "start": {
+                    "line": 168,
+                    "character": 57
+                },
+                "end": {
+                    "line": 168,
+                    "character": 157
+                }
+            },
+            "severity": "Error",
+            "code": "123"
+        },
+        {
+            "file": "c:\\Users\\venuadmin\\AppData\\Roaming\\MetaQuotes\\Terminal\\2191F4A3D14D7B4B1EBB84F924777883\\MQL4\\Experts\\OLD2\\V-TV-VENU-Special\\V_TV_ColorPatternAnalysis.mqh",
+            "message": "undeclared identifier 'MODE_BID'",
+            "range": {
+                "start": {
+                    "line": 168,
+                    "character": 57
+                },
+                "end": {
+                    "line": 168,
+                    "character": 157
                 }
             },
             "severity": "Error",
             "code": "256"
         },
         {
-            "file": "c:\\Users\\venuadmin\\AppData\\Roaming\\MetaQuotes\\Terminal\\2191F4A3D14D7B4B1EBB84F924777883\\MQL4\\Experts\\V-TV-Signals\\V_TV_SeqSellOrders.mqh",
-            "message": "')' - expression expected",
+            "file": "c:\\Users\\venuadmin\\AppData\\Roaming\\MetaQuotes\\Terminal\\2191F4A3D14D7B4B1EBB84F924777883\\MQL4\\Experts\\OLD2\\V-TV-VENU-Special\\V_TV_ColorPatternAnalysis.mqh",
+            "message": "')' - unexpected token",
             "range": {
                 "start": {
-                    "line": 90,
-                    "character": 104
+                    "line": 168,
+                    "character": 65
                 },
                 "end": {
-                    "line": 90,
-                    "character": 204
+                    "line": 168,
+                    "character": 165
                 }
             },
             "severity": "Error",
-            "code": "157"
+            "code": "149"
         },
         {
-            "file": "c:\\Users\\venuadmin\\AppData\\Roaming\\MetaQuotes\\Terminal\\2191F4A3D14D7B4B1EBB84F924777883\\MQL4\\Experts\\V-TV-Signals\\V_TV_SeqSellOrders.mqh",
-            "message": "undeclared identifier 'g_blockReason'",
+            "file": "c:\\Users\\venuadmin\\AppData\\Roaming\\MetaQuotes\\Terminal\\2191F4A3D14D7B4B1EBB84F924777883\\MQL4\\Experts\\OLD2\\V-TV-VENU-Special\\V_TV_ColorPatternAnalysis.mqh",
+            "message": "')' - unexpected token",
             "range": {
                 "start": {
-                    "line": 91,
-                    "character": 9
+                    "line": 168,
+                    "character": 65
                 },
                 "end": {
-                    "line": 91,
-                    "character": 109
+                    "line": 168,
+                    "character": 165
                 }
             },
             "severity": "Error",
-            "code": "256"
+            "code": "149"
         },
         {
-            "file": "c:\\Users\\venuadmin\\AppData\\Roaming\\MetaQuotes\\Terminal\\2191F4A3D14D7B4B1EBB84F924777883\\MQL4\\Experts\\V-TV-Signals\\V_TV_SeqSellOrders.mqh",
-            "message": "undeclared identifier 'OrderTicket'",
+            "file": "c:\\Users\\venuadmin\\AppData\\Roaming\\MetaQuotes\\Terminal\\2191F4A3D14D7B4B1EBB84F924777883\\MQL4\\Experts\\OLD2\\V-TV-VENU-Special\\V_TV_ColorPatternAnalysis.mqh",
+            "message": "':' - unexpected token",
             "range": {
                 "start": {
-                    "line": 91,
-                    "character": 91
+                    "line": 169,
+                    "character": 34
                 },
                 "end": {
-                    "line": 91,
-                    "character": 191
+                    "line": 169,
+                    "character": 134
                 }
             },
             "severity": "Error",
-            "code": "256"
+            "code": "149"
         },
         {
-            "file": "c:\\Users\\venuadmin\\AppData\\Roaming\\MetaQuotes\\Terminal\\2191F4A3D14D7B4B1EBB84F924777883\\MQL4\\Experts\\V-TV-Signals\\V_TV_SeqSellOrders.mqh",
-            "message": "')' - expression expected",
+            "file": "c:\\Users\\venuadmin\\AppData\\Roaming\\MetaQuotes\\Terminal\\2191F4A3D14D7B4B1EBB84F924777883\\MQL4\\Experts\\OLD2\\V-TV-VENU-Special\\V_TV_ColorPatternAnalysis.mqh",
+            "message": "undeclared identifier 'MarketInfo'",
             "range": {
                 "start": {
-                    "line": 91,
-                    "character": 103
+                    "line": 169,
+                    "character": 36
                 },
                 "end": {
-                    "line": 91,
-                    "character": 203
-                }
-            },
-            "severity": "Error",
-            "code": "157"
-        },
-        {
-            "file": "c:\\Users\\venuadmin\\AppData\\Roaming\\MetaQuotes\\Terminal\\2191F4A3D14D7B4B1EBB84F924777883\\MQL4\\Experts\\V-TV-Signals\\V_TV_SeqSellOrders.mqh",
-            "message": "undeclared identifier 'SeqSellMinSecsBetweenOrders'",
-            "range": {
-                "start": {
-                    "line": 98,
-                    "character": 6
-                },
-                "end": {
-                    "line": 98,
-                    "character": 106
+                    "line": 169,
+                    "character": 136
                 }
             },
             "severity": "Error",
             "code": "256"
         },
         {
-            "file": "c:\\Users\\venuadmin\\AppData\\Roaming\\MetaQuotes\\Terminal\\2191F4A3D14D7B4B1EBB84F924777883\\MQL4\\Experts\\V-TV-Signals\\V_TV_SeqSellOrders.mqh",
-            "message": "undeclared identifier 'OrdersHistoryTotal'",
+            "file": "c:\\Users\\venuadmin\\AppData\\Roaming\\MetaQuotes\\Terminal\\2191F4A3D14D7B4B1EBB84F924777883\\MQL4\\Experts\\OLD2\\V-TV-VENU-Special\\V_TV_ColorPatternAnalysis.mqh",
+            "message": "',' - unexpected token",
             "range": {
                 "start": {
-                    "line": 102,
-                    "character": 18
+                    "line": 169,
+                    "character": 55
                 },
                 "end": {
-                    "line": 102,
-                    "character": 118
+                    "line": 169,
+                    "character": 155
+                }
+            },
+            "severity": "Error",
+            "code": "149"
+        },
+        {
+            "file": "c:\\Users\\venuadmin\\AppData\\Roaming\\MetaQuotes\\Terminal\\2191F4A3D14D7B4B1EBB84F924777883\\MQL4\\Experts\\OLD2\\V-TV-VENU-Special\\V_TV_ColorPatternAnalysis.mqh",
+            "message": "'Symbol' - some operator expected",
+            "range": {
+                "start": {
+                    "line": 169,
+                    "character": 47
+                },
+                "end": {
+                    "line": 169,
+                    "character": 147
+                }
+            },
+            "severity": "Error",
+            "code": "152"
+        },
+        {
+            "file": "c:\\Users\\venuadmin\\AppData\\Roaming\\MetaQuotes\\Terminal\\2191F4A3D14D7B4B1EBB84F924777883\\MQL4\\Experts\\OLD2\\V-TV-VENU-Special\\V_TV_ColorPatternAnalysis.mqh",
+            "message": "')' - unexpected token",
+            "range": {
+                "start": {
+                    "line": 169,
+                    "character": 65
+                },
+                "end": {
+                    "line": 169,
+                    "character": 165
+                }
+            },
+            "severity": "Error",
+            "code": "149"
+        },
+        {
+            "file": "c:\\Users\\venuadmin\\AppData\\Roaming\\MetaQuotes\\Terminal\\2191F4A3D14D7B4B1EBB84F924777883\\MQL4\\Experts\\OLD2\\V-TV-VENU-Special\\V_TV_ColorPatternAnalysis.mqh",
+            "message": "undeclared identifier 'SeqSellStopLossUSD'",
+            "range": {
+                "start": {
+                    "line": 305,
+                    "character": 33
+                },
+                "end": {
+                    "line": 305,
+                    "character": 133
                 }
             },
             "severity": "Error",
             "code": "256"
         },
         {
-            "file": "c:\\Users\\venuadmin\\AppData\\Roaming\\MetaQuotes\\Terminal\\2191F4A3D14D7B4B1EBB84F924777883\\MQL4\\Experts\\V-TV-Signals\\V_TV_SeqSellOrders.mqh",
-            "message": "')' - expression expected",
+            "file": "c:\\Users\\venuadmin\\AppData\\Roaming\\MetaQuotes\\Terminal\\2191F4A3D14D7B4B1EBB84F924777883\\MQL4\\Experts\\OLD2\\V-TV-VENU-Special\\V_TV_ColorPatternAnalysis.mqh",
+            "message": "undeclared identifier 'SeqBuyStopLossUSD'",
             "range": {
                 "start": {
-                    "line": 102,
-                    "character": 37
+                    "line": 305,
+                    "character": 54
                 },
                 "end": {
-                    "line": 102,
-                    "character": 137
-                }
-            },
-            "severity": "Error",
-            "code": "157"
-        },
-        {
-            "file": "c:\\Users\\venuadmin\\AppData\\Roaming\\MetaQuotes\\Terminal\\2191F4A3D14D7B4B1EBB84F924777883\\MQL4\\Experts\\V-TV-Signals\\V_TV_SeqSellOrders.mqh",
-            "message": "undeclared identifier 'SELECT_BY_POS'",
-            "range": {
-                "start": {
-                    "line": 104,
-                    "character": 28
-                },
-                "end": {
-                    "line": 104,
-                    "character": 128
+                    "line": 305,
+                    "character": 154
                 }
             },
             "severity": "Error",
             "code": "256"
         },
         {
-            "file": "c:\\Users\\venuadmin\\AppData\\Roaming\\MetaQuotes\\Terminal\\2191F4A3D14D7B4B1EBB84F924777883\\MQL4\\Experts\\V-TV-Signals\\V_TV_SeqSellOrders.mqh",
-            "message": "undeclared identifier 'MODE_HISTORY'",
+            "file": "c:\\Users\\venuadmin\\AppData\\Roaming\\MetaQuotes\\Terminal\\2191F4A3D14D7B4B1EBB84F924777883\\MQL4\\Experts\\OLD2\\V-TV-VENU-Special\\V_TV_ColorPatternAnalysis.mqh",
+            "message": "undeclared identifier 'MarketInfo'",
             "range": {
                 "start": {
-                    "line": 104,
-                    "character": 43
+                    "line": 388,
+                    "character": 16
                 },
                 "end": {
-                    "line": 104,
-                    "character": 143
+                    "line": 388,
+                    "character": 116
                 }
             },
             "severity": "Error",
             "code": "256"
         },
         {
-            "file": "c:\\Users\\venuadmin\\AppData\\Roaming\\MetaQuotes\\Terminal\\2191F4A3D14D7B4B1EBB84F924777883\\MQL4\\Experts\\V-TV-Signals\\V_TV_SeqSellOrders.mqh",
-            "message": "wrong parameters count",
+            "file": "c:\\Users\\venuadmin\\AppData\\Roaming\\MetaQuotes\\Terminal\\2191F4A3D14D7B4B1EBB84F924777883\\MQL4\\Experts\\OLD2\\V-TV-VENU-Special\\V_TV_ColorPatternAnalysis.mqh",
+            "message": "',' - unexpected token",
             "range": {
                 "start": {
-                    "line": 104,
-                    "character": 13
+                    "line": 388,
+                    "character": 35
                 },
                 "end": {
-                    "line": 104,
-                    "character": 113
+                    "line": 388,
+                    "character": 135
                 }
             },
             "severity": "Error",
-            "code": "199"
+            "code": "149"
         },
         {
-            "file": "c:\\Users\\venuadmin\\AppData\\Roaming\\MetaQuotes\\Terminal\\2191F4A3D14D7B4B1EBB84F924777883\\MQL4\\Experts\\V-TV-Signals\\V_TV_SeqSellOrders.mqh",
-            "message": "undeclared identifier 'OrderSymbol'",
+            "file": "c:\\Users\\venuadmin\\AppData\\Roaming\\MetaQuotes\\Terminal\\2191F4A3D14D7B4B1EBB84F924777883\\MQL4\\Experts\\OLD2\\V-TV-VENU-Special\\V_TV_ColorPatternAnalysis.mqh",
+            "message": "'Symbol' - some operator expected",
             "range": {
                 "start": {
-                    "line": 105,
-                    "character": 12
-                },
-                "end": {
-                    "line": 105,
-                    "character": 112
-                }
-            },
-            "severity": "Error",
-            "code": "256"
-        },
-        {
-            "file": "c:\\Users\\venuadmin\\AppData\\Roaming\\MetaQuotes\\Terminal\\2191F4A3D14D7B4B1EBB84F924777883\\MQL4\\Experts\\V-TV-Signals\\V_TV_SeqSellOrders.mqh",
-            "message": "')' - expression expected",
-            "range": {
-                "start": {
-                    "line": 105,
-                    "character": 24
-                },
-                "end": {
-                    "line": 105,
-                    "character": 124
-                }
-            },
-            "severity": "Error",
-            "code": "157"
-        },
-        {
-            "file": "c:\\Users\\venuadmin\\AppData\\Roaming\\MetaQuotes\\Terminal\\2191F4A3D14D7B4B1EBB84F924777883\\MQL4\\Experts\\V-TV-Signals\\V_TV_SeqSellOrders.mqh",
-            "message": "implicit conversion from 'unknown' to 'string'",
-            "range": {
-                "start": {
-                    "line": 105,
-                    "character": 12
-                },
-                "end": {
-                    "line": 105,
-                    "character": 112
-                }
-            },
-            "severity": "Warning",
-            "code": "94"
-        },
-        {
-            "file": "c:\\Users\\venuadmin\\AppData\\Roaming\\MetaQuotes\\Terminal\\2191F4A3D14D7B4B1EBB84F924777883\\MQL4\\Experts\\V-TV-Signals\\V_TV_SeqSellOrders.mqh",
-            "message": "undeclared identifier 'OrderMagicNumber'",
-            "range": {
-                "start": {
-                    "line": 106,
-                    "character": 12
-                },
-                "end": {
-                    "line": 106,
-                    "character": 112
-                }
-            },
-            "severity": "Error",
-            "code": "256"
-        },
-        {
-            "file": "c:\\Users\\venuadmin\\AppData\\Roaming\\MetaQuotes\\Terminal\\2191F4A3D14D7B4B1EBB84F924777883\\MQL4\\Experts\\V-TV-Signals\\V_TV_SeqSellOrders.mqh",
-            "message": "')' - expression expected",
-            "range": {
-                "start": {
-                    "line": 106,
-                    "character": 29
-                },
-                "end": {
-                    "line": 106,
-                    "character": 129
-                }
-            },
-            "severity": "Error",
-            "code": "157"
-        },
-        {
-            "file": "c:\\Users\\venuadmin\\AppData\\Roaming\\MetaQuotes\\Terminal\\2191F4A3D14D7B4B1EBB84F924777883\\MQL4\\Experts\\V-TV-Signals\\V_TV_SeqSellOrders.mqh",
-            "message": "undeclared identifier 'OrderType'",
-            "range": {
-                "start": {
-                    "line": 108,
-                    "character": 20
-                },
-                "end": {
-                    "line": 108,
-                    "character": 120
-                }
-            },
-            "severity": "Error",
-            "code": "256"
-        },
-        {
-            "file": "c:\\Users\\venuadmin\\AppData\\Roaming\\MetaQuotes\\Terminal\\2191F4A3D14D7B4B1EBB84F924777883\\MQL4\\Experts\\V-TV-Signals\\V_TV_SeqSellOrders.mqh",
-            "message": "')' - expression expected",
-            "range": {
-                "start": {
-                    "line": 108,
-                    "character": 30
-                },
-                "end": {
-                    "line": 108,
-                    "character": 130
-                }
-            },
-            "severity": "Error",
-            "code": "157"
-        },
-        {
-            "file": "c:\\Users\\venuadmin\\AppData\\Roaming\\MetaQuotes\\Terminal\\2191F4A3D14D7B4B1EBB84F924777883\\MQL4\\Experts\\V-TV-Signals\\V_TV_SeqSellOrders.mqh",
-            "message": "undeclared identifier 'OP_SELL'",
-            "range": {
-                "start": {
-                    "line": 109,
-                    "character": 20
-                },
-                "end": {
-                    "line": 109,
-                    "character": 120
-                }
-            },
-            "severity": "Error",
-            "code": "256"
-        },
-        {
-            "file": "c:\\Users\\venuadmin\\AppData\\Roaming\\MetaQuotes\\Terminal\\2191F4A3D14D7B4B1EBB84F924777883\\MQL4\\Experts\\V-TV-Signals\\V_TV_SeqSellOrders.mqh",
-            "message": "undeclared identifier 'OP_SELLSTOP'",
-            "range": {
-                "start": {
-                    "line": 109,
-                    "character": 39
-                },
-                "end": {
-                    "line": 109,
-                    "character": 139
-                }
-            },
-            "severity": "Error",
-            "code": "256"
-        },
-        {
-            "file": "c:\\Users\\venuadmin\\AppData\\Roaming\\MetaQuotes\\Terminal\\2191F4A3D14D7B4B1EBB84F924777883\\MQL4\\Experts\\V-TV-Signals\\V_TV_SeqSellOrders.mqh",
-            "message": "undeclared identifier 'OrderCloseTime'",
-            "range": {
-                "start": {
-                    "line": 113,
-                    "character": 12
-                },
-                "end": {
-                    "line": 113,
-                    "character": 112
-                }
-            },
-            "severity": "Error",
-            "code": "256"
-        },
-        {
-            "file": "c:\\Users\\venuadmin\\AppData\\Roaming\\MetaQuotes\\Terminal\\2191F4A3D14D7B4B1EBB84F924777883\\MQL4\\Experts\\V-TV-Signals\\V_TV_SeqSellOrders.mqh",
-            "message": "')' - expression expected",
-            "range": {
-                "start": {
-                    "line": 113,
+                    "line": 388,
                     "character": 27
                 },
                 "end": {
-                    "line": 113,
+                    "line": 388,
                     "character": 127
                 }
             },
             "severity": "Error",
-            "code": "157"
+            "code": "152"
         },
         {
-            "file": "c:\\Users\\venuadmin\\AppData\\Roaming\\MetaQuotes\\Terminal\\2191F4A3D14D7B4B1EBB84F924777883\\MQL4\\Experts\\V-TV-Signals\\V_TV_SeqSellOrders.mqh",
-            "message": "undeclared identifier 'OrderCloseTime'",
+            "file": "c:\\Users\\venuadmin\\AppData\\Roaming\\MetaQuotes\\Terminal\\2191F4A3D14D7B4B1EBB84F924777883\\MQL4\\Experts\\OLD2\\V-TV-VENU-Special\\V_TV_ColorPatternAnalysis.mqh",
+            "message": "semicolon expected",
             "range": {
                 "start": {
-                    "line": 114,
+                    "line": 388,
+                    "character": 37
+                },
+                "end": {
+                    "line": 388,
+                    "character": 137
+                }
+            },
+            "severity": "Error",
+            "code": "154"
+        },
+        {
+            "file": "c:\\Users\\venuadmin\\AppData\\Roaming\\MetaQuotes\\Terminal\\2191F4A3D14D7B4B1EBB84F924777883\\MQL4\\Experts\\OLD2\\V-TV-VENU-Special\\V_TV_ColorPatternAnalysis.mqh",
+            "message": "undeclared identifier 'MODE_BID'",
+            "range": {
+                "start": {
+                    "line": 388,
+                    "character": 37
+                },
+                "end": {
+                    "line": 388,
+                    "character": 137
+                }
+            },
+            "severity": "Error",
+            "code": "256"
+        },
+        {
+            "file": "c:\\Users\\venuadmin\\AppData\\Roaming\\MetaQuotes\\Terminal\\2191F4A3D14D7B4B1EBB84F924777883\\MQL4\\Experts\\OLD2\\V-TV-VENU-Special\\V_TV_ColorPatternAnalysis.mqh",
+            "message": "')' - unexpected token",
+            "range": {
+                "start": {
+                    "line": 388,
+                    "character": 45
+                },
+                "end": {
+                    "line": 388,
+                    "character": 145
+                }
+            },
+            "severity": "Error",
+            "code": "149"
+        },
+        {
+            "file": "c:\\Users\\venuadmin\\AppData\\Roaming\\MetaQuotes\\Terminal\\2191F4A3D14D7B4B1EBB84F924777883\\MQL4\\Experts\\OLD2\\V-TV-VENU-Special\\V_TV_ColorPatternAnalysis.mqh",
+            "message": "undeclared identifier 'MarketInfo'",
+            "range": {
+                "start": {
+                    "line": 389,
                     "character": 16
                 },
                 "end": {
-                    "line": 114,
+                    "line": 389,
                     "character": 116
                 }
             },
@@ -849,63 +753,159 @@
             "code": "256"
         },
         {
-            "file": "c:\\Users\\venuadmin\\AppData\\Roaming\\MetaQuotes\\Terminal\\2191F4A3D14D7B4B1EBB84F924777883\\MQL4\\Experts\\V-TV-Signals\\V_TV_SeqSellOrders.mqh",
-            "message": "')' - expression expected",
+            "file": "c:\\Users\\venuadmin\\AppData\\Roaming\\MetaQuotes\\Terminal\\2191F4A3D14D7B4B1EBB84F924777883\\MQL4\\Experts\\OLD2\\V-TV-VENU-Special\\V_TV_ColorPatternAnalysis.mqh",
+            "message": "',' - unexpected token",
             "range": {
                 "start": {
-                    "line": 114,
-                    "character": 31
+                    "line": 389,
+                    "character": 35
                 },
                 "end": {
-                    "line": 114,
-                    "character": 131
+                    "line": 389,
+                    "character": 135
                 }
             },
             "severity": "Error",
-            "code": "157"
+            "code": "149"
         },
         {
-            "file": "c:\\Users\\venuadmin\\AppData\\Roaming\\MetaQuotes\\Terminal\\2191F4A3D14D7B4B1EBB84F924777883\\MQL4\\Experts\\V-TV-Signals\\V_TV_SeqSellOrders.mqh",
-            "message": "undeclared identifier 'OrderOpenTime'",
+            "file": "c:\\Users\\venuadmin\\AppData\\Roaming\\MetaQuotes\\Terminal\\2191F4A3D14D7B4B1EBB84F924777883\\MQL4\\Experts\\OLD2\\V-TV-VENU-Special\\V_TV_ColorPatternAnalysis.mqh",
+            "message": "'Symbol' - some operator expected",
             "range": {
                 "start": {
-                    "line": 116,
-                    "character": 16
+                    "line": 389,
+                    "character": 27
                 },
                 "end": {
-                    "line": 116,
-                    "character": 116
+                    "line": 389,
+                    "character": 127
+                }
+            },
+            "severity": "Error",
+            "code": "152"
+        },
+        {
+            "file": "c:\\Users\\venuadmin\\AppData\\Roaming\\MetaQuotes\\Terminal\\2191F4A3D14D7B4B1EBB84F924777883\\MQL4\\Experts\\OLD2\\V-TV-VENU-Special\\V_TV_ColorPatternAnalysis.mqh",
+            "message": "semicolon expected",
+            "range": {
+                "start": {
+                    "line": 389,
+                    "character": 37
+                },
+                "end": {
+                    "line": 389,
+                    "character": 137
+                }
+            },
+            "severity": "Error",
+            "code": "154"
+        },
+        {
+            "file": "c:\\Users\\venuadmin\\AppData\\Roaming\\MetaQuotes\\Terminal\\2191F4A3D14D7B4B1EBB84F924777883\\MQL4\\Experts\\OLD2\\V-TV-VENU-Special\\V_TV_ColorPatternAnalysis.mqh",
+            "message": "undeclared identifier 'MODE_ASK'",
+            "range": {
+                "start": {
+                    "line": 389,
+                    "character": 37
+                },
+                "end": {
+                    "line": 389,
+                    "character": 137
                 }
             },
             "severity": "Error",
             "code": "256"
         },
         {
-            "file": "c:\\Users\\venuadmin\\AppData\\Roaming\\MetaQuotes\\Terminal\\2191F4A3D14D7B4B1EBB84F924777883\\MQL4\\Experts\\V-TV-Signals\\V_TV_SeqSellOrders.mqh",
-            "message": "')' - expression expected",
+            "file": "c:\\Users\\venuadmin\\AppData\\Roaming\\MetaQuotes\\Terminal\\2191F4A3D14D7B4B1EBB84F924777883\\MQL4\\Experts\\OLD2\\V-TV-VENU-Special\\V_TV_ColorPatternAnalysis.mqh",
+            "message": "')' - unexpected token",
             "range": {
                 "start": {
-                    "line": 116,
-                    "character": 30
+                    "line": 389,
+                    "character": 45
                 },
                 "end": {
-                    "line": 116,
-                    "character": 130
+                    "line": 389,
+                    "character": 145
                 }
             },
             "severity": "Error",
-            "code": "157"
+            "code": "149"
         },
         {
-            "file": "c:\\Users\\venuadmin\\AppData\\Roaming\\MetaQuotes\\Terminal\\2191F4A3D14D7B4B1EBB84F924777883\\MQL4\\Experts\\V-TV-Signals\\V_TV_SeqSellOrders.mqh",
-            "message": "undeclared identifier 'SeqSellMinSecsBetweenOrders'",
+            "file": "c:\\Users\\venuadmin\\AppData\\Roaming\\MetaQuotes\\Terminal\\2191F4A3D14D7B4B1EBB84F924777883\\MQL4\\Experts\\OLD2\\V-TV-VENU-Special\\V_TV_ColorPatternAnalysis.mqh",
+            "message": "open parenthesis expected",
             "range": {
                 "start": {
-                    "line": 126,
+                    "line": 399,
+                    "character": 42
+                },
+                "end": {
+                    "line": 399,
+                    "character": 142
+                }
+            },
+            "severity": "Error",
+            "code": "132"
+        },
+        {
+            "file": "c:\\Users\\venuadmin\\AppData\\Roaming\\MetaQuotes\\Terminal\\2191F4A3D14D7B4B1EBB84F924777883\\MQL4\\Experts\\OLD2\\V-TV-VENU-Special\\V_TV_ColorPatternAnalysis.mqh",
+            "message": "open parenthesis expected",
+            "range": {
+                "start": {
+                    "line": 399,
+                    "character": 78
+                },
+                "end": {
+                    "line": 399,
+                    "character": 178
+                }
+            },
+            "severity": "Error",
+            "code": "132"
+        },
+        {
+            "file": "c:\\Users\\venuadmin\\AppData\\Roaming\\MetaQuotes\\Terminal\\2191F4A3D14D7B4B1EBB84F924777883\\MQL4\\Experts\\OLD2\\V-TV-VENU-Special\\V_TV_ColorPatternAnalysis.mqh",
+            "message": "open parenthesis expected",
+            "range": {
+                "start": {
+                    "line": 401,
+                    "character": 42
+                },
+                "end": {
+                    "line": 401,
+                    "character": 142
+                }
+            },
+            "severity": "Error",
+            "code": "132"
+        },
+        {
+            "file": "c:\\Users\\venuadmin\\AppData\\Roaming\\MetaQuotes\\Terminal\\2191F4A3D14D7B4B1EBB84F924777883\\MQL4\\Experts\\OLD2\\V-TV-VENU-Special\\V_TV_ColorPatternAnalysis.mqh",
+            "message": "open parenthesis expected",
+            "range": {
+                "start": {
+                    "line": 401,
+                    "character": 78
+                },
+                "end": {
+                    "line": 401,
+                    "character": 178
+                }
+            },
+            "severity": "Error",
+            "code": "132"
+        },
+        {
+            "file": "c:\\Users\\venuadmin\\AppData\\Roaming\\MetaQuotes\\Terminal\\2191F4A3D14D7B4B1EBB84F924777883\\MQL4\\Experts\\OLD2\\V-TV-VENU-Special\\V_TV_ColorPatternAnalysis.mqh",
+            "message": "undeclared identifier 'PointsToUSD'",
+            "range": {
+                "start": {
+                    "line": 406,
                     "character": 22
                 },
                 "end": {
-                    "line": 126,
+                    "line": 406,
                     "character": 122
                 }
             },
@@ -913,79 +913,191 @@
             "code": "256"
         },
         {
-            "file": "c:\\Users\\venuadmin\\AppData\\Roaming\\MetaQuotes\\Terminal\\2191F4A3D14D7B4B1EBB84F924777883\\MQL4\\Experts\\V-TV-Signals\\V_TV_SeqSellOrders.mqh",
-            "message": "undeclared identifier 'SeqSellMinSecsBetweenOrders'",
+            "file": "c:\\Users\\venuadmin\\AppData\\Roaming\\MetaQuotes\\Terminal\\2191F4A3D14D7B4B1EBB84F924777883\\MQL4\\Experts\\OLD2\\V-TV-VENU-Special\\V_TV_ColorPatternAnalysis.mqh",
+            "message": "',' - unexpected token",
             "range": {
                 "start": {
-                    "line": 131,
-                    "character": 32
+                    "line": 406,
+                    "character": 40
                 },
                 "end": {
-                    "line": 131,
-                    "character": 132
+                    "line": 406,
+                    "character": 140
                 }
             },
             "severity": "Error",
-            "code": "256"
+            "code": "149"
         },
         {
-            "file": "c:\\Users\\venuadmin\\AppData\\Roaming\\MetaQuotes\\Terminal\\2191F4A3D14D7B4B1EBB84F924777883\\MQL4\\Experts\\V-TV-Signals\\V_TV_SeqSellOrders.mqh",
-            "message": "undeclared identifier 'TrendSellDailyLowGapPrice'",
+            "file": "c:\\Users\\venuadmin\\AppData\\Roaming\\MetaQuotes\\Terminal\\2191F4A3D14D7B4B1EBB84F924777883\\MQL4\\Experts\\OLD2\\V-TV-VENU-Special\\V_TV_ColorPatternAnalysis.mqh",
+            "message": "'favour' - some operator expected",
             "range": {
                 "start": {
-                    "line": 144,
-                    "character": 7
-                },
-                "end": {
-                    "line": 144,
-                    "character": 107
-                }
-            },
-            "severity": "Error",
-            "code": "256"
-        },
-        {
-            "file": "c:\\Users\\venuadmin\\AppData\\Roaming\\MetaQuotes\\Terminal\\2191F4A3D14D7B4B1EBB84F924777883\\MQL4\\Experts\\V-TV-Signals\\V_TV_SeqSellOrders.mqh",
-            "message": "open parenthesis expected",
-            "range": {
-                "start": {
-                    "line": 145,
+                    "line": 406,
                     "character": 34
                 },
                 "end": {
-                    "line": 145,
+                    "line": 406,
                     "character": 134
                 }
             },
             "severity": "Error",
-            "code": "132"
+            "code": "152"
         },
         {
-            "file": "c:\\Users\\venuadmin\\AppData\\Roaming\\MetaQuotes\\Terminal\\2191F4A3D14D7B4B1EBB84F924777883\\MQL4\\Experts\\V-TV-Signals\\V_TV_SeqSellOrders.mqh",
-            "message": "undeclared identifier 'TrendSellDailyLowGapPrice'",
+            "file": "c:\\Users\\venuadmin\\AppData\\Roaming\\MetaQuotes\\Terminal\\2191F4A3D14D7B4B1EBB84F924777883\\MQL4\\Experts\\OLD2\\V-TV-VENU-Special\\V_TV_ColorPatternAnalysis.mqh",
+            "message": "semicolon expected",
             "range": {
                 "start": {
-                    "line": 146,
-                    "character": 28
+                    "line": 406,
+                    "character": 43
                 },
                 "end": {
-                    "line": 146,
-                    "character": 128
+                    "line": 406,
+                    "character": 143
+                }
+            },
+            "severity": "Error",
+            "code": "154"
+        },
+        {
+            "file": "c:\\Users\\venuadmin\\AppData\\Roaming\\MetaQuotes\\Terminal\\2191F4A3D14D7B4B1EBB84F924777883\\MQL4\\Experts\\OLD2\\V-TV-VENU-Special\\V_TV_ColorPatternAnalysis.mqh",
+            "message": "')' - unexpected token",
+            "range": {
+                "start": {
+                    "line": 406,
+                    "character": 60
+                },
+                "end": {
+                    "line": 406,
+                    "character": 160
+                }
+            },
+            "severity": "Error",
+            "code": "149"
+        },
+        {
+            "file": "c:\\Users\\venuadmin\\AppData\\Roaming\\MetaQuotes\\Terminal\\2191F4A3D14D7B4B1EBB84F924777883\\MQL4\\Experts\\OLD2\\V-TV-VENU-Special\\V_TV_ColorPatternAnalysis.mqh",
+            "message": "expression has no effect",
+            "range": {
+                "start": {
+                    "line": 406,
+                    "character": 54
+                },
+                "end": {
+                    "line": 406,
+                    "character": 154
+                }
+            },
+            "severity": "Warning",
+            "code": "95"
+        },
+        {
+            "file": "c:\\Users\\venuadmin\\AppData\\Roaming\\MetaQuotes\\Terminal\\2191F4A3D14D7B4B1EBB84F924777883\\MQL4\\Experts\\OLD2\\V-TV-VENU-Special\\V_TV_ColorPatternAnalysis.mqh",
+            "message": "undeclared identifier 'PointsToUSD'",
+            "range": {
+                "start": {
+                    "line": 407,
+                    "character": 22
+                },
+                "end": {
+                    "line": 407,
+                    "character": 122
                 }
             },
             "severity": "Error",
             "code": "256"
         },
         {
-            "file": "c:\\Users\\venuadmin\\AppData\\Roaming\\MetaQuotes\\Terminal\\2191F4A3D14D7B4B1EBB84F924777883\\MQL4\\Experts\\V-TV-Signals\\V_TV_SeqSellOrders.mqh",
-            "message": "undeclared identifier 'MarketInfo'",
+            "file": "c:\\Users\\venuadmin\\AppData\\Roaming\\MetaQuotes\\Terminal\\2191F4A3D14D7B4B1EBB84F924777883\\MQL4\\Experts\\OLD2\\V-TV-VENU-Special\\V_TV_ColorPatternAnalysis.mqh",
+            "message": "',' - unexpected token",
             "range": {
                 "start": {
-                    "line": 151,
+                    "line": 407,
+                    "character": 41
+                },
+                "end": {
+                    "line": 407,
+                    "character": 141
+                }
+            },
+            "severity": "Error",
+            "code": "149"
+        },
+        {
+            "file": "c:\\Users\\venuadmin\\AppData\\Roaming\\MetaQuotes\\Terminal\\2191F4A3D14D7B4B1EBB84F924777883\\MQL4\\Experts\\OLD2\\V-TV-VENU-Special\\V_TV_ColorPatternAnalysis.mqh",
+            "message": "'adverse' - some operator expected",
+            "range": {
+                "start": {
+                    "line": 407,
+                    "character": 34
+                },
+                "end": {
+                    "line": 407,
+                    "character": 134
+                }
+            },
+            "severity": "Error",
+            "code": "152"
+        },
+        {
+            "file": "c:\\Users\\venuadmin\\AppData\\Roaming\\MetaQuotes\\Terminal\\2191F4A3D14D7B4B1EBB84F924777883\\MQL4\\Experts\\OLD2\\V-TV-VENU-Special\\V_TV_ColorPatternAnalysis.mqh",
+            "message": "semicolon expected",
+            "range": {
+                "start": {
+                    "line": 407,
+                    "character": 43
+                },
+                "end": {
+                    "line": 407,
+                    "character": 143
+                }
+            },
+            "severity": "Error",
+            "code": "154"
+        },
+        {
+            "file": "c:\\Users\\venuadmin\\AppData\\Roaming\\MetaQuotes\\Terminal\\2191F4A3D14D7B4B1EBB84F924777883\\MQL4\\Experts\\OLD2\\V-TV-VENU-Special\\V_TV_ColorPatternAnalysis.mqh",
+            "message": "')' - unexpected token",
+            "range": {
+                "start": {
+                    "line": 407,
+                    "character": 60
+                },
+                "end": {
+                    "line": 407,
+                    "character": 160
+                }
+            },
+            "severity": "Error",
+            "code": "149"
+        },
+        {
+            "file": "c:\\Users\\venuadmin\\AppData\\Roaming\\MetaQuotes\\Terminal\\2191F4A3D14D7B4B1EBB84F924777883\\MQL4\\Experts\\OLD2\\V-TV-VENU-Special\\V_TV_ColorPatternAnalysis.mqh",
+            "message": "expression has no effect",
+            "range": {
+                "start": {
+                    "line": 407,
+                    "character": 54
+                },
+                "end": {
+                    "line": 407,
+                    "character": 154
+                }
+            },
+            "severity": "Warning",
+            "code": "95"
+        },
+        {
+            "file": "c:\\Users\\venuadmin\\AppData\\Roaming\\MetaQuotes\\Terminal\\2191F4A3D14D7B4B1EBB84F924777883\\MQL4\\Experts\\OLD2\\V-TV-VENU-Special\\V_TV_ColorPatternAnalysis.mqh",
+            "message": "undeclared identifier 'LearnEarlyMinBars'",
+            "range": {
+                "start": {
+                    "line": 419,
                     "character": 20
                 },
                 "end": {
-                    "line": 151,
+                    "line": 419,
                     "character": 120
                 }
             },
@@ -993,127 +1105,15 @@
             "code": "256"
         },
         {
-            "file": "c:\\Users\\venuadmin\\AppData\\Roaming\\MetaQuotes\\Terminal\\2191F4A3D14D7B4B1EBB84F924777883\\MQL4\\Experts\\V-TV-Signals\\V_TV_SeqSellOrders.mqh",
-            "message": "',' - unexpected token",
+            "file": "c:\\Users\\venuadmin\\AppData\\Roaming\\MetaQuotes\\Terminal\\2191F4A3D14D7B4B1EBB84F924777883\\MQL4\\Experts\\OLD2\\V-TV-VENU-Special\\V_TV_ColorPatternAnalysis.mqh",
+            "message": "undeclared identifier 'LearnEarlyWinRR'",
             "range": {
                 "start": {
-                    "line": 151,
-                    "character": 39
-                },
-                "end": {
-                    "line": 151,
-                    "character": 139
-                }
-            },
-            "severity": "Error",
-            "code": "149"
-        },
-        {
-            "file": "c:\\Users\\venuadmin\\AppData\\Roaming\\MetaQuotes\\Terminal\\2191F4A3D14D7B4B1EBB84F924777883\\MQL4\\Experts\\V-TV-Signals\\V_TV_SeqSellOrders.mqh",
-            "message": "'Symbol' - some operator expected",
-            "range": {
-                "start": {
-                    "line": 151,
-                    "character": 31
-                },
-                "end": {
-                    "line": 151,
-                    "character": 131
-                }
-            },
-            "severity": "Error",
-            "code": "152"
-        },
-        {
-            "file": "c:\\Users\\venuadmin\\AppData\\Roaming\\MetaQuotes\\Terminal\\2191F4A3D14D7B4B1EBB84F924777883\\MQL4\\Experts\\V-TV-Signals\\V_TV_SeqSellOrders.mqh",
-            "message": "semicolon expected",
-            "range": {
-                "start": {
-                    "line": 151,
-                    "character": 41
-                },
-                "end": {
-                    "line": 151,
-                    "character": 141
-                }
-            },
-            "severity": "Error",
-            "code": "154"
-        },
-        {
-            "file": "c:\\Users\\venuadmin\\AppData\\Roaming\\MetaQuotes\\Terminal\\2191F4A3D14D7B4B1EBB84F924777883\\MQL4\\Experts\\V-TV-Signals\\V_TV_SeqSellOrders.mqh",
-            "message": "undeclared identifier 'MODE_BID'",
-            "range": {
-                "start": {
-                    "line": 151,
-                    "character": 41
-                },
-                "end": {
-                    "line": 151,
-                    "character": 141
-                }
-            },
-            "severity": "Error",
-            "code": "256"
-        },
-        {
-            "file": "c:\\Users\\venuadmin\\AppData\\Roaming\\MetaQuotes\\Terminal\\2191F4A3D14D7B4B1EBB84F924777883\\MQL4\\Experts\\V-TV-Signals\\V_TV_SeqSellOrders.mqh",
-            "message": "')' - unexpected token",
-            "range": {
-                "start": {
-                    "line": 151,
-                    "character": 49
-                },
-                "end": {
-                    "line": 151,
-                    "character": 149
-                }
-            },
-            "severity": "Error",
-            "code": "149"
-        },
-        {
-            "file": "c:\\Users\\venuadmin\\AppData\\Roaming\\MetaQuotes\\Terminal\\2191F4A3D14D7B4B1EBB84F924777883\\MQL4\\Experts\\V-TV-Signals\\V_TV_SeqSellOrders.mqh",
-            "message": "undeclared identifier 'printdummy'",
-            "range": {
-                "start": {
-                    "line": 153,
-                    "character": 3
-                },
-                "end": {
-                    "line": 153,
-                    "character": 103
-                }
-            },
-            "severity": "Error",
-            "code": "256"
-        },
-        {
-            "file": "c:\\Users\\venuadmin\\AppData\\Roaming\\MetaQuotes\\Terminal\\2191F4A3D14D7B4B1EBB84F924777883\\MQL4\\Experts\\V-TV-Signals\\V_TV_SeqSellOrders.mqh",
-            "message": "'+' - some operator expected",
-            "range": {
-                "start": {
-                    "line": 154,
-                    "character": 82
-                },
-                "end": {
-                    "line": 154,
-                    "character": 182
-                }
-            },
-            "severity": "Error",
-            "code": "152"
-        },
-        {
-            "file": "c:\\Users\\venuadmin\\AppData\\Roaming\\MetaQuotes\\Terminal\\2191F4A3D14D7B4B1EBB84F924777883\\MQL4\\Experts\\V-TV-Signals\\V_TV_SeqSellOrders.mqh",
-            "message": "undeclared identifier 'SeqSellMaxOrders'",
-            "range": {
-                "start": {
-                    "line": 161,
+                    "line": 421,
                     "character": 18
                 },
                 "end": {
-                    "line": 161,
+                    "line": 421,
                     "character": 118
                 }
             },
@@ -1121,351 +1121,15 @@
             "code": "256"
         },
         {
-            "file": "c:\\Users\\venuadmin\\AppData\\Roaming\\MetaQuotes\\Terminal\\2191F4A3D14D7B4B1EBB84F924777883\\MQL4\\Experts\\V-TV-Signals\\V_TV_SeqSellOrders.mqh",
-            "message": "undeclared identifier 'printdummy'",
+            "file": "c:\\Users\\venuadmin\\AppData\\Roaming\\MetaQuotes\\Terminal\\2191F4A3D14D7B4B1EBB84F924777883\\MQL4\\Experts\\OLD2\\V-TV-VENU-Special\\V_TV_ColorPatternAnalysis.mqh",
+            "message": "undeclared identifier 'goto'",
             "range": {
                 "start": {
-                    "line": 162,
-                    "character": 3
-                },
-                "end": {
-                    "line": 162,
-                    "character": 103
-                }
-            },
-            "severity": "Error",
-            "code": "256"
-        },
-        {
-            "file": "c:\\Users\\venuadmin\\AppData\\Roaming\\MetaQuotes\\Terminal\\2191F4A3D14D7B4B1EBB84F924777883\\MQL4\\Experts\\V-TV-Signals\\V_TV_SeqSellOrders.mqh",
-            "message": "undeclared identifier 'SeqSellMaxOrders'",
-            "range": {
-                "start": {
-                    "line": 163,
-                    "character": 31
-                },
-                "end": {
-                    "line": 163,
-                    "character": 131
-                }
-            },
-            "severity": "Error",
-            "code": "256"
-        },
-        {
-            "file": "c:\\Users\\venuadmin\\AppData\\Roaming\\MetaQuotes\\Terminal\\2191F4A3D14D7B4B1EBB84F924777883\\MQL4\\Experts\\V-TV-Signals\\V_TV_SeqSellOrders.mqh",
-            "message": "'+' - some operator expected",
-            "range": {
-                "start": {
-                    "line": 163,
-                    "character": 72
-                },
-                "end": {
-                    "line": 163,
-                    "character": 172
-                }
-            },
-            "severity": "Error",
-            "code": "152"
-        },
-        {
-            "file": "c:\\Users\\venuadmin\\AppData\\Roaming\\MetaQuotes\\Terminal\\2191F4A3D14D7B4B1EBB84F924777883\\MQL4\\Experts\\V-TV-Signals\\V_TV_SeqSellOrders.mqh",
-            "message": "undeclared identifier 'SeqSellMinGapPoints'",
-            "range": {
-                "start": {
-                    "line": 171,
-                    "character": 6
-                },
-                "end": {
-                    "line": 171,
-                    "character": 106
-                }
-            },
-            "severity": "Error",
-            "code": "256"
-        },
-        {
-            "file": "c:\\Users\\venuadmin\\AppData\\Roaming\\MetaQuotes\\Terminal\\2191F4A3D14D7B4B1EBB84F924777883\\MQL4\\Experts\\V-TV-Signals\\V_TV_SeqSellOrders.mqh",
-            "message": "undeclared identifier 'g_prePrevSeqSignalText'",
-            "range": {
-                "start": {
-                    "line": 173,
-                    "character": 20
-                },
-                "end": {
-                    "line": 173,
-                    "character": 120
-                }
-            },
-            "severity": "Error",
-            "code": "256"
-        },
-        {
-            "file": "c:\\Users\\venuadmin\\AppData\\Roaming\\MetaQuotes\\Terminal\\2191F4A3D14D7B4B1EBB84F924777883\\MQL4\\Experts\\V-TV-Signals\\V_TV_SeqSellOrders.mqh",
-            "message": "implicit conversion from 'unknown' to 'string'",
-            "range": {
-                "start": {
-                    "line": 173,
-                    "character": 20
-                },
-                "end": {
-                    "line": 173,
-                    "character": 120
-                }
-            },
-            "severity": "Warning",
-            "code": "94"
-        },
-        {
-            "file": "c:\\Users\\venuadmin\\AppData\\Roaming\\MetaQuotes\\Terminal\\2191F4A3D14D7B4B1EBB84F924777883\\MQL4\\Experts\\V-TV-Signals\\V_TV_SeqSellOrders.mqh",
-            "message": "undeclared identifier 'g_prevDisplaySignal'",
-            "range": {
-                "start": {
-                    "line": 174,
-                    "character": 20
-                },
-                "end": {
-                    "line": 174,
-                    "character": 120
-                }
-            },
-            "severity": "Error",
-            "code": "256"
-        },
-        {
-            "file": "c:\\Users\\venuadmin\\AppData\\Roaming\\MetaQuotes\\Terminal\\2191F4A3D14D7B4B1EBB84F924777883\\MQL4\\Experts\\V-TV-Signals\\V_TV_SeqSellOrders.mqh",
-            "message": "implicit conversion from 'unknown' to 'string'",
-            "range": {
-                "start": {
-                    "line": 174,
-                    "character": 20
-                },
-                "end": {
-                    "line": 174,
-                    "character": 120
-                }
-            },
-            "severity": "Warning",
-            "code": "94"
-        },
-        {
-            "file": "c:\\Users\\venuadmin\\AppData\\Roaming\\MetaQuotes\\Terminal\\2191F4A3D14D7B4B1EBB84F924777883\\MQL4\\Experts\\V-TV-Signals\\V_TV_SeqSellOrders.mqh",
-            "message": "undeclared identifier 'g_prevSeqCount'",
-            "range": {
-                "start": {
-                    "line": 174,
-                    "character": 64
-                },
-                "end": {
-                    "line": 174,
-                    "character": 164
-                }
-            },
-            "severity": "Error",
-            "code": "256"
-        },
-        {
-            "file": "c:\\Users\\venuadmin\\AppData\\Roaming\\MetaQuotes\\Terminal\\2191F4A3D14D7B4B1EBB84F924777883\\MQL4\\Experts\\V-TV-Signals\\V_TV_SeqSellOrders.mqh",
-            "message": "undeclared identifier 'g_liveSignalName'",
-            "range": {
-                "start": {
-                    "line": 175,
-                    "character": 20
-                },
-                "end": {
-                    "line": 175,
-                    "character": 120
-                }
-            },
-            "severity": "Error",
-            "code": "256"
-        },
-        {
-            "file": "c:\\Users\\venuadmin\\AppData\\Roaming\\MetaQuotes\\Terminal\\2191F4A3D14D7B4B1EBB84F924777883\\MQL4\\Experts\\V-TV-Signals\\V_TV_SeqSellOrders.mqh",
-            "message": "implicit conversion from 'unknown' to 'string'",
-            "range": {
-                "start": {
-                    "line": 175,
-                    "character": 20
-                },
-                "end": {
-                    "line": 175,
-                    "character": 120
-                }
-            },
-            "severity": "Warning",
-            "code": "94"
-        },
-        {
-            "file": "c:\\Users\\venuadmin\\AppData\\Roaming\\MetaQuotes\\Terminal\\2191F4A3D14D7B4B1EBB84F924777883\\MQL4\\Experts\\V-TV-Signals\\V_TV_SeqSellOrders.mqh",
-            "message": "undeclared identifier 'g_currSeqCount'",
-            "range": {
-                "start": {
-                    "line": 175,
-                    "character": 64
-                },
-                "end": {
-                    "line": 175,
-                    "character": 164
-                }
-            },
-            "severity": "Error",
-            "code": "256"
-        },
-        {
-            "file": "c:\\Users\\venuadmin\\AppData\\Roaming\\MetaQuotes\\Terminal\\2191F4A3D14D7B4B1EBB84F924777883\\MQL4\\Experts\\V-TV-Signals\\V_TV_SeqSellOrders.mqh",
-            "message": "undeclared identifier 'g_prePrevSignalPrice'",
-            "range": {
-                "start": {
-                    "line": 178,
-                    "character": 6
-                },
-                "end": {
-                    "line": 178,
-                    "character": 106
-                }
-            },
-            "severity": "Error",
-            "code": "256"
-        },
-        {
-            "file": "c:\\Users\\venuadmin\\AppData\\Roaming\\MetaQuotes\\Terminal\\2191F4A3D14D7B4B1EBB84F924777883\\MQL4\\Experts\\V-TV-Signals\\V_TV_SeqSellOrders.mqh",
-            "message": "undeclared identifier 'g_prevSignalPrice'",
-            "range": {
-                "start": {
-                    "line": 178,
-                    "character": 34
-                },
-                "end": {
-                    "line": 178,
-                    "character": 134
-                }
-            },
-            "severity": "Error",
-            "code": "256"
-        },
-        {
-            "file": "c:\\Users\\venuadmin\\AppData\\Roaming\\MetaQuotes\\Terminal\\2191F4A3D14D7B4B1EBB84F924777883\\MQL4\\Experts\\V-TV-Signals\\V_TV_SeqSellOrders.mqh",
-            "message": "open parenthesis expected",
-            "range": {
-                "start": {
-                    "line": 180,
-                    "character": 24
-                },
-                "end": {
-                    "line": 180,
-                    "character": 124
-                }
-            },
-            "severity": "Error",
-            "code": "132"
-        },
-        {
-            "file": "c:\\Users\\venuadmin\\AppData\\Roaming\\MetaQuotes\\Terminal\\2191F4A3D14D7B4B1EBB84F924777883\\MQL4\\Experts\\V-TV-Signals\\V_TV_SeqSellOrders.mqh",
-            "message": "undeclared identifier 'g_prePrevSignalPrice'",
-            "range": {
-                "start": {
-                    "line": 180,
-                    "character": 47
-                },
-                "end": {
-                    "line": 180,
-                    "character": 147
-                }
-            },
-            "severity": "Error",
-            "code": "256"
-        },
-        {
-            "file": "c:\\Users\\venuadmin\\AppData\\Roaming\\MetaQuotes\\Terminal\\2191F4A3D14D7B4B1EBB84F924777883\\MQL4\\Experts\\V-TV-Signals\\V_TV_SeqSellOrders.mqh",
-            "message": "undeclared identifier 'g_prevSignalPrice'",
-            "range": {
-                "start": {
-                    "line": 180,
-                    "character": 70
-                },
-                "end": {
-                    "line": 180,
-                    "character": 170
-                }
-            },
-            "severity": "Error",
-            "code": "256"
-        },
-        {
-            "file": "c:\\Users\\venuadmin\\AppData\\Roaming\\MetaQuotes\\Terminal\\2191F4A3D14D7B4B1EBB84F924777883\\MQL4\\Experts\\V-TV-Signals\\V_TV_SeqSellOrders.mqh",
-            "message": "open parenthesis expected",
-            "range": {
-                "start": {
-                    "line": 180,
-                    "character": 96
-                },
-                "end": {
-                    "line": 180,
-                    "character": 196
-                }
-            },
-            "severity": "Error",
-            "code": "132"
-        },
-        {
-            "file": "c:\\Users\\venuadmin\\AppData\\Roaming\\MetaQuotes\\Terminal\\2191F4A3D14D7B4B1EBB84F924777883\\MQL4\\Experts\\V-TV-Signals\\V_TV_SeqSellOrders.mqh",
-            "message": "undeclared identifier 'SeqSellMinGapPoints'",
-            "range": {
-                "start": {
-                    "line": 181,
-                    "character": 16
-                },
-                "end": {
-                    "line": 181,
-                    "character": 116
-                }
-            },
-            "severity": "Error",
-            "code": "256"
-        },
-        {
-            "file": "c:\\Users\\venuadmin\\AppData\\Roaming\\MetaQuotes\\Terminal\\2191F4A3D14D7B4B1EBB84F924777883\\MQL4\\Experts\\V-TV-Signals\\V_TV_SeqSellOrders.mqh",
-            "message": "undeclared identifier 'printdummy'",
-            "range": {
-                "start": {
-                    "line": 183,
-                    "character": 9
-                },
-                "end": {
-                    "line": 183,
-                    "character": 109
-                }
-            },
-            "severity": "Error",
-            "code": "256"
-        },
-        {
-            "file": "c:\\Users\\venuadmin\\AppData\\Roaming\\MetaQuotes\\Terminal\\2191F4A3D14D7B4B1EBB84F924777883\\MQL4\\Experts\\V-TV-Signals\\V_TV_SeqSellOrders.mqh",
-            "message": "undeclared identifier 'g_prePrevSignalPrice'",
-            "range": {
-                "start": {
-                    "line": 184,
-                    "character": 46
-                },
-                "end": {
-                    "line": 184,
-                    "character": 146
-                }
-            },
-            "severity": "Error",
-            "code": "256"
-        },
-        {
-            "file": "c:\\Users\\venuadmin\\AppData\\Roaming\\MetaQuotes\\Terminal\\2191F4A3D14D7B4B1EBB84F924777883\\MQL4\\Experts\\V-TV-Signals\\V_TV_SeqSellOrders.mqh",
-            "message": "undeclared identifier 'g_prevSignalPrice'",
-            "range": {
-                "start": {
-                    "line": 185,
+                    "line": 422,
                     "character": 55
                 },
                 "end": {
-                    "line": 185,
+                    "line": 422,
                     "character": 155
                 }
             },
@@ -1473,191 +1137,63 @@
             "code": "256"
         },
         {
-            "file": "c:\\Users\\venuadmin\\AppData\\Roaming\\MetaQuotes\\Terminal\\2191F4A3D14D7B4B1EBB84F924777883\\MQL4\\Experts\\V-TV-Signals\\V_TV_SeqSellOrders.mqh",
-            "message": "undeclared identifier 'SeqSellMinGapPoints'",
+            "file": "c:\\Users\\venuadmin\\AppData\\Roaming\\MetaQuotes\\Terminal\\2191F4A3D14D7B4B1EBB84F924777883\\MQL4\\Experts\\OLD2\\V-TV-VENU-Special\\V_TV_ColorPatternAnalysis.mqh",
+            "message": "undeclared identifier 'finalize'",
             "range": {
                 "start": {
-                    "line": 187,
-                    "character": 31
+                    "line": 422,
+                    "character": 60
                 },
                 "end": {
-                    "line": 187,
-                    "character": 131
+                    "line": 422,
+                    "character": 160
                 }
             },
             "severity": "Error",
             "code": "256"
         },
         {
-            "file": "c:\\Users\\venuadmin\\AppData\\Roaming\\MetaQuotes\\Terminal\\2191F4A3D14D7B4B1EBB84F924777883\\MQL4\\Experts\\V-TV-Signals\\V_TV_SeqSellOrders.mqh",
-            "message": "'+' - some operator expected",
+            "file": "c:\\Users\\venuadmin\\AppData\\Roaming\\MetaQuotes\\Terminal\\2191F4A3D14D7B4B1EBB84F924777883\\MQL4\\Experts\\OLD2\\V-TV-VENU-Special\\V_TV_ColorPatternAnalysis.mqh",
+            "message": "'finalize' - some operator expected",
             "range": {
                 "start": {
-                    "line": 187,
-                    "character": 62
+                    "line": 422,
+                    "character": 60
                 },
                 "end": {
-                    "line": 187,
-                    "character": 162
+                    "line": 422,
+                    "character": 160
                 }
             },
             "severity": "Error",
             "code": "152"
         },
         {
-            "file": "c:\\Users\\venuadmin\\AppData\\Roaming\\MetaQuotes\\Terminal\\2191F4A3D14D7B4B1EBB84F924777883\\MQL4\\Experts\\V-TV-Signals\\V_TV_SeqSellOrders.mqh",
-            "message": "undeclared identifier 'g_prevSignalPrice'",
+            "file": "c:\\Users\\venuadmin\\AppData\\Roaming\\MetaQuotes\\Terminal\\2191F4A3D14D7B4B1EBB84F924777883\\MQL4\\Experts\\OLD2\\V-TV-VENU-Special\\V_TV_ColorPatternAnalysis.mqh",
+            "message": "undeclared identifier 'LearnEarlyLossRatio'",
             "range": {
                 "start": {
-                    "line": 193,
-                    "character": 6
+                    "line": 423,
+                    "character": 65
                 },
                 "end": {
-                    "line": 193,
-                    "character": 106
+                    "line": 423,
+                    "character": 165
                 }
             },
             "severity": "Error",
             "code": "256"
         },
         {
-            "file": "c:\\Users\\venuadmin\\AppData\\Roaming\\MetaQuotes\\Terminal\\2191F4A3D14D7B4B1EBB84F924777883\\MQL4\\Experts\\V-TV-Signals\\V_TV_SeqSellOrders.mqh",
-            "message": "undeclared identifier 'g_currSignalPrice'",
+            "file": "c:\\Users\\venuadmin\\AppData\\Roaming\\MetaQuotes\\Terminal\\2191F4A3D14D7B4B1EBB84F924777883\\MQL4\\Experts\\OLD2\\V-TV-VENU-Special\\V_TV_ColorPatternAnalysis.mqh",
+            "message": "undeclared identifier 'goto'",
             "range": {
                 "start": {
-                    "line": 193,
-                    "character": 31
-                },
-                "end": {
-                    "line": 193,
-                    "character": 131
-                }
-            },
-            "severity": "Error",
-            "code": "256"
-        },
-        {
-            "file": "c:\\Users\\venuadmin\\AppData\\Roaming\\MetaQuotes\\Terminal\\2191F4A3D14D7B4B1EBB84F924777883\\MQL4\\Experts\\V-TV-Signals\\V_TV_SeqSellOrders.mqh",
-            "message": "open parenthesis expected",
-            "range": {
-                "start": {
-                    "line": 195,
-                    "character": 24
-                },
-                "end": {
-                    "line": 195,
-                    "character": 124
-                }
-            },
-            "severity": "Error",
-            "code": "132"
-        },
-        {
-            "file": "c:\\Users\\venuadmin\\AppData\\Roaming\\MetaQuotes\\Terminal\\2191F4A3D14D7B4B1EBB84F924777883\\MQL4\\Experts\\V-TV-Signals\\V_TV_SeqSellOrders.mqh",
-            "message": "undeclared identifier 'g_prevSignalPrice'",
-            "range": {
-                "start": {
-                    "line": 195,
-                    "character": 47
-                },
-                "end": {
-                    "line": 195,
-                    "character": 147
-                }
-            },
-            "severity": "Error",
-            "code": "256"
-        },
-        {
-            "file": "c:\\Users\\venuadmin\\AppData\\Roaming\\MetaQuotes\\Terminal\\2191F4A3D14D7B4B1EBB84F924777883\\MQL4\\Experts\\V-TV-Signals\\V_TV_SeqSellOrders.mqh",
-            "message": "undeclared identifier 'g_currSignalPrice'",
-            "range": {
-                "start": {
-                    "line": 195,
-                    "character": 67
-                },
-                "end": {
-                    "line": 195,
-                    "character": 167
-                }
-            },
-            "severity": "Error",
-            "code": "256"
-        },
-        {
-            "file": "c:\\Users\\venuadmin\\AppData\\Roaming\\MetaQuotes\\Terminal\\2191F4A3D14D7B4B1EBB84F924777883\\MQL4\\Experts\\V-TV-Signals\\V_TV_SeqSellOrders.mqh",
-            "message": "open parenthesis expected",
-            "range": {
-                "start": {
-                    "line": 195,
-                    "character": 93
-                },
-                "end": {
-                    "line": 195,
-                    "character": 193
-                }
-            },
-            "severity": "Error",
-            "code": "132"
-        },
-        {
-            "file": "c:\\Users\\venuadmin\\AppData\\Roaming\\MetaQuotes\\Terminal\\2191F4A3D14D7B4B1EBB84F924777883\\MQL4\\Experts\\V-TV-Signals\\V_TV_SeqSellOrders.mqh",
-            "message": "undeclared identifier 'SeqSellMinGapPoints'",
-            "range": {
-                "start": {
-                    "line": 196,
-                    "character": 16
-                },
-                "end": {
-                    "line": 196,
-                    "character": 116
-                }
-            },
-            "severity": "Error",
-            "code": "256"
-        },
-        {
-            "file": "c:\\Users\\venuadmin\\AppData\\Roaming\\MetaQuotes\\Terminal\\2191F4A3D14D7B4B1EBB84F924777883\\MQL4\\Experts\\V-TV-Signals\\V_TV_SeqSellOrders.mqh",
-            "message": "undeclared identifier 'printdummy'",
-            "range": {
-                "start": {
-                    "line": 198,
-                    "character": 9
-                },
-                "end": {
-                    "line": 198,
-                    "character": 109
-                }
-            },
-            "severity": "Error",
-            "code": "256"
-        },
-        {
-            "file": "c:\\Users\\venuadmin\\AppData\\Roaming\\MetaQuotes\\Terminal\\2191F4A3D14D7B4B1EBB84F924777883\\MQL4\\Experts\\V-TV-Signals\\V_TV_SeqSellOrders.mqh",
-            "message": "undeclared identifier 'g_prevSignalPrice'",
-            "range": {
-                "start": {
-                    "line": 199,
-                    "character": 46
-                },
-                "end": {
-                    "line": 199,
-                    "character": 146
-                }
-            },
-            "severity": "Error",
-            "code": "256"
-        },
-        {
-            "file": "c:\\Users\\venuadmin\\AppData\\Roaming\\MetaQuotes\\Terminal\\2191F4A3D14D7B4B1EBB84F924777883\\MQL4\\Experts\\V-TV-Signals\\V_TV_SeqSellOrders.mqh",
-            "message": "undeclared identifier 'g_currSignalPrice'",
-            "range": {
-                "start": {
-                    "line": 200,
+                    "line": 424,
                     "character": 55
                 },
                 "end": {
-                    "line": 200,
+                    "line": 424,
                     "character": 155
                 }
             },
@@ -1665,52 +1201,132 @@
             "code": "256"
         },
         {
-            "file": "c:\\Users\\venuadmin\\AppData\\Roaming\\MetaQuotes\\Terminal\\2191F4A3D14D7B4B1EBB84F924777883\\MQL4\\Experts\\V-TV-Signals\\V_TV_SeqSellOrders.mqh",
-            "message": "undeclared identifier 'SeqSellMinGapPoints'",
+            "file": "c:\\Users\\venuadmin\\AppData\\Roaming\\MetaQuotes\\Terminal\\2191F4A3D14D7B4B1EBB84F924777883\\MQL4\\Experts\\OLD2\\V-TV-VENU-Special\\V_TV_ColorPatternAnalysis.mqh",
+            "message": "undeclared identifier 'finalize'",
             "range": {
                 "start": {
-                    "line": 202,
-                    "character": 31
+                    "line": 424,
+                    "character": 60
                 },
                 "end": {
-                    "line": 202,
-                    "character": 131
+                    "line": 424,
+                    "character": 160
                 }
             },
             "severity": "Error",
             "code": "256"
         },
         {
-            "file": "c:\\Users\\venuadmin\\AppData\\Roaming\\MetaQuotes\\Terminal\\2191F4A3D14D7B4B1EBB84F924777883\\MQL4\\Experts\\V-TV-Signals\\V_TV_SeqSellOrders.mqh",
-            "message": "'+' - some operator expected",
+            "file": "c:\\Users\\venuadmin\\AppData\\Roaming\\MetaQuotes\\Terminal\\2191F4A3D14D7B4B1EBB84F924777883\\MQL4\\Experts\\OLD2\\V-TV-VENU-Special\\V_TV_ColorPatternAnalysis.mqh",
+            "message": "'finalize' - some operator expected",
             "range": {
                 "start": {
-                    "line": 202,
-                    "character": 62
+                    "line": 424,
+                    "character": 60
                 },
                 "end": {
-                    "line": 202,
-                    "character": 162
+                    "line": 424,
+                    "character": 160
                 }
             },
             "severity": "Error",
             "code": "152"
         },
         {
-            "file": "c:\\Users\\venuadmin\\AppData\\Roaming\\MetaQuotes\\Terminal\\2191F4A3D14D7B4B1EBB84F924777883\\MQL4\\Experts\\V-TV-Signals\\V_TV_SeqSellOrders.mqh",
-            "message": "undeclared identifier 'LogMessage'",
+            "file": "c:\\Users\\venuadmin\\AppData\\Roaming\\MetaQuotes\\Terminal\\2191F4A3D14D7B4B1EBB84F924777883\\MQL4\\Experts\\OLD2\\V-TV-VENU-Special\\V_TV_ColorPatternAnalysis.mqh",
+            "message": "undeclared identifier 'LearnObserveBars'",
             "range": {
                 "start": {
-                    "line": 207,
-                    "character": 3
+                    "line": 427,
+                    "character": 20
                 },
                 "end": {
-                    "line": 207,
-                    "character": 103
+                    "line": 427,
+                    "character": 120
                 }
             },
             "severity": "Error",
             "code": "256"
+        },
+        {
+            "file": "c:\\Users\\venuadmin\\AppData\\Roaming\\MetaQuotes\\Terminal\\2191F4A3D14D7B4B1EBB84F924777883\\MQL4\\Experts\\OLD2\\V-TV-VENU-Special\\V_TV_ColorPatternAnalysis.mqh",
+            "message": "undeclared identifier 'goto'",
+            "range": {
+                "start": {
+                    "line": 428,
+                    "character": 49
+                },
+                "end": {
+                    "line": 428,
+                    "character": 149
+                }
+            },
+            "severity": "Error",
+            "code": "256"
+        },
+        {
+            "file": "c:\\Users\\venuadmin\\AppData\\Roaming\\MetaQuotes\\Terminal\\2191F4A3D14D7B4B1EBB84F924777883\\MQL4\\Experts\\OLD2\\V-TV-VENU-Special\\V_TV_ColorPatternAnalysis.mqh",
+            "message": "undeclared identifier 'finalize'",
+            "range": {
+                "start": {
+                    "line": 428,
+                    "character": 54
+                },
+                "end": {
+                    "line": 428,
+                    "character": 154
+                }
+            },
+            "severity": "Error",
+            "code": "256"
+        },
+        {
+            "file": "c:\\Users\\venuadmin\\AppData\\Roaming\\MetaQuotes\\Terminal\\2191F4A3D14D7B4B1EBB84F924777883\\MQL4\\Experts\\OLD2\\V-TV-VENU-Special\\V_TV_ColorPatternAnalysis.mqh",
+            "message": "'finalize' - some operator expected",
+            "range": {
+                "start": {
+                    "line": 428,
+                    "character": 54
+                },
+                "end": {
+                    "line": 428,
+                    "character": 154
+                }
+            },
+            "severity": "Error",
+            "code": "152"
+        },
+        {
+            "file": "c:\\Users\\venuadmin\\AppData\\Roaming\\MetaQuotes\\Terminal\\2191F4A3D14D7B4B1EBB84F924777883\\MQL4\\Experts\\OLD2\\V-TV-VENU-Special\\V_TV_ColorPatternAnalysis.mqh",
+            "message": "undeclared identifier 'finalize'",
+            "range": {
+                "start": {
+                    "line": 431,
+                    "character": 6
+                },
+                "end": {
+                    "line": 431,
+                    "character": 106
+                }
+            },
+            "severity": "Error",
+            "code": "256"
+        },
+        {
+            "file": "c:\\Users\\venuadmin\\AppData\\Roaming\\MetaQuotes\\Terminal\\2191F4A3D14D7B4B1EBB84F924777883\\MQL4\\Experts\\OLD2\\V-TV-VENU-Special\\V_TV_ColorPatternAnalysis.mqh",
+            "message": "':' - unexpected token",
+            "range": {
+                "start": {
+                    "line": 431,
+                    "character": 14
+                },
+                "end": {
+                    "line": 431,
+                    "character": 114
+                }
+            },
+            "severity": "Error",
+            "code": "149"
         }
     ]
 }
