@@ -1,127 +1,1359 @@
 {
-    "c:\\Users\\venuadmin\\AppData\\Roaming\\MetaQuotes\\Terminal\\2191F4A3D14D7B4B1EBB84F924777883\\MQL4\\Experts\\OLD2\\V-TV-VENU-Special\\V_TV_NewordersCrossLimit2Condition.mqh": [
+    "c:\\Users\\venuadmin\\AppData\\Roaming\\MetaQuotes\\Terminal\\2191F4A3D14D7B4B1EBB84F924777883\\MQL4\\Experts\\OLD2\\V-TV-VENU-Special\\V_TV_MarkerSuggestions.mqh": [
         {
-            "file": "c:\\Users\\venuadmin\\AppData\\Roaming\\MetaQuotes\\Terminal\\2191F4A3D14D7B4B1EBB84F924777883\\MQL4\\Experts\\OLD2\\V-TV-VENU-Special\\V_TV_NewordersCrossLimit2Condition.mqh",
-            "message": "undeclared identifier 'FastEMA'",
+            "file": "c:\\Users\\venuadmin\\AppData\\Roaming\\MetaQuotes\\Terminal\\2191F4A3D14D7B4B1EBB84F924777883\\MQL4\\Experts\\OLD2\\V-TV-VENU-Special\\V_TV_MarkerSuggestions.mqh",
+            "message": "undeclared identifier 'MarketInfo'",
             "range": {
                 "start": {
-                    "line": 9,
-                    "character": 37
+                    "line": 113,
+                    "character": 22
                 },
                 "end": {
-                    "line": 9,
-                    "character": 137
+                    "line": 113,
+                    "character": 122
                 }
             },
             "severity": "Error",
             "code": "256"
         },
         {
-            "file": "c:\\Users\\venuadmin\\AppData\\Roaming\\MetaQuotes\\Terminal\\2191F4A3D14D7B4B1EBB84F924777883\\MQL4\\Experts\\OLD2\\V-TV-VENU-Special\\V_TV_NewordersCrossLimit2Condition.mqh",
-            "message": "wrong parameters count",
+            "file": "c:\\Users\\venuadmin\\AppData\\Roaming\\MetaQuotes\\Terminal\\2191F4A3D14D7B4B1EBB84F924777883\\MQL4\\Experts\\OLD2\\V-TV-VENU-Special\\V_TV_MarkerSuggestions.mqh",
+            "message": "',' - unexpected token",
             "range": {
                 "start": {
-                    "line": 9,
-                    "character": 20
+                    "line": 113,
+                    "character": 41
                 },
                 "end": {
-                    "line": 9,
-                    "character": 120
+                    "line": 113,
+                    "character": 141
                 }
             },
             "severity": "Error",
-            "code": "199"
+            "code": "149"
         },
         {
-            "file": "c:\\Users\\venuadmin\\AppData\\Roaming\\MetaQuotes\\Terminal\\2191F4A3D14D7B4B1EBB84F924777883\\MQL4\\Experts\\OLD2\\V-TV-VENU-Special\\V_TV_NewordersCrossLimit2Condition.mqh",
-            "message": "undeclared identifier 'SlowEMA'",
+            "file": "c:\\Users\\venuadmin\\AppData\\Roaming\\MetaQuotes\\Terminal\\2191F4A3D14D7B4B1EBB84F924777883\\MQL4\\Experts\\OLD2\\V-TV-VENU-Special\\V_TV_MarkerSuggestions.mqh",
+            "message": "'Symbol' - some operator expected",
             "range": {
                 "start": {
-                    "line": 10,
-                    "character": 37
+                    "line": 113,
+                    "character": 33
                 },
                 "end": {
-                    "line": 10,
-                    "character": 137
+                    "line": 113,
+                    "character": 133
+                }
+            },
+            "severity": "Error",
+            "code": "152"
+        },
+        {
+            "file": "c:\\Users\\venuadmin\\AppData\\Roaming\\MetaQuotes\\Terminal\\2191F4A3D14D7B4B1EBB84F924777883\\MQL4\\Experts\\OLD2\\V-TV-VENU-Special\\V_TV_MarkerSuggestions.mqh",
+            "message": "semicolon expected",
+            "range": {
+                "start": {
+                    "line": 113,
+                    "character": 43
+                },
+                "end": {
+                    "line": 113,
+                    "character": 143
+                }
+            },
+            "severity": "Error",
+            "code": "154"
+        },
+        {
+            "file": "c:\\Users\\venuadmin\\AppData\\Roaming\\MetaQuotes\\Terminal\\2191F4A3D14D7B4B1EBB84F924777883\\MQL4\\Experts\\OLD2\\V-TV-VENU-Special\\V_TV_MarkerSuggestions.mqh",
+            "message": "undeclared identifier 'MODE_TICKSIZE'",
+            "range": {
+                "start": {
+                    "line": 113,
+                    "character": 43
+                },
+                "end": {
+                    "line": 113,
+                    "character": 143
                 }
             },
             "severity": "Error",
             "code": "256"
         },
         {
-            "file": "c:\\Users\\venuadmin\\AppData\\Roaming\\MetaQuotes\\Terminal\\2191F4A3D14D7B4B1EBB84F924777883\\MQL4\\Experts\\OLD2\\V-TV-VENU-Special\\V_TV_NewordersCrossLimit2Condition.mqh",
-            "message": "wrong parameters count",
+            "file": "c:\\Users\\venuadmin\\AppData\\Roaming\\MetaQuotes\\Terminal\\2191F4A3D14D7B4B1EBB84F924777883\\MQL4\\Experts\\OLD2\\V-TV-VENU-Special\\V_TV_MarkerSuggestions.mqh",
+            "message": "')' - unexpected token",
             "range": {
                 "start": {
-                    "line": 10,
-                    "character": 20
+                    "line": 113,
+                    "character": 56
                 },
                 "end": {
-                    "line": 10,
-                    "character": 120
+                    "line": 113,
+                    "character": 156
                 }
             },
             "severity": "Error",
-            "code": "199"
+            "code": "149"
         },
         {
-            "file": "c:\\Users\\venuadmin\\AppData\\Roaming\\MetaQuotes\\Terminal\\2191F4A3D14D7B4B1EBB84F924777883\\MQL4\\Experts\\OLD2\\V-TV-VENU-Special\\V_TV_NewordersCrossLimit2Condition.mqh",
-            "message": "undeclared identifier 'OrdersHistoryTotal'",
+            "file": "c:\\Users\\venuadmin\\AppData\\Roaming\\MetaQuotes\\Terminal\\2191F4A3D14D7B4B1EBB84F924777883\\MQL4\\Experts\\OLD2\\V-TV-VENU-Special\\V_TV_MarkerSuggestions.mqh",
+            "message": "undeclared identifier 'MarketInfo'",
             "range": {
                 "start": {
-                    "line": 47,
-                    "character": 15
+                    "line": 114,
+                    "character": 22
                 },
                 "end": {
-                    "line": 47,
-                    "character": 115
+                    "line": 114,
+                    "character": 122
                 }
             },
             "severity": "Error",
             "code": "256"
         },
         {
-            "file": "c:\\Users\\venuadmin\\AppData\\Roaming\\MetaQuotes\\Terminal\\2191F4A3D14D7B4B1EBB84F924777883\\MQL4\\Experts\\OLD2\\V-TV-VENU-Special\\V_TV_NewordersCrossLimit2Condition.mqh",
-            "message": "')' - expression expected",
+            "file": "c:\\Users\\venuadmin\\AppData\\Roaming\\MetaQuotes\\Terminal\\2191F4A3D14D7B4B1EBB84F924777883\\MQL4\\Experts\\OLD2\\V-TV-VENU-Special\\V_TV_MarkerSuggestions.mqh",
+            "message": "',' - unexpected token",
             "range": {
                 "start": {
-                    "line": 47,
+                    "line": 114,
+                    "character": 41
+                },
+                "end": {
+                    "line": 114,
+                    "character": 141
+                }
+            },
+            "severity": "Error",
+            "code": "149"
+        },
+        {
+            "file": "c:\\Users\\venuadmin\\AppData\\Roaming\\MetaQuotes\\Terminal\\2191F4A3D14D7B4B1EBB84F924777883\\MQL4\\Experts\\OLD2\\V-TV-VENU-Special\\V_TV_MarkerSuggestions.mqh",
+            "message": "'Symbol' - some operator expected",
+            "range": {
+                "start": {
+                    "line": 114,
+                    "character": 33
+                },
+                "end": {
+                    "line": 114,
+                    "character": 133
+                }
+            },
+            "severity": "Error",
+            "code": "152"
+        },
+        {
+            "file": "c:\\Users\\venuadmin\\AppData\\Roaming\\MetaQuotes\\Terminal\\2191F4A3D14D7B4B1EBB84F924777883\\MQL4\\Experts\\OLD2\\V-TV-VENU-Special\\V_TV_MarkerSuggestions.mqh",
+            "message": "semicolon expected",
+            "range": {
+                "start": {
+                    "line": 114,
+                    "character": 43
+                },
+                "end": {
+                    "line": 114,
+                    "character": 143
+                }
+            },
+            "severity": "Error",
+            "code": "154"
+        },
+        {
+            "file": "c:\\Users\\venuadmin\\AppData\\Roaming\\MetaQuotes\\Terminal\\2191F4A3D14D7B4B1EBB84F924777883\\MQL4\\Experts\\OLD2\\V-TV-VENU-Special\\V_TV_MarkerSuggestions.mqh",
+            "message": "undeclared identifier 'MODE_TICKVALUE'",
+            "range": {
+                "start": {
+                    "line": 114,
+                    "character": 43
+                },
+                "end": {
+                    "line": 114,
+                    "character": 143
+                }
+            },
+            "severity": "Error",
+            "code": "256"
+        },
+        {
+            "file": "c:\\Users\\venuadmin\\AppData\\Roaming\\MetaQuotes\\Terminal\\2191F4A3D14D7B4B1EBB84F924777883\\MQL4\\Experts\\OLD2\\V-TV-VENU-Special\\V_TV_MarkerSuggestions.mqh",
+            "message": "')' - unexpected token",
+            "range": {
+                "start": {
+                    "line": 114,
+                    "character": 57
+                },
+                "end": {
+                    "line": 114,
+                    "character": 157
+                }
+            },
+            "severity": "Error",
+            "code": "149"
+        },
+        {
+            "file": "c:\\Users\\venuadmin\\AppData\\Roaming\\MetaQuotes\\Terminal\\2191F4A3D14D7B4B1EBB84F924777883\\MQL4\\Experts\\OLD2\\V-TV-VENU-Special\\V_TV_MarkerSuggestions.mqh",
+            "message": "undeclared identifier 'SeqSellLotSize'",
+            "range": {
+                "start": {
+                    "line": 115,
+                    "character": 31
+                },
+                "end": {
+                    "line": 115,
+                    "character": 131
+                }
+            },
+            "severity": "Error",
+            "code": "256"
+        },
+        {
+            "file": "c:\\Users\\venuadmin\\AppData\\Roaming\\MetaQuotes\\Terminal\\2191F4A3D14D7B4B1EBB84F924777883\\MQL4\\Experts\\OLD2\\V-TV-VENU-Special\\V_TV_MarkerSuggestions.mqh",
+            "message": "undeclared identifier 'SeqBuyLotSize'",
+            "range": {
+                "start": {
+                    "line": 115,
+                    "character": 48
+                },
+                "end": {
+                    "line": 115,
+                    "character": 148
+                }
+            },
+            "severity": "Error",
+            "code": "256"
+        },
+        {
+            "file": "c:\\Users\\venuadmin\\AppData\\Roaming\\MetaQuotes\\Terminal\\2191F4A3D14D7B4B1EBB84F924777883\\MQL4\\Experts\\OLD2\\V-TV-VENU-Special\\V_TV_MarkerSuggestions.mqh",
+            "message": "open parenthesis expected",
+            "range": {
+                "start": {
+                    "line": 117,
+                    "character": 39
+                },
+                "end": {
+                    "line": 117,
+                    "character": 139
+                }
+            },
+            "severity": "Error",
+            "code": "132"
+        },
+        {
+            "file": "c:\\Users\\venuadmin\\AppData\\Roaming\\MetaQuotes\\Terminal\\2191F4A3D14D7B4B1EBB84F924777883\\MQL4\\Experts\\OLD2\\V-TV-VENU-Special\\V_TV_MarkerSuggestions.mqh",
+            "message": "undeclared identifier 'SpikeSearchBars'",
+            "range": {
+                "start": {
+                    "line": 126,
+                    "character": 33
+                },
+                "end": {
+                    "line": 126,
+                    "character": 133
+                }
+            },
+            "severity": "Error",
+            "code": "256"
+        },
+        {
+            "file": "c:\\Users\\venuadmin\\AppData\\Roaming\\MetaQuotes\\Terminal\\2191F4A3D14D7B4B1EBB84F924777883\\MQL4\\Experts\\OLD2\\V-TV-VENU-Special\\V_TV_MarkerSuggestions.mqh",
+            "message": "undeclared identifier 'SpikeLookback'",
+            "range": {
+                "start": {
+                    "line": 129,
+                    "character": 13
+                },
+                "end": {
+                    "line": 129,
+                    "character": 113
+                }
+            },
+            "severity": "Error",
+            "code": "256"
+        },
+        {
+            "file": "c:\\Users\\venuadmin\\AppData\\Roaming\\MetaQuotes\\Terminal\\2191F4A3D14D7B4B1EBB84F924777883\\MQL4\\Experts\\OLD2\\V-TV-VENU-Special\\V_TV_MarkerSuggestions.mqh",
+            "message": "open parenthesis expected",
+            "range": {
+                "start": {
+                    "line": 129,
                     "character": 34
                 },
                 "end": {
-                    "line": 47,
+                    "line": 129,
                     "character": 134
                 }
             },
             "severity": "Error",
-            "code": "157"
+            "code": "132"
         },
         {
-            "file": "c:\\Users\\venuadmin\\AppData\\Roaming\\MetaQuotes\\Terminal\\2191F4A3D14D7B4B1EBB84F924777883\\MQL4\\Experts\\OLD2\\V-TV-VENU-Special\\V_TV_NewordersCrossLimit2Condition.mqh",
-            "message": "undeclared identifier 'SELECT_BY_POS'",
+            "file": "c:\\Users\\venuadmin\\AppData\\Roaming\\MetaQuotes\\Terminal\\2191F4A3D14D7B4B1EBB84F924777883\\MQL4\\Experts\\OLD2\\V-TV-VENU-Special\\V_TV_MarkerSuggestions.mqh",
+            "message": "undeclared identifier 'SpikeLookback'",
             "range": {
                 "start": {
-                    "line": 49,
-                    "character": 24
+                    "line": 131,
+                    "character": 34
                 },
                 "end": {
-                    "line": 49,
-                    "character": 124
+                    "line": 131,
+                    "character": 134
                 }
             },
             "severity": "Error",
             "code": "256"
         },
         {
-            "file": "c:\\Users\\venuadmin\\AppData\\Roaming\\MetaQuotes\\Terminal\\2191F4A3D14D7B4B1EBB84F924777883\\MQL4\\Experts\\OLD2\\V-TV-VENU-Special\\V_TV_NewordersCrossLimit2Condition.mqh",
-            "message": "undeclared identifier 'MODE_HISTORY'",
+            "file": "c:\\Users\\venuadmin\\AppData\\Roaming\\MetaQuotes\\Terminal\\2191F4A3D14D7B4B1EBB84F924777883\\MQL4\\Experts\\OLD2\\V-TV-VENU-Special\\V_TV_MarkerSuggestions.mqh",
+            "message": "undeclared identifier 'High'",
             "range": {
                 "start": {
-                    "line": 49,
+                    "line": 131,
+                    "character": 67
+                },
+                "end": {
+                    "line": 131,
+                    "character": 167
+                }
+            },
+            "severity": "Error",
+            "code": "256"
+        },
+        {
+            "file": "c:\\Users\\venuadmin\\AppData\\Roaming\\MetaQuotes\\Terminal\\2191F4A3D14D7B4B1EBB84F924777883\\MQL4\\Experts\\OLD2\\V-TV-VENU-Special\\V_TV_MarkerSuggestions.mqh",
+            "message": "'[' - array required",
+            "range": {
+                "start": {
+                    "line": 131,
+                    "character": 71
+                },
+                "end": {
+                    "line": 131,
+                    "character": 171
+                }
+            },
+            "severity": "Error",
+            "code": "241"
+        },
+        {
+            "file": "c:\\Users\\venuadmin\\AppData\\Roaming\\MetaQuotes\\Terminal\\2191F4A3D14D7B4B1EBB84F924777883\\MQL4\\Experts\\OLD2\\V-TV-VENU-Special\\V_TV_MarkerSuggestions.mqh",
+            "message": "undeclared identifier 'Low'",
+            "range": {
+                "start": {
+                    "line": 131,
+                    "character": 77
+                },
+                "end": {
+                    "line": 131,
+                    "character": 177
+                }
+            },
+            "severity": "Error",
+            "code": "256"
+        },
+        {
+            "file": "c:\\Users\\venuadmin\\AppData\\Roaming\\MetaQuotes\\Terminal\\2191F4A3D14D7B4B1EBB84F924777883\\MQL4\\Experts\\OLD2\\V-TV-VENU-Special\\V_TV_MarkerSuggestions.mqh",
+            "message": "'[' - array required",
+            "range": {
+                "start": {
+                    "line": 131,
+                    "character": 80
+                },
+                "end": {
+                    "line": 131,
+                    "character": 180
+                }
+            },
+            "severity": "Error",
+            "code": "241"
+        },
+        {
+            "file": "c:\\Users\\venuadmin\\AppData\\Roaming\\MetaQuotes\\Terminal\\2191F4A3D14D7B4B1EBB84F924777883\\MQL4\\Experts\\OLD2\\V-TV-VENU-Special\\V_TV_MarkerSuggestions.mqh",
+            "message": "undeclared identifier 'SpikeLookback'",
+            "range": {
+                "start": {
+                    "line": 132,
+                    "character": 18
+                },
+                "end": {
+                    "line": 132,
+                    "character": 118
+                }
+            },
+            "severity": "Error",
+            "code": "256"
+        },
+        {
+            "file": "c:\\Users\\venuadmin\\AppData\\Roaming\\MetaQuotes\\Terminal\\2191F4A3D14D7B4B1EBB84F924777883\\MQL4\\Experts\\OLD2\\V-TV-VENU-Special\\V_TV_MarkerSuggestions.mqh",
+            "message": "undeclared identifier 'High'",
+            "range": {
+                "start": {
+                    "line": 134,
+                    "character": 27
+                },
+                "end": {
+                    "line": 134,
+                    "character": 127
+                }
+            },
+            "severity": "Error",
+            "code": "256"
+        },
+        {
+            "file": "c:\\Users\\venuadmin\\AppData\\Roaming\\MetaQuotes\\Terminal\\2191F4A3D14D7B4B1EBB84F924777883\\MQL4\\Experts\\OLD2\\V-TV-VENU-Special\\V_TV_MarkerSuggestions.mqh",
+            "message": "'[' - array required",
+            "range": {
+                "start": {
+                    "line": 134,
+                    "character": 31
+                },
+                "end": {
+                    "line": 134,
+                    "character": 131
+                }
+            },
+            "severity": "Error",
+            "code": "241"
+        },
+        {
+            "file": "c:\\Users\\venuadmin\\AppData\\Roaming\\MetaQuotes\\Terminal\\2191F4A3D14D7B4B1EBB84F924777883\\MQL4\\Experts\\OLD2\\V-TV-VENU-Special\\V_TV_MarkerSuggestions.mqh",
+            "message": "undeclared identifier 'Low'",
+            "range": {
+                "start": {
+                    "line": 134,
+                    "character": 37
+                },
+                "end": {
+                    "line": 134,
+                    "character": 137
+                }
+            },
+            "severity": "Error",
+            "code": "256"
+        },
+        {
+            "file": "c:\\Users\\venuadmin\\AppData\\Roaming\\MetaQuotes\\Terminal\\2191F4A3D14D7B4B1EBB84F924777883\\MQL4\\Experts\\OLD2\\V-TV-VENU-Special\\V_TV_MarkerSuggestions.mqh",
+            "message": "'[' - array required",
+            "range": {
+                "start": {
+                    "line": 134,
+                    "character": 40
+                },
+                "end": {
+                    "line": 134,
+                    "character": 140
+                }
+            },
+            "severity": "Error",
+            "code": "241"
+        },
+        {
+            "file": "c:\\Users\\venuadmin\\AppData\\Roaming\\MetaQuotes\\Terminal\\2191F4A3D14D7B4B1EBB84F924777883\\MQL4\\Experts\\OLD2\\V-TV-VENU-Special\\V_TV_MarkerSuggestions.mqh",
+            "message": "undeclared identifier 'SpikeMultiplier'",
+            "range": {
+                "start": {
+                    "line": 135,
+                    "character": 34
+                },
+                "end": {
+                    "line": 135,
+                    "character": 134
+                }
+            },
+            "severity": "Error",
+            "code": "256"
+        },
+        {
+            "file": "c:\\Users\\venuadmin\\AppData\\Roaming\\MetaQuotes\\Terminal\\2191F4A3D14D7B4B1EBB84F924777883\\MQL4\\Experts\\OLD2\\V-TV-VENU-Special\\V_TV_MarkerSuggestions.mqh",
+            "message": "undeclared identifier 'Open'",
+            "range": {
+                "start": {
+                    "line": 136,
+                    "character": 33
+                },
+                "end": {
+                    "line": 136,
+                    "character": 133
+                }
+            },
+            "severity": "Error",
+            "code": "256"
+        },
+        {
+            "file": "c:\\Users\\venuadmin\\AppData\\Roaming\\MetaQuotes\\Terminal\\2191F4A3D14D7B4B1EBB84F924777883\\MQL4\\Experts\\OLD2\\V-TV-VENU-Special\\V_TV_MarkerSuggestions.mqh",
+            "message": "'[' - array required",
+            "range": {
+                "start": {
+                    "line": 136,
+                    "character": 37
+                },
+                "end": {
+                    "line": 136,
+                    "character": 137
+                }
+            },
+            "severity": "Error",
+            "code": "241"
+        },
+        {
+            "file": "c:\\Users\\venuadmin\\AppData\\Roaming\\MetaQuotes\\Terminal\\2191F4A3D14D7B4B1EBB84F924777883\\MQL4\\Experts\\OLD2\\V-TV-VENU-Special\\V_TV_MarkerSuggestions.mqh",
+            "message": "undeclared identifier 'Close'",
+            "range": {
+                "start": {
+                    "line": 136,
+                    "character": 43
+                },
+                "end": {
+                    "line": 136,
+                    "character": 143
+                }
+            },
+            "severity": "Error",
+            "code": "256"
+        },
+        {
+            "file": "c:\\Users\\venuadmin\\AppData\\Roaming\\MetaQuotes\\Terminal\\2191F4A3D14D7B4B1EBB84F924777883\\MQL4\\Experts\\OLD2\\V-TV-VENU-Special\\V_TV_MarkerSuggestions.mqh",
+            "message": "'[' - array required",
+            "range": {
+                "start": {
+                    "line": 136,
+                    "character": 48
+                },
+                "end": {
+                    "line": 136,
+                    "character": 148
+                }
+            },
+            "severity": "Error",
+            "code": "241"
+        },
+        {
+            "file": "c:\\Users\\venuadmin\\AppData\\Roaming\\MetaQuotes\\Terminal\\2191F4A3D14D7B4B1EBB84F924777883\\MQL4\\Experts\\OLD2\\V-TV-VENU-Special\\V_TV_MarkerSuggestions.mqh",
+            "message": "undeclared identifier 'High'",
+            "range": {
+                "start": {
+                    "line": 137,
+                    "character": 25
+                },
+                "end": {
+                    "line": 137,
+                    "character": 125
+                }
+            },
+            "severity": "Error",
+            "code": "256"
+        },
+        {
+            "file": "c:\\Users\\venuadmin\\AppData\\Roaming\\MetaQuotes\\Terminal\\2191F4A3D14D7B4B1EBB84F924777883\\MQL4\\Experts\\OLD2\\V-TV-VENU-Special\\V_TV_MarkerSuggestions.mqh",
+            "message": "'[' - array required",
+            "range": {
+                "start": {
+                    "line": 137,
+                    "character": 29
+                },
+                "end": {
+                    "line": 137,
+                    "character": 129
+                }
+            },
+            "severity": "Error",
+            "code": "241"
+        },
+        {
+            "file": "c:\\Users\\venuadmin\\AppData\\Roaming\\MetaQuotes\\Terminal\\2191F4A3D14D7B4B1EBB84F924777883\\MQL4\\Experts\\OLD2\\V-TV-VENU-Special\\V_TV_MarkerSuggestions.mqh",
+            "message": "undeclared identifier 'Open'",
+            "range": {
+                "start": {
+                    "line": 137,
+                    "character": 44
+                },
+                "end": {
+                    "line": 137,
+                    "character": 144
+                }
+            },
+            "severity": "Error",
+            "code": "256"
+        },
+        {
+            "file": "c:\\Users\\venuadmin\\AppData\\Roaming\\MetaQuotes\\Terminal\\2191F4A3D14D7B4B1EBB84F924777883\\MQL4\\Experts\\OLD2\\V-TV-VENU-Special\\V_TV_MarkerSuggestions.mqh",
+            "message": "'[' - array required",
+            "range": {
+                "start": {
+                    "line": 137,
+                    "character": 48
+                },
+                "end": {
+                    "line": 137,
+                    "character": 148
+                }
+            },
+            "severity": "Error",
+            "code": "241"
+        },
+        {
+            "file": "c:\\Users\\venuadmin\\AppData\\Roaming\\MetaQuotes\\Terminal\\2191F4A3D14D7B4B1EBB84F924777883\\MQL4\\Experts\\OLD2\\V-TV-VENU-Special\\V_TV_MarkerSuggestions.mqh",
+            "message": "undeclared identifier 'Close'",
+            "range": {
+                "start": {
+                    "line": 137,
+                    "character": 53
+                },
+                "end": {
+                    "line": 137,
+                    "character": 153
+                }
+            },
+            "severity": "Error",
+            "code": "256"
+        },
+        {
+            "file": "c:\\Users\\venuadmin\\AppData\\Roaming\\MetaQuotes\\Terminal\\2191F4A3D14D7B4B1EBB84F924777883\\MQL4\\Experts\\OLD2\\V-TV-VENU-Special\\V_TV_MarkerSuggestions.mqh",
+            "message": "'[' - array required",
+            "range": {
+                "start": {
+                    "line": 137,
+                    "character": 58
+                },
+                "end": {
+                    "line": 137,
+                    "character": 158
+                }
+            },
+            "severity": "Error",
+            "code": "241"
+        },
+        {
+            "file": "c:\\Users\\venuadmin\\AppData\\Roaming\\MetaQuotes\\Terminal\\2191F4A3D14D7B4B1EBB84F924777883\\MQL4\\Experts\\OLD2\\V-TV-VENU-Special\\V_TV_MarkerSuggestions.mqh",
+            "message": "undeclared identifier 'Open'",
+            "range": {
+                "start": {
+                    "line": 138,
+                    "character": 33
+                },
+                "end": {
+                    "line": 138,
+                    "character": 133
+                }
+            },
+            "severity": "Error",
+            "code": "256"
+        },
+        {
+            "file": "c:\\Users\\venuadmin\\AppData\\Roaming\\MetaQuotes\\Terminal\\2191F4A3D14D7B4B1EBB84F924777883\\MQL4\\Experts\\OLD2\\V-TV-VENU-Special\\V_TV_MarkerSuggestions.mqh",
+            "message": "'[' - array required",
+            "range": {
+                "start": {
+                    "line": 138,
+                    "character": 37
+                },
+                "end": {
+                    "line": 138,
+                    "character": 137
+                }
+            },
+            "severity": "Error",
+            "code": "241"
+        },
+        {
+            "file": "c:\\Users\\venuadmin\\AppData\\Roaming\\MetaQuotes\\Terminal\\2191F4A3D14D7B4B1EBB84F924777883\\MQL4\\Experts\\OLD2\\V-TV-VENU-Special\\V_TV_MarkerSuggestions.mqh",
+            "message": "undeclared identifier 'Close'",
+            "range": {
+                "start": {
+                    "line": 138,
+                    "character": 42
+                },
+                "end": {
+                    "line": 138,
+                    "character": 142
+                }
+            },
+            "severity": "Error",
+            "code": "256"
+        },
+        {
+            "file": "c:\\Users\\venuadmin\\AppData\\Roaming\\MetaQuotes\\Terminal\\2191F4A3D14D7B4B1EBB84F924777883\\MQL4\\Experts\\OLD2\\V-TV-VENU-Special\\V_TV_MarkerSuggestions.mqh",
+            "message": "'[' - array required",
+            "range": {
+                "start": {
+                    "line": 138,
+                    "character": 47
+                },
+                "end": {
+                    "line": 138,
+                    "character": 147
+                }
+            },
+            "severity": "Error",
+            "code": "241"
+        },
+        {
+            "file": "c:\\Users\\venuadmin\\AppData\\Roaming\\MetaQuotes\\Terminal\\2191F4A3D14D7B4B1EBB84F924777883\\MQL4\\Experts\\OLD2\\V-TV-VENU-Special\\V_TV_MarkerSuggestions.mqh",
+            "message": "undeclared identifier 'Low'",
+            "range": {
+                "start": {
+                    "line": 138,
+                    "character": 54
+                },
+                "end": {
+                    "line": 138,
+                    "character": 154
+                }
+            },
+            "severity": "Error",
+            "code": "256"
+        },
+        {
+            "file": "c:\\Users\\venuadmin\\AppData\\Roaming\\MetaQuotes\\Terminal\\2191F4A3D14D7B4B1EBB84F924777883\\MQL4\\Experts\\OLD2\\V-TV-VENU-Special\\V_TV_MarkerSuggestions.mqh",
+            "message": "'[' - array required",
+            "range": {
+                "start": {
+                    "line": 138,
+                    "character": 57
+                },
+                "end": {
+                    "line": 138,
+                    "character": 157
+                }
+            },
+            "severity": "Error",
+            "code": "241"
+        },
+        {
+            "file": "c:\\Users\\venuadmin\\AppData\\Roaming\\MetaQuotes\\Terminal\\2191F4A3D14D7B4B1EBB84F924777883\\MQL4\\Experts\\OLD2\\V-TV-VENU-Special\\V_TV_MarkerSuggestions.mqh",
+            "message": "undeclared identifier 'Close'",
+            "range": {
+                "start": {
+                    "line": 140,
+                    "character": 53
+                },
+                "end": {
+                    "line": 140,
+                    "character": 153
+                }
+            },
+            "severity": "Error",
+            "code": "256"
+        },
+        {
+            "file": "c:\\Users\\venuadmin\\AppData\\Roaming\\MetaQuotes\\Terminal\\2191F4A3D14D7B4B1EBB84F924777883\\MQL4\\Experts\\OLD2\\V-TV-VENU-Special\\V_TV_MarkerSuggestions.mqh",
+            "message": "'[' - array required",
+            "range": {
+                "start": {
+                    "line": 140,
+                    "character": 58
+                },
+                "end": {
+                    "line": 140,
+                    "character": 158
+                }
+            },
+            "severity": "Error",
+            "code": "241"
+        },
+        {
+            "file": "c:\\Users\\venuadmin\\AppData\\Roaming\\MetaQuotes\\Terminal\\2191F4A3D14D7B4B1EBB84F924777883\\MQL4\\Experts\\OLD2\\V-TV-VENU-Special\\V_TV_MarkerSuggestions.mqh",
+            "message": "undeclared identifier 'Open'",
+            "range": {
+                "start": {
+                    "line": 140,
+                    "character": 65
+                },
+                "end": {
+                    "line": 140,
+                    "character": 165
+                }
+            },
+            "severity": "Error",
+            "code": "256"
+        },
+        {
+            "file": "c:\\Users\\venuadmin\\AppData\\Roaming\\MetaQuotes\\Terminal\\2191F4A3D14D7B4B1EBB84F924777883\\MQL4\\Experts\\OLD2\\V-TV-VENU-Special\\V_TV_MarkerSuggestions.mqh",
+            "message": "'[' - array required",
+            "range": {
+                "start": {
+                    "line": 140,
+                    "character": 69
+                },
+                "end": {
+                    "line": 140,
+                    "character": 169
+                }
+            },
+            "severity": "Error",
+            "code": "241"
+        },
+        {
+            "file": "c:\\Users\\venuadmin\\AppData\\Roaming\\MetaQuotes\\Terminal\\2191F4A3D14D7B4B1EBB84F924777883\\MQL4\\Experts\\OLD2\\V-TV-VENU-Special\\V_TV_MarkerSuggestions.mqh",
+            "message": "open parenthesis expected",
+            "range": {
+                "start": {
+                    "line": 141,
+                    "character": 37
+                },
+                "end": {
+                    "line": 141,
+                    "character": 137
+                }
+            },
+            "severity": "Error",
+            "code": "132"
+        },
+        {
+            "file": "c:\\Users\\venuadmin\\AppData\\Roaming\\MetaQuotes\\Terminal\\2191F4A3D14D7B4B1EBB84F924777883\\MQL4\\Experts\\OLD2\\V-TV-VENU-Special\\V_TV_MarkerSuggestions.mqh",
+            "message": "undeclared identifier 'SeqSellStopLossUSD'",
+            "range": {
+                "start": {
+                    "line": 378,
+                    "character": 35
+                },
+                "end": {
+                    "line": 378,
+                    "character": 135
+                }
+            },
+            "severity": "Error",
+            "code": "256"
+        },
+        {
+            "file": "c:\\Users\\venuadmin\\AppData\\Roaming\\MetaQuotes\\Terminal\\2191F4A3D14D7B4B1EBB84F924777883\\MQL4\\Experts\\OLD2\\V-TV-VENU-Special\\V_TV_MarkerSuggestions.mqh",
+            "message": "undeclared identifier 'SeqBuyStopLossUSD'",
+            "range": {
+                "start": {
+                    "line": 378,
+                    "character": 56
+                },
+                "end": {
+                    "line": 378,
+                    "character": 156
+                }
+            },
+            "severity": "Error",
+            "code": "256"
+        },
+        {
+            "file": "c:\\Users\\venuadmin\\AppData\\Roaming\\MetaQuotes\\Terminal\\2191F4A3D14D7B4B1EBB84F924777883\\MQL4\\Experts\\OLD2\\V-TV-VENU-Special\\V_TV_MarkerSuggestions.mqh",
+            "message": "undeclared identifier 'SeqSellProfitTarget'",
+            "range": {
+                "start": {
+                    "line": 379,
+                    "character": 35
+                },
+                "end": {
+                    "line": 379,
+                    "character": 135
+                }
+            },
+            "severity": "Error",
+            "code": "256"
+        },
+        {
+            "file": "c:\\Users\\venuadmin\\AppData\\Roaming\\MetaQuotes\\Terminal\\2191F4A3D14D7B4B1EBB84F924777883\\MQL4\\Experts\\OLD2\\V-TV-VENU-Special\\V_TV_MarkerSuggestions.mqh",
+            "message": "undeclared identifier 'SeqBuyProfitTarget'",
+            "range": {
+                "start": {
+                    "line": 379,
+                    "character": 57
+                },
+                "end": {
+                    "line": 379,
+                    "character": 157
+                }
+            },
+            "severity": "Error",
+            "code": "256"
+        },
+        {
+            "file": "c:\\Users\\venuadmin\\AppData\\Roaming\\MetaQuotes\\Terminal\\2191F4A3D14D7B4B1EBB84F924777883\\MQL4\\Experts\\OLD2\\V-TV-VENU-Special\\V_TV_MarkerSuggestions.mqh",
+            "message": "undeclared identifier 'g_runTimestamp'",
+            "range": {
+                "start": {
+                    "line": 528,
+                    "character": 51
+                },
+                "end": {
+                    "line": 528,
+                    "character": 151
+                }
+            },
+            "severity": "Error",
+            "code": "256"
+        },
+        {
+            "file": "c:\\Users\\venuadmin\\AppData\\Roaming\\MetaQuotes\\Terminal\\2191F4A3D14D7B4B1EBB84F924777883\\MQL4\\Experts\\OLD2\\V-TV-VENU-Special\\V_TV_MarkerSuggestions.mqh",
+            "message": "implicit conversion from 'unknown' to 'string'",
+            "range": {
+                "start": {
+                    "line": 528,
+                    "character": 51
+                },
+                "end": {
+                    "line": 528,
+                    "character": 151
+                }
+            },
+            "severity": "Warning",
+            "code": "94"
+        },
+        {
+            "file": "c:\\Users\\venuadmin\\AppData\\Roaming\\MetaQuotes\\Terminal\\2191F4A3D14D7B4B1EBB84F924777883\\MQL4\\Experts\\OLD2\\V-TV-VENU-Special\\V_TV_MarkerSuggestions.mqh",
+            "message": "undeclared identifier 'g_runTimestamp'",
+            "range": {
+                "start": {
+                    "line": 529,
+                    "character": 48
+                },
+                "end": {
+                    "line": 529,
+                    "character": 148
+                }
+            },
+            "severity": "Error",
+            "code": "256"
+        },
+        {
+            "file": "c:\\Users\\venuadmin\\AppData\\Roaming\\MetaQuotes\\Terminal\\2191F4A3D14D7B4B1EBB84F924777883\\MQL4\\Experts\\OLD2\\V-TV-VENU-Special\\V_TV_MarkerSuggestions.mqh",
+            "message": "implicit conversion from 'unknown' to 'string'",
+            "range": {
+                "start": {
+                    "line": 529,
+                    "character": 48
+                },
+                "end": {
+                    "line": 529,
+                    "character": 148
+                }
+            },
+            "severity": "Warning",
+            "code": "94"
+        },
+        {
+            "file": "c:\\Users\\venuadmin\\AppData\\Roaming\\MetaQuotes\\Terminal\\2191F4A3D14D7B4B1EBB84F924777883\\MQL4\\Experts\\OLD2\\V-TV-VENU-Special\\V_TV_MarkerSuggestions.mqh",
+            "message": "undeclared identifier 'SeqSellEMAPeriod'",
+            "range": {
+                "start": {
+                    "line": 595,
+                    "character": 31
+                },
+                "end": {
+                    "line": 595,
+                    "character": 131
+                }
+            },
+            "severity": "Error",
+            "code": "256"
+        },
+        {
+            "file": "c:\\Users\\venuadmin\\AppData\\Roaming\\MetaQuotes\\Terminal\\2191F4A3D14D7B4B1EBB84F924777883\\MQL4\\Experts\\OLD2\\V-TV-VENU-Special\\V_TV_MarkerSuggestions.mqh",
+            "message": "undeclared identifier 'SeqBuyEMAPeriod'",
+            "range": {
+                "start": {
+                    "line": 595,
+                    "character": 50
+                },
+                "end": {
+                    "line": 595,
+                    "character": 150
+                }
+            },
+            "severity": "Error",
+            "code": "256"
+        },
+        {
+            "file": "c:\\Users\\venuadmin\\AppData\\Roaming\\MetaQuotes\\Terminal\\2191F4A3D14D7B4B1EBB84F924777883\\MQL4\\Experts\\OLD2\\V-TV-VENU-Special\\V_TV_MarkerSuggestions.mqh",
+            "message": "undeclared identifier 'SeqSellEMA2Period'",
+            "range": {
+                "start": {
+                    "line": 596,
+                    "character": 31
+                },
+                "end": {
+                    "line": 596,
+                    "character": 131
+                }
+            },
+            "severity": "Error",
+            "code": "256"
+        },
+        {
+            "file": "c:\\Users\\venuadmin\\AppData\\Roaming\\MetaQuotes\\Terminal\\2191F4A3D14D7B4B1EBB84F924777883\\MQL4\\Experts\\OLD2\\V-TV-VENU-Special\\V_TV_MarkerSuggestions.mqh",
+            "message": "undeclared identifier 'SeqBuyEMA2Period'",
+            "range": {
+                "start": {
+                    "line": 596,
+                    "character": 51
+                },
+                "end": {
+                    "line": 596,
+                    "character": 151
+                }
+            },
+            "severity": "Error",
+            "code": "256"
+        },
+        {
+            "file": "c:\\Users\\venuadmin\\AppData\\Roaming\\MetaQuotes\\Terminal\\2191F4A3D14D7B4B1EBB84F924777883\\MQL4\\Experts\\OLD2\\V-TV-VENU-Special\\V_TV_MarkerSuggestions.mqh",
+            "message": "wrong parameters count",
+            "range": {
+                "start": {
+                    "line": 597,
+                    "character": 22
+                },
+                "end": {
+                    "line": 597,
+                    "character": 122
+                }
+            },
+            "severity": "Error",
+            "code": "199"
+        },
+        {
+            "file": "c:\\Users\\venuadmin\\AppData\\Roaming\\MetaQuotes\\Terminal\\2191F4A3D14D7B4B1EBB84F924777883\\MQL4\\Experts\\OLD2\\V-TV-VENU-Special\\V_TV_MarkerSuggestions.mqh",
+            "message": "wrong parameters count",
+            "range": {
+                "start": {
+                    "line": 598,
+                    "character": 22
+                },
+                "end": {
+                    "line": 598,
+                    "character": 122
+                }
+            },
+            "severity": "Error",
+            "code": "199"
+        },
+        {
+            "file": "c:\\Users\\venuadmin\\AppData\\Roaming\\MetaQuotes\\Terminal\\2191F4A3D14D7B4B1EBB84F924777883\\MQL4\\Experts\\OLD2\\V-TV-VENU-Special\\V_TV_MarkerSuggestions.mqh",
+            "message": "undeclared identifier 'TimeHour'",
+            "range": {
+                "start": {
+                    "line": 614,
+                    "character": 34
+                },
+                "end": {
+                    "line": 614,
+                    "character": 134
+                }
+            },
+            "severity": "Error",
+            "code": "256"
+        },
+        {
+            "file": "c:\\Users\\venuadmin\\AppData\\Roaming\\MetaQuotes\\Terminal\\2191F4A3D14D7B4B1EBB84F924777883\\MQL4\\Experts\\OLD2\\V-TV-VENU-Special\\V_TV_MarkerSuggestions.mqh",
+            "message": "'TimeCurrent' - some operator expected",
+            "range": {
+                "start": {
+                    "line": 614,
+                    "character": 43
+                },
+                "end": {
+                    "line": 614,
+                    "character": 143
+                }
+            },
+            "severity": "Error",
+            "code": "152"
+        },
+        {
+            "file": "c:\\Users\\venuadmin\\AppData\\Roaming\\MetaQuotes\\Terminal\\2191F4A3D14D7B4B1EBB84F924777883\\MQL4\\Experts\\OLD2\\V-TV-VENU-Special\\V_TV_MarkerSuggestions.mqh",
+            "message": "undeclared identifier 'MarketInfo'",
+            "range": {
+                "start": {
+                    "line": 633,
+                    "character": 16
+                },
+                "end": {
+                    "line": 633,
+                    "character": 116
+                }
+            },
+            "severity": "Error",
+            "code": "256"
+        },
+        {
+            "file": "c:\\Users\\venuadmin\\AppData\\Roaming\\MetaQuotes\\Terminal\\2191F4A3D14D7B4B1EBB84F924777883\\MQL4\\Experts\\OLD2\\V-TV-VENU-Special\\V_TV_MarkerSuggestions.mqh",
+            "message": "',' - unexpected token",
+            "range": {
+                "start": {
+                    "line": 633,
+                    "character": 35
+                },
+                "end": {
+                    "line": 633,
+                    "character": 135
+                }
+            },
+            "severity": "Error",
+            "code": "149"
+        },
+        {
+            "file": "c:\\Users\\venuadmin\\AppData\\Roaming\\MetaQuotes\\Terminal\\2191F4A3D14D7B4B1EBB84F924777883\\MQL4\\Experts\\OLD2\\V-TV-VENU-Special\\V_TV_MarkerSuggestions.mqh",
+            "message": "'Symbol' - some operator expected",
+            "range": {
+                "start": {
+                    "line": 633,
+                    "character": 27
+                },
+                "end": {
+                    "line": 633,
+                    "character": 127
+                }
+            },
+            "severity": "Error",
+            "code": "152"
+        },
+        {
+            "file": "c:\\Users\\venuadmin\\AppData\\Roaming\\MetaQuotes\\Terminal\\2191F4A3D14D7B4B1EBB84F924777883\\MQL4\\Experts\\OLD2\\V-TV-VENU-Special\\V_TV_MarkerSuggestions.mqh",
+            "message": "semicolon expected",
+            "range": {
+                "start": {
+                    "line": 633,
+                    "character": 37
+                },
+                "end": {
+                    "line": 633,
+                    "character": 137
+                }
+            },
+            "severity": "Error",
+            "code": "154"
+        },
+        {
+            "file": "c:\\Users\\venuadmin\\AppData\\Roaming\\MetaQuotes\\Terminal\\2191F4A3D14D7B4B1EBB84F924777883\\MQL4\\Experts\\OLD2\\V-TV-VENU-Special\\V_TV_MarkerSuggestions.mqh",
+            "message": "undeclared identifier 'MODE_BID'",
+            "range": {
+                "start": {
+                    "line": 633,
+                    "character": 37
+                },
+                "end": {
+                    "line": 633,
+                    "character": 137
+                }
+            },
+            "severity": "Error",
+            "code": "256"
+        },
+        {
+            "file": "c:\\Users\\venuadmin\\AppData\\Roaming\\MetaQuotes\\Terminal\\2191F4A3D14D7B4B1EBB84F924777883\\MQL4\\Experts\\OLD2\\V-TV-VENU-Special\\V_TV_MarkerSuggestions.mqh",
+            "message": "')' - unexpected token",
+            "range": {
+                "start": {
+                    "line": 633,
+                    "character": 45
+                },
+                "end": {
+                    "line": 633,
+                    "character": 145
+                }
+            },
+            "severity": "Error",
+            "code": "149"
+        },
+        {
+            "file": "c:\\Users\\venuadmin\\AppData\\Roaming\\MetaQuotes\\Terminal\\2191F4A3D14D7B4B1EBB84F924777883\\MQL4\\Experts\\OLD2\\V-TV-VENU-Special\\V_TV_MarkerSuggestions.mqh",
+            "message": "undeclared identifier 'MarketInfo'",
+            "range": {
+                "start": {
+                    "line": 634,
+                    "character": 16
+                },
+                "end": {
+                    "line": 634,
+                    "character": 116
+                }
+            },
+            "severity": "Error",
+            "code": "256"
+        },
+        {
+            "file": "c:\\Users\\venuadmin\\AppData\\Roaming\\MetaQuotes\\Terminal\\2191F4A3D14D7B4B1EBB84F924777883\\MQL4\\Experts\\OLD2\\V-TV-VENU-Special\\V_TV_MarkerSuggestions.mqh",
+            "message": "',' - unexpected token",
+            "range": {
+                "start": {
+                    "line": 634,
+                    "character": 35
+                },
+                "end": {
+                    "line": 634,
+                    "character": 135
+                }
+            },
+            "severity": "Error",
+            "code": "149"
+        },
+        {
+            "file": "c:\\Users\\venuadmin\\AppData\\Roaming\\MetaQuotes\\Terminal\\2191F4A3D14D7B4B1EBB84F924777883\\MQL4\\Experts\\OLD2\\V-TV-VENU-Special\\V_TV_MarkerSuggestions.mqh",
+            "message": "'Symbol' - some operator expected",
+            "range": {
+                "start": {
+                    "line": 634,
+                    "character": 27
+                },
+                "end": {
+                    "line": 634,
+                    "character": 127
+                }
+            },
+            "severity": "Error",
+            "code": "152"
+        },
+        {
+            "file": "c:\\Users\\venuadmin\\AppData\\Roaming\\MetaQuotes\\Terminal\\2191F4A3D14D7B4B1EBB84F924777883\\MQL4\\Experts\\OLD2\\V-TV-VENU-Special\\V_TV_MarkerSuggestions.mqh",
+            "message": "semicolon expected",
+            "range": {
+                "start": {
+                    "line": 634,
+                    "character": 37
+                },
+                "end": {
+                    "line": 634,
+                    "character": 137
+                }
+            },
+            "severity": "Error",
+            "code": "154"
+        },
+        {
+            "file": "c:\\Users\\venuadmin\\AppData\\Roaming\\MetaQuotes\\Terminal\\2191F4A3D14D7B4B1EBB84F924777883\\MQL4\\Experts\\OLD2\\V-TV-VENU-Special\\V_TV_MarkerSuggestions.mqh",
+            "message": "undeclared identifier 'MODE_ASK'",
+            "range": {
+                "start": {
+                    "line": 634,
+                    "character": 37
+                },
+                "end": {
+                    "line": 634,
+                    "character": 137
+                }
+            },
+            "severity": "Error",
+            "code": "256"
+        },
+        {
+            "file": "c:\\Users\\venuadmin\\AppData\\Roaming\\MetaQuotes\\Terminal\\2191F4A3D14D7B4B1EBB84F924777883\\MQL4\\Experts\\OLD2\\V-TV-VENU-Special\\V_TV_MarkerSuggestions.mqh",
+            "message": "')' - unexpected token",
+            "range": {
+                "start": {
+                    "line": 634,
+                    "character": 45
+                },
+                "end": {
+                    "line": 634,
+                    "character": 145
+                }
+            },
+            "severity": "Error",
+            "code": "149"
+        },
+        {
+            "file": "c:\\Users\\venuadmin\\AppData\\Roaming\\MetaQuotes\\Terminal\\2191F4A3D14D7B4B1EBB84F924777883\\MQL4\\Experts\\OLD2\\V-TV-VENU-Special\\V_TV_MarkerSuggestions.mqh",
+            "message": "undeclared identifier 'Time'",
+            "range": {
+                "start": {
+                    "line": 635,
+                    "character": 21
+                },
+                "end": {
+                    "line": 635,
+                    "character": 121
+                }
+            },
+            "severity": "Error",
+            "code": "256"
+        },
+        {
+            "file": "c:\\Users\\venuadmin\\AppData\\Roaming\\MetaQuotes\\Terminal\\2191F4A3D14D7B4B1EBB84F924777883\\MQL4\\Experts\\OLD2\\V-TV-VENU-Special\\V_TV_MarkerSuggestions.mqh",
+            "message": "'[' - array required",
+            "range": {
+                "start": {
+                    "line": 635,
+                    "character": 25
+                },
+                "end": {
+                    "line": 635,
+                    "character": 125
+                }
+            },
+            "severity": "Error",
+            "code": "241"
+        },
+        {
+            "file": "c:\\Users\\venuadmin\\AppData\\Roaming\\MetaQuotes\\Terminal\\2191F4A3D14D7B4B1EBB84F924777883\\MQL4\\Experts\\OLD2\\V-TV-VENU-Special\\V_TV_MarkerSuggestions.mqh",
+            "message": "open parenthesis expected",
+            "range": {
+                "start": {
+                    "line": 645,
+                    "character": 42
+                },
+                "end": {
+                    "line": 645,
+                    "character": 142
+                }
+            },
+            "severity": "Error",
+            "code": "132"
+        },
+        {
+            "file": "c:\\Users\\venuadmin\\AppData\\Roaming\\MetaQuotes\\Terminal\\2191F4A3D14D7B4B1EBB84F924777883\\MQL4\\Experts\\OLD2\\V-TV-VENU-Special\\V_TV_MarkerSuggestions.mqh",
+            "message": "open parenthesis expected",
+            "range": {
+                "start": {
+                    "line": 645,
+                    "character": 78
+                },
+                "end": {
+                    "line": 645,
+                    "character": 178
+                }
+            },
+            "severity": "Error",
+            "code": "132"
+        },
+        {
+            "file": "c:\\Users\\venuadmin\\AppData\\Roaming\\MetaQuotes\\Terminal\\2191F4A3D14D7B4B1EBB84F924777883\\MQL4\\Experts\\OLD2\\V-TV-VENU-Special\\V_TV_MarkerSuggestions.mqh",
+            "message": "open parenthesis expected",
+            "range": {
+                "start": {
+                    "line": 647,
+                    "character": 42
+                },
+                "end": {
+                    "line": 647,
+                    "character": 142
+                }
+            },
+            "severity": "Error",
+            "code": "132"
+        },
+        {
+            "file": "c:\\Users\\venuadmin\\AppData\\Roaming\\MetaQuotes\\Terminal\\2191F4A3D14D7B4B1EBB84F924777883\\MQL4\\Experts\\OLD2\\V-TV-VENU-Special\\V_TV_MarkerSuggestions.mqh",
+            "message": "open parenthesis expected",
+            "range": {
+                "start": {
+                    "line": 647,
+                    "character": 78
+                },
+                "end": {
+                    "line": 647,
+                    "character": 178
+                }
+            },
+            "severity": "Error",
+            "code": "132"
+        },
+        {
+            "file": "c:\\Users\\venuadmin\\AppData\\Roaming\\MetaQuotes\\Terminal\\2191F4A3D14D7B4B1EBB84F924777883\\MQL4\\Experts\\OLD2\\V-TV-VENU-Special\\V_TV_MarkerSuggestions.mqh",
+            "message": "undeclared identifier 'Time'",
+            "range": {
+                "start": {
+                    "line": 716,
                     "character": 39
                 },
                 "end": {
-                    "line": 49,
+                    "line": 716,
                     "character": 139
                 }
             },
@@ -129,884 +1361,20 @@
             "code": "256"
         },
         {
-            "file": "c:\\Users\\venuadmin\\AppData\\Roaming\\MetaQuotes\\Terminal\\2191F4A3D14D7B4B1EBB84F924777883\\MQL4\\Experts\\OLD2\\V-TV-VENU-Special\\V_TV_NewordersCrossLimit2Condition.mqh",
-            "message": "wrong parameters count",
-            "range": {
-                "start": {
-                    "line": 49,
-                    "character": 9
-                },
-                "end": {
-                    "line": 49,
-                    "character": 109
-                }
-            },
-            "severity": "Error",
-            "code": "199"
-        },
-        {
-            "file": "c:\\Users\\venuadmin\\AppData\\Roaming\\MetaQuotes\\Terminal\\2191F4A3D14D7B4B1EBB84F924777883\\MQL4\\Experts\\OLD2\\V-TV-VENU-Special\\V_TV_NewordersCrossLimit2Condition.mqh",
-            "message": "undeclared identifier 'OrderSymbol'",
-            "range": {
-                "start": {
-                    "line": 51,
-                    "character": 12
-                },
-                "end": {
-                    "line": 51,
-                    "character": 112
-                }
-            },
-            "severity": "Error",
-            "code": "256"
-        },
-        {
-            "file": "c:\\Users\\venuadmin\\AppData\\Roaming\\MetaQuotes\\Terminal\\2191F4A3D14D7B4B1EBB84F924777883\\MQL4\\Experts\\OLD2\\V-TV-VENU-Special\\V_TV_NewordersCrossLimit2Condition.mqh",
-            "message": "')' - expression expected",
-            "range": {
-                "start": {
-                    "line": 51,
-                    "character": 24
-                },
-                "end": {
-                    "line": 51,
-                    "character": 124
-                }
-            },
-            "severity": "Error",
-            "code": "157"
-        },
-        {
-            "file": "c:\\Users\\venuadmin\\AppData\\Roaming\\MetaQuotes\\Terminal\\2191F4A3D14D7B4B1EBB84F924777883\\MQL4\\Experts\\OLD2\\V-TV-VENU-Special\\V_TV_NewordersCrossLimit2Condition.mqh",
-            "message": "implicit conversion from 'unknown' to 'string'",
-            "range": {
-                "start": {
-                    "line": 51,
-                    "character": 12
-                },
-                "end": {
-                    "line": 51,
-                    "character": 112
-                }
-            },
-            "severity": "Warning",
-            "code": "94"
-        },
-        {
-            "file": "c:\\Users\\venuadmin\\AppData\\Roaming\\MetaQuotes\\Terminal\\2191F4A3D14D7B4B1EBB84F924777883\\MQL4\\Experts\\OLD2\\V-TV-VENU-Special\\V_TV_NewordersCrossLimit2Condition.mqh",
-            "message": "undeclared identifier 'OrderCloseTime'",
-            "range": {
-                "start": {
-                    "line": 54,
-                    "character": 12
-                },
-                "end": {
-                    "line": 54,
-                    "character": 112
-                }
-            },
-            "severity": "Error",
-            "code": "256"
-        },
-        {
-            "file": "c:\\Users\\venuadmin\\AppData\\Roaming\\MetaQuotes\\Terminal\\2191F4A3D14D7B4B1EBB84F924777883\\MQL4\\Experts\\OLD2\\V-TV-VENU-Special\\V_TV_NewordersCrossLimit2Condition.mqh",
-            "message": "')' - expression expected",
-            "range": {
-                "start": {
-                    "line": 54,
-                    "character": 27
-                },
-                "end": {
-                    "line": 54,
-                    "character": 127
-                }
-            },
-            "severity": "Error",
-            "code": "157"
-        },
-        {
-            "file": "c:\\Users\\venuadmin\\AppData\\Roaming\\MetaQuotes\\Terminal\\2191F4A3D14D7B4B1EBB84F924777883\\MQL4\\Experts\\OLD2\\V-TV-VENU-Special\\V_TV_NewordersCrossLimit2Condition.mqh",
-            "message": "undeclared identifier 'OrderType'",
-            "range": {
-                "start": {
-                    "line": 57,
-                    "character": 12
-                },
-                "end": {
-                    "line": 57,
-                    "character": 112
-                }
-            },
-            "severity": "Error",
-            "code": "256"
-        },
-        {
-            "file": "c:\\Users\\venuadmin\\AppData\\Roaming\\MetaQuotes\\Terminal\\2191F4A3D14D7B4B1EBB84F924777883\\MQL4\\Experts\\OLD2\\V-TV-VENU-Special\\V_TV_NewordersCrossLimit2Condition.mqh",
-            "message": "')' - expression expected",
-            "range": {
-                "start": {
-                    "line": 57,
-                    "character": 22
-                },
-                "end": {
-                    "line": 57,
-                    "character": 122
-                }
-            },
-            "severity": "Error",
-            "code": "157"
-        },
-        {
-            "file": "c:\\Users\\venuadmin\\AppData\\Roaming\\MetaQuotes\\Terminal\\2191F4A3D14D7B4B1EBB84F924777883\\MQL4\\Experts\\OLD2\\V-TV-VENU-Special\\V_TV_NewordersCrossLimit2Condition.mqh",
-            "message": "undeclared identifier 'SeqBuyMaxOrders'",
-            "range": {
-                "start": {
-                    "line": 63,
-                    "character": 20
-                },
-                "end": {
-                    "line": 63,
-                    "character": 120
-                }
-            },
-            "severity": "Error",
-            "code": "256"
-        },
-        {
-            "file": "c:\\Users\\venuadmin\\AppData\\Roaming\\MetaQuotes\\Terminal\\2191F4A3D14D7B4B1EBB84F924777883\\MQL4\\Experts\\OLD2\\V-TV-VENU-Special\\V_TV_NewordersCrossLimit2Condition.mqh",
-            "message": "implicit conversion from 'int' to 'string'",
-            "range": {
-                "start": {
-                    "line": 67,
-                    "character": 38
-                },
-                "end": {
-                    "line": 67,
-                    "character": 138
-                }
-            },
-            "severity": "Warning",
-            "code": "94"
-        },
-        {
-            "file": "c:\\Users\\venuadmin\\AppData\\Roaming\\MetaQuotes\\Terminal\\2191F4A3D14D7B4B1EBB84F924777883\\MQL4\\Experts\\OLD2\\V-TV-VENU-Special\\V_TV_NewordersCrossLimit2Condition.mqh",
-            "message": "undeclared identifier 'SeqBuyMaxOrders'",
-            "range": {
-                "start": {
-                    "line": 67,
-                    "character": 53
-                },
-                "end": {
-                    "line": 67,
-                    "character": 153
-                }
-            },
-            "severity": "Error",
-            "code": "256"
-        },
-        {
-            "file": "c:\\Users\\venuadmin\\AppData\\Roaming\\MetaQuotes\\Terminal\\2191F4A3D14D7B4B1EBB84F924777883\\MQL4\\Experts\\OLD2\\V-TV-VENU-Special\\V_TV_NewordersCrossLimit2Condition.mqh",
-            "message": "implicit conversion from 'unknown' to 'string'",
-            "range": {
-                "start": {
-                    "line": 67,
-                    "character": 53
-                },
-                "end": {
-                    "line": 67,
-                    "character": 153
-                }
-            },
-            "severity": "Warning",
-            "code": "94"
-        },
-        {
-            "file": "c:\\Users\\venuadmin\\AppData\\Roaming\\MetaQuotes\\Terminal\\2191F4A3D14D7B4B1EBB84F924777883\\MQL4\\Experts\\OLD2\\V-TV-VENU-Special\\V_TV_NewordersCrossLimit2Condition.mqh",
-            "message": "undeclared identifier 'FastEMA'",
-            "range": {
-                "start": {
-                    "line": 72,
-                    "character": 37
-                },
-                "end": {
-                    "line": 72,
-                    "character": 137
-                }
-            },
-            "severity": "Error",
-            "code": "256"
-        },
-        {
-            "file": "c:\\Users\\venuadmin\\AppData\\Roaming\\MetaQuotes\\Terminal\\2191F4A3D14D7B4B1EBB84F924777883\\MQL4\\Experts\\OLD2\\V-TV-VENU-Special\\V_TV_NewordersCrossLimit2Condition.mqh",
-            "message": "wrong parameters count",
-            "range": {
-                "start": {
-                    "line": 72,
-                    "character": 20
-                },
-                "end": {
-                    "line": 72,
-                    "character": 120
-                }
-            },
-            "severity": "Error",
-            "code": "199"
-        },
-        {
-            "file": "c:\\Users\\venuadmin\\AppData\\Roaming\\MetaQuotes\\Terminal\\2191F4A3D14D7B4B1EBB84F924777883\\MQL4\\Experts\\OLD2\\V-TV-VENU-Special\\V_TV_NewordersCrossLimit2Condition.mqh",
-            "message": "undeclared identifier 'SlowEMA'",
-            "range": {
-                "start": {
-                    "line": 73,
-                    "character": 37
-                },
-                "end": {
-                    "line": 73,
-                    "character": 137
-                }
-            },
-            "severity": "Error",
-            "code": "256"
-        },
-        {
-            "file": "c:\\Users\\venuadmin\\AppData\\Roaming\\MetaQuotes\\Terminal\\2191F4A3D14D7B4B1EBB84F924777883\\MQL4\\Experts\\OLD2\\V-TV-VENU-Special\\V_TV_NewordersCrossLimit2Condition.mqh",
-            "message": "wrong parameters count",
-            "range": {
-                "start": {
-                    "line": 73,
-                    "character": 20
-                },
-                "end": {
-                    "line": 73,
-                    "character": 120
-                }
-            },
-            "severity": "Error",
-            "code": "199"
-        },
-        {
-            "file": "c:\\Users\\venuadmin\\AppData\\Roaming\\MetaQuotes\\Terminal\\2191F4A3D14D7B4B1EBB84F924777883\\MQL4\\Experts\\OLD2\\V-TV-VENU-Special\\V_TV_NewordersCrossLimit2Condition.mqh",
-            "message": "undeclared identifier 'OP_BUY'",
-            "range": {
-                "start": {
-                    "line": 75,
-                    "character": 19
-                },
-                "end": {
-                    "line": 75,
-                    "character": 119
-                }
-            },
-            "severity": "Error",
-            "code": "256"
-        },
-        {
-            "file": "c:\\Users\\venuadmin\\AppData\\Roaming\\MetaQuotes\\Terminal\\2191F4A3D14D7B4B1EBB84F924777883\\MQL4\\Experts\\OLD2\\V-TV-VENU-Special\\V_TV_NewordersCrossLimit2Condition.mqh",
-            "message": "undeclared identifier 'OP_SELL'",
-            "range": {
-                "start": {
-                    "line": 82,
-                    "character": 19
-                },
-                "end": {
-                    "line": 82,
-                    "character": 119
-                }
-            },
-            "severity": "Error",
-            "code": "256"
-        },
-        {
-            "file": "c:\\Users\\venuadmin\\AppData\\Roaming\\MetaQuotes\\Terminal\\2191F4A3D14D7B4B1EBB84F924777883\\MQL4\\Experts\\OLD2\\V-TV-VENU-Special\\V_TV_NewordersCrossLimit2Condition.mqh",
-            "message": "wrong parameters count",
-            "range": {
-                "start": {
-                    "line": 94,
-                    "character": 20
-                },
-                "end": {
-                    "line": 94,
-                    "character": 120
-                }
-            },
-            "severity": "Error",
-            "code": "199"
-        },
-        {
-            "file": "c:\\Users\\venuadmin\\AppData\\Roaming\\MetaQuotes\\Terminal\\2191F4A3D14D7B4B1EBB84F924777883\\MQL4\\Experts\\OLD2\\V-TV-VENU-Special\\V_TV_NewordersCrossLimit2Condition.mqh",
-            "message": "wrong parameters count",
-            "range": {
-                "start": {
-                    "line": 95,
-                    "character": 20
-                },
-                "end": {
-                    "line": 95,
-                    "character": 120
-                }
-            },
-            "severity": "Error",
-            "code": "199"
-        },
-        {
-            "file": "c:\\Users\\venuadmin\\AppData\\Roaming\\MetaQuotes\\Terminal\\2191F4A3D14D7B4B1EBB84F924777883\\MQL4\\Experts\\OLD2\\V-TV-VENU-Special\\V_TV_NewordersCrossLimit2Condition.mqh",
-            "message": "open parenthesis expected",
-            "range": {
-                "start": {
-                    "line": 99,
-                    "character": 15
-                },
-                "end": {
-                    "line": 99,
-                    "character": 115
-                }
-            },
-            "severity": "Error",
-            "code": "132"
-        },
-        {
-            "file": "c:\\Users\\venuadmin\\AppData\\Roaming\\MetaQuotes\\Terminal\\2191F4A3D14D7B4B1EBB84F924777883\\MQL4\\Experts\\OLD2\\V-TV-VENU-Special\\V_TV_NewordersCrossLimit2Condition.mqh",
-            "message": "open parenthesis expected",
-            "range": {
-                "start": {
-                    "line": 107,
-                    "character": 21
-                },
-                "end": {
-                    "line": 107,
-                    "character": 121
-                }
-            },
-            "severity": "Error",
-            "code": "132"
-        },
-        {
-            "file": "c:\\Users\\venuadmin\\AppData\\Roaming\\MetaQuotes\\Terminal\\2191F4A3D14D7B4B1EBB84F924777883\\MQL4\\Experts\\OLD2\\V-TV-VENU-Special\\V_TV_NewordersCrossLimit2Condition.mqh",
-            "message": "undeclared identifier 'FastEMA'",
-            "range": {
-                "start": {
-                    "line": 114,
-                    "character": 32
-                },
-                "end": {
-                    "line": 114,
-                    "character": 132
-                }
-            },
-            "severity": "Error",
-            "code": "256"
-        },
-        {
-            "file": "c:\\Users\\venuadmin\\AppData\\Roaming\\MetaQuotes\\Terminal\\2191F4A3D14D7B4B1EBB84F924777883\\MQL4\\Experts\\OLD2\\V-TV-VENU-Special\\V_TV_NewordersCrossLimit2Condition.mqh",
-            "message": "undeclared identifier 'SlowEMA'",
-            "range": {
-                "start": {
-                    "line": 114,
-                    "character": 41
-                },
-                "end": {
-                    "line": 114,
-                    "character": 141
-                }
-            },
-            "severity": "Error",
-            "code": "256"
-        },
-        {
-            "file": "c:\\Users\\venuadmin\\AppData\\Roaming\\MetaQuotes\\Terminal\\2191F4A3D14D7B4B1EBB84F924777883\\MQL4\\Experts\\OLD2\\V-TV-VENU-Special\\V_TV_NewordersCrossLimit2Condition.mqh",
-            "message": "undeclared identifier 'SeqBuyMaxOrders'",
-            "range": {
-                "start": {
-                    "line": 115,
-                    "character": 81
-                },
-                "end": {
-                    "line": 115,
-                    "character": 181
-                }
-            },
-            "severity": "Error",
-            "code": "256"
-        },
-        {
-            "file": "c:\\Users\\venuadmin\\AppData\\Roaming\\MetaQuotes\\Terminal\\2191F4A3D14D7B4B1EBB84F924777883\\MQL4\\Experts\\OLD2\\V-TV-VENU-Special\\V_TV_NewordersCrossLimit2Condition.mqh",
-            "message": "undeclared identifier 'SeqSellMaxOrders'",
-            "range": {
-                "start": {
-                    "line": 115,
-                    "character": 118
-                },
-                "end": {
-                    "line": 115,
-                    "character": 218
-                }
-            },
-            "severity": "Error",
-            "code": "256"
-        },
-        {
-            "file": "c:\\Users\\venuadmin\\AppData\\Roaming\\MetaQuotes\\Terminal\\2191F4A3D14D7B4B1EBB84F924777883\\MQL4\\Experts\\OLD2\\V-TV-VENU-Special\\V_TV_NewordersCrossLimit2Condition.mqh",
-            "message": "undeclared identifier 'trendnumber'",
-            "range": {
-                "start": {
-                    "line": 115,
-                    "character": 146
-                },
-                "end": {
-                    "line": 115,
-                    "character": 246
-                }
-            },
-            "severity": "Error",
-            "code": "256"
-        },
-        {
-            "file": "c:\\Users\\venuadmin\\AppData\\Roaming\\MetaQuotes\\Terminal\\2191F4A3D14D7B4B1EBB84F924777883\\MQL4\\Experts\\OLD2\\V-TV-VENU-Special\\V_TV_NewordersCrossLimit2Condition.mqh",
-            "message": "implicit conversion from 'unknown' to 'string'",
-            "range": {
-                "start": {
-                    "line": 115,
-                    "character": 146
-                },
-                "end": {
-                    "line": 115,
-                    "character": 246
-                }
-            },
-            "severity": "Warning",
-            "code": "94"
-        },
-        {
-            "file": "c:\\Users\\venuadmin\\AppData\\Roaming\\MetaQuotes\\Terminal\\2191F4A3D14D7B4B1EBB84F924777883\\MQL4\\Experts\\OLD2\\V-TV-VENU-Special\\V_TV_NewordersCrossLimit2Condition.mqh",
-            "message": "undeclared identifier 'FastEMA'",
-            "range": {
-                "start": {
-                    "line": 172,
-                    "character": 32
-                },
-                "end": {
-                    "line": 172,
-                    "character": 132
-                }
-            },
-            "severity": "Error",
-            "code": "256"
-        },
-        {
-            "file": "c:\\Users\\venuadmin\\AppData\\Roaming\\MetaQuotes\\Terminal\\2191F4A3D14D7B4B1EBB84F924777883\\MQL4\\Experts\\OLD2\\V-TV-VENU-Special\\V_TV_NewordersCrossLimit2Condition.mqh",
-            "message": "undeclared identifier 'SlowEMA'",
-            "range": {
-                "start": {
-                    "line": 172,
-                    "character": 41
-                },
-                "end": {
-                    "line": 172,
-                    "character": 141
-                }
-            },
-            "severity": "Error",
-            "code": "256"
-        },
-        {
-            "file": "c:\\Users\\venuadmin\\AppData\\Roaming\\MetaQuotes\\Terminal\\2191F4A3D14D7B4B1EBB84F924777883\\MQL4\\Experts\\OLD2\\V-TV-VENU-Special\\V_TV_NewordersCrossLimit2Condition.mqh",
-            "message": "undeclared identifier 'SeqBuyMaxOrders'",
-            "range": {
-                "start": {
-                    "line": 180,
-                    "character": 6
-                },
-                "end": {
-                    "line": 180,
-                    "character": 106
-                }
-            },
-            "severity": "Error",
-            "code": "256"
-        },
-        {
-            "file": "c:\\Users\\venuadmin\\AppData\\Roaming\\MetaQuotes\\Terminal\\2191F4A3D14D7B4B1EBB84F924777883\\MQL4\\Experts\\OLD2\\V-TV-VENU-Special\\V_TV_NewordersCrossLimit2Condition.mqh",
-            "message": "undeclared identifier 'defaultMaxBuyOrders'",
-            "range": {
-                "start": {
-                    "line": 180,
-                    "character": 22
-                },
-                "end": {
-                    "line": 180,
-                    "character": 122
-                }
-            },
-            "severity": "Error",
-            "code": "256"
-        },
-        {
-            "file": "c:\\Users\\venuadmin\\AppData\\Roaming\\MetaQuotes\\Terminal\\2191F4A3D14D7B4B1EBB84F924777883\\MQL4\\Experts\\OLD2\\V-TV-VENU-Special\\V_TV_NewordersCrossLimit2Condition.mqh",
-            "message": "undeclared identifier 'SeqSellMaxOrders'",
-            "range": {
-                "start": {
-                    "line": 181,
-                    "character": 6
-                },
-                "end": {
-                    "line": 181,
-                    "character": 106
-                }
-            },
-            "severity": "Error",
-            "code": "256"
-        },
-        {
-            "file": "c:\\Users\\venuadmin\\AppData\\Roaming\\MetaQuotes\\Terminal\\2191F4A3D14D7B4B1EBB84F924777883\\MQL4\\Experts\\OLD2\\V-TV-VENU-Special\\V_TV_NewordersCrossLimit2Condition.mqh",
-            "message": "undeclared identifier 'defaultMaxSellOrders'",
-            "range": {
-                "start": {
-                    "line": 181,
-                    "character": 23
-                },
-                "end": {
-                    "line": 181,
-                    "character": 123
-                }
-            },
-            "severity": "Error",
-            "code": "256"
-        },
-        {
-            "file": "c:\\Users\\venuadmin\\AppData\\Roaming\\MetaQuotes\\Terminal\\2191F4A3D14D7B4B1EBB84F924777883\\MQL4\\Experts\\OLD2\\V-TV-VENU-Special\\V_TV_NewordersCrossLimit2Condition.mqh",
-            "message": "undeclared identifier 'SeqBuyMaxOrders'",
-            "range": {
-                "start": {
-                    "line": 188,
-                    "character": 6
-                },
-                "end": {
-                    "line": 188,
-                    "character": 106
-                }
-            },
-            "severity": "Error",
-            "code": "256"
-        },
-        {
-            "file": "c:\\Users\\venuadmin\\AppData\\Roaming\\MetaQuotes\\Terminal\\2191F4A3D14D7B4B1EBB84F924777883\\MQL4\\Experts\\OLD2\\V-TV-VENU-Special\\V_TV_NewordersCrossLimit2Condition.mqh",
-            "message": "undeclared identifier 'defaultMaxBuyOrders'",
-            "range": {
-                "start": {
-                    "line": 188,
-                    "character": 22
-                },
-                "end": {
-                    "line": 188,
-                    "character": 122
-                }
-            },
-            "severity": "Error",
-            "code": "256"
-        },
-        {
-            "file": "c:\\Users\\venuadmin\\AppData\\Roaming\\MetaQuotes\\Terminal\\2191F4A3D14D7B4B1EBB84F924777883\\MQL4\\Experts\\OLD2\\V-TV-VENU-Special\\V_TV_NewordersCrossLimit2Condition.mqh",
-            "message": "undeclared identifier 'SeqSellMaxOrders'",
-            "range": {
-                "start": {
-                    "line": 189,
-                    "character": 6
-                },
-                "end": {
-                    "line": 189,
-                    "character": 106
-                }
-            },
-            "severity": "Error",
-            "code": "256"
-        },
-        {
-            "file": "c:\\Users\\venuadmin\\AppData\\Roaming\\MetaQuotes\\Terminal\\2191F4A3D14D7B4B1EBB84F924777883\\MQL4\\Experts\\OLD2\\V-TV-VENU-Special\\V_TV_NewordersCrossLimit2Condition.mqh",
-            "message": "undeclared identifier 'defaultMaxSellOrders'",
-            "range": {
-                "start": {
-                    "line": 189,
-                    "character": 23
-                },
-                "end": {
-                    "line": 189,
-                    "character": 123
-                }
-            },
-            "severity": "Error",
-            "code": "256"
-        },
-        {
-            "file": "c:\\Users\\venuadmin\\AppData\\Roaming\\MetaQuotes\\Terminal\\2191F4A3D14D7B4B1EBB84F924777883\\MQL4\\Experts\\OLD2\\V-TV-VENU-Special\\V_TV_NewordersCrossLimit2Condition.mqh",
-            "message": "undeclared identifier 'SeqBuyMaxOrders'",
-            "range": {
-                "start": {
-                    "line": 196,
-                    "character": 6
-                },
-                "end": {
-                    "line": 196,
-                    "character": 106
-                }
-            },
-            "severity": "Error",
-            "code": "256"
-        },
-        {
-            "file": "c:\\Users\\venuadmin\\AppData\\Roaming\\MetaQuotes\\Terminal\\2191F4A3D14D7B4B1EBB84F924777883\\MQL4\\Experts\\OLD2\\V-TV-VENU-Special\\V_TV_NewordersCrossLimit2Condition.mqh",
-            "message": "undeclared identifier 'defaultMaxBuyOrders'",
-            "range": {
-                "start": {
-                    "line": 196,
-                    "character": 22
-                },
-                "end": {
-                    "line": 196,
-                    "character": 122
-                }
-            },
-            "severity": "Error",
-            "code": "256"
-        },
-        {
-            "file": "c:\\Users\\venuadmin\\AppData\\Roaming\\MetaQuotes\\Terminal\\2191F4A3D14D7B4B1EBB84F924777883\\MQL4\\Experts\\OLD2\\V-TV-VENU-Special\\V_TV_NewordersCrossLimit2Condition.mqh",
-            "message": "undeclared identifier 'SeqSellMaxOrders'",
-            "range": {
-                "start": {
-                    "line": 197,
-                    "character": 6
-                },
-                "end": {
-                    "line": 197,
-                    "character": 106
-                }
-            },
-            "severity": "Error",
-            "code": "256"
-        },
-        {
-            "file": "c:\\Users\\venuadmin\\AppData\\Roaming\\MetaQuotes\\Terminal\\2191F4A3D14D7B4B1EBB84F924777883\\MQL4\\Experts\\OLD2\\V-TV-VENU-Special\\V_TV_NewordersCrossLimit2Condition.mqh",
-            "message": "undeclared identifier 'defaultMaxSellOrders'",
-            "range": {
-                "start": {
-                    "line": 197,
-                    "character": 23
-                },
-                "end": {
-                    "line": 197,
-                    "character": 123
-                }
-            },
-            "severity": "Error",
-            "code": "256"
-        },
-        {
-            "file": "c:\\Users\\venuadmin\\AppData\\Roaming\\MetaQuotes\\Terminal\\2191F4A3D14D7B4B1EBB84F924777883\\MQL4\\Experts\\OLD2\\V-TV-VENU-Special\\V_TV_NewordersCrossLimit2Condition.mqh",
-            "message": "undeclared identifier 'SeqBuyMaxOrders'",
-            "range": {
-                "start": {
-                    "line": 204,
-                    "character": 6
-                },
-                "end": {
-                    "line": 204,
-                    "character": 106
-                }
-            },
-            "severity": "Error",
-            "code": "256"
-        },
-        {
-            "file": "c:\\Users\\venuadmin\\AppData\\Roaming\\MetaQuotes\\Terminal\\2191F4A3D14D7B4B1EBB84F924777883\\MQL4\\Experts\\OLD2\\V-TV-VENU-Special\\V_TV_NewordersCrossLimit2Condition.mqh",
-            "message": "undeclared identifier 'defaultMaxBuyOrders'",
-            "range": {
-                "start": {
-                    "line": 204,
-                    "character": 22
-                },
-                "end": {
-                    "line": 204,
-                    "character": 122
-                }
-            },
-            "severity": "Error",
-            "code": "256"
-        },
-        {
-            "file": "c:\\Users\\venuadmin\\AppData\\Roaming\\MetaQuotes\\Terminal\\2191F4A3D14D7B4B1EBB84F924777883\\MQL4\\Experts\\OLD2\\V-TV-VENU-Special\\V_TV_NewordersCrossLimit2Condition.mqh",
-            "message": "undeclared identifier 'SeqSellMaxOrders'",
-            "range": {
-                "start": {
-                    "line": 205,
-                    "character": 6
-                },
-                "end": {
-                    "line": 205,
-                    "character": 106
-                }
-            },
-            "severity": "Error",
-            "code": "256"
-        },
-        {
-            "file": "c:\\Users\\venuadmin\\AppData\\Roaming\\MetaQuotes\\Terminal\\2191F4A3D14D7B4B1EBB84F924777883\\MQL4\\Experts\\OLD2\\V-TV-VENU-Special\\V_TV_NewordersCrossLimit2Condition.mqh",
-            "message": "undeclared identifier 'defaultMaxSellOrders'",
-            "range": {
-                "start": {
-                    "line": 205,
-                    "character": 23
-                },
-                "end": {
-                    "line": 205,
-                    "character": 123
-                }
-            },
-            "severity": "Error",
-            "code": "256"
-        },
-        {
-            "file": "c:\\Users\\venuadmin\\AppData\\Roaming\\MetaQuotes\\Terminal\\2191F4A3D14D7B4B1EBB84F924777883\\MQL4\\Experts\\OLD2\\V-TV-VENU-Special\\V_TV_NewordersCrossLimit2Condition.mqh",
-            "message": "wrong parameters count",
-            "range": {
-                "start": {
-                    "line": 215,
-                    "character": 18
-                },
-                "end": {
-                    "line": 215,
-                    "character": 118
-                }
-            },
-            "severity": "Error",
-            "code": "199"
-        },
-        {
-            "file": "c:\\Users\\venuadmin\\AppData\\Roaming\\MetaQuotes\\Terminal\\2191F4A3D14D7B4B1EBB84F924777883\\MQL4\\Experts\\OLD2\\V-TV-VENU-Special\\V_TV_NewordersCrossLimit2Condition.mqh",
-            "message": "wrong parameters count",
-            "range": {
-                "start": {
-                    "line": 216,
-                    "character": 15
-                },
-                "end": {
-                    "line": 216,
-                    "character": 115
-                }
-            },
-            "severity": "Error",
-            "code": "199"
-        },
-        {
-            "file": "c:\\Users\\venuadmin\\AppData\\Roaming\\MetaQuotes\\Terminal\\2191F4A3D14D7B4B1EBB84F924777883\\MQL4\\Experts\\OLD2\\V-TV-VENU-Special\\V_TV_NewordersCrossLimit2Condition.mqh",
-            "message": "wrong parameters count",
-            "range": {
-                "start": {
-                    "line": 217,
-                    "character": 15
-                },
-                "end": {
-                    "line": 217,
-                    "character": 115
-                }
-            },
-            "severity": "Error",
-            "code": "199"
-        },
-        {
-            "file": "c:\\Users\\venuadmin\\AppData\\Roaming\\MetaQuotes\\Terminal\\2191F4A3D14D7B4B1EBB84F924777883\\MQL4\\Experts\\OLD2\\V-TV-VENU-Special\\V_TV_NewordersCrossLimit2Condition.mqh",
-            "message": "undeclared identifier 'Close'",
-            "range": {
-                "start": {
-                    "line": 218,
-                    "character": 15
-                },
-                "end": {
-                    "line": 218,
-                    "character": 115
-                }
-            },
-            "severity": "Error",
-            "code": "256"
-        },
-        {
-            "file": "c:\\Users\\venuadmin\\AppData\\Roaming\\MetaQuotes\\Terminal\\2191F4A3D14D7B4B1EBB84F924777883\\MQL4\\Experts\\OLD2\\V-TV-VENU-Special\\V_TV_NewordersCrossLimit2Condition.mqh",
+            "file": "c:\\Users\\venuadmin\\AppData\\Roaming\\MetaQuotes\\Terminal\\2191F4A3D14D7B4B1EBB84F924777883\\MQL4\\Experts\\OLD2\\V-TV-VENU-Special\\V_TV_MarkerSuggestions.mqh",
             "message": "'[' - array required",
             "range": {
                 "start": {
-                    "line": 218,
-                    "character": 20
+                    "line": 716,
+                    "character": 43
                 },
                 "end": {
-                    "line": 218,
-                    "character": 120
+                    "line": 716,
+                    "character": 143
                 }
             },
             "severity": "Error",
             "code": "241"
-        },
-        {
-            "file": "c:\\Users\\venuadmin\\AppData\\Roaming\\MetaQuotes\\Terminal\\2191F4A3D14D7B4B1EBB84F924777883\\MQL4\\Experts\\OLD2\\V-TV-VENU-Special\\V_TV_NewordersCrossLimit2Condition.mqh",
-            "message": "undeclared identifier 'ProcessSeqBuyOrders'",
-            "range": {
-                "start": {
-                    "line": 226,
-                    "character": 3
-                },
-                "end": {
-                    "line": 226,
-                    "character": 103
-                }
-            },
-            "severity": "Error",
-            "code": "256"
-        },
-        {
-            "file": "c:\\Users\\venuadmin\\AppData\\Roaming\\MetaQuotes\\Terminal\\2191F4A3D14D7B4B1EBB84F924777883\\MQL4\\Experts\\OLD2\\V-TV-VENU-Special\\V_TV_NewordersCrossLimit2Condition.mqh",
-            "message": "'false' - some operator expected",
-            "range": {
-                "start": {
-                    "line": 226,
-                    "character": 23
-                },
-                "end": {
-                    "line": 226,
-                    "character": 123
-                }
-            },
-            "severity": "Error",
-            "code": "152"
-        },
-        {
-            "file": "c:\\Users\\venuadmin\\AppData\\Roaming\\MetaQuotes\\Terminal\\2191F4A3D14D7B4B1EBB84F924777883\\MQL4\\Experts\\OLD2\\V-TV-VENU-Special\\V_TV_NewordersCrossLimit2Condition.mqh",
-            "message": "undeclared identifier 'ProcessSeqSellOrders'",
-            "range": {
-                "start": {
-                    "line": 232,
-                    "character": 3
-                },
-                "end": {
-                    "line": 232,
-                    "character": 103
-                }
-            },
-            "severity": "Error",
-            "code": "256"
-        },
-        {
-            "file": "c:\\Users\\venuadmin\\AppData\\Roaming\\MetaQuotes\\Terminal\\2191F4A3D14D7B4B1EBB84F924777883\\MQL4\\Experts\\OLD2\\V-TV-VENU-Special\\V_TV_NewordersCrossLimit2Condition.mqh",
-            "message": "'false' - some operator expected",
-            "range": {
-                "start": {
-                    "line": 232,
-                    "character": 24
-                },
-                "end": {
-                    "line": 232,
-                    "character": 124
-                }
-            },
-            "severity": "Error",
-            "code": "152"
         }
     ]
 }
