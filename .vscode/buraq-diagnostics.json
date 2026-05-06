@@ -1,1 +1,1348 @@
-{}
+{
+    "c:\\Users\\venuadmin\\AppData\\Roaming\\MetaQuotes\\Terminal\\2191F4A3D14D7B4B1EBB84F924777883\\MQL4\\Experts\\V-TV-Signals\\V_TV_CreateNewOrderLIMITPrice.mqh": [
+        {
+            "file": "c:\\Users\\venuadmin\\AppData\\Roaming\\MetaQuotes\\Terminal\\2191F4A3D14D7B4B1EBB84F924777883\\MQL4\\Experts\\V-TV-Signals\\V_TV_CreateNewOrderLIMITPrice.mqh",
+            "message": "undeclared identifier 'DetectBTCUSDTrendSignal'",
+            "range": {
+                "start": {
+                    "line": 4,
+                    "character": 13
+                },
+                "end": {
+                    "line": 4,
+                    "character": 113
+                }
+            },
+            "severity": "Error",
+            "code": "256"
+        },
+        {
+            "file": "c:\\Users\\venuadmin\\AppData\\Roaming\\MetaQuotes\\Terminal\\2191F4A3D14D7B4B1EBB84F924777883\\MQL4\\Experts\\V-TV-Signals\\V_TV_CreateNewOrderLIMITPrice.mqh",
+            "message": "')' - expression expected",
+            "range": {
+                "start": {
+                    "line": 4,
+                    "character": 37
+                },
+                "end": {
+                    "line": 4,
+                    "character": 137
+                }
+            },
+            "severity": "Error",
+            "code": "157"
+        },
+        {
+            "file": "c:\\Users\\venuadmin\\AppData\\Roaming\\MetaQuotes\\Terminal\\2191F4A3D14D7B4B1EBB84F924777883\\MQL4\\Experts\\V-TV-Signals\\V_TV_CreateNewOrderLIMITPrice.mqh",
+            "message": "undeclared identifier 'SELECT_BY_POS'",
+            "range": {
+                "start": {
+                    "line": 30,
+                    "character": 25
+                },
+                "end": {
+                    "line": 30,
+                    "character": 125
+                }
+            },
+            "severity": "Error",
+            "code": "256"
+        },
+        {
+            "file": "c:\\Users\\venuadmin\\AppData\\Roaming\\MetaQuotes\\Terminal\\2191F4A3D14D7B4B1EBB84F924777883\\MQL4\\Experts\\V-TV-Signals\\V_TV_CreateNewOrderLIMITPrice.mqh",
+            "message": "undeclared identifier 'MODE_TRADES'",
+            "range": {
+                "start": {
+                    "line": 30,
+                    "character": 40
+                },
+                "end": {
+                    "line": 30,
+                    "character": 140
+                }
+            },
+            "severity": "Error",
+            "code": "256"
+        },
+        {
+            "file": "c:\\Users\\venuadmin\\AppData\\Roaming\\MetaQuotes\\Terminal\\2191F4A3D14D7B4B1EBB84F924777883\\MQL4\\Experts\\V-TV-Signals\\V_TV_CreateNewOrderLIMITPrice.mqh",
+            "message": "wrong parameters count",
+            "range": {
+                "start": {
+                    "line": 30,
+                    "character": 10
+                },
+                "end": {
+                    "line": 30,
+                    "character": 110
+                }
+            },
+            "severity": "Error",
+            "code": "199"
+        },
+        {
+            "file": "c:\\Users\\venuadmin\\AppData\\Roaming\\MetaQuotes\\Terminal\\2191F4A3D14D7B4B1EBB84F924777883\\MQL4\\Experts\\V-TV-Signals\\V_TV_CreateNewOrderLIMITPrice.mqh",
+            "message": "undeclared identifier 'OrderSymbol'",
+            "range": {
+                "start": {
+                    "line": 33,
+                    "character": 9
+                },
+                "end": {
+                    "line": 33,
+                    "character": 109
+                }
+            },
+            "severity": "Error",
+            "code": "256"
+        },
+        {
+            "file": "c:\\Users\\venuadmin\\AppData\\Roaming\\MetaQuotes\\Terminal\\2191F4A3D14D7B4B1EBB84F924777883\\MQL4\\Experts\\V-TV-Signals\\V_TV_CreateNewOrderLIMITPrice.mqh",
+            "message": "')' - expression expected",
+            "range": {
+                "start": {
+                    "line": 33,
+                    "character": 21
+                },
+                "end": {
+                    "line": 33,
+                    "character": 121
+                }
+            },
+            "severity": "Error",
+            "code": "157"
+        },
+        {
+            "file": "c:\\Users\\venuadmin\\AppData\\Roaming\\MetaQuotes\\Terminal\\2191F4A3D14D7B4B1EBB84F924777883\\MQL4\\Experts\\V-TV-Signals\\V_TV_CreateNewOrderLIMITPrice.mqh",
+            "message": "implicit conversion from 'unknown' to 'string'",
+            "range": {
+                "start": {
+                    "line": 33,
+                    "character": 9
+                },
+                "end": {
+                    "line": 33,
+                    "character": 109
+                }
+            },
+            "severity": "Warning",
+            "code": "94"
+        },
+        {
+            "file": "c:\\Users\\venuadmin\\AppData\\Roaming\\MetaQuotes\\Terminal\\2191F4A3D14D7B4B1EBB84F924777883\\MQL4\\Experts\\V-TV-Signals\\V_TV_CreateNewOrderLIMITPrice.mqh",
+            "message": "undeclared identifier 'OrderMagicNumber'",
+            "range": {
+                "start": {
+                    "line": 36,
+                    "character": 9
+                },
+                "end": {
+                    "line": 36,
+                    "character": 109
+                }
+            },
+            "severity": "Error",
+            "code": "256"
+        },
+        {
+            "file": "c:\\Users\\venuadmin\\AppData\\Roaming\\MetaQuotes\\Terminal\\2191F4A3D14D7B4B1EBB84F924777883\\MQL4\\Experts\\V-TV-Signals\\V_TV_CreateNewOrderLIMITPrice.mqh",
+            "message": "')' - expression expected",
+            "range": {
+                "start": {
+                    "line": 36,
+                    "character": 26
+                },
+                "end": {
+                    "line": 36,
+                    "character": 126
+                }
+            },
+            "severity": "Error",
+            "code": "157"
+        },
+        {
+            "file": "c:\\Users\\venuadmin\\AppData\\Roaming\\MetaQuotes\\Terminal\\2191F4A3D14D7B4B1EBB84F924777883\\MQL4\\Experts\\V-TV-Signals\\V_TV_CreateNewOrderLIMITPrice.mqh",
+            "message": "undeclared identifier 'OrderType'",
+            "range": {
+                "start": {
+                    "line": 39,
+                    "character": 17
+                },
+                "end": {
+                    "line": 39,
+                    "character": 117
+                }
+            },
+            "severity": "Error",
+            "code": "256"
+        },
+        {
+            "file": "c:\\Users\\venuadmin\\AppData\\Roaming\\MetaQuotes\\Terminal\\2191F4A3D14D7B4B1EBB84F924777883\\MQL4\\Experts\\V-TV-Signals\\V_TV_CreateNewOrderLIMITPrice.mqh",
+            "message": "')' - expression expected",
+            "range": {
+                "start": {
+                    "line": 39,
+                    "character": 27
+                },
+                "end": {
+                    "line": 39,
+                    "character": 127
+                }
+            },
+            "severity": "Error",
+            "code": "157"
+        },
+        {
+            "file": "c:\\Users\\venuadmin\\AppData\\Roaming\\MetaQuotes\\Terminal\\2191F4A3D14D7B4B1EBB84F924777883\\MQL4\\Experts\\V-TV-Signals\\V_TV_CreateNewOrderLIMITPrice.mqh",
+            "message": "undeclared identifier 'OP_BUYSTOP'",
+            "range": {
+                "start": {
+                    "line": 42,
+                    "character": 17
+                },
+                "end": {
+                    "line": 42,
+                    "character": 117
+                }
+            },
+            "severity": "Error",
+            "code": "256"
+        },
+        {
+            "file": "c:\\Users\\venuadmin\\AppData\\Roaming\\MetaQuotes\\Terminal\\2191F4A3D14D7B4B1EBB84F924777883\\MQL4\\Experts\\V-TV-Signals\\V_TV_CreateNewOrderLIMITPrice.mqh",
+            "message": "undeclared identifier 'OP_SELLSTOP'",
+            "range": {
+                "start": {
+                    "line": 42,
+                    "character": 39
+                },
+                "end": {
+                    "line": 42,
+                    "character": 139
+                }
+            },
+            "severity": "Error",
+            "code": "256"
+        },
+        {
+            "file": "c:\\Users\\venuadmin\\AppData\\Roaming\\MetaQuotes\\Terminal\\2191F4A3D14D7B4B1EBB84F924777883\\MQL4\\Experts\\V-TV-Signals\\V_TV_CreateNewOrderLIMITPrice.mqh",
+            "message": "undeclared identifier 'OP_BUYLIMIT'",
+            "range": {
+                "start": {
+                    "line": 43,
+                    "character": 17
+                },
+                "end": {
+                    "line": 43,
+                    "character": 117
+                }
+            },
+            "severity": "Error",
+            "code": "256"
+        },
+        {
+            "file": "c:\\Users\\venuadmin\\AppData\\Roaming\\MetaQuotes\\Terminal\\2191F4A3D14D7B4B1EBB84F924777883\\MQL4\\Experts\\V-TV-Signals\\V_TV_CreateNewOrderLIMITPrice.mqh",
+            "message": "undeclared identifier 'OP_SELLLIMIT'",
+            "range": {
+                "start": {
+                    "line": 43,
+                    "character": 40
+                },
+                "end": {
+                    "line": 43,
+                    "character": 140
+                }
+            },
+            "severity": "Error",
+            "code": "256"
+        },
+        {
+            "file": "c:\\Users\\venuadmin\\AppData\\Roaming\\MetaQuotes\\Terminal\\2191F4A3D14D7B4B1EBB84F924777883\\MQL4\\Experts\\V-TV-Signals\\V_TV_CreateNewOrderLIMITPrice.mqh",
+            "message": "undeclared identifier 'OrderOpenTime'",
+            "range": {
+                "start": {
+                    "line": 45,
+                    "character": 29
+                },
+                "end": {
+                    "line": 45,
+                    "character": 129
+                }
+            },
+            "severity": "Error",
+            "code": "256"
+        },
+        {
+            "file": "c:\\Users\\venuadmin\\AppData\\Roaming\\MetaQuotes\\Terminal\\2191F4A3D14D7B4B1EBB84F924777883\\MQL4\\Experts\\V-TV-Signals\\V_TV_CreateNewOrderLIMITPrice.mqh",
+            "message": "')' - expression expected",
+            "range": {
+                "start": {
+                    "line": 45,
+                    "character": 43
+                },
+                "end": {
+                    "line": 45,
+                    "character": 143
+                }
+            },
+            "severity": "Error",
+            "code": "157"
+        },
+        {
+            "file": "c:\\Users\\venuadmin\\AppData\\Roaming\\MetaQuotes\\Terminal\\2191F4A3D14D7B4B1EBB84F924777883\\MQL4\\Experts\\V-TV-Signals\\V_TV_CreateNewOrderLIMITPrice.mqh",
+            "message": "undeclared identifier 'OrderTicket'",
+            "range": {
+                "start": {
+                    "line": 49,
+                    "character": 25
+                },
+                "end": {
+                    "line": 49,
+                    "character": 125
+                }
+            },
+            "severity": "Error",
+            "code": "256"
+        },
+        {
+            "file": "c:\\Users\\venuadmin\\AppData\\Roaming\\MetaQuotes\\Terminal\\2191F4A3D14D7B4B1EBB84F924777883\\MQL4\\Experts\\V-TV-Signals\\V_TV_CreateNewOrderLIMITPrice.mqh",
+            "message": "')' - expression expected",
+            "range": {
+                "start": {
+                    "line": 49,
+                    "character": 37
+                },
+                "end": {
+                    "line": 49,
+                    "character": 137
+                }
+            },
+            "severity": "Error",
+            "code": "157"
+        },
+        {
+            "file": "c:\\Users\\venuadmin\\AppData\\Roaming\\MetaQuotes\\Terminal\\2191F4A3D14D7B4B1EBB84F924777883\\MQL4\\Experts\\V-TV-Signals\\V_TV_CreateNewOrderLIMITPrice.mqh",
+            "message": "undeclared identifier 'OrderDelete'",
+            "range": {
+                "start": {
+                    "line": 51,
+                    "character": 16
+                },
+                "end": {
+                    "line": 51,
+                    "character": 116
+                }
+            },
+            "severity": "Error",
+            "code": "256"
+        },
+        {
+            "file": "c:\\Users\\venuadmin\\AppData\\Roaming\\MetaQuotes\\Terminal\\2191F4A3D14D7B4B1EBB84F924777883\\MQL4\\Experts\\V-TV-Signals\\V_TV_CreateNewOrderLIMITPrice.mqh",
+            "message": "'ticket' - some operator expected",
+            "range": {
+                "start": {
+                    "line": 51,
+                    "character": 28
+                },
+                "end": {
+                    "line": 51,
+                    "character": 128
+                }
+            },
+            "severity": "Error",
+            "code": "152"
+        },
+        {
+            "file": "c:\\Users\\venuadmin\\AppData\\Roaming\\MetaQuotes\\Terminal\\2191F4A3D14D7B4B1EBB84F924777883\\MQL4\\Experts\\V-TV-Signals\\V_TV_CreateNewOrderLIMITPrice.mqh",
+            "message": "undeclared identifier 'SELECT_BY_POS'",
+            "range": {
+                "start": {
+                    "line": 83,
+                    "character": 25
+                },
+                "end": {
+                    "line": 83,
+                    "character": 125
+                }
+            },
+            "severity": "Error",
+            "code": "256"
+        },
+        {
+            "file": "c:\\Users\\venuadmin\\AppData\\Roaming\\MetaQuotes\\Terminal\\2191F4A3D14D7B4B1EBB84F924777883\\MQL4\\Experts\\V-TV-Signals\\V_TV_CreateNewOrderLIMITPrice.mqh",
+            "message": "undeclared identifier 'MODE_TRADES'",
+            "range": {
+                "start": {
+                    "line": 83,
+                    "character": 40
+                },
+                "end": {
+                    "line": 83,
+                    "character": 140
+                }
+            },
+            "severity": "Error",
+            "code": "256"
+        },
+        {
+            "file": "c:\\Users\\venuadmin\\AppData\\Roaming\\MetaQuotes\\Terminal\\2191F4A3D14D7B4B1EBB84F924777883\\MQL4\\Experts\\V-TV-Signals\\V_TV_CreateNewOrderLIMITPrice.mqh",
+            "message": "wrong parameters count",
+            "range": {
+                "start": {
+                    "line": 83,
+                    "character": 10
+                },
+                "end": {
+                    "line": 83,
+                    "character": 110
+                }
+            },
+            "severity": "Error",
+            "code": "199"
+        },
+        {
+            "file": "c:\\Users\\venuadmin\\AppData\\Roaming\\MetaQuotes\\Terminal\\2191F4A3D14D7B4B1EBB84F924777883\\MQL4\\Experts\\V-TV-Signals\\V_TV_CreateNewOrderLIMITPrice.mqh",
+            "message": "undeclared identifier 'OrderSymbol'",
+            "range": {
+                "start": {
+                    "line": 86,
+                    "character": 9
+                },
+                "end": {
+                    "line": 86,
+                    "character": 109
+                }
+            },
+            "severity": "Error",
+            "code": "256"
+        },
+        {
+            "file": "c:\\Users\\venuadmin\\AppData\\Roaming\\MetaQuotes\\Terminal\\2191F4A3D14D7B4B1EBB84F924777883\\MQL4\\Experts\\V-TV-Signals\\V_TV_CreateNewOrderLIMITPrice.mqh",
+            "message": "')' - expression expected",
+            "range": {
+                "start": {
+                    "line": 86,
+                    "character": 21
+                },
+                "end": {
+                    "line": 86,
+                    "character": 121
+                }
+            },
+            "severity": "Error",
+            "code": "157"
+        },
+        {
+            "file": "c:\\Users\\venuadmin\\AppData\\Roaming\\MetaQuotes\\Terminal\\2191F4A3D14D7B4B1EBB84F924777883\\MQL4\\Experts\\V-TV-Signals\\V_TV_CreateNewOrderLIMITPrice.mqh",
+            "message": "implicit conversion from 'unknown' to 'string'",
+            "range": {
+                "start": {
+                    "line": 86,
+                    "character": 9
+                },
+                "end": {
+                    "line": 86,
+                    "character": 109
+                }
+            },
+            "severity": "Warning",
+            "code": "94"
+        },
+        {
+            "file": "c:\\Users\\venuadmin\\AppData\\Roaming\\MetaQuotes\\Terminal\\2191F4A3D14D7B4B1EBB84F924777883\\MQL4\\Experts\\V-TV-Signals\\V_TV_CreateNewOrderLIMITPrice.mqh",
+            "message": "undeclared identifier 'OrderMagicNumber'",
+            "range": {
+                "start": {
+                    "line": 89,
+                    "character": 9
+                },
+                "end": {
+                    "line": 89,
+                    "character": 109
+                }
+            },
+            "severity": "Error",
+            "code": "256"
+        },
+        {
+            "file": "c:\\Users\\venuadmin\\AppData\\Roaming\\MetaQuotes\\Terminal\\2191F4A3D14D7B4B1EBB84F924777883\\MQL4\\Experts\\V-TV-Signals\\V_TV_CreateNewOrderLIMITPrice.mqh",
+            "message": "')' - expression expected",
+            "range": {
+                "start": {
+                    "line": 89,
+                    "character": 26
+                },
+                "end": {
+                    "line": 89,
+                    "character": 126
+                }
+            },
+            "severity": "Error",
+            "code": "157"
+        },
+        {
+            "file": "c:\\Users\\venuadmin\\AppData\\Roaming\\MetaQuotes\\Terminal\\2191F4A3D14D7B4B1EBB84F924777883\\MQL4\\Experts\\V-TV-Signals\\V_TV_CreateNewOrderLIMITPrice.mqh",
+            "message": "undeclared identifier 'OrderType'",
+            "range": {
+                "start": {
+                    "line": 92,
+                    "character": 17
+                },
+                "end": {
+                    "line": 92,
+                    "character": 117
+                }
+            },
+            "severity": "Error",
+            "code": "256"
+        },
+        {
+            "file": "c:\\Users\\venuadmin\\AppData\\Roaming\\MetaQuotes\\Terminal\\2191F4A3D14D7B4B1EBB84F924777883\\MQL4\\Experts\\V-TV-Signals\\V_TV_CreateNewOrderLIMITPrice.mqh",
+            "message": "')' - expression expected",
+            "range": {
+                "start": {
+                    "line": 92,
+                    "character": 27
+                },
+                "end": {
+                    "line": 92,
+                    "character": 127
+                }
+            },
+            "severity": "Error",
+            "code": "157"
+        },
+        {
+            "file": "c:\\Users\\venuadmin\\AppData\\Roaming\\MetaQuotes\\Terminal\\2191F4A3D14D7B4B1EBB84F924777883\\MQL4\\Experts\\V-TV-Signals\\V_TV_CreateNewOrderLIMITPrice.mqh",
+            "message": "undeclared identifier 'OP_BUYSTOP'",
+            "range": {
+                "start": {
+                    "line": 94,
+                    "character": 17
+                },
+                "end": {
+                    "line": 94,
+                    "character": 117
+                }
+            },
+            "severity": "Error",
+            "code": "256"
+        },
+        {
+            "file": "c:\\Users\\venuadmin\\AppData\\Roaming\\MetaQuotes\\Terminal\\2191F4A3D14D7B4B1EBB84F924777883\\MQL4\\Experts\\V-TV-Signals\\V_TV_CreateNewOrderLIMITPrice.mqh",
+            "message": "undeclared identifier 'OP_SELLSTOP'",
+            "range": {
+                "start": {
+                    "line": 94,
+                    "character": 39
+                },
+                "end": {
+                    "line": 94,
+                    "character": 139
+                }
+            },
+            "severity": "Error",
+            "code": "256"
+        },
+        {
+            "file": "c:\\Users\\venuadmin\\AppData\\Roaming\\MetaQuotes\\Terminal\\2191F4A3D14D7B4B1EBB84F924777883\\MQL4\\Experts\\V-TV-Signals\\V_TV_CreateNewOrderLIMITPrice.mqh",
+            "message": "undeclared identifier 'OP_BUYLIMIT'",
+            "range": {
+                "start": {
+                    "line": 95,
+                    "character": 17
+                },
+                "end": {
+                    "line": 95,
+                    "character": 117
+                }
+            },
+            "severity": "Error",
+            "code": "256"
+        },
+        {
+            "file": "c:\\Users\\venuadmin\\AppData\\Roaming\\MetaQuotes\\Terminal\\2191F4A3D14D7B4B1EBB84F924777883\\MQL4\\Experts\\V-TV-Signals\\V_TV_CreateNewOrderLIMITPrice.mqh",
+            "message": "undeclared identifier 'OP_SELLLIMIT'",
+            "range": {
+                "start": {
+                    "line": 95,
+                    "character": 40
+                },
+                "end": {
+                    "line": 95,
+                    "character": 140
+                }
+            },
+            "severity": "Error",
+            "code": "256"
+        },
+        {
+            "file": "c:\\Users\\venuadmin\\AppData\\Roaming\\MetaQuotes\\Terminal\\2191F4A3D14D7B4B1EBB84F924777883\\MQL4\\Experts\\V-TV-Signals\\V_TV_CreateNewOrderLIMITPrice.mqh",
+            "message": "undeclared identifier 'RefreshRates'",
+            "range": {
+                "start": {
+                    "line": 113,
+                    "character": 3
+                },
+                "end": {
+                    "line": 113,
+                    "character": 103
+                }
+            },
+            "severity": "Error",
+            "code": "256"
+        },
+        {
+            "file": "c:\\Users\\venuadmin\\AppData\\Roaming\\MetaQuotes\\Terminal\\2191F4A3D14D7B4B1EBB84F924777883\\MQL4\\Experts\\V-TV-Signals\\V_TV_CreateNewOrderLIMITPrice.mqh",
+            "message": "')' - expression expected",
+            "range": {
+                "start": {
+                    "line": 113,
+                    "character": 16
+                },
+                "end": {
+                    "line": 113,
+                    "character": 116
+                }
+            },
+            "severity": "Error",
+            "code": "157"
+        },
+        {
+            "file": "c:\\Users\\venuadmin\\AppData\\Roaming\\MetaQuotes\\Terminal\\2191F4A3D14D7B4B1EBB84F924777883\\MQL4\\Experts\\V-TV-Signals\\V_TV_CreateNewOrderLIMITPrice.mqh",
+            "message": "wrong parameters count",
+            "range": {
+                "start": {
+                    "line": 115,
+                    "character": 25
+                },
+                "end": {
+                    "line": 115,
+                    "character": 125
+                }
+            },
+            "severity": "Error",
+            "code": "199"
+        },
+        {
+            "file": "c:\\Users\\venuadmin\\AppData\\Roaming\\MetaQuotes\\Terminal\\2191F4A3D14D7B4B1EBB84F924777883\\MQL4\\Experts\\V-TV-Signals\\V_TV_CreateNewOrderLIMITPrice.mqh",
+            "message": "open parenthesis expected",
+            "range": {
+                "start": {
+                    "line": 115,
+                    "character": 58
+                },
+                "end": {
+                    "line": 115,
+                    "character": 158
+                }
+            },
+            "severity": "Error",
+            "code": "132"
+        },
+        {
+            "file": "c:\\Users\\venuadmin\\AppData\\Roaming\\MetaQuotes\\Terminal\\2191F4A3D14D7B4B1EBB84F924777883\\MQL4\\Experts\\V-TV-Signals\\V_TV_CreateNewOrderLIMITPrice.mqh",
+            "message": "undeclared identifier 'MarketInfo'",
+            "range": {
+                "start": {
+                    "line": 117,
+                    "character": 24
+                },
+                "end": {
+                    "line": 117,
+                    "character": 124
+                }
+            },
+            "severity": "Error",
+            "code": "256"
+        },
+        {
+            "file": "c:\\Users\\venuadmin\\AppData\\Roaming\\MetaQuotes\\Terminal\\2191F4A3D14D7B4B1EBB84F924777883\\MQL4\\Experts\\V-TV-Signals\\V_TV_CreateNewOrderLIMITPrice.mqh",
+            "message": "',' - unexpected token",
+            "range": {
+                "start": {
+                    "line": 117,
+                    "character": 43
+                },
+                "end": {
+                    "line": 117,
+                    "character": 143
+                }
+            },
+            "severity": "Error",
+            "code": "149"
+        },
+        {
+            "file": "c:\\Users\\venuadmin\\AppData\\Roaming\\MetaQuotes\\Terminal\\2191F4A3D14D7B4B1EBB84F924777883\\MQL4\\Experts\\V-TV-Signals\\V_TV_CreateNewOrderLIMITPrice.mqh",
+            "message": "'Symbol' - some operator expected",
+            "range": {
+                "start": {
+                    "line": 117,
+                    "character": 35
+                },
+                "end": {
+                    "line": 117,
+                    "character": 135
+                }
+            },
+            "severity": "Error",
+            "code": "152"
+        },
+        {
+            "file": "c:\\Users\\venuadmin\\AppData\\Roaming\\MetaQuotes\\Terminal\\2191F4A3D14D7B4B1EBB84F924777883\\MQL4\\Experts\\V-TV-Signals\\V_TV_CreateNewOrderLIMITPrice.mqh",
+            "message": "semicolon expected",
+            "range": {
+                "start": {
+                    "line": 117,
+                    "character": 45
+                },
+                "end": {
+                    "line": 117,
+                    "character": 145
+                }
+            },
+            "severity": "Error",
+            "code": "154"
+        },
+        {
+            "file": "c:\\Users\\venuadmin\\AppData\\Roaming\\MetaQuotes\\Terminal\\2191F4A3D14D7B4B1EBB84F924777883\\MQL4\\Experts\\V-TV-Signals\\V_TV_CreateNewOrderLIMITPrice.mqh",
+            "message": "undeclared identifier 'MODE_STOPLEVEL'",
+            "range": {
+                "start": {
+                    "line": 117,
+                    "character": 45
+                },
+                "end": {
+                    "line": 117,
+                    "character": 145
+                }
+            },
+            "severity": "Error",
+            "code": "256"
+        },
+        {
+            "file": "c:\\Users\\venuadmin\\AppData\\Roaming\\MetaQuotes\\Terminal\\2191F4A3D14D7B4B1EBB84F924777883\\MQL4\\Experts\\V-TV-Signals\\V_TV_CreateNewOrderLIMITPrice.mqh",
+            "message": "')' - unexpected token",
+            "range": {
+                "start": {
+                    "line": 117,
+                    "character": 59
+                },
+                "end": {
+                    "line": 117,
+                    "character": 159
+                }
+            },
+            "severity": "Error",
+            "code": "149"
+        },
+        {
+            "file": "c:\\Users\\venuadmin\\AppData\\Roaming\\MetaQuotes\\Terminal\\2191F4A3D14D7B4B1EBB84F924777883\\MQL4\\Experts\\V-TV-Signals\\V_TV_CreateNewOrderLIMITPrice.mqh",
+            "message": "undeclared identifier 'Ask'",
+            "range": {
+                "start": {
+                    "line": 127,
+                    "character": 30
+                },
+                "end": {
+                    "line": 127,
+                    "character": 130
+                }
+            },
+            "severity": "Error",
+            "code": "256"
+        },
+        {
+            "file": "c:\\Users\\venuadmin\\AppData\\Roaming\\MetaQuotes\\Terminal\\2191F4A3D14D7B4B1EBB84F924777883\\MQL4\\Experts\\V-TV-Signals\\V_TV_CreateNewOrderLIMITPrice.mqh",
+            "message": "open parenthesis expected",
+            "range": {
+                "start": {
+                    "line": 127,
+                    "character": 57
+                },
+                "end": {
+                    "line": 127,
+                    "character": 157
+                }
+            },
+            "severity": "Error",
+            "code": "132"
+        },
+        {
+            "file": "c:\\Users\\venuadmin\\AppData\\Roaming\\MetaQuotes\\Terminal\\2191F4A3D14D7B4B1EBB84F924777883\\MQL4\\Experts\\V-TV-Signals\\V_TV_CreateNewOrderLIMITPrice.mqh",
+            "message": "open parenthesis expected",
+            "range": {
+                "start": {
+                    "line": 127,
+                    "character": 65
+                },
+                "end": {
+                    "line": 127,
+                    "character": 165
+                }
+            },
+            "severity": "Error",
+            "code": "132"
+        },
+        {
+            "file": "c:\\Users\\venuadmin\\AppData\\Roaming\\MetaQuotes\\Terminal\\2191F4A3D14D7B4B1EBB84F924777883\\MQL4\\Experts\\V-TV-Signals\\V_TV_CreateNewOrderLIMITPrice.mqh",
+            "message": "undeclared identifier 'OP_BUYSTOP'",
+            "range": {
+                "start": {
+                    "line": 128,
+                    "character": 18
+                },
+                "end": {
+                    "line": 128,
+                    "character": 118
+                }
+            },
+            "severity": "Error",
+            "code": "256"
+        },
+        {
+            "file": "c:\\Users\\venuadmin\\AppData\\Roaming\\MetaQuotes\\Terminal\\2191F4A3D14D7B4B1EBB84F924777883\\MQL4\\Experts\\V-TV-Signals\\V_TV_CreateNewOrderLIMITPrice.mqh",
+            "message": "undeclared identifier 'Bid'",
+            "range": {
+                "start": {
+                    "line": 133,
+                    "character": 30
+                },
+                "end": {
+                    "line": 133,
+                    "character": 130
+                }
+            },
+            "severity": "Error",
+            "code": "256"
+        },
+        {
+            "file": "c:\\Users\\venuadmin\\AppData\\Roaming\\MetaQuotes\\Terminal\\2191F4A3D14D7B4B1EBB84F924777883\\MQL4\\Experts\\V-TV-Signals\\V_TV_CreateNewOrderLIMITPrice.mqh",
+            "message": "open parenthesis expected",
+            "range": {
+                "start": {
+                    "line": 133,
+                    "character": 57
+                },
+                "end": {
+                    "line": 133,
+                    "character": 157
+                }
+            },
+            "severity": "Error",
+            "code": "132"
+        },
+        {
+            "file": "c:\\Users\\venuadmin\\AppData\\Roaming\\MetaQuotes\\Terminal\\2191F4A3D14D7B4B1EBB84F924777883\\MQL4\\Experts\\V-TV-Signals\\V_TV_CreateNewOrderLIMITPrice.mqh",
+            "message": "open parenthesis expected",
+            "range": {
+                "start": {
+                    "line": 133,
+                    "character": 65
+                },
+                "end": {
+                    "line": 133,
+                    "character": 165
+                }
+            },
+            "severity": "Error",
+            "code": "132"
+        },
+        {
+            "file": "c:\\Users\\venuadmin\\AppData\\Roaming\\MetaQuotes\\Terminal\\2191F4A3D14D7B4B1EBB84F924777883\\MQL4\\Experts\\V-TV-Signals\\V_TV_CreateNewOrderLIMITPrice.mqh",
+            "message": "undeclared identifier 'OP_SELLSTOP'",
+            "range": {
+                "start": {
+                    "line": 134,
+                    "character": 18
+                },
+                "end": {
+                    "line": 134,
+                    "character": 118
+                }
+            },
+            "severity": "Error",
+            "code": "256"
+        },
+        {
+            "file": "c:\\Users\\venuadmin\\AppData\\Roaming\\MetaQuotes\\Terminal\\2191F4A3D14D7B4B1EBB84F924777883\\MQL4\\Experts\\V-TV-Signals\\V_TV_CreateNewOrderLIMITPrice.mqh",
+            "message": "wrong parameters count",
+            "range": {
+                "start": {
+                    "line": 142,
+                    "character": 16
+                },
+                "end": {
+                    "line": 142,
+                    "character": 116
+                }
+            },
+            "severity": "Error",
+            "code": "199"
+        },
+        {
+            "file": "c:\\Users\\venuadmin\\AppData\\Roaming\\MetaQuotes\\Terminal\\2191F4A3D14D7B4B1EBB84F924777883\\MQL4\\Experts\\V-TV-Signals\\V_TV_CreateNewOrderLIMITPrice.mqh",
+            "message": "open parenthesis expected",
+            "range": {
+                "start": {
+                    "line": 152,
+                    "character": 65
+                },
+                "end": {
+                    "line": 152,
+                    "character": 165
+                }
+            },
+            "severity": "Error",
+            "code": "132"
+        },
+        {
+            "file": "c:\\Users\\venuadmin\\AppData\\Roaming\\MetaQuotes\\Terminal\\2191F4A3D14D7B4B1EBB84F924777883\\MQL4\\Experts\\V-TV-Signals\\V_TV_CreateNewOrderLIMITPrice.mqh",
+            "message": "open parenthesis expected",
+            "range": {
+                "start": {
+                    "line": 161,
+                    "character": 11
+                },
+                "end": {
+                    "line": 161,
+                    "character": 111
+                }
+            },
+            "severity": "Error",
+            "code": "132"
+        },
+        {
+            "file": "c:\\Users\\venuadmin\\AppData\\Roaming\\MetaQuotes\\Terminal\\2191F4A3D14D7B4B1EBB84F924777883\\MQL4\\Experts\\V-TV-Signals\\V_TV_CreateNewOrderLIMITPrice.mqh",
+            "message": "undeclared identifier 'High'",
+            "range": {
+                "start": {
+                    "line": 163,
+                    "character": 18
+                },
+                "end": {
+                    "line": 163,
+                    "character": 118
+                }
+            },
+            "severity": "Error",
+            "code": "256"
+        },
+        {
+            "file": "c:\\Users\\venuadmin\\AppData\\Roaming\\MetaQuotes\\Terminal\\2191F4A3D14D7B4B1EBB84F924777883\\MQL4\\Experts\\V-TV-Signals\\V_TV_CreateNewOrderLIMITPrice.mqh",
+            "message": "'[' - array required",
+            "range": {
+                "start": {
+                    "line": 163,
+                    "character": 22
+                },
+                "end": {
+                    "line": 163,
+                    "character": 122
+                }
+            },
+            "severity": "Error",
+            "code": "241"
+        },
+        {
+            "file": "c:\\Users\\venuadmin\\AppData\\Roaming\\MetaQuotes\\Terminal\\2191F4A3D14D7B4B1EBB84F924777883\\MQL4\\Experts\\V-TV-Signals\\V_TV_CreateNewOrderLIMITPrice.mqh",
+            "message": "undeclared identifier 'Low'",
+            "range": {
+                "start": {
+                    "line": 163,
+                    "character": 28
+                },
+                "end": {
+                    "line": 163,
+                    "character": 128
+                }
+            },
+            "severity": "Error",
+            "code": "256"
+        },
+        {
+            "file": "c:\\Users\\venuadmin\\AppData\\Roaming\\MetaQuotes\\Terminal\\2191F4A3D14D7B4B1EBB84F924777883\\MQL4\\Experts\\V-TV-Signals\\V_TV_CreateNewOrderLIMITPrice.mqh",
+            "message": "'[' - array required",
+            "range": {
+                "start": {
+                    "line": 163,
+                    "character": 31
+                },
+                "end": {
+                    "line": 163,
+                    "character": 131
+                }
+            },
+            "severity": "Error",
+            "code": "241"
+        },
+        {
+            "file": "c:\\Users\\venuadmin\\AppData\\Roaming\\MetaQuotes\\Terminal\\2191F4A3D14D7B4B1EBB84F924777883\\MQL4\\Experts\\V-TV-Signals\\V_TV_CreateNewOrderLIMITPrice.mqh",
+            "message": "undeclared identifier 'High'",
+            "range": {
+                "start": {
+                    "line": 164,
+                    "character": 18
+                },
+                "end": {
+                    "line": 164,
+                    "character": 118
+                }
+            },
+            "severity": "Error",
+            "code": "256"
+        },
+        {
+            "file": "c:\\Users\\venuadmin\\AppData\\Roaming\\MetaQuotes\\Terminal\\2191F4A3D14D7B4B1EBB84F924777883\\MQL4\\Experts\\V-TV-Signals\\V_TV_CreateNewOrderLIMITPrice.mqh",
+            "message": "'[' - array required",
+            "range": {
+                "start": {
+                    "line": 164,
+                    "character": 22
+                },
+                "end": {
+                    "line": 164,
+                    "character": 122
+                }
+            },
+            "severity": "Error",
+            "code": "241"
+        },
+        {
+            "file": "c:\\Users\\venuadmin\\AppData\\Roaming\\MetaQuotes\\Terminal\\2191F4A3D14D7B4B1EBB84F924777883\\MQL4\\Experts\\V-TV-Signals\\V_TV_CreateNewOrderLIMITPrice.mqh",
+            "message": "undeclared identifier 'Low'",
+            "range": {
+                "start": {
+                    "line": 164,
+                    "character": 28
+                },
+                "end": {
+                    "line": 164,
+                    "character": 128
+                }
+            },
+            "severity": "Error",
+            "code": "256"
+        },
+        {
+            "file": "c:\\Users\\venuadmin\\AppData\\Roaming\\MetaQuotes\\Terminal\\2191F4A3D14D7B4B1EBB84F924777883\\MQL4\\Experts\\V-TV-Signals\\V_TV_CreateNewOrderLIMITPrice.mqh",
+            "message": "'[' - array required",
+            "range": {
+                "start": {
+                    "line": 164,
+                    "character": 31
+                },
+                "end": {
+                    "line": 164,
+                    "character": 131
+                }
+            },
+            "severity": "Error",
+            "code": "241"
+        },
+        {
+            "file": "c:\\Users\\venuadmin\\AppData\\Roaming\\MetaQuotes\\Terminal\\2191F4A3D14D7B4B1EBB84F924777883\\MQL4\\Experts\\V-TV-Signals\\V_TV_CreateNewOrderLIMITPrice.mqh",
+            "message": "undeclared identifier 'High'",
+            "range": {
+                "start": {
+                    "line": 165,
+                    "character": 18
+                },
+                "end": {
+                    "line": 165,
+                    "character": 118
+                }
+            },
+            "severity": "Error",
+            "code": "256"
+        },
+        {
+            "file": "c:\\Users\\venuadmin\\AppData\\Roaming\\MetaQuotes\\Terminal\\2191F4A3D14D7B4B1EBB84F924777883\\MQL4\\Experts\\V-TV-Signals\\V_TV_CreateNewOrderLIMITPrice.mqh",
+            "message": "'[' - array required",
+            "range": {
+                "start": {
+                    "line": 165,
+                    "character": 22
+                },
+                "end": {
+                    "line": 165,
+                    "character": 122
+                }
+            },
+            "severity": "Error",
+            "code": "241"
+        },
+        {
+            "file": "c:\\Users\\venuadmin\\AppData\\Roaming\\MetaQuotes\\Terminal\\2191F4A3D14D7B4B1EBB84F924777883\\MQL4\\Experts\\V-TV-Signals\\V_TV_CreateNewOrderLIMITPrice.mqh",
+            "message": "undeclared identifier 'Low'",
+            "range": {
+                "start": {
+                    "line": 165,
+                    "character": 28
+                },
+                "end": {
+                    "line": 165,
+                    "character": 128
+                }
+            },
+            "severity": "Error",
+            "code": "256"
+        },
+        {
+            "file": "c:\\Users\\venuadmin\\AppData\\Roaming\\MetaQuotes\\Terminal\\2191F4A3D14D7B4B1EBB84F924777883\\MQL4\\Experts\\V-TV-Signals\\V_TV_CreateNewOrderLIMITPrice.mqh",
+            "message": "'[' - array required",
+            "range": {
+                "start": {
+                    "line": 165,
+                    "character": 31
+                },
+                "end": {
+                    "line": 165,
+                    "character": 131
+                }
+            },
+            "severity": "Error",
+            "code": "241"
+        },
+        {
+            "file": "c:\\Users\\venuadmin\\AppData\\Roaming\\MetaQuotes\\Terminal\\2191F4A3D14D7B4B1EBB84F924777883\\MQL4\\Experts\\V-TV-Signals\\V_TV_CreateNewOrderLIMITPrice.mqh",
+            "message": "open parenthesis expected",
+            "range": {
+                "start": {
+                    "line": 167,
+                    "character": 39
+                },
+                "end": {
+                    "line": 167,
+                    "character": 139
+                }
+            },
+            "severity": "Error",
+            "code": "132"
+        },
+        {
+            "file": "c:\\Users\\venuadmin\\AppData\\Roaming\\MetaQuotes\\Terminal\\2191F4A3D14D7B4B1EBB84F924777883\\MQL4\\Experts\\V-TV-Signals\\V_TV_CreateNewOrderLIMITPrice.mqh",
+            "message": "open parenthesis expected",
+            "range": {
+                "start": {
+                    "line": 168,
+                    "character": 39
+                },
+                "end": {
+                    "line": 168,
+                    "character": 139
+                }
+            },
+            "severity": "Error",
+            "code": "132"
+        },
+        {
+            "file": "c:\\Users\\venuadmin\\AppData\\Roaming\\MetaQuotes\\Terminal\\2191F4A3D14D7B4B1EBB84F924777883\\MQL4\\Experts\\V-TV-Signals\\V_TV_CreateNewOrderLIMITPrice.mqh",
+            "message": "undeclared identifier 'Close'",
+            "range": {
+                "start": {
+                    "line": 170,
+                    "character": 26
+                },
+                "end": {
+                    "line": 170,
+                    "character": 126
+                }
+            },
+            "severity": "Error",
+            "code": "256"
+        },
+        {
+            "file": "c:\\Users\\venuadmin\\AppData\\Roaming\\MetaQuotes\\Terminal\\2191F4A3D14D7B4B1EBB84F924777883\\MQL4\\Experts\\V-TV-Signals\\V_TV_CreateNewOrderLIMITPrice.mqh",
+            "message": "'[' - array required",
+            "range": {
+                "start": {
+                    "line": 170,
+                    "character": 31
+                },
+                "end": {
+                    "line": 170,
+                    "character": 131
+                }
+            },
+            "severity": "Error",
+            "code": "241"
+        },
+        {
+            "file": "c:\\Users\\venuadmin\\AppData\\Roaming\\MetaQuotes\\Terminal\\2191F4A3D14D7B4B1EBB84F924777883\\MQL4\\Experts\\V-TV-Signals\\V_TV_CreateNewOrderLIMITPrice.mqh",
+            "message": "undeclared identifier 'Open'",
+            "range": {
+                "start": {
+                    "line": 170,
+                    "character": 37
+                },
+                "end": {
+                    "line": 170,
+                    "character": 137
+                }
+            },
+            "severity": "Error",
+            "code": "256"
+        },
+        {
+            "file": "c:\\Users\\venuadmin\\AppData\\Roaming\\MetaQuotes\\Terminal\\2191F4A3D14D7B4B1EBB84F924777883\\MQL4\\Experts\\V-TV-Signals\\V_TV_CreateNewOrderLIMITPrice.mqh",
+            "message": "'[' - array required",
+            "range": {
+                "start": {
+                    "line": 170,
+                    "character": 41
+                },
+                "end": {
+                    "line": 170,
+                    "character": 141
+                }
+            },
+            "severity": "Error",
+            "code": "241"
+        },
+        {
+            "file": "c:\\Users\\venuadmin\\AppData\\Roaming\\MetaQuotes\\Terminal\\2191F4A3D14D7B4B1EBB84F924777883\\MQL4\\Experts\\V-TV-Signals\\V_TV_CreateNewOrderLIMITPrice.mqh",
+            "message": "open parenthesis expected",
+            "range": {
+                "start": {
+                    "line": 170,
+                    "character": 53
+                },
+                "end": {
+                    "line": 170,
+                    "character": 153
+                }
+            },
+            "severity": "Error",
+            "code": "132"
+        },
+        {
+            "file": "c:\\Users\\venuadmin\\AppData\\Roaming\\MetaQuotes\\Terminal\\2191F4A3D14D7B4B1EBB84F924777883\\MQL4\\Experts\\V-TV-Signals\\V_TV_CreateNewOrderLIMITPrice.mqh",
+            "message": "undeclared identifier 'Close'",
+            "range": {
+                "start": {
+                    "line": 171,
+                    "character": 26
+                },
+                "end": {
+                    "line": 171,
+                    "character": 126
+                }
+            },
+            "severity": "Error",
+            "code": "256"
+        },
+        {
+            "file": "c:\\Users\\venuadmin\\AppData\\Roaming\\MetaQuotes\\Terminal\\2191F4A3D14D7B4B1EBB84F924777883\\MQL4\\Experts\\V-TV-Signals\\V_TV_CreateNewOrderLIMITPrice.mqh",
+            "message": "'[' - array required",
+            "range": {
+                "start": {
+                    "line": 171,
+                    "character": 31
+                },
+                "end": {
+                    "line": 171,
+                    "character": 131
+                }
+            },
+            "severity": "Error",
+            "code": "241"
+        },
+        {
+            "file": "c:\\Users\\venuadmin\\AppData\\Roaming\\MetaQuotes\\Terminal\\2191F4A3D14D7B4B1EBB84F924777883\\MQL4\\Experts\\V-TV-Signals\\V_TV_CreateNewOrderLIMITPrice.mqh",
+            "message": "undeclared identifier 'Open'",
+            "range": {
+                "start": {
+                    "line": 171,
+                    "character": 37
+                },
+                "end": {
+                    "line": 171,
+                    "character": 137
+                }
+            },
+            "severity": "Error",
+            "code": "256"
+        },
+        {
+            "file": "c:\\Users\\venuadmin\\AppData\\Roaming\\MetaQuotes\\Terminal\\2191F4A3D14D7B4B1EBB84F924777883\\MQL4\\Experts\\V-TV-Signals\\V_TV_CreateNewOrderLIMITPrice.mqh",
+            "message": "'[' - array required",
+            "range": {
+                "start": {
+                    "line": 171,
+                    "character": 41
+                },
+                "end": {
+                    "line": 171,
+                    "character": 141
+                }
+            },
+            "severity": "Error",
+            "code": "241"
+        },
+        {
+            "file": "c:\\Users\\venuadmin\\AppData\\Roaming\\MetaQuotes\\Terminal\\2191F4A3D14D7B4B1EBB84F924777883\\MQL4\\Experts\\V-TV-Signals\\V_TV_CreateNewOrderLIMITPrice.mqh",
+            "message": "open parenthesis expected",
+            "range": {
+                "start": {
+                    "line": 171,
+                    "character": 53
+                },
+                "end": {
+                    "line": 171,
+                    "character": 153
+                }
+            },
+            "severity": "Error",
+            "code": "132"
+        },
+        {
+            "file": "c:\\Users\\venuadmin\\AppData\\Roaming\\MetaQuotes\\Terminal\\2191F4A3D14D7B4B1EBB84F924777883\\MQL4\\Experts\\V-TV-Signals\\V_TV_CreateNewOrderLIMITPrice.mqh",
+            "message": "wrong parameters count",
+            "range": {
+                "start": {
+                    "line": 173,
+                    "character": 18
+                },
+                "end": {
+                    "line": 173,
+                    "character": 118
+                }
+            },
+            "severity": "Error",
+            "code": "199"
+        },
+        {
+            "file": "c:\\Users\\venuadmin\\AppData\\Roaming\\MetaQuotes\\Terminal\\2191F4A3D14D7B4B1EBB84F924777883\\MQL4\\Experts\\V-TV-Signals\\V_TV_CreateNewOrderLIMITPrice.mqh",
+            "message": "wrong parameters count",
+            "range": {
+                "start": {
+                    "line": 174,
+                    "character": 18
+                },
+                "end": {
+                    "line": 174,
+                    "character": 118
+                }
+            },
+            "severity": "Error",
+            "code": "199"
+        },
+        {
+            "file": "c:\\Users\\venuadmin\\AppData\\Roaming\\MetaQuotes\\Terminal\\2191F4A3D14D7B4B1EBB84F924777883\\MQL4\\Experts\\V-TV-Signals\\V_TV_CreateNewOrderLIMITPrice.mqh",
+            "message": "open parenthesis expected",
+            "range": {
+                "start": {
+                    "line": 175,
+                    "character": 48
+                },
+                "end": {
+                    "line": 175,
+                    "character": 148
+                }
+            },
+            "severity": "Error",
+            "code": "132"
+        }
+    ]
+}
