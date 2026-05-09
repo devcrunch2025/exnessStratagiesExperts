@@ -39,6 +39,8 @@ BasketStopLoss=StopLossValue;
 //+------------------------------------------------------------------+
 void OnTick()
 {
+
+
    CloseBasketByProfit(OP_BUY);
    CloseBasketByProfit(OP_SELL);
 
@@ -49,7 +51,7 @@ void OnTick()
 
    DrawDashboard();
 
-      DrawM5GapValueOnBar();
+      DrawEveryCandleDiffFrom5th();
 
 }
 
@@ -102,6 +104,9 @@ double GetBasketSL()
 //+------------------------------------------------------------------+
 void CheckNewBaseSignal()
 {
+
+// GapPrice = 65 + MathRand() % 6;
+GapPrice = 60 + MathRand() % 11;
    datetime m5Time = iTime(Symbol(), PERIOD_M5, 1);
 
    if(m5Time == lastM5BarTime)
@@ -652,47 +657,83 @@ CreatePanel("DXB_PANEL",300,10,380,470,C'15,15,15');   // TITLE
                clrLime,
                11);
 }
-
-void DrawM5GapValueOnBar()
+double GetLastClosedCandleDiffFrom5th()
 {
-   datetime t = iTime(Symbol(), PERIOD_M5, 1);
+   // Last closed candle
+   double lastClose = iClose(Symbol(), PERIOD_M5, 1);
 
-   string name = "M5_GAP_" + IntegerToString((int)t);
+   // Previous 5th candle
+   double fifthClose = iClose(Symbol(), PERIOD_M5, 5);
 
-   double open  = iOpen(Symbol(), PERIOD_M5, 1);
-   double close = iClose(Symbol(), PERIOD_M5, 1);
+   // Raw price difference
+   double diff = NormalizeDouble(lastClose - fifthClose, 0);
 
-   double high  = iHigh(Symbol(), PERIOD_M5, 1);
-   double low   = iLow(Symbol(), PERIOD_M5, 1);
+   return diff;
+}
+void DrawEveryCandleDiffFrom5th()
+{
+   int candlesToDraw = 100;
 
-   // RAW PRICE GAP
-   double gap = NormalizeDouble(close - open, 2);
+   for(int shift = 1; shift <= candlesToDraw; shift++)
+   {
+      // Need previous 5 candles
+      if(shift + 5 >= Bars)
+         continue;
 
-   color txtColor = gap >= 0 ? clrLime : clrRed;
+      datetime t = iTime(Symbol(), PERIOD_M5, shift);
 
-   double y;
+      string name = "DIFF5_" + IntegerToString((int)t);
 
-   if(gap >= 0)
-      y = high + (Point * 500);
-   else
-      y = low - (Point * 500);
+      // Current candle close
+      double currentClose = iClose(Symbol(), PERIOD_M5, shift);
 
-   // Create only once per candle
-   if(ObjectFind(0, name) >= 0)
-      return;
+      // 5th previous candle close
+      double fifthClose = iClose(Symbol(), PERIOD_M5, shift + 5);
 
-   ObjectCreate(0, name, OBJ_TEXT, 0, t, y);
+      // RAW PRICE DIFFERENCE
+      double diff = NormalizeDouble(currentClose - fifthClose, 2);
 
-   ObjectSetString(0, name, OBJPROP_TEXT,
-                   DoubleToString(gap, 2));
+      // SHOW ONLY > 50 or < -50
+      if(MathAbs(diff) < 50)
+         continue;
 
-   ObjectSetInteger(0, name, OBJPROP_COLOR, txtColor);
+      color txtColor = diff >= 0 ? clrLime : clrRed;
 
-   ObjectSetInteger(0, name, OBJPROP_FONTSIZE, 9);
+      double high = iHigh(Symbol(), PERIOD_M5, shift);
+      double low  = iLow(Symbol(), PERIOD_M5, shift);
 
-   ObjectSetString(0, name, OBJPROP_FONT, "Arial Bold");
+      // Dynamic spacing
+      double candleRange = MathAbs(high - low);
 
-   ObjectSetInteger(0, name, OBJPROP_SELECTABLE, false);
-   ObjectSetInteger(0, name, OBJPROP_HIDDEN, true);
+      double spacing = candleRange * 0.8;
+
+      if(spacing < Point * 200)
+         spacing = Point * 200;
+
+      double y;
+
+      if(diff >= 0)
+         y = high + spacing;
+      else
+         y = low - spacing;
+
+      // Create once
+      if(ObjectFind(0, name) >= 0)
+         continue;
+
+      ObjectCreate(0, name, OBJ_TEXT, 0, t, y);
+
+      ObjectSetString(0, name, OBJPROP_TEXT,
+                      DoubleToString(diff, 0));
+
+      ObjectSetInteger(0, name, OBJPROP_COLOR, txtColor);
+
+      ObjectSetInteger(0, name, OBJPROP_FONTSIZE, 9);
+
+      ObjectSetString(0, name, OBJPROP_FONT, "Arial Bold");
+
+      ObjectSetInteger(0, name, OBJPROP_SELECTABLE, false);
+      ObjectSetInteger(0, name, OBJPROP_HIDDEN, true);
+   }
 }
 //+------------------------------------------------------------------+
