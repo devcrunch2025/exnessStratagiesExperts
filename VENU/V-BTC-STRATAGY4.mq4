@@ -9,8 +9,8 @@ double GapPrice            = 70.0;
 int    MagicNumber         = 5050801;
 int    Slippage            = 50;
 
-double BasketProfitTarget  = 1.00;   // Will be multiplied
-double BasketStopLoss      = 50.00;  // Will be multiplied
+double BasketProfitTarget  = 2.00;   // Will be multiplied
+double BasketStopLoss      = 100.00;  // Will be multiplied
 
 datetime lastM5BarTime = 0;
 
@@ -133,6 +133,13 @@ void ManageRecovery(int orderType)
 
    int minutesPassed = (int)((TimeCurrent() - baseTime) / 60);
 
+   datetime t = TimeCurrent();
+
+int hour = TimeHour(t);
+
+ if(hour>18 || hour<4)
+ {
+
    if(minutesPassed >= 3 && !StageExists(orderType, 1))
       OpenOrder(orderType, GetLot(0.01), MakeComment(orderType, 1));
 
@@ -150,6 +157,34 @@ void ManageRecovery(int orderType)
 
        if(minutesPassed >= 90 && !StageExists(orderType, 6))
       OpenOrder(orderType, GetLot(0.06), MakeComment(orderType, 6));
+
+ }
+ else
+ {
+   if(minutesPassed >= 3 && !StageExists(orderType, 1))
+      OpenOrder(orderType, 0.01, MakeComment(orderType, 1));
+
+   if(minutesPassed >= 6 && !StageExists(orderType, 2))
+      OpenOrder(orderType, 0.01, MakeComment(orderType, 2));
+
+   if(minutesPassed >= 10 && !StageExists(orderType, 3))
+      OpenOrder(orderType, 0.02, MakeComment(orderType, 3));
+
+   if(minutesPassed >= 15 && !StageExists(orderType, 4))
+      OpenOrder(orderType, 0.03, MakeComment(orderType, 4));
+
+      if(minutesPassed >= 20 && !StageExists(orderType, 4))
+      OpenOrder(orderType, 0.04, MakeComment(orderType, 4));
+
+   if(minutesPassed >= 30 && !StageExists(orderType, 5))
+      OpenOrder(orderType, GetLot(0.04), MakeComment(orderType, 5));
+
+       if(minutesPassed >= 60 && !StageExists(orderType, 6))
+      OpenOrder(orderType, GetLot(0.05), MakeComment(orderType, 6));
+
+      if(minutesPassed >= 90 && !StageExists(orderType, 7))
+      OpenOrder(orderType, GetLot(0.05), MakeComment(orderType, 7));
+ }
 }
 
 //+------------------------------------------------------------------+
@@ -429,20 +464,17 @@ void CreatePanel(string name,int x,int y,int w,int h,color bg)
    if(ObjectFind(0,name) < 0)
    {
       ObjectCreate(0,name,OBJ_RECTANGLE_LABEL,0,0,0);
-
-      ObjectSetInteger(0,name,OBJPROP_CORNER,CORNER_RIGHT_UPPER);
-
-      ObjectSetInteger(0,name,OBJPROP_SELECTABLE,false);
-      ObjectSetInteger(0,name,OBJPROP_HIDDEN,true);
-
-      ObjectSetInteger(0,name,OBJPROP_BACK,false);
-
-      ObjectSetInteger(0,name,OBJPROP_BORDER_TYPE,BORDER_FLAT);
-
-      ObjectSetInteger(0,name,OBJPROP_STYLE,STYLE_SOLID);
-
-      ObjectSetInteger(0,name,OBJPROP_WIDTH,1);
    }
+
+   // ALWAYS update properties
+   ObjectSetInteger(0,name,OBJPROP_CORNER,CORNER_RIGHT_UPPER);
+
+   ObjectSetInteger(0,name,OBJPROP_SELECTABLE,false);
+   ObjectSetInteger(0,name,OBJPROP_HIDDEN,true);
+   ObjectSetInteger(0,name,OBJPROP_BACK,true);
+   ObjectSetInteger(0,name,OBJPROP_BORDER_TYPE,BORDER_FLAT);
+   ObjectSetInteger(0,name,OBJPROP_STYLE,STYLE_SOLID);
+   ObjectSetInteger(0,name,OBJPROP_WIDTH,1);
 
    ObjectSetInteger(0,name,OBJPROP_XDISTANCE,x);
    ObjectSetInteger(0,name,OBJPROP_YDISTANCE,y);
@@ -451,7 +483,6 @@ void CreatePanel(string name,int x,int y,int w,int h,color bg)
    ObjectSetInteger(0,name,OBJPROP_YSIZE,h);
 
    ObjectSetInteger(0,name,OBJPROP_BGCOLOR,bg);
-
    ObjectSetInteger(0,name,OBJPROP_COLOR,clrSilver);
 }
 //+------------------------------------------------------------------+
@@ -502,7 +533,7 @@ void DrawDashboard()
       dirClr=clrTomato;
 
    // PANEL
-CreatePanel("DXB_PANEL",10,10,380,470,C'15,15,15');   // TITLE
+CreatePanel("DXB_PANEL",300,10,380,470,C'15,15,15');   // TITLE
    CreateLabel("V4",
                "GAP V 4",
                210,30,
