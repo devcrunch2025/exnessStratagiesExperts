@@ -4,13 +4,18 @@
 //+------------------------------------------------------------------+
 #property strict
 
+
+input double LOTValue=0.01;
+input double StopLossValue=100.00;
+input double TPValue=2.00;
+
 double BaseLot             = 0.01;
 double GapPrice            = 70.0;
 int    MagicNumber         = 5050801;
 int    Slippage            = 50;
 
 double BasketProfitTarget  = 2.00;   // Will be multiplied
-double BasketStopLoss      = 100.00;  // Will be multiplied
+ double BasketStopLoss      = 100.00;  // Will be multiplied
 
 datetime lastM5BarTime = 0;
 
@@ -20,6 +25,14 @@ int OnInit()
    MagicNumber = AccountNumber() + 4;
 
    Print("Gap Recovery One Direction EA Started");
+
+ 
+
+BaseLot=LOTValue;
+BasketProfitTarget=TPValue;
+BasketStopLoss=StopLossValue;
+
+
    return(INIT_SUCCEEDED);
 }
 
@@ -35,6 +48,9 @@ void OnTick()
    ManageRecovery(OP_SELL);
 
    DrawDashboard();
+
+      DrawM5GapValueOnBar();
+
 }
 
 //+------------------------------------------------------------------+
@@ -635,5 +651,48 @@ CreatePanel("DXB_PANEL",300,10,380,470,C'15,15,15');   // TITLE
                290,425,
                clrLime,
                11);
+}
+
+void DrawM5GapValueOnBar()
+{
+   datetime t = iTime(Symbol(), PERIOD_M5, 1);
+
+   string name = "M5_GAP_" + IntegerToString((int)t);
+
+   double open  = iOpen(Symbol(), PERIOD_M5, 1);
+   double close = iClose(Symbol(), PERIOD_M5, 1);
+
+   double high  = iHigh(Symbol(), PERIOD_M5, 1);
+   double low   = iLow(Symbol(), PERIOD_M5, 1);
+
+   // RAW PRICE GAP
+   double gap = NormalizeDouble(close - open, 2);
+
+   color txtColor = gap >= 0 ? clrLime : clrRed;
+
+   double y;
+
+   if(gap >= 0)
+      y = high + (Point * 500);
+   else
+      y = low - (Point * 500);
+
+   // Create only once per candle
+   if(ObjectFind(0, name) >= 0)
+      return;
+
+   ObjectCreate(0, name, OBJ_TEXT, 0, t, y);
+
+   ObjectSetString(0, name, OBJPROP_TEXT,
+                   DoubleToString(gap, 2));
+
+   ObjectSetInteger(0, name, OBJPROP_COLOR, txtColor);
+
+   ObjectSetInteger(0, name, OBJPROP_FONTSIZE, 9);
+
+   ObjectSetString(0, name, OBJPROP_FONT, "Arial Bold");
+
+   ObjectSetInteger(0, name, OBJPROP_SELECTABLE, false);
+   ObjectSetInteger(0, name, OBJPROP_HIDDEN, true);
 }
 //+------------------------------------------------------------------+
