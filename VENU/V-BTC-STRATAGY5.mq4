@@ -22,12 +22,14 @@ datetime lastM5BarTime = 0;
 //+------------------------------------------------------------------+
 int OnInit()
 {
-   MagicNumber = AccountNumber() + 5;
+   MagicNumber = AccountNumber() + 4;
 
    BaseLot            = LOTValue;
    BasketProfitTarget = TPValue;
    BasketStopLoss     = StopLossValue;
    GapPrice           = GapPriceInput;
+
+   GapPrice = GapPrice + (MathRand() % 11 - 5);
 
    Print("Gap Recovery EA Started | Price Difference Recovery");
 
@@ -165,14 +167,16 @@ void ManageRecovery(int orderType)
    if(hour > 18 || hour < 4)
       nightSession = true;
 
+
+
    if(nightSession)
    {
       if(nextStage == 1) { requiredGap = 50;  nextLot = 0.01; }
-      if(nextStage == 2) { requiredGap = 75;  nextLot = 0.02; }
-      if(nextStage == 3) { requiredGap = 100;  nextLot = 0.03; }
-      if(nextStage == 4) { requiredGap = 150; nextLot = 0.04; }
-      if(nextStage == 5) { requiredGap = 250; nextLot = 0.05; }
-      if(nextStage == 6) { requiredGap = 400; nextLot = 0.06; }
+      if(nextStage == 2) { requiredGap = 100;  nextLot = 0.02; }
+      if(nextStage == 3) { requiredGap = 200;  nextLot = 0.03; }
+      if(nextStage == 4) { requiredGap = 400; nextLot = 0.04; }
+      if(nextStage == 5) { requiredGap = 700; nextLot = 0.05; }
+      if(nextStage == 6) { requiredGap = 1000; nextLot = 0.06; }
 
       if(nextStage > 6)
          return;
@@ -180,19 +184,22 @@ void ManageRecovery(int orderType)
    else
    {
       if(nextStage == 1) { requiredGap = 20;  nextLot = 0.01; }
-      if(nextStage == 2) { requiredGap = 40;  nextLot = 0.02; }
-      if(nextStage == 3) { requiredGap = 60;  nextLot = 0.03; }
+      if(nextStage == 2) { requiredGap = 50;  nextLot = 0.02; }
+      if(nextStage == 3) { requiredGap = 80;  nextLot = 0.03; }
       if(nextStage == 4) { requiredGap = 100; nextLot = 0.04; }
-      if(nextStage == 5) { requiredGap = 200; nextLot = 0.05; }
-      if(nextStage == 6) { requiredGap = 300; nextLot = 0.06; }
-      if(nextStage == 7) { requiredGap = 400; nextLot = 0.07; }
-      if(nextStage == 8) { requiredGap = 600; nextLot = 0.08; }
+      if(nextStage == 5) { requiredGap = 300; nextLot = 0.05; }
+      if(nextStage == 6) { requiredGap = 500; nextLot = 0.06; }
+      if(nextStage == 7) { requiredGap = 700; nextLot = 0.07; }
+      if(nextStage == 8) { requiredGap = 1000; nextLot = 0.08; }
 
       if(nextStage > 8)
          return;
    }
 
    bool canRecover = false;
+
+      requiredGap=requiredGap+30;
+
 
    // BUY recovery: price must move DOWN from latest BUY order
    if(orderType == OP_BUY && diff <= -requiredGap)
@@ -662,10 +669,59 @@ void CreateLabel(string name,
    ObjectSetInteger(0,name,OBJPROP_SELECTABLE,false);
    ObjectSetInteger(0,name,OBJPROP_HIDDEN,true);
 }
+void DrawEMA9AndEMA21Lines()
+{
+   int candles = 150;
 
+   for(int i = candles; i >= 1; i--)
+   {
+      datetime t1 = iTime(Symbol(), PERIOD_CURRENT, i);
+      datetime t2 = iTime(Symbol(), PERIOD_CURRENT, i - 1);
+
+      if(t1 <= 0 || t2 <= 0)
+         continue;
+
+      double ema9_1  = iMA(Symbol(), PERIOD_CURRENT, 9, 0, MODE_EMA, PRICE_CLOSE, i);
+      double ema9_2  = iMA(Symbol(), PERIOD_CURRENT, 9, 0, MODE_EMA, PRICE_CLOSE, i - 1);
+
+      double ema21_1 = iMA(Symbol(), PERIOD_CURRENT, 21, 0, MODE_EMA, PRICE_CLOSE, i);
+      double ema21_2 = iMA(Symbol(), PERIOD_CURRENT, 21, 0, MODE_EMA, PRICE_CLOSE, i - 1);
+
+      string name9  = "EMA9_LINE_" + IntegerToString(i);
+      string name21 = "EMA21_LINE_" + IntegerToString(i);
+
+      if(ObjectFind(0, name9) < 0)
+         ObjectCreate(0, name9, OBJ_TREND, 0, t1, ema9_1, t2, ema9_2);
+      else
+      {
+         ObjectMove(0, name9, 0, t1, ema9_1);
+         ObjectMove(0, name9, 1, t2, ema9_2);
+      }
+
+      ObjectSetInteger(0, name9, OBJPROP_COLOR, clrLime);
+      ObjectSetInteger(0, name9, OBJPROP_WIDTH, 2);
+      ObjectSetInteger(0, name9, OBJPROP_RAY_RIGHT, false);
+      ObjectSetInteger(0, name9, OBJPROP_SELECTABLE, false);
+
+      if(ObjectFind(0, name21) < 0)
+         ObjectCreate(0, name21, OBJ_TREND, 0, t1, ema21_1, t2, ema21_2);
+      else
+      {
+         ObjectMove(0, name21, 0, t1, ema21_1);
+         ObjectMove(0, name21, 1, t2, ema21_2);
+      }
+
+      ObjectSetInteger(0, name21, OBJPROP_COLOR, clrRed);
+      ObjectSetInteger(0, name21, OBJPROP_WIDTH, 2);
+      ObjectSetInteger(0, name21, OBJPROP_RAY_RIGHT, false);
+      ObjectSetInteger(0, name21, OBJPROP_SELECTABLE, false);
+   }
+}
 //+------------------------------------------------------------------+
 void DrawDashboard()
 {
+
+   DrawEMA9AndEMA21Lines();
    int mult = GetBalanceMultiplier();
 
    double buyPL  = GetBasketProfit(OP_BUY);
@@ -754,7 +810,7 @@ CreateLabel("DXB_GAP",
 
 CreateLabel("DXB_LIVE_M5_GAP",
             "Live M5 Gap  : " + DoubleToString(GetLiveM5Gap(),2),
-            290,220,
+            290,225,
             GetLiveM5Gap() >= 0 ? clrLime : clrTomato);
    CreateLabel("DXB_GAP",
                "M5 Gap       : " + DoubleToString(GetLastM5Gap(),2),
@@ -763,7 +819,7 @@ CreateLabel("DXB_LIVE_M5_GAP",
 
    CreateLabel("DXB_TRIGGER",
                "Gap Trigger  : " + DoubleToString(GapPrice,2),
-               290,215,
+               290,205,
                clrYellow);
 
    CreateLabel("DXB_DIR",
