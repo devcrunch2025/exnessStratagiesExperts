@@ -669,10 +669,59 @@ void CreateLabel(string name,
    ObjectSetInteger(0,name,OBJPROP_SELECTABLE,false);
    ObjectSetInteger(0,name,OBJPROP_HIDDEN,true);
 }
+void DrawEMA9AndEMA21Lines()
+{
+   int candles = 150;
 
+   for(int i = candles; i >= 1; i--)
+   {
+      datetime t1 = iTime(Symbol(), PERIOD_CURRENT, i);
+      datetime t2 = iTime(Symbol(), PERIOD_CURRENT, i - 1);
+
+      if(t1 <= 0 || t2 <= 0)
+         continue;
+
+      double ema9_1  = iMA(Symbol(), PERIOD_CURRENT, 9, 0, MODE_EMA, PRICE_CLOSE, i);
+      double ema9_2  = iMA(Symbol(), PERIOD_CURRENT, 9, 0, MODE_EMA, PRICE_CLOSE, i - 1);
+
+      double ema21_1 = iMA(Symbol(), PERIOD_CURRENT, 21, 0, MODE_EMA, PRICE_CLOSE, i);
+      double ema21_2 = iMA(Symbol(), PERIOD_CURRENT, 21, 0, MODE_EMA, PRICE_CLOSE, i - 1);
+
+      string name9  = "EMA9_LINE_" + IntegerToString(i);
+      string name21 = "EMA21_LINE_" + IntegerToString(i);
+
+      if(ObjectFind(0, name9) < 0)
+         ObjectCreate(0, name9, OBJ_TREND, 0, t1, ema9_1, t2, ema9_2);
+      else
+      {
+         ObjectMove(0, name9, 0, t1, ema9_1);
+         ObjectMove(0, name9, 1, t2, ema9_2);
+      }
+
+      ObjectSetInteger(0, name9, OBJPROP_COLOR, clrLime);
+      ObjectSetInteger(0, name9, OBJPROP_WIDTH, 2);
+      ObjectSetInteger(0, name9, OBJPROP_RAY_RIGHT, false);
+      ObjectSetInteger(0, name9, OBJPROP_SELECTABLE, false);
+
+      if(ObjectFind(0, name21) < 0)
+         ObjectCreate(0, name21, OBJ_TREND, 0, t1, ema21_1, t2, ema21_2);
+      else
+      {
+         ObjectMove(0, name21, 0, t1, ema21_1);
+         ObjectMove(0, name21, 1, t2, ema21_2);
+      }
+
+      ObjectSetInteger(0, name21, OBJPROP_COLOR, clrRed);
+      ObjectSetInteger(0, name21, OBJPROP_WIDTH, 2);
+      ObjectSetInteger(0, name21, OBJPROP_RAY_RIGHT, false);
+      ObjectSetInteger(0, name21, OBJPROP_SELECTABLE, false);
+   }
+}
 //+------------------------------------------------------------------+
 void DrawDashboard()
 {
+
+   DrawEMA9AndEMA21Lines();
    int mult = GetBalanceMultiplier();
 
    double buyPL  = GetBasketProfit(OP_BUY);
@@ -770,7 +819,7 @@ CreateLabel("DXB_LIVE_M5_GAP",
 
    CreateLabel("DXB_TRIGGER",
                "Gap Trigger  : " + DoubleToString(GapPrice,2),
-               290,215,
+               290,205,
                clrYellow);
 
    CreateLabel("DXB_DIR",
