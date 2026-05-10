@@ -140,6 +140,8 @@ GapPrice = 60 + MathRand() % 11;
 }
 
 //+------------------------------------------------------------------+
+
+/*
 void ManageRecovery(int orderType)
 {
    datetime baseTime = GetBaseOrderTime(orderType);
@@ -158,6 +160,27 @@ void ManageRecovery(int orderType)
 
 int hour = TimeHour(t);
 
+
+bool isTrendingOK = false;
+
+double m30Diff = GetLastClosedCandleDiffFrom(PERIOD_M30);
+double m10Diff = GetLastClosedCandleDiffFrom(PERIOD_M10);
+
+
+// Print("m30Diff ",m30Diff);
+
+if(orderType == OP_BUY)
+{
+   if(m30Diff >= 100)
+      isTrendingOK = true;
+}
+
+if(orderType == OP_SELL)
+{
+   if(m30Diff <= -100)
+      isTrendingOK = true;
+}
+
  if(hour>18 || hour<4)
  {
 
@@ -173,11 +196,17 @@ int hour = TimeHour(t);
    if(minutesPassed >= 45 && !StageExists(orderType, 4))
       OpenOrder(orderType, GetLot(0.04), MakeComment(orderType, 4));
 
+      if(isTrendingOK)
+{
    if(minutesPassed >= 60 && !StageExists(orderType, 5))
       OpenOrder(orderType, GetLot(0.05), MakeComment(orderType, 5));
 
+
+ 
+
        if(minutesPassed >= 90 && !StageExists(orderType, 6))
       OpenOrder(orderType, GetLot(0.06), MakeComment(orderType, 6));
+      }
 
  }
  else
@@ -196,18 +225,159 @@ int hour = TimeHour(t);
 
       if(minutesPassed >= 20 && !StageExists(orderType, 4))
       OpenOrder(orderType, 0.04, MakeComment(orderType, 4));
-
+if(isTrendingOK)
+{
    if(minutesPassed >= 30 && !StageExists(orderType, 5))
       OpenOrder(orderType, GetLot(0.04), MakeComment(orderType, 5));
+ 
+
+
 
        if(minutesPassed >= 60 && !StageExists(orderType, 6))
       OpenOrder(orderType, GetLot(0.05), MakeComment(orderType, 6));
 
       if(minutesPassed >= 90 && !StageExists(orderType, 7))
       OpenOrder(orderType, GetLot(0.05), MakeComment(orderType, 7));
+
+}
  }
 }
+*/
 
+bool IsPriceTrendMinDiffOK(int orderType, double minDiff)
+{
+   double basePrice = GetBaseOrderPrice(orderType);
+   if(basePrice <= 0)
+      return false;
+
+   double livePrice = (orderType == OP_BUY) ? Bid : Ask;
+   double diff = livePrice - basePrice;
+
+   if(orderType == OP_BUY && diff >= minDiff)
+      return true;
+
+   if(orderType == OP_SELL && diff <= -minDiff)
+      return true;
+
+   return false;
+}
+
+
+void ManageRecovery(int orderType)
+{
+   datetime baseTime = GetBaseOrderTime(orderType);
+
+   if(baseTime <= 0)
+      return;
+
+   double profit = GetBasketProfit(orderType);
+
+   if(profit >= 0)
+      return;
+
+   int minutesPassed = (int)((TimeCurrent() - baseTime) / 60);
+
+   datetime t = TimeCurrent();
+   int hour = TimeHour(t);
+
+   bool isTrendingOK = false;
+
+   double m30Diff = GetLastClosedCandleDiffFrom(PERIOD_M30);
+   double m10Diff = GetLastClosedCandleDiffFrom(PERIOD_M10);
+
+   if(orderType == OP_BUY)
+   {
+      if(m30Diff >= 100)
+         isTrendingOK = true;
+   }
+
+   if(orderType == OP_SELL)
+   {
+      if(m30Diff <= -100)
+         isTrendingOK = true;
+   }
+
+   bool priceTrend20OK = IsPriceTrendMinDiffOK(orderType, 20);
+
+   if(hour > 18 || hour < 4)
+   {
+      if(minutesPassed >= 3 && priceTrend20OK && !StageExists(orderType, 1))
+         OpenOrder(orderType, GetLot(0.01), MakeComment(orderType, 1));
+
+      if(minutesPassed >= 15 && priceTrend20OK && !StageExists(orderType, 2))
+         OpenOrder(orderType, GetLot(0.02), MakeComment(orderType, 2));
+
+      if(minutesPassed >= 30 && priceTrend20OK && !StageExists(orderType, 3))
+         OpenOrder(orderType, GetLot(0.03), MakeComment(orderType, 3));
+
+      if(minutesPassed >= 45 && priceTrend20OK && !StageExists(orderType, 4))
+         OpenOrder(orderType, GetLot(0.04), MakeComment(orderType, 4));
+
+      if(isTrendingOK && priceTrend20OK)
+      {
+         if(minutesPassed >= 60 && !StageExists(orderType, 5))
+            OpenOrder(orderType, GetLot(0.05), MakeComment(orderType, 5));
+
+         if(minutesPassed >= 90 && !StageExists(orderType, 6))
+            OpenOrder(orderType, GetLot(0.06), MakeComment(orderType, 6));
+      }
+   }
+   else
+   {
+      if(minutesPassed >= 3 && priceTrend20OK && !StageExists(orderType, 1))
+         OpenOrder(orderType, 0.01, MakeComment(orderType, 1));
+
+      if(minutesPassed >= 6 && priceTrend20OK && !StageExists(orderType, 2))
+         OpenOrder(orderType, 0.01, MakeComment(orderType, 2));
+
+      if(minutesPassed >= 10 && priceTrend20OK && !StageExists(orderType, 3))
+         OpenOrder(orderType, 0.02, MakeComment(orderType, 3));
+
+      if(minutesPassed >= 15 && priceTrend20OK && !StageExists(orderType, 4))
+         OpenOrder(orderType, 0.03, MakeComment(orderType, 4));
+
+      if(minutesPassed >= 20 && priceTrend20OK && !StageExists(orderType, 5))
+         OpenOrder(orderType, 0.04, MakeComment(orderType, 5));
+
+      if(isTrendingOK && priceTrend20OK)
+      {
+         if(minutesPassed >= 30 && !StageExists(orderType, 6))
+            OpenOrder(orderType, GetLot(0.04), MakeComment(orderType, 6));
+
+         if(minutesPassed >= 60 && !StageExists(orderType, 7))
+            OpenOrder(orderType, GetLot(0.05), MakeComment(orderType, 7));
+
+         if(minutesPassed >= 90 && !StageExists(orderType, 8))
+            OpenOrder(orderType, GetLot(0.05), MakeComment(orderType, 8));
+      }
+   }
+}
+
+double GetBaseOrderPrice(int orderType)
+{
+   datetime oldestTime = 0;
+   double basePrice = 0;
+
+   for(int i = OrdersTotal() - 1; i >= 0; i--)
+   {
+      if(!OrderSelect(i, SELECT_BY_POS, MODE_TRADES))
+         continue;
+
+      if(OrderSymbol() != Symbol())
+         continue;
+
+      if(OrderType() != orderType)
+         continue;
+
+      if(oldestTime == 0 || OrderOpenTime() < oldestTime)
+      {
+         oldestTime = OrderOpenTime();
+         basePrice = OrderOpenPrice();
+      }
+   }
+
+   return basePrice;
+}
 //+------------------------------------------------------------------+
 void CloseBasketByProfit(int orderType)
 {
@@ -656,6 +826,19 @@ CreatePanel("DXB_PANEL",300,10,380,470,C'15,15,15');   // TITLE
                290,425,
                clrLime,
                11);
+}
+double GetLastClosedCandleDiffFrom(int timeframe)
+{
+    // Current live market price
+   double livePrice = Bid;
+
+   // M30 candle close from 30 minutes ago
+   double oldPrice = iClose(Symbol(), timeframe, 1);
+
+   // REAL PRICE DIFFERENCE
+   double diff = NormalizeDouble(livePrice - oldPrice, 2);
+
+   return diff;
 }
 double GetLastClosedCandleDiffFrom5th()
 {
