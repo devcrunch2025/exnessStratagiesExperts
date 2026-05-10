@@ -22,7 +22,7 @@ datetime lastM5BarTime = 0;
 //+------------------------------------------------------------------+
 int OnInit()
 {
-   MagicNumber = AccountNumber() + 4;
+   MagicNumber = AccountNumber() + 5;
 
    BaseLot            = LOTValue;
    BasketProfitTarget = TPValue;
@@ -504,9 +504,9 @@ bool StageExists(int orderType, int stage)
 string MakeComment(int orderType, int stage)
 {
    if(orderType == OP_BUY)
-      return "V4_GAP_BUY_S" + IntegerToString(stage);
+      return "V5_PRICE_GAP_BUYS" + IntegerToString(stage);
 
-   return "V4_GAP_SELL_S" + IntegerToString(stage);
+   return "V5_PRICE_GAP_SELL_S" + IntegerToString(stage);
 }
 
 //+------------------------------------------------------------------+
@@ -748,8 +748,8 @@ void DrawDashboard()
 
    CreatePanel("DXB_PANEL",300,10,380,530,C'15,15,15');
 
-   CreateLabel("V4",
-               "GAP V4 PRICE RECOVERY",
+   CreateLabel("V5",
+               "PRICE Gap V5 PRICE RECOVERY",
                210,30,
                clrGold,
                12);
