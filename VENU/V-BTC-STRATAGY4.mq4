@@ -4,6 +4,7 @@
 //+------------------------------------------------------------------+
 #property strict
 
+    
 
 input double LOTValue=0.01;
 input double StopLossValue=100.00;
