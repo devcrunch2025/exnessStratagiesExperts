@@ -5,17 +5,18 @@
 #property strict
 
 input double LOTValue      = 0.01;
-input double StopLossValue = 100.00;
+input double StopLossValue = 30.00;
 input double TPValue       = 2.00;
-input double GapPriceInput = 70.0;
+// input double GapPriceInput = 50.0;
 
 double BaseLot             = 0.01;
 double GapPrice            = 50.0;
+
 int    MagicNumber         = 5050801;
 int    Slippage            = 70;
 
 double BasketProfitTarget  = 2.00;
-double BasketStopLoss      = 100.00;
+double BasketStopLoss      = 30.00;
 
 datetime lastM5BarTime = 0;
 
@@ -27,7 +28,7 @@ int OnInit()
    BaseLot            = LOTValue;
    BasketProfitTarget = TPValue;
    BasketStopLoss     = StopLossValue;
-   GapPrice           = GapPriceInput;
+   // GapPrice           = GapPriceInput;
 
    GapPrice = GapPrice + (MathRand() % 11 - 5);
 
@@ -173,31 +174,37 @@ void ManageRecovery(int orderType)
 
 
 
-   if(nightSession)
-   {
-      if(nextStage == 1) { requiredGap = 50;  nextLot = 0.01; }
-      if(nextStage == 2) { requiredGap = 100;  nextLot = 0.02; }
-      if(nextStage == 3) { requiredGap = 200;  nextLot = 0.03; }
-      if(nextStage == 4) { requiredGap = 400; nextLot = 0.04; }
-      if(nextStage == 5) { requiredGap = 700; nextLot = 0.05; }
-      if(nextStage == 6) { requiredGap = 1000; nextLot = 0.06; }
+   // if(nightSession)
+   // {
+   //    if(nextStage == 1) { requiredGap = 50;  nextLot = 0.01; }
+   //    if(nextStage == 2) { requiredGap = 100;  nextLot = 0.02; }
+   //    if(nextStage == 3) { requiredGap = 200;  nextLot = 0.03; }
+   //    if(nextStage == 4) { requiredGap = 400; nextLot = 0.04; }
+   //    if(nextStage == 5) { requiredGap = 700; nextLot = 0.05; }
+   //    if(nextStage == 6) { requiredGap = 1000; nextLot = 0.06; }
 
-      if(nextStage > 6)
-         return;
-   }
-   else
+   //    if(nextStage > 6)
+   //       return;
+   // }
+   // else
    {
       if(nextStage == 1) { requiredGap = 20;  nextLot = 0.01; }
-      if(nextStage == 2) { requiredGap = 50;  nextLot = 0.02; }
-      if(nextStage == 3) { requiredGap = 80;  nextLot = 0.03; }
-      if(nextStage == 4) { requiredGap = 100; nextLot = 0.04; }
-      if(nextStage == 5) { requiredGap = 300; nextLot = 0.05; }
-      if(nextStage == 6) { requiredGap = 500; nextLot = 0.06; }
-      if(nextStage == 7) { requiredGap = 700; nextLot = 0.07; }
-      if(nextStage == 8) { requiredGap = 1000; nextLot = 0.08; }
+      if(nextStage == 2) { requiredGap = 50;  nextLot = 0.01; }
+      if(nextStage == 3) { requiredGap = 100;  nextLot = 0.02; }
+      if(nextStage == 4) { requiredGap = 200; nextLot = 0.03; }
+      if(nextStage == 5) { requiredGap = 400; nextLot = 0.04; }
+      if(nextStage == 6) { requiredGap = 800; nextLot = 0.05; }
+      // if(nextStage == 7) { requiredGap = 700; nextLot = 0.07; }
+      // if(nextStage == 8) { requiredGap = 1000; nextLot = 0.08; }
 
       if(nextStage > 8)
          return;
+   }
+
+
+   if(nightSession)
+   {
+      requiredGap=requiredGap+50;
    }
 
 
@@ -208,7 +215,6 @@ return;
 
    bool canRecover = false;
 
-      requiredGap=requiredGap+30;
 
 
    // BUY recovery: price must move DOWN from latest BUY order
