@@ -82,7 +82,23 @@ double GetBasketSL()
 {
    return BasketStopLoss * (GetBalanceMultiplier());
 }
+int GetStrongM30Trend()
+{
+   double open  = iOpen(Symbol(), PERIOD_M30, 1);
+   double close = iClose(Symbol(), PERIOD_M30, 1);
 
+   double gap = close - open;
+
+   // STRONG BUY candle
+   if(gap >= 100)
+      return 1;
+
+   // STRONG SELL candle
+   if(gap <= -100)
+      return -1;
+
+   return 0;
+}
 //+------------------------------------------------------------------+
 void CheckNewBaseSignal()
 {
@@ -95,20 +111,24 @@ void CheckNewBaseSignal()
    double close = iClose(Symbol(), PERIOD_M5, 1);
    double gap   = close - open;
 
+   
+
+   Print("gap   "+" "+gap+" Trend "+DoubleToString(GetStrongM30Trend(),0));
+
    if(CountOrders(OP_BUY) > 0 || CountOrders(OP_SELL) > 0)
    {
       lastM5BarTime = m5Time;
       return;
    }
 
-   if(gap > GapPrice)
+   if(gap > GapPrice && GetStrongM30Trend()==1)
    {
       OpenOrder(OP_BUY, GetLot(BaseLot), "V6_SIMPLE__BUY_S0");
       lastM5BarTime = m5Time;
       return;
    }
 
-   if(gap < -GapPrice)
+   if(gap < -GapPrice && GetStrongM30Trend()==-1)
    {
       OpenOrder(OP_SELL, GetLot(BaseLot), "V6_SIMPLE__SELL_S0");
       lastM5BarTime = m5Time;
