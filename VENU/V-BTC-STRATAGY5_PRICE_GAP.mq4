@@ -156,6 +156,10 @@ void ManageRecovery(int orderType)
 
    double diff = GetLivePriceDiffFromLatestOrder(orderType);
 
+   int timeDifferenceFromLatestOrder = GetLiveTimeDiffFromLatestTime(orderType);
+
+
+
    int currentStage = GetHighestStage(orderType);
    int nextStage    = currentStage + 1;
 
@@ -196,6 +200,12 @@ void ManageRecovery(int orderType)
          return;
    }
 
+
+if(timeDifferenceFromLatestOrder < nextStage*60)
+{
+return;
+}
+
    bool canRecover = false;
 
       requiredGap=requiredGap+30;
@@ -217,7 +227,41 @@ void ManageRecovery(int orderType)
       OpenOrder(orderType, GetLot(nextLot), MakeComment(orderType, nextStage));
    }
 }
+datetime GetLiveTimeDiffFromLatestTime(int orderType)
+{
+   double latestPrice = 0;
+   datetime latestTime = 0;
 
+   for(int i = OrdersTotal() - 1; i >= 0; i--)
+   {
+      if(!OrderSelect(i, SELECT_BY_POS, MODE_TRADES))
+         continue;
+
+      if(OrderSymbol() != Symbol())
+         continue;
+
+      if(OrderMagicNumber() != MagicNumber)
+         continue;
+
+      if(OrderType() != orderType)
+         continue;
+
+      if(latestTime == 0 || OrderOpenTime() > latestTime)
+      {
+         latestTime  = OrderOpenTime();
+         latestPrice = OrderOpenPrice();
+      }
+   }
+
+   if(latestPrice <= 0)
+      return 0;
+
+   RefreshRates();
+
+   double livePrice = orderType == OP_BUY ? Bid : Ask;
+
+   return  TimeCurrent()-latestTime;
+}
 //+------------------------------------------------------------------+
 double GetLivePriceDiffFromLatestOrder(int orderType)
 {

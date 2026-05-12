@@ -7,7 +7,7 @@
     
 
 input double LOTValue=0.01;
-input double StopLossValue=100.00;
+input double StopLossValue=50.00;
 input double TPValue=2.00;
 
 double BaseLot             = 0.01;
@@ -16,7 +16,7 @@ int    MagicNumber         = 5050801;
 int    Slippage            = 50;
 
 double BasketProfitTarget  = 2.00;   // Will be multiplied
- double BasketStopLoss      = 100.00;  // Will be multiplied
+ double BasketStopLoss      = 50.00;  // Will be multiplied
 
 datetime lastM5BarTime = 0;
 
@@ -125,14 +125,14 @@ GapPrice = 60 + MathRand() % 11;
 
    if(gap > GapPrice)
    {
-      OpenOrder(OP_BUY, GetLot(BaseLot), "V4_GAP_BUY_S0");
+      OpenOrder(OP_BUY, GetLot(BaseLot), "V4_TIME_GAP_BUY_S0");
       lastM5BarTime = m5Time;
       return;
    }
 
    if(gap < -GapPrice)
    {
-      OpenOrder(OP_SELL, GetLot(BaseLot), "V4_GAP_SELL_S0");
+      OpenOrder(OP_SELL, GetLot(BaseLot), "V4_TIME_GAP_SELL_S0");
       lastM5BarTime = m5Time;
       return;
    }
@@ -159,54 +159,54 @@ void ManageRecovery(int orderType)
 
 int hour = TimeHour(t);
 
- if(hour>18 || hour<4)
+//  if(hour>18 || hour<4)
  {
 
-   if(minutesPassed >= 3 && !StageExists(orderType, 1))
+   if(minutesPassed >= 2 && !StageExists(orderType, 1)  && LatestOrderInLoss(orderType))
       OpenOrder(orderType, GetLot(0.01), MakeComment(orderType, 1));
 
-   if(minutesPassed >= 15 && !StageExists(orderType, 2))
-      OpenOrder(orderType, GetLot(0.02), MakeComment(orderType, 2));
+   if(minutesPassed >= 5 && !StageExists(orderType, 2) && LatestOrderInLoss(orderType))
+      OpenOrder(orderType, GetLot(0.01), MakeComment(orderType, 2));
 
-   if(minutesPassed >= 30 && !StageExists(orderType, 3))
-      OpenOrder(orderType, GetLot(0.03), MakeComment(orderType, 3));
+   if(minutesPassed >= 10 && !StageExists(orderType, 3) && LatestOrderInLoss(orderType))
+      OpenOrder(orderType, GetLot(0.02), MakeComment(orderType, 3));
 
-   if(minutesPassed >= 45 && !StageExists(orderType, 4))
-      OpenOrder(orderType, GetLot(0.04), MakeComment(orderType, 4));
+   if(minutesPassed >= 30 && !StageExists(orderType, 4) && LatestOrderInLoss(orderType))
+      OpenOrder(orderType, GetLot(0.03), MakeComment(orderType, 4));
 
-   if(minutesPassed >= 60 && !StageExists(orderType, 5))
-      OpenOrder(orderType, GetLot(0.05), MakeComment(orderType, 5));
-
-       if(minutesPassed >= 90 && !StageExists(orderType, 6))
-      OpenOrder(orderType, GetLot(0.06), MakeComment(orderType, 6));
-
- }
- else
- {
-   if(minutesPassed >= 3 && !StageExists(orderType, 1))
-      OpenOrder(orderType, 0.01, MakeComment(orderType, 1));
-
-   if(minutesPassed >= 6 && !StageExists(orderType, 2))
-      OpenOrder(orderType, 0.01, MakeComment(orderType, 2));
-
-   if(minutesPassed >= 10 && !StageExists(orderType, 3))
-      OpenOrder(orderType, 0.02, MakeComment(orderType, 3));
-
-   if(minutesPassed >= 15 && !StageExists(orderType, 4))
-      OpenOrder(orderType, 0.03, MakeComment(orderType, 4));
-
-      if(minutesPassed >= 20 && !StageExists(orderType, 4))
-      OpenOrder(orderType, 0.04, MakeComment(orderType, 4));
-
-   if(minutesPassed >= 30 && !StageExists(orderType, 5))
+   if(minutesPassed >= 60 && !StageExists(orderType, 5) && LatestOrderInLoss(orderType))
       OpenOrder(orderType, GetLot(0.04), MakeComment(orderType, 5));
 
-       if(minutesPassed >= 60 && !StageExists(orderType, 6))
+       if(minutesPassed >= 90 && !StageExists(orderType, 6) && LatestOrderInLoss(orderType))
       OpenOrder(orderType, GetLot(0.05), MakeComment(orderType, 6));
 
-      if(minutesPassed >= 90 && !StageExists(orderType, 7))
-      OpenOrder(orderType, GetLot(0.05), MakeComment(orderType, 7));
  }
+//  else
+//  {
+//    if(minutesPassed >= 2 && !StageExists(orderType, 1))
+//       OpenOrder(orderType, 0.01, MakeComment(orderType, 1));
+
+//    if(minutesPassed >= 5 && !StageExists(orderType, 2))
+//       OpenOrder(orderType, 0.01, MakeComment(orderType, 2));
+
+//    if(minutesPassed >= 10 && !StageExists(orderType, 3))
+//       OpenOrder(orderType, 0.02, MakeComment(orderType, 3));
+
+//    if(minutesPassed >= 15 && !StageExists(orderType, 4))
+//       OpenOrder(orderType, 0.03, MakeComment(orderType, 4));
+
+//       if(minutesPassed >= 20 && !StageExists(orderType, 4))
+//       OpenOrder(orderType, 0.04, MakeComment(orderType, 4));
+
+//    if(minutesPassed >= 30 && !StageExists(orderType, 5))
+//       OpenOrder(orderType, GetLot(0.04), MakeComment(orderType, 5));
+
+//        if(minutesPassed >= 60 && !StageExists(orderType, 6))
+//       OpenOrder(orderType, GetLot(0.05), MakeComment(orderType, 6));
+
+//       if(minutesPassed >= 90 && !StageExists(orderType, 7))
+//       OpenOrder(orderType, GetLot(0.05), MakeComment(orderType, 7));
+//  }
 }
 
 //+------------------------------------------------------------------+
@@ -305,7 +305,7 @@ bool OpenOrder(int type, double lot, string comment)
 datetime GetBaseOrderTime(int orderType)
 {
    datetime baseTime = 0;
-   string tag = orderType == OP_BUY ? "V4_GAP_BUY_S0" : "V4_GAP_SELL_S0";
+   string tag = orderType == OP_BUY ? "V4_TIME_GAP_BUY_S0" : "V4_TIME_GAP_SELL_S0";
 
    for(int i = OrdersTotal() - 1; i >= 0; i--)
    {
@@ -323,7 +323,49 @@ datetime GetBaseOrderTime(int orderType)
 
    return baseTime;
 }
+bool LatestOrderInLoss(int orderType)
+{
+   datetime latestTime = 0;
+   double latestOpenPrice = 0;
 
+   for(int i = OrdersTotal() - 1; i >= 0; i--)
+   {
+      if(!OrderSelect(i, SELECT_BY_POS, MODE_TRADES))
+         continue;
+
+      if(OrderSymbol() == Symbol() &&
+         OrderMagicNumber() == MagicNumber &&
+         OrderType() == orderType)
+      {
+         if(OrderOpenTime() > latestTime)
+         {
+            latestTime = OrderOpenTime();
+            latestOpenPrice = OrderOpenPrice();
+         }
+      }
+   }
+
+   if(latestTime == 0)
+      return false;
+
+   RefreshRates();
+
+   if(orderType == OP_BUY)
+   {
+      // BUY is loss when live Bid is below open price
+      if(Bid+30 < latestOpenPrice)
+         return true;
+   }
+
+   if(orderType == OP_SELL)
+   {
+      // SELL is loss when live Ask is above open price
+      if(Ask-30 > latestOpenPrice)
+         return true;
+   }
+
+   return false;
+}
 //+------------------------------------------------------------------+
 bool StageExists(int orderType, int stage)
 {
@@ -350,9 +392,9 @@ bool StageExists(int orderType, int stage)
 string MakeComment(int orderType, int stage)
 {
    if(orderType == OP_BUY)
-      return "V4_GAP_" + IntegerToString(stage);
+      return "V4_TIME_GAP_" + IntegerToString(stage);
 
-   return "V4_GAP" + IntegerToString(stage);
+   return "V4_TIME_GAP" + IntegerToString(stage);
 }
 
 //+------------------------------------------------------------------+
@@ -557,7 +599,7 @@ void DrawDashboard()
    // PANEL
 CreatePanel("DXB_PANEL",300,10,380,470,C'15,15,15');   // TITLE
    CreateLabel("V4",
-               "GAP V 4",
+               "GAP V 4- Time",
                210,30,
                clrGold,
                12);
