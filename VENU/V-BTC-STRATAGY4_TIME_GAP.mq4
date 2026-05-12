@@ -165,19 +165,19 @@ int hour = TimeHour(t);
    if(minutesPassed >= 2 && !StageExists(orderType, 1)  && LatestOrderInLoss(orderType))
       OpenOrder(orderType, GetLot(0.01), MakeComment(orderType, 1));
 
-   if(minutesPassed >= 5 && !StageExists(orderType, 2) && LatestOrderInLoss(orderType))
+   else if(minutesPassed >= 5 && !StageExists(orderType, 2) && LatestOrderInLoss(orderType))
       OpenOrder(orderType, GetLot(0.01), MakeComment(orderType, 2));
 
-   if(minutesPassed >= 10 && !StageExists(orderType, 3) && LatestOrderInLoss(orderType))
+  else if(minutesPassed >= 10 && !StageExists(orderType, 3) && LatestOrderInLoss(orderType))
       OpenOrder(orderType, GetLot(0.02), MakeComment(orderType, 3));
 
-   if(minutesPassed >= 30 && !StageExists(orderType, 4) && LatestOrderInLoss(orderType))
+ else  if(minutesPassed >= 30 && !StageExists(orderType, 4) && LatestOrderInLoss(orderType))
       OpenOrder(orderType, GetLot(0.03), MakeComment(orderType, 4));
 
-   if(minutesPassed >= 60 && !StageExists(orderType, 5) && LatestOrderInLoss(orderType))
+ else  if(minutesPassed >= 60 && !StageExists(orderType, 5) && LatestOrderInLoss(orderType))
       OpenOrder(orderType, GetLot(0.04), MakeComment(orderType, 5));
 
-       if(minutesPassed >= 90 && !StageExists(orderType, 6) && LatestOrderInLoss(orderType))
+  else     if(minutesPassed >= 90 && !StageExists(orderType, 6) && LatestOrderInLoss(orderType))
       OpenOrder(orderType, GetLot(0.05), MakeComment(orderType, 6));
 
  }
