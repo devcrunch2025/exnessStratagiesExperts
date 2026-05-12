@@ -4,78 +4,37 @@
 //+------------------------------------------------------------------+
 #property strict
 
-    
-
-input double LOTValue=0.01;
-input double StopLossValue=50.00;
-input double TPValue=2.00;
-
 double BaseLot             = 0.01;
 double GapPrice            = 70.0;
 int    MagicNumber         = 5050801;
 int    Slippage            = 50;
 
-double BasketProfitTarget  = 2.00;   // Will be multiplied
- double BasketStopLoss      = 50.00;  // Will be multiplied
+double BasketProfitTarget  = 1.00;   // Will be multiplied
+double BasketStopLoss      = 50.00;  // Will be multiplied
 
 datetime lastM5BarTime = 0;
 
 //+------------------------------------------------------------------+
 int OnInit()
 {
-   MagicNumber = AccountNumber() + 4;
+   MagicNumber = AccountNumber() + 6;
 
    Print("Gap Recovery One Direction EA Started");
-
- 
-
-BaseLot=LOTValue;
-BasketProfitTarget=TPValue;
-BasketStopLoss=StopLossValue;
-
-
    return(INIT_SUCCEEDED);
 }
-datetime g_m1BarStartTime = 0;
-bool     g_m1GapChecked   = false;
-bool IsAfter30SecFromNewM1Bar()
-{
-   datetime currentBarTime = iTime(Symbol(), PERIOD_M1, 0);
 
-   // new M1 bar detected
-   if(currentBarTime != g_m1BarStartTime)
-   {
-      g_m1BarStartTime = currentBarTime;
-      g_m1GapChecked = false;
-      return false;
-   }
-
-   // wait 30 seconds after new candle start
-   if(!g_m1GapChecked && TimeCurrent() >= g_m1BarStartTime + 30)
-   {
-      g_m1GapChecked = true;
-      return true;
-   }
-
-   return false;
-}
 //+------------------------------------------------------------------+
 void OnTick()
 {
-
-
    CloseBasketByProfit(OP_BUY);
    CloseBasketByProfit(OP_SELL);
-if(IsAfter30SecFromNewM1Bar())
+
    CheckNewBaseSignal();
 
    ManageRecovery(OP_BUY);
    ManageRecovery(OP_SELL);
 
    DrawDashboard();
-
-      DrawEveryCandleDiffFrom5th();
-
 }
 
 //+------------------------------------------------------------------+
@@ -127,67 +86,6 @@ double GetBasketSL()
 //+------------------------------------------------------------------+
 void CheckNewBaseSignal()
 {
-   GapPrice = 60 + MathRand() % 11;
-
-   datetime m5Time = iTime(Symbol(), PERIOD_M5, 1);
-
-   if(m5Time == lastM5BarTime)
-      return;
-
-   double open  = iOpen(Symbol(), PERIOD_M5, 1);
-   double close = iClose(Symbol(), PERIOD_M5, 1);
-   double gap   = close - open;
-
-   bool buyOpen  = CountOrders(OP_BUY) > 0;
-   bool sellOpen = CountOrders(OP_SELL) > 0;
-
-   // No orders: normal base entry
-   if(!buyOpen && !sellOpen)
-   {
-      if(gap > GapPrice)
-      {
-         OpenOrder(OP_BUY, GetLot(BaseLot), "V4_TIME_GAP_BUY_S0");
-      }
-      else if(gap < -GapPrice)
-      {
-         OpenOrder(OP_SELL, GetLot(BaseLot), "V4_TIME_GAP_SELL_S0");
-      }
-
-      lastM5BarTime = m5Time;
-      return;
-   }
-
-   // BUY exists and BUY is loss: allow SELL hedge/reverse
-   if(buyOpen && !sellOpen && GetBasketProfit(OP_BUY) < 0)
-   {
-      if(gap < -GapPrice)
-      {
-         OpenOrder(OP_SELL, GetLot(BaseLot), "V4_TIME_GAP_SELL_S0");
-      }
-
-      lastM5BarTime = m5Time;
-      return;
-   }
-
-   // SELL exists and SELL is loss: allow BUY hedge/reverse
-   if(sellOpen && !buyOpen && GetBasketProfit(OP_SELL) < 0)
-   {
-      if(gap > GapPrice)
-      {
-         OpenOrder(OP_BUY, GetLot(BaseLot), "V4_TIME_GAP_BUY_S0");
-      }
-
-      lastM5BarTime = m5Time;
-      return;
-   }
-
-   lastM5BarTime = m5Time;
-}
-void CheckNewBaseSignal_old()
-{
-
-// GapPrice = 65 + MathRand() % 6;
-GapPrice = 60 + MathRand() % 11;
    datetime m5Time = iTime(Symbol(), PERIOD_M5, 1);
 
    if(m5Time == lastM5BarTime)
@@ -205,14 +103,14 @@ GapPrice = 60 + MathRand() % 11;
 
    if(gap > GapPrice)
    {
-      OpenOrder(OP_BUY, GetLot(BaseLot), "V4_TIME_GAP_BUY_S0");
+      OpenOrder(OP_BUY, GetLot(BaseLot), "V6_SIMPLE__BUY_S0");
       lastM5BarTime = m5Time;
       return;
    }
 
    if(gap < -GapPrice)
    {
-      OpenOrder(OP_SELL, GetLot(BaseLot), "V4_TIME_GAP_SELL_S0");
+      OpenOrder(OP_SELL, GetLot(BaseLot), "V6_SIMPLE__SELL_S0");
       lastM5BarTime = m5Time;
       return;
    }
@@ -235,58 +133,23 @@ void ManageRecovery(int orderType)
 
    int minutesPassed = (int)((TimeCurrent() - baseTime) / 60);
 
-   datetime t = TimeCurrent();
-
-int hour = TimeHour(t);
-
-//  if(hour>18 || hour<4)
- {
-
-   if(minutesPassed >= 2 && !StageExists(orderType, 1)  && LatestOrderInLoss(orderType))
+   if(minutesPassed >= 3 && !StageExists(orderType, 1))
       OpenOrder(orderType, GetLot(0.01), MakeComment(orderType, 1));
 
-   else if(minutesPassed >= 15 && !StageExists(orderType, 2) && LatestOrderInLoss(orderType))
-      OpenOrder(orderType, GetLot(0.01), MakeComment(orderType, 2));
+   if(minutesPassed >= 15 && !StageExists(orderType, 2))
+      OpenOrder(orderType, GetLot(0.02), MakeComment(orderType, 2));
 
-  else if(minutesPassed >= 30 && !StageExists(orderType, 3) && LatestOrderInLoss(orderType))
-      OpenOrder(orderType, GetLot(0.02), MakeComment(orderType, 3));
+   if(minutesPassed >= 30 && !StageExists(orderType, 3))
+      OpenOrder(orderType, GetLot(0.03), MakeComment(orderType, 3));
 
- else  if(minutesPassed >= 60 && !StageExists(orderType, 4) && LatestOrderInLoss(orderType))
-      OpenOrder(orderType, GetLot(0.03), MakeComment(orderType, 4));
+   if(minutesPassed >= 45 && !StageExists(orderType, 4))
+      OpenOrder(orderType, GetLot(0.04), MakeComment(orderType, 4));
 
- else  if(minutesPassed >= 120 && !StageExists(orderType, 5) && LatestOrderInLoss(orderType))
-      OpenOrder(orderType, GetLot(0.04), MakeComment(orderType, 5));
+   if(minutesPassed >= 60 && !StageExists(orderType, 5))
+      OpenOrder(orderType, GetLot(0.05), MakeComment(orderType, 5));
 
-  else     if(minutesPassed >= 200 && !StageExists(orderType, 6) && LatestOrderInLoss(orderType))
-      OpenOrder(orderType, GetLot(0.05), MakeComment(orderType, 6));
-
- }
-//  else
-//  {
-//    if(minutesPassed >= 2 && !StageExists(orderType, 1))
-//       OpenOrder(orderType, 0.01, MakeComment(orderType, 1));
-
-//    if(minutesPassed >= 5 && !StageExists(orderType, 2))
-//       OpenOrder(orderType, 0.01, MakeComment(orderType, 2));
-
-//    if(minutesPassed >= 10 && !StageExists(orderType, 3))
-//       OpenOrder(orderType, 0.02, MakeComment(orderType, 3));
-
-//    if(minutesPassed >= 15 && !StageExists(orderType, 4))
-//       OpenOrder(orderType, 0.03, MakeComment(orderType, 4));
-
-//       if(minutesPassed >= 20 && !StageExists(orderType, 4))
-//       OpenOrder(orderType, 0.04, MakeComment(orderType, 4));
-
-//    if(minutesPassed >= 30 && !StageExists(orderType, 5))
-//       OpenOrder(orderType, GetLot(0.04), MakeComment(orderType, 5));
-
-//        if(minutesPassed >= 60 && !StageExists(orderType, 6))
-//       OpenOrder(orderType, GetLot(0.05), MakeComment(orderType, 6));
-
-//       if(minutesPassed >= 90 && !StageExists(orderType, 7))
-//       OpenOrder(orderType, GetLot(0.05), MakeComment(orderType, 7));
-//  }
+       if(minutesPassed >= 90 && !StageExists(orderType, 6))
+      OpenOrder(orderType, GetLot(0.06), MakeComment(orderType, 6));
 }
 
 //+------------------------------------------------------------------+
@@ -385,7 +248,7 @@ bool OpenOrder(int type, double lot, string comment)
 datetime GetBaseOrderTime(int orderType)
 {
    datetime baseTime = 0;
-   string tag = orderType == OP_BUY ? "V4_TIME_GAP_BUY_S0" : "V4_TIME_GAP_SELL_S0";
+   string tag = orderType == OP_BUY ? "V6_SIMPLE__BUY_S0" : "V6_SIMPLE__SELL_S0";
 
    for(int i = OrdersTotal() - 1; i >= 0; i--)
    {
@@ -403,49 +266,7 @@ datetime GetBaseOrderTime(int orderType)
 
    return baseTime;
 }
-bool LatestOrderInLoss(int orderType)
-{
-   datetime latestTime = 0;
-   double latestOpenPrice = 0;
 
-   for(int i = OrdersTotal() - 1; i >= 0; i--)
-   {
-      if(!OrderSelect(i, SELECT_BY_POS, MODE_TRADES))
-         continue;
-
-      if(OrderSymbol() == Symbol() &&
-         OrderMagicNumber() == MagicNumber &&
-         OrderType() == orderType)
-      {
-         if(OrderOpenTime() > latestTime)
-         {
-            latestTime = OrderOpenTime();
-            latestOpenPrice = OrderOpenPrice();
-         }
-      }
-   }
-
-   if(latestTime == 0)
-      return false;
-
-   RefreshRates();
-
-   if(orderType == OP_BUY)
-   {
-      // BUY is loss when live Bid is below open price
-      if(Bid+30 < latestOpenPrice)
-         return true;
-   }
-
-   if(orderType == OP_SELL)
-   {
-      // SELL is loss when live Ask is above open price
-      if(Ask-30 > latestOpenPrice)
-         return true;
-   }
-
-   return false;
-}
 //+------------------------------------------------------------------+
 bool StageExists(int orderType, int stage)
 {
@@ -472,9 +293,9 @@ bool StageExists(int orderType, int stage)
 string MakeComment(int orderType, int stage)
 {
    if(orderType == OP_BUY)
-      return "V4_TIME_GAP_" + IntegerToString(stage);
+      return "V6_SIMPLE__" + IntegerToString(stage);
 
-   return "V4_TIME_GAP" + IntegerToString(stage);
+   return "V6_SIMPLE_" + IntegerToString(stage);
 }
 
 //+------------------------------------------------------------------+
@@ -608,17 +429,20 @@ void CreatePanel(string name,int x,int y,int w,int h,color bg)
    if(ObjectFind(0,name) < 0)
    {
       ObjectCreate(0,name,OBJ_RECTANGLE_LABEL,0,0,0);
+
+      ObjectSetInteger(0,name,OBJPROP_CORNER,CORNER_RIGHT_UPPER);
+
+      ObjectSetInteger(0,name,OBJPROP_SELECTABLE,false);
+      ObjectSetInteger(0,name,OBJPROP_HIDDEN,true);
+
+      ObjectSetInteger(0,name,OBJPROP_BACK,false);
+
+      ObjectSetInteger(0,name,OBJPROP_BORDER_TYPE,BORDER_FLAT);
+
+      ObjectSetInteger(0,name,OBJPROP_STYLE,STYLE_SOLID);
+
+      ObjectSetInteger(0,name,OBJPROP_WIDTH,1);
    }
-
-   // ALWAYS update properties
-   ObjectSetInteger(0,name,OBJPROP_CORNER,CORNER_RIGHT_UPPER);
-
-   ObjectSetInteger(0,name,OBJPROP_SELECTABLE,false);
-   ObjectSetInteger(0,name,OBJPROP_HIDDEN,true);
-   ObjectSetInteger(0,name,OBJPROP_BACK,true);
-   ObjectSetInteger(0,name,OBJPROP_BORDER_TYPE,BORDER_FLAT);
-   ObjectSetInteger(0,name,OBJPROP_STYLE,STYLE_SOLID);
-   ObjectSetInteger(0,name,OBJPROP_WIDTH,1);
 
    ObjectSetInteger(0,name,OBJPROP_XDISTANCE,x);
    ObjectSetInteger(0,name,OBJPROP_YDISTANCE,y);
@@ -627,6 +451,7 @@ void CreatePanel(string name,int x,int y,int w,int h,color bg)
    ObjectSetInteger(0,name,OBJPROP_YSIZE,h);
 
    ObjectSetInteger(0,name,OBJPROP_BGCOLOR,bg);
+
    ObjectSetInteger(0,name,OBJPROP_COLOR,clrSilver);
 }
 //+------------------------------------------------------------------+
@@ -677,9 +502,9 @@ void DrawDashboard()
       dirClr=clrTomato;
 
    // PANEL
-CreatePanel("DXB_PANEL",300,10,380,470,C'15,15,15');   // TITLE
-   CreateLabel("V4",
-               "GAP V 4- Time",
+CreatePanel("DXB_PANEL",10,10,380,470,C'15,15,15');   // TITLE
+   CreateLabel("V6",
+               "Time GAP V 6",
                210,30,
                clrGold,
                12);
@@ -779,84 +604,5 @@ CreatePanel("DXB_PANEL",300,10,380,470,C'15,15,15');   // TITLE
                290,425,
                clrLime,
                11);
-}
-double GetLastClosedCandleDiffFrom5th()
-{
-   // Last closed candle
-   double lastClose = iClose(Symbol(), PERIOD_M5, 1);
-
-   // Previous 5th candle
-   double fifthClose = iClose(Symbol(), PERIOD_M5, 5);
-
-   // Raw price difference
-   double diff = NormalizeDouble(lastClose - fifthClose, 0);
-
-   return diff;
-}
-void DrawEveryCandleDiffFrom5th()
-{
-   int candlesToDraw = 100;
-
-   for(int shift = 1; shift <= candlesToDraw; shift++)
-   {
-      // Need previous 5 candles
-      if(shift + 5 >= Bars)
-         continue;
-
-      datetime t = iTime(Symbol(), PERIOD_M5, shift);
-
-      string name = "DIFF5_" + IntegerToString((int)t);
-
-      // Current candle close
-      double currentClose = iClose(Symbol(), PERIOD_M5, shift);
-
-      // 5th previous candle close
-      double fifthClose = iClose(Symbol(), PERIOD_M5, shift + 5);
-
-      // RAW PRICE DIFFERENCE
-      double diff = NormalizeDouble(currentClose - fifthClose, 2);
-
-      // SHOW ONLY > 50 or < -50
-      if(MathAbs(diff) < 50)
-         continue;
-
-      color txtColor = diff >= 0 ? clrLime : clrRed;
-
-      double high = iHigh(Symbol(), PERIOD_M5, shift);
-      double low  = iLow(Symbol(), PERIOD_M5, shift);
-
-      // Dynamic spacing
-      double candleRange = MathAbs(high - low);
-
-      double spacing = candleRange * 0.8;
-
-      if(spacing < Point * 200)
-         spacing = Point * 200;
-
-      double y;
-
-      if(diff >= 0)
-         y = high + spacing;
-      else
-         y = low - spacing;
-
-      // Create once
-      if(ObjectFind(0, name) >= 0)
-         continue;
-
-      ObjectCreate(0, name, OBJ_TEXT, 0, t, y);
-
-      ObjectSetString(0, name, OBJPROP_TEXT,
-                      DoubleToString(diff, 0));
-
-      ObjectSetInteger(0, name, OBJPROP_COLOR, txtColor);
-
-      ObjectSetInteger(0, name, OBJPROP_FONTSIZE, 9);
-
-      ObjectSetString(0, name, OBJPROP_FONT, "Arial Bold");
-
-      ObjectSetInteger(0, name, OBJPROP_SELECTABLE, false);
-      ObjectSetInteger(0, name, OBJPROP_HIDDEN, true);
-   }
 }
 //+------------------------------------------------------------------+

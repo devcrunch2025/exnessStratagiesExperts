@@ -36,13 +36,37 @@ int OnInit()
 
    return(INIT_SUCCEEDED);
 }
+datetime g_m1BarStartTime = 0;
+bool     g_m1GapChecked   = false;
+
+bool IsAfter30SecFromNewM1Bar()
+{
+   datetime currentBarTime = iTime(Symbol(), PERIOD_M1, 0);
+
+   // new M1 bar detected
+   if(currentBarTime != g_m1BarStartTime)
+   {
+      g_m1BarStartTime = currentBarTime;
+      g_m1GapChecked = false;
+      return false;
+   }
+
+   // wait 30 seconds after new candle start
+   if(!g_m1GapChecked && TimeCurrent() >= g_m1BarStartTime + 30)
+   {
+      g_m1GapChecked = true;
+      return true;
+   }
+
+   return false;
+}
 
 //+------------------------------------------------------------------+
 void OnTick()
 {
    CloseBasketByProfit(OP_BUY);
    CloseBasketByProfit(OP_SELL);
-
+if(IsAfter30SecFromNewM1Bar())
    CheckNewBaseSignal();
 
    ManageRecovery(OP_BUY);
@@ -106,8 +130,12 @@ double GetLiveM5Gap()
    return NormalizeDouble(live - open, 2);
 }
 //+------------------------------------------------------------------+
+
+
 void CheckNewBaseSignal()
 {
+   GapPrice = 60 + MathRand() % 11;
+
    datetime m5Time = iTime(Symbol(), PERIOD_M5, 1);
 
    if(m5Time == lastM5BarTime)
@@ -117,28 +145,62 @@ void CheckNewBaseSignal()
    double close = iClose(Symbol(), PERIOD_M5, 1);
    double gap   = close - open;
 
-   if(CountOrders(OP_BUY) > 0 || CountOrders(OP_SELL) > 0)
+   bool buyOpen  = CountOrders(OP_BUY) > 0;
+   bool sellOpen = CountOrders(OP_SELL) > 0;
+
+   // No orders: normal base entry
+   // if(!buyOpen && !sellOpen)
    {
+      if(gap > GapPrice && !buyOpen)
+      {
+         OpenOrder(OP_BUY, GetLot(BaseLot), "V4_TIME_GAP_BUY_S0");
+      }
+      else if(gap < -GapPrice && !sellOpen)
+      {
+         OpenOrder(OP_SELL, GetLot(BaseLot), "V4_TIME_GAP_SELL_S0");
+      }
+
       lastM5BarTime = m5Time;
       return;
-   }
-
-   if(gap > GapPrice)
-   {
-      OpenOrder(OP_BUY, GetLot(BaseLot), MakeComment(OP_BUY, 0));
-      lastM5BarTime = m5Time;
-      return;
-   }
-
-   if(gap < -GapPrice)
-   {
-      OpenOrder(OP_SELL, GetLot(BaseLot), MakeComment(OP_SELL, 0));
-      lastM5BarTime = m5Time;
-      return;
-   }
-
+   } 
    lastM5BarTime = m5Time;
 }
+
+
+// void CheckNewBaseSignal()
+// {
+//    datetime m5Time = iTime(Symbol(), PERIOD_M5, 1);
+
+//    if(m5Time == lastM5BarTime)
+//       return;
+
+//    double open  = iOpen(Symbol(), PERIOD_M5, 1);
+//    double close = iClose(Symbol(), PERIOD_M5, 1);
+//    double gap   = close - open;
+
+//    if(CountOrders(OP_BUY) > 0 || CountOrders(OP_SELL) > 0)
+//    {
+//       lastM5BarTime = m5Time;
+//       return;
+//    }
+
+//    if(gap > GapPrice)
+//    {
+//       OpenOrder(OP_BUY, GetLot(BaseLot), MakeComment(OP_BUY, 0));
+//       lastM5BarTime = m5Time;
+//       return;
+//    }
+
+//    if(gap < -GapPrice)
+//    {
+//       OpenOrder(OP_SELL, GetLot(BaseLot), MakeComment(OP_SELL, 0));
+//       lastM5BarTime = m5Time;
+//       return;
+//    }
+
+//    lastM5BarTime = m5Time;
+// }
+
 
 //+------------------------------------------------------------------+
 //| RECOVERY ONLY BY PRICE DIFFERENCE FROM LATEST ORDER              |
@@ -169,7 +231,7 @@ void ManageRecovery(int orderType)
 
    bool nightSession = false;
 
-   if(hour > 18 || hour < 4)
+   if(hour > 14 || hour < 1)
       nightSession = true;
 
 
@@ -188,12 +250,12 @@ void ManageRecovery(int orderType)
    // }
    // else
    {
-      if(nextStage == 1) { requiredGap = 20;  nextLot = 0.01; }
-      if(nextStage == 2) { requiredGap = 50;  nextLot = 0.01; }
-      if(nextStage == 3) { requiredGap = 100;  nextLot = 0.02; }
-      if(nextStage == 4) { requiredGap = 200; nextLot = 0.03; }
-      if(nextStage == 5) { requiredGap = 400; nextLot = 0.04; }
-      if(nextStage == 6) { requiredGap = 800; nextLot = 0.05; }
+      if(nextStage == 1) { requiredGap = 50;  nextLot = 0.01; }
+      if(nextStage == 2) { requiredGap = 100;  nextLot = 0.01; }
+      if(nextStage == 3) { requiredGap = 300;  nextLot = 0.02; }
+      if(nextStage == 4) { requiredGap = 800; nextLot = 0.03; }
+      if(nextStage == 5) { requiredGap = 1200; nextLot = 0.04; }
+      if(nextStage == 6) { requiredGap = 2000; nextLot = 0.05; }
       // if(nextStage == 7) { requiredGap = 700; nextLot = 0.07; }
       // if(nextStage == 8) { requiredGap = 1000; nextLot = 0.08; }
 
@@ -208,10 +270,10 @@ void ManageRecovery(int orderType)
    }
 
 
-if(timeDifferenceFromLatestOrder < nextStage*60)
-{
-return;
-}
+// if(timeDifferenceFromLatestOrder < nextStage*60)
+// {
+// return;
+// }
 
    bool canRecover = false;
 
@@ -558,7 +620,7 @@ string MakeComment(int orderType, int stage)
    if(orderType == OP_BUY)
       return "V5_PRICE_GAP_BUYS" + IntegerToString(stage);
 
-   return "V5_PRICE_GAP_SELL_S" + IntegerToString(stage);
+   return "V5_PRICE_GAP_SELLS" + IntegerToString(stage);
 }
 
 //+------------------------------------------------------------------+
