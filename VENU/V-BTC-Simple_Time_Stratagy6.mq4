@@ -5,9 +5,10 @@
 #property strict
 
 double BaseLot             = 0.01;
-double GapPrice            = 70.0;
+double GapPrice            = 50;//70.0;
 int    MagicNumber         = 5050801;
 int    Slippage            = 50;
+
 
 double BasketProfitTarget  = 1.00;   // Will be multiplied
 double BasketStopLoss      = 50.00;  // Will be multiplied
