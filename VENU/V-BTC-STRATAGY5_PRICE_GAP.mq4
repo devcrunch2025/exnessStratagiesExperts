@@ -551,12 +551,15 @@ void CloseBasketByProfit(int orderType)
    double dynamicTarget = GetDynamicBasketTarget(orderType);
    double dynamicSL     = GetBasketSL();
 
+
+
+
    double eightyPercentTarget = dynamicTarget * 0.80;
 
    bool closeNow = false;
 
    // normal TP or SL
-   if(basketProfit <= -dynamicSL || basketProfit >= dynamicTarget)
+   if(((basketProfit <= -dynamicSL && AccountEquity() < AccountBalance()/2) || basketProfit >= dynamicTarget))
       closeNow = true;
 
    // first time reached 80%
