@@ -1,13 +1,12 @@
 //+------------------------------------------------------------------+
-//| _Gap_Recovery_OneDirection_EA.mq4                                |
-//| Price Difference Recovery Version                                |
+//| _Gap_Recovery_Parallel_Trend_EA.mq4                              |
+//| Price Difference Recovery + Trend Filter + Balance Check          |
 //+------------------------------------------------------------------+
 #property strict
 
 input double LOTValue      = 0.01;
 input double StopLossValue = 30.00;
 input double TPValue       = 2.00;
-// input double GapPriceInput = 50.0;
 
 double BaseLot             = 0.01;
 double GapPrice            = 50.0;
@@ -20,6 +19,9 @@ double BasketStopLoss      = 30.00;
 
 datetime lastM5BarTime = 0;
 
+datetime g_m1BarStartTime = 0;
+bool     g_m1GapChecked   = false;
+
 //+------------------------------------------------------------------+
 int OnInit()
 {
@@ -28,37 +30,13 @@ int OnInit()
    BaseLot            = LOTValue;
    BasketProfitTarget = TPValue;
    BasketStopLoss     = StopLossValue;
-   // GapPrice           = GapPriceInput;
 
+   MathSrand((int)TimeLocal());
    GapPrice = GapPrice + (MathRand() % 11 - 5);
 
-   Print("Gap Recovery EA Started | Price Difference Recovery");
+   Print("Gap Recovery EA Started | Parallel Trend Version");
 
    return(INIT_SUCCEEDED);
-}
-datetime g_m1BarStartTime = 0;
-bool     g_m1GapChecked   = false;
-
-bool IsAfter30SecFromNewM1Bar()
-{
-   datetime currentBarTime = iTime(Symbol(), PERIOD_M1, 0);
-
-   // new M1 bar detected
-   if(currentBarTime != g_m1BarStartTime)
-   {
-      g_m1BarStartTime = currentBarTime;
-      g_m1GapChecked = false;
-      return false;
-   }
-
-   // wait 30 seconds after new candle start
-   if(!g_m1GapChecked && TimeCurrent() >= g_m1BarStartTime + 30)
-   {
-      g_m1GapChecked = true;
-      return true;
-   }
-
-   return false;
 }
 
 //+------------------------------------------------------------------+
@@ -66,14 +44,37 @@ void OnTick()
 {
    CloseBasketByProfit(OP_BUY);
    CloseBasketByProfit(OP_SELL);
-if(IsAfter30SecFromNewM1Bar())
-   CheckNewBaseSignal();
 
+   // if(IsAfter30SecFromNewM1Bar())
+      CheckNewBaseSignal();
+
+   // Parallel recovery for both BUY and SELL
    ManageRecovery(OP_BUY);
    ManageRecovery(OP_SELL);
 
    DrawDashboard();
    DrawEveryCandleDiffFrom5th();
+}
+
+//+------------------------------------------------------------------+
+bool IsAfter30SecFromNewM1Bar()
+{
+   datetime currentBarTime = iTime(Symbol(), PERIOD_M1, 0);
+
+   if(currentBarTime != g_m1BarStartTime)
+   {
+      g_m1BarStartTime = currentBarTime;
+      g_m1GapChecked = false;
+      return false;
+   }
+
+   if(!g_m1GapChecked && TimeCurrent() >= g_m1BarStartTime + 30)
+   {
+      g_m1GapChecked = true;
+      return true;
+   }
+
+   return false;
 }
 
 //+------------------------------------------------------------------+
@@ -120,6 +121,8 @@ double GetBasketSL()
 {
    return BasketStopLoss * GetBalanceMultiplier();
 }
+
+//+------------------------------------------------------------------+
 double GetLiveM5Gap()
 {
    RefreshRates();
@@ -129,9 +132,42 @@ double GetLiveM5Gap()
 
    return NormalizeDouble(live - open, 2);
 }
+
 //+------------------------------------------------------------------+
+//| Trend direction using EMA9 and EMA21 on M5                       |
+//|  1 = BUY trend, -1 = SELL trend, 0 = No clear trend               |
+//+------------------------------------------------------------------+
+int GetTrendDirection()
+{
+   double ema9  = iMA(Symbol(), PERIOD_M5, 9, 0, MODE_EMA, PRICE_CLOSE, 1);
+   double ema21 = iMA(Symbol(), PERIOD_M5, 21, 0, MODE_EMA, PRICE_CLOSE, 1);
 
+   double close1 = iClose(Symbol(), PERIOD_M5, 1);
 
+   if(close1 > ema9 && ema9 > ema21)
+      return 1;
+
+   if(close1 < ema9 && ema9 < ema21)
+      return -1;
+
+   return 0;
+}
+
+//+------------------------------------------------------------------+
+string GetTrendText()
+{
+   int trend = GetTrendDirection();
+
+   if(trend == 1)
+      return "BUY TREND";
+
+   if(trend == -1)
+      return "SELL TREND";
+
+   return "NO CLEAR TREND";
+}
+
+//+------------------------------------------------------------------+
 void CheckNewBaseSignal()
 {
    GapPrice = 60 + MathRand() % 11;
@@ -145,62 +181,25 @@ void CheckNewBaseSignal()
    double close = iClose(Symbol(), PERIOD_M5, 1);
    double gap   = close - open;
 
+   int trend = GetTrendDirection();
+
    bool buyOpen  = CountOrders(OP_BUY) > 0;
    bool sellOpen = CountOrders(OP_SELL) > 0;
 
-   // No orders: normal base entry
-   // if(!buyOpen && !sellOpen)
+   // BUY base order: price gap UP + BUY trend
+   if(gap > GapPrice && trend == 1 && !buyOpen)
    {
-      if(gap > GapPrice && !buyOpen)
-      {
-         OpenOrder(OP_BUY, GetLot(BaseLot), "V4_TIME_GAP_BUY_S0");
-      }
-      else if(gap < -GapPrice && !sellOpen)
-      {
-         OpenOrder(OP_SELL, GetLot(BaseLot), "V4_TIME_GAP_SELL_S0");
-      }
+      OpenOrder(OP_BUY, GetLot(BaseLot), MakeComment(OP_BUY, 0));
+   }
 
-      lastM5BarTime = m5Time;
-      return;
-   } 
+   // SELL base order: price gap DOWN + SELL trend
+   if(gap < -GapPrice && trend == -1 && !sellOpen)
+   {
+      OpenOrder(OP_SELL, GetLot(BaseLot), MakeComment(OP_SELL, 0));
+   }
+
    lastM5BarTime = m5Time;
 }
-
-
-// void CheckNewBaseSignal()
-// {
-//    datetime m5Time = iTime(Symbol(), PERIOD_M5, 1);
-
-//    if(m5Time == lastM5BarTime)
-//       return;
-
-//    double open  = iOpen(Symbol(), PERIOD_M5, 1);
-//    double close = iClose(Symbol(), PERIOD_M5, 1);
-//    double gap   = close - open;
-
-//    if(CountOrders(OP_BUY) > 0 || CountOrders(OP_SELL) > 0)
-//    {
-//       lastM5BarTime = m5Time;
-//       return;
-//    }
-
-//    if(gap > GapPrice)
-//    {
-//       OpenOrder(OP_BUY, GetLot(BaseLot), MakeComment(OP_BUY, 0));
-//       lastM5BarTime = m5Time;
-//       return;
-//    }
-
-//    if(gap < -GapPrice)
-//    {
-//       OpenOrder(OP_SELL, GetLot(BaseLot), MakeComment(OP_SELL, 0));
-//       lastM5BarTime = m5Time;
-//       return;
-//    }
-
-//    lastM5BarTime = m5Time;
-// }
-
 
 //+------------------------------------------------------------------+
 //| RECOVERY ONLY BY PRICE DIFFERENCE FROM LATEST ORDER              |
@@ -218,10 +217,7 @@ void ManageRecovery(int orderType)
    int hour = TimeHour(TimeCurrent());
 
    double diff = GetLivePriceDiffFromLatestOrder(orderType);
-
    int timeDifferenceFromLatestOrder = GetLiveTimeDiffFromLatestTime(orderType);
-
-
 
    int currentStage = GetHighestStage(orderType);
    int nextStage    = currentStage + 1;
@@ -234,50 +230,20 @@ void ManageRecovery(int orderType)
    if(hour > 14 || hour < 1)
       nightSession = true;
 
+   if(nextStage == 1) { requiredGap = 50;   nextLot = 0.01; }
+   if(nextStage == 2) { requiredGap = 100;  nextLot = 0.01; }
+   if(nextStage == 3) { requiredGap = 300;  nextLot = 0.02; }
+   if(nextStage == 4) { requiredGap = 800;  nextLot = 0.03; }
+   if(nextStage == 5) { requiredGap = 1200; nextLot = 0.04; }
+   if(nextStage == 6) { requiredGap = 2000; nextLot = 0.05; }
 
-
-   // if(nightSession)
-   // {
-   //    if(nextStage == 1) { requiredGap = 50;  nextLot = 0.01; }
-   //    if(nextStage == 2) { requiredGap = 100;  nextLot = 0.02; }
-   //    if(nextStage == 3) { requiredGap = 200;  nextLot = 0.03; }
-   //    if(nextStage == 4) { requiredGap = 400; nextLot = 0.04; }
-   //    if(nextStage == 5) { requiredGap = 700; nextLot = 0.05; }
-   //    if(nextStage == 6) { requiredGap = 1000; nextLot = 0.06; }
-
-   //    if(nextStage > 6)
-   //       return;
-   // }
-   // else
-   {
-      if(nextStage == 1) { requiredGap = 50;  nextLot = 0.01; }
-      if(nextStage == 2) { requiredGap = 100;  nextLot = 0.01; }
-      if(nextStage == 3) { requiredGap = 300;  nextLot = 0.02; }
-      if(nextStage == 4) { requiredGap = 800; nextLot = 0.03; }
-      if(nextStage == 5) { requiredGap = 1200; nextLot = 0.04; }
-      if(nextStage == 6) { requiredGap = 2000; nextLot = 0.05; }
-      // if(nextStage == 7) { requiredGap = 700; nextLot = 0.07; }
-      // if(nextStage == 8) { requiredGap = 1000; nextLot = 0.08; }
-
-      if(nextStage > 8)
-         return;
-   }
-
+   if(nextStage > 8)
+      return;
 
    if(nightSession)
-   {
-      requiredGap=requiredGap+50;
-   }
-
-
-// if(timeDifferenceFromLatestOrder < nextStage*60)
-// {
-// return;
-// }
+      requiredGap = requiredGap + 50;
 
    bool canRecover = false;
-
-
 
    // BUY recovery: price must move DOWN from latest BUY order
    if(orderType == OP_BUY && diff <= -requiredGap)
@@ -295,7 +261,9 @@ void ManageRecovery(int orderType)
       OpenOrder(orderType, GetLot(nextLot), MakeComment(orderType, nextStage));
    }
 }
-datetime GetLiveTimeDiffFromLatestTime(int orderType)
+
+//+------------------------------------------------------------------+
+int GetLiveTimeDiffFromLatestTime(int orderType)
 {
    double latestPrice = 0;
    datetime latestTime = 0;
@@ -324,12 +292,9 @@ datetime GetLiveTimeDiffFromLatestTime(int orderType)
    if(latestPrice <= 0)
       return 0;
 
-   RefreshRates();
-
-   double livePrice = orderType == OP_BUY ? Bid : Ask;
-
-   return  TimeCurrent()-latestTime;
+   return (int)(TimeCurrent() - latestTime);
 }
+
 //+------------------------------------------------------------------+
 double GetLivePriceDiffFromLatestOrder(int orderType)
 {
@@ -472,9 +437,9 @@ void CloseBasketByProfit(int orderType)
    if(openCount <= 0)
       return;
 
-   double basketProfit = GetBasketProfit(orderType);
+   double basketProfit  = GetBasketProfit(orderType);
    double dynamicTarget = GetDynamicBasketTarget(orderType);
-   double dynamicSL = GetBasketSL();
+   double dynamicSL     = GetBasketSL();
 
    if(basketProfit <= -dynamicSL || basketProfit >= dynamicTarget)
    {
@@ -525,9 +490,69 @@ void CloseBasketByProfit(int orderType)
 }
 
 //+------------------------------------------------------------------+
+bool CanOpenNewOrder(int type, double lot)
+{
+   if(!IsTradeAllowed())
+   {
+      Print("Trading not allowed. Enable AutoTrading.");
+      return false;
+   }
+
+   if(IsTradeContextBusy())
+   {
+      Print("Trade context busy. Try next tick.");
+      return false;
+   }
+
+   if(lot <= 0)
+   {
+      Print("Invalid lot size: ", lot);
+      return false;
+   }
+
+   double minLot  = MarketInfo(Symbol(), MODE_MINLOT);
+   double maxLot  = MarketInfo(Symbol(), MODE_MAXLOT);
+
+   if(lot < minLot || lot > maxLot)
+   {
+      Print("Lot out of broker range. Lot: ",
+            lot,
+            " Min: ",
+            minLot,
+            " Max: ",
+            maxLot);
+      return false;
+   }
+
+   double freeMarginAfter = AccountFreeMarginCheck(Symbol(), type, lot);
+
+   if(freeMarginAfter <= 0)
+   {
+      Print("Not enough margin. Balance: ",
+            AccountBalance(),
+            " Equity: ",
+            AccountEquity(),
+            " FreeMargin: ",
+            AccountFreeMargin(),
+            " Lot: ",
+            lot,
+            " Type: ",
+            type == OP_BUY ? "BUY" : "SELL");
+      return false;
+   }
+
+   return true;
+}
+
+//+------------------------------------------------------------------+
 bool OpenOrder(int type, double lot, string comment)
 {
    RefreshRates();
+
+   lot = NormalizeDouble(lot, 2);
+
+   if(!CanOpenNewOrder(type, lot))
+      return false;
 
    double price = type == OP_BUY ? Ask : Bid;
    color clr    = type == OP_BUY ? clrBlue : clrRed;
@@ -546,14 +571,23 @@ bool OpenOrder(int type, double lot, string comment)
 
    if(ticket < 0)
    {
+      int err = GetLastError();
+
       Print("OrderSend failed. Error: ",
-            GetLastError(),
+            err,
             " Type: ",
-            type,
+            type == OP_BUY ? "BUY" : "SELL",
             " Lot: ",
             lot,
             " Comment: ",
-            comment);
+            comment,
+            " Balance: ",
+            AccountBalance(),
+            " Equity: ",
+            AccountEquity(),
+            " FreeMargin: ",
+            AccountFreeMargin());
+
       return false;
    }
 
@@ -608,8 +642,6 @@ bool StageExists(int orderType, int stage)
          return true;
       }
    }
-
-   
 
    return false;
 }
@@ -699,11 +731,17 @@ double GetDynamicBasketTarget(int orderType)
 //+------------------------------------------------------------------+
 string GetActiveDirection()
 {
-   if(CountOrders(OP_BUY) > 0)
-      return "BUY ONLY";
+   bool buyOpen  = CountOrders(OP_BUY) > 0;
+   bool sellOpen = CountOrders(OP_SELL) > 0;
 
-   if(CountOrders(OP_SELL) > 0)
-      return "SELL ONLY";
+   if(buyOpen && sellOpen)
+      return "BUY + SELL";
+
+   if(buyOpen)
+      return "BUY ACTIVE";
+
+   if(sellOpen)
+      return "SELL ACTIVE";
 
    return "WAITING";
 }
@@ -783,6 +821,8 @@ void CreateLabel(string name,
    ObjectSetInteger(0,name,OBJPROP_SELECTABLE,false);
    ObjectSetInteger(0,name,OBJPROP_HIDDEN,true);
 }
+
+//+------------------------------------------------------------------+
 void DrawEMA9AndEMA21Lines()
 {
    int candles = 150;
@@ -831,11 +871,12 @@ void DrawEMA9AndEMA21Lines()
       ObjectSetInteger(0, name21, OBJPROP_SELECTABLE, false);
    }
 }
+
 //+------------------------------------------------------------------+
 void DrawDashboard()
 {
-
    DrawEMA9AndEMA21Lines();
+
    int mult = GetBalanceMultiplier();
 
    double buyPL  = GetBasketProfit(OP_BUY);
@@ -845,14 +886,26 @@ void DrawDashboard()
    color sellClr = sellPL >= 0 ? clrLime : clrTomato;
 
    string direction = GetActiveDirection();
+   string trendText = GetTrendText();
 
    color dirClr = clrSilver;
 
-   if(direction == "BUY ONLY")
+   if(direction == "BUY ACTIVE")
       dirClr = clrLime;
 
-   if(direction == "SELL ONLY")
+   if(direction == "SELL ACTIVE")
       dirClr = clrTomato;
+
+   if(direction == "BUY + SELL")
+      dirClr = clrAqua;
+
+   color trendClr = clrSilver;
+
+   if(GetTrendDirection() == 1)
+      trendClr = clrLime;
+
+   if(GetTrendDirection() == -1)
+      trendClr = clrTomato;
 
    double buyLatestPrice  = GetLatestOrderPrice(OP_BUY);
    double sellLatestPrice = GetLatestOrderPrice(OP_SELL);
@@ -860,10 +913,10 @@ void DrawDashboard()
    double buyLatestGap  = GetLivePriceDiffFromLatestOrder(OP_BUY);
    double sellLatestGap = GetLivePriceDiffFromLatestOrder(OP_SELL);
 
-   CreatePanel("DXB_PANEL",300,10,380,530,C'15,15,15');
+   CreatePanel("DXB_PANEL",300,10,380,560,C'15,15,15');
 
    CreateLabel("V5",
-               "PRICE Gap V5 PRICE RECOVERY",
+               "PRICE GAP V5 PARALLEL TREND",
                210,30,
                clrGold,
                12);
@@ -898,82 +951,89 @@ void DrawDashboard()
                290,150,
                clrSilver);
 
-   CreateLabel("DXB_BAL",
-               "Balance      : $" + DoubleToString(AccountBalance(),2),
-               290,420,
-               clrWhite);
-
-   CreateLabel("DXB_EQ",
-               "Equity       : $" + DoubleToString(AccountEquity(),2),
-               290,440,
-               clrWhite);
-
-   CreateLabel("DXB_MULT",
-               "Multiplier   : " + IntegerToString(mult) + "X",
-               290,465,
-               clrAqua);
-
    CreateLabel("DXB_LOT",
                "Base Lot     : " + DoubleToString(GetLot(BaseLot),2),
                290,175,
                clrOrange);
-CreateLabel("DXB_GAP",
-            "Closed M5 Gap: " + DoubleToString(GetLastM5Gap(),2),
-            290,185,
-            clrYellow);
 
-CreateLabel("DXB_LIVE_M5_GAP",
-            "Live M5 Gap  : " + DoubleToString(GetLiveM5Gap(),2),
-            290,225,
-            GetLiveM5Gap() >= 0 ? clrLime : clrTomato);
-   CreateLabel("DXB_GAP",
-               "M5 Gap       : " + DoubleToString(GetLastM5Gap(),2),
+   CreateLabel("DXB_CLOSED_M5_GAP",
+               "Closed M5 Gap: " + DoubleToString(GetLastM5Gap(),2),
                290,195,
                clrYellow);
 
    CreateLabel("DXB_TRIGGER",
                "Gap Trigger  : " + DoubleToString(GapPrice,2),
-               290,205,
+               290,215,
                clrYellow);
+
+   CreateLabel("DXB_LIVE_M5_GAP",
+               "Live M5 Gap  : " + DoubleToString(GetLiveM5Gap(),2),
+               290,235,
+               GetLiveM5Gap() >= 0 ? clrLime : clrTomato);
+
+   CreateLabel("DXB_TREND",
+               "Trend        : " + trendText,
+               290,255,
+               trendClr);
 
    CreateLabel("DXB_DIR",
                "Direction    : " + direction,
-               290,240,
+               290,275,
                dirClr);
 
    CreateLabel("DXB_BUYORD",
                "BUY Orders   : " + IntegerToString(CountOrders(OP_BUY)),
-               290,265,
+               290,300,
                clrLime);
 
    CreateLabel("DXB_SELLORD",
                "SELL Orders  : " + IntegerToString(CountOrders(OP_SELL)),
-               290,285,
+               290,320,
                clrTomato);
 
    CreateLabel("DXB_TOTAL",
                "Total Orders : " + IntegerToString(CountAllOrders()),
-               290,305,
+               290,340,
                clrWhite);
 
    CreateLabel("DXB_BUYTP",
                "BUY TP       : $" + DoubleToString(GetDynamicBasketTarget(OP_BUY),2),
-               290,330,
+               290,365,
                clrDeepSkyBlue);
 
    CreateLabel("DXB_SELLTP",
                "SELL TP      : $" + DoubleToString(GetDynamicBasketTarget(OP_SELL),2),
-               290,350,
+               290,385,
                clrDeepSkyBlue);
 
    CreateLabel("DXB_SL",
                "Basket SL    : $" + DoubleToString(GetBasketSL(),2),
-               290,375,
+               290,410,
                clrOrangeRed);
 
-   CreateLabel("DXB_STATUS",
-               "RUNNING PRICE GAP RECOVERY",
+   CreateLabel("DXB_BAL",
+               "Balance      : $" + DoubleToString(AccountBalance(),2),
+               290,435,
+               clrWhite);
+
+   CreateLabel("DXB_EQ",
+               "Equity       : $" + DoubleToString(AccountEquity(),2),
+               290,455,
+               clrWhite);
+
+   CreateLabel("DXB_FM",
+               "Free Margin  : $" + DoubleToString(AccountFreeMargin(),2),
+               290,475,
+               clrWhite);
+
+   CreateLabel("DXB_MULT",
+               "Multiplier   : " + IntegerToString(mult) + "X",
                290,495,
+               clrAqua);
+
+   CreateLabel("DXB_STATUS",
+               "RUNNING PARALLEL PRICE GAP RECOVERY",
+               290,525,
                clrLime,
                10);
 }

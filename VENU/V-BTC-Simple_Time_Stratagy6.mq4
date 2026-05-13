@@ -11,7 +11,7 @@ int    Slippage            = 50;
 
 
 double BasketProfitTarget  = 1.00;   // Will be multiplied
-double BasketStopLoss      = 50.00;  // Will be multiplied
+double BasketStopLoss      = 20.00;  // Will be multiplied
 
 datetime lastM5BarTime = 0;
 
@@ -23,7 +23,16 @@ int OnInit()
    Print("Gap Recovery One Direction EA Started");
    return(INIT_SUCCEEDED);
 }
+string GetRunningEnvironment()
+{
+   string path = MQLInfoString(MQL_PROGRAM_PATH);
 
+   // Detect your laptop username/path
+   if(StringFind(path, "venuadmin") >= 0)
+      return "LAPTOP";
+
+   return "VPS";
+}
 //+------------------------------------------------------------------+
 void OnTick()
 {
@@ -103,10 +112,24 @@ int GetStrongM30Trend()
 //+------------------------------------------------------------------+
 void CheckNewBaseSignal()
 {
-   datetime m5Time = iTime(Symbol(), PERIOD_M5, 1);
+   datetime m5Time = iTime(Symbol(), PERIOD_M1, 1);
+
+
+// Print(GetRunningEnvironment());
+
+   // if(GetRunningEnvironment()=="VPS")
+   // {
+   // Print("New bar time"+" "+m5Time+"  lastM5BarTime "+lastM5BarTime);
+
+   // }
+
+
 
    if(m5Time == lastM5BarTime)
       return;
+      else
+   Print("New bar time"+" "+m5Time+"  lastM5BarTime "+lastM5BarTime);
+
 
    double open  = iOpen(Symbol(), PERIOD_M5, 1);
    double close = iClose(Symbol(), PERIOD_M5, 1);
@@ -230,10 +253,30 @@ void CloseBasketByProfit(int orderType)
 
    return;
 }
+bool HasEnoughMargin(int orderType,double lot)
+{
+   double marginRequired =
+      MarketInfo(Symbol(), MODE_MARGINREQUIRED) * lot;
 
+   double freeMargin = AccountFreeMargin();
+
+   Print("FreeMargin=",freeMargin,
+         " Required=",marginRequired);
+
+   if(freeMargin < marginRequired)
+   {
+      Print("Not enough margin for new order.");
+      return false;
+   }
+
+   return true;
+}
 //+------------------------------------------------------------------+
 bool OpenOrder(int type, double lot, string comment)
 {
+
+
+   if(HasEnoughMargin(type,lot)==false) return false;
    RefreshRates();
 
    double price = type == OP_BUY ? Ask : Bid;
