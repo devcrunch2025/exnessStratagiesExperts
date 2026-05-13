@@ -6,10 +6,10 @@
 
 input double LOTValue      = 0.01;
 input double StopLossValue = 20.00;//equity -10;
-input double TPValue       = 1.00;
+input double TPValue       = 0.50;
 
 double BaseLot             = 0.01;
-double GapPrice            = 50.0;
+double GapPrice            = 35.0;
 
 int    MagicNumber         = 5050801;
 int    Slippage            = 70;
@@ -32,7 +32,7 @@ int OnInit()
    BasketStopLoss     = StopLossValue;
 
    MathSrand((int)TimeLocal());
-   GapPrice = GapPrice + (MathRand() % 11 - 5);
+   // GapPrice = GapPrice + (MathRand() % 11 - 5);
 
    Print("Gap Recovery EA Started | Parallel Trend Version");
 
@@ -167,7 +167,11 @@ double GetBasketTP()
 //+------------------------------------------------------------------+
 double GetBasketSL()
 {
-   return BasketStopLoss * GetBalanceMultiplier();
+
+//   dynamicSL =;
+
+
+   return  MathMin(BasketStopLoss * GetBalanceMultiplier(), AccountBalance() / 2);
 }
 
 //+------------------------------------------------------------------+
@@ -257,10 +261,67 @@ void OpenNextOrderAfterProfitClose()
       }
    }
 }
+int GetM5CandleFormationSafe(double minGap)
+{
+   double open = iOpen(Symbol(), PERIOD_M5, 0);
+   double live = Bid;
+
+   double diff = live - open;
+
+   if(diff >= minGap)
+      return 1;
+
+   if(diff <= -minGap)
+      return -1;
+
+   return 0;
+}
+bool IsFlatMarket()
+{
+   double ema9_now  = iMA(Symbol(), PERIOD_M5, 9, 0, MODE_EMA, PRICE_CLOSE, 0);
+   double ema21_now = iMA(Symbol(), PERIOD_M5, 21,0, MODE_EMA, PRICE_CLOSE, 0);
+
+   double ema9_prev  = iMA(Symbol(), PERIOD_M5, 9, 0, MODE_EMA, PRICE_CLOSE, 3);
+   double ema21_prev = iMA(Symbol(), PERIOD_M5, 21,0, MODE_EMA, PRICE_CLOSE, 3);
+
+   // EMA distance
+   double emaGap = MathAbs(ema9_now - ema21_now);
+
+   // EMA slope
+   double ema9Slope  = MathAbs(ema9_now - ema9_prev);
+   double ema21Slope = MathAbs(ema21_now - ema21_prev);
+
+   // Candle range average
+   double avgRange = 0;
+
+   for(int i=1; i<=5; i++)
+   {
+      avgRange += MathAbs(
+         iHigh(Symbol(), PERIOD_M5, i) -
+         iLow(Symbol(), PERIOD_M5, i)
+      );
+   }
+
+   avgRange = avgRange / 5;
+
+   // FLAT CONDITIONS
+   if(emaGap < 30 &&
+      ema9Slope < 20 &&
+      ema21Slope < 20 &&
+      avgRange < 80)
+   {
+      return true;
+   }
+
+   return false;
+}
 //+------------------------------------------------------------------+
 void CheckNewBaseSignal()
 {
-   GapPrice = 60 + MathRand() % 11;
+   // GapPrice =GapPrice;//  + MathRand() % 11;
+
+   GapPrice = GapPrice + (MathRand() % 11 - 5);
+
 
    datetime m5Time = iTime(Symbol(), PERIOD_M5, 1);
 
@@ -271,13 +332,17 @@ void CheckNewBaseSignal()
    double close = iClose(Symbol(), PERIOD_M5, 1);
    double gap   = close - open;
 
+   double open10  = iOpen(Symbol(), PERIOD_M10, 1);
+   double close10 = iClose(Symbol(), PERIOD_M10, 1);
+   double gap10   = close10 - open10;
+
    int trend = GetTrendDirection();
 
    bool buyOpen  = CountOrders(OP_BUY) > 0;
    bool sellOpen = CountOrders(OP_SELL) > 0;
 
    // BUY base order: price gap UP + BUY trend
-   if(gap > GapPrice && trend == 1 && !buyOpen)
+   if(gap > GapPrice && trend == 1 && !buyOpen )
    {
       OpenOrder(OP_BUY, GetLot(BaseLot), MakeComment(OP_BUY, 0));
 
@@ -328,7 +393,11 @@ void ManageRecovery(int orderType)
    if(hour > 14 || hour < 1)
       nightSession = true;
 
-   if(nextStage == 1) { requiredGap = 50;   nextLot = 0.01; }
+   // if(nextStage == 1) { requiredGap = 30;   nextLot = 0.02; }
+   if(nextStage == 1) { requiredGap = 30;   nextLot = 0.01; }
+
+
+   // if(nextStage == 1) { requiredGap = 50;   nextLot = 0.01; }
    if(nextStage == 2) { requiredGap = 100;  nextLot = 0.02; }
    if(nextStage == 3) { requiredGap = 300;  nextLot = 0.03; }
    if(nextStage == 4) { requiredGap = 800;  nextLot = 0.03; }
@@ -553,13 +622,12 @@ void CloseBasketByProfit(int orderType)
 
 
 
-
    double eightyPercentTarget = dynamicTarget * 0.80;
 
    bool closeNow = false;
 
    // normal TP or SL
-   if(((basketProfit <= -dynamicSL && AccountEquity() < AccountBalance()/2) || basketProfit >= dynamicTarget))
+   if(((basketProfit <= -dynamicSL) || basketProfit >= dynamicTarget))
       closeNow = true;
 
    // first time reached 80%
@@ -881,7 +949,14 @@ double GetDynamicBasketTarget(int orderType)
    if(openCount <= 0)
       return GetBasketTP();
 
+      
+
    double tp = GetBasketTP() / openCount;
+
+
+   if(openCount==1) tp=tp/2;
+
+
 
    int trend = GetTrendDirection();
 
