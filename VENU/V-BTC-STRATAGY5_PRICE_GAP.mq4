@@ -5,7 +5,7 @@
 #property strict
 
 input double LOTValue      = 0.01;
-input double StopLossValue = 30.00;
+input double StopLossValue = 20.00;//equity -10;
 input double TPValue       = 1.00;
 
 double BaseLot             = 0.01;
@@ -14,8 +14,8 @@ double GapPrice            = 50.0;
 int    MagicNumber         = 5050801;
 int    Slippage            = 70;
 
-double BasketProfitTarget  = 2.00;
-double BasketStopLoss      = 30.00;
+double BasketProfitTarget  = 0.00;
+double BasketStopLoss      = 0.00;
 
 datetime lastM5BarTime = 0;
 
@@ -42,6 +42,10 @@ int OnInit()
 //+------------------------------------------------------------------+
 void OnTick()
 {
+
+   CloseAllOrdersIfEquityDrop();
+
+   
    CloseBasketByProfit(OP_BUY);
    CloseBasketByProfit(OP_SELL);
 
@@ -52,10 +56,54 @@ void OnTick()
    ManageRecovery(OP_BUY);
    ManageRecovery(OP_SELL);
 
+      OpenNextOrderAfterProfitClose();
+
+
    DrawDashboard();
    DrawEveryCandleDiffFrom5th();
 }
+void CloseAllOrdersIfEquityDrop()
+{
+   // double dynamicSL = StopLossValue;
 
+   // if(AccountEquity() > AccountBalance() - dynamicSL)
+   //    return;
+
+       if(AccountEquity() > AccountBalance()/2)
+      return;
+
+   Print("Equity protection triggered. Closing all orders.");
+
+   for(int i = OrdersTotal() - 1; i >= 0; i--)
+   {
+      if(!OrderSelect(i, SELECT_BY_POS, MODE_TRADES))
+         continue;
+
+      if(OrderSymbol() != Symbol())
+         continue;
+
+      if(OrderMagicNumber() != MagicNumber)
+         continue;
+
+      RefreshRates();
+
+      double closePrice = OrderType() == OP_BUY ? Bid : Ask;
+
+      bool closed = OrderClose(OrderTicket(),
+                               OrderLots(),
+                               closePrice,
+                               Slippage,
+                               clrRed);
+
+      if(!closed)
+      {
+         Print("Emergency close failed. Ticket: ",
+               OrderTicket(),
+               " Error: ",
+               GetLastError());
+      }
+   }
+}
 //+------------------------------------------------------------------+
 bool IsAfter30SecFromNewM1Bar()
 {
@@ -166,25 +214,46 @@ string GetTrendText()
 
    return "NO CLEAR TREND";
 }
-void OpenNextOrderAfterProfitClose(int closedOrderType)
+void OpenNextOrderAfterProfitClose()
 {
+   if(g_lastBasketProfitCloseTime <= 0)
+      return;
+
+   // wait 5 minutes
+   if(TimeCurrent() - g_lastBasketProfitCloseTime < 60 * 5)
+      return;
+
    int trend = GetTrendDirection();
 
-   if(closedOrderType == OP_BUY)
+   // BUY re-entry
+   if(g_lastBasketProfitCloseType == OP_BUY)
    {
       if(trend == 1 && CountOrders(OP_BUY) == 0)
       {
-         OpenOrder(OP_BUY, GetLot(BaseLot), MakeComment(OP_BUY, 0));
-         Print("Next BUY opened after BUY profit close. Trend still BUY.");
+         OpenOrder(OP_BUY,
+                   GetLot(BaseLot),
+                   MakeComment(OP_BUY, 0));
+
+         Print("5 Min ReEntry BUY created.");
+
+         g_lastBasketProfitCloseTime = 0;
+         g_lastBasketProfitCloseType = -1;
       }
    }
 
-   if(closedOrderType == OP_SELL)
+   // SELL re-entry
+   if(g_lastBasketProfitCloseType == OP_SELL)
    {
       if(trend == -1 && CountOrders(OP_SELL) == 0)
       {
-         OpenOrder(OP_SELL, GetLot(BaseLot), MakeComment(OP_SELL, 0));
-         Print("Next SELL opened after SELL profit close. Trend still SELL.");
+         OpenOrder(OP_SELL,
+                   GetLot(BaseLot),
+                   MakeComment(OP_SELL, 0));
+
+         Print("5 Min ReEntry SELL created.");
+
+         g_lastBasketProfitCloseTime = 0;
+         g_lastBasketProfitCloseType = -1;
       }
    }
 }
@@ -211,15 +280,23 @@ void CheckNewBaseSignal()
    if(gap > GapPrice && trend == 1 && !buyOpen)
    {
       OpenOrder(OP_BUY, GetLot(BaseLot), MakeComment(OP_BUY, 0));
+
+   lastM5BarTime = m5Time;
+
    }
 
    // SELL base order: price gap DOWN + SELL trend
    if(gap < -GapPrice && trend == -1 && !sellOpen)
    {
       OpenOrder(OP_SELL, GetLot(BaseLot), MakeComment(OP_SELL, 0));
+
+   lastM5BarTime = m5Time;
+
    }
 
    lastM5BarTime = m5Time;
+
+
 }
 
 //+------------------------------------------------------------------+
@@ -252,8 +329,8 @@ void ManageRecovery(int orderType)
       nightSession = true;
 
    if(nextStage == 1) { requiredGap = 50;   nextLot = 0.01; }
-   if(nextStage == 2) { requiredGap = 100;  nextLot = 0.01; }
-   if(nextStage == 3) { requiredGap = 300;  nextLot = 0.02; }
+   if(nextStage == 2) { requiredGap = 100;  nextLot = 0.02; }
+   if(nextStage == 3) { requiredGap = 300;  nextLot = 0.03; }
    if(nextStage == 4) { requiredGap = 800;  nextLot = 0.03; }
    if(nextStage == 5) { requiredGap = 1200; nextLot = 0.04; }
    if(nextStage == 6) { requiredGap = 2000; nextLot = 0.05; }
@@ -451,6 +528,9 @@ double GetBaseOrderPrice(int orderType)
 }
 bool buyReached80Once  = false;
 bool sellReached80Once = false;
+
+datetime g_lastBasketProfitCloseTime = 0;
+int      g_lastBasketProfitCloseType = -1;
 //+------------------------------------------------------------------+
 void CloseBasketByProfit(int orderType)
 {
@@ -549,9 +629,10 @@ void CloseBasketByProfit(int orderType)
          DoubleToString(dynamicSL, 2));
 
 
-         if(basketProfit > 0)
+  if(basketProfit > 0)
 {
-   OpenNextOrderAfterProfitClose(orderType);
+   g_lastBasketProfitCloseTime = TimeCurrent();
+   g_lastBasketProfitCloseType = orderType;
 }
 
    if(orderType == OP_BUY)
@@ -797,11 +878,37 @@ double GetDynamicBasketTarget(int orderType)
    if(openCount <= 0)
       return GetBasketTP();
 
-   return GetBasketTP() / openCount;
+   double tp = GetBasketTP() / openCount;
+
+   int trend = GetTrendDirection();
+
+   // BUY basket but trend changed to SELL
+   if(orderType == OP_BUY && trend == -1)
+   {
+      tp = tp * 0.20; // reduce TP to 50%
+   }
+
+   // SELL basket but trend changed to BUY
+   if(orderType == OP_SELL && trend == 1)
+   {
+      tp = tp * 0.20;
+   }
+
+   // no clear trend
+   if(trend == 0)
+   {
+      tp = tp * 0.50;
+   }
+
+   // minimum protection
+   if(tp < 0.30)
+      tp = 0.30;
+
+   return NormalizeDouble(tp, 2);
 }
 
 //+------------------------------------------------------------------+
-string GetActiveDirection()
+string GetActiveOrdersDirection()
 {
    bool buyOpen  = CountOrders(OP_BUY) > 0;
    bool sellOpen = CountOrders(OP_SELL) > 0;
@@ -957,7 +1064,7 @@ void DrawDashboard()
    color buyClr  = buyPL >= 0 ? clrLime : clrTomato;
    color sellClr = sellPL >= 0 ? clrLime : clrTomato;
 
-   string direction = GetActiveDirection();
+   string direction = GetActiveOrdersDirection();
    string trendText = GetTrendText();
 
    color dirClr = clrSilver;
@@ -1044,12 +1151,12 @@ void DrawDashboard()
                GetLiveM5Gap() >= 0 ? clrLime : clrTomato);
 
    CreateLabel("DXB_TREND",
-               "Trend        : " + trendText,
+               "Trend  EMA       : " + trendText,
                290,255,
                trendClr);
 
    CreateLabel("DXB_DIR",
-               "Direction    : " + direction,
+               "Direction Orders   : " + direction,
                290,275,
                dirClr);
 
