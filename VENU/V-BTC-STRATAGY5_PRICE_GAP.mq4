@@ -6,7 +6,7 @@
 
 input double LOTValue      = 0.01;
 input double StopLossValue = 30.00;
-input double TPValue       = 2.00;
+input double TPValue       = 1.00;
 
 double BaseLot             = 0.01;
 double GapPrice            = 50.0;
@@ -166,7 +166,28 @@ string GetTrendText()
 
    return "NO CLEAR TREND";
 }
+void OpenNextOrderAfterProfitClose(int closedOrderType)
+{
+   int trend = GetTrendDirection();
 
+   if(closedOrderType == OP_BUY)
+   {
+      if(trend == 1 && CountOrders(OP_BUY) == 0)
+      {
+         OpenOrder(OP_BUY, GetLot(BaseLot), MakeComment(OP_BUY, 0));
+         Print("Next BUY opened after BUY profit close. Trend still BUY.");
+      }
+   }
+
+   if(closedOrderType == OP_SELL)
+   {
+      if(trend == -1 && CountOrders(OP_SELL) == 0)
+      {
+         OpenOrder(OP_SELL, GetLot(BaseLot), MakeComment(OP_SELL, 0));
+         Print("Next SELL opened after SELL profit close. Trend still SELL.");
+      }
+   }
+}
 //+------------------------------------------------------------------+
 void CheckNewBaseSignal()
 {
@@ -428,65 +449,116 @@ double GetBaseOrderPrice(int orderType)
 
    return basePrice;
 }
-
+bool buyReached80Once  = false;
+bool sellReached80Once = false;
 //+------------------------------------------------------------------+
 void CloseBasketByProfit(int orderType)
 {
    int openCount = CountOrders(orderType);
 
    if(openCount <= 0)
+   {
+      if(orderType == OP_BUY)
+         buyReached80Once = false;
+
+      if(orderType == OP_SELL)
+         sellReached80Once = false;
+
       return;
+   }
 
    double basketProfit  = GetBasketProfit(orderType);
    double dynamicTarget = GetDynamicBasketTarget(orderType);
    double dynamicSL     = GetBasketSL();
 
+   double eightyPercentTarget = dynamicTarget * 0.80;
+
+   bool closeNow = false;
+
+   // normal TP or SL
    if(basketProfit <= -dynamicSL || basketProfit >= dynamicTarget)
+      closeNow = true;
+
+   // first time reached 80%
+   if(basketProfit >= eightyPercentTarget)
    {
-      for(int i = OrdersTotal() - 1; i >= 0; i--)
+      if(orderType == OP_BUY)
       {
-         if(!OrderSelect(i, SELECT_BY_POS, MODE_TRADES))
-            continue;
-
-         if(OrderSymbol() != Symbol())
-            continue;
-
-         if(OrderMagicNumber() != MagicNumber)
-            continue;
-
-         if(OrderType() != orderType)
-            continue;
-
-         RefreshRates();
-
-         double closePrice = orderType == OP_BUY ? Bid : Ask;
-
-         bool closed = OrderClose(OrderTicket(),
-                                  OrderLots(),
-                                  closePrice,
-                                  Slippage,
-                                  clrGreen);
-
-         if(!closed)
-         {
-            Print("Basket close failed. Ticket: ",
-                  OrderTicket(),
-                  " Error: ",
-                  GetLastError());
-         }
+         if(buyReached80Once)
+            closeNow = true;
+         else
+            buyReached80Once = true;
       }
 
-      Print("Basket closed. Type: ",
-            orderType == OP_BUY ? "BUY" : "SELL",
-            " Orders: ",
-            openCount,
-            " Profit: $",
-            DoubleToString(basketProfit, 2),
-            " TP: $",
-            DoubleToString(dynamicTarget, 2),
-            " SL: $",
-            DoubleToString(dynamicSL, 2));
+      if(orderType == OP_SELL)
+      {
+         if(sellReached80Once)
+            closeNow = true;
+         else
+            sellReached80Once = true;
+      }
    }
+
+   if(!closeNow)
+      return;
+
+   for(int i = OrdersTotal() - 1; i >= 0; i--)
+   {
+      if(!OrderSelect(i, SELECT_BY_POS, MODE_TRADES))
+         continue;
+
+      if(OrderSymbol() != Symbol())
+         continue;
+
+      if(OrderMagicNumber() != MagicNumber)
+         continue;
+
+      if(OrderType() != orderType)
+         continue;
+
+      RefreshRates();
+
+      double closePrice = orderType == OP_BUY ? Bid : Ask;
+
+      bool closed = OrderClose(OrderTicket(),
+                               OrderLots(),
+                               closePrice,
+                               Slippage,
+                               clrGreen);
+
+      if(!closed)
+      {
+         Print("Basket close failed. Ticket: ",
+               OrderTicket(),
+               " Error: ",
+               GetLastError());
+      }
+   }
+
+   Print("Basket closed. Type: ",
+         orderType == OP_BUY ? "BUY" : "SELL",
+         " Orders: ",
+         openCount,
+         " Profit: $",
+         DoubleToString(basketProfit, 2),
+         " TP: $",
+         DoubleToString(dynamicTarget, 2),
+         " 80% TP: $",
+         DoubleToString(eightyPercentTarget, 2),
+         " SL: $",
+         DoubleToString(dynamicSL, 2));
+
+
+         if(basketProfit > 0)
+{
+   OpenNextOrderAfterProfitClose(orderType);
+}
+
+   if(orderType == OP_BUY)
+      buyReached80Once = false;
+
+   if(orderType == OP_SELL)
+      sellReached80Once = false;
 }
 
 //+------------------------------------------------------------------+
