@@ -40,7 +40,7 @@ int OnInit()
   }
 
 //+------------------------------------------------------------------+
-int maxOrderAfterTrendChanged=2;
+int maxOrderAfterTrendChanged=1;
 int countOrderCountAfterTrendChanged=0;
 bool isOpenNextOrderAfterProfitClose=true;
 void OnTick()
@@ -56,11 +56,11 @@ void OnTick()
 
 // if(IsAfter30SecFromNewM1Bar())
 
-   Print("TrendGap "+GetLatestTrendGap());
+   Print("TrendGap "+GetLatestTrendGap()+" "+GetLatestTrendGapInMinutes());
 
    // if((GetLatestTrendGap()==0 || GetLatestTrendGap()>50 )&& !IsPauseTradingTimeUTC() && countOrderCountAfterTrendChanged<maxOrderAfterTrendChanged)
  
-    if(( !IsFlatMarket() && !IsPauseTradingTimeUTC() && countOrderCountAfterTrendChanged<maxOrderAfterTrendChanged))
+    if(( (GetLatestTrendGapInMinutes()==0 ||GetLatestTrendGapInMinutes()>30) && !IsFlatMarket() && !IsPauseTradingTimeUTC() && countOrderCountAfterTrendChanged<maxOrderAfterTrendChanged))
  
    CheckNewBaseSignal();
    else
@@ -89,6 +89,81 @@ void OnTick()
 //+------------------------------------------------------------------+
 //|                                                                  |
 //+------------------------------------------------------------------+
+double g_sarPeriod        = 0.56;
+int    g_sarStepSize      = 25;
+int    g_sarAccel         = 9;
+int GetStrongSARSignal()
+{
+   double ema21  = iMA(Symbol(),0,21,0,MODE_EMA,PRICE_CLOSE,1);
+   double ema50  = iMA(Symbol(),0,50,0,MODE_EMA,PRICE_CLOSE,1);
+   double ema200 = iMA(Symbol(),0,200,0,MODE_EMA,PRICE_CLOSE,1);
+
+   double rsi = iRSI(Symbol(),0,14,PRICE_CLOSE,1);
+   double atr = iATR(Symbol(),0,14,1) / Point;
+
+   double step    = g_sarPeriod * g_sarStepSize / 10000.0;
+   double maxStep = step * g_sarAccel;
+
+   double sar1 = iSAR(Symbol(),0,step,maxStep,1);
+   double sar2 = iSAR(Symbol(),0,step,maxStep,2);
+
+   // avoid dead / flat market
+   if(atr < 300)
+      return 0;
+
+   // avoid inside EMA zone
+   double top    = MathMax(ema21, ema50);
+   double bottom = MathMin(ema21, ema50);
+
+   if(Close[1] <= top && Close[1] >= bottom)
+      return 0;
+
+   // candle body / wick
+   double body      = MathAbs(Close[1] - Open[1]);
+   double upperWick = High[1] - MathMax(Open[1], Close[1]);
+   double lowerWick = MathMin(Open[1], Close[1]) - Low[1];
+
+   if(body <= 0)
+      return 0;
+
+   // =========================
+   // BUY SIGNAL
+   // =========================
+   if(sar1 < Close[1] && sar2 >= Close[2])
+   {
+      if(ema21 > ema50 && ema50 > ema200)
+      {
+         if(Close[1] > ema21)
+         {
+            if(rsi >= 55)
+            {
+               if(upperWick <= body * 1.5)
+                  return 1;
+            }
+         }
+      }
+   }
+
+   // =========================
+   // SELL SIGNAL
+   // =========================
+   if(sar1 > Close[1] && sar2 <= Close[2])
+   {
+      if(ema21 < ema50 && ema50 < ema200)
+      {
+         if(Close[1] < ema21)
+         {
+            if(rsi <= 45)
+            {
+               if(lowerWick <= body * 1.5)
+                  return -1;
+            }
+         }
+      }
+   }
+
+   return 0;
+}
 void CloseAllOrdersIfEquityDrop()
   {
 // double dynamicSL = StopLossValue;
