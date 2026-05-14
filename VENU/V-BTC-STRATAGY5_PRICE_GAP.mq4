@@ -171,7 +171,7 @@ double GetBasketSL()
 //   dynamicSL =;
 
 
-   return  MathMin(BasketStopLoss * GetBalanceMultiplier(), AccountBalance() / 2);
+   return  MathMax(BasketStopLoss * GetBalanceMultiplier(), AccountBalance() / 2);
 }
 
 //+------------------------------------------------------------------+
@@ -189,18 +189,41 @@ double GetLiveM5Gap()
 //| Trend direction using EMA9 and EMA21 on M5                       |
 //|  1 = BUY trend, -1 = SELL trend, 0 = No clear trend               |
 //+------------------------------------------------------------------+
+// int GetTrendDirection()
+// {
+//    double ema9  = iMA(Symbol(), PERIOD_M5, 9, 0, MODE_EMA, PRICE_CLOSE, 1);
+//    double ema21 = iMA(Symbol(), PERIOD_M5, 21, 0, MODE_EMA, PRICE_CLOSE, 1);
+
+//    double close1 = iClose(Symbol(), PERIOD_M5, 1);
+
+//    if(close1 > ema9 && ema9 > ema21)
+//       return 1;
+
+//    if(close1 < ema9 && ema9 < ema21)
+//       return -1;
+
+//    return 0;
+// }
+
 int GetTrendDirection()
 {
-   double ema9  = iMA(Symbol(), PERIOD_M5, 9, 0, MODE_EMA, PRICE_CLOSE, 1);
-   double ema21 = iMA(Symbol(), PERIOD_M5, 21, 0, MODE_EMA, PRICE_CLOSE, 1);
+   double ema9  = iMA(Symbol(), PERIOD_M5, 9, 0, MODE_EMA, PRICE_CLOSE, 0);
+   double ema21 = iMA(Symbol(), PERIOD_M5, 21, 0, MODE_EMA, PRICE_CLOSE, 0);
 
-   double close1 = iClose(Symbol(), PERIOD_M5, 1);
+   double livePrice = Bid;
 
-   if(close1 > ema9 && ema9 > ema21)
+   // Strong BUY trend
+   if(livePrice > ema9 && ema9 > ema21)
       return 1;
 
-   if(close1 < ema9 && ema9 < ema21)
+   // Strong SELL trend
+   if(livePrice < ema9 && ema9 < ema21)
       return -1;
+
+   // Price inside EMA zone
+   if((livePrice > ema21 && livePrice < ema9) ||
+      (livePrice < ema21 && livePrice > ema9))
+      return 0;
 
    return 0;
 }
