@@ -48,7 +48,7 @@ void OnTick()
 
 
 
-   CloseAllOrdersIfEquityDrop();
+ CloseAllOrdersIfEquityDrop();
 
    
    CloseBasketByProfit(OP_BUY);
@@ -56,16 +56,22 @@ void OnTick()
 
    // if(IsAfter30SecFromNewM1Bar())
 
+Print("TrendGap "+GetLatestTrendGap());
+
    if(GetLatestTrendGap()>50)
       CheckNewBaseSignal();
+      else
+      {
+         Print("CheckNewBaseSignal Missing ",GetLatestTrendGap());
+      }
 
    // Parallel recovery for both BUY and SELL
    ManageRecovery(OP_BUY);
    ManageRecovery(OP_SELL);
 
 
-   if(!IsPauseTradingTimeUTC() && GetLatestTrendGap()>50)
-      OpenNextOrderAfterProfitClose();
+   // if(!IsPauseTradingTimeUTC() && GetLatestTrendGap()>50)
+   //    OpenNextOrderAfterProfitClose();
 
 
    DrawDashboard();
@@ -1777,6 +1783,8 @@ void DrawTrendChangeGap(
       DoubleToString(gap, 2);
 
    string name = "TrendGap_" + IntegerToString((int)t);
+
+   Print("trendText ",trendText);
 
    // Create chart text
    ObjectCreate(0, name, OBJ_TEXT, 0, t, newPrice);
