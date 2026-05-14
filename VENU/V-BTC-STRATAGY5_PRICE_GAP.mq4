@@ -364,7 +364,7 @@ void OpenNextOrderAfterProfitClose()
       return;
 
    // wait 5 minutes
-   if(TimeCurrent() - g_lastBasketProfitCloseTime < 60 * 2)
+   if(TimeCurrent() - g_lastBasketProfitCloseTime < 60 * 1)
       return;
 
    int trend = GetTrendDirection();
@@ -589,11 +589,11 @@ void ManageRecovery(int orderType)
 
    // if(nextStage == 1) { requiredGap = 30;   nextLot = 0.02; }
    if(nextStage == 1) { requiredGap = 30;   nextLot = 0.01; }
-   if(nextStage == 2) { requiredGap = 60;  nextLot = 0.01; }
-   if(nextStage == 3) { requiredGap = 100;  nextLot = 0.01; }
+   if(nextStage == 2) { requiredGap = 90;  nextLot = 0.01; }
+   if(nextStage == 3) { requiredGap = 120;  nextLot = 0.02; }
    if(nextStage == 4) { requiredGap = 150;  nextLot = 0.01; }
-   if(nextStage == 5) { requiredGap = 200;  nextLot = 0.01; }
-   if(nextStage == 6) { requiredGap = 250;  nextLot = 0.01; }
+   if(nextStage == 5) { requiredGap = 250;  nextLot = 0.01; }
+   if(nextStage == 6) { requiredGap = 350;  nextLot = 0.01; }
 
  
 
@@ -626,13 +626,13 @@ void ManageRecovery(int orderType)
  
  
 
-if(GetTrendDirection()==1 && orderType==OP_BUY)
+if(GetTrendDirection()!=-1 && orderType==OP_BUY)
 
       OpenOrder(orderType, GetLot(nextLot), MakeComment(orderType, nextStage));
 
       else
        
-if(GetTrendDirection()==-1 && orderType==OP_SELL)
+if(GetTrendDirection()!=1 && orderType==OP_SELL)
 
       OpenOrder(orderType, GetLot(nextLot), MakeComment(orderType, nextStage));
    }
