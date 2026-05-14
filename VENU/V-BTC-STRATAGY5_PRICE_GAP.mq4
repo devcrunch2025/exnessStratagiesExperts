@@ -24,7 +24,7 @@ bool     g_m1GapChecked   = false;
 
 //+------------------------------------------------------------------+
 int OnInit()
-{
+  {
    MagicNumber = AccountNumber() + 5;
 
    BaseLot            = LOTValue;
@@ -32,68 +32,74 @@ int OnInit()
    BasketStopLoss     = StopLossValue;
 
    MathSrand((int)TimeLocal());
-   // GapPrice = GapPrice + (MathRand() % 11 - 5);
+// GapPrice = GapPrice + (MathRand() % 11 - 5);
 
    Print("v5 Gap Recovery EA Started | Parallel Trend Version");
 
    return(INIT_SUCCEEDED);
-}
+  }
 
 //+------------------------------------------------------------------+
 
-bool isOpenNextOrderAfterProfitClose=true; 
+bool isOpenNextOrderAfterProfitClose=true;
 void OnTick()
-{
+  {
 
 
 
 
- CloseAllOrdersIfEquityDrop();
+   CloseAllOrdersIfEquityDrop();
 
-   
+
    CloseBasketByProfit(OP_BUY);
    CloseBasketByProfit(OP_SELL);
 
-   // if(IsAfter30SecFromNewM1Bar())
+// if(IsAfter30SecFromNewM1Bar())
 
-Print("TrendGap "+GetLatestTrendGap());
+   Print("TrendGap "+GetLatestTrendGap());
 
-   if(GetLatestTrendGap()>50)
+   if(GetLatestTrendGap()>50 && !IsPauseTradingTimeUTC())
       CheckNewBaseSignal();
-      else
-      {
-         Print("CheckNewBaseSignal Missing ",GetLatestTrendGap());
-      }
+   else
+     {
+      Print("CheckNewBaseSignal Missing ",GetLatestTrendGap());
+     }
 
-   // Parallel recovery for both BUY and SELL
-   ManageRecovery(OP_BUY);
-   ManageRecovery(OP_SELL);
+// Parallel recovery for both BUY and SELL
+   if(GetTrendDirection()==1)
+      ManageRecovery(OP_BUY);
+
+   if(GetTrendDirection()==-1)
+      ManageRecovery(OP_SELL);
 
 
-   // if(!IsPauseTradingTimeUTC() && GetLatestTrendGap()>50)
-   //    OpenNextOrderAfterProfitClose();
+// if(!IsPauseTradingTimeUTC() && GetLatestTrendGap()>50)
+//    OpenNextOrderAfterProfitClose();
 
 
    DrawDashboard();
-   // DrawEveryCandleDiffFrom5th();
+// DrawEveryCandleDiffFrom5th();
 
-      CheckTrendChangedCloseOpposite();
+   CheckTrendChangedCloseOpposite();
 
-}
+  }
+//+------------------------------------------------------------------+
+//|                                                                  |
+//+------------------------------------------------------------------+
 void CloseAllOrdersIfEquityDrop()
-{
-   // double dynamicSL = StopLossValue;
+  {
+// double dynamicSL = StopLossValue;
 
-   // if(AccountEquity() > AccountBalance() - dynamicSL)
-   //    return;
+// if(AccountEquity() > AccountBalance() - dynamicSL)
+//    return;
 
-       if(AccountEquity() > AccountBalance()/2)
+   if(AccountEquity() > AccountBalance()/2)
       return;
 
    Print("Equity protection triggered. Closing all orders.");
 
    for(int i = OrdersTotal() - 1; i >= 0; i--)
-   {
+     {
       if(!OrderSelect(i, SELECT_BY_POS, MODE_TRADES))
          continue;
 
@@ -114,38 +120,38 @@ void CloseAllOrdersIfEquityDrop()
                                clrRed);
 
       if(!closed)
-      {
+        {
          Print("Emergency close failed. Ticket: ",
                OrderTicket(),
                " Error: ",
                GetLastError());
-      }
-   }
-}
+        }
+     }
+  }
 //+------------------------------------------------------------------+
 bool IsAfter30SecFromNewM1Bar()
-{
+  {
    datetime currentBarTime = iTime(Symbol(), PERIOD_M1, 0);
 
    if(currentBarTime != g_m1BarStartTime)
-   {
+     {
       g_m1BarStartTime = currentBarTime;
       g_m1GapChecked = false;
       return false;
-   }
+     }
 
    if(!g_m1GapChecked && TimeCurrent() >= g_m1BarStartTime + 30)
-   {
+     {
       g_m1GapChecked = true;
       return true;
-   }
+     }
 
    return false;
-}
+  }
 
 //+------------------------------------------------------------------+
 int GetBalanceMultiplier()
-{
+  {
    double balance = AccountBalance();
 
    int multiplier = (int)MathCeil(balance / 200.0);
@@ -154,11 +160,11 @@ int GetBalanceMultiplier()
       multiplier = 1;
 
    return multiplier;
-}
+  }
 
 //+------------------------------------------------------------------+
 double GetLot(double baseLot)
-{
+  {
    double lot = baseLot * GetBalanceMultiplier();
 
    double minLot  = MarketInfo(Symbol(), MODE_MINLOT);
@@ -174,86 +180,91 @@ double GetLot(double baseLot)
    lot = MathFloor(lot / lotStep) * lotStep;
 
    return NormalizeDouble(lot, 2);
-}
+  }
 
 //+------------------------------------------------------------------+
 double GetBasketTP()
-{
+  {
    return BasketProfitTarget * GetBalanceMultiplier();
-}
+  }
+//+------------------------------------------------------------------+
+//|                                                                  |
+//+------------------------------------------------------------------+
 bool IsPauseTradingTimeUTC()
-{
+  {
    datetime now = TimeGMT();
 
    int hour = TimeHour(now);
    int day  = TimeDayOfWeek(now);
 
-   // -------------------------------------------------
-   // DAILY PAUSE
-   // UTC 00:00 -> 06:00
-   // -------------------------------------------------
-   if(hour >= 0 && hour < 6)
+// -------------------------------------------------
+// DAILY PAUSE
+// UTC 00:00 -> 06:00
+// -------------------------------------------------
+   if(hour >= 0 && hour < 1)
       return true;
 
-   // -------------------------------------------------
-   // US MARKET VOLATILITY
-   // UTC 12:30 -> 13:30 (approx UAE 16:30 -> 17:30)
-   // -------------------------------------------------
-   if(hour == 12 || hour == 13)
+
+
+// -------------------------------------------------
+// US MARKET VOLATILITY
+// UTC 12:30 -> 13:30 (approx UAE 16:30 -> 17:30)
+// -------------------------------------------------
+   if(hour == 12 || hour == 13 || hour == 15  || hour == 23)
       return true;
 
-   // -------------------------------------------------
-   // FRIDAY NIGHT PROTECTION
-   // Friday after 18:00 UTC
-   // -------------------------------------------------
+// -------------------------------------------------
+// FRIDAY NIGHT PROTECTION
+// Friday after 18:00 UTC
+// -------------------------------------------------
    if(day == 5 && hour >= 18)
       return true;
 
-   // -------------------------------------------------
-   // WEEKEND BLOCK
-   // Saturday + Sunday
-   // -------------------------------------------------
-   // if(day == 6 || day == 0)
-   //    return true;
+// -------------------------------------------------
+// WEEKEND BLOCK
+// Saturday + Sunday
+// -------------------------------------------------
+// if(day == 6 || day == 0)
+//    return true;
 
-   // -------------------------------------------------
-   // MONDAY EARLY MARKET OPEN
-   // Monday before 03:00 UTC
-   // -------------------------------------------------
+// -------------------------------------------------
+// MONDAY EARLY MARKET OPEN
+// Monday before 03:00 UTC
+// -------------------------------------------------
    if(day == 1 && hour < 3)
       return true;
 
    return false;
-}
+  }
 //+------------------------------------------------------------------+
 double GetBasketSL()
-{
+  {
 
 //   dynamicSL =;
 
 
 // double balance = AccountBalance();
 //    double equity  = AccountEquity();
-double SL_values=MathMax(BasketStopLoss * GetBalanceMultiplier(), AccountEquity() / 2);
-if(IsPauseTradingTimeUTC())
-{
-   SL_values=SL_values/2;
-}
+   double SL_values=MathMax(BasketStopLoss * GetBalanceMultiplier(), AccountEquity() / 2);
+   if(IsPauseTradingTimeUTC())
+     {
+      SL_values=SL_values/2;
+     }
 
 
    return  SL_values;
-}
+  }
 
 //+------------------------------------------------------------------+
 double GetLiveM5Gap()
-{
+  {
    RefreshRates();
 
    double open = iOpen(Symbol(), PERIOD_M5, 0);
    double live = Bid;
 
    return NormalizeDouble(live - open, 2);
-}
+  }
 
 //+------------------------------------------------------------------+
 //| Trend direction using EMA9 and EMA21 on M5                       |
@@ -275,32 +286,35 @@ double GetLiveM5Gap()
 //    return 0;
 // }
 
+//+------------------------------------------------------------------+
+//|                                                                  |
+//+------------------------------------------------------------------+
 int GetTrendDirection()
-{
+  {
    double ema9  = iMA(Symbol(), PERIOD_M5, 9, 0, MODE_EMA, PRICE_CLOSE, 0);
    double ema21 = iMA(Symbol(), PERIOD_M5, 21, 0, MODE_EMA, PRICE_CLOSE, 0);
 
    double livePrice = Bid;
 
-   // Strong BUY trend
+// Strong BUY trend
    if(livePrice > ema9 && ema9 > ema21)
       return 1;
 
-   // Strong SELL trend
+// Strong SELL trend
    if(livePrice < ema9 && ema9 < ema21)
       return -1;
 
-   // Price inside EMA zone
+// Price inside EMA zone
    if((livePrice > ema21 && livePrice < ema9) ||
       (livePrice < ema21 && livePrice > ema9))
       return 0;
 
    return 0;
-}
+  }
 
 //+------------------------------------------------------------------+
 string GetTrendText()
-{
+  {
    int trend = GetTrendDirection();
 
    if(trend == 1)
@@ -310,13 +324,16 @@ string GetTrendText()
       return "SELL TREND";
 
    return "NO CLEAR TREND";
-}
+  }
+//+------------------------------------------------------------------+
+//|                                                                  |
+//+------------------------------------------------------------------+
 void CloseOrdersByType(int orderType)
-{
+  {
    RefreshRates();
 
    for(int i = OrdersTotal() - 1; i >= 0; i--)
-   {
+     {
       if(!OrderSelect(i, SELECT_BY_POS, MODE_TRADES))
          continue;
 
@@ -329,17 +346,17 @@ void CloseOrdersByType(int orderType)
       double price = (orderType == OP_BUY) ? Bid : Ask;
 
       bool closed = OrderClose(
-         OrderTicket(),
-         OrderLots(),
-         price,
-         30,
-         clrRed
-      );
+                       OrderTicket(),
+                       OrderLots(),
+                       price,
+                       30,
+                       clrRed
+                    );
 
       if(!closed)
          Print("OrderClose failed. Ticket:", OrderTicket(), " Error:", GetLastError());
-   }
-}
+     }
+  }
 
 
 // int lastTrend = 0;
@@ -371,7 +388,7 @@ void CheckTrendChangedCloseOpposite_old()
 
    lastTrend = trend;
 }*/
-  double MinGapFromTrendChange = 300;
+double MinGapFromTrendChange = 300;
 /*
 void CheckTrendChangedCloseOpposite()
 {
@@ -422,8 +439,11 @@ void CheckTrendChangedCloseOpposite()
    }
 }*/
 
+//+------------------------------------------------------------------+
+//|                                                                  |
+//+------------------------------------------------------------------+
 void CheckTrendChangedCloseOpposite()
-{
+  {
    int trend = GetTrendDirection();
 
    if(trend == 0)
@@ -432,17 +452,17 @@ void CheckTrendChangedCloseOpposite()
    double livePrice = Bid;
 //first time setup
    if(lastTrend == 0)
-   {
+     {
       lastTrend = trend;
       trendChangedPrice = livePrice;
       trendChangedTime = TimeCurrent();
 
       AddTrendChangeHistory(trend, livePrice);
       return;
-   }
+     }
 
    if(trend != lastTrend)
-   {
+     {
       /*
       Print("Trend changed from ", TrendName(lastTrend),
             " to ", TrendName(trend),
@@ -459,53 +479,53 @@ void CheckTrendChangedCloseOpposite()
 
 
 
-int oldTrend = lastTrend;
+      int oldTrend = lastTrend;
 
-   double oldPrice = trendChangedPrice;
+      double oldPrice = trendChangedPrice;
 
-   double newPrice = Bid;
+      double newPrice = Bid;
 
-   DrawTrendChangeGap(
-      oldTrend,
-      trend,
-      oldPrice,
-      newPrice,
-      TimeCurrent()
-   );
+      DrawTrendChangeGap(
+         oldTrend,
+         trend,
+         oldPrice,
+         newPrice,
+         TimeCurrent()
+      );
 
 
 
 
       if(trend != lastTrend)
 
-   Print("Trend changed from ",
-         TrendName(lastTrend),
-         " to ",
-         TrendName(trend));
+         Print("Trend changed from ",
+               TrendName(lastTrend),
+               " to ",
+               TrendName(trend));
 
-   lastTrend = trend;
+      lastTrend = trend;
 
-   trendChangedPrice = livePrice;
+      trendChangedPrice = livePrice;
 
-   trendChangedTime = TimeCurrent();
+      trendChangedTime = TimeCurrent();
 
-   AddTrendChangeHistory(trend, livePrice);
-
-   
-
-   }
+      AddTrendChangeHistory(trend, livePrice);
 
 
-if(GetLatestTrendGap()>100 )
-{
-  if(trend == 1)
-      CloseOrdersByType(OP_SELL);
 
-   if(trend == -1)
-      CloseOrdersByType(OP_BUY);
+     }
 
-}
-   
+
+   if(GetLatestTrendGap()>50)
+     {
+      if(trend == 1)
+         CloseOrdersByType(OP_SELL);
+
+      if(trend == -1)
+         CloseOrdersByType(OP_BUY);
+
+     }
+
    double gap = MathAbs(livePrice - trendChangedPrice);
 
    if(gap < MinGapFromTrendChange)
@@ -516,7 +536,7 @@ if(GetLatestTrendGap()>100 )
 
    if(trend == -1)
       CloseOrdersByType(OP_BUY);
-}
+  }
 #define TREND_HISTORY_COUNT 50
 
 int      trendHist[TREND_HISTORY_COUNT];
@@ -531,24 +551,24 @@ datetime trendChangedTime = 0;
 // ADD NEW TREND HISTORY
 //--------------------------------------------------
 void AddTrendChangeHistory(int newTrend, double price)
-{
+  {
    for(int i = TREND_HISTORY_COUNT - 1; i > 0; i--)
-   {
+     {
       trendHist[i] = trendHist[i - 1];
       priceHist[i] = priceHist[i - 1];
       timeHist[i]  = timeHist[i - 1];
-   }
+     }
 
    trendHist[0] = newTrend;
    priceHist[0] = price;
    timeHist[0]  = TimeCurrent();
-}
+  }
 
 //--------------------------------------------------
 // TREND NAME
 //--------------------------------------------------
 string TrendName(int trend)
-{
+  {
    if(trend == 1)
       return "BUY";
 
@@ -556,25 +576,28 @@ string TrendName(int trend)
       return "SELL";
 
    return "NONE";
-}
+  }
+//+------------------------------------------------------------------+
+//|                                                                  |
+//+------------------------------------------------------------------+
 double GetLatestTrendGap()
-{
-   // Need at least 2 trend changes
+  {
+// Need at least 2 trend changes
    if(priceHist[0] == 0 || priceHist[1] == 0)
       return 0;
 
    return MathAbs(priceHist[0] - priceHist[1]);
-}
+  }
 
 //--------------------------------------------------
 // DISPLAY LAST 5 TREND CHANGES
 //--------------------------------------------------
 string GetLast5TrendChangesText()
-{
+  {
    string txt = "LAST 5 TREND CHANGES\n\n";
 
    for(int i = 0; i < TREND_HISTORY_COUNT; i++)
-   {
+     {
       if(trendHist[i] == 0)
          continue;
 
@@ -592,35 +615,38 @@ string GetLast5TrendChangesText()
 
       // Difference with previous history
       if(i < TREND_HISTORY_COUNT - 1 && trendHist[i + 1] != 0)
-      {
+        {
          double diff = MathAbs(priceHist[i] - priceHist[i + 1]);
 
          txt += " | GAP: ";
 
          txt += DoubleToString(diff, 2);
-      }
+        }
 
       txt += "\n";
-   }
+     }
 
    return txt;
-}
+  }
+//+------------------------------------------------------------------+
+//|                                                                  |
+//+------------------------------------------------------------------+
 void OpenNextOrderAfterProfitClose()
-{
+  {
    if(g_lastBasketProfitCloseTime <= 0)
       return;
 
-   // wait 5 minutes
+// wait 5 minutes
    if(TimeCurrent() - g_lastBasketProfitCloseTime < 60 * 1)
       return;
 
    int trend = GetTrendDirection();
 
-   // BUY re-entry
+// BUY re-entry
    if(g_lastBasketProfitCloseType == OP_BUY)
-   {
+     {
       if(trend == 1 && CountOrders(OP_BUY) == 0)
-      {
+        {
          OpenOrder(OP_BUY,
                    GetLot(BaseLot),
                    MakeComment(OP_BUY, 0));
@@ -629,14 +655,14 @@ void OpenNextOrderAfterProfitClose()
 
          g_lastBasketProfitCloseTime = 0;
          g_lastBasketProfitCloseType = -1;
-      }
-   }
+        }
+     }
 
-   // SELL re-entry
+// SELL re-entry
    if(g_lastBasketProfitCloseType == OP_SELL)
-   {
+     {
       if(trend == -1 && CountOrders(OP_SELL) == 0)
-      {
+        {
          OpenOrder(OP_SELL,
                    GetLot(BaseLot),
                    MakeComment(OP_SELL, 0));
@@ -645,11 +671,14 @@ void OpenNextOrderAfterProfitClose()
 
          g_lastBasketProfitCloseTime = 0;
          g_lastBasketProfitCloseType = -1;
-      }
-   }
-}
+        }
+     }
+  }
+//+------------------------------------------------------------------+
+//|                                                                  |
+//+------------------------------------------------------------------+
 int GetM5CandleFormationSafe(double minGap)
-{
+  {
    double open = iOpen(Symbol(), PERIOD_M5, 0);
    double live = Bid;
 
@@ -662,52 +691,55 @@ int GetM5CandleFormationSafe(double minGap)
       return -1;
 
    return 0;
-}
+  }
+//+------------------------------------------------------------------+
+//|                                                                  |
+//+------------------------------------------------------------------+
 bool IsFlatMarket()
-{
+  {
    double ema9_now  = iMA(Symbol(), PERIOD_M5, 9, 0, MODE_EMA, PRICE_CLOSE, 0);
    double ema21_now = iMA(Symbol(), PERIOD_M5, 21,0, MODE_EMA, PRICE_CLOSE, 0);
 
    double ema9_prev  = iMA(Symbol(), PERIOD_M5, 9, 0, MODE_EMA, PRICE_CLOSE, 3);
    double ema21_prev = iMA(Symbol(), PERIOD_M5, 21,0, MODE_EMA, PRICE_CLOSE, 3);
 
-   // EMA distance
+// EMA distance
    double emaGap = MathAbs(ema9_now - ema21_now);
 
-   // EMA slope
+// EMA slope
    double ema9Slope  = MathAbs(ema9_now - ema9_prev);
    double ema21Slope = MathAbs(ema21_now - ema21_prev);
 
-   // Candle range average
+// Candle range average
    double avgRange = 0;
 
    for(int i=1; i<=5; i++)
-   {
+     {
       avgRange += MathAbs(
-         iHigh(Symbol(), PERIOD_M5, i) -
-         iLow(Symbol(), PERIOD_M5, i)
-      );
-   }
+                     iHigh(Symbol(), PERIOD_M5, i) -
+                     iLow(Symbol(), PERIOD_M5, i)
+                  );
+     }
 
    avgRange = avgRange / 5;
 
-   // FLAT CONDITIONS
+// FLAT CONDITIONS
    if(emaGap < 30 &&
       ema9Slope < 20 &&
       ema21Slope < 20 &&
       avgRange < 80)
-   {
+     {
       return true;
-   }
+     }
 
    return false;
-}
+  }
 //+------------------------------------------------------------------+
 void CheckNewBaseSignal()
-{
-   // GapPrice =GapPrice;//  + MathRand() % 11;
+  {
+// GapPrice =GapPrice;//  + MathRand() % 11;
 
-   // GapPrice = GapPrice + (MathRand() % 11 - 5);
+// GapPrice = GapPrice + (MathRand() % 11 - 5);
 
 
    datetime m5Time = iTime(Symbol(), PERIOD_M5, 1);
@@ -728,70 +760,76 @@ void CheckNewBaseSignal()
    bool buyOpen  = CountOrders(OP_BUY) > 0;
    bool sellOpen = CountOrders(OP_SELL) > 0;
 
-   // BUY base order: price gap UP + BUY trend
-   if(gap > GapPrice && trend == 1 && !buyOpen )
-   {
+// BUY base order: price gap UP + BUY trend
+   if(gap > GapPrice && trend == 1 && !buyOpen)
+     {
       OpenOrder(OP_BUY, GetLot(BaseLot), MakeComment(OP_BUY, 0));
 
-   lastM5BarTime = m5Time;
+      lastM5BarTime = m5Time;
 
-   }
+     }
 
-   // SELL base order: price gap DOWN + SELL trend
+// SELL base order: price gap DOWN + SELL trend
    if(gap < -GapPrice && trend == -1 && !sellOpen)
-   {
+     {
       OpenOrder(OP_SELL, GetLot(BaseLot), MakeComment(OP_SELL, 0));
 
+      lastM5BarTime = m5Time;
+
+     }
+
    lastM5BarTime = m5Time;
 
-   }
 
-   lastM5BarTime = m5Time;
-
-
-}
+  }
 
 //+------------------------------------------------------------------+
 //| RECOVERY ONLY BY PRICE DIFFERENCE FROM LATEST ORDER              |
 //+------------------------------------------------------------------+
 bool CheckTrendChangedCloseOppositeTesting()
-{
+  {
    int trend = GetTrendDirection();
 
    if(trend == 1 && CountOrders(OP_SELL) > 0)
-   {
+     {
       CloseOrdersByType(OP_SELL);
       return true;
-   }
+     }
 
    if(trend == -1 && CountOrders(OP_BUY) > 0)
-   {
+     {
       CloseOrdersByType(OP_BUY);
       return true;
-   }
+     }
 
    return false;
-}
+  }
+//+------------------------------------------------------------------+
+//|                                                                  |
+//+------------------------------------------------------------------+
 bool CheckTrendChanged()
-{
+  {
    int trend = GetTrendDirection();
 
    if(trend == 1 && CountOrders(OP_SELL) > 0)
-   {
+     {
       // CloseOrdersByType(OP_SELL);
       return true;
-   }
+     }
 
    if(trend == -1 && CountOrders(OP_BUY) > 0)
-   {
+     {
       // CloseOrdersByType(OP_BUY);
       return true;
-   }
+     }
 
    return false;
-}
+  }
+//+------------------------------------------------------------------+
+//|                                                                  |
+//+------------------------------------------------------------------+
 void ManageRecovery(int orderType)
-{
+  {
    if(GetBaseOrderTime(orderType) <= 0)
       return;
 
@@ -817,12 +855,12 @@ void ManageRecovery(int orderType)
       nightSession = true;
 
 
-      /* //$80
+   /* //$80
    // if(nextStage == 1) { requiredGap = 30;   nextLot = 0.02; }
    if(nextStage == 1) { requiredGap = 30;   nextLot = 0.01; }
    if(nextStage == 2) { requiredGap = 200;  nextLot = 0.02; }
 
- 
+
 
    // if(nextStage == 1) { requiredGap = 50;   nextLot = 0.01; }
    // if(nextStage == 2) { requiredGap = 100;  nextLot = 0.02; }
@@ -832,19 +870,43 @@ void ManageRecovery(int orderType)
    if(nextStage == 6) { requiredGap = 3000; nextLot = 0.05; }*/
 
 
-   
-   // if(nextStage == 1) { requiredGap = 30;   nextLot = 0.02; }
-   if(nextStage == 1) { requiredGap = 30;   nextLot = 0.01; }
-   if(nextStage == 2) { requiredGap = 60;  nextLot = 0.01; } 
-   if(nextStage == 3) { requiredGap = 90;  nextLot = 0.01; }
-   if(nextStage == 4) { requiredGap = 200;  nextLot = 0.02; }
-   if(nextStage == 5) { requiredGap = 300; nextLot = 0.04; }
-   if(nextStage == 6) { requiredGap = 500; nextLot = 0.05; }
 
-   
+// if(nextStage == 1) { requiredGap = 30;   nextLot = 0.02; }
+   if(nextStage == 1)
+     {
+      requiredGap = 30;
+      nextLot = 0.01;
+     }
+   if(nextStage == 2)
+     {
+      requiredGap = 60;
+      nextLot = 0.01;
+     }
+   if(nextStage == 3)
+     {
+      requiredGap = 90;
+      nextLot = 0.01;
+     }
+   if(nextStage == 4)
+     {
+      requiredGap = 200;
+      nextLot = 0.02;
+     }
+   if(nextStage == 5)
+     {
+      requiredGap = 300;
+      nextLot = 0.04;
+     }
+   if(nextStage == 6)
+     {
+      requiredGap = 500;
+      nextLot = 0.05;
+     }
+
+
 
 //13th my $40 loss
-   // if(nextStage == 1) { requiredGap = 30;   nextLot = 0.02; }
+// if(nextStage == 1) { requiredGap = 30;   nextLot = 0.02; }
 
    /*
    if(nextStage == 1) { requiredGap = 30;   nextLot = 0.01; }
@@ -853,10 +915,10 @@ void ManageRecovery(int orderType)
    if(nextStage == 4) { requiredGap = 150;  nextLot = 0.01; }
    if(nextStage == 5) { requiredGap = 250;  nextLot = 0.01; }
    if(nextStage == 6) { requiredGap = 350;  nextLot = 0.01; }
-*/
- 
+   */
 
-    
+
+
 
 
 
@@ -868,11 +930,11 @@ void ManageRecovery(int orderType)
 
    bool canRecover = false;
 
-   // BUY recovery: price must move DOWN from latest BUY order
+// BUY recovery: price must move DOWN from latest BUY order
    if(orderType == OP_BUY && diff <= -requiredGap)
       canRecover = true;
 
-   // SELL recovery: price must move UP from latest SELL order
+// SELL recovery: price must move UP from latest SELL order
    if(orderType == OP_SELL && diff >= requiredGap)
       canRecover = true;
 
@@ -880,31 +942,31 @@ void ManageRecovery(int orderType)
       return;
 
    if(!StageExists(orderType, nextStage))
-   {
+     {
 
- 
- 
 
-if(GetTrendDirection()!=-1 && orderType==OP_BUY)
 
-      OpenOrder(orderType, GetLot(nextLot), MakeComment(orderType, nextStage));
+
+      if(GetTrendDirection()!=-1 && orderType==OP_BUY && GetTrendDirection()==1)
+
+         OpenOrder(orderType, GetLot(nextLot), MakeComment(orderType, nextStage));
 
       else
-       
-if(GetTrendDirection()!=1 && orderType==OP_SELL)
 
-      OpenOrder(orderType, GetLot(nextLot), MakeComment(orderType, nextStage));
-   }
-}
+         if(GetTrendDirection()!=1 && orderType==OP_SELL && GetTrendDirection()==-1)
+
+            OpenOrder(orderType, GetLot(nextLot), MakeComment(orderType, nextStage));
+     }
+  }
 
 //+------------------------------------------------------------------+
 int GetLiveTimeDiffFromLatestTime(int orderType)
-{
+  {
    double latestPrice = 0;
    datetime latestTime = 0;
 
    for(int i = OrdersTotal() - 1; i >= 0; i--)
-   {
+     {
       if(!OrderSelect(i, SELECT_BY_POS, MODE_TRADES))
          continue;
 
@@ -918,26 +980,26 @@ int GetLiveTimeDiffFromLatestTime(int orderType)
          continue;
 
       if(latestTime == 0 || OrderOpenTime() > latestTime)
-      {
+        {
          latestTime  = OrderOpenTime();
          latestPrice = OrderOpenPrice();
-      }
-   }
+        }
+     }
 
    if(latestPrice <= 0)
       return 0;
 
    return (int)(TimeCurrent() - latestTime);
-}
+  }
 
 //+------------------------------------------------------------------+
 double GetLivePriceDiffFromLatestOrder(int orderType)
-{
+  {
    double latestPrice = 0;
    datetime latestTime = 0;
 
    for(int i = OrdersTotal() - 1; i >= 0; i--)
-   {
+     {
       if(!OrderSelect(i, SELECT_BY_POS, MODE_TRADES))
          continue;
 
@@ -951,11 +1013,11 @@ double GetLivePriceDiffFromLatestOrder(int orderType)
          continue;
 
       if(latestTime == 0 || OrderOpenTime() > latestTime)
-      {
+        {
          latestTime  = OrderOpenTime();
          latestPrice = OrderOpenPrice();
-      }
-   }
+        }
+     }
 
    if(latestPrice <= 0)
       return 0;
@@ -965,16 +1027,16 @@ double GetLivePriceDiffFromLatestOrder(int orderType)
    double livePrice = orderType == OP_BUY ? Bid : Ask;
 
    return NormalizeDouble(livePrice - latestPrice, 2);
-}
+  }
 
 //+------------------------------------------------------------------+
 double GetLatestOrderPrice(int orderType)
-{
+  {
    double latestPrice = 0;
    datetime latestTime = 0;
 
    for(int i = OrdersTotal() - 1; i >= 0; i--)
-   {
+     {
       if(!OrderSelect(i, SELECT_BY_POS, MODE_TRADES))
          continue;
 
@@ -988,22 +1050,22 @@ double GetLatestOrderPrice(int orderType)
          continue;
 
       if(latestTime == 0 || OrderOpenTime() > latestTime)
-      {
+        {
          latestTime  = OrderOpenTime();
          latestPrice = OrderOpenPrice();
-      }
-   }
+        }
+     }
 
    return latestPrice;
-}
+  }
 
 //+------------------------------------------------------------------+
 int GetHighestStage(int orderType)
-{
+  {
    int highestStage = -1;
 
    for(int i = OrdersTotal() - 1; i >= 0; i--)
-   {
+     {
       if(!OrderSelect(i, SELECT_BY_POS, MODE_TRADES))
          continue;
 
@@ -1019,26 +1081,26 @@ int GetHighestStage(int orderType)
       string cmt = OrderComment();
 
       for(int s = 0; s <= 20; s++)
-      {
+        {
          if(cmt == MakeComment(orderType, s))
-         {
+           {
             if(s > highestStage)
                highestStage = s;
-         }
-      }
-   }
+           }
+        }
+     }
 
    return highestStage;
-}
+  }
 
 //+------------------------------------------------------------------+
 double GetBaseOrderPrice(int orderType)
-{
+  {
    datetime oldestTime = 0;
    double basePrice = 0;
 
    for(int i = OrdersTotal() - 1; i >= 0; i--)
-   {
+     {
       if(!OrderSelect(i, SELECT_BY_POS, MODE_TRADES))
          continue;
 
@@ -1055,14 +1117,14 @@ double GetBaseOrderPrice(int orderType)
          continue;
 
       if(oldestTime == 0 || OrderOpenTime() < oldestTime)
-      {
+        {
          oldestTime = OrderOpenTime();
          basePrice  = OrderOpenPrice();
-      }
-   }
+        }
+     }
 
    return basePrice;
-}
+  }
 bool buyReached80Once  = false;
 bool sellReached80Once = false;
 
@@ -1070,11 +1132,11 @@ datetime g_lastBasketProfitCloseTime = 0;
 int      g_lastBasketProfitCloseType = -1;
 //+------------------------------------------------------------------+
 void CloseBasketByProfit(int orderType)
-{
+  {
    int openCount = CountOrders(orderType);
 
    if(openCount <= 0)
-   {
+     {
       if(orderType == OP_BUY)
          buyReached80Once = false;
 
@@ -1082,7 +1144,7 @@ void CloseBasketByProfit(int orderType)
          sellReached80Once = false;
 
       return;
-   }
+     }
 
    double basketProfit  = GetBasketProfit(orderType);
    double dynamicTarget = GetDynamicBasketTarget(orderType);
@@ -1094,35 +1156,35 @@ void CloseBasketByProfit(int orderType)
 
    bool closeNow = false;
 
-   // normal TP or SL
+// normal TP or SL
    if(((basketProfit <= -dynamicSL) || basketProfit >= dynamicTarget))
       closeNow = true;
 
-   // first time reached 80%
+// first time reached 80%
    if(basketProfit >= eightyPercentTarget)
-   {
+     {
       if(orderType == OP_BUY)
-      {
+        {
          if(buyReached80Once)
             closeNow = true;
          else
             buyReached80Once = true;
-      }
+        }
 
       if(orderType == OP_SELL)
-      {
+        {
          if(sellReached80Once)
             closeNow = true;
          else
             sellReached80Once = true;
-      }
-   }
+        }
+     }
 
    if(!closeNow)
       return;
 
    for(int i = OrdersTotal() - 1; i >= 0; i--)
-   {
+     {
       if(!OrderSelect(i, SELECT_BY_POS, MODE_TRADES))
          continue;
 
@@ -1146,13 +1208,13 @@ void CloseBasketByProfit(int orderType)
                                clrGreen);
 
       if(!closed)
-      {
+        {
          Print("Basket close failed. Ticket: ",
                OrderTicket(),
                " Error: ",
                GetLastError());
-      }
-   }
+        }
+     }
 
    Print("Basket closed. Type: ",
          orderType == OP_BUY ? "BUY" : "SELL",
@@ -1168,45 +1230,45 @@ void CloseBasketByProfit(int orderType)
          DoubleToString(dynamicSL, 2));
 
 
-  if(basketProfit > 0)
-{
-   g_lastBasketProfitCloseTime = TimeCurrent();
-   g_lastBasketProfitCloseType = orderType;
-}
+   if(basketProfit > 0)
+     {
+      g_lastBasketProfitCloseTime = TimeCurrent();
+      g_lastBasketProfitCloseType = orderType;
+     }
 
    if(orderType == OP_BUY)
       buyReached80Once = false;
 
    if(orderType == OP_SELL)
       sellReached80Once = false;
-}
+  }
 
 //+------------------------------------------------------------------+
 bool CanOpenNewOrder(int type, double lot)
-{
+  {
    if(!IsTradeAllowed())
-   {
+     {
       Print("Trading not allowed. Enable AutoTrading.");
       return false;
-   }
+     }
 
    if(IsTradeContextBusy())
-   {
+     {
       Print("Trade context busy. Try next tick.");
       return false;
-   }
+     }
 
    if(lot <= 0)
-   {
+     {
       Print("Invalid lot size: ", lot);
       return false;
-   }
+     }
 
    double minLot  = MarketInfo(Symbol(), MODE_MINLOT);
    double maxLot  = MarketInfo(Symbol(), MODE_MAXLOT);
 
    if(lot < minLot || lot > maxLot)
-   {
+     {
       Print("Lot out of broker range. Lot: ",
             lot,
             " Min: ",
@@ -1214,12 +1276,12 @@ bool CanOpenNewOrder(int type, double lot)
             " Max: ",
             maxLot);
       return false;
-   }
+     }
 
    double freeMarginAfter = AccountFreeMarginCheck(Symbol(), type, lot);
 
    if(freeMarginAfter <= 0)
-   {
+     {
       Print("Not enough margin. Balance: ",
             AccountBalance(),
             " Equity: ",
@@ -1231,14 +1293,14 @@ bool CanOpenNewOrder(int type, double lot)
             " Type: ",
             type == OP_BUY ? "BUY" : "SELL");
       return false;
-   }
+     }
 
    return true;
-}
+  }
 
 //+------------------------------------------------------------------+
 bool OpenOrder(int type, double lot, string comment)
-{
+  {
    RefreshRates();
 
    lot = NormalizeDouble(lot, 2);
@@ -1262,7 +1324,7 @@ bool OpenOrder(int type, double lot, string comment)
                           clr);
 
    if(ticket < 0)
-   {
+     {
       int err = GetLastError();
 
       Print("OrderSend failed. Error: ",
@@ -1281,7 +1343,7 @@ bool OpenOrder(int type, double lot, string comment)
             AccountFreeMargin());
 
       return false;
-   }
+     }
 
    Print("Order opened: ",
          comment,
@@ -1291,16 +1353,16 @@ bool OpenOrder(int type, double lot, string comment)
          ticket);
 
    return true;
-}
+  }
 
 //+------------------------------------------------------------------+
 datetime GetBaseOrderTime(int orderType)
-{
+  {
    datetime baseTime = 0;
    string tag = MakeComment(orderType, 0);
 
    for(int i = OrdersTotal() - 1; i >= 0; i--)
-   {
+     {
       if(!OrderSelect(i, SELECT_BY_POS, MODE_TRADES))
          continue;
 
@@ -1308,21 +1370,21 @@ datetime GetBaseOrderTime(int orderType)
          OrderMagicNumber() == MagicNumber &&
          OrderType() == orderType &&
          OrderComment() == tag)
-      {
+        {
          baseTime = OrderOpenTime();
-      }
-   }
+        }
+     }
 
    return baseTime;
-}
+  }
 
 //+------------------------------------------------------------------+
 bool StageExists(int orderType, int stage)
-{
+  {
    string tag = MakeComment(orderType, stage);
 
    for(int i = OrdersTotal() - 1; i >= 0; i--)
-   {
+     {
       if(!OrderSelect(i, SELECT_BY_POS, MODE_TRADES))
          continue;
 
@@ -1330,132 +1392,133 @@ bool StageExists(int orderType, int stage)
          OrderMagicNumber() == MagicNumber &&
          OrderType() == orderType &&
          OrderComment() == tag)
-      {
+        {
          return true;
-      }
-   }
+        }
+     }
 
    return false;
-}
+  }
 
 //+------------------------------------------------------------------+
 string MakeComment(int orderType, int stage)
-{
+  {
    if(orderType == OP_BUY)
       return "V5_PRICE_GAP_BUYS" + IntegerToString(stage);
 
    return "V5_PRICE_GAP_SELLS" + IntegerToString(stage);
-}
+  }
 
 //+------------------------------------------------------------------+
 int CountOrders(int orderType)
-{
+  {
    int count = 0;
 
    for(int i = OrdersTotal() - 1; i >= 0; i--)
-   {
+     {
       if(!OrderSelect(i, SELECT_BY_POS, MODE_TRADES))
          continue;
 
       if(OrderSymbol() == Symbol() &&
          OrderMagicNumber() == MagicNumber &&
          OrderType() == orderType)
-      {
+        {
          count++;
-      }
-   }
+        }
+     }
 
    return count;
-}
+  }
 
 //+------------------------------------------------------------------+
 int CountAllOrders()
-{
+  {
    int count = 0;
 
    for(int i = OrdersTotal() - 1; i >= 0; i--)
-   {
+     {
       if(!OrderSelect(i, SELECT_BY_POS, MODE_TRADES))
          continue;
 
       if(OrderSymbol() == Symbol() &&
          OrderMagicNumber() == MagicNumber)
-      {
+        {
          count++;
-      }
-   }
+        }
+     }
 
    return count;
-}
+  }
 
 //+------------------------------------------------------------------+
 double GetBasketProfit(int orderType)
-{
+  {
    double profit = 0;
 
    for(int i = OrdersTotal() - 1; i >= 0; i--)
-   {
+     {
       if(!OrderSelect(i, SELECT_BY_POS, MODE_TRADES))
          continue;
 
       if(OrderSymbol() == Symbol() &&
          OrderMagicNumber() == MagicNumber &&
          OrderType() == orderType)
-      {
+        {
          profit += OrderProfit() + OrderSwap() + OrderCommission();
-      }
-   }
+        }
+     }
 
    return profit;
-}
+  }
 
 //+------------------------------------------------------------------+
 double GetDynamicBasketTarget(int orderType)
-{
+  {
    int openCount = CountOrders(orderType);
 
    if(openCount <= 0)
       return GetBasketTP();
 
-      
+
 
    double tp = GetBasketTP() / openCount;
 
 
-   if(openCount==1) tp=tp/2;
+   if(openCount==1)
+      tp=tp/2;
 
 
 
    int trend = GetTrendDirection();
 
-   // BUY basket but trend changed to SELL
+// BUY basket but trend changed to SELL
    if(orderType == OP_BUY && trend == -1)
-   {
+     {
       tp = tp * 0.20; // reduce TP to 50%
-   }
+     }
 
-   // SELL basket but trend changed to BUY
+// SELL basket but trend changed to BUY
    if(orderType == OP_SELL && trend == 1)
-   {
+     {
       tp = tp * 0.20;
-   }
+     }
 
-   // no clear trend
+// no clear trend
    if(trend == 0)
-   {
+     {
       tp = tp * 0.50;
-   }
+     }
 
-   // minimum protection
+// minimum protection
    if(tp < 0.30)
       tp = 0.30;
 
    return NormalizeDouble(tp, 2);
-}
+  }
 
 //+------------------------------------------------------------------+
 string GetActiveOrdersDirection()
-{
+  {
    bool buyOpen  = CountOrders(OP_BUY) > 0;
    bool sellOpen = CountOrders(OP_SELL) > 0;
 
@@ -1469,40 +1532,40 @@ string GetActiveOrdersDirection()
       return "SELL ACTIVE";
 
    return "WAITING";
-}
+  }
 
 //+------------------------------------------------------------------+
 double GetLastM5Gap()
-{
+  {
    double open  = iOpen(Symbol(), PERIOD_M5, 1);
    double close = iClose(Symbol(), PERIOD_M5, 1);
 
    return close - open;
-}
+  }
 
 //+------------------------------------------------------------------+
 double GetLastClosedCandleDiffFrom(int timeframe)
-{
+  {
    RefreshRates();
 
    double livePrice = Bid;
    double oldPrice  = iClose(Symbol(), timeframe, 1);
 
    return NormalizeDouble(livePrice - oldPrice, 2);
-}
+  }
 
 //+------------------------------------------------------------------+
 double GetLastClosedCandleDiffFrom5th()
-{
+  {
    double lastClose  = iClose(Symbol(), PERIOD_M5, 1);
    double fifthClose = iClose(Symbol(), PERIOD_M5, 5);
 
    return NormalizeDouble(lastClose - fifthClose, 0);
-}
+  }
 
 //+------------------------------------------------------------------+
 void CreatePanel(string name,int x,int y,int w,int h,color bg)
-{
+  {
    if(ObjectFind(0,name) < 0)
       ObjectCreate(0,name,OBJ_RECTANGLE_LABEL,0,0,0);
 
@@ -1521,7 +1584,7 @@ void CreatePanel(string name,int x,int y,int w,int h,color bg)
 
    ObjectSetInteger(0,name,OBJPROP_BGCOLOR,bg);
    ObjectSetInteger(0,name,OBJPROP_COLOR,clrSilver);
-}
+  }
 
 //+------------------------------------------------------------------+
 void CreateLabel(string name,
@@ -1530,7 +1593,7 @@ void CreateLabel(string name,
                  int y,
                  color clr,
                  int size=10)
-{
+  {
    if(ObjectFind(0,name)<0)
       ObjectCreate(0,name,OBJ_LABEL,0,0,0);
 
@@ -1545,15 +1608,15 @@ void CreateLabel(string name,
    ObjectSetInteger(0,name,OBJPROP_COLOR,clr);
    ObjectSetInteger(0,name,OBJPROP_SELECTABLE,false);
    ObjectSetInteger(0,name,OBJPROP_HIDDEN,true);
-}
+  }
 
 //+------------------------------------------------------------------+
 void DrawEMA9AndEMA21Lines()
-{
+  {
    int candles = 150;
 
    for(int i = candles; i >= 1; i--)
-   {
+     {
       datetime t1 = iTime(Symbol(), PERIOD_CURRENT, i);
       datetime t2 = iTime(Symbol(), PERIOD_CURRENT, i - 1);
 
@@ -1572,10 +1635,10 @@ void DrawEMA9AndEMA21Lines()
       if(ObjectFind(0, name9) < 0)
          ObjectCreate(0, name9, OBJ_TREND, 0, t1, ema9_1, t2, ema9_2);
       else
-      {
+        {
          ObjectMove(0, name9, 0, t1, ema9_1);
          ObjectMove(0, name9, 1, t2, ema9_2);
-      }
+        }
 
       ObjectSetInteger(0, name9, OBJPROP_COLOR, clrLime);
       ObjectSetInteger(0, name9, OBJPROP_WIDTH, 2);
@@ -1585,23 +1648,23 @@ void DrawEMA9AndEMA21Lines()
       if(ObjectFind(0, name21) < 0)
          ObjectCreate(0, name21, OBJ_TREND, 0, t1, ema21_1, t2, ema21_2);
       else
-      {
+        {
          ObjectMove(0, name21, 0, t1, ema21_1);
          ObjectMove(0, name21, 1, t2, ema21_2);
-      }
+        }
 
       ObjectSetInteger(0, name21, OBJPROP_COLOR, clrRed);
       ObjectSetInteger(0, name21, OBJPROP_WIDTH, 2);
       ObjectSetInteger(0, name21, OBJPROP_RAY_RIGHT, false);
       ObjectSetInteger(0, name21, OBJPROP_SELECTABLE, false);
-   }
-}
+     }
+  }
 
 //+------------------------------------------------------------------+
 void DrawDashboard()
-{
+  {
 
- Comment(GetLast5TrendChangesText());
+   Comment(GetLast5TrendChangesText());
 
    DrawEMA9AndEMA21Lines();
 
@@ -1650,7 +1713,7 @@ void DrawDashboard()
                12);
 
    CreateLabel("DXB_BUYPL",
-               "BUY Basket   : $" + DoubleToString(buyPL,2),
+               "BUY Basket   : $" + DoubleToString(buyPL,2)+" ("+DoubleToString(GetLatestTrendGap(),0)+")",
                290,50,
                buyClr);
 
@@ -1764,7 +1827,10 @@ void DrawDashboard()
                290,525,
                clrLime,
                10);
-}
+  }
+//+------------------------------------------------------------------+
+//|                                                                  |
+//+------------------------------------------------------------------+
 void DrawTrendChangeGap(
    int oldTrend,
    int newTrend,
@@ -1772,7 +1838,7 @@ void DrawTrendChangeGap(
    double newPrice,
    datetime t
 )
-{
+  {
    double gap = MathAbs(newPrice - oldPrice);
 
    string trendText =
@@ -1786,7 +1852,7 @@ void DrawTrendChangeGap(
 
    Print("trendText ",trendText);
 
-   // Create chart text
+// Create chart text
    ObjectCreate(0, name, OBJ_TEXT, 0, t, newPrice);
 
    ObjectSetString(0, name, OBJPROP_TEXT, trendText);
@@ -1795,19 +1861,19 @@ void DrawTrendChangeGap(
 
    ObjectSetString(0, name, OBJPROP_FONT, "Arial Bold");
 
-   // Color
+// Color
    if(newTrend == 1)
       ObjectSetInteger(0, name, OBJPROP_COLOR, clrLime);
    else
       ObjectSetInteger(0, name, OBJPROP_COLOR, clrRed);
-}
+  }
 //+------------------------------------------------------------------+
 void DrawEveryCandleDiffFrom5th()
-{
+  {
    int candlesToDraw = 100;
 
    for(int shift = 1; shift <= candlesToDraw; shift++)
-   {
+     {
       if(shift + 5 >= Bars)
          continue;
 
@@ -1852,6 +1918,7 @@ void DrawEveryCandleDiffFrom5th()
       ObjectSetString(0, name, OBJPROP_FONT, "Arial Bold");
       ObjectSetInteger(0, name, OBJPROP_SELECTABLE, false);
       ObjectSetInteger(0, name, OBJPROP_HIDDEN, true);
-   }
-}
+     }
+  }
+//+------------------------------------------------------------------+
 //+------------------------------------------------------------------+
