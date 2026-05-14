@@ -69,7 +69,7 @@ void OnTick()
 
 
    DrawDashboard();
-   DrawEveryCandleDiffFrom5th();
+   // DrawEveryCandleDiffFrom5th();
 
       CheckTrendChangedCloseOpposite();
 
@@ -449,6 +449,27 @@ void CheckTrendChangedCloseOpposite()
       trendChangedTime = TimeCurrent();
 
       AddTrendChangeHistory(trend, livePrice);*/
+
+
+
+
+int oldTrend = lastTrend;
+
+   double oldPrice = trendChangedPrice;
+
+   double newPrice = Bid;
+
+   DrawTrendChangeGap(
+      oldTrend,
+      trend,
+      oldPrice,
+      newPrice,
+      TimeCurrent()
+   );
+
+
+
+
       if(trend != lastTrend)
 
    Print("Trend changed from ",
@@ -464,8 +485,21 @@ void CheckTrendChangedCloseOpposite()
 
    AddTrendChangeHistory(trend, livePrice);
 
+   
+
    }
 
+
+if(GetLatestTrendGap()>100 )
+{
+  if(trend == 1)
+      CloseOrdersByType(OP_SELL);
+
+   if(trend == -1)
+      CloseOrdersByType(OP_BUY);
+
+}
+   
    double gap = MathAbs(livePrice - trendChangedPrice);
 
    if(gap < MinGapFromTrendChange)
@@ -477,7 +511,7 @@ void CheckTrendChangedCloseOpposite()
    if(trend == -1)
       CloseOrdersByType(OP_BUY);
 }
-#define TREND_HISTORY_COUNT 20
+#define TREND_HISTORY_COUNT 50
 
 int      trendHist[TREND_HISTORY_COUNT];
 double   priceHist[TREND_HISTORY_COUNT];
@@ -1725,7 +1759,40 @@ void DrawDashboard()
                clrLime,
                10);
 }
+void DrawTrendChangeGap(
+   int oldTrend,
+   int newTrend,
+   double oldPrice,
+   double newPrice,
+   datetime t
+)
+{
+   double gap = MathAbs(newPrice - oldPrice);
 
+   string trendText =
+      TrendName(oldTrend) +
+      " -> " +
+      TrendName(newTrend) +
+      " : " +
+      DoubleToString(gap, 2);
+
+   string name = "TrendGap_" + IntegerToString((int)t);
+
+   // Create chart text
+   ObjectCreate(0, name, OBJ_TEXT, 0, t, newPrice);
+
+   ObjectSetString(0, name, OBJPROP_TEXT, trendText);
+
+   ObjectSetInteger(0, name, OBJPROP_FONTSIZE, 10);
+
+   ObjectSetString(0, name, OBJPROP_FONT, "Arial Bold");
+
+   // Color
+   if(newTrend == 1)
+      ObjectSetInteger(0, name, OBJPROP_COLOR, clrLime);
+   else
+      ObjectSetInteger(0, name, OBJPROP_COLOR, clrRed);
+}
 //+------------------------------------------------------------------+
 void DrawEveryCandleDiffFrom5th()
 {
