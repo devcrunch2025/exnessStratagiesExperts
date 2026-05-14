@@ -5,11 +5,11 @@
 #property strict
 
 input double LOTValue      = 0.01;
-input double StopLossValue = 25.00;//equity -10;
+input double StopLossValue = 10.00;//equity -10;
 input double TPValue       = 0.50;
 
 double BaseLot             = 0.01;
-double GapPrice            = 35.0;
+double GapPrice            = 50.0;
 
 int    MagicNumber         = 5050801;
 int    Slippage            = 70;
@@ -40,11 +40,11 @@ int OnInit()
   }
 
 //+------------------------------------------------------------------+
-
+int maxOrderAfterTrendChanged=2;
+int countOrderCountAfterTrendChanged=0;
 bool isOpenNextOrderAfterProfitClose=true;
 void OnTick()
   {
-
 
 
 
@@ -58,8 +58,11 @@ void OnTick()
 
    Print("TrendGap "+GetLatestTrendGap());
 
-   if(GetLatestTrendGap()>50 && !IsPauseTradingTimeUTC())
-      CheckNewBaseSignal();
+   // if((GetLatestTrendGap()==0 || GetLatestTrendGap()>50 )&& !IsPauseTradingTimeUTC() && countOrderCountAfterTrendChanged<maxOrderAfterTrendChanged)
+ 
+    if(( !IsFlatMarket() && !IsPauseTradingTimeUTC() && countOrderCountAfterTrendChanged<maxOrderAfterTrendChanged))
+ 
+   CheckNewBaseSignal();
    else
      {
       Print("CheckNewBaseSignal Missing ",GetLatestTrendGap());
@@ -80,7 +83,7 @@ void OnTick()
    DrawDashboard();
 // DrawEveryCandleDiffFrom5th();
 
-   CheckTrendChangedCloseOpposite();
+    CheckTrendChangedCloseOpposite();
 
   }
 //+------------------------------------------------------------------+
@@ -192,10 +195,16 @@ double GetBasketTP()
 //+------------------------------------------------------------------+
 bool IsPauseTradingTimeUTC()
   {
+
+   return false;
    datetime now = TimeGMT();
 
    int hour = TimeHour(now);
    int day  = TimeDayOfWeek(now);
+
+//DAY TIME ON 
+   if(hour <4 || hour > 14)
+      return true;
 
 // -------------------------------------------------
 // DAILY PAUSE
@@ -210,7 +219,7 @@ bool IsPauseTradingTimeUTC()
 // US MARKET VOLATILITY
 // UTC 12:30 -> 13:30 (approx UAE 16:30 -> 17:30)
 // -------------------------------------------------
-   if(hour == 12 || hour == 13 || hour == 15  || hour == 23)
+   if(hour == 12 || hour == 13 || hour == 16  || hour == 23)
       return true;
 
 // -------------------------------------------------
@@ -231,7 +240,7 @@ bool IsPauseTradingTimeUTC()
 // MONDAY EARLY MARKET OPEN
 // Monday before 03:00 UTC
 // -------------------------------------------------
-   if(day == 1 && hour < 3)
+   if(day == 1 && hour < 5)
       return true;
 
    return false;
@@ -289,6 +298,19 @@ double GetLiveM5Gap()
 //+------------------------------------------------------------------+
 //|                                                                  |
 //+------------------------------------------------------------------+
+
+
+double GetTrendGap()
+{
+   double ema9  = iMA(Symbol(), PERIOD_M5, 9, 0, MODE_EMA, PRICE_CLOSE, 0);
+   double ema21 = iMA(Symbol(), PERIOD_M5, 21, 0, MODE_EMA, PRICE_CLOSE, 0);
+
+   double livePrice = Bid;
+
+   return  MathAbs(ema9 - ema21);
+
+   
+}
 int GetTrendDirection()
   {
    double ema9  = iMA(Symbol(), PERIOD_M5, 9, 0, MODE_EMA, PRICE_CLOSE, 0);
@@ -463,6 +485,9 @@ void CheckTrendChangedCloseOpposite()
 
    if(trend != lastTrend)
      {
+
+
+      countOrderCountAfterTrendChanged=0;
       /*
       Print("Trend changed from ", TrendName(lastTrend),
             " to ", TrendName(trend),
@@ -516,26 +541,26 @@ void CheckTrendChangedCloseOpposite()
      }
 
 
-   if(GetLatestTrendGap()>50)
-     {
-      if(trend == 1)
-         CloseOrdersByType(OP_SELL);
+   // if(GetLatestTrendGap()>50)
+   //   {
+      // if(trend == 1)
+      //    CloseOrdersByType(OP_SELL);
 
-      if(trend == -1)
-         CloseOrdersByType(OP_BUY);
+      // if(trend == -1)
+      //    CloseOrdersByType(OP_BUY);
 
-     }
+   //   }
 
    double gap = MathAbs(livePrice - trendChangedPrice);
 
    if(gap < MinGapFromTrendChange)
       return;
 
-   if(trend == 1)
-      CloseOrdersByType(OP_SELL);
+   // if(trend == 1)
+   //    CloseOrdersByType(OP_SELL);
 
-   if(trend == -1)
-      CloseOrdersByType(OP_BUY);
+   // if(trend == -1)
+   //    CloseOrdersByType(OP_BUY);
   }
 #define TREND_HISTORY_COUNT 50
 
@@ -588,6 +613,17 @@ double GetLatestTrendGap()
 
    return MathAbs(priceHist[0] - priceHist[1]);
   }
+
+double GetLatestTrendGapInMinutes()
+{
+   // Need at least 2 trend changes
+   if(timeHist[0] == 0 || timeHist[1] == 0)
+      return 0;
+
+   double seconds = MathAbs(timeHist[0] - timeHist[1]);
+
+   return seconds / 60.0;
+}
 
 //--------------------------------------------------
 // DISPLAY LAST 5 TREND CHANGES
@@ -767,6 +803,8 @@ void CheckNewBaseSignal()
 
       lastM5BarTime = m5Time;
 
+      countOrderCountAfterTrendChanged++;
+
      }
 
 // SELL base order: price gap DOWN + SELL trend
@@ -775,6 +813,8 @@ void CheckNewBaseSignal()
       OpenOrder(OP_SELL, GetLot(BaseLot), MakeComment(OP_SELL, 0));
 
       lastM5BarTime = m5Time;
+
+      countOrderCountAfterTrendChanged++;
 
      }
 
@@ -1677,7 +1717,19 @@ void DrawDashboard()
    color sellClr = sellPL >= 0 ? clrLime : clrTomato;
 
    string direction = GetActiveOrdersDirection();
-   string trendText = GetTrendText();
+   string trendText = GetTrendText() ;
+
+   if(IsFlatMarket())
+   {
+trendText=trendText+" (FLAT)";
+   }
+   else
+    
+   {
+trendText=trendText+" (Not FLAT)";
+   }
+
+
 
    color dirClr = clrSilver;
 
@@ -1717,13 +1769,16 @@ void DrawDashboard()
                290,50,
                buyClr);
 
+               string marketStatus=IsPauseTradingTimeUTC()?"(Paused)":"Active";
+               
+
    CreateLabel("DXB_SELLPL",
-               "SELL Basket  : $" + DoubleToString(sellPL,2),
+               "SELL Basket  : $" + DoubleToString(sellPL,2)+" "+marketStatus+" ("+countOrderCountAfterTrendChanged+"<"+maxOrderAfterTrendChanged+")",
                290,70,
                sellClr);
 
    CreateLabel("DXB_BUYGAP",
-               "BUY LatestGap: " + DoubleToString(buyLatestGap,2),
+               "BUY LatestGap: " + DoubleToString(buyLatestGap,2)+" "+DoubleToString(GetTrendGap(),0),
                290,90,
                buyLatestGap <= -20 ? clrLime : clrSilver);
 
