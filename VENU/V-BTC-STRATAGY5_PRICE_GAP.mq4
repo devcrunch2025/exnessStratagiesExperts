@@ -5,7 +5,7 @@
 #property strict
 
 input double LOTValue      = 0.01;
-input double StopLossValue = 20.00;//equity -10;
+input double StopLossValue = 25.00;//equity -10;
 input double TPValue       = 0.50;
 
 double BaseLot             = 0.01;
@@ -40,8 +40,13 @@ int OnInit()
 }
 
 //+------------------------------------------------------------------+
+
+bool isOpenNextOrderAfterProfitClose=true; 
 void OnTick()
 {
+
+
+
 
    CloseAllOrdersIfEquityDrop();
 
@@ -50,12 +55,16 @@ void OnTick()
    CloseBasketByProfit(OP_SELL);
 
    // if(IsAfter30SecFromNewM1Bar())
+
+   if(GetLatestTrendGap()>50)
       CheckNewBaseSignal();
 
    // Parallel recovery for both BUY and SELL
    ManageRecovery(OP_BUY);
    ManageRecovery(OP_SELL);
 
+
+   if(!IsPauseTradingTimeUTC() && GetLatestTrendGap()>50)
       OpenNextOrderAfterProfitClose();
 
 
@@ -166,7 +175,50 @@ double GetBasketTP()
 {
    return BasketProfitTarget * GetBalanceMultiplier();
 }
+bool IsPauseTradingTimeUTC()
+{
+   datetime now = TimeGMT();
 
+   int hour = TimeHour(now);
+   int day  = TimeDayOfWeek(now);
+
+   // -------------------------------------------------
+   // DAILY PAUSE
+   // UTC 00:00 -> 06:00
+   // -------------------------------------------------
+   if(hour >= 0 && hour < 6)
+      return true;
+
+   // -------------------------------------------------
+   // US MARKET VOLATILITY
+   // UTC 12:30 -> 13:30 (approx UAE 16:30 -> 17:30)
+   // -------------------------------------------------
+   if(hour == 12 || hour == 13)
+      return true;
+
+   // -------------------------------------------------
+   // FRIDAY NIGHT PROTECTION
+   // Friday after 18:00 UTC
+   // -------------------------------------------------
+   if(day == 5 && hour >= 18)
+      return true;
+
+   // -------------------------------------------------
+   // WEEKEND BLOCK
+   // Saturday + Sunday
+   // -------------------------------------------------
+   // if(day == 6 || day == 0)
+   //    return true;
+
+   // -------------------------------------------------
+   // MONDAY EARLY MARKET OPEN
+   // Monday before 03:00 UTC
+   // -------------------------------------------------
+   if(day == 1 && hour < 3)
+      return true;
+
+   return false;
+}
 //+------------------------------------------------------------------+
 double GetBasketSL()
 {
@@ -176,9 +228,14 @@ double GetBasketSL()
 
 // double balance = AccountBalance();
 //    double equity  = AccountEquity();
+double SL_values=MathMax(BasketStopLoss * GetBalanceMultiplier(), AccountEquity() / 2);
+if(IsPauseTradingTimeUTC())
+{
+   SL_values=SL_values/2;
+}
 
 
-   return  MathMin(BasketStopLoss * GetBalanceMultiplier(), AccountEquity() / 2);
+   return  SL_values;
 }
 
 //+------------------------------------------------------------------+
@@ -279,9 +336,9 @@ void CloseOrdersByType(int orderType)
 }
 
 
-int lastTrend = 0;
-double trendChangedPrice = 0;
-datetime trendChangedTime = 0;
+// int lastTrend = 0;
+// double trendChangedPrice = 0;
+// datetime trendChangedTime = 0;
 
 /*
 void CheckTrendChangedCloseOpposite_old()
@@ -309,7 +366,7 @@ void CheckTrendChangedCloseOpposite_old()
    lastTrend = trend;
 }*/
   double MinGapFromTrendChange = 300;
-
+/*
 void CheckTrendChangedCloseOpposite()
 {
    int trend = GetTrendDirection();
@@ -357,6 +414,156 @@ void CheckTrendChangedCloseOpposite()
       CloseOrdersByType(OP_BUY);
       Print("SELL trend moved 300 gap from trend change price. Closed BUY orders.");
    }
+}*/
+
+void CheckTrendChangedCloseOpposite()
+{
+   int trend = GetTrendDirection();
+
+   if(trend == 0)
+      return;
+
+   double livePrice = Bid;
+//first time setup
+   if(lastTrend == 0)
+   {
+      lastTrend = trend;
+      trendChangedPrice = livePrice;
+      trendChangedTime = TimeCurrent();
+
+      AddTrendChangeHistory(trend, livePrice);
+      return;
+   }
+
+   if(trend != lastTrend)
+   {
+      /*
+      Print("Trend changed from ", TrendName(lastTrend),
+            " to ", TrendName(trend),
+            " | Old Price: ", trendChangedPrice,
+            " | New Price: ", livePrice,
+            " | Difference: ", MathAbs(livePrice - trendChangedPrice));
+
+      lastTrend = trend;
+      trendChangedPrice = livePrice;
+      trendChangedTime = TimeCurrent();
+
+      AddTrendChangeHistory(trend, livePrice);*/
+      if(trend != lastTrend)
+
+   Print("Trend changed from ",
+         TrendName(lastTrend),
+         " to ",
+         TrendName(trend));
+
+   lastTrend = trend;
+
+   trendChangedPrice = livePrice;
+
+   trendChangedTime = TimeCurrent();
+
+   AddTrendChangeHistory(trend, livePrice);
+
+   }
+
+   double gap = MathAbs(livePrice - trendChangedPrice);
+
+   if(gap < MinGapFromTrendChange)
+      return;
+
+   if(trend == 1)
+      CloseOrdersByType(OP_SELL);
+
+   if(trend == -1)
+      CloseOrdersByType(OP_BUY);
+}
+#define TREND_HISTORY_COUNT 20
+
+int      trendHist[TREND_HISTORY_COUNT];
+double   priceHist[TREND_HISTORY_COUNT];
+datetime timeHist[TREND_HISTORY_COUNT];
+
+int lastTrend = 0;
+double trendChangedPrice = 0;
+datetime trendChangedTime = 0;
+
+//--------------------------------------------------
+// ADD NEW TREND HISTORY
+//--------------------------------------------------
+void AddTrendChangeHistory(int newTrend, double price)
+{
+   for(int i = TREND_HISTORY_COUNT - 1; i > 0; i--)
+   {
+      trendHist[i] = trendHist[i - 1];
+      priceHist[i] = priceHist[i - 1];
+      timeHist[i]  = timeHist[i - 1];
+   }
+
+   trendHist[0] = newTrend;
+   priceHist[0] = price;
+   timeHist[0]  = TimeCurrent();
+}
+
+//--------------------------------------------------
+// TREND NAME
+//--------------------------------------------------
+string TrendName(int trend)
+{
+   if(trend == 1)
+      return "BUY";
+
+   if(trend == -1)
+      return "SELL";
+
+   return "NONE";
+}
+double GetLatestTrendGap()
+{
+   // Need at least 2 trend changes
+   if(priceHist[0] == 0 || priceHist[1] == 0)
+      return 0;
+
+   return MathAbs(priceHist[0] - priceHist[1]);
+}
+
+//--------------------------------------------------
+// DISPLAY LAST 5 TREND CHANGES
+//--------------------------------------------------
+string GetLast5TrendChangesText()
+{
+   string txt = "LAST 5 TREND CHANGES\n\n";
+
+   for(int i = 0; i < TREND_HISTORY_COUNT; i++)
+   {
+      if(trendHist[i] == 0)
+         continue;
+
+      txt += IntegerToString(i + 1) + ") ";
+
+      txt += TrendName(trendHist[i]);
+
+      txt += " @ ";
+
+      txt += DoubleToString(priceHist[i], 2);
+
+      txt += " | ";
+
+      txt += TimeToString(timeHist[i], TIME_MINUTES);
+
+      // Difference with previous history
+      if(i < TREND_HISTORY_COUNT - 1 && trendHist[i + 1] != 0)
+      {
+         double diff = MathAbs(priceHist[i] - priceHist[i + 1]);
+
+         txt += " | GAP: ";
+
+         txt += DoubleToString(diff, 2);
+      }
+
+      txt += "\n";
+   }
+
+   return txt;
 }
 void OpenNextOrderAfterProfitClose()
 {
@@ -570,7 +777,7 @@ void ManageRecovery(int orderType)
       nightSession = true;
 
 
-      /*
+      /* //$80
    // if(nextStage == 1) { requiredGap = 30;   nextLot = 0.02; }
    if(nextStage == 1) { requiredGap = 30;   nextLot = 0.01; }
    if(nextStage == 2) { requiredGap = 200;  nextLot = 0.02; }
@@ -582,19 +789,31 @@ void ManageRecovery(int orderType)
    if(nextStage == 3) { requiredGap = 500;  nextLot = 0.03; }
    if(nextStage == 4) { requiredGap = 1000;  nextLot = 0.03; }
    if(nextStage == 5) { requiredGap = 1500; nextLot = 0.04; }
-   if(nextStage == 6) { requiredGap = 3000; nextLot = 0.05; }
-
-   */
+   if(nextStage == 6) { requiredGap = 3000; nextLot = 0.05; }*/
 
 
+   
    // if(nextStage == 1) { requiredGap = 30;   nextLot = 0.02; }
+   if(nextStage == 1) { requiredGap = 30;   nextLot = 0.01; }
+   if(nextStage == 2) { requiredGap = 60;  nextLot = 0.01; } 
+   if(nextStage == 3) { requiredGap = 90;  nextLot = 0.01; }
+   if(nextStage == 4) { requiredGap = 200;  nextLot = 0.02; }
+   if(nextStage == 5) { requiredGap = 300; nextLot = 0.04; }
+   if(nextStage == 6) { requiredGap = 500; nextLot = 0.05; }
+
+   
+
+//13th my $40 loss
+   // if(nextStage == 1) { requiredGap = 30;   nextLot = 0.02; }
+
+   /*
    if(nextStage == 1) { requiredGap = 30;   nextLot = 0.01; }
    if(nextStage == 2) { requiredGap = 90;  nextLot = 0.01; }
    if(nextStage == 3) { requiredGap = 120;  nextLot = 0.02; }
    if(nextStage == 4) { requiredGap = 150;  nextLot = 0.01; }
    if(nextStage == 5) { requiredGap = 250;  nextLot = 0.01; }
    if(nextStage == 6) { requiredGap = 350;  nextLot = 0.01; }
-
+*/
  
 
     
@@ -1341,6 +1560,9 @@ void DrawEMA9AndEMA21Lines()
 //+------------------------------------------------------------------+
 void DrawDashboard()
 {
+
+ Comment(GetLast5TrendChangesText());
+
    DrawEMA9AndEMA21Lines();
 
    int mult = GetBalanceMultiplier();
