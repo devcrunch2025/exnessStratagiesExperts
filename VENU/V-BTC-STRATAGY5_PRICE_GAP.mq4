@@ -61,6 +61,9 @@ void OnTick()
 
    DrawDashboard();
    DrawEveryCandleDiffFrom5th();
+
+      CheckTrendChangedCloseOpposite();
+
 }
 void CloseAllOrdersIfEquityDrop()
 {
@@ -171,7 +174,11 @@ double GetBasketSL()
 //   dynamicSL =;
 
 
-   return  MathMax(BasketStopLoss * GetBalanceMultiplier(), AccountBalance() / 2);
+// double balance = AccountBalance();
+//    double equity  = AccountEquity();
+
+
+   return  MathMin(BasketStopLoss * GetBalanceMultiplier(), AccountEquity() / 2);
 }
 
 //+------------------------------------------------------------------+
@@ -241,13 +248,68 @@ string GetTrendText()
 
    return "NO CLEAR TREND";
 }
+void CloseOrdersByType(int orderType)
+{
+   RefreshRates();
+
+   for(int i = OrdersTotal() - 1; i >= 0; i--)
+   {
+      if(!OrderSelect(i, SELECT_BY_POS, MODE_TRADES))
+         continue;
+
+      if(OrderSymbol() != Symbol())
+         continue;
+
+      if(OrderType() != orderType)
+         continue;
+
+      double price = (orderType == OP_BUY) ? Bid : Ask;
+
+      bool closed = OrderClose(
+         OrderTicket(),
+         OrderLots(),
+         price,
+         30,
+         clrRed
+      );
+
+      if(!closed)
+         Print("OrderClose failed. Ticket:", OrderTicket(), " Error:", GetLastError());
+   }
+}
+int lastTrend = 0;
+
+void CheckTrendChangedCloseOpposite()
+{
+   int trend = GetTrendDirection();
+
+   if(trend == 0)
+      return;
+
+   if(lastTrend != 0 && trend != lastTrend)
+   {
+      if(trend == 1)
+      {
+         CloseOrdersByType(OP_SELL);
+         Print("Trend changed to BUY. Closed SELL orders.");
+      }
+
+      if(trend == -1)
+      {
+         CloseOrdersByType(OP_BUY);
+         Print("Trend changed to SELL. Closed BUY orders.");
+      }
+   }
+
+   lastTrend = trend;
+}
 void OpenNextOrderAfterProfitClose()
 {
    if(g_lastBasketProfitCloseTime <= 0)
       return;
 
    // wait 5 minutes
-   if(TimeCurrent() - g_lastBasketProfitCloseTime < 60 * 5)
+   if(TimeCurrent() - g_lastBasketProfitCloseTime < 60 * 2)
       return;
 
    int trend = GetTrendDirection();
@@ -418,14 +480,16 @@ void ManageRecovery(int orderType)
 
    // if(nextStage == 1) { requiredGap = 30;   nextLot = 0.02; }
    if(nextStage == 1) { requiredGap = 30;   nextLot = 0.01; }
+   if(nextStage == 2) { requiredGap = 200;  nextLot = 0.02; }
+
 
 
    // if(nextStage == 1) { requiredGap = 50;   nextLot = 0.01; }
-   if(nextStage == 2) { requiredGap = 100;  nextLot = 0.02; }
-   if(nextStage == 3) { requiredGap = 300;  nextLot = 0.03; }
-   if(nextStage == 4) { requiredGap = 800;  nextLot = 0.03; }
-   if(nextStage == 5) { requiredGap = 1200; nextLot = 0.04; }
-   if(nextStage == 6) { requiredGap = 2000; nextLot = 0.05; }
+   // if(nextStage == 2) { requiredGap = 100;  nextLot = 0.02; }
+   if(nextStage == 3) { requiredGap = 500;  nextLot = 0.03; }
+   if(nextStage == 4) { requiredGap = 1000;  nextLot = 0.03; }
+   if(nextStage == 5) { requiredGap = 1500; nextLot = 0.04; }
+   if(nextStage == 6) { requiredGap = 3000; nextLot = 0.05; }
 
    if(nextStage > 8)
       return;

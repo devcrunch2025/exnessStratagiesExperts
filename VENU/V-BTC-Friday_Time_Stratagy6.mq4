@@ -90,7 +90,11 @@ double GetBasketTP()
 //+------------------------------------------------------------------+
 double GetBasketSL()
 {
-   return BasketStopLoss * (GetBalanceMultiplier());
+
+   return  MathMin(BasketStopLoss * GetBalanceMultiplier(), AccountEquity() / 2);
+   // return  MathMax(BasketStopLoss * GetBalanceMultiplier(), AccountBalance() / 2);
+
+   // return BasketStopLoss * (GetBalanceMultiplier());
 }
 int GetStrongM30Trend()
 {
@@ -568,7 +572,7 @@ void DrawDashboard()
    // PANEL
 CreatePanel("DXB_PANEL",10,10,380,470,C'15,15,15');   // TITLE
    CreateLabel("V6",
-               "Time GAP V 6",
+               "Friday Time GAP V 6",
                210,30,
                clrGold,
                12);
