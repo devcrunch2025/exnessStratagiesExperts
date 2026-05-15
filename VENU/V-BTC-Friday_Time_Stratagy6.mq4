@@ -10,14 +10,14 @@ int    MagicNumber         = 5050801;
 int    Slippage            = 50;
 
 
-double BasketProfitTarget  = 1.00;   // Will be multiplied
-double BasketStopLoss      = 20.00;  // Will be multiplied
+double BasketProfitTarget  = 0.50;   // Will be multiplied
+double BasketStopLoss      = 10.00;  // Will be multiplied
 
 datetime lastM5BarTime = 0;
 
 //+------------------------------------------------------------------+
 int OnInit()
-{
+{  
    MagicNumber = AccountNumber() + 6;
 
    Print("Gap Recovery One Direction EA Started");
@@ -39,7 +39,14 @@ void OnTick()
    CloseBasketByProfit(OP_BUY);
    CloseBasketByProfit(OP_SELL);
 
-   CheckNewBaseSignal();
+   if(!IsPauseTradingTimeUTC())
+   {
+        CheckNewBaseSignal();
+
+        Print("V6 Managing BUY orders...");
+
+
+   }
 
    ManageRecovery(OP_BUY);
    ManageRecovery(OP_SELL);
@@ -386,7 +393,23 @@ int CountOrders(int orderType)
 
    return count;
 }
+bool IsPauseTradingTimeUTC()
+  {
 
+   // return false;
+   datetime now = TimeGMT();
+
+   int hour = TimeHour(now);
+   int day  = TimeDayOfWeek(now);
+
+//DAY TIME ON 
+   if(hour <5 || hour > 14)
+      return true;
+
+      return false;
+
+
+  }
 //+------------------------------------------------------------------+
 int CountAllOrders()
 {
