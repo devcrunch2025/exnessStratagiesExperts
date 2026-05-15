@@ -103,10 +103,46 @@ double GetBasketSL()
 
    // return BasketStopLoss * (GetBalanceMultiplier());
 }
+
+int GetStrongH1Trend()
+{
+   double open  = iOpen(Symbol(), PERIOD_H1, 1);
+   double close = iClose(Symbol(), PERIOD_H1, 1);
+
+   double gap = close - open;
+
+   // STRONG BUY candle
+   if(gap >= 100)
+      return 1;
+
+   // STRONG SELL candle
+   if(gap <= -100)
+      return -1;
+
+   return 0;
+}
+
+double GetStrongM30TrendValue()
+{
+   double open  = iOpen(Symbol(), PERIOD_M30, 0);
+   double close = iClose(Symbol(), PERIOD_M30, 0);
+
+   return  close - open;
+
+   // // STRONG BUY candle
+   // if(gap >= 100)
+   //    return 1;
+
+   // // STRONG SELL candle
+   // if(gap <= -100)
+   //    return -1;
+
+   // return 0;
+}
 int GetStrongM30Trend()
 {
-   double open  = iOpen(Symbol(), PERIOD_M30, 1);
-   double close = iClose(Symbol(), PERIOD_M30, 1);
+   double open  = iOpen(Symbol(), PERIOD_M30, 0);
+   double close = iClose(Symbol(), PERIOD_M30, 0);
 
    double gap = close - open;
 
@@ -142,8 +178,8 @@ void CheckNewBaseSignal()
    Print("New bar time"+" "+m5Time+"  lastM5BarTime "+lastM5BarTime);
 
 
-   double open  = iOpen(Symbol(), PERIOD_M5, 1);
-   double close = iClose(Symbol(), PERIOD_M5, 1);
+   double open  = iOpen(Symbol(), PERIOD_M5, 0);
+   double close = iClose(Symbol(), PERIOD_M5, 0);
    double gap   = close - open;
 
    
@@ -582,7 +618,14 @@ void DrawDashboard()
    color buyClr  = buyPL >= 0 ? clrLime : clrTomato;
    color sellClr = sellPL >= 0 ? clrLime : clrTomato;
 
-   string direction = GetActiveDirection();
+   // string direction = GetActiveDirection();
+   
+
+   string direction=GetStrongM30Trend()==1?"BUY":GetStrongM30Trend()==-1?"SELL":"WAITING";
+
+   direction=direction+" M30:"+DoubleToString(GetStrongM30TrendValue(),0)+" /100 ";
+
+   Print("Direction ",DoubleToString(GetStrongM30TrendValue(),0)+" /100 ");
 
    color dirClr = clrSilver;
 
@@ -641,7 +684,7 @@ CreatePanel("DXB_PANEL",10,10,380,470,C'15,15,15');   // TITLE
 
    // DIRECTION
    CreateLabel("DXB_DIR",
-               "Direction    : " + direction,
+               "Direction Trend    : " + direction,
                290,215,
                dirClr);
 
