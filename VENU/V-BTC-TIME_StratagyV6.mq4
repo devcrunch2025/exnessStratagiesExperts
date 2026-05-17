@@ -194,14 +194,14 @@ void CheckNewBaseSignal()
 
    if(gap > GapPrice && GetStrongM30Trend()==1)
    {
-      OpenOrder(OP_BUY, GetLot(BaseLot), "V6_SIMPLE__BUY_S0");
+      OpenOrder(OP_BUY, GetLot(BaseLot), "V6_TIME__BUY_S0");
       lastM5BarTime = m5Time;
       return;
    }
 
    if(gap < -GapPrice && GetStrongM30Trend()==-1)
    {
-      OpenOrder(OP_SELL, GetLot(BaseLot), "V6_SIMPLE__SELL_S0");
+      OpenOrder(OP_SELL, GetLot(BaseLot), "V6_TIME__SELL_S0");
       lastM5BarTime = m5Time;
       return;
    }
@@ -359,7 +359,7 @@ bool OpenOrder(int type, double lot, string comment)
 datetime GetBaseOrderTime(int orderType)
 {
    datetime baseTime = 0;
-   string tag = orderType == OP_BUY ? "V6_SIMPLE__BUY_S0" : "V6_SIMPLE__SELL_S0";
+   string tag = orderType == OP_BUY ? "V6_TIME__BUY_S0" : "V6_TIME__SELL_S0";
 
    for(int i = OrdersTotal() - 1; i >= 0; i--)
    {
@@ -404,9 +404,9 @@ bool StageExists(int orderType, int stage)
 string MakeComment(int orderType, int stage)
 {
    if(orderType == OP_BUY)
-      return "V6_SIMPLE__" + IntegerToString(stage);
+      return "V6_TIME__" + IntegerToString(stage);
 
-   return "V6_SIMPLE_" + IntegerToString(stage);
+   return "V6_TIME_" + IntegerToString(stage);
 }
 
 //+------------------------------------------------------------------+
