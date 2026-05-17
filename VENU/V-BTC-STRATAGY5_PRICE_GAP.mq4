@@ -5,7 +5,7 @@
 #property strict
 
 input double LOTValue      = 0.01;
-input double StopLossValue = 10.00;//equity -10;
+input double StopLossValue = 20.00;//equity -10;
 input double TPValue       = 0.50;
 
 double BaseLot             = 0.01;
@@ -34,13 +34,13 @@ int OnInit()
    MathSrand((int)TimeLocal());
 // GapPrice = GapPrice + (MathRand() % 11 - 5);
 
-   Print("v5 Gap Recovery EA Started | Parallel Trend Version");
+   Print("V5 Gap Recovery EA Started | Parallel Trend Version");
 
    return(INIT_SUCCEEDED);
   }
 
 //+------------------------------------------------------------------+
-int maxOrderAfterTrendChanged=1;
+int maxOrderAfterTrendChanged=5;
 int countOrderCountAfterTrendChanged=0;
 bool isOpenNextOrderAfterProfitClose=true;
 void OnTick()
@@ -56,7 +56,7 @@ void OnTick()
 
 // if(IsAfter30SecFromNewM1Bar())
 
-   Print("TrendGap "+GetLatestTrendGap()+" "+GetLatestTrendGapInMinutes());
+   // Print("TrendGap "+GetLatestTrendGap()+" "+GetLatestTrendGapInMinutes());
 
    // if((GetLatestTrendGap()==0 || GetLatestTrendGap()>50 )&& !IsPauseTradingTimeUTC() && countOrderCountAfterTrendChanged<maxOrderAfterTrendChanged)
  
@@ -65,7 +65,7 @@ void OnTick()
    CheckNewBaseSignal();
    else
      {
-      Print("CheckNewBaseSignal Missing ",GetLatestTrendGap());
+      // Print("CheckNewBaseSignal Missing ",GetLatestTrendGap());
 
 
 
@@ -990,8 +990,8 @@ int CheckAndDrawStrongCandle(double minGap = 100)
 
    double gap = livePrice - candleOpen;
 
-   if(gap>50)
-   Print("Current M1 candle gap: ", DoubleToString(gap, 2));
+   // if(gap>50)
+   // Print("Current M1 candle gap: ", DoubleToString(gap, 2));
 
    // no strong candle
    if(MathAbs(gap) < minGap)
@@ -2175,7 +2175,7 @@ void DrawTrendChangeGap(
 
    string name = "TrendGap_" + IntegerToString((int)t);
 
-   Print("trendText ",trendText);
+   // Print("trendText ",trendText);
 
 // Create chart text
    ObjectCreate(0, name, OBJ_TEXT, 0, t, newPrice);

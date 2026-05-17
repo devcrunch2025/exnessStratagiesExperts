@@ -11,7 +11,7 @@ int    Slippage            = 50;
 
 
 double BasketProfitTarget  = 0.50;   // Will be multiplied
-double BasketStopLoss      = 10.00;  // Will be multiplied
+double BasketStopLoss      = 20.00;  // Will be multiplied
 
 datetime lastM5BarTime = 0;
 
@@ -20,7 +20,7 @@ int OnInit()
 {  
    MagicNumber = AccountNumber() + 6;
 
-   Print("Gap Recovery One Direction EA Started");
+   Print("V6 Gap Recovery One Direction EA Started");
    return(INIT_SUCCEEDED);
 }
 string GetRunningEnvironment()
@@ -43,7 +43,7 @@ void OnTick()
    {
         CheckNewBaseSignal();
 
-        Print("V6 Managing BUY orders...");
+      //   Print("V6 Managing BUY orders...");
 
 
    }
@@ -184,7 +184,7 @@ void CheckNewBaseSignal()
 
    
 
-   Print("gap   "+" "+gap+" Trend "+DoubleToString(GetStrongM30Trend(),0));
+   // Print("gap   "+" "+gap+" Trend "+DoubleToString(GetStrongM30Trend(),0));
 
    if(CountOrders(OP_BUY) > 0 || CountOrders(OP_SELL) > 0)
    {
@@ -224,23 +224,23 @@ void ManageRecovery(int orderType)
 
    int minutesPassed = (int)((TimeCurrent() - baseTime) / 60);
 
-   if(minutesPassed >= 3 && !StageExists(orderType, 1))
+   if(minutesPassed >= 15 && !StageExists(orderType, 1))
       OpenOrder(orderType, GetLot(0.01), MakeComment(orderType, 1));
 
-   if(minutesPassed >= 15 && !StageExists(orderType, 2))
+   if(minutesPassed >= 60 && !StageExists(orderType, 2))
       OpenOrder(orderType, GetLot(0.02), MakeComment(orderType, 2));
 
-   if(minutesPassed >= 30 && !StageExists(orderType, 3))
-      OpenOrder(orderType, GetLot(0.03), MakeComment(orderType, 3));
+   // if(minutesPassed >= 60 && !StageExists(orderType, 3))
+   //    OpenOrder(orderType, GetLot(0.03), MakeComment(orderType, 3));
 
-   if(minutesPassed >= 45 && !StageExists(orderType, 4))
-      OpenOrder(orderType, GetLot(0.04), MakeComment(orderType, 4));
+   // if(minutesPassed >= 45 && !StageExists(orderType, 4))
+   //    OpenOrder(orderType, GetLot(0.04), MakeComment(orderType, 4));
 
-   if(minutesPassed >= 60 && !StageExists(orderType, 5))
-      OpenOrder(orderType, GetLot(0.05), MakeComment(orderType, 5));
+   // if(minutesPassed >= 60 && !StageExists(orderType, 5))
+   //    OpenOrder(orderType, GetLot(0.05), MakeComment(orderType, 5));
 
-       if(minutesPassed >= 90 && !StageExists(orderType, 6))
-      OpenOrder(orderType, GetLot(0.06), MakeComment(orderType, 6));
+   //     if(minutesPassed >= 90 && !StageExists(orderType, 6))
+   //    OpenOrder(orderType, GetLot(0.06), MakeComment(orderType, 6));
 }
 
 //+------------------------------------------------------------------+
@@ -625,7 +625,7 @@ void DrawDashboard()
 
    direction=direction+" M30:"+DoubleToString(GetStrongM30TrendValue(),0)+" /100 ";
 
-   Print("Direction ",DoubleToString(GetStrongM30TrendValue(),0)+" /100 ");
+   // Print("Direction ",DoubleToString(GetStrongM30TrendValue(),0)+" /100 ");
 
    color dirClr = clrSilver;
 
