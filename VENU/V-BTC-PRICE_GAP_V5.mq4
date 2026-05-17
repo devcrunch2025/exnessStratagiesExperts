@@ -34,7 +34,7 @@ int OnInit()
    MathSrand((int)TimeLocal());
 // GapPrice = GapPrice + (MathRand() % 11 - 5);
 
-   Print("V5 Gap Recovery EA Started | Parallel Trend Version");
+   Print("V5 PRICE GAP is started. MagicNumber: ", MagicNumber);
 
    return(INIT_SUCCEEDED);
   }

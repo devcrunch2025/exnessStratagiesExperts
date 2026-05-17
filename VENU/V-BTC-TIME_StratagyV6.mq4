@@ -20,7 +20,7 @@ int OnInit()
 {  
    MagicNumber = AccountNumber() + 6;
 
-   Print("V6 Gap Recovery One Direction EA Started");
+   Print("V6 TIME GAP RECOVERY EA started. MagicNumber: ", MagicNumber);
    return(INIT_SUCCEEDED);
 }
 string GetRunningEnvironment()
@@ -323,6 +323,11 @@ bool OpenOrder(int type, double lot, string comment)
 {
 
 
+
+   if(comment=="")
+   {
+      comment=type == OP_BUY ? "V6_TIME__BUY" : "V6_TIME__SELL";
+   }
    if(HasEnoughMargin(type,lot)==false) return false;
    RefreshRates();
 
