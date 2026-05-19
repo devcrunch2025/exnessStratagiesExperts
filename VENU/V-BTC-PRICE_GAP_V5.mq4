@@ -9,7 +9,7 @@ input double StopLossValue = 20.00;//equity -10;
 input double TPValue       = 0.50;
 
 double BaseLot             = 0.01;
-double GapPrice            = 50.0;
+double GapPrice            = 20;//50.0;
 
 int    MagicNumber         = 5050801;
 int    Slippage            = 70;
@@ -21,6 +21,9 @@ datetime lastM5BarTime = 0;
 
 datetime g_m1BarStartTime = 0;
 bool     g_m1GapChecked   = false;
+
+int maxOrderAfterTrendChanged=1;
+int countOrderCountAfterTrendChanged=0;
 
 //+------------------------------------------------------------------+
 int OnInit()
@@ -40,19 +43,34 @@ int OnInit()
   }
 
 //+------------------------------------------------------------------+
-int maxOrderAfterTrendChanged=5;
-int countOrderCountAfterTrendChanged=0;
+
 bool isOpenNextOrderAfterProfitClose=true;
 void OnTick()
   {
 
+   datetime now = TimeCurrent();
+
+   int hour = TimeHour(now);
+   int minute = TimeMinute(now);
+   if(minute==0)
+   {
+      countOrderCountAfterTrendChanged=0;
+   }
+
+   int day  = TimeDayOfWeek(now);
 
 
-   CloseAllOrdersIfEquityDrop();
+   // CloseAllOrdersIfEquityDrop();
 
 
    CloseBasketByProfit(OP_BUY);
    CloseBasketByProfit(OP_SELL);
+
+
+   if(AccountBalance()<=0)
+{
+   return;
+}
 
 // if(IsAfter30SecFromNewM1Bar())
 
@@ -60,7 +78,8 @@ void OnTick()
 
    // if((GetLatestTrendGap()==0 || GetLatestTrendGap()>50 )&& !IsPauseTradingTimeUTC() && countOrderCountAfterTrendChanged<maxOrderAfterTrendChanged)
  
-    if(( (GetLatestTrendGapInMinutes()==0 ||GetLatestTrendGapInMinutes()>30) && !IsFlatMarket() && !IsPauseTradingTimeUTC() && countOrderCountAfterTrendChanged<maxOrderAfterTrendChanged))
+   //  if(( (GetLatestTrendGapInMinutes()==0 ||GetLatestTrendGapInMinutes()>30) && !IsFlatMarket() && !IsPauseTradingTimeUTC() && countOrderCountAfterTrendChanged<maxOrderAfterTrendChanged))
+    if((   !IsFlatMarket() && !IsPauseTradingTimeUTC() && countOrderCountAfterTrendChanged<maxOrderAfterTrendChanged))
  
    CheckNewBaseSignal();
    else
@@ -78,10 +97,10 @@ void OnTick()
 
 
 // Parallel recovery for both BUY and SELL
-   if(GetTrendDirection()==1)
+   if(GetTrendDirection()!=-1)
       ManageRecovery(OP_BUY);
 
-   if(GetTrendDirection()==-1)
+   if(GetTrendDirection()!=1)
       ManageRecovery(OP_SELL);
 
 
@@ -271,10 +290,10 @@ void CloseAllOrdersIfEquityDrop()
 // if(AccountEquity() > AccountBalance() - dynamicSL)
 //    return;
 
-   if(AccountEquity() > AccountBalance()/2)
-      return;
+   // if(AccountEquity() > AccountBalance()/2)
+   //    return;
 
-   Print("Equity protection triggered. Closing all orders.");
+   // Print("Equity protection triggered. Closing all orders.");
 
    for(int i = OrdersTotal() - 1; i >= 0; i--)
      {
@@ -370,7 +389,7 @@ double GetBasketTP()
 //+------------------------------------------------------------------+
 bool IsPauseTradingTimeUTC()
   {
-
+// return false;
    
 
    datetime now = TimeGMT();
@@ -378,10 +397,12 @@ bool IsPauseTradingTimeUTC()
    int hour = TimeHour(now);
    int day  = TimeDayOfWeek(now);
 
+    if( hour == 13 || hour == 23 || hour == 0)
+      return true;
 
    //DAY TIME ON 
-   if(hour <5 || hour > 14)
-      return true;
+   // if(hour < 3 || hour > 18 || hour == 13)
+   //    return true;
 
 
 return false;
@@ -433,6 +454,9 @@ return false;
 double GetBasketSL()
   {
 
+
+   return BasketStopLoss * GetBalanceMultiplier();
+   /*
 //   dynamicSL =;
 
 
@@ -446,6 +470,7 @@ double GetBasketSL()
 
 
    return  SL_values;
+   */
   }
 
 //+------------------------------------------------------------------+
@@ -652,7 +677,7 @@ void CheckTrendChangedCloseOpposite()
   {
    int trend = GetTrendDirection();
 
-   if(trend == 0)
+   if(trend == 0 && lastTrend==0)
       return;
 
    double livePrice = Bid;
@@ -664,10 +689,10 @@ void CheckTrendChangedCloseOpposite()
       trendChangedTime = TimeCurrent();
 
       AddTrendChangeHistory(trend, livePrice);
-      return;
+      // return;
      }
 
-   if(trend != lastTrend)
+   if(trend != lastTrend && lastTrend != 0 && trend != 0)
      {
 
 
@@ -1054,8 +1079,8 @@ void CheckNewBaseSignal()
    double close = iClose(Symbol(), PERIOD_M5, 1);
    double gap   = close - open;
 
-   double open10  = iOpen(Symbol(), PERIOD_M10, 1);
-   double close10 = iClose(Symbol(), PERIOD_M10, 1);
+   double open10  = iOpen(Symbol(), PERIOD_M10, 0);
+   double close10 = iClose(Symbol(), PERIOD_M10, 0);
    double gap10   = close10 - open10;
 
    int trend = GetTrendDirection();
@@ -1184,34 +1209,34 @@ void ManageRecovery(int orderType)
 // if(nextStage == 1) { requiredGap = 30;   nextLot = 0.02; }
    if(nextStage == 1)
      {
-      requiredGap = 50;
+      requiredGap = 300;
       nextLot = 0.01;
      }
    if(nextStage == 2)
      {
-      requiredGap = 100;
+      requiredGap = 600;
       nextLot = 0.01;
      }
    if(nextStage == 3)
      {
-      requiredGap = 150;
-      nextLot = 0.02;
+      requiredGap = 1000;
+      nextLot = 0.01;
      }
-   if(nextStage == 4)
-     {
-      requiredGap = 200;
-      nextLot = 0.03;
-     }
-   if(nextStage == 5)
-     {
-      requiredGap = 300;
-      nextLot = 0.03;
-     }
-   if(nextStage == 6)
-     {
-      requiredGap = 500;
-      nextLot = 0.04;
-     }
+   // if(nextStage == 4)
+   //   {
+   //    requiredGap = 300;
+   //    nextLot = 0.03;
+   //   }
+   // if(nextStage == 5)
+   //   {
+   //    requiredGap = 300;
+   //    nextLot = 0.03;
+   //   }
+   // if(nextStage == 6)
+   //   {
+   //    requiredGap = 500;
+   //    nextLot = 0.04;
+   //   }
 
 
 
@@ -1257,13 +1282,13 @@ void ManageRecovery(int orderType)
 
 
 
-      if(GetTrendDirection()!=-1 && orderType==OP_BUY && GetTrendDirection()==1)
+      if(GetTrendDirection()!=-1 && orderType==OP_BUY )
 
          OpenOrder(orderType, GetLot(nextLot), MakeComment(orderType, nextStage));
 
       else
 
-         if(GetTrendDirection()!=1 && orderType==OP_SELL && GetTrendDirection()==-1)
+         if(GetTrendDirection()!=1 && orderType==OP_SELL  )
 
             OpenOrder(orderType, GetLot(nextLot), MakeComment(orderType, nextStage));
      }

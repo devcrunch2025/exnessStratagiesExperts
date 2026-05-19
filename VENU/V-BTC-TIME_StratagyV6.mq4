@@ -36,8 +36,17 @@ string GetRunningEnvironment()
 //+------------------------------------------------------------------+
 void OnTick()
 {
+
+
+
+
    CloseBasketByProfit(OP_BUY);
    CloseBasketByProfit(OP_SELL);
+
+   if(AccountBalance()<=0)
+{
+   return;
+}
 
    if(!IsPauseTradingTimeUTC())
    {
@@ -98,10 +107,10 @@ double GetBasketTP()
 double GetBasketSL()
 {
 
-   return  MathMin(BasketStopLoss * GetBalanceMultiplier(), AccountEquity() / 2);
+   // return  MathMin(BasketStopLoss * GetBalanceMultiplier(), AccountEquity() / 2);
    // return  MathMax(BasketStopLoss * GetBalanceMultiplier(), AccountBalance() / 2);
 
-   // return BasketStopLoss * (GetBalanceMultiplier());
+   return BasketStopLoss * (GetBalanceMultiplier());
 }
 
 int GetStrongH1Trend()
@@ -444,7 +453,7 @@ bool IsPauseTradingTimeUTC()
    int day  = TimeDayOfWeek(now);
 
 //DAY TIME ON 
-   if(hour <5 || hour > 14)
+   if(hour < 3 || hour > 18 || hour == 13)
       return true;
 
       return false;

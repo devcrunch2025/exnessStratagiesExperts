@@ -1,15 +1,95 @@
 {
-    "c:\\Users\\venuadmin\\AppData\\Roaming\\MetaQuotes\\Terminal\\2191F4A3D14D7B4B1EBB84F924777883\\MQL4\\Experts\\V-TV-Signals\\V_TV_CROSSSingleCandleReversal3.mqh": [
+    "c:\\Users\\venuadmin\\AppData\\Roaming\\MetaQuotes\\Terminal\\2191F4A3D14D7B4B1EBB84F924777883\\MQL4\\Experts\\V-TV-Signals\\V_TV_CROSSSingleOrderAfterTrend2.mqh": [
         {
-            "file": "c:\\Users\\venuadmin\\AppData\\Roaming\\MetaQuotes\\Terminal\\2191F4A3D14D7B4B1EBB84F924777883\\MQL4\\Experts\\V-TV-Signals\\V_TV_CROSSSingleCandleReversal3.mqh",
+            "file": "c:\\Users\\venuadmin\\AppData\\Roaming\\MetaQuotes\\Terminal\\2191F4A3D14D7B4B1EBB84F924777883\\MQL4\\Experts\\V-TV-Signals\\V_TV_CROSSSingleOrderAfterTrend2.mqh",
+            "message": "wrong parameters count",
+            "range": {
+                "start": {
+                    "line": 14,
+                    "character": 15
+                },
+                "end": {
+                    "line": 14,
+                    "character": 115
+                }
+            },
+            "severity": "Error",
+            "code": "199"
+        },
+        {
+            "file": "c:\\Users\\venuadmin\\AppData\\Roaming\\MetaQuotes\\Terminal\\2191F4A3D14D7B4B1EBB84F924777883\\MQL4\\Experts\\V-TV-Signals\\V_TV_CROSSSingleOrderAfterTrend2.mqh",
+            "message": "wrong parameters count",
+            "range": {
+                "start": {
+                    "line": 20,
+                    "character": 20
+                },
+                "end": {
+                    "line": 20,
+                    "character": 120
+                }
+            },
+            "severity": "Error",
+            "code": "199"
+        },
+        {
+            "file": "c:\\Users\\venuadmin\\AppData\\Roaming\\MetaQuotes\\Terminal\\2191F4A3D14D7B4B1EBB84F924777883\\MQL4\\Experts\\V-TV-Signals\\V_TV_CROSSSingleOrderAfterTrend2.mqh",
+            "message": "implicit conversion from 'unknown' to 'string'",
+            "range": {
+                "start": {
+                    "line": 20,
+                    "character": 20
+                },
+                "end": {
+                    "line": 20,
+                    "character": 120
+                }
+            },
+            "severity": "Warning",
+            "code": "94"
+        },
+        {
+            "file": "c:\\Users\\venuadmin\\AppData\\Roaming\\MetaQuotes\\Terminal\\2191F4A3D14D7B4B1EBB84F924777883\\MQL4\\Experts\\V-TV-Signals\\V_TV_CROSSSingleOrderAfterTrend2.mqh",
+            "message": "open parenthesis expected",
+            "range": {
+                "start": {
+                    "line": 52,
+                    "character": 62
+                },
+                "end": {
+                    "line": 52,
+                    "character": 162
+                }
+            },
+            "severity": "Error",
+            "code": "132"
+        },
+        {
+            "file": "c:\\Users\\venuadmin\\AppData\\Roaming\\MetaQuotes\\Terminal\\2191F4A3D14D7B4B1EBB84F924777883\\MQL4\\Experts\\V-TV-Signals\\V_TV_CROSSSingleOrderAfterTrend2.mqh",
+            "message": "open parenthesis expected",
+            "range": {
+                "start": {
+                    "line": 57,
+                    "character": 64
+                },
+                "end": {
+                    "line": 57,
+                    "character": 164
+                }
+            },
+            "severity": "Error",
+            "code": "132"
+        },
+        {
+            "file": "c:\\Users\\venuadmin\\AppData\\Roaming\\MetaQuotes\\Terminal\\2191F4A3D14D7B4B1EBB84F924777883\\MQL4\\Experts\\V-TV-Signals\\V_TV_CROSSSingleOrderAfterTrend2.mqh",
             "message": "undeclared identifier 'GetEMAGapPoints'",
             "range": {
                 "start": {
-                    "line": 66,
+                    "line": 129,
                     "character": 25
                 },
                 "end": {
-                    "line": 66,
+                    "line": 129,
                     "character": 125
                 }
             },
@@ -17,15 +97,15 @@
             "code": "256"
         },
         {
-            "file": "c:\\Users\\venuadmin\\AppData\\Roaming\\MetaQuotes\\Terminal\\2191F4A3D14D7B4B1EBB84F924777883\\MQL4\\Experts\\V-TV-Signals\\V_TV_CROSSSingleCandleReversal3.mqh",
+            "file": "c:\\Users\\venuadmin\\AppData\\Roaming\\MetaQuotes\\Terminal\\2191F4A3D14D7B4B1EBB84F924777883\\MQL4\\Experts\\V-TV-Signals\\V_TV_CROSSSingleOrderAfterTrend2.mqh",
             "message": "undeclared identifier 'FastEMA'",
             "range": {
                 "start": {
-                    "line": 66,
+                    "line": 129,
                     "character": 41
                 },
                 "end": {
-                    "line": 66,
+                    "line": 129,
                     "character": 141
                 }
             },
@@ -33,15 +113,15 @@
             "code": "256"
         },
         {
-            "file": "c:\\Users\\venuadmin\\AppData\\Roaming\\MetaQuotes\\Terminal\\2191F4A3D14D7B4B1EBB84F924777883\\MQL4\\Experts\\V-TV-Signals\\V_TV_CROSSSingleCandleReversal3.mqh",
+            "file": "c:\\Users\\venuadmin\\AppData\\Roaming\\MetaQuotes\\Terminal\\2191F4A3D14D7B4B1EBB84F924777883\\MQL4\\Experts\\V-TV-Signals\\V_TV_CROSSSingleOrderAfterTrend2.mqh",
             "message": "',' - unexpected token",
             "range": {
                 "start": {
-                    "line": 66,
+                    "line": 129,
                     "character": 48
                 },
                 "end": {
-                    "line": 66,
+                    "line": 129,
                     "character": 148
                 }
             },
@@ -49,15 +129,15 @@
             "code": "149"
         },
         {
-            "file": "c:\\Users\\venuadmin\\AppData\\Roaming\\MetaQuotes\\Terminal\\2191F4A3D14D7B4B1EBB84F924777883\\MQL4\\Experts\\V-TV-Signals\\V_TV_CROSSSingleCandleReversal3.mqh",
+            "file": "c:\\Users\\venuadmin\\AppData\\Roaming\\MetaQuotes\\Terminal\\2191F4A3D14D7B4B1EBB84F924777883\\MQL4\\Experts\\V-TV-Signals\\V_TV_CROSSSingleOrderAfterTrend2.mqh",
             "message": "'FastEMA' - some operator expected",
             "range": {
                 "start": {
-                    "line": 66,
+                    "line": 129,
                     "character": 41
                 },
                 "end": {
-                    "line": 66,
+                    "line": 129,
                     "character": 141
                 }
             },
@@ -65,15 +145,15 @@
             "code": "152"
         },
         {
-            "file": "c:\\Users\\venuadmin\\AppData\\Roaming\\MetaQuotes\\Terminal\\2191F4A3D14D7B4B1EBB84F924777883\\MQL4\\Experts\\V-TV-Signals\\V_TV_CROSSSingleCandleReversal3.mqh",
+            "file": "c:\\Users\\venuadmin\\AppData\\Roaming\\MetaQuotes\\Terminal\\2191F4A3D14D7B4B1EBB84F924777883\\MQL4\\Experts\\V-TV-Signals\\V_TV_CROSSSingleOrderAfterTrend2.mqh",
             "message": "semicolon expected",
             "range": {
                 "start": {
-                    "line": 66,
+                    "line": 129,
                     "character": 50
                 },
                 "end": {
-                    "line": 66,
+                    "line": 129,
                     "character": 150
                 }
             },
@@ -81,15 +161,15 @@
             "code": "154"
         },
         {
-            "file": "c:\\Users\\venuadmin\\AppData\\Roaming\\MetaQuotes\\Terminal\\2191F4A3D14D7B4B1EBB84F924777883\\MQL4\\Experts\\V-TV-Signals\\V_TV_CROSSSingleCandleReversal3.mqh",
+            "file": "c:\\Users\\venuadmin\\AppData\\Roaming\\MetaQuotes\\Terminal\\2191F4A3D14D7B4B1EBB84F924777883\\MQL4\\Experts\\V-TV-Signals\\V_TV_CROSSSingleOrderAfterTrend2.mqh",
             "message": "undeclared identifier 'SlowEMA'",
             "range": {
                 "start": {
-                    "line": 66,
+                    "line": 129,
                     "character": 50
                 },
                 "end": {
-                    "line": 66,
+                    "line": 129,
                     "character": 150
                 }
             },
@@ -97,15 +177,15 @@
             "code": "256"
         },
         {
-            "file": "c:\\Users\\venuadmin\\AppData\\Roaming\\MetaQuotes\\Terminal\\2191F4A3D14D7B4B1EBB84F924777883\\MQL4\\Experts\\V-TV-Signals\\V_TV_CROSSSingleCandleReversal3.mqh",
+            "file": "c:\\Users\\venuadmin\\AppData\\Roaming\\MetaQuotes\\Terminal\\2191F4A3D14D7B4B1EBB84F924777883\\MQL4\\Experts\\V-TV-Signals\\V_TV_CROSSSingleOrderAfterTrend2.mqh",
             "message": "')' - unexpected token",
             "range": {
                 "start": {
-                    "line": 66,
+                    "line": 129,
                     "character": 57
                 },
                 "end": {
-                    "line": 66,
+                    "line": 129,
                     "character": 157
                 }
             },
@@ -113,512 +193,16 @@
             "code": "149"
         },
         {
-            "file": "c:\\Users\\venuadmin\\AppData\\Roaming\\MetaQuotes\\Terminal\\2191F4A3D14D7B4B1EBB84F924777883\\MQL4\\Experts\\V-TV-Signals\\V_TV_CROSSSingleCandleReversal3.mqh",
-            "message": "undeclared identifier 'Close'",
+            "file": "c:\\Users\\venuadmin\\AppData\\Roaming\\MetaQuotes\\Terminal\\2191F4A3D14D7B4B1EBB84F924777883\\MQL4\\Experts\\V-TV-Signals\\V_TV_CROSSSingleOrderAfterTrend2.mqh",
+            "message": "undeclared identifier 'g_order_creation_reason_signal_count_angle'",
             "range": {
                 "start": {
-                    "line": 74,
-                    "character": 9
-                },
-                "end": {
-                    "line": 74,
-                    "character": 109
-                }
-            },
-            "severity": "Error",
-            "code": "256"
-        },
-        {
-            "file": "c:\\Users\\venuadmin\\AppData\\Roaming\\MetaQuotes\\Terminal\\2191F4A3D14D7B4B1EBB84F924777883\\MQL4\\Experts\\V-TV-Signals\\V_TV_CROSSSingleCandleReversal3.mqh",
-            "message": "'[' - array required",
-            "range": {
-                "start": {
-                    "line": 74,
-                    "character": 14
-                },
-                "end": {
-                    "line": 74,
-                    "character": 114
-                }
-            },
-            "severity": "Error",
-            "code": "241"
-        },
-        {
-            "file": "c:\\Users\\venuadmin\\AppData\\Roaming\\MetaQuotes\\Terminal\\2191F4A3D14D7B4B1EBB84F924777883\\MQL4\\Experts\\V-TV-Signals\\V_TV_CROSSSingleCandleReversal3.mqh",
-            "message": "undeclared identifier 'Open'",
-            "range": {
-                "start": {
-                    "line": 74,
-                    "character": 20
-                },
-                "end": {
-                    "line": 74,
-                    "character": 120
-                }
-            },
-            "severity": "Error",
-            "code": "256"
-        },
-        {
-            "file": "c:\\Users\\venuadmin\\AppData\\Roaming\\MetaQuotes\\Terminal\\2191F4A3D14D7B4B1EBB84F924777883\\MQL4\\Experts\\V-TV-Signals\\V_TV_CROSSSingleCandleReversal3.mqh",
-            "message": "'[' - array required",
-            "range": {
-                "start": {
-                    "line": 74,
-                    "character": 24
-                },
-                "end": {
-                    "line": 74,
-                    "character": 124
-                }
-            },
-            "severity": "Error",
-            "code": "241"
-        },
-        {
-            "file": "c:\\Users\\venuadmin\\AppData\\Roaming\\MetaQuotes\\Terminal\\2191F4A3D14D7B4B1EBB84F924777883\\MQL4\\Experts\\V-TV-Signals\\V_TV_CROSSSingleCandleReversal3.mqh",
-            "message": "undeclared identifier 'Close'",
-            "range": {
-                "start": {
-                    "line": 75,
-                    "character": 14
-                },
-                "end": {
-                    "line": 75,
-                    "character": 114
-                }
-            },
-            "severity": "Error",
-            "code": "256"
-        },
-        {
-            "file": "c:\\Users\\venuadmin\\AppData\\Roaming\\MetaQuotes\\Terminal\\2191F4A3D14D7B4B1EBB84F924777883\\MQL4\\Experts\\V-TV-Signals\\V_TV_CROSSSingleCandleReversal3.mqh",
-            "message": "'[' - array required",
-            "range": {
-                "start": {
-                    "line": 75,
-                    "character": 19
-                },
-                "end": {
-                    "line": 75,
-                    "character": 119
-                }
-            },
-            "severity": "Error",
-            "code": "241"
-        },
-        {
-            "file": "c:\\Users\\venuadmin\\AppData\\Roaming\\MetaQuotes\\Terminal\\2191F4A3D14D7B4B1EBB84F924777883\\MQL4\\Experts\\V-TV-Signals\\V_TV_CROSSSingleCandleReversal3.mqh",
-            "message": "undeclared identifier 'Open'",
-            "range": {
-                "start": {
-                    "line": 75,
-                    "character": 25
-                },
-                "end": {
-                    "line": 75,
-                    "character": 125
-                }
-            },
-            "severity": "Error",
-            "code": "256"
-        },
-        {
-            "file": "c:\\Users\\venuadmin\\AppData\\Roaming\\MetaQuotes\\Terminal\\2191F4A3D14D7B4B1EBB84F924777883\\MQL4\\Experts\\V-TV-Signals\\V_TV_CROSSSingleCandleReversal3.mqh",
-            "message": "'[' - array required",
-            "range": {
-                "start": {
-                    "line": 75,
-                    "character": 29
-                },
-                "end": {
-                    "line": 75,
-                    "character": 129
-                }
-            },
-            "severity": "Error",
-            "code": "241"
-        },
-        {
-            "file": "c:\\Users\\venuadmin\\AppData\\Roaming\\MetaQuotes\\Terminal\\2191F4A3D14D7B4B1EBB84F924777883\\MQL4\\Experts\\V-TV-Signals\\V_TV_CROSSSingleCandleReversal3.mqh",
-            "message": "undeclared identifier 'SeqSellProfitTarget'",
-            "range": {
-                "start": {
-                    "line": 88,
+                    "line": 163,
                     "character": 0
                 },
                 "end": {
-                    "line": 88,
+                    "line": 163,
                     "character": 100
-                }
-            },
-            "severity": "Error",
-            "code": "256"
-        },
-        {
-            "file": "c:\\Users\\venuadmin\\AppData\\Roaming\\MetaQuotes\\Terminal\\2191F4A3D14D7B4B1EBB84F924777883\\MQL4\\Experts\\V-TV-Signals\\V_TV_CROSSSingleCandleReversal3.mqh",
-            "message": "undeclared identifier 'SeqBuyProfitTarget'",
-            "range": {
-                "start": {
-                    "line": 89,
-                    "character": 0
-                },
-                "end": {
-                    "line": 89,
-                    "character": 100
-                }
-            },
-            "severity": "Error",
-            "code": "256"
-        },
-        {
-            "file": "c:\\Users\\venuadmin\\AppData\\Roaming\\MetaQuotes\\Terminal\\2191F4A3D14D7B4B1EBB84F924777883\\MQL4\\Experts\\V-TV-Signals\\V_TV_CROSSSingleCandleReversal3.mqh",
-            "message": "undeclared identifier 'ProcessSeqBuyOrders'",
-            "range": {
-                "start": {
-                    "line": 91,
-                    "character": 9
-                },
-                "end": {
-                    "line": 91,
-                    "character": 109
-                }
-            },
-            "severity": "Error",
-            "code": "256"
-        },
-        {
-            "file": "c:\\Users\\venuadmin\\AppData\\Roaming\\MetaQuotes\\Terminal\\2191F4A3D14D7B4B1EBB84F924777883\\MQL4\\Experts\\V-TV-Signals\\V_TV_CROSSSingleCandleReversal3.mqh",
-            "message": "',' - unexpected token",
-            "range": {
-                "start": {
-                    "line": 91,
-                    "character": 34
-                },
-                "end": {
-                    "line": 91,
-                    "character": 134
-                }
-            },
-            "severity": "Error",
-            "code": "149"
-        },
-        {
-            "file": "c:\\Users\\venuadmin\\AppData\\Roaming\\MetaQuotes\\Terminal\\2191F4A3D14D7B4B1EBB84F924777883\\MQL4\\Experts\\V-TV-Signals\\V_TV_CROSSSingleCandleReversal3.mqh",
-            "message": "'false' - some operator expected",
-            "range": {
-                "start": {
-                    "line": 91,
-                    "character": 29
-                },
-                "end": {
-                    "line": 91,
-                    "character": 129
-                }
-            },
-            "severity": "Error",
-            "code": "152"
-        },
-        {
-            "file": "c:\\Users\\venuadmin\\AppData\\Roaming\\MetaQuotes\\Terminal\\2191F4A3D14D7B4B1EBB84F924777883\\MQL4\\Experts\\V-TV-Signals\\V_TV_CROSSSingleCandleReversal3.mqh",
-            "message": "',' - unexpected token",
-            "range": {
-                "start": {
-                    "line": 91,
-                    "character": 40
-                },
-                "end": {
-                    "line": 91,
-                    "character": 140
-                }
-            },
-            "severity": "Error",
-            "code": "149"
-        },
-        {
-            "file": "c:\\Users\\venuadmin\\AppData\\Roaming\\MetaQuotes\\Terminal\\2191F4A3D14D7B4B1EBB84F924777883\\MQL4\\Experts\\V-TV-Signals\\V_TV_CROSSSingleCandleReversal3.mqh",
-            "message": "')' - unexpected token",
-            "range": {
-                "start": {
-                    "line": 91,
-                    "character": 46
-                },
-                "end": {
-                    "line": 91,
-                    "character": 146
-                }
-            },
-            "severity": "Error",
-            "code": "149"
-        },
-        {
-            "file": "c:\\Users\\venuadmin\\AppData\\Roaming\\MetaQuotes\\Terminal\\2191F4A3D14D7B4B1EBB84F924777883\\MQL4\\Experts\\V-TV-Signals\\V_TV_CROSSSingleCandleReversal3.mqh",
-            "message": "expression has no effect",
-            "range": {
-                "start": {
-                    "line": 91,
-                    "character": 41
-                },
-                "end": {
-                    "line": 91,
-                    "character": 141
-                }
-            },
-            "severity": "Warning",
-            "code": "95"
-        },
-        {
-            "file": "c:\\Users\\venuadmin\\AppData\\Roaming\\MetaQuotes\\Terminal\\2191F4A3D14D7B4B1EBB84F924777883\\MQL4\\Experts\\V-TV-Signals\\V_TV_CROSSSingleCandleReversal3.mqh",
-            "message": "undeclared identifier 'SeqSellProfitTarget'",
-            "range": {
-                "start": {
-                    "line": 93,
-                    "character": 9
-                },
-                "end": {
-                    "line": 93,
-                    "character": 109
-                }
-            },
-            "severity": "Error",
-            "code": "256"
-        },
-        {
-            "file": "c:\\Users\\venuadmin\\AppData\\Roaming\\MetaQuotes\\Terminal\\2191F4A3D14D7B4B1EBB84F924777883\\MQL4\\Experts\\V-TV-Signals\\V_TV_CROSSSingleCandleReversal3.mqh",
-            "message": "undeclared identifier 'SellProfitTargetInput'",
-            "range": {
-                "start": {
-                    "line": 93,
-                    "character": 29
-                },
-                "end": {
-                    "line": 93,
-                    "character": 129
-                }
-            },
-            "severity": "Error",
-            "code": "256"
-        },
-        {
-            "file": "c:\\Users\\venuadmin\\AppData\\Roaming\\MetaQuotes\\Terminal\\2191F4A3D14D7B4B1EBB84F924777883\\MQL4\\Experts\\V-TV-Signals\\V_TV_CROSSSingleCandleReversal3.mqh",
-            "message": "undeclared identifier 'SeqBuyProfitTarget'",
-            "range": {
-                "start": {
-                    "line": 94,
-                    "character": 9
-                },
-                "end": {
-                    "line": 94,
-                    "character": 109
-                }
-            },
-            "severity": "Error",
-            "code": "256"
-        },
-        {
-            "file": "c:\\Users\\venuadmin\\AppData\\Roaming\\MetaQuotes\\Terminal\\2191F4A3D14D7B4B1EBB84F924777883\\MQL4\\Experts\\V-TV-Signals\\V_TV_CROSSSingleCandleReversal3.mqh",
-            "message": "undeclared identifier 'BuyProfitTargetInput'",
-            "range": {
-                "start": {
-                    "line": 94,
-                    "character": 28
-                },
-                "end": {
-                    "line": 94,
-                    "character": 128
-                }
-            },
-            "severity": "Error",
-            "code": "256"
-        },
-        {
-            "file": "c:\\Users\\venuadmin\\AppData\\Roaming\\MetaQuotes\\Terminal\\2191F4A3D14D7B4B1EBB84F924777883\\MQL4\\Experts\\V-TV-Signals\\V_TV_CROSSSingleCandleReversal3.mqh",
-            "message": "undeclared identifier 'SeqSellProfitTarget'",
-            "range": {
-                "start": {
-                    "line": 107,
-                    "character": 9
-                },
-                "end": {
-                    "line": 107,
-                    "character": 109
-                }
-            },
-            "severity": "Error",
-            "code": "256"
-        },
-        {
-            "file": "c:\\Users\\venuadmin\\AppData\\Roaming\\MetaQuotes\\Terminal\\2191F4A3D14D7B4B1EBB84F924777883\\MQL4\\Experts\\V-TV-Signals\\V_TV_CROSSSingleCandleReversal3.mqh",
-            "message": "undeclared identifier 'SeqBuyProfitTarget'",
-            "range": {
-                "start": {
-                    "line": 108,
-                    "character": 0
-                },
-                "end": {
-                    "line": 108,
-                    "character": 100
-                }
-            },
-            "severity": "Error",
-            "code": "256"
-        },
-        {
-            "file": "c:\\Users\\venuadmin\\AppData\\Roaming\\MetaQuotes\\Terminal\\2191F4A3D14D7B4B1EBB84F924777883\\MQL4\\Experts\\V-TV-Signals\\V_TV_CROSSSingleCandleReversal3.mqh",
-            "message": "undeclared identifier 'ProcessSeqSellOrders'",
-            "range": {
-                "start": {
-                    "line": 110,
-                    "character": 9
-                },
-                "end": {
-                    "line": 110,
-                    "character": 109
-                }
-            },
-            "severity": "Error",
-            "code": "256"
-        },
-        {
-            "file": "c:\\Users\\venuadmin\\AppData\\Roaming\\MetaQuotes\\Terminal\\2191F4A3D14D7B4B1EBB84F924777883\\MQL4\\Experts\\V-TV-Signals\\V_TV_CROSSSingleCandleReversal3.mqh",
-            "message": "',' - unexpected token",
-            "range": {
-                "start": {
-                    "line": 110,
-                    "character": 35
-                },
-                "end": {
-                    "line": 110,
-                    "character": 135
-                }
-            },
-            "severity": "Error",
-            "code": "149"
-        },
-        {
-            "file": "c:\\Users\\venuadmin\\AppData\\Roaming\\MetaQuotes\\Terminal\\2191F4A3D14D7B4B1EBB84F924777883\\MQL4\\Experts\\V-TV-Signals\\V_TV_CROSSSingleCandleReversal3.mqh",
-            "message": "'false' - some operator expected",
-            "range": {
-                "start": {
-                    "line": 110,
-                    "character": 30
-                },
-                "end": {
-                    "line": 110,
-                    "character": 130
-                }
-            },
-            "severity": "Error",
-            "code": "152"
-        },
-        {
-            "file": "c:\\Users\\venuadmin\\AppData\\Roaming\\MetaQuotes\\Terminal\\2191F4A3D14D7B4B1EBB84F924777883\\MQL4\\Experts\\V-TV-Signals\\V_TV_CROSSSingleCandleReversal3.mqh",
-            "message": "',' - unexpected token",
-            "range": {
-                "start": {
-                    "line": 110,
-                    "character": 41
-                },
-                "end": {
-                    "line": 110,
-                    "character": 141
-                }
-            },
-            "severity": "Error",
-            "code": "149"
-        },
-        {
-            "file": "c:\\Users\\venuadmin\\AppData\\Roaming\\MetaQuotes\\Terminal\\2191F4A3D14D7B4B1EBB84F924777883\\MQL4\\Experts\\V-TV-Signals\\V_TV_CROSSSingleCandleReversal3.mqh",
-            "message": "')' - unexpected token",
-            "range": {
-                "start": {
-                    "line": 110,
-                    "character": 47
-                },
-                "end": {
-                    "line": 110,
-                    "character": 147
-                }
-            },
-            "severity": "Error",
-            "code": "149"
-        },
-        {
-            "file": "c:\\Users\\venuadmin\\AppData\\Roaming\\MetaQuotes\\Terminal\\2191F4A3D14D7B4B1EBB84F924777883\\MQL4\\Experts\\V-TV-Signals\\V_TV_CROSSSingleCandleReversal3.mqh",
-            "message": "expression has no effect",
-            "range": {
-                "start": {
-                    "line": 110,
-                    "character": 42
-                },
-                "end": {
-                    "line": 110,
-                    "character": 142
-                }
-            },
-            "severity": "Warning",
-            "code": "95"
-        },
-        {
-            "file": "c:\\Users\\venuadmin\\AppData\\Roaming\\MetaQuotes\\Terminal\\2191F4A3D14D7B4B1EBB84F924777883\\MQL4\\Experts\\V-TV-Signals\\V_TV_CROSSSingleCandleReversal3.mqh",
-            "message": "undeclared identifier 'SeqSellProfitTarget'",
-            "range": {
-                "start": {
-                    "line": 112,
-                    "character": 9
-                },
-                "end": {
-                    "line": 112,
-                    "character": 109
-                }
-            },
-            "severity": "Error",
-            "code": "256"
-        },
-        {
-            "file": "c:\\Users\\venuadmin\\AppData\\Roaming\\MetaQuotes\\Terminal\\2191F4A3D14D7B4B1EBB84F924777883\\MQL4\\Experts\\V-TV-Signals\\V_TV_CROSSSingleCandleReversal3.mqh",
-            "message": "undeclared identifier 'SellProfitTargetInput'",
-            "range": {
-                "start": {
-                    "line": 112,
-                    "character": 29
-                },
-                "end": {
-                    "line": 112,
-                    "character": 129
-                }
-            },
-            "severity": "Error",
-            "code": "256"
-        },
-        {
-            "file": "c:\\Users\\venuadmin\\AppData\\Roaming\\MetaQuotes\\Terminal\\2191F4A3D14D7B4B1EBB84F924777883\\MQL4\\Experts\\V-TV-Signals\\V_TV_CROSSSingleCandleReversal3.mqh",
-            "message": "undeclared identifier 'SeqBuyProfitTarget'",
-            "range": {
-                "start": {
-                    "line": 113,
-                    "character": 9
-                },
-                "end": {
-                    "line": 113,
-                    "character": 109
-                }
-            },
-            "severity": "Error",
-            "code": "256"
-        },
-        {
-            "file": "c:\\Users\\venuadmin\\AppData\\Roaming\\MetaQuotes\\Terminal\\2191F4A3D14D7B4B1EBB84F924777883\\MQL4\\Experts\\V-TV-Signals\\V_TV_CROSSSingleCandleReversal3.mqh",
-            "message": "undeclared identifier 'BuyProfitTargetInput'",
-            "range": {
-                "start": {
-                    "line": 113,
-                    "character": 28
-                },
-                "end": {
-                    "line": 113,
-                    "character": 128
                 }
             },
             "severity": "Error",
