@@ -9,7 +9,7 @@ input double StopLossValue = 20.00;//equity -10;
 input double TPValue       = 0.50;
 
 double BaseLot             = 0.01;
-double GapPrice            = 20;//50.0;
+double GapPrice            = 0;//20;//50.0;
 
 int    MagicNumber         = 5050801;
 int    Slippage            = 70;
@@ -22,7 +22,7 @@ datetime lastM5BarTime = 0;
 datetime g_m1BarStartTime = 0;
 bool     g_m1GapChecked   = false;
 
-int maxOrderAfterTrendChanged=1;
+int maxOrderAfterTrendChanged=2;
 int countOrderCountAfterTrendChanged=0;
 
 //+------------------------------------------------------------------+
@@ -45,43 +45,121 @@ int OnInit()
 //+------------------------------------------------------------------+
 
 bool isOpenNextOrderAfterProfitClose=true;
+
+//+------------------------------------------------------------------+
+//|                                                                  |
+//+------------------------------------------------------------------+
+void CloseOrdersAfterOneHourIfSmallLoss()
+  {
+   for(int i = OrdersTotal() - 1; i >= 0; i--)
+     {
+      if(!OrderSelect(i, SELECT_BY_POS, MODE_TRADES))
+         continue;
+
+      if(OrderSymbol() != Symbol())
+         continue;
+
+      if(OrderMagicNumber() != MagicNumber)
+         continue;
+
+      int orderType = OrderType();
+
+      if(orderType != OP_BUY && orderType != OP_SELL)
+         continue;
+
+      int openSeconds = (int)(TimeCurrent() - OrderOpenTime());
+
+      double profit = OrderProfit() + OrderSwap() + OrderCommission();
+
+      // Close after 1 hour if loss is smaller than $1
+      // Example: -0.10, -0.50, -0.99 will close
+      // But -1.00, -2.00, -5.00 will NOT close
+      double allowedLoss = 0;
+
+      // 1 hour
+      if(openSeconds >= 3600)
+         allowedLoss = -1.0;
+
+      // 2 hours
+      if(openSeconds >= 7200)
+         allowedLoss = -2.0;
+
+      // // 3 hours
+      // if(openSeconds >= 10800*2)
+      //    allowedLoss = -3.0;
+
+      // close condition
+      if(profit < 0 && profit > allowedLoss)
+        {
+         RefreshRates();
+
+         double closePrice = OrderType() == OP_BUY ? Bid : Ask;
+
+         bool closed = OrderClose(
+                          OrderTicket(),
+                          OrderLots(),
+                          closePrice,
+                          Slippage,
+                          clrOrange
+                       );
+
+         if(closed)
+           {
+            Print("Time-based loss close. Ticket:",
+                  OrderTicket(),
+                  " Profit:",
+                  DoubleToString(profit,2),
+                  " OpenSeconds:",
+                  openSeconds);
+           }
+        }
+     }
+  }
+//+------------------------------------------------------------------+
+//|                                                                  |
+//+------------------------------------------------------------------+
 void OnTick()
   {
 
-   datetime now = TimeCurrent();
 
-   int hour = TimeHour(now);
-   int minute = TimeMinute(now);
-   if(minute==0)
-   {
-      countOrderCountAfterTrendChanged=0;
-   }
-
-   int day  = TimeDayOfWeek(now);
-
-
-   // CloseAllOrdersIfEquityDrop();
+   // CloseOrdersAfterOneHourIfSmallLoss();
 
 
    CloseBasketByProfit(OP_BUY);
    CloseBasketByProfit(OP_SELL);
 
+   datetime now = TimeCurrent();
+
+   int hour = TimeHour(now);
+   int minute = TimeMinute(now);
+   if(minute==0 || minute==30)
+     {
+      // countOrderCountAfterTrendChanged=0;
+     }
+
+   int day  = TimeDayOfWeek(now);
+
+
+// CloseAllOrdersIfEquityDrop();
+
+
+
 
    if(AccountBalance()<=0)
-{
-   return;
-}
+     {
+      return;
+     }
 
 // if(IsAfter30SecFromNewM1Bar())
 
-   // Print("TrendGap "+GetLatestTrendGap()+" "+GetLatestTrendGapInMinutes());
+// Print("TrendGap "+GetLatestTrendGap()+" "+GetLatestTrendGapInMinutes());
 
-   // if((GetLatestTrendGap()==0 || GetLatestTrendGap()>50 )&& !IsPauseTradingTimeUTC() && countOrderCountAfterTrendChanged<maxOrderAfterTrendChanged)
- 
-   //  if(( (GetLatestTrendGapInMinutes()==0 ||GetLatestTrendGapInMinutes()>30) && !IsFlatMarket() && !IsPauseTradingTimeUTC() && countOrderCountAfterTrendChanged<maxOrderAfterTrendChanged))
-    if((   !IsFlatMarket() && !IsPauseTradingTimeUTC() && countOrderCountAfterTrendChanged<maxOrderAfterTrendChanged))
- 
-   CheckNewBaseSignal();
+// if((GetLatestTrendGap()==0 || GetLatestTrendGap()>50 )&& !IsPauseTradingTimeUTC() && countOrderCountAfterTrendChanged<maxOrderAfterTrendChanged)
+
+//  if(( (GetLatestTrendGapInMinutes()==0 ||GetLatestTrendGapInMinutes()>30) && !IsFlatMarket() && !IsPauseTradingTimeUTC() && countOrderCountAfterTrendChanged<maxOrderAfterTrendChanged))
+   if(( !IsPauseTradingTimeUTC() && !IsFlatMarket() && countOrderCountAfterTrendChanged<maxOrderAfterTrendChanged))
+
+      CheckNewBaseSignal();
    else
      {
       // Print("CheckNewBaseSignal Missing ",GetLatestTrendGap());
@@ -90,10 +168,10 @@ void OnTick()
 
      }
 
-   //   Print("Strong Candle Signal: ", CheckAndDrawStrongCandle(100));
+//   Print("Strong Candle Signal: ", CheckAndDrawStrongCandle(100));
 
- CheckStrongCandleAndTrade();
- 
+   CheckStrongCandleAndTrade();
+
 
 
 // Parallel recovery for both BUY and SELL
@@ -111,11 +189,14 @@ void OnTick()
    DrawDashboard();
 // DrawEveryCandleDiffFrom5th();
 
-    CheckTrendChangedCloseOpposite();
+   CheckTrendChangedCloseOpposite();
 
   }
+//+------------------------------------------------------------------+
+//|                                                                  |
+//+------------------------------------------------------------------+
 int GetQuickScalpSignal()
-{
+  {
    double ema9  = iMA(Symbol(), PERIOD_M1, 9, 0, MODE_EMA, PRICE_CLOSE, 0);
    double ema21 = iMA(Symbol(), PERIOD_M1, 21,0, MODE_EMA, PRICE_CLOSE, 0);
 
@@ -131,80 +212,84 @@ int GetQuickScalpSignal()
 
    double emaGap = MathAbs(ema9 - ema21);
 
-   // EMA slope
+// EMA slope
    double emaSlope = MathAbs(ema9 - ema9_prev);
 
-   // avoid dead market
+// avoid dead market
    if(atr < 250)
       return 0;
 
-   // avoid flat EMA
+// avoid flat EMA
    if(emaGap < 30)
       return 0;
 
-   // avoid weak EMA movement
+// avoid weak EMA movement
    if(emaSlope < 10)
       return 0;
 
-   // current candle body
+// current candle body
    double candleBody = MathAbs(Bid - candleOpen);
 
-   // avoid tiny candles
+// avoid tiny candles
    if(candleBody < 40)
       return 0;
 
-   // =========================
-   // BUY MOMENTUM
-   // =========================
+// =========================
+// BUY MOMENTUM
+// =========================
    if(ema9 > ema21 &&
       Bid > ema9 &&
       rsi > 55 &&
       gap > 60)
-   {
+     {
       return 1;
-   }
+     }
 
-   // =========================
-   // SELL MOMENTUM
-   // =========================
+// =========================
+// SELL MOMENTUM
+// =========================
    if(ema9 < ema21 &&
       Bid < ema9 &&
       rsi < 45 &&
       gap < -60)
-   {
+     {
       return -1;
-   }
+     }
 
    return 0;
-}
-  datetime lastStrongCandleTradeTime = 0;
+  }
+datetime lastStrongCandleTradeTime = 0;
 
+//+------------------------------------------------------------------+
+//|                                                                  |
+//+------------------------------------------------------------------+
 void CheckStrongCandleAndTrade()
-{
+  {
    datetime candleTime = iTime(Symbol(), PERIOD_M1, 0);
 
-   // already traded this candle
+// already traded this candle
    if(candleTime == lastStrongCandleTradeTime)
       return;
 
-   // int signal = CheckAndDrawStrongCandle(80);
+// int signal = CheckAndDrawStrongCandle(80);
 
    int signal = GetQuickScalpSignal();
-bool buyOpen  = CountOrders(OP_BUY) > 0;
+   bool buyOpen  = CountOrders(OP_BUY) > 0;
    bool sellOpen = CountOrders(OP_SELL) > 0;
    if(signal == 1 && !buyOpen)
-   {
+     {
       OpenOrder(OP_BUY, GetLot(BaseLot), MakeComment(OP_BUY, 0));
 
       lastStrongCandleTradeTime = candleTime;
-   }
-   else if(signal == -1 && !sellOpen)
-   {
-      OpenOrder(OP_SELL, GetLot(BaseLot), MakeComment(OP_SELL, 0));
+     }
+   else
+      if(signal == -1 && !sellOpen)
+        {
+         OpenOrder(OP_SELL, GetLot(BaseLot), MakeComment(OP_SELL, 0));
 
-      lastStrongCandleTradeTime = candleTime;
-   }
-}
+         lastStrongCandleTradeTime = candleTime;
+        }
+  }
 //+------------------------------------------------------------------+
 //|                                                                  |
 //+------------------------------------------------------------------+
@@ -212,7 +297,7 @@ double g_sarPeriod        = 0.56;
 int    g_sarStepSize      = 25;
 int    g_sarAccel         = 9;
 int GetStrongSARSignal()
-{
+  {
    double ema21  = iMA(Symbol(),0,21,0,MODE_EMA,PRICE_CLOSE,1);
    double ema50  = iMA(Symbol(),0,50,0,MODE_EMA,PRICE_CLOSE,1);
    double ema200 = iMA(Symbol(),0,200,0,MODE_EMA,PRICE_CLOSE,1);
@@ -226,18 +311,18 @@ int GetStrongSARSignal()
    double sar1 = iSAR(Symbol(),0,step,maxStep,1);
    double sar2 = iSAR(Symbol(),0,step,maxStep,2);
 
-   // avoid dead / flat market
+// avoid dead / flat market
    if(atr < 300)
       return 0;
 
-   // avoid inside EMA zone
+// avoid inside EMA zone
    double top    = MathMax(ema21, ema50);
    double bottom = MathMin(ema21, ema50);
 
    if(Close[1] <= top && Close[1] >= bottom)
       return 0;
 
-   // candle body / wick
+// candle body / wick
    double body      = MathAbs(Close[1] - Open[1]);
    double upperWick = High[1] - MathMax(Open[1], Close[1]);
    double lowerWick = MathMin(Open[1], Close[1]) - Low[1];
@@ -245,44 +330,47 @@ int GetStrongSARSignal()
    if(body <= 0)
       return 0;
 
-   // =========================
-   // BUY SIGNAL
-   // =========================
+// =========================
+// BUY SIGNAL
+// =========================
    if(sar1 < Close[1] && sar2 >= Close[2])
-   {
+     {
       if(ema21 > ema50 && ema50 > ema200)
-      {
+        {
          if(Close[1] > ema21)
-         {
+           {
             if(rsi >= 55)
-            {
+              {
                if(upperWick <= body * 1.5)
                   return 1;
-            }
-         }
-      }
-   }
+              }
+           }
+        }
+     }
 
-   // =========================
-   // SELL SIGNAL
-   // =========================
+// =========================
+// SELL SIGNAL
+// =========================
    if(sar1 > Close[1] && sar2 <= Close[2])
-   {
+     {
       if(ema21 < ema50 && ema50 < ema200)
-      {
+        {
          if(Close[1] < ema21)
-         {
+           {
             if(rsi <= 45)
-            {
+              {
                if(lowerWick <= body * 1.5)
                   return -1;
-            }
-         }
-      }
-   }
+              }
+           }
+        }
+     }
 
    return 0;
-}
+  }
+//+------------------------------------------------------------------+
+//|                                                                  |
+//+------------------------------------------------------------------+
 void CloseAllOrdersIfEquityDrop()
   {
 // double dynamicSL = StopLossValue;
@@ -290,10 +378,10 @@ void CloseAllOrdersIfEquityDrop()
 // if(AccountEquity() > AccountBalance() - dynamicSL)
 //    return;
 
-   // if(AccountEquity() > AccountBalance()/2)
-   //    return;
+// if(AccountEquity() > AccountBalance()/2)
+//    return;
 
-   // Print("Equity protection triggered. Closing all orders.");
+// Print("Equity protection triggered. Closing all orders.");
 
    for(int i = OrdersTotal() - 1; i >= 0; i--)
      {
@@ -390,24 +478,24 @@ double GetBasketTP()
 bool IsPauseTradingTimeUTC()
   {
 // return false;
-   
+
 
    datetime now = TimeGMT();
 
    int hour = TimeHour(now);
    int day  = TimeDayOfWeek(now);
 
-    if( hour == 13 || hour == 23 || hour == 0)
+   if(hour == 13 || hour == 23 || hour == 0)
       return true;
 
-   //DAY TIME ON 
-   // if(hour < 3 || hour > 18 || hour == 13)
-   //    return true;
+//DAY TIME ON
+// if(hour < 3 || hour > 18 || hour == 13)
+//    return true;
 
 
-return false;
+   return false;
 
-//DAY TIME ON 
+//DAY TIME ON
    if(hour <4 || hour > 14)
       return true;
 
@@ -457,11 +545,11 @@ double GetBasketSL()
 
    return BasketStopLoss * GetBalanceMultiplier();
    /*
-//   dynamicSL =;
+   //   dynamicSL =;
 
 
-// double balance = AccountBalance();
-//    double equity  = AccountEquity();
+   // double balance = AccountBalance();
+   //    double equity  = AccountEquity();
    double SL_values=MathMax(BasketStopLoss * GetBalanceMultiplier(), AccountEquity() / 2);
    if(IsPauseTradingTimeUTC())
      {
@@ -509,8 +597,11 @@ double GetLiveM5Gap()
 //+------------------------------------------------------------------+
 
 
+//+------------------------------------------------------------------+
+//|                                                                  |
+//+------------------------------------------------------------------+
 double GetTrendGap()
-{
+  {
    double ema9  = iMA(Symbol(), PERIOD_M5, 9, 0, MODE_EMA, PRICE_CLOSE, 0);
    double ema21 = iMA(Symbol(), PERIOD_M5, 21, 0, MODE_EMA, PRICE_CLOSE, 0);
 
@@ -518,8 +609,11 @@ double GetTrendGap()
 
    return  MathAbs(ema9 - ema21);
 
-   
-}
+
+  }
+//+------------------------------------------------------------------+
+//|                                                                  |
+//+------------------------------------------------------------------+
 int GetTrendDirection()
   {
    double ema9  = iMA(Symbol(), PERIOD_M5, 9, 0, MODE_EMA, PRICE_CLOSE, 0);
@@ -692,6 +786,15 @@ void CheckTrendChangedCloseOpposite()
       // return;
      }
 
+     if(  trend == lastTrend)
+
+     {
+
+
+      // countOrderCountAfterTrendChanged=0;
+
+     }
+
    if(trend != lastTrend && lastTrend != 0 && trend != 0)
      {
 
@@ -750,26 +853,26 @@ void CheckTrendChangedCloseOpposite()
      }
 
 
-   // if(GetLatestTrendGap()>50)
-   //   {
-      // if(trend == 1)
-      //    CloseOrdersByType(OP_SELL);
+// if(GetLatestTrendGap()>50)
+//   {
+// if(trend == 1)
+//    CloseOrdersByType(OP_SELL);
 
-      // if(trend == -1)
-      //    CloseOrdersByType(OP_BUY);
+// if(trend == -1)
+//    CloseOrdersByType(OP_BUY);
 
-   //   }
+//   }
 
    double gap = MathAbs(livePrice - trendChangedPrice);
 
    if(gap < MinGapFromTrendChange)
       return;
 
-   // if(trend == 1)
-   //    CloseOrdersByType(OP_SELL);
+// if(trend == 1)
+//    CloseOrdersByType(OP_SELL);
 
-   // if(trend == -1)
-   //    CloseOrdersByType(OP_BUY);
+// if(trend == -1)
+//    CloseOrdersByType(OP_BUY);
   }
 #define TREND_HISTORY_COUNT 50
 
@@ -823,16 +926,19 @@ double GetLatestTrendGap()
    return MathAbs(priceHist[0] - priceHist[1]);
   }
 
+//+------------------------------------------------------------------+
+//|                                                                  |
+//+------------------------------------------------------------------+
 double GetLatestTrendGapInMinutes()
-{
-   // Need at least 2 trend changes
+  {
+// Need at least 2 trend changes
    if(timeHist[0] == 0 || timeHist[1] == 0)
       return 0;
 
    double seconds = MathAbs(timeHist[0] - timeHist[1]);
 
    return seconds / 60.0;
-}
+  }
 
 //--------------------------------------------------
 // DISPLAY LAST 5 TREND CHANGES
@@ -951,6 +1057,7 @@ bool IsFlatMarket()
 // EMA distance
    double emaGap = MathAbs(ema9_now - ema21_now);
 
+
 // EMA slope
    double ema9Slope  = MathAbs(ema9_now - ema9_prev);
    double ema21Slope = MathAbs(ema21_now - ema21_prev);
@@ -968,6 +1075,9 @@ bool IsFlatMarket()
 
    avgRange = avgRange / 5;
 
+   // Print("EMA Gap: ", DoubleToString(emaGap, 2), " EMA9 Slope: ", DoubleToString(ema9Slope, 2), " EMA21 Slope: ", DoubleToString(ema21Slope, 2), " Avg Range: ", DoubleToString(avgRange, 2));
+
+
 // FLAT CONDITIONS
    if(emaGap < 30 &&
       ema9Slope < 20 &&
@@ -977,48 +1087,56 @@ bool IsFlatMarket()
       return true;
      }
 
+   //   if(emaGap<100) return true;
+
    return false;
   }
 
-  // Detect current forming candle movement
+// Detect current forming candle movement
 // Returns:
 //  1  = bullish strong candle
 // -1  = bearish strong candle
 //  0  = normal candle
 
+//+------------------------------------------------------------------+
+//|                                                                  |
+//+------------------------------------------------------------------+
 int GetStrongFormingCandleSignal(double minGap = 100)
-{
-   // Current forming candle
+  {
+// Current forming candle
    double candleOpen  = iOpen(Symbol(), PERIOD_M1, 0);
 
    double livePrice   = Bid;
 
-   // Raw BTCUSD price difference
+// Raw BTCUSD price difference
    double gap = livePrice - candleOpen;
 
-   // Strong bullish candle
+// Strong bullish candle
    if(gap >= minGap)
       return 1;
 
-   // Strong bearish candle
+// Strong bearish candle
    if(gap <= -minGap)
       return -1;
 
    return 0;
-}
+  }
 
+//+------------------------------------------------------------------+
+//|                                                                  |
+//+------------------------------------------------------------------+
 int CheckAndDrawStrongCandle(double minGap = 100)
-{
+  {
    double candleOpen = iOpen(Symbol(), PERIOD_M1, 0);
 
    double livePrice  = Bid;
 
    double gap = livePrice - candleOpen;
 
-   // if(gap>50)
-   // Print("Current M1 candle gap: ", DoubleToString(gap, 2));
+// if(gap>50)
+// Print("Current M1 candle gap: ", DoubleToString(gap, 2));
 
-   // no strong candle
+// no strong candle
    if(MathAbs(gap) < minGap)
       return 0;
 
@@ -1030,38 +1148,38 @@ int CheckAndDrawStrongCandle(double minGap = 100)
 
    int signal = 0;
 
-   // BUY candle
+// BUY candle
    if(gap > 0)
-   {
+     {
       txt = "BUY " + DoubleToString(gap,2);
 
       clr = clrLime;
 
       signal = 1;
-   }
-   // SELL candle
+     }
+// SELL candle
    else
-   {
+     {
       txt = "SELL " + DoubleToString(MathAbs(gap),2);
 
       clr = clrRed;
 
       signal = -1;
-   }
+     }
 
-   // Draw text
-   // ObjectCreate(0, name, OBJ_TEXT, 0, TimeCurrent(), livePrice);
+// Draw text
+// ObjectCreate(0, name, OBJ_TEXT, 0, TimeCurrent(), livePrice);
 
-   // ObjectSetString(0, name, OBJPROP_TEXT, txt);
+// ObjectSetString(0, name, OBJPROP_TEXT, txt);
 
-   // ObjectSetInteger(0, name, OBJPROP_COLOR, clr);
+// ObjectSetInteger(0, name, OBJPROP_COLOR, clr);
 
-   // ObjectSetInteger(0, name, OBJPROP_FONTSIZE, 10);
+// ObjectSetInteger(0, name, OBJPROP_FONTSIZE, 10);
 
-   // ObjectSetString(0, name, OBJPROP_FONT, "Arial Bold");
+// ObjectSetString(0, name, OBJPROP_FONT, "Arial Bold");
 
    return signal;
-}
+  }
 //+------------------------------------------------------------------+
 void CheckNewBaseSignal()
   {
@@ -1070,7 +1188,7 @@ void CheckNewBaseSignal()
 // GapPrice = GapPrice + (MathRand() % 11 - 5);
 
 
-   datetime m5Time = iTime(Symbol(), PERIOD_M5, 1);
+   datetime m5Time = iTime(Symbol(), PERIOD_M1, 1);
 
    if(m5Time == lastM5BarTime)
       return;
@@ -1085,15 +1203,15 @@ void CheckNewBaseSignal()
 
    int trend = GetTrendDirection();
 
-   //  int trend =GetStrongSARSignal();
+//  int trend =GetStrongSARSignal();
 
    bool buyOpen  = CountOrders(OP_BUY) > 0;
    bool sellOpen = CountOrders(OP_SELL) > 0;
 
 // BUY base order: price gap UP + BUY trend
-   if(gap > GapPrice && trend == 1 && !buyOpen)
+   if(gap >= GapPrice && trend == 1 && !buyOpen)
      {
-      
+
       OpenOrder(OP_BUY, GetLot(BaseLot), MakeComment(OP_BUY, 0));
 
       lastM5BarTime = m5Time;
@@ -1103,7 +1221,7 @@ void CheckNewBaseSignal()
      }
 
 // SELL base order: price gap DOWN + SELL trend
-   if(gap < -GapPrice && trend == -1 && !sellOpen)
+   if(gap <= -GapPrice && trend == -1 && !sellOpen)
      {
       OpenOrder(OP_SELL, GetLot(BaseLot), MakeComment(OP_SELL, 0));
 
@@ -1170,7 +1288,7 @@ void ManageRecovery(int orderType)
 
    double profit = GetBasketProfit(orderType);
 
-   if(profit >= 0)
+   if(profit > 0)
       return;
 
    int hour = TimeHour(TimeCurrent());
@@ -1209,34 +1327,34 @@ void ManageRecovery(int orderType)
 // if(nextStage == 1) { requiredGap = 30;   nextLot = 0.02; }
    if(nextStage == 1)
      {
-      requiredGap = 300;
+      requiredGap = 500;
       nextLot = 0.01;
      }
-   if(nextStage == 2)
-     {
-      requiredGap = 600;
-      nextLot = 0.01;
-     }
-   if(nextStage == 3)
-     {
-      requiredGap = 1000;
-      nextLot = 0.01;
-     }
-   // if(nextStage == 4)
+   // if(nextStage == 2)
    //   {
-   //    requiredGap = 300;
-   //    nextLot = 0.03;
+   //    requiredGap = 800;
+   //    nextLot = 0.01;
    //   }
-   // if(nextStage == 5)
+   // if(nextStage == 3)
    //   {
-   //    requiredGap = 300;
-   //    nextLot = 0.03;
+   //    requiredGap = 1000;
+   //    nextLot = 0.01;
    //   }
-   // if(nextStage == 6)
-   //   {
-   //    requiredGap = 500;
-   //    nextLot = 0.04;
-   //   }
+// if(nextStage == 4)
+//   {
+//    requiredGap = 300;
+//    nextLot = 0.03;
+//   }
+// if(nextStage == 5)
+//   {
+//    requiredGap = 300;
+//    nextLot = 0.03;
+//   }
+// if(nextStage == 6)
+//   {
+//    requiredGap = 500;
+//    nextLot = 0.04;
+//   }
 
 
 
@@ -1257,13 +1375,15 @@ void ManageRecovery(int orderType)
 
 
 
-   if(nextStage > 8)
+   if(nextStage > 1)
       return;
 
    if(nightSession)
       requiredGap = requiredGap + 50;
 
    bool canRecover = false;
+
+   // requiredGap=200;
 
 // BUY recovery: price must move DOWN from latest BUY order
    if(orderType == OP_BUY && diff <= -requiredGap)
@@ -1282,13 +1402,13 @@ void ManageRecovery(int orderType)
 
 
 
-      if(GetTrendDirection()!=-1 && orderType==OP_BUY )
+      if(GetTrendDirection()==1 && orderType==OP_BUY)
 
          OpenOrder(orderType, GetLot(nextLot), MakeComment(orderType, nextStage));
 
       else
 
-         if(GetTrendDirection()!=1 && orderType==OP_SELL  )
+         if(GetTrendDirection()==-1 && orderType==OP_SELL)
 
             OpenOrder(orderType, GetLot(nextLot), MakeComment(orderType, nextStage));
      }
@@ -2015,14 +2135,14 @@ void DrawDashboard()
    string trendText = GetTrendText() ;
 
    if(IsFlatMarket())
-   {
-trendText=trendText+" (FLAT)";
-   }
+     {
+      trendText=trendText+" (FLAT)";
+     }
    else
-    
-   {
-trendText=trendText+" (Not FLAT)";
-   }
+
+     {
+      trendText=trendText+" (Not FLAT)";
+     }
 
 
 
@@ -2064,8 +2184,8 @@ trendText=trendText+" (Not FLAT)";
                290,50,
                buyClr);
 
-               string marketStatus=IsPauseTradingTimeUTC()?"(Paused)":"Active";
-               
+   string marketStatus=IsPauseTradingTimeUTC()?"(Paused)":"Active";
+
 
    CreateLabel("DXB_SELLPL",
                "SELL Basket  : $" + DoubleToString(sellPL,2)+" "+marketStatus+" ("+countOrderCountAfterTrendChanged+"<"+maxOrderAfterTrendChanged+")",
@@ -2200,7 +2320,7 @@ void DrawTrendChangeGap(
 
    string name = "TrendGap_" + IntegerToString((int)t);
 
-   // Print("trendText ",trendText);
+// Print("trendText ",trendText);
 
 // Create chart text
    ObjectCreate(0, name, OBJ_TEXT, 0, t, newPrice);
