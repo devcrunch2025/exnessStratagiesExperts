@@ -47,21 +47,86 @@ int OnInit()
 
 bool IsPriceAwayFromEMAs(double minDistance)
 {
-
-   minDistance=100;
    double ema9  = iMA(Symbol(), PERIOD_M1, 9, 0, MODE_EMA, PRICE_CLOSE, 0);
    double ema21 = iMA(Symbol(), PERIOD_M1, 21, 0, MODE_EMA, PRICE_CLOSE, 0);
+
+   double ema211 = iMA(Symbol(), PERIOD_M5, 51, 0, MODE_EMA, PRICE_CLOSE, 0);
+
 
    double dist9  = MathAbs(Bid - ema9);
    double dist21 = MathAbs(Bid - ema21);
 
-   if(dist9>50)
-   Print("Distance from EMA9: ", dist9, " Distance from EMA21: ", dist21);
+   datetime candleTime = iTime(Symbol(), PERIOD_M1, 0);
 
-   if(dist9 >= minDistance && dist21 >= minDistance)
+   // KEEP HISTORY ON CHART
+   DrawEMADistanceHistory(
+      "EMA9_" + IntegerToString((int)candleTime),
+      dist9,
+      ema9,
+      clrLime
+   );
+
+   DrawEMADistanceHistory(
+      "EMA21_" + IntegerToString((int)candleTime),
+      dist21,
+      ema21,
+      clrRed
+   );
+double totalDist = dist9 + dist21;
+
+   // TOTAL DISTANCE
+if(totalDist>300) DrawEMADistanceHistory(
+   "EMA_TOTAL_" + IntegerToString((int)candleTime),
+   totalDist,
+   Bid + 200,
+   clrWhite
+);
+
+   if((dist9 >= minDistance && dist21 >= minDistance &&  totalDist < 500) || (totalDist > 300 && totalDist < 500) )
       return true;
 
+
+
    return false;
+}
+
+void DrawEMADistanceHistory(
+   string name,
+   double distance,
+   double price,
+   color clr
+)
+{
+   // only show above 50
+   if(distance < 50)
+      return;
+
+   // already exists
+   if(ObjectFind(0, name) >= 0)
+      return;
+
+   datetime t = Time[0];
+
+   double y = price + 100;
+
+   ObjectCreate(0, name, OBJ_TEXT, 0, t, y);
+
+   ObjectSetString(
+      0,
+      name,
+      OBJPROP_TEXT,
+      DoubleToString(distance, 0)
+   );
+
+   ObjectSetInteger(0, name, OBJPROP_COLOR, clr);
+
+   ObjectSetInteger(0, name, OBJPROP_FONTSIZE, 9);
+
+   ObjectSetString(0, name, OBJPROP_FONT, "Arial Bold");
+
+   ObjectSetInteger(0, name, OBJPROP_SELECTABLE, false);
+
+   ObjectSetInteger(0, name, OBJPROP_HIDDEN, true);
 }
 
 bool isOpenNextOrderAfterProfitClose=true;
@@ -1498,7 +1563,7 @@ void ManageRecovery(int orderType)
 // if(nextStage == 1) { requiredGap = 30;   nextLot = 0.02; }
    if(nextStage == 1)
      {
-      requiredGap = 1000;
+      requiredGap = 2000;
       nextLot = 0.01;
      }
 // if(nextStage == 2)
