@@ -132,10 +132,10 @@ void OnTick()
 
    int hour = TimeHour(now);
    int minute = TimeMinute(now);
-   if(minute==0 || minute==30)
-     {
-      // countOrderCountAfterTrendChanged=0;
-     }
+   // if(minute==0 || minute==30)
+   //   {
+   //    // countOrderCountAfterTrendChanged=0;
+   //   }
 
    int day  = TimeDayOfWeek(now);
 
@@ -1188,7 +1188,7 @@ void CheckNewBaseSignal()
 // GapPrice = GapPrice + (MathRand() % 11 - 5);
 
 
-   datetime m5Time = iTime(Symbol(), PERIOD_M1, 1);
+   datetime m5Time = iTime(Symbol(), PERIOD_M2, 1);
 
    if(m5Time == lastM5BarTime)
       return;
