@@ -45,6 +45,25 @@ int OnInit()
 
 //+------------------------------------------------------------------+
 
+bool IsPriceAwayFromEMAs(double minDistance)
+{
+
+   minDistance=100;
+   double ema9  = iMA(Symbol(), PERIOD_M1, 9, 0, MODE_EMA, PRICE_CLOSE, 0);
+   double ema21 = iMA(Symbol(), PERIOD_M1, 21, 0, MODE_EMA, PRICE_CLOSE, 0);
+
+   double dist9  = MathAbs(Bid - ema9);
+   double dist21 = MathAbs(Bid - ema21);
+
+   if(dist9>50)
+   Print("Distance from EMA9: ", dist9, " Distance from EMA21: ", dist21);
+
+   if(dist9 >= minDistance && dist21 >= minDistance)
+      return true;
+
+   return false;
+}
+
 bool isOpenNextOrderAfterProfitClose=true;
 
 //+------------------------------------------------------------------+
@@ -89,48 +108,50 @@ void CloseOrdersAfterOneHourIfSmallLoss()
       if(openSeconds >= 3600*3)
          allowedLoss = -3.0;
 
-         // 3 hours
+      // 3 hours
       if(openSeconds >= 3600*4)
          allowedLoss = -4.0;
 
-         if(openSeconds >= 3600*5)
+      if(openSeconds >= 3600*5)
          allowedLoss = -5.0;
 
-           if(openSeconds >= 3600*6)
+      if(openSeconds >= 3600*6)
          allowedLoss = -6.0;
 
-           if(openSeconds >= 3600*6)
+      if(openSeconds >= 3600*6)
          allowedLoss = -6.0;
 
-           if(openSeconds >= 3600*7)
+      if(openSeconds >= 3600*7)
          allowedLoss = -7.0;
 
-           if(openSeconds >= 3600*8)
+      if(openSeconds >= 3600*8)
          allowedLoss = -8.0;
 
-           if(openSeconds >= 3600*9)   
+      if(openSeconds >= 3600*9)
          allowedLoss = -9.0;
 
-           if(openSeconds >= 3600*10)   
+      if(openSeconds >= 3600*10)
          allowedLoss = -10.0;
 
 
-         allowedLoss=allowedLoss/2;
+      allowedLoss=allowedLoss/2;
 
       // close condition
       // if(  profit > allowedLoss && openSeconds>=3600)
-      if(  profit >= allowedLoss)
+      if(profit >= allowedLoss)
         {
          RefreshRates();
 
          double closePrice = OrderType() == OP_BUY ? Bid : Ask;
 
 
-   int openCount = CountOrders(OrderType());
+         int openCount = CountOrders(OrderType());
 
-   if(openCount>1 && OrderType()==OP_SELL) return ;
-   if(openCount>1 && OrderType()==OP_BUY) return ;
-   
+         if(openCount>1 && OrderType()==OP_SELL)
+            return ;
+         if(openCount>1 && OrderType()==OP_BUY)
+            return ;
+
 
          bool closed = OrderClose(
                           OrderTicket(),
@@ -140,8 +161,8 @@ void CloseOrdersAfterOneHourIfSmallLoss()
                           clrOrange
                        );
 
-                               lastOrderClosedTime=TimeCurrent();
-                               
+         lastOrderClosedTime=TimeCurrent();
+
 
 
          if(closed)
@@ -159,9 +180,29 @@ void CloseOrdersAfterOneHourIfSmallLoss()
 //+------------------------------------------------------------------+
 //|                                                                  |
 //+------------------------------------------------------------------+
+
+datetime resetCounterEMAs=0;
 void OnTick()
   {
 
+
+   if(resetCounterEMAs==0 || TimeCurrent() - resetCounterEMAs > 60*5)
+     {
+      
+
+   if(IsPriceAwayFromEMAs(100) && CountOrders(OP_BUY) == 0 && CountOrders(OP_SELL) == 0 && GetTrendDirection()!=0)
+   {
+      countOrderCountAfterTrendChanged=0;
+   }
+   else
+   {
+            countOrderCountAfterTrendChanged=maxOrderAfterTrendChanged;
+
+   }
+
+   resetCounterEMAs=TimeCurrent();
+
+}
 
    CloseOrdersAfterOneHourIfSmallLoss();
 
@@ -175,12 +216,12 @@ void OnTick()
    int minute = TimeMinute(now);
    int second = TimeSeconds(now);
 
-   // if((minute==0 && second<=10) || (minute==30 && second<=10))
-   //   {
-   //    //  countOrderCountAfterTrendChanged=0;
-   //   }
+// if((minute==0 && second<=10) || (minute==30 && second<=10))
+//   {
+//    //  countOrderCountAfterTrendChanged=0;
+//   }
 
-CheckEMACrossAndResetCounter(); 
+   CheckEMACrossAndResetCounter();
 
 
 
@@ -205,7 +246,7 @@ CheckEMACrossAndResetCounter();
 // if((GetLatestTrendGap()==0 || GetLatestTrendGap()>50 )&& !IsPauseTradingTimeUTC() && countOrderCountAfterTrendChanged<maxOrderAfterTrendChanged)
 
 //  if(( (GetLatestTrendGapInMinutes()==0 ||GetLatestTrendGapInMinutes()>30) && !IsFlatMarket() && !IsPauseTradingTimeUTC() && countOrderCountAfterTrendChanged<maxOrderAfterTrendChanged))
-   if(( !IsPauseTradingTimeUTC() && !IsFlatMarket() && countOrderCountAfterTrendChanged<maxOrderAfterTrendChanged))
+   if((!IsPauseTradingTimeUTC() && !IsFlatMarket() && countOrderCountAfterTrendChanged<maxOrderAfterTrendChanged))
 
       CheckNewBaseSignal();
    else
@@ -244,13 +285,16 @@ CheckEMACrossAndResetCounter();
 //|                                                                  |
 //+------------------------------------------------------------------+
 
-int g_lastEmaCrossDirection = 0; 
+int g_lastEmaCrossDirection = 0;
 //  1 = last cross was BUY
 // -1 = last cross was SELL
 //  0 = no cross yet
 
+//+------------------------------------------------------------------+
+//|                                                                  |
+//+------------------------------------------------------------------+
 void CheckEMACrossAndResetCounter()
-{
+  {
    double ema9_now   = iMA(Symbol(), PERIOD_M1, 9, 0, MODE_EMA, PRICE_CLOSE, 0);
    double ema21_now  = iMA(Symbol(), PERIOD_M1, 21, 0, MODE_EMA, PRICE_CLOSE, 0);
 
@@ -265,21 +309,24 @@ void CheckEMACrossAndResetCounter()
    if(ema9_prev >= ema21_prev && ema9_now < ema21_now)
       currentCross = -1;  // SELL cross
 
-   // reset only one time when new cross appears
+// reset only one time when new cross appears
    if(currentCross != 0 && currentCross != g_lastEmaCrossDirection)
-   {
-if(resetCounter)
+     {
+      if(resetCounter)
 
-      countOrderCountAfterTrendChanged= 0;
+         countOrderCountAfterTrendChanged= 0;
 
       g_lastEmaCrossDirection = currentCross;
 
       Print("EMA cross detected. Counter reset. Cross = ",
             currentCross == 1 ? "BUY" : "SELL");
- 
 
-   }
-}
+
+     }
+  }
+//+------------------------------------------------------------------+
+//|                                                                  |
+//+------------------------------------------------------------------+
 int GetQuickScalpSignal()
   {
    double ema9  = iMA(Symbol(), PERIOD_M1, 9, 0, MODE_EMA, PRICE_CLOSE, 0);
@@ -489,7 +536,7 @@ void CloseAllOrdersIfEquityDrop()
                                Slippage,
                                clrRed);
 
-                               lastOrderClosedTime=TimeCurrent();
+      lastOrderClosedTime=TimeCurrent();
 
       if(!closed)
         {
@@ -765,7 +812,7 @@ void CloseOrdersByType(int orderType)
                        clrRed
                     );
 
-                               lastOrderClosedTime=TimeCurrent();
+      lastOrderClosedTime=TimeCurrent();
 
 
       if(!closed)
@@ -876,19 +923,21 @@ void CheckTrendChangedCloseOpposite()
       // return;
      }
 
-   //   if(  trend == lastTrend)
+//   if(  trend == lastTrend)
 
-   //   {
+//   {
 
 
-   //    // countOrderCountAfterTrendChanged=0;
+//    // countOrderCountAfterTrendChanged=0;
 
-   //   }
+//   }
 
    if(trend != lastTrend && lastTrend != 0 && trend != 0)
      {
 
-
+if(trend == 1 && CountOrders(OP_BUY) == 0)
+      countOrderCountAfterTrendChanged=0;
+if(trend == -1 && CountOrders(OP_SELL) == 0)
       countOrderCountAfterTrendChanged=0;
       /*
       Print("Trend changed from ", TrendName(lastTrend),
@@ -1137,23 +1186,26 @@ int GetM5CandleFormationSafe(double minGap)
 //|                                                                  |
 //+------------------------------------------------------------------+
 int GetEMACrossSignal()
-{
+  {
    double ema9_now   = iMA(Symbol(), PERIOD_M1, 9, 0, MODE_EMA, PRICE_CLOSE, 0);
    double ema21_now  = iMA(Symbol(), PERIOD_M1, 21, 0, MODE_EMA, PRICE_CLOSE, 0);
 
    double ema9_prev  = iMA(Symbol(), PERIOD_M1, 9, 0, MODE_EMA, PRICE_CLOSE, 1);
    double ema21_prev = iMA(Symbol(), PERIOD_M1, 21, 0, MODE_EMA, PRICE_CLOSE, 1);
 
-   // BUY cross: EMA9 crossed above EMA21
+// BUY cross: EMA9 crossed above EMA21
    if(ema9_prev <= ema21_prev && ema9_now > ema21_now)
       return 1;
 
-   // SELL cross: EMA9 crossed below EMA21
+// SELL cross: EMA9 crossed below EMA21
    if(ema9_prev >= ema21_prev && ema9_now < ema21_now)
       return -1;
 
    return 0;
-}
+  }
+//+------------------------------------------------------------------+
+//|                                                                  |
+//+------------------------------------------------------------------+
 bool IsFlatMarket()
   {
    double ema9_now  = iMA(Symbol(), PERIOD_M5, 9, 0, MODE_EMA, PRICE_CLOSE, 0);
@@ -1183,7 +1235,7 @@ bool IsFlatMarket()
 
    avgRange = avgRange / 5;
 
-   // Print("EMA Gap: ", DoubleToString(emaGap, 2), " EMA9 Slope: ", DoubleToString(ema9Slope, 2), " EMA21 Slope: ", DoubleToString(ema21Slope, 2), " Avg Range: ", DoubleToString(avgRange, 2));
+// Print("EMA Gap: ", DoubleToString(emaGap, 2), " EMA9 Slope: ", DoubleToString(ema9Slope, 2), " EMA21 Slope: ", DoubleToString(ema21Slope, 2), " Avg Range: ", DoubleToString(avgRange, 2));
 
 
 // FLAT CONDITIONS
@@ -1195,7 +1247,7 @@ bool IsFlatMarket()
       return true;
      }
 
-   //   if(emaGap<100) return true;
+//   if(emaGap<100) return true;
 
    return false;
   }
@@ -1289,7 +1341,7 @@ int CheckAndDrawStrongCandle(double minGap = 100)
    return signal;
   }
 
-  datetime lastOrderClosedTime=0;
+datetime lastOrderClosedTime=0;
 //+------------------------------------------------------------------+
 void CheckNewBaseSignal()
   {
@@ -1298,19 +1350,19 @@ void CheckNewBaseSignal()
 // GapPrice = GapPrice + (MathRand() % 11 - 5);
 
 
-   // datetime m5Time = iTime(Symbol(), PERIOD_M1, 1);
+// datetime m5Time = iTime(Symbol(), PERIOD_M1, 1);
 
-    datetime m5Time = TimeCurrent();
+   datetime m5Time = TimeCurrent();
 
-   // if(m5Time <= lastM5BarTime)
-   //    return;
+// if(m5Time <= lastM5BarTime)
+//    return;
 
-                                 //  lastOrderClosedTime=TimeCurrent();
+//  lastOrderClosedTime=TimeCurrent();
 
 
 
-   //    if(lastOrderClosedTime>0 && TimeCurrent() - lastOrderClosedTime < 60 * 2)
-   // return;
+//    if(lastOrderClosedTime>0 && TimeCurrent() - lastOrderClosedTime < 60 * 2)
+// return;
 
    double open  = iOpen(Symbol(), PERIOD_M5, 1);
    double close = iClose(Symbol(), PERIOD_M5, 1);
@@ -1449,16 +1501,16 @@ void ManageRecovery(int orderType)
       requiredGap = 1000;
       nextLot = 0.01;
      }
-   // if(nextStage == 2)
-   //   {
-   //    requiredGap = 800;
-   //    nextLot = 0.01;
-   //   }
-   // if(nextStage == 3)
-   //   {
-   //    requiredGap = 1000;
-   //    nextLot = 0.01;
-   //   }
+// if(nextStage == 2)
+//   {
+//    requiredGap = 800;
+//    nextLot = 0.01;
+//   }
+// if(nextStage == 3)
+//   {
+//    requiredGap = 1000;
+//    nextLot = 0.01;
+//   }
 // if(nextStage == 4)
 //   {
 //    requiredGap = 300;
@@ -1502,7 +1554,7 @@ void ManageRecovery(int orderType)
 
    bool canRecover = false;
 
-   // requiredGap=200;
+// requiredGap=200;
 
 // BUY recovery: price must move DOWN from latest BUY order
    if(orderType == OP_BUY && diff <= -requiredGap)
@@ -1780,18 +1832,18 @@ void CloseBasketByProfit(int orderType)
                                closePrice,
                                Slippage,
                                clrGreen);
-                               lastOrderClosedTime=TimeCurrent();
+      lastOrderClosedTime=TimeCurrent();
 
-   int trend = GetTrendDirection();
+      int trend = GetTrendDirection();
 
-                               if(  trend == lastTrend)
+      if(trend == lastTrend)
 
-     {
+        {
 
-if(resetCounter)
-      countOrderCountAfterTrendChanged=0;
+         if(resetCounter)
+            countOrderCountAfterTrendChanged=0;
 
-     }
+        }
 
       if(!closed)
         {
@@ -2274,6 +2326,17 @@ void DrawDashboard()
      {
       trendText=trendText+" (Not FLAT)";
      }
+if(     IsPriceAwayFromEMAs(100))
+     {
+      trendText=trendText+" AWAY From Emas";
+     }
+   else
+
+     {
+      trendText=trendText+" Near EMAs  ";
+     }
+
+
 
 
 
@@ -2364,7 +2427,7 @@ void DrawDashboard()
                GetLiveM5Gap() >= 0 ? clrLime : clrTomato);
 
    CreateLabel("DXB_TREND",
-               "Trend  EMA       : " + trendText,
+               "Trend  EMA: " + trendText,
                290,255,
                trendClr);
 
