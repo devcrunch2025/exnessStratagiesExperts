@@ -24,6 +24,7 @@ bool     g_m1GapChecked   = false;
 
 int maxOrderAfterTrendChanged=1;
 int countOrderCountAfterTrendChanged=0;
+bool resetCounter=false;
 
 //+------------------------------------------------------------------+
 int OnInit()
@@ -74,7 +75,7 @@ void CloseOrdersAfterOneHourIfSmallLoss()
       // Close after 1 hour if loss is smaller than $1
       // Example: -0.10, -0.50, -0.99 will close
       // But -1.00, -2.00, -5.00 will NOT close
-      double allowedLoss = 0;
+      double allowedLoss =10;// 0.05;
 
       // 1 hour
       if(openSeconds >= 3600)
@@ -114,14 +115,22 @@ void CloseOrdersAfterOneHourIfSmallLoss()
          allowedLoss = -10.0;
 
 
+         allowedLoss=allowedLoss/2;
 
       // close condition
       // if(  profit > allowedLoss && openSeconds>=3600)
-      if(  profit > allowedLoss)
+      if(  profit >= allowedLoss)
         {
          RefreshRates();
 
          double closePrice = OrderType() == OP_BUY ? Bid : Ask;
+
+
+   int openCount = CountOrders(OrderType());
+
+   if(openCount>1 && OrderType()==OP_SELL) return ;
+   if(openCount>1 && OrderType()==OP_BUY) return ;
+   
 
          bool closed = OrderClose(
                           OrderTicket(),
@@ -130,6 +139,10 @@ void CloseOrdersAfterOneHourIfSmallLoss()
                           Slippage,
                           clrOrange
                        );
+
+                               lastOrderClosedTime=TimeCurrent();
+                               
+
 
          if(closed)
            {
@@ -160,10 +173,17 @@ void OnTick()
 
    int hour = TimeHour(now);
    int minute = TimeMinute(now);
-   if(minute==0 || minute==30)
-     {
-       countOrderCountAfterTrendChanged=0;
-     }
+   int second = TimeSeconds(now);
+
+   // if((minute==0 && second<=10) || (minute==30 && second<=10))
+   //   {
+   //    //  countOrderCountAfterTrendChanged=0;
+   //   }
+
+CheckEMACrossAndResetCounter(); 
+
+
+
 
    int day  = TimeDayOfWeek(now);
 
@@ -223,6 +243,43 @@ void OnTick()
 //+------------------------------------------------------------------+
 //|                                                                  |
 //+------------------------------------------------------------------+
+
+int g_lastEmaCrossDirection = 0; 
+//  1 = last cross was BUY
+// -1 = last cross was SELL
+//  0 = no cross yet
+
+void CheckEMACrossAndResetCounter()
+{
+   double ema9_now   = iMA(Symbol(), PERIOD_M1, 9, 0, MODE_EMA, PRICE_CLOSE, 0);
+   double ema21_now  = iMA(Symbol(), PERIOD_M1, 21, 0, MODE_EMA, PRICE_CLOSE, 0);
+
+   double ema9_prev  = iMA(Symbol(), PERIOD_M1, 9, 0, MODE_EMA, PRICE_CLOSE, 1);
+   double ema21_prev = iMA(Symbol(), PERIOD_M1, 21, 0, MODE_EMA, PRICE_CLOSE, 1);
+
+   int currentCross = 0;
+
+   if(ema9_prev <= ema21_prev && ema9_now > ema21_now)
+      currentCross = 1;   // BUY cross
+
+   if(ema9_prev >= ema21_prev && ema9_now < ema21_now)
+      currentCross = -1;  // SELL cross
+
+   // reset only one time when new cross appears
+   if(currentCross != 0 && currentCross != g_lastEmaCrossDirection)
+   {
+if(resetCounter)
+
+      countOrderCountAfterTrendChanged= 0;
+
+      g_lastEmaCrossDirection = currentCross;
+
+      Print("EMA cross detected. Counter reset. Cross = ",
+            currentCross == 1 ? "BUY" : "SELL");
+ 
+
+   }
+}
 int GetQuickScalpSignal()
   {
    double ema9  = iMA(Symbol(), PERIOD_M1, 9, 0, MODE_EMA, PRICE_CLOSE, 0);
@@ -431,6 +488,8 @@ void CloseAllOrdersIfEquityDrop()
                                closePrice,
                                Slippage,
                                clrRed);
+
+                               lastOrderClosedTime=TimeCurrent();
 
       if(!closed)
         {
@@ -706,6 +765,9 @@ void CloseOrdersByType(int orderType)
                        clrRed
                     );
 
+                               lastOrderClosedTime=TimeCurrent();
+
+
       if(!closed)
          Print("OrderClose failed. Ticket:", OrderTicket(), " Error:", GetLastError());
      }
@@ -814,14 +876,14 @@ void CheckTrendChangedCloseOpposite()
       // return;
      }
 
-     if(  trend == lastTrend)
+   //   if(  trend == lastTrend)
 
-     {
+   //   {
 
 
-      // countOrderCountAfterTrendChanged=0;
+   //    // countOrderCountAfterTrendChanged=0;
 
-     }
+   //   }
 
    if(trend != lastTrend && lastTrend != 0 && trend != 0)
      {
@@ -1074,6 +1136,24 @@ int GetM5CandleFormationSafe(double minGap)
 //+------------------------------------------------------------------+
 //|                                                                  |
 //+------------------------------------------------------------------+
+int GetEMACrossSignal()
+{
+   double ema9_now   = iMA(Symbol(), PERIOD_M1, 9, 0, MODE_EMA, PRICE_CLOSE, 0);
+   double ema21_now  = iMA(Symbol(), PERIOD_M1, 21, 0, MODE_EMA, PRICE_CLOSE, 0);
+
+   double ema9_prev  = iMA(Symbol(), PERIOD_M1, 9, 0, MODE_EMA, PRICE_CLOSE, 1);
+   double ema21_prev = iMA(Symbol(), PERIOD_M1, 21, 0, MODE_EMA, PRICE_CLOSE, 1);
+
+   // BUY cross: EMA9 crossed above EMA21
+   if(ema9_prev <= ema21_prev && ema9_now > ema21_now)
+      return 1;
+
+   // SELL cross: EMA9 crossed below EMA21
+   if(ema9_prev >= ema21_prev && ema9_now < ema21_now)
+      return -1;
+
+   return 0;
+}
 bool IsFlatMarket()
   {
    double ema9_now  = iMA(Symbol(), PERIOD_M5, 9, 0, MODE_EMA, PRICE_CLOSE, 0);
@@ -1208,6 +1288,8 @@ int CheckAndDrawStrongCandle(double minGap = 100)
 
    return signal;
   }
+
+  datetime lastOrderClosedTime=0;
 //+------------------------------------------------------------------+
 void CheckNewBaseSignal()
   {
@@ -1216,10 +1298,19 @@ void CheckNewBaseSignal()
 // GapPrice = GapPrice + (MathRand() % 11 - 5);
 
 
-   datetime m5Time = iTime(Symbol(), PERIOD_M1, 1);
+   // datetime m5Time = iTime(Symbol(), PERIOD_M1, 1);
 
-   if(m5Time == lastM5BarTime)
-      return;
+    datetime m5Time = TimeCurrent();
+
+   // if(m5Time <= lastM5BarTime)
+   //    return;
+
+                                 //  lastOrderClosedTime=TimeCurrent();
+
+
+
+   //    if(lastOrderClosedTime>0 && TimeCurrent() - lastOrderClosedTime < 60 * 2)
+   // return;
 
    double open  = iOpen(Symbol(), PERIOD_M5, 1);
    double close = iClose(Symbol(), PERIOD_M5, 1);
@@ -1689,6 +1780,18 @@ void CloseBasketByProfit(int orderType)
                                closePrice,
                                Slippage,
                                clrGreen);
+                               lastOrderClosedTime=TimeCurrent();
+
+   int trend = GetTrendDirection();
+
+                               if(  trend == lastTrend)
+
+     {
+
+if(resetCounter)
+      countOrderCountAfterTrendChanged=0;
+
+     }
 
       if(!closed)
         {
