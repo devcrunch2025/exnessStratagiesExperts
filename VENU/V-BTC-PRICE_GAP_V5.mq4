@@ -81,15 +81,43 @@ void CloseOrdersAfterOneHourIfSmallLoss()
          allowedLoss = -1.0;
 
       // 2 hours
-      if(openSeconds >= 7200)
+      if(openSeconds >= 3600*2)
          allowedLoss = -2.0;
 
-      // // 3 hours
-      // if(openSeconds >= 10800*2)
-      //    allowedLoss = -3.0;
+      // 3 hours
+      if(openSeconds >= 3600*3)
+         allowedLoss = -3.0;
+
+         // 3 hours
+      if(openSeconds >= 3600*4)
+         allowedLoss = -4.0;
+
+         if(openSeconds >= 3600*5)
+         allowedLoss = -5.0;
+
+           if(openSeconds >= 3600*6)
+         allowedLoss = -6.0;
+
+           if(openSeconds >= 3600*6)
+         allowedLoss = -6.0;
+
+           if(openSeconds >= 3600*7)
+         allowedLoss = -7.0;
+
+           if(openSeconds >= 3600*8)
+         allowedLoss = -8.0;
+
+           if(openSeconds >= 3600*9)   
+         allowedLoss = -9.0;
+
+           if(openSeconds >= 3600*10)   
+         allowedLoss = -10.0;
+
+
 
       // close condition
-      if(profit < 0 && profit > allowedLoss)
+      // if(  profit > allowedLoss && openSeconds>=3600)
+      if(  profit > allowedLoss)
         {
          RefreshRates();
 
@@ -122,7 +150,7 @@ void OnTick()
   {
 
 
-   // CloseOrdersAfterOneHourIfSmallLoss();
+   CloseOrdersAfterOneHourIfSmallLoss();
 
 
    CloseBasketByProfit(OP_BUY);
@@ -134,7 +162,7 @@ void OnTick()
    int minute = TimeMinute(now);
    if(minute==0 || minute==30)
      {
-      // countOrderCountAfterTrendChanged=0;
+       countOrderCountAfterTrendChanged=0;
      }
 
    int day  = TimeDayOfWeek(now);
