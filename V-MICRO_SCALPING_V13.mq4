@@ -1,52 +1,112 @@
 #property strict
 
-extern double BaseLot            = 0.01;
-extern int    MagicNumber        = 20260522;
+/*
+   BTCUSD 3-Momentum Basket Scalper EA
+   ------------------------------------------------------------
+   TYPE 1: BIG MOMENTUM
+      - Big move over BigMoveMinPrice in BigMoveLookbackBars
+      - Opens reverse order:
+          BIG UP   -> BIG_SELL
+          BIG DOWN -> BIG_BUY
 
-extern double BasketProfitUSD    = 0.50;
-extern double BasketStopLossUSD  = -15.00;
+   TYPE 2: RANGE / SMALL MOMENTUM
+      - Price oscillates inside RangeMinPrice..RangeMaxPrice over RangeLookbackBars
+      - Opens small BUY/SELL baskets and recovery orders
 
-extern int    MaxOrders          = 5;
-extern int    MaxSpreadPoints    = 5000;
-extern int    Slippage           = 100;
+   TYPE 3: TREND MOMENTUM
+      - M5 EMA9/EMA21 trend direction
+      - Opens trend BUY/SELL baskets
 
-extern ENUM_TIMEFRAMES TradeTF   = PERIOD_M1;
+   Basket close is separated by comment:
+      BIG_BUY, BIG_SELL
+      RANGE_BUY, RANGE_SELL
+      TREND_BUY, TREND_SELL
+*/
 
-// REGULAR ORDER TREND = M5
-extern bool UseTrendFilter       = true;
-extern ENUM_TIMEFRAMES TrendTF   = PERIOD_M5;
-extern int TrendFastEMA          = 9;
-extern int TrendSlowEMA          = 21;
+extern double BaseLot = 0.01;
+extern int    MagicNumber = 20260522;
 
-extern double MinCandleSize      = 50;
+// Basket TP/SL per mode
+extern double BigBasketTPUSD   = 0.50;
+extern double BigBasketSLUSD   = -20.00;
 
-extern bool UseRecoveryOrders     = true;
-extern double RecoveryGapPrice    = 500.00;
-extern bool RecoverySameDirection = true;
-extern int MaxRecoveryOrders      = 4;
+extern double RangeBasketTPUSD = 0.50;
+extern double RangeBasketSLUSD = -20.00;
 
-// BIG MOVE REVERSE SYSTEM
-extern bool   UseBigMoveReverseOrder  = true;
-extern int    BigMoveLookbackBars     = 3;
-extern double BigMoveMinPrice         = 100.0;
-extern double BigMoveReverseLot       = 0.01;
-extern bool   OnlyOneBigMoveOrder     = true;
+extern double TrendBasketTPUSD = 0.50;
+extern double TrendBasketSLUSD = -20.00;
 
-extern bool DrawEMALines         = true;
-extern int  EMABarsToDraw        = 120;
-extern color EMAFastColor        = clrLime;
-extern color EMASlowColor        = clrRed;
+// Max orders per basket comment
+extern int MaxBigOrdersPerSide   = 2;
+extern int MaxRangeOrdersPerSide = 5;
+extern int MaxTrendOrdersPerSide = 5;
 
+extern int MaxSpreadPoints = 5000;
+extern int Slippage = 100;
+
+// Timeframes
+extern ENUM_TIMEFRAMES TradeTF = PERIOD_M1;
+extern ENUM_TIMEFRAMES TrendTF = PERIOD_M5;
+
+// EMA trend
+extern int TrendFastEMA = 9;
+extern int TrendSlowEMA = 21;
+extern double MinTrendEMAGap = 30.0;
+
+// Candle filters
+extern double MinCandleSize = 20.0;
+extern double MaxTrendOrderCandleSize = 100.0;
+
+// Big momentum detection
+extern bool   UseBigMomentum = true;
+extern int    BigMoveLookbackBars = 3;
+extern double BigMoveMinPrice = 150.0;
+extern double BigMomentumLot = 0.01;
+extern bool   OnlyOneBigMoveOrderPerBar = true;
+
+// Range momentum detection
+extern bool   UseRangeMomentum = true;
+extern int    RangeLookbackBars = 5;
+extern double RangeMinPrice = 50.0;
+extern double RangeMaxPrice = 180.0;
+extern double RangeOrderGapPrice = 80.0;
+
+// Trend momentum
+extern bool   UseTrendMomentum = true;
+extern double TrendOrderGapPrice = 150.0;
+
+// Recovery
+extern bool   UseRecoveryOrders = true;
+extern double RecoveryGapPrice = 300.0;
+extern int    MaxRecoveryOrdersPerBasket = 4;
+extern bool   RecoverySameDirection = true;
+
+// Safety
+extern bool UseEquityProtection = true;
+extern double MinEquityPercent = 60.0; // close all if equity <= balance * 60%
+
+// Dashboard + EMA
+extern bool DrawEMALines = true;
+extern int  EMABarsToDraw = 120;
+extern color EMAFastColor = clrLime;
+extern color EMASlowColor = clrRed;
+
+// Globals
 datetime lastBarTime = 0;
 datetime lastBigMoveBarTime = 0;
 datetime lastBigMoveTradeTime = 0;
+int      lastBigMoveDirection = 0; // 1 big up, -1 big down
 
-int lastBigMoveDirection = 0; // 1 = big up, -1 = big down
+// Mode constants
+#define MODE_NONE  0
+#define MODE_BIG   1
+#define MODE_RANGE 2
+#define MODE_TREND 3
 
 //+------------------------------------------------------------------+
 int OnInit()
 {
-   Print("BTC M5 Trend + Big Move Reverse EA Started");
+   Print("BTCUSD 3-Momentum Basket Scalper EA Started");
    return(INIT_SUCCEEDED);
 }
 
@@ -55,6 +115,7 @@ void OnDeinit(const int reason)
 {
    ObjectsDeleteAll(0, "BOT_EMA_FAST_");
    ObjectsDeleteAll(0, "BOT_EMA_SLOW_");
+   ObjectsDeleteAll(0, "DASH_");
    Comment("");
 }
 
@@ -64,7 +125,6 @@ void OnTick()
    RefreshRates();
 
    UpdateBigMoveStatus();
-
    DrawBotEMALines();
    DrawDashboard();
 
@@ -74,58 +134,19 @@ void OnTick()
    if(MarketInfo(Symbol(), MODE_SPREAD) > MaxSpreadPoints)
       return;
 
-   CheckBasketClose();
+   if(UseEquityProtection)
+      CheckEquityProtection();
 
-   if(CountOrders() >= MaxOrders)
-      return;
+   CheckAllSeparateBasketClose();
 
-   CheckBigMoveReverseOrder();
+   if(UseRecoveryOrders)
+      CheckAllRecoveryOrders();
 
-   CheckRecoveryOrders();
-
-   ProcessNewBar();
+   ProcessNewBarLogic();
 }
 
 //+------------------------------------------------------------------+
-// BIG UP > 100  = SELL
-// BIG DOWN >100 = BUY
-//+------------------------------------------------------------------+
-void CheckBigMoveReverseOrder()
-{
-   if(!UseBigMoveReverseOrder)
-      return;
-
-   if(lastBigMoveDirection == 0)
-      return;
-
-   if(lastBigMoveBarTime <= 0)
-      return;
-
-   if(CountOrders() > 0)
-      return;
-
-   if(OnlyOneBigMoveOrder && lastBigMoveTradeTime == lastBigMoveBarTime)
-      return;
-
-   if(lastBigMoveDirection == 1)
-   {
-      OpenOrder(OP_SELL, BigMoveReverseLot, "BIG_MOVE_REVERSE_SELL");
-      lastBigMoveTradeTime = lastBigMoveBarTime;
-      return;
-   }
-
-   if(lastBigMoveDirection == -1)
-   {
-      OpenOrder(OP_BUY, BigMoveReverseLot, "BIG_MOVE_REVERSE_BUY");
-      lastBigMoveTradeTime = lastBigMoveBarTime;
-      return;
-   }
-}
-
-//+------------------------------------------------------------------+
-// REGULAR ORDER ONLY BY M5 TREND
-//+------------------------------------------------------------------+
-void ProcessNewBar()
+void ProcessNewBarLogic()
 {
    datetime currentBar = iTime(Symbol(), TradeTF, 0);
 
@@ -134,31 +155,136 @@ void ProcessNewBar()
 
    lastBarTime = currentBar;
 
-   if(CountOrders() > 0)
-      return;
-
    double open1  = iOpen(Symbol(), TradeTF, 1);
    double close1 = iClose(Symbol(), TradeTF, 1);
-
    double candleSize = MathAbs(close1 - open1);
 
    if(candleSize < MinCandleSize)
    {
-      Print("No regular trade: candle too small. Size: ", candleSize);
+      Print("No order: candle too small. Size=", candleSize);
       return;
    }
 
-   // IMPORTANT: block normal trend order after big candle
+   int mode = DetectMarketMode();
+
+   if(mode == MODE_BIG)
+   {
+      ProcessBigMomentum();
+      return;
+   }
+
+   if(mode == MODE_RANGE)
+   {
+      ProcessRangeMomentum();
+      return;
+   }
+
+   if(mode == MODE_TREND)
+   {
+      ProcessTrendMomentum();
+      return;
+   }
+
+   Print("No order: no clear BTC momentum mode.");
+}
+
+//+------------------------------------------------------------------+
+int DetectMarketMode()
+{
+   if(UseBigMomentum && DetectBigMoveDirection() != 0)
+      return MODE_BIG;
+
+   if(UseRangeMomentum && IsRangeMomentum())
+      return MODE_RANGE;
+
+   if(UseTrendMomentum && GetTrendDirection() != 0)
+      return MODE_TREND;
+
+   return MODE_NONE;
+}
+
+//+------------------------------------------------------------------+
+// TYPE 1: Big momentum reversal
+//+------------------------------------------------------------------+
+void ProcessBigMomentum()
+{
+   if(lastBigMoveDirection == 0)
+      return;
+
+   if(OnlyOneBigMoveOrderPerBar && lastBigMoveTradeTime == lastBigMoveBarTime)
+      return;
+
+   // Big UP -> reverse SELL
+   if(lastBigMoveDirection == 1)
+   {
+      if(CountOrdersByComment("BIG_SELL") >= MaxBigOrdersPerSide)
+         return;
+
+      OpenOrder(OP_SELL, BigMomentumLot, "BIG_SELL");
+      lastBigMoveTradeTime = lastBigMoveBarTime;
+      return;
+   }
+
+   // Big DOWN -> reverse BUY
+   if(lastBigMoveDirection == -1)
+   {
+      if(CountOrdersByComment("BIG_BUY") >= MaxBigOrdersPerSide)
+         return;
+
+      OpenOrder(OP_BUY, BigMomentumLot, "BIG_BUY");
+      lastBigMoveTradeTime = lastBigMoveBarTime;
+      return;
+   }
+}
+
+//+------------------------------------------------------------------+
+// TYPE 2: Range/small momentum with separate small baskets
+//+------------------------------------------------------------------+
+void ProcessRangeMomentum()
+{
+   double open1  = iOpen(Symbol(), TradeTF, 1);
+   double close1 = iClose(Symbol(), TradeTF, 1);
+
+   // bullish small candle -> RANGE_BUY
+   if(close1 > open1)
+   {
+      if(CountOrdersByComment("RANGE_BUY") >= MaxRangeOrdersPerSide)
+         return;
+
+      if(!CanOpenByGap("RANGE_BUY", RangeOrderGapPrice))
+         return;
+
+      OpenOrder(OP_BUY, BaseLot, "RANGE_BUY");
+      return;
+   }
+
+   // bearish small candle -> RANGE_SELL
+   if(close1 < open1)
+   {
+      if(CountOrdersByComment("RANGE_SELL") >= MaxRangeOrdersPerSide)
+         return;
+
+      if(!CanOpenByGap("RANGE_SELL", RangeOrderGapPrice))
+         return;
+
+      OpenOrder(OP_SELL, BaseLot, "RANGE_SELL");
+      return;
+   }
+}
+
+//+------------------------------------------------------------------+
+// TYPE 3: Trend momentum with M5 EMA9/EMA21
+//+------------------------------------------------------------------+
+void ProcessTrendMomentum()
+{
+   double open1  = iOpen(Symbol(), TradeTF, 1);
+   double close1 = iClose(Symbol(), TradeTF, 1);
+   double candleSize = MathAbs(close1 - open1);
+
+   // avoid chasing a huge candle in trend mode
    if(candleSize >= MaxTrendOrderCandleSize)
    {
-      Print("No regular trend order: big candle detected. Size: ", candleSize);
-      return;
-   }
-
-   // If big move exists, reverse system handles it, not regular trend order
-   if(DetectBigMoveDirection() != 0)
-   {
-      Print("No regular trend order: big move detected. Reverse system handles it.");
+      Print("Trend order blocked: big candle size=", candleSize);
       return;
    }
 
@@ -166,62 +292,27 @@ void ProcessNewBar()
 
    if(trend == 1)
    {
-      OpenOrder(OP_BUY, BaseLot, "M5_TREND_BUY");
+      if(CountOrdersByComment("TREND_BUY") >= MaxTrendOrdersPerSide)
+         return;
+
+      if(!CanOpenByGap("TREND_BUY", TrendOrderGapPrice))
+         return;
+
+      OpenOrder(OP_BUY, BaseLot, "TREND_BUY");
       return;
    }
 
    if(trend == -1)
    {
-      OpenOrder(OP_SELL, BaseLot, "M5_TREND_SELL");
+      if(CountOrdersByComment("TREND_SELL") >= MaxTrendOrdersPerSide)
+         return;
+
+      if(!CanOpenByGap("TREND_SELL", TrendOrderGapPrice))
+         return;
+
+      OpenOrder(OP_SELL, BaseLot, "TREND_SELL");
       return;
    }
-
-   Print("No regular trade: M5 trend not clear.");
-}
-extern double MaxTrendOrderCandleSize = 60.0;
-
-//+------------------------------------------------------------------+
-void CheckRecoveryOrders()
-{
-   if(!UseRecoveryOrders)
-      return;
-
-   if(CountOrders() <= 0)
-      return;
-
-   if(CountOrders() >= MaxOrders)
-      return;
-
-   if(CountRecoveryOrders() >= MaxRecoveryOrders)
-      return;
-
-   if(GetBasketProfit() >= 0)
-      return;
-
-   int lastType = GetLastOrderType();
-   double lastPrice = GetLastOrderPrice();
-
-   if(lastType < 0 || lastPrice <= 0)
-      return;
-
-   double distance = MathAbs(Bid - lastPrice);
-
-   if(distance < RecoveryGapPrice)
-      return;
-
-   double lot = GetRecoveryLot();
-
-   int recoveryType = lastType;
-
-   if(!RecoverySameDirection)
-   {
-      if(lastType == OP_BUY)
-         recoveryType = OP_SELL;
-      else
-         recoveryType = OP_BUY;
-   }
-
-   OpenOrder(recoveryType, lot, "RECOVERY_100_GAP");
 }
 
 //+------------------------------------------------------------------+
@@ -240,8 +331,8 @@ void UpdateBigMoveStatus()
    lastBigMoveDirection = dir;
    lastBigMoveBarTime = moveTime;
 
-   Print("BIG MOVE > ", BigMoveMinPrice, " FOUND: ",
-         dir == 1 ? "BIG UP - SELL REVERSE READY" : "BIG DOWN - BUY REVERSE READY");
+   Print("BIG MOMENTUM FOUND: ",
+         dir == 1 ? "BIG UP -> BIG_SELL ready" : "BIG DOWN -> BIG_BUY ready");
 }
 
 //+------------------------------------------------------------------+
@@ -265,85 +356,23 @@ int DetectBigMoveDirection()
 }
 
 //+------------------------------------------------------------------+
-double GetRecoveryLot()
+bool IsRangeMomentum()
 {
-   int recoveryCount = CountRecoveryOrders();
+   double highest = iHigh(Symbol(), TradeTF, 1);
+   double lowest  = iLow(Symbol(), TradeTF, 1);
 
-   if(recoveryCount == 0) return BaseLot;
-   if(recoveryCount == 1) return BaseLot;
-   if(recoveryCount == 2) return BaseLot * 2;
-   if(recoveryCount == 3) return BaseLot * 2;
-
-   return BaseLot * 3;
-}
-
-//+------------------------------------------------------------------+
-int CountRecoveryOrders()
-{
-   int count = 0;
-
-   for(int i = OrdersTotal() - 1; i >= 0; i--)
+   for(int i = 1; i <= RangeLookbackBars; i++)
    {
-      if(OrderSelect(i, SELECT_BY_POS, MODE_TRADES))
-      {
-         if(OrderSymbol() == Symbol() &&
-            OrderMagicNumber() == MagicNumber &&
-            StringFind(OrderComment(), "RECOVERY") >= 0)
-         {
-            count++;
-         }
-      }
+      highest = MathMax(highest, iHigh(Symbol(), TradeTF, i));
+      lowest  = MathMin(lowest,  iLow(Symbol(), TradeTF, i));
    }
 
-   return count;
-}
+   double range = highest - lowest;
 
-//+------------------------------------------------------------------+
-int GetLastOrderType()
-{
-   datetime lastTime = 0;
-   int type = -1;
+   if(range >= RangeMinPrice && range <= RangeMaxPrice)
+      return true;
 
-   for(int i = OrdersTotal() - 1; i >= 0; i--)
-   {
-      if(OrderSelect(i, SELECT_BY_POS, MODE_TRADES))
-      {
-         if(OrderSymbol() == Symbol() && OrderMagicNumber() == MagicNumber)
-         {
-            if(OrderOpenTime() > lastTime)
-            {
-               lastTime = OrderOpenTime();
-               type = OrderType();
-            }
-         }
-      }
-   }
-
-   return type;
-}
-
-//+------------------------------------------------------------------+
-double GetLastOrderPrice()
-{
-   datetime lastTime = 0;
-   double price = 0;
-
-   for(int i = OrdersTotal() - 1; i >= 0; i--)
-   {
-      if(OrderSelect(i, SELECT_BY_POS, MODE_TRADES))
-      {
-         if(OrderSymbol() == Symbol() && OrderMagicNumber() == MagicNumber)
-         {
-            if(OrderOpenTime() > lastTime)
-            {
-               lastTime = OrderOpenTime();
-               price = OrderOpenPrice();
-            }
-         }
-      }
-   }
-
-   return price;
+   return false;
 }
 
 //+------------------------------------------------------------------+
@@ -352,6 +381,11 @@ int GetTrendDirection()
    double emaFast = iMA(Symbol(), TrendTF, TrendFastEMA, 0, MODE_EMA, PRICE_CLOSE, 1);
    double emaSlow = iMA(Symbol(), TrendTF, TrendSlowEMA, 0, MODE_EMA, PRICE_CLOSE, 1);
    double close1  = iClose(Symbol(), TrendTF, 1);
+
+   double emaGap = MathAbs(emaFast - emaSlow);
+
+   if(emaGap < MinTrendEMAGap)
+      return 0;
 
    if(close1 > emaFast && emaFast > emaSlow)
       return 1;
@@ -363,57 +397,250 @@ int GetTrendDirection()
 }
 
 //+------------------------------------------------------------------+
-void OpenOrder(int type, double lot, string comment)
+bool CanOpenByGap(string commentText, double gapPrice)
+{
+   double lastPrice = GetLastOrderPriceByComment(commentText);
+
+   if(lastPrice <= 0)
+      return true;
+
+   double distance = MathAbs(Bid - lastPrice);
+
+   if(distance >= gapPrice)
+      return true;
+
+   return false;
+}
+
+//+------------------------------------------------------------------+
+void CheckAllRecoveryOrders()
+{
+   CheckRecoveryByComment("BIG_BUY",    OP_BUY,  MaxBigOrdersPerSide);
+   CheckRecoveryByComment("BIG_SELL",   OP_SELL, MaxBigOrdersPerSide);
+
+   CheckRecoveryByComment("RANGE_BUY",  OP_BUY,  MaxRangeOrdersPerSide);
+   CheckRecoveryByComment("RANGE_SELL", OP_SELL, MaxRangeOrdersPerSide);
+
+   CheckRecoveryByComment("TREND_BUY",  OP_BUY,  MaxTrendOrdersPerSide);
+   CheckRecoveryByComment("TREND_SELL", OP_SELL, MaxTrendOrdersPerSide);
+}
+
+//+------------------------------------------------------------------+
+//| Recovery allowed only in same market mode                        |
+//+------------------------------------------------------------------+
+bool IsRecoveryAllowedForBasket(string commentText)
+{
+   int mode = DetectMarketMode();
+
+   if(StringFind(commentText, "BIG_") == 0)
+   {
+      if(mode == MODE_BIG)
+         return true;
+
+      return false;
+   }
+
+   if(StringFind(commentText, "RANGE_") == 0)
+   {
+      if(mode == MODE_RANGE)
+         return true;
+
+      return false;
+   }
+
+   if(StringFind(commentText, "TREND_") == 0)
+   {
+      if(mode == MODE_TREND)
+         return true;
+
+      return false;
+   }
+
+   return false;
+}
+
+//+------------------------------------------------------------------+
+//| Replace old CheckRecoveryByComment() with this                   |
+//+------------------------------------------------------------------+
+void CheckRecoveryByComment(string commentText, int type, int maxOrders)
+{
+   // IMPORTANT:
+   // TREND recovery only in TREND mode
+   // RANGE recovery only in RANGE mode
+   // BIG recovery only in BIG mode
+   if(!IsRecoveryAllowedForBasket(commentText))
+   {
+      Print("Recovery blocked. Basket=", commentText,
+            " Current Mode=", ModeText());
+      return;
+   }
+
+   int count = CountOrdersByComment(commentText);
+
+   if(count <= 0)
+      return;
+
+   if(count >= maxOrders)
+      return;
+
+   if(CountRecoveryOrdersByComment(commentText) >= MaxRecoveryOrdersPerBasket)
+      return;
+
+   double profit = GetBasketProfitByComment(commentText);
+
+   if(profit >= 0)
+      return;
+
+   double lastPrice = GetLastOrderPriceByComment(commentText);
+
+   if(lastPrice <= 0)
+      return;
+
+   double distance = MathAbs(Bid - lastPrice);
+
+   if(distance < RecoveryGapPrice)
+      return;
+
+   double lot = GetRecoveryLotByComment(commentText);
+
+   int recoveryType = type;
+
+   if(!RecoverySameDirection)
+   {
+      if(type == OP_BUY)
+         recoveryType = OP_SELL;
+      else
+         recoveryType = OP_BUY;
+   }
+
+   OpenOrder(recoveryType, lot, commentText + "_RECOVERY");
+}
+
+//+------------------------------------------------------------------+
+void CheckRecoveryByCommentOLD(string commentText, int type, int maxOrders)
+{
+   int count = CountOrdersByComment(commentText);
+
+   if(count <= 0)
+      return;
+
+   if(count >= maxOrders)
+      return;
+
+   if(CountRecoveryOrdersByComment(commentText) >= MaxRecoveryOrdersPerBasket)
+      return;
+
+   double profit = GetBasketProfitByComment(commentText);
+
+   if(profit >= 0)
+      return;
+
+   double lastPrice = GetLastOrderPriceByComment(commentText);
+
+   if(lastPrice <= 0)
+      return;
+
+   double distance = MathAbs(Bid - lastPrice);
+
+   if(distance < RecoveryGapPrice)
+      return;
+
+   double lot = GetRecoveryLotByComment(commentText);
+
+   int recoveryType = type;
+
+   if(!RecoverySameDirection)
+   {
+      if(type == OP_BUY)
+         recoveryType = OP_SELL;
+      else
+         recoveryType = OP_BUY;
+   }
+
+   OpenOrder(recoveryType, lot, commentText + "_RECOVERY");
+}
+
+//+------------------------------------------------------------------+
+double GetRecoveryLotByComment(string commentText)
+{
+   int recoveryCount = CountRecoveryOrdersByComment(commentText);
+
+   if(recoveryCount == 0) return BaseLot;
+   if(recoveryCount == 1) return BaseLot;
+   if(recoveryCount == 2) return BaseLot * 2;
+   if(recoveryCount == 3) return BaseLot * 2;
+
+   return BaseLot * 3;
+}
+
+//+------------------------------------------------------------------+
+void OpenOrder(int type, double lot, string commentText)
 {
    RefreshRates();
 
    if(AccountFreeMarginCheck(Symbol(), type, lot) <= 0)
    {
-      Print("Not enough margin");
+      Print("Not enough margin for ", commentText, " lot=", lot);
       return;
    }
 
    double price = type == OP_BUY ? Ask : Bid;
-   color clr    = type == OP_BUY ? clrBlue : clrRed;
+   color clr = type == OP_BUY ? clrBlue : clrRed;
 
    int ticket = OrderSend(Symbol(), type, lot, price, Slippage, 0, 0,
-                          comment, MagicNumber, 0, clr);
+                          commentText, MagicNumber, 0, clr);
 
    if(ticket > 0)
    {
-      Print("Opened ", type == OP_BUY ? "BUY" : "SELL",
-            " Lot: ", lot,
-            " Ticket: ", ticket,
-            " Comment: ", comment);
+      Print("Opened ", type == OP_BUY ? "BUY " : "SELL ",
+            " Lot=", lot,
+            " Comment=", commentText,
+            " Ticket=", ticket);
    }
    else
    {
-      Print("OrderSend Failed. Error: ", GetLastError());
+      Print("OrderSend failed. Error=", GetLastError(), " Comment=", commentText);
    }
 }
 
 //+------------------------------------------------------------------+
-void CheckBasketClose()
+void CheckAllSeparateBasketClose()
 {
-   double profit = GetBasketProfit();
+   CheckBasketComment("BIG_BUY",    BigBasketTPUSD,   BigBasketSLUSD);
+   CheckBasketComment("BIG_SELL",   BigBasketTPUSD,   BigBasketSLUSD);
 
-   if(profit >= BasketProfitUSD)
+   CheckBasketComment("RANGE_BUY",  RangeBasketTPUSD, RangeBasketSLUSD);
+   CheckBasketComment("RANGE_SELL", RangeBasketTPUSD, RangeBasketSLUSD);
+
+   CheckBasketComment("TREND_BUY",  TrendBasketTPUSD, TrendBasketSLUSD);
+   CheckBasketComment("TREND_SELL", TrendBasketTPUSD, TrendBasketSLUSD);
+}
+
+//+------------------------------------------------------------------+
+void CheckBasketComment(string commentText, double tp, double sl)
+{
+   if(CountOrdersByComment(commentText) <= 0)
+      return;
+
+   double profit = GetBasketProfitByComment(commentText);
+
+   if(profit >= tp)
    {
-      CloseAllOrders();
-      Print("Basket Profit Closed: ", profit);
+      Print(commentText, " TP close. Profit=", profit);
+      CloseOrdersByComment(commentText);
       return;
    }
 
-   if(profit <= BasketStopLossUSD)
+   if(profit <= sl)
    {
-      CloseAllOrders();
-      Print("Basket StopLoss Closed: ", profit);
+      Print(commentText, " SL close. Profit=", profit);
+      CloseOrdersByComment(commentText);
       return;
    }
 }
 
 //+------------------------------------------------------------------+
-double GetBasketProfit()
+double GetBasketProfitByComment(string commentText)
 {
    double total = 0;
 
@@ -421,8 +648,12 @@ double GetBasketProfit()
    {
       if(OrderSelect(i, SELECT_BY_POS, MODE_TRADES))
       {
-         if(OrderSymbol() == Symbol() && OrderMagicNumber() == MagicNumber)
-            total += OrderProfit() + OrderSwap() + OrderCommission();
+         if(OrderSymbol() == Symbol() &&
+            OrderMagicNumber() == MagicNumber)
+         {
+            if(IsCommentBasketMatch(OrderComment(), commentText))
+               total += OrderProfit() + OrderSwap() + OrderCommission();
+         }
       }
    }
 
@@ -430,7 +661,7 @@ double GetBasketProfit()
 }
 
 //+------------------------------------------------------------------+
-int CountOrders()
+int CountOrdersByComment(string commentText)
 {
    int count = 0;
 
@@ -438,8 +669,12 @@ int CountOrders()
    {
       if(OrderSelect(i, SELECT_BY_POS, MODE_TRADES))
       {
-         if(OrderSymbol() == Symbol() && OrderMagicNumber() == MagicNumber)
-            count++;
+         if(OrderSymbol() == Symbol() &&
+            OrderMagicNumber() == MagicNumber)
+         {
+            if(IsCommentBasketMatch(OrderComment(), commentText))
+               count++;
+         }
       }
    }
 
@@ -447,7 +682,71 @@ int CountOrders()
 }
 
 //+------------------------------------------------------------------+
-void CloseAllOrders()
+int CountRecoveryOrdersByComment(string commentText)
+{
+   int count = 0;
+
+   for(int i = OrdersTotal() - 1; i >= 0; i--)
+   {
+      if(OrderSelect(i, SELECT_BY_POS, MODE_TRADES))
+      {
+         if(OrderSymbol() == Symbol() &&
+            OrderMagicNumber() == MagicNumber)
+         {
+            if(IsCommentBasketMatch(OrderComment(), commentText) &&
+               StringFind(OrderComment(), "RECOVERY") >= 0)
+               count++;
+         }
+      }
+   }
+
+   return count;
+}
+
+//+------------------------------------------------------------------+
+bool IsCommentBasketMatch(string orderComment, string basketComment)
+{
+   // Matches exact basket comment and basket recovery comment.
+   // Example: TREND_BUY and TREND_BUY_RECOVERY
+   if(orderComment == basketComment)
+      return true;
+
+   if(StringFind(orderComment, basketComment + "_RECOVERY") == 0)
+      return true;
+
+   return false;
+}
+
+//+------------------------------------------------------------------+
+double GetLastOrderPriceByComment(string commentText)
+{
+   datetime lastTime = 0;
+   double price = 0;
+
+   for(int i = OrdersTotal() - 1; i >= 0; i--)
+   {
+      if(OrderSelect(i, SELECT_BY_POS, MODE_TRADES))
+      {
+         if(OrderSymbol() == Symbol() &&
+            OrderMagicNumber() == MagicNumber)
+         {
+            if(IsCommentBasketMatch(OrderComment(), commentText))
+            {
+               if(OrderOpenTime() > lastTime)
+               {
+                  lastTime = OrderOpenTime();
+                  price = OrderOpenPrice();
+               }
+            }
+         }
+      }
+   }
+
+   return price;
+}
+
+//+------------------------------------------------------------------+
+void CloseOrdersByComment(string commentText)
 {
    RefreshRates();
 
@@ -455,21 +754,66 @@ void CloseAllOrders()
    {
       if(OrderSelect(i, SELECT_BY_POS, MODE_TRADES))
       {
-         if(OrderSymbol() == Symbol() && OrderMagicNumber() == MagicNumber)
+         if(OrderSymbol() == Symbol() &&
+            OrderMagicNumber() == MagicNumber)
          {
-            bool closed = false;
+            if(IsCommentBasketMatch(OrderComment(), commentText))
+            {
+               bool closed = false;
 
-            if(OrderType() == OP_BUY)
-               closed = OrderClose(OrderTicket(), OrderLots(), Bid, Slippage, clrBlue);
+               if(OrderType() == OP_BUY)
+                  closed = OrderClose(OrderTicket(), OrderLots(), Bid, Slippage, clrBlue);
 
-            if(OrderType() == OP_SELL)
-               closed = OrderClose(OrderTicket(), OrderLots(), Ask, Slippage, clrRed);
+               if(OrderType() == OP_SELL)
+                  closed = OrderClose(OrderTicket(), OrderLots(), Ask, Slippage, clrRed);
 
-            if(!closed)
-               Print("Close Failed Ticket: ", OrderTicket(), " Error: ", GetLastError());
+               if(!closed)
+                  Print("Close failed Ticket=", OrderTicket(), " Error=", GetLastError());
+            }
          }
       }
    }
+}
+
+//+------------------------------------------------------------------+
+void CheckEquityProtection()
+{
+   double limit = AccountBalance() * MinEquityPercent / 100.0;
+
+   if(AccountEquity() <= limit)
+   {
+      Print("Equity protection triggered. Closing all EA orders.");
+      CloseAllEAOrders();
+   }
+}
+
+//+------------------------------------------------------------------+
+void CloseAllEAOrders()
+{
+   CloseOrdersByComment("BIG_BUY");
+   CloseOrdersByComment("BIG_SELL");
+   CloseOrdersByComment("RANGE_BUY");
+   CloseOrdersByComment("RANGE_SELL");
+   CloseOrdersByComment("TREND_BUY");
+   CloseOrdersByComment("TREND_SELL");
+}
+
+//+------------------------------------------------------------------+
+int CurrentMode()
+{
+   return DetectMarketMode();
+}
+
+//+------------------------------------------------------------------+
+string ModeText()
+{
+   int mode = CurrentMode();
+
+   if(mode == MODE_BIG)   return "BIG MOMENTUM";
+   if(mode == MODE_RANGE) return "RANGE MOMENTUM";
+   if(mode == MODE_TREND) return "TREND MOMENTUM";
+
+   return "WAIT";
 }
 
 //+------------------------------------------------------------------+
@@ -515,33 +859,108 @@ void DrawEMA(string name, int period, color clr)
 }
 
 //+------------------------------------------------------------------+
+// Dashboard helpers
+//+------------------------------------------------------------------+
+void DrawLabel(string name, string text, int x, int y, color clr, int fontSize = 8)
+{
+   if(ObjectFind(0, name) < 0)
+   {
+      ObjectCreate(0, name, OBJ_LABEL, 0, 0, 0);
+      ObjectSetInteger(0, name, OBJPROP_CORNER, CORNER_RIGHT_UPPER);
+      ObjectSetInteger(0, name, OBJPROP_SELECTABLE, false);
+      ObjectSetInteger(0, name, OBJPROP_HIDDEN, true);
+      ObjectSetString(0, name, OBJPROP_FONT, "Consolas");
+   }
+
+   ObjectSetInteger(0, name, OBJPROP_XDISTANCE, x);
+   ObjectSetInteger(0, name, OBJPROP_YDISTANCE, y);
+   ObjectSetInteger(0, name, OBJPROP_COLOR, clr);
+   ObjectSetInteger(0, name, OBJPROP_FONTSIZE, fontSize);
+   ObjectSetString(0, name, OBJPROP_TEXT, text);
+}
+
+//+------------------------------------------------------------------+
+void DrawPanel(string name, int x, int y, int w, int h, color bg)
+{
+   if(ObjectFind(0, name) < 0)
+   {
+      ObjectCreate(0, name, OBJ_RECTANGLE_LABEL, 0, 0, 0);
+      ObjectSetInteger(0, name, OBJPROP_CORNER, CORNER_RIGHT_UPPER);
+      ObjectSetInteger(0, name, OBJPROP_SELECTABLE, false);
+      ObjectSetInteger(0, name, OBJPROP_HIDDEN, true);
+      ObjectSetInteger(0, name, OBJPROP_BACK, false);
+      ObjectSetInteger(0, name, OBJPROP_BORDER_TYPE, BORDER_FLAT);
+   }
+
+   ObjectSetInteger(0, name, OBJPROP_XDISTANCE, x);
+   ObjectSetInteger(0, name, OBJPROP_YDISTANCE, y);
+   ObjectSetInteger(0, name, OBJPROP_XSIZE, w);
+   ObjectSetInteger(0, name, OBJPROP_YSIZE, h);
+   ObjectSetInteger(0, name, OBJPROP_BGCOLOR, bg);
+   ObjectSetInteger(0, name, OBJPROP_COLOR, clrDimGray);
+}
+
+//+------------------------------------------------------------------+
+void DrawDashRow(string label, string value, int row, color labelColor, color valueColor)
+{
+   int baseX = 350;
+   int baseY = 25;
+   int lineH = 15;
+
+   DrawLabel("DASH_L_" + IntegerToString(row), label, baseX, baseY + row * lineH, labelColor);
+   DrawLabel("DASH_V_" + IntegerToString(row), value, baseX - 170, baseY + row * lineH, valueColor);
+}
+
+//+------------------------------------------------------------------+
 void DrawDashboard()
 {
-   string trendText = "FLAT / WAIT";
+   DrawPanel("DASH_BG_PANEL", 365, 15, 360, 520, clrBlack);
+
+   DrawLabel("DASH_TITLE", "BTC 3-MOMENTUM BASKET EA", 345, 20, clrYellow, 9);
+
+   DrawDashRow("MODE", ModeText(), 2, clrOrange, clrWhite);
+
+   DrawDashRow("BIG BUY",    "$" + DoubleToString(GetBasketProfitByComment("BIG_BUY"), 2) +
+                              " (" + IntegerToString(CountOrdersByComment("BIG_BUY")) + ")", 4, clrDeepSkyBlue, clrWhite);
+   DrawDashRow("BIG SELL",   "$" + DoubleToString(GetBasketProfitByComment("BIG_SELL"), 2) +
+                              " (" + IntegerToString(CountOrdersByComment("BIG_SELL")) + ")", 5, clrOrangeRed, clrWhite);
+
+   DrawDashRow("RANGE BUY",  "$" + DoubleToString(GetBasketProfitByComment("RANGE_BUY"), 2) +
+                              " (" + IntegerToString(CountOrdersByComment("RANGE_BUY")) + ")", 7, clrDeepSkyBlue, clrWhite);
+   DrawDashRow("RANGE SELL", "$" + DoubleToString(GetBasketProfitByComment("RANGE_SELL"), 2) +
+                              " (" + IntegerToString(CountOrdersByComment("RANGE_SELL")) + ")", 8, clrOrangeRed, clrWhite);
+
+   DrawDashRow("TREND BUY",  "$" + DoubleToString(GetBasketProfitByComment("TREND_BUY"), 2) +
+                              " (" + IntegerToString(CountOrdersByComment("TREND_BUY")) + ")", 10, clrDeepSkyBlue, clrWhite);
+   DrawDashRow("TREND SELL", "$" + DoubleToString(GetBasketProfitByComment("TREND_SELL"), 2) +
+                              " (" + IntegerToString(CountOrdersByComment("TREND_SELL")) + ")", 11, clrOrangeRed, clrWhite);
+
    int trend = GetTrendDirection();
+   string trendText = "WAIT";
+   color trendColor = clrYellow;
 
-   if(trend == 1)  trendText = "M5 BUY TREND";
-   if(trend == -1) trendText = "M5 SELL TREND";
+   if(trend == 1) { trendText = "M5 BUY"; trendColor = clrLime; }
+   if(trend == -1){ trendText = "M5 SELL"; trendColor = clrRed; }
 
-   string bigText = "NO BIG MOVE";
+   string bigText = "NO";
+   if(lastBigMoveDirection == 1) bigText = "BIG UP -> SELL";
+   if(lastBigMoveDirection == -1) bigText = "BIG DOWN -> BUY";
 
-   if(lastBigMoveDirection == 1)
-      bigText = "BIG UP >100 | REVERSE SELL";
-   else if(lastBigMoveDirection == -1)
-      bigText = "BIG DOWN >100 | REVERSE BUY";
+   DrawDashRow("TREND", trendText, 13, clrYellow, trendColor);
+   DrawDashRow("BIG MOVE", bigText, 14, clrYellow, clrWhite);
 
-   Comment(
-      "BTC M5 TREND + BIG MOVE REVERSE EA\n",
-      "--------------------------------\n",
-      "Orders: ", CountOrders(), "/", MaxOrders, "\n",
-      "Recovery: ", CountRecoveryOrders(), "/", MaxRecoveryOrders, "\n",
-      "Basket P/L: $", DoubleToString(GetBasketProfit(), 2), "\n",
-      "Basket TP: $", DoubleToString(BasketProfitUSD, 2), "\n",
-      "Basket SL: $", DoubleToString(BasketStopLossUSD, 2), "\n",
-      "Regular Trend: ", trendText, "\n",
-      "Big Move: ", bigText, "\n",
-      "BigMoveMinPrice: ", DoubleToString(BigMoveMinPrice, 2), "\n",
-      "Recovery Gap: ", DoubleToString(RecoveryGapPrice, 2), "\n",
-      "Spread: ", MarketInfo(Symbol(), MODE_SPREAD)
-   );
+   DrawDashRow("TP", "$0.50 each basket", 16, clrLime, clrLime);
+   DrawDashRow("SL", "$20 each basket", 17, clrRed, clrRed);
+
+   DrawDashRow("Base Lot", DoubleToString(BaseLot, 2), 19, clrOrange, clrYellow);
+   DrawDashRow("Recovery Gap", DoubleToString(RecoveryGapPrice, 2), 20, clrOrange, clrYellow);
+   DrawDashRow("Big Trigger", DoubleToString(BigMoveMinPrice, 2), 21, clrOrange, clrYellow);
+   DrawDashRow("Range", DoubleToString(RangeMinPrice,0) + "-" + DoubleToString(RangeMaxPrice,0), 22, clrOrange, clrYellow);
+
+   DrawDashRow("Balance", "$" + DoubleToString(AccountBalance(), 2), 24, clrWhite, clrWhite);
+   DrawDashRow("Equity", "$" + DoubleToString(AccountEquity(), 2), 25, clrWhite, clrWhite);
+   DrawDashRow("Free Margin", "$" + DoubleToString(AccountFreeMargin(), 2), 26, clrWhite, clrWhite);
+   DrawDashRow("Spread", DoubleToString(MarketInfo(Symbol(), MODE_SPREAD), 0), 27, clrWhite, clrYellow);
+
+   DrawLabel("DASH_STATUS", "RUNNING 24/7 - THREE BTC MOMENTUM MODES", 345, 510, clrLime, 8);
 }
