@@ -9,7 +9,7 @@ input double StopLossValue = 20.00;//equity -10;
 input double TPValue       = 0.50;
 
 double BaseLot             = 0.01;
-double GapPrice            = 0;//20;//50.0;
+double GapPrice            = 20;//20;//50.0;
 
 int    MagicNumber         = 5050801;
 int    Slippage            = 70;
@@ -1563,7 +1563,7 @@ void ManageRecovery(int orderType)
 // if(nextStage == 1) { requiredGap = 30;   nextLot = 0.02; }
    if(nextStage == 1)
      {
-      requiredGap = 2000;
+      requiredGap = 1500;
       nextLot = 0.01;
      }
 // if(nextStage == 2)
