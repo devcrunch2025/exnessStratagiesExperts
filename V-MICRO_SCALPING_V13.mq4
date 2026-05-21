@@ -52,6 +52,19 @@
 extern double BaseLot = 0.01;
 extern int    MagicNumber = 20260522;
 
+
+// ================================================================
+//  BALANCE MULTIPLIER ENGINE
+//  Example: $100=1x, $200=2x, $300=3x
+// ================================================================
+extern bool   UseBalanceMultiplier = true;
+extern double BalanceMultiplierStepUSD = 100.0;
+extern double MinBalanceMultiplier = 1.0;
+extern double MaxBalanceMultiplier = 50.0;
+extern bool   ScaleLotsByBalance = true;
+extern bool   ScaleTPByBalance   = true;
+extern bool   ScaleSLByBalance   = true;
+
 // ================================================================
 //  BASKET TP / SL
 // ================================================================
@@ -79,7 +92,9 @@ extern double ExhaustBasketSLUSD  = -20.00;
 extern bool   UseGlobalBasketClose = true;
 
 extern double GlobalBasketTPUSD = 0.50;
-extern double GlobalBasketSLUSD = -20.00;
+extern double GlobalBasketSLUSD = -10.00;
+
+extern int MaxTotalOpenOrders = 5;
 
 // ================================================================
 //  MAX ORDERS PER BASKET SIDE
@@ -114,14 +129,14 @@ extern double MinTrendEMAGap = 30.0;
 // ================================================================
 //  TYPE ENABLE/DISABLE
 // ================================================================
-extern bool UseBigMomentum       = true;
-extern bool UseRangeMomentum     = true;
+extern bool UseBigMomentum       = false;
+extern bool UseRangeMomentum     = false;
 extern bool UseTrendMomentum     = true;
-extern bool UseFakeBreakout      = true;
-extern bool UseCompressionBreak  = true;
-extern bool UseLiquiditySweep    = true;
-extern bool UseTrendExhaustion   = true;
-extern bool UseSessionMode       = true;
+extern bool UseFakeBreakout      = false;
+extern bool UseCompressionBreak  = false;
+extern bool UseLiquiditySweep    = false;
+extern bool UseTrendExhaustion   = false;
+extern bool UseSessionMode       = false;
 
 // ================================================================
 //  TYPE 1 BIG REVERSAL
@@ -186,7 +201,7 @@ extern int NYEndHour       = 23;
 // ================================================================
 //  TYPES 9-50 ADVANCED BTC MARKET STATE ENGINE
 // ================================================================
-extern bool   UseAdvancedTypes9To50 = true;
+extern bool   UseAdvancedTypes9To50 = false;//true
 extern double AdvancedBasketTPUSD   = 0.50;
 extern double AdvancedBasketSLUSD   = -10.00;
 extern int    MaxAdvancedOrdersPerSide = 2;
@@ -198,9 +213,12 @@ extern bool   UseType21IntradayBooker = true;
 extern double DayBasketTPUSD = 5.00;
 extern double DayBasketSLUSD = -20.00;
 extern double DayLot = 0.01;
-extern int    DayMaxHoldMinutes = 480;
+extern int    DayMaxHoldMinutes = 60*4;
 extern ENUM_TIMEFRAMES DayTrendTF1 = PERIOD_H1;
 extern ENUM_TIMEFRAMES DayTrendTF2 = PERIOD_M15;
+extern double DayDailyProfitTargetUSD = 5.00;
+extern bool   StopType21AfterDailyTarget = true;
+datetime lastType21DailyTargetDate = 0;
 
 // Type 49 dead zone protection
 extern bool   BlockTradingInDeadZone = true;
@@ -218,7 +236,7 @@ extern int    MaxCrossesForNoise = 4;
 //  RECOVERY
 // ================================================================
 extern bool   UseRecoveryOrders = true;
-extern double RecoveryGapPrice = 100.0;
+extern double RecoveryGapPrice = 1000.0;
 extern int    MaxRecoveryOrdersPerBasket = 2;
 extern bool   RecoverySameDirection = true;
 
@@ -226,8 +244,8 @@ extern bool   RecoverySameDirection = true;
 // ================================================================
 //  SAME TYPE + SAME DIRECTION COOLDOWN
 // ================================================================
-extern bool UseSameBasketCooldown = false;
-extern int  SameBasketCooldownSeconds = 120;
+extern bool UseSameBasketCooldown = true;
+extern int  SameBasketCooldownSeconds = 60*5;
 
 // ================================================================
 //  SAFETY
@@ -265,6 +283,30 @@ extern int    LossMemoryPauseBars = 5;
 
 datetime lastLossMemoryTime = 0;
 string   lastLossMemoryBasket = "";
+
+
+
+
+// ================================================================
+//  TYPE 1-50 PERFORMANCE TRACKER
+// ================================================================
+extern bool ShowTypePerformancePanel = true;
+extern int  TypePerformanceTopN = 20;
+extern bool ExportTypePerformanceCSV = true;
+extern int  ExportTypePerformanceEverySeconds = 300;
+datetime lastTypePerformanceExportTime = 0;
+
+// ================================================================
+//  CUMULATIVE TYPE P/L HISTORY
+// ================================================================
+extern bool ShowClosedTypePLHistory = true;
+extern bool TodayOnlyTypePLHistory  = true;
+
+// ================================================================
+//  LEFT SIDE TYPE P/L SUMMARY PANEL
+// ================================================================
+extern bool ShowTypePLSummaryPanel = true;
+extern int  TypeSummaryTopN = 15;
 
 // ================================================================
 //  DASHBOARD + EMA
@@ -544,6 +586,12 @@ int DetectAdvancedMarketMode()
 //+------------------------------------------------------------------+
 void ProcessAdvancedType(int mode)
 {
+   if(mode == MODE_INTRADAY_BOOKER && IsType21DailyTargetLocked())
+   {
+      Print("TYPE 21 blocked: daily target already reached.");
+      return;
+   }
+
    if(mode == MODE_DEAD_ZONE && BlockTradingInDeadZone)
    {
       Print("TYPE 49 DEAD ZONE: trading blocked.");
@@ -1352,6 +1400,8 @@ void OnDeinit(const int reason)
    ObjectsDeleteAll(0, "BOT_EMA_FAST_");
    ObjectsDeleteAll(0, "BOT_EMA_SLOW_");
    ObjectsDeleteAll(0, "DASH_");
+   ObjectsDeleteAll(0, "TYPEPL_");
+   ObjectsDeleteAll(0, "TYPEPERF_");
    Comment("");
   }
 
@@ -1360,6 +1410,7 @@ void OnTick()
   {
 
       CheckGlobalBasketClose();
+   CheckType21DailyProfitTarget();
 
    RefreshRates();
 
@@ -1367,6 +1418,9 @@ void OnTick()
 
    DrawBotEMALines();
    DrawDashboard();
+   DrawTypePLSummaryPanel();
+   DrawTypePerformancePanel();
+   ExportTypePerformanceCSVIfNeeded();
 
    if(!IsTradeAllowed())
       return;
@@ -1594,6 +1648,126 @@ void ProcessRangeMomentum()
       return;
      }
   }
+bool IsTrendClean(int direction)
+{
+   double emaFast = iMA(Symbol(), TrendTF, TrendFastEMA, 0, MODE_EMA, PRICE_CLOSE, 1);
+   double emaSlow = iMA(Symbol(), TrendTF, TrendSlowEMA, 0, MODE_EMA, PRICE_CLOSE, 1);
+   double close1  = iClose(Symbol(), TrendTF, 1);
+
+
+
+
+
+   //====================================================
+// M15 HIGHER TIMEFRAME FILTER
+//====================================================
+
+double m15EmaFast = iMA(Symbol(), PERIOD_M15, TrendFastEMA, 0, MODE_EMA, PRICE_CLOSE, 0);
+double m15EmaSlow = iMA(Symbol(), PERIOD_M15, TrendSlowEMA, 0, MODE_EMA, PRICE_CLOSE, 0);
+
+double m15Close = iClose(Symbol(), PERIOD_M15, 0);
+
+// distance from slow EMA
+double m15Dist = MathAbs(m15Close - m15EmaSlow);
+
+
+
+
+   // SELL only: price below both EMA lines
+   if(direction == -1)
+   {
+      if(!(close1 < emaFast && close1 < emaSlow))
+         return false;
+
+      // EMA9 must be below EMA21
+      if(!(emaFast < emaSlow))
+         return false;
+   }
+
+   // BUY only: opposite condition
+   if(direction == 1)
+   {
+      if(!(close1 > emaFast && close1 > emaSlow))
+         return false;
+
+      // EMA9 must be above EMA21
+      if(!(emaFast > emaSlow))
+         return false;
+   }
+
+   double emaGap = MathAbs(emaFast - emaSlow);
+
+   if(emaGap < MinTrendEMAGap)
+      return false;
+
+   double distFast = MathAbs(close1 - emaFast);
+   double distSlow = MathAbs(close1 - emaSlow);
+
+   // price must stay away from both EMA lines
+   if(distFast < MinPriceAwayFromEMA || distSlow < MinPriceAwayFromEMA)
+      return false;
+
+   // block if EMA crossing too much
+   if(CountEMACrosses(10) >= 2)
+      return false;
+
+   // last 3 candles direction filter
+   int sameCount = 0;
+
+   for(int i = 1; i <= 3; i++)
+   {
+      double o = iOpen(Symbol(), TrendTF, i);
+      double c = iClose(Symbol(), TrendTF, i);
+
+      if(direction == 1 && c > o)  sameCount++;
+      if(direction == -1 && c < o) sameCount++;
+   }
+
+   if(sameCount < 2)
+      return false;
+
+Print("M15 EMA distance = ", m15Dist/100);
+
+      // minimum strong trend distance
+if(!IsPriceAwayFromEMAs(100))
+{
+   Print("Trend blocked: M15 distance too small = ", m15Dist);
+   return false;
+}
+
+   return true;
+}
+
+bool IsPriceAwayFromEMAs(double minDistance)
+{
+   double ema9  = iMA(Symbol(), PERIOD_M1, 9, 0, MODE_EMA, PRICE_CLOSE, 0);
+   double ema21 = iMA(Symbol(), PERIOD_M1, 21, 0, MODE_EMA, PRICE_CLOSE, 0);
+
+   double ema211 = iMA(Symbol(), PERIOD_M5, 51, 0, MODE_EMA, PRICE_CLOSE, 0);
+
+
+   double dist9  = MathAbs(Bid - ema9);
+   double dist21 = MathAbs(Bid - ema21);
+
+   datetime candleTime = iTime(Symbol(), PERIOD_M1, 0);
+
+   
+double totalDist = dist9 + dist21;
+
+   Print("Current price distance from EMAs: EMA9=", dist9, " EMA21=", dist21, " Total=", totalDist);
+
+   if((dist9 >= minDistance && dist21 >= minDistance &&  totalDist < 500) || (totalDist > 300 && totalDist < 500) )
+      return true;
+
+
+
+   return false;
+}
+
+extern double MinPriceAwayFromEMA = 30;   // raw price distance, not points
+extern int    TrendSLBlockMinutes = 30;
+
+datetime LastTrendSLTime = 0;
 
 //+------------------------------------------------------------------+
 // TYPE 3: TREND CONTINUATION
@@ -1612,7 +1786,8 @@ void ProcessTrendMomentum()
 
    int trend = GetTrendDirection();
 
-   if(trend == 1)
+   if(trend == 1 && IsTrendClean(1))
+     
      {
       if(CountOrdersByComment("TREND_BUY") >= MaxTrendOrdersPerSide)
          return;
@@ -1624,7 +1799,8 @@ void ProcessTrendMomentum()
       return;
      }
 
-   if(trend == -1)
+   if(trend == -1 && IsTrendClean(-1))
+     
      {
       if(CountOrdersByComment("TREND_SELL") >= MaxTrendOrdersPerSide)
          return;
@@ -2167,12 +2343,14 @@ double GetRecoveryLotByComment(string commentText)
 //| Same basket cooldown: prevents repeat orders in same TYPE/side   |
 //| Example: BIG_BUY blocks only BIG_BUY for 120 seconds             |
 //+------------------------------------------------------------------+
+
+   datetime lastTime = 0;
+
 bool IsSameBasketCooldownActive(string commentText)
   {
    if(!UseSameBasketCooldown)
       return false;
 
-   datetime lastTime = 0;
 
    for(int i = OrdersTotal() - 1; i >= 0; i--)
      {
@@ -2183,8 +2361,8 @@ bool IsSameBasketCooldownActive(string commentText)
            {
             if(IsCommentBasketMatch(OrderComment(), commentText))
               {
-               if(OrderOpenTime() > lastTime)
-                  lastTime = OrderOpenTime();
+               // if(OrderCloseTime() > lastTime)
+                  // lastTime = OrderCloseTime();
               }
            }
         }
@@ -2205,10 +2383,122 @@ bool IsSameBasketCooldownActive(string commentText)
    return false;
   }
 
+
+//+------------------------------------------------------------------+
+//| Balance Multiplier Engine                                       |
+//| $100 = 1x, $200 = 2x, $300 = 3x                                 |
+//+------------------------------------------------------------------+
+double GetBalanceMultiplier()
+{
+   if(!UseBalanceMultiplier)
+      return 1.0;
+
+   double step = BalanceMultiplierStepUSD;
+
+   if(step <= 0)
+      step = 100.0;
+
+   double mult = MathFloor(AccountBalance() / step);
+
+   if(mult < MinBalanceMultiplier)
+      mult = MinBalanceMultiplier;
+
+   if(MaxBalanceMultiplier > 0 && mult > MaxBalanceMultiplier)
+      mult = MaxBalanceMultiplier;
+
+   return NormalizeDouble(mult, 2);
+}
+
+//+------------------------------------------------------------------+
+double GetDynamicLot(double baseLot)
+{
+   if(!ScaleLotsByBalance)
+      return NormalizeDouble(baseLot, 2);
+
+   double lot = baseLot * GetBalanceMultiplier();
+
+   double minLot  = MarketInfo(Symbol(), MODE_MINLOT);
+   double maxLot  = MarketInfo(Symbol(), MODE_MAXLOT);
+   double lotStep = MarketInfo(Symbol(), MODE_LOTSTEP);
+
+   if(lotStep <= 0)
+      lotStep = 0.01;
+
+   lot = MathFloor(lot / lotStep) * lotStep;
+
+   if(lot < minLot)
+      lot = minLot;
+
+   if(lot > maxLot)
+      lot = maxLot;
+
+   return NormalizeDouble(lot, 2);
+}
+
+//+------------------------------------------------------------------+
+double GetDynamicTP(double baseTP)
+{
+   if(!ScaleTPByBalance)
+      return NormalizeDouble(baseTP, 2);
+
+   return NormalizeDouble(baseTP * GetBalanceMultiplier(), 2);
+}
+
+//+------------------------------------------------------------------+
+double GetDynamicSL(double baseSL)
+{
+   if(!ScaleSLByBalance)
+      return NormalizeDouble(baseSL, 2);
+
+   return NormalizeDouble(baseSL * GetBalanceMultiplier(), 2);
+}
+
+//+------------------------------------------------------------------+
+double GetDynamicMoneyValue(double baseValue)
+{
+   if(baseValue >= 0)
+      return GetDynamicTP(baseValue);
+
+   return GetDynamicSL(baseValue);
+}
+
+//+------------------------------------------------------------------+
+//| Total open orders protection                                     |
+//+------------------------------------------------------------------+
+bool CanOpenMoreOrders()
+{
+   int total = 0;
+
+   for(int i = OrdersTotal() - 1; i >= 0; i--)
+   {
+      if(OrderSelect(i, SELECT_BY_POS, MODE_TRADES))
+      {
+         if(OrderSymbol() == Symbol() &&
+            OrderMagicNumber() == MagicNumber)
+         {
+            total++;
+         }
+      }
+   }
+
+   if(total >= MaxTotalOpenOrders)
+   {
+      Print("MAX OPEN ORDERS REACHED = ", total);
+      return false;
+   }
+
+   return true;
+}
 //+------------------------------------------------------------------+
 void OpenOrder(int type, double lot, string commentText)
   {
+
+if(!CanOpenMoreOrders())
+   return;
+
    RefreshRates();
+
+   lot = GetDynamicLot(lot);
 
    // Same TYPE + same direction cooldown.
    // Example: BIG_BUY blocks only BIG_BUY. BIG_SELL can still open.
@@ -2304,6 +2594,7 @@ void CheckAllSeparateBasketClose()
 //+------------------------------------------------------------------+
 void CheckBasketCommentDynamic(string commentText,double tp)
 {
+   tp = GetDynamicTP(tp);
 
 // CheckBasketComment(commentText, tp, -1000); // Large negative SL to ensure only TP or time-decay SL can trigger   
 
@@ -2371,6 +2662,8 @@ void CheckBasketCommentDynamic(string commentText,double tp)
    else
       dynamicSL = -20.0;
 
+   dynamicSL = GetDynamicSL(dynamicSL);
+
    // ============================================================
    // TAKE PROFIT
    // ============================================================
@@ -2404,7 +2697,9 @@ void CheckBasketCommentDynamic(string commentText,double tp)
 }
 //+------------------------------------------------------------------+
 void CheckBasketComment(string commentText, double tp, double sl)
-  {
+{
+   tp = GetDynamicTP(tp);
+   sl = GetDynamicSL(sl);
    if(CountOrdersByComment(commentText) <= 0)
       return;
 
@@ -2558,6 +2853,9 @@ void CloseOrdersByComment(string commentText)
                if(OrderType() == OP_SELL)
                   closed = OrderClose(OrderTicket(), OrderLots(), Ask, Slippage, clrRed);
 
+                  lastTime = TimeCurrent();
+
+
                if(!closed)
                   Print("Close failed Ticket=", OrderTicket(), " Error=", GetLastError());
               }
@@ -2580,6 +2878,88 @@ void CheckEquityProtection()
 //+------------------------------------------------------------------+
 //| GLOBAL BASKET CLOSE                                              |
 //| Closes ALL BUY + SELL + ALL TYPES together                       |
+
+//+------------------------------------------------------------------+
+//| TYPE 21 Intraday Daily Profit Target                            |
+//| Closes DAY_BUY + DAY_SELL when daily target is reached           |
+//+------------------------------------------------------------------+
+double GetType21DailyClosedProfit()
+{
+   double total = 0.0;
+   datetime todayStart = StrToTime(TimeToString(TimeCurrent(), TIME_DATE));
+
+   for(int i = OrdersHistoryTotal() - 1; i >= 0; i--)
+   {
+      if(OrderSelect(i, SELECT_BY_POS, MODE_HISTORY))
+      {
+         if(OrderSymbol() == Symbol() &&
+            OrderMagicNumber() == MagicNumber &&
+            OrderCloseTime() >= todayStart)
+         {
+            if(IsCommentBasketMatch(OrderComment(), "TYPE21_BUY") ||
+               IsCommentBasketMatch(OrderComment(), "TYPE21_SELL") ||
+               IsCommentBasketMatch(OrderComment(), "DAY_BUY") ||
+               IsCommentBasketMatch(OrderComment(), "DAY_SELL"))
+            {
+               total += OrderProfit() + OrderSwap() + OrderCommission();
+            }
+         }
+      }
+   }
+
+   return total;
+}
+
+//+------------------------------------------------------------------+
+double GetType21OpenProfit()
+{
+   return GetBasketProfitByComment("TYPE21_BUY") +
+          GetBasketProfitByComment("TYPE21_SELL") +
+          GetBasketProfitByComment("DAY_BUY") +
+          GetBasketProfitByComment("DAY_SELL");
+}
+
+//+------------------------------------------------------------------+
+double GetType21TodayTotalProfit()
+{
+   return GetType21DailyClosedProfit() + GetType21OpenProfit();
+}
+
+//+------------------------------------------------------------------+
+bool IsType21DailyTargetLocked()
+{
+   if(!StopType21AfterDailyTarget)
+      return false;
+
+   datetime todayStart = StrToTime(TimeToString(TimeCurrent(), TIME_DATE));
+
+   if(lastType21DailyTargetDate >= todayStart)
+      return true;
+
+   return false;
+}
+
+//+------------------------------------------------------------------+
+void CheckType21DailyProfitTarget()
+{
+   double dynamicTarget = GetDynamicTP(DayDailyProfitTargetUSD);
+   double todayPL = GetType21TodayTotalProfit();
+
+   if(todayPL >= dynamicTarget)
+   {
+      Print("TYPE 21 DAILY PROFIT TARGET HIT. TodayPL=", todayPL,
+            " Target=", dynamicTarget,
+            " Closing Type21 intraday orders.");
+
+      CloseOrdersByComment("TYPE21_BUY");
+      CloseOrdersByComment("TYPE21_SELL");
+      CloseOrdersByComment("DAY_BUY");
+      CloseOrdersByComment("DAY_SELL");
+
+      lastType21DailyTargetDate = StrToTime(TimeToString(TimeCurrent(), TIME_DATE));
+   }
+}
+
 //+------------------------------------------------------------------+
 void CheckGlobalBasketClose()
 {
@@ -2603,8 +2983,11 @@ void CheckGlobalBasketClose()
       }
    }
 
+   double dynamicGlobalTP = GetDynamicTP(GlobalBasketTPUSD);
+   double dynamicGlobalSL = GetDynamicSL(GlobalBasketSLUSD);
+
    // GLOBAL TAKE PROFIT
-   if(totalProfit >= GlobalBasketTPUSD)
+   if(totalProfit >= dynamicGlobalTP)
    {
       Print("GLOBAL TP HIT: ", totalProfit);
 
@@ -2614,7 +2997,7 @@ void CheckGlobalBasketClose()
    }
 
    // GLOBAL STOP LOSS
-   if(totalProfit <= GlobalBasketSLUSD)
+   if(totalProfit <= dynamicGlobalSL )
    {
       Print("GLOBAL SL HIT: ", totalProfit);
 
@@ -2718,6 +3101,820 @@ void DrawEMA(string name, int period, color clr)
         }
      }
   }
+
+
+
+//+------------------------------------------------------------------+
+//| TYPE P/L SUMMARY FUNCTIONS                                       |
+//+------------------------------------------------------------------+
+string GetBaseTypeBuyComment(int typeNo)
+{
+   if(typeNo == 1) return "BIG_BUY";
+   if(typeNo == 2) return "RANGE_BUY";
+   if(typeNo == 3) return "TREND_BUY";
+   if(typeNo == 4) return "FAKE_BUY";
+   if(typeNo == 5) return "SQUEEZE_BUY";
+   if(typeNo == 6) return "SWEEP_BUY";
+   if(typeNo == 7) return "EXHAUST_BUY";
+
+   return GetAdvancedBuyComment(typeNo);
+}
+
+//+------------------------------------------------------------------+
+string GetBaseTypeSellComment(int typeNo)
+{
+   if(typeNo == 1) return "BIG_SELL";
+   if(typeNo == 2) return "RANGE_SELL";
+   if(typeNo == 3) return "TREND_SELL";
+   if(typeNo == 4) return "FAKE_SELL";
+   if(typeNo == 5) return "SQUEEZE_SELL";
+   if(typeNo == 6) return "SWEEP_SELL";
+   if(typeNo == 7) return "EXHAUST_SELL";
+
+   return GetAdvancedSellComment(typeNo);
+}
+
+//+------------------------------------------------------------------+
+string GetTypeShortName(int typeNo)
+{
+   if(typeNo == 1)  return "BIG";
+   if(typeNo == 2)  return "RANGE";
+   if(typeNo == 3)  return "TREND";
+   if(typeNo == 4)  return "FAKE";
+   if(typeNo == 5)  return "SQUEEZE";
+   if(typeNo == 6)  return "SWEEP";
+   if(typeNo == 7)  return "EXHAUST";
+   if(typeNo == 8)  return "SESSION";
+   if(typeNo == 9)  return "VOL_EXP";
+   if(typeNo == 10) return "VOL_COLL";
+   if(typeNo == 11) return "EMA_REC";
+   if(typeNo == 12) return "PARA";
+   if(typeNo == 13) return "OB_RETEST";
+   if(typeNo == 14) return "VOID";
+   if(typeNo == 15) return "STOPHUNT";
+   if(typeNo == 16) return "STAIR";
+   if(typeNo == 17) return "NEWS";
+   if(typeNo == 18) return "HEDGE";
+   if(typeNo == 19) return "FAIL";
+   if(typeNo == 20) return "ACCUM";
+   if(typeNo == 21) return "DAY";
+   if(typeNo == 22) return "WEEKEND";
+   if(typeNo == 23) return "MONDAY";
+   if(typeNo == 24) return "D_OPEN";
+   if(typeNo == 25) return "PRE_NY";
+   if(typeNo == 26) return "POST_LIQ";
+   if(typeNo == 27) return "FUND";
+   if(typeNo == 28) return "WHALE";
+   if(typeNo == 29) return "MAGNET";
+   if(typeNo == 30) return "PINBALL";
+   if(typeNo == 31) return "CASCADE";
+   if(typeNo == 32) return "CHANNEL";
+   if(typeNo == 33) return "FAIL_RE";
+   if(typeNo == 34) return "DBL_SWEEP";
+   if(typeNo == 35) return "ASIA_EXP";
+   if(typeNo == 36) return "HFT";
+   if(typeNo == 37) return "DOM";
+   if(typeNo == 38) return "CORR";
+   if(typeNo == 39) return "ABSORB";
+   if(typeNo == 40) return "DELAY";
+   if(typeNo == 41) return "LADDER";
+   if(typeNo == 42) return "ROUND";
+   if(typeNo == 43) return "MIDNIGHT";
+   if(typeNo == 44) return "ACCEL";
+   if(typeNo == 45) return "ARBIT";
+   if(typeNo == 46) return "MTF";
+   if(typeNo == 47) return "TRANS";
+   if(typeNo == 48) return "TRAP";
+   if(typeNo == 49) return "DEAD";
+   if(typeNo == 50) return "DIST";
+
+   return "TYPE";
+}
+
+//+------------------------------------------------------------------+
+double GetTypeProfit(int typeNo)
+{
+   if(typeNo == 8)
+      return 0.0;
+
+   return GetTypeOpenProfit(typeNo) + GetTypeClosedProfit(typeNo);
+}
+
+//+------------------------------------------------------------------+
+//| Current open floating P/L by Type                                |
+//+------------------------------------------------------------------+
+double GetTypeOpenProfit(int typeNo)
+{
+   if(typeNo == 8)
+      return 0.0;
+
+   return GetBasketProfitByComment(GetBaseTypeBuyComment(typeNo)) +
+          GetBasketProfitByComment(GetBaseTypeSellComment(typeNo));
+}
+
+//+------------------------------------------------------------------+
+//| Closed historical P/L by Type                                    |
+//| Keeps cumulative P/L even after basket/order is closed           |
+//+------------------------------------------------------------------+
+double GetTypeClosedProfit(int typeNo)
+{
+   if(!ShowClosedTypePLHistory)
+      return 0.0;
+
+   if(typeNo == 8)
+      return 0.0;
+
+   double total = 0.0;
+
+   string buyComment  = GetBaseTypeBuyComment(typeNo);
+   string sellComment = GetBaseTypeSellComment(typeNo);
+
+   datetime todayStart = StrToTime(TimeToString(TimeCurrent(), TIME_DATE));
+
+   for(int i = OrdersHistoryTotal() - 1; i >= 0; i--)
+   {
+      if(OrderSelect(i, SELECT_BY_POS, MODE_HISTORY))
+      {
+         if(OrderSymbol() == Symbol() &&
+            OrderMagicNumber() == MagicNumber)
+         {
+            if(TodayOnlyTypePLHistory && OrderCloseTime() < todayStart)
+               continue;
+
+            if(IsCommentBasketMatch(OrderComment(), buyComment) ||
+               IsCommentBasketMatch(OrderComment(), sellComment))
+            {
+               total += OrderProfit() + OrderSwap() + OrderCommission();
+            }
+         }
+      }
+   }
+
+   return total;
+}
+
+//+------------------------------------------------------------------+
+//| Closed order count by Type                                       |
+//+------------------------------------------------------------------+
+int GetTypeClosedOrderCount(int typeNo)
+{
+   if(!ShowClosedTypePLHistory)
+      return 0;
+
+   if(typeNo == 8)
+      return 0;
+
+   int total = 0;
+
+   string buyComment  = GetBaseTypeBuyComment(typeNo);
+   string sellComment = GetBaseTypeSellComment(typeNo);
+
+   datetime todayStart = StrToTime(TimeToString(TimeCurrent(), TIME_DATE));
+
+   for(int i = OrdersHistoryTotal() - 1; i >= 0; i--)
+   {
+      if(OrderSelect(i, SELECT_BY_POS, MODE_HISTORY))
+      {
+         if(OrderSymbol() == Symbol() &&
+            OrderMagicNumber() == MagicNumber)
+         {
+            if(TodayOnlyTypePLHistory && OrderCloseTime() < todayStart)
+               continue;
+
+            if(IsCommentBasketMatch(OrderComment(), buyComment) ||
+               IsCommentBasketMatch(OrderComment(), sellComment))
+            {
+               total++;
+            }
+         }
+      }
+   }
+
+   return total;
+}
+
+
+//+------------------------------------------------------------------+
+int GetTypeOrderCount(int typeNo)
+{
+   if(typeNo == 8)
+      return 0;
+
+   return CountOrdersByComment(GetBaseTypeBuyComment(typeNo)) +
+          CountOrdersByComment(GetBaseTypeSellComment(typeNo)) +
+          GetTypeClosedOrderCount(typeNo);
+}
+
+//+------------------------------------------------------------------+
+int GetTopProfitType()
+{
+   double bestProfit = -999999.0;
+   int bestType = 0;
+
+   for(int t = 1; t <= 50; t++)
+   {
+      if(t == 8)
+         continue;
+
+      double p = GetTypeProfit(t);
+
+      if(p > bestProfit)
+      {
+         bestProfit = p;
+         bestType = t;
+      }
+   }
+
+   return bestType;
+}
+
+//+------------------------------------------------------------------+
+double GetAllTypesProfit()
+{
+   double total = 0;
+
+   for(int t = 1; t <= 50; t++)
+   {
+      if(t == 8)
+         continue;
+
+      total += GetTypeProfit(t);
+   }
+
+   return total;
+}
+
+//+------------------------------------------------------------------+
+void SortTypesByProfit(int &types[], double &profits[], int size)
+{
+   for(int i = 0; i < size - 1; i++)
+   {
+      for(int j = i + 1; j < size; j++)
+      {
+         if(profits[j] > profits[i])
+         {
+            double p = profits[i];
+            profits[i] = profits[j];
+            profits[j] = p;
+
+            int t = types[i];
+            types[i] = types[j];
+            types[j] = t;
+         }
+      }
+   }
+}
+
+//+------------------------------------------------------------------+
+void DrawTypePLLabel(string name, string text, int x, int y, color clr, int fontSize = 8)
+{
+   if(ObjectFind(0, name) < 0)
+   {
+      ObjectCreate(0, name, OBJ_LABEL, 0, 0, 0);
+      ObjectSetInteger(0, name, OBJPROP_CORNER, CORNER_LEFT_UPPER);
+      ObjectSetInteger(0, name, OBJPROP_SELECTABLE, false);
+      ObjectSetInteger(0, name, OBJPROP_HIDDEN, true);
+      ObjectSetString(0, name, OBJPROP_FONT, "Consolas");
+   }
+
+   ObjectSetInteger(0, name, OBJPROP_XDISTANCE, x);
+   ObjectSetInteger(0, name, OBJPROP_YDISTANCE, y);
+   ObjectSetInteger(0, name, OBJPROP_COLOR, clr);
+   ObjectSetInteger(0, name, OBJPROP_FONTSIZE, fontSize);
+   ObjectSetString(0, name, OBJPROP_TEXT, text);
+}
+
+//+------------------------------------------------------------------+
+void DrawTypePLPanel(string name, int x, int y, int w, int h, color bg)
+{
+   if(ObjectFind(0, name) < 0)
+   {
+      ObjectCreate(0, name, OBJ_RECTANGLE_LABEL, 0, 0, 0);
+      ObjectSetInteger(0, name, OBJPROP_CORNER, CORNER_LEFT_UPPER);
+      ObjectSetInteger(0, name, OBJPROP_SELECTABLE, false);
+      ObjectSetInteger(0, name, OBJPROP_HIDDEN, true);
+      ObjectSetInteger(0, name, OBJPROP_BACK, false);
+      ObjectSetInteger(0, name, OBJPROP_BORDER_TYPE, BORDER_FLAT);
+   }
+
+   ObjectSetInteger(0, name, OBJPROP_XDISTANCE, x);
+   ObjectSetInteger(0, name, OBJPROP_YDISTANCE, y);
+   ObjectSetInteger(0, name, OBJPROP_XSIZE, w);
+   ObjectSetInteger(0, name, OBJPROP_YSIZE, h);
+   ObjectSetInteger(0, name, OBJPROP_BGCOLOR, bg);
+   ObjectSetInteger(0, name, OBJPROP_COLOR, clrDimGray);
+}
+
+//+------------------------------------------------------------------+
+void DrawTypePLSummaryPanel()
+{
+
+   return ;
+   if(!ShowTypePLSummaryPanel)
+      return;
+
+   int types[49];
+   double profits[49];
+
+   int idx = 0;
+
+   for(int t = 1; t <= 50; t++)
+   {
+      if(t == 8)
+         continue;
+
+      types[idx] = t;
+      profits[idx] = GetTypeProfit(t);
+      idx++;
+   }
+
+   SortTypesByProfit(types, profits, 49);
+
+   int panelX = 10;
+   int panelY = 20;
+   int panelW = 295;
+   int panelH = 60 + (TypeSummaryTopN + 5) * 15;
+
+   DrawTypePLPanel("TYPEPL_BG", panelX, panelY, panelW, panelH, clrBlack);
+   DrawTypePLLabel("TYPEPL_TITLE", "CUMULATIVE TYPE P/L SUMMARY", panelX + 8, panelY + 8, clrYellow, 9);
+
+   int topType = GetTopProfitType();
+   double topProfit = GetTypeProfit(topType);
+   color topColor = topProfit >= 0 ? clrLime : clrRed;
+
+   DrawTypePLLabel(
+      "TYPEPL_TOP",
+      "TOP: TYPE " + IntegerToString(topType) + " " + GetTypeShortName(topType) +
+      "  $" + DoubleToString(topProfit, 2),
+      panelX + 8,
+      panelY + 25,
+      topColor,
+      8
+   );
+
+   DrawTypePLLabel(
+      "TYPEPL_TOTAL",
+      "TOTAL CUM P/L: $" + DoubleToString(GetAllTypesProfit(), 2),
+      panelX + 8,
+      panelY + 40,
+      GetAllTypesProfit() >= 0 ? clrLime : clrRed,
+      8
+   );
+
+   DrawTypePLLabel("TYPEPL_HISTORY_MODE", TodayOnlyTypePLHistory ? "MODE: TODAY CLOSED + OPEN" : "MODE: ALL HISTORY + OPEN", panelX + 8, panelY + 56, clrSilver, 8);
+
+   DrawTypePLLabel("TYPEPL_HEAD", "TYPE   NAME     ORD   OPEN   TOTAL", panelX + 8, panelY + 72, clrAqua, 8);
+
+   int rows = TypeSummaryTopN;
+
+   if(rows > 49)
+      rows = 49;
+
+   for(int r = 0; r < rows; r++)
+   {
+      int typeNo = types[r];
+      double p = profits[r];
+      int orders = GetTypeOrderCount(typeNo);
+
+      color rowColor = clrWhite;
+
+      if(p > 0)
+         rowColor = clrLime;
+      else if(p < 0)
+         rowColor = clrRed;
+
+      double openPL = GetTypeOpenProfit(typeNo);
+
+      string line =
+         "T" + IntegerToString(typeNo) + " " +
+         GetTypeShortName(typeNo) + " " +
+         IntegerToString(orders) + " $" +
+         DoubleToString(openPL, 2) + " $" +
+         DoubleToString(p, 2);
+
+      DrawTypePLLabel(
+         "TYPEPL_ROW_" + IntegerToString(r),
+         line,
+         panelX + 8,
+         panelY + 90 + r * 15,
+         rowColor,
+         8
+      );
+   }
+}
+
+
+
+//+------------------------------------------------------------------+
+//| TYPE 1-50 PERFORMANCE TRACKER                                    |
+//+------------------------------------------------------------------+
+double GetTypeClosedGrossProfit(int typeNo)
+{
+   double total = 0.0;
+
+   if(typeNo == 8)
+      return 0.0;
+
+   string buyComment  = GetBaseTypeBuyComment(typeNo);
+   string sellComment = GetBaseTypeSellComment(typeNo);
+   datetime todayStart = StrToTime(TimeToString(TimeCurrent(), TIME_DATE));
+
+   for(int i = OrdersHistoryTotal() - 1; i >= 0; i--)
+   {
+      if(OrderSelect(i, SELECT_BY_POS, MODE_HISTORY))
+      {
+         if(OrderSymbol() == Symbol() && OrderMagicNumber() == MagicNumber)
+         {
+            if(TodayOnlyTypePLHistory && OrderCloseTime() < todayStart)
+               continue;
+
+            if(IsCommentBasketMatch(OrderComment(), buyComment) ||
+               IsCommentBasketMatch(OrderComment(), sellComment))
+            {
+               double p = OrderProfit() + OrderSwap() + OrderCommission();
+
+               if(p > 0)
+                  total += p;
+            }
+         }
+      }
+   }
+
+   return total;
+}
+
+//+------------------------------------------------------------------+
+double GetTypeClosedGrossLoss(int typeNo)
+{
+   double total = 0.0;
+
+   if(typeNo == 8)
+      return 0.0;
+
+   string buyComment  = GetBaseTypeBuyComment(typeNo);
+   string sellComment = GetBaseTypeSellComment(typeNo);
+   datetime todayStart = StrToTime(TimeToString(TimeCurrent(), TIME_DATE));
+
+   for(int i = OrdersHistoryTotal() - 1; i >= 0; i--)
+   {
+      if(OrderSelect(i, SELECT_BY_POS, MODE_HISTORY))
+      {
+         if(OrderSymbol() == Symbol() && OrderMagicNumber() == MagicNumber)
+         {
+            if(TodayOnlyTypePLHistory && OrderCloseTime() < todayStart)
+               continue;
+
+            if(IsCommentBasketMatch(OrderComment(), buyComment) ||
+               IsCommentBasketMatch(OrderComment(), sellComment))
+            {
+               double p = OrderProfit() + OrderSwap() + OrderCommission();
+
+               if(p < 0)
+                  total += p;
+            }
+         }
+      }
+   }
+
+   return total;
+}
+
+//+------------------------------------------------------------------+
+int GetTypeWinCount(int typeNo)
+{
+   int total = 0;
+
+   if(typeNo == 8)
+      return 0;
+
+   string buyComment  = GetBaseTypeBuyComment(typeNo);
+   string sellComment = GetBaseTypeSellComment(typeNo);
+   datetime todayStart = StrToTime(TimeToString(TimeCurrent(), TIME_DATE));
+
+   for(int i = OrdersHistoryTotal() - 1; i >= 0; i--)
+   {
+      if(OrderSelect(i, SELECT_BY_POS, MODE_HISTORY))
+      {
+         if(OrderSymbol() == Symbol() && OrderMagicNumber() == MagicNumber)
+         {
+            if(TodayOnlyTypePLHistory && OrderCloseTime() < todayStart)
+               continue;
+
+            if(IsCommentBasketMatch(OrderComment(), buyComment) ||
+               IsCommentBasketMatch(OrderComment(), sellComment))
+            {
+               double p = OrderProfit() + OrderSwap() + OrderCommission();
+
+               if(p > 0)
+                  total++;
+            }
+         }
+      }
+   }
+
+   return total;
+}
+
+//+------------------------------------------------------------------+
+int GetTypeLossCount(int typeNo)
+{
+   int total = 0;
+
+   if(typeNo == 8)
+      return 0;
+
+   string buyComment  = GetBaseTypeBuyComment(typeNo);
+   string sellComment = GetBaseTypeSellComment(typeNo);
+   datetime todayStart = StrToTime(TimeToString(TimeCurrent(), TIME_DATE));
+
+   for(int i = OrdersHistoryTotal() - 1; i >= 0; i--)
+   {
+      if(OrderSelect(i, SELECT_BY_POS, MODE_HISTORY))
+      {
+         if(OrderSymbol() == Symbol() && OrderMagicNumber() == MagicNumber)
+         {
+            if(TodayOnlyTypePLHistory && OrderCloseTime() < todayStart)
+               continue;
+
+            if(IsCommentBasketMatch(OrderComment(), buyComment) ||
+               IsCommentBasketMatch(OrderComment(), sellComment))
+            {
+               double p = OrderProfit() + OrderSwap() + OrderCommission();
+
+               if(p < 0)
+                  total++;
+            }
+         }
+      }
+   }
+
+   return total;
+}
+
+//+------------------------------------------------------------------+
+double GetTypeWinRate(int typeNo)
+{
+   int wins = GetTypeWinCount(typeNo);
+   int losses = GetTypeLossCount(typeNo);
+   int total = wins + losses;
+
+   if(total <= 0)
+      return 0.0;
+
+   return (100.0 * wins) / total;
+}
+
+//+------------------------------------------------------------------+
+double GetTypeProfitFactor(int typeNo)
+{
+   double gp = GetTypeClosedGrossProfit(typeNo);
+   double gl = MathAbs(GetTypeClosedGrossLoss(typeNo));
+
+   if(gl <= 0.0)
+   {
+      if(gp > 0.0)
+         return 99.99;
+
+      return 0.0;
+   }
+
+   return gp / gl;
+}
+
+//+------------------------------------------------------------------+
+double GetTypeAvgClosedPL(int typeNo)
+{
+   int closed = GetTypeClosedOrderCount(typeNo);
+
+   if(closed <= 0)
+      return 0.0;
+
+   return GetTypeClosedProfit(typeNo) / closed;
+}
+
+//+------------------------------------------------------------------+
+double GetTypeScore(int typeNo)
+{
+   double totalPL = GetTypeProfit(typeNo);
+   double winRate = GetTypeWinRate(typeNo);
+   double pf = GetTypeProfitFactor(typeNo);
+   int orders = GetTypeOrderCount(typeNo);
+
+   return totalPL + (winRate / 10.0) + pf + (orders * 0.05);
+}
+
+//+------------------------------------------------------------------+
+void SortTypesByScore(int &types[], double &scores[], int size)
+{
+   for(int i = 0; i < size - 1; i++)
+   {
+      for(int j = i + 1; j < size; j++)
+      {
+         if(scores[j] > scores[i])
+         {
+            double s = scores[i];
+            scores[i] = scores[j];
+            scores[j] = s;
+
+            int t = types[i];
+            types[i] = types[j];
+            types[j] = t;
+         }
+      }
+   }
+}
+
+//+------------------------------------------------------------------+
+void DrawTypePerformanceLabel(string name, string text, int x, int y, color clr, int fontSize = 8)
+{
+   if(ObjectFind(0, name) < 0)
+   {
+      ObjectCreate(0, name, OBJ_LABEL, 0, 0, 0);
+      ObjectSetInteger(0, name, OBJPROP_CORNER, CORNER_LEFT_LOWER);
+      ObjectSetInteger(0, name, OBJPROP_SELECTABLE, false);
+      ObjectSetInteger(0, name, OBJPROP_HIDDEN, true);
+      ObjectSetString(0, name, OBJPROP_FONT, "Consolas");
+   }
+
+   ObjectSetInteger(0, name, OBJPROP_XDISTANCE, x);
+   ObjectSetInteger(0, name, OBJPROP_YDISTANCE, y);
+   ObjectSetInteger(0, name, OBJPROP_COLOR, clr);
+   ObjectSetInteger(0, name, OBJPROP_FONTSIZE, fontSize);
+   ObjectSetString(0, name, OBJPROP_TEXT, text);
+}
+
+//+------------------------------------------------------------------+
+void DrawTypePerformancePanelBg(string name, int x, int y, int w, int h, color bg)
+{
+   if(ObjectFind(0, name) < 0)
+   {
+      ObjectCreate(0, name, OBJ_RECTANGLE_LABEL, 0, 0, 0);
+      ObjectSetInteger(0, name, OBJPROP_CORNER, CORNER_LEFT_LOWER);
+      ObjectSetInteger(0, name, OBJPROP_SELECTABLE, false);
+      ObjectSetInteger(0, name, OBJPROP_HIDDEN, true);
+      ObjectSetInteger(0, name, OBJPROP_BACK, false);
+      ObjectSetInteger(0, name, OBJPROP_BORDER_TYPE, BORDER_FLAT);
+   }
+
+   ObjectSetInteger(0, name, OBJPROP_XDISTANCE, x);
+   ObjectSetInteger(0, name, OBJPROP_YDISTANCE, y);
+   ObjectSetInteger(0, name, OBJPROP_XSIZE, w);
+   ObjectSetInteger(0, name, OBJPROP_YSIZE, h);
+   ObjectSetInteger(0, name, OBJPROP_BGCOLOR, bg);
+   ObjectSetInteger(0, name, OBJPROP_COLOR, clrDimGray);
+}
+
+//+------------------------------------------------------------------+
+void DrawTypePerformancePanel()
+{
+   if(!ShowTypePerformancePanel)
+      return;
+
+   int types[49];
+   double scores[49];
+
+   int idx = 0;
+
+   for(int t = 1; t <= 50; t++)
+   {
+      if(t == 8)
+         continue;
+
+      types[idx] = t;
+      scores[idx] = GetTypeScore(t);
+      idx++;
+   }
+
+   SortTypesByScore(types, scores, 49);
+
+   int rows = TypePerformanceTopN;
+
+   if(rows > 49)
+      rows = 49;
+
+   int panelX = 10;
+   int panelY = 25;
+   int panelW = 430;
+   int panelH = 45 + (rows + 3) * 15;
+
+   DrawTypePerformancePanelBg("TYPEPERF_BG", panelX, panelY, panelW, panelH, clrBlack);
+
+   // CORNER_LEFT_LOWER uses y-distance from bottom, so larger y is visually higher.
+   int y = panelY + panelH - 20;
+
+   DrawTypePerformanceLabel("TYPEPERF_TITLE", "TYPE PERFORMANCE | CLOSED + OPEN", panelX + 8, y, clrYellow, 9);
+   y -= 18;
+
+   DrawTypePerformanceLabel("TYPEPERF_MODE", TodayOnlyTypePLHistory ? "MODE: TODAY HISTORY" : "MODE: FULL HISTORY", panelX + 8, y, clrSilver, 8);
+   y -= 18;
+
+   DrawTypePerformanceLabel("TYPEPERF_HEAD", "TYPE NAME    ORD  WIN%  PF    AVG    OPEN    TOTAL", panelX + 8, y, clrAqua, 8);
+   y -= 15;
+
+   for(int r = 0; r < rows; r++)
+   {
+      int typeNo = types[r];
+
+      int orders = GetTypeOrderCount(typeNo);
+      double wr = GetTypeWinRate(typeNo);
+      double pf = GetTypeProfitFactor(typeNo);
+      double avg = GetTypeAvgClosedPL(typeNo);
+      double openPL = GetTypeOpenProfit(typeNo);
+      double totalPL = GetTypeProfit(typeNo);
+
+      color rowColor = clrWhite;
+
+      if(totalPL > 0)
+         rowColor = clrLime;
+      else if(totalPL < 0)
+         rowColor = clrRed;
+
+      string line =
+         "T" + IntegerToString(typeNo) + " " +
+         GetTypeShortName(typeNo) + " " +
+         IntegerToString(orders) + " " +
+         DoubleToString(wr, 0) + "% " +
+         DoubleToString(pf, 2) + " $" +
+         DoubleToString(avg, 2) + " $" +
+         DoubleToString(openPL, 2) + " $" +
+         DoubleToString(totalPL, 2);
+
+      DrawTypePerformanceLabel(
+         "TYPEPERF_ROW_" + IntegerToString(r),
+         line,
+         panelX + 8,
+         y,
+         rowColor,
+         8
+      );
+
+      y -= 15;
+   }
+}
+
+//+------------------------------------------------------------------+
+void ExportTypePerformanceCSVIfNeeded()
+{
+   if(!ExportTypePerformanceCSV)
+      return;
+
+   if(TimeCurrent() - lastTypePerformanceExportTime < ExportTypePerformanceEverySeconds)
+      return;
+
+   lastTypePerformanceExportTime = TimeCurrent();
+
+   string fileName = "BTC_Type_Performance_" + Symbol() + "_" + IntegerToString(MagicNumber) + ".csv";
+
+   int handle = FileOpen(fileName, FILE_CSV | FILE_WRITE, ',');
+
+   if(handle == INVALID_HANDLE)
+   {
+      Print("Type performance CSV open failed. Error=", GetLastError());
+      return;
+   }
+
+   FileWrite(
+      handle,
+      "Time",
+      "Symbol",
+      "Type",
+      "Name",
+      "Orders",
+      "Wins",
+      "Losses",
+      "WinRate",
+      "ProfitFactor",
+      "AvgClosedPL",
+      "OpenPL",
+      "ClosedPL",
+      "TotalPL"
+   );
+
+   for(int t = 1; t <= 50; t++)
+   {
+      if(t == 8)
+         continue;
+
+      FileWrite(
+         handle,
+         TimeToString(TimeCurrent(), TIME_DATE | TIME_SECONDS),
+         Symbol(),
+         t,
+         GetTypeShortName(t),
+         GetTypeOrderCount(t),
+         GetTypeWinCount(t),
+         GetTypeLossCount(t),
+         DoubleToString(GetTypeWinRate(t), 2),
+         DoubleToString(GetTypeProfitFactor(t), 2),
+         DoubleToString(GetTypeAvgClosedPL(t), 2),
+         DoubleToString(GetTypeOpenProfit(t), 2),
+         DoubleToString(GetTypeClosedProfit(t), 2),
+         DoubleToString(GetTypeProfit(t), 2)
+      );
+   }
+
+   FileClose(handle);
+}
 
 //+------------------------------------------------------------------+
 // Dashboard helpers
@@ -2867,6 +4064,12 @@ void DrawDashboard()
    DrawDashRow("ATR", DoubleToString(iATR(Symbol(), TradeTF, ATRPeriod, 1), 2), 37, clrWhite, clrYellow);
    DrawDashRow("Risk Gate", UseProfessionalRiskGate ? "ON" : "OFF", 38, clrWhite, UseProfessionalRiskGate ? clrLime : clrRed);
    DrawDashRow("Cooldown", UseSameBasketCooldown ? IntegerToString(SameBasketCooldownSeconds) + " sec" : "OFF", 39, clrWhite, UseSameBasketCooldown ? clrLime : clrRed);
+   DrawDashRow("Multiplier", DoubleToString(GetBalanceMultiplier(), 2) + "x", 40, clrWhite, clrYellow);
+   DrawDashRow("Dyn Lot", DoubleToString(GetDynamicLot(BaseLot), 2), 41, clrWhite, clrYellow);
+   DrawDashRow("Dyn GTP/SL", "$" + DoubleToString(GetDynamicTP(GlobalBasketTPUSD), 2) + " / $" + DoubleToString(GetDynamicSL(GlobalBasketSLUSD), 2), 42, clrWhite, clrYellow);
+   DrawDashRow("T21 Day P/L", "$" + DoubleToString(GetType21TodayTotalProfit(), 2), 43, clrWhite, GetType21TodayTotalProfit() >= 0 ? clrLime : clrRed);
+   DrawDashRow("T21 Target", "$" + DoubleToString(GetDynamicTP(DayDailyProfitTargetUSD), 2), 44, clrWhite, clrLime);
+   DrawDashRow("T21 Lock", IsType21DailyTargetLocked() ? "LOCKED" : "OPEN", 45, clrWhite, IsType21DailyTargetLocked() ? clrRed : clrLime);
 
    DrawLabel("DASH_STATUS", "RUNNING 24/7 - 50 TYPES + RISK + COOLDOWN", 300, 590, clrLime, 8);
 
