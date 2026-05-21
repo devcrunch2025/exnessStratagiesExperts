@@ -5,6 +5,8 @@
 //+------------------------------------------------------------------+
 #property strict
 
+
+
 /*
    BTCUSD 8-TYPE MOMENTUM BASKET EA
    ------------------------------------------------------------
@@ -52,25 +54,25 @@ extern int    MagicNumber = 20260522;
 //  BASKET TP / SL
 // ================================================================
 extern double BigBasketTPUSD      = 0.50;
-extern double BigBasketSLUSD      = -20.00;
+extern double BigBasketSLUSD      = -10.00;
 
 extern double RangeBasketTPUSD    = 0.50;
-extern double RangeBasketSLUSD    = -20.00;
+extern double RangeBasketSLUSD    = -10.00;
 
 extern double TrendBasketTPUSD    = 0.50;
-extern double TrendBasketSLUSD    = -20.00;
+extern double TrendBasketSLUSD    = -10.00;
 
 extern double FakeBasketTPUSD     = 0.50;
-extern double FakeBasketSLUSD     = -20.00;
+extern double FakeBasketSLUSD     = -10.00;
 
 extern double SqueezeBasketTPUSD  = 0.50;
-extern double SqueezeBasketSLUSD  = -20.00;
+extern double SqueezeBasketSLUSD  = -10.00;
 
 extern double SweepBasketTPUSD    = 0.50;
-extern double SweepBasketSLUSD    = -20.00;
+extern double SweepBasketSLUSD    = -10.00;
 
 extern double ExhaustBasketTPUSD  = 0.50;
-extern double ExhaustBasketSLUSD  = -20.00;
+extern double ExhaustBasketSLUSD  = -10.00;
 
 // ================================================================
 //  MAX ORDERS PER BASKET SIDE
@@ -181,11 +183,49 @@ extern double RecoveryGapPrice = 500.0;
 extern int    MaxRecoveryOrdersPerBasket = 2;
 extern bool   RecoverySameDirection = true;
 
+
+// ================================================================
+//  SAME TYPE + SAME DIRECTION COOLDOWN
+// ================================================================
+extern bool UseSameBasketCooldown = true;
+extern int  SameBasketCooldownSeconds = 120;
+
 // ================================================================
 //  SAFETY
 // ================================================================
 extern bool UseEquityProtection = false;
 extern double MinEquityPercent = 60.0;
+
+
+// ================================================================
+//  PROFESSIONAL RISK GATE - BEFORE ANY ORDER
+// ================================================================
+extern bool   UseProfessionalRiskGate = true;
+
+// Higher timeframe confirmation
+extern ENUM_TIMEFRAMES HTFTrendTF = PERIOD_M15;
+extern int    HTFFastEMA = 9;
+extern int    HTFSlowEMA = 21;
+extern double MinHTFEMAGap = 50.0;
+
+// Avoid chasing price too far from EMA
+extern double MaxDistanceFromM5EMA = 1200.0;
+
+// ATR spike protection
+extern int    ATRPeriod = 14;
+extern double MaxATRForNewOrder = 900.0;
+extern double MinATRForNewOrder = 20.0;
+
+// Confirmation score
+extern int    MinOrderQualityScore = 3;
+
+// Loss memory protection
+extern bool   UseLossMemoryBlock = true;
+extern double LossMemoryTriggerUSD = -10.0;
+extern int    LossMemoryPauseBars = 5;
+
+datetime lastLossMemoryTime = 0;
+string   lastLossMemoryBasket = "";
 
 // ================================================================
 //  DASHBOARD + EMA
@@ -211,6 +251,114 @@ int      lastBigMoveDirection = 0;
 #define MODE_SQUEEZE  5
 #define MODE_SWEEP    6
 #define MODE_EXHAUST  7
+
+//+------------------------------------------------------------------+
+//| Higher timeframe trend direction                                |
+//+------------------------------------------------------------------+
+int GetHTFTrendDirection()
+{
+   double emaFast = iMA(Symbol(), HTFTrendTF,
+                        HTFFastEMA, 0,
+                        MODE_EMA,
+                        PRICE_CLOSE, 1);
+
+   double emaSlow = iMA(Symbol(), HTFTrendTF,
+                        HTFSlowEMA, 0,
+                        MODE_EMA,
+                        PRICE_CLOSE, 1);
+
+   double close1 = iClose(Symbol(), HTFTrendTF, 1);
+
+   if(emaFast <= 0 || emaSlow <= 0)
+      return 0;
+
+   double gap = MathAbs(emaFast - emaSlow);
+
+   if(gap < MinHTFEMAGap)
+      return 0;
+
+   if(close1 > emaFast && emaFast > emaSlow)
+      return 1;
+
+   if(close1 < emaFast && emaFast < emaSlow)
+      return -1;
+
+   return 0;
+}
+
+//+------------------------------------------------------------------+
+//| Professional risk gate before ALL orders                        |
+//+------------------------------------------------------------------+
+bool CanCreateProfessionalOrder(int type, string commentText)
+{
+   if(!UseProfessionalRiskGate)
+      return true;
+
+   // Spread filter
+   if(MarketInfo(Symbol(), MODE_SPREAD) > MaxSpreadPoints)
+      return false;
+
+   // ATR filter
+   double atr = iATR(Symbol(), TradeTF, ATRPeriod, 1);
+
+   if(atr > MaxATRForNewOrder)
+   {
+      Print("BLOCKED: ATR too high");
+      return false;
+   }
+
+   if(atr < MinATRForNewOrder)
+   {
+      Print("BLOCKED: ATR too low");
+      return false;
+   }
+
+   // Avoid chasing huge BTC moves
+   double ema = iMA(Symbol(),
+                    TrendTF,
+                    TrendSlowEMA,
+                    0,
+                    MODE_EMA,
+                    PRICE_CLOSE,
+                    1);
+
+   double dist = MathAbs(Bid - ema);
+
+   if(dist > MaxDistanceFromM5EMA)
+   {
+      Print("BLOCKED: price too far from EMA");
+      return false;
+   }
+
+   // Higher timeframe trend
+   int htfTrend = GetHTFTrendDirection();
+
+   // Block weak counter-trend entries
+   if(htfTrend == 1 && type == OP_SELL)
+   {
+      // allow only strong reversal situations
+      if(!(IsLiquiditySweepUp()
+         || IsFakeBreakoutUp()
+         || IsTrendExhaustionUp()))
+      {
+         Print("BLOCKED: strong HTF BUY trend");
+         return false;
+      }
+   }
+
+   if(htfTrend == -1 && type == OP_BUY)
+   {
+      if(!(IsLiquiditySweepDown()
+         || IsFakeBreakoutDown()
+         || IsTrendExhaustionDown()))
+      {
+         Print("BLOCKED: strong HTF SELL trend");
+         return false;
+      }
+   }
+
+   return true;
+}
 
 //+------------------------------------------------------------------+
 int OnInit()
@@ -998,10 +1146,66 @@ double GetRecoveryLotByComment(string commentText)
    return BaseLot * 3;
   }
 
+
+//+------------------------------------------------------------------+
+//| Same basket cooldown: prevents repeat orders in same TYPE/side   |
+//| Example: BIG_BUY blocks only BIG_BUY for 120 seconds             |
+//+------------------------------------------------------------------+
+bool IsSameBasketCooldownActive(string commentText)
+  {
+   if(!UseSameBasketCooldown)
+      return false;
+
+   datetime lastTime = 0;
+
+   for(int i = OrdersTotal() - 1; i >= 0; i--)
+     {
+      if(OrderSelect(i, SELECT_BY_POS, MODE_TRADES))
+        {
+         if(OrderSymbol() == Symbol() &&
+            OrderMagicNumber() == MagicNumber)
+           {
+            if(IsCommentBasketMatch(OrderComment(), commentText))
+              {
+               if(OrderOpenTime() > lastTime)
+                  lastTime = OrderOpenTime();
+              }
+           }
+        }
+     }
+
+   if(lastTime <= 0)
+      return false;
+
+   int secondsPassed = (int)(TimeCurrent() - lastTime);
+
+   if(secondsPassed < SameBasketCooldownSeconds)
+     {
+      Print("COOLDOWN ACTIVE: ", commentText,
+            " wait ", SameBasketCooldownSeconds - secondsPassed, " seconds");
+      return true;
+     }
+
+   return false;
+  }
+
 //+------------------------------------------------------------------+
 void OpenOrder(int type, double lot, string commentText)
   {
    RefreshRates();
+
+   // Same TYPE + same direction cooldown.
+   // Example: BIG_BUY blocks only BIG_BUY. BIG_SELL can still open.
+   if(IsSameBasketCooldownActive(commentText))
+      return;
+
+   // Professional final gate before every TYPE 1-8 order.
+   // Profit may happen or may not happen. This gate blocks low-quality BTC entries.
+   if(!CanCreateProfessionalOrder(type, commentText))
+     {
+      Print("ORDER BLOCKED BY PROFESSIONAL RISK GATE | ", commentText);
+      return;
+     }
 
    if(AccountFreeMarginCheck(Symbol(), type, lot) <= 0)
      {
@@ -1071,6 +1275,13 @@ void CheckBasketComment(string commentText, double tp, double sl)
    if(profit <= sl)
      {
       Print(commentText, " SL close. Profit=", profit);
+
+      if(UseLossMemoryBlock)
+        {
+         lastLossMemoryTime = iTime(Symbol(), TradeTF, 1);
+         lastLossMemoryBasket = commentText;
+        }
+
       CloseOrdersByComment(commentText);
       return;
      }
@@ -1435,6 +1646,11 @@ void DrawDashboard()
    DrawDashRow("Free Margin", "$" + DoubleToString(AccountFreeMargin(), 2), 34, clrWhite, clrWhite);
    DrawDashRow("Spread", DoubleToString(MarketInfo(Symbol(), MODE_SPREAD), 0), 35, clrWhite, clrYellow);
 
-   DrawLabel("DASH_STATUS", "RUNNING 24/7 - 8 BTC MOMENTUM TYPES", 300, 400, clrLime, 8);
+   DrawDashRow("HTF Trend", IntegerToString(GetHTFTrendDirection()), 36, clrWhite, clrYellow);
+   DrawDashRow("ATR", DoubleToString(iATR(Symbol(), TradeTF, ATRPeriod, 1), 2), 37, clrWhite, clrYellow);
+   DrawDashRow("Risk Gate", UseProfessionalRiskGate ? "ON" : "OFF", 38, clrWhite, UseProfessionalRiskGate ? clrLime : clrRed);
+   DrawDashRow("Cooldown", UseSameBasketCooldown ? IntegerToString(SameBasketCooldownSeconds) + " sec" : "OFF", 39, clrWhite, UseSameBasketCooldown ? clrLime : clrRed);
+
+   DrawLabel("DASH_STATUS", "RUNNING 24/7 - 8 TYPES + RISK + COOLDOWN", 300, 590, clrLime, 8);
   }
 //+------------------------------------------------------------------+
