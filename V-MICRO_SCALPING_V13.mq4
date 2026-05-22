@@ -102,7 +102,7 @@ double Type52BasketSLUSD = -20.00;
 double AdvancedBasketTPUSD   = 0.50;
 double AdvancedBasketSLUSD   = -20.00;
 
-int MaxTotalOpenOrders = 3;
+int MaxTotalOpenOrders = 5;
 double GlobalBasketTPUSD = 0.50;
 double GlobalBasketSLUSD = -30.00;
 
@@ -139,9 +139,9 @@ double MinTrendEMAGap = 30.0;
 // ================================================================
 //  TYPE ENABLE/DISABLE
 // ================================================================
-bool UseBigMomentum       = true;//good 
+bool UseBigMomentum       = true;//good
 bool UseRangeMomentum     = false;//BIG LOSS No Recovery
-bool UseTrendMomentum     = true;//Good 
+bool UseTrendMomentum     = true;//Good
 bool UseFakeBreakout      = false;
 bool UseCompressionBreak  = false;
 bool UseLiquiditySweep    = false;
@@ -152,7 +152,7 @@ bool   UseAdvancedTypes9To50 = false;//true
 
 
 bool UseType52EdgeAlgo = false;
-bool   UseType21IntradayBooker = false;//Big loss if TREND changed 
+bool   UseType21IntradayBooker = false;//Big loss if TREND changed
 double DayBasketTPUSD = 5.00;
 double DayBasketSLUSD = -20.00;
 
@@ -2956,7 +2956,7 @@ void CheckAllSeparateBasketClose()
 
    CheckBasketComment("TYPE21_BUY",  DayBasketTPUSD, DayBasketSLUSD);
    CheckBasketComment("TYPE21_SELL", DayBasketTPUSD, DayBasketSLUSD);
- 
+
 
 
 // CheckBasketCommentDynamic("BIG_BUY",      BigBasketTPUSD);
@@ -3486,7 +3486,7 @@ void CloseAllEAOrders()
    CloseOrdersByComment("TYPE52_PUT_BUY");
 
    CloseOrdersByComment("TYPE21_BUY");
-CloseOrdersByComment("TYPE21_SELL");
+   CloseOrdersByComment("TYPE21_SELL");
 
    if(UseAdvancedTypes9To50)
      {
@@ -3521,8 +3521,8 @@ string ModeText()
    if(mode == MODE_MACD_STRATEGY)
       return "TYPE 51 MACD STRATEGY";
 
-      if(mode == MODE_INTRADAY_STANDALONE)
-   return "TYPE 21 INTRADAY STANDALONE";
+   if(mode == MODE_INTRADAY_STANDALONE)
+      return "TYPE 21 INTRADAY STANDALONE";
 
    if(mode >= 9 && mode <= 50)
       return AdvancedModeText(mode);
