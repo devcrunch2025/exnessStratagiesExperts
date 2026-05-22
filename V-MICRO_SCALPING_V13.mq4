@@ -58,7 +58,7 @@ extern int    MagicNumber = 20260522;
 //  Example: $100=1x, $200=2x, $300=3x
 // ================================================================
 extern bool   UseBalanceMultiplier = true;
-extern double BalanceMultiplierStepUSD = 100.0;
+extern double BalanceMultiplierStepUSD = 200.0;
 extern double MinBalanceMultiplier = 1.0;
 extern double MaxBalanceMultiplier = 50.0;
 extern bool   ScaleLotsByBalance = true;
@@ -68,31 +68,41 @@ extern bool   ScaleSLByBalance   = true;
 // ================================================================
 //  BASKET TP / SL
 // ================================================================
-extern double BigBasketTPUSD      = 0.50;
+extern double BigBasketTPUSD      = 0.30;
 extern double BigBasketSLUSD      = -20.00;
 
-extern double RangeBasketTPUSD    = 0.50;
+extern double RangeBasketTPUSD    = 0.30;
 extern double RangeBasketSLUSD    = -20.00;
 
-extern double TrendBasketTPUSD    = 0.50;
+extern double TrendBasketTPUSD    = 0.30;
 extern double TrendBasketSLUSD    = -20.00;
 
-extern double FakeBasketTPUSD     = 0.50;
+extern double FakeBasketTPUSD     = 0.30;
 extern double FakeBasketSLUSD     = -20.00;
 
-extern double SqueezeBasketTPUSD  = 0.50;
+extern double SqueezeBasketTPUSD  = 0.30;
 extern double SqueezeBasketSLUSD  = -20.00;
 
-extern double SweepBasketTPUSD    = 0.50;
+extern double SweepBasketTPUSD    = 0.30;
 extern double SweepBasketSLUSD    = -20.00;
 
-extern double ExhaustBasketTPUSD  = 0.50;
+extern double ExhaustBasketTPUSD  = 0.30;
 extern double ExhaustBasketSLUSD  = -20.00;
 
 extern bool   UseGlobalBasketClose = true;
 
-extern double GlobalBasketTPUSD = 0.50;
-extern double GlobalBasketSLUSD = -10.00;
+extern double Type51BasketTPUSD = 0.30;
+extern double Type51BasketSLUSD = -20.00;
+
+extern double GlobalBasketTPUSD = 0.30;
+extern double GlobalBasketSLUSD = -20.00;
+
+extern double Type52BasketTPUSD = 0.30;
+extern double Type52BasketSLUSD = -20.00;
+
+extern bool   UseAdvancedTypes9To50 = false;//true
+extern double AdvancedBasketTPUSD   = 0.30;
+extern double AdvancedBasketSLUSD   = -20.00;
 
 extern int MaxTotalOpenOrders = 5;
 
@@ -137,6 +147,29 @@ extern bool UseCompressionBreak  = false;
 extern bool UseLiquiditySweep    = false;
 extern bool UseTrendExhaustion   = false;
 extern bool UseSessionMode       = false;
+extern bool UseType51MACD = false;
+
+
+extern bool UseType52EdgeAlgo = false;
+
+
+extern int    MaxType52OrdersPerSide = 2;
+extern double Type52Lot = 0.01;
+extern double Type52OrderGapPrice = 150.0;
+
+extern ENUM_TIMEFRAMES EdgeTF = PERIOD_M5;
+
+extern int EdgeFastEMA  = 21;
+extern int EdgeSlowEMA  = 50;
+extern int EdgeTrendEMA = 200;
+
+extern int EdgeRSILen   = 14;
+extern double EdgeRSIBuy  = 55;
+extern double EdgeRSISell = 45;
+
+extern int EdgeATRLen = 14;
+extern double EdgeATRMult = 1.5;
+
 
 // ================================================================
 //  TYPE 1 BIG REVERSAL
@@ -201,9 +234,7 @@ extern int NYEndHour       = 23;
 // ================================================================
 //  TYPES 9-50 ADVANCED BTC MARKET STATE ENGINE
 // ================================================================
-extern bool   UseAdvancedTypes9To50 = false;//true
-extern double AdvancedBasketTPUSD   = 0.50;
-extern double AdvancedBasketSLUSD   = -10.00;
+
 extern int    MaxAdvancedOrdersPerSide = 2;
 extern double AdvancedLot = 0.01;
 extern double AdvancedOrderGapPrice = 250.0;
@@ -374,6 +405,18 @@ int      lastBigMoveDirection = 0;
 #define MODE_RETAIL_TRAP_SEQUENCE 48
 #define MODE_DEAD_ZONE            49
 #define MODE_DISTRIBUTION         50
+#define MODE_MACD_STRATEGY 51
+#define MODE_EDGE_ALGO_STRATEGY 52
+
+
+extern int MaxType51OrdersPerSide = 2;
+extern double Type51Lot = 0.01;
+extern double Type51OrderGapPrice = 150.0;
+
+extern int MACDFastEMA = 12;
+extern int MACDSlowEMA = 26;
+extern int MACDSignalSMA = 9;
+extern ENUM_TIMEFRAMES MACDTF = PERIOD_M5;
 
 //+------------------------------------------------------------------+
 //| Higher timeframe trend direction                                |
@@ -580,7 +623,65 @@ int DetectAdvancedMarketMode()
 
    if(IsDistributionMode())          return MODE_DISTRIBUTION;
 
+
+
+   
+
    return MODE_NONE;
+}
+bool IsType51MACDBuy()
+{
+   double macd1   = iMACD(Symbol(), MACDTF, 12, 26, 9, PRICE_CLOSE, MODE_MAIN, 1);
+   double signal1 = iMACD(Symbol(), MACDTF, 12, 26, 9, PRICE_CLOSE, MODE_SIGNAL, 1);
+
+   double macd2   = iMACD(Symbol(), MACDTF, 12, 26, 9, PRICE_CLOSE, MODE_MAIN, 2);
+   double signal2 = iMACD(Symbol(), MACDTF, 12, 26, 9, PRICE_CLOSE, MODE_SIGNAL, 2);
+
+   double delta1 = macd1 - signal1;
+   double delta2 = macd2 - signal2;
+
+   return (delta2 <= 0 && delta1 > 0);
+}
+
+bool IsType51MACDSell()
+{
+   double macd1   = iMACD(Symbol(), MACDTF, 12, 26, 9, PRICE_CLOSE, MODE_MAIN, 1);
+   double signal1 = iMACD(Symbol(), MACDTF, 12, 26, 9, PRICE_CLOSE, MODE_SIGNAL, 1);
+
+   double macd2   = iMACD(Symbol(), MACDTF, 12, 26, 9, PRICE_CLOSE, MODE_MAIN, 2);
+   double signal2 = iMACD(Symbol(), MACDTF, 12, 26, 9, PRICE_CLOSE, MODE_SIGNAL, 2);
+
+   double delta1 = macd1 - signal1;
+   double delta2 = macd2 - signal2;
+
+   return (delta2 >= 0 && delta1 < 0);
+}
+
+void ProcessType51MACD()
+{
+   if(IsType51MACDBuy())
+   {
+      if(CountOrdersByComment("TYPE51_BUY") >= MaxType51OrdersPerSide)
+         return;
+
+      if(!CanOpenByGap("TYPE51_BUY", Type51OrderGapPrice))
+         return;
+
+      OpenOrder(OP_BUY, Type51Lot, "TYPE51_BUY");
+      return;
+   }
+
+   if(IsType51MACDSell())
+   {
+      if(CountOrdersByComment("TYPE51_SELL") >= MaxType51OrdersPerSide)
+         return;
+
+      if(!CanOpenByGap("TYPE51_SELL", Type51OrderGapPrice))
+         return;
+
+      OpenOrder(OP_SELL, Type51Lot, "TYPE51_SELL");
+      return;
+   }
 }
 
 //+------------------------------------------------------------------+
@@ -783,6 +884,7 @@ string AdvancedModeText(int mode)
    if(mode == 48) return "TYPE 48 RETAIL TRAP";
    if(mode == 49) return "TYPE 49 DEAD ZONE";
    if(mode == 50) return "TYPE 50 DISTRIBUTION";
+   if(mode == 51) return "TYPE 51 MACD STRATEGY";
 
    return "ADVANCED TYPE";
 }
@@ -857,7 +959,66 @@ bool IsVolatilityCollapse()
 
    return atrNow <= atrAvg * VolCollapseRatio;
 }
+bool IsType52CallBuy()
+{
+   double close1 = iClose(Symbol(), EdgeTF, 1);
 
+   double emaFast  = iMA(Symbol(), EdgeTF, EdgeFastEMA, 0, MODE_EMA, PRICE_CLOSE, 1);
+   double emaSlow  = iMA(Symbol(), EdgeTF, EdgeSlowEMA, 0, MODE_EMA, PRICE_CLOSE, 1);
+   double emaTrend = iMA(Symbol(), EdgeTF, EdgeTrendEMA, 0, MODE_EMA, PRICE_CLOSE, 1);
+
+   double rsiVal = iRSI(Symbol(), EdgeTF, EdgeRSILen, PRICE_CLOSE, 1);
+
+   bool bullTrend = close1 > emaTrend;
+
+   if(bullTrend && emaFast > emaSlow && rsiVal > EdgeRSIBuy)
+      return true;
+
+   return false;
+}
+void ProcessType52EdgeAlgo()
+{
+   if(IsType52CallBuy())
+   {
+      if(CountOrdersByComment("TYPE52_CALL_BUY") >= MaxType52OrdersPerSide)
+         return;
+
+      if(!CanOpenByGap("TYPE52_CALL_BUY", Type52OrderGapPrice))
+         return;
+
+      OpenOrder(OP_BUY, Type52Lot, "TYPE52_CALL_BUY");
+      return;
+   }
+
+   if(IsType52PutBuy())
+   {
+      if(CountOrdersByComment("TYPE52_PUT_BUY") >= MaxType52OrdersPerSide)
+         return;
+
+      if(!CanOpenByGap("TYPE52_PUT_BUY", Type52OrderGapPrice))
+         return;
+
+      OpenOrder(OP_SELL, Type52Lot, "TYPE52_PUT_BUY");
+      return;
+   }
+}
+bool IsType52PutBuy()
+{
+   double close1 = iClose(Symbol(), EdgeTF, 1);
+
+   double emaFast  = iMA(Symbol(), EdgeTF, EdgeFastEMA, 0, MODE_EMA, PRICE_CLOSE, 1);
+   double emaSlow  = iMA(Symbol(), EdgeTF, EdgeSlowEMA, 0, MODE_EMA, PRICE_CLOSE, 1);
+   double emaTrend = iMA(Symbol(), EdgeTF, EdgeTrendEMA, 0, MODE_EMA, PRICE_CLOSE, 1);
+
+   double rsiVal = iRSI(Symbol(), EdgeTF, EdgeRSILen, PRICE_CLOSE, 1);
+
+   bool bearTrend = close1 < emaTrend;
+
+   if(bearTrend && emaFast < emaSlow && rsiVal < EdgeRSISell)
+      return true;
+
+   return false;
+}
 //+------------------------------------------------------------------+
 bool IsEMAReclaimBuy()
 {
@@ -1496,7 +1657,17 @@ void ProcessNewBarLogic()
       ProcessTrendExhaustion();
       return;
      }
+if(mode == MODE_MACD_STRATEGY)
+{
+   ProcessType51MACD();
+   return;
+}
 
+if(mode == MODE_EDGE_ALGO_STRATEGY)
+{
+   ProcessType52EdgeAlgo();
+   return;
+}
 
    if(mode >= 9 && mode <= 50)
      {
@@ -1528,17 +1699,20 @@ int DetectMarketMode()
      }
 
 // NY: big momentum and trend continuation are common.
-   if(UseSessionMode && session == 3)
-     {
-      if(UseBigMomentum && DetectBigMoveDirection() != 0)
-         return MODE_BIG;
+if(UseSessionMode && session == 3)
+{
+   if(UseBigMomentum && DetectBigMoveDirection() != 0)
+      return MODE_BIG;
 
-      if(UseTrendMomentum && GetTrendDirection() != 0)
-         return MODE_TREND;
+   if(UseType51MACD && (IsType51MACDBuy() || IsType51MACDSell()))
+      return MODE_MACD_STRATEGY;
 
-      if(UseTrendExhaustion && (IsTrendExhaustionUp() || IsTrendExhaustionDown()))
-         return MODE_EXHAUST;
-     }
+   if(UseTrendMomentum && GetTrendDirection() != 0)
+      return MODE_TREND;
+
+   if(UseTrendExhaustion && (IsTrendExhaustionUp() || IsTrendExhaustionDown()))
+      return MODE_EXHAUST;
+}
 
 // Asian: range is common.
    if(UseSessionMode && session == 1)
@@ -1569,8 +1743,17 @@ int DetectMarketMode()
    if(UseTrendExhaustion && (IsTrendExhaustionUp() || IsTrendExhaustionDown()))
       return MODE_EXHAUST;
 
+
+      if(UseType51MACD && (IsType51MACDBuy() || IsType51MACDSell()))
+   return MODE_MACD_STRATEGY;
+
+   if(UseType52EdgeAlgo && (IsType52CallBuy() || IsType52PutBuy()))
+   return MODE_EDGE_ALGO_STRATEGY;
+
    if(UseTrendMomentum && GetTrendDirection() != 0)
       return MODE_TREND;
+
+
 
 
    if(UseAdvancedTypes9To50)
@@ -2396,7 +2579,7 @@ double GetBalanceMultiplier()
    double step = BalanceMultiplierStepUSD;
 
    if(step <= 0)
-      step = 100.0;
+      step = 200.0;
 
    double mult = MathFloor(AccountBalance() / step);
 
@@ -2566,6 +2749,12 @@ void CheckAllSeparateBasketClose()
 
    CheckBasketComment("EXHAUST_BUY",  ExhaustBasketTPUSD,  ExhaustBasketSLUSD);
    CheckBasketComment("EXHAUST_SELL", ExhaustBasketTPUSD,  ExhaustBasketSLUSD);
+
+   CheckBasketComment("TYPE51_BUY",  Type51BasketTPUSD, Type51BasketSLUSD);
+CheckBasketComment("TYPE51_SELL", Type51BasketTPUSD, Type51BasketSLUSD);
+
+CheckBasketComment("TYPE52_CALL_BUY", Type52BasketTPUSD, Type52BasketSLUSD);
+CheckBasketComment("TYPE52_PUT_BUY",  Type52BasketTPUSD, Type52BasketSLUSD);
 
 
    // CheckBasketCommentDynamic("BIG_BUY",      BigBasketTPUSD);
@@ -2963,6 +3152,10 @@ void CheckType21DailyProfitTarget()
 //+------------------------------------------------------------------+
 void CheckGlobalBasketClose()
 {
+
+
+// CheckTimedIndividualClose();
+
    if(!UseGlobalBasketClose)
       return;
 
@@ -3006,6 +3199,61 @@ void CheckGlobalBasketClose()
       return;
    }
 }
+extern bool   UseTimedIndividualClose = true;
+extern int    StartCloseAfterHours    = 5;
+extern double LossPerHourUSD          = 1.0;
+
+void CheckTimedIndividualClose()
+{
+   if(!UseTimedIndividualClose)
+      return;
+
+   for(int i = OrdersTotal() - 1; i >= 0; i--)
+   {
+      if(!OrderSelect(i, SELECT_BY_POS, MODE_TRADES))
+         continue;
+
+      if(OrderSymbol() != Symbol() || OrderMagicNumber() != MagicNumber)
+         continue;
+
+      double orderProfit =
+         OrderProfit() +
+         OrderSwap() +
+         OrderCommission();
+
+      double openHours = (TimeCurrent() - OrderOpenTime()) / 3600.0;
+
+      if(openHours < StartCloseAfterHours)
+         continue;
+
+      int fullHours = (int)MathFloor(openHours);
+
+      double allowedLoss = -1.0 * fullHours * LossPerHourUSD;
+
+      // Example:
+      // 5 hours = close if loss > -5
+      // 6 hours = close if loss > -6
+      if(orderProfit > allowedLoss && fullHours>4)
+      {
+         Print("Timed individual close. Ticket=", OrderTicket(),
+               " Hours=", fullHours,
+               " Profit=", orderProfit,
+               " AllowedLoss=", allowedLoss);
+
+         bool closed = false;
+
+         if(OrderType() == OP_BUY)
+            closed = OrderClose(OrderTicket(), OrderLots(), Bid, Slippage, clrAqua);
+
+         if(OrderType() == OP_SELL)
+            closed = OrderClose(OrderTicket(), OrderLots(), Ask, Slippage, clrOrange);
+
+         if(!closed)
+            Print("Timed close failed. Ticket=", OrderTicket(),
+                  " Error=", GetLastError());
+      }
+   }
+}
 //+------------------------------------------------------------------+
 void CloseAllEAOrders()
   {
@@ -3023,6 +3271,11 @@ void CloseAllEAOrders()
    CloseOrdersByComment("SWEEP_SELL");
    CloseOrdersByComment("EXHAUST_BUY");
    CloseOrdersByComment("EXHAUST_SELL");
+   CloseOrdersByComment("TYPE51_BUY");
+CloseOrdersByComment("TYPE51_SELL");
+
+CloseOrdersByComment("TYPE52_CALL_BUY");
+CloseOrdersByComment("TYPE52_PUT_BUY");
 
    if(UseAdvancedTypes9To50)
      {
@@ -3053,6 +3306,9 @@ string ModeText()
       return "TYPE 6 LIQUIDITY SWEEP";
    if(mode == MODE_EXHAUST)
       return "TYPE 7 TREND EXHAUSTION";
+
+      if(mode == MODE_MACD_STRATEGY)
+   return "TYPE 51 MACD STRATEGY";
 
    if(mode >= 9 && mode <= 50)
       return AdvancedModeText(mode);
