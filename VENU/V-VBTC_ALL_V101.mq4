@@ -101,8 +101,8 @@ double Type52BasketSLUSD = -20.00;
 
 double AdvancedBasketTPUSD   = 0.50;
 double AdvancedBasketSLUSD   = -20.00;
-
-int MaxTotalOpenOrders = 5;
+int MaxAdvancedTotalOrders=2;
+int MaxTotalOpenOrders = 3;
 double GlobalBasketTPUSD = 0.50;
 double GlobalBasketSLUSD = -30.00;
 
@@ -110,12 +110,34 @@ double GlobalBasketSLUSD = -30.00;
 //  MAX ORDERS PER BASKET SIDE
 // ================================================================
 int MaxBigOrdersPerSide     = 1;
-int MaxRangeOrdersPerSide   = 5;
-int MaxTrendOrdersPerSide   = 5;
+int MaxRangeOrdersPerSide   = 2;
+int MaxTrendOrdersPerSide   = 2;
 int MaxFakeOrdersPerSide    = 1;
-int MaxSqueezeOrdersPerSide = 3;
-int MaxSweepOrdersPerSide   = 2;
-int MaxExhaustOrdersPerSide = 3;
+int MaxSqueezeOrdersPerSide = 1;
+int MaxSweepOrdersPerSide   = 1;
+int MaxExhaustOrdersPerSide = 1;
+
+int MaxType52OrdersPerTrend = 1;
+
+int Type52TrendDirection = 0;
+int Type52CallBuyCountInTrend = 0;
+int Type52PutBuyCountInTrend  = 0;
+
+// ================================================================
+//  TYPES 54-56 MICRO PROFIT STRATEGIES ($0.50 basket TP)
+// ================================================================
+bool   UseMicroPullback54 = true;
+bool   UseEMABounce55    = true;
+bool   UseFastScalp56    = true;
+
+double MicroTPUSD = 0.50;
+double MicroSLUSD = -20.00;
+
+int    MaxMicroOrdersPerSide = 1;
+double MicroLot = 0.01;
+double MicroGapPrice = 200.0;
+double MicroEMATouchBuffer = 30.0;
+
 
 // ================================================================
 //  BASIC SETTINGS
@@ -139,19 +161,19 @@ double MinTrendEMAGap = 30.0;
 // ================================================================
 //  TYPE ENABLE/DISABLE
 // ================================================================
-bool UseBigMomentum       = true;//good
-bool UseRangeMomentum     = false;//BIG LOSS No Recovery
-bool UseTrendMomentum     = true;//Good
-bool UseFakeBreakout      = false;
-bool UseCompressionBreak  = false;
-bool UseLiquiditySweep    = false;
-bool UseTrendExhaustion   = false;
-bool UseSessionMode       = false;
-bool UseType51MACD = false;
-bool   UseAdvancedTypes9To50 = false;//true
+bool UseBigMomentum       = true;//good//2
+bool UseRangeMomentum     = false;//BIG LOSS No Recovery//
+bool UseTrendMomentum     = true;//Good//1
+bool UseFakeBreakout      = false;//testing//3//loss
+bool UseCompressionBreak  = true;
+bool UseLiquiditySweep    = true;
+bool UseTrendExhaustion   = false;//LOSS 
+bool UseSessionMode       = true;
+bool UseType51MACD = true;
+bool   UseAdvancedTypes9To50 = true;//true
 
 
-bool UseType52EdgeAlgo = false;
+bool UseType52EdgeAlgo = true;
 bool   UseType21IntradayBooker = false;//Big loss if TREND changed
 double DayBasketTPUSD = 5.00;
 double DayBasketSLUSD = -20.00;
@@ -239,7 +261,7 @@ int NYEndHour       = 23;
 //  TYPES 9-50 ADVANCED BTC MARKET STATE ENGINE
 // ================================================================
 
-int    MaxAdvancedOrdersPerSide = 1;
+int    MaxAdvancedOrdersPerSide = 2;
 double AdvancedLot = 0.01;
 double AdvancedOrderGapPrice = 250.0;
 
@@ -411,6 +433,11 @@ int      lastBigMoveDirection = 0;
 #define MODE_EDGE_ALGO_STRATEGY 52
 
 #define MODE_INTRADAY_STANDALONE 53
+
+#define MODE_MICRO_PULLBACK_54 54
+#define MODE_EMA_BOUNCE_55    55
+#define MODE_FAST_SCALP_56    56
+
 
 
 int MaxType51OrdersPerSide = 2;
@@ -1098,9 +1125,17 @@ bool IsType52CallBuy()
 //|                                                                  |
 //+------------------------------------------------------------------+
 void ProcessType52EdgeAlgo()
-  {
+{
+   UpdateType52TrendCycle();
+
    if(IsType52CallBuy())
-     {
+   {
+      if(Type52CallBuyCountInTrend >= MaxType52OrdersPerTrend)
+      {
+         Print("TYPE52 CALL BUY blocked: trend-cycle limit reached");
+         return;
+      }
+
       if(CountOrdersByComment("TYPE52_CALL_BUY") >= MaxType52OrdersPerSide)
          return;
 
@@ -1108,11 +1143,19 @@ void ProcessType52EdgeAlgo()
          return;
 
       OpenOrder(OP_BUY, Type52Lot, "TYPE52_CALL_BUY");
+      Type52CallBuyCountInTrend++;
+
       return;
-     }
+   }
 
    if(IsType52PutBuy())
-     {
+   {
+      if(Type52PutBuyCountInTrend >= MaxType52OrdersPerTrend)
+      {
+         Print("TYPE52 PUT BUY blocked: trend-cycle limit reached");
+         return;
+      }
+
       if(CountOrdersByComment("TYPE52_PUT_BUY") >= MaxType52OrdersPerSide)
          return;
 
@@ -1120,9 +1163,11 @@ void ProcessType52EdgeAlgo()
          return;
 
       OpenOrder(OP_SELL, Type52Lot, "TYPE52_PUT_BUY");
+      Type52PutBuyCountInTrend++;
+
       return;
-     }
-  }
+   }
+}
 //+------------------------------------------------------------------+
 //|                                                                  |
 //+------------------------------------------------------------------+
@@ -1332,7 +1377,29 @@ int GetType21DaySignal()
 
    return 0;
   }
+void UpdateType52TrendCycle()
+{
+   int currentTrend = 0;
 
+   if(IsType52CallBuy())
+      currentTrend = 1;
+
+   if(IsType52PutBuy())
+      currentTrend = -1;
+
+   if(currentTrend == 0)
+      return;
+
+   // Reset only when trend action changes
+   if(currentTrend != Type52TrendDirection)
+   {
+      Type52TrendDirection = currentTrend;
+      Type52CallBuyCountInTrend = 0;
+      Type52PutBuyCountInTrend  = 0;
+
+      Print("TYPE52 trend changed. Counters reset. New trend=", currentTrend);
+   }
+}
 //+------------------------------------------------------------------+
 bool IsIntradayBookerMode()
   {
@@ -1683,9 +1750,147 @@ bool IsDistributionMode()
   }
 
 
+
+
+//+------------------------------------------------------------------+
+//| TYPES 54-56 MICRO PROFIT STRATEGIES                             |
+//| Small-profit add-on modules. Existing EA logic is not changed.   |
+//+------------------------------------------------------------------+
+bool IsMicroPullbackBuy()
+  {
+   double ema9 = iMA(Symbol(), PERIOD_M1, 9, 0, MODE_EMA, PRICE_CLOSE, 0);
+
+   return GetTrendDirection() == 1 &&
+          Bid <= ema9 + MicroEMATouchBuffer &&
+          iClose(Symbol(), PERIOD_M1, 1) > iOpen(Symbol(), PERIOD_M1, 1);
+  }
+
+//+------------------------------------------------------------------+
+bool IsMicroPullbackSell()
+  {
+   double ema9 = iMA(Symbol(), PERIOD_M1, 9, 0, MODE_EMA, PRICE_CLOSE, 0);
+
+   return GetTrendDirection() == -1 &&
+          Bid >= ema9 - MicroEMATouchBuffer &&
+          iClose(Symbol(), PERIOD_M1, 1) < iOpen(Symbol(), PERIOD_M1, 1);
+  }
+
+//+------------------------------------------------------------------+
+bool IsEMABounceBuy()
+  {
+   double ema21 = iMA(Symbol(), PERIOD_M1, 21, 0, MODE_EMA, PRICE_CLOSE, 1);
+
+   return GetTrendDirection() == 1 &&
+          iLow(Symbol(), PERIOD_M1, 1) <= ema21 &&
+          iClose(Symbol(), PERIOD_M1, 1) > ema21;
+  }
+
+//+------------------------------------------------------------------+
+bool IsEMABounceSell()
+  {
+   double ema21 = iMA(Symbol(), PERIOD_M1, 21, 0, MODE_EMA, PRICE_CLOSE, 1);
+
+   return GetTrendDirection() == -1 &&
+          iHigh(Symbol(), PERIOD_M1, 1) >= ema21 &&
+          iClose(Symbol(), PERIOD_M1, 1) < ema21;
+  }
+
+//+------------------------------------------------------------------+
+bool IsFastScalpBuy()
+  {
+   return GetTrendDirection() == 1 &&
+          iClose(Symbol(), PERIOD_M1, 1) > iOpen(Symbol(), PERIOD_M1, 1) &&
+          iClose(Symbol(), PERIOD_M1, 2) > iOpen(Symbol(), PERIOD_M1, 2);
+  }
+
+//+------------------------------------------------------------------+
+bool IsFastScalpSell()
+  {
+   return GetTrendDirection() == -1 &&
+          iClose(Symbol(), PERIOD_M1, 1) < iOpen(Symbol(), PERIOD_M1, 1) &&
+          iClose(Symbol(), PERIOD_M1, 2) < iOpen(Symbol(), PERIOD_M1, 2);
+  }
+
+//+------------------------------------------------------------------+
+//| Returns true when a micro setup was detected and handled.        |
+//+------------------------------------------------------------------+
+bool ProcessMicroStrategies()
+  {
+   if(UseMicroPullback54 && IsMicroPullbackBuy())
+     {
+      if(CountOrdersByComment("TYPE54_BUY") < MaxMicroOrdersPerSide &&
+         CanOpenByGap("TYPE54_BUY", MicroGapPrice))
+         OpenOrder(OP_BUY, MicroLot, "TYPE54_BUY");
+      else
+         Print("TYPE54_BUY blocked: max orders or gap rule");
+
+      return true;
+     }
+
+   if(UseMicroPullback54 && IsMicroPullbackSell())
+     {
+      if(CountOrdersByComment("TYPE54_SELL") < MaxMicroOrdersPerSide &&
+         CanOpenByGap("TYPE54_SELL", MicroGapPrice))
+         OpenOrder(OP_SELL, MicroLot, "TYPE54_SELL");
+      else
+         Print("TYPE54_SELL blocked: max orders or gap rule");
+
+      return true;
+     }
+
+   if(UseEMABounce55 && IsEMABounceBuy())
+     {
+      if(CountOrdersByComment("TYPE55_BUY") < MaxMicroOrdersPerSide &&
+         CanOpenByGap("TYPE55_BUY", MicroGapPrice))
+         OpenOrder(OP_BUY, MicroLot, "TYPE55_BUY");
+      else
+         Print("TYPE55_BUY blocked: max orders or gap rule");
+
+      return true;
+     }
+
+   if(UseEMABounce55 && IsEMABounceSell())
+     {
+      if(CountOrdersByComment("TYPE55_SELL") < MaxMicroOrdersPerSide &&
+         CanOpenByGap("TYPE55_SELL", MicroGapPrice))
+         OpenOrder(OP_SELL, MicroLot, "TYPE55_SELL");
+      else
+         Print("TYPE55_SELL blocked: max orders or gap rule");
+
+      return true;
+     }
+
+   if(UseFastScalp56 && IsFastScalpBuy())
+     {
+      if(CountOrdersByComment("TYPE56_BUY") < MaxMicroOrdersPerSide &&
+         CanOpenByGap("TYPE56_BUY", MicroGapPrice))
+         OpenOrder(OP_BUY, MicroLot, "TYPE56_BUY");
+      else
+         Print("TYPE56_BUY blocked: max orders or gap rule");
+
+      return true;
+     }
+
+   if(UseFastScalp56 && IsFastScalpSell())
+     {
+      if(CountOrdersByComment("TYPE56_SELL") < MaxMicroOrdersPerSide &&
+         CanOpenByGap("TYPE56_SELL", MicroGapPrice))
+         OpenOrder(OP_SELL, MicroLot, "TYPE56_SELL");
+      else
+         Print("TYPE56_SELL blocked: max orders or gap rule");
+
+      return true;
+     }
+
+   return false;
+  }
+
 //+------------------------------------------------------------------+
 int OnInit()
   {
+
+MagicNumber=AccountNumber() +101;
+
    Print("BTCUSD 8-Type Momentum Basket EA Started");
    return(INIT_SUCCEEDED);
   }
@@ -1810,6 +2015,16 @@ void ProcessNewBarLogic()
       return;
      }
 
+   // TYPES 54-56: MICRO PROFIT STRATEGIES
+   // Called after main priority strategies and before advanced fallback.
+   if(ProcessMicroStrategies())
+      return;
+
+if(CountAdvancedOrders() >= MaxAdvancedTotalOrders)
+{
+   Print("Advanced blocked: max total advanced orders reached");
+   return;
+}
    if(mode >= 9 && mode <= 50)
      {
       ProcessAdvancedType(mode);
@@ -2954,8 +3169,23 @@ void CheckAllSeparateBasketClose()
    CheckBasketComment("TYPE52_CALL_BUY", Type52BasketTPUSD, Type52BasketSLUSD);
    CheckBasketComment("TYPE52_PUT_BUY",  Type52BasketTPUSD, Type52BasketSLUSD);
 
+   CheckBasketComment("TYPE54_BUY",  MicroTPUSD, MicroSLUSD);
+   CheckBasketComment("TYPE54_SELL", MicroTPUSD, MicroSLUSD);
+   CheckBasketComment("TYPE55_BUY",  MicroTPUSD, MicroSLUSD);
+   CheckBasketComment("TYPE55_SELL", MicroTPUSD, MicroSLUSD);
+   CheckBasketComment("TYPE56_BUY",  MicroTPUSD, MicroSLUSD);
+   CheckBasketComment("TYPE56_SELL", MicroTPUSD, MicroSLUSD);
+
    CheckBasketComment("TYPE21_BUY",  DayBasketTPUSD, DayBasketSLUSD);
    CheckBasketComment("TYPE21_SELL", DayBasketTPUSD, DayBasketSLUSD);
+
+
+   // CLOSE ADVANCED TYPES 9 TO 50
+for(int t = 9; t <= 50; t++)
+{
+   CheckBasketComment(GetAdvancedBuyComment(t),  GetAdvancedTP(t), GetAdvancedSL(t));
+   CheckBasketComment(GetAdvancedSellComment(t), GetAdvancedTP(t), GetAdvancedSL(t));
+}
 
 
 
