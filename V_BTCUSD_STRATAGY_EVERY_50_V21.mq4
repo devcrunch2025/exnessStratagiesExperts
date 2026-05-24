@@ -1,8 +1,8 @@
 //+------------------------------------------------------------------+
 //| BTCUSD Professional Gap Recovery EA                             |
 //| Version: V21                                                     |
-//| Logic: M30 Trend Filter + Trend Change Basket Exit + Dashboard   |
-//| Added: configurable pause after any order close                  |
+//| Logic: Trend Filter + Trend Lines + Basket Exit + Dashboard      |
+//| Added: hourly trend-cycle reset + configurable pause             |
 //+------------------------------------------------------------------+
 #property strict
 
@@ -12,12 +12,12 @@ double GapPrice            = 50.0;
 
 
 bool   EnableIndividualTP  = true;
-double IndividualTP        = 1.00;
+double IndividualTP        = 0.50;
 
 bool   EnableBasketTP      = true;
-double FastProfitTarget    = 1.00;
-double SlowProfitTarget    = 0.50;
-int    FastProfitMinutes   = 30;
+double FastProfitTarget    = 0.50;
+double SlowProfitTarget    =0.50;
+int    FastProfitMinutes   = 60*5;
 
 bool   EnableBasketSL      = true;
 double BasketStopLoss      = -20.0;
@@ -45,15 +45,21 @@ bool   EnableM30TrendFilter    = true;
 int    TrendTimeframe          = PERIOD_M15;
 int    TrendFastEMA            = 9;
 int    TrendSlowEMA            = 21;
+
+bool   ShowTrendLines          = true;
+int    TrendLineBars           = 80;
+int    TrendLineWidth          = 2;
 bool   AllowTradeWhenTrendFlat = false;
 bool   EnableCloseBasketOnTrendChange = true;
 bool   CloseSingleOrderOnTrendChange  = false;
 
 bool   EnableTrendCycleLimit = true;
-int    MaxOrdersPerTrendCycle = 10;
+int    MaxOrdersPerTrendCycle = 1;
+bool   EnableHourlyTrendCycleReset = true;
+int    TrendCycleResetHours       = 1;
 
-int    MaxBuyOrders        = 10;
-int    MaxSellOrders       = 10;
+int    MaxBuyOrders        = 20;
+int    MaxSellOrders       = 20;
 
 bool   EnablePauseAfterClose = true;
 int    PauseMinutesAfterClose = 0;
@@ -62,7 +68,7 @@ bool   ShowDashboard       = true;
 int    DashX               = 200;
 int    DashY               = 20;
 int    DashWidth           = 250;
-int    DashHeight          = 550;
+int    DashHeight          = 590;
 
 datetime lastBuyCandleTime  = 0;
 datetime lastSellCandleTime = 0;
@@ -71,6 +77,7 @@ datetime lastCloseTime      = 0;
 int currentTrendCycleDirection = 0;
 int trendCycleOrderCount       = 0;
 datetime lastTrendCycleBarTime = 0;
+datetime lastTrendCycleHourlyResetTime = 0;
 
 //+------------------------------------------------------------------+
 int OnInit()
@@ -101,21 +108,21 @@ void OnTick()
    
    
    
-   if(GetM30TrendText()=="FLAT - BLOCK")
-   {
+//    if(GetM30TrendText()=="FLAT - BLOCK")
+//    {
    
-   IndividualTP=0;
-  FastProfitTarget    = 0;
-  SlowProfitTarget    = 0;
+//    IndividualTP=0;
+//   FastProfitTarget    = 0;
+//   SlowProfitTarget    = 0;
    
    
 
    
-   }
-   else
-   {
-   IndividualTP=DefaultTP;
-   }
+//    }
+//    else
+//    {
+//    IndividualTP=DefaultTP;
+//    }
    
    
 
@@ -124,6 +131,9 @@ void OnTick()
    
    if(ShowDashboard)
       DrawDashboard();
+
+   if(ShowTrendLines)
+      DrawTrendLinesOnChart();
 
    if(!IsSpreadOK())
       return;
@@ -134,8 +144,8 @@ void OnTick()
    if(EnableBasketTP || EnableBasketSL)
       CheckBasketClose();
 
-   if(EnableCloseBasketOnTrendChange)
-      CheckTrendChangeBasketClose();
+   // if(EnableCloseBasketOnTrendChange)
+   //    CheckTrendChangeBasketClose();
 
    // Pause only blocks new orders, not closing/protection logic
    if(EnablePauseAfterClose && IsPauseActive())
@@ -236,8 +246,8 @@ void ProcessBuyRecovery()
    if(CountOrders(OP_BUY) >= MaxBuyOrders)
       return;
 
-  // if(!CanOpenByM30Trend(OP_BUY))
-   //   return;
+  if(!CanOpenByM30Trend(OP_BUY))
+     return;
 
    double firstBuyPrice = GetFirstOrderPrice(OP_BUY);
    if(firstBuyPrice == 0)
@@ -270,8 +280,8 @@ void ProcessSellRecovery()
    if(CountOrders(OP_SELL) >= MaxSellOrders)
       return;
 
-  // if(!CanOpenByM30Trend(OP_SELL))
-    //  return;
+  if(!CanOpenByM30Trend(OP_SELL))
+     return;
 
    double firstSellPrice = GetFirstOrderPrice(OP_SELL);
    if(firstSellPrice == 0)
@@ -701,12 +711,37 @@ void InitTrendCycleLimit()
    currentTrendCycleDirection = GetM30TrendDirection();
    trendCycleOrderCount       = CountTrendCycleOrdersFromHistory(currentTrendCycleDirection);
    lastTrendCycleBarTime      = iTime(Symbol(), TrendTimeframe, 0);
+   lastTrendCycleHourlyResetTime = iTime(Symbol(), PERIOD_H1, 0);
 }
 
 //+------------------------------------------------------------------+
 void UpdateTrendCycleLimit()
 {
    int trendNow = GetM30TrendDirection();
+
+   // RESET EVERY X HOURS EVEN IF TREND IS SAME
+   if(EnableHourlyTrendCycleReset)
+   {
+      datetime currentHourBar = iTime(Symbol(), PERIOD_H1, 0);
+
+      if(lastTrendCycleHourlyResetTime == 0)
+         lastTrendCycleHourlyResetTime = currentHourBar;
+
+      int resetSeconds = TrendCycleResetHours * 3600;
+
+      if(resetSeconds <= 0)
+         resetSeconds = 3600;
+
+      if((TimeCurrent() - lastTrendCycleHourlyResetTime) >= resetSeconds ||
+         currentHourBar != lastTrendCycleHourlyResetTime)
+      {
+         trendCycleOrderCount = 0;
+         lastTrendCycleHourlyResetTime = currentHourBar;
+
+         Print("V21 Hourly Trend Cycle Reset. Count reset to 0. Trend: ",
+               GetM30TrendText());
+      }
+   }
 
    if(trendNow == 0)
       return;
@@ -719,6 +754,7 @@ void UpdateTrendCycleLimit()
       return;
    }
 
+   // RESET WHEN TREND CHANGES
    if(trendNow != currentTrendCycleDirection)
    {
       Print("V21 Trend Cycle Changed. Old: ", currentTrendCycleDirection,
@@ -728,6 +764,7 @@ void UpdateTrendCycleLimit()
       currentTrendCycleDirection = trendNow;
       trendCycleOrderCount = 0;
       lastTrendCycleBarTime = iTime(Symbol(), TrendTimeframe, 0);
+      lastTrendCycleHourlyResetTime = iTime(Symbol(), PERIOD_H1, 0);
    }
 }
 
@@ -1019,6 +1056,99 @@ int GetPauseRemainingSeconds()
    return pauseSeconds - passed;
 }
 
+
+//+------------------------------------------------------------------+
+//| Draw higher timeframe EMA trend lines on current chart           |
+//+------------------------------------------------------------------+
+void DrawTrendLinesOnChart()
+{
+   if(TrendLineBars < 5)
+      TrendLineBars = 5;
+
+   int maxBars = MathMin(TrendLineBars, iBars(Symbol(), TrendTimeframe) - 2);
+
+   if(maxBars <= 2)
+      return;
+
+   for(int i = maxBars; i >= 1; i--)
+   {
+      datetime t1 = iTime(Symbol(), TrendTimeframe, i);
+      datetime t2 = iTime(Symbol(), TrendTimeframe, i - 1);
+
+      double fast1 = iMA(Symbol(), TrendTimeframe, TrendFastEMA, 0, MODE_EMA, PRICE_CLOSE, i);
+      double fast2 = iMA(Symbol(), TrendTimeframe, TrendFastEMA, 0, MODE_EMA, PRICE_CLOSE, i - 1);
+
+      double slow1 = iMA(Symbol(), TrendTimeframe, TrendSlowEMA, 0, MODE_EMA, PRICE_CLOSE, i);
+      double slow2 = iMA(Symbol(), TrendTimeframe, TrendSlowEMA, 0, MODE_EMA, PRICE_CLOSE, i - 1);
+
+      string fastName = "V21_TREND_FAST_" + IntegerToString(i);
+      string slowName = "V21_TREND_SLOW_" + IntegerToString(i);
+
+      DrawTrendSegment(fastName, t1, fast1, t2, fast2, clrDeepSkyBlue, TrendLineWidth);
+      DrawTrendSegment(slowName, t1, slow1, t2, slow2, clrOrange, TrendLineWidth);
+   }
+
+   DrawTrendDirectionLabel();
+}
+
+//+------------------------------------------------------------------+
+void DrawTrendSegment(string name, datetime t1, double p1, datetime t2, double p2, color clr, int width)
+{
+   if(ObjectFind(0, name) < 0)
+   {
+      ObjectCreate(0, name, OBJ_TREND, 0, t1, p1, t2, p2);
+      ObjectSetInteger(0, name, OBJPROP_RAY_RIGHT, false);
+      ObjectSetInteger(0, name, OBJPROP_RAY_LEFT, false);
+      ObjectSetInteger(0, name, OBJPROP_SELECTABLE, false);
+      ObjectSetInteger(0, name, OBJPROP_HIDDEN, true);
+      ObjectSetInteger(0, name, OBJPROP_BACK, false);
+   }
+
+   ObjectMove(0, name, 0, t1, p1);
+   ObjectMove(0, name, 1, t2, p2);
+
+   ObjectSetInteger(0, name, OBJPROP_COLOR, clr);
+   ObjectSetInteger(0, name, OBJPROP_WIDTH, width);
+   ObjectSetInteger(0, name, OBJPROP_STYLE, STYLE_SOLID);
+}
+
+//+------------------------------------------------------------------+
+void DrawTrendDirectionLabel()
+{
+   string name = "V21_TREND_DIRECTION_LABEL";
+
+   double emaFast = iMA(Symbol(), TrendTimeframe, TrendFastEMA, 0, MODE_EMA, PRICE_CLOSE, 1);
+   double emaSlow = iMA(Symbol(), TrendTimeframe, TrendSlowEMA, 0, MODE_EMA, PRICE_CLOSE, 1);
+
+   string text = "TF Trend EMA" + IntegerToString(TrendFastEMA) + "/" + IntegerToString(TrendSlowEMA) + ": " + GetM30TrendText();
+
+   if(ObjectFind(0, name) < 0)
+   {
+      ObjectCreate(0, name, OBJ_TEXT, 0, Time[0], Bid);
+      ObjectSetInteger(0, name, OBJPROP_SELECTABLE, false);
+      ObjectSetInteger(0, name, OBJPROP_HIDDEN, true);
+      ObjectSetString(0, name, OBJPROP_FONT, "Arial Bold");
+      ObjectSetInteger(0, name, OBJPROP_FONTSIZE, 9);
+   }
+
+   ObjectMove(0, name, 0, Time[0], MathMax(emaFast, emaSlow));
+   ObjectSetString(0, name, OBJPROP_TEXT, text);
+   ObjectSetInteger(0, name, OBJPROP_COLOR, GetM30TrendColor());
+}
+
+//+------------------------------------------------------------------+
+void DeleteTrendLines()
+{
+   for(int i = ObjectsTotal() - 1; i >= 0; i--)
+   {
+      string name = ObjectName(i);
+
+      if(StringFind(name, "V21_TREND_") == 0)
+         ObjectDelete(0, name);
+   }
+}
+
+
 //+------------------------------------------------------------------+
 //| Professional Right Side Dashboard                                |
 //+------------------------------------------------------------------+
@@ -1065,10 +1195,16 @@ void DrawDashboard()
    DrawDashLabel("V21_M30_TREND", "M30 Trend: " + GetM30TrendText(), DashX + 15, y, GetM30TrendColor(), 8);
    y += 18;
 
+   DrawDashLabel("V21_TREND_LINES", "Trend Lines: " + (ShowTrendLines ? "ON" : "OFF"), DashX + 15, y, ShowTrendLines ? clrLime : clrGray, 8);
+   y += 18;
+
    DrawDashLabel("V21_TREND_EXIT", "Trend Exit: " + (EnableCloseBasketOnTrendChange ? "ON" : "OFF"), DashX + 15, y, EnableCloseBasketOnTrendChange ? clrLime : clrGray, 8);
    y += 18;
 
    DrawDashLabel("V21_TREND_CYCLE", "Trend Limit: " + GetTrendCycleText(), DashX + 15, y, EnableTrendCycleLimit ? clrYellow : clrGray, 8);
+   y += 18;
+
+   DrawDashLabel("V21_HOURLY_RESET", "Cycle Reset: " + (EnableHourlyTrendCycleReset ? IntegerToString(TrendCycleResetHours) + "H" : "OFF"), DashX + 15, y, EnableHourlyTrendCycleReset ? clrLime : clrGray, 8);
    y += 18;
 
    DrawDashLabel("V21_PAUSE", "Pause After Close: " + IntegerToString(pauseRemain) + " sec", DashX + 15, y, pauseRemain > 0 ? clrOrange : clrLime, 8);
