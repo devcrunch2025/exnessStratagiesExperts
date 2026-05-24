@@ -25,8 +25,8 @@ extern double BasketStopLoss      = -40.0;
 
 extern bool   EnableRecovery      = true;
 extern double RecoveryGap1        = 200.0;
-extern double RecoveryGap2        = 600.0;
-extern double RecoveryGap3        = 1200.0;
+extern double RecoveryGap2        = 1000.0;
+extern double RecoveryGap3        = 1500.0;
 
 extern double RecoveryLot1        = 0.02;
 extern double RecoveryLot2        = 0.03;
