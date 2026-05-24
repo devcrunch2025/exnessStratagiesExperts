@@ -4533,7 +4533,7 @@ void DrawDashboard()
   {
    DrawPanel("DASH_BG_PANEL", 310, 15, 310, 560, clrBlack);
 
-   DrawLabel("DASH_TITLE", "BTC MOMENTUM EA", 300, 20, clrYellow, 9);
+   DrawLabel("DASH_TITLE", "V101 BTC All Stratagies...", 300, 20, clrYellow, 9);
 
 // ================================
 // PART 1: RUNNING / LIVE VALUES
