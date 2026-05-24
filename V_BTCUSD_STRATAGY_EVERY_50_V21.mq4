@@ -6,67 +6,78 @@
 //+------------------------------------------------------------------+
 #property strict
 
-extern double BaseLot             = 0.01;
-extern double GapPrice            = 50.0;
+double BaseLot             = 0.01;
+double GapPrice            = 50.0;
 
-extern int    MaxBuyOrders        = 4;
-extern int    MaxSellOrders       = 4;
 
-extern bool   EnableIndividualTP  = true;
-extern double IndividualTP        = 1.00;
 
-extern bool   EnableBasketTP      = true;
-extern double FastProfitTarget    = 1.00;
-extern double SlowProfitTarget    = 0.50;
-extern int    FastProfitMinutes   = 30;
+bool   EnableIndividualTP  = true;
+double IndividualTP        = 1.00;
 
-extern bool   EnableBasketSL      = true;
-extern double BasketStopLoss      = -20.0;
+bool   EnableBasketTP      = true;
+double FastProfitTarget    = 1.00;
+double SlowProfitTarget    = 0.50;
+int    FastProfitMinutes   = 30;
 
-extern bool   EnableRecovery      = true;
-extern double RecoveryGap1        = 200.0;
-extern double RecoveryGap2        = 1000.0;
-extern double RecoveryGap3        = 1500.0;
+bool   EnableBasketSL      = true;
+double BasketStopLoss      = -20.0;
 
-extern double RecoveryLot1        = 0.02;
-extern double RecoveryLot2        = 0.03;
-extern double RecoveryLot3        = 0.01;
+bool   EnableRecovery      = true;
+double RecoveryGap1        = 200.0;
+double RecoveryGap2        = 1000.0;
+double RecoveryGap3        = 1500.0;
 
-extern int    MaxSpreadPoints     = 3000;
-extern int    Slippage            = 5;
-extern int    MagicNumber         = 505021;
+double RecoveryLot1        = 0.02;
+double RecoveryLot2        = 0.03;
+double RecoveryLot3        = 0.01;
 
-extern bool   EnableBuy           = true;
-extern bool   EnableSell          = true;
+int    MaxSpreadPoints     = 3000;
+int    Slippage            = 5;
+int    MagicNumber         = 505021;
 
-extern bool   OneOrderPerCandle   = true;
-extern int    TradeTimeframe      = PERIOD_M1;
+bool   EnableBuy           = true;
+bool   EnableSell          = true;
 
-extern bool   EnableM30TrendFilter    = true;
-extern int    TrendTimeframe          = PERIOD_M15;
-extern int    TrendFastEMA            = 9;
-extern int    TrendSlowEMA            = 21;
-extern bool   AllowTradeWhenTrendFlat = false;
-extern bool   EnableCloseBasketOnTrendChange = true;
-extern bool   CloseSingleOrderOnTrendChange  = false;
+bool   OneOrderPerCandle   = true;
+int    TradeTimeframe      = PERIOD_M1;
 
-extern bool   EnablePauseAfterClose = true;
-extern int    PauseMinutesAfterClose = 0;
+bool   EnableM30TrendFilter    = true;
+int    TrendTimeframe          = PERIOD_M15;
+int    TrendFastEMA            = 9;
+int    TrendSlowEMA            = 21;
+bool   AllowTradeWhenTrendFlat = false;
+bool   EnableCloseBasketOnTrendChange = true;
+bool   CloseSingleOrderOnTrendChange  = false;
 
-extern bool   ShowDashboard       = true;
-extern int    DashX               = 250;
-extern int    DashY               = 20;
-extern int    DashWidth           = 200;
-extern int    DashHeight          = 530;
+bool   EnableTrendCycleLimit = true;
+int    MaxOrdersPerTrendCycle = 10;
+
+int    MaxBuyOrders        = 10;
+int    MaxSellOrders       = 10;
+
+bool   EnablePauseAfterClose = true;
+int    PauseMinutesAfterClose = 0;
+
+bool   ShowDashboard       = true;
+int    DashX               = 200;
+int    DashY               = 20;
+int    DashWidth           = 250;
+int    DashHeight          = 550;
 
 datetime lastBuyCandleTime  = 0;
 datetime lastSellCandleTime = 0;
 datetime lastCloseTime      = 0;
 
+int currentTrendCycleDirection = 0;
+int trendCycleOrderCount       = 0;
+datetime lastTrendCycleBarTime = 0;
+
 //+------------------------------------------------------------------+
 int OnInit()
 {
    UpdateLastCloseTime();
+   UpdateTrendCycleLimit();
+   InitTrendCycleLimit();
    Print("BTCUSD Professional Gap Recovery EA Started - Version V21");
    
    DefaultTP=IndividualTP;
@@ -94,6 +105,11 @@ void OnTick()
    {
    
    IndividualTP=0;
+  FastProfitTarget    = 0;
+  SlowProfitTarget    = 0;
+   
+   
+
    
    }
    else
@@ -104,6 +120,7 @@ void OnTick()
    
 
    UpdateLastCloseTime();
+   UpdateTrendCycleLimit();
    
    if(ShowDashboard)
       DrawDashboard();
@@ -146,6 +163,9 @@ void ProcessBuyOrders()
       if(!CanOpenByM30Trend(OP_BUY))
       return;
 
+   if(!CanOpenByTrendCycleLimit(OP_BUY))
+      return;
+
    if(OneOrderPerCandle && !CanTradeThisCandle(OP_BUY))
       return;
 
@@ -177,6 +197,9 @@ void ProcessSellOrders()
       return;
       
        if(!CanOpenByM30Trend(OP_SELL))
+      return;
+
+   if(!CanOpenByTrendCycleLimit(OP_SELL))
       return;
 
    double lastSellPrice = GetLastOrderPrice(OP_SELL);
@@ -538,10 +561,14 @@ bool OpenOrder(int type, double lot, string comment)
       return false;
    }
 
+   RegisterTrendCycleOrder(type);
+
    Print("V21 Order Opened. Ticket: ", ticket,
          " Comment: ", comment,
          " Price: ", DoubleToString(price, Digits),
-         " Lot: ", DoubleToString(lot, 2));
+         " Lot: ", DoubleToString(lot, 2),
+         " TrendCycleCount: ", trendCycleOrderCount,
+         " / ", MaxOrdersPerTrendCycle);
 
    return true;
 }
@@ -663,6 +690,164 @@ bool RecoveryExists(string comment)
 
    return false;
 }
+
+
+//+------------------------------------------------------------------+
+//| Trend cycle order limiter                                        |
+//| Resets count whenever trend changes BUY -> SELL or SELL -> BUY    |
+//+------------------------------------------------------------------+
+void InitTrendCycleLimit()
+{
+   currentTrendCycleDirection = GetM30TrendDirection();
+   trendCycleOrderCount       = CountTrendCycleOrdersFromHistory(currentTrendCycleDirection);
+   lastTrendCycleBarTime      = iTime(Symbol(), TrendTimeframe, 0);
+}
+
+//+------------------------------------------------------------------+
+void UpdateTrendCycleLimit()
+{
+   int trendNow = GetM30TrendDirection();
+
+   if(trendNow == 0)
+      return;
+
+   if(currentTrendCycleDirection == 0)
+   {
+      currentTrendCycleDirection = trendNow;
+      trendCycleOrderCount = CountTrendCycleOrdersFromHistory(trendNow);
+      lastTrendCycleBarTime = iTime(Symbol(), TrendTimeframe, 0);
+      return;
+   }
+
+   if(trendNow != currentTrendCycleDirection)
+   {
+      Print("V21 Trend Cycle Changed. Old: ", currentTrendCycleDirection,
+            " New: ", trendNow,
+            " Reset order count.");
+
+      currentTrendCycleDirection = trendNow;
+      trendCycleOrderCount = 0;
+      lastTrendCycleBarTime = iTime(Symbol(), TrendTimeframe, 0);
+   }
+}
+
+//+------------------------------------------------------------------+
+bool CanOpenByTrendCycleLimit(int type)
+{
+   if(!EnableTrendCycleLimit)
+      return true;
+
+   int trendNow = GetM30TrendDirection();
+
+   if(trendNow == 0)
+      return false;
+
+   if(type == OP_BUY && trendNow != 1)
+      return false;
+
+   if(type == OP_SELL && trendNow != -1)
+      return false;
+
+   if(trendNow != currentTrendCycleDirection)
+      UpdateTrendCycleLimit();
+
+   if(trendCycleOrderCount >= MaxOrdersPerTrendCycle)
+   {
+      Print("V21 Trend Cycle Order Limit Reached. Count: ",
+            trendCycleOrderCount, " / ", MaxOrdersPerTrendCycle,
+            " Trend: ", GetTrendCycleText());
+      return false;
+   }
+
+   return true;
+}
+
+//+------------------------------------------------------------------+
+void RegisterTrendCycleOrder(int type)
+{
+   if(!EnableTrendCycleLimit)
+      return;
+
+   int trendNow = GetM30TrendDirection();
+
+   if(trendNow == 0)
+      return;
+
+   if(type == OP_BUY && trendNow != 1)
+      return;
+
+   if(type == OP_SELL && trendNow != -1)
+      return;
+
+   if(trendNow != currentTrendCycleDirection)
+      UpdateTrendCycleLimit();
+
+   trendCycleOrderCount++;
+}
+
+//+------------------------------------------------------------------+
+string GetTrendCycleText()
+{
+   if(!EnableTrendCycleLimit)
+      return "OFF";
+
+   if(currentTrendCycleDirection == 1)
+      return "BUY CYCLE " + IntegerToString(trendCycleOrderCount) + "/" + IntegerToString(MaxOrdersPerTrendCycle);
+
+   if(currentTrendCycleDirection == -1)
+      return "SELL CYCLE " + IntegerToString(trendCycleOrderCount) + "/" + IntegerToString(MaxOrdersPerTrendCycle);
+
+   return "NO CYCLE";
+}
+
+//+------------------------------------------------------------------+
+int CountTrendCycleOrdersFromHistory(int trendDirection)
+{
+   if(trendDirection == 0)
+      return 0;
+
+   int count = 0;
+   datetime cycleStart = iTime(Symbol(), TrendTimeframe, 0);
+
+   for(int i = OrdersHistoryTotal() - 1; i >= 0; i--)
+   {
+      if(!OrderSelect(i, SELECT_BY_POS, MODE_HISTORY))
+         continue;
+
+      if(OrderSymbol() != Symbol() || OrderMagicNumber() != MagicNumber)
+         continue;
+
+      if(OrderOpenTime() < cycleStart)
+         break;
+
+      if(trendDirection == 1 && OrderType() == OP_BUY)
+         count++;
+
+      if(trendDirection == -1 && OrderType() == OP_SELL)
+         count++;
+   }
+
+   for(int j = OrdersTotal() - 1; j >= 0; j--)
+   {
+      if(!OrderSelect(j, SELECT_BY_POS, MODE_TRADES))
+         continue;
+
+      if(OrderSymbol() != Symbol() || OrderMagicNumber() != MagicNumber)
+         continue;
+
+      if(OrderOpenTime() < cycleStart)
+         continue;
+
+      if(trendDirection == 1 && OrderType() == OP_BUY)
+         count++;
+
+      if(trendDirection == -1 && OrderType() == OP_SELL)
+         count++;
+   }
+
+   return count;
+}
+
 
 //+------------------------------------------------------------------+
 //| M30 Trend Filter                                                 |
@@ -883,6 +1068,9 @@ void DrawDashboard()
    DrawDashLabel("V21_TREND_EXIT", "Trend Exit: " + (EnableCloseBasketOnTrendChange ? "ON" : "OFF"), DashX + 15, y, EnableCloseBasketOnTrendChange ? clrLime : clrGray, 8);
    y += 18;
 
+   DrawDashLabel("V21_TREND_CYCLE", "Trend Limit: " + GetTrendCycleText(), DashX + 15, y, EnableTrendCycleLimit ? clrYellow : clrGray, 8);
+   y += 18;
+
    DrawDashLabel("V21_PAUSE", "Pause After Close: " + IntegerToString(pauseRemain) + " sec", DashX + 15, y, pauseRemain > 0 ? clrOrange : clrLime, 8);
    y += 22;
 
@@ -956,9 +1144,9 @@ void DrawPanel(string name, int x, int y, int w, int h, color bg)
       ObjectSetInteger(0, name, OBJPROP_BORDER_TYPE, BORDER_FLAT);
    }
 
-   ObjectSetInteger(0, name, OBJPROP_XDISTANCE, x);
+   ObjectSetInteger(0, name, OBJPROP_XDISTANCE, x+25);
    ObjectSetInteger(0, name, OBJPROP_YDISTANCE, y);
-   ObjectSetInteger(0, name, OBJPROP_XSIZE, w);
+   ObjectSetInteger(0, name, OBJPROP_XSIZE, w+50);
    ObjectSetInteger(0, name, OBJPROP_YSIZE, h);
    ObjectSetInteger(0, name, OBJPROP_BGCOLOR, bg);
    ObjectSetInteger(0, name, OBJPROP_COLOR, clrDimGray);
