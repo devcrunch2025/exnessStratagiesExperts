@@ -1,7 +1,7 @@
 //+------------------------------------------------------------------+
 //| BTCUSD Professional Gap Recovery EA                             |
 //| Version: V21                                                     |
-//| Logic: Separate BUY/SELL Basket + Individual TP + Dashboard      |
+//| Logic: M30 Trend Filter + Trend Change Basket Exit + Dashboard   |
 //| Added: configurable pause after any order close                  |
 //+------------------------------------------------------------------+
 #property strict
@@ -21,7 +21,7 @@ extern double SlowProfitTarget    = 0.50;
 extern int    FastProfitMinutes   = 30;
 
 extern bool   EnableBasketSL      = true;
-extern double BasketStopLoss      = -40.0;
+extern double BasketStopLoss      = -20.0;
 
 extern bool   EnableRecovery      = true;
 extern double RecoveryGap1        = 200.0;
@@ -42,14 +42,22 @@ extern bool   EnableSell          = true;
 extern bool   OneOrderPerCandle   = true;
 extern int    TradeTimeframe      = PERIOD_M1;
 
+extern bool   EnableM30TrendFilter    = true;
+extern int    TrendTimeframe          = PERIOD_M15;
+extern int    TrendFastEMA            = 9;
+extern int    TrendSlowEMA            = 21;
+extern bool   AllowTradeWhenTrendFlat = false;
+extern bool   EnableCloseBasketOnTrendChange = true;
+extern bool   CloseSingleOrderOnTrendChange  = false;
+
 extern bool   EnablePauseAfterClose = true;
 extern int    PauseMinutesAfterClose = 0;
 
 extern bool   ShowDashboard       = true;
 extern int    DashX               = 250;
 extern int    DashY               = 20;
-extern int    DashWidth           = 300;
-extern int    DashHeight          = 485;
+extern int    DashWidth           = 200;
+extern int    DashHeight          = 530;
 
 datetime lastBuyCandleTime  = 0;
 datetime lastSellCandleTime = 0;
@@ -60,6 +68,8 @@ int OnInit()
 {
    UpdateLastCloseTime();
    Print("BTCUSD Professional Gap Recovery EA Started - Version V21");
+   
+   DefaultTP=IndividualTP;
    return(INIT_SUCCEEDED);
 }
 
@@ -67,15 +77,34 @@ int OnInit()
 void OnDeinit(const int reason)
 {
    DeleteDashboard();
+   
+    
 }
 
 //+------------------------------------------------------------------+
+
+double DefaultTP=0;
 void OnTick()
 {
    RefreshRates();
+   
+   
+   
+   if(GetM30TrendText()=="FLAT - BLOCK")
+   {
+   
+   IndividualTP=0;
+   
+   }
+   else
+   {
+   IndividualTP=DefaultTP;
+   }
+   
+   
 
    UpdateLastCloseTime();
-
+   
    if(ShowDashboard)
       DrawDashboard();
 
@@ -87,6 +116,9 @@ void OnTick()
 
    if(EnableBasketTP || EnableBasketSL)
       CheckBasketClose();
+
+   if(EnableCloseBasketOnTrendChange)
+      CheckTrendChangeBasketClose();
 
    // Pause only blocks new orders, not closing/protection logic
    if(EnablePauseAfterClose && IsPauseActive())
@@ -108,6 +140,10 @@ void OnTick()
 void ProcessBuyOrders()
 {
    if(CountOrders(OP_BUY) >= MaxBuyOrders)
+      return;
+      
+      
+      if(!CanOpenByM30Trend(OP_BUY))
       return;
 
    if(OneOrderPerCandle && !CanTradeThisCandle(OP_BUY))
@@ -138,6 +174,9 @@ void ProcessSellOrders()
       return;
 
    if(OneOrderPerCandle && !CanTradeThisCandle(OP_SELL))
+      return;
+      
+       if(!CanOpenByM30Trend(OP_SELL))
       return;
 
    double lastSellPrice = GetLastOrderPrice(OP_SELL);
@@ -174,6 +213,9 @@ void ProcessBuyRecovery()
    if(CountOrders(OP_BUY) >= MaxBuyOrders)
       return;
 
+  // if(!CanOpenByM30Trend(OP_BUY))
+   //   return;
+
    double firstBuyPrice = GetFirstOrderPrice(OP_BUY);
    if(firstBuyPrice == 0)
       return;
@@ -204,6 +246,9 @@ void ProcessSellRecovery()
 {
    if(CountOrders(OP_SELL) >= MaxSellOrders)
       return;
+
+  // if(!CanOpenByM30Trend(OP_SELL))
+    //  return;
 
    double firstSellPrice = GetFirstOrderPrice(OP_SELL);
    if(firstSellPrice == 0)
@@ -323,6 +368,57 @@ void CheckSideBasketClose(int type)
       Print("V21 ", sideName, " Basket TP Closed: $", DoubleToString(sideProfit, 2),
             " Minutes: ", basketMinutes,
             " Target: $", DoubleToString(targetProfit, 2));
+   }
+}
+
+
+//+------------------------------------------------------------------+
+//| Close basket/orders when M30 trend changes against open side     |
+//| M30 DOWN -> close BUY basket                                     |
+//| M30 UP   -> close SELL basket                                    |
+//+------------------------------------------------------------------+
+void CheckTrendChangeBasketClose()
+{
+   if(!EnableM30TrendFilter)
+      return;
+
+   int trend = GetM30TrendDirection();
+
+   // trend  1 = M30 uptrend
+   // trend -1 = M30 downtrend
+   // trend  0 = flat/no clean trend
+   if(trend == 0)
+      return;
+
+   int buyCount  = CountOrders(OP_BUY);
+   int sellCount = CountOrders(OP_SELL);
+
+   if(trend == -1 && buyCount > 0)
+   {
+      if(buyCount > 1 || CloseSingleOrderOnTrendChange)
+      {
+         double buyProfit = GetSideBasketProfit(OP_BUY);
+
+         CloseOrdersByType(OP_BUY);
+         lastCloseTime = TimeCurrent();
+
+         Print("V21 BUY Basket Closed By M30 Trend Change. Trend=DOWN, P/L=$",
+               DoubleToString(buyProfit, 2));
+      }
+   }
+
+   if(trend == 1 && sellCount > 0)
+   {
+      if(sellCount > 1 || CloseSingleOrderOnTrendChange)
+      {
+         double sellProfit = GetSideBasketProfit(OP_SELL);
+
+         CloseOrdersByType(OP_SELL);
+         lastCloseTime = TimeCurrent();
+
+         Print("V21 SELL Basket Closed By M30 Trend Change. Trend=UP, P/L=$",
+               DoubleToString(sellProfit, 2));
+      }
    }
 }
 
@@ -569,6 +665,79 @@ bool RecoveryExists(string comment)
 }
 
 //+------------------------------------------------------------------+
+//| M30 Trend Filter                                                 |
+//| Return: 1 = Uptrend, -1 = Downtrend, 0 = Flat / no clean trend    |
+//+------------------------------------------------------------------+
+int GetM30TrendDirection()
+{
+   double emaFast = iMA(Symbol(), TrendTimeframe, TrendFastEMA, 0, MODE_EMA, PRICE_CLOSE, 1);
+   double emaSlow = iMA(Symbol(), TrendTimeframe, TrendSlowEMA, 0, MODE_EMA, PRICE_CLOSE, 1);
+   double close1  = iClose(Symbol(), TrendTimeframe, 1);
+
+   if(close1 > emaFast && emaFast > emaSlow)
+      return 1;
+
+   if(close1 < emaFast && emaFast < emaSlow)
+      return -1;
+
+   return 0;
+}
+
+//+------------------------------------------------------------------+
+bool CanOpenByM30Trend(int type)
+{
+   if(!EnableM30TrendFilter)
+      return true;
+
+   int trend = GetM30TrendDirection();
+
+   if(trend == 0 && AllowTradeWhenTrendFlat)
+      return true;
+
+   if(type == OP_BUY && trend == 1)
+      return true;
+
+   if(type == OP_SELL && trend == -1)
+      return true;
+
+   return false;
+}
+
+//+------------------------------------------------------------------+
+string GetM30TrendText()
+{
+   if(!EnableM30TrendFilter)
+      return "OFF";
+
+   int trend = GetM30TrendDirection();
+
+   if(trend == 1)
+      return "UP - BUY ONLY";
+
+   if(trend == -1)
+      return "DOWN - SELL ONLY";
+
+   return "FLAT - BLOCK";
+}
+
+//+------------------------------------------------------------------+
+color GetM30TrendColor()
+{
+   if(!EnableM30TrendFilter)
+      return clrGray;
+
+   int trend = GetM30TrendDirection();
+
+   if(trend == 1)
+      return clrDeepSkyBlue;
+
+   if(trend == -1)
+      return clrOrange;
+
+   return clrTomato;
+}
+
+//+------------------------------------------------------------------+
 bool IsSpreadOK()
 {
    int spread = MarketInfo(Symbol(), MODE_SPREAD);
@@ -706,6 +875,12 @@ void DrawDashboard()
    y += 18;
 
    DrawDashLabel("V21_SPREAD", "Spread: " + IntegerToString(spread) + " / " + IntegerToString(MaxSpreadPoints), DashX + 15, y, spread <= MaxSpreadPoints ? clrLime : clrRed, 9);
+   y += 18;
+
+   DrawDashLabel("V21_M30_TREND", "M30 Trend: " + GetM30TrendText(), DashX + 15, y, GetM30TrendColor(), 8);
+   y += 18;
+
+   DrawDashLabel("V21_TREND_EXIT", "Trend Exit: " + (EnableCloseBasketOnTrendChange ? "ON" : "OFF"), DashX + 15, y, EnableCloseBasketOnTrendChange ? clrLime : clrGray, 8);
    y += 18;
 
    DrawDashLabel("V21_PAUSE", "Pause After Close: " + IntegerToString(pauseRemain) + " sec", DashX + 15, y, pauseRemain > 0 ? clrOrange : clrLime, 8);
