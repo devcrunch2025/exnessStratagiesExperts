@@ -169,12 +169,12 @@ double MinTrendEMAGap = 30.0;
 //  TYPE ENABLE/DISABLE
 // ================================================================
 bool UseBigMomentum       = true;//good//2
-bool UseRangeMomentum     = false;//BIG LOSS No Recovery//
+bool UseRangeMomentum     = true;//BIG LOSS No Recovery//
 bool UseTrendMomentum     = true;//Good//1
-bool UseFakeBreakout      = false;//testing//3//loss
-bool UseCompressionBreak  = false;
-bool UseLiquiditySweep    = false;
-bool UseTrendExhaustion   = false;//LOSS 
+bool UseFakeBreakout      = true;//testing//3//loss
+bool UseCompressionBreak  = true;//LOSS
+bool UseLiquiditySweep    = true;//LOSS
+bool UseTrendExhaustion   = true;//LOSS 
 bool UseSessionMode       = true;//testing//4
 bool UseType51MACD = true; // compatibility old control
 bool   UseAdvancedTypes9To50 = true;// master ON, manage TYPE 9-50 individually
@@ -5035,14 +5035,28 @@ void DrawDashboard()
    DrawDashRow("MODE", ModeText(), 3, clrOrange, clrWhite);
    DrawDashRow("SESSION", SessionText(), 4, clrOrange, clrLime);
 
-   DrawDashRow("GLOBAL P/L",
-               "$" + DoubleToString(GetAllEAProfit(), 2),
-               6,
-               clrWhite,
-               GetAllEAProfit() >= 0 ? clrLime : clrRed
-              );
 
-   DrawDashRow("ORDERS",
+   double buyPL  = GetOrderTypeProfit(OP_BUY);
+double sellPL = GetOrderTypeProfit(OP_SELL);
+double allPL  = buyPL + sellPL;
+
+DrawDashRow(
+   "BUY / SELL",
+   "B:$" + DoubleToString(buyPL, 2) +
+   "  S:$" + DoubleToString(sellPL, 2) +
+   "  T:$" + DoubleToString(allPL, 2),
+   6,
+   clrWhite,
+   allPL >= 0 ? clrLime : clrRed
+);
+   // DrawDashRow("GLOBAL P/L",
+   //             "$" + DoubleToString(GetAllEAProfit(), 2),
+   //             6,
+   //             clrWhite,
+   //             GetAllEAProfit() >= 0 ? clrLime : clrRed
+   //            );
+
+   DrawDashRow("Open ORDERS",
                IntegerToString(CountEAOrders()) + " / " + IntegerToString(MaxTotalOpenOrders),
                7,
                clrDeepSkyBlue,
@@ -5227,6 +5241,27 @@ void DrawDashboard()
 
    DrawLabel("DASH_STATUS", "RUNNING - LIVE + SETTINGS", 300, 520, clrLime, 8);
   }
+  double GetOrderTypeProfit(int orderType)
+{
+   double total = 0;
+
+   for(int i = OrdersTotal() - 1; i >= 0; i--)
+   {
+      if(OrderSelect(i, SELECT_BY_POS, MODE_TRADES))
+      {
+         if(OrderSymbol() == Symbol() &&
+            OrderMagicNumber() == MagicNumber &&
+            OrderType() == orderType)
+         {
+            total += OrderProfit()
+                  +  OrderSwap()
+                  +  OrderCommission();
+         }
+      }
+   }
+
+   return total;
+}
 //+------------------------------------------------------------------+
 //| Count all EA orders                                              |
 //+------------------------------------------------------------------+
