@@ -102,7 +102,7 @@ double Type52BasketSLUSD = -30.00;
 double AdvancedBasketTPUSD   = 0.50;
 double AdvancedBasketSLUSD   = -30.00;
 int MaxAdvancedTotalOrders=2;
-int MaxTotalOpenOrders = 4;
+int MaxTotalOpenOrders = 3;
 double GlobalBasketTPUSD = 0.50;
 double GlobalBasketSLUSD = -30.00;
 
@@ -3842,7 +3842,7 @@ void CheckGlobalBasketClose()
    }
 
    // CASE 1: ALL MIXED ORDERS
-   if(allProfit >= GetDynamicTP(GlobalBasketTPUSD) || allProfit <= GetDynamicSL(GlobalBasketSLUSD))
+   if(allProfit >= GlobalBasketTPUSD || allProfit <= GlobalBasketSLUSD)
    {
       Print("GLOBAL ALL close. Profit=", allProfit);
       CloseOrdersByType(-1);
@@ -3850,7 +3850,7 @@ void CheckGlobalBasketClose()
    }
 
    // CASE 2: BUY ORDERS ONLY
-   if(buyProfit >= GetDynamicTP(GlobalBasketTPUSD) || buyProfit <= GetDynamicSL(GlobalBasketSLUSD))
+   if(buyProfit >= GlobalBasketTPUSD || buyProfit <= GlobalBasketSLUSD)
    {
       Print("GLOBAL BUY close. Profit=", buyProfit);
       CloseOrdersByType(OP_BUY);
@@ -3858,7 +3858,7 @@ void CheckGlobalBasketClose()
    }
 
    // CASE 3: SELL ORDERS ONLY
-   if(sellProfit >= GetDynamicTP(GlobalBasketTPUSD) || sellProfit <= GetDynamicSL(GlobalBasketSLUSD))
+   if(sellProfit >= GlobalBasketTPUSD || sellProfit <= GlobalBasketSLUSD)
    {
       Print("GLOBAL SELL close. Profit=", sellProfit);
       CloseOrdersByType(OP_SELL);
@@ -4877,13 +4877,13 @@ y += 18;
       string line =
          PadRight("T" + IntegerToString(typeNo), 5) +
          PadRight(GetTypeShortName(typeNo), 12) +
-         PadLeft(IntegerToString(orders), 2) + " " +
+         PadLeft(IntegerToString(orders), 4) + " " +
          PadLeft(DoubleToString(wr, 0) + "%", 5) + " " +
          PadLeft(DoubleToString(pf, 2), 5) + " " +
          PadLeft("$" + DoubleToString(avg, 2), 7) + " " +
-         PadLeft("$" + DoubleToString(openPL, 2), 7) + " " +
-         PadLeft("$" + DoubleToString(totalPL, 2), 7) + " " +
-         PadLeft(DoubleToString(score, 1), 5) + "  " +
+         PadLeft("$" + DoubleToString(openPL, 2), 8) + " " +
+         PadLeft("$" + DoubleToString(totalPL, 2), 8) + " " +
+         PadLeft(DoubleToString(score, 1), 6) + "  " +
          status;
 
       DrawTypePerformanceLabel(
@@ -5251,8 +5251,8 @@ DrawDashRow(
               );
 
    DrawDashRow("T21 TP/SL",
-               "$" + DoubleToString(GetDynamicTP(DayBasketTPUSD), 2) +
-               " / $" + DoubleToString(GetDynamicSL(DayBasketSLUSD), 2),
+               "$" + DoubleToString(DayBasketTPUSD, 2) +
+               " / $" + DoubleToString(DayBasketSLUSD, 2),
                33,
                clrWhite,
                clrYellow
@@ -5435,7 +5435,7 @@ void DrawDashboard111()
 
    DrawDashRow(
       "GLOBAL TP",
-      "$" + DoubleToString(GetDynamicTP(GlobalBasketTPUSD), 2),
+      "$" + DoubleToString(GlobalBasketTPUSD, 2),
       40,
       clrWhite,
       clrLime
@@ -5443,7 +5443,7 @@ void DrawDashboard111()
 
    DrawDashRow(
       "GLOBAL SL",
-      "$" + DoubleToString(GetDynamicSL(GlobalBasketSLUSD), 2),
+      "$" + DoubleToString(GlobalBasketSLUSD, 2),
       41,
       clrWhite,
       clrRed
