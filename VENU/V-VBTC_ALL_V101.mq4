@@ -102,22 +102,30 @@ double Type52BasketSLUSD = -30.00;
 double AdvancedBasketTPUSD   = 0.50;
 double AdvancedBasketSLUSD   = -30.00;
 int MaxAdvancedTotalOrders=2;
-int MaxTotalOpenOrders = 3;
-double GlobalBasketTPUSD = 0.50;
+int MaxTotalOpenOrders = 6;
+int MaxBuyOrders  = 3;
+int MaxSellOrders = 3;
+double GlobalBasketTPUSD = 0.25;
 double GlobalBasketSLUSD = -30.00;
+
+// ================================================================
+//  SAME DIRECTION ORDER PRICE GAP PROTECTION
+// ================================================================
+bool   UseSameDirectionPriceGap = true;
+double MinSameDirectionOrderPriceGap = 100.0;
 
 // ================================================================
 //  MAX ORDERS PER BASKET SIDE
 // ================================================================
 int MaxBigOrdersPerSide     = 1;
-int MaxRangeOrdersPerSide   = 1;
-int MaxTrendOrdersPerSide   = 1;
+int MaxRangeOrdersPerSide   = 2;
+int MaxTrendOrdersPerSide   = 2;
 
 // ================================================================
 //  TYPE 3 TREND CYCLE ORDER LIMIT
 //  Max orders open only after trend changes.
 // ================================================================
-int MaxTrendOrdersPerTrend = 1;
+int MaxTrendOrdersPerTrend = 2;
 int TrendCycleDirection = 0;
 int TrendBuyCountInCycle = 0;
 int TrendSellCountInCycle = 0;
@@ -125,6 +133,9 @@ int MaxFakeOrdersPerSide    = 1;
 int MaxSqueezeOrdersPerSide = 1;
 int MaxSweepOrdersPerSide   = 1;
 int MaxExhaustOrdersPerSide = 1;
+
+int    MaxAdvancedOrdersPerSide = 2;
+
 
 int MaxType52OrdersPerTrend = 1;
 
@@ -140,7 +151,7 @@ int Type52PutBuyCountInTrend  = 0;
 double MicroTPUSD = 0.50;
 double MicroSLUSD = -30.00;
 
-int    MaxMicroOrdersPerSide = 1;
+int    MaxMicroOrdersPerSide = 2;
 double MicroLot = 0.01;
 double MicroGapPrice = 200.0;
 double MicroEMATouchBuffer = 30.0;
@@ -385,7 +396,6 @@ int NYEndHour       = 23;
 //  TYPES 9-50 ADVANCED BTC MARKET STATE ENGINE
 // ================================================================
 
-int    MaxAdvancedOrdersPerSide = 2;
 double AdvancedLot = 0.01;
 double AdvancedOrderGapPrice = 250.0;
 
@@ -3301,8 +3311,75 @@ bool CanOpenMoreOrders()
    return true;
   }
 //+------------------------------------------------------------------+
+
+//+------------------------------------------------------------------+
+//| Same direction open order price gap filter                       |
+//+------------------------------------------------------------------+
+bool CanOpenBySameDirectionPriceGap(int orderType)
+  {
+   if(!UseSameDirectionPriceGap)
+      return true;
+
+   double newPrice = Bid;
+   if(orderType == OP_SELL)
+      newPrice = Ask;
+
+   for(int i = OrdersTotal() - 1; i >= 0; i--)
+     {
+      if(OrderSelect(i, SELECT_BY_POS, MODE_TRADES))
+        {
+         if(OrderSymbol() == Symbol() &&
+            OrderMagicNumber() == MagicNumber &&
+            OrderType() == orderType)
+           {
+            double gap = MathAbs(newPrice - OrderOpenPrice());
+
+            if(gap < MinSameDirectionOrderPriceGap*(CountOrders(orderType)+1))
+              {
+               Print("ORDER BLOCKED: same direction price gap too small. Type=",
+                     orderType,
+                     " Gap=", DoubleToString(gap, 2),
+                     " Required=", DoubleToString(MinSameDirectionOrderPriceGap, 2));
+               return false;
+              }
+           }
+        }
+     }
+
+   return true;
+  }
+int CountOrders(int orderType)
+{
+   int total = 0;
+
+   for(int i = OrdersTotal() - 1; i >= 0; i--)
+   {
+      if(OrderSelect(i, SELECT_BY_POS, MODE_TRADES))
+      {
+         if(OrderSymbol() == Symbol() &&
+            OrderMagicNumber() == MagicNumber &&
+            OrderType() == orderType)
+         {
+            total++;
+         }
+      }
+   }
+
+   return total;
+}
 void OpenOrder(int type, double lot, string commentText)
   {
+
+
+if(CountOrders(OP_BUY) >= MaxBuyOrders)
+   return;
+
+if(CountOrders(OP_SELL) >= MaxSellOrders)
+   return;
+
+   if(!CanOpenBySameDirectionPriceGap(type))
+      return;
+
 
    if(!CanOpenMoreOrders())
       return;
@@ -3842,7 +3919,7 @@ void CheckGlobalBasketClose()
    }
 
    // CASE 1: ALL MIXED ORDERS
-   if(allProfit >= GlobalBasketTPUSD || allProfit <= GlobalBasketSLUSD)
+   if(allProfit >= GetDynamicTP(GlobalBasketTPUSD) || allProfit <= GetDynamicSL(GlobalBasketSLUSD))
    {
       Print("GLOBAL ALL close. Profit=", allProfit);
       CloseOrdersByType(-1);
@@ -3850,7 +3927,7 @@ void CheckGlobalBasketClose()
    }
 
    // CASE 2: BUY ORDERS ONLY
-   if(buyProfit >= GlobalBasketTPUSD || buyProfit <= GlobalBasketSLUSD)
+   if(buyProfit >= GetDynamicTP(GlobalBasketTPUSD) || buyProfit <= GetDynamicSL(GlobalBasketSLUSD))
    {
       Print("GLOBAL BUY close. Profit=", buyProfit);
       CloseOrdersByType(OP_BUY);
@@ -3858,7 +3935,7 @@ void CheckGlobalBasketClose()
    }
 
    // CASE 3: SELL ORDERS ONLY
-   if(sellProfit >= GlobalBasketTPUSD || sellProfit <= GlobalBasketSLUSD)
+   if(sellProfit >= GetDynamicTP(GlobalBasketTPUSD) || sellProfit <= GetDynamicSL(GlobalBasketSLUSD))
    {
       Print("GLOBAL SELL close. Profit=", sellProfit);
       CloseOrdersByType(OP_SELL);
@@ -4877,13 +4954,13 @@ y += 18;
       string line =
          PadRight("T" + IntegerToString(typeNo), 5) +
          PadRight(GetTypeShortName(typeNo), 12) +
-         PadLeft(IntegerToString(orders), 4) + " " +
+         PadLeft(IntegerToString(orders), 2) + " " +
          PadLeft(DoubleToString(wr, 0) + "%", 5) + " " +
          PadLeft(DoubleToString(pf, 2), 5) + " " +
          PadLeft("$" + DoubleToString(avg, 2), 7) + " " +
-         PadLeft("$" + DoubleToString(openPL, 2), 8) + " " +
-         PadLeft("$" + DoubleToString(totalPL, 2), 8) + " " +
-         PadLeft(DoubleToString(score, 1), 6) + "  " +
+         PadLeft("$" + DoubleToString(openPL, 2), 7) + " " +
+         PadLeft("$" + DoubleToString(totalPL, 2), 7) + " " +
+         PadLeft(DoubleToString(score, 1), 5) + "  " +
          status;
 
       DrawTypePerformanceLabel(
@@ -5144,9 +5221,10 @@ DrawDashRow(
                clrYellow
               );
 
-   DrawDashRow("BAL/EQ",
+   DrawDashRow("BAL ", DoubleToString(AccountBalance()-AccountEquity(), 2) +
+                " /" +
                "$" + DoubleToString(AccountBalance(), 2) +
-               " / $" + DoubleToString(AccountEquity(), 2),
+               " /$" + DoubleToString(AccountEquity(), 2),
                15,
                clrWhite,
                clrYellow
@@ -5251,8 +5329,8 @@ DrawDashRow(
               );
 
    DrawDashRow("T21 TP/SL",
-               "$" + DoubleToString(DayBasketTPUSD, 2) +
-               " / $" + DoubleToString(DayBasketSLUSD, 2),
+               "$" + DoubleToString(GetDynamicTP(DayBasketTPUSD), 2) +
+               " / $" + DoubleToString(GetDynamicSL(DayBasketSLUSD), 2),
                33,
                clrWhite,
                clrYellow
@@ -5435,7 +5513,7 @@ void DrawDashboard111()
 
    DrawDashRow(
       "GLOBAL TP",
-      "$" + DoubleToString(GlobalBasketTPUSD, 2),
+      "$" + DoubleToString(GetDynamicTP(GlobalBasketTPUSD), 2),
       40,
       clrWhite,
       clrLime
@@ -5443,7 +5521,7 @@ void DrawDashboard111()
 
    DrawDashRow(
       "GLOBAL SL",
-      "$" + DoubleToString(GlobalBasketSLUSD, 2),
+      "$" + DoubleToString(GetDynamicSL(GlobalBasketSLUSD), 2),
       41,
       clrWhite,
       clrRed
