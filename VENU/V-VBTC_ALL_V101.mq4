@@ -100,7 +100,7 @@ double Type52BasketSLUSD = -30.00;
 double AdvancedBasketTPUSD   = 0.50;
 double AdvancedBasketSLUSD   = -30.00;
 int MaxAdvancedTotalOrders=2;
-int MaxTotalOpenOrders = 3;
+int MaxTotalOpenOrders = 6;
 double GlobalBasketTPUSD = 0.50;
 double GlobalBasketSLUSD = -30.00;
 
@@ -295,7 +295,7 @@ bool   UseEMABounce55    = true;
 bool   UseFastScalp56    = true;
 
 
-bool UseType52EdgeAlgo = false;
+bool UseType52EdgeAlgo = true;
 bool   UseType21IntradayBooker = false;//Big loss if TREND changed
 double DayBasketTPUSD = 5.00;
 double DayBasketSLUSD = -30.00;
@@ -398,7 +398,7 @@ bool   StopType21AfterDailyTarget = true;
 datetime lastType21DailyTargetDate = 0;
 
 // Type 49 dead zone protection
-bool   BlockTradingInDeadZone = true;
+bool   BlockTradingInDeadZone = false;
 double DeadZoneATRMax = 25.0;
 
 // Advanced volatility settings
@@ -3808,6 +3808,25 @@ void CheckType21DailyProfitTarget()
       lastType21DailyTargetDate = StrToTime(TimeToString(TimeCurrent(), TIME_DATE));
      }
   }
+  int CountOrders(int orderType)
+{
+   int total = 0;
+
+   for(int i = OrdersTotal() - 1; i >= 0; i--)
+   {
+      if(OrderSelect(i, SELECT_BY_POS, MODE_TRADES))
+      {
+         if(OrderSymbol() == Symbol() &&
+            OrderMagicNumber() == MagicNumber &&
+            OrderType() == orderType)
+         {
+            total++;
+         }
+      }
+   }
+
+   return total;
+}
 
 //+------------------------------------------------------------------+
 void CheckGlobalBasketClose()
@@ -3848,7 +3867,8 @@ void CheckGlobalBasketClose()
    }
 
    // CASE 2: BUY ORDERS ONLY
-   if(buyProfit >= GetDynamicTP(GlobalBasketTPUSD) || buyProfit <= GetDynamicSL(GlobalBasketSLUSD))
+   if(CountOrders(OP_BUY)>0)
+   if(buyProfit >= GetDynamicTP(GlobalBasketTPUSD/CountOrders(OP_BUY)) || buyProfit <= GetDynamicSL(GlobalBasketSLUSD))
    {
       Print("GLOBAL BUY close. Profit=", buyProfit);
       CloseOrdersByType(OP_BUY);
@@ -3856,7 +3876,8 @@ void CheckGlobalBasketClose()
    }
 
    // CASE 3: SELL ORDERS ONLY
-   if(sellProfit >= GetDynamicTP(GlobalBasketTPUSD) || sellProfit <= GetDynamicSL(GlobalBasketSLUSD))
+   if(CountOrders(OP_SELL)>0)
+   if(sellProfit >= GetDynamicTP(GlobalBasketTPUSD/CountOrders(OP_SELL)) || sellProfit <= GetDynamicSL(GlobalBasketSLUSD))
    {
       Print("GLOBAL SELL close. Profit=", sellProfit);
       CloseOrdersByType(OP_SELL);
