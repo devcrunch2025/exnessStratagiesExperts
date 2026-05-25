@@ -58,7 +58,7 @@ int    MagicNumber = 20260522;
 //  Example: $100=1x, $200=2x, $300=3x
 // ================================================================
 bool   UseBalanceMultiplier = true;
-double BalanceMultiplierStepUSD = 200.0;
+double BalanceMultiplierStepUSD = 100.0;
 double MinBalanceMultiplier = 1.0;
 double MaxBalanceMultiplier = 50.0;
 bool   ScaleLotsByBalance = true;
@@ -176,7 +176,7 @@ bool UseCompressionBreak  = true;//LOSS
 bool UseLiquiditySweep    = true;//LOSS
 bool UseTrendExhaustion   = true;//LOSS 
 bool UseSessionMode       = true;//testing//4
-bool UseType51MACD = true; // compatibility old control
+bool UseType51MACD = true; // compatibility old control// flow trend angle line - good 
 bool   UseAdvancedTypes9To50 = true;// master ON, manage TYPE 9-50 individually
 
 // ================================================================
@@ -4752,48 +4752,42 @@ void SortTypesByScore(int &types[], double &scores[], int size)
   }
 
 //+------------------------------------------------------------------+
-void DrawTypePerformanceLabel(string name, string text, int x, int y, color clr, int fontSize = 8)
-  {
+void DrawTypePerformanceLabel(string name,string text,int x,int y,color clr,int fontSize)
+{
    if(ObjectFind(0, name) < 0)
-     {
       ObjectCreate(0, name, OBJ_LABEL, 0, 0, 0);
-      ObjectSetInteger(0, name, OBJPROP_CORNER, CORNER_LEFT_LOWER);
-      ObjectSetInteger(0, name, OBJPROP_SELECTABLE, false);
-      ObjectSetInteger(0, name, OBJPROP_HIDDEN, true);
-      ObjectSetString(0, name, OBJPROP_FONT, "Consolas");
-     }
 
+   ObjectSetInteger(0, name, OBJPROP_CORNER, CORNER_LEFT_UPPER);
    ObjectSetInteger(0, name, OBJPROP_XDISTANCE, x);
    ObjectSetInteger(0, name, OBJPROP_YDISTANCE, y);
    ObjectSetInteger(0, name, OBJPROP_COLOR, clr);
    ObjectSetInteger(0, name, OBJPROP_FONTSIZE, fontSize);
+   ObjectSetString(0, name, OBJPROP_FONT, "Consolas");
    ObjectSetString(0, name, OBJPROP_TEXT, text);
-  }
-
+   ObjectSetInteger(0, name, OBJPROP_SELECTABLE, false);
+   ObjectSetInteger(0, name, OBJPROP_HIDDEN, true);
+}
 //+------------------------------------------------------------------+
-void DrawTypePerformancePanelBg(string name, int x, int y, int w, int h, color bg)
-  {
+void DrawTypePerformancePanelBg(string name,int x,int y,int w,int h,color bgColor)
+{
    if(ObjectFind(0, name) < 0)
-     {
       ObjectCreate(0, name, OBJ_RECTANGLE_LABEL, 0, 0, 0);
-      ObjectSetInteger(0, name, OBJPROP_CORNER, CORNER_LEFT_LOWER);
-      ObjectSetInteger(0, name, OBJPROP_SELECTABLE, false);
-      ObjectSetInteger(0, name, OBJPROP_HIDDEN, true);
-      ObjectSetInteger(0, name, OBJPROP_BACK, false);
-      ObjectSetInteger(0, name, OBJPROP_BORDER_TYPE, BORDER_FLAT);
-     }
 
+   ObjectSetInteger(0, name, OBJPROP_CORNER, CORNER_LEFT_UPPER);
    ObjectSetInteger(0, name, OBJPROP_XDISTANCE, x);
    ObjectSetInteger(0, name, OBJPROP_YDISTANCE, y);
    ObjectSetInteger(0, name, OBJPROP_XSIZE, w);
    ObjectSetInteger(0, name, OBJPROP_YSIZE, h);
-   ObjectSetInteger(0, name, OBJPROP_BGCOLOR, bg);
+   ObjectSetInteger(0, name, OBJPROP_BGCOLOR, clrBlack);
    ObjectSetInteger(0, name, OBJPROP_COLOR, clrDimGray);
-  }
-
+   ObjectSetInteger(0, name, OBJPROP_BORDER_TYPE, BORDER_FLAT);
+   ObjectSetInteger(0, name, OBJPROP_BACK, false);
+   ObjectSetInteger(0, name, OBJPROP_SELECTABLE, false);
+   ObjectSetInteger(0, name, OBJPROP_HIDDEN, true);
+}
 //+------------------------------------------------------------------+
 void DrawTypePerformancePanel()
-  {
+{
    if(!ShowTypePerformancePanel)
       return;
 
@@ -4803,82 +4797,122 @@ void DrawTypePerformancePanel()
    int idx = 0;
 
    for(int t = 1; t <= 50; t++)
-     {
+   {
       if(t == 8)
          continue;
 
       types[idx] = t;
       scores[idx] = GetTypeScore(t);
       idx++;
-     }
+   }
 
    SortTypesByScore(types, scores, 49);
 
    int rows = TypePerformanceTopN;
-
    if(rows > 49)
       rows = 49;
 
    int panelX = 10;
    int panelY = 25;
-   int panelW = 430;
-   int panelH = 45 + (rows + 3) * 15;
+   int panelW = 400;
+   int panelH = 70 + (rows + 4) * 16;
 
    DrawTypePerformancePanelBg("TYPEPERF_BG", panelX, panelY, panelW, panelH, clrBlack);
 
-// CORNER_LEFT_LOWER uses y-distance from bottom, so larger y is visually higher.
-   int y = panelY + panelH - 20;
+int y = panelY + 10;
 
-   DrawTypePerformanceLabel("TYPEPERF_TITLE", "TYPE PERFORMANCE | CLOSED + OPEN", panelX + 8, y, clrYellow, 9);
-   y -= 18;
-
-   DrawTypePerformanceLabel("TYPEPERF_MODE", TodayOnlyTypePLHistory ? "MODE: TODAY HISTORY" : "MODE: FULL HISTORY", panelX + 8, y, clrSilver, 8);
-   y -= 18;
-
-   DrawTypePerformanceLabel("TYPEPERF_HEAD", "TYPE NAME    ORD  WIN%  PF    AVG    OPEN    TOTAL", panelX + 8, y, clrAqua, 8);
-   y -= 15;
-
+   DrawTypePerformanceLabel("TYPEPERF_TITLE",
+                            "TYPE PERFORMANCE DASHBOARD",
+                            panelX + 10, y, clrYellow, 10);
+y += 18;
+   DrawTypePerformanceLabel("TYPEPERF_SUB",
+                            TodayOnlyTypePLHistory ? "MODE: TODAY | CLOSED + OPEN P/L" : "MODE: FULL HISTORY | CLOSED + OPEN P/L",
+                            panelX + 10, y, clrSilver, 8);
+y += 18;
+   DrawTypePerformanceLabel("TYPEPERF_HEAD",
+                            "TYPE  NAME        ORD  WIN  PF    AVG    OPEN    TOTAL   SCORE  STATUS",
+                            panelX + 10, y, clrAqua, 8);
+y += 18;
    for(int r = 0; r < rows; r++)
-     {
+   {
       int typeNo = types[r];
 
-      int orders = GetTypeOrderCount(typeNo);
-      double wr = GetTypeWinRate(typeNo);
-      double pf = GetTypeProfitFactor(typeNo);
-      double avg = GetTypeAvgClosedPL(typeNo);
-      double openPL = GetTypeOpenProfit(typeNo);
-      double totalPL = GetTypeProfit(typeNo);
+      int orders      = GetTypeOrderCount(typeNo);
+      double wr       = GetTypeWinRate(typeNo);
+      double pf       = GetTypeProfitFactor(typeNo);
+      double avg      = GetTypeAvgClosedPL(typeNo);
+      double openPL   = GetTypeOpenProfit(typeNo);
+      double totalPL  = GetTypeProfit(typeNo);
+      double score    = GetTypeScore(typeNo);
 
+      string status = "WATCH";
       color rowColor = clrWhite;
 
-      if(totalPL > 0)
+      if(orders <= 0)
+      {
+         status = "NO DATA";
+         rowColor = clrSilver;
+      }
+      else if(totalPL > 0 && wr >= 60 && pf >= 1.20)
+      {
+         status = "GOOD";
          rowColor = clrLime;
-      else
-         if(totalPL < 0)
-            rowColor = clrRed;
+      }
+      else if(totalPL > 0 && wr >= 50)
+      {
+         status = "OK";
+         rowColor = clrDeepSkyBlue;
+      }
+      else if(totalPL < 0)
+      {
+         status = "LOSS";
+         rowColor = clrRed;
+      }
+      else if(pf < 1.00 && orders >= 3)
+      {
+         status = "WEAK";
+         rowColor = clrOrange;
+      }
 
       string line =
-         "T" + IntegerToString(typeNo) + " " +
-         GetTypeShortName(typeNo) + " " +
-         IntegerToString(orders) + " " +
-         DoubleToString(wr, 0) + "% " +
-         DoubleToString(pf, 2) + " $" +
-         DoubleToString(avg, 2) + " $" +
-         DoubleToString(openPL, 2) + " $" +
-         DoubleToString(totalPL, 2);
+         PadRight("T" + IntegerToString(typeNo), 5) +
+         PadRight(GetTypeShortName(typeNo), 12) +
+         PadLeft(IntegerToString(orders), 4) + " " +
+         PadLeft(DoubleToString(wr, 0) + "%", 5) + " " +
+         PadLeft(DoubleToString(pf, 2), 5) + " " +
+         PadLeft("$" + DoubleToString(avg, 2), 7) + " " +
+         PadLeft("$" + DoubleToString(openPL, 2), 8) + " " +
+         PadLeft("$" + DoubleToString(totalPL, 2), 8) + " " +
+         PadLeft(DoubleToString(score, 1), 6) + "  " +
+         status;
 
       DrawTypePerformanceLabel(
          "TYPEPERF_ROW_" + IntegerToString(r),
          line,
-         panelX + 8,
+         panelX + 10,
          y,
          rowColor,
          8
       );
 
-      y -= 15;
-     }
-  }
+      y += 18;
+   }
+}
+string PadRight(string text, int len)
+{
+   while(StringLen(text) < len)
+      text = text + " ";
+
+   return text;
+}
+
+string PadLeft(string text, int len)
+{
+   while(StringLen(text) < len)
+      text = " " + text;
+
+   return text;
+}
 
 //+------------------------------------------------------------------+
 void ExportTypePerformanceCSVIfNeeded()
