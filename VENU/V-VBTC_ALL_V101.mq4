@@ -69,38 +69,38 @@ bool   ScaleSLByBalance   = true;
 //  BASKET TP / SL
 // ================================================================
 double BigBasketTPUSD      = 0.50;
-double BigBasketSLUSD      = -20.00;
+double BigBasketSLUSD      = -30.00;
 
 double RangeBasketTPUSD    = 0.15;
-double RangeBasketSLUSD    = -20.00;
+double RangeBasketSLUSD    = -30.00;
 
 double TrendBasketTPUSD    = 0.50;
-double TrendBasketSLUSD    = -20.00;
+double TrendBasketSLUSD    = -30.00;
 
 double FakeBasketTPUSD     = 0.50;
-double FakeBasketSLUSD     = -20.00;
+double FakeBasketSLUSD     = -30.00;
 
 double SqueezeBasketTPUSD  = 0.50;
-double SqueezeBasketSLUSD  = -20.00;
+double SqueezeBasketSLUSD  = -30.00;
 
 double SweepBasketTPUSD    = 0.50;
-double SweepBasketSLUSD    = -20.00;
+double SweepBasketSLUSD    = -30.00;
 
 double ExhaustBasketTPUSD  = 0.50;
-double ExhaustBasketSLUSD  = -20.00;
+double ExhaustBasketSLUSD  = -30.00;
 
 bool   UseGlobalBasketClose = true;
 
 double Type51BasketTPUSD = 0.50;
-double Type51BasketSLUSD = -20.00;
+double Type51BasketSLUSD = -30.00;
 
 
 
 double Type52BasketTPUSD = 0.50;
-double Type52BasketSLUSD = -20.00;
+double Type52BasketSLUSD = -30.00;
 
 double AdvancedBasketTPUSD   = 0.50;
-double AdvancedBasketSLUSD   = -20.00;
+double AdvancedBasketSLUSD   = -30.00;
 int MaxAdvancedTotalOrders=2;
 int MaxTotalOpenOrders = 3;
 double GlobalBasketTPUSD = 0.50;
@@ -110,8 +110,8 @@ double GlobalBasketSLUSD = -30.00;
 //  MAX ORDERS PER BASKET SIDE
 // ================================================================
 int MaxBigOrdersPerSide     = 1;
-int MaxRangeOrdersPerSide   = 2;
-int MaxTrendOrdersPerSide   = 2;
+int MaxRangeOrdersPerSide   = 1;
+int MaxTrendOrdersPerSide   = 1;
 int MaxFakeOrdersPerSide    = 1;
 int MaxSqueezeOrdersPerSide = 1;
 int MaxSweepOrdersPerSide   = 1;
@@ -126,12 +126,10 @@ int Type52PutBuyCountInTrend  = 0;
 // ================================================================
 //  TYPES 54-56 MICRO PROFIT STRATEGIES ($0.50 basket TP)
 // ================================================================
-bool   UseMicroPullback54 = true;
-bool   UseEMABounce55    = true;
-bool   UseFastScalp56    = true;
+
 
 double MicroTPUSD = 0.50;
-double MicroSLUSD = -20.00;
+double MicroSLUSD = -30.00;
 
 int    MaxMicroOrdersPerSide = 1;
 double MicroLot = 0.01;
@@ -165,18 +163,22 @@ bool UseBigMomentum       = true;//good//2
 bool UseRangeMomentum     = false;//BIG LOSS No Recovery//
 bool UseTrendMomentum     = true;//Good//1
 bool UseFakeBreakout      = false;//testing//3//loss
-bool UseCompressionBreak  = true;
-bool UseLiquiditySweep    = true;
+bool UseCompressionBreak  = false;
+bool UseLiquiditySweep    = false;
 bool UseTrendExhaustion   = false;//LOSS 
-bool UseSessionMode       = true;
-bool UseType51MACD = true;
-bool   UseAdvancedTypes9To50 = true;//true
+bool UseSessionMode       = false;//testing//4
+bool UseType51MACD = false;
+bool   UseAdvancedTypes9To50 = false;//true
+
+bool   UseMicroPullback54 = true;
+bool   UseEMABounce55    = true;
+bool   UseFastScalp56    = true;
 
 
-bool UseType52EdgeAlgo = true;
+bool UseType52EdgeAlgo = false;
 bool   UseType21IntradayBooker = false;//Big loss if TREND changed
 double DayBasketTPUSD = 5.00;
-double DayBasketSLUSD = -20.00;
+double DayBasketSLUSD = -30.00;
 
 
 int    MaxType52OrdersPerSide = 2;
@@ -291,7 +293,7 @@ int    MaxCrossesForNoise = 4;
 //  RECOVERY
 // ================================================================
 bool   UseRecoveryOrders = true;
-double RecoveryGapPrice = 2000.0;
+double RecoveryGapPrice = 1000.0;
 int    MaxRecoveryOrdersPerBasket = 2;
 bool   RecoverySameDirection = true;
 
