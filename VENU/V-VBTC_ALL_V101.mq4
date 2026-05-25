@@ -112,6 +112,15 @@ double GlobalBasketSLUSD = -30.00;
 int MaxBigOrdersPerSide     = 1;
 int MaxRangeOrdersPerSide   = 1;
 int MaxTrendOrdersPerSide   = 1;
+
+// ================================================================
+//  TYPE 3 TREND CYCLE ORDER LIMIT
+//  Max orders open only after trend changes.
+// ================================================================
+int MaxTrendOrdersPerTrend = 1;
+int TrendCycleDirection = 0;
+int TrendBuyCountInCycle = 0;
+int TrendSellCountInCycle = 0;
 int MaxFakeOrdersPerSide    = 1;
 int MaxSqueezeOrdersPerSide = 1;
 int MaxSweepOrdersPerSide   = 1;
@@ -146,7 +155,7 @@ int Slippage = 100;
 ENUM_TIMEFRAMES TradeTF = PERIOD_M1;
 ENUM_TIMEFRAMES TrendTF = PERIOD_M5;
 
-double MinCandleSize = 20.0;
+double MinCandleSize = 15;//20.0;
 double MaxTrendOrderCandleSize = 100.0;
 
 // ================================================================
@@ -166,9 +175,122 @@ bool UseFakeBreakout      = false;//testing//3//loss
 bool UseCompressionBreak  = false;
 bool UseLiquiditySweep    = false;
 bool UseTrendExhaustion   = false;//LOSS 
-bool UseSessionMode       = false;//testing//4
-bool UseType51MACD = false;
-bool   UseAdvancedTypes9To50 = false;//true
+bool UseSessionMode       = true;//testing//4
+bool UseType51MACD = true; // compatibility old control
+bool   UseAdvancedTypes9To50 = true;// master ON, manage TYPE 9-50 individually
+
+// ================================================================
+//  INDIVIDUAL TYPE ENABLE/DISABLE (TYPE 9-51)
+// ================================================================
+bool UseType9_VolExpansion       = true;
+bool UseType10_VolCollapse       = true;
+bool UseType11_EMAReclaim        = true;
+bool UseType12_ParabolicSpike    = true;
+bool UseType13_OrderBlockRetest  = true;
+bool UseType14_LiquidityVoid     = true;
+bool UseType15_StopHunt          = true;
+bool UseType16_TrendStaircase    = true;
+bool UseType17_NewsChaos         = true;
+bool UseType18_HedgeTrap         = true;
+bool UseType19_TrendFailure      = true;
+bool UseType20_Accumulation      = true;
+bool UseType21_IntradayBookerAdv = true;
+bool UseType22_WeekendTrap       = true;
+bool UseType23_MondayReset       = true;
+bool UseType24_DailyOpenReject   = true;
+bool UseType25_PreNYAccum        = true;
+bool UseType26_PostLiqReversal   = true;
+bool UseType27_FundingFlip       = true;
+bool UseType28_WhaleDefense      = true;
+bool UseType29_LiquidityMagnet   = true;
+bool UseType30_EMAPinball        = true;
+bool UseType31_CascadeLiq        = true;
+bool UseType32_MicroChannel      = true;
+bool UseType33_BreakFailRetest   = true;
+bool UseType34_DoubleSweep       = true;
+bool UseType35_AsianRangeExp     = true;
+bool UseType36_HFTNoise          = true;
+bool UseType37_BTCDominance      = true;
+bool UseType38_CorrelationBreak  = true;
+bool UseType39_NewsAbsorption    = true;
+bool UseType40_DelayedReversal   = true;
+bool UseType41_LiquidityLadder   = true;
+bool UseType42_RoundNumberMagnet = true;
+bool UseType43_MidnightFlush     = true;
+bool UseType44_TrendAcceleration = true;
+bool UseType45_ExchangeArb       = true;
+bool UseType46_MTFConflict       = true;
+bool UseType47_SessionTransition = true;
+bool UseType48_RetailTrap        = true;
+bool UseType49_DeadZone          = true;
+bool UseType50_Distribution      = true;
+bool UseType51_MACD              = true;
+
+bool IsAdvancedTypeEnabled(int mode)
+{
+   if(mode == 9)  return UseType9_VolExpansion;
+   if(mode == 10) return UseType10_VolCollapse;
+   if(mode == 11) return UseType11_EMAReclaim;
+   if(mode == 12) return UseType12_ParabolicSpike;
+   if(mode == 13) return UseType13_OrderBlockRetest;
+   if(mode == 14) return UseType14_LiquidityVoid;
+   if(mode == 15) return UseType15_StopHunt;
+   if(mode == 16) return UseType16_TrendStaircase;
+   if(mode == 17) return UseType17_NewsChaos;
+   if(mode == 18) return UseType18_HedgeTrap;
+   if(mode == 19) return UseType19_TrendFailure;
+   if(mode == 20) return UseType20_Accumulation;
+   if(mode == 21) return UseType21_IntradayBookerAdv;
+   if(mode == 22) return UseType22_WeekendTrap;
+   if(mode == 23) return UseType23_MondayReset;
+   if(mode == 24) return UseType24_DailyOpenReject;
+   if(mode == 25) return UseType25_PreNYAccum;
+   if(mode == 26) return UseType26_PostLiqReversal;
+   if(mode == 27) return UseType27_FundingFlip;
+   if(mode == 28) return UseType28_WhaleDefense;
+   if(mode == 29) return UseType29_LiquidityMagnet;
+   if(mode == 30) return UseType30_EMAPinball;
+   if(mode == 31) return UseType31_CascadeLiq;
+   if(mode == 32) return UseType32_MicroChannel;
+   if(mode == 33) return UseType33_BreakFailRetest;
+   if(mode == 34) return UseType34_DoubleSweep;
+   if(mode == 35) return UseType35_AsianRangeExp;
+   if(mode == 36) return UseType36_HFTNoise;
+   if(mode == 37) return UseType37_BTCDominance;
+   if(mode == 38) return UseType38_CorrelationBreak;
+   if(mode == 39) return UseType39_NewsAbsorption;
+   if(mode == 40) return UseType40_DelayedReversal;
+   if(mode == 41) return UseType41_LiquidityLadder;
+   if(mode == 42) return UseType42_RoundNumberMagnet;
+   if(mode == 43) return UseType43_MidnightFlush;
+   if(mode == 44) return UseType44_TrendAcceleration;
+   if(mode == 45) return UseType45_ExchangeArb;
+   if(mode == 46) return UseType46_MTFConflict;
+   if(mode == 47) return UseType47_SessionTransition;
+   if(mode == 48) return UseType48_RetailTrap;
+   if(mode == 49) return UseType49_DeadZone;
+   if(mode == 50) return UseType50_Distribution;
+   if(mode == 51) return UseType51_MACD;
+
+   return false;
+}
+
+//+------------------------------------------------------------------+
+//| Return true only when detected advanced mode is enabled           |
+//+------------------------------------------------------------------+
+int ReturnAdvancedModeIfEnabled(int mode)
+{
+   if(mode == 0)
+      return 0;
+
+   if(IsAdvancedTypeEnabled(mode))
+      return mode;
+
+   Print("Advanced detected but disabled: TYPE ", mode, " ", AdvancedModeText(mode));
+   return 0;
+}
+
+
 
 bool   UseMicroPullback54 = true;
 bool   UseEMABounce55    = true;
@@ -565,124 +687,149 @@ bool CanCreateProfessionalOrder(int type, string commentText)
 int DetectAdvancedMarketMode()
   {
    if(!UseAdvancedTypes9To50)
-      return MODE_NONE;
+      return 0;
 
+   // Safety/no-trade modes first. They are returned only if enabled.
    if(IsDeadZone())
-      return MODE_DEAD_ZONE;
-   if(IsNewsChaosMode())
-      return MODE_NEWS_CHAOS;
-   if(IsHFTNoiseMode())
-      return MODE_HFT_NOISE;
-   if(IsMTFConflict())
-      return MODE_MTF_CONFLICT;
+     {
+      if(IsAdvancedTypeEnabled(MODE_DEAD_ZONE))
+         return MODE_DEAD_ZONE;
+      Print("TYPE 49 DEAD ZONE detected but disabled.");
+     }
 
-   if(IsVolatilityExpansion())
+   if(IsNewsChaosMode())
+     {
+      if(IsAdvancedTypeEnabled(MODE_NEWS_CHAOS))
+         return MODE_NEWS_CHAOS;
+      Print("TYPE 17 NEWS CHAOS detected but disabled.");
+     }
+
+   if(IsHFTNoiseMode())
+     {
+      if(IsAdvancedTypeEnabled(MODE_HFT_NOISE))
+         return MODE_HFT_NOISE;
+      Print("TYPE 36 HFT NOISE detected but disabled.");
+     }
+
+   if(IsMTFConflict())
+     {
+      if(IsAdvancedTypeEnabled(MODE_MTF_CONFLICT))
+         return MODE_MTF_CONFLICT;
+      Print("TYPE 46 MTF CONFLICT detected but disabled.");
+     }
+
+   if(IsVolatilityExpansion() && IsAdvancedTypeEnabled(MODE_VOL_EXPANSION))
       return MODE_VOL_EXPANSION;
-   if(IsVolatilityCollapse())
+
+   if(IsVolatilityCollapse() && IsAdvancedTypeEnabled(MODE_VOL_COLLAPSE))
       return MODE_VOL_COLLAPSE;
 
-   if(IsEMAReclaimBuy() || IsEMAReclaimSell())
+   if((IsEMAReclaimBuy() || IsEMAReclaimSell()) && IsAdvancedTypeEnabled(MODE_EMA_RECLAIM))
       return MODE_EMA_RECLAIM;
 
-   if(IsParabolicSpikeUp() || IsParabolicSpikeDown())
+   if((IsParabolicSpikeUp() || IsParabolicSpikeDown()) && IsAdvancedTypeEnabled(MODE_PARABOLIC_SPIKE))
       return MODE_PARABOLIC_SPIKE;
 
-   if(IsOrderBlockRetestBuy() || IsOrderBlockRetestSell())
+   if((IsOrderBlockRetestBuy() || IsOrderBlockRetestSell()) && IsAdvancedTypeEnabled(MODE_ORDER_BLOCK_RETEST))
       return MODE_ORDER_BLOCK_RETEST;
 
-   if(IsLiquidityVoidUp() || IsLiquidityVoidDown())
+   if((IsLiquidityVoidUp() || IsLiquidityVoidDown()) && IsAdvancedTypeEnabled(MODE_LIQUIDITY_VOID))
       return MODE_LIQUIDITY_VOID;
 
-   if(IsStopHuntUp() || IsStopHuntDown())
+   if((IsStopHuntUp() || IsStopHuntDown()) && IsAdvancedTypeEnabled(MODE_STOP_HUNT_ENGINE))
       return MODE_STOP_HUNT_ENGINE;
 
-   if(IsTrendStaircaseBuy() || IsTrendStaircaseSell())
+   if((IsTrendStaircaseBuy() || IsTrendStaircaseSell()) && IsAdvancedTypeEnabled(MODE_TREND_STAIRCASE))
       return MODE_TREND_STAIRCASE;
 
-   if(IsTrendFailureBuy() || IsTrendFailureSell())
+   if((IsTrendFailureBuy() || IsTrendFailureSell()) && IsAdvancedTypeEnabled(MODE_TREND_FAILURE))
       return MODE_TREND_FAILURE;
 
-   if(IsAccumulationMode())
+   if(IsAccumulationMode() && IsAdvancedTypeEnabled(MODE_ACCUMULATION))
       return MODE_ACCUMULATION;
-   if(IsIntradayBookerMode())
+
+   if(IsIntradayBookerMode() && IsAdvancedTypeEnabled(MODE_INTRADAY_BOOKER))
       return MODE_INTRADAY_BOOKER;
-   if(IsWeekendTrap())
+
+   if(IsWeekendTrap() && IsAdvancedTypeEnabled(MODE_WEEKEND_TRAP))
       return MODE_WEEKEND_TRAP;
-   if(IsMondayReset())
+
+   if(IsMondayReset() && IsAdvancedTypeEnabled(MODE_MONDAY_RESET))
       return MODE_MONDAY_RESET;
 
-   if(IsDailyOpenRejectionBuy() || IsDailyOpenRejectionSell())
+   if((IsDailyOpenRejectionBuy() || IsDailyOpenRejectionSell()) && IsAdvancedTypeEnabled(MODE_DAILY_OPEN_REJECT))
       return MODE_DAILY_OPEN_REJECT;
 
-   if(IsPreNYAccumulation())
+   if(IsPreNYAccumulation() && IsAdvancedTypeEnabled(MODE_PRE_NY_ACCUM))
       return MODE_PRE_NY_ACCUM;
 
-   if(IsPostLiquidationReversalBuy() || IsPostLiquidationReversalSell())
+   if((IsPostLiquidationReversalBuy() || IsPostLiquidationReversalSell()) && IsAdvancedTypeEnabled(MODE_POST_LIQ_REVERSAL))
       return MODE_POST_LIQ_REVERSAL;
 
-   if(IsFundingFlipMode())
+   if(IsFundingFlipMode() && IsAdvancedTypeEnabled(MODE_FUNDING_FLIP))
       return MODE_FUNDING_FLIP;
 
-   if(IsWhaleDefenseBuy() || IsWhaleDefenseSell())
+   if((IsWhaleDefenseBuy() || IsWhaleDefenseSell()) && IsAdvancedTypeEnabled(MODE_WHALE_DEFENSE))
       return MODE_WHALE_DEFENSE;
 
-   if(IsLiquidityMagnetBuy() || IsLiquidityMagnetSell())
+   if((IsLiquidityMagnetBuy() || IsLiquidityMagnetSell()) && IsAdvancedTypeEnabled(MODE_LIQUIDITY_MAGNET))
       return MODE_LIQUIDITY_MAGNET;
 
-   if(IsEMAPinball())
+   if(IsEMAPinball() && IsAdvancedTypeEnabled(MODE_EMA_PINBALL))
       return MODE_EMA_PINBALL;
 
-   if(IsCascadeLiquidationUp() || IsCascadeLiquidationDown())
+   if((IsCascadeLiquidationUp() || IsCascadeLiquidationDown()) && IsAdvancedTypeEnabled(MODE_CASCADE_LIQ))
       return MODE_CASCADE_LIQ;
 
-   if(IsMicroChannelBuy() || IsMicroChannelSell())
+   if((IsMicroChannelBuy() || IsMicroChannelSell()) && IsAdvancedTypeEnabled(MODE_MICRO_CHANNEL))
       return MODE_MICRO_CHANNEL;
 
-   if(IsBreakoutFailureRetestBuy() || IsBreakoutFailureRetestSell())
+   if((IsBreakoutFailureRetestBuy() || IsBreakoutFailureRetestSell()) && IsAdvancedTypeEnabled(MODE_BREAK_FAIL_RETEST))
       return MODE_BREAK_FAIL_RETEST;
 
-   if(IsDoubleSweep())
+   if(IsDoubleSweep() && IsAdvancedTypeEnabled(MODE_DOUBLE_SWEEP))
       return MODE_DOUBLE_SWEEP;
-   if(IsAsianRangeExpansion())
+
+   if(IsAsianRangeExpansion() && IsAdvancedTypeEnabled(MODE_ASIAN_RANGE_EXP))
       return MODE_ASIAN_RANGE_EXP;
-   if(IsBTCDominanceProxy())
+
+   if(IsBTCDominanceProxy() && IsAdvancedTypeEnabled(MODE_BTC_DOMINANCE))
       return MODE_BTC_DOMINANCE;
-   if(IsCorrelationBreakProxy())
+
+   if(IsCorrelationBreakProxy() && IsAdvancedTypeEnabled(MODE_CORRELATION_BREAK))
       return MODE_CORRELATION_BREAK;
-   if(IsNewsAbsorption())
+
+   if(IsNewsAbsorption() && IsAdvancedTypeEnabled(MODE_NEWS_ABSORPTION))
       return MODE_NEWS_ABSORPTION;
 
-   if(IsDelayedReversalBuy() || IsDelayedReversalSell())
+   if((IsDelayedReversalBuy() || IsDelayedReversalSell()) && IsAdvancedTypeEnabled(MODE_DELAYED_REVERSAL))
       return MODE_DELAYED_REVERSAL;
 
-   if(IsLiquidityLadderBuy() || IsLiquidityLadderSell())
+   if((IsLiquidityLadderBuy() || IsLiquidityLadderSell()) && IsAdvancedTypeEnabled(MODE_LIQUIDITY_LADDER))
       return MODE_LIQUIDITY_LADDER;
 
-   if(IsRoundNumberMagnet())
+   if(IsRoundNumberMagnet() && IsAdvancedTypeEnabled(MODE_ROUND_NUMBER_MAGNET))
       return MODE_ROUND_NUMBER_MAGNET;
 
-   if(IsMidnightFlushBuy() || IsMidnightFlushSell())
+   if((IsMidnightFlushBuy() || IsMidnightFlushSell()) && IsAdvancedTypeEnabled(MODE_MIDNIGHT_FLUSH))
       return MODE_MIDNIGHT_FLUSH;
 
-   if(IsTrendAccelerationBuy() || IsTrendAccelerationSell())
+   if((IsTrendAccelerationBuy() || IsTrendAccelerationSell()) && IsAdvancedTypeEnabled(MODE_TREND_ACCELERATION))
       return MODE_TREND_ACCELERATION;
 
-   if(IsExchangeArbitrageProxy())
+   if(IsExchangeArbitrageProxy() && IsAdvancedTypeEnabled(MODE_EXCHANGE_ARBITRAGE))
       return MODE_EXCHANGE_ARBITRAGE;
-   if(IsSessionTransitionChaos())
+
+   if(IsSessionTransitionChaos() && IsAdvancedTypeEnabled(MODE_SESSION_TRANSITION))
       return MODE_SESSION_TRANSITION;
 
-   if(IsRetailTrapSequenceBuy() || IsRetailTrapSequenceSell())
+   if((IsRetailTrapSequenceBuy() || IsRetailTrapSequenceSell()) && IsAdvancedTypeEnabled(MODE_RETAIL_TRAP_SEQUENCE))
       return MODE_RETAIL_TRAP_SEQUENCE;
 
-   if(IsDistributionMode())
+   if(IsDistributionMode() && IsAdvancedTypeEnabled(MODE_DISTRIBUTION))
       return MODE_DISTRIBUTION;
 
-
-
-
-
-   return MODE_NONE;
+   return 0;
   }
 //+------------------------------------------------------------------+
 //|                                                                  |
@@ -723,6 +870,12 @@ bool IsType51MACDSell()
 //+------------------------------------------------------------------+
 void ProcessType51MACD()
   {
+   if(!UseType51_MACD)
+     {
+      Print("TYPE51 MACD disabled.");
+      return;
+     }
+
    if(IsType51MACDBuy())
      {
       if(CountOrdersByComment("TYPE51_BUY") >= MaxType51OrdersPerSide)
@@ -751,6 +904,12 @@ void ProcessType51MACD()
 //+------------------------------------------------------------------+
 void ProcessAdvancedType(int mode)
   {
+   if(!IsAdvancedTypeEnabled(mode))
+     {
+      Print("TYPE ", mode, " disabled: ", AdvancedModeText(mode));
+      return;
+     }
+
    if(mode == MODE_INTRADAY_BOOKER && IsType21DailyTargetLocked())
      {
       Print("TYPE 21 blocked: daily target already reached.");
@@ -1934,7 +2093,7 @@ void OnTick()
    if(UseEquityProtection)
       CheckEquityProtection();
 
-   CheckAllSeparateBasketClose();
+   // CheckAllSeparateBasketClose();
 
    if(UseRecoveryOrders)
       CheckAllRecoveryOrders();
@@ -2101,7 +2260,7 @@ int DetectMarketMode()
       if(UseBigMomentum && DetectBigMoveDirection() != 0)
          return MODE_BIG;
 
-      if(UseType51MACD && (IsType51MACDBuy() || IsType51MACDSell()))
+      if(UseType51_MACD && (IsType51MACDBuy() || IsType51MACDSell()))
          return MODE_MACD_STRATEGY;
 
       if(UseTrendMomentum && GetTrendDirection() != 0)
@@ -2141,7 +2300,7 @@ int DetectMarketMode()
       return MODE_EXHAUST;
 
 
-   if(UseType51MACD && (IsType51MACDBuy() || IsType51MACDSell()))
+   if(UseType51_MACD && (IsType51MACDBuy() || IsType51MACDSell()))
       return MODE_MACD_STRATEGY;
 
    if(UseType52EdgeAlgo && (IsType52CallBuy() || IsType52PutBuy()))
@@ -2164,7 +2323,7 @@ int DetectMarketMode()
          return advMode;
      }
 
-   return MODE_NONE;
+   return 0;
   }
 
 //+------------------------------------------------------------------+
@@ -2360,11 +2519,35 @@ int    TrendSLBlockMinutes = 30;
 
 datetime LastTrendSLTime = 0;
 
+
+//+------------------------------------------------------------------+
+//| TYPE 3 Trend cycle counter reset                                 |
+//| Counters reset only when trend changes BUY <-> SELL              |
+//+------------------------------------------------------------------+
+void UpdateTrendCycle()
+  {
+   int currentTrend = GetTrendDirection();
+
+   if(currentTrend == 0)
+      return;
+
+   if(currentTrend != TrendCycleDirection)
+     {
+      TrendCycleDirection = currentTrend;
+      TrendBuyCountInCycle = 0;
+      TrendSellCountInCycle = 0;
+
+      Print("TYPE3 TREND changed. Counters reset. New trend=", currentTrend);
+     }
+  }
+
 //+------------------------------------------------------------------+
 // TYPE 3: TREND CONTINUATION
 //+------------------------------------------------------------------+
 void ProcessTrendMomentum()
   {
+   UpdateTrendCycle();
+
    double open1  = iOpen(Symbol(), TradeTF, 1);
    double close1 = iClose(Symbol(), TradeTF, 1);
    double candleSize = MathAbs(close1 - open1);
@@ -2378,28 +2561,58 @@ void ProcessTrendMomentum()
    int trend = GetTrendDirection();
 
    if(trend == 1 && IsTrendClean(1))
-
      {
+      if(TrendBuyCountInCycle >= MaxTrendOrdersPerTrend)
+        {
+         Print("TREND_BUY blocked: max orders reached for current BUY trend cycle. Count=", TrendBuyCountInCycle);
+         return;
+        }
+
       if(CountOrdersByComment("TREND_BUY") >= MaxTrendOrdersPerSide)
          return;
 
       if(!CanOpenByGap("TREND_BUY", TrendOrderGapPrice))
          return;
 
+      int beforeCount = CountOrdersByComment("TREND_BUY");
+
       OpenOrder(OP_BUY, BaseLot, "TREND_BUY");
+
+      int afterCount = CountOrdersByComment("TREND_BUY");
+      if(afterCount > beforeCount)
+        {
+         TrendBuyCountInCycle++;
+         Print("TREND_BUY opened. Trend cycle count=", TrendBuyCountInCycle, "/", MaxTrendOrdersPerTrend);
+        }
+
       return;
      }
 
    if(trend == -1 && IsTrendClean(-1))
-
      {
+      if(TrendSellCountInCycle >= MaxTrendOrdersPerTrend)
+        {
+         Print("TREND_SELL blocked: max orders reached for current SELL trend cycle. Count=", TrendSellCountInCycle);
+         return;
+        }
+
       if(CountOrdersByComment("TREND_SELL") >= MaxTrendOrdersPerSide)
          return;
 
       if(!CanOpenByGap("TREND_SELL", TrendOrderGapPrice))
          return;
 
+      int beforeCount = CountOrdersByComment("TREND_SELL");
+
       OpenOrder(OP_SELL, BaseLot, "TREND_SELL");
+
+      int afterCount = CountOrdersByComment("TREND_SELL");
+      if(afterCount > beforeCount)
+        {
+         TrendSellCountInCycle++;
+         Print("TREND_SELL opened. Trend cycle count=", TrendSellCountInCycle, "/", MaxTrendOrdersPerTrend);
+        }
+
       return;
      }
   }
@@ -3458,19 +3671,31 @@ double GetLastOrderPriceByComment(string commentText)
 
 //+------------------------------------------------------------------+
 void CloseOrdersByComment(string commentText)
-  {
+{
    RefreshRates();
 
+   bool closeAll = false;
+
+   if(commentText == "GLOBAL" || commentText == "ALL")
+      closeAll = true;
+
+      // else
+      // return ;
+
+       
+
    for(int i = OrdersTotal() - 1; i >= 0; i--)
-     {
+   {
       if(OrderSelect(i, SELECT_BY_POS, MODE_TRADES))
-        {
+      {
          if(OrderSymbol() == Symbol() &&
             OrderMagicNumber() == MagicNumber)
-           {
-            if(IsCommentBasketMatch(OrderComment(), commentText))
-              {
+         {
+            if(closeAll || IsCommentBasketMatch(OrderComment(), commentText))
+            {
                bool closed = false;
+
+               RefreshRates();
 
                if(OrderType() == OP_BUY)
                   closed = OrderClose(OrderTicket(), OrderLots(), Bid, Slippage, clrBlue);
@@ -3480,14 +3705,15 @@ void CloseOrdersByComment(string commentText)
 
                lastTime = TimeCurrent();
 
-
                if(!closed)
-                  Print("Close failed Ticket=", OrderTicket(), " Error=", GetLastError());
-              }
-           }
-        }
-     }
-  }
+                  Print("Close failed Ticket=", OrderTicket(),
+                        " Comment=", OrderComment(),
+                        " Error=", GetLastError());
+            }
+         }
+      }
+   }
+}
 
 //+------------------------------------------------------------------+
 void CheckEquityProtection()
@@ -3587,54 +3813,88 @@ void CheckType21DailyProfitTarget()
 
 //+------------------------------------------------------------------+
 void CheckGlobalBasketClose()
-  {
-
-
-// CheckTimedIndividualClose();
-
+{
    if(!UseGlobalBasketClose)
       return;
 
-   double totalProfit = 0;
+   double allProfit  = 0;
+   double buyProfit  = 0;
+   double sellProfit = 0;
 
    for(int i = OrdersTotal() - 1; i >= 0; i--)
-     {
+   {
       if(OrderSelect(i, SELECT_BY_POS, MODE_TRADES))
-        {
+      {
          if(OrderSymbol() == Symbol() &&
             OrderMagicNumber() == MagicNumber)
-           {
-            totalProfit +=
-               OrderProfit() +
-               OrderSwap() +
-               OrderCommission();
-           }
-        }
-     }
+         {
+            double p = OrderProfit() + OrderSwap() + OrderCommission();
 
-   double dynamicGlobalTP = GetDynamicTP(GlobalBasketTPUSD);
-   double dynamicGlobalSL = GetDynamicSL(GlobalBasketSLUSD);
+            allProfit += p;
 
-// GLOBAL TAKE PROFIT
-   if(totalProfit >= dynamicGlobalTP)
-     {
-      Print("GLOBAL TP HIT: ", totalProfit);
+            if(OrderType() == OP_BUY)
+               buyProfit += p;
 
-      CloseAllEAOrders();
+            if(OrderType() == OP_SELL)
+               sellProfit += p;
+         }
+      }
+   }
 
+   // CASE 1: ALL MIXED ORDERS
+   if(allProfit >= GlobalBasketTPUSD || allProfit <= GlobalBasketSLUSD)
+   {
+      Print("GLOBAL ALL close. Profit=", allProfit);
+      CloseOrdersByType(-1);
       return;
-     }
+   }
 
-// GLOBAL STOP LOSS
-   if(totalProfit <= dynamicGlobalSL)
-     {
-      Print("GLOBAL SL HIT: ", totalProfit);
-
-      CloseAllEAOrders();
-
+   // CASE 2: BUY ORDERS ONLY
+   if(buyProfit >= GlobalBasketTPUSD || buyProfit <= GlobalBasketSLUSD)
+   {
+      Print("GLOBAL BUY close. Profit=", buyProfit);
+      CloseOrdersByType(OP_BUY);
       return;
-     }
-  }
+   }
+
+   // CASE 3: SELL ORDERS ONLY
+   if(sellProfit >= GlobalBasketTPUSD || sellProfit <= GlobalBasketSLUSD)
+   {
+      Print("GLOBAL SELL close. Profit=", sellProfit);
+      CloseOrdersByType(OP_SELL);
+      return;
+   }
+}
+void CloseOrdersByType(int orderType)
+{
+   RefreshRates();
+
+   for(int i = OrdersTotal() - 1; i >= 0; i--)
+   {
+      if(OrderSelect(i, SELECT_BY_POS, MODE_TRADES))
+      {
+         if(OrderSymbol() == Symbol() &&
+            OrderMagicNumber() == MagicNumber)
+         {
+            if(orderType != -1 && OrderType() != orderType)
+               continue;
+
+            bool closed = false;
+
+            RefreshRates();
+
+            if(OrderType() == OP_BUY)
+               closed = OrderClose(OrderTicket(), OrderLots(), Bid, Slippage, clrBlue);
+
+            if(OrderType() == OP_SELL)
+               closed = OrderClose(OrderTicket(), OrderLots(), Ask, Slippage, clrRed);
+
+            if(!closed)
+               Print("Close failed Ticket=", OrderTicket(), " Error=", GetLastError());
+         }
+      }
+   }
+}
 bool   UseTimedIndividualClose = true;
 int    StartCloseAfterHours    = 5;
 double LossPerHourUSD          = 1.0;
