@@ -58,7 +58,7 @@ int    MagicNumber = 20260522;
 //  Example: $100=1x, $200=2x, $300=3x
 // ================================================================
 bool   UseBalanceMultiplier = true;
-double BalanceMultiplierStepUSD = 100.0;
+double BalanceMultiplierStepUSD = 200.0;
 double MinBalanceMultiplier = 1.0;
 double MaxBalanceMultiplier = 50.0;
 bool   ScaleLotsByBalance = true;
@@ -101,7 +101,7 @@ double AdvancedBasketTPUSD   = 0.50;
 double AdvancedBasketSLUSD   = -30.00;
 int MaxAdvancedTotalOrders=2;
 int MaxTotalOpenOrders = 6;
-double GlobalBasketTPUSD = 0.50;
+double GlobalBasketTPUSD = 0.25;
 double GlobalBasketSLUSD = -30.00;
 
 // ================================================================

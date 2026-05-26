@@ -136,6 +136,8 @@ bool isOpenNextOrderAfterProfitClose=true;
 //+------------------------------------------------------------------+
 void CloseOrdersAfterOneHourIfSmallLoss()
   {
+
+   return ;
    for(int i = OrdersTotal() - 1; i >= 0; i--)
      {
       if(!OrderSelect(i, SELECT_BY_POS, MODE_TRADES))
@@ -217,7 +219,8 @@ void CloseOrdersAfterOneHourIfSmallLoss()
          if(openCount>1 && OrderType()==OP_BUY)
             return ;
 
-
+ if(OrderMagicNumber() != MagicNumber)
+         return;
          bool closed = OrderClose(
                           OrderTicket(),
                           OrderLots(),
@@ -269,7 +272,7 @@ void OnTick()
 
 }
 
-   CloseOrdersAfterOneHourIfSmallLoss();
+   // CloseOrdersAfterOneHourIfSmallLoss();
 
 
    CloseBasketByProfit(OP_BUY);
@@ -865,6 +868,9 @@ void CloseOrdersByType(int orderType)
          continue;
 
       if(OrderType() != orderType)
+         continue;
+
+          if(OrderMagicNumber() != MagicNumber)
          continue;
 
       double price = (orderType == OP_BUY) ? Bid : Ask;
