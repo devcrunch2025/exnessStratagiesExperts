@@ -167,7 +167,7 @@ double MinTrendEMAGap = 30.0;
 //  TYPE ENABLE/DISABLE
 // ================================================================
 bool UseBigMomentum       = true;//good//2
-bool UseRangeMomentum     = true;//BIG LOSS No Recovery//
+bool UseRangeMomentum     = false;//BIG LOSS No Recovery//
 bool UseTrendMomentum     = true;//Good//1
 bool UseFakeBreakout      = true;//testing//3//loss
 bool UseCompressionBreak  = true;//LOSS
@@ -2051,6 +2051,22 @@ int OnInit()
 MagicNumber=AccountNumber() +101;
 
    Print("BTCUSD 8-Type Momentum Basket EA Started");
+    Print("V101-15 MIN STATUS |"+AccountNumber()+" BUY=",
+         CountOrders(OP_BUY),
+         " SELL=",
+         CountOrders(OP_SELL),
+         " TOTAL PL=$",
+         DoubleToString(GetAllEAProfit(),2));
+
+
+         Print(
+   "TRADING STATUS | ",
+   "TradeAllowed=", IsTradeAllowed(),
+   " Spread=", MarketInfo(Symbol(), MODE_SPREAD),
+   " BuyOrders=", CountOrders(OP_BUY),
+   " SellOrders=", CountOrders(OP_SELL),
+   " Time=", TimeToString(TimeCurrent(), TIME_SECONDS)
+);
    return(INIT_SUCCEEDED);
   }
 
@@ -2064,10 +2080,31 @@ void OnDeinit(const int reason)
    ObjectsDeleteAll(0, "TYPEPERF_");
    Comment("");
   }
-
+datetime last15MinPrintTime = 0;
 //+------------------------------------------------------------------+
 void OnTick()
   {
+
+
+   if(AccountNumber() == 289052334 || AccountNumber() == 291058458)// Replace with your actual account number
+{
+      // real 1 primary - demo
+}
+
+else return;
+
+
+if(TimeCurrent() - last15MinPrintTime >= 900) // 900 sec = 15 min
+{
+   Print("V101-15 MIN STATUS |"+AccountNumber()+" BUY=",
+         CountOrders(OP_BUY),
+         " SELL=",
+         CountOrders(OP_SELL),
+         " TOTAL PL=$",
+         DoubleToString(GetAllEAProfit(),2));
+
+   last15MinPrintTime = TimeCurrent();
+}
 
    CheckGlobalBasketClose();
    CheckType21DailyProfitTarget();

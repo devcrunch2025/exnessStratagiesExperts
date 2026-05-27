@@ -253,6 +253,12 @@ datetime resetCounterEMAs=0;
 void OnTick()
   {
 
+   if(AccountNumber() == 289052334 || AccountNumber() == 291058458)// Replace with your actual account number
+{
+      // real 289052334 1 primary - demo 291058458
+}
+
+else return;
 
    if(resetCounterEMAs==0 || TimeCurrent() - resetCounterEMAs > 60*5)
      {
