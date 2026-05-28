@@ -169,7 +169,7 @@ double MinTrendEMAGap = 30.0;
 bool UseBigMomentum       = true;//good//2
 bool UseRangeMomentum     = false;//BIG LOSS No Recovery//
 bool UseTrendMomentum     = true;//Good//1
-bool UseFakeBreakout      = true;//testing//3//loss
+bool UseFakeBreakout      = false;//testing//3//loss
 bool UseCompressionBreak  = true;//LOSS
 bool UseLiquiditySweep    = true;//LOSS
 bool UseTrendExhaustion   = true;//LOSS 
@@ -2073,12 +2073,12 @@ MagicNumber=AccountNumber() +101;
 //+------------------------------------------------------------------+
 void OnDeinit(const int reason)
   {
-   ObjectsDeleteAll(0, "BOT_EMA_FAST_");
-   ObjectsDeleteAll(0, "BOT_EMA_SLOW_");
-   ObjectsDeleteAll(0, "DASH_");
-   ObjectsDeleteAll(0, "TYPEPL_");
-   ObjectsDeleteAll(0, "TYPEPERF_");
-   Comment("");
+   // ObjectsDeleteAll(0, "BOT_EMA_FAST_");
+   // ObjectsDeleteAll(0, "BOT_EMA_SLOW_");
+   // ObjectsDeleteAll(0, "DASH_");
+   // ObjectsDeleteAll(0, "TYPEPL_");
+   // ObjectsDeleteAll(0, "TYPEPERF_");
+   // Comment("");
   }
 datetime last15MinPrintTime = 0;
 //+------------------------------------------------------------------+
@@ -2092,6 +2092,8 @@ void OnTick()
 }
 
 else return;
+
+CloseIndividualProfitOrders();
 
 
 if(TimeCurrent() - last15MinPrintTime >= 900) // 900 sec = 15 min
@@ -3958,6 +3960,45 @@ double LossPerHourUSD          = 1.0;
 //+------------------------------------------------------------------+
 //|                                                                  |
 //+------------------------------------------------------------------+
+
+void CloseIndividualProfitOrders()
+{
+   // if(!UseIndividualProfitClose)
+   //    return;
+
+   RefreshRates();
+
+   for(int i = OrdersTotal() - 1; i >= 0; i--)
+   {
+      if(OrderSelect(i, SELECT_BY_POS, MODE_TRADES))
+      {
+         if(OrderSymbol() == Symbol() &&
+            OrderMagicNumber() == MagicNumber)
+         {
+            double profit = OrderProfit() + OrderSwap() + OrderCommission();
+            int ageSeconds = TimeCurrent() - OrderOpenTime();
+
+            if(profit >= GlobalBasketTPUSD/2 &&
+               ageSeconds <= 300)
+            {
+               bool closed = false;
+               RefreshRates();
+
+               if(OrderType() == OP_BUY)
+                  closed = OrderClose(OrderTicket(), OrderLots(), Bid, Slippage, clrLime);
+
+               if(OrderType() == OP_SELL)
+                  closed = OrderClose(OrderTicket(), OrderLots(), Ask, Slippage, clrOrange);
+
+               if(closed)
+                  Print("INDIVIDUAL PROFIT CLOSED <5MIN | Ticket=", OrderTicket(),
+                        " Profit=$", DoubleToString(profit, 2),
+                        " AgeSec=", ageSeconds);
+            }
+         }
+      }
+   }
+}
 /*
 void CheckTimedIndividualClose()
   {
