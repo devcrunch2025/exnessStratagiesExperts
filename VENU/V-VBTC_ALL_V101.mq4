@@ -2134,8 +2134,13 @@ if(TimeCurrent() - last15MinPrintTime >= 900) // 900 sec = 15 min
 
    if(UseRecoveryOrders)
       CheckAllRecoveryOrders();
+      double dxb_currentEquity = AccountEquity();
+
+      if(dxb_currentEquity>30)
 
    ProcessNewBarLogic();
+   else
+   Print("Equity too low for new trades: $", DoubleToString(dxb_currentEquity, 2));
   }
 
 //+------------------------------------------------------------------+
