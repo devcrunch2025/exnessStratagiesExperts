@@ -3978,7 +3978,7 @@ void CloseIndividualProfitOrders()
             double profit = OrderProfit() + OrderSwap() + OrderCommission();
             int ageSeconds = TimeCurrent() - OrderOpenTime();
 
-            if(profit >= GlobalBasketTPUSD/2 &&
+            if(profit >= GlobalBasketTPUSD &&
                ageSeconds <= 300)
             {
                bool closed = false;
