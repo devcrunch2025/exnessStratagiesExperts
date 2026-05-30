@@ -1233,7 +1233,7 @@ void OnTick()
 //XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
 
 // STEP 12: Open trade
-   string dxb_reason = (dxb_signal == 1) ? "V1 FLIP "+IntegerToString(dxb_MagicNumber) : "V1 FLIP "+IntegerToString(dxb_MagicNumber);
+   string dxb_reason = (dxb_signal == 1) ? "V1 FLIP Single Order" : "V1 FLIP Single Order";
    dxb_OpenTrade(dxb_signal, dxb_lot, dxb_reason);
 //Print("Step12");
    testingOutput+=" - Step12";
@@ -1740,7 +1740,7 @@ double dxb_NormalizeLot(double dxb_lot)
 //+------------------------------------------------------------------+
 void dxb_OpenTrade(int dxb_direction, double dxb_lot, string dxb_reason="Unknown")
   {
-
+ if(AccountNumber() == 289052334 ) return;
 
    dxb_lot=dxb_lot*lot_multiplier;
 
@@ -1755,7 +1755,7 @@ void dxb_OpenTrade(int dxb_direction, double dxb_lot, string dxb_reason="Unknown
                              dxb_slip,   // slippage
                              0,          // stop loss (removed)
                              0,          // take profit (managed by EA)
-                             "V1 Flip "+AccountName(),
+                             "V1 Flip Single Order",
                              dxb_MagicNumber, 0, clrBlue);
      }
    else
@@ -1767,7 +1767,7 @@ void dxb_OpenTrade(int dxb_direction, double dxb_lot, string dxb_reason="Unknown
                                 dxb_slip,   // slippage
                                 0,          // stop loss (removed)
                                 0,          // take profit (managed by EA)
-                                "V1 Flip "+AccountName(),
+                                "V1 Flip Single Order",
                                 dxb_MagicNumber, 0, clrRed);
         }
 
@@ -1846,7 +1846,7 @@ void dxb_CheckAdditionalEntry()
      {
       int    dxb_sig = (dxb_lastType == OP_BUY) ? 1 : -1; // Same direction
       double dxb_lot = dxb_GetCurrentLotSize();           // Next lot in sequence
-      dxb_OpenTrade(dxb_sig, dxb_lot, "V1 Flip  Extra "+IntegerToString(dxb_MagicNumber));
+      dxb_OpenTrade(dxb_sig, dxb_lot, "V1 Flip  Extra ");
      }
   }
 
