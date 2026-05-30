@@ -2136,7 +2136,7 @@ if(TimeCurrent() - last15MinPrintTime >= 900) // 900 sec = 15 min
       CheckAllRecoveryOrders();
       double dxb_currentEquity = AccountEquity();
 
-      if(dxb_currentEquity>30)
+      if(dxb_currentEquity>20)
 
    ProcessNewBarLogic();
    else
