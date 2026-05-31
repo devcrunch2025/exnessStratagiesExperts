@@ -1561,7 +1561,7 @@ void dxb_ApplySessionSettings()
       dxb_AI_SAR_Period                    = 2.5;
       dxb_AI_SAR_STEP_SIZE                 = 8;
       dxb_AI_SAR_SCALPER_ACCELERATION      = 4;
-      dxb_Take_Profit_Amount               = 2;
+      dxb_Take_Profit_Amount               = 1;
 
       dxb_session_name="NY Session 16:30  to 18";
       sessionName="NY";
@@ -1577,7 +1577,7 @@ void dxb_ApplySessionSettings()
          dxb_AI_SAR_Period                    = 2.0;
          dxb_AI_SAR_STEP_SIZE                 = 10;
          dxb_AI_SAR_SCALPER_ACCELERATION      = 5;
-         dxb_Take_Profit_Amount               = 2.0;
+         dxb_Take_Profit_Amount               = 1.0;
 
          dxb_session_name="US Session 16 to 23";
          sessionName="US";
@@ -1594,7 +1594,7 @@ void dxb_ApplySessionSettings()
             dxb_AI_SAR_Period                    = 1.0;
             dxb_AI_SAR_STEP_SIZE                 = 18;
             dxb_AI_SAR_SCALPER_ACCELERATION      = 7;
-            dxb_Take_Profit_Amount               = 2;
+            dxb_Take_Profit_Amount               = 1;
 
             dxb_session_name="EU Session 10 to 16";
             sessionName="EU";
@@ -1611,7 +1611,7 @@ void dxb_ApplySessionSettings()
                dxb_AI_SAR_Period                    = 0.56;
                dxb_AI_SAR_STEP_SIZE                 = 25;
                dxb_AI_SAR_SCALPER_ACCELERATION      = 9;
-               dxb_Take_Profit_Amount               = 2.0;
+               dxb_Take_Profit_Amount               = 1.0;
 
                dxb_session_name="Asia Session 3 to 10";
                sessionName="ASIA";
@@ -1627,7 +1627,7 @@ void dxb_ApplySessionSettings()
                dxb_AI_SAR_Period                    = 0.56;
                dxb_AI_SAR_STEP_SIZE                 = 25;
                dxb_AI_SAR_SCALPER_ACCELERATION      = 9;
-               dxb_Take_Profit_Amount               = 2.0;
+               dxb_Take_Profit_Amount               = 1.0;
 
                dxb_session_name="Dead Session 23 to 3";
                sessionName="DEAD";

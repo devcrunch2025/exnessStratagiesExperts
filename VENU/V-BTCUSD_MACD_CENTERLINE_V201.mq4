@@ -7,7 +7,7 @@
 #property strict
 
 extern double LotSize         = 0.01;
-extern double ProfitTargetUSD = 1.0;
+extern double ProfitTargetUSD = 0.50;
 
 extern bool   UseStopLoss     = true;
 extern double StopLossUSD     = 20.0;
