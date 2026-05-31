@@ -226,12 +226,12 @@ string dxb____CUSTOM_LOTS____      = "======= LOT SIZE SYSTEM =======";
 bool   dxb_Auto_Increment_Lots     = true;
 double dxb_Base_Lot_Size           = 0.01;
 double dxb_Increment_Per_Trade     = 0.01;
-double dxb_Maximum_Lot_Size        = 0.04;
+double dxb_Maximum_Lot_Size        = 0.10;
 
 //+------------------------------------------------------------------+
 //| MAX OPEN ORDERS LIMIT                                             |
 //+------------------------------------------------------------------+
-int dxb_Max_Open_Orders = 4;
+int dxb_Max_Open_Orders = 8;
 
 // Custom lot sequence — used only when Auto_Increment_Lots = false
 // Cycles: 1→2→3→4→5→6→7→8→9→10→1→2→... (modulo 10)
@@ -294,7 +294,7 @@ double dxb_Daily_Loss_Limit        = 100.0;
 //+------------------------------------------------------------------+
 string dxb____FLOATING_LOSS____           = "======== FLOATING LOSS LIMIT ========";
 bool   dxb_Use_Floating_Loss_Limit        = true;
-double dxb_Floating_Loss_Limit_Per_Symbol = 30.0;//stoploss open trade  stop loss
+double dxb_Floating_Loss_Limit_Per_Symbol = 10.0;//stoploss open trade  stop loss
 double dxb_Take_Profit_Amount      = 1;//3.0;
 
 
@@ -849,11 +849,11 @@ int CountOrders(int orderType)
 void OnTick()
   {
 
-
-// if(AccountNumber() != 289058672)//single account
-// {
-//    return false;
-// }
+if(!IsTesting())
+if(AccountNumber() != 289058672)//single account
+{
+   return false;
+}
 
    // if(AccountNumber() == 289052334)// || AccountNumber() == 291058458)// Replace with your actual account number
    //   {
@@ -873,6 +873,8 @@ void OnTick()
       sessionDEAD=false;
      }
 
+
+     
 
 
 
@@ -897,6 +899,15 @@ void OnTick()
 
 // Add this block in OnTick() between STEP 6 and STEP 7
    dxb_ApplySessionSettings(); // ← ADD THIS ONE LINE ONLY
+
+
+   dxb_Floating_Loss_Limit_Per_Symbol=20;
+     if(TimeDayOfWeek(TimeCurrent()) == 0 || TimeDayOfWeek(TimeCurrent()) == 6)
+     {
+       
+      dxb_Take_Profit_Amount=0.50;
+      
+     }
 
 
    double atr = iATR(Symbol(), Period(), 14, 1);
@@ -1026,7 +1037,7 @@ void OnTick()
          return;
         }
       else
-         if(dxb_CountOpenTrades()>2 && dxb_GetTotalOpenProfit() >= dxb_Take_Profit_Amount/2)
+         if( dxb_GetTotalOpenProfit() >= dxb_Take_Profit_Amount/dxb_CountOpenTrades() )
 
 
            {
@@ -1223,19 +1234,19 @@ void OnTick()
      }
 
 
-   if(dxb_IsBigCandleLast5Min() && (sessionName=="ASIA" || sessionName=="EU" || sessionName=="DEAD"))
-     {
+   // if(dxb_IsBigCandleLast5Min() && (sessionName=="ASIA" || sessionName=="EU" || sessionName=="DEAD"))
+   //   {
 
-      Print("[dxb] BIG candle found in last 3 min ");
+   //    Print("[dxb] BIG candle found in last 3 min ");
 
-      dxb_UpdateDisplay("BIG candle found in last 3 min");
-      return ;
-     }
-   else
-     {
-      // dxb_UpdateDisplay("----");
+   //    dxb_UpdateDisplay("BIG candle found in last 3 min");
+   //    return ;
+   //   }
+   // else
+   //   {
+   //    // dxb_UpdateDisplay("----");
 
-     }
+   //   }
 //XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
 
 // STEP 12: Open trade
@@ -1533,18 +1544,18 @@ void dxb_ApplySessionSettings()
    bool dxb_isNYSpike = (dxb_hour == 16 && dxb_minute >= 30)
                         || (dxb_hour == 17);
 
-   bool dxb_isUS      = (dxb_hour >= 16 && dxb_hour <= 22);
+   bool dxb_isUS      = (dxb_hour >= 20 && dxb_hour <= 22);
 
-   bool dxb_isEU      = (dxb_hour >= 10 && dxb_hour < 16);
+   bool dxb_isEU      = (dxb_hour >= 12 && dxb_hour < 20);
 
-   bool dxb_isAsia    = (dxb_hour >= 3  && dxb_hour < 10);
+   bool dxb_isAsia    = (dxb_hour >= 2  && dxb_hour < 12);
 
 // Dead zone: 23:00–03:00 server (handled by else below)
    if(dxb_isNYSpike)
      {
       // ── NY OPEN SPIKE ZONE 11:30–15:00 GMT (most dangerous) ───
       dxb_NEWS_FILTER                      = false;
-      dxb_Floating_Loss_Limit_Per_Symbol   = 30.0;
+      dxb_Floating_Loss_Limit_Per_Symbol   = 10.0;
       dxb_Min_Distance_Between_Trades      = 150;
       dxb_MaximumSpread                    = 2000;
       dxb_AI_SAR_Period                    = 2.5;
@@ -1560,7 +1571,7 @@ void dxb_ApplySessionSettings()
         {
          // ── NORMAL US SESSION 15:00–20:00 GMT ─────────────────────
          dxb_NEWS_FILTER                      = false;
-         dxb_Floating_Loss_Limit_Per_Symbol   = 25.0;
+         dxb_Floating_Loss_Limit_Per_Symbol   = 10.0;
          dxb_Min_Distance_Between_Trades      = 150;
          dxb_MaximumSpread                    = 2000;
          dxb_AI_SAR_Period                    = 2.0;
@@ -1577,7 +1588,7 @@ void dxb_ApplySessionSettings()
            {
             // ── EU SESSION 07:00–11:00 GMT ────────────────────────────
             dxb_NEWS_FILTER                      = false;
-            dxb_Floating_Loss_Limit_Per_Symbol   = 30.0;
+            dxb_Floating_Loss_Limit_Per_Symbol   = 10.0;
             dxb_Min_Distance_Between_Trades      = 150;
             dxb_MaximumSpread                    = 2000;
             dxb_AI_SAR_Period                    = 1.0;
@@ -1594,7 +1605,7 @@ void dxb_ApplySessionSettings()
               {
                // ── ASIA SESSION 00:00–07:00 GMT ──────────────────────────
                dxb_NEWS_FILTER                      = false;
-               dxb_Floating_Loss_Limit_Per_Symbol   = 30.0;
+               dxb_Floating_Loss_Limit_Per_Symbol   = 10.0;
                dxb_Min_Distance_Between_Trades      = 150;
                dxb_MaximumSpread                    = 2000;
                dxb_AI_SAR_Period                    = 0.56;
@@ -1610,7 +1621,7 @@ void dxb_ApplySessionSettings()
               {
                // ── FALLBACK (20:00–00:00 GMT dead zone) ──────────────────
                dxb_NEWS_FILTER                      = false;
-               dxb_Floating_Loss_Limit_Per_Symbol   = 30.0;
+               dxb_Floating_Loss_Limit_Per_Symbol   = 10.0;
                dxb_Min_Distance_Between_Trades      = 150;
                dxb_MaximumSpread                    = 2000;
                dxb_AI_SAR_Period                    = 0.56;

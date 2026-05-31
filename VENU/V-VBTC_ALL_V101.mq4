@@ -2085,13 +2085,17 @@ datetime last15MinPrintTime = 0;
 void OnTick()
   {
 
-
-   if(AccountNumber() == 289052334 || AccountNumber() == 291058458)// Replace with your actual account number
+if(AccountNumber() == 289058672)//single account
 {
-      // real 1 primary - demo
+   return false;
 }
 
-else return;
+//    if(AccountNumber() == 289052334 || AccountNumber() == 291058458)// Replace with your actual account number
+// {
+//       // real 1 primary - demo
+// }
+
+// else return;
 
 CloseIndividualProfitOrders();
 
