@@ -475,7 +475,7 @@ int    dxb_Line_Style               = STYLE_DOT;
 int    dxb_Line_Width               = 1;
 
 string dxb____EQUITY_LOSS____       = "=== EQUITY LOSS LIMIT ===";
-bool   dxb_Enable_Equity_Loss       = true;
+bool   dxb_Enable_Equity_Loss       = false;
 double dxb_Max_Equity_Loss_Percent  = 10.0; // stop if equity drops 10%
 double dxb_Max_Equity_Loss_Dollar   = 5.0; // OR stop if equity drops $50
 bool   dxb_Use_Percent_Mode         = false;  // true=%, false=$

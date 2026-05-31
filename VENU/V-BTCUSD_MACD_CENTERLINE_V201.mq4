@@ -60,6 +60,9 @@ int      lastSignalDirection = 0;
 //+------------------------------------------------------------------+
 int OnInit()
 {
+
+   MagicNumber=AccountNumber() +201;
+
    Print("V201 MACD Histogram Cross EA initialized. Symbol=", Symbol(), " TF=", TFToString(TimeFrame));
    DrawDashboard();
    return(INIT_SUCCEEDED);
@@ -74,6 +77,15 @@ void OnDeinit(const int reason)
 //+------------------------------------------------------------------+
 void OnTick()
 {
+
+
+if(!IsTesting())
+if(AccountNumber() != 289058672)//single account
+{
+   return ;
+}
+
+
    if(ShowEMA20Line)
       DrawEMA20Line();
 

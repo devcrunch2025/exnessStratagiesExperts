@@ -2189,11 +2189,11 @@ void OnTick()
       CheckAllRecoveryOrders();
    double dxb_currentEquity = AccountEquity();
 
-   if(dxb_currentEquity>20)
+   // if(dxb_currentEquity>20)
 
       ProcessNewBarLogic();
-   else
-      Print("Equity too low for new trades: $", DoubleToString(dxb_currentEquity, 2));
+   // else
+   //    Print("Equity too low for new trades: $", DoubleToString(dxb_currentEquity, 2));
   }
 
 //+------------------------------------------------------------------+
