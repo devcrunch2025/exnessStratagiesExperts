@@ -584,9 +584,13 @@ int OnInit()
 
 
 if(!IsTesting())
-if(AccountNumber() != 289058672)//single account
 {
-   return(INIT_SUCCEEDED);
+   if(AccountNumber() != 289058672 &&
+      AccountNumber() != 291058458)
+   {
+      Print("Unauthorized Account: ", AccountNumber());
+      return(INIT_SUCCEEDED);
+   }
 }
 
    Print(
@@ -858,9 +862,13 @@ void OnTick()
   {
 
 if(!IsTesting())
-if(AccountNumber() != 289058672)//single account
 {
-   return ;
+   if(AccountNumber() != 289058672 &&
+      AccountNumber() != 291058458)
+   {
+      // Print("Unauthorized Account: ", AccountNumber());
+      return;
+   }
 }
 
    // if(AccountNumber() == 289052334)// || AccountNumber() == 291058458)// Replace with your actual account number
