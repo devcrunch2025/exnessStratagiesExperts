@@ -294,7 +294,7 @@ double dxb_Daily_Loss_Limit        = 100.0;
 //+------------------------------------------------------------------+
 string dxb____FLOATING_LOSS____           = "======== FLOATING LOSS LIMIT ========";
 bool   dxb_Use_Floating_Loss_Limit        = true;
-double dxb_Floating_Loss_Limit_Per_Symbol = 10.0;//stoploss open trade  stop loss
+double dxb_Floating_Loss_Limit_Per_Symbol = 30.0;//stoploss open trade  stop loss
 double dxb_Take_Profit_Amount      = 1;//3.0;
 
 
@@ -849,20 +849,26 @@ int CountOrders(int orderType)
 void OnTick()
   {
 
-   if(AccountNumber() == 289052334)// || AccountNumber() == 291058458)// Replace with your actual account number
+
+// if(AccountNumber() != 289058672)//single account
+// {
+//    return false;
+// }
+
+   // if(AccountNumber() == 289052334)// || AccountNumber() == 291058458)// Replace with your actual account number
+   //   {
+   //    sessionNY=false;
+   //    sessionUS=false;
+   //    sessionEU=false;
+   //    sessionASIA=false;
+   //    sessionDEAD=false;
+      
+   //   }
+   // else
      {
       sessionNY=false;
       sessionUS=false;
       sessionEU=false;
-      sessionASIA=false;
-      sessionDEAD=false;
-      
-     }
-   else
-     {
-      sessionNY=false;
-      sessionUS=false;
-      sessionEU=true;
       sessionASIA=true;
       sessionDEAD=false;
      }
@@ -1588,7 +1594,7 @@ void dxb_ApplySessionSettings()
               {
                // ── ASIA SESSION 00:00–07:00 GMT ──────────────────────────
                dxb_NEWS_FILTER                      = false;
-               dxb_Floating_Loss_Limit_Per_Symbol   = 25.0;
+               dxb_Floating_Loss_Limit_Per_Symbol   = 30.0;
                dxb_Min_Distance_Between_Trades      = 150;
                dxb_MaximumSpread                    = 2000;
                dxb_AI_SAR_Period                    = 0.56;
@@ -1604,7 +1610,7 @@ void dxb_ApplySessionSettings()
               {
                // ── FALLBACK (20:00–00:00 GMT dead zone) ──────────────────
                dxb_NEWS_FILTER                      = false;
-               dxb_Floating_Loss_Limit_Per_Symbol   = 25.0;
+               dxb_Floating_Loss_Limit_Per_Symbol   = 30.0;
                dxb_Min_Distance_Between_Trades      = 150;
                dxb_MaximumSpread                    = 2000;
                dxb_AI_SAR_Period                    = 0.56;
@@ -1740,7 +1746,7 @@ double dxb_NormalizeLot(double dxb_lot)
 //+------------------------------------------------------------------+
 void dxb_OpenTrade(int dxb_direction, double dxb_lot, string dxb_reason="Unknown")
   {
- if(AccountNumber() == 289052334 ) return;
+//  if(AccountNumber() == 289052334 ) return;
 
    dxb_lot=dxb_lot*lot_multiplier;
 
@@ -1829,7 +1835,7 @@ void dxb_CheckAdditionalEntry()
       return; // No open trades
 
 
-   if(!dxb_IsDistanceValid(dxb_lastType, 150*dxb_g_tradeCount))
+   if(!dxb_IsDistanceValid(dxb_lastType, 30*dxb_g_tradeCount))
       return;
 
    double dxb_distPoints = 0;
