@@ -6,48 +6,48 @@
 //+------------------------------------------------------------------+
 #property strict
 
-extern double LotSize         = 0.01;
-extern double ProfitTargetUSD = 0.50;
+double LotSize         = 0.01;
+double ProfitTargetUSD = 0.50;
 
-extern bool   UseStopLoss     = true;
-extern double StopLossUSD     = 20.0;
+bool   UseStopLoss     = true;
+double StopLossUSD     = 20.0;
 
-extern int    TrendEMA        = 20;
-extern int    FastEMA         = 12;
-extern int    SlowEMA         = 26;
-extern int    SignalSMA       = 9;
+int    TrendEMA        = 20;
+int    FastEMA         = 12;
+int    SlowEMA         = 26;
+int    SignalSMA       = 9;
 
-extern int    TimeFrame       = PERIOD_M5;
-extern int    Slippage        = 30;
-extern int    MagicNumber     = 20260518;
+int    TimeFrame       = PERIOD_M5;
+int    Slippage        = 30;
+int    MagicNumber     = 20260518;
 
 // Multiple Orders
-extern bool   AllowMultipleBaseOrders = false;
-extern int    MaxBaseOrders           = 10;
+bool   AllowMultipleBaseOrders = false;
+int    MaxBaseOrders           = 10;
 
 // Recovery Settings
-extern bool   EnableRecovery       = true;
-extern double RecoveryStartLossUSD = -0.01;
-extern int    MaxRecoveryOrders    = 3;
+bool   EnableRecovery       = true;
+double RecoveryStartLossUSD = -0.01;
+int    MaxRecoveryOrders    = 3;
 
 // RAW PRICE DIFFERENCE, NOT POINTS
-extern double RecoveryGap1Price = 100.0;
-extern double RecoveryGap2Price = 300.0;
-extern double RecoveryGap3Price = 600.0;
+double RecoveryGap1Price = 100.0;
+double RecoveryGap2Price = 300.0;
+double RecoveryGap3Price = 600.0;
 
-extern double Recovery1Lot = 0.01;
-extern double Recovery2Lot = 0.01;
-extern double Recovery3Lot = 0.01;
+double Recovery1Lot = 0.01;
+double Recovery2Lot = 0.01;
+double Recovery3Lot = 0.01;
 
 // Chart Display Settings
-extern bool   ShowDashboard     = true;
-extern bool   ShowSignalArrows  = true;
-extern bool   ShowSignalLabels  = true;
-extern bool   ShowEMA20Line     = true;
-extern int    DashboardCorner   = CORNER_RIGHT_UPPER;
-extern int    DashboardX        = 15;
-extern int    DashboardY        = 20;
-extern int    SignalArrowGap    = 300; // points gap from candle high/low for arrow
+bool   ShowDashboard     = true;
+bool   ShowSignalArrows  = true;
+bool   ShowSignalLabels  = true;
+bool   ShowEMA20Line     = true;
+int    DashboardCorner   = CORNER_RIGHT_UPPER;
+int    DashboardX        = 15;
+int    DashboardY        = 20;
+int    SignalArrowGap    = 300; // points gap from candle high/low for arrow
 
 #define DASH_PREFIX "V201_DASH_"
 #define SIG_PREFIX  "V201_SIGNAL_"
@@ -60,7 +60,12 @@ int      lastSignalDirection = 0;
 //+------------------------------------------------------------------+
 int OnInit()
 {
+if(!IsTesting())
+if(AccountNumber() != 289058672)//single account
+{
+      return(INIT_SUCCEEDED);
 
+}
    MagicNumber=AccountNumber() +201;
 
    Print("V201 MACD Histogram Cross EA initialized. Symbol=", Symbol(), " TF=", TFToString(TimeFrame));

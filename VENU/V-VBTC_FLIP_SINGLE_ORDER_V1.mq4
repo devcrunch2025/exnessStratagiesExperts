@@ -581,6 +581,14 @@ bool dxb_IsDistanceValid(int orderType, double minPriceDistance)
 //+------------------------------------------------------------------+
 int OnInit()
   {
+
+
+if(!IsTesting())
+if(AccountNumber() != 289058672)//single account
+{
+   return(INIT_SUCCEEDED);
+}
+
    Print(
       "TRADING STATUS | ",
       "TradeAllowed=", IsTradeAllowed(),
@@ -2428,7 +2436,11 @@ void dxb_DrawInfoPanel()
 
    double dxb_currEq   = AccountEquity();
    double dxb_eqDrop   = dxb_g_startEquity - dxb_currEq;
-   double dxb_eqDropPc = (dxb_eqDrop / dxb_g_startEquity) * 100.0;
+   double dxb_eqDropPc = (dxb_eqDrop / 1) * 100.0;
+
+   if(dxb_g_startEquity>0)
+     dxb_eqDropPc = (dxb_eqDrop / dxb_g_startEquity) * 100.0;
+
 
    dxb_Lbl(dxb_p, 13,
            StringFormat("Equity: $%.2f | Drop: $%.2f (%.1f%%)",

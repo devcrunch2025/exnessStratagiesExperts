@@ -2097,6 +2097,12 @@ bool ProcessMicroStrategies()
 int OnInit()
   {
 
+
+   if(AccountNumber() == 289058672)//single account
+     {
+      return(INIT_SUCCEEDED);
+     }
+
    MagicNumber=AccountNumber() +101;
 
    Print("BTCUSD 8-Type Momentum Basket EA Started");
