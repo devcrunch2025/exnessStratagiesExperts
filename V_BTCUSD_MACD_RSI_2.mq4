@@ -1,130 +1,117 @@
 //+------------------------------------------------------------------+
-//| MACD_RSI_ADX_Recovery_EA.mq4                                     |
-//| MACD + RSI + ADX + SMA Trend Filter EA                           |
-//| TP $1 / SL $20 per BUY basket and SELL basket separately          |
-//| Recovery orders up to 4 orders per side, fixed 0.01 lot           |
+//| TradeSmart_MACD_RSI_ADX_Defaults_EA.mq4                          |
+//| MT4 EA using visible TradingView defaults                         |
+//| MACD 12/26/9 on HLCC4, RSI 14 on HL2 Reverse, ADX 5 limiter       |
+//| SMA100 trend filter, Volume > EMA10, separate BUY/SELL basket     |
 //+------------------------------------------------------------------+
 #property strict
 
-//==================== INPUTS ====================
-input int      MagicNumber              = 260531;
+input int      MagicNumber              = 260601;
 input double   Lots                     = 0.01;
+input int      Slippage                 = 30;
+input int      MaxSpreadPoints          = 3000;
+input ENUM_TIMEFRAMES SignalTF          = PERIOD_CURRENT;
 
 input double   BuyBasketTakeProfitUSD   = 1.00;
 input double   SellBasketTakeProfitUSD  = 1.00;
 input double   BuyBasketStopLossUSD     = -20.00;
 input double   SellBasketStopLossUSD    = -20.00;
 
+input bool     EnableRecovery           = true;
 input int      MaxBuyOrders             = 4;
 input int      MaxSellOrders            = 4;
-
-// Recovery distance is raw price difference, not points.
-// For BTCUSD example: 100 means $100 price distance.
-input double   RecoveryGapPrice         = 100.0;
-
-input int      Slippage                 = 30;
-input int      MaxSpreadPoints          = 3000;
+input double   RecoveryGapPrice         = 0.05; // raw price distance. XAGUSD example 0.05, BTCUSD example 100
 
 input bool     TradeOnNewBarOnly        = true;
 input bool     EnableBuy                = true;
 input bool     EnableSell               = true;
-input bool     EnableRecovery           = true;
+input bool     DebugPrint               = true;
+input bool     ShowDashboard            = true;
 
-input ENUM_TIMEFRAMES SignalTF          = PERIOD_CURRENT;
-
-// MACD
+// TradingView visible defaults
 input int      MACDFastEMA              = 12;
 input int      MACDSlowEMA              = 26;
 input int      MACDSignalEMA            = 9;
-input int      MACDPrice                = PRICE_CLOSE;
 
-// RSI
-input int      RSIPeriod                = 14;
-input double   RSIBuyLevel              = 50.0;
-input double   RSISellLevel             = 50.0;
-
-// ADX
-input int      ADXPeriod                = 14;
-input double   ADXMinLevel              = 20.0;
-input bool     UseADXFilter             = true;
-
-// Trend MA
+input bool     UseLongTrendFilter       = true;
+input bool     UseShortTrendFilter      = true;
 input int      TrendMAPeriod            = 100;
-input int      TrendMAMethod            = MODE_SMA;
-input int      TrendMAPrice             = PRICE_CLOSE;
-input bool     UseTrendFilter           = true;
 
-// Testing helper
-input bool     DebugPrint               = true;
-input bool     RelaxFiltersForTesting   = false; // true = MACD cross only, useful when 0 orders
+input bool     UseSimpleRSILimiter      = true;
+input bool     RSILimiterReverse        = true;
+input int      RSIPeriod                = 14;
+input double   RSILongBoundary          = 50.0;
+input double   RSIShortBoundary         = 50.0;
 
-// Dashboard
-input bool     ShowDashboard            = true;
+input bool     UseADXLimiter            = true;
+input int      ADXLength                = 5;
+input double   ADXHighBoundary          = 50.0;
+input double   ADXLowBoundary           = 20.0;
 
-//==================== GLOBALS ====================
+input bool     UseVolumeFilter          = true;
+input int      VolumeMAPeriod           = 10;
+
+input int      ATRLength                = 14;
+input double   BaseRiskMultiplier       = 1.5;
+input double   RiskRewardRatio          = 2.5;
+
+input bool     UseSessionFilter         = false;
+input int      SessionStartHour         = 9;
+input int      SessionStartMinute       = 30;
+input int      SessionEndHour           = 16;
+input int      SessionEndMinute         = 0;
+
+// true = MACD cross only for debugging 0-order problem
+input bool     RelaxFiltersForTesting   = false;
+
 datetime g_lastBarTime = 0;
 
-//+------------------------------------------------------------------+
-//| Expert initialization                                             |
-//+------------------------------------------------------------------+
+int TF()
+{
+   if(SignalTF == PERIOD_CURRENT) return(Period());
+   return((int)SignalTF);
+}
+
 int OnInit()
 {
-   Print("MACD_RSI_ADX_Recovery_EA initialized. Symbol=", Symbol(), " TF=", Period());
+   Print("TradeSmart MACD RSI ADX Defaults EA initialized. Symbol=", Symbol(), " Period=", Period());
    return(INIT_SUCCEEDED);
 }
 
-//+------------------------------------------------------------------+
 void OnDeinit(const int reason)
 {
-   ObjectsDeleteAll(0, "DXB_MACD_EA_");
+   ObjectsDeleteAll(0, "DXB_TS_");
 }
 
-//+------------------------------------------------------------------+
 void OnTick()
 {
    RefreshRates();
 
-   if(ShowDashboard)
-      DrawDashboard();
+   if(ShowDashboard) DrawDashboard();
 
-   if(!IsTradingAllowedNow())
-      return;
+   if(!IsTradingAllowedNow()) return;
 
-   // Manage baskets every tick
    ManageBasket(OP_BUY);
    ManageBasket(OP_SELL);
 
-   // Recovery every tick or new bar
    if(EnableRecovery)
    {
       ProcessRecovery(OP_BUY);
       ProcessRecovery(OP_SELL);
    }
 
-   if(TradeOnNewBarOnly && !IsNewBar())
-      return;
+   if(TradeOnNewBarOnly && !IsNewBar()) return;
 
    int signal = GetEntrySignal();
+   if(DebugPrint) PrintSignalDebug(signal);
 
-   if(DebugPrint)
-      PrintSignalDebug(signal);
+   if(signal == 1 && EnableBuy && CountOrders(OP_BUY) == 0)
+      OpenOrder(OP_BUY, "TS_MACD_BUY");
 
-   if(signal == 1 && EnableBuy)
-   {
-      if(CountOrders(OP_BUY) == 0)
-         OpenOrder(OP_BUY, "MACD_BUY");
-   }
-
-   if(signal == -1 && EnableSell)
-   {
-      if(CountOrders(OP_SELL) == 0)
-         OpenOrder(OP_SELL, "MACD_SELL");
-   }
+   if(signal == -1 && EnableSell && CountOrders(OP_SELL) == 0)
+      OpenOrder(OP_SELL, "TS_MACD_SELL");
 }
 
-//+------------------------------------------------------------------+
-//| Trading permission checks                                         |
-//+------------------------------------------------------------------+
 bool IsTradingAllowedNow()
 {
    if(!IsTradeAllowed())
@@ -146,13 +133,31 @@ bool IsTradingAllowedNow()
       return(false);
    }
 
+   if(UseSessionFilter && !IsInsideSession())
+   {
+      if(DebugPrint) Print("Blocked: outside session");
+      return(false);
+   }
+
    return(true);
 }
 
-//+------------------------------------------------------------------+
+bool IsInsideSession()
+{
+   datetime now = TimeCurrent();
+   int mins = TimeHour(now) * 60 + TimeMinute(now);
+   int startMins = SessionStartHour * 60 + SessionStartMinute;
+   int endMins = SessionEndHour * 60 + SessionEndMinute;
+
+   if(startMins <= endMins)
+      return(mins >= startMins && mins <= endMins);
+
+   return(mins >= startMins || mins <= endMins);
+}
+
 bool IsNewBar()
 {
-   datetime t = iTime(Symbol(), SignalTF, 0);
+   datetime t = iTime(Symbol(), TF(), 0);
    if(t != g_lastBarTime)
    {
       g_lastBarTime = t;
@@ -161,101 +166,197 @@ bool IsNewBar()
    return(false);
 }
 
-//+------------------------------------------------------------------+
-//| Entry signal                                                      |
-//+------------------------------------------------------------------+
+double HLCC4(int shift)
+{
+   int tf = TF();
+   return((iHigh(Symbol(), tf, shift) + iLow(Symbol(), tf, shift) + iClose(Symbol(), tf, shift) + iClose(Symbol(), tf, shift)) / 4.0);
+}
+
+double HL2(int shift)
+{
+   int tf = TF();
+   return((iHigh(Symbol(), tf, shift) + iLow(Symbol(), tf, shift)) / 2.0);
+}
+
+int SafeBars(int need)
+{
+   int bars = iBars(Symbol(), TF());
+   if(bars < need) return(bars - 1);
+   return(need);
+}
+
+void BuildHLCC4Array(double &arr[], int bars)
+{
+   ArrayResize(arr, bars);
+   ArraySetAsSeries(arr, true);
+   for(int i=0; i<bars; i++)
+      arr[i] = HLCC4(i);
+}
+
+void BuildHL2Array(double &arr[], int bars)
+{
+   ArrayResize(arr, bars);
+   ArraySetAsSeries(arr, true);
+   for(int i=0; i<bars; i++)
+      arr[i] = HL2(i);
+}
+
+double EMAOnHLCC4(int period, int shift)
+{
+   int bars = SafeBars(MathMax(300, period + shift + 80));
+   if(bars <= period + shift + 10) return(0);
+
+   double src[];
+   BuildHLCC4Array(src, bars);
+   return(iMAOnArray(src, bars, period, 0, MODE_EMA, shift));
+}
+
+double MACDMainHLCC4(int shift)
+{
+   return(EMAOnHLCC4(MACDFastEMA, shift) - EMAOnHLCC4(MACDSlowEMA, shift));
+}
+
+double MACDSignalHLCC4(int shift)
+{
+   int bars = SafeBars(MathMax(400, MACDSlowEMA + MACDSignalEMA + shift + 120));
+   if(bars <= MACDSlowEMA + MACDSignalEMA + shift + 10) return(0);
+
+   double macdArr[];
+   ArrayResize(macdArr, bars);
+   ArraySetAsSeries(macdArr, true);
+
+   for(int i=0; i<bars; i++)
+      macdArr[i] = MACDMainHLCC4(i);
+
+   return(iMAOnArray(macdArr, bars, MACDSignalEMA, 0, MODE_EMA, shift));
+}
+
+double RSIOnHL2(int shift)
+{
+   int bars = SafeBars(MathMax(300, RSIPeriod + shift + 80));
+   if(bars <= RSIPeriod + shift + 10) return(50);
+
+   double src[];
+   BuildHL2Array(src, bars);
+   return(iRSIOnArray(src, bars, RSIPeriod, shift));
+}
+
+double VolumeEMA(int shift)
+{
+   int bars = SafeBars(MathMax(300, VolumeMAPeriod + shift + 80));
+   if(bars <= VolumeMAPeriod + shift + 10) return(0);
+
+   double vol[];
+   ArrayResize(vol, bars);
+   ArraySetAsSeries(vol, true);
+
+   for(int i=0; i<bars; i++)
+      vol[i] = (double)iVolume(Symbol(), TF(), i);
+
+   return(iMAOnArray(vol, bars, VolumeMAPeriod, 0, MODE_EMA, shift));
+}
+
 int GetEntrySignal()
 {
-   int tf = SignalTF;
-   if(tf == PERIOD_CURRENT) tf = Period();
+   int tf = TF();
 
-   // Use closed candles: bar 1 and bar 2
-   double macd1   = iMACD(Symbol(), tf, MACDFastEMA, MACDSlowEMA, MACDSignalEMA, MACDPrice, MODE_MAIN, 1);
-   double sig1    = iMACD(Symbol(), tf, MACDFastEMA, MACDSlowEMA, MACDSignalEMA, MACDPrice, MODE_SIGNAL, 1);
-   double macd2   = iMACD(Symbol(), tf, MACDFastEMA, MACDSlowEMA, MACDSignalEMA, MACDPrice, MODE_MAIN, 2);
-   double sig2    = iMACD(Symbol(), tf, MACDFastEMA, MACDSlowEMA, MACDSignalEMA, MACDPrice, MODE_SIGNAL, 2);
+   double macd1 = MACDMainHLCC4(1);
+   double sig1  = MACDSignalHLCC4(1);
+   double macd2 = MACDMainHLCC4(2);
+   double sig2  = MACDSignalHLCC4(2);
 
    bool macdCrossUp   = (macd2 <= sig2 && macd1 > sig1);
    bool macdCrossDown = (macd2 >= sig2 && macd1 < sig1);
 
    if(RelaxFiltersForTesting)
    {
-      if(macdCrossUp)   return(1);
+      if(macdCrossUp) return(1);
       if(macdCrossDown) return(-1);
       return(0);
    }
 
-   double rsi1   = iRSI(Symbol(), tf, RSIPeriod, PRICE_CLOSE, 1);
-   double adx1   = iADX(Symbol(), tf, ADXPeriod, PRICE_CLOSE, MODE_MAIN, 1);
-   double ma1    = iMA(Symbol(), tf, TrendMAPeriod, 0, TrendMAMethod, TrendMAPrice, 1);
    double close1 = iClose(Symbol(), tf, 1);
+   double ma100  = iMA(Symbol(), tf, TrendMAPeriod, 0, MODE_SMA, PRICE_CLOSE, 1);
+   double rsi    = RSIOnHL2(1);
+   double adx    = iADX(Symbol(), tf, ADXLength, PRICE_CLOSE, MODE_MAIN, 1);
+   double vol1   = (double)iVolume(Symbol(), tf, 1);
+   double vema   = VolumeEMA(1);
 
    bool buyOk = true;
    bool sellOk = true;
 
-   // RSI filter
-   buyOk  = buyOk  && (rsi1 > RSIBuyLevel);
-   sellOk = sellOk && (rsi1 < RSISellLevel);
+   if(UseLongTrendFilter)
+      buyOk = buyOk && (close1 > ma100);
 
-   // ADX filter
-   if(UseADXFilter)
+   if(UseShortTrendFilter)
+      sellOk = sellOk && (close1 < ma100);
+
+   if(UseSimpleRSILimiter)
    {
-      buyOk  = buyOk  && (adx1 > ADXMinLevel);
-      sellOk = sellOk && (adx1 > ADXMinLevel);
+      if(RSILimiterReverse)
+      {
+         buyOk  = buyOk  && (rsi < RSILongBoundary);
+         sellOk = sellOk && (rsi > RSIShortBoundary);
+      }
+      else
+      {
+         buyOk  = buyOk  && (rsi > RSILongBoundary);
+         sellOk = sellOk && (rsi < RSIShortBoundary);
+      }
    }
 
-   // Trend filter
-   if(UseTrendFilter)
+   if(UseADXLimiter)
    {
-      buyOk  = buyOk  && (close1 > ma1);
-      sellOk = sellOk && (close1 < ma1);
+      buyOk  = buyOk  && (adx >= ADXLowBoundary && adx <= ADXHighBoundary);
+      sellOk = sellOk && (adx >= ADXLowBoundary && adx <= ADXHighBoundary);
    }
 
-   if(macdCrossUp && buyOk)
-      return(1);
+   if(UseVolumeFilter)
+   {
+      buyOk  = buyOk  && (vol1 > vema);
+      sellOk = sellOk && (vol1 > vema);
+   }
 
-   if(macdCrossDown && sellOk)
-      return(-1);
+   if(macdCrossUp && buyOk) return(1);
+   if(macdCrossDown && sellOk) return(-1);
 
    return(0);
 }
 
-//+------------------------------------------------------------------+
-//| Debug                                                            |
-//+------------------------------------------------------------------+
 void PrintSignalDebug(int signal)
 {
-   int tf = SignalTF;
-   if(tf == PERIOD_CURRENT) tf = Period();
+   int tf = TF();
 
-   double macd1   = iMACD(Symbol(), tf, MACDFastEMA, MACDSlowEMA, MACDSignalEMA, MACDPrice, MODE_MAIN, 1);
-   double sig1    = iMACD(Symbol(), tf, MACDFastEMA, MACDSlowEMA, MACDSignalEMA, MACDPrice, MODE_SIGNAL, 1);
-   double macd2   = iMACD(Symbol(), tf, MACDFastEMA, MACDSlowEMA, MACDSignalEMA, MACDPrice, MODE_MAIN, 2);
-   double sig2    = iMACD(Symbol(), tf, MACDFastEMA, MACDSlowEMA, MACDSignalEMA, MACDPrice, MODE_SIGNAL, 2);
-   double rsi1    = iRSI(Symbol(), tf, RSIPeriod, PRICE_CLOSE, 1);
-   double adx1    = iADX(Symbol(), tf, ADXPeriod, PRICE_CLOSE, MODE_MAIN, 1);
-   double ma1     = iMA(Symbol(), tf, TrendMAPeriod, 0, TrendMAMethod, TrendMAPrice, 1);
-   double close1  = iClose(Symbol(), tf, 1);
+   double macd1 = MACDMainHLCC4(1);
+   double sig1  = MACDSignalHLCC4(1);
+   double macd2 = MACDMainHLCC4(2);
+   double sig2  = MACDSignalHLCC4(2);
 
-   bool crossUp   = (macd2 <= sig2 && macd1 > sig1);
-   bool crossDown = (macd2 >= sig2 && macd1 < sig1);
+   bool up = (macd2 <= sig2 && macd1 > sig1);
+   bool dn = (macd2 >= sig2 && macd1 < sig1);
 
-   Print("SignalDebug: signal=", signal,
-         " crossUp=", crossUp,
-         " crossDown=", crossDown,
-         " MACD1=", DoubleToString(macd1, 6),
-         " SIG1=", DoubleToString(sig1, 6),
-         " RSI=", DoubleToString(rsi1, 2),
-         " ADX=", DoubleToString(adx1, 2),
+   double close1 = iClose(Symbol(), tf, 1);
+   double ma100 = iMA(Symbol(), tf, TrendMAPeriod, 0, MODE_SMA, PRICE_CLOSE, 1);
+   double rsi = RSIOnHL2(1);
+   double adx = iADX(Symbol(), tf, ADXLength, PRICE_CLOSE, MODE_MAIN, 1);
+   double vol1 = (double)iVolume(Symbol(), tf, 1);
+   double vema = VolumeEMA(1);
+
+   Print("TS Debug | signal=", signal,
+         " crossUp=", up,
+         " crossDown=", dn,
+         " MACD=", DoubleToString(macd1, 6),
+         " SIG=", DoubleToString(sig1, 6),
+         " RSI_HL2=", DoubleToString(rsi, 2),
+         " ADX5=", DoubleToString(adx, 2),
          " Close=", DoubleToString(close1, Digits),
-         " MA100=", DoubleToString(ma1, Digits),
+         " SMA100=", DoubleToString(ma100, Digits),
+         " Vol=", DoubleToString(vol1, 0),
+         " VolEMA10=", DoubleToString(vema, 2),
          " BuyOrders=", CountOrders(OP_BUY),
          " SellOrders=", CountOrders(OP_SELL));
 }
 
-//+------------------------------------------------------------------+
-//| Open order                                                        |
-//+------------------------------------------------------------------+
 bool OpenOrder(int type, string comment)
 {
    RefreshRates();
@@ -272,51 +373,34 @@ bool OpenOrder(int type, string comment)
       return(false);
    }
 
-   Print("Order opened. Ticket=", ticket, " Type=", (type == OP_BUY ? "BUY" : "SELL"), " Price=", price);
+   Print("Order opened. Ticket=", ticket, " Type=", (type == OP_BUY ? "BUY" : "SELL"), " Price=", DoubleToString(price, Digits));
    return(true);
 }
 
-//+------------------------------------------------------------------+
-//| Count orders                                                      |
-//+------------------------------------------------------------------+
 int CountOrders(int type)
 {
    int count = 0;
-
-   for(int i = OrdersTotal() - 1; i >= 0; i--)
+   for(int i=OrdersTotal()-1; i>=0; i--)
    {
-      if(!OrderSelect(i, SELECT_BY_POS, MODE_TRADES))
-         continue;
-
+      if(!OrderSelect(i, SELECT_BY_POS, MODE_TRADES)) continue;
       if(OrderSymbol() == Symbol() && OrderMagicNumber() == MagicNumber && OrderType() == type)
          count++;
    }
-
    return(count);
 }
 
-//+------------------------------------------------------------------+
-//| Basket profit                                                     |
-//+------------------------------------------------------------------+
 double GetBasketProfit(int type)
 {
    double profit = 0.0;
-
-   for(int i = OrdersTotal() - 1; i >= 0; i--)
+   for(int i=OrdersTotal()-1; i>=0; i--)
    {
-      if(!OrderSelect(i, SELECT_BY_POS, MODE_TRADES))
-         continue;
-
+      if(!OrderSelect(i, SELECT_BY_POS, MODE_TRADES)) continue;
       if(OrderSymbol() == Symbol() && OrderMagicNumber() == MagicNumber && OrderType() == type)
          profit += OrderProfit() + OrderSwap() + OrderCommission();
    }
-
    return(profit);
 }
 
-//+------------------------------------------------------------------+
-//| Manage basket close separately                                    |
-//+------------------------------------------------------------------+
 void ManageBasket(int type)
 {
    double profit = GetBasketProfit(type);
@@ -328,8 +412,7 @@ void ManageBasket(int type)
          Print("BUY basket TP hit: $", DoubleToString(profit, 2));
          CloseOrdersByType(OP_BUY);
       }
-
-      if(profit <= BuyBasketStopLossUSD)
+      else if(profit <= BuyBasketStopLossUSD)
       {
          Print("BUY basket SL hit: $", DoubleToString(profit, 2));
          CloseOrdersByType(OP_BUY);
@@ -343,8 +426,7 @@ void ManageBasket(int type)
          Print("SELL basket TP hit: $", DoubleToString(profit, 2));
          CloseOrdersByType(OP_SELL);
       }
-
-      if(profit <= SellBasketStopLossUSD)
+      else if(profit <= SellBasketStopLossUSD)
       {
          Print("SELL basket SL hit: $", DoubleToString(profit, 2));
          CloseOrdersByType(OP_SELL);
@@ -352,20 +434,14 @@ void ManageBasket(int type)
    }
 }
 
-//+------------------------------------------------------------------+
-//| Close orders by type                                              |
-//+------------------------------------------------------------------+
 void CloseOrdersByType(int type)
 {
    RefreshRates();
 
-   for(int i = OrdersTotal() - 1; i >= 0; i--)
+   for(int i=OrdersTotal()-1; i>=0; i--)
    {
-      if(!OrderSelect(i, SELECT_BY_POS, MODE_TRADES))
-         continue;
-
-      if(OrderSymbol() != Symbol() || OrderMagicNumber() != MagicNumber || OrderType() != type)
-         continue;
+      if(!OrderSelect(i, SELECT_BY_POS, MODE_TRADES)) continue;
+      if(OrderSymbol() != Symbol() || OrderMagicNumber() != MagicNumber || OrderType() != type) continue;
 
       double closePrice = (type == OP_BUY) ? Bid : Ask;
       bool closed = OrderClose(OrderTicket(), OrderLots(), closePrice, Slippage, clrWhite);
@@ -376,66 +452,46 @@ void CloseOrdersByType(int type)
          Print("OrderClose failed. Ticket=", OrderTicket(), " Error=", err);
          ResetLastError();
       }
-      else
-      {
-         Print("Order closed. Ticket=", OrderTicket(), " Type=", (type == OP_BUY ? "BUY" : "SELL"));
-      }
    }
 }
 
-//+------------------------------------------------------------------+
-//| Recovery logic                                                    |
-//+------------------------------------------------------------------+
 void ProcessRecovery(int type)
 {
    int count = CountOrders(type);
 
-   if(type == OP_BUY && count <= 0) return;
-   if(type == OP_SELL && count <= 0) return;
-
-   if(type == OP_BUY && count >= MaxBuyOrders) return;
-   if(type == OP_SELL && count >= MaxSellOrders) return;
+   if(type == OP_BUY  && (count <= 0 || count >= MaxBuyOrders)) return;
+   if(type == OP_SELL && (count <= 0 || count >= MaxSellOrders)) return;
 
    double basketProfit = GetBasketProfit(type);
-
-   // Recovery only when that side basket is in loss
-   if(basketProfit >= 0.0)
-      return;
+   if(basketProfit >= 0.0) return;
 
    double lastPrice = GetLastOrderOpenPrice(type);
-   if(lastPrice <= 0.0)
-      return;
+   if(lastPrice <= 0.0) return;
 
    RefreshRates();
 
    if(type == OP_BUY)
    {
-      // BUY recovery when price moved down from last BUY
       if((lastPrice - Bid) >= RecoveryGapPrice)
-         OpenOrder(OP_BUY, "RECOVERY_BUY");
+         OpenOrder(OP_BUY, "TS_RECOVERY_BUY");
    }
 
    if(type == OP_SELL)
    {
-      // SELL recovery when price moved up from last SELL
       if((Ask - lastPrice) >= RecoveryGapPrice)
-         OpenOrder(OP_SELL, "RECOVERY_SELL");
+         OpenOrder(OP_SELL, "TS_RECOVERY_SELL");
    }
 }
 
-//+------------------------------------------------------------------+
 double GetLastOrderOpenPrice(int type)
 {
    datetime latestTime = 0;
    double latestPrice = 0.0;
 
-   for(int i = OrdersTotal() - 1; i >= 0; i--)
+   for(int i=OrdersTotal()-1; i>=0; i--)
    {
-      if(!OrderSelect(i, SELECT_BY_POS, MODE_TRADES))
-         continue;
-
-      if(OrderSymbol() != Symbol() || OrderMagicNumber() != MagicNumber || OrderType() != type)
-         continue;
+      if(!OrderSelect(i, SELECT_BY_POS, MODE_TRADES)) continue;
+      if(OrderSymbol() != Symbol() || OrderMagicNumber() != MagicNumber || OrderType() != type) continue;
 
       if(OrderOpenTime() > latestTime)
       {
@@ -447,40 +503,31 @@ double GetLastOrderOpenPrice(int type)
    return(latestPrice);
 }
 
-//+------------------------------------------------------------------+
-//| Dashboard                                                         |
-//+------------------------------------------------------------------+
 void DrawDashboard()
 {
-   string prefix = "DXB_MACD_EA_";
+   string p = "DXB_TS_";
+   int x = 15, y = 20, line = 18;
 
-   int x = 15;
-   int y = 20;
-   int line = 18;
-
-   int tf = SignalTF;
-   if(tf == PERIOD_CURRENT) tf = Period();
-
-   double buyProfit  = GetBasketProfit(OP_BUY);
-   double sellProfit = GetBasketProfit(OP_SELL);
-
-   double rsi1   = iRSI(Symbol(), tf, RSIPeriod, PRICE_CLOSE, 1);
-   double adx1   = iADX(Symbol(), tf, ADXPeriod, PRICE_CLOSE, MODE_MAIN, 1);
-   double ma1    = iMA(Symbol(), tf, TrendMAPeriod, 0, TrendMAMethod, TrendMAPrice, 1);
-   double close1 = iClose(Symbol(), tf, 1);
    int sig = GetEntrySignal();
+   double buyProfit = GetBasketProfit(OP_BUY);
+   double sellProfit = GetBasketProfit(OP_SELL);
+   double rsi = RSIOnHL2(1);
+   double adx = iADX(Symbol(), TF(), ADXLength, PRICE_CLOSE, MODE_MAIN, 1);
+   double vol1 = (double)iVolume(Symbol(), TF(), 1);
+   double vema = VolumeEMA(1);
+   double ma100 = iMA(Symbol(), TF(), TrendMAPeriod, 0, MODE_SMA, PRICE_CLOSE, 1);
+   double atr = iATR(Symbol(), TF(), ATRLength, 1);
 
-   DrawLabel(prefix+"TITLE", "MACD + RSI + ADX EA", x, y, clrYellow, 10); y += line;
-   DrawLabel(prefix+"SYM", "Symbol: " + Symbol() + "  TF: " + IntegerToString(tf), x, y, clrWhite, 9); y += line;
-   DrawLabel(prefix+"SIG", "Signal: " + SignalText(sig), x, y, SignalColor(sig), 9); y += line;
-   DrawLabel(prefix+"BUY", "BUY Orders: " + IntegerToString(CountOrders(OP_BUY)) + "  P/L: $" + DoubleToString(buyProfit, 2), x, y, clrLime, 9); y += line;
-   DrawLabel(prefix+"SELL", "SELL Orders: " + IntegerToString(CountOrders(OP_SELL)) + "  P/L: $" + DoubleToString(sellProfit, 2), x, y, clrTomato, 9); y += line;
-   DrawLabel(prefix+"RSI", "RSI: " + DoubleToString(rsi1, 2) + "  ADX: " + DoubleToString(adx1, 2), x, y, clrAqua, 9); y += line;
-   DrawLabel(prefix+"MA", "Close: " + DoubleToString(close1, Digits) + "  SMA100: " + DoubleToString(ma1, Digits), x, y, clrSilver, 9); y += line;
-   DrawLabel(prefix+"MODE", "Relax Test Mode: " + (RelaxFiltersForTesting ? "YES" : "NO"), x, y, RelaxFiltersForTesting ? clrOrange : clrSilver, 9);
+   DrawLabel(p+"TITLE", "TradeSmart MACD+RSI+ADX EA", x, y, clrYellow, 10); y += line;
+   DrawLabel(p+"SIG", "Signal: " + SignalText(sig), x, y, SignalColor(sig), 9); y += line;
+   DrawLabel(p+"BUY", "BUY: " + IntegerToString(CountOrders(OP_BUY)) + " P/L $" + DoubleToString(buyProfit, 2), x, y, clrLime, 9); y += line;
+   DrawLabel(p+"SELL", "SELL: " + IntegerToString(CountOrders(OP_SELL)) + " P/L $" + DoubleToString(sellProfit, 2), x, y, clrTomato, 9); y += line;
+   DrawLabel(p+"RSIADX", "RSI HL2: " + DoubleToString(rsi, 2) + " ADX5: " + DoubleToString(adx, 2), x, y, clrAqua, 9); y += line;
+   DrawLabel(p+"VOL", "Vol: " + DoubleToString(vol1, 0) + " EMA10: " + DoubleToString(vema, 2), x, y, clrSilver, 9); y += line;
+   DrawLabel(p+"MA", "SMA100: " + DoubleToString(ma100, Digits) + " ATR14: " + DoubleToString(atr, Digits), x, y, clrSilver, 9); y += line;
+   DrawLabel(p+"MODE", "Relax Test: " + (RelaxFiltersForTesting ? "YES" : "NO"), x, y, RelaxFiltersForTesting ? clrOrange : clrSilver, 9);
 }
 
-//+------------------------------------------------------------------+
 string SignalText(int sig)
 {
    if(sig == 1) return("BUY");
@@ -488,7 +535,6 @@ string SignalText(int sig)
    return("NONE");
 }
 
-//+------------------------------------------------------------------+
 color SignalColor(int sig)
 {
    if(sig == 1) return(clrLime);
@@ -496,7 +542,6 @@ color SignalColor(int sig)
    return(clrSilver);
 }
 
-//+------------------------------------------------------------------+
 void DrawLabel(string name, string text, int x, int y, color clr, int fontSize)
 {
    if(ObjectFind(0, name) < 0)
