@@ -20,7 +20,7 @@ input double   SellBasketStopLossUSD    = -20.00;
 input bool     EnableRecovery           = true;
 input int      MaxBuyOrders             = 4;
 input int      MaxSellOrders            = 4;
-input double   RecoveryGapPrice         = 0.05; // raw price distance. XAGUSD example 0.05, BTCUSD example 100
+input double   RecoveryGapPrice         = 100;//0.05; // raw price distance. XAGUSD example 0.05, BTCUSD example 100
 
 input bool     TradeOnNewBarOnly        = true;
 input bool     EnableBuy                = true;
@@ -472,13 +472,13 @@ void ProcessRecovery(int type)
 
    if(type == OP_BUY)
    {
-      if((lastPrice - Bid) >= RecoveryGapPrice)
+      if((lastPrice - Bid) >= RecoveryGapPrice*count)
          OpenOrder(OP_BUY, "TS_RECOVERY_BUY");
    }
 
    if(type == OP_SELL)
    {
-      if((Ask - lastPrice) >= RecoveryGapPrice)
+      if((Ask - lastPrice) >= RecoveryGapPrice*count)
          OpenOrder(OP_SELL, "TS_RECOVERY_SELL");
    }
 }
