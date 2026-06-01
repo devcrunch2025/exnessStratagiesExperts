@@ -1771,9 +1771,47 @@ double dxb_NormalizeLot(double dxb_lot)
 //| MagicNumber stamps the order so EA can find its own trades later.  |
 //| On success: increments dxb_g_tradeCount, stores ticket number.    |
 //+------------------------------------------------------------------+
+
+
+bool dxb_IsMondayTradingBlocked()
+{
+   datetime gmtTime = TimeGMT();
+
+   // Monday = 1
+ if(TimeDayOfWeek(gmtTime) == 1 ||  // Monday
+   TimeDayOfWeek(gmtTime) == 6 ||  // Saturday
+   TimeDayOfWeek(gmtTime) == 0)    // Sunday  
+    {
+      if(TimeHour(gmtTime) < 10)
+      {
+         int minsLeft =
+            (13 * 60) -
+            (TimeHour(gmtTime) * 60 + TimeMinute(gmtTime));
+
+         dxb_UpdateDisplay(
+            "MONDAY BLOCK | " +
+            IntegerToString(minsLeft) +
+            " mins until 13:00 GMT"
+         );
+
+         return(true);
+      }
+   }
+
+   return(false);
+}
 void dxb_OpenTrade(int dxb_direction, double dxb_lot, string dxb_reason="Unknown")
   {
 //  if(AccountNumber() == 289052334 ) return;
+
+
+
+if(dxb_IsMondayTradingBlocked())
+{
+   Print("[dxb] New order blocked condition: MONDAY TRADING BLOCK");
+  return ;
+}
+
 
    dxb_lot=dxb_lot*lot_multiplier;
 

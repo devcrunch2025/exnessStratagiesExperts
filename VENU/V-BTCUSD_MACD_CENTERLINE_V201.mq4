@@ -115,8 +115,38 @@ if(!IsTesting())
 
    lastBarTime = currentBar;
 
-   CheckV201MACDSignal();
+   if(!dxb_IsMondayTradingBlocked())
+   {
+      CheckV201MACDSignal();
+   }
+   else
+   {
+      Print("Trading blocked due to Monday restriction. No new trades until 13:00 GMT.");
+   }
    DrawDashboard();
+}
+
+bool dxb_IsMondayTradingBlocked()
+{
+   datetime gmtTime = TimeGMT();
+
+   // Monday = 1
+if(TimeDayOfWeek(gmtTime) == 1 ||  // Monday
+   TimeDayOfWeek(gmtTime) == 6 ||  // Saturday
+   TimeDayOfWeek(gmtTime) == 0)    // Sunday  
+    {
+      if(TimeHour(gmtTime) < 10)
+      {
+         int minsLeft =
+            (13 * 60) -
+            (TimeHour(gmtTime) * 60 + TimeMinute(gmtTime));
+
+         
+         return(true);
+      }
+   }
+
+   return(false);
 }
 
 //+------------------------------------------------------------------+
