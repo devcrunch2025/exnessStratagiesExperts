@@ -841,22 +841,153 @@ string DirectionText(int direction)
    return "NONE";
 }
 //+------------------------------------------------------------------+
+void DrawPanel(string name,int x,int y,int w,int h,color bg)
+{
+   if(ObjectFind(0,name) < 0)
+   {
+      ObjectCreate(0,name,OBJ_RECTANGLE_LABEL,0,0,0);
+
+      ObjectSetInteger(0,name,OBJPROP_CORNER,CORNER_RIGHT_UPPER);
+      ObjectSetInteger(0,name,OBJPROP_XDISTANCE,x);
+      ObjectSetInteger(0,name,OBJPROP_YDISTANCE,y);
+
+      ObjectSetInteger(0,name,OBJPROP_XSIZE,w);
+      ObjectSetInteger(0,name,OBJPROP_YSIZE,h);
+
+      ObjectSetInteger(0,name,OBJPROP_BGCOLOR,bg);
+      ObjectSetInteger(0,name,OBJPROP_BORDER_COLOR,clrGray);
+      ObjectSetInteger(0,name,OBJPROP_BACK,false);
+      ObjectSetInteger(0,name,OBJPROP_HIDDEN,true);
+   }
+}
+
+void DrawLabel(string name,
+               string text,
+               int x,
+               int y,
+               color clr,
+               int size=9)
+{
+   if(ObjectFind(0,name) < 0)
+      ObjectCreate(0,name,OBJ_LABEL,0,0,0);
+
+   ObjectSetInteger(0,name,OBJPROP_CORNER,CORNER_RIGHT_UPPER);
+   ObjectSetInteger(0,name,OBJPROP_XDISTANCE,x);
+   ObjectSetInteger(0,name,OBJPROP_YDISTANCE,y);
+
+   ObjectSetString(0,name,OBJPROP_TEXT,text);
+
+   ObjectSetString(0,name,OBJPROP_FONT,"Consolas");
+
+   ObjectSetInteger(0,name,OBJPROP_FONTSIZE,size);
+   ObjectSetInteger(0,name,OBJPROP_COLOR,clr);
+}
+
+int g_dashRow=0;
+
+void DashRow(string title,string value,color clrText=clrWhite)
+{
+   DrawLabel(
+      "DXB_ROW_"+IntegerToString(g_dashRow),
+      title+" : "+value,
+      200,
+      30+(g_dashRow*18),
+      clrText,
+      9
+   );
+
+   g_dashRow++;
+}
+
 void DrawDashboard(string status)
 {
-   string msg = "";
-   msg += InpEAName + "\n";
-   msg += "Status: " + status + "\n";
-   msg += "SAR Direction: " + DirectionText(g_activeSARDirection) + "\n";
-   msg += "Early Direction: " + DirectionText(g_earlyDirection) + "\n";
-   msg += "Paused by Early: " + (g_sarPausedByEarly ? "YES" : "NO") + "\n";
-   msg += "Flat Mode: " + (g_flatMode ? "YES" : "NO") + "\n";
-   msg += "BUY Orders: " + IntegerToString(CountOrdersByDirection(1)) + " | Profit: $" + DoubleToString(GetBasketProfit(1), 2) + "\n";
-   msg += "SELL Orders: " + IntegerToString(CountOrdersByDirection(-1)) + " | Profit: $" + DoubleToString(GetBasketProfit(-1), 2) + "\n";
-   msg += "EA Orders: " + IntegerToString(CountAllOrders()) + " | Symbol Orders: " + IntegerToString(CountAllSymbolMarketOrders()) + " / " + IntegerToString(DXB_HARD_MAX_OPEN_ORDERS) + "\n";
-   msg += "Base Balance: $" + DoubleToString(g_baseBalance, 2) + " | Equity: $" + DoubleToString(AccountEquity(), 2) + "\n";
-   msg += "Loss Stop 50%: $" + DoubleToString(g_lossStopEquityLevel, 2) + " | Target Equity: $" + DoubleToString(g_profitTargetEquity, 2) + "\n";
-   msg += "Profit Target 50%: +$" + DoubleToString(g_dailyProfitTarget, 2) + " | Today: $" + DoubleToString(GetTodayProfitFromBase(), 2) + " | Lock: " + (g_dailyProfitLock ? "YES" : "NO") + "\n";
-   msg += "Basket TP: $" + DoubleToString(InpBasketProfitUSD, 2) + " | Lot: " + DoubleToString(InpFixedLot, 2) + "\n";
-   Comment(msg);
+   DrawPanel(
+      "DXB_PANEL",
+      220,
+      20,
+      340,
+      400,
+      clrBlack
+   );
+
+   g_dashRow=0;
+
+   DashRow("DXB SAR EA",status,clrYellow);
+
+   DashRow("--------------------------------","",clrGray);
+
+   DashRow("SAR Direction",
+           DirectionText(g_activeSARDirection),
+           g_activeSARDirection==1 ? clrLime : clrRed);
+
+   DashRow("Early Trend",
+           DirectionText(g_earlyDirection),
+           clrAqua);
+
+   DashRow("SAR Paused",
+           g_sarPausedByEarly ? "YES":"NO",
+           g_sarPausedByEarly ? clrOrangeRed : clrLime);
+
+   DashRow("Flat Mode",
+           g_flatMode ? "YES":"NO",
+           g_flatMode ? clrOrange : clrLime);
+
+   DashRow("--------------------------------","",clrGray);
+
+   DashRow("BUY Orders",
+           IntegerToString(CountOrdersByDirection(1)));
+
+   DashRow("BUY Profit",
+           "$"+DoubleToString(GetBasketProfit(1),2),
+           GetBasketProfit(1)>=0 ? clrLime : clrRed);
+
+   DashRow("SELL Orders",
+           IntegerToString(CountOrdersByDirection(-1)));
+
+   DashRow("SELL Profit",
+           "$"+DoubleToString(GetBasketProfit(-1),2),
+           GetBasketProfit(-1)>=0 ? clrLime : clrRed);
+
+   DashRow("--------------------------------","",clrGray);
+
+   DashRow("Balance",
+           "$"+DoubleToString(AccountBalance(),2),
+           clrWhite);
+
+   DashRow("Equity",
+           "$"+DoubleToString(AccountEquity(),2),
+           clrAqua);
+
+   DashRow("Base Balance",
+           "$"+DoubleToString(g_baseBalance,2),
+           clrWhite);
+
+   DashRow("Loss Stop",
+           "$"+DoubleToString(g_lossStopEquityLevel,2),
+           clrRed);
+
+   DashRow("Profit Target",
+           "$"+DoubleToString(g_profitTargetEquity,2),
+           clrLime);
+
+   DashRow("--------------------------------","",clrGray);
+
+   DashRow("Daily Profit",
+           "$"+DoubleToString(GetTodayProfitFromBase(),2),
+           GetTodayProfitFromBase()>=0 ? clrLime : clrRed);
+
+   DashRow("Profit Lock",
+           g_dailyProfitLock ? "ON":"OFF",
+           g_dailyProfitLock ? clrOrange : clrLime);
+
+   DashRow("Symbol Orders",
+           IntegerToString(CountAllSymbolMarketOrders())+
+           "/"+
+           IntegerToString(DXB_HARD_MAX_OPEN_ORDERS),
+           clrWhite);
+
+   DashRow("Lot Size",
+           DoubleToString(InpFixedLot,2),
+           clrWhite);
 }
 //+------------------------------------------------------------------+
