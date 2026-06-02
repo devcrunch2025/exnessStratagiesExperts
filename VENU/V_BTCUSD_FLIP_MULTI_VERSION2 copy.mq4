@@ -5,46 +5,51 @@
 //|  cycle, draws arrows, closes opposite orders, resumes when aligned |
 //+------------------------------------------------------------------+
 #property strict
-#property version   "1.03"
+#property version   "1.04"
 
 //======================== INPUTS ====================================
 string InpEAName                  = "DXB SAR Early Trend Cycle EA";
 int    InpMagicNumber             = 989899;
 double InpFixedLot                = 0.01;
-int    InpMaxOrders               = 1;     // display only; hard max is 2
-double InpBasketProfitUSD         = 1.00;
+// int    InpMaxOrders               = 1;     // display only; hard max is controlled below
+double InpBasketProfitUSD         = 0.50;
 int    InpStopLossPoints          = 0;       // 0 = no hard SL
 int    InpSlippage                = 30;
 int    InpMaxSpreadPoints         = 3000;
 
-// Daily equity protection / profit lock
-// Example: Balance=$100 -> Protected=$50, TradingCapital=$50, ProfitTarget=$25.
-// When target is reached, EA closes its orders and pauses until next day.
-// MT4 cannot literally move profit aside; this EA protects it by stopping new trades.
-bool   InpUseEquityProtection       = true;
-bool   InpAutoUseCurrentBalanceBase = true;   // true = take current account balance on EA load/new day
-double InpManualBaseCapitalUSD      = 20.0;   // used only when Auto=false
-
-double InpProfitTargetPercent      = 50.0;   // stop trading when equity reaches Base + 50%
-double InpLossStopPercent          = 50.0;   // stop trading when equity reaches Base - 50%
-double InpProtectionBufferUSD      = 0.00;   // optional buffer below loss-stop level
-bool   InpCloseOrdersOnEquityHit    = true;
-
-bool   InpUseDailyProfitLock        = true;
-bool   InpCloseOrdersOnProfitLock   = true;
-bool   InpPauseAfterProfitTarget    = true;
-
-#define DXB_HARD_MAX_OPEN_ORDERS 1   // absolute safety limit before every OrderSend
+#define DXB_HARD_MAX_OPEN_ORDERS 2   // absolute safety limit before every OrderSend
 
 // Continuous order controls
 bool   InpOneOrderPerBar          = true;
 int    InpOrderCooldownSeconds    = 0;       // 0 = disabled
-double InpMinPriceGap             = 0.00;    // raw price gap, 0 = disabled
+double InpMinPriceGap             = 100;    // raw price gap, 0 = disabled
 
 // SAR settings
 double InpSARPeriod               = 1.2;
 int    InpSARStepSize             = 25;
 int    InpSARAcceleration         = 9;
+
+// SAR dot distance filter / protection
+bool   InpUseSARDotDistanceFilter = true;
+double InpMinSARDotDistanceOpen   = 300.0;   // raw price distance required to open SAR orders
+double InpCloseSARDistanceBelow   = 200.0;   // close active SAR orders if SAR dot distance becomes smaller
+bool   InpShowSARDotDistancePrint = true;
+
+// Anti-loss / whipsaw filters
+bool   InpUseWhipsawFilter        = true;
+int    InpWhipsawLookbackCandles  = 20;
+int    InpMaxSARFlipsAllowed      = 3;       // block if SAR side changed more than this
+bool   InpUseADXFilter            = true;
+int    InpADXPeriod               = 14;
+double InpMinADXToTrade           = 22.0;    // M1 BTCUSD: 25+ is safer trend
+bool   InpUseEMAGapFilter         = true;
+double InpMinEMAGapToTrade        = 15.0;   // raw BTCUSD price distance
+bool   InpUseLossLock             = true;
+int    InpMaxRecentLosses         = 3;
+int    InpLossLookbackTrades      = 5;
+double InpResumeADXAfterLossLock  = 30.0;
+double InpResumeSARDistanceAfterLossLock = 500.0;
+
 
 // Early trend settings
 bool   InpUseEarlyTrend           = true;
@@ -91,29 +96,19 @@ datetime g_lastFlatDotTime      = 0;
 string   OBJ_PREFIX             = "DXB_SAR_CYCLE_";
 int      dotColor               = 0;       // 1 SAR below price, -1 SAR above price
 bool     g_flatMode             = false;   // true when price is compressed/sideways
-
-int      g_equityDay            = -1;
-double   g_dayStartBalance      = 0.0;
-double   g_dayStartEquity       = 0.0;
-double   g_baseBalance          = 0.0;   // balance captured on EA load/new day
-double   g_lossStopEquityLevel = 0.0;  // base balance - 50% loss
-double   g_profitTargetEquity  = 0.0;  // base balance + 50% profit
-double   g_dailyProfitTarget   = 0.0;  // dollar profit target from base
-double   g_lockedProfitToday    = 0.0;
-bool     g_dailyProfitLock      = false;
-bool     g_equityProtectionHit  = false;
+double   g_sarDotLiveDistance   = 0.0;     // raw price distance between live Bid and current SAR dot
+int      g_recentLossCount      = 0;
+int      g_sarFlipCount         = 0;
+double   g_liveADX              = 0.0;
+double   g_liveEMAGap           = 0.0;
+bool     g_whipsawMode          = false;
+bool     g_noTrendMode          = false;
+bool     g_lossLockMode         = false;
 
 //+------------------------------------------------------------------+
 int OnInit()
 {
-   InitializeEquityDay();
-
-   Print(InpEAName, " initialized. Magic=", InpMagicNumber,
-         " | BaseBalance=$", DoubleToString(g_baseBalance,2),
-         " | LossStopEquity=$", DoubleToString(g_lossStopEquityLevel,2),
-         " | ProfitTargetEquity=$", DoubleToString(g_profitTargetEquity,2),
-         " | TargetProfit=$", DoubleToString(g_dailyProfitTarget,2));
-
+   Print(InpEAName, " initialized. Magic=", InpMagicNumber);
    return(INIT_SUCCEEDED);
 }
 //+------------------------------------------------------------------+
@@ -122,157 +117,9 @@ void OnDeinit(const int reason)
    Comment("");
 }
 //+------------------------------------------------------------------+
-void InitializeEquityDay()
-{
-   g_equityDay       = TimeDay(TimeCurrent());
-   g_dayStartBalance = AccountBalance();
-   g_dayStartEquity  = AccountEquity();
-
-   if(InpAutoUseCurrentBalanceBase)
-      g_baseBalance = g_dayStartBalance;
-   else
-      g_baseBalance = InpManualBaseCapitalUSD;
-
-   if(g_baseBalance <= 0.0)
-      g_baseBalance = AccountBalance();
-
-   // User rule:
-   // Example BaseBalance=$20
-   // Profit lock: stop when equity >= $30  (base + 50% = +$10)
-   // Loss stop:   stop when equity <= $10  (base - 50% = -$10)
-   g_dailyProfitTarget =
-      g_baseBalance * InpProfitTargetPercent / 100.0;
-
-   g_profitTargetEquity =
-      g_baseBalance + g_dailyProfitTarget;
-
-   g_lossStopEquityLevel =
-      g_baseBalance - (g_baseBalance * InpLossStopPercent / 100.0) - InpProtectionBufferUSD;
-
-   if(g_lossStopEquityLevel < 0.0)
-      g_lossStopEquityLevel = 0.0;
-
-   g_lockedProfitToday    = 0.0;
-   g_dailyProfitLock      = false;
-   g_equityProtectionHit  = false;
-
-   Print("EQUITY DAY INIT | Day=", g_equityDay,
-         " StartBalance=$", DoubleToString(g_dayStartBalance,2),
-         " StartEquity=$", DoubleToString(g_dayStartEquity,2),
-         " Base=$", DoubleToString(g_baseBalance,2),
-         " LossStopEquity=$", DoubleToString(g_lossStopEquityLevel,2),
-         " ProfitTargetEquity=$", DoubleToString(g_profitTargetEquity,2),
-         " TargetProfit=$", DoubleToString(g_dailyProfitTarget,2));
-}
-//+------------------------------------------------------------------+
-void ResetEquityDayIfNewDay()
-{
-   int today = TimeDay(TimeCurrent());
-   if(today != g_equityDay)
-   {
-      InitializeEquityDay();
-      Print("NEW DAY | Equity protection/profit lock reset. Trading enabled.");
-   }
-}
-//+------------------------------------------------------------------+
-double GetTodayProfitFromBase()
-{
-   return(AccountEquity() - g_baseBalance);
-}
-//+------------------------------------------------------------------+
-bool CheckEquityConditions()
-{
-   ResetEquityDayIfNewDay();
-
-   // 1) Loss stop: if equity drops to base - loss percent, close EA orders and stop.
-   if(InpUseEquityProtection && AccountEquity() < g_lossStopEquityLevel)
-   {
-      g_equityProtectionHit = true;
-
-      if(InpCloseOrdersOnEquityHit && CountAllOrders() > 0)
-         CloseAllEAOrders("50 percent equity protection hit");
-
-      Print("EQUITY PROTECTION HIT | Equity=$", DoubleToString(AccountEquity(),2),
-            " Protected=$", DoubleToString(g_lossStopEquityLevel,2),
-            " Base=$", DoubleToString(g_baseBalance,2),
-            " LossStopEquity=$", DoubleToString(g_lossStopEquityLevel,2));
-
-      return(true);
-   }
-
-   // 2) Daily profit lock: when equity reaches base + profit percent, close EA orders and pause.
-   if(InpUseDailyProfitLock)
-   {
-      double profitFromBase = GetTodayProfitFromBase();
-
-      if(!g_dailyProfitLock && profitFromBase >= g_dailyProfitTarget)
-      {
-         g_dailyProfitLock   = true;
-         g_lockedProfitToday = profitFromBase;
-
-         if(InpCloseOrdersOnProfitLock && CountAllOrders() > 0)
-            CloseAllEAOrders("Daily profit lock: equity reached base plus profit percent");
-
-         Print("DAILY PROFIT LOCK HIT | Base=$", DoubleToString(g_baseBalance,2),
-               " Equity=$", DoubleToString(AccountEquity(),2),
-               " Profit=$", DoubleToString(profitFromBase,2),
-               " Target=$", DoubleToString(g_dailyProfitTarget,2),
-               " LossStopEquity=$", DoubleToString(g_lossStopEquityLevel,2),
-               " TargetEquity=$", DoubleToString(g_profitTargetEquity,2),
-               " | Trading paused until next day.");
-      }
-
-      if(g_dailyProfitLock && InpPauseAfterProfitTarget)
-         return(true);
-   }
-
-   return(false);
-}
-//+------------------------------------------------------------------+
-void CloseAllEAOrders(string reason)
-{
-   RefreshRates();
-
-   for(int i = OrdersTotal() - 1; i >= 0; i--)
-   {
-      if(!OrderSelect(i, SELECT_BY_POS, MODE_TRADES))
-         continue;
-
-      if(OrderSymbol() != Symbol() || OrderMagicNumber() != InpMagicNumber)
-         continue;
-
-      if(OrderType() != OP_BUY && OrderType() != OP_SELL)
-         continue;
-
-      int type = OrderType();
-      double closePrice = (type == OP_BUY) ? Bid : Ask;
-
-      bool ok = OrderClose(OrderTicket(), OrderLots(), closePrice, InpSlippage, clrWhite);
-      if(!ok)
-      {
-         int err = GetLastError();
-         Print("CloseAllEAOrders failed | Ticket=", OrderTicket(), " Reason=", reason, " Error=", err);
-         ResetLastError();
-      }
-      else
-      {
-         Print("CloseAllEAOrders closed | Ticket=", OrderTicket(), " Reason=", reason);
-      }
-   }
-}
-//+------------------------------------------------------------------+
 void OnTick()
 {
    RefreshRates();
-
-   if(CheckEquityConditions())
-   {
-      if(g_dailyProfitLock)
-         DrawDashboard("DAILY PROFIT LOCK - PAUSED");
-      else
-         DrawDashboard("EQUITY PROTECTION - PAUSED");
-      return;
-   }
 
    if(!IsTradeAllowed())
    {
@@ -288,6 +135,7 @@ void OnTick()
 
    // Draw/update SAR dots on every tick so they do not disappear when chart moves.
    DrawSARDots();
+   g_sarDotLiveDistance = GetSARDotLiveDistance();
 
    bool isNewBar = (Time[0] != g_lastBarTime);
    if(isNewBar)
@@ -326,6 +174,25 @@ void OnTick()
       return;
    }
 
+   // SAR dot distance protection:
+   // If SAR dot is too close to live price, close the active SAR-cycle orders.
+   if(ShouldCloseSAROrdersByDotDistance() && CountOrdersByDirection(g_activeSARDirection) > 0)
+   {
+      Print("SAR DOT DISTANCE CLOSE | Distance=",
+            DoubleToString(g_sarDotLiveDistance, Digits),
+            " < ",
+            DoubleToString(InpCloseSARDistanceBelow, 2),
+            " | Closing ",
+            DirectionText(g_activeSARDirection),
+            " SAR orders");
+
+      CloseOrdersByDirection(g_activeSARDirection,
+                             "SAR dot distance below " + DoubleToString(InpCloseSARDistanceBelow, 2));
+
+      DrawDashboard("SAR DOT DISTANCE < 200 - CLOSED");
+      return;
+   }
+
    // 3) Basket profit booking. After close, same SAR cycle continues/resumes.
    double activeProfit = GetBasketProfit(g_activeSARDirection);
    if(activeProfit >= InpBasketProfitUSD)
@@ -358,6 +225,15 @@ void OnTick()
    else
    {
       g_flatMode = false;
+   }
+
+   // 4B) Anti-whipsaw / no-trend / loss-lock detection before early trend and new orders.
+   UpdateMarketRiskState();
+
+   if(ShouldBlockTradingByMarketRisk())
+   {
+      DrawDashboard("RISK FILTER ACTIVE - WAIT CLEAN TREND");
+      return;
    }
 
    // 5) Early trend detection cycle.
@@ -420,6 +296,10 @@ void OnTick()
       return;
    }
 
+   // SAR new orders are allowed only when live price is far enough from SAR dot.
+   if(!IsSARDotDistanceEnoughForOpen())
+      return;
+
    if(!CanOpenNewOrder(g_activeSARDirection))
    {
       DrawDashboard("Order gate blocked");
@@ -453,6 +333,176 @@ int GetSARDotDirection(int shift)
    if(sar > Close[shift]) return -1;
    return 0;
 }
+//+------------------------------------------------------------------+
+double GetSARDotLiveDistance()
+{
+   double step    = InpSARPeriod * InpSARStepSize / 10000.0;
+   double maxstep = step * InpSARAcceleration;
+
+   double sar = iSAR(Symbol(), Period(), step, maxstep, 0);
+   if(sar <= 0)
+      return(0.0);
+
+   // Live price distance. For BTCUSD this is raw price difference, not points.
+   double livePrice = Bid;
+   return(MathAbs(livePrice - sar));
+}
+
+//+------------------------------------------------------------------+
+bool IsSARDotDistanceEnoughForOpen()
+{
+   if(!InpUseSARDotDistanceFilter)
+      return(true);
+
+   g_sarDotLiveDistance = GetSARDotLiveDistance();
+
+   if(g_sarDotLiveDistance < InpMinSARDotDistanceOpen)
+   {
+      if(InpShowSARDotDistancePrint)
+      {
+         Print("SAR ORDER BLOCKED | Dot distance=",
+               DoubleToString(g_sarDotLiveDistance, Digits),
+               " RequiredOpen>",
+               DoubleToString(InpMinSARDotDistanceOpen, 2));
+      }
+
+      DrawDashboard("SAR DOT DISTANCE LOW - WAIT");
+      return(false);
+   }
+
+   return(true);
+}
+
+//+------------------------------------------------------------------+
+bool ShouldCloseSAROrdersByDotDistance()
+{
+   if(!InpUseSARDotDistanceFilter)
+      return(false);
+
+   g_sarDotLiveDistance = GetSARDotLiveDistance();
+
+   if(g_sarDotLiveDistance > 0.0 &&
+      g_sarDotLiveDistance < InpCloseSARDistanceBelow)
+      return(true);
+
+   return(false);
+}
+
+//+------------------------------------------------------------------+
+void UpdateMarketRiskState()
+{
+   g_sarFlipCount    = CountSARSideFlips(InpWhipsawLookbackCandles);
+   g_liveADX         = iADX(Symbol(), Period(), InpADXPeriod, PRICE_CLOSE, MODE_MAIN, 1);
+   g_liveEMAGap      = GetLiveEMAGap();
+   g_recentLossCount = CountRecentClosedLosses(InpLossLookbackTrades);
+
+   g_whipsawMode = (InpUseWhipsawFilter && g_sarFlipCount > InpMaxSARFlipsAllowed);
+   g_noTrendMode = false;
+
+   if(InpUseADXFilter && g_liveADX < InpMinADXToTrade)
+      g_noTrendMode = true;
+
+   if(InpUseEMAGapFilter && g_liveEMAGap < InpMinEMAGapToTrade)
+      g_noTrendMode = true;
+
+   g_lossLockMode = (InpUseLossLock && g_recentLossCount >= InpMaxRecentLosses);
+}
+
+//+------------------------------------------------------------------+
+bool ShouldBlockTradingByMarketRisk()
+{
+   if(g_whipsawMode)
+   {
+      Print("TRADE BLOCKED | WHIPSAW ZONE | SAR flips=", g_sarFlipCount,
+            " Allowed=", InpMaxSARFlipsAllowed);
+      return(true);
+   }
+
+   if(g_noTrendMode)
+   {
+      Print("TRADE BLOCKED | NO TREND | ADX=", DoubleToString(g_liveADX,2),
+            " RequiredADX>=", DoubleToString(InpMinADXToTrade,2),
+            " EMA Gap=", DoubleToString(g_liveEMAGap,2),
+            " RequiredGap>=", DoubleToString(InpMinEMAGapToTrade,2));
+      return(true);
+   }
+
+   if(g_lossLockMode)
+   {
+      // Resume only when trend is clean and SAR distance is far enough.
+      if(g_liveADX >= InpResumeADXAfterLossLock &&
+         g_sarDotLiveDistance >= InpResumeSARDistanceAfterLossLock &&
+         !g_whipsawMode)
+      {
+         Print("LOSS LOCK RELEASED | ADX=", DoubleToString(g_liveADX,2),
+               " SAR Distance=", DoubleToString(g_sarDotLiveDistance,2));
+         return(false);
+      }
+
+      Print("TRADE BLOCKED | LOSS LOCK | RecentLosses=", g_recentLossCount,
+            " Need ADX>=", DoubleToString(InpResumeADXAfterLossLock,2),
+            " and SAR Distance>=", DoubleToString(InpResumeSARDistanceAfterLossLock,2));
+      return(true);
+   }
+
+   return(false);
+}
+
+//+------------------------------------------------------------------+
+int CountSARSideFlips(int lookback)
+{
+   int flips = 0;
+   int maxBars = MathMin(lookback + 1, Bars - 2);
+
+   for(int i = 1; i <= maxBars; i++)
+   {
+      int d1 = GetSARDotDirection(i);
+      int d2 = GetSARDotDirection(i + 1);
+
+      if(d1 != 0 && d2 != 0 && d1 != d2)
+         flips++;
+   }
+
+   return(flips);
+}
+
+//+------------------------------------------------------------------+
+double GetLiveEMAGap()
+{
+   double emaFast = iMA(Symbol(), Period(), InpFastEMA, 0, MODE_EMA, PRICE_CLOSE, 1);
+   double emaSlow = iMA(Symbol(), Period(), InpSlowEMA, 0, MODE_EMA, PRICE_CLOSE, 1);
+   return(MathAbs(emaFast - emaSlow));
+}
+
+//+------------------------------------------------------------------+
+int CountRecentClosedLosses(int maxTradesToCheck)
+{
+   int losses = 0;
+   int checked = 0;
+
+   for(int i = OrdersHistoryTotal() - 1; i >= 0 && checked < maxTradesToCheck; i--)
+   {
+      if(!OrderSelect(i, SELECT_BY_POS, MODE_HISTORY))
+         continue;
+
+      if(OrderSymbol() != Symbol() || OrderMagicNumber() != InpMagicNumber)
+         continue;
+
+      if(OrderType() != OP_BUY && OrderType() != OP_SELL)
+         continue;
+
+      checked++;
+
+      double pl = OrderProfit() + OrderSwap() + OrderCommission();
+      if(pl < 0.0)
+         losses++;
+      else if(pl > 0.0)
+         break; // one recent winner resets the loss sequence
+   }
+
+   return(losses);
+}
+
 //+------------------------------------------------------------------+
 bool DetectFlatMode()
 {
@@ -600,12 +650,6 @@ bool OpenMarketOrder(int direction, string reason)
 {
    RefreshRates();
 
-   if(CheckEquityConditions())
-   {
-      Print("ORDERSEND BLOCKED | Equity/profit lock active. Reason=", reason);
-      return(false);
-   }
-
    // FINAL SAFETY CHECK DIRECTLY BEFORE OrderSend.
    // Even if any logic path bypasses CanOpenNewOrder(), no 3rd order can be sent.
    int openOrders = CountAllSymbolMarketOrders();
@@ -616,6 +660,26 @@ bool OpenMarketOrder(int direction, string reason)
             " Max=", DXB_HARD_MAX_OPEN_ORDERS,
             " Reason=", reason);
       DrawDashboard("ORDERSEND BLOCKED - MAX 2 ORDERS");
+      return(false);
+   }
+
+   if(!IsSARDotDistanceEnoughForOpen())
+   {
+      Print("ORDERSEND BLOCKED | SAR dot distance filter failed. Distance=",
+            DoubleToString(g_sarDotLiveDistance, Digits),
+            " RequiredOpen>",
+            DoubleToString(InpMinSARDotDistanceOpen, 2));
+      return(false);
+   }
+
+   UpdateMarketRiskState();
+   if(ShouldBlockTradingByMarketRisk())
+   {
+      Print("ORDERSEND BLOCKED | Market risk filter active. ADX=",
+            DoubleToString(g_liveADX,2),
+            " EMAGap=", DoubleToString(g_liveEMAGap,2),
+            " SARFlips=", g_sarFlipCount,
+            " RecentLosses=", g_recentLossCount);
       return(false);
    }
 
@@ -850,12 +914,12 @@ void DrawDashboard(string status)
    msg += "Early Direction: " + DirectionText(g_earlyDirection) + "\n";
    msg += "Paused by Early: " + (g_sarPausedByEarly ? "YES" : "NO") + "\n";
    msg += "Flat Mode: " + (g_flatMode ? "YES" : "NO") + "\n";
+   msg += "Whipsaw: " + (g_whipsawMode ? "YES" : "NO") + " | SAR Flips: " + IntegerToString(g_sarFlipCount) + "/" + IntegerToString(InpMaxSARFlipsAllowed) + "\n";
+   msg += "ADX: " + DoubleToString(g_liveADX, 2) + " | EMA Gap: " + DoubleToString(g_liveEMAGap, 2) + " | Loss Lock: " + (g_lossLockMode ? "YES" : "NO") + " (" + IntegerToString(g_recentLossCount) + ")\n";
    msg += "BUY Orders: " + IntegerToString(CountOrdersByDirection(1)) + " | Profit: $" + DoubleToString(GetBasketProfit(1), 2) + "\n";
    msg += "SELL Orders: " + IntegerToString(CountOrdersByDirection(-1)) + " | Profit: $" + DoubleToString(GetBasketProfit(-1), 2) + "\n";
    msg += "EA Orders: " + IntegerToString(CountAllOrders()) + " | Symbol Orders: " + IntegerToString(CountAllSymbolMarketOrders()) + " / " + IntegerToString(DXB_HARD_MAX_OPEN_ORDERS) + "\n";
-   msg += "Base Balance: $" + DoubleToString(g_baseBalance, 2) + " | Equity: $" + DoubleToString(AccountEquity(), 2) + "\n";
-   msg += "Loss Stop 50%: $" + DoubleToString(g_lossStopEquityLevel, 2) + " | Target Equity: $" + DoubleToString(g_profitTargetEquity, 2) + "\n";
-   msg += "Profit Target 50%: +$" + DoubleToString(g_dailyProfitTarget, 2) + " | Today: $" + DoubleToString(GetTodayProfitFromBase(), 2) + " | Lock: " + (g_dailyProfitLock ? "YES" : "NO") + "\n";
+   msg += "SAR Dot Distance: " + DoubleToString(g_sarDotLiveDistance, 2) + " | Open > " + DoubleToString(InpMinSARDotDistanceOpen, 0) + " | Close < " + DoubleToString(InpCloseSARDistanceBelow, 0) + "\n";
    msg += "Basket TP: $" + DoubleToString(InpBasketProfitUSD, 2) + " | Lot: " + DoubleToString(InpFixedLot, 2) + "\n";
    Comment(msg);
 }
