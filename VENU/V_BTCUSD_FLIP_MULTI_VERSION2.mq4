@@ -5,6 +5,11 @@
 //|  cycle, draws arrows, closes opposite orders, resumes when aligned |
 //+------------------------------------------------------------------+
 #property strict
+
+// MT4 compatibility: balance/deposit/withdrawal history operation type
+#ifndef OP_BALANCE
+   #define OP_BALANCE 6
+#endif
 #property version   "1.06"
 
 //======================== INPUTS ====================================
@@ -46,6 +51,10 @@ int    InpEquityResetHours            = 6;      // fallback rolling reset if fix
 bool   InpUseFixedEquityResetHours    = true;   // true = reset only at configured server hours
 string InpEquityResetHourList         = "1,7,13,19"; // server-time hours to reset equity base
 bool   InpResetTradingCycleWithEquity = true;   // reset SAR/early/flat cycle when equity stats reset
+
+// Deposit detection reset
+bool   InpResetEquityStatsOnDeposit = true;      // detect OP_BALANCE deposit and reuse equity reset method
+bool   InpCloseOrdersOnDepositReset = false;     // optional: close EA orders before deposit reset
 
 // Notifications
 bool   InpSendPushNotifications       = true;    // MT4 mobile push notification
@@ -149,6 +158,7 @@ int      g_equityCycleNumber    = 1;
 int      g_lastEquityResetSlot  = -1;  // prevents repeated reset during the same reset hour
 bool     g_notifyProfitLockSent = false;
 bool     g_notifyEquityStopSent = false;
+datetime g_lastDepositBalanceOpTime = 0; // last processed OP_BALANCE deposit/withdrawal time
 
 //+------------------------------------------------------------------+
 void SendEAAlert(string eventTitle, string details)
@@ -168,6 +178,7 @@ void SendEAAlert(string eventTitle, string details)
 int OnInit()
 {
    InitializeEquityDay();
+   InitializeLastDepositBalanceOpTime();
    DeleteNonEarlySignalArrows();
 
    InpMagicNumber=AccountNumber()+202; // override magic number with account number to prevent interference between charts/accounts. Orders are still filtered by symbol and magic in this EA.
@@ -385,6 +396,89 @@ string FormatSecondsToHHMM(int totalSeconds)
    int mins  = (totalSeconds % 3600) / 60;
 
    return(IntegerToString(hours) + "h " + IntegerToString(mins) + "m");
+}
+
+//+------------------------------------------------------------------+
+void InitializeLastDepositBalanceOpTime()
+{
+   g_lastDepositBalanceOpTime = 0;
+
+   for(int i = OrdersHistoryTotal() - 1; i >= 0; i--)
+   {
+      if(!OrderSelect(i, SELECT_BY_POS, MODE_HISTORY))
+         continue;
+
+      if(OrderType() != OP_BALANCE)
+         continue;
+
+      if(OrderCloseTime() > g_lastDepositBalanceOpTime)
+         g_lastDepositBalanceOpTime = OrderCloseTime();
+   }
+
+   Print("DEPOSIT WATCH INIT | Last OP_BALANCE time=",
+         TimeToString(g_lastDepositBalanceOpTime, TIME_DATE|TIME_SECONDS));
+}
+
+//+------------------------------------------------------------------+
+bool CheckDepositAndResetEquityStats()
+{
+   if(!InpResetEquityStatsOnDeposit)
+      return(false);
+
+   bool resetDone = false;
+
+   for(int i = OrdersHistoryTotal() - 1; i >= 0; i--)
+   {
+      if(!OrderSelect(i, SELECT_BY_POS, MODE_HISTORY))
+         continue;
+
+      if(OrderType() != OP_BALANCE)
+         continue;
+
+      datetime opTime = OrderCloseTime();
+      if(opTime <= g_lastDepositBalanceOpTime)
+         continue;
+
+      double amount = OrderProfit();
+      string comment = OrderComment();
+
+      // Always advance processed time so old balance operations are not repeated.
+      if(opTime > g_lastDepositBalanceOpTime)
+         g_lastDepositBalanceOpTime = opTime;
+
+      // Positive OP_BALANCE = deposit/balance-in for most brokers.
+      // Closed trade profit is NOT OP_BALANCE, so it will not trigger this reset.
+      if(amount <= 0.0)
+      {
+         Print("BALANCE OPERATION IGNORED | Amount=$", DoubleToString(amount,2),
+               " | Comment=", comment);
+         continue;
+      }
+
+      Print("DEPOSIT DETECTED | Amount=$", DoubleToString(amount,2),
+            " | Comment=", comment,
+            " | Reusing equity reset method");
+
+      if(InpCloseOrdersOnDepositReset && CountAllOrders() > 0)
+         CloseAllEAOrders("Deposit detected - equity stats reset");
+
+      g_equityCycleNumber++;
+      InitializeEquityDay();   // same method used by fixed reset hours 1,7,13,19
+
+      if(InpNotifyOnEquityRestart)
+      {
+         SendEAAlert("TRADING RESTARTED - DEPOSIT RESET",
+                     "Deposit=$" + DoubleToString(amount,2) +
+                     " | NewBase=$" + DoubleToString(g_baseBalance,2) +
+                     " | Target=$" + DoubleToString(g_profitTargetEquity,2) +
+                     " | LossStop=$" + DoubleToString(g_lossStopEquityLevel,2));
+      }
+
+      resetDone = true;
+      break; // one reset is enough for this tick
+   }
+
+   return(resetDone);
 }
 
 //+------------------------------------------------------------------+
@@ -683,27 +777,23 @@ void ProcessSARFlipStateAndClose()
 
    int oldDirection = g_activeSARDirection;
 
-   // 1) Close old SAR direction orders first
-    if(oldDirection != 0)
+   // 1) Close old SAR direction orders first.
+   // Example: old BUY -> SAR changed SELL -> close BUY immediately.
+   if(oldDirection != 0)
+      CloseOrdersByDirection(oldDirection, "SAR signal changed");
 
-   //  if(oldDirection ==1)
-      CloseOrdersByDirection(-1, "SAR signal changed");
-      // else if(oldDirection == -1)
-      CloseOrdersByDirection(1, "SAR signal changed");
-
-
-   // 2) Update SAR direction
+   // 2) Update SAR direction.
    g_activeSARDirection  = sarFlip;
    g_lastSARDotDirection = sarFlip;
    g_sarPausedByEarly    = false;
    g_earlyDirection      = 0;
 
-   // 3) Start confirmation only for next new order
+   // 3) Start confirmation only for next new order.
    StartSARFlipConfirmation(sarFlip);
 
    Print("SAR CHANGED | Old=", DirectionText(oldDirection),
          " New=", DirectionText(sarFlip),
-         " | Old orders closed");
+         " | Old direction orders closed");
 }
 
 //+------------------------------------------------------------------+
@@ -934,6 +1024,10 @@ bool ProcessNewOrderCreationLast(bool isNewBar, string &status)
 void OnTick()
 {
    RefreshRates();
+
+   // Deposit reset uses the same equity reset method as fixed hours (1,7,13,19).
+   // Closed trade profit will not trigger this because only OP_BALANCE is checked.
+   CheckDepositAndResetEquityStats();
 
    // Equity protection may close all EA orders and intentionally stop processing.
    if(CheckEquityConditions())
@@ -1595,7 +1689,7 @@ void DashRow(string title,string value,color clrText=clrWhite)
    DrawLabel(
       "DXB_ROW_"+IntegerToString(g_dashRow),
       title+" : "+value,
-      200,
+      260,
       30+(g_dashRow*18),
       clrText,
       9
@@ -1608,10 +1702,10 @@ void DrawDashboard(string status)
 {
    DrawPanel(
       "DXB_PANEL",
-      220,
+      300,
       20,
-      340,
-      450,
+      350,
+      600,
       clrBlack
    );
 
