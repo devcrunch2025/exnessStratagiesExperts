@@ -5,7 +5,7 @@
 //|  cycle, draws arrows, closes opposite orders, resumes when aligned |
 //+------------------------------------------------------------------+
 #property strict
-#property version   "1.03"
+#property version   "1.06"
 
 //======================== INPUTS ====================================
 string InpEAName                  = "DXB SAR Early Trend Cycle EA";
@@ -33,6 +33,13 @@ bool   InpCloseOrdersOnEquityHit    = true;
 bool   InpUseDailyProfitLock        = true;
 bool   InpCloseOrdersOnProfitLock   = true;
 bool   InpPauseAfterProfitTarget    = true;
+
+// Equity statistics reset cycle
+bool   InpResetEquityStatsEvery6Hours = true;
+int    InpEquityResetHours            = 6;      // fallback rolling reset if fixed hours are disabled
+bool   InpUseFixedEquityResetHours    = true;   // true = reset only at configured server hours
+string InpEquityResetHourList         = "1,7,13,19"; // server-time hours to reset equity base
+bool   InpResetTradingCycleWithEquity = true;   // reset SAR/early/flat cycle when equity stats reset
 
 #define DXB_HARD_MAX_OPEN_ORDERS 1   // absolute safety limit before every OrderSend
 
@@ -65,7 +72,9 @@ bool   InpDrawFlatDots            = true;
 color  InpFlatDotColor            = clrSilver;
 
 // Visuals
-bool   InpDrawSARArrows           = true;
+bool   InpDrawSARArrows           = false;  // disabled: show only EARLY trend arrows
+bool   InpDrawSAREveryBarArrows   = false;  // disabled: show only EARLY trend arrows
+int    InpSAREveryBarLookback     = 300;    // historical SAR direction arrows to draw
 color  InpBuyColor                = clrLime;
 color  InpSellColor               = clrRed;
 color  InpEarlyBuyColor           = clrAqua;
@@ -87,6 +96,7 @@ datetime g_lastBarTime          = 0;
 datetime g_lastOrderTime        = 0;
 datetime g_lastEarlyArrowTime   = 0;
 datetime g_lastSARArrowTime     = 0;
+datetime g_lastSAREveryBarTime   = 0;
 datetime g_lastFlatDotTime      = 0;
 string   OBJ_PREFIX             = "DXB_SAR_CYCLE_";
 int      dotColor               = 0;       // 1 SAR below price, -1 SAR above price
@@ -102,11 +112,17 @@ double   g_dailyProfitTarget   = 0.0;  // dollar profit target from base
 double   g_lockedProfitToday    = 0.0;
 bool     g_dailyProfitLock      = false;
 bool     g_equityProtectionHit  = false;
+datetime g_lastEquityStatsResetTime = 0;
+int      g_equityCycleNumber    = 1;
+int      g_lastEquityResetSlot  = -1;  // prevents repeated reset during the same reset hour
 
 //+------------------------------------------------------------------+
 int OnInit()
 {
    InitializeEquityDay();
+   DeleteNonEarlySignalArrows();
+
+   InpMagicNumber=AccountNumber()+202; // override magic number with account number to prevent interference between charts/accounts. Orders are still filtered by symbol and magic in this EA.
 
    Print(InpEAName, " initialized. Magic=", InpMagicNumber,
          " | BaseBalance=$", DoubleToString(g_baseBalance,2),
@@ -128,6 +144,8 @@ void InitializeEquityDay()
    g_dayStartBalance = AccountBalance();
    g_dayStartEquity  = AccountEquity();
 
+   // Fully automated: every cycle base is always taken from live AccountBalance().
+   // Example: if AccountBalance() is $20 at reset, target=$30 and loss-stop=$10.
    if(InpAutoUseCurrentBalanceBase)
       g_baseBalance = g_dayStartBalance;
    else
@@ -136,10 +154,6 @@ void InitializeEquityDay()
    if(g_baseBalance <= 0.0)
       g_baseBalance = AccountBalance();
 
-   // User rule:
-   // Example BaseBalance=$20
-   // Profit lock: stop when equity >= $30  (base + 50% = +$10)
-   // Loss stop:   stop when equity <= $10  (base - 50% = -$10)
    g_dailyProfitTarget =
       g_baseBalance * InpProfitTargetPercent / 100.0;
 
@@ -155,25 +169,156 @@ void InitializeEquityDay()
    g_lockedProfitToday    = 0.0;
    g_dailyProfitLock      = false;
    g_equityProtectionHit  = false;
+   g_lastEquityStatsResetTime = TimeCurrent();
+   g_lastEquityResetSlot = GetEquityResetSlot(TimeCurrent());
 
-   Print("EQUITY DAY INIT | Day=", g_equityDay,
-         " StartBalance=$", DoubleToString(g_dayStartBalance,2),
-         " StartEquity=$", DoubleToString(g_dayStartEquity,2),
-         " Base=$", DoubleToString(g_baseBalance,2),
-         " LossStopEquity=$", DoubleToString(g_lossStopEquityLevel,2),
-         " ProfitTargetEquity=$", DoubleToString(g_profitTargetEquity,2),
-         " TargetProfit=$", DoubleToString(g_dailyProfitTarget,2));
+   if(InpResetTradingCycleWithEquity)
+      ResetTradingCycleState();
+
+   Print("EQUITY STATS INIT/RESET | Cycle=", g_equityCycleNumber,
+         " | ResetTime=", TimeToString(g_lastEquityStatsResetTime, TIME_DATE|TIME_SECONDS),
+         " | StartBalance=$", DoubleToString(g_dayStartBalance,2),
+         " | StartEquity=$", DoubleToString(g_dayStartEquity,2),
+         " | Base=$", DoubleToString(g_baseBalance,2),
+         " | LossStopEquity=$", DoubleToString(g_lossStopEquityLevel,2),
+         " | ProfitTargetEquity=$", DoubleToString(g_profitTargetEquity,2),
+         " | TargetProfit=$", DoubleToString(g_dailyProfitTarget,2));
 }
+
+//+------------------------------------------------------------------+
+void ResetTradingCycleState()
+{
+   g_activeSARDirection  = 0;
+   g_lastSARDotDirection = 0;
+   g_earlyDirection      = 0;
+   g_sarPausedByEarly    = false;
+   g_firstSARLocked      = false;
+   g_flatMode            = false;
+   g_lastOrderTime       = 0;
+
+   Print("TRADING CYCLE RESET | Waiting for fresh SAR direction after equity stats reset.");
+}
+
+//+------------------------------------------------------------------+
+int GetEquityResetSlot(datetime t)
+{
+   return(TimeYear(t) * 100000 + TimeDayOfYear(t) * 100 + TimeHour(t));
+}
+
+//+------------------------------------------------------------------+
+bool IsConfiguredEquityResetHour(int hourValue)
+{
+   string parts[];
+   int total = StringSplit(InpEquityResetHourList, ',', parts);
+
+   for(int i = 0; i < total; i++)
+   {
+      int h = (int)StrToInteger(parts[i]);
+      if(h < 0)  h = 0;
+      if(h > 23) h = 23;
+
+      if(h == hourValue)
+         return(true);
+   }
+
+   return(false);
+}
+
 //+------------------------------------------------------------------+
 void ResetEquityDayIfNewDay()
 {
-   int today = TimeDay(TimeCurrent());
-   if(today != g_equityDay)
+   datetime now = TimeCurrent();
+   int today = TimeDay(now);
+
+   bool resetNow = false;
+   string resetReason = "";
+
+   if(InpResetEquityStatsEvery6Hours)
    {
+      if(InpUseFixedEquityResetHours)
+      {
+         int currentSlot = GetEquityResetSlot(now);
+
+         // Reset only once during configured server hours: 1, 7, 13, 19 by default.
+         if(IsConfiguredEquityResetHour(TimeHour(now)) && currentSlot != g_lastEquityResetSlot)
+         {
+            resetNow = true;
+            resetReason = "FIXED EQUITY RESET HOUR";
+         }
+      }
+      else
+      {
+         int resetSeconds = MathMax(1, InpEquityResetHours) * 3600;
+         if(g_lastEquityStatsResetTime <= 0 || now - g_lastEquityStatsResetTime >= resetSeconds)
+         {
+            resetNow = true;
+            resetReason = "ROLLING EQUITY RESET";
+         }
+      }
+   }
+
+   // If fixed reset hours are enabled, 01:00 handles the new-day reset.
+   // If fixed hours are disabled, keep the old daily reset behavior.
+   if(!InpUseFixedEquityResetHours && today != g_equityDay)
+   {
+      resetNow = true;
+      resetReason = "NEW DAY";
+   }
+
+   if(resetNow)
+   {
+      g_equityCycleNumber++;
       InitializeEquityDay();
-      Print("NEW DAY | Equity protection/profit lock reset. Trading enabled.");
+
+      Print(resetReason, " | Equity statistics reset from AccountBalance(). Trading enabled. Hours=", InpEquityResetHourList);
    }
 }
+
+//+------------------------------------------------------------------+
+int GetSecondsUntilNextEquityReset()
+{
+   if(!InpResetEquityStatsEvery6Hours || g_lastEquityStatsResetTime <= 0)
+      return(0);
+
+   datetime now = TimeCurrent();
+
+   if(InpUseFixedEquityResetHours)
+   {
+      datetime hourStart = now - (TimeMinute(now) * 60) - TimeSeconds(now);
+
+      for(int i = 0; i <= 48; i++)
+      {
+         datetime candidate = hourStart + (i * 3600);
+
+         if(candidate <= now)
+            continue;
+
+         if(IsConfiguredEquityResetHour(TimeHour(candidate)))
+            return((int)(candidate - now));
+      }
+
+      return(0);
+   }
+
+   int resetSeconds = MathMax(1, InpEquityResetHours) * 3600;
+   int elapsed = (int)(now - g_lastEquityStatsResetTime);
+   int left = resetSeconds - elapsed;
+
+   if(left < 0)
+      left = 0;
+
+   return(left);
+}
+
+//+------------------------------------------------------------------+
+string FormatSecondsToHHMM(int totalSeconds)
+{
+   int hours = totalSeconds / 3600;
+   int mins  = (totalSeconds % 3600) / 60;
+
+   return(IntegerToString(hours) + "h " + IntegerToString(mins) + "m");
+}
+
 //+------------------------------------------------------------------+
 double GetTodayProfitFromBase()
 {
@@ -286,8 +431,9 @@ void OnTick()
       return;
    }
 
-   // Draw/update SAR dots on every tick so they do not disappear when chart moves.
+   // Draw/update SAR dots and SAR direction arrows on every tick so they do not disappear when chart moves.
    DrawSARDots();
+   // SAR bar arrows disabled: only early trend arrows are displayed
 
    bool isNewBar = (Time[0] != g_lastBarTime);
    if(isNewBar)
@@ -295,12 +441,24 @@ void OnTick()
 
    // 1) Lock first SAR direction from current SAR dot side.
    int sarDotDirection = GetSARDotDirection(1);
+
+   // Draw SAR signal arrow for every closed bar.
+   // This is separate from SAR flip arrows; it shows the current SAR direction on each M1/current TF bar.
+   if(InpDrawSAREveryBarArrows && isNewBar && sarDotDirection != 0 && Time[1] != g_lastSAREveryBarTime)
+   {
+      DrawSignalArrow("SAR_BAR",
+                      sarDotDirection,
+                      Time[1],
+                      sarDotDirection == 1 ? Low[1] : High[1],
+                      false);
+      g_lastSAREveryBarTime = Time[1];
+   }
+
    if(!g_firstSARLocked && sarDotDirection != 0)
    {
       g_firstSARLocked      = true;
       g_activeSARDirection  = sarDotDirection;
       g_lastSARDotDirection = sarDotDirection;
-      DrawSignalArrow("FIRST_SAR", g_activeSARDirection, Time[1], g_activeSARDirection == 1 ? Low[1] : High[1], false);
       Print("FIRST SAR LOCKED | Direction=", DirectionText(g_activeSARDirection));
    }
 
@@ -316,8 +474,6 @@ void OnTick()
       Print("SAR CHANGED | New SAR=", DirectionText(sarFlip), " -> closing opposite orders");
       CloseOppositeOrders(sarFlip, "SAR changed");
 
-      if(InpDrawSARArrows && isNewBar)
-         DrawSignalArrow("SAR_FLIP", sarFlip, Time[1], sarFlip == 1 ? Low[1] : High[1], false);
    }
 
    if(g_activeSARDirection == 0)
@@ -768,6 +924,25 @@ void CloseOrdersByType(int type, string reason)
       }
    }
 }
+
+//+------------------------------------------------------------------+
+void DeleteNonEarlySignalArrows()
+{
+   // Remove old SAR/FIRST/SAR_BAR arrows from previous versions.
+   // Keeps EARLY arrows, SAR dots, flat dots, and dashboard objects.
+for(int i = ObjectsTotal(0, -1, -1) - 1; i >= 0; i--)
+   {
+      string name = ObjectName(0, i);
+
+      if(StringFind(name, OBJ_PREFIX + "FIRST_SAR_") == 0 ||
+         StringFind(name, OBJ_PREFIX + "SAR_FLIP_")  == 0 ||
+         StringFind(name, OBJ_PREFIX + "SAR_BAR_")   == 0)
+      {
+         ObjectDelete(0, name);
+      }
+   }
+}
+
 //+------------------------------------------------------------------+
 void DrawSARDots()
 {
@@ -820,6 +995,38 @@ void DrawSARDots()
    }
 
    ChartRedraw(0);
+}
+
+//+------------------------------------------------------------------+
+void DrawSAREveryBarArrowsHistory()
+{
+   if(!InpDrawSAREveryBarArrows)
+      return;
+
+   int lookback = MathMin(InpSAREveryBarLookback, Bars - 2);
+   if(lookback <= 1)
+      return;
+
+   for(int i = 1; i <= lookback; i++)
+   {
+      int direction = GetSARDotDirection(i);
+      if(direction == 0)
+         continue;
+
+      double price = direction == 1 ? Low[i] : High[i];
+      string name = OBJ_PREFIX + "SAR_BAR_" + IntegerToString((int)Time[i]) + "_" + IntegerToString(direction);
+
+      if(ObjectFind(0, name) >= 0)
+         continue;
+
+      ObjectCreate(0, name, OBJ_ARROW, 0, Time[i], price);
+      ObjectSetInteger(0, name, OBJPROP_ARROWCODE, direction == 1 ? 233 : 234);
+      ObjectSetInteger(0, name, OBJPROP_COLOR, direction == 1 ? InpBuyColor : InpSellColor);
+      ObjectSetInteger(0, name, OBJPROP_WIDTH, 1);
+      ObjectSetInteger(0, name, OBJPROP_BACK, false);
+      ObjectSetInteger(0, name, OBJPROP_SELECTABLE, false);
+      ObjectSetInteger(0, name, OBJPROP_HIDDEN, true);
+   }
 }
 
 //+------------------------------------------------------------------+
@@ -906,13 +1113,21 @@ void DrawDashboard(string status)
       220,
       20,
       340,
-      400,
+      450,
       clrBlack
    );
 
    g_dashRow=0;
 
    DashRow("DXB SAR EA",status,clrYellow);
+
+   Print("DASHBOARD UPDATE | Status=", status,
+         " | SAR=", DirectionText(g_activeSARDirection),
+         " | Early=", DirectionText(g_earlyDirection),
+         " | SAR Paused=", (g_sarPausedByEarly ? "YES" : "NO"),
+         " | Flat Mode=", (g_flatMode ? "YES" : "NO"),
+         " | EquityCycle=#", IntegerToString(g_equityCycleNumber),
+         " | NextReset=", FormatSecondsToHHMM(GetSecondsUntilNextEquityReset()));
 
    DashRow("--------------------------------","",clrGray);
 
@@ -985,6 +1200,18 @@ void DrawDashboard(string status)
            "/"+
            IntegerToString(DXB_HARD_MAX_OPEN_ORDERS),
            clrWhite);
+
+   DashRow("Equity Cycle",
+           "#"+IntegerToString(g_equityCycleNumber),
+           clrAqua);
+
+   DashRow("Next Reset",
+           FormatSecondsToHHMM(GetSecondsUntilNextEquityReset()),
+           clrAqua);
+
+   DashRow("Early Arrows",
+           InpDrawEarlyArrows ? "ON" : "OFF",
+           InpDrawEarlyArrows ? clrLime : clrRed);
 
    DashRow("Lot Size",
            DoubleToString(InpFixedLot,2),
