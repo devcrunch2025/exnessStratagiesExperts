@@ -70,6 +70,12 @@ bool   InpOneOrderPerBar          = false;
 int    InpOrderCooldownSeconds    = 0;       // 0 = disabled
 double InpMinPriceGap             = 100.00;    // raw price gap, 0 = disabled
 
+// No-trading hours: block NEW normal SAR orders only. Close/profit/protection/recovery management still runs.
+bool   InpUseNoNewOrderHours      = true;
+string InpNoNewOrderHourList      = "13,14,15,16,17,18"; // server-time hours to block new orders
+
+//profit booking hours are 4,5,6,7,8
+
 // Big candle pause protection
 bool   InpUseBigCandlePause       = true;     // pause new orders after very large candle
 double InpBigCandleRawDifference  = 300;    // raw BTCUSD price difference: High[1]-Low[1]
@@ -305,6 +311,44 @@ bool IsConfiguredEquityResetHour(int hourValue)
    }
 
    return(false);
+}
+
+//+------------------------------------------------------------------+
+bool IsConfiguredNoNewOrderHour(int hourValue)
+{
+   string parts[];
+   int total = StringSplit(InpNoNewOrderHourList, ',', parts);
+
+   for(int i = 0; i < total; i++)
+   {
+      int h = (int)StrToInteger(parts[i]);
+      if(h < 0)  h = 0;
+      if(h > 23) h = 23;
+
+      if(h == hourValue)
+         return(true);
+   }
+
+   return(false);
+}
+
+//+------------------------------------------------------------------+
+bool IsNoNewOrderHour()
+{
+   if(!InpUseNoNewOrderHours)
+      return(false);
+
+   return(IsConfiguredNoNewOrderHour(TimeHour(TimeCurrent())));
+}
+
+//+------------------------------------------------------------------+
+string NoNewOrderHoursStatusText()
+{
+   if(!InpUseNoNewOrderHours)
+      return("OFF");
+
+   string status = IsNoNewOrderHour() ? "BLOCK NOW" : "ALLOW";
+   return(status + " | " + InpNoNewOrderHourList);
 }
 
 //+------------------------------------------------------------------+
@@ -1074,6 +1118,14 @@ bool ProcessNewOrderCreationLast(bool isNewBar, string &status)
       return(false);
    }
 
+   // No-trading hours block ONLY new normal SAR orders.
+   // Close management, equity protection, basket TP/SL, SAR flip close and recovery management still run.
+   if(IsNoNewOrderHour())
+   {
+      status = "NO NEW ORDERS HOUR - " + InpNoNewOrderHourList;
+      return(false);
+   }
+
    // Big candle pause blocks ONLY new orders. Close/profit/protection logic still runs first.
    if(IsBigCandlePauseActive())
    {
@@ -1837,7 +1889,7 @@ void DrawDashboard(string status)
       300,
       20,
       350,
-      650,
+      680,
       clrBlack
    );
 
@@ -1964,6 +2016,10 @@ void DrawDashboard(string status)
    DashRow("Next Reset",
            FormatSecondsToHHMM(GetSecondsUntilNextEquityReset()),
            clrAqua);
+
+   DashRow("No New Hours",
+           NoNewOrderHoursStatusText(),
+           IsNoNewOrderHour() ? clrOrangeRed : clrLime);
 
    DashRow("Early Arrows",
            InpDrawEarlyArrows ? "ON" : "OFF",
