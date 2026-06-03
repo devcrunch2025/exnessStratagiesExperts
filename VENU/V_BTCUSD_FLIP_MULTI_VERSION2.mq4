@@ -41,6 +41,14 @@ bool   InpUseFixedEquityResetHours    = true;   // true = reset only at configur
 string InpEquityResetHourList         = "1,7,13,19"; // server-time hours to reset equity base
 bool   InpResetTradingCycleWithEquity = true;   // reset SAR/early/flat cycle when equity stats reset
 
+// Notifications
+bool   InpSendPushNotifications       = true;    // MT4 mobile push notification
+bool   InpSendTerminalAlerts          = true;    // desktop popup alert
+bool   InpNotifyOnProfitLock          = true;    // notify when trading stops after profit target
+bool   InpNotifyOnEquityStop          = true;    // notify when trading stops after equity/loss protection
+bool   InpNotifyOnEquityRestart       = true;    // notify when trading restarts after reset hour
+bool   InpNotifyOnEAStart             = true;    // notify when EA is loaded
+
 #define DXB_HARD_MAX_OPEN_ORDERS 1   // absolute safety limit before every OrderSend
 
 // Continuous order controls
@@ -115,6 +123,22 @@ bool     g_equityProtectionHit  = false;
 datetime g_lastEquityStatsResetTime = 0;
 int      g_equityCycleNumber    = 1;
 int      g_lastEquityResetSlot  = -1;  // prevents repeated reset during the same reset hour
+bool     g_notifyProfitLockSent = false;
+bool     g_notifyEquityStopSent = false;
+
+//+------------------------------------------------------------------+
+void SendEAAlert(string eventTitle, string details)
+{
+   string msg = InpEAName + " | " + Symbol() + " | " + eventTitle + " | " + details;
+
+   Print("NOTIFICATION | ", msg);
+
+   // if(InpSendTerminalAlerts)
+   //    Alert(msg);
+
+   if(InpSendPushNotifications)
+      SendNotification(msg);
+}
 
 //+------------------------------------------------------------------+
 int OnInit()
@@ -129,6 +153,14 @@ int OnInit()
          " | LossStopEquity=$", DoubleToString(g_lossStopEquityLevel,2),
          " | ProfitTargetEquity=$", DoubleToString(g_profitTargetEquity,2),
          " | TargetProfit=$", DoubleToString(g_dailyProfitTarget,2));
+
+   if(InpNotifyOnEAStart)
+   {
+      SendEAAlert("EA STARTED",
+                  "Base=$" + DoubleToString(g_baseBalance,2) +
+                  " | Target=$" + DoubleToString(g_profitTargetEquity,2) +
+                  " | LossStop=$" + DoubleToString(g_lossStopEquityLevel,2));
+   }
 
    return(INIT_SUCCEEDED);
 }
@@ -169,6 +201,8 @@ void InitializeEquityDay()
    g_lockedProfitToday    = 0.0;
    g_dailyProfitLock      = false;
    g_equityProtectionHit  = false;
+   g_notifyProfitLockSent = false;
+   g_notifyEquityStopSent = false;
    g_lastEquityStatsResetTime = TimeCurrent();
    g_lastEquityResetSlot = GetEquityResetSlot(TimeCurrent());
 
@@ -271,6 +305,15 @@ void ResetEquityDayIfNewDay()
       InitializeEquityDay();
 
       Print(resetReason, " | Equity statistics reset from AccountBalance(). Trading enabled. Hours=", InpEquityResetHourList);
+
+      if(InpNotifyOnEquityRestart)
+      {
+         SendEAAlert("TRADING RESTARTED",
+                     resetReason +
+                     " | NewBase=$" + DoubleToString(g_baseBalance,2) +
+                     " | Target=$" + DoubleToString(g_profitTargetEquity,2) +
+                     " | LossStop=$" + DoubleToString(g_lossStopEquityLevel,2));
+      }
    }
 }
 
@@ -342,6 +385,15 @@ bool CheckEquityConditions()
             " Base=$", DoubleToString(g_baseBalance,2),
             " LossStopEquity=$", DoubleToString(g_lossStopEquityLevel,2));
 
+      if(InpNotifyOnEquityStop && !g_notifyEquityStopSent)
+      {
+         g_notifyEquityStopSent = true;
+         SendEAAlert("TRADING STOPPED - EQUITY LOSS",
+                     "Equity=$" + DoubleToString(AccountEquity(),2) +
+                     " | Base=$" + DoubleToString(g_baseBalance,2) +
+                     " | LossStop=$" + DoubleToString(g_lossStopEquityLevel,2));
+      }
+
       return(true);
    }
 
@@ -365,6 +417,16 @@ bool CheckEquityConditions()
                " LossStopEquity=$", DoubleToString(g_lossStopEquityLevel,2),
                " TargetEquity=$", DoubleToString(g_profitTargetEquity,2),
                " | Trading paused until next day.");
+
+         if(InpNotifyOnProfitLock && !g_notifyProfitLockSent)
+         {
+            g_notifyProfitLockSent = true;
+            SendEAAlert("TRADING STOPPED - PROFIT TARGET",
+                        "Equity=$" + DoubleToString(AccountEquity(),2) +
+                        " | Base=$" + DoubleToString(g_baseBalance,2) +
+                        " | Profit=$" + DoubleToString(profitFromBase,2) +
+                        " | Target=$" + DoubleToString(g_dailyProfitTarget,2));
+         }
       }
 
       if(g_dailyProfitLock && InpPauseAfterProfitTarget)
@@ -1212,6 +1274,10 @@ void DrawDashboard(string status)
    DashRow("Early Arrows",
            InpDrawEarlyArrows ? "ON" : "OFF",
            InpDrawEarlyArrows ? clrLime : clrRed);
+
+   DashRow("Notifications",
+           InpSendPushNotifications ? "PUSH ON" : "PUSH OFF",
+           InpSendPushNotifications ? clrLime : clrRed);
 
    DashRow("Lot Size",
            DoubleToString(InpFixedLot,2),
