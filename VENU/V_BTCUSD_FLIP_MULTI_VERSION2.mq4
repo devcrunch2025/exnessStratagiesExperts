@@ -15,7 +15,7 @@ int    InpMaxOrders               = 1;     // display only; hard max is 2
 #define DXB_HARD_MAX_OPEN_ORDERS 1   // absolute safety limit before every OrderSend
 
 double InpBasketProfitUSD         = 1.00;
-double InpBasketStopLossUSD       = 3.00;   // basket stop loss in USD, 0 = disabled
+double InpBasketStopLossUSD       = 5.00;   // basket stop loss in USD, 0 = disabled
 bool   InpOpenRecoveryAfterClose  = true;   // open recovery order after SL/SAR flip/early reverse close
 double InpRecoveryProfitUSD       = 0.50;   // close recovery order when this USD profit is reached
 bool   InpRecoveryAfterSLReverse  = true;   // true: after basket SL, open opposite direction
@@ -57,7 +57,7 @@ bool   InpNotifyOnEAStart             = true;    // notify when EA is loaded
 
 
 // Continuous order controls
-bool   InpOneOrderPerBar          = true;
+bool   InpOneOrderPerBar          = false;
 int    InpOrderCooldownSeconds    = 0;       // 0 = disabled
 double InpMinPriceGap             = 100.00;    // raw price gap, 0 = disabled
 
@@ -677,24 +677,33 @@ bool OpenRecoveryOrder(int direction, string sourceReason)
 void ProcessSARFlipStateAndClose()
 {
    int sarFlip = GetSARFlipSignal();
+
    if(sarFlip == 0 || sarFlip == g_activeSARDirection)
       return;
 
+   int oldDirection = g_activeSARDirection;
+
+   // 1) Close old SAR direction orders first
+    if(oldDirection != 0)
+
+   //  if(oldDirection ==1)
+      CloseOrdersByDirection(-1, "SAR signal changed");
+      // else if(oldDirection == -1)
+      CloseOrdersByDirection(1, "SAR signal changed");
+
+
+   // 2) Update SAR direction
    g_activeSARDirection  = sarFlip;
    g_lastSARDotDirection = sarFlip;
    g_sarPausedByEarly    = false;
    g_earlyDirection      = 0;
 
+   // 3) Start confirmation only for next new order
    StartSARFlipConfirmation(sarFlip);
 
-   Print("SAR CHANGED | New SAR=", DirectionText(sarFlip),
-         " -> closing opposite orders and waiting confirmation");
-
-   // SAR flip close is order-management and must run before any new-order gate.
-   CloseOppositeOrders(sarFlip, "SAR changed");
-
-   // After reverse/SAR trend close, immediately open recovery order in new SAR direction.
-   OpenRecoveryOrder(sarFlip, "SAR reverse trend close");
+   Print("SAR CHANGED | Old=", DirectionText(oldDirection),
+         " New=", DirectionText(sarFlip),
+         " | Old orders closed");
 }
 
 //+------------------------------------------------------------------+
@@ -901,11 +910,11 @@ bool ProcessNewOrderCreationLast(bool isNewBar, string &status)
       return(false);
    }
 
-   if(InpOneOrderPerBar && !isNewBar)
-   {
-      status = "Waiting new bar";
-      return(false);
-   }
+   // if(InpOneOrderPerBar && !isNewBar)
+   // {
+   //    status = "Waiting new bar";
+   //    return(false);
+   // }
 
    if(!CanOpenNewOrder(g_activeSARDirection))
    {
