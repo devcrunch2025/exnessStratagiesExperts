@@ -12,7 +12,13 @@ string InpEAName                  = "DXB SAR Early Trend Cycle EA";
 int    InpMagicNumber             = 989899;
 double InpFixedLot                = 0.01;
 int    InpMaxOrders               = 1;     // display only; hard max is 2
+#define DXB_HARD_MAX_OPEN_ORDERS 1   // absolute safety limit before every OrderSend
+
 double InpBasketProfitUSD         = 1.00;
+double InpBasketStopLossUSD       = 3.00;   // basket stop loss in USD, 0 = disabled
+bool   InpOpenRecoveryAfterClose  = true;   // open recovery order after SL/SAR flip/early reverse close
+double InpRecoveryProfitUSD       = 0.50;   // close recovery order when this USD profit is reached
+bool   InpRecoveryAfterSLReverse  = true;   // true: after basket SL, open opposite direction
 int    InpStopLossPoints          = 0;       // 0 = no hard SL
 int    InpSlippage                = 30;
 int    InpMaxSpreadPoints         = 3000;
@@ -49,25 +55,37 @@ bool   InpNotifyOnEquityStop          = true;    // notify when trading stops af
 bool   InpNotifyOnEquityRestart       = true;    // notify when trading restarts after reset hour
 bool   InpNotifyOnEAStart             = true;    // notify when EA is loaded
 
-#define DXB_HARD_MAX_OPEN_ORDERS 1   // absolute safety limit before every OrderSend
 
 // Continuous order controls
 bool   InpOneOrderPerBar          = true;
 int    InpOrderCooldownSeconds    = 0;       // 0 = disabled
-double InpMinPriceGap             = 0.00;    // raw price gap, 0 = disabled
+double InpMinPriceGap             = 100.00;    // raw price gap, 0 = disabled
 
 // SAR settings
 double InpSARPeriod               = 1.2;
 int    InpSARStepSize             = 25;
 int    InpSARAcceleration         = 9;
 
+// SAR flip confirmation filters
+// 1) EMA9/EMA21 trend filter
+// 2) Wait for one fully closed candle after SAR flip
+// 3) Confirm raw price difference from SAR flip price
+bool   InpUseSARFlipConfirmations = true;
+bool   InpUseSAREMAConfirm        = true;
+bool   InpUseSARClosedCandleConfirm = true;
+bool   InpUseSARPriceDiffConfirm  = true;
+double InpSARConfirmPriceDiff     = 50.0;   // raw price diff for BTCUSD, not points
+
 // Early trend settings
 bool   InpUseEarlyTrend           = true;
 int    InpFastEMA                 = 9;
 int    InpSlowEMA                 = 21;
-int    InpEarlyLookbackCandles    = 2;
+int    InpEarlyLookbackCandles    = 10;
 double InpMinEarlyBodyMove        = 0.00;    // raw price diff, 0 = disabled
 bool   InpCloseOnEarlyReverse     = true;
+// If true, early reverse closes all market orders on this symbol in the active SAR direction,
+// even if magic number is different. This prevents old EA/manual magic mismatch from blocking close.
+bool   InpEarlyCloseAnyMagicOrders = true;
 bool   InpDrawEarlyArrows         = true;
 
 // Flat mode detection before early trend
@@ -109,6 +127,12 @@ datetime g_lastFlatDotTime      = 0;
 string   OBJ_PREFIX             = "DXB_SAR_CYCLE_";
 int      dotColor               = 0;       // 1 SAR below price, -1 SAR above price
 bool     g_flatMode             = false;   // true when price is compressed/sideways
+
+// SAR flip pending confirmation state
+int      g_pendingSARConfirmDirection = 0;  // 1 BUY, -1 SELL, 0 none
+double   g_pendingSARConfirmPrice     = 0.0;
+datetime g_pendingSARConfirmTime      = 0;
+datetime g_pendingSARConfirmBarTime   = 0;
 
 int      g_equityDay            = -1;
 double   g_dayStartBalance      = 0.0;
@@ -229,6 +253,7 @@ void ResetTradingCycleState()
    g_firstSARLocked      = false;
    g_flatMode            = false;
    g_lastOrderTime       = 0;
+   ResetSARFlipConfirmation();
 
    Print("TRADING CYCLE RESET | Waiting for fresh SAR direction after equity stats reset.");
 }
@@ -468,44 +493,10 @@ void CloseAllEAOrders(string reason)
    }
 }
 //+------------------------------------------------------------------+
-void OnTick()
+void UpdateBarAndSARVisualState(bool isNewBar)
 {
-   RefreshRates();
-
-   if(CheckEquityConditions())
-   {
-      if(g_dailyProfitLock)
-         DrawDashboard("DAILY PROFIT LOCK - PAUSED");
-      else
-         DrawDashboard("EQUITY PROTECTION - PAUSED");
-      return;
-   }
-
-   if(!IsTradeAllowed())
-   {
-      DrawDashboard("Trading not allowed");
-      return;
-   }
-
-   if(MarketInfo(Symbol(), MODE_SPREAD) > InpMaxSpreadPoints)
-   {
-      DrawDashboard("Spread blocked");
-      return;
-   }
-
-   // Draw/update SAR dots and SAR direction arrows on every tick so they do not disappear when chart moves.
-   DrawSARDots();
-   // SAR bar arrows disabled: only early trend arrows are displayed
-
-   bool isNewBar = (Time[0] != g_lastBarTime);
-   if(isNewBar)
-      g_lastBarTime = Time[0];
-
-   // 1) Lock first SAR direction from current SAR dot side.
    int sarDotDirection = GetSARDotDirection(1);
 
-   // Draw SAR signal arrow for every closed bar.
-   // This is separate from SAR flip arrows; it shows the current SAR direction on each M1/current TF bar.
    if(InpDrawSAREveryBarArrows && isNewBar && sarDotDirection != 0 && Time[1] != g_lastSAREveryBarTime)
    {
       DrawSignalArrow("SAR_BAR",
@@ -523,40 +514,361 @@ void OnTick()
       g_lastSARDotDirection = sarDotDirection;
       Print("FIRST SAR LOCKED | Direction=", DirectionText(g_activeSARDirection));
    }
+}
 
-   // 2) Detect real SAR flip. Close opposite orders and reset cycle.
-   int sarFlip = GetSARFlipSignal();
-   if(sarFlip != 0 && sarFlip != g_activeSARDirection)
+//+------------------------------------------------------------------+
+bool IsRecoveryOrder()
+{
+   string c = OrderComment();
+   return(StringFind(c, "RECOVERY_TP_0.50") >= 0 ||
+          StringFind(c, "RECOVERY") >= 0);
+}
+
+//+------------------------------------------------------------------+
+int CountRecoveryOrders()
+{
+   int total = 0;
+
+   for(int i = OrdersTotal() - 1; i >= 0; i--)
    {
-      g_activeSARDirection = sarFlip;
-      g_lastSARDotDirection = sarFlip;
-      g_sarPausedByEarly = false;
-      g_earlyDirection = 0;
+      if(!OrderSelect(i, SELECT_BY_POS, MODE_TRADES))
+         continue;
 
-      Print("SAR CHANGED | New SAR=", DirectionText(sarFlip), " -> closing opposite orders");
-      CloseOppositeOrders(sarFlip, "SAR changed");
+      if(OrderSymbol() != Symbol())
+         continue;
 
+      if(OrderMagicNumber() != InpMagicNumber)
+         continue;
+
+      if(OrderType() != OP_BUY && OrderType() != OP_SELL)
+         continue;
+
+      if(IsRecoveryOrder())
+         total++;
    }
 
+   return(total);
+}
+
+//+------------------------------------------------------------------+
+void CloseRecoveryOrdersAtProfit()
+{
+   RefreshRates();
+
+   for(int i = OrdersTotal() - 1; i >= 0; i--)
+   {
+      if(!OrderSelect(i, SELECT_BY_POS, MODE_TRADES))
+         continue;
+
+      if(OrderSymbol() != Symbol())
+         continue;
+
+      if(OrderMagicNumber() != InpMagicNumber)
+         continue;
+
+      if(OrderType() != OP_BUY && OrderType() != OP_SELL)
+         continue;
+
+      if(!IsRecoveryOrder())
+         continue;
+
+      double profit = OrderProfit() + OrderSwap() + OrderCommission();
+
+      if(profit < InpRecoveryProfitUSD)
+         continue;
+
+      int type = OrderType();
+      double closePrice = (type == OP_BUY) ? Bid : Ask;
+
+      bool ok = OrderClose(OrderTicket(), OrderLots(), closePrice, InpSlippage, clrGold);
+
+      if(ok)
+      {
+         Print("RECOVERY PROFIT CLOSED | Ticket=", OrderTicket(),
+               " | Profit=$", DoubleToString(profit, 2),
+               " | Target=$", DoubleToString(InpRecoveryProfitUSD, 2));
+      }
+      else
+      {
+         int err = GetLastError();
+         Print("RECOVERY PROFIT CLOSE FAILED | Ticket=", OrderTicket(),
+               " | Profit=$", DoubleToString(profit, 2),
+               " | Error=", err);
+         ResetLastError();
+      }
+   }
+}
+
+//+------------------------------------------------------------------+
+bool OpenRecoveryOrder(int direction, string sourceReason)
+{
+   if(!InpOpenRecoveryAfterClose)
+      return(false);
+
+   if(direction == 0)
+      return(false);
+
+   RefreshRates();
+
+   if(CheckEquityConditions())
+   {
+      Print("RECOVERY ORDER BLOCKED | Equity/profit lock active. Source=", sourceReason);
+      return(false);
+   }
+
+   // Recovery is independent, but only ONE recovery order is allowed at a time.
+   // It is NOT blocked by normal order count, normal price gap, or normal order creation gates.
+   if(CountRecoveryOrders() >= 1)
+   {
+      Print("RECOVERY ORDER BLOCKED | One recovery order already active. Source=", sourceReason);
+      return(false);
+   }
+
+   int type = direction == 1 ? OP_BUY : OP_SELL;
+   double price = direction == 1 ? Ask : Bid;
+   double sl = 0;
+
+   if(InpStopLossPoints > 0)
+   {
+      if(direction == 1)
+         sl = NormalizeDouble(price - InpStopLossPoints * Point, Digits);
+      else
+         sl = NormalizeDouble(price + InpStopLossPoints * Point, Digits);
+   }
+
+   double lot = NormalizeLot(InpFixedLot);
+
+   string comment = "RECOVERY_TP_0.50_" + DirectionText(direction);
+
+   int ticket = OrderSend(Symbol(),
+                          type,
+                          lot,
+                          price,
+                          InpSlippage,
+                          sl,
+                          0,
+                          comment,
+                          InpMagicNumber,
+                          0,
+                          direction == 1 ? InpBuyColor : InpSellColor);
+
+   if(ticket < 0)
+   {
+      int err = GetLastError();
+      Print("RECOVERY ORDER SEND FAILED | Direction=", DirectionText(direction),
+            " | Source=", sourceReason,
+            " | Error=", err);
+      ResetLastError();
+      return(false);
+   }
+
+   g_lastOrderTime = TimeCurrent();
+
+   Print("RECOVERY ORDER OPENED | Ticket=", ticket,
+         " | Direction=", DirectionText(direction),
+         " | TargetProfit=$", DoubleToString(InpRecoveryProfitUSD, 2),
+         " | Comment=", comment,
+         " | Source=", sourceReason);
+
+   return(true);
+}
+
+//+------------------------------------------------------------------+
+void ProcessSARFlipStateAndClose()
+{
+   int sarFlip = GetSARFlipSignal();
+   if(sarFlip == 0 || sarFlip == g_activeSARDirection)
+      return;
+
+   g_activeSARDirection  = sarFlip;
+   g_lastSARDotDirection = sarFlip;
+   g_sarPausedByEarly    = false;
+   g_earlyDirection      = 0;
+
+   StartSARFlipConfirmation(sarFlip);
+
+   Print("SAR CHANGED | New SAR=", DirectionText(sarFlip),
+         " -> closing opposite orders and waiting confirmation");
+
+   // SAR flip close is order-management and must run before any new-order gate.
+   CloseOppositeOrders(sarFlip, "SAR changed");
+
+   // After reverse/SAR trend close, immediately open recovery order in new SAR direction.
+   OpenRecoveryOrder(sarFlip, "SAR reverse trend close");
+}
+
+//+------------------------------------------------------------------+
+void UpdateEarlyTrendVisualState(int early)
+{
+   if(early == 0)
+      return;
+
+   if(early != g_earlyDirection)
+   {
+      g_earlyDirection = early;
+
+      if(InpDrawEarlyArrows && Time[1] != g_lastEarlyArrowTime)
+      {
+         DrawSignalArrow("EARLY", early, Time[1], early == 1 ? Low[1] : High[1], true);
+         g_lastEarlyArrowTime = Time[1];
+      }
+   }
+}
+
+//+------------------------------------------------------------------+
+void CloseOrdersByDirectionAnyMagic(int direction, string reason, bool anyMagic)
+{
+   int type = direction == 1 ? OP_BUY : OP_SELL;
+   RefreshRates();
+
+   for(int i = OrdersTotal() - 1; i >= 0; i--)
+   {
+      if(!OrderSelect(i, SELECT_BY_POS, MODE_TRADES))
+         continue;
+
+      if(OrderSymbol() != Symbol())
+         continue;
+
+      if(!anyMagic && OrderMagicNumber() != InpMagicNumber)
+         continue;
+
+      if(OrderType() != type)
+         continue;
+
+      double closePrice = type == OP_BUY ? Bid : Ask;
+      bool ok = OrderClose(OrderTicket(), OrderLots(), closePrice, InpSlippage, clrWhite);
+
+      if(!ok)
+      {
+         int err = GetLastError();
+         Print("EARLY CLOSE FAILED | Ticket=", OrderTicket(),
+               " | Magic=", OrderMagicNumber(),
+               " | Reason=", reason,
+               " | Error=", err);
+         ResetLastError();
+      }
+      else
+      {
+         Print("EARLY CLOSE OK | Ticket=", OrderTicket(),
+               " | Magic=", OrderMagicNumber(),
+               " | Reason=", reason);
+      }
+   }
+}
+
+//+------------------------------------------------------------------+
+bool ProcessCloseOrdersFirst(string &status)
+{
    if(g_activeSARDirection == 0)
    {
-      DrawDashboard("Waiting for first SAR");
-      return;
+      status = "Waiting for first SAR";
+      return(false);
    }
 
-   // 3) Basket profit booking. After close, same SAR cycle continues/resumes.
+   // PRIORITY 1: Early trend reverse close.
+   // This runs before SAR confirmation, flat mode, basket TP/SL, order count, cooldown, or new-order checks.
+   if(InpUseEarlyTrend)
+   {
+      int early = DetectEarlyTrend();
+      UpdateEarlyTrendVisualState(early);
+
+      if(early != 0 && early != g_activeSARDirection)
+      {
+         if(!g_sarPausedByEarly)
+         {
+            Print("EARLY REVERSE PRIORITY CLOSE | Early=", DirectionText(early),
+                  " | ActiveSAR=", DirectionText(g_activeSARDirection),
+                  " | AnyMagic=", (InpEarlyCloseAnyMagicOrders ? "YES" : "NO"));
+         }
+
+         g_sarPausedByEarly = true;
+         ResetSARFlipConfirmation(); // pending SAR confirmation must not block early close
+
+         if(InpCloseOnEarlyReverse)
+         {
+            CloseOrdersByDirectionAnyMagic(g_activeSARDirection,
+                                           "Early reverse priority close",
+                                           InpEarlyCloseAnyMagicOrders);
+
+            // After early reverse close, open recovery order in early trend direction.
+            OpenRecoveryOrder(early, "Early reverse trend close");
+         }
+
+         status = "EARLY REVERSE CLOSED " + DirectionText(g_activeSARDirection);
+         return(true);
+      }
+
+      if(early != 0 && early == g_activeSARDirection && g_sarPausedByEarly)
+      {
+         g_sarPausedByEarly = false;
+         Print("EARLY TREND BACK TO SAR | Resume SAR orders. Direction=", DirectionText(g_activeSARDirection));
+      }
+   }
+
+   // PRIORITY 2: Basket stop loss / basket profit close.
    double activeProfit = GetBasketProfit(g_activeSARDirection);
+
+   if(InpBasketStopLossUSD > 0.0 && activeProfit <= -InpBasketStopLossUSD)
+   {
+      int oldDirection = g_activeSARDirection;
+      CloseOrdersByDirection(oldDirection,
+                             "Basket stop loss $" + DoubleToString(activeProfit, 2));
+
+      int recoveryDirection = oldDirection;
+      if(InpRecoveryAfterSLReverse)
+         recoveryDirection = -oldDirection;
+
+      OpenRecoveryOrder(recoveryDirection, "Basket stop loss close");
+
+      Print("BASKET STOP LOSS HIT | Direction=", DirectionText(oldDirection),
+            " | Loss=$", DoubleToString(activeProfit, 2),
+            " | Limit=$", DoubleToString(InpBasketStopLossUSD, 2));
+
+      status = "Basket SL hit";
+      return(true);
+   }
+
    if(activeProfit >= InpBasketProfitUSD)
    {
-      CloseOrdersByDirection(g_activeSARDirection, "Basket profit $" + DoubleToString(activeProfit, 2));
-      Print("Profit booked. Resume same SAR direction=", DirectionText(g_activeSARDirection));
-      DrawDashboard("Profit booked - resume same SAR");
-      return;
+      CloseOrdersByDirection(g_activeSARDirection,
+                             "Basket profit $" + DoubleToString(activeProfit, 2));
+
+      Print("BASKET PROFIT HIT | Direction=", DirectionText(g_activeSARDirection),
+            " | Profit=$", DoubleToString(activeProfit, 2));
+
+      status = "Basket profit booked";
+      return(true);
    }
 
-   // 4) Flat mode detection BEFORE early trend detection.
-   // Flat mode means EMA compression + small/mixed candles.
-   // During flat mode we draw circle dots and pause fresh entries until breakout/early trend appears.
+   return(false);
+}
+
+//+------------------------------------------------------------------+
+bool ProcessNewOrderCreationLast(bool isNewBar, string &status)
+{
+   if(g_activeSARDirection == 0)
+   {
+      status = "Waiting for first SAR";
+      return(false);
+   }
+
+   // Pending SAR confirmation blocks ONLY new orders. It cannot block close management.
+   if(g_pendingSARConfirmDirection != 0)
+   {
+      if(!IsSARFlipConfirmationReady())
+      {
+         status = "WAIT SAR CONFIRM " + DirectionText(g_pendingSARConfirmDirection);
+         return(false);
+      }
+
+      Print("SAR CONFIRMED | Direction=", DirectionText(g_pendingSARConfirmDirection),
+            " | FlipPrice=", DoubleToString(g_pendingSARConfirmPrice, Digits),
+            " | Close[1]=", DoubleToString(Close[1], Digits));
+
+      ResetSARFlipConfirmation();
+   }
+
+   // Flat mode blocks ONLY new orders. It cannot block close management.
    if(InpUseFlatMode)
    {
       g_flatMode = DetectFlatMode();
@@ -568,9 +880,8 @@ void OnTick()
             g_lastFlatDotTime = Time[1];
          }
 
-         // Do not open fresh orders inside compression. Existing orders are still managed above by basket TP/SAR flip.
-         DrawDashboard("FLAT MODE - WAIT BREAKOUT");
-         return;
+         status = "FLAT MODE - WAIT BREAKOUT";
+         return(false);
       }
    }
    else
@@ -578,75 +889,191 @@ void OnTick()
       g_flatMode = false;
    }
 
-   // 5) Early trend detection cycle.
-   if(InpUseEarlyTrend)
-   {
-      int early = DetectEarlyTrend();
-      if(early != 0)
-      {
-         if(early != g_earlyDirection)
-         {
-            g_earlyDirection = early;
-            if(InpDrawEarlyArrows && Time[1] != g_lastEarlyArrowTime)
-            {
-               DrawSignalArrow("EARLY", early, Time[1], early == 1 ? Low[1] : High[1], true);
-               g_lastEarlyArrowTime = Time[1];
-            }
-         }
-
-         // Early trend opposite to SAR: close SAR-side orders and pause SAR order creation.
-         if(early != g_activeSARDirection)
-         {
-            if(!g_sarPausedByEarly)
-               Print("EARLY REVERSE DETECTED | Early=", DirectionText(early), " SAR=", DirectionText(g_activeSARDirection), " -> pause SAR orders");
-
-            g_sarPausedByEarly = true;
-
-            if(InpCloseOnEarlyReverse)
-               CloseOppositeOrders(early, "Early reverse detected");
-
-            DrawDashboard("Paused by early reverse " + DirectionText(early));
-            return;
-         }
-
-         // Early trend changed back to same SAR direction: resume SAR order creation.
-         if(early == g_activeSARDirection && g_sarPausedByEarly)
-         {
-            g_sarPausedByEarly = false;
-            Print("EARLY TREND BACK TO SAR | Resume SAR orders. Direction=", DirectionText(g_activeSARDirection));
-         }
-      }
-   }
-
    if(g_sarPausedByEarly)
    {
-      DrawDashboard("Paused by early reverse");
-      return;
+      status = "Paused by early reverse";
+      return(false);
    }
 
-   // 5) Continuous order creation in active SAR direction.
-   // Hard block: never open more than 2 symbol orders.
    if(CountAllSymbolMarketOrders() >= DXB_HARD_MAX_OPEN_ORDERS)
    {
-      DrawDashboard("MAX 2 ORDERS ACTIVE - WAIT CLOSE");
-      return;
+      status = "MAX ORDERS ACTIVE - WAIT CLOSE";
+      return(false);
    }
 
    if(InpOneOrderPerBar && !isNewBar)
    {
-      DrawDashboard("Waiting new bar");
-      return;
+      status = "Waiting new bar";
+      return(false);
    }
 
    if(!CanOpenNewOrder(g_activeSARDirection))
    {
-      DrawDashboard("Order gate blocked");
+      status = "Order gate blocked";
+      return(false);
+   }
+
+   if(OpenMarketOrder(g_activeSARDirection, "SAR continuous cycle"))
+      status = "Active " + DirectionText(g_activeSARDirection);
+   else
+      status = "OrderSend failed";
+
+   return(true);
+}
+
+//+------------------------------------------------------------------+
+void OnTick()
+{
+   RefreshRates();
+
+   // Equity protection may close all EA orders and intentionally stop processing.
+   if(CheckEquityConditions())
+   {
+      if(g_dailyProfitLock)
+         DrawDashboard("DAILY PROFIT LOCK - PAUSED");
+      else
+         DrawDashboard("EQUITY PROTECTION - PAUSED");
       return;
    }
 
-   OpenMarketOrder(g_activeSARDirection, "SAR continuous cycle");
-   DrawDashboard("Active " + DirectionText(g_activeSARDirection));
+   // Recovery order profit close must run before all signal/new-order logic.
+   CloseRecoveryOrdersAtProfit();
+
+   DrawSARDots();
+
+   bool isNewBar = (Time[0] != g_lastBarTime);
+   if(isNewBar)
+      g_lastBarTime = Time[0];
+
+   string status = "RUNNING";
+
+   // SECTION 1: Signal state update. No new orders here.
+   UpdateBarAndSARVisualState(isNewBar);
+   ProcessSARFlipStateAndClose();
+
+   // SECTION 2: Close management FIRST. No new-order gate is allowed before this.
+   bool closedThisTick = ProcessCloseOrdersFirst(status);
+
+   // SECTION 3: New order creation LAST. Runs only if nothing closed this tick.
+   if(!closedThisTick)
+      ProcessNewOrderCreationLast(isNewBar, status);
+
+   DrawDashboard(status);
 }
+
+//+------------------------------------------------------------------+
+void ResetSARFlipConfirmation()
+{
+   g_pendingSARConfirmDirection = 0;
+   g_pendingSARConfirmPrice     = 0.0;
+   g_pendingSARConfirmTime      = 0;
+   g_pendingSARConfirmBarTime   = 0;
+}
+
+//+------------------------------------------------------------------+
+void StartSARFlipConfirmation(int direction)
+{
+   if(!InpUseSARFlipConfirmations)
+   {
+      ResetSARFlipConfirmation();
+      return;
+   }
+
+   g_pendingSARConfirmDirection = direction;
+   g_pendingSARConfirmPrice     = Close[1];     // raw flip reference price
+   g_pendingSARConfirmTime      = TimeCurrent();
+   g_pendingSARConfirmBarTime   = Time[1];      // SAR flip happened on this closed candle
+
+   Print("SAR CONFIRMATION STARTED | Direction=", DirectionText(direction),
+         " | FlipPrice=", DoubleToString(g_pendingSARConfirmPrice, Digits),
+         " | FlipBar=", TimeToString(g_pendingSARConfirmBarTime, TIME_DATE|TIME_SECONDS));
+}
+
+//+------------------------------------------------------------------+
+bool IsSARFlipConfirmationReady()
+{
+   if(!InpUseSARFlipConfirmations)
+      return(true);
+
+   int direction = g_pendingSARConfirmDirection;
+   if(direction == 0)
+      return(true);
+
+   if(Bars < 10)
+      return(false);
+
+   // 1) EMA9/EMA21 trend filter on the last fully closed candle.
+   if(InpUseSAREMAConfirm)
+   {
+      double emaFast = iMA(Symbol(), Period(), InpFastEMA, 0, MODE_EMA, PRICE_CLOSE, 1);
+      double emaSlow = iMA(Symbol(), Period(), InpSlowEMA, 0, MODE_EMA, PRICE_CLOSE, 1);
+
+      if(direction == 1 && emaFast <= emaSlow)
+      {
+         Print("SAR CONFIRM WAIT | EMA not BUY | EMA", InpFastEMA, "=",
+               DoubleToString(emaFast, Digits), " EMA", InpSlowEMA, "=",
+               DoubleToString(emaSlow, Digits));
+         return(false);
+      }
+
+      if(direction == -1 && emaFast >= emaSlow)
+      {
+         Print("SAR CONFIRM WAIT | EMA not SELL | EMA", InpFastEMA, "=",
+               DoubleToString(emaFast, Digits), " EMA", InpSlowEMA, "=",
+               DoubleToString(emaSlow, Digits));
+         return(false);
+      }
+   }
+
+   // 2) Wait for one new fully closed candle AFTER the SAR flip candle.
+   //    This avoids opening on the same candle that created the SAR flip.
+   if(InpUseSARClosedCandleConfirm)
+   {
+      if(Time[1] <= g_pendingSARConfirmBarTime)
+      {
+         Print("SAR CONFIRM WAIT | Waiting next closed candle after flip bar");
+         return(false);
+      }
+
+      if(direction == 1 && Close[1] <= Open[1])
+      {
+         Print("SAR CONFIRM WAIT | Last closed candle not bullish | O=",
+               DoubleToString(Open[1], Digits), " C=", DoubleToString(Close[1], Digits));
+         return(false);
+      }
+
+      if(direction == -1 && Close[1] >= Open[1])
+      {
+         Print("SAR CONFIRM WAIT | Last closed candle not bearish | O=",
+               DoubleToString(Open[1], Digits), " C=", DoubleToString(Close[1], Digits));
+         return(false);
+      }
+   }
+
+   // 3) Raw price difference confirmation from SAR flip reference price.
+   //    BUY: Close[1] must move above flip price by InpSARConfirmPriceDiff.
+   //    SELL: Close[1] must move below flip price by InpSARConfirmPriceDiff.
+   if(InpUseSARPriceDiffConfirm && InpSARConfirmPriceDiff > 0.0)
+   {
+      double diff = 0.0;
+
+      if(direction == 1)
+         diff = Close[1] - g_pendingSARConfirmPrice;
+      else
+         diff = g_pendingSARConfirmPrice - Close[1];
+
+      if(diff < InpSARConfirmPriceDiff)
+      {
+         Print("SAR CONFIRM WAIT | Price diff ",
+               DoubleToString(diff, Digits), " < required ",
+               DoubleToString(InpSARConfirmPriceDiff, Digits));
+         return(false);
+      }
+   }
+
+   return(true);
+}
+
 //+------------------------------------------------------------------+
 int GetSARFlipSignal()
 {
@@ -1197,6 +1624,14 @@ void DrawDashboard(string status)
            DirectionText(g_activeSARDirection),
            g_activeSARDirection==1 ? clrLime : clrRed);
 
+   DashRow("Pending SAR",
+           DirectionText(g_pendingSARConfirmDirection),
+           g_pendingSARConfirmDirection == 0 ? clrLime : clrOrange);
+
+   DashRow("SAR Confirm Diff",
+           DoubleToString(InpSARConfirmPriceDiff, 2),
+           clrWhite);
+
    DashRow("Early Trend",
            DirectionText(g_earlyDirection),
            clrAqua);
@@ -1246,6 +1681,22 @@ void DrawDashboard(string status)
    DashRow("Profit Target",
            "$"+DoubleToString(g_profitTargetEquity,2),
            clrLime);
+
+   DashRow("Basket TP",
+           "$"+DoubleToString(InpBasketProfitUSD,2),
+           clrLime);
+
+   DashRow("Basket SL",
+           "$"+DoubleToString(InpBasketStopLossUSD,2),
+           clrRed);
+
+   DashRow("Recovery TP",
+           "$"+DoubleToString(InpRecoveryProfitUSD,2),
+           clrGold);
+
+   DashRow("Recovery Orders",
+           IntegerToString(CountRecoveryOrders()),
+           CountRecoveryOrders() > 0 ? clrOrange : clrLime);
 
    DashRow("--------------------------------","",clrGray);
 
