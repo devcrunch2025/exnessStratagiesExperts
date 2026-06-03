@@ -47,7 +47,7 @@ bool   InpPauseAfterProfitTarget    = true;
 
 // Equity statistics reset cycle
 bool   InpResetEquityStatsEvery6Hours = true;
-int    InpEquityResetHours            = 6;      // fallback rolling reset if fixed hours are disabled
+int    InpEquityResetHours            = 3;      // fallback rolling reset if fixed hours are disabled
 bool   InpUseFixedEquityResetHours    = true;   // true = reset only at configured server hours
 string InpEquityResetHourList         = "1,7,13,19"; // server-time hours to reset equity base
 bool   InpResetTradingCycleWithEquity = true;   // reset SAR/early/flat cycle when equity stats reset
@@ -69,6 +69,12 @@ bool   InpNotifyOnEAStart             = true;    // notify when EA is loaded
 bool   InpOneOrderPerBar          = false;
 int    InpOrderCooldownSeconds    = 0;       // 0 = disabled
 double InpMinPriceGap             = 100.00;    // raw price gap, 0 = disabled
+
+// Big candle pause protection
+bool   InpUseBigCandlePause       = true;     // pause new orders after very large candle
+double InpBigCandleRawDifference  = 300;    // raw BTCUSD price difference: High[1]-Low[1]
+int    InpBigCandlePauseMinutes   = 30;       // pause duration after big candle
+bool   InpNotifyOnBigCandlePause  = true;     // push notification when big candle pause starts/ends
 
 // SAR settings
 double InpSARPeriod               = 1.2;
@@ -159,6 +165,12 @@ int      g_lastEquityResetSlot  = -1;  // prevents repeated reset during the sam
 bool     g_notifyProfitLockSent = false;
 bool     g_notifyEquityStopSent = false;
 datetime g_lastDepositBalanceOpTime = 0; // last processed OP_BALANCE deposit/withdrawal time
+bool     g_bigCandlePause          = false;
+datetime g_bigCandlePauseUntil     = 0;
+int      g_bigCandlePauseSARDirection = 0;
+datetime g_lastBigCandlePauseBarTime = 0;
+double   g_lastBigCandleMove       = 0.0;
+bool     g_notifyBigCandlePauseSent = false;
 
 //+------------------------------------------------------------------+
 void SendEAAlert(string eventTitle, string details)
@@ -265,6 +277,7 @@ void ResetTradingCycleState()
    g_flatMode            = false;
    g_lastOrderTime       = 0;
    ResetSARFlipConfirmation();
+   ResetBigCandlePauseState();
 
    Print("TRADING CYCLE RESET | Waiting for fresh SAR direction after equity stats reset.");
 }
@@ -586,6 +599,116 @@ void CloseAllEAOrders(string reason)
       }
    }
 }
+//+------------------------------------------------------------------+
+void ResetBigCandlePauseState()
+{
+   g_bigCandlePause = false;
+   g_bigCandlePauseUntil = 0;
+   g_bigCandlePauseSARDirection = 0;
+   g_lastBigCandleMove = 0.0;
+   g_notifyBigCandlePauseSent = false;
+}
+
+//+------------------------------------------------------------------+
+void CheckBigCandlePauseOnNewBar(bool isNewBar)
+{
+   if(!InpUseBigCandlePause)
+      return;
+
+   if(!isNewBar)
+      return;
+
+   if(Bars < 5)
+      return;
+
+   // Use the last fully closed candle. For BTCUSD this is raw price difference, not points.
+   datetime barTime = Time[1];
+   if(barTime == g_lastBigCandlePauseBarTime)
+      return;
+
+   double candleMove = MathAbs(High[1] - Low[1]);
+   if(candleMove < InpBigCandleRawDifference)
+      return;
+
+   g_lastBigCandlePauseBarTime = barTime;
+   g_lastBigCandleMove = candleMove;
+   g_bigCandlePause = true;
+   g_bigCandlePauseUntil = TimeCurrent() + MathMax(1, InpBigCandlePauseMinutes) * 60;
+
+   int sarDirection = g_activeSARDirection;
+   if(sarDirection == 0)
+      sarDirection = GetSARDotDirection(1);
+
+   g_bigCandlePauseSARDirection = sarDirection;
+   g_notifyBigCandlePauseSent = true;
+
+   Print("BIG CANDLE PAUSE STARTED | Move=", DoubleToString(candleMove, Digits),
+         " Required=", DoubleToString(InpBigCandleRawDifference, Digits),
+         " PauseUntil=", TimeToString(g_bigCandlePauseUntil, TIME_DATE|TIME_SECONDS),
+         " SAR=", DirectionText(g_bigCandlePauseSARDirection));
+
+   if(InpNotifyOnBigCandlePause)
+   {
+      SendEAAlert("TRADING PAUSED - BIG CANDLE",
+                  "Move=" + DoubleToString(candleMove,2) +
+                  " | Required=" + DoubleToString(InpBigCandleRawDifference,2) +
+                  " | Pause=" + IntegerToString(InpBigCandlePauseMinutes) + "m" +
+                  " | Wait SAR change from " + DirectionText(g_bigCandlePauseSARDirection));
+   }
+}
+
+//+------------------------------------------------------------------+
+bool IsBigCandlePauseActive()
+{
+   if(!InpUseBigCandlePause)
+      return(false);
+
+   if(!g_bigCandlePause)
+      return(false);
+
+   int currentSAR = g_activeSARDirection;
+   if(currentSAR == 0)
+      currentSAR = GetSARDotDirection(1);
+
+   bool timeCompleted = (TimeCurrent() >= g_bigCandlePauseUntil);
+   bool sarChanged = (currentSAR != 0 && g_bigCandlePauseSARDirection != 0 && currentSAR != g_bigCandlePauseSARDirection);
+
+   // Requirement: pause for 1 hour AND until new SAR signal changes.
+   if(timeCompleted && sarChanged)
+   {
+      Print("BIG CANDLE PAUSE RELEASED | CurrentSAR=", DirectionText(currentSAR),
+            " PreviousSAR=", DirectionText(g_bigCandlePauseSARDirection),
+            " LastMove=", DoubleToString(g_lastBigCandleMove, Digits));
+
+      if(InpNotifyOnBigCandlePause)
+      {
+         SendEAAlert("TRADING RESTARTED - BIG CANDLE PAUSE RELEASED",
+                     "CurrentSAR=" + DirectionText(currentSAR) +
+                     " | PreviousSAR=" + DirectionText(g_bigCandlePauseSARDirection) +
+                     " | LastMove=" + DoubleToString(g_lastBigCandleMove,2));
+      }
+
+      ResetBigCandlePauseState();
+      return(false);
+   }
+
+   return(true);
+}
+
+//+------------------------------------------------------------------+
+string BigCandlePauseStatusText()
+{
+   if(!g_bigCandlePause)
+      return("OFF");
+
+   int secondsLeft = (int)(g_bigCandlePauseUntil - TimeCurrent());
+   if(secondsLeft < 0)
+      secondsLeft = 0;
+
+   return("ON " + FormatSecondsToHHMM(secondsLeft) +
+          " | Wait SAR " + DirectionText(g_bigCandlePauseSARDirection) + " change");
+}
+
 //+------------------------------------------------------------------+
 void UpdateBarAndSARVisualState(bool isNewBar)
 {
@@ -951,6 +1074,13 @@ bool ProcessNewOrderCreationLast(bool isNewBar, string &status)
       return(false);
    }
 
+   // Big candle pause blocks ONLY new orders. Close/profit/protection logic still runs first.
+   if(IsBigCandlePauseActive())
+   {
+      status = "BIG CANDLE PAUSE - " + BigCandlePauseStatusText();
+      return(false);
+   }
+
    // Pending SAR confirmation blocks ONLY new orders. It cannot block close management.
    if(g_pendingSARConfirmDirection != 0)
    {
@@ -1047,6 +1177,8 @@ void OnTick()
    bool isNewBar = (Time[0] != g_lastBarTime);
    if(isNewBar)
       g_lastBarTime = Time[0];
+
+   CheckBigCandlePauseOnNewBar(isNewBar);
 
    string status = "RUNNING";
 
@@ -1689,7 +1821,7 @@ void DashRow(string title,string value,color clrText=clrWhite)
    DrawLabel(
       "DXB_ROW_"+IntegerToString(g_dashRow),
       title+" : "+value,
-      260,
+      280,
       30+(g_dashRow*18),
       clrText,
       9
@@ -1705,7 +1837,7 @@ void DrawDashboard(string status)
       300,
       20,
       350,
-      600,
+      650,
       clrBlack
    );
 
@@ -1746,6 +1878,14 @@ void DrawDashboard(string status)
    DashRow("Flat Mode",
            g_flatMode ? "YES":"NO",
            g_flatMode ? clrOrange : clrLime);
+
+   DashRow("Big Candle Pause",
+           BigCandlePauseStatusText(),
+           g_bigCandlePause ? clrOrangeRed : clrLime);
+
+   DashRow("Last Candle Move",
+           DoubleToString(g_lastBigCandleMove, 2) + " / " + DoubleToString(InpBigCandleRawDifference, 0),
+           g_bigCandlePause ? clrOrangeRed : clrWhite);
 
    DashRow("--------------------------------","",clrGray);
 
