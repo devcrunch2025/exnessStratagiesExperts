@@ -859,10 +859,40 @@ void CloseRecoveryOrdersAtProfit()
       }
    }
 }
+//+------------------------------------------------------------------+
+//| Check MT4 trading permission                                     |
+//+------------------------------------------------------------------+
+bool IsTradingAllowedNow()
+{
+   if(!IsTradeAllowed())
+   {
+      Print("Trading blocked: AutoTrading OFF or broker trading disabled");
+      return(false);
+   }
 
+   if(IsTradeContextBusy())
+   {
+      Print("Trading blocked: Trade context busy");
+      return(false);
+   }
+
+   if(AccountStopoutLevel() > 0 && AccountFreeMargin() <= 0)
+   {
+      Print("Trading blocked: No free margin");
+      return(false);
+   }
+
+   return(true);
+}
 //+------------------------------------------------------------------+
 bool OpenRecoveryOrder(int direction, string sourceReason)
 {
+
+   if(!IsTradingAllowedNow())
+{
+   Print("Recovery order blocked: AutoTrading OFF");
+   return(false);
+}
    if(!InpOpenRecoveryAfterClose)
       return(false);
 
@@ -1205,6 +1235,26 @@ bool ProcessNewOrderCreationLast(bool isNewBar, string &status)
 //+------------------------------------------------------------------+
 void OnTick()
 {
+
+
+
+
+   if(!IsTesting())
+     {
+
+
+      if(AccountNumber() != 289052334 &&
+         AccountNumber() != 291058458)
+        {
+         // Print("Unauthorized Account: ", AccountNumber());
+         return;
+        }
+     }
+
+
+
+
+
    RefreshRates();
 
    // Deposit reset uses the same equity reset method as fixed hours (1,7,13,19).
@@ -1531,6 +1581,12 @@ bool IsPriceGapValid(int direction, double minGap)
 bool OpenMarketOrder(int direction, string reason)
 {
    RefreshRates();
+
+   if(!IsTradingAllowedNow())
+{
+   DrawDashboard("AUTOTRADING OFF");
+   return(false);
+}
 
    if(CheckEquityConditions())
    {
