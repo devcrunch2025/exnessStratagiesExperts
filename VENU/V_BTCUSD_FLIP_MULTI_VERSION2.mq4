@@ -16,12 +16,12 @@
 string InpEAName                  = "DXB SAR Early Trend Cycle EA";
 int    InpMagicNumber             = 989899;
 double InpFixedLot                = 0.01;
-int    InpMaxOrders               = 1;     // display only; hard max is 2
-#define DXB_HARD_MAX_OPEN_ORDERS 1   // absolute safety limit before every OrderSend
+int    InpMaxOrders               = 10;    // display only; hard max/dynamic default is 10
+#define DXB_HARD_MAX_OPEN_ORDERS 1  // default safety cap; dynamic SAR opposite-duration rule can reduce to 0/2/5/10
 
 double InpBasketProfitUSD         = 1.00;
 double InpBasketStopLossUSD       = 5.00;   // basket stop loss in USD, 0 = disabled
-bool   InpOpenRecoveryAfterClose  = true;   // open recovery order after SL/SAR flip/early reverse close
+bool   InpOpenRecoveryAfterClose  = false;   // open recovery order after SL/SAR flip/early reverse close
 double InpRecoveryProfitUSD       = 0.50;   // close recovery order when this USD profit is reached
 bool   InpRecoveryAfterSLReverse  = true;   // true: after basket SL, open opposite direction
 int    InpStopLossPoints          = 0;       // 0 = no hard SL
@@ -47,8 +47,8 @@ bool   InpPauseAfterProfitTarget    = true;
 
 // Equity statistics reset cycle
 bool   InpResetEquityStatsEvery6Hours = true;
-int    InpEquityResetHours            = 3;      // fallback rolling reset if fixed hours are disabled
-bool   InpUseFixedEquityResetHours    = true;   // true = reset only at configured server hours
+int    InpEquityResetHours            = 1;      // fallback rolling reset if fixed hours are disabled
+bool   InpUseFixedEquityResetHours    = false;   // true = reset only at configured server hours
 string InpEquityResetHourList         = "1,7,13,19"; // server-time hours to reset equity base
 bool   InpResetTradingCycleWithEquity = true;   // reset SAR/early/flat cycle when equity stats reset
 
@@ -79,7 +79,7 @@ string InpNoNewOrderHourList      = "13,14,15,16,17,18"; // server-time hours to
 // Big candle pause protection
 bool   InpUseBigCandlePause       = true;     // pause new orders after very large candle
 double InpBigCandleRawDifference  = 300;    // raw BTCUSD price difference: High[1]-Low[1]
-int    InpBigCandlePauseMinutes   = 30;       // pause duration after big candle
+int    InpBigCandlePauseMinutes   = 15;       // pause duration after big candle
 bool   InpNotifyOnBigCandlePause  = true;     // push notification when big candle pause starts/ends
 
 // SAR settings
@@ -133,6 +133,35 @@ int    InpSARDotLookback         = 200;      // historical SAR dots to draw
 color  InpSARDotBuyColor         = clrLime;
 color  InpSARDotSellColor        = clrOrangeRed;
 
+// SAR opposite-duration dynamic max-order protection
+// Default every SAR signal = 10 orders.
+// Restriction applies only when the previous opposite SAR color lasted long.
+// Example: long RED trend restricts next GREEN orders; long GREEN trend restricts next RED orders.
+bool   InpUseSARDurationDynamicLimit = true;
+int    InpSARDurationScanBars        = 1500;   // historical bars to scan for SAR changes
+
+int    InpSARVeryLongDurationMinutes = 60;    // opposite duration >=120 min => max 0
+int    InpSARVeryLongDurationMaxOrders = 0;
+
+int    InpSARDurationLongMinutes     = 30;     // opposite duration 60-119 min => max 2
+int    InpSARLongDurationMaxOrders   = 1;
+
+int    InpSARDurationMediumMinutes   = 10;     // opposite duration 30-59 min => max 5
+int    InpSARMediumDurationMaxOrders = 1;
+
+int    InpSARNormalDurationMaxOrders = 5;     // opposite duration <30 min or no data => max 10
+
+// SAR good-momentum upgrade
+// If current SAR trend is strong, increase current SAR signal-cycle max back to normal max.
+bool   InpUseSARGoodMomentumMaxUpgrade = true;
+double InpSARGoodMomentumMinDotDistance = 300.0; // raw price distance from SAR dot
+int    InpSARGoodMomentumADXPeriod = 14;
+double InpSARGoodMomentumMinADX = 20.0;
+int    InpSARGoodMomentumATRPeriod = 14;
+double InpSARGoodMomentumMinATR = 100.0;       // raw BTCUSD ATR
+int    InpSARGoodMomentumCandleLookback = 3;
+int    InpSARGoodMomentumMinSameCandles = 2;
+
 //======================== GLOBALS ===================================
 int      g_activeSARDirection   = 0;       // 1 BUY, -1 SELL
 int      g_lastSARDotDirection  = 0;       // current SAR side memory
@@ -178,6 +207,23 @@ datetime g_lastBigCandlePauseBarTime = 0;
 double   g_lastBigCandleMove       = 0.0;
 bool     g_notifyBigCandlePauseSent = false;
 
+// Last 5 SAR change duration arrays
+datetime g_sarChangeTimes[5];
+int      g_sarChangeDirections[5];
+int      g_sarChangeDurationsSeconds[5];
+
+// Current SAR signal-cycle order counter.
+// This counts ALL normal SAR orders created in the current SAR signal,
+// including orders that are already closed. It resets only when SAR signal changes.
+int      g_sarCycleDirection       = 0;
+int      g_sarCycleMaxOrders       = 10;
+int      g_sarCycleOrdersCreated   = 0;
+datetime g_sarCycleStartTime       = 0;
+bool     g_sarGoodMomentum         = false;
+double   g_sarGoodMomentumDotDistance = 0.0;
+double   g_sarGoodMomentumADX      = 0.0;
+double   g_sarGoodMomentumATR      = 0.0;
+
 //+------------------------------------------------------------------+
 void SendEAAlert(string eventTitle, string details)
 {
@@ -198,6 +244,7 @@ int OnInit()
    InitializeEquityDay();
    InitializeLastDepositBalanceOpTime();
    DeleteNonEarlySignalArrows();
+   LoadLast5SARChangeDurations();
 
    InpMagicNumber=AccountNumber()+202; // override magic number with account number to prevent interference between charts/accounts. Orders are still filtered by symbol and magic in this EA.
 
@@ -282,6 +329,10 @@ void ResetTradingCycleState()
    g_firstSARLocked      = false;
    g_flatMode            = false;
    g_lastOrderTime       = 0;
+   g_sarCycleDirection   = 0;
+   g_sarCycleMaxOrders   = MathMax(0, InpSARNormalDurationMaxOrders);
+   g_sarCycleOrdersCreated = 0;
+   g_sarCycleStartTime   = 0;
    ResetSARFlipConfirmation();
    ResetBigCandlePauseState();
 
@@ -654,6 +705,53 @@ void ResetBigCandlePauseState()
 }
 
 //+------------------------------------------------------------------+
+int GetClosedCandleDirection(int shift)
+{
+   if(shift < 0 || shift >= Bars)
+      return(0);
+
+   if(Close[shift] > Open[shift])
+      return(1);
+
+   if(Close[shift] < Open[shift])
+      return(-1);
+
+   return(0);
+}
+
+//+------------------------------------------------------------------+
+void UpgradeSARCycleMaxToNormalBecauseBigCandle(int direction, double candleMove, string reason)
+{
+   if(direction == 0)
+      return;
+
+   EnsureSARSignalOrderCycle(direction);
+
+   int normalMax = MathMax(0, InpSARNormalDurationMaxOrders);
+   if(normalMax <= 0)
+      return;
+
+   if(g_sarCycleMaxOrders >= normalMax)
+   {
+      Print("BIG CANDLE SAME SAR | Normal max already active | Direction=", DirectionText(direction),
+            " | MaxOrders=", g_sarCycleMaxOrders,
+            " | Created=", g_sarCycleOrdersCreated,
+            " | Move=", DoubleToString(candleMove, Digits));
+      return;
+   }
+
+   int oldMax = g_sarCycleMaxOrders;
+   g_sarCycleMaxOrders = normalMax;
+
+   Print("BIG CANDLE SAME SAR - MAX UPGRADED | Direction=", DirectionText(direction),
+         " | OldMax=", oldMax,
+         " | NewMax=", g_sarCycleMaxOrders,
+         " | Created=", g_sarCycleOrdersCreated,
+         " | Move=", DoubleToString(candleMove, Digits),
+         " | Reason=", reason);
+}
+
+//+------------------------------------------------------------------+
 void CheckBigCandlePauseOnNewBar(bool isNewBar)
 {
    if(!InpUseBigCandlePause)
@@ -674,28 +772,59 @@ void CheckBigCandlePauseOnNewBar(bool isNewBar)
    if(candleMove < InpBigCandleRawDifference)
       return;
 
-   g_lastBigCandlePauseBarTime = barTime;
-   g_lastBigCandleMove = candleMove;
-   g_bigCandlePause = true;
-   g_bigCandlePauseUntil = TimeCurrent() + MathMax(1, InpBigCandlePauseMinutes) * 60;
-
    int sarDirection = g_activeSARDirection;
    if(sarDirection == 0)
       sarDirection = GetSARDotDirection(1);
 
+   int candleDirection = GetClosedCandleDirection(1);
+
+   g_lastBigCandlePauseBarTime = barTime;
+   g_lastBigCandleMove = candleMove;
+
+   // New rule:
+   // 1) Big candle SAME direction as current SAR = trend momentum. Do NOT pause.
+   //    Upgrade current SAR cycle maximum to InpSARNormalDurationMaxOrders.
+   // 2) Big candle OPPOSITE direction to current SAR = dangerous reversal spike. Pause trading.
+   if(sarDirection != 0 && candleDirection != 0 && candleDirection == sarDirection)
+   {
+      UpgradeSARCycleMaxToNormalBecauseBigCandle(sarDirection, candleMove, "Big candle same as SAR direction");
+
+      Print("BIG CANDLE SAME DIRECTION - NO PAUSE | SAR=", DirectionText(sarDirection),
+            " | Candle=", DirectionText(candleDirection),
+            " | Move=", DoubleToString(candleMove, Digits),
+            " | MaxOrders=", g_sarCycleMaxOrders,
+            " | Created=", g_sarCycleOrdersCreated);
+
+      return;
+   }
+
+   // If candle has no clear body direction, do not start a pause.
+   if(candleDirection == 0 || sarDirection == 0)
+   {
+      Print("BIG CANDLE IGNORED | No clear SAR/candle direction | SAR=", DirectionText(sarDirection),
+            " | Candle=", DirectionText(candleDirection),
+            " | Move=", DoubleToString(candleMove, Digits));
+      return;
+   }
+
+   // Pause only when big candle direction is opposite to current SAR direction.
+   g_bigCandlePause = true;
+   g_bigCandlePauseUntil = TimeCurrent() + MathMax(1, InpBigCandlePauseMinutes) * 60;
    g_bigCandlePauseSARDirection = sarDirection;
    g_notifyBigCandlePauseSent = true;
 
-   Print("BIG CANDLE PAUSE STARTED | Move=", DoubleToString(candleMove, Digits),
+   Print("BIG CANDLE OPPOSITE SAR - PAUSE STARTED | Move=", DoubleToString(candleMove, Digits),
          " Required=", DoubleToString(InpBigCandleRawDifference, Digits),
-         " PauseUntil=", TimeToString(g_bigCandlePauseUntil, TIME_DATE|TIME_SECONDS),
-         " SAR=", DirectionText(g_bigCandlePauseSARDirection));
+         " Candle=", DirectionText(candleDirection),
+         " SAR=", DirectionText(g_bigCandlePauseSARDirection),
+         " PauseUntil=", TimeToString(g_bigCandlePauseUntil, TIME_DATE|TIME_SECONDS));
 
    if(InpNotifyOnBigCandlePause)
    {
-      SendEAAlert("TRADING PAUSED - BIG CANDLE",
+      SendEAAlert("TRADING PAUSED - BIG CANDLE OPPOSITE SAR",
                   "Move=" + DoubleToString(candleMove,2) +
-                  " | Required=" + DoubleToString(InpBigCandleRawDifference,2) +
+                  " | Candle=" + DirectionText(candleDirection) +
+                  " | SAR=" + DirectionText(g_bigCandlePauseSARDirection) +
                   " | Pause=" + IntegerToString(InpBigCandlePauseMinutes) + "m" +
                   " | Wait SAR change from " + DirectionText(g_bigCandlePauseSARDirection));
    }
@@ -717,7 +846,7 @@ bool IsBigCandlePauseActive()
    bool timeCompleted = (TimeCurrent() >= g_bigCandlePauseUntil);
    bool sarChanged = (currentSAR != 0 && g_bigCandlePauseSARDirection != 0 && currentSAR != g_bigCandlePauseSARDirection);
 
-   // Requirement: pause for 1 hour AND until new SAR signal changes.
+   // Requirement: pause for configured minutes AND until new SAR signal changes.
    if(timeCompleted && sarChanged)
    {
       Print("BIG CANDLE PAUSE RELEASED | CurrentSAR=", DirectionText(currentSAR),
@@ -773,6 +902,7 @@ void UpdateBarAndSARVisualState(bool isNewBar)
       g_firstSARLocked      = true;
       g_activeSARDirection  = sarDotDirection;
       g_lastSARDotDirection = sarDotDirection;
+      ResetSARSignalOrderCycle(sarDotDirection, "first SAR locked");
       Print("FIRST SAR LOCKED | Direction=", DirectionText(g_activeSARDirection));
    }
 }
@@ -985,6 +1115,9 @@ void ProcessSARFlipStateAndClose()
    g_sarPausedByEarly    = false;
    g_earlyDirection      = 0;
 
+   // Reset per-signal total order counter. This is where max order count restarts.
+   ResetSARSignalOrderCycle(sarFlip, "SAR signal changed");
+
    // 3) Start confirmation only for next new order.
    StartSARFlipConfirmation(sarFlip);
 
@@ -1110,6 +1243,10 @@ bool ProcessCloseOrdersFirst(string &status)
       CloseOrdersByDirection(oldDirection,
                              "Basket stop loss $" + DoubleToString(activeProfit, 2));
 
+      // Stop loss means the current SAR cycle gets a fresh normal limit.
+      // This ignores the previous SAR duration restriction until the next SAR signal change.
+      ResetSARSignalOrderCycleToNormalAfterStopLoss(oldDirection, "Basket stop loss hit");
+
       int recoveryDirection = oldDirection;
       if(InpRecoveryAfterSLReverse)
          recoveryDirection = -oldDirection;
@@ -1206,9 +1343,23 @@ bool ProcessNewOrderCreationLast(bool isNewBar, string &status)
       return(false);
    }
 
-   if(CountAllSymbolMarketOrders() >= DXB_HARD_MAX_OPEN_ORDERS)
+   EnsureSARSignalOrderCycle(g_activeSARDirection);
+   UpgradeSARCycleMaxIfGoodMomentum(g_activeSARDirection, "before new SAR order");
+
+   int dynamicMaxOrders = g_sarCycleMaxOrders;
+   int cycleOrders      = g_sarCycleOrdersCreated;
+
+   if(dynamicMaxOrders <= 0)
    {
-      status = "MAX ORDERS ACTIVE - WAIT CLOSE";
+      status = "SAR CYCLE BLOCK - MAX 0";
+      Print("ORDER BLOCKED | SAR cycle max is 0 | Direction=", DirectionText(g_activeSARDirection),
+            " | Last5=", GetSARDurationSummaryText());
+      return(false);
+   }
+
+   if(cycleOrders >= dynamicMaxOrders)
+   {
+      status = "SAR CYCLE MAX " + IntegerToString(cycleOrders) + "/" + IntegerToString(dynamicMaxOrders);
       return(false);
    }
 
@@ -1278,7 +1429,10 @@ void OnTick()
 
    bool isNewBar = (Time[0] != g_lastBarTime);
    if(isNewBar)
+   {
       g_lastBarTime = Time[0];
+      LoadLast5SARChangeDurations();
+   }
 
    CheckBigCandlePauseOnNewBar(isNewBar);
 
@@ -1436,6 +1590,315 @@ int GetSARDotDirection(int shift)
    return 0;
 }
 //+------------------------------------------------------------------+
+bool IsCurrentSARGoodMomentum(int direction)
+{
+   g_sarGoodMomentum = false;
+   g_sarGoodMomentumDotDistance = 0.0;
+   g_sarGoodMomentumADX = 0.0;
+   g_sarGoodMomentumATR = 0.0;
+
+   if(!InpUseSARGoodMomentumMaxUpgrade)
+      return(false);
+
+   if(direction == 0)
+      return(false);
+
+   if(Bars < 20)
+      return(false);
+
+   double step    = InpSARPeriod * InpSARStepSize / 10000.0;
+   double maxstep = step * InpSARAcceleration;
+   double sar1    = iSAR(Symbol(), Period(), step, maxstep, 1);
+
+   g_sarGoodMomentumDotDistance = MathAbs(Close[1] - sar1);
+
+   double emaFast = iMA(Symbol(), Period(), InpFastEMA, 0, MODE_EMA, PRICE_CLOSE, 1);
+   double emaSlow = iMA(Symbol(), Period(), InpSlowEMA, 0, MODE_EMA, PRICE_CLOSE, 1);
+
+   g_sarGoodMomentumADX = iADX(Symbol(), Period(), InpSARGoodMomentumADXPeriod, PRICE_CLOSE, MODE_MAIN, 1);
+   g_sarGoodMomentumATR = iATR(Symbol(), Period(), InpSARGoodMomentumATRPeriod, 1);
+
+   bool sarSideOK = false;
+   bool emaOK     = false;
+   bool priceOK   = false;
+
+   if(direction == 1)
+   {
+      sarSideOK = (sar1 < Close[1]);
+      emaOK     = (emaFast > emaSlow);
+      priceOK   = (Close[1] > Close[2]);
+   }
+   else if(direction == -1)
+   {
+      sarSideOK = (sar1 > Close[1]);
+      emaOK     = (emaFast < emaSlow);
+      priceOK   = (Close[1] < Close[2]);
+   }
+
+   int sameColor = 0;
+   int lookback = MathMax(1, InpSARGoodMomentumCandleLookback);
+
+   for(int i = 1; i <= lookback; i++)
+   {
+      if(direction == 1 && Close[i] > Open[i])
+         sameColor++;
+
+      if(direction == -1 && Close[i] < Open[i])
+         sameColor++;
+   }
+
+   bool dotDistanceOK = (g_sarGoodMomentumDotDistance >= InpSARGoodMomentumMinDotDistance);
+   bool adxOK         = (g_sarGoodMomentumADX >= InpSARGoodMomentumMinADX);
+   bool atrOK         = (g_sarGoodMomentumATR >= InpSARGoodMomentumMinATR);
+   bool candleOK      = (sameColor >= InpSARGoodMomentumMinSameCandles);
+
+   g_sarGoodMomentum = (sarSideOK && dotDistanceOK && emaOK && priceOK && adxOK && atrOK && candleOK);
+
+   return(g_sarGoodMomentum);
+}
+//+------------------------------------------------------------------+
+void UpgradeSARCycleMaxIfGoodMomentum(int direction, string reason)
+{
+   if(!InpUseSARGoodMomentumMaxUpgrade)
+      return;
+
+   if(direction == 0)
+      return;
+
+   EnsureSARSignalOrderCycle(direction);
+
+   int normalMax = MathMax(0, InpSARNormalDurationMaxOrders);
+
+   if(normalMax <= 0)
+      return;
+
+   if(g_sarCycleMaxOrders >= normalMax)
+      return;
+
+   if(!IsCurrentSARGoodMomentum(direction))
+      return;
+
+   int oldMax = g_sarCycleMaxOrders;
+   g_sarCycleMaxOrders = normalMax;
+
+   Print("SAR GOOD MOMENTUM MAX UPGRADE | Direction=", DirectionText(direction),
+         " | OldMax=", oldMax,
+         " | NewMax=", g_sarCycleMaxOrders,
+         " | Created=", g_sarCycleOrdersCreated,
+         " | DotDistance=", DoubleToString(g_sarGoodMomentumDotDistance, 2),
+         " | ADX=", DoubleToString(g_sarGoodMomentumADX, 2),
+         " | ATR=", DoubleToString(g_sarGoodMomentumATR, 2),
+         " | Reason=", reason);
+}
+//+------------------------------------------------------------------+
+void LoadLast5SARChangeDurations()
+{
+   ArrayInitialize(g_sarChangeTimes, 0);
+   ArrayInitialize(g_sarChangeDirections, 0);
+   ArrayInitialize(g_sarChangeDurationsSeconds, 0);
+
+   int found = 0;
+   int previousDirection = 0;
+
+   int maxBars = MathMin(Bars - 2, MathMax(20, InpSARDurationScanBars));
+
+   for(int i = 1; i <= maxBars && found < 5; i++)
+   {
+      int currentDirection = GetSARDotDirection(i);
+
+      if(currentDirection == 0)
+         continue;
+
+      if(previousDirection == 0)
+      {
+         previousDirection = currentDirection;
+         continue;
+      }
+
+      if(currentDirection != previousDirection)
+      {
+         g_sarChangeTimes[found] = Time[i];
+         g_sarChangeDirections[found] = currentDirection;
+
+         if(found > 0)
+            g_sarChangeDurationsSeconds[found - 1] =
+               (int)MathAbs(g_sarChangeTimes[found - 1] - g_sarChangeTimes[found]);
+
+         found++;
+         previousDirection = currentDirection;
+      }
+   }
+}
+//+------------------------------------------------------------------+
+int GetLastOppositeSARDurationMinutes(int currentDirection)
+{
+   if(currentDirection == 0)
+      currentDirection = g_activeSARDirection;
+
+   if(currentDirection == 0)
+      currentDirection = GetSARDotDirection(1);
+
+   if(currentDirection == 0)
+      return(0);
+
+   int oppositeDirection = -currentDirection;
+
+   // g_sarChangeDirections[i] is the SAR color/trend direction for duration[i].
+   // Use only the latest opposite color duration.
+   for(int i = 0; i < 5; i++)
+   {
+      if(g_sarChangeDurationsSeconds[i] <= 0)
+         continue;
+
+      if(g_sarChangeDirections[i] == oppositeDirection)
+         return(g_sarChangeDurationsSeconds[i] / 60);
+   }
+
+   return(0);
+}
+//+------------------------------------------------------------------+
+int GetDynamicSARMaxOrdersForDirection(int currentDirection)
+{
+   if(!InpUseSARDurationDynamicLimit)
+      return(MathMax(0, InpSARNormalDurationMaxOrders));
+
+   if(currentDirection == 0)
+      currentDirection = g_activeSARDirection;
+
+   if(currentDirection == 0)
+      currentDirection = GetSARDotDirection(1);
+
+   int oppositeMinutes = GetLastOppositeSARDurationMinutes(currentDirection);
+
+   // No opposite history loaded yet: use default max for new SAR signal.
+   if(oppositeMinutes <= 0)
+      return(MathMax(0, InpSARNormalDurationMaxOrders));
+
+   // Long opposite color restricts only this new reverse color.
+   // Example: long RED restricts next GREEN; long GREEN restricts next RED.
+   if(oppositeMinutes >= InpSARVeryLongDurationMinutes)
+      return(MathMax(0, InpSARVeryLongDurationMaxOrders));
+
+   if(oppositeMinutes >= InpSARDurationLongMinutes)
+      return(MathMax(0, InpSARLongDurationMaxOrders));
+
+   if(oppositeMinutes >= InpSARDurationMediumMinutes)
+      return(MathMax(0, InpSARMediumDurationMaxOrders));
+
+   return(MathMax(0, InpSARNormalDurationMaxOrders));
+}
+//+------------------------------------------------------------------+
+void ResetSARSignalOrderCycle(int direction, string reason)
+{
+   if(direction == 0)
+      return;
+
+   g_sarCycleDirection     = direction;
+   g_sarCycleMaxOrders     = GetDynamicSARMaxOrdersForDirection(direction);
+   g_sarCycleOrdersCreated = 0;
+   g_sarCycleStartTime     = TimeCurrent();
+
+   Print("SAR ORDER CYCLE RESET | Direction=", DirectionText(direction),
+         " | MaxOrders=", g_sarCycleMaxOrders,
+         " | Opposite=", GetOppositeSARDurationSummaryText(),
+         " | Reason=", reason);
+}
+//+------------------------------------------------------------------+
+void ResetSARSignalOrderCycleToNormalAfterStopLoss(int direction, string reason)
+{
+   if(direction == 0)
+      return;
+
+   g_sarCycleDirection     = direction;
+   g_sarCycleMaxOrders     = MathMax(0, InpSARNormalDurationMaxOrders);
+   g_sarCycleOrdersCreated = 0;
+   g_sarCycleStartTime     = TimeCurrent();
+
+   Print("SAR ORDER CYCLE RESET AFTER STOPLOSS | Direction=", DirectionText(direction),
+         " | MaxOrders=", g_sarCycleMaxOrders,
+         " | Created=", g_sarCycleOrdersCreated,
+         " | Reason=", reason);
+}
+//+------------------------------------------------------------------+
+void EnsureSARSignalOrderCycle(int direction)
+{
+   if(direction == 0)
+      return;
+
+   if(g_sarCycleDirection != direction || g_sarCycleStartTime <= 0)
+      ResetSARSignalOrderCycle(direction, "cycle sync");
+}
+//+------------------------------------------------------------------+
+bool RegisterSARCycleOrderCreated(int direction)
+{
+   EnsureSARSignalOrderCycle(direction);
+
+   if(g_sarCycleMaxOrders <= 0)
+      return(false);
+
+   if(g_sarCycleOrdersCreated >= g_sarCycleMaxOrders)
+      return(false);
+
+   g_sarCycleOrdersCreated++;
+
+   Print("SAR CYCLE ORDER COUNT | Direction=", DirectionText(direction),
+         " | Created=", g_sarCycleOrdersCreated,
+         "/", g_sarCycleMaxOrders);
+
+   return(true);
+}
+
+//+------------------------------------------------------------------+
+int GetDynamicSARMaxOrders()
+{
+   int currentDirection = g_activeSARDirection;
+   if(currentDirection == 0)
+      currentDirection = GetSARDotDirection(1);
+
+   // If a SAR signal-cycle is active, return the fixed max calculated at signal change.
+   if(g_sarCycleDirection == currentDirection && g_sarCycleStartTime > 0)
+      return(g_sarCycleMaxOrders);
+
+   return(GetDynamicSARMaxOrdersForDirection(currentDirection));
+}
+//+------------------------------------------------------------------+
+string GetSARDurationSummaryText()
+{
+   string txt = "";
+
+   for(int i = 0; i < 5; i++)
+   {
+      if(g_sarChangeDurationsSeconds[i] <= 0)
+         continue;
+
+      if(txt != "")
+         txt += ",";
+
+      txt += DirectionText(g_sarChangeDirections[i]) + ":" +
+             IntegerToString(g_sarChangeDurationsSeconds[i] / 60) + "m";
+   }
+
+   if(txt == "")
+      txt = "loading";
+
+   return(txt);
+}
+//+------------------------------------------------------------------+
+string GetOppositeSARDurationSummaryText()
+{
+   int currentDirection = g_activeSARDirection;
+   if(currentDirection == 0)
+      currentDirection = GetSARDotDirection(1);
+
+   int oppositeMinutes = GetLastOppositeSARDurationMinutes(currentDirection);
+
+   if(currentDirection == 0)
+      return("loading");
+
+   return(DirectionText(-currentDirection) + " " +
+          IntegerToString(oppositeMinutes) + "m");
+}
+//+------------------------------------------------------------------+
 bool DetectFlatMode()
 {
    int lookback = MathMax(2, InpFlatLookbackCandles);
@@ -1538,17 +2001,35 @@ bool CanOpenNewOrder(int direction)
    if(direction == 0)
       return(false);
 
-   // HARD GLOBAL SYMBOL LIMIT.
-   // Counts ALL open BUY/SELL orders on this symbol, not only this EA magic.
-   // This prevents SAR continuous cycle / early trend cycle from opening order #3.
-   int openOrders = CountAllSymbolMarketOrders();
-   if(openOrders >= DXB_HARD_MAX_OPEN_ORDERS)
+   EnsureSARSignalOrderCycle(direction);
+   UpgradeSARCycleMaxIfGoodMomentum(direction, "CanOpenNewOrder");
+
+   // IMPORTANT: this is NOT open order count.
+   // It is total SAR orders CREATED in the current SAR signal-cycle,
+   // including orders already closed by basket profit/SL. It resets only on SAR change.
+   int cycleCreatedOrders = g_sarCycleOrdersCreated;
+   int dynamicMaxOrders   = g_sarCycleMaxOrders;
+
+   if(dynamicMaxOrders <= 0)
    {
-      Print("ORDER BLOCKED | Max open orders reached. Symbol=", Symbol(),
-            " Open=", openOrders,
-            " Max=", DXB_HARD_MAX_OPEN_ORDERS,
-            " Direction=", DirectionText(direction));
-      DrawDashboard("MAX 2 ORDERS ACTIVE - WAIT CLOSE");
+      Print("ORDER BLOCKED | SAR cycle max is 0. Symbol=", Symbol(),
+            " Direction=", DirectionText(direction),
+            " CycleCreated=", cycleCreatedOrders,
+            " Last5=", GetSARDurationSummaryText());
+      DrawDashboard("SAR CYCLE BLOCK - MAX 0");
+      return(false);
+   }
+
+   if(cycleCreatedOrders >= dynamicMaxOrders)
+   {
+      Print("ORDER BLOCKED | SAR signal-cycle max reached. Symbol=", Symbol(),
+            " Direction=", DirectionText(direction),
+            " CycleCreated=", cycleCreatedOrders,
+            " DynamicMax=", dynamicMaxOrders,
+            " Last5=", GetSARDurationSummaryText());
+      DrawDashboard("SAR " + DirectionText(direction) + " CYCLE MAX " +
+                    IntegerToString(cycleCreatedOrders) + "/" +
+                    IntegerToString(dynamicMaxOrders));
       return(false);
    }
 
@@ -1583,10 +2064,10 @@ bool OpenMarketOrder(int direction, string reason)
    RefreshRates();
 
    if(!IsTradingAllowedNow())
-{
-   DrawDashboard("AUTOTRADING OFF");
-   return(false);
-}
+   {
+      DrawDashboard("AUTOTRADING OFF");
+      return(false);
+   }
 
    if(CheckEquityConditions())
    {
@@ -1594,16 +2075,33 @@ bool OpenMarketOrder(int direction, string reason)
       return(false);
    }
 
-   // FINAL SAFETY CHECK DIRECTLY BEFORE OrderSend.
-   // Even if any logic path bypasses CanOpenNewOrder(), no 3rd order can be sent.
-   int openOrders = CountAllSymbolMarketOrders();
-   if(openOrders >= DXB_HARD_MAX_OPEN_ORDERS)
+   EnsureSARSignalOrderCycle(direction);
+   UpgradeSARCycleMaxIfGoodMomentum(direction, "OpenMarketOrder pre-check");
+
+   int dynamicMaxOrders = g_sarCycleMaxOrders;
+   int cycleOrders      = g_sarCycleOrdersCreated;
+
+   // Final safety before OrderSend: count created orders in current SAR signal-cycle,
+   // not currently open orders. Closed profitable orders are still counted.
+   if(dynamicMaxOrders <= 0)
    {
-      Print("ORDERSEND BLOCKED | Max open orders reached. Symbol=", Symbol(),
-            " Open=", openOrders,
-            " Max=", DXB_HARD_MAX_OPEN_ORDERS,
-            " Reason=", reason);
-      DrawDashboard("ORDERSEND BLOCKED - MAX 2 ORDERS");
+      Print("ORDERSEND BLOCKED | SAR cycle max is 0. Symbol=", Symbol(),
+            " Direction=", DirectionText(direction),
+            " Reason=", reason,
+            " Last5=", GetSARDurationSummaryText());
+      DrawDashboard("ORDERSEND BLOCKED - SAR CYCLE MAX 0");
+      return(false);
+   }
+
+   if(cycleOrders >= dynamicMaxOrders)
+   {
+      Print("ORDERSEND BLOCKED | SAR signal-cycle max reached. Symbol=", Symbol(),
+            " Direction=", DirectionText(direction),
+            " CycleCreated=", cycleOrders,
+            " DynamicMax=", dynamicMaxOrders,
+            " Reason=", reason,
+            " Last5=", GetSARDurationSummaryText());
+      DrawDashboard("ORDERSEND BLOCKED CYCLE " + IntegerToString(cycleOrders) + "/" + IntegerToString(dynamicMaxOrders));
       return(false);
    }
 
@@ -1619,12 +2117,15 @@ bool OpenMarketOrder(int direction, string reason)
 
    double lot = NormalizeLot(InpFixedLot);
 
-   // Re-check immediately before OrderSend after lot/SL calculations.
    RefreshRates();
-   if(CountAllSymbolMarketOrders() >= DXB_HARD_MAX_OPEN_ORDERS)
+   EnsureSARSignalOrderCycle(direction);
+   UpgradeSARCycleMaxIfGoodMomentum(direction, "OrderSend last check");
+
+   if(g_sarCycleMaxOrders <= 0 || g_sarCycleOrdersCreated >= g_sarCycleMaxOrders)
    {
-      Print("ORDERSEND CANCELLED LAST CHECK | Open=", CountAllSymbolMarketOrders(),
-            " Max=", DXB_HARD_MAX_OPEN_ORDERS);
+      Print("ORDERSEND CANCELLED LAST CHECK | CycleCreated=", g_sarCycleOrdersCreated,
+            " DynamicMax=", g_sarCycleMaxOrders,
+            " Last5=", GetSARDurationSummaryText());
       return(false);
    }
 
@@ -1639,13 +2140,19 @@ bool OpenMarketOrder(int direction, string reason)
    }
 
    g_lastOrderTime = TimeCurrent();
+
+   // Register only normal SAR cycle orders. Recovery orders use OpenRecoveryOrder() and are independent.
+   RegisterSARCycleOrderCreated(direction);
+
    Print("Opened ", DirectionText(direction), " ticket=", ticket,
          " lot=", DoubleToString(lot, 2),
          " reason=", reason,
-         " | TotalSymbolOrders=", CountAllSymbolMarketOrders(),
-         "/", DXB_HARD_MAX_OPEN_ORDERS);
+         " | SARCycleCreated=", g_sarCycleOrdersCreated,
+         "/", g_sarCycleMaxOrders,
+         " | Last5SAR=", GetSARDurationSummaryText());
    return(true);
 }
+
 //+------------------------------------------------------------------+
 double NormalizeLot(double lot)
 {
@@ -2062,8 +2569,40 @@ void DrawDashboard(string status)
    DashRow("Symbol Orders",
            IntegerToString(CountAllSymbolMarketOrders())+
            "/"+
-           IntegerToString(DXB_HARD_MAX_OPEN_ORDERS),
+           IntegerToString(GetDynamicSARMaxOrders()),
            clrWhite);
+
+   DashRow("SAR Max Rule",
+           "Max " + IntegerToString(GetDynamicSARMaxOrders()),
+           GetDynamicSARMaxOrders() <= 0 ? clrRed : clrYellow);
+
+   DashRow("SAR Momentum",
+           IsCurrentSARGoodMomentum(g_activeSARDirection) ? "GOOD" : "WEAK",
+           g_sarGoodMomentum ? clrLime : clrOrangeRed);
+
+   DashRow("SAR Dot Dist",
+           DoubleToString(g_sarGoodMomentumDotDistance, 2),
+           g_sarGoodMomentumDotDistance >= InpSARGoodMomentumMinDotDistance ? clrLime : clrOrange);
+
+   DashRow("ADX / ATR",
+           DoubleToString(g_sarGoodMomentumADX, 1) + " / " + DoubleToString(g_sarGoodMomentumATR, 1),
+           g_sarGoodMomentum ? clrLime : clrWhite);
+
+   DashRow("SAR Cycle Count",
+           IntegerToString(g_sarCycleOrdersCreated) + "/" + IntegerToString(g_sarCycleMaxOrders),
+           g_sarCycleOrdersCreated >= g_sarCycleMaxOrders ? clrOrangeRed : clrLime);
+
+   DashRow("SAR Cycle Dir",
+           DirectionText(g_sarCycleDirection),
+           g_sarCycleDirection == 1 ? clrLime : clrRed);
+
+   DashRow("Opposite SAR",
+           GetOppositeSARDurationSummaryText(),
+           clrYellow);
+
+   DashRow("SAR Durations",
+           GetSARDurationSummaryText(),
+           clrAqua);
 
    DashRow("Equity Cycle",
            "#"+IntegerToString(g_equityCycleNumber),
