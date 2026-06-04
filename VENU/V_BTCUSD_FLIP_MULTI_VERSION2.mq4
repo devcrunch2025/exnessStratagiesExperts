@@ -19,7 +19,7 @@ double InpFixedLot                = 0.01;
 int    InpMaxOrders               = 10;    // display only; hard max/dynamic default is 10
 #define DXB_HARD_MAX_OPEN_ORDERS 1  // default safety cap; dynamic SAR opposite-duration rule can reduce to 0/2/5/10
 
-double InpBasketProfitUSD         = 1.00;
+double InpBasketProfitUSD         = 0.50;
 double InpBasketStopLossUSD       = 5.00;   // basket stop loss in USD, 0 = disabled
 bool   InpOpenRecoveryAfterClose  = false;   // open recovery order after SL/SAR flip/early reverse close
 double InpRecoveryProfitUSD       = 0.50;   // close recovery order when this USD profit is reached
@@ -36,7 +36,7 @@ bool   InpUseEquityProtection       = true;
 bool   InpAutoUseCurrentBalanceBase = true;   // true = take current account balance on EA load/new day
 double InpManualBaseCapitalUSD      = 20.0;   // used only when Auto=false
 
-double InpProfitTargetPercent      = 50.0;   // stop trading when equity reaches Base + 50%
+double InpProfitTargetPercent      = 200.0;   // stop trading when equity reaches Base + 100%
 double InpLossStopPercent          = 50.0;   // stop trading when equity reaches Base - 50%
 double InpProtectionBufferUSD      = 0.00;   // optional buffer below loss-stop level
 bool   InpCloseOrdersOnEquityHit    = true;
@@ -47,7 +47,7 @@ bool   InpPauseAfterProfitTarget    = true;
 
 // Equity statistics reset cycle
 bool   InpResetEquityStatsEvery6Hours = true;
-int    InpEquityResetHours            = 1;      // fallback rolling reset if fixed hours are disabled
+int    InpEquityResetHours            = 6;      // fallback rolling reset if fixed hours are disabled
 bool   InpUseFixedEquityResetHours    = false;   // true = reset only at configured server hours
 string InpEquityResetHourList         = "1,7,13,19"; // server-time hours to reset equity base
 bool   InpResetTradingCycleWithEquity = true;   // reset SAR/early/flat cycle when equity stats reset
@@ -66,7 +66,7 @@ bool   InpNotifyOnEAStart             = true;    // notify when EA is loaded
 
 
 // Continuous order controls
-bool   InpOneOrderPerBar          = false;
+bool   InpOneOrderPerBar          = true;
 int    InpOrderCooldownSeconds    = 0;       // 0 = disabled
 double InpMinPriceGap             = 100.00;    // raw price gap, 0 = disabled
 
@@ -149,7 +149,10 @@ int    InpSARLongDurationMaxOrders   = 1;
 int    InpSARDurationMediumMinutes   = 10;     // opposite duration 30-59 min => max 5
 int    InpSARMediumDurationMaxOrders = 1;
 
-int    InpSARNormalDurationMaxOrders = 5;     // opposite duration <30 min or no data => max 10
+int    InpSARNormalDurationMaxOrders = 6;     // opposite duration <30 min or no data => max 10
+
+int InpSARGoodMomentumExtraOrders = 2;
+bool InpResetMaxOrdersWhenSARWeak = true;
 
 // SAR good-momentum upgrade
 // If current SAR trend is strong, increase current SAR signal-cycle max back to normal max.
@@ -223,6 +226,88 @@ bool     g_sarGoodMomentum         = false;
 double   g_sarGoodMomentumDotDistance = 0.0;
 double   g_sarGoodMomentumADX      = 0.0;
 double   g_sarGoodMomentumATR      = 0.0;
+
+input bool   InpUseH1TrendFilter = true;
+input int    InpH1FastEMA = 50;
+input int    InpH1SlowEMA = 200;
+int GetH1TrendDirection()
+{
+
+
+  double currentPrice = Close[0];
+
+   // M1 chart: 30 candles = 30 minutes ago
+   double price30MinAgo = iClose(Symbol(), PERIOD_M1, 30);
+
+   double diff = currentPrice - price30MinAgo;
+
+   if(diff >= 100)
+      return 1;   // BUY trend
+
+   if(diff <= -100)
+      return -1;  // SELL trend
+
+   return 0;      // RANGE
+
+
+
+
+
+
+
+
+
+   
+   int h1  = GetH1TrendDirection1();
+   int m30 = GetM30TrendDirection();
+
+   if(h1 != 0 && h1 == m30)
+      return h1;
+
+   return 0; // no clear trend
+}
+
+int GetH1TrendDirection1()
+{
+   double fast = iMA(Symbol(), PERIOD_H1, InpH1FastEMA, 0, MODE_EMA, PRICE_CLOSE, 1);
+   double slow = iMA(Symbol(), PERIOD_H1, InpH1SlowEMA, 0, MODE_EMA, PRICE_CLOSE, 1);
+
+   if(fast > slow) return 1;
+   if(fast < slow) return -1;
+   return 0;
+}
+
+int GetM30TrendDirection()
+{
+   double fast = iMA(Symbol(), PERIOD_M30, InpH1FastEMA, 0, MODE_EMA, PRICE_CLOSE, 1);
+   double slow = iMA(Symbol(), PERIOD_M30, InpH1SlowEMA, 0, MODE_EMA, PRICE_CLOSE, 1);
+
+   if(fast > slow) return 1;
+   if(fast < slow) return -1;
+   return 0;
+}
+
+bool IsOrderAllowedByH1Trend(int orderDirection)
+{
+   if(!InpUseH1TrendFilter)
+      return true;
+
+   int trend = GetH1TrendDirection();
+
+   if(trend == 0)
+      return false;
+
+   if(orderDirection != trend)
+   {
+      Print("ORDER BLOCKED BY H1 TREND | SAR=",
+            DirectionText(orderDirection),
+            " | H1Trend=",
+            DirectionText(trend));
+      return false;
+   }
+
+   return true;
+}
 
 //+------------------------------------------------------------------+
 void SendEAAlert(string eventTitle, string details)
@@ -1060,7 +1145,10 @@ bool OpenRecoveryOrder(int direction, string sourceReason)
    double lot = NormalizeLot(InpFixedLot);
 
    string comment = "RECOVERY_TP_0.50_" + DirectionText(direction);
-
+ if(!IsTradingAllowedNow())
+   {
+      return(false);
+   }
    int ticket = OrderSend(Symbol(),
                           type,
                           lot,
@@ -1260,8 +1348,8 @@ bool ProcessCloseOrdersFirst(string &status)
       status = "Basket SL hit";
       return(true);
    }
-
-   if(activeProfit >= InpBasketProfitUSD)
+if( CountAllOrders() > 0)
+   if(activeProfit >= InpBasketProfitUSD/CountAllOrders() )
    {
       CloseOrdersByDirection(g_activeSARDirection,
                              "Basket profit $" + DoubleToString(activeProfit, 2));
@@ -1344,14 +1432,22 @@ bool ProcessNewOrderCreationLast(bool isNewBar, string &status)
    }
 
    EnsureSARSignalOrderCycle(g_activeSARDirection);
-   UpgradeSARCycleMaxIfGoodMomentum(g_activeSARDirection, "before new SAR order");
+   // UpgradeSARCycleMaxIfGoodMomentum(g_activeSARDirection, "before new SAR order");
+   UpdateSARCycleMaxByMomentum(g_activeSARDirection, "before new SAR order");
+
+   if(!IsOrderAllowedByH1Trend(g_activeSARDirection)  && !IsCurrentSARGoodMomentum(g_activeSARDirection) )
+{
+   status = "BLOCKED:SAR REV H1 "+DirectionText(GetH1TrendDirection());
+   Print("ORDER BLOCKED | SAR reverse against H1 trend | Direction=", DirectionText(g_activeSARDirection));
+   return(false);
+}
 
    int dynamicMaxOrders = g_sarCycleMaxOrders;
    int cycleOrders      = g_sarCycleOrdersCreated;
 
    if(dynamicMaxOrders <= 0)
    {
-      status = "SAR CYCLE BLOCK - MAX 0";
+      status = "SAR CYCLE MAX BLOCK - MAX 0";
       Print("ORDER BLOCKED | SAR cycle max is 0 | Direction=", DirectionText(g_activeSARDirection),
             " | Last5=", GetSARDurationSummaryText());
       return(false);
@@ -1656,9 +1752,67 @@ bool IsCurrentSARGoodMomentum(int direction)
 
    return(g_sarGoodMomentum);
 }
+
+
+void UpdateSARCycleMaxByMomentum(int direction, string reason)
+{
+   if(!InpUseSARGoodMomentumMaxUpgrade)
+      return;
+
+   if(direction == 0)
+      return;
+
+   EnsureSARSignalOrderCycle(direction);
+
+   int defaultMax = GetDynamicSARMaxOrdersForDirection(direction);
+   int boostedMax = defaultMax + MathMax(0, InpSARGoodMomentumExtraOrders);
+
+   bool goodMomentum = IsCurrentSARGoodMomentum(direction);
+
+   if(goodMomentum)
+   {
+      if(g_sarCycleMaxOrders < boostedMax)
+      {
+         int oldMax = g_sarCycleMaxOrders;
+         g_sarCycleMaxOrders = boostedMax;
+
+         Print("SAR GOOD MOMENTUM EXTRA ORDERS | Direction=", DirectionText(direction),
+               " | OldMax=", oldMax,
+               " | NewMax=", g_sarCycleMaxOrders,
+               " | Extra=", InpSARGoodMomentumExtraOrders,
+               " | Created=", g_sarCycleOrdersCreated,
+               " | DotDistance=", DoubleToString(g_sarGoodMomentumDotDistance, 2),
+               " | ADX=", DoubleToString(g_sarGoodMomentumADX, 2),
+               " | ATR=", DoubleToString(g_sarGoodMomentumATR, 2),
+               " | Reason=", reason);
+      }
+
+      return;
+   }
+
+   if(InpResetMaxOrdersWhenSARWeak)
+   {
+      if(g_sarCycleMaxOrders != defaultMax)
+      {
+         int oldMax2 = g_sarCycleMaxOrders;
+         g_sarCycleMaxOrders = defaultMax;
+
+         Print("SAR WEAK MOMENTUM RESET MAX | Direction=", DirectionText(direction),
+               " | OldMax=", oldMax2,
+               " | DefaultMax=", g_sarCycleMaxOrders,
+               " | Created=", g_sarCycleOrdersCreated,
+               " | Reason=", reason);
+      }
+   }
+}
+ 
 //+------------------------------------------------------------------+
 void UpgradeSARCycleMaxIfGoodMomentum(int direction, string reason)
 {
+
+   UpdateSARCycleMaxByMomentum(direction, reason);
+
+
    if(!InpUseSARGoodMomentumMaxUpgrade)
       return;
 
@@ -2002,7 +2156,9 @@ bool CanOpenNewOrder(int direction)
       return(false);
 
    EnsureSARSignalOrderCycle(direction);
-   UpgradeSARCycleMaxIfGoodMomentum(direction, "CanOpenNewOrder");
+   // UpgradeSARCycleMaxIfGoodMomentum(direction, "CanOpenNewOrder");
+   UpdateSARCycleMaxByMomentum(direction, "CanOpenNewOrder");
+
 
    // IMPORTANT: this is NOT open order count.
    // It is total SAR orders CREATED in the current SAR signal-cycle,
@@ -2065,7 +2221,7 @@ bool OpenMarketOrder(int direction, string reason)
 
    if(!IsTradingAllowedNow())
    {
-      DrawDashboard("AUTOTRADING OFF");
+      // DrawDashboard("AUTOTRADING OFF");
       return(false);
    }
 
@@ -2076,7 +2232,9 @@ bool OpenMarketOrder(int direction, string reason)
    }
 
    EnsureSARSignalOrderCycle(direction);
-   UpgradeSARCycleMaxIfGoodMomentum(direction, "OpenMarketOrder pre-check");
+   // UpgradeSARCycleMaxIfGoodMomentum(direction, "OpenMarketOrder pre-check");
+   UpdateSARCycleMaxByMomentum(direction, "OpenMarketOrder pre-check");
+
 
    int dynamicMaxOrders = g_sarCycleMaxOrders;
    int cycleOrders      = g_sarCycleOrdersCreated;
@@ -2119,13 +2277,20 @@ bool OpenMarketOrder(int direction, string reason)
 
    RefreshRates();
    EnsureSARSignalOrderCycle(direction);
-   UpgradeSARCycleMaxIfGoodMomentum(direction, "OrderSend last check");
+   // UpgradeSARCycleMaxIfGoodMomentum(direction, "OrderSend last check");
+   UpdateSARCycleMaxByMomentum(direction, "OrderSend last check");
+
 
    if(g_sarCycleMaxOrders <= 0 || g_sarCycleOrdersCreated >= g_sarCycleMaxOrders)
    {
       Print("ORDERSEND CANCELLED LAST CHECK | CycleCreated=", g_sarCycleOrdersCreated,
             " DynamicMax=", g_sarCycleMaxOrders,
             " Last5=", GetSARDurationSummaryText());
+      return(false);
+   }
+
+   if(!IsTradingAllowedNow())
+   {
       return(false);
    }
 
@@ -2437,7 +2602,7 @@ void DashRow(string title,string value,color clrText=clrWhite)
       "DXB_ROW_"+IntegerToString(g_dashRow),
       title+" : "+value,
       280,
-      30+(g_dashRow*18),
+      20+(g_dashRow*18),
       clrText,
       9
    );
@@ -2449,7 +2614,7 @@ void DrawDashboard(string status)
 {
    DrawPanel(
       "DXB_PANEL",
-      300,
+      350,
       20,
       350,
       680,
@@ -2458,7 +2623,7 @@ void DrawDashboard(string status)
 
    g_dashRow=0;
 
-   DashRow("DXB SAR EA",status,clrYellow);
+   DashRow("V2 SAR EA",status,clrYellow);
 
    Print("DASHBOARD UPDATE | Status=", status,
          " | SAR=", DirectionText(g_activeSARDirection),
@@ -2468,11 +2633,24 @@ void DrawDashboard(string status)
          " | EquityCycle=#", IntegerToString(g_equityCycleNumber),
          " | NextReset=", FormatSecondsToHHMM(GetSecondsUntilNextEquityReset()));
 
-   DashRow("--------------------------------","",clrGray);
+   // DashRow("--------------------------------","",clrGray);
 
    DashRow("SAR Direction",
            DirectionText(g_activeSARDirection),
            g_activeSARDirection==1 ? clrLime : clrRed);
+
+            DashRow("H1 Trend",
+           DirectionText(GetH1TrendDirection()),
+           GetH1TrendDirection()==1 ? clrLime : clrRed);
+
+           DashRow("SAR Momentum",
+           IsCurrentSARGoodMomentum(g_activeSARDirection) ? "GOOD" : "WEAK",
+           g_sarGoodMomentum ? clrLime : clrOrangeRed);
+
+            DashRow("SAR Cycle Count",
+           IntegerToString(g_sarCycleOrdersCreated) + "/" + IntegerToString(g_sarCycleMaxOrders),
+           g_sarCycleOrdersCreated >= g_sarCycleMaxOrders ? clrOrangeRed : clrLime);
+
 
    DashRow("Pending SAR",
            DirectionText(g_pendingSARConfirmDirection),
@@ -2502,23 +2680,23 @@ void DrawDashboard(string status)
            DoubleToString(g_lastBigCandleMove, 2) + " / " + DoubleToString(InpBigCandleRawDifference, 0),
            g_bigCandlePause ? clrOrangeRed : clrWhite);
 
-   DashRow("--------------------------------","",clrGray);
+   // DashRow("--------------------------------","",clrGray);
 
-   DashRow("BUY Orders",
-           IntegerToString(CountOrdersByDirection(1)));
+   // DashRow("BUY Orders",
+   //         IntegerToString(CountOrdersByDirection(1)));
 
    DashRow("BUY Profit",
            "$"+DoubleToString(GetBasketProfit(1),2),
            GetBasketProfit(1)>=0 ? clrLime : clrRed);
 
-   DashRow("SELL Orders",
-           IntegerToString(CountOrdersByDirection(-1)));
+   // DashRow("SELL Orders",
+   //         IntegerToString(CountOrdersByDirection(-1)));
 
    DashRow("SELL Profit",
            "$"+DoubleToString(GetBasketProfit(-1),2),
            GetBasketProfit(-1)>=0 ? clrLime : clrRed);
 
-   DashRow("--------------------------------","",clrGray);
+   // DashRow("--------------------------------","",clrGray);
 
    DashRow("Balance",
            "$"+DoubleToString(AccountBalance(),2),
@@ -2548,37 +2726,35 @@ void DrawDashboard(string status)
            "$"+DoubleToString(InpBasketStopLossUSD,2),
            clrRed);
 
-   DashRow("Recovery TP",
-           "$"+DoubleToString(InpRecoveryProfitUSD,2),
-           clrGold);
+   // DashRow("Recovery TP",
+   //         "$"+DoubleToString(InpRecoveryProfitUSD,2),
+   //         clrGold);
 
-   DashRow("Recovery Orders",
-           IntegerToString(CountRecoveryOrders()),
-           CountRecoveryOrders() > 0 ? clrOrange : clrLime);
+   // DashRow("Recovery Orders",
+   //         IntegerToString(CountRecoveryOrders()),
+   //         CountRecoveryOrders() > 0 ? clrOrange : clrLime);
 
-   DashRow("--------------------------------","",clrGray);
+   // DashRow("--------------------------------","",clrGray);
 
-   DashRow("Daily Profit",
-           "$"+DoubleToString(GetTodayProfitFromBase(),2),
-           GetTodayProfitFromBase()>=0 ? clrLime : clrRed);
+   // DashRow("Daily Profit",
+   //         "$"+DoubleToString(GetTodayProfitFromBase(),2),
+   //         GetTodayProfitFromBase()>=0 ? clrLime : clrRed);
 
-   DashRow("Profit Lock",
-           g_dailyProfitLock ? "ON":"OFF",
-           g_dailyProfitLock ? clrOrange : clrLime);
+   // DashRow("Profit Lock",
+   //         g_dailyProfitLock ? "ON":"OFF",
+   //         g_dailyProfitLock ? clrOrange : clrLime);
 
-   DashRow("Symbol Orders",
-           IntegerToString(CountAllSymbolMarketOrders())+
-           "/"+
-           IntegerToString(GetDynamicSARMaxOrders()),
-           clrWhite);
+   // DashRow("Symbol Orders",
+   //         IntegerToString(CountAllSymbolMarketOrders())+
+   //         "/"+
+   //         IntegerToString(GetDynamicSARMaxOrders()),
+   //         clrWhite);
 
    DashRow("SAR Max Rule",
            "Max " + IntegerToString(GetDynamicSARMaxOrders()),
            GetDynamicSARMaxOrders() <= 0 ? clrRed : clrYellow);
 
-   DashRow("SAR Momentum",
-           IsCurrentSARGoodMomentum(g_activeSARDirection) ? "GOOD" : "WEAK",
-           g_sarGoodMomentum ? clrLime : clrOrangeRed);
+   
 
    DashRow("SAR Dot Dist",
            DoubleToString(g_sarGoodMomentumDotDistance, 2),
@@ -2588,10 +2764,7 @@ void DrawDashboard(string status)
            DoubleToString(g_sarGoodMomentumADX, 1) + " / " + DoubleToString(g_sarGoodMomentumATR, 1),
            g_sarGoodMomentum ? clrLime : clrWhite);
 
-   DashRow("SAR Cycle Count",
-           IntegerToString(g_sarCycleOrdersCreated) + "/" + IntegerToString(g_sarCycleMaxOrders),
-           g_sarCycleOrdersCreated >= g_sarCycleMaxOrders ? clrOrangeRed : clrLime);
-
+  
    DashRow("SAR Cycle Dir",
            DirectionText(g_sarCycleDirection),
            g_sarCycleDirection == 1 ? clrLime : clrRed);
