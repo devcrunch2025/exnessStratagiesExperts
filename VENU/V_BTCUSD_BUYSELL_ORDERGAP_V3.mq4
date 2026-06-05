@@ -1,24 +1,24 @@
 #property strict
 
-input double Lots                 = 0.01;
-input double AddStepUSD           = 1.00;
-input double ReverseStepUSD       = 1.00;
-input double BasketTPUSD          = 1.00;
-input double BasketSLUSD          = 10.00;
-input double MinSameTrendPriceGap = 30.0;
+double Lots                 = 0.01;
+double AddStepUSD           = 1.00;
+double ReverseStepUSD       = 2.00;
+double BasketTPUSD          = 0.50;
+double BasketSLUSD          = 10.00;
+double MinSameTrendPriceGap = 20.0;
 
-input int    MaxOrdersPerSide     = 10;
-input int    MagicNumber          = 20260603;
-input int    Slippage             = 30;
-input int    StartHour            = 0;
-input int    EndHour              = 10;
-input int    StopLossPauseMinutes = 0;
-input int    MaxTotalOpenOrders   = 500;
+int    MaxOrdersPerSide     = 20;
+int    MagicNumber          = 20260603;
+int    Slippage             = 30;
+int    StartHour            = 0;
+int    EndHour              = 10;
+int    StopLossPauseMinutes = 0;
+int    MaxTotalOpenOrders   = 500;
 
-input bool   UseLockedPriceBreakOrder = true;
-input bool   UseDailyProfitLimit  = true;
-input double DailyProfitMultiplier = 2.0; // Daily equity target = opening balance * 2
-input bool   CloseOrdersOnDailyProfitLimit = true;
+bool   UseLockedPriceBreakOrder = true;
+bool   UseDailyProfitLimit  = true;
+double DailyProfitMultiplier = 2.0; // Daily equity target = opening balance * 2
+bool   CloseOrdersOnDailyProfitLimit = true;
 
 // 1 = BUY, -1 = SELL
 int ActiveDirection = 1;
@@ -38,17 +38,28 @@ bool     DailyProfitLimitReached = false;
 int OnInit()
 {
    InitDailyProfitLimit();
+   DrawDashboard();
    Print("Separate BUY SELL Basket Bot Started");
    return(INIT_SUCCEEDED);
+}
+
+//+------------------------------------------------------------------+
+void OnDeinit(const int reason)
+{
+   DeleteDashboard();
 }
 
 //+------------------------------------------------------------------+
 void OnTick()
 {
    ResetDailyProfitLimitIfNewDay();
+   DrawDashboard();
 
    if(CheckDailyProfitLimit())
+   {
+      DrawDashboard();
       return;
+   }
 
    if(!IsTradingHour())
       return;
@@ -70,6 +81,8 @@ void OnTick()
 //+------------------------------------------------------------------+
 bool IsTradingHour()
 {
+
+    return true;
    int h = TimeHour(TimeCurrent());
    return (h >= StartHour && h <= EndHour);
 }
@@ -230,7 +243,7 @@ void ManageLockedPriceBreakOrder()
    double buyDistance  = MathAbs(livePrice - nearestBuyPrice);
    double sellDistance = MathAbs(livePrice - nearestSellPrice);
 
-   if(buyDistance < sellDistance && buyDistance >= MinSameTrendPriceGap)
+   if(buyDistance < sellDistance && buyDistance >= MinSameTrendPriceGap*CountOrdersByType(OP_BUY))
    {
       ActiveDirection = 1;
 
@@ -240,7 +253,7 @@ void ManageLockedPriceBreakOrder()
       return;
    }
 
-   if(sellDistance < buyDistance && sellDistance >= MinSameTrendPriceGap)
+   if(sellDistance < buyDistance && sellDistance >= MinSameTrendPriceGap*CountOrdersByType(OP_SELL))
    {
       ActiveDirection = -1;
 
@@ -694,4 +707,159 @@ double GetLastOrderOpenPriceByType(int type)
 
    return lastPrice;
 }
+//+------------------------------------------------------------------+
+
+//+------------------------------------------------------------------+
+// Professional colorful dashboard only. No trading logic changed.
+//+------------------------------------------------------------------+
+void DrawDashboard()
+{
+   int x = 300;
+   int y = 20;
+   int w = 330;
+   int h = 500;
+
+   DrawPanel("V3_DASH_BG", x, y, w, h, clrBlack);
+
+   int row = y + 12;
+
+   DrawText("V3_DASH_TITLE", "V3 BUY SELL BASKET BOT", x + 15, row, clrGold, 11);
+   row += 24;
+
+   DrawText("V3_DASH_LINE", "--------------------------------------", x + 15, row, clrDimGray, 8);
+   row += 18;
+
+   string tradeStatus = "ACTIVE";
+   color  tradeColor  = clrLime;
+
+   if(DailyProfitLimitReached)
+   {
+      tradeStatus = "DAILY TARGET HIT - STOPPED";
+      tradeColor  = clrRed;
+   }
+   else if(!IsTradingHour())
+   {
+      tradeStatus = "OUTSIDE TRADING HOURS";
+      tradeColor  = clrOrange;
+   }
+
+   string dirText = "BUY";
+   color  dirColor = clrLime;
+   if(ActiveDirection == -1)
+   {
+      dirText = "SELL";
+      dirColor = clrTomato;
+   }
+
+   double buyProfit  = GetBasketProfitByType(OP_BUY);
+   double sellProfit = GetBasketProfitByType(OP_SELL);
+   double totalProfit = buyProfit + sellProfit;
+
+   DrawDashRow("Status", tradeStatus, x, row, clrWhite, tradeColor); row += 22;
+   DrawDashRow("Symbol", Symbol(), x, row, clrWhite, clrAqua); row += 22;
+   DrawDashRow("Magic", IntegerToString(MagicNumber), x, row, clrWhite, clrLightSkyBlue); row += 22;
+   DrawDashRow("Direction", dirText, x, row, clrWhite, dirColor); row += 22;
+
+   DrawText("V3_DASH_LINE2", "--------------------------------------", x + 15, row, clrDimGray, 8);
+   row += 18;
+
+   DrawDashRow("Balance", DoubleToString(AccountBalance(), 2), x, row, clrWhite, clrLightSkyBlue); row += 22;
+   DrawDashRow("Equity", DoubleToString(AccountEquity(), 2), x, row, clrWhite, clrAqua); row += 22;
+   DrawDashRow("Daily Start", DoubleToString(DailyStartBalance, 2), x, row, clrWhite, clrYellow); row += 22;
+   DrawDashRow("Target Equity", DoubleToString(GetDailyProfitTargetAmount(), 2), x, row, clrWhite, clrGold); row += 22;
+   DrawDashRow("Today P/L", DoubleToString(GetTodayProfitFromOpeningBalance(), 2), x, row, clrWhite, ProfitColor(GetTodayProfitFromOpeningBalance())); row += 22;
+
+   DrawText("V3_DASH_LINE3", "--------------------------------------", x + 15, row, clrDimGray, 8);
+   row += 18;
+
+   DrawDashRow("BUY Orders", IntegerToString(CountOrdersByType(OP_BUY)), x, row, clrWhite, clrLime); row += 22;
+   DrawDashRow("SELL Orders", IntegerToString(CountOrdersByType(OP_SELL)), x, row, clrWhite, clrTomato); row += 22;
+   DrawDashRow("Total Orders", IntegerToString(CountMyOrders()) + " / " + IntegerToString(MaxTotalOpenOrders), x, row, clrWhite, clrAqua); row += 22;
+   DrawDashRow("BUY Basket P/L", DoubleToString(buyProfit, 2), x, row, clrWhite, ProfitColor(buyProfit)); row += 22;
+   DrawDashRow("SELL Basket P/L", DoubleToString(sellProfit, 2), x, row, clrWhite, ProfitColor(sellProfit)); row += 22;
+   DrawDashRow("Total Basket P/L", DoubleToString(totalProfit, 2), x, row, clrWhite, ProfitColor(totalProfit)); row += 22;
+
+   DrawText("V3_DASH_LINE4", "--------------------------------------", x + 15, row, clrDimGray, 8);
+   row += 18;
+
+   DrawDashRow("Trading Hours", IntegerToString(StartHour) + ":00 - " + IntegerToString(EndHour) + ":00", x, row, clrWhite, clrSilver); row += 22;
+   DrawDashRow("Basket TP / SL", DoubleToString(BasketTPUSD, 2) + " / " + DoubleToString(BasketSLUSD, 2), x, row, clrWhite, clrGold); row += 22;
+   DrawDashRow("Min Gap", DoubleToString(MinSameTrendPriceGap, 2), x, row, clrWhite, clrLightSkyBlue); row += 22;
+}
+
+//+------------------------------------------------------------------+
+void DrawPanel(string name, int x, int y, int w, int h, color bgColor)
+{
+   if(ObjectFind(0, name) < 0)
+      ObjectCreate(0, name, OBJ_RECTANGLE_LABEL, 0, 0, 0);
+
+   ObjectSetInteger(0, name, OBJPROP_CORNER, CORNER_RIGHT_UPPER);
+   ObjectSetInteger(0, name, OBJPROP_XDISTANCE, x);
+   ObjectSetInteger(0, name, OBJPROP_YDISTANCE, y);
+   ObjectSetInteger(0, name, OBJPROP_XSIZE, w);
+   ObjectSetInteger(0, name, OBJPROP_YSIZE, h);
+   ObjectSetInteger(0, name, OBJPROP_BGCOLOR, bgColor);
+   ObjectSetInteger(0, name, OBJPROP_BORDER_TYPE, BORDER_FLAT);
+   ObjectSetInteger(0, name, OBJPROP_COLOR, clrDimGray);
+   ObjectSetInteger(0, name, OBJPROP_BACK, false);
+   ObjectSetInteger(0, name, OBJPROP_SELECTABLE, false);
+   ObjectSetInteger(0, name, OBJPROP_HIDDEN, true);
+}
+
+//+------------------------------------------------------------------+
+void DrawText(string name, string textValue, int x, int y, color textColor, int fontSize)
+{
+   if(ObjectFind(0, name) < 0)
+      ObjectCreate(0, name, OBJ_LABEL, 0, 0, 0);
+
+   ObjectSetInteger(0, name, OBJPROP_CORNER, CORNER_RIGHT_UPPER);
+   ObjectSetInteger(0, name, OBJPROP_XDISTANCE, x);
+   ObjectSetInteger(0, name, OBJPROP_YDISTANCE, y);
+   ObjectSetString(0, name, OBJPROP_TEXT, textValue);
+   ObjectSetString(0, name, OBJPROP_FONT, "Arial Bold");
+   ObjectSetInteger(0, name, OBJPROP_FONTSIZE, fontSize);
+   ObjectSetInteger(0, name, OBJPROP_COLOR, textColor);
+   ObjectSetInteger(0, name, OBJPROP_SELECTABLE, false);
+   ObjectSetInteger(0, name, OBJPROP_HIDDEN, true);
+}
+
+//+------------------------------------------------------------------+
+void DrawDashRow(string label, string value, int x, int y, color labelColor, color valueColor)
+{
+
+    x=x-200;
+   string safeLabel = label;
+   StringReplace(safeLabel, " ", "_");
+   StringReplace(safeLabel, "/", "_");
+
+   DrawText("V3_DASH_L_" + safeLabel, label + " :", x + 170, y, labelColor, 8);
+   DrawText("V3_DASH_V_" + safeLabel, value, x + 15, y, valueColor, 8);
+}
+
+//+------------------------------------------------------------------+
+color ProfitColor(double value)
+{
+   if(value > 0)
+      return clrLime;
+
+   if(value < 0)
+      return clrTomato;
+
+   return clrSilver;
+}
+
+//+------------------------------------------------------------------+
+void DeleteDashboard()
+{
+   int total = ObjectsTotal(0, -1, -1);
+
+   for(int i = total - 1; i >= 0; i--)
+   {
+      string name = ObjectName(0, i);
+
+      if(StringFind(name, "V3_DASH_") == 0)
+         ObjectDelete(0, name);
+   }
+}
+
 //+------------------------------------------------------------------+
