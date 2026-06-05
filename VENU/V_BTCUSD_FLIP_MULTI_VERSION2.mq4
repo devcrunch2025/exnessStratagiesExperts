@@ -154,6 +154,10 @@ int    InpSARNormalDurationMaxOrders = 6;     // opposite duration <30 min or no
 int InpSARGoodMomentumExtraOrders = 2;
 bool InpResetMaxOrdersWhenSARWeak = true;
 
+input bool InpIncreaseSARMaxAfterActiveMinutes = true;
+input int  InpSARActiveMinutesForExtraOrders = 30;
+input int  InpSARActiveExtraOrders = 6;
+
 // SAR good-momentum upgrade
 // If current SAR trend is strong, increase current SAR signal-cycle max back to normal max.
 bool   InpUseSARGoodMomentumMaxUpgrade = true;
@@ -1415,6 +1419,40 @@ bool ProcessCloseOrdersFirst(string &status)
 
    return(false);
   }
+void IncreaseSARMaxIfTrendContinuesAfterOneHour()
+{
+   if(!InpIncreaseSARMaxAfterActiveMinutes)
+      return;
+
+   if(g_sarCycleDirection == 0 || g_sarCycleStartTime <= 0)
+      return;
+
+   int h1Trend = GetH1TrendDirection1();
+
+   if(h1Trend != g_sarCycleDirection)
+      return;
+
+   int activeMinutes = (int)((TimeCurrent() - g_sarCycleStartTime) / 60);
+
+   if(activeMinutes < InpSARActiveMinutesForExtraOrders)
+      return;
+
+   int normalMax = MathMax(0, InpSARNormalDurationMaxOrders);
+   int newMax = normalMax + MathMax(0, InpSARActiveExtraOrders);
+
+   if(g_sarCycleMaxOrders < newMax)
+   {
+      int oldMax = g_sarCycleMaxOrders;
+      g_sarCycleMaxOrders = newMax;
+
+      Print("SAR TREND CONTINUED 1H - EXTRA ORDERS ENABLED | Direction=",
+            DirectionText(g_sarCycleDirection),
+            " | H1=", DirectionText(h1Trend),
+            " | ActiveMinutes=", activeMinutes,
+            " | OldMax=", oldMax,
+            " | NewMax=", g_sarCycleMaxOrders);
+   }
+} 
 
 //+------------------------------------------------------------------+
 bool ProcessNewOrderCreationLast(bool isNewBar, string &status)
@@ -1484,6 +1522,10 @@ bool ProcessNewOrderCreationLast(bool isNewBar, string &status)
      }
 
    EnsureSARSignalOrderCycle(g_activeSARDirection);
+   // ResetSARMaxToNormalIfActiveLongEnough();
+   IncreaseSARMaxIfTrendContinuesAfterOneHour();
+
+
 // UpgradeSARCycleMaxIfGoodMomentum(g_activeSARDirection, "before new SAR order");
    UpdateSARCycleMaxByMomentum(g_activeSARDirection, "before new SAR order");
 
