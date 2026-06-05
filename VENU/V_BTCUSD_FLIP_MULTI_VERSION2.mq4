@@ -78,8 +78,8 @@ string InpNoNewOrderHourList      = "13,14,15,16,17,18"; // server-time hours to
 
 // Big candle pause protection
 bool   InpUseBigCandlePause       = true;     // pause new orders after very large candle
-double InpBigCandleRawDifference  = 300;    // raw BTCUSD price difference: High[1]-Low[1]
-int    InpBigCandlePauseMinutes   = 15;       // pause duration after big candle
+double InpBigCandleRawDifference  = 200;    // raw BTCUSD price difference: High[1]-Low[1]
+int    InpBigCandlePauseMinutes   = 30;       // pause duration after big candle
 bool   InpNotifyOnBigCandlePause  = true;     // push notification when big candle pause starts/ends
 
 // SAR settings
@@ -797,6 +797,7 @@ void CloseAllEAOrders(string reason)
      }
   }
 //+------------------------------------------------------------------+
+
 void ResetBigCandlePauseState()
   {
    g_bigCandlePause = false;
@@ -934,7 +935,7 @@ void CheckBigCandlePauseOnNewBar(bool isNewBar)
 
 //+------------------------------------------------------------------+
 bool IsBigCandlePauseActive()
-  {
+{
    if(!InpUseBigCandlePause)
       return(false);
 
@@ -945,30 +946,27 @@ bool IsBigCandlePauseActive()
    if(currentSAR == 0)
       currentSAR = GetSARDotDirection(1);
 
-   bool timeCompleted = (TimeCurrent() >= g_bigCandlePauseUntil);
-   bool sarChanged = (currentSAR != 0 && g_bigCandlePauseSARDirection != 0 && currentSAR != g_bigCandlePauseSARDirection);
-
-// Requirement: pause for configured minutes AND until new SAR signal changes.
-   if(timeCompleted && sarChanged)
-     {
-      Print("BIG CANDLE PAUSE RELEASED | CurrentSAR=", DirectionText(currentSAR),
-            " PreviousSAR=", DirectionText(g_bigCandlePauseSARDirection),
-            " LastMove=", DoubleToString(g_lastBigCandleMove, Digits));
-
-      if(InpNotifyOnBigCandlePause)
-        {
-         SendEAAlert("TRADING RESTARTED - BIG CANDLE PAUSE RELEASED",
-                     "CurrentSAR=" + DirectionText(currentSAR) +
-                     " | PreviousSAR=" + DirectionText(g_bigCandlePauseSARDirection) +
-                     " | LastMove=" + DoubleToString(g_lastBigCandleMove,2));
-        }
+   // ADD THIS
+   if(IsCurrentSARGoodMomentum(currentSAR))
+   {
+      Print("BIG CANDLE PAUSE RELEASED BY SAR GOOD MOMENTUM | SAR=",
+            DirectionText(currentSAR));
 
       ResetBigCandlePauseState();
       return(false);
-     }
+   }
+
+   bool timeCompleted = (TimeCurrent() >= g_bigCandlePauseUntil);
+   bool sarChanged = (currentSAR != 0 && g_bigCandlePauseSARDirection != 0 && currentSAR != g_bigCandlePauseSARDirection);
+
+   if(timeCompleted && sarChanged)
+   {
+      ResetBigCandlePauseState();
+      return(false);
+   }
 
    return(true);
-  }
+}
 
 //+------------------------------------------------------------------+
 string BigCandlePauseStatusText()
@@ -1495,6 +1493,43 @@ bool ProcessNewOrderCreationLast(bool isNewBar, string &status)
 
    return(true);
   }
+  void DrawEMATrendLines()
+{
+   DrawEMALine("DXB_EMA_FAST", InpFastEMA, clrLime, 2);
+   DrawEMALine("DXB_EMA_SLOW", InpSlowEMA, clrRed, 2);
+   DrawEMALine("DXB_EMA_H1_FAST", InpH1FastEMA, clrAqua, 1);
+   DrawEMALine("DXB_EMA_H1_SLOW", InpH1SlowEMA, clrOrange, 1);
+}
+
+void DrawEMALine(string name, int period, color clr, int width)
+{
+   int lookback = 100;
+
+   for(int i = lookback; i >= 1; i--)
+   {
+      string objName = name + "_" + IntegerToString(i);
+
+      double ema1 = iMA(Symbol(), Period(), period, 0, MODE_EMA, PRICE_CLOSE, i);
+      double ema2 = iMA(Symbol(), Period(), period, 0, MODE_EMA, PRICE_CLOSE, i - 1);
+
+      datetime t1 = Time[i];
+      datetime t2 = Time[i - 1];
+
+      if(ObjectFind(0, objName) < 0)
+      {
+         ObjectCreate(0, objName, OBJ_TREND, 0, t1, ema1, t2, ema2);
+         ObjectSetInteger(0, objName, OBJPROP_RAY_RIGHT, false);
+         ObjectSetInteger(0, objName, OBJPROP_COLOR, clr);
+         ObjectSetInteger(0, objName, OBJPROP_WIDTH, width);
+         ObjectSetInteger(0, objName, OBJPROP_BACK, true);
+      }
+      else
+      {
+         ObjectMove(0, objName, 0, t1, ema1);
+         ObjectMove(0, objName, 1, t2, ema2);
+      }
+   }
+}
 
 //+------------------------------------------------------------------+
 void OnTick()
@@ -1561,6 +1596,9 @@ void OnTick()
 // SECTION 3: New order creation LAST. Runs only if nothing closed this tick.
    if(!closedThisTick)
       ProcessNewOrderCreationLast(isNewBar, status);
+      
+      DrawEMATrendLines();
+ 
 
    DrawDashboard(status);
   }
