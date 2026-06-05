@@ -20,7 +20,7 @@ int    InpMaxOrders               = 10;    // display only; hard max/dynamic def
 #define DXB_HARD_MAX_OPEN_ORDERS 1  // default safety cap; dynamic SAR opposite-duration rule can reduce to 0/2/5/10
 
 double InpBasketProfitUSD         = 0.50;
-double InpBasketStopLossUSD       = 2.00;   // basket stop loss in USD, 0 = disabled
+double InpBasketStopLossUSD       = 3.00;   // basket stop loss in USD, 0 = disabled
 bool   InpOpenRecoveryAfterClose  = false;   // open recovery order after SL/SAR flip/early reverse close
 double InpRecoveryProfitUSD       = 0.50;   // close recovery order when this USD profit is reached
 bool   InpRecoveryAfterSLReverse  = true;   // true: after basket SL, open opposite direction
@@ -230,6 +230,43 @@ double   g_sarGoodMomentumATR      = 0.0;
 input bool   InpUseH1TrendFilter = true;
 input int    InpH1FastEMA = 50;
 input int    InpH1SlowEMA = 200;
+
+input bool InpOpenExtraOrderOnEarlySameSAR = true;
+input int  InpEarlySameSARExtraMaxOrders = 1;
+datetime g_lastEarlySameSAROrderBarTime = 0;
+bool TryOpenEarlySameSARExtraOrder()
+{
+   if(!InpOpenExtraOrderOnEarlySameSAR)
+      return false;
+
+   int early = DetectEarlyTrend();
+
+   if(early == 0)
+      return false;
+
+   if(early != g_activeSARDirection)
+      return false;
+
+   if(Time[1] == g_lastEarlySameSAROrderBarTime)
+      return false;
+
+   EnsureSARSignalOrderCycle(g_activeSARDirection);
+
+   g_sarCycleMaxOrders += InpEarlySameSARExtraMaxOrders;
+
+   if(OpenMarketOrder(g_activeSARDirection, "EARLY SAME SAR EXTRA"))
+   {
+      g_lastEarlySameSAROrderBarTime = Time[1];
+
+      Print("EARLY SAME SAR EXTRA ORDER OPENED | Direction=",
+            DirectionText(g_activeSARDirection),
+            " | NewMax=", g_sarCycleMaxOrders);
+
+      return true;
+   }
+
+   return false;
+}
 int GetH1TrendDirection()
   {
 
@@ -946,15 +983,15 @@ bool IsBigCandlePauseActive()
    if(currentSAR == 0)
       currentSAR = GetSARDotDirection(1);
 
-   // ADD THIS
-   if(IsCurrentSARGoodMomentum(currentSAR))
-   {
-      Print("BIG CANDLE PAUSE RELEASED BY SAR GOOD MOMENTUM | SAR=",
-            DirectionText(currentSAR));
+   // // ADD THIS
+   // if(IsCurrentSARGoodMomentum(currentSAR))
+   // {
+   //    Print("BIG CANDLE PAUSE RELEASED BY SAR GOOD MOMENTUM | SAR=",
+   //          DirectionText(currentSAR));
 
-      ResetBigCandlePauseState();
-      return(false);
-   }
+   //    ResetBigCandlePauseState();
+   //    return(false);
+   // }
 
    bool timeCompleted = (TimeCurrent() >= g_bigCandlePauseUntil);
    bool sarChanged = (currentSAR != 0 && g_bigCandlePauseSARDirection != 0 && currentSAR != g_bigCandlePauseSARDirection);
@@ -1449,6 +1486,12 @@ bool ProcessNewOrderCreationLast(bool isNewBar, string &status)
    EnsureSARSignalOrderCycle(g_activeSARDirection);
 // UpgradeSARCycleMaxIfGoodMomentum(g_activeSARDirection, "before new SAR order");
    UpdateSARCycleMaxByMomentum(g_activeSARDirection, "before new SAR order");
+
+   if(TryOpenEarlySameSARExtraOrder())
+{
+   status = "EARLY SAME SAR EXTRA ORDER";
+   return true;
+}
 
    if(!IsOrderAllowedByH1Trend(g_activeSARDirection)  && !IsCurrentSARGoodMomentum(g_activeSARDirection))
      {
