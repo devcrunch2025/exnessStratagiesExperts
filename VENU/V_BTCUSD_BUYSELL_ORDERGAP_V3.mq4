@@ -15,6 +15,18 @@ int    EndHour              = 10;
 int    StopLossPauseMinutes = 0;
 int    MaxTotalOpenOrders   = 500;
 
+// M30 trend filter
+bool   UseM30TrendFilter    = true;
+int    M30TrendFastEMA      = 9;
+int    M30TrendSlowEMA      = 21;
+bool   UseClosedM30Candle   = true;   // true = use closed M30 candle, safer than current candle
+
+// Recovery order settings
+bool   UseRecoveryOrders       = true;
+double RecoveryLossUSD         = 1.00;   // create recovery when latest/current order loss reaches this amount
+double RecoveryPriceGap        = 20.0;   // raw price gap against latest/current order
+int    MaxRecoveryOrdersPerSide = 20;
+
 bool   UseLockedPriceBreakOrder = true;
 bool   UseDailyProfitLimit  = true;
 double DailyProfitMultiplier = 2.0; // Daily equity target = opening balance * 2
@@ -66,12 +78,26 @@ void OnTick()
 
    if(CountMyOrders() == 0)
    {
+      int m30Trend = GetM30TrendDirection();
+
+      if(UseM30TrendFilter)
+      {
+         if(m30Trend == 0)
+         {
+            Print("First order blocked. M30 trend is neutral.");
+            return;
+         }
+
+         ActiveDirection = m30Trend;
+      }
+
       OpenOrderByDirection(ActiveDirection);
       ResetAddLevels();
       LastReverseLevel = 0;
       return;
    }
 
+   ManageRecoveryOrders();
    ManageLockedPriceBreakOrder();
    ManageOldestOrderReverseEveryMinusOne();
    ManageBuyBasket();
@@ -538,6 +564,174 @@ void CloseOrdersByType(int type)
 }
 
 
+
+//+------------------------------------------------------------------+
+// Recovery logic: when latest/current BUY or SELL order is in loss,
+// create another order in the SAME direction, following M30 trend.
+// It opens only after price moved against the latest order by RecoveryPriceGap.
+//+------------------------------------------------------------------+
+void ManageRecoveryOrders()
+{
+   if(!UseRecoveryOrders)
+      return;
+
+   if(DailyProfitLimitReached)
+      return;
+
+   if(!IsTradingHour())
+      return;
+
+   if(CountMyOrders() >= MaxTotalOpenOrders)
+      return;
+
+   ManageRecoveryOrderByType(OP_BUY);
+   ManageRecoveryOrderByType(OP_SELL);
+}
+
+//+------------------------------------------------------------------+
+void ManageRecoveryOrderByType(int type)
+{
+   if(CountMyOrders() >= MaxTotalOpenOrders)
+      return;
+
+   if(CountOrdersByType(type) <= 0)
+      return;
+
+   if(CountOrdersByType(type) >= MaxRecoveryOrdersPerSide)
+      return;
+
+   if(CountOrdersByType(type) >= MaxOrdersPerSide)
+      return;
+
+   int ticket = GetLatestOrderTicketByType(type);
+   if(ticket <= 0)
+      return;
+
+   if(!OrderSelect(ticket, SELECT_BY_TICKET))
+      return;
+
+   double profit = OrderProfit() + OrderSwap() + OrderCommission();
+   if(profit > -RecoveryLossUSD)
+      return;
+
+   RefreshRates();
+
+   double openPrice = OrderOpenPrice();
+   bool priceMovedAgainst = false;
+
+   // BUY is losing when price moves down from open price.
+   if(type == OP_BUY)
+   {
+      if((openPrice - Bid) >= RecoveryPriceGap)
+         priceMovedAgainst = true;
+   }
+
+   // SELL is losing when price moves up from open price.
+   if(type == OP_SELL)
+   {
+      if((Ask - openPrice) >= RecoveryPriceGap)
+         priceMovedAgainst = true;
+   }
+
+   if(!priceMovedAgainst)
+   {
+      Print("Recovery blocked. Price gap not reached. Type=", type,
+            " Ticket=", ticket,
+            " Profit=", DoubleToString(profit, 2),
+            " RequiredGap=", DoubleToString(RecoveryPriceGap, Digits));
+      return;
+   }
+
+   OpenRecoveryOrder(type);
+}
+
+//+------------------------------------------------------------------+
+int GetLatestOrderTicketByType(int type)
+{
+   int latestTicket = -1;
+   datetime latestTime = 0;
+
+   for(int i = OrdersTotal() - 1; i >= 0; i--)
+   {
+      if(!OrderSelect(i, SELECT_BY_POS, MODE_TRADES))
+         continue;
+
+      if(OrderSymbol() != Symbol() ||
+         OrderMagicNumber() != MagicNumber ||
+         OrderType() != type)
+         continue;
+
+      if(OrderOpenTime() >= latestTime)
+      {
+         latestTime = OrderOpenTime();
+         latestTicket = OrderTicket();
+      }
+   }
+
+   return latestTicket;
+}
+
+//+------------------------------------------------------------------+
+void OpenRecoveryOrder(int type)
+{
+   if(!IsTradingHour())
+      return;
+
+   if(IsDirectionPaused(type))
+   {
+      Print("Recovery blocked. Direction paused. Type=", type);
+      return;
+   }
+
+   if(CountMyOrders() >= MaxTotalOpenOrders)
+      return;
+
+   if(DailyProfitLimitReached)
+      return;
+
+   // Recovery must follow M30 trend also.
+   if(!CanOpenByM30Trend(type))
+      return;
+
+   RefreshRates();
+
+   double price = 0;
+   string comment = "";
+   color orderColor = clrDeepSkyBlue;
+
+   if(type == OP_BUY)
+   {
+      price = Ask;
+      comment = "V3BUYSELL_RECOVERY_BUY";
+   }
+   else if(type == OP_SELL)
+   {
+      price = Bid;
+      comment = "V3BUYSELL_RECOVERY_SELL";
+   }
+   else
+      return;
+
+   int ticket = OrderSend(
+      Symbol(),
+      type,
+      Lots,
+      price,
+      Slippage,
+      0,
+      0,
+      comment,
+      MagicNumber,
+      0,
+      orderColor
+   );
+
+   if(ticket < 0)
+      Print("Recovery OrderSend failed. Type=", type, " Error=", GetLastError());
+   else
+      Print("Recovery order opened. Ticket=", ticket, " ", comment);
+}
+
 //+------------------------------------------------------------------+
 // Force open reverse order immediately after basket stop loss.
 // This bypasses direction pause and same-trend gap filter,
@@ -552,6 +746,9 @@ void OpenReverseOrderAfterSL(int type)
       return;
 
    if(DailyProfitLimitReached)
+      return;
+
+   if(!CanOpenByM30Trend(type))
       return;
 
    RefreshRates();
@@ -593,6 +790,68 @@ void OpenReverseOrderAfterSL(int type)
 }
 
 //+------------------------------------------------------------------+
+// M30 trend direction.
+// Returns  1 = BUY trend, -1 = SELL trend, 0 = neutral/no clear trend.
+// Uses EMA fast/slow on M30. Closed candle is safer for avoiding repaint.
+int GetM30TrendDirection()
+{
+   int shift = 0;
+
+   if(UseClosedM30Candle)
+      shift = 1;
+
+   double fastEMA = iMA(Symbol(), PERIOD_M30, M30TrendFastEMA, 0, MODE_EMA, PRICE_CLOSE, shift);
+   double slowEMA = iMA(Symbol(), PERIOD_M30, M30TrendSlowEMA, 0, MODE_EMA, PRICE_CLOSE, shift);
+   double closeM30 = iClose(Symbol(), PERIOD_M30, shift);
+
+   if(fastEMA <= 0 || slowEMA <= 0 || closeM30 <= 0)
+      return 0;
+
+   if(fastEMA > slowEMA && closeM30 > fastEMA)
+      return 1;
+
+   if(fastEMA < slowEMA && closeM30 < fastEMA)
+      return -1;
+
+   return 0;
+}
+
+//+------------------------------------------------------------------+
+// Blocks order creation unless the requested order type follows M30 trend.
+bool CanOpenByM30Trend(int type)
+{
+   if(!UseM30TrendFilter)
+      return true;
+
+   int trend = GetM30TrendDirection();
+
+   if(trend == 0)
+   {
+      Print("Order blocked. M30 trend is neutral. Type=", type);
+      return false;
+   }
+
+   if(type == OP_BUY && trend == 1)
+      return true;
+
+   if(type == OP_SELL && trend == -1)
+      return true;
+
+   string trendText = "NEUTRAL";
+   if(trend == 1)
+      trendText = "BUY";
+   if(trend == -1)
+      trendText = "SELL";
+
+   Print("Order blocked. M30 trend filter mismatch. Trend=",
+         trendText,
+         " RequestedType=",
+         type);
+
+   return false;
+}
+
+//+------------------------------------------------------------------+
 void OpenOrder(int type)
 {
    if(!IsTradingHour())
@@ -608,6 +867,9 @@ void OpenOrder(int type)
       return;
 
    if(DailyProfitLimitReached)
+      return;
+
+   if(!CanOpenByM30Trend(type))
       return;
 
    if(!CanOpenBySameTrendGap(type))
@@ -710,6 +972,30 @@ double GetLastOrderOpenPriceByType(int type)
 //+------------------------------------------------------------------+
 
 //+------------------------------------------------------------------+
+string GetTrendText(int trend)
+{
+   if(trend == 1)
+      return "BUY";
+
+   if(trend == -1)
+      return "SELL";
+
+   return "NEUTRAL";
+}
+
+//+------------------------------------------------------------------+
+color GetTrendColor(int trend)
+{
+   if(trend == 1)
+      return clrLime;
+
+   if(trend == -1)
+      return clrTomato;
+
+   return clrSilver;
+}
+
+//+------------------------------------------------------------------+
 // Professional colorful dashboard only. No trading logic changed.
 //+------------------------------------------------------------------+
 void DrawDashboard()
@@ -760,6 +1046,10 @@ void DrawDashboard()
    DrawDashRow("Magic", IntegerToString(MagicNumber), x, row, clrWhite, clrLightSkyBlue); row += 22;
    DrawDashRow("Direction", dirText, x, row, clrWhite, dirColor); row += 22;
 
+   string m30TrendText = GetTrendText(GetM30TrendDirection());
+   color  m30TrendColor = GetTrendColor(GetM30TrendDirection());
+   DrawDashRow("M30 Trend", m30TrendText, x, row, clrWhite, m30TrendColor); row += 22;
+
    DrawText("V3_DASH_LINE2", "--------------------------------------", x + 15, row, clrDimGray, 8);
    row += 18;
 
@@ -785,6 +1075,8 @@ void DrawDashboard()
    DrawDashRow("Trading Hours", IntegerToString(StartHour) + ":00 - " + IntegerToString(EndHour) + ":00", x, row, clrWhite, clrSilver); row += 22;
    DrawDashRow("Basket TP / SL", DoubleToString(BasketTPUSD, 2) + " / " + DoubleToString(BasketSLUSD, 2), x, row, clrWhite, clrGold); row += 22;
    DrawDashRow("Min Gap", DoubleToString(MinSameTrendPriceGap, 2), x, row, clrWhite, clrLightSkyBlue); row += 22;
+   DrawDashRow("Recovery Loss", DoubleToString(RecoveryLossUSD, 2), x, row, clrWhite, clrOrange); row += 22;
+   DrawDashRow("Recovery Gap", DoubleToString(RecoveryPriceGap, 2), x, row, clrWhite, clrOrange); row += 22;
 }
 
 //+------------------------------------------------------------------+
