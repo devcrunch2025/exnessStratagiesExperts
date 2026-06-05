@@ -17,10 +17,10 @@ string InpEAName                  = "DXB SAR Early Trend Cycle EA";
 int    InpMagicNumber             = 989899;
 double InpFixedLot                = 0.01;
 int    InpMaxOrders               = 10;    // display only; hard max/dynamic default is 10
-#define DXB_HARD_MAX_OPEN_ORDERS 1  // default safety cap; dynamic SAR opposite-duration rule can reduce to 0/2/5/10
+#define DXB_HARD_MAX_OPEN_ORDERS 1 // default safety cap; dynamic SAR opposite-duration rule can reduce to 0/2/5/10
 
 double InpBasketProfitUSD         = 0.50;
-double InpBasketStopLossUSD       = 3.00;   // basket stop loss in USD, 0 = disabled
+double InpBasketStopLossUSD       = 4.00;   // basket stop loss in USD, 0 = disabled
 bool   InpOpenRecoveryAfterClose  = false;   // open recovery order after SL/SAR flip/early reverse close
 double InpRecoveryProfitUSD       = 0.50;   // close recovery order when this USD profit is reached
 bool   InpRecoveryAfterSLReverse  = true;   // true: after basket SL, open opposite direction
@@ -975,6 +975,27 @@ void CheckBigCandlePauseOnNewBar(bool isNewBar)
   }
 
 //+------------------------------------------------------------------+
+// bool IsBigCandlePauseActive()
+// {
+//    if(!InpUseBigCandlePause)
+//       return(false);
+
+//    if(!g_bigCandlePause)
+//       return(false);
+
+//    bool timeCompleted = (TimeCurrent() >= g_bigCandlePauseUntil);
+
+//    if(timeCompleted)
+//    {
+//       Print("BIG CANDLE PAUSE COMPLETED | PauseUntil=",
+//             TimeToString(g_bigCandlePauseUntil, TIME_DATE|TIME_SECONDS));
+
+//       ResetBigCandlePauseState();
+//       return(false);
+//    }
+
+//    return(true);
+// }
 bool IsBigCandlePauseActive()
 {
    if(!InpUseBigCandlePause)
@@ -1438,21 +1459,40 @@ void IncreaseSARMaxIfTrendContinuesAfterOneHour()
       return;
 
    int normalMax = MathMax(0, InpSARNormalDurationMaxOrders);
-   int newMax = normalMax + MathMax(0, InpSARActiveExtraOrders);
+
+   // Example:
+   // 60 min  = normal + base extra
+   // 90 min  = normal + base extra + 1
+   // 120 min = normal + base extra + 2
+   // 150 min = normal + base extra + 3
+   // 180 min = normal + base extra + 4
+
+   int extraOrders = MathMax(0, InpSARActiveExtraOrders);
+
+   if(activeMinutes > InpSARActiveMinutesForExtraOrders)
+   {
+      int extraBlocks =
+         (activeMinutes - InpSARActiveMinutesForExtraOrders) / 30;
+
+      extraOrders += extraBlocks;
+   }
+
+   int newMax = normalMax + extraOrders;
 
    if(g_sarCycleMaxOrders < newMax)
    {
       int oldMax = g_sarCycleMaxOrders;
       g_sarCycleMaxOrders = newMax;
 
-      Print("SAR TREND CONTINUED 1H - EXTRA ORDERS ENABLED | Direction=",
+      Print("SAR TREND CONTINUED - PROGRESSIVE EXTRA ORDERS | Direction=",
             DirectionText(g_sarCycleDirection),
             " | H1=", DirectionText(h1Trend),
             " | ActiveMinutes=", activeMinutes,
+            " | ExtraOrders=", extraOrders,
             " | OldMax=", oldMax,
             " | NewMax=", g_sarCycleMaxOrders);
    }
-} 
+}
 
 //+------------------------------------------------------------------+
 bool ProcessNewOrderCreationLast(bool isNewBar, string &status)
@@ -1547,7 +1587,7 @@ bool ProcessNewOrderCreationLast(bool isNewBar, string &status)
 
    if(dynamicMaxOrders <= 0)
      {
-      status = "SAR CYCLE MAX BLOCK - MAX 0";
+      status = "SAR CYCLE Immidiate change MAX BLOCK - MAX 0";
       Print("ORDER BLOCKED | SAR cycle max is 0 | Direction=", DirectionText(g_activeSARDirection),
             " | Last5=", GetSARDurationSummaryText());
       return(false);
