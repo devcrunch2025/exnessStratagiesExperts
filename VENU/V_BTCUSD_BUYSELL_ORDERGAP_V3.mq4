@@ -17,7 +17,7 @@ input int    MaxTotalOpenOrders   = 500;
 
 input bool   UseLockedPriceBreakOrder = true;
 input bool   UseDailyProfitLimit  = true;
-input double DailyProfitMultiplier = 2.0; // Daily target = opening balance * 2
+input double DailyProfitMultiplier = 2.0; // Daily equity target = opening balance * 2
 input bool   CloseOrdersOnDailyProfitLimit = true;
 
 // 1 = BUY, -1 = SELL
@@ -96,7 +96,7 @@ void InitDailyProfitLimit()
 
    Print("Daily profit tracking started. Opening balance=",
          DoubleToString(DailyStartBalance, 2),
-         " Daily target profit=",
+         " Daily equity target=",
          DoubleToString(GetDailyProfitTargetAmount(), 2));
 }
 
@@ -118,7 +118,7 @@ void ResetDailyProfitLimitIfNewDay()
 
       Print("New day reset. Opening balance=",
             DoubleToString(DailyStartBalance, 2),
-            " Daily target profit=",
+            " Daily equity target=",
             DoubleToString(GetDailyProfitTargetAmount(), 2));
    }
 }
@@ -144,21 +144,24 @@ bool CheckDailyProfitLimit()
    if(DailyProfitLimitReached)
       return true;
 
-   double todayProfit = GetTodayProfitFromOpeningBalance();
-   double targetProfit = GetDailyProfitTargetAmount();
+   double currentEquity = AccountEquity();
+   double targetEquity  = GetDailyProfitTargetAmount();
+   double todayProfit   = GetTodayProfitFromOpeningBalance();
 
-   if(todayProfit >= targetProfit)
+   // Stop trading when equity reaches daily equity target.
+   // Example: Opening balance 100 and multiplier 2.0 => stop when equity >= 200.
+   if(currentEquity >= targetEquity)
    {
       DailyProfitLimitReached = true;
 
-      Print("DAILY PROFIT LIMIT REACHED. OpeningBalance=",
+      Print("DAILY EQUITY PROFIT LIMIT REACHED. OpeningBalance=",
             DoubleToString(DailyStartBalance, 2),
             " CurrentEquity=",
-            DoubleToString(AccountEquity(), 2),
-            " Profit=",
+            DoubleToString(currentEquity, 2),
+            " ProfitFromOpeningBalance=",
             DoubleToString(todayProfit, 2),
-            " Target=",
-            DoubleToString(targetProfit, 2),
+            " TargetEquity=",
+            DoubleToString(targetEquity, 2),
             ". Trading stopped for today.");
 
       if(CloseOrdersOnDailyProfitLimit)
@@ -546,12 +549,12 @@ void OpenReverseOrderAfterSL(int type)
    if(type == OP_BUY)
    {
       price = Ask;
-      comment = "SL_REVERSE_BUY";
+      comment = "V3BUYSELL_SL_REVERSE_BUY";
    }
    else if(type == OP_SELL)
    {
       price = Bid;
-      comment = "SL_REVERSE_SELL";
+      comment = "V3BUYSELL_SL_REVERSE_SELL";
    }
    else
       return;
@@ -605,12 +608,12 @@ void OpenOrder(int type)
    if(type == OP_BUY)
    {
       price = Ask;
-      comment = "BUY_BASKET";
+      comment = "V3BUYSELL_BUY";
    }
    else if(type == OP_SELL)
    {
       price = Bid;
-      comment = "SELL_BASKET";
+      comment = "V3BUYSELL_SELL";
    }
    else
       return;
