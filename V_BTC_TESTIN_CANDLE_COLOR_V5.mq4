@@ -5,13 +5,14 @@ input double AddStepUSD           = 1.00;
 input double ReverseStepUSD       = 1.00;
 input double BasketTPUSD          = 1.00;
 input double BasketSLUSD          = 10.00;
-input double MinSameTrendPriceGap = 100.0;
+input double MinSameTrendPriceGap = 50.0;
 
-input int    MaxOrdersPerSide     = 10;
+input int    MaxOrdersPerSide     = 5;
 input int    MagicNumber          = 20260603;
 input int    Slippage             = 30;
 input int    StartHour            = 0;
 input int    EndHour              = 10;
+input int    StopLossPauseMinutes = 0;
 
 input bool   UseLockedPriceBreakOrder = true;
 
@@ -21,6 +22,9 @@ int ActiveDirection = 1;
 double BuyLastAddLevel  = 0;
 double SellLastAddLevel = 0;
 double LastReverseLevel = 0;
+
+datetime BuyPauseUntil  = 0;
+datetime SellPauseUntil = 0;
 
 //+------------------------------------------------------------------+
 int OnInit()
@@ -44,9 +48,7 @@ void OnTick()
    }
 
    ManageLockedPriceBreakOrder();
-
    ManageOldestOrderReverseEveryMinusOne();
-
    ManageBuyBasket();
    ManageSellBasket();
 }
@@ -56,6 +58,18 @@ bool IsTradingHour()
 {
    int h = TimeHour(TimeCurrent());
    return (h >= StartHour && h <= EndHour);
+}
+
+//+------------------------------------------------------------------+
+bool IsDirectionPaused(int type)
+{
+   if(type == OP_BUY && TimeCurrent() < BuyPauseUntil)
+      return true;
+
+   if(type == OP_SELL && TimeCurrent() < SellPauseUntil)
+      return true;
+
+   return false;
 }
 
 //+------------------------------------------------------------------+
@@ -194,8 +208,15 @@ void ManageBuyBasket()
       CloseOrdersByType(OP_BUY);
       BuyLastAddLevel = 0;
       LastReverseLevel = 0;
+
+      BuyPauseUntil = TimeCurrent() + (StopLossPauseMinutes * 60);
+
       ActiveDirection = -1;
-      OpenOrder(OP_SELL);
+
+      Print("BUY basket SL hit. BUY paused until ",
+            TimeToString(BuyPauseUntil, TIME_DATE | TIME_MINUTES));
+
+      OpenReverseOrderAfterSL(OP_SELL);
       return;
    }
 
@@ -233,8 +254,15 @@ void ManageSellBasket()
       CloseOrdersByType(OP_SELL);
       SellLastAddLevel = 0;
       LastReverseLevel = 0;
+
+      SellPauseUntil = TimeCurrent() + (StopLossPauseMinutes * 60);
+
       ActiveDirection = 1;
-      OpenOrder(OP_BUY);
+
+      Print("SELL basket SL hit. SELL paused until ",
+            TimeToString(SellPauseUntil, TIME_DATE | TIME_MINUTES));
+
+      OpenReverseOrderAfterSL(OP_BUY);
       return;
    }
 
@@ -369,11 +397,69 @@ void CloseOrdersByType(int type)
    }
 }
 
+
+//+------------------------------------------------------------------+
+// Force open reverse order immediately after basket stop loss.
+// This bypasses direction pause and same-trend gap filter,
+// but still respects trading hour and MaxOrdersPerSide.
+//+------------------------------------------------------------------+
+void OpenReverseOrderAfterSL(int type)
+{
+   if(!IsTradingHour())
+      return;
+
+   if(CountOrdersByType(type) >= MaxOrdersPerSide)
+      return;
+
+   RefreshRates();
+
+   double price = 0;
+   string comment = "";
+
+   if(type == OP_BUY)
+   {
+      price = Ask;
+      comment = "SL_REVERSE_BUY";
+   }
+   else if(type == OP_SELL)
+   {
+      price = Bid;
+      comment = "SL_REVERSE_SELL";
+   }
+   else
+      return;
+
+   int ticket = OrderSend(
+      Symbol(),
+      type,
+      Lots,
+      price,
+      Slippage,
+      0,
+      0,
+      comment,
+      MagicNumber,
+      0,
+      clrOrange
+   );
+
+   if(ticket < 0)
+      Print("SL reverse OrderSend failed. Type=", type, " Error=", GetLastError());
+   else
+      Print("SL reverse order opened immediately. Ticket=", ticket, " ", comment);
+}
+
 //+------------------------------------------------------------------+
 void OpenOrder(int type)
 {
    if(!IsTradingHour())
       return;
+
+   if(IsDirectionPaused(type))
+   {
+      Print("Order blocked. Direction paused. Type=", type);
+      return;
+   }
 
    if(CountOrdersByType(type) >= MaxOrdersPerSide)
       return;
