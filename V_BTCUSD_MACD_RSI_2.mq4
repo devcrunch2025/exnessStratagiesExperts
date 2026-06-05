@@ -1,8 +1,8 @@
 //+------------------------------------------------------------------+
-//| TradeSmart_MACD_RSI_ADX_Defaults_EA.mq4                          |
+//| TradeSmart_MACD_RSI_ADX_TP5_ProfitObservation_FastTest_EA.mq4                          |
 //| MT4 EA using visible TradingView defaults                         |
 //| MACD 12/26/9 on HLCC4, RSI 14 on HL2 Reverse, ADX 5 limiter       |
-//| SMA100 trend filter, Volume > EMA10, basket TP $5 / SL $5        |
+//| SMA100 trend filter, Volume > EMA10, separate BUY/SELL basket     |
 //+------------------------------------------------------------------+
 #property strict
 
@@ -13,11 +13,19 @@ int      MaxSpreadPoints          = 3000;
 ENUM_TIMEFRAMES SignalTF          = PERIOD_CURRENT;
 
 bool     CloseOnExitSignal        = true;   // Close BUY on SELL signal, close SELL on BUY signal
-bool     CloseOnProfitUSD         = true;   // Close basket when profit reaches target USD
-double   BuyBasketTakeProfitUSD   = 5.00;   // Close BUY basket profit in USD
-double   SellBasketTakeProfitUSD  = 5.00;   // Close SELL basket profit in USD
-double   BuyBasketStopLossUSD     = -5.00;  // Fixed BUY basket stop loss in USD
-double   SellBasketStopLossUSD    = -5.00;  // Fixed SELL basket stop loss in USD
+bool     CloseOnlyIfBasketProfit  = true;   // Opposite signal closes only when current basket is still in profit
+double   MinProfitToCloseOnSignal = 0.01;   // Minimum profit required for opposite-signal early close
+double   BuyBasketTakeProfitUSD   = 5.00;   // Close BUY basket safely at +$5 profit
+double   SellBasketTakeProfitUSD  = 5.00;   // Close SELL basket safely at +$5 profit
+double   BuyBasketStopLossUSD     = -1.00;  // Fixed BUY basket stop loss in USD
+double   SellBasketStopLossUSD    = -1.00;  // Fixed SELL basket stop loss in USD
+bool     BlockRecoveryWhenProfit  = true;   // Do not create recovery when basket / any order is in profit
+
+bool     EnableProfitObservation  = true;   // Protect profit if +$5 TP not reached
+double   ProfitObserveStartUSD    = 1.00;   // Start observation after basket reaches +$1
+double   ProfitObserveStepUSD     = 1.00;   // Observe levels: +1, +2, +3, +4
+double   ProfitPullbackUSD        = 3.00;   // If peak profit drops by $2, close basket
+double   MinimumTrailCloseProfit  = 0.20;   // Never trailing-close below this profit
 
 bool     EnableRecovery           = true;
 int      MaxBuyOrders             = 4;
@@ -29,10 +37,11 @@ bool     EnableBuy                = true;
 bool     EnableSell               = true;
 bool     DebugPrint               = true;
 bool     ShowDashboard            = true;
-bool     ShowChartGraphics         = true;   // Draw arrows, filter status, SMA100 and recovery levels on chart
-int      GraphicsLookbackBars      = 20;     // How many closed bars to scan for MACD crosses
-bool     DrawFilterFailLabels      = true;   // Show why signal/order is blocked near candle
-bool     DrawSMA100Line            = true;
+bool     ShowChartGraphics         = false;  // OFF by default for faster Strategy Tester
+int      GraphicsLookbackBars      = 20;     // Reduced lookback for faster graphics
+bool     DrawFilterFailLabels      = false;  // OFF by default for faster testing
+bool     DrawSMA100Line            = false;  // OFF by default for faster testing
+int      DashboardUpdateSeconds    = 2;      // Dashboard redraw throttle
 
 // TradingView visible defaults
 int      MACDFastEMA              = 12;
@@ -71,6 +80,9 @@ int      SessionEndMinute         = 0;
 bool     RelaxFiltersForTesting   = false;
 
 datetime g_lastBarTime = 0;
+double   g_buyPeakProfit = 0.0;
+double   g_sellPeakProfit = 0.0;
+datetime g_lastDashboardUpdate = 0;
 
 int TF()
 {
@@ -80,6 +92,19 @@ int TF()
 
 int OnInit()
 {
+
+ if(IsTesting())
+   {
+      ShowChartGraphics = false;
+      ShowDashboard     = false;
+      DebugPrint        = false;
+   }
+   else
+   {
+      ShowChartGraphics = true;
+      ShowDashboard     = true;
+      DebugPrint        = true;
+   }
    Print("TradeSmart MACD RSI ADX Defaults EA initialized. Symbol=", Symbol(), " Period=", Period());
    return(INIT_SUCCEEDED);
 }
@@ -93,20 +118,23 @@ void OnTick()
 {
    RefreshRates();
 
-   if(ShowDashboard) DrawDashboard();
-   if(ShowChartGraphics) DrawChartGraphics();
+   if(ShowDashboard && (TimeCurrent() - g_lastDashboardUpdate >= DashboardUpdateSeconds))
+   {
+      g_lastDashboardUpdate = TimeCurrent();
+      DrawDashboard();
+   }
+
+   // Heavy graphics are disabled by default and updated only on a new bar.
+   if(ShowChartGraphics && IsVisualMode())
+      DrawChartGraphics();
 
    if(!IsTradingAllowedNow()) return;
 
-   // Profit booking and stop loss protection are checked every tick.
-   if(CloseOnProfitUSD)
-   {
-      ManageBasketTakeProfit(OP_BUY);
-      ManageBasketTakeProfit(OP_SELL);
-   }
-
-   ManageBasketStopLoss(OP_BUY);
-   ManageBasketStopLoss(OP_SELL);
+   // TP/SL + separate profit observation are checked every tick.
+   ManageBasketProfitAndStopLoss(OP_BUY);
+   ManageBasketProfitAndStopLoss(OP_SELL);
+   ManageProfitObservation(OP_BUY);
+   ManageProfitObservation(OP_SELL);
 
    if(EnableRecovery)
    {
@@ -419,55 +447,147 @@ double GetBasketProfit(int type)
    return(profit);
 }
 
-
-void ManageBasketTakeProfit(int type)
+void ManageBasketProfitAndStopLoss(int type)
 {
    double profit = GetBasketProfit(type);
 
-   if(type == OP_BUY && profit >= BuyBasketTakeProfitUSD)
+   if(type == OP_BUY)
    {
-      Print("BUY basket PROFIT hit: $", DoubleToString(profit, 2),
-            " Target=$", DoubleToString(BuyBasketTakeProfitUSD, 2));
-      CloseOrdersByType(OP_BUY);
+      if(profit >= BuyBasketTakeProfitUSD)
+      {
+         Print("BUY basket TP hit: $", DoubleToString(profit, 2), " Target=$", DoubleToString(BuyBasketTakeProfitUSD, 2));
+         CloseOrdersByType(OP_BUY);
+         return;
+      }
+
+      if(profit <= BuyBasketStopLossUSD)
+      {
+         Print("BUY basket SL hit: $", DoubleToString(profit, 2));
+         CloseOrdersByType(OP_BUY);
+         return;
+      }
    }
 
-   if(type == OP_SELL && profit >= SellBasketTakeProfitUSD)
+   if(type == OP_SELL)
    {
-      Print("SELL basket PROFIT hit: $", DoubleToString(profit, 2),
-            " Target=$", DoubleToString(SellBasketTakeProfitUSD, 2));
-      CloseOrdersByType(OP_SELL);
+      if(profit >= SellBasketTakeProfitUSD)
+      {
+         Print("SELL basket TP hit: $", DoubleToString(profit, 2), " Target=$", DoubleToString(SellBasketTakeProfitUSD, 2));
+         CloseOrdersByType(OP_SELL);
+         return;
+      }
+
+      if(profit <= SellBasketStopLossUSD)
+      {
+         Print("SELL basket SL hit: $", DoubleToString(profit, 2));
+         CloseOrdersByType(OP_SELL);
+         return;
+      }
    }
 }
 
-void ManageBasketStopLoss(int type)
+void ManageProfitObservation(int type)
 {
-   double profit = GetBasketProfit(type);
+   if(!EnableProfitObservation)
+      return;
 
-   if(type == OP_BUY && profit <= BuyBasketStopLossUSD)
+   int count = CountOrders(type);
+   if(count <= 0)
    {
-      Print("BUY basket SL hit: $", DoubleToString(profit, 2));
-      CloseOrdersByType(OP_BUY);
+      if(type == OP_BUY)  g_buyPeakProfit = 0.0;
+      if(type == OP_SELL) g_sellPeakProfit = 0.0;
+      return;
    }
 
-   if(type == OP_SELL && profit <= SellBasketStopLossUSD)
+   double profit = GetBasketProfit(type);
+   double peak = (type == OP_BUY ? g_buyPeakProfit : g_sellPeakProfit);
+
+   // Reset peak while basket is not in profit.
+   if(profit <= 0.0)
    {
-      Print("SELL basket SL hit: $", DoubleToString(profit, 2));
-      CloseOrdersByType(OP_SELL);
+      if(type == OP_BUY)  g_buyPeakProfit = 0.0;
+      if(type == OP_SELL) g_sellPeakProfit = 0.0;
+      return;
+   }
+
+   // Remember highest profit seen.
+   if(profit > peak)
+   {
+      peak = profit;
+      if(type == OP_BUY)  g_buyPeakProfit = peak;
+      if(type == OP_SELL) g_sellPeakProfit = peak;
+   }
+
+   // Observation starts only after +$1, +$2, +$3, +$4 etc.
+   if(peak < ProfitObserveStartUSD)
+      return;
+
+   // Do not interfere if fixed +$5 TP has already handled it.
+   double targetTP = (type == OP_BUY ? BuyBasketTakeProfitUSD : SellBasketTakeProfitUSD);
+   if(profit >= targetTP)
+      return;
+
+   // Example: peak reached $4, pullback is $2 => close immediately at $2.
+   double closeAtProfit = peak - ProfitPullbackUSD;
+
+   // Round close level to configured observation steps.
+   if(ProfitObserveStepUSD > 0.0)
+      closeAtProfit = MathFloor(closeAtProfit / ProfitObserveStepUSD) * ProfitObserveStepUSD;
+
+   closeAtProfit = MathMax(closeAtProfit, MinimumTrailCloseProfit);
+
+   if(profit <= closeAtProfit)
+   {
+      string side = (type == OP_BUY ? "BUY" : "SELL");
+      Print(side, " PROFIT OBSERVATION CLOSE: Peak=$", DoubleToString(peak, 2),
+            " Current=$", DoubleToString(profit, 2),
+            " CloseLevel=$", DoubleToString(closeAtProfit, 2),
+            " FixedTP=$", DoubleToString(targetTP, 2));
+
+      CloseOrdersByType(type);
+
+      if(type == OP_BUY)  g_buyPeakProfit = 0.0;
+      if(type == OP_SELL) g_sellPeakProfit = 0.0;
    }
 }
+
 
 void CloseOrdersOnExitSignal(int signal)
 {
+   // This signal is already filtered by SMA100/RSI/ADX/Volume from GetEntrySignal().
+   // Purpose: close existing opposite basket while it is still positive,
+   // before trend reversal pushes it into loss.
+
    if(signal == 1 && CountOrders(OP_SELL) > 0)
    {
-      Print("EXIT SIGNAL: BUY signal detected. Closing SELL basket.");
-      CloseOrdersByType(OP_SELL);
+      double sellProfit = GetBasketProfit(OP_SELL);
+
+      if(!CloseOnlyIfBasketProfit || sellProfit >= MinProfitToCloseOnSignal)
+      {
+         Print("EARLY EXIT: Filtered BUY signal detected. Closing SELL basket before loss. P/L=$", DoubleToString(sellProfit, 2));
+         CloseOrdersByType(OP_SELL);
+      }
+      else
+      {
+         if(DebugPrint)
+            Print("EARLY EXIT skipped: BUY signal found but SELL basket not in profit. P/L=$", DoubleToString(sellProfit, 2));
+      }
    }
 
    if(signal == -1 && CountOrders(OP_BUY) > 0)
    {
-      Print("EXIT SIGNAL: SELL signal detected. Closing BUY basket.");
-      CloseOrdersByType(OP_BUY);
+      double buyProfit = GetBasketProfit(OP_BUY);
+
+      if(!CloseOnlyIfBasketProfit || buyProfit >= MinProfitToCloseOnSignal)
+      {
+         Print("EARLY EXIT: Filtered SELL signal detected. Closing BUY basket before loss. P/L=$", DoubleToString(buyProfit, 2));
+         CloseOrdersByType(OP_BUY);
+      }
+      else
+      {
+         if(DebugPrint)
+            Print("EARLY EXIT skipped: SELL signal found but BUY basket not in profit. P/L=$", DoubleToString(buyProfit, 2));
+      }
    }
 }
 
@@ -535,6 +655,26 @@ void CloseOrdersByType(int type)
          ResetLastError();
       }
    }
+
+   if(CountOrders(type) <= 0)
+   {
+      if(type == OP_BUY)  g_buyPeakProfit = 0.0;
+      if(type == OP_SELL) g_sellPeakProfit = 0.0;
+   }
+}
+
+bool HasAnyProfitableOrder(int type)
+{
+   for(int i=OrdersTotal()-1; i>=0; i--)
+   {
+      if(!OrderSelect(i, SELECT_BY_POS, MODE_TRADES)) continue;
+      if(OrderSymbol() != Symbol() || OrderMagicNumber() != MagicNumber || OrderType() != type) continue;
+
+      double p = OrderProfit() + OrderSwap() + OrderCommission();
+      if(p > 0.0)
+         return(true);
+   }
+   return(false);
 }
 
 void ProcessRecovery(int type)
@@ -545,7 +685,27 @@ void ProcessRecovery(int type)
    if(type == OP_SELL && (count <= 0 || count >= MaxSellOrders)) return;
 
    double basketProfit = GetBasketProfit(type);
-   if(basketProfit >= 0.0) return;
+
+   // Recovery is only for losing baskets.
+   // No recovery order when basket is profitable or any individual order is already in profit.
+   if(BlockRecoveryWhenProfit)
+   {
+      if(basketProfit >= 0.0)
+      {
+         if(DebugPrint) Print("Recovery blocked: basket is not in loss. Type=", type, " P/L=$", DoubleToString(basketProfit, 2));
+         return;
+      }
+
+      if(HasAnyProfitableOrder(type))
+      {
+         if(DebugPrint) Print("Recovery blocked: one ", (type == OP_BUY ? "BUY" : "SELL"), " order is already in profit.");
+         return;
+      }
+   }
+   else
+   {
+      if(basketProfit >= 0.0) return;
+   }
 
    double lastPrice = GetLastOrderOpenPrice(type);
    if(lastPrice <= 0.0) return;
@@ -753,9 +913,8 @@ void DrawLiveDecisionPanel()
    DrawLabel(p+"FINAL", "Final signal: " + SignalText(finalSig), x, y, SignalColor(finalSig), 8); y += line;
    DrawLabel(p+"TRADE", "Trade allowed: " + (tradeAllowed ? "YES" : "NO"), x, y, tradeAllowed ? clrLime : clrRed, 8); y += line;
    DrawLabel(p+"NOTE", "Gray arrows = MACD crossed but filters blocked order", x, y, clrSilver, 8); y += line;
-   DrawLabel(p+"NOTE2", "Opposite signal = exit open basket", x, y, clrSilver, 8); y += line;
-   DrawLabel(p+"NOTE3", "Profit: BUY/SELL basket closes at +$5", x, y, clrLime, 8); y += line;
-   DrawLabel(p+"NOTE4", "Stop loss: BUY/SELL basket closes at -$5", x, y, clrAqua, 8);
+   DrawLabel(p+"NOTE2", "Opposite filtered signal closes profitable opposite basket", x, y, clrSilver, 8); y += line;
+   DrawLabel(p+"NOTE3", "TP:+$5 | SL:-$5 | Recovery blocked in profit", x, y, clrAqua, 8);
 }
 
 void DrawSMA100Segments()
@@ -942,22 +1101,16 @@ void DrawDashboard()
    int sig = GetEntrySignal();
    double buyProfit = GetBasketProfit(OP_BUY);
    double sellProfit = GetBasketProfit(OP_SELL);
-   double rsi = RSIOnHL2(1);
-   double adx = iADX(Symbol(), TF(), ADXLength, PRICE_CLOSE, MODE_MAIN, 1);
-   double vol1 = (double)iVolume(Symbol(), TF(), 1);
-   double vema = VolumeEMA(1);
-   double ma100 = iMA(Symbol(), TF(), TrendMAPeriod, 0, MODE_SMA, PRICE_CLOSE, 1);
-   double atr = iATR(Symbol(), TF(), ATRLength, 1);
 
-   DrawLabel(p+"TITLE", "TradeSmart MACD+RSI+ADX EA", x, y, clrYellow, 10); y += line;
-   DrawLabel(p+"SIG", "Signal: " + SignalText(sig), x, y, SignalColor(sig), 9); y += line;
-   DrawLabel(p+"BUY", "BUY: " + IntegerToString(CountOrders(OP_BUY)) + " P/L $" + DoubleToString(buyProfit, 2), x, y, clrLime, 9); y += line;
-   DrawLabel(p+"SELL", "SELL: " + IntegerToString(CountOrders(OP_SELL)) + " P/L $" + DoubleToString(sellProfit, 2), x, y, clrTomato, 9); y += line;
-   DrawLabel(p+"RSIADX", "RSI HL2: " + DoubleToString(rsi, 2) + " ADX5: " + DoubleToString(adx, 2), x, y, clrAqua, 9); y += line;
-   DrawLabel(p+"VOL", "Vol: " + DoubleToString(vol1, 0) + " EMA10: " + DoubleToString(vema, 2), x, y, clrSilver, 9); y += line;
-   DrawLabel(p+"MA", "SMA100: " + DoubleToString(ma100, Digits) + " ATR14: " + DoubleToString(atr, Digits), x, y, clrSilver, 9); y += line;
-   DrawLabel(p+"MODE", "TP: $5 Profit | Exit: Opposite Signal | SL: $5 | Relax: " + (RelaxFiltersForTesting ? "YES" : "NO"), x, y, RelaxFiltersForTesting ? clrOrange : clrSilver, 9);
+   DrawLabel(p+"TITLE", "TradeSmart EA - Fast Dashboard", x, y, clrYellow, 10); y += line;
+   DrawLabel(p+"SIG", "Filtered Signal: " + SignalText(sig), x, y, SignalColor(sig), 9); y += line;
+   DrawLabel(p+"BUY", "BUY: " + IntegerToString(CountOrders(OP_BUY)) + " P/L $" + DoubleToString(buyProfit, 2) + " Peak $" + DoubleToString(g_buyPeakProfit, 2), x, y, clrLime, 9); y += line;
+   DrawLabel(p+"SELL", "SELL: " + IntegerToString(CountOrders(OP_SELL)) + " P/L $" + DoubleToString(sellProfit, 2) + " Peak $" + DoubleToString(g_sellPeakProfit, 2), x, y, clrTomato, 9); y += line;
+   DrawLabel(p+"MODE", "TP:$5 | Trail observe +$1..+$4 | Pullback:$" + DoubleToString(ProfitPullbackUSD, 2) + " | SL:$5", x, y, clrAqua, 9); y += line;
+   DrawLabel(p+"REC", "Recovery: only losing basket, blocked when profit", x, y, clrSilver, 9); y += line;
+   DrawLabel(p+"GRAPH", "Graphics: " + (ShowChartGraphics ? "ON" : "OFF") + " | Dashboard refresh: " + IntegerToString(DashboardUpdateSeconds) + " sec", x, y, clrSilver, 9);
 }
+
 
 string SignalText(int sig)
 {

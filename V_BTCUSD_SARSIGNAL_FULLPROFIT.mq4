@@ -1,26 +1,32 @@
 #property strict
 
-input double Lots = 0.01;
-input double TakeProfitUSD = 100.0;
-input double StopLossUSD   = 5.0;
+double Lots = 0.01;
+double TakeProfitUSD = 1.0;
+double StopLossUSD   = 3.0;
 
-input int    InpSARPeriod       = 2;
-input double InpSARStepSize     = 20;
-input double InpSARAcceleration = 10;
+int TradingStartHour = 0;
+int TradingEndHour   = 24;
 
-input bool   InpDrawSARDots = true;
-input int    InpSARDotLookback = 200;
-input color  InpSARDotBuyColor = clrLime;
-input color  InpSARDotSellColor = clrRed;
+int    InpSARPeriod       = 2;
+double InpSARStepSize     = 20;
+double InpSARAcceleration = 10;
 
-input int MagicNumber = 20260605;
-input int Slippage = 30;
+bool   InpDrawSARDots = true;
+int    InpSARDotLookback = 200;
+color  InpSARDotBuyColor = clrLime;
+color  InpSARDotSellColor = clrRed;
+
+int MagicNumber = 20260605;
+int Slippage = 30;
 
 string OBJ_PREFIX = "SAR_FLIP_EA_";
+
+int g_currentSARDirection = 0;
 
 //+------------------------------------------------------------------+
 int OnInit()
 {
+   g_currentSARDirection = GetCurrentSARDirection();
    return(INIT_SUCCEEDED);
 }
 
@@ -33,16 +39,21 @@ void OnDeinit(const int reason)
 //+------------------------------------------------------------------+
 void OnTick()
 {
+   int profitClosedDirection = CloseOrdersByProfitOrLossUSD();
+
+   // if(!IsTradingTime())
+   //    return;
+
    DrawSARDots();
 
-   static datetime lastBarTime = 0;
-
-   if(Time[0] == lastBarTime)
-      return;
-
-   lastBarTime = Time[0];
-
    int signal = GetSARFlipSignal();
+
+   if(signal != 0)
+      g_currentSARDirection = signal;
+
+   // if(g_currentSARDirection == 0)
+   //    g_currentSARDirection = GetCurrentSARDirection();
+
 
    if(signal == 1)
    {
@@ -50,6 +61,8 @@ void OnTick()
 
       if(CountOrders(OP_BUY) == 0)
          OpenOrder(OP_BUY);
+
+      return;
    }
 
    if(signal == -1)
@@ -58,7 +71,35 @@ void OnTick()
 
       if(CountOrders(OP_SELL) == 0)
          OpenOrder(OP_SELL);
+
+      return;
    }
+
+      Print(profitClosedDirection+"="+profitClosedDirection);
+
+
+   if(profitClosedDirection == 1 && g_currentSARDirection == 1)
+   {
+      if(CountOrders(OP_BUY) == 0)
+         OpenOrder(OP_BUY);
+   }
+
+   if(profitClosedDirection == -1 && g_currentSARDirection == -1)
+   {
+      if(CountOrders(OP_SELL) == 0)
+         OpenOrder(OP_SELL);
+   }
+}
+
+//+------------------------------------------------------------------+
+bool IsTradingTime()
+{
+   int hour = TimeHour(TimeCurrent());
+
+   if(hour >= TradingStartHour && hour < TradingEndHour)
+      return true;
+
+   return false;
 }
 
 //+------------------------------------------------------------------+
@@ -74,6 +115,23 @@ int GetSARFlipSignal()
       return 1;
 
    if(sar1 > Close[1] && sar2 <= Close[2])
+      return -1;
+
+   return 0;
+}
+
+//+------------------------------------------------------------------+
+int GetCurrentSARDirection()
+{
+   double step    = InpSARPeriod * InpSARStepSize / 10000.0;
+   double maxstep = step * InpSARAcceleration;
+
+   double sar = iSAR(Symbol(), Period(), step, maxstep, 1);
+
+   if(sar < Close[1])
+      return 1;
+
+   if(sar > Close[1])
       return -1;
 
    return 0;
@@ -109,8 +167,8 @@ void OpenOrder(int type)
    }
 
    price = NormalizeDouble(price, Digits);
-   tp    = NormalizeDouble(tp, Digits);
-   sl    = NormalizeDouble(sl, Digits);
+   tp    = 0;//NormalizeDouble(tp, Digits);
+   sl    = 0;//NormalizeDouble(sl, Digits);
 
    int ticket = OrderSend(Symbol(), type, Lots, price, Slippage, sl, tp,
                           "SAR Flip EA", MagicNumber, 0,
@@ -146,6 +204,74 @@ void CloseOrders(int type)
       if(!closed)
          Print("OrderClose failed. Ticket: ", OrderTicket(), " Error: ", GetLastError());
    }
+}
+
+//+------------------------------------------------------------------+
+int CloseOrdersByProfitOrLossUSD()
+{
+   RefreshRates();
+
+   int profitClosedDirection = 0;
+
+   for(int i = OrdersTotal() - 1; i >= 0; i--)
+   {
+      if(!OrderSelect(i, SELECT_BY_POS, MODE_TRADES))
+         continue;
+
+      if(OrderSymbol() != Symbol())
+         continue;
+
+      if(OrderMagicNumber() != MagicNumber)
+         continue;
+
+      if(OrderType() != OP_BUY && OrderType() != OP_SELL)
+         continue;
+
+      double profit = OrderProfit() + OrderSwap() + OrderCommission();
+
+      bool closeByProfit = profit >= TakeProfitUSD;
+      bool closeByLoss   = profit <= -StopLossUSD;
+
+      if(closeByProfit || closeByLoss)
+      {
+         int orderType = OrderType();
+         double closePrice = orderType == OP_BUY ? Bid : Ask;
+
+         bool closed = OrderClose(OrderTicket(),
+                                  OrderLots(),
+                                  closePrice,
+                                  Slippage,
+                                  closeByProfit ? clrLime : clrRed);
+
+         if(closed)
+         {
+            Print("Closed by USD TP/SL. Ticket: ",
+                  OrderTicket(),
+                  " Profit/Loss: ",
+                  DoubleToString(profit, 2));
+
+            if(closeByProfit)
+            {
+
+               Print("Closed by profit target. Ticket: ", OrderTicket(), " Profit: ", DoubleToString(profit, 2));
+               if(orderType == OP_BUY)
+                  profitClosedDirection = 1;
+
+               if(orderType == OP_SELL)
+                  profitClosedDirection = -1;
+            }
+         }
+         else
+         {
+            Print("USD TP/SL close failed. Ticket: ",
+                  OrderTicket(),
+                  " Error: ",
+                  GetLastError());
+         }
+      }
+   }
+
+   return profitClosedDirection;
 }
 
 //+------------------------------------------------------------------+
@@ -216,10 +342,11 @@ void DrawSARDots()
 //+------------------------------------------------------------------+
 void DeleteObjectsByPrefix(string prefix)
 {
-for(int i = ObjectsTotal() - 1; i >= 0; i--)   {
-      string name = ObjectName(0, i);
+   for(int i = ObjectsTotal() - 1; i >= 0; i--)
+   {
+      string name = ObjectName(i);
 
       if(StringFind(name, prefix) == 0)
-         ObjectDelete(0, name);
+         ObjectDelete(name);
    }
 }
