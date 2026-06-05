@@ -2,67 +2,73 @@
 //| TradeSmart_MACD_RSI_ADX_Defaults_EA.mq4                          |
 //| MT4 EA using visible TradingView defaults                         |
 //| MACD 12/26/9 on HLCC4, RSI 14 on HL2 Reverse, ADX 5 limiter       |
-//| SMA100 trend filter, Volume > EMA10, separate BUY/SELL basket     |
+//| SMA100 trend filter, Volume > EMA10, basket TP $5 / SL $5        |
 //+------------------------------------------------------------------+
 #property strict
 
-input int      MagicNumber              = 260601;
-input double   Lots                     = 0.01;
-input int      Slippage                 = 30;
-input int      MaxSpreadPoints          = 3000;
-input ENUM_TIMEFRAMES SignalTF          = PERIOD_CURRENT;
+int      MagicNumber              = 260601;
+double   Lots                     = 0.01;
+int      Slippage                 = 30;
+int      MaxSpreadPoints          = 3000;
+ENUM_TIMEFRAMES SignalTF          = PERIOD_CURRENT;
 
-input double   BuyBasketTakeProfitUSD   = 1.00;
-input double   SellBasketTakeProfitUSD  = 1.00;
-input double   BuyBasketStopLossUSD     = -20.00;
-input double   SellBasketStopLossUSD    = -20.00;
+bool     CloseOnExitSignal        = true;   // Close BUY on SELL signal, close SELL on BUY signal
+bool     CloseOnProfitUSD         = true;   // Close basket when profit reaches target USD
+double   BuyBasketTakeProfitUSD   = 5.00;   // Close BUY basket profit in USD
+double   SellBasketTakeProfitUSD  = 5.00;   // Close SELL basket profit in USD
+double   BuyBasketStopLossUSD     = -5.00;  // Fixed BUY basket stop loss in USD
+double   SellBasketStopLossUSD    = -5.00;  // Fixed SELL basket stop loss in USD
 
-input bool     EnableRecovery           = true;
-input int      MaxBuyOrders             = 4;
-input int      MaxSellOrders            = 4;
-input double   RecoveryGapPrice         = 100;//0.05; // raw price distance. XAGUSD example 0.05, BTCUSD example 100
+bool     EnableRecovery           = true;
+int      MaxBuyOrders             = 4;
+int      MaxSellOrders            = 4;
+double   RecoveryGapPrice         = 100;//0.05; // raw price distance. XAGUSD example 0.05, BTCUSD example 100
 
-input bool     TradeOnNewBarOnly        = true;
-input bool     EnableBuy                = true;
-input bool     EnableSell               = true;
-input bool     DebugPrint               = true;
-input bool     ShowDashboard            = true;
+bool     TradeOnNewBarOnly        = true;
+bool     EnableBuy                = true;
+bool     EnableSell               = true;
+bool     DebugPrint               = true;
+bool     ShowDashboard            = true;
+bool     ShowChartGraphics         = true;   // Draw arrows, filter status, SMA100 and recovery levels on chart
+int      GraphicsLookbackBars      = 20;     // How many closed bars to scan for MACD crosses
+bool     DrawFilterFailLabels      = true;   // Show why signal/order is blocked near candle
+bool     DrawSMA100Line            = true;
 
 // TradingView visible defaults
-input int      MACDFastEMA              = 12;
-input int      MACDSlowEMA              = 26;
-input int      MACDSignalEMA            = 9;
+int      MACDFastEMA              = 12;
+int      MACDSlowEMA              = 26;
+int      MACDSignalEMA            = 9;
 
-input bool     UseLongTrendFilter       = true;
-input bool     UseShortTrendFilter      = true;
-input int      TrendMAPeriod            = 100;
+bool     UseLongTrendFilter       = true;
+bool     UseShortTrendFilter      = true;
+int      TrendMAPeriod            = 100;
 
-input bool     UseSimpleRSILimiter      = true;
-input bool     RSILimiterReverse        = true;
-input int      RSIPeriod                = 14;
-input double   RSILongBoundary          = 50.0;
-input double   RSIShortBoundary         = 50.0;
+bool     UseSimpleRSILimiter      = true;
+bool     RSILimiterReverse        = true;
+int      RSIPeriod                = 14;
+double   RSILongBoundary          = 50.0;
+double   RSIShortBoundary         = 50.0;
 
-input bool     UseADXLimiter            = true;
-input int      ADXLength                = 5;
-input double   ADXHighBoundary          = 50.0;
-input double   ADXLowBoundary           = 20.0;
+bool     UseADXLimiter            = true;
+int      ADXLength                = 5;
+double   ADXHighBoundary          = 50.0;
+double   ADXLowBoundary           = 20.0;
 
-input bool     UseVolumeFilter          = true;
-input int      VolumeMAPeriod           = 10;
+bool     UseVolumeFilter          = true;
+int      VolumeMAPeriod           = 10;
 
-input int      ATRLength                = 14;
-input double   BaseRiskMultiplier       = 1.5;
-input double   RiskRewardRatio          = 2.5;
+int      ATRLength                = 14;
+double   BaseRiskMultiplier       = 1.5;
+double   RiskRewardRatio          = 2.5;
 
-input bool     UseSessionFilter         = false;
-input int      SessionStartHour         = 9;
-input int      SessionStartMinute       = 30;
-input int      SessionEndHour           = 16;
-input int      SessionEndMinute         = 0;
+bool     UseSessionFilter         = false;
+int      SessionStartHour         = 9;
+int      SessionStartMinute       = 30;
+int      SessionEndHour           = 16;
+int      SessionEndMinute         = 0;
 
 // true = MACD cross only for debugging 0-order problem
-input bool     RelaxFiltersForTesting   = false;
+bool     RelaxFiltersForTesting   = false;
 
 datetime g_lastBarTime = 0;
 
@@ -88,11 +94,19 @@ void OnTick()
    RefreshRates();
 
    if(ShowDashboard) DrawDashboard();
+   if(ShowChartGraphics) DrawChartGraphics();
 
    if(!IsTradingAllowedNow()) return;
 
-   ManageBasket(OP_BUY);
-   ManageBasket(OP_SELL);
+   // Profit booking and stop loss protection are checked every tick.
+   if(CloseOnProfitUSD)
+   {
+      ManageBasketTakeProfit(OP_BUY);
+      ManageBasketTakeProfit(OP_SELL);
+   }
+
+   ManageBasketStopLoss(OP_BUY);
+   ManageBasketStopLoss(OP_SELL);
 
    if(EnableRecovery)
    {
@@ -105,11 +119,15 @@ void OnTick()
    int signal = GetEntrySignal();
    if(DebugPrint) PrintSignalDebug(signal);
 
-   if(signal == 1 && EnableBuy && CountOrders(OP_BUY) == 0)
-      OpenOrder(OP_BUY, "TS_MACD_BUY");
+   // Exit is now signal based, not fixed profit based.
+   // SELL signal closes BUY basket. BUY signal closes SELL basket.
+   if(CloseOnExitSignal)
+      CloseOrdersOnExitSignal(signal);
 
-   if(signal == -1 && EnableSell && CountOrders(OP_SELL) == 0)
-      OpenOrder(OP_SELL, "TS_MACD_SELL");
+   // Create order immediately when a valid signal is received.
+   // It does NOT wait for fixed TakeProfit. Opposite basket is closed first,
+   // then new signal direction order is opened, protected by MaxBuyOrders/MaxSellOrders.
+   OpenOrderWhenSignalReceived(signal);
 }
 
 bool IsTradingAllowedNow()
@@ -401,36 +419,100 @@ double GetBasketProfit(int type)
    return(profit);
 }
 
-void ManageBasket(int type)
+
+void ManageBasketTakeProfit(int type)
 {
    double profit = GetBasketProfit(type);
 
-   if(type == OP_BUY)
+   if(type == OP_BUY && profit >= BuyBasketTakeProfitUSD)
    {
-      if(profit >= BuyBasketTakeProfitUSD)
-      {
-         Print("BUY basket TP hit: $", DoubleToString(profit, 2));
-         CloseOrdersByType(OP_BUY);
-      }
-      else if(profit <= BuyBasketStopLossUSD)
-      {
-         Print("BUY basket SL hit: $", DoubleToString(profit, 2));
-         CloseOrdersByType(OP_BUY);
-      }
+      Print("BUY basket PROFIT hit: $", DoubleToString(profit, 2),
+            " Target=$", DoubleToString(BuyBasketTakeProfitUSD, 2));
+      CloseOrdersByType(OP_BUY);
    }
 
-   if(type == OP_SELL)
+   if(type == OP_SELL && profit >= SellBasketTakeProfitUSD)
    {
-      if(profit >= SellBasketTakeProfitUSD)
+      Print("SELL basket PROFIT hit: $", DoubleToString(profit, 2),
+            " Target=$", DoubleToString(SellBasketTakeProfitUSD, 2));
+      CloseOrdersByType(OP_SELL);
+   }
+}
+
+void ManageBasketStopLoss(int type)
+{
+   double profit = GetBasketProfit(type);
+
+   if(type == OP_BUY && profit <= BuyBasketStopLossUSD)
+   {
+      Print("BUY basket SL hit: $", DoubleToString(profit, 2));
+      CloseOrdersByType(OP_BUY);
+   }
+
+   if(type == OP_SELL && profit <= SellBasketStopLossUSD)
+   {
+      Print("SELL basket SL hit: $", DoubleToString(profit, 2));
+      CloseOrdersByType(OP_SELL);
+   }
+}
+
+void CloseOrdersOnExitSignal(int signal)
+{
+   if(signal == 1 && CountOrders(OP_SELL) > 0)
+   {
+      Print("EXIT SIGNAL: BUY signal detected. Closing SELL basket.");
+      CloseOrdersByType(OP_SELL);
+   }
+
+   if(signal == -1 && CountOrders(OP_BUY) > 0)
+   {
+      Print("EXIT SIGNAL: SELL signal detected. Closing BUY basket.");
+      CloseOrdersByType(OP_BUY);
+   }
+}
+
+void OpenOrderWhenSignalReceived(int signal)
+{
+   if(signal == 1)
+   {
+      if(!EnableBuy)
       {
-         Print("SELL basket TP hit: $", DoubleToString(profit, 2));
-         CloseOrdersByType(OP_SELL);
+         if(DebugPrint) Print("BUY signal received but EnableBuy=false");
+         return;
       }
-      else if(profit <= SellBasketStopLossUSD)
+
+      int buyCount = CountOrders(OP_BUY);
+      if(buyCount >= MaxBuyOrders)
       {
-         Print("SELL basket SL hit: $", DoubleToString(profit, 2));
-         CloseOrdersByType(OP_SELL);
+         if(DebugPrint) Print("BUY signal received but MaxBuyOrders reached. Count=", buyCount, " Max=", MaxBuyOrders);
+         return;
       }
+
+      RefreshRates();
+      OpenOrder(OP_BUY, "TS_SIGNAL_BUY");
+      DrawSignalOrderMarker(OP_BUY, Time[0], Ask, "BUY ORDER CREATED ON SIGNAL");
+      return;
+   }
+
+   if(signal == -1)
+   {
+      if(!EnableSell)
+      {
+         if(DebugPrint) Print("SELL signal received but EnableSell=false");
+         return;
+      }
+
+      int sellCount = CountOrders(OP_SELL);
+      if(sellCount >= MaxSellOrders)
+      {
+         if(DebugPrint) Print("SELL signal received but MaxSellOrders reached. Count=", sellCount, " Max=", MaxSellOrders);
+         return;
+      }
+
+      RefreshRates();
+      OpenOrder(OP_SELL, "TS_SIGNAL_SELL");
+      DrawSignalOrderMarker(OP_SELL, Time[0], Bid, "SELL ORDER CREATED ON SIGNAL");
+      return;
    }
 }
 
@@ -503,6 +585,355 @@ double GetLastOrderOpenPrice(int type)
    return(latestPrice);
 }
 
+
+//+------------------------------------------------------------------+
+//| Visual chart explanation before order creation                    |
+//+------------------------------------------------------------------+
+void DrawChartGraphics()
+{
+   static datetime lastVisualBar = 0;
+   datetime t = iTime(Symbol(), TF(), 0);
+
+   // Redraw full historical objects only once per candle. Live levels update every tick.
+   if(t != lastVisualBar)
+   {
+      lastVisualBar = t;
+      DeleteObjectsByPrefix("DXB_TS_VIS_");
+      DrawSMA100Segments();
+      DrawHistoricalSignalMarkers();
+   }
+
+   DrawLiveDecisionPanel();
+   DrawRecoveryAndBasketLevels(OP_BUY);
+   DrawRecoveryAndBasketLevels(OP_SELL);
+   DrawOpenOrderMarkers();
+}
+
+void DrawHistoricalSignalMarkers()
+{
+   int bars = MathMin(GraphicsLookbackBars, iBars(Symbol(), TF()) - 3);
+   if(bars <= 3) return;
+
+   for(int shift=bars; shift>=1; shift--)
+   {
+      int rawSignal = GetRawMACDCrossSignal(shift);
+      if(rawSignal == 0) continue;
+
+      bool buyOk=false, sellOk=false;
+      string buyReason="", sellReason="";
+      GetFilterStatus(shift, buyOk, sellOk, buyReason, sellReason);
+
+      datetime candleTime = iTime(Symbol(), TF(), shift);
+      double high = iHigh(Symbol(), TF(), shift);
+      double low  = iLow(Symbol(), TF(), shift);
+      double atr  = iATR(Symbol(), TF(), ATRLength, shift);
+      if(atr <= 0) atr = (high - low);
+      if(atr <= 0) atr = Point * 100;
+
+      if(rawSignal == 1)
+      {
+         bool finalOk = (RelaxFiltersForTesting || buyOk);
+         DrawArrow("DXB_TS_VIS_BUY_" + IntegerToString((int)candleTime), candleTime, low - atr*0.35,
+                   233, finalOk ? clrLime : clrGray, 2);
+
+         string txt = finalOk ? "BUY READY" : "BUY BLOCKED";
+         if(DrawFilterFailLabels && !finalOk) txt = "BUY BLOCKED: " + buyReason;
+         DrawText("DXB_TS_VIS_BUY_TXT_" + IntegerToString((int)candleTime), txt,
+                  candleTime, low - atr*0.75, finalOk ? clrLime : clrOrangeRed, 8);
+      }
+
+      if(rawSignal == -1)
+      {
+         bool finalOk = (RelaxFiltersForTesting || sellOk);
+         DrawArrow("DXB_TS_VIS_SELL_" + IntegerToString((int)candleTime), candleTime, high + atr*0.35,
+                   234, finalOk ? clrRed : clrGray, 2);
+
+         string txt = finalOk ? "SELL READY" : "SELL BLOCKED";
+         if(DrawFilterFailLabels && !finalOk) txt = "SELL BLOCKED: " + sellReason;
+         DrawText("DXB_TS_VIS_SELL_TXT_" + IntegerToString((int)candleTime), txt,
+                  candleTime, high + atr*0.75, finalOk ? clrRed : clrOrangeRed, 8);
+      }
+   }
+}
+
+int GetRawMACDCrossSignal(int shift)
+{
+   double macd1 = MACDMainHLCC4(shift);
+   double sig1  = MACDSignalHLCC4(shift);
+   double macd2 = MACDMainHLCC4(shift + 1);
+   double sig2  = MACDSignalHLCC4(shift + 1);
+
+   if(macd2 <= sig2 && macd1 > sig1) return(1);
+   if(macd2 >= sig2 && macd1 < sig1) return(-1);
+   return(0);
+}
+
+void GetFilterStatus(int shift, bool &buyOk, bool &sellOk, string &buyReason, string &sellReason)
+{
+   int tf = TF();
+   double close1 = iClose(Symbol(), tf, shift);
+   double ma100  = iMA(Symbol(), tf, TrendMAPeriod, 0, MODE_SMA, PRICE_CLOSE, shift);
+   double rsi    = RSIOnHL2(shift);
+   double adx    = iADX(Symbol(), tf, ADXLength, PRICE_CLOSE, MODE_MAIN, shift);
+   double vol1   = (double)iVolume(Symbol(), tf, shift);
+   double vema   = VolumeEMA(shift);
+
+   buyOk = true;
+   sellOk = true;
+   buyReason = "";
+   sellReason = "";
+
+   if(UseLongTrendFilter && close1 <= ma100)
+   {
+      buyOk = false;
+      buyReason += "SMA100 ";
+   }
+   if(UseShortTrendFilter && close1 >= ma100)
+   {
+      sellOk = false;
+      sellReason += "SMA100 ";
+   }
+
+   if(UseSimpleRSILimiter)
+   {
+      if(RSILimiterReverse)
+      {
+         if(rsi >= RSILongBoundary)  { buyOk=false;  buyReason += "RSI "; }
+         if(rsi <= RSIShortBoundary) { sellOk=false; sellReason += "RSI "; }
+      }
+      else
+      {
+         if(rsi <= RSILongBoundary)  { buyOk=false;  buyReason += "RSI "; }
+         if(rsi >= RSIShortBoundary) { sellOk=false; sellReason += "RSI "; }
+      }
+   }
+
+   if(UseADXLimiter)
+   {
+      if(adx < ADXLowBoundary || adx > ADXHighBoundary)
+      {
+         buyOk = false;
+         sellOk = false;
+         buyReason += "ADX ";
+         sellReason += "ADX ";
+      }
+   }
+
+   if(UseVolumeFilter && vol1 <= vema)
+   {
+      buyOk = false;
+      sellOk = false;
+      buyReason += "VOL ";
+      sellReason += "VOL ";
+   }
+
+   if(buyReason == "")  buyReason = "OK";
+   if(sellReason == "") sellReason = "OK";
+}
+
+void DrawLiveDecisionPanel()
+{
+   string p = "DXB_TS_LIVE_";
+   int x = 15, y = 170, line = 17;
+
+   int raw = GetRawMACDCrossSignal(1);
+   int finalSig = GetEntrySignal();
+
+   bool buyOk=false, sellOk=false;
+   string buyReason="", sellReason="";
+   GetFilterStatus(1, buyOk, sellOk, buyReason, sellReason);
+
+   bool tradeAllowed = IsTradeAllowed() && !IsTradeContextBusy() && ((int)MarketInfo(Symbol(), MODE_SPREAD) <= MaxSpreadPoints) && (!UseSessionFilter || IsInsideSession());
+
+   DrawPanel(p+"BG", x-8, y-6, 360, 185, clrBlack);
+   DrawLabel(p+"TITLE", "LIVE ORDER DECISION", x, y, clrYellow, 9); y += line;
+   DrawLabel(p+"RAW", "MACD cross: " + SignalText(raw), x, y, SignalColor(raw), 8); y += line;
+   DrawLabel(p+"BUYOK", "BUY filters: " + (buyOk ? "PASS" : "BLOCK") + "  " + buyReason, x, y, buyOk ? clrLime : clrTomato, 8); y += line;
+   DrawLabel(p+"SELLOK", "SELL filters: " + (sellOk ? "PASS" : "BLOCK") + "  " + sellReason, x, y, sellOk ? clrLime : clrTomato, 8); y += line;
+   DrawLabel(p+"FINAL", "Final signal: " + SignalText(finalSig), x, y, SignalColor(finalSig), 8); y += line;
+   DrawLabel(p+"TRADE", "Trade allowed: " + (tradeAllowed ? "YES" : "NO"), x, y, tradeAllowed ? clrLime : clrRed, 8); y += line;
+   DrawLabel(p+"NOTE", "Gray arrows = MACD crossed but filters blocked order", x, y, clrSilver, 8); y += line;
+   DrawLabel(p+"NOTE2", "Opposite signal = exit open basket", x, y, clrSilver, 8); y += line;
+   DrawLabel(p+"NOTE3", "Profit: BUY/SELL basket closes at +$5", x, y, clrLime, 8); y += line;
+   DrawLabel(p+"NOTE4", "Stop loss: BUY/SELL basket closes at -$5", x, y, clrAqua, 8);
+}
+
+void DrawSMA100Segments()
+{
+   if(!DrawSMA100Line) return;
+
+   int bars = MathMin(GraphicsLookbackBars, iBars(Symbol(), TF()) - TrendMAPeriod - 2);
+   if(bars <= 2) return;
+
+   for(int shift=bars; shift>=2; shift--)
+   {
+      datetime t1 = iTime(Symbol(), TF(), shift);
+      datetime t2 = iTime(Symbol(), TF(), shift-1);
+      double v1 = iMA(Symbol(), TF(), TrendMAPeriod, 0, MODE_SMA, PRICE_CLOSE, shift);
+      double v2 = iMA(Symbol(), TF(), TrendMAPeriod, 0, MODE_SMA, PRICE_CLOSE, shift-1);
+      string name = "DXB_TS_VIS_SMA_" + IntegerToString(shift);
+      DrawTrendSegment(name, t1, v1, t2, v2, clrDodgerBlue, 1, STYLE_SOLID);
+   }
+}
+
+void DrawRecoveryAndBasketLevels(int type)
+{
+   int count = CountOrders(type);
+   string side = (type == OP_BUY ? "BUY" : "SELL");
+   string p = "DXB_TS_LEVEL_" + side + "_";
+
+   if(count <= 0)
+   {
+      ObjectDelete(0, p+"REC");
+      ObjectDelete(0, p+"TXT");
+      return;
+   }
+
+   double profit = GetBasketProfit(type);
+   double lastPrice = GetLastOrderOpenPrice(type);
+   if(lastPrice <= 0) return;
+
+   double nextRecovery = 0;
+   if(type == OP_BUY)  nextRecovery = lastPrice - RecoveryGapPrice * count;
+   if(type == OP_SELL) nextRecovery = lastPrice + RecoveryGapPrice * count;
+
+   color c = (type == OP_BUY ? clrLime : clrRed);
+
+   if(profit < 0 && EnableRecovery)
+   {
+      DrawHLine(p+"REC", nextRecovery, c, STYLE_DASHDOT, 1);
+      DrawPriceText(p+"TXT", side + " next recovery @ " + DoubleToString(nextRecovery, Digits), nextRecovery, c);
+   }
+   else
+   {
+      ObjectDelete(0, p+"REC");
+      ObjectDelete(0, p+"TXT");
+   }
+}
+
+void DrawOpenOrderMarkers()
+{
+   for(int i=OrdersTotal()-1; i>=0; i--)
+   {
+      if(!OrderSelect(i, SELECT_BY_POS, MODE_TRADES)) continue;
+      if(OrderSymbol() != Symbol() || OrderMagicNumber() != MagicNumber) continue;
+      if(OrderType() != OP_BUY && OrderType() != OP_SELL) continue;
+
+      string side = (OrderType() == OP_BUY ? "BUY" : "SELL");
+      color c = (OrderType() == OP_BUY ? clrLime : clrRed);
+      string name = "DXB_TS_ORDER_" + IntegerToString(OrderTicket());
+      DrawHLine(name, OrderOpenPrice(), c, STYLE_DOT, 1);
+      DrawPriceText(name+"_TXT", side + " #" + IntegerToString(OrderTicket()) + " open", OrderOpenPrice(), c);
+   }
+}
+
+void DrawArrow(string name, datetime t, double price, int arrowCode, color clr, int width)
+{
+   if(ObjectFind(0, name) < 0)
+      ObjectCreate(0, name, OBJ_ARROW, 0, t, price);
+
+   ObjectSetInteger(0, name, OBJPROP_TIME1, t);
+   ObjectSetDouble(0, name, OBJPROP_PRICE1, price);
+   ObjectSetInteger(0, name, OBJPROP_ARROWCODE, arrowCode);
+   ObjectSetInteger(0, name, OBJPROP_COLOR, clr);
+   ObjectSetInteger(0, name, OBJPROP_WIDTH, width);
+}
+
+void DrawText(string name, string text, datetime t, double price, color clr, int fontSize)
+{
+   if(ObjectFind(0, name) < 0)
+      ObjectCreate(0, name, OBJ_TEXT, 0, t, price);
+
+   ObjectSetInteger(0, name, OBJPROP_TIME1, t);
+   ObjectSetDouble(0, name, OBJPROP_PRICE1, price);
+   ObjectSetInteger(0, name, OBJPROP_COLOR, clr);
+   ObjectSetInteger(0, name, OBJPROP_FONTSIZE, fontSize);
+   ObjectSetString(0, name, OBJPROP_FONT, "Arial");
+   ObjectSetString(0, name, OBJPROP_TEXT, text);
+}
+
+void DrawHLine(string name, double price, color clr, int style, int width)
+{
+   if(ObjectFind(0, name) < 0)
+      ObjectCreate(0, name, OBJ_HLINE, 0, 0, price);
+
+   ObjectSetDouble(0, name, OBJPROP_PRICE1, price);
+   ObjectSetInteger(0, name, OBJPROP_COLOR, clr);
+   ObjectSetInteger(0, name, OBJPROP_STYLE, style);
+   ObjectSetInteger(0, name, OBJPROP_WIDTH, width);
+}
+
+void DrawPriceText(string name, string text, double price, color clr)
+{
+   datetime t = Time[0] + PeriodSeconds() * 5;
+   DrawText(name, text, t, price, clr, 8);
+}
+
+void DrawTrendSegment(string name, datetime t1, double p1, datetime t2, double p2, color clr, int width, int style)
+{
+   if(ObjectFind(0, name) < 0)
+      ObjectCreate(0, name, OBJ_TREND, 0, t1, p1, t2, p2);
+
+   ObjectSetInteger(0, name, OBJPROP_TIME1, t1);
+   ObjectSetDouble(0, name, OBJPROP_PRICE1, p1);
+   ObjectSetInteger(0, name, OBJPROP_TIME2, t2);
+   ObjectSetDouble(0, name, OBJPROP_PRICE2, p2);
+   ObjectSetInteger(0, name, OBJPROP_RAY_RIGHT, false);
+   ObjectSetInteger(0, name, OBJPROP_COLOR, clr);
+   ObjectSetInteger(0, name, OBJPROP_WIDTH, width);
+   ObjectSetInteger(0, name, OBJPROP_STYLE, style);
+}
+
+void DrawPanel(string name, int x, int y, int w, int h, color bg)
+{
+   if(ObjectFind(0, name) < 0)
+      ObjectCreate(0, name, OBJ_RECTANGLE_LABEL, 0, 0, 0);
+
+   ObjectSetInteger(0, name, OBJPROP_CORNER, CORNER_LEFT_UPPER);
+   ObjectSetInteger(0, name, OBJPROP_XDISTANCE, x);
+   ObjectSetInteger(0, name, OBJPROP_YDISTANCE, y);
+   ObjectSetInteger(0, name, OBJPROP_XSIZE, w);
+   ObjectSetInteger(0, name, OBJPROP_YSIZE, h);
+   ObjectSetInteger(0, name, OBJPROP_BGCOLOR, bg);
+   ObjectSetInteger(0, name, OBJPROP_COLOR, clrDimGray);
+   ObjectSetInteger(0, name, OBJPROP_BACK, false);
+}
+
+void DeleteObjectsByPrefix(string prefix)
+{
+   for(int i=ObjectsTotal(0, -1, -1)-1; i>=0; i--)
+   {
+      string name = ObjectName(0, i, -1, -1);
+      if(StringFind(name, prefix, 0) == 0)
+         ObjectDelete(0, name);
+   }
+}
+
+void DrawSignalOrderMarker(int type, datetime t, double price, string text)
+{
+   if(!ShowChartGraphics) return;
+
+   string name = "DXB_TS_SIGNAL_ORDER_" + IntegerToString((int)t) + "_" + IntegerToString(type);
+   int arrowCode = (type == OP_BUY) ? 233 : 234;
+   color clr = (type == OP_BUY) ? clrLime : clrRed;
+
+   if(ObjectFind(0, name) < 0)
+      ObjectCreate(0, name, OBJ_ARROW, 0, t, price);
+
+   ObjectSetInteger(0, name, OBJPROP_ARROWCODE, arrowCode);
+   ObjectSetInteger(0, name, OBJPROP_COLOR, clr);
+   ObjectSetInteger(0, name, OBJPROP_WIDTH, 3);
+
+   string labelName = name + "_TXT";
+   if(ObjectFind(0, labelName) < 0)
+      ObjectCreate(0, labelName, OBJ_TEXT, 0, t, price);
+
+   ObjectSetString(0, labelName, OBJPROP_TEXT, text);
+   ObjectSetInteger(0, labelName, OBJPROP_COLOR, clr);
+   ObjectSetInteger(0, labelName, OBJPROP_FONTSIZE, 8);
+   ObjectSetString(0, labelName, OBJPROP_FONT, "Arial Bold");
+}
+
 void DrawDashboard()
 {
    string p = "DXB_TS_";
@@ -525,7 +956,7 @@ void DrawDashboard()
    DrawLabel(p+"RSIADX", "RSI HL2: " + DoubleToString(rsi, 2) + " ADX5: " + DoubleToString(adx, 2), x, y, clrAqua, 9); y += line;
    DrawLabel(p+"VOL", "Vol: " + DoubleToString(vol1, 0) + " EMA10: " + DoubleToString(vema, 2), x, y, clrSilver, 9); y += line;
    DrawLabel(p+"MA", "SMA100: " + DoubleToString(ma100, Digits) + " ATR14: " + DoubleToString(atr, Digits), x, y, clrSilver, 9); y += line;
-   DrawLabel(p+"MODE", "Relax Test: " + (RelaxFiltersForTesting ? "YES" : "NO"), x, y, RelaxFiltersForTesting ? clrOrange : clrSilver, 9);
+   DrawLabel(p+"MODE", "TP: $5 Profit | Exit: Opposite Signal | SL: $5 | Relax: " + (RelaxFiltersForTesting ? "YES" : "NO"), x, y, RelaxFiltersForTesting ? clrOrange : clrSilver, 9);
 }
 
 string SignalText(int sig)

@@ -4,7 +4,7 @@ double Lots                 = 0.01;
 double AddStepUSD           = 1.00;
 double ReverseStepUSD       = 2.00;
 double BasketTPUSD          = 0.50;
-double BasketSLUSD          = 10.00;
+double BasketSLUSD          = 5.00;
 double MinSameTrendPriceGap = 20.0;
 
 int    MaxOrdersPerSide     = 20;
