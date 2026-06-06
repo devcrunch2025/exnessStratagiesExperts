@@ -26,6 +26,13 @@ double InpBasketStopLossUSD       = 4.00;   // basket stop loss in USD, 0 = disa
 bool   InpOpenRecoveryAfterClose  = false;   // open recovery order after SL/SAR flip/early reverse close
 double InpRecoveryProfitUSD       = 1.00;   // close recovery order when this USD profit is reached
 bool   InpRecoveryAfterSLReverse  = true;   // true: after basket SL, open opposite direction
+
+// Recovery gap orders: when existing BUY/SELL basket is in loss and price moves against it
+// by this raw price gap, open one more same-direction recovery order.
+bool   InpUseRecoveryGapOrders    = true;
+double InpRecoveryGapRawPrice     = 30.0;   // raw price difference, not points
+double InpRecoveryGapLot          = 0.01;
+int    InpMaxRecoveryGapOrdersPerSide = 10;
 int    InpStopLossPoints          = 0;       // 0 = no hard SL
 int    InpSlippage                = 30;
 int    InpMaxSpreadPoints         = 3000;
@@ -38,7 +45,7 @@ bool   InpUseEquityProtection       = true;
 bool   InpAutoUseCurrentBalanceBase = true;   // true = take current account balance on EA load/new day
 double InpManualBaseCapitalUSD      = 20.0;   // used only when Auto=false
 
-double InpProfitTargetPercent      = 200.0;   // stop trading when equity reaches Base + 100%
+double InpProfitTargetPercent      = 20.0;   // stop trading when equity reaches Base + 100%
 double InpLossStopPercent          = 50.0;   // stop trading when equity reaches Base - 50%
 double InpProtectionBufferUSD      = 0.00;   // optional buffer below loss-stop level
 bool   InpCloseOrdersOnEquityHit    = true;
@@ -49,9 +56,9 @@ bool   InpPauseAfterProfitTarget    = true;
 
 // Equity statistics reset cycle
 bool   InpResetEquityStatsEvery6Hours = true;
-int    InpEquityResetHours            = 6;      // fallback rolling reset if fixed hours are disabled
+int    InpEquityResetHours            = 24;      // fallback rolling reset if fixed hours are disabled
 bool   InpUseFixedEquityResetHours    = false;   // true = reset only at configured server hours
-string InpEquityResetHourList         = "1,7,13,19"; // server-time hours to reset equity base
+string InpEquityResetHourList         = "1"; // server-time hours to reset equity base
 bool   InpResetTradingCycleWithEquity = true;   // reset SAR/early/flat cycle when equity stats reset
 
 // Deposit detection reset
@@ -1318,6 +1325,191 @@ bool OpenRecoveryOrder(int direction, string sourceReason)
   }
 
 //+------------------------------------------------------------------+
+int CountRecoveryGapOrdersByDirection(int direction)
+  {
+   int total = 0;
+   int type = direction == 1 ? OP_BUY : OP_SELL;
+
+   for(int i = OrdersTotal() - 1; i >= 0; i--)
+     {
+      if(!OrderSelect(i, SELECT_BY_POS, MODE_TRADES))
+         continue;
+
+      if(OrderSymbol() != Symbol())
+         continue;
+
+      if(OrderMagicNumber() != InpMagicNumber)
+         continue;
+
+      if(OrderType() != type)
+         continue;
+
+      if(StringFind(OrderComment(), "RECOVERY_GAP") >= 0)
+         total++;
+     }
+
+   return(total);
+  }
+
+//+------------------------------------------------------------------+
+bool GetRecoveryGapReferencePrice(int direction, double &referencePrice, int &totalSideOrders)
+  {
+   totalSideOrders = 0;
+   referencePrice = 0.0;
+
+   int type = direction == 1 ? OP_BUY : OP_SELL;
+
+   for(int i = OrdersTotal() - 1; i >= 0; i--)
+     {
+      if(!OrderSelect(i, SELECT_BY_POS, MODE_TRADES))
+         continue;
+
+      if(OrderSymbol() != Symbol())
+         continue;
+
+      if(OrderMagicNumber() != InpMagicNumber)
+         continue;
+
+      if(OrderType() != type)
+         continue;
+
+      double op = OrderOpenPrice();
+
+      if(totalSideOrders == 0)
+         referencePrice = op;
+      else
+        {
+         // BUY recovery: use lowest BUY open price. Next BUY opens only after price drops 30 below it.
+         if(direction == 1 && op < referencePrice)
+            referencePrice = op;
+
+         // SELL recovery: use highest SELL open price. Next SELL opens only after price rises 30 above it.
+         if(direction == -1 && op > referencePrice)
+            referencePrice = op;
+        }
+
+      totalSideOrders++;
+     }
+
+   return(totalSideOrders > 0);
+  }
+
+//+------------------------------------------------------------------+
+bool OpenRecoveryGapMarketOrder(int direction, double gapMove)
+  {
+   if(direction == 0)
+      return(false);
+
+   if(!IsTradingAllowedNow())
+      return(false);
+
+   RefreshRates();
+
+   if(CheckEquityConditions())
+     {
+      Print("RECOVERY GAP BLOCKED | Equity/profit lock active.");
+      return(false);
+     }
+
+   if(MarketInfo(Symbol(), MODE_SPREAD) > InpMaxSpreadPoints)
+     {
+      Print("RECOVERY GAP BLOCKED | Spread=", MarketInfo(Symbol(), MODE_SPREAD),
+            " > MaxSpread=", InpMaxSpreadPoints);
+      return(false);
+     }
+
+   int type = direction == 1 ? OP_BUY : OP_SELL;
+   double price = direction == 1 ? Ask : Bid;
+   double lot = NormalizeLot(InpRecoveryGapLot);
+   string comment = "RECOVERY_GAP_" + DoubleToString(InpRecoveryGapRawPrice, 0) + "_" + DirectionText(direction);
+
+   int ticket = OrderSend(Symbol(),
+                          type,
+                          lot,
+                          price,
+                          InpSlippage,
+                          0,
+                          0,
+                          comment,
+                          InpMagicNumber,
+                          0,
+                          direction == 1 ? InpBuyColor : InpSellColor);
+
+   if(ticket < 0)
+     {
+      int err = GetLastError();
+      Print("RECOVERY GAP ORDER FAILED | Direction=", DirectionText(direction),
+            " | Lot=", DoubleToString(lot, 2),
+            " | GapMove=", DoubleToString(gapMove, Digits),
+            " | Error=", err);
+      ResetLastError();
+      return(false);
+     }
+
+   g_lastOrderTime = TimeCurrent();
+
+   Print("RECOVERY GAP ORDER OPENED | Ticket=", ticket,
+         " | Direction=", DirectionText(direction),
+         " | Lot=", DoubleToString(lot, 2),
+         " | RequiredGap=", DoubleToString(InpRecoveryGapRawPrice, Digits),
+         " | ActualGap=", DoubleToString(gapMove, Digits),
+         " | Comment=", comment);
+
+   return(true);
+  }
+
+//+------------------------------------------------------------------+
+void ProcessRecoveryGapOrders()
+  {
+   if(!InpUseRecoveryGapOrders)
+      return;
+
+   if(InpRecoveryGapRawPrice <= 0.0 || InpRecoveryGapLot <= 0.0)
+      return;
+
+   if(CheckEquityConditions())
+      return;
+
+   RefreshRates();
+
+   double buyRef = 0.0;
+   double sellRef = 0.0;
+   int buyOrders = 0;
+   int sellOrders = 0;
+
+   bool hasBuy = GetRecoveryGapReferencePrice(1, buyRef, buyOrders);
+   bool hasSell = GetRecoveryGapReferencePrice(-1, sellRef, sellOrders);
+
+   double buyGap = 0.0;
+   double sellGap = 0.0;
+
+   if(hasBuy)
+      buyGap = buyRef - Bid;
+
+   if(hasSell)
+      sellGap = Ask - sellRef;
+
+   bool buyReady = (hasBuy && buyGap >= InpRecoveryGapRawPrice &&
+                    CountRecoveryGapOrdersByDirection(1) < InpMaxRecoveryGapOrdersPerSide);
+
+   bool sellReady = (hasSell && sellGap >= InpRecoveryGapRawPrice &&
+                     CountRecoveryGapOrdersByDirection(-1) < InpMaxRecoveryGapOrdersPerSide);
+
+   // Open only one recovery gap order per tick. Choose the side with the larger adverse move.
+   if(buyReady && (!sellReady || buyGap >= sellGap))
+     {
+      OpenRecoveryGapMarketOrder(1, buyGap);
+      return;
+     }
+
+   if(sellReady)
+     {
+      OpenRecoveryGapMarketOrder(-1, sellGap);
+      return;
+     }
+  }
+
+//+------------------------------------------------------------------+
 void ProcessSARFlipStateAndClose()
   {
    int sarFlip = GetSARFlipSignal();
@@ -1766,6 +1958,10 @@ void OnTick()
 
 // Recovery order profit close must run before all signal/new-order logic.
    CloseRecoveryOrdersAtProfit();
+
+// Recovery gap orders are independent from normal SAR order gates.
+// They open only when price moves against existing same-side orders by raw gap 30.
+   ProcessRecoveryGapOrders();
 
    DrawSARDots();
 

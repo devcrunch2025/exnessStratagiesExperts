@@ -373,7 +373,7 @@ void OnTick()
 
    DrawSARDots();
 
-   Print(GetM30TrendDirection());
+   // Print(GetM30TrendDirection());
 
    int signal = GetSARFlipSignal();
 
@@ -743,6 +743,13 @@ void OpenOrder(int type)
    price = NormalizeDouble(price, Digits);
 
    string orderComment = BuildOrderComment(type);
+
+   Lots=0.01;
+
+if(CountOrders(type)>0)
+   Lots=(CountOrders(type)+1)*0.01;
+   
+
 
    int ticket = OrderSend(Symbol(), type, Lots, price, Slippage, 0, 0,
                           orderComment, MagicNumber, 0,
