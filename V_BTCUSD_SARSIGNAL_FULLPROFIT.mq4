@@ -8,8 +8,8 @@ double Lots = 0.01;
 double TakeProfitUSD = 2.0;   // BUY/SELL basket take profit only
 double StopLossUSD   = 15.0;   // BUY/SELL basket stop loss only
 
-// Daily target profit. When account balance profit reaches this value,
-// EA closes all orders and stops trading until next day.
+// Daily target profit. EA stores AccountBalance() on init/day change,
+// then checks AccountEquity() every tick against stored balance + target.
 double DailyTargetProfitUSD = 5.0;
 
 // Option: close opposite basket immediately when SAR signal changes.
@@ -112,33 +112,44 @@ void OnDeinit(const int reason)
   }
 
 //+------------------------------------------------------------------+
-//| Check daily profit target and stop trading after target hit       |
+//| Check daily profit target using EQUITY vs stored start balance    |
+//| Example: start balance = 50, target = 5, stop when equity >= 55   |
 //+------------------------------------------------------------------+
 void CheckDailyProfitTarget()
   {
    int currentDay = TimeDayOfYear(TimeCurrent());
 
-   // Reset every new broker day
+   // Reset stored balance variable on every new broker day
    if(currentDay != g_lastDayOfYear)
      {
       g_lastDayOfYear   = currentDay;
       g_dayStartBalance = AccountBalance();
       g_dailyTargetHit  = false;
 
-      Print("Daily target reset. New start balance = ",
-            DoubleToString(g_dayStartBalance, 2));
+      Print("Daily target reset. Stored start balance = ",
+            DoubleToString(g_dayStartBalance, 2),
+            " Target equity = ",
+            DoubleToString(g_dayStartBalance + DailyTargetProfitUSD, 2));
      }
 
-   double dailyProfit = AccountBalance() - g_dayStartBalance;
+   double currentEquity = AccountEquity();
+   double targetEquity  = g_dayStartBalance + DailyTargetProfitUSD;
+   double equityProfit  = currentEquity - g_dayStartBalance;
 
-   if(!g_dailyTargetHit && dailyProfit >= DailyTargetProfitUSD)
+   if(!g_dailyTargetHit && currentEquity >= targetEquity)
      {
       g_dailyTargetHit = true;
 
-      Print("DAILY TARGET HIT. Daily profit = ",
-            DoubleToString(dailyProfit, 2),
-            " Target = ",
+      Print("DAILY TARGET HIT BY EQUITY. StartBalanceVar=",
+            DoubleToString(g_dayStartBalance, 2),
+            " CurrentEquity=",
+            DoubleToString(currentEquity, 2),
+            " EquityProfit=",
+            DoubleToString(equityProfit, 2),
+            " TargetProfit=",
             DoubleToString(DailyTargetProfitUSD, 2),
+            " TargetEquity=",
+            DoubleToString(targetEquity, 2),
             ". Closing all orders and stopping trading until next day.");
 
       CloseOrders(OP_BUY);
@@ -149,14 +160,19 @@ void CheckDailyProfitTarget()
 //+------------------------------------------------------------------+
 void UpdateDailyTargetComment()
   {
-   double dailyProfit = AccountBalance() - g_dayStartBalance;
+   double currentEquity = AccountEquity();
+   double targetEquity  = g_dayStartBalance + DailyTargetProfitUSD;
+   double equityProfit  = currentEquity - g_dayStartBalance;
    int bigDir = GetBigCandleDirection();
    double last2Move = GetLast2M1RawMove();
 
    Comment(
       "SAR FLIP EA\n",
-      "Daily Profit: $", DoubleToString(dailyProfit, 2), "\n",
-      "Daily Target: $", DoubleToString(DailyTargetProfitUSD, 2), "\n",
+      "Start Balance Var: $", DoubleToString(g_dayStartBalance, 2), "\n",
+      "Current Equity: $", DoubleToString(currentEquity, 2), "\n",
+      "Equity Profit: $", DoubleToString(equityProfit, 2), "\n",
+      "Target Equity: $", DoubleToString(targetEquity, 2), "\n",
+      "Daily Target Profit: $", DoubleToString(DailyTargetProfitUSD, 2), "\n",
       "Trading: ", g_dailyTargetHit ? "STOPPED - DAILY TARGET HIT" : "ACTIVE", "\n",
       "Close On SAR Change: ", CloseOnSARSignalChange ? "TRUE" : "FALSE", "\n",
       "Big Candle Filter: ", UseBigCandleEntryFilter ? "ON" : "OFF", " | Min: ", DoubleToString(BigCandleMinSizeRawPrice, 2), "\n",
