@@ -1250,6 +1250,13 @@ bool OpenRecoveryOrder(int direction, string sourceReason)
       return(false);
      }
 
+     //      // ADD HERE
+// if(CountAllOrders() >= 1)
+// {
+//    Print("RECOVERY ORDER BLOCKED | Current order count already >= 1 | Source=", sourceReason);
+//    return(false);
+// }
+
 // Recovery is independent, but only ONE recovery order is allowed at a time.
 // It is NOT blocked by normal order count, normal price gap, or normal order creation gates.
    if(CountRecoveryOrders() >= 1)
@@ -1823,7 +1830,7 @@ bool IsSARFlipConfirmationReady()
    if(direction == 0)
       return(true);
 
-   if(Bars < 10)
+   if(Bars < 5)//immidiate change protection
       return(false);
 
 // 1) EMA9/EMA21 trend filter on the last fully closed candle.
