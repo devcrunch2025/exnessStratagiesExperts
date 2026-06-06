@@ -1,21 +1,51 @@
 //+------------------------------------------------------------------+
-//|                                                      ProjectName |
-//|                                      Copyright 2018, CompanyName |
-//|                                       http://www.companyname.net |
+//|                         SAR_FLIP_FULLPROFIT_BIG_CANDLE_300.mq4   |
+//|  Big Candle + Last2 M1 filters for NORMAL entries only             |
 //+------------------------------------------------------------------+
 #property strict
 
 double Lots = 0.01;
-double TakeProfitUSD = 1.0;
-double StopLossUSD   = 5.0;
+double TakeProfitUSD = 2.0;   // BUY/SELL basket take profit only
+double StopLossUSD   = 20.0;   // BUY/SELL basket stop loss only
 
-double RecoveryGapRawPrice = 50.0;
-int MaxRecoveryOrders = 5;
+// Daily target profit. When account balance profit reaches this value,
+// EA closes all orders and stops trading until next day.
+double DailyTargetProfitUSD = 1000.0;
+
+// Option: close opposite basket immediately when SAR signal changes.
+// true  = close opposite basket on SAR flip
+// false = keep existing basket until basket TP/SL or daily target
+bool CloseOnSARSignalChange = false;
+
+//+------------------------------------------------------------------+
+//| BIG CANDLE ENTRY FILTER                                          |
+//| Create new orders only after previous candle body size >= 300     |
+//| raw price difference. Direction must match SAR direction.         |
+//+------------------------------------------------------------------+
+bool   UseBigCandleEntryFilter       = true;
+bool   UseBigCandleFilterForRecovery = false; // kept for settings reference; recovery filter is disabled in CheckRecovery()
+double BigCandleMinSizeRawPrice      = 100.0;
+
+//+------------------------------------------------------------------+
+//| LAST 2 M1 CANDLES RAW MOVE ENTRY FILTER                          |
+//| Compare M1 candle shift 2 OPEN price with M1 candle shift 1 CLOSE |
+//| price. New orders allowed only when raw price difference > 100.   |
+//+------------------------------------------------------------------+
+bool   UseLast2M1RawMoveEntryFilter  = true;
+double Last2M1RawMoveMinPrice        = 100.0;
+
+// Daily target tracking
+double g_dayStartBalance = 0.0;
+int    g_lastDayOfYear   = -1;
+bool   g_dailyTargetHit  = false;
+
+double RecoveryGapRawPrice = 30.0;
+int MaxRecoveryOrders = 10;
 
 bool UseEarlyWeaknessClose = false;
 int WeaknessCandles = 3;
 double WeaknessRawPriceMove = 50.0;
-double EarlyCloseMinProfit = -2.0;
+double EarlyCloseMinProfit = -12.0;
 
 bool ShowWeakStrongCircles = false;
 color WeakCircleColor = clrRed;
@@ -24,7 +54,7 @@ int WeakStrongCircleCode = 108;
 int WeakStrongCircleWidth = 2;
 
 int TradingStartHour = 0;
-int TradingEndHour   = 12;
+int TradingEndHour   = 24;
 
 int    InpSARPeriod       = 2;
 double InpSARStepSize     = 20;
@@ -54,6 +84,24 @@ bool g_sellStopLossPaused = false;
 int OnInit()
   {
    g_currentSARDirection = GetCurrentSARDirection();
+
+   g_dayStartBalance = AccountBalance();
+   g_lastDayOfYear   = TimeDayOfYear(TimeCurrent());
+   g_dailyTargetHit  = false;
+
+   Print("EA initialized. Daily start balance: ",
+         DoubleToString(g_dayStartBalance, 2),
+         " Daily target: ",
+         DoubleToString(DailyTargetProfitUSD, 2),
+         " Big candle filter: ",
+         UseBigCandleEntryFilter ? "ON" : "OFF",
+         " Min size raw price: ",
+         DoubleToString(BigCandleMinSizeRawPrice, Digits),
+         " Last2 M1 raw move filter: ",
+         UseLast2M1RawMoveEntryFilter ? "ON" : "OFF",
+         " Min move: ",
+         DoubleToString(Last2M1RawMoveMinPrice, Digits));
+
    return(INIT_SUCCEEDED);
   }
 
@@ -62,17 +110,172 @@ void OnDeinit(const int reason)
   {
    DeleteObjectsByPrefix(OBJ_PREFIX);
   }
+
+//+------------------------------------------------------------------+
+//| Check daily profit target and stop trading after target hit       |
+//+------------------------------------------------------------------+
+void CheckDailyProfitTarget()
+  {
+   int currentDay = TimeDayOfYear(TimeCurrent());
+
+   // Reset every new broker day
+   if(currentDay != g_lastDayOfYear)
+     {
+      g_lastDayOfYear   = currentDay;
+      g_dayStartBalance = AccountBalance();
+      g_dailyTargetHit  = false;
+
+      Print("Daily target reset. New start balance = ",
+            DoubleToString(g_dayStartBalance, 2));
+     }
+
+   double dailyProfit = AccountBalance() - g_dayStartBalance;
+
+   if(!g_dailyTargetHit && dailyProfit >= DailyTargetProfitUSD)
+     {
+      g_dailyTargetHit = true;
+
+      Print("DAILY TARGET HIT. Daily profit = ",
+            DoubleToString(dailyProfit, 2),
+            " Target = ",
+            DoubleToString(DailyTargetProfitUSD, 2),
+            ". Closing all orders and stopping trading until next day.");
+
+      CloseOrders(OP_BUY);
+      CloseOrders(OP_SELL);
+     }
+  }
+
+//+------------------------------------------------------------------+
+void UpdateDailyTargetComment()
+  {
+   double dailyProfit = AccountBalance() - g_dayStartBalance;
+   int bigDir = GetBigCandleDirection();
+   double last2Move = GetLast2M1RawMove();
+
+   Comment(
+      "SAR FLIP EA\n",
+      "Daily Profit: $", DoubleToString(dailyProfit, 2), "\n",
+      "Daily Target: $", DoubleToString(DailyTargetProfitUSD, 2), "\n",
+      "Trading: ", g_dailyTargetHit ? "STOPPED - DAILY TARGET HIT" : "ACTIVE", "\n",
+      "Close On SAR Change: ", CloseOnSARSignalChange ? "TRUE" : "FALSE", "\n",
+      "Big Candle Filter: ", UseBigCandleEntryFilter ? "ON" : "OFF", " | Min: ", DoubleToString(BigCandleMinSizeRawPrice, 2), "\n",
+      "Big Candle Direction: ", bigDir == 1 ? "BUY" : bigDir == -1 ? "SELL" : "NO BIG CANDLE", "\n",
+      "Last 2 M1 Move: ", DoubleToString(last2Move, 2), " / Required > ", DoubleToString(Last2M1RawMoveMinPrice, 2), "\n",
+      "BUY Orders: ", CountOrders(OP_BUY), " | BUY Basket P/L: $", DoubleToString(GetBasketProfit(OP_BUY), 2), "\n",
+      "SELL Orders: ", CountOrders(OP_SELL), " | SELL Basket P/L: $", DoubleToString(GetBasketProfit(OP_SELL), 2), "\n",
+      "SAR Direction: ", g_currentSARDirection == 1 ? "BUY" : g_currentSARDirection == -1 ? "SELL" : "NONE"
+   );
+  }
+
+//+------------------------------------------------------------------+
+//| Big candle direction based on previous CLOSED candle body         |
+//| BUY  = candle close > open and body >= BigCandleMinSizeRawPrice   |
+//| SELL = candle close < open and body >= BigCandleMinSizeRawPrice   |
+//+------------------------------------------------------------------+
+int GetBigCandleDirection()
+  {
+   if(Bars < 3)
+      return(0);
+
+   double open1  = iOpen(Symbol(), Period(), 1);
+   double close1 = iClose(Symbol(), Period(), 1);
+
+   double bodySize = MathAbs(close1 - open1);
+
+   if(bodySize < BigCandleMinSizeRawPrice)
+      return(0);
+
+   if(close1 > open1)
+      return(1);
+
+   if(close1 < open1)
+      return(-1);
+
+   return(0);
+  }
+
+//+------------------------------------------------------------------+
+//| Entry permission by BIG candle filter                             |
+//+------------------------------------------------------------------+
+bool IsBigCandleAllowedForDirection(int direction)
+  {
+   if(!UseBigCandleEntryFilter)
+      return(true);
+
+   int bigDir = GetBigCandleDirection();
+
+   if(bigDir == direction)
+      return(true);
+
+   Print("Order blocked by Big Candle filter. Required direction=",
+         direction == 1 ? "BUY" : "SELL",
+         " BigCandleDirection=",
+         bigDir == 1 ? "BUY" : bigDir == -1 ? "SELL" : "NONE",
+         " MinSize=", DoubleToString(BigCandleMinSizeRawPrice, 2));
+
+   return(false);
+  }
+
+//+------------------------------------------------------------------+
+//| Raw movement from M1 candle shift 2 OPEN to M1 candle shift 1 CLOSE|
+//| Example: MathAbs(iClose(M1,1) - iOpen(M1,2))                     |
+//+------------------------------------------------------------------+
+double GetLast2M1RawMove()
+  {
+   if(iBars(Symbol(), PERIOD_M1) < 3)
+      return(0);
+
+   double open2  = iOpen(Symbol(), PERIOD_M1, 2);
+   double close1 = iClose(Symbol(), PERIOD_M1, 1);
+
+   return(MathAbs(close1 - open2));
+  }
+
+//+------------------------------------------------------------------+
+//| Entry permission by last 2 M1 candles raw price movement          |
+//+------------------------------------------------------------------+
+bool IsLast2M1RawMoveAllowed()
+  {
+   if(!UseLast2M1RawMoveEntryFilter)
+      return(true);
+
+   double move = GetLast2M1RawMove();
+
+   if(move > Last2M1RawMoveMinPrice)
+      return(true);
+
+   Print("Order blocked by Last 2 M1 raw move filter. Move=",
+         DoubleToString(move, 2),
+         " Required > ",
+         DoubleToString(Last2M1RawMoveMinPrice, 2),
+         " Formula: Abs(M1 shift 1 close - M1 shift 2 open)");
+
+   return(false);
+  }
+
+//+------------------------------------------------------------------+
+//| Final entry filter: Big candle direction + Last 2 M1 raw move     |
+//+------------------------------------------------------------------+
+bool IsEntryAllowedForDirection(int direction)
+  {
+   if(!IsBigCandleAllowedForDirection(direction))
+      return(false);
+
+   if(!IsLast2M1RawMoveAllowed())
+      return(false);
+
+   return(true);
+  }
+
 //+------------------------------------------------------------------+
 //|                                                                  |
 //+------------------------------------------------------------------+
 int GetM30TrendDirection()
   {
-
-
-
    double currentPrice = Close[0];
 
-// M1 chart: 30 candles = 30 minutes ago
+// M1 chart: currently comparing 5 candles ago as per your original code
    double price30MinAgo = iClose(Symbol(), PERIOD_M1, 5);
 
    double diff = currentPrice - price30MinAgo;
@@ -99,13 +302,22 @@ int GetM30TrendDirection()
 
    return 0;      // No clear trend
   }
+
 //+------------------------------------------------------------------+
 void OnTick()
   {
-   int profitClosedDirection = CloseOrdersByProfitOrLossUSD();
+   CheckDailyProfitTarget();
+   UpdateDailyTargetComment();
 
-// StopLossUSD = BUY/SELL basket stop loss.
-   ManageBasketStopLoss();
+   // After daily target hit, EA must not create or manage new trading entries.
+   // Orders are already closed by CheckDailyProfitTarget().
+   if(g_dailyTargetHit)
+      return;
+
+   // IMPORTANT:
+   // No individual order closing.
+   // BUY and SELL sides are managed only by basket TakeProfitUSD and StopLossUSD.
+   ManageBasketTakeProfitAndStopLoss();
 
    DrawSARDots();
 
@@ -131,11 +343,20 @@ void OnTick()
       // SAR changed to BUY, so SELL stop-loss pause is released.
       g_sellStopLossPaused = false;
 
-      CloseOrders(OP_SELL);
+      if(CloseOnSARSignalChange)
+        {
+         Print("SAR changed to BUY. CloseOnSARSignalChange=true, closing SELL basket.");
+         CloseOrders(OP_SELL);
+        }
+      else
+        {
+         Print("SAR changed to BUY. CloseOnSARSignalChange=false, SELL basket will continue until basket TP/SL.");
+        }
 
-      if(CountOrders(OP_BUY) == 0 && !g_buySARWeakPaused && !g_buyStopLossPaused)
+      if(CountOrders(OP_BUY) == 0 && !g_buySARWeakPaused && !g_buyStopLossPaused && IsEntryAllowedForDirection(1))
          OpenOrder(OP_BUY);
 
+      ManageRecoveryOrders();
       return;
      }
 
@@ -146,31 +367,28 @@ void OnTick()
       // SAR changed to SELL, so BUY stop-loss pause is released.
       g_buyStopLossPaused = false;
 
-      CloseOrders(OP_BUY);
+      if(CloseOnSARSignalChange)
+        {
+         Print("SAR changed to SELL. CloseOnSARSignalChange=true, closing BUY basket.");
+         CloseOrders(OP_BUY);
+        }
+      else
+        {
+         Print("SAR changed to SELL. CloseOnSARSignalChange=false, BUY basket will continue until basket TP/SL.");
+        }
 
-      if(CountOrders(OP_SELL) == 0 && !g_sellSARWeakPaused && !g_sellStopLossPaused)
+      if(CountOrders(OP_SELL) == 0 && !g_sellSARWeakPaused && !g_sellStopLossPaused && IsEntryAllowedForDirection(-1))
          OpenOrder(OP_SELL);
 
+      ManageRecoveryOrders();
       return;
      }
 
-   if(profitClosedDirection == 1 && g_currentSARDirection == 1)
-     {
-      if(CountOrders(OP_BUY) == 0 && !g_buySARWeakPaused && !g_buyStopLossPaused)
-         OpenOrder(OP_BUY);
-     }
-
-   if(profitClosedDirection == -1 && g_currentSARDirection == -1)
-     {
-      if(CountOrders(OP_SELL) == 0 && !g_sellSARWeakPaused && !g_sellStopLossPaused)
-         OpenOrder(OP_SELL);
-     }
-
 // Continuous SAR order creation
-   if(g_currentSARDirection == 1 && CountOrders(OP_BUY) == 0 && !g_buySARWeakPaused && !g_buyStopLossPaused)
+   if(g_currentSARDirection == 1 && CountOrders(OP_BUY) == 0 && !g_buySARWeakPaused && !g_buyStopLossPaused && IsEntryAllowedForDirection(1))
       OpenOrder(OP_BUY);
 
-   if(g_currentSARDirection == -1 && CountOrders(OP_SELL) == 0 && !g_sellSARWeakPaused && !g_sellStopLossPaused)
+   if(g_currentSARDirection == -1 && CountOrders(OP_SELL) == 0 && !g_sellSARWeakPaused && !g_sellStopLossPaused && IsEntryAllowedForDirection(-1))
       OpenOrder(OP_SELL);
 
    ManageRecoveryOrders();
@@ -197,13 +415,9 @@ void CloseBySARWeaknessBeforeFlip()
 
          if(CountOrders(OP_BUY) > 0)
            {
-            double buyProfit = GetBasketProfit(OP_BUY);
-
-            if(buyProfit >= EarlyCloseMinProfit)
-              {
-               Print("BUY SAR weak. Closing BUY and pausing BUY re-entry.");
-               CloseOrders(OP_BUY);
-              }
+            // Do NOT close BUY basket here.
+            // Basket must close only by TakeProfitUSD, StopLossUSD, or daily target.
+            Print("BUY SAR weak. BUY re-entry paused. Existing BUY basket will continue until basket TP/SL.");
            }
         }
       else
@@ -228,13 +442,9 @@ void CloseBySARWeaknessBeforeFlip()
 
          if(CountOrders(OP_SELL) > 0)
            {
-            double sellProfit = GetBasketProfit(OP_SELL);
-
-            if(sellProfit >= EarlyCloseMinProfit)
-              {
-               Print("SELL SAR weak. Closing SELL and pausing SELL re-entry.");
-               CloseOrders(OP_SELL);
-              }
+            // Do NOT close SELL basket here.
+            // Basket must close only by TakeProfitUSD, StopLossUSD, or daily target.
+            Print("SELL SAR weak. SELL re-entry paused. Existing SELL basket will continue until basket TP/SL.");
            }
         }
       else
@@ -337,6 +547,9 @@ void ManageRecoveryOrders()
 //+------------------------------------------------------------------+
 void CheckRecovery(int type)
   {
+   // Recovery orders are intentionally NOT locked by Big Candle or Last2M1 filters.
+   // They are controlled only by basket loss, max recovery count, and raw price gap.
+
    int orderCount = CountOrders(type);
 
    if(orderCount <= 0)
@@ -359,13 +572,13 @@ void CheckRecovery(int type)
 
    if(type == OP_BUY)
      {
-      if(Bid <= latestPrice - RecoveryGapRawPrice)
+      if(Bid <= latestPrice - RecoveryGapRawPrice * CountOrders(type))
          OpenOrder(OP_BUY);
      }
 
    if(type == OP_SELL)
      {
-      if(Ask >= latestPrice + RecoveryGapRawPrice)
+      if(Ask >= latestPrice + RecoveryGapRawPrice * CountOrders(type))
          OpenOrder(OP_SELL);
      }
   }
@@ -459,6 +672,14 @@ int GetCurrentSARDirection()
 //+------------------------------------------------------------------+
 void OpenOrder(int type)
   {
+   if(g_dailyTargetHit)
+      return;
+
+   // IMPORTANT:
+   // OpenOrder() does NOT apply Big Candle or Last2M1 filters.
+   // Normal SAR entries are filtered before calling OpenOrder().
+   // Recovery orders can call OpenOrder() directly and will not be blocked
+   // by Big Candle or Last2M1 movement filters.
 
 // if( GetM30TrendDirection() != type)
 //       return;
@@ -470,7 +691,7 @@ void OpenOrder(int type)
    price = NormalizeDouble(price, Digits);
 
    int ticket = OrderSend(Symbol(), type, Lots, price, Slippage, 0, 0,
-                          "SAR_FLIP_FULLPROFIT", MagicNumber, 0,
+                          "SAR_FLIP_BIG_CANDLE_300", MagicNumber, 0,
                           type == OP_BUY ? clrBlue : clrRed);
 
    if(ticket < 0)
@@ -508,73 +729,45 @@ void CloseOrders(int type)
 //+------------------------------------------------------------------+
 int CloseOrdersByProfitOrLossUSD()
   {
-   RefreshRates();
-
-   int profitClosedDirection = 0;
-
-// TakeProfitUSD = individual order profit booking only.
-// StopLossUSD is NOT used here. StopLossUSD is handled by ManageBasketStopLoss().
-   for(int i = OrdersTotal() - 1; i >= 0; i--)
-     {
-      if(!OrderSelect(i, SELECT_BY_POS, MODE_TRADES))
-         continue;
-
-      if(OrderSymbol() != Symbol())
-         continue;
-
-      if(OrderMagicNumber() != MagicNumber)
-         continue;
-
-      if(OrderType() != OP_BUY && OrderType() != OP_SELL)
-         continue;
-
-      double profit = OrderProfit() + OrderSwap() + OrderCommission();
-
-      if(profit >= TakeProfitUSD)
-        {
-         int orderType = OrderType();
-         double closePrice = orderType == OP_BUY ? Bid : Ask;
-
-         bool closed = OrderClose(OrderTicket(),
-                                  OrderLots(),
-                                  closePrice,
-                                  Slippage,
-                                  clrLime);
-
-         if(closed)
-           {
-            Print("Closed individual order by TakeProfitUSD. Ticket: ",
-                  OrderTicket(),
-                  " Profit: ",
-                  DoubleToString(profit, 2));
-
-            if(orderType == OP_BUY)
-               profitClosedDirection = 1;
-
-            if(orderType == OP_SELL)
-               profitClosedDirection = -1;
-           }
-         else
-           {
-            Print("Individual TP close failed. Ticket: ",
-                  OrderTicket(),
-                  " Error: ",
-                  GetLastError());
-           }
-        }
-     }
-
-   return profitClosedDirection;
+   // Disabled by request:
+   // EA must not close individual orders.
+   // Orders are closed only by BUY/SELL basket TP, basket SL, or daily target.
+   return 0;
   }
 
 //+------------------------------------------------------------------+
-void ManageBasketStopLoss()
+void ManageBasketTakeProfitAndStopLoss()
   {
    RefreshRates();
 
    double buyBasketProfit  = GetBasketProfit(OP_BUY);
    double sellBasketProfit = GetBasketProfit(OP_SELL);
 
+   // BUY basket take profit
+   if(CountOrders(OP_BUY) > 0 && buyBasketProfit >= TakeProfitUSD)
+     {
+      Print("BUY Basket TakeProfitUSD hit. Basket P/L: ",
+            DoubleToString(buyBasketProfit, 2),
+            " Target: ",
+            DoubleToString(TakeProfitUSD, 2));
+
+      CloseOrders(OP_BUY);
+      return;
+     }
+
+   // SELL basket take profit
+   if(CountOrders(OP_SELL) > 0 && sellBasketProfit >= TakeProfitUSD)
+     {
+      Print("SELL Basket TakeProfitUSD hit. Basket P/L: ",
+            DoubleToString(sellBasketProfit, 2),
+            " Target: ",
+            DoubleToString(TakeProfitUSD, 2));
+
+      CloseOrders(OP_SELL);
+      return;
+     }
+
+   // BUY basket stop loss
    if(CountOrders(OP_BUY) > 0 && buyBasketProfit <= -StopLossUSD)
      {
       Print("BUY Basket StopLossUSD hit. Basket P/L: ",
@@ -582,12 +775,11 @@ void ManageBasketStopLoss()
             " Limit: -",
             DoubleToString(StopLossUSD, 2));
 
-      // g_buyStopLossPaused = true;
-      Print("BUY entries paused until SAR changes to SELL.");
-
       CloseOrders(OP_BUY);
+      return;
      }
 
+   // SELL basket stop loss
    if(CountOrders(OP_SELL) > 0 && sellBasketProfit <= -StopLossUSD)
      {
       Print("SELL Basket StopLossUSD hit. Basket P/L: ",
@@ -595,10 +787,8 @@ void ManageBasketStopLoss()
             " Limit: -",
             DoubleToString(StopLossUSD, 2));
 
-      // g_sellStopLossPaused = true;
-      Print("SELL entries paused until SAR changes to BUY.");
-
       CloseOrders(OP_SELL);
+      return;
      }
   }
 
