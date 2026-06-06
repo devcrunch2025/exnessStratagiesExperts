@@ -448,7 +448,7 @@ void OpenOrder(int type)
    price = NormalizeDouble(price, Digits);
 
    int ticket = OrderSend(Symbol(), type, Lots, price, Slippage, 0, 0,
-                          "SAR Flip EA", MagicNumber, 0,
+                          "SAR_FLIP_FULLPROFIT", MagicNumber, 0,
                           type == OP_BUY ? clrBlue : clrRed);
 
    if(ticket < 0)

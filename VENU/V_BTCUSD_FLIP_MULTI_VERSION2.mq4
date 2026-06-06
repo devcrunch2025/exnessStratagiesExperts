@@ -19,10 +19,12 @@ double InpFixedLot                = 0.01;
 int    InpMaxOrders               = 10;    // display only; hard max/dynamic default is 10
 #define DXB_HARD_MAX_OPEN_ORDERS 1 // default safety cap; dynamic SAR opposite-duration rule can reduce to 0/2/5/10
 
-double InpBasketProfitUSD         = 0.50;
+double InpBasketProfitUSD         = 1.00;
+double InpBasketProfitUSD_12_17 = 1.00; // profit target during 12,13,14,15,16,17 hours
+
 double InpBasketStopLossUSD       = 4.00;   // basket stop loss in USD, 0 = disabled
 bool   InpOpenRecoveryAfterClose  = false;   // open recovery order after SL/SAR flip/early reverse close
-double InpRecoveryProfitUSD       = 0.50;   // close recovery order when this USD profit is reached
+double InpRecoveryProfitUSD       = 1.00;   // close recovery order when this USD profit is reached
 bool   InpRecoveryAfterSLReverse  = true;   // true: after basket SL, open opposite direction
 int    InpStopLossPoints          = 0;       // 0 = no hard SL
 int    InpSlippage                = 30;
@@ -72,13 +74,14 @@ double InpMinPriceGap             = 100.00;    // raw price gap, 0 = disabled
 
 // No-trading hours: block NEW normal SAR orders only. Close/profit/protection/recovery management still runs.
 bool   InpUseNoNewOrderHours      = true;
-string InpNoNewOrderHourList      = "13,14,15,16,17,18"; // server-time hours to block new orders
+string InpNoNewOrderHourList      = "23";//"13,14,15,16,17,18"; // server-time hours to block new orders
+
 
 //profit booking hours are 4,5,6,7,8
 
 // Big candle pause protection
 bool   InpUseBigCandlePause       = true;     // pause new orders after very large candle
-double InpBigCandleRawDifference  = 200;    // raw BTCUSD price difference: High[1]-Low[1]
+double InpBigCandleRawDifference  = 300;    // raw BTCUSD price difference: High[1]-Low[1]
 int    InpBigCandlePauseMinutes   = 30;       // pause duration after big candle
 bool   InpNotifyOnBigCandlePause  = true;     // push notification when big candle pause starts/ends
 
@@ -154,9 +157,9 @@ int    InpSARNormalDurationMaxOrders = 6;     // opposite duration <30 min or no
 int InpSARGoodMomentumExtraOrders = 2;
 bool InpResetMaxOrdersWhenSARWeak = true;
 
-input bool InpIncreaseSARMaxAfterActiveMinutes = true;
-input int  InpSARActiveMinutesForExtraOrders = 30;
-input int  InpSARActiveExtraOrders = 6;
+bool InpIncreaseSARMaxAfterActiveMinutes = true;
+int  InpSARActiveMinutesForExtraOrders = 30;
+int  InpSARActiveExtraOrders = 6;
 
 // SAR good-momentum upgrade
 // If current SAR trend is strong, increase current SAR signal-cycle max back to normal max.
@@ -231,14 +234,54 @@ double   g_sarGoodMomentumDotDistance = 0.0;
 double   g_sarGoodMomentumADX      = 0.0;
 double   g_sarGoodMomentumATR      = 0.0;
 
-input bool   InpUseH1TrendFilter = true;
-input int    InpH1FastEMA = 50;
-input int    InpH1SlowEMA = 200;
+bool   InpUseH1TrendFilter = true;
+int    InpH1FastEMA = 50;
+int    InpH1SlowEMA = 200;
 
-input bool InpOpenExtraOrderOnEarlySameSAR = true;
-input int  InpEarlySameSARExtraMaxOrders = 1;
+bool InpOpenExtraOrderOnEarlySameSAR = true;
+int  InpEarlySameSARExtraMaxOrders = 1;
 datetime g_lastEarlySameSAROrderBarTime = 0;
+
+bool   InpAddOneOrderWhenSARDistanceH1Same = true;
+double InpSARDistanceExtraOrderMin         = 300.0;
+int    InpSARDistanceExtraOrders           = 1;
 bool TryOpenEarlySameSARExtraOrder()
+{
+   if(!InpOpenExtraOrderOnEarlySameSAR)
+      return false;
+
+   int early = DetectEarlyTrend();
+
+   if(early == 0)
+      return false;
+
+   if(early != g_activeSARDirection)
+      return false;
+
+   if(Time[1] == g_lastEarlySameSAROrderBarTime)
+      return false;
+
+   if(!IsOrderAllowedByH1Trend(g_activeSARDirection))
+      return false;
+
+   EnsureSARSignalOrderCycle(g_activeSARDirection);
+
+   g_sarCycleMaxOrders += InpEarlySameSARExtraMaxOrders;
+
+   if(OpenMarketOrder(g_activeSARDirection, "SAR_ARROW_EXTRA"))
+   {
+      g_lastEarlySameSAROrderBarTime = Time[1];
+
+      Print("ARROW EXTRA ORDER OPENED | Direction=",
+            DirectionText(g_activeSARDirection),
+            " | NewMax=", g_sarCycleMaxOrders);
+
+      return true;
+   }
+
+   return false;
+}
+bool TryOpenEarlySameSARExtraOrder111111()
 {
    if(!InpOpenExtraOrderOnEarlySameSAR)
       return false;
@@ -258,7 +301,7 @@ bool TryOpenEarlySameSARExtraOrder()
 
    g_sarCycleMaxOrders += InpEarlySameSARExtraMaxOrders;
 
-   if(OpenMarketOrder(g_activeSARDirection, "EARLY SAME SAR EXTRA"))
+   if(OpenMarketOrder(g_activeSARDirection, "SAR_FLIP_V2"))
    {
       g_lastEarlySameSAROrderBarTime = Time[1];
 
@@ -376,7 +419,15 @@ void SendEAAlert(string eventTitle, string details)
    if(InpSendPushNotifications)
       SendNotification(msg);
   }
+double GetBasketProfitTargetUSD()
+{
+   int h = TimeHour(TimeCurrent());
 
+   if(h >= 12 && h <= 17)
+      return InpBasketProfitUSD_12_17;
+
+   return InpBasketProfitUSD;
+}
 //+------------------------------------------------------------------+
 int OnInit()
   {
@@ -1221,7 +1272,7 @@ bool OpenRecoveryOrder(int direction, string sourceReason)
 
    double lot = NormalizeLot(InpFixedLot);
 
-   string comment = "RECOVERY_TP_0.50_" + DirectionText(direction);
+   string comment = "SAR_FLIP_V2_RECOVERY_TP_0.50_" + DirectionText(direction);
    if(!IsTradingAllowedNow())
      {
       return(false);
@@ -1425,8 +1476,14 @@ bool ProcessCloseOrdersFirst(string &status)
       status = "Basket SL hit";
       return(true);
      }
+
+      double basketTarget = GetBasketProfitTargetUSD();
+
    if(CountAllOrders() > 0)
-      if(activeProfit >= InpBasketProfitUSD/CountAllOrders())
+      // if(activeProfit >= InpBasketProfitUSD/CountAllOrders())
+
+
+if(CountAllOrders() > 0 && activeProfit >= basketTarget / CountAllOrders())
         {
          CloseOrdersByDirection(g_activeSARDirection,
                                 "Basket profit $" + DoubleToString(activeProfit, 2));
@@ -1564,7 +1621,7 @@ bool ProcessNewOrderCreationLast(bool isNewBar, string &status)
    EnsureSARSignalOrderCycle(g_activeSARDirection);
    // ResetSARMaxToNormalIfActiveLongEnough();
    IncreaseSARMaxIfTrendContinuesAfterOneHour();
-
+IncreaseSARMaxWhenDotDistanceAndH1Same();
 
 // UpgradeSARCycleMaxIfGoodMomentum(g_activeSARDirection, "before new SAR order");
    UpdateSARCycleMaxByMomentum(g_activeSARDirection, "before new SAR order");
@@ -1611,7 +1668,7 @@ bool ProcessNewOrderCreationLast(bool isNewBar, string &status)
       return(false);
      }
 
-   if(OpenMarketOrder(g_activeSARDirection, "SAR continuous cycle"))
+   if(OpenMarketOrder(g_activeSARDirection, "SAR_FLIP_V2"))
       status = "Active " + DirectionText(g_activeSARDirection);
    else
       status = "OrderSend failed";
@@ -2825,7 +2882,44 @@ void DashRow(string title,string value,color clrText=clrWhite)
 
    g_dashRow++;
   }
+void IncreaseSARMaxWhenDotDistanceAndH1Same()
+{
+   if(!InpAddOneOrderWhenSARDistanceH1Same)
+      return;
 
+   if(g_sarCycleDirection == 0)
+      return;
+
+   int h1Trend = GetH1TrendDirection1();
+
+   if(h1Trend != g_sarCycleDirection)
+      return;
+
+   double step    = InpSARPeriod * InpSARStepSize / 10000.0;
+   double maxstep = step * InpSARAcceleration;
+   double sar1    = iSAR(Symbol(), Period(), step, maxstep, 1);
+
+   double dotDistance = MathAbs(Close[1] - sar1);
+
+   if(dotDistance < InpSARDistanceExtraOrderMin)
+      return;
+
+   int defaultMax = GetDynamicSARMaxOrdersForDirection(g_sarCycleDirection);
+   int newMax = defaultMax + MathMax(0, InpSARDistanceExtraOrders);
+
+   if(g_sarCycleMaxOrders < newMax)
+   {
+      int oldMax = g_sarCycleMaxOrders;
+      g_sarCycleMaxOrders = newMax;
+
+      Print("SAR DOT DISTANCE + H1 SAME EXTRA ORDER | Direction=",
+            DirectionText(g_sarCycleDirection),
+            " | H1=", DirectionText(h1Trend),
+            " | DotDistance=", DoubleToString(dotDistance, 2),
+            " | OldMax=", oldMax,
+            " | NewMax=", g_sarCycleMaxOrders);
+   }
+}
 //+------------------------------------------------------------------+
 //|                                                                  |
 //+------------------------------------------------------------------+

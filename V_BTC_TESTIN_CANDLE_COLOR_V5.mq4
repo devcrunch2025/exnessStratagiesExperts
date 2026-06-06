@@ -560,12 +560,12 @@ void OpenRecoveryOrder(int type)
    if(type == OP_BUY)
    {
       price = Ask;
-      comment = "BUY_LOSS_RECOVERY";
+      comment = "CANDLE_COLOR";
    }
    else if(type == OP_SELL)
    {
       price = Bid;
-      comment = "SELL_LOSS_RECOVERY";
+      comment = "CANDLE_COLOR";
    }
    else
       return;
@@ -831,12 +831,12 @@ void OpenReverseOrderAfterSL(int type)
    if(type == OP_BUY)
    {
       price = Ask;
-      comment = "SL_REVERSE_BUY";
+      comment = "CANDLE_COLOR_REVERSE_BUY";
    }
    else if(type == OP_SELL)
    {
       price = Bid;
-      comment = "SL_REVERSE_SELL";
+      comment = "CANDLE_COLOR_REVERSE_SELL";
    }
    else
       return;
@@ -899,12 +899,12 @@ void OpenOrder(int type)
    if(type == OP_BUY)
    {
       price = Ask;
-      comment = "BUY_BASKET";
+      comment = "CANDLE_COLOR_BUY";
    }
    else if(type == OP_SELL)
    {
       price = Bid;
-      comment = "SELL_BASKET";
+      comment = "CANDLE_COLOR_SELL";
    }
    else
       return;
