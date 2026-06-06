@@ -6,11 +6,11 @@
 
 double Lots = 0.01;
 double TakeProfitUSD = 2.0;   // BUY/SELL basket take profit only
-double StopLossUSD   = 20.0;   // BUY/SELL basket stop loss only
+double StopLossUSD   = 15.0;   // BUY/SELL basket stop loss only
 
 // Daily target profit. When account balance profit reaches this value,
 // EA closes all orders and stops trading until next day.
-double DailyTargetProfitUSD = 1000.0;
+double DailyTargetProfitUSD = 5.0;
 
 // Option: close opposite basket immediately when SAR signal changes.
 // true  = close opposite basket on SAR flip
@@ -24,7 +24,7 @@ bool CloseOnSARSignalChange = false;
 //+------------------------------------------------------------------+
 bool   UseBigCandleEntryFilter       = true;
 bool   UseBigCandleFilterForRecovery = false; // kept for settings reference; recovery filter is disabled in CheckRecovery()
-double BigCandleMinSizeRawPrice      = 100.0;
+double BigCandleMinSizeRawPrice      = 70.0;
 
 //+------------------------------------------------------------------+
 //| LAST 2 M1 CANDLES RAW MOVE ENTRY FILTER                          |
@@ -196,6 +196,39 @@ int GetBigCandleDirection()
   }
 
 //+------------------------------------------------------------------+
+//| Current previous candle body size for OrderSend comment           |
+//+------------------------------------------------------------------+
+double GetCurrentBigCandleSize()
+  {
+   if(Bars < 3)
+      return(0);
+
+   double open1  = iOpen(Symbol(), Period(), 1);
+   double close1 = iClose(Symbol(), Period(), 1);
+
+   return(MathAbs(close1 - open1));
+  }
+
+//+------------------------------------------------------------------+
+//| Build OrderSend comment with entry type and candle move values    |
+//| Example: BUY_BC125_M12115 / RECBUY_BC85_M12140                    |
+//+------------------------------------------------------------------+
+string BuildOrderComment(int type)
+  {
+   double bigSize  = GetCurrentBigCandleSize();
+   double m1m2Move = GetLast2M1RawMove();
+
+   bool isRecovery = (CountOrders(type) > 0);
+
+   string side = type == OP_BUY ? "BUY" : "SELL";
+
+   if(isRecovery)
+      return(StringFormat("REC%s_BC%.0f_M12%.0f", side, bigSize, m1m2Move));
+
+   return(StringFormat("%s_BC%.0f_M12%.0f", side, bigSize, m1m2Move));
+  }
+
+//+------------------------------------------------------------------+
 //| Entry permission by BIG candle filter                             |
 //+------------------------------------------------------------------+
 bool IsBigCandleAllowedForDirection(int direction)
@@ -208,12 +241,15 @@ bool IsBigCandleAllowedForDirection(int direction)
    if(bigDir == direction)
       return(true);
 
-   Print("Order blocked by Big Candle filter. Required direction=",
-         direction == 1 ? "BUY" : "SELL",
-         " BigCandleDirection=",
-         bigDir == 1 ? "BUY" : bigDir == -1 ? "SELL" : "NONE",
-         " MinSize=", DoubleToString(BigCandleMinSizeRawPrice, 2));
+   double bigSize = GetCurrentBigCandleSize();
 
+Print(
+   "Order blocked by Big Candle filter | ",
+   "Required=", (direction == 1 ? "BUY" : "SELL"),
+   " | BigDir=", (bigDir == 1 ? "BUY" : bigDir == -1 ? "SELL" : "NONE"),
+   " | CandleHeight=", DoubleToString(bigSize,0),
+   " | RequiredMin=", DoubleToString(BigCandleMinSizeRawPrice,0)
+);
    return(false);
   }
 
@@ -690,12 +726,16 @@ void OpenOrder(int type)
 
    price = NormalizeDouble(price, Digits);
 
+   string orderComment = BuildOrderComment(type);
+
    int ticket = OrderSend(Symbol(), type, Lots, price, Slippage, 0, 0,
-                          "SAR_FLIP_BIG_CANDLE_300", MagicNumber, 0,
+                          orderComment, MagicNumber, 0,
                           type == OP_BUY ? clrBlue : clrRed);
 
    if(ticket < 0)
-      Print("OrderSend failed. Error: ", GetLastError());
+      Print("OrderSend failed. Error: ", GetLastError(), " Comment=", orderComment);
+   else
+      Print("Order opened. Ticket=", ticket, " Comment=", orderComment);
   }
 
 //+------------------------------------------------------------------+
