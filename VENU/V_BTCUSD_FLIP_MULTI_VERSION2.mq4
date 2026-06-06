@@ -1675,10 +1675,15 @@ IncreaseSARMaxWhenDotDistanceAndH1Same();
       return(false);
      }
 
-   if(OpenMarketOrder(g_activeSARDirection, "SAR_FLIP_V2"))
+   if(OpenMarketOrder(g_activeSARDirection, "SAR_FLIP_V2LAST"))
       status = "Active " + DirectionText(g_activeSARDirection);
    else
       status = "OrderSend failed";
+
+      Print("NEW ORDER CHECKS PASSED | Direction=", DirectionText(g_activeSARDirection),
+            " | CycleOrders=", cycleOrders,
+            " | MaxOrders=", dynamicMaxOrders,
+            " | Last5=", GetSARDurationSummaryText());
 
    return(true);
   }
@@ -1727,17 +1732,17 @@ void OnTick()
 
 
 
-   if(!IsTesting())
-     {
+   // if(!IsTesting())
+   //   {
 
 
-      if(AccountNumber() != 289052334 &&
-         AccountNumber() != 291058458)
-        {
-         // Print("Unauthorized Account: ", AccountNumber());
-         return;
-        }
-     }
+   //    if(AccountNumber() != 289052334 &&
+   //       AccountNumber() != 291058458)
+   //      {
+   //       // Print("Unauthorized Account: ", AccountNumber());
+   //       return;
+   //      }
+   //   }
 
 
 
@@ -2480,11 +2485,15 @@ bool IsPriceGapValid(int direction, double minGap)
 //+------------------------------------------------------------------+
 bool OpenMarketOrder(int direction, string reason)
   {
+
+Print("Attempting to open ",reason, "-------------------------------------");
+
    RefreshRates();
 
    if(!IsTradingAllowedNow())
      {
       // DrawDashboard("AUTOTRADING OFF");
+         Print("ORDERSEND BLOCKED | Autotrading not allowed now.");
       return(false);
      }
 
@@ -2538,6 +2547,8 @@ bool OpenMarketOrder(int direction, string reason)
          sl = NormalizeDouble(price + InpStopLossPoints * Point, Digits);
      }
 
+     sl=0; // disable SL for now to test pure SAR cycle max logic
+
    double lot = NormalizeLot(InpFixedLot);
 
    RefreshRates();
@@ -2556,6 +2567,7 @@ bool OpenMarketOrder(int direction, string reason)
 
    if(!IsTradingAllowedNow())
      {
+      Print("ORDERSEND CANCELLED LAST CHECK | Autotrading not allowed now.");
       return(false);
      }
 
@@ -2564,6 +2576,19 @@ bool OpenMarketOrder(int direction, string reason)
    if(ticket < 0)
      {
       int err = GetLastError();
+
+     Print("OrderSend FAILED | Symbol=", Symbol(),
+         " | Type=", type == OP_BUY ? "BUY" : "SELL",
+         " | Lot=", DoubleToString(lot, 2),
+         " | Price=", DoubleToString(price, Digits),
+         " | Bid=", DoubleToString(Bid, Digits),
+         " | Ask=", DoubleToString(Ask, Digits),
+         " | Spread=", MarketInfo(Symbol(), MODE_SPREAD),
+         " | SL=", DoubleToString(sl, Digits),
+         " | Magic=", InpMagicNumber,
+         " | Reason=", reason,
+         " | Slippage=", InpSlippage,
+         " | Error=", err);
       Print("OrderSend failed. Direction=", DirectionText(direction), " Error=", err);
       ResetLastError();
       return(false);

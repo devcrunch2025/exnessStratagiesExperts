@@ -1,13 +1,8 @@
-//+------------------------------------------------------------------+
-//|                                                      ProjectName |
-//|                                      Copyright 2018, CompanyName |
-//|                                       http://www.companyname.net |
-//+------------------------------------------------------------------+
 #property strict
 
 double Lots = 0.01;
 double TakeProfitUSD = 1.0;
-double StopLossUSD   = 5.0;
+double StopLossUSD   = 3.0;
 
 double RecoveryGapRawPrice = 50.0;
 int MaxRecoveryOrders = 5;
@@ -24,7 +19,7 @@ int WeakStrongCircleCode = 108;
 int WeakStrongCircleWidth = 2;
 
 int TradingStartHour = 0;
-int TradingEndHour   = 12;
+int TradingEndHour   = 24;
 
 int    InpSARPeriod       = 2;
 double InpSARStepSize     = 20;
@@ -52,21 +47,18 @@ bool g_sellStopLossPaused = false;
 
 //+------------------------------------------------------------------+
 int OnInit()
-  {
+{
    g_currentSARDirection = GetCurrentSARDirection();
    return(INIT_SUCCEEDED);
-  }
+}
 
 //+------------------------------------------------------------------+
 void OnDeinit(const int reason)
-  {
+{
    DeleteObjectsByPrefix(OBJ_PREFIX);
-  }
-//+------------------------------------------------------------------+
-//|                                                                  |
-//+------------------------------------------------------------------+
+}
 int GetM30TrendDirection()
-  {
+{
 
 
 
@@ -98,13 +90,13 @@ int GetM30TrendDirection()
       return -1;  // SELL trend
 
    return 0;      // No clear trend
-  }
+}
 //+------------------------------------------------------------------+
 void OnTick()
-  {
+{
    int profitClosedDirection = CloseOrdersByProfitOrLossUSD();
 
-// StopLossUSD = BUY/SELL basket stop loss.
+   // StopLossUSD = BUY/SELL basket stop loss.
    ManageBasketStopLoss();
 
    DrawSARDots();
@@ -124,8 +116,8 @@ void OnTick()
    if(!IsTradingHour())
       return;
 
-   if(signal == 1)
-     {
+   if(signal == 1 )
+   {
       g_sellSARWeakPaused = false;
 
       // SAR changed to BUY, so SELL stop-loss pause is released.
@@ -137,10 +129,10 @@ void OnTick()
          OpenOrder(OP_BUY);
 
       return;
-     }
+   }
 
-   if(signal == -1)
-     {
+   if(signal == -1 )
+   {
       g_buySARWeakPaused = false;
 
       // SAR changed to SELL, so BUY stop-loss pause is released.
@@ -152,21 +144,21 @@ void OnTick()
          OpenOrder(OP_SELL);
 
       return;
-     }
+   }
 
    if(profitClosedDirection == 1 && g_currentSARDirection == 1)
-     {
+   {
       if(CountOrders(OP_BUY) == 0 && !g_buySARWeakPaused && !g_buyStopLossPaused)
          OpenOrder(OP_BUY);
-     }
+   }
 
    if(profitClosedDirection == -1 && g_currentSARDirection == -1)
-     {
+   {
       if(CountOrders(OP_SELL) == 0 && !g_sellSARWeakPaused && !g_sellStopLossPaused)
          OpenOrder(OP_SELL);
-     }
+   }
 
-// Continuous SAR order creation
+   // Continuous SAR order creation
    if(g_currentSARDirection == 1 && CountOrders(OP_BUY) == 0 && !g_buySARWeakPaused && !g_buyStopLossPaused)
       OpenOrder(OP_BUY);
 
@@ -174,82 +166,82 @@ void OnTick()
       OpenOrder(OP_SELL);
 
    ManageRecoveryOrders();
-  }
+}
 
 //+------------------------------------------------------------------+
 void CloseBySARWeaknessBeforeFlip()
-  {
+{
    if(!UseEarlyWeaknessClose)
       return;
 
    int sarDirection = GetCurrentSARDirection();
 
    if(sarDirection == 1)
-     {
+   {
       g_sellSARWeakPaused = false;
 
       if(IsBearishWeaknessAgainstBUY())
-        {
+      {
          if(!g_buySARWeakPaused)
             DrawWeakStrongCircle("BUY_WEAK", 1, WeakCircleColor);
 
          g_buySARWeakPaused = true;
 
          if(CountOrders(OP_BUY) > 0)
-           {
+         {
             double buyProfit = GetBasketProfit(OP_BUY);
 
             if(buyProfit >= EarlyCloseMinProfit)
-              {
+            {
                Print("BUY SAR weak. Closing BUY and pausing BUY re-entry.");
                CloseOrders(OP_BUY);
-              }
-           }
-        }
+            }
+         }
+      }
       else
-        {
+      {
          if(g_buySARWeakPaused)
             DrawWeakStrongCircle("BUY_STRONG", 1, StrongCircleColor);
 
          g_buySARWeakPaused = false;
-        }
-     }
+      }
+   }
 
    if(sarDirection == -1)
-     {
+   {
       g_buySARWeakPaused = false;
 
       if(IsBullishWeaknessAgainstSELL())
-        {
+      {
          if(!g_sellSARWeakPaused)
             DrawWeakStrongCircle("SELL_WEAK", -1, WeakCircleColor);
 
          g_sellSARWeakPaused = true;
 
          if(CountOrders(OP_SELL) > 0)
-           {
+         {
             double sellProfit = GetBasketProfit(OP_SELL);
 
             if(sellProfit >= EarlyCloseMinProfit)
-              {
+            {
                Print("SELL SAR weak. Closing SELL and pausing SELL re-entry.");
                CloseOrders(OP_SELL);
-              }
-           }
-        }
+            }
+         }
+      }
       else
-        {
+      {
          if(g_sellSARWeakPaused)
             DrawWeakStrongCircle("SELL_STRONG", -1, StrongCircleColor);
 
          g_sellSARWeakPaused = false;
-        }
-     }
-  }
+      }
+   }
+}
 
 //+------------------------------------------------------------------+
 void DrawWeakStrongCircle(string type, int direction, color clr)
-  {
+{
    if(!ShowWeakStrongCircles)
       return;
 
@@ -272,24 +264,24 @@ void DrawWeakStrongCircle(string type, int direction, color clr)
    ObjectSetInteger(0, name, OBJPROP_BACK, false);
    ObjectSetInteger(0, name, OBJPROP_SELECTABLE, false);
    ObjectSetInteger(0, name, OBJPROP_HIDDEN, true);
-  }
+}
 
 //+------------------------------------------------------------------+
 bool IsBearishWeaknessAgainstBUY()
-  {
+{
    int bearishCount = 0;
 
    double startOpen = iOpen(Symbol(), Period(), WeaknessCandles);
    double lastClose = iClose(Symbol(), Period(), 1);
 
    for(int i = 1; i <= WeaknessCandles; i++)
-     {
+   {
       double open  = iOpen(Symbol(), Period(), i);
       double close = iClose(Symbol(), Period(), i);
 
       if(close < open)
          bearishCount++;
-     }
+   }
 
    double rawMoveDown = startOpen - lastClose;
 
@@ -297,24 +289,24 @@ bool IsBearishWeaknessAgainstBUY()
       return true;
 
    return false;
-  }
+}
 
 //+------------------------------------------------------------------+
 bool IsBullishWeaknessAgainstSELL()
-  {
+{
    int bullishCount = 0;
 
    double startOpen = iOpen(Symbol(), Period(), WeaknessCandles);
    double lastClose = iClose(Symbol(), Period(), 1);
 
    for(int i = 1; i <= WeaknessCandles; i++)
-     {
+   {
       double open  = iOpen(Symbol(), Period(), i);
       double close = iClose(Symbol(), Period(), i);
 
       if(close > open)
          bullishCount++;
-     }
+   }
 
    double rawMoveUp = lastClose - startOpen;
 
@@ -322,21 +314,21 @@ bool IsBullishWeaknessAgainstSELL()
       return true;
 
    return false;
-  }
+}
 
 //+------------------------------------------------------------------+
 void ManageRecoveryOrders()
-  {
+{
    if(g_currentSARDirection == 1 && !g_buySARWeakPaused && !g_buyStopLossPaused)
       CheckRecovery(OP_BUY);
 
    if(g_currentSARDirection == -1 && !g_sellSARWeakPaused && !g_sellStopLossPaused)
       CheckRecovery(OP_SELL);
-  }
+}
 
 //+------------------------------------------------------------------+
 void CheckRecovery(int type)
-  {
+{
    int orderCount = CountOrders(type);
 
    if(orderCount <= 0)
@@ -358,47 +350,47 @@ void CheckRecovery(int type)
    RefreshRates();
 
    if(type == OP_BUY)
-     {
+   {
       if(Bid <= latestPrice - RecoveryGapRawPrice)
          OpenOrder(OP_BUY);
-     }
+   }
 
    if(type == OP_SELL)
-     {
+   {
       if(Ask >= latestPrice + RecoveryGapRawPrice)
          OpenOrder(OP_SELL);
-     }
-  }
+   }
+}
 
 //+------------------------------------------------------------------+
 double GetBasketProfit(int type)
-  {
+{
    double profit = 0;
 
    for(int i = OrdersTotal() - 1; i >= 0; i--)
-     {
+   {
       if(!OrderSelect(i, SELECT_BY_POS, MODE_TRADES))
          continue;
 
       if(OrderSymbol() == Symbol() &&
          OrderMagicNumber() == MagicNumber &&
          OrderType() == type)
-        {
+      {
          profit += OrderProfit() + OrderSwap() + OrderCommission();
-        }
-     }
+      }
+   }
 
    return profit;
-  }
+}
 
 //+------------------------------------------------------------------+
 double GetLatestOrderOpenPrice(int type)
-  {
+{
    datetime latestTime = 0;
    double latestPrice = 0;
 
    for(int i = OrdersTotal() - 1; i >= 0; i--)
-     {
+   {
       if(!OrderSelect(i, SELECT_BY_POS, MODE_TRADES))
          continue;
 
@@ -412,18 +404,18 @@ double GetLatestOrderOpenPrice(int type)
          continue;
 
       if(OrderOpenTime() > latestTime)
-        {
+      {
          latestTime = OrderOpenTime();
          latestPrice = OrderOpenPrice();
-        }
-     }
+      }
+   }
 
    return latestPrice;
-  }
+}
 
 //+------------------------------------------------------------------+
 int GetSARFlipSignal()
-  {
+{
    double step    = InpSARPeriod * InpSARStepSize / 10000.0;
    double maxstep = step * InpSARAcceleration;
 
@@ -437,11 +429,11 @@ int GetSARFlipSignal()
       return -1;
 
    return 0;
-  }
+}
 
 //+------------------------------------------------------------------+
 int GetCurrentSARDirection()
-  {
+{
    double step    = InpSARPeriod * InpSARStepSize / 10000.0;
    double maxstep = step * InpSARAcceleration;
 
@@ -454,14 +446,14 @@ int GetCurrentSARDirection()
       return -1;
 
    return 0;
-  }
+}
 
 //+------------------------------------------------------------------+
 void OpenOrder(int type)
-  {
+{
 
 // if( GetM30TrendDirection() != type)
-//       return;
+//       return;  
 
    RefreshRates();
 
@@ -475,15 +467,15 @@ void OpenOrder(int type)
 
    if(ticket < 0)
       Print("OrderSend failed. Error: ", GetLastError());
-  }
+}
 
 //+------------------------------------------------------------------+
 void CloseOrders(int type)
-  {
+{
    RefreshRates();
 
    for(int i = OrdersTotal() - 1; i >= 0; i--)
-     {
+   {
       if(!OrderSelect(i, SELECT_BY_POS, MODE_TRADES))
          continue;
 
@@ -502,20 +494,20 @@ void CloseOrders(int type)
 
       if(!closed)
          Print("OrderClose failed. Ticket: ", OrderTicket(), " Error: ", GetLastError());
-     }
-  }
+   }
+}
 
 //+------------------------------------------------------------------+
 int CloseOrdersByProfitOrLossUSD()
-  {
+{
    RefreshRates();
 
    int profitClosedDirection = 0;
 
-// TakeProfitUSD = individual order profit booking only.
-// StopLossUSD is NOT used here. StopLossUSD is handled by ManageBasketStopLoss().
+   // TakeProfitUSD = individual order profit booking only.
+   // StopLossUSD is NOT used here. StopLossUSD is handled by ManageBasketStopLoss().
    for(int i = OrdersTotal() - 1; i >= 0; i--)
-     {
+   {
       if(!OrderSelect(i, SELECT_BY_POS, MODE_TRADES))
          continue;
 
@@ -531,7 +523,7 @@ int CloseOrdersByProfitOrLossUSD()
       double profit = OrderProfit() + OrderSwap() + OrderCommission();
 
       if(profit >= TakeProfitUSD)
-        {
+      {
          int orderType = OrderType();
          double closePrice = orderType == OP_BUY ? Bid : Ask;
 
@@ -542,7 +534,7 @@ int CloseOrdersByProfitOrLossUSD()
                                   clrLime);
 
          if(closed)
-           {
+         {
             Print("Closed individual order by TakeProfitUSD. Ticket: ",
                   OrderTicket(),
                   " Profit: ",
@@ -553,86 +545,86 @@ int CloseOrdersByProfitOrLossUSD()
 
             if(orderType == OP_SELL)
                profitClosedDirection = -1;
-           }
+         }
          else
-           {
+         {
             Print("Individual TP close failed. Ticket: ",
                   OrderTicket(),
                   " Error: ",
                   GetLastError());
-           }
-        }
-     }
+         }
+      }
+   }
 
    return profitClosedDirection;
-  }
+}
 
 //+------------------------------------------------------------------+
 void ManageBasketStopLoss()
-  {
+{
    RefreshRates();
 
    double buyBasketProfit  = GetBasketProfit(OP_BUY);
    double sellBasketProfit = GetBasketProfit(OP_SELL);
 
    if(CountOrders(OP_BUY) > 0 && buyBasketProfit <= -StopLossUSD)
-     {
+   {
       Print("BUY Basket StopLossUSD hit. Basket P/L: ",
             DoubleToString(buyBasketProfit, 2),
             " Limit: -",
             DoubleToString(StopLossUSD, 2));
 
-      // g_buyStopLossPaused = true;
+      g_buyStopLossPaused = true;
       Print("BUY entries paused until SAR changes to SELL.");
 
       CloseOrders(OP_BUY);
-     }
+   }
 
    if(CountOrders(OP_SELL) > 0 && sellBasketProfit <= -StopLossUSD)
-     {
+   {
       Print("SELL Basket StopLossUSD hit. Basket P/L: ",
             DoubleToString(sellBasketProfit, 2),
             " Limit: -",
             DoubleToString(StopLossUSD, 2));
 
-      // g_sellStopLossPaused = true;
+      g_sellStopLossPaused = true;
       Print("SELL entries paused until SAR changes to BUY.");
 
       CloseOrders(OP_SELL);
-     }
-  }
+   }
+}
 
 //+------------------------------------------------------------------+
 int CountOrders(int type)
-  {
+{
    int count = 0;
 
    for(int i = OrdersTotal() - 1; i >= 0; i--)
-     {
+   {
       if(!OrderSelect(i, SELECT_BY_POS, MODE_TRADES))
          continue;
 
       if(OrderSymbol() == Symbol() &&
          OrderMagicNumber() == MagicNumber &&
          OrderType() == type)
-        {
+      {
          count++;
-        }
-     }
+      }
+   }
 
    return count;
-  }
+}
 
 //+------------------------------------------------------------------+
 bool IsTradingHour()
-  {
+{
    int h = TimeHour(TimeCurrent());
    return (h >= TradingStartHour && h < TradingEndHour);
-  }
+}
 
 //+------------------------------------------------------------------+
 void DrawSARDots()
-  {
+{
    if(!InpDrawSARDots)
       return;
 
@@ -642,7 +634,7 @@ void DrawSARDots()
    int lookback = MathMin(InpSARDotLookback, Bars - 1);
 
    for(int i = 0; i < lookback; i++)
-     {
+   {
       double sar = iSAR(Symbol(), Period(), step, maxstep, i);
 
       if(sar <= 0)
@@ -651,38 +643,37 @@ void DrawSARDots()
       string name = OBJ_PREFIX + "SAR_DOT_" + IntegerToString(i);
 
       if(ObjectFind(0, name) < 0)
-        {
+      {
          ObjectCreate(0, name, OBJ_ARROW, 0, Time[i], sar);
          ObjectSetInteger(0, name, OBJPROP_ARROWCODE, 159);
          ObjectSetInteger(0, name, OBJPROP_WIDTH, 1);
          ObjectSetInteger(0, name, OBJPROP_BACK, true);
          ObjectSetInteger(0, name, OBJPROP_SELECTABLE, false);
          ObjectSetInteger(0, name, OBJPROP_HIDDEN, true);
-        }
+      }
       else
-        {
+      {
          ObjectSetInteger(0, name, OBJPROP_TIME, Time[i]);
          ObjectSetDouble(0, name, OBJPROP_PRICE, sar);
-        }
+      }
 
       if(sar < Close[i])
          ObjectSetInteger(0, name, OBJPROP_COLOR, InpSARDotBuyColor);
       else
          ObjectSetInteger(0, name, OBJPROP_COLOR, InpSARDotSellColor);
-     }
+   }
 
    ChartRedraw(0);
-  }
+}
 
 //+------------------------------------------------------------------+
 void DeleteObjectsByPrefix(string prefix)
-  {
+{
    for(int i = ObjectsTotal() - 1; i >= 0; i--)
-     {
+   {
       string name = ObjectName(i);
 
       if(StringFind(name, prefix) == 0)
          ObjectDelete(name);
-     }
-  }
-//+------------------------------------------------------------------+
+   }
+}
