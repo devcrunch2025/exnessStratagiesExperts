@@ -164,7 +164,8 @@ int    InpSARDurationMediumMinutes   = 10;     // opposite duration 30-59 min =>
 int    InpSARMediumDurationMaxOrders = 1;
 
 int    InpSARNormalDurationMaxOrders = 1;     // opposite duration <30 min or no data => max 10
-
+//1-?100
+//2 -67
 int InpSARGoodMomentumExtraOrders = 1;
 bool InpResetMaxOrdersWhenSARWeak = true;
 
