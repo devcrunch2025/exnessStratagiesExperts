@@ -165,13 +165,13 @@ bool   InpUseSARDurationDynamicLimit = false;
 int    InpSARDurationScanBars        = 1500;   // historical bars to scan for SAR changes
 
 int    InpSARVeryLongDurationMinutes = 60;    // opposite duration >=120 min => max 0
-int    InpSARVeryLongDurationMaxOrders = 1;
+int    InpSARVeryLongDurationMaxOrders = 10;
 
 int    InpSARDurationLongMinutes     = 30;     // opposite duration 60-119 min => max 2
-int    InpSARLongDurationMaxOrders   = 1;
+int    InpSARLongDurationMaxOrders   = 10;
 
 int    InpSARDurationMediumMinutes   = 10;     // opposite duration 30-59 min => max 5
-int    InpSARMediumDurationMaxOrders = 1;
+int    InpSARMediumDurationMaxOrders = 10;
 
 int    InpSARNormalDurationMaxOrders = 10;     // opposite duration <30 min or no data => max 10
 //1-?100
