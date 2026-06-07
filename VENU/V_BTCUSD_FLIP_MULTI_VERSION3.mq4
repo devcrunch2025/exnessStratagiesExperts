@@ -17,7 +17,7 @@ string InpEAName                  = "DXB SAR 5Min Gap30 BasketSL EarlyExit EA";
 int    InpMagicNumber             = 989899;
 double InpFixedLot                = 0.01;
 int    InpMaxOrders               = 3;     // maximum normal SAR orders per SAR signal cycle
-#define DXB_HARD_MAX_OPEN_ORDERS 3  // absolute safety cap for normal SAR orders per cycle
+#define DXB_HARD_MAX_OPEN_ORDERS 6  // absolute safety cap for normal SAR orders per cycle
 
 double InpBasketProfitUSD         = 2.00;
 double InpBasketProfitUSD_12_17 = 1.00; // profit target during 12,13,14,15,16,17 hours
@@ -252,14 +252,14 @@ bool   InpStopRecoveryOnStrongOppMove   = true;
 double InpStrongOppMoveBlockRecoveryGap = 200.0;
 
 // Absolute cap for all EA market orders combined: normal + recovery.
-int    InpMaxTotalOpenOrders            = 3;
+int    InpMaxTotalOpenOrders            = 0;
 
 //================ DELAYED SAR CHANGE CLOSE =========================
 // Reset counter whenever a NEW normal SAR order is created.
 // Then count SAR signal changes from that order.
 // Example: value 2 = do not close on first SAR flip after order; close on second flip.
 bool   InpUseDelayedSARChangeClose          = true;
-int    InpCloseOrdersOnNthSARChangeAfterOrder = 3;
+int    InpCloseOrdersOnNthSARChangeAfterOrder = 10;
 bool   InpResetSARCloseCounterOnNewOrder    = true;
 
 
