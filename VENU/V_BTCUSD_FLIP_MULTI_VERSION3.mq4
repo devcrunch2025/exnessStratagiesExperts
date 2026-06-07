@@ -50,7 +50,7 @@ double InpLossStopPercent          = 50.0;   // stop trading when equity reaches
 double InpProtectionBufferUSD      = 0.00;   // optional buffer below loss-stop level
 bool   InpCloseOrdersOnEquityHit    = true;
 
-bool   InpUseDailyProfitLock        = false;
+bool   InpUseDailyProfitLock        = true;
 bool   InpCloseOrdersOnProfitLock   = true;
 bool   InpPauseAfterProfitTarget    = true;
 
@@ -259,7 +259,7 @@ int    InpMaxTotalOpenOrders            = 3;
 // Then count SAR signal changes from that order.
 // Example: value 2 = do not close on first SAR flip after order; close on second flip.
 bool   InpUseDelayedSARChangeClose          = true;
-int    InpCloseOrdersOnNthSARChangeAfterOrder = 3;
+int    InpCloseOrdersOnNthSARChangeAfterOrder = 4;
 bool   InpResetSARCloseCounterOnNewOrder    = true;
 
 
