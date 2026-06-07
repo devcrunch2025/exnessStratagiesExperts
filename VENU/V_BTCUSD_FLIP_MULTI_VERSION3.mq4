@@ -30,7 +30,7 @@ bool   InpRecoveryAfterSLReverse  = false;   // true: after basket SL, open oppo
 // Recovery gap orders: when existing BUY/SELL basket is in loss and price moves against it
 // by this raw price gap, open one more same-direction recovery order.
 bool   InpUseRecoveryGapOrders    = true;
-double InpRecoveryGapRawPrice     = 200.0;   // raw price difference, not points
+double InpRecoveryGapRawPrice     = 100.0;   // raw price difference, not points
 double InpRecoveryGapLot          = 0.01;
 int    InpMaxRecoveryGapOrdersPerSide = 3;  // recovery ladder: 50, 100, 150 from first order price
 int    InpStopLossPoints          = 0;       // 0 = no hard SL
@@ -97,8 +97,6 @@ double InpSARPeriod               = 1.2;
 int    InpSARStepSize             = 25;
 int    InpSARAcceleration         = 9;
 
-bool isCloseOrderOnSARChangeEnabled=false;
-
 // SAR flip confirmation filters
 // 1) EMA9/EMA21 trend filter
 // 2) Wait for one fully closed candle after SAR flip
@@ -110,8 +108,8 @@ bool   InpUseSARPriceDiffConfirm  = true;
 // double InpSARConfirmPriceDiff     = 100.0;   // raw price diff for BTCUSD, not points
 // int    InpSARConfirmMinutes       = 15;     // wait this many minutes after SAR signal change before new order
 
-double InpSARConfirmPriceDiff     = 30.0;   // raw price diff for BTCUSD, not points
-int    InpSARConfirmMinutes       = 1;     // wait this many minutes after SAR signal change before new order
+double InpSARConfirmPriceDiff     = 50.0;   // raw price diff for BTCUSD, not points
+int    InpSARConfirmMinutes       = 15;     // wait this many minutes after SAR signal change before new order
 // TEST MODE: Only SAR flip confirmation is active: wait 5 minutes, then require raw price gap 30 in SAR direction.
 // BUY requires Close[1] - flipPrice >= 30. SELL requires flipPrice - Close[1] >= 30.
 
@@ -1880,9 +1878,6 @@ void ProcessRecoveryGapOrders()
 //+------------------------------------------------------------------+
 void ProcessSARFlipStateAndClose()
   {
-
-    if(!isCloseOrderOnSARChangeEnabled)
-    return ;
    int sarFlip = GetSARFlipSignal();
 
    if(sarFlip == 0 || sarFlip == g_activeSARDirection)
