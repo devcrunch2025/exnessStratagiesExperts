@@ -45,7 +45,7 @@ bool   InpUseEquityProtection       = true;
 bool   InpAutoUseCurrentBalanceBase = true;   // true = take current account balance on EA load/new day
 double InpManualBaseCapitalUSD      = 20.0;   // used only when Auto=false
 
-double InpProfitTargetPercent      = 20.0;   // stop trading when equity reaches Base + 100%
+double InpProfitTargetPercent      = 2000.0;   // stop trading when equity reaches Base + 100%
 double InpLossStopPercent          = 50.0;   // stop trading when equity reaches Base - 50%
 double InpProtectionBufferUSD      = 0.00;   // optional buffer below loss-stop level
 bool   InpCloseOrdersOnEquityHit    = true;
@@ -105,7 +105,11 @@ bool   InpUseSARFlipConfirmations = true;
 bool   InpUseSAREMAConfirm        = true;
 bool   InpUseSARClosedCandleConfirm = true;
 bool   InpUseSARPriceDiffConfirm  = true;
-double InpSARConfirmPriceDiff     = 50.0;   // raw price diff for BTCUSD, not points
+// double InpSARConfirmPriceDiff     = 100.0;   // raw price diff for BTCUSD, not points
+// int    InpSARConfirmMinutes       = 15;     // wait this many minutes after SAR signal change before new order
+
+double InpSARConfirmPriceDiff     = 200.0;   // raw price diff for BTCUSD, not points
+int    InpSARConfirmMinutes       = 30;     // wait this many minutes after SAR signal change before new order
 
 // Early trend settings
 bool   InpUseEarlyTrend           = true;
@@ -147,11 +151,11 @@ color  InpSARDotSellColor        = clrOrangeRed;
 // Default every SAR signal = 10 orders.
 // Restriction applies only when the previous opposite SAR color lasted long.
 // Example: long RED trend restricts next GREEN orders; long GREEN trend restricts next RED orders.
-bool   InpUseSARDurationDynamicLimit = true;
+bool   InpUseSARDurationDynamicLimit = false;
 int    InpSARDurationScanBars        = 1500;   // historical bars to scan for SAR changes
 
 int    InpSARVeryLongDurationMinutes = 60;    // opposite duration >=120 min => max 0
-int    InpSARVeryLongDurationMaxOrders = 0;
+int    InpSARVeryLongDurationMaxOrders = 1;
 
 int    InpSARDurationLongMinutes     = 30;     // opposite duration 60-119 min => max 2
 int    InpSARLongDurationMaxOrders   = 1;
@@ -159,14 +163,14 @@ int    InpSARLongDurationMaxOrders   = 1;
 int    InpSARDurationMediumMinutes   = 10;     // opposite duration 30-59 min => max 5
 int    InpSARMediumDurationMaxOrders = 1;
 
-int    InpSARNormalDurationMaxOrders = 6;     // opposite duration <30 min or no data => max 10
+int    InpSARNormalDurationMaxOrders = 1;     // opposite duration <30 min or no data => max 10
 
-int InpSARGoodMomentumExtraOrders = 2;
+int InpSARGoodMomentumExtraOrders = 1;
 bool InpResetMaxOrdersWhenSARWeak = true;
 
 bool InpIncreaseSARMaxAfterActiveMinutes = true;
 int  InpSARActiveMinutesForExtraOrders = 30;
-int  InpSARActiveExtraOrders = 6;
+int  InpSARActiveExtraOrders = 2;
 
 // SAR good-momentum upgrade
 // If current SAR trend is strong, increase current SAR signal-cycle max back to normal max.
@@ -254,6 +258,25 @@ double InpSARDistanceExtraOrderMin         = 300.0;
 int    InpSARDistanceExtraOrders           = 1;
 bool TryOpenEarlySameSARExtraOrder()
 {
+   // IMPORTANT: extra orders must not bypass SAR flip confirmation.
+   // This prevents SELL/BUY orders from opening immediately after SAR change.
+   if(g_pendingSARConfirmDirection != 0)
+     {
+      if(!IsSARFlipConfirmationReady())
+        {
+         Print("EARLY SAME SAR EXTRA BLOCKED | Waiting SAR confirmation | Direction=",
+               DirectionText(g_pendingSARConfirmDirection),
+               " | Duration=", SARConfirmDurationStatusText(),
+               " | PriceDiff=", DoubleToString(GetSARConfirmCurrentPriceDiff(), Digits),
+               " | RequiredDiff=", DoubleToString(InpSARConfirmPriceDiff, Digits));
+         return(false);
+        }
+
+      Print("EARLY SAME SAR EXTRA | SAR confirmation completed | Direction=",
+            DirectionText(g_pendingSARConfirmDirection));
+      ResetSARFlipConfirmation();
+     }
+
    if(!InpOpenExtraOrderOnEarlySameSAR)
       return false;
 
@@ -290,6 +313,9 @@ bool TryOpenEarlySameSARExtraOrder()
 }
 bool TryOpenEarlySameSARExtraOrder111111()
 {
+   if(g_pendingSARConfirmDirection != 0 && !IsSARFlipConfirmationReady())
+      return false;
+
    if(!InpOpenExtraOrderOnEarlySameSAR)
       return false;
 
@@ -1779,7 +1805,8 @@ bool ProcessNewOrderCreationLast(bool isNewBar, string &status)
      {
       if(!IsSARFlipConfirmationReady())
         {
-         status = "WAIT SAR EMA CONFIRM " + DirectionText(g_pendingSARConfirmDirection);
+         status = "WAIT SAR CONFIRM " + DirectionText(g_pendingSARConfirmDirection) +
+                  " " + SARConfirmDurationStatusText();
          return(false);
         }
 
@@ -2002,6 +2029,62 @@ void ResetSARFlipConfirmation()
    g_pendingSARConfirmBarTime   = 0;
   }
 
+
+//+------------------------------------------------------------------+
+int GetSARConfirmElapsedSeconds()
+  {
+   if(g_pendingSARConfirmTime <= 0)
+      return(0);
+
+   int elapsed = (int)(TimeCurrent() - g_pendingSARConfirmTime);
+   if(elapsed < 0)
+      elapsed = 0;
+
+   return(elapsed);
+  }
+
+//+------------------------------------------------------------------+
+int GetSARConfirmRemainingSeconds()
+  {
+   int requiredSeconds = MathMax(0, InpSARConfirmMinutes) * 60;
+   int remaining = requiredSeconds - GetSARConfirmElapsedSeconds();
+
+   if(remaining < 0)
+      remaining = 0;
+
+   return(remaining);
+  }
+
+//+------------------------------------------------------------------+
+double GetSARConfirmCurrentPriceDiff()
+  {
+   if(g_pendingSARConfirmDirection == 0 || g_pendingSARConfirmPrice <= 0.0)
+      return(0.0);
+
+   if(g_pendingSARConfirmDirection == 1)
+      return(Close[1] - g_pendingSARConfirmPrice);
+
+   if(g_pendingSARConfirmDirection == -1)
+      return(g_pendingSARConfirmPrice - Close[1]);
+
+   return(0.0);
+  }
+
+//+------------------------------------------------------------------+
+string SARConfirmDurationStatusText()
+  {
+   if(g_pendingSARConfirmDirection == 0 || g_pendingSARConfirmTime <= 0)
+      return("NONE");
+
+   int elapsedSec = GetSARConfirmElapsedSeconds();
+   int remainSec  = GetSARConfirmRemainingSeconds();
+
+   return(IntegerToString(elapsedSec / 60) + "m / " +
+          IntegerToString(MathMax(0, InpSARConfirmMinutes)) + "m" +
+          " | Left " + IntegerToString(remainSec / 60) + "m " +
+          IntegerToString(remainSec % 60) + "s");
+  }
+
 //+------------------------------------------------------------------+
 void StartSARFlipConfirmation(int direction)
   {
@@ -2033,6 +2116,25 @@ bool IsSARFlipConfirmationReady()
 
    if(Bars < 5)//immidiate change protection
       return(false);
+
+// 0) SAR signal change time confirmation.
+//    New orders must wait InpSARConfirmMinutes after SAR flip.
+   if(InpSARConfirmMinutes > 0)
+     {
+      int elapsedSeconds  = GetSARConfirmElapsedSeconds();
+      int requiredSeconds = InpSARConfirmMinutes * 60;
+
+      if(elapsedSeconds < requiredSeconds)
+        {
+         Print("SAR CONFIRM WAIT | Time elapsed ",
+               IntegerToString(elapsedSeconds / 60), "m ",
+               IntegerToString(elapsedSeconds % 60), "s < required ",
+               IntegerToString(InpSARConfirmMinutes), "m | Remaining=",
+               IntegerToString((requiredSeconds - elapsedSeconds) / 60), "m ",
+               IntegerToString((requiredSeconds - elapsedSeconds) % 60), "s");
+         return(false);
+        }
+     }
 
 // 1) EMA9/EMA21 trend filter on the last fully closed candle.
    if(InpUseSAREMAConfirm)
@@ -3208,6 +3310,14 @@ void DrawDashboard(string status)
    DashRow("Pending SAR",
            DirectionText(g_pendingSARConfirmDirection),
            g_pendingSARConfirmDirection == 0 ? clrLime : clrOrange);
+
+   DashRow("SAR Change Min",
+           SARConfirmDurationStatusText(),
+           g_pendingSARConfirmDirection == 0 ? clrLime : clrOrange);
+
+   DashRow("SAR Price Diff",
+           DoubleToString(GetSARConfirmCurrentPriceDiff(), 2) + " / " + DoubleToString(InpSARConfirmPriceDiff, 2),
+           GetSARConfirmCurrentPriceDiff() >= InpSARConfirmPriceDiff ? clrLime : clrOrange);
 
    DashRow("SAR Confirm Diff",
            DoubleToString(InpSARConfirmPriceDiff, 2),
