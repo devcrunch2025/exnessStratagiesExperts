@@ -22,7 +22,7 @@ int    InpMaxOrders               = 3;     // maximum normal SAR orders per SAR 
 double InpBasketProfitUSD         = 2.00;
 double InpBasketProfitUSD_12_17 = 1.00; // profit target during 12,13,14,15,16,17 hours
 
-double InpBasketStopLossUSD       = 5.00;    // BASKET stop loss in USD, 0 = disabled. This closes all orders in active SAR direction.
+double InpBasketStopLossUSD       = 50.00;    // BASKET stop loss in USD, 0 = disabled. This closes all orders in active SAR direction.
 bool   InpOpenRecoveryAfterClose  = false;   // open recovery order after SL/SAR flip/early reverse close
 double InpRecoveryProfitUSD       = 2.00;   // close recovery order when this USD profit is reached
 bool   InpRecoveryAfterSLReverse  = false;   // true: after basket SL, open opposite direction
