@@ -22,7 +22,7 @@ int    InpMaxOrders               = 3;     // maximum normal SAR orders per SAR 
 double InpBasketProfitUSD         = 2.00;
 double InpBasketProfitUSD_12_17 = 1.00; // profit target during 12,13,14,15,16,17 hours
 
-double InpBasketStopLossUSD       = 50.00;    // BASKET stop loss in USD, 0 = disabled. This closes all orders in active SAR direction.
+double InpBasketStopLossUSD       = 10.00;    // BASKET stop loss in USD, 0 = disabled. This closes all orders in active SAR direction.
 bool   InpOpenRecoveryAfterClose  = false;   // open recovery order after SL/SAR flip/early reverse close
 double InpRecoveryProfitUSD       = 2.00;   // close recovery order when this USD profit is reached
 bool   InpRecoveryAfterSLReverse  = false;   // true: after basket SL, open opposite direction
@@ -165,15 +165,15 @@ bool   InpUseSARDurationDynamicLimit = false;
 int    InpSARDurationScanBars        = 1500;   // historical bars to scan for SAR changes
 
 int    InpSARVeryLongDurationMinutes = 60;    // opposite duration >=120 min => max 0
-int    InpSARVeryLongDurationMaxOrders = 3;
+int    InpSARVeryLongDurationMaxOrders = 1;
 
 int    InpSARDurationLongMinutes     = 30;     // opposite duration 60-119 min => max 2
-int    InpSARLongDurationMaxOrders   = 3;
+int    InpSARLongDurationMaxOrders   = 1;
 
 int    InpSARDurationMediumMinutes   = 10;     // opposite duration 30-59 min => max 5
-int    InpSARMediumDurationMaxOrders = 3;
+int    InpSARMediumDurationMaxOrders = 1;
 
-int    InpSARNormalDurationMaxOrders = 10;     // opposite duration <30 min or no data => max 10
+int    InpSARNormalDurationMaxOrders = 3;     // opposite duration <30 min or no data => max 10
 //1-?100
 //2 -67
 int InpSARGoodMomentumExtraOrders = 1;
@@ -181,7 +181,7 @@ bool InpResetMaxOrdersWhenSARWeak = true;
 
 bool InpIncreaseSARMaxAfterActiveMinutes = true;
 int  InpSARActiveMinutesForExtraOrders = 30;
-int  InpSARActiveExtraOrders = 10;
+int  InpSARActiveExtraOrders = 3;
 
 // SAR good-momentum upgrade
 // If current SAR trend is strong, increase current SAR signal-cycle max back to normal max.
@@ -254,6 +254,14 @@ double InpStrongOppMoveBlockRecoveryGap = 200.0;
 // Absolute cap for all EA market orders combined: normal + recovery.
 int    InpMaxTotalOpenOrders            = 3;
 
+//================ DELAYED SAR CHANGE CLOSE =========================
+// Reset counter whenever a NEW normal SAR order is created.
+// Then count SAR signal changes from that order.
+// Example: value 2 = do not close on first SAR flip after order; close on second flip.
+bool   InpUseDelayedSARChangeClose          = true;
+int    InpCloseOrdersOnNthSARChangeAfterOrder = 3;
+bool   InpResetSARCloseCounterOnNewOrder    = true;
+
 
 //======================== GLOBALS ===================================
 int      g_activeSARDirection   = 0;       // 1 BUY, -1 SELL
@@ -270,6 +278,12 @@ datetime g_lastFlatDotTime      = 0;
 string   OBJ_PREFIX             = "DXB_SAR_CYCLE_";
 int      dotColor               = 0;       // 1 SAR below price, -1 SAR above price
 bool     g_flatMode             = false;   // true when price is compressed/sideways
+
+// Delayed SAR close state: this counter is reset only when a NEW normal SAR order is created.
+int      g_sarChangesAfterLastNormalOrder = 0;
+int      g_sarCloseTrackedDirection       = 0;
+datetime g_sarCloseTrackedOrderTime       = 0;
+string   g_sarDelayedCloseStatus          = "WAIT ORDER";
 
 // SAR flip pending confirmation state
 int      g_pendingSARConfirmDirection = 0;  // 1 BUY, -1 SELL, 0 none
@@ -652,6 +666,10 @@ void ResetTradingCycleState()
    g_sarCycleStartTime   = 0;
    g_activeSARSignalChangePrice = 0.0;
    g_activeSARSignalChangeTime  = 0;
+   g_sarChangesAfterLastNormalOrder = 0;
+   g_sarCloseTrackedDirection       = 0;
+   g_sarCloseTrackedOrderTime       = 0;
+   g_sarDelayedCloseStatus          = "WAIT ORDER";
    ResetSARFlipConfirmation();
    ResetBigCandlePauseState();
 
@@ -1885,12 +1903,64 @@ void ProcessSARFlipStateAndClose()
 
    int oldDirection = g_activeSARDirection;
 
-// 1) Close old SAR direction orders first.
-// Example: old BUY -> SAR changed SELL -> close BUY immediately.
-   if(oldDirection != 0)
-      CloseOrdersByDirection(oldDirection, "SAR signal changed");
+// Always update SAR direction immediately so new orders follow current SAR.
+// But do NOT close orders on the first signal change after a new order.
+// Close only on the configured Nth SAR change counted from the latest normal order.
+   if(InpUseDelayedSARChangeClose && g_sarCloseTrackedDirection != 0)
+     {
+      g_sarChangesAfterLastNormalOrder++;
 
-// 2) Update SAR direction.
+      int requiredChanges = MathMax(1, InpCloseOrdersOnNthSARChangeAfterOrder);
+
+      Print("SAR CHANGE COUNT FROM LAST ORDER | Old=", DirectionText(oldDirection),
+            " | New=", DirectionText(sarFlip),
+            " | TrackedOrderDirection=", DirectionText(g_sarCloseTrackedDirection),
+            " | Count=", g_sarChangesAfterLastNormalOrder,
+            "/", requiredChanges);
+
+      if(g_sarChangesAfterLastNormalOrder >= requiredChanges)
+        {
+         if(CountOrdersByDirection(g_sarCloseTrackedDirection) > 0)
+           {
+            CloseOrdersByDirection(g_sarCloseTrackedDirection,
+                                   "Delayed SAR close on change #" + IntegerToString(g_sarChangesAfterLastNormalOrder));
+
+            Print("DELAYED SAR CLOSE DONE | ClosedDirection=", DirectionText(g_sarCloseTrackedDirection),
+                  " | ChangeCount=", g_sarChangesAfterLastNormalOrder,
+                  " | Required=", requiredChanges);
+           }
+         else
+           {
+            Print("DELAYED SAR CLOSE SKIPPED | No tracked direction orders open | Direction=",
+                  DirectionText(g_sarCloseTrackedDirection));
+           }
+
+         g_sarChangesAfterLastNormalOrder = 0;
+         g_sarCloseTrackedDirection       = 0;
+         g_sarCloseTrackedOrderTime       = 0;
+         g_sarDelayedCloseStatus          = "CLOSED/RESET";
+        }
+      else
+        {
+         g_sarDelayedCloseStatus = "SKIP " + IntegerToString(g_sarChangesAfterLastNormalOrder) +
+                                   "/" + IntegerToString(requiredChanges) +
+                                   " Track " + DirectionText(g_sarCloseTrackedDirection);
+
+         Print("SAR CLOSE SKIPPED | Waiting for change #", requiredChanges,
+               " from latest order | CurrentCount=", g_sarChangesAfterLastNormalOrder,
+               " | TrackedDirection=", DirectionText(g_sarCloseTrackedDirection));
+        }
+     }
+   else
+     {
+      // Old immediate-close behaviour only when delayed close is disabled.
+      if(!InpUseDelayedSARChangeClose && oldDirection != 0)
+         CloseOrdersByDirection(oldDirection, "SAR signal changed");
+
+      g_sarDelayedCloseStatus = InpUseDelayedSARChangeClose ? "WAIT ORDER" : "IMMEDIATE CLOSE";
+     }
+
+// Update SAR direction after processing close/skip logic.
    g_activeSARDirection  = sarFlip;
    g_lastSARDotDirection = sarFlip;
    g_sarPausedByEarly    = false;
@@ -1899,12 +1969,12 @@ void ProcessSARFlipStateAndClose()
 // Reset per-signal total order counter. This is where max order count restarts.
    ResetSARSignalOrderCycle(sarFlip, "SAR signal changed");
 
-// 3) Start confirmation only for next new order.
+// Start confirmation only for next new order.
    StartSARFlipConfirmation(sarFlip);
 
    Print("SAR CHANGED | Old=", DirectionText(oldDirection),
          " New=", DirectionText(sarFlip),
-         " | Old direction orders closed");
+         " | DelayedCloseStatus=", g_sarDelayedCloseStatus);
   }
 
 //+------------------------------------------------------------------+
@@ -2128,6 +2198,78 @@ bool IsEarlySARWeakExitSignal(int direction, double basketProfit, string &reason
    return(false);
   }
 
+
+//+------------------------------------------------------------------+
+bool ProcessBasketCloseByDirection(int direction, string &status)
+  {
+   if(direction == 0)
+      return(false);
+
+   if(CountOrdersByDirection(direction) <= 0)
+      return(false);
+
+   double profit = GetBasketProfit(direction);
+   double target = GetBasketProfitTargetUSD();
+
+   if(InpBasketStopLossUSD > 0.0 && profit <= -MathAbs(InpBasketStopLossUSD))
+     {
+      CloseOrdersByDirection(direction,
+                             "Basket stop loss $" + DoubleToString(profit, 2));
+
+      if(direction == g_sarCloseTrackedDirection)
+        {
+         g_sarChangesAfterLastNormalOrder = 0;
+         g_sarCloseTrackedDirection       = 0;
+         g_sarCloseTrackedOrderTime       = 0;
+         g_sarDelayedCloseStatus          = "Basket SL reset";
+        }
+
+      Print("BASKET STOP LOSS HIT | Direction=", DirectionText(direction),
+            " | Loss=$", DoubleToString(profit, 2),
+            " | Limit=$", DoubleToString(InpBasketStopLossUSD, 2));
+
+      status = "Basket SL " + DirectionText(direction);
+      return(true);
+     }
+
+   if(profit >= target)
+     {
+      CloseOrdersByDirection(direction,
+                             "Basket profit $" + DoubleToString(profit, 2));
+
+      if(direction == g_sarCloseTrackedDirection)
+        {
+         g_sarChangesAfterLastNormalOrder = 0;
+         g_sarCloseTrackedDirection       = 0;
+         g_sarCloseTrackedOrderTime       = 0;
+         g_sarDelayedCloseStatus          = "Basket TP reset";
+        }
+
+      Print("BASKET PROFIT HIT | Direction=", DirectionText(direction),
+            " | Profit=$", DoubleToString(profit, 2),
+            " | Target=$", DoubleToString(target, 2));
+
+      status = "Basket TP " + DirectionText(direction);
+      return(true);
+     }
+
+   return(false);
+  }
+
+//+------------------------------------------------------------------+
+bool ProcessAllSideBasketClose(string &status)
+  {
+   // Important for delayed SAR close: old direction orders may remain open
+   // after the first SAR flip, so BUY and SELL baskets must be checked independently.
+   if(ProcessBasketCloseByDirection(1, status))
+      return(true);
+
+   if(ProcessBasketCloseByDirection(-1, status))
+      return(true);
+
+   return(false);
+  }
+
 //+------------------------------------------------------------------+
 bool ProcessCloseOrdersFirst(string &status)
   {
@@ -2136,6 +2278,11 @@ bool ProcessCloseOrdersFirst(string &status)
       status = "Waiting for first SAR";
       return(false);
      }
+
+// PRIORITY 0: BUY/SELL basket TP/SL must work independently.
+// This is required because delayed SAR close may leave the previous direction basket open.
+   if(ProcessAllSideBasketClose(status))
+      return(true);
 
 // PRIORITY 1: Early trend reverse close.
 // This runs before SAR confirmation, flat mode, basket TP/SL, order count, cooldown, or new-order checks.
@@ -3786,6 +3933,21 @@ Print("Attempting to open ",reason, "-------------------------------------");
 // Register only normal SAR cycle orders. Recovery orders use OpenRecoveryOrder() and are independent.
    RegisterSARCycleOrderCreated(direction);
 
+// Reset delayed SAR close counter from this newly created normal order.
+// This fixes: close on 2nd/4th SAR change FROM THE CREATED ORDER, not global SAR changes.
+   if(InpUseDelayedSARChangeClose && InpResetSARCloseCounterOnNewOrder)
+     {
+      g_sarChangesAfterLastNormalOrder = 0;
+      g_sarCloseTrackedDirection       = direction;
+      g_sarCloseTrackedOrderTime       = TimeCurrent();
+      g_sarDelayedCloseStatus          = "TRACK " + DirectionText(direction) + " 0/" +
+                                         IntegerToString(MathMax(1, InpCloseOrdersOnNthSARChangeAfterOrder));
+
+      Print("DELAYED SAR CLOSE COUNTER RESET BY NEW ORDER | Direction=", DirectionText(direction),
+            " | Ticket=", ticket,
+            " | CloseOnChange=", MathMax(1, InpCloseOrdersOnNthSARChangeAfterOrder));
+     }
+
    Print("Opened ", DirectionText(direction), " ticket=", ticket,
          " lot=", DoubleToString(lot, 2),
          " reason=", reason,
@@ -4170,6 +4332,15 @@ void DrawDashboard(string status)
    DashRow("SAR Direction",
            DirectionText(g_activeSARDirection),
            g_activeSARDirection==1 ? clrLime : clrRed);
+
+   DashRow("SAR Close Delay",
+           g_sarDelayedCloseStatus + " | Count " + IntegerToString(g_sarChangesAfterLastNormalOrder) +
+           "/" + IntegerToString(MathMax(1, InpCloseOrdersOnNthSARChangeAfterOrder)),
+           g_sarCloseTrackedDirection == 0 ? clrWhite : clrYellow);
+
+   DashRow("Tracked Order Dir",
+           DirectionText(g_sarCloseTrackedDirection),
+           g_sarCloseTrackedDirection == 1 ? clrLime : (g_sarCloseTrackedDirection == -1 ? clrRed : clrWhite));
 
    DashRow("EMA Trend",
            DirectionText(g_pendingSARConfirmDirection),
