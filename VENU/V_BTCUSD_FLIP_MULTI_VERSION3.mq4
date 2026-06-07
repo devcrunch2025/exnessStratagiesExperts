@@ -173,7 +173,7 @@ int    InpSARLongDurationMaxOrders   = 1;
 int    InpSARDurationMediumMinutes   = 10;     // opposite duration 30-59 min => max 5
 int    InpSARMediumDurationMaxOrders = 1;
 
-int    InpSARNormalDurationMaxOrders = 3;     // opposite duration <30 min or no data => max 10
+int    InpSARNormalDurationMaxOrders = 10;     // opposite duration <30 min or no data => max 10
 //1-?100
 //2 -67
 int InpSARGoodMomentumExtraOrders = 1;
@@ -181,7 +181,7 @@ bool InpResetMaxOrdersWhenSARWeak = true;
 
 bool InpIncreaseSARMaxAfterActiveMinutes = true;
 int  InpSARActiveMinutesForExtraOrders = 30;
-int  InpSARActiveExtraOrders = 3;
+int  InpSARActiveExtraOrders = 1;
 
 // SAR good-momentum upgrade
 // If current SAR trend is strong, increase current SAR signal-cycle max back to normal max.
@@ -259,7 +259,7 @@ int    InpMaxTotalOpenOrders            = 3;
 // Then count SAR signal changes from that order.
 // Example: value 2 = do not close on first SAR flip after order; close on second flip.
 bool   InpUseDelayedSARChangeClose          = true;
-int    InpCloseOrdersOnNthSARChangeAfterOrder = 4;
+int    InpCloseOrdersOnNthSARChangeAfterOrder = 3;
 bool   InpResetSARCloseCounterOnNewOrder    = true;
 
 
