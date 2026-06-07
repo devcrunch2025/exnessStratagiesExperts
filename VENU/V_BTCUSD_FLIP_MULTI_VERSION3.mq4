@@ -97,7 +97,7 @@ double InpSARPeriod               = 1.2;
 int    InpSARStepSize             = 25;
 int    InpSARAcceleration         = 9;
 
-bool isCloseOrderOnSARChangeEnabled=true;
+bool isCloseOrderOnSARChangeEnabled=false;
 
 // SAR flip confirmation filters
 // 1) EMA9/EMA21 trend filter
