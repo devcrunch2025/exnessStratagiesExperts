@@ -10,29 +10,29 @@
 #ifndef OP_BALANCE
 #define OP_BALANCE 6
 #endif
-#property version   "1.06"
+#property version   "1.09"
 
 //======================== INPUTS ====================================
-string InpEAName                  = "DXB SAR Early Trend Cycle EA";
+string InpEAName                  = "DXB SAR 5Min Gap30 BasketSL EarlyExit EA";
 int    InpMagicNumber             = 989899;
 double InpFixedLot                = 0.01;
-int    InpMaxOrders               = 10;    // display only; hard max/dynamic default is 10
-#define DXB_HARD_MAX_OPEN_ORDERS 1 // default safety cap; dynamic SAR opposite-duration rule can reduce to 0/2/5/10
+int    InpMaxOrders               = 3;     // maximum normal SAR orders per SAR signal cycle
+#define DXB_HARD_MAX_OPEN_ORDERS 3  // absolute safety cap for normal SAR orders per cycle
 
-double InpBasketProfitUSD         = 1.00;
+double InpBasketProfitUSD         = 2.00;
 double InpBasketProfitUSD_12_17 = 1.00; // profit target during 12,13,14,15,16,17 hours
 
-double InpBasketStopLossUSD       = 4.00;   // basket stop loss in USD, 0 = disabled
+double InpBasketStopLossUSD       = 5.00;    // BASKET stop loss in USD, 0 = disabled. This closes all orders in active SAR direction.
 bool   InpOpenRecoveryAfterClose  = false;   // open recovery order after SL/SAR flip/early reverse close
-double InpRecoveryProfitUSD       = 1.00;   // close recovery order when this USD profit is reached
-bool   InpRecoveryAfterSLReverse  = true;   // true: after basket SL, open opposite direction
+double InpRecoveryProfitUSD       = 2.00;   // close recovery order when this USD profit is reached
+bool   InpRecoveryAfterSLReverse  = false;   // true: after basket SL, open opposite direction
 
 // Recovery gap orders: when existing BUY/SELL basket is in loss and price moves against it
 // by this raw price gap, open one more same-direction recovery order.
 bool   InpUseRecoveryGapOrders    = true;
-double InpRecoveryGapRawPrice     = 30.0;   // raw price difference, not points
+double InpRecoveryGapRawPrice     = 100.0;   // raw price difference, not points
 double InpRecoveryGapLot          = 0.01;
-int    InpMaxRecoveryGapOrdersPerSide = 10;
+int    InpMaxRecoveryGapOrdersPerSide = 3;  // recovery ladder: 50, 100, 150 from first order price
 int    InpStopLossPoints          = 0;       // 0 = no hard SL
 int    InpSlippage                = 30;
 int    InpMaxSpreadPoints         = 3000;
@@ -41,7 +41,7 @@ int    InpMaxSpreadPoints         = 3000;
 // Example: Balance=$100 -> Protected=$50, TradingCapital=$50, ProfitTarget=$25.
 // When target is reached, EA closes its orders and pauses until next day.
 // MT4 cannot literally move profit aside; this EA protects it by stopping new trades.
-bool   InpUseEquityProtection       = true;
+bool   InpUseEquityProtection       = false;
 bool   InpAutoUseCurrentBalanceBase = true;   // true = take current account balance on EA load/new day
 double InpManualBaseCapitalUSD      = 20.0;   // used only when Auto=false
 
@@ -50,7 +50,7 @@ double InpLossStopPercent          = 50.0;   // stop trading when equity reaches
 double InpProtectionBufferUSD      = 0.00;   // optional buffer below loss-stop level
 bool   InpCloseOrdersOnEquityHit    = true;
 
-bool   InpUseDailyProfitLock        = true;
+bool   InpUseDailyProfitLock        = false;
 bool   InpCloseOrdersOnProfitLock   = true;
 bool   InpPauseAfterProfitTarget    = true;
 
@@ -77,19 +77,19 @@ bool   InpNotifyOnEAStart             = true;    // notify when EA is loaded
 // Continuous order controls
 bool   InpOneOrderPerBar          = true;
 int    InpOrderCooldownSeconds    = 0;       // 0 = disabled
-double InpMinPriceGap             = 100.00;    // raw price gap, 0 = disabled
+double InpMinPriceGap             = 0.00;    // raw price gap, 0 = disabled
 
 // No-trading hours: block NEW normal SAR orders only. Close/profit/protection/recovery management still runs.
-bool   InpUseNoNewOrderHours      = true;
+bool   InpUseNoNewOrderHours      = false;
 string InpNoNewOrderHourList      = "23";//"13,14,15,16,17,18"; // server-time hours to block new orders
 
 
 //profit booking hours are 4,5,6,7,8
 
 // Big candle pause protection
-bool   InpUseBigCandlePause       = true;     // pause new orders after very large candle
+bool   InpUseBigCandlePause       = false;     // pause new orders after very large candle
 double InpBigCandleRawDifference  = 300;    // raw BTCUSD price difference: High[1]-Low[1]
-int    InpBigCandlePauseMinutes   = 30;       // pause duration after big candle
+int    InpBigCandlePauseMinutes   = 1;       // pause duration after big candle
 bool   InpNotifyOnBigCandlePause  = true;     // push notification when big candle pause starts/ends
 
 // SAR settings
@@ -102,22 +102,32 @@ int    InpSARAcceleration         = 9;
 // 2) Wait for one fully closed candle after SAR flip
 // 3) Confirm raw price difference from SAR flip price
 bool   InpUseSARFlipConfirmations = true;
-bool   InpUseSAREMAConfirm        = true;
-bool   InpUseSARClosedCandleConfirm = true;
+bool   InpUseSAREMAConfirm        = false;
+bool   InpUseSARClosedCandleConfirm = false;
 bool   InpUseSARPriceDiffConfirm  = true;
 // double InpSARConfirmPriceDiff     = 100.0;   // raw price diff for BTCUSD, not points
 // int    InpSARConfirmMinutes       = 15;     // wait this many minutes after SAR signal change before new order
 
-double InpSARConfirmPriceDiff     = 200.0;   // raw price diff for BTCUSD, not points
-int    InpSARConfirmMinutes       = 30;     // wait this many minutes after SAR signal change before new order
+double InpSARConfirmPriceDiff     = 30.0;   // raw price diff for BTCUSD, not points
+int    InpSARConfirmMinutes       = 5;     // wait this many minutes after SAR signal change before new order
+// TEST MODE: Only SAR flip confirmation is active: wait 5 minutes, then require raw price gap 30 in SAR direction.
+// BUY requires Close[1] - flipPrice >= 30. SELL requires flipPrice - Close[1] >= 30.
+
+// SAR signal changed price side protection.
+// Applies ONLY to normal SAR orders.
+// BUY normal order allowed only when current Ask is above the SAR signal changed price.
+// SELL normal order allowed only when current Bid is below the SAR signal changed price.
+// Recovery orders are NOT blocked by this filter.
+bool   InpUseSARSignalPriceSideFilter = true;
+double InpSARSignalPriceSideMinGap    = 0.0;   // 0 = only correct side, >0 = require extra raw price gap
 
 // Early trend settings
-bool   InpUseEarlyTrend           = true;
+bool   InpUseEarlyTrend           = false;
 int    InpFastEMA                 = 9;
 int    InpSlowEMA                 = 21;
 int    InpEarlyLookbackCandles    = 10;
 double InpMinEarlyBodyMove        = 0.00;    // raw price diff, 0 = disabled
-bool   InpCloseOnEarlyReverse     = true;
+bool   InpCloseOnEarlyReverse     = false;
 // If true, early reverse closes all market orders on this symbol in the active SAR direction,
 // even if magic number is different. This prevents old EA/manual magic mismatch from blocking close.
 bool   InpEarlyCloseAnyMagicOrders = true;
@@ -155,15 +165,15 @@ bool   InpUseSARDurationDynamicLimit = false;
 int    InpSARDurationScanBars        = 1500;   // historical bars to scan for SAR changes
 
 int    InpSARVeryLongDurationMinutes = 60;    // opposite duration >=120 min => max 0
-int    InpSARVeryLongDurationMaxOrders = 1;
+int    InpSARVeryLongDurationMaxOrders = 3;
 
 int    InpSARDurationLongMinutes     = 30;     // opposite duration 60-119 min => max 2
-int    InpSARLongDurationMaxOrders   = 1;
+int    InpSARLongDurationMaxOrders   = 3;
 
 int    InpSARDurationMediumMinutes   = 10;     // opposite duration 30-59 min => max 5
-int    InpSARMediumDurationMaxOrders = 1;
+int    InpSARMediumDurationMaxOrders = 3;
 
-int    InpSARNormalDurationMaxOrders = 1;     // opposite duration <30 min or no data => max 10
+int    InpSARNormalDurationMaxOrders = 10;     // opposite duration <30 min or no data => max 10
 //1-?100
 //2 -67
 int InpSARGoodMomentumExtraOrders = 1;
@@ -171,11 +181,11 @@ bool InpResetMaxOrdersWhenSARWeak = true;
 
 bool InpIncreaseSARMaxAfterActiveMinutes = true;
 int  InpSARActiveMinutesForExtraOrders = 30;
-int  InpSARActiveExtraOrders = 2;
+int  InpSARActiveExtraOrders = 10;
 
 // SAR good-momentum upgrade
 // If current SAR trend is strong, increase current SAR signal-cycle max back to normal max.
-bool   InpUseSARGoodMomentumMaxUpgrade = true;
+bool   InpUseSARGoodMomentumMaxUpgrade = false;
 double InpSARGoodMomentumMinDotDistance = 300.0; // raw price distance from SAR dot
 int    InpSARGoodMomentumADXPeriod = 14;
 double InpSARGoodMomentumMinADX = 20.0;
@@ -183,6 +193,67 @@ int    InpSARGoodMomentumATRPeriod = 14;
 double InpSARGoodMomentumMinATR = 100.0;       // raw BTCUSD ATR
 int    InpSARGoodMomentumCandleLookback = 3;
 int    InpSARGoodMomentumMinSameCandles = 1;
+
+//================ DYNAMIC BTC SAR QUALITY ENGINE ===================
+// SAR still gives GREEN/RED direction, but this layer decides whether
+// the current BTC movement is strong enough to follow. It auto-adjusts
+// using ATR, ADX, EMA distance and long-bar behaviour, so you do not
+// need to keep changing fixed BTC price values every week.
+bool   InpUseDynamicSAREngine              = false;
+bool   InpBlockNewOrdersWhenSARWeak        = false;
+bool   InpBlockFastSARFlip                 = false;
+int    InpDynamicATRPeriod                 = 14;
+int    InpDynamicMinSignalMinutes          = 20;   // normal minimum SAR age before new normal order
+int    InpDynamicVeryStrongMinMinutes      = 10;   // allow earlier only if score is very strong
+double InpDynamicConfirmATRMultiplier      = 0.80; // replaces fixed SAR diff when dynamic engine is ON
+double InpDynamicStrongDotATRMultiplier    = 1.20; // SAR dot distance must be >= ATR * this
+double InpDynamicWeakDotATRMultiplier      = 0.45; // below this means SAR is too close/weak
+double InpDynamicEMADistanceATRMultiplier  = 0.10; // EMA9/21 separation required
+double InpDynamicLongBarATRMultiplier      = 1.50; // long bar in SAR direction = breakout strength
+double InpDynamicOppositeBarATRMultiplier  = 1.20; // long bar opposite SAR = danger
+double InpDynamicADXStrong                 = 25.0;
+double InpDynamicADXWeak                   = 18.0;
+int    InpDynamicStrongScore               = 5;
+int    InpDynamicVeryStrongScore           = 6;
+int    InpDynamicWeakScore                 = 2;
+
+//================ EARLY SAR WEAK EXIT ENGINE =======================
+// This closes or freezes the active SAR basket BEFORE the full SAR flip.
+// SAR is still the main direction, but when the current GREEN/RED signal
+// starts dying, the EA stops adding orders and can close the basket early.
+bool   InpUseEarlySARWeakExit          = true;
+bool   InpStopNewOrdersOnSARWeakExit   = true;   // when SAR weak is detected, block adding new orders
+bool   InpCloseBasketOnSARWeakExit     = false;   // close active BUY/SELL basket early before SAR flip when profit/loss/trail condition is met
+double InpEarlySARWeakExitMinProfitUSD = 1;//0.20;  // close weak basket if already in small profit
+double InpEarlySARWeakExitMaxLossUSD   = 5;//1.50;  // close weak basket before SAR flip if loss reaches this
+double InpEarlySARWeakExitTrailUSD     = 0.75;  // if profit falls from peak by this value, close
+int    InpEarlySARWeakExitNeedSignals  = 3;     // minimum weakness points required
+int    InpEarlySARWeakExitMinAgeMin    = 5;     // avoid closing immediately after fresh flip
+int    InpEarlySARWeakExitCooldownSec  = 60;    // avoid repeat close loop
+
+//================ PROFIT PROTECTION / RECOVERY SAFETY ==============
+// Protect total equity after a strong run. Example: equity peak 85,
+// trail 10 => close all orders and pause if equity falls to 75.
+bool   InpUseGlobalEquityTrailLock      = true;
+double InpGlobalEquityTrailStartProfit  = 10.0;   // start trailing only after equity is Base + this profit
+double InpGlobalEquityTrailLockUSD      = 10.0;   // close all if equity falls this much from peak
+int    InpGlobalEquityTrailPauseMinutes = 60;     // pause new trading after trail lock closes orders
+
+// Early close using pure candle pressure before SAR flip.
+// BUY SAR + 4 red candles out of last 5 = weak BUY.
+// SELL SAR + 4 green candles out of last 5 = weak SELL.
+bool   InpUseOppositeCandleWeakExit     = true;
+int    InpWeakExitCandleLookback        = 5;
+int    InpWeakExitOppositeMinCandles    = 4;
+
+// Stop adding recovery orders after a strong opposite move.
+// Example BUY basket losing more than 200 raw price => do not add more BUY recovery.
+bool   InpStopRecoveryOnStrongOppMove   = true;
+double InpStrongOppMoveBlockRecoveryGap = 200.0;
+
+// Absolute cap for all EA market orders combined: normal + recovery.
+int    InpMaxTotalOpenOrders            = 3;
+
 
 //======================== GLOBALS ===================================
 int      g_activeSARDirection   = 0;       // 1 BUY, -1 SELL
@@ -205,6 +276,10 @@ int      g_pendingSARConfirmDirection = 0;  // 1 BUY, -1 SELL, 0 none
 double   g_pendingSARConfirmPrice     = 0.0;
 datetime g_pendingSARConfirmTime      = 0;
 datetime g_pendingSARConfirmBarTime   = 0;
+
+// Active SAR signal changed reference price. This remains available after pending confirmation is reset.
+double   g_activeSARSignalChangePrice = 0.0;
+datetime g_activeSARSignalChangeTime  = 0;
 
 int      g_equityDay            = -1;
 double   g_dayStartBalance      = 0.0;
@@ -245,16 +320,34 @@ bool     g_sarGoodMomentum         = false;
 double   g_sarGoodMomentumDotDistance = 0.0;
 double   g_sarGoodMomentumADX      = 0.0;
 double   g_sarGoodMomentumATR      = 0.0;
+int      g_dynamicSARScore          = 0;
+string   g_dynamicSARDecision       = "WAIT";
+double   g_dynamicSARRequiredDiff   = 0.0;
+double   g_dynamicSARDotDistance    = 0.0;
+double   g_dynamicSARATR            = 0.0;
+double   g_dynamicSARADX            = 0.0;
+double   g_dynamicSARLongBarMove    = 0.0;
 
-bool   InpUseH1TrendFilter = true;
+bool     g_earlySARWeakExitActive = false;
+string   g_earlySARWeakExitReason = "";
+double   g_activeBasketPeakProfit = 0.0;
+datetime g_lastEarlySARWeakExitTime = 0;
+int      g_lastEarlySARWeakExitDirection = 0;
+
+double   g_globalEquityPeak              = 0.0;
+datetime g_globalEquityTrailPauseUntil   = 0;
+bool     g_globalEquityTrailLocked       = false;
+string   g_globalEquityTrailStatus       = "OFF";
+
+bool   InpUseH1TrendFilter = false;
 int    InpH1FastEMA = 50;
 int    InpH1SlowEMA = 200;
 
-bool InpOpenExtraOrderOnEarlySameSAR = true;
+bool InpOpenExtraOrderOnEarlySameSAR = false;
 int  InpEarlySameSARExtraMaxOrders = 1;
 datetime g_lastEarlySameSAROrderBarTime = 0;
 
-bool   InpAddOneOrderWhenSARDistanceH1Same = true;
+bool   InpAddOneOrderWhenSARDistanceH1Same = false;
 double InpSARDistanceExtraOrderMin         = 300.0;
 int    InpSARDistanceExtraOrders           = 1;
 bool TryOpenEarlySameSARExtraOrder()
@@ -557,6 +650,8 @@ void ResetTradingCycleState()
    g_sarCycleMaxOrders   = MathMax(0, InpSARNormalDurationMaxOrders);
    g_sarCycleOrdersCreated = 0;
    g_sarCycleStartTime   = 0;
+   g_activeSARSignalChangePrice = 0.0;
+   g_activeSARSignalChangeTime  = 0;
    ResetSARFlipConfirmation();
    ResetBigCandlePauseState();
 
@@ -822,10 +917,147 @@ double GetTodayProfitFromBase()
   {
    return(AccountEquity() - g_baseBalance);
   }
+
+//+------------------------------------------------------------------+
+//| Total open order hard cap: normal + recovery                     |
+//+------------------------------------------------------------------+
+bool IsTotalOpenOrderCapReached(string source)
+  {
+   int total = CountAllOrders();
+   if(InpMaxTotalOpenOrders > 0 && total >= InpMaxTotalOpenOrders)
+     {
+      Print("TOTAL OPEN ORDER CAP BLOCKED | Source=", source,
+            " | Total=", total, "/", InpMaxTotalOpenOrders);
+      return(true);
+     }
+   return(false);
+  }
+
+//+------------------------------------------------------------------+
+//| Global equity trailing lock                                      |
+//+------------------------------------------------------------------+
+bool IsGlobalEquityTrailPauseActive()
+  {
+   if(!InpUseGlobalEquityTrailLock)
+      return(false);
+
+   if(g_globalEquityTrailPauseUntil <= 0)
+      return(false);
+
+   if(TimeCurrent() >= g_globalEquityTrailPauseUntil)
+     {
+      g_globalEquityTrailPauseUntil = 0;
+      g_globalEquityTrailLocked = false;
+      g_globalEquityPeak = AccountEquity();
+      g_globalEquityTrailStatus = "RESUMED";
+
+      Print("GLOBAL EQUITY TRAIL PAUSE FINISHED | NewPeak=$",
+            DoubleToString(g_globalEquityPeak, 2));
+
+      return(false);
+     }
+
+   int leftSec = (int)(g_globalEquityTrailPauseUntil - TimeCurrent());
+   if(leftSec < 0)
+      leftSec = 0;
+
+   g_globalEquityTrailStatus = "PAUSED " + FormatSecondsToHHMM(leftSec);
+   return(true);
+  }
+
+//+------------------------------------------------------------------+
+bool CheckGlobalEquityTrailLock()
+  {
+   if(!InpUseGlobalEquityTrailLock)
+      return(false);
+
+   if(IsGlobalEquityTrailPauseActive())
+      return(true);
+
+   double eq = AccountEquity();
+
+   if(g_globalEquityPeak <= 0.0)
+      g_globalEquityPeak = eq;
+
+   if(eq > g_globalEquityPeak)
+      g_globalEquityPeak = eq;
+
+   double profitFromBase = eq - g_baseBalance;
+
+   if(profitFromBase < InpGlobalEquityTrailStartProfit)
+     {
+      g_globalEquityTrailStatus = "WAIT +$" + DoubleToString(InpGlobalEquityTrailStartProfit, 2);
+      return(false);
+     }
+
+   double dropFromPeak = g_globalEquityPeak - eq;
+
+   g_globalEquityTrailStatus =
+      "ON Peak=$" + DoubleToString(g_globalEquityPeak, 2) +
+      " Drop=$" + DoubleToString(dropFromPeak, 2) +
+      "/" + DoubleToString(InpGlobalEquityTrailLockUSD, 2);
+
+   if(InpGlobalEquityTrailLockUSD > 0.0 && dropFromPeak >= InpGlobalEquityTrailLockUSD)
+     {
+      Print("GLOBAL EQUITY TRAIL LOCK HIT | Equity=$", DoubleToString(eq, 2),
+            " | Peak=$", DoubleToString(g_globalEquityPeak, 2),
+            " | Drop=$", DoubleToString(dropFromPeak, 2),
+            " | Trail=$", DoubleToString(InpGlobalEquityTrailLockUSD, 2));
+
+      if(CountAllOrders() > 0)
+         CloseAllEAOrders("Global equity trailing lock");
+
+      g_globalEquityTrailLocked = true;
+      g_globalEquityTrailPauseUntil =
+         TimeCurrent() + MathMax(1, InpGlobalEquityTrailPauseMinutes) * 60;
+
+      g_globalEquityPeak = AccountEquity();
+      g_globalEquityTrailStatus =
+         "LOCKED PAUSE " + IntegerToString(InpGlobalEquityTrailPauseMinutes) + "m";
+
+      return(true);
+     }
+
+   return(false);
+  }
+
+//+------------------------------------------------------------------+
+int CountOppositeCandlesForWeakExit(int direction)
+  {
+   if(direction == 0)
+      return(0);
+
+   int lookback = MathMax(1, InpWeakExitCandleLookback);
+   return(CountDirectionalCandles(-direction, lookback));
+  }
+
+//+------------------------------------------------------------------+
+bool IsStrongOppositeMoveAgainstRecovery(int direction, double adverseGap)
+  {
+   if(!InpStopRecoveryOnStrongOppMove)
+      return(false);
+
+   if(InpStrongOppMoveBlockRecoveryGap <= 0.0)
+      return(false);
+
+   if(adverseGap >= InpStrongOppMoveBlockRecoveryGap)
+     {
+      Print("RECOVERY BLOCKED BY STRONG OPPOSITE MOVE | Direction=",
+            DirectionText(direction),
+            " | AdverseGap=", DoubleToString(adverseGap, Digits),
+            " | BlockGap=", DoubleToString(InpStrongOppMoveBlockRecoveryGap, Digits));
+      return(true);
+     }
+
+   return(false);
+  }
 //+------------------------------------------------------------------+
 bool CheckEquityConditions()
   {
    ResetEquityDayIfNewDay();
+
+   if(CheckGlobalEquityTrailLock())
+      return(true);
 
 // 1) Loss stop: if equity drops to base - loss percent, close EA orders and stop.
    if(InpUseEquityProtection && AccountEquity() < g_lossStopEquityLevel)
@@ -1149,8 +1381,11 @@ void UpdateBarAndSARVisualState(bool isNewBar)
       g_firstSARLocked      = true;
       g_activeSARDirection  = sarDotDirection;
       g_lastSARDotDirection = sarDotDirection;
+      g_activeSARSignalChangePrice = Close[1];
+      g_activeSARSignalChangeTime  = TimeCurrent();
       ResetSARSignalOrderCycle(sarDotDirection, "first SAR locked");
-      Print("FIRST SAR LOCKED | Direction=", DirectionText(g_activeSARDirection));
+      Print("FIRST SAR LOCKED | Direction=", DirectionText(g_activeSARDirection),
+            " | SignalPrice=", DoubleToString(g_activeSARSignalChangePrice, Digits));
      }
   }
 
@@ -1278,6 +1513,9 @@ bool OpenRecoveryOrder(int direction, string sourceReason)
 
    RefreshRates();
 
+   if(IsTotalOpenOrderCapReached("OpenRecoveryOrder"))
+      return(false);
+
    if(CheckEquityConditions())
      {
       Print("RECOVERY ORDER BLOCKED | Equity/profit lock active. Source=", sourceReason);
@@ -1301,6 +1539,10 @@ bool OpenRecoveryOrder(int direction, string sourceReason)
 
    int type = direction == 1 ? OP_BUY : OP_SELL;
    double price = direction == 1 ? Ask : Bid;
+
+   // SAR signal price side filter is NOT applied to recovery orders.
+   // Recovery must be allowed to work even when price is against the original SAR signal.
+
    double sl = 0;
 
    if(InpStopLossPoints > 0)
@@ -1432,9 +1674,20 @@ bool OpenRecoveryGapMarketOrder(int direction, double gapMove)
 
    RefreshRates();
 
+   if(IsTotalOpenOrderCapReached("OpenRecoveryGapMarketOrder"))
+      return(false);
+
    if(CheckEquityConditions())
      {
       Print("RECOVERY GAP BLOCKED | Equity/profit lock active.");
+      return(false);
+     }
+
+   if(CountRecoveryGapOrdersByDirection(direction) >= InpMaxRecoveryGapOrdersPerSide)
+     {
+      Print("RECOVERY GAP BLOCKED | Max recovery orders reached | Direction=",
+            DirectionText(direction), " | Count=", CountRecoveryGapOrdersByDirection(direction),
+            "/", InpMaxRecoveryGapOrdersPerSide);
       return(false);
      }
 
@@ -1447,8 +1700,16 @@ bool OpenRecoveryGapMarketOrder(int direction, double gapMove)
 
    int type = direction == 1 ? OP_BUY : OP_SELL;
    double price = direction == 1 ? Ask : Bid;
+
+   // SAR signal price side filter is NOT applied to RECOVERY_GAP orders.
+   // Recovery ladder must follow adverse price gaps independently.
+
    double lot = NormalizeLot(InpRecoveryGapLot);
-   string comment = "RECOVERY_GAP_" + DoubleToString(InpRecoveryGapRawPrice, 0) + "_" + DirectionText(direction);
+   int nextRecoveryNumber = CountRecoveryGapOrdersByDirection(direction) + 1;
+   double requiredGapForComment = InpRecoveryGapRawPrice * nextRecoveryNumber;
+   string comment = "RECOVERY_GAP_" + IntegerToString(nextRecoveryNumber) +
+                    "_GAP_" + DoubleToString(requiredGapForComment, 0) +
+                    "_" + DirectionText(direction);
 
    int ticket = OrderSend(Symbol(),
                           type,
@@ -1478,11 +1739,77 @@ bool OpenRecoveryGapMarketOrder(int direction, double gapMove)
    Print("RECOVERY GAP ORDER OPENED | Ticket=", ticket,
          " | Direction=", DirectionText(direction),
          " | Lot=", DoubleToString(lot, 2),
-         " | RequiredGap=", DoubleToString(InpRecoveryGapRawPrice, Digits),
+         " | RecoveryNo=", nextRecoveryNumber,
+         " | RequiredGap=", DoubleToString(requiredGapForComment, Digits),
          " | ActualGap=", DoubleToString(gapMove, Digits),
          " | Comment=", comment);
 
    return(true);
+  }
+
+//+------------------------------------------------------------------+
+// Return the first/base order price for the recovery ladder.
+// BUY: use the highest open BUY price as the base, because recovery starts
+//      when price falls from the original BUY.
+// SELL: use the lowest open SELL price as the base, because recovery starts
+//       when price rises from the original SELL.
+bool GetRecoveryLadderBasePrice(int direction, double &basePrice, int &sideOrders)
+  {
+   basePrice = 0.0;
+   sideOrders = 0;
+
+   int type = direction == 1 ? OP_BUY : OP_SELL;
+
+   for(int i = OrdersTotal() - 1; i >= 0; i--)
+     {
+      if(!OrderSelect(i, SELECT_BY_POS, MODE_TRADES))
+         continue;
+
+      if(OrderSymbol() != Symbol())
+         continue;
+
+      if(OrderMagicNumber() != InpMagicNumber)
+         continue;
+
+      if(OrderType() != type)
+         continue;
+
+      double op = OrderOpenPrice();
+
+      if(sideOrders == 0)
+         basePrice = op;
+      else
+        {
+         if(direction == 1 && op > basePrice)
+            basePrice = op;
+
+         if(direction == -1 && op < basePrice)
+            basePrice = op;
+        }
+
+      sideOrders++;
+     }
+
+   return(sideOrders > 0);
+  }
+
+//+------------------------------------------------------------------+
+double GetRecoveryLadderCurrentGap(int direction, double basePrice)
+  {
+   if(direction == 1)
+      return(basePrice - Bid);   // BUY is in loss when Bid is below base
+
+   if(direction == -1)
+      return(Ask - basePrice);   // SELL is in loss when Ask is above base
+
+   return(0.0);
+  }
+
+//+------------------------------------------------------------------+
+double GetNextRecoveryLadderRequiredGap(int direction)
+  {
+   int recoveryCount = CountRecoveryGapOrdersByDirection(direction);
+   return(InpRecoveryGapRawPrice * (recoveryCount + 1));
   }
 
 //+------------------------------------------------------------------+
@@ -1499,38 +1826,50 @@ void ProcessRecoveryGapOrders()
 
    RefreshRates();
 
-   double buyRef = 0.0;
-   double sellRef = 0.0;
+   double buyBase = 0.0;
+   double sellBase = 0.0;
    int buyOrders = 0;
    int sellOrders = 0;
 
-   bool hasBuy = GetRecoveryGapReferencePrice(1, buyRef, buyOrders);
-   bool hasSell = GetRecoveryGapReferencePrice(-1, sellRef, sellOrders);
+   bool hasBuy = GetRecoveryLadderBasePrice(1, buyBase, buyOrders);
+   bool hasSell = GetRecoveryLadderBasePrice(-1, sellBase, sellOrders);
 
-   double buyGap = 0.0;
-   double sellGap = 0.0;
+   int buyRecoveryCount = CountRecoveryGapOrdersByDirection(1);
+   int sellRecoveryCount = CountRecoveryGapOrdersByDirection(-1);
 
-   if(hasBuy)
-      buyGap = buyRef - Bid;
+   double buyGap = hasBuy ? GetRecoveryLadderCurrentGap(1, buyBase) : 0.0;
+   double sellGap = hasSell ? GetRecoveryLadderCurrentGap(-1, sellBase) : 0.0;
 
-   if(hasSell)
-      sellGap = Ask - sellRef;
+   double buyRequiredGap = GetNextRecoveryLadderRequiredGap(1);     // 50, 100, 150
+   double sellRequiredGap = GetNextRecoveryLadderRequiredGap(-1);   // 50, 100, 150
 
-   bool buyReady = (hasBuy && buyGap >= InpRecoveryGapRawPrice &&
-                    CountRecoveryGapOrdersByDirection(1) < InpMaxRecoveryGapOrdersPerSide);
+   bool buyReady = (hasBuy && buyGap >= buyRequiredGap &&
+                    buyRecoveryCount < InpMaxRecoveryGapOrdersPerSide &&
+                    !IsStrongOppositeMoveAgainstRecovery(1, buyGap));
 
-   bool sellReady = (hasSell && sellGap >= InpRecoveryGapRawPrice &&
-                     CountRecoveryGapOrdersByDirection(-1) < InpMaxRecoveryGapOrdersPerSide);
+   bool sellReady = (hasSell && sellGap >= sellRequiredGap &&
+                     sellRecoveryCount < InpMaxRecoveryGapOrdersPerSide &&
+                     !IsStrongOppositeMoveAgainstRecovery(-1, sellGap));
 
    // Open only one recovery gap order per tick. Choose the side with the larger adverse move.
    if(buyReady && (!sellReady || buyGap >= sellGap))
      {
+      Print("RECOVERY LADDER READY | BUY | Base=", DoubleToString(buyBase, Digits),
+            " | CurrentGap=", DoubleToString(buyGap, Digits),
+            " | RequiredGap=", DoubleToString(buyRequiredGap, Digits),
+            " | RecoveryCount=", buyRecoveryCount, "/", InpMaxRecoveryGapOrdersPerSide);
+
       OpenRecoveryGapMarketOrder(1, buyGap);
       return;
      }
 
    if(sellReady)
      {
+      Print("RECOVERY LADDER READY | SELL | Base=", DoubleToString(sellBase, Digits),
+            " | CurrentGap=", DoubleToString(sellGap, Digits),
+            " | RequiredGap=", DoubleToString(sellRequiredGap, Digits),
+            " | RecoveryCount=", sellRecoveryCount, "/", InpMaxRecoveryGapOrdersPerSide);
+
       OpenRecoveryGapMarketOrder(-1, sellGap);
       return;
      }
@@ -1627,6 +1966,168 @@ void CloseOrdersByDirectionAnyMagic(int direction, string reason, bool anyMagic)
      }
   }
 
+
+//+------------------------------------------------------------------+
+//| Early SAR weak exit: detect dying SAR before full SAR flip        |
+//+------------------------------------------------------------------+
+int GetEarlySARWeaknessScore(int direction, string &reason)
+  {
+   reason = "";
+
+   if(direction == 0 || Bars < 50)
+      return(0);
+
+   double atr = GetDynamicSARATR();
+   if(atr <= 0.0)
+      return(0);
+
+   double step    = InpSARPeriod * InpSARStepSize / 10000.0;
+   double maxstep = step * InpSARAcceleration;
+   double sar1    = iSAR(Symbol(), Period(), step, maxstep, 1);
+
+   double emaFast = iMA(Symbol(), Period(), InpFastEMA, 0, MODE_EMA, PRICE_CLOSE, 1);
+   double emaSlow = iMA(Symbol(), Period(), InpSlowEMA, 0, MODE_EMA, PRICE_CLOSE, 1);
+   double ema21   = iMA(Symbol(), Period(), InpSlowEMA, 0, MODE_EMA, PRICE_CLOSE, 1);
+   double adx1    = iADX(Symbol(), Period(), InpSARGoodMomentumADXPeriod, PRICE_CLOSE, MODE_MAIN, 1);
+   double adx2    = iADX(Symbol(), Period(), InpSARGoodMomentumADXPeriod, PRICE_CLOSE, MODE_MAIN, 2);
+
+   double dotDistance = MathAbs(Close[1] - sar1);
+   int weakness = 0;
+
+   // 1) Price crosses EMA21 against active SAR.
+   if(direction == 1 && Close[1] < ema21)
+     {
+      weakness++;
+      reason += "Close<EMA21 ";
+     }
+   if(direction == -1 && Close[1] > ema21)
+     {
+      weakness++;
+      reason += "Close>EMA21 ";
+     }
+
+   // 2) EMA9/EMA21 turns against active SAR.
+   if(direction == 1 && emaFast < emaSlow)
+     {
+      weakness++;
+      reason += "EMA Bearish ";
+     }
+   if(direction == -1 && emaFast > emaSlow)
+     {
+      weakness++;
+      reason += "EMA Bullish ";
+     }
+
+   // 3) Last 3 closed candles press against SAR.
+   int oppositeCandles = CountDirectionalCandles(-direction, 3);
+   if(oppositeCandles >= 2)
+     {
+      weakness++;
+      reason += "OppCandles=" + IntegerToString(oppositeCandles) + " ";
+     }
+
+   // 4) SAR dot becomes too close to price: current SAR is losing space.
+   if(dotDistance <= atr * InpDynamicWeakDotATRMultiplier)
+     {
+      weakness++;
+      reason += "DotNear ";
+     }
+
+   // 5) ADX is weak or falling: trend strength is dying.
+   if(adx1 < InpDynamicADXWeak || adx1 < adx2)
+     {
+      weakness++;
+      reason += "ADXWeak/Fall ";
+     }
+
+   // 6) Big/long candle against SAR: senior-trader exit clue.
+   if(HasOppositeLongBarDanger(direction, atr))
+     {
+      weakness += 2;
+      reason += "OppLongBar ";
+     }
+
+   // 7) Dynamic SAR score itself is weak.
+   int dynScore = GetDynamicSARStrengthScore(direction);
+   if(dynScore <= InpDynamicWeakScore)
+     {
+      weakness++;
+      reason += "DynWeak=" + IntegerToString(dynScore) + " ";
+     }
+
+   return(weakness);
+  }
+
+//+------------------------------------------------------------------+
+bool IsEarlySARWeakExitSignal(int direction, double basketProfit, string &reason)
+  {
+   reason = "";
+   g_earlySARWeakExitActive = false;
+   g_earlySARWeakExitReason = "";
+
+   if(!InpUseEarlySARWeakExit || direction == 0)
+      return(false);
+
+   if(CountOrdersByDirection(direction) <= 0)
+      return(false);
+
+   int ageMin = GetSARSignalAgeMinutes();
+   if(ageMin < InpEarlySARWeakExitMinAgeMin)
+      return(false);
+
+   if(g_lastEarlySARWeakExitTime > 0 &&
+      TimeCurrent() - g_lastEarlySARWeakExitTime < InpEarlySARWeakExitCooldownSec &&
+      g_lastEarlySARWeakExitDirection == direction)
+      return(false);
+
+   // Track basket peak profit to detect profit giving back before SAR flip.
+   if(g_sarCycleDirection != direction || CountOrdersByDirection(direction) <= 0)
+      g_activeBasketPeakProfit = basketProfit;
+   else
+      g_activeBasketPeakProfit = MathMax(g_activeBasketPeakProfit, basketProfit);
+
+   string weakReason = "";
+   int weakness = GetEarlySARWeaknessScore(direction, weakReason);
+
+   int oppositePressureCandles = CountOppositeCandlesForWeakExit(direction);
+   bool candleWeakExit =
+      (InpUseOppositeCandleWeakExit &&
+       oppositePressureCandles >= MathMax(1, InpWeakExitOppositeMinCandles));
+
+   if(candleWeakExit)
+     {
+      weakness += 2;
+      weakReason += "OppPressure=" + IntegerToString(oppositePressureCandles) +
+                    "/" + IntegerToString(InpWeakExitCandleLookback) + " ";
+     }
+
+   bool enoughWeakness = (weakness >= InpEarlySARWeakExitNeedSignals);
+   bool profitClose    = (basketProfit >= InpEarlySARWeakExitMinProfitUSD);
+   bool lossClose      = (basketProfit <= -MathAbs(InpEarlySARWeakExitMaxLossUSD));
+   bool trailClose     = (g_activeBasketPeakProfit >= InpEarlySARWeakExitMinProfitUSD &&
+                          basketProfit <= g_activeBasketPeakProfit - MathAbs(InpEarlySARWeakExitTrailUSD));
+   bool candlePressureClose =
+      (candleWeakExit && basketProfit >= -MathAbs(InpEarlySARWeakExitMaxLossUSD));
+
+   if(!enoughWeakness)
+      return(false);
+
+   reason = "Weakness=" + IntegerToString(weakness) +
+            " | Profit=$" + DoubleToString(basketProfit, 2) +
+            " | Peak=$" + DoubleToString(g_activeBasketPeakProfit, 2) +
+            " | " + weakReason;
+
+   g_earlySARWeakExitActive = true;
+   g_earlySARWeakExitReason = reason;
+
+   // If basket is between small profit and controlled loss, only stop adding orders.
+   // Close only when profit is available, controlled max-loss is hit, or profit is giving back.
+   if(profitClose || lossClose || trailClose || candlePressureClose)
+      return(true);
+
+   return(false);
+  }
+
 //+------------------------------------------------------------------+
 bool ProcessCloseOrdersFirst(string &status)
   {
@@ -1676,9 +2177,32 @@ bool ProcessCloseOrdersFirst(string &status)
         }
      }
 
-// PRIORITY 2: Basket stop loss / basket profit close.
+// PRIORITY 2: Early SAR weak exit before full SAR flip.
+// This is the main protection for: "many orders close only on SAR signal change and lose".
    double activeProfit = GetBasketProfit(g_activeSARDirection);
 
+   string weakExitReason = "";
+   bool shouldCloseWeakBasket = IsEarlySARWeakExitSignal(g_activeSARDirection, activeProfit, weakExitReason);
+
+   if(g_earlySARWeakExitActive)
+     {
+      Print("EARLY SAR WEAK EXIT DETECTED | Direction=", DirectionText(g_activeSARDirection),
+            " | ", weakExitReason);
+
+      if(shouldCloseWeakBasket && InpCloseBasketOnSARWeakExit)
+        {
+         int oldDirection = g_activeSARDirection;
+         CloseOrdersByDirection(oldDirection, "Early SAR weak exit: " + weakExitReason);
+         g_lastEarlySARWeakExitTime = TimeCurrent();
+         g_lastEarlySARWeakExitDirection = oldDirection;
+         g_activeBasketPeakProfit = 0.0;
+
+         status = "EARLY SAR WEAK EXIT CLOSED";
+         return(true);
+        }
+     }
+
+// PRIORITY 3: Basket stop loss / basket profit close.
    if(InpBasketStopLossUSD > 0.0 && activeProfit <= -InpBasketStopLossUSD)
      {
       int oldDirection = g_activeSARDirection;
@@ -1703,23 +2227,23 @@ bool ProcessCloseOrdersFirst(string &status)
       return(true);
      }
 
-      double basketTarget = GetBasketProfitTargetUSD();
+   double basketTarget = GetBasketProfitTargetUSD();
 
-   if(CountAllOrders() > 0)
-      // if(activeProfit >= InpBasketProfitUSD/CountAllOrders())
+   // Basket TP must be checked against the full active-direction basket profit.
+   // Do NOT divide target by open order count.
+   // Example: InpBasketProfitUSD = 2.00 means close BUY basket only when BUY basket profit >= $2.00.
+   if(CountOrdersByDirection(g_activeSARDirection) > 0 && activeProfit >= basketTarget)
+     {
+      CloseOrdersByDirection(g_activeSARDirection,
+                             "Basket profit $" + DoubleToString(activeProfit, 2));
 
+      Print("BASKET PROFIT HIT | Direction=", DirectionText(g_activeSARDirection),
+            " | Profit=$", DoubleToString(activeProfit, 2),
+            " | Target=$", DoubleToString(basketTarget, 2));
 
-if(CountAllOrders() > 0 && activeProfit >= basketTarget / CountAllOrders())
-        {
-         CloseOrdersByDirection(g_activeSARDirection,
-                                "Basket profit $" + DoubleToString(activeProfit, 2));
-
-         Print("BASKET PROFIT HIT | Direction=", DirectionText(g_activeSARDirection),
-               " | Profit=$", DoubleToString(activeProfit, 2));
-
-         status = "Basket profit booked";
-         return(true);
-        }
+      status = "Basket profit booked";
+      return(true);
+     }
 
    return(false);
   }
@@ -1801,6 +2325,15 @@ bool ProcessNewOrderCreationLast(bool isNewBar, string &status)
       return(false);
      }
 
+// Early SAR weak exit blocks ONLY new normal orders. Close management already ran first.
+   if(InpUseEarlySARWeakExit && InpStopNewOrdersOnSARWeakExit && g_earlySARWeakExitActive)
+     {
+      status = "SAR WEAK - STOP NEW ORDERS";
+      Print("NEW ORDER BLOCKED BY EARLY SAR WEAK EXIT | Direction=",
+            DirectionText(g_activeSARDirection), " | ", g_earlySARWeakExitReason);
+      return(false);
+     }
+
 // Pending SAR confirmation blocks ONLY new orders. It cannot block close management.
    if(g_pendingSARConfirmDirection != 0)
      {
@@ -1816,6 +2349,21 @@ bool ProcessNewOrderCreationLast(bool isNewBar, string &status)
             " | Close[1]=", DoubleToString(Close[1], Digits));
 
       ResetSARFlipConfirmation();
+     }
+
+// Dynamic BTC SAR quality gate. SAR still gives direction, but weak/fast/fake flips do not open new normal orders.
+   string dynamicBlockReason = "";
+   if(!IsDynamicSARAllowedForNewOrder(g_activeSARDirection, dynamicBlockReason))
+     {
+      status = "DYNAMIC SAR BLOCK - " + dynamicBlockReason;
+      Print("DYNAMIC SAR NEW ORDER BLOCKED | Direction=", DirectionText(g_activeSARDirection),
+            " | Reason=", dynamicBlockReason,
+            " | Age=", GetSARSignalAgeMinutes(), "m",
+            " | Score=", g_dynamicSARScore,
+            " | ATR=", DoubleToString(g_dynamicSARATR, 2),
+            " | DotDistance=", DoubleToString(g_dynamicSARDotDistance, 2),
+            " | ADX=", DoubleToString(g_dynamicSARADX, 2));
+      return(false);
      }
 
 // Flat mode blocks ONLY new orders. It cannot block close management.
@@ -1888,6 +2436,12 @@ IncreaseSARMaxWhenDotDistanceAndH1Same();
 //    status = "Waiting new bar";
 //    return(false);
 // }
+
+   if(!IsSARSignalPriceSideAllowed(g_activeSARDirection, "Normal SAR order"))
+     {
+      status = "SAR PRICE SIDE BLOCK";
+      return(false);
+     }
 
    if(!CanOpenNewOrder(g_activeSARDirection))
      {
@@ -1988,7 +2542,9 @@ void OnTick()
    CloseRecoveryOrdersAtProfit();
 
 // Recovery gap orders are independent from normal SAR order gates.
-// They open only when price moves against existing same-side orders by raw gap 30.
+// Ladder from first/base order price:
+// BUY adverse move: 50 => recovery #1, 100 => #2, 150 => #3.
+// SELL adverse move: 50 => recovery #1, 100 => #2, 150 => #3.
    ProcessRecoveryGapOrders();
 
    DrawSARDots();
@@ -2100,6 +2656,10 @@ void StartSARFlipConfirmation(int direction)
    g_pendingSARConfirmTime      = TimeCurrent();
    g_pendingSARConfirmBarTime   = Time[1];      // SAR flip happened on this closed candle
 
+   // Store the active SAR signal changed price separately. Do not reset this after confirmation.
+   g_activeSARSignalChangePrice = g_pendingSARConfirmPrice;
+   g_activeSARSignalChangeTime  = g_pendingSARConfirmTime;
+
    Print("SAR CONFIRMATION STARTED | Direction=", DirectionText(direction),
          " | FlipPrice=", DoubleToString(g_pendingSARConfirmPrice, Digits),
          " | FlipBar=", TimeToString(g_pendingSARConfirmBarTime, TIME_DATE|TIME_SECONDS));
@@ -2185,23 +2745,24 @@ bool IsSARFlipConfirmationReady()
         }
      }
 
-// 3) Raw price difference confirmation from SAR flip reference price.
-//    BUY: Close[1] must move above flip price by InpSARConfirmPriceDiff.
-//    SELL: Close[1] must move below flip price by InpSARConfirmPriceDiff.
-   if(InpUseSARPriceDiffConfirm && InpSARConfirmPriceDiff > 0.0)
+// 3) Price difference confirmation from SAR flip reference price.
+//    Dynamic mode uses ATR instead of a fixed BTCUSD raw price value.
+   if(InpUseSARPriceDiffConfirm)
      {
-      double diff = 0.0;
+      double diff = GetSARConfirmCurrentPriceDiff();
+      double requiredDiff = InpSARConfirmPriceDiff;
 
-      if(direction == 1)
-         diff = Close[1] - g_pendingSARConfirmPrice;
-      else
-         diff = g_pendingSARConfirmPrice - Close[1];
+      if(InpUseDynamicSAREngine)
+         requiredDiff = GetDynamicSARRequiredConfirmDiff();
 
-      if(diff < InpSARConfirmPriceDiff)
+      g_dynamicSARRequiredDiff = requiredDiff;
+
+      if(requiredDiff > 0.0 && diff < requiredDiff)
         {
          Print("SAR CONFIRM WAIT | Price diff ",
                DoubleToString(diff, Digits), " < required ",
-               DoubleToString(InpSARConfirmPriceDiff, Digits));
+               DoubleToString(requiredDiff, Digits),
+               " | Dynamic=", (InpUseDynamicSAREngine ? "YES" : "NO"));
          return(false);
         }
      }
@@ -2238,6 +2799,215 @@ int GetSARDotDirection(int shift)
    return 0;
   }
 //+------------------------------------------------------------------+
+double GetDynamicSARATR()
+  {
+   double atr = iATR(Symbol(), Period(), InpDynamicATRPeriod, 1);
+   if(atr <= 0.0)
+      atr = iATR(Symbol(), PERIOD_M5, InpDynamicATRPeriod, 1);
+   return(atr);
+  }
+
+//+------------------------------------------------------------------+
+double GetDynamicSARRequiredConfirmDiff()
+  {
+   if(!InpUseDynamicSAREngine)
+      return(InpSARConfirmPriceDiff);
+
+   double atr = GetDynamicSARATR();
+   if(atr <= 0.0)
+      return(InpSARConfirmPriceDiff);
+
+   double dynamicDiff = atr * InpDynamicConfirmATRMultiplier;
+
+   // Safety: do not allow the dynamic requirement to become almost zero in dead market.
+   if(InpSARConfirmPriceDiff > 0.0)
+      dynamicDiff = MathMax(dynamicDiff, InpSARConfirmPriceDiff * 0.35);
+
+   return(dynamicDiff);
+  }
+
+//+------------------------------------------------------------------+
+int CountDirectionalCandles(int direction, int lookback)
+  {
+   int total = 0;
+   int lb = MathMax(1, lookback);
+
+   for(int i = 1; i <= lb; i++)
+     {
+      if(direction == 1 && Close[i] > Open[i])
+         total++;
+      if(direction == -1 && Close[i] < Open[i])
+         total++;
+     }
+
+   return(total);
+  }
+
+//+------------------------------------------------------------------+
+bool HasOppositeLongBarDanger(int direction, double atr)
+  {
+   if(direction == 0 || atr <= 0.0)
+      return(false);
+
+   double body = MathAbs(Close[1] - Open[1]);
+   double range = MathAbs(High[1] - Low[1]);
+   int candleDirection = GetClosedCandleDirection(1);
+
+   g_dynamicSARLongBarMove = range;
+
+   if(candleDirection == -direction && range >= atr * InpDynamicOppositeBarATRMultiplier)
+      return(true);
+
+   if(candleDirection == -direction && body >= atr * InpDynamicWeakDotATRMultiplier)
+      return(true);
+
+   return(false);
+  }
+
+//+------------------------------------------------------------------+
+int GetDynamicSARStrengthScore(int direction)
+  {
+   g_dynamicSARScore        = 0;
+   g_dynamicSARDecision     = "WAIT";
+   g_dynamicSARDotDistance  = 0.0;
+   g_dynamicSARATR          = 0.0;
+   g_dynamicSARADX          = 0.0;
+   g_dynamicSARLongBarMove  = 0.0;
+
+   if(direction == 0 || Bars < 50)
+      return(0);
+
+   double atr = GetDynamicSARATR();
+   if(atr <= 0.0)
+      return(0);
+
+   double step    = InpSARPeriod * InpSARStepSize / 10000.0;
+   double maxstep = step * InpSARAcceleration;
+   double sar1    = iSAR(Symbol(), Period(), step, maxstep, 1);
+
+   double emaFast = iMA(Symbol(), Period(), InpFastEMA, 0, MODE_EMA, PRICE_CLOSE, 1);
+   double emaSlow = iMA(Symbol(), Period(), InpSlowEMA, 0, MODE_EMA, PRICE_CLOSE, 1);
+   double emaDistance = MathAbs(emaFast - emaSlow);
+
+   double adx = iADX(Symbol(), Period(), InpSARGoodMomentumADXPeriod, PRICE_CLOSE, MODE_MAIN, 1);
+
+   double dotDistance = MathAbs(Close[1] - sar1);
+   double barRange = MathAbs(High[1] - Low[1]);
+   int sameColor = CountDirectionalCandles(direction, 3);
+
+   g_dynamicSARDotDistance = dotDistance;
+   g_dynamicSARATR = atr;
+   g_dynamicSARADX = adx;
+   g_dynamicSARLongBarMove = barRange;
+
+   int score = 0;
+
+   // 1) SAR dot must be on correct side.
+   if(direction == 1 && sar1 < Close[1]) score++;
+   if(direction == -1 && sar1 > Close[1]) score++;
+
+   // 2) SAR dot distance must be meaningful compared with current BTC ATR.
+   if(dotDistance >= atr * InpDynamicStrongDotATRMultiplier) score++;
+
+   // 3) EMA9/EMA21 must agree and be separated enough.
+   if(direction == 1 && emaFast > emaSlow && emaDistance >= atr * InpDynamicEMADistanceATRMultiplier) score++;
+   if(direction == -1 && emaFast < emaSlow && emaDistance >= atr * InpDynamicEMADistanceATRMultiplier) score++;
+
+   // 4) ADX confirms trend strength.
+   if(adx >= InpDynamicADXStrong) score++;
+
+   // 5) Candle pressure confirms direction.
+   if(sameColor >= 2) score++;
+
+   // 6) Last closed candle should continue in SAR direction.
+   if(direction == 1 && Close[1] > Close[2]) score++;
+   if(direction == -1 && Close[1] < Close[2]) score++;
+
+   // 7) Long breakout candle in SAR direction is a senior-trader momentum clue.
+   int candleDirection = GetClosedCandleDirection(1);
+   if(candleDirection == direction && barRange >= atr * InpDynamicLongBarATRMultiplier) score++;
+
+   // Penalties: avoid blind SAR during chop or reversal bars.
+   if(dotDistance < atr * InpDynamicWeakDotATRMultiplier) score--;
+   if(adx < InpDynamicADXWeak) score--;
+   if(HasOppositeLongBarDanger(direction, atr)) score -= 2;
+
+   if(score < 0)
+      score = 0;
+
+   g_dynamicSARScore = score;
+   return(score);
+  }
+
+//+------------------------------------------------------------------+
+int GetSARSignalAgeMinutes()
+  {
+   if(g_sarCycleStartTime <= 0)
+      return(0);
+
+   int mins = (int)((TimeCurrent() - g_sarCycleStartTime) / 60);
+   if(mins < 0)
+      mins = 0;
+   return(mins);
+  }
+
+//+------------------------------------------------------------------+
+bool IsDynamicSARAllowedForNewOrder(int direction, string &whyBlocked)
+  {
+   whyBlocked = "";
+
+   if(!InpUseDynamicSAREngine)
+      return(true);
+
+   int score = GetDynamicSARStrengthScore(direction);
+   int ageMinutes = GetSARSignalAgeMinutes();
+
+   bool oppositeLongBarDanger = HasOppositeLongBarDanger(direction, g_dynamicSARATR);
+
+   if(oppositeLongBarDanger)
+     {
+      g_dynamicSARDecision = "BLOCK OPPOSITE LONG BAR";
+      whyBlocked = g_dynamicSARDecision + " | Score=" + IntegerToString(score);
+      return(false);
+     }
+
+   // Do not follow 5-10 minute SAR flips blindly. Allow early only when BTC momentum is very strong.
+   if(InpBlockFastSARFlip)
+     {
+      if(ageMinutes < InpDynamicVeryStrongMinMinutes)
+        {
+         g_dynamicSARDecision = "BLOCK FAST SAR";
+         whyBlocked = g_dynamicSARDecision + " | Age=" + IntegerToString(ageMinutes) + "m | Score=" + IntegerToString(score);
+         return(false);
+        }
+
+      if(ageMinutes < InpDynamicMinSignalMinutes && score < InpDynamicVeryStrongScore)
+        {
+         g_dynamicSARDecision = "WAIT MATURITY";
+         whyBlocked = g_dynamicSARDecision + " | Age=" + IntegerToString(ageMinutes) + "m | Score=" + IntegerToString(score);
+         return(false);
+        }
+     }
+
+   if(InpBlockNewOrdersWhenSARWeak && score <= InpDynamicWeakScore)
+     {
+      g_dynamicSARDecision = "BLOCK WEAK SAR";
+      whyBlocked = g_dynamicSARDecision + " | Score=" + IntegerToString(score);
+      return(false);
+     }
+
+   if(score < InpDynamicStrongScore)
+     {
+      g_dynamicSARDecision = "WAIT STRONG SAR";
+      whyBlocked = g_dynamicSARDecision + " | Score=" + IntegerToString(score) + "/" + IntegerToString(InpDynamicStrongScore);
+      return(false);
+     }
+
+   g_dynamicSARDecision = "ALLOW STRONG SAR";
+   return(true);
+  }
+
+//+------------------------------------------------------------------+
 bool IsCurrentSARGoodMomentum(int direction)
   {
    g_sarGoodMomentum = false;
@@ -2253,6 +3023,18 @@ bool IsCurrentSARGoodMomentum(int direction)
 
    if(Bars < 20)
       return(false);
+
+   if(InpUseDynamicSAREngine)
+     {
+      int score = GetDynamicSARStrengthScore(direction);
+
+      g_sarGoodMomentumDotDistance = g_dynamicSARDotDistance;
+      g_sarGoodMomentumADX         = g_dynamicSARADX;
+      g_sarGoodMomentumATR         = g_dynamicSARATR;
+      g_sarGoodMomentum            = (score >= InpDynamicStrongScore);
+
+      return(g_sarGoodMomentum);
+     }
 
    double step    = InpSARPeriod * InpSARStepSize / 10000.0;
    double maxstep = step * InpSARAcceleration;
@@ -2305,7 +3087,6 @@ bool IsCurrentSARGoodMomentum(int direction)
 
    return(g_sarGoodMomentum);
   }
-
 
 //+------------------------------------------------------------------+
 //|                                                                  |
@@ -2713,6 +3494,98 @@ int DetectEarlyTrend()
 
    return 0;
   }
+
+//+------------------------------------------------------------------+
+//| SAR signal changed price side protection                         |
+//+------------------------------------------------------------------+
+double GetSARSignalSideLivePrice(int direction)
+  {
+   RefreshRates();
+
+   if(direction == 1)
+      return(Ask);
+
+   if(direction == -1)
+      return(Bid);
+
+   return(Close[0]);
+  }
+
+//+------------------------------------------------------------------+
+double GetSARSignalSidePriceDiff(int direction)
+  {
+   if(direction == 0 || g_activeSARSignalChangePrice <= 0.0)
+      return(0.0);
+
+   double livePrice = GetSARSignalSideLivePrice(direction);
+
+   if(direction == 1)
+      return(livePrice - g_activeSARSignalChangePrice);
+
+   if(direction == -1)
+      return(g_activeSARSignalChangePrice - livePrice);
+
+   return(0.0);
+  }
+
+//+------------------------------------------------------------------+
+string SARSignalSideStatusText()
+  {
+   if(!InpUseSARSignalPriceSideFilter)
+      return("OFF");
+
+   if(g_activeSARDirection == 0 || g_activeSARSignalChangePrice <= 0.0)
+      return("WAIT SIGNAL PRICE");
+
+   double diff = GetSARSignalSidePriceDiff(g_activeSARDirection);
+   double livePrice = GetSARSignalSideLivePrice(g_activeSARDirection);
+
+   return(DirectionText(g_activeSARDirection) +
+          " Live=" + DoubleToString(livePrice, Digits) +
+          " Signal=" + DoubleToString(g_activeSARSignalChangePrice, Digits) +
+          " Diff=" + DoubleToString(diff, 2) +
+          " / " + DoubleToString(InpSARSignalPriceSideMinGap, 2));
+  }
+
+//+------------------------------------------------------------------+
+bool IsSARSignalPriceSideAllowed(int direction, string source)
+  {
+   if(!InpUseSARSignalPriceSideFilter)
+      return(true);
+
+   if(direction == 0)
+      return(false);
+
+   if(g_activeSARSignalChangePrice <= 0.0)
+     {
+      Print("SAR SIGNAL PRICE SIDE BLOCKED | No active SAR signal price | Source=", source,
+            " | Direction=", DirectionText(direction));
+      return(false);
+     }
+
+   double livePrice = GetSARSignalSideLivePrice(direction);
+   double diff = GetSARSignalSidePriceDiff(direction);
+   double required = MathMax(0.0, InpSARSignalPriceSideMinGap);
+
+   bool ok = (diff >= required);
+
+   if(!ok)
+     {
+      Print("SAR SIGNAL PRICE SIDE BLOCKED | Source=", source,
+            " | Direction=", DirectionText(direction),
+            " | SignalPrice=", DoubleToString(g_activeSARSignalChangePrice, Digits),
+            " | LivePrice=", DoubleToString(livePrice, Digits),
+            " | Diff=", DoubleToString(diff, Digits),
+            " | Required=", DoubleToString(required, Digits),
+            " | Rule=", direction == 1 ? "BUY live price must be above signal changed price"
+                                      : "SELL live price must be below signal changed price");
+      return(false);
+     }
+
+   return(true);
+  }
+
+
 //+------------------------------------------------------------------+
 bool CanOpenNewOrder(int direction)
   {
@@ -2789,6 +3662,9 @@ Print("Attempting to open ",reason, "-------------------------------------");
 
    RefreshRates();
 
+   if(IsTotalOpenOrderCapReached("OpenMarketOrder"))
+      return(false);
+
    if(!IsTradingAllowedNow())
      {
       // DrawDashboard("AUTOTRADING OFF");
@@ -2799,6 +3675,14 @@ Print("Attempting to open ",reason, "-------------------------------------");
    if(CheckEquityConditions())
      {
       Print("ORDERSEND BLOCKED | Equity/profit lock active. Reason=", reason);
+      return(false);
+     }
+
+   if(CountOrdersByDirection(direction) >= InpMaxOrders)
+     {
+      Print("ORDERSEND BLOCKED | Max open orders per direction reached | Direction=",
+            DirectionText(direction), " | Open=", CountOrdersByDirection(direction),
+            "/", InpMaxOrders, " | Reason=", reason);
       return(false);
      }
 
@@ -2836,6 +3720,10 @@ Print("Attempting to open ",reason, "-------------------------------------");
 
    int type = direction == 1 ? OP_BUY : OP_SELL;
    double price = direction == 1 ? Ask : Bid;
+
+   if(!IsSARSignalPriceSideAllowed(direction, reason))
+      return(false);
+
    double sl = 0;
 
    if(InpStopLossPoints > 0)
@@ -3307,6 +4195,16 @@ void DrawDashboard(string status)
            IntegerToString(g_sarCycleOrdersCreated) + "/" + IntegerToString(g_sarCycleMaxOrders),
            g_sarCycleOrdersCreated >= g_sarCycleMaxOrders ? clrOrangeRed : clrLime);
 
+   DashRow("Max Open/Recovery",
+           "Open " + IntegerToString(InpMaxOrders) + " | Rec " + IntegerToString(InpMaxRecoveryGapOrdersPerSide),
+           clrYellow);
+
+   DashRow("Recovery Gap Step",
+           DoubleToString(InpRecoveryGapRawPrice,0) + "," +
+           DoubleToString(InpRecoveryGapRawPrice*2,0) + "," +
+           DoubleToString(InpRecoveryGapRawPrice*3,0),
+           clrAqua);
+
 
    DashRow("Pending SAR",
            DirectionText(g_pendingSARConfirmDirection),
@@ -3317,11 +4215,31 @@ void DrawDashboard(string status)
            g_pendingSARConfirmDirection == 0 ? clrLime : clrOrange);
 
    DashRow("SAR Price Diff",
-           DoubleToString(GetSARConfirmCurrentPriceDiff(), 2) + " / " + DoubleToString(InpSARConfirmPriceDiff, 2),
-           GetSARConfirmCurrentPriceDiff() >= InpSARConfirmPriceDiff ? clrLime : clrOrange);
+           DoubleToString(GetSARConfirmCurrentPriceDiff(), 2) + " / " + DoubleToString(GetDynamicSARRequiredConfirmDiff(), 2),
+           GetSARConfirmCurrentPriceDiff() >= GetDynamicSARRequiredConfirmDiff() ? clrLime : clrOrange);
 
-   DashRow("SAR Confirm Diff",
-           DoubleToString(InpSARConfirmPriceDiff, 2),
+   DashRow("SAR Signal Side",
+           SARSignalSideStatusText(),
+           (!InpUseSARSignalPriceSideFilter || GetSARSignalSidePriceDiff(g_activeSARDirection) >= MathMax(0.0, InpSARSignalPriceSideMinGap)) ? clrLime : clrOrangeRed);
+
+   DashRow("SAR Score",
+           IntegerToString(g_dynamicSARScore) + " / " + IntegerToString(InpDynamicStrongScore) + " | " + g_dynamicSARDecision,
+           g_dynamicSARScore >= InpDynamicStrongScore ? clrLime : clrOrange);
+
+   DashRow("SAR Age",
+           IntegerToString(GetSARSignalAgeMinutes()) + "m / " + IntegerToString(InpDynamicMinSignalMinutes) + "m",
+           GetSARSignalAgeMinutes() >= InpDynamicMinSignalMinutes ? clrLime : clrOrange);
+
+   DashRow("Early SAR Exit",
+           g_earlySARWeakExitActive ? "WEAK - PROTECT" : "OFF",
+           g_earlySARWeakExitActive ? clrOrangeRed : clrLime);
+
+   DashRow("Basket Peak",
+           "$" + DoubleToString(g_activeBasketPeakProfit, 2),
+           g_activeBasketPeakProfit > 0 ? clrLime : clrWhite);
+
+   DashRow("Dynamic ATR",
+           DoubleToString(g_dynamicSARATR, 2),
            clrWhite);
 
    DashRow("Early Trend",
@@ -3368,6 +4286,14 @@ void DrawDashboard(string status)
            "$"+DoubleToString(AccountEquity(),2),
            clrAqua);
 
+   DashRow("Equity Trail",
+           g_globalEquityTrailStatus,
+           g_globalEquityTrailLocked ? clrOrangeRed : clrAqua);
+
+   DashRow("Equity Peak",
+           "$"+DoubleToString(g_globalEquityPeak,2),
+           clrAqua);
+
    DashRow("Base Balance",
            "$"+DoubleToString(g_baseBalance,2),
            clrWhite);
@@ -3387,6 +4313,14 @@ void DrawDashboard(string status)
    DashRow("Basket SL",
            "$"+DoubleToString(InpBasketStopLossUSD,2),
            clrRed);
+
+   DashRow("Max Open Orders",
+           IntegerToString(CountAllOrders()) + "/" + IntegerToString(InpMaxTotalOpenOrders),
+           CountAllOrders() >= InpMaxTotalOpenOrders ? clrOrangeRed : clrLime);
+
+   DashRow("Recovery Block",
+           "OppGap " + DoubleToString(InpStrongOppMoveBlockRecoveryGap,0),
+           clrYellow);
 
 // DashRow("Recovery TP",
 //         "$"+DoubleToString(InpRecoveryProfitUSD,2),
