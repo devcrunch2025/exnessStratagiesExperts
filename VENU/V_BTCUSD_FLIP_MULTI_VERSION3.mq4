@@ -109,7 +109,7 @@ bool   InpUseSARPriceDiffConfirm  = true;
 // int    InpSARConfirmMinutes       = 15;     // wait this many minutes after SAR signal change before new order
 
 double InpSARConfirmPriceDiff     = 30.0;   // raw price diff for BTCUSD, not points
-int    InpSARConfirmMinutes       = 5;     // wait this many minutes after SAR signal change before new order
+int    InpSARConfirmMinutes       = 15;     // wait this many minutes after SAR signal change before new order
 // TEST MODE: Only SAR flip confirmation is active: wait 5 minutes, then require raw price gap 30 in SAR direction.
 // BUY requires Close[1] - flipPrice >= 30. SELL requires flipPrice - Close[1] >= 30.
 
