@@ -315,6 +315,9 @@ datetime g_activeSARSignalChangeTime  = 0;
 double   g_lastConfirmedOrderPrice = 0.0;
 datetime g_lastConfirmedOrderTime  = 0;
 
+// Last normal order open result. Used by dashboard/status when OpenMarketOrder() returns false.
+string   g_lastOrderOpenReason    = "WAIT ORDER";
+
 int      g_equityDay            = -1;
 double   g_dayStartBalance      = 0.0;
 double   g_dayStartEquity       = 0.0;
@@ -606,7 +609,7 @@ int OnInit()
   
   if(IsTesting())
 {
-   InpProfitTargetPercent = 20000.0;
+   InpProfitTargetPercent = 20.0;
 }
    InitializeEquityDay();
    InitializeLastDepositBalanceOpTime();
@@ -704,6 +707,7 @@ void ResetTradingCycleState()
    g_activeSARSignalChangeTime  = 0;
    g_lastConfirmedOrderPrice = 0.0;
    g_lastConfirmedOrderTime  = 0;
+   g_lastOrderOpenReason     = "WAIT ORDER";
    g_sarChangesAfterLastNormalOrder = 0;
    g_sarCloseTrackedDirection       = 0;
    g_sarCloseTrackedOrderTime       = 0;
@@ -2902,7 +2906,7 @@ IncreaseSARMaxWhenDotDistanceAndH1Same();
    if(OpenMarketOrder(g_activeSARDirection, "SAR_FLIP_V2LAST"))
       status = "Active " + DirectionText(g_activeSARDirection);
    else
-      status = "OrderSend failed";
+      status = g_lastOrderOpenReason;
 
       Print("NEW ORDER CHECKS PASSED | Direction=", DirectionText(g_activeSARDirection),
             " | CycleOrders=", cycleOrders,
@@ -4237,86 +4241,189 @@ bool IsRepeatedPriceGapConfirmedForNormalOrder(int direction, string reason)
   }
 
 //+------------------------------------------------------------------+
+
+//+------------------------------------------------------------------+
+//| Detailed order block / OrderSend failure reason helpers           |
+//+------------------------------------------------------------------+
+bool BlockOrder(string reason)
+  {
+   g_lastOrderOpenReason = reason;
+   Print("ORDER BLOCKED | ", reason);
+   return(false);
+  }
+
+//+------------------------------------------------------------------+
+string MT4TradeErrorDescription(int err)
+  {
+   switch(err)
+     {
+      case 0:    return("No error");
+      case 1:    return("No error returned");
+      case 2:    return("Common error");
+      case 3:    return("Invalid trade parameters");
+      case 4:    return("Trade server busy");
+      case 5:    return("Old terminal version");
+      case 6:    return("No connection");
+      case 8:    return("Too frequent requests");
+      case 64:   return("Account disabled");
+      case 65:   return("Invalid account");
+      case 128:  return("Trade timeout");
+      case 129:  return("Invalid price");
+      case 130:  return("Invalid stops");
+      case 131:  return("Invalid volume / lot size");
+      case 132:  return("Market closed");
+      case 133:  return("Trading disabled");
+      case 134:  return("Not enough money / free margin");
+      case 135:  return("Price changed");
+      case 136:  return("Off quotes");
+      case 137:  return("Broker busy");
+      case 138:  return("Requote");
+      case 139:  return("Order locked");
+      case 140:  return("Long positions only allowed");
+      case 141:  return("Too many trade requests");
+      case 145:  return("Modification denied because order too close to market");
+      case 146:  return("Trade context busy");
+      case 147:  return("Expiration denied by broker");
+      case 148:  return("Too many orders");
+      case 149:  return("Hedge prohibited");
+      case 150:  return("FIFO rule prohibited");
+      case 4107: return("Invalid price parameter");
+      case 4108: return("Invalid ticket");
+      case 4109: return("Trade not allowed by EA/settings");
+      case 4110: return("Long trades not allowed");
+      case 4111: return("Short trades not allowed");
+      case 4112: return("Trade is disabled by symbol/account settings");
+      default:   return("Unknown trade error");
+     }
+  }
+
+//+------------------------------------------------------------------+
+string BuildOrderSendFailMessage(int err,
+                                 int type,
+                                 double lot,
+                                 double price,
+                                 double sl,
+                                 string reason)
+  {
+   return("OrderSend FAILED | Error=" + IntegerToString(err) +
+          " " + MT4TradeErrorDescription(err) +
+          " | Type=" + (type == OP_BUY ? "BUY" : "SELL") +
+          " | Lot=" + DoubleToString(lot, 2) +
+          " | Price=" + DoubleToString(price, Digits) +
+          " | Bid=" + DoubleToString(Bid, Digits) +
+          " | Ask=" + DoubleToString(Ask, Digits) +
+          " | Spread=" + DoubleToString(MarketInfo(Symbol(), MODE_SPREAD), 0) +
+          " | StopLevel=" + DoubleToString(MarketInfo(Symbol(), MODE_STOPLEVEL), 0) +
+          " | FreeMargin=$" + DoubleToString(AccountFreeMargin(), 2) +
+          " | Magic=" + IntegerToString(InpMagicNumber) +
+          " | Source=" + reason);
+  }
+
 bool OpenMarketOrder(int direction, string reason)
   {
+   g_lastOrderOpenReason = "CHECKING | " + reason;
 
-Print("Attempting to open ",reason, "-------------------------------------");
+   Print("Attempting to open ", reason, "-------------------------------------");
 
    RefreshRates();
 
+   if(direction == 0)
+      return BlockOrder("Direction is 0 | Source=" + reason);
+
    if(IsProfitProtectPauseActive())
      {
-      Print("ORDERSEND BLOCKED | Individual profit protect pause active | Remaining=",
-            ProfitProtectPauseStatusText(), " | Direction=", DirectionText(direction),
-            " | Reason=", reason);
+      string msg = "Individual profit protect pause active | Remaining=" +
+                   ProfitProtectPauseStatusText() +
+                   " | Direction=" + DirectionText(direction) +
+                   " | Source=" + reason;
+
+      Print("ORDERSEND BLOCKED | ", msg);
       DrawDashboard("PROFIT PROTECT PAUSE " + ProfitProtectPauseStatusText());
-      return(false);
+      return BlockOrder(msg);
      }
 
    if(IsTotalOpenOrderCapReached("OpenMarketOrder"))
-      return(false);
+      return BlockOrder("Total open order cap reached | Total=" +
+                        IntegerToString(CountAllOrders()) +
+                        "/" + IntegerToString(InpMaxTotalOpenOrders) +
+                        " | Source=" + reason);
 
    if(!IsTradingAllowedNow())
-     {
-      // DrawDashboard("AUTOTRADING OFF");
-         Print("ORDERSEND BLOCKED | Autotrading not allowed now.");
-      return(false);
-     }
+      return BlockOrder("Trading not allowed now / AutoTrading OFF / trade context busy / no free margin | Source=" + reason);
 
    if(CheckEquityConditions())
-     {
-      Print("ORDERSEND BLOCKED | Equity/profit lock active. Reason=", reason);
-      return(false);
-     }
+      return BlockOrder("Equity protection or daily profit lock active | Source=" + reason);
 
-   if(CountOrdersByDirection(direction) >= InpMaxOrders)
+   int currentDirectionCount = CountOrdersByDirection(direction);
+   if(currentDirectionCount >= InpMaxOrders)
      {
-      Print("ORDERSEND BLOCKED | Max open orders per direction reached | Direction=",
-            DirectionText(direction), " | Open=", CountOrdersByDirection(direction),
-            "/", InpMaxOrders, " | Reason=", reason);
-      return(false);
+      string msgMaxOpen = "Max open orders per direction reached | Direction=" +
+                          DirectionText(direction) +
+                          " | Open=" + IntegerToString(currentDirectionCount) +
+                          "/" + IntegerToString(InpMaxOrders) +
+                          " | Source=" + reason;
+
+      Print("ORDERSEND BLOCKED | ", msgMaxOpen);
+      return BlockOrder(msgMaxOpen);
      }
 
    EnsureSARSignalOrderCycle(direction);
-// UpgradeSARCycleMaxIfGoodMomentum(direction, "OpenMarketOrder pre-check");
    UpdateSARCycleMaxByMomentum(direction, "OpenMarketOrder pre-check");
-
 
    int dynamicMaxOrders = g_sarCycleMaxOrders;
    int cycleOrders      = g_sarCycleOrdersCreated;
 
-// Final safety before OrderSend: count created orders in current SAR signal-cycle,
-// not currently open orders. Closed profitable orders are still counted.
+   // Final safety before OrderSend: count created orders in current SAR signal-cycle,
+   // not currently open orders. Closed profitable orders are still counted.
    if(dynamicMaxOrders <= 0)
      {
-      Print("ORDERSEND BLOCKED | SAR cycle max is 0. Symbol=", Symbol(),
-            " Direction=", DirectionText(direction),
-            " Reason=", reason,
-            " Last5=", GetSARDurationSummaryText());
+      string msgZeroMax = "SAR cycle max is 0 | Symbol=" + Symbol() +
+                          " | Direction=" + DirectionText(direction) +
+                          " | Last5=" + GetSARDurationSummaryText() +
+                          " | Source=" + reason;
+
+      Print("ORDERSEND BLOCKED | ", msgZeroMax);
       DrawDashboard("ORDERSEND BLOCKED - SAR CYCLE MAX 0");
-      return(false);
+      return BlockOrder(msgZeroMax);
      }
 
    if(cycleOrders >= dynamicMaxOrders)
      {
-      Print("ORDERSEND BLOCKED | SAR signal-cycle max reached. Symbol=", Symbol(),
-            " Direction=", DirectionText(direction),
-            " CycleCreated=", cycleOrders,
-            " DynamicMax=", dynamicMaxOrders,
-            " Reason=", reason,
-            " Last5=", GetSARDurationSummaryText());
-      DrawDashboard("ORDERSEND BLOCKED CYCLE " + IntegerToString(cycleOrders) + "/" + IntegerToString(dynamicMaxOrders));
-      return(false);
+      string msgCycleMax = "SAR signal-cycle max reached | Direction=" +
+                           DirectionText(direction) +
+                           " | CycleCreated=" + IntegerToString(cycleOrders) +
+                           "/" + IntegerToString(dynamicMaxOrders) +
+                           " | Last5=" + GetSARDurationSummaryText() +
+                           " | Source=" + reason;
+
+      Print("ORDERSEND BLOCKED | ", msgCycleMax);
+      DrawDashboard("ORDERSEND BLOCKED CYCLE " +
+                    IntegerToString(cycleOrders) + "/" +
+                    IntegerToString(dynamicMaxOrders));
+      return BlockOrder(msgCycleMax);
      }
 
    int type = direction == 1 ? OP_BUY : OP_SELL;
    double price = direction == 1 ? Ask : Bid;
 
    if(!IsSARSignalPriceSideAllowed(direction, reason))
-      return(false);
+      return BlockOrder("SAR signal price side filter blocked | Direction=" +
+                        DirectionText(direction) +
+                        " | SignalPrice=" + DoubleToString(g_activeSARSignalChangePrice, Digits) +
+                        " | Bid=" + DoubleToString(Bid, Digits) +
+                        " | Ask=" + DoubleToString(Ask, Digits) +
+                        " | Source=" + reason);
 
    if(!IsRepeatedPriceGapConfirmedForNormalOrder(direction, reason))
-      return(false);
+      return BlockOrder("Repeated price gap not confirmed | Direction=" +
+                        DirectionText(direction) +
+                        " | RequiredGap=" + DoubleToString(InpContinuousOrderPriceGap, Digits) +
+                        " | MinutesLimit=" + IntegerToString(InpContinuousOrderGapMinutes) +
+                        " | LastConfirmedPrice=" + DoubleToString(g_lastConfirmedOrderPrice, Digits) +
+                        " | SARSignalPrice=" + DoubleToString(g_activeSARSignalChangePrice, Digits) +
+                        " | Bid=" + DoubleToString(Bid, Digits) +
+                        " | Ask=" + DoubleToString(Ask, Digits) +
+                        " | Source=" + reason);
 
    double sl = 0;
 
@@ -4328,49 +4435,51 @@ Print("Attempting to open ",reason, "-------------------------------------");
          sl = NormalizeDouble(price + InpStopLossPoints * Point, Digits);
      }
 
-     sl=0; // disable SL for now to test pure SAR cycle max logic
+   sl = 0; // disable SL for now to test pure SAR cycle max logic
 
    double lot = NormalizeLot(InpFixedLot);
 
    RefreshRates();
    EnsureSARSignalOrderCycle(direction);
-// UpgradeSARCycleMaxIfGoodMomentum(direction, "OrderSend last check");
    UpdateSARCycleMaxByMomentum(direction, "OrderSend last check");
-
 
    if(g_sarCycleMaxOrders <= 0 || g_sarCycleOrdersCreated >= g_sarCycleMaxOrders)
      {
-      Print("ORDERSEND CANCELLED LAST CHECK | CycleCreated=", g_sarCycleOrdersCreated,
-            " DynamicMax=", g_sarCycleMaxOrders,
-            " Last5=", GetSARDurationSummaryText());
-      return(false);
+      string msgLastCycle = "OrderSend cancelled last check | CycleCreated=" +
+                            IntegerToString(g_sarCycleOrdersCreated) +
+                            "/" + IntegerToString(g_sarCycleMaxOrders) +
+                            " | Last5=" + GetSARDurationSummaryText() +
+                            " | Source=" + reason;
+
+      Print("ORDERSEND CANCELLED LAST CHECK | ", msgLastCycle);
+      return BlockOrder(msgLastCycle);
      }
 
    if(!IsTradingAllowedNow())
-     {
-      Print("ORDERSEND CANCELLED LAST CHECK | Autotrading not allowed now.");
-      return(false);
-     }
+      return BlockOrder("OrderSend cancelled last check | Trading not allowed now | Source=" + reason);
 
-   int ticket = OrderSend(Symbol(), type, lot, price, InpSlippage, sl, 0, reason, InpMagicNumber, 0, direction == 1 ? InpBuyColor : InpSellColor);
+   ResetLastError();
+
+   int ticket = OrderSend(Symbol(),
+                          type,
+                          lot,
+                          price,
+                          InpSlippage,
+                          sl,
+                          0,
+                          reason,
+                          InpMagicNumber,
+                          0,
+                          direction == 1 ? InpBuyColor : InpSellColor);
 
    if(ticket < 0)
      {
       int err = GetLastError();
 
-     Print("OrderSend FAILED | Symbol=", Symbol(),
-         " | Type=", type == OP_BUY ? "BUY" : "SELL",
-         " | Lot=", DoubleToString(lot, 2),
-         " | Price=", DoubleToString(price, Digits),
-         " | Bid=", DoubleToString(Bid, Digits),
-         " | Ask=", DoubleToString(Ask, Digits),
-         " | Spread=", MarketInfo(Symbol(), MODE_SPREAD),
-         " | SL=", DoubleToString(sl, Digits),
-         " | Magic=", InpMagicNumber,
-         " | Reason=", reason,
-         " | Slippage=", InpSlippage,
-         " | Error=", err);
-      Print("OrderSend failed. Direction=", DirectionText(direction), " Error=", err);
+      g_lastOrderOpenReason = BuildOrderSendFailMessage(err, type, lot, price, sl, reason);
+
+      Print(g_lastOrderOpenReason);
+
       ResetLastError();
       return(false);
      }
@@ -4379,11 +4488,11 @@ Print("Attempting to open ",reason, "-------------------------------------");
    g_lastConfirmedOrderPrice = price;
    g_lastConfirmedOrderTime  = TimeCurrent();
 
-// Register only normal SAR cycle orders. Recovery orders use OpenRecoveryOrder() and are independent.
+   // Register only normal SAR cycle orders. Recovery orders use OpenRecoveryOrder() and are independent.
    RegisterSARCycleOrderCreated(direction);
 
-// Reset delayed SAR close counter from this newly created normal order.
-// This fixes: close on 2nd/4th SAR change FROM THE CREATED ORDER, not global SAR changes.
+   // Reset delayed SAR close counter from this newly created normal order.
+   // This fixes: close on 2nd/4th SAR change FROM THE CREATED ORDER, not global SAR changes.
    if(InpUseDelayedSARChangeClose && InpResetSARCloseCounterOnNewOrder)
      {
       g_sarChangesAfterLastNormalOrder = 0;
@@ -4397,12 +4506,19 @@ Print("Attempting to open ",reason, "-------------------------------------");
             " | CloseOnChange=", MathMax(1, InpCloseOrdersOnNthSARChangeAfterOrder));
      }
 
+   g_lastOrderOpenReason = "SUCCESS | Ticket=" + IntegerToString(ticket) +
+                           " | Direction=" + DirectionText(direction) +
+                           " | Lot=" + DoubleToString(lot, 2) +
+                           " | Price=" + DoubleToString(price, Digits) +
+                           " | Source=" + reason;
+
    Print("Opened ", DirectionText(direction), " ticket=", ticket,
          " lot=", DoubleToString(lot, 2),
          " reason=", reason,
          " | SARCycleCreated=", g_sarCycleOrdersCreated,
          "/", g_sarCycleMaxOrders,
          " | Last5SAR=", GetSARDurationSummaryText());
+
    return(true);
   }
 
@@ -4749,7 +4865,7 @@ void DashRow(string title,string value,color clrText=clrWhite)
    DrawLabel(
       "DXB_ROW_"+IntegerToString(g_dashRow),
       title+" : "+value,
-      280,
+      350,
       20+(g_dashRow*18),
       clrText,
       9
