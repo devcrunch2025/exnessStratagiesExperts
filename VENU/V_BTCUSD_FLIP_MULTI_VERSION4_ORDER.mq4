@@ -25,8 +25,8 @@ double InpBasketProfitUSD_12_17 = 1.00; // profit target during 12,13,14,15,16,1
 // Individual profit protection:
 // If an order first moves into profit and later comes back down, close it near this small profit.
 bool   InpUseIndividualProfitProtect      = true;
-double InpIndividualProtectActivateUSD    = 0.80;  // order must first reach this profit
-double InpIndividualProtectCloseAtUSD     = 0.50;  // then close if profit falls back near this value
+double InpIndividualProtectActivateUSD    = 0.50;  // order must first reach this profit
+double InpIndividualProtectCloseAtUSD     = 0.40;  // then close if profit falls back near this value
 int    InpIndividualProtectPauseMinutes     = 5;     // wait this many minutes before opening next normal order after profit protect close
 bool   InpCloseIfNextCandleNotProfit     = false;  // close order after next closed candle if profit is not above 0
 
@@ -2675,7 +2675,7 @@ bool ProcessCloseOrdersFirst(string &status)
    double basketTarget = GetBasketProfitTargetUSD();
    
    if(CountOpenOrders()>0)
-   basketTarget=basketTarget/CountOpenOrders();
+   basketTarget=basketTarget/(CountOpenOrders()*2);
    
    
 
@@ -4811,7 +4811,7 @@ void DrawDashboard(string status)
 
    g_dashRow=0;
 
-   DashRow("V2 SAR EA",status,clrYellow);
+   DashRow("V4 SAR EA",status,clrYellow);
 
    Print("DASHBOARD UPDATE | Status=", status,
          " | SAR=", DirectionText(g_activeSARDirection),
