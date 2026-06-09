@@ -602,13 +602,14 @@ double GetBasketProfitTargetUSD()
    int h = TimeHour(TimeCurrent());
    
    
-   
+   int count=CountOpenOrders();
+   if(count==0)count=1;
    
 
    if(h >= 12 && h <= 17)
-      return InpBasketProfitUSD_12_17;
+      return InpBasketProfitUSD_12_17/count;
 
-   return InpBasketProfitUSD;
+   return InpBasketProfitUSD/count;
 }
 //+------------------------------------------------------------------+
 int OnInit()
@@ -1225,6 +1226,131 @@ void CloseAllEAOrders(string reason)
      }
   }
 //+------------------------------------------------------------------+
+
+//+------------------------------------------------------------------+
+//| FIRST PRIORITY PROFIT BOOKING                                    |
+//| 1) Close ALL BUY+SELL open EA orders when combined profit >= TP.  |
+//| 2) If combined target is not reached, close BUY or SELL basket    |
+//|    separately when that side profit >= TP.                        |
+//+------------------------------------------------------------------+
+double GetAllOpenEAOrdersProfit()
+  {
+   double profit = 0.0;
+
+   for(int i = OrdersTotal() - 1; i >= 0; i--)
+     {
+      if(!OrderSelect(i, SELECT_BY_POS, MODE_TRADES))
+         continue;
+
+      if(OrderSymbol() != Symbol())
+         continue;
+
+      if(OrderMagicNumber() != InpMagicNumber)
+         continue;
+
+      if(OrderType() != OP_BUY && OrderType() != OP_SELL)
+         continue;
+
+      profit += OrderProfit() + OrderSwap() + OrderCommission();
+     }
+
+   return(profit);
+  }
+
+//+------------------------------------------------------------------+
+void ResetDelayedSARCloseAfterBasketClose(int direction, string resetReason)
+  {
+   if(direction != 0 && direction != g_sarCloseTrackedDirection)
+      return;
+
+   g_sarChangesAfterLastNormalOrder = 0;
+   g_sarCloseTrackedDirection       = 0;
+   g_sarCloseTrackedOrderTime       = 0;
+   g_sarDelayedCloseStatus          = resetReason;
+  }
+
+//+------------------------------------------------------------------+
+bool ProcessFirstPriorityBasketProfitClose(string &status)
+  {
+   double target = GetBasketProfitTargetUSD();
+   if(target <= 0.0)
+      return(false);
+
+   RefreshRates();
+
+   int totalOrders = CountAllOrders();
+   if(totalOrders <= 0)
+      return(false);
+
+   double allProfit = GetAllOpenEAOrdersProfit();
+   int buyCount  = CountOrdersByDirection(1);
+   int sellCount = CountOrdersByDirection(-1);
+
+   // PRIORITY 1:
+   // If combined BUY + SELL floating profit reaches InpBasketProfitUSD,
+   // close everything first. This is best when hedge/recovery orders are active.
+   if(allProfit >= target)
+     {
+      CloseAllEAOrders("FIRST PRIORITY ALL BUY+SELL basket profit $" + DoubleToString(allProfit, 2));
+
+      ResetDelayedSARCloseAfterBasketClose(0, "All basket TP reset");
+
+      Print("FIRST PRIORITY ALL BASKET PROFIT HIT | Orders=", totalOrders,
+            " | BuyCount=", buyCount,
+            " | SellCount=", sellCount,
+            " | Profit=$", DoubleToString(allProfit, 2),
+            " | Target=$", DoubleToString(target, 2));
+
+      status = "ALL BUY+SELL TP $" + DoubleToString(allProfit, 2);
+      return(true);
+     }
+
+   // PRIORITY 2:
+   // If combined profit is not enough, close the profitable side only.
+   // BUY basket and SELL basket are checked separately using the SAME full target.
+   double buyProfit  = (buyCount  > 0) ? GetBasketProfit(1)  : 0.0;
+   double sellProfit = (sellCount > 0) ? GetBasketProfit(-1) : 0.0;
+
+   bool closedAnySide = false;
+   string closedText = "";
+
+   if(buyCount > 0 && buyProfit >= target)
+     {
+      CloseOrdersByDirection(1, "FIRST PRIORITY BUY basket profit $" + DoubleToString(buyProfit, 2));
+      ResetDelayedSARCloseAfterBasketClose(1, "BUY basket TP reset");
+
+      Print("FIRST PRIORITY BUY BASKET PROFIT HIT | BuyCount=", buyCount,
+            " | Profit=$", DoubleToString(buyProfit, 2),
+            " | Target=$", DoubleToString(target, 2));
+
+      closedAnySide = true;
+      closedText = "BUY TP $" + DoubleToString(buyProfit, 2);
+     }
+
+   if(sellCount > 0 && sellProfit >= target)
+     {
+      CloseOrdersByDirection(-1, "FIRST PRIORITY SELL basket profit $" + DoubleToString(sellProfit, 2));
+      ResetDelayedSARCloseAfterBasketClose(-1, "SELL basket TP reset");
+
+      Print("FIRST PRIORITY SELL BASKET PROFIT HIT | SellCount=", sellCount,
+            " | Profit=$", DoubleToString(sellProfit, 2),
+            " | Target=$", DoubleToString(target, 2));
+
+      if(closedText != "")
+         closedText += " | ";
+      closedText += "SELL TP $" + DoubleToString(sellProfit, 2);
+      closedAnySide = true;
+     }
+
+   if(closedAnySide)
+     {
+      status = closedText;
+      return(true);
+     }
+
+   return(false);
+  }
+
 
 void ResetBigCandlePauseState()
   {
@@ -2802,11 +2928,6 @@ bool ProcessCloseOrdersFirst(string &status)
      }
 
    double basketTarget = GetBasketProfitTargetUSD();
-   
-   if(CountOpenOrders()>0)
-   basketTarget=basketTarget/(CountOpenOrders()*2);
-   
-   
 
    // Basket TP must be checked against the full active-direction basket profit.
    // Do NOT divide target by open order count.
@@ -3102,6 +3223,16 @@ void OnTick()
 
 
    RefreshRates();
+
+// FIRST PRIORITY PROFIT BOOKING:
+// 1) Close ALL BUY+SELL open EA orders if combined profit >= InpBasketProfitUSD.
+// 2) Otherwise close BUY basket or SELL basket individually if that side profit >= InpBasketProfitUSD.
+   string firstPriorityStatus = "RUNNING";
+   if(ProcessFirstPriorityBasketProfitClose(firstPriorityStatus))
+     {
+      DrawDashboard(firstPriorityStatus);
+      return;
+     }
 
 // Deposit reset uses the same equity reset method as fixed hours (1,7,13,19).
 // Closed trade profit will not trigger this because only OP_BALANCE is checked.
