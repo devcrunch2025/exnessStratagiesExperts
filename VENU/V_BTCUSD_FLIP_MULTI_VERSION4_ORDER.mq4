@@ -609,7 +609,7 @@ int OnInit()
   
   if(IsTesting())
 {
-   InpProfitTargetPercent = 20.0;
+   InpProfitTargetPercent = 2000.0;
 }
    InitializeEquityDay();
    InitializeLastDepositBalanceOpTime();
