@@ -41,6 +41,13 @@ bool   InpUseRecoveryGapOrders    = true;
 double InpRecoveryGapRawPrice     = 150.0;   // raw price difference, not points
 double InpRecoveryGapLot          = 0.01;
 int    InpMaxRecoveryGapOrdersPerSide = 3;  // recovery ladder: 50, 100, 150 from first order price
+
+// Reverse swing order: whenever a RECOVERY_GAP order opens, also open one opposite order.
+// Example: BUY recovery opens -> open SELL swing order.
+// These reverse swing orders are protected by the same 0.50 -> 0.40 pullback logic.
+bool   InpOpenReverseOrderWithRecovery = true;
+double InpRecoveryReverseLot           = 0.01;   // 0 or less = use InpRecoveryGapLot
+
 int    InpStopLossPoints          = 0;       // 0 = no hard SL
 int    InpSlippage                = 30;
 int    InpMaxSpreadPoints         = 3000;
@@ -1489,50 +1496,13 @@ int CountRecoveryOrders()
 //+------------------------------------------------------------------+
 void CloseRecoveryOrdersAtProfit()
   {
-   RefreshRates();
-
-   for(int i = OrdersTotal() - 1; i >= 0; i--)
-     {
-      if(!OrderSelect(i, SELECT_BY_POS, MODE_TRADES))
-         continue;
-
-      if(OrderSymbol() != Symbol())
-         continue;
-
-      if(OrderMagicNumber() != InpMagicNumber)
-         continue;
-
-      if(OrderType() != OP_BUY && OrderType() != OP_SELL)
-         continue;
-
-      if(!IsRecoveryOrder())
-         continue;
-
-      double profit = OrderProfit() + OrderSwap() + OrderCommission();
-// if(CountOpenOrders()>0)
-      if(profit < InpRecoveryProfitUSD)
-         continue;
-
-      int type = OrderType();
-      double closePrice = (type == OP_BUY) ? Bid : Ask;
-
-      bool ok = OrderClose(OrderTicket(), OrderLots(), closePrice, InpSlippage, clrGold);
-
-      if(ok)
-        {
-         Print("RECOVERY PROFIT CLOSED | Ticket=", OrderTicket(),
-               " | Profit=$", DoubleToString(profit, 2),
-               " | Target=$", DoubleToString(InpRecoveryProfitUSD, 2));
-        }
-      else
-        {
-         int err = GetLastError();
-         Print("RECOVERY PROFIT CLOSE FAILED | Ticket=", OrderTicket(),
-               " | Profit=$", DoubleToString(profit, 2),
-               " | Error=", err);
-         ResetLastError();
-        }
-     }
+   // DISABLED BY DESIGN:
+   // Recovery orders should NOT close immediately at a fixed profit target.
+   // They must close only after:
+   // 1) Order profit first reaches InpIndividualProtectActivateUSD, and
+   // 2) Profit falls back to InpIndividualProtectCloseAtUSD.
+   // This logic is handled by ProcessIndividualProfitProtect().
+   return;
   }
 //+------------------------------------------------------------------+
 //| Check MT4 trading permission                                     |
@@ -1727,6 +1697,95 @@ bool GetRecoveryGapReferencePrice(int direction, double &referencePrice, int &to
   }
 
 //+------------------------------------------------------------------+
+bool IsRecoveryHedgeOrderComment(string commentText)
+  {
+   return(StringFind(commentText, "RECOVERY_HEDGE") >= 0);
+  }
+
+//+------------------------------------------------------------------+
+bool OpenReverseOrderForRecovery(int recoveryDirection, int recoveryNumber, double recoveryGapMove)
+  {
+   if(!InpOpenReverseOrderWithRecovery)
+      return(false);
+
+   if(recoveryDirection == 0)
+      return(false);
+
+   int reverseDirection = -recoveryDirection;
+
+   if(!IsTradingAllowedNow())
+     {
+      Print("RECOVERY HEDGE BLOCKED | Trading not allowed | RecoveryDirection=",
+            DirectionText(recoveryDirection));
+      return(false);
+     }
+
+   RefreshRates();
+
+   if(IsTotalOpenOrderCapReached("OpenReverseOrderForRecovery"))
+      return(false);
+
+   if(CheckEquityConditions())
+     {
+      Print("RECOVERY HEDGE BLOCKED | Equity/profit lock active.");
+      return(false);
+     }
+
+   if(MarketInfo(Symbol(), MODE_SPREAD) > InpMaxSpreadPoints)
+     {
+      Print("RECOVERY HEDGE BLOCKED | Spread=", MarketInfo(Symbol(), MODE_SPREAD),
+            " > MaxSpread=", InpMaxSpreadPoints);
+      return(false);
+     }
+
+   int type = reverseDirection == 1 ? OP_BUY : OP_SELL;
+   double price = reverseDirection == 1 ? Ask : Bid;
+   double lotInput = InpRecoveryReverseLot > 0.0 ? InpRecoveryReverseLot : InpRecoveryGapLot;
+   double lot = NormalizeLot(lotInput);
+
+   string comment = "RECOVERY_HEDGE_FROM_" + IntegerToString(recoveryNumber) +
+                    "_" + DirectionText(reverseDirection);
+
+   int ticket = OrderSend(Symbol(),
+                          type,
+                          lot,
+                          price,
+                          InpSlippage,
+                          0,
+                          0,
+                          comment,
+                          InpMagicNumber,
+                          0,
+                          reverseDirection == 1 ? InpBuyColor : InpSellColor);
+
+   if(ticket < 0)
+     {
+      int err = GetLastError();
+      Print("RECOVERY HEDGE ORDER FAILED | RecoveryDirection=", DirectionText(recoveryDirection),
+            " | HedgeDirection=", DirectionText(reverseDirection),
+            " | RecoveryNo=", recoveryNumber,
+            " | GapMove=", DoubleToString(recoveryGapMove, Digits),
+            " | Error=", err);
+      ResetLastError();
+      return(false);
+     }
+
+   g_lastOrderTime = TimeCurrent();
+
+   Print("RECOVERY HEDGE ORDER OPENED | Ticket=", ticket,
+         " | RecoveryDirection=", DirectionText(recoveryDirection),
+         " | HedgeDirection=", DirectionText(reverseDirection),
+         " | Lot=", DoubleToString(lot, 2),
+         " | RecoveryNo=", recoveryNumber,
+         " | GapMove=", DoubleToString(recoveryGapMove, Digits),
+         " | Protect=", DoubleToString(InpIndividualProtectActivateUSD, 2),
+         " -> ", DoubleToString(InpIndividualProtectCloseAtUSD, 2),
+         " | Comment=", comment);
+
+   return(true);
+  }
+
+//+------------------------------------------------------------------+
 bool OpenRecoveryGapMarketOrder(int direction, double gapMove)
   {
    if(direction == 0)
@@ -1769,6 +1828,9 @@ bool OpenRecoveryGapMarketOrder(int direction, double gapMove)
 
    double lot = NormalizeLot(InpRecoveryGapLot);
    int nextRecoveryNumber = CountRecoveryGapOrdersByDirection(direction) + 1;
+
+lot=lot*nextRecoveryNumber;
+
    double requiredGapForComment = InpRecoveryGapRawPrice * nextRecoveryNumber;
    string comment = "RECOVERY_GAP_" + IntegerToString(nextRecoveryNumber) +
                     "_GAP_" + DoubleToString(requiredGapForComment, 0) +
@@ -1807,6 +1869,12 @@ bool OpenRecoveryGapMarketOrder(int direction, double gapMove)
          " | ActualGap=", DoubleToString(gapMove, Digits),
          " | Comment=", comment);
 
+   // After a recovery order is opened, open one reverse swing/hedge order.
+   // Example: BUY recovery -> SELL hedge, SELL recovery -> BUY hedge.
+   // The hedge is tagged as RECOVERY_HEDGE so ProcessIndividualProfitProtect()
+   // will close it only after 0.50 peak -> 0.40 pullback.
+   OpenReverseOrderForRecovery(direction, nextRecoveryNumber, gapMove);
+
    return(true);
   }
 
@@ -1837,6 +1905,10 @@ bool GetRecoveryLadderBasePrice(int direction, double &basePrice, int &sideOrder
          continue;
 
       if(OrderType() != type)
+         continue;
+
+      // Reverse swing/hedge orders must not become the base for a new recovery ladder.
+      if(IsRecoveryHedgeOrderComment(OrderComment()))
          continue;
 
       sideOrders++;
@@ -3045,10 +3117,15 @@ void OnTick()
       return;
      }
 
-// Recovery order profit close must run before all signal/new-order logic.
-   CloseRecoveryOrdersAtProfit();
+// Recovery orders must NOT close at fixed InpRecoveryProfitUSD.
+   // They close only via ProcessIndividualProfitProtect():
+   // peak >= InpIndividualProtectActivateUSD, then pullback <= InpIndividualProtectCloseAtUSD.
+   // This keeps the oldest/base order open for basket recovery and lets recovery orders catch swings.
+   // CloseRecoveryOrdersAtProfit();
 
-// Individual profit protection: if order reached profit first and comes back near $0.20, close it.
+// Individual profit protection:
+   // Recovery orders close ONLY after profit pullback:
+   // InpIndividualProtectActivateUSD -> InpIndividualProtectCloseAtUSD.
    ProcessIndividualProfitProtect();
 
 // Next candle loss protection: if order is not in profit after next candle closes, close it.
