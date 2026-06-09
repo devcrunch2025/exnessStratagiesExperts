@@ -38,7 +38,7 @@ bool   InpRecoveryAfterSLReverse  = false;   // true: after basket SL, open oppo
 // Recovery gap orders: when existing BUY/SELL basket is in loss and price moves against it
 // by this raw price gap, open one more same-direction recovery order.
 bool   InpUseRecoveryGapOrders    = true;
-double InpRecoveryGapRawPrice     = 100.0;   // raw price difference, not points
+double InpRecoveryGapRawPrice     = 150.0;   // raw price difference, not points
 double InpRecoveryGapLot          = 0.01;
 int    InpMaxRecoveryGapOrdersPerSide = 3;  // recovery ladder: 50, 100, 150 from first order price
 int    InpStopLossPoints          = 0;       // 0 = no hard SL
@@ -264,8 +264,8 @@ int    InpWeakExitOppositeMinCandles    = 4;
 
 // Stop adding recovery orders after a strong opposite move.
 // Example BUY basket losing more than 200 raw price => do not add more BUY recovery.
-bool   InpStopRecoveryOnStrongOppMove   = true;
-double InpStrongOppMoveBlockRecoveryGap = 200.0;
+bool   InpStopRecoveryOnStrongOppMove   = false;
+double InpStrongOppMoveBlockRecoveryGap = 300.0;
 
 // Absolute cap for all EA market orders combined: normal + recovery.
 int    InpMaxTotalOpenOrders            = 0;
@@ -611,6 +611,9 @@ int OnInit()
 {
    InpProfitTargetPercent = 2000.0;
 }
+
+
+
    InitializeEquityDay();
    InitializeLastDepositBalanceOpTime();
    DeleteNonEarlySignalArrows();
@@ -1506,7 +1509,7 @@ void CloseRecoveryOrdersAtProfit()
          continue;
 
       double profit = OrderProfit() + OrderSwap() + OrderCommission();
-
+// if(CountOpenOrders()>0)
       if(profit < InpRecoveryProfitUSD)
          continue;
 
@@ -1813,7 +1816,41 @@ bool OpenRecoveryGapMarketOrder(int direction, double gapMove)
 //      when price falls from the original BUY.
 // SELL: use the lowest open SELL price as the base, because recovery starts
 //       when price rises from the original SELL.
+
 bool GetRecoveryLadderBasePrice(int direction, double &basePrice, int &sideOrders)
+{
+   basePrice = 0.0;
+   sideOrders = 0;
+
+   int type = direction == 1 ? OP_BUY : OP_SELL;
+   datetime oldestTime = 0;
+
+   for(int i = OrdersTotal() - 1; i >= 0; i--)
+   {
+      if(!OrderSelect(i, SELECT_BY_POS, MODE_TRADES))
+         continue;
+
+      if(OrderSymbol() != Symbol())
+         continue;
+
+      if(OrderMagicNumber() != InpMagicNumber)
+         continue;
+
+      if(OrderType() != type)
+         continue;
+
+      sideOrders++;
+
+      if(oldestTime == 0 || OrderOpenTime() < oldestTime)
+      {
+         oldestTime = OrderOpenTime();
+         basePrice = OrderOpenPrice();
+      }
+   }
+
+   return(sideOrders > 0);
+}
+bool GetRecoveryLadderBasePriceOld(int direction, double &basePrice, int &sideOrders)
   {
    basePrice = 0.0;
    sideOrders = 0;
@@ -1869,6 +1906,11 @@ double GetRecoveryLadderCurrentGap(int direction, double basePrice)
 double GetNextRecoveryLadderRequiredGap(int direction)
   {
    int recoveryCount = CountRecoveryGapOrdersByDirection(direction);
+
+   // Gap must always be verified from the OLDEST open order price.
+   // Recovery #1 = base +/- 150
+   // Recovery #2 = base +/- 300
+   // Recovery #3 = base +/- 450
    return(InpRecoveryGapRawPrice * (recoveryCount + 1));
   }
 
@@ -2366,7 +2408,9 @@ void ProcessIndividualProfitProtect()
       if(sideOpenOrders <= 0)
          sideOpenOrders = 1;
 
-      // Dynamic individual protection target:
+      bool recoveryOrder = IsRecoveryOrder();
+
+      // Dynamic individual protection target for NORMAL orders:
       // Example: Basket TP=$2 and 4 BUY orders => each BUY protect activation=$0.50.
       double dynamicActivateProfit = basketTarget / sideOpenOrders;
 
@@ -2374,13 +2418,20 @@ void ProcessIndividualProfitProtect()
       if(dynamicActivateProfit <= 0.0)
          dynamicActivateProfit = MathMax(0.0, InpIndividualProtectActivateUSD);
 
-      // Close after profit pulls back. Default: 50% of dynamic target.
-      // Example: target=$0.50 => pullback close near $0.25.
+      // Recovery orders must also be protected using the fixed manual values.
+      // This protects RECOVERY_GAP_1 / RECOVERY_GAP_2 / RECOVERY_GAP_3 during sliding up/down market.
+      if(recoveryOrder)
+         dynamicActivateProfit = MathMax(0.0, InpIndividualProtectActivateUSD);
+
+      // Close after profit pulls back. Default for normal orders: 50% of dynamic target.
       double dynamicCloseAtProfit = dynamicActivateProfit * 0.50;
 
-      // If you set InpIndividualProtectCloseAtUSD lower than calculated value,
-      // this keeps at least your manual minimum close value.
+      // Keep at least your manual close value.
       dynamicCloseAtProfit = MathMax(dynamicCloseAtProfit, MathMax(0.0, InpIndividualProtectCloseAtUSD));
+
+      // Recovery orders use exact manual close value, example: reached $0.50, close when back to $0.40.
+      if(recoveryOrder)
+         dynamicCloseAtProfit = MathMax(0.0, InpIndividualProtectCloseAtUSD);
 
       double profit = OrderProfit() + OrderSwap() + OrderCommission();
 
@@ -2406,6 +2457,8 @@ void ProcessIndividualProfitProtect()
            {
             Print("INDIVIDUAL PROFIT PROTECT CLOSED | Ticket=", ticket,
                   " | Type=", type == OP_BUY ? "BUY" : "SELL",
+                  " | Comment=", OrderComment(),
+                  " | Recovery=", recoveryOrder ? "YES" : "NO",
                   " | SideOpenOrders=", sideOpenOrders,
                   " | BasketTarget=$", DoubleToString(basketTarget, 2),
                   " | DynamicActivate=$", DoubleToString(dynamicActivateProfit, 2),
