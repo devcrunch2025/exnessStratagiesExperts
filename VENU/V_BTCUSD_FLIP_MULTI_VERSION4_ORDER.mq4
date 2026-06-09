@@ -27,6 +27,22 @@ double InpBasketProfitUSD_12_17 = 1.00; // profit target during 12,13,14,15,16,1
 bool   InpUseIndividualProfitProtect      = true;
 double InpIndividualProtectActivateUSD    = 0.50;  // order must first reach this profit
 double InpIndividualProtectCloseAtUSD     = 0.40;  // then close if profit falls back near this value
+
+// Multiple individual profit-protect levels.
+// Highest reached level is used first.
+// Example: peak >= 2.00 closes on pullback to 1.50; peak >= 1.00 closes on pullback to 0.80; peak >= 0.50 closes on pullback to 0.40.
+bool   InpUseMultiIndividualProfitProtect = true;
+double InpProtectActivateUSD_1 = 0.30;
+double InpProtectCloseAtUSD_1  = 0.10;
+double InpProtectActivateUSD_2 =0.60;
+double InpProtectCloseAtUSD_2  = 0.40;
+// double InpProtectActivateUSD_3 = 0.80;
+// double InpProtectCloseAtUSD_3  = 0.50;
+// double InpProtectActivateUSD_4 = 1.50;
+// double InpProtectCloseAtUSD_4  = 1.00;
+// double InpProtectActivateUSD_5 = 1.90;
+// double InpProtectCloseAtUSD_5  = 1.50;
+
 int    InpIndividualProtectPauseMinutes     = 5;     // wait this many minutes before opening next normal order after profit protect close
 bool   InpCloseIfNextCandleNotProfit     = false;  // close order after next closed candle if profit is not above 0
 
@@ -2579,6 +2595,79 @@ void CleanupProfitProtectClosedTickets()
      }
   }
 
+
+//+------------------------------------------------------------------+
+// Select highest matching individual profit-protect level.
+// Returns TRUE when a valid protection level exists.
+bool GetIndividualProfitProtectLevel(double peakProfit,
+                                     double defaultActivate,
+                                     double defaultCloseAt,
+                                     double &selectedActivate,
+                                     double &selectedCloseAt,
+                                     int &selectedLevel)
+  {
+   selectedActivate = MathMax(0.0, defaultActivate);
+   selectedCloseAt  = MathMax(0.0, defaultCloseAt);
+   selectedLevel    = 0;
+
+   if(!InpUseMultiIndividualProfitProtect)
+      return(selectedActivate > 0.0 && selectedCloseAt >= 0.0);
+
+   // Level 3 has highest priority after the order has reached that peak.
+   // if(InpProtectActivateUSD_5 > 0.0 && peakProfit >= InpProtectActivateUSD_5)
+   //   {
+   //    selectedActivate = InpProtectActivateUSD_5;
+   //    selectedCloseAt  = InpProtectCloseAtUSD_5;
+   //    selectedLevel    = 5;
+   //    return(true);
+   //   }
+
+   //     if(InpProtectActivateUSD_4 > 0.0 && peakProfit >= InpProtectActivateUSD_4)
+   //   {
+   //    selectedActivate = InpProtectActivateUSD_4;
+   //    selectedCloseAt  = InpProtectCloseAtUSD_4;
+   //    selectedLevel    = 4;
+   //    return(true);
+   //   }
+   //     if(InpProtectActivateUSD_3 > 0.0 && peakProfit >= InpProtectActivateUSD_3)
+   //   {
+   //    selectedActivate = InpProtectActivateUSD_3;
+   //    selectedCloseAt  = InpProtectCloseAtUSD_3;
+   //    selectedLevel    = 3;
+   //    return(true);
+   //   }
+
+   // if(InpProtectActivateUSD_2 > 0.0 && peakProfit >= InpProtectActivateUSD_2)
+   //   {
+   //    selectedActivate = InpProtectActivateUSD_2;
+   //    selectedCloseAt  = InpProtectCloseAtUSD_2;
+   //    selectedLevel    = 2;
+   //    return(true);
+   //   }
+
+   if(InpProtectActivateUSD_1 > 0.0)
+     {
+      selectedActivate = InpProtectActivateUSD_1;
+      selectedCloseAt  = InpProtectCloseAtUSD_1;
+      selectedLevel    = 1;
+      return(true);
+     }
+
+     // Dynamic fallback:
+// If no fixed level matched, but order moved into profit,
+// close when profit falls back to 50% of peak profit.
+if(peakProfit > 0.0)
+{
+   selectedActivate = peakProfit;
+   selectedCloseAt  = peakProfit / 2.0;
+   selectedLevel    = 0; // dynamic level
+   return(true);
+}
+
+   // Fallback to old single-level/dynamic values if all multi levels are disabled.
+   return(selectedActivate > 0.0 && selectedCloseAt >= 0.0);
+  }
+
 //+------------------------------------------------------------------+
 void ProcessIndividualProfitProtect()
   {
@@ -2640,10 +2729,22 @@ void ProcessIndividualProfitProtect()
       if(profit > g_profitProtectPeakProfit[idx])
          g_profitProtectPeakProfit[idx] = profit;
 
-      // Rule: order first reaches BasketTarget / CountOpenOrdersByType(type),
-      // then if profit comes back down near the dynamic close value, close it.
-      if(g_profitProtectPeakProfit[idx] >= dynamicActivateProfit &&
-         profit <= dynamicCloseAtProfit &&
+      double selectedActivateProfit = dynamicActivateProfit;
+      double selectedCloseAtProfit  = dynamicCloseAtProfit;
+      int selectedProtectLevel      = 0;
+
+      if(!GetIndividualProfitProtectLevel(g_profitProtectPeakProfit[idx],
+                                          dynamicActivateProfit,
+                                          dynamicCloseAtProfit,
+                                          selectedActivateProfit,
+                                          selectedCloseAtProfit,
+                                          selectedProtectLevel))
+         continue;
+
+      // Rule: order first reaches the selected protection level,
+      // then if profit comes back down near that level's close value, close it.
+      if(g_profitProtectPeakProfit[idx] >= selectedActivateProfit &&
+         profit <= selectedCloseAtProfit &&
          profit > 0.0)
         {
          double closePrice = (type == OP_BUY) ? Bid : Ask;
@@ -2659,6 +2760,9 @@ void ProcessIndividualProfitProtect()
                   " | Recovery=", recoveryOrder ? "YES" : "NO",
                   " | SideOpenOrders=", sideOpenOrders,
                   " | BasketTarget=$", DoubleToString(basketTarget, 2),
+                  " | ProtectLevel=", selectedProtectLevel,
+                  " | SelectedActivate=$", DoubleToString(selectedActivateProfit, 2),
+                  " | SelectedCloseAt=$", DoubleToString(selectedCloseAtProfit, 2),
                   " | DynamicActivate=$", DoubleToString(dynamicActivateProfit, 2),
                   " | DynamicCloseAt=$", DoubleToString(dynamicCloseAtProfit, 2),
                   " | PeakProfit=$", DoubleToString(g_profitProtectPeakProfit[idx], 2),
