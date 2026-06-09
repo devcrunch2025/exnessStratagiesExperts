@@ -36,12 +36,12 @@ double InpProtectActivateUSD_1 = 0.30;
 double InpProtectCloseAtUSD_1  = 0.10;
 double InpProtectActivateUSD_2 =0.60;
 double InpProtectCloseAtUSD_2  = 0.40;
-// double InpProtectActivateUSD_3 = 0.80;
-// double InpProtectCloseAtUSD_3  = 0.50;
-// double InpProtectActivateUSD_4 = 1.50;
-// double InpProtectCloseAtUSD_4  = 1.00;
-// double InpProtectActivateUSD_5 = 1.90;
-// double InpProtectCloseAtUSD_5  = 1.50;
+double InpProtectActivateUSD_3 = 0.80;
+double InpProtectCloseAtUSD_3  = 0.50;
+double InpProtectActivateUSD_4 = 1.50;
+double InpProtectCloseAtUSD_4  = 1.00;
+double InpProtectActivateUSD_5 = 1.90;
+double InpProtectCloseAtUSD_5  = 1.50;
 
 int    InpIndividualProtectPauseMinutes     = 5;     // wait this many minutes before opening next normal order after profit protect close
 bool   InpCloseIfNextCandleNotProfit     = false;  // close order after next closed candle if profit is not above 0
@@ -653,10 +653,10 @@ int OnInit()
 
    if(InpNotifyOnEAStart)
      {
-      SendEAAlert("EA STARTED",
-                  "Base=$" + DoubleToString(g_baseBalance,2) +
-                  " | Target=$" + DoubleToString(g_profitTargetEquity,2) +
-                  " | LossStop=$" + DoubleToString(g_lossStopEquityLevel,2));
+      // SendEAAlert("EA STARTED",
+      //             "Base=$" + DoubleToString(g_baseBalance,2) +
+      //             " | Target=$" + DoubleToString(g_profitTargetEquity,2) +
+      //             " | LossStop=$" + DoubleToString(g_lossStopEquityLevel,2));
      }
 
    return(INIT_SUCCEEDED);
@@ -862,11 +862,11 @@ void ResetEquityDayIfNewDay()
 
       if(InpNotifyOnEquityRestart)
         {
-         SendEAAlert("TRADING RESTARTED",
-                     resetReason +
-                     " | NewBase=$" + DoubleToString(g_baseBalance,2) +
-                     " | Target=$" + DoubleToString(g_profitTargetEquity,2) +
-                     " | LossStop=$" + DoubleToString(g_lossStopEquityLevel,2));
+         // SendEAAlert("TRADING RESTARTED",
+         //             resetReason +
+         //             " | NewBase=$" + DoubleToString(g_baseBalance,2) +
+         //             " | Target=$" + DoubleToString(g_profitTargetEquity,2) +
+         //             " | LossStop=$" + DoubleToString(g_lossStopEquityLevel,2));
         }
      }
   }
@@ -985,11 +985,11 @@ bool CheckDepositAndResetEquityStats()
 
       if(InpNotifyOnEquityRestart)
         {
-         SendEAAlert("TRADING RESTARTED - DEPOSIT RESET",
-                     "Deposit=$" + DoubleToString(amount,2) +
-                     " | NewBase=$" + DoubleToString(g_baseBalance,2) +
-                     " | Target=$" + DoubleToString(g_profitTargetEquity,2) +
-                     " | LossStop=$" + DoubleToString(g_lossStopEquityLevel,2));
+         // SendEAAlert("TRADING RESTARTED - DEPOSIT RESET",
+         //             "Deposit=$" + DoubleToString(amount,2) +
+         //             " | NewBase=$" + DoubleToString(g_baseBalance,2) +
+         //             " | Target=$" + DoubleToString(g_profitTargetEquity,2) +
+         //             " | LossStop=$" + DoubleToString(g_lossStopEquityLevel,2));
         }
 
       resetDone = true;
@@ -1162,10 +1162,10 @@ bool CheckEquityConditions()
       if(InpNotifyOnEquityStop && !g_notifyEquityStopSent)
         {
          g_notifyEquityStopSent = true;
-         SendEAAlert("TRADING STOPPED - EQUITY LOSS",
-                     "Equity=$" + DoubleToString(AccountEquity(),2) +
-                     " | Base=$" + DoubleToString(g_baseBalance,2) +
-                     " | LossStop=$" + DoubleToString(g_lossStopEquityLevel,2));
+         // SendEAAlert("TRADING STOPPED - EQUITY LOSS",
+         //             "Equity=$" + DoubleToString(AccountEquity(),2) +
+         //             " | Base=$" + DoubleToString(g_baseBalance,2) +
+         //             " | LossStop=$" + DoubleToString(g_lossStopEquityLevel,2));
         }
 
       return(true);
@@ -1195,11 +1195,11 @@ bool CheckEquityConditions()
          if(InpNotifyOnProfitLock && !g_notifyProfitLockSent)
            {
             g_notifyProfitLockSent = true;
-            SendEAAlert("TRADING STOPPED - PROFIT TARGET",
-                        "Equity=$" + DoubleToString(AccountEquity(),2) +
-                        " | Base=$" + DoubleToString(g_baseBalance,2) +
-                        " | Profit=$" + DoubleToString(profitFromBase,2) +
-                        " | Target=$" + DoubleToString(g_dailyProfitTarget,2));
+            // SendEAAlert("TRADING STOPPED - PROFIT TARGET",
+            //             "Equity=$" + DoubleToString(AccountEquity(),2) +
+            //             " | Base=$" + DoubleToString(g_baseBalance,2) +
+            //             " | Profit=$" + DoubleToString(profitFromBase,2) +
+            //             " | Target=$" + DoubleToString(g_dailyProfitTarget,2));
            }
         }
 
@@ -1971,7 +1971,7 @@ bool OpenRecoveryGapMarketOrder(int direction, double gapMove)
    double lot = NormalizeLot(InpRecoveryGapLot);
    int nextRecoveryNumber = CountRecoveryGapOrdersByDirection(direction) + 1;
 
-lot=lot*nextRecoveryNumber;
+// lot=lot*nextRecoveryNumber;
 
    double requiredGapForComment = InpRecoveryGapRawPrice * nextRecoveryNumber;
    string comment = "RECOVERY_GAP_" + IntegerToString(nextRecoveryNumber) +
@@ -2613,50 +2613,53 @@ bool GetIndividualProfitProtectLevel(double peakProfit,
    if(!InpUseMultiIndividualProfitProtect)
       return(selectedActivate > 0.0 && selectedCloseAt >= 0.0);
 
+      /*
    // Level 3 has highest priority after the order has reached that peak.
-   // if(InpProtectActivateUSD_5 > 0.0 && peakProfit >= InpProtectActivateUSD_5)
-   //   {
-   //    selectedActivate = InpProtectActivateUSD_5;
-   //    selectedCloseAt  = InpProtectCloseAtUSD_5;
-   //    selectedLevel    = 5;
-   //    return(true);
-   //   }
+   if(InpProtectActivateUSD_5 > 0.0 && peakProfit >= InpProtectActivateUSD_5)
+     {
+      selectedActivate = InpProtectActivateUSD_5;
+      selectedCloseAt  = InpProtectCloseAtUSD_5;
+      selectedLevel    = 5;
+      return(true);
+     }
 
-   //     if(InpProtectActivateUSD_4 > 0.0 && peakProfit >= InpProtectActivateUSD_4)
-   //   {
-   //    selectedActivate = InpProtectActivateUSD_4;
-   //    selectedCloseAt  = InpProtectCloseAtUSD_4;
-   //    selectedLevel    = 4;
-   //    return(true);
-   //   }
-   //     if(InpProtectActivateUSD_3 > 0.0 && peakProfit >= InpProtectActivateUSD_3)
-   //   {
-   //    selectedActivate = InpProtectActivateUSD_3;
-   //    selectedCloseAt  = InpProtectCloseAtUSD_3;
-   //    selectedLevel    = 3;
-   //    return(true);
-   //   }
+       if(InpProtectActivateUSD_4 > 0.0 && peakProfit >= InpProtectActivateUSD_4)
+     {
+      selectedActivate = InpProtectActivateUSD_4;
+      selectedCloseAt  = InpProtectCloseAtUSD_4;
+      selectedLevel    = 4;
+      return(true);
+     }
+       if(InpProtectActivateUSD_3 > 0.0 && peakProfit >= InpProtectActivateUSD_3)
+     {
+      selectedActivate = InpProtectActivateUSD_3;
+      selectedCloseAt  = InpProtectCloseAtUSD_3;
+      selectedLevel    = 3;
+      return(true);
+     }
 
-   // if(InpProtectActivateUSD_2 > 0.0 && peakProfit >= InpProtectActivateUSD_2)
-   //   {
-   //    selectedActivate = InpProtectActivateUSD_2;
-   //    selectedCloseAt  = InpProtectCloseAtUSD_2;
-   //    selectedLevel    = 2;
-   //    return(true);
-   //   }
+   if(InpProtectActivateUSD_2 > 0.0 && peakProfit >= InpProtectActivateUSD_2)
+     {
+      selectedActivate = InpProtectActivateUSD_2;
+      selectedCloseAt  = InpProtectCloseAtUSD_2;
+      selectedLevel    = 2;
+      return(true);
+     }
 
-   // if(InpProtectActivateUSD_1 > 0.0)
-   //   {
-   //    selectedActivate = InpProtectActivateUSD_1;
-   //    selectedCloseAt  = InpProtectCloseAtUSD_1;
-   //    selectedLevel    = 1;
-   //    return(true);
-   //   }
+   if(InpProtectActivateUSD_1 > 0.0)
+     {
+      selectedActivate = InpProtectActivateUSD_1;
+      selectedCloseAt  = InpProtectCloseAtUSD_1;
+      selectedLevel    = 1;
+      return(true);
+     }
+
+     */
 
      // Dynamic fallback:
 // If no fixed level matched, but order moved into profit,
 // close when profit falls back to 50% of peak profit.
-if(peakProfit > 0.0)
+if(peakProfit > 0.0 && peakProfit>0.20)
 {
    selectedActivate = peakProfit;
    selectedCloseAt  = peakProfit / 2.0;
