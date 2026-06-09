@@ -2645,13 +2645,13 @@ bool GetIndividualProfitProtectLevel(double peakProfit,
    //    return(true);
    //   }
 
-   if(InpProtectActivateUSD_1 > 0.0)
-     {
-      selectedActivate = InpProtectActivateUSD_1;
-      selectedCloseAt  = InpProtectCloseAtUSD_1;
-      selectedLevel    = 1;
-      return(true);
-     }
+   // if(InpProtectActivateUSD_1 > 0.0)
+   //   {
+   //    selectedActivate = InpProtectActivateUSD_1;
+   //    selectedCloseAt  = InpProtectCloseAtUSD_1;
+   //    selectedLevel    = 1;
+   //    return(true);
+   //   }
 
      // Dynamic fallback:
 // If no fixed level matched, but order moved into profit,
