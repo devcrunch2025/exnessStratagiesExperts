@@ -16,7 +16,7 @@
 string InpEAName                  = "DXB SAR 5Min Gap30 BasketSL EarlyExit EA";
 int    InpMagicNumber             = 989899;
 double InpFixedLot                = 0.01;
-int    InpMaxOrders               = 1;     // maximum normal SAR orders per SAR signal cycle
+int    InpMaxOrders               = 2;     // maximum normal SAR orders per SAR signal cycle
 #define DXB_HARD_MAX_OPEN_ORDERS 6  // absolute safety cap for normal SAR orders per cycle
 
 double InpBasketProfitUSD         = 2.00;
@@ -146,6 +146,7 @@ bool   InpUseSARPriceDiffConfirm  = true;
 bool   InpUseRepeatedPriceGapConfirm = true;
 double InpContinuousOrderPriceGap    = 25;   // raw price gap required again for each continuity order
 int    InpContinuousOrderGapMinutes  = 15;     // price gap must happen within this many minutes
+int    InpContinuousOrderWaitBarsAfterGap = 1; // 1 = open only from next bar after gap is completed; set 2 for safer delay
 
 double InpSARConfirmPriceDiff     = 50.0;   // raw price diff for BTCUSD, not points
 int    InpSARConfirmMinutes       = 15;     // wait this many minutes after SAR signal change before new order
@@ -337,6 +338,10 @@ datetime g_activeSARSignalChangeTime  = 0;
 // Repeated price-gap confirmation state for normal SAR orders
 double   g_lastConfirmedOrderPrice = 0.0;
 datetime g_lastConfirmedOrderTime  = 0;
+datetime g_repeatedGapCompletedBarTime = 0;
+datetime g_repeatedGapCompletedRefTime = 0;
+int      g_repeatedGapCompletedDirection = 0;
+string   g_repeatedGapCompletedSource = "";
 
 // Last normal order open result. Used by dashboard/status when OpenMarketOrder() returns false.
 string   g_lastOrderOpenReason    = "WAIT ORDER";
@@ -734,6 +739,10 @@ void ResetTradingCycleState()
    g_activeSARSignalChangeTime  = 0;
    g_lastConfirmedOrderPrice = 0.0;
    g_lastConfirmedOrderTime  = 0;
+   g_repeatedGapCompletedBarTime = 0;
+   g_repeatedGapCompletedRefTime = 0;
+   g_repeatedGapCompletedDirection = 0;
+   g_repeatedGapCompletedSource = "";
    g_lastOrderOpenReason     = "WAIT ORDER";
    g_sarChangesAfterLastNormalOrder = 0;
    g_sarCloseTrackedDirection       = 0;
@@ -4584,28 +4593,98 @@ bool IsRepeatedPriceGapConfirmedForNormalOrder(int direction, string reason)
    else
       currentGap = refPrice - Bid;
 
-   // IMPORTANT:
-   // Do NOT wait until InpContinuousOrderGapMinutes.
-   // If the raw price gap is completed early, allow the order immediately.
-   // Example: gap=25 and limit=15 minutes -> if 25 happens in 2 minutes, open now.
-   if(currentGap >= InpContinuousOrderPriceGap)
+   // If reference changed, clear old gap-ready state.
+   if(g_repeatedGapCompletedRefTime != refTime ||
+      g_repeatedGapCompletedDirection != direction ||
+      g_repeatedGapCompletedSource != refSource)
      {
-      Print("REPEATED GAP CONFIRMED EARLY | Direction=", DirectionText(direction),
+      g_repeatedGapCompletedBarTime = 0;
+      g_repeatedGapCompletedRefTime = 0;
+      g_repeatedGapCompletedDirection = 0;
+      g_repeatedGapCompletedSource = "";
+     }
+
+   // Gap must complete within the allowed time window.
+   // After gap is completed, DO NOT open on the same bar.
+   // The EA waits N new bars, then checks the same gap condition again.
+   if(currentGap >= InpContinuousOrderPriceGap && elapsedSeconds < allowedSeconds)
+     {
+      // First tick where gap becomes valid: mark this bar and wait.
+      if(g_repeatedGapCompletedBarTime <= 0)
+        {
+         g_repeatedGapCompletedBarTime = Time[0];
+         g_repeatedGapCompletedRefTime = refTime;
+         g_repeatedGapCompletedDirection = direction;
+         g_repeatedGapCompletedSource = refSource;
+
+         Print("REPEATED GAP COMPLETED - WAIT NEW BAR | Direction=", DirectionText(direction),
+               " | Source=", refSource,
+               " | RefPrice=", DoubleToString(refPrice, Digits),
+               " | CurrentGap=", DoubleToString(currentGap, Digits),
+               " | RequiredGap=", DoubleToString(InpContinuousOrderPriceGap, Digits),
+               " | CompletedBar=", TimeToString(g_repeatedGapCompletedBarTime, TIME_DATE|TIME_SECONDS),
+               " | WaitBars=", InpContinuousOrderWaitBarsAfterGap,
+               " | Reason=", reason);
+         DrawDashboard("GAP OK - WAIT NEW BAR " + DirectionText(direction));
+         return(false);
+        }
+
+      int waitBars = MathMax(1, InpContinuousOrderWaitBarsAfterGap);
+      int secondsToWait = waitBars * Period() * 60;
+      int waitedSeconds = (int)(Time[0] - g_repeatedGapCompletedBarTime);
+
+      if(waitedSeconds >= secondsToWait)
+        {
+         Print("REPEATED GAP CONFIRMED AFTER NEW BAR | Direction=", DirectionText(direction),
+               " | Source=", refSource,
+               " | RefPrice=", DoubleToString(refPrice, Digits),
+               " | CurrentGap=", DoubleToString(currentGap, Digits),
+               " | RequiredGap=", DoubleToString(InpContinuousOrderPriceGap, Digits),
+               " | WaitedBars=", DoubleToString((double)waitedSeconds / (Period() * 60), 1),
+               " | ElapsedMin=", DoubleToString(elapsedSeconds / 60.0, 1),
+               "/", InpContinuousOrderGapMinutes,
+               " | Reason=", reason);
+
+         // Clear ready state. OpenMarketOrder() will update g_lastConfirmedOrderPrice/Time.
+         g_repeatedGapCompletedBarTime = 0;
+         g_repeatedGapCompletedRefTime = 0;
+         g_repeatedGapCompletedDirection = 0;
+         g_repeatedGapCompletedSource = "";
+         return(true);
+        }
+
+      Print("REPEATED GAP WAITING NEW BAR | Direction=", DirectionText(direction),
             " | Source=", refSource,
-            " | RefPrice=", DoubleToString(refPrice, Digits),
             " | CurrentGap=", DoubleToString(currentGap, Digits),
             " | RequiredGap=", DoubleToString(InpContinuousOrderPriceGap, Digits),
-            " | ElapsedMin=", DoubleToString(elapsedSeconds / 60.0, 1),
-            "/", InpContinuousOrderGapMinutes,
+            " | WaitedSec=", waitedSeconds,
+            " | NeedSec=", secondsToWait,
             " | Reason=", reason);
+      DrawDashboard("GAP OK - WAIT NEW BAR " + DirectionText(direction));
+      return(false);
+     }
 
-      return(true);
+   // Gap was once completed but failed again on the next-bar check.
+   // Keep waiting while time is still inside the allowed window.
+   if(g_repeatedGapCompletedBarTime > 0 && elapsedSeconds < allowedSeconds)
+     {
+      Print("REPEATED GAP NEXT BAR RECHECK FAILED | Direction=", DirectionText(direction),
+            " | Source=", refSource,
+            " | CurrentGap=", DoubleToString(currentGap, Digits),
+            " | RequiredGap=", DoubleToString(InpContinuousOrderPriceGap, Digits),
+            " | Reason=", reason);
+      return(false);
      }
 
    // Gap was NOT completed. Once the limit is reached/exceeded, fail this SAR cycle.
    // This prevents late entries after momentum has already become weak.
    if(elapsedSeconds >= allowedSeconds)
      {
+      g_repeatedGapCompletedBarTime = 0;
+      g_repeatedGapCompletedRefTime = 0;
+      g_repeatedGapCompletedDirection = 0;
+      g_repeatedGapCompletedSource = "";
+
       Print("REPEATED GAP BLOCKED | Gap not completed within time | Direction=",
             DirectionText(direction),
             " | Source=", refSource,
@@ -4630,6 +4709,8 @@ bool IsRepeatedPriceGapConfirmedForNormalOrder(int direction, string reason)
 
    return(false);
   }
+
+//+------------------------------------------------------------------+
 
 //+------------------------------------------------------------------+
 
@@ -4879,6 +4960,10 @@ bool OpenMarketOrder(int direction, string reason)
    g_lastOrderTime = TimeCurrent();
    g_lastConfirmedOrderPrice = price;
    g_lastConfirmedOrderTime  = TimeCurrent();
+   g_repeatedGapCompletedBarTime = 0;
+   g_repeatedGapCompletedRefTime = 0;
+   g_repeatedGapCompletedDirection = 0;
+   g_repeatedGapCompletedSource = "";
 
    // Register only normal SAR cycle orders. Recovery orders use OpenRecoveryOrder() and are independent.
    RegisterSARCycleOrderCreated(direction);
