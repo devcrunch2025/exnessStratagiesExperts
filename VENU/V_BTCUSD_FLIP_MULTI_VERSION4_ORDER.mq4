@@ -107,8 +107,8 @@ bool   InpNotifyOnEAStart             = true;    // notify when EA is loaded
 
 // Continuous order controls
 bool   InpOneOrderPerBar          = true;
-int    InpOrderCooldownSeconds    = 0;       // 0 = disabled
-double InpMinPriceGap             = 0.00;    // raw price gap, 0 = disabled
+int    InpOrderCooldownSeconds    = 60;       // 0 = disabled
+double InpMinPriceGap             = 20.00;    // raw price gap, 0 = disabled
 
 // No-trading hours: block NEW normal SAR orders only. Close/profit/protection/recovery management still runs.
 bool   InpUseNoNewOrderHours      = false;
@@ -143,7 +143,7 @@ bool   InpUseSARPriceDiffConfirm  = true;
 // First order after SAR change and every next normal order must move this raw price gap
 // in the same direction within the configured minutes. If the gap is not completed in time,
 // new normal orders are blocked until a fresh SAR signal cycle starts.
-bool   InpUseRepeatedPriceGapConfirm = true;
+bool   InpUseRepeatedPriceGapConfirm = false;
 double InpContinuousOrderPriceGap    = 25;   // raw price gap required again for each continuity order
 int    InpContinuousOrderGapMinutes  = 15;     // price gap must happen within this many minutes
 int    InpContinuousOrderWaitBarsAfterGap = 1; // 1 = open only from next bar after gap is completed; set 2 for safer delay
@@ -3329,7 +3329,203 @@ void DrawEMALine(string name, int period, color clr, int width)
       }
    }
 }
+//================ FILTER CHECKLIST STATES ===========================
+string g_chk_TradeAllowed    = "NO"; color g_col_TradeAllowed    = clrRed;
+string g_chk_EquityProtect   = "NO"; color g_col_EquityProtect   = clrRed;
+string g_chk_TotalCap        = "NO"; color g_col_TotalCap        = clrRed;
+string g_chk_DirectionMax    = "NO"; color g_col_DirectionMax    = clrRed;
+string g_chk_CandleCooldown  = "NO"; color g_col_CandleCooldown  = clrRed;
+string g_chk_TradingHours    = "NO"; color g_col_TradingHours    = clrRed;
+string g_chk_BigCandle       = "NO"; color g_col_BigCandle       = clrRed;
+string g_chk_WeakExit        = "NO"; color g_col_WeakExit        = clrRed;
+string g_chk_SARConfirm      = "NO"; color g_col_SARConfirm      = clrRed;
+string g_chk_DynamicEngine   = "NO"; color g_col_DynamicEngine   = clrRed;
+string g_chk_FlatMode        = "NO"; color g_col_FlatMode        = clrRed;
+string g_chk_H1Trend         = "NO"; color g_col_H1Trend         = clrRed;
+string g_chk_PriceSide       = "NO"; color g_col_PriceSide       = clrRed;
+string g_chk_RepeatedGap     = "NO"; color g_col_RepeatedGap     = clrRed;
+string g_chk_MinPriceGap     = "NO"; color g_col_MinPriceGap     = clrRed;
+int    g_leftDashRow         = 0;
 
+//+------------------------------------------------------------------+
+//| Evaluates all order filters passively to avoid disrupting state  |
+//+------------------------------------------------------------------+
+//+------------------------------------------------------------------+
+//| Evaluates all order filters passively with exact code reflection |
+//+------------------------------------------------------------------+
+void UpdateFilterChecklistData(bool isNewBar)
+{
+   int dir = g_activeSARDirection;
+   if(dir == 0) dir = GetSARDotDirection(1);
+
+   // 1. Trading Allowed & Spread Check
+   bool marketReady = (IsTradeAllowed() && !IsTradeContextBusy() && (AccountStopoutLevel() <= 0 || AccountFreeMargin() > 0));
+   bool spreadReady = (MarketInfo(Symbol(), MODE_SPREAD) <= InpMaxSpreadPoints);
+   if(marketReady && spreadReady) {
+      g_chk_TradeAllowed = "ALLOW"; g_col_TradeAllowed = clrLime;
+   } else { 
+      g_chk_TradeAllowed = "BLOCK"; g_col_TradeAllowed = clrRed; 
+   }
+
+   // 2. Account Equity & Profit Protections
+   bool eqHit = (InpUseEquityProtection && AccountEquity() < g_lossStopEquityLevel);
+   bool profLocked = (InpUseDailyProfitLock && g_dailyProfitLock && InpPauseAfterProfitTarget);
+   if(!eqHit && !profLocked && !g_globalEquityTrailLocked) {
+      g_chk_EquityProtect = "ALLOW"; g_col_EquityProtect = clrLime;
+   } else { g_chk_EquityProtect = "BLOCK"; g_col_EquityProtect = clrRed; }
+
+   // 3. Absolute Total Order Cap
+   if(InpMaxTotalOpenOrders <= 0 || CountAllOrders() < InpMaxTotalOpenOrders) {
+      g_chk_TotalCap = "ALLOW"; g_col_TotalCap = clrLime;
+   } else { g_chk_TotalCap = "BLOCK"; g_col_TotalCap = clrRed; }
+
+   // 4. Directional Max Limits
+   int dynamicMaxOrders = g_sarCycleMaxOrders;
+   if(dynamicMaxOrders > 0 && g_sarCycleOrdersCreated < dynamicMaxOrders && CountOrdersByDirection(dir) < InpMaxOrders) {
+      g_chk_DirectionMax = "ALLOW"; g_col_DirectionMax = clrLime;
+   } else { g_chk_DirectionMax = "BLOCK"; g_col_DirectionMax = clrRed; }
+
+   // 5. Intra-Candle & Seconds Cooldown Gate
+   bool candleCool = !WasSameDirectionOrderClosedThisBar(dir);
+   bool secondsCool = (InpOrderCooldownSeconds <= 0 || (TimeCurrent() - g_lastOrderTime) >= InpOrderCooldownSeconds);
+   if(candleCool && secondsCool) {
+      g_chk_CandleCooldown = "ALLOW"; g_col_CandleCooldown = clrLime;
+   } else { g_chk_CandleCooldown = "BLOCK"; g_col_CandleCooldown = clrRed; }
+
+   // 6. Allowed Trading Hours
+   if(!IsNoNewOrderHour()) {
+      g_chk_TradingHours = "ALLOW"; g_col_TradingHours = clrLime;
+   } else { g_chk_TradingHours = "BLOCK"; g_col_TradingHours = clrRed; }
+
+   // 7. Big Candle Breakout Pause
+   if(!IsBigCandlePauseActive()) {
+      g_chk_BigCandle = "ALLOW"; g_col_BigCandle = clrLime;
+   } else { g_chk_BigCandle = "BLOCK"; g_col_BigCandle = clrRed; }
+
+   // 8. Early SAR Weak Exit Detection
+   if(!(InpUseEarlySARWeakExit && InpStopNewOrdersOnSARWeakExit && g_earlySARWeakExitActive)) {
+      g_chk_WeakExit = "ALLOW"; g_col_WeakExit = clrLime;
+   } else { g_chk_WeakExit = "BLOCK"; g_col_WeakExit = clrRed; }
+
+   // 9. SAR Flip Transition Phase
+   if(g_pendingSARConfirmDirection == 0 || IsSARFlipConfirmationReady()) {
+      g_chk_SARConfirm = "ALLOW"; g_col_SARConfirm = clrLime;
+   } else { g_chk_SARConfirm = "BLOCK"; g_col_SARConfirm = clrRed; }
+
+   // 10. Dynamic Engine Quality Score
+   string internalDummy = "";
+   if(IsDynamicSARAllowedForNewOrder(dir, internalDummy)) {
+      g_chk_DynamicEngine = "ALLOW"; g_col_DynamicEngine = clrLime;
+   } else { g_chk_DynamicEngine = "BLOCK"; g_col_DynamicEngine = clrRed; }
+
+   // 11. Flat Mode Range Filter
+   if(!(InpUseFlatMode && DetectFlatMode())) {
+      g_chk_FlatMode = "ALLOW"; g_col_FlatMode = clrLime;
+   } else { g_chk_FlatMode = "BLOCK"; g_col_FlatMode = clrRed; }
+
+   // 12. Macro H1 Trend Alignment
+   if(IsOrderAllowedByH1Trend(dir) || IsCurrentSARGoodMomentum(dir)) {
+      g_chk_H1Trend = "ALLOW"; g_col_H1Trend = clrLime;
+   } else { g_chk_H1Trend = "BLOCK"; g_col_H1Trend = clrRed; }
+
+   // 13. Entry vs Signal Price Side
+   if(IsSARSignalPriceSideAllowed(dir, "Checklist")) {
+      g_chk_PriceSide = "ALLOW"; g_col_PriceSide = clrLime;
+   } else { g_chk_PriceSide = "BLOCK"; g_col_PriceSide = clrRed; }
+
+   // 14. Continuous Wave Progress Gap (Perfect Functional Sync)
+   bool loopGapConfirmed = false;
+   if(!InpUseRepeatedPriceGapConfirm) {
+      loopGapConfirmed = true;
+   } else if(dir != 0) {
+      double rPrice = (g_lastConfirmedOrderPrice > 0.0) ? g_lastConfirmedOrderPrice : g_activeSARSignalChangePrice;
+      datetime rTime = (g_lastConfirmedOrderPrice > 0.0) ? g_lastConfirmedOrderTime : g_activeSARSignalChangeTime;
+      
+      if(rPrice > 0.0 && rTime > 0) {
+         int allowedSec = MathMax(1, InpContinuousOrderGapMinutes) * 60;
+         int elapsedSec = (int)(TimeCurrent() - rTime);
+         double cGap = (dir == 1) ? (Ask - rPrice) : (rPrice - Bid);
+
+         if(cGap >= InpContinuousOrderPriceGap && elapsedSec < allowedSec) {
+            if(g_repeatedGapCompletedBarTime > 0) {
+               int waitBars = MathMax(1, InpContinuousOrderWaitBarsAfterGap);
+               if((int)(Time[0] - g_repeatedGapCompletedBarTime) >= waitBars * Period() * 60) {
+                  loopGapConfirmed = true;
+               }
+            }
+         }
+      }
+   }
+   if(loopGapConfirmed) {
+      g_chk_RepeatedGap = "ALLOW"; g_col_RepeatedGap = clrLime;
+   } else { 
+      g_chk_RepeatedGap = "BLOCK"; g_col_RepeatedGap = clrRed; 
+   }
+
+   // 15. Minimum Distance Grid Step
+   if(InpMinPriceGap <= 0.0 || IsPriceGapValid(dir, InpMinPriceGap)) {
+      g_chk_MinPriceGap = "ALLOW"; g_col_MinPriceGap = clrLime;
+   } else { g_chk_MinPriceGap = "BLOCK"; g_col_MinPriceGap = clrRed; }
+}
+
+//+------------------------------------------------------------------+
+//| Renders the checklist elements onto the left side layout panel  |
+//+------------------------------------------------------------------+
+void DrawLeftDashboard()
+{
+   // Left side bounding container
+   string panelName = "DXB_LEFT_PANEL";
+   if(ObjectFind(0, panelName) < 0) {
+      ObjectCreate(0, panelName, OBJ_RECTANGLE_LABEL, 0, 0, 0);
+      ObjectSetInteger(0, panelName, OBJPROP_CORNER, CORNER_LEFT_UPPER);
+      ObjectSetInteger(0, panelName, OBJPROP_XDISTANCE, 20);
+      ObjectSetInteger(0, panelName, OBJPROP_YDISTANCE, 20);
+      ObjectSetInteger(0, panelName, OBJPROP_XSIZE, 340);
+      ObjectSetInteger(0, panelName, OBJPROP_YSIZE, 340);
+      ObjectSetInteger(0, panelName, OBJPROP_BGCOLOR, clrBlack);
+      ObjectSetInteger(0, panelName, OBJPROP_BORDER_COLOR, clrDarkSlateGray);
+      ObjectSetInteger(0, panelName, OBJPROP_BACK, false);
+      ObjectSetInteger(0, panelName, OBJPROP_HIDDEN, true);
+   }
+
+   g_leftDashRow = 0;
+   LeftDashRow("=== DXB ENTRY CHECKLIST ===", "STATUS", clrCyan);
+   LeftDashRow("1. Core Terminal Engine Status", g_chk_TradeAllowed, g_col_TradeAllowed);
+   LeftDashRow("2. Account Equity & Profit Lock", g_chk_EquityProtect, g_col_EquityProtect);
+   LeftDashRow("3. Total Strategy Combined Cap", g_chk_TotalCap, g_col_TotalCap);
+   LeftDashRow("4. Dynamic Active Cycle Limit", g_chk_DirectionMax, g_col_DirectionMax);
+   LeftDashRow("5. Intra-Candle Close Cooldown", g_chk_CandleCooldown, g_col_CandleCooldown);
+   LeftDashRow("6. Allowed Block/Trading Hours", g_chk_TradingHours, g_col_TradingHours);
+   LeftDashRow("7. Reversal Spike Volatility Pause", g_chk_BigCandle, g_col_BigCandle);
+   LeftDashRow("8. Early Momentum Decay Freeze", g_chk_WeakExit, g_col_WeakExit);
+   LeftDashRow("9. SAR Flip Transition Phase", g_chk_SARConfirm, g_col_SARConfirm);
+   LeftDashRow("10. Dynamic Engine Quality Score", g_chk_DynamicEngine, g_col_DynamicEngine);
+   LeftDashRow("11. Sideways Market Compression", g_chk_FlatMode, g_col_FlatMode);
+   LeftDashRow("12. Macro H1 Trend Alignment", g_chk_H1Trend, g_col_H1Trend);
+   LeftDashRow("13. Entry vs Signal Price Side", g_chk_PriceSide, g_col_PriceSide);
+   LeftDashRow("14. Continuous Wave Progress Gap", g_chk_RepeatedGap, g_col_RepeatedGap);
+   LeftDashRow("15. Minimum Distance Grid Step", g_chk_MinPriceGap, g_col_MinPriceGap);
+}
+
+//+------------------------------------------------------------------+
+//| Renders individual left-corner rows                              |
+//+------------------------------------------------------------------+
+void LeftDashRow(string title, string value, color clrValue)
+{
+   string labelName = "DXB_LROW_" + IntegerToString(g_leftDashRow);
+   if(ObjectFind(0, labelName) < 0)
+      ObjectCreate(0, labelName, OBJ_LABEL, 0, 0, 0);
+
+   ObjectSetInteger(0, labelName, OBJPROP_CORNER, CORNER_LEFT_UPPER);
+   ObjectSetInteger(0, labelName, OBJPROP_XDISTANCE, 35);
+   ObjectSetInteger(0, labelName, OBJPROP_YDISTANCE, 30 + (g_leftDashRow * 18));
+   ObjectSetString(0, labelName, OBJPROP_TEXT, StringSubstr(title + "                                     ", 0, 34) + ": " + value);
+   ObjectSetString(0, labelName, OBJPROP_FONT, "Consolas");
+   ObjectSetInteger(0, labelName, OBJPROP_FONTSIZE, 9);
+   ObjectSetInteger(0, labelName, OBJPROP_COLOR, clrValue);
+
+   g_leftDashRow++;
+}
 //+------------------------------------------------------------------+
 void OnTick()
   {
@@ -3423,11 +3619,15 @@ void OnTick()
    if(!closedThisTick)
       ProcessNewOrderCreationLast(isNewBar, status);
       
-      DrawEMATrendLines();
+   DrawEMATrendLines();
  
+   // Add checklist refresh operations here right before final updates
+   UpdateFilterChecklistData(isNewBar);
+   DrawLeftDashboard();
 
    DrawDashboard(status);
-  }
+}
+  
 
 //+------------------------------------------------------------------+
 void ResetSARFlipConfirmation()
@@ -4579,7 +4779,7 @@ bool IsRepeatedPriceGapConfirmedForNormalOrder(int direction, string reason)
 
    if(refPrice <= 0.0 || refTime <= 0)
      {
-      Print("REPEATED GAP BLOCKED | Missing reference price/time | Direction=",
+      Print("-----------------REPEATED GAP BLOCKED | Missing reference price/time | Direction=",
             DirectionText(direction), " | Reason=", reason);
       return(false);
      }
@@ -4618,7 +4818,7 @@ bool IsRepeatedPriceGapConfirmedForNormalOrder(int direction, string reason)
          g_repeatedGapCompletedDirection = direction;
          g_repeatedGapCompletedSource = refSource;
 
-         Print("REPEATED GAP COMPLETED - WAIT NEW BAR | Direction=", DirectionText(direction),
+         Print("-------------REPEATED GAP COMPLETED - WAIT NEW BAR | Direction=", DirectionText(direction),
                " | Source=", refSource,
                " | RefPrice=", DoubleToString(refPrice, Digits),
                " | CurrentGap=", DoubleToString(currentGap, Digits),
@@ -4636,7 +4836,7 @@ bool IsRepeatedPriceGapConfirmedForNormalOrder(int direction, string reason)
 
       if(waitedSeconds >= secondsToWait)
         {
-         Print("REPEATED GAP CONFIRMED AFTER NEW BAR | Direction=", DirectionText(direction),
+         Print("---------------REPEATED GAP CONFIRMED AFTER NEW BAR | Direction=", DirectionText(direction),
                " | Source=", refSource,
                " | RefPrice=", DoubleToString(refPrice, Digits),
                " | CurrentGap=", DoubleToString(currentGap, Digits),
@@ -4654,7 +4854,7 @@ bool IsRepeatedPriceGapConfirmedForNormalOrder(int direction, string reason)
          return(true);
         }
 
-      Print("REPEATED GAP WAITING NEW BAR | Direction=", DirectionText(direction),
+      Print("-------------REPEATED GAP WAITING NEW BAR | Direction=", DirectionText(direction),
             " | Source=", refSource,
             " | CurrentGap=", DoubleToString(currentGap, Digits),
             " | RequiredGap=", DoubleToString(InpContinuousOrderPriceGap, Digits),
@@ -4669,7 +4869,7 @@ bool IsRepeatedPriceGapConfirmedForNormalOrder(int direction, string reason)
    // Keep waiting while time is still inside the allowed window.
    if(g_repeatedGapCompletedBarTime > 0 && elapsedSeconds < allowedSeconds)
      {
-      Print("REPEATED GAP NEXT BAR RECHECK FAILED | Direction=", DirectionText(direction),
+      Print("-------------REPEATED GAP NEXT BAR RECHECK FAILED | Direction=", DirectionText(direction),
             " | Source=", refSource,
             " | CurrentGap=", DoubleToString(currentGap, Digits),
             " | RequiredGap=", DoubleToString(InpContinuousOrderPriceGap, Digits),
