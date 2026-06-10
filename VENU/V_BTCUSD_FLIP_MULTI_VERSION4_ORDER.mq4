@@ -134,16 +134,16 @@ double InpMinPriceGap             = 0.00;    // raw price gap, 0 = disabled
 
 // No-trading hours: block NEW normal SAR orders only. Close/profit/protection/recovery management still runs.
 bool   InpUseNoNewOrderHours      = false;
-string InpNoNewOrderHourList      = "23";//"13,14,15,16,17,18"; // server-time hours to block new orders
+string InpNoNewOrderHourList      = "12,13,14,15";//"13,14,15,16,17,18"; // server-time hours to block new orders
 
 
 //profit booking hours are 4,5,6,7,8
 
 // Big candle pause protection
-bool   InpUseBigCandlePause       = false;     // pause new orders after very large candle
+bool   InpUseBigCandlePause       = true;     // pause new orders after very large candle
 double InpBigCandleRawDifference  = 300;    // raw BTCUSD price difference: High[1]-Low[1]
-int    InpBigCandlePauseMinutes   = 1;       // pause duration after big candle
-bool   InpNotifyOnBigCandlePause  = true;     // push notification when big candle pause starts/ends
+int    InpBigCandlePauseMinutes   = 5;       // pause duration after big candle
+bool   InpNotifyOnBigCandlePause  = false;     // push notification when big candle pause starts/ends
 
 // SAR settings
 double InpSARPeriod               = 1.2;
@@ -432,6 +432,7 @@ double   g_profitProtectPeakProfit[500];
 int      g_profitProtectCount = 0;
 
 bool   InpUseH1TrendFilter = false;
+double H1TrendPriceDifference=500;
 int    InpH1FastEMA = 50;
 int    InpH1SlowEMA = 200;
 
@@ -533,35 +534,94 @@ bool TryOpenEarlySameSARExtraOrder111111()
 
    return false;
 }
-int GetH1TrendDirection()
-  {
-
-
+double GetH1LivePriceDiff()
+{
    double currentPrice = Close[0];
+   double price60MinAgo = iClose(Symbol(), PERIOD_M1, 60);
 
-// M1 chart: 30 candles = 30 minutes ago
+   if(price60MinAgo <= 0)
+      return 0;
+
+   return currentPrice - price60MinAgo;
+}
+string H1TrendStatusText()
+{
+   double diff = GetH1LivePriceDiff();
+   int trend = GetH1TrendDirection();
+
+   string label = "RANGE";
+   if(trend == 1)  label = "BUY";
+   if(trend == -1) label = "SELL";
+
+   return "" + label +
+          " | " + DoubleToString(H1TrendPriceDifference, 2) +
+          " | Live : " + DoubleToString(diff, 2);
+}
+int GetH1TrendDirection()
+{
+   double currentPrice = Close[0];
+   double price120MinAgo = iClose(Symbol(), PERIOD_M1, 120);
+
+   double price60MinAgo = iClose(Symbol(), PERIOD_M1, 60);
    double price30MinAgo = iClose(Symbol(), PERIOD_M1, 30);
+   double price15MinAgo = iClose(Symbol(), PERIOD_M1, 15);
 
-   double diff = currentPrice - price30MinAgo;
+   double diff120 = currentPrice - price120MinAgo;
 
-   if(diff >= 100)
-      return 1;   // BUY trend
-
-   if(diff <= -100)
-      return -1;  // SELL trend
-
-   return 0;      // RANGE
+   double diff60 = currentPrice - price60MinAgo;
+   double diff30 = currentPrice - price30MinAgo;
+   double diff15 = currentPrice - price15MinAgo;
 
 
 
 
+// Too much short-term spike
+if(MathAbs(diff15) >= H1TrendPriceDifference/2)
+   return 0;
+
+// BUY medium trend
+if(diff30 < H1TrendPriceDifference &&
+   diff30 >= H1TrendPriceDifference/2)
+   return 1;
+
+// SELL medium trend
+if(diff30 > -H1TrendPriceDifference &&
+   diff30 <= -H1TrendPriceDifference/2)
+   return -1;
+
+return 0;
 
 
 
 
 
 
-   int h1  = GetH1TrendDirection1();
+   // Too much short-term spike
+   if(MathAbs(diff15) >= H1TrendPriceDifference/2)
+      return 0;
+
+   // BUY trend
+   if(diff120 >= H1TrendPriceDifference*2 && diff60 >= H1TrendPriceDifference &&
+      diff30 >= H1TrendPriceDifference/2)
+      return 1;
+
+   // SELL trend
+   if(diff120 <= -H1TrendPriceDifference*2 && diff60 <= -H1TrendPriceDifference &&
+      diff30 <= -H1TrendPriceDifference/2)
+      return -1;
+
+   return 0;
+
+
+
+
+
+
+
+
+
+
+   int h1  = GetH1TrendDirection();
    int m30 = GetM30TrendDirection();
 
    if(h1 != 0 && h1 == m30)
@@ -2898,7 +2958,7 @@ bool GetIndividualProfitProtectLevel(double peakProfit,
      // Dynamic fallback:
 // If no fixed level matched, but order moved into profit,
 // close when profit falls back to 50% of peak profit.
-if(peakProfit > 0.0 && peakProfit>0.10)
+if(peakProfit > 0.0 && peakProfit>0.50)
 {
    selectedActivate = peakProfit;
    selectedCloseAt  = peakProfit / 2.0;
@@ -3301,7 +3361,7 @@ void IncreaseSARMaxIfTrendContinuesAfterOneHour()
    if(g_sarCycleDirection == 0 || g_sarCycleStartTime <= 0)
       return;
 
-   int h1Trend = GetH1TrendDirection1();
+   int h1Trend = GetH1TrendDirection();
 
    if(h1Trend != g_sarCycleDirection)
       return;
@@ -3456,7 +3516,7 @@ IncreaseSARMaxWhenDotDistanceAndH1Same();
    if(!IsOrderAllowedByH1Trend(g_activeSARDirection)  && !IsCurrentSARGoodMomentum(g_activeSARDirection))
      {
       status = "BLOCKED:SAR REV H1 "+DirectionText(GetH1TrendDirection());
-      Print("ORDER BLOCKED | SAR reverse against H1 trend | Direction=", DirectionText(g_activeSARDirection));
+      Print("ORDER BLOCKED | SAR reverse H1 trend | Direction=", DirectionText(g_activeSARDirection));
       return(false);
      }
 
@@ -5488,7 +5548,7 @@ void IncreaseSARMaxWhenDotDistanceAndH1Same()
    if(g_sarCycleDirection == 0)
       return;
 
-   int h1Trend = GetH1TrendDirection1();
+   int h1Trend = GetH1TrendDirection();
 
    if(h1Trend != g_sarCycleDirection)
       return;
@@ -5564,7 +5624,7 @@ void DrawDashboard(string status)
            g_pendingSARConfirmDirection==1 ? clrLime : clrRed);
 
    DashRow("H1 Trend",
-           DirectionText(GetH1TrendDirection()),
+           H1TrendStatusText(),
            GetH1TrendDirection()==1 ? clrLime : clrRed);
 
            DashRow("SAR Dot Dist",
