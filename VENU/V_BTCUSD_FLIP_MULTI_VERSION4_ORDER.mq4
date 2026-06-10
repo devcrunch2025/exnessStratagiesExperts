@@ -43,7 +43,7 @@ double InpProtectCloseAtUSD_4  = 1.00;
 double InpProtectActivateUSD_5 = 1.90;
 double InpProtectCloseAtUSD_5  = 1.50;
 
-int    InpIndividualProtectPauseMinutes     = 5;     // wait this many minutes before opening next normal order after profit protect close
+int    InpIndividualProtectPauseMinutes     = 0;     // wait this many minutes before opening next normal order after profit protect close
 bool   InpCloseIfNextCandleNotProfit     = false;  // close order after next closed candle if profit is not above 0
 
 double InpBasketStopLossUSD       = 10.00;    // BASKET stop loss in USD, 0 = disabled. This closes all orders in active SAR direction.
@@ -112,7 +112,7 @@ double InpMinPriceGap             = 0.00;    // raw price gap, 0 = disabled
 
 // No-trading hours: block NEW normal SAR orders only. Close/profit/protection/recovery management still runs.
 bool   InpUseNoNewOrderHours      = false;
-string InpNoNewOrderHourList      = "23";//"13,14,15,16,17,18"; // server-time hours to block new orders
+string InpNoNewOrderHourList      = "12,13,14,15,16,23";//"13,14,15,16,17,18"; // server-time hours to block new orders
 
 
 //profit booking hours are 4,5,6,7,8
@@ -144,7 +144,7 @@ bool   InpUseSARPriceDiffConfirm  = true;
 // in the same direction within the configured minutes. If the gap is not completed in time,
 // new normal orders are blocked until a fresh SAR signal cycle starts.
 bool   InpUseRepeatedPriceGapConfirm = true;
-double InpContinuousOrderPriceGap    = 50.0;   // raw price gap required again for each continuity order
+double InpContinuousOrderPriceGap    = 25;   // raw price gap required again for each continuity order
 int    InpContinuousOrderGapMinutes  = 15;     // price gap must happen within this many minutes
 
 double InpSARConfirmPriceDiff     = 50.0;   // raw price diff for BTCUSD, not points
@@ -2659,10 +2659,24 @@ bool GetIndividualProfitProtectLevel(double peakProfit,
      // Dynamic fallback:
 // If no fixed level matched, but order moved into profit,
 // close when profit falls back to 50% of peak profit.
-if(peakProfit > 0.0 && peakProfit>0.20)
+
+   bool isNewBar = (Time[0] != g_lastBarTime);
+
+   if(isNewBar)
+   {
+if(peakProfit > 0.0 && peakProfit>3)
 {
    selectedActivate = peakProfit;
-   selectedCloseAt  = peakProfit / 2.0;
+   selectedCloseAt  = peakProfit *0.8;
+   selectedLevel    = 0; // dynamic level
+   return(true);
+}
+   }
+else
+if(peakProfit > 0.0 && peakProfit>3)
+{
+   selectedActivate = peakProfit;
+   selectedCloseAt  = peakProfit *0.8;
    selectedLevel    = 0; // dynamic level
    return(true);
 }
@@ -4563,12 +4577,40 @@ bool IsRepeatedPriceGapConfirmedForNormalOrder(int direction, string reason)
    int allowedSeconds = MathMax(1, InpContinuousOrderGapMinutes) * 60;
    int elapsedSeconds = (int)(TimeCurrent() - refTime);
 
-   if(elapsedSeconds > allowedSeconds)
+   double currentGap = 0.0;
+
+   if(direction == 1)
+      currentGap = Ask - refPrice;
+   else
+      currentGap = refPrice - Bid;
+
+   // IMPORTANT:
+   // Do NOT wait until InpContinuousOrderGapMinutes.
+   // If the raw price gap is completed early, allow the order immediately.
+   // Example: gap=25 and limit=15 minutes -> if 25 happens in 2 minutes, open now.
+   if(currentGap >= InpContinuousOrderPriceGap)
+     {
+      Print("REPEATED GAP CONFIRMED EARLY | Direction=", DirectionText(direction),
+            " | Source=", refSource,
+            " | RefPrice=", DoubleToString(refPrice, Digits),
+            " | CurrentGap=", DoubleToString(currentGap, Digits),
+            " | RequiredGap=", DoubleToString(InpContinuousOrderPriceGap, Digits),
+            " | ElapsedMin=", DoubleToString(elapsedSeconds / 60.0, 1),
+            "/", InpContinuousOrderGapMinutes,
+            " | Reason=", reason);
+
+      return(true);
+     }
+
+   // Gap was NOT completed. Once the limit is reached/exceeded, fail this SAR cycle.
+   // This prevents late entries after momentum has already become weak.
+   if(elapsedSeconds >= allowedSeconds)
      {
       Print("REPEATED GAP BLOCKED | Gap not completed within time | Direction=",
             DirectionText(direction),
             " | Source=", refSource,
             " | RefPrice=", DoubleToString(refPrice, Digits),
+            " | CurrentGap=", DoubleToString(currentGap, Digits),
             " | ElapsedMin=", DoubleToString(elapsedSeconds / 60.0, 1),
             " | LimitMin=", InpContinuousOrderGapMinutes,
             " | RequiredGap=", DoubleToString(InpContinuousOrderPriceGap, Digits),
@@ -4577,35 +4619,16 @@ bool IsRepeatedPriceGapConfirmedForNormalOrder(int direction, string reason)
       return(false);
      }
 
-   double currentGap = 0.0;
-
-   if(direction == 1)
-      currentGap = Ask - refPrice;
-   else
-      currentGap = refPrice - Bid;
-
-   if(currentGap < InpContinuousOrderPriceGap)
-     {
-      Print("REPEATED GAP WAIT | Direction=", DirectionText(direction),
-            " | Source=", refSource,
-            " | RefPrice=", DoubleToString(refPrice, Digits),
-            " | CurrentGap=", DoubleToString(currentGap, Digits),
-            " | RequiredGap=", DoubleToString(InpContinuousOrderPriceGap, Digits),
-            " | ElapsedMin=", DoubleToString(elapsedSeconds / 60.0, 1),
-            "/", InpContinuousOrderGapMinutes,
-            " | Reason=", reason);
-      return(false);
-     }
-
-   Print("REPEATED GAP CONFIRMED | Direction=", DirectionText(direction),
+   Print("REPEATED GAP WAIT | Direction=", DirectionText(direction),
          " | Source=", refSource,
          " | RefPrice=", DoubleToString(refPrice, Digits),
          " | CurrentGap=", DoubleToString(currentGap, Digits),
          " | RequiredGap=", DoubleToString(InpContinuousOrderPriceGap, Digits),
          " | ElapsedMin=", DoubleToString(elapsedSeconds / 60.0, 1),
+         "/", InpContinuousOrderGapMinutes,
          " | Reason=", reason);
 
-   return(true);
+   return(false);
   }
 
 //+------------------------------------------------------------------+
@@ -4783,10 +4806,11 @@ bool OpenMarketOrder(int direction, string reason)
                         " | Source=" + reason);
 
    if(!IsRepeatedPriceGapConfirmedForNormalOrder(direction, reason))
-      return BlockOrder("Repeated price gap not confirmed | Direction=" +
-                        DirectionText(direction) +
-                        " | RequiredGap=" + DoubleToString(InpContinuousOrderPriceGap, Digits) +
-                        " | MinutesLimit=" + IntegerToString(InpContinuousOrderGapMinutes) +
+      return BlockOrder("Gap not " +
+                        " | R-Gap=" + DoubleToString(InpContinuousOrderPriceGap, Digits) +
+                        " | Min=" + IntegerToString(InpContinuousOrderGapMinutes) +
+
+
                         " | LastConfirmedPrice=" + DoubleToString(g_lastConfirmedOrderPrice, Digits) +
                         " | SARSignalPrice=" + DoubleToString(g_activeSARSignalChangePrice, Digits) +
                         " | Bid=" + DoubleToString(Bid, Digits) +
