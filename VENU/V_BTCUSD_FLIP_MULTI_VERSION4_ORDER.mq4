@@ -16,8 +16,8 @@
 string InpEAName                  = "DXB SAR 5Min Gap30 BasketSL EarlyExit EA";
 int    InpMagicNumber             = 989899;
 double InpFixedLot                = 0.01;
-int    InpMaxOrders               = 9;     // maximum normal SAR orders per SAR signal cycle
-#define DXB_HARD_MAX_OPEN_ORDERS 8  // absolute safety cap for normal SAR orders per cycle
+int    InpMaxOrders               = 1;     // maximum normal SAR orders per SAR signal cycle
+#define DXB_HARD_MAX_OPEN_ORDERS 6  // absolute safety cap for normal SAR orders per cycle
 
 double InpBasketProfitUSD         = 2.00;
 double InpBasketProfitUSD_12_17 = 1.00; // profit target during 12,13,14,15,16,17 hours
@@ -68,7 +68,7 @@ double InpProtectCloseAtUSD_5  = 1.50;
 int    InpIndividualProtectPauseMinutes     = 0;     // wait this many minutes before opening next normal order after profit protect close
 bool   InpCloseIfNextCandleNotProfit     = false;  // close order after next closed candle if profit is not above 0
 
-double InpBasketStopLossUSD       = 5.00;    // BASKET stop loss in USD, 0 = disabled. This closes all orders in active SAR direction.
+double InpBasketStopLossUSD       = 10.00;    // BASKET stop loss in USD, 0 = disabled. This closes all orders in active SAR direction.
 bool   InpOpenRecoveryAfterClose  = false;   // open recovery order after SL/SAR flip/early reverse close
 double InpRecoveryProfitUSD       = 2.00;   // close recovery order when this USD profit is reached
 bool   InpRecoveryAfterSLReverse  = false;   // true: after basket SL, open opposite direction
@@ -76,7 +76,7 @@ bool   InpRecoveryAfterSLReverse  = false;   // true: after basket SL, open oppo
 // Recovery gap orders: when existing BUY/SELL basket is in loss and price moves against it
 // by this raw price gap, open one more same-direction recovery order.
 bool   InpUseRecoveryGapOrders    = true;
-double InpRecoveryGapRawPrice     = 100;   // raw price difference, not points
+double InpRecoveryGapRawPrice     = 500;   // raw price difference, not points
 double InpRecoveryGapLot          = 0.01;
 int    InpMaxRecoveryGapOrdersPerSide = 3;  // recovery ladder: 50, 100, 150 from first order price
 
@@ -98,7 +98,7 @@ bool   InpUseEquityProtection       = false;
 bool   InpAutoUseCurrentBalanceBase = true;   // true = take current account balance on EA load/new day
 double InpManualBaseCapitalUSD      = 20.0;   // used only when Auto=false
 
-double InpProfitTargetPercent      = 50.0;   // stop trading when equity reaches Base + 100%
+double InpProfitTargetPercent      = 20.0;   // stop trading when equity reaches Base + 100%
 double InpLossStopPercent          = 50.0;   // stop trading when equity reaches Base - 50%
 double InpProtectionBufferUSD      = 0.00;   // optional buffer below loss-stop level
 bool   InpCloseOrdersOnEquityHit    = true;
@@ -1390,9 +1390,9 @@ bool GetBasketProfitProtectLevel(double peakProfit,
 
    if(!InpUseBasketProfitProtect)
       return(false);
-
    if(!InpUseMultiBasketProfitProtect)
       return(selectedActivate > 0.0 && peakProfit >= selectedActivate && selectedCloseAt >= 0.0);
+/*
 
    if(InpBasketProtectActivateUSD_5 > 0.0 && peakProfit >= InpBasketProtectActivateUSD_5)
      {
@@ -1432,14 +1432,12 @@ bool GetBasketProfitProtectLevel(double peakProfit,
       selectedCloseAt  = InpBasketProtectCloseAtUSD_1;
       selectedLevel    = 1;
       return(true);
-     }
+     }*/
 
    // Dynamic fallback:
    // If no fixed basket level matched, but basket moved into profit,
    // close when basket profit falls back to configured percent of peak profit.
-   // if(peakProfit >= InpBasketDynamicMinPeakUSD && peakProfit>=0.50)
-   if(peakProfit >= InpBasketDynamicMinPeakUSD)
-
+   if(peakProfit >= InpBasketDynamicMinPeakUSD && peakProfit>=1)
      {
       selectedActivate = peakProfit;
       // selectedCloseAt  = peakProfit * MathMin(100.0, InpBasketDynamicClosePercent) / 100.0;
@@ -1538,6 +1536,8 @@ bool ProcessFirstPriorityBasketProfitClose(string &status)
    double protectActivate = 0.0;
    double protectCloseAt  = 0.0;
    int    protectLevel    = 0;
+
+   if(buyCount>1 && sellCount>1)
 
    if(GetBasketProfitProtectLevel(g_allBasketPeakProfit,
                                   target,
@@ -2916,7 +2916,7 @@ bool GetIndividualProfitProtectLevel(double peakProfit,
    if(!InpUseMultiIndividualProfitProtect)
       return(selectedActivate > 0.0 && selectedCloseAt >= 0.0);
 
-      
+      /*
    // Level 3 has highest priority after the order has reached that peak.
    if(InpProtectActivateUSD_5 > 0.0 && peakProfit >= InpProtectActivateUSD_5)
      {
@@ -2949,26 +2949,39 @@ bool GetIndividualProfitProtectLevel(double peakProfit,
       return(true);
      }
 
-   // if(InpProtectActivateUSD_1 > 0.0)
-   //   {
-   //    selectedActivate = InpProtectActivateUSD_1;
-   //    selectedCloseAt  = InpProtectCloseAtUSD_1;
-   //    selectedLevel    = 1;
-   //    return(true);
-   //   }
+   if(InpProtectActivateUSD_1 > 0.0)
+     {
+      selectedActivate = InpProtectActivateUSD_1;
+      selectedCloseAt  = InpProtectCloseAtUSD_1;
+      selectedLevel    = 1;
+      return(true);
+     }*/
 
      
 
      // Dynamic fallback:
 // If no fixed level matched, but order moved into profit,
 // close when profit falls back to 50% of peak profit.
-// if(peakProfit > 0.0  && peakProfit > 0.20)
-if(peakProfit > 0.0)
+   bool isNewBar = (Time[0] != g_lastBarTime);
 
+
+   if(isNewBar)
+   {
+if(peakProfit > 0.0  && peakProfit > 0.50)
 {
    selectedActivate = peakProfit;
    // selectedCloseAt  = peakProfit / 2.0;
-   // selectedCloseAt = MathMax(0.10, peakProfit * 0.7);
+   // selectedCloseAt = MathMax(0.20, peakProfit * 0.7);
+   selectedCloseAt = peakProfit * 0.8;
+      selectedLevel    = 0; // dynamic level profitdynamic 
+   return(true);
+}
+   }
+else if(peakProfit > 0.0  && peakProfit > 1)
+{
+   selectedActivate = peakProfit;
+   // selectedCloseAt  = peakProfit / 2.0;
+   // selectedCloseAt = MathMax(0.20, peakProfit * 0.7);
    selectedCloseAt = peakProfit * 0.8;
       selectedLevel    = 0; // dynamic level profitdynamic 
    return(true);
@@ -5658,14 +5671,7 @@ void DrawDashboard(string status)
    DashRow("Recovery Gap Step",
            DoubleToString(InpRecoveryGapRawPrice,0) + "," +
            DoubleToString(InpRecoveryGapRawPrice*2,0) + "," +
-           DoubleToString(InpRecoveryGapRawPrice*3,0)+ " " +
-           
-           DoubleToString(GetNextRecoveryLadderRequiredGap(1),0)+ "/" +
-           DoubleToString(GetNextRecoveryLadderRequiredGap(-1),0)+ " "
-
-
-           
-           ,
+           DoubleToString(InpRecoveryGapRawPrice*3,0),
            clrAqua);
 
 
