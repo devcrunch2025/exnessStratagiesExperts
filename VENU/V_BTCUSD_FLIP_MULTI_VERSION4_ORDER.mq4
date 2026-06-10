@@ -16,7 +16,7 @@
 string InpEAName                  = "DXB SAR 5Min Gap30 BasketSL EarlyExit EA";
 int    InpMagicNumber             = 989899;
 double InpFixedLot                = 0.01;
-int    InpMaxOrders               = 2;     // maximum normal SAR orders per SAR signal cycle
+int    InpMaxOrders               = 1;     // only 1 open normal order per direction at a time; next order only after close + new candle
 #define DXB_HARD_MAX_OPEN_ORDERS 6  // absolute safety cap for normal SAR orders per cycle
 
 double InpBasketProfitUSD         = 2.00;
@@ -147,6 +147,7 @@ bool   InpUseRepeatedPriceGapConfirm = true;
 double InpContinuousOrderPriceGap    = 25;   // raw price gap required again for each continuity order
 int    InpContinuousOrderGapMinutes  = 15;     // price gap must happen within this many minutes
 int    InpContinuousOrderWaitBarsAfterGap = 1; // 1 = open only from next bar after gap is completed; set 2 for safer delay
+bool   InpWaitNewBarAfterOrderClose = true;  // after an order closes, do not open another normal order in the same candle
 
 double InpSARConfirmPriceDiff     = 50.0;   // raw price diff for BTCUSD, not points
 int    InpSARConfirmMinutes       = 15;     // wait this many minutes after SAR signal change before new order
@@ -4839,6 +4840,9 @@ bool OpenMarketOrder(int direction, string reason)
       return BlockOrder(msgMaxOpen);
      }
 
+   if(WasSameDirectionOrderClosedThisBar(direction))
+      return BlockOrder("Wait next candle after previous " + DirectionText(direction) + " order close | Source=" + reason);
+
    EnsureSARSignalOrderCycle(direction);
    UpdateSARCycleMaxByMomentum(direction, "OpenMarketOrder pre-check");
 
@@ -5090,6 +5094,51 @@ int CountOpenOrdersByType(int type)
      }
 
    return(total);
+  }
+
+//+------------------------------------------------------------------+
+//| Block a new normal order in the same candle where last order closed|
+//+------------------------------------------------------------------+
+bool WasSameDirectionOrderClosedThisBar(int direction)
+  {
+   if(!InpWaitNewBarAfterOrderClose)
+      return(false);
+
+   int type = direction == 1 ? OP_BUY : OP_SELL;
+   datetime currentBarTime = Time[0];
+
+   for(int i = OrdersHistoryTotal() - 1; i >= 0; i--)
+     {
+      if(!OrderSelect(i, SELECT_BY_POS, MODE_HISTORY))
+         continue;
+
+      if(OrderSymbol() != Symbol())
+         continue;
+
+      if(OrderMagicNumber() != InpMagicNumber)
+         continue;
+
+      if(OrderType() != type)
+         continue;
+
+      if(OrderCloseTime() <= 0)
+         continue;
+
+      // History is scanned newest first. Once we reach older candles, stop scanning.
+      if(OrderCloseTime() < currentBarTime)
+         break;
+
+      if(OrderCloseTime() >= currentBarTime)
+        {
+         Print("NEW ORDER BLOCKED | Previous ", DirectionText(direction),
+               " order closed in this same candle. Wait next bar. CloseTime=",
+               TimeToString(OrderCloseTime(), TIME_DATE|TIME_SECONDS),
+               " | BarTime=", TimeToString(currentBarTime, TIME_DATE|TIME_SECONDS));
+         return(true);
+        }
+     }
+
+   return(false);
   }
 
 //+------------------------------------------------------------------+
