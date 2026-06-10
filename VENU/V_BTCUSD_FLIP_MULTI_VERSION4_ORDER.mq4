@@ -16,8 +16,8 @@
 string InpEAName                  = "DXB SAR 5Min Gap30 BasketSL EarlyExit EA";
 int    InpMagicNumber             = 989899;
 double InpFixedLot                = 0.01;
-int    InpMaxOrders               = 1;     // maximum normal SAR orders per SAR signal cycle
-#define DXB_HARD_MAX_OPEN_ORDERS 6  // absolute safety cap for normal SAR orders per cycle
+int    InpMaxOrders               = 10;     // maximum normal SAR orders per SAR signal cycle
+#define DXB_HARD_MAX_OPEN_ORDERS 10  // absolute safety cap for normal SAR orders per cycle
 
 double InpBasketProfitUSD         = 2.00;
 double InpBasketProfitUSD_12_17 = 1.00; // profit target during 12,13,14,15,16,17 hours
@@ -65,7 +65,7 @@ double InpProtectCloseAtUSD_4  = 1.00;
 double InpProtectActivateUSD_5 = 1.90;
 double InpProtectCloseAtUSD_5  = 1.50;
 
-int    InpIndividualProtectPauseMinutes     = 5;     // wait this many minutes before opening next normal order after profit protect close
+int    InpIndividualProtectPauseMinutes     = 0;     // wait this many minutes before opening next normal order after profit protect close
 bool   InpCloseIfNextCandleNotProfit     = false;  // close order after next closed candle if profit is not above 0
 
 double InpBasketStopLossUSD       = 10.00;    // BASKET stop loss in USD, 0 = disabled. This closes all orders in active SAR direction.
@@ -76,7 +76,7 @@ bool   InpRecoveryAfterSLReverse  = false;   // true: after basket SL, open oppo
 // Recovery gap orders: when existing BUY/SELL basket is in loss and price moves against it
 // by this raw price gap, open one more same-direction recovery order.
 bool   InpUseRecoveryGapOrders    = true;
-double InpRecoveryGapRawPrice     = 200.0;   // raw price difference, not points
+double InpRecoveryGapRawPrice     = 300;   // raw price difference, not points
 double InpRecoveryGapLot          = 0.01;
 int    InpMaxRecoveryGapOrdersPerSide = 3;  // recovery ladder: 50, 100, 150 from first order price
 
@@ -128,7 +128,7 @@ bool   InpNotifyOnEAStart             = true;    // notify when EA is loaded
 
 
 // Continuous order controls
-bool   InpOneOrderPerBar          = true;
+bool   InpOneOrderPerBar          = false;
 int    InpOrderCooldownSeconds    = 0;       // 0 = disabled
 double InpMinPriceGap             = 0.00;    // raw price gap, 0 = disabled
 
@@ -1437,11 +1437,13 @@ bool GetBasketProfitProtectLevel(double peakProfit,
    // Dynamic fallback:
    // If no fixed basket level matched, but basket moved into profit,
    // close when basket profit falls back to configured percent of peak profit.
-   if(peakProfit >= InpBasketDynamicMinPeakUSD && InpBasketDynamicClosePercent > 0.0)
+   if(peakProfit >= InpBasketDynamicMinPeakUSD && peakProfit>=0.50)
      {
       selectedActivate = peakProfit;
-      selectedCloseAt  = peakProfit * MathMin(100.0, InpBasketDynamicClosePercent) / 100.0;
-      selectedLevel    = 0; // dynamic level
+      // selectedCloseAt  = peakProfit * MathMin(100.0, InpBasketDynamicClosePercent) / 100.0;
+   selectedCloseAt = peakProfit * 0.8;
+
+      selectedLevel    = 0; // dynamic level profitdynamic dynamicprofit 
       return(true);
      }
 
@@ -2951,18 +2953,20 @@ bool GetIndividualProfitProtectLevel(double peakProfit,
       selectedCloseAt  = InpProtectCloseAtUSD_1;
       selectedLevel    = 1;
       return(true);
-     }
+     }*/
 
-     */
+     
 
      // Dynamic fallback:
 // If no fixed level matched, but order moved into profit,
 // close when profit falls back to 50% of peak profit.
-if(peakProfit > 0.0 && peakProfit>0.50)
+if(peakProfit > 0.0  && peakProfit > 0.20)
 {
    selectedActivate = peakProfit;
-   selectedCloseAt  = peakProfit / 2.0;
-   selectedLevel    = 0; // dynamic level
+   // selectedCloseAt  = peakProfit / 2.0;
+   // selectedCloseAt = MathMax(0.20, peakProfit * 0.7);
+   selectedCloseAt = peakProfit * 0.8;
+      selectedLevel    = 0; // dynamic level profitdynamic 
    return(true);
 }
 
