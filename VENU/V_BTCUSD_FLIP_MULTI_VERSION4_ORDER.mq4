@@ -76,7 +76,7 @@ bool   InpRecoveryAfterSLReverse  = false;   // true: after basket SL, open oppo
 // Recovery gap orders: when existing BUY/SELL basket is in loss and price moves against it
 // by this raw price gap, open one more same-direction recovery order.
 bool   InpUseRecoveryGapOrders    = true;
-double InpRecoveryGapRawPrice     = 150.0;   // raw price difference, not points
+double InpRecoveryGapRawPrice     = 200.0;   // raw price difference, not points
 double InpRecoveryGapLot          = 0.01;
 int    InpMaxRecoveryGapOrdersPerSide = 3;  // recovery ladder: 50, 100, 150 from first order price
 
@@ -140,9 +140,9 @@ string InpNoNewOrderHourList      = "23";//"13,14,15,16,17,18"; // server-time h
 //profit booking hours are 4,5,6,7,8
 
 // Big candle pause protection
-bool   InpUseBigCandlePause       = true;     // pause new orders after very large candle
+bool   InpUseBigCandlePause       = false;     // pause new orders after very large candle
 double InpBigCandleRawDifference  = 300;    // raw BTCUSD price difference: High[1]-Low[1]
-int    InpBigCandlePauseMinutes   = 5;       // pause duration after big candle
+int    InpBigCandlePauseMinutes   = 1;       // pause duration after big candle
 bool   InpNotifyOnBigCandlePause  = true;     // push notification when big candle pause starts/ends
 
 // SAR settings
@@ -166,8 +166,8 @@ bool   InpUseSARPriceDiffConfirm  = true;
 // in the same direction within the configured minutes. If the gap is not completed in time,
 // new normal orders are blocked until a fresh SAR signal cycle starts.
 bool   InpUseRepeatedPriceGapConfirm = true;
-double InpContinuousOrderPriceGap    = 50.0;   // raw price gap required again for each continuity order
-int    InpContinuousOrderGapMinutes  = 15;     // price gap must happen within this many minutes
+double InpContinuousOrderPriceGap    = 25;//50.0;   // raw price gap required again for each continuity order
+int    InpContinuousOrderGapMinutes  = 30;//15;     // price gap must happen within this many minutes
 
 double InpSARConfirmPriceDiff     = 50.0;   // raw price diff for BTCUSD, not points
 int    InpSARConfirmMinutes       = 15;     // wait this many minutes after SAR signal change before new order
@@ -2898,7 +2898,7 @@ bool GetIndividualProfitProtectLevel(double peakProfit,
      // Dynamic fallback:
 // If no fixed level matched, but order moved into profit,
 // close when profit falls back to 50% of peak profit.
-if(peakProfit > 0.0 && peakProfit>0.20)
+if(peakProfit > 0.0 && peakProfit>0.10)
 {
    selectedActivate = peakProfit;
    selectedCloseAt  = peakProfit / 2.0;
