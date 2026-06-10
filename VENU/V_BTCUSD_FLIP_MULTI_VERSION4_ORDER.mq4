@@ -61,7 +61,7 @@ int    InpMaxRecoveryGapOrdersPerSide = 3;  // recovery ladder: 50, 100, 150 fro
 // Reverse swing order: whenever a RECOVERY_GAP order opens, also open one opposite order.
 // Example: BUY recovery opens -> open SELL swing order.
 // These reverse swing orders are protected by the same 0.50 -> 0.40 pullback logic.
-bool   InpOpenReverseOrderWithRecovery = true;
+bool   InpOpenReverseOrderWithRecovery = false;
 double InpRecoveryReverseLot           = 0.01;   // 0 or less = use InpRecoveryGapLot
 
 int    InpStopLossPoints          = 0;       // 0 = no hard SL
@@ -2692,7 +2692,7 @@ bool GetIndividualProfitProtectLevel(double peakProfit,
    bool isNewBar = (Time[0] != g_lastBarTime);
 
 
-if(g_sarCycleOrdersCreated>2 || TimeCurrent()-orderopentime>5)
+if(g_sarCycleOrdersCreated>2 || TimeCurrent()-orderopentime>30)
 {
     if(peakProfit > 0.0 && peakProfit>1)
         {
@@ -2701,7 +2701,7 @@ if(g_sarCycleOrdersCreated>2 || TimeCurrent()-orderopentime>5)
          selectedLevel    = 0; // dynamic level
          return(true);
         }
-       else  if(peakProfit > 0.0 && peakProfit>0.50)
+       else  if(peakProfit > 0.0 && peakProfit>0.10)
         {
          selectedActivate = peakProfit;
          selectedCloseAt  = peakProfit *0.8;
@@ -3749,11 +3749,15 @@ void OnTick()
 // FIRST PRIORITY PROFIT BOOKING:
 // 1) Close ALL BUY+SELL open EA orders if combined profit >= InpBasketProfitUSD.
 // 2) Otherwise close BUY basket or SELL basket individually if that side profit >= InpBasketProfitUSD.
+// IMPORTANT:
+// Do NOT return immediately after basket profit close.
+// Returning here skips ProcessNewOrderCreationLast() completely and makes the dashboard confusing.
+// We mark closedByFirstPriority=true and let the normal "close first, new order last" flow continue.
    string firstPriorityStatus = "RUNNING";
+   bool closedByFirstPriority = false;
    if(ProcessFirstPriorityBasketProfitClose(firstPriorityStatus))
      {
-      DrawDashboard(firstPriorityStatus);
-      return;
+      closedByFirstPriority = true;
      }
 
 // Deposit reset uses the same equity reset method as fixed hours (1,7,13,19).
@@ -3808,7 +3812,14 @@ void OnTick()
    ProcessSARFlipStateAndClose();
 
 // SECTION 2: Close management FIRST. No new-order gate is allowed before this.
-   bool closedThisTick = ProcessCloseOrdersFirst(status);
+// If First Priority basket TP already closed orders above, keep that state here.
+   bool closedThisTick = closedByFirstPriority;
+
+   if(ProcessCloseOrdersFirst(status))
+      closedThisTick = true;
+
+   if(closedByFirstPriority)
+      status = firstPriorityStatus + " | WAIT NEXT CANDLE";
 
 // SECTION 3: New order creation LAST. Runs only if nothing closed this tick.
    if(!closedThisTick)
@@ -3819,6 +3830,11 @@ void OnTick()
 // Add checklist refresh operations here right before final updates
    UpdateFilterChecklistData(isNewBar);
    DrawLeftDashboard();
+
+// Final dashboard truth:
+// If no status was set by the main flow, show the last exact OpenMarketOrder()/BlockOrder() reason.
+   if(status == "RUNNING" || status == "")
+      status = g_lastOrderOpenReason;
 
    DrawDashboard(status);
   }
