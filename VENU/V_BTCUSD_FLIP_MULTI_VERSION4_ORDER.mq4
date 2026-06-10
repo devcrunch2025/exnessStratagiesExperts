@@ -22,6 +22,28 @@ int    InpMaxOrders               = 1;     // maximum normal SAR orders per SAR 
 double InpBasketProfitUSD         = 2.00;
 double InpBasketProfitUSD_12_17 = 1.00; // profit target during 12,13,14,15,16,17 hours
 
+// Basket profit protection:
+// Works like individual profit protect, but for ALL basket, BUY basket, and SELL basket.
+// If basket profit first reaches a level and later comes back down, close that basket near protected profit.
+bool   InpUseBasketProfitProtect          = true;
+bool   InpUseMultiBasketProfitProtect     = true;
+double InpBasketProtectActivateUSD_1      = 0.50;
+double InpBasketProtectCloseAtUSD_1       = 0.25;
+double InpBasketProtectActivateUSD_2      = 1.00;
+double InpBasketProtectCloseAtUSD_2       = 0.50;
+double InpBasketProtectActivateUSD_3      = 2.00;
+double InpBasketProtectCloseAtUSD_3       = 1.00;
+double InpBasketProtectActivateUSD_4      = 3.00;
+double InpBasketProtectCloseAtUSD_4       = 1.50;
+double InpBasketProtectActivateUSD_5      = 5.00;
+double InpBasketProtectCloseAtUSD_5       = 2.50;
+
+// Dynamic basket fallback: if no fixed basket level matches,
+// close basket when profit falls back to this percent of peak.
+// Example: 50 = peak $2.00, close if basket profit falls to $1.00.
+double InpBasketDynamicClosePercent       = 50.0;
+double InpBasketDynamicMinPeakUSD         = 0.20;
+
 // Individual profit protection:
 // If an order first moves into profit and later comes back down, close it near this small profit.
 bool   InpUseIndividualProfitProtect      = true;
@@ -61,7 +83,7 @@ int    InpMaxRecoveryGapOrdersPerSide = 3;  // recovery ladder: 50, 100, 150 fro
 // Reverse swing order: whenever a RECOVERY_GAP order opens, also open one opposite order.
 // Example: BUY recovery opens -> open SELL swing order.
 // These reverse swing orders are protected by the same 0.50 -> 0.40 pullback logic.
-bool   InpOpenReverseOrderWithRecovery = true;
+bool   InpOpenReverseOrderWithRecovery = false;
 double InpRecoveryReverseLot           = 0.01;   // 0 or less = use InpRecoveryGapLot
 
 int    InpStopLossPoints          = 0;       // 0 = no hard SL
@@ -118,9 +140,9 @@ string InpNoNewOrderHourList      = "23";//"13,14,15,16,17,18"; // server-time h
 //profit booking hours are 4,5,6,7,8
 
 // Big candle pause protection
-bool   InpUseBigCandlePause       = false;     // pause new orders after very large candle
+bool   InpUseBigCandlePause       = true;     // pause new orders after very large candle
 double InpBigCandleRawDifference  = 300;    // raw BTCUSD price difference: High[1]-Low[1]
-int    InpBigCandlePauseMinutes   = 1;       // pause duration after big candle
+int    InpBigCandlePauseMinutes   = 5;       // pause duration after big candle
 bool   InpNotifyOnBigCandlePause  = true;     // push notification when big candle pause starts/ends
 
 // SAR settings
@@ -391,6 +413,9 @@ double   g_dynamicSARLongBarMove    = 0.0;
 bool     g_earlySARWeakExitActive = false;
 string   g_earlySARWeakExitReason = "";
 double   g_activeBasketPeakProfit = 0.0;
+double   g_allBasketPeakProfit    = 0.0;
+double   g_buyBasketPeakProfit    = 0.0;
+double   g_sellBasketPeakProfit   = 0.0;
 datetime g_lastEarlySARWeakExitTime = 0;
 int      g_lastEarlySARWeakExitDirection = 0;
 
@@ -1285,6 +1310,102 @@ void ResetDelayedSARCloseAfterBasketClose(int direction, string resetReason)
    g_sarDelayedCloseStatus          = resetReason;
   }
 
+
+//+------------------------------------------------------------------+
+//| Basket profit protection level selector                          |
+//| Same idea as GetIndividualProfitProtectLevel(), but for baskets.  |
+//| Highest reached fixed level is used first. If no fixed level      |
+//| matches, dynamic fallback protects a percentage of peak profit.   |
+//+------------------------------------------------------------------+
+bool GetBasketProfitProtectLevel(double peakProfit,
+                                 double defaultActivate,
+                                 double defaultCloseAt,
+                                 double &selectedActivate,
+                                 double &selectedCloseAt,
+                                 int &selectedLevel)
+  {
+   selectedActivate = MathMax(0.0, defaultActivate);
+   selectedCloseAt  = MathMax(0.0, defaultCloseAt);
+   selectedLevel    = 0;
+
+   if(!InpUseBasketProfitProtect)
+      return(false);
+
+   if(!InpUseMultiBasketProfitProtect)
+      return(selectedActivate > 0.0 && peakProfit >= selectedActivate && selectedCloseAt >= 0.0);
+
+   if(InpBasketProtectActivateUSD_5 > 0.0 && peakProfit >= InpBasketProtectActivateUSD_5)
+     {
+      selectedActivate = InpBasketProtectActivateUSD_5;
+      selectedCloseAt  = InpBasketProtectCloseAtUSD_5;
+      selectedLevel    = 5;
+      return(true);
+     }
+
+   if(InpBasketProtectActivateUSD_4 > 0.0 && peakProfit >= InpBasketProtectActivateUSD_4)
+     {
+      selectedActivate = InpBasketProtectActivateUSD_4;
+      selectedCloseAt  = InpBasketProtectCloseAtUSD_4;
+      selectedLevel    = 4;
+      return(true);
+     }
+
+   if(InpBasketProtectActivateUSD_3 > 0.0 && peakProfit >= InpBasketProtectActivateUSD_3)
+     {
+      selectedActivate = InpBasketProtectActivateUSD_3;
+      selectedCloseAt  = InpBasketProtectCloseAtUSD_3;
+      selectedLevel    = 3;
+      return(true);
+     }
+
+   if(InpBasketProtectActivateUSD_2 > 0.0 && peakProfit >= InpBasketProtectActivateUSD_2)
+     {
+      selectedActivate = InpBasketProtectActivateUSD_2;
+      selectedCloseAt  = InpBasketProtectCloseAtUSD_2;
+      selectedLevel    = 2;
+      return(true);
+     }
+
+   if(InpBasketProtectActivateUSD_1 > 0.0 && peakProfit >= InpBasketProtectActivateUSD_1)
+     {
+      selectedActivate = InpBasketProtectActivateUSD_1;
+      selectedCloseAt  = InpBasketProtectCloseAtUSD_1;
+      selectedLevel    = 1;
+      return(true);
+     }
+
+   // Dynamic fallback:
+   // If no fixed basket level matched, but basket moved into profit,
+   // close when basket profit falls back to configured percent of peak profit.
+   if(peakProfit >= InpBasketDynamicMinPeakUSD && InpBasketDynamicClosePercent > 0.0)
+     {
+      selectedActivate = peakProfit;
+      selectedCloseAt  = peakProfit * MathMin(100.0, InpBasketDynamicClosePercent) / 100.0;
+      selectedLevel    = 0; // dynamic level
+      return(true);
+     }
+
+   return(false);
+  }
+
+//+------------------------------------------------------------------+
+void ResetBasketProfitPeaksAfterClose(int direction)
+  {
+   if(direction == 0)
+     {
+      g_allBasketPeakProfit  = 0.0;
+      g_buyBasketPeakProfit  = 0.0;
+      g_sellBasketPeakProfit = 0.0;
+      return;
+     }
+
+   if(direction == 1)
+      g_buyBasketPeakProfit = 0.0;
+
+   if(direction == -1)
+      g_sellBasketPeakProfit = 0.0;
+  }
+
 //+------------------------------------------------------------------+
 bool ProcessFirstPriorityBasketProfitClose(string &status)
   {
@@ -1296,20 +1417,46 @@ bool ProcessFirstPriorityBasketProfitClose(string &status)
 
    int totalOrders = CountAllOrders();
    if(totalOrders <= 0)
+     {
+      ResetBasketProfitPeaksAfterClose(0);
       return(false);
+     }
 
    double allProfit = GetAllOpenEAOrdersProfit();
    int buyCount  = CountOrdersByDirection(1);
    int sellCount = CountOrdersByDirection(-1);
 
-   // PRIORITY 1:
-   // If combined BUY + SELL floating profit reaches InpBasketProfitUSD,
-   // close everything first. This is best when hedge/recovery orders are active.
+   double buyProfit  = (buyCount  > 0) ? GetBasketProfit(1)  : 0.0;
+   double sellProfit = (sellCount > 0) ? GetBasketProfit(-1) : 0.0;
+
+   // Keep basket peak profit memory.
+   if(allProfit > g_allBasketPeakProfit)
+      g_allBasketPeakProfit = allProfit;
+
+   if(buyCount > 0)
+     {
+      if(buyProfit > g_buyBasketPeakProfit)
+         g_buyBasketPeakProfit = buyProfit;
+     }
+   else
+      g_buyBasketPeakProfit = 0.0;
+
+   if(sellCount > 0)
+     {
+      if(sellProfit > g_sellBasketPeakProfit)
+         g_sellBasketPeakProfit = sellProfit;
+     }
+   else
+      g_sellBasketPeakProfit = 0.0;
+
+   // PRIORITY 1A:
+   // Fixed target: close all BUY+SELL when combined floating profit reaches target.
    if(allProfit >= target)
      {
       CloseAllEAOrders("FIRST PRIORITY ALL BUY+SELL basket profit $" + DoubleToString(allProfit, 2));
 
       ResetDelayedSARCloseAfterBasketClose(0, "All basket TP reset");
+      ResetBasketProfitPeaksAfterClose(0);
 
       Print("FIRST PRIORITY ALL BASKET PROFIT HIT | Orders=", totalOrders,
             " | BuyCount=", buyCount,
@@ -1321,12 +1468,44 @@ bool ProcessFirstPriorityBasketProfitClose(string &status)
       return(true);
      }
 
-   // PRIORITY 2:
-   // If combined profit is not enough, close the profitable side only.
-   // BUY basket and SELL basket are checked separately using the SAME full target.
-   double buyProfit  = (buyCount  > 0) ? GetBasketProfit(1)  : 0.0;
-   double sellProfit = (sellCount > 0) ? GetBasketProfit(-1) : 0.0;
+   // PRIORITY 1B:
+   // Basket profit protect: if combined basket first reached profit peak
+   // and then profit reduced to protected level, close all.
+   double protectActivate = 0.0;
+   double protectCloseAt  = 0.0;
+   int    protectLevel    = 0;
 
+   if(GetBasketProfitProtectLevel(g_allBasketPeakProfit,
+                                  target,
+                                  target / 2.0,
+                                  protectActivate,
+                                  protectCloseAt,
+                                  protectLevel))
+     {
+      if(g_allBasketPeakProfit >= protectActivate &&
+         allProfit > 0.0 &&
+         allProfit <= protectCloseAt)
+        {
+         CloseAllEAOrders("ALL BUY+SELL basket profit protect | Peak $" +
+                          DoubleToString(g_allBasketPeakProfit, 2) +
+                          " -> Close $" + DoubleToString(allProfit, 2));
+
+         ResetDelayedSARCloseAfterBasketClose(0, "All basket protect reset");
+         ResetBasketProfitPeaksAfterClose(0);
+
+         Print("ALL BASKET PROFIT PROTECT CLOSED | Level=", protectLevel,
+               " | Peak=$", DoubleToString(g_allBasketPeakProfit, 2),
+               " | Current=$", DoubleToString(allProfit, 2),
+               " | ProtectClose=$", DoubleToString(protectCloseAt, 2));
+
+         status = "ALL BASKET PROTECT $" + DoubleToString(allProfit, 2);
+         return(true);
+        }
+     }
+
+   // PRIORITY 2A:
+   // If combined profit is not enough, close the profitable side only
+   // when BUY/SELL side reaches fixed target.
    bool closedAnySide = false;
    string closedText = "";
 
@@ -1334,6 +1513,7 @@ bool ProcessFirstPriorityBasketProfitClose(string &status)
      {
       CloseOrdersByDirection(1, "FIRST PRIORITY BUY basket profit $" + DoubleToString(buyProfit, 2));
       ResetDelayedSARCloseAfterBasketClose(1, "BUY basket TP reset");
+      ResetBasketProfitPeaksAfterClose(1);
 
       Print("FIRST PRIORITY BUY BASKET PROFIT HIT | BuyCount=", buyCount,
             " | Profit=$", DoubleToString(buyProfit, 2),
@@ -1347,6 +1527,7 @@ bool ProcessFirstPriorityBasketProfitClose(string &status)
      {
       CloseOrdersByDirection(-1, "FIRST PRIORITY SELL basket profit $" + DoubleToString(sellProfit, 2));
       ResetDelayedSARCloseAfterBasketClose(-1, "SELL basket TP reset");
+      ResetBasketProfitPeaksAfterClose(-1);
 
       Print("FIRST PRIORITY SELL BASKET PROFIT HIT | SellCount=", sellCount,
             " | Profit=$", DoubleToString(sellProfit, 2),
@@ -1362,6 +1543,64 @@ bool ProcessFirstPriorityBasketProfitClose(string &status)
      {
       status = closedText;
       return(true);
+     }
+
+   // PRIORITY 2B:
+   // BUY/SELL side basket profit protect.
+   if(buyCount > 0 &&
+      GetBasketProfitProtectLevel(g_buyBasketPeakProfit,
+                                  target,
+                                  target / 2.0,
+                                  protectActivate,
+                                  protectCloseAt,
+                                  protectLevel))
+     {
+      if(g_buyBasketPeakProfit >= protectActivate &&
+         buyProfit > 0.0 &&
+         buyProfit <= protectCloseAt)
+        {
+         CloseOrdersByDirection(1, "BUY basket profit protect | Peak $" +
+                                DoubleToString(g_buyBasketPeakProfit, 2) +
+                                " -> Close $" + DoubleToString(buyProfit, 2));
+         ResetDelayedSARCloseAfterBasketClose(1, "BUY basket protect reset");
+         ResetBasketProfitPeaksAfterClose(1);
+
+         Print("BUY BASKET PROFIT PROTECT CLOSED | Level=", protectLevel,
+               " | Peak=$", DoubleToString(g_buyBasketPeakProfit, 2),
+               " | Current=$", DoubleToString(buyProfit, 2),
+               " | ProtectClose=$", DoubleToString(protectCloseAt, 2));
+
+         status = "BUY BASKET PROTECT $" + DoubleToString(buyProfit, 2);
+         return(true);
+        }
+     }
+
+   if(sellCount > 0 &&
+      GetBasketProfitProtectLevel(g_sellBasketPeakProfit,
+                                  target,
+                                  target / 2.0,
+                                  protectActivate,
+                                  protectCloseAt,
+                                  protectLevel))
+     {
+      if(g_sellBasketPeakProfit >= protectActivate &&
+         sellProfit > 0.0 &&
+         sellProfit <= protectCloseAt)
+        {
+         CloseOrdersByDirection(-1, "SELL basket profit protect | Peak $" +
+                                DoubleToString(g_sellBasketPeakProfit, 2) +
+                                " -> Close $" + DoubleToString(sellProfit, 2));
+         ResetDelayedSARCloseAfterBasketClose(-1, "SELL basket protect reset");
+         ResetBasketProfitPeaksAfterClose(-1);
+
+         Print("SELL BASKET PROFIT PROTECT CLOSED | Level=", protectLevel,
+               " | Peak=$", DoubleToString(g_sellBasketPeakProfit, 2),
+               " | Current=$", DoubleToString(sellProfit, 2),
+               " | ProtectClose=$", DoubleToString(protectCloseAt, 2));
+
+         status = "SELL BASKET PROTECT $" + DoubleToString(sellProfit, 2);
+         return(true);
+        }
      }
 
    return(false);
