@@ -68,7 +68,7 @@ double InpProtectCloseAtUSD_5  = 1.50;
 int    InpIndividualProtectPauseMinutes     = 0;     // wait this many minutes before opening next normal order after profit protect close
 bool   InpCloseIfNextCandleNotProfit     = false;  // close order after next closed candle if profit is not above 0
 
-double InpBasketStopLossUSD       = 10.00;    // BASKET stop loss in USD, 0 = disabled. This closes all orders in active SAR direction.
+double InpBasketStopLossUSD       = 5.00;    // BASKET stop loss in USD, 0 = disabled. This closes all orders in active SAR direction.
 bool   InpOpenRecoveryAfterClose  = false;   // open recovery order after SL/SAR flip/early reverse close
 double InpRecoveryProfitUSD       = 2.00;   // close recovery order when this USD profit is reached
 bool   InpRecoveryAfterSLReverse  = false;   // true: after basket SL, open opposite direction
@@ -76,7 +76,7 @@ bool   InpRecoveryAfterSLReverse  = false;   // true: after basket SL, open oppo
 // Recovery gap orders: when existing BUY/SELL basket is in loss and price moves against it
 // by this raw price gap, open one more same-direction recovery order.
 bool   InpUseRecoveryGapOrders    = true;
-double InpRecoveryGapRawPrice     = 500;   // raw price difference, not points
+double InpRecoveryGapRawPrice     = 100;   // raw price difference, not points
 double InpRecoveryGapLot          = 0.01;
 int    InpMaxRecoveryGapOrdersPerSide = 3;  // recovery ladder: 50, 100, 150 from first order price
 
@@ -1437,7 +1437,9 @@ bool GetBasketProfitProtectLevel(double peakProfit,
    // Dynamic fallback:
    // If no fixed basket level matched, but basket moved into profit,
    // close when basket profit falls back to configured percent of peak profit.
-   if(peakProfit >= InpBasketDynamicMinPeakUSD && peakProfit>=0.50)
+   // if(peakProfit >= InpBasketDynamicMinPeakUSD && peakProfit>=0.50)
+   if(peakProfit >= InpBasketDynamicMinPeakUSD)
+
      {
       selectedActivate = peakProfit;
       // selectedCloseAt  = peakProfit * MathMin(100.0, InpBasketDynamicClosePercent) / 100.0;
@@ -2914,7 +2916,7 @@ bool GetIndividualProfitProtectLevel(double peakProfit,
    if(!InpUseMultiIndividualProfitProtect)
       return(selectedActivate > 0.0 && selectedCloseAt >= 0.0);
 
-      /*
+      
    // Level 3 has highest priority after the order has reached that peak.
    if(InpProtectActivateUSD_5 > 0.0 && peakProfit >= InpProtectActivateUSD_5)
      {
@@ -2947,20 +2949,22 @@ bool GetIndividualProfitProtectLevel(double peakProfit,
       return(true);
      }
 
-   if(InpProtectActivateUSD_1 > 0.0)
-     {
-      selectedActivate = InpProtectActivateUSD_1;
-      selectedCloseAt  = InpProtectCloseAtUSD_1;
-      selectedLevel    = 1;
-      return(true);
-     }*/
+   // if(InpProtectActivateUSD_1 > 0.0)
+   //   {
+   //    selectedActivate = InpProtectActivateUSD_1;
+   //    selectedCloseAt  = InpProtectCloseAtUSD_1;
+   //    selectedLevel    = 1;
+   //    return(true);
+   //   }
 
      
 
      // Dynamic fallback:
 // If no fixed level matched, but order moved into profit,
 // close when profit falls back to 50% of peak profit.
-if(peakProfit > 0.0  && peakProfit > 0.20)
+// if(peakProfit > 0.0  && peakProfit > 0.20)
+if(peakProfit > 0.0)
+
 {
    selectedActivate = peakProfit;
    // selectedCloseAt  = peakProfit / 2.0;
