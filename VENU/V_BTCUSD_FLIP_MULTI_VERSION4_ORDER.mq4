@@ -87,6 +87,10 @@ bool   InpRecoveryAfterSLReverse  = false;   // true: after basket SL, open oppo
 // Recovery gap orders: when existing BUY/SELL basket is in loss and price moves against it
 // by this raw price gap, open one more same-direction recovery order.
 bool   InpUseRecoveryGapOrders    = true;
+// Recovery gap orders must follow the current active SAR signal direction.
+// Example: active SAR BUY => only BUY recovery gap orders are allowed.
+// Active SAR SELL => only SELL recovery gap orders are allowed.
+bool   InpRecoveryGapMustMatchSARDirection = true;
 double InpRecoveryGapRawPrice     = 300.0;   // raw price difference, not points
 double InpRecoveryGapLot          = 0.01;
 int    InpMaxRecoveryGapOrdersPerSide = 3;  // recovery ladder: 50, 100, 150 from first order price
@@ -173,7 +177,7 @@ int    InpBigCandleRecoveryPauseMinutes = 5;
 // pause ALL new orders/recovery orders like big candle protection.
 // Formula: max(High[1..3]) - min(Low[1..3]) >= InpLast3CandlesRawDifference
 bool   InpUseLast3CandlesMovePause = true;
-double InpLast3CandlesRawDifference = 200.0;
+double InpLast3CandlesRawDifference = 300.0;
 int    InpLast3CandlesPauseMinutes = 5;
 
 // SAR settings
@@ -2598,6 +2602,14 @@ bool OpenRecoveryGapMarketOrder(int direction, double gapMove)
    if(direction == 0)
       return(false);
 
+   if(InpRecoveryGapMustMatchSARDirection && direction != g_activeSARDirection)
+     {
+      Print("RECOVERY GAP BLOCKED | SAR direction mismatch | RecoveryDir=",
+            DirectionText(direction),
+            " | ActiveSAR=", DirectionText(g_activeSARDirection));
+      return(false);
+     }
+
    // Big candle protection: do not create recovery gap orders during/after a big candle pause.
    CheckBigCandlePauseOnNewBar(true);
    if(EnforceBigCandleOrderBlock("OpenRecoveryGapMarketOrder"))
@@ -2826,6 +2838,21 @@ void ProcessRecoveryGapOrders()
 
    RefreshRates();
 
+   bool allowBuyRecoveryBySAR  = true;
+   bool allowSellRecoveryBySAR = true;
+
+   if(InpRecoveryGapMustMatchSARDirection)
+     {
+      allowBuyRecoveryBySAR  = (g_activeSARDirection == 1);
+      allowSellRecoveryBySAR = (g_activeSARDirection == -1);
+
+      if(g_activeSARDirection == 0)
+        {
+         Print("RECOVERY GAP BLOCKED | No active SAR direction");
+         return;
+        }
+     }
+
    double buyBase = 0.0;
    double sellBase = 0.0;
    int buyOrders = 0;
@@ -2843,11 +2870,26 @@ void ProcessRecoveryGapOrders()
    double buyRequiredGap = GetNextRecoveryLadderRequiredGap(1);     // 50, 100, 150
    double sellRequiredGap = GetNextRecoveryLadderRequiredGap(-1);   // 50, 100, 150
 
-   bool buyReady = (hasBuy && buyGap >= buyRequiredGap &&
+   if(InpRecoveryGapMustMatchSARDirection)
+     {
+      if(hasBuy && !allowBuyRecoveryBySAR)
+         Print("RECOVERY GAP BUY SKIPPED | ActiveSAR=", DirectionText(g_activeSARDirection),
+               " | RequiredSAR=BUY | Gap=", DoubleToString(buyGap, Digits),
+               " | RequiredGap=", DoubleToString(buyRequiredGap, Digits));
+
+      if(hasSell && !allowSellRecoveryBySAR)
+         Print("RECOVERY GAP SELL SKIPPED | ActiveSAR=", DirectionText(g_activeSARDirection),
+               " | RequiredSAR=SELL | Gap=", DoubleToString(sellGap, Digits),
+               " | RequiredGap=", DoubleToString(sellRequiredGap, Digits));
+     }
+
+   bool buyReady = (allowBuyRecoveryBySAR &&
+                    hasBuy && buyGap >= buyRequiredGap &&
                     buyRecoveryCount < InpMaxRecoveryGapOrdersPerSide &&
                     !IsStrongOppositeMoveAgainstRecovery(1, buyGap));
 
-   bool sellReady = (hasSell && sellGap >= sellRequiredGap &&
+   bool sellReady = (allowSellRecoveryBySAR &&
+                     hasSell && sellGap >= sellRequiredGap &&
                      sellRecoveryCount < InpMaxRecoveryGapOrdersPerSide &&
                      !IsStrongOppositeMoveAgainstRecovery(-1, sellGap));
 
