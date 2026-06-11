@@ -158,8 +158,8 @@ int    InpOrderCooldownSeconds    = 0;       // 0 = disabled
 double InpMinPriceGap             = 0.00;    // raw price gap, 0 = disabled
 
 // No-trading hours: block NEW normal SAR orders only. Close/profit/protection/recovery management still runs.
-bool   InpUseNoNewOrderHours      = false;
-string InpNoNewOrderHourList      = "23";//"13,14,15,16,17,18"; // server-time hours to block new orders
+bool   InpUseNoNewOrderHours      = true;
+string InpNoNewOrderHourList      = "0,23";//"13,14,15,16,17,18"; // server-time hours to block new orders
 
 
 //profit booking hours are 4,5,6,7,8
@@ -748,6 +748,12 @@ int OnInit()
   if(IsTesting())
 {
    // InpProfitTargetPercent = 2000.0;
+}
+
+if(AccountNumber()==291085426)
+{
+   //  InpProfitTargetPercent = 2000.0;
+
 }
 
 
