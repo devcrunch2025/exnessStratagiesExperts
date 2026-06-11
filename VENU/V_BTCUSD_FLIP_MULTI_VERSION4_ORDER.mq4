@@ -56,7 +56,7 @@ double InpIndividualProtectCloseAtUSD     = 0.40;  // then close if profit falls
 // the next normal order uses dynamic pullback close = peakProfit / closedProfitCount.
 // Example: 2 closed profit orders => close at peak/2. 3 closed => close at peak/3.
 bool   InpUseSARClosedProfitCountProtect = true;
-int    InpSARClosedProfitCountStart      = 1;
+int    InpSARClosedProfitCountStart      = 3;
 
 // Multiple individual profit-protect levels.
 // Highest reached level is used first.
@@ -159,7 +159,7 @@ bool   InpNotifyOnBigCandlePause  = true;     // push notification when big cand
 // When a > InpBigCandleRawDifference candle/spike appears, all new/recovery orders are blocked.
 // If an existing basket is already in profit, protect 80% of the highest basket profit reached.
 // Example: peak profit $10, close if profit drops to $8 during big-candle pause.
-bool   InpUseBigCandleProfitProtect = true;
+bool   InpUseBigCandleProfitProtect = false;
 double InpBigCandleProfitLockPercent = 80.0;
 // Extra safety: block recovery gap orders for N minutes when current/last candles are big/spike.
 bool   InpBlockRecoveryGapOnBigCandle = true;
@@ -197,7 +197,7 @@ bool   InpUseSARPriceDiffConfirm  = true;
 // 2) Then verify live price has moved InpContinuousOrderPriceGap from that last order price.
 // No expiry timeout is used. If gap is not ready, EA keeps waiting.
 bool   InpUseRepeatedPriceGapConfirm = true;
-double InpContinuousOrderPriceGap    = 50.0;   // raw price gap required from last confirmed normal order
+double InpContinuousOrderPriceGap    = 30.0;   // raw price gap required from last confirmed normal order
 int    InpContinuousOrderLookbackMinutes = 3;  // legacy input, not used by current continuity gap logic
 int    InpContinuousOrderGapMinutes  = 1;      // wait this many minutes after last order, then verify price gap
 
@@ -3248,8 +3248,8 @@ bool GetIndividualProfitProtectLevel(double peakProfit,
    int startCount = MathMax(1, InpSARClosedProfitCountStart);
 
    if(InpUseSARClosedProfitCountProtect &&
-      sarClosedCount >= startCount &&
-      peakProfit > 0.0 && peakProfit>InpBasketProfitUSD / sarClosedCount)
+      sarClosedCount >= startCount &&  
+      peakProfit > 0.0 && peakProfit>InpBasketProfitUSD / sarClosedCount && peakProfit>1.0)
      {
       selectedActivate = peakProfit;
       selectedCloseAt  = peakProfit / sarClosedCount;
