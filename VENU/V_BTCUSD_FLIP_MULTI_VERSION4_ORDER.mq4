@@ -24,6 +24,9 @@ double InpMinGapWhenMaxOrdersMoreThanOne = 100.0; // when InpMaxOrders > 1, enfo
 double InpBasketProfitUSD         = 1.00;
 double InpBasketStopLossUSD       = 10.00;    // BASKET stop loss in USD, 0 = disabled. This closes all orders in active SAR direction.
 
+double InpProfitTargetPercent      = 50.0;   // stop trading when equity reaches Base + 100%
+double InpLossStopPercent          = 50.0;   // stop trading when equity reaches Base - 50%
+
 double InpBasketProfitUSD_12_17 = 1.00; // profit target during 12,13,14,15,16,17 hours
 
 // Basket profit protection:
@@ -91,6 +94,14 @@ bool   InpUseRecoveryGapOrders    = true;
 // Example: active SAR BUY => only BUY recovery gap orders are allowed.
 // Active SAR SELL => only SELL recovery gap orders are allowed.
 bool   InpRecoveryGapMustMatchSARDirection = true;
+
+// Pending recovery retry:
+// If recovery gap was matched but order was blocked by SAR/temporary conditions,
+// remember it and keep checking again on later ticks / next SAR signal.
+// Useful when price moved strongly against basket, then comes back and SAR aligns again.
+bool   InpKeepPendingRecoveryGapAfterBlock = true;
+bool   InpOpenPendingRecoveryWhenSARMatches = true;
+
 double InpRecoveryGapRawPrice     = 300.0;   // raw price difference, not points
 double InpRecoveryGapLot          = 0.01;
 int    InpMaxRecoveryGapOrdersPerSide = 3;  // recovery ladder: 50, 100, 150 from first order price
@@ -113,8 +124,7 @@ bool   InpUseEquityProtection       = false;
 bool   InpAutoUseCurrentBalanceBase = true;   // true = take current account balance on EA load/new day
 double InpManualBaseCapitalUSD      = 20.0;   // used only when Auto=false
 
-double InpProfitTargetPercent      = 20.0;   // stop trading when equity reaches Base + 100%
-double InpLossStopPercent          = 50.0;   // stop trading when equity reaches Base - 50%
+
 double InpProtectionBufferUSD      = 0.00;   // optional buffer below loss-stop level
 bool   InpCloseOrdersOnEquityHit    = true;
 
@@ -317,6 +327,16 @@ int    InpDynamicStrongScore               = 5;
 int    InpDynamicVeryStrongScore           = 6;
 int    InpDynamicWeakScore                 = 2;
 
+//================ LATE SAR CYCLE ENTRY PROTECTION ==================
+// Prevent the last bad order before SAR reversal.
+// Normal SAR orders are blocked when the SAR cycle is old and momentum/score becomes weak,
+// or when the last closed candles are already moving against the current SAR direction.
+bool   InpUseLateSARCycleEntryBlock       = true;
+int    InpLateSARMinAgeMinutes            = 15;   // start blocking late-cycle entries after this SAR age
+int    InpLateSARMaxWeakScore             = 3;    // block when dynamic SAR score is <= this value after min age
+bool   InpLateSARBlockOnOpposite3Candles  = true; // BUY SAR + 3 falling closes, SELL SAR + 3 rising closes
+bool   InpLateSARBlockOnWeakExit          = true; // block if early SAR weak exit is already active
+
 //================ EARLY SAR WEAK EXIT ENGINE =======================
 // This closes or freezes the active SAR basket BEFORE the full SAR flip.
 // SAR is still the main direction, but when the current GREEN/RED signal
@@ -420,6 +440,15 @@ datetime g_lastOrderBlockTime     = 0;
 // Last successful close result. Used by left dashboard so close reason is not missed.
 string   g_lastOrderCloseMessage  = "NO CLOSE YET";
 datetime g_lastOrderCloseTime     = 0;
+
+// Pending recovery-gap request memory.
+// Stored when gap was matched but recovery order was blocked by temporary conditions.
+// It is retried on later ticks and also after SAR changes.
+int      g_pendingRecoveryGapDirection = 0;
+double   g_pendingRecoveryGapMove      = 0.0;
+double   g_pendingRecoveryRequiredGap  = 0.0;
+datetime g_pendingRecoveryGapTime      = 0;
+string   g_pendingRecoveryGapReason    = "NONE";
 
 int      g_equityDay            = -1;
 double   g_dayStartBalance      = 0.0;
@@ -711,6 +740,7 @@ double GetBasketProfitTargetUSD()
 
    return InpBasketProfitUSD/count;
 }
+
 //+------------------------------------------------------------------+
 int OnInit()
   {
@@ -827,6 +857,11 @@ void ResetTradingCycleState()
    g_lastOrderBlockTime      = 0;
    g_lastOrderCloseMessage   = "NO CLOSE YET";
    g_lastOrderCloseTime      = 0;
+   g_pendingRecoveryGapDirection = 0;
+   g_pendingRecoveryGapMove      = 0.0;
+   g_pendingRecoveryRequiredGap  = 0.0;
+   g_pendingRecoveryGapTime      = 0;
+   g_pendingRecoveryGapReason    = "NONE";
    g_sarChangesAfterLastNormalOrder = 0;
    g_sarCloseTrackedDirection       = 0;
    g_sarCloseTrackedOrderTime       = 0;
@@ -2815,6 +2850,120 @@ double GetNextRecoveryLadderRequiredGap(int direction)
    return(InpRecoveryGapRawPrice * (recoveryCount + 1));
   }
 
+
+//+------------------------------------------------------------------+
+void ClearPendingRecoveryGap(string reason)
+  {
+   if(g_pendingRecoveryGapDirection == 0)
+      return;
+
+   Print("PENDING RECOVERY GAP CLEARED | Direction=",
+         DirectionText(g_pendingRecoveryGapDirection),
+         " | StoredGap=", DoubleToString(g_pendingRecoveryGapMove, Digits),
+         " | RequiredGap=", DoubleToString(g_pendingRecoveryRequiredGap, Digits),
+         " | Reason=", reason);
+
+   g_pendingRecoveryGapDirection = 0;
+   g_pendingRecoveryGapMove      = 0.0;
+   g_pendingRecoveryRequiredGap  = 0.0;
+   g_pendingRecoveryGapTime      = 0;
+   g_pendingRecoveryGapReason    = "NONE";
+  }
+
+//+------------------------------------------------------------------+
+void RememberPendingRecoveryGap(int direction,
+                                double gapMove,
+                                double requiredGap,
+                                string reason)
+  {
+   if(!InpKeepPendingRecoveryGapAfterBlock)
+      return;
+
+   if(direction == 0)
+      return;
+
+   if(gapMove < requiredGap)
+      return;
+
+   // Keep the strongest pending gap seen.
+   if(g_pendingRecoveryGapDirection == direction &&
+      g_pendingRecoveryGapMove >= gapMove)
+      return;
+
+   g_pendingRecoveryGapDirection = direction;
+   g_pendingRecoveryGapMove      = gapMove;
+   g_pendingRecoveryRequiredGap  = requiredGap;
+   g_pendingRecoveryGapTime      = TimeCurrent();
+   g_pendingRecoveryGapReason    = reason;
+
+   Print("PENDING RECOVERY GAP SAVED | Direction=", DirectionText(direction),
+         " | Gap=", DoubleToString(gapMove, Digits),
+         " | Required=", DoubleToString(requiredGap, Digits),
+         " | ActiveSAR=", DirectionText(g_activeSARDirection),
+         " | Reason=", reason);
+  }
+
+//+------------------------------------------------------------------+
+bool TryOpenPendingRecoveryGap()
+  {
+   if(!InpKeepPendingRecoveryGapAfterBlock ||
+      !InpOpenPendingRecoveryWhenSARMatches)
+      return(false);
+
+   if(g_pendingRecoveryGapDirection == 0)
+      return(false);
+
+   int direction = g_pendingRecoveryGapDirection;
+
+   // Wait until SAR is aligned with the stored recovery direction.
+   if(InpRecoveryGapMustMatchSARDirection &&
+      direction != g_activeSARDirection)
+      return(false);
+
+   double basePrice = 0.0;
+   int sideOrders = 0;
+
+   if(!GetRecoveryLadderBasePrice(direction, basePrice, sideOrders))
+     {
+      ClearPendingRecoveryGap("No base order left");
+      return(false);
+     }
+
+   if(CountRecoveryGapOrdersByDirection(direction) >= InpMaxRecoveryGapOrdersPerSide)
+     {
+      ClearPendingRecoveryGap("Max recovery reached");
+      return(false);
+     }
+
+   double currentGap = GetRecoveryLadderCurrentGap(direction, basePrice);
+
+   // If market fully recovered, pending recovery is no longer needed.
+   if(currentGap <= 0.0)
+     {
+      ClearPendingRecoveryGap("Basket no longer adverse");
+      return(false);
+     }
+
+   double gapForOrder = MathMax(currentGap, g_pendingRecoveryGapMove);
+
+   Print("TRY PENDING RECOVERY GAP | Direction=", DirectionText(direction),
+         " | ActiveSAR=", DirectionText(g_activeSARDirection),
+         " | CurrentGap=", DoubleToString(currentGap, Digits),
+         " | StoredGap=", DoubleToString(g_pendingRecoveryGapMove, Digits),
+         " | Required=", DoubleToString(g_pendingRecoveryRequiredGap, Digits),
+         " | SavedAt=", TimeToString(g_pendingRecoveryGapTime, TIME_DATE|TIME_SECONDS),
+         " | OriginalReason=", g_pendingRecoveryGapReason);
+
+   if(OpenRecoveryGapMarketOrder(direction, gapForOrder))
+     {
+      ClearPendingRecoveryGap("Opened pending recovery");
+      return(true);
+     }
+
+   // Keep pending when opening is still blocked by temporary conditions.
+   return(false);
+  }
+
 //+------------------------------------------------------------------+
 void ProcessRecoveryGapOrders()
   {
@@ -2837,6 +2986,9 @@ void ProcessRecoveryGapOrders()
       return;
 
    RefreshRates();
+
+   if(TryOpenPendingRecoveryGap())
+      return;
 
    bool allowBuyRecoveryBySAR  = true;
    bool allowSellRecoveryBySAR = true;
@@ -2883,6 +3035,24 @@ void ProcessRecoveryGapOrders()
                " | RequiredGap=", DoubleToString(sellRequiredGap, Digits));
      }
 
+   if(hasBuy &&
+      buyGap >= buyRequiredGap &&
+      buyRecoveryCount < InpMaxRecoveryGapOrdersPerSide &&
+      !allowBuyRecoveryBySAR)
+     {
+      RememberPendingRecoveryGap(1, buyGap, buyRequiredGap,
+                                 "BUY recovery gap matched but SAR not BUY");
+     }
+
+   if(hasSell &&
+      sellGap >= sellRequiredGap &&
+      sellRecoveryCount < InpMaxRecoveryGapOrdersPerSide &&
+      !allowSellRecoveryBySAR)
+     {
+      RememberPendingRecoveryGap(-1, sellGap, sellRequiredGap,
+                                 "SELL recovery gap matched but SAR not SELL");
+     }
+
    bool buyReady = (allowBuyRecoveryBySAR &&
                     hasBuy && buyGap >= buyRequiredGap &&
                     buyRecoveryCount < InpMaxRecoveryGapOrdersPerSide &&
@@ -2901,7 +3071,9 @@ void ProcessRecoveryGapOrders()
             " | RequiredGap=", DoubleToString(buyRequiredGap, Digits),
             " | RecoveryCount=", buyRecoveryCount, "/", InpMaxRecoveryGapOrdersPerSide);
 
-      OpenRecoveryGapMarketOrder(1, buyGap);
+      if(!OpenRecoveryGapMarketOrder(1, buyGap))
+         RememberPendingRecoveryGap(1, buyGap, buyRequiredGap,
+                                    "BUY recovery gap ready but OrderSend/condition failed");
       return;
      }
 
@@ -2912,7 +3084,9 @@ void ProcessRecoveryGapOrders()
             " | RequiredGap=", DoubleToString(sellRequiredGap, Digits),
             " | RecoveryCount=", sellRecoveryCount, "/", InpMaxRecoveryGapOrdersPerSide);
 
-      OpenRecoveryGapMarketOrder(-1, sellGap);
+      if(!OpenRecoveryGapMarketOrder(-1, sellGap))
+         RememberPendingRecoveryGap(-1, sellGap, sellRequiredGap,
+                                    "SELL recovery gap ready but OrderSend/condition failed");
       return;
      }
   }
@@ -3973,6 +4147,19 @@ bool ProcessNewOrderCreationLast(bool isNewBar, string &status)
       return(false);
      }
 
+// Late SAR cycle entry protection: prevents the last weak order before SAR reversal.
+   string lateSARBlockReason = "";
+   if(IsLateSARCycleEntryDanger(g_activeSARDirection, lateSARBlockReason))
+     {
+      status = lateSARBlockReason;
+      SetLastOrderBlockDashboard(status);
+      Print("LATE SAR CYCLE ENTRY BLOCKED | Direction=", DirectionText(g_activeSARDirection),
+            " | Reason=", lateSARBlockReason,
+            " | Age=", GetSARSignalAgeMinutes(), "m",
+            " | Score=", g_dynamicSARScore);
+      return(false);
+     }
+
 // Flat mode blocks ONLY new orders. It cannot block close management.
    if(InpUseFlatMode)
      {
@@ -4674,6 +4861,93 @@ bool IsDynamicSARAllowedForNewOrder(int direction, string &whyBlocked)
 
    g_dynamicSARDecision = "ALLOW STRONG SAR";
    return(true);
+  }
+
+
+//+------------------------------------------------------------------+
+bool IsNormalSAROrderReason(string reason)
+  {
+   if(StringFind(reason, "SAR_FLIP") >= 0)
+      return(true);
+   if(StringFind(reason, "SAR_ARROW") >= 0)
+      return(true);
+   return(false);
+  }
+
+//+------------------------------------------------------------------+
+bool IsLast3ClosedCandlesAgainstDirection(int direction)
+  {
+   if(direction == 0 || Bars < 5)
+      return(false);
+
+   // BUY SAR danger: last 3 closed candles are falling by closes.
+   if(direction == 1 && Close[1] < Close[2] && Close[2] < Close[3])
+      return(true);
+
+   // SELL SAR danger: last 3 closed candles are rising by closes.
+   if(direction == -1 && Close[1] > Close[2] && Close[2] > Close[3])
+      return(true);
+
+   return(false);
+  }
+
+//+------------------------------------------------------------------+
+bool IsLateSARCycleEntryDanger(int direction, string &whyBlocked)
+  {
+   whyBlocked = "";
+
+   if(!InpUseLateSARCycleEntryBlock)
+      return(false);
+
+   if(direction == 0)
+      return(false);
+
+   int ageMin = GetSARSignalAgeMinutes();
+   int minAge = MathMax(0, InpLateSARMinAgeMinutes);
+
+   if(InpLateSARBlockOnWeakExit && g_earlySARWeakExitActive)
+     {
+      whyBlocked = "Late SAR danger: SAR weak exit active | " + g_earlySARWeakExitReason;
+      return(true);
+     }
+
+   if(ageMin < minAge)
+      return(false);
+
+   int score = GetDynamicSARStrengthScore(direction);
+   int weakScore = MathMax(0, InpLateSARMaxWeakScore);
+
+   if(score <= weakScore)
+     {
+      whyBlocked = "Late SAR danger: age " + IntegerToString(ageMin) + "m" +
+                   " score " + IntegerToString(score) + "/" + IntegerToString(weakScore);
+      return(true);
+     }
+
+   if(InpLateSARBlockOnOpposite3Candles && IsLast3ClosedCandlesAgainstDirection(direction))
+     {
+      whyBlocked = "Late SAR danger: last 3 candles against " + DirectionText(direction) +
+                   " | age " + IntegerToString(ageMin) + "m";
+      return(true);
+     }
+
+   return(false);
+  }
+
+//+------------------------------------------------------------------+
+string LateSARCycleEntryStatusText(int direction)
+  {
+   if(!InpUseLateSARCycleEntryBlock)
+      return("OFF");
+
+   string why = "";
+   bool danger = IsLateSARCycleEntryDanger(direction, why);
+
+   if(danger)
+      return("DANGER | " + why);
+
+   return("SAFE age " + IntegerToString(GetSARSignalAgeMinutes()) + "m score " +
+          IntegerToString(g_dynamicSARScore) + "/" + IntegerToString(InpLateSARMaxWeakScore));
   }
 
 //+------------------------------------------------------------------+
@@ -5543,6 +5817,15 @@ bool OpenMarketOrder(int direction, string reason)
    if(direction == 0)
       return BlockOrder("Direction is 0 | Source=" + reason);
 
+   // Final safety: block late-cycle weak NORMAL SAR entries only.
+   // Recovery and hedge order reasons are not affected by this filter.
+   if(IsNormalSAROrderReason(reason))
+     {
+      string lateSARReason = "";
+      if(IsLateSARCycleEntryDanger(direction, lateSARReason))
+         return BlockOrder(lateSARReason + " | Source=" + reason);
+     }
+
    if(IsProfitProtectPauseActive())
      {
       string msg = "Individual profit protect pause active | Remaining=" +
@@ -6282,6 +6565,7 @@ void DrawLeftOrderCreationChecklist(string mainStatus)
 
    int direction = GetChecklistDirection();
    int spread = (int)MarketInfo(Symbol(), MODE_SPREAD);
+   string lateSARBlockReasonForDashboard = "";
 
    bool okDirection     = (direction != 0);
    bool okTrading       = CheckListTradingAllowed();
@@ -6297,13 +6581,14 @@ void DrawLeftOrderCreationChecklist(string mainStatus)
    bool okTotalOpen     = CheckListTotalOpenAllowed();
    bool okMinGap        = CheckListMinGapAllowed(direction);
    bool okSARSide       = CheckListSARSideAllowed(direction);
+   bool okLateSAR       = !IsLateSARCycleEntryDanger(direction, lateSARBlockReasonForDashboard);
    bool okRepeatedGap   = CheckListRepeatedGapAllowed(direction);
 
    bool allOk = okDirection && okTrading && okSpread && okEquity && okNoHour &&
                 okProfitPause && okBigCandle && okSARConfirm && okH1 && okCycle &&
-                okMaxOpen && okTotalOpen && okMinGap && okSARSide && okRepeatedGap;
+                okMaxOpen && okTotalOpen && okMinGap && okSARSide && okLateSAR && okRepeatedGap;
 
-   DrawLeftPanel("DXB_LEFT_CHK_PANEL",5,15,520,425,clrBlack);
+   DrawLeftPanel("DXB_LEFT_CHK_PANEL",5,15,520,445,clrBlack);
    DrawLeftLabel("DXB_LEFT_CHK_TITLE","ORDER CREATION CHECKLIST",10,18,clrYellow,10);
 
    g_leftDashRow = 0;
@@ -6329,6 +6614,7 @@ void DrawLeftOrderCreationChecklist(string mainStatus)
    LeftChecklistRow("Total Open", YesNo(okTotalOpen), okTotalOpen, IntegerToString(CountAllOrders())+"/"+IntegerToString(InpMaxTotalOpenOrders));
    LeftChecklistRow("Min Price Gap", YesNo(okMinGap), okMinGap, DoubleToString(GetEffectiveMinPriceGap(),0));
    LeftChecklistRow("SAR Price Side", YesNo(okSARSide), okSARSide, SARSignalSideStatusText());
+   LeftChecklistRow("Late SAR Entry", YesNo(okLateSAR), okLateSAR, LateSARCycleEntryStatusText(direction));
    LeftChecklistRow("Repeated Gap", YesNo(okRepeatedGap), okRepeatedGap, CheckListRepeatedGapText(direction));
   }
 
