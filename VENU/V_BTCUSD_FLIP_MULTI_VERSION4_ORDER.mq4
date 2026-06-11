@@ -717,7 +717,7 @@ int OnInit()
   
   if(IsTesting())
 {
-   InpProfitTargetPercent = 2000.0;
+   // InpProfitTargetPercent = 2000.0;
 }
 
 
