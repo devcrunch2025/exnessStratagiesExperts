@@ -117,12 +117,18 @@ double InpRecoveryReverseLot           = 0.01;   // 0 or less = use InpRecoveryG
 // open one opposite hedge order linked to that parent ticket.
 // Guard orders are ignored by normal basket/profit/SL closures and close only when the parent order closes.
 bool   InpUseSARSpecialGuardOrder       = true;
-double InpSARSpecialGuardLossUSD        = 8.00;//InpBasketStopLossUSD   // parent floating loss must be <= -this value
-double InpSARSpecialGuardLotMultiplier  = 11.00;   // 1.0 = same lot as parent order
+double InpSARSpecialGuardLossUSD        = 5.00;//InpBasketStopLossUSD   // parent floating loss must be <= -this value
+double InpSARSpecialGuardLotMultiplier  = 5.00;   // 1.0 = same lot as parent order
 bool   InpSARSpecialGuardRespectSpread  = true;   // use InpMaxSpreadPoints before opening guard
 string InpSARSpecialGuardPrefix         = "SAR_SPECIAL_GUARD_ORDER_FOR_";
 int    InpMaxSARSpecialGuardOrders      = 10;      // maximum active SAR special guard orders at the same time
 bool   InpSARSpecialGuardRequireSARChange = false;  // false = create guard anytime parent loss reaches trigger, no SAR condition
+
+// Explicit order comment tags for stable parent/recovery grouping.
+// Normal SAR orders start with SAR_PARENT_.
+// Recovery gap orders start with RG_P<parentTicket>_ so guard loss can match the exact parent basket.
+string InpSARParentOrderPrefix        = "SAR_PARENT_";
+string InpSARRecoveryGapOrderPrefix   = "RG_P";
 
 
 int    InpStopLossPoints          = 0;       // 0 = no hard SL
@@ -227,7 +233,7 @@ bool   InpUseSARPriceDiffConfirm  = true;
 // 2) Then verify live price has moved InpContinuousOrderPriceGap from that last order price.
 // No expiry timeout is used. If gap is not ready, EA keeps waiting.
 bool   InpUseRepeatedPriceGapConfirm = true;
-double InpContinuousOrderPriceGap    = 30.0;   // raw price gap required from last confirmed normal order
+double InpContinuousOrderPriceGap    = 30;//10.0; //30  // raw price gap required from last confirmed normal order
 int    InpContinuousOrderLookbackMinutes = 1;  // legacy input, not used by current continuity gap logic
 int    InpContinuousOrderGapMinutes  = 1;      // wait this many minutes after last order, then verify price gap
 
@@ -2511,7 +2517,7 @@ int CountRecoveryGapOrdersByDirection(int direction)
       if(OrderType() != type)
          continue;
 
-      if(StringFind(OrderComment(), "RECOVERY_GAP") >= 0)
+      if(IsRecoveryGapOrderComment(OrderComment()))
          total++;
      }
 
@@ -2729,9 +2735,16 @@ bool OpenRecoveryGapMarketOrder(int direction, double gapMove)
 // lot=lot*nextRecoveryNumber;
 
    double requiredGapForComment = InpRecoveryGapRawPrice * nextRecoveryNumber;
-   string comment = "RECOVERY_GAP_" + IntegerToString(nextRecoveryNumber) +
-                    "_GAP_" + DoubleToString(requiredGapForComment, 0) +
+   int linkedParentTicket = GetParentTicketForRecoveryGap(direction);
+
+   string comment = InpSARRecoveryGapOrderPrefix + IntegerToString(linkedParentTicket) +
+                    "_N" + IntegerToString(nextRecoveryNumber) +
+                    "_G" + DoubleToString(requiredGapForComment, 0) +
                     "_" + DirectionText(direction);
+
+   // Keep tag and parent ticket safe from broker comment truncation.
+   if(StringLen(comment) > 30)
+      comment = StringSubstr(comment, 0, 30);
 
    int ticket = OrderSend(Symbol(),
                           type,
@@ -3144,6 +3157,104 @@ bool IsSARGuardOrderComment(string commentText)
   }
 
 //+------------------------------------------------------------------+
+bool IsSARParentOrderComment(string commentText)
+  {
+   return(StringFind(commentText, InpSARParentOrderPrefix) >= 0);
+  }
+
+//+------------------------------------------------------------------+
+bool IsRecoveryGapOrderComment(string commentText)
+  {
+   return(StringFind(commentText, "RECOVERY_GAP") >= 0 ||
+          StringFind(commentText, InpSARRecoveryGapOrderPrefix) >= 0);
+  }
+
+//+------------------------------------------------------------------+
+string MakeSARParentOrderComment(string reason)
+  {
+   string c = InpSARParentOrderPrefix + reason;
+
+   // MT4 broker comments may be truncated. Keep the important tag first.
+   if(StringLen(c) > 30)
+      c = StringSubstr(c, 0, 30);
+
+   return(c);
+  }
+
+//+------------------------------------------------------------------+
+int GetParentTicketForRecoveryGap(int direction)
+  {
+   int type = direction == 1 ? OP_BUY : OP_SELL;
+   int parentTicket = 0;
+   datetime oldestTime = 0;
+
+   for(int i = OrdersTotal() - 1; i >= 0; i--)
+     {
+      if(!OrderSelect(i, SELECT_BY_POS, MODE_TRADES))
+         continue;
+
+      if(OrderSymbol() != Symbol() || OrderMagicNumber() != InpMagicNumber)
+         continue;
+
+      if(OrderType() != type)
+         continue;
+
+      string c = OrderComment();
+
+      if(IsSARGuardOrderComment(c) || IsRecoveryGapOrderComment(c) || IsRecoveryHedgeOrderComment(c))
+         continue;
+
+      // Prefer explicitly tagged normal parent orders.
+      if(IsSARParentOrderComment(c))
+        {
+         if(parentTicket == 0 || OrderOpenTime() < oldestTime)
+           {
+            parentTicket = OrderTicket();
+            oldestTime = OrderOpenTime();
+           }
+        }
+     }
+
+   // Backward compatibility: existing old orders may not have SAR_PARENT_ comment.
+   if(parentTicket <= 0)
+     {
+      for(int j = OrdersTotal() - 1; j >= 0; j--)
+        {
+         if(!OrderSelect(j, SELECT_BY_POS, MODE_TRADES))
+            continue;
+
+         if(OrderSymbol() != Symbol() || OrderMagicNumber() != InpMagicNumber)
+            continue;
+
+         if(OrderType() != type)
+            continue;
+
+         string c2 = OrderComment();
+         if(IsSARGuardOrderComment(c2) || IsRecoveryGapOrderComment(c2) || IsRecoveryHedgeOrderComment(c2))
+            continue;
+
+         if(parentTicket == 0 || OrderOpenTime() < oldestTime)
+           {
+            parentTicket = OrderTicket();
+            oldestTime = OrderOpenTime();
+           }
+        }
+     }
+
+   return(parentTicket);
+  }
+
+//+------------------------------------------------------------------+
+bool IsRecoveryGapLinkedToParent(string commentText, int parentTicket)
+  {
+   if(parentTicket <= 0)
+      return(false);
+
+   string key = InpSARRecoveryGapOrderPrefix + IntegerToString(parentTicket) + "_";
+   return(StringFind(commentText, key) >= 0);
+  }
+
+//+------------------------------------------------------------------+
 string SARGuardGlobalVariableName(int guardTicket)
   {
    return("SAR_GUARD_PARENT_" + Symbol() + "_" + IntegerToString(InpMagicNumber) + "_" + IntegerToString(guardTicket));
@@ -3294,7 +3405,9 @@ double GetAffordableGuardLot(int orderType, double requestedMaxLot)
 double GetParentAndRecoveryGapProfitForGuard(int parentTicket, int direction)
   {
    double totalProfit = 0.0;
+   bool hasLinkedRecovery = false;
 
+   // First pass: exact parent + recovery gap orders explicitly linked to this parent.
    for(int i = OrdersTotal() - 1; i >= 0; i--)
      {
       if(!OrderSelect(i, SELECT_BY_POS, MODE_TRADES))
@@ -3306,7 +3419,7 @@ double GetParentAndRecoveryGapProfitForGuard(int parentTicket, int direction)
       if(OrderType() != OP_BUY && OrderType() != OP_SELL)
          continue;
 
-      if(IsSARGuardOrderComment(OrderComment()))
+      if(IsSARGuardOrderComment(OrderComment()) || IsRecoveryHedgeOrderComment(OrderComment()))
          continue;
 
       int orderDirection = (OrderType() == OP_BUY) ? 1 : -1;
@@ -3315,21 +3428,47 @@ double GetParentAndRecoveryGapProfitForGuard(int parentTicket, int direction)
 
       string c = OrderComment();
       bool isParentOrder = (OrderTicket() == parentTicket);
-      bool isRecoveryGap = (StringFind(c, "RECOVERY_GAP") >= 0);
+      bool isLinkedRecovery = IsRecoveryGapLinkedToParent(c, parentTicket);
 
-      if(!isParentOrder && !isRecoveryGap)
+      if(isLinkedRecovery)
+         hasLinkedRecovery = true;
+
+      if(!isParentOrder && !isLinkedRecovery)
          continue;
 
       totalProfit += OrderProfit() + OrderSwap() + OrderCommission();
      }
 
-   return(totalProfit);
-  }
+   // Backward compatibility for old recovery-gap orders created before RG_P<parent> comments existed.
+   // Only used when no explicitly linked recovery exists.
+   if(!hasLinkedRecovery)
+     {
+      for(int j = OrdersTotal() - 1; j >= 0; j--)
+        {
+         if(!OrderSelect(j, SELECT_BY_POS, MODE_TRADES))
+            continue;
 
-//+------------------------------------------------------------------+
-bool IsRecoveryGapOrderComment(string commentText)
-  {
-   return(StringFind(commentText, "RECOVERY_GAP") >= 0);
+         if(OrderSymbol() != Symbol() || OrderMagicNumber() != InpMagicNumber)
+            continue;
+
+         if(OrderType() != OP_BUY && OrderType() != OP_SELL)
+            continue;
+
+         if(IsSARGuardOrderComment(OrderComment()) || IsRecoveryHedgeOrderComment(OrderComment()))
+            continue;
+
+         int dir = (OrderType() == OP_BUY) ? 1 : -1;
+         if(dir != direction)
+            continue;
+
+         string oldComment = OrderComment();
+
+         if(IsRecoveryGapOrderComment(oldComment) && !IsRecoveryGapLinkedToParent(oldComment, parentTicket))
+            totalProfit += OrderProfit() + OrderSwap() + OrderCommission();
+        }
+     }
+
+   return(totalProfit);
   }
 
 //+------------------------------------------------------------------+
@@ -6486,6 +6625,8 @@ bool OpenMarketOrder(int direction, string reason)
 
    ResetLastError();
 
+   string orderComment = MakeSARParentOrderComment(reason);
+
    int ticket = OrderSend(Symbol(),
                           type,
                           lot,
@@ -6493,7 +6634,7 @@ bool OpenMarketOrder(int direction, string reason)
                           InpSlippage,
                           sl,
                           0,
-                          reason,
+                          orderComment,
                           InpMagicNumber,
                           0,
                           direction == 1 ? InpBuyColor : InpSellColor);
@@ -6536,11 +6677,13 @@ bool OpenMarketOrder(int direction, string reason)
                            " | Direction=" + DirectionText(direction) +
                            " | Lot=" + DoubleToString(lot, 2) +
                            " | Price=" + DoubleToString(price, Digits) +
-                           " | Source=" + reason;
+                           " | Source=" + reason +
+                           " | Comment=" + orderComment;
 
    Print("Opened ", DirectionText(direction), " ticket=", ticket,
          " lot=", DoubleToString(lot, 2),
          " reason=", reason,
+         " comment=", orderComment,
          " | SARCycleCreated=", g_sarCycleOrdersCreated,
          "/", g_sarCycleMaxOrders,
          " | Last5SAR=", GetSARDurationSummaryText());
