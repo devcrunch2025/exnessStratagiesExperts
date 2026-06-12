@@ -24,7 +24,7 @@ double InpMinGapWhenMaxOrdersMoreThanOne = 100.0; // when InpMaxOrders > 1, enfo
 double InpBasketProfitUSD         = 1.00;
 double InpBasketStopLossUSD       = 10.00;    // BASKET stop loss in USD, 0 = disabled. This closes all orders in active SAR direction.
 
-double InpProfitTargetPercent      = 10;//50.0;//if $10 means $15   // stop trading when equity reaches Base + 100%
+double InpProfitTargetPercent      = 500;//$50.0;//if $10 means $15   // stop trading when equity reaches Base + 100%
 double InpLossStopPercent          = 50.0;   // stop trading when equity reaches Base - 50%
 
 // Virtual profit vault / keep-profit-aside mode:
@@ -32,8 +32,8 @@ double InpLossStopPercent          = 50.0;   // stop trading when equity reaches
 // When active trading equity reaches $15, EA closes orders, moves profit into virtual vault,
 // resets active trading capital back to $10, and continues trading.
 // MT4 cannot physically withdraw money; this only excludes locked profit from EA risk/profit calculations.
-bool   InpUseVirtualProfitVault       = true;
-double InpVirtualTradingCapitalUSD    = 10.00;
+bool   InpUseVirtualProfitVault       = false;
+double InpVirtualTradingCapitalUSD    = 100.00;
 bool   InpVirtualVaultContinueTrading = true;  // true = do not pause after profit target; reset to $10 and continue
 bool   InpPauseTradingWhenVirtualCapitalGone = true;  // if active virtual equity <= 0, close EA orders and pause until EA restart
 bool   InpCloseOrdersWhenVirtualCapitalGone  = true;  // close parent/recovery/normal orders when virtual $10 is exhausted
@@ -782,7 +782,7 @@ double GetBasketProfitTargetUSD()
 int OnInit()
   {
 
-
+InpVirtualTradingCapitalUSD =AccountBalance();
    
   
 //   if(IsTesting())
@@ -864,7 +864,7 @@ bool IsVirtualTradingCapitalAvailableForNewOrder(string source)
 
    if(g_virtualCapitalPaused)
      {
-      Print("VIRTUAL CAPITAL PAUSED | New order blocked | Source=", source,
+      Print("VIRTUAL PAUSED | New order blocked | Source=", source,
             " | ActiveEq=$", DoubleToString(activeEquity, 2),
             " | Vault=$", DoubleToString(g_virtualProfitVault, 2),
             " | RealEquity=$", DoubleToString(AccountEquity(), 2),
@@ -5264,6 +5264,7 @@ void OnTick()
   {
 
 
+InpVirtualTradingCapitalUSD =AccountBalance();
 
 
    // if(!IsTesting())
