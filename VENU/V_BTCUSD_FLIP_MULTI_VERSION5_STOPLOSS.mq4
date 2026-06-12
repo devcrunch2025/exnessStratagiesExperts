@@ -22,7 +22,7 @@ double InpMinGapWhenMaxOrdersMoreThanOne = 100.0; // when InpMaxOrders > 1, enfo
 #define DXB_HARD_MAX_OPEN_ORDERS 6  // absolute safety cap for normal SAR orders per cycle
 
 double InpBasketProfitUSD         = 1.00;
-double InpBasketStopLossUSD       = 10.00;    // BASKET stop loss in USD, 0 = disabled. This closes all orders in active SAR direction.
+double InpBasketStopLossUSD       = 20.00;    // BASKET stop loss in USD, 0 = disabled. This closes all orders in active SAR direction.
 
 double InpProfitTargetPercent      = 50.0;   // stop trading when equity reaches Base + 100%
 double InpLossStopPercent          = 50.0;   // stop trading when equity reaches Base - 50%
@@ -111,6 +111,18 @@ int    InpMaxRecoveryGapOrdersPerSide = 3;  // recovery ladder: 50, 100, 150 fro
 // These reverse swing orders are protected by the same 0.50 -> 0.40 pullback logic.
 bool   InpOpenReverseOrderWithRecovery = false;
 double InpRecoveryReverseLot           = 0.01;   // 0 or less = use InpRecoveryGapLot
+
+// SAR special guard hedge order:
+// When SAR changes and an existing parent order is already losing,
+// open one opposite hedge order linked to that parent ticket.
+// Guard orders are ignored by normal basket/profit/SL closures and close only when the parent order closes.
+bool   InpUseSARSpecialGuardOrder       = true;
+double InpSARSpecialGuardLossUSD        = 6.00;   // parent floating loss must be <= -this value
+double InpSARSpecialGuardLotMultiplier  = 3.00;   // 1.0 = same lot as parent order
+bool   InpSARSpecialGuardRespectSpread  = true;   // use InpMaxSpreadPoints before opening guard
+string InpSARSpecialGuardPrefix         = "SAR_SPECIAL_GUARD_ORDER_FOR_";
+int    InpMaxSARSpecialGuardOrders      = 2;      // maximum active SAR special guard orders at the same time
+
 
 int    InpStopLossPoints          = 0;       // 0 = no hard SL
 int    InpSlippage                = 30;
@@ -213,7 +225,7 @@ bool   InpUseSARPriceDiffConfirm  = true;
 // 1) After the last confirmed normal order, wait InpContinuousOrderGapMinutes.
 // 2) Then verify live price has moved InpContinuousOrderPriceGap from that last order price.
 // No expiry timeout is used. If gap is not ready, EA keeps waiting.
-bool   InpUseRepeatedPriceGapConfirm = true;
+bool   InpUseRepeatedPriceGapConfirm = false;
 double InpContinuousOrderPriceGap    = 30.0;   // raw price gap required from last confirmed normal order
 int    InpContinuousOrderLookbackMinutes = 3;  // legacy input, not used by current continuity gap logic
 int    InpContinuousOrderGapMinutes  = 1;      // wait this many minutes after last order, then verify price gap
@@ -1360,7 +1372,7 @@ void RecordLastClosedNormalOrderReference(int orderType, double closePrice, stri
       return;
 
    // Recovery/hedge orders must not become the reference for normal SAR continuity orders.
-   if(StringFind(commentText, "RECOVERY") >= 0 || StringFind(commentText, "HEDGE") >= 0)
+   if(StringFind(commentText, "RECOVERY") >= 0 || StringFind(commentText, "HEDGE") >= 0 || IsSARGuardOrderComment(commentText))
       return;
 
    // Reference must belong to the current SAR signal cycle only.
@@ -1405,7 +1417,7 @@ void RegisterSARClosedProfitOrder(int orderType, string commentText, double clos
       return;
 
    // Count only normal SAR orders. Recovery/hedge closes must not increase this counter.
-   if(StringFind(commentText, "RECOVERY") >= 0 || StringFind(commentText, "HEDGE") >= 0)
+   if(StringFind(commentText, "RECOVERY") >= 0 || StringFind(commentText, "HEDGE") >= 0 || IsSARGuardOrderComment(commentText))
       return;
 
    // Count only orders closed inside the current SAR signal direction.
@@ -1483,6 +1495,9 @@ void CloseAllEAOrders(string reason)
       if(OrderType() != OP_BUY && OrderType() != OP_SELL)
          continue;
 
+      if(IsSARGuardOrderComment(OrderComment()))
+         continue;
+
       int type = OrderType();
       double closePrice = (type == OP_BUY) ? Bid : Ask;
       double closeProfit = OrderProfit() + OrderSwap() + OrderCommission();
@@ -1528,6 +1543,9 @@ double GetAllOpenEAOrdersProfit()
          continue;
 
       if(OrderType() != OP_BUY && OrderType() != OP_SELL)
+         continue;
+
+      if(IsSARGuardOrderComment(OrderComment()))
          continue;
 
       profit += OrderProfit() + OrderSwap() + OrderCommission();
@@ -2521,6 +2539,11 @@ bool GetRecoveryGapReferencePrice(int direction, double &referencePrice, int &to
       if(OrderType() != type)
          continue;
 
+      // SAR special guard orders are hedge/protection orders.
+      // They must NOT become parent/base orders for recovery gap logic.
+      if(IsSARGuardOrderComment(OrderComment()))
+         continue;
+
       double op = OrderOpenPrice();
 
       if(totalSideOrders == 0)
@@ -2784,6 +2807,11 @@ bool GetRecoveryLadderBasePrice(int direction, double &basePrice, int &sideOrder
       if(IsRecoveryHedgeOrderComment(OrderComment()))
          continue;
 
+      // SAR special guard orders protect a parent ticket only.
+      // Do not use them to calculate recovery gap base or side order count.
+      if(IsSARGuardOrderComment(OrderComment()))
+         continue;
+
       sideOrders++;
 
       if(oldestTime == 0 || OrderOpenTime() < oldestTime)
@@ -2814,6 +2842,11 @@ bool GetRecoveryLadderBasePriceOld(int direction, double &basePrice, int &sideOr
          continue;
 
       if(OrderType() != type)
+         continue;
+
+      // SAR special guard orders are hedge/protection orders.
+      // They must NOT become parent/base orders for recovery gap logic.
+      if(IsSARGuardOrderComment(OrderComment()))
          continue;
 
       double op = OrderOpenPrice();
@@ -3100,6 +3133,319 @@ void ProcessRecoveryGapOrders()
      }
   }
 
+
+//+------------------------------------------------------------------+
+//| SAR SPECIAL GUARD ORDER HELPERS                                  |
+//+------------------------------------------------------------------+
+bool IsSARGuardOrderComment(string commentText)
+  {
+   return(StringFind(commentText, InpSARSpecialGuardPrefix) >= 0);
+  }
+
+//+------------------------------------------------------------------+
+string SARGuardGlobalVariableName(int guardTicket)
+  {
+   return("SAR_GUARD_PARENT_" + Symbol() + "_" + IntegerToString(InpMagicNumber) + "_" + IntegerToString(guardTicket));
+  }
+
+//+------------------------------------------------------------------+
+int ExtractSARGuardParentTicketFromComment(string commentText)
+  {
+   int pos = StringFind(commentText, InpSARSpecialGuardPrefix);
+   if(pos < 0)
+      return(0);
+
+   string ticketText = StringSubstr(commentText, pos + StringLen(InpSARSpecialGuardPrefix));
+   int parentTicket = (int)StrToInteger(ticketText);
+
+   return(parentTicket);
+  }
+
+//+------------------------------------------------------------------+
+bool IsParentOrderStillOpen(int parentTicket)
+  {
+   if(parentTicket <= 0)
+      return(false);
+
+   for(int i = OrdersTotal() - 1; i >= 0; i--)
+     {
+      if(!OrderSelect(i, SELECT_BY_POS, MODE_TRADES))
+         continue;
+
+      if(OrderTicket() == parentTicket &&
+         OrderSymbol() == Symbol() &&
+         OrderMagicNumber() == InpMagicNumber &&
+         (OrderType() == OP_BUY || OrderType() == OP_SELL))
+         return(true);
+     }
+
+   return(false);
+  }
+
+//+------------------------------------------------------------------+
+bool HasSARSpecialGuardOrderForParent(int parentTicket)
+  {
+   if(parentTicket <= 0)
+      return(true);
+
+   string exactComment = InpSARSpecialGuardPrefix + IntegerToString(parentTicket);
+
+   for(int i = OrdersTotal() - 1; i >= 0; i--)
+     {
+      if(!OrderSelect(i, SELECT_BY_POS, MODE_TRADES))
+         continue;
+
+      if(OrderSymbol() != Symbol() || OrderMagicNumber() != InpMagicNumber)
+         continue;
+
+      if(OrderType() != OP_BUY && OrderType() != OP_SELL)
+         continue;
+
+      if(!IsSARGuardOrderComment(OrderComment()))
+         continue;
+
+      // Comment may be truncated by broker, so also check the saved GlobalVariable mapping.
+      if(StringFind(OrderComment(), exactComment) >= 0)
+         return(true);
+
+      string gvName = SARGuardGlobalVariableName(OrderTicket());
+      if(GlobalVariableCheck(gvName))
+        {
+         int storedParent = (int)GlobalVariableGet(gvName);
+         if(storedParent == parentTicket)
+            return(true);
+        }
+     }
+
+   return(false);
+  }
+
+
+//+------------------------------------------------------------------+
+int CountSARSpecialGuardOrders()
+  {
+   int count = 0;
+
+   for(int i = OrdersTotal() - 1; i >= 0; i--)
+     {
+      if(!OrderSelect(i, SELECT_BY_POS, MODE_TRADES))
+         continue;
+
+      if(OrderSymbol() != Symbol() || OrderMagicNumber() != InpMagicNumber)
+         continue;
+
+      if(OrderType() != OP_BUY && OrderType() != OP_SELL)
+         continue;
+
+      if(IsSARGuardOrderComment(OrderComment()))
+         count++;
+     }
+
+   return(count);
+  }
+
+//+------------------------------------------------------------------+
+bool OpenSARSpecialGuardOrder(int direction, double lot, int parentTicket)
+  {
+   if(direction == 0 || parentTicket <= 0)
+      return(false);
+
+   if(!IsTradingAllowedNow())
+     {
+      Print("SAR SPECIAL GUARD BLOCKED | Trading not allowed | Parent=#", parentTicket,
+            " | Direction=", DirectionText(direction));
+      return(false);
+     }
+
+   if(InpSARSpecialGuardRespectSpread)
+     {
+      int spread = (int)MarketInfo(Symbol(), MODE_SPREAD);
+      if(spread > InpMaxSpreadPoints)
+        {
+         Print("SAR SPECIAL GUARD BLOCKED | Spread too high | Spread=", spread,
+               " | Max=", InpMaxSpreadPoints,
+               " | Parent=#", parentTicket,
+               " | Direction=", DirectionText(direction));
+         return(false);
+        }
+     }
+
+   RefreshRates();
+
+   int type = (direction == 1) ? OP_BUY : OP_SELL;
+   double price = (direction == 1) ? Ask : Bid;
+   double guardLot = NormalizeLot(lot);
+   string commentText = InpSARSpecialGuardPrefix + IntegerToString(parentTicket);
+
+   ResetLastError();
+
+   int ticket = OrderSend(Symbol(),
+                          type,
+                          guardLot,
+                          price,
+                          InpSlippage,
+                          0,
+                          0,
+                          commentText,
+                          InpMagicNumber,
+                          0,
+                          direction == 1 ? InpBuyColor : InpSellColor);
+
+   if(ticket < 0)
+     {
+      int err = GetLastError();
+      Print("SAR SPECIAL GUARD ORDER FAILED | Parent=#", parentTicket,
+            " | Direction=", DirectionText(direction),
+            " | Lot=", DoubleToString(guardLot, 2),
+            " | Price=", DoubleToString(price, Digits),
+            " | Error=", err);
+      ResetLastError();
+      return(false);
+     }
+
+   // MT4/broker may truncate long comments. Store the parent ticket safely using a terminal global variable.
+   GlobalVariableSet(SARGuardGlobalVariableName(ticket), parentTicket);
+
+   Print("SAR SPECIAL GUARD ORDER OPENED | Guard=#", ticket,
+         " | Parent=#", parentTicket,
+         " | Direction=", DirectionText(direction),
+         " | Lot=", DoubleToString(guardLot, 2),
+         " | Comment=", commentText);
+
+   return(true);
+  }
+
+//+------------------------------------------------------------------+
+void CheckSARSpecialGuardOrdersOnSARChange(int newSARDirection)
+  {
+   if(!InpUseSARSpecialGuardOrder)
+      return;
+
+   if(newSARDirection == 0)
+      return;
+
+   RefreshRates();
+
+   for(int i = OrdersTotal() - 1; i >= 0; i--)
+     {
+      if(!OrderSelect(i, SELECT_BY_POS, MODE_TRADES))
+         continue;
+
+      if(OrderSymbol() != Symbol() || OrderMagicNumber() != InpMagicNumber)
+         continue;
+
+      if(OrderType() != OP_BUY && OrderType() != OP_SELL)
+         continue;
+
+      if(IsSARGuardOrderComment(OrderComment()))
+         continue;
+
+      int parentDirection = (OrderType() == OP_BUY) ? 1 : -1;
+
+      // Guard only when SAR has changed against the parent order.
+      if(parentDirection == newSARDirection)
+         continue;
+
+      double parentProfit = OrderProfit() + OrderSwap() + OrderCommission();
+      if(parentProfit > -MathAbs(InpSARSpecialGuardLossUSD))
+         continue;
+
+      int parentTicket = OrderTicket();
+      double parentLots = OrderLots();
+
+      if(HasSARSpecialGuardOrderForParent(parentTicket))
+        {
+         Print("SAR SPECIAL GUARD SKIPPED | Guard already exists | Parent=#", parentTicket);
+         continue;
+        }
+
+      int activeGuardCount = CountSARSpecialGuardOrders();
+      if(InpMaxSARSpecialGuardOrders > 0 && activeGuardCount >= InpMaxSARSpecialGuardOrders)
+        {
+         Print("SAR SPECIAL GUARD BLOCKED | Max active guards reached ",
+               activeGuardCount, "/", InpMaxSARSpecialGuardOrders,
+               " | Parent=#", parentTicket,
+               " | NewSAR=", DirectionText(newSARDirection));
+         break;
+        }
+
+      double guardLots = parentLots * InpSARSpecialGuardLotMultiplier;
+
+      OpenSARSpecialGuardOrder(newSARDirection, guardLots, parentTicket);
+     }
+  }
+
+//+------------------------------------------------------------------+
+void ProcessSARSpecialGuardCleanup()
+  {
+   if(!InpUseSARSpecialGuardOrder)
+      return;
+
+   RefreshRates();
+
+   for(int i = OrdersTotal() - 1; i >= 0; i--)
+     {
+      if(!OrderSelect(i, SELECT_BY_POS, MODE_TRADES))
+         continue;
+
+      if(OrderSymbol() != Symbol() || OrderMagicNumber() != InpMagicNumber)
+         continue;
+
+      if(OrderType() != OP_BUY && OrderType() != OP_SELL)
+         continue;
+
+      if(!IsSARGuardOrderComment(OrderComment()))
+         continue;
+
+      int guardTicket = OrderTicket();
+      int parentTicket = 0;
+
+      string gvName = SARGuardGlobalVariableName(guardTicket);
+      if(GlobalVariableCheck(gvName))
+         parentTicket = (int)GlobalVariableGet(gvName);
+      else
+         parentTicket = ExtractSARGuardParentTicketFromComment(OrderComment());
+
+      // If we cannot identify the parent, do NOT close the guard blindly.
+      if(parentTicket <= 0)
+        {
+         Print("SAR SPECIAL GUARD CLEANUP WAIT | Parent not identified | Guard=#", guardTicket,
+               " | Comment=", OrderComment());
+         continue;
+        }
+
+      if(IsParentOrderStillOpen(parentTicket))
+         continue;
+
+      int type = OrderType();
+      double closePrice = (type == OP_BUY) ? Bid : Ask;
+      double closeProfit = OrderProfit() + OrderSwap() + OrderCommission();
+
+      bool ok = OrderClose(guardTicket, OrderLots(), closePrice, InpSlippage, clrYellow);
+      if(!ok)
+        {
+         int err = GetLastError();
+         Print("SAR SPECIAL GUARD CLOSE FAILED | Guard=#", guardTicket,
+               " | Parent=#", parentTicket,
+               " | Error=", err);
+         ResetLastError();
+        }
+      else
+        {
+         if(GlobalVariableCheck(gvName))
+            GlobalVariableDel(gvName);
+
+         g_lastAnyOrderCloseTime = TimeCurrent();
+         SetLastOrderCloseDashboard(guardTicket, type, closeProfit, closePrice,
+                                    "SAR special guard closed because parent #" + IntegerToString(parentTicket) + " closed");
+
+         Print("SAR SPECIAL GUARD CLOSED | Guard=#", guardTicket,
+               " | Parent=#", parentTicket,
+               " | Profit=$", DoubleToString(closeProfit, 2));
+        }
+     }
+  }
+
 //+------------------------------------------------------------------+
 void ProcessSARFlipStateAndClose()
   {
@@ -3167,7 +3513,11 @@ void ProcessSARFlipStateAndClose()
       g_sarDelayedCloseStatus = InpUseDelayedSARChangeClose ? "WAIT ORDER" : "IMMEDIATE CLOSE";
      }
 
-// Update SAR direction after processing close/skip logic.
+// Open one special guard hedge for losing parent orders when SAR changes against them.
+   // Guard orders are ignored by normal basket/profit/SL close logic and close only when parent closes.
+   CheckSARSpecialGuardOrdersOnSARChange(sarFlip);
+
+   // Update SAR direction after processing close/skip logic.
    g_activeSARDirection  = sarFlip;
    g_lastSARDotDirection = sarFlip;
    g_sarPausedByEarly    = false;
@@ -3220,6 +3570,9 @@ void CloseOrdersByDirectionAnyMagic(int direction, string reason, bool anyMagic)
          continue;
 
       if(OrderType() != type)
+         continue;
+
+      if(IsSARGuardOrderComment(OrderComment()))
          continue;
 
       double closePrice = type == OP_BUY ? Bid : Ask;
@@ -3667,6 +4020,9 @@ void ProcessIndividualProfitProtect()
       if(OrderType() != OP_BUY && OrderType() != OP_SELL)
          continue;
 
+      if(IsSARGuardOrderComment(OrderComment()))
+         continue;
+
       int ticket = OrderTicket();
       int type   = OrderType();
       int sideOpenOrders = CountOpenOrdersByType(type);
@@ -3790,6 +4146,9 @@ void ProcessNextCandleLossProtect()
          continue;
 
       if(OrderType() != OP_BUY && OrderType() != OP_SELL)
+         continue;
+
+      if(IsSARGuardOrderComment(OrderComment()))
          continue;
 
       // Wait until the candle after the order-created candle has fully closed.
@@ -4328,6 +4687,8 @@ void OnTick()
 
    RefreshRates();
 
+   ProcessSARSpecialGuardCleanup();
+
 // FIRST PRIORITY PROFIT BOOKING:
 // 1) Close ALL BUY+SELL open EA orders if combined profit >= InpBasketProfitUSD.
 // 2) Otherwise close BUY basket or SELL basket individually if that side profit >= InpBasketProfitUSD.
@@ -4400,6 +4761,8 @@ void OnTick()
 
    if(ProcessCloseOrdersFirst(status))
       closedThisTick = true;
+
+   ProcessSARSpecialGuardCleanup();
 
    if(closedByFirstPriority)
       status = firstPriorityStatus + " | WAIT NEXT CANDLE";
@@ -6064,7 +6427,7 @@ int CountAllOrders()
          continue;
       if(OrderSymbol() == Symbol() && OrderMagicNumber() == InpMagicNumber)
         {
-         if(OrderType() == OP_BUY || OrderType() == OP_SELL)
+         if((OrderType() == OP_BUY || OrderType() == OP_SELL) && !IsSARGuardOrderComment(OrderComment()))
             total++;
         }
      }
@@ -6106,8 +6469,13 @@ int CountOpenOrders()
       if(OrderMagicNumber() != InpMagicNumber)
          continue;
 
-      
-         total++;
+      if(OrderType() != OP_BUY && OrderType() != OP_SELL)
+         continue;
+
+      if(IsSARGuardOrderComment(OrderComment()))
+         continue;
+
+      total++;
      }
 
    return(total);
@@ -6127,7 +6495,7 @@ int CountOpenOrdersByType(int type)
       if(OrderMagicNumber() != InpMagicNumber)
          continue;
 
-      if(OrderType() == type)
+      if(OrderType() == type && !IsSARGuardOrderComment(OrderComment()))
          total++;
      }
 
@@ -6143,7 +6511,7 @@ int CountOrdersByDirection(int direction)
      {
       if(!OrderSelect(i, SELECT_BY_POS, MODE_TRADES))
          continue;
-      if(OrderSymbol() == Symbol() && OrderMagicNumber() == InpMagicNumber && OrderType() == type)
+      if(OrderSymbol() == Symbol() && OrderMagicNumber() == InpMagicNumber && OrderType() == type && !IsSARGuardOrderComment(OrderComment()))
          total++;
      }
    return total;
@@ -6157,7 +6525,7 @@ double GetBasketProfit(int direction)
      {
       if(!OrderSelect(i, SELECT_BY_POS, MODE_TRADES))
          continue;
-      if(OrderSymbol() == Symbol() && OrderMagicNumber() == InpMagicNumber && OrderType() == type)
+      if(OrderSymbol() == Symbol() && OrderMagicNumber() == InpMagicNumber && OrderType() == type && !IsSARGuardOrderComment(OrderComment()))
          profit += OrderProfit() + OrderSwap() + OrderCommission();
      }
    return profit;
@@ -6185,6 +6553,9 @@ void CloseOrdersByType(int type, string reason)
       if(OrderSymbol() != Symbol() || OrderMagicNumber() != InpMagicNumber)
          continue;
       if(OrderType() != type)
+         continue;
+
+      if(IsSARGuardOrderComment(OrderComment()))
          continue;
 
       double closePrice = type == OP_BUY ? Bid : Ask;
@@ -6412,6 +6783,109 @@ void LeftChecklistInfo(string title,string value,color clrText=clrWhite)
    g_leftDashRow++;
   }
 
+//+------------------------------------------------------------------+
+//| Left-side dashboard: SAR special guard order information          |
+//+------------------------------------------------------------------+
+double GetSARSpecialGuardTotalProfit()
+  {
+   double totalProfit = 0.0;
+
+   for(int i = OrdersTotal() - 1; i >= 0; i--)
+     {
+      if(!OrderSelect(i, SELECT_BY_POS, MODE_TRADES))
+         continue;
+
+      if(OrderSymbol() != Symbol() || OrderMagicNumber() != InpMagicNumber)
+         continue;
+
+      if(OrderType() != OP_BUY && OrderType() != OP_SELL)
+         continue;
+
+      if(!IsSARGuardOrderComment(OrderComment()))
+         continue;
+
+      totalProfit += OrderProfit() + OrderSwap() + OrderCommission();
+     }
+
+   return(totalProfit);
+  }
+
+//+------------------------------------------------------------------+
+int GetSARSpecialGuardParentTicket(int guardTicket, string guardComment)
+  {
+   string gvName = SARGuardGlobalVariableName(guardTicket);
+
+   if(GlobalVariableCheck(gvName))
+      return((int)GlobalVariableGet(gvName));
+
+   return(ExtractSARGuardParentTicketFromComment(guardComment));
+  }
+
+//+------------------------------------------------------------------+
+void DrawLeftSARSpecialGuardInfo()
+  {
+   int activeGuards = CountSARSpecialGuardOrders();
+   double guardProfit = GetSARSpecialGuardTotalProfit();
+
+   LeftChecklistInfo("----- SAR SPECIAL GUARD -----", "", clrYellow);
+
+   LeftChecklistInfo("Guard Enabled",
+                     InpUseSARSpecialGuardOrder ? "YES" : "NO",
+                     InpUseSARSpecialGuardOrder ? clrLime : clrOrangeRed);
+
+   LeftChecklistInfo("Guard Active/Max",
+                     IntegerToString(activeGuards) + "/" + IntegerToString(InpMaxSARSpecialGuardOrders),
+                     activeGuards > 0 ? clrYellow : clrSilver);
+
+   LeftChecklistInfo("Guard Total Profit",
+                     "$" + DoubleToString(guardProfit, 2),
+                     guardProfit >= 0.0 ? clrLime : clrRed);
+
+   if(activeGuards <= 0)
+     {
+      LeftChecklistInfo("Guard Orders", "NONE", clrSilver);
+      return;
+     }
+
+   int shown = 0;
+
+   for(int i = OrdersTotal() - 1; i >= 0; i--)
+     {
+      if(!OrderSelect(i, SELECT_BY_POS, MODE_TRADES))
+         continue;
+
+      if(OrderSymbol() != Symbol() || OrderMagicNumber() != InpMagicNumber)
+         continue;
+
+      if(OrderType() != OP_BUY && OrderType() != OP_SELL)
+         continue;
+
+      if(!IsSARGuardOrderComment(OrderComment()))
+         continue;
+
+      int guardTicket = OrderTicket();
+      int parentTicket = GetSARSpecialGuardParentTicket(guardTicket, OrderComment());
+      int guardDir = (OrderType() == OP_BUY) ? 1 : -1;
+      double profit = OrderProfit() + OrderSwap() + OrderCommission();
+
+      string rowText =
+         "#" + IntegerToString(guardTicket) +
+         " P#" + IntegerToString(parentTicket) +
+         " " + DirectionText(guardDir) +
+         " L" + DoubleToString(OrderLots(), 2) +
+         " $" + DoubleToString(profit, 2);
+
+      LeftChecklistInfo("Guard " + IntegerToString(shown + 1),
+                        StringSubstr(rowText, 0, 70),
+                        profit >= 0.0 ? clrLime : clrRed);
+
+      shown++;
+
+      if(shown >= 4)
+         break;
+     }
+  }
+
 bool CheckListTradingAllowed()
   {
    if(!IsTradeAllowed())
@@ -6597,7 +7071,7 @@ void DrawLeftOrderCreationChecklist(string mainStatus)
                 okProfitPause && okBigCandle && okSARConfirm && okH1 && okCycle &&
                 okMaxOpen && okTotalOpen && okMinGap && okSARSide && okLateSAR && okRepeatedGap;
 
-   DrawLeftPanel("DXB_LEFT_CHK_PANEL",5,15,520,445,clrBlack);
+   DrawLeftPanel("DXB_LEFT_CHK_PANEL",5,15,620,650,clrBlack);
    DrawLeftLabel("DXB_LEFT_CHK_TITLE","ORDER CREATION CHECKLIST",10,18,clrYellow,10);
 
    g_leftDashRow = 0;
@@ -6625,6 +7099,8 @@ void DrawLeftOrderCreationChecklist(string mainStatus)
    LeftChecklistRow("SAR Price Side", YesNo(okSARSide), okSARSide, SARSignalSideStatusText());
    LeftChecklistRow("Late SAR Entry", YesNo(okLateSAR), okLateSAR, LateSARCycleEntryStatusText(direction));
    LeftChecklistRow("Repeated Gap", YesNo(okRepeatedGap), okRepeatedGap, CheckListRepeatedGapText(direction));
+
+   DrawLeftSARSpecialGuardInfo();
   }
 
 //+------------------------------------------------------------------+
@@ -6745,7 +7221,7 @@ void DrawDashboard(string status)
 
    g_dashRow=0;
 
-   DashRow("V4 SAR EA",status,clrYellow);
+   DashRow("V5 SAR GUARD",status,clrYellow);
 
    Print("DASHBOARD UPDATE | Status=", status,
          " | SAR=", DirectionText(g_activeSARDirection),
