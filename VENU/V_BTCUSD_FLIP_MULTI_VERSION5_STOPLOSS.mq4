@@ -117,9 +117,9 @@ double InpRecoveryReverseLot           = 0.01;   // 0 or less = use InpRecoveryG
 // open one opposite hedge order linked to that parent ticket.
 // Guard orders are ignored by normal basket/profit/SL closures and close only when the parent order closes.
 bool   InpUseSARSpecialGuardOrder       = true;
-double InpSARSpecialGuardLossUSD        = 9.00;//InpBasketStopLossUSD   // parent floating loss must be <= -this value
+double InpSARSpecialGuardLossUSD        = 8.00;//InpBasketStopLossUSD   // parent floating loss must be <= -this value
 double InpSARSpecialGuardLotMultiplier  = 10.00;   // 1.0 = same lot as parent order
-bool   InpSARSpecialGuardRespectSpread  = true;   // use InpMaxSpreadPoints before opening guard
+bool   InpSARSpecialGuardRespectSpread  = false;  // SPECIAL GUARD BYPASSES SPREAD/BIG-CANDLE/SAR/NO-HOUR FILTERS. Kept only for old settings display.
 string InpSARSpecialGuardPrefix         = "SAR_SPECIAL_GUARD_ORDER_FOR_";
 int    InpMaxSARSpecialGuardOrders      = 10;      // maximum active SAR special guard orders at the same time
 bool   InpSARSpecialGuardRequireSARChange = false;  // false = create guard anytime parent loss reaches trigger, no SAR condition
@@ -3477,26 +3477,11 @@ bool OpenSARSpecialGuardOrder(int direction, double lot, int parentTicket)
    if(direction == 0 || parentTicket <= 0)
       return(false);
 
-   if(!IsTradingAllowedNow())
-     {
-      Print("SAR SPECIAL GUARD BLOCKED | Trading not allowed | Parent=#", parentTicket,
-            " | Direction=", DirectionText(direction));
-      return(false);
-     }
-
-   if(InpSARSpecialGuardRespectSpread)
-     {
-      int spread = (int)MarketInfo(Symbol(), MODE_SPREAD);
-      if(spread > InpMaxSpreadPoints)
-        {
-         Print("SAR SPECIAL GUARD BLOCKED | Spread too high | Spread=", spread,
-               " | Max=", InpMaxSpreadPoints,
-               " | Parent=#", parentTicket,
-               " | Direction=", DirectionText(direction));
-         return(false);
-        }
-     }
-
+   // IMPORTANT RULE:
+   // SAR_SPECIAL_GUARD_ORDER_FOR_ must NOT be blocked by normal EA filters.
+   // It bypasses: SAR direction/confirmation, big candle pause, no-new-hour,
+   // H1 trend, repeated gap, late SAR block, spread filter, daily/order gates.
+   // Only broker/server restrictions can still reject OrderSend.
    RefreshRates();
 
    int type = (direction == 1) ? OP_BUY : OP_SELL;
@@ -3567,9 +3552,10 @@ void CheckSARSpecialGuardOrdersOnSARChange(int newSARDirection)
 
 
 //+------------------------------------------------------------------+
-//| Create SAR special guard only from parent floating loss           |
-//| No SAR-direction condition. BUY parent gets SELL guard.           |
-//| SELL parent gets BUY guard. One guard per parent ticket.          |
+//| Create SAR special guard only from parent+recovery loss           |
+//| BYPASSES all normal filters: SAR, big candle, spread, hours, etc. |
+//| BUY parent gets SELL guard. SELL parent gets BUY guard.           |
+//| One guard per parent ticket.                                      |
 //+------------------------------------------------------------------+
 void CheckSARSpecialGuardOrdersByParentLoss()
   {
