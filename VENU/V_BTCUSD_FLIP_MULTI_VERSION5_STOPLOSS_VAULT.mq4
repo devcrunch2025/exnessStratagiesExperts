@@ -181,6 +181,8 @@ bool   InpUseNoNewOrderHours      = true;
 string InpNoNewOrderHourList      = "";//"0,23";//"13,14,15,16,17,18"; // server-time hours to block new orders
 
 
+
+
 //profit booking hours are 4,5,6,7,8
 
 // Big candle pause protection
