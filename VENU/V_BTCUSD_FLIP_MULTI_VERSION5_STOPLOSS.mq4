@@ -24,7 +24,7 @@ double InpMinGapWhenMaxOrdersMoreThanOne = 100.0; // when InpMaxOrders > 1, enfo
 double InpBasketProfitUSD         = 1.00;
 double InpBasketStopLossUSD       = 10.00;    // BASKET stop loss in USD, 0 = disabled. This closes all orders in active SAR direction.
 
-double InpProfitTargetPercent      = 50.0;//if $10 means $15   // stop trading when equity reaches Base + 100%
+double InpProfitTargetPercent      = 10;//50.0;//if $10 means $15   // stop trading when equity reaches Base + 100%
 double InpLossStopPercent          = 50.0;   // stop trading when equity reaches Base - 50%
 
 // Virtual profit vault / keep-profit-aside mode:
