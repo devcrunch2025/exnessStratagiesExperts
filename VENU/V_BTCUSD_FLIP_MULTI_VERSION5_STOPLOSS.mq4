@@ -13,7 +13,7 @@
 #property version   "1.09"
 
 //======================== INPUTS ====================================
-string InpEAName                  = "DXB Version 4-11-06-2026";
+string InpEAName                  = "DXB Version 5 - Specila Order";
 int    InpMagicNumber             = 989899;
 double InpFixedLot                = 0.01;
 int    InpMaxOrders               = 1;     // maximum normal SAR orders per SAR signal cycle
@@ -117,8 +117,8 @@ double InpRecoveryReverseLot           = 0.01;   // 0 or less = use InpRecoveryG
 // open one opposite hedge order linked to that parent ticket.
 // Guard orders are ignored by normal basket/profit/SL closures and close only when the parent order closes.
 bool   InpUseSARSpecialGuardOrder       = true;
-double InpSARSpecialGuardLossUSD        = 5.00;//InpBasketStopLossUSD   // parent floating loss must be <= -this value
-double InpSARSpecialGuardLotMultiplier  = 5.00;   // 1.0 = same lot as parent order
+double InpSARSpecialGuardLossUSD        = 9.00;//InpBasketStopLossUSD   // parent floating loss must be <= -this value
+double InpSARSpecialGuardLotMultiplier  = 10.00;   // 1.0 = same lot as parent order
 bool   InpSARSpecialGuardRespectSpread  = true;   // use InpMaxSpreadPoints before opening guard
 string InpSARSpecialGuardPrefix         = "SAR_SPECIAL_GUARD_ORDER_FOR_";
 int    InpMaxSARSpecialGuardOrders      = 10;      // maximum active SAR special guard orders at the same time
