@@ -239,6 +239,17 @@ double InpContinuousOrderPriceGap    = 30;//10.0; //30  // raw price gap require
 int    InpContinuousOrderLookbackMinutes = 1;  // legacy input, not used by current continuity gap logic
 int    InpContinuousOrderGapMinutes  = 1;      // wait this many minutes after last order, then verify price gap
 
+// SAR pullback half-TP re-entry:
+// Used only after at least one profitable NORMAL SAR order is closed in the same SAR signal.
+// If continuity gap is not ready, but price pulls back 20-50 raw points from the last profit close,
+// open one same-direction quick order and use TP = original basket target * multiplier.
+bool   InpUseSARPullbackHalfTP            = false;
+double InpSARPullbackMinGap               = 20.0;
+double InpSARPullbackMaxGap               = 100.0;
+double InpSARPullbackTPMultiplier         = 0.50;
+bool   InpSARPullbackRequireRecoveryCandle = true;
+
+
 double InpSARConfirmPriceDiff     = 50.0;   // SAR signal-change raw price diff confirmation only
 int    InpSARConfirmMinutes       = 0;      // max minutes for SAR confirmation only; 0 = no expiry
 // TEST MODE: Only SAR flip confirmation is active: wait 5 minutes, then require raw price gap 30 in SAR direction.
@@ -449,6 +460,8 @@ datetime g_lastAnyOrderCloseTime   = 0;
 double   g_lastClosedNormalOrderPrice = 0.0;
 datetime g_lastClosedNormalOrderTime  = 0;
 int      g_lastClosedNormalOrderDirection = 0;
+datetime g_lastSARPullbackOrderBarTime = 0;
+
 
 // Number of profitable NORMAL SAR orders closed in the current SAR signal cycle.
 // Resets whenever SAR signal changes. Used by GetIndividualProfitProtectLevel().
@@ -747,19 +760,48 @@ void SendEAAlert(string eventTitle, string details)
    if(InpSendPushNotifications)
       SendNotification(msg);
   }
+bool IsSARPullbackHalfTPComment(string commentText)
+{
+   return(StringFind(commentText, "PULLBACK_HALF") >= 0);
+}
+
+bool HasOpenSARPullbackHalfTPOrder()
+{
+   for(int i = OrdersTotal() - 1; i >= 0; i--)
+   {
+      if(!OrderSelect(i, SELECT_BY_POS, MODE_TRADES))
+         continue;
+      if(OrderSymbol() != Symbol() || OrderMagicNumber() != InpMagicNumber)
+         continue;
+      if(OrderType() != OP_BUY && OrderType() != OP_SELL)
+         continue;
+      if(IsSARGuardOrderComment(OrderComment()))
+         continue;
+
+      if(IsSARPullbackHalfTPComment(OrderComment()))
+         return(true);
+   }
+   return(false);
+}
+
 double GetBasketProfitTargetUSD()
 {
    int h = TimeHour(TimeCurrent());
-   
-   
+
    int count=CountOpenOrders();
    if(count==0)count=1;
-   
+
+   double target = InpBasketProfitUSD / count;
 
    if(h >= 12 && h <= 17)
-      return InpBasketProfitUSD_12_17/count;
+      target = InpBasketProfitUSD_12_17 / count;
 
-   return InpBasketProfitUSD/count;
+   // Pullback half-TP order is a quick re-entry. When it is open,
+   // close the basket/side faster using original target * multiplier.
+   if(InpUseSARPullbackHalfTP && HasOpenSARPullbackHalfTPOrder())
+      target = target * MathMax(0.05, MathMin(1.0, InpSARPullbackTPMultiplier));
+
+   return(target);
 }
 
 //+------------------------------------------------------------------+
@@ -882,6 +924,7 @@ void ResetTradingCycleState()
    g_lastClosedNormalOrderPrice = 0.0;
    g_lastClosedNormalOrderTime  = 0;
    g_lastClosedNormalOrderDirection = 0;
+   g_lastSARPullbackOrderBarTime = 0;
    g_sarClosedProfitOrdersCount = 0;
    g_lastOrderOpenReason     = "WAIT ORDER";
    g_lastOrderBlockTime      = 0;
@@ -4882,6 +4925,33 @@ IncreaseSARMaxWhenDotDistanceAndH1Same();
       return(false);
      }
 
+   // Normal continuity order needs price to move in SAR direction from last profitable close.
+   // If that forward gap is not ready, try safer pullback half-TP re-entry instead.
+   bool normalContinuousGapReady = IsRepeatedPriceGapConfirmedForNormalOrder(g_activeSARDirection, "SAR_FLIP_V2LAST_PRECHECK");
+
+   if(!normalContinuousGapReady)
+     {
+      string pullbackReason = "";
+      if(IsSARPullbackHalfTPAllowed(g_activeSARDirection, pullbackReason))
+        {
+         if(OpenMarketOrder(g_activeSARDirection, "SAR_PULLBACK_HALF_TP"))
+           {
+            g_lastSARPullbackOrderBarTime = Time[0];
+            status = pullbackReason;
+            Print("SAR PULLBACK HALF TP ORDER OPENED | ", pullbackReason);
+            return(true);
+           }
+
+         status = g_lastOrderOpenReason;
+         SetLastOrderBlockDashboard(status);
+         return(false);
+        }
+
+      status = "CONTINUOUS GAP WAIT | " + pullbackReason;
+      SetLastOrderBlockDashboard(status);
+      return(false);
+     }
+
    if(OpenMarketOrder(g_activeSARDirection, "SAR_FLIP_V2LAST"))
       status = "Active " + DirectionText(g_activeSARDirection);
    else
@@ -6280,10 +6350,114 @@ bool IsPriceGapValid(int direction, double minGap)
 //+------------------------------------------------------------------+
 
 //+------------------------------------------------------------------+
+//| SAR pullback half-TP re-entry helpers                             |
+//+------------------------------------------------------------------+
+bool IsSARPullbackHalfTPReason(string reason)
+{
+   return(StringFind(reason, "SAR_PULLBACK_HALF_TP") >= 0);
+}
+
+bool IsSARPullbackHalfTPAllowed(int direction, string &reason)
+{
+   reason = "";
+
+   if(!InpUseSARPullbackHalfTP)
+   {
+      reason = "Pullback half-TP disabled";
+      return(false);
+   }
+
+   if(direction == 0)
+   {
+      reason = "Pullback blocked: direction is 0";
+      return(false);
+   }
+
+   if(direction != g_activeSARDirection || direction != g_sarCycleDirection)
+   {
+      reason = "Pullback blocked: SAR direction mismatch";
+      return(false);
+   }
+
+   // Safer: enable only after at least one profitable normal SAR order closed in this SAR cycle.
+   if(g_sarClosedProfitOrdersCount < 1)
+   {
+      reason = "Pullback blocked: no previous profitable SAR close";
+      return(false);
+   }
+
+   if(g_lastClosedNormalOrderPrice <= 0.0 || g_lastClosedNormalOrderTime <= 0)
+   {
+      reason = "Pullback blocked: no last normal profit close price";
+      return(false);
+   }
+
+   if(g_lastClosedNormalOrderDirection != direction)
+   {
+      reason = "Pullback blocked: last close direction mismatch";
+      return(false);
+   }
+
+   if(Time[0] == g_lastSARPullbackOrderBarTime)
+   {
+      reason = "Pullback blocked: already opened this candle";
+      return(false);
+   }
+
+   RefreshRates();
+
+   double pullback = 0.0;
+   double livePrice = (direction == 1) ? Ask : Bid;
+
+   if(direction == 1)
+      pullback = g_lastClosedNormalOrderPrice - Ask;   // BUY SAR: price dropped from profit close
+   else
+      pullback = Bid - g_lastClosedNormalOrderPrice;   // SELL SAR: price bounced up from profit close
+
+   if(pullback < InpSARPullbackMinGap || pullback > InpSARPullbackMaxGap)
+   {
+      reason = "Pullback gap not matched | Gap=" + DoubleToString(pullback, 2) +
+               " | Need=" + DoubleToString(InpSARPullbackMinGap, 2) +
+               "-" + DoubleToString(InpSARPullbackMaxGap, 2) +
+               " | LastClose=" + DoubleToString(g_lastClosedNormalOrderPrice, Digits) +
+               " | Live=" + DoubleToString(livePrice, Digits);
+      return(false);
+   }
+
+   if(InpSARPullbackRequireRecoveryCandle)
+   {
+      // BUY: after pullback, wait for a bullish closed candle.
+      // SELL: after pullback, wait for a bearish closed candle.
+      if(direction == 1 && Close[1] <= Open[1])
+      {
+         reason = "Pullback BUY blocked: no bullish recovery candle";
+         return(false);
+      }
+
+      if(direction == -1 && Close[1] >= Open[1])
+      {
+         reason = "Pullback SELL blocked: no bearish recovery candle";
+         return(false);
+      }
+   }
+
+   reason = "PULLBACK HALF TP OK | Direction=" + DirectionText(direction) +
+            " | Gap=" + DoubleToString(pullback, 2) +
+            " | TPx=" + DoubleToString(InpSARPullbackTPMultiplier, 2) +
+            " | ProfitCloseCount=" + IntegerToString(g_sarClosedProfitOrdersCount);
+   return(true);
+}
+
+//+------------------------------------------------------------------+
 //| Repeated raw-price gap confirmation for SAR trend orders          |
 //+------------------------------------------------------------------+
 bool IsRepeatedPriceGapConfirmedForNormalOrder(int direction, string reason)
   {
+   // Pullback half-TP order is allowed exactly when normal continuity gap is not ready.
+   // It has its own -20 to -50 pullback gap validation, so do not block it here.
+   if(IsSARPullbackHalfTPReason(reason))
+      return(true);
+
    if(!InpUseRepeatedPriceGapConfirm)
       return(true);
 
