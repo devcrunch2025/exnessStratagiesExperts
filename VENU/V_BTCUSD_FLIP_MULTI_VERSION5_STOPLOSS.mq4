@@ -22,7 +22,7 @@ double InpMinGapWhenMaxOrdersMoreThanOne = 100.0; // when InpMaxOrders > 1, enfo
 #define DXB_HARD_MAX_OPEN_ORDERS 6  // absolute safety cap for normal SAR orders per cycle
 
 double InpBasketProfitUSD         = 1.00;
-double InpBasketStopLossUSD       = 20.00;    // BASKET stop loss in USD, 0 = disabled. This closes all orders in active SAR direction.
+double InpBasketStopLossUSD       = 10.00;    // BASKET stop loss in USD, 0 = disabled. This closes all orders in active SAR direction.
 
 double InpProfitTargetPercent      = 50.0;   // stop trading when equity reaches Base + 100%
 double InpLossStopPercent          = 50.0;   // stop trading when equity reaches Base - 50%
@@ -104,7 +104,7 @@ bool   InpOpenPendingRecoveryWhenSARMatches = true;
 
 double InpRecoveryGapRawPrice     = 300.0;   // raw price difference, not points
 double InpRecoveryGapLot          = 0.01;
-int    InpMaxRecoveryGapOrdersPerSide = 3;  // recovery ladder: 50, 100, 150 from first order price
+int    InpMaxRecoveryGapOrdersPerSide = 1;  // recovery ladder: 50, 100, 150 from first order price
 
 // Reverse swing order: whenever a RECOVERY_GAP order opens, also open one opposite order.
 // Example: BUY recovery opens -> open SELL swing order.
@@ -117,11 +117,12 @@ double InpRecoveryReverseLot           = 0.01;   // 0 or less = use InpRecoveryG
 // open one opposite hedge order linked to that parent ticket.
 // Guard orders are ignored by normal basket/profit/SL closures and close only when the parent order closes.
 bool   InpUseSARSpecialGuardOrder       = true;
-double InpSARSpecialGuardLossUSD        = 6.00;   // parent floating loss must be <= -this value
-double InpSARSpecialGuardLotMultiplier  = 3.00;   // 1.0 = same lot as parent order
+double InpSARSpecialGuardLossUSD        = 8.00;//InpBasketStopLossUSD   // parent floating loss must be <= -this value
+double InpSARSpecialGuardLotMultiplier  = 11.00;   // 1.0 = same lot as parent order
 bool   InpSARSpecialGuardRespectSpread  = true;   // use InpMaxSpreadPoints before opening guard
 string InpSARSpecialGuardPrefix         = "SAR_SPECIAL_GUARD_ORDER_FOR_";
-int    InpMaxSARSpecialGuardOrders      = 2;      // maximum active SAR special guard orders at the same time
+int    InpMaxSARSpecialGuardOrders      = 10;      // maximum active SAR special guard orders at the same time
+bool   InpSARSpecialGuardRequireSARChange = false;  // false = create guard anytime parent loss reaches trigger, no SAR condition
 
 
 int    InpStopLossPoints          = 0;       // 0 = no hard SL
@@ -225,9 +226,9 @@ bool   InpUseSARPriceDiffConfirm  = true;
 // 1) After the last confirmed normal order, wait InpContinuousOrderGapMinutes.
 // 2) Then verify live price has moved InpContinuousOrderPriceGap from that last order price.
 // No expiry timeout is used. If gap is not ready, EA keeps waiting.
-bool   InpUseRepeatedPriceGapConfirm = false;
+bool   InpUseRepeatedPriceGapConfirm = true;
 double InpContinuousOrderPriceGap    = 30.0;   // raw price gap required from last confirmed normal order
-int    InpContinuousOrderLookbackMinutes = 3;  // legacy input, not used by current continuity gap logic
+int    InpContinuousOrderLookbackMinutes = 1;  // legacy input, not used by current continuity gap logic
 int    InpContinuousOrderGapMinutes  = 1;      // wait this many minutes after last order, then verify price gap
 
 double InpSARConfirmPriceDiff     = 50.0;   // SAR signal-change raw price diff confirmation only
@@ -3245,6 +3246,93 @@ int CountSARSpecialGuardOrders()
   }
 
 //+------------------------------------------------------------------+
+//| Affordable SAR special guard lot                                 |
+//| Uses requested lot as MAX. If free margin is not enough, reduces |
+//| lot step-by-step until AccountFreeMarginCheck() passes.          |
+//+------------------------------------------------------------------+
+double GetAffordableGuardLot(int orderType, double requestedMaxLot)
+  {
+   RefreshRates();
+
+   double minLot  = MarketInfo(Symbol(), MODE_MINLOT);
+   double maxLot  = MarketInfo(Symbol(), MODE_MAXLOT);
+   double lotStep = MarketInfo(Symbol(), MODE_LOTSTEP);
+
+   if(lotStep <= 0.0)
+      lotStep = 0.01;
+
+   if(requestedMaxLot <= 0.0)
+      return(0.0);
+
+   double lot = MathMin(requestedMaxLot, maxLot);
+   lot = MathFloor(lot / lotStep) * lotStep;
+   lot = NormalizeDouble(lot, 2);
+
+   while(lot >= minLot)
+     {
+      ResetLastError();
+      double freeAfter = AccountFreeMarginCheck(Symbol(), orderType, lot);
+      int err = GetLastError();
+
+      // freeAfter > 0 means broker accepts the margin calculation.
+      if(freeAfter > 0.0 && err == 0)
+         return(NormalizeDouble(lot, 2));
+
+      lot -= lotStep;
+      lot = MathFloor(lot / lotStep) * lotStep;
+      lot = NormalizeDouble(lot, 2);
+      ResetLastError();
+     }
+
+   return(0.0);
+  }
+
+//+------------------------------------------------------------------+
+//| Parent + recovery gap basket profit for guard trigger            |
+//| Normal/recovery in same side are included; guard/hedge excluded. |
+//+------------------------------------------------------------------+
+double GetParentAndRecoveryGapProfitForGuard(int parentTicket, int direction)
+  {
+   double totalProfit = 0.0;
+
+   for(int i = OrdersTotal() - 1; i >= 0; i--)
+     {
+      if(!OrderSelect(i, SELECT_BY_POS, MODE_TRADES))
+         continue;
+
+      if(OrderSymbol() != Symbol() || OrderMagicNumber() != InpMagicNumber)
+         continue;
+
+      if(OrderType() != OP_BUY && OrderType() != OP_SELL)
+         continue;
+
+      if(IsSARGuardOrderComment(OrderComment()))
+         continue;
+
+      int orderDirection = (OrderType() == OP_BUY) ? 1 : -1;
+      if(orderDirection != direction)
+         continue;
+
+      string c = OrderComment();
+      bool isParentOrder = (OrderTicket() == parentTicket);
+      bool isRecoveryGap = (StringFind(c, "RECOVERY_GAP") >= 0);
+
+      if(!isParentOrder && !isRecoveryGap)
+         continue;
+
+      totalProfit += OrderProfit() + OrderSwap() + OrderCommission();
+     }
+
+   return(totalProfit);
+  }
+
+//+------------------------------------------------------------------+
+bool IsRecoveryGapOrderComment(string commentText)
+  {
+   return(StringFind(commentText, "RECOVERY_GAP") >= 0);
+  }
+
+//+------------------------------------------------------------------+
 bool OpenSARSpecialGuardOrder(int direction, double lot, int parentTicket)
   {
    if(direction == 0 || parentTicket <= 0)
@@ -3274,7 +3362,22 @@ bool OpenSARSpecialGuardOrder(int direction, double lot, int parentTicket)
 
    int type = (direction == 1) ? OP_BUY : OP_SELL;
    double price = (direction == 1) ? Ask : Bid;
-   double guardLot = NormalizeLot(lot);
+
+   // lot passed here is the requested MAX lot. Use the highest affordable lot,
+   // but never exceed the requested InpSARSpecialGuardLotMultiplier limit.
+   double guardLot = GetAffordableGuardLot(type, lot);
+   if(guardLot <= 0.0)
+     {
+      Print("SAR SPECIAL GUARD BLOCKED | Insufficient free margin",
+            " | Parent=#", parentTicket,
+            " | Direction=", DirectionText(direction),
+            " | RequestedMaxLot=", DoubleToString(lot, 2),
+            " | FreeMargin=$", DoubleToString(AccountFreeMargin(), 2),
+            " | Equity=$", DoubleToString(AccountEquity(), 2),
+            " | Balance=$", DoubleToString(AccountBalance(), 2));
+      return(false);
+     }
+
    string commentText = InpSARSpecialGuardPrefix + IntegerToString(parentTicket);
 
    ResetLastError();
@@ -3318,10 +3421,20 @@ bool OpenSARSpecialGuardOrder(int direction, double lot, int parentTicket)
 //+------------------------------------------------------------------+
 void CheckSARSpecialGuardOrdersOnSARChange(int newSARDirection)
   {
-   if(!InpUseSARSpecialGuardOrder)
-      return;
+   // Latest rule: SAR signal condition is disabled by default.
+   // Guard is created from parent floating loss only.
+   CheckSARSpecialGuardOrdersByParentLoss();
+  }
 
-   if(newSARDirection == 0)
+
+//+------------------------------------------------------------------+
+//| Create SAR special guard only from parent floating loss           |
+//| No SAR-direction condition. BUY parent gets SELL guard.           |
+//| SELL parent gets BUY guard. One guard per parent ticket.          |
+//+------------------------------------------------------------------+
+void CheckSARSpecialGuardOrdersByParentLoss()
+  {
+   if(!InpUseSARSpecialGuardOrder)
       return;
 
    RefreshRates();
@@ -3337,25 +3450,45 @@ void CheckSARSpecialGuardOrdersOnSARChange(int newSARDirection)
       if(OrderType() != OP_BUY && OrderType() != OP_SELL)
          continue;
 
+      // A special guard order must never create another guard order.
       if(IsSARGuardOrderComment(OrderComment()))
          continue;
 
-      int parentDirection = (OrderType() == OP_BUY) ? 1 : -1;
-
-      // Guard only when SAR has changed against the parent order.
-      if(parentDirection == newSARDirection)
+      // Recovery gap orders are included in the LOSS calculation,
+      // but they are not used as separate parent tickets for special guards.
+      if(IsRecoveryGapOrderComment(OrderComment()))
          continue;
 
-      double parentProfit = OrderProfit() + OrderSwap() + OrderCommission();
-      if(parentProfit > -MathAbs(InpSARSpecialGuardLossUSD))
-         continue;
+      int parentType = OrderType();
+      int parentDirection = (parentType == OP_BUY) ? 1 : -1;
+      int guardDirection  = -parentDirection; // BUY parent -> SELL guard, SELL parent -> BUY guard
+
+      // Optional old behavior. Default false, because guard should protect loss even without SAR condition.
+      if(InpSARSpecialGuardRequireSARChange && g_activeSARDirection != 0)
+        {
+         if(parentDirection == g_activeSARDirection)
+            continue;
+        }
 
       int parentTicket = OrderTicket();
+      double parentProfit = OrderProfit() + OrderSwap() + OrderCommission();
+      double parentAndRecoveryProfit = GetParentAndRecoveryGapProfitForGuard(parentTicket, parentDirection);
+
+      // Trigger guard using parent + same-side RECOVERY_GAP basket loss.
+      // This solves the case where the parent alone has not reached the trigger,
+      // but parent + recovery gap together already crossed InpSARSpecialGuardLossUSD.
+      if(parentAndRecoveryProfit > -MathAbs(InpSARSpecialGuardLossUSD))
+         continue;
+
       double parentLots = OrderLots();
+      string parentSideText = (parentType == OP_BUY) ? "BUY_PARENT" : "SELL_PARENT";
 
       if(HasSARSpecialGuardOrderForParent(parentTicket))
         {
-         Print("SAR SPECIAL GUARD SKIPPED | Guard already exists | Parent=#", parentTicket);
+         Print("SAR SPECIAL GUARD SKIPPED | Guard already exists | ", parentSideText,
+               "=#", parentTicket,
+               " | ParentProfit=$", DoubleToString(parentProfit, 2),
+               " | Parent+Recovery=$", DoubleToString(parentAndRecoveryProfit, 2));
          continue;
         }
 
@@ -3364,14 +3497,24 @@ void CheckSARSpecialGuardOrdersOnSARChange(int newSARDirection)
         {
          Print("SAR SPECIAL GUARD BLOCKED | Max active guards reached ",
                activeGuardCount, "/", InpMaxSARSpecialGuardOrders,
-               " | Parent=#", parentTicket,
-               " | NewSAR=", DirectionText(newSARDirection));
+               " | ", parentSideText, "=#", parentTicket,
+               " | ParentProfit=$", DoubleToString(parentProfit, 2),
+               " | Parent+Recovery=$", DoubleToString(parentAndRecoveryProfit, 2));
          break;
         }
 
       double guardLots = parentLots * InpSARSpecialGuardLotMultiplier;
 
-      OpenSARSpecialGuardOrder(newSARDirection, guardLots, parentTicket);
+      Print("SAR SPECIAL GUARD TRIGGER | ", parentSideText,
+            "=#", parentTicket,
+            " | ParentDir=", DirectionText(parentDirection),
+            " | GuardDir=", DirectionText(guardDirection),
+            " | ParentProfit=$", DoubleToString(parentProfit, 2),
+            " | Parent+Recovery=$", DoubleToString(parentAndRecoveryProfit, 2),
+            " | Trigger=-$", DoubleToString(MathAbs(InpSARSpecialGuardLossUSD), 2),
+            " | RequestedMaxLot=", DoubleToString(guardLots, 2));
+
+      OpenSARSpecialGuardOrder(guardDirection, guardLots, parentTicket);
      }
   }
 
@@ -4688,6 +4831,7 @@ void OnTick()
    RefreshRates();
 
    ProcessSARSpecialGuardCleanup();
+   CheckSARSpecialGuardOrdersByParentLoss();
 
 // FIRST PRIORITY PROFIT BOOKING:
 // 1) Close ALL BUY+SELL open EA orders if combined profit >= InpBasketProfitUSD.
@@ -6886,6 +7030,134 @@ void DrawLeftSARSpecialGuardInfo()
      }
   }
 
+//+------------------------------------------------------------------+
+//| Left-side dashboard: important settings used before new orders    |
+//+------------------------------------------------------------------+
+void DrawLeftImportantOrderSettings(int direction)
+  {
+   LeftChecklistInfo("----- IMPORTANT ORDER SETTINGS -----", "", clrYellow);
+
+   LeftChecklistInfo("Lot / Slippage",
+                     "Lot " + DoubleToString(InpFixedLot, 2) +
+                     " | Slip " + IntegerToString(InpSlippage),
+                     clrWhite);
+
+   LeftChecklistInfo("Spread Limit",
+                     IntegerToString((int)MarketInfo(Symbol(), MODE_SPREAD)) +
+                     "/" + IntegerToString(InpMaxSpreadPoints) + " points",
+                     ((int)MarketInfo(Symbol(), MODE_SPREAD) <= InpMaxSpreadPoints) ? clrLime : clrOrangeRed);
+
+   LeftChecklistInfo("Normal Max Orders",
+                     "Dir " + IntegerToString(InpMaxOrders) +
+                     " | Cycle " + IntegerToString(g_sarCycleOrdersCreated) +
+                     "/" + IntegerToString(g_sarCycleMaxOrders) +
+                     " | Hard " + IntegerToString(DXB_HARD_MAX_OPEN_ORDERS),
+                     clrAqua);
+
+   LeftChecklistInfo("Total Order Cap",
+                     InpMaxTotalOpenOrders > 0 ?
+                     IntegerToString(CountAllOrders()) + "/" + IntegerToString(InpMaxTotalOpenOrders) :
+                     "OFF",
+                     InpMaxTotalOpenOrders > 0 ? clrAqua : clrSilver);
+
+   LeftChecklistInfo("SAR Confirm",
+                     "Diff " + DoubleToString(InpSARConfirmPriceDiff, 0) +
+                     " | Min " + IntegerToString(InpSARConfirmMinutes) +
+                     " | " + (InpUseSARFlipConfirmations ? "ON" : "OFF"),
+                     InpUseSARFlipConfirmations ? clrLime : clrSilver);
+
+   LeftChecklistInfo("SAR Side Filter",
+                     (InpUseSARSignalPriceSideFilter ? "ON" : "OFF") +
+                     " | Gap " + DoubleToString(InpSARSignalPriceSideMinGap, 0),
+                     InpUseSARSignalPriceSideFilter ? clrLime : clrSilver);
+
+   LeftChecklistInfo("Continuous Gap",
+                     (InpUseRepeatedPriceGapConfirm ? "ON" : "OFF") +
+                     " | Gap " + DoubleToString(InpContinuousOrderPriceGap, 0) +
+                     " | Wait " + IntegerToString(InpContinuousOrderGapMinutes) + "m",
+                     InpUseRepeatedPriceGapConfirm ? clrLime : clrSilver);
+
+   LeftChecklistInfo("Min Same-Dir Gap",
+                     "Min " + DoubleToString(GetEffectiveMinPriceGap(), 0) +
+                     " | MultiMaxGap " + DoubleToString(InpMinGapWhenMaxOrdersMoreThanOne, 0),
+                     GetEffectiveMinPriceGap() > 0.0 ? clrLime : clrSilver);
+
+   LeftChecklistInfo("Recovery Gap",
+                     (InpUseRecoveryGapOrders ? "ON" : "OFF") +
+                     " | Gap " + DoubleToString(InpRecoveryGapRawPrice, 0) +
+                     " | Lot " + DoubleToString(InpRecoveryGapLot, 2),
+                     InpUseRecoveryGapOrders ? clrLime : clrSilver);
+
+   LeftChecklistInfo("Recovery Count B/S",
+                     IntegerToString(CountRecoveryGapOrdersByDirection(1)) + "/" +
+                     IntegerToString(CountRecoveryGapOrdersByDirection(-1)) +
+                     " Max " + IntegerToString(InpMaxRecoveryGapOrdersPerSide) + "/side",
+                     clrAqua);
+
+   LeftChecklistInfo("Recovery SAR Match",
+                     InpRecoveryGapMustMatchSARDirection ? "YES" : "NO",
+                     InpRecoveryGapMustMatchSARDirection ? clrLime : clrOrange);
+
+   LeftChecklistInfo("Recovery Pending",
+                     g_pendingRecoveryGapDirection == 0 ? "NONE" :
+                     DirectionText(g_pendingRecoveryGapDirection) +
+                     " Gap " + DoubleToString(g_pendingRecoveryGapMove, 0) +
+                     " Req " + DoubleToString(g_pendingRecoveryRequiredGap, 0),
+                     g_pendingRecoveryGapDirection == 0 ? clrSilver : clrYellow);
+
+   LeftChecklistInfo("Special Guard",
+                     (InpUseSARSpecialGuardOrder ? "ON" : "OFF") +
+                     " | Active " + IntegerToString(CountSARSpecialGuardOrders()) +
+                     "/" + IntegerToString(InpMaxSARSpecialGuardOrders),
+                     InpUseSARSpecialGuardOrder ? clrLime : clrSilver);
+
+   LeftChecklistInfo("Guard Trigger/Lot",
+                     "Loss -$" + DoubleToString(InpSARSpecialGuardLossUSD, 2) +
+                     " | Mult x" + DoubleToString(InpSARSpecialGuardLotMultiplier, 2),
+                     clrAqua);
+
+   LeftChecklistInfo("Guard SAR Condition",
+                     InpSARSpecialGuardRequireSARChange ? "SAR OPPOSITE REQUIRED" : "DISABLED - LOSS ONLY",
+                     InpSARSpecialGuardRequireSARChange ? clrYellow : clrLime);
+
+   LeftChecklistInfo("Guard Rules",
+                     "Close with parent | No recovery base",
+                     clrYellow);
+
+   LeftChecklistInfo("Basket TP / SL",
+                     "$" + DoubleToString(GetBasketProfitTargetUSD(), 2) +
+                     " / $" + DoubleToString(InpBasketStopLossUSD, 2),
+                     clrWhite);
+
+   LeftChecklistInfo("Profit Protect",
+                     (InpUseIndividualProfitProtect ? "Ind ON" : "Ind OFF") +
+                     " | " + (InpUseBasketProfitProtect ? "Basket ON" : "Basket OFF"),
+                     (InpUseIndividualProfitProtect || InpUseBasketProfitProtect) ? clrLime : clrSilver);
+
+   LeftChecklistInfo("Big Candle Block",
+                     (InpUseBigCandlePause ? "ON" : "OFF") +
+                     " | " + DoubleToString(InpBigCandleRawDifference, 0) +
+                     " | Pause " + IntegerToString(InpBigCandlePauseMinutes) + "m",
+                     InpUseBigCandlePause ? clrLime : clrSilver);
+
+   LeftChecklistInfo("Last3 Move Block",
+                     (InpUseLast3CandlesMovePause ? "ON" : "OFF") +
+                     " | " + DoubleToString(InpLast3CandlesRawDifference, 0) +
+                     " | Pause " + IntegerToString(InpLast3CandlesPauseMinutes) + "m",
+                     InpUseLast3CandlesMovePause ? clrLime : clrSilver);
+
+   LeftChecklistInfo("Late SAR Block",
+                     (InpUseLateSARCycleEntryBlock ? "ON" : "OFF") +
+                     " | Age " + IntegerToString(InpLateSARMinAgeMinutes) + "m" +
+                     " | Weak<=" + IntegerToString(InpLateSARMaxWeakScore),
+                     InpUseLateSARCycleEntryBlock ? clrLime : clrSilver);
+
+   LeftChecklistInfo("No-New Hours",
+                     InpUseNoNewOrderHours ? InpNoNewOrderHourList : "OFF",
+                     InpUseNoNewOrderHours ? clrAqua : clrSilver);
+  }
+
+
 bool CheckListTradingAllowed()
   {
    if(!IsTradeAllowed())
@@ -7071,7 +7343,7 @@ void DrawLeftOrderCreationChecklist(string mainStatus)
                 okProfitPause && okBigCandle && okSARConfirm && okH1 && okCycle &&
                 okMaxOpen && okTotalOpen && okMinGap && okSARSide && okLateSAR && okRepeatedGap;
 
-   DrawLeftPanel("DXB_LEFT_CHK_PANEL",5,15,620,650,clrBlack);
+   DrawLeftPanel("DXB_LEFT_CHK_PANEL",5,15,400,930,clrBlack);
    DrawLeftLabel("DXB_LEFT_CHK_TITLE","ORDER CREATION CHECKLIST",10,18,clrYellow,10);
 
    g_leftDashRow = 0;
@@ -7100,6 +7372,7 @@ void DrawLeftOrderCreationChecklist(string mainStatus)
    LeftChecklistRow("Late SAR Entry", YesNo(okLateSAR), okLateSAR, LateSARCycleEntryStatusText(direction));
    LeftChecklistRow("Repeated Gap", YesNo(okRepeatedGap), okRepeatedGap, CheckListRepeatedGapText(direction));
 
+   DrawLeftImportantOrderSettings(direction);
    DrawLeftSARSpecialGuardInfo();
   }
 
@@ -7159,7 +7432,7 @@ void DashRow(string title,string value,color clrText=clrWhite)
    DrawLabel(
       "DXB_ROW_"+IntegerToString(g_dashRow),
       title+" : "+value,
-      350,
+      380,
       20+(g_dashRow*18),
       clrText,
       9
@@ -7212,16 +7485,16 @@ void DrawDashboard(string status)
   {
    DrawPanel(
       "DXB_PANEL",
-      350,
+      380,
       20,
-      350,
-      680,
+      380,
+      760,
       clrBlack
    );
 
    g_dashRow=0;
 
-   DashRow("V5 SAR GUARD",status,clrYellow);
+   DashRow("V6 SAR GUARD DASH",status,clrYellow);
 
    Print("DASHBOARD UPDATE | Status=", status,
          " | SAR=", DirectionText(g_activeSARDirection),
@@ -7396,6 +7669,39 @@ void DrawDashboard(string status)
    DashRow("Recovery Block",
            "OppGap " + DoubleToString(InpStrongOppMoveBlockRecoveryGap,0),
            clrYellow);
+
+   int dashboardGuardCount = CountSARSpecialGuardOrders();
+   double dashboardGuardProfit = GetSARSpecialGuardTotalProfit();
+   int dashboardNormalCount = CountAllOrders();
+   int dashboardTotalEAOrders = dashboardNormalCount + dashboardGuardCount;
+
+   DashRow("Special Guard",
+           (InpUseSARSpecialGuardOrder ? "ON " : "OFF ") +
+           IntegerToString(dashboardGuardCount) + "/" + IntegerToString(InpMaxSARSpecialGuardOrders),
+           !InpUseSARSpecialGuardOrder ? clrRed : (dashboardGuardCount > 0 ? clrYellow : clrLime));
+
+   DashRow("Guard Profit",
+           "$" + DoubleToString(dashboardGuardProfit, 2),
+           dashboardGuardProfit >= 0.0 ? clrLime : clrRed);
+
+   DashRow("Guard Trigger",
+           "Loss >= $" + DoubleToString(InpSARSpecialGuardLossUSD, 2) +
+           " | Lot x" + DoubleToString(InpSARSpecialGuardLotMultiplier, 1),
+           clrAqua);
+
+   DashRow("Guard Close Rule",
+           "ONLY WHEN PARENT CLOSES",
+           clrYellow);
+
+   DashRow("Recovery vs Guard",
+           "NO recovery gap for special",
+           clrLime);
+
+   DashRow("EA Orders N/G/T",
+           IntegerToString(dashboardNormalCount) + "/" +
+           IntegerToString(dashboardGuardCount) + "/" +
+           IntegerToString(dashboardTotalEAOrders),
+           dashboardGuardCount > 0 ? clrYellow : clrWhite);
 
 // DashRow("Recovery TP",
 //         "$"+DoubleToString(InpRecoveryProfitUSD,2),
