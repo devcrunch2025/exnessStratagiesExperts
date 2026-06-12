@@ -24,7 +24,7 @@ double InpMinGapWhenMaxOrdersMoreThanOne = 100.0; // when InpMaxOrders > 1, enfo
 double InpBasketProfitUSD         = 1.00;
 double InpBasketStopLossUSD       = 10.00;    // BASKET stop loss in USD, 0 = disabled. This closes all orders in active SAR direction.
 
-double InpProfitTargetPercent      = 50.0;   // stop trading when equity reaches Base + 100%
+double InpProfitTargetPercent      = 50.0;//if $10 means $15   // stop trading when equity reaches Base + 100%
 double InpLossStopPercent          = 50.0;   // stop trading when equity reaches Base - 50%
 
 // Virtual profit vault / keep-profit-aside mode:
@@ -35,6 +35,8 @@ double InpLossStopPercent          = 50.0;   // stop trading when equity reaches
 bool   InpUseVirtualProfitVault       = true;
 double InpVirtualTradingCapitalUSD    = 10.00;
 bool   InpVirtualVaultContinueTrading = true;  // true = do not pause after profit target; reset to $10 and continue
+bool   InpPauseTradingWhenVirtualCapitalGone = true;  // if active virtual equity <= 0, close EA orders and pause until EA restart
+bool   InpCloseOrdersWhenVirtualCapitalGone  = true;  // close parent/recovery/normal orders when virtual $10 is exhausted
 
 double InpBasketProfitUSD_12_17 = 1.00; // profit target during 12,13,14,15,16,17 hours
 
@@ -187,7 +189,7 @@ double InpMinPriceGap             = 0.00;    // raw price gap, 0 = disabled
 
 // No-trading hours: block NEW normal SAR orders only. Close/profit/protection/recovery management still runs.
 bool   InpUseNoNewOrderHours      = true;
-string InpNoNewOrderHourList      = "0,23";//"13,14,15,16,17,18"; // server-time hours to block new orders
+string InpNoNewOrderHourList      = "";//"0,23";//"13,14,15,16,17,18"; // server-time hours to block new orders
 
 
 //profit booking hours are 4,5,6,7,8
@@ -489,6 +491,8 @@ double   g_lockedProfitToday    = 0.0;
 double   g_virtualProfitVault   = 0.0;   // profit kept aside virtually; EA excludes this from active trading equity
 double   g_lastVaultLockProfit  = 0.0;   // last profit amount moved into virtual vault
 datetime g_lastVaultLockTime    = 0;
+bool     g_virtualCapitalPaused = false; // runtime-only pause. Resets when EA restarts/reloads.
+string   g_virtualCapitalPauseReason = "";
 bool     g_dailyProfitLock      = false;
 bool     g_equityProtectionHit  = false;
 datetime g_lastEquityStatsResetTime = 0;
@@ -849,6 +853,73 @@ double GetActiveTradingEquity()
   }
 
 //+------------------------------------------------------------------+
+bool IsVirtualTradingCapitalAvailableForNewOrder(string source)
+  {
+   if(!InpUseVirtualProfitVault || !InpPauseTradingWhenVirtualCapitalGone)
+      return(true);
+
+   double activeEquity = GetActiveTradingEquity();
+
+   if(g_virtualCapitalPaused)
+     {
+      Print("VIRTUAL CAPITAL PAUSED | New order blocked | Source=", source,
+            " | ActiveEq=$", DoubleToString(activeEquity, 2),
+            " | Vault=$", DoubleToString(g_virtualProfitVault, 2),
+            " | RealEquity=$", DoubleToString(AccountEquity(), 2),
+            " | Reason=", g_virtualCapitalPauseReason);
+      return(false);
+     }
+
+   if(activeEquity <= 0.0)
+     {
+      g_virtualCapitalPaused = true;
+      g_virtualCapitalPauseReason =
+         "Virtual trading capital exhausted | ActiveEq=$" + DoubleToString(activeEquity, 2) +
+         " | Vault=$" + DoubleToString(g_virtualProfitVault, 2) +
+         " | RealEquity=$" + DoubleToString(AccountEquity(), 2);
+
+      Print("VIRTUAL CAPITAL PAUSE ACTIVATED | New order blocked | Source=", source,
+            " | ", g_virtualCapitalPauseReason,
+            " | EA restart/reload resets this runtime pause.");
+      return(false);
+     }
+
+   return(true);
+  }
+
+//+------------------------------------------------------------------+
+bool CheckVirtualTradingCapitalStop()
+  {
+   if(!InpUseVirtualProfitVault || !InpPauseTradingWhenVirtualCapitalGone)
+      return(false);
+
+   double activeEquity = GetActiveTradingEquity();
+
+   if(g_virtualCapitalPaused)
+      return(true);
+
+   if(activeEquity <= 0.0)
+     {
+      g_virtualCapitalPaused = true;
+      g_virtualCapitalPauseReason =
+         "Virtual trading capital exhausted | ActiveEq=$" + DoubleToString(activeEquity, 2) +
+         " | Vault=$" + DoubleToString(g_virtualProfitVault, 2) +
+         " | RealEquity=$" + DoubleToString(AccountEquity(), 2);
+
+      Print("VIRTUAL CAPITAL STOP HIT | ", g_virtualCapitalPauseReason,
+            " | CloseOrders=", InpCloseOrdersWhenVirtualCapitalGone ? "YES" : "NO",
+            " | EA restart/reload resets this runtime pause.");
+
+      if(InpCloseOrdersWhenVirtualCapitalGone && CountAllOrders() > 0)
+         CloseAllEAOrders("Virtual trading capital exhausted - pause until EA restart");
+
+      return(true);
+     }
+
+   return(false);
+  }
+
+//+------------------------------------------------------------------+
 void ResetVirtualTradingCapitalAfterProfit(double lockedProfit)
   {
    if(!InpUseVirtualProfitVault)
@@ -872,6 +943,8 @@ void ResetVirtualTradingCapitalAfterProfit(double lockedProfit)
    g_notifyEquityStopSent = false;
    g_lastEquityStatsResetTime = TimeCurrent();
    g_globalEquityPeak = GetActiveTradingEquity();
+   g_virtualCapitalPaused = false;
+   g_virtualCapitalPauseReason = "";
 
    if(InpResetTradingCycleWithEquity)
       ResetTradingCycleState();
@@ -1375,6 +1448,9 @@ bool CheckEquityConditions()
    ResetEquityDayIfNewDay();
 
    double activeEquityForVault = GetActiveTradingEquity();
+
+   if(CheckVirtualTradingCapitalStop())
+      return(true);
 
    if(CheckGlobalEquityTrailLock())
       return(true);
@@ -2770,6 +2846,12 @@ bool OpenRecoveryGapMarketOrder(int direction, double gapMove)
    if(direction == 0)
       return(false);
 
+   if(!IsVirtualTradingCapitalAvailableForNewOrder("OpenRecoveryGapMarketOrder"))
+     {
+      Print("RECOVERY GAP BLOCKED | Virtual trading capital exhausted / paused until EA restart | Direction=", DirectionText(direction));
+      return(false);
+     }
+
    if(InpRecoveryGapMustMatchSARDirection && direction != g_activeSARDirection)
      {
       Print("RECOVERY GAP BLOCKED | SAR direction mismatch | RecoveryDir=",
@@ -3570,6 +3652,14 @@ bool OpenSARSpecialGuardOrder(int direction, double lot, int parentTicket)
   {
    if(direction == 0 || parentTicket <= 0)
       return(false);
+
+   if(!IsVirtualTradingCapitalAvailableForNewOrder("OpenSARSpecialGuardOrder"))
+     {
+      Print("SAR SPECIAL GUARD BLOCKED | Virtual trading capital exhausted / paused until EA restart",
+            " | Parent=#", parentTicket,
+            " | Direction=", DirectionText(direction));
+      return(false);
+     }
 
    // IMPORTANT RULE:
    // SAR_SPECIAL_GUARD_ORDER_FOR_ must NOT be blocked by normal EA filters.
@@ -5050,6 +5140,14 @@ void OnTick()
    RefreshRates();
 
    ProcessSARSpecialGuardCleanup();
+   if(CheckVirtualTradingCapitalStop())
+     {
+      ProcessSARSpecialGuardCleanup();
+      DrawLeftOrderCreationChecklist("VIRTUAL CAPITAL PAUSED - EA RESTART REQUIRED");
+      DrawDashboard("VIRTUAL CAPITAL PAUSED - EA RESTART REQUIRED");
+      return;
+     }
+
    CheckSARSpecialGuardOrdersByParentLoss();
 
 // FIRST PRIORITY PROFIT BOOKING:
@@ -6542,6 +6640,9 @@ bool OpenMarketOrder(int direction, string reason)
 
    RefreshRates();
 
+   if(!IsVirtualTradingCapitalAvailableForNewOrder("OpenMarketOrder " + reason))
+      return BlockOrder("Virtual trading capital exhausted / paused until EA restart | Source=" + reason);
+
    if(EnforceBigCandleOrderBlock("OpenMarketOrder " + reason))
      {
       string msgBig = "Big candle/spike pause active | " + BigCandlePauseStatusText() + " | Source=" + reason;
@@ -7744,6 +7845,10 @@ void DrawDashboard(string status)
            "$" + DoubleToString(dashActiveEquity,2) +
            " | P/L $" + DoubleToString(dashActivePL,2),
            dashActivePL >= 0.0 ? clrLime : clrRed);
+
+   DashRow("Virtual Cap",
+           g_virtualCapitalPaused ? "PAUSED - RESTART EA" : "OK",
+           g_virtualCapitalPaused ? clrRed : clrLime);
 
    DashRow("Float P/L",
            "$" + DoubleToString(dashFloatingPL,2),
