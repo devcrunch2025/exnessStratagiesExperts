@@ -13,7 +13,7 @@
 #property version   "1.09"
 
 //======================== INPUTS ====================================
-string InpEAName                  = "DXB Version 5 - Special Guard + Vault";
+string InpEAName                  = "DXB Version 5 - Specila Order";
 int    InpMagicNumber             = 989899;
 double InpFixedLot                = 0.01;
 int    InpMaxOrders               = 1;     // maximum normal SAR orders per SAR signal cycle
@@ -24,21 +24,8 @@ double InpMinGapWhenMaxOrdersMoreThanOne = 100.0; // when InpMaxOrders > 1, enfo
 double InpBasketProfitUSD         = 1.00;
 double InpBasketStopLossUSD       = 10.00;    // BASKET stop loss in USD, 0 = disabled. This closes all orders in active SAR direction.
 
-double InpProfitTargetPercent      = 500;//$50.0;//if $10 means $15   // stop trading when equity reaches Base + 100%
+double InpProfitTargetPercent      = 50.0;   // stop trading when equity reaches Base + 100%
 double InpLossStopPercent          = 50.0;   // stop trading when equity reaches Base - 50%
-
-// Virtual profit vault / keep-profit-aside mode:
-// Example: Trading capital = $10, ProfitTargetPercent = 50 => target profit = $5.
-// When active trading equity reaches $15, EA closes orders, moves profit into virtual vault,
-// resets active trading capital back to $10, and continues trading.
-// MT4 cannot physically withdraw money; this only excludes locked profit from EA risk/profit calculations.
-bool   InpUseVirtualProfitVault       = false;
-double InpVirtualTradingCapitalUSD    = 100.00;
-bool   InpVirtualVaultContinueTrading = true;  // true = do not pause after profit target; reset to $10 and continue
-bool   InpPauseTradingWhenVirtualCapitalGone = true;  // if active virtual equity <= 0, close EA orders and pause until EA restart
-bool   InpCloseOrdersWhenVirtualCapitalGone  = true;  // close parent/recovery/normal orders when virtual $10 is exhausted
-bool   InpResetAllRuntimeValuesOnNewDay      = true;  // new server day works like fresh EA restart: vault, pause, SAR cycle, peaks, counters reset
-bool   InpAlwaysStartDayWithVirtualCapital = true; // true: every EA start/new day keeps only InpVirtualTradingCapitalUSD active; extra equity is moved to virtual vault
 
 double InpBasketProfitUSD_12_17 = 1.00; // profit target during 12,13,14,15,16,17 hours
 
@@ -191,7 +178,7 @@ double InpMinPriceGap             = 0.00;    // raw price gap, 0 = disabled
 
 // No-trading hours: block NEW normal SAR orders only. Close/profit/protection/recovery management still runs.
 bool   InpUseNoNewOrderHours      = true;
-string InpNoNewOrderHourList      = "";//"0,23";//"13,14,15,16,17,18"; // server-time hours to block new orders
+string InpNoNewOrderHourList      = "0,23";//"13,14,15,16,17,18"; // server-time hours to block new orders
 
 
 //profit booking hours are 4,5,6,7,8
@@ -490,11 +477,6 @@ double   g_lossStopEquityLevel = 0.0;  // base balance - 50% loss
 double   g_profitTargetEquity  = 0.0;  // base balance + 50% profit
 double   g_dailyProfitTarget   = 0.0;  // dollar profit target from base
 double   g_lockedProfitToday    = 0.0;
-double   g_virtualProfitVault   = 0.0;   // profit kept aside virtually; EA excludes this from active trading equity
-double   g_lastVaultLockProfit  = 0.0;   // last profit amount moved into virtual vault
-datetime g_lastVaultLockTime    = 0;
-bool     g_virtualCapitalPaused = false; // runtime-only pause. Resets when EA restarts/reloads.
-string   g_virtualCapitalPauseReason = "";
 bool     g_dailyProfitLock      = false;
 bool     g_equityProtectionHit  = false;
 datetime g_lastEquityStatsResetTime = 0;
@@ -782,19 +764,19 @@ double GetBasketProfitTargetUSD()
 int OnInit()
   {
 
-InpVirtualTradingCapitalUSD =AccountBalance();
+
    
   
-//   if(IsTesting())
-// {
-//    InpProfitTargetPercent = 2000.0;
-// }
+  if(IsTesting())
+{
+   InpProfitTargetPercent = 2000.0;
+}
 
-// if(AccountNumber()==291085426)
-// {
-//     InpProfitTargetPercent = 2000.0;
+if(AccountNumber()==291085426)
+{
+    InpProfitTargetPercent = 2000.0;
 
-// }
+}
 
 
 
@@ -827,298 +809,33 @@ void OnDeinit(const int reason)
    Comment("");
   }
 //+------------------------------------------------------------------+
-void RecalculateEquityLevels()
-  {
-   double activeBase = g_baseBalance;
-   if(activeBase <= 0.0)
-      activeBase = InpUseVirtualProfitVault ? InpVirtualTradingCapitalUSD : AccountBalance();
-
-   g_dailyProfitTarget = activeBase * InpProfitTargetPercent / 100.0;
-   g_profitTargetEquity = activeBase + g_dailyProfitTarget;
-   g_lossStopEquityLevel =
-      activeBase - (activeBase * InpLossStopPercent / 100.0) - InpProtectionBufferUSD;
-
-   if(g_lossStopEquityLevel < 0.0)
-      g_lossStopEquityLevel = 0.0;
-  }
-
-//+------------------------------------------------------------------+
-double GetActiveTradingEquity()
-  {
-   if(!InpUseVirtualProfitVault)
-      return(AccountEquity());
-
-   // Active equity = real account equity minus profit that is virtually kept aside.
-   // Example real equity $23, vault $13 => active trading equity $10.
-   double activeEquity = AccountEquity() - g_virtualProfitVault;
-   return(activeEquity);
-  }
-
-//+------------------------------------------------------------------+
-bool IsVirtualTradingCapitalAvailableForNewOrder(string source)
-  {
-   if(!InpUseVirtualProfitVault || !InpPauseTradingWhenVirtualCapitalGone)
-      return(true);
-
-   double activeEquity = GetActiveTradingEquity();
-
-   if(g_virtualCapitalPaused)
-     {
-      Print("VIRTUAL PAUSED | New order blocked | Source=", source,
-            " | ActiveEq=$", DoubleToString(activeEquity, 2),
-            " | Vault=$", DoubleToString(g_virtualProfitVault, 2),
-            " | RealEquity=$", DoubleToString(AccountEquity(), 2),
-            " | Reason=", g_virtualCapitalPauseReason);
-      return(false);
-     }
-
-   if(activeEquity <= 0.0)
-     {
-      g_virtualCapitalPaused = true;
-      g_virtualCapitalPauseReason =
-         "Virtual trading capital exhausted | ActiveEq=$" + DoubleToString(activeEquity, 2) +
-         " | Vault=$" + DoubleToString(g_virtualProfitVault, 2) +
-         " | RealEquity=$" + DoubleToString(AccountEquity(), 2);
-
-      Print("VIRTUAL CAPITAL PAUSE ACTIVATED | New order blocked | Source=", source,
-            " | ", g_virtualCapitalPauseReason,
-            " | EA restart/reload resets this runtime pause.");
-      return(false);
-     }
-
-   return(true);
-  }
-
-//+------------------------------------------------------------------+
-bool CheckVirtualTradingCapitalStop()
-  {
-   if(!InpUseVirtualProfitVault || !InpPauseTradingWhenVirtualCapitalGone)
-      return(false);
-
-   double activeEquity = GetActiveTradingEquity();
-
-   if(g_virtualCapitalPaused)
-      return(true);
-
-   if(activeEquity <= 0.0)
-     {
-      g_virtualCapitalPaused = true;
-      g_virtualCapitalPauseReason =
-         "Virtual trading capital exhausted | ActiveEq=$" + DoubleToString(activeEquity, 2) +
-         " | Vault=$" + DoubleToString(g_virtualProfitVault, 2) +
-         " | RealEquity=$" + DoubleToString(AccountEquity(), 2);
-
-      Print("VIRTUAL CAPITAL STOP HIT | ", g_virtualCapitalPauseReason,
-            " | CloseOrders=", InpCloseOrdersWhenVirtualCapitalGone ? "YES" : "NO",
-            " | EA restart/reload resets this runtime pause.");
-
-      if(InpCloseOrdersWhenVirtualCapitalGone && CountAllOrders() > 0)
-         CloseAllEAOrders("Virtual trading capital exhausted - pause until EA restart");
-
-      return(true);
-     }
-
-   return(false);
-  }
-
-//+------------------------------------------------------------------+
-//| New day full runtime reset - same behaviour as EA restart         |
-//+------------------------------------------------------------------+
-void ResetAllRuntimeValuesLikeEAStartOnNewDay(string reason)
-  {
-   Print("NEW DAY FULL RESET START | ", reason,
-         " | OldVault=$", DoubleToString(g_virtualProfitVault, 2),
-         " | OldActiveEq=$", DoubleToString(GetActiveTradingEquity(), 2),
-         " | RealEquity=$", DoubleToString(AccountEquity(), 2));
-
-   // Virtual vault / active capital state resets exactly like EA reload.
-   g_baseBalance          = 0.0;
-   g_lossStopEquityLevel  = 0.0;
-   g_profitTargetEquity   = 0.0;
-   g_dailyProfitTarget    = 0.0;
-   g_lockedProfitToday    = 0.0;
-   g_virtualProfitVault   = 0.0;
-   g_lastVaultLockProfit  = 0.0;
-   g_lastVaultLockTime    = 0;
-   g_virtualCapitalPaused = false;
-   g_virtualCapitalPauseReason = "";
-
-   // Equity/profit lock state.
-   g_dailyProfitLock      = false;
-   g_equityProtectionHit  = false;
-   g_notifyProfitLockSent = false;
-   g_notifyEquityStopSent = false;
-   g_globalEquityPeak     = 0.0;
-   g_globalEquityTrailPauseUntil = 0;
-   g_globalEquityTrailLocked = false;
-   g_globalEquityTrailStatus = "OFF";
-   g_profitProtectPauseUntil = 0;
-
-   // Basket/profit-protect memory.
-   g_activeBasketPeakProfit = 0.0;
-   g_allBasketPeakProfit    = 0.0;
-   g_buyBasketPeakProfit    = 0.0;
-   g_sellBasketPeakProfit   = 0.0;
-   g_profitProtectCount     = 0;
-   for(int i = 0; i < 500; i++)
-     {
-      g_profitProtectTickets[i] = 0;
-      g_profitProtectPeakProfit[i] = 0.0;
-     }
-
-   // SAR history/quality memory.
-   for(int s = 0; s < 5; s++)
-     {
-      g_sarChangeTimes[s] = 0;
-      g_sarChangeDirections[s] = 0;
-      g_sarChangeDurationsSeconds[s] = 0;
-     }
-   g_sarGoodMomentum = false;
-   g_sarGoodMomentumDotDistance = 0.0;
-   g_sarGoodMomentumADX = 0.0;
-   g_sarGoodMomentumATR = 0.0;
-   g_dynamicSARScore = 0;
-   g_dynamicSARDecision = "WAIT";
-   g_dynamicSARRequiredDiff = 0.0;
-   g_dynamicSARDotDistance = 0.0;
-   g_dynamicSARATR = 0.0;
-   g_dynamicSARADX = 0.0;
-   g_dynamicSARLongBarMove = 0.0;
-
-   // Early/SAR weak state.
-   g_earlySARWeakExitActive = false;
-   g_earlySARWeakExitReason = "";
-   g_lastEarlySARWeakExitTime = 0;
-   g_lastEarlySARWeakExitDirection = 0;
-   g_lastEarlySameSAROrderBarTime = 0;
-
-   // Deposit watch should behave like current EA session after new day reset.
-   InitializeLastDepositBalanceOpTime();
-
-   // Reset order/SAR/pending/big-candle state.
-   ResetTradingCycleState();
-
-   // New day cycle starts fresh like EA restart.
-   g_equityCycleNumber = 1;
-
-   Print("NEW DAY FULL RESET DONE | Vault=$", DoubleToString(g_virtualProfitVault, 2),
-         " | Base will be recalculated by InitializeEquityDay().");
-  }
-
-//+------------------------------------------------------------------+
-void ResetVirtualTradingCapitalAfterProfit(double lockedProfit)
-  {
-   if(!InpUseVirtualProfitVault)
-      return;
-
-   if(lockedProfit <= 0.0)
-      return;
-
-   g_virtualProfitVault += lockedProfit;
-   g_lastVaultLockProfit = lockedProfit;
-   g_lastVaultLockTime   = TimeCurrent();
-
-   // Start next cycle again with fixed trading capital only.
-   g_baseBalance = MathMax(0.01, InpVirtualTradingCapitalUSD);
-
-   // Safety sync: after closing profit orders, keep only fixed capital active.
-   // This prevents accumulated account balance from becoming tradable capital.
-   if(InpAlwaysStartDayWithVirtualCapital)
-     {
-      double syncedVault = AccountEquity() - g_baseBalance;
-      if(syncedVault < 0.0)
-         syncedVault = 0.0;
-      if(syncedVault > g_virtualProfitVault)
-         g_virtualProfitVault = syncedVault;
-     }
-
-   RecalculateEquityLevels();
-
-   g_lockedProfitToday    = 0.0;
-   g_dailyProfitLock      = false;
-   g_equityProtectionHit  = false;
-   g_notifyProfitLockSent = false;
-   g_notifyEquityStopSent = false;
-   g_lastEquityStatsResetTime = TimeCurrent();
-   g_globalEquityPeak = GetActiveTradingEquity();
-   g_virtualCapitalPaused = false;
-   g_virtualCapitalPauseReason = "";
-
-   if(InpResetTradingCycleWithEquity)
-      ResetTradingCycleState();
-
-   Print("VIRTUAL PROFIT VAULT LOCKED | LockedNow=$", DoubleToString(lockedProfit,2),
-         " | VaultTotal=$", DoubleToString(g_virtualProfitVault,2),
-         " | RealEquity=$", DoubleToString(AccountEquity(),2),
-         " | ActiveTradingEquity=$", DoubleToString(GetActiveTradingEquity(),2),
-         " | NextBase=$", DoubleToString(g_baseBalance,2),
-         " | NextTarget=$", DoubleToString(g_dailyProfitTarget,2));
-  }
-
-//+------------------------------------------------------------------+
-//| Keep only configured trading capital active; move extra to vault  |
-//+------------------------------------------------------------------+
-void SyncVirtualVaultToFixedTradingCapital(string reason)
-  {
-   if(!InpUseVirtualProfitVault)
-      return;
-
-   if(!InpAlwaysStartDayWithVirtualCapital)
-      return;
-
-   double fixedCapital = MathMax(0.01, InpVirtualTradingCapitalUSD);
-
-   // Always start with fixed trading capital only.
-   // Example: Real equity $250, fixed capital $10 => virtual vault $240.
-   g_baseBalance = fixedCapital;
-
-   double newVault = AccountEquity() - fixedCapital;
-   if(newVault < 0.0)
-      newVault = 0.0;
-
-   g_virtualProfitVault = newVault;
-
-   // If account equity is below fixed capital, active equity will be real equity.
-   // If account equity is above fixed capital, active equity becomes fixed capital.
-   g_virtualCapitalPaused = false;
-   g_virtualCapitalPauseReason = "";
-
-   Print("VIRTUAL VAULT SYNC | ", reason,
-         " | FixedCapital=$", DoubleToString(fixedCapital, 2),
-         " | RealEquity=$", DoubleToString(AccountEquity(), 2),
-         " | Vault=$", DoubleToString(g_virtualProfitVault, 2),
-         " | ActiveEquity=$", DoubleToString(GetActiveTradingEquity(), 2));
-  }
-
-//+------------------------------------------------------------------+
 void InitializeEquityDay()
   {
    g_equityDay       = TimeDay(TimeCurrent());
    g_dayStartBalance = AccountBalance();
    g_dayStartEquity  = AccountEquity();
 
-// Virtual vault mode always keeps the trading base fixed at configured capital.
-// Example: Account equity $250 and InpVirtualTradingCapitalUSD=$10:
-// Base=$10, Vault=$240, ActiveTradingEquity=$10.
-   if(InpUseVirtualProfitVault)
-     {
-      g_baseBalance = MathMax(0.01, InpVirtualTradingCapitalUSD);
-
-      if(InpAlwaysStartDayWithVirtualCapital)
-         SyncVirtualVaultToFixedTradingCapital("INIT/NEW DAY");
-     }
+// Fully automated: every cycle base is always taken from live AccountBalance().
+// Example: if AccountBalance() is $20 at reset, target=$30 and loss-stop=$10.
+   if(InpAutoUseCurrentBalanceBase)
+      g_baseBalance = g_dayStartBalance;
    else
-     {
-      if(InpAutoUseCurrentBalanceBase)
-         g_baseBalance = g_dayStartBalance;
-      else
-         g_baseBalance = InpManualBaseCapitalUSD;
+      g_baseBalance = InpManualBaseCapitalUSD;
 
-      if(g_baseBalance <= 0.0)
-         g_baseBalance = AccountBalance();
-     }
+   if(g_baseBalance <= 0.0)
+      g_baseBalance = AccountBalance();
 
-   RecalculateEquityLevels();
+   g_dailyProfitTarget =
+      g_baseBalance * InpProfitTargetPercent / 100.0;
+
+   g_profitTargetEquity =
+      g_baseBalance + g_dailyProfitTarget;
+
+   g_lossStopEquityLevel =
+      g_baseBalance - (g_baseBalance * InpLossStopPercent / 100.0) - InpProtectionBufferUSD;
+
+   if(g_lossStopEquityLevel < 0.0)
+      g_lossStopEquityLevel = 0.0;
 
    g_lockedProfitToday    = 0.0;
    g_dailyProfitLock      = false;
@@ -1136,8 +853,6 @@ void InitializeEquityDay()
          " | StartBalance=$", DoubleToString(g_dayStartBalance,2),
          " | StartEquity=$", DoubleToString(g_dayStartEquity,2),
          " | Base=$", DoubleToString(g_baseBalance,2),
-         " | ActiveEquity=$", DoubleToString(GetActiveTradingEquity(),2),
-         " | Vault=$", DoubleToString(g_virtualProfitVault,2),
          " | LossStopEquity=$", DoubleToString(g_lossStopEquityLevel,2),
          " | ProfitTargetEquity=$", DoubleToString(g_profitTargetEquity,2),
          " | TargetProfit=$", DoubleToString(g_dailyProfitTarget,2));
@@ -1295,19 +1010,10 @@ void ResetEquityDayIfNewDay()
 
    if(resetNow)
      {
-      if(resetReason == "NEW DAY" && InpResetAllRuntimeValuesOnNewDay)
-        {
-         ResetAllRuntimeValuesLikeEAStartOnNewDay(resetReason);
-        }
-      else
-        {
-         g_equityCycleNumber++;
-        }
-
+      g_equityCycleNumber++;
       InitializeEquityDay();
 
-      Print(resetReason, " | Equity statistics reset from AccountBalance(). Trading enabled. Hours=", InpEquityResetHourList,
-            " | FullNewDayReset=", (resetReason == "NEW DAY" && InpResetAllRuntimeValuesOnNewDay) ? "YES" : "NO");
+      Print(resetReason, " | Equity statistics reset from AccountBalance(). Trading enabled. Hours=", InpEquityResetHourList);
 
       if(InpNotifyOnEquityRestart)
         {
@@ -1451,7 +1157,7 @@ bool CheckDepositAndResetEquityStats()
 //+------------------------------------------------------------------+
 double GetTodayProfitFromBase()
   {
-   return(GetActiveTradingEquity() - g_baseBalance);
+   return(AccountEquity() - g_baseBalance);
   }
 
 //+------------------------------------------------------------------+
@@ -1510,7 +1216,7 @@ bool CheckGlobalEquityTrailLock()
    if(IsGlobalEquityTrailPauseActive())
       return(true);
 
-   double eq = GetActiveTradingEquity();
+   double eq = AccountEquity();
 
    if(g_globalEquityPeak <= 0.0)
       g_globalEquityPeak = eq;
@@ -1592,24 +1298,18 @@ bool CheckEquityConditions()
   {
    ResetEquityDayIfNewDay();
 
-   double activeEquityForVault = GetActiveTradingEquity();
-
-   if(CheckVirtualTradingCapitalStop())
-      return(true);
-
    if(CheckGlobalEquityTrailLock())
       return(true);
 
 // 1) Loss stop: if equity drops to base - loss percent, close EA orders and stop.
-   if(InpUseEquityProtection && activeEquityForVault < g_lossStopEquityLevel)
+   if(InpUseEquityProtection && AccountEquity() < g_lossStopEquityLevel)
      {
       g_equityProtectionHit = true;
 
       if(InpCloseOrdersOnEquityHit && CountAllOrders() > 0)
          CloseAllEAOrders("50 percent equity protection hit");
 
-      Print("EQUITY PROTECTION HIT | ActiveEquity=$", DoubleToString(activeEquityForVault,2),
-            " | RealEquity=$", DoubleToString(AccountEquity(),2),
+      Print("EQUITY PROTECTION HIT | Equity=$", DoubleToString(AccountEquity(),2),
             " Protected=$", DoubleToString(g_lossStopEquityLevel,2),
             " Base=$", DoubleToString(g_baseBalance,2),
             " LossStopEquity=$", DoubleToString(g_lossStopEquityLevel,2));
@@ -1639,20 +1339,13 @@ bool CheckEquityConditions()
          if(InpCloseOrdersOnProfitLock && CountAllOrders() > 0)
             CloseAllEAOrders("Daily profit lock: equity reached base plus profit percent");
 
-         // Recalculate after closing orders because commission/spread may slightly change final profit.
-         double finalProfitFromBase = GetTodayProfitFromBase();
-         if(finalProfitFromBase < 0.0)
-            finalProfitFromBase = 0.0;
-
          Print("DAILY PROFIT LOCK HIT | Base=$", DoubleToString(g_baseBalance,2),
-               " ActiveEquity=$", DoubleToString(GetActiveTradingEquity(),2),
-               " RealEquity=$", DoubleToString(AccountEquity(),2),
-               " Profit=$", DoubleToString(finalProfitFromBase,2),
+               " Equity=$", DoubleToString(AccountEquity(),2),
+               " Profit=$", DoubleToString(profitFromBase,2),
                " Target=$", DoubleToString(g_dailyProfitTarget,2),
-               " Vault=$", DoubleToString(g_virtualProfitVault,2),
                " LossStopEquity=$", DoubleToString(g_lossStopEquityLevel,2),
                " TargetEquity=$", DoubleToString(g_profitTargetEquity,2),
-               InpUseVirtualProfitVault ? " | Move profit to virtual vault and continue." : " | Trading paused until next day.");
+               " | Trading paused until next day.");
 
          if(InpNotifyOnProfitLock && !g_notifyProfitLockSent)
            {
@@ -1660,16 +1353,8 @@ bool CheckEquityConditions()
             // SendEAAlert("TRADING STOPPED - PROFIT TARGET",
             //             "Equity=$" + DoubleToString(AccountEquity(),2) +
             //             " | Base=$" + DoubleToString(g_baseBalance,2) +
-            //             " | Profit=$" + DoubleToString(finalProfitFromBase,2) +
+            //             " | Profit=$" + DoubleToString(profitFromBase,2) +
             //             " | Target=$" + DoubleToString(g_dailyProfitTarget,2));
-           }
-
-         if(InpUseVirtualProfitVault)
-           {
-            ResetVirtualTradingCapitalAfterProfit(finalProfitFromBase);
-
-            if(InpVirtualVaultContinueTrading)
-               return(false);
            }
         }
 
@@ -2991,12 +2676,6 @@ bool OpenRecoveryGapMarketOrder(int direction, double gapMove)
    if(direction == 0)
       return(false);
 
-   if(!IsVirtualTradingCapitalAvailableForNewOrder("OpenRecoveryGapMarketOrder"))
-     {
-      Print("RECOVERY GAP BLOCKED | Virtual trading capital exhausted / paused until EA restart | Direction=", DirectionText(direction));
-      return(false);
-     }
-
    if(InpRecoveryGapMustMatchSARDirection && direction != g_activeSARDirection)
      {
       Print("RECOVERY GAP BLOCKED | SAR direction mismatch | RecoveryDir=",
@@ -3797,14 +3476,6 @@ bool OpenSARSpecialGuardOrder(int direction, double lot, int parentTicket)
   {
    if(direction == 0 || parentTicket <= 0)
       return(false);
-
-   if(!IsVirtualTradingCapitalAvailableForNewOrder("OpenSARSpecialGuardOrder"))
-     {
-      Print("SAR SPECIAL GUARD BLOCKED | Virtual trading capital exhausted / paused until EA restart",
-            " | Parent=#", parentTicket,
-            " | Direction=", DirectionText(direction));
-      return(false);
-     }
 
    // IMPORTANT RULE:
    // SAR_SPECIAL_GUARD_ORDER_FOR_ must NOT be blocked by normal EA filters.
@@ -5264,7 +4935,6 @@ void OnTick()
   {
 
 
-InpVirtualTradingCapitalUSD =AccountBalance();
 
 
    // if(!IsTesting())
@@ -5286,14 +4956,6 @@ InpVirtualTradingCapitalUSD =AccountBalance();
    RefreshRates();
 
    ProcessSARSpecialGuardCleanup();
-   if(CheckVirtualTradingCapitalStop())
-     {
-      ProcessSARSpecialGuardCleanup();
-      DrawLeftOrderCreationChecklist("VIRTUAL CAPITAL PAUSED - EA RESTART REQUIRED");
-      DrawDashboard("VIRTUAL CAPITAL PAUSED - EA RESTART REQUIRED");
-      return;
-     }
-
    CheckSARSpecialGuardOrdersByParentLoss();
 
 // FIRST PRIORITY PROFIT BOOKING:
@@ -6786,9 +6448,6 @@ bool OpenMarketOrder(int direction, string reason)
 
    RefreshRates();
 
-   if(!IsVirtualTradingCapitalAvailableForNewOrder("OpenMarketOrder " + reason))
-      return BlockOrder("Virtual trading capital exhausted / paused until EA restart | Source=" + reason);
-
    if(EnforceBigCandleOrderBlock("OpenMarketOrder " + reason))
      {
       string msgBig = "Big candle/spike pause active | " + BigCandlePauseStatusText() + " | Source=" + reason;
@@ -7965,44 +7624,6 @@ void DrawDashboard(string status)
    g_dashRow=0;
 
    DashRow("V6 SAR GUARD DASH",status,clrYellow);
-
-   double dashRealBalance   = AccountBalance();
-   double dashRealEquity    = AccountEquity();
-   double dashActiveEquity  = GetActiveTradingEquity();
-   double dashActivePL      = dashActiveEquity - g_baseBalance;
-   double dashFloatingPL    = dashRealEquity - dashRealBalance;
-
-   // IMPORTANT:
-   // MT4 graph shows REAL broker Balance/Equity.
-   // Virtual Vault is only EA accounting; MT4 graph will not subtract it unless you physically withdraw money.
-   DashRow("Real Bal/Eq",
-           "$" + DoubleToString(dashRealBalance,2) + " / $" + DoubleToString(dashRealEquity,2),
-           dashFloatingPL >= 0.0 ? clrLime : clrRed);
-
-   DashRow("Vault Total",
-           "$" + DoubleToString(g_virtualProfitVault,2),
-           g_virtualProfitVault > 0.0 ? clrLime : clrSilver);
-
-   DashRow("Trade Cap/Tgt",
-           "$" + DoubleToString(g_baseBalance,2) + " / $" + DoubleToString(g_profitTargetEquity,2),
-           InpUseVirtualProfitVault ? clrAqua : clrWhite);
-
-   DashRow("Active Eq",
-           "$" + DoubleToString(dashActiveEquity,2) +
-           " | P/L $" + DoubleToString(dashActivePL,2),
-           dashActivePL >= 0.0 ? clrLime : clrRed);
-
-   DashRow("Virtual Cap",
-           g_virtualCapitalPaused ? "PAUSED - RESTART EA" : "OK",
-           g_virtualCapitalPaused ? clrRed : clrLime);
-
-   DashRow("Float P/L",
-           "$" + DoubleToString(dashFloatingPL,2),
-           dashFloatingPL >= 0.0 ? clrLime : clrRed);
-
-   DashRow("Last Lock",
-           "$" + DoubleToString(g_lastVaultLockProfit,2) + " | " + DashboardTimeText(g_lastVaultLockTime),
-           g_lastVaultLockProfit > 0.0 ? clrLime : clrSilver);
 
    Print("DASHBOARD UPDATE | Status=", status,
          " | SAR=", DirectionText(g_activeSARDirection),
