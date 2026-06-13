@@ -296,6 +296,32 @@ color  InpSellColor               = clrRed;
 color  InpEarlyBuyColor           = clrAqua;
 color  InpEarlySellColor          = clrOrangeRed;
 
+
+// Order icon / chart marker colors
+// Normal SAR, recovery, special guard, pullback and extra orders use different colors.
+color  InpNormalBuyOrderIconColor       = clrLime;
+color  InpNormalSellOrderIconColor      = clrRed;
+color  InpRecoveryBuyOrderIconColor     = clrAqua;
+color  InpRecoverySellOrderIconColor    = clrMagenta;
+color  InpGuardBuyOrderIconColor        = clrYellow;
+color  InpGuardSellOrderIconColor       = clrOrange;
+color  InpPullbackBuyOrderIconColor     = clrBlue;
+color  InpPullbackSellOrderIconColor    = clrDeepPink;
+color  InpExtraBuyOrderIconColor        = clrGreenYellow;
+color  InpExtraSellOrderIconColor       = clrTomato;
+color  InpLastOrderIconColor            = clrWhite;
+
+int    InpNormalBuyOrderArrowCode       = 233;
+int    InpNormalSellOrderArrowCode      = 234;
+int    InpRecoveryBuyOrderArrowCode     = 241;
+int    InpRecoverySellOrderArrowCode    = 242;
+int    InpGuardBuyOrderArrowCode        = 225;
+int    InpGuardSellOrderArrowCode       = 226;
+int    InpPullbackBuyOrderArrowCode     = 217;
+int    InpPullbackSellOrderArrowCode    = 218;
+int    InpExtraOrderArrowCode           = 159;
+int    InpLastOrderArrowCode            = 108;
+
 // SAR dot visuals
 bool   InpDrawSARDots            = true;
 int    InpSARDotLookback         = 200;      // historical SAR dots to draw
@@ -819,6 +845,130 @@ double GetBasketProfitTargetUSD()
 
    return(target);
 }
+
+
+//+------------------------------------------------------------------+
+//| Order icon color / marker helpers                                |
+//+------------------------------------------------------------------+
+color GetOrderIconColorByComment(int direction, string commentText)
+  {
+   if(IsSARGuardOrderComment(commentText))
+      return(direction == 1 ? InpGuardBuyOrderIconColor : InpGuardSellOrderIconColor);
+
+   if(IsRecoveryGapOrderComment(commentText) || IsRecoveryHedgeOrderComment(commentText) || StringFind(commentText, "RECOVERY") >= 0)
+      return(direction == 1 ? InpRecoveryBuyOrderIconColor : InpRecoverySellOrderIconColor);
+
+   if(IsSARPullbackHalfTPComment(commentText))
+      return(direction == 1 ? InpPullbackBuyOrderIconColor : InpPullbackSellOrderIconColor);
+
+   if(StringFind(commentText, "SAR_ARROW_EXTRA") >= 0 || StringFind(commentText, "EXTRA") >= 0)
+      return(direction == 1 ? InpExtraBuyOrderIconColor : InpExtraSellOrderIconColor);
+
+   return(direction == 1 ? InpNormalBuyOrderIconColor : InpNormalSellOrderIconColor);
+  }
+
+//+------------------------------------------------------------------+
+int GetOrderIconArrowCodeByComment(int direction, string commentText)
+  {
+   if(IsSARGuardOrderComment(commentText))
+      return(direction == 1 ? InpGuardBuyOrderArrowCode : InpGuardSellOrderArrowCode);
+
+   if(IsRecoveryGapOrderComment(commentText) || IsRecoveryHedgeOrderComment(commentText) || StringFind(commentText, "RECOVERY") >= 0)
+      return(direction == 1 ? InpRecoveryBuyOrderArrowCode : InpRecoverySellOrderArrowCode);
+
+   if(IsSARPullbackHalfTPComment(commentText))
+      return(direction == 1 ? InpPullbackBuyOrderArrowCode : InpPullbackSellOrderArrowCode);
+
+   if(StringFind(commentText, "SAR_ARROW_EXTRA") >= 0 || StringFind(commentText, "EXTRA") >= 0)
+      return(InpExtraOrderArrowCode);
+
+   return(direction == 1 ? InpNormalBuyOrderArrowCode : InpNormalSellOrderArrowCode);
+  }
+
+//+------------------------------------------------------------------+
+string GetOrderIconTypeText(string commentText)
+  {
+   if(IsSARGuardOrderComment(commentText))
+      return("SPECIAL GUARD");
+
+   if(IsRecoveryGapOrderComment(commentText))
+      return("RECOVERY GAP");
+
+   if(IsRecoveryHedgeOrderComment(commentText))
+      return("RECOVERY HEDGE");
+
+   if(StringFind(commentText, "RECOVERY") >= 0)
+      return("RECOVERY");
+
+   if(IsSARPullbackHalfTPComment(commentText))
+      return("PULLBACK HALF TP");
+
+   if(StringFind(commentText, "SAR_ARROW_EXTRA") >= 0 || StringFind(commentText, "EXTRA") >= 0)
+      return("EXTRA SAR");
+
+   return("NORMAL SAR");
+  }
+
+//+------------------------------------------------------------------+
+void DrawEAOrderIcon(int ticket, int direction, string commentText, datetime orderTime, double price)
+  {
+   if(ticket <= 0 || direction == 0)
+      return;
+
+   string name = OBJ_PREFIX + "ORDER_ICON_" + IntegerToString(ticket);
+   ObjectDelete(0, name);
+
+   if(!ObjectCreate(0, name, OBJ_ARROW, 0, orderTime, price))
+     {
+      Print("ORDER ICON DRAW FAILED | Ticket=", ticket, " | Error=", GetLastError());
+      ResetLastError();
+      return;
+     }
+
+   ObjectSetInteger(0, name, OBJPROP_ARROWCODE, GetOrderIconArrowCodeByComment(direction, commentText));
+   ObjectSetInteger(0, name, OBJPROP_COLOR, GetOrderIconColorByComment(direction, commentText));
+   ObjectSetInteger(0, name, OBJPROP_WIDTH, 2);
+   ObjectSetInteger(0, name, OBJPROP_BACK, false);
+   ObjectSetString(0, name, OBJPROP_TEXT,
+                   GetOrderIconTypeText(commentText) + " #" + IntegerToString(ticket) + " " + DirectionText(direction));
+  }
+
+//+------------------------------------------------------------------+
+void DrawLastOrderHighlightIcon(int ticket, int direction, datetime orderTime, double price)
+  {
+   if(ticket <= 0 || direction == 0)
+      return;
+
+   string name = OBJ_PREFIX + "LAST_ORDER_ICON";
+   ObjectDelete(0, name);
+
+   double offset = MathMax(10 * Point, MarketInfo(Symbol(), MODE_SPREAD) * Point);
+   double markerPrice = price;
+   if(direction == 1)
+      markerPrice = price - offset;
+   else
+      markerPrice = price + offset;
+
+   if(!ObjectCreate(0, name, OBJ_ARROW, 0, orderTime, markerPrice))
+     {
+      Print("LAST ORDER ICON DRAW FAILED | Ticket=", ticket, " | Error=", GetLastError());
+      ResetLastError();
+      return;
+     }
+
+   ObjectSetInteger(0, name, OBJPROP_ARROWCODE, InpLastOrderArrowCode);
+   ObjectSetInteger(0, name, OBJPROP_COLOR, InpLastOrderIconColor);
+   ObjectSetInteger(0, name, OBJPROP_WIDTH, 3);
+   ObjectSetInteger(0, name, OBJPROP_BACK, false);
+   ObjectSetString(0, name, OBJPROP_TEXT, "LAST ORDER #" + IntegerToString(ticket) + " " + DirectionText(direction));
+  }
+
+//+------------------------------------------------------------------+
+void MarkOpenedOrderOnChart(int ticket, int direction, string commentText, datetime orderTime, double price)
+  {
+   DrawEAOrderIcon(ticket, direction, commentText, orderTime, price);
+   DrawLastOrderHighlightIcon(ticket, direction, orderTime, price);
+  }
 
 //+------------------------------------------------------------------+
 int OnInit()
@@ -2544,7 +2694,7 @@ bool OpenRecoveryOrder(int direction, string sourceReason)
                           comment,
                           InpMagicNumber,
                           0,
-                          direction == 1 ? InpBuyColor : InpSellColor);
+                          GetOrderIconColorByComment(direction, comment));
 
    if(ticket < 0)
      {
@@ -2557,6 +2707,7 @@ bool OpenRecoveryOrder(int direction, string sourceReason)
      }
 
    g_lastOrderTime = TimeCurrent();
+   MarkOpenedOrderOnChart(ticket, direction, comment, TimeCurrent(), price);
 
    Print("RECOVERY ORDER OPENED | Ticket=", ticket,
          " | Direction=", DirectionText(direction),
@@ -2711,7 +2862,7 @@ bool OpenReverseOrderForRecovery(int recoveryDirection, int recoveryNumber, doub
                           comment,
                           InpMagicNumber,
                           0,
-                          reverseDirection == 1 ? InpBuyColor : InpSellColor);
+                          GetOrderIconColorByComment(reverseDirection, comment));
 
    if(ticket < 0)
      {
@@ -2726,6 +2877,7 @@ bool OpenReverseOrderForRecovery(int recoveryDirection, int recoveryNumber, doub
      }
 
    g_lastOrderTime = TimeCurrent();
+   MarkOpenedOrderOnChart(ticket, reverseDirection, comment, TimeCurrent(), price);
 
    Print("RECOVERY HEDGE ORDER OPENED | Ticket=", ticket,
          " | RecoveryDirection=", DirectionText(recoveryDirection),
@@ -2826,7 +2978,7 @@ bool OpenRecoveryGapMarketOrder(int direction, double gapMove)
                           comment,
                           InpMagicNumber,
                           0,
-                          direction == 1 ? InpBuyColor : InpSellColor);
+                          GetOrderIconColorByComment(direction, comment));
 
    if(ticket < 0)
      {
@@ -2840,6 +2992,7 @@ bool OpenRecoveryGapMarketOrder(int direction, double gapMove)
      }
 
    g_lastOrderTime = TimeCurrent();
+   MarkOpenedOrderOnChart(ticket, direction, comment, TimeCurrent(), price);
 
    Print("RECOVERY GAP ORDER OPENED | Ticket=", ticket,
          " | Direction=", DirectionText(direction),
@@ -3864,7 +4017,7 @@ bool OpenSARSpecialGuardOrder(int direction, double lot, int parentTicket)
                           commentText,
                           InpMagicNumber,
                           0,
-                          direction == 1 ? InpBuyColor : InpSellColor);
+                          GetOrderIconColorByComment(direction, commentText));
 
    if(ticket < 0)
      {
@@ -3885,6 +4038,7 @@ bool OpenSARSpecialGuardOrder(int direction, double lot, int parentTicket)
 
    // MT4/broker may truncate long comments. Store the parent ticket safely using a terminal global variable.
    GlobalVariableSet(SARGuardGlobalVariableName(ticket), parentTicket);
+   MarkOpenedOrderOnChart(ticket, direction, commentText, TimeCurrent(), price);
 
    Print("SAR SPECIAL GUARD ORDER OPENED | Guard=#", ticket,
          " | Parent=#", parentTicket,
@@ -7128,7 +7282,7 @@ bool OpenMarketOrder(int direction, string reason)
                           orderComment,
                           InpMagicNumber,
                           0,
-                          direction == 1 ? InpBuyColor : InpSellColor);
+                          GetOrderIconColorByComment(direction, orderComment));
 
    if(ticket < 0)
      {
@@ -7143,6 +7297,7 @@ bool OpenMarketOrder(int direction, string reason)
      }
 
    g_lastOrderTime = TimeCurrent();
+   MarkOpenedOrderOnChart(ticket, direction, orderComment, TimeCurrent(), price);
    if(reason == "SAR_FLIP_V2LAST")
      {
       g_lastSARFlipV2LastOrderBarTime = Time[0];
