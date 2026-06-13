@@ -843,6 +843,7 @@ if(AccountNumber()==291085426)
    InitializeEquityDay();
    InitializeLastDepositBalanceOpTime();
    DeleteNonEarlySignalArrows();
+   DeleteOldDashboardObjects();
    LoadLast5SARChangeDurations();
 
    InpMagicNumber=AccountNumber()+202; // override magic number with account number to prevent interference between charts/accounts. Orders are still filtered by symbol and magic in this EA.
@@ -7380,6 +7381,22 @@ void DeleteNonEarlySignalArrows()
   }
 
 //+------------------------------------------------------------------+
+
+//+------------------------------------------------------------------+
+void DeleteOldDashboardObjects()
+  {
+   for(int i = ObjectsTotal(0, -1, -1) - 1; i >= 0; i--)
+     {
+      string name = ObjectName(0, i);
+      if(StringFind(name,"DXB_ROW_") == 0 ||
+         StringFind(name,"DXB_LEFT_CHK_ROW_") == 0 ||
+         StringFind(name,"DXB_PANEL") == 0)
+        {
+         ObjectDelete(0, name);
+        }
+     }
+  }
+
 void DrawSARDots()
   {
    if(!InpDrawSARDots)
@@ -7974,6 +7991,157 @@ string CheckListRepeatedGapText(int direction)
           " after " + DoubleToString(elapsedMinutes,1) + "m");
   }
 
+
+//+------------------------------------------------------------------+
+//| PROFESSIONAL DASHBOARD HELPERS                                   |
+//+------------------------------------------------------------------+
+int g_rightDashRow = 0;
+int g_recoveryDashRow = 0;
+int g_guardDashRow = 0;
+
+void DrawCornerPanel(string name,int corner,int x,int y,int w,int h,color bg,color border=clrDimGray)
+  {
+   if(ObjectFind(0,name) < 0)
+      ObjectCreate(0,name,OBJ_RECTANGLE_LABEL,0,0,0);
+
+   ObjectSetInteger(0,name,OBJPROP_CORNER,corner);
+   ObjectSetInteger(0,name,OBJPROP_XDISTANCE,x);
+   ObjectSetInteger(0,name,OBJPROP_YDISTANCE,y);
+   ObjectSetInteger(0,name,OBJPROP_XSIZE,w);
+   ObjectSetInteger(0,name,OBJPROP_YSIZE,h);
+   ObjectSetInteger(0,name,OBJPROP_BGCOLOR,bg);
+   ObjectSetInteger(0,name,OBJPROP_BORDER_COLOR,border);
+   ObjectSetInteger(0,name,OBJPROP_BACK,false);
+   ObjectSetInteger(0,name,OBJPROP_HIDDEN,true);
+  }
+
+void DrawCornerLabel(string name,string text,int corner,int x,int y,color clrText,int size=9)
+  {
+   if(ObjectFind(0,name) < 0)
+      ObjectCreate(0,name,OBJ_LABEL,0,0,0);
+
+   ObjectSetInteger(0,name,OBJPROP_CORNER,corner);
+   ObjectSetInteger(0,name,OBJPROP_XDISTANCE,x);
+   ObjectSetInteger(0,name,OBJPROP_YDISTANCE,y);
+   ObjectSetString(0,name,OBJPROP_TEXT,text);
+   ObjectSetString(0,name,OBJPROP_FONT,"Consolas");
+   ObjectSetInteger(0,name,OBJPROP_FONTSIZE,size);
+   ObjectSetInteger(0,name,OBJPROP_COLOR,clrText);
+   ObjectSetInteger(0,name,OBJPROP_HIDDEN,true);
+   ObjectSetText(name,text,size,"Consolas",clrText);
+  }
+
+string PadTitle(string title,int len=22)
+  {
+   return(StringSubstr(title + "                              ",0,len));
+  }
+
+void LeftProRow(string title,string value,color clrText=clrWhite)
+  {
+   string text = PadTitle(title,22) + " : " + value;
+   DrawCornerLabel("DXB_PRO_LEFT_"+IntegerToString(g_leftDashRow),text,CORNER_LEFT_UPPER,10,45+(g_leftDashRow*16),clrText,8);
+   g_leftDashRow++;
+  }
+
+void LeftProCheck(string title,bool ok,string extra="")
+  {
+   string value = YesNo(ok);
+   if(extra != "") value = value + " " + extra;
+   LeftProRow(title,value,YesNoColor(ok));
+  }
+
+void RecoveryRow(string title,string value,color clrText=clrWhite)
+  {
+   string text = PadTitle(title,22) + " : " + value;
+   DrawCornerLabel("DXB_PRO_REC_"+IntegerToString(g_recoveryDashRow),text,CORNER_LEFT_UPPER,10,625+(g_recoveryDashRow*16),clrText,8);
+   g_recoveryDashRow++;
+  }
+
+void RightProRow(string title,string value,color clrText=clrWhite)
+  {
+   string text = PadTitle(title,20) + " : " + value;
+   DrawCornerLabel("DXB_PRO_RIGHT_"+IntegerToString(g_rightDashRow),text,CORNER_RIGHT_UPPER,380,45+(g_rightDashRow*16),clrText,8);
+   g_rightDashRow++;
+  }
+
+void GuardTopRow(string title,string value,color clrText=clrWhite)
+  {
+   // Compact top-center guard panel: 3 columns instead of one tall list.
+   int col = g_guardDashRow / 4;
+   int row = g_guardDashRow % 4;
+   int x = 440 + (col * 260);
+   int y = 45 + (row * 16);
+
+   string text = PadTitle(title,17) + " : " + value;
+   DrawCornerLabel("DXB_PRO_GUARD_"+IntegerToString(g_guardDashRow),text,CORNER_LEFT_UPPER,x,y,clrText,8);
+   g_guardDashRow++;
+  }
+
+color DirectionColor(int direction)
+  {
+   if(direction == 1) return(clrLime);
+   if(direction == -1) return(clrRed);
+   return(clrSilver);
+  }
+
+string OnOff(bool v)
+  {
+   return(v ? "ON" : "OFF");
+  }
+
+void DrawTopSARSpecialGuardPanel()
+  {
+   int activeGuards = CountSARSpecialGuardOrders();
+   double guardProfit = GetSARSpecialGuardTotalProfit();
+
+   DrawCornerPanel("DXB_TOP_GUARD_PANEL",CORNER_LEFT_UPPER,430,15,840,125,clrBlack,clrDimGray);
+   DrawCornerLabel("DXB_TOP_GUARD_TITLE","SAR SPECIAL GUARD DASHBOARD",CORNER_LEFT_UPPER,695,22,clrYellow,10);
+
+   g_guardDashRow = 0;
+
+   GuardTopRow("Status",InpUseSARSpecialGuardOrder ? "ACTIVE" : "OFF",InpUseSARSpecialGuardOrder ? clrLime : clrRed);
+   GuardTopRow("Guard Active",IntegerToString(activeGuards)+" / "+IntegerToString(InpMaxSARSpecialGuardOrders),activeGuards>0 ? clrYellow : clrSilver);
+   GuardTopRow("Guard Profit","$"+DoubleToString(guardProfit,2),guardProfit>=0.0 ? clrLime : clrRed);
+   GuardTopRow("Trigger Loss","-$"+DoubleToString(InpSARSpecialGuardLossUSD,2),clrAqua);
+   GuardTopRow("Lot Multiplier",DoubleToString(InpSARSpecialGuardLotMultiplier,2)+"x",clrAqua);
+   GuardTopRow("SAR Required",InpSARSpecialGuardRequireSARChange ? "YES" : "NO",InpSARSpecialGuardRequireSARChange ? clrYellow : clrLime);
+   GuardTopRow("Close Rule",InpSpecialGuardCloseOnlyInProfit ? "PARENT CLOSE + PROFIT" : "PARENT CLOSE",clrYellow);
+   GuardTopRow("Min Close Profit","$"+DoubleToString(InpSpecialGuardMinProfitToClose,2),clrWhite);
+   GuardTopRow("Last Action",StringSubstr(g_sarSpecialGuardLastStatus,0,48),SARSpecialGuardDebugColor());
+   GuardTopRow("Last Error",IntegerToString(g_sarSpecialGuardLastError),g_sarSpecialGuardLastError==0 ? clrSilver : clrRed);
+   GuardTopRow("Last Parent",g_sarSpecialGuardLastParentTicket>0 ? "#"+IntegerToString(g_sarSpecialGuardLastParentTicket) : "NONE",g_sarSpecialGuardLastParentTicket>0 ? clrYellow : clrSilver);
+   GuardTopRow("Last Update",DashboardTimeText(g_sarSpecialGuardLastStatusTime),g_sarSpecialGuardLastStatusTime>0 ? clrAqua : clrSilver);
+  }
+
+void DrawRecoveryChecklistPanel(int direction)
+  {
+   bool enabled = InpUseRecoveryGapOrders;
+   bool matchOk = (!InpRecoveryGapMustMatchSARDirection || direction == g_activeSARDirection);
+   bool countOk = (CountRecoveryGapOrdersByDirection(1) < InpMaxRecoveryGapOrdersPerSide || CountRecoveryGapOrdersByDirection(-1) < InpMaxRecoveryGapOrdersPerSide);
+   bool pending = (g_pendingRecoveryGapDirection != 0);
+   bool bigOk = !IsBigCandlePauseActive();
+   bool strongOk = true;
+   bool allowed = enabled && matchOk && countOk && bigOk && strongOk;
+
+   DrawCornerPanel("DXB_RECOVERY_PANEL",CORNER_LEFT_UPPER,5,595,405,260,clrBlack,clrDimGray);
+   DrawCornerLabel("DXB_RECOVERY_TITLE","RECOVERY ORDER CHECKLIST",CORNER_LEFT_UPPER,10,602,clrYellow,9);
+
+   g_recoveryDashRow = 0;
+   RecoveryRow("Recovery Enabled",YesNo(enabled),enabled ? clrLime : clrRed);
+   RecoveryRow("Recovery Allowed",YesNo(allowed),allowed ? clrLime : clrOrangeRed);
+   RecoveryRow("SAR Direction",DirectionText(g_activeSARDirection),DirectionColor(g_activeSARDirection));
+   RecoveryRow("Direction Match",YesNo(matchOk),matchOk ? clrLime : clrOrangeRed);
+   RecoveryRow("Required Gap",DoubleToString(InpRecoveryGapRawPrice,0),clrAqua);
+   RecoveryRow("Gap Levels",DoubleToString(InpRecoveryGapRawPrice,0)+","+DoubleToString(InpRecoveryGapRawPrice*2,0)+","+DoubleToString(InpRecoveryGapRawPrice*3,0),clrAqua);
+   RecoveryRow("Recovery Count",IntegerToString(CountRecoveryGapOrdersByDirection(1))+"/"+IntegerToString(CountRecoveryGapOrdersByDirection(-1))+" | Max "+IntegerToString(InpMaxRecoveryGapOrdersPerSide),countOk ? clrLime : clrOrangeRed);
+   RecoveryRow("Pending Recovery",pending ? DirectionText(g_pendingRecoveryGapDirection)+" Gap "+DoubleToString(g_pendingRecoveryGapMove,0) : "NONE",pending ? clrYellow : clrSilver);
+   RecoveryRow("Pending Reason",StringSubstr(g_pendingRecoveryGapReason,0,42),pending ? clrYellow : clrSilver);
+   RecoveryRow("Big Candle Block",YesNo(!bigOk),bigOk ? clrLime : clrOrangeRed);
+   RecoveryRow("Strong Opp Block",OnOff(InpStopRecoveryOnStrongOppMove)+" | Gap "+DoubleToString(InpStrongOppMoveBlockRecoveryGap,0),clrYellow);
+   RecoveryRow("Reverse With Rec",OnOff(InpOpenReverseOrderWithRecovery),InpOpenReverseOrderWithRecovery ? clrYellow : clrSilver);
+  }
+
+
 void DrawLeftOrderCreationChecklist(string mainStatus)
   {
    RefreshRates();
@@ -8003,38 +8171,51 @@ void DrawLeftOrderCreationChecklist(string mainStatus)
                 okProfitPause && okBigCandle && okSARConfirm && okH1 && okCycle &&
                 okMaxOpen && okTotalOpen && okMinGap && okSARSide && okLateSAR && okRepeatedGap;
 
-   DrawLeftPanel("DXB_LEFT_CHK_PANEL",5,15,400,930,clrBlack);
-   DrawLeftLabel("DXB_LEFT_CHK_TITLE","ORDER CREATION CHECKLIST",10,18,clrYellow,10);
+   DrawCornerPanel("DXB_LEFT_CHK_PANEL",CORNER_LEFT_UPPER,5,15,405,565,clrBlack,clrDimGray);
+   DrawCornerLabel("DXB_LEFT_CHK_TITLE","ORDER CREATION CHECKLIST",CORNER_LEFT_UPPER,10,22,clrYellow,10);
 
    g_leftDashRow = 0;
 
-   LeftChecklistInfo("Final Result", allOk ? "READY TO OPEN" : "BLOCKED", allOk ? clrLime : clrOrangeRed);
-   LeftChecklistInfo("Status", mainStatus, clrAqua);
-   LeftChecklistInfo("Last Block", StringSubstr(g_lastOrderOpenReason, 0, 62), g_lastOrderOpenReason == "WAIT ORDER" ? clrWhite : clrOrange);
-   LeftChecklistInfo("Last Block Time", DashboardTimeText(g_lastOrderBlockTime), clrSilver);
-   LeftChecklistInfo("Last Closed", StringSubstr(g_lastOrderCloseMessage, 0, 62), g_lastOrderCloseMessage == "NO CLOSE YET" ? clrSilver : clrAqua);
-   LeftChecklistInfo("Last Close Time", DashboardTimeText(g_lastOrderCloseTime), clrSilver);
+   LeftProRow("FINAL RESULT",allOk ? "READY TO OPEN" : "BLOCKED",allOk ? clrLime : clrOrangeRed);
+   LeftProRow("Status",StringSubstr(mainStatus,0,55),clrAqua);
+   LeftProRow("Last Block",StringSubstr(g_lastOrderOpenReason,0,55),g_lastOrderOpenReason=="WAIT ORDER" ? clrWhite : clrOrange);
+   LeftProRow("Block Time",DashboardTimeText(g_lastOrderBlockTime),clrSilver);
+   LeftProRow("Last Close",StringSubstr(g_lastOrderCloseMessage,0,55),g_lastOrderCloseMessage=="NO CLOSE YET" ? clrSilver : clrAqua);
 
-   LeftChecklistRow("Direction", YesNo(okDirection), okDirection, DirectionText(direction));
-   LeftChecklistRow("Trading Allowed", YesNo(okTrading), okTrading);
-   LeftChecklistRow("Spread", YesNo(okSpread), okSpread, IntegerToString(spread)+"/"+IntegerToString(InpMaxSpreadPoints));
-   LeftChecklistRow("Equity/Daily Lock", YesNo(okEquity), okEquity);
-   LeftChecklistRow("No-New Hour", YesNo(okNoHour), okNoHour, NoNewOrderHoursStatusText());
-   LeftChecklistRow("Profit Pause", YesNo(okProfitPause), okProfitPause, ProfitProtectPauseStatusText());
-   LeftChecklistRow("Big Candle Pause", YesNo(okBigCandle), okBigCandle, BigCandlePauseStatusText());
-   LeftChecklistRow("SAR Confirm", YesNo(okSARConfirm), okSARConfirm, SARConfirmDurationStatusText());
-   LeftChecklistRow("H1 Trend", YesNo(okH1), okH1, DirectionText(GetH1TrendDirection()));
-   LeftChecklistRow("SAR Cycle", YesNo(okCycle), okCycle, IntegerToString(g_sarCycleOrdersCreated)+"/"+IntegerToString(g_sarCycleMaxOrders));
-   LeftChecklistRow("Max Open Dir", YesNo(okMaxOpen), okMaxOpen, IntegerToString(CountOrdersByDirection(direction))+"/"+IntegerToString(InpMaxOrders));
-   LeftChecklistRow("Total Open", YesNo(okTotalOpen), okTotalOpen, IntegerToString(CountAllOrders())+"/"+IntegerToString(InpMaxTotalOpenOrders));
-   LeftChecklistRow("Min Price Gap", YesNo(okMinGap), okMinGap, DoubleToString(GetEffectiveMinPriceGap(),0));
-   LeftChecklistRow("SAR Price Side", YesNo(okSARSide), okSARSide, SARSignalSideStatusText());
-   LeftChecklistRow("Late SAR Entry", YesNo(okLateSAR), okLateSAR, LateSARCycleEntryStatusText(direction));
-   LeftChecklistRow("Repeated Gap", YesNo(okRepeatedGap), okRepeatedGap, CheckListRepeatedGapText(direction));
+   LeftProRow("--- ORDER SIGNAL ---","",clrDimGray);
+   LeftProCheck("Direction",okDirection,DirectionText(direction));
+   LeftProCheck("SAR Confirm",okSARConfirm,SARConfirmDurationStatusText());
+   LeftProRow("SAR Age",IntegerToString(GetSARSignalAgeMinutes())+"m / "+IntegerToString(InpDynamicMinSignalMinutes)+"m",GetSARSignalAgeMinutes()>=InpDynamicMinSignalMinutes ? clrLime : clrOrange);
+   LeftProCheck("SAR Price Side",okSARSide,SARSignalSideStatusText());
+   LeftProCheck("Repeated Gap",okRepeatedGap,CheckListRepeatedGapText(direction));
+   LeftProCheck("SAR Cycle",okCycle,IntegerToString(g_sarCycleOrdersCreated)+"/"+IntegerToString(g_sarCycleMaxOrders));
 
-   DrawLeftImportantOrderSettings(direction);
-   DrawLeftSARSpecialGuardInfo();
+   LeftProRow("--- TREND FILTERS ---","",clrDimGray);
+   LeftProCheck("H1 Trend",okH1,DirectionText(GetH1TrendDirection()));
+   LeftProRow("EMA Trend",DirectionText(g_pendingSARConfirmDirection),DirectionColor(g_pendingSARConfirmDirection));
+   LeftProRow("Early Trend",DirectionText(g_earlyDirection),DirectionColor(g_earlyDirection));
+   LeftProRow("SAR Momentum",IsCurrentSARGoodMomentum(g_activeSARDirection) ? "GOOD" : "WEAK",IsCurrentSARGoodMomentum(g_activeSARDirection) ? clrLime : clrOrangeRed);
+   LeftProCheck("Late Entry",okLateSAR,LateSARCycleEntryStatusText(direction));
+   LeftProRow("SAR Score",IntegerToString(g_dynamicSARScore)+" / "+IntegerToString(InpDynamicStrongScore)+" | "+g_dynamicSARDecision,g_dynamicSARScore>=InpDynamicStrongScore ? clrLime : clrOrange);
+
+   LeftProRow("--- TRADING FILTERS ---","",clrDimGray);
+   LeftProCheck("Trading Allowed",okTrading);
+   LeftProCheck("Spread OK",okSpread,IntegerToString(spread)+"/"+IntegerToString(InpMaxSpreadPoints));
+   LeftProCheck("Equity/Daily Lock",okEquity);
+   LeftProCheck("No-New-Hour",okNoHour,NoNewOrderHoursStatusText());
+   LeftProCheck("Profit Pause",okProfitPause,ProfitProtectPauseStatusText());
+   LeftProCheck("Big Candle Pause",okBigCandle,BigCandlePauseStatusText());
+   LeftProCheck("Min Gap",okMinGap,DoubleToString(GetEffectiveMinPriceGap(),0));
+
+   LeftProRow("--- ORDER LIMITS ---","",clrDimGray);
+   LeftProCheck("Max Open Dir",okMaxOpen,IntegerToString(CountOrdersByDirection(direction))+"/"+IntegerToString(InpMaxOrders));
+   LeftProCheck("Total Open",okTotalOpen,IntegerToString(CountAllOrders())+"/"+IntegerToString(InpMaxTotalOpenOrders));
+   LeftProRow("Next Order",allOk ? "ALLOWED NOW" : "WAIT / BLOCKED",allOk ? clrLime : clrOrangeRed);
+
+   DrawRecoveryChecklistPanel(direction);
+   DrawTopSARSpecialGuardPanel();
   }
+
 
 //+------------------------------------------------------------------+
 void DrawPanel(string name,int x,int y,int w,int h,color bg)
@@ -8141,20 +8322,67 @@ void IncreaseSARMaxWhenDotDistanceAndH1Same()
 //+------------------------------------------------------------------+
 //|                                                                  |
 //+------------------------------------------------------------------+
+
 void DrawDashboard(string status)
   {
-   DrawPanel(
-      "DXB_PANEL",
-      380,
-      20,
-      380,
-      760,
-      clrBlack
-   );
+   DrawCornerPanel("DXB_RIGHT_SETTINGS_PANEL",CORNER_RIGHT_UPPER,385,15,380,560,clrBlack,clrDimGray);
+   DrawCornerLabel("DXB_RIGHT_SETTINGS_TITLE","EA SETTINGS / LIVE STATUS",CORNER_RIGHT_UPPER,360,22,clrYellow,10);
 
-   g_dashRow=0;
+   g_rightDashRow = 0;
 
-   DashRow("V6 SAR GUARD DASH",status,clrYellow);
+   RightProRow("Status",StringSubstr(status,0,38),clrYellow);
+   RightProRow("--- TRADING ---","",clrDimGray);
+   RightProRow("Lot Size",DoubleToString(InpFixedLot,2),clrWhite);
+   RightProRow("Slippage",IntegerToString(InpSlippage),clrWhite);
+   RightProRow("Spread Limit",IntegerToString((int)MarketInfo(Symbol(),MODE_SPREAD))+" / "+IntegerToString(InpMaxSpreadPoints),((int)MarketInfo(Symbol(),MODE_SPREAD)<=InpMaxSpreadPoints) ? clrLime : clrRed);
+   RightProRow("Basket TP","$"+DoubleToString(InpBasketProfitUSD,2),clrLime);
+   RightProRow("Basket SL","$"+DoubleToString(InpBasketStopLossUSD,2),clrRed);
+   RightProRow("Ind Profit Protect",OnOff(InpUseIndividualProfitProtect),InpUseIndividualProfitProtect ? clrLime : clrSilver);
+   RightProRow("Basket Protect",OnOff(InpUseBasketProfitProtect),InpUseBasketProfitProtect ? clrLime : clrSilver);
+
+   RightProRow("--- RECOVERY ---","",clrDimGray);
+   RightProRow("Recovery Gap",DoubleToString(InpRecoveryGapRawPrice,0),clrAqua);
+   RightProRow("Recovery Lot",DoubleToString(InpRecoveryGapLot,2),clrAqua);
+   RightProRow("Max Recovery",IntegerToString(InpMaxRecoveryGapOrdersPerSide),clrAqua);
+   RightProRow("Reverse Recovery",OnOff(InpOpenReverseOrderWithRecovery),InpOpenReverseOrderWithRecovery ? clrYellow : clrSilver);
+   RightProRow("Opp Move Block",OnOff(InpStopRecoveryOnStrongOppMove)+" | "+DoubleToString(InpStrongOppMoveBlockRecoveryGap,0),clrYellow);
+
+   RightProRow("--- SAR SETTINGS ---","",clrDimGray);
+   RightProRow("SAR Direction",DirectionText(g_activeSARDirection),DirectionColor(g_activeSARDirection));
+   RightProRow("Confirm Gap",DoubleToString(InpSARConfirmPriceDiff,0),clrAqua);
+   RightProRow("Confirm Minutes",IntegerToString(InpSARConfirmMinutes),clrAqua);
+   RightProRow("Continuous Gap",DoubleToString(InpContinuousOrderPriceGap,0),clrAqua);
+   RightProRow("Gap Wait",IntegerToString(InpContinuousOrderGapMinutes)+"m",clrAqua);
+   RightProRow("Signal Side Gap",DoubleToString(InpSARSignalPriceSideMinGap,0),clrAqua);
+   RightProRow("SAR Cycle",IntegerToString(g_sarCycleOrdersCreated)+"/"+IntegerToString(g_sarCycleMaxOrders),g_sarCycleOrdersCreated>=g_sarCycleMaxOrders ? clrOrangeRed : clrLime);
+
+   RightProRow("--- PROTECTION ---","",clrDimGray);
+   RightProRow("Big Candle",DoubleToString(InpBigCandleRawDifference,0)+" | Pause "+IntegerToString(InpBigCandlePauseMinutes)+"m",clrYellow);
+   RightProRow("Last3 Move",DoubleToString(InpLast3CandlesRawDifference,0)+" | Pause "+IntegerToString(InpLast3CandlesPauseMinutes)+"m",clrYellow);
+   RightProRow("Global Trail",g_globalEquityTrailStatus,g_globalEquityTrailLocked ? clrOrangeRed : clrAqua);
+   RightProRow("No-New Hours",NoNewOrderHoursStatusText(),IsNoNewOrderHour() ? clrOrangeRed : clrLime);
+
+   DrawCornerPanel("DXB_RIGHT_ACCOUNT_PANEL",CORNER_RIGHT_UPPER,385,590,380,260,clrBlack,clrDimGray);
+   DrawCornerLabel("DXB_RIGHT_ACCOUNT_TITLE","ACCOUNT / BASKET STATUS",CORNER_RIGHT_UPPER,360,598,clrYellow,10);
+
+   int startRow = g_rightDashRow;
+   g_rightDashRow = 0;
+   int baseY = 622;
+
+   DrawCornerLabel("DXB_ACC_0",PadTitle("Balance",20)+" : $"+DoubleToString(AccountBalance(),2),CORNER_RIGHT_UPPER,380,baseY+(g_rightDashRow++*16),clrWhite,8);
+   DrawCornerLabel("DXB_ACC_1",PadTitle("Equity",20)+" : $"+DoubleToString(AccountEquity(),2),CORNER_RIGHT_UPPER,380,baseY+(g_rightDashRow++*16),clrAqua,8);
+   DrawCornerLabel("DXB_ACC_2",PadTitle("Equity Peak",20)+" : $"+DoubleToString(g_globalEquityPeak,2),CORNER_RIGHT_UPPER,380,baseY+(g_rightDashRow++*16),clrAqua,8);
+   DrawCornerLabel("DXB_ACC_3",PadTitle("Base Balance",20)+" : $"+DoubleToString(g_baseBalance,2),CORNER_RIGHT_UPPER,380,baseY+(g_rightDashRow++*16),clrWhite,8);
+   DrawCornerLabel("DXB_ACC_4",PadTitle("BUY Basket",20)+" : $"+DoubleToString(GetBasketProfit(1),2),CORNER_RIGHT_UPPER,380,baseY+(g_rightDashRow++*16),GetBasketProfit(1)>=0 ? clrLime : clrRed,8);
+   DrawCornerLabel("DXB_ACC_5",PadTitle("SELL Basket",20)+" : $"+DoubleToString(GetBasketProfit(-1),2),CORNER_RIGHT_UPPER,380,baseY+(g_rightDashRow++*16),GetBasketProfit(-1)>=0 ? clrLime : clrRed,8);
+   DrawCornerLabel("DXB_ACC_6",PadTitle("Floating Total",20)+" : $"+DoubleToString(GetAllOpenEAOrdersProfit(),2),CORNER_RIGHT_UPPER,380,baseY+(g_rightDashRow++*16),GetAllOpenEAOrdersProfit()>=0 ? clrLime : clrRed,8);
+   DrawCornerLabel("DXB_ACC_7",PadTitle("Daily Target",20)+" : $"+DoubleToString(g_profitTargetEquity,2),CORNER_RIGHT_UPPER,380,baseY+(g_rightDashRow++*16),clrLime,8);
+   DrawCornerLabel("DXB_ACC_8",PadTitle("Loss Stop",20)+" : $"+DoubleToString(g_lossStopEquityLevel,2),CORNER_RIGHT_UPPER,380,baseY+(g_rightDashRow++*16),clrRed,8);
+   DrawCornerLabel("DXB_ACC_9",PadTitle("Open Orders",20)+" : "+IntegerToString(CountAllOrders())+" / "+IntegerToString(InpMaxTotalOpenOrders),CORNER_RIGHT_UPPER,380,baseY+(g_rightDashRow++*16),CountAllOrders()>=InpMaxTotalOpenOrders && InpMaxTotalOpenOrders>0 ? clrOrangeRed : clrLime,8);
+   DrawCornerLabel("DXB_ACC_10",PadTitle("SAR Max Rule",20)+" : Max "+IntegerToString(GetDynamicSARMaxOrders()),CORNER_RIGHT_UPPER,380,baseY+(g_rightDashRow++*16),GetDynamicSARMaxOrders()<=0 ? clrRed : clrYellow,8);
+   DrawCornerLabel("DXB_ACC_11",PadTitle("Next Reset",20)+" : "+FormatSecondsToHHMM(GetSecondsUntilNextEquityReset()),CORNER_RIGHT_UPPER,380,baseY+(g_rightDashRow++*16),clrAqua,8);
+
+   g_rightDashRow = startRow;
 
    Print("DASHBOARD UPDATE | Status=", status,
          " | SAR=", DirectionText(g_activeSARDirection),
@@ -8163,277 +8391,6 @@ void DrawDashboard(string status)
          " | Flat Mode=", (g_flatMode ? "YES" : "NO"),
          " | EquityCycle=#", IntegerToString(g_equityCycleNumber),
          " | NextReset=", FormatSecondsToHHMM(GetSecondsUntilNextEquityReset()));
-
-// DashRow("--------------------------------","",clrGray);
-
-   DashRow("SAR Direction",
-           DirectionText(g_activeSARDirection),
-           g_activeSARDirection==1 ? clrLime : clrRed);
-
-   DashRow("SAR Close Delay",
-           g_sarDelayedCloseStatus + " | Count " + IntegerToString(g_sarChangesAfterLastNormalOrder) +
-           "/" + IntegerToString(MathMax(1, InpCloseOrdersOnNthSARChangeAfterOrder)),
-           g_sarCloseTrackedDirection == 0 ? clrWhite : clrYellow);
-
-   DashRow("Tracked Order Dir",
-           DirectionText(g_sarCloseTrackedDirection),
-           g_sarCloseTrackedDirection == 1 ? clrLime : (g_sarCloseTrackedDirection == -1 ? clrRed : clrWhite));
-
-   DashRow("EMA Trend",
-           DirectionText(g_pendingSARConfirmDirection),
-           g_pendingSARConfirmDirection==1 ? clrLime : clrRed);
-
-   DashRow("H1 Trend",
-           DirectionText(GetH1TrendDirection()),
-           GetH1TrendDirection()==1 ? clrLime : clrRed);
-
-           DashRow("SAR Dot Dist",
-           DoubleToString(g_sarGoodMomentumDotDistance, 2),
-           g_sarGoodMomentumDotDistance >= InpSARGoodMomentumMinDotDistance ? clrLime : clrOrange);
-
-   DashRow("SAR Momentum",
-           IsCurrentSARGoodMomentum(g_activeSARDirection) ? "GOOD" : "WEAK",
-           g_sarGoodMomentum ? clrLime : clrOrangeRed);
-
-   DashRow("Big Candle Pause",
-           BigCandlePauseStatusText(),
-           g_bigCandlePause ? clrOrangeRed : clrLime);
-
-   DashRow("SAR Cycle Count",
-           IntegerToString(g_sarCycleOrdersCreated) + "/" + IntegerToString(g_sarCycleMaxOrders),
-           g_sarCycleOrdersCreated >= g_sarCycleMaxOrders ? clrOrangeRed : clrLime);
-
-   DashRow("Max Open/Recovery",
-           "Open " + IntegerToString(InpMaxOrders) + " | Rec " + IntegerToString(InpMaxRecoveryGapOrdersPerSide),
-           clrYellow);
-
-   DashRow("Recovery Gap Step",
-           DoubleToString(InpRecoveryGapRawPrice,0) + "," +
-           DoubleToString(InpRecoveryGapRawPrice*2,0) + "," +
-           DoubleToString(InpRecoveryGapRawPrice*3,0),
-           clrAqua);
-
-
-   DashRow("Pending SAR",
-           DirectionText(g_pendingSARConfirmDirection),
-           g_pendingSARConfirmDirection == 0 ? clrLime : clrOrange);
-
-   DashRow("SAR Change Min",
-           SARConfirmDurationStatusText(),
-           g_pendingSARConfirmDirection == 0 ? clrLime : clrOrange);
-
-   DashRow("SAR Price Diff",
-           DoubleToString(GetSARConfirmCurrentPriceDiff(), 2) + " / " + DoubleToString(GetDynamicSARRequiredConfirmDiff(), 2),
-           GetSARConfirmCurrentPriceDiff() >= GetDynamicSARRequiredConfirmDiff() ? clrLime : clrOrange);
-
-   DashRow("SAR Signal Side",
-           SARSignalSideStatusText(),
-           (!InpUseSARSignalPriceSideFilter || GetSARSignalSidePriceDiff(g_activeSARDirection) >= MathMax(0.0, InpSARSignalPriceSideMinGap)) ? clrLime : clrOrangeRed);
-
-   DashRow("SAR Score",
-           IntegerToString(g_dynamicSARScore) + " / " + IntegerToString(InpDynamicStrongScore) + " | " + g_dynamicSARDecision,
-           g_dynamicSARScore >= InpDynamicStrongScore ? clrLime : clrOrange);
-
-   DashRow("SAR Age",
-           IntegerToString(GetSARSignalAgeMinutes()) + "m / " + IntegerToString(InpDynamicMinSignalMinutes) + "m",
-           GetSARSignalAgeMinutes() >= InpDynamicMinSignalMinutes ? clrLime : clrOrange);
-
-   DashRow("Early SAR Exit",
-           g_earlySARWeakExitActive ? "WEAK - PROTECT" : "OFF",
-           g_earlySARWeakExitActive ? clrOrangeRed : clrLime);
-
-   DashRow("Basket Peak",
-           "$" + DoubleToString(g_activeBasketPeakProfit, 2),
-           g_activeBasketPeakProfit > 0 ? clrLime : clrWhite);
-
-   DashRow("Dynamic ATR",
-           DoubleToString(g_dynamicSARATR, 2),
-           clrWhite);
-
-   DashRow("Early Trend",
-           DirectionText(g_earlyDirection),
-           clrAqua);
-
-   DashRow("SAR Paused",
-           g_sarPausedByEarly ? "YES":"NO",
-           g_sarPausedByEarly ? clrOrangeRed : clrLime);
-
-   DashRow("Flat Mode",
-           g_flatMode ? "YES":"NO",
-           g_flatMode ? clrOrange : clrLime);
-
-
-
-   DashRow("Last Candle Move",
-           DoubleToString(g_lastBigCandleMove, 2) + " / " + DoubleToString(InpBigCandleRawDifference, 0),
-           g_bigCandlePause ? clrOrangeRed : clrWhite);
-
-// DashRow("--------------------------------","",clrGray);
-
-// DashRow("BUY Orders",
-//         IntegerToString(CountOrdersByDirection(1)));
-
-   DashRow("BUY Profit",
-           "$"+DoubleToString(GetBasketProfit(1),2),
-           GetBasketProfit(1)>=0 ? clrLime : clrRed);
-
-// DashRow("SELL Orders",
-//         IntegerToString(CountOrdersByDirection(-1)));
-
-   DashRow("SELL Profit",
-           "$"+DoubleToString(GetBasketProfit(-1),2),
-           GetBasketProfit(-1)>=0 ? clrLime : clrRed);
-
-// DashRow("--------------------------------","",clrGray);
-
-   DashRow("Balance",
-           "$"+DoubleToString(AccountBalance(),2),
-           clrWhite);
-
-   DashRow("Equity",
-           "$"+DoubleToString(AccountEquity(),2),
-           clrAqua);
-
-   DashRow("Equity Trail",
-           g_globalEquityTrailStatus,
-           g_globalEquityTrailLocked ? clrOrangeRed : clrAqua);
-
-   DashRow("Equity Peak",
-           "$"+DoubleToString(g_globalEquityPeak,2),
-           clrAqua);
-
-   DashRow("Base Balance",
-           "$"+DoubleToString(g_baseBalance,2),
-           clrWhite);
-
-   DashRow("Loss Stop",
-           "$"+DoubleToString(g_lossStopEquityLevel,2),
-           clrRed);
-
-   DashRow("Profit Target",
-           "$"+DoubleToString(g_profitTargetEquity,2),
-           clrLime);
-
-   DashRow("Basket TP",
-           "$"+DoubleToString(InpBasketProfitUSD,2),
-           clrLime);
-
-   DashRow("Basket SL",
-           "$"+DoubleToString(InpBasketStopLossUSD,2),
-           clrRed);
-
-   DashRow("Max Open Orders",
-           IntegerToString(CountAllOrders()) + "/" + IntegerToString(InpMaxTotalOpenOrders),
-           CountAllOrders() >= InpMaxTotalOpenOrders ? clrOrangeRed : clrLime);
-
-   DashRow("Recovery Block",
-           "OppGap " + DoubleToString(InpStrongOppMoveBlockRecoveryGap,0),
-           clrYellow);
-
-   int dashboardGuardCount = CountSARSpecialGuardOrders();
-   double dashboardGuardProfit = GetSARSpecialGuardTotalProfit();
-   int dashboardNormalCount = CountAllOrders();
-   int dashboardTotalEAOrders = dashboardNormalCount + dashboardGuardCount;
-
-   DashRow("Special Guard",
-           (InpUseSARSpecialGuardOrder ? "ON " : "OFF ") +
-           IntegerToString(dashboardGuardCount) + "/" + IntegerToString(InpMaxSARSpecialGuardOrders),
-           !InpUseSARSpecialGuardOrder ? clrRed : (dashboardGuardCount > 0 ? clrYellow : clrLime));
-
-   DashRow("Guard Profit",
-           "$" + DoubleToString(dashboardGuardProfit, 2),
-           dashboardGuardProfit >= 0.0 ? clrLime : clrRed);
-
-   DashRow("Guard Trigger",
-           "Loss >= $" + DoubleToString(InpSARSpecialGuardLossUSD, 2) +
-           " | Lot x" + DoubleToString(InpSARSpecialGuardLotMultiplier, 1),
-           clrAqua);
-
-   DashRow("Guard Close Rule",
-           "ONLY WHEN PARENT CLOSES",
-           clrYellow);
-
-   DashRow("Recovery vs Guard",
-           "NO recovery gap for special",
-           clrLime);
-
-   DashRow("EA Orders N/G/T",
-           IntegerToString(dashboardNormalCount) + "/" +
-           IntegerToString(dashboardGuardCount) + "/" +
-           IntegerToString(dashboardTotalEAOrders),
-           dashboardGuardCount > 0 ? clrYellow : clrWhite);
-
-// DashRow("Recovery TP",
-//         "$"+DoubleToString(InpRecoveryProfitUSD,2),
-//         clrGold);
-
-// DashRow("Recovery Orders",
-//         IntegerToString(CountRecoveryOrders()),
-//         CountRecoveryOrders() > 0 ? clrOrange : clrLime);
-
-// DashRow("--------------------------------","",clrGray);
-
-// DashRow("Daily Profit",
-//         "$"+DoubleToString(GetTodayProfitFromBase(),2),
-//         GetTodayProfitFromBase()>=0 ? clrLime : clrRed);
-
-// DashRow("Profit Lock",
-//         g_dailyProfitLock ? "ON":"OFF",
-//         g_dailyProfitLock ? clrOrange : clrLime);
-
-// DashRow("Symbol Orders",
-//         IntegerToString(CountAllSymbolMarketOrders())+
-//         "/"+
-//         IntegerToString(GetDynamicSARMaxOrders()),
-//         clrWhite);
-
-   DashRow("SAR Max Rule",
-           "Max " + IntegerToString(GetDynamicSARMaxOrders()),
-           GetDynamicSARMaxOrders() <= 0 ? clrRed : clrYellow);
-
-
-
-   
-
-   DashRow("ADX / ATR",
-           DoubleToString(g_sarGoodMomentumADX, 1) + " / " + DoubleToString(g_sarGoodMomentumATR, 1),
-           g_sarGoodMomentum ? clrLime : clrWhite);
-
-
-   DashRow("SAR Cycle Dir",
-           DirectionText(g_sarCycleDirection),
-           g_sarCycleDirection == 1 ? clrLime : clrRed);
-
-   DashRow("Opposite SAR",
-           GetOppositeSARDurationSummaryText(),
-           clrYellow);
-
-   DashRow("SAR Durations",
-           GetSARDurationSummaryText(),
-           clrAqua);
-
-   DashRow("Equity Cycle",
-           "#"+IntegerToString(g_equityCycleNumber),
-           clrAqua);
-
-   DashRow("Next Reset",
-           FormatSecondsToHHMM(GetSecondsUntilNextEquityReset()),
-           clrAqua);
-
-   DashRow("No New Hours",
-           NoNewOrderHoursStatusText(),
-           IsNoNewOrderHour() ? clrOrangeRed : clrLime);
-
-   DashRow("Early Arrows",
-           InpDrawEarlyArrows ? "ON" : "OFF",
-           InpDrawEarlyArrows ? clrLime : clrRed);
-
-   DashRow("Notifications",
-           InpSendPushNotifications ? "PUSH ON" : "PUSH OFF",
-           InpSendPushNotifications ? clrLime : clrRed);
-
-   DashRow("Lot Size",
-           DoubleToString(InpFixedLot,2),
-           clrWhite);
   }
+
 //+------------------------------------------------------------------+
