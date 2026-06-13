@@ -117,13 +117,15 @@ double InpRecoveryReverseLot           = 0.01;   // 0 or less = use InpRecoveryG
 // open one opposite hedge order linked to that parent ticket.
 // Guard orders are ignored by normal basket/profit/SL closures and close only when the parent order closes.
 bool   InpUseSARSpecialGuardOrder       = true;
-double InpSARSpecialGuardLossUSD        = 8.00;//InpBasketStopLossUSD   // parent floating loss must be <= -this value
-double InpSARSpecialGuardLotMultiplier  = 10.00;   // 1.0 = same lot as parent order
+double InpSARSpecialGuardLossUSD        = 6.00;//InpBasketStopLossUSD   // parent floating loss must be <= -this value
+double InpSARSpecialGuardLotMultiplier  = 2.00;   // 1.0 = same lot as parent order
 bool   InpSARSpecialGuardRespectSpread  = false;  // SPECIAL GUARD BYPASSES SPREAD/BIG-CANDLE/SAR/NO-HOUR FILTERS. Kept only for old settings display.
 string InpSARSpecialGuardPrefix         = "SAR_SPECIAL_GUARD_ORDER_FOR_";
 int    InpMaxSARSpecialGuardOrders      = 10;      // maximum active SAR special guard orders at the same time
 double InpSARSpecialGuardExtraLossAfterSAROrder = 1.00; // after SAR_FLIP_V2LAST opens, special guard waits until basket loss <= -(InpSARSpecialGuardLossUSD + this value)
 bool   InpSARSpecialGuardRequireSARChange = false;  // false = create guard anytime parent loss reaches trigger, no SAR condition
+bool   InpSpecialGuardCloseOnlyInProfit = true;   // true = if parent closes, guard is NOT closed in loss; it waits until profit
+double InpSpecialGuardMinProfitToClose = 0.01;    // minimum guard profit required to close after parent is gone
 
 // Explicit order comment tags for stable parent/recovery grouping.
 // Normal SAR orders start with SAR_PARENT_.
@@ -3970,8 +3972,27 @@ void ProcessSARSpecialGuardCleanup()
          continue;
 
       int type = OrderType();
-      double closePrice = (type == OP_BUY) ? Bid : Ask;
       double closeProfit = OrderProfit() + OrderSwap() + OrderCommission();
+
+      // New safety rule:
+      // If parent order is closed/profit recovered, do NOT close special guard in loss.
+      // Keep it open until it reaches small profit, then close it.
+      // MT4 does not allow changing an existing order comment, so we keep the guard comment
+      // but make it behave like a regular protected order here.
+      // if(InpSpecialGuardCloseOnlyInProfit && closeProfit < InpSpecialGuardMinProfitToClose)
+      //   {
+      //    Print("SAR SPECIAL GUARD CLEANUP SKIPPED | Waiting guard profit | Guard=#", guardTicket,
+      //          " | Parent=#", parentTicket,
+      //          " | GuardProfit=$", DoubleToString(closeProfit, 2),
+      //          " | Need>=$", DoubleToString(InpSpecialGuardMinProfitToClose, 2),
+      //          " | Parent already closed/recovered");
+
+      //    SetSARSpecialGuardDebugStatus("WAIT PROFIT | Parent closed, guard kept",
+      //                                  parentTicket, 0.0, closeProfit, OrderLots(), 0);
+      //    continue;
+      //   }
+
+      double closePrice = (type == OP_BUY) ? Bid : Ask;
 
       bool ok = OrderClose(guardTicket, OrderLots(), closePrice, InpSlippage, clrYellow);
       if(!ok)
@@ -3989,9 +4010,9 @@ void ProcessSARSpecialGuardCleanup()
 
          g_lastAnyOrderCloseTime = TimeCurrent();
          SetLastOrderCloseDashboard(guardTicket, type, closeProfit, closePrice,
-                                    "SAR special guard closed because parent #" + IntegerToString(parentTicket) + " closed");
+                                    "SAR special guard profit close after parent #" + IntegerToString(parentTicket) + " closed");
 
-         Print("SAR SPECIAL GUARD CLOSED | Guard=#", guardTicket,
+         Print("SAR SPECIAL GUARD PROFIT CLOSED | Guard=#", guardTicket,
                " | Parent=#", parentTicket,
                " | Profit=$", DoubleToString(closeProfit, 2));
         }
