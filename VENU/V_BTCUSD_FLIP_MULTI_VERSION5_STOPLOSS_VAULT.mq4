@@ -222,7 +222,7 @@ int    InpSARAcceleration         = 9;
 // 3) Confirm raw price difference from SAR flip price
 bool   InpUseSARFlipConfirmations = true;
 bool   InpUseSAREMAConfirm        = false;
-bool   InpUseSARClosedCandleConfirm = false;
+bool   InpUseSARClosedCandleConfirm = true;//false;
 bool   InpUseSARPriceDiffConfirm  = true;
 // double InpSARConfirmPriceDiff     = 100.0;   // raw price diff for BTCUSD, not points
 // int    InpSARConfirmMinutes       = 15;     // wait this many minutes after SAR signal change before new order
