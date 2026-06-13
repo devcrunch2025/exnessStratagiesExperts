@@ -8060,7 +8060,7 @@ void RecoveryRow(string title,string value,color clrText=clrWhite)
 void RightProRow(string title,string value,color clrText=clrWhite)
   {
    string text = PadTitle(title,20) + " : " + value;
-   DrawCornerLabel("DXB_PRO_RIGHT_"+IntegerToString(g_rightDashRow),text,CORNER_RIGHT_UPPER,380,45+(g_rightDashRow*16),clrText,8);
+   DrawCornerLabel("DXB_PRO_RIGHT_"+IntegerToString(g_rightDashRow),text,CORNER_RIGHT_UPPER,315,45+(g_rightDashRow*16),clrText,8);
    g_rightDashRow++;
   }
 
@@ -8273,7 +8273,7 @@ void DashRow(string title,string value,color clrText=clrWhite)
    DrawLabel(
       "DXB_ROW_"+IntegerToString(g_dashRow),
       title+" : "+value,
-      380,
+      315,
       20+(g_dashRow*18),
       clrText,
       9
@@ -8325,8 +8325,8 @@ void IncreaseSARMaxWhenDotDistanceAndH1Same()
 
 void DrawDashboard(string status)
   {
-   DrawCornerPanel("DXB_RIGHT_SETTINGS_PANEL",CORNER_RIGHT_UPPER,385,15,380,560,clrBlack,clrDimGray);
-   DrawCornerLabel("DXB_RIGHT_SETTINGS_TITLE","EA SETTINGS / LIVE STATUS",CORNER_RIGHT_UPPER,360,22,clrYellow,10);
+   DrawCornerPanel("DXB_RIGHT_SETTINGS_PANEL",CORNER_RIGHT_UPPER,325,15,320,560,clrBlack,clrDimGray);
+   DrawCornerLabel("DXB_RIGHT_SETTINGS_TITLE","Version 5 / LIVE STATUS",CORNER_RIGHT_UPPER,300,22,clrYellow,10);
 
    g_rightDashRow = 0;
 
@@ -8362,25 +8362,25 @@ void DrawDashboard(string status)
    RightProRow("Global Trail",g_globalEquityTrailStatus,g_globalEquityTrailLocked ? clrOrangeRed : clrAqua);
    RightProRow("No-New Hours",NoNewOrderHoursStatusText(),IsNoNewOrderHour() ? clrOrangeRed : clrLime);
 
-   DrawCornerPanel("DXB_RIGHT_ACCOUNT_PANEL",CORNER_RIGHT_UPPER,385,590,380,260,clrBlack,clrDimGray);
-   DrawCornerLabel("DXB_RIGHT_ACCOUNT_TITLE","ACCOUNT / BASKET STATUS",CORNER_RIGHT_UPPER,360,598,clrYellow,10);
+   DrawCornerPanel("DXB_RIGHT_ACCOUNT_PANEL",CORNER_RIGHT_UPPER,325,590,320,260,clrBlack,clrDimGray);
+   DrawCornerLabel("DXB_RIGHT_ACCOUNT_TITLE","ACCOUNT / BASKET STATUS",CORNER_RIGHT_UPPER,300,598,clrYellow,10);
 
    int startRow = g_rightDashRow;
    g_rightDashRow = 0;
    int baseY = 622;
 
-   DrawCornerLabel("DXB_ACC_0",PadTitle("Balance",20)+" : $"+DoubleToString(AccountBalance(),2),CORNER_RIGHT_UPPER,380,baseY+(g_rightDashRow++*16),clrWhite,8);
-   DrawCornerLabel("DXB_ACC_1",PadTitle("Equity",20)+" : $"+DoubleToString(AccountEquity(),2),CORNER_RIGHT_UPPER,380,baseY+(g_rightDashRow++*16),clrAqua,8);
-   DrawCornerLabel("DXB_ACC_2",PadTitle("Equity Peak",20)+" : $"+DoubleToString(g_globalEquityPeak,2),CORNER_RIGHT_UPPER,380,baseY+(g_rightDashRow++*16),clrAqua,8);
-   DrawCornerLabel("DXB_ACC_3",PadTitle("Base Balance",20)+" : $"+DoubleToString(g_baseBalance,2),CORNER_RIGHT_UPPER,380,baseY+(g_rightDashRow++*16),clrWhite,8);
-   DrawCornerLabel("DXB_ACC_4",PadTitle("BUY Basket",20)+" : $"+DoubleToString(GetBasketProfit(1),2),CORNER_RIGHT_UPPER,380,baseY+(g_rightDashRow++*16),GetBasketProfit(1)>=0 ? clrLime : clrRed,8);
-   DrawCornerLabel("DXB_ACC_5",PadTitle("SELL Basket",20)+" : $"+DoubleToString(GetBasketProfit(-1),2),CORNER_RIGHT_UPPER,380,baseY+(g_rightDashRow++*16),GetBasketProfit(-1)>=0 ? clrLime : clrRed,8);
-   DrawCornerLabel("DXB_ACC_6",PadTitle("Floating Total",20)+" : $"+DoubleToString(GetAllOpenEAOrdersProfit(),2),CORNER_RIGHT_UPPER,380,baseY+(g_rightDashRow++*16),GetAllOpenEAOrdersProfit()>=0 ? clrLime : clrRed,8);
-   DrawCornerLabel("DXB_ACC_7",PadTitle("Daily Target",20)+" : $"+DoubleToString(g_profitTargetEquity,2),CORNER_RIGHT_UPPER,380,baseY+(g_rightDashRow++*16),clrLime,8);
-   DrawCornerLabel("DXB_ACC_8",PadTitle("Loss Stop",20)+" : $"+DoubleToString(g_lossStopEquityLevel,2),CORNER_RIGHT_UPPER,380,baseY+(g_rightDashRow++*16),clrRed,8);
-   DrawCornerLabel("DXB_ACC_9",PadTitle("Open Orders",20)+" : "+IntegerToString(CountAllOrders())+" / "+IntegerToString(InpMaxTotalOpenOrders),CORNER_RIGHT_UPPER,380,baseY+(g_rightDashRow++*16),CountAllOrders()>=InpMaxTotalOpenOrders && InpMaxTotalOpenOrders>0 ? clrOrangeRed : clrLime,8);
-   DrawCornerLabel("DXB_ACC_10",PadTitle("SAR Max Rule",20)+" : Max "+IntegerToString(GetDynamicSARMaxOrders()),CORNER_RIGHT_UPPER,380,baseY+(g_rightDashRow++*16),GetDynamicSARMaxOrders()<=0 ? clrRed : clrYellow,8);
-   DrawCornerLabel("DXB_ACC_11",PadTitle("Next Reset",20)+" : "+FormatSecondsToHHMM(GetSecondsUntilNextEquityReset()),CORNER_RIGHT_UPPER,380,baseY+(g_rightDashRow++*16),clrAqua,8);
+   DrawCornerLabel("DXB_ACC_0",PadTitle("Balance",20)+" : $"+DoubleToString(AccountBalance(),2),CORNER_RIGHT_UPPER,315,baseY+(g_rightDashRow++*16),clrWhite,8);
+   DrawCornerLabel("DXB_ACC_1",PadTitle("Equity",20)+" : $"+DoubleToString(AccountEquity(),2),CORNER_RIGHT_UPPER,315,baseY+(g_rightDashRow++*16),clrAqua,8);
+   DrawCornerLabel("DXB_ACC_2",PadTitle("Equity Peak",20)+" : $"+DoubleToString(g_globalEquityPeak,2),CORNER_RIGHT_UPPER,315,baseY+(g_rightDashRow++*16),clrAqua,8);
+   DrawCornerLabel("DXB_ACC_3",PadTitle("Base Balance",20)+" : $"+DoubleToString(g_baseBalance,2),CORNER_RIGHT_UPPER,315,baseY+(g_rightDashRow++*16),clrWhite,8);
+   DrawCornerLabel("DXB_ACC_4",PadTitle("BUY Basket",20)+" : $"+DoubleToString(GetBasketProfit(1),2),CORNER_RIGHT_UPPER,315,baseY+(g_rightDashRow++*16),GetBasketProfit(1)>=0 ? clrLime : clrRed,8);
+   DrawCornerLabel("DXB_ACC_5",PadTitle("SELL Basket",20)+" : $"+DoubleToString(GetBasketProfit(-1),2),CORNER_RIGHT_UPPER,315,baseY+(g_rightDashRow++*16),GetBasketProfit(-1)>=0 ? clrLime : clrRed,8);
+   DrawCornerLabel("DXB_ACC_6",PadTitle("Floating Total",20)+" : $"+DoubleToString(GetAllOpenEAOrdersProfit(),2),CORNER_RIGHT_UPPER,315,baseY+(g_rightDashRow++*16),GetAllOpenEAOrdersProfit()>=0 ? clrLime : clrRed,8);
+   DrawCornerLabel("DXB_ACC_7",PadTitle("Daily Target",20)+" : $"+DoubleToString(g_profitTargetEquity,2),CORNER_RIGHT_UPPER,315,baseY+(g_rightDashRow++*16),clrLime,8);
+   DrawCornerLabel("DXB_ACC_8",PadTitle("Loss Stop",20)+" : $"+DoubleToString(g_lossStopEquityLevel,2),CORNER_RIGHT_UPPER,315,baseY+(g_rightDashRow++*16),clrRed,8);
+   DrawCornerLabel("DXB_ACC_9",PadTitle("Open Orders",20)+" : "+IntegerToString(CountAllOrders())+" / "+IntegerToString(InpMaxTotalOpenOrders),CORNER_RIGHT_UPPER,315,baseY+(g_rightDashRow++*16),CountAllOrders()>=InpMaxTotalOpenOrders && InpMaxTotalOpenOrders>0 ? clrOrangeRed : clrLime,8);
+   DrawCornerLabel("DXB_ACC_10",PadTitle("SAR Max Rule",20)+" : Max "+IntegerToString(GetDynamicSARMaxOrders()),CORNER_RIGHT_UPPER,315,baseY+(g_rightDashRow++*16),GetDynamicSARMaxOrders()<=0 ? clrRed : clrYellow,8);
+   DrawCornerLabel("DXB_ACC_11",PadTitle("Next Reset",20)+" : "+FormatSecondsToHHMM(GetSecondsUntilNextEquityReset()),CORNER_RIGHT_UPPER,315,baseY+(g_rightDashRow++*16),clrAqua,8);
 
    g_rightDashRow = startRow;
 
