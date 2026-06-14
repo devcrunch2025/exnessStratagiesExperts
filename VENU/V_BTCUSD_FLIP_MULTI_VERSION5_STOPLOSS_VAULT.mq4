@@ -94,6 +94,10 @@ bool   InpUseRecoveryGapOrders    = true;
 // Example: active SAR BUY => only BUY recovery gap orders are allowed.
 // Active SAR SELL => only SELL recovery gap orders are allowed.
 bool   InpRecoveryGapMustMatchSARDirection = true;
+// Recovery gap H1 trend filter:
+// Recovery gap order is allowed only when H1 trend matches the recovery order direction.
+// BUY recovery requires H1 BUY. SELL recovery requires H1 SELL. Range/NONE blocks recovery.
+bool   InpRecoveryGapMustMatchH1Trend = true;
 
 // Pending recovery retry:
 // If recovery gap was matched but order was blocked by SAR/temporary conditions,
@@ -116,7 +120,7 @@ double InpRecoveryReverseLot           = 0.01;   // 0 or less = use InpRecoveryG
 // When SAR changes and an existing parent order is already losing,
 // open one opposite hedge order linked to that parent ticket.
 // Guard orders are ignored by normal basket/profit/SL closures and close only when the parent order closes.
-bool   InpUseSARSpecialGuardOrder       = true;
+bool   InpUseSARSpecialGuardOrder       = false;
 double InpSARSpecialGuardLossUSD        = 6.00;//InpBasketStopLossUSD   // parent floating loss must be <= -this value
 double InpSARSpecialGuardLotMultiplier  = 2.00;   // 1.0 = same lot as parent order
 bool   InpSARSpecialGuardRespectSpread  = false;  // SPECIAL GUARD BYPASSES SPREAD/BIG-CANDLE/SAR/NO-HOUR FILTERS. Kept only for old settings display.
@@ -192,9 +196,12 @@ string InpNoNewOrderHourList      = "";//"0,23";//"13,14,15,16,17,18"; // server
 // Blocks normal SAR orders, SAR_FLIP_V2LAST, recovery orders, recovery-gap orders, recovery hedge orders, and current forming spike candles.
 bool   InpUseBigCandlePause       = true;     // pause new orders after very large candle
 double InpBigCandleRawDifference  = 300;    // raw BTCUSD price difference: High[1]-Low[1]
-int    InpBigCandlePauseMinutes   = 5;       // pause duration after big candle
+int    InpBigCandlePauseMinutes   = 15;       // pause duration after big candle
 bool   InpUseBigCandleFormationBlock = true; // block orders while current candle is forming as a spike/big candle: High[0]-Low[0]
 bool   InpNotifyOnBigCandlePause  = true;     // push notification when big candle pause starts/ends
+bool   InpDrawBigCandleRedMarker  = true;     // draw red marker/box when big candle is detected
+int    InpBigCandleMarkerArrowCode = 159;     // marker symbol for big candle
+color  InpBigCandleMarkerColor    = clrRed;   // red marker color for big candle
 
 // Big candle profit protection:
 // When a > InpBigCandleRawDifference candle/spike appears, all new/recovery orders are blocked.
@@ -213,6 +220,21 @@ int    InpBigCandleRecoveryPauseMinutes = 5;
 bool   InpUseLast3CandlesMovePause = true;
 double InpLast3CandlesRawDifference = 300.0;
 int    InpLast3CandlesPauseMinutes = 5;
+
+// Spike / wick pause protection
+// Blocks new orders after long wick / spike candles. Useful to avoid BUY at top wick or SELL at bottom wick.
+bool   InpUseSpikeWickPauseFilter = true;
+double InpSpikeWickMinRawPrice    = 120.0;   // minimum upper/lower wick raw price to treat as spike
+double InpSpikeWickBodyMaxPercent = 35.0;    // candle body must be small compared to full range
+// Momentum spike detection catches full-body fast candles that do not have a small wick.
+// Example: Range >= 150 or Body >= 100 => pause new orders and mark candle yellow.
+double InpSpikeMomentumRangeRawPrice = 150.0;
+double InpSpikeMomentumBodyRawPrice  = 100.0;
+bool   InpDrawSpikeWickYellowMarker  = true;
+int    InpSpikeWickMarkerArrowCode   = 159;
+int    InpSpikeWickPauseMinutes   = 60;       // wait after spike/wick detected
+bool   InpSpikeWickBlockRecovery  = true;    // block recovery/recovery-gap/hedge also
+bool   InpSpikeWickBlockGuard     = true;    // block SAR special guard also
 
 // SAR settings
 double InpSARPeriod               = 1.2;
@@ -550,6 +572,17 @@ datetime g_lastBigCandleFormationBarTime = 0;
 double   g_lastBigCandleMove       = 0.0;
 bool     g_notifyBigCandlePauseSent = false;
 
+// Spike / wick pause state
+bool     g_spikeWickPause = false;
+datetime g_spikeWickPauseUntil = 0;
+datetime g_lastSpikeWickBarTime = 0;
+double   g_lastSpikeWickWickSize = 0.0;
+double   g_lastSpikeWickBodyPercent = 0.0;
+double   g_lastSpikeWickRangeSize = 0.0;
+double   g_lastSpikeWickBodySize = 0.0;
+int      g_lastSpikeWickShift = -1;
+string   g_spikeWickLastReason = "OFF";
+
 // Last 5 SAR change duration arrays
 datetime g_sarChangeTimes[5];
 int      g_sarChangeDirections[5];
@@ -697,6 +730,28 @@ bool TryOpenEarlySameSARExtraOrder111111()
 
    return false;
 }
+
+int GetH2TrendDirection()
+  {
+
+
+   double currentPrice = Close[0];
+
+// M1 chart: 30 candles = 30 minutes ago
+   double price30MinAgo = iClose(Symbol(), PERIOD_M1, 120);
+
+   double diff = currentPrice - price30MinAgo;
+
+   if(diff >= 100)
+      return 1;   // BUY trend
+
+   if(diff <= -100)
+      return -1;  // SELL trend
+
+   return 0;      // RANGE
+
+
+  }
 int GetH1TrendDirection()
   {
 
@@ -787,6 +842,40 @@ bool IsOrderAllowedByH1Trend(int orderDirection)
      }
 
    return true;
+  }
+
+
+//+------------------------------------------------------------------+
+//| Recovery gap H1 trend filter                                     |
+//| Blocks recovery gap orders unless H1 trend matches order side.    |
+//+------------------------------------------------------------------+
+bool IsRecoveryGapAllowedByH1Trend(int direction)
+  {
+   if(!InpRecoveryGapMustMatchH1Trend)
+      return(true);
+
+   int h1Trend = GetH2TrendDirection();
+
+   if(h1Trend == 0)
+     {
+      string msg = "RECOVERY GAP BLOCKED | H1 trend is RANGE/NONE";
+      SetLastOrderBlockDashboard(msg);
+      Print(msg,
+            " | RecoveryDir=", DirectionText(direction));
+      return(false);
+     }
+
+   if(direction != h1Trend)
+     {
+      string msg2 = "RECOVERY GAP BLOCKED | H1 trend mismatch";
+      SetLastOrderBlockDashboard(msg2 + " | H1=" + DirectionText(h1Trend));
+      Print(msg2,
+            " | RecoveryDir=", DirectionText(direction),
+            " | H1Trend=", DirectionText(h1Trend));
+      return(false);
+     }
+
+   return(true);
   }
 
 //+------------------------------------------------------------------+
@@ -1116,6 +1205,7 @@ void ResetTradingCycleState()
    g_sarDelayedCloseStatus          = "WAIT ORDER";
    ResetSARFlipConfirmation();
    ResetBigCandlePauseState();
+   ResetSpikeWickPauseState();
 
    Print("TRADING CYCLE RESET | Waiting for fresh SAR direction after equity stats reset.");
   }
@@ -2146,6 +2236,55 @@ void ResetBigCandlePauseState()
   }
 
 //+------------------------------------------------------------------+
+//| Draw red marker/box on big candle                                |
+//+------------------------------------------------------------------+
+void DrawBigCandleRedMarker(int shift, double move, string reason)
+  {
+   if(!InpDrawBigCandleRedMarker)
+      return;
+
+   if(shift < 0 || Bars <= shift + 1)
+      return;
+
+   datetime t1 = Time[shift];
+   datetime t2 = t1 + Period() * 60;
+   if(shift > 0)
+      t2 = Time[shift - 1];
+
+   string baseName  = OBJ_PREFIX + "BIG_CANDLE_RED_" + IntegerToString((int)t1);
+   string rectName  = baseName + "_RECT";
+   string arrowName = baseName + "_ARROW";
+
+   // Avoid repeated object creation on every tick for same candle.
+   if(ObjectFind(0, rectName) >= 0 || ObjectFind(0, arrowName) >= 0)
+      return;
+
+   double h = iHigh(Symbol(), PERIOD_M1, shift);
+   double l = iLow(Symbol(), PERIOD_M1, shift);
+
+   string label = "BIG CANDLE RED | Move=" + DoubleToString(move, 1) + " | " + reason;
+
+   if(ObjectCreate(0, rectName, OBJ_RECTANGLE, 0, t1, h, t2, l))
+     {
+      ObjectSetInteger(0, rectName, OBJPROP_COLOR, InpBigCandleMarkerColor);
+      ObjectSetInteger(0, rectName, OBJPROP_STYLE, STYLE_SOLID);
+      ObjectSetInteger(0, rectName, OBJPROP_WIDTH, 2);
+      ObjectSetInteger(0, rectName, OBJPROP_BACK, false);
+      ObjectSetString(0, rectName, OBJPROP_TEXT, label);
+     }
+
+   double markerPrice = h + MathMax(30 * Point, MarketInfo(Symbol(), MODE_SPREAD) * Point);
+   if(ObjectCreate(0, arrowName, OBJ_ARROW, 0, t1, markerPrice))
+     {
+      ObjectSetInteger(0, arrowName, OBJPROP_ARROWCODE, InpBigCandleMarkerArrowCode);
+      ObjectSetInteger(0, arrowName, OBJPROP_COLOR, InpBigCandleMarkerColor);
+      ObjectSetInteger(0, arrowName, OBJPROP_WIDTH, 4);
+      ObjectSetInteger(0, arrowName, OBJPROP_BACK, false);
+      ObjectSetString(0, arrowName, OBJPROP_TEXT, label);
+     }
+  }
+
+//+------------------------------------------------------------------+
 int GetClosedCandleDirection(int shift)
   {
    if(shift < 0 || shift >= Bars)
@@ -2239,6 +2378,8 @@ void CheckBigCandleFormationPauseOnTick()
    g_bigCandlePauseSARDirection = sarDirection;
    g_notifyBigCandlePauseSent = true;
 
+   DrawBigCandleRedMarker(0, formingMove, "FORMING CANDLE");
+
    Print("BIG CANDLE FORMATION / SPIKE PAUSE STARTED | CurrentMove=", DoubleToString(formingMove, Digits),
          " Required=", DoubleToString(InpBigCandleRawDifference, Digits),
          " Candle=", DirectionText(candleDirection),
@@ -2302,6 +2443,8 @@ void CheckBigCandlePauseOnNewBar(bool isNewBar)
    g_bigCandlePauseUntil = TimeCurrent() + MathMax(1, InpBigCandlePauseMinutes) * 60;
    g_bigCandlePauseSARDirection = sarDirection;
    g_notifyBigCandlePauseSent = true;
+
+   DrawBigCandleRedMarker(1, candleMove, "CLOSED CANDLE");
 
    Print("BIG CANDLE PAUSE STARTED - BLOCK SAR_FLIP_V2LAST | Move=", DoubleToString(candleMove, Digits),
          " Required=", DoubleToString(InpBigCandleRawDifference, Digits),
@@ -2389,6 +2532,9 @@ bool IsBigCandlePauseActive()
 //+------------------------------------------------------------------+
 bool EnforceBigCandleOrderBlock(string source)
   {
+   if(EnforceSpikeWickOrderBlock(source, InpSpikeWickBlockRecovery, InpSpikeWickBlockGuard))
+      return(true);
+
    if(!InpUseBigCandlePause)
       return(false);
 
@@ -2451,6 +2597,8 @@ bool EnforceBigCandleOrderBlock(string source)
       if(g_bigCandlePauseSARDirection == 0)
          g_bigCandlePauseSARDirection = GetSARDotDirection(1);
 
+      DrawBigCandleRedMarker(1, last3Move, "LAST 3 CANDLES MOVE");
+
       Print("LAST 3 CANDLES MOVE ORDER BLOCK ACTIVE | Source=", source,
             " | Move=", DoubleToString(last3Move, Digits),
             " | Required=", DoubleToString(InpLast3CandlesRawDifference, Digits),
@@ -2485,6 +2633,8 @@ bool EnforceBigCandleOrderBlock(string source)
       if(g_bigCandlePauseSARDirection == 0)
          g_bigCandlePauseSARDirection = GetSARDotDirection(1);
 
+      DrawBigCandleRedMarker(maxShift, maxMove, "ORDER BLOCK");
+
       Print("BIG CANDLE ORDER BLOCK ACTIVE | Source=", source,
             " | Shift=", maxShift,
             " | Move=", DoubleToString(maxMove, Digits),
@@ -2512,6 +2662,257 @@ string BigCandlePauseStatusText()
    return("ON " + FormatSecondsToHHMM(secondsLeft) +
           " | ALL ORDERS BLOCKED | LastMove=" + DoubleToString(g_lastBigCandleMove, 1));
   }
+
+//+------------------------------------------------------------------+
+//| Spike / wick pause filter                                        |
+//+------------------------------------------------------------------+
+void ResetSpikeWickPauseState()
+  {
+   g_spikeWickPause = false;
+   g_spikeWickPauseUntil = 0;
+   g_lastSpikeWickBarTime = 0;
+   g_lastSpikeWickWickSize = 0.0;
+   g_lastSpikeWickBodyPercent = 0.0;
+   g_lastSpikeWickRangeSize = 0.0;
+   g_lastSpikeWickBodySize = 0.0;
+   g_lastSpikeWickShift = -1;
+   g_spikeWickLastReason = "OFF";
+  }
+
+//+------------------------------------------------------------------+
+bool IsSpikeWickCandle(int shift, string &reason, double &maxWick, double &bodyPercent, double &rangeSize, double &bodySize)
+  {
+   reason = "";
+   maxWick = 0.0;
+   bodyPercent = 100.0;
+   rangeSize = 0.0;
+   bodySize = 0.0;
+
+   if(!InpUseSpikeWickPauseFilter)
+      return(false);
+
+   if(Bars <= shift + 5 || shift < 0)
+      return(false);
+
+   double o = iOpen(Symbol(), PERIOD_M1, shift);
+   double c = iClose(Symbol(), PERIOD_M1, shift);
+   double h = iHigh(Symbol(), PERIOD_M1, shift);
+   double l = iLow(Symbol(), PERIOD_M1, shift);
+
+   bodySize = MathAbs(c - o);
+   rangeSize = h - l;
+
+   if(rangeSize <= 0.0)
+      return(false);
+
+   double upperWick = h - MathMax(o, c);
+   double lowerWick = MathMin(o, c) - l;
+   maxWick = MathMax(upperWick, lowerWick);
+   bodyPercent = (bodySize / rangeSize) * 100.0;
+
+   bool wickLarge     = (InpSpikeWickMinRawPrice > 0.0 && maxWick >= InpSpikeWickMinRawPrice);
+   bool bodySmall     = (bodyPercent <= InpSpikeWickBodyMaxPercent);
+   bool rangeSpike    = (InpSpikeMomentumRangeRawPrice > 0.0 && rangeSize >= InpSpikeMomentumRangeRawPrice);
+   bool momentumSpike = (InpSpikeMomentumBodyRawPrice > 0.0 && bodySize >= InpSpikeMomentumBodyRawPrice);
+
+   // 1) Classic wick spike: long upper/lower wick and small body.
+   if(wickLarge && bodySmall)
+     {
+      string side = "WICK";
+      if(upperWick >= lowerWick && upperWick >= InpSpikeWickMinRawPrice)
+         side = "UPPER WICK";
+      else if(lowerWick > upperWick && lowerWick >= InpSpikeWickMinRawPrice)
+         side = "LOWER WICK";
+
+      reason = "SPIKE/" + side +
+               " | Range=" + DoubleToString(rangeSize, 1) +
+               " | Body=" + DoubleToString(bodySize, 1) +
+               " | Wick=" + DoubleToString(maxWick, 1) +
+               " | Body%=" + DoubleToString(bodyPercent, 1);
+      return(true);
+     }
+
+   // 2) Momentum spike: full-body fast candle without a long wick.
+   // This catches candles like Range=185 and Body=118 that were not detected by wick-only logic.
+   if(rangeSpike || momentumSpike)
+     {
+      string type = "MOMENTUM SPIKE";
+      if(rangeSpike && !momentumSpike)
+         type = "LONG RANGE SPIKE";
+      else if(momentumSpike && !rangeSpike)
+         type = "LONG BODY SPIKE";
+
+      reason = type +
+               " | Range=" + DoubleToString(rangeSize, 1) +
+               " | Body=" + DoubleToString(bodySize, 1) +
+               " | Wick=" + DoubleToString(maxWick, 1) +
+               " | Body%=" + DoubleToString(bodyPercent, 1);
+      return(true);
+     }
+
+   return(false);
+  }
+
+//+------------------------------------------------------------------+
+void DrawSpikeWickYellowMarker(int shift, string reason)
+  {
+   if(!InpDrawSpikeWickYellowMarker)
+      return;
+
+   if(shift < 0 || Bars <= shift + 1)
+      return;
+
+   datetime t1 = Time[shift];
+   datetime t2 = t1 + Period() * 60;
+   if(shift > 0)
+      t2 = Time[shift - 1];
+
+   string baseName = OBJ_PREFIX + "SPIKE_WICK_YELLOW_" + IntegerToString((int)t1);
+   string rectName = baseName + "_RECT";
+   string arrowName = baseName + "_ARROW";
+
+   ObjectDelete(0, rectName);
+   ObjectDelete(0, arrowName);
+
+   double h = iHigh(Symbol(), PERIOD_M1, shift);
+   double l = iLow(Symbol(), PERIOD_M1, shift);
+
+   if(ObjectCreate(0, rectName, OBJ_RECTANGLE, 0, t1, h, t2, l))
+     {
+      ObjectSetInteger(0, rectName, OBJPROP_COLOR, clrYellow);
+      ObjectSetInteger(0, rectName, OBJPROP_STYLE, STYLE_SOLID);
+      ObjectSetInteger(0, rectName, OBJPROP_WIDTH, 1);
+      ObjectSetInteger(0, rectName, OBJPROP_BACK, false);
+      ObjectSetString(0, rectName, OBJPROP_TEXT, reason);
+     }
+
+   double markerPrice = h + MathMax(20 * Point, MarketInfo(Symbol(), MODE_SPREAD) * Point);
+   if(ObjectCreate(0, arrowName, OBJ_ARROW, 0, t1, markerPrice))
+     {
+      ObjectSetInteger(0, arrowName, OBJPROP_ARROWCODE, InpSpikeWickMarkerArrowCode);
+      ObjectSetInteger(0, arrowName, OBJPROP_COLOR, clrYellow);
+      ObjectSetInteger(0, arrowName, OBJPROP_WIDTH, 3);
+      ObjectSetInteger(0, arrowName, OBJPROP_BACK, false);
+      ObjectSetString(0, arrowName, OBJPROP_TEXT, reason);
+     }
+  }
+
+//+------------------------------------------------------------------+
+void StartSpikeWickPause(int shift, string reason, double maxWick, double bodyPercent, double rangeSize, double bodySize, string source)
+  {
+   int pauseMinutes = MathMax(1, InpSpikeWickPauseMinutes);
+   datetime newUntil = TimeCurrent() + pauseMinutes * 60;
+
+   if(!g_spikeWickPause || newUntil > g_spikeWickPauseUntil)
+      g_spikeWickPauseUntil = newUntil;
+
+   g_spikeWickPause = true;
+   g_lastSpikeWickShift = shift;
+   g_lastSpikeWickBarTime = Time[shift];
+   g_lastSpikeWickWickSize = maxWick;
+   g_lastSpikeWickBodyPercent = bodyPercent;
+   g_lastSpikeWickRangeSize = rangeSize;
+   g_lastSpikeWickBodySize = bodySize;
+   g_spikeWickLastReason = reason + " | Pause " + IntegerToString(pauseMinutes) + "m";
+
+   DrawSpikeWickYellowMarker(shift, reason);
+
+   SetLastOrderBlockDashboard(g_spikeWickLastReason + " | Source=" + source);
+
+   Print("SPIKE/WICK PAUSE STARTED | Source=", source,
+         " | Shift=", shift,
+         " | ", reason,
+         " | PauseUntil=", TimeToString(g_spikeWickPauseUntil, TIME_DATE|TIME_SECONDS),
+         " | New normal/recovery/guard orders blocked");
+  }
+
+//+------------------------------------------------------------------+
+bool IsSpikeWickPauseActive()
+  {
+   if(!InpUseSpikeWickPauseFilter)
+      return(false);
+
+   if(!g_spikeWickPause)
+      return(false);
+
+   if(TimeCurrent() >= g_spikeWickPauseUntil)
+     {
+      Print("SPIKE/WICK PAUSE FINISHED | LastReason=", g_spikeWickLastReason);
+      ResetSpikeWickPauseState();
+      return(false);
+     }
+
+   return(true);
+  }
+
+//+------------------------------------------------------------------+
+bool EnforceSpikeWickOrderBlock(string source, bool blockRecovery, bool blockGuard)
+  {
+   if(!InpUseSpikeWickPauseFilter)
+      return(false);
+
+   if(StringFind(source, "Recovery") >= 0 || StringFind(source, "RECOVERY") >= 0)
+     {
+      if(!blockRecovery)
+         return(false);
+     }
+
+   if(StringFind(source, "Guard") >= 0 || StringFind(source, "GUARD") >= 0)
+     {
+      if(!blockGuard)
+         return(false);
+     }
+
+   string reason0 = "", reason1 = "";
+   double wick0 = 0.0, wick1 = 0.0, bodyPct0 = 0.0, bodyPct1 = 0.0;
+   double range0 = 0.0, range1 = 0.0, body0 = 0.0, body1 = 0.0;
+
+   if(IsSpikeWickCandle(0, reason0, wick0, bodyPct0, range0, body0))
+     {
+      StartSpikeWickPause(0, reason0, wick0, bodyPct0, range0, body0, source);
+      return(true);
+     }
+
+   if(IsSpikeWickCandle(1, reason1, wick1, bodyPct1, range1, body1))
+     {
+      // avoid restarting every tick for the same closed candle, but keep active pause blocking
+      if(Time[1] != g_lastSpikeWickBarTime)
+         StartSpikeWickPause(1, reason1, wick1, bodyPct1, range1, body1, source);
+      else if(!g_spikeWickPause)
+         StartSpikeWickPause(1, reason1, wick1, bodyPct1, range1, body1, source);
+
+      return(true);
+     }
+
+   if(IsSpikeWickPauseActive())
+     {
+      SetLastOrderBlockDashboard("SPIKE/WICK PAUSE ACTIVE | " + SpikeWickPauseStatusText() + " | Source=" + source);
+      return(true);
+     }
+
+   return(false);
+  }
+
+//+------------------------------------------------------------------+
+string SpikeWickPauseStatusText()
+  {
+   if(!InpUseSpikeWickPauseFilter)
+      return("OFF");
+
+   if(!g_spikeWickPause)
+      return("OFF");
+
+   int secondsLeft = (int)(g_spikeWickPauseUntil - TimeCurrent());
+   if(secondsLeft < 0)
+      secondsLeft = 0;
+
+   return("ON " + FormatSecondsToHHMM(secondsLeft) +
+          " | Range=" + DoubleToString(g_lastSpikeWickRangeSize, 1) +
+          " | Body=" + DoubleToString(g_lastSpikeWickBodySize, 1) +
+          " | Wick=" + DoubleToString(g_lastSpikeWickWickSize, 1) +
+          " | Body%=" + DoubleToString(g_lastSpikeWickBodyPercent, 1));
+  }
+
 
 //+------------------------------------------------------------------+
 void UpdateBarAndSARVisualState(bool isNewBar)
@@ -2906,6 +3307,11 @@ bool OpenRecoveryGapMarketOrder(int direction, double gapMove)
       return(false);
      }
 
+   // H1 trend filter for recovery gap orders.
+   // Recovery gap order is created only when H1 trend is in the same direction.
+   if(!IsRecoveryGapAllowedByH1Trend(direction))
+      return(false);
+
    // Big candle protection: do not create recovery gap orders during/after a big candle pause.
    CheckBigCandlePauseOnNewBar(true);
    if(EnforceBigCandleOrderBlock("OpenRecoveryGapMarketOrder"))
@@ -3197,6 +3603,10 @@ bool TryOpenPendingRecoveryGap()
    // Wait until SAR is aligned with the stored recovery direction.
    if(InpRecoveryGapMustMatchSARDirection &&
       direction != g_activeSARDirection)
+      return(false);
+
+   // Wait until H1 trend also matches the stored recovery direction.
+   if(!IsRecoveryGapAllowedByH1Trend(direction))
       return(false);
 
    double basePrice = 0.0;
@@ -4004,6 +4414,15 @@ bool OpenSARSpecialGuardOrder(int direction, double lot, int parentTicket)
      }
 
    string commentText = InpSARSpecialGuardPrefix + IntegerToString(parentTicket);
+
+   if(EnforceSpikeWickOrderBlock("OpenSARSpecialGuardOrder", InpSpikeWickBlockRecovery, InpSpikeWickBlockGuard))
+     {
+      double keepParentProfit = (g_sarSpecialGuardLastParentTicket == parentTicket) ? g_sarSpecialGuardLastParentProfit : 0.0;
+      double keepParentRecoveryProfit = (g_sarSpecialGuardLastParentTicket == parentTicket) ? g_sarSpecialGuardLastParentRecoveryProfit : 0.0;
+      SetSARSpecialGuardDebugStatus("BLOCKED | Spike/Wick pause",
+                                    parentTicket, keepParentProfit, keepParentRecoveryProfit, guardLot, 0);
+      return(false);
+     }
 
    ResetLastError();
 
@@ -5492,6 +5911,9 @@ void OnTick()
 
 
    RefreshRates();
+
+   // Update spike/wick pause status on every tick so dashboard shows it immediately.
+   EnforceSpikeWickOrderBlock("OnTick dashboard scan", InpSpikeWickBlockRecovery, InpSpikeWickBlockGuard);
 
    ProcessSARSpecialGuardCleanup();
    // SAR_FLIP_V2LAST has first priority.
@@ -8275,8 +8697,9 @@ void DrawRecoveryChecklistPanel(int direction)
    bool countOk = (CountRecoveryGapOrdersByDirection(1) < InpMaxRecoveryGapOrdersPerSide || CountRecoveryGapOrdersByDirection(-1) < InpMaxRecoveryGapOrdersPerSide);
    bool pending = (g_pendingRecoveryGapDirection != 0);
    bool bigOk = !IsBigCandlePauseActive();
+   bool spikeOk = !IsSpikeWickPauseActive();
    bool strongOk = true;
-   bool allowed = enabled && matchOk && countOk && bigOk && strongOk;
+   bool allowed = enabled && matchOk && countOk && bigOk && spikeOk && strongOk;
 
    DrawCornerPanel("DXB_RECOVERY_PANEL",CORNER_LEFT_UPPER,5,595,405,260,clrBlack,clrDimGray);
    DrawCornerLabel("DXB_RECOVERY_TITLE","RECOVERY ORDER CHECKLIST",CORNER_LEFT_UPPER,10,602,clrYellow,9);
@@ -8292,6 +8715,7 @@ void DrawRecoveryChecklistPanel(int direction)
    RecoveryRow("Pending Recovery",pending ? DirectionText(g_pendingRecoveryGapDirection)+" Gap "+DoubleToString(g_pendingRecoveryGapMove,0) : "NONE",pending ? clrYellow : clrSilver);
    RecoveryRow("Pending Reason",StringSubstr(g_pendingRecoveryGapReason,0,42),pending ? clrYellow : clrSilver);
    RecoveryRow("Big Candle Block",YesNo(!bigOk),bigOk ? clrLime : clrOrangeRed);
+   RecoveryRow("Spike/Wick Block",YesNo(!spikeOk),spikeOk ? clrLime : clrOrangeRed);
    RecoveryRow("Strong Opp Block",OnOff(InpStopRecoveryOnStrongOppMove)+" | Gap "+DoubleToString(InpStrongOppMoveBlockRecoveryGap,0),clrYellow);
    RecoveryRow("Reverse With Rec",OnOff(InpOpenReverseOrderWithRecovery),InpOpenReverseOrderWithRecovery ? clrYellow : clrSilver);
   }
@@ -8312,6 +8736,7 @@ void DrawLeftOrderCreationChecklist(string mainStatus)
    bool okNoHour        = (!IsNoNewOrderHour());
    bool okProfitPause   = (!IsProfitProtectPauseActive());
    bool okBigCandle     = (!IsBigCandlePauseActive());
+   bool okSpikeWick     = (!IsSpikeWickPauseActive());
    bool okSARConfirm    = CheckListSARConfirmationReady();
    bool okH1            = CheckListH1Allowed(direction);
    bool okCycle         = CheckListCycleAllowed(direction);
@@ -8323,7 +8748,7 @@ void DrawLeftOrderCreationChecklist(string mainStatus)
    bool okRepeatedGap   = CheckListRepeatedGapAllowed(direction);
 
    bool allOk = okDirection && okTrading && okSpread && okEquity && okNoHour &&
-                okProfitPause && okBigCandle && okSARConfirm && okH1 && okCycle &&
+                okProfitPause && okBigCandle && okSpikeWick && okSARConfirm && okH1 && okCycle &&
                 okMaxOpen && okTotalOpen && okMinGap && okSARSide && okLateSAR && okRepeatedGap;
 
    DrawCornerPanel("DXB_LEFT_CHK_PANEL",CORNER_LEFT_UPPER,5,15,405,565,clrBlack,clrDimGray);
@@ -8360,6 +8785,7 @@ void DrawLeftOrderCreationChecklist(string mainStatus)
    LeftProCheck("No-New-Hour",okNoHour,NoNewOrderHoursStatusText());
    LeftProCheck("Profit Pause",okProfitPause,ProfitProtectPauseStatusText());
    LeftProCheck("Big Candle Pause",okBigCandle,BigCandlePauseStatusText());
+   LeftProCheck("Spike/Wick Pause",okSpikeWick,SpikeWickPauseStatusText());
    LeftProCheck("Min Gap",okMinGap,DoubleToString(GetEffectiveMinPriceGap(),0));
 
    LeftProRow("--- ORDER LIMITS ---","",clrDimGray);
@@ -8513,7 +8939,11 @@ void DrawDashboard(string status)
 
    RightProRow("--- PROTECTION ---","",clrDimGray);
    RightProRow("Big Candle",DoubleToString(InpBigCandleRawDifference,0)+" | Pause "+IntegerToString(InpBigCandlePauseMinutes)+"m",clrYellow);
+   RightProRow("Big Marker",OnOff(InpDrawBigCandleRedMarker)+" | RED",InpDrawBigCandleRedMarker ? clrRed : clrSilver);
    RightProRow("Last3 Move",DoubleToString(InpLast3CandlesRawDifference,0)+" | Pause "+IntegerToString(InpLast3CandlesPauseMinutes)+"m",clrYellow);
+   RightProRow("Spike/Wick",DoubleToString(InpSpikeWickMinRawPrice,0)+" | R"+DoubleToString(InpSpikeMomentumRangeRawPrice,0)+" B"+DoubleToString(InpSpikeMomentumBodyRawPrice,0),clrYellow);
+   RightProRow("Spike Pause",IntegerToString(InpSpikeWickPauseMinutes)+"m | Yellow marker "+OnOff(InpDrawSpikeWickYellowMarker),clrYellow);
+   RightProRow("Spike Status",SpikeWickPauseStatusText(),IsSpikeWickPauseActive() ? clrOrangeRed : clrSilver);
    RightProRow("Global Trail",g_globalEquityTrailStatus,g_globalEquityTrailLocked ? clrOrangeRed : clrAqua);
    RightProRow("No-New Hours",NoNewOrderHoursStatusText(),IsNoNewOrderHour() ? clrOrangeRed : clrLime);
 
@@ -8544,6 +8974,7 @@ void DrawDashboard(string status)
          " | Early=", DirectionText(g_earlyDirection),
          " | SAR Paused=", (g_sarPausedByEarly ? "YES" : "NO"),
          " | Flat Mode=", (g_flatMode ? "YES" : "NO"),
+         " | Spike/Wick=", SpikeWickPauseStatusText(),
          " | EquityCycle=#", IntegerToString(g_equityCycleNumber),
          " | NextReset=", FormatSecondsToHHMM(GetSecondsUntilNextEquityReset()));
   }
