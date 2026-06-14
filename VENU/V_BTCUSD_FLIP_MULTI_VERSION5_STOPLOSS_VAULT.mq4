@@ -115,7 +115,7 @@ bool   InpRecoveryGapMustMatchH1Trend = true;
 bool   InpKeepPendingRecoveryGapAfterBlock = true;
 bool   InpOpenPendingRecoveryWhenSARMatches = true;
 
-double InpRecoveryGapRawPrice     = 40.0;   // raw price difference, not points
+double InpRecoveryGapRawPrice     = 300.0;   // raw price difference, not points
 double InpRecoveryGapLot          = 0.01;
 int    InpMaxRecoveryGapOrdersPerSide = 1;  // recovery ladder: 50, 100, 150 from first order price
 
