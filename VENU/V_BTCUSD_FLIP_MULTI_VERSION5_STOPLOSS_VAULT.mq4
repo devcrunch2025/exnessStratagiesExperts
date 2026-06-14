@@ -34,7 +34,7 @@ double InpBasketProfitUSD_12_17 = 1.00; // profit target during 12,13,14,15,16,1
 // Example: 0-29 min => InpBasketProfitUSD, 30-59 min => InpBasketProfitUSD/2,
 // 60-89 min => InpBasketProfitUSD/3, 90-119 min => InpBasketProfitUSD/4.
 bool   InpUseBasketProfitTimeDecay       = true;
-int    InpBasketProfitDecayStepMinutes   = 30;
+int    InpBasketProfitDecayStepMinutes   = 60;
 double InpBasketProfitDecayMinMultiplier = 0.10;  // safety floor, 0.10 = minimum 10% of normal target
 bool   InpBasketProfitDecayIncludeGuards = false; // false = ignore SAR special guard order time
 
