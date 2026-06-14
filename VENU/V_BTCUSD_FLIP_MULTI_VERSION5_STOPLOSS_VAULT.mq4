@@ -22,7 +22,7 @@ double InpMinGapWhenMaxOrdersMoreThanOne = 100.0; // when InpMaxOrders > 1, enfo
 #define DXB_HARD_MAX_OPEN_ORDERS 6  // absolute safety cap for normal SAR orders per cycle
 
 double InpBasketProfitUSD         = 1.00;
-double InpBasketStopLossUSD       = 3.00;    // BASKET stop loss in USD, 0 = disabled. This closes all orders in active SAR direction.
+double InpBasketStopLossUSD       = 5.00;    // BASKET stop loss in USD, 0 = disabled. This closes all orders in active SAR direction.
 
 double InpProfitTargetPercent      = 50000.0;//50   // stop trading when equity reaches Base + 100%
 double InpLossStopPercent          = 50.0;   // stop trading when equity reaches Base - 50%
@@ -115,9 +115,9 @@ bool   InpRecoveryGapMustMatchH1Trend = true;
 bool   InpKeepPendingRecoveryGapAfterBlock = true;
 bool   InpOpenPendingRecoveryWhenSARMatches = true;
 
-double InpRecoveryGapRawPrice     = 80.0;   // raw price difference, not points
+double InpRecoveryGapRawPrice     = 40.0;   // raw price difference, not points
 double InpRecoveryGapLot          = 0.01;
-int    InpMaxRecoveryGapOrdersPerSide = 2;  // recovery ladder: 50, 100, 150 from first order price
+int    InpMaxRecoveryGapOrdersPerSide = 1;  // recovery ladder: 50, 100, 150 from first order price
 
 // Reverse swing order: whenever a RECOVERY_GAP order opens, also open one opposite order.
 // Example: BUY recovery opens -> open SELL swing order.
