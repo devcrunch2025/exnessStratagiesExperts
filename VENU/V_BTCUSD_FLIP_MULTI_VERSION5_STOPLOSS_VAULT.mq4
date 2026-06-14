@@ -184,7 +184,7 @@ int    InpOrderCooldownSeconds    = 0;       // 0 = disabled
 double InpMinPriceGap             = 0.00;    // raw price gap, 0 = disabled
 
 // No-trading hours: block NEW normal SAR orders only. Close/profit/protection/recovery management still runs.
-bool   InpUseNoNewOrderHours      = true;
+bool   InpUseNoNewOrderHours      = false;
 string InpNoNewOrderHourList      = "12,13,18,19,22,23";//"0,23";//"13,14,15,16,17,18"; // server-time hours to block new orders
 
 
@@ -434,6 +434,21 @@ int    InpEarlySARWeakExitNeedSignals  = 3;     // minimum weakness points requi
 int    InpEarlySARWeakExitMinAgeMin    = 5;     // avoid closing immediately after fresh flip
 int    InpEarlySARWeakExitCooldownSec  = 60;    // avoid repeat close loop
 
+// SAR weak reverse order:
+// When active SAR becomes weak before full SAR flip, optionally open one opposite order.
+// Example: active SAR BUY becomes weak => open SELL order with comment SAR_WEAK_REVERSE.
+bool   InpOpenReverseOrderOnSARWeakSignal = true;
+double InpSARWeakReverseLot               = 0.01;  // 0 = use InpFixedLot
+int    InpMaxSARWeakReverseOrders         = 2;     // maximum active weak-reverse orders
+int    InpSARWeakReverseCooldownMinutes   = 30;     // avoid repeated reverse orders
+bool   InpSARWeakReverseRequireH1Trend    = false; // true = reverse order must match H1/H2 trend
+
+// SAR weak signal chart marker:
+// When active SAR becomes weak, mark that candle with a different color so it is visible on chart.
+bool   InpDrawSARWeakSignalMarker         = true;
+color  InpSARWeakSignalMarkerColor        = clrViolet;
+int    InpSARWeakSignalMarkerArrowCode    = 159;
+
 //================ PROFIT PROTECTION / RECOVERY SAFETY ==============
 // Protect total equity after a strong run. Example: equity peak 85,
 // trail 10 => close all orders and pause if equity falls to 75.
@@ -616,6 +631,17 @@ double   g_sellBasketPeakProfit   = 0.0;
 datetime g_lastEarlySARWeakExitTime = 0;
 int      g_lastEarlySARWeakExitDirection = 0;
 
+// SAR weak reverse order state
+string   g_sarWeakReverseLastStatus = "WAIT";
+datetime g_sarWeakReverseLastTime = 0;
+int      g_sarWeakReverseLastDirection = 0;
+int      g_sarWeakReverseLastTicket = 0;
+string   g_sarWeakReverseLastReason = "NONE";
+
+// SAR weak signal candle marker state
+datetime g_lastSARWeakSignalMarkerBarTime = 0;
+string   g_lastSARWeakSignalMarkerReason  = "OFF";
+
 double   g_globalEquityPeak              = 0.0;
 datetime g_globalEquityTrailPauseUntil   = 0;
 datetime g_profitProtectPauseUntil       = 0;   // pause new normal orders after individual profit protect close
@@ -738,14 +764,14 @@ int GetH2TrendDirection()
    double currentPrice = Close[0];
 
 // M1 chart: 30 candles = 30 minutes ago
-   double price30MinAgo = iClose(Symbol(), PERIOD_M1, 120);
+   double price30MinAgo = iClose(Symbol(), PERIOD_M1, 60);
 
    double diff = currentPrice - price30MinAgo;
 
-   if(diff >= 100)
+   if(diff >= 1000)
       return 1;   // BUY trend
 
-   if(diff <= -100)
+   if(diff <= -1000)
       return -1;  // SELL trend
 
    return 0;      // RANGE
@@ -763,10 +789,10 @@ int GetH1TrendDirection()
 
    double diff = currentPrice - price30MinAgo;
 
-   if(diff >= 100)
+   if(diff >= 200)
       return 1;   // BUY trend
 
-   if(diff <= -100)
+   if(diff <= -200)
       return -1;  // SELL trend
 
    return 0;      // RANGE
@@ -896,6 +922,12 @@ bool IsSARPullbackHalfTPComment(string commentText)
    return(StringFind(commentText, "PULLBACK_HALF") >= 0);
 }
 
+
+bool IsSARWeakReverseOrderComment(string commentText)
+{
+   return(StringFind(commentText, "SAR_WEAK_REVERSE") >= 0);
+}
+
 bool HasOpenSARPullbackHalfTPOrder()
 {
    for(int i = OrdersTotal() - 1; i >= 0; i--)
@@ -950,6 +982,9 @@ color GetOrderIconColorByComment(int direction, string commentText)
    if(IsSARPullbackHalfTPComment(commentText))
       return(direction == 1 ? InpPullbackBuyOrderIconColor : InpPullbackSellOrderIconColor);
 
+   if(IsSARWeakReverseOrderComment(commentText))
+      return(direction == 1 ? clrDodgerBlue : clrOrangeRed);
+
    if(StringFind(commentText, "SAR_ARROW_EXTRA") >= 0 || StringFind(commentText, "EXTRA") >= 0)
       return(direction == 1 ? InpExtraBuyOrderIconColor : InpExtraSellOrderIconColor);
 
@@ -967,6 +1002,9 @@ int GetOrderIconArrowCodeByComment(int direction, string commentText)
 
    if(IsSARPullbackHalfTPComment(commentText))
       return(direction == 1 ? InpPullbackBuyOrderArrowCode : InpPullbackSellOrderArrowCode);
+
+   if(IsSARWeakReverseOrderComment(commentText))
+      return(direction == 1 ? 241 : 242);
 
    if(StringFind(commentText, "SAR_ARROW_EXTRA") >= 0 || StringFind(commentText, "EXTRA") >= 0)
       return(InpExtraOrderArrowCode);
@@ -991,6 +1029,9 @@ string GetOrderIconTypeText(string commentText)
 
    if(IsSARPullbackHalfTPComment(commentText))
       return("PULLBACK HALF TP");
+
+   if(IsSARWeakReverseOrderComment(commentText))
+      return("SAR WEAK REVERSE");
 
    if(StringFind(commentText, "SAR_ARROW_EXTRA") >= 0 || StringFind(commentText, "EXTRA") >= 0)
       return("EXTRA SAR");
@@ -1203,9 +1244,16 @@ void ResetTradingCycleState()
    g_sarCloseTrackedDirection       = 0;
    g_sarCloseTrackedOrderTime       = 0;
    g_sarDelayedCloseStatus          = "WAIT ORDER";
+   g_sarWeakReverseLastStatus      = "WAIT";
+   g_sarWeakReverseLastTime        = 0;
+   g_sarWeakReverseLastDirection   = 0;
+   g_sarWeakReverseLastTicket      = 0;
+   g_sarWeakReverseLastReason      = "NONE";
    ResetSARFlipConfirmation();
    ResetBigCandlePauseState();
    ResetSpikeWickPauseState();
+   g_lastSARWeakSignalMarkerBarTime = 0;
+   g_lastSARWeakSignalMarkerReason  = "OFF";
 
    Print("TRADING CYCLE RESET | Waiting for fresh SAR direction after equity stats reset.");
   }
@@ -2751,6 +2799,59 @@ bool IsSpikeWickCandle(int shift, string &reason, double &maxWick, double &bodyP
      }
 
    return(false);
+  }
+
+
+//+------------------------------------------------------------------+
+//| Draw different color marker when SAR weak signal is detected      |
+//+------------------------------------------------------------------+
+void DrawSARWeakSignalMarker(int shift, string reason)
+  {
+   if(!InpDrawSARWeakSignalMarker)
+      return;
+
+   if(shift < 0 || Bars <= shift + 1)
+      return;
+
+   datetime t1 = Time[shift];
+   datetime t2 = t1 + Period() * 60;
+   if(shift > 0)
+      t2 = Time[shift - 1];
+
+   string baseName  = OBJ_PREFIX + "SAR_WEAK_SIGNAL_" + IntegerToString((int)t1);
+   string rectName  = baseName + "_RECT";
+   string arrowName = baseName + "_ARROW";
+
+   // Current candle changes while forming, so refresh the marker.
+   ObjectDelete(0, rectName);
+   ObjectDelete(0, arrowName);
+
+   double h = iHigh(Symbol(), PERIOD_M1, shift);
+   double l = iLow(Symbol(), PERIOD_M1, shift);
+
+   string label = "SAR WEAK SIGNAL | " + reason;
+
+   if(ObjectCreate(0, rectName, OBJ_RECTANGLE, 0, t1, h, t2, l))
+     {
+      ObjectSetInteger(0, rectName, OBJPROP_COLOR, InpSARWeakSignalMarkerColor);
+      ObjectSetInteger(0, rectName, OBJPROP_STYLE, STYLE_SOLID);
+      ObjectSetInteger(0, rectName, OBJPROP_WIDTH, 2);
+      ObjectSetInteger(0, rectName, OBJPROP_BACK, false);
+      ObjectSetString(0, rectName, OBJPROP_TEXT, label);
+     }
+
+   double markerPrice = h + MathMax(40 * Point, MarketInfo(Symbol(), MODE_SPREAD) * Point);
+   if(ObjectCreate(0, arrowName, OBJ_ARROW, 0, t1, markerPrice))
+     {
+      ObjectSetInteger(0, arrowName, OBJPROP_ARROWCODE, InpSARWeakSignalMarkerArrowCode);
+      ObjectSetInteger(0, arrowName, OBJPROP_COLOR, InpSARWeakSignalMarkerColor);
+      ObjectSetInteger(0, arrowName, OBJPROP_WIDTH, 4);
+      ObjectSetInteger(0, arrowName, OBJPROP_BACK, false);
+      ObjectSetString(0, arrowName, OBJPROP_TEXT, label);
+     }
+
+   g_lastSARWeakSignalMarkerBarTime = t1;
+   g_lastSARWeakSignalMarkerReason  = reason;
   }
 
 //+------------------------------------------------------------------+
@@ -5471,6 +5572,210 @@ bool ProcessAllSideBasketClose(string &status)
   }
 
 //+------------------------------------------------------------------+
+
+//+------------------------------------------------------------------+
+//| SAR weak reverse order helpers                                   |
+//+------------------------------------------------------------------+
+int CountSARWeakReverseOrders()
+  {
+   int total = 0;
+   for(int i = OrdersTotal() - 1; i >= 0; i--)
+     {
+      if(!OrderSelect(i, SELECT_BY_POS, MODE_TRADES))
+         continue;
+      if(OrderSymbol() != Symbol() || OrderMagicNumber() != InpMagicNumber)
+         continue;
+      if(OrderType() != OP_BUY && OrderType() != OP_SELL)
+         continue;
+      if(IsSARWeakReverseOrderComment(OrderComment()))
+         total++;
+     }
+   return(total);
+  }
+
+int CountSARWeakReverseOrdersByDirection(int direction)
+  {
+   int total = 0;
+   int type = direction == 1 ? OP_BUY : OP_SELL;
+
+   for(int i = OrdersTotal() - 1; i >= 0; i--)
+     {
+      if(!OrderSelect(i, SELECT_BY_POS, MODE_TRADES))
+         continue;
+      if(OrderSymbol() != Symbol() || OrderMagicNumber() != InpMagicNumber)
+         continue;
+      if(OrderType() != type)
+         continue;
+      if(IsSARWeakReverseOrderComment(OrderComment()))
+         total++;
+     }
+
+   return(total);
+  }
+
+bool HasSARWeakReverseOrderForDirection(int direction)
+  {
+   return(CountSARWeakReverseOrdersByDirection(direction) > 0);
+  }
+
+bool OpenSARWeakReverseMarketOrder(int reverseDirection, string weakReason)
+  {
+   if(reverseDirection == 0)
+      return(false);
+
+   RefreshRates();
+
+   if(EnforceBigCandleOrderBlock("SAR weak reverse"))
+     {
+      g_sarWeakReverseLastStatus = "BLOCKED BIG CANDLE";
+      g_sarWeakReverseLastReason = BigCandlePauseStatusText();
+      return(false);
+     }
+
+   if(InpUseSpikeWickPauseFilter && IsSpikeWickPauseActive())
+     {
+      g_sarWeakReverseLastStatus = "BLOCKED SPIKE/WICK";
+      g_sarWeakReverseLastReason = SpikeWickPauseStatusText();
+      return(false);
+     }
+
+   if(!IsTradingAllowedNow())
+     {
+      g_sarWeakReverseLastStatus = "BLOCKED TRADING OFF";
+      g_sarWeakReverseLastReason = "AutoTrading/trade context/free margin";
+      return(false);
+     }
+
+   if(CheckEquityConditions())
+     {
+      g_sarWeakReverseLastStatus = "BLOCKED EQUITY";
+      g_sarWeakReverseLastReason = "Equity/profit protection active";
+      return(false);
+     }
+
+   if(IsTotalOpenOrderCapReached("SARWeakReverse"))
+     {
+      g_sarWeakReverseLastStatus = "BLOCKED TOTAL CAP";
+      g_sarWeakReverseLastReason = "Total order cap reached";
+      return(false);
+     }
+
+   int maxWeakReverseOrders = MathMax(1, InpMaxSARWeakReverseOrders);
+   int activeWeakReverseOrders = CountSARWeakReverseOrders();
+
+   if(activeWeakReverseOrders >= maxWeakReverseOrders)
+     {
+      g_sarWeakReverseLastStatus = "BLOCKED MAX ACTIVE";
+      g_sarWeakReverseLastReason = "Active weak reverse orders " +
+                                   IntegerToString(activeWeakReverseOrders) + "/" +
+                                   IntegerToString(maxWeakReverseOrders);
+      return(false);
+     }
+
+   // Do NOT block only because one same-side SAR_WEAK_REVERSE order already exists.
+   // The max count controls this now, so up to InpMaxSARWeakReverseOrders can open.
+   int sameSideWeakReverseOrders = CountSARWeakReverseOrdersByDirection(reverseDirection);
+
+   if(sameSideWeakReverseOrders >= maxWeakReverseOrders)
+     {
+      g_sarWeakReverseLastStatus = "BLOCKED SAME SIDE MAX";
+      g_sarWeakReverseLastReason = DirectionText(reverseDirection) + " " +
+                                   IntegerToString(sameSideWeakReverseOrders) + "/" +
+                                   IntegerToString(maxWeakReverseOrders);
+      return(false);
+     }
+
+   if(g_sarWeakReverseLastTime > 0 &&
+      TimeCurrent() - g_sarWeakReverseLastTime < MathMax(1, InpSARWeakReverseCooldownMinutes) * 60)
+     {
+      g_sarWeakReverseLastStatus = "BLOCKED COOLDOWN";
+      g_sarWeakReverseLastReason = "Wait " + IntegerToString(InpSARWeakReverseCooldownMinutes) + "m";
+      return(false);
+     }
+
+   if(InpSARWeakReverseRequireH1Trend)
+     {
+      int hTrend = GetH2TrendDirection();
+      if(hTrend == 0 || hTrend != reverseDirection)
+        {
+         g_sarWeakReverseLastStatus = "BLOCKED H1/H2 TREND";
+         g_sarWeakReverseLastReason = "Reverse=" + DirectionText(reverseDirection) + " H=" + DirectionText(hTrend);
+         return(false);
+        }
+     }
+
+   int type = reverseDirection == 1 ? OP_BUY : OP_SELL;
+   double price = reverseDirection == 1 ? Ask : Bid;
+   double lot = InpSARWeakReverseLot > 0.0 ? InpSARWeakReverseLot : InpFixedLot;
+   lot = NormalizeLot(lot);
+
+   double sl = 0.0;
+   if(InpStopLossPoints > 0)
+     {
+      if(reverseDirection == 1)
+         sl = NormalizeDouble(price - InpStopLossPoints * Point, Digits);
+      else
+         sl = NormalizeDouble(price + InpStopLossPoints * Point, Digits);
+     }
+
+   string comment = "SAR_WEAK_REVERSE_" + DirectionText(reverseDirection);
+
+   ResetLastError();
+   int ticket = OrderSend(Symbol(), type, lot, price, InpSlippage, sl, 0,
+                          comment, InpMagicNumber, 0,
+                          GetOrderIconColorByComment(reverseDirection, comment));
+
+   if(ticket < 0)
+     {
+      int err = GetLastError();
+      g_sarWeakReverseLastStatus = "FAILED";
+      g_sarWeakReverseLastReason = BuildOrderSendFailMessage(err, type, lot, price, sl, comment);
+      g_lastOrderOpenReason = g_sarWeakReverseLastReason;
+      Print("SAR WEAK REVERSE ORDER FAILED | ", g_sarWeakReverseLastReason);
+      ResetLastError();
+      return(false);
+     }
+
+   g_lastOrderTime = TimeCurrent();
+   g_sarWeakReverseLastStatus = "OPENED";
+   g_sarWeakReverseLastTime = TimeCurrent();
+   g_sarWeakReverseLastDirection = reverseDirection;
+   g_sarWeakReverseLastTicket = ticket;
+   g_sarWeakReverseLastReason = weakReason;
+   g_lastOrderOpenReason = "SAR WEAK REVERSE OPENED | Ticket=" + IntegerToString(ticket) +
+                           " | Direction=" + DirectionText(reverseDirection) +
+                           " | Lot=" + DoubleToString(lot, 2);
+
+   MarkOpenedOrderOnChart(ticket, reverseDirection, comment, TimeCurrent(), price);
+
+   Print("SAR WEAK REVERSE ORDER OPENED | Ticket=", ticket,
+         " | Direction=", DirectionText(reverseDirection),
+         " | ActiveSAR=", DirectionText(g_activeSARDirection),
+         " | Lot=", DoubleToString(lot, 2),
+         " | WeakReason=", weakReason);
+
+   return(true);
+  }
+
+bool TryOpenSARWeakReverseOrder(string weakReason)
+  {
+   if(!InpOpenReverseOrderOnSARWeakSignal)
+      return(false);
+
+   if(!g_earlySARWeakExitActive)
+     {
+      g_sarWeakReverseLastStatus = "WAIT WEAK SAR";
+      g_sarWeakReverseLastReason = "Early SAR weak signal not active";
+      return(false);
+     }
+
+   if(g_activeSARDirection == 0)
+      return(false);
+
+   int reverseDirection = -g_activeSARDirection;
+   return(OpenSARWeakReverseMarketOrder(reverseDirection, weakReason));
+  }
+
 bool ProcessCloseOrdersFirst(string &status)
   {
    if(g_activeSARDirection == 0)
@@ -5535,6 +5840,13 @@ bool ProcessCloseOrdersFirst(string &status)
      {
       Print("EARLY SAR WEAK EXIT DETECTED | Direction=", DirectionText(g_activeSARDirection),
             " | ", weakExitReason);
+
+      // Mark weak SAR signal candle with different color on chart.
+      DrawSARWeakSignalMarker(0, weakExitReason);
+
+      // Optional hedge/reverse entry before full SAR flip.
+      // Example: active SAR BUY is weak => open SELL SAR_WEAK_REVERSE order.
+      TryOpenSARWeakReverseOrder(weakExitReason);
 
       if(shouldCloseWeakBasket && InpCloseBasketOnSARWeakExit)
         {
@@ -8406,6 +8718,21 @@ void DrawLeftImportantOrderSettings(int direction)
                      " | Weak<=" + IntegerToString(InpLateSARMaxWeakScore),
                      InpUseLateSARCycleEntryBlock ? clrLime : clrSilver);
 
+   LeftChecklistInfo("SAR Weak Reverse",
+                     (InpOpenReverseOrderOnSARWeakSignal ? "ON" : "OFF") +
+                     " | Active " + IntegerToString(CountSARWeakReverseOrders()) +
+                     "/" + IntegerToString(MathMax(1, InpMaxSARWeakReverseOrders)) +
+                     " | Last " + g_sarWeakReverseLastStatus,
+                     InpOpenReverseOrderOnSARWeakSignal ?
+                     (g_sarWeakReverseLastStatus == "OPENED" ? clrLime : clrYellow) : clrSilver);
+
+   LeftChecklistInfo("Weak Reverse Last",
+                     g_sarWeakReverseLastTicket > 0 ?
+                     ("#" + IntegerToString(g_sarWeakReverseLastTicket) +
+                      " " + DirectionText(g_sarWeakReverseLastDirection) +
+                      " " + DashboardTimeText(g_sarWeakReverseLastTime)) : g_sarWeakReverseLastReason,
+                     g_sarWeakReverseLastTicket > 0 ? clrAqua : clrSilver);
+
    LeftChecklistInfo("No-New Hours",
                      InpUseNoNewOrderHours ? InpNoNewOrderHourList : "OFF",
                      InpUseNoNewOrderHours ? clrAqua : clrSilver);
@@ -8637,7 +8964,7 @@ void RecoveryRow(string title,string value,color clrText=clrWhite)
 void RightProRow(string title,string value,color clrText=clrWhite)
   {
    string text = PadTitle(title,20) + " : " + value;
-   DrawCornerLabel("DXB_PRO_RIGHT_"+IntegerToString(g_rightDashRow),text,CORNER_RIGHT_UPPER,315,45+(g_rightDashRow*16),clrText,8);
+   DrawCornerLabel("DXB_PRO_RIGHT_"+IntegerToString(g_rightDashRow),text,CORNER_RIGHT_UPPER,315,310+(g_rightDashRow*16),clrText,8);
    g_rightDashRow++;
   }
 
@@ -8775,6 +9102,7 @@ void DrawLeftOrderCreationChecklist(string mainStatus)
    LeftProRow("EMA Trend",DirectionText(g_pendingSARConfirmDirection),DirectionColor(g_pendingSARConfirmDirection));
    LeftProRow("Early Trend",DirectionText(g_earlyDirection),DirectionColor(g_earlyDirection));
    LeftProRow("SAR Momentum",IsCurrentSARGoodMomentum(g_activeSARDirection) ? "GOOD" : "WEAK",IsCurrentSARGoodMomentum(g_activeSARDirection) ? clrLime : clrOrangeRed);
+   LeftProRow("SAR Weak Mark",StringSubstr(g_lastSARWeakSignalMarkerReason,0,45),g_lastSARWeakSignalMarkerReason=="OFF" ? clrSilver : InpSARWeakSignalMarkerColor);
    LeftProCheck("Late Entry",okLateSAR,LateSARCycleEntryStatusText(direction));
    LeftProRow("SAR Score",IntegerToString(g_dynamicSARScore)+" / "+IntegerToString(InpDynamicStrongScore)+" | "+g_dynamicSARDecision,g_dynamicSARScore>=InpDynamicStrongScore ? clrLime : clrOrange);
 
@@ -8906,8 +9234,8 @@ void IncreaseSARMaxWhenDotDistanceAndH1Same()
 
 void DrawDashboard(string status)
   {
-   DrawCornerPanel("DXB_RIGHT_SETTINGS_PANEL",CORNER_RIGHT_UPPER,325,15,320,560,clrBlack,clrDimGray);
-   DrawCornerLabel("DXB_RIGHT_SETTINGS_TITLE","Version 5 / LIVE STATUS",CORNER_RIGHT_UPPER,300,22,clrYellow,10);
+   DrawCornerPanel("DXB_RIGHT_SETTINGS_PANEL",CORNER_RIGHT_UPPER,325,280,320,575,clrBlack,clrDimGray);
+   DrawCornerLabel("DXB_RIGHT_SETTINGS_TITLE","Version 5 / LIVE STATUS",CORNER_RIGHT_UPPER,300,287,clrYellow,10);
 
    g_rightDashRow = 0;
 
@@ -8943,16 +9271,17 @@ void DrawDashboard(string status)
    RightProRow("Last3 Move",DoubleToString(InpLast3CandlesRawDifference,0)+" | Pause "+IntegerToString(InpLast3CandlesPauseMinutes)+"m",clrYellow);
    RightProRow("Spike/Wick",DoubleToString(InpSpikeWickMinRawPrice,0)+" | R"+DoubleToString(InpSpikeMomentumRangeRawPrice,0)+" B"+DoubleToString(InpSpikeMomentumBodyRawPrice,0),clrYellow);
    RightProRow("Spike Pause",IntegerToString(InpSpikeWickPauseMinutes)+"m | Yellow marker "+OnOff(InpDrawSpikeWickYellowMarker),clrYellow);
+   RightProRow("SAR Weak Marker",OnOff(InpDrawSARWeakSignalMarker)+" | Violet",InpDrawSARWeakSignalMarker ? InpSARWeakSignalMarkerColor : clrSilver);
    RightProRow("Spike Status",SpikeWickPauseStatusText(),IsSpikeWickPauseActive() ? clrOrangeRed : clrSilver);
    RightProRow("Global Trail",g_globalEquityTrailStatus,g_globalEquityTrailLocked ? clrOrangeRed : clrAqua);
    RightProRow("No-New Hours",NoNewOrderHoursStatusText(),IsNoNewOrderHour() ? clrOrangeRed : clrLime);
 
-   DrawCornerPanel("DXB_RIGHT_ACCOUNT_PANEL",CORNER_RIGHT_UPPER,325,590,320,260,clrBlack,clrDimGray);
-   DrawCornerLabel("DXB_RIGHT_ACCOUNT_TITLE","ACCOUNT / BASKET STATUS",CORNER_RIGHT_UPPER,300,598,clrYellow,10);
+   DrawCornerPanel("DXB_RIGHT_ACCOUNT_PANEL",CORNER_RIGHT_UPPER,325,15,320,250,clrBlack,clrDimGray);
+   DrawCornerLabel("DXB_RIGHT_ACCOUNT_TITLE","ACCOUNT / BASKET STATUS",CORNER_RIGHT_UPPER,300,23,clrYellow,10);
 
    int startRow = g_rightDashRow;
    g_rightDashRow = 0;
-   int baseY = 622;
+   int baseY = 47;
 
    DrawCornerLabel("DXB_ACC_0",PadTitle("Balance",20)+" : $"+DoubleToString(AccountBalance(),2),CORNER_RIGHT_UPPER,315,baseY+(g_rightDashRow++*16),clrWhite,8);
    DrawCornerLabel("DXB_ACC_1",PadTitle("Equity",20)+" : $"+DoubleToString(AccountEquity(),2),CORNER_RIGHT_UPPER,315,baseY+(g_rightDashRow++*16),clrAqua,8);
