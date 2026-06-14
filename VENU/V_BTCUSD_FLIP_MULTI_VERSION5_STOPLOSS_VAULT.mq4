@@ -29,6 +29,15 @@ double InpLossStopPercent          = 50.0;   // stop trading when equity reaches
 
 double InpBasketProfitUSD_12_17 = 1.00; // profit target during 12,13,14,15,16,17 hours
 
+// Time-decay basket target:
+// If no new EA order is created for 30 minutes, close basket faster.
+// Example: 0-29 min => InpBasketProfitUSD, 30-59 min => InpBasketProfitUSD/2,
+// 60-89 min => InpBasketProfitUSD/3, 90-119 min => InpBasketProfitUSD/4.
+bool   InpUseBasketProfitTimeDecay       = true;
+int    InpBasketProfitDecayStepMinutes   = 30;
+double InpBasketProfitDecayMinMultiplier = 0.10;  // safety floor, 0.10 = minimum 10% of normal target
+bool   InpBasketProfitDecayIncludeGuards = false; // false = ignore SAR special guard order time
+
 // Basket profit protection:
 // Works like individual profit protect, but for ALL basket, BUY basket, and SELL basket.
 // If basket profit first reaches a level and later comes back down, close that basket near protected profit.
@@ -439,9 +448,10 @@ int    InpEarlySARWeakExitCooldownSec  = 60;    // avoid repeat close loop
 // Example: active SAR BUY becomes weak => open SELL order with comment SAR_WEAK_REVERSE.
 bool   InpOpenReverseOrderOnSARWeakSignal = true;
 double InpSARWeakReverseLot               = 0.01;  // 0 = use InpFixedLot
-int    InpMaxSARWeakReverseOrders         = 2;     // maximum active weak-reverse orders
+int    InpMaxSARWeakReverseOrders         = 2;     // total max weak-reverse orders. 2 = max 1 BUY + max 1 SELL
 int    InpSARWeakReverseCooldownMinutes   = 30;     // avoid repeated reverse orders
 bool   InpSARWeakReverseRequireH1Trend    = false; // true = reverse order must match H1/H2 trend
+bool   InpSARWeakReverseRequireExistingSameSideOrder = true; // true = open weak-reverse only if an existing same-side order is already open
 
 // SAR weak signal chart marker:
 // When active SAR becomes weak, mark that candle with a different color so it is visible on chart.
@@ -947,6 +957,85 @@ bool HasOpenSARPullbackHalfTPOrder()
    return(false);
 }
 
+//+------------------------------------------------------------------+ 
+//| Basket profit time-decay helpers                                 |
+//+------------------------------------------------------------------+
+datetime GetLatestEAOpenOrderTimeForBasketDecay()
+{
+   datetime latestTime = 0;
+
+   for(int i = OrdersTotal() - 1; i >= 0; i--)
+   {
+      if(!OrderSelect(i, SELECT_BY_POS, MODE_TRADES))
+         continue;
+
+      if(OrderSymbol() != Symbol() || OrderMagicNumber() != InpMagicNumber)
+         continue;
+
+      if(OrderType() != OP_BUY && OrderType() != OP_SELL)
+         continue;
+
+      if(!InpBasketProfitDecayIncludeGuards && IsSARGuardOrderComment(OrderComment()))
+         continue;
+
+      if(OrderOpenTime() > latestTime)
+         latestTime = OrderOpenTime();
+   }
+
+   // Fallback for the current tick / after restart edge cases.
+   if(latestTime <= 0 && g_lastOrderTime > 0)
+      latestTime = g_lastOrderTime;
+
+   return(latestTime);
+}
+
+//+------------------------------------------------------------------+
+double GetBasketProfitTimeDecayMultiplier()
+{
+   if(!InpUseBasketProfitTimeDecay)
+      return(1.0);
+
+   int stepMinutes = MathMax(1, InpBasketProfitDecayStepMinutes);
+   datetime latestOrderTime = GetLatestEAOpenOrderTimeForBasketDecay();
+
+   if(latestOrderTime <= 0)
+      return(1.0);
+
+   int elapsedMinutes = (int)((TimeCurrent() - latestOrderTime) / 60);
+
+   if(elapsedMinutes < stepMinutes)
+      return(1.0);
+
+   int divisor = (elapsedMinutes / stepMinutes) + 1;
+   if(divisor < 1)
+      divisor = 1;
+
+   double multiplier = 1.0 / divisor;
+   double minMultiplier = MathMax(0.01, MathMin(1.0, InpBasketProfitDecayMinMultiplier));
+
+   if(multiplier < minMultiplier)
+      multiplier = minMultiplier;
+
+   return(multiplier);
+}
+
+//+------------------------------------------------------------------+
+string BasketProfitTimeDecayStatusText()
+{
+   if(!InpUseBasketProfitTimeDecay)
+      return("OFF");
+
+   datetime latestOrderTime = GetLatestEAOpenOrderTimeForBasketDecay();
+   if(latestOrderTime <= 0)
+      return("WAIT ORDER");
+
+   int elapsedMinutes = (int)((TimeCurrent() - latestOrderTime) / 60);
+   double multiplier = GetBasketProfitTimeDecayMultiplier();
+
+   return(IntegerToString(elapsedMinutes) + "m | x" + DoubleToString(multiplier, 2));
+}
+
+//+------------------------------------------------------------------+
 double GetBasketProfitTargetUSD()
 {
    int h = TimeHour(TimeCurrent());
@@ -954,10 +1043,16 @@ double GetBasketProfitTargetUSD()
    int count=CountOpenOrders();
    if(count==0)count=1;
 
-   double target = InpBasketProfitUSD / count;
+   double baseTarget = InpBasketProfitUSD;
 
    if(h >= 12 && h <= 17)
-      target = InpBasketProfitUSD_12_17 / count;
+      baseTarget = InpBasketProfitUSD_12_17;
+
+   double target = baseTarget / count;
+
+   // Time decay: after every 30 minutes without a new EA order,
+   // reduce target so old baskets close faster before trend changes.
+   target = target * GetBasketProfitTimeDecayMultiplier();
 
    // Pullback half-TP order is a quick re-entry. When it is open,
    // close the basket/side faster using original target * multiplier.
@@ -5613,15 +5708,73 @@ int CountSARWeakReverseOrdersByDirection(int direction)
    return(total);
   }
 
+int GetMaxSARWeakReverseOrdersPerSide()
+  {
+   // InpMaxSARWeakReverseOrders is total across both sides.
+   // Example: 2 means max 1 BUY weak-reverse + max 1 SELL weak-reverse.
+   int totalMax = MathMax(1, InpMaxSARWeakReverseOrders);
+   int perSide = (totalMax + 1) / 2;
+   if(perSide < 1)
+      perSide = 1;
+   return(perSide);
+  }
+
+int CountSARWeakReverseBaseOrdersByDirection(int direction)
+  {
+   int total = 0;
+   int type = direction == 1 ? OP_BUY : OP_SELL;
+
+   for(int i = OrdersTotal() - 1; i >= 0; i--)
+     {
+      if(!OrderSelect(i, SELECT_BY_POS, MODE_TRADES))
+         continue;
+      if(OrderSymbol() != Symbol() || OrderMagicNumber() != InpMagicNumber)
+         continue;
+      if(OrderType() != type)
+         continue;
+      if(IsSARGuardOrderComment(OrderComment()))
+         continue;
+      if(IsSARWeakReverseOrderComment(OrderComment()))
+         continue;
+
+      total++;
+     }
+
+   return(total);
+  }
+
 bool HasSARWeakReverseOrderForDirection(int direction)
   {
    return(CountSARWeakReverseOrdersByDirection(direction) > 0);
+  }
+
+bool HasExistingOrderForSARWeakReverseProtection(int direction)
+  {
+   return(CountSARWeakReverseBaseOrdersByDirection(direction) > 0);
   }
 
 bool OpenSARWeakReverseMarketOrder(int reverseDirection, string weakReason)
   {
    if(reverseDirection == 0)
       return(false);
+
+   // Protection rule:
+   // Example: active SAR BUY becomes weak => reverseDirection SELL.
+   // Open SAR_WEAK_REVERSE SELL only when an existing SELL order is already open.
+   // This makes weak-reverse orders protect previous same-side baskets instead of creating a fresh naked hedge.
+   if(InpSARWeakReverseRequireExistingSameSideOrder &&
+      !HasExistingOrderForSARWeakReverseProtection(reverseDirection))
+     {
+      g_sarWeakReverseLastStatus = "WAIT BASE ORDER";
+      g_sarWeakReverseLastDirection = reverseDirection;
+      g_sarWeakReverseLastReason = "No existing " + DirectionText(reverseDirection) +
+                                   " order to protect";
+      Print("SAR WEAK REVERSE WAIT | No existing ",
+            DirectionText(reverseDirection),
+            " order found. Weak reverse not opened. ActiveSAR=",
+            DirectionText(g_activeSARDirection));
+      return(false);
+     }
 
    RefreshRates();
 
@@ -5660,28 +5813,33 @@ bool OpenSARWeakReverseMarketOrder(int reverseDirection, string weakReason)
       return(false);
      }
 
-   int maxWeakReverseOrders = MathMax(1, InpMaxSARWeakReverseOrders);
+   int totalMaxWeakReverseOrders = MathMax(1, InpMaxSARWeakReverseOrders);
    int activeWeakReverseOrders = CountSARWeakReverseOrders();
 
-   if(activeWeakReverseOrders >= maxWeakReverseOrders)
+   if(activeWeakReverseOrders >= totalMaxWeakReverseOrders)
      {
-      g_sarWeakReverseLastStatus = "BLOCKED MAX ACTIVE";
+      g_sarWeakReverseLastStatus = "BLOCKED MAX TOTAL";
       g_sarWeakReverseLastReason = "Active weak reverse orders " +
                                    IntegerToString(activeWeakReverseOrders) + "/" +
-                                   IntegerToString(maxWeakReverseOrders);
+                                   IntegerToString(totalMaxWeakReverseOrders) +
+                                   " | BUY=" + IntegerToString(CountSARWeakReverseOrdersByDirection(1)) +
+                                   " SELL=" + IntegerToString(CountSARWeakReverseOrdersByDirection(-1));
       return(false);
      }
 
-   // Do NOT block only because one same-side SAR_WEAK_REVERSE order already exists.
-   // The max count controls this now, so up to InpMaxSARWeakReverseOrders can open.
+   // Per-side limit:
+   // InpMaxSARWeakReverseOrders=2 means max 1 BUY weak-reverse and max 1 SELL weak-reverse.
+   int maxWeakReverseOrdersPerSide = GetMaxSARWeakReverseOrdersPerSide();
    int sameSideWeakReverseOrders = CountSARWeakReverseOrdersByDirection(reverseDirection);
 
-   if(sameSideWeakReverseOrders >= maxWeakReverseOrders)
+   if(sameSideWeakReverseOrders >= maxWeakReverseOrdersPerSide)
      {
-      g_sarWeakReverseLastStatus = "BLOCKED SAME SIDE MAX";
-      g_sarWeakReverseLastReason = DirectionText(reverseDirection) + " " +
+      g_sarWeakReverseLastStatus = "BLOCKED SIDE MAX";
+      g_sarWeakReverseLastReason = DirectionText(reverseDirection) + " weak reverse " +
                                    IntegerToString(sameSideWeakReverseOrders) + "/" +
-                                   IntegerToString(maxWeakReverseOrders);
+                                   IntegerToString(maxWeakReverseOrdersPerSide) +
+                                   " | Total " + IntegerToString(activeWeakReverseOrders) + "/" +
+                                   IntegerToString(totalMaxWeakReverseOrders);
       return(false);
      }
 
@@ -8720,8 +8878,13 @@ void DrawLeftImportantOrderSettings(int direction)
 
    LeftChecklistInfo("SAR Weak Reverse",
                      (InpOpenReverseOrderOnSARWeakSignal ? "ON" : "OFF") +
-                     " | Active " + IntegerToString(CountSARWeakReverseOrders()) +
+                     " | Total " + IntegerToString(CountSARWeakReverseOrders()) +
                      "/" + IntegerToString(MathMax(1, InpMaxSARWeakReverseOrders)) +
+                     " | B " + IntegerToString(CountSARWeakReverseOrdersByDirection(1)) +
+                     "/" + IntegerToString(GetMaxSARWeakReverseOrdersPerSide()) +
+                     " S " + IntegerToString(CountSARWeakReverseOrdersByDirection(-1)) +
+                     "/" + IntegerToString(GetMaxSARWeakReverseOrdersPerSide()) +
+                     " | Base " + IntegerToString(CountSARWeakReverseBaseOrdersByDirection(-g_activeSARDirection)) +
                      " | Last " + g_sarWeakReverseLastStatus,
                      InpOpenReverseOrderOnSARWeakSignal ?
                      (g_sarWeakReverseLastStatus == "OPENED" ? clrLime : clrYellow) : clrSilver);
@@ -9244,7 +9407,9 @@ void DrawDashboard(string status)
    RightProRow("Lot Size",DoubleToString(InpFixedLot,2),clrWhite);
    RightProRow("Slippage",IntegerToString(InpSlippage),clrWhite);
    RightProRow("Spread Limit",IntegerToString((int)MarketInfo(Symbol(),MODE_SPREAD))+" / "+IntegerToString(InpMaxSpreadPoints),((int)MarketInfo(Symbol(),MODE_SPREAD)<=InpMaxSpreadPoints) ? clrLime : clrRed);
-   RightProRow("Basket TP","$"+DoubleToString(InpBasketProfitUSD,2),clrLime);
+   RightProRow("Basket TP Base","$"+DoubleToString(InpBasketProfitUSD,2),clrLime);
+   RightProRow("Basket TP Live","$"+DoubleToString(GetBasketProfitTargetUSD(),2),clrYellow);
+   RightProRow("TP Time Decay",BasketProfitTimeDecayStatusText(),InpUseBasketProfitTimeDecay ? clrAqua : clrSilver);
    RightProRow("Basket SL","$"+DoubleToString(InpBasketStopLossUSD,2),clrRed);
    RightProRow("Ind Profit Protect",OnOff(InpUseIndividualProfitProtect),InpUseIndividualProfitProtect ? clrLime : clrSilver);
    RightProRow("Basket Protect",OnOff(InpUseBasketProfitProtect),InpUseBasketProfitProtect ? clrLime : clrSilver);
