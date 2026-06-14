@@ -22,7 +22,7 @@ double InpMinGapWhenMaxOrdersMoreThanOne = 100.0; // when InpMaxOrders > 1, enfo
 #define DXB_HARD_MAX_OPEN_ORDERS 6  // absolute safety cap for normal SAR orders per cycle
 
 double InpBasketProfitUSD         = 1.00;
-double InpBasketStopLossUSD       = 10.00;    // BASKET stop loss in USD, 0 = disabled. This closes all orders in active SAR direction.
+double InpBasketStopLossUSD       = 3.00;    // BASKET stop loss in USD, 0 = disabled. This closes all orders in active SAR direction.
 
 double InpProfitTargetPercent      = 50000.0;//50   // stop trading when equity reaches Base + 100%
 double InpLossStopPercent          = 50.0;   // stop trading when equity reaches Base - 50%
@@ -115,9 +115,9 @@ bool   InpRecoveryGapMustMatchH1Trend = true;
 bool   InpKeepPendingRecoveryGapAfterBlock = true;
 bool   InpOpenPendingRecoveryWhenSARMatches = true;
 
-double InpRecoveryGapRawPrice     = 300.0;   // raw price difference, not points
+double InpRecoveryGapRawPrice     = 80.0;   // raw price difference, not points
 double InpRecoveryGapLot          = 0.01;
-int    InpMaxRecoveryGapOrdersPerSide = 1;  // recovery ladder: 50, 100, 150 from first order price
+int    InpMaxRecoveryGapOrdersPerSide = 2;  // recovery ladder: 50, 100, 150 from first order price
 
 // Reverse swing order: whenever a RECOVERY_GAP order opens, also open one opposite order.
 // Example: BUY recovery opens -> open SELL swing order.
@@ -268,7 +268,7 @@ bool   InpUseSARPriceDiffConfirm  = true;
 // 1) After the last confirmed normal order, wait InpContinuousOrderGapMinutes.
 // 2) Then verify live price has moved InpContinuousOrderPriceGap from that last order price.
 // No expiry timeout is used. If gap is not ready, EA keeps waiting.
-bool   InpUseRepeatedPriceGapConfirm = true;
+bool   InpUseRepeatedPriceGapConfirm = false;
 double InpContinuousOrderPriceGap    = 30;//10.0; //30  // raw price gap required from last confirmed normal order
 int    InpContinuousOrderLookbackMinutes = 1;  // legacy input, not used by current continuity gap logic
 int    InpContinuousOrderGapMinutes  = 1;      // wait this many minutes after last order, then verify price gap
@@ -443,15 +443,28 @@ int    InpEarlySARWeakExitNeedSignals  = 3;     // minimum weakness points requi
 int    InpEarlySARWeakExitMinAgeMin    = 5;     // avoid closing immediately after fresh flip
 int    InpEarlySARWeakExitCooldownSec  = 60;    // avoid repeat close loop
 
+// Confirmed SAR weak basket close:
+// Close only when weakness is confirmed/recent, not on every weak marker.
+// Profitable active SAR basket closes immediately.
+// Old active SAR basket can close at a controlled small loss to avoid full basket SL.
+bool   InpUseConfirmedSARWeakBasketClose = true;
+int    InpSARWeakCloseRecentBars         = 3;     // latest weak signal must be within this many bars
+bool   InpSARWeakCloseProfitBasket       = true;
+double InpSARWeakMinProfitToClose        = 0.01;
+bool   InpSARWeakCloseOldSmallLoss       = true;
+int    InpSARWeakBasketAgeMinutes        = 30;
+double InpSARWeakMaxSmallLossToCloseUSD  = 2.00;  // close old weak basket only if loss is between 0 and -this
+bool   InpSARWeakCloseResetCycle         = true;  // after close, allow fresh SAR-direction entries on next tick
+
 // SAR weak reverse order:
 // When active SAR becomes weak before full SAR flip, optionally open one opposite order.
 // Example: active SAR BUY becomes weak => open SELL order with comment SAR_WEAK_REVERSE.
 bool   InpOpenReverseOrderOnSARWeakSignal = true;
 double InpSARWeakReverseLot               = 0.01;  // 0 = use InpFixedLot
 int    InpMaxSARWeakReverseOrders         = 2;     // total max weak-reverse orders. 2 = max 1 BUY + max 1 SELL
-int    InpSARWeakReverseCooldownMinutes   = 30;     // avoid repeated reverse orders
+int    InpSARWeakReverseCooldownMinutes   = 1;     // avoid repeated reverse orders
 bool   InpSARWeakReverseRequireH1Trend    = false; // true = reverse order must match H1/H2 trend
-bool   InpSARWeakReverseRequireExistingSameSideOrder = true; // true = open weak-reverse only if an existing same-side order is already open
+bool   InpSARWeakReverseRequireExistingSameSideOrder = false; // true = open weak-reverse only if an existing same-side order is already open
 
 // SAR weak signal chart marker:
 // When active SAR becomes weak, mark that candle with a different color so it is visible on chart.
@@ -651,6 +664,14 @@ string   g_sarWeakReverseLastReason = "NONE";
 // SAR weak signal candle marker state
 datetime g_lastSARWeakSignalMarkerBarTime = 0;
 string   g_lastSARWeakSignalMarkerReason  = "OFF";
+
+// Confirmed SAR weak basket-close dashboard state
+string   g_sarWeakBasketCloseLastStatus = "WAIT";
+datetime g_sarWeakBasketCloseLastTime = 0;
+int      g_sarWeakBasketCloseLastDirection = 0;
+double   g_sarWeakBasketCloseLastProfit = 0.0;
+int      g_sarWeakBasketCloseLastAgeMin = 0;
+string   g_sarWeakBasketCloseLastReason = "NONE";
 
 double   g_globalEquityPeak              = 0.0;
 datetime g_globalEquityTrailPauseUntil   = 0;
@@ -1349,6 +1370,12 @@ void ResetTradingCycleState()
    ResetSpikeWickPauseState();
    g_lastSARWeakSignalMarkerBarTime = 0;
    g_lastSARWeakSignalMarkerReason  = "OFF";
+   g_sarWeakBasketCloseLastStatus   = "WAIT";
+   g_sarWeakBasketCloseLastTime     = 0;
+   g_sarWeakBasketCloseLastDirection = 0;
+   g_sarWeakBasketCloseLastProfit   = 0.0;
+   g_sarWeakBasketCloseLastAgeMin   = 0;
+   g_sarWeakBasketCloseLastReason   = "NONE";
 
    Print("TRADING CYCLE RESET | Waiting for fresh SAR direction after equity stats reset.");
   }
@@ -5107,6 +5134,140 @@ bool IsEarlySARWeakExitSignal(int direction, double basketProfit, string &reason
 
 
 //+------------------------------------------------------------------+
+//| Confirmed/recent SAR weak basket close helpers                   |
+//+------------------------------------------------------------------+
+datetime GetOldestOpenOrderTimeByDirection(int direction)
+  {
+   datetime oldestTime = 0;
+   int type = direction == 1 ? OP_BUY : OP_SELL;
+
+   for(int i = OrdersTotal() - 1; i >= 0; i--)
+     {
+      if(!OrderSelect(i, SELECT_BY_POS, MODE_TRADES))
+         continue;
+      if(OrderSymbol() != Symbol() || OrderMagicNumber() != InpMagicNumber)
+         continue;
+      if(OrderType() != type)
+         continue;
+      if(IsSARGuardOrderComment(OrderComment()))
+         continue;
+
+      if(oldestTime <= 0 || OrderOpenTime() < oldestTime)
+         oldestTime = OrderOpenTime();
+     }
+
+   return(oldestTime);
+  }
+
+//+------------------------------------------------------------------+
+int GetBasketAgeMinutesByDirection(int direction)
+  {
+   datetime oldestTime = GetOldestOpenOrderTimeByDirection(direction);
+   if(oldestTime <= 0)
+      return(0);
+
+   int ageMin = (int)((TimeCurrent() - oldestTime) / 60);
+   if(ageMin < 0)
+      ageMin = 0;
+
+   return(ageMin);
+  }
+
+//+------------------------------------------------------------------+
+bool IsSARWeakSignalRecentForClose()
+  {
+   int bars = MathMax(1, InpSARWeakCloseRecentBars);
+
+   // Current confirmed signal is treated as recent even before marker objects update.
+   if(g_earlySARWeakExitActive)
+      return(true);
+
+   if(g_lastSARWeakSignalMarkerBarTime <= 0)
+      return(false);
+
+   datetime minTime = iTime(Symbol(), Period(), bars);
+   if(minTime <= 0)
+      minTime = TimeCurrent() - bars * PeriodSeconds();
+
+   return(g_lastSARWeakSignalMarkerBarTime >= minTime);
+  }
+
+//+------------------------------------------------------------------+
+bool ShouldCloseConfirmedSARWeakBasket(int direction,
+                                        double basketProfit,
+                                        string weakReason,
+                                        string &closeReason)
+  {
+   closeReason = "";
+
+   if(!InpUseConfirmedSARWeakBasketClose)
+     {
+      g_sarWeakBasketCloseLastStatus = "OFF";
+      return(false);
+     }
+
+   if(direction == 0 || !g_earlySARWeakExitActive)
+     {
+      g_sarWeakBasketCloseLastStatus = "WAIT WEAK";
+      return(false);
+     }
+
+   if(CountOrdersByDirection(direction) <= 0)
+     {
+      g_sarWeakBasketCloseLastStatus = "NO BASKET";
+      return(false);
+     }
+
+   if(!IsSARWeakSignalRecentForClose())
+     {
+      g_sarWeakBasketCloseLastStatus = "WAIT RECENT";
+      return(false);
+     }
+
+   int basketAgeMin = GetBasketAgeMinutesByDirection(direction);
+   bool profitClose = (InpSARWeakCloseProfitBasket &&
+                       basketProfit >= MathMax(0.0, InpSARWeakMinProfitToClose));
+
+   double maxSmallLoss = MathAbs(InpSARWeakMaxSmallLossToCloseUSD);
+   bool oldSmallLossClose =
+      (InpSARWeakCloseOldSmallLoss &&
+       basketAgeMin >= MathMax(1, InpSARWeakBasketAgeMinutes) &&
+       basketProfit < MathMax(0.0, InpSARWeakMinProfitToClose) &&
+       basketProfit >= -maxSmallLoss);
+
+   g_sarWeakBasketCloseLastDirection = direction;
+   g_sarWeakBasketCloseLastProfit = basketProfit;
+   g_sarWeakBasketCloseLastAgeMin = basketAgeMin;
+   g_sarWeakBasketCloseLastReason = weakReason;
+
+   if(profitClose)
+     {
+      closeReason = "CONFIRMED SAR WEAK PROFIT EXIT | Profit=$" +
+                    DoubleToString(basketProfit, 2) +
+                    " | Age=" + IntegerToString(basketAgeMin) + "m | " +
+                    weakReason;
+      g_sarWeakBasketCloseLastStatus = "CLOSE PROFIT";
+      return(true);
+     }
+
+   if(oldSmallLossClose)
+     {
+      closeReason = "CONFIRMED SAR WEAK OLD SMALL-LOSS EXIT | Profit=$" +
+                    DoubleToString(basketProfit, 2) +
+                    " | Age=" + IntegerToString(basketAgeMin) + "m | MaxLoss=$" +
+                    DoubleToString(maxSmallLoss, 2) + " | " + weakReason;
+      g_sarWeakBasketCloseLastStatus = "CLOSE OLD LOSS";
+      return(true);
+     }
+
+   g_sarWeakBasketCloseLastStatus = "HOLD | Profit=$" +
+                                    DoubleToString(basketProfit, 2) +
+                                    " | Age=" + IntegerToString(basketAgeMin) + "m";
+   return(false);
+  }
+
+
+//+------------------------------------------------------------------+
 bool IsProfitProtectPauseActive()
   {
    if(g_profitProtectPauseUntil <= 0)
@@ -6006,12 +6167,51 @@ bool ProcessCloseOrdersFirst(string &status)
       // Example: active SAR BUY is weak => open SELL SAR_WEAK_REVERSE order.
       TryOpenSARWeakReverseOrder(weakExitReason);
 
-      if(shouldCloseWeakBasket && InpCloseBasketOnSARWeakExit)
+      string confirmedWeakCloseReason = "";
+      bool shouldCloseConfirmedWeakBasket =
+         ShouldCloseConfirmedSARWeakBasket(g_activeSARDirection,
+                                           activeProfit,
+                                           weakExitReason,
+                                           confirmedWeakCloseReason);
+
+      // New confirmed weak close rule:
+      // 1) Close profitable active SAR basket immediately when confirmed/recent SAR weakness appears.
+      // 2) If basket age is > configured minutes, close at controlled small loss only.
+      // 3) Do not close on every weak marker; the signal must be confirmed and recent.
+      if(shouldCloseConfirmedWeakBasket)
         {
          int oldDirection = g_activeSARDirection;
-         CloseOrdersByDirection(oldDirection, "Early SAR weak exit: " + weakExitReason);
+         CloseOrdersByDirection(oldDirection, confirmedWeakCloseReason);
+
          g_lastEarlySARWeakExitTime = TimeCurrent();
          g_lastEarlySARWeakExitDirection = oldDirection;
+         g_activeBasketPeakProfit = 0.0;
+
+         g_sarWeakBasketCloseLastTime = TimeCurrent();
+         g_sarWeakBasketCloseLastDirection = oldDirection;
+         g_sarWeakBasketCloseLastProfit = activeProfit;
+         g_sarWeakBasketCloseLastAgeMin = GetBasketAgeMinutesByDirection(oldDirection);
+         g_sarWeakBasketCloseLastReason = confirmedWeakCloseReason;
+
+         if(InpSARWeakCloseResetCycle)
+            ResetSARSignalOrderCycleToNormalAfterStopLoss(oldDirection, "Confirmed SAR weak basket close");
+
+         // Allow new SAR-direction order logic on the next tick instead of keeping the EA stuck
+         // only because the previous basket was closed by a confirmed weak signal.
+         g_earlySARWeakExitActive = false;
+         g_earlySARWeakExitReason = "";
+
+         status = "CONFIRMED SAR WEAK BASKET CLOSED";
+         return(true);
+        }
+
+      // Backward-compatible old switch: keep available, but new confirmed rule above is safer.
+      if(shouldCloseWeakBasket && InpCloseBasketOnSARWeakExit)
+        {
+         int oldDirection2 = g_activeSARDirection;
+         CloseOrdersByDirection(oldDirection2, "Early SAR weak exit: " + weakExitReason);
+         g_lastEarlySARWeakExitTime = TimeCurrent();
+         g_lastEarlySARWeakExitDirection = oldDirection2;
          g_activeBasketPeakProfit = 0.0;
 
          status = "EARLY SAR WEAK EXIT CLOSED";
@@ -6139,8 +6339,10 @@ bool ProcessNewOrderCreationLast(bool isNewBar, string &status)
       return(SetOrderBlockStatus(status, "BIG CANDLE PAUSE - " + BigCandlePauseStatusText()));
      }
 
-// Early SAR weak exit blocks ONLY new normal orders. Close management already ran first.
-   if(InpUseEarlySARWeakExit && InpStopNewOrdersOnSARWeakExit && g_earlySARWeakExitActive)
+// Early SAR weak exit blocks ONLY new normal orders while the weak active SAR basket still exists.
+// If confirmed weak close already removed that basket, allow fresh SAR-direction order logic on the next tick.
+   if(InpUseEarlySARWeakExit && InpStopNewOrdersOnSARWeakExit && g_earlySARWeakExitActive &&
+      CountOrdersByDirection(g_activeSARDirection) > 0)
      {
       status = "SAR WEAK - STOP NEW ORDERS";
       SetLastOrderBlockDashboard(status + " | " + g_earlySARWeakExitReason);
@@ -8896,6 +9098,15 @@ void DrawLeftImportantOrderSettings(int direction)
                       " " + DashboardTimeText(g_sarWeakReverseLastTime)) : g_sarWeakReverseLastReason,
                      g_sarWeakReverseLastTicket > 0 ? clrAqua : clrSilver);
 
+   LeftChecklistInfo("Weak Basket Close",
+                     OnOff(InpUseConfirmedSARWeakBasketClose) +
+                     " | " + g_sarWeakBasketCloseLastStatus +
+                     " | Age " + IntegerToString(g_sarWeakBasketCloseLastAgeMin) + "m" +
+                     " | P " + DoubleToString(g_sarWeakBasketCloseLastProfit, 2),
+                     (g_sarWeakBasketCloseLastStatus == "CLOSE PROFIT" ||
+                      g_sarWeakBasketCloseLastStatus == "CLOSE OLD LOSS") ? clrLime :
+                     (InpUseConfirmedSARWeakBasketClose ? clrYellow : clrSilver));
+
    LeftChecklistInfo("No-New Hours",
                      InpUseNoNewOrderHours ? InpNoNewOrderHourList : "OFF",
                      InpUseNoNewOrderHours ? clrAqua : clrSilver);
@@ -9437,6 +9648,12 @@ void DrawDashboard(string status)
    RightProRow("Spike/Wick",DoubleToString(InpSpikeWickMinRawPrice,0)+" | R"+DoubleToString(InpSpikeMomentumRangeRawPrice,0)+" B"+DoubleToString(InpSpikeMomentumBodyRawPrice,0),clrYellow);
    RightProRow("Spike Pause",IntegerToString(InpSpikeWickPauseMinutes)+"m | Yellow marker "+OnOff(InpDrawSpikeWickYellowMarker),clrYellow);
    RightProRow("SAR Weak Marker",OnOff(InpDrawSARWeakSignalMarker)+" | Violet",InpDrawSARWeakSignalMarker ? InpSARWeakSignalMarkerColor : clrSilver);
+   RightProRow("Weak Basket Close",
+               OnOff(InpUseConfirmedSARWeakBasketClose) +
+               " | Profit>=$" + DoubleToString(InpSARWeakMinProfitToClose,2) +
+               " | Age " + IntegerToString(InpSARWeakBasketAgeMinutes) +
+               "m Loss<=$" + DoubleToString(InpSARWeakMaxSmallLossToCloseUSD,2),
+               InpUseConfirmedSARWeakBasketClose ? clrLime : clrSilver);
    RightProRow("Spike Status",SpikeWickPauseStatusText(),IsSpikeWickPauseActive() ? clrOrangeRed : clrSilver);
    RightProRow("Global Trail",g_globalEquityTrailStatus,g_globalEquityTrailLocked ? clrOrangeRed : clrAqua);
    RightProRow("No-New Hours",NoNewOrderHoursStatusText(),IsNoNewOrderHour() ? clrOrangeRed : clrLime);
