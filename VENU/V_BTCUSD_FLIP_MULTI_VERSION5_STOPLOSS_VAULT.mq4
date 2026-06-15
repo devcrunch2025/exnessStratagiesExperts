@@ -33,7 +33,7 @@ double InpMinGapWhenMaxOrdersMoreThanOne = 70.0; // when InpMaxOrders > 1, enfor
 
 double InpBasketProfitUSD         = 1.00;
 //Live
-double InpBasketStopLossUSD       = 5.00;    // BASKET stop loss in USD, 0 = disabled. This closes all orders in active SAR direction.
+double InpBasketStopLossUSD       = 2;//5.00;    // BASKET stop loss in USD, 0 = disabled. This closes all orders in active SAR direction.
 
 // Simple basket close mode:
 // true = close BUY basket and SELL basket only by fixed InpBasketProfitUSD / InpBasketStopLossUSD.
@@ -61,10 +61,10 @@ double InpMixedTrendMinMoveRaw         = 50.0;
 double InpMixedTrendMaxMoveRaw         = 300.0;
 double InpDangerLast3MoveRaw           = 500.0;
 
-double InpContinuousTrendBasketSLUSD   = 5.00;
-double InpMediumTrendBasketSLUSD       = 10.00;
-double InpMixedTrendBasketSLUSD        = 10.00;
-double InpDangerModeBasketSLUSD        = 5.00;
+double InpContinuousTrendBasketSLUSD   = 2;//5.00;
+double InpMediumTrendBasketSLUSD       = 2;//10.00;
+double InpMixedTrendBasketSLUSD        = 2;//10.00;
+double InpDangerModeBasketSLUSD        = 2;//5.00;
 
 bool   InpAutoModePauseOrdersInDanger  = true;
 bool   InpAutoModeAllowRecoveryMedium  = true;
@@ -172,7 +172,7 @@ bool   InpRecoveryGapMustMatchH1Trend = false;
 bool   InpKeepPendingRecoveryGapAfterBlock = true;
 bool   InpOpenPendingRecoveryWhenSARMatches = true;
 
-double InpRecoveryGapRawPrice     = 300.0;   // raw price difference, not points
+double InpRecoveryGapRawPrice     = 50.0;   // raw price difference, not points
 double InpRecoveryGapLot          = 0.01;
 int    InpMaxRecoveryGapOrdersPerSide = 1;  // recovery ladder: 50, 100, 150 from first order price
 
