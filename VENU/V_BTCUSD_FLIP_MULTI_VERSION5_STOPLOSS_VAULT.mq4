@@ -164,7 +164,7 @@ bool   InpOpenPendingRecoveryWhenSARMatches = true;
 
 double InpRecoveryGapRawPrice     = 200.0;   // raw price difference, not points
 double InpRecoveryGapLot          = 0.01;
-int    InpMaxRecoveryGapOrdersPerSide = 3;  // recovery ladder: 50, 100, 150 from first order price
+int    InpMaxRecoveryGapOrdersPerSide = 1;  // recovery ladder: 50, 100, 150 from first order price
 
 // Reverse swing order: whenever a RECOVERY_GAP order opens, also open one opposite order.
 // Example: BUY recovery opens -> open SELL swing order.
@@ -315,7 +315,7 @@ bool   InpUseSARPriceDiffConfirm  = true;
 // 1) After the last confirmed normal order, wait InpContinuousOrderGapMinutes.
 // 2) Then verify live price has moved InpContinuousOrderPriceGap from that last order price.
 // No expiry timeout is used. If gap is not ready, EA keeps waiting.
-bool   InpUseRepeatedPriceGapConfirm = false;
+bool   InpUseRepeatedPriceGapConfirm = true;
 double InpContinuousOrderPriceGap    = 30;//10.0; //30  // raw price gap required from last confirmed normal order
 int    InpContinuousOrderLookbackMinutes = 1;  // legacy input, not used by current continuity gap logic
 int    InpContinuousOrderGapMinutes  = 1;      // wait this many minutes after last order, then verify price gap
