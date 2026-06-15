@@ -32,7 +32,7 @@ double InpMinGapWhenMaxOrdersMoreThanOne = 70.0; // when InpMaxOrders > 1, enfor
 #define DXB_HARD_MAX_OPEN_ORDERS 6  // absolute safety cap for normal SAR orders per cycle
 
 double InpBasketProfitUSD         = 1.00;
-double InpBasketStopLossUSD       = 5.00;    // BASKET stop loss in USD, 0 = disabled. This closes all orders in active SAR direction.
+double InpBasketStopLossUSD       =3;// 5.00;    // BASKET stop loss in USD, 0 = disabled. This closes all orders in active SAR direction.
 
 // Simple basket close mode:
 // true = close BUY basket and SELL basket only by fixed InpBasketProfitUSD / InpBasketStopLossUSD.
@@ -60,10 +60,10 @@ double InpMixedTrendMinMoveRaw         = 50.0;
 double InpMixedTrendMaxMoveRaw         = 300.0;
 double InpDangerLast3MoveRaw           = 500.0;
 
-double InpContinuousTrendBasketSLUSD   = 5.00;
-double InpMediumTrendBasketSLUSD       = 5.00;
-double InpMixedTrendBasketSLUSD        = 10.00;
-double InpDangerModeBasketSLUSD        = 5.00;
+double InpContinuousTrendBasketSLUSD   = 3;//5.00;
+double InpMediumTrendBasketSLUSD       = 3;//5.00;
+double InpMixedTrendBasketSLUSD        = 3;//10.00;
+double InpDangerModeBasketSLUSD        = 3;//5.00;
 
 bool   InpAutoModePauseOrdersInDanger  = true;
 bool   InpAutoModeAllowRecoveryMedium  = true;
@@ -199,12 +199,12 @@ string InpSARRecoveryGapOrderPrefix   = "RG_P";
 // When a normal side basket is losing, live movement decides micro direction:
 // price up => BUY micro; price down => SELL micro.
 bool   InpUseLossZoneMicroScalper          = true;
-double InpLossZoneMicroStartLossUSD        = 0.50;  // activate when a side basket <= -this value
+double InpLossZoneMicroStartLossUSD        = 0.50;//1.00;  // activate when a side basket <= -this value
 double InpLossZoneMicroLossStepUSD         = 1.00;  // zones: -1,-2,-3,-4...
 double InpLossZoneMicroEntryGapRaw         = 20.0;  // fresh live move from reference
 double InpLossZoneMicroLot                 = 0.01;
-double InpLossZoneMicroTargetProfitUSD     = 0.50;  // checked first
-double InpLossZoneMicroQuickProfitUSD      = 0.10;  // immediate small-profit close
+double InpLossZoneMicroTargetProfitUSD     = 0.50;//0.10;  // checked first
+double InpLossZoneMicroQuickProfitUSD      = 0.10;//0.05;  // immediate small-profit close
 bool   InpLossZoneMicroCloseAtQuickProfit  = true;
 bool   InpLossZoneMicroCloseAtBreakEven    = true;  // close at >=0 after timeout
 int    InpLossZoneMicroBreakEvenAfterSec   = 15;
