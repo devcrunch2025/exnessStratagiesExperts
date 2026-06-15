@@ -7,10 +7,10 @@
 
 enum MARKET_MODE
 {
-   MODE_RANGE = 0,
-   MODE_HEALTHY_TREND = 1,
-   MODE_STRONG_TREND = 2,
-   MODE_DANGER = 3
+   MODE_RANGE = 0,//Market is moving sideways.
+   MODE_HEALTHY_TREND = 1,//Market is trending normally.
+   MODE_STRONG_TREND = 2,//Market is moving aggressively in one direction.
+   MODE_DANGER = 3//Market becomes unstable.
 };
 
 MARKET_MODE g_marketMode = MODE_RANGE;
@@ -63,7 +63,7 @@ double InpDangerLast3MoveRaw           = 500.0;
 double InpContinuousTrendBasketSLUSD   = 5.00;
 double InpMediumTrendBasketSLUSD       = 10.00;
 double InpMixedTrendBasketSLUSD        = 10.00;
-double InpDangerModeBasketSLUSD        = 5.00;
+double InpDangerModeBasketSLUSD        = 10.00;
 
 bool   InpAutoModePauseOrdersInDanger  = true;
 bool   InpAutoModeAllowRecoveryMedium  = true;
@@ -72,7 +72,7 @@ bool   InpAutoModeAllowSARWeakMixed    = false;
 bool   InpAutoModeAllowPullbackMixed   = true;
 
 double InpProfitTargetPercent      = 50000.0;//50   // stop trading when equity reaches Base + 100%
-double InpLossStopPercent          = 50.0;   // stop trading when equity reaches Base - 50%
+double InpLossStopPercent          = 500.0;   // stop trading when equity reaches Base - 50%
 
 double InpBasketProfitUSD_12_17 = 1.00; // profit target during 12,13,14,15,16,17 hours
 
@@ -240,8 +240,8 @@ int    InpOrderCooldownSeconds    = 0;       // 0 = disabled
 double InpMinPriceGap             = 0.00;    // raw price gap, 0 = disabled
 
 // No-trading hours: block NEW normal SAR orders only. Close/profit/protection/recovery management still runs.
-bool   InpUseNoNewOrderHours      = false;
-string InpNoNewOrderHourList      = "12,13,18,19,22,23";//"0,23";//"13,14,15,16,17,18"; // server-time hours to block new orders
+bool   InpUseNoNewOrderHours      = true;
+string InpNoNewOrderHourList      = "12,13,14";//"0,23";//"13,14,15,16,17,18"; // server-time hours to block new orders
 
 
 
@@ -1193,7 +1193,53 @@ void UpdateAutoMarketFlowMode()
 
    g_autoMarketModeText = MarketFlowModeText(g_autoMarketMode);
 }
+double GetDynamicBasketSL(double baseSL)
+{
 
+   return baseSL;
+   //  double baseSL = InpBasketStopLossUSD;
+    
+    // How long has this basket been losing?
+    datetime oldestLossTime = GetOldestLosingOrderTime(g_activeSARDirection);
+    if(oldestLossTime <= 0) return baseSL;
+    
+    int lossMinutes = (int)((TimeCurrent() - oldestLossTime) / 60);
+    
+    // Tighten SL the longer we stay in loss
+    // 0-5 min: full SL
+    // 5-15 min: 80% of SL
+    // 15-30 min: 60% of SL  
+    // 30+ min: 40% of SL (force exit early)
+    
+    if(lossMinutes > 30) return baseSL * 0.40;
+    if(lossMinutes > 15) return baseSL * 0.60;
+    if(lossMinutes > 5)  return baseSL * 0.80;
+    
+    return baseSL;
+}
+
+datetime GetOldestLosingOrderTime(int direction)
+{
+    int type = direction == 1 ? OP_BUY : OP_SELL;
+    datetime oldestTime = 0;
+    
+    for(int i = OrdersTotal()-1; i >= 0; i--)
+    {
+        if(!OrderSelect(i, SELECT_BY_POS, MODE_TRADES)) continue;
+        if(OrderSymbol() != Symbol()) continue;
+        if(OrderMagicNumber() != InpMagicNumber) continue;
+        if(OrderType() != type) continue;
+        if(IsSARGuardOrderComment(OrderComment())) continue;
+        
+        double profit = OrderProfit() + OrderSwap() + OrderCommission();
+        
+        // Only track losing orders
+        if(profit < 0 && (oldestTime == 0 || OrderOpenTime() < oldestTime))
+            oldestTime = OrderOpenTime();
+    }
+    
+    return oldestTime;
+}
 double GetEffectiveBasketStopLossUSD()
 {
    if(InpUseSimpleSideBasketCloseOnly)
@@ -1202,10 +1248,10 @@ double GetEffectiveBasketStopLossUSD()
    if(!InpUseAutoMarketFlowMode)
       return(InpBasketStopLossUSD);
 
-   if(g_autoMarketMode == DXB_MARKET_MODE_CONTINUOUS) return(InpContinuousTrendBasketSLUSD);
-   if(g_autoMarketMode == DXB_MARKET_MODE_MEDIUM)     return(InpMediumTrendBasketSLUSD);
-   if(g_autoMarketMode == DXB_MARKET_MODE_MIXED)      return(InpMixedTrendBasketSLUSD);
-   if(g_autoMarketMode == DXB_MARKET_MODE_DANGER)     return(InpDangerModeBasketSLUSD);
+   if(g_autoMarketMode == DXB_MARKET_MODE_CONTINUOUS) return(GetDynamicBasketSL(InpContinuousTrendBasketSLUSD));
+   if(g_autoMarketMode == DXB_MARKET_MODE_MEDIUM)     return(GetDynamicBasketSL(InpMediumTrendBasketSLUSD));
+   if(g_autoMarketMode == DXB_MARKET_MODE_MIXED)      return(GetDynamicBasketSL(InpMixedTrendBasketSLUSD));
+   if(g_autoMarketMode == DXB_MARKET_MODE_DANGER)     return(GetDynamicBasketSL(InpDangerModeBasketSLUSD));
 
    return(InpBasketStopLossUSD);
 }
@@ -7014,10 +7060,10 @@ double GetEffectiveRecoveryGapRawPrice()
          return(999999); // disable
 
       case DXB_MARKET_MODE_MEDIUM:
-         return(InpRecoveryGapRawPrice);
+         return(InpRecoveryGapRawPrice*2);
 
       case DXB_MARKET_MODE_MIXED:
-         return(InpRecoveryGapRawPrice/2);
+         return(InpRecoveryGapRawPrice);
 
       case DXB_MARKET_MODE_DANGER:
          return(999999); // disable
@@ -7033,13 +7079,13 @@ int GetEffectiveMaxOrders()
    switch(g_autoMarketMode)
    {
       case DXB_MARKET_MODE_CONTINUOUS:
-         return(1);
+         return(10);
 
       case DXB_MARKET_MODE_MEDIUM:
          return(1);
 
       case DXB_MARKET_MODE_MIXED:
-         return(2);
+         return(1);
 
       case DXB_MARKET_MODE_DANGER:
          return(0);
