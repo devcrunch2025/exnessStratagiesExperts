@@ -5,31 +5,40 @@
 //|  cycle, draws arrows, closes opposite orders, resumes when aligned |
 //+------------------------------------------------------------------+
 
+enum MARKET_MODE
+{
+   MODE_RANGE = 0,
+   MODE_HEALTHY_TREND = 1,
+   MODE_STRONG_TREND = 2,
+   MODE_DANGER = 3
+};
+
+MARKET_MODE g_marketMode = MODE_RANGE;
 #property strict
 
 // MT4 compatibility: balance/deposit/withdrawal history operation type
 #ifndef OP_BALANCE
 #define OP_BALANCE 6
 #endif
-#property version   "1.10"
+#property version   "1.09"
 
 //======================== INPUTS ====================================
-string InpEAName                  = "DXB Version 5 - Auto Market Fixed";
+string InpEAName                  = "DXB Version 5 - Specila Order";
 int    InpMagicNumber             = 989899;
 double InpFixedLot                = 0.01;
-int    InpMaxOrders               = 1;     // fallback max NORMAL SAR orders when auto-market mode is OFF
-double InpMinGapWhenMaxOrdersMoreThanOne = 70.0; // when effective max > 1, enforce this raw gap between same-direction orders
+int    InpMaxOrders               = 2;     // maximum normal SAR orders per SAR signal cycle
+double InpMinGapWhenMaxOrdersMoreThanOne = 70.0; // when InpMaxOrders > 1, enforce at least this raw price gap between same-direction open orders
 
-#define DXB_HARD_MAX_OPEN_ORDERS 10 // absolute safety cap for normal SAR orders per cycle
+#define DXB_HARD_MAX_OPEN_ORDERS 6  // absolute safety cap for normal SAR orders per cycle
 
 double InpBasketProfitUSD         = 1.00;
 double InpBasketStopLossUSD       = 5.00;    // BASKET stop loss in USD, 0 = disabled. This closes all orders in active SAR direction.
 
-// Simple side-basket close mode:
-// true = close BUY and SELL baskets independently. Basket TP stays fixed at InpBasketProfitUSD.
-// Auto-market mode may still select the configured fixed basket SL for the current mode.
-// Trailing/time-decay/combined-basket adjustments remain disabled, while the explicitly enabled
-// confirmed SAR-weak PROFIT close is still allowed.
+// Simple basket close mode:
+// true = close BUY basket and SELL basket only by fixed InpBasketProfitUSD / InpBasketStopLossUSD.
+// It disables auto profit/loss adjustments such as combined all-basket profit close,
+// basket/individual profit protect, time-decay TP, SAR-weak basket close,
+// global equity trailing close, and auto market-flow SL adjustment.
 bool   InpUseSimpleSideBasketCloseOnly = true;
 
 
@@ -54,7 +63,7 @@ double InpDangerLast3MoveRaw           = 500.0;
 double InpContinuousTrendBasketSLUSD   = 5.00;
 double InpMediumTrendBasketSLUSD       = 10.00;
 double InpMixedTrendBasketSLUSD        = 10.00;
-double InpDangerModeBasketSLUSD        = 10.00;
+double InpDangerModeBasketSLUSD        = 5.00;
 
 bool   InpAutoModePauseOrdersInDanger  = true;
 bool   InpAutoModeAllowRecoveryMedium  = true;
@@ -62,20 +71,8 @@ bool   InpAutoModeAllowRecoveryMixed   = true;
 bool   InpAutoModeAllowSARWeakMixed    = false;
 bool   InpAutoModeAllowPullbackMixed   = true;
 
-// Maximum NORMAL SAR orders created in one SAR cycle for each auto-market mode.
-// Recovery/hedge/special-guard orders use their own limits.
-int    InpContinuousTrendMaxOrders     = 10;
-int    InpMediumTrendMaxOrders         = 3;
-int    InpMixedTrendMaxOrders          = 1;
-int    InpDangerModeMaxOrders          = 0;
-
-// Recovery base-gap multipliers by market mode.
-// CONTINUOUS and DANGER disable recovery through IsAutoMarketRecoveryAllowed().
-double InpMediumRecoveryGapMultiplier  = 2.0;
-double InpMixedRecoveryGapMultiplier   = 1.0;
-
 double InpProfitTargetPercent      = 50000.0;//50   // stop trading when equity reaches Base + 100%
-double InpLossStopPercent          = 500.0;   // stop trading when equity reaches Base - 50%
+double InpLossStopPercent          = 50.0;   // stop trading when equity reaches Base - 50%
 
 double InpBasketProfitUSD_12_17 = 1.00; // profit target during 12,13,14,15,16,17 hours
 
@@ -243,8 +240,8 @@ int    InpOrderCooldownSeconds    = 0;       // 0 = disabled
 double InpMinPriceGap             = 0.00;    // raw price gap, 0 = disabled
 
 // No-trading hours: block NEW normal SAR orders only. Close/profit/protection/recovery management still runs.
-bool   InpUseNoNewOrderHours      = true;
-string InpNoNewOrderHourList      = "12,13,14";//"0,23";//"13,14,15,16,17,18"; // server-time hours to block new orders
+bool   InpUseNoNewOrderHours      = false;
+string InpNoNewOrderHourList      = "12,13,18,19,22,23";//"0,23";//"13,14,15,16,17,18"; // server-time hours to block new orders
 
 
 
@@ -497,7 +494,7 @@ int    InpEarlySARWeakExitCooldownSec  = 60;    // avoid repeat close loop
 // Close only when weakness is confirmed/recent, not on every weak marker.
 // Profitable active SAR basket closes immediately.
 // Old active SAR basket can close at a controlled small loss to avoid full basket SL.
-bool   InpUseConfirmedSARWeakBasketClose = true;
+bool   InpUseConfirmedSARWeakBasketClose = false;
 int    InpSARWeakCloseRecentBars         = 3;     // latest weak signal must be within this many bars
 bool   InpSARWeakCloseProfitBasket       = true;
 double InpSARWeakMinProfitToClose        = 0.10;
@@ -1175,15 +1172,11 @@ void UpdateAutoMarketFlowMode()
       return;
    }
 
-   // Continuous mode requires both profitable history and the CURRENT lookback direction.
-   // This prevents old BUY profits from classifying a currently falling market as BUY continuous.
-   bool buyContinuous = (g_autoMarketDirection == 1 &&
-                         g_autoMarketMoveRaw >= InpContinuousTrendMoveRaw &&
+   bool buyContinuous = (g_autoMarketMoveRaw >= InpContinuousTrendMoveRaw &&
                          g_autoMarketBuyProfitCount >= InpContinuousTrendProfitOrders &&
                          g_autoMarketSellProfitCount <= InpContinuousTrendOppProfitMax);
 
-   bool sellContinuous = (g_autoMarketDirection == -1 &&
-                          g_autoMarketMoveRaw >= InpContinuousTrendMoveRaw &&
+   bool sellContinuous = (g_autoMarketMoveRaw >= InpContinuousTrendMoveRaw &&
                           g_autoMarketSellProfitCount >= InpContinuousTrendProfitOrders &&
                           g_autoMarketBuyProfitCount <= InpContinuousTrendOppProfitMax);
 
@@ -1200,46 +1193,19 @@ void UpdateAutoMarketFlowMode()
 
    g_autoMarketModeText = MarketFlowModeText(g_autoMarketMode);
 }
-double GetDynamicBasketSL(double baseSL)
-{
-   // Time-based automatic SL tightening is intentionally disabled.
-   // Auto-market mode selects a fixed SL; this helper keeps existing call sites compatible.
-   return(MathMax(0.0, baseSL));
-}
 
-datetime GetOldestLosingOrderTime(int direction)
-{
-    int type = direction == 1 ? OP_BUY : OP_SELL;
-    datetime oldestTime = 0;
-    
-    for(int i = OrdersTotal()-1; i >= 0; i--)
-    {
-        if(!OrderSelect(i, SELECT_BY_POS, MODE_TRADES)) continue;
-        if(OrderSymbol() != Symbol()) continue;
-        if(OrderMagicNumber() != InpMagicNumber) continue;
-        if(OrderType() != type) continue;
-        if(IsSARGuardOrderComment(OrderComment())) continue;
-        
-        double profit = OrderProfit() + OrderSwap() + OrderCommission();
-        
-        // Only track losing orders
-        if(profit < 0 && (oldestTime == 0 || OrderOpenTime() < oldestTime))
-            oldestTime = OrderOpenTime();
-    }
-    
-    return oldestTime;
-}
 double GetEffectiveBasketStopLossUSD()
 {
-   // Simple mode controls HOW baskets close (side-by-side), not which fixed SL the
-   // active auto-market mode selects.
-   if(!InpUseAutoMarketFlowMode)
-      return(MathMax(0.0, InpBasketStopLossUSD));
+   if(InpUseSimpleSideBasketCloseOnly)
+      return(InpBasketStopLossUSD);
 
-   if(g_autoMarketMode == DXB_MARKET_MODE_CONTINUOUS) return(GetDynamicBasketSL(InpContinuousTrendBasketSLUSD));
-   if(g_autoMarketMode == DXB_MARKET_MODE_MEDIUM)     return(GetDynamicBasketSL(InpMediumTrendBasketSLUSD));
-   if(g_autoMarketMode == DXB_MARKET_MODE_MIXED)      return(GetDynamicBasketSL(InpMixedTrendBasketSLUSD));
-   if(g_autoMarketMode == DXB_MARKET_MODE_DANGER)     return(GetDynamicBasketSL(InpDangerModeBasketSLUSD));
+   if(!InpUseAutoMarketFlowMode)
+      return(InpBasketStopLossUSD);
+
+   if(g_autoMarketMode == DXB_MARKET_MODE_CONTINUOUS) return(InpContinuousTrendBasketSLUSD);
+   if(g_autoMarketMode == DXB_MARKET_MODE_MEDIUM)     return(InpMediumTrendBasketSLUSD);
+   if(g_autoMarketMode == DXB_MARKET_MODE_MIXED)      return(InpMixedTrendBasketSLUSD);
+   if(g_autoMarketMode == DXB_MARKET_MODE_DANGER)     return(InpDangerModeBasketSLUSD);
 
    return(InpBasketStopLossUSD);
 }
@@ -1380,7 +1346,12 @@ string BasketProfitTimeDecayStatusText()
 double GetBasketProfitTargetUSD()
 {
    if(InpUseSimpleSideBasketCloseOnly)
-      return(MathMax(0.0, InpBasketProfitUSD));
+     {
+      int simpleCount = CountOpenOrders();
+      if(simpleCount <= 0)
+         simpleCount = 1;
+      return(InpBasketProfitUSD / simpleCount);
+     }
 
    int h = TimeHour(TimeCurrent());
 
@@ -3925,7 +3896,7 @@ bool OpenRecoveryGapMarketOrder(int direction, double gapMove)
 
 // lot=lot*nextRecoveryNumber;
 
-   double requiredGapForComment = GetEffectiveRecoveryGapRawPrice() * nextRecoveryNumber;
+   double requiredGapForComment = InpRecoveryGapRawPrice * nextRecoveryNumber;
    int linkedParentTicket = GetParentTicketForRecoveryGap(direction);
 
    string comment = InpSARRecoveryGapOrderPrefix + IntegerToString(linkedParentTicket) +
@@ -4090,14 +4061,12 @@ double GetRecoveryLadderCurrentGap(int direction, double basePrice)
 double GetNextRecoveryLadderRequiredGap(int direction)
   {
    int recoveryCount = CountRecoveryGapOrdersByDirection(direction);
-   double baseGap = GetEffectiveRecoveryGapRawPrice();
 
-   // Recovery is disabled in CONTINUOUS and DANGER modes.
-   if(baseGap <= 0.0 || !IsAutoMarketRecoveryAllowed())
-      return(999999999.0);
-
-   // Gap is always verified from the recovery ladder base price.
-   return(baseGap * (recoveryCount + 1));
+   // Gap must always be verified from the OLDEST open order price.
+   // Recovery #1 = base +/- 150
+   // Recovery #2 = base +/- 300
+   // Recovery #3 = base +/- 450
+   return(InpRecoveryGapRawPrice * (recoveryCount + 1));
   }
 
 
@@ -4201,15 +4170,6 @@ bool TryOpenPendingRecoveryGap()
       return(false);
      }
 
-   // A market-mode change may increase the required gap. Never open a stored pending
-   // recovery using an older, smaller threshold.
-   double currentRequiredGap = GetNextRecoveryLadderRequiredGap(direction);
-   if(currentGap < currentRequiredGap && g_pendingRecoveryGapMove < currentRequiredGap)
-     {
-      g_pendingRecoveryRequiredGap = currentRequiredGap;
-      return(false);
-     }
-
    double gapForOrder = MathMax(currentGap, g_pendingRecoveryGapMove);
 
    Print("TRY PENDING RECOVERY GAP | Direction=", DirectionText(direction),
@@ -4252,7 +4212,7 @@ void ProcessRecoveryGapOrders()
       return;
      }
 
-   if(GetEffectiveRecoveryGapRawPrice() <= 0.0 || InpRecoveryGapLot <= 0.0)
+   if(InpRecoveryGapRawPrice <= 0.0 || InpRecoveryGapLot <= 0.0)
       return;
 
    if(CheckEquityConditions())
@@ -6812,7 +6772,7 @@ IncreaseSARMaxWhenDotDistanceAndH1Same();
       return(false);
      }
 
-   int dynamicMaxOrders = GetEffectiveSARCycleMaxOrders();
+   int dynamicMaxOrders = g_sarCycleMaxOrders;
    int cycleOrders      = g_sarCycleOrdersCreated;
 
    if(dynamicMaxOrders <= 0)
@@ -6928,51 +6888,143 @@ void DrawEMALine(string name, int period, color clr, int width)
 
 //+------------------------------------------------------------------+
 
-//+------------------------------------------------------------------+
-//| Effective auto-market values                                     |
-//+------------------------------------------------------------------+
+void UpdateMarketMode()
+{
+   double move30 =
+      MathAbs(Close[0] - iClose(Symbol(), PERIOD_M1, 30));
+
+   int h1Trend = GetH1TrendDirection();
+
+   int profitOrders = g_sarClosedProfitOrdersCount;
+
+   double ema50 =
+      iMA(Symbol(), PERIOD_M1, 50, 0, MODE_EMA, PRICE_CLOSE, 0);
+
+   double ema50Old =
+      iMA(Symbol(), PERIOD_M1, 50, 0, MODE_EMA, PRICE_CLOSE, 10);
+
+   bool strongSlope =
+      MathAbs(ema50 - ema50Old) > 100;
+
+   double lastRange =
+      MathAbs(High[1] - Low[1]);
+
+   if(lastRange > 300)
+   {
+      g_marketMode = MODE_DANGER;
+      return;
+   }
+
+   if(move30 > 500 &&
+      profitOrders >= 4 &&
+      h1Trend != 0 &&
+      strongSlope)
+   {
+      g_marketMode = MODE_STRONG_TREND;
+      return;
+   }
+
+   if(move30 >= 300)
+   {
+      g_marketMode = MODE_HEALTHY_TREND;
+      return;
+   }
+
+   g_marketMode = MODE_RANGE;
+}
+bool AllowRecoveryOrders()
+{
+   if(g_marketMode == MODE_STRONG_TREND)
+      return(false);
+
+   if(g_marketMode == MODE_DANGER)
+      return(false);
+
+   return(true);
+}
+
+bool AllowSARWeakOrders()
+{
+   if(g_marketMode == MODE_STRONG_TREND)
+      return(false);
+
+   if(g_marketMode == MODE_HEALTHY_TREND)
+      return(false);
+
+   if(g_marketMode == MODE_DANGER)
+      return(false);
+
+   return(true);
+}
+
+bool AllowPullbackOrders()
+{
+   if(g_marketMode == MODE_STRONG_TREND)
+      return(false);
+
+   if(g_marketMode == MODE_DANGER)
+      return(false);
+
+   return(true);
+}
+double GetActiveBasketStopLoss()
+{
+   switch(g_marketMode)
+   {
+      case MODE_STRONG_TREND:
+         return(5.0);
+
+      case MODE_HEALTHY_TREND:
+         return(10.0);
+
+      case MODE_RANGE:
+         return(10.0);
+
+      default:
+         return(10.0);
+   }
+}
+string MarketModeText()
+{
+   switch(g_marketMode)
+   {
+      case MODE_STRONG_TREND:
+         return("STRONG TREND");
+
+      case MODE_HEALTHY_TREND:
+         return("HEALTHY TREND");
+
+      case MODE_RANGE:
+         return("RANGE");
+
+      case MODE_DANGER:
+         return("DANGER");
+   }
+
+   return("UNKNOWN");
+}
 double GetEffectiveRecoveryGapRawPrice()
 {
    if(!InpUseAutoMarketFlowMode)
-      return(MathMax(0.0, InpRecoveryGapRawPrice));
+      return(InpRecoveryGapRawPrice);
 
-   if(g_autoMarketMode == DXB_MARKET_MODE_MEDIUM)
-      return(MathMax(0.0, InpRecoveryGapRawPrice * MathMax(0.0, InpMediumRecoveryGapMultiplier)));
-
-   if(g_autoMarketMode == DXB_MARKET_MODE_MIXED)
-      return(MathMax(0.0, InpRecoveryGapRawPrice * MathMax(0.0, InpMixedRecoveryGapMultiplier)));
-
-   // Continuous trend and danger spike do not create recovery orders.
-   return(0.0);
-}
-
-int GetEffectiveMaxOrders()
-{
-   int result = MathMax(0, InpMaxOrders);
-
-   if(InpUseAutoMarketFlowMode)
+   switch(g_autoMarketMode)
    {
-      if(g_autoMarketMode == DXB_MARKET_MODE_CONTINUOUS)
-         result = MathMax(0, InpContinuousTrendMaxOrders);
-      else if(g_autoMarketMode == DXB_MARKET_MODE_MEDIUM)
-         result = MathMax(0, InpMediumTrendMaxOrders);
-      else if(g_autoMarketMode == DXB_MARKET_MODE_MIXED)
-         result = MathMax(0, InpMixedTrendMaxOrders);
-      else if(g_autoMarketMode == DXB_MARKET_MODE_DANGER)
-         result = MathMax(0, InpDangerModeMaxOrders);
+      case DXB_MARKET_MODE_CONTINUOUS:
+         return(999999); // disable
+
+      case DXB_MARKET_MODE_MEDIUM:
+         return(InpRecoveryGapRawPrice);
+
+      case DXB_MARKET_MODE_MIXED:
+         return(InpRecoveryGapRawPrice/2);
+
+      case DXB_MARKET_MODE_DANGER:
+         return(999999); // disable
    }
 
-   return((int)MathMin(result, DXB_HARD_MAX_OPEN_ORDERS));
+   return(InpRecoveryGapRawPrice);
 }
-
-int GetEffectiveSARCycleMaxOrders()
-{
-   // Respect both the market-mode limit and any SAR-duration/momentum cycle limit.
-   int modeMax  = GetEffectiveMaxOrders();
-   int cycleMax = MathMax(0, g_sarCycleMaxOrders);
-   return((int)MathMin(modeMax, cycleMax));
-}
-
 void OnTick()
   {
 
@@ -7984,15 +8036,17 @@ bool RegisterSARCycleOrderCreated(int direction)
   {
    EnsureSARSignalOrderCycle(direction);
 
-   // This is called only AFTER a successful normal OrderSend. Always count it so a
-   // mode change between checks can never leave the SAR-cycle counter inaccurate.
+   if(g_sarCycleMaxOrders <= 0)
+      return(false);
+
+   if(g_sarCycleOrdersCreated >= g_sarCycleMaxOrders)
+      return(false);
+
    g_sarCycleOrdersCreated++;
 
    Print("SAR CYCLE ORDER COUNT | Direction=", DirectionText(direction),
          " | Created=", g_sarCycleOrdersCreated,
-         "/", GetEffectiveSARCycleMaxOrders(),
-         " | RawCycleMax=", g_sarCycleMaxOrders,
-         " | ModeMax=", GetEffectiveMaxOrders());
+         "/", g_sarCycleMaxOrders);
 
    return(true);
   }
@@ -8267,7 +8321,7 @@ bool CanOpenNewOrder(int direction)
 // It is total SAR orders CREATED in the current SAR signal-cycle,
 // including orders already closed by basket profit/SL. It resets only on SAR change.
    int cycleCreatedOrders = g_sarCycleOrdersCreated;
-   int dynamicMaxOrders   = GetEffectiveSARCycleMaxOrders();
+   int dynamicMaxOrders   = g_sarCycleMaxOrders;
 
    if(dynamicMaxOrders <= 0)
      {
@@ -8301,7 +8355,7 @@ bool CanOpenNewOrder(int direction)
       Print("ORDER BLOCKED | Minimum same-direction order gap not matched | Direction=",
             DirectionText(direction),
             " | RequiredGap=", DoubleToString(effectiveMinGap, Digits),
-            " | EffectiveMaxOrders=", GetEffectiveMaxOrders());
+            " | InpMaxOrders=", InpMaxOrders);
       return(false);
      }
 
@@ -8312,7 +8366,7 @@ double GetEffectiveMinPriceGap()
   {
    double gap = MathMax(0.0, InpMinPriceGap);
 
-   if(GetEffectiveMaxOrders() > 1)
+   if(InpMaxOrders > 1)
       gap = MathMax(gap, MathMax(0.0, InpMinGapWhenMaxOrdersMoreThanOne));
 
    return(gap);
@@ -8661,19 +8715,13 @@ bool OpenMarketOrder(int direction, string reason)
    if(CheckEquityConditions())
       return BlockOrder("Equity protection or daily profit lock active | Source=" + reason);
 
-   int effectiveMaxOrders = GetEffectiveMaxOrders();
-   if(effectiveMaxOrders <= 0)
-      return BlockOrder("Market-mode max orders is 0 | Mode=" +
-                        AutoMarketModeStatusText() + " | Source=" + reason);
-
    int currentDirectionCount = CountOrdersByDirection(direction);
-   if(currentDirectionCount >= effectiveMaxOrders)
+   if(currentDirectionCount >= InpMaxOrders)
      {
-      string msgMaxOpen = "Effective max open orders reached | Direction=" +
+      string msgMaxOpen = "Max open orders per direction reached | Direction=" +
                           DirectionText(direction) +
                           " | Open=" + IntegerToString(currentDirectionCount) +
-                          "/" + IntegerToString(effectiveMaxOrders) +
-                          " | Mode=" + AutoMarketModeStatusText() +
+                          "/" + IntegerToString(InpMaxOrders) +
                           " | Source=" + reason;
 
       Print("ORDERSEND BLOCKED | ", msgMaxOpen);
@@ -8687,7 +8735,7 @@ bool OpenMarketOrder(int direction, string reason)
                       DirectionText(direction) +
                       " | RequiredGap=" + DoubleToString(effectiveMinGap, Digits) +
                       " | Open=" + IntegerToString(currentDirectionCount) +
-                      "/" + IntegerToString(effectiveMaxOrders) +
+                      "/" + IntegerToString(InpMaxOrders) +
                       " | Source=" + reason;
 
       Print("ORDERSEND BLOCKED | ", msgGap);
@@ -8697,7 +8745,7 @@ bool OpenMarketOrder(int direction, string reason)
    EnsureSARSignalOrderCycle(direction);
    UpdateSARCycleMaxByMomentum(direction, "OpenMarketOrder pre-check");
 
-   int dynamicMaxOrders = GetEffectiveSARCycleMaxOrders();
+   int dynamicMaxOrders = g_sarCycleMaxOrders;
    int cycleOrders      = g_sarCycleOrdersCreated;
 
    // Final safety before OrderSend: count created orders in current SAR signal-cycle,
@@ -8770,12 +8818,11 @@ bool OpenMarketOrder(int direction, string reason)
    EnsureSARSignalOrderCycle(direction);
    UpdateSARCycleMaxByMomentum(direction, "OrderSend last check");
 
-   int finalEffectiveCycleMax = GetEffectiveSARCycleMaxOrders();
-   if(finalEffectiveCycleMax <= 0 || g_sarCycleOrdersCreated >= finalEffectiveCycleMax)
+   if(g_sarCycleMaxOrders <= 0 || g_sarCycleOrdersCreated >= g_sarCycleMaxOrders)
      {
       string msgLastCycle = "OrderSend cancelled last check | CycleCreated=" +
                             IntegerToString(g_sarCycleOrdersCreated) +
-                            "/" + IntegerToString(finalEffectiveCycleMax) +
+                            "/" + IntegerToString(g_sarCycleMaxOrders) +
                             " | Last5=" + GetSARDurationSummaryText() +
                             " | Source=" + reason;
 
@@ -9398,9 +9445,9 @@ void DrawLeftImportantOrderSettings(int direction)
                      ((int)MarketInfo(Symbol(), MODE_SPREAD) <= InpMaxSpreadPoints) ? clrLime : clrOrangeRed);
 
    LeftChecklistInfo("Normal Max Orders",
-                     "Mode " + IntegerToString(GetEffectiveMaxOrders()) +
+                     "Dir " + IntegerToString(InpMaxOrders) +
                      " | Cycle " + IntegerToString(g_sarCycleOrdersCreated) +
-                     "/" + IntegerToString(GetEffectiveSARCycleMaxOrders()) +
+                     "/" + IntegerToString(g_sarCycleMaxOrders) +
                      " | Hard " + IntegerToString(DXB_HARD_MAX_OPEN_ORDERS),
                      clrAqua);
 
@@ -9434,7 +9481,7 @@ void DrawLeftImportantOrderSettings(int direction)
 
    LeftChecklistInfo("Recovery Gap",
                      (InpUseRecoveryGapOrders ? "ON" : "OFF") +
-                     " | Gap " + DoubleToString(GetEffectiveRecoveryGapRawPrice(), 0) +
+                     " | Gap " + DoubleToString(InpRecoveryGapRawPrice, 0) +
                      " | Lot " + DoubleToString(InpRecoveryGapLot, 2),
                      InpUseRecoveryGapOrders ? clrLime : clrSilver);
 
@@ -9576,15 +9623,14 @@ bool CheckListCycleAllowed(int direction)
    if(direction == 0)
       return(false);
    EnsureSARSignalOrderCycle(direction);
-   int effectiveCycleMax = GetEffectiveSARCycleMaxOrders();
-   return(effectiveCycleMax > 0 && g_sarCycleOrdersCreated < effectiveCycleMax);
+   return(g_sarCycleMaxOrders > 0 && g_sarCycleOrdersCreated < g_sarCycleMaxOrders);
   }
 
 bool CheckListMaxOpenAllowed(int direction)
   {
    if(direction == 0)
       return(false);
-   return(CountOrdersByDirection(direction) < GetEffectiveMaxOrders());
+   return(CountOrdersByDirection(direction) < InpMaxOrders);
   }
 
 bool CheckListTotalOpenAllowed()
@@ -9819,14 +9865,13 @@ void DrawTopSARSpecialGuardPanel()
 void DrawRecoveryChecklistPanel(int direction)
   {
    bool enabled = InpUseRecoveryGapOrders;
-   bool modeOk = IsAutoMarketRecoveryAllowed() && GetEffectiveRecoveryGapRawPrice() > 0.0;
    bool matchOk = (!InpRecoveryGapMustMatchSARDirection || direction == g_activeSARDirection);
    bool countOk = (CountRecoveryGapOrdersByDirection(1) < InpMaxRecoveryGapOrdersPerSide || CountRecoveryGapOrdersByDirection(-1) < InpMaxRecoveryGapOrdersPerSide);
    bool pending = (g_pendingRecoveryGapDirection != 0);
    bool bigOk = !IsBigCandlePauseActive();
    bool spikeOk = !IsSpikeWickPauseActive();
    bool strongOk = true;
-   bool allowed = enabled && modeOk && matchOk && countOk && bigOk && spikeOk && strongOk;
+   bool allowed = enabled && matchOk && countOk && bigOk && spikeOk && strongOk;
 
    DrawCornerPanel("DXB_RECOVERY_PANEL",CORNER_LEFT_UPPER,5,595,405,260,clrBlack,clrDimGray);
    DrawCornerLabel("DXB_RECOVERY_TITLE","RECOVERY ORDER CHECKLIST",CORNER_LEFT_UPPER,10,602,clrYellow,9);
@@ -9834,12 +9879,10 @@ void DrawRecoveryChecklistPanel(int direction)
    g_recoveryDashRow = 0;
    RecoveryRow("Recovery Enabled",YesNo(enabled),enabled ? clrLime : clrRed);
    RecoveryRow("Recovery Allowed",YesNo(allowed),allowed ? clrLime : clrOrangeRed);
-   RecoveryRow("Market Mode",modeOk ? "ALLOW" : "BLOCK",modeOk ? clrLime : clrRed);
    RecoveryRow("SAR Direction",DirectionText(g_activeSARDirection),DirectionColor(g_activeSARDirection));
    RecoveryRow("Direction Match",YesNo(matchOk),matchOk ? clrLime : clrOrangeRed);
-   double effectiveRecoveryGap = GetEffectiveRecoveryGapRawPrice();
-   RecoveryRow("Required Gap",DoubleToString(effectiveRecoveryGap,0),modeOk ? clrAqua : clrRed);
-   RecoveryRow("Gap Levels",DoubleToString(effectiveRecoveryGap,0)+","+DoubleToString(effectiveRecoveryGap*2,0)+","+DoubleToString(effectiveRecoveryGap*3,0),modeOk ? clrAqua : clrRed);
+   RecoveryRow("Required Gap",DoubleToString(InpRecoveryGapRawPrice,0),clrAqua);
+   RecoveryRow("Gap Levels",DoubleToString(InpRecoveryGapRawPrice,0)+","+DoubleToString(InpRecoveryGapRawPrice*2,0)+","+DoubleToString(InpRecoveryGapRawPrice*3,0),clrAqua);
    RecoveryRow("Recovery Count",IntegerToString(CountRecoveryGapOrdersByDirection(1))+"/"+IntegerToString(CountRecoveryGapOrdersByDirection(-1))+" | Max "+IntegerToString(InpMaxRecoveryGapOrdersPerSide),countOk ? clrLime : clrOrangeRed);
    RecoveryRow("Pending Recovery",pending ? DirectionText(g_pendingRecoveryGapDirection)+" Gap "+DoubleToString(g_pendingRecoveryGapMove,0) : "NONE",pending ? clrYellow : clrSilver);
    RecoveryRow("Pending Reason",StringSubstr(g_pendingRecoveryGapReason,0,42),pending ? clrYellow : clrSilver);
@@ -9897,7 +9940,7 @@ void DrawLeftOrderCreationChecklist(string mainStatus)
    LeftProRow("SAR Age",IntegerToString(GetSARSignalAgeMinutes())+"m / "+IntegerToString(InpDynamicMinSignalMinutes)+"m",GetSARSignalAgeMinutes()>=InpDynamicMinSignalMinutes ? clrLime : clrOrange);
    LeftProCheck("SAR Price Side",okSARSide,SARSignalSideStatusText());
    LeftProCheck("Repeated Gap",okRepeatedGap,CheckListRepeatedGapText(direction));
-   LeftProCheck("SAR Cycle",okCycle,IntegerToString(g_sarCycleOrdersCreated)+"/"+IntegerToString(GetEffectiveSARCycleMaxOrders()));
+   LeftProCheck("SAR Cycle",okCycle,IntegerToString(g_sarCycleOrdersCreated)+"/"+IntegerToString(g_sarCycleMaxOrders));
 
    LeftProRow("--- TREND FILTERS ---","",clrDimGray);
    LeftProCheck("H1 Trend",okH1,DirectionText(GetH1TrendDirection()));
@@ -9919,7 +9962,7 @@ void DrawLeftOrderCreationChecklist(string mainStatus)
    LeftProCheck("Min Gap",okMinGap,DoubleToString(GetEffectiveMinPriceGap(),0));
 
    LeftProRow("--- ORDER LIMITS ---","",clrDimGray);
-   LeftProCheck("Max Open Dir",okMaxOpen,IntegerToString(CountOrdersByDirection(direction))+"/"+IntegerToString(GetEffectiveMaxOrders()));
+   LeftProCheck("Max Open Dir",okMaxOpen,IntegerToString(CountOrdersByDirection(direction))+"/"+IntegerToString(InpMaxOrders));
    LeftProCheck("Total Open",okTotalOpen,IntegerToString(CountAllOrders())+"/"+IntegerToString(InpMaxTotalOpenOrders));
    LeftProRow("Next Order",allOk ? "ALLOWED NOW" : "WAIT / BLOCKED",allOk ? clrLime : clrOrangeRed);
 
@@ -10055,7 +10098,7 @@ void DrawDashboard(string status)
    RightProRow("Basket Protect",OnOff(InpUseBasketProfitProtect),InpUseBasketProfitProtect ? clrLime : clrSilver);
 
    RightProRow("--- RECOVERY ---","",clrDimGray);
-   RightProRow("Recovery Gap",DoubleToString(GetEffectiveRecoveryGapRawPrice(),0),IsAutoMarketRecoveryAllowed() ? clrAqua : clrRed);
+   RightProRow("Recovery Gap",DoubleToString(InpRecoveryGapRawPrice,0),clrAqua);
    RightProRow("Recovery Lot",DoubleToString(InpRecoveryGapLot,2),clrAqua);
    RightProRow("Max Recovery",IntegerToString(InpMaxRecoveryGapOrdersPerSide),clrAqua);
    RightProRow("Reverse Recovery",OnOff(InpOpenReverseOrderWithRecovery),InpOpenReverseOrderWithRecovery ? clrYellow : clrSilver);
@@ -10070,8 +10113,7 @@ void DrawDashboard(string status)
    RightProRow("Continuous Gap",DoubleToString(InpContinuousOrderPriceGap,0),clrAqua);
    RightProRow("Gap Wait",IntegerToString(InpContinuousOrderGapMinutes)+"m",clrAqua);
    RightProRow("Signal Side Gap",DoubleToString(InpSARSignalPriceSideMinGap,0),clrAqua);
-   int effectiveCycleMaxDash = GetEffectiveSARCycleMaxOrders();
-   RightProRow("SAR Cycle",IntegerToString(g_sarCycleOrdersCreated)+"/"+IntegerToString(effectiveCycleMaxDash),effectiveCycleMaxDash<=0 || g_sarCycleOrdersCreated>=effectiveCycleMaxDash ? clrOrangeRed : clrLime);
+   RightProRow("SAR Cycle",IntegerToString(g_sarCycleOrdersCreated)+"/"+IntegerToString(g_sarCycleMaxOrders),g_sarCycleOrdersCreated>=g_sarCycleMaxOrders ? clrOrangeRed : clrLime);
 
    RightProRow("--- PROTECTION ---","",clrDimGray);
    RightProRow("Big Candle",DoubleToString(InpBigCandleRawDifference,0)+" | Pause "+IntegerToString(InpBigCandlePauseMinutes)+"m",clrYellow);
