@@ -61,7 +61,7 @@ double InpMixedTrendMaxMoveRaw         = 300.0;
 double InpDangerLast3MoveRaw           = 500.0;
 
 double InpContinuousTrendBasketSLUSD   = 5.00;
-double InpMediumTrendBasketSLUSD       = 10.00;
+double InpMediumTrendBasketSLUSD       = 5.00;
 double InpMixedTrendBasketSLUSD        = 10.00;
 double InpDangerModeBasketSLUSD        = 5.00;
 
@@ -192,6 +192,28 @@ double InpSpecialGuardMinProfitToClose = 0.01;    // minimum guard profit requir
 // Recovery gap orders start with RG_P<parentTicket>_ so guard loss can match the exact parent basket.
 string InpSARParentOrderPrefix        = "SAR_PARENT_";
 string InpSARRecoveryGapOrderPrefix   = "RG_P";
+
+//================ LOSS-ZONE MICRO SCALPER ==========================
+// Independent from the existing SAR parent, recovery, basket TP/SL,
+// market mode and SAR-cycle logic. It ignores candle/spike/long-bar filters.
+// When a normal side basket is losing, live movement decides micro direction:
+// price up => BUY micro; price down => SELL micro.
+bool   InpUseLossZoneMicroScalper          = true;
+double InpLossZoneMicroStartLossUSD        = 1.00;  // activate when a side basket <= -this value
+double InpLossZoneMicroLossStepUSD         = 1.00;  // zones: -1,-2,-3,-4...
+double InpLossZoneMicroEntryGapRaw         = 20.0;  // fresh live move from reference
+double InpLossZoneMicroLot                 = 0.01;
+double InpLossZoneMicroTargetProfitUSD     = 0.10;  // checked first
+double InpLossZoneMicroQuickProfitUSD      = 0.05;  // immediate small-profit close
+bool   InpLossZoneMicroCloseAtQuickProfit  = true;
+bool   InpLossZoneMicroCloseAtBreakEven    = true;  // close at >=0 after timeout
+int    InpLossZoneMicroBreakEvenAfterSec   = 15;
+double InpLossZoneMicroEmergencyLossUSD    = 0.10;  // micro-order-only emergency loss
+int    InpLossZoneMicroMaxOpenOrders       = 1;     // recommended one active micro order
+int    InpLossZoneMicroMaxAttemptsPerZone  = 5;
+int    InpLossZoneMicroCooldownSeconds     = 3;
+bool   InpLossZoneMicroRespectSpread       = true;
+string InpLossZoneMicroPrefix              = "LOSS_MICRO_";
 
 
 int    InpStopLossPoints          = 0;       // 0 = no hard SL
@@ -733,6 +755,15 @@ datetime g_profitProtectPauseUntil       = 0;   // pause new normal orders after
 bool     g_globalEquityTrailLocked       = false;
 string   g_globalEquityTrailStatus       = "OFF";
 
+// Independent loss-zone micro scalper state.
+int      g_lossZoneMicroTrackedBasketDirection = 0;
+int      g_lossZoneMicroCurrentZone             = 0;
+double   g_lossZoneMicroReferencePrice          = 0.0;
+int      g_lossZoneMicroAttemptsInZone          = 0;
+datetime g_lossZoneMicroLastActionTime          = 0;
+double   g_lossZoneMicroBookedProfit            = 0.0;
+string   g_lossZoneMicroStatus                   = "WAIT LOSS";
+
 
 // Individual profit protection tracker by ticket
 int      g_profitProtectTickets[500];
@@ -1107,6 +1138,7 @@ int GetMarketFlowDirection(int bars)
 bool IsNormalProfitOrderForMarketFlow(string commentText)
 {
    if(IsSARGuardOrderComment(commentText)) return(false);
+   if(IsLossZoneMicroOrderComment(commentText)) return(false);
    if(IsRecoveryGapOrderComment(commentText)) return(false);
    if(IsRecoveryHedgeOrderComment(commentText)) return(false);
    if(IsSARWeakReverseOrderComment(commentText)) return(false);
@@ -1285,6 +1317,9 @@ datetime GetLatestEAOpenOrderTimeForBasketDecay()
       if(!InpBasketProfitDecayIncludeGuards && IsSARGuardOrderComment(OrderComment()))
          continue;
 
+      if(IsLossZoneMicroOrderComment(OrderComment()))
+         continue;
+
       if(OrderOpenTime() > latestTime)
          latestTime = OrderOpenTime();
    }
@@ -1383,6 +1418,9 @@ double GetBasketProfitTargetUSD()
 //+------------------------------------------------------------------+
 color GetOrderIconColorByComment(int direction, string commentText)
   {
+   if(IsLossZoneMicroOrderComment(commentText))
+      return(direction == 1 ? clrDodgerBlue : clrOrangeRed);
+
    if(IsSARGuardOrderComment(commentText))
       return(direction == 1 ? InpGuardBuyOrderIconColor : InpGuardSellOrderIconColor);
 
@@ -1404,6 +1442,9 @@ color GetOrderIconColorByComment(int direction, string commentText)
 //+------------------------------------------------------------------+
 int GetOrderIconArrowCodeByComment(int direction, string commentText)
   {
+   if(IsLossZoneMicroOrderComment(commentText))
+      return(direction == 1 ? 241 : 242);
+
    if(IsSARGuardOrderComment(commentText))
       return(direction == 1 ? InpGuardBuyOrderArrowCode : InpGuardSellOrderArrowCode);
 
@@ -1425,6 +1466,9 @@ int GetOrderIconArrowCodeByComment(int direction, string commentText)
 //+------------------------------------------------------------------+
 string GetOrderIconTypeText(string commentText)
   {
+   if(IsLossZoneMicroOrderComment(commentText))
+      return("LOSS-ZONE MICRO");
+
    if(IsSARGuardOrderComment(commentText))
       return("SPECIAL GUARD");
 
@@ -1906,7 +1950,7 @@ bool CheckDepositAndResetEquityStats()
             " | Comment=", comment,
             " | Reusing equity reset method");
 
-      if(InpCloseOrdersOnDepositReset && CountAllOrders() > 0)
+      if(InpCloseOrdersOnDepositReset && CountAllEAOrdersIncludingMicro() > 0)
          CloseAllEAOrders("Deposit detected - equity stats reset");
 
       g_equityCycleNumber++;
@@ -2023,7 +2067,7 @@ bool CheckGlobalEquityTrailLock()
             " | Drop=$", DoubleToString(dropFromPeak, 2),
             " | Trail=$", DoubleToString(InpGlobalEquityTrailLockUSD, 2));
 
-      if(CountAllOrders() > 0)
+      if(CountAllEAOrdersIncludingMicro() > 0)
          CloseAllEAOrders("Global equity trailing lock");
 
       g_globalEquityTrailLocked = true;
@@ -2083,7 +2127,7 @@ bool CheckEquityConditions()
      {
       g_equityProtectionHit = true;
 
-      if(InpCloseOrdersOnEquityHit && CountAllOrders() > 0)
+      if(InpCloseOrdersOnEquityHit && CountAllEAOrdersIncludingMicro() > 0)
          CloseAllEAOrders("50 percent equity protection hit");
 
       Print("EQUITY PROTECTION HIT | Equity=$", DoubleToString(AccountEquity(),2),
@@ -2113,7 +2157,7 @@ bool CheckEquityConditions()
          g_dailyProfitLock   = true;
          g_lockedProfitToday = profitFromBase;
 
-         if(InpCloseOrdersOnProfitLock && CountAllOrders() > 0)
+         if(InpCloseOrdersOnProfitLock && CountAllEAOrdersIncludingMicro() > 0)
             CloseAllEAOrders("Daily profit lock: equity reached base plus profit percent");
 
          Print("DAILY PROFIT LOCK HIT | Base=$", DoubleToString(g_baseBalance,2),
@@ -2156,7 +2200,8 @@ void RecordLastClosedNormalOrderReference(int orderType, double closePrice, stri
       return;
 
    // Recovery/hedge orders must not become the reference for normal SAR continuity orders.
-   if(StringFind(commentText, "RECOVERY") >= 0 || StringFind(commentText, "HEDGE") >= 0 || IsSARGuardOrderComment(commentText))
+   if(StringFind(commentText, "RECOVERY") >= 0 || StringFind(commentText, "HEDGE") >= 0 ||
+      IsSARGuardOrderComment(commentText) || IsLossZoneMicroOrderComment(commentText))
       return;
 
    // Reference must belong to the current SAR signal cycle only.
@@ -2201,7 +2246,8 @@ void RegisterSARClosedProfitOrder(int orderType, string commentText, double clos
       return;
 
    // Count only normal SAR orders. Recovery/hedge closes must not increase this counter.
-   if(StringFind(commentText, "RECOVERY") >= 0 || StringFind(commentText, "HEDGE") >= 0 || IsSARGuardOrderComment(commentText))
+   if(StringFind(commentText, "RECOVERY") >= 0 || StringFind(commentText, "HEDGE") >= 0 ||
+      IsSARGuardOrderComment(commentText) || IsLossZoneMicroOrderComment(commentText))
       return;
 
    // Count only orders closed inside the current SAR signal direction.
@@ -2264,7 +2310,7 @@ void SetLastOrderCloseDashboard(int ticket, int type, double profit, double clos
   }
 
 //+------------------------------------------------------------------+
-void CloseAllEAOrders(string reason)
+void CloseAllEAOrders(string reason, bool includeLossZoneMicro = true)
   {
    RefreshRates();
 
@@ -2280,6 +2326,9 @@ void CloseAllEAOrders(string reason)
          continue;
 
       if(IsSARGuardOrderComment(OrderComment()))
+         continue;
+
+      if(!includeLossZoneMicro && IsLossZoneMicroOrderComment(OrderComment()))
          continue;
 
       int type = OrderType();
@@ -2330,6 +2379,9 @@ double GetAllOpenEAOrdersProfit()
          continue;
 
       if(IsSARGuardOrderComment(OrderComment()))
+         continue;
+
+      if(IsLossZoneMicroOrderComment(OrderComment()))
          continue;
 
       profit += OrderProfit() + OrderSwap() + OrderCommission();
@@ -2523,7 +2575,7 @@ bool ProcessFirstPriorityBasketProfitClose(string &status)
             "BIG CANDLE PROFIT PROTECT | Peak $" +
             DoubleToString(g_allBasketPeakProfit, 2) +
             " -> Close $" + DoubleToString(allProfit, 2) +
-            " | Lock " + DoubleToString(lockPercent, 1) + "%");
+            " | Lock " + DoubleToString(lockPercent, 1) + "%", false);
 
          ResetDelayedSARCloseAfterBasketClose(0, "Big candle profit protect reset");
          ResetBasketProfitPeaksAfterClose(0);
@@ -2544,7 +2596,7 @@ bool ProcessFirstPriorityBasketProfitClose(string &status)
    // Fixed target: close all BUY+SELL when combined floating profit reaches target.
    if(allProfit >= target)
      {
-      CloseAllEAOrders("FIRST PRIORITY ALL BUY+SELL basket profit $" + DoubleToString(allProfit, 2));
+      CloseAllEAOrders("FIRST PRIORITY ALL BUY+SELL basket profit $" + DoubleToString(allProfit, 2), false);
 
       ResetDelayedSARCloseAfterBasketClose(0, "All basket TP reset");
       ResetBasketProfitPeaksAfterClose(0);
@@ -2579,7 +2631,7 @@ bool ProcessFirstPriorityBasketProfitClose(string &status)
         {
          CloseAllEAOrders("ALL BUY+SELL basket profit protect | Peak $" +
                           DoubleToString(g_allBasketPeakProfit, 2) +
-                          " -> Close $" + DoubleToString(allProfit, 2));
+                          " -> Close $" + DoubleToString(allProfit, 2), false);
 
          ResetDelayedSARCloseAfterBasketClose(0, "All basket protect reset");
          ResetBasketProfitPeaksAfterClose(0);
@@ -3699,6 +3751,9 @@ bool GetRecoveryGapReferencePrice(int direction, double &referencePrice, int &to
       if(IsSARGuardOrderComment(OrderComment()))
          continue;
 
+      if(IsLossZoneMicroOrderComment(OrderComment()))
+         continue;
+
       double op = OrderOpenPrice();
 
       if(totalSideOrders == 0)
@@ -3989,6 +4044,9 @@ bool GetRecoveryLadderBasePrice(int direction, double &basePrice, int &sideOrder
       if(IsSARGuardOrderComment(OrderComment()))
          continue;
 
+      if(IsLossZoneMicroOrderComment(OrderComment()))
+         continue;
+
       sideOrders++;
 
       if(oldestTime == 0 || OrderOpenTime() < oldestTime)
@@ -4024,6 +4082,9 @@ bool GetRecoveryLadderBasePriceOld(int direction, double &basePrice, int &sideOr
       // SAR special guard orders are hedge/protection orders.
       // They must NOT become parent/base orders for recovery gap logic.
       if(IsSARGuardOrderComment(OrderComment()))
+         continue;
+
+      if(IsLossZoneMicroOrderComment(OrderComment()))
          continue;
 
       double op = OrderOpenPrice();
@@ -4347,6 +4408,12 @@ bool IsRecoveryGapOrderComment(string commentText)
   }
 
 //+------------------------------------------------------------------+
+bool IsLossZoneMicroOrderComment(string commentText)
+  {
+   return(StringFind(commentText, InpLossZoneMicroPrefix) >= 0);
+  }
+
+//+------------------------------------------------------------------+
 string MakeSARParentOrderComment(string reason)
   {
    string c = InpSARParentOrderPrefix + reason;
@@ -4378,7 +4445,8 @@ int GetParentTicketForRecoveryGap(int direction)
 
       string c = OrderComment();
 
-      if(IsSARGuardOrderComment(c) || IsRecoveryGapOrderComment(c) || IsRecoveryHedgeOrderComment(c))
+      if(IsSARGuardOrderComment(c) || IsRecoveryGapOrderComment(c) ||
+         IsRecoveryHedgeOrderComment(c) || IsLossZoneMicroOrderComment(c))
          continue;
 
       // Prefer explicitly tagged normal parent orders.
@@ -4407,7 +4475,8 @@ int GetParentTicketForRecoveryGap(int direction)
             continue;
 
          string c2 = OrderComment();
-         if(IsSARGuardOrderComment(c2) || IsRecoveryGapOrderComment(c2) || IsRecoveryHedgeOrderComment(c2))
+         if(IsSARGuardOrderComment(c2) || IsRecoveryGapOrderComment(c2) ||
+            IsRecoveryHedgeOrderComment(c2) || IsLossZoneMicroOrderComment(c2))
             continue;
 
          if(parentTicket == 0 || OrderOpenTime() < oldestTime)
@@ -4553,7 +4622,8 @@ double GetBasketLotsForSpecialGuard(int direction)
       if(OrderType() != type)
          continue;
 
-      if(IsSARGuardOrderComment(OrderComment()) || IsRecoveryHedgeOrderComment(OrderComment()))
+      if(IsSARGuardOrderComment(OrderComment()) || IsRecoveryHedgeOrderComment(OrderComment()) ||
+         IsLossZoneMicroOrderComment(OrderComment()))
          continue;
 
       lots += OrderLots();
@@ -4582,7 +4652,8 @@ int GetFirstBasketParentTicketForSpecialGuard(int direction)
 
       if(IsSARGuardOrderComment(OrderComment()) ||
          IsRecoveryGapOrderComment(OrderComment()) ||
-         IsRecoveryHedgeOrderComment(OrderComment()))
+         IsRecoveryHedgeOrderComment(OrderComment()) ||
+         IsLossZoneMicroOrderComment(OrderComment()))
          continue;
 
       if(selectedTicket <= 0 || OrderOpenTime() < selectedTime)
@@ -4607,7 +4678,8 @@ int GetFirstBasketParentTicketForSpecialGuard(int direction)
          if(OrderType() != type)
             continue;
 
-         if(IsSARGuardOrderComment(OrderComment()) || IsRecoveryHedgeOrderComment(OrderComment()))
+         if(IsSARGuardOrderComment(OrderComment()) || IsRecoveryHedgeOrderComment(OrderComment()) ||
+            IsLossZoneMicroOrderComment(OrderComment()))
             continue;
 
          if(selectedTicket <= 0 || OrderOpenTime() < selectedTime)
@@ -4820,7 +4892,8 @@ double GetParentAndRecoveryGapProfitForGuard(int parentTicket, int direction)
       if(OrderType() != OP_BUY && OrderType() != OP_SELL)
          continue;
 
-      if(IsSARGuardOrderComment(OrderComment()) || IsRecoveryHedgeOrderComment(OrderComment()))
+      if(IsSARGuardOrderComment(OrderComment()) || IsRecoveryHedgeOrderComment(OrderComment()) ||
+         IsLossZoneMicroOrderComment(OrderComment()))
          continue;
 
       int orderDirection = (OrderType() == OP_BUY) ? 1 : -1;
@@ -4855,7 +4928,8 @@ double GetParentAndRecoveryGapProfitForGuard(int parentTicket, int direction)
          if(OrderType() != OP_BUY && OrderType() != OP_SELL)
             continue;
 
-         if(IsSARGuardOrderComment(OrderComment()) || IsRecoveryHedgeOrderComment(OrderComment()))
+         if(IsSARGuardOrderComment(OrderComment()) || IsRecoveryHedgeOrderComment(OrderComment()) ||
+            IsLossZoneMicroOrderComment(OrderComment()))
             continue;
 
          int dir = (OrderType() == OP_BUY) ? 1 : -1;
@@ -5266,6 +5340,9 @@ void CloseOrdersByDirectionAnyMagic(int direction, string reason, bool anyMagic)
       if(IsSARGuardOrderComment(OrderComment()))
          continue;
 
+      if(IsLossZoneMicroOrderComment(OrderComment()))
+         continue;
+
       double closePrice = type == OP_BUY ? Bid : Ask;
       double closeProfit = OrderProfit() + OrderSwap() + OrderCommission();
       bool ok = OrderClose(OrderTicket(), OrderLots(), closePrice, InpSlippage, clrWhite);
@@ -5471,6 +5548,9 @@ datetime GetOldestOpenOrderTimeByDirection(int direction)
       if(OrderType() != type)
          continue;
       if(IsSARGuardOrderComment(OrderComment()))
+         continue;
+
+      if(IsLossZoneMicroOrderComment(OrderComment()))
          continue;
 
       if(oldestTime <= 0 || OrderOpenTime() < oldestTime)
@@ -5851,6 +5931,9 @@ void ProcessIndividualProfitProtect()
       if(IsSARGuardOrderComment(OrderComment()))
          continue;
 
+      if(IsLossZoneMicroOrderComment(OrderComment()))
+         continue;
+
       int ticket = OrderTicket();
       int type   = OrderType();
       int sideOpenOrders = CountOpenOrdersByType(type);
@@ -5977,6 +6060,9 @@ void ProcessNextCandleLossProtect()
          continue;
 
       if(IsSARGuardOrderComment(OrderComment()))
+         continue;
+
+      if(IsLossZoneMicroOrderComment(OrderComment()))
          continue;
 
       // Wait until the candle after the order-created candle has fully closed.
@@ -7025,6 +7111,463 @@ double GetEffectiveRecoveryGapRawPrice()
 
    return(InpRecoveryGapRawPrice);
 }
+
+//+------------------------------------------------------------------+
+//| LOSS-ZONE MICRO SCALPER                                          |
+//| Separate from normal SAR/recovery/basket logic.                   |
+//| IMPORTANT: SAR weak status does NOT block, close, or alter        |
+//| loss-zone micro orders. Micro orders use only loss zone + live    |
+//| price movement, plus account/margin/spread safety settings.       |
+//+------------------------------------------------------------------+
+double GetLossZoneMicroMidPrice()
+  {
+   RefreshRates();
+   return((Ask + Bid) / 2.0);
+  }
+
+//+------------------------------------------------------------------+
+int CountOpenLossZoneMicroOrders()
+  {
+   int total = 0;
+
+   for(int i = OrdersTotal() - 1; i >= 0; i--)
+     {
+      if(!OrderSelect(i, SELECT_BY_POS, MODE_TRADES))
+         continue;
+
+      if(OrderSymbol() != Symbol() || OrderMagicNumber() != InpMagicNumber)
+         continue;
+
+      if(OrderType() != OP_BUY && OrderType() != OP_SELL)
+         continue;
+
+      if(IsLossZoneMicroOrderComment(OrderComment()))
+         total++;
+     }
+
+   return(total);
+  }
+
+//+------------------------------------------------------------------+
+double GetOpenLossZoneMicroProfit()
+  {
+   double profit = 0.0;
+
+   for(int i = OrdersTotal() - 1; i >= 0; i--)
+     {
+      if(!OrderSelect(i, SELECT_BY_POS, MODE_TRADES))
+         continue;
+
+      if(OrderSymbol() != Symbol() || OrderMagicNumber() != InpMagicNumber)
+         continue;
+
+      if(OrderType() != OP_BUY && OrderType() != OP_SELL)
+         continue;
+
+      if(!IsLossZoneMicroOrderComment(OrderComment()))
+         continue;
+
+      profit += OrderProfit() + OrderSwap() + OrderCommission();
+     }
+
+   return(profit);
+  }
+
+//+------------------------------------------------------------------+
+// Returns the most negative normal side basket. Micro and guard orders are excluded.
+bool GetWorstLosingMainBasket(int &direction, double &basketProfit, int &orderCount)
+  {
+   direction = 0;
+   basketProfit = 0.0;
+   orderCount = 0;
+
+   int buyCount = CountOrdersByDirection(1);
+   int sellCount = CountOrdersByDirection(-1);
+   double buyProfit = buyCount > 0 ? GetBasketProfit(1) : 0.0;
+   double sellProfit = sellCount > 0 ? GetBasketProfit(-1) : 0.0;
+   double trigger = -MathAbs(InpLossZoneMicroStartLossUSD);
+
+   bool buyEligible = (buyCount > 0 && buyProfit <= trigger);
+   bool sellEligible = (sellCount > 0 && sellProfit <= trigger);
+
+   if(!buyEligible && !sellEligible)
+      return(false);
+
+   if(buyEligible && (!sellEligible || buyProfit <= sellProfit))
+     {
+      direction = 1;
+      basketProfit = buyProfit;
+      orderCount = buyCount;
+      return(true);
+     }
+
+   direction = -1;
+   basketProfit = sellProfit;
+   orderCount = sellCount;
+   return(true);
+  }
+
+//+------------------------------------------------------------------+
+int GetLossZoneMicroZone(double basketProfit)
+  {
+   double loss = MathAbs(MathMin(0.0, basketProfit));
+   double start = MathMax(0.01, MathAbs(InpLossZoneMicroStartLossUSD));
+   double step = MathMax(0.01, MathAbs(InpLossZoneMicroLossStepUSD));
+
+   if(loss < start)
+      return(0);
+
+   return(1 + (int)MathFloor((loss - start) / step));
+  }
+
+//+------------------------------------------------------------------+
+void ResetLossZoneMicroWaitingState(string reason)
+  {
+   g_lossZoneMicroTrackedBasketDirection = 0;
+   g_lossZoneMicroCurrentZone = 0;
+   g_lossZoneMicroReferencePrice = 0.0;
+   g_lossZoneMicroAttemptsInZone = 0;
+   g_lossZoneMicroStatus = reason;
+  }
+
+//+------------------------------------------------------------------+
+bool CloseLossZoneMicroTicket(int ticket, string closeReason)
+  {
+   if(ticket <= 0 || !OrderSelect(ticket, SELECT_BY_TICKET, MODE_TRADES))
+      return(false);
+
+   if(OrderSymbol() != Symbol() || OrderMagicNumber() != InpMagicNumber)
+      return(false);
+
+   if(!IsLossZoneMicroOrderComment(OrderComment()))
+      return(false);
+
+   int type = OrderType();
+   if(type != OP_BUY && type != OP_SELL)
+      return(false);
+
+   RefreshRates();
+
+   double netProfit = OrderProfit() + OrderSwap() + OrderCommission();
+   double closePrice = type == OP_BUY ? Bid : Ask;
+   double lots = OrderLots();
+   string commentText = OrderComment();
+
+   ResetLastError();
+   bool ok = OrderClose(ticket, lots, closePrice, InpSlippage, clrWhite);
+
+   if(!ok)
+     {
+      int err = GetLastError();
+      Print("LOSS MICRO CLOSE FAILED | Ticket=", ticket,
+            " | Profit=$", DoubleToString(netProfit, 2),
+            " | Reason=", closeReason,
+            " | Error=", err,
+            " | ", MT4TradeErrorDescription(err));
+      ResetLastError();
+      return(false);
+     }
+
+   g_lossZoneMicroBookedProfit += netProfit;
+   g_lossZoneMicroLastActionTime = TimeCurrent();
+   g_lossZoneMicroReferencePrice = GetLossZoneMicroMidPrice();
+   g_lossZoneMicroStatus = "CLOSED " + closeReason + " $" + DoubleToString(netProfit, 2);
+
+   // Dashboard only. Never update normal SAR continuity or closed-profit counters.
+   SetLastOrderCloseDashboard(ticket, type, netProfit, closePrice, "LOSS MICRO " + closeReason);
+
+   Print("LOSS MICRO CLOSED | Ticket=", ticket,
+         " | Type=", type == OP_BUY ? "BUY" : "SELL",
+         " | Profit=$", DoubleToString(netProfit, 2),
+         " | BookedTotal=$", DoubleToString(g_lossZoneMicroBookedProfit, 2),
+         " | Comment=", commentText,
+         " | Reason=", closeReason);
+
+   return(true);
+  }
+
+//+------------------------------------------------------------------+
+bool ProcessLossZoneMicroClose()
+  {
+   if(!InpUseLossZoneMicroScalper)
+      return(false);
+
+   bool closedAny = false;
+   RefreshRates();
+
+   for(int i = OrdersTotal() - 1; i >= 0; i--)
+     {
+      if(!OrderSelect(i, SELECT_BY_POS, MODE_TRADES))
+         continue;
+
+      if(OrderSymbol() != Symbol() || OrderMagicNumber() != InpMagicNumber)
+         continue;
+
+      if(OrderType() != OP_BUY && OrderType() != OP_SELL)
+         continue;
+
+      if(!IsLossZoneMicroOrderComment(OrderComment()))
+         continue;
+
+      int ticket = OrderTicket();
+      double netProfit = OrderProfit() + OrderSwap() + OrderCommission();
+      int ageSeconds = (int)(TimeCurrent() - OrderOpenTime());
+      string closeReason = "";
+
+      // A fast tick can jump directly to $0.10. Otherwise close the first $0.05.
+      if(InpLossZoneMicroTargetProfitUSD > 0.0 &&
+         netProfit >= InpLossZoneMicroTargetProfitUSD)
+         closeReason = "TARGET";
+      else if(InpLossZoneMicroCloseAtQuickProfit &&
+              InpLossZoneMicroQuickProfitUSD > 0.0 &&
+              netProfit >= InpLossZoneMicroQuickProfitUSD)
+         closeReason = "QUICK PROFIT";
+      else if(InpLossZoneMicroCloseAtBreakEven &&
+              ageSeconds >= MathMax(0, InpLossZoneMicroBreakEvenAfterSec) &&
+              netProfit >= 0.0)
+         closeReason = "BREAKEVEN";
+      else if(InpLossZoneMicroEmergencyLossUSD > 0.0 &&
+              netProfit <= -MathAbs(InpLossZoneMicroEmergencyLossUSD))
+         closeReason = "EMERGENCY LOSS";
+
+      if(closeReason == "")
+         continue;
+
+      if(CloseLossZoneMicroTicket(ticket, closeReason))
+         closedAny = true;
+     }
+
+   return(closedAny);
+  }
+
+//+------------------------------------------------------------------+
+bool OpenLossZoneMicroOrder(int microDirection,
+                            int losingBasketDirection,
+                            double losingBasketProfit,
+                            int zone)
+  {
+   if(microDirection != 1 && microDirection != -1)
+      return(false);
+
+   if(!InpUseLossZoneMicroScalper)
+      return(false);
+
+   if(CountOpenLossZoneMicroOrders() >= MathMax(1, InpLossZoneMicroMaxOpenOrders))
+      return(false);
+
+   if(!IsTradingAllowedNow())
+     {
+      g_lossZoneMicroStatus = "BLOCKED TRADING";
+      return(false);
+     }
+
+   RefreshRates();
+
+   if(InpLossZoneMicroRespectSpread &&
+      MarketInfo(Symbol(), MODE_SPREAD) > InpMaxSpreadPoints)
+     {
+      g_lossZoneMicroStatus = "BLOCKED SPREAD";
+      Print("LOSS MICRO BLOCKED | Spread=", MarketInfo(Symbol(), MODE_SPREAD),
+            " > MaxSpread=", InpMaxSpreadPoints);
+      return(false);
+     }
+
+   int type = microDirection == 1 ? OP_BUY : OP_SELL;
+   double price = microDirection == 1 ? Ask : Bid;
+   double lot = NormalizeLot(InpLossZoneMicroLot);
+
+   ResetLastError();
+   double marginAfter = AccountFreeMarginCheck(Symbol(), type, lot);
+   int marginErr = GetLastError();
+   ResetLastError();
+
+   if(marginAfter <= 0.0 || marginErr == 134)
+     {
+      g_lossZoneMicroStatus = "BLOCKED MARGIN";
+      Print("LOSS MICRO BLOCKED | Insufficient margin | Lot=", DoubleToString(lot, 2),
+            " | Error=", marginErr);
+      return(false);
+     }
+
+   string commentText = InpLossZoneMicroPrefix +
+                        "Z" + IntegerToString(zone) + "_" +
+                        (microDirection == 1 ? "B" : "S");
+   if(StringLen(commentText) > 30)
+      commentText = StringSubstr(commentText, 0, 30);
+
+   ResetLastError();
+   int ticket = OrderSend(Symbol(),
+                          type,
+                          lot,
+                          price,
+                          InpSlippage,
+                          0,
+                          0,
+                          commentText,
+                          InpMagicNumber,
+                          0,
+                          GetOrderIconColorByComment(microDirection, commentText));
+
+   if(ticket < 0)
+     {
+      int err = GetLastError();
+      g_lossZoneMicroStatus = "OPEN FAILED " + IntegerToString(err);
+      Print("LOSS MICRO OPEN FAILED | Direction=", DirectionText(microDirection),
+            " | LosingBasket=", DirectionText(losingBasketDirection),
+            " | BasketProfit=$", DoubleToString(losingBasketProfit, 2),
+            " | Zone=", zone,
+            " | Lot=", DoubleToString(lot, 2),
+            " | Price=", DoubleToString(price, Digits),
+            " | Error=", err,
+            " | ", MT4TradeErrorDescription(err));
+      ResetLastError();
+      return(false);
+     }
+
+   g_lossZoneMicroAttemptsInZone++;
+   g_lossZoneMicroLastActionTime = TimeCurrent();
+   g_lossZoneMicroReferencePrice = GetLossZoneMicroMidPrice();
+   g_lossZoneMicroStatus = "OPEN " + DirectionText(microDirection) +
+                           " Z" + IntegerToString(zone) +
+                           " " + IntegerToString(g_lossZoneMicroAttemptsInZone) + "/" +
+                           IntegerToString(MathMax(1, InpLossZoneMicroMaxAttemptsPerZone));
+
+   MarkOpenedOrderOnChart(ticket, microDirection, commentText, TimeCurrent(), price);
+
+   Print("LOSS MICRO OPENED | Ticket=", ticket,
+         " | MicroDirection=", DirectionText(microDirection),
+         " | LosingBasket=", DirectionText(losingBasketDirection),
+         " | BasketProfit=$", DoubleToString(losingBasketProfit, 2),
+         " | Zone=", zone,
+         " | Attempt=", g_lossZoneMicroAttemptsInZone,
+         "/", MathMax(1, InpLossZoneMicroMaxAttemptsPerZone),
+         " | Price=", DoubleToString(price, Digits),
+         " | Ref=", DoubleToString(g_lossZoneMicroReferencePrice, Digits));
+
+   return(true);
+  }
+
+//+------------------------------------------------------------------+
+void ProcessLossZoneMicroCreation()
+  {
+   if(!InpUseLossZoneMicroScalper)
+      return;
+
+   if(CountOpenLossZoneMicroOrders() >= MathMax(1, InpLossZoneMicroMaxOpenOrders))
+     {
+      g_lossZoneMicroStatus = "MANAGING OPEN";
+      return;
+     }
+
+   if(g_lossZoneMicroLastActionTime > 0 &&
+      TimeCurrent() - g_lossZoneMicroLastActionTime < MathMax(0, InpLossZoneMicroCooldownSeconds))
+     {
+      g_lossZoneMicroStatus = "COOLDOWN";
+      return;
+     }
+
+   int losingDirection = 0;
+   double losingProfit = 0.0;
+   int losingOrderCount = 0;
+
+   if(!GetWorstLosingMainBasket(losingDirection, losingProfit, losingOrderCount))
+     {
+      ResetLossZoneMicroWaitingState("WAIT LOSS");
+      return;
+     }
+
+   int zone = GetLossZoneMicroZone(losingProfit);
+   if(zone <= 0)
+     {
+      ResetLossZoneMicroWaitingState("WAIT ZONE");
+      return;
+     }
+
+   double midPrice = GetLossZoneMicroMidPrice();
+
+   // A new losing side or a DEEPER loss zone gets a fresh reference and attempt counter.
+   // A temporary recovery to a smaller zone does not reset the attempt limit.
+   if(g_lossZoneMicroTrackedBasketDirection != losingDirection)
+     {
+      g_lossZoneMicroTrackedBasketDirection = losingDirection;
+      g_lossZoneMicroCurrentZone = zone;
+      g_lossZoneMicroReferencePrice = midPrice;
+      g_lossZoneMicroAttemptsInZone = 0;
+      g_lossZoneMicroStatus = "ZONE " + IntegerToString(zone) + " WAIT GAP";
+
+      Print("LOSS MICRO NEW SIDE | LosingBasket=", DirectionText(losingDirection),
+            " | BasketProfit=$", DoubleToString(losingProfit, 2),
+            " | Orders=", losingOrderCount,
+            " | Zone=", zone,
+            " | Reference=", DoubleToString(midPrice, Digits));
+      return;
+     }
+
+   if(zone > g_lossZoneMicroCurrentZone)
+     {
+      g_lossZoneMicroCurrentZone = zone;
+      g_lossZoneMicroReferencePrice = midPrice;
+      g_lossZoneMicroAttemptsInZone = 0;
+      g_lossZoneMicroStatus = "DEEPER ZONE " + IntegerToString(zone) + " WAIT GAP";
+
+      Print("LOSS MICRO DEEPER ZONE | LosingBasket=", DirectionText(losingDirection),
+            " | BasketProfit=$", DoubleToString(losingProfit, 2),
+            " | Orders=", losingOrderCount,
+            " | Zone=", zone,
+            " | Reference=", DoubleToString(midPrice, Digits));
+      return;
+     }
+
+   // Keep the deepest zone reached until the basket recovers above activation.
+   zone = g_lossZoneMicroCurrentZone;
+
+   if(g_lossZoneMicroAttemptsInZone >= MathMax(1, InpLossZoneMicroMaxAttemptsPerZone))
+     {
+      g_lossZoneMicroStatus = "ZONE ATTEMPT LIMIT";
+      return;
+     }
+
+   if(g_lossZoneMicroReferencePrice <= 0.0)
+     {
+      g_lossZoneMicroReferencePrice = midPrice;
+      g_lossZoneMicroStatus = "WAIT GAP";
+      return;
+     }
+
+   double gap = MathMax(0.01, InpLossZoneMicroEntryGapRaw);
+   double move = midPrice - g_lossZoneMicroReferencePrice;
+   int microDirection = 0;
+
+   // Independent direction selection: current live move decides BUY or SELL.
+   if(move >= gap)
+      microDirection = 1;
+   else if(move <= -gap)
+      microDirection = -1;
+
+   if(microDirection == 0)
+     {
+      g_lossZoneMicroStatus = "Z" + IntegerToString(zone) +
+                              " WAIT " + DoubleToString(MathAbs(move), 0) +
+                              "/" + DoubleToString(gap, 0);
+      return;
+     }
+
+   OpenLossZoneMicroOrder(microDirection, losingDirection, losingProfit, zone);
+  }
+
+//+------------------------------------------------------------------+
+string LossZoneMicroStatusText()
+  {
+   if(!InpUseLossZoneMicroScalper)
+      return("OFF");
+
+   return(g_lossZoneMicroStatus +
+          " | Float $" + DoubleToString(GetOpenLossZoneMicroProfit(), 2) +
+          " | Booked $" + DoubleToString(g_lossZoneMicroBookedProfit, 2) +
+          " | Open " + IntegerToString(CountOpenLossZoneMicroOrders()));
+  }
+
+//+------------------------------------------------------------------+
 void OnTick()
   {
 
@@ -7050,6 +7593,10 @@ void OnTick()
    RefreshRates();
 
    UpdateAutoMarketFlowMode();
+
+   // Independent micro close management runs before normal basket logic.
+   // It ignores spike/long-bar filters.
+   ProcessLossZoneMicroClose();
 
    // Update spike/wick pause status on every tick so dashboard shows it immediately.
    EnforceSpikeWickOrderBlock("OnTick dashboard scan", InpSpikeWickBlockRecovery, InpSpikeWickBlockGuard);
@@ -7099,6 +7646,10 @@ void OnTick()
         }
       return;
      }
+
+   // Independent micro creation runs only after account/equity protection checks.
+   // It intentionally ignores g_earlySARWeakExitActive and all SAR-weak filters.
+   ProcessLossZoneMicroCreation();
 
 // Recovery orders must NOT close at fixed InpRecoveryProfitUSD.
    // They close only via ProcessIndividualProfitProtect():
@@ -7158,6 +7709,9 @@ void OnTick()
 
    if(status == "RUNNING" || status == "")
       status = g_lastOrderOpenReason;
+
+   if(InpUseLossZoneMicroScalper)
+      status = status + " | MICRO " + LossZoneMicroStatusText();
 
    // DrawEMATrendLines();
 
@@ -8921,6 +9475,30 @@ double NormalizeLot(double lot)
    return NormalizeDouble(lot, 2);
   }
 //+------------------------------------------------------------------+
+int CountAllEAOrdersIncludingMicro()
+  {
+   int total = 0;
+
+   for(int i = OrdersTotal() - 1; i >= 0; i--)
+     {
+      if(!OrderSelect(i, SELECT_BY_POS, MODE_TRADES))
+         continue;
+
+      if(OrderSymbol() != Symbol() || OrderMagicNumber() != InpMagicNumber)
+         continue;
+
+      if(OrderType() != OP_BUY && OrderType() != OP_SELL)
+         continue;
+
+      if(IsSARGuardOrderComment(OrderComment()))
+         continue;
+
+      total++;
+     }
+
+   return(total);
+  }
+//+------------------------------------------------------------------+
 int CountAllOrders()
   {
    int total = 0;
@@ -8930,7 +9508,9 @@ int CountAllOrders()
          continue;
       if(OrderSymbol() == Symbol() && OrderMagicNumber() == InpMagicNumber)
         {
-         if((OrderType() == OP_BUY || OrderType() == OP_SELL) && !IsSARGuardOrderComment(OrderComment()))
+         if((OrderType() == OP_BUY || OrderType() == OP_SELL) &&
+            !IsSARGuardOrderComment(OrderComment()) &&
+            !IsLossZoneMicroOrderComment(OrderComment()))
             total++;
         }
      }
@@ -8978,6 +9558,9 @@ int CountOpenOrders()
       if(IsSARGuardOrderComment(OrderComment()))
          continue;
 
+      if(IsLossZoneMicroOrderComment(OrderComment()))
+         continue;
+
       total++;
      }
 
@@ -8998,7 +9581,9 @@ int CountOpenOrdersByType(int type)
       if(OrderMagicNumber() != InpMagicNumber)
          continue;
 
-      if(OrderType() == type && !IsSARGuardOrderComment(OrderComment()))
+      if(OrderType() == type &&
+         !IsSARGuardOrderComment(OrderComment()) &&
+         !IsLossZoneMicroOrderComment(OrderComment()))
          total++;
      }
 
@@ -9014,7 +9599,9 @@ int CountOrdersByDirection(int direction)
      {
       if(!OrderSelect(i, SELECT_BY_POS, MODE_TRADES))
          continue;
-      if(OrderSymbol() == Symbol() && OrderMagicNumber() == InpMagicNumber && OrderType() == type && !IsSARGuardOrderComment(OrderComment()))
+      if(OrderSymbol() == Symbol() && OrderMagicNumber() == InpMagicNumber &&
+         OrderType() == type && !IsSARGuardOrderComment(OrderComment()) &&
+         !IsLossZoneMicroOrderComment(OrderComment()))
          total++;
      }
    return total;
@@ -9028,7 +9615,9 @@ double GetBasketProfit(int direction)
      {
       if(!OrderSelect(i, SELECT_BY_POS, MODE_TRADES))
          continue;
-      if(OrderSymbol() == Symbol() && OrderMagicNumber() == InpMagicNumber && OrderType() == type && !IsSARGuardOrderComment(OrderComment()))
+      if(OrderSymbol() == Symbol() && OrderMagicNumber() == InpMagicNumber &&
+         OrderType() == type && !IsSARGuardOrderComment(OrderComment()) &&
+         !IsLossZoneMicroOrderComment(OrderComment()))
          profit += OrderProfit() + OrderSwap() + OrderCommission();
      }
    return profit;
@@ -9059,6 +9648,9 @@ void CloseOrdersByType(int type, string reason)
          continue;
 
       if(IsSARGuardOrderComment(OrderComment()))
+         continue;
+
+      if(IsLossZoneMicroOrderComment(OrderComment()))
          continue;
 
       double closePrice = type == OP_BUY ? Bid : Ask;
