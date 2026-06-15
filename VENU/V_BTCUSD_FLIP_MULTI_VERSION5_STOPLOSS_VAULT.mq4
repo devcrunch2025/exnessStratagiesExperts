@@ -26,7 +26,7 @@ MARKET_MODE g_marketMode = MODE_RANGE;
 string InpEAName                  = "DXB Version 5 - Specila Order";
 int    InpMagicNumber             = 989899;
 double InpFixedLot                = 0.01;
-int    InpMaxOrders               = 2;     // maximum normal SAR orders per SAR signal cycle
+int    InpMaxOrders               = 1;     // maximum normal SAR orders per SAR signal cycle
 double InpMinGapWhenMaxOrdersMoreThanOne = 70.0; // when InpMaxOrders > 1, enforce at least this raw price gap between same-direction open orders
 
 #define DXB_HARD_MAX_OPEN_ORDERS 6  // absolute safety cap for normal SAR orders per cycle
@@ -7025,6 +7025,28 @@ double GetEffectiveRecoveryGapRawPrice()
 
    return(InpRecoveryGapRawPrice);
 }
+int GetEffectiveMaxOrders()
+{
+   if(!InpUseAutoMarketFlowMode)
+      return(InpMaxOrders);
+
+   switch(g_autoMarketMode)
+   {
+      case DXB_MARKET_MODE_CONTINUOUS:
+         return(1);
+
+      case DXB_MARKET_MODE_MEDIUM:
+         return(1);
+
+      case DXB_MARKET_MODE_MIXED:
+         return(2);
+
+      case DXB_MARKET_MODE_DANGER:
+         return(0);
+   }
+
+   return(InpMaxOrders);
+}
 void OnTick()
   {
 
@@ -8039,7 +8061,8 @@ bool RegisterSARCycleOrderCreated(int direction)
    if(g_sarCycleMaxOrders <= 0)
       return(false);
 
-   if(g_sarCycleOrdersCreated >= g_sarCycleMaxOrders)
+   // if(g_sarCycleOrdersCreated >= g_sarCycleMaxOrders)
+   if(g_sarCycleOrdersCreated >= GetEffectiveMaxOrders())
       return(false);
 
    g_sarCycleOrdersCreated++;
