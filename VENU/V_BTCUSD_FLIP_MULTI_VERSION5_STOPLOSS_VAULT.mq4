@@ -47,7 +47,7 @@ bool   InpUseSimpleSideBasketCloseOnly = true;
 // Mode 2: MEDIUM TREND      => SAR + recovery, SL $10, no weak/pullback.
 // Mode 3: MIXED TREND       => SAR + recovery + SAR weak + pullback, SL $10.
 // Mode 4: DANGER SPIKE      => pause new orders/recovery/weak/pullback; manage closes only.
-bool   InpUseAutoMarketFlowMode        = false;
+bool   InpUseAutoMarketFlowMode        = true;
 int    InpMarketFlowLookbackBars       = 60;     // M1 bars used for price-move classification
 int    InpMarketFlowProfitHours        = 6;      // history window for profitable order count
 int    InpContinuousTrendProfitOrders  = 5;      // one-side profit count required
@@ -68,7 +68,7 @@ double InpDangerModeBasketSLUSD        = 5.00;
 bool   InpAutoModePauseOrdersInDanger  = true;
 bool   InpAutoModeAllowRecoveryMedium  = true;
 bool   InpAutoModeAllowRecoveryMixed   = true;
-bool   InpAutoModeAllowSARWeakMixed    = true;
+bool   InpAutoModeAllowSARWeakMixed    = false;
 bool   InpAutoModeAllowPullbackMixed   = true;
 
 double InpProfitTargetPercent      = 50000.0;//50   // stop trading when equity reaches Base + 100%
@@ -6916,7 +6916,7 @@ void UpdateMarketMode()
    }
 
    if(move30 > 500 &&
-      profitOrders >= 5 &&
+      profitOrders >= 4 &&
       h1Trend != 0 &&
       strongSlope)
    {
