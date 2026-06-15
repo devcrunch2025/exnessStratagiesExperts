@@ -26,7 +26,7 @@ MARKET_MODE g_marketMode = MODE_RANGE;
 string InpEAName                  = "DXB Version 5 - Specila Order";
 int    InpMagicNumber             = 989899;
 double InpFixedLot                = 0.01;
-int    InpMaxOrders               = 2;     // maximum normal SAR orders per SAR signal cycle
+int    InpMaxOrders               = 1;     // maximum normal SAR orders per SAR signal cycle
 double InpMinGapWhenMaxOrdersMoreThanOne = 70.0; // when InpMaxOrders > 1, enforce at least this raw price gap between same-direction open orders
 
 #define DXB_HARD_MAX_OPEN_ORDERS 6  // absolute safety cap for normal SAR orders per cycle
