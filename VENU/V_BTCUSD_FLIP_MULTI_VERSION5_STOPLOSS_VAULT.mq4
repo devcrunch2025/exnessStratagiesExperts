@@ -290,15 +290,15 @@ int    InpLast3CandlesPauseMinutes = 5;
 // Spike / wick pause protection
 // Blocks new orders after long wick / spike candles. Useful to avoid BUY at top wick or SELL at bottom wick.
 bool   InpUseSpikeWickPauseFilter = true;
-double InpSpikeWickMinRawPrice    = 120.0;   // minimum upper/lower wick raw price to treat as spike
+double InpSpikeWickMinRawPrice    = 300.0;   // minimum upper/lower wick raw price to treat as spike
 double InpSpikeWickBodyMaxPercent = 35.0;    // candle body must be small compared to full range
 // Momentum spike detection catches full-body fast candles that do not have a small wick.
 // Example: Range >= 150 or Body >= 100 => pause new orders and mark candle yellow.
-double InpSpikeMomentumRangeRawPrice = 150.0;
+double InpSpikeMomentumRangeRawPrice = 300.0;
 double InpSpikeMomentumBodyRawPrice  = 100.0;
 bool   InpDrawSpikeWickYellowMarker  = true;
 int    InpSpikeWickMarkerArrowCode   = 159;
-int    InpSpikeWickPauseMinutes   = 60;       // wait after spike/wick detected
+int    InpSpikeWickPauseMinutes   = 30;       // wait after spike/wick detected
 bool   InpSpikeWickBlockRecovery  = true;    // block recovery/recovery-gap/hedge also
 bool   InpSpikeWickBlockGuard     = true;    // block SAR special guard also
 
