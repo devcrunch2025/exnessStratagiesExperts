@@ -61,10 +61,10 @@ double InpMixedTrendMinMoveRaw         = 50.0;
 double InpMixedTrendMaxMoveRaw         = 300.0;
 double InpDangerLast3MoveRaw           = 500.0;
 
-double InpContinuousTrendBasketSLUSD   = 2;//5.00;
-double InpMediumTrendBasketSLUSD       = 2;//10.00;
-double InpMixedTrendBasketSLUSD        = 2;//10.00;
-double InpDangerModeBasketSLUSD        = 2;//5.00;
+double InpContinuousTrendBasketSLUSD   =1;// 2;//5.00;
+double InpMediumTrendBasketSLUSD       = 1;//2;//10.00;
+double InpMixedTrendBasketSLUSD        = 1;//2;//10.00;
+double InpDangerModeBasketSLUSD        = 1;//2;//5.00;
 
 bool   InpAutoModePauseOrdersInDanger  = true;
 bool   InpAutoModeAllowRecoveryMedium  = true;
@@ -172,7 +172,7 @@ bool   InpRecoveryGapMustMatchH1Trend = false;
 bool   InpKeepPendingRecoveryGapAfterBlock = true;
 bool   InpOpenPendingRecoveryWhenSARMatches = true;
 
-double InpRecoveryGapRawPrice     = 50.0;   // raw price difference, not points
+double InpRecoveryGapRawPrice     = 300.0;   // raw price difference, not points
 double InpRecoveryGapLot          = 0.01;
 int    InpMaxRecoveryGapOrdersPerSide = 1;  // recovery ladder: 50, 100, 150 from first order price
 
