@@ -20,7 +20,7 @@ MARKET_MODE g_marketMode = MODE_RANGE;
 #ifndef OP_BALANCE
 #define OP_BALANCE 6
 #endif
-#property version   "1.10"
+#property version   "1.11"
 
 //======================== INPUTS ====================================
 string InpEAName                  = "DXB Version 5 - Specila Order";
@@ -40,7 +40,7 @@ double InpBasketStopLossUSD       = 5.00;    // BASKET stop loss in USD, 0 = dis
 // It disables auto profit/loss adjustments such as combined all-basket profit close,
 // basket/individual profit protect, time-decay TP, SAR-weak basket close,
 // global equity trailing close, and auto market-flow SL adjustment.
-bool   InpUseSimpleSideBasketCloseOnly = true;
+bool   InpUseSimpleSideBasketCloseOnly = false;
 
 
 //================ AUTO MARKET FLOW MODE ============================
@@ -288,17 +288,22 @@ double InpLast3CandlesRawDifference = 300.0;
 int    InpLast3CandlesPauseMinutes = 5;
 
 // Spike / wick pause protection
-// Blocks new orders after long wick / spike candles. Useful to avoid BUY at top wick or SELL at bottom wick.
+// A candle is a spike ONLY when:
+// 1) its larger upper/lower wick reaches InpSpikeWickMinRawPrice, and
+// 2) its body is no more than InpSpikeWickBodyMaxPercent of that larger wick.
+// Example: Wick=100 and setting=50 => Body must be <=50.
+// Long-body / momentum candles are NOT classified as spike candles here.
 bool   InpUseSpikeWickPauseFilter = true;
-double InpSpikeWickMinRawPrice    = 300.0;   // minimum upper/lower wick raw price to treat as spike
-double InpSpikeWickBodyMaxPercent = 35.0;    // candle body must be small compared to full range
-// Momentum spike detection catches full-body fast candles that do not have a small wick.
-// Example: Range >= 150 or Body >= 100 => pause new orders and mark candle yellow.
-double InpSpikeMomentumRangeRawPrice = 300.0;
+double InpSpikeWickMinRawPrice    = 300.0;   // minimum larger wick raw price
+double InpSpikeWickBodyMaxPercent = 50.0;    // body must be <= this % of the larger wick
+
+// Legacy settings retained for old SET-file compatibility.
+// They are intentionally ignored by the wick-only spike rule.
+double InpSpikeMomentumRangeRawPrice = 500.0;
 double InpSpikeMomentumBodyRawPrice  = 100.0;
 bool   InpDrawSpikeWickYellowMarker  = true;
 int    InpSpikeWickMarkerArrowCode   = 159;
-int    InpSpikeWickPauseMinutes   = 30;       // wait after spike/wick detected
+int    InpSpikeWickPauseMinutes   = 60;       // wait after spike/wick detected
 bool   InpSpikeWickBlockRecovery  = true;    // block recovery/recovery-gap/hedge also
 bool   InpSpikeWickBlockGuard     = true;    // block SAR special guard also
 
@@ -3435,7 +3440,7 @@ bool IsSpikeWickCandle(int shift, string &reason, double &maxWick, double &bodyP
   {
    reason = "";
    maxWick = 0.0;
-   bodyPercent = 100.0;
+   bodyPercent = 999999.0;
    rangeSize = 0.0;
    bodySize = 0.0;
 
@@ -3456,48 +3461,39 @@ bool IsSpikeWickCandle(int shift, string &reason, double &maxWick, double &bodyP
    if(rangeSize <= 0.0)
       return(false);
 
-   double upperWick = h - MathMax(o, c);
-   double lowerWick = MathMin(o, c) - l;
+   double upperWick = MathMax(0.0, h - MathMax(o, c));
+   double lowerWick = MathMax(0.0, MathMin(o, c) - l);
    maxWick = MathMax(upperWick, lowerWick);
-   bodyPercent = (bodySize / rangeSize) * 100.0;
 
-   bool wickLarge     = (InpSpikeWickMinRawPrice > 0.0 && maxWick >= InpSpikeWickMinRawPrice);
-   bool bodySmall     = (bodyPercent <= InpSpikeWickBodyMaxPercent);
-   bool rangeSpike    = (InpSpikeMomentumRangeRawPrice > 0.0 && rangeSize >= InpSpikeMomentumRangeRawPrice);
-   bool momentumSpike = (InpSpikeMomentumBodyRawPrice > 0.0 && bodySize >= InpSpikeMomentumBodyRawPrice);
+   // bodyPercent now means body size as a percentage of the larger wick.
+   // Example: Body=40, Wick=100 => Body/Wick%=40.
+   if(maxWick > 0.0)
+      bodyPercent = (bodySize / maxWick) * 100.0;
 
-   // 1) Classic wick spike: long upper/lower wick and small body.
-   if(wickLarge && bodySmall)
+   double allowedBodyPercent = MathMax(0.0, InpSpikeWickBodyMaxPercent);
+
+   bool wickLarge = (InpSpikeWickMinRawPrice > 0.0 &&
+                     maxWick >= InpSpikeWickMinRawPrice);
+
+   bool bodyIsWithinWickRatio = (maxWick > 0.0 &&
+                                 bodyPercent <= allowedBodyPercent);
+
+   // Wick-only spike rule. Long-body and long-range candles are ignored here.
+   if(wickLarge && bodyIsWithinWickRatio)
      {
       string side = "WICK";
-      if(upperWick >= lowerWick && upperWick >= InpSpikeWickMinRawPrice)
+
+      if(upperWick >= lowerWick)
          side = "UPPER WICK";
-      else if(lowerWick > upperWick && lowerWick >= InpSpikeWickMinRawPrice)
+      else
          side = "LOWER WICK";
 
       reason = "SPIKE/" + side +
                " | Range=" + DoubleToString(rangeSize, 1) +
                " | Body=" + DoubleToString(bodySize, 1) +
                " | Wick=" + DoubleToString(maxWick, 1) +
-               " | Body%=" + DoubleToString(bodyPercent, 1);
-      return(true);
-     }
-
-   // 2) Momentum spike: full-body fast candle without a long wick.
-   // This catches candles like Range=185 and Body=118 that were not detected by wick-only logic.
-   if(rangeSpike || momentumSpike)
-     {
-      string type = "MOMENTUM SPIKE";
-      if(rangeSpike && !momentumSpike)
-         type = "LONG RANGE SPIKE";
-      else if(momentumSpike && !rangeSpike)
-         type = "LONG BODY SPIKE";
-
-      reason = type +
-               " | Range=" + DoubleToString(rangeSize, 1) +
-               " | Body=" + DoubleToString(bodySize, 1) +
-               " | Wick=" + DoubleToString(maxWick, 1) +
-               " | Body%=" + DoubleToString(bodyPercent, 1);
+               " | Body/Wick%=" + DoubleToString(bodyPercent, 1) +
+               " | Max=" + DoubleToString(allowedBodyPercent, 1) + "%";
       return(true);
      }
 
@@ -3714,7 +3710,7 @@ string SpikeWickPauseStatusText()
           " | Range=" + DoubleToString(g_lastSpikeWickRangeSize, 1) +
           " | Body=" + DoubleToString(g_lastSpikeWickBodySize, 1) +
           " | Wick=" + DoubleToString(g_lastSpikeWickWickSize, 1) +
-          " | Body%=" + DoubleToString(g_lastSpikeWickBodyPercent, 1));
+          " | Body/Wick%=" + DoubleToString(g_lastSpikeWickBodyPercent, 1));
   }
 
 
