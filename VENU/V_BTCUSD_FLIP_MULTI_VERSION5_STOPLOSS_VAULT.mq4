@@ -7003,6 +7003,28 @@ string MarketModeText()
 
    return("UNKNOWN");
 }
+double GetEffectiveRecoveryGapRawPrice()
+{
+   if(!InpUseAutoMarketFlowMode)
+      return(InpRecoveryGapRawPrice);
+
+   switch(g_autoMarketMode)
+   {
+      case DXB_MARKET_MODE_CONTINUOUS:
+         return(999999); // disable
+
+      case DXB_MARKET_MODE_MEDIUM:
+         return(InpRecoveryGapRawPrice);
+
+      case DXB_MARKET_MODE_MIXED:
+         return(InpRecoveryGapRawPrice/2);
+
+      case DXB_MARKET_MODE_DANGER:
+         return(999999); // disable
+   }
+
+   return(InpRecoveryGapRawPrice);
+}
 void OnTick()
   {
 
