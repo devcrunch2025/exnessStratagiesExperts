@@ -32,6 +32,7 @@ double InpMinGapWhenMaxOrdersMoreThanOne = 70.0; // when InpMaxOrders > 1, enfor
 #define DXB_HARD_MAX_OPEN_ORDERS 6  // absolute safety cap for normal SAR orders per cycle
 
 double InpBasketProfitUSD         = 1.00;
+//Live
 double InpBasketStopLossUSD       = 5.00;    // BASKET stop loss in USD, 0 = disabled. This closes all orders in active SAR direction.
 
 // Simple basket close mode:
