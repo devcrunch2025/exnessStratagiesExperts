@@ -494,7 +494,7 @@ int    InpEarlySARWeakExitCooldownSec  = 60;    // avoid repeat close loop
 // Close only when weakness is confirmed/recent, not on every weak marker.
 // Profitable active SAR basket closes immediately.
 // Old active SAR basket can close at a controlled small loss to avoid full basket SL.
-bool   InpUseConfirmedSARWeakBasketClose = false;
+bool   InpUseConfirmedSARWeakBasketClose = true;
 int    InpSARWeakCloseRecentBars         = 3;     // latest weak signal must be within this many bars
 bool   InpSARWeakCloseProfitBasket       = true;
 double InpSARWeakMinProfitToClose        = 0.01;
