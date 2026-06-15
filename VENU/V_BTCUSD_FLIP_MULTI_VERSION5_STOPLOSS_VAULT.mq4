@@ -20,7 +20,7 @@ MARKET_MODE g_marketMode = MODE_RANGE;
 #ifndef OP_BALANCE
 #define OP_BALANCE 6
 #endif
-#property version   "1.09"
+#property version   "1.10"
 
 //======================== INPUTS ====================================
 string InpEAName                  = "DXB Version 5 - Specila Order";
@@ -70,6 +70,15 @@ bool   InpAutoModeAllowRecoveryMedium  = true;
 bool   InpAutoModeAllowRecoveryMixed   = true;
 bool   InpAutoModeAllowSARWeakMixed    = false;
 bool   InpAutoModeAllowPullbackMixed   = true;
+
+// Opposite-direction profit-streak pause:
+// When the latest normal SAR order history produces N consecutive profitable closes
+// in one direction, block NEW orders in the opposite direction for the configured time.
+// Example: 3 consecutive profitable BUY closes => pause new SELL orders for 120 minutes.
+// Existing orders continue to be managed/closed normally. SAR special guard orders are exempt.
+bool   InpUseOppositeDirectionProfitPause = false;
+int    InpOppositeDirectionProfitStreakOrders = 2;
+int    InpOppositeDirectionPauseMinutes = 30;
 
 double InpProfitTargetPercent      = 50000.0;//50   // stop trading when equity reaches Base + 100%
 double InpLossStopPercent          = 50.0;   // stop trading when equity reaches Base - 50%
@@ -162,14 +171,14 @@ bool   InpRecoveryGapMustMatchH1Trend = false;
 bool   InpKeepPendingRecoveryGapAfterBlock = true;
 bool   InpOpenPendingRecoveryWhenSARMatches = true;
 
-double InpRecoveryGapRawPrice     = 200.0;   // raw price difference, not points
+double InpRecoveryGapRawPrice     = 300.0;   // raw price difference, not points
 double InpRecoveryGapLot          = 0.01;
 int    InpMaxRecoveryGapOrdersPerSide = 1;  // recovery ladder: 50, 100, 150 from first order price
 
 // Reverse swing order: whenever a RECOVERY_GAP order opens, also open one opposite order.
 // Example: BUY recovery opens -> open SELL swing order.
 // These reverse swing orders are protected by the same 0.50 -> 0.40 pullback logic.
-bool   InpOpenReverseOrderWithRecovery = true;
+bool   InpOpenReverseOrderWithRecovery = false;
 double InpRecoveryReverseLot           = 0.01;   // 0 or less = use InpRecoveryGapLot
 
 // SAR special guard hedge order:
@@ -574,6 +583,21 @@ double   g_autoMarketLast3MoveRaw= 0.0;
 int      g_autoMarketBuyProfitCount  = 0;
 int      g_autoMarketSellProfitCount = 0;
 int      g_autoMarketDirection   = 0;
+
+// Opposite-direction pause state, reconstructed from closed normal-order history.
+int      g_oppositeProfitStreakDirection = 0;
+int      g_oppositeProfitStreakCount = 0;
+int      g_oppositePausedDirection = 0;
+datetime g_oppositeDirectionPauseUntil = 0;
+datetime g_oppositeDirectionPauseTriggerTime = 0;
+int      g_oppositeDirectionPauseTriggerTicket = 0;
+int      g_oppositeDirectionPauseWinner = 0;
+int      g_oppositePauseLastHistoryTotal = -1;
+datetime g_oppositePauseLastScanTime = 0;
+datetime g_oppositePauseLastBlockPrintTime = 0;
+int      g_oppositePauseLastPrintedDirection = 0;
+string   g_oppositeDirectionPauseStatus = "WAIT 3 PROFITS";
+
 int      dotColor               = 0;       // 1 SAR below price, -1 SAR above price
 bool     g_flatMode             = false;   // true when price is compressed/sideways
 
@@ -1115,6 +1139,256 @@ bool IsNormalProfitOrderForMarketFlow(string commentText)
    return(true);
 }
 
+#define DXB_OPPOSITE_PAUSE_HISTORY_KEEP 100
+
+//+------------------------------------------------------------------+
+//| Rebuild the latest normal-order profit streak from trade history. |
+//| A loss/breakeven or a different direction breaks the streak.      |
+//| Once triggered, the opposite-side pause remains for the full time |
+//| even if another order later closes in loss.                        |
+//+------------------------------------------------------------------+
+void UpdateOppositeDirectionProfitPause(bool forceScan=false)
+{
+   datetime now = TimeCurrent();
+
+   if(!InpUseOppositeDirectionProfitPause)
+   {
+      g_oppositeProfitStreakDirection = 0;
+      g_oppositeProfitStreakCount = 0;
+      g_oppositePausedDirection = 0;
+      g_oppositeDirectionPauseUntil = 0;
+      g_oppositeDirectionPauseTriggerTime = 0;
+      g_oppositeDirectionPauseTriggerTicket = 0;
+      g_oppositeDirectionPauseWinner = 0;
+      g_oppositeDirectionPauseStatus = "OFF";
+      return;
+   }
+
+   int historyTotal = OrdersHistoryTotal();
+
+   // Avoid rescanning the complete history on every market tick.
+   if(!forceScan &&
+      historyTotal == g_oppositePauseLastHistoryTotal &&
+      (now - g_oppositePauseLastScanTime) < 5)
+   {
+      if(g_oppositePausedDirection != 0 && now >= g_oppositeDirectionPauseUntil)
+      {
+         g_oppositePausedDirection = 0;
+         g_oppositeDirectionPauseUntil = 0;
+         g_oppositeDirectionPauseStatus = "FINISHED | Waiting new streak";
+      }
+      return;
+   }
+
+   g_oppositePauseLastHistoryTotal = historyTotal;
+   g_oppositePauseLastScanTime = now;
+
+   datetime closeTimes[DXB_OPPOSITE_PAUSE_HISTORY_KEEP];
+   int      directions[DXB_OPPOSITE_PAUSE_HISTORY_KEEP];
+   double   netProfits[DXB_OPPOSITE_PAUSE_HISTORY_KEEP];
+   int      tickets[DXB_OPPOSITE_PAUSE_HISTORY_KEEP];
+   int kept = 0;
+
+   // Keep the latest 100 eligible normal closes, sorted newest -> oldest.
+   for(int i = 0; i < historyTotal; i++)
+   {
+      if(!OrderSelect(i, SELECT_BY_POS, MODE_HISTORY))
+         continue;
+      if(OrderSymbol() != Symbol() || OrderMagicNumber() != InpMagicNumber)
+         continue;
+      if(OrderType() != OP_BUY && OrderType() != OP_SELL)
+         continue;
+      if(OrderCloseTime() <= 0)
+         continue;
+      if(!IsNormalProfitOrderForMarketFlow(OrderComment()))
+         continue;
+
+      datetime closeTime = OrderCloseTime();
+      int ticket = OrderTicket();
+      int direction = (OrderType() == OP_BUY) ? 1 : -1;
+      double netProfit = OrderProfit() + OrderSwap() + OrderCommission();
+
+      int insertPos = kept;
+
+      if(kept < DXB_OPPOSITE_PAUSE_HISTORY_KEEP)
+      {
+         kept++;
+      }
+      else
+      {
+         int last = kept - 1;
+         bool newerThanOldest = (closeTime > closeTimes[last] ||
+                                (closeTime == closeTimes[last] && ticket > tickets[last]));
+         if(!newerThanOldest)
+            continue;
+         insertPos = last;
+      }
+
+      while(insertPos > 0)
+      {
+         int previous = insertPos - 1;
+         bool shouldMove = (closeTime > closeTimes[previous] ||
+                           (closeTime == closeTimes[previous] && ticket > tickets[previous]));
+         if(!shouldMove)
+            break;
+
+         closeTimes[insertPos] = closeTimes[previous];
+         directions[insertPos] = directions[previous];
+         netProfits[insertPos] = netProfits[previous];
+         tickets[insertPos] = tickets[previous];
+         insertPos--;
+      }
+
+      closeTimes[insertPos] = closeTime;
+      directions[insertPos] = direction;
+      netProfits[insertPos] = netProfit;
+      tickets[insertPos] = ticket;
+   }
+
+   int required = MathMax(1, InpOppositeDirectionProfitStreakOrders);
+   int streakDirection = 0;
+   int streakCount = 0;
+   int latestTriggerDirection = 0;
+   datetime latestTriggerTime = 0;
+   int latestTriggerTicket = 0;
+
+   // Process oldest -> newest to reproduce the true consecutive sequence.
+   for(int n = kept - 1; n >= 0; n--)
+   {
+      if(netProfits[n] > 0.0)
+      {
+         if(directions[n] == streakDirection)
+            streakCount++;
+         else
+         {
+            streakDirection = directions[n];
+            streakCount = 1;
+         }
+
+         if(streakCount >= required)
+         {
+            latestTriggerDirection = streakDirection;
+            latestTriggerTime = closeTimes[n];
+            latestTriggerTicket = tickets[n];
+         }
+      }
+      else
+      {
+         streakDirection = 0;
+         streakCount = 0;
+      }
+   }
+
+   g_oppositeProfitStreakDirection = streakDirection;
+   g_oppositeProfitStreakCount = streakCount;
+
+   int pauseSeconds = MathMax(1, InpOppositeDirectionPauseMinutes) * 60;
+   datetime newPauseUntil = (latestTriggerTime > 0) ? latestTriggerTime + pauseSeconds : 0;
+
+   if(latestTriggerDirection != 0 && newPauseUntil > now)
+   {
+      bool newTrigger = (latestTriggerTicket != g_oppositeDirectionPauseTriggerTicket ||
+                         latestTriggerDirection != g_oppositeDirectionPauseWinner);
+
+      g_oppositeDirectionPauseWinner = latestTriggerDirection;
+      g_oppositePausedDirection = -latestTriggerDirection;
+      g_oppositeDirectionPauseTriggerTime = latestTriggerTime;
+      g_oppositeDirectionPauseTriggerTicket = latestTriggerTicket;
+      g_oppositeDirectionPauseUntil = newPauseUntil;
+
+      int remaining = (int)MathMax(0, g_oppositeDirectionPauseUntil - now);
+      g_oppositeDirectionPauseStatus = "BLOCK " + DirectionText(g_oppositePausedDirection) +
+                                       " | Winner " + DirectionText(g_oppositeDirectionPauseWinner) +
+                                       " | " + FormatSecondsToHHMM(remaining);
+
+      if(newTrigger)
+      {
+         Print("OPPOSITE DIRECTION PAUSE STARTED | Winner=", DirectionText(g_oppositeDirectionPauseWinner),
+               " | ConsecutiveProfitOrders>=", required,
+               " | BlockedDirection=", DirectionText(g_oppositePausedDirection),
+               " | TriggerTicket=", g_oppositeDirectionPauseTriggerTicket,
+               " | TriggerTime=", TimeToString(g_oppositeDirectionPauseTriggerTime, TIME_DATE|TIME_SECONDS),
+               " | PauseUntil=", TimeToString(g_oppositeDirectionPauseUntil, TIME_DATE|TIME_SECONDS));
+      }
+   }
+   else
+   {
+      if(g_oppositePausedDirection != 0 && now >= g_oppositeDirectionPauseUntil)
+         Print("OPPOSITE DIRECTION PAUSE FINISHED | PreviousBlockedDirection=",
+               DirectionText(g_oppositePausedDirection));
+
+      g_oppositePausedDirection = 0;
+      g_oppositeDirectionPauseUntil = 0;
+      g_oppositeDirectionPauseWinner = 0;
+      g_oppositeDirectionPauseTriggerTime = 0;
+      g_oppositeDirectionPauseTriggerTicket = 0;
+
+      if(streakDirection == 0)
+         g_oppositeDirectionPauseStatus = "WAIT | Streak 0/" + IntegerToString(required);
+      else
+         g_oppositeDirectionPauseStatus = "WAIT | " + DirectionText(streakDirection) +
+                                          " " + IntegerToString(streakCount) + "/" +
+                                          IntegerToString(required);
+   }
+}
+
+//+------------------------------------------------------------------+
+bool IsOppositeDirectionProfitPauseActive()
+{
+   UpdateOppositeDirectionProfitPause(false);
+   return(InpUseOppositeDirectionProfitPause &&
+          g_oppositePausedDirection != 0 &&
+          TimeCurrent() < g_oppositeDirectionPauseUntil);
+}
+
+//+------------------------------------------------------------------+
+string OppositeDirectionProfitPauseStatusText()
+{
+   UpdateOppositeDirectionProfitPause(false);
+
+   if(!InpUseOppositeDirectionProfitPause)
+      return("OFF");
+
+   if(IsOppositeDirectionProfitPauseActive())
+   {
+      int remaining = (int)MathMax(0, g_oppositeDirectionPauseUntil - TimeCurrent());
+      return("BLOCK " + DirectionText(g_oppositePausedDirection) +
+             " | " + DirectionText(g_oppositeDirectionPauseWinner) +
+             " wins | " + FormatSecondsToHHMM(remaining));
+   }
+
+   return(g_oppositeDirectionPauseStatus);
+}
+
+//+------------------------------------------------------------------+
+bool IsOrderBlockedByOppositeDirectionProfitPause(int direction, string source)
+{
+   if(direction == 0 || !IsOppositeDirectionProfitPauseActive())
+      return(false);
+
+   if(direction != g_oppositePausedDirection)
+      return(false);
+
+   int remaining = (int)MathMax(0, g_oppositeDirectionPauseUntil - TimeCurrent());
+   string message = "Opposite direction profit-streak pause | Winner=" +
+                    DirectionText(g_oppositeDirectionPauseWinner) +
+                    " | Blocked=" + DirectionText(direction) +
+                    " | Remaining=" + FormatSecondsToHHMM(remaining) +
+                    " | Source=" + source;
+
+   SetLastOrderBlockDashboard(message);
+
+   if(g_oppositePauseLastPrintedDirection != direction ||
+      TimeCurrent() - g_oppositePauseLastBlockPrintTime >= 30)
+   {
+      Print("ORDER BLOCKED | ", message);
+      g_oppositePauseLastPrintedDirection = direction;
+      g_oppositePauseLastBlockPrintTime = TimeCurrent();
+   }
+
+   return(true);
+}
+
 int CountRecentProfitableOrdersForMarketFlow(int direction)
 {
    int count = 0;
@@ -1537,6 +1811,9 @@ if(AccountNumber()==291085426)
    LoadLast5SARChangeDurations();
 
    InpMagicNumber=AccountNumber()+202; // override magic number with account number to prevent interference between charts/accounts. Orders are still filtered by symbol and magic in this EA.
+
+   // Restore an active opposite-side pause after EA restart from account history.
+   UpdateOppositeDirectionProfitPause(true);
 
    Print(InpEAName, " initialized. Magic=", InpMagicNumber,
          " | BaseBalance=$", DoubleToString(g_baseBalance,2),
@@ -3562,6 +3839,9 @@ bool OpenRecoveryOrder(int direction, string sourceReason)
    if(direction == 0)
       return(false);
 
+   if(IsOrderBlockedByOppositeDirectionProfitPause(direction, "OpenRecoveryOrder " + sourceReason))
+      return(false);
+
    RefreshRates();
 
    if(IsTotalOpenOrderCapReached("OpenRecoveryOrder"))
@@ -3746,6 +4026,9 @@ bool OpenReverseOrderForRecovery(int recoveryDirection, int recoveryNumber, doub
 
    int reverseDirection = -recoveryDirection;
 
+   if(IsOrderBlockedByOppositeDirectionProfitPause(reverseDirection, "OpenReverseOrderForRecovery"))
+      return(false);
+
    if(!IsTradingAllowedNow())
      {
       Print("RECOVERY HEDGE BLOCKED | Trading not allowed | RecoveryDirection=",
@@ -3823,6 +4106,9 @@ bool OpenReverseOrderForRecovery(int recoveryDirection, int recoveryNumber, doub
 bool OpenRecoveryGapMarketOrder(int direction, double gapMove)
   {
    if(direction == 0)
+      return(false);
+
+   if(IsOrderBlockedByOppositeDirectionProfitPause(direction, "OpenRecoveryGapMarketOrder"))
       return(false);
 
    UpdateAutoMarketFlowMode();
@@ -6245,6 +6531,13 @@ bool OpenSARWeakReverseMarketOrder(int reverseDirection, string weakReason)
    if(reverseDirection == 0)
       return(false);
 
+   if(IsOrderBlockedByOppositeDirectionProfitPause(reverseDirection, "SAR_WEAK_REVERSE"))
+     {
+      g_sarWeakReverseLastStatus = "BLOCKED PROFIT STREAK";
+      g_sarWeakReverseLastReason = OppositeDirectionProfitPauseStatusText();
+      return(false);
+     }
+
    // Protection rule:
    // Example: active SAR BUY becomes weak => reverseDirection SELL.
    // Open SAR_WEAK_REVERSE SELL only when an existing SELL order is already open.
@@ -7048,6 +7341,9 @@ void OnTick()
 
 
    RefreshRates();
+
+   // Detect a new 3-profit streak immediately after history changes and maintain the 2-hour lock.
+   UpdateOppositeDirectionProfitPause(false);
 
    UpdateAutoMarketFlowMode();
 
@@ -8682,6 +8978,9 @@ bool OpenMarketOrder(int direction, string reason)
    if(direction == 0)
       return BlockOrder("Direction is 0 | Source=" + reason);
 
+   if(IsOrderBlockedByOppositeDirectionProfitPause(direction, reason))
+      return(false);
+
    // Final safety: block late-cycle weak NORMAL SAR entries only.
    // Recovery and hedge order reasons are not affected by this filter.
    if(IsNormalSAROrderReason(reason))
@@ -9918,12 +10217,15 @@ void DrawLeftOrderCreationChecklist(string mainStatus)
    bool okSARSide       = CheckListSARSideAllowed(direction);
    bool okLateSAR       = !IsLateSARCycleEntryDanger(direction, lateSARBlockReasonForDashboard);
    bool okRepeatedGap   = CheckListRepeatedGapAllowed(direction);
+   bool okOppositePause = (!IsOppositeDirectionProfitPauseActive() ||
+                           direction != g_oppositePausedDirection);
 
    bool allOk = okDirection && okTrading && okSpread && okEquity && okNoHour &&
                 okProfitPause && okBigCandle && okSpikeWick && okSARConfirm && okH1 && okCycle &&
-                okMaxOpen && okTotalOpen && okMinGap && okSARSide && okLateSAR && okRepeatedGap;
+                okMaxOpen && okTotalOpen && okMinGap && okSARSide && okLateSAR && okRepeatedGap &&
+                okOppositePause;
 
-   DrawCornerPanel("DXB_LEFT_CHK_PANEL",CORNER_LEFT_UPPER,5,15,405,565,clrBlack,clrDimGray);
+   DrawCornerPanel("DXB_LEFT_CHK_PANEL",CORNER_LEFT_UPPER,5,15,405,585,clrBlack,clrDimGray);
    DrawCornerLabel("DXB_LEFT_CHK_TITLE","ORDER CREATION CHECKLIST",CORNER_LEFT_UPPER,10,22,clrYellow,10);
 
    g_leftDashRow = 0;
@@ -9957,6 +10259,7 @@ void DrawLeftOrderCreationChecklist(string mainStatus)
    LeftProCheck("Equity/Daily Lock",okEquity);
    LeftProCheck("No-New-Hour",okNoHour,NoNewOrderHoursStatusText());
    LeftProCheck("Profit Pause",okProfitPause,ProfitProtectPauseStatusText());
+   LeftProCheck("Opposite Pause",okOppositePause,OppositeDirectionProfitPauseStatusText());
    LeftProCheck("Big Candle Pause",okBigCandle,BigCandlePauseStatusText());
    LeftProCheck("Spike/Wick Pause",okSpikeWick,SpikeWickPauseStatusText());
    LeftProCheck("Min Gap",okMinGap,DoubleToString(GetEffectiveMinPriceGap(),0));
@@ -10094,6 +10397,7 @@ void DrawDashboard(string status)
    RightProRow("TP Time Decay",BasketProfitTimeDecayStatusText(),InpUseBasketProfitTimeDecay ? clrAqua : clrSilver);
    RightProRow("Basket SL Live","$"+DoubleToString(GetEffectiveBasketStopLossUSD(),2) + (InpUseSimpleSideBasketCloseOnly ? " SIMPLE" : ""),clrRed);
    RightProRow("Market Mode",AutoMarketModeStatusText(),MarketFlowModeColor());
+   RightProRow("Opposite Pause",OppositeDirectionProfitPauseStatusText(),IsOppositeDirectionProfitPauseActive() ? clrOrangeRed : clrSilver);
    RightProRow("Ind Profit Protect",OnOff(InpUseIndividualProfitProtect),InpUseIndividualProfitProtect ? clrLime : clrSilver);
    RightProRow("Basket Protect",OnOff(InpUseBasketProfitProtect),InpUseBasketProfitProtect ? clrLime : clrSilver);
 
