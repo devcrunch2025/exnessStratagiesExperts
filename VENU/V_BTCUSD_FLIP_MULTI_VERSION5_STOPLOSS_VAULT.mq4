@@ -162,14 +162,14 @@ bool   InpRecoveryGapMustMatchH1Trend = true;
 bool   InpKeepPendingRecoveryGapAfterBlock = true;
 bool   InpOpenPendingRecoveryWhenSARMatches = true;
 
-double InpRecoveryGapRawPrice     = 300.0;   // raw price difference, not points
+double InpRecoveryGapRawPrice     = 200.0;   // raw price difference, not points
 double InpRecoveryGapLot          = 0.01;
-int    InpMaxRecoveryGapOrdersPerSide = 1;  // recovery ladder: 50, 100, 150 from first order price
+int    InpMaxRecoveryGapOrdersPerSide = 3;  // recovery ladder: 50, 100, 150 from first order price
 
 // Reverse swing order: whenever a RECOVERY_GAP order opens, also open one opposite order.
 // Example: BUY recovery opens -> open SELL swing order.
 // These reverse swing orders are protected by the same 0.50 -> 0.40 pullback logic.
-bool   InpOpenReverseOrderWithRecovery = false;
+bool   InpOpenReverseOrderWithRecovery = true;
 double InpRecoveryReverseLot           = 0.01;   // 0 or less = use InpRecoveryGapLot
 
 // SAR special guard hedge order:
