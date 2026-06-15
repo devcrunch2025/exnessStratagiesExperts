@@ -26,8 +26,8 @@ MARKET_MODE g_marketMode = MODE_RANGE;
 string InpEAName                  = "DXB Version 5 - Specila Order";
 int    InpMagicNumber             = 989899;
 double InpFixedLot                = 0.01;
-int    InpMaxOrders               = 1;     // maximum normal SAR orders per SAR signal cycle
-double InpMinGapWhenMaxOrdersMoreThanOne = 100.0; // when InpMaxOrders > 1, enforce at least this raw price gap between same-direction open orders
+int    InpMaxOrders               = 2;     // maximum normal SAR orders per SAR signal cycle
+double InpMinGapWhenMaxOrdersMoreThanOne = 70.0; // when InpMaxOrders > 1, enforce at least this raw price gap between same-direction open orders
 
 #define DXB_HARD_MAX_OPEN_ORDERS 6  // absolute safety cap for normal SAR orders per cycle
 
@@ -494,10 +494,10 @@ int    InpEarlySARWeakExitCooldownSec  = 60;    // avoid repeat close loop
 // Close only when weakness is confirmed/recent, not on every weak marker.
 // Profitable active SAR basket closes immediately.
 // Old active SAR basket can close at a controlled small loss to avoid full basket SL.
-bool   InpUseConfirmedSARWeakBasketClose = true;
+bool   InpUseConfirmedSARWeakBasketClose = false;
 int    InpSARWeakCloseRecentBars         = 3;     // latest weak signal must be within this many bars
 bool   InpSARWeakCloseProfitBasket       = true;
-double InpSARWeakMinProfitToClose        = 0.01;
+double InpSARWeakMinProfitToClose        = 0.10;
 bool   InpSARWeakCloseOldSmallLoss       = false;
 int    InpSARWeakBasketAgeMinutes        = 30;
 double InpSARWeakMaxSmallLossToCloseUSD  = 2.00;  // close old weak basket only if loss is between 0 and -this
