@@ -5,22 +5,14 @@
 //|  cycle, draws arrows, closes opposite orders, resumes when aligned |
 //+------------------------------------------------------------------+
 
-enum MARKET_MODE
-{
-   MODE_RANGE = 0,
-   MODE_HEALTHY_TREND = 1,
-   MODE_STRONG_TREND = 2,
-   MODE_DANGER = 3
-};
-
-MARKET_MODE g_marketMode = MODE_RANGE;
+// Single market-flow engine: DXB_MARKET_MODE_* / g_autoMarketMode.
 #property strict
 
 // MT4 compatibility: balance/deposit/withdrawal history operation type
 #ifndef OP_BALANCE
 #define OP_BALANCE 6
 #endif
-#property version   "1.09"
+#property version   "1.10"
 
 //======================== INPUTS ====================================
 string InpEAName                  = "DXB Version 5 - Specila Order";
@@ -35,11 +27,11 @@ double InpBasketProfitUSD         = 1.00;
 double InpBasketStopLossUSD       =3;// 5.00;    // BASKET stop loss in USD, 0 = disabled. This closes all orders in active SAR direction.
 
 // Simple basket close mode:
-// true = close BUY basket and SELL basket only by fixed InpBasketProfitUSD / InpBasketStopLossUSD.
-// It disables auto profit/loss adjustments such as combined all-basket profit close,
-// basket/individual profit protect, time-decay TP, SAR-weak basket close,
-// global equity trailing close, and auto market-flow SL adjustment.
+// true = close BUY basket and SELL basket independently and disable optional trailing/decay closes.
+// Auto market-flow can still control the live side-basket stop loss when
+// InpSimpleSideBasketUseAutoModeSL=true.
 bool   InpUseSimpleSideBasketCloseOnly = true;
+bool   InpSimpleSideBasketUseAutoModeSL = true;
 
 
 //================ AUTO MARKET FLOW MODE ============================
@@ -162,7 +154,7 @@ bool   InpRecoveryGapMustMatchH1Trend = false;
 bool   InpKeepPendingRecoveryGapAfterBlock = true;
 bool   InpOpenPendingRecoveryWhenSARMatches = true;
 
-double InpRecoveryGapRawPrice     = 200.0;   // raw price difference, not points
+double InpRecoveryGapRawPrice     = 300.0;   // raw price difference, not points
 double InpRecoveryGapLot          = 0.01;
 int    InpMaxRecoveryGapOrdersPerSide = 3;  // recovery ladder: 50, 100, 150 from first order price
 
@@ -198,7 +190,7 @@ string InpSARRecoveryGapOrderPrefix   = "RG_P";
 // market mode and SAR-cycle logic. It ignores candle/spike/long-bar filters.
 // When a normal side basket is losing, live movement decides micro direction:
 // price up => BUY micro; price down => SELL micro.
-bool   InpUseLossZoneMicroScalper          = true;
+bool   InpUseLossZoneMicroScalper          = false;
 double InpLossZoneMicroStartLossUSD        = 0.50;//1.00;  // activate when a side basket <= -this value
 double InpLossZoneMicroLossStepUSD         = 1.00;  // zones: -1,-2,-3,-4...
 double InpLossZoneMicroEntryGapRaw         = 20.0;  // fresh live move from reference
@@ -1093,19 +1085,23 @@ color MarketFlowModeColor()
 
 double GetRecentMarketRawMove(int bars)
 {
+   // Market-mode trend classification must measure net one-direction movement,
+   // not the high-low volatility range. Danger mode continues to use candle ranges.
    int lookback = MathMax(5, bars);
-   if(Bars <= lookback + 2)
-      lookback = MathMax(2, Bars - 2);
+   int availableBars = iBars(Symbol(), PERIOD_M1);
+   if(availableBars <= lookback + 2)
+      lookback = MathMax(2, availableBars - 2);
 
    if(lookback <= 1)
       return(0.0);
 
-   int hi = iHighest(Symbol(), PERIOD_M1, MODE_HIGH, lookback, 1);
-   int lo = iLowest(Symbol(), PERIOD_M1, MODE_LOW, lookback, 1);
-   if(hi < 0 || lo < 0)
+   double currentClose = iClose(Symbol(), PERIOD_M1, 0);
+   double oldClose     = iClose(Symbol(), PERIOD_M1, lookback);
+
+   if(currentClose <= 0.0 || oldClose <= 0.0)
       return(0.0);
 
-   return(MathAbs(iHigh(Symbol(), PERIOD_M1, hi) - iLow(Symbol(), PERIOD_M1, lo)));
+   return(MathAbs(currentClose - oldClose));
 }
 
 double GetLastNCandlesRawMove(int countBars)
@@ -1125,11 +1121,19 @@ double GetLastNCandlesRawMove(int countBars)
 int GetMarketFlowDirection(int bars)
 {
    int lookback = MathMax(5, bars);
-   if(Bars <= lookback + 2)
-      lookback = MathMax(2, Bars - 2);
+   int availableBars = iBars(Symbol(), PERIOD_M1);
+   if(availableBars <= lookback + 2)
+      lookback = MathMax(2, availableBars - 2);
 
-   double oldClose = iClose(Symbol(), PERIOD_M1, lookback);
-   double diff = Close[0] - oldClose;
+   if(lookback <= 1)
+      return(0);
+
+   double currentClose = iClose(Symbol(), PERIOD_M1, 0);
+   double oldClose     = iClose(Symbol(), PERIOD_M1, lookback);
+   if(currentClose <= 0.0 || oldClose <= 0.0)
+      return(0);
+
+   double diff = currentClose - oldClose;
    if(diff > 0.0) return(1);
    if(diff < 0.0) return(-1);
    return(0);
@@ -1204,11 +1208,13 @@ void UpdateAutoMarketFlowMode()
       return;
    }
 
-   bool buyContinuous = (g_autoMarketMoveRaw >= InpContinuousTrendMoveRaw &&
+   bool buyContinuous = (g_autoMarketDirection == 1 &&
+                         g_autoMarketMoveRaw >= InpContinuousTrendMoveRaw &&
                          g_autoMarketBuyProfitCount >= InpContinuousTrendProfitOrders &&
                          g_autoMarketSellProfitCount <= InpContinuousTrendOppProfitMax);
 
-   bool sellContinuous = (g_autoMarketMoveRaw >= InpContinuousTrendMoveRaw &&
+   bool sellContinuous = (g_autoMarketDirection == -1 &&
+                          g_autoMarketMoveRaw >= InpContinuousTrendMoveRaw &&
                           g_autoMarketSellProfitCount >= InpContinuousTrendProfitOrders &&
                           g_autoMarketBuyProfitCount <= InpContinuousTrendOppProfitMax);
 
@@ -1216,6 +1222,10 @@ void UpdateAutoMarketFlowMode()
       g_autoMarketMode = DXB_MARKET_MODE_CONTINUOUS;
    else if(g_autoMarketMoveRaw >= InpMediumTrendMinMoveRaw &&
            g_autoMarketMoveRaw <= InpMediumTrendMaxMoveRaw)
+      g_autoMarketMode = DXB_MARKET_MODE_MEDIUM;
+   else if(g_autoMarketMoveRaw > InpMediumTrendMaxMoveRaw)
+      // Large directional movement without enough one-side profit confirmation is
+      // treated as MEDIUM, never as MIXED. This prevents aggressive mixed recovery.
       g_autoMarketMode = DXB_MARKET_MODE_MEDIUM;
    else if(g_autoMarketMoveRaw >= InpMixedTrendMinMoveRaw &&
            g_autoMarketMoveRaw <= InpMixedTrendMaxMoveRaw)
@@ -1228,10 +1238,12 @@ void UpdateAutoMarketFlowMode()
 
 double GetEffectiveBasketStopLossUSD()
 {
-   if(InpUseSimpleSideBasketCloseOnly)
+   // Simple side-basket closing and market-mode SL are compatible.
+   // Disable InpSimpleSideBasketUseAutoModeSL only when a permanently fixed SL is required.
+   if(!InpUseAutoMarketFlowMode)
       return(InpBasketStopLossUSD);
 
-   if(!InpUseAutoMarketFlowMode)
+   if(InpUseSimpleSideBasketCloseOnly && !InpSimpleSideBasketUseAutoModeSL)
       return(InpBasketStopLossUSD);
 
    if(g_autoMarketMode == DXB_MARKET_MODE_CONTINUOUS) return(InpContinuousTrendBasketSLUSD);
@@ -1291,7 +1303,9 @@ string AutoMarketModeStatusText()
    if(!InpUseAutoMarketFlowMode)
       return("OFF");
 
-   return(g_autoMarketModeText + " | Move " + DoubleToString(g_autoMarketMoveRaw,0) +
+   return(g_autoMarketModeText +
+          " | Dir " + DirectionText(g_autoMarketDirection) +
+          " | Move " + DoubleToString(g_autoMarketMoveRaw,0) +
           " | B/S " + IntegerToString(g_autoMarketBuyProfitCount) + "/" +
           IntegerToString(g_autoMarketSellProfitCount));
 }
@@ -3614,6 +3628,16 @@ bool OpenRecoveryOrder(int direction, string sourceReason)
    if(direction == 0)
       return(false);
 
+   UpdateAutoMarketFlowMode();
+   if(!IsAutoMarketRecoveryAllowed())
+     {
+      string modeBlock = "RECOVERY ORDER BLOCKED BY MARKET MODE | " + AutoMarketModeStatusText() +
+                         " | Source=" + sourceReason;
+      SetLastOrderBlockDashboard(modeBlock);
+      Print(modeBlock);
+      return(false);
+     }
+
    RefreshRates();
 
    if(IsTotalOpenOrderCapReached("OpenRecoveryOrder"))
@@ -3790,6 +3814,14 @@ bool OpenReverseOrderForRecovery(int recoveryDirection, int recoveryNumber, doub
    if(recoveryDirection == 0)
       return(false);
 
+   UpdateAutoMarketFlowMode();
+   if(!IsAutoMarketRecoveryAllowed())
+     {
+      Print("RECOVERY HEDGE BLOCKED BY MARKET MODE | ", AutoMarketModeStatusText());
+      SetLastOrderBlockDashboard("RECOVERY HEDGE BLOCKED BY MARKET MODE | " + AutoMarketModeStatusText());
+      return(false);
+     }
+
    // Big candle protection: do not create recovery hedge/reverse orders during/after a big candle pause.
    CheckBigCandlePauseOnNewBar(true);
    if(EnforceBigCandleOrderBlock("OpenReverseOrderForRecovery"))
@@ -3951,7 +3983,7 @@ bool OpenRecoveryGapMarketOrder(int direction, double gapMove)
 
 // lot=lot*nextRecoveryNumber;
 
-   double requiredGapForComment = InpRecoveryGapRawPrice * nextRecoveryNumber;
+   double requiredGapForComment = GetEffectiveRecoveryGapRawPrice() * nextRecoveryNumber;
    int linkedParentTicket = GetParentTicketForRecoveryGap(direction);
 
    string comment = InpSARRecoveryGapOrderPrefix + IntegerToString(linkedParentTicket) +
@@ -4127,7 +4159,7 @@ double GetNextRecoveryLadderRequiredGap(int direction)
    // Recovery #1 = base +/- 150
    // Recovery #2 = base +/- 300
    // Recovery #3 = base +/- 450
-   return(InpRecoveryGapRawPrice * (recoveryCount + 1));
+   return(GetEffectiveRecoveryGapRawPrice() * (recoveryCount + 1));
   }
 
 
@@ -4273,7 +4305,7 @@ void ProcessRecoveryGapOrders()
       return;
      }
 
-   if(InpRecoveryGapRawPrice <= 0.0 || InpRecoveryGapLot <= 0.0)
+   if(GetEffectiveRecoveryGapRawPrice() <= 0.0 || InpRecoveryGapLot <= 0.0)
       return;
 
    if(CheckEquityConditions())
@@ -6331,6 +6363,17 @@ bool OpenSARWeakReverseMarketOrder(int reverseDirection, string weakReason)
    if(reverseDirection == 0)
       return(false);
 
+   UpdateAutoMarketFlowMode();
+   if(!IsAutoMarketSARWeakAllowed())
+     {
+      g_sarWeakReverseLastStatus = "BLOCKED MARKET MODE";
+      g_sarWeakReverseLastDirection = reverseDirection;
+      g_sarWeakReverseLastReason = AutoMarketModeStatusText();
+      SetLastOrderBlockDashboard("SAR WEAK REVERSE BLOCKED BY MARKET MODE | " + AutoMarketModeStatusText());
+      Print("SAR WEAK REVERSE BLOCKED BY MARKET MODE | ", AutoMarketModeStatusText());
+      return(false);
+     }
+
    // Protection rule:
    // Example: active SAR BUY becomes weak => reverseDirection SELL.
    // Open SAR_WEAK_REVERSE SELL only when an existing SELL order is already open.
@@ -6561,13 +6604,22 @@ bool ProcessCloseOrdersFirst(string &status)
      }
 
 // PRIORITY 2: Early SAR weak exit before full SAR flip.
-// This is the main protection for: "many orders close only on SAR signal change and lose".
+// The complete weak layer (block, marker, reverse and weak close) is enabled only
+// when the active auto market mode allows SAR-weak behaviour.
    double activeProfit = GetBasketProfit(g_activeSARDirection);
 
    string weakExitReason = "";
-   bool shouldCloseWeakBasket = IsEarlySARWeakExitSignal(g_activeSARDirection, activeProfit, weakExitReason);
+   bool shouldCloseWeakBasket = false;
 
-   if(g_earlySARWeakExitActive)
+   if(IsAutoMarketSARWeakAllowed())
+      shouldCloseWeakBasket = IsEarlySARWeakExitSignal(g_activeSARDirection, activeProfit, weakExitReason);
+   else
+     {
+      g_earlySARWeakExitActive = false;
+      g_earlySARWeakExitReason = "MARKET MODE BLOCKED SAR WEAK | " + AutoMarketModeStatusText();
+     }
+
+   if(IsAutoMarketSARWeakAllowed() && g_earlySARWeakExitActive)
      {
       Print("EARLY SAR WEAK EXIT DETECTED | Direction=", DirectionText(g_activeSARDirection),
             " | ", weakExitReason);
@@ -6739,6 +6791,13 @@ bool ProcessNewOrderCreationLast(bool isNewBar, string &status)
       return(SetOrderBlockStatus(status, "Waiting for first SAR"));
      }
 
+   UpdateAutoMarketFlowMode();
+   if(!IsAutoMarketNewOrderAllowed("SAR_FLIP_V2LAST"))
+     {
+      return(SetOrderBlockStatus(status,
+             "AUTO MARKET MODE BLOCK | " + AutoMarketModeStatusText()));
+     }
+
 // No-trading hours block ONLY new normal SAR orders.
 // Close management, equity protection, basket TP/SL, SAR flip close and recovery management still run.
    if(IsNoNewOrderHour())
@@ -6754,7 +6813,8 @@ bool ProcessNewOrderCreationLast(bool isNewBar, string &status)
 
 // Early SAR weak exit blocks ONLY new normal orders while the weak active SAR basket still exists.
 // If confirmed weak close already removed that basket, allow fresh SAR-direction order logic on the next tick.
-   if(InpUseEarlySARWeakExit && InpStopNewOrdersOnSARWeakExit && g_earlySARWeakExitActive &&
+   if(IsAutoMarketSARWeakAllowed() &&
+      InpUseEarlySARWeakExit && InpStopNewOrdersOnSARWeakExit && g_earlySARWeakExitActive &&
       CountOrdersByDirection(g_activeSARDirection) > 0)
      {
       status = "SAR WEAK - STOP NEW ORDERS";
@@ -6974,121 +7034,8 @@ void DrawEMALine(string name, int period, color clr, int width)
 
 //+------------------------------------------------------------------+
 
-void UpdateMarketMode()
-{
-   double move30 =
-      MathAbs(Close[0] - iClose(Symbol(), PERIOD_M1, 30));
-
-   int h1Trend = GetH1TrendDirection();
-
-   int profitOrders = g_sarClosedProfitOrdersCount;
-
-   double ema50 =
-      iMA(Symbol(), PERIOD_M1, 50, 0, MODE_EMA, PRICE_CLOSE, 0);
-
-   double ema50Old =
-      iMA(Symbol(), PERIOD_M1, 50, 0, MODE_EMA, PRICE_CLOSE, 10);
-
-   bool strongSlope =
-      MathAbs(ema50 - ema50Old) > 100;
-
-   double lastRange =
-      MathAbs(High[1] - Low[1]);
-
-   if(lastRange > 300)
-   {
-      g_marketMode = MODE_DANGER;
-      return;
-   }
-
-   if(move30 > 500 &&
-      profitOrders >= 4 &&
-      h1Trend != 0 &&
-      strongSlope)
-   {
-      g_marketMode = MODE_STRONG_TREND;
-      return;
-   }
-
-   if(move30 >= 300)
-   {
-      g_marketMode = MODE_HEALTHY_TREND;
-      return;
-   }
-
-   g_marketMode = MODE_RANGE;
-}
-bool AllowRecoveryOrders()
-{
-   if(g_marketMode == MODE_STRONG_TREND)
-      return(false);
-
-   if(g_marketMode == MODE_DANGER)
-      return(false);
-
-   return(true);
-}
-
-bool AllowSARWeakOrders()
-{
-   if(g_marketMode == MODE_STRONG_TREND)
-      return(false);
-
-   if(g_marketMode == MODE_HEALTHY_TREND)
-      return(false);
-
-   if(g_marketMode == MODE_DANGER)
-      return(false);
-
-   return(true);
-}
-
-bool AllowPullbackOrders()
-{
-   if(g_marketMode == MODE_STRONG_TREND)
-      return(false);
-
-   if(g_marketMode == MODE_DANGER)
-      return(false);
-
-   return(true);
-}
-double GetActiveBasketStopLoss()
-{
-   switch(g_marketMode)
-   {
-      case MODE_STRONG_TREND:
-         return(5.0);
-
-      case MODE_HEALTHY_TREND:
-         return(10.0);
-
-      case MODE_RANGE:
-         return(10.0);
-
-      default:
-         return(10.0);
-   }
-}
-string MarketModeText()
-{
-   switch(g_marketMode)
-   {
-      case MODE_STRONG_TREND:
-         return("STRONG TREND");
-
-      case MODE_HEALTHY_TREND:
-         return("HEALTHY TREND");
-
-      case MODE_RANGE:
-         return("RANGE");
-
-      case MODE_DANGER:
-         return("DANGER");
-   }
-
-   return("UNKNOWN");
-}
+// Obsolete duplicate MARKET_MODE engine removed.
+// All mode decisions use UpdateAutoMarketFlowMode() and g_autoMarketMode.
 double GetEffectiveRecoveryGapRawPrice()
 {
    if(!InpUseAutoMarketFlowMode)
@@ -8965,6 +8912,13 @@ bool IsSARPullbackHalfTPAllowed(int direction, string &reason)
       return(false);
    }
 
+   UpdateAutoMarketFlowMode();
+   if(!IsAutoMarketPullbackAllowed())
+   {
+      reason = "Pullback blocked by market mode | " + AutoMarketModeStatusText();
+      return(false);
+   }
+
    if(direction == 0)
    {
       reason = "Pullback blocked: direction is 0";
@@ -10684,7 +10638,8 @@ void DrawDashboard(string status)
    RightProRow("Basket TP Base","$"+DoubleToString(InpBasketProfitUSD,2),clrLime);
    RightProRow("Basket TP Live","$"+DoubleToString(GetBasketProfitTargetUSD(),2) + (InpUseSimpleSideBasketCloseOnly ? " SIMPLE" : ""),clrYellow);
    RightProRow("TP Time Decay",BasketProfitTimeDecayStatusText(),InpUseBasketProfitTimeDecay ? clrAqua : clrSilver);
-   RightProRow("Basket SL Live","$"+DoubleToString(GetEffectiveBasketStopLossUSD(),2) + (InpUseSimpleSideBasketCloseOnly ? " SIMPLE" : ""),clrRed);
+   RightProRow("Basket SL Live","$"+DoubleToString(GetEffectiveBasketStopLossUSD(),2) +
+               (InpUseSimpleSideBasketCloseOnly ? (InpSimpleSideBasketUseAutoModeSL ? " SIMPLE+MODE" : " SIMPLE") : ""),clrRed);
    RightProRow("Market Mode",AutoMarketModeStatusText(),MarketFlowModeColor());
    RightProRow("Ind Profit Protect",OnOff(InpUseIndividualProfitProtect),InpUseIndividualProfitProtect ? clrLime : clrSilver);
    RightProRow("Basket Protect",OnOff(InpUseBasketProfitProtect),InpUseBasketProfitProtect ? clrLime : clrSilver);
