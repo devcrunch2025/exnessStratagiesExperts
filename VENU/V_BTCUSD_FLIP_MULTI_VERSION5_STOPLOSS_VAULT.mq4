@@ -153,7 +153,7 @@ bool   InpRecoveryGapMustMatchSARDirection = true;
 // Recovery gap H1 trend filter:
 // Recovery gap order is allowed only when H1 trend matches the recovery order direction.
 // BUY recovery requires H1 BUY. SELL recovery requires H1 SELL. Range/NONE blocks recovery.
-bool   InpRecoveryGapMustMatchH1Trend = true;
+bool   InpRecoveryGapMustMatchH1Trend = false;
 
 // Pending recovery retry:
 // If recovery gap was matched but order was blocked by SAR/temporary conditions,
@@ -324,7 +324,7 @@ int    InpContinuousOrderGapMinutes  = 1;      // wait this many minutes after l
 // Used only after at least one profitable NORMAL SAR order is closed in the same SAR signal.
 // If continuity gap is not ready, but price pulls back 20-50 raw points from the last profit close,
 // open one same-direction quick order and use TP = original basket target * multiplier.
-bool   InpUseSARPullbackHalfTP            = false;
+bool   InpUseSARPullbackHalfTP            = true;
 double InpSARPullbackMinGap               = 20.0;
 double InpSARPullbackMaxGap               = 100.0;
 double InpSARPullbackTPMultiplier         = 0.50;
@@ -506,7 +506,7 @@ bool   InpSARWeakCloseResetCycle         = false;  // after close, allow fresh S
 // SAR weak reverse order:
 // When active SAR becomes weak before full SAR flip, optionally open one opposite order.
 // Example: active SAR BUY becomes weak => open SELL order with comment SAR_WEAK_REVERSE.
-bool   InpOpenReverseOrderOnSARWeakSignal = true;
+bool   InpOpenReverseOrderOnSARWeakSignal = false;
 double InpSARWeakReverseLot               = 0.01;  // 0 = use InpFixedLot
 int    InpMaxSARWeakReverseOrders         = 2;     // total max weak-reverse orders. 2 = max 1 BUY + max 1 SELL
 int    InpSARWeakReverseCooldownMinutes   = 1;     // avoid repeated reverse orders
