@@ -10560,11 +10560,11 @@ void IncreaseSARMaxWhenDotDistanceAndH1Same()
 //+------------------------------------------------------------------+
 //|                                                                  |
 //+------------------------------------------------------------------+
-
+//STRONG SAR SCORE ADDED 
 void DrawDashboard(string status)
   {
    DrawCornerPanel("DXB_RIGHT_SETTINGS_PANEL",CORNER_RIGHT_UPPER,325,280,320,575,clrBlack,clrDimGray);
-   DrawCornerLabel("DXB_RIGHT_SETTINGS_TITLE","Version 5 / LIVE STATUS",CORNER_RIGHT_UPPER,300,287,clrYellow,10);
+   DrawCornerLabel("DXB_RIGHT_SETTINGS_TITLE","Version 11 - STRONG SAR SCORE / LIVE STATUS",CORNER_RIGHT_UPPER,300,287,clrYellow,10);
 
    g_rightDashRow = 0;
 
