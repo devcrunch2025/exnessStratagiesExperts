@@ -20,10 +20,10 @@ MARKET_MODE g_marketMode = MODE_RANGE;
 #ifndef OP_BALANCE
 #define OP_BALANCE 6
 #endif
-#property version   "1.15"
+#property version   "1.17"
 
 //======================== INPUTS ====================================
-string InpEAName                  = "DXB Version 5 - SAR Score Clean";
+string InpEAName                  = "DXB Version 5 - SAR Flip / 30Min Half TP";
 int    InpMagicNumber             = 989899;
 double InpFixedLot                = 0.01;
 int    InpMaxOrders               = 1;     // maximum normal SAR orders per SAR signal cycle
@@ -32,6 +32,23 @@ double InpMinGapWhenMaxOrdersMoreThanOne = 70.0; // when InpMaxOrders > 1, enfor
 #define DXB_HARD_MAX_OPEN_ORDERS 6  // absolute safety cap for normal SAR orders per cycle
 
 double InpBasketProfitUSD         = 1.00;
+
+// SAR-flipped old basket profit target:
+// Example: a BUY basket was opened during SAR BUY, then SAR flips to SELL
+// while the BUY basket remains open. The old BUY basket is closed when its
+// floating profit reaches InpBasketProfitUSD * multiplier.
+// This never closes the old basket in loss.
+bool   InpUseSARFlipOppositeBasketHalfTP = true;
+double InpSARFlipOppositeBasketTPMultiplier = 0.50;
+
+// Time-based half TP:
+// When a BUY or SELL basket remains open for this many minutes,
+// reduce only that side's profit target to InpBasketProfitUSD * multiplier.
+// It closes only after positive profit reaches the reduced target.
+bool   InpUseBasketHalfTPAfterMinutes = true;
+int    InpBasketHalfTPAfterMinutes = 30;
+double InpBasketHalfTPAfterMinutesMultiplier = 0.50;
+
 //Live
 double InpBasketStopLossUSD       = 5;//2;//5.00;    // BASKET stop loss in USD, 0 = disabled. This closes all orders in active SAR direction.
 
@@ -2717,6 +2734,9 @@ bool ProcessFirstPriorityBasketProfitClose(string &status)
      }
 
    double target = GetBasketProfitTargetUSD();
+   double buyTarget = GetBasketProfitTargetForDirection(1);
+   double sellTarget = GetBasketProfitTargetForDirection(-1);
+
    if(target <= 0.0)
       return(false);
 
@@ -2858,33 +2878,45 @@ bool ProcessFirstPriorityBasketProfitClose(string &status)
    bool closedAnySide = false;
    string closedText = "";
 
-   if(buyCount > 0 && buyProfit >= target)
+   if(buyCount > 0 && buyProfit >= buyTarget)
      {
-      CloseOrdersByDirection(1, "FIRST PRIORITY BUY basket profit $" + DoubleToString(buyProfit, 2));
+      string buyTPRule = GetReducedBasketTPReasonText(1);
+      CloseOrdersByDirection(1,
+                             "FIRST PRIORITY BUY | " + buyTPRule +
+                             " | Profit $" + DoubleToString(buyProfit, 2));
       ResetDelayedSARCloseAfterBasketClose(1, "BUY basket TP reset");
       ResetBasketProfitPeaksAfterClose(1);
 
       Print("FIRST PRIORITY BUY BASKET PROFIT HIT | BuyCount=", buyCount,
+            " | Rule=", buyTPRule,
+            " | AgeMin=", GetBasketOpenAgeMinutes(1),
             " | Profit=$", DoubleToString(buyProfit, 2),
-            " | Target=$", DoubleToString(target, 2));
+            " | Target=$", DoubleToString(buyTarget, 2));
 
       closedAnySide = true;
-      closedText = "BUY TP $" + DoubleToString(buyProfit, 2);
+      closedText = "BUY " + buyTPRule + " $" +
+                   DoubleToString(buyProfit, 2);
      }
 
-   if(sellCount > 0 && sellProfit >= target)
+   if(sellCount > 0 && sellProfit >= sellTarget)
      {
-      CloseOrdersByDirection(-1, "FIRST PRIORITY SELL basket profit $" + DoubleToString(sellProfit, 2));
+      string sellTPRule = GetReducedBasketTPReasonText(-1);
+      CloseOrdersByDirection(-1,
+                             "FIRST PRIORITY SELL | " + sellTPRule +
+                             " | Profit $" + DoubleToString(sellProfit, 2));
       ResetDelayedSARCloseAfterBasketClose(-1, "SELL basket TP reset");
       ResetBasketProfitPeaksAfterClose(-1);
 
       Print("FIRST PRIORITY SELL BASKET PROFIT HIT | SellCount=", sellCount,
+            " | Rule=", sellTPRule,
+            " | AgeMin=", GetBasketOpenAgeMinutes(-1),
             " | Profit=$", DoubleToString(sellProfit, 2),
-            " | Target=$", DoubleToString(target, 2));
+            " | Target=$", DoubleToString(sellTarget, 2));
 
       if(closedText != "")
          closedText += " | ";
-      closedText += "SELL TP $" + DoubleToString(sellProfit, 2);
+      closedText += "SELL " + sellTPRule + " $" +
+                    DoubleToString(sellProfit, 2);
       closedAnySide = true;
      }
 
@@ -2898,8 +2930,8 @@ bool ProcessFirstPriorityBasketProfitClose(string &status)
    // BUY/SELL side basket profit protect.
    if(buyCount > 0 &&
       GetBasketProfitProtectLevel(g_buyBasketPeakProfit,
-                                  target,
-                                  target / 2.0,
+                                  buyTarget,
+                                  buyTarget / 2.0,
                                   protectActivate,
                                   protectCloseAt,
                                   protectLevel))
@@ -2926,8 +2958,8 @@ bool ProcessFirstPriorityBasketProfitClose(string &status)
 
    if(sellCount > 0 &&
       GetBasketProfitProtectLevel(g_sellBasketPeakProfit,
-                                  target,
-                                  target / 2.0,
+                                  sellTarget,
+                                  sellTarget / 2.0,
                                   protectActivate,
                                   protectCloseAt,
                                   protectLevel))
@@ -5739,7 +5771,10 @@ bool ProcessBasketCloseByDirection(int direction, string &status)
       return(false);
 
    double profit = GetBasketProfit(direction);
-   double target = GetBasketProfitTargetUSD();
+   double target = GetBasketProfitTargetForDirection(direction);
+   bool oppositeAfterFlip = IsOppositeBasketAfterSARFlip(direction);
+   bool agedHalfTP = IsBasketHalfTPAfterTime(direction);
+   string reducedTPReason = GetReducedBasketTPReasonText(direction);
    double effectiveBasketSL2 = GetEffectiveBasketStopLossUSD();
 
    if(effectiveBasketSL2 > 0.0 && profit <= -MathAbs(effectiveBasketSL2))
@@ -5765,8 +5800,13 @@ bool ProcessBasketCloseByDirection(int direction, string &status)
 
    if(profit >= target)
      {
-      CloseOrdersByDirection(direction,
-                             "Basket profit $" + DoubleToString(profit, 2));
+      string tpReason = (oppositeAfterFlip || agedHalfTP)
+                        ? reducedTPReason + " | " +
+                          DirectionText(direction) +
+                          " basket profit $" + DoubleToString(profit, 2)
+                        : "Basket profit $" + DoubleToString(profit, 2);
+
+      CloseOrdersByDirection(direction, tpReason);
 
       if(direction == g_sarCloseTrackedDirection)
         {
@@ -5776,11 +5816,19 @@ bool ProcessBasketCloseByDirection(int direction, string &status)
          g_sarDelayedCloseStatus          = "Basket TP reset";
         }
 
-      Print("BASKET PROFIT HIT | Direction=", DirectionText(direction),
+      Print((oppositeAfterFlip || agedHalfTP)
+               ? "REDUCED BASKET TP HIT | Direction="
+               : "BASKET PROFIT HIT | Direction=",
+            DirectionText(direction),
+            " | Rule=", reducedTPReason,
+            " | AgeMin=", GetBasketOpenAgeMinutes(direction),
+            " | CurrentSAR=", DirectionText(g_activeSARDirection),
             " | Profit=$", DoubleToString(profit, 2),
             " | Target=$", DoubleToString(target, 2));
 
-      status = "Basket TP " + DirectionText(direction);
+      status = (oppositeAfterFlip || agedHalfTP)
+               ? reducedTPReason + " " + DirectionText(direction)
+               : "Basket TP " + DirectionText(direction);
       return(true);
      }
 
@@ -6024,6 +6072,144 @@ void IncreaseSARMaxIfTrendContinuesAfterOneHour()
             " | NewMax=", g_sarCycleMaxOrders);
    }
 }
+
+//+------------------------------------------------------------------+
+//| Oldest open time for one BUY/SELL basket side                    |
+//+------------------------------------------------------------------+
+datetime GetOldestBasketOrderOpenTime(int direction)
+  {
+   if(direction == 0)
+      return(0);
+
+   int type = (direction == 1) ? OP_BUY : OP_SELL;
+   datetime oldest = 0;
+
+   for(int i = OrdersTotal() - 1; i >= 0; i--)
+     {
+      if(!OrderSelect(i, SELECT_BY_POS, MODE_TRADES))
+         continue;
+
+      if(OrderSymbol() != Symbol() ||
+         OrderMagicNumber() != InpMagicNumber ||
+         OrderType() != type ||
+         IsSARGuardOrderComment(OrderComment()))
+         continue;
+
+      if(oldest <= 0 || OrderOpenTime() < oldest)
+         oldest = OrderOpenTime();
+     }
+
+   return(oldest);
+  }
+
+//+------------------------------------------------------------------+
+int GetBasketOpenAgeMinutes(int direction)
+  {
+   datetime oldest = GetOldestBasketOrderOpenTime(direction);
+
+   if(oldest <= 0)
+      return(0);
+
+   return((int)MathMax(0, (TimeCurrent() - oldest) / 60));
+  }
+
+//+------------------------------------------------------------------+
+bool IsBasketHalfTPAfterTime(int direction)
+  {
+   if(!InpUseBasketHalfTPAfterMinutes || direction == 0)
+      return(false);
+
+   if(CountOrdersByDirection(direction) <= 0)
+      return(false);
+
+   int requiredMinutes = MathMax(1, InpBasketHalfTPAfterMinutes);
+   return(GetBasketOpenAgeMinutes(direction) >= requiredMinutes);
+  }
+
+//+------------------------------------------------------------------+
+bool IsOppositeBasketAfterSARFlip(int direction)
+  {
+   return(InpUseSARFlipOppositeBasketHalfTP &&
+          direction != 0 &&
+          g_activeSARDirection != 0 &&
+          direction != g_activeSARDirection);
+  }
+
+//+------------------------------------------------------------------+
+string GetReducedBasketTPReasonText(int direction)
+  {
+   bool flipped = IsOppositeBasketAfterSARFlip(direction);
+   bool aged    = IsBasketHalfTPAfterTime(direction);
+
+   if(flipped && aged)
+      return("SAR FLIP + " +
+             IntegerToString(MathMax(1, InpBasketHalfTPAfterMinutes)) +
+             " MIN HALF TP");
+
+   if(flipped)
+      return("SAR FLIP HALF TP");
+
+   if(aged)
+      return(IntegerToString(MathMax(1, InpBasketHalfTPAfterMinutes)) +
+             " MIN HALF TP");
+
+   return("NORMAL TP");
+  }
+
+//+------------------------------------------------------------------+
+//| Direction-specific basket target                                 |
+//| Reduced target applies when either:                              |
+//| 1) the basket is opposite to current SAR, OR                     |
+//| 2) the basket has remained open for configured minutes.          |
+//+------------------------------------------------------------------+
+double GetBasketProfitTargetForDirection(int direction)
+  {
+   double normalTarget = GetBasketProfitTargetUSD();
+
+   if(direction == 0)
+      return(normalTarget);
+
+   double selectedTarget = normalTarget;
+
+   if(IsOppositeBasketAfterSARFlip(direction))
+     {
+      double flipMultiplier = InpSARFlipOppositeBasketTPMultiplier;
+
+      if(flipMultiplier <= 0.0)
+         flipMultiplier = 0.50;
+      if(flipMultiplier > 1.0)
+         flipMultiplier = 1.0;
+
+      double flipTarget =
+         MathMax(0.01, MathAbs(InpBasketProfitUSD) * flipMultiplier);
+
+      if(selectedTarget > 0.0)
+         selectedTarget = MathMin(selectedTarget, flipTarget);
+      else
+         selectedTarget = flipTarget;
+     }
+
+   if(IsBasketHalfTPAfterTime(direction))
+     {
+      double timeMultiplier = InpBasketHalfTPAfterMinutesMultiplier;
+
+      if(timeMultiplier <= 0.0)
+         timeMultiplier = 0.50;
+      if(timeMultiplier > 1.0)
+         timeMultiplier = 1.0;
+
+      double timeTarget =
+         MathMax(0.01, MathAbs(InpBasketProfitUSD) * timeMultiplier);
+
+      if(selectedTarget > 0.0)
+         selectedTarget = MathMin(selectedTarget, timeTarget);
+      else
+         selectedTarget = timeTarget;
+     }
+
+   return(selectedTarget);
+  }
+
 
 //+------------------------------------------------------------------+
 bool ProcessNewOrderCreationLast(bool isNewBar, string &status)
@@ -9254,6 +9440,22 @@ void DrawDashboard(string status)
    RightProRow("Spread Limit",IntegerToString((int)MarketInfo(Symbol(),MODE_SPREAD))+" / "+IntegerToString(InpMaxSpreadPoints),((int)MarketInfo(Symbol(),MODE_SPREAD)<=InpMaxSpreadPoints) ? clrLime : clrRed);
    RightProRow("Basket TP Base","$"+DoubleToString(InpBasketProfitUSD,2),clrLime);
    RightProRow("Basket TP Live","$"+DoubleToString(GetBasketProfitTargetUSD(),2) + (InpUseSimpleSideBasketCloseOnly ? " SIMPLE" : ""),clrYellow);
+   RightProRow("Old Opposite TP",
+               InpUseSARFlipOppositeBasketHalfTP
+               ? "$"+DoubleToString(MathMax(0.01,
+                    InpBasketProfitUSD * MathMax(0.0,
+                    MathMin(1.0, InpSARFlipOppositeBasketTPMultiplier))),2)
+               : "OFF",
+               InpUseSARFlipOppositeBasketHalfTP ? clrAqua : clrSilver);
+   RightProRow("Aged Basket TP",
+               InpUseBasketHalfTPAfterMinutes
+               ? IntegerToString(MathMax(1, InpBasketHalfTPAfterMinutes)) +
+                 "m -> $" +
+                 DoubleToString(MathMax(0.01,
+                    InpBasketProfitUSD * MathMax(0.0,
+                    MathMin(1.0, InpBasketHalfTPAfterMinutesMultiplier))),2)
+               : "OFF",
+               InpUseBasketHalfTPAfterMinutes ? clrAqua : clrSilver);
    RightProRow("TP Time Decay",BasketProfitTimeDecayStatusText(),InpUseBasketProfitTimeDecay ? clrAqua : clrSilver);
    RightProRow("Basket SL Live","$"+DoubleToString(GetEffectiveBasketStopLossUSD(),2) + (InpUseSimpleSideBasketCloseOnly ? " SIMPLE" : ""),clrRed);
    RightProRow("Market Mode",AutoMarketModeStatusText(),MarketFlowModeColor());
