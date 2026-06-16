@@ -20,7 +20,7 @@ MARKET_MODE g_marketMode = MODE_RANGE;
 #ifndef OP_BALANCE
 #define OP_BALANCE 6
 #endif
-#property version   "1.11"
+#property version   "1.12"
 
 //======================== INPUTS ====================================
 string InpEAName                  = "DXB Version 5 - Specila Order";
@@ -33,7 +33,12 @@ double InpMinGapWhenMaxOrdersMoreThanOne = 70.0; // when InpMaxOrders > 1, enfor
 
 double InpBasketProfitUSD         = 1.00;
 //Live
-double InpBasketStopLossUSD       = 2;//5.00;    // BASKET stop loss in USD, 0 = disabled. This closes all orders in active SAR direction.
+double InpBasketStopLossUSD       = 5;//2;//5.00;    // BASKET stop loss in USD, 0 = disabled. This closes all orders in active SAR direction.
+
+double InpContinuousTrendBasketSLUSD   =5;//1;// 2;//5.00;
+double InpMediumTrendBasketSLUSD       = 10;//10;//1;//2;//10.00;
+double InpMixedTrendBasketSLUSD        = 5;//10;//1;//2;//10.00;
+double InpDangerModeBasketSLUSD        = 5;//1;//2;//5.00;
 
 // Simple basket close mode:
 // true = close BUY basket and SELL basket only by fixed InpBasketProfitUSD / InpBasketStopLossUSD.
@@ -46,7 +51,7 @@ bool   InpUseSimpleSideBasketCloseOnly = false;
 //================ AUTO MARKET FLOW MODE ============================
 // Mode 1: CONTINUOUS TREND  => follow SAR only, SL $5, no recovery/weak/pullback.
 // Mode 2: MEDIUM TREND      => SAR + recovery, SL $10, no weak/pullback.
-// Mode 3: MIXED TREND       => SAR + recovery + SAR weak + pullback, SL $10.
+// Mode 3: MIXED TREND       => pause ALL new trading; manage existing basket TP/SL only.
 // Mode 4: DANGER SPIKE      => pause new orders/recovery/weak/pullback; manage closes only.
 bool   InpUseAutoMarketFlowMode        = true;
 int    InpMarketFlowLookbackBars       = 60;     // M1 bars used for price-move classification
@@ -61,13 +66,12 @@ double InpMixedTrendMinMoveRaw         = 50.0;
 double InpMixedTrendMaxMoveRaw         = 300.0;
 double InpDangerLast3MoveRaw           = 500.0;
 
-double InpContinuousTrendBasketSLUSD   =1;// 2;//5.00;
-double InpMediumTrendBasketSLUSD       = 1;//2;//10.00;
-double InpMixedTrendBasketSLUSD        = 1;//2;//10.00;
-double InpDangerModeBasketSLUSD        = 1;//2;//5.00;
+ 
 
 bool   InpAutoModePauseOrdersInDanger  = true;
+bool   InpAutoModePauseOrdersInMixed   = true;  // true = block every NEW order while mode is MIXED
 bool   InpAutoModeAllowRecoveryMedium  = true;
+// The following MIXED permissions are used only when InpAutoModePauseOrdersInMixed=false.
 bool   InpAutoModeAllowRecoveryMixed   = true;
 bool   InpAutoModeAllowSARWeakMixed    = false;
 bool   InpAutoModeAllowPullbackMixed   = true;
@@ -294,7 +298,7 @@ int    InpLast3CandlesPauseMinutes = 5;
 // Example: Wick=100 and setting=50 => Body must be <=50.
 // Long-body / momentum candles are NOT classified as spike candles here.
 bool   InpUseSpikeWickPauseFilter = true;
-double InpSpikeWickMinRawPrice    = 300.0;   // minimum larger wick raw price
+double InpSpikeWickMinRawPrice    = 30.0;   // minimum larger wick raw price
 double InpSpikeWickBodyMaxPercent = 50.0;    // body must be <= this % of the larger wick
 
 // Legacy settings retained for old SET-file compatibility.
@@ -303,7 +307,7 @@ double InpSpikeMomentumRangeRawPrice = 500.0;
 double InpSpikeMomentumBodyRawPrice  = 100.0;
 bool   InpDrawSpikeWickYellowMarker  = true;
 int    InpSpikeWickMarkerArrowCode   = 159;
-int    InpSpikeWickPauseMinutes   = 60;       // wait after spike/wick detected
+int    InpSpikeWickPauseMinutes   = 15;       // wait after spike/wick detected
 bool   InpSpikeWickBlockRecovery  = true;    // block recovery/recovery-gap/hedge also
 bool   InpSpikeWickBlockGuard     = true;    // block SAR special guard also
 
@@ -432,12 +436,12 @@ int    InpSARVeryLongDurationMinutes = 60;    // opposite duration >=120 min => 
 int    InpSARVeryLongDurationMaxOrders = 10;
 
 int    InpSARDurationLongMinutes     = 30;     // opposite duration 60-119 min => max 2
-int    InpSARLongDurationMaxOrders   = 10;
+int    InpSARLongDurationMaxOrders   = 5;
 
 int    InpSARDurationMediumMinutes   = 10;     // opposite duration 30-59 min => max 5
-int    InpSARMediumDurationMaxOrders = 10;
+int    InpSARMediumDurationMaxOrders = 1;
 
-int    InpSARNormalDurationMaxOrders = 10;     // opposite duration <30 min or no data => max 10
+int    InpSARNormalDurationMaxOrders = 1;     // opposite duration <30 min or no data => max 10
 //1-?100
 //2 -67
 int InpSARGoodMomentumExtraOrders = 1;
@@ -1490,9 +1494,34 @@ double GetEffectiveBasketStopLossUSD()
    return(InpBasketStopLossUSD);
 }
 
+bool IsAutoMarketTradingPaused()
+{
+   if(!InpUseAutoMarketFlowMode)
+      return(false);
+
+   if(g_autoMarketMode == DXB_MARKET_MODE_DANGER &&
+      InpAutoModePauseOrdersInDanger)
+      return(true);
+
+   if(g_autoMarketMode == DXB_MARKET_MODE_MIXED &&
+      InpAutoModePauseOrdersInMixed)
+      return(true);
+
+   return(false);
+}
+
+string AutoMarketTradingPauseText()
+{
+   if(!IsAutoMarketTradingPaused())
+      return("RUNNING");
+
+   return(g_autoMarketModeText + " | NEW TRADING PAUSED");
+}
+
 bool IsAutoMarketRecoveryAllowed()
 {
    if(!InpUseAutoMarketFlowMode) return(true);
+   if(IsAutoMarketTradingPaused()) return(false);
    if(g_autoMarketMode == DXB_MARKET_MODE_CONTINUOUS) return(false);
    if(g_autoMarketMode == DXB_MARKET_MODE_DANGER)     return(false);
    if(g_autoMarketMode == DXB_MARKET_MODE_MEDIUM)     return(InpAutoModeAllowRecoveryMedium);
@@ -1503,6 +1532,7 @@ bool IsAutoMarketRecoveryAllowed()
 bool IsAutoMarketSARWeakAllowed()
 {
    if(!InpUseAutoMarketFlowMode) return(true);
+   if(IsAutoMarketTradingPaused()) return(false);
    if(g_autoMarketMode == DXB_MARKET_MODE_CONTINUOUS) return(false);
    if(g_autoMarketMode == DXB_MARKET_MODE_MEDIUM)     return(false);
    if(g_autoMarketMode == DXB_MARKET_MODE_DANGER)     return(false);
@@ -1513,6 +1543,7 @@ bool IsAutoMarketSARWeakAllowed()
 bool IsAutoMarketPullbackAllowed()
 {
    if(!InpUseAutoMarketFlowMode) return(true);
+   if(IsAutoMarketTradingPaused()) return(false);
    if(g_autoMarketMode == DXB_MARKET_MODE_CONTINUOUS) return(false);
    if(g_autoMarketMode == DXB_MARKET_MODE_MEDIUM)     return(false);
    if(g_autoMarketMode == DXB_MARKET_MODE_DANGER)     return(false);
@@ -1523,8 +1554,13 @@ bool IsAutoMarketPullbackAllowed()
 bool IsAutoMarketNewOrderAllowed(string reason)
 {
    if(!InpUseAutoMarketFlowMode) return(true);
-   if(g_autoMarketMode == DXB_MARKET_MODE_DANGER && InpAutoModePauseOrdersInDanger)
+
+   // Complete pause: blocks normal SAR, continuity, pullback, recovery,
+   // recovery-gap, recovery-hedge, extra and SAR-weak reverse entries.
+   // Existing orders continue normal TP/SL/close management.
+   if(IsAutoMarketTradingPaused())
       return(false);
+
    if(StringFind(reason, "RECOVERY") >= 0 && !IsAutoMarketRecoveryAllowed())
       return(false);
    if(StringFind(reason, "SAR_WEAK_REVERSE") >= 0 && !IsAutoMarketSARWeakAllowed())
@@ -1539,7 +1575,10 @@ string AutoMarketModeStatusText()
    if(!InpUseAutoMarketFlowMode)
       return("OFF");
 
-   return(g_autoMarketModeText + " | Move " + DoubleToString(g_autoMarketMoveRaw,0) +
+   string pauseText = IsAutoMarketTradingPaused() ? " | TRADING PAUSED" : "";
+
+   return(g_autoMarketModeText + pauseText +
+          " | Move " + DoubleToString(g_autoMarketMoveRaw,0) +
           " | B/S " + IntegerToString(g_autoMarketBuyProfitCount) + "/" +
           IntegerToString(g_autoMarketSellProfitCount));
 }
@@ -3836,6 +3875,16 @@ bool OpenRecoveryOrder(int direction, string sourceReason)
    if(direction == 0)
       return(false);
 
+   UpdateAutoMarketFlowMode();
+   if(!IsAutoMarketNewOrderAllowed("RECOVERY " + sourceReason))
+     {
+      string modeMsg = "RECOVERY ORDER BLOCKED | " + AutoMarketModeStatusText() +
+                       " | Source=" + sourceReason;
+      SetLastOrderBlockDashboard(modeMsg);
+      Print(modeMsg);
+      return(false);
+     }
+
    if(IsOrderBlockedByOppositeDirectionProfitPause(direction, "OpenRecoveryOrder " + sourceReason))
       return(false);
 
@@ -4023,6 +4072,15 @@ bool OpenReverseOrderForRecovery(int recoveryDirection, int recoveryNumber, doub
 
    int reverseDirection = -recoveryDirection;
 
+   UpdateAutoMarketFlowMode();
+   if(!IsAutoMarketNewOrderAllowed("RECOVERY_HEDGE"))
+     {
+      string modeMsg = "RECOVERY HEDGE BLOCKED | " + AutoMarketModeStatusText();
+      SetLastOrderBlockDashboard(modeMsg);
+      Print(modeMsg);
+      return(false);
+     }
+
    if(IsOrderBlockedByOppositeDirectionProfitPause(reverseDirection, "OpenReverseOrderForRecovery"))
       return(false);
 
@@ -4109,6 +4167,14 @@ bool OpenRecoveryGapMarketOrder(int direction, double gapMove)
       return(false);
 
    UpdateAutoMarketFlowMode();
+   if(!IsAutoMarketNewOrderAllowed("RECOVERY_GAP"))
+     {
+      string modeMsg = "RECOVERY GAP BLOCKED BY MARKET MODE | " + AutoMarketModeStatusText();
+      SetLastOrderBlockDashboard(modeMsg);
+      Print(modeMsg);
+      return(false);
+     }
+
    if(!IsAutoMarketRecoveryAllowed())
      {
       Print("RECOVERY GAP BLOCKED BY MARKET MODE | ", AutoMarketModeStatusText());
@@ -6527,6 +6593,16 @@ bool OpenSARWeakReverseMarketOrder(int reverseDirection, string weakReason)
   {
    if(reverseDirection == 0)
       return(false);
+
+   UpdateAutoMarketFlowMode();
+   if(!IsAutoMarketNewOrderAllowed("SAR_WEAK_REVERSE"))
+     {
+      g_sarWeakReverseLastStatus = "BLOCKED MARKET MODE";
+      g_sarWeakReverseLastReason = AutoMarketModeStatusText();
+      SetLastOrderBlockDashboard("SAR WEAK REVERSE BLOCKED | " +
+                                 AutoMarketModeStatusText());
+      return(false);
+     }
 
    if(IsOrderBlockedByOppositeDirectionProfitPause(reverseDirection, "SAR_WEAK_REVERSE"))
      {
