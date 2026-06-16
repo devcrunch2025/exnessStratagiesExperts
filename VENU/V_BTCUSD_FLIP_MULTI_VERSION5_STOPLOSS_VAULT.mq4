@@ -20,10 +20,10 @@ MARKET_MODE g_marketMode = MODE_RANGE;
 #ifndef OP_BALANCE
 #define OP_BALANCE 6
 #endif
-#property version   "1.13"
+#property version   "1.15"
 
 //======================== INPUTS ====================================
-string InpEAName                  = "DXB Version 5 - Specila Order";
+string InpEAName                  = "DXB Version 5 - SAR Score Clean";
 int    InpMagicNumber             = 989899;
 double InpFixedLot                = 0.01;
 int    InpMaxOrders               = 1;     // maximum normal SAR orders per SAR signal cycle
@@ -180,26 +180,12 @@ double InpRecoveryGapRawPrice     = 300.0;   // raw price difference, not points
 double InpRecoveryGapLot          = 0.01;
 int    InpMaxRecoveryGapOrdersPerSide = 1;  // recovery ladder: 50, 100, 150 from first order price
 
-// Reverse swing order: whenever a RECOVERY_GAP order opens, also open one opposite order.
-// Example: BUY recovery opens -> open SELL swing order.
-// These reverse swing orders are protected by the same 0.50 -> 0.40 pullback logic.
-bool   InpOpenReverseOrderWithRecovery = false;
-double InpRecoveryReverseLot           = 0.01;   // 0 or less = use InpRecoveryGapLot
-
-// SAR special guard hedge order:
-// When SAR changes and an existing parent order is already losing,
-// open one opposite hedge order linked to that parent ticket.
-// Guard orders are ignored by normal basket/profit/SL closures and close only when the parent order closes.
-bool   InpUseSARSpecialGuardOrder       = false;
-double InpSARSpecialGuardLossUSD        = 6.00;//InpBasketStopLossUSD   // parent floating loss must be <= -this value
-double InpSARSpecialGuardLotMultiplier  = 2.00;   // 1.0 = same lot as parent order
-bool   InpSARSpecialGuardRespectSpread  = false;  // SPECIAL GUARD BYPASSES SPREAD/BIG-CANDLE/SAR/NO-HOUR FILTERS. Kept only for old settings display.
-string InpSARSpecialGuardPrefix         = "SAR_SPECIAL_GUARD_ORDER_FOR_";
-int    InpMaxSARSpecialGuardOrders      = 10;      // maximum active SAR special guard orders at the same time
-double InpSARSpecialGuardExtraLossAfterSAROrder = 1.00; // after SAR_FLIP_V2LAST opens, special guard waits until basket loss <= -(InpSARSpecialGuardLossUSD + this value)
-bool   InpSARSpecialGuardRequireSARChange = false;  // false = create guard anytime parent loss reaches trigger, no SAR condition
-bool   InpSpecialGuardCloseOnlyInProfit = true;   // true = if parent closes, guard is NOT closed in loss; it waits until profit
-double InpSpecialGuardMinProfitToClose = 0.01;    // minimum guard profit required to close after parent is gone
+// Legacy special-guard compatibility:
+// This EA no longer creates SAR special guard orders.
+// The prefix is retained only to recognize and safely clean up an old open guard.
+string InpSARSpecialGuardPrefix = "SAR_SPECIAL_GUARD_ORDER_FOR_";
+bool   InpSpecialGuardCloseOnlyInProfit = true;
+double InpSpecialGuardMinProfitToClose  = 0.01;
 
 // Explicit order comment tags for stable parent/recovery grouping.
 // Normal SAR orders start with SAR_PARENT_.
@@ -339,17 +325,6 @@ double InpContinuousOrderPriceGap    = 30;//10.0; //30  // raw price gap require
 int    InpContinuousOrderLookbackMinutes = 1;  // legacy input, not used by current continuity gap logic
 int    InpContinuousOrderGapMinutes  = 1;      // wait this many minutes after last order, then verify price gap
 
-// SAR pullback half-TP re-entry:
-// Used only after at least one profitable NORMAL SAR order is closed in the same SAR signal.
-// If continuity gap is not ready, but price pulls back 20-50 raw points from the last profit close,
-// open one same-direction quick order and use TP = original basket target * multiplier.
-bool   InpUseSARPullbackHalfTP            = true;
-double InpSARPullbackMinGap               = 20.0;
-double InpSARPullbackMaxGap               = 100.0;
-double InpSARPullbackTPMultiplier         = 0.50;
-bool   InpSARPullbackRequireRecoveryCandle = true;
-
-
 double InpSARConfirmPriceDiff     = 50.0;   // SAR signal-change raw price diff confirmation only
 int    InpSARConfirmMinutes       = 0;      // max minutes for SAR confirmation only; 0 = no expiry
 // TEST MODE: Only SAR flip confirmation is active: wait 5 minutes, then require raw price gap 30 in SAR direction.
@@ -433,10 +408,10 @@ bool   InpUseSARDurationDynamicLimit = false;
 int    InpSARDurationScanBars        = 1500;   // historical bars to scan for SAR changes
 
 int    InpSARVeryLongDurationMinutes = 60;    // opposite duration >=120 min => max 0
-int    InpSARVeryLongDurationMaxOrders = 10;
+int    InpSARVeryLongDurationMaxOrders = 4;
 
 int    InpSARDurationLongMinutes     = 30;     // opposite duration 60-119 min => max 2
-int    InpSARLongDurationMaxOrders   = 5;
+int    InpSARLongDurationMaxOrders   = 3;
 
 int    InpSARDurationMediumMinutes   = 10;     // opposite duration 30-59 min => max 5
 int    InpSARMediumDurationMaxOrders = 1;
@@ -445,7 +420,7 @@ int    InpSARNormalDurationMaxOrders = 1;     // opposite duration <30 min or no
 //1-?100
 //2 -67
 int InpSARGoodMomentumExtraOrders = 1;
-bool InpResetMaxOrdersWhenSARWeak = true;
+bool InpResetMaxOrdersWhenSARWeak = false;
 
 bool InpIncreaseSARMaxAfterActiveMinutes = true;
 int  InpSARActiveMinutesForExtraOrders = 30;
@@ -472,9 +447,9 @@ bool   InpBlockNewOrdersWhenSARWeak        = true;
 bool   InpBlockFastSARFlip                 = true;
 
 // STRICT SAR SCORE ENTRY:
-// Every NEW non-guard market order must reach this score before OrderSend.
+// Every NEW market order must reach this score before OrderSend.
 // Current SAR quality score range is normally 0..7.
-// Special guard orders remain exempt because they are protection orders.
+// Legacy guard orders are recognized only for safe cleanup.
 bool   InpUseStrictSARScoreEntry            = true;
 int    InpStrictSARMinimumScore             = 6;     // strict recommended value: 6 of 7
 
@@ -529,16 +504,6 @@ bool   InpSARWeakCloseOldSmallLoss       = false;
 int    InpSARWeakBasketAgeMinutes        = 30;
 double InpSARWeakMaxSmallLossToCloseUSD  = 2.00;  // close old weak basket only if loss is between 0 and -this
 bool   InpSARWeakCloseResetCycle         = false;  // after close, allow fresh SAR-direction entries on next tick
-
-// SAR weak reverse order:
-// When active SAR becomes weak before full SAR flip, optionally open one opposite order.
-// Example: active SAR BUY becomes weak => open SELL order with comment SAR_WEAK_REVERSE.
-bool   InpOpenReverseOrderOnSARWeakSignal = false;
-double InpSARWeakReverseLot               = 0.01;  // 0 = use InpFixedLot
-int    InpMaxSARWeakReverseOrders         = 2;     // total max weak-reverse orders. 2 = max 1 BUY + max 1 SELL
-int    InpSARWeakReverseCooldownMinutes   = 1;     // avoid repeated reverse orders
-bool   InpSARWeakReverseRequireH1Trend    = false; // true = reverse order must match H1/H2 trend
-bool   InpSARWeakReverseRequireExistingSameSideOrder = false; // true = open weak-reverse only if an existing same-side order is already open
 
 // SAR weak signal chart marker:
 // When active SAR becomes weak, mark that candle with a different color so it is visible on chart.
@@ -648,7 +613,6 @@ datetime g_lastAnyOrderCloseTime   = 0;
 double   g_lastClosedNormalOrderPrice = 0.0;
 datetime g_lastClosedNormalOrderTime  = 0;
 int      g_lastClosedNormalOrderDirection = 0;
-datetime g_lastSARPullbackOrderBarTime = 0;
 
 
 // Number of profitable NORMAL SAR orders closed in the current SAR signal cycle.
@@ -672,15 +636,6 @@ double   g_pendingRecoveryRequiredGap  = 0.0;
 datetime g_pendingRecoveryGapTime      = 0;
 string   g_pendingRecoveryGapReason    = "NONE";
 
-// SAR special guard troubleshooting dashboard memory.
-// Updated whenever guard trigger matches, is skipped, blocked, fails, or opens.
-string   g_sarSpecialGuardLastStatus = "WAIT";
-datetime g_sarSpecialGuardLastStatusTime = 0;
-int      g_sarSpecialGuardLastParentTicket = 0;
-double   g_sarSpecialGuardLastParentProfit = 0.0;
-double   g_sarSpecialGuardLastParentRecoveryProfit = 0.0;
-double   g_sarSpecialGuardLastRequestedLot = 0.0;
-int      g_sarSpecialGuardLastError = 0;
 
 int      g_equityDay            = -1;
 double   g_dayStartBalance      = 0.0;
@@ -750,12 +705,6 @@ double   g_sellBasketPeakProfit   = 0.0;
 datetime g_lastEarlySARWeakExitTime = 0;
 int      g_lastEarlySARWeakExitDirection = 0;
 
-// SAR weak reverse order state
-string   g_sarWeakReverseLastStatus = "WAIT";
-datetime g_sarWeakReverseLastTime = 0;
-int      g_sarWeakReverseLastDirection = 0;
-int      g_sarWeakReverseLastTicket = 0;
-string   g_sarWeakReverseLastReason = "NONE";
 
 // SAR weak signal candle marker state
 datetime g_lastSARWeakSignalMarkerBarTime = 0;
@@ -1032,50 +981,6 @@ bool IsRecoveryGapAllowedByH1Trend(int direction)
   }
 
 //+------------------------------------------------------------------+
-void SendEAAlert(string eventTitle, string details)
-  {
-   string msg = InpEAName + " | " + Symbol() + " | " + eventTitle + " | " + details;
-
-   Print("NOTIFICATION | ", msg);
-
-// if(InpSendTerminalAlerts)
-//    Alert(msg);
-
-   if(InpSendPushNotifications)
-      SendNotification(msg);
-  }
-bool IsSARPullbackHalfTPComment(string commentText)
-{
-   return(StringFind(commentText, "PULLBACK_HALF") >= 0);
-}
-
-
-bool IsSARWeakReverseOrderComment(string commentText)
-{
-   return(StringFind(commentText, "SAR_WEAK_REVERSE") >= 0);
-}
-
-bool HasOpenSARPullbackHalfTPOrder()
-{
-   for(int i = OrdersTotal() - 1; i >= 0; i--)
-   {
-      if(!OrderSelect(i, SELECT_BY_POS, MODE_TRADES))
-         continue;
-      if(OrderSymbol() != Symbol() || OrderMagicNumber() != InpMagicNumber)
-         continue;
-      if(OrderType() != OP_BUY && OrderType() != OP_SELL)
-         continue;
-      if(IsSARGuardOrderComment(OrderComment()))
-         continue;
-
-      if(IsSARPullbackHalfTPComment(OrderComment()))
-         return(true);
-   }
-   return(false);
-}
-
-
-//+------------------------------------------------------------------+
 //| Auto Market Flow Mode helpers                                    |
 //+------------------------------------------------------------------+
 #define DXB_MARKET_MODE_OFF        0
@@ -1146,6 +1051,38 @@ int GetMarketFlowDirection(int bars)
    return(0);
 }
 
+//+------------------------------------------------------------------+
+//| Notification helper                                               |
+//+------------------------------------------------------------------+
+void SendEAAlert(string eventTitle, string details)
+  {
+   string msg = InpEAName + " | " + Symbol() + " | " +
+                eventTitle + " | " + details;
+
+   Print("NOTIFICATION | ", msg);
+
+   if(InpSendTerminalAlerts)
+      Alert(msg);
+
+   if(InpSendPushNotifications)
+      SendNotification(msg);
+  }
+
+//+------------------------------------------------------------------+
+//| Legacy comment classifiers                                        |
+//| Creation of these micro order types has been removed.             |
+//| These helpers remain only to classify old open/history orders.    |
+//+------------------------------------------------------------------+
+bool IsSARPullbackHalfTPComment(string commentText)
+  {
+   return(StringFind(commentText, "PULLBACK_HALF") >= 0);
+  }
+
+bool IsSARWeakReverseOrderComment(string commentText)
+  {
+   return(StringFind(commentText, "SAR_WEAK_REVERSE") >= 0);
+  }
+
 bool IsNormalProfitOrderForMarketFlow(string commentText)
 {
    if(IsSARGuardOrderComment(commentText)) return(false);
@@ -1205,6 +1142,14 @@ void UpdateOppositeDirectionProfitPause(bool forceScan=false)
    int      directions[DXB_OPPOSITE_PAUSE_HISTORY_KEEP];
    double   netProfits[DXB_OPPOSITE_PAUSE_HISTORY_KEEP];
    int      tickets[DXB_OPPOSITE_PAUSE_HISTORY_KEEP];
+
+   // Explicit initialization removes MetaEditor warnings and guarantees
+   // deterministic values before the insertion-sort history scan.
+   ArrayInitialize(closeTimes, 0);
+   ArrayInitialize(directions, 0);
+   ArrayInitialize(netProfits, 0.0);
+   ArrayInitialize(tickets, 0);
+
    int kept = 0;
 
    // Keep the latest 100 eligible normal closes, sorted newest -> oldest.
@@ -1696,10 +1641,6 @@ double GetBasketProfitTargetUSD()
    // reduce target so old baskets close faster before trend changes.
    target = target * GetBasketProfitTimeDecayMultiplier();
 
-   // Pullback half-TP order is a quick re-entry. When it is open,
-   // close the basket/side faster using original target * multiplier.
-   if(InpUseSARPullbackHalfTP && HasOpenSARPullbackHalfTPOrder())
-      target = target * MathMax(0.05, MathMin(1.0, InpSARPullbackTPMultiplier));
 
    return(target);
 }
@@ -1962,7 +1903,6 @@ void ResetTradingCycleState()
    g_lastClosedNormalOrderPrice = 0.0;
    g_lastClosedNormalOrderTime  = 0;
    g_lastClosedNormalOrderDirection = 0;
-   g_lastSARPullbackOrderBarTime = 0;
    g_sarClosedProfitOrdersCount = 0;
    g_lastOrderOpenReason     = "WAIT ORDER";
    g_lastOrderBlockTime      = 0;
@@ -1973,22 +1913,10 @@ void ResetTradingCycleState()
    g_pendingRecoveryRequiredGap  = 0.0;
    g_pendingRecoveryGapTime      = 0;
    g_pendingRecoveryGapReason    = "NONE";
-   g_sarSpecialGuardLastStatus = "WAIT";
-   g_sarSpecialGuardLastStatusTime = 0;
-   g_sarSpecialGuardLastParentTicket = 0;
-   g_sarSpecialGuardLastParentProfit = 0.0;
-   g_sarSpecialGuardLastParentRecoveryProfit = 0.0;
-   g_sarSpecialGuardLastRequestedLot = 0.0;
-   g_sarSpecialGuardLastError = 0;
    g_sarChangesAfterLastNormalOrder = 0;
    g_sarCloseTrackedDirection       = 0;
    g_sarCloseTrackedOrderTime       = 0;
    g_sarDelayedCloseStatus          = "WAIT ORDER";
-   g_sarWeakReverseLastStatus      = "WAIT";
-   g_sarWeakReverseLastTime        = 0;
-   g_sarWeakReverseLastDirection   = 0;
-   g_sarWeakReverseLastTicket      = 0;
-   g_sarWeakReverseLastReason      = "NONE";
    ResetSARFlipConfirmation();
    ResetBigCandlePauseState();
    ResetSpikeWickPauseState();
@@ -4065,115 +3993,6 @@ bool IsRecoveryHedgeOrderComment(string commentText)
   }
 
 //+------------------------------------------------------------------+
-bool OpenReverseOrderForRecovery(int recoveryDirection, int recoveryNumber, double recoveryGapMove)
-  {
-   if(!InpOpenReverseOrderWithRecovery)
-      return(false);
-
-   if(recoveryDirection == 0)
-      return(false);
-
-   // Big candle protection: do not create recovery hedge/reverse orders during/after a big candle pause.
-   CheckBigCandlePauseOnNewBar(true);
-   if(EnforceBigCandleOrderBlock("OpenReverseOrderForRecovery"))
-     {
-      Print("RECOVERY HEDGE BLOCKED BY BIG CANDLE PAUSE | RecoveryDirection=",
-            DirectionText(recoveryDirection), " | ", BigCandlePauseStatusText());
-      return(false);
-     }
-
-   int reverseDirection = -recoveryDirection;
-
-   if(!IsStrictSARScoreAllowedForNewOrder(reverseDirection,
-                                          "OpenReverseOrderForRecovery"))
-      return(false);
-
-   UpdateAutoMarketFlowMode();
-   if(!IsAutoMarketNewOrderAllowed("RECOVERY_HEDGE"))
-     {
-      string modeMsg = "RECOVERY HEDGE BLOCKED | " + AutoMarketModeStatusText();
-      SetLastOrderBlockDashboard(modeMsg);
-      Print(modeMsg);
-      return(false);
-     }
-
-   if(IsOrderBlockedByOppositeDirectionProfitPause(reverseDirection, "OpenReverseOrderForRecovery"))
-      return(false);
-
-   if(!IsTradingAllowedNow())
-     {
-      Print("RECOVERY HEDGE BLOCKED | Trading not allowed | RecoveryDirection=",
-            DirectionText(recoveryDirection));
-      return(false);
-     }
-
-   RefreshRates();
-
-   if(IsTotalOpenOrderCapReached("OpenReverseOrderForRecovery"))
-      return(false);
-
-   if(CheckEquityConditions())
-     {
-      Print("RECOVERY HEDGE BLOCKED | Equity/profit lock active.");
-      return(false);
-     }
-
-   if(MarketInfo(Symbol(), MODE_SPREAD) > InpMaxSpreadPoints)
-     {
-      Print("RECOVERY HEDGE BLOCKED | Spread=", MarketInfo(Symbol(), MODE_SPREAD),
-            " > MaxSpread=", InpMaxSpreadPoints);
-      return(false);
-     }
-
-   int type = reverseDirection == 1 ? OP_BUY : OP_SELL;
-   double price = reverseDirection == 1 ? Ask : Bid;
-   double lotInput = InpRecoveryReverseLot > 0.0 ? InpRecoveryReverseLot : InpRecoveryGapLot;
-   double lot = NormalizeLot(lotInput);
-
-   string comment = "RECOVERY_HEDGE_FROM_" + IntegerToString(recoveryNumber) +
-                    "_" + DirectionText(reverseDirection);
-
-   int ticket = OrderSend(Symbol(),
-                          type,
-                          lot,
-                          price,
-                          InpSlippage,
-                          0,
-                          0,
-                          comment,
-                          InpMagicNumber,
-                          0,
-                          GetOrderIconColorByComment(reverseDirection, comment));
-
-   if(ticket < 0)
-     {
-      int err = GetLastError();
-      Print("RECOVERY HEDGE ORDER FAILED | RecoveryDirection=", DirectionText(recoveryDirection),
-            " | HedgeDirection=", DirectionText(reverseDirection),
-            " | RecoveryNo=", recoveryNumber,
-            " | GapMove=", DoubleToString(recoveryGapMove, Digits),
-            " | Error=", err);
-      ResetLastError();
-      return(false);
-     }
-
-   g_lastOrderTime = TimeCurrent();
-   MarkOpenedOrderOnChart(ticket, reverseDirection, comment, TimeCurrent(), price);
-
-   Print("RECOVERY HEDGE ORDER OPENED | Ticket=", ticket,
-         " | RecoveryDirection=", DirectionText(recoveryDirection),
-         " | HedgeDirection=", DirectionText(reverseDirection),
-         " | Lot=", DoubleToString(lot, 2),
-         " | RecoveryNo=", recoveryNumber,
-         " | GapMove=", DoubleToString(recoveryGapMove, Digits),
-         " | Protect=", DoubleToString(InpIndividualProtectActivateUSD, 2),
-         " -> ", DoubleToString(InpIndividualProtectCloseAtUSD, 2),
-         " | Comment=", comment);
-
-   return(true);
-  }
-
-//+------------------------------------------------------------------+
 bool OpenRecoveryGapMarketOrder(int direction, double gapMove)
   {
    if(direction == 0)
@@ -4315,7 +4134,6 @@ bool OpenRecoveryGapMarketOrder(int direction, double gapMove)
    // Example: BUY recovery -> SELL hedge, SELL recovery -> BUY hedge.
    // The hedge is tagged as RECOVERY_HEDGE so ProcessIndividualProfitProtect()
    // will close it only after 0.50 peak -> 0.40 pullback.
-   OpenReverseOrderForRecovery(direction, nextRecoveryNumber, gapMove);
 
    return(true);
   }
@@ -4841,45 +4659,6 @@ bool IsParentOrderStillOpen(int parentTicket)
   }
 
 //+------------------------------------------------------------------+
-bool HasSARSpecialGuardOrderForParent(int parentTicket)
-  {
-   if(parentTicket <= 0)
-      return(true);
-
-   string exactComment = InpSARSpecialGuardPrefix + IntegerToString(parentTicket);
-
-   for(int i = OrdersTotal() - 1; i >= 0; i--)
-     {
-      if(!OrderSelect(i, SELECT_BY_POS, MODE_TRADES))
-         continue;
-
-      if(OrderSymbol() != Symbol() || OrderMagicNumber() != InpMagicNumber)
-         continue;
-
-      if(OrderType() != OP_BUY && OrderType() != OP_SELL)
-         continue;
-
-      if(!IsSARGuardOrderComment(OrderComment()))
-         continue;
-
-      // Comment may be truncated by broker, so also check the saved GlobalVariable mapping.
-      if(StringFind(OrderComment(), exactComment) >= 0)
-         return(true);
-
-      string gvName = SARGuardGlobalVariableName(OrderTicket());
-      if(GlobalVariableCheck(gvName))
-        {
-         int storedParent = (int)GlobalVariableGet(gvName);
-         if(storedParent == parentTicket)
-            return(true);
-        }
-     }
-
-   return(false);
-  }
-
-
-//+------------------------------------------------------------------+
 int CountSARSpecialGuardOrders()
   {
    int count = 0;
@@ -4906,520 +4685,22 @@ int CountSARSpecialGuardOrders()
 //+------------------------------------------------------------------+
 //| Basket-side special guard helpers                                |
 //+------------------------------------------------------------------+
-double GetBasketLotsForSpecialGuard(int direction)
-  {
-   int type = (direction == 1) ? OP_BUY : OP_SELL;
-   double lots = 0.0;
-
-   for(int i = OrdersTotal() - 1; i >= 0; i--)
-     {
-      if(!OrderSelect(i, SELECT_BY_POS, MODE_TRADES))
-         continue;
-
-      if(OrderSymbol() != Symbol() || OrderMagicNumber() != InpMagicNumber)
-         continue;
-
-      if(OrderType() != type)
-         continue;
-
-      if(IsSARGuardOrderComment(OrderComment()) || IsRecoveryHedgeOrderComment(OrderComment()))
-         continue;
-
-      lots += OrderLots();
-     }
-
-   return(NormalizeDouble(lots, 2));
-  }
-
-//+------------------------------------------------------------------+
-int GetFirstBasketParentTicketForSpecialGuard(int direction)
-  {
-   int type = (direction == 1) ? OP_BUY : OP_SELL;
-   int selectedTicket = 0;
-   datetime selectedTime = 0;
-
-   for(int i = OrdersTotal() - 1; i >= 0; i--)
-     {
-      if(!OrderSelect(i, SELECT_BY_POS, MODE_TRADES))
-         continue;
-
-      if(OrderSymbol() != Symbol() || OrderMagicNumber() != InpMagicNumber)
-         continue;
-
-      if(OrderType() != type)
-         continue;
-
-      if(IsSARGuardOrderComment(OrderComment()) ||
-         IsRecoveryGapOrderComment(OrderComment()) ||
-         IsRecoveryHedgeOrderComment(OrderComment()))
-         continue;
-
-      if(selectedTicket <= 0 || OrderOpenTime() < selectedTime)
-        {
-         selectedTicket = OrderTicket();
-         selectedTime   = OrderOpenTime();
-        }
-     }
-
-   // Backward compatibility: if no clean SAR_PARENT order comment exists,
-   // use the oldest non-guard/non-hedge same-side order as the representative parent.
-   if(selectedTicket <= 0)
-     {
-      for(int j = OrdersTotal() - 1; j >= 0; j--)
-        {
-         if(!OrderSelect(j, SELECT_BY_POS, MODE_TRADES))
-            continue;
-
-         if(OrderSymbol() != Symbol() || OrderMagicNumber() != InpMagicNumber)
-            continue;
-
-         if(OrderType() != type)
-            continue;
-
-         if(IsSARGuardOrderComment(OrderComment()) || IsRecoveryHedgeOrderComment(OrderComment()))
-            continue;
-
-         if(selectedTicket <= 0 || OrderOpenTime() < selectedTime)
-           {
-            selectedTicket = OrderTicket();
-            selectedTime   = OrderOpenTime();
-           }
-        }
-     }
-
-   return(selectedTicket);
-  }
-
-//+------------------------------------------------------------------+
-bool HasSARSpecialGuardOrderForBasketDirection(int basketDirection)
-  {
-   int guardType = (basketDirection == 1) ? OP_SELL : OP_BUY;
-
-   for(int i = OrdersTotal() - 1; i >= 0; i--)
-     {
-      if(!OrderSelect(i, SELECT_BY_POS, MODE_TRADES))
-         continue;
-
-      if(OrderSymbol() != Symbol() || OrderMagicNumber() != InpMagicNumber)
-         continue;
-
-      if(OrderType() != guardType)
-         continue;
-
-      if(IsSARGuardOrderComment(OrderComment()))
-         return(true);
-     }
-
-   return(false);
-  }
-
-//+------------------------------------------------------------------+
-bool TryCreateSARSpecialGuardForBasketDirection(int basketDirection)
-  {
-   if(basketDirection != 1 && basketDirection != -1)
-      return(false);
-
-   int basketCount = CountOrdersByDirection(basketDirection);
-   if(basketCount <= 0)
-      return(false);
-
-   int guardDirection = -basketDirection;
-   string basketText = (basketDirection == 1) ? "BUY_BASKET" : "SELL_BASKET";
-
-   double basketProfit = GetBasketProfit(basketDirection);
-   double triggerLoss  = MathAbs(InpSARSpecialGuardLossUSD);
-
-   // Priority rule: after SAR_FLIP_V2LAST normal order opens,
-   // do NOT use a time wait. Wait until basket loss becomes worse by extra amount.
-   // Example: InpSARSpecialGuardLossUSD=8 and Extra=1 => guard waits until basket P/L <= -9.
-   if(g_lastSARFlipV2LastOrderTime > 0 && InpSARSpecialGuardExtraLossAfterSAROrder > 0.0)
-     {
-      double priorityTriggerLoss = triggerLoss + MathAbs(InpSARSpecialGuardExtraLossAfterSAROrder);
-
-      if(basketProfit > -priorityTriggerLoss)
-        {
-         SetSARSpecialGuardDebugStatus("SKIPPED | SAR order priority wait until " +
-                                       basketText + " <= -$" + DoubleToString(priorityTriggerLoss, 2),
-                                       0, basketProfit, basketProfit, 0.0, 0);
-         Print("SAR SPECIAL GUARD SKIPPED | SAR_FLIP_V2LAST priority loss wait",
-               " | Basket=", basketText,
-               " | BasketProfit=$", DoubleToString(basketProfit, 2),
-               " | Required<=-$", DoubleToString(priorityTriggerLoss, 2),
-               " | BaseTrigger=-$", DoubleToString(triggerLoss, 2),
-               " | Extra=$", DoubleToString(MathAbs(InpSARSpecialGuardExtraLossAfterSAROrder), 2),
-               " | SAROrderTime=", TimeToString(g_lastSARFlipV2LastOrderTime, TIME_DATE|TIME_SECONDS));
-         return(false);
-        }
-     }
-
-   // Optional old behavior. Default false, because guard should protect basket loss even without SAR condition.
-   if(InpSARSpecialGuardRequireSARChange && g_activeSARDirection != 0)
-     {
-      if(basketDirection == g_activeSARDirection)
-        {
-         if(basketProfit <= -triggerLoss)
-            SetSARSpecialGuardDebugStatus("SKIPPED | Basket loss matched but SAR change required",
-                                          0, basketProfit, basketProfit, 0.0, 0);
-         return(false);
-        }
-     }
-
-   // Basket trigger: BUY basket <= -$X opens SELL guard, SELL basket <= -$X opens BUY guard.
-   if(basketProfit > -triggerLoss)
-      return(false);
-
-   int parentTicket = GetFirstBasketParentTicketForSpecialGuard(basketDirection);
-   double basketLots = InpFixedLot;//GetBasketLotsForSpecialGuard(basketDirection);
-   
-   double guardLots = basketLots * InpSARSpecialGuardLotMultiplier;
-
-   if(parentTicket <= 0)
-     {
-      Print("SAR SPECIAL GUARD BLOCKED | Basket trigger matched but no representative parent found",
-            " | Basket=", basketText,
-            " | BasketProfit=$", DoubleToString(basketProfit, 2),
-            " | Trigger=-$", DoubleToString(triggerLoss, 2));
-      SetSARSpecialGuardDebugStatus("BLOCKED | Basket matched, no parent ticket",
-                                    0, basketProfit, basketProfit, guardLots, 0);
-      return(false);
-     }
-
-   if(HasSARSpecialGuardOrderForBasketDirection(basketDirection))
-     {
-      Print("SAR SPECIAL GUARD SKIPPED | Basket guard already exists",
-            " | Basket=", basketText,
-            " | Parent=#", parentTicket,
-            " | BasketProfit=$", DoubleToString(basketProfit, 2),
-            " | Trigger=-$", DoubleToString(triggerLoss, 2));
-      SetSARSpecialGuardDebugStatus("SKIPPED | Basket guard already exists",
-                                    parentTicket, basketProfit, basketProfit, guardLots, 0);
-      return(false);
-     }
-
-   int activeGuardCount = CountSARSpecialGuardOrders();
-   if(InpMaxSARSpecialGuardOrders > 0 && activeGuardCount >= InpMaxSARSpecialGuardOrders)
-     {
-      Print("SAR SPECIAL GUARD BLOCKED | Max active guards reached ",
-            activeGuardCount, "/", InpMaxSARSpecialGuardOrders,
-            " | Basket=", basketText,
-            " | Parent=#", parentTicket,
-            " | BasketProfit=$", DoubleToString(basketProfit, 2));
-      SetSARSpecialGuardDebugStatus("BLOCKED | Max guard reached " +
-                                    IntegerToString(activeGuardCount) + "/" + IntegerToString(InpMaxSARSpecialGuardOrders),
-                                    parentTicket, basketProfit, basketProfit, guardLots, 0);
-      return(false);
-     }
-
-   Print("SAR SPECIAL GUARD BASKET TRIGGER | Basket=", basketText,
-         " | BasketDir=", DirectionText(basketDirection),
-         " | GuardDir=", DirectionText(guardDirection),
-         " | Parent=#", parentTicket,
-         " | BasketOrders=", basketCount,
-         " | BasketProfit=$", DoubleToString(basketProfit, 2),
-         " | Trigger=-$", DoubleToString(triggerLoss, 2),
-         " | BasketLots=", DoubleToString(basketLots, 2),
-         " | RequestedMaxLot=", DoubleToString(guardLots, 2));
-
-   SetSARSpecialGuardDebugStatus("TRIGGER MATCHED | " + basketText + " -> guard " + DirectionText(guardDirection),
-                                 parentTicket, basketProfit, basketProfit, guardLots, 0);
-
-   return(OpenSARSpecialGuardOrder(guardDirection, guardLots, parentTicket));
-  }
-
-//+------------------------------------------------------------------+
 //| Affordable SAR special guard lot                                 |
 //| Uses requested lot as MAX. If free margin is not enough, reduces |
 //| lot step-by-step until AccountFreeMarginCheck() passes.          |
 //+------------------------------------------------------------------+
-double GetAffordableGuardLot(int orderType, double requestedMaxLot)
-  {
-   RefreshRates();
-
-   double minLot  = MarketInfo(Symbol(), MODE_MINLOT);
-   double maxLot  = MarketInfo(Symbol(), MODE_MAXLOT);
-   double lotStep = MarketInfo(Symbol(), MODE_LOTSTEP);
-
-   if(lotStep <= 0.0)
-      lotStep = 0.01;
-
-   if(requestedMaxLot <= 0.0)
-      return(0.0);
-
-   double lot = MathMin(requestedMaxLot, maxLot);
-   lot = MathFloor(lot / lotStep) * lotStep;
-   lot = NormalizeDouble(lot, 2);
-
-   while(lot >= minLot)
-     {
-      ResetLastError();
-      double freeAfter = AccountFreeMarginCheck(Symbol(), orderType, lot);
-      int err = GetLastError();
-
-      // freeAfter > 0 means broker accepts the margin calculation.
-      if(freeAfter > 0.0 && err == 0)
-         return(NormalizeDouble(lot, 2));
-
-      lot -= lotStep;
-      lot = MathFloor(lot / lotStep) * lotStep;
-      lot = NormalizeDouble(lot, 2);
-      ResetLastError();
-     }
-
-   return(0.0);
-  }
-
-//+------------------------------------------------------------------+
 //| Parent + recovery gap basket profit for guard trigger            |
 //| Normal/recovery in same side are included; guard/hedge excluded. |
-//+------------------------------------------------------------------+
-double GetParentAndRecoveryGapProfitForGuard(int parentTicket, int direction)
-  {
-   double totalProfit = 0.0;
-   bool hasLinkedRecovery = false;
-
-   // First pass: exact parent + recovery gap orders explicitly linked to this parent.
-   for(int i = OrdersTotal() - 1; i >= 0; i--)
-     {
-      if(!OrderSelect(i, SELECT_BY_POS, MODE_TRADES))
-         continue;
-
-      if(OrderSymbol() != Symbol() || OrderMagicNumber() != InpMagicNumber)
-         continue;
-
-      if(OrderType() != OP_BUY && OrderType() != OP_SELL)
-         continue;
-
-      if(IsSARGuardOrderComment(OrderComment()) || IsRecoveryHedgeOrderComment(OrderComment()))
-         continue;
-
-      int orderDirection = (OrderType() == OP_BUY) ? 1 : -1;
-      if(orderDirection != direction)
-         continue;
-
-      string c = OrderComment();
-      bool isParentOrder = (OrderTicket() == parentTicket);
-      bool isLinkedRecovery = IsRecoveryGapLinkedToParent(c, parentTicket);
-
-      if(isLinkedRecovery)
-         hasLinkedRecovery = true;
-
-      if(!isParentOrder && !isLinkedRecovery)
-         continue;
-
-      totalProfit += OrderProfit() + OrderSwap() + OrderCommission();
-     }
-
-   // Backward compatibility for old recovery-gap orders created before RG_P<parent> comments existed.
-   // Only used when no explicitly linked recovery exists.
-   if(!hasLinkedRecovery)
-     {
-      for(int j = OrdersTotal() - 1; j >= 0; j--)
-        {
-         if(!OrderSelect(j, SELECT_BY_POS, MODE_TRADES))
-            continue;
-
-         if(OrderSymbol() != Symbol() || OrderMagicNumber() != InpMagicNumber)
-            continue;
-
-         if(OrderType() != OP_BUY && OrderType() != OP_SELL)
-            continue;
-
-         if(IsSARGuardOrderComment(OrderComment()) || IsRecoveryHedgeOrderComment(OrderComment()))
-            continue;
-
-         int dir = (OrderType() == OP_BUY) ? 1 : -1;
-         if(dir != direction)
-            continue;
-
-         string oldComment = OrderComment();
-
-         if(IsRecoveryGapOrderComment(oldComment) && !IsRecoveryGapLinkedToParent(oldComment, parentTicket))
-            totalProfit += OrderProfit() + OrderSwap() + OrderCommission();
-        }
-     }
-
-   return(totalProfit);
-  }
-
-
-//+------------------------------------------------------------------+
-void SetSARSpecialGuardDebugStatus(string status,
-                                   int parentTicket,
-                                   double parentProfit,
-                                   double parentAndRecoveryProfit,
-                                   double requestedLot,
-                                   int errorCode)
-  {
-   g_sarSpecialGuardLastStatus = status;
-   g_sarSpecialGuardLastStatusTime = TimeCurrent();
-   g_sarSpecialGuardLastParentTicket = parentTicket;
-   g_sarSpecialGuardLastParentProfit = parentProfit;
-   g_sarSpecialGuardLastParentRecoveryProfit = parentAndRecoveryProfit;
-   g_sarSpecialGuardLastRequestedLot = requestedLot;
-   g_sarSpecialGuardLastError = errorCode;
-
-   Print("SAR SPECIAL GUARD DEBUG | ", status,
-         " | Parent=#", parentTicket,
-         " | ParentProfit=$", DoubleToString(parentProfit, 2),
-         " | Parent+Recovery=$", DoubleToString(parentAndRecoveryProfit, 2),
-         " | RequestedLot=", DoubleToString(requestedLot, 2),
-         " | Error=", errorCode,
-         " | Time=", TimeToString(g_sarSpecialGuardLastStatusTime, TIME_DATE|TIME_SECONDS));
-  }
-
-//+------------------------------------------------------------------+
-color SARSpecialGuardDebugColor()
-  {
-   if(StringFind(g_sarSpecialGuardLastStatus, "OPENED") >= 0)
-      return(clrLime);
-
-   if(StringFind(g_sarSpecialGuardLastStatus, "TRIGGER") >= 0)
-      return(clrYellow);
-
-   if(StringFind(g_sarSpecialGuardLastStatus, "BLOCKED") >= 0 ||
-      StringFind(g_sarSpecialGuardLastStatus, "FAILED") >= 0)
-      return(clrRed);
-
-   if(StringFind(g_sarSpecialGuardLastStatus, "SKIPPED") >= 0)
-      return(clrOrangeRed);
-
-   return(clrSilver);
-  }
-
-//+------------------------------------------------------------------+
-bool OpenSARSpecialGuardOrder(int direction, double lot, int parentTicket)
-  {
-   if(direction == 0 || parentTicket <= 0)
-     {
-      SetSARSpecialGuardDebugStatus("BLOCKED | Invalid direction or parent ticket",
-                                    parentTicket, 0.0, 0.0, lot, 0);
-      return(false);
-     }
-
-   // IMPORTANT RULE:
-   // SAR_SPECIAL_GUARD_ORDER_FOR_ must NOT be blocked by normal EA filters.
-   // It bypasses: SAR direction/confirmation, big candle pause, no-new-hour,
-   // H1 trend, repeated gap, late SAR block, spread filter, daily/order gates.
-   // Only broker/server restrictions can still reject OrderSend.
-   RefreshRates();
-
-   int type = (direction == 1) ? OP_BUY : OP_SELL;
-   double price = (direction == 1) ? Ask : Bid;
-
-   // lot passed here is the requested MAX lot. Use the highest affordable lot,
-   // but never exceed the requested InpSARSpecialGuardLotMultiplier limit.
-   double guardLot = GetAffordableGuardLot(type, lot);
-   if(guardLot <= 0.0)
-     {
-      Print("SAR SPECIAL GUARD BLOCKED | Insufficient free margin",
-            " | Parent=#", parentTicket,
-            " | Direction=", DirectionText(direction),
-            " | RequestedMaxLot=", DoubleToString(lot, 2),
-            " | FreeMargin=$", DoubleToString(AccountFreeMargin(), 2),
-            " | Equity=$", DoubleToString(AccountEquity(), 2),
-            " | Balance=$", DoubleToString(AccountBalance(), 2));
-
-      double keepParentProfit = (g_sarSpecialGuardLastParentTicket == parentTicket) ? g_sarSpecialGuardLastParentProfit : 0.0;
-      double keepParentRecoveryProfit = (g_sarSpecialGuardLastParentTicket == parentTicket) ? g_sarSpecialGuardLastParentRecoveryProfit : 0.0;
-      SetSARSpecialGuardDebugStatus("BLOCKED | Insufficient free margin",
-                                    parentTicket, keepParentProfit, keepParentRecoveryProfit, lot, 0);
-      return(false);
-     }
-
-   string commentText = InpSARSpecialGuardPrefix + IntegerToString(parentTicket);
-
-   if(EnforceSpikeWickOrderBlock("OpenSARSpecialGuardOrder", InpSpikeWickBlockRecovery, InpSpikeWickBlockGuard))
-     {
-      double keepParentProfit = (g_sarSpecialGuardLastParentTicket == parentTicket) ? g_sarSpecialGuardLastParentProfit : 0.0;
-      double keepParentRecoveryProfit = (g_sarSpecialGuardLastParentTicket == parentTicket) ? g_sarSpecialGuardLastParentRecoveryProfit : 0.0;
-      SetSARSpecialGuardDebugStatus("BLOCKED | Spike/Wick pause",
-                                    parentTicket, keepParentProfit, keepParentRecoveryProfit, guardLot, 0);
-      return(false);
-     }
-
-   ResetLastError();
-
-   int ticket = OrderSend(Symbol(),
-                          type,
-                          guardLot,
-                          price,
-                          InpSlippage,
-                          0,
-                          0,
-                          commentText,
-                          InpMagicNumber,
-                          0,
-                          GetOrderIconColorByComment(direction, commentText));
-
-   if(ticket < 0)
-     {
-      int err = GetLastError();
-      Print("SAR SPECIAL GUARD ORDER FAILED | Parent=#", parentTicket,
-            " | Direction=", DirectionText(direction),
-            " | Lot=", DoubleToString(guardLot, 2),
-            " | Price=", DoubleToString(price, Digits),
-            " | Error=", err);
-
-      double keepParentProfit = (g_sarSpecialGuardLastParentTicket == parentTicket) ? g_sarSpecialGuardLastParentProfit : 0.0;
-      double keepParentRecoveryProfit = (g_sarSpecialGuardLastParentTicket == parentTicket) ? g_sarSpecialGuardLastParentRecoveryProfit : 0.0;
-      SetSARSpecialGuardDebugStatus("FAILED | OrderSend error " + IntegerToString(err),
-                                    parentTicket, keepParentProfit, keepParentRecoveryProfit, guardLot, err);
-      ResetLastError();
-      return(false);
-     }
-
-   // MT4/broker may truncate long comments. Store the parent ticket safely using a terminal global variable.
-   GlobalVariableSet(SARGuardGlobalVariableName(ticket), parentTicket);
-   MarkOpenedOrderOnChart(ticket, direction, commentText, TimeCurrent(), price);
-
-   Print("SAR SPECIAL GUARD ORDER OPENED | Guard=#", ticket,
-         " | Parent=#", parentTicket,
-         " | Direction=", DirectionText(direction),
-         " | Lot=", DoubleToString(guardLot, 2),
-         " | Comment=", commentText);
-
-   double keepParentProfit = (g_sarSpecialGuardLastParentTicket == parentTicket) ? g_sarSpecialGuardLastParentProfit : 0.0;
-   double keepParentRecoveryProfit = (g_sarSpecialGuardLastParentTicket == parentTicket) ? g_sarSpecialGuardLastParentRecoveryProfit : 0.0;
-   SetSARSpecialGuardDebugStatus("OPENED | Guard #" + IntegerToString(ticket),
-                                 parentTicket, keepParentProfit, keepParentRecoveryProfit, guardLot, 0);
-
-   return(true);
-  }
-
-//+------------------------------------------------------------------+
-void CheckSARSpecialGuardOrdersOnSARChange(int newSARDirection)
-  {
-   // Latest rule: SAR signal condition is disabled by default.
-   // Guard is created from parent floating loss only.
-   CheckSARSpecialGuardOrdersByParentLoss();
-  }
-
-
 //+------------------------------------------------------------------+
 //| Create SAR special guard only from parent+recovery loss           |
 //| BYPASSES all normal filters: SAR, big candle, spread, hours, etc. |
 //| BUY parent gets SELL guard. SELL parent gets BUY guard.           |
 //| One guard per parent ticket.                                      |
 //+------------------------------------------------------------------+
-void CheckSARSpecialGuardOrdersByParentLoss()
-  {
-   if(!InpUseSARSpecialGuardOrder)
-      return;
-
-   RefreshRates();
-
-   // New rule:
-   // Use BUY/SELL basket P/L, not single parent order P/L.
-   // BUY basket profit <= -InpSARSpecialGuardLossUSD  => create one SELL guard.
-   // SELL basket profit <= -InpSARSpecialGuardLossUSD => create one BUY guard.
-   TryCreateSARSpecialGuardForBasketDirection(1);
-   TryCreateSARSpecialGuardForBasketDirection(-1);
-  }
-
-//+------------------------------------------------------------------+
 void ProcessSARSpecialGuardCleanup()
   {
-   if(!InpUseSARSpecialGuardOrder)
+   // Creation code was removed. Scan only to safely manage a legacy open guard.
+   if(CountSARSpecialGuardOrders() <= 0)
       return;
 
    RefreshRates();
@@ -5573,9 +4854,7 @@ void ProcessSARFlipStateAndClose()
       g_sarDelayedCloseStatus = InpUseDelayedSARChangeClose ? "WAIT ORDER" : "IMMEDIATE CLOSE";
      }
 
-// Open one special guard hedge for losing parent orders when SAR changes against them.
    // Guard orders are ignored by normal basket/profit/SL close logic and close only when parent closes.
-   CheckSARSpecialGuardOrdersOnSARChange(sarFlip);
 
    // Update SAR direction after processing close/skip logic.
    g_activeSARDirection  = sarFlip;
@@ -6509,10 +5788,10 @@ bool ProcessBasketCloseByDirection(int direction, string &status)
   }
 
 //+------------------------------------------------------------------+
+//| Check BUY and SELL baskets independently                          |
+//+------------------------------------------------------------------+
 bool ProcessAllSideBasketClose(string &status)
   {
-   // Important for delayed SAR close: old direction orders may remain open
-   // after the first SAR flip, so BUY and SELL baskets must be checked independently.
    if(ProcessBasketCloseByDirection(1, status))
       return(true);
 
@@ -6523,298 +5802,6 @@ bool ProcessAllSideBasketClose(string &status)
   }
 
 //+------------------------------------------------------------------+
-
-//+------------------------------------------------------------------+
-//| SAR weak reverse order helpers                                   |
-//+------------------------------------------------------------------+
-int CountSARWeakReverseOrders()
-  {
-   int total = 0;
-   for(int i = OrdersTotal() - 1; i >= 0; i--)
-     {
-      if(!OrderSelect(i, SELECT_BY_POS, MODE_TRADES))
-         continue;
-      if(OrderSymbol() != Symbol() || OrderMagicNumber() != InpMagicNumber)
-         continue;
-      if(OrderType() != OP_BUY && OrderType() != OP_SELL)
-         continue;
-      if(IsSARWeakReverseOrderComment(OrderComment()))
-         total++;
-     }
-   return(total);
-  }
-
-int CountSARWeakReverseOrdersByDirection(int direction)
-  {
-   int total = 0;
-   int type = direction == 1 ? OP_BUY : OP_SELL;
-
-   for(int i = OrdersTotal() - 1; i >= 0; i--)
-     {
-      if(!OrderSelect(i, SELECT_BY_POS, MODE_TRADES))
-         continue;
-      if(OrderSymbol() != Symbol() || OrderMagicNumber() != InpMagicNumber)
-         continue;
-      if(OrderType() != type)
-         continue;
-      if(IsSARWeakReverseOrderComment(OrderComment()))
-         total++;
-     }
-
-   return(total);
-  }
-
-int GetMaxSARWeakReverseOrdersPerSide()
-  {
-   // InpMaxSARWeakReverseOrders is total across both sides.
-   // Example: 2 means max 1 BUY weak-reverse + max 1 SELL weak-reverse.
-   int totalMax = MathMax(1, InpMaxSARWeakReverseOrders);
-   int perSide = (totalMax + 1) / 2;
-   if(perSide < 1)
-      perSide = 1;
-   return(perSide);
-  }
-
-int CountSARWeakReverseBaseOrdersByDirection(int direction)
-  {
-   int total = 0;
-   int type = direction == 1 ? OP_BUY : OP_SELL;
-
-   for(int i = OrdersTotal() - 1; i >= 0; i--)
-     {
-      if(!OrderSelect(i, SELECT_BY_POS, MODE_TRADES))
-         continue;
-      if(OrderSymbol() != Symbol() || OrderMagicNumber() != InpMagicNumber)
-         continue;
-      if(OrderType() != type)
-         continue;
-      if(IsSARGuardOrderComment(OrderComment()))
-         continue;
-      if(IsSARWeakReverseOrderComment(OrderComment()))
-         continue;
-
-      total++;
-     }
-
-   return(total);
-  }
-
-bool HasSARWeakReverseOrderForDirection(int direction)
-  {
-   return(CountSARWeakReverseOrdersByDirection(direction) > 0);
-  }
-
-bool HasExistingOrderForSARWeakReverseProtection(int direction)
-  {
-   return(CountSARWeakReverseBaseOrdersByDirection(direction) > 0);
-  }
-
-bool OpenSARWeakReverseMarketOrder(int reverseDirection, string weakReason)
-  {
-   if(reverseDirection == 0)
-      return(false);
-
-   if(!IsStrictSARScoreAllowedForNewOrder(reverseDirection,
-                                          "SAR_WEAK_REVERSE"))
-     {
-      g_sarWeakReverseLastStatus = "BLOCKED SAR SCORE";
-      g_sarWeakReverseLastReason = g_lastOrderOpenReason;
-      return(false);
-     }
-
-   UpdateAutoMarketFlowMode();
-   if(!IsAutoMarketNewOrderAllowed("SAR_WEAK_REVERSE"))
-     {
-      g_sarWeakReverseLastStatus = "BLOCKED MARKET MODE";
-      g_sarWeakReverseLastReason = AutoMarketModeStatusText();
-      SetLastOrderBlockDashboard("SAR WEAK REVERSE BLOCKED | " +
-                                 AutoMarketModeStatusText());
-      return(false);
-     }
-
-   if(IsOrderBlockedByOppositeDirectionProfitPause(reverseDirection, "SAR_WEAK_REVERSE"))
-     {
-      g_sarWeakReverseLastStatus = "BLOCKED PROFIT STREAK";
-      g_sarWeakReverseLastReason = OppositeDirectionProfitPauseStatusText();
-      return(false);
-     }
-
-   // Protection rule:
-   // Example: active SAR BUY becomes weak => reverseDirection SELL.
-   // Open SAR_WEAK_REVERSE SELL only when an existing SELL order is already open.
-   // This makes weak-reverse orders protect previous same-side baskets instead of creating a fresh naked hedge.
-   if(InpSARWeakReverseRequireExistingSameSideOrder &&
-      !HasExistingOrderForSARWeakReverseProtection(reverseDirection))
-     {
-      g_sarWeakReverseLastStatus = "WAIT BASE ORDER";
-      g_sarWeakReverseLastDirection = reverseDirection;
-      g_sarWeakReverseLastReason = "No existing " + DirectionText(reverseDirection) +
-                                   " order to protect";
-      Print("SAR WEAK REVERSE WAIT | No existing ",
-            DirectionText(reverseDirection),
-            " order found. Weak reverse not opened. ActiveSAR=",
-            DirectionText(g_activeSARDirection));
-      return(false);
-     }
-
-   RefreshRates();
-
-   if(EnforceBigCandleOrderBlock("SAR weak reverse"))
-     {
-      g_sarWeakReverseLastStatus = "BLOCKED BIG CANDLE";
-      g_sarWeakReverseLastReason = BigCandlePauseStatusText();
-      return(false);
-     }
-
-   if(InpUseSpikeWickPauseFilter && IsSpikeWickPauseActive())
-     {
-      g_sarWeakReverseLastStatus = "BLOCKED SPIKE/WICK";
-      g_sarWeakReverseLastReason = SpikeWickPauseStatusText();
-      return(false);
-     }
-
-   if(!IsTradingAllowedNow())
-     {
-      g_sarWeakReverseLastStatus = "BLOCKED TRADING OFF";
-      g_sarWeakReverseLastReason = "AutoTrading/trade context/free margin";
-      return(false);
-     }
-
-   if(CheckEquityConditions())
-     {
-      g_sarWeakReverseLastStatus = "BLOCKED EQUITY";
-      g_sarWeakReverseLastReason = "Equity/profit protection active";
-      return(false);
-     }
-
-   if(IsTotalOpenOrderCapReached("SARWeakReverse"))
-     {
-      g_sarWeakReverseLastStatus = "BLOCKED TOTAL CAP";
-      g_sarWeakReverseLastReason = "Total order cap reached";
-      return(false);
-     }
-
-   int totalMaxWeakReverseOrders = MathMax(1, InpMaxSARWeakReverseOrders);
-   int activeWeakReverseOrders = CountSARWeakReverseOrders();
-
-   if(activeWeakReverseOrders >= totalMaxWeakReverseOrders)
-     {
-      g_sarWeakReverseLastStatus = "BLOCKED MAX TOTAL";
-      g_sarWeakReverseLastReason = "Active weak reverse orders " +
-                                   IntegerToString(activeWeakReverseOrders) + "/" +
-                                   IntegerToString(totalMaxWeakReverseOrders) +
-                                   " | BUY=" + IntegerToString(CountSARWeakReverseOrdersByDirection(1)) +
-                                   " SELL=" + IntegerToString(CountSARWeakReverseOrdersByDirection(-1));
-      return(false);
-     }
-
-   // Per-side limit:
-   // InpMaxSARWeakReverseOrders=2 means max 1 BUY weak-reverse and max 1 SELL weak-reverse.
-   int maxWeakReverseOrdersPerSide = GetMaxSARWeakReverseOrdersPerSide();
-   int sameSideWeakReverseOrders = CountSARWeakReverseOrdersByDirection(reverseDirection);
-
-   if(sameSideWeakReverseOrders >= maxWeakReverseOrdersPerSide)
-     {
-      g_sarWeakReverseLastStatus = "BLOCKED SIDE MAX";
-      g_sarWeakReverseLastReason = DirectionText(reverseDirection) + " weak reverse " +
-                                   IntegerToString(sameSideWeakReverseOrders) + "/" +
-                                   IntegerToString(maxWeakReverseOrdersPerSide) +
-                                   " | Total " + IntegerToString(activeWeakReverseOrders) + "/" +
-                                   IntegerToString(totalMaxWeakReverseOrders);
-      return(false);
-     }
-
-   if(g_sarWeakReverseLastTime > 0 &&
-      TimeCurrent() - g_sarWeakReverseLastTime < MathMax(1, InpSARWeakReverseCooldownMinutes) * 60)
-     {
-      g_sarWeakReverseLastStatus = "BLOCKED COOLDOWN";
-      g_sarWeakReverseLastReason = "Wait " + IntegerToString(InpSARWeakReverseCooldownMinutes) + "m";
-      return(false);
-     }
-
-   if(InpSARWeakReverseRequireH1Trend)
-     {
-      int hTrend = GetH2TrendDirection();
-      if(hTrend == 0 || hTrend != reverseDirection)
-        {
-         g_sarWeakReverseLastStatus = "BLOCKED H1/H2 TREND";
-         g_sarWeakReverseLastReason = "Reverse=" + DirectionText(reverseDirection) + " H=" + DirectionText(hTrend);
-         return(false);
-        }
-     }
-
-   int type = reverseDirection == 1 ? OP_BUY : OP_SELL;
-   double price = reverseDirection == 1 ? Ask : Bid;
-   double lot = InpSARWeakReverseLot > 0.0 ? InpSARWeakReverseLot : InpFixedLot;
-   lot = NormalizeLot(lot);
-
-   double sl = 0.0;
-   if(InpStopLossPoints > 0)
-     {
-      if(reverseDirection == 1)
-         sl = NormalizeDouble(price - InpStopLossPoints * Point, Digits);
-      else
-         sl = NormalizeDouble(price + InpStopLossPoints * Point, Digits);
-     }
-
-   string comment = "SAR_WEAK_REVERSE_" + DirectionText(reverseDirection);
-
-   ResetLastError();
-   int ticket = OrderSend(Symbol(), type, lot, price, InpSlippage, sl, 0,
-                          comment, InpMagicNumber, 0,
-                          GetOrderIconColorByComment(reverseDirection, comment));
-
-   if(ticket < 0)
-     {
-      int err = GetLastError();
-      g_sarWeakReverseLastStatus = "FAILED";
-      g_sarWeakReverseLastReason = BuildOrderSendFailMessage(err, type, lot, price, sl, comment);
-      g_lastOrderOpenReason = g_sarWeakReverseLastReason;
-      Print("SAR WEAK REVERSE ORDER FAILED | ", g_sarWeakReverseLastReason);
-      ResetLastError();
-      return(false);
-     }
-
-   g_lastOrderTime = TimeCurrent();
-   g_sarWeakReverseLastStatus = "OPENED";
-   g_sarWeakReverseLastTime = TimeCurrent();
-   g_sarWeakReverseLastDirection = reverseDirection;
-   g_sarWeakReverseLastTicket = ticket;
-   g_sarWeakReverseLastReason = weakReason;
-   g_lastOrderOpenReason = "SAR WEAK REVERSE OPENED | Ticket=" + IntegerToString(ticket) +
-                           " | Direction=" + DirectionText(reverseDirection) +
-                           " | Lot=" + DoubleToString(lot, 2);
-
-   MarkOpenedOrderOnChart(ticket, reverseDirection, comment, TimeCurrent(), price);
-
-   Print("SAR WEAK REVERSE ORDER OPENED | Ticket=", ticket,
-         " | Direction=", DirectionText(reverseDirection),
-         " | ActiveSAR=", DirectionText(g_activeSARDirection),
-         " | Lot=", DoubleToString(lot, 2),
-         " | WeakReason=", weakReason);
-
-   return(true);
-  }
-
-bool TryOpenSARWeakReverseOrder(string weakReason)
-  {
-   if(!InpOpenReverseOrderOnSARWeakSignal)
-      return(false);
-
-   if(!g_earlySARWeakExitActive)
-     {
-      g_sarWeakReverseLastStatus = "WAIT WEAK SAR";
-      g_sarWeakReverseLastReason = "Early SAR weak signal not active";
-      return(false);
-     }
-
-   if(g_activeSARDirection == 0)
-      return(false);
-
-   int reverseDirection = -g_activeSARDirection;
-   return(OpenSARWeakReverseMarketOrder(reverseDirection, weakReason));
-  }
-
 bool ProcessCloseOrdersFirst(string &status)
   {
    if(g_activeSARDirection == 0)
@@ -6885,7 +5872,6 @@ bool ProcessCloseOrdersFirst(string &status)
 
       // Optional hedge/reverse entry before full SAR flip.
       // Example: active SAR BUY is weak => open SELL SAR_WEAK_REVERSE order.
-      TryOpenSARWeakReverseOrder(weakExitReason);
 
       string confirmedWeakCloseReason = "";
       bool shouldCloseConfirmedWeakBasket =
@@ -7203,29 +6189,15 @@ IncreaseSARMaxWhenDotDistanceAndH1Same();
       return(false);
      }
 
-   // Normal continuity order needs price to move in SAR direction from last profitable close.
-   // If that forward gap is not ready, try safer pullback half-TP re-entry instead.
-   bool normalContinuousGapReady = IsRepeatedPriceGapConfirmedForNormalOrder(g_activeSARDirection, "SAR_FLIP_V2LAST_PRECHECK");
+   // Normal continuity order needs price to move in the SAR direction.
+   // Pullback/micro re-entry creation has been removed.
+   bool normalContinuousGapReady =
+      IsRepeatedPriceGapConfirmedForNormalOrder(g_activeSARDirection,
+                                                "SAR_FLIP_V2LAST_PRECHECK");
 
    if(!normalContinuousGapReady)
      {
-      string pullbackReason = "";
-      if(IsSARPullbackHalfTPAllowed(g_activeSARDirection, pullbackReason))
-        {
-         if(OpenMarketOrder(g_activeSARDirection, "SAR_PULLBACK_HALF_TP"))
-           {
-            g_lastSARPullbackOrderBarTime = Time[0];
-            status = pullbackReason;
-            Print("SAR PULLBACK HALF TP ORDER OPENED | ", pullbackReason);
-            return(true);
-           }
-
-         status = g_lastOrderOpenReason;
-         SetLastOrderBlockDashboard(status);
-         return(false);
-        }
-
-      status = "CONTINUOUS GAP WAIT | " + pullbackReason;
+      status = "CONTINUOUS GAP WAIT | MICRO/PULLBACK ORDERS REMOVED";
       SetLastOrderBlockDashboard(status);
       return(false);
      }
@@ -7452,13 +6424,10 @@ void OnTick()
    EnforceSpikeWickOrderBlock("OnTick dashboard scan", InpSpikeWickBlockRecovery, InpSpikeWickBlockGuard);
 
    ProcessSARSpecialGuardCleanup();
-   // SAR_FLIP_V2LAST has first priority.
-   // Special guard is checked after normal SAR order creation later in OnTick,
-   // so both orders are not created in the same candle.
 
 // DIRECTION-WISE BASKET STOP LOSS FIRST:
 // BUY loss closes only BUY orders; SELL loss closes only SELL orders.
-// Opposite side and special guard orders remain open.
+// Opposite side and any legacy guard order remain open.
    string directionSLStatus = "RUNNING";
    if(ProcessDirectionWiseBasketStopLossOnly(directionSLStatus))
      {
@@ -7549,9 +6518,6 @@ void OnTick()
    if(!closedThisTick)
       ProcessNewOrderCreationLast(isNewBar, status);
 
-   // Special guard runs AFTER normal SAR order creation.
-   // If SAR_FLIP_V2LAST opened this candle, guard will be skipped until next candle.
-   CheckSARSpecialGuardOrdersByParentLoss();
 
    if(status == "RUNNING" || status == "")
       status = g_lastOrderOpenReason;
@@ -8855,111 +7821,21 @@ bool IsPriceGapValid(int direction, double minGap)
 //+------------------------------------------------------------------+
 
 //+------------------------------------------------------------------+
-//| SAR pullback half-TP re-entry helpers                             |
+//| Legacy pullback reason classifier                                 |
+//| Pullback/micro creation is removed; this prevents old call sites  |
+//| or old order reasons from breaking compilation/history handling.  |
 //+------------------------------------------------------------------+
 bool IsSARPullbackHalfTPReason(string reason)
-{
+  {
    return(StringFind(reason, "SAR_PULLBACK_HALF_TP") >= 0);
-}
-
-bool IsSARPullbackHalfTPAllowed(int direction, string &reason)
-{
-   reason = "";
-
-   if(!InpUseSARPullbackHalfTP)
-   {
-      reason = "Pullback half-TP disabled";
-      return(false);
-   }
-
-   if(direction == 0)
-   {
-      reason = "Pullback blocked: direction is 0";
-      return(false);
-   }
-
-   if(direction != g_activeSARDirection || direction != g_sarCycleDirection)
-   {
-      reason = "Pullback blocked: SAR direction mismatch";
-      return(false);
-   }
-
-   // Safer: enable only after at least one profitable normal SAR order closed in this SAR cycle.
-   if(g_sarClosedProfitOrdersCount < 1)
-   {
-      reason = "Pullback blocked: no previous profitable SAR close";
-      return(false);
-   }
-
-   if(g_lastClosedNormalOrderPrice <= 0.0 || g_lastClosedNormalOrderTime <= 0)
-   {
-      reason = "Pullback blocked: no last normal profit close price";
-      return(false);
-   }
-
-   if(g_lastClosedNormalOrderDirection != direction)
-   {
-      reason = "Pullback blocked: last close direction mismatch";
-      return(false);
-   }
-
-   if(Time[0] == g_lastSARPullbackOrderBarTime)
-   {
-      reason = "Pullback blocked: already opened this candle";
-      return(false);
-   }
-
-   RefreshRates();
-
-   double pullback = 0.0;
-   double livePrice = (direction == 1) ? Ask : Bid;
-
-   if(direction == 1)
-      pullback = g_lastClosedNormalOrderPrice - Ask;   // BUY SAR: price dropped from profit close
-   else
-      pullback = Bid - g_lastClosedNormalOrderPrice;   // SELL SAR: price bounced up from profit close
-
-   if(pullback < InpSARPullbackMinGap || pullback > InpSARPullbackMaxGap)
-   {
-      reason = "Pullback gap not matched | Gap=" + DoubleToString(pullback, 2) +
-               " | Need=" + DoubleToString(InpSARPullbackMinGap, 2) +
-               "-" + DoubleToString(InpSARPullbackMaxGap, 2) +
-               " | LastClose=" + DoubleToString(g_lastClosedNormalOrderPrice, Digits) +
-               " | Live=" + DoubleToString(livePrice, Digits);
-      return(false);
-   }
-
-   if(InpSARPullbackRequireRecoveryCandle)
-   {
-      // BUY: after pullback, wait for a bullish closed candle.
-      // SELL: after pullback, wait for a bearish closed candle.
-      if(direction == 1 && Close[1] <= Open[1])
-      {
-         reason = "Pullback BUY blocked: no bullish recovery candle";
-         return(false);
-      }
-
-      if(direction == -1 && Close[1] >= Open[1])
-      {
-         reason = "Pullback SELL blocked: no bearish recovery candle";
-         return(false);
-      }
-   }
-
-   reason = "PULLBACK HALF TP OK | Direction=" + DirectionText(direction) +
-            " | Gap=" + DoubleToString(pullback, 2) +
-            " | TPx=" + DoubleToString(InpSARPullbackTPMultiplier, 2) +
-            " | ProfitCloseCount=" + IntegerToString(g_sarClosedProfitOrdersCount);
-   return(true);
-}
+  }
 
 //+------------------------------------------------------------------+
 //| Repeated raw-price gap confirmation for SAR trend orders          |
 //+------------------------------------------------------------------+
 bool IsRepeatedPriceGapConfirmedForNormalOrder(int direction, string reason)
   {
-   // Pullback half-TP order is allowed exactly when normal continuity gap is not ready.
-   // It has its own -20 to -50 pullback gap validation, so do not block it here.
+   // Legacy compatibility only. New pullback/micro order creation is removed.
    if(IsSARPullbackHalfTPReason(reason))
       return(true);
 
@@ -9775,127 +8651,6 @@ void LeftChecklistInfo(string title,string value,color clrText=clrWhite)
 //+------------------------------------------------------------------+
 //| Left-side dashboard: SAR special guard order information          |
 //+------------------------------------------------------------------+
-double GetSARSpecialGuardTotalProfit()
-  {
-   double totalProfit = 0.0;
-
-   for(int i = OrdersTotal() - 1; i >= 0; i--)
-     {
-      if(!OrderSelect(i, SELECT_BY_POS, MODE_TRADES))
-         continue;
-
-      if(OrderSymbol() != Symbol() || OrderMagicNumber() != InpMagicNumber)
-         continue;
-
-      if(OrderType() != OP_BUY && OrderType() != OP_SELL)
-         continue;
-
-      if(!IsSARGuardOrderComment(OrderComment()))
-         continue;
-
-      totalProfit += OrderProfit() + OrderSwap() + OrderCommission();
-     }
-
-   return(totalProfit);
-  }
-
-//+------------------------------------------------------------------+
-int GetSARSpecialGuardParentTicket(int guardTicket, string guardComment)
-  {
-   string gvName = SARGuardGlobalVariableName(guardTicket);
-
-   if(GlobalVariableCheck(gvName))
-      return((int)GlobalVariableGet(gvName));
-
-   return(ExtractSARGuardParentTicketFromComment(guardComment));
-  }
-
-//+------------------------------------------------------------------+
-void DrawLeftSARSpecialGuardInfo()
-  {
-   int activeGuards = CountSARSpecialGuardOrders();
-   double guardProfit = GetSARSpecialGuardTotalProfit();
-
-   LeftChecklistInfo("----- SAR SPECIAL GUARD -----", "", clrYellow);
-
-   LeftChecklistInfo("Guard Enabled",
-                     InpUseSARSpecialGuardOrder ? "YES" : "NO",
-                     InpUseSARSpecialGuardOrder ? clrLime : clrOrangeRed);
-
-   LeftChecklistInfo("Guard Active/Max",
-                     IntegerToString(activeGuards) + "/" + IntegerToString(InpMaxSARSpecialGuardOrders),
-                     activeGuards > 0 ? clrYellow : clrSilver);
-
-   LeftChecklistInfo("Guard Total Profit",
-                     "$" + DoubleToString(guardProfit, 2),
-                     guardProfit >= 0.0 ? clrLime : clrRed);
-
-   LeftChecklistInfo("Guard Last Status",
-                     StringSubstr(g_sarSpecialGuardLastStatus, 0, 70),
-                     SARSpecialGuardDebugColor());
-
-   LeftChecklistInfo("Guard Last Time",
-                     DashboardTimeText(g_sarSpecialGuardLastStatusTime),
-                     g_sarSpecialGuardLastStatusTime > 0 ? clrYellow : clrSilver);
-
-   LeftChecklistInfo("Guard Last Parent",
-                     g_sarSpecialGuardLastParentTicket > 0 ?
-                     ("#" + IntegerToString(g_sarSpecialGuardLastParentTicket) +
-                      " P=$" + DoubleToString(g_sarSpecialGuardLastParentProfit, 2) +
-                      " P+R=$" + DoubleToString(g_sarSpecialGuardLastParentRecoveryProfit, 2)) : "NONE",
-                     g_sarSpecialGuardLastParentTicket > 0 ? SARSpecialGuardDebugColor() : clrSilver);
-
-   LeftChecklistInfo("Guard ReqLot/Error",
-                     "Lot " + DoubleToString(g_sarSpecialGuardLastRequestedLot, 2) +
-                     " | Err " + IntegerToString(g_sarSpecialGuardLastError),
-                     g_sarSpecialGuardLastError == 0 ? clrSilver : clrRed);
-
-   if(activeGuards <= 0)
-     {
-      LeftChecklistInfo("Guard Orders", "NONE", clrSilver);
-      return;
-     }
-
-   int shown = 0;
-
-   for(int i = OrdersTotal() - 1; i >= 0; i--)
-     {
-      if(!OrderSelect(i, SELECT_BY_POS, MODE_TRADES))
-         continue;
-
-      if(OrderSymbol() != Symbol() || OrderMagicNumber() != InpMagicNumber)
-         continue;
-
-      if(OrderType() != OP_BUY && OrderType() != OP_SELL)
-         continue;
-
-      if(!IsSARGuardOrderComment(OrderComment()))
-         continue;
-
-      int guardTicket = OrderTicket();
-      int parentTicket = GetSARSpecialGuardParentTicket(guardTicket, OrderComment());
-      int guardDir = (OrderType() == OP_BUY) ? 1 : -1;
-      double profit = OrderProfit() + OrderSwap() + OrderCommission();
-
-      string rowText =
-         "#" + IntegerToString(guardTicket) +
-         " P#" + IntegerToString(parentTicket) +
-         " " + DirectionText(guardDir) +
-         " L" + DoubleToString(OrderLots(), 2) +
-         " $" + DoubleToString(profit, 2);
-
-      LeftChecklistInfo("Guard " + IntegerToString(shown + 1),
-                        StringSubstr(rowText, 0, 70),
-                        profit >= 0.0 ? clrLime : clrRed);
-
-      shown++;
-
-      if(shown >= 4)
-         break;
-     }
-  }
-
-//+------------------------------------------------------------------+
 //| Left-side dashboard: important settings used before new orders    |
 //+------------------------------------------------------------------+
 void DrawLeftImportantOrderSettings(int direction)
@@ -9970,24 +8725,6 @@ void DrawLeftImportantOrderSettings(int direction)
                      " Req " + DoubleToString(g_pendingRecoveryRequiredGap, 0),
                      g_pendingRecoveryGapDirection == 0 ? clrSilver : clrYellow);
 
-   LeftChecklistInfo("Special Guard",
-                     (InpUseSARSpecialGuardOrder ? "ON" : "OFF") +
-                     " | Active " + IntegerToString(CountSARSpecialGuardOrders()) +
-                     "/" + IntegerToString(InpMaxSARSpecialGuardOrders),
-                     InpUseSARSpecialGuardOrder ? clrLime : clrSilver);
-
-   LeftChecklistInfo("Guard Trigger/Lot",
-                     "Loss -$" + DoubleToString(InpSARSpecialGuardLossUSD, 2) +
-                     " | Mult x" + DoubleToString(InpSARSpecialGuardLotMultiplier, 2),
-                     clrAqua);
-
-   LeftChecklistInfo("Guard SAR Condition",
-                     InpSARSpecialGuardRequireSARChange ? "SAR OPPOSITE REQUIRED" : "DISABLED - LOSS ONLY",
-                     InpSARSpecialGuardRequireSARChange ? clrYellow : clrLime);
-
-   LeftChecklistInfo("Guard Rules",
-                     "Close with parent | No recovery base",
-                     clrYellow);
 
    LeftChecklistInfo("Basket TP / SL",
                      "$" + DoubleToString(GetBasketProfitTargetUSD(), 2) +
@@ -10017,25 +8754,6 @@ void DrawLeftImportantOrderSettings(int direction)
                      " | Weak<=" + IntegerToString(InpLateSARMaxWeakScore),
                      InpUseLateSARCycleEntryBlock ? clrLime : clrSilver);
 
-   LeftChecklistInfo("SAR Weak Reverse",
-                     (InpOpenReverseOrderOnSARWeakSignal ? "ON" : "OFF") +
-                     " | Total " + IntegerToString(CountSARWeakReverseOrders()) +
-                     "/" + IntegerToString(MathMax(1, InpMaxSARWeakReverseOrders)) +
-                     " | B " + IntegerToString(CountSARWeakReverseOrdersByDirection(1)) +
-                     "/" + IntegerToString(GetMaxSARWeakReverseOrdersPerSide()) +
-                     " S " + IntegerToString(CountSARWeakReverseOrdersByDirection(-1)) +
-                     "/" + IntegerToString(GetMaxSARWeakReverseOrdersPerSide()) +
-                     " | Base " + IntegerToString(CountSARWeakReverseBaseOrdersByDirection(-g_activeSARDirection)) +
-                     " | Last " + g_sarWeakReverseLastStatus,
-                     InpOpenReverseOrderOnSARWeakSignal ?
-                     (g_sarWeakReverseLastStatus == "OPENED" ? clrLime : clrYellow) : clrSilver);
-
-   LeftChecklistInfo("Weak Reverse Last",
-                     g_sarWeakReverseLastTicket > 0 ?
-                     ("#" + IntegerToString(g_sarWeakReverseLastTicket) +
-                      " " + DirectionText(g_sarWeakReverseLastDirection) +
-                      " " + DashboardTimeText(g_sarWeakReverseLastTime)) : g_sarWeakReverseLastReason,
-                     g_sarWeakReverseLastTicket > 0 ? clrAqua : clrSilver);
 
    LeftChecklistInfo("Weak Basket Close",
                      OnOff(InpUseConfirmedSARWeakBasketClose) +
@@ -10281,19 +8999,6 @@ void RightProRow(string title,string value,color clrText=clrWhite)
    g_rightDashRow++;
   }
 
-void GuardTopRow(string title,string value,color clrText=clrWhite)
-  {
-   // Compact top-center guard panel: 3 columns instead of one tall list.
-   int col = g_guardDashRow / 4;
-   int row = g_guardDashRow % 4;
-   int x = 440 + (col * 260);
-   int y = 45 + (row * 16);
-
-   string text = PadTitle(title,17) + " : " + value;
-   DrawCornerLabel("DXB_PRO_GUARD_"+IntegerToString(g_guardDashRow),text,CORNER_LEFT_UPPER,x,y,clrText,8);
-   g_guardDashRow++;
-  }
-
 color DirectionColor(int direction)
   {
    if(direction == 1) return(clrLime);
@@ -10304,30 +9009,6 @@ color DirectionColor(int direction)
 string OnOff(bool v)
   {
    return(v ? "ON" : "OFF");
-  }
-
-void DrawTopSARSpecialGuardPanel()
-  {
-   int activeGuards = CountSARSpecialGuardOrders();
-   double guardProfit = GetSARSpecialGuardTotalProfit();
-
-   DrawCornerPanel("DXB_TOP_GUARD_PANEL",CORNER_LEFT_UPPER,430,15,840,125,clrBlack,clrDimGray);
-   DrawCornerLabel("DXB_TOP_GUARD_TITLE","SAR SPECIAL GUARD DASHBOARD",CORNER_LEFT_UPPER,695,22,clrYellow,10);
-
-   g_guardDashRow = 0;
-
-   GuardTopRow("Status",InpUseSARSpecialGuardOrder ? "ACTIVE" : "OFF",InpUseSARSpecialGuardOrder ? clrLime : clrRed);
-   GuardTopRow("Guard Active",IntegerToString(activeGuards)+" / "+IntegerToString(InpMaxSARSpecialGuardOrders),activeGuards>0 ? clrYellow : clrSilver);
-   GuardTopRow("Guard Profit","$"+DoubleToString(guardProfit,2),guardProfit>=0.0 ? clrLime : clrRed);
-   GuardTopRow("Trigger Loss","-$"+DoubleToString(InpSARSpecialGuardLossUSD,2),clrAqua);
-   GuardTopRow("Lot Multiplier",DoubleToString(InpSARSpecialGuardLotMultiplier,2)+"x",clrAqua);
-   GuardTopRow("SAR Required",InpSARSpecialGuardRequireSARChange ? "YES" : "NO",InpSARSpecialGuardRequireSARChange ? clrYellow : clrLime);
-   GuardTopRow("Close Rule",InpSpecialGuardCloseOnlyInProfit ? "PARENT CLOSE + PROFIT" : "PARENT CLOSE",clrYellow);
-   GuardTopRow("Min Close Profit","$"+DoubleToString(InpSpecialGuardMinProfitToClose,2),clrWhite);
-   GuardTopRow("Last Action",StringSubstr(g_sarSpecialGuardLastStatus,0,48),SARSpecialGuardDebugColor());
-   GuardTopRow("Last Error",IntegerToString(g_sarSpecialGuardLastError),g_sarSpecialGuardLastError==0 ? clrSilver : clrRed);
-   GuardTopRow("Last Parent",g_sarSpecialGuardLastParentTicket>0 ? "#"+IntegerToString(g_sarSpecialGuardLastParentTicket) : "NONE",g_sarSpecialGuardLastParentTicket>0 ? clrYellow : clrSilver);
-   GuardTopRow("Last Update",DashboardTimeText(g_sarSpecialGuardLastStatusTime),g_sarSpecialGuardLastStatusTime>0 ? clrAqua : clrSilver);
   }
 
 void DrawRecoveryChecklistPanel(int direction)
@@ -10357,7 +9038,6 @@ void DrawRecoveryChecklistPanel(int direction)
    RecoveryRow("Big Candle Block",YesNo(!bigOk),bigOk ? clrLime : clrOrangeRed);
    RecoveryRow("Spike/Wick Block",YesNo(!spikeOk),spikeOk ? clrLime : clrOrangeRed);
    RecoveryRow("Strong Opp Block",OnOff(InpStopRecoveryOnStrongOppMove)+" | Gap "+DoubleToString(InpStrongOppMoveBlockRecoveryGap,0),clrYellow);
-   RecoveryRow("Reverse With Rec",OnOff(InpOpenReverseOrderWithRecovery),InpOpenReverseOrderWithRecovery ? clrYellow : clrSilver);
   }
 
 
@@ -10451,7 +9131,6 @@ void DrawLeftOrderCreationChecklist(string mainStatus)
    LeftProRow("Next Order",allOk ? "ALLOWED NOW" : "WAIT / BLOCKED",allOk ? clrLime : clrOrangeRed);
 
    DrawRecoveryChecklistPanel(direction);
-   DrawTopSARSpecialGuardPanel();
   }
 
 
@@ -10586,10 +9265,9 @@ void DrawDashboard(string status)
    RightProRow("Recovery Gap",DoubleToString(InpRecoveryGapRawPrice,0),clrAqua);
    RightProRow("Recovery Lot",DoubleToString(InpRecoveryGapLot,2),clrAqua);
    RightProRow("Max Recovery",IntegerToString(InpMaxRecoveryGapOrdersPerSide),clrAqua);
-   RightProRow("Reverse Recovery",OnOff(InpOpenReverseOrderWithRecovery),InpOpenReverseOrderWithRecovery ? clrYellow : clrSilver);
    RightProRow("Opp Move Block",OnOff(InpStopRecoveryOnStrongOppMove)+" | "+DoubleToString(InpStrongOppMoveBlockRecoveryGap,0),clrYellow);
    RightProRow("Mode Recovery",IsAutoMarketRecoveryAllowed() ? "ALLOW" : "BLOCK",IsAutoMarketRecoveryAllowed() ? clrLime : clrRed);
-   RightProRow("Mode Weak/Pull",(IsAutoMarketSARWeakAllowed() ? "W" : "-") + "/" + (IsAutoMarketPullbackAllowed() ? "P" : "-"),(IsAutoMarketSARWeakAllowed() || IsAutoMarketPullbackAllowed()) ? clrLime : clrRed);
+   RightProRow("Mode Auxiliary","MICRO CREATION REMOVED",clrSilver);
 
    RightProRow("--- SAR SETTINGS ---","",clrDimGray);
    RightProRow("SAR Direction",DirectionText(g_activeSARDirection),DirectionColor(g_activeSARDirection));
