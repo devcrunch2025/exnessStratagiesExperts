@@ -20,10 +20,10 @@ MARKET_MODE g_marketMode = MODE_RANGE;
 #ifndef OP_BALANCE
 #define OP_BALANCE 6
 #endif
-#property version   "1.17"
+#property version   "1.18"
 
 //======================== INPUTS ====================================
-string InpEAName                  = "DXB Version 5 - SAR Flip / 30Min Half TP";
+string InpEAName                  = "DXB Version 5 - Live Mode Status";
 int    InpMagicNumber             = 989899;
 double InpFixedLot                = 0.01;
 int    InpMaxOrders               = 1;     // maximum normal SAR orders per SAR signal cycle
@@ -9425,15 +9425,120 @@ void IncreaseSARMaxWhenDotDistanceAndH1Same()
 //+------------------------------------------------------------------+
 //|                                                                  |
 //+------------------------------------------------------------------+
-//STRONG SAR SCORE ADDED 
+//STRONG SAR SCORE ADDED
+
+//+------------------------------------------------------------------+
+//| True when the MT4 AutoTrading / Expert Advisor switch is ON.      |
+//+------------------------------------------------------------------+
+bool IsDashboardLiveModeEnabled()
+  {
+   if(IsTesting())
+      return(false);
+
+   return(IsExpertEnabled());
+  }
+
+//+------------------------------------------------------------------+
+string DashboardLiveModeText()
+  {
+   if(IsTesting())
+      return("STRATEGY TESTER");
+
+   if(IsDashboardLiveModeEnabled())
+      return("DASHBOARD LIVE");
+
+   return("LIVE MODE DISABLED");
+  }
+
+//+------------------------------------------------------------------+
+color DashboardLiveModeColor()
+  {
+   if(IsTesting())
+      return(clrAqua);
+
+   if(IsDashboardLiveModeEnabled())
+      return(clrLime);
+
+   return(clrRed);
+  }
+
+//+------------------------------------------------------------------+
+string DashboardTradePermissionText()
+  {
+   if(IsTesting())
+      return("TESTER MODE");
+
+   if(!IsExpertEnabled())
+      return("AUTOTRADING OFF");
+
+   if(IsTradeContextBusy())
+      return("LIVE | TRADE CONTEXT BUSY");
+
+   if(!IsTradeAllowed())
+      return("LIVE | TRADING NOT ALLOWED");
+
+   return("LIVE | READY");
+  }
+
+//+------------------------------------------------------------------+
+color DashboardTradePermissionColor()
+  {
+   if(IsTesting())
+      return(clrAqua);
+
+   if(!IsExpertEnabled())
+      return(clrRed);
+
+   if(IsTradeContextBusy() || !IsTradeAllowed())
+      return(clrOrangeRed);
+
+   return(clrLime);
+  }
+
+//+------------------------------------------------------------------+
 void DrawDashboard(string status)
   {
-   DrawCornerPanel("DXB_RIGHT_SETTINGS_PANEL",CORNER_RIGHT_UPPER,325,280,320,575,clrBlack,clrDimGray);
-   DrawCornerLabel("DXB_RIGHT_SETTINGS_TITLE","Version 11 - STRONG SAR SCORE / LIVE STATUS",CORNER_RIGHT_UPPER,300,287,clrYellow,10);
+   DrawCornerPanel("DXB_RIGHT_SETTINGS_PANEL",
+                   CORNER_RIGHT_UPPER,
+                   325,280,320,610,
+                   clrBlack,clrDimGray);
+
+   string liveModeText = DashboardLiveModeText();
+   color liveModeColor = DashboardLiveModeColor();
+
+   // Large top-center warning/confirmation banner.
+   DrawCornerPanel("DXB_LIVE_MODE_BANNER_PANEL",
+                   CORNER_LEFT_UPPER,
+                   360,5,310,36,
+                   clrBlack,liveModeColor);
+
+   DrawCornerLabel("DXB_LIVE_MODE_BANNER",
+                   liveModeText,
+                   CORNER_LEFT_UPPER,
+                   410,13,
+                   liveModeColor,
+                   13);
+
+   DrawCornerLabel("DXB_RIGHT_SETTINGS_TITLE",
+                   liveModeText + " | VERSION 1.18",
+                   CORNER_RIGHT_UPPER,
+                   300,287,
+                   liveModeColor,
+                   11);
 
    g_rightDashRow = 0;
 
-   RightProRow("Status",StringSubstr(status,0,38),clrYellow);
+   RightProRow("LIVE MODE",
+               liveModeText,
+               liveModeColor);
+
+   RightProRow("Trade Permission",
+               DashboardTradePermissionText(),
+               DashboardTradePermissionColor());
+
+   RightProRow("EA Status",
+               StringSubstr(status,0,38),
+               clrYellow);
    RightProRow("--- TRADING ---","",clrDimGray);
    RightProRow("Lot Size",DoubleToString(InpFixedLot,2),clrWhite);
    RightProRow("Slippage",IntegerToString(InpSlippage),clrWhite);
@@ -9519,7 +9624,11 @@ void DrawDashboard(string status)
 
    g_rightDashRow = startRow;
 
-   Print("DASHBOARD UPDATE | Status=", status,
+   string dashboardLogPrefix = DashboardLiveModeText();
+
+   Print(dashboardLogPrefix,
+         " | TradePermission=", DashboardTradePermissionText(),
+         " | Status=", status,
          " | SAR=", DirectionText(g_activeSARDirection),
          " | Early=", DirectionText(g_earlyDirection),
          " | SAR Paused=", (g_sarPausedByEarly ? "YES" : "NO"),
