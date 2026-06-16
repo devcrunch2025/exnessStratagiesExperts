@@ -20,7 +20,7 @@ MARKET_MODE g_marketMode = MODE_RANGE;
 #ifndef OP_BALANCE
 #define OP_BALANCE 6
 #endif
-#property version   "1.12"
+#property version   "1.13"
 
 //======================== INPUTS ====================================
 string InpEAName                  = "DXB Version 5 - Specila Order";
@@ -297,7 +297,7 @@ int    InpLast3CandlesPauseMinutes = 5;
 // 2) its body is no more than InpSpikeWickBodyMaxPercent of that larger wick.
 // Example: Wick=100 and setting=50 => Body must be <=50.
 // Long-body / momentum candles are NOT classified as spike candles here.
-bool   InpUseSpikeWickPauseFilter = true;
+bool   InpUseSpikeWickPauseFilter = false;
 double InpSpikeWickMinRawPrice    = 30.0;   // minimum larger wick raw price
 double InpSpikeWickBodyMaxPercent = 50.0;    // body must be <= this % of the larger wick
 
@@ -467,9 +467,17 @@ int    InpSARGoodMomentumMinSameCandles = 1;
 // the current BTC movement is strong enough to follow. It auto-adjusts
 // using ATR, ADX, EMA distance and long-bar behaviour, so you do not
 // need to keep changing fixed BTC price values every week.
-bool   InpUseDynamicSAREngine              = false;
-bool   InpBlockNewOrdersWhenSARWeak        = false;
-bool   InpBlockFastSARFlip                 = false;
+bool   InpUseDynamicSAREngine              = true;
+bool   InpBlockNewOrdersWhenSARWeak        = true;
+bool   InpBlockFastSARFlip                 = true;
+
+// STRICT SAR SCORE ENTRY:
+// Every NEW non-guard market order must reach this score before OrderSend.
+// Current SAR quality score range is normally 0..7.
+// Special guard orders remain exempt because they are protection orders.
+bool   InpUseStrictSARScoreEntry            = true;
+int    InpStrictSARMinimumScore             = 6;     // strict recommended value: 6 of 7
+
 int    InpDynamicATRPeriod                 = 14;
 int    InpDynamicMinSignalMinutes          = 20;   // normal minimum SAR age before new normal order
 int    InpDynamicVeryStrongMinMinutes      = 10;   // allow earlier only if score is very strong
@@ -491,7 +499,7 @@ int    InpDynamicWeakScore                 = 2;
 // or when the last closed candles are already moving against the current SAR direction.
 bool   InpUseLateSARCycleEntryBlock       = true;
 int    InpLateSARMinAgeMinutes            = 15;   // start blocking late-cycle entries after this SAR age
-int    InpLateSARMaxWeakScore             = 3;    // block when dynamic SAR score is <= this value after min age
+int    InpLateSARMaxWeakScore             = 4;    // block when dynamic SAR score is <= this value after min age
 bool   InpLateSARBlockOnOpposite3Candles  = true; // BUY SAR + 3 falling closes, SELL SAR + 3 rising closes
 bool   InpLateSARBlockOnWeakExit          = true; // block if early SAR weak exit is already active
 
@@ -505,7 +513,7 @@ bool   InpCloseBasketOnSARWeakExit     = false;   // close active BUY/SELL baske
 double InpEarlySARWeakExitMinProfitUSD = 1;//0.20;  // close weak basket if already in small profit
 double InpEarlySARWeakExitMaxLossUSD   = 5;//1.50;  // close weak basket before SAR flip if loss reaches this
 double InpEarlySARWeakExitTrailUSD     = 0.75;  // if profit falls from peak by this value, close
-int    InpEarlySARWeakExitNeedSignals  = 3;     // minimum weakness points required
+int    InpEarlySARWeakExitNeedSignals  = 4;     // minimum weakness points required
 int    InpEarlySARWeakExitMinAgeMin    = 5;     // avoid closing immediately after fresh flip
 int    InpEarlySARWeakExitCooldownSec  = 60;    // avoid repeat close loop
 
@@ -3875,6 +3883,10 @@ bool OpenRecoveryOrder(int direction, string sourceReason)
    if(direction == 0)
       return(false);
 
+   if(!IsStrictSARScoreAllowedForNewOrder(direction,
+                                          "OpenRecoveryOrder " + sourceReason))
+      return(false);
+
    UpdateAutoMarketFlowMode();
    if(!IsAutoMarketNewOrderAllowed("RECOVERY " + sourceReason))
      {
@@ -4072,6 +4084,10 @@ bool OpenReverseOrderForRecovery(int recoveryDirection, int recoveryNumber, doub
 
    int reverseDirection = -recoveryDirection;
 
+   if(!IsStrictSARScoreAllowedForNewOrder(reverseDirection,
+                                          "OpenReverseOrderForRecovery"))
+      return(false);
+
    UpdateAutoMarketFlowMode();
    if(!IsAutoMarketNewOrderAllowed("RECOVERY_HEDGE"))
      {
@@ -4161,6 +4177,10 @@ bool OpenReverseOrderForRecovery(int recoveryDirection, int recoveryNumber, doub
 bool OpenRecoveryGapMarketOrder(int direction, double gapMove)
   {
    if(direction == 0)
+      return(false);
+
+   if(!IsStrictSARScoreAllowedForNewOrder(direction,
+                                          "OpenRecoveryGapMarketOrder"))
       return(false);
 
    if(IsOrderBlockedByOppositeDirectionProfitPause(direction, "OpenRecoveryGapMarketOrder"))
@@ -6594,6 +6614,14 @@ bool OpenSARWeakReverseMarketOrder(int reverseDirection, string weakReason)
    if(reverseDirection == 0)
       return(false);
 
+   if(!IsStrictSARScoreAllowedForNewOrder(reverseDirection,
+                                          "SAR_WEAK_REVERSE"))
+     {
+      g_sarWeakReverseLastStatus = "BLOCKED SAR SCORE";
+      g_sarWeakReverseLastReason = g_lastOrderOpenReason;
+      return(false);
+     }
+
    UpdateAutoMarketFlowMode();
    if(!IsAutoMarketNewOrderAllowed("SAR_WEAK_REVERSE"))
      {
@@ -7989,6 +8017,70 @@ bool IsDynamicSARAllowedForNewOrder(int direction, string &whyBlocked)
    return(true);
   }
 
+//+------------------------------------------------------------------+
+int GetStrictSARMinimumScore()
+  {
+   int required = InpStrictSARMinimumScore;
+
+   if(required < 0)
+      required = 0;
+   if(required > 7)
+      required = 7;
+
+   return(required);
+  }
+
+//+------------------------------------------------------------------+
+//| Final hard gate used before every non-guard market entry.        |
+//| Direct OrderSend paths cannot bypass this score requirement.      |
+//+------------------------------------------------------------------+
+bool IsStrictSARScoreAllowedForNewOrder(int direction, string source)
+  {
+   if(!InpUseStrictSARScoreEntry)
+      return(true);
+
+   if(direction == 0)
+     {
+      string zeroMsg = "STRICT SAR SCORE BLOCK | Direction=NONE | Source=" + source;
+      g_lastOrderOpenReason = zeroMsg;
+      g_lastOrderBlockTime = TimeCurrent();
+      SetLastOrderBlockDashboard(zeroMsg);
+      Print(zeroMsg);
+      return(false);
+     }
+
+   int required = GetStrictSARMinimumScore();
+   int score = GetDynamicSARStrengthScore(direction);
+
+   if(score < required)
+     {
+      g_dynamicSARDecision = "STRICT SCORE BLOCK";
+
+      string msg = "STRICT SAR SCORE BLOCK | Direction=" +
+                   DirectionText(direction) +
+                   " | Score=" + IntegerToString(score) +
+                   "/" + IntegerToString(required) +
+                   " | ATR=" + DoubleToString(g_dynamicSARATR, 1) +
+                   " | ADX=" + DoubleToString(g_dynamicSARADX, 1) +
+                   " | Dot=" + DoubleToString(g_dynamicSARDotDistance, 1) +
+                   " | Source=" + source;
+
+      g_lastOrderOpenReason = msg;
+      g_lastOrderBlockTime = TimeCurrent();
+      SetLastOrderBlockDashboard(msg);
+      Print(msg);
+      return(false);
+     }
+
+   g_dynamicSARDecision = "STRICT SCORE ALLOW";
+
+   Print("STRICT SAR SCORE ALLOW | Direction=", DirectionText(direction),
+         " | Score=", score, "/", required,
+         " | Source=", source);
+
+   return(true);
+  }
+
 
 //+------------------------------------------------------------------+
 bool IsNormalSAROrderReason(string reason)
@@ -9050,6 +9142,10 @@ bool OpenMarketOrder(int direction, string reason)
 
    if(direction == 0)
       return BlockOrder("Direction is 0 | Source=" + reason);
+
+   if(!IsStrictSARScoreAllowedForNewOrder(direction,
+                                          "OpenMarketOrder " + reason))
+      return(false);
 
    if(IsOrderBlockedByOppositeDirectionProfitPause(direction, reason))
       return(false);
@@ -10293,10 +10389,15 @@ void DrawLeftOrderCreationChecklist(string mainStatus)
    bool okOppositePause = (!IsOppositeDirectionProfitPauseActive() ||
                            direction != g_oppositePausedDirection);
 
+   int strictSARRequired = GetStrictSARMinimumScore();
+   int checklistSARScore = (direction != 0) ? GetDynamicSARStrengthScore(direction) : 0;
+   bool okStrictSARScore = (!InpUseStrictSARScoreEntry ||
+                            checklistSARScore >= strictSARRequired);
+
    bool allOk = okDirection && okTrading && okSpread && okEquity && okNoHour &&
                 okProfitPause && okBigCandle && okSpikeWick && okSARConfirm && okH1 && okCycle &&
                 okMaxOpen && okTotalOpen && okMinGap && okSARSide && okLateSAR && okRepeatedGap &&
-                okOppositePause;
+                okOppositePause && okStrictSARScore;
 
    DrawCornerPanel("DXB_LEFT_CHK_PANEL",CORNER_LEFT_UPPER,5,15,405,585,clrBlack,clrDimGray);
    DrawCornerLabel("DXB_LEFT_CHK_TITLE","ORDER CREATION CHECKLIST",CORNER_LEFT_UPPER,10,22,clrYellow,10);
@@ -10324,7 +10425,14 @@ void DrawLeftOrderCreationChecklist(string mainStatus)
    LeftProRow("SAR Momentum",IsCurrentSARGoodMomentum(g_activeSARDirection) ? "GOOD" : "WEAK",IsCurrentSARGoodMomentum(g_activeSARDirection) ? clrLime : clrOrangeRed);
    LeftProRow("SAR Weak Mark",StringSubstr(g_lastSARWeakSignalMarkerReason,0,45),g_lastSARWeakSignalMarkerReason=="OFF" ? clrSilver : InpSARWeakSignalMarkerColor);
    LeftProCheck("Late Entry",okLateSAR,LateSARCycleEntryStatusText(direction));
-   LeftProRow("SAR Score",IntegerToString(g_dynamicSARScore)+" / "+IntegerToString(InpDynamicStrongScore)+" | "+g_dynamicSARDecision,g_dynamicSARScore>=InpDynamicStrongScore ? clrLime : clrOrange);
+   LeftProCheck("Strict SAR Score",okStrictSARScore,
+                IntegerToString(checklistSARScore)+"/"+
+                IntegerToString(strictSARRequired));
+   LeftProRow("SAR Score",
+              IntegerToString(g_dynamicSARScore)+" / "+
+              IntegerToString(strictSARRequired)+" | "+
+              g_dynamicSARDecision,
+              g_dynamicSARScore>=strictSARRequired ? clrLime : clrOrange);
 
    LeftProRow("--- TRADING FILTERS ---","",clrDimGray);
    LeftProCheck("Trading Allowed",okTrading);
