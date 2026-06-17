@@ -20,10 +20,10 @@ MARKET_MODE g_marketMode = MODE_RANGE;
 #ifndef OP_BALANCE
 #define OP_BALANCE 6
 #endif
-#property version   "1.18"
+#property version   "1.20"
 
 //======================== INPUTS ====================================
-string InpEAName                  = "DXB Version 5 - Live Mode Status";
+string InpEAName                  = "DXB Version 5 - Doubtful Next Candle";
 int    InpMagicNumber             = 989899;
 double InpFixedLot                = 0.01;
 int    InpMaxOrders               = 1;     // maximum normal SAR orders per SAR signal cycle
@@ -32,6 +32,13 @@ double InpMinGapWhenMaxOrdersMoreThanOne = 70.0; // when InpMaxOrders > 1, enfor
 #define DXB_HARD_MAX_OPEN_ORDERS 6  // absolute safety cap for normal SAR orders per cycle
 
 double InpBasketProfitUSD         = 1.00;
+
+// MIXED market-mode basket target:
+// Example: InpBasketProfitUSD=$1.00 and multiplier=0.50
+// => combined BUY+SELL target and each BUY/SELL side target become $0.50
+// while Auto Market Flow mode is MIXED.
+bool   InpUseMixedModeHalfBasketTP       = true;
+double InpMixedModeBasketTPMultiplier    = 0.50;
 
 // SAR-flipped old basket profit target:
 // Example: a BUY basket was opened during SAR BUY, then SAR flips to SELL
@@ -54,7 +61,7 @@ double InpBasketStopLossUSD       = 5;//2;//5.00;    // BASKET stop loss in USD,
 
 double InpContinuousTrendBasketSLUSD   =5;//1;// 2;//5.00;
 double InpMediumTrendBasketSLUSD       = 10;//10;//1;//2;//10.00;
-double InpMixedTrendBasketSLUSD        = 5;//10;//1;//2;//10.00;
+double InpMixedTrendBasketSLUSD        = 10;//5;//10;//1;//2;//10.00;
 double InpDangerModeBasketSLUSD        = 5;//1;//2;//5.00;
 
 // Simple basket close mode:
@@ -258,7 +265,7 @@ double InpMinPriceGap             = 0.00;    // raw price gap, 0 = disabled
 
 // No-trading hours: block NEW normal SAR orders only. Close/profit/protection/recovery management still runs.
 bool   InpUseNoNewOrderHours      = false;
-string InpNoNewOrderHourList      = "12,13,18,19,22,23";//"0,23";//"13,14,15,16,17,18"; // server-time hours to block new orders
+string InpNoNewOrderHourList      = "13,14,15,16,17,18";//"0,23";//"13,14,15,16,17,18"; // server-time hours to block new orders
 
 
 
@@ -440,7 +447,7 @@ int InpSARGoodMomentumExtraOrders = 1;
 bool InpResetMaxOrdersWhenSARWeak = false;
 
 bool InpIncreaseSARMaxAfterActiveMinutes = true;
-int  InpSARActiveMinutesForExtraOrders = 30;
+int  InpSARActiveMinutesForExtraOrders = 60;
 int  InpSARActiveExtraOrders = 1;
 
 // SAR good-momentum upgrade
@@ -469,6 +476,18 @@ bool   InpBlockFastSARFlip                 = true;
 // Legacy guard orders are recognized only for safe cleanup.
 bool   InpUseStrictSARScoreEntry            = true;
 int    InpStrictSARMinimumScore             = 6;     // strict recommended value: 6 of 7
+
+//================ DOUBTFUL CANDLE NEXT CONFIRMATION ================
+// Normal SAR orders only. Recovery orders are not affected.
+// SELL: a long lower wick is doubtful. BUY: a long upper wick is doubtful.
+// The next fully closed candle must confirm before OrderSend.
+bool   InpUseDoubtfulCandleNextConfirm       = true;
+double InpDoubtfulOppositeWickMinRaw         = 20.0;
+double InpDoubtfulOppositeWickBodyRatio      = 0.70;
+double InpDoubtfulMinBodyPercentOfRange      = 35.0;
+double InpDoubtfulStrongClosePercent         = 60.0;
+bool   InpDoubtfulConfirmMustBreakExtreme    = true;
+double InpDoubtfulConfirmBreakBufferRaw      = 0.0;
 
 int    InpDynamicATRPeriod                 = 14;
 int    InpDynamicMinSignalMinutes          = 20;   // normal minimum SAR age before new normal order
@@ -639,6 +658,15 @@ int      g_sarClosedProfitOrdersCount = 0;
 // Last normal order open result. Used by dashboard/status when OpenMarketOrder() returns false.
 string   g_lastOrderOpenReason    = "WAIT ORDER";
 datetime g_lastOrderBlockTime     = 0;
+
+// Doubtful-candle next-confirmation state for NORMAL SAR orders.
+int      g_doubtConfirmDirection       = 0;
+datetime g_doubtConfirmReferenceTime   = 0;
+double   g_doubtConfirmReferenceHigh   = 0.0;
+double   g_doubtConfirmReferenceLow    = 0.0;
+double   g_doubtConfirmReferenceClose  = 0.0;
+string   g_doubtConfirmStatus          = "READY";
+string   g_doubtConfirmReason          = "NONE";
 
 // Last successful close result. Used by left dashboard so close reason is not missed.
 string   g_lastOrderCloseMessage  = "NO CLOSE YET";
@@ -1632,14 +1660,52 @@ string BasketProfitTimeDecayStatusText()
 }
 
 //+------------------------------------------------------------------+
+bool IsMixedModeHalfBasketTPActive()
+  {
+   return(InpUseMixedModeHalfBasketTP &&
+          InpUseAutoMarketFlowMode &&
+          g_autoMarketMode == DXB_MARKET_MODE_MIXED);
+  }
+
+//+------------------------------------------------------------------+
+double GetMixedModeBasketTPMultiplier()
+  {
+   if(!IsMixedModeHalfBasketTPActive())
+      return(1.0);
+
+   double multiplier = InpMixedModeBasketTPMultiplier;
+
+   if(multiplier <= 0.0)
+      multiplier = 0.50;
+
+   if(multiplier > 1.0)
+      multiplier = 1.0;
+
+   return(multiplier);
+  }
+
+//+------------------------------------------------------------------+
+double GetMixedModeBasketProfitTargetUSD()
+  {
+   return(MathMax(0.01,
+                  MathAbs(InpBasketProfitUSD) *
+                  GetMixedModeBasketTPMultiplier()));
+  }
+
+//+------------------------------------------------------------------+
 double GetBasketProfitTargetUSD()
 {
    if(InpUseSimpleSideBasketCloseOnly)
      {
       int simpleCount = CountOpenOrders();
+
       if(simpleCount <= 0)
          simpleCount = 1;
-      return(InpBasketProfitUSD / simpleCount);
+
+      double simpleBaseTarget =
+         InpBasketProfitUSD * GetMixedModeBasketTPMultiplier();
+
+      return(MathMax(0.01, simpleBaseTarget / simpleCount));
      }
 
    int h = TimeHour(TimeCurrent());
@@ -1651,6 +1717,9 @@ double GetBasketProfitTargetUSD()
 
    if(h >= 12 && h <= 17)
       baseTarget = InpBasketProfitUSD_12_17;
+
+   // MIXED mode closes the basket faster at half of the configured base TP.
+   baseTarget = baseTarget * GetMixedModeBasketTPMultiplier();
 
    double target = baseTarget / count;
 
@@ -1923,6 +1992,13 @@ void ResetTradingCycleState()
    g_sarClosedProfitOrdersCount = 0;
    g_lastOrderOpenReason     = "WAIT ORDER";
    g_lastOrderBlockTime      = 0;
+   g_doubtConfirmDirection      = 0;
+   g_doubtConfirmReferenceTime  = 0;
+   g_doubtConfirmReferenceHigh  = 0.0;
+   g_doubtConfirmReferenceLow   = 0.0;
+   g_doubtConfirmReferenceClose = 0.0;
+   g_doubtConfirmStatus         = "READY";
+   g_doubtConfirmReason         = "TRADING CYCLE RESET";
    g_lastOrderCloseMessage   = "NO CLOSE YET";
    g_lastOrderCloseTime      = 0;
    g_pendingRecoveryGapDirection = 0;
@@ -5774,6 +5850,7 @@ bool ProcessBasketCloseByDirection(int direction, string &status)
    double target = GetBasketProfitTargetForDirection(direction);
    bool oppositeAfterFlip = IsOppositeBasketAfterSARFlip(direction);
    bool agedHalfTP = IsBasketHalfTPAfterTime(direction);
+   bool mixedHalfTP = IsMixedModeHalfBasketTPActive();
    string reducedTPReason = GetReducedBasketTPReasonText(direction);
    double effectiveBasketSL2 = GetEffectiveBasketStopLossUSD();
 
@@ -5800,7 +5877,7 @@ bool ProcessBasketCloseByDirection(int direction, string &status)
 
    if(profit >= target)
      {
-      string tpReason = (oppositeAfterFlip || agedHalfTP)
+      string tpReason = (oppositeAfterFlip || agedHalfTP || mixedHalfTP)
                         ? reducedTPReason + " | " +
                           DirectionText(direction) +
                           " basket profit $" + DoubleToString(profit, 2)
@@ -5816,7 +5893,7 @@ bool ProcessBasketCloseByDirection(int direction, string &status)
          g_sarDelayedCloseStatus          = "Basket TP reset";
         }
 
-      Print((oppositeAfterFlip || agedHalfTP)
+      Print((oppositeAfterFlip || agedHalfTP || mixedHalfTP)
                ? "REDUCED BASKET TP HIT | Direction="
                : "BASKET PROFIT HIT | Direction=",
             DirectionText(direction),
@@ -5826,7 +5903,7 @@ bool ProcessBasketCloseByDirection(int direction, string &status)
             " | Profit=$", DoubleToString(profit, 2),
             " | Target=$", DoubleToString(target, 2));
 
-      status = (oppositeAfterFlip || agedHalfTP)
+      status = (oppositeAfterFlip || agedHalfTP || mixedHalfTP)
                ? reducedTPReason + " " + DirectionText(direction)
                : "Basket TP " + DirectionText(direction);
       return(true);
@@ -6138,22 +6215,37 @@ bool IsOppositeBasketAfterSARFlip(int direction)
 //+------------------------------------------------------------------+
 string GetReducedBasketTPReasonText(int direction)
   {
+   bool mixed   = IsMixedModeHalfBasketTPActive();
    bool flipped = IsOppositeBasketAfterSARFlip(direction);
    bool aged    = IsBasketHalfTPAfterTime(direction);
 
-   if(flipped && aged)
-      return("SAR FLIP + " +
-             IntegerToString(MathMax(1, InpBasketHalfTPAfterMinutes)) +
-             " MIN HALF TP");
+   string reason = "";
+
+   if(mixed)
+      reason = "MIXED HALF TP";
 
    if(flipped)
-      return("SAR FLIP HALF TP");
+     {
+      if(reason != "")
+         reason += " + ";
+
+      reason += "SAR FLIP HALF TP";
+     }
 
    if(aged)
-      return(IntegerToString(MathMax(1, InpBasketHalfTPAfterMinutes)) +
-             " MIN HALF TP");
+     {
+      if(reason != "")
+         reason += " + ";
 
-   return("NORMAL TP");
+      reason += IntegerToString(
+                   MathMax(1, InpBasketHalfTPAfterMinutes)) +
+                " MIN HALF TP";
+     }
+
+   if(reason == "")
+      reason = "NORMAL TP";
+
+   return(reason);
   }
 
 //+------------------------------------------------------------------+
@@ -6623,8 +6715,9 @@ void OnTick()
      }
 
 // FIRST PRIORITY PROFIT BOOKING:
-// 1) Close ALL BUY+SELL open EA orders if combined profit >= InpBasketProfitUSD.
-// 2) Otherwise close BUY basket or SELL basket individually if that side profit >= InpBasketProfitUSD.
+// 1) Close ALL BUY+SELL open EA orders when combined profit reaches the live target.
+// 2) Otherwise close BUY or SELL side independently at its live target.
+// In MIXED mode the live target is InpBasketProfitUSD * 0.50.
    string firstPriorityStatus = "RUNNING";
    bool closedByFirstPriority = false;
    if(ProcessFirstPriorityBasketProfitClose(firstPriorityStatus))
@@ -7235,6 +7328,296 @@ bool IsStrictSARScoreAllowedForNewOrder(int direction, string source)
 
 
 //+------------------------------------------------------------------+
+//| Reset doubtful-candle pending confirmation.                       |
+//+------------------------------------------------------------------+
+void ResetDoubtfulCandleConfirmation(string reason)
+  {
+   g_doubtConfirmDirection      = 0;
+   g_doubtConfirmReferenceTime  = 0;
+   g_doubtConfirmReferenceHigh  = 0.0;
+   g_doubtConfirmReferenceLow   = 0.0;
+   g_doubtConfirmReferenceClose = 0.0;
+   g_doubtConfirmStatus         = "READY";
+   g_doubtConfirmReason         = reason;
+  }
+
+//+------------------------------------------------------------------+
+bool IsDoubtfulSignalCandle(int direction,
+                            int shift,
+                            string &whyDoubtful)
+  {
+   whyDoubtful = "";
+
+   if(!InpUseDoubtfulCandleNextConfirm)
+      return(false);
+
+   if(direction == 0 || shift < 1 || Bars <= shift + 2)
+     {
+      whyDoubtful = "INVALID DATA";
+      return(true);
+     }
+
+   double o = iOpen(Symbol(), PERIOD_M1, shift);
+   double c = iClose(Symbol(), PERIOD_M1, shift);
+   double h = iHigh(Symbol(), PERIOD_M1, shift);
+   double l = iLow(Symbol(), PERIOD_M1, shift);
+   double range = h - l;
+
+   if(range <= 0.0)
+     {
+      whyDoubtful = "ZERO RANGE";
+      return(true);
+     }
+
+   double body = MathAbs(c - o);
+   double upperWick = MathMax(0.0, h - MathMax(o, c));
+   double lowerWick = MathMax(0.0, MathMin(o, c) - l);
+   double oppositeWick = (direction == 1) ? upperWick : lowerWick;
+   double bodyPercent = (body / range) * 100.0;
+   double closeLocation = ((c - l) / range) * 100.0;
+
+   bool correctColor = (direction == 1) ? (c > o) : (c < o);
+
+   bool wrongSideWick =
+      (oppositeWick >= MathMax(0.0, InpDoubtfulOppositeWickMinRaw) &&
+       (body <= 0.0 ||
+        oppositeWick >= body *
+        MathMax(0.0, InpDoubtfulOppositeWickBodyRatio)));
+
+   bool weakBody =
+      (bodyPercent <
+       MathMax(0.0, InpDoubtfulMinBodyPercentOfRange));
+
+   double strongClose =
+      MathMax(50.0, MathMin(100.0,
+                           InpDoubtfulStrongClosePercent));
+
+   bool weakClose =
+      (direction == 1)
+      ? (closeLocation < strongClose)
+      : (closeLocation > 100.0 - strongClose);
+
+   if(!correctColor || wrongSideWick || weakBody || weakClose)
+     {
+      whyDoubtful =
+         (!correctColor ? "WRONG COLOR; " : "") +
+         (wrongSideWick ? "OPPOSITE WICK; " : "") +
+         (weakBody ? "SMALL BODY; " : "") +
+         (weakClose ? "WEAK CLOSE; " : "") +
+         "Body=" + DoubleToString(body, 1) +
+         " Wick=" + DoubleToString(oppositeWick, 1) +
+         " Body%=" + DoubleToString(bodyPercent, 1) +
+         " CloseLoc=" + DoubleToString(closeLocation, 1) + "%";
+
+      return(true);
+     }
+
+   return(false);
+  }
+
+//+------------------------------------------------------------------+
+bool IsNextCandleConfirmationPassed(int direction,
+                                    string &confirmDetails)
+  {
+   confirmDetails = "";
+
+   if(direction == 0 ||
+      g_doubtConfirmReferenceTime <= 0 ||
+      Time[1] <= g_doubtConfirmReferenceTime)
+     {
+      confirmDetails = "WAIT NEXT CLOSED CANDLE";
+      return(false);
+     }
+
+   double o = Open[1];
+   double c = Close[1];
+   double buffer = MathMax(0.0,
+                           InpDoubtfulConfirmBreakBufferRaw);
+   bool correctColor =
+      (direction == 1) ? (c > o) : (c < o);
+
+   double requiredClose = 0.0;
+
+   if(direction == 1)
+      requiredClose =
+         InpDoubtfulConfirmMustBreakExtreme
+         ? g_doubtConfirmReferenceHigh + buffer
+         : g_doubtConfirmReferenceClose + buffer;
+   else
+      requiredClose =
+         InpDoubtfulConfirmMustBreakExtreme
+         ? g_doubtConfirmReferenceLow - buffer
+         : g_doubtConfirmReferenceClose - buffer;
+
+   bool priceConfirm =
+      (direction == 1)
+      ? (c > requiredClose)
+      : (c < requiredClose);
+
+   confirmDetails =
+      "Color=" + (correctColor ? "YES" : "NO") +
+      " | Close=" + DoubleToString(c, Digits) +
+      " | Need=" + DoubleToString(requiredClose, Digits);
+
+   return(correctColor && priceConfirm);
+  }
+
+//+------------------------------------------------------------------+
+void StoreDoubtfulCandleReference(int direction,
+                                  int shift,
+                                  string reason)
+  {
+   g_doubtConfirmDirection      = direction;
+   g_doubtConfirmReferenceTime  = Time[shift];
+   g_doubtConfirmReferenceHigh  = High[shift];
+   g_doubtConfirmReferenceLow   = Low[shift];
+   g_doubtConfirmReferenceClose = Close[shift];
+   g_doubtConfirmStatus         = "WAIT NEXT CANDLE";
+   g_doubtConfirmReason         = reason;
+  }
+
+//+------------------------------------------------------------------+
+bool IsDoubtfulCandleConfirmationAllowed(int direction,
+                                         string source)
+  {
+   if(!InpUseDoubtfulCandleNextConfirm)
+      return(true);
+
+   if(direction == 0 || Bars < 5)
+      return(false);
+
+   if(g_doubtConfirmDirection != 0 &&
+      g_doubtConfirmDirection != direction)
+      ResetDoubtfulCandleConfirmation("DIRECTION CHANGED");
+
+   if(g_doubtConfirmDirection == direction &&
+      g_doubtConfirmReferenceTime > 0)
+     {
+      string details = "";
+
+      if(IsNextCandleConfirmationPassed(direction, details))
+        {
+         Print("DOUBTFUL CANDLE CONFIRMED | Direction=",
+               DirectionText(direction),
+               " | Reference=",
+               TimeToString(g_doubtConfirmReferenceTime,
+                            TIME_DATE|TIME_MINUTES),
+               " | ", details,
+               " | Source=", source);
+
+         ResetDoubtfulCandleConfirmation(
+            "CONFIRMED | " + details);
+         return(true);
+        }
+
+      // A later candle failed confirmation. Roll the reference forward,
+      // then require another next closed candle.
+      if(Time[1] > g_doubtConfirmReferenceTime)
+        {
+         string latestReason = "";
+         IsDoubtfulSignalCandle(direction, 1, latestReason);
+
+         StoreDoubtfulCandleReference(
+            direction,
+            1,
+            "NEXT CANDLE FAILED | " + details +
+            (latestReason != "" ? " | " + latestReason : ""));
+        }
+
+      string waitMsg =
+         "DOUBTFUL CANDLE WAIT | Direction=" +
+         DirectionText(direction) +
+         " | Ref=" +
+         TimeToString(g_doubtConfirmReferenceTime,
+                      TIME_DATE|TIME_MINUTES) +
+         " | " + g_doubtConfirmReason +
+         " | Source=" + source;
+
+      g_lastOrderOpenReason = waitMsg;
+      g_lastOrderBlockTime = TimeCurrent();
+      SetLastOrderBlockDashboard(waitMsg);
+      Print(waitMsg);
+      return(false);
+     }
+
+   string doubtReason = "";
+
+   if(IsDoubtfulSignalCandle(direction, 1, doubtReason))
+     {
+      StoreDoubtfulCandleReference(direction, 1,
+                                   doubtReason);
+
+      string blockMsg =
+         "DOUBTFUL CANDLE DETECTED | WAIT NEXT CANDLE | Direction=" +
+         DirectionText(direction) +
+         " | " + doubtReason +
+         " | Source=" + source;
+
+      g_lastOrderOpenReason = blockMsg;
+      g_lastOrderBlockTime = TimeCurrent();
+      SetLastOrderBlockDashboard(blockMsg);
+      Print(blockMsg);
+      return(false);
+     }
+
+   g_doubtConfirmStatus = "READY";
+   g_doubtConfirmReason = "LAST CANDLE STRONG";
+   return(true);
+  }
+
+//+------------------------------------------------------------------+
+bool IsDoubtfulCandleReadyForDashboard(int direction)
+  {
+   if(!InpUseDoubtfulCandleNextConfirm)
+      return(true);
+
+   if(direction == 0)
+      return(false);
+
+   if(g_doubtConfirmDirection == direction &&
+      g_doubtConfirmReferenceTime > 0)
+     {
+      string details = "";
+      return(IsNextCandleConfirmationPassed(direction,
+                                            details));
+     }
+
+   string reason = "";
+   return(!IsDoubtfulSignalCandle(direction, 1, reason));
+  }
+
+//+------------------------------------------------------------------+
+string DoubtfulCandleStatusText(int direction)
+  {
+   if(!InpUseDoubtfulCandleNextConfirm)
+      return("OFF");
+
+   if(g_doubtConfirmDirection != 0 &&
+      g_doubtConfirmReferenceTime > 0)
+     {
+      string details = "";
+
+      if(IsNextCandleConfirmationPassed(
+            g_doubtConfirmDirection, details))
+         return("CONFIRMED | " + details);
+
+      return("WAIT " +
+             DirectionText(g_doubtConfirmDirection) +
+             " | " +
+             StringSubstr(g_doubtConfirmReason, 0, 42));
+     }
+
+   string reason = "";
+
+   if(IsDoubtfulSignalCandle(direction, 1, reason))
+      return("DOUBTFUL | " +
+             StringSubstr(reason, 0, 42));
+
+   return("READY | LAST CANDLE STRONG");
+  }
+
+
+//+------------------------------------------------------------------+
 bool IsNormalSAROrderReason(string reason)
   {
    if(StringFind(reason, "SAR_FLIP") >= 0)
@@ -7608,6 +7991,7 @@ void ResetSARSignalOrderCycle(int direction, string reason)
    g_lastClosedNormalOrderDirection = 0;
    g_sarClosedProfitOrdersCount = 0;
 
+   ResetDoubtfulCandleConfirmation("SAR CYCLE RESET");
    Print("SAR ORDER CYCLE RESET | Direction=", DirectionText(direction),
          " | MaxOrders=", g_sarCycleMaxOrders,
          " | Opposite=", GetOppositeSARDurationSummaryText(),
@@ -7630,6 +8014,7 @@ void ResetSARSignalOrderCycleToNormalAfterStopLoss(int direction, string reason)
    g_lastClosedNormalOrderDirection = 0;
    g_sarClosedProfitOrdersCount = 0;
 
+   ResetDoubtfulCandleConfirmation("STOPLOSS CYCLE RESET");
    Print("SAR ORDER CYCLE RESET AFTER STOPLOSS | Direction=", DirectionText(direction),
          " | MaxOrders=", g_sarCycleMaxOrders,
          " | Created=", g_sarCycleOrdersCreated,
@@ -8212,6 +8597,13 @@ bool OpenMarketOrder(int direction, string reason)
    if(IsOrderBlockedByOppositeDirectionProfitPause(direction, reason))
       return(false);
 
+   // Doubtful normal SAR candle: wait for the next fully closed candle.
+   if(IsNormalSAROrderReason(reason) &&
+      !IsDoubtfulCandleConfirmationAllowed(
+         direction,
+         "OpenMarketOrder " + reason))
+      return(false);
+
    // Final safety: block late-cycle weak NORMAL SAR entries only.
    // Recovery and hedge order reasons are not affected by this filter.
    if(IsNormalSAROrderReason(reason))
@@ -8400,6 +8792,7 @@ bool OpenMarketOrder(int direction, string reason)
      }
    g_lastConfirmedOrderPrice = price;
    g_lastConfirmedOrderTime  = TimeCurrent();
+   ResetDoubtfulCandleConfirmation("ORDER OPENED");
 
    // Register only normal SAR cycle orders. Recovery orders use OpenRecoveryOrder() and are independent.
    RegisterSARCycleOrderCreated(direction);
@@ -9254,6 +9647,7 @@ void DrawLeftOrderCreationChecklist(string mainStatus)
    bool okRepeatedGap   = CheckListRepeatedGapAllowed(direction);
    bool okOppositePause = (!IsOppositeDirectionProfitPauseActive() ||
                            direction != g_oppositePausedDirection);
+   bool okDoubtfulCandle = IsDoubtfulCandleReadyForDashboard(direction);
 
    int strictSARRequired = GetStrictSARMinimumScore();
    int checklistSARScore = (direction != 0) ? GetDynamicSARStrengthScore(direction) : 0;
@@ -9263,9 +9657,9 @@ void DrawLeftOrderCreationChecklist(string mainStatus)
    bool allOk = okDirection && okTrading && okSpread && okEquity && okNoHour &&
                 okProfitPause && okBigCandle && okSpikeWick && okSARConfirm && okH1 && okCycle &&
                 okMaxOpen && okTotalOpen && okMinGap && okSARSide && okLateSAR && okRepeatedGap &&
-                okOppositePause && okStrictSARScore;
+                okOppositePause && okStrictSARScore && okDoubtfulCandle;
 
-   DrawCornerPanel("DXB_LEFT_CHK_PANEL",CORNER_LEFT_UPPER,5,15,405,585,clrBlack,clrDimGray);
+   DrawCornerPanel("DXB_LEFT_CHK_PANEL",CORNER_LEFT_UPPER,5,15,405,610,clrBlack,clrDimGray);
    DrawCornerLabel("DXB_LEFT_CHK_TITLE","ORDER CREATION CHECKLIST",CORNER_LEFT_UPPER,10,22,clrYellow,10);
 
    g_leftDashRow = 0;
@@ -9294,6 +9688,9 @@ void DrawLeftOrderCreationChecklist(string mainStatus)
    LeftProCheck("Strict SAR Score",okStrictSARScore,
                 IntegerToString(checklistSARScore)+"/"+
                 IntegerToString(strictSARRequired));
+   LeftProCheck("Doubtful Candle",
+                okDoubtfulCandle,
+                DoubtfulCandleStatusText(direction));
    LeftProRow("SAR Score",
               IntegerToString(g_dynamicSARScore)+" / "+
               IntegerToString(strictSARRequired)+" | "+
@@ -9544,6 +9941,17 @@ void DrawDashboard(string status)
    RightProRow("Slippage",IntegerToString(InpSlippage),clrWhite);
    RightProRow("Spread Limit",IntegerToString((int)MarketInfo(Symbol(),MODE_SPREAD))+" / "+IntegerToString(InpMaxSpreadPoints),((int)MarketInfo(Symbol(),MODE_SPREAD)<=InpMaxSpreadPoints) ? clrLime : clrRed);
    RightProRow("Basket TP Base","$"+DoubleToString(InpBasketProfitUSD,2),clrLime);
+   RightProRow("Mixed Mode TP",
+               InpUseMixedModeHalfBasketTP
+               ? (IsMixedModeHalfBasketTPActive()
+                  ? "ACTIVE -> $" +
+                    DoubleToString(GetMixedModeBasketProfitTargetUSD(),2)
+                  : "ARMED x" +
+                    DoubleToString(InpMixedModeBasketTPMultiplier,2))
+               : "OFF",
+               IsMixedModeHalfBasketTPActive()
+               ? clrAqua
+               : (InpUseMixedModeHalfBasketTP ? clrYellow : clrSilver));
    RightProRow("Basket TP Live","$"+DoubleToString(GetBasketProfitTargetUSD(),2) + (InpUseSimpleSideBasketCloseOnly ? " SIMPLE" : ""),clrYellow);
    RightProRow("Old Opposite TP",
                InpUseSARFlipOppositeBasketHalfTP
