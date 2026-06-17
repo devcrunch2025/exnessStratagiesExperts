@@ -93,7 +93,7 @@ double InpDangerLast3MoveRaw           = 500.0;
  
 
 bool   InpAutoModePauseOrdersInDanger  = true;
-bool   InpAutoModePauseOrdersInMixed   = true;  // true = block every NEW order while mode is MIXED
+bool   InpAutoModePauseOrdersInMixed   = false;  // true = block every NEW order while mode is MIXED
 bool   InpAutoModeAllowRecoveryMedium  = true;
 // The following MIXED permissions are used only when InpAutoModePauseOrdersInMixed=false.
 bool   InpAutoModeAllowRecoveryMixed   = true;
