@@ -20,14 +20,18 @@ MARKET_MODE g_marketMode = MODE_RANGE;
 #ifndef OP_BALANCE
 #define OP_BALANCE 6
 #endif
-#property version   "1.33"
+#property version   "1.34"
 
 //======================== INPUTS ====================================
-string InpEAName                  = "DXB Version 5 - SAR Confirm 50 in 5 Min";
+string InpEAName                  = "DXB Version 5 - XAUUSD Gold";
+bool   InpRestrictToXAUUSD          = true;
+bool   InpWarnWhenNotM1             = true;
+double InpXAUTrend30MinRaw          = 3.00;
+double InpXAUTrend60MinRaw          = 6.00;
 int    InpMagicNumber             = 989899;
 double InpFixedLot                = 0.01;
 int    InpMaxOrders               = 1;     // maximum normal SAR orders per SAR signal cycle
-double InpMinGapWhenMaxOrdersMoreThanOne = 70.0; // when InpMaxOrders > 1, enforce at least this raw price gap between same-direction open orders
+double InpMinGapWhenMaxOrdersMoreThanOne = 2.00; // when InpMaxOrders > 1, enforce at least this raw price gap between same-direction open orders
 
 #define DXB_HARD_MAX_OPEN_ORDERS 6  // absolute safety cap for normal SAR orders per cycle
 
@@ -93,12 +97,12 @@ int    InpMarketFlowProfitHours        = 6;      // history window for profitabl
 int    InpContinuousTrendProfitOrders  = 5;      // one-side profit count required
 int    InpContinuousTrendOppProfitMax  = 0;      // opposite-side profit count must be <= this
 
-double InpContinuousTrendMoveRaw       = 500.0;
-double InpMediumTrendMinMoveRaw        = 300.0;
-double InpMediumTrendMaxMoveRaw        = 600.0;
-double InpMixedTrendMinMoveRaw         = 50.0;
-double InpMixedTrendMaxMoveRaw         = 300.0;
-double InpDangerLast3MoveRaw           = 500.0;
+double InpContinuousTrendMoveRaw       = 10.0;
+double InpMediumTrendMinMoveRaw        = 3.0;
+double InpMediumTrendMaxMoveRaw        = 10.0;
+double InpMixedTrendMinMoveRaw         = 0.80;
+double InpMixedTrendMaxMoveRaw         = 3.0;
+double InpDangerLast3MoveRaw           = 12.0;
 
  
 
@@ -228,7 +232,7 @@ bool   InpRecoveryGapMustMatchH1Trend = false;
 bool   InpKeepPendingRecoveryGapAfterBlock = true;
 bool   InpOpenPendingRecoveryWhenSARMatches = true;
 
-double InpRecoveryGapRawPrice     = 300.0;   // raw price difference, not points
+double InpRecoveryGapRawPrice     = 3.00;   // raw price difference, not points
 double InpRecoveryGapLot          = 0.01;
 int    InpMaxRecoveryGapOrdersPerSide = 1;  // recovery ladder: 50, 100, 150 from first order price
 
@@ -247,8 +251,9 @@ string InpSARRecoveryGapOrderPrefix   = "RG_P";
 
 
 int    InpStopLossPoints          = 0;       // 0 = no hard SL
-int    InpSlippage                = 30;
-int    InpMaxSpreadPoints         = 3000;
+int    InpSlippage                = 100;
+int    InpMaxSpreadPoints         = 1000;  // fallback only
+double InpMaxSpreadRawPrice       = 1.00;
 
 // Daily equity protection / profit lock
 // Example: Balance=$100 -> Protected=$50, TradingCapital=$50, ProfitTarget=$25.
@@ -291,12 +296,9 @@ bool   InpOneOrderPerBar          = true;
 int    InpOrderCooldownSeconds    = 0;       // 0 = disabled
 double InpMinPriceGap             = 0.00;    // raw price gap, 0 = disabled
 
-// Dubai no-new-order hours:
-// Block NEW normal SAR orders only during Dubai 4:00 PM through 8:59 PM.
-// Existing order close/profit/protection/recovery management continues.
-// TimeGMT()+4 is used, so broker-server, VPS and VPN time zones do not affect this rule.
-bool   InpUseNoNewOrderHours      = true;
-string InpNoNewOrderHourList      = "16,17,18,19,20"; // Dubai-time hours
+// No-trading hours: block NEW normal SAR orders only. Close/profit/protection/recovery management still runs.
+bool   InpUseNoNewOrderHours      = false;
+string InpNoNewOrderHourList      = "13,14,15,16,17,18";//"0,23";//"13,14,15,16,17,18"; // server-time hours to block new orders
 
 
 
@@ -309,7 +311,7 @@ bool   InpUseBigCandlePause       = true;     // detect very large candles
 // true: bullish big candle blocks only SELL; bearish big candle blocks only BUY.
 // Same-direction normal and recovery orders remain allowed.
 bool   InpBigCandleBlockOppositeDirectionOnly = true;
-double InpBigCandleRawDifference  = 300;    // raw BTCUSD price difference: High[1]-Low[1]
+double InpBigCandleRawDifference  = 6.00;    // raw XAUUSD price difference: High[1]-Low[1]
 int    InpBigCandlePauseMinutes   = 15;       // pause duration after big candle
 bool   InpUseBigCandleFormationBlock = true; // block orders while current candle is forming as a spike/big candle: High[0]-Low[0]
 bool   InpNotifyOnBigCandlePause  = true;     // push notification when big candle pause starts/ends
@@ -332,7 +334,7 @@ int    InpBigCandleRecoveryPauseMinutes = 5;
 // pause ALL new orders/recovery orders like big candle protection.
 // Formula: max(High[1..3]) - min(Low[1..3]) >= InpLast3CandlesRawDifference
 bool   InpUseLast3CandlesMovePause = true;
-double InpLast3CandlesRawDifference = 300.0;
+double InpLast3CandlesRawDifference = 10.0;
 int    InpLast3CandlesPauseMinutes = 5;
 
 // Spike / wick pause protection
@@ -342,13 +344,13 @@ int    InpLast3CandlesPauseMinutes = 5;
 // Example: Wick=100 and setting=50 => Body must be <=50.
 // Long-body / momentum candles are NOT classified as spike candles here.
 bool   InpUseSpikeWickPauseFilter = false;
-double InpSpikeWickMinRawPrice    = 30.0;   // minimum larger wick raw price
+double InpSpikeWickMinRawPrice    = 1.20;   // minimum larger wick raw price
 double InpSpikeWickBodyMaxPercent = 50.0;    // body must be <= this % of the larger wick
 
 // Legacy settings retained for old SET-file compatibility.
 // They are intentionally ignored by the wick-only spike rule.
-double InpSpikeMomentumRangeRawPrice = 500.0;
-double InpSpikeMomentumBodyRawPrice  = 100.0;
+double InpSpikeMomentumRangeRawPrice = 10.0;
+double InpSpikeMomentumBodyRawPrice  = 3.0;
 bool   InpDrawSpikeWickYellowMarker  = true;
 int    InpSpikeWickMarkerArrowCode   = 159;
 int    InpSpikeWickPauseMinutes   = 15;       // wait after spike/wick detected
@@ -379,11 +381,11 @@ bool   InpUseSARPriceDiffConfirm  = true;
 // 2) Then verify live price has moved InpContinuousOrderPriceGap from that last order price.
 // No expiry timeout is used. If gap is not ready, EA keeps waiting.
 bool   InpUseRepeatedPriceGapConfirm = true;
-double InpContinuousOrderPriceGap    = 30;//10.0; //30  // raw price gap required from last confirmed normal order
+double InpContinuousOrderPriceGap    = 1.00;//10.0; //30  // raw price gap required from last confirmed normal order
 int    InpContinuousOrderLookbackMinutes = 1;  // legacy input, not used by current continuity gap logic
 int    InpContinuousOrderGapMinutes  = 1;      // wait this many minutes after last order, then verify price gap
 
-double InpSARConfirmPriceDiff     = 50.0;   // SAR signal-change raw price diff confirmation only
+double InpSARConfirmPriceDiff     = 1.50;   // SAR signal-change raw price diff confirmation only
 int    InpSARConfirmMinutes       = 5;      // max minutes for SAR confirmation only; 0 = no expiry
 // TEST MODE: Only SAR flip confirmation is active: wait 5 minutes, then require raw price gap 30 in SAR direction.
 // BUY requires Close[1] - flipPrice >= 30. SELL requires flipPrice - Close[1] >= 30.
@@ -487,19 +489,19 @@ int  InpSARActiveExtraOrders = 1;
 // SAR good-momentum upgrade
 // If current SAR trend is strong, increase current SAR signal-cycle max back to normal max.
 bool   InpUseSARGoodMomentumMaxUpgrade = false;
-double InpSARGoodMomentumMinDotDistance = 300.0; // raw price distance from SAR dot
+double InpSARGoodMomentumMinDotDistance = 4.00; // raw price distance from SAR dot
 int    InpSARGoodMomentumADXPeriod = 14;
 double InpSARGoodMomentumMinADX = 20.0;
 int    InpSARGoodMomentumATRPeriod = 14;
-double InpSARGoodMomentumMinATR = 100.0;       // raw BTCUSD ATR
+double InpSARGoodMomentumMinATR = 0.80;       // raw XAUUSD ATR
 int    InpSARGoodMomentumCandleLookback = 3;
 int    InpSARGoodMomentumMinSameCandles = 1;
 
-//================ DYNAMIC BTC SAR QUALITY ENGINE ===================
+//================ DYNAMIC XAUUSD SAR QUALITY ENGINE ===================
 // SAR still gives GREEN/RED direction, but this layer decides whether
-// the current BTC movement is strong enough to follow. It auto-adjusts
+// the current XAUUSD movement is strong enough to follow. It auto-adjusts
 // using ATR, ADX, EMA distance and long-bar behaviour, so you do not
-// need to keep changing fixed BTC price values every week.
+// need to keep changing fixed XAUUSD price values every week.
 bool   InpUseDynamicSAREngine              = true;
 bool   InpBlockNewOrdersWhenSARWeak        = true;
 bool   InpBlockFastSARFlip                 = true;
@@ -516,7 +518,7 @@ int    InpStrictSARMinimumScore             = 6;     // strict recommended value
 // SELL: a long lower wick is doubtful. BUY: a long upper wick is doubtful.
 // The next fully closed candle must confirm before OrderSend.
 bool   InpUseDoubtfulCandleNextConfirm       = true;
-double InpDoubtfulOppositeWickMinRaw         = 20.0;
+double InpDoubtfulOppositeWickMinRaw         = 0.80;
 double InpDoubtfulOppositeWickBodyRatio      = 0.70;
 double InpDoubtfulMinBodyPercentOfRange      = 35.0;
 double InpDoubtfulStrongClosePercent         = 60.0;
@@ -599,7 +601,7 @@ int    InpWeakExitOppositeMinCandles    = 4;
 // Stop adding recovery orders after a strong opposite move.
 // Example BUY basket losing more than 200 raw price => do not add more BUY recovery.
 bool   InpStopRecoveryOnStrongOppMove   = true;
-double InpStrongOppMoveBlockRecoveryGap = 300.0;
+double InpStrongOppMoveBlockRecoveryGap = 6.00;
 
 // Absolute cap for all EA market orders combined: normal + recovery.
 int    InpMaxTotalOpenOrders            = 0;
@@ -831,7 +833,7 @@ int  InpEarlySameSARExtraMaxOrders = 1;
 datetime g_lastEarlySameSAROrderBarTime = 0;
 
 bool   InpAddOneOrderWhenSARDistanceH1Same = false;
-double InpSARDistanceExtraOrderMin         = 300.0;
+double InpSARDistanceExtraOrderMin         = 4.00;
 int    InpSARDistanceExtraOrders           = 1;
 bool TryOpenEarlySameSARExtraOrder()
 {
@@ -929,60 +931,33 @@ bool TryOpenEarlySameSARExtraOrder111111()
 
 int GetH2TrendDirection()
   {
+   double oldPrice = iClose(Symbol(),PERIOD_M1,60);
+   if(oldPrice <= 0.0)
+      return(0);
 
+   double diff = Close[0] - oldPrice;
 
-   double currentPrice = Close[0];
+   if(diff >= InpXAUTrend60MinRaw)
+      return(1);
+   if(diff <= -InpXAUTrend60MinRaw)
+      return(-1);
 
-// M1 chart: 30 candles = 30 minutes ago
-   double price30MinAgo = iClose(Symbol(), PERIOD_M1, 60);
-
-   double diff = currentPrice - price30MinAgo;
-
-   if(diff >= 1000)
-      return 1;   // BUY trend
-
-   if(diff <= -1000)
-      return -1;  // SELL trend
-
-   return 0;      // RANGE
-
-
+   return(0);
   }
 int GetH1TrendDirection()
   {
+   double oldPrice = iClose(Symbol(),PERIOD_M1,30);
+   if(oldPrice <= 0.0)
+      return(0);
 
+   double diff = Close[0] - oldPrice;
 
-   double currentPrice = Close[0];
+   if(diff >= InpXAUTrend30MinRaw)
+      return(1);
+   if(diff <= -InpXAUTrend30MinRaw)
+      return(-1);
 
-// M1 chart: 30 candles = 30 minutes ago
-   double price30MinAgo = iClose(Symbol(), PERIOD_M1, 30);
-
-   double diff = currentPrice - price30MinAgo;
-
-   if(diff >= 200)
-      return 1;   // BUY trend
-
-   if(diff <= -200)
-      return -1;  // SELL trend
-
-   return 0;      // RANGE
-
-
-
-
-
-
-
-
-
-
-   int h1  = GetH1TrendDirection1();
-   int m30 = GetM30TrendDirection();
-
-   if(h1 != 0 && h1 == m30)
-      return h1;
-
-   return 0; // no clear trend
+   return(0);
   }
 
 //+------------------------------------------------------------------+
@@ -1220,7 +1195,7 @@ bool ContinuousTrendFilterCase(int filterId)
       case DXB_FILTER_TRADING_ALLOWED: return(true);
       case DXB_FILTER_SPREAD: return(true);
       case DXB_FILTER_EQUITY_LOCK: return(false);
-      case DXB_FILTER_NO_NEW_HOUR: return(true);
+      case DXB_FILTER_NO_NEW_HOUR: return(false);
       case DXB_FILTER_PROFIT_PAUSE: return(true);
       case DXB_FILTER_OPPOSITE_PAUSE: return(false);
       case DXB_FILTER_BIG_CANDLE: return(true);
@@ -1261,7 +1236,7 @@ bool MediumTrendFilterCase(int filterId)
       case DXB_FILTER_TRADING_ALLOWED: return(true);
       case DXB_FILTER_SPREAD: return(true);
       case DXB_FILTER_EQUITY_LOCK: return(false);
-      case DXB_FILTER_NO_NEW_HOUR: return(true);
+      case DXB_FILTER_NO_NEW_HOUR: return(false);
       case DXB_FILTER_PROFIT_PAUSE: return(true);
       case DXB_FILTER_OPPOSITE_PAUSE: return(false);
       case DXB_FILTER_BIG_CANDLE: return(true);
@@ -1302,7 +1277,7 @@ bool MixedTrendFilterCase(int filterId)
       case DXB_FILTER_TRADING_ALLOWED: return(true);
       case DXB_FILTER_SPREAD: return(true);
       case DXB_FILTER_EQUITY_LOCK: return(false);
-      case DXB_FILTER_NO_NEW_HOUR: return(true);
+      case DXB_FILTER_NO_NEW_HOUR: return(false);
       case DXB_FILTER_PROFIT_PAUSE: return(true);
       case DXB_FILTER_OPPOSITE_PAUSE: return(true);
       case DXB_FILTER_BIG_CANDLE: return(true);
@@ -1343,7 +1318,7 @@ bool DangerModeFilterCase(int filterId)
       case DXB_FILTER_TRADING_ALLOWED: return(true);
       case DXB_FILTER_SPREAD: return(true);
       case DXB_FILTER_EQUITY_LOCK: return(false);
-      case DXB_FILTER_NO_NEW_HOUR: return(true);
+      case DXB_FILTER_NO_NEW_HOUR: return(false);
       case DXB_FILTER_PROFIT_PAUSE: return(true);
       case DXB_FILTER_OPPOSITE_PAUSE: return(false);
       case DXB_FILTER_BIG_CANDLE: return(true);
@@ -1404,7 +1379,7 @@ bool GlobalFilterCase(int filterId)
       case DXB_FILTER_TRADING_ALLOWED: return(true);
       case DXB_FILTER_SPREAD: return(true);
       case DXB_FILTER_EQUITY_LOCK: return(false);
-      case DXB_FILTER_NO_NEW_HOUR: return(true);
+      case DXB_FILTER_NO_NEW_HOUR: return(false);
       case DXB_FILTER_PROFIT_PAUSE: return(true);
       case DXB_FILTER_OPPOSITE_PAUSE: return(false);
       case DXB_FILTER_BIG_CANDLE: return(true);
@@ -2396,6 +2371,31 @@ void MarkOpenedOrderOnChart(int ticket, int direction, string commentText, datet
   }
 
 //+------------------------------------------------------------------+
+bool IsXAUUSDSymbol()
+  {
+   string s = Symbol();
+   StringToUpper(s);
+   return(StringFind(s,"XAUUSD") >= 0 ||
+          StringFind(s,"GOLD") >= 0);
+  }
+
+//+------------------------------------------------------------------+
+int GetEffectiveMaxSpreadPoints()
+  {
+   if(InpMaxSpreadRawPrice > 0.0 && Point > 0.0)
+      return((int)MathMax(1,
+                          MathRound(InpMaxSpreadRawPrice / Point)));
+
+   return(InpMaxSpreadPoints);
+  }
+
+//+------------------------------------------------------------------+
+double GetCurrentSpreadRawPrice()
+  {
+   return(MarketInfo(Symbol(),MODE_SPREAD) * Point);
+  }
+
+//+------------------------------------------------------------------+
 int OnInit()
   {
 
@@ -2421,7 +2421,7 @@ if(AccountNumber()==291085426)
    DeleteOldDashboardObjects();
    LoadLast5SARChangeDurations();
 
-   InpMagicNumber=AccountNumber()+202; // override magic number with account number to prevent interference between charts/accounts. Orders are still filtered by symbol and magic in this EA.
+   InpMagicNumber=AccountNumber()+3202; // override magic number with account number to prevent interference between charts/accounts. Orders are still filtered by symbol and magic in this EA.
 
    // Restore an active opposite-side pause after EA restart from account history.
    UpdateOppositeDirectionProfitPause(true);
@@ -2616,42 +2616,22 @@ bool IsConfiguredNoNewOrderHour(int hourValue)
   }
 
 //+------------------------------------------------------------------+
-//| Current Dubai time (UTC+4). Dubai does not use daylight saving.  |
-//| Independent of broker-server, VPS and VPN time zones.            |
-//+------------------------------------------------------------------+
-datetime GetDubaiTime()
-  {
-   return(TimeGMT() + (4 * 60 * 60));
-  }
-
-//+------------------------------------------------------------------+
 bool IsNoNewOrderHour()
   {
-   if(!InpUseNoNewOrderHours)
-      return(false);
-
    if(!IsMarketModeEntryFilterEnabled(DXB_FILTER_NO_NEW_HOUR))
       return(false);
 
-   int dubaiHour = TimeHour(GetDubaiTime());
-   return(IsConfiguredNoNewOrderHour(dubaiHour));
+   return(IsConfiguredNoNewOrderHour(TimeHour(TimeCurrent())));
   }
 
 //+------------------------------------------------------------------+
 string NoNewOrderHoursStatusText()
   {
-   if(!InpUseNoNewOrderHours)
-      return("OFF");
-
    if(!IsMarketModeEntryFilterEnabled(DXB_FILTER_NO_NEW_HOUR))
       return("OFF MODE");
 
-   datetime dubaiNow = GetDubaiTime();
    string status = IsNoNewOrderHour() ? "BLOCK NOW" : "ALLOW";
-
-   return(status +
-          " | DXB=" + TimeToString(dubaiNow, TIME_MINUTES) +
-          " | HOURS=" + InpNoNewOrderHourList);
+   return(status + " | " + InpNoNewOrderHourList);
   }
 
 //+------------------------------------------------------------------+
@@ -4998,10 +4978,10 @@ bool OpenRecoveryGapMarketOrder(int direction, double gapMove)
       return(false);
      }
 
-   if(MarketInfo(Symbol(), MODE_SPREAD) > InpMaxSpreadPoints)
+   if(MarketInfo(Symbol(), MODE_SPREAD) > GetEffectiveMaxSpreadPoints())
      {
       Print("RECOVERY GAP BLOCKED | Spread=", MarketInfo(Symbol(), MODE_SPREAD),
-            " > MaxSpread=", InpMaxSpreadPoints);
+            " > MaxSpread=", GetEffectiveMaxSpreadPoints());
       return(false);
      }
 
@@ -7291,7 +7271,7 @@ bool ProcessNewOrderCreationLast(bool isNewBar, string &status)
    if(IsMarketModeEntryFilterEnabled(DXB_FILTER_NO_NEW_HOUR) &&
       IsNoNewOrderHour())
      {
-      return(SetOrderBlockStatus(status, "NO NEW ORDERS DUBAI HOUR - " + InpNoNewOrderHourList));
+      return(SetOrderBlockStatus(status, "NO NEW ORDERS HOUR - " + InpNoNewOrderHourList));
      }
 
 // Big candle blocks only a candidate OPPOSITE to the big candle.
@@ -7341,7 +7321,7 @@ bool ProcessNewOrderCreationLast(bool isNewBar, string &status)
       ResetSARFlipConfirmation();
      }
 
-// Dynamic BTC SAR quality gate. SAR still gives direction, but weak/fast/fake flips do not open new normal orders.
+// Dynamic XAUUSD SAR quality gate. SAR still gives direction, but weak/fast/fake flips do not open new normal orders.
    string dynamicBlockReason = "";
    if(IsMarketModeEntryFilterEnabled(DXB_FILTER_DYNAMIC_SAR) &&
       !IsDynamicSARAllowedForNewOrder(g_activeSARDirection, dynamicBlockReason))
@@ -7975,7 +7955,7 @@ bool IsSARFlipConfirmationReady()
      }
 
 // 3) Price difference confirmation from SAR flip reference price.
-//    Dynamic mode uses ATR instead of a fixed BTCUSD raw price value.
+//    Dynamic mode uses ATR instead of a fixed XAUUSD raw price value.
 //    Rule: price gap must happen WITHIN InpSARConfirmMinutes.
 //    Example: RequiredDiff=50 and ConfirmMinutes=15.
 //    If price moves 50 in 3 minutes, confirmation is ready immediately.
@@ -8171,7 +8151,7 @@ int GetDynamicSARStrengthScore(int direction)
    if(direction == 1 && sar1 < Close[1]) score++;
    if(direction == -1 && sar1 > Close[1]) score++;
 
-   // 2) SAR dot distance must be meaningful compared with current BTC ATR.
+   // 2) SAR dot distance must be meaningful compared with current XAUUSD ATR.
    if(dotDistance >= atr * InpDynamicStrongDotATRMultiplier) score++;
 
    // 3) EMA9/EMA21 must agree and be separated enough.
@@ -8236,7 +8216,7 @@ bool IsDynamicSARAllowedForNewOrder(int direction, string &whyBlocked)
       return(false);
      }
 
-   // Do not follow 5-10 minute SAR flips blindly. Allow early only when BTC momentum is very strong.
+   // Do not follow 5-10 minute SAR flips blindly. Allow early only when XAUUSD momentum is very strong.
    if(InpBlockFastSARFlip)
      {
       if(ageMinutes < InpDynamicVeryStrongMinMinutes)
@@ -9704,10 +9684,10 @@ bool IsNormalOrderAllowedByMarketModeProfile(int direction,
      {
       int spread = (int)MarketInfo(Symbol(), MODE_SPREAD);
 
-      if(spread > InpMaxSpreadPoints)
+      if(spread > GetEffectiveMaxSpreadPoints())
          return(BlockNormalOrderByModeProfile(
             "SPREAD " + IntegerToString(spread) + "/" +
-            IntegerToString(InpMaxSpreadPoints) +
+            IntegerToString(GetEffectiveMaxSpreadPoints()) +
             " | Source=" + reason));
      }
 
@@ -9719,7 +9699,7 @@ bool IsNormalOrderAllowedByMarketModeProfile(int direction,
    if(IsMarketModeEntryFilterEnabled(DXB_FILTER_NO_NEW_HOUR) &&
       IsNoNewOrderHour())
       return(BlockNormalOrderByModeProfile(
-         "NO NEW ORDER DUBAI HOUR | " + InpNoNewOrderHourList +
+         "NO NEW ORDER HOUR | " + InpNoNewOrderHourList +
          " | Source=" + reason));
 
    if(IsMarketModeEntryFilterEnabled(DXB_FILTER_PROFIT_PAUSE) &&
@@ -10452,8 +10432,8 @@ void DrawLeftImportantOrderSettings(int direction)
 
    LeftChecklistInfo("Spread Limit",
                      IntegerToString((int)MarketInfo(Symbol(), MODE_SPREAD)) +
-                     "/" + IntegerToString(InpMaxSpreadPoints) + " points",
-                     ((int)MarketInfo(Symbol(), MODE_SPREAD) <= InpMaxSpreadPoints) ? clrLime : clrOrangeRed);
+                     "/" + IntegerToString(GetEffectiveMaxSpreadPoints()) + " points",
+                     ((int)MarketInfo(Symbol(), MODE_SPREAD) <= GetEffectiveMaxSpreadPoints()) ? clrLime : clrOrangeRed);
 
    LeftChecklistInfo("Normal Max Orders",
                      "Dir " + IntegerToString(InpMaxOrders) +
@@ -10469,7 +10449,7 @@ void DrawLeftImportantOrderSettings(int direction)
                      InpMaxTotalOpenOrders > 0 ? clrAqua : clrSilver);
 
    LeftChecklistInfo("SAR Confirm",
-                     "Diff " + DoubleToString(InpSARConfirmPriceDiff, 0) +
+                     "Diff " + DoubleToString(InpSARConfirmPriceDiff, 2) +
                      " | Min " + IntegerToString(InpSARConfirmMinutes) +
                      " | " + (InpUseSARFlipConfirmations ? "ON" : "OFF"),
                      InpUseSARFlipConfirmations ? clrLime : clrSilver);
@@ -10481,7 +10461,7 @@ void DrawLeftImportantOrderSettings(int direction)
 
    LeftChecklistInfo("Continuous Gap",
                      (InpUseRepeatedPriceGapConfirm ? "ON" : "OFF") +
-                     " | Gap " + DoubleToString(InpContinuousOrderPriceGap, 0) +
+                     " | Gap " + DoubleToString(InpContinuousOrderPriceGap, 2) +
                      " | Wait " + IntegerToString(InpContinuousOrderGapMinutes) + "m",
                      InpUseRepeatedPriceGapConfirm ? clrLime : clrSilver);
 
@@ -10492,7 +10472,7 @@ void DrawLeftImportantOrderSettings(int direction)
 
    LeftChecklistInfo("Recovery Gap",
                      (InpUseRecoveryGapOrders ? "ON" : "OFF") +
-                     " | Gap " + DoubleToString(InpRecoveryGapRawPrice, 0) +
+                     " | Gap " + DoubleToString(InpRecoveryGapRawPrice, 2) +
                      " | Lot " + DoubleToString(InpRecoveryGapLot, 2),
                      InpUseRecoveryGapOrders ? clrLime : clrSilver);
 
@@ -10527,13 +10507,13 @@ void DrawLeftImportantOrderSettings(int direction)
    LeftChecklistInfo("Big Candle Block",
                      (InpUseBigCandlePause ? "ON" : "OFF") +
                      " | OPPOSITE ONLY" +
-                     " | " + DoubleToString(InpBigCandleRawDifference, 0) +
+                     " | " + DoubleToString(InpBigCandleRawDifference, 2) +
                      " | " + IntegerToString(InpBigCandlePauseMinutes) + "m",
                      InpUseBigCandlePause ? clrLime : clrSilver);
 
    LeftChecklistInfo("Last3 Move Block",
                      (InpUseLast3CandlesMovePause ? "ON" : "OFF") +
-                     " | " + DoubleToString(InpLast3CandlesRawDifference, 0) +
+                     " | " + DoubleToString(InpLast3CandlesRawDifference, 2) +
                      " | Pause " + IntegerToString(InpLast3CandlesPauseMinutes) + "m",
                      InpUseLast3CandlesMovePause ? clrLime : clrSilver);
 
@@ -10710,10 +10690,10 @@ string CheckListRepeatedGapText(int direction)
       int leftSeconds = requiredSeconds - elapsedSeconds;
       return("WAIT " + IntegerToString(leftSeconds) +
              "s from close, gap " + DoubleToString(gap,1) +
-             "/" + DoubleToString(InpContinuousOrderPriceGap,0));
+             "/" + DoubleToString(InpContinuousOrderPriceGap,2));
      }
 
-   return(DoubleToString(gap,1) + "/" + DoubleToString(InpContinuousOrderPriceGap,0) +
+   return(DoubleToString(gap,1) + "/" + DoubleToString(InpContinuousOrderPriceGap,2) +
           " from closed " + DirectionText(g_lastClosedNormalOrderDirection) +
           " after " + DoubleToString(elapsedMinutes,1) + "m");
   }
@@ -10899,13 +10879,12 @@ void RefreshNormalEntryDiagnosticSnapshot(int direction,
    bool rawDoubtful = IsDoubtfulCandleReadyForDashboard(direction);
 
    bool rawTrading = CheckListTradingAllowed();
-   bool rawSpread = (spread <= InpMaxSpreadPoints);
+   bool rawSpread = (spread <= GetEffectiveMaxSpreadPoints());
    bool rawEquity =
       (!g_equityProtectionHit &&
        !(g_dailyProfitLock && InpPauseAfterProfitTarget));
    bool rawNoHour =
-      (!InpUseNoNewOrderHours ||
-       !IsConfiguredNoNewOrderHour(TimeHour(GetDubaiTime())));
+      (!IsConfiguredNoNewOrderHour(TimeHour(TimeCurrent())));
    bool rawProfit = !IsProfitProtectPauseActive();
    bool rawOpposite =
       (!IsOppositeDirectionProfitPauseActive() ||
@@ -11000,7 +10979,7 @@ void RefreshNormalEntryDiagnosticSnapshot(int direction,
       DXB_FILTER_SPREAD,
       rawSpread,
       IntegerToString(spread) + "/" +
-      IntegerToString(InpMaxSpreadPoints));
+      IntegerToString(GetEffectiveMaxSpreadPoints()));
 
    SetEntryDiagnosticFilter(
       DXB_FILTER_EQUITY_LOCK,
@@ -11279,7 +11258,7 @@ void DrawRecoveryChecklistPanel(int direction)
                matchOk ? clrLime : clrOrangeRed);
 
    RecoveryRow("Required Gap",
-               DoubleToString(InpRecoveryGapRawPrice,0),
+               DoubleToString(InpRecoveryGapRawPrice,2),
                clrAqua);
 
    RecoveryRow("Recovery Count B/S",
@@ -11629,13 +11608,12 @@ void DrawLeftOrderCreationChecklist(string mainStatus)
 
    bool rawDirection = (direction != 0);
    bool rawTrading = CheckListTradingAllowed();
-   bool rawSpread = (spread <= InpMaxSpreadPoints);
+   bool rawSpread = (spread <= GetEffectiveMaxSpreadPoints());
    bool rawEquity =
       (!g_equityProtectionHit &&
        !(g_dailyProfitLock && InpPauseAfterProfitTarget));
-   bool rawNoHour = (!InpUseNoNewOrderHours ||
-                     !IsConfiguredNoNewOrderHour(
-                        TimeHour(GetDubaiTime())));
+   bool rawNoHour = (!IsConfiguredNoNewOrderHour(
+                        TimeHour(TimeCurrent())));
    bool rawProfitPause = (!IsProfitProtectPauseActive());
    bool rawOppositePause =
       (!IsOppositeDirectionProfitPauseActive() ||
@@ -11819,7 +11797,7 @@ void DrawLeftOrderCreationChecklist(string mainStatus)
    SetEntryDiagnosticFilter(DXB_FILTER_SPREAD,
                             rawSpread,
                             IntegerToString(spread)+"/"+
-                            IntegerToString(InpMaxSpreadPoints));
+                            IntegerToString(GetEffectiveMaxSpreadPoints()));
    SetEntryDiagnosticFilter(DXB_FILTER_EQUITY_LOCK,
                             rawEquity,
                             rawEquity ? "CLEAR" : "LOCKED");
@@ -12032,7 +12010,7 @@ void DrawLeftOrderCreationChecklist(string mainStatus)
                     DXB_FILTER_SPREAD,
                     rawSpread,
                     IntegerToString(spread) + "/" +
-                    IntegerToString(InpMaxSpreadPoints));
+                    IntegerToString(GetEffectiveMaxSpreadPoints()));
 
    LeftProModeCheck("Equity/Daily Lock",
                     DXB_FILTER_EQUITY_LOCK,
@@ -12325,7 +12303,7 @@ void DrawDashboard(string status)
                    13);
 
    DrawCornerLabel("DXB_RIGHT_SETTINGS_TITLE",
-                   liveModeText + " | VERSION 1.33",
+                   liveModeText + " | XAUUSD VERSION 1.34",
                    CORNER_RIGHT_UPPER,
                    300,287,
                    liveModeColor,
@@ -12347,7 +12325,7 @@ void DrawDashboard(string status)
    RightProRow("--- TRADING ---","",clrDimGray);
    RightProRow("Lot Size",DoubleToString(InpFixedLot,2),clrWhite);
    RightProRow("Slippage",IntegerToString(InpSlippage),clrWhite);
-   RightProRow("Spread Limit",IntegerToString((int)MarketInfo(Symbol(),MODE_SPREAD))+" / "+IntegerToString(InpMaxSpreadPoints),((int)MarketInfo(Symbol(),MODE_SPREAD)<=InpMaxSpreadPoints) ? clrLime : clrRed);
+   RightProRow("Spread Limit",IntegerToString((int)MarketInfo(Symbol(),MODE_SPREAD))+" / "+IntegerToString(GetEffectiveMaxSpreadPoints()),((int)MarketInfo(Symbol(),MODE_SPREAD)<=GetEffectiveMaxSpreadPoints()) ? clrLime : clrRed);
    RightProRow("Basket TP Base","$"+DoubleToString(InpBasketProfitUSD,2),clrLime);
    RightProRow("Mixed Mode TP",
                IsMixedModeHalfBasketTPActive()
@@ -12424,32 +12402,53 @@ void DrawDashboard(string status)
    RightProRow("Basket Protect",OnOff(InpUseBasketProfitProtect),InpUseBasketProfitProtect ? clrLime : clrSilver);
 
    RightProRow("--- RECOVERY ---","",clrDimGray);
-   RightProRow("Recovery Gap",DoubleToString(InpRecoveryGapRawPrice,0),clrAqua);
+   RightProRow("Recovery Gap",DoubleToString(InpRecoveryGapRawPrice,2),clrAqua);
    RightProRow("Recovery Lot",DoubleToString(InpRecoveryGapLot,2),clrAqua);
    RightProRow("Max Recovery",IntegerToString(InpMaxRecoveryGapOrdersPerSide),clrAqua);
-   RightProRow("Opp Move Block",OnOff(InpStopRecoveryOnStrongOppMove)+" | "+DoubleToString(InpStrongOppMoveBlockRecoveryGap,0),clrYellow);
+   RightProRow("Opp Move Block",OnOff(InpStopRecoveryOnStrongOppMove)+" | "+DoubleToString(InpStrongOppMoveBlockRecoveryGap,2),clrYellow);
    RightProRow("Mode Recovery",IsAutoMarketRecoveryAllowed() ? "ALLOW" : "BLOCK",IsAutoMarketRecoveryAllowed() ? clrLime : clrRed);
    RightProRow("Mode Auxiliary","MICRO CREATION REMOVED",clrSilver);
 
+   RightProRow("--- XAUUSD PROFILE ---","",clrDimGray);
+   RightProRow("Symbol",
+               Symbol() + (IsXAUUSDSymbol() ? " | VALID" : " | INVALID"),
+               IsXAUUSDSymbol() ? clrLime : clrRed);
+   RightProRow("Profile TF",
+               "M1 | Current " + IntegerToString(Period()),
+               Period() == PERIOD_M1 ? clrLime : clrOrange);
+   RightProRow("Trend 30/60m",
+               DoubleToString(InpXAUTrend30MinRaw,2) +
+               " / " +
+               DoubleToString(InpXAUTrend60MinRaw,2),
+               clrAqua);
+   RightProRow("Spread Raw",
+               DoubleToString(GetCurrentSpreadRawPrice(),2) +
+               " / " +
+               DoubleToString(InpMaxSpreadRawPrice,2),
+               ((int)MarketInfo(Symbol(),MODE_SPREAD) <=
+                GetEffectiveMaxSpreadPoints())
+               ? clrLime
+               : clrRed);
+
    RightProRow("--- SAR SETTINGS ---","",clrDimGray);
    RightProRow("SAR Direction",DirectionText(g_activeSARDirection),DirectionColor(g_activeSARDirection));
-   RightProRow("Confirm Gap",DoubleToString(InpSARConfirmPriceDiff,0),clrAqua);
+   RightProRow("Confirm Gap",DoubleToString(InpSARConfirmPriceDiff,2),clrAqua);
    RightProRow("Confirm Minutes",IntegerToString(InpSARConfirmMinutes),clrAqua);
-   RightProRow("Continuous Gap",DoubleToString(InpContinuousOrderPriceGap,0),clrAqua);
+   RightProRow("Continuous Gap",DoubleToString(InpContinuousOrderPriceGap,2),clrAqua);
    RightProRow("Gap Wait",IntegerToString(InpContinuousOrderGapMinutes)+"m",clrAqua);
    RightProRow("Signal Side Gap",DoubleToString(InpSARSignalPriceSideMinGap,0),clrAqua);
    RightProRow("SAR Cycle",IntegerToString(g_sarCycleOrdersCreated)+"/"+IntegerToString(g_sarCycleMaxOrders),g_sarCycleOrdersCreated>=g_sarCycleMaxOrders ? clrOrangeRed : clrLime);
 
    RightProRow("--- PROTECTION ---","",clrDimGray);
    RightProRow("Big Candle",
-               DoubleToString(InpBigCandleRawDifference,0) +
+               DoubleToString(InpBigCandleRawDifference,2) +
                " | OPPOSITE ONLY | Pause " +
                IntegerToString(InpBigCandlePauseMinutes) +
                "m",
                clrYellow);
    RightProRow("Big Marker",OnOff(InpDrawBigCandleRedMarker)+" | RED",InpDrawBigCandleRedMarker ? clrRed : clrSilver);
-   RightProRow("Last3 Move",DoubleToString(InpLast3CandlesRawDifference,0)+" | Pause "+IntegerToString(InpLast3CandlesPauseMinutes)+"m",clrYellow);
-   RightProRow("Spike/Wick",DoubleToString(InpSpikeWickMinRawPrice,0)+" | R"+DoubleToString(InpSpikeMomentumRangeRawPrice,0)+" B"+DoubleToString(InpSpikeMomentumBodyRawPrice,0),clrYellow);
+   RightProRow("Last3 Move",DoubleToString(InpLast3CandlesRawDifference,2)+" | Pause "+IntegerToString(InpLast3CandlesPauseMinutes)+"m",clrYellow);
+   RightProRow("Spike/Wick",DoubleToString(InpSpikeWickMinRawPrice,2)+" | R"+DoubleToString(InpSpikeMomentumRangeRawPrice,0)+" B"+DoubleToString(InpSpikeMomentumBodyRawPrice,0),clrYellow);
    RightProRow("Spike Pause",IntegerToString(InpSpikeWickPauseMinutes)+"m | Yellow marker "+OnOff(InpDrawSpikeWickYellowMarker),clrYellow);
    RightProRow("SAR Weak Marker",OnOff(InpDrawSARWeakSignalMarker)+" | Violet",InpDrawSARWeakSignalMarker ? InpSARWeakSignalMarkerColor : clrSilver);
    RightProRow("Weak Basket Close",
