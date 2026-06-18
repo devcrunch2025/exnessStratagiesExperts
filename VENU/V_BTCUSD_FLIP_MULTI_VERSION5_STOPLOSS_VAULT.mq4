@@ -20,10 +20,10 @@ MARKET_MODE g_marketMode = MODE_RANGE;
 #ifndef OP_BALANCE
 #define OP_BALANCE 6
 #endif
-#property version   "1.31"
+#property version   "1.32"
 
 //======================== INPUTS ====================================
-string InpEAName                  = "DXB Version 5 - Wrong Order Gates Fixed";
+string InpEAName                  = "DXB Version 5 - Big Candle Opposite Only";
 int    InpMagicNumber             = 989899;
 double InpFixedLot                = 0.01;
 int    InpMaxOrders               = 1;     // maximum normal SAR orders per SAR signal cycle
@@ -302,7 +302,10 @@ string InpNoNewOrderHourList      = "13,14,15,16,17,18";//"0,23";//"13,14,15,16,
 
 // Big candle pause protection
 // Blocks normal SAR orders, SAR_FLIP_V2LAST, recovery orders, recovery-gap orders, recovery hedge orders, and current forming spike candles.
-bool   InpUseBigCandlePause       = true;     // pause new orders after very large candle
+bool   InpUseBigCandlePause       = true;     // detect very large candles
+// true: bullish big candle blocks only SELL; bearish big candle blocks only BUY.
+// Same-direction normal and recovery orders remain allowed.
+bool   InpBigCandleBlockOppositeDirectionOnly = true;
 double InpBigCandleRawDifference  = 300;    // raw BTCUSD price difference: High[1]-Low[1]
 int    InpBigCandlePauseMinutes   = 15;       // pause duration after big candle
 bool   InpUseBigCandleFormationBlock = true; // block orders while current candle is forming as a spike/big candle: High[0]-Low[0]
@@ -509,7 +512,7 @@ int    InpStrictSARMinimumScore             = 6;     // strict recommended value
 // Normal SAR orders only. Recovery orders are not affected.
 // SELL: a long lower wick is doubtful. BUY: a long upper wick is doubtful.
 // The next fully closed candle must confirm before OrderSend.
-bool   InpUseDoubtfulCandleNextConfirm       = true;
+bool   InpUseDoubtfulCandleNextConfirm       = false;
 double InpDoubtfulOppositeWickMinRaw         = 20.0;
 double InpDoubtfulOppositeWickBodyRatio      = 0.70;
 double InpDoubtfulMinBodyPercentOfRange      = 35.0;
@@ -736,6 +739,12 @@ datetime g_lastDepositBalanceOpTime = 0; // last processed OP_BALANCE deposit/wi
 bool     g_bigCandlePause          = false;
 datetime g_bigCandlePauseUntil     = 0;
 int      g_bigCandlePauseSARDirection = 0;
+// Direction of the latest detected big candle: 1 bullish, -1 bearish.
+int      g_bigCandlePauseCandleDirection = 0;
+// Bullish big candle blocks SELL until this time.
+// Bearish big candle blocks BUY until this time.
+datetime g_bigCandleBlockBuyUntil  = 0;
+datetime g_bigCandleBlockSellUntil = 0;
 datetime g_lastBigCandlePauseBarTime = 0;
 datetime g_lastBigCandleFormationBarTime = 0;
 double   g_lastBigCandleMove       = 0.0;
@@ -1204,7 +1213,7 @@ bool ContinuousTrendFilterCase(int filterId)
       case DXB_FILTER_H1_TREND: return(false);
       case DXB_FILTER_LATE_SAR: return(true);
       case DXB_FILTER_STRICT_SAR_SCORE: return(true);
-      case DXB_FILTER_DOUBTFUL_CANDLE: return(true);
+      case DXB_FILTER_DOUBTFUL_CANDLE: return(false);
       case DXB_FILTER_TRADING_ALLOWED: return(true);
       case DXB_FILTER_SPREAD: return(true);
       case DXB_FILTER_EQUITY_LOCK: return(false);
@@ -1242,10 +1251,10 @@ bool MediumTrendFilterCase(int filterId)
       case DXB_FILTER_SAR_PRICE_SIDE: return(true);
       case DXB_FILTER_REPEATED_GAP: return(true);
       case DXB_FILTER_SAR_CYCLE: return(true);
-      case DXB_FILTER_H1_TREND: return(true);
+      case DXB_FILTER_H1_TREND: return(false);
       case DXB_FILTER_LATE_SAR: return(true);
       case DXB_FILTER_STRICT_SAR_SCORE: return(true);
-      case DXB_FILTER_DOUBTFUL_CANDLE: return(true);
+      case DXB_FILTER_DOUBTFUL_CANDLE: return(false);
       case DXB_FILTER_TRADING_ALLOWED: return(true);
       case DXB_FILTER_SPREAD: return(true);
       case DXB_FILTER_EQUITY_LOCK: return(false);
@@ -3613,6 +3622,9 @@ void ResetBigCandlePauseState()
    g_bigCandlePause = false;
    g_bigCandlePauseUntil = 0;
    g_bigCandlePauseSARDirection = 0;
+   g_bigCandlePauseCandleDirection = 0;
+   g_bigCandleBlockBuyUntil = 0;
+   g_bigCandleBlockSellUntil = 0;
    g_lastBigCandleMove = 0.0;
    g_lastBigCandleFormationBarTime = 0;
    g_notifyBigCandlePauseSent = false;
@@ -3683,6 +3695,151 @@ int GetClosedCandleDirection(int shift)
   }
 
 //+------------------------------------------------------------------+
+//| Direction of the combined last three CLOSED candles.              |
+//+------------------------------------------------------------------+
+int GetLast3CandlesMoveDirection()
+  {
+   if(Bars < 5)
+      return(0);
+
+   double startPrice = Open[3];
+   double endPrice   = Close[1];
+
+   if(endPrice > startPrice)
+      return(1);
+
+   if(endPrice < startPrice)
+      return(-1);
+
+   return(0);
+  }
+
+//+------------------------------------------------------------------+
+//| Register a directional big-candle pause.                          |
+//| Bullish big candle blocks SELL only. Bearish blocks BUY only.     |
+//+------------------------------------------------------------------+
+void RegisterBigCandleDirectionalPause(int candleDirection,
+                                       double move,
+                                       datetime eventTime,
+                                       bool forming,
+                                       int pauseMinutes,
+                                       string reason)
+  {
+   pauseMinutes = MathMax(1, pauseMinutes);
+   datetime newUntil = TimeCurrent() + pauseMinutes * 60;
+
+   g_bigCandlePause = true;
+
+   if(newUntil > g_bigCandlePauseUntil)
+      g_bigCandlePauseUntil = newUntil;
+
+   g_lastBigCandleMove = move;
+   g_bigCandlePauseCandleDirection = candleDirection;
+
+   if(forming)
+      g_lastBigCandleFormationBarTime = eventTime;
+   else
+      g_lastBigCandlePauseBarTime = eventTime;
+
+   if(!InpBigCandleBlockOppositeDirectionOnly)
+     {
+      if(newUntil > g_bigCandleBlockBuyUntil)
+         g_bigCandleBlockBuyUntil = newUntil;
+
+      if(newUntil > g_bigCandleBlockSellUntil)
+         g_bigCandleBlockSellUntil = newUntil;
+     }
+   else
+     {
+      // Bullish candle supports BUY, therefore only SELL is blocked.
+      if(candleDirection == 1 &&
+         newUntil > g_bigCandleBlockSellUntil)
+         g_bigCandleBlockSellUntil = newUntil;
+
+      // Bearish candle supports SELL, therefore only BUY is blocked.
+      if(candleDirection == -1 &&
+         newUntil > g_bigCandleBlockBuyUntil)
+         g_bigCandleBlockBuyUntil = newUntil;
+     }
+
+   Print("BIG CANDLE DIRECTION REGISTERED | Candle=",
+         DirectionText(candleDirection),
+         " | Move=", DoubleToString(move,Digits),
+         " | Rule=",
+         InpBigCandleBlockOppositeDirectionOnly
+         ? "OPPOSITE ONLY"
+         : "ALL DIRECTIONS",
+         " | Reason=", reason,
+         " | Until=",
+         TimeToString(newUntil,TIME_DATE|TIME_SECONDS));
+  }
+
+//+------------------------------------------------------------------+
+//| Return true only when the candidate is opposite to a big candle.  |
+//+------------------------------------------------------------------+
+bool IsBigCandleOrderBlockedForDirection(int orderDirection,
+                                         string &reason)
+  {
+   reason = "CLEAR";
+
+   if(!IsBigCandlePauseActive())
+      return(false);
+
+   if(!InpBigCandleBlockOppositeDirectionOnly)
+     {
+      reason = "ALL DIRECTIONS BLOCKED | " +
+               BigCandlePauseStatusText();
+      return(true);
+     }
+
+   if(orderDirection == 1)
+     {
+      if(TimeCurrent() < g_bigCandleBlockBuyUntil)
+        {
+         reason = "OPPOSITE BIG CANDLE BLOCK | Candidate=BUY" +
+                  " | BigCandle=SELL" +
+                  " | " + BigCandlePauseStatusText();
+         return(true);
+        }
+
+      reason = "SAME-DIRECTION/NO OPPOSITE BLOCK | Candidate=BUY" +
+               " | " + BigCandlePauseStatusText();
+      return(false);
+     }
+
+   if(orderDirection == -1)
+     {
+      if(TimeCurrent() < g_bigCandleBlockSellUntil)
+        {
+         reason = "OPPOSITE BIG CANDLE BLOCK | Candidate=SELL" +
+                  " | BigCandle=BUY" +
+                  " | " + BigCandlePauseStatusText();
+         return(true);
+        }
+
+      reason = "SAME-DIRECTION/NO OPPOSITE BLOCK | Candidate=SELL" +
+               " | " + BigCandlePauseStatusText();
+      return(false);
+     }
+
+   reason = "NO CANDIDATE DIRECTION | NOT BLOCKED";
+   return(false);
+  }
+
+//+------------------------------------------------------------------+
+string BigCandleDirectionalStatusText(int orderDirection)
+  {
+   string reason = "";
+
+   bool blocked =
+      IsBigCandleOrderBlockedForDirection(orderDirection,
+                                          reason);
+
+   return((blocked ? "BLOCK | " : "ALLOW | ") + reason);
+  }
+
+
+//+------------------------------------------------------------------+
 void UpgradeSARCycleMaxToNormalBecauseBigCandle(int direction, double candleMove, string reason)
   {
    if(direction == 0)
@@ -3733,51 +3890,71 @@ void CheckBigCandleFormationPauseOnTick()
       return;
 
    double formingMove = MathAbs(High[0] - Low[0]);
+
    if(formingMove < InpBigCandleRawDifference)
       return;
 
    datetime formingBarTime = Time[0];
 
-   // Avoid repeating the same start log every tick for the same forming candle.
-   if(g_bigCandlePause && g_lastBigCandleFormationBarTime == formingBarTime)
-      return;
-
    int sarDirection = g_activeSARDirection;
+
    if(sarDirection == 0)
       sarDirection = GetSARDotDirection(0);
+
    if(sarDirection == 0)
       sarDirection = GetSARDotDirection(1);
 
    int candleDirection = 0;
+
    if(Close[0] > Open[0])
       candleDirection = 1;
    else if(Close[0] < Open[0])
       candleDirection = -1;
 
-   g_lastBigCandleFormationBarTime = formingBarTime;
-   g_lastBigCandleMove = formingMove;
-   g_bigCandlePause = true;
-   g_bigCandlePauseUntil = TimeCurrent() + MathMax(1, InpBigCandlePauseMinutes) * 60;
+   bool firstDetectionThisBar =
+      (g_lastBigCandleFormationBarTime != formingBarTime);
+
+   RegisterBigCandleDirectionalPause(
+      candleDirection,
+      formingMove,
+      formingBarTime,
+      true,
+      InpBigCandlePauseMinutes,
+      "FORMING CANDLE");
+
    g_bigCandlePauseSARDirection = sarDirection;
    g_notifyBigCandlePauseSent = true;
 
-   DrawBigCandleRedMarker(0, formingMove, "FORMING CANDLE");
+   if(!firstDetectionThisBar)
+      return;
 
-   Print("BIG CANDLE FORMATION / SPIKE PAUSE STARTED | CurrentMove=", DoubleToString(formingMove, Digits),
-         " Required=", DoubleToString(InpBigCandleRawDifference, Digits),
-         " Candle=", DirectionText(candleDirection),
-         " SAR=", DirectionText(g_bigCandlePauseSARDirection),
-         " PauseUntil=", TimeToString(g_bigCandlePauseUntil, TIME_DATE|TIME_SECONDS),
-         " | Normal and recovery orders blocked");
+   DrawBigCandleRedMarker(0,
+                          formingMove,
+                          "FORMING CANDLE");
+
+   Print("BIG CANDLE FORMATION DETECTED | CurrentMove=",
+         DoubleToString(formingMove,Digits),
+         " | Required=",
+         DoubleToString(InpBigCandleRawDifference,Digits),
+         " | Candle=", DirectionText(candleDirection),
+         " | SAR=", DirectionText(sarDirection),
+         " | Rule=BLOCK OPPOSITE DIRECTION ONLY",
+         " | PauseUntil=",
+         TimeToString(g_bigCandlePauseUntil,
+                      TIME_DATE|TIME_SECONDS));
 
    if(InpNotifyOnBigCandlePause)
      {
-      SendEAAlert("TRADING PAUSED - BIG CANDLE FORMING",
-                  "CurrentMove=" + DoubleToString(formingMove,2) +
-                  " | Candle=" + DirectionText(candleDirection) +
-                  " | SAR=" + DirectionText(g_bigCandlePauseSARDirection) +
-                  " | Pause=" + IntegerToString(InpBigCandlePauseMinutes) + "m" +
-                  " | Normal/recovery blocked");
+      SendEAAlert(
+         "BIG CANDLE - OPPOSITE SIDE PAUSED",
+         "CurrentMove=" +
+         DoubleToString(formingMove,2) +
+         " | Candle=" +
+         DirectionText(candleDirection) +
+         " | Same direction allowed" +
+         " | Opposite direction paused " +
+         IntegerToString(InpBigCandlePauseMinutes) +
+         "m");
      }
   }
 
@@ -3793,16 +3970,18 @@ void CheckBigCandlePauseOnNewBar(bool isNewBar)
    if(Bars < 10)
       return;
 
-// Use the last fully closed candle. For BTCUSD this is raw price difference, not points.
    datetime barTime = Time[1];
+
    if(barTime == g_lastBigCandlePauseBarTime)
       return;
 
    double candleMove = MathAbs(High[1] - Low[1]);
+
    if(candleMove < InpBigCandleRawDifference)
       return;
 
    int sarDirection = g_activeSARDirection;
+
    if(sarDirection == 0)
       sarDirection = GetSARDotDirection(1);
 
@@ -3811,38 +3990,50 @@ void CheckBigCandlePauseOnNewBar(bool isNewBar)
    g_lastBigCandlePauseBarTime = barTime;
    g_lastBigCandleMove = candleMove;
 
-// Big candle protection:
-// Any big candle now pauses NEW normal SAR orders, including SAR_FLIP_V2LAST.
-// Same-direction big candle no longer bypasses the pause. Recovery/close management still runs.
-   if(candleDirection == 0 || sarDirection == 0)
+   if(candleDirection == 0)
      {
-      Print("BIG CANDLE IGNORED | No clear SAR/candle direction | SAR=", DirectionText(sarDirection),
-            " | Candle=", DirectionText(candleDirection),
-            " | Move=", DoubleToString(candleMove, Digits));
+      Print("BIG CANDLE DIRECTION UNKNOWN | No directional order block",
+            " | Move=", DoubleToString(candleMove,Digits));
       return;
      }
 
-   g_bigCandlePause = true;
-   g_bigCandlePauseUntil = TimeCurrent() + MathMax(1, InpBigCandlePauseMinutes) * 60;
+   RegisterBigCandleDirectionalPause(
+      candleDirection,
+      candleMove,
+      barTime,
+      false,
+      InpBigCandlePauseMinutes,
+      "CLOSED CANDLE");
+
    g_bigCandlePauseSARDirection = sarDirection;
    g_notifyBigCandlePauseSent = true;
 
-   DrawBigCandleRedMarker(1, candleMove, "CLOSED CANDLE");
+   DrawBigCandleRedMarker(1,
+                          candleMove,
+                          "CLOSED CANDLE");
 
-   Print("BIG CANDLE PAUSE STARTED - BLOCK SAR_FLIP_V2LAST | Move=", DoubleToString(candleMove, Digits),
-         " Required=", DoubleToString(InpBigCandleRawDifference, Digits),
-         " Candle=", DirectionText(candleDirection),
-         " SAR=", DirectionText(g_bigCandlePauseSARDirection),
-         " PauseUntil=", TimeToString(g_bigCandlePauseUntil, TIME_DATE|TIME_SECONDS));
+   Print("BIG CANDLE CLOSED | Move=",
+         DoubleToString(candleMove,Digits),
+         " | Required=",
+         DoubleToString(InpBigCandleRawDifference,Digits),
+         " | Candle=", DirectionText(candleDirection),
+         " | SAR=", DirectionText(sarDirection),
+         " | SAME DIRECTION ALLOWED",
+         " | OPPOSITE DIRECTION PAUSED",
+         " | PauseUntil=",
+         TimeToString(g_bigCandlePauseUntil,
+                      TIME_DATE|TIME_SECONDS));
 
    if(InpNotifyOnBigCandlePause)
      {
-      SendEAAlert("TRADING PAUSED - BIG CANDLE",
-                  "Move=" + DoubleToString(candleMove,2) +
-                  " | Candle=" + DirectionText(candleDirection) +
-                  " | SAR=" + DirectionText(g_bigCandlePauseSARDirection) +
-                  " | Pause=" + IntegerToString(InpBigCandlePauseMinutes) + "m" +
-                  " | SAR_FLIP_V2LAST blocked");
+      SendEAAlert(
+         "BIG CANDLE - OPPOSITE SIDE PAUSED",
+         "Move=" + DoubleToString(candleMove,2) +
+         " | Candle=" + DirectionText(candleDirection) +
+         " | Same direction allowed" +
+         " | Opposite paused " +
+         IntegerToString(InpBigCandlePauseMinutes) +
+         "m");
      }
   }
 
@@ -3869,42 +4060,27 @@ void CheckBigCandlePauseOnNewBar(bool isNewBar)
 //    return(true);
 // }
 bool IsBigCandlePauseActive()
-{
+  {
    if(!InpUseBigCandlePause)
       return(false);
 
-   // Also detect current forming candle spikes before any order creation.
    CheckBigCandleFormationPauseOnTick();
 
    if(!g_bigCandlePause)
       return(false);
 
-   int currentSAR = g_activeSARDirection;
-   if(currentSAR == 0)
-      currentSAR = GetSARDotDirection(1);
+   if(TimeCurrent() >= g_bigCandlePauseUntil)
+     {
+      Print("BIG CANDLE DIRECTIONAL PAUSE FINISHED | Until=",
+            TimeToString(g_bigCandlePauseUntil,
+                         TIME_DATE|TIME_SECONDS));
 
-   // // ADD THIS
-   // if(IsCurrentSARGoodMomentum(currentSAR))
-   // {
-   //    Print("BIG CANDLE PAUSE RELEASED BY SAR GOOD MOMENTUM | SAR=",
-   //          DirectionText(currentSAR));
-
-   //    ResetBigCandlePauseState();
-   //    return(false);
-   // }
-
-   bool timeCompleted = (TimeCurrent() >= g_bigCandlePauseUntil);
-
-   if(timeCompleted)
-   {
-      Print("BIG CANDLE PAUSE FINISHED | SAR_FLIP_V2LAST allowed again | PauseUntil=",
-            TimeToString(g_bigCandlePauseUntil, TIME_DATE|TIME_SECONDS));
       ResetBigCandlePauseState();
       return(false);
-   }
+     }
 
    return(true);
-}
+  }
 
 
 //+------------------------------------------------------------------+
@@ -3913,134 +4089,166 @@ bool IsBigCandlePauseActive()
 //| forming candle and recent closed candles, then starts/extends      |
 //| pause immediately. Used before SAR, recovery gap and hedge orders.|
 //+------------------------------------------------------------------+
-bool EnforceBigCandleOrderBlock(string source)
+bool EnforceBigCandleOrderBlock(int orderDirection,
+                                      string source)
   {
-   bool normalProfileSource = IsNormalProfileSource(source);
-   bool useSpikeFilter = normalProfileSource
-                         ? IsMarketModeEntryFilterEnabled(DXB_FILTER_SPIKE_WICK)
-                         : InpUseSpikeWickPauseFilter;
-   bool useBigCandleFilter = normalProfileSource
-                             ? IsMarketModeEntryFilterEnabled(DXB_FILTER_BIG_CANDLE)
-                             : InpUseBigCandlePause;
+   bool normalProfileSource =
+      IsNormalProfileSource(source);
+
+   bool useSpikeFilter =
+      normalProfileSource
+      ? IsMarketModeEntryFilterEnabled(
+           DXB_FILTER_SPIKE_WICK)
+      : InpUseSpikeWickPauseFilter;
+
+   bool useBigCandleFilter =
+      normalProfileSource
+      ? IsMarketModeEntryFilterEnabled(
+           DXB_FILTER_BIG_CANDLE)
+      : InpUseBigCandlePause;
 
    if(useSpikeFilter &&
-      EnforceSpikeWickOrderBlock(source,
-                                 InpSpikeWickBlockRecovery,
-                                 InpSpikeWickBlockGuard))
+      EnforceSpikeWickOrderBlock(
+         source,
+         InpSpikeWickBlockRecovery,
+         InpSpikeWickBlockGuard))
       return(true);
 
    if(!useBigCandleFilter)
       return(false);
 
    if(Bars < 10)
-      return(IsBigCandlePauseActive());
+     {
+      string shortReason = "";
 
+      return(IsBigCandleOrderBlockedForDirection(
+                orderDirection,
+                shortReason));
+     }
+
+   // Register the strongest current/recent single candle.
    double maxMove = 0.0;
    int maxShift = -1;
 
-   int maxScanShift = 2; // shift 0 = forming candle, 1/2 = just closed candles
-   for(int s = 0; s <= maxScanShift; s++)
+   for(int shift = 0; shift <= 2; shift++)
      {
-      double move = MathAbs(High[s] - Low[s]);
+      double move = MathAbs(High[shift] -
+                            Low[shift]);
+
       if(move > maxMove)
         {
          maxMove = move;
-         maxShift = s;
+         maxShift = shift;
         }
      }
 
-   // NEW SAFETY:
-   // Last 3 CLOSED candles combined range pause.
-   // Example: High of candles 1..3 minus Low of candles 1..3 >= 200
-   // means market is too volatile; block normal orders, recovery, recovery-gap and hedge.
-   double last3Move = 0.0;
-   if(InpUseLast3CandlesMovePause && Bars > 10)
+   if(maxShift >= 0 &&
+      maxMove >= InpBigCandleRawDifference)
+     {
+      int candleDirection =
+         GetClosedCandleDirection(maxShift);
+
+      if(maxShift == 0)
+        {
+         if(Close[0] > Open[0])
+            candleDirection = 1;
+         else if(Close[0] < Open[0])
+            candleDirection = -1;
+        }
+
+      RegisterBigCandleDirectionalPause(
+         candleDirection,
+         maxMove,
+         Time[maxShift],
+         maxShift == 0,
+         InpBigCandlePauseMinutes,
+         "ORDER CHECK " + source);
+
+      DrawBigCandleRedMarker(maxShift,
+                             maxMove,
+                             "DIRECTIONAL ORDER CHECK");
+     }
+
+   // Register the combined last-three-candle move direction.
+   if(InpUseLast3CandlesMovePause &&
+      InpLast3CandlesRawDifference > 0.0 &&
+      Bars > 10)
      {
       double highest3 = High[1];
       double lowest3  = Low[1];
 
-      for(int c = 2; c <= 3; c++)
+      for(int candle = 2;
+          candle <= 3;
+          candle++)
         {
-         if(High[c] > highest3)
-            highest3 = High[c];
+         if(High[candle] > highest3)
+            highest3 = High[candle];
 
-         if(Low[c] < lowest3)
-            lowest3 = Low[c];
+         if(Low[candle] < lowest3)
+            lowest3 = Low[candle];
         }
 
-      last3Move = MathAbs(highest3 - lowest3);
+      double last3Move =
+         MathAbs(highest3 - lowest3);
+
+      if(last3Move >=
+         InpLast3CandlesRawDifference)
+        {
+         int last3Direction =
+            GetLast3CandlesMoveDirection();
+
+         int pauseMinutes3 =
+            MathMax(1,
+                    InpLast3CandlesPauseMinutes);
+
+         if(InpBlockRecoveryGapOnBigCandle)
+            pauseMinutes3 =
+               MathMax(
+                  pauseMinutes3,
+                  MathMax(
+                     1,
+                     InpBigCandleRecoveryPauseMinutes));
+
+         RegisterBigCandleDirectionalPause(
+            last3Direction,
+            last3Move,
+            Time[1],
+            false,
+            pauseMinutes3,
+            "LAST 3 CANDLES MOVE");
+
+         DrawBigCandleRedMarker(
+            1,
+            last3Move,
+            "LAST 3 CANDLES DIRECTIONAL");
+        }
      }
 
-   if(InpUseLast3CandlesMovePause &&
-      InpLast3CandlesRawDifference > 0.0 &&
-      last3Move >= InpLast3CandlesRawDifference)
+   string directionReason = "";
+
+   bool blocked =
+      IsBigCandleOrderBlockedForDirection(
+         orderDirection,
+         directionReason);
+
+   if(blocked)
      {
-      int pauseMinutes3 = MathMax(1, InpLast3CandlesPauseMinutes);
-      if(InpBlockRecoveryGapOnBigCandle)
-         pauseMinutes3 = MathMax(pauseMinutes3, MathMax(1, InpBigCandleRecoveryPauseMinutes));
-
-      datetime newUntil3 = TimeCurrent() + pauseMinutes3 * 60;
-      if(!g_bigCandlePause || newUntil3 > g_bigCandlePauseUntil)
-         g_bigCandlePauseUntil = newUntil3;
-
-      g_bigCandlePause = true;
-      g_lastBigCandleMove = last3Move;
-      g_lastBigCandlePauseBarTime = Time[1];
-
-      g_bigCandlePauseSARDirection = g_activeSARDirection;
-      if(g_bigCandlePauseSARDirection == 0)
-         g_bigCandlePauseSARDirection = GetSARDotDirection(1);
-
-      DrawBigCandleRedMarker(1, last3Move, "LAST 3 CANDLES MOVE");
-
-      Print("LAST 3 CANDLES MOVE ORDER BLOCK ACTIVE | Source=", source,
-            " | Move=", DoubleToString(last3Move, Digits),
-            " | Required=", DoubleToString(InpLast3CandlesRawDifference, Digits),
-            " | PauseUntil=", TimeToString(g_bigCandlePauseUntil, TIME_DATE|TIME_SECONDS),
-            " | Normal/Recovery/RecoveryGap/Hedge blocked");
-
-      return(true);
+      Print("BIG CANDLE OPPOSITE-DIRECTION BLOCK | Source=",
+            source,
+            " | Candidate=",
+            DirectionText(orderDirection),
+            " | ", directionReason);
      }
-
-   if(maxMove >= InpBigCandleRawDifference)
+   else if(IsBigCandlePauseActive())
      {
-      int pauseMinutes = MathMax(1, InpBigCandlePauseMinutes);
-      if(InpBlockRecoveryGapOnBigCandle)
-         pauseMinutes = MathMax(pauseMinutes, MathMax(1, InpBigCandleRecoveryPauseMinutes));
-
-      datetime newUntil = TimeCurrent() + pauseMinutes * 60;
-      if(!g_bigCandlePause || newUntil > g_bigCandlePauseUntil)
-         g_bigCandlePauseUntil = newUntil;
-
-      g_bigCandlePause = true;
-      g_lastBigCandleMove = maxMove;
-      if(maxShift == 0)
-         g_lastBigCandleFormationBarTime = Time[0];
-      else
-         g_lastBigCandlePauseBarTime = Time[maxShift];
-
-      int candleDirection = 0;
-      if(Close[maxShift] > Open[maxShift]) candleDirection = 1;
-      else if(Close[maxShift] < Open[maxShift]) candleDirection = -1;
-
-      g_bigCandlePauseSARDirection = g_activeSARDirection;
-      if(g_bigCandlePauseSARDirection == 0)
-         g_bigCandlePauseSARDirection = GetSARDotDirection(1);
-
-      DrawBigCandleRedMarker(maxShift, maxMove, "ORDER BLOCK");
-
-      Print("BIG CANDLE ORDER BLOCK ACTIVE | Source=", source,
-            " | Shift=", maxShift,
-            " | Move=", DoubleToString(maxMove, Digits),
-            " | Required=", DoubleToString(InpBigCandleRawDifference, Digits),
-            " | Candle=", DirectionText(candleDirection),
-            " | PauseUntil=", TimeToString(g_bigCandlePauseUntil, TIME_DATE|TIME_SECONDS),
-            " | Normal/Recovery/RecoveryGap/Hedge blocked");
-
-      return(true);
+      Print("BIG CANDLE SAME-DIRECTION ALLOWED | Source=",
+            source,
+            " | Candidate=",
+            DirectionText(orderDirection),
+            " | ", directionReason);
      }
 
-   return(IsBigCandlePauseActive());
+   return(blocked);
   }
 
 //+------------------------------------------------------------------+
@@ -4049,12 +4257,32 @@ string BigCandlePauseStatusText()
    if(!g_bigCandlePause)
       return("OFF");
 
-   int secondsLeft = (int)(g_bigCandlePauseUntil - TimeCurrent());
+   int secondsLeft =
+      (int)(g_bigCandlePauseUntil -
+            TimeCurrent());
+
    if(secondsLeft < 0)
       secondsLeft = 0;
 
-   return("ON " + FormatSecondsToHHMM(secondsLeft) +
-          " | ALL ORDERS BLOCKED | LastMove=" + DoubleToString(g_lastBigCandleMove, 1));
+   string buyState =
+      (TimeCurrent() < g_bigCandleBlockBuyUntil)
+      ? "BUY BLOCK"
+      : "BUY ALLOW";
+
+   string sellState =
+      (TimeCurrent() < g_bigCandleBlockSellUntil)
+      ? "SELL BLOCK"
+      : "SELL ALLOW";
+
+   return("ON " +
+          FormatSecondsToHHMM(secondsLeft) +
+          " | Big=" +
+          DirectionText(
+             g_bigCandlePauseCandleDirection) +
+          " | " + buyState +
+          " | " + sellState +
+          " | Move=" +
+          DoubleToString(g_lastBigCandleMove,1));
   }
 
 //+------------------------------------------------------------------+
@@ -4460,7 +4688,7 @@ bool OpenRecoveryOrder(int direction, string sourceReason)
 
    // Big candle protection: do not create recovery orders during/after a big candle pause.
    CheckBigCandlePauseOnNewBar(true);
-   if(EnforceBigCandleOrderBlock("OpenRecoveryOrder " + sourceReason))
+   if(EnforceBigCandleOrderBlock(direction, "OpenRecoveryOrder " + sourceReason))
      {
       Print("RECOVERY ORDER BLOCKED BY BIG CANDLE PAUSE | Source=", sourceReason,
             " | ", BigCandlePauseStatusText());
@@ -4717,7 +4945,7 @@ bool OpenRecoveryGapMarketOrder(int direction, double gapMove)
 
    // Big candle protection: do not create recovery gap orders during/after a big candle pause.
    CheckBigCandlePauseOnNewBar(true);
-   if(EnforceBigCandleOrderBlock("OpenRecoveryGapMarketOrder"))
+   if(EnforceBigCandleOrderBlock(direction, "OpenRecoveryGapMarketOrder"))
      {
       Print("RECOVERY GAP BLOCKED BY BIG CANDLE PAUSE | Direction=", DirectionText(direction),
             " | GapMove=", DoubleToString(gapMove, Digits),
@@ -5196,7 +5424,7 @@ void ProcessRecoveryGapOrders()
    // Big candle protection: recovery orders are reverse-trend risk, so block them too.
    // This check is run here because recovery processing may happen before the normal new-order gate.
    CheckBigCandlePauseOnNewBar(true);
-   if(EnforceBigCandleOrderBlock("ProcessRecoveryGapOrders"))
+   if(EnforceBigCandleOrderBlock(g_activeSARDirection, "ProcessRecoveryGapOrders"))
      {
       Print("RECOVERY PROCESS BLOCKED BY BIG CANDLE PAUSE | ", BigCandlePauseStatusText());
       return;
@@ -7043,11 +7271,19 @@ bool ProcessNewOrderCreationLast(bool isNewBar, string &status)
       return(SetOrderBlockStatus(status, "NO NEW ORDERS HOUR - " + InpNoNewOrderHourList));
      }
 
-// Big candle pause blocks ONLY new orders. Close/profit/protection logic still runs first.
+// Big candle blocks only a candidate OPPOSITE to the big candle.
+// Same-direction normal orders remain allowed.
+   string bigDirectionReason = "";
+
    if(IsMarketModeEntryFilterEnabled(DXB_FILTER_BIG_CANDLE) &&
-      IsBigCandlePauseActive())
+      IsBigCandleOrderBlockedForDirection(
+         g_activeSARDirection,
+         bigDirectionReason))
      {
-      return(SetOrderBlockStatus(status, "BIG CANDLE PAUSE - " + BigCandlePauseStatusText()));
+      return(SetOrderBlockStatus(
+         status,
+         "BIG CANDLE OPPOSITE BLOCK - " +
+         bigDirectionReason));
      }
 
 // Early SAR weak exit blocks ONLY new normal orders while the weak active SAR basket still exists.
@@ -9475,7 +9711,7 @@ bool IsNormalOrderAllowedByMarketModeProfile(int direction,
 
    if((IsMarketModeEntryFilterEnabled(DXB_FILTER_BIG_CANDLE) ||
        IsMarketModeEntryFilterEnabled(DXB_FILTER_SPIKE_WICK)) &&
-      EnforceBigCandleOrderBlock("NORMAL_PROFILE " + reason))
+      EnforceBigCandleOrderBlock(direction, "NORMAL_PROFILE " + reason))
       return(BlockNormalOrderByModeProfile(
          "BIG CANDLE / SPIKE | " +
          BigCandlePauseStatusText() +
@@ -10267,8 +10503,9 @@ void DrawLeftImportantOrderSettings(int direction)
 
    LeftChecklistInfo("Big Candle Block",
                      (InpUseBigCandlePause ? "ON" : "OFF") +
+                     " | OPPOSITE ONLY" +
                      " | " + DoubleToString(InpBigCandleRawDifference, 0) +
-                     " | Pause " + IntegerToString(InpBigCandlePauseMinutes) + "m",
+                     " | " + IntegerToString(InpBigCandlePauseMinutes) + "m",
                      InpUseBigCandlePause ? clrLime : clrSilver);
 
    LeftChecklistInfo("Last3 Move Block",
@@ -10650,7 +10887,11 @@ void RefreshNormalEntryDiagnosticSnapshot(int direction,
       (!IsOppositeDirectionProfitPauseActive() ||
        direction != g_oppositePausedDirection);
 
-   bool rawBig = !IsBigCandlePauseActive();
+   string bigDirectionReason = "";
+   bool rawBig =
+      !IsBigCandleOrderBlockedForDirection(
+         direction,
+         bigDirectionReason);
    bool rawSpike = !IsSpikeWickPauseActive();
    bool rawMinGap = CheckListMinGapAllowed(direction);
    bool rawMaxOpen = CheckListMaxOpenAllowed(direction);
@@ -10760,7 +11001,7 @@ void RefreshNormalEntryDiagnosticSnapshot(int direction,
    SetEntryDiagnosticFilter(
       DXB_FILTER_BIG_CANDLE,
       rawBig,
-      BigCandlePauseStatusText());
+      BigCandleDirectionalStatusText(direction));
 
    SetEntryDiagnosticFilter(
       DXB_FILTER_SPIKE_WICK,
@@ -10978,20 +11219,24 @@ void DrawRecoveryChecklistPanel(int direction)
        CountRecoveryGapOrdersByDirection(-1) <
        InpMaxRecoveryGapOrdersPerSide);
    bool pending = (g_pendingRecoveryGapDirection != 0);
-   bool bigOk = !IsBigCandlePauseActive();
+   string recoveryBigReason = "";
+   bool bigOk =
+      !IsBigCandleOrderBlockedForDirection(
+         direction,
+         recoveryBigReason);
    bool spikeOk = !IsSpikeWickPauseActive();
    bool allowed =
       enabled && matchOk && countOk && bigOk && spikeOk;
 
    DrawCornerPanel("DXB_RECOVERY_PANEL",
                    CORNER_LEFT_LOWER,
-                   560,10,560,242,
+                   560,10,580,260,
                    clrBlack,clrDimGray);
 
    DrawCornerLabel("DXB_RECOVERY_TITLE",
                    "RECOVERY ORDER STATUS",
                    CORNER_LEFT_LOWER,
-                   570,230,
+                   570,248,
                    clrYellow,9);
 
    g_recoveryDashRow = 0;
@@ -11037,12 +11282,23 @@ void DrawRecoveryChecklistPanel(int direction)
                pending ? clrYellow : clrSilver);
 
    RecoveryRow("Big / Spike",
-               (bigOk ? "CLEAR" : "BIG BLOCK") +
+               (bigOk
+                ? "BIG ALLOW"
+                : "BIG OPP BLOCK") +
                " / " +
-               (spikeOk ? "CLEAR" : "SPIKE BLOCK"),
+               (spikeOk
+                ? "SPIKE CLEAR"
+                : "SPIKE BLOCK"),
                (bigOk && spikeOk)
                ? clrLime
                : clrOrangeRed);
+
+   RecoveryRow("Big Direction Rule",
+               StringSubstr(
+                  recoveryBigReason,
+                  0,
+                  58),
+               bigOk ? clrAqua : clrOrangeRed);
 
    RecoveryRow("Strong Opp Move",
                OnOff(InpStopRecoveryOnStrongOppMove) +
@@ -11095,6 +11351,8 @@ void LeftProModeCheck(string title,
 //+------------------------------------------------------------------+
 void DrawTopCenterOrderAuditPanel()
   {
+
+   return ;
    int chartWidth =
       (int)ChartGetInteger(0, CHART_WIDTH_IN_PIXELS, 0);
 
@@ -11367,7 +11625,7 @@ void DrawLeftOrderCreationChecklist(string mainStatus)
       IsMarketModeEntryFilterEnabled(DXB_FILTER_SPIKE_WICK))
      {
       bool blockedByVolatility =
-         EnforceBigCandleOrderBlock("CHECKLIST_NORMAL");
+         EnforceBigCandleOrderBlock(direction, "CHECKLIST_NORMAL");
 
       rawBigCandle = !blockedByVolatility;
       rawSpikeWick = !blockedByVolatility;
@@ -11553,7 +11811,8 @@ void DrawLeftOrderCreationChecklist(string mainStatus)
                             OppositeDirectionProfitPauseStatusText());
    SetEntryDiagnosticFilter(DXB_FILTER_BIG_CANDLE,
                             rawBigCandle,
-                            BigCandlePauseStatusText());
+                            BigCandleDirectionalStatusText(
+                               direction));
    SetEntryDiagnosticFilter(DXB_FILTER_SPIKE_WICK,
                             rawSpikeWick,
                             SpikeWickPauseStatusText());
@@ -11595,7 +11854,7 @@ void DrawLeftOrderCreationChecklist(string mainStatus)
 
    DrawCornerPanel("DXB_LEFT_CHK_PANEL",
                    CORNER_LEFT_UPPER,
-                   5,15,550,900,
+                   5,15,400,900,
                    clrBlack,clrDimGray);
 
    DrawCornerLabel("DXB_LEFT_CHK_TITLE",
@@ -11774,7 +12033,8 @@ void DrawLeftOrderCreationChecklist(string mainStatus)
    LeftProModeCheck("Big Candle",
                     DXB_FILTER_BIG_CANDLE,
                     rawBigCandle,
-                    BigCandlePauseStatusText());
+                    BigCandleDirectionalStatusText(
+                       direction));
 
    LeftProModeCheck("Spike/Wick",
                     DXB_FILTER_SPIKE_WICK,
@@ -12042,7 +12302,7 @@ void DrawDashboard(string status)
                    13);
 
    DrawCornerLabel("DXB_RIGHT_SETTINGS_TITLE",
-                   liveModeText + " | VERSION 1.31",
+                   liveModeText + " | VERSION 1.32",
                    CORNER_RIGHT_UPPER,
                    300,287,
                    liveModeColor,
@@ -12158,7 +12418,12 @@ void DrawDashboard(string status)
    RightProRow("SAR Cycle",IntegerToString(g_sarCycleOrdersCreated)+"/"+IntegerToString(g_sarCycleMaxOrders),g_sarCycleOrdersCreated>=g_sarCycleMaxOrders ? clrOrangeRed : clrLime);
 
    RightProRow("--- PROTECTION ---","",clrDimGray);
-   RightProRow("Big Candle",DoubleToString(InpBigCandleRawDifference,0)+" | Pause "+IntegerToString(InpBigCandlePauseMinutes)+"m",clrYellow);
+   RightProRow("Big Candle",
+               DoubleToString(InpBigCandleRawDifference,0) +
+               " | OPPOSITE ONLY | Pause " +
+               IntegerToString(InpBigCandlePauseMinutes) +
+               "m",
+               clrYellow);
    RightProRow("Big Marker",OnOff(InpDrawBigCandleRedMarker)+" | RED",InpDrawBigCandleRedMarker ? clrRed : clrSilver);
    RightProRow("Last3 Move",DoubleToString(InpLast3CandlesRawDifference,0)+" | Pause "+IntegerToString(InpLast3CandlesPauseMinutes)+"m",clrYellow);
    RightProRow("Spike/Wick",DoubleToString(InpSpikeWickMinRawPrice,0)+" | R"+DoubleToString(InpSpikeMomentumRangeRawPrice,0)+" B"+DoubleToString(InpSpikeMomentumBodyRawPrice,0),clrYellow);
