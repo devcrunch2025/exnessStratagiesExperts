@@ -20,10 +20,10 @@ MARKET_MODE g_marketMode = MODE_RANGE;
 #ifndef OP_BALANCE
 #define OP_BALANCE 6
 #endif
-#property version   "1.20"
+#property version   "1.27"
 
 //======================== INPUTS ====================================
-string InpEAName                  = "DXB Version 5 - Doubtful Next Candle";
+string InpEAName                  = "DXB Version 5 - Wrapped Order Audit";
 int    InpMagicNumber             = 989899;
 double InpFixedLot                = 0.01;
 int    InpMaxOrders               = 1;     // maximum normal SAR orders per SAR signal cycle
@@ -99,6 +99,24 @@ bool   InpAutoModeAllowRecoveryMedium  = true;
 bool   InpAutoModeAllowRecoveryMixed   = true;
 bool   InpAutoModeAllowSARWeakMixed    = false;
 bool   InpAutoModeAllowPullbackMixed   = true;
+
+//================ DIRECT MARKET-MODE FILTER CASES ==================
+// There is NO old-filter master and NO two-level enable system.
+//
+// Every filter is controlled directly by one TRUE/FALSE case list:
+//   GlobalFilterCase()          -> used when Auto Market Mode is OFF
+//   ContinuousTrendFilterCase()
+//   MediumTrendFilterCase()
+//   MixedTrendFilterCase()
+//   DangerModeFilterCase()
+//
+// TRUE  = run that filter in the selected mode.
+// FALSE = completely bypass that filter in the selected mode.
+//
+// Threshold/value inputs such as spread limit, gap, minutes and score
+// remain global configuration values. They do not enable the filter.
+// DIRECTION and TRADING_ALLOWED remain hard safety checks.
+bool   InpUseMarketModeFilterProfiles = true;
 
 // Opposite-direction profit-streak pause:
 // When the latest normal SAR order history produces N consecutive profitable closes
@@ -490,8 +508,8 @@ bool   InpDoubtfulConfirmMustBreakExtreme    = true;
 double InpDoubtfulConfirmBreakBufferRaw      = 0.0;
 
 int    InpDynamicATRPeriod                 = 14;
-int    InpDynamicMinSignalMinutes          = 20;   // normal minimum SAR age before new normal order
-int    InpDynamicVeryStrongMinMinutes      = 10;   // allow earlier only if score is very strong
+int    InpDynamicMinSignalMinutes          = 5;//20;   // normal minimum SAR age before new normal order
+int    InpDynamicVeryStrongMinMinutes      = 3;//10;   // allow earlier only if score is very strong
 double InpDynamicConfirmATRMultiplier      = 0.80; // replaces fixed SAR diff when dynamic engine is ON
 double InpDynamicStrongDotATRMultiplier    = 1.20; // SAR dot distance must be >= ATR * this
 double InpDynamicWeakDotATRMultiplier      = 0.45; // below this means SAR is too close/weak
@@ -602,6 +620,7 @@ double   g_autoMarketLast3MoveRaw= 0.0;
 int      g_autoMarketBuyProfitCount  = 0;
 int      g_autoMarketSellProfitCount = 0;
 int      g_autoMarketDirection   = 0;
+int      g_lastAppliedEntryFilterMode = -999;
 
 // Opposite-direction pause state, reconstructed from closed normal-order history.
 int      g_oppositeProfitStreakDirection = 0;
@@ -790,7 +809,8 @@ bool TryOpenEarlySameSARExtraOrder()
 {
    // IMPORTANT: extra orders must not bypass SAR flip confirmation.
    // This prevents SELL/BUY orders from opening immediately after SAR change.
-   if(g_pendingSARConfirmDirection != 0)
+   if(IsMarketModeEntryFilterEnabled(DXB_FILTER_SAR_CONFIRM) &&
+      g_pendingSARConfirmDirection != 0)
      {
       if(!IsSARFlipConfirmationReady())
         {
@@ -821,7 +841,8 @@ bool TryOpenEarlySameSARExtraOrder()
    if(Time[1] == g_lastEarlySameSAROrderBarTime)
       return false;
 
-   if(!IsOrderAllowedByH1Trend(g_activeSARDirection))
+   if(IsMarketModeEntryFilterEnabled(DXB_FILTER_H1_TREND) &&
+      !IsOrderAllowedByH1Trend(g_activeSARDirection))
       return false;
 
    EnsureSARSignalOrderCycle(g_activeSARDirection);
@@ -971,7 +992,7 @@ int GetM30TrendDirection()
 //+------------------------------------------------------------------+
 bool IsOrderAllowedByH1Trend(int orderDirection)
   {
-   if(!InpUseH1TrendFilter)
+   if(!IsMarketModeEntryFilterEnabled(DXB_FILTER_H1_TREND))
       return true;
 
    int trend = GetH1TrendDirection();
@@ -1034,6 +1055,456 @@ bool IsRecoveryGapAllowedByH1Trend(int direction)
 #define DXB_MARKET_MODE_MIXED      3
 #define DXB_MARKET_MODE_DANGER     4
 
+enum DXB_ENTRY_FILTER_ID
+  {
+   DXB_FILTER_DIRECTION = 0,
+   DXB_FILTER_SAR_CONFIRM,
+   DXB_FILTER_SAR_PRICE_SIDE,
+   DXB_FILTER_REPEATED_GAP,
+   DXB_FILTER_SAR_CYCLE,
+   DXB_FILTER_H1_TREND,
+   DXB_FILTER_LATE_SAR,
+   DXB_FILTER_STRICT_SAR_SCORE,
+   DXB_FILTER_DOUBTFUL_CANDLE,
+   DXB_FILTER_TRADING_ALLOWED,
+   DXB_FILTER_SPREAD,
+   DXB_FILTER_EQUITY_LOCK,
+   DXB_FILTER_NO_NEW_HOUR,
+   DXB_FILTER_PROFIT_PAUSE,
+   DXB_FILTER_OPPOSITE_PAUSE,
+   DXB_FILTER_BIG_CANDLE,
+   DXB_FILTER_SPIKE_WICK,
+   DXB_FILTER_MIN_GAP,
+   DXB_FILTER_MAX_OPEN_DIR,
+   DXB_FILTER_TOTAL_OPEN,
+   DXB_FILTER_AUTO_MARKET_MODE,
+   DXB_FILTER_DYNAMIC_SAR,
+   DXB_FILTER_FLAT_MODE,
+   DXB_FILTER_EARLY_WEAK_EXIT,
+   DXB_FILTER_EARLY_REVERSE,
+   DXB_FILTER_ORDER_COOLDOWN,
+   DXB_FILTER_COUNT
+  };
+
+//================ NORMAL ORDER DIAGNOSTIC / AUDIT ==================
+// Live snapshot of all 26 normal-order filters.
+bool     g_entryDiagEnabled[DXB_FILTER_COUNT];
+bool     g_entryDiagPassed[DXB_FILTER_COUNT];
+string   g_entryDiagDetail[DXB_FILTER_COUNT];
+
+int      g_entryDiagEnabledCount   = 0;
+int      g_entryDiagPassedCount    = 0;
+int      g_entryDiagBlockedCount   = 0;
+int      g_entryDiagDisabledCount  = 0;
+int      g_entryDiagDirection      = 0;
+datetime g_entryDiagTime           = 0;
+string   g_entryDiagDecision       = "WAIT";
+string   g_entryDiagPrimaryBlock   = "NONE";
+string   g_entryDiagBlockerList    = "NONE";
+string   g_entryDiagEnabledList    = "NONE";
+string   g_entryDiagDisabledList   = "NONE";
+string   g_entryDiagSource         = "LIVE CHECK";
+
+// Last real normal-order attempt.
+datetime g_lastEntryAttemptTime       = 0;
+int      g_lastEntryAttemptDirection  = 0;
+string   g_lastEntryAttemptSource     = "NONE";
+string   g_lastEntryAttemptDecision   = "NONE";
+string   g_lastEntryAttemptPrimary    = "NONE";
+string   g_lastEntryAttemptBlockers   = "NONE";
+int      g_lastEntryAttemptEnabled    = 0;
+int      g_lastEntryAttemptPassed     = 0;
+int      g_lastEntryAttemptBlocked    = 0;
+
+// Last successfully opened normal order and the exact filter snapshot.
+int      g_lastAuditOpenedTicket      = -1;
+datetime g_lastAuditOpenedTime        = 0;
+int      g_lastAuditOpenedDirection   = 0;
+double   g_lastAuditOpenedPrice       = 0.0;
+double   g_lastAuditOpenedLot         = 0.0;
+string   g_lastAuditOpenedSource      = "NONE";
+string   g_lastAuditOpenedMode        = "NONE";
+string   g_lastAuditOpenedFilters     = "NONE";
+string   g_lastAuditDisabledFilters   = "NONE";
+int      g_lastAuditOpenedEnabled     = 0;
+int      g_lastAuditOpenedPassed      = 0;
+string   g_lastAuditSendResult        = "NO ORDER ATTEMPT";
+
+//+------------------------------------------------------------------+
+string EntryFilterToken(int filterId)
+  {
+   if(filterId == DXB_FILTER_DIRECTION)        return("DIRECTION");
+   if(filterId == DXB_FILTER_SAR_CONFIRM)      return("SAR_CONFIRM");
+   if(filterId == DXB_FILTER_SAR_PRICE_SIDE)   return("SAR_PRICE_SIDE");
+   if(filterId == DXB_FILTER_REPEATED_GAP)     return("REPEATED_GAP");
+   if(filterId == DXB_FILTER_SAR_CYCLE)        return("SAR_CYCLE");
+   if(filterId == DXB_FILTER_H1_TREND)         return("H1_TREND");
+   if(filterId == DXB_FILTER_LATE_SAR)         return("LATE_SAR");
+   if(filterId == DXB_FILTER_STRICT_SAR_SCORE) return("STRICT_SAR_SCORE");
+   if(filterId == DXB_FILTER_DOUBTFUL_CANDLE)  return("DOUBTFUL_CANDLE");
+   if(filterId == DXB_FILTER_TRADING_ALLOWED)  return("TRADING_ALLOWED");
+   if(filterId == DXB_FILTER_SPREAD)           return("SPREAD");
+   if(filterId == DXB_FILTER_EQUITY_LOCK)      return("EQUITY_LOCK");
+   if(filterId == DXB_FILTER_NO_NEW_HOUR)      return("NO_NEW_HOUR");
+   if(filterId == DXB_FILTER_PROFIT_PAUSE)     return("PROFIT_PAUSE");
+   if(filterId == DXB_FILTER_OPPOSITE_PAUSE)   return("OPPOSITE_PAUSE");
+   if(filterId == DXB_FILTER_BIG_CANDLE)       return("BIG_CANDLE");
+   if(filterId == DXB_FILTER_SPIKE_WICK)       return("SPIKE_WICK");
+   if(filterId == DXB_FILTER_MIN_GAP)          return("MIN_GAP");
+   if(filterId == DXB_FILTER_MAX_OPEN_DIR)     return("MAX_OPEN_DIR");
+   if(filterId == DXB_FILTER_TOTAL_OPEN)       return("TOTAL_OPEN");
+   if(filterId == DXB_FILTER_AUTO_MARKET_MODE) return("AUTO_MARKET_MODE");
+   if(filterId == DXB_FILTER_DYNAMIC_SAR)      return("DYNAMIC_SAR");
+   if(filterId == DXB_FILTER_FLAT_MODE)        return("FLAT_MODE");
+   if(filterId == DXB_FILTER_EARLY_WEAK_EXIT)  return("EARLY_WEAK_EXIT");
+   if(filterId == DXB_FILTER_EARLY_REVERSE)    return("EARLY_REVERSE");
+   if(filterId == DXB_FILTER_ORDER_COOLDOWN)   return("ORDER_COOLDOWN");
+   return("UNKNOWN");
+  }
+
+//+------------------------------------------------------------------+
+bool IsHardLockedEntryFilter(int filterId)
+  {
+   return(filterId == DXB_FILTER_DIRECTION ||
+          filterId == DXB_FILTER_TRADING_ALLOWED);
+  }
+
+//+------------------------------------------------------------------+
+//+------------------------------------------------------------------+
+//| CONTINUOUS TREND FILTER CASE                                     |
+//| Change only true/false values in this list.                       |
+//+------------------------------------------------------------------+
+bool ContinuousTrendFilterCase(int filterId)
+  {
+   // CONTINUOUS TREND FILTERS
+   // This TRUE/FALSE value is the final filter switch for this mode.
+   switch(filterId)
+     {
+      case DXB_FILTER_DIRECTION: return(true);
+      case DXB_FILTER_SAR_CONFIRM: return(true);
+      case DXB_FILTER_SAR_PRICE_SIDE: return(true);
+      case DXB_FILTER_REPEATED_GAP: return(true);
+      case DXB_FILTER_SAR_CYCLE: return(true);
+      case DXB_FILTER_H1_TREND: return(false);
+      case DXB_FILTER_LATE_SAR: return(true);
+      case DXB_FILTER_STRICT_SAR_SCORE: return(true);
+      case DXB_FILTER_DOUBTFUL_CANDLE: return(true);
+      case DXB_FILTER_TRADING_ALLOWED: return(true);
+      case DXB_FILTER_SPREAD: return(true);
+      case DXB_FILTER_EQUITY_LOCK: return(false);
+      case DXB_FILTER_NO_NEW_HOUR: return(false);
+      case DXB_FILTER_PROFIT_PAUSE: return(true);
+      case DXB_FILTER_OPPOSITE_PAUSE: return(false);
+      case DXB_FILTER_BIG_CANDLE: return(true);
+      case DXB_FILTER_SPIKE_WICK: return(false);
+      case DXB_FILTER_MIN_GAP: return(false);
+      case DXB_FILTER_MAX_OPEN_DIR: return(true);
+      case DXB_FILTER_TOTAL_OPEN: return(false);
+      case DXB_FILTER_AUTO_MARKET_MODE: return(true);
+      case DXB_FILTER_DYNAMIC_SAR: return(true);
+      case DXB_FILTER_FLAT_MODE: return(true);
+      case DXB_FILTER_EARLY_WEAK_EXIT: return(true);
+      case DXB_FILTER_EARLY_REVERSE: return(false);
+      case DXB_FILTER_ORDER_COOLDOWN: return(false);
+     }
+
+   return(false);
+  }
+
+//+------------------------------------------------------------------+
+//| MEDIUM TREND FILTER CASE                                         |
+//| H1_TREND and FLAT_MODE are enabled as requested.                  |
+//+------------------------------------------------------------------+
+bool MediumTrendFilterCase(int filterId)
+  {
+   // MEDIUM TREND FILTERS
+   // This TRUE/FALSE value is the final filter switch for this mode.
+   switch(filterId)
+     {
+      case DXB_FILTER_DIRECTION: return(true);
+      case DXB_FILTER_SAR_CONFIRM: return(true);
+      case DXB_FILTER_SAR_PRICE_SIDE: return(true);
+      case DXB_FILTER_REPEATED_GAP: return(true);
+      case DXB_FILTER_SAR_CYCLE: return(true);
+      case DXB_FILTER_H1_TREND: return(true);
+      case DXB_FILTER_LATE_SAR: return(true);
+      case DXB_FILTER_STRICT_SAR_SCORE: return(true);
+      case DXB_FILTER_DOUBTFUL_CANDLE: return(true);
+      case DXB_FILTER_TRADING_ALLOWED: return(true);
+      case DXB_FILTER_SPREAD: return(true);
+      case DXB_FILTER_EQUITY_LOCK: return(false);
+      case DXB_FILTER_NO_NEW_HOUR: return(false);
+      case DXB_FILTER_PROFIT_PAUSE: return(true);
+      case DXB_FILTER_OPPOSITE_PAUSE: return(false);
+      case DXB_FILTER_BIG_CANDLE: return(true);
+      case DXB_FILTER_SPIKE_WICK: return(false);
+      case DXB_FILTER_MIN_GAP: return(false);
+      case DXB_FILTER_MAX_OPEN_DIR: return(true);
+      case DXB_FILTER_TOTAL_OPEN: return(false);
+      case DXB_FILTER_AUTO_MARKET_MODE: return(true);
+      case DXB_FILTER_DYNAMIC_SAR: return(true);
+      case DXB_FILTER_FLAT_MODE: return(true);
+      case DXB_FILTER_EARLY_WEAK_EXIT: return(true);
+      case DXB_FILTER_EARLY_REVERSE: return(false);
+      case DXB_FILTER_ORDER_COOLDOWN: return(false);
+     }
+
+   return(false);
+  }
+
+//+------------------------------------------------------------------+
+//| MIXED TREND FILTER CASE                                          |
+//| Change each filter directly to true or false.                     |
+//+------------------------------------------------------------------+
+bool MixedTrendFilterCase(int filterId)
+  {
+   // MIXED TREND FILTERS
+   // This TRUE/FALSE value is the final filter switch for this mode.
+   switch(filterId)
+     {
+      case DXB_FILTER_DIRECTION: return(true);
+      case DXB_FILTER_SAR_CONFIRM: return(true);
+      case DXB_FILTER_SAR_PRICE_SIDE: return(true);
+      case DXB_FILTER_REPEATED_GAP: return(true);
+      case DXB_FILTER_SAR_CYCLE: return(true);
+      case DXB_FILTER_H1_TREND: return(false);
+      case DXB_FILTER_LATE_SAR: return(true);
+      case DXB_FILTER_STRICT_SAR_SCORE: return(true);
+      case DXB_FILTER_DOUBTFUL_CANDLE: return(true);
+      case DXB_FILTER_TRADING_ALLOWED: return(true);
+      case DXB_FILTER_SPREAD: return(true);
+      case DXB_FILTER_EQUITY_LOCK: return(false);
+      case DXB_FILTER_NO_NEW_HOUR: return(false);
+      case DXB_FILTER_PROFIT_PAUSE: return(true);
+      case DXB_FILTER_OPPOSITE_PAUSE: return(false);
+      case DXB_FILTER_BIG_CANDLE: return(true);
+      case DXB_FILTER_SPIKE_WICK: return(false);
+      case DXB_FILTER_MIN_GAP: return(false);
+      case DXB_FILTER_MAX_OPEN_DIR: return(true);
+      case DXB_FILTER_TOTAL_OPEN: return(false);
+      case DXB_FILTER_AUTO_MARKET_MODE: return(true);
+      case DXB_FILTER_DYNAMIC_SAR: return(true);
+      case DXB_FILTER_FLAT_MODE: return(true);
+      case DXB_FILTER_EARLY_WEAK_EXIT: return(true);
+      case DXB_FILTER_EARLY_REVERSE: return(false);
+      case DXB_FILTER_ORDER_COOLDOWN: return(false);
+     }
+
+   return(false);
+  }
+
+//+------------------------------------------------------------------+
+//| DANGER MODE FILTER CASE                                          |
+//| AUTO_MARKET_MODE normally blocks new normal orders in danger.     |
+//+------------------------------------------------------------------+
+bool DangerModeFilterCase(int filterId)
+  {
+   // DANGER MODE FILTERS
+   // This TRUE/FALSE value is the final filter switch for this mode.
+   switch(filterId)
+     {
+      case DXB_FILTER_DIRECTION: return(true);
+      case DXB_FILTER_SAR_CONFIRM: return(true);
+      case DXB_FILTER_SAR_PRICE_SIDE: return(true);
+      case DXB_FILTER_REPEATED_GAP: return(true);
+      case DXB_FILTER_SAR_CYCLE: return(true);
+      case DXB_FILTER_H1_TREND: return(false);
+      case DXB_FILTER_LATE_SAR: return(true);
+      case DXB_FILTER_STRICT_SAR_SCORE: return(true);
+      case DXB_FILTER_DOUBTFUL_CANDLE: return(true);
+      case DXB_FILTER_TRADING_ALLOWED: return(true);
+      case DXB_FILTER_SPREAD: return(true);
+      case DXB_FILTER_EQUITY_LOCK: return(false);
+      case DXB_FILTER_NO_NEW_HOUR: return(false);
+      case DXB_FILTER_PROFIT_PAUSE: return(true);
+      case DXB_FILTER_OPPOSITE_PAUSE: return(false);
+      case DXB_FILTER_BIG_CANDLE: return(true);
+      case DXB_FILTER_SPIKE_WICK: return(false);
+      case DXB_FILTER_MIN_GAP: return(false);
+      case DXB_FILTER_MAX_OPEN_DIR: return(true);
+      case DXB_FILTER_TOTAL_OPEN: return(false);
+      case DXB_FILTER_AUTO_MARKET_MODE: return(true);
+      case DXB_FILTER_DYNAMIC_SAR: return(true);
+      case DXB_FILTER_FLAT_MODE: return(true);
+      case DXB_FILTER_EARLY_WEAK_EXIT: return(true);
+      case DXB_FILTER_EARLY_REVERSE: return(false);
+      case DXB_FILTER_ORDER_COOLDOWN: return(false);
+     }
+
+   return(false);
+  }
+
+//+------------------------------------------------------------------+
+//| Select the TRUE/FALSE case list for the current market mode.      |
+//+------------------------------------------------------------------+
+bool MarketModeFilterCaseValue(int mode, int filterId)
+  {
+   switch(mode)
+     {
+      case DXB_MARKET_MODE_CONTINUOUS:
+         return(ContinuousTrendFilterCase(filterId));
+
+      case DXB_MARKET_MODE_MEDIUM:
+         return(MediumTrendFilterCase(filterId));
+
+      case DXB_MARKET_MODE_MIXED:
+         return(MixedTrendFilterCase(filterId));
+
+      case DXB_MARKET_MODE_DANGER:
+         return(DangerModeFilterCase(filterId));
+     }
+
+   return(GlobalFilterCase(filterId));
+  }
+
+//+------------------------------------------------------------------+
+bool GlobalFilterCase(int filterId)
+  {
+   // GLOBAL FILTERS: used when Auto Market Mode is OFF
+   // This TRUE/FALSE value is the final filter switch for this mode.
+   switch(filterId)
+     {
+      case DXB_FILTER_DIRECTION: return(true);
+      case DXB_FILTER_SAR_CONFIRM: return(true);
+      case DXB_FILTER_SAR_PRICE_SIDE: return(true);
+      case DXB_FILTER_REPEATED_GAP: return(true);
+      case DXB_FILTER_SAR_CYCLE: return(true);
+      case DXB_FILTER_H1_TREND: return(false);
+      case DXB_FILTER_LATE_SAR: return(true);
+      case DXB_FILTER_STRICT_SAR_SCORE: return(true);
+      case DXB_FILTER_DOUBTFUL_CANDLE: return(true);
+      case DXB_FILTER_TRADING_ALLOWED: return(true);
+      case DXB_FILTER_SPREAD: return(true);
+      case DXB_FILTER_EQUITY_LOCK: return(false);
+      case DXB_FILTER_NO_NEW_HOUR: return(false);
+      case DXB_FILTER_PROFIT_PAUSE: return(true);
+      case DXB_FILTER_OPPOSITE_PAUSE: return(false);
+      case DXB_FILTER_BIG_CANDLE: return(true);
+      case DXB_FILTER_SPIKE_WICK: return(false);
+      case DXB_FILTER_MIN_GAP: return(false);
+      case DXB_FILTER_MAX_OPEN_DIR: return(true);
+      case DXB_FILTER_TOTAL_OPEN: return(false);
+      case DXB_FILTER_AUTO_MARKET_MODE: return(true);
+      case DXB_FILTER_DYNAMIC_SAR: return(true);
+      case DXB_FILTER_FLAT_MODE: return(true);
+      case DXB_FILTER_EARLY_WEAK_EXIT: return(true);
+      case DXB_FILTER_EARLY_REVERSE: return(false);
+      case DXB_FILTER_ORDER_COOLDOWN: return(false);
+     }
+
+   return(false);
+  }
+
+//+------------------------------------------------------------------+
+bool IsMarketModeEntryFilterEnabled(int filterId)
+  {
+   if(IsHardLockedEntryFilter(filterId))
+      return(true);
+
+   if(!InpUseMarketModeFilterProfiles ||
+      !InpUseAutoMarketFlowMode ||
+      g_autoMarketMode == DXB_MARKET_MODE_OFF)
+      return(GlobalFilterCase(filterId));
+
+   return(MarketModeFilterCaseValue(g_autoMarketMode,
+                                    filterId));
+  }
+
+//+------------------------------------------------------------------+
+string EntryFilterModeStateText(int filterId)
+  {
+   if(IsHardLockedEntryFilter(filterId))
+      return("LOCKED ON");
+
+   if(!InpUseMarketModeFilterProfiles ||
+      !InpUseAutoMarketFlowMode ||
+      g_autoMarketMode == DXB_MARKET_MODE_OFF)
+      return(GlobalFilterCase(filterId)
+             ? "ON GLOBAL"
+             : "OFF GLOBAL");
+
+   return(IsMarketModeEntryFilterEnabled(filterId)
+          ? "ON MODE"
+          : "OFF MODE");
+  }
+
+//+------------------------------------------------------------------+
+string ActiveFilterCaseSummary()
+  {
+   string summary = "";
+
+   for(int filterId = 0; filterId < DXB_FILTER_COUNT; filterId++)
+     {
+      if(summary != "")
+         summary += " | ";
+
+      summary += EntryFilterToken(filterId) + "=" +
+                 (IsMarketModeEntryFilterEnabled(filterId)
+                  ? "ON"
+                  : "OFF");
+     }
+
+   return(summary);
+  }
+
+//+------------------------------------------------------------------+
+int CountEnabledMarketModeEntryFilters()
+  {
+   int enabled = 0;
+
+   for(int i = 0; i < DXB_FILTER_COUNT; i++)
+      if(IsMarketModeEntryFilterEnabled(i))
+         enabled++;
+
+   return(enabled);
+  }
+
+//+------------------------------------------------------------------+
+bool IsNormalProfileSource(string source)
+  {
+   return(StringFind(source, "OpenMarketOrder") >= 0 ||
+          StringFind(source, "CHECKLIST_NORMAL") >= 0 ||
+          StringFind(source, "NORMAL_PROFILE") >= 0);
+  }
+
+//+------------------------------------------------------------------+
+void ApplyMarketModeEntryFilterProfileState()
+  {
+   if(g_lastAppliedEntryFilterMode == g_autoMarketMode)
+      return;
+
+   int previousMode = g_lastAppliedEntryFilterMode;
+   g_lastAppliedEntryFilterMode = g_autoMarketMode;
+
+   // Clear transient waiting states when their filter is disabled
+   // in the newly selected market profile.
+   if(!IsMarketModeEntryFilterEnabled(DXB_FILTER_SAR_CONFIRM))
+      ResetSARFlipConfirmation();
+
+   if(!IsMarketModeEntryFilterEnabled(DXB_FILTER_DOUBTFUL_CANDLE))
+      ResetDoubtfulCandleConfirmation("DISABLED BY MARKET MODE");
+
+   if(!IsMarketModeEntryFilterEnabled(DXB_FILTER_FLAT_MODE))
+      g_flatMode = false;
+
+   if(!IsMarketModeEntryFilterEnabled(DXB_FILTER_EARLY_REVERSE))
+      g_sarPausedByEarly = false;
+
+   Print("DIRECT FILTER CASE CHANGED | Previous=",
+         MarketFlowModeText(previousMode),
+         " | Current=", MarketFlowModeText(g_autoMarketMode),
+         " | Enabled=", CountEnabledMarketModeEntryFilters(),
+         "/", DXB_FILTER_COUNT,
+         " | Source=",
+         (!InpUseMarketModeFilterProfiles ||
+          !InpUseAutoMarketFlowMode ||
+          g_autoMarketMode == DXB_MARKET_MODE_OFF)
+         ? "GLOBAL CASE"
+         : "MARKET MODE CASE",
+         " | ", ActiveFilterCaseSummary());
+  }
+
+//+------------------------------------------------------------------+
 string MarketFlowModeText(int mode)
 {
    if(mode == DXB_MARKET_MODE_CONTINUOUS) return("CONTINUOUS TREND");
@@ -1151,7 +1622,7 @@ void UpdateOppositeDirectionProfitPause(bool forceScan=false)
 {
    datetime now = TimeCurrent();
 
-   if(!InpUseOppositeDirectionProfitPause)
+   if(!IsMarketModeEntryFilterEnabled(DXB_FILTER_OPPOSITE_PAUSE))
    {
       g_oppositeProfitStreakDirection = 0;
       g_oppositeProfitStreakCount = 0;
@@ -1344,7 +1815,7 @@ void UpdateOppositeDirectionProfitPause(bool forceScan=false)
 bool IsOppositeDirectionProfitPauseActive()
 {
    UpdateOppositeDirectionProfitPause(false);
-   return(InpUseOppositeDirectionProfitPause &&
+   return(IsMarketModeEntryFilterEnabled(DXB_FILTER_OPPOSITE_PAUSE) &&
           g_oppositePausedDirection != 0 &&
           TimeCurrent() < g_oppositeDirectionPauseUntil);
 }
@@ -1354,8 +1825,8 @@ string OppositeDirectionProfitPauseStatusText()
 {
    UpdateOppositeDirectionProfitPause(false);
 
-   if(!InpUseOppositeDirectionProfitPause)
-      return("OFF");
+   if(!IsMarketModeEntryFilterEnabled(DXB_FILTER_OPPOSITE_PAUSE))
+      return("OFF MODE");
 
    if(IsOppositeDirectionProfitPauseActive())
    {
@@ -1914,6 +2385,16 @@ if(AccountNumber()==291085426)
 //+------------------------------------------------------------------+
 void OnDeinit(const int reason)
   {
+   for(int i = ObjectsTotal(0,-1,-1)-1; i >= 0; i--)
+     {
+      string objectName = ObjectName(0,i);
+
+      if(StringFind(objectName,"DXB_ENTRY_AUDIT_") == 0 ||
+         StringFind(objectName,"DXB_RECOVERY_") == 0 ||
+         StringFind(objectName,"DXB_PRO_REC_") == 0)
+         ObjectDelete(0,objectName);
+     }
+
    Comment("");
   }
 //+------------------------------------------------------------------+
@@ -1970,6 +2451,7 @@ void InitializeEquityDay()
 void ResetTradingCycleState()
   {
    g_activeSARDirection  = 0;
+   g_lastAppliedEntryFilterMode = -999;
    g_lastSARDotDirection = 0;
    g_earlyDirection      = 0;
    g_sarPausedByEarly    = false;
@@ -2076,7 +2558,7 @@ bool IsConfiguredNoNewOrderHour(int hourValue)
 //+------------------------------------------------------------------+
 bool IsNoNewOrderHour()
   {
-   if(!InpUseNoNewOrderHours)
+   if(!IsMarketModeEntryFilterEnabled(DXB_FILTER_NO_NEW_HOUR))
       return(false);
 
    return(IsConfiguredNoNewOrderHour(TimeHour(TimeCurrent())));
@@ -2085,8 +2567,8 @@ bool IsNoNewOrderHour()
 //+------------------------------------------------------------------+
 string NoNewOrderHoursStatusText()
   {
-   if(!InpUseNoNewOrderHours)
-      return("OFF");
+   if(!IsMarketModeEntryFilterEnabled(DXB_FILTER_NO_NEW_HOUR))
+      return("OFF MODE");
 
    string status = IsNoNewOrderHour() ? "BLOCK NOW" : "ALLOW";
    return(status + " | " + InpNoNewOrderHourList);
@@ -3371,10 +3853,21 @@ bool IsBigCandlePauseActive()
 //+------------------------------------------------------------------+
 bool EnforceBigCandleOrderBlock(string source)
   {
-   if(EnforceSpikeWickOrderBlock(source, InpSpikeWickBlockRecovery, InpSpikeWickBlockGuard))
+   bool normalProfileSource = IsNormalProfileSource(source);
+   bool useSpikeFilter = normalProfileSource
+                         ? IsMarketModeEntryFilterEnabled(DXB_FILTER_SPIKE_WICK)
+                         : InpUseSpikeWickPauseFilter;
+   bool useBigCandleFilter = normalProfileSource
+                             ? IsMarketModeEntryFilterEnabled(DXB_FILTER_BIG_CANDLE)
+                             : InpUseBigCandlePause;
+
+   if(useSpikeFilter &&
+      EnforceSpikeWickOrderBlock(source,
+                                 InpSpikeWickBlockRecovery,
+                                 InpSpikeWickBlockGuard))
       return(true);
 
-   if(!InpUseBigCandlePause)
+   if(!useBigCandleFilter)
       return(false);
 
    if(Bars < 10)
@@ -3526,9 +4019,6 @@ bool IsSpikeWickCandle(int shift, string &reason, double &maxWick, double &bodyP
    bodyPercent = 999999.0;
    rangeSize = 0.0;
    bodySize = 0.0;
-
-   if(!InpUseSpikeWickPauseFilter)
-      return(false);
 
    if(Bars <= shift + 5 || shift < 0)
       return(false);
@@ -3712,7 +4202,8 @@ void StartSpikeWickPause(int shift, string reason, double maxWick, double bodyPe
 //+------------------------------------------------------------------+
 bool IsSpikeWickPauseActive()
   {
-   if(!InpUseSpikeWickPauseFilter)
+   if(!InpUseSpikeWickPauseFilter &&
+      !IsMarketModeEntryFilterEnabled(DXB_FILTER_SPIKE_WICK))
       return(false);
 
    if(!g_spikeWickPause)
@@ -3731,7 +4222,12 @@ bool IsSpikeWickPauseActive()
 //+------------------------------------------------------------------+
 bool EnforceSpikeWickOrderBlock(string source, bool blockRecovery, bool blockGuard)
   {
-   if(!InpUseSpikeWickPauseFilter)
+   bool filterEnabled = InpUseSpikeWickPauseFilter;
+
+   if(IsNormalProfileSource(source))
+      filterEnabled = IsMarketModeEntryFilterEnabled(DXB_FILTER_SPIKE_WICK);
+
+   if(!filterEnabled)
       return(false);
 
    if(StringFind(source, "Recovery") >= 0 || StringFind(source, "RECOVERY") >= 0)
@@ -3779,7 +4275,8 @@ bool EnforceSpikeWickOrderBlock(string source, bool blockRecovery, bool blockGua
 //+------------------------------------------------------------------+
 string SpikeWickPauseStatusText()
   {
-   if(!InpUseSpikeWickPauseFilter)
+   if(!InpUseSpikeWickPauseFilter &&
+      !IsMarketModeEntryFilterEnabled(DXB_FILTER_SPIKE_WICK))
       return("OFF");
 
    if(!g_spikeWickPause)
@@ -5942,7 +6439,7 @@ bool ProcessCloseOrdersFirst(string &status)
 
 // PRIORITY 1: Early trend reverse close.
 // This runs before SAR confirmation, flat mode, basket TP/SL, order count, cooldown, or new-order checks.
-   if(InpUseEarlyTrend)
+   if(IsMarketModeEntryFilterEnabled(DXB_FILTER_EARLY_REVERSE))
      {
       int early = DetectEarlyTrend();
       UpdateEarlyTrendVisualState(early);
@@ -5978,6 +6475,10 @@ bool ProcessCloseOrdersFirst(string &status)
          g_sarPausedByEarly = false;
          Print("EARLY TREND BACK TO SAR | Resume SAR orders. Direction=", DirectionText(g_activeSARDirection));
         }
+     }
+   else
+     {
+      g_sarPausedByEarly = false;
      }
 
 // PRIORITY 2: Early SAR weak exit before full SAR flip.
@@ -6313,20 +6814,23 @@ bool ProcessNewOrderCreationLast(bool isNewBar, string &status)
 
 // No-trading hours block ONLY new normal SAR orders.
 // Close management, equity protection, basket TP/SL, SAR flip close and recovery management still run.
-   if(IsNoNewOrderHour())
+   if(IsMarketModeEntryFilterEnabled(DXB_FILTER_NO_NEW_HOUR) &&
+      IsNoNewOrderHour())
      {
       return(SetOrderBlockStatus(status, "NO NEW ORDERS HOUR - " + InpNoNewOrderHourList));
      }
 
 // Big candle pause blocks ONLY new orders. Close/profit/protection logic still runs first.
-   if(IsBigCandlePauseActive())
+   if(IsMarketModeEntryFilterEnabled(DXB_FILTER_BIG_CANDLE) &&
+      IsBigCandlePauseActive())
      {
       return(SetOrderBlockStatus(status, "BIG CANDLE PAUSE - " + BigCandlePauseStatusText()));
      }
 
 // Early SAR weak exit blocks ONLY new normal orders while the weak active SAR basket still exists.
 // If confirmed weak close already removed that basket, allow fresh SAR-direction order logic on the next tick.
-   if(InpUseEarlySARWeakExit && InpStopNewOrdersOnSARWeakExit && g_earlySARWeakExitActive &&
+   if(IsMarketModeEntryFilterEnabled(DXB_FILTER_EARLY_WEAK_EXIT) &&
+      g_earlySARWeakExitActive &&
       CountOrdersByDirection(g_activeSARDirection) > 0)
      {
       status = "SAR WEAK - STOP NEW ORDERS";
@@ -6337,7 +6841,8 @@ bool ProcessNewOrderCreationLast(bool isNewBar, string &status)
      }
 
 // Pending SAR confirmation blocks ONLY new orders. It cannot block close management.
-   if(g_pendingSARConfirmDirection != 0)
+   if(IsMarketModeEntryFilterEnabled(DXB_FILTER_SAR_CONFIRM) &&
+      g_pendingSARConfirmDirection != 0)
      {
       if(!IsSARFlipConfirmationReady())
         {
@@ -6356,9 +6861,10 @@ bool ProcessNewOrderCreationLast(bool isNewBar, string &status)
 
 // Dynamic BTC SAR quality gate. SAR still gives direction, but weak/fast/fake flips do not open new normal orders.
    string dynamicBlockReason = "";
-   if(!IsDynamicSARAllowedForNewOrder(g_activeSARDirection, dynamicBlockReason))
+   if(IsMarketModeEntryFilterEnabled(DXB_FILTER_DYNAMIC_SAR) &&
+      !IsDynamicSARAllowedForNewOrder(g_activeSARDirection, dynamicBlockReason))
      {
-      status = "DYNAMIC SAR BLOCK - " + dynamicBlockReason;
+      status = "SAR BLOCK - " + dynamicBlockReason;
       SetLastOrderBlockDashboard(status);
       Print("DYNAMIC SAR NEW ORDER BLOCKED | Direction=", DirectionText(g_activeSARDirection),
             " | Reason=", dynamicBlockReason,
@@ -6372,7 +6878,8 @@ bool ProcessNewOrderCreationLast(bool isNewBar, string &status)
 
 // Late SAR cycle entry protection: prevents the last weak order before SAR reversal.
    string lateSARBlockReason = "";
-   if(IsLateSARCycleEntryDanger(g_activeSARDirection, lateSARBlockReason))
+   if(IsMarketModeEntryFilterEnabled(DXB_FILTER_LATE_SAR) &&
+      IsLateSARCycleEntryDanger(g_activeSARDirection, lateSARBlockReason))
      {
       status = lateSARBlockReason;
       SetLastOrderBlockDashboard(status);
@@ -6384,7 +6891,7 @@ bool ProcessNewOrderCreationLast(bool isNewBar, string &status)
      }
 
 // Flat mode blocks ONLY new orders. It cannot block close management.
-   if(InpUseFlatMode)
+   if(IsMarketModeEntryFilterEnabled(DXB_FILTER_FLAT_MODE))
      {
       g_flatMode = DetectFlatMode();
       if(g_flatMode)
@@ -6403,7 +6910,8 @@ bool ProcessNewOrderCreationLast(bool isNewBar, string &status)
       g_flatMode = false;
      }
 
-   if(g_sarPausedByEarly)
+   if(IsMarketModeEntryFilterEnabled(DXB_FILTER_EARLY_REVERSE) &&
+      g_sarPausedByEarly)
      {
       return(SetOrderBlockStatus(status, "Paused by early reverse"));
      }
@@ -6422,7 +6930,9 @@ IncreaseSARMaxWhenDotDistanceAndH1Same();
    return true;
 }
 
-   if(!IsOrderAllowedByH1Trend(g_activeSARDirection)  && !IsCurrentSARGoodMomentum(g_activeSARDirection))
+   if(IsMarketModeEntryFilterEnabled(DXB_FILTER_H1_TREND) &&
+      !IsOrderAllowedByH1Trend(g_activeSARDirection) &&
+      !IsCurrentSARGoodMomentum(g_activeSARDirection))
      {
       status = "BLOCKED:SAR REV H1 "+DirectionText(GetH1TrendDirection());
       SetLastOrderBlockDashboard(status);
@@ -6433,7 +6943,8 @@ IncreaseSARMaxWhenDotDistanceAndH1Same();
    int dynamicMaxOrders = g_sarCycleMaxOrders;
    int cycleOrders      = g_sarCycleOrdersCreated;
 
-   if(dynamicMaxOrders <= 0)
+   if(IsMarketModeEntryFilterEnabled(DXB_FILTER_SAR_CYCLE) &&
+      dynamicMaxOrders <= 0)
      {
       status = "SAR CYCLE Immidiate change MAX BLOCK - MAX 0";
       SetLastOrderBlockDashboard(status);
@@ -6442,7 +6953,8 @@ IncreaseSARMaxWhenDotDistanceAndH1Same();
       return(false);
      }
 
-   if(cycleOrders >= dynamicMaxOrders)
+   if(IsMarketModeEntryFilterEnabled(DXB_FILTER_SAR_CYCLE) &&
+      cycleOrders >= dynamicMaxOrders)
      {
       status = "SAR CYCLE MAX " + IntegerToString(cycleOrders) + "/" + IntegerToString(dynamicMaxOrders);
       SetLastOrderBlockDashboard(status);
@@ -6455,7 +6967,8 @@ IncreaseSARMaxWhenDotDistanceAndH1Same();
 //    return(false);
 // }
 
-   if(!IsSARSignalPriceSideAllowed(g_activeSARDirection, "Normal SAR order"))
+   if(IsMarketModeEntryFilterEnabled(DXB_FILTER_SAR_PRICE_SIDE) &&
+      !IsSARSignalPriceSideAllowed(g_activeSARDirection, "Normal SAR order"))
      {
       return(SetOrderBlockStatus(status, "SAR PRICE SIDE BLOCK"));
      }
@@ -6470,6 +6983,7 @@ IncreaseSARMaxWhenDotDistanceAndH1Same();
    // Normal continuity order needs price to move in the SAR direction.
    // Pullback/micro re-entry creation has been removed.
    bool normalContinuousGapReady =
+      !IsMarketModeEntryFilterEnabled(DXB_FILTER_REPEATED_GAP) ||
       IsRepeatedPriceGapConfirmedForNormalOrder(g_activeSARDirection,
                                                 "SAR_FLIP_V2LAST_PRECHECK");
 
@@ -6697,6 +7211,7 @@ void OnTick()
    UpdateOppositeDirectionProfitPause(false);
 
    UpdateAutoMarketFlowMode();
+   ApplyMarketModeEntryFilterProfileState();
 
    // Update spike/wick pause status on every tick so dashboard shows it immediately.
    EnforceSpikeWickOrderBlock("OnTick dashboard scan", InpSpikeWickBlockRecovery, InpSpikeWickBlockGuard);
@@ -6730,7 +7245,8 @@ void OnTick()
    CheckDepositAndResetEquityStats();
 
 // Equity protection may close all EA orders and intentionally stop processing.
-   if(CheckEquityConditions())
+   if(IsMarketModeEntryFilterEnabled(DXB_FILTER_EQUITY_LOCK) &&
+      CheckEquityConditions())
      {
       if(g_dailyProfitLock)
         {
@@ -6880,7 +7396,7 @@ string SARConfirmDurationStatusText()
 //+------------------------------------------------------------------+
 void StartSARFlipConfirmation(int direction)
   {
-   if(!InpUseSARFlipConfirmations)
+   if(!IsMarketModeEntryFilterEnabled(DXB_FILTER_SAR_CONFIRM))
      {
       ResetSARFlipConfirmation();
       return;
@@ -6903,7 +7419,7 @@ void StartSARFlipConfirmation(int direction)
 //+------------------------------------------------------------------+
 bool IsSARFlipConfirmationReady()
   {
-   if(!InpUseSARFlipConfirmations)
+   if(!IsMarketModeEntryFilterEnabled(DXB_FILTER_SAR_CONFIRM))
       return(true);
 
    int direction = g_pendingSARConfirmDirection;
@@ -7216,7 +7732,7 @@ bool IsDynamicSARAllowedForNewOrder(int direction, string &whyBlocked)
   {
    whyBlocked = "";
 
-   if(!InpUseDynamicSAREngine)
+   if(!IsMarketModeEntryFilterEnabled(DXB_FILTER_DYNAMIC_SAR))
       return(true);
 
    int score = GetDynamicSARStrengthScore(direction);
@@ -7243,7 +7759,7 @@ bool IsDynamicSARAllowedForNewOrder(int direction, string &whyBlocked)
 
       if(ageMinutes < InpDynamicMinSignalMinutes && score < InpDynamicVeryStrongScore)
         {
-         g_dynamicSARDecision = "WAIT MATURITY";
+         g_dynamicSARDecision = "WAITing Time and Score";
          whyBlocked = g_dynamicSARDecision + " | Age=" + IntegerToString(ageMinutes) + "m | Score=" + IntegerToString(score);
          return(false);
         }
@@ -7353,7 +7869,7 @@ bool IsDoubtfulSignalCandle(int direction,
   {
    whyDoubtful = "";
 
-   if(!InpUseDoubtfulCandleNextConfirm)
+   if(!IsMarketModeEntryFilterEnabled(DXB_FILTER_DOUBTFUL_CANDLE))
       return(false);
 
    if(direction == 0 || shift < 1 || Bars <= shift + 2)
@@ -7485,7 +8001,7 @@ void StoreDoubtfulCandleReference(int direction,
 bool IsDoubtfulCandleConfirmationAllowed(int direction,
                                          string source)
   {
-   if(!InpUseDoubtfulCandleNextConfirm)
+   if(!IsMarketModeEntryFilterEnabled(DXB_FILTER_DOUBTFUL_CANDLE))
       return(true);
 
    if(direction == 0 || Bars < 5)
@@ -7573,7 +8089,7 @@ bool IsDoubtfulCandleConfirmationAllowed(int direction,
 //+------------------------------------------------------------------+
 bool IsDoubtfulCandleReadyForDashboard(int direction)
   {
-   if(!InpUseDoubtfulCandleNextConfirm)
+   if(!IsMarketModeEntryFilterEnabled(DXB_FILTER_DOUBTFUL_CANDLE))
       return(true);
 
    if(direction == 0)
@@ -7594,8 +8110,8 @@ bool IsDoubtfulCandleReadyForDashboard(int direction)
 //+------------------------------------------------------------------+
 string DoubtfulCandleStatusText(int direction)
   {
-   if(!InpUseDoubtfulCandleNextConfirm)
-      return("OFF");
+   if(!IsMarketModeEntryFilterEnabled(DXB_FILTER_DOUBTFUL_CANDLE))
+      return("OFF MODE");
 
    if(g_doubtConfirmDirection != 0 &&
       g_doubtConfirmReferenceTime > 0)
@@ -7654,7 +8170,7 @@ bool IsLateSARCycleEntryDanger(int direction, string &whyBlocked)
   {
    whyBlocked = "";
 
-   if(!InpUseLateSARCycleEntryBlock)
+   if(!IsMarketModeEntryFilterEnabled(DXB_FILTER_LATE_SAR))
       return(false);
 
    if(direction == 0)
@@ -8265,7 +8781,7 @@ string SARSignalSideStatusText()
 //+------------------------------------------------------------------+
 bool IsSARSignalPriceSideAllowed(int direction, string source)
   {
-   if(!InpUseSARSignalPriceSideFilter)
+   if(!IsMarketModeEntryFilterEnabled(DXB_FILTER_SAR_PRICE_SIDE))
       return(true);
 
    if(direction == 0)
@@ -8307,7 +8823,8 @@ bool CanOpenNewOrder(int direction)
    if(direction == 0)
       return(false);
 
-   if(IsProfitProtectPauseActive())
+   if(IsMarketModeEntryFilterEnabled(DXB_FILTER_PROFIT_PAUSE) &&
+      IsProfitProtectPauseActive())
      {
       Print("ORDER BLOCKED | Individual profit protect pause active | Remaining=",
             ProfitProtectPauseStatusText(), " | Direction=", DirectionText(direction));
@@ -8326,7 +8843,8 @@ bool CanOpenNewOrder(int direction)
    int cycleCreatedOrders = g_sarCycleOrdersCreated;
    int dynamicMaxOrders   = g_sarCycleMaxOrders;
 
-   if(dynamicMaxOrders <= 0)
+   if(IsMarketModeEntryFilterEnabled(DXB_FILTER_SAR_CYCLE) &&
+      dynamicMaxOrders <= 0)
      {
       Print("ORDER BLOCKED | SAR cycle max is 0. Symbol=", Symbol(),
             " Direction=", DirectionText(direction),
@@ -8336,7 +8854,8 @@ bool CanOpenNewOrder(int direction)
       return(false);
      }
 
-   if(cycleCreatedOrders >= dynamicMaxOrders)
+   if(IsMarketModeEntryFilterEnabled(DXB_FILTER_SAR_CYCLE) &&
+      cycleCreatedOrders >= dynamicMaxOrders)
      {
       Print("ORDER BLOCKED | SAR signal-cycle max reached. Symbol=", Symbol(),
             " Direction=", DirectionText(direction),
@@ -8349,11 +8868,15 @@ bool CanOpenNewOrder(int direction)
       return(false);
      }
 
-   if(InpOrderCooldownSeconds > 0 && TimeCurrent() - g_lastOrderTime < InpOrderCooldownSeconds)
+   if(IsMarketModeEntryFilterEnabled(DXB_FILTER_ORDER_COOLDOWN) &&
+      InpOrderCooldownSeconds > 0 &&
+      TimeCurrent() - g_lastOrderTime < InpOrderCooldownSeconds)
       return(false);
 
    double effectiveMinGap = GetEffectiveMinPriceGap();
-   if(effectiveMinGap > 0.0 && !IsPriceGapValid(direction, effectiveMinGap))
+   if(IsMarketModeEntryFilterEnabled(DXB_FILTER_MIN_GAP) &&
+      effectiveMinGap > 0.0 &&
+      !IsPriceGapValid(direction, effectiveMinGap))
      {
       Print("ORDER BLOCKED | Minimum same-direction order gap not matched | Direction=",
             DirectionText(direction),
@@ -8415,7 +8938,7 @@ bool IsRepeatedPriceGapConfirmedForNormalOrder(int direction, string reason)
    if(IsSARPullbackHalfTPReason(reason))
       return(true);
 
-   if(!InpUseRepeatedPriceGapConfirm)
+   if(!IsMarketModeEntryFilterEnabled(DXB_FILTER_REPEATED_GAP))
       return(true);
 
    if(direction == 0)
@@ -8502,6 +9025,11 @@ bool IsRepeatedPriceGapConfirmedForNormalOrder(int direction, string reason)
 bool BlockOrder(string reason)
   {
    SetLastOrderBlockDashboard(reason);
+
+   g_lastEntryAttemptDecision = "BLOCKED";
+   g_lastEntryAttemptPrimary  = reason;
+   g_lastEntryAttemptTime     = TimeCurrent();
+
    Print("ORDER BLOCKED | ", reason);
    return(false);
   }
@@ -8573,142 +9101,261 @@ string BuildOrderSendFailMessage(int err,
           " | Source=" + reason);
   }
 
+bool BlockNormalOrderByModeProfile(string message)
+  {
+   g_lastOrderOpenReason = "MODE FILTER BLOCK | " + message;
+   g_lastOrderBlockTime = TimeCurrent();
+   SetLastOrderBlockDashboard(g_lastOrderOpenReason);
+   Print(g_lastOrderOpenReason);
+   return(false);
+  }
+
+//+------------------------------------------------------------------+
+//| Final normal-order gate controlled by current market-mode profile.|
+//| Recovery order functions do not call this function.               |
+//+------------------------------------------------------------------+
+bool IsNormalOrderAllowedByMarketModeProfile(int direction,
+                                             string reason)
+  {
+   if(!IsNormalSAROrderReason(reason))
+      return(true);
+
+   UpdateAutoMarketFlowMode();
+   ApplyMarketModeEntryFilterProfileState();
+
+   if(direction == 0)
+      return(BlockNormalOrderByModeProfile(
+         "DIRECTION | NONE | Source=" + reason));
+
+   if(IsMarketModeEntryFilterEnabled(DXB_FILTER_AUTO_MARKET_MODE) &&
+      !IsAutoMarketNewOrderAllowed(reason))
+      return(BlockNormalOrderByModeProfile(
+         "AUTO MARKET MODE | " + AutoMarketModeStatusText() +
+         " | Source=" + reason));
+
+   if(IsMarketModeEntryFilterEnabled(DXB_FILTER_SAR_CONFIRM) &&
+      g_pendingSARConfirmDirection != 0 &&
+      !IsSARFlipConfirmationReady())
+      return(BlockNormalOrderByModeProfile(
+         "SAR CONFIRM | " + SARConfirmDurationStatusText() +
+         " | Source=" + reason));
+
+   if(IsMarketModeEntryFilterEnabled(DXB_FILTER_SAR_PRICE_SIDE) &&
+      !IsSARSignalPriceSideAllowed(direction, reason))
+      return(BlockNormalOrderByModeProfile(
+         "SAR PRICE SIDE | Direction=" +
+         DirectionText(direction) + " | Source=" + reason));
+
+   if(IsMarketModeEntryFilterEnabled(DXB_FILTER_REPEATED_GAP) &&
+      !IsRepeatedPriceGapConfirmedForNormalOrder(direction, reason))
+      return(BlockNormalOrderByModeProfile(
+         "REPEATED GAP | Direction=" +
+         DirectionText(direction) + " | Source=" + reason));
+
+   if(IsMarketModeEntryFilterEnabled(DXB_FILTER_SAR_CYCLE))
+     {
+      EnsureSARSignalOrderCycle(direction);
+      UpdateSARCycleMaxByMomentum(direction,
+                                  "Mode profile final gate");
+
+      if(g_sarCycleMaxOrders <= 0 ||
+         g_sarCycleOrdersCreated >= g_sarCycleMaxOrders)
+         return(BlockNormalOrderByModeProfile(
+            "SAR CYCLE | " +
+            IntegerToString(g_sarCycleOrdersCreated) + "/" +
+            IntegerToString(g_sarCycleMaxOrders) +
+            " | Source=" + reason));
+     }
+
+   if(IsMarketModeEntryFilterEnabled(DXB_FILTER_H1_TREND))
+     {
+      int h1Trend = GetH1TrendDirection();
+
+      if(h1Trend == 0 ||
+         (direction != h1Trend &&
+          !IsCurrentSARGoodMomentum(direction)))
+         return(BlockNormalOrderByModeProfile(
+            "H1 TREND | Order=" + DirectionText(direction) +
+            " H1=" + DirectionText(h1Trend) +
+            " | Source=" + reason));
+     }
+
+   if(IsMarketModeEntryFilterEnabled(DXB_FILTER_LATE_SAR))
+     {
+      string lateReason = "";
+
+      if(IsLateSARCycleEntryDanger(direction, lateReason))
+         return(BlockNormalOrderByModeProfile(
+            lateReason + " | Source=" + reason));
+     }
+
+   if(IsMarketModeEntryFilterEnabled(DXB_FILTER_STRICT_SAR_SCORE))
+     {
+      int score = GetDynamicSARStrengthScore(direction);
+      int required = GetStrictSARMinimumScore();
+
+      if(score < required)
+         return(BlockNormalOrderByModeProfile(
+            "STRICT SAR SCORE " +
+            IntegerToString(score) + "/" +
+            IntegerToString(required) +
+            " | Source=" + reason));
+     }
+
+   if(IsMarketModeEntryFilterEnabled(DXB_FILTER_DOUBTFUL_CANDLE) &&
+      !IsDoubtfulCandleConfirmationAllowed(
+         direction, "NORMAL_PROFILE " + reason))
+      return(false);
+
+   if(IsMarketModeEntryFilterEnabled(DXB_FILTER_TRADING_ALLOWED) &&
+      !IsTradingAllowedNow())
+      return(BlockNormalOrderByModeProfile(
+         "TRADING NOT ALLOWED | Source=" + reason));
+
+   if(IsMarketModeEntryFilterEnabled(DXB_FILTER_SPREAD))
+     {
+      int spread = (int)MarketInfo(Symbol(), MODE_SPREAD);
+
+      if(spread > InpMaxSpreadPoints)
+         return(BlockNormalOrderByModeProfile(
+            "SPREAD " + IntegerToString(spread) + "/" +
+            IntegerToString(InpMaxSpreadPoints) +
+            " | Source=" + reason));
+     }
+
+   if(IsMarketModeEntryFilterEnabled(DXB_FILTER_EQUITY_LOCK) &&
+      CheckEquityConditions())
+      return(BlockNormalOrderByModeProfile(
+         "EQUITY / DAILY LOCK | Source=" + reason));
+
+   if(IsMarketModeEntryFilterEnabled(DXB_FILTER_NO_NEW_HOUR) &&
+      IsNoNewOrderHour())
+      return(BlockNormalOrderByModeProfile(
+         "NO NEW ORDER HOUR | " + InpNoNewOrderHourList +
+         " | Source=" + reason));
+
+   if(IsMarketModeEntryFilterEnabled(DXB_FILTER_PROFIT_PAUSE) &&
+      IsProfitProtectPauseActive())
+      return(BlockNormalOrderByModeProfile(
+         "PROFIT PAUSE | " + ProfitProtectPauseStatusText() +
+         " | Source=" + reason));
+
+   if(IsMarketModeEntryFilterEnabled(DXB_FILTER_OPPOSITE_PAUSE) &&
+      IsOrderBlockedByOppositeDirectionProfitPause(direction, reason))
+      return(false);
+
+   if((IsMarketModeEntryFilterEnabled(DXB_FILTER_BIG_CANDLE) ||
+       IsMarketModeEntryFilterEnabled(DXB_FILTER_SPIKE_WICK)) &&
+      EnforceBigCandleOrderBlock("NORMAL_PROFILE " + reason))
+      return(BlockNormalOrderByModeProfile(
+         "BIG CANDLE / SPIKE | " +
+         BigCandlePauseStatusText() +
+         " | Source=" + reason));
+
+   if(IsMarketModeEntryFilterEnabled(DXB_FILTER_MIN_GAP))
+     {
+      double minGap = GetEffectiveMinPriceGap();
+
+      if(minGap > 0.0 && !IsPriceGapValid(direction, minGap))
+         return(BlockNormalOrderByModeProfile(
+            "MIN SAME-DIRECTION GAP " +
+            DoubleToString(minGap, Digits) +
+            " | Source=" + reason));
+     }
+
+   if(IsMarketModeEntryFilterEnabled(DXB_FILTER_MAX_OPEN_DIR) &&
+      CountOrdersByDirection(direction) >= InpMaxOrders)
+      return(BlockNormalOrderByModeProfile(
+         "MAX OPEN DIRECTION " +
+         IntegerToString(CountOrdersByDirection(direction)) + "/" +
+         IntegerToString(InpMaxOrders) +
+         " | Source=" + reason));
+
+   if(IsMarketModeEntryFilterEnabled(DXB_FILTER_TOTAL_OPEN) &&
+      InpMaxTotalOpenOrders > 0 &&
+      CountAllOrders() >= InpMaxTotalOpenOrders)
+      return(BlockNormalOrderByModeProfile(
+         "TOTAL OPEN " +
+         IntegerToString(CountAllOrders()) + "/" +
+         IntegerToString(InpMaxTotalOpenOrders) +
+         " | Source=" + reason));
+
+   if(IsMarketModeEntryFilterEnabled(DXB_FILTER_DYNAMIC_SAR))
+     {
+      string dynamicReason = "";
+
+      if(!IsDynamicSARAllowedForNewOrder(direction,
+                                         dynamicReason))
+         return(BlockNormalOrderByModeProfile(
+            "DYNAMIC SAR | " + dynamicReason +
+            " | Source=" + reason));
+     }
+
+   if(IsMarketModeEntryFilterEnabled(DXB_FILTER_FLAT_MODE) &&
+      DetectFlatMode())
+      return(BlockNormalOrderByModeProfile(
+         "FLAT MODE | Source=" + reason));
+
+   if(IsMarketModeEntryFilterEnabled(DXB_FILTER_EARLY_WEAK_EXIT) &&
+      g_earlySARWeakExitActive &&
+      CountOrdersByDirection(direction) > 0)
+      return(BlockNormalOrderByModeProfile(
+         "EARLY SAR WEAK EXIT | " +
+         g_earlySARWeakExitReason +
+         " | Source=" + reason));
+
+   if(IsMarketModeEntryFilterEnabled(DXB_FILTER_EARLY_REVERSE) &&
+      g_sarPausedByEarly)
+      return(BlockNormalOrderByModeProfile(
+         "EARLY REVERSE PAUSE | Source=" + reason));
+
+   if(IsMarketModeEntryFilterEnabled(DXB_FILTER_ORDER_COOLDOWN) &&
+      InpOrderCooldownSeconds > 0 &&
+      g_lastOrderTime > 0 &&
+      TimeCurrent() - g_lastOrderTime < InpOrderCooldownSeconds)
+      return(BlockNormalOrderByModeProfile(
+         "ORDER COOLDOWN | Left=" +
+         IntegerToString(
+            InpOrderCooldownSeconds -
+            (int)(TimeCurrent() - g_lastOrderTime)) +
+         "s | Source=" + reason));
+
+   return(true);
+  }
+
+//+------------------------------------------------------------------+
 bool OpenMarketOrder(int direction, string reason)
   {
    g_lastOrderOpenReason = "CHECKING | " + reason;
 
-   // Print("Attempting to open ", reason, "-------------------------------------");
-
    RefreshRates();
 
-   UpdateAutoMarketFlowMode();
-   if(!IsAutoMarketNewOrderAllowed(reason))
-      return BlockOrder("Auto market mode blocked order | Mode=" + AutoMarketModeStatusText() + " | Source=" + reason);
-
-   if(EnforceBigCandleOrderBlock("OpenMarketOrder " + reason))
-     {
-      string msgBig = "Big candle/spike pause active | " + BigCandlePauseStatusText() + " | Source=" + reason;
-      Print("ORDERSEND BLOCKED | ", msgBig);
-      return BlockOrder(msgBig);
-     }
+   RefreshNormalEntryDiagnosticSnapshot(direction, reason);
+   CaptureLastEntryAttempt("CHECKING");
 
    if(direction == 0)
+     {
+      g_lastEntryAttemptDecision = "BLOCKED";
+      g_lastEntryAttemptPrimary  = "DIRECTION | NONE";
       return BlockOrder("Direction is 0 | Source=" + reason);
+     }
 
-   if(!IsStrictSARScoreAllowedForNewOrder(direction,
-                                          "OpenMarketOrder " + reason))
+   if(!IsNormalOrderAllowedByMarketModeProfile(direction, reason))
+     {
+      RefreshNormalEntryDiagnosticSnapshot(direction, reason);
+      CaptureLastEntryAttempt("BLOCKED");
       return(false);
-
-   if(IsOrderBlockedByOppositeDirectionProfitPause(direction, reason))
-      return(false);
-
-   // Doubtful normal SAR candle: wait for the next fully closed candle.
-   if(IsNormalSAROrderReason(reason) &&
-      !IsDoubtfulCandleConfirmationAllowed(
-         direction,
-         "OpenMarketOrder " + reason))
-      return(false);
-
-   // Final safety: block late-cycle weak NORMAL SAR entries only.
-   // Recovery and hedge order reasons are not affected by this filter.
-   if(IsNormalSAROrderReason(reason))
-     {
-      string lateSARReason = "";
-      if(IsLateSARCycleEntryDanger(direction, lateSARReason))
-         return BlockOrder(lateSARReason + " | Source=" + reason);
      }
 
-   if(IsProfitProtectPauseActive())
-     {
-      string msg = "Individual profit protect pause active | Remaining=" +
-                   ProfitProtectPauseStatusText() +
-                   " | Direction=" + DirectionText(direction) +
-                   " | Source=" + reason;
-
-      Print("ORDERSEND BLOCKED | ", msg);
-      DrawDashboard("PROFIT PROTECT PAUSE " + ProfitProtectPauseStatusText());
-      return BlockOrder(msg);
-     }
-
-   if(IsTotalOpenOrderCapReached("OpenMarketOrder"))
-      return BlockOrder("Total open order cap reached | Total=" +
-                        IntegerToString(CountAllOrders()) +
-                        "/" + IntegerToString(InpMaxTotalOpenOrders) +
-                        " | Source=" + reason);
-
-   if(!IsTradingAllowedNow())
-      return BlockOrder("Trading not allowed now / AutoTrading OFF / trade context busy / no free margin | Source=" + reason);
-
-   if(CheckEquityConditions())
-      return BlockOrder("Equity protection or daily profit lock active | Source=" + reason);
-
-   int currentDirectionCount = CountOrdersByDirection(direction);
-   if(currentDirectionCount >= InpMaxOrders)
-     {
-      string msgMaxOpen = "Max open orders per direction reached | Direction=" +
-                          DirectionText(direction) +
-                          " | Open=" + IntegerToString(currentDirectionCount) +
-                          "/" + IntegerToString(InpMaxOrders) +
-                          " | Source=" + reason;
-
-      Print("ORDERSEND BLOCKED | ", msgMaxOpen);
-      return BlockOrder(msgMaxOpen);
-     }
-
-   double effectiveMinGap = GetEffectiveMinPriceGap();
-   if(effectiveMinGap > 0.0 && !IsPriceGapValid(direction, effectiveMinGap))
-     {
-      string msgGap = "Minimum same-direction order gap not matched | Direction=" +
-                      DirectionText(direction) +
-                      " | RequiredGap=" + DoubleToString(effectiveMinGap, Digits) +
-                      " | Open=" + IntegerToString(currentDirectionCount) +
-                      "/" + IntegerToString(InpMaxOrders) +
-                      " | Source=" + reason;
-
-      Print("ORDERSEND BLOCKED | ", msgGap);
-      return BlockOrder(msgGap);
-     }
-
-   EnsureSARSignalOrderCycle(direction);
-   UpdateSARCycleMaxByMomentum(direction, "OpenMarketOrder pre-check");
-
-   int dynamicMaxOrders = g_sarCycleMaxOrders;
-   int cycleOrders      = g_sarCycleOrdersCreated;
-
-   // Final safety before OrderSend: count created orders in current SAR signal-cycle,
-   // not currently open orders. Closed profitable orders are still counted.
-   if(dynamicMaxOrders <= 0)
-     {
-      string msgZeroMax = "SAR cycle max is 0 | Symbol=" + Symbol() +
-                          " | Direction=" + DirectionText(direction) +
-                          " | Last5=" + GetSARDurationSummaryText() +
-                          " | Source=" + reason;
-
-      Print("ORDERSEND BLOCKED | ", msgZeroMax);
-      DrawDashboard("ORDERSEND BLOCKED - SAR CYCLE MAX 0");
-      return BlockOrder(msgZeroMax);
-     }
-
-   if(cycleOrders >= dynamicMaxOrders)
-     {
-      string msgCycleMax = "SAR signal-cycle max reached | Direction=" +
-                           DirectionText(direction) +
-                           " | CycleCreated=" + IntegerToString(cycleOrders) +
-                           "/" + IntegerToString(dynamicMaxOrders) +
-                           " | Last5=" + GetSARDurationSummaryText() +
-                           " | Source=" + reason;
-
-      Print("ORDERSEND BLOCKED | ", msgCycleMax);
-      DrawDashboard("ORDERSEND BLOCKED CYCLE " +
-                    IntegerToString(cycleOrders) + "/" +
-                    IntegerToString(dynamicMaxOrders));
-      return BlockOrder(msgCycleMax);
-     }
+   // Rebuild immediately after all final gates passed.
+   RefreshNormalEntryDiagnosticSnapshot(direction, reason);
+   CaptureLastEntryAttempt("APPROVED FOR ORDERSEND");
 
    int type = direction == 1 ? OP_BUY : OP_SELL;
    double price = direction == 1 ? Ask : Bid;
 
-   if(!IsSARSignalPriceSideAllowed(direction, reason))
+   if(IsMarketModeEntryFilterEnabled(DXB_FILTER_SAR_PRICE_SIDE) &&
+      !IsSARSignalPriceSideAllowed(direction, reason))
       return BlockOrder("SAR signal price side filter blocked | Direction=" +
                         DirectionText(direction) +
                         " | SignalPrice=" + DoubleToString(g_activeSARSignalChangePrice, Digits) +
@@ -8716,7 +9363,8 @@ bool OpenMarketOrder(int direction, string reason)
                         " | Ask=" + DoubleToString(Ask, Digits) +
                         " | Source=" + reason);
 
-   if(!IsRepeatedPriceGapConfirmedForNormalOrder(direction, reason))
+   if(IsMarketModeEntryFilterEnabled(DXB_FILTER_REPEATED_GAP) &&
+      !IsRepeatedPriceGapConfirmedForNormalOrder(direction, reason))
       return BlockOrder("Repeated price gap not confirmed | Direction=" +
                         DirectionText(direction) +
                         " | RequiredGap=" + DoubleToString(InpContinuousOrderPriceGap, Digits) +
@@ -8742,10 +9390,14 @@ bool OpenMarketOrder(int direction, string reason)
    double lot = NormalizeLot(InpFixedLot);
 
    RefreshRates();
+   price = (direction == 1) ? Ask : Bid;
+
    EnsureSARSignalOrderCycle(direction);
    UpdateSARCycleMaxByMomentum(direction, "OrderSend last check");
 
-   if(g_sarCycleMaxOrders <= 0 || g_sarCycleOrdersCreated >= g_sarCycleMaxOrders)
+   if(IsMarketModeEntryFilterEnabled(DXB_FILTER_SAR_CYCLE) &&
+      (g_sarCycleMaxOrders <= 0 ||
+       g_sarCycleOrdersCreated >= g_sarCycleMaxOrders))
      {
       string msgLastCycle = "OrderSend cancelled last check | CycleCreated=" +
                             IntegerToString(g_sarCycleOrdersCreated) +
@@ -8780,7 +9432,21 @@ bool OpenMarketOrder(int direction, string reason)
      {
       int err = GetLastError();
 
-      g_lastOrderOpenReason = BuildOrderSendFailMessage(err, type, lot, price, sl, reason);
+      g_lastOrderOpenReason =
+         BuildOrderSendFailMessage(err,
+                                   type,
+                                   lot,
+                                   price,
+                                   sl,
+                                   reason);
+
+      g_lastAuditSendResult =
+         "FAILED " + IntegerToString(err) +
+         " | " + MT4TradeErrorDescription(err);
+
+      g_lastEntryAttemptDecision = "ORDERSEND FAILED";
+      g_lastEntryAttemptPrimary  = g_lastAuditSendResult;
+      g_lastEntryAttemptTime     = TimeCurrent();
 
       Print(g_lastOrderOpenReason);
 
@@ -8823,6 +9489,18 @@ bool OpenMarketOrder(int direction, string reason)
                            " | Price=" + DoubleToString(price, Digits) +
                            " | Source=" + reason +
                            " | Comment=" + orderComment;
+
+   g_lastEntryAttemptDecision = "OPENED";
+   g_lastEntryAttemptPrimary  = "NONE";
+   g_lastEntryAttemptBlockers = "NONE";
+   g_lastEntryAttemptBlocked  = 0;
+   g_lastEntryAttemptTime     = TimeCurrent();
+
+   CaptureOpenedOrderAudit(ticket,
+                           direction,
+                           reason,
+                           price,
+                           lot);
 
    Print("Opened ", DirectionText(direction), " ticket=", ticket,
          " lot=", DoubleToString(lot, 2),
@@ -9241,6 +9919,13 @@ void DrawLeftImportantOrderSettings(int direction)
   {
    LeftChecklistInfo("----- IMPORTANT ORDER SETTINGS -----", "", clrYellow);
 
+   LeftChecklistInfo("Filter Profile",
+                     g_autoMarketModeText + " | " +
+                     IntegerToString(CountEnabledMarketModeEntryFilters()) +
+                     "/" + IntegerToString(DXB_FILTER_COUNT) +
+                     " enabled",
+                     MarketFlowModeColor());
+
    LeftChecklistInfo("Lot / Slippage",
                      "Lot " + DoubleToString(InpFixedLot, 2) +
                      " | Slip " + IntegerToString(InpSlippage),
@@ -9367,7 +10052,7 @@ bool CheckListTradingAllowed()
 
 bool CheckListSARConfirmationReady()
   {
-   if(!InpUseSARFlipConfirmations)
+   if(!IsMarketModeEntryFilterEnabled(DXB_FILTER_SAR_CONFIRM))
       return(true);
    if(g_pendingSARConfirmDirection == 0)
       return(true);
@@ -9378,7 +10063,7 @@ bool CheckListH1Allowed(int direction)
   {
    if(direction == 0)
       return(false);
-   if(!InpUseH1TrendFilter)
+   if(!IsMarketModeEntryFilterEnabled(DXB_FILTER_H1_TREND))
       return(true);
 
    int trend = GetH1TrendDirection();
@@ -9424,7 +10109,7 @@ bool CheckListMinGapAllowed(int direction)
 
 bool CheckListSARSideAllowed(int direction)
   {
-   if(!InpUseSARSignalPriceSideFilter)
+   if(!IsMarketModeEntryFilterEnabled(DXB_FILTER_SAR_PRICE_SIDE))
       return(true);
    if(direction == 0 || g_activeSARSignalChangePrice <= 0.0)
       return(false);
@@ -9435,7 +10120,7 @@ bool CheckListSARSideAllowed(int direction)
 
 bool CheckListRepeatedGapAllowed(int direction)
   {
-   if(!InpUseRepeatedPriceGapConfirm)
+   if(!IsMarketModeEntryFilterEnabled(DXB_FILTER_REPEATED_GAP))
       return(true);
    if(direction == 0)
       return(false);
@@ -9512,6 +10197,420 @@ string CheckListRepeatedGapText(int direction)
 
 
 //+------------------------------------------------------------------+
+//| NORMAL ORDER FILTER DIAGNOSTIC ENGINE                            |
+//+------------------------------------------------------------------+
+void AppendEntryAuditToken(string &target, string token)
+  {
+   if(token == "")
+      return;
+
+   if(target == "" || target == "NONE")
+      target = token;
+   else
+      target += ", " + token;
+  }
+
+//+------------------------------------------------------------------+
+void ResetEntryDiagnosticSnapshot(int direction, string source)
+  {
+   g_entryDiagEnabledCount  = 0;
+   g_entryDiagPassedCount   = 0;
+   g_entryDiagBlockedCount  = 0;
+   g_entryDiagDisabledCount = 0;
+   g_entryDiagDirection     = direction;
+   g_entryDiagTime          = TimeCurrent();
+   g_entryDiagDecision      = "WAIT";
+   g_entryDiagPrimaryBlock  = "NONE";
+   g_entryDiagBlockerList   = "NONE";
+   g_entryDiagEnabledList   = "NONE";
+   g_entryDiagDisabledList  = "NONE";
+   g_entryDiagSource        = source;
+
+   for(int i = 0; i < DXB_FILTER_COUNT; i++)
+     {
+      g_entryDiagEnabled[i] = false;
+      g_entryDiagPassed[i]  = false;
+      g_entryDiagDetail[i]  = "";
+     }
+  }
+
+//+------------------------------------------------------------------+
+void SetEntryDiagnosticFilter(int filterId,
+                              bool rawConditionPassed,
+                              string detail)
+  {
+   if(filterId < 0 || filterId >= DXB_FILTER_COUNT)
+      return;
+
+   bool enabled = IsMarketModeEntryFilterEnabled(filterId);
+   bool passed  = (!enabled || rawConditionPassed);
+   string token = EntryFilterToken(filterId);
+
+   g_entryDiagEnabled[filterId] = enabled;
+   g_entryDiagPassed[filterId]  = passed;
+   g_entryDiagDetail[filterId]  = detail;
+
+   if(!enabled)
+     {
+      g_entryDiagDisabledCount++;
+      AppendEntryAuditToken(g_entryDiagDisabledList, token);
+      return;
+     }
+
+   g_entryDiagEnabledCount++;
+   AppendEntryAuditToken(g_entryDiagEnabledList, token);
+
+   if(rawConditionPassed)
+     {
+      g_entryDiagPassedCount++;
+      return;
+     }
+
+   g_entryDiagBlockedCount++;
+   AppendEntryAuditToken(g_entryDiagBlockerList, token);
+
+   if(g_entryDiagPrimaryBlock == "NONE")
+     {
+      g_entryDiagPrimaryBlock = token;
+
+      if(detail != "")
+         g_entryDiagPrimaryBlock += " | " + detail;
+     }
+  }
+
+//+------------------------------------------------------------------+
+void FinalizeEntryDiagnosticSnapshot()
+  {
+   if(g_entryDiagBlockedCount > 0)
+      g_entryDiagDecision = "BLOCKED";
+   else
+      g_entryDiagDecision = "READY TO OPEN";
+
+   if(g_entryDiagBlockerList == "")
+      g_entryDiagBlockerList = "NONE";
+
+   if(g_entryDiagEnabledList == "")
+      g_entryDiagEnabledList = "NONE";
+
+   if(g_entryDiagDisabledList == "")
+      g_entryDiagDisabledList = "NONE";
+  }
+
+//+------------------------------------------------------------------+
+string EntryDiagnosticAgeText(datetime eventTime)
+  {
+   if(eventTime <= 0)
+      return("NEVER");
+
+   int secondsAgo = (int)MathMax(0, TimeCurrent() - eventTime);
+
+   if(secondsAgo < 60)
+      return(IntegerToString(secondsAgo) + "s ago");
+
+   return(IntegerToString(secondsAgo / 60) + "m ago");
+  }
+
+//+------------------------------------------------------------------+
+string EntryDiagnosticLine(string value, int start, int length)
+  {
+   if(value == "")
+      return("");
+
+   if(start >= StringLen(value))
+      return("");
+
+   return(StringSubstr(value, start, length));
+  }
+
+//+------------------------------------------------------------------+
+//| Return one display segment without silently losing later text.   |
+//| segmentIndex starts at 0.                                        |
+//+------------------------------------------------------------------+
+string EntryAuditSegment(string value,
+                         int segmentIndex,
+                         int charsPerLine)
+  {
+   if(value == "")
+      return("");
+
+   charsPerLine = MathMax(25, charsPerLine);
+
+   int start = segmentIndex * charsPerLine;
+
+   if(start >= StringLen(value))
+      return("");
+
+   return(StringSubstr(value, start, charsPerLine));
+  }
+
+//+------------------------------------------------------------------+
+//| Build a current snapshot independently of OrderSend.             |
+//| This is used before a real order attempt and for the top panel.   |
+//+------------------------------------------------------------------+
+void RefreshNormalEntryDiagnosticSnapshot(int direction,
+                                          string source)
+  {
+   RefreshRates();
+   UpdateAutoMarketFlowMode();
+   ApplyMarketModeEntryFilterProfileState();
+
+   ResetEntryDiagnosticSnapshot(direction, source);
+
+   int spread = (int)MarketInfo(Symbol(), MODE_SPREAD);
+   string lateReason = "";
+   string dynamicReason = "";
+
+   bool rawDirection = (direction != 0);
+   bool rawSARConfirm = CheckListSARConfirmationReady();
+   bool rawSARSide = CheckListSARSideAllowed(direction);
+   bool rawRepeatedGap = CheckListRepeatedGapAllowed(direction);
+   bool rawCycle = CheckListCycleAllowed(direction);
+   bool rawH1 = CheckListH1Allowed(direction);
+   bool rawLate = !IsLateSARCycleEntryDanger(direction, lateReason);
+
+   int strictRequired = GetStrictSARMinimumScore();
+   int score = (direction != 0)
+               ? GetDynamicSARStrengthScore(direction)
+               : 0;
+   bool rawStrict = (score >= strictRequired);
+   bool rawDoubtful = IsDoubtfulCandleReadyForDashboard(direction);
+
+   bool rawTrading = CheckListTradingAllowed();
+   bool rawSpread = (spread <= InpMaxSpreadPoints);
+   bool rawEquity =
+      (!g_equityProtectionHit &&
+       !(g_dailyProfitLock && InpPauseAfterProfitTarget));
+   bool rawNoHour =
+      (!IsConfiguredNoNewOrderHour(TimeHour(TimeCurrent())));
+   bool rawProfit = !IsProfitProtectPauseActive();
+   bool rawOpposite =
+      (!IsOppositeDirectionProfitPauseActive() ||
+       direction != g_oppositePausedDirection);
+
+   bool rawBig = !IsBigCandlePauseActive();
+   bool rawSpike = !IsSpikeWickPauseActive();
+   bool rawMinGap = CheckListMinGapAllowed(direction);
+   bool rawMaxOpen = CheckListMaxOpenAllowed(direction);
+   bool rawTotal = CheckListTotalOpenAllowed();
+   bool rawAutoMarket =
+      IsAutoMarketNewOrderAllowed("ENTRY_DIAGNOSTIC");
+
+   bool rawDynamic = false;
+   if(direction != 0)
+      rawDynamic =
+         IsDynamicSARAllowedForNewOrder(direction,
+                                        dynamicReason);
+
+   bool rawFlat = !DetectFlatMode();
+
+   bool rawEarlyWeak =
+      !(g_earlySARWeakExitActive &&
+        direction != 0 &&
+        CountOrdersByDirection(direction) > 0);
+
+   bool rawEarlyReverse = !g_sarPausedByEarly;
+
+   bool rawCooldown =
+      (InpOrderCooldownSeconds <= 0 ||
+       g_lastOrderTime <= 0 ||
+       TimeCurrent() - g_lastOrderTime >=
+       InpOrderCooldownSeconds);
+
+   SetEntryDiagnosticFilter(
+      DXB_FILTER_DIRECTION,
+      rawDirection,
+      DirectionText(direction));
+
+   SetEntryDiagnosticFilter(
+      DXB_FILTER_SAR_CONFIRM,
+      rawSARConfirm,
+      SARConfirmDurationStatusText());
+
+   SetEntryDiagnosticFilter(
+      DXB_FILTER_SAR_PRICE_SIDE,
+      rawSARSide,
+      SARSignalSideStatusText());
+
+   SetEntryDiagnosticFilter(
+      DXB_FILTER_REPEATED_GAP,
+      rawRepeatedGap,
+      CheckListRepeatedGapText(direction));
+
+   SetEntryDiagnosticFilter(
+      DXB_FILTER_SAR_CYCLE,
+      rawCycle,
+      IntegerToString(g_sarCycleOrdersCreated) + "/" +
+      IntegerToString(g_sarCycleMaxOrders));
+
+   SetEntryDiagnosticFilter(
+      DXB_FILTER_H1_TREND,
+      rawH1,
+      DirectionText(GetH1TrendDirection()));
+
+   SetEntryDiagnosticFilter(
+      DXB_FILTER_LATE_SAR,
+      rawLate,
+      rawLate ? "SAFE" : lateReason);
+
+   SetEntryDiagnosticFilter(
+      DXB_FILTER_STRICT_SAR_SCORE,
+      rawStrict,
+      IntegerToString(score) + "/" +
+      IntegerToString(strictRequired));
+
+   SetEntryDiagnosticFilter(
+      DXB_FILTER_DOUBTFUL_CANDLE,
+      rawDoubtful,
+      DoubtfulCandleStatusText(direction));
+
+   SetEntryDiagnosticFilter(
+      DXB_FILTER_TRADING_ALLOWED,
+      rawTrading,
+      DashboardTradePermissionText());
+
+   SetEntryDiagnosticFilter(
+      DXB_FILTER_SPREAD,
+      rawSpread,
+      IntegerToString(spread) + "/" +
+      IntegerToString(InpMaxSpreadPoints));
+
+   SetEntryDiagnosticFilter(
+      DXB_FILTER_EQUITY_LOCK,
+      rawEquity,
+      rawEquity ? "CLEAR" : "EQUITY/DAILY LOCK");
+
+   SetEntryDiagnosticFilter(
+      DXB_FILTER_NO_NEW_HOUR,
+      rawNoHour,
+      NoNewOrderHoursStatusText());
+
+   SetEntryDiagnosticFilter(
+      DXB_FILTER_PROFIT_PAUSE,
+      rawProfit,
+      ProfitProtectPauseStatusText());
+
+   SetEntryDiagnosticFilter(
+      DXB_FILTER_OPPOSITE_PAUSE,
+      rawOpposite,
+      OppositeDirectionProfitPauseStatusText());
+
+   SetEntryDiagnosticFilter(
+      DXB_FILTER_BIG_CANDLE,
+      rawBig,
+      BigCandlePauseStatusText());
+
+   SetEntryDiagnosticFilter(
+      DXB_FILTER_SPIKE_WICK,
+      rawSpike,
+      SpikeWickPauseStatusText());
+
+   SetEntryDiagnosticFilter(
+      DXB_FILTER_MIN_GAP,
+      rawMinGap,
+      DoubleToString(GetEffectiveMinPriceGap(), 1));
+
+   SetEntryDiagnosticFilter(
+      DXB_FILTER_MAX_OPEN_DIR,
+      rawMaxOpen,
+      IntegerToString(CountOrdersByDirection(direction)) +
+      "/" + IntegerToString(InpMaxOrders));
+
+   SetEntryDiagnosticFilter(
+      DXB_FILTER_TOTAL_OPEN,
+      rawTotal,
+      IntegerToString(CountAllOrders()) + "/" +
+      IntegerToString(InpMaxTotalOpenOrders));
+
+   SetEntryDiagnosticFilter(
+      DXB_FILTER_AUTO_MARKET_MODE,
+      rawAutoMarket,
+      AutoMarketModeStatusText());
+
+   SetEntryDiagnosticFilter(
+      DXB_FILTER_DYNAMIC_SAR,
+      rawDynamic,
+      dynamicReason);
+
+   SetEntryDiagnosticFilter(
+      DXB_FILTER_FLAT_MODE,
+      rawFlat,
+      rawFlat ? "CLEAR" : "FLAT");
+
+   SetEntryDiagnosticFilter(
+      DXB_FILTER_EARLY_WEAK_EXIT,
+      rawEarlyWeak,
+      g_earlySARWeakExitReason);
+
+   SetEntryDiagnosticFilter(
+      DXB_FILTER_EARLY_REVERSE,
+      rawEarlyReverse,
+      g_sarPausedByEarly ? "PAUSED" : "CLEAR");
+
+   int cooldownLeft = 0;
+
+   if(InpOrderCooldownSeconds > 0 &&
+      g_lastOrderTime > 0)
+      cooldownLeft =
+         MathMax(0,
+                 InpOrderCooldownSeconds -
+                 (int)(TimeCurrent() - g_lastOrderTime));
+
+   SetEntryDiagnosticFilter(
+      DXB_FILTER_ORDER_COOLDOWN,
+      rawCooldown,
+      IntegerToString(cooldownLeft) + "s left");
+
+   FinalizeEntryDiagnosticSnapshot();
+  }
+
+//+------------------------------------------------------------------+
+void CaptureLastEntryAttempt(string decision)
+  {
+   g_lastEntryAttemptTime      = TimeCurrent();
+   g_lastEntryAttemptDirection = g_entryDiagDirection;
+   g_lastEntryAttemptSource    = g_entryDiagSource;
+   g_lastEntryAttemptDecision  = decision;
+   g_lastEntryAttemptPrimary   = g_entryDiagPrimaryBlock;
+   g_lastEntryAttemptBlockers  = g_entryDiagBlockerList;
+   g_lastEntryAttemptEnabled   = g_entryDiagEnabledCount;
+   g_lastEntryAttemptPassed    = g_entryDiagPassedCount;
+   g_lastEntryAttemptBlocked   = g_entryDiagBlockedCount;
+  }
+
+//+------------------------------------------------------------------+
+void CaptureOpenedOrderAudit(int ticket,
+                             int direction,
+                             string source,
+                             double price,
+                             double lot)
+  {
+   g_lastAuditOpenedTicket    = ticket;
+   g_lastAuditOpenedTime      = TimeCurrent();
+   g_lastAuditOpenedDirection = direction;
+   g_lastAuditOpenedPrice     = price;
+   g_lastAuditOpenedLot       = lot;
+   g_lastAuditOpenedSource    = source;
+   g_lastAuditOpenedMode      = g_autoMarketModeText;
+   g_lastAuditOpenedFilters   = g_entryDiagEnabledList;
+   g_lastAuditDisabledFilters = g_entryDiagDisabledList;
+   g_lastAuditOpenedEnabled   = g_entryDiagEnabledCount;
+   g_lastAuditOpenedPassed    = g_entryDiagPassedCount;
+   g_lastAuditSendResult      =
+      "SUCCESS #" + IntegerToString(ticket) +
+      " | " + DirectionText(direction) +
+      " | " + DoubleToString(price, Digits);
+
+   Print("ORDER FILTER AUDIT | Ticket=", ticket,
+         " | Direction=", DirectionText(direction),
+         " | Source=", source,
+         " | Mode=", g_autoMarketModeText,
+         " | Passed=", g_entryDiagPassedCount,
+         "/", g_entryDiagEnabledCount,
+         " | EnabledFilters=", g_entryDiagEnabledList,
+         " | DisabledFilters=", g_entryDiagDisabledList);
+  }
+
+//+------------------------------------------------------------------+
 //| PROFESSIONAL DASHBOARD HELPERS                                   |
 //+------------------------------------------------------------------+
 int g_rightDashRow = 0;
@@ -9572,7 +10671,16 @@ void LeftProCheck(string title,bool ok,string extra="")
 void RecoveryRow(string title,string value,color clrText=clrWhite)
   {
    string text = PadTitle(title,22) + " : " + value;
-   DrawCornerLabel("DXB_PRO_REC_"+IntegerToString(g_recoveryDashRow),text,CORNER_LEFT_UPPER,10,625+(g_recoveryDashRow*16),clrText,8);
+
+   DrawCornerLabel("DXB_PRO_REC_"+
+                   IntegerToString(g_recoveryDashRow),
+                   text,
+                   CORNER_LEFT_LOWER,
+                   570,
+                   186-(g_recoveryDashRow*18),
+                   clrText,
+                   8);
+
    g_recoveryDashRow++;
   }
 
@@ -9598,125 +10706,866 @@ string OnOff(bool v)
 void DrawRecoveryChecklistPanel(int direction)
   {
    bool enabled = InpUseRecoveryGapOrders;
-   bool matchOk = (!InpRecoveryGapMustMatchSARDirection || direction == g_activeSARDirection);
-   bool countOk = (CountRecoveryGapOrdersByDirection(1) < InpMaxRecoveryGapOrdersPerSide || CountRecoveryGapOrdersByDirection(-1) < InpMaxRecoveryGapOrdersPerSide);
+   bool matchOk =
+      (!InpRecoveryGapMustMatchSARDirection ||
+       direction == g_activeSARDirection);
+   bool countOk =
+      (CountRecoveryGapOrdersByDirection(1) <
+       InpMaxRecoveryGapOrdersPerSide ||
+       CountRecoveryGapOrdersByDirection(-1) <
+       InpMaxRecoveryGapOrdersPerSide);
    bool pending = (g_pendingRecoveryGapDirection != 0);
    bool bigOk = !IsBigCandlePauseActive();
    bool spikeOk = !IsSpikeWickPauseActive();
-   bool strongOk = true;
-   bool allowed = enabled && matchOk && countOk && bigOk && spikeOk && strongOk;
+   bool allowed =
+      enabled && matchOk && countOk && bigOk && spikeOk;
 
-   DrawCornerPanel("DXB_RECOVERY_PANEL",CORNER_LEFT_UPPER,5,595,405,260,clrBlack,clrDimGray);
-   DrawCornerLabel("DXB_RECOVERY_TITLE","RECOVERY ORDER CHECKLIST",CORNER_LEFT_UPPER,10,602,clrYellow,9);
+   DrawCornerPanel("DXB_RECOVERY_PANEL",
+                   CORNER_LEFT_LOWER,
+                   560,10,520,220,
+                   clrBlack,clrDimGray);
+
+   DrawCornerLabel("DXB_RECOVERY_TITLE",
+                   "RECOVERY ORDER STATUS",
+                   CORNER_LEFT_LOWER,
+                   570,208,
+                   clrYellow,9);
 
    g_recoveryDashRow = 0;
-   RecoveryRow("Recovery Enabled",YesNo(enabled),enabled ? clrLime : clrRed);
-   RecoveryRow("Recovery Allowed",YesNo(allowed),allowed ? clrLime : clrOrangeRed);
-   RecoveryRow("SAR Direction",DirectionText(g_activeSARDirection),DirectionColor(g_activeSARDirection));
-   RecoveryRow("Direction Match",YesNo(matchOk),matchOk ? clrLime : clrOrangeRed);
-   RecoveryRow("Required Gap",DoubleToString(InpRecoveryGapRawPrice,0),clrAqua);
-   RecoveryRow("Gap Levels",DoubleToString(InpRecoveryGapRawPrice,0)+","+DoubleToString(InpRecoveryGapRawPrice*2,0)+","+DoubleToString(InpRecoveryGapRawPrice*3,0),clrAqua);
-   RecoveryRow("Recovery Count",IntegerToString(CountRecoveryGapOrdersByDirection(1))+"/"+IntegerToString(CountRecoveryGapOrdersByDirection(-1))+" | Max "+IntegerToString(InpMaxRecoveryGapOrdersPerSide),countOk ? clrLime : clrOrangeRed);
-   RecoveryRow("Pending Recovery",pending ? DirectionText(g_pendingRecoveryGapDirection)+" Gap "+DoubleToString(g_pendingRecoveryGapMove,0) : "NONE",pending ? clrYellow : clrSilver);
-   RecoveryRow("Pending Reason",StringSubstr(g_pendingRecoveryGapReason,0,42),pending ? clrYellow : clrSilver);
-   RecoveryRow("Big Candle Block",YesNo(!bigOk),bigOk ? clrLime : clrOrangeRed);
-   RecoveryRow("Spike/Wick Block",YesNo(!spikeOk),spikeOk ? clrLime : clrOrangeRed);
-   RecoveryRow("Strong Opp Block",OnOff(InpStopRecoveryOnStrongOppMove)+" | Gap "+DoubleToString(InpStrongOppMoveBlockRecoveryGap,0),clrYellow);
+
+   RecoveryRow("Recovery Enabled",
+               enabled ? "ON" : "OFF",
+               enabled ? clrLime : clrSilver);
+
+   RecoveryRow("Recovery Decision",
+               allowed ? "READY / WAIT GAP" : "BLOCKED",
+               allowed ? clrLime : clrOrangeRed);
+
+   RecoveryRow("Direction / SAR",
+               DirectionText(direction) + " / " +
+               DirectionText(g_activeSARDirection),
+               matchOk ? clrLime : clrOrangeRed);
+
+   RecoveryRow("Required Gap",
+               DoubleToString(InpRecoveryGapRawPrice,0),
+               clrAqua);
+
+   RecoveryRow("Recovery Count B/S",
+               IntegerToString(
+                  CountRecoveryGapOrdersByDirection(1)) +
+               "/" +
+               IntegerToString(
+                  CountRecoveryGapOrdersByDirection(-1)) +
+               " | Max " +
+               IntegerToString(
+                  InpMaxRecoveryGapOrdersPerSide),
+               countOk ? clrLime : clrOrangeRed);
+
+   RecoveryRow("Pending",
+               pending
+               ? DirectionText(g_pendingRecoveryGapDirection) +
+                 " | Gap " +
+                 DoubleToString(g_pendingRecoveryGapMove,0)
+               : "NONE",
+               pending ? clrYellow : clrSilver);
+
+   RecoveryRow("Pending Reason",
+               StringSubstr(g_pendingRecoveryGapReason,0,52),
+               pending ? clrYellow : clrSilver);
+
+   RecoveryRow("Big / Spike",
+               (bigOk ? "CLEAR" : "BIG BLOCK") +
+               " / " +
+               (spikeOk ? "CLEAR" : "SPIKE BLOCK"),
+               (bigOk && spikeOk)
+               ? clrLime
+               : clrOrangeRed);
+
+   RecoveryRow("Strong Opp Move",
+               OnOff(InpStopRecoveryOnStrongOppMove) +
+               " | Gap " +
+               DoubleToString(
+                  InpStrongOppMoveBlockRecoveryGap,0),
+               clrYellow);
   }
 
 
+void LeftProModeCheck(string title,
+                      int filterId,
+                      bool conditionOk,
+                      string extra="")
+  {
+   bool enabled = IsMarketModeEntryFilterEnabled(filterId);
+   string state = EntryFilterModeStateText(filterId);
+
+   if(!enabled)
+     {
+      string offValue = "OFF | " + state;
+
+      if(extra != "")
+         offValue += " | " + extra;
+
+      LeftProRow(title, offValue, clrSilver);
+      return;
+     }
+
+   string detail = conditionOk
+                   ? "PASS | " + state
+                   : "BLOCK | " + state;
+
+   if(extra != "")
+      detail += " | " + extra;
+
+   LeftProRow(title,
+              detail,
+              conditionOk ? clrLime : clrOrangeRed);
+  }
+
+//+------------------------------------------------------------------+
+void DrawTopCenterOrderAuditPanel()
+  {
+   int chartWidth =
+      (int)ChartGetInteger(0, CHART_WIDTH_IN_PIXELS, 0);
+
+   int panelX = 560;
+   int rightReserved = 350;
+   int panelW = chartWidth - panelX - rightReserved;
+
+   if(panelW < 520)
+      panelW = 520;
+
+   if(panelW > 980)
+      panelW = 980;
+
+   // Approximate readable characters for font size 8.
+   // Smaller value prevents text from being cut at the panel edge.
+   int charsPerLine = (panelW - 35) / 7;
+
+   if(charsPerLine < 55)
+      charsPerLine = 55;
+
+   if(charsPerLine > 125)
+      charsPerLine = 125;
+
+   color decisionColor =
+      (g_entryDiagBlockedCount > 0)
+      ? clrOrangeRed
+      : clrLime;
+
+   DrawCornerPanel("DXB_ENTRY_AUDIT_PANEL",
+                   CORNER_LEFT_UPPER,
+                   panelX,5,panelW,306,
+                   clrBlack,decisionColor);
+
+   DrawCornerLabel("DXB_ENTRY_AUDIT_TITLE",
+                   "NORMAL ORDER DECISION / FILTER AUDIT",
+                   CORNER_LEFT_UPPER,
+                   panelX+10,12,
+                   clrYellow,10);
+
+   string nowLine =
+      g_entryDiagDecision +
+      " | Candidate=" +
+      DirectionText(g_entryDiagDirection) +
+      " | Mode=" + g_autoMarketModeText +
+      " | Passed=" +
+      IntegerToString(g_entryDiagPassedCount) +
+      "/" +
+      IntegerToString(g_entryDiagEnabledCount) +
+      " | Failed=" +
+      IntegerToString(g_entryDiagBlockedCount) +
+      " | Disabled=" +
+      IntegerToString(g_entryDiagDisabledCount);
+
+   DrawCornerLabel("DXB_ENTRY_AUDIT_NOW1",
+                   EntryAuditSegment(nowLine,0,charsPerLine),
+                   CORNER_LEFT_UPPER,
+                   panelX+10,34,
+                   decisionColor,9);
+
+   DrawCornerLabel("DXB_ENTRY_AUDIT_NOW2",
+                   EntryAuditSegment(nowLine,1,charsPerLine),
+                   CORNER_LEFT_UPPER,
+                   panelX+10,51,
+                   decisionColor,9);
+
+   string primaryLine =
+      "PRIMARY BLOCK : " + g_entryDiagPrimaryBlock;
+
+   DrawCornerLabel("DXB_ENTRY_AUDIT_PRIMARY1",
+                   EntryAuditSegment(primaryLine,0,charsPerLine),
+                   CORNER_LEFT_UPPER,
+                   panelX+10,72,
+                   g_entryDiagBlockedCount > 0
+                   ? clrOrangeRed
+                   : clrLime,
+                   8);
+
+   DrawCornerLabel("DXB_ENTRY_AUDIT_PRIMARY2",
+                   EntryAuditSegment(primaryLine,1,charsPerLine),
+                   CORNER_LEFT_UPPER,
+                   panelX+10,88,
+                   g_entryDiagBlockedCount > 0
+                   ? clrOrangeRed
+                   : clrLime,
+                   8);
+
+   string blockerLine =
+      "ALL BLOCKERS : " + g_entryDiagBlockerList;
+
+   DrawCornerLabel("DXB_ENTRY_AUDIT_BLOCK1",
+                   EntryAuditSegment(blockerLine,0,charsPerLine),
+                   CORNER_LEFT_UPPER,
+                   panelX+10,108,
+                   g_entryDiagBlockedCount > 0
+                   ? clrOrangeRed
+                   : clrSilver,
+                   8);
+
+   DrawCornerLabel("DXB_ENTRY_AUDIT_BLOCK2",
+                   EntryAuditSegment(blockerLine,1,charsPerLine),
+                   CORNER_LEFT_UPPER,
+                   panelX+10,124,
+                   g_entryDiagBlockedCount > 0
+                   ? clrOrangeRed
+                   : clrSilver,
+                   8);
+
+   DrawCornerLabel("DXB_ENTRY_AUDIT_BLOCK3",
+                   EntryAuditSegment(blockerLine,2,charsPerLine),
+                   CORNER_LEFT_UPPER,
+                   panelX+10,140,
+                   g_entryDiagBlockedCount > 0
+                   ? clrOrangeRed
+                   : clrSilver,
+                   8);
+
+   string lastAttempt =
+      "LAST ATTEMPT : " +
+      g_lastEntryAttemptDecision +
+      " | Direction=" +
+      DirectionText(g_lastEntryAttemptDirection) +
+      " | Source=" +
+      g_lastEntryAttemptSource +
+      " | Passed=" +
+      IntegerToString(g_lastEntryAttemptPassed) +
+      "/" +
+      IntegerToString(g_lastEntryAttemptEnabled) +
+      " | Failed=" +
+      IntegerToString(g_lastEntryAttemptBlocked) +
+      " | " +
+      EntryDiagnosticAgeText(g_lastEntryAttemptTime);
+
+   DrawCornerLabel("DXB_ENTRY_AUDIT_ATTEMPT1",
+                   EntryAuditSegment(lastAttempt,0,charsPerLine),
+                   CORNER_LEFT_UPPER,
+                   panelX+10,162,
+                   g_lastEntryAttemptDecision == "OPENED"
+                   ? clrLime
+                   : (g_lastEntryAttemptDecision == "NONE"
+                      ? clrSilver
+                      : clrOrange),
+                   8);
+
+   DrawCornerLabel("DXB_ENTRY_AUDIT_ATTEMPT2",
+                   EntryAuditSegment(lastAttempt,1,charsPerLine),
+                   CORNER_LEFT_UPPER,
+                   panelX+10,178,
+                   g_lastEntryAttemptDecision == "OPENED"
+                   ? clrLime
+                   : (g_lastEntryAttemptDecision == "NONE"
+                      ? clrSilver
+                      : clrOrange),
+                   8);
+
+   string openedLine = "LAST OPENED : NONE";
+
+   if(g_lastAuditOpenedTicket > 0)
+      openedLine =
+         "LAST OPENED : #" +
+         IntegerToString(g_lastAuditOpenedTicket) +
+         " | " +
+         DirectionText(g_lastAuditOpenedDirection) +
+         " | Price=" +
+         DoubleToString(g_lastAuditOpenedPrice,Digits) +
+         " | Lot=" +
+         DoubleToString(g_lastAuditOpenedLot,2) +
+         " | Mode=" +
+         g_lastAuditOpenedMode +
+         " | Source=" +
+         g_lastAuditOpenedSource +
+         " | " +
+         EntryDiagnosticAgeText(g_lastAuditOpenedTime);
+
+   DrawCornerLabel("DXB_ENTRY_AUDIT_OPENED1",
+                   EntryAuditSegment(openedLine,0,charsPerLine),
+                   CORNER_LEFT_UPPER,
+                   panelX+10,199,
+                   g_lastAuditOpenedTicket > 0
+                   ? clrAqua
+                   : clrSilver,
+                   8);
+
+   DrawCornerLabel("DXB_ENTRY_AUDIT_OPENED2",
+                   EntryAuditSegment(openedLine,1,charsPerLine),
+                   CORNER_LEFT_UPPER,
+                   panelX+10,215,
+                   g_lastAuditOpenedTicket > 0
+                   ? clrAqua
+                   : clrSilver,
+                   8);
+
+   string auditLine =
+      "OPEN AUDIT : " +
+      IntegerToString(g_lastAuditOpenedPassed) +
+      "/" +
+      IntegerToString(g_lastAuditOpenedEnabled) +
+      " passed | " +
+      g_lastAuditSendResult;
+
+   DrawCornerLabel("DXB_ENTRY_AUDIT_COUNTS1",
+                   EntryAuditSegment(auditLine,0,charsPerLine),
+                   CORNER_LEFT_UPPER,
+                   panelX+10,236,
+                   g_lastAuditOpenedTicket > 0
+                   ? clrLime
+                   : clrSilver,
+                   8);
+
+   DrawCornerLabel("DXB_ENTRY_AUDIT_COUNTS2",
+                   EntryAuditSegment(auditLine,1,charsPerLine),
+                   CORNER_LEFT_UPPER,
+                   panelX+10,252,
+                   g_lastAuditOpenedTicket > 0
+                   ? clrLime
+                   : clrSilver,
+                   8);
+
+   string activeLine =
+      "ACTIVE FILTERS : " + g_lastAuditOpenedFilters;
+
+   DrawCornerLabel("DXB_ENTRY_AUDIT_FILTERS1",
+                   EntryAuditSegment(activeLine,0,charsPerLine),
+                   CORNER_LEFT_UPPER,
+                   panelX+10,270,
+                   g_lastAuditOpenedTicket > 0
+                   ? clrWhite
+                   : clrSilver,
+                   8);
+
+   DrawCornerLabel("DXB_ENTRY_AUDIT_FILTERS2",
+                   EntryAuditSegment(activeLine,1,charsPerLine),
+                   CORNER_LEFT_UPPER,
+                   panelX+10,286,
+                   g_lastAuditOpenedTicket > 0
+                   ? clrWhite
+                   : clrSilver,
+                   8);
+  }
+
+//+------------------------------------------------------------------+
 void DrawLeftOrderCreationChecklist(string mainStatus)
   {
    RefreshRates();
+   UpdateAutoMarketFlowMode();
+   ApplyMarketModeEntryFilterProfileState();
 
    int direction = GetChecklistDirection();
    int spread = (int)MarketInfo(Symbol(), MODE_SPREAD);
-   string lateSARBlockReasonForDashboard = "";
 
-   bool okDirection     = (direction != 0);
-   bool okTrading       = CheckListTradingAllowed();
-   bool okSpread        = (spread <= InpMaxSpreadPoints);
-   bool okEquity        = (!g_equityProtectionHit && !(g_dailyProfitLock && InpPauseAfterProfitTarget));
-   bool okNoHour        = (!IsNoNewOrderHour());
-   bool okProfitPause   = (!IsProfitProtectPauseActive());
-   bool okBigCandle     = (!IsBigCandlePauseActive());
-   bool okSpikeWick     = (!IsSpikeWickPauseActive());
-   bool okSARConfirm    = CheckListSARConfirmationReady();
-   bool okH1            = CheckListH1Allowed(direction);
-   bool okCycle         = CheckListCycleAllowed(direction);
-   bool okMaxOpen       = CheckListMaxOpenAllowed(direction);
-   bool okTotalOpen     = CheckListTotalOpenAllowed();
-   bool okMinGap        = CheckListMinGapAllowed(direction);
-   bool okSARSide       = CheckListSARSideAllowed(direction);
-   bool okLateSAR       = !IsLateSARCycleEntryDanger(direction, lateSARBlockReasonForDashboard);
-   bool okRepeatedGap   = CheckListRepeatedGapAllowed(direction);
-   bool okOppositePause = (!IsOppositeDirectionProfitPauseActive() ||
-                           direction != g_oppositePausedDirection);
-   bool okDoubtfulCandle = IsDoubtfulCandleReadyForDashboard(direction);
+   string lateReason = "";
+   string dynamicReason = "";
 
-   int strictSARRequired = GetStrictSARMinimumScore();
-   int checklistSARScore = (direction != 0) ? GetDynamicSARStrengthScore(direction) : 0;
-   bool okStrictSARScore = (!InpUseStrictSARScoreEntry ||
-                            checklistSARScore >= strictSARRequired);
+   bool rawDirection = (direction != 0);
+   bool rawTrading = CheckListTradingAllowed();
+   bool rawSpread = (spread <= InpMaxSpreadPoints);
+   bool rawEquity =
+      (!g_equityProtectionHit &&
+       !(g_dailyProfitLock && InpPauseAfterProfitTarget));
+   bool rawNoHour = (!IsConfiguredNoNewOrderHour(
+                        TimeHour(TimeCurrent())));
+   bool rawProfitPause = (!IsProfitProtectPauseActive());
+   bool rawOppositePause =
+      (!IsOppositeDirectionProfitPauseActive() ||
+       direction != g_oppositePausedDirection);
 
-   bool allOk = okDirection && okTrading && okSpread && okEquity && okNoHour &&
-                okProfitPause && okBigCandle && okSpikeWick && okSARConfirm && okH1 && okCycle &&
-                okMaxOpen && okTotalOpen && okMinGap && okSARSide && okLateSAR && okRepeatedGap &&
-                okOppositePause && okStrictSARScore && okDoubtfulCandle;
+   bool rawBigCandle = true;
+   bool rawSpikeWick = true;
 
-   DrawCornerPanel("DXB_LEFT_CHK_PANEL",CORNER_LEFT_UPPER,5,15,405,610,clrBlack,clrDimGray);
-   DrawCornerLabel("DXB_LEFT_CHK_TITLE","ORDER CREATION CHECKLIST",CORNER_LEFT_UPPER,10,22,clrYellow,10);
+   if(IsMarketModeEntryFilterEnabled(DXB_FILTER_BIG_CANDLE) ||
+      IsMarketModeEntryFilterEnabled(DXB_FILTER_SPIKE_WICK))
+     {
+      bool blockedByVolatility =
+         EnforceBigCandleOrderBlock("CHECKLIST_NORMAL");
+
+      rawBigCandle = !blockedByVolatility;
+      rawSpikeWick = !blockedByVolatility;
+     }
+
+   bool rawSARConfirm = CheckListSARConfirmationReady();
+   bool rawH1 = CheckListH1Allowed(direction);
+   bool rawCycle = CheckListCycleAllowed(direction);
+   bool rawMaxOpen = CheckListMaxOpenAllowed(direction);
+   bool rawTotalOpen = CheckListTotalOpenAllowed();
+   bool rawMinGap = CheckListMinGapAllowed(direction);
+   bool rawSARSide = CheckListSARSideAllowed(direction);
+   bool rawLateSAR =
+      !IsLateSARCycleEntryDanger(direction, lateReason);
+   bool rawRepeatedGap =
+      CheckListRepeatedGapAllowed(direction);
+   bool rawDoubtful =
+      IsDoubtfulCandleReadyForDashboard(direction);
+
+   int strictRequired = GetStrictSARMinimumScore();
+   int checklistScore =
+      (direction != 0)
+      ? GetDynamicSARStrengthScore(direction)
+      : 0;
+   bool rawStrictScore =
+      (checklistScore >= strictRequired);
+
+   bool rawAutoMarket =
+      IsAutoMarketNewOrderAllowed("NORMAL_PROFILE_CHECK");
+
+   bool rawDynamicSAR = true;
+
+   if(direction == 0)
+      rawDynamicSAR = false;
+   else
+      rawDynamicSAR =
+         IsDynamicSARAllowedForNewOrder(direction,
+                                        dynamicReason);
+
+   bool rawFlatMode = !DetectFlatMode();
+
+   bool rawEarlyWeak =
+      !(g_earlySARWeakExitActive &&
+        direction != 0 &&
+        CountOrdersByDirection(direction) > 0);
+
+   bool rawEarlyReverse = !g_sarPausedByEarly;
+
+   bool rawCooldown =
+      (InpOrderCooldownSeconds <= 0 ||
+       g_lastOrderTime <= 0 ||
+       TimeCurrent() - g_lastOrderTime >=
+       InpOrderCooldownSeconds);
+
+   bool okDirection =
+      !IsMarketModeEntryFilterEnabled(DXB_FILTER_DIRECTION) ||
+      rawDirection;
+   bool okSARConfirm =
+      !IsMarketModeEntryFilterEnabled(DXB_FILTER_SAR_CONFIRM) ||
+      rawSARConfirm;
+   bool okSARSide =
+      !IsMarketModeEntryFilterEnabled(DXB_FILTER_SAR_PRICE_SIDE) ||
+      rawSARSide;
+   bool okRepeatedGap =
+      !IsMarketModeEntryFilterEnabled(DXB_FILTER_REPEATED_GAP) ||
+      rawRepeatedGap;
+   bool okCycle =
+      !IsMarketModeEntryFilterEnabled(DXB_FILTER_SAR_CYCLE) ||
+      rawCycle;
+   bool okH1 =
+      !IsMarketModeEntryFilterEnabled(DXB_FILTER_H1_TREND) ||
+      rawH1;
+   bool okLate =
+      !IsMarketModeEntryFilterEnabled(DXB_FILTER_LATE_SAR) ||
+      rawLateSAR;
+   bool okStrict =
+      !IsMarketModeEntryFilterEnabled(DXB_FILTER_STRICT_SAR_SCORE) ||
+      rawStrictScore;
+   bool okDoubtful =
+      !IsMarketModeEntryFilterEnabled(DXB_FILTER_DOUBTFUL_CANDLE) ||
+      rawDoubtful;
+   bool okTrading =
+      !IsMarketModeEntryFilterEnabled(DXB_FILTER_TRADING_ALLOWED) ||
+      rawTrading;
+   bool okSpread =
+      !IsMarketModeEntryFilterEnabled(DXB_FILTER_SPREAD) ||
+      rawSpread;
+   bool okEquity =
+      !IsMarketModeEntryFilterEnabled(DXB_FILTER_EQUITY_LOCK) ||
+      rawEquity;
+   bool okNoHour =
+      !IsMarketModeEntryFilterEnabled(DXB_FILTER_NO_NEW_HOUR) ||
+      rawNoHour;
+   bool okProfit =
+      !IsMarketModeEntryFilterEnabled(DXB_FILTER_PROFIT_PAUSE) ||
+      rawProfitPause;
+   bool okOpposite =
+      !IsMarketModeEntryFilterEnabled(DXB_FILTER_OPPOSITE_PAUSE) ||
+      rawOppositePause;
+   bool okBig =
+      !IsMarketModeEntryFilterEnabled(DXB_FILTER_BIG_CANDLE) ||
+      rawBigCandle;
+   bool okSpike =
+      !IsMarketModeEntryFilterEnabled(DXB_FILTER_SPIKE_WICK) ||
+      rawSpikeWick;
+   bool okMinGap =
+      !IsMarketModeEntryFilterEnabled(DXB_FILTER_MIN_GAP) ||
+      rawMinGap;
+   bool okMaxOpen =
+      !IsMarketModeEntryFilterEnabled(DXB_FILTER_MAX_OPEN_DIR) ||
+      rawMaxOpen;
+   bool okTotal =
+      !IsMarketModeEntryFilterEnabled(DXB_FILTER_TOTAL_OPEN) ||
+      rawTotalOpen;
+   bool okAutoMarket =
+      !IsMarketModeEntryFilterEnabled(DXB_FILTER_AUTO_MARKET_MODE) ||
+      rawAutoMarket;
+   bool okDynamic =
+      !IsMarketModeEntryFilterEnabled(DXB_FILTER_DYNAMIC_SAR) ||
+      rawDynamicSAR;
+   bool okFlat =
+      !IsMarketModeEntryFilterEnabled(DXB_FILTER_FLAT_MODE) ||
+      rawFlatMode;
+   bool okEarlyWeak =
+      !IsMarketModeEntryFilterEnabled(DXB_FILTER_EARLY_WEAK_EXIT) ||
+      rawEarlyWeak;
+   bool okEarlyReverse =
+      !IsMarketModeEntryFilterEnabled(DXB_FILTER_EARLY_REVERSE) ||
+      rawEarlyReverse;
+   bool okCooldown =
+      !IsMarketModeEntryFilterEnabled(DXB_FILTER_ORDER_COOLDOWN) ||
+      rawCooldown;
+
+   ResetEntryDiagnosticSnapshot(direction, "LIVE DASHBOARD");
+
+   SetEntryDiagnosticFilter(DXB_FILTER_DIRECTION,
+                            rawDirection,
+                            DirectionText(direction));
+   SetEntryDiagnosticFilter(DXB_FILTER_SAR_CONFIRM,
+                            rawSARConfirm,
+                            SARConfirmDurationStatusText());
+   SetEntryDiagnosticFilter(DXB_FILTER_SAR_PRICE_SIDE,
+                            rawSARSide,
+                            SARSignalSideStatusText());
+   SetEntryDiagnosticFilter(DXB_FILTER_REPEATED_GAP,
+                            rawRepeatedGap,
+                            CheckListRepeatedGapText(direction));
+   SetEntryDiagnosticFilter(DXB_FILTER_SAR_CYCLE,
+                            rawCycle,
+                            IntegerToString(g_sarCycleOrdersCreated)+"/"+
+                            IntegerToString(g_sarCycleMaxOrders));
+   SetEntryDiagnosticFilter(DXB_FILTER_H1_TREND,
+                            rawH1,
+                            DirectionText(GetH1TrendDirection()));
+   SetEntryDiagnosticFilter(DXB_FILTER_LATE_SAR,
+                            rawLateSAR,
+                            rawLateSAR ? "SAFE" : lateReason);
+   SetEntryDiagnosticFilter(DXB_FILTER_STRICT_SAR_SCORE,
+                            rawStrictScore,
+                            IntegerToString(checklistScore)+"/"+
+                            IntegerToString(strictRequired));
+   SetEntryDiagnosticFilter(DXB_FILTER_DOUBTFUL_CANDLE,
+                            rawDoubtful,
+                            DoubtfulCandleStatusText(direction));
+   SetEntryDiagnosticFilter(DXB_FILTER_TRADING_ALLOWED,
+                            rawTrading,
+                            DashboardTradePermissionText());
+   SetEntryDiagnosticFilter(DXB_FILTER_SPREAD,
+                            rawSpread,
+                            IntegerToString(spread)+"/"+
+                            IntegerToString(InpMaxSpreadPoints));
+   SetEntryDiagnosticFilter(DXB_FILTER_EQUITY_LOCK,
+                            rawEquity,
+                            rawEquity ? "CLEAR" : "LOCKED");
+   SetEntryDiagnosticFilter(DXB_FILTER_NO_NEW_HOUR,
+                            rawNoHour,
+                            NoNewOrderHoursStatusText());
+   SetEntryDiagnosticFilter(DXB_FILTER_PROFIT_PAUSE,
+                            rawProfitPause,
+                            ProfitProtectPauseStatusText());
+   SetEntryDiagnosticFilter(DXB_FILTER_OPPOSITE_PAUSE,
+                            rawOppositePause,
+                            OppositeDirectionProfitPauseStatusText());
+   SetEntryDiagnosticFilter(DXB_FILTER_BIG_CANDLE,
+                            rawBigCandle,
+                            BigCandlePauseStatusText());
+   SetEntryDiagnosticFilter(DXB_FILTER_SPIKE_WICK,
+                            rawSpikeWick,
+                            SpikeWickPauseStatusText());
+   SetEntryDiagnosticFilter(DXB_FILTER_MIN_GAP,
+                            rawMinGap,
+                            DoubleToString(GetEffectiveMinPriceGap(),1));
+   SetEntryDiagnosticFilter(DXB_FILTER_MAX_OPEN_DIR,
+                            rawMaxOpen,
+                            IntegerToString(CountOrdersByDirection(direction))+
+                            "/"+IntegerToString(InpMaxOrders));
+   SetEntryDiagnosticFilter(DXB_FILTER_TOTAL_OPEN,
+                            rawTotalOpen,
+                            IntegerToString(CountAllOrders())+
+                            "/"+IntegerToString(InpMaxTotalOpenOrders));
+   SetEntryDiagnosticFilter(DXB_FILTER_AUTO_MARKET_MODE,
+                            rawAutoMarket,
+                            AutoMarketModeStatusText());
+   SetEntryDiagnosticFilter(DXB_FILTER_DYNAMIC_SAR,
+                            rawDynamicSAR,
+                            dynamicReason);
+   SetEntryDiagnosticFilter(DXB_FILTER_FLAT_MODE,
+                            rawFlatMode,
+                            rawFlatMode ? "CLEAR" : "FLAT");
+   SetEntryDiagnosticFilter(DXB_FILTER_EARLY_WEAK_EXIT,
+                            rawEarlyWeak,
+                            g_earlySARWeakExitReason);
+   SetEntryDiagnosticFilter(DXB_FILTER_EARLY_REVERSE,
+                            rawEarlyReverse,
+                            g_sarPausedByEarly ? "PAUSED" : "CLEAR");
+   SetEntryDiagnosticFilter(DXB_FILTER_ORDER_COOLDOWN,
+                            rawCooldown,
+                            IntegerToString(InpOrderCooldownSeconds)+"s");
+
+   FinalizeEntryDiagnosticSnapshot();
+
+   bool allOk = (g_entryDiagBlockedCount == 0);
+
+   DrawTopCenterOrderAuditPanel();
+
+   DrawCornerPanel("DXB_LEFT_CHK_PANEL",
+                   CORNER_LEFT_UPPER,
+                   5,15,550,900,
+                   clrBlack,clrDimGray);
+
+   DrawCornerLabel("DXB_LEFT_CHK_TITLE",
+                   "ORDER CREATION CHECKLIST",
+                   CORNER_LEFT_UPPER,
+                   10,22,clrYellow,10);
 
    g_leftDashRow = 0;
 
-   LeftProRow("FINAL RESULT",allOk ? "READY TO OPEN" : "BLOCKED",allOk ? clrLime : clrOrangeRed);
-   LeftProRow("Status",StringSubstr(mainStatus,0,55),clrAqua);
-   LeftProRow("Last Block",StringSubstr(g_lastOrderOpenReason,0,55),g_lastOrderOpenReason=="WAIT ORDER" ? clrWhite : clrOrange);
-   LeftProRow("Block Time",DashboardTimeText(g_lastOrderBlockTime),clrSilver);
-   LeftProRow("Last Close",StringSubstr(g_lastOrderCloseMessage,0,55),g_lastOrderCloseMessage=="NO CLOSE YET" ? clrSilver : clrAqua);
+   LeftProRow("FINAL RESULT",
+              allOk
+              ? "READY TO OPEN"
+              : "BLOCKED BY " +
+                IntegerToString(g_entryDiagBlockedCount) +
+                " FILTER(S)",
+              allOk ? clrLime : clrOrangeRed);
+
+   LeftProRow("Candidate",
+              DirectionText(direction) +
+              " | " + g_autoMarketModeText,
+              DirectionColor(direction));
+
+   LeftProRow("Filter Case",
+              IntegerToString(g_entryDiagEnabledCount) +
+              " ON / " +
+              IntegerToString(g_entryDiagDisabledCount) +
+              " OFF | DIRECT MODE",
+              MarketFlowModeColor());
+
+   LeftProRow("Passed / Failed",
+              IntegerToString(g_entryDiagPassedCount) +
+              " / " +
+              IntegerToString(g_entryDiagBlockedCount),
+              allOk ? clrLime : clrOrangeRed);
+
+   LeftProRow("PRIMARY BLOCK",
+              StringSubstr(g_entryDiagPrimaryBlock,0,55),
+              allOk ? clrLime : clrOrangeRed);
+
+   LeftProRow("ALL BLOCKERS",
+              StringSubstr(g_entryDiagBlockerList,0,55),
+              allOk ? clrSilver : clrOrangeRed);
+
+   LeftProRow("Runtime Status",
+              StringSubstr(mainStatus,0,55),
+              clrAqua);
+
+   LeftProRow("Last Runtime Block",
+              StringSubstr(g_lastOrderOpenReason,0,55),
+              g_lastOrderOpenReason == "WAIT ORDER"
+              ? clrWhite : clrOrange);
+
+   LeftProRow("Last Close",
+              StringSubstr(g_lastOrderCloseMessage,0,55),
+              g_lastOrderCloseMessage == "NO CLOSE YET"
+              ? clrSilver : clrAqua);
 
    LeftProRow("--- ORDER SIGNAL ---","",clrDimGray);
-   LeftProCheck("Direction",okDirection,DirectionText(direction));
-   LeftProCheck("SAR Confirm",okSARConfirm,SARConfirmDurationStatusText());
-   LeftProRow("SAR Age",IntegerToString(GetSARSignalAgeMinutes())+"m / "+IntegerToString(InpDynamicMinSignalMinutes)+"m",GetSARSignalAgeMinutes()>=InpDynamicMinSignalMinutes ? clrLime : clrOrange);
-   LeftProCheck("SAR Price Side",okSARSide,SARSignalSideStatusText());
-   LeftProCheck("Repeated Gap",okRepeatedGap,CheckListRepeatedGapText(direction));
-   LeftProCheck("SAR Cycle",okCycle,IntegerToString(g_sarCycleOrdersCreated)+"/"+IntegerToString(g_sarCycleMaxOrders));
+
+   LeftProModeCheck("Direction",
+                    DXB_FILTER_DIRECTION,
+                    rawDirection,
+                    DirectionText(direction));
+
+   LeftProModeCheck("SAR Confirm",
+                    DXB_FILTER_SAR_CONFIRM,
+                    rawSARConfirm,
+                    SARConfirmDurationStatusText());
+
+   LeftProRow("SAR Age",
+              IntegerToString(GetSARSignalAgeMinutes()) +
+              "m / " +
+              IntegerToString(InpDynamicMinSignalMinutes) +
+              "m",
+              GetSARSignalAgeMinutes() >=
+              InpDynamicMinSignalMinutes
+              ? clrLime : clrOrange);
+
+   LeftProModeCheck("SAR Price Side",
+                    DXB_FILTER_SAR_PRICE_SIDE,
+                    rawSARSide,
+                    SARSignalSideStatusText());
+
+   LeftProModeCheck("Repeated Gap",
+                    DXB_FILTER_REPEATED_GAP,
+                    rawRepeatedGap,
+                    CheckListRepeatedGapText(direction));
+
+   LeftProModeCheck("SAR Cycle",
+                    DXB_FILTER_SAR_CYCLE,
+                    rawCycle,
+                    IntegerToString(g_sarCycleOrdersCreated) +
+                    "/" +
+                    IntegerToString(g_sarCycleMaxOrders));
 
    LeftProRow("--- TREND FILTERS ---","",clrDimGray);
-   LeftProCheck("H1 Trend",okH1,DirectionText(GetH1TrendDirection()));
-   LeftProRow("EMA Trend",DirectionText(g_pendingSARConfirmDirection),DirectionColor(g_pendingSARConfirmDirection));
-   LeftProRow("Early Trend",DirectionText(g_earlyDirection),DirectionColor(g_earlyDirection));
-   LeftProRow("SAR Momentum",IsCurrentSARGoodMomentum(g_activeSARDirection) ? "GOOD" : "WEAK",IsCurrentSARGoodMomentum(g_activeSARDirection) ? clrLime : clrOrangeRed);
-   LeftProRow("SAR Weak Mark",StringSubstr(g_lastSARWeakSignalMarkerReason,0,45),g_lastSARWeakSignalMarkerReason=="OFF" ? clrSilver : InpSARWeakSignalMarkerColor);
-   LeftProCheck("Late Entry",okLateSAR,LateSARCycleEntryStatusText(direction));
-   LeftProCheck("Strict SAR Score",okStrictSARScore,
-                IntegerToString(checklistSARScore)+"/"+
-                IntegerToString(strictSARRequired));
-   LeftProCheck("Doubtful Candle",
-                okDoubtfulCandle,
-                DoubtfulCandleStatusText(direction));
+
+   LeftProModeCheck("H1 Trend",
+                    DXB_FILTER_H1_TREND,
+                    rawH1,
+                    DirectionText(GetH1TrendDirection()));
+
+   LeftProRow("EMA Trend",
+              DirectionText(g_pendingSARConfirmDirection),
+              DirectionColor(g_pendingSARConfirmDirection));
+
+   LeftProRow("Early Trend",
+              DirectionText(g_earlyDirection),
+              DirectionColor(g_earlyDirection));
+
+   LeftProRow("SAR Momentum",
+              IsCurrentSARGoodMomentum(g_activeSARDirection)
+              ? "GOOD" : "WEAK",
+              IsCurrentSARGoodMomentum(g_activeSARDirection)
+              ? clrLime : clrOrangeRed);
+
+   LeftProRow("SAR Weak Mark",
+              StringSubstr(g_lastSARWeakSignalMarkerReason,0,45),
+              g_lastSARWeakSignalMarkerReason == "OFF"
+              ? clrSilver : InpSARWeakSignalMarkerColor);
+
+   LeftProModeCheck("Late Entry",
+                    DXB_FILTER_LATE_SAR,
+                    rawLateSAR,
+                    LateSARCycleEntryStatusText(direction));
+
+   LeftProModeCheck("Strict SAR Score",
+                    DXB_FILTER_STRICT_SAR_SCORE,
+                    rawStrictScore,
+                    IntegerToString(checklistScore) +
+                    "/" + IntegerToString(strictRequired));
+
+   LeftProModeCheck("Doubtful Candle",
+                    DXB_FILTER_DOUBTFUL_CANDLE,
+                    rawDoubtful,
+                    DoubtfulCandleStatusText(direction));
+
    LeftProRow("SAR Score",
-              IntegerToString(g_dynamicSARScore)+" / "+
-              IntegerToString(strictSARRequired)+" | "+
-              g_dynamicSARDecision,
-              g_dynamicSARScore>=strictSARRequired ? clrLime : clrOrange);
+              IntegerToString(g_dynamicSARScore) +
+              "/" + IntegerToString(strictRequired) +
+              " | " + g_dynamicSARDecision,
+              g_dynamicSARScore >= strictRequired
+              ? clrLime : clrOrange);
 
    LeftProRow("--- TRADING FILTERS ---","",clrDimGray);
-   LeftProCheck("Trading Allowed",okTrading);
-   LeftProCheck("Spread OK",okSpread,IntegerToString(spread)+"/"+IntegerToString(InpMaxSpreadPoints));
-   LeftProCheck("Equity/Daily Lock",okEquity);
-   LeftProCheck("No-New-Hour",okNoHour,NoNewOrderHoursStatusText());
-   LeftProCheck("Profit Pause",okProfitPause,ProfitProtectPauseStatusText());
-   LeftProCheck("Opposite Pause",okOppositePause,OppositeDirectionProfitPauseStatusText());
-   LeftProCheck("Big Candle Pause",okBigCandle,BigCandlePauseStatusText());
-   LeftProCheck("Spike/Wick Pause",okSpikeWick,SpikeWickPauseStatusText());
-   LeftProCheck("Min Gap",okMinGap,DoubleToString(GetEffectiveMinPriceGap(),0));
+
+   LeftProModeCheck("Trading Allowed",
+                    DXB_FILTER_TRADING_ALLOWED,
+                    rawTrading);
+
+   LeftProModeCheck("Spread",
+                    DXB_FILTER_SPREAD,
+                    rawSpread,
+                    IntegerToString(spread) + "/" +
+                    IntegerToString(InpMaxSpreadPoints));
+
+   LeftProModeCheck("Equity/Daily Lock",
+                    DXB_FILTER_EQUITY_LOCK,
+                    rawEquity);
+
+   LeftProModeCheck("No-New-Hour",
+                    DXB_FILTER_NO_NEW_HOUR,
+                    rawNoHour,
+                    NoNewOrderHoursStatusText());
+
+   LeftProModeCheck("Profit Pause",
+                    DXB_FILTER_PROFIT_PAUSE,
+                    rawProfitPause,
+                    ProfitProtectPauseStatusText());
+
+   LeftProModeCheck("Opposite Pause",
+                    DXB_FILTER_OPPOSITE_PAUSE,
+                    rawOppositePause,
+                    OppositeDirectionProfitPauseStatusText());
+
+   LeftProModeCheck("Big Candle",
+                    DXB_FILTER_BIG_CANDLE,
+                    rawBigCandle,
+                    BigCandlePauseStatusText());
+
+   LeftProModeCheck("Spike/Wick",
+                    DXB_FILTER_SPIKE_WICK,
+                    rawSpikeWick,
+                    SpikeWickPauseStatusText());
+
+   LeftProModeCheck("Min Gap",
+                    DXB_FILTER_MIN_GAP,
+                    rawMinGap,
+                    DoubleToString(GetEffectiveMinPriceGap(),0));
 
    LeftProRow("--- ORDER LIMITS ---","",clrDimGray);
-   LeftProCheck("Max Open Dir",okMaxOpen,IntegerToString(CountOrdersByDirection(direction))+"/"+IntegerToString(InpMaxOrders));
-   LeftProCheck("Total Open",okTotalOpen,IntegerToString(CountAllOrders())+"/"+IntegerToString(InpMaxTotalOpenOrders));
-   LeftProRow("Next Order",allOk ? "ALLOWED NOW" : "WAIT / BLOCKED",allOk ? clrLime : clrOrangeRed);
+
+   LeftProModeCheck("Max Open Dir",
+                    DXB_FILTER_MAX_OPEN_DIR,
+                    rawMaxOpen,
+                    IntegerToString(
+                       CountOrdersByDirection(direction)) +
+                    "/" + IntegerToString(InpMaxOrders));
+
+   LeftProModeCheck("Total Open",
+                    DXB_FILTER_TOTAL_OPEN,
+                    rawTotalOpen,
+                    IntegerToString(CountAllOrders()) +
+                    "/" +
+                    IntegerToString(InpMaxTotalOpenOrders));
+
+   LeftProRow("--- INTERNAL GATES ---","",clrDimGray);
+
+   LeftProModeCheck("Auto Market Mode",
+                    DXB_FILTER_AUTO_MARKET_MODE,
+                    rawAutoMarket,
+                    AutoMarketModeStatusText());
+
+   LeftProModeCheck("Dynamic SAR",
+                    DXB_FILTER_DYNAMIC_SAR,
+                    rawDynamicSAR,
+                    dynamicReason);
+
+   LeftProModeCheck("Flat Mode",
+                    DXB_FILTER_FLAT_MODE,
+                    rawFlatMode,
+                    rawFlatMode ? "CLEAR" : "FLAT");
+
+   LeftProModeCheck("Early Weak Exit",
+                    DXB_FILTER_EARLY_WEAK_EXIT,
+                    rawEarlyWeak,
+                    g_earlySARWeakExitReason);
+
+   LeftProModeCheck("Early Reverse",
+                    DXB_FILTER_EARLY_REVERSE,
+                    rawEarlyReverse,
+                    g_sarPausedByEarly ? "PAUSED" : "CLEAR");
+
+   LeftProModeCheck("Order Cooldown",
+                    DXB_FILTER_ORDER_COOLDOWN,
+                    rawCooldown,
+                    IntegerToString(InpOrderCooldownSeconds) + "s");
+
+   LeftProRow("Next Order",
+              allOk ? "ALLOWED NOW" : "WAIT / BLOCKED",
+              allOk ? clrLime : clrOrangeRed);
 
    DrawRecoveryChecklistPanel(direction);
   }
@@ -9922,7 +11771,7 @@ void DrawDashboard(string status)
                    13);
 
    DrawCornerLabel("DXB_RIGHT_SETTINGS_TITLE",
-                   liveModeText + " | VERSION 1.18",
+                   liveModeText + " | VERSION 1.27",
                    CORNER_RIGHT_UPPER,
                    300,287,
                    liveModeColor,
