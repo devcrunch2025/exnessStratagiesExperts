@@ -6763,7 +6763,12 @@ void OnTick()
 // Ladder from first/base order price:
 // BUY adverse move: 50 => recovery #1, 100 => #2, 150 => #3.
 // SELL adverse move: 50 => recovery #1, 100 => #2, 150 => #3.
+
+if(CountOpenOrders() > 0)
+{
    ProcessRecoveryGapOrders();
+}
+    
 
    DrawSARDots();
 
