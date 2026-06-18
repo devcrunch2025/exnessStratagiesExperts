@@ -20,10 +20,10 @@ MARKET_MODE g_marketMode = MODE_RANGE;
 #ifndef OP_BALANCE
 #define OP_BALANCE 6
 #endif
-#property version   "1.27"
+#property version   "1.31"
 
 //======================== INPUTS ====================================
-string InpEAName                  = "DXB Version 5 - Wrapped Order Audit";
+string InpEAName                  = "DXB Version 5 - Wrong Order Gates Fixed";
 int    InpMagicNumber             = 989899;
 double InpFixedLot                = 0.01;
 int    InpMaxOrders               = 1;     // maximum normal SAR orders per SAR signal cycle
@@ -34,11 +34,21 @@ double InpMinGapWhenMaxOrdersMoreThanOne = 70.0; // when InpMaxOrders > 1, enfor
 double InpBasketProfitUSD         = 1.00;
 
 // MIXED market-mode basket target:
-// Example: InpBasketProfitUSD=$1.00 and multiplier=0.50
-// => combined BUY+SELL target and each BUY/SELL side target become $0.50
-// while Auto Market Flow mode is MIXED.
-bool   InpUseMixedModeHalfBasketTP       = true;
-double InpMixedModeBasketTPMultiplier    = 0.50;
+// MIXED target is always exactly InpBasketProfitUSD / 2.
+// Example: InpBasketProfitUSD=$1.00 => live MIXED target=$0.50.
+// It is NOT divided again by open-order count, trading hour or time decay.
+//
+// These two legacy inputs are retained for old SET-file compatibility.
+// MIXED half TP is now an automatic market-mode rule.
+bool   InpUseMixedModeHalfBasketTP       = true;  // legacy compatibility
+double InpMixedModeBasketTPMultiplier    = 0.50;  // fixed/ignored: MIXED always uses 0.50
+
+// Weak SAR-score basket target:
+// When the current active SAR quality score is <= this value,
+// use the same exact fixed target: InpBasketProfitUSD / 2.
+// Example: score 3, 2, 1 or 0 => half TP.
+bool   InpUseLowSARScoreHalfBasketTP      = true;
+int    InpSARScoreHalfBasketTPMax         = 3;
 
 // SAR-flipped old basket profit target:
 // Example: a BUY basket was opened during SAR BUY, then SAR flips to SELL
@@ -93,7 +103,7 @@ double InpDangerLast3MoveRaw           = 500.0;
  
 
 bool   InpAutoModePauseOrdersInDanger  = true;
-bool   InpAutoModePauseOrdersInMixed   = false;  // true = block every NEW order while mode is MIXED
+bool   InpAutoModePauseOrdersInMixed   = true;  // true = block every NEW order while mode is MIXED
 bool   InpAutoModeAllowRecoveryMedium  = true;
 // The following MIXED permissions are used only when InpAutoModePauseOrdersInMixed=false.
 bool   InpAutoModeAllowRecoveryMixed   = true;
@@ -508,12 +518,12 @@ bool   InpDoubtfulConfirmMustBreakExtreme    = true;
 double InpDoubtfulConfirmBreakBufferRaw      = 0.0;
 
 int    InpDynamicATRPeriod                 = 14;
-int    InpDynamicMinSignalMinutes          = 5;//20;   // normal minimum SAR age before new normal order
-int    InpDynamicVeryStrongMinMinutes      = 3;//10;   // allow earlier only if score is very strong
+int    InpDynamicMinSignalMinutes          = 20;//5;//20;   // normal minimum SAR age before new normal order
+int    InpDynamicVeryStrongMinMinutes      = 10;//3;//10;   // allow earlier only if score is very strong
 double InpDynamicConfirmATRMultiplier      = 0.80; // replaces fixed SAR diff when dynamic engine is ON
 double InpDynamicStrongDotATRMultiplier    = 1.20; // SAR dot distance must be >= ATR * this
 double InpDynamicWeakDotATRMultiplier      = 0.45; // below this means SAR is too close/weak
-double InpDynamicEMADistanceATRMultiplier  = 0.10; // EMA9/21 separation required
+double InpDynamicEMADistanceATRMultiplier  = 0.10; // EMA9/2InpOldFilterInputsAreMaster1 separation required
 double InpDynamicLongBarATRMultiplier      = 1.50; // long bar in SAR direction = breakout strength
 double InpDynamicOppositeBarATRMultiplier  = 1.20; // long bar opposite SAR = danger
 double InpDynamicADXStrong                 = 25.0;
@@ -699,6 +709,12 @@ double   g_pendingRecoveryGapMove      = 0.0;
 double   g_pendingRecoveryRequiredGap  = 0.0;
 datetime g_pendingRecoveryGapTime      = 0;
 string   g_pendingRecoveryGapReason    = "NONE";
+
+// Last recovery-gap decision/open audit.
+string   g_lastRecoveryAudit          = "NONE";
+datetime g_lastRecoveryAuditTime      = 0;
+int      g_lastRecoveryAuditDirection = 0;
+double   g_lastRecoveryAuditGap       = 0.0;
 
 
 int      g_equityDay            = -1;
@@ -2133,9 +2149,42 @@ string BasketProfitTimeDecayStatusText()
 //+------------------------------------------------------------------+
 bool IsMixedModeHalfBasketTPActive()
   {
-   return(InpUseMixedModeHalfBasketTP &&
-          InpUseAutoMarketFlowMode &&
+   // Automatic rule: MIXED market mode always uses exact half basket TP.
+   return(InpUseAutoMarketFlowMode &&
           g_autoMarketMode == DXB_MARKET_MODE_MIXED);
+  }
+
+//+------------------------------------------------------------------+
+int GetCurrentSARScoreForBasketTP()
+  {
+   if(g_activeSARDirection == 0)
+      return(99);
+
+   // Calculate the current active SAR score at the moment basket TP is checked.
+   // This avoids using an old score left from a previous SAR direction.
+   return(GetDynamicSARStrengthScore(g_activeSARDirection));
+  }
+
+//+------------------------------------------------------------------+
+bool IsLowSARScoreHalfBasketTPActive()
+  {
+   if(!InpUseLowSARScoreHalfBasketTP)
+      return(false);
+
+   if(g_activeSARDirection == 0)
+      return(false);
+
+   int maxScore = MathMax(0, InpSARScoreHalfBasketTPMax);
+   int score = GetCurrentSARScoreForBasketTP();
+
+   return(score <= maxScore);
+  }
+
+//+------------------------------------------------------------------+
+bool IsFixedHalfBasketTPActive()
+  {
+   return(IsMixedModeHalfBasketTPActive() ||
+          IsLowSARScoreHalfBasketTPActive());
   }
 
 //+------------------------------------------------------------------+
@@ -2144,28 +2193,32 @@ double GetMixedModeBasketTPMultiplier()
    if(!IsMixedModeHalfBasketTPActive())
       return(1.0);
 
-   double multiplier = InpMixedModeBasketTPMultiplier;
-
-   if(multiplier <= 0.0)
-      multiplier = 0.50;
-
-   if(multiplier > 1.0)
-      multiplier = 1.0;
-
-   return(multiplier);
+   // Fixed rule requested for MIXED mode.
+   return(0.50);
   }
 
 //+------------------------------------------------------------------+
 double GetMixedModeBasketProfitTargetUSD()
   {
+   // Exact fixed target. Do not divide by order count or apply time decay.
    return(MathMax(0.01,
-                  MathAbs(InpBasketProfitUSD) *
-                  GetMixedModeBasketTPMultiplier()));
+                  MathAbs(InpBasketProfitUSD) / 2.0));
   }
 
 //+------------------------------------------------------------------+
 double GetBasketProfitTargetUSD()
-{
+  {
+   // Exact fixed half target when either:
+   // 1) Auto Market Flow mode is MIXED, OR
+   // 2) current active SAR score <= InpSARScoreHalfBasketTPMax.
+   //
+   // This return intentionally happens before:
+   // - simple-mode order-count division,
+   // - 12:00-17:00 target override,
+   // - time-decay multiplier.
+   if(IsFixedHalfBasketTPActive())
+      return(GetMixedModeBasketProfitTargetUSD());
+
    if(InpUseSimpleSideBasketCloseOnly)
      {
       int simpleCount = CountOpenOrders();
@@ -2173,34 +2226,29 @@ double GetBasketProfitTargetUSD()
       if(simpleCount <= 0)
          simpleCount = 1;
 
-      double simpleBaseTarget =
-         InpBasketProfitUSD * GetMixedModeBasketTPMultiplier();
-
-      return(MathMax(0.01, simpleBaseTarget / simpleCount));
+      return(MathMax(0.01,
+                     InpBasketProfitUSD / simpleCount));
      }
 
-   int h = TimeHour(TimeCurrent());
+   int hourNow = TimeHour(TimeCurrent());
 
-   int count=CountOpenOrders();
-   if(count==0)count=1;
+   int count = CountOpenOrders();
+
+   if(count <= 0)
+      count = 1;
 
    double baseTarget = InpBasketProfitUSD;
 
-   if(h >= 12 && h <= 17)
+   if(hourNow >= 12 && hourNow <= 17)
       baseTarget = InpBasketProfitUSD_12_17;
-
-   // MIXED mode closes the basket faster at half of the configured base TP.
-   baseTarget = baseTarget * GetMixedModeBasketTPMultiplier();
 
    double target = baseTarget / count;
 
-   // Time decay: after every 30 minutes without a new EA order,
-   // reduce target so old baskets close faster before trend changes.
-   target = target * GetBasketProfitTimeDecayMultiplier();
+   target =
+      target * GetBasketProfitTimeDecayMultiplier();
 
-
-   return(target);
-}
+   return(MathMax(0.01, target));
+  }
 
 
 //+------------------------------------------------------------------+
@@ -3380,18 +3428,32 @@ bool ProcessFirstPriorityBasketProfitClose(string &status)
    // Fixed target: close all BUY+SELL when combined floating profit reaches target.
    if(allProfit >= target)
      {
-      CloseAllEAOrders("FIRST PRIORITY ALL BUY+SELL basket profit $" + DoubleToString(allProfit, 2));
+      string allTPReason =
+         GetReducedBasketTPReasonText(g_activeSARDirection);
 
-      ResetDelayedSARCloseAfterBasketClose(0, "All basket TP reset");
+      CloseAllEAOrders(
+         "FIRST PRIORITY " + allTPReason +
+         " | ALL BUY+SELL profit $" +
+         DoubleToString(allProfit, 2));
+
+      ResetDelayedSARCloseAfterBasketClose(0,
+                                          "All basket TP reset");
       ResetBasketProfitPeaksAfterClose(0);
 
-      Print("FIRST PRIORITY ALL BASKET PROFIT HIT | Orders=", totalOrders,
+      Print(IsFixedHalfBasketTPActive()
+            ? "FIRST PRIORITY FIXED HALF TP HIT | Orders="
+            : "FIRST PRIORITY ALL BASKET PROFIT HIT | Orders=",
+            totalOrders,
             " | BuyCount=", buyCount,
             " | SellCount=", sellCount,
+            " | Rule=", allTPReason,
+            " | SARScore=", GetCurrentSARScoreForBasketTP(),
             " | Profit=$", DoubleToString(allProfit, 2),
             " | Target=$", DoubleToString(target, 2));
 
-      status = "ALL BUY+SELL TP $" + DoubleToString(allProfit, 2);
+      status = allTPReason +
+               " | ALL TP $" +
+               DoubleToString(allProfit, 2);
       return(true);
      }
 
@@ -4416,6 +4478,11 @@ bool OpenRecoveryOrder(int direction, string sourceReason)
    if(direction == 0)
       return(false);
 
+   if(!IsRecoveryDirectionStillValid(
+         direction,
+         "OpenRecoveryOrder"))
+      return(false);
+
    if(!IsStrictSARScoreAllowedForNewOrder(direction,
                                           "OpenRecoveryOrder " + sourceReason))
       return(false);
@@ -4603,6 +4670,15 @@ bool OpenRecoveryGapMarketOrder(int direction, double gapMove)
    if(direction == 0)
       return(false);
 
+   if(!IsRecoveryDirectionStillValid(
+         direction,
+         "OpenRecoveryGapMarketOrder START"))
+     {
+      Print("RECOVERY GAP FINAL DIRECTION BLOCK | ",
+            g_lastRecoveryAudit);
+      return(false);
+     }
+
    if(!IsStrictSARScoreAllowedForNewOrder(direction,
                                           "OpenRecoveryGapMarketOrder"))
       return(false);
@@ -4701,6 +4777,16 @@ bool OpenRecoveryGapMarketOrder(int direction, double gapMove)
    if(StringLen(comment) > 30)
       comment = StringSubstr(comment, 0, 30);
 
+   // Recheck after RefreshRates and immediately before OrderSend.
+   if(!IsRecoveryDirectionStillValid(
+         direction,
+         "OpenRecoveryGapMarketOrder FINAL"))
+     {
+      Print("RECOVERY GAP FINAL DIRECTION BLOCK | ",
+            g_lastRecoveryAudit);
+      return(false);
+     }
+
    int ticket = OrderSend(Symbol(),
                           type,
                           lot,
@@ -4726,6 +4812,20 @@ bool OpenRecoveryGapMarketOrder(int direction, double gapMove)
 
    g_lastOrderTime = TimeCurrent();
    MarkOpenedOrderOnChart(ticket, direction, comment, TimeCurrent(), price);
+
+   g_lastRecoveryAudit =
+      "OPENED #" + IntegerToString(ticket) +
+      " | " + DirectionText(direction) +
+      " | ActiveSAR=" +
+      DirectionText(g_activeSARDirection) +
+      " | ClosedSAR=" +
+      DirectionText(GetSARDotDirection(1)) +
+      " | LiveSAR=" +
+      DirectionText(GetSARDotDirection(0)) +
+      " | Gap=" + DoubleToString(gapMove,1);
+   g_lastRecoveryAuditTime = TimeCurrent();
+   g_lastRecoveryAuditDirection = direction;
+   g_lastRecoveryAuditGap = gapMove;
 
    Print("RECOVERY GAP ORDER OPENED | Ticket=", ticket,
          " | Direction=", DirectionText(direction),
@@ -4980,6 +5080,104 @@ bool TryOpenPendingRecoveryGap()
 
    // Keep pending when opening is still blocked by temporary conditions.
    return(false);
+  }
+
+//+------------------------------------------------------------------+
+//| Hard final normal-order direction consistency check.              |
+//+------------------------------------------------------------------+
+bool IsFinalNormalDirectionStillValid(int direction,
+                                      string source)
+  {
+   int closedSARDirection = GetSARDotDirection(1);
+   int liveSARDirection   = GetSARDotDirection(0);
+
+   if(direction == 0)
+      return(BlockOrder("FINAL DIRECTION BLOCK | Candidate NONE | Source=" +
+                        source));
+
+   if(direction != g_activeSARDirection)
+      return(BlockOrder("FINAL DIRECTION BLOCK | Candidate=" +
+                        DirectionText(direction) +
+                        " ActiveSAR=" +
+                        DirectionText(g_activeSARDirection) +
+                        " | Source=" + source));
+
+   if(closedSARDirection != 0 &&
+      closedSARDirection != direction)
+      return(BlockOrder("FINAL CLOSED SAR BLOCK | Candidate=" +
+                        DirectionText(direction) +
+                        " ClosedSAR=" +
+                        DirectionText(closedSARDirection) +
+                        " | Source=" + source));
+
+   if(liveSARDirection != 0 &&
+      liveSARDirection != direction)
+      return(BlockOrder("FINAL LIVE SAR BLOCK | Candidate=" +
+                        DirectionText(direction) +
+                        " LiveSAR=" +
+                        DirectionText(liveSARDirection) +
+                        " | Source=" + source));
+
+   return(true);
+  }
+
+//+------------------------------------------------------------------+
+//| Recovery must use the already-refreshed current SAR direction.    |
+//+------------------------------------------------------------------+
+bool IsRecoveryDirectionStillValid(int direction,
+                                   string source)
+  {
+   int closedSARDirection = GetSARDotDirection(1);
+   int liveSARDirection   = GetSARDotDirection(0);
+
+   if(direction == 0)
+     {
+      g_lastRecoveryAudit = "BLOCK | DIRECTION NONE | " + source;
+      g_lastRecoveryAuditTime = TimeCurrent();
+      return(false);
+     }
+
+   if(InpRecoveryGapMustMatchSARDirection &&
+      direction != g_activeSARDirection)
+     {
+      g_lastRecoveryAudit =
+         "BLOCK | RECOVERY=" + DirectionText(direction) +
+         " ACTIVE_SAR=" + DirectionText(g_activeSARDirection) +
+         " | " + source;
+      g_lastRecoveryAuditTime = TimeCurrent();
+      g_lastRecoveryAuditDirection = direction;
+      return(false);
+     }
+
+   if(InpRecoveryGapMustMatchSARDirection &&
+      closedSARDirection != 0 &&
+      direction != closedSARDirection)
+     {
+      g_lastRecoveryAudit =
+         "BLOCK | CLOSED_SAR=" +
+         DirectionText(closedSARDirection) +
+         " RECOVERY=" + DirectionText(direction) +
+         " | " + source;
+      g_lastRecoveryAuditTime = TimeCurrent();
+      g_lastRecoveryAuditDirection = direction;
+      return(false);
+     }
+
+   if(InpRecoveryGapMustMatchSARDirection &&
+      liveSARDirection != 0 &&
+      direction != liveSARDirection)
+     {
+      g_lastRecoveryAudit =
+         "BLOCK | LIVE_SAR=" +
+         DirectionText(liveSARDirection) +
+         " RECOVERY=" + DirectionText(direction) +
+         " | " + source;
+      g_lastRecoveryAuditTime = TimeCurrent();
+      g_lastRecoveryAuditDirection = direction;
+      return(false);
+     }
+
+   return(true);
   }
 
 //+------------------------------------------------------------------+
@@ -6347,7 +6545,7 @@ bool ProcessBasketCloseByDirection(int direction, string &status)
    double target = GetBasketProfitTargetForDirection(direction);
    bool oppositeAfterFlip = IsOppositeBasketAfterSARFlip(direction);
    bool agedHalfTP = IsBasketHalfTPAfterTime(direction);
-   bool mixedHalfTP = IsMixedModeHalfBasketTPActive();
+   bool fixedHalfTP = IsFixedHalfBasketTPActive();
    string reducedTPReason = GetReducedBasketTPReasonText(direction);
    double effectiveBasketSL2 = GetEffectiveBasketStopLossUSD();
 
@@ -6374,7 +6572,7 @@ bool ProcessBasketCloseByDirection(int direction, string &status)
 
    if(profit >= target)
      {
-      string tpReason = (oppositeAfterFlip || agedHalfTP || mixedHalfTP)
+      string tpReason = (oppositeAfterFlip || agedHalfTP || fixedHalfTP)
                         ? reducedTPReason + " | " +
                           DirectionText(direction) +
                           " basket profit $" + DoubleToString(profit, 2)
@@ -6390,7 +6588,7 @@ bool ProcessBasketCloseByDirection(int direction, string &status)
          g_sarDelayedCloseStatus          = "Basket TP reset";
         }
 
-      Print((oppositeAfterFlip || agedHalfTP || mixedHalfTP)
+      Print((oppositeAfterFlip || agedHalfTP || fixedHalfTP)
                ? "REDUCED BASKET TP HIT | Direction="
                : "BASKET PROFIT HIT | Direction=",
             DirectionText(direction),
@@ -6400,7 +6598,7 @@ bool ProcessBasketCloseByDirection(int direction, string &status)
             " | Profit=$", DoubleToString(profit, 2),
             " | Target=$", DoubleToString(target, 2));
 
-      status = (oppositeAfterFlip || agedHalfTP || mixedHalfTP)
+      status = (oppositeAfterFlip || agedHalfTP || fixedHalfTP)
                ? reducedTPReason + " " + DirectionText(direction)
                : "Basket TP " + DirectionText(direction);
       return(true);
@@ -6582,16 +6780,28 @@ bool ProcessCloseOrdersFirst(string &status)
    // Basket TP must be checked against the full active-direction basket profit.
    // Do NOT divide target by open order count.
    // Example: InpBasketProfitUSD = 2.00 means close BUY basket only when BUY basket profit >= $2.00.
-   if(CountOrdersByDirection(g_activeSARDirection) > 0 && activeProfit >= basketTarget)
+   if(CountOrdersByDirection(g_activeSARDirection) > 0 &&
+      activeProfit >= basketTarget)
      {
-      CloseOrdersByDirection(g_activeSARDirection,
-                             "Basket profit $" + DoubleToString(activeProfit, 2));
+      string activeTPReason =
+         GetReducedBasketTPReasonText(g_activeSARDirection);
 
-      Print("BASKET PROFIT HIT | Direction=", DirectionText(g_activeSARDirection),
+      CloseOrdersByDirection(
+         g_activeSARDirection,
+         activeTPReason +
+         " | Basket profit $" +
+         DoubleToString(activeProfit, 2));
+
+      Print(IsFixedHalfBasketTPActive()
+            ? "FIXED HALF BASKET PROFIT HIT | Direction="
+            : "BASKET PROFIT HIT | Direction=",
+            DirectionText(g_activeSARDirection),
+            " | Rule=", activeTPReason,
+            " | SARScore=", GetCurrentSARScoreForBasketTP(),
             " | Profit=$", DoubleToString(activeProfit, 2),
             " | Target=$", DoubleToString(basketTarget, 2));
 
-      status = "Basket profit booked";
+      status = activeTPReason + " booked";
       return(true);
      }
 
@@ -6717,6 +6927,7 @@ bool IsOppositeBasketAfterSARFlip(int direction)
 string GetReducedBasketTPReasonText(int direction)
   {
    bool mixed   = IsMixedModeHalfBasketTPActive();
+   bool lowScore = IsLowSARScoreHalfBasketTPActive();
    bool flipped = IsOppositeBasketAfterSARFlip(direction);
    bool aged    = IsBasketHalfTPAfterTime(direction);
 
@@ -6724,6 +6935,18 @@ string GetReducedBasketTPReasonText(int direction)
 
    if(mixed)
       reason = "MIXED HALF TP";
+
+   if(lowScore)
+     {
+      if(reason != "")
+         reason += " + ";
+
+      reason += "SAR SCORE<=" +
+                IntegerToString(
+                   MathMax(0,
+                           InpSARScoreHalfBasketTPMax)) +
+                " HALF TP";
+     }
 
    if(flipped)
      {
@@ -6931,8 +7154,7 @@ IncreaseSARMaxWhenDotDistanceAndH1Same();
 }
 
    if(IsMarketModeEntryFilterEnabled(DXB_FILTER_H1_TREND) &&
-      !IsOrderAllowedByH1Trend(g_activeSARDirection) &&
-      !IsCurrentSARGoodMomentum(g_activeSARDirection))
+      !IsOrderAllowedByH1Trend(g_activeSARDirection))
      {
       status = "BLOCKED:SAR REV H1 "+DirectionText(GetH1TrendDirection());
       SetLastOrderBlockDashboard(status);
@@ -6995,16 +7217,25 @@ IncreaseSARMaxWhenDotDistanceAndH1Same();
      }
 
    if(OpenMarketOrder(g_activeSARDirection, "SAR_FLIP_V2LAST"))
+     {
       status = "Active " + DirectionText(g_activeSARDirection);
-   else
-      status = g_lastOrderOpenReason;
 
-      Print("NEW ORDER CHECKS PASSED | Direction=", DirectionText(g_activeSARDirection),
-            " | CycleOrders=", cycleOrders,
-            " | MaxOrders=", dynamicMaxOrders,
+      Print("NEW ORDER CREATED | Direction=",
+            DirectionText(g_activeSARDirection),
+            " | CycleOrders=", g_sarCycleOrdersCreated,
+            " | MaxOrders=", g_sarCycleMaxOrders,
             " | Last5=", GetSARDurationSummaryText());
 
-   return(true);
+      return(true);
+     }
+
+   status = g_lastOrderOpenReason;
+
+   Print("NEW ORDER NOT CREATED | Direction=",
+         DirectionText(g_activeSARDirection),
+         " | Reason=", g_lastOrderOpenReason);
+
+   return(false);
   }
   void DrawEMATrendLines()
 {
@@ -7275,16 +7506,9 @@ void OnTick()
 // Next candle loss protection: if order is not in profit after next candle closes, close it.
    ProcessNextCandleLossProtect();
 
-// Recovery gap orders are independent from normal SAR order gates.
-// Ladder from first/base order price:
-// BUY adverse move: 50 => recovery #1, 100 => #2, 150 => #3.
-// SELL adverse move: 50 => recovery #1, 100 => #2, 150 => #3.
-
-if(CountOpenOrders() > 0)
-{
-   ProcessRecoveryGapOrders();
-}
-    
+// Recovery processing is intentionally delayed until AFTER current
+// SAR state/flip processing. Running it here used the previous SAR direction
+// and could create a recovery order on the wrong side of a fresh flip.
 
    DrawSARDots();
 
@@ -7314,7 +7538,13 @@ if(CountOpenOrders() > 0)
    if(closedByFirstPriority)
       status = firstPriorityStatus + " | WAIT NEXT CANDLE";
 
-// SECTION 3: New order creation LAST. Runs only if nothing closed this tick.
+   // RECOVERY CREATION AFTER SAR UPDATE:
+   // g_activeSARDirection and the closed-candle SAR signal are now current.
+   // Do not create a recovery order on the same tick that closed an order.
+   if(!closedThisTick && CountOpenOrders() > 0)
+      ProcessRecoveryGapOrders();
+
+// SECTION 3: New normal order creation LAST. Runs only if nothing closed this tick.
    if(!closedThisTick)
       ProcessNewOrderCreationLast(isNewBar, status);
 
@@ -9172,8 +9402,7 @@ bool IsNormalOrderAllowedByMarketModeProfile(int direction,
       int h1Trend = GetH1TrendDirection();
 
       if(h1Trend == 0 ||
-         (direction != h1Trend &&
-          !IsCurrentSARGoodMomentum(direction)))
+         direction != h1Trend)
          return(BlockNormalOrderByModeProfile(
             "H1 TREND | Order=" + DirectionText(direction) +
             " H1=" + DirectionText(h1Trend) +
@@ -9340,6 +9569,11 @@ bool OpenMarketOrder(int direction, string reason)
       return BlockOrder("Direction is 0 | Source=" + reason);
      }
 
+   if(!IsFinalNormalDirectionStillValid(
+         direction,
+         "OpenMarketOrder START | " + reason))
+      return(false);
+
    if(!IsNormalOrderAllowedByMarketModeProfile(direction, reason))
      {
       RefreshNormalEntryDiagnosticSnapshot(direction, reason);
@@ -9411,6 +9645,32 @@ bool OpenMarketOrder(int direction, string reason)
 
    if(!IsTradingAllowedNow())
       return BlockOrder("OrderSend cancelled last check | Trading not allowed now | Source=" + reason);
+
+   // FINAL ATOMIC FILTER SNAPSHOT:
+   // The dashboard result and actual OrderSend decision must match.
+   RefreshRates();
+   UpdateAutoMarketFlowMode();
+   ApplyMarketModeEntryFilterProfileState();
+
+   if(!IsFinalNormalDirectionStillValid(
+         direction,
+         "OpenMarketOrder FINAL | " + reason))
+      return(false);
+
+   RefreshNormalEntryDiagnosticSnapshot(
+      direction,
+      "FINAL ORDERSEND | " + reason);
+
+   if(g_entryDiagBlockedCount > 0)
+     {
+      CaptureLastEntryAttempt("FINAL FILTER BLOCK");
+
+      return BlockOrder(
+         "FINAL FILTER AUDIT BLOCK | Primary=" +
+         g_entryDiagPrimaryBlock +
+         " | All=" + g_entryDiagBlockerList +
+         " | Source=" + reason);
+     }
 
    ResetLastError();
 
@@ -10063,14 +10323,17 @@ bool CheckListH1Allowed(int direction)
   {
    if(direction == 0)
       return(false);
+
    if(!IsMarketModeEntryFilterEnabled(DXB_FILTER_H1_TREND))
       return(true);
 
    int trend = GetH1TrendDirection();
+
    if(trend == 0)
       return(false);
 
-   return(direction == trend || IsCurrentSARGoodMomentum(direction));
+   // Strict H1 rule: momentum cannot override an opposite H1 trend.
+   return(direction == trend);
   }
 
 bool CheckListCycleAllowed(int direction)
@@ -10722,13 +10985,13 @@ void DrawRecoveryChecklistPanel(int direction)
 
    DrawCornerPanel("DXB_RECOVERY_PANEL",
                    CORNER_LEFT_LOWER,
-                   560,10,520,220,
+                   560,10,560,242,
                    clrBlack,clrDimGray);
 
    DrawCornerLabel("DXB_RECOVERY_TITLE",
                    "RECOVERY ORDER STATUS",
                    CORNER_LEFT_LOWER,
-                   570,208,
+                   570,230,
                    clrYellow,9);
 
    g_recoveryDashRow = 0;
@@ -10787,6 +11050,14 @@ void DrawRecoveryChecklistPanel(int direction)
                DoubleToString(
                   InpStrongOppMoveBlockRecoveryGap,0),
                clrYellow);
+
+   RecoveryRow("Last Recovery Audit",
+               StringSubstr(g_lastRecoveryAudit,0,58),
+               StringFind(g_lastRecoveryAudit,"OPENED") == 0
+               ? clrAqua
+               : (g_lastRecoveryAudit == "NONE"
+                  ? clrSilver
+                  : clrOrangeRed));
   }
 
 
@@ -10828,24 +11099,24 @@ void DrawTopCenterOrderAuditPanel()
       (int)ChartGetInteger(0, CHART_WIDTH_IN_PIXELS, 0);
 
    int panelX = 560;
-   int rightReserved = 350;
+   int rightReserved = 500;
    int panelW = chartWidth - panelX - rightReserved;
 
-   if(panelW < 520)
-      panelW = 520;
+   // if(panelW < 520)
+   //    panelW = 520;
 
-   if(panelW > 980)
-      panelW = 980;
+   // if(panelW > 980)
+   //    panelW = 980;
 
    // Approximate readable characters for font size 8.
    // Smaller value prevents text from being cut at the panel edge.
    int charsPerLine = (panelW - 35) / 7;
 
-   if(charsPerLine < 55)
-      charsPerLine = 55;
+   // if(charsPerLine < 55)
+   //    charsPerLine = 55;
 
-   if(charsPerLine > 125)
-      charsPerLine = 125;
+   // if(charsPerLine > 125)
+   //    charsPerLine = 125;
 
    color decisionColor =
       (g_entryDiagBlockedCount > 0)
@@ -10854,13 +11125,13 @@ void DrawTopCenterOrderAuditPanel()
 
    DrawCornerPanel("DXB_ENTRY_AUDIT_PANEL",
                    CORNER_LEFT_UPPER,
-                   panelX,5,panelW,306,
+                   panelX,5,panelW,160,
                    clrBlack,decisionColor);
 
    DrawCornerLabel("DXB_ENTRY_AUDIT_TITLE",
                    "NORMAL ORDER DECISION / FILTER AUDIT",
                    CORNER_LEFT_UPPER,
-                   panelX+10,12,
+                   panelX+10,10,
                    clrYellow,10);
 
    string nowLine =
@@ -10880,13 +11151,13 @@ void DrawTopCenterOrderAuditPanel()
    DrawCornerLabel("DXB_ENTRY_AUDIT_NOW1",
                    EntryAuditSegment(nowLine,0,charsPerLine),
                    CORNER_LEFT_UPPER,
-                   panelX+10,34,
+                   panelX+10,20,
                    decisionColor,9);
 
    DrawCornerLabel("DXB_ENTRY_AUDIT_NOW2",
                    EntryAuditSegment(nowLine,1,charsPerLine),
                    CORNER_LEFT_UPPER,
-                   panelX+10,51,
+                   panelX+10,30,
                    decisionColor,9);
 
    string primaryLine =
@@ -10895,7 +11166,7 @@ void DrawTopCenterOrderAuditPanel()
    DrawCornerLabel("DXB_ENTRY_AUDIT_PRIMARY1",
                    EntryAuditSegment(primaryLine,0,charsPerLine),
                    CORNER_LEFT_UPPER,
-                   panelX+10,72,
+                   panelX+10,40,
                    g_entryDiagBlockedCount > 0
                    ? clrOrangeRed
                    : clrLime,
@@ -10904,7 +11175,7 @@ void DrawTopCenterOrderAuditPanel()
    DrawCornerLabel("DXB_ENTRY_AUDIT_PRIMARY2",
                    EntryAuditSegment(primaryLine,1,charsPerLine),
                    CORNER_LEFT_UPPER,
-                   panelX+10,88,
+                   panelX+10,50,
                    g_entryDiagBlockedCount > 0
                    ? clrOrangeRed
                    : clrLime,
@@ -10916,7 +11187,7 @@ void DrawTopCenterOrderAuditPanel()
    DrawCornerLabel("DXB_ENTRY_AUDIT_BLOCK1",
                    EntryAuditSegment(blockerLine,0,charsPerLine),
                    CORNER_LEFT_UPPER,
-                   panelX+10,108,
+                   panelX+10,50,
                    g_entryDiagBlockedCount > 0
                    ? clrOrangeRed
                    : clrSilver,
@@ -10925,7 +11196,7 @@ void DrawTopCenterOrderAuditPanel()
    DrawCornerLabel("DXB_ENTRY_AUDIT_BLOCK2",
                    EntryAuditSegment(blockerLine,1,charsPerLine),
                    CORNER_LEFT_UPPER,
-                   panelX+10,124,
+                   panelX+10,60,
                    g_entryDiagBlockedCount > 0
                    ? clrOrangeRed
                    : clrSilver,
@@ -10934,7 +11205,7 @@ void DrawTopCenterOrderAuditPanel()
    DrawCornerLabel("DXB_ENTRY_AUDIT_BLOCK3",
                    EntryAuditSegment(blockerLine,2,charsPerLine),
                    CORNER_LEFT_UPPER,
-                   panelX+10,140,
+                   panelX+10,70,
                    g_entryDiagBlockedCount > 0
                    ? clrOrangeRed
                    : clrSilver,
@@ -10959,7 +11230,7 @@ void DrawTopCenterOrderAuditPanel()
    DrawCornerLabel("DXB_ENTRY_AUDIT_ATTEMPT1",
                    EntryAuditSegment(lastAttempt,0,charsPerLine),
                    CORNER_LEFT_UPPER,
-                   panelX+10,162,
+                   panelX+10,80,
                    g_lastEntryAttemptDecision == "OPENED"
                    ? clrLime
                    : (g_lastEntryAttemptDecision == "NONE"
@@ -10970,7 +11241,7 @@ void DrawTopCenterOrderAuditPanel()
    DrawCornerLabel("DXB_ENTRY_AUDIT_ATTEMPT2",
                    EntryAuditSegment(lastAttempt,1,charsPerLine),
                    CORNER_LEFT_UPPER,
-                   panelX+10,178,
+                   panelX+10,90,
                    g_lastEntryAttemptDecision == "OPENED"
                    ? clrLime
                    : (g_lastEntryAttemptDecision == "NONE"
@@ -11000,7 +11271,7 @@ void DrawTopCenterOrderAuditPanel()
    DrawCornerLabel("DXB_ENTRY_AUDIT_OPENED1",
                    EntryAuditSegment(openedLine,0,charsPerLine),
                    CORNER_LEFT_UPPER,
-                   panelX+10,199,
+                   panelX+10,100,
                    g_lastAuditOpenedTicket > 0
                    ? clrAqua
                    : clrSilver,
@@ -11009,7 +11280,7 @@ void DrawTopCenterOrderAuditPanel()
    DrawCornerLabel("DXB_ENTRY_AUDIT_OPENED2",
                    EntryAuditSegment(openedLine,1,charsPerLine),
                    CORNER_LEFT_UPPER,
-                   panelX+10,215,
+                   panelX+10,110,
                    g_lastAuditOpenedTicket > 0
                    ? clrAqua
                    : clrSilver,
@@ -11026,7 +11297,7 @@ void DrawTopCenterOrderAuditPanel()
    DrawCornerLabel("DXB_ENTRY_AUDIT_COUNTS1",
                    EntryAuditSegment(auditLine,0,charsPerLine),
                    CORNER_LEFT_UPPER,
-                   panelX+10,236,
+                   panelX+10,120,
                    g_lastAuditOpenedTicket > 0
                    ? clrLime
                    : clrSilver,
@@ -11035,7 +11306,7 @@ void DrawTopCenterOrderAuditPanel()
    DrawCornerLabel("DXB_ENTRY_AUDIT_COUNTS2",
                    EntryAuditSegment(auditLine,1,charsPerLine),
                    CORNER_LEFT_UPPER,
-                   panelX+10,252,
+                   panelX+10,130,
                    g_lastAuditOpenedTicket > 0
                    ? clrLime
                    : clrSilver,
@@ -11047,7 +11318,7 @@ void DrawTopCenterOrderAuditPanel()
    DrawCornerLabel("DXB_ENTRY_AUDIT_FILTERS1",
                    EntryAuditSegment(activeLine,0,charsPerLine),
                    CORNER_LEFT_UPPER,
-                   panelX+10,270,
+                   panelX+10,140,
                    g_lastAuditOpenedTicket > 0
                    ? clrWhite
                    : clrSilver,
@@ -11056,7 +11327,7 @@ void DrawTopCenterOrderAuditPanel()
    DrawCornerLabel("DXB_ENTRY_AUDIT_FILTERS2",
                    EntryAuditSegment(activeLine,1,charsPerLine),
                    CORNER_LEFT_UPPER,
-                   panelX+10,286,
+                   panelX+10,150,
                    g_lastAuditOpenedTicket > 0
                    ? clrWhite
                    : clrSilver,
@@ -11771,7 +12042,7 @@ void DrawDashboard(string status)
                    13);
 
    DrawCornerLabel("DXB_RIGHT_SETTINGS_TITLE",
-                   liveModeText + " | VERSION 1.27",
+                   liveModeText + " | VERSION 1.31",
                    CORNER_RIGHT_UPPER,
                    300,287,
                    liveModeColor,
@@ -11796,17 +12067,56 @@ void DrawDashboard(string status)
    RightProRow("Spread Limit",IntegerToString((int)MarketInfo(Symbol(),MODE_SPREAD))+" / "+IntegerToString(InpMaxSpreadPoints),((int)MarketInfo(Symbol(),MODE_SPREAD)<=InpMaxSpreadPoints) ? clrLime : clrRed);
    RightProRow("Basket TP Base","$"+DoubleToString(InpBasketProfitUSD,2),clrLime);
    RightProRow("Mixed Mode TP",
-               InpUseMixedModeHalfBasketTP
-               ? (IsMixedModeHalfBasketTPActive()
-                  ? "ACTIVE -> $" +
-                    DoubleToString(GetMixedModeBasketProfitTargetUSD(),2)
-                  : "ARMED x" +
-                    DoubleToString(InpMixedModeBasketTPMultiplier,2))
-               : "OFF",
+               IsMixedModeHalfBasketTPActive()
+               ? "ACTIVE | BASE/2 = $" +
+                 DoubleToString(
+                    GetMixedModeBasketProfitTargetUSD(),2)
+               : "AUTO | BASE/2",
                IsMixedModeHalfBasketTPActive()
                ? clrAqua
-               : (InpUseMixedModeHalfBasketTP ? clrYellow : clrSilver));
-   RightProRow("Basket TP Live","$"+DoubleToString(GetBasketProfitTargetUSD(),2) + (InpUseSimpleSideBasketCloseOnly ? " SIMPLE" : ""),clrYellow);
+               : clrYellow);
+
+   int basketTPSARScore =
+      GetCurrentSARScoreForBasketTP();
+
+   RightProRow("Low Score TP",
+               InpUseLowSARScoreHalfBasketTP
+               ? (IsLowSARScoreHalfBasketTPActive()
+                  ? "ACTIVE | Score " +
+                    IntegerToString(basketTPSARScore) +
+                    "<=" +
+                    IntegerToString(
+                       InpSARScoreHalfBasketTPMax) +
+                    " | BASE/2"
+                  : "ARMED | Score " +
+                    IntegerToString(basketTPSARScore) +
+                    " / Max " +
+                    IntegerToString(
+                       InpSARScoreHalfBasketTPMax))
+               : "OFF",
+               IsLowSARScoreHalfBasketTPActive()
+               ? clrAqua
+               : (InpUseLowSARScoreHalfBasketTP
+                  ? clrYellow
+                  : clrSilver));
+
+   RightProRow("Basket TP Rule",
+               IsFixedHalfBasketTPActive()
+               ? GetReducedBasketTPReasonText(
+                    g_activeSARDirection)
+               : "NORMAL TP",
+               IsFixedHalfBasketTPActive()
+               ? clrAqua
+               : clrLime);
+
+   RightProRow("Basket TP Live",
+               "$"+
+               DoubleToString(
+                  GetBasketProfitTargetUSD(),2) +
+               (InpUseSimpleSideBasketCloseOnly
+                ? " SIMPLE"
+                : ""),
+               clrYellow);
    RightProRow("Old Opposite TP",
                InpUseSARFlipOppositeBasketHalfTP
                ? "$"+DoubleToString(MathMax(0.01,
