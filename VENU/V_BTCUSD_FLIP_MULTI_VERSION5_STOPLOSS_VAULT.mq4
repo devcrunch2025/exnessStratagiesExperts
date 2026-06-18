@@ -12473,6 +12473,8 @@ void DrawDashboard(string status)
          " | NextReset=", FormatSecondsToHHMM(GetSecondsUntilNextEquityReset()));
   }
 
+  //tested
+
 //+------------------------------------------------------------------+
 
 
