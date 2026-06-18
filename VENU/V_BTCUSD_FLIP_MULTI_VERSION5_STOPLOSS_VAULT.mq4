@@ -20,10 +20,10 @@ MARKET_MODE g_marketMode = MODE_RANGE;
 #ifndef OP_BALANCE
 #define OP_BALANCE 6
 #endif
-#property version   "1.32"
+#property version   "1.33"
 
 //======================== INPUTS ====================================
-string InpEAName                  = "DXB Version 5 - Big Candle Opposite Only";
+string InpEAName                  = "DXB Version 5 - SAR Confirm 50 in 5 Min";
 int    InpMagicNumber             = 989899;
 double InpFixedLot                = 0.01;
 int    InpMaxOrders               = 1;     // maximum normal SAR orders per SAR signal cycle
@@ -381,7 +381,7 @@ int    InpContinuousOrderLookbackMinutes = 1;  // legacy input, not used by curr
 int    InpContinuousOrderGapMinutes  = 1;      // wait this many minutes after last order, then verify price gap
 
 double InpSARConfirmPriceDiff     = 50.0;   // SAR signal-change raw price diff confirmation only
-int    InpSARConfirmMinutes       = 0;      // max minutes for SAR confirmation only; 0 = no expiry
+int    InpSARConfirmMinutes       = 5;      // max minutes for SAR confirmation only; 0 = no expiry
 // TEST MODE: Only SAR flip confirmation is active: wait 5 minutes, then require raw price gap 30 in SAR direction.
 // BUY requires Close[1] - flipPrice >= 30. SELL requires flipPrice - Close[1] >= 30.
 
@@ -512,7 +512,7 @@ int    InpStrictSARMinimumScore             = 6;     // strict recommended value
 // Normal SAR orders only. Recovery orders are not affected.
 // SELL: a long lower wick is doubtful. BUY: a long upper wick is doubtful.
 // The next fully closed candle must confirm before OrderSend.
-bool   InpUseDoubtfulCandleNextConfirm       = false;
+bool   InpUseDoubtfulCandleNextConfirm       = true;
 double InpDoubtfulOppositeWickMinRaw         = 20.0;
 double InpDoubtfulOppositeWickBodyRatio      = 0.70;
 double InpDoubtfulMinBodyPercentOfRange      = 35.0;
@@ -1213,7 +1213,7 @@ bool ContinuousTrendFilterCase(int filterId)
       case DXB_FILTER_H1_TREND: return(false);
       case DXB_FILTER_LATE_SAR: return(true);
       case DXB_FILTER_STRICT_SAR_SCORE: return(true);
-      case DXB_FILTER_DOUBTFUL_CANDLE: return(false);
+      case DXB_FILTER_DOUBTFUL_CANDLE: return(true);
       case DXB_FILTER_TRADING_ALLOWED: return(true);
       case DXB_FILTER_SPREAD: return(true);
       case DXB_FILTER_EQUITY_LOCK: return(false);
@@ -1251,10 +1251,10 @@ bool MediumTrendFilterCase(int filterId)
       case DXB_FILTER_SAR_PRICE_SIDE: return(true);
       case DXB_FILTER_REPEATED_GAP: return(true);
       case DXB_FILTER_SAR_CYCLE: return(true);
-      case DXB_FILTER_H1_TREND: return(false);
+      case DXB_FILTER_H1_TREND: return(true);
       case DXB_FILTER_LATE_SAR: return(true);
       case DXB_FILTER_STRICT_SAR_SCORE: return(true);
-      case DXB_FILTER_DOUBTFUL_CANDLE: return(false);
+      case DXB_FILTER_DOUBTFUL_CANDLE: return(true);
       case DXB_FILTER_TRADING_ALLOWED: return(true);
       case DXB_FILTER_SPREAD: return(true);
       case DXB_FILTER_EQUITY_LOCK: return(false);
@@ -1292,7 +1292,7 @@ bool MixedTrendFilterCase(int filterId)
       case DXB_FILTER_SAR_PRICE_SIDE: return(true);
       case DXB_FILTER_REPEATED_GAP: return(true);
       case DXB_FILTER_SAR_CYCLE: return(true);
-      case DXB_FILTER_H1_TREND: return(false);
+      case DXB_FILTER_H1_TREND: return(true);
       case DXB_FILTER_LATE_SAR: return(true);
       case DXB_FILTER_STRICT_SAR_SCORE: return(true);
       case DXB_FILTER_DOUBTFUL_CANDLE: return(true);
@@ -1301,18 +1301,18 @@ bool MixedTrendFilterCase(int filterId)
       case DXB_FILTER_EQUITY_LOCK: return(false);
       case DXB_FILTER_NO_NEW_HOUR: return(false);
       case DXB_FILTER_PROFIT_PAUSE: return(true);
-      case DXB_FILTER_OPPOSITE_PAUSE: return(false);
+      case DXB_FILTER_OPPOSITE_PAUSE: return(true);
       case DXB_FILTER_BIG_CANDLE: return(true);
-      case DXB_FILTER_SPIKE_WICK: return(false);
-      case DXB_FILTER_MIN_GAP: return(false);
+      case DXB_FILTER_SPIKE_WICK: return(true);
+      case DXB_FILTER_MIN_GAP: return(true);
       case DXB_FILTER_MAX_OPEN_DIR: return(true);
       case DXB_FILTER_TOTAL_OPEN: return(false);
       case DXB_FILTER_AUTO_MARKET_MODE: return(true);
       case DXB_FILTER_DYNAMIC_SAR: return(true);
       case DXB_FILTER_FLAT_MODE: return(true);
       case DXB_FILTER_EARLY_WEAK_EXIT: return(true);
-      case DXB_FILTER_EARLY_REVERSE: return(false);
-      case DXB_FILTER_ORDER_COOLDOWN: return(false);
+      case DXB_FILTER_EARLY_REVERSE: return(true);
+      case DXB_FILTER_ORDER_COOLDOWN: return(true);
      }
 
    return(false);
@@ -11351,8 +11351,6 @@ void LeftProModeCheck(string title,
 //+------------------------------------------------------------------+
 void DrawTopCenterOrderAuditPanel()
   {
-
-   return ;
    int chartWidth =
       (int)ChartGetInteger(0, CHART_WIDTH_IN_PIXELS, 0);
 
@@ -11854,7 +11852,7 @@ void DrawLeftOrderCreationChecklist(string mainStatus)
 
    DrawCornerPanel("DXB_LEFT_CHK_PANEL",
                    CORNER_LEFT_UPPER,
-                   5,15,400,900,
+                   5,15,550,900,
                    clrBlack,clrDimGray);
 
    DrawCornerLabel("DXB_LEFT_CHK_TITLE",
@@ -12302,7 +12300,7 @@ void DrawDashboard(string status)
                    13);
 
    DrawCornerLabel("DXB_RIGHT_SETTINGS_TITLE",
-                   liveModeText + " | VERSION 1.32",
+                   liveModeText + " | VERSION 1.33",
                    CORNER_RIGHT_UPPER,
                    300,287,
                    liveModeColor,
