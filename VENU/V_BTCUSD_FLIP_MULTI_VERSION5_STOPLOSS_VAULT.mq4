@@ -7676,7 +7676,32 @@ double GetEffectiveRecoveryGapRawPrice()
 void OnTick()
   {
 
+/*
+  if(AccountBalance() >= 40.0)
+   {
+      // Example:
+      // Balance $40  => Basket SL $20
+      // Balance $100 => Basket SL $50
+      InpBasketStopLossUSD =
+         MathMax(10.0, AccountBalance() / 2.0);
 
+         InpBasketStopLossUSD=25;
+
+        InpContinuousTrendBasketSLUSD=InpBasketStopLossUSD;// 
+  InpMediumTrendBasketSLUSD  =InpBasketStopLossUSD;// 
+  InpMixedTrendBasketSLUSD     =InpBasketStopLossUSD;// 
+    InpDangerModeBasketSLUSD     =InpBasketStopLossUSD;// 
+   }
+
+  // One maximum order for every $20 balance
+      // Balance $40  => 2 orders
+      // Balance $59  => 2 orders
+      // Balance $60  => 3 orders
+      InpSARNormalDurationMaxOrders =
+         MathMax(1, (int)MathFloor(AccountBalance() / 20.0));
+
+*/
+       
 
 
    // if(!IsTesting())
