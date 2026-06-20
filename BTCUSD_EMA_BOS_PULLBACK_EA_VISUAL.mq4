@@ -19,13 +19,13 @@ input double InpPullbackMaxRaw       = 120.0;
 // InpTakeProfitUSD is now the moving profit-lock step.
 // Example: 1.00 locks $1, $2, $3, $4... as peak profit rises.
 input double InpTakeProfitUSD        = 0.50;//1.00;
-input int    InpMaxOpenOrders        = 1;
+input int    InpMaxOpenOrders        = 1;//2;//1;$40 at 1
 input bool   InpOnlyNewCandleEntry   = true;
 input bool   InpShowVisuals          = true;
 input int    InpEMALineBars          = 80;
 
 // Fixed money-based stop loss for every order.
-const double FIXED_STOP_LOSS_USD     = 6;//4;//5.00;
+const double FIXED_STOP_LOSS_USD     = 6;//4;//5.00;$40 at 6
 
 int      g_bosDirection = 0;
 bool     g_bosActive    = false;
@@ -38,8 +38,13 @@ string   PFX            = "EMABOSPB_";
 //+------------------------------------------------------------------+
 int OnInit()
 {
-   Print("EMA BOS Pullback Visual EA with USD step trailing started");
-   if(InpShowVisuals) DrawDashboard("Initialized");
+     DeleteObjectsByPrefix(PFX);
+
+   Print("EMA BOS Pullback Visual EA started");
+
+   if(InpShowVisuals)
+      DrawDashboard("Initialized");
+
    return(INIT_SUCCEEDED);
 }
 
@@ -449,23 +454,31 @@ void DrawEMALine()
       ObjectSetInteger(0, name, OBJPROP_WIDTH, 2);
    }
 }
-
-//+------------------------------------------------------------------+
 void DrawBOS(int dir, double level, double bosPrice, datetime t)
 {
-   string name = PFX + "BOS_LINE_" +
-                 TimeToString(t, TIME_DATE|TIME_MINUTES|TIME_SECONDS);
+   // Remove previous BOS lines and labels.
+   DeleteObjectsByPrefix(PFX + "BOS_LINE_");
+   DeleteObjectsByPrefix(PFX + "BOS_TEXT_");
 
-   DrawHLine(name, level,
-             dir == 1 ? clrLime : clrRed,
-             STYLE_SOLID,
-             dir == 1 ? "BOS BUY" : "BOS SELL");
+   string lineName = PFX + "BOS_LINE_CURRENT";
+   string textName = PFX + "BOS_TEXT_CURRENT";
 
-   DrawText(PFX+"BOS_TEXT_"+IntegerToString((int)t),
-            t, bosPrice,
-            dir == 1 ? "BOS BUY" : "BOS SELL",
-            dir == 1 ? clrLime : clrRed);
-}
+   DrawHLine(
+      lineName,
+      level,
+      dir == 1 ? clrLime : clrRed,
+      STYLE_SOLID,
+      dir == 1 ? "BOS BUY" : "BOS SELL"
+   );
+
+   DrawText(
+      textName,
+      t,
+      bosPrice,
+      dir == 1 ? "BOS BUY" : "BOS SELL",
+      dir == 1 ? clrLime : clrRed
+   );
+} 
 
 //+------------------------------------------------------------------+
 void DrawPullbackZone()
