@@ -5,24 +5,24 @@
 //+------------------------------------------------------------------+
 #property strict
 
-input double InpLotSize              = 0.01;
-input int    InpMagicNumber          = 44001;
-input int    InpSlippage             = 30;
+ double InpLotSize              = 0.01;
+ int    InpMagicNumber          = 44001;
+ int    InpSlippage             = 30;
 
-input int    InpEMAPeriod            = 50;
-input int    InpSwingLookback        = 20;
-input int    InpPullbackMaxBars      = 10;
-input double InpMinBOSRawGap         = 20.0;
-input double InpPullbackMinRaw       = 30.0;
-input double InpPullbackMaxRaw       = 120.0;
+ int    InpEMAPeriod            = 50;
+ int    InpSwingLookback        = 20;
+ int    InpPullbackMaxBars      = 10;
+ double InpMinBOSRawGap         = 20.0;
+ double InpPullbackMinRaw       = 30.0;
+ double InpPullbackMaxRaw       = 120.0;
 
 // InpTakeProfitUSD is now the moving profit-lock step.
 // Example: 1.00 locks $1, $2, $3, $4... as peak profit rises.
-input double InpTakeProfitUSD        = 0.50;//1.00;
-input int    InpMaxOpenOrders        = 1;//2;//1;$40 at 1
-input bool   InpOnlyNewCandleEntry   = true;
-input bool   InpShowVisuals          = true;
-input int    InpEMALineBars          = 80;
+ double InpTakeProfitUSD        = 0.50;//1.00;
+ int    InpMaxOpenOrders        = 1;//2;//1;$40 at 1
+ bool   InpOnlyNewCandleEntry   = true;
+ bool   InpShowVisuals          = true;
+ int    InpEMALineBars          = 80;
 
 // Fixed money-based stop loss for every order.
 const double FIXED_STOP_LOSS_USD     = 6;//4;//5.00;$40 at 6
@@ -35,6 +35,19 @@ datetime g_lastBarTime  = 0;
 string   g_lastStatus   = "Starting";
 string   PFX            = "EMABOSPB_";
 
+
+bool IsDubaiBlockedTime()
+{
+   datetime gmtTime = TimeGMT();
+   datetime dubaiTime = gmtTime + 4 * 3600;
+
+   int hour = TimeHour(dubaiTime);
+
+   if(hour >= 16 && hour < 20) // 4PM,5PM,6PM,7PM
+      return(true);
+
+   return(false);
+}
 //+------------------------------------------------------------------+
 int OnInit()
 {
@@ -84,6 +97,14 @@ void OnTick()
       g_lastStatus = "Blocked: max open orders";
       return;
    }
+
+//    if(IsDubaiBlockedTime())
+// {
+
+//    g_lastStatus="TRADING PAUSED | Dubai Time 4PM-8PM";
+//    // Comment("TRADING PAUSED | Dubai Time 4PM-8PM");
+//    return;
+// }
 
    if(entryReady)
    {
