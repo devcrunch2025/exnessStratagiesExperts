@@ -1,5 +1,5 @@
 //+------------------------------------------------------------------+
-//| DXB_SAR_Dots_Pending_SARWeakSmallProfit_FIXED.mq4                |
+//| DXB_SAR_Dots_Pending_SARWeakHalfSL.mq4                           |
 //| Uses verified SAR dots code.                                     |
 //| Rules:                                                           |
 //| 1) SAR GREEN + closed bar GREEN -> BUY STOP pending              |
@@ -10,66 +10,85 @@
 //| 6) TP minimum, full-body profit hold option                      |
 //| 7) Dynamic SL: same SAR direction = SL * multiplier              |
 //| 8) SAR weak closes open order with small profit                  |
-//| 9) Block flat market                                             |
+//| 9) SAR weak reduces active SL to InpStopLossUSD / 2              |
+//| 10) Block flat market                                            |
+//| 11) Flat/weak TP/2, candle borders, SAR flip gap confirmation   |
+//| 12) Entry ignores SAR dots: 3 red = SELL, 3 green = BUY         |
+//| 13) SAR flip closes opposite-side orders only                   |
 //+------------------------------------------------------------------+
 #property strict
-#property version "1.36"
+#property version "1.42"
 
 //======================== SAR SETTINGS ONLY ========================
-input double InpSARPeriod        = 1.2;
-input int    InpSARStepSize      = 25;
-input int    InpSARAcceleration  = 9;
+ double InpSARPeriod        = 1.2;
+ int    InpSARStepSize      = 25;
+ int    InpSARAcceleration  = 9;
 
 //======================== SAR DOT VISUALS ==========================
-input bool   InpDrawSARDots      = true;
-input int    InpSARDotLookback   = 300;
-input color  InpSARDotBuyColor   = clrLime;
-input color  InpSARDotSellColor  = clrOrangeRed;
-input int    InpSARDotArrowCode  = 159;
-input int    InpSARDotWidth      = 2;
+ bool   InpDrawSARDots      = true;
+ int    InpSARDotLookback   = 300;
+ color  InpSARDotBuyColor   = clrLime;
+ color  InpSARDotSellColor  = clrOrangeRed;
+ int    InpSARDotArrowCode  = 159;
+ int    InpSARDotWidth      = 2;
 
 //======================== SIMPLE TRADING ===========================
-input bool   InpEnableTrading       = true;
-input int    InpMagicNumber         = 26061920;
-input double InpLots                = 0.01;
-input int    InpSlippage            = 30;
-input int    InpMaxSpreadPoints     = 3000;
+ bool   InpEnableTrading       = true;
+ int    InpMagicNumber         = 26061920;
+ double InpLots                = 0.01;
+ int    InpSlippage            = 30;
+ int    InpMaxSpreadPoints     = 3000;
 
-input double InpPendingGapRaw       = 10.0;
-input int    InpMaxOpenOrders       = 2;
-input int    InpMaxOpenBuyOrders    = 1;
-input int    InpMaxOpenSellOrders   = 1;
-input int    InpMaxPendingOrders    = 10;
-input int    InpPendingExpireBars   = 60;
+ double InpPendingGapRaw       = 10.0;   // pending order distance from live Ask/Bid
+ double InpSARFlipGapRaw      = 100.0;   // regular SAR-following fallback only
+ bool   InpUseThreeCandleEntry = false;   // ignore SAR dots for entry
+ int    InpThreeCandleCount    = 2;      // last N closed candles same color
+ int    InpMaxOpenOrders       = 2;
+ int    InpMaxOpenBuyOrders    = 1;
+ int    InpMaxOpenSellOrders   = 1;
+ int    InpMaxPendingOrders    = 10;
+ int    InpPendingExpireBars   = 60;
 
-input double InpProfitTargetUSD     = 0.50;
-input bool   InpUseFullBodyProfit   = true;
-input double InpMinFullBodyUSD      = 0.25;
-input double InpStopLossUSD         = 1.00;
-input double InpTrendSLMultiplier   = 2.00;
+ double InpProfitTargetUSD     = 0.50;
+ bool   InpUseFullBodyProfit   = true;
+ double InpMinFullBodyUSD      = 0.25;
+ double InpStopLossUSD         = 1.00;
+ double InpTrendSLMultiplier   = 2.00;
+ bool   InpReduceSLOnSARWeak   = true;
+ double InpSARWeakSLMultiplier = 0.50;
 
 // SAR weak reverse / close
-input bool   InpUseSARWeakReverse       = true;
-input double InpSARWeakReverseBodyRaw   = 100.0;
-input bool   InpCloseOrdersOnSARFlip    = true;
-input bool   InpDeletePendingsOnSARFlip = true;
-input bool   InpCloseOnSARWeakSmallProfit = true;
-input double InpSARWeakSmallProfitUSD     = 0.10;
+ bool   InpUseSARWeakReverse       = true;
+ double InpSARWeakReverseBodyRaw   = 50.0;
+ bool   InpCloseOrdersOnSARFlip    = true;
+ bool   InpDeletePendingsOnSARFlip = true;
+ bool   InpCloseOnSARWeakSmallProfit = true;
+ double InpSARWeakSmallProfitUSD     = 0.10;
 
 // Re-entry protection
-input bool   InpBlockNewOrderOnClosedCandle = true;
+ bool   InpBlockNewOrderOnClosedCandle = true;
 
 // Flat market block
-input bool   InpUseFlatMarketBlock       = true;
-input int    InpFlatLookbackBars         = 10;
-input double InpFlatMaxRangeRaw          = 120.0;
-input double InpFlatMaxNetMoveRaw        = 50.0;
-input double InpFlatMaxBodyTotalRaw      = 180.0;
+ bool   InpUseFlatMarketBlock       = true;
+ int    InpFlatLookbackBars         = 20;
+ double InpFlatMaxRangeRaw          = 120.0;
+ double InpFlatMaxNetMoveRaw        = 50.0;
+ double InpFlatMaxBodyTotalRaw      = 180.0;
 
 // Dashboard
-input bool   InpShowDashboard    = true;
-input color  InpDashBgColor      = clrBlack;
-input color  InpDashBorderColor  = clrDimGray;
+ bool   InpShowDashboard    = true;
+ color  InpDashBgColor      = clrBlack;
+ color  InpDashBorderColor  = clrDimGray;
+
+// Candle state border colors only - no chart background color change
+ bool   InpDrawStateCandleMarkers  = true;
+ int    InpStateMarkerLookback     = 80;
+ color  InpSARWeakBarBorderColor   = C'255,182,193'; // light pink
+ color  InpFlatBarBorderColor      = clrYellow;
+ int    InpStateMarkerWidth        = 2;
+
+// Dynamic TP reduction
+ bool   InpUseHalfTPOnFlatOrWeak   = true;
 
 //======================== GLOBALS ==================================
 string   OBJ_PREFIX = "DXB_SAR_SIMPLE_";
@@ -78,7 +97,7 @@ int      g_lastSARDirection   = 0;
 datetime g_lastSARFlipTime    = 0;
 double   g_lastSARFlipPrice   = 0.0;
 datetime g_lastBarTime        = 0;
-string   g_status             = "SAR dots + pending + weak small profit";
+string   g_status             = "SAR dots + pending + weak half SL";
 
 datetime g_lastOrderCloseBarTime = 0;
 datetime g_lastOrderCloseTime    = 0;
@@ -111,6 +130,9 @@ void OnTick()
 
    if(InpDrawSARDots)
       DrawSARDots();
+
+   if(InpDrawStateCandleMarkers)
+      DrawStateCandleMarkers();
 
    ManagePendingOrders();
    DeletePendingsWhenMarketOrderOpened();
@@ -187,7 +209,7 @@ void UpdateSARState()
       g_status = "SAR flip detected: " + DirectionText(dir);
 
       if(InpCloseOrdersOnSARFlip)
-         CloseAllOpenOrders("SAR flip close");
+         CloseOppositeOrdersOnSARFlip(dir);
 
       if(InpDeletePendingsOnSARFlip)
          DeleteAllPendingOrders("SAR flip delete pending");
@@ -230,6 +252,31 @@ void ProcessNewBarTrading()
       return;
    }
 
+   // Main entry rule requested:
+   // Ignore SAR dots for entry.
+   // Last 3 red candles  -> SELL STOP
+   // Last 3 green candles -> BUY STOP
+   if(InpUseThreeCandleEntry)
+   {
+      if(AreLastNCandlesSameDirection(-1, InpThreeCandleCount))
+      {
+         if(CanPlacePendingForDirection(-1))
+            PlacePendingOrder(-1, "THREE_RED_SELLSTOP_IGNORE_SAR");
+         return;
+      }
+
+      if(AreLastNCandlesSameDirection(1, InpThreeCandleCount))
+      {
+         if(CanPlacePendingForDirection(1))
+            PlacePendingOrder(1, "THREE_GREEN_BUYSTOP_IGNORE_SAR");
+         return;
+      }
+
+      g_status = "No order: waiting for " + IntegerToString(InpThreeCandleCount) + " same-color candles";
+      return;
+   }
+
+   // Fallback old SAR logic if InpUseThreeCandleEntry=false.
    int sarDir = g_activeSARDirection;
    int barDir = CandleDirection(1);
 
@@ -244,6 +291,15 @@ void ProcessNewBarTrading()
       int reverseDir = -sarDir;
       if(CanPlacePendingForDirection(reverseDir))
          PlacePendingOrder(reverseDir, "SAR_WEAK_REVERSE_PENDING");
+      return;
+   }
+
+   double flipGap = SARFlipMoveRaw(sarDir);
+   if(flipGap < InpSARFlipGapRaw)
+   {
+      g_status = "Blocked: SAR flip gap " +
+                 DoubleToString(flipGap, 2) + "/" +
+                 DoubleToString(InpSARFlipGapRaw, 2);
       return;
    }
 
@@ -297,6 +353,40 @@ double CandleBodyRaw(int shift)
    return(MathAbs(Close[shift] - Open[shift]));
 }
 
+
+bool AreLastNCandlesSameDirection(int direction, int count)
+{
+   if(count <= 0)
+      return(false);
+
+   if(Bars <= count + 2)
+      return(false);
+
+   for(int i = 1; i <= count; i++)
+   {
+      if(CandleDirection(i) != direction)
+         return(false);
+   }
+
+   return(true);
+}
+
+// Raw price movement from last SAR flip price in active SAR direction.
+// BUY SAR  : Ask - flip price
+// SELL SAR : flip price - Bid
+double SARFlipMoveRaw(int direction)
+{
+   RefreshRates();
+
+   if(direction == 1)
+      return(Ask - g_lastSARFlipPrice);
+
+   if(direction == -1)
+      return(g_lastSARFlipPrice - Bid);
+
+   return(0.0);
+}
+
 //======================== PROFIT / RISK ============================
 double MoneyPerRawPriceForLot()
 {
@@ -316,20 +406,64 @@ double CandleBodyProfitUSD(int shift)
 
 double GetDynamicStopLossUSD(int orderType)
 {
+   bool sarWeak = IsSARWeakReverseSignal();
+
+   // SAR weak detected: reduce SL immediately to protect equity.
+   if(InpReduceSLOnSARWeak && sarWeak)
+      return(InpStopLossUSD * InpSARWeakSLMultiplier);
+
+   // Order is with active SAR direction: allow larger trend SL.
    if((orderType == OP_BUY  && g_activeSARDirection == 1) ||
       (orderType == OP_SELL && g_activeSARDirection == -1))
       return(InpStopLossUSD * InpTrendSLMultiplier);
 
+   // Opposite / reverse order: normal SL.
    return(InpStopLossUSD);
 }
 
 string StopLossModeText(int orderType)
 {
+   if(InpReduceSLOnSARWeak && IsSARWeakReverseSignal())
+      return("SAR WEAK HALF SL");
+
    if((orderType == OP_BUY  && g_activeSARDirection == 1) ||
       (orderType == OP_SELL && g_activeSARDirection == -1))
       return("TREND SL");
 
    return("REVERSE SL");
+}
+
+bool IsHalfTPMode()
+{
+   if(!InpUseHalfTPOnFlatOrWeak)
+      return(false);
+
+   if(IsFlatMarket())
+      return(true);
+
+   if(IsSARWeakReverseSignal())
+      return(true);
+
+   return(false);
+}
+
+double GetDynamicTakeProfitUSD()
+{
+   if(IsHalfTPMode())
+      return(InpProfitTargetUSD / 2.0);
+
+   return(InpProfitTargetUSD);
+}
+
+string TakeProfitModeText()
+{
+   if(IsFlatMarket())
+      return("FLAT HALF TP");
+
+   if(IsSARWeakReverseSignal())
+      return("SAR WEAK HALF TP");
+
+   return("NORMAL TP");
 }
 
 void ManageOpenOrders()
@@ -348,6 +482,8 @@ void ManageOpenOrders()
       int dir = (type == OP_BUY ? 1 : -1);
       double profit = OrderProfit() + OrderSwap() + OrderCommission();
       double currentSL = GetDynamicStopLossUSD(type);
+      double currentTP = GetDynamicTakeProfitUSD();
+      bool halfTPMode = IsHalfTPMode();
 
       if(profit <= -currentSL)
       {
@@ -355,7 +491,14 @@ void ManageOpenOrders()
          continue;
       }
 
-      // SAR weak: accept small profit quickly
+      // Flat market or SAR weak: book half TP quickly and do not wait for full body.
+      if(halfTPMode && profit >= currentTP)
+      {
+         CloseSelectedOrder(TakeProfitModeText() + " $" + DoubleToString(profit, 2));
+         continue;
+      }
+
+      // SAR weak: optional very small profit close.
       if(InpCloseOnSARWeakSmallProfit && weakNow && profit >= InpSARWeakSmallProfitUSD)
       {
          CloseSelectedOrder("SAR weak small profit $" + DoubleToString(profit, 2));
@@ -368,25 +511,25 @@ void ManageOpenOrders()
          double closedBodyUSD  = CandleBodyProfitUSD(1);
 
          if(newBarNow && CandleDirection(1) == dir &&
-            closedBodyUSD >= MathMax(InpProfitTargetUSD, InpMinFullBodyUSD) &&
-            profit >= InpProfitTargetUSD)
+            closedBodyUSD >= MathMax(currentTP, InpMinFullBodyUSD) &&
+            profit >= currentTP)
          {
             CloseSelectedOrder("Full body profit close $" + DoubleToString(profit, 2));
             continue;
          }
 
          if(CandleDirection(0) == dir &&
-            currentBodyUSD >= MathMax(InpProfitTargetUSD, InpMinFullBodyUSD) &&
-            profit >= InpProfitTargetUSD)
+            currentBodyUSD >= MathMax(currentTP, InpMinFullBodyUSD) &&
+            profit >= currentTP)
          {
             g_status = "Holding for full body profit | Now $" + DoubleToString(profit, 2);
             continue;
          }
       }
 
-      if(profit >= InpProfitTargetUSD)
+      if(profit >= currentTP)
       {
-         CloseSelectedOrder("Minimum profit target $" + DoubleToString(InpProfitTargetUSD, 2));
+         CloseSelectedOrder(TakeProfitModeText() + " $" + DoubleToString(currentTP, 2));
          continue;
       }
    }
@@ -478,6 +621,34 @@ void CloseAllOpenOrders(string reason)
       int type = OrderType();
       if(type == OP_BUY || type == OP_SELL)
          CloseSelectedOrder(reason);
+   }
+}
+
+//+------------------------------------------------------------------+
+// Close only opposite-side market orders when SAR flips.
+// New SAR BUY  -> close SELL orders only.
+// New SAR SELL -> close BUY orders only.
+// Same-side orders continue running.
+void CloseOppositeOrdersOnSARFlip(int newSarDirection)
+{
+   int closeType = -1;
+
+   if(newSarDirection == 1)
+      closeType = OP_SELL;
+
+   if(newSarDirection == -1)
+      closeType = OP_BUY;
+
+   if(closeType == -1)
+      return;
+
+   for(int i = OrdersTotal() - 1; i >= 0; i--)
+   {
+      if(!OrderSelect(i, SELECT_BY_POS, MODE_TRADES)) continue;
+      if(OrderSymbol() != Symbol() || OrderMagicNumber() != InpMagicNumber) continue;
+
+      if(OrderType() == closeType)
+         CloseSelectedOrder("SAR flip opposite close");
    }
 }
 
@@ -735,6 +906,126 @@ bool IsFlatMarket()
 }
 
 //======================== DRAWING ==================================
+color CurrentMarketStateColor()
+{
+   if(IsFlatMarket())
+      return(InpFlatBarBorderColor);
+
+   if(IsSARWeakReverseSignal())
+      return(InpSARWeakBarBorderColor);
+
+   return(clrLime);
+}
+
+string CurrentMarketStateText()
+{
+   if(IsFlatMarket())
+      return("FLAT MARKET");
+
+   if(IsSARWeakReverseSignal())
+      return("SAR WEAK");
+
+   return("TREND ACTIVE");
+}
+
+bool IsSARWeakAtBar(int shift)
+{
+   int sarDir = GetSARDotDirection(shift);
+   int barDir = CandleDirection(shift);
+   double body = CandleBodyRaw(shift);
+
+   if(sarDir == 0 || barDir == 0)
+      return(false);
+
+   if(barDir != -sarDir)
+      return(false);
+
+   if(body < InpSARWeakReverseBodyRaw)
+      return(false);
+
+   return(true);
+}
+
+bool IsFlatMarketAtBar(int startShift)
+{
+   int bars = MathMin(InpFlatLookbackBars, Bars - startShift - 1);
+   if(bars <= 1)
+      return(false);
+
+   double hi = High[startShift];
+   double lo = Low[startShift];
+   double bodyTotal = 0.0;
+
+   for(int i = startShift; i < startShift + bars; i++)
+   {
+      if(High[i] > hi) hi = High[i];
+      if(Low[i] < lo)  lo = Low[i];
+      bodyTotal += CandleBodyRaw(i);
+   }
+
+   double rangeRaw = MathAbs(hi - lo);
+   double netRaw = MathAbs(Close[startShift] - Close[startShift + bars - 1]);
+
+   if(rangeRaw <= InpFlatMaxRangeRaw)
+      return(true);
+
+   if(netRaw <= InpFlatMaxNetMoveRaw && bodyTotal <= InpFlatMaxBodyTotalRaw)
+      return(true);
+
+   return(false);
+}
+
+void DeleteStateMarker(int shift)
+{
+   string name = OBJ_PREFIX + "STATE_BORDER_" + TimeToString(Time[shift], TIME_DATE|TIME_MINUTES);
+   if(ObjectFind(0, name) >= 0)
+      ObjectDelete(0, name);
+}
+
+void DrawStateCandleMarkers()
+{
+   int bars = MathMin(InpStateMarkerLookback, Bars - 2);
+   if(bars <= 0)
+      return;
+
+   for(int i = bars; i >= 1; i--)
+   {
+      bool flat = IsFlatMarketAtBar(i);
+      bool weak = IsSARWeakAtBar(i);
+
+      // Only draw borders for special states.
+      // FLAT has priority, then SAR weak. Normal trend candles are left unchanged.
+      if(!flat && !weak)
+      {
+         DeleteStateMarker(i);
+         continue;
+      }
+
+      color c = flat ? InpFlatBarBorderColor : InpSARWeakBarBorderColor;
+      string state = flat ? "FLAT MARKET" : "SAR WEAK";
+
+      double top = High[i];
+      double bottom = Low[i];
+      datetime t1 = Time[i];
+      datetime t2 = Time[i-1];
+
+      string name = OBJ_PREFIX + "STATE_BORDER_" + TimeToString(Time[i], TIME_DATE|TIME_MINUTES);
+
+      if(ObjectFind(0, name) < 0)
+         ObjectCreate(0, name, OBJ_RECTANGLE, 0, t1, top, t2, bottom);
+
+      ObjectSetInteger(0, name, OBJPROP_TIME1, t1);
+      ObjectSetDouble(0, name, OBJPROP_PRICE1, top);
+      ObjectSetInteger(0, name, OBJPROP_TIME2, t2);
+      ObjectSetDouble(0, name, OBJPROP_PRICE2, bottom);
+      ObjectSetInteger(0, name, OBJPROP_COLOR, c);
+      ObjectSetInteger(0, name, OBJPROP_STYLE, STYLE_SOLID);
+      ObjectSetInteger(0, name, OBJPROP_WIDTH, InpStateMarkerWidth);
+      ObjectSetInteger(0, name, OBJPROP_BACK, false);
+      ObjectSetString(0, name, OBJPROP_TOOLTIP, state);
+   }
+}
+
 void DrawSARDots()
 {
    int bars = MathMin(InpSARDotLookback, Bars - 2);
@@ -796,7 +1087,7 @@ void DrawDashboardFrame()
    ObjectSetInteger(0, bg, OBJPROP_XDISTANCE, 8);
    ObjectSetInteger(0, bg, OBJPROP_YDISTANCE, 20);
    ObjectSetInteger(0, bg, OBJPROP_XSIZE, 430);
-   ObjectSetInteger(0, bg, OBJPROP_YSIZE, 315);
+   ObjectSetInteger(0, bg, OBJPROP_YSIZE, 355);
    ObjectSetInteger(0, bg, OBJPROP_BGCOLOR, InpDashBgColor);
    ObjectSetInteger(0, bg, OBJPROP_COLOR, InpDashBorderColor);
    ObjectSetInteger(0, bg, OBJPROP_BACK, false);
@@ -831,27 +1122,32 @@ void DrawDashboard()
 
    color sarColor = (g_activeSARDirection == 1 ? InpSARDotBuyColor : InpSARDotSellColor);
 
-   SetLabel("L1", 30,  "DXB SAR SIMPLE + WEAK SMALL PROFIT", clrWhite);
+   SetLabel("L1", 30,  "DXB SAR SIMPLE + STATE COLORS + HALF TP", clrWhite);
    SetLabel("L2", 50,  "Symbol: " + Symbol() + " | TF: " + IntegerToString(Period()), clrSilver);
    SetLabel("L3", 70,  "SAR: " + DirectionText(g_activeSARDirection), sarColor);
    SetLabel("L4", 90,  "Bar[1]: " + DirectionText(barDir) + " | Body: " + DoubleToString(body, 2), barDir==1?clrLime:(barDir==-1?clrOrangeRed:clrSilver));
-   SetLabel("L5", 110, "SAR Weak Reverse: " + (weakReverse ? "YES" : "NO") + " | SmallProfit: $" + DoubleToString(InpSARWeakSmallProfitUSD, 2), weakReverse?clrOrange:clrSilver);
+   SetLabel("L5", 110, "State: " + CurrentMarketStateText() + " | Weak: " + (weakReverse ? "YES" : "NO"), IsFlatMarket()?InpFlatBarBorderColor:(weakReverse?InpSARWeakBarBorderColor:clrLime));
    SetLabel("L6", 130, "SAR Price: " + DoubleToString(sar1, Digits), clrYellow);
    SetLabel("L7", 150, "Close[1]: " + DoubleToString(price, Digits) + " | Dist: " + DoubleToString(dist, 2), clrAqua);
-   SetLabel("L8", 170, "Flip: " + DirectionText(flip) + " | PendingGap: " + DoubleToString(InpPendingGapRaw, 0), clrSilver);
+   SetLabel("L8", 170, "3C Entry: " + (InpUseThreeCandleEntry ? "ON" : "OFF") +
+                      " | 3Red:" + (AreLastNCandlesSameDirection(-1, InpThreeCandleCount) ? "YES" : "NO") +
+                      " | 3Green:" + (AreLastNCandlesSameDirection(1, InpThreeCandleCount) ? "YES" : "NO"), clrSilver);
    SetLabel("L9", 190, "Open: " + IntegerToString(CountMyOpenOrders()) + "/" + IntegerToString(InpMaxOpenOrders) +
                       " (B:" + IntegerToString(CountMyOpenOrdersByDirection(1)) + "/1 S:" + IntegerToString(CountMyOpenOrdersByDirection(-1)) + "/1)" +
                       " | Pending: " + IntegerToString(CountMyPendingOrders()) + "/" + IntegerToString(InpMaxPendingOrders), clrWhite);
    SetLabel("L10", 210, "Floating P/L: $" + DoubleToString(MyFloatingPL(), 2) +
-                      " | TP: $" + DoubleToString(InpProfitTargetUSD, 2) +
+                      " | TP: $" + DoubleToString(GetDynamicTakeProfitUSD(), 2) +
                       " | BodyUSD: $" + DoubleToString(CandleBodyProfitUSD(1), 2), clrWhite);
    SetLabel("L11", 230, "Flat: " + (IsFlatMarket() ? "YES" : "NO") +
                       " | Range: " + DoubleToString(FlatRangeRaw(), 2) +
                       " | Net: " + DoubleToString(FlatNetMoveRaw(), 2), IsFlatMarket()?clrOrange:clrLime);
-   SetLabel("L12", 250, "SL: Trend=$" + DoubleToString(InpStopLossUSD * InpTrendSLMultiplier, 2) +
+   SetLabel("L12", 250, "TP: Normal=$" + DoubleToString(InpProfitTargetUSD, 2) + " | Flat/Weak=$" + DoubleToString(InpProfitTargetUSD/2.0, 2), clrYellow);
+   SetLabel("L13", 270, "SL: Trend=$" + DoubleToString(InpStopLossUSD * InpTrendSLMultiplier, 2) +
                       " | Reverse=$" + DoubleToString(InpStopLossUSD, 2) +
-                      " | Active=$" + DoubleToString(DynamicOpenSLPreview(), 2), clrYellow);
-   SetLabel("L13", 270, "Last close: " + g_lastCloseReason + " | Bar: " + TimeToString(g_lastOrderCloseBarTime, TIME_MINUTES), clrSilver);
-   SetLabel("L14", 290, "Status: " + g_status, clrAqua);
+                      " | Weak=$" + DoubleToString(InpStopLossUSD * InpSARWeakSLMultiplier, 2), clrYellow);
+   SetLabel("L14", 290, "Active SL: $" + DoubleToString(DynamicOpenSLPreview(), 2) +
+                      " | WeakHalfSL: " + (InpReduceSLOnSARWeak ? "ON" : "OFF"), clrYellow);
+   SetLabel("L15", 310, "Last close: " + g_lastCloseReason + " | Bar: " + TimeToString(g_lastOrderCloseBarTime, TIME_MINUTES), clrSilver);
+   SetLabel("L16", 330, "Status: " + g_status, clrAqua);
 }
 //+------------------------------------------------------------------+
