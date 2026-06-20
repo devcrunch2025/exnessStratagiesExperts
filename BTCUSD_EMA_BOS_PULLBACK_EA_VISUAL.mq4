@@ -25,7 +25,7 @@ input bool   InpShowVisuals          = true;
 input int    InpEMALineBars          = 80;
 
 // Fixed money-based stop loss for every order.
-const double FIXED_STOP_LOSS_USD     = 5.00;
+const double FIXED_STOP_LOSS_USD     = 6;//4;//5.00;
 
 int      g_bosDirection = 0;
 bool     g_bosActive    = false;
