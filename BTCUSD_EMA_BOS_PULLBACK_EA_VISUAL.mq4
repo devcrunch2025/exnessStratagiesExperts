@@ -1,7 +1,7 @@
 //+------------------------------------------------------------------+
 //| BTCUSD_EMA_BOS_PULLBACK_EA_VISUAL_STEP_TRAIL.mq4                 |
 //| Strategy 4: EMA trend + BOS + Pullback with chart visuals        |
-//| Profit exit: continuous USD step trailing                        |
+//| Profit exit: step trail + paired recovery basket TP            |
 //+------------------------------------------------------------------+
 #property strict
 
@@ -23,6 +23,19 @@
  bool   InpOnlyNewCandleEntry   = true;
  bool   InpShowVisuals          = true;
  int    InpEMALineBars          = 80;
+
+// Recovery order settings.
+// A recovery order is opened in the SAME direction as a losing parent order
+// only when the adverse raw-price distance is at least the configured gap
+// and the currently active BOS signal matches the parent order direction.
+ bool   InpUseRecoveryOrders             = true;
+ double InpRecoveryLotSize               = 0.01;
+ double InpRecoveryRawDifference         = 100.0;
+ int    InpMaxRecoveryOrdersPerDirection = 1;
+
+// Close the recovery order and its original parent together when their
+// combined net profit reaches InpTakeProfitUSD.
+ bool   InpCloseRecoveryBasketAtTP        = true;
 
 // Fixed money-based stop loss for every order.
 const double FIXED_STOP_LOSS_USD     = 6;//4;//5.00;$40 at 6
@@ -72,12 +85,25 @@ void OnDeinit(const int reason)
 void OnTick()
 {
    RefreshRates();
+
+   // Paired recovery basket exit has priority over individual exits.
+   // This lets recovery profit offset the original order loss.
+   CloseRecoveryBasketsAtTP();
    CloseByProfitOrLoss();
 
    bool isNewBar = (Time[0] != g_lastBarTime);
    if(isNewBar) g_lastBarTime = Time[0];
 
    DetectBOS();
+
+   // Recovery has priority over the normal pullback entry.
+   // It is allowed beside the losing parent order, so InpMaxOpenOrders
+   // does not block this special recovery order.
+   if(TryOpenRecoveryOrder())
+   {
+      if(InpShowVisuals) UpdateVisuals(false, GetEMATrend());
+      return;
+   }
 
    int emaTrend = GetEMATrend();
    bool pullbackReady = (g_bosActive && IsPullbackEntryReady());
@@ -220,12 +246,18 @@ bool IsPullbackEntryReady()
 //+------------------------------------------------------------------+
 bool OpenOrder(int type, string orderComment)
 {
+   return(OpenOrderWithLots(type, InpLotSize, orderComment));
+}
+
+//+------------------------------------------------------------------+
+bool OpenOrderWithLots(int type, double lots, string orderComment)
+{
    RefreshRates();
 
    double price = (type == OP_BUY) ? Ask : Bid;
    ResetLastError();
 
-   int ticket = OrderSend(Symbol(), type, InpLotSize, price,
+   int ticket = OrderSend(Symbol(), type, lots, price,
                           InpSlippage, 0, 0, orderComment,
                           InpMagicNumber, 0, clrNONE);
 
@@ -239,6 +271,387 @@ bool OpenOrder(int type, string orderComment)
 
    DeleteProfitTrailState(ticket);
    g_lastStatus = "Order opened #" + IntegerToString(ticket);
+   return(true);
+}
+
+//+------------------------------------------------------------------+
+bool IsRecoveryOrderComment(string orderComment)
+{
+   return(StringFind(orderComment, "BOS_RECOVERY_", 0) == 0);
+}
+
+//+------------------------------------------------------------------+
+int CountRecoveryOrders(int orderType)
+{
+   int count = 0;
+
+   for(int i = 0; i < OrdersTotal(); i++)
+   {
+      if(!OrderSelect(i, SELECT_BY_POS, MODE_TRADES)) continue;
+      if(OrderSymbol() != Symbol()) continue;
+      if(OrderMagicNumber() != InpMagicNumber) continue;
+      if(OrderType() != orderType) continue;
+      if(!IsRecoveryOrderComment(OrderComment())) continue;
+
+      count++;
+   }
+
+   return(count);
+}
+
+//+------------------------------------------------------------------+
+string RecoveryBOSKey(int parentTicket)
+{
+   return("EBP_REC_BOS_" +
+          IntegerToString(AccountNumber()) + "_" +
+          IntegerToString(InpMagicNumber) + "_" +
+          IntegerToString(parentTicket));
+}
+
+//+------------------------------------------------------------------+
+bool RecoveryAlreadyUsedForCurrentBOS(int parentTicket)
+{
+   string key = RecoveryBOSKey(parentTicket);
+
+   if(!GlobalVariableCheck(key))
+      return(false);
+
+   datetime usedBOSTime = (datetime)GlobalVariableGet(key);
+   return(usedBOSTime == g_bosTime);
+}
+
+//+------------------------------------------------------------------+
+void MarkRecoveryUsedForCurrentBOS(int parentTicket)
+{
+   GlobalVariableSet(RecoveryBOSKey(parentTicket), (double)g_bosTime);
+}
+
+//+------------------------------------------------------------------+
+int GetRecoveryParentTicket(string orderComment)
+{
+   if(!IsRecoveryOrderComment(orderComment))
+      return(-1);
+
+   int markerPos = StringFind(orderComment, "_P", 0);
+   if(markerPos < 0)
+      return(-1);
+
+   string ticketText = StringSubstr(orderComment, markerPos + 2);
+   int parentTicket = (int)StrToInteger(ticketText);
+
+   return(parentTicket > 0 ? parentTicket : -1);
+}
+
+//+------------------------------------------------------------------+
+bool IsMyOpenMarketOrder(int ticket)
+{
+   if(ticket <= 0) return(false);
+   if(!OrderSelect(ticket, SELECT_BY_TICKET, MODE_TRADES)) return(false);
+   if(OrderCloseTime() != 0) return(false);
+   if(OrderSymbol() != Symbol()) return(false);
+   if(OrderMagicNumber() != InpMagicNumber) return(false);
+   if(OrderType() != OP_BUY && OrderType() != OP_SELL) return(false);
+
+   return(true);
+}
+
+//+------------------------------------------------------------------+
+bool IsOrderInActiveRecoveryPair(int ticket)
+{
+   if(ticket <= 0) return(false);
+
+   for(int i = 0; i < OrdersTotal(); i++)
+   {
+      if(!OrderSelect(i, SELECT_BY_POS, MODE_TRADES)) continue;
+      if(OrderSymbol() != Symbol()) continue;
+      if(OrderMagicNumber() != InpMagicNumber) continue;
+      if(OrderType() != OP_BUY && OrderType() != OP_SELL) continue;
+      if(!IsRecoveryOrderComment(OrderComment())) continue;
+
+      int recoveryTicket = OrderTicket();
+      int parentTicket = GetRecoveryParentTicket(OrderComment());
+
+      if(parentTicket <= 0) continue;
+      if(ticket != recoveryTicket && ticket != parentTicket) continue;
+
+      if(IsMyOpenMarketOrder(parentTicket) &&
+         IsMyOpenMarketOrder(recoveryTicket))
+      {
+         return(true);
+      }
+   }
+
+   return(false);
+}
+
+//+------------------------------------------------------------------+
+bool CloseOrderByTicket(int ticket,
+                        string reason,
+                        double detectedProfit)
+{
+   if(!IsMyOpenMarketOrder(ticket))
+      return(false);
+
+   int type = OrderType();
+   double lots = OrderLots();
+
+   RefreshRates();
+   double closePrice = (type == OP_BUY) ? Bid : Ask;
+   color closeColor  = (type == OP_BUY) ? clrLime : clrRed;
+
+   ResetLastError();
+   bool closed = OrderClose(ticket,
+                            lots,
+                            closePrice,
+                            InpSlippage,
+                            closeColor);
+
+   if(closed)
+   {
+      DeleteProfitTrailState(ticket);
+      Print(reason,
+            " | Ticket #", ticket,
+            " | Detected P/L $", DoubleToString(detectedProfit, 2));
+      return(true);
+   }
+
+   int err = GetLastError();
+   Print("OrderClose failed #", ticket,
+         " | Error ", err,
+         " | ", reason);
+   return(false);
+}
+
+//+------------------------------------------------------------------+
+void CloseRecoveryBasketsAtTP()
+{
+   if(!InpCloseRecoveryBasketAtTP) return;
+   if(InpTakeProfitUSD <= 0.0) return;
+
+   int recoveryTickets[100];
+   int recoveryCount = 0;
+
+   // Collect tickets first because closing orders changes OrdersTotal().
+   for(int i = 0; i < OrdersTotal() && recoveryCount < 100; i++)
+   {
+      if(!OrderSelect(i, SELECT_BY_POS, MODE_TRADES)) continue;
+      if(OrderSymbol() != Symbol()) continue;
+      if(OrderMagicNumber() != InpMagicNumber) continue;
+      if(OrderType() != OP_BUY && OrderType() != OP_SELL) continue;
+      if(!IsRecoveryOrderComment(OrderComment())) continue;
+
+      recoveryTickets[recoveryCount] = OrderTicket();
+      recoveryCount++;
+   }
+
+   for(int r = 0; r < recoveryCount; r++)
+   {
+      int recoveryTicket = recoveryTickets[r];
+
+      if(!IsMyOpenMarketOrder(recoveryTicket)) continue;
+
+      string recoveryComment = OrderComment();
+      int recoveryType = OrderType();
+      double recoveryProfit = OrderProfit() +
+                              OrderSwap() +
+                              OrderCommission();
+
+      int parentTicket = GetRecoveryParentTicket(recoveryComment);
+      if(parentTicket <= 0) continue;
+      if(!IsMyOpenMarketOrder(parentTicket)) continue;
+      if(OrderType() != recoveryType) continue;
+      if(IsRecoveryOrderComment(OrderComment())) continue;
+
+      double parentProfit = OrderProfit() +
+                            OrderSwap() +
+                            OrderCommission();
+      double basketProfit = parentProfit + recoveryProfit;
+
+      if(basketProfit + 0.0000001 < InpTakeProfitUSD)
+         continue;
+
+      string side = (recoveryType == OP_BUY) ? "BUY" : "SELL";
+      string reason = "Recovery basket " + side +
+                      " TP $" + DoubleToString(InpTakeProfitUSD, 2) +
+                      " | Basket $" + DoubleToString(basketProfit, 2);
+
+      // Close the original first to remove its stop-loss exposure,
+      // then close the linked recovery order immediately afterward.
+      bool parentClosed = CloseOrderByTicket(parentTicket,
+                                             reason + " | ORIGINAL",
+                                             parentProfit);
+      bool recoveryClosed = CloseOrderByTicket(recoveryTicket,
+                                               reason + " | RECOVERY",
+                                               recoveryProfit);
+
+      if(parentClosed && recoveryClosed)
+      {
+         string recoveryKey = RecoveryBOSKey(parentTicket);
+         if(GlobalVariableCheck(recoveryKey))
+            GlobalVariableDel(recoveryKey);
+
+         g_lastStatus = reason + " | Both closed";
+      }
+      else if(parentClosed || recoveryClosed)
+      {
+         g_lastStatus = reason + " | Partial close; retrying remaining order";
+      }
+      else
+      {
+         g_lastStatus = reason + " | Close failed";
+      }
+   }
+}
+
+//+------------------------------------------------------------------+
+bool GetRecoveryBasketInfo(double &basketProfit,
+                           int &parentTicket,
+                           int &recoveryTicket)
+{
+   basketProfit = 0.0;
+   parentTicket = -1;
+   recoveryTicket = -1;
+
+   for(int i = 0; i < OrdersTotal(); i++)
+   {
+      if(!OrderSelect(i, SELECT_BY_POS, MODE_TRADES)) continue;
+      if(OrderSymbol() != Symbol()) continue;
+      if(OrderMagicNumber() != InpMagicNumber) continue;
+      if(OrderType() != OP_BUY && OrderType() != OP_SELL) continue;
+      if(!IsRecoveryOrderComment(OrderComment())) continue;
+
+      int selectedRecoveryTicket = OrderTicket();
+      int selectedRecoveryType = OrderType();
+      double recoveryProfit = OrderProfit() +
+                              OrderSwap() +
+                              OrderCommission();
+      int selectedParentTicket = GetRecoveryParentTicket(OrderComment());
+
+      if(!IsMyOpenMarketOrder(selectedParentTicket)) continue;
+      if(OrderType() != selectedRecoveryType) continue;
+      if(IsRecoveryOrderComment(OrderComment())) continue;
+
+      double parentProfit = OrderProfit() +
+                            OrderSwap() +
+                            OrderCommission();
+
+      basketProfit = parentProfit + recoveryProfit;
+      parentTicket = selectedParentTicket;
+      recoveryTicket = selectedRecoveryTicket;
+      return(true);
+   }
+
+   return(false);
+}
+
+//+------------------------------------------------------------------+
+bool FindRecoveryParent(int requiredType,
+                        int &parentTicket,
+                        double &parentProfit,
+                        double &rawDifference)
+{
+   parentTicket = -1;
+   parentProfit = 0.0;
+   rawDifference = 0.0;
+
+   double largestRawDifference = -1.0;
+
+   for(int i = 0; i < OrdersTotal(); i++)
+   {
+      if(!OrderSelect(i, SELECT_BY_POS, MODE_TRADES)) continue;
+      if(OrderSymbol() != Symbol()) continue;
+      if(OrderMagicNumber() != InpMagicNumber) continue;
+      if(OrderType() != requiredType) continue;
+
+      // Do not build an uncontrolled recovery-on-recovery chain.
+      // Only regular orders can act as recovery parents.
+      if(IsRecoveryOrderComment(OrderComment())) continue;
+
+      double profit = OrderProfit() + OrderSwap() + OrderCommission();
+      if(profit >= 0.0) continue;
+
+      double adverseRaw = 0.0;
+
+      if(requiredType == OP_BUY)
+         adverseRaw = OrderOpenPrice() - Bid;
+      else if(requiredType == OP_SELL)
+         adverseRaw = Ask - OrderOpenPrice();
+
+      if(adverseRaw < InpRecoveryRawDifference) continue;
+      if(RecoveryAlreadyUsedForCurrentBOS(OrderTicket())) continue;
+
+      // When multiple losing parents qualify, recover the order with
+      // the largest adverse raw-price distance first.
+      if(adverseRaw > largestRawDifference)
+      {
+         largestRawDifference = adverseRaw;
+         parentTicket = OrderTicket();
+         parentProfit = profit;
+         rawDifference = adverseRaw;
+      }
+   }
+
+   return(parentTicket > 0);
+}
+
+//+------------------------------------------------------------------+
+bool TryOpenRecoveryOrder()
+{
+   if(!InpUseRecoveryOrders) return(false);
+   if(!g_bosActive || g_bosDirection == 0) return(false);
+   if(InpRecoveryRawDifference <= 0.0) return(false);
+   if(InpRecoveryLotSize <= 0.0) return(false);
+   if(InpMaxRecoveryOrdersPerDirection <= 0) return(false);
+
+   int requiredType = (g_bosDirection == 1) ? OP_BUY : OP_SELL;
+
+   // Recovery maximum is separate for BUY and SELL directions.
+   if(CountRecoveryOrders(requiredType) >=
+      InpMaxRecoveryOrdersPerDirection)
+   {
+      return(false);
+   }
+
+   int parentTicket = -1;
+   double parentProfit = 0.0;
+   double rawDifference = 0.0;
+
+   if(!FindRecoveryParent(requiredType,
+                          parentTicket,
+                          parentProfit,
+                          rawDifference))
+   {
+      return(false);
+   }
+
+   string side = (requiredType == OP_BUY) ? "BUY" : "SELL";
+   string orderComment = "BOS_RECOVERY_" + side +
+                         "_P" + IntegerToString(parentTicket);
+
+   if(!OpenOrderWithLots(requiredType,
+                         InpRecoveryLotSize,
+                         orderComment))
+   {
+      return(false);
+   }
+
+   MarkRecoveryUsedForCurrentBOS(parentTicket);
+
+   double entryPrice = (requiredType == OP_BUY) ? Ask : Bid;
+   DrawRecoveryArrow(g_bosDirection,
+                     entryPrice,
+                     TimeCurrent(),
+                     parentTicket);
+
+   g_lastStatus = "Recovery " + side +
+                  " opened | Parent #" +
+                  IntegerToString(parentTicket) +
+                  " | Parent P/L $" +
+                  DoubleToString(parentProfit, 2) +
+                  " | Raw " +
+                  DoubleToString(rawDifference, 1);
+
+   Print(g_lastStatus);
    return(true);
 }
 
@@ -266,6 +679,15 @@ void CloseByProfitOrLoss()
       int ticket = OrderTicket();
       double profit = OrderProfit() + OrderSwap() + OrderCommission();
 
+      // While both linked orders are open, do not allow either order's
+      // individual profit trail to close it alone. The pair is managed by
+      // CloseRecoveryBasketsAtTP(). The fixed emergency SL stays active.
+      bool activeRecoveryPair = IsOrderInActiveRecoveryPair(ticket);
+
+      // The pair check changes the selected order, so restore this ticket.
+      if(!OrderSelect(ticket, SELECT_BY_TICKET, MODE_TRADES)) continue;
+      if(OrderCloseTime() != 0) continue;
+
       double previousProfit = GetTrailValue(ticket, "PREV", profit);
       double peakProfit     = GetTrailValue(ticket, "PEAK", profit);
       double lockedProfit   = GetTrailValue(ticket, "LOCK", 0.0);
@@ -278,7 +700,9 @@ void CloseByProfitOrLoss()
 
       bool lockRaised = false;
 
-      if(InpTakeProfitUSD > 0.0 && peakProfit >= InpTakeProfitUSD)
+      if(!activeRecoveryPair &&
+         InpTakeProfitUSD > 0.0 &&
+         peakProfit >= InpTakeProfitUSD)
       {
          double calculatedLock = MathFloor(
                                     (peakProfit + 0.0000001) /
@@ -305,7 +729,8 @@ void CloseByProfitOrLoss()
       // A falling tick is required, so touching a new level does not
       // close the order immediately on the same tick.
       bool profitFalling = (profit < previousProfit - 0.0000001);
-      bool trailHit = (InpTakeProfitUSD > 0.0 &&
+      bool trailHit = (!activeRecoveryPair &&
+                       InpTakeProfitUSD > 0.0 &&
                        !lockRaised &&
                        lockedProfit >= InpTakeProfitUSD &&
                        profitFalling &&
@@ -569,6 +994,29 @@ void DrawEntryArrow(int dir, double price, datetime t)
 }
 
 //+------------------------------------------------------------------+
+void DrawRecoveryArrow(int dir,
+                       double price,
+                       datetime t,
+                       int parentTicket)
+{
+   string suffix = IntegerToString((int)t) + "_" +
+                   IntegerToString(parentTicket);
+   string name = PFX + "RECOVERY_ENTRY_" + suffix;
+
+   ObjectCreate(0, name, OBJ_ARROW, 0, t, price);
+   ObjectSetInteger(0, name, OBJPROP_ARROWCODE,
+                    dir == 1 ? 233 : 234);
+   ObjectSetInteger(0, name, OBJPROP_COLOR, clrGold);
+   ObjectSetInteger(0, name, OBJPROP_WIDTH, 3);
+
+   DrawText(PFX + "RECOVERY_TEXT_" + suffix,
+            t,
+            price,
+            dir == 1 ? "RECOVERY BUY" : "RECOVERY SELL",
+            clrGold);
+}
+
+//+------------------------------------------------------------------+
 void DrawDashboard(string status)
 {
    string dir = "NONE";
@@ -594,6 +1042,13 @@ void DrawDashboard(string status)
    double lockedProfit = 0.0;
    GetOpenOrderTrailInfo(currentProfit, peakProfit, lockedProfit);
 
+   double recoveryBasketProfit = 0.0;
+   int recoveryParentTicket = -1;
+   int recoveryTicket = -1;
+   bool hasRecoveryBasket = GetRecoveryBasketInfo(recoveryBasketProfit,
+                                                  recoveryParentTicket,
+                                                  recoveryTicket);
+
    string txt = "EMA + BOS + PULLBACK EA\n";
    txt += "EMA Trend     : " + emaTxt + "\n";
    txt += "EMA" + IntegerToString(InpEMAPeriod) +
@@ -611,6 +1066,20 @@ void DrawDashboard(string status)
           DoubleToString(InpPullbackMaxRaw, 0) + "\n";
    txt += "Open Orders   : " +
           IntegerToString(CountMyOrders()) + "\n";
+   txt += "Recovery Rule : LOSS + BOS SAME DIR\n";
+   txt += "Recovery Gap  : " +
+          DoubleToString(InpRecoveryRawDifference, 0) + " raw\n";
+   txt += "Recovery B/S  : " +
+          IntegerToString(CountRecoveryOrders(OP_BUY)) + "/" +
+          IntegerToString(CountRecoveryOrders(OP_SELL)) + "\n";
+   txt += "Pair Basket TP: $" +
+          DoubleToString(InpTakeProfitUSD, 2) + "\n";
+   txt += "Pair Basket P/L: " +
+          (hasRecoveryBasket ?
+           "$" + DoubleToString(recoveryBasketProfit, 2) +
+           " | P#" + IntegerToString(recoveryParentTicket) +
+           " R#" + IntegerToString(recoveryTicket) :
+           "NONE") + "\n";
    txt += "Fixed SL      : -$" +
           DoubleToString(FIXED_STOP_LOSS_USD, 2) + "\n";
    txt += "Profit Step   : $" +
