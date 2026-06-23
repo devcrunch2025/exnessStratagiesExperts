@@ -137,7 +137,7 @@ bool   InpUseOppositeDirectionProfitPause = false;
 int    InpOppositeDirectionProfitStreakOrders = 2;
 int    InpOppositeDirectionPauseMinutes = 30;
 
-double InpProfitTargetPercent      = 50000.0;//50   // stop trading when equity reaches Base + 100%
+double InpProfitTargetPercent      = 50.0;//50   // stop trading when equity reaches Base + 100%
 double InpLossStopPercent          = 50.0;   // stop trading when equity reaches Base - 50%
 
 double InpBasketProfitUSD_12_17 = 1.00; // profit target during 12,13,14,15,16,17 hours
@@ -2407,11 +2407,11 @@ int OnInit()
    InpProfitTargetPercent = 2000.0;
 }
 
-if(AccountNumber()==291085426)
-{
-    InpProfitTargetPercent = 2000.0;
+// if(AccountNumber()==291085426)
+// {
+//     InpProfitTargetPercent = 2000.0;
 
-}
+// }
 
 
 

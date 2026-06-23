@@ -24,6 +24,12 @@
  bool   InpShowVisuals          = true;
  int    InpEMALineBars          = 80;
 
+// Daily account-profit protection (Dubai calendar day).
+// Example: day-start balance $40 and target 50% => when account equity
+// reaches $60, close all open EA orders and pause every new order until
+// the next Dubai calendar date.
+ double InpProfitTargetPercent  =50;// 10.0;
+
 // Recovery order settings.
 // A recovery order is opened in the SAME direction as a losing parent order
 // only when the adverse raw-price distance is at least the configured gap
@@ -38,7 +44,7 @@
  bool   InpCloseRecoveryBasketAtTP        = true;
 
 // Fixed money-based stop loss for every order.
-const double FIXED_STOP_LOSS_USD     = 6;//4;//5.00;$40 at 6
+const double FIXED_STOP_LOSS_USD     = 1;//6;//4;//5.00;$40 at 6
 
 int      g_bosDirection = 0;
 bool     g_bosActive    = false;
@@ -48,6 +54,13 @@ datetime g_lastBarTime  = 0;
 string   g_lastStatus   = "Starting";
 string   PFX            = "EMABOSPB_";
 
+// Dubai-day profit target state. Stored in terminal Global Variables so an
+// EA/chart restart does not remove the pause during the same Dubai day.
+int      g_dailyDubaiDateKey       = 0;
+double   g_dailyStartBalance       = 0.0;
+double   g_dailyTargetEquity       = 0.0;
+bool     g_dailyProfitTargetHit    = false;
+
 
 bool IsDubaiBlockedTime()
 {
@@ -56,15 +69,231 @@ bool IsDubaiBlockedTime()
 
    int hour = TimeHour(dubaiTime);
 
-   if(hour >= 16 && hour < 20) // 4PM,5PM,6PM,7PM
+   if(hour >= 16 && hour < 23) // 4PM,5PM,6PM,7PM
       return(true);
 
    return(false);
 }
 //+------------------------------------------------------------------+
+datetime GetDubaiTime()
+{
+   return(TimeGMT() + 4 * 3600);
+}
+
+//+------------------------------------------------------------------+
+int GetDubaiDateKey()
+{
+   datetime dubaiTime = GetDubaiTime();
+
+   return(TimeYear(dubaiTime) * 10000 +
+          TimeMonth(dubaiTime) * 100 +
+          TimeDay(dubaiTime));
+}
+
+//+------------------------------------------------------------------+
+string DailyProfitStateKey(string field)
+{
+   return("EBP_DAY_" +
+          IntegerToString(AccountNumber()) + "_" +
+          IntegerToString(InpMagicNumber) + "_" + field);
+}
+
+//+------------------------------------------------------------------+
+void SaveDailyProfitState()
+{
+   GlobalVariableSet(DailyProfitStateKey("DATE"),
+                     (double)g_dailyDubaiDateKey);
+   GlobalVariableSet(DailyProfitStateKey("BASE"),
+                     g_dailyStartBalance);
+   GlobalVariableSet(DailyProfitStateKey("TARGET"),
+                     g_dailyTargetEquity);
+   GlobalVariableSet(DailyProfitStateKey("HIT"),
+                     g_dailyProfitTargetHit ? 1.0 : 0.0);
+}
+
+//+------------------------------------------------------------------+
+void ResetDailyProfitState(int currentDubaiDateKey)
+{
+   g_dailyDubaiDateKey    = currentDubaiDateKey;
+   g_dailyStartBalance    = AccountBalance();
+   g_dailyTargetEquity    = g_dailyStartBalance *
+                            (1.0 + InpProfitTargetPercent / 100.0);
+   g_dailyProfitTargetHit = false;
+
+   SaveDailyProfitState();
+
+   Print("New Dubai trading day | Start balance $",
+         DoubleToString(g_dailyStartBalance, 2),
+         " | Profit target ",
+         DoubleToString(InpProfitTargetPercent, 2),
+         "% | Target equity $",
+         DoubleToString(g_dailyTargetEquity, 2));
+}
+
+//+------------------------------------------------------------------+
+void UpdateDailyProfitTargetState()
+{
+   int currentDubaiDateKey = GetDubaiDateKey();
+   string dateKey   = DailyProfitStateKey("DATE");
+   string baseKey   = DailyProfitStateKey("BASE");
+   string targetKey = DailyProfitStateKey("TARGET");
+   string hitKey    = DailyProfitStateKey("HIT");
+
+   int storedDateKey = 0;
+   if(GlobalVariableCheck(dateKey))
+      storedDateKey = (int)GlobalVariableGet(dateKey);
+
+   if(storedDateKey != currentDubaiDateKey ||
+      !GlobalVariableCheck(baseKey) ||
+      GlobalVariableGet(baseKey) <= 0.0)
+   {
+      ResetDailyProfitState(currentDubaiDateKey);
+   }
+   else
+   {
+      g_dailyDubaiDateKey = currentDubaiDateKey;
+      g_dailyStartBalance = GlobalVariableGet(baseKey);
+
+      // Recalculate from the saved day-start balance so changing the input
+      // updates today's target without changing today's original base.
+      g_dailyTargetEquity = g_dailyStartBalance *
+                            (1.0 + InpProfitTargetPercent / 100.0);
+
+      g_dailyProfitTargetHit =
+         (GlobalVariableCheck(hitKey) &&
+          GlobalVariableGet(hitKey) >= 0.5);
+
+      GlobalVariableSet(targetKey, g_dailyTargetEquity);
+   }
+
+   if(InpProfitTargetPercent <= 0.0)
+      return;
+
+   if(!g_dailyProfitTargetHit &&
+      AccountEquity() + 0.0000001 >= g_dailyTargetEquity)
+   {
+      g_dailyProfitTargetHit = true;
+      g_bosActive = false;
+      SaveDailyProfitState();
+
+      g_lastStatus = "DAILY TARGET REACHED | CLOSING ALL ORDERS";
+
+      Print(g_lastStatus,
+            " | Start $", DoubleToString(g_dailyStartBalance, 2),
+            " | Target equity $", DoubleToString(g_dailyTargetEquity, 2),
+            " | Current equity $", DoubleToString(AccountEquity(), 2));
+   }
+}
+
+//+------------------------------------------------------------------+
+bool IsDailyNewOrderPaused()
+{
+   if(InpProfitTargetPercent <= 0.0)
+      return(false);
+
+   return(g_dailyProfitTargetHit);
+}
+
+
+//+------------------------------------------------------------------+
+// Close every open market order created by this EA on this symbol when
+// the Dubai-day equity target has been reached. If any close request fails,
+// the daily pause remains latched and the EA retries on every new tick.
+//+------------------------------------------------------------------+
+bool CloseAllMyOrdersAtDailyTarget()
+{
+   int matchingOrders = 0;
+   int closedOrders   = 0;
+   int failedOrders   = 0;
+   double detectedNetProfit = 0.0;
+
+   for(int i = OrdersTotal()-1; i >= 0; i--)
+   {
+      if(!OrderSelect(i, SELECT_BY_POS, MODE_TRADES)) continue;
+      if(OrderSymbol() != Symbol()) continue;
+      if(OrderMagicNumber() != InpMagicNumber) continue;
+      if(OrderType() != OP_BUY && OrderType() != OP_SELL) continue;
+
+      matchingOrders++;
+
+      int ticket     = OrderTicket();
+      int type       = OrderType();
+      double lots    = OrderLots();
+      double profit  = OrderProfit() + OrderSwap() + OrderCommission();
+      detectedNetProfit += profit;
+
+      RefreshRates();
+      double closePrice = (type == OP_BUY) ? Bid : Ask;
+      color closeColor  = (type == OP_BUY) ? clrLime : clrRed;
+
+      ResetLastError();
+      bool closed = OrderClose(ticket,
+                               lots,
+                               closePrice,
+                               InpSlippage,
+                               closeColor);
+
+      if(closed)
+      {
+         closedOrders++;
+         DeleteProfitTrailState(ticket);
+
+         string recoveryKey = RecoveryBOSKey(ticket);
+         if(GlobalVariableCheck(recoveryKey))
+            GlobalVariableDel(recoveryKey);
+
+         Print("DAILY TARGET CLOSE | Ticket #", ticket,
+               " | P/L $", DoubleToString(profit, 2));
+      }
+      else
+      {
+         failedOrders++;
+         int err = GetLastError();
+
+         Print("DAILY TARGET CLOSE FAILED | Ticket #", ticket,
+               " | Error ", err,
+               " | P/L $", DoubleToString(profit, 2));
+      }
+   }
+
+   // No matching orders means the daily target exit is complete.
+   if(matchingOrders == 0)
+   {
+      g_lastStatus = "DAILY TARGET REACHED | ALL ORDERS CLOSED | PAUSED";
+      return(true);
+   }
+
+   if(failedOrders == 0)
+   {
+      g_lastStatus = "DAILY TARGET | CLOSED " +
+                     IntegerToString(closedOrders) +
+                     " ORDER(S) | PAUSED";
+      return(true);
+   }
+
+   g_lastStatus = "DAILY TARGET | CLOSED " +
+                  IntegerToString(closedOrders) +
+                  " | RETRY " +
+                  IntegerToString(failedOrders);
+
+   Print(g_lastStatus,
+         " | Detected basket P/L $",
+         DoubleToString(detectedNetProfit, 2));
+
+   return(false);
+}
+
+//+------------------------------------------------------------------+
 int OnInit()
 {
-     DeleteObjectsByPrefix(PFX);
+
+if(istesting())
+{
+   InpProfitTargetPercent=5000;
+}
+
+   DeleteObjectsByPrefix(PFX);
+   UpdateDailyProfitTargetState();
 
    Print("EMA BOS Pullback Visual EA started");
 
@@ -86,8 +315,22 @@ void OnTick()
 {
    RefreshRates();
 
-   // Paired recovery basket exit has priority over individual exits.
-   // This lets recovery profit offset the original order loss.
+   // Update/reset the Dubai-day base and latch the daily equity target.
+   UpdateDailyProfitTargetState();
+
+   // The daily target exit has the highest priority. Close every regular
+   // and recovery order from this EA, then remain paused until Dubai date
+   // changes. Failed closes are retried on every tick.
+   if(IsDailyNewOrderPaused())
+   {
+      CloseAllMyOrdersAtDailyTarget();
+
+      if(InpShowVisuals)
+         UpdateVisuals(false, GetEMATrend());
+
+      return;
+   }
+
    CloseRecoveryBasketsAtTP();
    CloseByProfitOrLoss();
 
@@ -96,13 +339,17 @@ void OnTick()
 
    DetectBOS();
 
-   // Recovery has priority over the normal pullback entry.
-   // It is allowed beside the losing parent order, so InpMaxOpenOrders
-   // does not block this special recovery order.
-   if(TryOpenRecoveryOrder())
+   // Both recovery and regular entries stop after the daily target is hit.
+   if(!IsDailyNewOrderPaused())
    {
-      if(InpShowVisuals) UpdateVisuals(false, GetEMATrend());
-      return;
+      // Recovery has priority over the normal pullback entry.
+      // It is allowed beside the losing parent order, so InpMaxOpenOrders
+      // does not block this special recovery order.
+      if(TryOpenRecoveryOrder())
+      {
+         if(InpShowVisuals) UpdateVisuals(false, GetEMATrend());
+         return;
+      }
    }
 
    int emaTrend = GetEMATrend();
@@ -110,7 +357,13 @@ void OnTick()
    bool emaAllowed = (emaTrend == g_bosDirection && emaTrend != 0);
    bool entryReady = (pullbackReady && emaAllowed);
 
+   if(IsDailyNewOrderPaused())
+      g_lastStatus = "DAILY TARGET REACHED | ALL ORDERS CLOSED | PAUSED";
+
    if(InpShowVisuals) UpdateVisuals(entryReady, emaTrend);
+
+   if(IsDailyNewOrderPaused())
+      return;
 
    if(InpOnlyNewCandleEntry && !isNewBar)
    {
@@ -124,13 +377,11 @@ void OnTick()
       return;
    }
 
-//    if(IsDubaiBlockedTime())
-// {
-
-//    g_lastStatus="TRADING PAUSED | Dubai Time 4PM-8PM";
-//    // Comment("TRADING PAUSED | Dubai Time 4PM-8PM");
-//    return;
-// }
+   if(IsDubaiBlockedTime())
+   {
+      g_lastStatus = "TRADING PAUSED | Dubai blocked hours";
+      return;
+   }
 
    if(entryReady)
    {
@@ -253,6 +504,13 @@ bool OpenOrder(int type, string orderComment)
 bool OpenOrderWithLots(int type, double lots, string orderComment)
 {
    RefreshRates();
+   UpdateDailyProfitTargetState();
+
+   if(IsDailyNewOrderPaused())
+   {
+      g_lastStatus = "DAILY TARGET REACHED | ALL ORDERS CLOSED | PAUSED";
+      return(false);
+   }
 
    double price = (type == OP_BUY) ? Ask : Bid;
    ResetLastError();
@@ -597,6 +855,8 @@ bool FindRecoveryParent(int requiredType,
 //+------------------------------------------------------------------+
 bool TryOpenRecoveryOrder()
 {
+   UpdateDailyProfitTargetState();
+   if(IsDailyNewOrderPaused()) return(false);
    if(!InpUseRecoveryOrders) return(false);
    if(!g_bosActive || g_bosDirection == 0) return(false);
    if(InpRecoveryRawDifference <= 0.0) return(false);
@@ -1050,6 +1310,16 @@ void DrawDashboard(string status)
                                                   recoveryTicket);
 
    string txt = "EMA + BOS + PULLBACK EA\n";
+   txt += "Dubai Day Base: $" +
+          DoubleToString(g_dailyStartBalance, 2) + "\n";
+   txt += "Daily Target  : " +
+          DoubleToString(InpProfitTargetPercent, 2) + "% | $" +
+          DoubleToString(g_dailyTargetEquity, 2) + "\n";
+   txt += "Account Equity: $" +
+          DoubleToString(AccountEquity(), 2) + "\n";
+   txt += "New Orders    : " +
+          (IsDailyNewOrderPaused() ? "PAUSED" : "ACTIVE") + "\n";
+   txt += "Daily Exit    : CLOSE ALL EA ORDERS\n";
    txt += "EMA Trend     : " + emaTxt + "\n";
    txt += "EMA" + IntegerToString(InpEMAPeriod) +
           "         : " + DoubleToString(ema, Digits) + "\n";
