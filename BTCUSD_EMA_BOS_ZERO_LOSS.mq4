@@ -1,8 +1,7 @@
 //+------------------------------------------------------------------+
 //| BTCUSD_EMA_BOS_ASSIGNED_DYNAMIC_TP_PULLBACK_EA.mq4              |
-//| EMA + BOS + remembered pullback + momentum continuation         |
+//| Closed-candle BOS + confirmed pullback + spike protection       |
 //| Clean-profit BOS re-entry + recovery basket + adaptive TP       |
-//| Independent BUY/SELL current, peak, lock and adaptive summaries |
 //+------------------------------------------------------------------+
 #property strict
 
@@ -21,41 +20,54 @@ double InpPullbackMaxRaw             = 120.0;
 // InpOnlyNewCandleEntry=true, the entry is made on the next candle even
 // if price has already moved out of the pullback zone.
 
-// Momentum continuation entry:
-// BUY  = price continues above the bullish BOS price by this raw distance.
-// SELL = price continues below the bearish BOS price by this raw distance.
-// It is armed only if the pullback zone was not touched first.
-bool   InpUseMomentumContinuation    = true;
-double InpMomentumContinuationRaw    = 100.0;
+// BOS confirmation and false-breakout protection.
+// BOS is accepted only after candle 1 closes outside the structure.
+// Oversized spike candles and weak-bodied/wick breakouts are rejected.
+double InpMaxBOSCandleRangeRaw       = 250.0;
+double InpMinBOSCandleBodyPercent    = 55.0;
+double InpBOSCandleCloseEdgePercent  = 25.0;
 
-// InpTakeProfitUSD is the DEFAULT profit-lock step for every new order.
-// Adaptive loss targets are calculated separately for each open order.
-// Closing one order immediately restores this input to its default value,
-// so another clean regular order cannot inherit a smaller target.
-// Touch -$1 => that order's TP = Default TP / 2
-// Touch -$2 => that order's TP = Default TP / 3
-// Touch -$3 => that order's TP = Default TP / 4
-// Touch -$4 => that order's TP = Default TP / 5
-// Touch -$5 => that order uses break-even/cost-to-cost target.
-double InpTakeProfitUSD              = 0.40;
-bool   InpUseAdaptiveLossTarget      = true;///1/2/3/4
+// Require more than one closed candle on the correct side of EMA.
+// This prevents one vertical spike from immediately flipping the trend.
+int    InpEMAConfirmBars             = 2;
+
+// The broken structure must remain held at entry.
+double InpStructureHoldBufferRaw     = 5.0;
+double InpBOSFailureBufferRaw        = 5.0;
+
+// Pullback entry requires a confirmation candle in the BOS direction.
+// If the retracement exceeds the configured maximum, the BOS is cancelled.
+bool   InpRequirePullbackConfirmCandle = true;
+bool   InpCancelBOSOnDeepPullback      = true;
+
+// Block all entries for several bars after an oversized candle.
+bool   InpUseSpikeEntryBlock         = true;
+double InpSpikeRangeRaw              = 300.0;
+int    InpSpikeBlockBars             = 3;
+
+// Momentum continuation is disabled by default because it can chase a
+// vertical breakout candle. It can be enabled only after testing.
+bool   InpUseMomentumContinuation    = false;
+double InpMomentumContinuationRaw    = 100.0;
+int    InpMomentumMinBarsAfterBOS    = 2;
+
+// InpTakeProfitUSD is the LIVE moving profit-lock step.
+// The original input value is saved when the EA starts.
+// Touch -$1 => Original TP / 2
+// Touch -$2 => Original TP / 3
+// Touch -$3 => Original TP / 4
+// Touch -$4 => Original TP / 5
+// Touch -$5 => break-even/cost-to-cost target.
+double InpTakeProfitUSD              = 0.50;
+bool   InpUseAdaptiveLossTarget      = true;
 double InpAdaptiveLossLevelUSD       = 1.00;
 double InpBreakEvenAfterLossUSD      = 5.00;
 double InpBreakEvenCloseProfitUSD    = 0.00;
-double InpFixedStopLossUSD                = 7;//6;//10;//6.00;
-
 
 int    InpMaxOpenOrders              = 1;
 bool   InpOnlyNewCandleEntry         = true;
 bool   InpShowVisuals                = true;
 int    InpEMALineBars                = 80;
-
-// Professional right-side dashboard settings.
-int    InpDashboardRightMargin       = 12;
-int    InpDashboardTopMargin         = 18;
-int    InpDashboardWidth             = 350;
-int    InpDashboardFontSize          = 8;
-int    InpDashboardRowHeight         = 17;
 
 // Dubai daily account-profit protection.
 // Example: day-start balance $40 and target 50% means close all EA orders
@@ -66,7 +78,7 @@ double InpProfitTargetPercent        = 50.0;
 // Recovery opens in the SAME direction as a losing regular parent only
 // when adverse distance is large enough and active BOS matches direction.
 bool   InpUseRecoveryOrders             = true;
-double InpRecoveryLotSize               = 0.02;
+double InpRecoveryLotSize               = 0.01;
 double InpRecoveryRawDifference         = 100.0;
 int    InpMaxRecoveryOrdersPerDirection = 1;
 
@@ -81,6 +93,7 @@ bool   InpUseCleanProfitPullback          = true;
 int    InpCleanProfitPullbackMaxBars      = 3;
 
 // Emergency money stop. Keep it above the break-even trigger.
+double InpFixedStopLossUSD                = 6.00;
 
 //----------------------------- BOS state -----------------------------
 int      g_bosDirection = 0;
@@ -104,9 +117,10 @@ datetime g_momentumTouchBarTime      = 0;
 double   g_momentumTouchRaw          = 0.0;
 double   g_momentumTouchPrice        = 0.0;
 
-datetime g_lastBarTime  = 0;
-string   g_lastStatus   = "Starting";
-string   PFX            = "EMABOSPB_";
+datetime g_lastBarTime          = 0;
+datetime g_lastBOSDetectionBar = 0;
+string   g_lastStatus           = "Starting";
+string   PFX                    = "EMABOSPB_";
 
 //-------------------------- Daily target state -----------------------
 int      g_dailyDubaiDateKey       = 0;
@@ -124,12 +138,7 @@ double   g_cleanPullbackClosePrice    = 0.0;
 
 //------------------------- Adaptive TP state -------------------------
 double   g_originalTakeProfitUSD      = 0.0;
-// BUY and SELL summaries are deliberately independent.
-// A BUY drawdown can never reduce the SELL target, and vice versa.
-double   g_assignedBuyTakeProfitUSD   = 0.0;
-double   g_assignedSellTakeProfitUSD  = 0.0;
-int      g_assignedBuyLossTier        = 0;
-int      g_assignedSellLossTier       = 0;
+int      g_assignedLossTier           = 0;
 
 //+------------------------------------------------------------------+
 // Dubai blocked period: 4:00 PM inclusive to 8:00 PM exclusive.
@@ -304,7 +313,6 @@ bool CloseAllMyOrdersAtDailyTarget()
       {
          closedOrders++;
          DeleteProfitTrailState(ticket);
-         RestoreDefaultTakeProfitAfterClose();
 
          string recoveryKey = RecoveryBOSKey(ticket);
          if(GlobalVariableCheck(recoveryKey))
@@ -356,17 +364,13 @@ int OnInit()
    if(IsTesting())
       InpProfitTargetPercent = 5000.0;
 
-   g_originalTakeProfitUSD     = InpTakeProfitUSD;
-   g_assignedBuyTakeProfitUSD  = g_originalTakeProfitUSD;
-   g_assignedSellTakeProfitUSD = g_originalTakeProfitUSD;
-   g_assignedBuyLossTier       = 0;
-   g_assignedSellLossTier      = 0;
+   g_originalTakeProfitUSD = InpTakeProfitUSD;
+   g_assignedLossTier      = 0;
 
    DeleteObjectsByPrefix(PFX);
    UpdateDailyProfitTargetState();
-   UpdateSideProfitStates();
 
-   Print("EMA BOS Pullback + Momentum EA started");
+   Print("EMA BOS Closed-Candle Confirmed Pullback EA started");
 
    if(InpShowVisuals)
       DrawDashboard("Initialized");
@@ -379,28 +383,6 @@ void OnDeinit(const int reason)
 {
    DeleteObjectsByPrefix(PFX);
    Comment("");
-}
-
-int CountMyOrdersByType(int orderType)
-{
-   int count = 0;
-
-   for(int i = OrdersTotal() - 1; i >= 0; i--)
-   {
-      if(!OrderSelect(i, SELECT_BY_POS, MODE_TRADES))
-         continue;
-
-      if(OrderSymbol() != Symbol())
-         continue;
-
-      if(OrderMagicNumber() != InpMagicNumber)
-         continue;
-
-      if(OrderType() == orderType)
-         count++;
-   }
-
-   return count;
 }
 
 //+------------------------------------------------------------------+
@@ -430,8 +412,15 @@ void OnTick()
    // Close parent + recovery baskets before individual exits.
    CloseRecoveryBasketsAtTP();
 
-   // Refresh BOS and remember intrabar pullback/momentum events.
-   DetectBOS();
+   // BOS is confirmed only from the newly closed candle. Existing BOS
+   // state is first invalidated when price closes back through structure.
+   if(isNewBar)
+   {
+      ValidateActiveBOSOnNewBar();
+      DetectBOS();
+   }
+
+   // Remember intrabar pullback/momentum events only after a confirmed BOS.
    UpdateBOSSetupMemory();
 
    // A clean profitable close is allowed to arm re-entry even when no BOS
@@ -439,9 +428,8 @@ void OnTick()
    // same-direction BOS.
    CloseByProfitOrLoss();
 
-   // Refresh BUY and SELL adaptive summaries independently.
+   // A close may remove the order that created the assigned loss tier.
    AssignTakeProfitFromOpenOrderLosses();
-   UpdateSideProfitStates();
 
    if(!IsDailyNewOrderPaused())
    {
@@ -482,68 +470,11 @@ void OnTick()
       return;
    }
 
-
-
-// Current BOS order direction.
-int orderType = (g_bosDirection == 1) ? OP_BUY : OP_SELL;
-
-// Profit of the side opposite to the current BOS.
-double oppositeSideProfit = 0.0;
-int oppositeSideOrders = 0;
-
-if(orderType == OP_BUY)
-{
-   oppositeSideProfit = GetMyOpenProfitByType(OP_SELL);
-   oppositeSideOrders = CountMyOrdersByType(OP_SELL);
-}
-else
-{
-   oppositeSideProfit = GetMyOpenProfitByType(OP_BUY);
-   oppositeSideOrders = CountMyOrdersByType(OP_BUY);
-}
-
-// Example:
-// InpFixedStopLossUSD = $7
-// Half-loss trigger       = -$3.50
-double halfStopLossTrigger =
-   -(InpFixedStopLossUSD / 3.0);
-
-// Allow one order in the BOS direction even when the normal total-order
-// limit is reached, but only when the opposite side is already losing
-// at least half of its fixed stop loss.
-bool allowOppositeBOSOrder =
-   (InpFixedStopLossUSD > 0.0 &&
-    oppositeSideOrders > 0 &&
-    oppositeSideProfit <= halfStopLossTrigger);
-
-    allowOppositeBOSOrder=false;
-
-if(allowOppositeBOSOrder)
-{
-   // Apply the maximum separately to the new BOS direction.
-   if(CountMyOrdersByType(orderType) >= InpMaxOpenOrders)
-   {
-      g_lastStatus =
-         (orderType == OP_BUY)
-         ? "Blocked: max BUY orders"
-         : "Blocked: max SELL orders";
-
-      return;
-   }
-}
-else
-{
-   // Under normal conditions, apply the maximum to all open orders.
    if(CountMyOrders() >= InpMaxOpenOrders)
    {
-      g_lastStatus = "Blocked: max total open orders";
+      g_lastStatus = "Blocked: max open orders";
       return;
    }
-}
-
-   
-
-  
 
    if(IsDubaiBlockedTime())
    {
@@ -595,13 +526,33 @@ else
 //+------------------------------------------------------------------+
 int GetEMATrend()
 {
+   int confirmBars = (int)MathMax(1, InpEMAConfirmBars);
+
+   if(Bars < InpEMAPeriod + confirmBars + 10)
+      return(0);
+
    double ema1 = iMA(Symbol(), Period(), InpEMAPeriod, 0,
                      MODE_EMA, PRICE_CLOSE, 1);
    double ema5 = iMA(Symbol(), Period(), InpEMAPeriod, 0,
                      MODE_EMA, PRICE_CLOSE, 5);
 
-   if(Close[1] > ema1 && ema1 > ema5) return(1);
-   if(Close[1] < ema1 && ema1 < ema5) return(-1);
+   bool buySide  = (ema1 > ema5);
+   bool sellSide = (ema1 < ema5);
+
+   for(int shift = 1; shift <= confirmBars; shift++)
+   {
+      double emaShift = iMA(Symbol(), Period(), InpEMAPeriod, 0,
+                            MODE_EMA, PRICE_CLOSE, shift);
+
+      if(Close[shift] <= emaShift)
+         buySide = false;
+
+      if(Close[shift] >= emaShift)
+         sellSide = false;
+   }
+
+   if(buySide)  return(1);
+   if(sellSide) return(-1);
 
    return(0);
 }
@@ -666,10 +617,122 @@ void ConsumeCurrentBOS(string reason)
 }
 
 //+------------------------------------------------------------------+
+double GetCandleBodyPercent(int shift)
+{
+   double range = High[shift] - Low[shift];
+
+   if(range <= 0.0)
+      return(0.0);
+
+   double body = MathAbs(Close[shift] - Open[shift]);
+   return(body / range * 100.0);
+}
+
+//+------------------------------------------------------------------+
+bool IsBOSCandleCloseNearEdge(int direction, int shift)
+{
+   double range = High[shift] - Low[shift];
+
+   if(range <= 0.0)
+      return(false);
+
+   double allowedDistance =
+      range * MathMax(0.0, InpBOSCandleCloseEdgePercent) / 100.0;
+
+   if(direction == 1)
+      return((High[shift] - Close[shift]) <= allowedDistance);
+
+   return((Close[shift] - Low[shift]) <= allowedDistance);
+}
+
+//+------------------------------------------------------------------+
+bool IsRecentSpikeBlocked()
+{
+   if(!InpUseSpikeEntryBlock)
+      return(false);
+
+   if(InpSpikeRangeRaw <= 0.0 || InpSpikeBlockBars <= 0)
+      return(false);
+
+   int barsToCheck = (int)MathMin(InpSpikeBlockBars, Bars - 2);
+
+   for(int shift = 1; shift <= barsToCheck; shift++)
+   {
+      double rangeRaw = High[shift] - Low[shift];
+
+      if(rangeRaw >= InpSpikeRangeRaw)
+         return(true);
+   }
+
+   return(false);
+}
+
+//+------------------------------------------------------------------+
+bool IsBOSStructureHolding()
+{
+   if(!g_bosActive || g_bosDirection == 0 || g_bosLevel <= 0.0)
+      return(false);
+
+   double buffer = MathMax(0.0, InpStructureHoldBufferRaw);
+
+   if(g_bosDirection == 1)
+   {
+      return(Close[1] > g_bosLevel + buffer &&
+             Bid      > g_bosLevel + buffer);
+   }
+
+   return(Close[1] < g_bosLevel - buffer &&
+          Ask      < g_bosLevel - buffer);
+}
+
+//+------------------------------------------------------------------+
+bool IsDirectionConfirmationCandle(int direction)
+{
+   if(direction == 1)
+      return(Close[1] > Open[1]);
+
+   if(direction == -1)
+      return(Close[1] < Open[1]);
+
+   return(false);
+}
+
+//+------------------------------------------------------------------+
+void ValidateActiveBOSOnNewBar()
+{
+   if(!g_bosActive || g_bosDirection == 0 || g_bosLevel <= 0.0)
+      return;
+
+   double failureBuffer = MathMax(0.0, InpBOSFailureBufferRaw);
+
+   if(g_bosDirection == 1 &&
+      Close[1] < g_bosLevel - failureBuffer)
+   {
+      g_lastStatus = "Bullish BOS failed: candle closed below structure";
+      ConsumeCurrentBOS("bullish structure failed");
+      return;
+   }
+
+   if(g_bosDirection == -1 &&
+      Close[1] > g_bosLevel + failureBuffer)
+   {
+      g_lastStatus = "Bearish BOS failed: candle closed above structure";
+      ConsumeCurrentBOS("bearish structure failed");
+      return;
+   }
+}
+
+//+------------------------------------------------------------------+
 void DetectBOS()
 {
    if(Bars < InpSwingLookback + 5)
       return;
+
+   // Evaluate each newly closed candle only once.
+   if(g_lastBOSDetectionBar == Time[1])
+      return;
+
+   g_lastBOSDetectionBar = Time[1];
 
    int highIndex = iHighest(Symbol(), Period(), MODE_HIGH,
                             InpSwingLookback, 2);
@@ -687,48 +750,96 @@ void DetectBOS()
    DrawHLine(PFX + "STRUCT_LOW", structureLow,
              clrTomato, STYLE_DOT, "Structure Low");
 
-   double buyTrigger  = structureHigh + InpMinBOSRawGap;
-   double sellTrigger = structureLow  - InpMinBOSRawGap;
+   double candleRange = High[1] - Low[1];
+   double bodyPercent = GetCandleBodyPercent(1);
 
-   if(Ask > buyTrigger)
+   bool rangeAllowed =
+      (InpMaxBOSCandleRangeRaw <= 0.0 ||
+       candleRange <= InpMaxBOSCandleRangeRaw);
+
+   bool bodyAllowed =
+      (bodyPercent + 0.0000001 >=
+       MathMax(0.0, InpMinBOSCandleBodyPercent));
+
+   bool bullishCandle =
+      (Close[1] > Open[1] &&
+       IsBOSCandleCloseNearEdge(1, 1));
+
+   bool bearishCandle =
+      (Close[1] < Open[1] &&
+       IsBOSCandleCloseNearEdge(-1, 1));
+
+   bool bullishBreak =
+      (Close[1] > structureHigh + InpMinBOSRawGap);
+
+   bool bearishBreak =
+      (Close[1] < structureLow - InpMinBOSRawGap);
+
+   if(bullishBreak)
    {
-      bool newDirection = (g_bosDirection != 1);
-      bool newLevel = (g_lastBullishStructureLevel <= 0.0 ||
-                       structureHigh >
-                       g_lastBullishStructureLevel + Point * 0.5);
+      if(!rangeAllowed)
+      {
+         g_lastStatus = "BOS BUY rejected: oversized spike candle";
+         Print(g_lastStatus,
+               " | Range ", DoubleToString(candleRange, 1));
+         return;
+      }
 
-      // Do not replace an already-active same-direction BOS because
-      // that would erase its remembered pullback/momentum setup.
+      if(!bodyAllowed || !bullishCandle)
+      {
+         g_lastStatus = "BOS BUY rejected: weak body/wick breakout";
+         return;
+      }
+
+      bool newDirection = (g_bosDirection != 1);
+      bool newLevel =
+         (g_lastBullishStructureLevel <= 0.0 ||
+          structureHigh >
+          g_lastBullishStructureLevel + Point * 0.5);
+
       bool canActivate = newDirection || !g_bosActive;
 
       if(canActivate && (newDirection || newLevel))
       {
          ActivateBOS(1,
                      structureHigh,
-                     Ask,
-                     TimeCurrent());
+                     Close[1],
+                     Time[1]);
       }
 
       return;
    }
 
-   if(Bid < sellTrigger)
+   if(bearishBreak)
    {
-      bool newDirection = (g_bosDirection != -1);
-      bool newLevel = (g_lastBearishStructureLevel <= 0.0 ||
-                       structureLow <
-                       g_lastBearishStructureLevel - Point * 0.5);
+      if(!rangeAllowed)
+      {
+         g_lastStatus = "BOS SELL rejected: oversized spike candle";
+         Print(g_lastStatus,
+               " | Range ", DoubleToString(candleRange, 1));
+         return;
+      }
 
-      // Do not replace an already-active same-direction BOS because
-      // that would erase its remembered pullback/momentum setup.
+      if(!bodyAllowed || !bearishCandle)
+      {
+         g_lastStatus = "BOS SELL rejected: weak body/wick breakout";
+         return;
+      }
+
+      bool newDirection = (g_bosDirection != -1);
+      bool newLevel =
+         (g_lastBearishStructureLevel <= 0.0 ||
+          structureLow <
+          g_lastBearishStructureLevel - Point * 0.5);
+
       bool canActivate = newDirection || !g_bosActive;
 
       if(canActivate && (newDirection || newLevel))
       {
          ActivateBOS(-1,
                      structureLow,
-                     Bid,
-                     TimeCurrent());
+                     Close[1],
+                     Time[1]);
       }
 
       return;
@@ -805,6 +916,14 @@ void UpdateBOSSetupMemory()
 
    double pullbackRaw = GetCurrentPullbackRaw();
 
+   if(InpCancelBOSOnDeepPullback &&
+      pullbackRaw > InpPullbackMaxRaw)
+   {
+      g_lastStatus = "BOS cancelled: pullback exceeded maximum";
+      ConsumeCurrentBOS("deep pullback");
+      return;
+   }
+
    bool insidePullbackZone =
       (pullbackRaw >= InpPullbackMinRaw &&
        pullbackRaw <= InpPullbackMaxRaw);
@@ -825,10 +944,14 @@ void UpdateBOSSetupMemory()
             " | Raw ", DoubleToString(pullbackRaw, 1));
    }
 
+   int barsFromBOS = GetBarsFromTime(g_bosTime);
+
    if(InpUseMomentumContinuation &&
       InpMomentumContinuationRaw > 0.0 &&
+      barsFromBOS >= MathMax(1, InpMomentumMinBarsAfterBOS) &&
       !g_pullbackTouchLatched &&
-      !g_momentumTouchLatched)
+      !g_momentumTouchLatched &&
+      !IsRecentSpikeBlocked())
    {
       double continuationRaw = GetCurrentContinuationRaw();
 
@@ -866,6 +989,28 @@ bool GetBOSSetupEntryReady(bool isNewBar, int &entrySetup)
    if(ExpireActiveBOSIfRequired())
       return(false);
 
+   if(IsRecentSpikeBlocked())
+   {
+      g_lastStatus = "Entry blocked: recent oversized candle";
+      return(false);
+   }
+
+   if(!IsBOSStructureHolding())
+   {
+      g_lastStatus = "Entry waiting: broken structure not holding";
+      return(false);
+   }
+
+   if(GetEMATrend() != g_bosDirection)
+   {
+      g_lastStatus = "Entry waiting: EMA confirmation";
+      return(false);
+   }
+
+   bool directionCandleOK =
+      (!InpRequirePullbackConfirmCandle ||
+       IsDirectionConfirmationCandle(g_bosDirection));
+
    if(InpOnlyNewCandleEntry)
    {
       if(!isNewBar)
@@ -873,7 +1018,8 @@ bool GetBOSSetupEntryReady(bool isNewBar, int &entrySetup)
 
       if(g_pullbackTouchLatched &&
          g_pullbackTouchBarTime > 0 &&
-         Time[0] != g_pullbackTouchBarTime)
+         Time[0] != g_pullbackTouchBarTime &&
+         directionCandleOK)
       {
          entrySetup = 1;
          return(true);
@@ -881,22 +1027,26 @@ bool GetBOSSetupEntryReady(bool isNewBar, int &entrySetup)
 
       if(g_momentumTouchLatched &&
          g_momentumTouchBarTime > 0 &&
-         Time[0] != g_momentumTouchBarTime)
+         Time[0] != g_momentumTouchBarTime &&
+         directionCandleOK)
       {
          entrySetup = 2;
          return(true);
       }
 
+      if(g_pullbackTouchLatched && !directionCandleOK)
+         g_lastStatus = "Pullback remembered | waiting confirmation candle";
+
       return(false);
    }
 
-   if(g_pullbackTouchLatched)
+   if(g_pullbackTouchLatched && directionCandleOK)
    {
       entrySetup = 1;
       return(true);
    }
 
-   if(g_momentumTouchLatched)
+   if(g_momentumTouchLatched && directionCandleOK)
    {
       entrySetup = 2;
       return(true);
@@ -1126,7 +1276,6 @@ bool CloseOrderByTicket(int ticket,
    if(closed)
    {
       DeleteProfitTrailState(ticket);
-      RestoreDefaultTakeProfitAfterClose();
 
       Print(reason,
             " | Ticket #", ticket,
@@ -1193,16 +1342,10 @@ void CloseRecoveryBasketsAtTP()
                             OrderCommission();
 
       double basketProfit = parentProfit + recoveryProfit;
-
-      int pairLossTier =
-         (int)MathMax(GetStoredLossTier(parentTicket),
-                      GetStoredLossTier(recoveryTicket));
-
-      double basketTarget =
-         GetAssignedTakeProfitForLossTier(pairLossTier);
+      double basketTarget = InpTakeProfitUSD;
 
       bool breakEvenMode =
-         IsBreakEvenLossTier(pairLossTier);
+         IsBreakEvenLossTier(g_assignedLossTier);
 
       if(basketProfit + 0.0000001 < basketTarget)
          continue;
@@ -1217,8 +1360,8 @@ void CloseRecoveryBasketsAtTP()
       string reason =
          "Recovery basket " + side +
          " " + targetMode +
-         " | Pair loss tier " +
-         IntegerToString(pairLossTier) +
+         " | Assigned tier " +
+         IntegerToString(g_assignedLossTier) +
          " | Basket $" +
          DoubleToString(basketProfit, 2);
 
@@ -1358,6 +1501,9 @@ bool TryOpenRecoveryOrder()
    if(InpRecoveryLotSize <= 0.0) return(false);
    if(InpMaxRecoveryOrdersPerDirection <= 0) return(false);
    if(IsDubaiBlockedTime()) return(false);
+   if(IsRecentSpikeBlocked()) return(false);
+   if(!IsBOSStructureHolding()) return(false);
+   if(GetEMATrend() != g_bosDirection) return(false);
 
    int requiredType =
       (g_bosDirection == 1) ? OP_BUY : OP_SELL;
@@ -1508,6 +1654,31 @@ bool TryOpenCleanProfitPullback(bool isNewBar)
       return(false);
    }
 
+   if(IsRecentSpikeBlocked())
+   {
+      g_lastStatus = "Clean pullback blocked: recent spike";
+      return(false);
+   }
+
+   if(!IsBOSStructureHolding())
+   {
+      g_lastStatus = "Clean pullback waiting structure hold";
+      return(false);
+   }
+
+   if(GetEMATrend() != g_cleanPullbackDirection)
+   {
+      g_lastStatus = "Clean pullback waiting EMA confirmation";
+      return(false);
+   }
+
+   if(InpRequirePullbackConfirmCandle &&
+      !IsDirectionConfirmationCandle(g_cleanPullbackDirection))
+   {
+      g_lastStatus = "Clean pullback waiting confirmation candle";
+      return(false);
+   }
+
    // Never reopen on the same candle as the clean close.
    if(Time[0] == g_cleanPullbackCloseBarTime)
    {
@@ -1521,80 +1692,13 @@ bool TryOpenCleanProfitPullback(bool isNewBar)
       return(false);
    }
 
-   // if(CountMyOrders() >= InpMaxOpenOrders)
-   // {
-   //    g_lastStatus =
-   //       "Clean pullback blocked: max open orders";
-
-   //    return(false);
-   // }
-// Current BOS order direction.
-int orderType = (g_bosDirection == 1) ? OP_BUY : OP_SELL;
-
-// Profit of the side opposite to the current BOS.
-double oppositeSideProfit = 0.0;
-int oppositeSideOrders = 0;
-
-if(orderType == OP_BUY)
-{
-   oppositeSideProfit = GetMyOpenProfitByType(OP_SELL);
-   oppositeSideOrders = CountMyOrdersByType(OP_SELL);
-}
-else
-{
-   oppositeSideProfit = GetMyOpenProfitByType(OP_BUY);
-   oppositeSideOrders = CountMyOrdersByType(OP_BUY);
-}
-
-// Example:
-// InpFixedStopLossUSD = $7
-// Half-loss trigger       = -$3.50
-double halfStopLossTrigger =
-   -(InpFixedStopLossUSD / 3.0);
-
-
-
-// Allow one order in the BOS direction even when the normal total-order
-// limit is reached, but only when the opposite side is already losing
-// at least half of its fixed stop loss.
-bool allowOppositeBOSOrder =
-   (InpFixedStopLossUSD > 0.0 &&
-    oppositeSideOrders > 0 &&
-    oppositeSideProfit <= halfStopLossTrigger);
-    allowOppositeBOSOrder=false;
-
-if(allowOppositeBOSOrder)
-{
-   // Apply the maximum separately to the new BOS direction.
-   if(CountMyOrdersByType(orderType) >= InpMaxOpenOrders)
-   {
-      g_lastStatus =
-         (orderType == OP_BUY)
-         ? "Blocked: max BUY orders"
-         : "Blocked: max SELL orders";
-
-      return false;
-   }
-}
-else
-{
-   // Under normal conditions, apply the maximum to all open orders.
    if(CountMyOrders() >= InpMaxOpenOrders)
    {
-      g_lastStatus = "Blocked: max total open orders";
-      return false;
-   }
-}
-   
-//    int orderType = (g_bosDirection > 0) ? OP_BUY : OP_SELL;
+      g_lastStatus =
+         "Clean pullback blocked: max open orders";
 
-// if(CountMyOrdersByType(orderType) >= InpMaxOpenOrders)
-// {
-//    g_lastStatus = (orderType == OP_BUY)
-//                   ? "Blocked: max BUY orders"
-//                   : "Blocked: max SELL orders";
-//    return(false);
-// }
+      return(false);
+   }
 
    if(IsDubaiBlockedTime())
    {
@@ -1707,8 +1811,11 @@ double GetAssignedTakeProfitForLossTier(int lossTier)
 }
 
 //+------------------------------------------------------------------+
-int GetDeepestLossTierByType(int orderType)
+void AssignTakeProfitFromOpenOrderLosses()
 {
+   if(g_originalTakeProfitUSD <= 0.0)
+      g_originalTakeProfitUSD = InpTakeProfitUSD;
+
    int deepestTier = 0;
 
    for(int i = 0; i < OrdersTotal(); i++)
@@ -1716,7 +1823,7 @@ int GetDeepestLossTierByType(int orderType)
       if(!OrderSelect(i, SELECT_BY_POS, MODE_TRADES)) continue;
       if(OrderSymbol() != Symbol()) continue;
       if(OrderMagicNumber() != InpMagicNumber) continue;
-      if(OrderType() != orderType) continue;
+      if(OrderType() != OP_BUY && OrderType() != OP_SELL) continue;
 
       int tier = GetStoredLossTier(OrderTicket());
 
@@ -1724,103 +1831,36 @@ int GetDeepestLossTierByType(int orderType)
          deepestTier = tier;
    }
 
-   return(deepestTier);
-}
+   double assignedTP =
+      GetAssignedTakeProfitForLossTier(deepestTier);
 
-//+------------------------------------------------------------------+
-double GetLowestMinimumProfitByType(int orderType)
-{
-   bool found = false;
-   double lowestProfit = 0.0;
+   bool changed =
+      (deepestTier != g_assignedLossTier ||
+       MathAbs(InpTakeProfitUSD - assignedTP) >
+       0.0000001);
 
-   for(int i = 0; i < OrdersTotal(); i++)
+   g_assignedLossTier = deepestTier;
+   InpTakeProfitUSD   = assignedTP;
+
+   if(changed)
    {
-      if(!OrderSelect(i, SELECT_BY_POS, MODE_TRADES)) continue;
-      if(OrderSymbol() != Symbol()) continue;
-      if(OrderMagicNumber() != InpMagicNumber) continue;
-      if(OrderType() != orderType) continue;
+      string targetText =
+         IsBreakEvenLossTier(deepestTier) ?
+         "BREAK-EVEN $" +
+         DoubleToString(InpTakeProfitUSD, 2) :
+         "$" +
+         DoubleToString(InpTakeProfitUSD, 4);
 
-      double currentProfit =
-         OrderProfit() + OrderSwap() + OrderCommission();
-
-      double minimumProfit =
-         GetStoredMinimumProfit(OrderTicket(), currentProfit);
-
-      if(!found || minimumProfit < lowestProfit)
-      {
-         lowestProfit = minimumProfit;
-         found = true;
-      }
-   }
-
-   return(found ? lowestProfit : 0.0);
-}
-
-//+------------------------------------------------------------------+
-void RefreshAssignedTargetsBySide(bool writeStatus)
-{
-   int oldBuyTier = g_assignedBuyLossTier;
-   int oldSellTier = g_assignedSellLossTier;
-
-   double oldBuyTP = g_assignedBuyTakeProfitUSD;
-   double oldSellTP = g_assignedSellTakeProfitUSD;
-
-   g_assignedBuyLossTier = GetDeepestLossTierByType(OP_BUY);
-   g_assignedSellLossTier = GetDeepestLossTierByType(OP_SELL);
-
-   g_assignedBuyTakeProfitUSD =
-      GetAssignedTakeProfitForLossTier(g_assignedBuyLossTier);
-
-   g_assignedSellTakeProfitUSD =
-      GetAssignedTakeProfitForLossTier(g_assignedSellLossTier);
-
-   bool buyChanged =
-      (oldBuyTier != g_assignedBuyLossTier ||
-       MathAbs(oldBuyTP - g_assignedBuyTakeProfitUSD) > 0.0000001);
-
-   bool sellChanged =
-      (oldSellTier != g_assignedSellLossTier ||
-       MathAbs(oldSellTP - g_assignedSellTakeProfitUSD) > 0.0000001);
-
-   if(writeStatus && (buyChanged || sellChanged))
-   {
       g_lastStatus =
-         "BUY TP $" + DoubleToString(g_assignedBuyTakeProfitUSD, 4) +
-         " T" + IntegerToString(g_assignedBuyLossTier) +
-         " | SELL TP $" + DoubleToString(g_assignedSellTakeProfitUSD, 4) +
-         " T" + IntegerToString(g_assignedSellLossTier);
+         "InpTakeProfitUSD assigned " +
+         targetText +
+         " | Loss tier " +
+         IntegerToString(deepestTier);
 
-      Print("SIDE TARGETS | ", g_lastStatus,
-            " | Default TP $",
+      Print(g_lastStatus,
+            " | Original TP $",
             DoubleToString(g_originalTakeProfitUSD, 4));
    }
-}
-
-//+------------------------------------------------------------------+
-void RestoreDefaultTakeProfitAfterClose()
-{
-   if(g_originalTakeProfitUSD <= 0.0)
-      g_originalTakeProfitUSD = InpTakeProfitUSD;
-
-   // The external/default input is never changed by BUY or SELL losses.
-   InpTakeProfitUSD = g_originalTakeProfitUSD;
-
-   // Recalculate remaining BUY and SELL targets separately.
-   RefreshAssignedTargetsBySide(false);
-   UpdateSideProfitStates();
-}
-
-//+------------------------------------------------------------------+
-void AssignTakeProfitFromOpenOrderLosses()
-{
-   if(g_originalTakeProfitUSD <= 0.0)
-      g_originalTakeProfitUSD = InpTakeProfitUSD;
-
-   // Keep the configured input at its startup/default value.
-   InpTakeProfitUSD = g_originalTakeProfitUSD;
-
-   // No combined/global loss tier is used. Each direction has its own tier.
-   RefreshAssignedTargetsBySide(true);
 }
 
 //+------------------------------------------------------------------+
@@ -1944,14 +1984,11 @@ void CloseByProfitOrLoss()
       int lossTier =
          GetStoredLossTier(ticket);
 
-      // IMPORTANT: use this ticket's own drawdown tier only.
-      // BUY and SELL never share current, peak, lock, minimum or loss tier.
-      // A losing BUY cannot reduce a SELL target, and vice versa.
       double effectiveStep =
-         GetAssignedTakeProfitForLossTier(lossTier);
+         InpTakeProfitUSD;
 
       bool breakEvenMode =
-         IsBreakEvenLossTier(lossTier);
+         IsBreakEvenLossTier(g_assignedLossTier);
 
       if(profit > peakProfit)
       {
@@ -1992,8 +2029,8 @@ void CloseByProfitOrLoss()
             g_lastStatus =
                "Dynamic lock raised to $" +
                DoubleToString(lockedProfit, 2) +
-               " | Order loss tier " +
-               IntegerToString(lossTier) +
+               " | Assigned tier " +
+               IntegerToString(g_assignedLossTier) +
                " | TP $" +
                DoubleToString(effectiveStep, 4);
          }
@@ -2047,8 +2084,8 @@ void CloseByProfitOrLoss()
          CloseSelectedOrder(
             "Dynamic trailing lock $" +
             DoubleToString(lockedProfit, 2) +
-            " | Order TP $" +
-            DoubleToString(effectiveStep, 4) +
+            " | Assigned TP $" +
+            DoubleToString(InpTakeProfitUSD, 4) +
             " | Loss tier " +
             IntegerToString(lossTier),
             profit);
@@ -2111,7 +2148,6 @@ bool CloseSelectedOrder(string reason,
       }
 
       DeleteProfitTrailState(ticket);
-      RestoreDefaultTakeProfitAfterClose();
 
       g_lastStatus =
          reason +
@@ -2225,7 +2261,7 @@ void GetOpenOrderTrailInfo(double &currentProfit,
    lockedProfit   = 0.0;
    minimumProfit  = 0.0;
    lossTier       = 0;
-   adaptiveTarget = g_originalTakeProfitUSD;
+   adaptiveTarget = InpTakeProfitUSD;
 
    for(int i = 0; i < OrdersTotal(); i++)
    {
@@ -2257,7 +2293,7 @@ void GetOpenOrderTrailInfo(double &currentProfit,
          GetStoredLossTier(ticket);
 
       adaptiveTarget =
-         GetAssignedTakeProfitForLossTier(lossTier);
+         InpTakeProfitUSD;
 
       return;
    }
@@ -2603,339 +2639,17 @@ void DrawRecoveryArrow(int dir,
 }
 
 //+------------------------------------------------------------------+
-//| Professional right-side dashboard helpers                       |
-//+------------------------------------------------------------------+
-string DashboardTimeframeText()
-{
-   int tf = Period();
-
-   if(tf == PERIOD_M1)   return("M1");
-   if(tf == PERIOD_M5)   return("M5");
-   if(tf == PERIOD_M15)  return("M15");
-   if(tf == PERIOD_M30)  return("M30");
-   if(tf == PERIOD_H1)   return("H1");
-   if(tf == PERIOD_H4)   return("H4");
-   if(tf == PERIOD_D1)   return("D1");
-   if(tf == PERIOD_W1)   return("W1");
-   if(tf == PERIOD_MN1)  return("MN1");
-
-   return(IntegerToString(tf));
-}
-
-//+------------------------------------------------------------------+
-double GetMyOpenProfitByType(int orderType)
-{
-   double total = 0.0;
-
-   for(int i = OrdersTotal() - 1; i >= 0; i--)
-   {
-      if(!OrderSelect(i, SELECT_BY_POS, MODE_TRADES)) continue;
-      if(OrderSymbol() != Symbol()) continue;
-      if(OrderMagicNumber() != InpMagicNumber) continue;
-      if(OrderType() != orderType) continue;
-
-      total += OrderProfit() + OrderSwap() + OrderCommission();
-   }
-
-   return(total);
-}
-
-//+------------------------------------------------------------------+
-double GetMyLockedProfitByType(int orderType)
-{
-   double total = 0.0;
-
-   for(int i = OrdersTotal() - 1; i >= 0; i--)
-   {
-      if(!OrderSelect(i, SELECT_BY_POS, MODE_TRADES)) continue;
-      if(OrderSymbol() != Symbol()) continue;
-      if(OrderMagicNumber() != InpMagicNumber) continue;
-      if(OrderType() != orderType) continue;
-
-      total += GetTrailValue(OrderTicket(), "LOCK", 0.0);
-   }
-
-   return(total);
-}
-
-//+------------------------------------------------------------------+
-string SideProfitStateKey(int orderType, string field)
-{
-   string side = (orderType == OP_BUY) ? "BUY" : "SELL";
-
-   return("EBP_SIDE_" +
-          IntegerToString(AccountNumber()) + "_" +
-          IntegerToString(InpMagicNumber) + "_" +
-          Symbol() + "_" + side + "_" + field);
-}
-
-//+------------------------------------------------------------------+
-double GetSideProfitState(int orderType,
-                          string field,
-                          double defaultValue)
-{
-   string key = SideProfitStateKey(orderType, field);
-
-   if(!GlobalVariableCheck(key))
-   {
-      GlobalVariableSet(key, defaultValue);
-      return(defaultValue);
-   }
-
-   return(GlobalVariableGet(key));
-}
-
-//+------------------------------------------------------------------+
-void SetSideProfitState(int orderType,
-                        string field,
-                        double value)
-{
-   GlobalVariableSet(SideProfitStateKey(orderType, field), value);
-}
-
-//+------------------------------------------------------------------+
-void UpdateSideProfitState(int orderType)
-{
-   int orderCount = CountMyOrdersByType(orderType);
-   int previousCount =
-      (int)GetSideProfitState(orderType, "COUNT", 0.0);
-
-   if(orderCount <= 0)
-   {
-      SetSideProfitState(orderType, "COUNT", 0.0);
-      SetSideProfitState(orderType, "CURRENT", 0.0);
-      SetSideProfitState(orderType, "PREVIOUS", 0.0);
-      SetSideProfitState(orderType, "PEAK", 0.0);
-      SetSideProfitState(orderType, "MINIMUM", 0.0);
-      return;
-   }
-
-   double currentProfit = GetMyOpenProfitByType(orderType);
-
-   // Any change in the side's basket composition starts a fresh peak cycle.
-   // This prevents a closed BUY/SELL order's old peak from affecting the
-   // remaining or newly opened orders on that same side.
-   if(previousCount != orderCount)
-   {
-      SetSideProfitState(orderType, "COUNT", orderCount);
-      SetSideProfitState(orderType, "CURRENT", currentProfit);
-      SetSideProfitState(orderType, "PREVIOUS", currentProfit);
-      SetSideProfitState(orderType, "PEAK", currentProfit);
-      SetSideProfitState(orderType, "MINIMUM", currentProfit);
-      return;
-   }
-
-   double peakProfit =
-      GetSideProfitState(orderType, "PEAK", currentProfit);
-
-   double minimumProfit =
-      GetSideProfitState(orderType, "MINIMUM", currentProfit);
-
-   if(currentProfit > peakProfit)
-      peakProfit = currentProfit;
-
-   if(currentProfit < minimumProfit)
-      minimumProfit = currentProfit;
-
-   SetSideProfitState(orderType, "COUNT", orderCount);
-   SetSideProfitState(orderType, "CURRENT", currentProfit);
-   SetSideProfitState(orderType, "PREVIOUS", currentProfit);
-   SetSideProfitState(orderType, "PEAK", peakProfit);
-   SetSideProfitState(orderType, "MINIMUM", minimumProfit);
-}
-
-//+------------------------------------------------------------------+
-void UpdateSideProfitStates()
-{
-   UpdateSideProfitState(OP_BUY);
-   UpdateSideProfitState(OP_SELL);
-}
-
-//+------------------------------------------------------------------+
-void GetSideProfitSummary(int orderType,
-                          double &currentProfit,
-                          double &peakProfit,
-                          double &lockedProfit,
-                          double &minimumProfit,
-                          int &lossTier,
-                          double &adaptiveTarget)
-{
-   UpdateSideProfitState(orderType);
-
-   currentProfit = GetMyOpenProfitByType(orderType);
-   peakProfit = GetSideProfitState(orderType, "PEAK", currentProfit);
-   lockedProfit = GetMyLockedProfitByType(orderType);
-   minimumProfit = GetSideProfitState(orderType, "MINIMUM", currentProfit);
-
-   if(orderType == OP_BUY)
-   {
-      lossTier = g_assignedBuyLossTier;
-      adaptiveTarget = g_assignedBuyTakeProfitUSD;
-   }
-   else
-   {
-      lossTier = g_assignedSellLossTier;
-      adaptiveTarget = g_assignedSellTakeProfitUSD;
-   }
-}
-
-//+------------------------------------------------------------------+
-color DashboardDirectionColor(int direction)
-{
-   if(direction > 0) return(C'65,220,125');
-   if(direction < 0) return(C'255,95,95');
-
-   return(C'255,195,65');
-}
-
-//+------------------------------------------------------------------+
-color DashboardProfitColor(double profit)
-{
-   if(profit > 0.0000001)  return(C'65,220,125');
-   if(profit < -0.0000001) return(C'255,95,95');
-
-   return(C'205,210,220');
-}
-
-//+------------------------------------------------------------------+
-color DashboardBoolColor(bool state)
-{
-   return(state ? C'65,220,125' : C'150,158,175');
-}
-
-//+------------------------------------------------------------------+
-void DashboardBox(string id,
-                  int x,
-                  int y,
-                  int width,
-                  int height,
-                  color background,
-                  color border)
-{
-   string name = PFX + "DASH_BOX_" + id;
-
-   if(ObjectFind(0, name) < 0)
-      ObjectCreate(0, name, OBJ_RECTANGLE_LABEL, 0, 0, 0);
-
-   ObjectSetInteger(0, name, OBJPROP_CORNER, CORNER_RIGHT_UPPER);
-   ObjectSetInteger(0, name, OBJPROP_XDISTANCE, x);
-   ObjectSetInteger(0, name, OBJPROP_YDISTANCE, y);
-   ObjectSetInteger(0, name, OBJPROP_XSIZE, width);
-   ObjectSetInteger(0, name, OBJPROP_YSIZE, height);
-   ObjectSetInteger(0, name, OBJPROP_BGCOLOR, background);
-   ObjectSetInteger(0, name, OBJPROP_COLOR, border);
-   ObjectSetInteger(0, name, OBJPROP_BORDER_TYPE, BORDER_FLAT);
-   ObjectSetInteger(0, name, OBJPROP_BACK, false);
-   ObjectSetInteger(0, name, OBJPROP_SELECTABLE, false);
-   ObjectSetInteger(0, name, OBJPROP_SELECTED, false);
-   ObjectSetInteger(0, name, OBJPROP_HIDDEN, true);
-}
-
-//+------------------------------------------------------------------+
-void DashboardLabel(string id,
-                    string text,
-                    int x,
-                    int y,
-                    int fontSize,
-                    color textColor,
-                    int anchor,
-                    string fontName)
-{
-   string name = PFX + "DASH_LBL_" + id;
-
-   if(ObjectFind(0, name) < 0)
-      ObjectCreate(0, name, OBJ_LABEL, 0, 0, 0);
-
-   ObjectSetInteger(0, name, OBJPROP_CORNER, CORNER_RIGHT_UPPER);
-   ObjectSetInteger(0, name, OBJPROP_ANCHOR, anchor);
-   ObjectSetInteger(0, name, OBJPROP_XDISTANCE, x);
-   ObjectSetInteger(0, name, OBJPROP_YDISTANCE, y);
-   ObjectSetInteger(0, name, OBJPROP_COLOR, textColor);
-   ObjectSetInteger(0, name, OBJPROP_FONTSIZE, fontSize);
-   ObjectSetString(0, name, OBJPROP_FONT, fontName);
-   ObjectSetString(0, name, OBJPROP_TEXT, text);
-   ObjectSetInteger(0, name, OBJPROP_BACK, false);
-   ObjectSetInteger(0, name, OBJPROP_SELECTABLE, false);
-   ObjectSetInteger(0, name, OBJPROP_SELECTED, false);
-   ObjectSetInteger(0, name, OBJPROP_HIDDEN, true);
-}
-
-//+------------------------------------------------------------------+
-void DashboardSection(string id,
-                      string title,
-                      int y,
-                      color accent)
-{
-   int x = InpDashboardRightMargin + 8;
-   int width = InpDashboardWidth - 16;
-
-   DashboardBox("SEC_" + id,
-                x,
-                y,
-                width,
-                20,
-                C'31,36,49',
-                accent);
-
-   DashboardLabel("SEC_" + id,
-                  title,
-                  InpDashboardRightMargin + InpDashboardWidth - 18,
-                  y + 4,
-                  8,
-                  accent,
-                  ANCHOR_LEFT_UPPER,
-                  "Arial Bold");
-}
-
-//+------------------------------------------------------------------+
-void DashboardRow(string id,
-                  string caption,
-                  string value,
-                  int y,
-                  color valueColor)
-{
-   DashboardLabel(id + "_K",
-                  caption,
-                  InpDashboardRightMargin + InpDashboardWidth - 18,
-                  y,
-                  InpDashboardFontSize,
-                  C'172,180,196',
-                  ANCHOR_LEFT_UPPER,
-                  "Arial");
-
-   DashboardLabel(id + "_V",
-                  value,
-                  InpDashboardRightMargin + 18,
-                  y,
-                  InpDashboardFontSize,
-                  valueColor,
-                  ANCHOR_RIGHT_UPPER,
-                  "Arial Bold");
-}
-
-//+------------------------------------------------------------------+
-string DashboardStatusPart(string text,
-                           int start,
-                           int length)
-{
-   if(start >= StringLen(text))
-      return("");
-
-   return(StringSubstr(text, start, length));
-}
-
-//+------------------------------------------------------------------+
 void DrawDashboard(string status)
 {
-   Comment("");
-
    string dir = "NONE";
+
    if(g_bosDirection == 1)  dir = "BUY";
    if(g_bosDirection == -1) dir = "SELL";
 
    int emaTrend = GetEMATrend();
 
    string emaTxt = "FLAT";
+
    if(emaTrend == 1)  emaTxt = "BUY";
    if(emaTrend == -1) emaTxt = "SELL";
 
@@ -2944,38 +2658,25 @@ void DrawDashboard(string status)
           InpEMAPeriod, 0,
           MODE_EMA, PRICE_CLOSE, 1);
 
-   double pullbackRaw = GetCurrentPullbackRaw();
-   double continuationRaw = GetCurrentContinuationRaw();
+   double pullbackRaw =
+      GetCurrentPullbackRaw();
 
-   double buyCurrentProfit = 0.0;
-   double buyPeakProfit = 0.0;
-   double buyLockedProfit = 0.0;
-   double buyMinimumProfit = 0.0;
-   int buyLossTier = 0;
-   double buyAdaptiveTarget = g_originalTakeProfitUSD;
+   double continuationRaw =
+      GetCurrentContinuationRaw();
 
-   double sellCurrentProfit = 0.0;
-   double sellPeakProfit = 0.0;
-   double sellLockedProfit = 0.0;
-   double sellMinimumProfit = 0.0;
-   int sellLossTier = 0;
-   double sellAdaptiveTarget = g_originalTakeProfitUSD;
+   double currentProfit = 0.0;
+   double peakProfit = 0.0;
+   double lockedProfit = 0.0;
+   double minimumProfit = 0.0;
+   int lossTier = 0;
+   double adaptiveTarget = InpTakeProfitUSD;
 
-   GetSideProfitSummary(OP_BUY,
-                        buyCurrentProfit,
-                        buyPeakProfit,
-                        buyLockedProfit,
-                        buyMinimumProfit,
-                        buyLossTier,
-                        buyAdaptiveTarget);
-
-   GetSideProfitSummary(OP_SELL,
-                        sellCurrentProfit,
-                        sellPeakProfit,
-                        sellLockedProfit,
-                        sellMinimumProfit,
-                        sellLossTier,
-                        sellAdaptiveTarget);
+   GetOpenOrderTrailInfo(currentProfit,
+                         peakProfit,
+                         lockedProfit,
+                         minimumProfit,
+                         lossTier,
+                         adaptiveTarget);
 
    double recoveryBasketProfit = 0.0;
    int recoveryParentTicket = -1;
@@ -2986,289 +2687,237 @@ void DrawDashboard(string status)
                             recoveryParentTicket,
                             recoveryTicket);
 
-   double buyProfit = buyCurrentProfit;
-   double sellProfit = sellCurrentProfit;
+   string cleanPBDir = "NONE";
 
-   int buyOrders = CountMyOrdersByType(OP_BUY);
-   int sellOrders = CountMyOrdersByType(OP_SELL);
+   if(g_cleanPullbackDirection == 1)
+      cleanPBDir = "BUY";
 
-   string cleanPBText = "IDLE";
+   if(g_cleanPullbackDirection == -1)
+      cleanPBDir = "SELL";
 
-   if(g_cleanPullbackPending)
-   {
-      cleanPBText =
-         (g_cleanPullbackDirection == 1 ? "WAIT BUY" : "WAIT SELL") +
-         " #" + IntegerToString(g_cleanPullbackSourceTicket);
-   }
+   string txt =
+      "EMA + CLOSED BOS + CONFIRMED PULLBACK EA\n";
 
-   bool emaMatch =
-      (emaTrend == g_bosDirection && emaTrend != 0);
+   txt +=
+      "Dubai Day Base: $" +
+      DoubleToString(g_dailyStartBalance, 2) +
+      "\n";
 
-   bool newOrdersPaused = IsDailyNewOrderPaused();
-   bool dubaiBlocked = IsDubaiBlockedTime();
+   txt +=
+      "Daily Target  : " +
+      DoubleToString(InpProfitTargetPercent, 2) +
+      "% | $" +
+      DoubleToString(g_dailyTargetEquity, 2) +
+      "\n";
 
-   string tradingState = "ACTIVE";
-   color tradingColor = C'65,220,125';
+   txt +=
+      "Account Equity: $" +
+      DoubleToString(AccountEquity(), 2) +
+      "\n";
 
-   if(newOrdersPaused)
-   {
-      tradingState = "DAILY PAUSED";
-      tradingColor = C'255,95,95';
-   }
-   else if(dubaiBlocked)
-   {
-      tradingState = "TIME PAUSED";
-      tradingColor = C'255,180,55';
-   }
+   txt +=
+      "New Orders    : " +
+      (IsDailyNewOrderPaused() ?
+       "PAUSED" :
+       "ACTIVE") +
+      "\n";
 
-   color panelBorder = tradingColor;
+   txt +=
+      "Dubai Pause   : 16:00-20:00\n";
 
-   int panelHeight = 270 + 25 * InpDashboardRowHeight;
-   int top = InpDashboardTopMargin;
-   int right = InpDashboardRightMargin;
-   int width = InpDashboardWidth;
+   txt +=
+      "EMA Trend     : " +
+      emaTxt +
+      "\n";
 
-   DashboardBox("MAIN",
-                right,
-                top,
-                width,
-                panelHeight,
-                C'14,17,24',
-                panelBorder);
+   txt +=
+      "EMA" +
+      IntegerToString(InpEMAPeriod) +
+      "         : " +
+      DoubleToString(ema, Digits) +
+      "\n";
 
-   DashboardBox("HEADER",
-                right + 1,
-                top + 1,
-                width - 2,
-                54,
-                C'20,30,48',
-                C'38,98,170');
+   txt +=
+      "BOS Direction : " +
+      dir +
+      "\n";
 
-   DashboardLabel("TITLE",
-                  "DXB EMA + BOS TRADING EA",
-                  right + width - 16,
-                  top + 9,
-                  11,
-                  C'235,242,255',
-                  ANCHOR_LEFT_UPPER,
-                  "Arial Bold");
+   txt +=
+      "BOS Active    : " +
+      BoolText(g_bosActive) +
+      "\n";
 
-   DashboardLabel("SUBTITLE",
-                  Symbol() + "  |  " + DashboardTimeframeText() +
-                  "  |  Dubai " + TimeToString(GetDubaiTime(), TIME_MINUTES),
-                  right + width - 16,
-                  top + 31,
-                  8,
-                  C'145,180,225',
-                  ANCHOR_LEFT_UPPER,
-                  "Arial");
+   txt +=
+      "BOS Price     : " +
+      DoubleToString(g_bosPrice, Digits) +
+      "\n";
 
-   DashboardBox("STATE_BADGE",
-                right + 12,
-                top + 12,
-                94,
-                27,
-                C'25,29,38',
-                tradingColor);
+   txt +=
+      "EMA Match     : " +
+      BoolText(emaTrend == g_bosDirection &&
+               emaTrend != 0) +
+      "\n";
 
-   DashboardLabel("STATE",
-                  tradingState,
-                  right + 59,
-                  top + 25,
-                  8,
-                  tradingColor,
-                  ANCHOR_CENTER,
-                  "Arial Bold");
+   txt +=
+      "BOS Hold      : " +
+      BoolText(IsBOSStructureHolding()) +
+      "\n";
 
-   int y = top + 63;
+   txt +=
+      "Spike Block   : " +
+      BoolText(IsRecentSpikeBlocked()) +
+      "\n";
 
-   DashboardSection("ACCOUNT", "ACCOUNT & DAILY PROTECTION", y,
-                    C'65,170,255');
-   y += 26;
+   txt +=
+      "Pullback Raw  : " +
+      DoubleToString(pullbackRaw, 1) +
+      " / " +
+      DoubleToString(InpPullbackMinRaw, 0) +
+      "-" +
+      DoubleToString(InpPullbackMaxRaw, 0) +
+      "\n";
 
-   DashboardRow("BALANCE", "Account Balance",
-                "$" + DoubleToString(AccountBalance(), 2),
-                y, C'225,232,245');
-   y += InpDashboardRowHeight;
+   txt +=
+      "PB Remembered : " +
+      BoolText(g_pullbackTouchLatched) +
+      " | Raw " +
+      DoubleToString(g_pullbackTouchRaw, 1) +
+      "\n";
 
-   DashboardRow("EQUITY", "Account Equity",
-                "$" + DoubleToString(AccountEquity(), 2),
-                y, DashboardProfitColor(AccountEquity() - AccountBalance()));
-   y += InpDashboardRowHeight;
+   txt +=
+      "Momentum Raw  : " +
+      DoubleToString(continuationRaw, 1) +
+      " / " +
+      DoubleToString(InpMomentumContinuationRaw, 0) +
+      "\n";
 
-   DashboardRow("DAY_BASE", "Dubai Day Base",
-                "$" + DoubleToString(g_dailyStartBalance, 2),
-                y, C'145,205,255');
-   y += InpDashboardRowHeight;
+   txt +=
+      "MOM Remembered: " +
+      BoolText(g_momentumTouchLatched) +
+      " | Raw " +
+      DoubleToString(g_momentumTouchRaw, 1) +
+      "\n";
 
-   DashboardRow("DAY_TARGET", "Daily Target",
-                DoubleToString(InpProfitTargetPercent, 1) + "%  |  $" +
-                DoubleToString(g_dailyTargetEquity, 2),
-                y, C'80,220,205');
-   y += InpDashboardRowHeight;
+   txt +=
+      "Clean PB Rule : NEVER NEGATIVE + FUTURE/SAME BOS\n";
 
-   DashboardRow("ORDER_STATE", "New Orders",
-                tradingState,
-                y, tradingColor);
-   y += InpDashboardRowHeight + 4;
+   txt +=
+      "Clean PB Wait : " +
+      BoolText(g_cleanPullbackPending) +
+      " | " +
+      cleanPBDir +
+      " | Source #" +
+      IntegerToString(g_cleanPullbackSourceTicket) +
+      "\n";
 
-   DashboardSection("SIGNAL", "MARKET SIGNAL", y,
-                    C'185,110,255');
-   y += 26;
+   txt +=
+      "Clean PB Exp. : " +
+      IntegerToString(InpCleanProfitPullbackMaxBars) +
+      " bars\n";
 
-   DashboardRow("EMA_TREND", "EMA Trend",
-                emaTxt,
-                y, DashboardDirectionColor(emaTrend));
-   y += InpDashboardRowHeight;
+   txt +=
+      "Open Orders   : " +
+      IntegerToString(CountMyOrders()) +
+      "\n";
 
-   DashboardRow("EMA_VALUE", "EMA" + IntegerToString(InpEMAPeriod),
-                DoubleToString(ema, Digits),
-                y, C'255,190,75');
-   y += InpDashboardRowHeight;
+   txt +=
+      "Recovery Rule : LOSS + BOS SAME DIR\n";
 
-   DashboardRow("BOS_DIR", "BOS Direction",
-                dir,
-                y, DashboardDirectionColor(g_bosDirection));
-   y += InpDashboardRowHeight;
+   txt +=
+      "Recovery Gap  : " +
+      DoubleToString(InpRecoveryRawDifference, 0) +
+      " raw\n";
 
-   DashboardRow("BOS_STATE", "BOS State / EMA Match",
-                (g_bosActive ? "ACTIVE" : "IDLE") +
-                " / " + (emaMatch ? "YES" : "NO"),
-                y, (g_bosActive && emaMatch) ?
-                C'65,220,125' : C'255,180,55');
-   y += InpDashboardRowHeight;
+   txt +=
+      "Recovery B/S  : " +
+      IntegerToString(CountRecoveryOrders(OP_BUY)) +
+      "/" +
+      IntegerToString(CountRecoveryOrders(OP_SELL)) +
+      "\n";
 
-   DashboardRow("PULLBACK", "Pullback Raw / Memory",
-                DoubleToString(pullbackRaw, 1) + " / " +
-                (g_pullbackTouchLatched ? "YES" : "NO"),
-                y, g_pullbackTouchLatched ?
-                C'80,225,210' : C'170,178,192');
-   y += InpDashboardRowHeight;
+   txt +=
+      "Pair Target   : " +
+      (hasRecoveryBasket ?
+       (IsBreakEvenLossTier(g_assignedLossTier) ?
+        "BREAK-EVEN" :
+        "$" +
+        DoubleToString(InpTakeProfitUSD, 2)) :
+       "$" +
+       DoubleToString(InpTakeProfitUSD, 2)) +
+      " | Global tier " +
+      IntegerToString(g_assignedLossTier) +
+      "\n";
 
-   DashboardRow("MOMENTUM", "Momentum Raw / Memory",
-                DoubleToString(continuationRaw, 1) + " / " +
-                (g_momentumTouchLatched ? "YES" : "NO"),
-                y, g_momentumTouchLatched ?
-                C'255,205,70' : C'170,178,192');
-   y += InpDashboardRowHeight;
+   txt +=
+      "Pair Basket P/L: " +
+      (hasRecoveryBasket ?
+       "$" +
+       DoubleToString(recoveryBasketProfit, 2) +
+       " | P#" +
+       IntegerToString(recoveryParentTicket) +
+       " R#" +
+       IntegerToString(recoveryTicket) :
+       "NONE") +
+      "\n";
 
-   DashboardRow("CLEAN_PB", "Clean Re-entry",
-                cleanPBText,
-                y, g_cleanPullbackPending ?
-                C'70,220,235' : C'150,158,175');
-   y += InpDashboardRowHeight + 4;
+   txt +=
+      "Emergency SL  : -$" +
+      DoubleToString(InpFixedStopLossUSD, 2) +
+      "\n";
 
-   DashboardSection("ORDERS", "ORDERS & LIVE PROFIT", y,
-                    C'65,220,125');
-   y += 26;
+   txt +=
+      "Original TP   : $" +
+      DoubleToString(g_originalTakeProfitUSD, 4) +
+      "\n";
 
-   DashboardRow("ORDER_COUNT", "BUY / SELL Orders",
-                IntegerToString(buyOrders) + " / " +
-                IntegerToString(sellOrders) +
-                "   Max " + IntegerToString(InpMaxOpenOrders) + "/side",
-                y, C'225,232,245');
-   y += InpDashboardRowHeight;
+   txt +=
+      "Assigned TP   : $" +
+      DoubleToString(InpTakeProfitUSD, 4) +
+      "\n";
 
-   DashboardRow("BUY_LIVE_PEAK", "BUY Current / Peak",
-                "$" + DoubleToString(buyCurrentProfit, 2) + " / $" +
-                DoubleToString(buyPeakProfit, 2),
-                y, DashboardProfitColor(buyCurrentProfit));
-   y += InpDashboardRowHeight;
+   txt +=
+      "Global Tier   : " +
+      IntegerToString(g_assignedLossTier) +
+      "\n";
 
-   DashboardRow("SELL_LIVE_PEAK", "SELL Current / Peak",
-                "$" + DoubleToString(sellCurrentProfit, 2) + " / $" +
-                DoubleToString(sellPeakProfit, 2),
-                y, DashboardProfitColor(sellCurrentProfit));
-   y += InpDashboardRowHeight;
+   txt +=
+      "Min P/L Seen  : $" +
+      DoubleToString(minimumProfit, 2) +
+      "\n";
 
-   DashboardRow("SIDE_LOCKED", "BUY / SELL Locked",
-                "$" + DoubleToString(buyLockedProfit, 2) + " / $" +
-                DoubleToString(sellLockedProfit, 2),
-                y, C'210,218,235');
-   y += InpDashboardRowHeight;
+   txt +=
+      "Loss Tier     : " +
+      IntegerToString(lossTier) +
+      "\n";
 
-   DashboardRow("REC_COUNT", "Recovery BUY / SELL",
-                IntegerToString(CountRecoveryOrders(OP_BUY)) + " / " +
-                IntegerToString(CountRecoveryOrders(OP_SELL)),
-                y, C'255,205,70');
-   y += InpDashboardRowHeight;
+   txt +=
+      "Active Target : " +
+      (IsBreakEvenLossTier(g_assignedLossTier) ?
+       "BREAK-EVEN" :
+       "$" +
+       DoubleToString(adaptiveTarget, 4)) +
+      "\n";
 
-   DashboardRow("PAIR", "Recovery Pair Basket",
-                hasRecoveryBasket ?
-                ("$" + DoubleToString(recoveryBasketProfit, 2) +
-                 "  P#" + IntegerToString(recoveryParentTicket) +
-                 " R#" + IntegerToString(recoveryTicket)) :
-                "NONE",
-                y, hasRecoveryBasket ?
-                DashboardProfitColor(recoveryBasketProfit) :
-                C'150,158,175');
-   y += InpDashboardRowHeight;
+   txt +=
+      "Current P/L   : $" +
+      DoubleToString(currentProfit, 2) +
+      "\n";
 
-   y += 4;
+   txt +=
+      "Peak Profit   : $" +
+      DoubleToString(peakProfit, 2) +
+      "\n";
 
-   DashboardSection("RISK", "ADAPTIVE TARGET & RISK", y,
-                    C'255,145,65');
-   y += 26;
+   txt +=
+      "Locked Profit : $" +
+      DoubleToString(lockedProfit, 2) +
+      "\n";
 
-   DashboardRow("DEFAULT_TP", "Default TP",
-                "$" + DoubleToString(g_originalTakeProfitUSD, 4),
-                y, C'255,205,70');
-   y += InpDashboardRowHeight;
+   txt +=
+      "Status        : " +
+      status;
 
-   DashboardRow("BUY_TARGET", "BUY Target / Loss Tier",
-                (IsBreakEvenLossTier(buyLossTier) ?
-                 "BREAK-EVEN" :
-                 ("$" + DoubleToString(buyAdaptiveTarget, 4))) +
-                " / " + IntegerToString(buyLossTier),
-                y, buyLossTier > 0 ?
-                C'255,145,65' : C'65,220,125');
-   y += InpDashboardRowHeight;
-
-   DashboardRow("SELL_TARGET", "SELL Target / Loss Tier",
-                (IsBreakEvenLossTier(sellLossTier) ?
-                 "BREAK-EVEN" :
-                 ("$" + DoubleToString(sellAdaptiveTarget, 4))) +
-                " / " + IntegerToString(sellLossTier),
-                y, sellLossTier > 0 ?
-                C'255,145,65' : C'65,220,125');
-   y += InpDashboardRowHeight;
-
-   DashboardRow("BUY_MIN", "BUY Minimum Basket P/L",
-                "$" + DoubleToString(buyMinimumProfit, 2),
-                y, DashboardProfitColor(buyMinimumProfit));
-   y += InpDashboardRowHeight;
-
-   DashboardRow("SELL_MIN", "SELL Minimum Basket P/L",
-                "$" + DoubleToString(sellMinimumProfit, 2),
-                y, DashboardProfitColor(sellMinimumProfit));
-   y += InpDashboardRowHeight;
-
-   DashboardRow("SL", "Emergency Stop Loss",
-                "-$" + DoubleToString(InpFixedStopLossUSD, 2),
-                y, C'255,95,95');
-   y += InpDashboardRowHeight + 4;
-
-   DashboardSection("STATUS", "EA STATUS", y,
-                    tradingColor);
-   y += 26;
-
-   DashboardLabel("STATUS_1",
-                  DashboardStatusPart(status, 0, 47),
-                  right + width - 18,
-                  y,
-                  8,
-                  C'235,242,255',
-                  ANCHOR_LEFT_UPPER,
-                  "Arial Bold");
-
-   DashboardLabel("STATUS_2",
-                  DashboardStatusPart(status, 47, 47),
-                  right + width - 18,
-                  y + 17,
-                  8,
-                  C'190,200,218',
-                  ANCHOR_LEFT_UPPER,
-                  "Arial");
+   Comment(txt);
 }
 
 //+------------------------------------------------------------------+

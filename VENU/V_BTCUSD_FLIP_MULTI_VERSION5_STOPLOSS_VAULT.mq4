@@ -29,7 +29,7 @@ int    InpMaxOrders               = 1;
 double InpMinGapWhenMaxOrdersMoreThanOne = 70.0;
 #define DXB_HARD_MAX_OPEN_ORDERS 6
 
-double InpBasketProfitUSD         = 1.00;
+double InpBasketProfitUSD         =0.50;// 1.00;
 bool   InpUseMixedModeHalfBasketTP       = true;
 double InpMixedModeBasketTPMultiplier    = 0.50;
 bool   InpUseLowSARScoreHalfBasketTP      = true;
@@ -72,7 +72,7 @@ int    InpOppositeDirectionPauseMinutes = 30;
 
 double InpProfitTargetPercent      = 50.0;
 double InpLossStopPercent          = 50.0;
-double InpBasketProfitUSD_12_17 = 1.00;
+double InpBasketProfitUSD_12_17 = 0.50;//1.00;
 
 bool   InpUseBasketProfitTimeDecay       = false;
 int    InpBasketProfitDecayStepMinutes   = 60;
