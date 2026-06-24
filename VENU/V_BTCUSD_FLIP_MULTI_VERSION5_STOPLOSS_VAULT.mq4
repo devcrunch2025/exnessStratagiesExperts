@@ -29,18 +29,18 @@ int    InpMaxOrders               = 1;
 double InpMinGapWhenMaxOrdersMoreThanOne = 70.0;
 #define DXB_HARD_MAX_OPEN_ORDERS 6
 
-double InpBasketProfitUSD         =0.50;// 1.00;
+double InpBasketProfitUSD         =0.40;// 1.00;
 bool   InpUseMixedModeHalfBasketTP       = true;
-double InpMixedModeBasketTPMultiplier    = 0.50;
+double InpMixedModeBasketTPMultiplier    = 0.40;
 bool   InpUseLowSARScoreHalfBasketTP      = true;
 int    InpSARScoreHalfBasketTPMax         = 3;
 bool   InpUseSARFlipOppositeBasketHalfTP = true;
-double InpSARFlipOppositeBasketTPMultiplier = 0.50;
+double InpSARFlipOppositeBasketTPMultiplier = 0.40;
 bool   InpUseBasketHalfTPAfterMinutes = true;
 int    InpBasketHalfTPAfterMinutes = 30;
-double InpBasketHalfTPAfterMinutesMultiplier = 0.50;
+double InpBasketHalfTPAfterMinutesMultiplier = 0.40;
 
-double InpBasketStopLossUSD       = 5;
+double InpBasketStopLossUSD       = 10;
 double InpContinuousTrendBasketSLUSD   = 5;
 double InpMediumTrendBasketSLUSD       = 10;
 double InpMixedTrendBasketSLUSD        = 10;

@@ -39,13 +39,29 @@ double InpMomentumContinuationRaw    = 100.0;
 // Touch -$5 => that order uses break-even/cost-to-cost target.
 double InpTakeProfitUSD              = 0.40;
 bool   InpUseAdaptiveLossTarget      = true;///1/2/3/4
-double InpAdaptiveLossLevelUSD       = 1.00;
+double InpAdaptiveLossLevelUSD       =0.30;// 1.00;
 double InpBreakEvenAfterLossUSD      = 5.00;
 double InpBreakEvenCloseProfitUSD    = 0.00;
 double InpFixedStopLossUSD                = 7;//6;//10;//6.00;
 
 
 int    InpMaxOpenOrders              = 1;
+
+// Automatic MIXED-market detection based on CLOSED candles.
+// MIXED requires:
+// 1. Recent high-low range between MinRangeRaw and MaxRangeRaw, and
+// 2. Low directional efficiency OR repeated EMA crossings.
+int    InpMixedLookbackBars          = 20;
+double InpMixedMinRangeRaw           = 50.0;
+double InpMixedMaxRangeRaw           = 300.0;
+double InpMixedMaxEfficiency         = 0.45;
+int    InpMixedMinEMACrossings       = 3;
+
+// Runtime state. The EA updates this automatically on every tick.
+// true  = MIXED market: opposite-BOS order exception is disabled.
+// false = not MIXED: opposite-BOS exception may be used.
+bool   InpMarketMixedMode            = false;
+
 bool   InpOnlyNewCandleEntry         = true;
 bool   InpShowVisuals                = true;
 int    InpEMALineBars                = 80;
@@ -130,6 +146,11 @@ double   g_assignedBuyTakeProfitUSD   = 0.0;
 double   g_assignedSellTakeProfitUSD  = 0.0;
 int      g_assignedBuyLossTier        = 0;
 int      g_assignedSellLossTier       = 0;
+
+//----------------------- Automatic market mode ----------------------
+double   g_mixedRangeRaw              = 0.0;
+double   g_mixedEfficiency            = 0.0;
+int      g_mixedEMACrossings          = 0;
 
 //+------------------------------------------------------------------+
 // Dubai blocked period: 4:00 PM inclusive to 8:00 PM exclusive.
@@ -351,6 +372,92 @@ bool CloseAllMyOrdersAtDailyTarget()
 }
 
 //+------------------------------------------------------------------+
+// Detect a mixed/choppy market from CLOSED candles only.
+// Directional efficiency = net movement / total candle-to-candle path.
+// A lower value means price travelled back and forth instead of moving
+// efficiently in one direction.
+//+------------------------------------------------------------------+
+bool DetectMarketMixedMode()
+{
+   g_mixedRangeRaw     = 0.0;
+   g_mixedEfficiency   = 0.0;
+   g_mixedEMACrossings = 0;
+
+   int lookback = InpMixedLookbackBars;
+
+   if(lookback < 5)
+      lookback = 5;
+
+   if(Bars < lookback + InpEMAPeriod + 5)
+      return(false);
+
+   int highestIndex = iHighest(Symbol(), Period(), MODE_HIGH,
+                               lookback, 1);
+   int lowestIndex  = iLowest(Symbol(), Period(), MODE_LOW,
+                              lookback, 1);
+
+   if(highestIndex < 0 || lowestIndex < 0)
+      return(false);
+
+   g_mixedRangeRaw = High[highestIndex] - Low[lowestIndex];
+
+   double totalPath = 0.0;
+
+   for(int i = 1; i < lookback; i++)
+   {
+      totalPath += MathAbs(Close[i] - Close[i + 1]);
+
+      double emaCurrent = iMA(Symbol(), Period(), InpEMAPeriod, 0,
+                              MODE_EMA, PRICE_CLOSE, i);
+      double emaPrevious = iMA(Symbol(), Period(), InpEMAPeriod, 0,
+                               MODE_EMA, PRICE_CLOSE, i + 1);
+
+      double currentSide  = Close[i]     - emaCurrent;
+      double previousSide = Close[i + 1] - emaPrevious;
+
+      if((currentSide > 0.0 && previousSide < 0.0) ||
+         (currentSide < 0.0 && previousSide > 0.0))
+      {
+         g_mixedEMACrossings++;
+      }
+   }
+
+   double netMovement = MathAbs(Close[1] - Close[lookback]);
+
+   if(totalPath > 0.0000001)
+      g_mixedEfficiency = netMovement / totalPath;
+   else
+      g_mixedEfficiency = 0.0;
+
+   bool rangeIsMixed =
+      (g_mixedRangeRaw >= InpMixedMinRangeRaw &&
+       g_mixedRangeRaw <= InpMixedMaxRangeRaw);
+
+   bool movementIsMixed =
+      (g_mixedEfficiency <= InpMixedMaxEfficiency ||
+       g_mixedEMACrossings >= InpMixedMinEMACrossings);
+
+   return(rangeIsMixed && movementIsMixed);
+}
+
+//+------------------------------------------------------------------+
+void UpdateMarketMixedMode()
+{
+   bool previousMode = InpMarketMixedMode;
+
+   InpMarketMixedMode = DetectMarketMixedMode();
+
+   if(previousMode != InpMarketMixedMode)
+   {
+      Print("MARKET MODE CHANGED | ",
+            (InpMarketMixedMode ? "MIXED" : "NOT MIXED"),
+            " | Range raw ", DoubleToString(g_mixedRangeRaw, 1),
+            " | Efficiency ", DoubleToString(g_mixedEfficiency, 2),
+            " | EMA crossings ", IntegerToString(g_mixedEMACrossings));
+   }
+}
+
+//+------------------------------------------------------------------+
 int OnInit()
 {
    if(IsTesting())
@@ -363,6 +470,7 @@ int OnInit()
    g_assignedSellLossTier      = 0;
 
    DeleteObjectsByPrefix(PFX);
+   UpdateMarketMixedMode();
    UpdateDailyProfitTargetState();
    UpdateSideProfitStates();
 
@@ -411,6 +519,10 @@ void OnTick()
    bool isNewBar = (Time[0] != g_lastBarTime);
    if(isNewBar)
       g_lastBarTime = Time[0];
+
+   // Refresh the automatic MIXED/not-MIXED runtime variable.
+   // Closed-candle data keeps the result stable during the live candle.
+   UpdateMarketMixedMode();
 
    UpdateDailyProfitTargetState();
 
@@ -506,22 +618,24 @@ else
 // InpFixedStopLossUSD = $7
 // Half-loss trigger       = -$3.50
 double halfStopLossTrigger =
-   -(InpFixedStopLossUSD / 3.0);
+   -2;//(InpFixedStopLossUSD / 3.0);
 
 // Allow one order in the BOS direction even when the normal total-order
 // limit is reached, but only when the opposite side is already losing
-// at least half of its fixed stop loss.
+// enough and MIXED-market mode is disabled.
 bool allowOppositeBOSOrder =
    (InpFixedStopLossUSD > 0.0 &&
     oppositeSideOrders > 0 &&
     oppositeSideProfit <= halfStopLossTrigger);
 
-    allowOppositeBOSOrder=false;
+   //  allowOppositeBOSOrder=false;
 
-if(allowOppositeBOSOrder)
+if(allowOppositeBOSOrder &&
+   !InpMarketMixedMode &&
+   CountRecoveryOrders(orderType) == 0)
 {
    // Apply the maximum separately to the new BOS direction.
-   if(CountMyOrdersByType(orderType) >= InpMaxOpenOrders)
+   if(CountMyOrdersByType(orderType) >= InpMaxOpenOrders )
    {
       g_lastStatus =
          (orderType == OP_BUY)
@@ -536,7 +650,9 @@ else
    // Under normal conditions, apply the maximum to all open orders.
    if(CountMyOrders() >= InpMaxOpenOrders)
    {
-      g_lastStatus = "Blocked: max total open orders";
+      g_lastStatus = InpMarketMixedMode
+                     ? "Blocked: MIXED market + max total orders"
+                     : "Blocked: max total open orders";
       return;
    }
 }
@@ -1550,20 +1666,20 @@ else
 // InpFixedStopLossUSD = $7
 // Half-loss trigger       = -$3.50
 double halfStopLossTrigger =
-   -(InpFixedStopLossUSD / 3.0);
+   -2;//(InpFixedStopLossUSD / 3.0);
 
 
 
 // Allow one order in the BOS direction even when the normal total-order
 // limit is reached, but only when the opposite side is already losing
-// at least half of its fixed stop loss.
+// enough and MIXED-market mode is disabled.
 bool allowOppositeBOSOrder =
    (InpFixedStopLossUSD > 0.0 &&
     oppositeSideOrders > 0 &&
     oppositeSideProfit <= halfStopLossTrigger);
-    allowOppositeBOSOrder=false;
-
-if(allowOppositeBOSOrder)
+if(allowOppositeBOSOrder &&
+   !InpMarketMixedMode &&
+   CountRecoveryOrders(orderType) == 0)
 {
    // Apply the maximum separately to the new BOS direction.
    if(CountMyOrdersByType(orderType) >= InpMaxOpenOrders)
@@ -1581,7 +1697,9 @@ else
    // Under normal conditions, apply the maximum to all open orders.
    if(CountMyOrders() >= InpMaxOpenOrders)
    {
-      g_lastStatus = "Blocked: max total open orders";
+      g_lastStatus = InpMarketMixedMode
+                     ? "Blocked: MIXED market + max total orders"
+                     : "Blocked: max total open orders";
       return false;
    }
 }
@@ -3023,7 +3141,7 @@ void DrawDashboard(string status)
 
    color panelBorder = tradingColor;
 
-   int panelHeight = 270 + 25 * InpDashboardRowHeight;
+   int panelHeight = 270 + 27 * InpDashboardRowHeight;
    int top = InpDashboardTopMargin;
    int right = InpDashboardRightMargin;
    int width = InpDashboardWidth;
@@ -3124,6 +3242,19 @@ void DrawDashboard(string status)
    DashboardRow("EMA_VALUE", "EMA" + IntegerToString(InpEMAPeriod),
                 DoubleToString(ema, Digits),
                 y, C'255,190,75');
+   y += InpDashboardRowHeight;
+
+   DashboardRow("MARKET_MODE", "Auto Market Mode",
+                InpMarketMixedMode ? "MIXED" : "NOT MIXED",
+                y, InpMarketMixedMode ?
+                C'255,180,55' : C'65,220,125');
+   y += InpDashboardRowHeight;
+
+   DashboardRow("MIX_METRICS", "Range / Efficiency / Cross",
+                DoubleToString(g_mixedRangeRaw, 1) + " / " +
+                DoubleToString(g_mixedEfficiency, 2) + " / " +
+                IntegerToString(g_mixedEMACrossings),
+                y, C'165,190,230');
    y += InpDashboardRowHeight;
 
    DashboardRow("BOS_DIR", "BOS Direction",
