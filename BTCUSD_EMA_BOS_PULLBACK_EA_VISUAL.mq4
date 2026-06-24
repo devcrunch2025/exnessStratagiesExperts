@@ -28,21 +28,24 @@ double InpPullbackMaxRaw             = 120.0;
 bool   InpUseMomentumContinuation    = true;
 double InpMomentumContinuationRaw    = 100.0;
 
-// InpTakeProfitUSD is the DEFAULT profit-lock step for every new order.
-// Adaptive loss targets are calculated separately for each open order.
-// Closing one order immediately restores this input to its default value,
-// so another clean regular order cannot inherit a smaller target.
-// Touch -$1 => that order's TP = Default TP / 2
-// Touch -$2 => that order's TP = Default TP / 3
-// Touch -$3 => that order's TP = Default TP / 4
-// Touch -$4 => that order's TP = Default TP / 5
-// Touch -$5 => that order uses break-even/cost-to-cost target.
+// SIDE-BASKET dynamic profit management (BUY and SELL are independent).
+// Clean basket: profit lock advances through X1/X2/X3/... using this step.
+// It does not close at X1 while profit is still rising; it closes only when
+// basket profit falls back to the highest completed step.
+// Basket touched a full negative step: normal trailing is cancelled and the
+// basket closes immediately when it recovers to the reduced positive target.
+// Example with InpAdaptiveLossLevelUSD = 1.00:
+//   minimum above -$1.00 => normal X1/X2/X3 ladder
+//   touch -$1.00         => comeback target = TP / 2
+//   touch -$2.00         => comeback target = TP / 3
+//   touch -$3.00         => comeback target = TP / 4
+// The worst BUY loss never changes SELL state, and vice versa.
 double InpTakeProfitUSD              = 0.40;
-bool   InpUseAdaptiveLossTarget      = true;///1/2/3/4
-double InpAdaptiveLossLevelUSD       =0.30;// 1.00;
-double InpBreakEvenAfterLossUSD      = 5.00;
+bool   InpUseAdaptiveLossTarget      = true;
+double InpAdaptiveLossLevelUSD       = 1.00;
 double InpBreakEvenCloseProfitUSD    = 0.00;
-double InpFixedStopLossUSD                = 7;//6;//10;//6.00;
+double InpFixedStopLossUSD                = 10;//7;//6;//10;//6.00;
+double InpBreakEvenAfterLossUSD      =10;// 7;////5.00;
 
 
 int    InpMaxOpenOrders              = 1;
@@ -140,8 +143,8 @@ double   g_cleanPullbackClosePrice    = 0.0;
 
 //------------------------- Adaptive TP state -------------------------
 double   g_originalTakeProfitUSD      = 0.0;
-// BUY and SELL summaries are deliberately independent.
-// A BUY drawdown can never reduce the SELL target, and vice versa.
+// Per-order adaptive values remain available for linked recovery pairs.
+// Main profit booking uses independent BUY/SELL side-basket memory.
 double   g_assignedBuyTakeProfitUSD   = 0.0;
 double   g_assignedSellTakeProfitUSD  = 0.0;
 int      g_assignedBuyLossTier        = 0;
@@ -2019,8 +2022,327 @@ void UpdateAllOrderDrawdownStates()
 }
 
 //+------------------------------------------------------------------+
+bool CloseAllSideOrders(int orderType,
+                        string reason,
+                        double detectedBasketProfit,
+                        double minimumBasketProfit,
+                        int lossTier)
+{
+   int tickets[200];
+   int ticketCount = 0;
+   int regularSourceTicket = -1;
+   bool hasRecoveryOrder = false;
+
+   for(int i = OrdersTotal() - 1;
+       i >= 0 && ticketCount < 200;
+       i--)
+   {
+      if(!OrderSelect(i, SELECT_BY_POS, MODE_TRADES)) continue;
+      if(OrderSymbol() != Symbol()) continue;
+      if(OrderMagicNumber() != InpMagicNumber) continue;
+      if(OrderType() != orderType) continue;
+
+      bool isRecovery = IsRecoveryOrderComment(OrderComment());
+
+      tickets[ticketCount] = OrderTicket();
+      ticketCount++;
+
+      if(isRecovery)
+         hasRecoveryOrder = true;
+      else if(regularSourceTicket <= 0)
+         regularSourceTicket = OrderTicket();
+   }
+
+   if(ticketCount <= 0)
+   {
+      ResetSideProfitState(orderType);
+      return(false);
+   }
+
+   int closedCount = 0;
+   int failedCount = 0;
+   double lastClosePrice = 0.0;
+
+   for(int t = 0; t < ticketCount; t++)
+   {
+      int ticket = tickets[t];
+
+      if(!IsMyOpenMarketOrder(ticket))
+         continue;
+
+      int type = OrderType();
+      double lots = OrderLots();
+      string orderComment = OrderComment();
+      double orderProfit =
+         OrderProfit() + OrderSwap() + OrderCommission();
+
+      int recoveryParentTicket =
+         GetRecoveryParentTicket(orderComment);
+
+      RefreshRates();
+
+      double closePrice = (type == OP_BUY) ? Bid : Ask;
+      color closeColor = (type == OP_BUY) ? clrLime : clrRed;
+
+      ResetLastError();
+
+      bool closed = OrderClose(ticket,
+                               lots,
+                               closePrice,
+                               InpSlippage,
+                               closeColor);
+
+      if(closed)
+      {
+         closedCount++;
+         lastClosePrice = closePrice;
+         DeleteProfitTrailState(ticket);
+
+         string ownRecoveryKey = RecoveryBOSKey(ticket);
+         if(GlobalVariableCheck(ownRecoveryKey))
+            GlobalVariableDel(ownRecoveryKey);
+
+         if(recoveryParentTicket > 0)
+         {
+            string parentRecoveryKey =
+               RecoveryBOSKey(recoveryParentTicket);
+
+            if(GlobalVariableCheck(parentRecoveryKey))
+               GlobalVariableDel(parentRecoveryKey);
+         }
+
+         Print(reason,
+               " | Closed ticket #", ticket,
+               " | Ticket P/L $", DoubleToString(orderProfit, 2));
+      }
+      else
+      {
+         failedCount++;
+         int err = GetLastError();
+
+         Print(reason,
+               " | FAILED ticket #", ticket,
+               " | Error ", err,
+               " | Ticket P/L $", DoubleToString(orderProfit, 2));
+      }
+   }
+
+   string side = (orderType == OP_BUY) ? "BUY" : "SELL";
+
+   if(failedCount == 0 &&
+      CountMyOrdersByType(orderType) == 0)
+   {
+      bool cleanBasket =
+         (lossTier <= 0 &&
+          minimumBasketProfit >= -0.0000001 &&
+          detectedBasketProfit > 0.0 &&
+          !hasRecoveryOrder &&
+          regularSourceTicket > 0);
+
+      ResetSideProfitState(orderType);
+
+      if(cleanBasket)
+      {
+         int direction = (orderType == OP_BUY) ? 1 : -1;
+
+         ArmCleanProfitPullback(regularSourceTicket,
+                                direction,
+                                TimeCurrent(),
+                                lastClosePrice,
+                                detectedBasketProfit);
+      }
+
+      RestoreDefaultTakeProfitAfterClose();
+
+      g_lastStatus =
+         reason + " | " + side +
+         " basket closed " + IntegerToString(closedCount) +
+         " order(s) | P/L $" +
+         DoubleToString(detectedBasketProfit, 2);
+
+      Print(g_lastStatus);
+      return(true);
+   }
+
+   UpdateSideProfitState(orderType);
+   RestoreDefaultTakeProfitAfterClose();
+
+   g_lastStatus =
+      reason + " | " + side +
+      " partial close " + IntegerToString(closedCount) +
+      " | Retry " + IntegerToString(failedCount);
+
+   Print(g_lastStatus);
+   return(closedCount > 0);
+}
+
+//+------------------------------------------------------------------+
+bool CloseSideBasketByDynamicProfit(int orderType)
+{
+   int orderCount = CountMyOrdersByType(orderType);
+
+   if(orderCount <= 0)
+   {
+      ResetSideProfitState(orderType);
+      return(false);
+   }
+
+   double currentProfit = GetMyOpenProfitByType(orderType);
+   int previousCount =
+      (int)GetSideProfitState(orderType, "COUNT", 0.0);
+
+   if(previousCount <= 0)
+   {
+      InitializeSideProfitState(orderType,
+                                orderCount,
+                                currentProfit);
+      return(false);
+   }
+
+   double previousProfit =
+      GetSideProfitState(orderType, "PREVIOUS", currentProfit);
+
+   double peakProfit =
+      GetSideProfitState(orderType, "PEAK", currentProfit);
+
+   double minimumProfit =
+      GetSideProfitState(orderType, "MINIMUM", currentProfit);
+
+   double lockedProfit =
+      GetSideProfitState(orderType, "LOCK", 0.0);
+
+   int lossTier =
+      (int)GetSideProfitState(orderType, "TIER", 0.0);
+
+   if(currentProfit > peakProfit)
+      peakProfit = currentProfit;
+
+   if(currentProfit < minimumProfit)
+      minimumProfit = currentProfit;
+
+   int touchedTier = GetLossTierFromMinimumProfit(minimumProfit);
+
+   if(touchedTier > lossTier)
+   {
+      lossTier = touchedTier;
+      lockedProfit = 0.0;
+
+      string tierSide = (orderType == OP_BUY) ? "BUY" : "SELL";
+
+      g_lastStatus =
+         tierSide + " basket touched loss tier " +
+         IntegerToString(lossTier) +
+         " | Minimum $" + DoubleToString(minimumProfit, 2);
+
+      Print(g_lastStatus);
+   }
+
+   bool lockRaised = false;
+   double normalStep = g_originalTakeProfitUSD;
+
+   // CHANGE 1: advance clean profit through X1/X2/X3/... .
+   if(lossTier <= 0 && normalStep > 0.0)
+   {
+      if(peakProfit + 0.0000001 >= normalStep)
+      {
+         double calculatedLock =
+            MathFloor((peakProfit + 0.0000001) /
+                      normalStep) * normalStep;
+
+         calculatedLock = NormalizeDouble(calculatedLock, 4);
+
+         if(calculatedLock > lockedProfit + 0.0000001)
+         {
+            lockedProfit = calculatedLock;
+            lockRaised = true;
+
+            string lockSide =
+               (orderType == OP_BUY) ? "BUY" : "SELL";
+
+            g_lastStatus =
+               lockSide + " basket advanced lock to $" +
+               DoubleToString(lockedProfit, 2) +
+               " | Peak $" + DoubleToString(peakProfit, 2);
+
+            Print(g_lastStatus);
+         }
+      }
+   }
+   else if(lossTier > 0)
+   {
+      lockedProfit = 0.0;
+   }
+
+   double reducedTarget =
+      GetAssignedTakeProfitForLossTier(lossTier);
+
+   bool profitFalling =
+      (currentProfit < previousProfit - 0.0000001);
+
+   bool cleanTrailHit =
+      (lossTier <= 0 &&
+       normalStep > 0.0 &&
+       !lockRaised &&
+       lockedProfit + 0.0000001 >= normalStep &&
+       profitFalling &&
+       currentProfit <= lockedProfit + 0.0000001);
+
+   // CHANGE 2: after a full negative tier was touched, close immediately
+   // at TP/(tier+1). There is no pullback wait in comeback mode.
+   bool reducedComebackHit =
+      (lossTier > 0 &&
+       currentProfit + 0.0000001 >= reducedTarget);
+
+   SetSideProfitState(orderType, "COUNT", orderCount);
+   SetSideProfitState(orderType, "CURRENT", currentProfit);
+   SetSideProfitState(orderType, "PREVIOUS", currentProfit);
+   SetSideProfitState(orderType, "PEAK", peakProfit);
+   SetSideProfitState(orderType, "MINIMUM", minimumProfit);
+   SetSideProfitState(orderType, "LOCK", lockedProfit);
+   SetSideProfitState(orderType, "TIER", lossTier);
+
+   string side = (orderType == OP_BUY) ? "BUY" : "SELL";
+
+   if(reducedComebackHit)
+   {
+      string targetText =
+         IsBreakEvenLossTier(lossTier) ?
+         "BREAK-EVEN" :
+         ("$" + DoubleToString(reducedTarget, 4));
+
+      return(CloseAllSideOrders(
+         orderType,
+         side + " reduced comeback target " + targetText +
+         " | Tier " + IntegerToString(lossTier) +
+         " | Minimum $" + DoubleToString(minimumProfit, 2),
+         currentProfit,
+         minimumProfit,
+         lossTier));
+   }
+
+   if(cleanTrailHit)
+   {
+      return(CloseAllSideOrders(
+         orderType,
+         side + " advanced profit fallback | Lock $" +
+         DoubleToString(lockedProfit, 2) +
+         " | Peak $" + DoubleToString(peakProfit, 2),
+         currentProfit,
+         minimumProfit,
+         lossTier));
+   }
+
+   return(false);
+}
+
+//+------------------------------------------------------------------+
 void CloseByProfitOrLoss()
 {
+   // BUY and SELL basket profit engines are completely independent.
+   CloseSideBasketByDynamicProfit(OP_BUY);
+   CloseSideBasketByDynamicProfit(OP_SELL);
+
+   // Preserve the existing emergency stop as a per-order protection.
    for(int i = OrdersTotal() - 1; i >= 0; i--)
    {
       if(!OrderSelect(i, SELECT_BY_POS, MODE_TRADES)) continue;
@@ -2028,147 +2350,18 @@ void CloseByProfitOrLoss()
       if(OrderMagicNumber() != InpMagicNumber) continue;
       if(OrderType() != OP_BUY && OrderType() != OP_SELL) continue;
 
-      int ticket = OrderTicket();
-
       double profit =
          OrderProfit() + OrderSwap() + OrderCommission();
-
-      bool activeRecoveryPair =
-         IsOrderInActiveRecoveryPair(ticket);
-
-      // Pair check changes the selected order.
-      if(!OrderSelect(ticket,
-                      SELECT_BY_TICKET,
-                      MODE_TRADES))
-      {
-         continue;
-      }
-
-      if(OrderCloseTime() != 0)
-         continue;
-
-      double previousProfit =
-         GetTrailValue(ticket, "PREV", profit);
-
-      double peakProfit =
-         GetTrailValue(ticket, "PEAK", profit);
-
-      double lockedProfit =
-         GetTrailValue(ticket, "LOCK", 0.0);
-
-      double minimumProfit =
-         GetStoredMinimumProfit(ticket, profit);
-
-      int lossTier =
-         GetStoredLossTier(ticket);
-
-      // IMPORTANT: use this ticket's own drawdown tier only.
-      // BUY and SELL never share current, peak, lock, minimum or loss tier.
-      // A losing BUY cannot reduce a SELL target, and vice versa.
-      double effectiveStep =
-         GetAssignedTakeProfitForLossTier(lossTier);
-
-      bool breakEvenMode =
-         IsBreakEvenLossTier(lossTier);
-
-      if(profit > peakProfit)
-      {
-         peakProfit = profit;
-
-         SetTrailValue(ticket,
-                       "PEAK",
-                       peakProfit);
-      }
-
-      bool lockRaised = false;
-
-      if(!activeRecoveryPair &&
-         !breakEvenMode &&
-         effectiveStep > 0.0 &&
-         profit + 0.0000001 >= effectiveStep &&
-         peakProfit >= effectiveStep)
-      {
-         double calculatedLock =
-            MathFloor((peakProfit + 0.0000001) /
-                      effectiveStep) *
-            effectiveStep;
-
-         calculatedLock =
-            NormalizeDouble(calculatedLock, 2);
-
-         if(calculatedLock >
-            lockedProfit + 0.0000001)
-         {
-            lockedProfit = calculatedLock;
-
-            SetTrailValue(ticket,
-                          "LOCK",
-                          lockedProfit);
-
-            lockRaised = true;
-
-            g_lastStatus =
-               "Dynamic lock raised to $" +
-               DoubleToString(lockedProfit, 2) +
-               " | Order loss tier " +
-               IntegerToString(lossTier) +
-               " | TP $" +
-               DoubleToString(effectiveStep, 4);
-         }
-      }
 
       bool fixedStopHit =
          (InpFixedStopLossUSD > 0.0 &&
           profit <= -InpFixedStopLossUSD);
-
-      bool breakEvenHit =
-         (!activeRecoveryPair &&
-          breakEvenMode &&
-          profit + 0.0000001 >=
-          MathMax(0.0,
-                  InpBreakEvenCloseProfitUSD));
-
-      bool profitFalling =
-         (profit <
-          previousProfit - 0.0000001);
-
-      bool trailHit =
-         (!activeRecoveryPair &&
-          !breakEvenMode &&
-          effectiveStep > 0.0 &&
-          !lockRaised &&
-          lockedProfit + 0.0000001 >= effectiveStep &&
-          profitFalling &&
-          profit <= lockedProfit);
-
-      SetTrailValue(ticket,
-                    "PREV",
-                    profit);
 
       if(fixedStopHit)
       {
          CloseSelectedOrder(
             "Emergency SL -$" +
             DoubleToString(InpFixedStopLossUSD, 2),
-            profit);
-      }
-      else if(breakEvenHit)
-      {
-         CloseSelectedOrder(
-            "Recovered from $" +
-            DoubleToString(minimumProfit, 2) +
-            " | Cost-to-cost exit",
-            profit);
-      }
-      else if(trailHit)
-      {
-         CloseSelectedOrder(
-            "Dynamic trailing lock $" +
-            DoubleToString(lockedProfit, 2) +
-            " | Order TP $" +
-            DoubleToString(effectiveStep, 4) +
-            " | Loss tier " +
-            IntegerToString(lossTier),
             profit);
       }
    }
@@ -2761,19 +2954,9 @@ double GetMyOpenProfitByType(int orderType)
 //+------------------------------------------------------------------+
 double GetMyLockedProfitByType(int orderType)
 {
-   double total = 0.0;
-
-   for(int i = OrdersTotal() - 1; i >= 0; i--)
-   {
-      if(!OrderSelect(i, SELECT_BY_POS, MODE_TRADES)) continue;
-      if(OrderSymbol() != Symbol()) continue;
-      if(OrderMagicNumber() != InpMagicNumber) continue;
-      if(OrderType() != orderType) continue;
-
-      total += GetTrailValue(OrderTicket(), "LOCK", 0.0);
-   }
-
-   return(total);
+   return(GetSideProfitState(orderType,
+                             "LOCK",
+                             0.0));
 }
 
 //+------------------------------------------------------------------+
@@ -2812,34 +2995,56 @@ void SetSideProfitState(int orderType,
 }
 
 //+------------------------------------------------------------------+
+void ResetSideProfitState(int orderType)
+{
+   SetSideProfitState(orderType, "COUNT", 0.0);
+   SetSideProfitState(orderType, "CURRENT", 0.0);
+   SetSideProfitState(orderType, "PREVIOUS", 0.0);
+   SetSideProfitState(orderType, "PEAK", 0.0);
+   SetSideProfitState(orderType, "MINIMUM", 0.0);
+   SetSideProfitState(orderType, "LOCK", 0.0);
+   SetSideProfitState(orderType, "TIER", 0.0);
+}
+
+//+------------------------------------------------------------------+
+void InitializeSideProfitState(int orderType,
+                               int orderCount,
+                               double currentProfit)
+{
+   int lossTier = GetLossTierFromMinimumProfit(currentProfit);
+
+   SetSideProfitState(orderType, "COUNT", orderCount);
+   SetSideProfitState(orderType, "CURRENT", currentProfit);
+   SetSideProfitState(orderType, "PREVIOUS", currentProfit);
+   SetSideProfitState(orderType, "PEAK", currentProfit);
+   SetSideProfitState(orderType, "MINIMUM", currentProfit);
+   SetSideProfitState(orderType, "LOCK", 0.0);
+   SetSideProfitState(orderType, "TIER", lossTier);
+}
+
+//+------------------------------------------------------------------+
 void UpdateSideProfitState(int orderType)
 {
    int orderCount = CountMyOrdersByType(orderType);
-   int previousCount =
-      (int)GetSideProfitState(orderType, "COUNT", 0.0);
 
    if(orderCount <= 0)
    {
-      SetSideProfitState(orderType, "COUNT", 0.0);
-      SetSideProfitState(orderType, "CURRENT", 0.0);
-      SetSideProfitState(orderType, "PREVIOUS", 0.0);
-      SetSideProfitState(orderType, "PEAK", 0.0);
-      SetSideProfitState(orderType, "MINIMUM", 0.0);
+      ResetSideProfitState(orderType);
       return;
    }
 
    double currentProfit = GetMyOpenProfitByType(orderType);
+   int previousCount =
+      (int)GetSideProfitState(orderType, "COUNT", 0.0);
 
-   // Any change in the side's basket composition starts a fresh peak cycle.
-   // This prevents a closed BUY/SELL order's old peak from affecting the
-   // remaining or newly opened orders on that same side.
-   if(previousCount != orderCount)
+   // A side becomes a new basket only after it was completely empty.
+   // Adding a regular/recovery order to an active side must not erase the
+   // already-touched worst drawdown tier or its highest profit memory.
+   if(previousCount <= 0)
    {
-      SetSideProfitState(orderType, "COUNT", orderCount);
-      SetSideProfitState(orderType, "CURRENT", currentProfit);
-      SetSideProfitState(orderType, "PREVIOUS", currentProfit);
-      SetSideProfitState(orderType, "PEAK", currentProfit);
-      SetSideProfitState(orderType, "MINIMUM", currentProfit);
+      InitializeSideProfitState(orderType,
+                                orderCount,
+                                currentProfit);
       return;
    }
 
@@ -2849,17 +3054,34 @@ void UpdateSideProfitState(int orderType)
    double minimumProfit =
       GetSideProfitState(orderType, "MINIMUM", currentProfit);
 
+   double lockedProfit =
+      GetSideProfitState(orderType, "LOCK", 0.0);
+
+   int storedTier =
+      (int)GetSideProfitState(orderType, "TIER", 0.0);
+
    if(currentProfit > peakProfit)
       peakProfit = currentProfit;
 
    if(currentProfit < minimumProfit)
       minimumProfit = currentProfit;
 
+   int currentTier = GetLossTierFromMinimumProfit(minimumProfit);
+   if(currentTier < storedTier)
+      currentTier = storedTier;
+
+   // Once a negative tier is armed, the immediate reduced comeback target
+   // replaces the clean-basket trailing lock.
+   if(currentTier > 0)
+      lockedProfit = 0.0;
+
    SetSideProfitState(orderType, "COUNT", orderCount);
    SetSideProfitState(orderType, "CURRENT", currentProfit);
    SetSideProfitState(orderType, "PREVIOUS", currentProfit);
    SetSideProfitState(orderType, "PEAK", peakProfit);
    SetSideProfitState(orderType, "MINIMUM", minimumProfit);
+   SetSideProfitState(orderType, "LOCK", lockedProfit);
+   SetSideProfitState(orderType, "TIER", currentTier);
 }
 
 //+------------------------------------------------------------------+
@@ -2882,19 +3104,10 @@ void GetSideProfitSummary(int orderType,
 
    currentProfit = GetMyOpenProfitByType(orderType);
    peakProfit = GetSideProfitState(orderType, "PEAK", currentProfit);
-   lockedProfit = GetMyLockedProfitByType(orderType);
+   lockedProfit = GetSideProfitState(orderType, "LOCK", 0.0);
    minimumProfit = GetSideProfitState(orderType, "MINIMUM", currentProfit);
-
-   if(orderType == OP_BUY)
-   {
-      lossTier = g_assignedBuyLossTier;
-      adaptiveTarget = g_assignedBuyTakeProfitUSD;
-   }
-   else
-   {
-      lossTier = g_assignedSellLossTier;
-      adaptiveTarget = g_assignedSellTakeProfitUSD;
-   }
+   lossTier = (int)GetSideProfitState(orderType, "TIER", 0.0);
+   adaptiveTarget = GetAssignedTakeProfitForLossTier(lossTier);
 }
 
 //+------------------------------------------------------------------+
