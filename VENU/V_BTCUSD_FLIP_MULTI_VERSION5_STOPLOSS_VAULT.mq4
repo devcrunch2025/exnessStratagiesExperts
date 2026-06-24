@@ -323,7 +323,7 @@ double InpMinPriceGap             = 0.00;    // raw price gap, 0 = disabled
 // TimeGMT()+4 is used, so broker-server, VPS and VPN time zones do not affect this rule.
 bool   InpUseNoNewOrderHours      = true;
 string InpNoNewOrderHourList      = "16,17,18,19,20"; // Dubai-time hours
-
+  
 
 
 

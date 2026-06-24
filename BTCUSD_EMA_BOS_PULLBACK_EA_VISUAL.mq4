@@ -42,7 +42,7 @@ double InpMomentumContinuationRaw    = 100.0;
 // The worst BUY loss never changes SELL state, and vice versa.
 double InpTakeProfitUSD              = 0.40;
 bool   InpUseAdaptiveLossTarget      = true;
-double InpAdaptiveLossLevelUSD       = 1.00;
+double InpAdaptiveLossLevelUSD       = 1.00;    
 double InpBreakEvenCloseProfitUSD    = 0.00;
 double InpFixedStopLossUSD                = 10;//7;//6;//10;//6.00;
 double InpBreakEvenAfterLossUSD      =10;// 7;////5.00;
