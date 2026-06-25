@@ -31,7 +31,7 @@ double InpMinGapWhenMaxOrdersMoreThanOne = 70.0; // when InpMaxOrders > 1, enfor
 
 #define DXB_HARD_MAX_OPEN_ORDERS 6  // absolute safety cap for normal SAR orders per cycle
 
-double InpBasketProfitUSD         = 0.20;//1.00;
+double InpBasketProfitUSD         = 0.40;//1.00;
 double InpProfitTargetPercent      = 20;//50.0;//50   // stop trading when equity reaches Base + 100%
 
 
@@ -255,8 +255,8 @@ bool   InpRecoveryGapMustMatchH1Trend = false;
 bool   InpKeepPendingRecoveryGapAfterBlock = true;
 bool   InpOpenPendingRecoveryWhenSARMatches = true;
 
-double InpRecoveryGapRawPrice     = 100.0;   // raw price difference, not points
-double InpRecoveryGapLot          = 0.01;
+double InpRecoveryGapRawPrice     = 200.0;   // raw price difference, not points
+double InpRecoveryGapLot          = 0.02;
 int    InpMaxRecoveryGapOrdersPerSide = 1;  // recovery ladder: 50, 100, 150 from first order price
 
 // Legacy special-guard compatibility:

@@ -2,7 +2,7 @@
 //| BTCUSD_EMA_BOS_ASSIGNED_DYNAMIC_TP_PULLBACK_EA.mq4              |
 //| EMA + BOS + remembered pullback + momentum continuation         |
 //| Clean-profit BOS re-entry + recovery basket + adaptive TP       |
-//| Independent BUY/SELL current, peak, lock and adaptive summaries |
+//| Daily reset + clear Dubai/daily pause dashboard messages       |
 //+------------------------------------------------------------------+
 #property strict
 
@@ -40,7 +40,7 @@ double InpMomentumContinuationRaw    = 100.0;
 //   touch -$2.00         => comeback target = TP / 3
 //   touch -$3.00         => comeback target = TP / 4
 // The worst BUY loss never changes SELL state, and vice versa.
-double InpTakeProfitUSD              = 0.20;
+double InpTakeProfitUSD              = 0.40;
 bool   InpUseAdaptiveLossTarget      = true;
 double InpAdaptiveLossLevelUSD       = 1.00;    
 double InpBreakEvenCloseProfitUSD    = 0.00;
@@ -81,12 +81,17 @@ int    InpDashboardRowHeight         = 17;
 // when equity reaches $60 and pause until the next Dubai calendar date.
 double InpProfitTargetPercent        = 20.0;
 
+// Dubai new-order pause window. End hour is exclusive.
+// Defaults: 14:00 to 20:00 Dubai time (2 PM to 8 PM).
+int    InpDubaiPauseStartHour        = 14;
+int    InpDubaiPauseEndHour          = 20;
+
 // Recovery order settings.
 // Recovery opens in the SAME direction as a losing regular parent only
 // when adverse distance is large enough and active BOS matches direction.
 bool   InpUseRecoveryOrders             = true;
 double InpRecoveryLotSize               = 0.02;
-double InpRecoveryRawDifference         = 100.0;
+double InpRecoveryRawDifference         = 200.0;
 int    InpMaxRecoveryOrdersPerDirection = 1;
 
 // Close linked parent + recovery together at the assigned basket target.
@@ -133,6 +138,13 @@ double   g_dailyStartBalance       = 0.0;
 double   g_dailyTargetEquity       = 0.0;
 bool     g_dailyProfitTargetHit    = false;
 
+enum EA_PAUSE_REASON
+{
+   PAUSE_REASON_NONE         = 0,
+   PAUSE_REASON_DAILY_TARGET = 1,
+   PAUSE_REASON_DUBAI_HOURS  = 2
+};
+
 //----------------------- Clean pullback state ------------------------
 bool     g_cleanPullbackPending       = false;
 int      g_cleanPullbackDirection     = 0;
@@ -156,21 +168,45 @@ double   g_mixedEfficiency            = 0.0;
 int      g_mixedEMACrossings          = 0;
 
 //+------------------------------------------------------------------+
-// Dubai blocked period: 4:00 PM inclusive to 8:00 PM exclusive.
-// Therefore blocked hours are 16, 17, 18 and 19 Dubai time.
-//+------------------------------------------------------------------+
-bool IsDubaiBlockedTime()
-{
-   datetime dubaiTime = TimeGMT() + 4 * 3600;
-   int hour = TimeHour(dubaiTime);
-
-   return(hour >= 14 && hour <= 20);
-}
-
-//+------------------------------------------------------------------+
 datetime GetDubaiTime()
 {
    return(TimeGMT() + 4 * 3600);
+}
+
+//+------------------------------------------------------------------+
+// Dubai new-order pause window. The ending hour is exclusive.
+// Supports both normal windows (14-20) and overnight windows (22-06).
+//+------------------------------------------------------------------+
+bool IsDubaiBlockedTime()
+{
+   int hour = TimeHour(GetDubaiTime());
+
+   int startHour = InpDubaiPauseStartHour;
+   int endHour   = InpDubaiPauseEndHour;
+
+   if(startHour < 0)  startHour = 0;
+   if(startHour > 23) startHour = 23;
+   if(endHour < 0)    endHour = 0;
+   if(endHour > 23)   endHour = 23;
+
+   // Same start/end disables the Dubai-hours pause.
+   if(startHour == endHour)
+      return(false);
+
+   // Normal same-day window, for example 14:00-20:00.
+   if(startHour < endHour)
+      return(hour >= startHour && hour < endHour);
+
+   // Overnight window, for example 22:00-06:00.
+   return(hour >= startHour || hour < endHour);
+}
+
+//+------------------------------------------------------------------+
+string GetDubaiPauseWindowText()
+{
+   return(StringFormat("%02d:00-%02d:00",
+                       InpDubaiPauseStartHour,
+                       InpDubaiPauseEndHour));
 }
 
 //+------------------------------------------------------------------+
@@ -202,6 +238,43 @@ void SaveDailyProfitState()
                      g_dailyTargetEquity);
    GlobalVariableSet(DailyProfitStateKey("HIT"),
                      g_dailyProfitTargetHit ? 1.0 : 0.0);
+   GlobalVariableSet(DailyProfitStateKey("PERCENT"),
+                     InpProfitTargetPercent);
+}
+
+//+------------------------------------------------------------------+
+void DeleteGlobalVariableIfExists(string key)
+{
+   if(GlobalVariableCheck(key))
+      GlobalVariableDel(key);
+}
+
+//+------------------------------------------------------------------+
+// Reset only the daily-target Global Variables on EA initialization.
+// Order-level adaptive TP, minimum-profit and recovery memory are kept.
+//+------------------------------------------------------------------+
+void ResetDailyTargetGlobalsOnInit()
+{
+   DeleteGlobalVariableIfExists(DailyProfitStateKey("DATE"));
+   DeleteGlobalVariableIfExists(DailyProfitStateKey("BASE"));
+   DeleteGlobalVariableIfExists(DailyProfitStateKey("TARGET"));
+   DeleteGlobalVariableIfExists(DailyProfitStateKey("HIT"));
+   DeleteGlobalVariableIfExists(DailyProfitStateKey("PERCENT"));
+
+   GlobalVariablesFlush();
+
+   g_dailyDubaiDateKey       = 0;
+   g_dailyStartBalance       = 0.0;
+   g_dailyTargetEquity       = 0.0;
+   g_dailyProfitTargetHit    = false;
+
+   ResetDailyProfitState(GetDubaiDateKey());
+
+   Print("ONINIT DAILY RESET | Base $",
+         DoubleToString(g_dailyStartBalance, 2),
+         " | Target $",
+         DoubleToString(g_dailyTargetEquity, 2),
+         " | HIT cleared");
 }
 
 //+------------------------------------------------------------------+
@@ -228,10 +301,11 @@ void UpdateDailyProfitTargetState()
 {
    int currentDubaiDateKey = GetDubaiDateKey();
 
-   string dateKey   = DailyProfitStateKey("DATE");
-   string baseKey   = DailyProfitStateKey("BASE");
-   string targetKey = DailyProfitStateKey("TARGET");
-   string hitKey    = DailyProfitStateKey("HIT");
+   string dateKey    = DailyProfitStateKey("DATE");
+   string baseKey    = DailyProfitStateKey("BASE");
+   string targetKey  = DailyProfitStateKey("TARGET");
+   string hitKey     = DailyProfitStateKey("HIT");
+   string percentKey = DailyProfitStateKey("PERCENT");
 
    int storedDateKey = 0;
 
@@ -252,15 +326,37 @@ void UpdateDailyProfitTargetState()
       g_dailyTargetEquity = g_dailyStartBalance *
                             (1.0 + InpProfitTargetPercent / 100.0);
 
-      g_dailyProfitTargetHit =
-         (GlobalVariableCheck(hitKey) &&
-          GlobalVariableGet(hitKey) >= 0.5);
+      bool percentChanged = true;
+
+      if(GlobalVariableCheck(percentKey))
+      {
+         double storedPercent = GlobalVariableGet(percentKey);
+         percentChanged =
+            (MathAbs(storedPercent - InpProfitTargetPercent) > 0.0000001);
+      }
+
+      if(percentChanged)
+      {
+         g_dailyProfitTargetHit = false;
+         GlobalVariableSet(hitKey, 0.0);
+         GlobalVariableSet(percentKey, InpProfitTargetPercent);
+      }
+      else
+      {
+         g_dailyProfitTargetHit =
+            (GlobalVariableCheck(hitKey) &&
+             GlobalVariableGet(hitKey) >= 0.5);
+      }
 
       GlobalVariableSet(targetKey, g_dailyTargetEquity);
    }
 
    if(InpProfitTargetPercent <= 0.0)
+   {
+      g_dailyProfitTargetHit = false;
+      GlobalVariableSet(hitKey, 0.0);
       return;
+   }
 
    if(!g_dailyProfitTargetHit &&
       AccountEquity() + 0.0000001 >= g_dailyTargetEquity)
@@ -285,6 +381,45 @@ bool IsDailyNewOrderPaused()
       return(false);
 
    return(g_dailyProfitTargetHit);
+}
+
+//+------------------------------------------------------------------+
+EA_PAUSE_REASON GetCurrentPauseReason()
+{
+   // Daily target has priority when both conditions are true.
+   if(IsDailyNewOrderPaused())
+      return(PAUSE_REASON_DAILY_TARGET);
+
+   if(IsDubaiBlockedTime())
+      return(PAUSE_REASON_DUBAI_HOURS);
+
+   return(PAUSE_REASON_NONE);
+}
+
+//+------------------------------------------------------------------+
+string GetDubaiHoursPausedStatus()
+{
+   return("DUBAI HOURS " + GetDubaiPauseWindowText() +
+          " | NEW ORDERS PAUSED | EXISTING ORDERS MANAGED");
+}
+
+//+------------------------------------------------------------------+
+string GetEffectiveStatusText(string normalStatus)
+{
+   EA_PAUSE_REASON pauseReason = GetCurrentPauseReason();
+
+   if(pauseReason == PAUSE_REASON_DAILY_TARGET)
+   {
+      if(CountMyOrders() > 0)
+         return("DAILY TARGET REACHED | CLOSING EA ORDERS | NEW ORDERS PAUSED");
+
+      return("DAILY TARGET REACHED | ALL EA ORDERS CLOSED | NEW ORDERS PAUSED");
+   }
+
+   if(pauseReason == PAUSE_REASON_DUBAI_HOURS)
+      return(GetDubaiHoursPausedStatus());
+
+   return(normalStatus);
 }
 
 //+------------------------------------------------------------------+
@@ -473,14 +608,23 @@ int OnInit()
    g_assignedSellLossTier      = 0;
 
    DeleteObjectsByPrefix(PFX);
+
+   // Requested behavior: every EA initialization starts a fresh
+   // daily target using the current account balance as the new base.
+   ResetDailyTargetGlobalsOnInit();
+
    UpdateMarketMixedMode();
-   UpdateDailyProfitTargetState();
    UpdateSideProfitStates();
+
+   if(IsDubaiBlockedTime())
+      g_lastStatus = GetDubaiHoursPausedStatus();
+   else
+      g_lastStatus = "INITIALIZED | DAILY TARGET RESET | TRADING ACTIVE";
 
    Print("EMA BOS Pullback + Momentum EA started");
 
    if(InpShowVisuals)
-      DrawDashboard("Initialized");
+      DrawDashboard(g_lastStatus);
 
    return(INIT_SUCCEEDED);
 }
@@ -531,7 +675,14 @@ void OnTick()
 
    if(IsDailyNewOrderPaused())
    {
-      CloseAllMyOrdersAtDailyTarget();
+      bool allClosed = CloseAllMyOrdersAtDailyTarget();
+
+      if(allClosed)
+         g_lastStatus =
+            "DAILY TARGET REACHED | ALL EA ORDERS CLOSED | NEW ORDERS PAUSED";
+      else
+         g_lastStatus =
+            "DAILY TARGET REACHED | ORDER CLOSE RETRY | NEW ORDERS PAUSED";
 
       if(InpShowVisuals)
          UpdateVisuals(false, GetEMATrend());
@@ -557,6 +708,19 @@ void OnTick()
    // Refresh BUY and SELL adaptive summaries independently.
    AssignTakeProfitFromOpenOrderLosses();
    UpdateSideProfitStates();
+
+   // Existing orders have already been managed above. During the Dubai
+   // pause window, stop here so regular, recovery and clean re-entry orders
+   // cannot be opened. The dashboard always shows the time-pause reason.
+   if(IsDubaiBlockedTime())
+   {
+      g_lastStatus = GetDubaiHoursPausedStatus();
+
+      if(InpShowVisuals)
+         UpdateVisuals(false, GetEMATrend());
+
+      return;
+   }
 
    if(!IsDailyNewOrderPaused())
    {
@@ -663,12 +827,6 @@ else
    
 
   
-
-   if(IsDubaiBlockedTime())
-   {
-      g_lastStatus = "TRADING PAUSED | Dubai 2PM-8PM";
-      return;
-   }
 
    if(entryReady)
    {
@@ -1069,7 +1227,14 @@ bool OpenOrderWithLots(int type, double lots, string orderComment)
 
    if(IsDailyNewOrderPaused())
    {
-      g_lastStatus = "DAILY TARGET REACHED | ALL ORDERS CLOSED | PAUSED";
+      g_lastStatus =
+         "DAILY TARGET REACHED | ALL EA ORDERS CLOSED | NEW ORDERS PAUSED";
+      return(false);
+   }
+
+   if(IsDubaiBlockedTime())
+   {
+      g_lastStatus = GetDubaiHoursPausedStatus();
       return(false);
    }
 
@@ -1476,7 +1641,11 @@ bool TryOpenRecoveryOrder()
    if(InpRecoveryRawDifference <= 0.0) return(false);
    if(InpRecoveryLotSize <= 0.0) return(false);
    if(InpMaxRecoveryOrdersPerDirection <= 0) return(false);
-   if(IsDubaiBlockedTime()) return(false);
+   if(IsDubaiBlockedTime())
+   {
+      g_lastStatus = GetDubaiHoursPausedStatus();
+      return(false);
+   }
 
    int requiredType =
       (g_bosDirection == 1) ? OP_BUY : OP_SELL;
@@ -1719,9 +1888,7 @@ else
 
    if(IsDubaiBlockedTime())
    {
-      g_lastStatus =
-         "Clean pullback paused: Dubai 2PM-8PM";
-
+      g_lastStatus = GetDubaiHoursPausedStatus();
       return(false);
    }
 
@@ -3335,23 +3502,26 @@ void DrawDashboard(string status)
    bool emaMatch =
       (emaTrend == g_bosDirection && emaTrend != 0);
 
-   bool newOrdersPaused = IsDailyNewOrderPaused();
-   bool dubaiBlocked = IsDubaiBlockedTime();
+   EA_PAUSE_REASON pauseReason = GetCurrentPauseReason();
 
    string tradingState = "ACTIVE";
+   string newOrdersText = "ACTIVE";
    color tradingColor = C'65,220,125';
 
-   if(newOrdersPaused)
+   if(pauseReason == PAUSE_REASON_DAILY_TARGET)
    {
       tradingState = "DAILY PAUSED";
+      newOrdersText = "PAUSED - DAILY TARGET";
       tradingColor = C'255,95,95';
    }
-   else if(dubaiBlocked)
+   else if(pauseReason == PAUSE_REASON_DUBAI_HOURS)
    {
       tradingState = "TIME PAUSED";
+      newOrdersText = "PAUSED - DUBAI HOURS";
       tradingColor = C'255,180,55';
    }
 
+   string displayStatus = GetEffectiveStatusText(status);
    color panelBorder = tradingColor;
 
    int panelHeight = 270 + 27 * InpDashboardRowHeight;
@@ -3439,7 +3609,7 @@ void DrawDashboard(string status)
    y += InpDashboardRowHeight;
 
    DashboardRow("ORDER_STATE", "New Orders",
-                tradingState,
+                newOrdersText,
                 y, tradingColor);
    y += InpDashboardRowHeight + 4;
 
@@ -3597,7 +3767,7 @@ void DrawDashboard(string status)
    y += 26;
 
    DashboardLabel("STATUS_1",
-                  DashboardStatusPart(status, 0, 47),
+                  DashboardStatusPart(displayStatus, 0, 47),
                   right + width - 18,
                   y,
                   8,
@@ -3606,7 +3776,7 @@ void DrawDashboard(string status)
                   "Arial Bold");
 
    DashboardLabel("STATUS_2",
-                  DashboardStatusPart(status, 47, 47),
+                  DashboardStatusPart(displayStatus, 47, 47),
                   right + width - 18,
                   y + 17,
                   8,
