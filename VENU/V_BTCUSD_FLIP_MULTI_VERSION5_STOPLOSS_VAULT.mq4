@@ -31,7 +31,9 @@ double InpMinGapWhenMaxOrdersMoreThanOne = 70.0; // when InpMaxOrders > 1, enfor
 
 #define DXB_HARD_MAX_OPEN_ORDERS 6  // absolute safety cap for normal SAR orders per cycle
 
-double InpBasketProfitUSD         = 0.40;//1.00;
+double InpBasketProfitUSD         = 0.20;//1.00;
+double InpProfitTargetPercent      = 20;//50.0;//50   // stop trading when equity reaches Base + 100%
+
 
 // Dynamic basket profit ladder:
 // The BUY basket and SELL basket are managed independently.
@@ -163,7 +165,6 @@ bool   InpUseOppositeDirectionProfitPause = false;
 int    InpOppositeDirectionProfitStreakOrders = 2;
 int    InpOppositeDirectionPauseMinutes = 30;
 
-double InpProfitTargetPercent      = 50.0;//50   // stop trading when equity reaches Base + 100%
 double InpLossStopPercent          = 50.0;   // stop trading when equity reaches Base - 50%
 
 double InpBasketProfitUSD_12_17 = 0.50;//1.00; // profit target during 12,13,14,15,16,17 hours
@@ -305,7 +306,7 @@ bool   InpCloseOrdersOnDepositReset = false;     // optional: close EA orders be
 
 // Notifications
 bool   InpSendPushNotifications       = true;    // MT4 mobile push notification
-bool   InpSendTerminalAlerts          = true;    // desktop popup alert
+bool   InpSendTerminalAlerts          = false;    // desktop popup alert
 bool   InpNotifyOnProfitLock          = true;    // notify when trading stops after profit target
 bool   InpNotifyOnEquityStop          = true;    // notify when trading stops after equity/loss protection
 bool   InpNotifyOnEquityRestart       = true;    // notify when trading restarts after reset hour
@@ -322,7 +323,7 @@ double InpMinPriceGap             = 0.00;    // raw price gap, 0 = disabled
 // Existing order close/profit/protection/recovery management continues.
 // TimeGMT()+4 is used, so broker-server, VPS and VPN time zones do not affect this rule.
 bool   InpUseNoNewOrderHours      = true;
-string InpNoNewOrderHourList      = "16,17,18,19,20"; // Dubai-time hours
+string InpNoNewOrderHourList      = "14,15,16,17,18,19,20"; // Dubai-time hours
   
 
 

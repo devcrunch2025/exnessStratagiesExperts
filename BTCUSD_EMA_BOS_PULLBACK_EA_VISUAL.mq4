@@ -40,7 +40,7 @@ double InpMomentumContinuationRaw    = 100.0;
 //   touch -$2.00         => comeback target = TP / 3
 //   touch -$3.00         => comeback target = TP / 4
 // The worst BUY loss never changes SELL state, and vice versa.
-double InpTakeProfitUSD              = 0.40;
+double InpTakeProfitUSD              = 0.20;
 bool   InpUseAdaptiveLossTarget      = true;
 double InpAdaptiveLossLevelUSD       = 1.00;    
 double InpBreakEvenCloseProfitUSD    = 0.00;
@@ -79,7 +79,7 @@ int    InpDashboardRowHeight         = 17;
 // Dubai daily account-profit protection.
 // Example: day-start balance $40 and target 50% means close all EA orders
 // when equity reaches $60 and pause until the next Dubai calendar date.
-double InpProfitTargetPercent        = 50.0;
+double InpProfitTargetPercent        = 20.0;
 
 // Recovery order settings.
 // Recovery opens in the SAME direction as a losing regular parent only
@@ -164,7 +164,7 @@ bool IsDubaiBlockedTime()
    datetime dubaiTime = TimeGMT() + 4 * 3600;
    int hour = TimeHour(dubaiTime);
 
-   return(hour >= 16 && hour < 20);
+   return(hour >= 14 && hour <= 20);
 }
 
 //+------------------------------------------------------------------+
@@ -666,7 +666,7 @@ else
 
    if(IsDubaiBlockedTime())
    {
-      g_lastStatus = "TRADING PAUSED | Dubai 4PM-8PM";
+      g_lastStatus = "TRADING PAUSED | Dubai 2PM-8PM";
       return;
    }
 
@@ -1720,7 +1720,7 @@ else
    if(IsDubaiBlockedTime())
    {
       g_lastStatus =
-         "Clean pullback paused: Dubai 4PM-8PM";
+         "Clean pullback paused: Dubai 2PM-8PM";
 
       return(false);
    }
