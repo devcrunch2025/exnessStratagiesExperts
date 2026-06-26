@@ -599,10 +599,12 @@ void UpdateMarketMixedMode()
             " | EMA crossings ", IntegerToString(g_mixedEMACrossings));
    }
 }
-
+uint g_onInitTickCount = 0;
 //+------------------------------------------------------------------+
 int OnInit()
 {
+
+   g_onInitTickCount = GetTickCount();
    datetime dubaiNow = GetDubaiTime();
    string dubaiTimeText = TimeToString(dubaiNow,
                                        TIME_DATE | TIME_SECONDS);
@@ -703,6 +705,18 @@ double GetEffectiveFixedStopLossUSD()
 void OnTick()
 {
 
+
+uint startupElapsedMs = GetTickCount() - g_onInitTickCount;
+
+if(startupElapsedMs < 5*1000)
+{
+   Print("Tick is received",
+         " | Startup second ",
+         IntegerToString((int)(startupElapsedMs / 1000) + 1),
+         "/60",
+         " | Dubai ",
+         TimeToString(GetDubaiTime(), TIME_SECONDS));
+}
 
    RefreshRates();
 
