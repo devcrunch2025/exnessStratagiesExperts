@@ -41,10 +41,18 @@ double InpMomentumContinuationRaw    = 100.0;
 //   touch -$3.00         => comeback target = TP / 4
 // The worst BUY loss never changes SELL state, and vice versa.
 double InpTakeProfitUSD              = 0.40;
-bool   InpUseAdaptiveLossTarget      = true;
+double InpFixedStopLossUSD                = 10;//7;//6;//10;//6.00;
+
+
+
+// Dubai daily account-profit protection.
+// Example: day-start balance $40 and target 50% means close all EA orders
+// when equity reaches $60 and pause until the next Dubai calendar date.
+double InpProfitTargetPercent        = 100;//20.0;
+
+bool   InpUseAdaptiveLossTarget      = false;
 double InpAdaptiveLossLevelUSD       = 1.00;    
 double InpBreakEvenCloseProfitUSD    = 0.00;
-double InpFixedStopLossUSD                = 10;//7;//6;//10;//6.00;
 double InpBreakEvenAfterLossUSD      =10;// 7;////5.00;
 
 
@@ -76,15 +84,14 @@ int    InpDashboardWidth             = 350;
 int    InpDashboardFontSize          = 8;
 int    InpDashboardRowHeight         = 17;
 
-// Dubai daily account-profit protection.
-// Example: day-start balance $40 and target 50% means close all EA orders
-// when equity reaches $60 and pause until the next Dubai calendar date.
-double InpProfitTargetPercent        = 20.0;
 
-// Dubai new-order pause window. End hour is exclusive.
-// Defaults: 14:00 to 20:00 Dubai time (2 PM to 8 PM).
-int    InpDubaiPauseStartHour        = 14;
-int    InpDubaiPauseEndHour          = 20;
+
+// Dubai hours during which NEW orders are blocked.
+// Enter individual hours from 0 to 23, separated by commas.
+// Example: "14,15,16,17,18,19" blocks 14:00 through 19:59.
+// Separate hours are also supported: "4,8,14,17,22".
+// Leave empty ("") to disable the Dubai-hours pause.
+string InpDubaiBlockedHours          = "14,15,16,17,18,19,20,21,22,23,0,1,2";
 
 // Recovery order settings.
 // Recovery opens in the SAME direction as a losing regular parent only
@@ -174,39 +181,37 @@ datetime GetDubaiTime()
 }
 
 //+------------------------------------------------------------------+
-// Dubai new-order pause window. The ending hour is exclusive.
-// Supports both normal windows (14-20) and overnight windows (22-06).
+// Returns true when the current Dubai hour appears in the configured
+// comma-separated list. Surrounding both strings with commas prevents
+// partial matches; hour 1 cannot accidentally match 10, 11, 12, etc.
 //+------------------------------------------------------------------+
 bool IsDubaiBlockedTime()
 {
-   int hour = TimeHour(GetDubaiTime());
+   int dubaiHour = TimeHour(GetDubaiTime());
+   string configuredHours = InpDubaiBlockedHours;
 
-   int startHour = InpDubaiPauseStartHour;
-   int endHour   = InpDubaiPauseEndHour;
+   // Accept both "14,15,16" and "14, 15, 16".
+   StringReplace(configuredHours, " ", "");
 
-   if(startHour < 0)  startHour = 0;
-   if(startHour > 23) startHour = 23;
-   if(endHour < 0)    endHour = 0;
-   if(endHour > 23)   endHour = 23;
-
-   // Same start/end disables the Dubai-hours pause.
-   if(startHour == endHour)
+   if(StringLen(configuredHours) <= 0)
       return(false);
 
-   // Normal same-day window, for example 14:00-20:00.
-   if(startHour < endHour)
-      return(hour >= startHour && hour < endHour);
+   string hourList = "," + configuredHours + ",";
+   string hourText = "," + IntegerToString(dubaiHour) + ",";
 
-   // Overnight window, for example 22:00-06:00.
-   return(hour >= startHour || hour < endHour);
+   return(StringFind(hourList, hourText, 0) >= 0);
 }
 
 //+------------------------------------------------------------------+
 string GetDubaiPauseWindowText()
 {
-   return(StringFormat("%02d:00-%02d:00",
-                       InpDubaiPauseStartHour,
-                       InpDubaiPauseEndHour));
+   string configuredHours = InpDubaiBlockedHours;
+   StringReplace(configuredHours, " ", "");
+
+   if(StringLen(configuredHours) <= 0)
+      return("DISABLED");
+
+   return("[" + configuredHours + "]");
 }
 
 //+------------------------------------------------------------------+
@@ -399,7 +404,7 @@ EA_PAUSE_REASON GetCurrentPauseReason()
 //+------------------------------------------------------------------+
 string GetDubaiHoursPausedStatus()
 {
-   return("DUBAI HOURS " + GetDubaiPauseWindowText() +
+   return("DUBAI BLOCKED HOURS " + GetDubaiPauseWindowText() +
           " | NEW ORDERS PAUSED | EXISTING ORDERS MANAGED");
 }
 
@@ -598,6 +603,16 @@ void UpdateMarketMixedMode()
 //+------------------------------------------------------------------+
 int OnInit()
 {
+   datetime dubaiNow = GetDubaiTime();
+   string dubaiTimeText = TimeToString(dubaiNow,
+                                       TIME_DATE | TIME_SECONDS);
+
+   Print("EA INIT | Dubai time ",
+         dubaiTimeText,
+         " | GMT+4",
+         " | Blocked hours ",
+         GetDubaiPauseWindowText());
+
    if(IsTesting())
       InpProfitTargetPercent = 5000.0;
 
@@ -617,11 +632,16 @@ int OnInit()
    UpdateSideProfitStates();
 
    if(IsDubaiBlockedTime())
-      g_lastStatus = GetDubaiHoursPausedStatus();
+      g_lastStatus = GetDubaiHoursPausedStatus() +
+                     " | DUBAI " + dubaiTimeText;
    else
-      g_lastStatus = "INITIALIZED | DAILY TARGET RESET | TRADING ACTIVE";
+      g_lastStatus = "INITIALIZED | DUBAI " + dubaiTimeText +
+                     " | DAILY TARGET RESET | TRADING ACTIVE";
 
-   Print("EMA BOS Pullback + Momentum EA started");
+   Print("EMA BOS Pullback + Momentum EA started",
+         " | Dubai time ", dubaiTimeText,
+         " | Effective SL $",
+         DoubleToString(GetEffectiveFixedStopLossUSD(), 2));
 
    if(InpShowVisuals)
       DrawDashboard(g_lastStatus);
@@ -657,10 +677,33 @@ int CountMyOrdersByType(int orderType)
 
    return count;
 }
+//+------------------------------------------------------------------+
+// Effective emergency stop loss:
+//   min(configured maximum SL, current balance - $2 protection)
+// The configured input is never overwritten, so the effective SL can
+// increase again automatically when the account balance increases.
+//+------------------------------------------------------------------+
+double GetEffectiveFixedStopLossUSD()
+{
+   // A value <= 0 disables the emergency money stop.
+   if(InpFixedStopLossUSD <= 0.0)
+      return(0.0);
+
+   double balanceBasedSL = AccountBalance() - 2.0;
+
+   // Avoid a zero/negative threshold on very small balances.
+   balanceBasedSL = MathMax(0.01, balanceBasedSL);
+
+   return(NormalizeDouble(
+             MathMin(InpFixedStopLossUSD, balanceBasedSL),
+             2));
+}
 
 //+------------------------------------------------------------------+
 void OnTick()
 {
+
+
    RefreshRates();
 
    bool isNewBar = (Time[0] != g_lastBarTime);
@@ -781,17 +824,17 @@ else
    oppositeSideOrders = CountMyOrdersByType(OP_BUY);
 }
 
-// Example:
-// InpFixedStopLossUSD = $7
-// Half-loss trigger       = -$3.50
+// Opposite-BOS exception begins when the opposite-side basket reaches
+// half of the current effective emergency stop-loss threshold.
+double effectiveStopLossUSD = GetEffectiveFixedStopLossUSD();
 double halfStopLossTrigger =
-   -2;//(InpFixedStopLossUSD / 3.0);
+   -(effectiveStopLossUSD / 2.0);
 
 // Allow one order in the BOS direction even when the normal total-order
 // limit is reached, but only when the opposite side is already losing
 // enough and MIXED-market mode is disabled.
 bool allowOppositeBOSOrder =
-   (InpFixedStopLossUSD > 0.0 &&
+   (effectiveStopLossUSD > 0.0 &&
     oppositeSideOrders > 0 &&
     oppositeSideProfit <= halfStopLossTrigger);
 
@@ -1834,11 +1877,11 @@ else
    oppositeSideOrders = CountMyOrdersByType(OP_BUY);
 }
 
-// Example:
-// InpFixedStopLossUSD = $7
-// Half-loss trigger       = -$3.50
+// Opposite-BOS exception begins when the opposite-side basket reaches
+// half of the current effective emergency stop-loss threshold.
+double effectiveStopLossUSD = GetEffectiveFixedStopLossUSD();
 double halfStopLossTrigger =
-   -2;//(InpFixedStopLossUSD / 3.0);
+   -(effectiveStopLossUSD / 2.0);
 
 
 
@@ -1846,7 +1889,7 @@ double halfStopLossTrigger =
 // limit is reached, but only when the opposite side is already losing
 // enough and MIXED-market mode is disabled.
 bool allowOppositeBOSOrder =
-   (InpFixedStopLossUSD > 0.0 &&
+   (effectiveStopLossUSD > 0.0 &&
     oppositeSideOrders > 0 &&
     oppositeSideProfit <= halfStopLossTrigger);
 if(allowOppositeBOSOrder &&
@@ -1974,13 +2017,40 @@ int GetLossTierFromMinimumProfit(double minimumProfit)
 }
 
 //+------------------------------------------------------------------+
+// Effective base TP used by every profit-management path.
+// MIXED market uses half of the configured InpTakeProfitUSD, while
+// NOT MIXED keeps the full configured value. The input itself is never
+// overwritten, so returning to NOT MIXED automatically restores full TP.
+// Example: InpTakeProfitUSD = $0.40
+//   NOT MIXED = $0.40
+//   MIXED     = $0.20
+//+------------------------------------------------------------------+
+double GetMarketModeTakeProfitUSD()
+{
+   double baseTakeProfit = g_originalTakeProfitUSD;
+
+   if(baseTakeProfit <= 0.0)
+      baseTakeProfit = InpTakeProfitUSD;
+
+   if(baseTakeProfit <= 0.0)
+      return(0.0);
+
+   if(InpMarketMixedMode)
+      baseTakeProfit = baseTakeProfit / 2.0;
+
+   return(NormalizeDouble(baseTakeProfit, 4));
+}
+
+//+------------------------------------------------------------------+
 double GetAssignedTakeProfitForLossTier(int lossTier)
 {
-   if(g_originalTakeProfitUSD <= 0.0)
+   double marketModeTakeProfit = GetMarketModeTakeProfitUSD();
+
+   if(marketModeTakeProfit <= 0.0)
       return(0.0);
 
    if(!InpUseAdaptiveLossTarget || lossTier <= 0)
-      return(g_originalTakeProfitUSD);
+      return(marketModeTakeProfit);
 
    if(IsBreakEvenLossTier(lossTier))
    {
@@ -1989,7 +2059,7 @@ double GetAssignedTakeProfitForLossTier(int lossTier)
    }
 
    return(NormalizeDouble(
-             g_originalTakeProfitUSD /
+             marketModeTakeProfit /
              (lossTier + 1.0),
              4));
 }
@@ -2405,7 +2475,9 @@ bool CloseSideBasketByDynamicProfit(int orderType)
    }
 
    bool lockRaised = false;
-   double normalStep = g_originalTakeProfitUSD;
+   // Clean X1/X2/X3 ladder also follows the active market-mode TP.
+   // MIXED = InpTakeProfitUSD / 2; NOT MIXED = full InpTakeProfitUSD.
+   double normalStep = GetMarketModeTakeProfitUSD();
 
    // CHANGE 1: advance clean profit through X1/X2/X3/... .
    if(lossTier <= 0 && normalStep > 0.0)
@@ -2520,15 +2592,18 @@ void CloseByProfitOrLoss()
       double profit =
          OrderProfit() + OrderSwap() + OrderCommission();
 
+      double effectiveStopLossUSD =
+         GetEffectiveFixedStopLossUSD();
+
       bool fixedStopHit =
-         (InpFixedStopLossUSD > 0.0 &&
-          profit <= -InpFixedStopLossUSD);
+         (effectiveStopLossUSD > 0.0 &&
+          profit <= -effectiveStopLossUSD);
 
       if(fixedStopHit)
       {
          CloseSelectedOrder(
-            "Emergency SL -$" +
-            DoubleToString(InpFixedStopLossUSD, 2),
+            "Effective emergency SL -$" +
+            DoubleToString(effectiveStopLossUSD, 2),
             profit);
       }
    }
@@ -3450,14 +3525,14 @@ void DrawDashboard(string status)
    double buyLockedProfit = 0.0;
    double buyMinimumProfit = 0.0;
    int buyLossTier = 0;
-   double buyAdaptiveTarget = g_originalTakeProfitUSD;
+   double buyAdaptiveTarget = GetMarketModeTakeProfitUSD();
 
    double sellCurrentProfit = 0.0;
    double sellPeakProfit = 0.0;
    double sellLockedProfit = 0.0;
    double sellMinimumProfit = 0.0;
    int sellLossTier = 0;
-   double sellAdaptiveTarget = g_originalTakeProfitUSD;
+   double sellAdaptiveTarget = GetMarketModeTakeProfitUSD();
 
    GetSideProfitSummary(OP_BUY,
                         buyCurrentProfit,
@@ -3628,7 +3703,7 @@ void DrawDashboard(string status)
    y += InpDashboardRowHeight;
 
    DashboardRow("MARKET_MODE", "Auto Market Mode",
-                InpMarketMixedMode ? "MIXED" : "NOT MIXED",
+                InpMarketMixedMode ? "MIXED | TP / 2" : "NOT MIXED | FULL TP",
                 y, InpMarketMixedMode ?
                 C'255,180,55' : C'65,220,125');
    y += InpDashboardRowHeight;
@@ -3724,9 +3799,10 @@ void DrawDashboard(string status)
                     C'255,145,65');
    y += 26;
 
-   DashboardRow("DEFAULT_TP", "Default TP",
-                "$" + DoubleToString(g_originalTakeProfitUSD, 4),
-                y, C'255,205,70');
+   DashboardRow("DEFAULT_TP", "Base / Active TP",
+                "$" + DoubleToString(g_originalTakeProfitUSD, 4) +
+                " / $" + DoubleToString(GetMarketModeTakeProfitUSD(), 4),
+                y, InpMarketMixedMode ? C'255,180,55' : C'255,205,70');
    y += InpDashboardRowHeight;
 
    DashboardRow("BUY_TARGET", "BUY Target / Loss Tier",
@@ -3757,8 +3833,12 @@ void DrawDashboard(string status)
                 y, DashboardProfitColor(sellMinimumProfit));
    y += InpDashboardRowHeight;
 
-   DashboardRow("SL", "Emergency Stop Loss",
-                "-$" + DoubleToString(InpFixedStopLossUSD, 2),
+   double effectiveStopLossUSD =
+      GetEffectiveFixedStopLossUSD();
+
+   DashboardRow("SL", "Effective / Configured SL",
+                "-$" + DoubleToString(effectiveStopLossUSD, 2) +
+                " / -$" + DoubleToString(InpFixedStopLossUSD, 2),
                 y, C'255,95,95');
    y += InpDashboardRowHeight + 4;
 
