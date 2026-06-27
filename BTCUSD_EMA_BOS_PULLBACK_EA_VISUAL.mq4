@@ -29,18 +29,21 @@ bool   InpUseMomentumContinuation    = true;
 double InpMomentumContinuationRaw    = 100.0;
 
 // SIDE-BASKET dynamic profit management (BUY and SELL are independent).
-// Clean basket: profit lock advances through X1/X2/X3/... using this step.
-// It does not close at X1 while profit is still rising; it closes only when
-// basket profit falls back to the highest completed step.
+// Clean basket: the first profit lock starts at the full active TP (X1.0).
+// Later locks advance by the configured multiplier increment.
+// With multiplier 0.50, levels are X1.0, X1.5, X2.0, X2.5, etc.
+// It does not close immediately when a level is reached; it closes only when
+// basket profit falls back to the highest completed level.
 // Basket touched a full negative step: normal trailing is cancelled and the
 // basket closes immediately when it recovers to the reduced positive target.
 // Example with InpAdaptiveLossLevelUSD = 1.00:
-//   minimum above -$1.00 => normal X1/X2/X3 ladder
+//   minimum above -$1.00 => normal X1/X1.5/X2/X2.5 ladder
 //   touch -$1.00         => comeback target = TP / 2
 //   touch -$2.00         => comeback target = TP / 3
 //   touch -$3.00         => comeback target = TP / 4
 // The worst BUY loss never changes SELL state, and vice versa.
 double InpTakeProfitUSD              = 0.40;
+double InpDynamicProfitStepMultiplier = 0.50; // After X1: X1.5, X2, X2.5...
 double InpFixedStopLossUSD                = 10;//7;//6;//10;//6.00;
 
 
@@ -48,7 +51,7 @@ double InpFixedStopLossUSD                = 10;//7;//6;//10;//6.00;
 // Dubai daily account-profit protection.
 // Example: day-start balance $40 and target 50% means close all EA orders
 // when equity reaches $60 and pause until the next Dubai calendar date.
-double InpProfitTargetPercent        = 100;//20.0;
+double InpProfitTargetPercent        = 50;//20.0;//market will be weak after some profit - avoid stoploss 
 
 bool   InpUseAdaptiveLossTarget      = false;
 double InpAdaptiveLossLevelUSD       = 1.00;    
@@ -98,7 +101,7 @@ string InpDubaiBlockedHours          = "14,15,16,17,18,19,20,21,22,23,0,1,2";
 // when adverse distance is large enough and active BOS matches direction.
 bool   InpUseRecoveryOrders             = true;
 double InpRecoveryLotSize               = 0.02;
-double InpRecoveryRawDifference         = 200.0;
+double InpRecoveryRawDifference         = 400.0;
 int    InpMaxRecoveryOrdersPerDirection = 1;
 
 // Close linked parent + recovery together at the assigned basket target.
@@ -643,7 +646,11 @@ int OnInit()
    Print("EMA BOS Pullback + Momentum EA started",
          " | Dubai time ", dubaiTimeText,
          " | Effective SL $",
-         DoubleToString(GetEffectiveFixedStopLossUSD(), 2));
+         DoubleToString(GetEffectiveFixedStopLossUSD(), 2),
+         " | Ladder starts X1; increment X",
+         DoubleToString(InpDynamicProfitStepMultiplier, 2),
+         " | Increment $",
+         DoubleToString(GetDynamicProfitLadderStepUSD(), 4));
 
    if(InpShowVisuals)
       DrawDashboard(g_lastStatus);
@@ -691,7 +698,7 @@ double GetEffectiveFixedStopLossUSD()
    if(InpFixedStopLossUSD <= 0.0)
       return(0.0);
 
-   double balanceBasedSL = AccountBalance() - 2.0;
+   double balanceBasedSL =10000; //AccountBalance() - 2.0;
 
    // Avoid a zero/negative threshold on very small balances.
    balanceBasedSL = MathMax(0.01, balanceBasedSL);
@@ -2056,6 +2063,29 @@ double GetMarketModeTakeProfitUSD()
 }
 
 //+------------------------------------------------------------------+
+// Clean dynamic-profit ladder increment after the first X1.0 level.
+// 0.50 creates X1.0, X1.5, X2.0, X2.5... levels.
+// 1.00 creates X1.0, X2.0, X3.0... levels.
+// The multiplier is applied to the active market-mode TP, so MIXED mode
+// still uses its reduced TP before the ladder increment is calculated.
+//+------------------------------------------------------------------+
+double GetDynamicProfitLadderStepUSD()
+{
+   double activeTakeProfit = GetMarketModeTakeProfitUSD();
+
+   if(activeTakeProfit <= 0.0)
+      return(0.0);
+
+   double multiplier = InpDynamicProfitStepMultiplier;
+
+   // Invalid input falls back safely to the requested half-step ladder.
+   if(multiplier <= 0.0)
+      multiplier = 0.50;
+
+   return(NormalizeDouble(activeTakeProfit * multiplier, 4));
+}
+
+//+------------------------------------------------------------------+
 double GetAssignedTakeProfitForLossTier(int lossTier)
 {
    double marketModeTakeProfit = GetMarketModeTakeProfitUSD();
@@ -2489,18 +2519,31 @@ bool CloseSideBasketByDynamicProfit(int orderType)
    }
 
    bool lockRaised = false;
-   // Clean X1/X2/X3 ladder also follows the active market-mode TP.
-   // MIXED = InpTakeProfitUSD / 2; NOT MIXED = full InpTakeProfitUSD.
-   double normalStep = GetMarketModeTakeProfitUSD();
 
-   // CHANGE 1: advance clean profit through X1/X2/X3/... .
-   if(lossTier <= 0 && normalStep > 0.0)
+   // Clean dynamic-profit ladder:
+   // First lock is X1.0, then X1.5, X2.0, X2.5... when increment = 0.50.
+   // The active TP already includes the MIXED-market TP/2 adjustment.
+   double activeTakeProfit = GetMarketModeTakeProfitUSD();
+   double ladderStep       = GetDynamicProfitLadderStepUSD();
+
+   if(lossTier <= 0 &&
+      activeTakeProfit > 0.0 &&
+      ladderStep > 0.0)
    {
-      if(peakProfit + 0.0000001 >= normalStep)
+      // The first completed lock is always the full active TP (X1.0).
+      // After that, advance by ladderStep: X1.5, X2.0, X2.5... when
+      // InpDynamicProfitStepMultiplier = 0.50.
+      if(peakProfit + 0.0000001 >= activeTakeProfit)
       {
+         double extraProfit = peakProfit - activeTakeProfit;
+         if(extraProfit < 0.0)
+            extraProfit = 0.0;
+
+         double completedIncrements =
+            MathFloor((extraProfit + 0.0000001) / ladderStep);
+
          double calculatedLock =
-            MathFloor((peakProfit + 0.0000001) /
-                      normalStep) * normalStep;
+            activeTakeProfit + completedIncrements * ladderStep;
 
          calculatedLock = NormalizeDouble(calculatedLock, 4);
 
@@ -2512,9 +2555,14 @@ bool CloseSideBasketByDynamicProfit(int orderType)
             string lockSide =
                (orderType == OP_BUY) ? "BUY" : "SELL";
 
+            double lockMultiplier = 0.0;
+            if(activeTakeProfit > 0.0)
+               lockMultiplier = lockedProfit / activeTakeProfit;
+
             g_lastStatus =
-               lockSide + " basket advanced lock to $" +
-               DoubleToString(lockedProfit, 2) +
+               lockSide + " basket advanced lock X" +
+               DoubleToString(lockMultiplier, 1) +
+               " to $" + DoubleToString(lockedProfit, 2) +
                " | Peak $" + DoubleToString(peakProfit, 2);
 
             Print(g_lastStatus);
@@ -2534,9 +2582,10 @@ bool CloseSideBasketByDynamicProfit(int orderType)
 
    bool cleanTrailHit =
       (lossTier <= 0 &&
-       normalStep > 0.0 &&
+       activeTakeProfit > 0.0 &&
+       ladderStep > 0.0 &&
        !lockRaised &&
-       lockedProfit + 0.0000001 >= normalStep &&
+       lockedProfit + 0.0000001 >= activeTakeProfit &&
        profitFalling &&
        currentProfit <= lockedProfit + 0.0000001);
 
@@ -3813,9 +3862,10 @@ void DrawDashboard(string status)
                     C'255,145,65');
    y += 26;
 
-   DashboardRow("DEFAULT_TP", "Base / Active TP",
+   DashboardRow("DEFAULT_TP", "Base / Active / Increment",
                 "$" + DoubleToString(g_originalTakeProfitUSD, 4) +
-                " / $" + DoubleToString(GetMarketModeTakeProfitUSD(), 4),
+                " / $" + DoubleToString(GetMarketModeTakeProfitUSD(), 4) +
+                " / $" + DoubleToString(GetDynamicProfitLadderStepUSD(), 4),
                 y, InpMarketMixedMode ? C'255,180,55' : C'255,205,70');
    y += InpDashboardRowHeight;
 
