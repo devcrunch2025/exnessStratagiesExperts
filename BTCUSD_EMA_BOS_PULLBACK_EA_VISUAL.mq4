@@ -72,8 +72,9 @@ double InpMixedMaxEfficiency         = 0.45;
 int    InpMixedMinEMACrossings       = 3;
 
 // Runtime state. The EA updates this automatically on every tick.
-// true  = MIXED market: opposite-BOS order exception is disabled.
-// false = not MIXED: opposite-BOS exception may be used.
+// true  = MIXED market: ALL new orders are paused and existing
+//         BUY/SELL baskets use InpTakeProfitUSD / 2.
+// false = not MIXED: normal entry rules and full TP are used.
 bool   InpMarketMixedMode            = false;
 
 bool   InpOnlyNewCandleEntry         = true;
@@ -152,7 +153,8 @@ enum EA_PAUSE_REASON
 {
    PAUSE_REASON_NONE         = 0,
    PAUSE_REASON_DAILY_TARGET = 1,
-   PAUSE_REASON_DUBAI_HOURS  = 2
+   PAUSE_REASON_DUBAI_HOURS  = 2,
+   PAUSE_REASON_MIXED_MODE   = 3
 };
 
 //----------------------- Clean pullback state ------------------------
@@ -401,6 +403,11 @@ EA_PAUSE_REASON GetCurrentPauseReason()
    if(IsDubaiBlockedTime())
       return(PAUSE_REASON_DUBAI_HOURS);
 
+   // MIXED mode blocks every NEW order type, but existing orders
+   // continue to be managed with InpTakeProfitUSD / 2.
+   if(InpMarketMixedMode)
+      return(PAUSE_REASON_MIXED_MODE);
+
    return(PAUSE_REASON_NONE);
 }
 
@@ -409,6 +416,14 @@ string GetDubaiHoursPausedStatus()
 {
    return("DUBAI BLOCKED HOURS " + GetDubaiPauseWindowText() +
           " | NEW ORDERS PAUSED | EXISTING ORDERS MANAGED");
+}
+
+//+------------------------------------------------------------------+
+string GetMixedModePausedStatus()
+{
+   return("MIXED MARKET | ALL NEW ORDERS PAUSED | EXISTING TP $" +
+          DoubleToString(GetMarketModeTakeProfitUSD(), 4) +
+          " = InpTakeProfitUSD / 2");
 }
 
 //+------------------------------------------------------------------+
@@ -426,6 +441,9 @@ string GetEffectiveStatusText(string normalStatus)
 
    if(pauseReason == PAUSE_REASON_DUBAI_HOURS)
       return(GetDubaiHoursPausedStatus());
+
+   if(pauseReason == PAUSE_REASON_MIXED_MODE)
+      return(GetMixedModePausedStatus());
 
    return(normalStatus);
 }
@@ -793,6 +811,20 @@ if(startupElapsedMs < 5*1000)
    if(IsDubaiBlockedTime())
    {
       g_lastStatus = GetDubaiHoursPausedStatus();
+
+      if(InpShowVisuals)
+         UpdateVisuals(false, GetEMATrend());
+
+      return;
+   }
+
+   // MIXED mode: manage/close existing BUY and SELL baskets above,
+   // using the active TP returned by GetMarketModeTakeProfitUSD().
+   // Stop here before recovery, clean pullback, momentum or regular BOS
+   // entry logic so absolutely no new order is created.
+   if(InpMarketMixedMode)
+   {
+      g_lastStatus = GetMixedModePausedStatus();
 
       if(InpShowVisuals)
          UpdateVisuals(false, GetEMATrend());
@@ -1322,6 +1354,15 @@ bool OpenOrderWithLots(int type, double lots, string orderComment)
    if(IsDubaiBlockedTime())
    {
       g_lastStatus = GetDubaiHoursPausedStatus();
+      return(false);
+   }
+
+   // Central safety guard. Every regular, recovery and clean-pullback
+   // order uses this function, so no OrderSend can bypass MIXED mode.
+   if(InpMarketMixedMode)
+   {
+      g_lastStatus = GetMixedModePausedStatus();
+      Print(g_lastStatus, " | Blocked comment: ", orderComment);
       return(false);
    }
 
@@ -3682,6 +3723,12 @@ void DrawDashboard(string status)
       newOrdersText = "PAUSED - DUBAI HOURS";
       tradingColor = C'255,180,55';
    }
+   else if(pauseReason == PAUSE_REASON_MIXED_MODE)
+   {
+      tradingState = "MIXED PAUSED";
+      newOrdersText = "PAUSED - MIXED MODE";
+      tradingColor = C'255,180,55';
+   }
 
    string displayStatus = GetEffectiveStatusText(status);
    color panelBorder = tradingColor;
@@ -3790,7 +3837,7 @@ void DrawDashboard(string status)
    y += InpDashboardRowHeight;
 
    DashboardRow("MARKET_MODE", "Auto Market Mode",
-                InpMarketMixedMode ? "MIXED | TP / 2" : "NOT MIXED | FULL TP",
+                InpMarketMixedMode ? "MIXED | ORDERS PAUSED | TP / 2" : "NOT MIXED | FULL TP",
                 y, InpMarketMixedMode ?
                 C'255,180,55' : C'65,220,125');
    y += InpDashboardRowHeight;

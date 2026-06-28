@@ -20,7 +20,7 @@ MARKET_MODE g_marketMode = MODE_RANGE;
 #ifndef OP_BALANCE
 #define OP_BALANCE 6
 #endif
-#property version   "1.37"
+#property version   "1.40"
 
 //======================== INPUTS ====================================
 string InpEAName                  = "DXB Version 5 - SAR Confirm 50 in 5 Min";
@@ -31,7 +31,7 @@ double InpMinGapWhenMaxOrdersMoreThanOne = 100.0; // when InpMaxOrders > 1, enfo
 
 #define DXB_HARD_MAX_OPEN_ORDERS 6  // absolute safety cap for normal SAR orders per cycle
 
-double InpBasketProfitUSD         = 0.50;//1;//0.40;//1.00;
+double InpBasketProfitUSD         = 0.50;  // X1 basket profit step: X1=$0.50, X2=$1.00, X3=$1.50...
 double InpProfitTargetPercent      = 20;//50.0;//50   // stop trading when equity reaches Base + 100%
 
 
@@ -40,23 +40,37 @@ double InpProfitTargetPercent      = 20;//50.0;//50   // stop trading when equit
 // InpDynamicBasketMultiplierStep controls the X increase between levels.
 // Example: InpBasketProfitUSD=$0.40 and multiplier step=0.50:
 //   X0.5=$0.20, X1.0=$0.40, X1.5=$0.60, X2.0=$0.80...
-// If profit falls back to the highest completed level, close that side.
+// Profit keeps moving upward through every completed level.
+// Close only when profit comes back to the highest protected level.
 // Set multiplier step=1.00 for the original X1, X2, X3... ladder.
 bool   InpUseDynamicBasketProfitBooking   = true;
 double InpDynamicBasketMultiplierStep      = 1;//0.50; // 0.50 => X0.5, X1.0, X1.5...; 1.00 => X1, X2, X3...
-int    InpDynamicBasketProfitMaxX          = 0;    // 0 = unlimited; otherwise cap at this X multiplier
+double InpDynamicBasketProfitMaxX          = 0.0;  // 0 = unlimited; otherwise highest protected X multiplier (supports 2.5, 3.5, etc.)
 // Optional extra fall below the completed level before closing.
 // 0.00 = close as soon as profit returns to the protected X level.
 double InpDynamicBasketReturnBufferUSD     = 0.00;
 
-// Drawdown comeback profit target:
+// Minimum dynamic protected close:
+// The basket first arms a small positive floor at this profit.
+// It does NOT close while profit is still rising.
+// Example with $0.10 minimum and InpBasketProfitUSD=$0.50:
+//   peak reaches $0.10 => protect $0.10
+//   peak reaches X1 $0.50 => protect $0.50
+//   peak reaches X2 $1.00 => protect $1.00
+//   peak reaches X3 $1.50 => protect $1.50
+// Close only when current profit comes back to the highest protected value.
+double InpDynamicBasketMinimumCloseUSD     = 0.20;
+
+// Drawdown comeback trailing floor:
 // Once a BUY/SELL basket touches a negative loss step, remember the worst loss
-// separately for that side and close as soon as the basket returns to the
-// reduced positive target. This takes priority over the X1/X2/X3 ladder.
+// separately for that side. The reduced positive comeback target becomes the
+// MINIMUM protected profit floor; it does NOT close immediately on the way up.
+// Profit keeps advancing through the X ladder and closes only after coming back
+// from the highest peak to the best protected level reached.
 // Example with InpBasketProfitUSD=$0.40 and loss step=$1.00:
-//   touched -$1.xx => close at $0.40/2 = $0.20
-//   touched -$2.xx => close at $0.40/3 = $0.13
-//   touched -$3.xx => close at $0.40/4 = $0.10
+//   touched -$1.xx => arm minimum lock at $0.40/2 = $0.20
+//   then X1=$0.40, X2=$0.80, X3=$1.20... keep moving upward
+//   if peak reaches $1.05, close only when profit comes back to $0.80
 // The rule continues automatically for deeper whole-dollar drawdown levels.
 bool   InpUseDynamicBasketDrawdownComebackTP = true;
 double InpDynamicBasketDrawdownStepUSD        = 1.00;
@@ -96,11 +110,11 @@ int    InpBasketHalfTPAfterMinutes = 30;
 double InpBasketHalfTPAfterMinutesMultiplier = 0.50;
 
 //Live
-double InpBasketStopLossUSD       = 3;;//2;//5;//2;//5.00;    // BASKET stop loss in USD, 0 = disabled. This closes all orders in active SAR direction.
+double InpBasketStopLossUSD       =5;// 3;;//2;//5;//2;//5.00;    // BASKET stop loss in USD, 0 = disabled. This closes all orders in active SAR direction.
 
 double InpContinuousTrendBasketSLUSD   =3;//2;//5;//1;// 2;//5.00;
-double InpMediumTrendBasketSLUSD       = 3;////2;//10;//10;//1;//2;//10.00;
-double InpMixedTrendBasketSLUSD        =3;// 2;//10;//5;//10;//1;//2;//10.00;
+double InpMediumTrendBasketSLUSD       =3;//6;// 3;////2;//10;//10;//1;//2;//10.00;
+double InpMixedTrendBasketSLUSD        =6;//3;// 2;//10;//5;//10;//1;//2;//10.00;
 double InpDangerModeBasketSLUSD        = 3;//2;//5;//1;//2;//5.00;
 
 // Simple basket close mode:
@@ -253,10 +267,10 @@ bool   InpRecoveryGapMustMatchH1Trend = false;
 // If recovery gap was matched but order was blocked by SAR/temporary conditions,
 // remember it and keep checking again on later ticks / next SAR signal.
 // Useful when price moved strongly against basket, then comes back and SAR aligns again.
-bool   InpKeepPendingRecoveryGapAfterBlock = true;
-bool   InpOpenPendingRecoveryWhenSARMatches = true;
+bool   InpKeepPendingRecoveryGapAfterBlock = false;
+bool   InpOpenPendingRecoveryWhenSARMatches = false;
 
-double InpRecoveryGapRawPrice     = 100;//200.0;   // raw price difference, not points
+double InpRecoveryGapRawPrice     = 50;//200.0;   // raw price difference, not points
 double InpRecoveryGapLot          = 0.02;
 int    InpMaxRecoveryGapOrdersPerSide = 1;  // recovery ladder: 50, 100, 150 from first order price
 
@@ -318,6 +332,17 @@ bool   InpNotifyOnEAStart             = true;    // notify when EA is loaded
 bool   InpOneOrderPerBar          = true;
 int    InpOrderCooldownSeconds    = 0;       // 0 = disabled
 double InpMinPriceGap             = 0.00;    // raw price gap, 0 = disabled
+
+//================ PENDING ORDER ENTRY MODE ==========================
+// Every approved BUY entry is placed as a BUYSTOP and every approved SELL
+// entry is placed as a SELLSTOP. The pending price is at least this RAW-price
+// distance from the live market. Example BTCUSD: Ask 60000 + 20 = BUYSTOP 60020.
+// For a same-SAR replacement after a normal order closes, the last close price
+// is used as the preferred reference; broker/live-price safety may move it farther.
+bool   InpUsePendingOrderEntries             = true;
+double InpPendingOrderRawGap                 = 20.0;
+bool   InpPendingUseLastClosedOrderPrice     = true;
+bool   InpDeletePendingOrdersOnSARChange     = true;
 
 // Dubai no-new-order hours:
 // Block NEW normal SAR orders only during Dubai 4:00 PM through 8:59 PM.
@@ -411,7 +436,7 @@ double InpContinuousOrderPriceGap    = 30;//10.0; //30  // raw price gap require
 int    InpContinuousOrderLookbackMinutes = 1;  // legacy input, not used by current continuity gap logic
 int    InpContinuousOrderGapMinutes  = 1;      // wait this many minutes after last order, then verify price gap
 
-double InpSARConfirmPriceDiff     = 50.0;   // SAR signal-change raw price diff confirmation only
+double InpSARConfirmPriceDiff     = 100.0;   // SAR signal-change raw price diff confirmation only
 int    InpSARConfirmMinutes       = 5;      // used by the full profile only
 // First normal order after every SAR flip:
 // true = bypass all strategy filters and require only the FIXED live raw-price
@@ -654,6 +679,9 @@ bool     g_sarPausedByEarly     = false;   // true when early reverse fights SAR
 bool     g_firstSARLocked       = false;
 datetime g_lastBarTime          = 0;
 datetime g_lastOrderTime        = 0;
+// Latest normal pending ticket that has become an active BUY/SELL market order.
+// Used to start delayed-SAR-close tracking only after actual execution.
+int      g_lastActivatedPendingMarketTicket = -1;
 // Last SAR_FLIP_V2LAST normal order time/bar. Used to give normal SAR order first priority over special guard.
 datetime g_lastSARFlipV2LastOrderBarTime = 0;
 datetime g_lastSARFlipV2LastOrderTime    = 0;
@@ -1481,28 +1509,28 @@ bool FirstSAROrderFilterCase(int filterId)
       case DXB_FILTER_TRADING_ALLOWED: return(true);  // MT4/broker safety
       case DXB_FILTER_MAX_OPEN_DIR:    return(true);  // BUY/SELL independent cap
 
-      case DXB_FILTER_SAR_PRICE_SIDE:   return(false);
-      case DXB_FILTER_REPEATED_GAP:     return(false);
+      case DXB_FILTER_SAR_PRICE_SIDE:   return(true);
+      case DXB_FILTER_REPEATED_GAP:     return(true);
       case DXB_FILTER_SAR_CYCLE:        return(true);
-      case DXB_FILTER_H1_TREND:         return(false);
-      case DXB_FILTER_LATE_SAR:         return(false);
-      case DXB_FILTER_STRICT_SAR_SCORE: return(false);
+      case DXB_FILTER_H1_TREND:         return(true);
+      case DXB_FILTER_LATE_SAR:         return(true);
+      case DXB_FILTER_STRICT_SAR_SCORE: return(true);
       case DXB_FILTER_DOUBTFUL_CANDLE:  return(true);
-      case DXB_FILTER_SPREAD:           return(false);
+      case DXB_FILTER_SPREAD:           return(true);
       case DXB_FILTER_EQUITY_LOCK:      return(true);
-      case DXB_FILTER_NO_NEW_HOUR:      return(false);
+      case DXB_FILTER_NO_NEW_HOUR:      return(true);
       case DXB_FILTER_PROFIT_PAUSE:     return(true);
-      case DXB_FILTER_OPPOSITE_PAUSE:   return(false);
+      case DXB_FILTER_OPPOSITE_PAUSE:   return(true);
       case DXB_FILTER_BIG_CANDLE:       return(true);
       case DXB_FILTER_SPIKE_WICK:       return(true);
       case DXB_FILTER_MIN_GAP:          return(true);
       case DXB_FILTER_TOTAL_OPEN:       return(true);
-      case DXB_FILTER_AUTO_MARKET_MODE: return(false);
-      case DXB_FILTER_DYNAMIC_SAR:      return(false);
+      case DXB_FILTER_AUTO_MARKET_MODE: return(true);
+      case DXB_FILTER_DYNAMIC_SAR:      return(true);
       case DXB_FILTER_FLAT_MODE:        return(true);
-      case DXB_FILTER_EARLY_WEAK_EXIT:  return(false);
-      case DXB_FILTER_EARLY_REVERSE:    return(false);
-      case DXB_FILTER_ORDER_COOLDOWN:   return(false);
+      case DXB_FILTER_EARLY_WEAK_EXIT:  return(true);
+      case DXB_FILTER_EARLY_REVERSE:    return(true);
+      case DXB_FILTER_ORDER_COOLDOWN:   return(true);
      }
 
    return(false);
@@ -2963,11 +2991,215 @@ double GetTodayProfitFromBase()
   }
 
 //+------------------------------------------------------------------+
-//| Total open order hard cap: normal + recovery                     |
+//| Pending-order entry helpers                                      |
+//+------------------------------------------------------------------+
+bool IsPendingOrderType(int type)
+  {
+   return(type == OP_BUYLIMIT ||
+          type == OP_SELLLIMIT ||
+          type == OP_BUYSTOP ||
+          type == OP_SELLSTOP);
+  }
+
+//+------------------------------------------------------------------+
+bool IsOrderTypeForDirection(int type, int direction, bool includePending)
+  {
+   if(direction == 1)
+      return(type == OP_BUY ||
+             (includePending && (type == OP_BUYSTOP || type == OP_BUYLIMIT)));
+
+   if(direction == -1)
+      return(type == OP_SELL ||
+             (includePending && (type == OP_SELLSTOP || type == OP_SELLLIMIT)));
+
+   return(false);
+  }
+
+//+------------------------------------------------------------------+
+// Counts active market orders plus untriggered pending entries.
+// Used only for entry caps so pending orders reserve their BUY/SELL slot.
+int CountDirectionEntriesForCap(int direction)
+  {
+   int total = 0;
+
+   for(int i = OrdersTotal() - 1; i >= 0; i--)
+     {
+      if(!OrderSelect(i, SELECT_BY_POS, MODE_TRADES))
+         continue;
+
+      if(OrderSymbol() != Symbol() ||
+         OrderMagicNumber() != InpMagicNumber)
+         continue;
+
+      if(IsSARGuardOrderComment(OrderComment()))
+         continue;
+
+      if(IsOrderTypeForDirection(OrderType(), direction, true))
+         total++;
+     }
+
+   return(total);
+  }
+
+//+------------------------------------------------------------------+
+int CountAllEntriesForCap()
+  {
+   int total = 0;
+
+   for(int i = OrdersTotal() - 1; i >= 0; i--)
+     {
+      if(!OrderSelect(i, SELECT_BY_POS, MODE_TRADES))
+         continue;
+
+      if(OrderSymbol() != Symbol() ||
+         OrderMagicNumber() != InpMagicNumber)
+         continue;
+
+      if(IsSARGuardOrderComment(OrderComment()))
+         continue;
+
+      int type = OrderType();
+      if(type == OP_BUY || type == OP_SELL || IsPendingOrderType(type))
+         total++;
+     }
+
+   return(total);
+  }
+
+//+------------------------------------------------------------------+
+double GetEffectivePendingOrderGapRaw()
+  {
+   double requested = MathMax(0.0, InpPendingOrderRawGap);
+   double stopRaw   = MarketInfo(Symbol(), MODE_STOPLEVEL)   * Point;
+   double freezeRaw = MarketInfo(Symbol(), MODE_FREEZELEVEL) * Point;
+
+   return(MathMax(requested, MathMax(stopRaw, freezeRaw)));
+  }
+
+//+------------------------------------------------------------------+
+double BuildPendingOrderPrice(int direction, bool allowLastClosedReference)
+  {
+   RefreshRates();
+
+   double gap = GetEffectivePendingOrderGapRaw();
+   double referencePrice = (direction == 1) ? Ask : Bid;
+
+   if(allowLastClosedReference &&
+      InpPendingUseLastClosedOrderPrice &&
+      g_lastClosedNormalOrderPrice > 0.0 &&
+      g_lastClosedNormalOrderDirection == direction &&
+      g_lastClosedNormalOrderTime > 0 &&
+      (g_activeSARSignalChangeTime <= 0 ||
+       g_lastClosedNormalOrderTime >= g_activeSARSignalChangeTime))
+      referencePrice = g_lastClosedNormalOrderPrice;
+
+   double pendingPrice = 0.0;
+
+   if(direction == 1)
+     {
+      pendingPrice = referencePrice + gap;
+      pendingPrice = MathMax(pendingPrice, Ask + gap);
+     }
+   else
+   if(direction == -1)
+     {
+      pendingPrice = referencePrice - gap;
+      pendingPrice = MathMin(pendingPrice, Bid - gap);
+     }
+
+   return(NormalizeDouble(pendingPrice, Digits));
+  }
+
+//+------------------------------------------------------------------+
+bool IsPendingEntryAllowedForCurrentSAR(int direction, string source)
+  {
+   if(!InpUsePendingOrderEntries)
+      return(true);
+
+   if(direction == 0 || direction != g_activeSARDirection)
+     {
+      Print("PENDING ENTRY BLOCKED | Direction/SAR mismatch | Entry=",
+            DirectionText(direction),
+            " | ActiveSAR=", DirectionText(g_activeSARDirection),
+            " | Source=", source);
+      return(false);
+     }
+
+   // Never place a pending order immediately after a SAR signal changes.
+   // Wait until the new SAR confirmation becomes ready.
+   if(g_pendingSARConfirmDirection != 0)
+     {
+      if(g_pendingSARConfirmDirection != direction ||
+         !IsSARFlipConfirmationReady())
+        {
+         Print("PENDING ENTRY BLOCKED | Waiting SAR confirmation | Entry=",
+               DirectionText(direction),
+               " | PendingSAR=", DirectionText(g_pendingSARConfirmDirection),
+               " | ", SARConfirmDurationStatusText(),
+               " | Source=", source);
+         return(false);
+        }
+     }
+
+   return(true);
+  }
+
+//+------------------------------------------------------------------+
+// direction: 1=BUY pending only, -1=SELL pending only, 0=all pending.
+int DeletePendingOrdersByDirection(int direction,
+                                   string reason,
+                                   bool anyMagic=false)
+  {
+   int deleted = 0;
+
+   for(int i = OrdersTotal() - 1; i >= 0; i--)
+     {
+      if(!OrderSelect(i, SELECT_BY_POS, MODE_TRADES))
+         continue;
+
+      if(OrderSymbol() != Symbol())
+         continue;
+
+      if(!anyMagic && OrderMagicNumber() != InpMagicNumber)
+         continue;
+
+      int type = OrderType();
+      if(!IsPendingOrderType(type))
+         continue;
+
+      if(direction != 0 && !IsOrderTypeForDirection(type, direction, true))
+         continue;
+
+      int ticket = OrderTicket();
+      string comment = OrderComment();
+
+      ResetLastError();
+      if(!OrderDelete(ticket))
+        {
+         int err = GetLastError();
+         Print("PENDING DELETE FAILED | Ticket=", ticket,
+               " | Type=", type,
+               " | Reason=", reason,
+               " | Error=", err);
+         ResetLastError();
+         continue;
+        }
+
+      deleted++;
+      Print("PENDING DELETED | Ticket=", ticket,
+            " | Comment=", comment,
+            " | Reason=", reason);
+     }
+
+   return(deleted);
+  }
+
+//+------------------------------------------------------------------+
+//| Total open order hard cap: normal + recovery + pending entries    |
 //+------------------------------------------------------------------+
 bool IsTotalOpenOrderCapReached(string source)
   {
-   int total = CountAllOrders();
+   int total = CountAllEntriesForCap();
    if(InpMaxTotalOpenOrders > 0 && total >= InpMaxTotalOpenOrders)
      {
       Print("TOTAL OPEN ORDER CAP BLOCKED | Source=", source,
@@ -2992,7 +3224,7 @@ bool IsDirectionOrderCapReached(int direction, string source)
    if(maxPerType < 1)
       maxPerType = 1;
 
-   int openForType = CountOrdersByDirection(direction);
+   int openForType = CountDirectionEntriesForCap(direction);
 
    if(openForType >= maxPerType)
      {
@@ -3330,6 +3562,9 @@ void CloseAllEAOrders(string reason)
   {
    RefreshRates();
 
+   // Pending entries must be deleted; OrderClose works only for market orders.
+   DeletePendingOrdersByDirection(0, reason + " | ALL EA CLOSE", false);
+
    for(int i = OrdersTotal() - 1; i >= 0; i--)
      {
       if(!OrderSelect(i, SELECT_BY_POS, MODE_TRADES))
@@ -3484,6 +3719,22 @@ double GetDynamicBasketTargetUSDByLevel(int level)
   }
 
 //+------------------------------------------------------------------+
+int GetDynamicBasketMaximumLevel()
+  {
+   if(InpDynamicBasketProfitMaxX <= 0.0)
+      return(0); // unlimited
+
+   int maxLevel = (int)MathFloor(
+                     (MathAbs(InpDynamicBasketProfitMaxX) + 0.0000001) /
+                     GetDynamicBasketMultiplierStep());
+
+   if(maxLevel < 1)
+      maxLevel = 1;
+
+   return(maxLevel);
+  }
+
+//+------------------------------------------------------------------+
 int GetDynamicBasketCompletedLevel(double peakProfit)
   {
    double profitStepUSD = GetDynamicBasketProfitStepUSD();
@@ -3495,18 +3746,9 @@ int GetDynamicBasketCompletedLevel(double peakProfit)
    int level = (int)MathFloor((peakProfit + 0.0000001) /
                               profitStepUSD);
 
-   if(InpDynamicBasketProfitMaxX > 0)
-     {
-      int maxLevel = (int)MathFloor(
-                        (InpDynamicBasketProfitMaxX + 0.0000001) /
-                        GetDynamicBasketMultiplierStep());
-
-      if(maxLevel < 1)
-         maxLevel = 1;
-
-      if(level > maxLevel)
-         level = maxLevel;
-     }
+   int maxLevel = GetDynamicBasketMaximumLevel();
+   if(maxLevel > 0 && level > maxLevel)
+      level = maxLevel;
 
    if(level < 0)
       level = 0;
@@ -3532,7 +3774,28 @@ double GetDynamicBasketProtectedProfitUSD(double peakProfit)
 double GetDynamicBasketNextTargetUSD(double peakProfit)
   {
    int level = GetDynamicBasketCompletedLevel(peakProfit);
+   int maxLevel = GetDynamicBasketMaximumLevel();
+
+   if(maxLevel > 0 && level >= maxLevel)
+      return(GetDynamicBasketTargetUSDByLevel(maxLevel));
+
    return(GetDynamicBasketTargetUSDByLevel(level + 1));
+  }
+
+//+------------------------------------------------------------------+
+//| First small positive lock before X1 is completed.                |
+//| It is clamped to X1 so it always remains a minimum floor.        |
+//+------------------------------------------------------------------+
+double GetDynamicBasketMinimumCloseUSD()
+  {
+   double minimumClose = MathMax(0.01,
+                                 MathAbs(InpDynamicBasketMinimumCloseUSD));
+   double x1Target = GetDynamicBasketTargetUSDByLevel(1);
+
+   if(x1Target > 0.0 && minimumClose > x1Target)
+      minimumClose = x1Target;
+
+   return(minimumClose);
   }
 
 //+------------------------------------------------------------------+
@@ -3586,30 +3849,82 @@ string DynamicBasketProfitDirectionStatusText(int direction)
    double worstProfit = (direction == 1)
                         ? g_buyBasketWorstProfit
                         : g_sellBasketWorstProfit;
-   int drawdownLevel = GetDynamicBasketDrawdownLevel(worstProfit);
 
-   if(drawdownLevel > 0)
+   int drawdownLevel = GetDynamicBasketDrawdownLevel(worstProfit);
+   double comebackTarget = (drawdownLevel > 0)
+                           ? GetDynamicBasketComebackTargetUSD(worstProfit)
+                           : 0.0;
+   int completedLevel = GetDynamicBasketCompletedLevel(peakProfit);
+   int maxLevel = GetDynamicBasketMaximumLevel();
+
+   double protectedProfit = 0.0;
+   string lockText = "NOT ARMED";
+
+   // Always begin with the configured small positive minimum lock.
+   // This is armed only after the basket reaches it and never closes on the way up.
+   double minimumClose = GetDynamicBasketMinimumCloseUSD();
+   if(peakProfit + 0.0000001 >= minimumClose)
      {
-      int divisor = drawdownLevel + 1;
-      return(side + " P/L $" + DoubleToString(currentProfit, 2) +
-             " | WORST $" + DoubleToString(worstProfit, 2) +
-             " | EXIT TP/" + IntegerToString(divisor) + " $" +
-             DoubleToString(GetDynamicBasketComebackTargetUSD(worstProfit), 2));
+      protectedProfit = minimumClose;
+      lockText = "MIN";
      }
 
-   int level = GetDynamicBasketCompletedLevel(peakProfit);
+   // A drawdown comeback target is another possible minimum trailing floor.
+   // Use it only when it protects more than the normal minimum close.
+   if(drawdownLevel > 0 &&
+      peakProfit + 0.0000001 >= comebackTarget &&
+      comebackTarget > protectedProfit)
+     {
+      protectedProfit = comebackTarget;
+      lockText = "TP/" + IntegerToString(drawdownLevel + 1);
+     }
 
-   if(level <= 0)
+   // The highest completed X level always replaces a lower comeback floor.
+   if(completedLevel > 0)
+     {
+      double ladderProtected = GetDynamicBasketProtectedProfitUSD(peakProfit);
+      if(ladderProtected >= protectedProfit)
+        {
+         protectedProfit = ladderProtected;
+         lockText = "X" + GetDynamicBasketLevelXText(completedLevel);
+        }
+     }
+
+   if(protectedProfit <= 0.0)
+     {
+      string armText = "MIN $" +
+                       DoubleToString(GetDynamicBasketMinimumCloseUSD(), 2);
+
       return(side + " P/L $" + DoubleToString(currentProfit, 2) +
-             " | ARM X" + GetDynamicBasketLevelXText(1) + " $" +
+             " | PEAK $" + DoubleToString(peakProfit, 2) +
+             " | ARM " + armText +
+             " | THEN X1 $" +
              DoubleToString(GetDynamicBasketTargetUSDByLevel(1), 2));
+     }
+
+   string nextText;
+   if(maxLevel > 0 && completedLevel >= maxLevel)
+      nextText = "MAX X" + GetDynamicBasketLevelXText(maxLevel);
+   else
+     {
+      int nextLevel = completedLevel + 1;
+      if(nextLevel < 1)
+         nextLevel = 1;
+
+      nextText = "NEXT X" + GetDynamicBasketLevelXText(nextLevel) + " $" +
+                 DoubleToString(GetDynamicBasketTargetUSDByLevel(nextLevel), 2);
+     }
+
+   string worstText = "";
+   if(drawdownLevel > 0)
+      worstText = " | WORST $" + DoubleToString(worstProfit, 2);
 
    return(side + " P/L $" + DoubleToString(currentProfit, 2) +
           " | PEAK $" + DoubleToString(peakProfit, 2) +
-          " | LOCK X" + GetDynamicBasketLevelXText(level) + " $" +
-          DoubleToString(GetDynamicBasketProtectedProfitUSD(peakProfit), 2) +
-          " | NEXT X" + GetDynamicBasketLevelXText(level + 1) + " $" +
-          DoubleToString(GetDynamicBasketNextTargetUSD(peakProfit), 2));
+          worstText +
+          " | LOCK " + lockText + " $" +
+          DoubleToString(protectedProfit, 2) +
+          " | " + nextText);
   }
 
 //+------------------------------------------------------------------+
@@ -3630,67 +3945,55 @@ bool ProcessDynamicBasketProfitByDirection(int direction,
                         ? g_buyBasketWorstProfit
                         : g_sellBasketWorstProfit;
 
-   // FIRST PRIORITY: a basket that touched a configured negative step is
-   // considered higher risk. Do not wait for X1 or for a profit pullback.
-   // Close immediately when it comes back to the reduced positive target.
    int drawdownLevel = GetDynamicBasketDrawdownLevel(worstProfit);
-   if(drawdownLevel > 0)
+   double comebackTarget = (drawdownLevel > 0)
+                           ? GetDynamicBasketComebackTargetUSD(worstProfit)
+                           : 0.0;
+   int completedLevel = GetDynamicBasketCompletedLevel(peakProfit);
+
+   double protectedProfit = 0.0;
+   string protectedName = "NONE";
+
+   // First arm the normal minimum positive close.
+   // Example: peak reaches $0.10 => lock $0.10, but continue trying for X1.
+   double minimumClose = GetDynamicBasketMinimumCloseUSD();
+   if(peakProfit + 0.0000001 >= minimumClose)
      {
-      int divisor = drawdownLevel + 1;
-      double comebackTarget = GetDynamicBasketComebackTargetUSD(worstProfit);
+      protectedProfit = minimumClose;
+      protectedName = "MIN";
+     }
 
-      if(currentProfit > 0.0 &&
-         currentProfit + 0.0000001 >= comebackTarget)
+   // Drawdown comeback remains a trailing floor, never an immediate TP.
+   // It replaces the normal minimum only when it is the higher protection.
+   if(drawdownLevel > 0 &&
+      peakProfit + 0.0000001 >= comebackTarget &&
+      comebackTarget > protectedProfit)
+     {
+      protectedProfit = comebackTarget;
+      protectedName = "TP/" + IntegerToString(drawdownLevel + 1);
+     }
+
+   if(completedLevel > 0)
+     {
+      double ladderProtected = GetDynamicBasketProtectedProfitUSD(peakProfit);
+      if(ladderProtected >= protectedProfit)
         {
-         string recoverySide = DirectionText(direction);
-         string recoveryReason =
-            "DYNAMIC DRAWDOWN COMEBACK TP | " + recoverySide +
-            " | Worst $" + DoubleToString(worstProfit, 2) +
-            " | TP/" + IntegerToString(divisor) +
-            " Target $" + DoubleToString(comebackTarget, 2) +
-            " | Current $" + DoubleToString(currentProfit, 2);
-
-         CloseOrdersByDirection(direction, recoveryReason);
-         ResetDelayedSARCloseAfterBasketClose(direction,
-                                              recoverySide + " drawdown comeback reset");
-         ResetBasketProfitPeaksAfterClose(direction);
-         g_allBasketPeakProfit = MathMax(0.0, GetAllOpenEAOrdersProfit());
-
-         g_dynamicBasketProfitStatus = recoverySide +
-            " CLOSED AFTER DD $" + DoubleToString(worstProfit, 2) +
-            " | TP/" + IntegerToString(divisor) +
-            " $" + DoubleToString(currentProfit, 2);
-
-         Print("DYNAMIC DRAWDOWN COMEBACK CLOSED | Direction=", recoverySide,
-               " | Worst=$", DoubleToString(worstProfit, 2),
-               " | DrawdownLevel=", drawdownLevel,
-               " | Divisor=", divisor,
-               " | Target=$", DoubleToString(comebackTarget, 2),
-               " | Current=$", DoubleToString(currentProfit, 2));
-
-         status = g_dynamicBasketProfitStatus;
-         return(true);
+         protectedProfit = ladderProtected;
+         protectedName = "X" + GetDynamicBasketLevelXText(completedLevel);
         }
+     }
 
+   // No minimum floor, comeback floor or X level has been armed yet.
+   if(protectedProfit <= 0.0)
+     {
       g_dynamicBasketProfitStatus =
          DynamicBasketProfitDirectionStatusText(direction);
       status = g_dynamicBasketProfitStatus;
       return(false);
      }
 
-   int completedLevel = GetDynamicBasketCompletedLevel(peakProfit);
-
-   if(completedLevel <= 0)
-     {
-      status = DynamicBasketProfitDirectionStatusText(direction);
-      return(false);
-     }
-
-   double protectedProfit = GetDynamicBasketProtectedProfitUSD(peakProfit);
-   double nextTarget = GetDynamicBasketNextTargetUSD(peakProfit);
-
-   // A completed X level is never closed while profit is still making a new peak.
-   // Close only after a real pullback from the remembered peak to the protected level.
+   // Never close while profit is making or matching its highest peak.
+   // Close only after a genuine pullback to the best protected level.
    bool isComingBack = (currentProfit + 0.0000001 < peakProfit);
 
    if(isComingBack &&
@@ -3699,36 +4002,39 @@ bool ProcessDynamicBasketProfitByDirection(int direction,
      {
       string side = DirectionText(direction);
       string closeReason =
-         "DYNAMIC BASKET PROFIT | " + side +
+         "DYNAMIC MAX-PROFIT TRAIL | " + side +
          " | Peak $" + DoubleToString(peakProfit, 2) +
-         " | Protected X" + GetDynamicBasketLevelXText(completedLevel) +
+         " | Protected " + protectedName +
          " $" + DoubleToString(protectedProfit, 2) +
          " | Current $" + DoubleToString(currentProfit, 2);
 
+      if(drawdownLevel > 0)
+         closeReason += " | Worst $" + DoubleToString(worstProfit, 2);
+
       CloseOrdersByDirection(direction, closeReason);
       ResetDelayedSARCloseAfterBasketClose(direction,
-                                           side + " dynamic basket reset");
+                                           side + " dynamic max-profit reset");
       ResetBasketProfitPeaksAfterClose(direction);
       // Rebuild the combined peak from any opposite-side basket still open.
       g_allBasketPeakProfit = MathMax(0.0, GetAllOpenEAOrdersProfit());
 
       g_dynamicBasketProfitStatus = side +
-         " CLOSED X" + GetDynamicBasketLevelXText(completedLevel) +
+         " CLOSED " + protectedName +
          " | $" + DoubleToString(currentProfit, 2);
 
-      Print("DYNAMIC BASKET PROFIT CLOSED | Direction=", side,
-            " | CompletedLevel=X",
-            GetDynamicBasketLevelXText(completedLevel),
+      Print("DYNAMIC MAX-PROFIT TRAIL CLOSED | Direction=", side,
             " | Peak=$", DoubleToString(peakProfit, 2),
+            " | ProtectedName=", protectedName,
             " | Protected=$", DoubleToString(protectedProfit, 2),
             " | Current=$", DoubleToString(currentProfit, 2),
-            " | NextTarget=$", DoubleToString(nextTarget, 2));
+            " | Worst=$", DoubleToString(worstProfit, 2));
 
       status = g_dynamicBasketProfitStatus;
       return(true);
      }
 
-   g_dynamicBasketProfitStatus = DynamicBasketProfitDirectionStatusText(direction);
+   g_dynamicBasketProfitStatus =
+      DynamicBasketProfitDirectionStatusText(direction);
    status = g_dynamicBasketProfitStatus;
    return(false);
   }
@@ -5173,7 +5479,8 @@ int CountRecoveryOrders()
       if(OrderMagicNumber() != InpMagicNumber)
          continue;
 
-      if(OrderType() != OP_BUY && OrderType() != OP_SELL)
+      int type = OrderType();
+      if(type != OP_BUY && type != OP_SELL && !IsPendingOrderType(type))
          continue;
 
       if(IsRecoveryOrder())
@@ -5296,8 +5603,16 @@ bool OpenRecoveryOrder(int direction, string sourceReason)
       return(false);
      }
 
-   int type = direction == 1 ? OP_BUY : OP_SELL;
-   double price = direction == 1 ? Ask : Bid;
+   if(!IsPendingEntryAllowedForCurrentSAR(direction, "OpenRecoveryOrder"))
+      return(false);
+
+   int type = InpUsePendingOrderEntries
+              ? (direction == 1 ? OP_BUYSTOP : OP_SELLSTOP)
+              : (direction == 1 ? OP_BUY : OP_SELL);
+
+   double price = InpUsePendingOrderEntries
+                  ? BuildPendingOrderPrice(direction, false)
+                  : (direction == 1 ? Ask : Bid);
 
    // SAR signal price side filter is NOT applied to recovery orders.
    // Recovery must be allowed to work even when price is against the original SAR signal.
@@ -5349,7 +5664,7 @@ bool OpenRecoveryOrder(int direction, string sourceReason)
    g_lastOrderTime = TimeCurrent();
    MarkOpenedOrderOnChart(ticket, direction, comment, TimeCurrent(), price);
 
-   Print("RECOVERY ORDER OPENED | Ticket=", ticket,
+   Print(InpUsePendingOrderEntries ? "RECOVERY PENDING PLACED | Ticket=" : "RECOVERY ORDER OPENED | Ticket=", ticket,
          " | Direction=", DirectionText(direction),
          " | TargetProfit=$", DoubleToString(InpRecoveryProfitUSD, 2),
          " | Comment=", comment,
@@ -5362,7 +5677,6 @@ bool OpenRecoveryOrder(int direction, string sourceReason)
 int CountRecoveryGapOrdersByDirection(int direction)
   {
    int total = 0;
-   int type = direction == 1 ? OP_BUY : OP_SELL;
 
    for(int i = OrdersTotal() - 1; i >= 0; i--)
      {
@@ -5375,7 +5689,7 @@ int CountRecoveryGapOrdersByDirection(int direction)
       if(OrderMagicNumber() != InpMagicNumber)
          continue;
 
-      if(OrderType() != type)
+      if(!IsOrderTypeForDirection(OrderType(), direction, true))
          continue;
 
       if(IsRecoveryGapOrderComment(OrderComment()))
@@ -5533,8 +5847,17 @@ bool OpenRecoveryGapMarketOrder(int direction, double gapMove)
       return(false);
      }
 
-   int type = direction == 1 ? OP_BUY : OP_SELL;
-   double price = direction == 1 ? Ask : Bid;
+   if(!IsPendingEntryAllowedForCurrentSAR(direction,
+                                               "OpenRecoveryGapMarketOrder"))
+      return(false);
+
+   int type = InpUsePendingOrderEntries
+              ? (direction == 1 ? OP_BUYSTOP : OP_SELLSTOP)
+              : (direction == 1 ? OP_BUY : OP_SELL);
+
+   double price = InpUsePendingOrderEntries
+                  ? BuildPendingOrderPrice(direction, false)
+                  : (direction == 1 ? Ask : Bid);
 
    // SAR signal price side filter is NOT applied to RECOVERY_GAP orders.
    // Recovery ladder must follow adverse price gaps independently.
@@ -5610,7 +5933,7 @@ bool OpenRecoveryGapMarketOrder(int direction, double gapMove)
    g_lastRecoveryAuditDirection = direction;
    g_lastRecoveryAuditGap = gapMove;
 
-   Print("RECOVERY GAP ORDER OPENED | Ticket=", ticket,
+   Print(InpUsePendingOrderEntries ? "RECOVERY GAP PENDING PLACED | Ticket=" : "RECOVERY GAP ORDER OPENED | Ticket=", ticket,
          " | Direction=", DirectionText(direction),
          " | Lot=", DoubleToString(lot, 2),
          " | RecoveryNo=", nextRecoveryNumber,
@@ -6383,6 +6706,23 @@ void ProcessSARFlipStateAndClose()
 
    int oldDirection = g_activeSARDirection;
 
+   // Every untriggered EA pending order belongs to the old SAR cycle.
+   // Delete it before updating direction. The new cycle must complete its
+   // SAR confirmation before another pending order may be placed.
+   if(InpDeletePendingOrdersOnSARChange)
+     {
+      int deletedPending = DeletePendingOrdersByDirection(
+                              0,
+                              "SAR signal changed " +
+                              DirectionText(oldDirection) + " -> " +
+                              DirectionText(sarFlip),
+                              false);
+
+      Print("SAR CHANGE PENDING CLEANUP | Deleted=", deletedPending,
+            " | Old=", DirectionText(oldDirection),
+            " | New=", DirectionText(sarFlip));
+     }
+
 // Always update SAR direction immediately so new orders follow current SAR.
 // But do NOT close orders on the first signal change after a new order.
 // Close only on the configured Nth SAR change counted from the latest normal order.
@@ -6523,6 +6863,10 @@ void CloseOrdersByDirectionAnyMagic(int direction, string reason, bool anyMagic)
                " | Reason=", reason);
         }
      }
+
+   DeletePendingOrdersByDirection(direction,
+                                  reason + " | EARLY SIDE CLOSE",
+                                  anyMagic);
   }
 
 
@@ -8233,6 +8577,68 @@ double GetEffectiveRecoveryGapRawPrice()
 
    return(InpRecoveryGapRawPrice);
 }
+//+------------------------------------------------------------------+
+//| Detect when a normal pending entry has become a market order.     |
+//+------------------------------------------------------------------+
+void TrackActivatedPendingNormalOrder()
+  {
+   if(!InpUsePendingOrderEntries ||
+      !InpUseDelayedSARChangeClose ||
+      !InpResetSARCloseCounterOnNewOrder)
+      return;
+
+   int latestTicket = -1;
+   int latestDirection = 0;
+   datetime latestOpenTime = 0;
+
+   for(int i = OrdersTotal() - 1; i >= 0; i--)
+     {
+      if(!OrderSelect(i, SELECT_BY_POS, MODE_TRADES))
+         continue;
+
+      if(OrderSymbol() != Symbol() ||
+         OrderMagicNumber() != InpMagicNumber)
+         continue;
+
+      int type = OrderType();
+      if(type != OP_BUY && type != OP_SELL)
+         continue;
+
+      if(!IsSARParentOrderComment(OrderComment()))
+         continue;
+
+      if(OrderOpenTime() >= latestOpenTime)
+        {
+         latestOpenTime = OrderOpenTime();
+         latestTicket = OrderTicket();
+         latestDirection = (type == OP_BUY) ? 1 : -1;
+        }
+     }
+
+   if(latestTicket < 0 ||
+      latestTicket == g_lastActivatedPendingMarketTicket)
+      return;
+
+   g_lastActivatedPendingMarketTicket = latestTicket;
+   g_sarChangesAfterLastNormalOrder = 0;
+   g_sarCloseTrackedDirection       = latestDirection;
+   g_sarCloseTrackedOrderTime       = latestOpenTime;
+   g_sarDelayedCloseStatus          = "TRACK " +
+                                      DirectionText(latestDirection) +
+                                      " 0/" +
+                                      IntegerToString(
+                                         MathMax(
+                                            1,
+                                            InpCloseOrdersOnNthSARChangeAfterOrder));
+
+   Print("PENDING ACTIVATED AS MARKET ORDER | Ticket=", latestTicket,
+         " | Direction=", DirectionText(latestDirection),
+         " | OpenTime=", TimeToString(latestOpenTime,
+                                      TIME_DATE|TIME_SECONDS),
+         " | DelayedSARClose=", g_sarDelayedCloseStatus);
+  }
+
+//+------------------------------------------------------------------+
 void OnTick()
   {
 
@@ -8281,6 +8687,10 @@ void OnTick()
 
 
    RefreshRates();
+
+   // Pending orders become normal BUY/SELL trades at broker execution.
+   // Start delayed SAR-close tracking only after that activation.
+   TrackActivatedPendingNormalOrder();
 
    // Detect a new 3-profit streak immediately after history changes and maintain the 2-hour lock.
    UpdateOppositeDirectionProfitPause(false);
@@ -10444,19 +10854,19 @@ bool IsNormalOrderAllowedByMarketModeProfile(int direction,
      }
 
    if(IsMarketModeEntryFilterEnabled(DXB_FILTER_MAX_OPEN_DIR) &&
-      CountOrdersByDirection(direction) >= InpMaxOrders)
+      CountDirectionEntriesForCap(direction) >= InpMaxOrders)
       return(BlockNormalOrderByModeProfile(
          "MAX OPEN DIRECTION " +
-         IntegerToString(CountOrdersByDirection(direction)) + "/" +
+         IntegerToString(CountDirectionEntriesForCap(direction)) + "/" +
          IntegerToString(InpMaxOrders) +
          " | Source=" + reason));
 
    if(IsMarketModeEntryFilterEnabled(DXB_FILTER_TOTAL_OPEN) &&
       InpMaxTotalOpenOrders > 0 &&
-      CountAllOrders() >= InpMaxTotalOpenOrders)
+      CountAllEntriesForCap() >= InpMaxTotalOpenOrders)
       return(BlockNormalOrderByModeProfile(
          "TOTAL OPEN " +
-         IntegerToString(CountAllOrders()) + "/" +
+         IntegerToString(CountAllEntriesForCap()) + "/" +
          IntegerToString(InpMaxTotalOpenOrders) +
          " | Source=" + reason));
 
@@ -10550,8 +10960,19 @@ bool OpenMarketOrder(int direction, string reason)
    RefreshNormalEntryDiagnosticSnapshot(direction, reason);
    CaptureLastEntryAttempt("APPROVED FOR ORDERSEND");
 
-   int type = direction == 1 ? OP_BUY : OP_SELL;
-   double price = direction == 1 ? Ask : Bid;
+   if(!IsPendingEntryAllowedForCurrentSAR(direction,
+                                               "OpenMarketOrder " + reason))
+      return BlockOrder("Pending entry waiting current SAR confirmation | Direction=" +
+                        DirectionText(direction) +
+                        " | Source=" + reason);
+
+   int type = InpUsePendingOrderEntries
+              ? (direction == 1 ? OP_BUYSTOP : OP_SELLSTOP)
+              : (direction == 1 ? OP_BUY : OP_SELL);
+
+   double price = InpUsePendingOrderEntries
+                  ? BuildPendingOrderPrice(direction, true)
+                  : (direction == 1 ? Ask : Bid);
 
    if(!isFirstSAROrder &&
       IsMarketModeEntryFilterEnabled(DXB_FILTER_SAR_PRICE_SIDE) &&
@@ -10591,7 +11012,9 @@ bool OpenMarketOrder(int direction, string reason)
    double lot = NormalizeLot(InpFixedLot);
 
    RefreshRates();
-   price = (direction == 1) ? Ask : Bid;
+   price = InpUsePendingOrderEntries
+           ? BuildPendingOrderPrice(direction, true)
+           : ((direction == 1) ? Ask : Bid);
 
    EnsureSARSignalOrderCycle(direction);
    UpdateSARCycleMaxByMomentum(direction, "OrderSend last check");
@@ -10704,9 +11127,11 @@ bool OpenMarketOrder(int direction, string reason)
    if(isFirstSAROrder)
       ResetSARFlipConfirmation();
 
-   // Reset delayed SAR close counter from this newly created normal order.
-   // This fixes: close on 2nd/4th SAR change FROM THE CREATED ORDER, not global SAR changes.
-   if(InpUseDelayedSARChangeClose && InpResetSARCloseCounterOnNewOrder)
+   // A pending placement is not yet an active BUY/SELL market order.
+   // Do not start delayed SAR-close tracking merely because it was placed.
+   if(!InpUsePendingOrderEntries &&
+      InpUseDelayedSARChangeClose &&
+      InpResetSARCloseCounterOnNewOrder)
      {
       g_sarChangesAfterLastNormalOrder = 0;
       g_sarCloseTrackedDirection       = direction;
@@ -10719,7 +11144,9 @@ bool OpenMarketOrder(int direction, string reason)
             " | CloseOnChange=", MathMax(1, InpCloseOrdersOnNthSARChangeAfterOrder));
      }
 
-   g_lastOrderOpenReason = "SUCCESS | Ticket=" + IntegerToString(ticket) +
+   g_lastOrderOpenReason = (InpUsePendingOrderEntries
+                            ? "PENDING SUCCESS | Ticket="
+                            : "SUCCESS | Ticket=") + IntegerToString(ticket) +
                            " | Direction=" + DirectionText(direction) +
                            " | Lot=" + DoubleToString(lot, 2) +
                            " | Price=" + DoubleToString(price, Digits) +
@@ -10729,7 +11156,9 @@ bool OpenMarketOrder(int direction, string reason)
                                              : "FULL FILTERS") +
                            " | Comment=" + orderComment;
 
-   g_lastEntryAttemptDecision = "OPENED";
+   g_lastEntryAttemptDecision = InpUsePendingOrderEntries
+                                ? "PENDING PLACED"
+                                : "OPENED";
    g_lastEntryAttemptPrimary  = "NONE";
    g_lastEntryAttemptBlockers = "NONE";
    g_lastEntryAttemptBlocked  = 0;
@@ -10741,7 +11170,8 @@ bool OpenMarketOrder(int direction, string reason)
                            price,
                            lot);
 
-   Print("Opened ", DirectionText(direction), " ticket=", ticket,
+   Print(InpUsePendingOrderEntries ? "Pending placed " : "Opened ",
+          DirectionText(direction), " ticket=", ticket,
          " lot=", DoubleToString(lot, 2),
          " reason=", reason,
          " comment=", orderComment,
@@ -10926,6 +11356,11 @@ void CloseOrdersByType(int type, string reason)
          Print("Closed ticket=", OrderTicket(), " reason=", reason);
         }
      }
+
+   int pendingDirection = (type == OP_BUY) ? 1 : -1;
+   DeletePendingOrdersByDirection(pendingDirection,
+                                  reason + " | SIDE CLOSE",
+                                  false);
   }
 
 //+------------------------------------------------------------------+
@@ -13338,7 +13773,8 @@ void DrawDashboard(string status)
 
    RightProRow("Basket TP Live",
                InpUseDynamicBasketProfitBooking
-               ? "X" + GetDynamicBasketLevelXText(1) + " $" +
+               ? "MIN $" + DoubleToString(GetDynamicBasketMinimumCloseUSD(),2) +
+                 " | X" + GetDynamicBasketLevelXText(1) + " $" +
                  DoubleToString(GetDynamicBasketTargetUSDByLevel(1),2) +
                  " | X" + GetDynamicBasketLevelXText(2) + " $" +
                  DoubleToString(GetDynamicBasketTargetUSDByLevel(2),2) +
