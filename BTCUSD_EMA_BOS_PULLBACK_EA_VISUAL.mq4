@@ -42,7 +42,7 @@ double InpMomentumContinuationRaw    = 100.0;
 //   touch -$2.00         => comeback target = TP / 3
 //   touch -$3.00         => comeback target = TP / 4
 // The worst BUY loss never changes SELL state, and vice versa.
-double InpTakeProfitUSD              = 0.30;//2;//0.40;
+double InpTakeProfitUSD              = 0.50;//2;//0.40;
 double InpDynamicProfitStepMultiplier = 0.50; // After X1: X1.5, X2, X2.5...
 double InpFixedStopLossUSD                =2;//1;// 0.50;//10;//7;//6;//10;//6.00;
 
@@ -51,7 +51,7 @@ double InpFixedStopLossUSD                =2;//1;// 0.50;//10;//7;//6;//10;//6.0
 // Dubai daily account-profit protection.
 // Example: day-start balance $40 and target 50% means close all EA orders
 // when equity reaches $60 and pause until the next Dubai calendar date.
-double InpProfitTargetPercent        = 50;//20.0;//market will be weak after some profit - avoid stoploss 
+double InpProfitTargetPercent        =20;// 50;//20.0;//market will be weak after some profit - avoid stoploss 
 
 bool   InpUseAdaptiveLossTarget      = false;
 double InpAdaptiveLossLevelUSD       = 1.00;    

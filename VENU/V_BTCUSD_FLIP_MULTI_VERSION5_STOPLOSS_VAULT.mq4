@@ -31,19 +31,20 @@ double InpMinGapWhenMaxOrdersMoreThanOne = 100.0; // when InpMaxOrders > 1, enfo
 
 #define DXB_HARD_MAX_OPEN_ORDERS 6  // absolute safety cap for normal SAR orders per cycle
 
-double InpBasketProfitUSD         = 1;//0.40;//1.00;
+double InpBasketProfitUSD         = 0.50;//1;//0.40;//1.00;
 double InpProfitTargetPercent      = 20;//50.0;//50   // stop trading when equity reaches Base + 100%
 
 
 // Dynamic basket profit ladder:
 // The BUY basket and SELL basket are managed independently.
-// Example with InpBasketProfitUSD = $0.40:
-//   Reach X1 = $0.40 -> do not close; aim for X2 = $0.80.
-//   Reach X2 = $0.80 -> do not close; aim for X3 = $1.20.
-//   If profit then falls back to the highest completed level, close that side.
-// The ladder continues automatically to X4, X5, X6... without fixed extra inputs.
+// InpDynamicBasketMultiplierStep controls the X increase between levels.
+// Example: InpBasketProfitUSD=$0.40 and multiplier step=0.50:
+//   X0.5=$0.20, X1.0=$0.40, X1.5=$0.60, X2.0=$0.80...
+// If profit falls back to the highest completed level, close that side.
+// Set multiplier step=1.00 for the original X1, X2, X3... ladder.
 bool   InpUseDynamicBasketProfitBooking   = true;
-int    InpDynamicBasketProfitMaxX          = 0;    // 0 = unlimited; otherwise cap the protected X level
+double InpDynamicBasketMultiplierStep      = 1;//0.50; // 0.50 => X0.5, X1.0, X1.5...; 1.00 => X1, X2, X3...
+int    InpDynamicBasketProfitMaxX          = 0;    // 0 = unlimited; otherwise cap at this X multiplier
 // Optional extra fall below the completed level before closing.
 // 0.00 = close as soon as profit returns to the protected X level.
 double InpDynamicBasketReturnBufferUSD     = 0.00;
@@ -99,7 +100,7 @@ double InpBasketStopLossUSD       = 2;//5;//2;//5.00;    // BASKET stop loss in 
 
 double InpContinuousTrendBasketSLUSD   =2;//5;//1;// 2;//5.00;
 double InpMediumTrendBasketSLUSD       = 2;//10;//10;//1;//2;//10.00;
-double InpMixedTrendBasketSLUSD        = 2;//10;//5;//10;//1;//2;//10.00;
+double InpMixedTrendBasketSLUSD        =3;// 2;//10;//5;//10;//1;//2;//10.00;
 double InpDangerModeBasketSLUSD        = 2;//5;//1;//2;//5.00;
 
 // Simple basket close mode:
@@ -1482,13 +1483,13 @@ bool FirstSAROrderFilterCase(int filterId)
 
       case DXB_FILTER_SAR_PRICE_SIDE:   return(false);
       case DXB_FILTER_REPEATED_GAP:     return(false);
-      case DXB_FILTER_SAR_CYCLE:        return(false);
-      case DXB_FILTER_H1_TREND:         return(false);
+      case DXB_FILTER_SAR_CYCLE:        return(true);
+      case DXB_FILTER_H1_TREND:         return(true);
       case DXB_FILTER_LATE_SAR:         return(false);
       case DXB_FILTER_STRICT_SAR_SCORE: return(false);
       case DXB_FILTER_DOUBTFUL_CANDLE:  return(false);
       case DXB_FILTER_SPREAD:           return(false);
-      case DXB_FILTER_EQUITY_LOCK:      return(false);
+      case DXB_FILTER_EQUITY_LOCK:      return(true);
       case DXB_FILTER_NO_NEW_HOUR:      return(false);
       case DXB_FILTER_PROFIT_PAUSE:     return(false);
       case DXB_FILTER_OPPOSITE_PAUSE:   return(false);
@@ -1500,7 +1501,7 @@ bool FirstSAROrderFilterCase(int filterId)
       case DXB_FILTER_DYNAMIC_SAR:      return(false);
       case DXB_FILTER_FLAT_MODE:        return(false);
       case DXB_FILTER_EARLY_WEAK_EXIT:  return(false);
-      case DXB_FILTER_EARLY_REVERSE:    return(false);
+      case DXB_FILTER_EARLY_REVERSE:    return(true);
       case DXB_FILTER_ORDER_COOLDOWN:   return(false);
      }
 
@@ -3421,16 +3422,91 @@ double GetDynamicBasketProfitBaseUSD()
   }
 
 //+------------------------------------------------------------------+
+//| Sanitized multiplier increment used by every ladder calculation. |
+//+------------------------------------------------------------------+
+double GetDynamicBasketMultiplierStep()
+  {
+   return(MathMax(0.01, MathAbs(InpDynamicBasketMultiplierStep)));
+  }
+
+//+------------------------------------------------------------------+
+//| USD distance between two consecutive ladder levels.              |
+//+------------------------------------------------------------------+
+double GetDynamicBasketProfitStepUSD()
+  {
+   return(GetDynamicBasketProfitBaseUSD() *
+          GetDynamicBasketMultiplierStep());
+  }
+
+//+------------------------------------------------------------------+
+//| Convert internal integer step index to its visible X multiplier.  |
+//+------------------------------------------------------------------+
+double GetDynamicBasketLevelMultiplier(int level)
+  {
+   if(level <= 0)
+      return(0.0);
+
+   return(level * GetDynamicBasketMultiplierStep());
+  }
+
+//+------------------------------------------------------------------+
+//| Format X values cleanly: 0.50=>0.5, 1.00=>1, 1.50=>1.5.          |
+//+------------------------------------------------------------------+
+string DynamicBasketMultiplierText(double multiplier)
+  {
+   string text = DoubleToString(multiplier, 2);
+
+   while(StringLen(text) > 0 &&
+         StringSubstr(text, StringLen(text) - 1, 1) == "0")
+      text = StringSubstr(text, 0, StringLen(text) - 1);
+
+   if(StringLen(text) > 0 &&
+      StringSubstr(text, StringLen(text) - 1, 1) == ".")
+      text = StringSubstr(text, 0, StringLen(text) - 1);
+
+   return(text);
+  }
+
+//+------------------------------------------------------------------+
+string GetDynamicBasketLevelXText(int level)
+  {
+   return(DynamicBasketMultiplierText(
+             GetDynamicBasketLevelMultiplier(level)));
+  }
+
+//+------------------------------------------------------------------+
+double GetDynamicBasketTargetUSDByLevel(int level)
+  {
+   if(level <= 0)
+      return(0.0);
+
+   return(level * GetDynamicBasketProfitStepUSD());
+  }
+
+//+------------------------------------------------------------------+
 int GetDynamicBasketCompletedLevel(double peakProfit)
   {
-   double baseTarget = GetDynamicBasketProfitBaseUSD();
-   if(baseTarget <= 0.0 || peakProfit < baseTarget)
+   double profitStepUSD = GetDynamicBasketProfitStepUSD();
+   if(profitStepUSD <= 0.0 || peakProfit < profitStepUSD)
       return(0);
 
-   int level = (int)MathFloor((peakProfit + 0.0000001) / baseTarget);
+   // level is an internal step index. With multiplier step 0.50:
+   // level 1=X0.5, level 2=X1.0, level 3=X1.5, etc.
+   int level = (int)MathFloor((peakProfit + 0.0000001) /
+                              profitStepUSD);
 
-   if(InpDynamicBasketProfitMaxX > 0 && level > InpDynamicBasketProfitMaxX)
-      level = InpDynamicBasketProfitMaxX;
+   if(InpDynamicBasketProfitMaxX > 0)
+     {
+      int maxLevel = (int)MathFloor(
+                        (InpDynamicBasketProfitMaxX + 0.0000001) /
+                        GetDynamicBasketMultiplierStep());
+
+      if(maxLevel < 1)
+         maxLevel = 1;
+
+      if(level > maxLevel)
+         level = maxLevel;
+     }
 
    if(level < 0)
       level = 0;
@@ -3445,7 +3521,7 @@ double GetDynamicBasketProtectedProfitUSD(double peakProfit)
    if(level <= 0)
       return(0.0);
 
-   double protectedProfit = level * GetDynamicBasketProfitBaseUSD();
+   double protectedProfit = GetDynamicBasketTargetUSDByLevel(level);
    double buffer = MathMax(0.0, InpDynamicBasketReturnBufferUSD);
 
    protectedProfit -= buffer;
@@ -3456,7 +3532,7 @@ double GetDynamicBasketProtectedProfitUSD(double peakProfit)
 double GetDynamicBasketNextTargetUSD(double peakProfit)
   {
    int level = GetDynamicBasketCompletedLevel(peakProfit);
-   return((level + 1) * GetDynamicBasketProfitBaseUSD());
+   return(GetDynamicBasketTargetUSDByLevel(level + 1));
   }
 
 //+------------------------------------------------------------------+
@@ -3525,14 +3601,14 @@ string DynamicBasketProfitDirectionStatusText(int direction)
 
    if(level <= 0)
       return(side + " P/L $" + DoubleToString(currentProfit, 2) +
-             " | ARM X1 $" +
-             DoubleToString(GetDynamicBasketProfitBaseUSD(), 2));
+             " | ARM X" + GetDynamicBasketLevelXText(1) + " $" +
+             DoubleToString(GetDynamicBasketTargetUSDByLevel(1), 2));
 
    return(side + " P/L $" + DoubleToString(currentProfit, 2) +
           " | PEAK $" + DoubleToString(peakProfit, 2) +
-          " | LOCK X" + IntegerToString(level) + " $" +
+          " | LOCK X" + GetDynamicBasketLevelXText(level) + " $" +
           DoubleToString(GetDynamicBasketProtectedProfitUSD(peakProfit), 2) +
-          " | NEXT X" + IntegerToString(level + 1) + " $" +
+          " | NEXT X" + GetDynamicBasketLevelXText(level + 1) + " $" +
           DoubleToString(GetDynamicBasketNextTargetUSD(peakProfit), 2));
   }
 
@@ -3625,7 +3701,7 @@ bool ProcessDynamicBasketProfitByDirection(int direction,
       string closeReason =
          "DYNAMIC BASKET PROFIT | " + side +
          " | Peak $" + DoubleToString(peakProfit, 2) +
-         " | Protected X" + IntegerToString(completedLevel) +
+         " | Protected X" + GetDynamicBasketLevelXText(completedLevel) +
          " $" + DoubleToString(protectedProfit, 2) +
          " | Current $" + DoubleToString(currentProfit, 2);
 
@@ -3637,11 +3713,12 @@ bool ProcessDynamicBasketProfitByDirection(int direction,
       g_allBasketPeakProfit = MathMax(0.0, GetAllOpenEAOrdersProfit());
 
       g_dynamicBasketProfitStatus = side +
-         " CLOSED X" + IntegerToString(completedLevel) +
+         " CLOSED X" + GetDynamicBasketLevelXText(completedLevel) +
          " | $" + DoubleToString(currentProfit, 2);
 
       Print("DYNAMIC BASKET PROFIT CLOSED | Direction=", side,
-            " | CompletedLevel=X", completedLevel,
+            " | CompletedLevel=X",
+            GetDynamicBasketLevelXText(completedLevel),
             " | Peak=$", DoubleToString(peakProfit, 2),
             " | Protected=$", DoubleToString(protectedProfit, 2),
             " | Current=$", DoubleToString(currentProfit, 2),
@@ -13261,9 +13338,12 @@ void DrawDashboard(string status)
 
    RightProRow("Basket TP Live",
                InpUseDynamicBasketProfitBooking
-               ? "X1 $" + DoubleToString(GetDynamicBasketProfitBaseUSD(),2) +
-                 " | X2 $" + DoubleToString(GetDynamicBasketProfitBaseUSD()*2.0,2) +
-                 " | X3 $" + DoubleToString(GetDynamicBasketProfitBaseUSD()*3.0,2)
+               ? "X" + GetDynamicBasketLevelXText(1) + " $" +
+                 DoubleToString(GetDynamicBasketTargetUSDByLevel(1),2) +
+                 " | X" + GetDynamicBasketLevelXText(2) + " $" +
+                 DoubleToString(GetDynamicBasketTargetUSDByLevel(2),2) +
+                 " | X" + GetDynamicBasketLevelXText(3) + " $" +
+                 DoubleToString(GetDynamicBasketTargetUSDByLevel(3),2)
                : ("$" +
                   DoubleToString(
                      GetBasketProfitTargetUSD(),2) +
