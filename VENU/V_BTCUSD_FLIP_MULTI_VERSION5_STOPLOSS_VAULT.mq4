@@ -11969,7 +11969,7 @@ void DrawRecoveryChecklistPanel(int direction)
 
    DrawCornerPanel("DXB_RECOVERY_PANEL",
                    CORNER_LEFT_LOWER,
-                   560,10,580,260,
+                   560,10,400,260,
                    clrBlack,clrDimGray);
 
    DrawCornerLabel("DXB_RECOVERY_TITLE",
@@ -12367,7 +12367,7 @@ void DrawFirstSAROrderCreationChecklist(string mainStatus,
 
    DrawCornerPanel("DXB_LEFT_CHK_PANEL",
                    CORNER_LEFT_UPPER,
-                   5,15,550,430,
+                   5,15,400,430,
                    clrBlack,clrDimGray);
 
    DrawCornerLabel("DXB_LEFT_CHK_TITLE",
@@ -12715,7 +12715,7 @@ void DrawLeftOrderCreationChecklist(string mainStatus)
 
    DrawCornerPanel("DXB_LEFT_CHK_PANEL",
                    CORNER_LEFT_UPPER,
-                   5,15,550,900,
+                   5,15,400,900,
                    clrBlack,clrDimGray);
 
    DrawCornerLabel("DXB_LEFT_CHK_TITLE",
