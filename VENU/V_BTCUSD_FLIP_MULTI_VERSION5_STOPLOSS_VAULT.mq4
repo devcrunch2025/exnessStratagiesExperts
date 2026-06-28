@@ -20,18 +20,18 @@ MARKET_MODE g_marketMode = MODE_RANGE;
 #ifndef OP_BALANCE
 #define OP_BALANCE 6
 #endif
-#property version   "1.35"
+#property version   "1.37"
 
 //======================== INPUTS ====================================
 string InpEAName                  = "DXB Version 5 - SAR Confirm 50 in 5 Min";
 int    InpMagicNumber             = 989899;
 double InpFixedLot                = 0.01;
-int    InpMaxOrders               = 1;     // maximum normal SAR orders per SAR signal cycle
-double InpMinGapWhenMaxOrdersMoreThanOne = 70.0; // when InpMaxOrders > 1, enforce at least this raw price gap between same-direction open orders
+int    InpMaxOrders               = 1;     // maximum OPEN orders PER TYPE: BUY limit and SELL limit are independent
+double InpMinGapWhenMaxOrdersMoreThanOne = 100.0; // when InpMaxOrders > 1, enforce at least this raw price gap between same-direction open orders
 
 #define DXB_HARD_MAX_OPEN_ORDERS 6  // absolute safety cap for normal SAR orders per cycle
 
-double InpBasketProfitUSD         = 0.40;//1.00;
+double InpBasketProfitUSD         = 1;//0.40;//1.00;
 double InpProfitTargetPercent      = 20;//50.0;//50   // stop trading when equity reaches Base + 100%
 
 
@@ -95,12 +95,12 @@ int    InpBasketHalfTPAfterMinutes = 30;
 double InpBasketHalfTPAfterMinutesMultiplier = 0.50;
 
 //Live
-double InpBasketStopLossUSD       = 5;//2;//5.00;    // BASKET stop loss in USD, 0 = disabled. This closes all orders in active SAR direction.
+double InpBasketStopLossUSD       = 2;//5;//2;//5.00;    // BASKET stop loss in USD, 0 = disabled. This closes all orders in active SAR direction.
 
-double InpContinuousTrendBasketSLUSD   =5;//1;// 2;//5.00;
-double InpMediumTrendBasketSLUSD       = 10;//10;//1;//2;//10.00;
-double InpMixedTrendBasketSLUSD        = 10;//5;//10;//1;//2;//10.00;
-double InpDangerModeBasketSLUSD        = 5;//1;//2;//5.00;
+double InpContinuousTrendBasketSLUSD   =2;//5;//1;// 2;//5.00;
+double InpMediumTrendBasketSLUSD       = 2;//10;//10;//1;//2;//10.00;
+double InpMixedTrendBasketSLUSD        = 2;//10;//5;//10;//1;//2;//10.00;
+double InpDangerModeBasketSLUSD        = 2;//5;//1;//2;//5.00;
 
 // Simple basket close mode:
 // true = close BUY basket and SELL basket only by fixed InpBasketProfitUSD / InpBasketStopLossUSD.
@@ -255,7 +255,7 @@ bool   InpRecoveryGapMustMatchH1Trend = false;
 bool   InpKeepPendingRecoveryGapAfterBlock = true;
 bool   InpOpenPendingRecoveryWhenSARMatches = true;
 
-double InpRecoveryGapRawPrice     = 200.0;   // raw price difference, not points
+double InpRecoveryGapRawPrice     = 100;//200.0;   // raw price difference, not points
 double InpRecoveryGapLot          = 0.02;
 int    InpMaxRecoveryGapOrdersPerSide = 1;  // recovery ladder: 50, 100, 150 from first order price
 
@@ -411,7 +411,12 @@ int    InpContinuousOrderLookbackMinutes = 1;  // legacy input, not used by curr
 int    InpContinuousOrderGapMinutes  = 1;      // wait this many minutes after last order, then verify price gap
 
 double InpSARConfirmPriceDiff     = 50.0;   // SAR signal-change raw price diff confirmation only
-int    InpSARConfirmMinutes       = 5;      // max minutes for SAR confirmation only; 0 = no expiry
+int    InpSARConfirmMinutes       = 5;      // used by the full profile only
+// First normal order after every SAR flip:
+// true = bypass all strategy filters and require only the FIXED live raw-price
+// difference in InpSARConfirmPriceDiff. Direction, broker trade permission and
+// the independent BUY/SELL InpMaxOrders cap remain mandatory safety checks.
+bool   InpFirstSAROrderPriceDiffOnly = true;
 // TEST MODE: Only SAR flip confirmation is active: wait 5 minutes, then require raw price gap 30 in SAR direction.
 // BUY requires Close[1] - flipPrice >= 30. SELL requires flipPrice - Close[1] >= 30.
 
@@ -493,13 +498,13 @@ bool   InpUseSARDurationDynamicLimit = false;
 int    InpSARDurationScanBars        = 1500;   // historical bars to scan for SAR changes
 
 int    InpSARVeryLongDurationMinutes = 60;    // opposite duration >=120 min => max 0
-int    InpSARVeryLongDurationMaxOrders = 4;
+int    InpSARVeryLongDurationMaxOrders =2;//1;// 4;
 
 int    InpSARDurationLongMinutes     = 30;     // opposite duration 60-119 min => max 2
-int    InpSARLongDurationMaxOrders   = 3;
+int    InpSARLongDurationMaxOrders   =2;//1;// 3;
 
 int    InpSARDurationMediumMinutes   = 10;     // opposite duration 30-59 min => max 5
-int    InpSARMediumDurationMaxOrders = 1;
+int    InpSARMediumDurationMaxOrders =1;//2;// 1;
 
 int    InpSARNormalDurationMaxOrders = 1;     // opposite duration <30 min or no data => max 10
 //1-?100
@@ -1164,6 +1169,8 @@ string   g_entryDiagBlockerList    = "NONE";
 string   g_entryDiagEnabledList    = "NONE";
 string   g_entryDiagDisabledList   = "NONE";
 string   g_entryDiagSource         = "LIVE CHECK";
+bool     g_entryDiagFirstOrderProfile = false;
+string   g_entryDiagProfileText      = "FULL FILTER PROFILE";
 
 // Last real normal-order attempt.
 datetime g_lastEntryAttemptTime       = 0;
@@ -1184,6 +1191,7 @@ double   g_lastAuditOpenedPrice       = 0.0;
 double   g_lastAuditOpenedLot         = 0.0;
 string   g_lastAuditOpenedSource      = "NONE";
 string   g_lastAuditOpenedMode        = "NONE";
+string   g_lastAuditOpenedProfile     = "NONE";
 string   g_lastAuditOpenedFilters     = "NONE";
 string   g_lastAuditDisabledFilters   = "NONE";
 int      g_lastAuditOpenedEnabled     = 0;
@@ -1225,8 +1233,11 @@ string EntryFilterToken(int filterId)
 //+------------------------------------------------------------------+
 bool IsHardLockedEntryFilter(int filterId)
   {
+   // Direction, trading permission and per-type maximum are hard safety rules.
+   // Market-mode profiles cannot disable the BUY/SELL independent order cap.
    return(filterId == DXB_FILTER_DIRECTION ||
-          filterId == DXB_FILTER_TRADING_ALLOWED);
+          filterId == DXB_FILTER_TRADING_ALLOWED ||
+          filterId == DXB_FILTER_MAX_OPEN_DIR);
   }
 
 //+------------------------------------------------------------------+
@@ -1453,6 +1464,77 @@ bool GlobalFilterCase(int filterId)
      }
 
    return(false);
+  }
+
+//+------------------------------------------------------------------+
+//| FIRST ORDER AFTER SAR FLIP FILTER CASE                           |
+//| Only one strategy condition is used: fixed InpSARConfirmPriceDiff.|
+//| Direction/trading permission/per-side cap are mandatory safety.  |
+//+------------------------------------------------------------------+
+bool FirstSAROrderFilterCase(int filterId)
+  {
+   switch(filterId)
+     {
+      case DXB_FILTER_DIRECTION:       return(true);  // hard direction safety
+      case DXB_FILTER_SAR_CONFIRM:     return(true);  // FIXED InpSARConfirmPriceDiff only
+      case DXB_FILTER_TRADING_ALLOWED: return(true);  // MT4/broker safety
+      case DXB_FILTER_MAX_OPEN_DIR:    return(true);  // BUY/SELL independent cap
+
+      case DXB_FILTER_SAR_PRICE_SIDE:   return(false);
+      case DXB_FILTER_REPEATED_GAP:     return(false);
+      case DXB_FILTER_SAR_CYCLE:        return(false);
+      case DXB_FILTER_H1_TREND:         return(false);
+      case DXB_FILTER_LATE_SAR:         return(false);
+      case DXB_FILTER_STRICT_SAR_SCORE: return(false);
+      case DXB_FILTER_DOUBTFUL_CANDLE:  return(false);
+      case DXB_FILTER_SPREAD:           return(false);
+      case DXB_FILTER_EQUITY_LOCK:      return(false);
+      case DXB_FILTER_NO_NEW_HOUR:      return(false);
+      case DXB_FILTER_PROFIT_PAUSE:     return(false);
+      case DXB_FILTER_OPPOSITE_PAUSE:   return(false);
+      case DXB_FILTER_BIG_CANDLE:       return(false);
+      case DXB_FILTER_SPIKE_WICK:       return(false);
+      case DXB_FILTER_MIN_GAP:          return(false);
+      case DXB_FILTER_TOTAL_OPEN:       return(false);
+      case DXB_FILTER_AUTO_MARKET_MODE: return(false);
+      case DXB_FILTER_DYNAMIC_SAR:      return(false);
+      case DXB_FILTER_FLAT_MODE:        return(false);
+      case DXB_FILTER_EARLY_WEAK_EXIT:  return(false);
+      case DXB_FILTER_EARLY_REVERSE:    return(false);
+      case DXB_FILTER_ORDER_COOLDOWN:   return(false);
+     }
+
+   return(false);
+  }
+
+//+------------------------------------------------------------------+
+bool IsFirstSAROrderAfterFlip(int direction)
+  {
+   if(!InpFirstSAROrderPriceDiffOnly)
+      return(false);
+
+   return(direction != 0 &&
+          direction == g_activeSARDirection &&
+          direction == g_sarCycleDirection &&
+          g_sarCycleOrdersCreated == 0);
+  }
+
+//+------------------------------------------------------------------+
+bool IsNormalEntryFilterEnabledForOrder(int direction, int filterId)
+  {
+   if(IsFirstSAROrderAfterFlip(direction))
+      return(FirstSAROrderFilterCase(filterId));
+
+   return(IsMarketModeEntryFilterEnabled(filterId));
+  }
+
+//+------------------------------------------------------------------+
+string NormalEntryProfileText(int direction)
+  {
+   if(IsFirstSAROrderAfterFlip(direction))
+      return("FIRST ORDER: PRICE DIFF ONLY");
+
+   return("ORDER 2+: FULL MODE FILTERS");
   }
 
 //+------------------------------------------------------------------+
@@ -2891,6 +2973,40 @@ bool IsTotalOpenOrderCapReached(string source)
             " | Total=", total, "/", InpMaxTotalOpenOrders);
       return(true);
      }
+   return(false);
+  }
+
+//+------------------------------------------------------------------+
+//| Independent maximum open orders per direction/type               |
+//| InpMaxOrders=1 allows at most: 1 BUY and 1 SELL simultaneously.  |
+//| An open SELL blocks only another SELL; it never blocks a BUY.     |
+//| Counts normal and recovery orders of the same EA magic number.    |
+//+------------------------------------------------------------------+
+bool IsDirectionOrderCapReached(int direction, string source)
+  {
+   if(direction != 1 && direction != -1)
+      return(true);
+
+   int maxPerType = InpMaxOrders;
+   if(maxPerType < 1)
+      maxPerType = 1;
+
+   int openForType = CountOrdersByDirection(direction);
+
+   if(openForType >= maxPerType)
+     {
+      string msg = "MAX OPEN " + DirectionText(direction) +
+                   " ORDERS REACHED | " +
+                   IntegerToString(openForType) + "/" +
+                   IntegerToString(maxPerType) +
+                   " | Opposite direction remains allowed" +
+                   " | Source=" + source;
+
+      SetLastOrderBlockDashboard(msg);
+      Print(msg);
+      return(true);
+     }
+
    return(false);
   }
 
@@ -5074,6 +5190,11 @@ bool OpenRecoveryOrder(int direction, string sourceReason)
 
    RefreshRates();
 
+   // InpMaxOrders is a PER-TYPE cap.
+   // A SELL already open blocks another SELL recovery, but BUY is unaffected.
+   if(IsDirectionOrderCapReached(direction, "OpenRecoveryOrder"))
+      return(false);
+
    if(IsTotalOpenOrderCapReached("OpenRecoveryOrder"))
       return(false);
 
@@ -5121,6 +5242,11 @@ bool OpenRecoveryOrder(int direction, string sourceReason)
      {
       return(false);
      }
+
+   // Final atomic same-type check immediately before OrderSend.
+   if(IsDirectionOrderCapReached(direction, "OpenRecoveryOrder FINAL"))
+      return(false);
+
    int ticket = OrderSend(Symbol(),
                           type,
                           lot,
@@ -5302,6 +5428,10 @@ bool OpenRecoveryGapMarketOrder(int direction, double gapMove)
 
    RefreshRates();
 
+   // InpMaxOrders is a PER-TYPE cap across normal and recovery orders.
+   if(IsDirectionOrderCapReached(direction, "OpenRecoveryGapMarketOrder"))
+      return(false);
+
    if(IsTotalOpenOrderCapReached("OpenRecoveryGapMarketOrder"))
       return(false);
 
@@ -5358,6 +5488,10 @@ bool OpenRecoveryGapMarketOrder(int direction, double gapMove)
             g_lastRecoveryAudit);
       return(false);
      }
+
+   // Final atomic same-type check immediately before OrderSend.
+   if(IsDirectionOrderCapReached(direction, "OpenRecoveryGapMarketOrder FINAL"))
+      return(false);
 
    int ticket = OrderSend(Symbol(),
                           type,
@@ -7614,6 +7748,27 @@ bool ProcessNewOrderCreationLast(bool isNewBar, string &status)
       return(SetOrderBlockStatus(status, "Waiting for first SAR"));
      }
 
+   EnsureSARSignalOrderCycle(g_activeSARDirection);
+
+   // ORDER #1 AFTER SAR FLIP:
+   // Go directly to the dedicated price-difference-only profile. This branch
+   // intentionally bypasses market mode, H1, score, flat, candle, time, gap,
+   // spread, pause and every other strategy filter listed in the full profile.
+   if(IsFirstSAROrderAfterFlip(g_activeSARDirection))
+     {
+      if(OpenMarketOrder(g_activeSARDirection, "SAR_FLIP_FIRST_ORDER"))
+        {
+         status = "FIRST SAR ORDER OPENED | PRICE DIFF ONLY | " +
+                  DirectionText(g_activeSARDirection);
+         return(true);
+        }
+
+      status = g_lastOrderOpenReason;
+      return(false);
+     }
+
+// ORDER #2 AND LATER: full market-mode filter profile follows below.
+
 // No-trading hours block ONLY new normal SAR orders.
 // Close management, equity protection, basket TP/SL, SAR flip close and recovery management still run.
    if(IsMarketModeEntryFilterEnabled(DXB_FILTER_NO_NEW_HOUR) &&
@@ -8221,6 +8376,63 @@ double GetSARConfirmCurrentPriceDiff()
   }
 
 //+------------------------------------------------------------------+
+//| First SAR-cycle order uses LIVE Bid/Ask and the fixed input only. |
+//| No EMA, candle, time-expiry, ATR/dynamic, mode or gap filters.     |
+//+------------------------------------------------------------------+
+double GetFirstSAROrderLivePriceDiff(int direction)
+  {
+   RefreshRates();
+
+   double referencePrice = 0.0;
+
+   if(g_pendingSARConfirmDirection == direction &&
+      g_pendingSARConfirmPrice > 0.0)
+      referencePrice = g_pendingSARConfirmPrice;
+   else
+      referencePrice = g_activeSARSignalChangePrice;
+
+   if(referencePrice <= 0.0)
+      return(-1.0);
+
+   if(direction == 1)
+      return(Ask - referencePrice);
+
+   if(direction == -1)
+      return(referencePrice - Bid);
+
+   return(-1.0);
+  }
+
+//+------------------------------------------------------------------+
+bool IsFirstSAROrderPriceDiffReady(int direction)
+  {
+   if(direction == 0)
+      return(false);
+
+   double requiredDiff = MathMax(0.0, InpSARConfirmPriceDiff);
+   double currentDiff  = GetFirstSAROrderLivePriceDiff(direction);
+
+   if(currentDiff < 0.0)
+      return(false);
+
+   return(currentDiff >= requiredDiff);
+  }
+
+//+------------------------------------------------------------------+
+string FirstSAROrderPriceDiffStatusText(int direction)
+  {
+   double currentDiff  = GetFirstSAROrderLivePriceDiff(direction);
+   double requiredDiff = MathMax(0.0, InpSARConfirmPriceDiff);
+
+   if(currentDiff < 0.0)
+      return("NO SAR FLIP REFERENCE");
+
+   return("LIVE DIFF " + DoubleToString(currentDiff, Digits) +
+          "/" + DoubleToString(requiredDiff, Digits) +
+          (currentDiff >= requiredDiff ? " READY" : " WAIT"));
+  }
+
+//+------------------------------------------------------------------+
 string SARConfirmDurationStatusText()
   {
    if(g_pendingSARConfirmDirection == 0 || g_pendingSARConfirmTime <= 0)
@@ -8238,7 +8450,11 @@ string SARConfirmDurationStatusText()
 //+------------------------------------------------------------------+
 void StartSARFlipConfirmation(int direction)
   {
-   if(!IsMarketModeEntryFilterEnabled(DXB_FILTER_SAR_CONFIRM))
+   // The first-order price-difference profile always needs the SAR flip
+   // reference price, even when the current market-mode profile disables
+   // its normal SAR_CONFIRM filter.
+   if(!InpFirstSAROrderPriceDiffOnly &&
+      !IsMarketModeEntryFilterEnabled(DXB_FILTER_SAR_CONFIRM))
      {
       ResetSARFlipConfirmation();
       return;
@@ -9393,15 +9609,20 @@ void EnsureSARSignalOrderCycle(int direction)
       ResetSARSignalOrderCycle(direction, "cycle sync");
   }
 //+------------------------------------------------------------------+
-bool RegisterSARCycleOrderCreated(int direction)
+bool RegisterSARCycleOrderCreated(int direction, bool forceFirstOrderCount=false)
   {
    EnsureSARSignalOrderCycle(direction);
 
-   if(g_sarCycleMaxOrders <= 0)
-      return(false);
+   // The first order deliberately bypasses SAR_CYCLE. It must still be
+   // recorded as order #1 so every later order switches to the full profile.
+   if(!forceFirstOrderCount)
+     {
+      if(g_sarCycleMaxOrders <= 0)
+         return(false);
 
-   if(g_sarCycleOrdersCreated >= g_sarCycleMaxOrders)
-      return(false);
+      if(g_sarCycleOrdersCreated >= g_sarCycleMaxOrders)
+         return(false);
+     }
 
    g_sarCycleOrdersCreated++;
 
@@ -9953,6 +10174,47 @@ bool BlockNormalOrderByModeProfile(string message)
   }
 
 //+------------------------------------------------------------------+
+//| First order after SAR flip: fixed live price difference only.     |
+//| Other strategy filters are deliberately bypassed.                 |
+//+------------------------------------------------------------------+
+bool IsFirstSAROrderAllowedByPriceDiffOnly(int direction,
+                                            string reason)
+  {
+   if(!IsFirstSAROrderAfterFlip(direction))
+      return(true);
+
+   if(!IsFirstSAROrderPriceDiffReady(direction))
+      return(BlockNormalOrderByModeProfile(
+         "FIRST ORDER PRICE DIFF | " +
+         FirstSAROrderPriceDiffStatusText(direction) +
+         " | Source=" + reason));
+
+   // Mandatory execution safety; these are not strategy filters.
+   if(!IsTradingAllowedNow())
+      return(BlockNormalOrderByModeProfile(
+         "FIRST ORDER | TRADING NOT ALLOWED | Source=" + reason));
+
+   int maxPerType = InpMaxOrders;
+   if(maxPerType < 1)
+      maxPerType = 1;
+
+   if(CountOrdersByDirection(direction) >= maxPerType)
+      return(BlockNormalOrderByModeProfile(
+         "FIRST ORDER | MAX OPEN " + DirectionText(direction) +
+         " " + IntegerToString(CountOrdersByDirection(direction)) +
+         "/" + IntegerToString(maxPerType) +
+         " | Source=" + reason));
+
+   Print("FIRST SAR ORDER PROFILE READY | Direction=",
+         DirectionText(direction),
+         " | ", FirstSAROrderPriceDiffStatusText(direction),
+         " | Bypassed=ALL OTHER STRATEGY FILTERS",
+         " | Source=", reason);
+
+   return(true);
+  }
+
+//+------------------------------------------------------------------+
 //| Final normal-order gate controlled by current market-mode profile.|
 //| Recovery order functions do not call this function.               |
 //+------------------------------------------------------------------+
@@ -10171,6 +10433,11 @@ bool OpenMarketOrder(int direction, string reason)
 
    RefreshRates();
 
+   if(direction != 0)
+      EnsureSARSignalOrderCycle(direction);
+
+   bool isFirstSAROrder = IsFirstSAROrderAfterFlip(direction);
+
    RefreshNormalEntryDiagnosticSnapshot(direction, reason);
    CaptureLastEntryAttempt("CHECKING");
 
@@ -10186,7 +10453,16 @@ bool OpenMarketOrder(int direction, string reason)
          "OpenMarketOrder START | " + reason))
       return(false);
 
-   if(!IsNormalOrderAllowedByMarketModeProfile(direction, reason))
+   // Hard per-type cap: BUY and SELL are counted independently.
+   // Example InpMaxOrders=1: one SELL may coexist with one BUY.
+   if(IsDirectionOrderCapReached(direction, "OpenMarketOrder START | " + reason))
+      return(false);
+
+   bool entryProfileAllowed = isFirstSAROrder
+                              ? IsFirstSAROrderAllowedByPriceDiffOnly(direction, reason)
+                              : IsNormalOrderAllowedByMarketModeProfile(direction, reason);
+
+   if(!entryProfileAllowed)
      {
       RefreshNormalEntryDiagnosticSnapshot(direction, reason);
       CaptureLastEntryAttempt("BLOCKED");
@@ -10200,7 +10476,8 @@ bool OpenMarketOrder(int direction, string reason)
    int type = direction == 1 ? OP_BUY : OP_SELL;
    double price = direction == 1 ? Ask : Bid;
 
-   if(IsMarketModeEntryFilterEnabled(DXB_FILTER_SAR_PRICE_SIDE) &&
+   if(!isFirstSAROrder &&
+      IsMarketModeEntryFilterEnabled(DXB_FILTER_SAR_PRICE_SIDE) &&
       !IsSARSignalPriceSideAllowed(direction, reason))
       return BlockOrder("SAR signal price side filter blocked | Direction=" +
                         DirectionText(direction) +
@@ -10209,7 +10486,8 @@ bool OpenMarketOrder(int direction, string reason)
                         " | Ask=" + DoubleToString(Ask, Digits) +
                         " | Source=" + reason);
 
-   if(IsMarketModeEntryFilterEnabled(DXB_FILTER_REPEATED_GAP) &&
+   if(!isFirstSAROrder &&
+      IsMarketModeEntryFilterEnabled(DXB_FILTER_REPEATED_GAP) &&
       !IsRepeatedPriceGapConfirmedForNormalOrder(direction, reason))
       return BlockOrder("Repeated price gap not confirmed | Direction=" +
                         DirectionText(direction) +
@@ -10241,7 +10519,8 @@ bool OpenMarketOrder(int direction, string reason)
    EnsureSARSignalOrderCycle(direction);
    UpdateSARCycleMaxByMomentum(direction, "OrderSend last check");
 
-   if(IsMarketModeEntryFilterEnabled(DXB_FILTER_SAR_CYCLE) &&
+   if(!isFirstSAROrder &&
+      IsMarketModeEntryFilterEnabled(DXB_FILTER_SAR_CYCLE) &&
       (g_sarCycleMaxOrders <= 0 ||
        g_sarCycleOrdersCreated >= g_sarCycleMaxOrders))
      {
@@ -10267,6 +10546,11 @@ bool OpenMarketOrder(int direction, string reason)
    if(!IsFinalNormalDirectionStillValid(
          direction,
          "OpenMarketOrder FINAL | " + reason))
+      return(false);
+
+   // Recheck the requested BUY/SELL side immediately before OrderSend.
+   // The opposite open side is deliberately ignored.
+   if(IsDirectionOrderCapReached(direction, "OpenMarketOrder FINAL | " + reason))
       return(false);
 
    RefreshNormalEntryDiagnosticSnapshot(
@@ -10338,7 +10622,10 @@ bool OpenMarketOrder(int direction, string reason)
    ResetDoubtfulCandleConfirmation("ORDER OPENED");
 
    // Register only normal SAR cycle orders. Recovery orders use OpenRecoveryOrder() and are independent.
-   RegisterSARCycleOrderCreated(direction);
+   RegisterSARCycleOrderCreated(direction, isFirstSAROrder);
+
+   if(isFirstSAROrder)
+      ResetSARFlipConfirmation();
 
    // Reset delayed SAR close counter from this newly created normal order.
    // This fixes: close on 2nd/4th SAR change FROM THE CREATED ORDER, not global SAR changes.
@@ -10360,6 +10647,9 @@ bool OpenMarketOrder(int direction, string reason)
                            " | Lot=" + DoubleToString(lot, 2) +
                            " | Price=" + DoubleToString(price, Digits) +
                            " | Source=" + reason +
+                           " | Profile=" + (isFirstSAROrder
+                                             ? "FIRST PRICE DIFF ONLY"
+                                             : "FULL FILTERS") +
                            " | Comment=" + orderComment;
 
    g_lastEntryAttemptDecision = "OPENED";
@@ -10378,6 +10668,7 @@ bool OpenMarketOrder(int direction, string reason)
          " lot=", DoubleToString(lot, 2),
          " reason=", reason,
          " comment=", orderComment,
+         " | EntryProfile=", (isFirstSAROrder ? "FIRST PRICE DIFF ONLY" : "FULL FILTERS"),
          " | SARCycleCreated=", g_sarCycleOrdersCreated,
          "/", g_sarCycleMaxOrders,
          " | Last5SAR=", GetSARDurationSummaryText());
@@ -10808,11 +11099,13 @@ void DrawLeftImportantOrderSettings(int direction)
                      "/" + IntegerToString(InpMaxSpreadPoints) + " points",
                      ((int)MarketInfo(Symbol(), MODE_SPREAD) <= InpMaxSpreadPoints) ? clrLime : clrOrangeRed);
 
-   LeftChecklistInfo("Normal Max Orders",
-                     "Dir " + IntegerToString(InpMaxOrders) +
+   LeftChecklistInfo("Max Orders / Type",
+                     "BUY " + IntegerToString(CountOrdersByDirection(1)) +
+                     "/" + IntegerToString(InpMaxOrders) +
+                     " | SELL " + IntegerToString(CountOrdersByDirection(-1)) +
+                     "/" + IntegerToString(InpMaxOrders) +
                      " | Cycle " + IntegerToString(g_sarCycleOrdersCreated) +
-                     "/" + IntegerToString(g_sarCycleMaxOrders) +
-                     " | Hard " + IntegerToString(DXB_HARD_MAX_OPEN_ORDERS),
+                     "/" + IntegerToString(g_sarCycleMaxOrders),
                      clrAqua);
 
    LeftChecklistInfo("Total Order Cap",
@@ -10925,6 +11218,9 @@ bool CheckListTradingAllowed()
 
 bool CheckListSARConfirmationReady()
   {
+   if(IsFirstSAROrderAfterFlip(g_activeSARDirection))
+      return(IsFirstSAROrderPriceDiffReady(g_activeSARDirection));
+
    if(!IsMarketModeEntryFilterEnabled(DXB_FILTER_SAR_CONFIRM))
       return(true);
    if(g_pendingSARConfirmDirection == 0)
@@ -11101,6 +11397,8 @@ void ResetEntryDiagnosticSnapshot(int direction, string source)
    g_entryDiagEnabledList   = "NONE";
    g_entryDiagDisabledList  = "NONE";
    g_entryDiagSource        = source;
+   g_entryDiagFirstOrderProfile = false;
+   g_entryDiagProfileText      = "FULL FILTER PROFILE";
 
    for(int i = 0; i < DXB_FILTER_COUNT; i++)
      {
@@ -11118,7 +11416,9 @@ void SetEntryDiagnosticFilter(int filterId,
    if(filterId < 0 || filterId >= DXB_FILTER_COUNT)
       return;
 
-   bool enabled = IsMarketModeEntryFilterEnabled(filterId);
+   bool enabled = g_entryDiagFirstOrderProfile
+                  ? FirstSAROrderFilterCase(filterId)
+                  : IsMarketModeEntryFilterEnabled(filterId);
    bool passed  = (!enabled || rawConditionPassed);
    string token = EntryFilterToken(filterId);
 
@@ -11220,6 +11520,58 @@ string EntryAuditSegment(string value,
   }
 
 //+------------------------------------------------------------------+
+//| Dedicated status snapshot for SAR-cycle order #1.                 |
+//+------------------------------------------------------------------+
+void RefreshFirstSAROrderDiagnosticSnapshot(int direction,
+                                             string source)
+  {
+   ResetEntryDiagnosticSnapshot(direction, source);
+   g_entryDiagFirstOrderProfile = true;
+   g_entryDiagProfileText = "FIRST ORDER: PRICE DIFF ONLY";
+
+   bool directionOk = (direction != 0 &&
+                       direction == g_activeSARDirection);
+   bool priceDiffOk = IsFirstSAROrderPriceDiffReady(direction);
+   bool tradingOk   = CheckListTradingAllowed();
+   bool maxOpenOk   = CheckListMaxOpenAllowed(direction);
+   int maxPerType = InpMaxOrders;
+   if(maxPerType < 1)
+      maxPerType = 1;
+
+   for(int filterId = 0; filterId < DXB_FILTER_COUNT; filterId++)
+     {
+      bool rawPassed = true;
+      string detail = "BYPASSED FOR FIRST ORDER";
+
+      if(filterId == DXB_FILTER_DIRECTION)
+        {
+         rawPassed = directionOk;
+         detail = DirectionText(direction);
+        }
+      else if(filterId == DXB_FILTER_SAR_CONFIRM)
+        {
+         rawPassed = priceDiffOk;
+         detail = FirstSAROrderPriceDiffStatusText(direction);
+        }
+      else if(filterId == DXB_FILTER_TRADING_ALLOWED)
+        {
+         rawPassed = tradingOk;
+         detail = DashboardTradePermissionText();
+        }
+      else if(filterId == DXB_FILTER_MAX_OPEN_DIR)
+        {
+         rawPassed = maxOpenOk;
+         detail = IntegerToString(CountOrdersByDirection(direction)) +
+                  "/" + IntegerToString(maxPerType);
+        }
+
+      SetEntryDiagnosticFilter(filterId, rawPassed, detail);
+     }
+
+   FinalizeEntryDiagnosticSnapshot();
+  }
+
+//+------------------------------------------------------------------+
 //| Build a current snapshot independently of OrderSend.             |
 //| This is used before a real order attempt and for the top panel.   |
 //+------------------------------------------------------------------+
@@ -11230,7 +11582,15 @@ void RefreshNormalEntryDiagnosticSnapshot(int direction,
    UpdateAutoMarketFlowMode();
    ApplyMarketModeEntryFilterProfileState();
 
+   if(IsFirstSAROrderAfterFlip(direction))
+     {
+      RefreshFirstSAROrderDiagnosticSnapshot(direction, source);
+      return;
+     }
+
    ResetEntryDiagnosticSnapshot(direction, source);
+   g_entryDiagFirstOrderProfile = false;
+   g_entryDiagProfileText = "ORDER 2+: FULL MODE FILTERS";
 
    int spread = (int)MarketInfo(Symbol(), MODE_SPREAD);
    string lateReason = "";
@@ -11472,6 +11832,7 @@ void CaptureOpenedOrderAudit(int ticket,
    g_lastAuditOpenedLot       = lot;
    g_lastAuditOpenedSource    = source;
    g_lastAuditOpenedMode      = g_autoMarketModeText;
+   g_lastAuditOpenedProfile   = g_entryDiagProfileText;
    g_lastAuditOpenedFilters   = g_entryDiagEnabledList;
    g_lastAuditDisabledFilters = g_entryDiagDisabledList;
    g_lastAuditOpenedEnabled   = g_entryDiagEnabledCount;
@@ -11485,6 +11846,7 @@ void CaptureOpenedOrderAudit(int ticket,
          " | Direction=", DirectionText(direction),
          " | Source=", source,
          " | Mode=", g_autoMarketModeText,
+         " | Profile=", g_entryDiagProfileText,
          " | Passed=", g_entryDiagPassedCount,
          "/", g_entryDiagEnabledCount,
          " | EnabledFilters=", g_entryDiagEnabledList,
@@ -11772,6 +12134,7 @@ void DrawTopCenterOrderAuditPanel()
       " | Candidate=" +
       DirectionText(g_entryDiagDirection) +
       " | Mode=" + g_autoMarketModeText +
+      " | Profile=" + g_entryDiagProfileText +
       " | Passed=" +
       IntegerToString(g_entryDiagPassedCount) +
       "/" +
@@ -11896,6 +12259,8 @@ void DrawTopCenterOrderAuditPanel()
          DoubleToString(g_lastAuditOpenedLot,2) +
          " | Mode=" +
          g_lastAuditOpenedMode +
+         " | Profile=" +
+         g_lastAuditOpenedProfile +
          " | Source=" +
          g_lastAuditOpenedSource +
          " | " +
@@ -11968,6 +12333,117 @@ void DrawTopCenterOrderAuditPanel()
   }
 
 //+------------------------------------------------------------------+
+void ClearLeftProfessionalChecklistRows()
+  {
+   for(int i = ObjectsTotal(0, -1, -1) - 1; i >= 0; i--)
+     {
+      string name = ObjectName(0, i);
+      if(StringFind(name, "DXB_PRO_LEFT_") == 0)
+         ObjectDelete(0, name);
+     }
+  }
+
+//+------------------------------------------------------------------+
+//| Compact, truthful dashboard for the first order after SAR flip.   |
+//+------------------------------------------------------------------+
+void DrawFirstSAROrderCreationChecklist(string mainStatus,
+                                         int direction)
+  {
+   RefreshFirstSAROrderDiagnosticSnapshot(
+      direction,
+      "LIVE DASHBOARD FIRST ORDER");
+
+   bool allOk = (g_entryDiagBlockedCount == 0);
+   bool directionOk = (direction != 0 &&
+                       direction == g_activeSARDirection);
+   bool priceDiffOk = IsFirstSAROrderPriceDiffReady(direction);
+   bool tradingOk   = CheckListTradingAllowed();
+   bool maxOpenOk   = CheckListMaxOpenAllowed(direction);
+   int maxPerType = InpMaxOrders;
+   if(maxPerType < 1)
+      maxPerType = 1;
+
+   DrawTopCenterOrderAuditPanel();
+
+   DrawCornerPanel("DXB_LEFT_CHK_PANEL",
+                   CORNER_LEFT_UPPER,
+                   5,15,550,430,
+                   clrBlack,clrDimGray);
+
+   DrawCornerLabel("DXB_LEFT_CHK_TITLE",
+                   "FIRST ORDER AFTER SAR FLIP - PRICE DIFF PROFILE",
+                   CORNER_LEFT_UPPER,
+                   10,22,clrYellow,10);
+
+   ClearLeftProfessionalChecklistRows();
+   g_leftDashRow = 0;
+
+   LeftProRow("FINAL RESULT",
+              allOk ? "READY TO OPEN" : "WAITING / BLOCKED",
+              allOk ? clrLime : clrOrangeRed);
+
+   LeftProRow("Entry Profile",
+              "FIRST ORDER: PRICE DIFF ONLY",
+              clrAqua);
+
+   LeftProRow("Candidate",
+              DirectionText(direction),
+              DirectionColor(direction));
+
+   LeftProRow("Direction Safety",
+              directionOk ? "PASS" : "BLOCK",
+              directionOk ? clrLime : clrOrangeRed);
+
+   LeftProRow("SAR Flip Reference",
+              DoubleToString(
+                 (g_pendingSARConfirmPrice > 0.0
+                  ? g_pendingSARConfirmPrice
+                  : g_activeSARSignalChangePrice),
+                 Digits),
+              clrWhite);
+
+   LeftProRow("Fixed Price Diff",
+              FirstSAROrderPriceDiffStatusText(direction),
+              priceDiffOk ? clrLime : clrOrange);
+
+   LeftProRow("Trading Allowed",
+              tradingOk ? "PASS" : "BLOCK",
+              tradingOk ? clrLime : clrOrangeRed);
+
+   LeftProRow("Max Open Dir",
+              IntegerToString(CountOrdersByDirection(direction)) +
+              "/" + IntegerToString(maxPerType) +
+              (maxOpenOk ? " PASS" : " BLOCK"),
+              maxOpenOk ? clrLime : clrOrangeRed);
+
+   LeftProRow("Strategy Filters",
+              "ALL OTHERS BYPASSED",
+              clrYellow);
+
+   LeftProRow("Bypassed",
+              "MODE,H1,SCORE,FLAT,CANDLE,GAPS",
+              clrSilver);
+
+   LeftProRow("Also Bypassed",
+              "HOURS,SPREAD,SPIKE,COOLDOWN",
+              clrSilver);
+
+   LeftProRow("Runtime Status",
+              StringSubstr(mainStatus,0,55),
+              clrAqua);
+
+   LeftProRow("PRIMARY BLOCK",
+              StringSubstr(g_entryDiagPrimaryBlock,0,55),
+              allOk ? clrLime : clrOrangeRed);
+
+   LeftProRow("Next Order",
+              allOk ? "ALLOWED NOW" : "WAIT PRICE DIFF",
+              allOk ? clrLime : clrOrange);
+
+   DrawRecoveryChecklistPanel(direction);
+  }
+
+//+------------------------------------------------------------------+
 void DrawLeftOrderCreationChecklist(string mainStatus)
   {
    RefreshRates();
@@ -11975,6 +12451,15 @@ void DrawLeftOrderCreationChecklist(string mainStatus)
    ApplyMarketModeEntryFilterProfileState();
 
    int direction = GetChecklistDirection();
+
+   EnsureSARSignalOrderCycle(direction);
+
+   if(IsFirstSAROrderAfterFlip(direction))
+     {
+      DrawFirstSAROrderCreationChecklist(mainStatus, direction);
+      return;
+     }
+
    int spread = (int)MarketInfo(Symbol(), MODE_SPREAD);
 
    string lateReason = "";
@@ -12238,6 +12723,7 @@ void DrawLeftOrderCreationChecklist(string mainStatus)
                    CORNER_LEFT_UPPER,
                    10,22,clrYellow,10);
 
+   ClearLeftProfessionalChecklistRows();
    g_leftDashRow = 0;
 
    LeftProRow("FINAL RESULT",

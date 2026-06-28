@@ -42,9 +42,9 @@ double InpMomentumContinuationRaw    = 100.0;
 //   touch -$2.00         => comeback target = TP / 3
 //   touch -$3.00         => comeback target = TP / 4
 // The worst BUY loss never changes SELL state, and vice versa.
-double InpTakeProfitUSD              = 0.40;
+double InpTakeProfitUSD              = 0.30;//2;//0.40;
 double InpDynamicProfitStepMultiplier = 0.50; // After X1: X1.5, X2, X2.5...
-double InpFixedStopLossUSD                = 10;//7;//6;//10;//6.00;
+double InpFixedStopLossUSD                =2;//1;// 0.50;//10;//7;//6;//10;//6.00;
 
 
 
@@ -101,7 +101,7 @@ string InpDubaiBlockedHours          = "14,15,16,17,18,19,20,21,22,23,0,1,2";
 // when adverse distance is large enough and active BOS matches direction.
 bool   InpUseRecoveryOrders             = true;
 double InpRecoveryLotSize               = 0.02;
-double InpRecoveryRawDifference         = 400.0;
+double InpRecoveryRawDifference         = 100.0;//400
 int    InpMaxRecoveryOrdersPerDirection = 1;
 
 // Close linked parent + recovery together at the assigned basket target.
@@ -713,6 +713,20 @@ void OnTick()
 {
 
 
+   if(AccountEquity() <= 0)
+   {
+      g_lastStatus =
+         "LOW EQUITY | NEW TRADING PAUSED | EQUITY $" +
+         DoubleToString(AccountEquity(), 2);
+
+      Print(g_lastStatus);
+
+      if(InpShowVisuals)
+         UpdateVisuals(false, GetEMATrend());
+
+      return;
+   }
+
 uint startupElapsedMs = GetTickCount() - g_onInitTickCount;
 
 if(startupElapsedMs < 5*1000)
@@ -854,6 +868,7 @@ double halfStopLossTrigger =
 // Allow one order in the BOS direction even when the normal total-order
 // limit is reached, but only when the opposite side is already losing
 // enough and MIXED-market mode is disabled.
+/*
 bool allowOppositeBOSOrder =
    (effectiveStopLossUSD > 0.0 &&
     oppositeSideOrders > 0 &&
@@ -887,9 +902,17 @@ else
       return;
    }
 }
-
+*/
    
+  // int orderType = (g_bosDirection > 0) ? OP_BUY : OP_SELL;
 
+if(CountMyOrdersByType(orderType) >= InpMaxOpenOrders)
+{
+   g_lastStatus = (orderType == OP_BUY)
+                  ? "Blocked: max BUY orders"
+                  : "Blocked: max SELL orders";
+   return;
+}
   
 
    if(entryReady)
@@ -1909,6 +1932,7 @@ double halfStopLossTrigger =
 // Allow one order in the BOS direction even when the normal total-order
 // limit is reached, but only when the opposite side is already losing
 // enough and MIXED-market mode is disabled.
+/*
 bool allowOppositeBOSOrder =
    (effectiveStopLossUSD > 0.0 &&
     oppositeSideOrders > 0 &&
@@ -1938,17 +1962,17 @@ else
                      : "Blocked: max total open orders";
       return false;
    }
-}
+}*/
    
-//    int orderType = (g_bosDirection > 0) ? OP_BUY : OP_SELL;
+  // int orderType = (g_bosDirection > 0) ? OP_BUY : OP_SELL;
 
-// if(CountMyOrdersByType(orderType) >= InpMaxOpenOrders)
-// {
-//    g_lastStatus = (orderType == OP_BUY)
-//                   ? "Blocked: max BUY orders"
-//                   : "Blocked: max SELL orders";
-//    return(false);
-// }
+if(CountMyOrdersByType(orderType) >= InpMaxOpenOrders)
+{
+   g_lastStatus = (orderType == OP_BUY)
+                  ? "Blocked: max BUY orders"
+                  : "Blocked: max SELL orders";
+   return(false);
+}
 
    if(IsDubaiBlockedTime())
    {
