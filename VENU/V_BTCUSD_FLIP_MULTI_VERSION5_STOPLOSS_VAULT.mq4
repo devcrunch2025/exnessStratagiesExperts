@@ -1,6 +1,6 @@
 //+------------------------------------------------------------------+
 //|                 DXB_SAR_EarlyTrend_Cycle_EA.mq4                  |
-//|  SAR cycle + dynamic X-profit ladder + drawdown comeback TP      |
+//|  SAR cycle + armed minimum lock + dynamic X-profit ladder       |
 //|  SAR flip closes opposite orders. Early reverse trend pauses SAR  |
 //|  cycle, draws arrows, closes opposite orders, resumes when aligned |
 //+------------------------------------------------------------------+
@@ -20,7 +20,7 @@ MARKET_MODE g_marketMode = MODE_RANGE;
 #ifndef OP_BALANCE
 #define OP_BALANCE 6
 #endif
-#property version   "1.41"
+#property version   "1.42"
 
 //======================== INPUTS ====================================
 string InpEAName                  = "DXB Version 5 - SAR Confirm 50 in 5 Min";
@@ -50,16 +50,19 @@ double InpDynamicBasketProfitMaxX          = 0.0;  // 0 = unlimited; otherwise h
 // 0.00 = close as soon as profit returns to the protected X level.
 double InpDynamicBasketReturnBufferUSD     = 0.00;
 
-// Minimum dynamic protected close:
-// The basket first arms a small positive floor at this profit.
+// Minimum dynamic protected close with a separate activation threshold:
+// The basket must first reach InpDynamicBasketMinimumArmUSD before the
+// small InpDynamicBasketMinimumCloseUSD floor becomes protected.
 // It does NOT close while profit is still rising.
-// Example with $0.10 minimum and InpBasketProfitUSD=$0.50:
-//   peak reaches $0.10 => protect $0.10
-//   peak reaches X1 $0.50 => protect $0.50
-//   peak reaches X2 $1.00 => protect $1.00
-//   peak reaches X3 $1.50 => protect $1.50
+// Example with arm=$0.25, minimum close=$0.10 and X1=$0.50:
+//   peak below $0.25       => no minimum protection yet
+//   peak reaches $0.25     => protect $0.10 and keep trying for X1
+//   peak reaches X1 $0.50  => protect $0.50
+//   peak reaches X2 $1.00  => protect $1.00
+//   peak reaches X3 $1.50  => protect $1.50
 // Close only when current profit comes back to the highest protected value.
-double InpDynamicBasketMinimumCloseUSD     = 0.20;
+double InpDynamicBasketMinimumArmUSD       = 0.25;
+double InpDynamicBasketMinimumCloseUSD     = 0.10;
 
 // Drawdown comeback trailing floor:
 // Once a BUY/SELL basket touches a negative loss step, remember the worst loss
@@ -282,7 +285,7 @@ int    InpMaxRecoveryGapOrdersPerSide = 1;  // recovery ladder: 50, 100, 150 fro
 //   create one same-direction recovery order, subject to all existing safety filters.
 // Deeper losses work dynamically too: -$4 -> -$3, -$5 -> -$4, etc.
 bool   InpUseRecoveryLossComebackTrigger = true;
-double InpRecoveryLossArmUSD              = 3.00;
+double InpRecoveryLossArmUSD              = 2.00;
 double InpRecoveryLossComebackUSD         = 1.00;
 
 // Legacy special-guard compatibility:
@@ -430,7 +433,7 @@ int    InpSARAcceleration         = 9;
 // 3) Confirm raw price difference from SAR flip price
 bool   InpUseSARFlipConfirmations = true;
 bool   InpUseSAREMAConfirm        = false;
-bool   InpUseSARClosedCandleConfirm = true;//false;
+bool   InpUseSARClosedCandleConfirm = false;//false;
 bool   InpUseSARPriceDiffConfirm  = true;
 // double InpSARConfirmPriceDiff     = 100.0;   // raw price diff for BTCUSD, not points
 // int    InpSARConfirmMinutes       = 15;     // wait this many minutes after SAR signal change before new order
@@ -3818,6 +3821,24 @@ double GetDynamicBasketMinimumCloseUSD()
   }
 
 //+------------------------------------------------------------------+
+//| Profit required before the small minimum close becomes armed.    |
+//| The activation is never below the close floor and is clamped to  |
+//| X1 because this protection is intended only for the pre-X1 zone. |
+//+------------------------------------------------------------------+
+double GetDynamicBasketMinimumArmUSD()
+  {
+   double minimumClose = GetDynamicBasketMinimumCloseUSD();
+   double armProfit = MathMax(minimumClose,
+                              MathAbs(InpDynamicBasketMinimumArmUSD));
+   double x1Target = GetDynamicBasketTargetUSDByLevel(1);
+
+   if(x1Target > 0.0 && armProfit > x1Target)
+      armProfit = x1Target;
+
+   return(armProfit);
+  }
+
+//+------------------------------------------------------------------+
 //| Number of completed negative drawdown steps touched.             |
 //| -$1.xx => level 1, -$2.xx => level 2, -$3.xx => level 3.         |
 //+------------------------------------------------------------------+
@@ -3879,10 +3900,11 @@ string DynamicBasketProfitDirectionStatusText(int direction)
    double protectedProfit = 0.0;
    string lockText = "NOT ARMED";
 
-   // Always begin with the configured small positive minimum lock.
-   // This is armed only after the basket reaches it and never closes on the way up.
+   // Arm the small positive floor only after the separate activation
+   // threshold is reached. Example: arm $0.25, then protect $0.10.
+   double minimumArm = GetDynamicBasketMinimumArmUSD();
    double minimumClose = GetDynamicBasketMinimumCloseUSD();
-   if(peakProfit + 0.0000001 >= minimumClose)
+   if(peakProfit + 0.0000001 >= minimumArm)
      {
       protectedProfit = minimumClose;
       lockText = "MIN";
@@ -3911,12 +3933,12 @@ string DynamicBasketProfitDirectionStatusText(int direction)
 
    if(protectedProfit <= 0.0)
      {
-      string armText = "MIN $" +
-                       DoubleToString(GetDynamicBasketMinimumCloseUSD(), 2);
-
       return(side + " P/L $" + DoubleToString(currentProfit, 2) +
              " | PEAK $" + DoubleToString(peakProfit, 2) +
-             " | ARM " + armText +
+             " | ARM AT $" +
+             DoubleToString(GetDynamicBasketMinimumArmUSD(), 2) +
+             " => LOCK $" +
+             DoubleToString(GetDynamicBasketMinimumCloseUSD(), 2) +
              " | THEN X1 $" +
              DoubleToString(GetDynamicBasketTargetUSDByLevel(1), 2));
      }
@@ -3973,10 +3995,12 @@ bool ProcessDynamicBasketProfitByDirection(int direction,
    double protectedProfit = 0.0;
    string protectedName = "NONE";
 
-   // First arm the normal minimum positive close.
-   // Example: peak reaches $0.10 => lock $0.10, but continue trying for X1.
+   // Arm the normal minimum close only after the separate activation
+   // threshold. Example: peak reaches $0.25 => lock $0.10, then keep
+   // trying for X1=$0.50, X2=$1.00, X3=$1.50 and higher.
+   double minimumArm = GetDynamicBasketMinimumArmUSD();
    double minimumClose = GetDynamicBasketMinimumCloseUSD();
-   if(peakProfit + 0.0000001 >= minimumClose)
+   if(peakProfit + 0.0000001 >= minimumArm)
      {
       protectedProfit = minimumClose;
       protectedName = "MIN";

@@ -1,8 +1,8 @@
 //+------------------------------------------------------------------+
-//| BTCUSD_EMA_BOS_ASSIGNED_DYNAMIC_TP_PULLBACK_EA.mq4              |
-//| EMA + BOS + remembered pullback + momentum continuation         |
-//| Clean-profit BOS re-entry + recovery basket + adaptive TP       |
-//| Daily reset + clear Dubai/daily pause dashboard messages       |
+//| BTCUSD_EMA_BOS_PENDING_RECOVERY_DYNAMIC_LOCK_V3.mq4            |
+//| All entries -> 20-raw pending STOP orders                       |
+//| Recovery: raw gap OR deep-loss comeback                         |
+//| Arm $0.25 -> lock $0.10 + configurable X1/X2/X3 ladder        |
 //+------------------------------------------------------------------+
 #property strict
 
@@ -29,22 +29,28 @@ bool   InpUseMomentumContinuation    = true;
 double InpMomentumContinuationRaw    = 100.0;
 
 // SIDE-BASKET dynamic profit management (BUY and SELL are independent).
-// Clean basket: the first profit lock starts at the full active TP (X1.0).
-// Later locks advance by the configured multiplier increment.
-// With multiplier 0.50, levels are X1.0, X1.5, X2.0, X2.5, etc.
-// It does not close immediately when a level is reached; it closes only when
-// basket profit falls back to the highest completed level.
+// The small minimum close is NOT armed immediately. The basket must first
+// reach InpDynamicBasketMinimumArmUSD, then the protected floor becomes
+// InpDynamicBasketMinimumCloseUSD. After X1, locks advance by the configured
+// multiplier step. Example: arm=$0.25, minimum close=$0.10, X1=$0.50,
+// multiplier step=1.00 => no lock below $0.25, then $0.10, $0.50, $1.00,
+// $1.50... InpDynamicBasketProfitMaxX=0.0 keeps the ladder unlimited.
+// It does not close while profit is rising; it closes only when basket profit
+// falls back to the highest completed protected level.
 // Basket touched a full negative step: normal trailing is cancelled and the
 // basket closes immediately when it recovers to the reduced positive target.
 // Example with InpAdaptiveLossLevelUSD = 1.00:
-//   minimum above -$1.00 => normal X1/X1.5/X2/X2.5 ladder
+//   minimum above -$1.00 => normal minimum/X1/X2/X3 ladder
 //   touch -$1.00         => comeback target = TP / 2
 //   touch -$2.00         => comeback target = TP / 3
 //   touch -$3.00         => comeback target = TP / 4
 // The worst BUY loss never changes SELL state, and vice versa.
-double InpTakeProfitUSD              = 0.50;//2;//0.40;
-double InpDynamicProfitStepMultiplier = 0.50; // After X1: X1.5, X2, X2.5...
-double InpFixedStopLossUSD                =2;//2;//1;// 0.50;//10;//7;//6;//10;//6.00;
+double InpBasketProfitUSD                    = 0.50; // X1 base profit step
+double InpDynamicBasketMinimumArmUSD        = 0.25; // arm small-profit protection only here
+double InpDynamicBasketMinimumCloseUSD      = 0.10; // protected floor after minimum arm
+double InpDynamicBasketMultiplierStep       = 1.00; // X1, X2, X3... when set to 1.00
+double InpDynamicBasketProfitMaxX            = 0.0; // 0.0 = unlimited; e.g. 5.0 caps at X5
+double InpFixedStopLossUSD                   = 2.00;
 
 
 
@@ -73,7 +79,7 @@ int    InpMixedMinEMACrossings       = 3;
 
 // Runtime state. The EA updates this automatically on every tick.
 // true  = MIXED market: ALL new orders are paused and existing
-//         BUY/SELL baskets use InpTakeProfitUSD / 2.
+//         BUY/SELL baskets use InpBasketProfitUSD / 2.
 // false = not MIXED: normal entry rules and full TP are used.
 bool   InpMarketMixedMode            = false;
 
@@ -88,7 +94,12 @@ int    InpDashboardWidth             = 350;
 int    InpDashboardFontSize          = 8;
 int    InpDashboardRowHeight         = 17;
 
-
+// Every entry path is converted to a direction-matching pending STOP order.
+// BUY entries become BUYSTOP at Ask + raw gap.
+// SELL entries become SELLSTOP at Bid - raw gap.
+bool   InpUsePendingStopOrders       = true;
+double InpPendingStopGapRawPrice     = 20.0;
+int    InpPendingCleanupMinutes      = 30; // delete every untriggered EA pending order
 
 // Dubai hours during which NEW orders are blocked.
 // Enter individual hours from 0 to 23, separated by commas.
@@ -98,12 +109,15 @@ int    InpDashboardRowHeight         = 17;
 string InpDubaiBlockedHours          = "14,15,16,17,18,19,20";
 
 // Recovery order settings.
-// Recovery opens in the SAME direction as a losing regular parent only
-// when adverse distance is large enough and active BOS matches direction.
-bool   InpUseRecoveryOrders             = true;
-double InpRecoveryLotSize               = 0.02;
-double InpRecoveryRawDifference         = 100.0;//400
-int    InpMaxRecoveryOrdersPerDirection = 1;
+// Recovery opens in the SAME direction as a losing regular parent.
+// Active BOS must match, and either the raw gap OR loss-comeback must trigger.
+bool   InpUseRecoveryOrders                = true;
+double InpRecoveryLotSize                  = 0.02;
+double InpRecoveryRawDifference            = 50.0; // normal raw-price trigger
+bool   InpUseRecoveryLossComebackTrigger   = true; // independent OR trigger
+double InpRecoveryDeepLossUSD              = 2.00; // basket must first touch -$3
+double InpRecoveryComebackImprovementUSD   = 1.00; // then improve by $1, e.g. -$3 to -$2
+int    InpMaxRecoveryOrdersPerDirection    = 1;
 
 // Close linked parent + recovery together at the assigned basket target.
 bool   InpCloseRecoveryBasketAtTP        = true;
@@ -139,9 +153,11 @@ datetime g_momentumTouchBarTime      = 0;
 double   g_momentumTouchRaw          = 0.0;
 double   g_momentumTouchPrice        = 0.0;
 
-datetime g_lastBarTime  = 0;
-string   g_lastStatus   = "Starting";
-string   PFX            = "EMABOSPB_";
+datetime g_lastBarTime             = 0;
+long     g_lastPendingCleanupSlot   = -1;
+datetime g_lastPendingCleanupTime  = 0;
+string   g_lastStatus              = "Starting";
+string   PFX                       = "EMABOSPB_";
 
 //-------------------------- Daily target state -----------------------
 int      g_dailyDubaiDateKey       = 0;
@@ -404,7 +420,7 @@ EA_PAUSE_REASON GetCurrentPauseReason()
       return(PAUSE_REASON_DUBAI_HOURS);
 
    // MIXED mode blocks every NEW order type, but existing orders
-   // continue to be managed with InpTakeProfitUSD / 2.
+   // continue to be managed with InpBasketProfitUSD / 2.
    if(InpMarketMixedMode)
       return(PAUSE_REASON_MIXED_MODE);
 
@@ -423,7 +439,7 @@ string GetMixedModePausedStatus()
 {
    return("MIXED MARKET | ALL NEW ORDERS PAUSED | EXISTING TP $" +
           DoubleToString(GetMarketModeTakeProfitUSD(), 4) +
-          " = InpTakeProfitUSD / 2");
+          " = InpBasketProfitUSD / 2");
 }
 
 //+------------------------------------------------------------------+
@@ -433,8 +449,12 @@ string GetEffectiveStatusText(string normalStatus)
 
    if(pauseReason == PAUSE_REASON_DAILY_TARGET)
    {
-      if(CountMyOrders() > 0)
+      if(CountMyOrders() > 0 ||
+         CountMyPendingOrdersByDirection(OP_BUY) > 0 ||
+         CountMyPendingOrdersByDirection(OP_SELL) > 0)
+      {
          return("DAILY TARGET REACHED | CLOSING EA ORDERS | NEW ORDERS PAUSED");
+      }
 
       return("DAILY TARGET REACHED | ALL EA ORDERS CLOSED | NEW ORDERS PAUSED");
    }
@@ -451,6 +471,11 @@ string GetEffectiveStatusText(string normalStatus)
 //+------------------------------------------------------------------+
 bool CloseAllMyOrdersAtDailyTarget()
 {
+   // Pending orders must be removed first so none can trigger after the
+   // daily account target has paused trading.
+   bool pendingCleared =
+      DeleteAllMyPendingOrders("daily target reached");
+
    int matchingOrders = 0;
    int closedOrders   = 0;
    int failedOrders   = 0;
@@ -511,11 +536,17 @@ bool CloseAllMyOrdersAtDailyTarget()
 
    if(matchingOrders == 0)
    {
-      g_lastStatus = "DAILY TARGET REACHED | ALL ORDERS CLOSED | PAUSED";
-      return(true);
+      if(pendingCleared)
+      {
+         g_lastStatus = "DAILY TARGET REACHED | ALL ORDERS CLOSED | PAUSED";
+         return(true);
+      }
+
+      g_lastStatus = "DAILY TARGET | PENDING DELETE RETRY | PAUSED";
+      return(false);
    }
 
-   if(failedOrders == 0)
+   if(failedOrders == 0 && pendingCleared)
    {
       g_lastStatus = "DAILY TARGET | CLOSED " +
                      IntegerToString(closedOrders) +
@@ -639,7 +670,7 @@ int OnInit()
    if(IsTesting())
       InpProfitTargetPercent = 5000.0;
 
-   g_originalTakeProfitUSD     = InpTakeProfitUSD;
+   g_originalTakeProfitUSD     = InpBasketProfitUSD;
    g_assignedBuyTakeProfitUSD  = g_originalTakeProfitUSD;
    g_assignedSellTakeProfitUSD = g_originalTakeProfitUSD;
    g_assignedBuyLossTier       = 0;
@@ -665,10 +696,16 @@ int OnInit()
          " | Dubai time ", dubaiTimeText,
          " | Effective SL $",
          DoubleToString(GetEffectiveFixedStopLossUSD(), 2),
-         " | Ladder starts X1; increment X",
-         DoubleToString(InpDynamicProfitStepMultiplier, 2),
-         " | Increment $",
-         DoubleToString(GetDynamicProfitLadderStepUSD(), 4));
+         " | Minimum arm $",
+         DoubleToString(InpDynamicBasketMinimumArmUSD, 2),
+         " | Minimum close $",
+         DoubleToString(InpDynamicBasketMinimumCloseUSD, 2),
+         " | X1 $",
+         DoubleToString(g_originalTakeProfitUSD, 2),
+         " | X step $",
+         DoubleToString(GetDynamicProfitLadderStepUSD(), 4),
+         " | Pending gap raw ",
+         DoubleToString(InpPendingStopGapRawPrice, 1));
 
    if(InpShowVisuals)
       DrawDashboard(g_lastStatus);
@@ -738,6 +775,7 @@ void OnTick()
          DoubleToString(AccountEquity(), 2);
 
       Print(g_lastStatus);
+      DeleteAllMyPendingOrders("low equity pause");
 
       if(InpShowVisuals)
          UpdateVisuals(false, GetEMATrend());
@@ -758,6 +796,10 @@ if(startupElapsedMs < 5*1000)
 }
 
    RefreshRates();
+
+   // Delete every untriggered EA pending order at each 30-minute slot
+   // before BOS/recovery/new-cycle entry logic is evaluated.
+   CleanupPendingOrdersEveryInterval();
 
    bool isNewBar = (Time[0] != g_lastBarTime);
    if(isNewBar)
@@ -810,6 +852,7 @@ if(startupElapsedMs < 5*1000)
    // cannot be opened. The dashboard always shows the time-pause reason.
    if(IsDubaiBlockedTime())
    {
+      DeleteAllMyPendingOrders("Dubai blocked-hours pause");
       g_lastStatus = GetDubaiHoursPausedStatus();
 
       if(InpShowVisuals)
@@ -824,6 +867,7 @@ if(startupElapsedMs < 5*1000)
    // entry logic so absolutely no new order is created.
    if(InpMarketMixedMode)
    {
+      DeleteAllMyPendingOrders("MIXED market pause");
       g_lastStatus = GetMixedModePausedStatus();
 
       if(InpShowVisuals)
@@ -913,7 +957,7 @@ if(allowOppositeBOSOrder &&
    CountRecoveryOrders(orderType) == 0)
 {
    // Apply the maximum separately to the new BOS direction.
-   if(CountMyOrdersByType(orderType) >= InpMaxOpenOrders )
+   if(CountMyOrderEntitiesByDirection(orderType) >= InpMaxOpenOrders )
    {
       g_lastStatus =
          (orderType == OP_BUY)
@@ -938,7 +982,7 @@ else
    
   // int orderType = (g_bosDirection > 0) ? OP_BUY : OP_SELL;
 
-if(CountMyOrdersByType(orderType) >= InpMaxOpenOrders)
+if(CountMyOrderEntitiesByDirection(orderType) >= InpMaxOpenOrders)
 {
    g_lastStatus = (orderType == OP_BUY)
                   ? "Blocked: max BUY orders"
@@ -967,15 +1011,21 @@ if(CountMyOrdersByType(orderType) >= InpMaxOpenOrders)
 
       if(OpenOrder(orderType, orderComment))
       {
-         double entryPrice = (orderType == OP_BUY) ? Ask : Bid;
+         double entryPrice = InpUsePendingStopOrders ?
+            GetPendingStopEntryPrice(orderType) :
+            ((orderType == OP_BUY) ? Ask : Bid);
 
          if(entrySetup == 2)
             DrawMomentumArrow(g_bosDirection, entryPrice, TimeCurrent());
          else
             DrawEntryArrow(g_bosDirection, entryPrice, TimeCurrent());
 
-         g_lastStatus = setupText + " " + side + " opened";
-         ConsumeCurrentBOS(setupText + " entry opened");
+         g_lastStatus = setupText + " " + side +
+                        (InpUsePendingStopOrders ?
+                         " pending placed" : " opened");
+         ConsumeCurrentBOS(setupText +
+                           (InpUsePendingStopOrders ?
+                            " pending placed" : " entry opened"));
       }
    }
    else if(setupReady && !emaAllowed)
@@ -1022,6 +1072,12 @@ void ActivateBOS(int direction,
                  double detectionPrice,
                  datetime detectionTime)
 {
+   bool directionChanged =
+      (g_bosDirection != 0 && g_bosDirection != direction);
+
+   if(directionChanged)
+      DeleteAllMyPendingOrders("BOS direction changed");
+
    g_bosDirection = direction;
    g_bosActive    = true;
    g_bosLevel     = structureLevel;
@@ -1333,6 +1389,91 @@ string GetBOSWaitingStatus()
 }
 
 //+------------------------------------------------------------------+
+bool IsPendingOrderType(int orderType)
+{
+   return(orderType == OP_BUYLIMIT ||
+          orderType == OP_SELLLIMIT ||
+          orderType == OP_BUYSTOP ||
+          orderType == OP_SELLSTOP);
+}
+
+//+------------------------------------------------------------------+
+bool IsOrderTypeForMarketDirection(int actualType, int marketType)
+{
+   if(marketType == OP_BUY)
+      return(actualType == OP_BUY ||
+             actualType == OP_BUYSTOP ||
+             actualType == OP_BUYLIMIT);
+
+   if(marketType == OP_SELL)
+      return(actualType == OP_SELL ||
+             actualType == OP_SELLSTOP ||
+             actualType == OP_SELLLIMIT);
+
+   return(false);
+}
+
+//+------------------------------------------------------------------+
+int CountMyPendingOrdersByDirection(int marketType)
+{
+   int count = 0;
+
+   for(int i = OrdersTotal() - 1; i >= 0; i--)
+   {
+      if(!OrderSelect(i, SELECT_BY_POS, MODE_TRADES)) continue;
+      if(OrderSymbol() != Symbol()) continue;
+      if(OrderMagicNumber() != InpMagicNumber) continue;
+      if(!IsPendingOrderType(OrderType())) continue;
+      if(!IsOrderTypeForMarketDirection(OrderType(), marketType)) continue;
+
+      count++;
+   }
+
+   return(count);
+}
+
+//+------------------------------------------------------------------+
+int CountMyOrderEntitiesByDirection(int marketType)
+{
+   return(CountMyOrdersByType(marketType) +
+          CountMyPendingOrdersByDirection(marketType));
+}
+
+//+------------------------------------------------------------------+
+bool HasMyPendingOrderComment(string orderComment)
+{
+   for(int i = OrdersTotal() - 1; i >= 0; i--)
+   {
+      if(!OrderSelect(i, SELECT_BY_POS, MODE_TRADES)) continue;
+      if(OrderSymbol() != Symbol()) continue;
+      if(OrderMagicNumber() != InpMagicNumber) continue;
+      if(!IsPendingOrderType(OrderType())) continue;
+      if(OrderComment() == orderComment) return(true);
+   }
+
+   return(false);
+}
+
+//+------------------------------------------------------------------+
+double GetPendingStopEntryPrice(int marketType)
+{
+   RefreshRates();
+
+   double requestedGap = MathMax(0.0, InpPendingStopGapRawPrice);
+   double brokerMinimum = MarketInfo(Symbol(), MODE_STOPLEVEL) * Point;
+   double effectiveGap = MathMax(requestedGap,
+                                 brokerMinimum + Point);
+
+   if(marketType == OP_BUY)
+      return(NormalizeDouble(Ask + effectiveGap, Digits));
+
+   if(marketType == OP_SELL)
+      return(NormalizeDouble(Bid - effectiveGap, Digits));
+
+   return(0.0);
+}
+
+//+------------------------------------------------------------------+
 bool OpenOrder(int type, string orderComment)
 {
    return(OpenOrderWithLots(type, InpLotSize, orderComment));
@@ -1343,6 +1484,18 @@ bool OpenOrderWithLots(int type, double lots, string orderComment)
 {
    RefreshRates();
    UpdateDailyProfitTargetState();
+
+   if(type != OP_BUY && type != OP_SELL)
+   {
+      g_lastStatus = "Blocked: invalid market direction";
+      return(false);
+   }
+
+   if(lots <= 0.0)
+   {
+      g_lastStatus = "Blocked: invalid lot size";
+      return(false);
+   }
 
    if(IsDailyNewOrderPaused())
    {
@@ -1357,8 +1510,8 @@ bool OpenOrderWithLots(int type, double lots, string orderComment)
       return(false);
    }
 
-   // Central safety guard. Every regular, recovery and clean-pullback
-   // order uses this function, so no OrderSend can bypass MIXED mode.
+   // Central safety guard. Every regular, recovery, clean-pullback,
+   // extra and retry path uses this one function.
    if(InpMarketMixedMode)
    {
       g_lastStatus = GetMixedModePausedStatus();
@@ -1366,12 +1519,31 @@ bool OpenOrderWithLots(int type, double lots, string orderComment)
       return(false);
    }
 
+   if(HasMyPendingOrderComment(orderComment))
+   {
+      g_lastStatus = "Pending already exists | " + orderComment;
+      return(false);
+   }
+
+   int sendType = type;
    double price = (type == OP_BUY) ? Ask : Bid;
+
+   if(InpUsePendingStopOrders)
+   {
+      sendType = (type == OP_BUY) ? OP_BUYSTOP : OP_SELLSTOP;
+      price = GetPendingStopEntryPrice(type);
+
+      if(price <= 0.0)
+      {
+         g_lastStatus = "Pending price calculation failed";
+         return(false);
+      }
+   }
 
    ResetLastError();
 
    int ticket = OrderSend(Symbol(),
-                          type,
+                          sendType,
                           lots,
                           price,
                           InpSlippage,
@@ -1386,14 +1558,34 @@ bool OpenOrderWithLots(int type, double lots, string orderComment)
    {
       int err = GetLastError();
       g_lastStatus = "OrderSend failed: " + IntegerToString(err);
-      Print(g_lastStatus);
+      Print(g_lastStatus,
+            " | Type ", IntegerToString(sendType),
+            " | Price ", DoubleToString(price, Digits),
+            " | Comment ", orderComment);
       return(false);
    }
 
    DeleteProfitTrailState(ticket);
    SetTrailValue(ticket, "NEG", 0.0);
 
-   g_lastStatus = "Order opened #" + IntegerToString(ticket);
+   string side = (type == OP_BUY) ? "BUY" : "SELL";
+
+   if(InpUsePendingStopOrders)
+   {
+      g_lastStatus = side + " STOP pending #" +
+                     IntegerToString(ticket) +
+                     " placed at " +
+                     DoubleToString(price, Digits) +
+                     " | Gap raw " +
+                     DoubleToString(InpPendingStopGapRawPrice, 1);
+   }
+   else
+   {
+      g_lastStatus = side + " market order opened #" +
+                     IntegerToString(ticket);
+   }
+
+   Print(g_lastStatus, " | ", orderComment);
    return(true);
 }
 
@@ -1413,9 +1605,10 @@ int CountRecoveryOrders(int orderType)
       if(!OrderSelect(i, SELECT_BY_POS, MODE_TRADES)) continue;
       if(OrderSymbol() != Symbol()) continue;
       if(OrderMagicNumber() != InpMagicNumber) continue;
-      if(OrderType() != orderType) continue;
+      if(!IsOrderTypeForMarketDirection(OrderType(), orderType)) continue;
       if(!IsRecoveryOrderComment(OrderComment())) continue;
 
+      // Count both a live recovery and its still-untriggered pending STOP.
       count++;
    }
 
@@ -1466,6 +1659,95 @@ int GetRecoveryParentTicket(string orderComment)
    int parentTicket = (int)StrToInteger(ticketText);
 
    return(parentTicket > 0 ? parentTicket : -1);
+}
+
+
+//+------------------------------------------------------------------+
+bool DeleteAllMyPendingOrders(string reason)
+{
+   int deletedCount = 0;
+   int failedCount  = 0;
+
+   for(int i = OrdersTotal() - 1; i >= 0; i--)
+   {
+      if(!OrderSelect(i, SELECT_BY_POS, MODE_TRADES)) continue;
+      if(OrderSymbol() != Symbol()) continue;
+      if(OrderMagicNumber() != InpMagicNumber) continue;
+      if(!IsPendingOrderType(OrderType())) continue;
+
+      int ticket = OrderTicket();
+      string orderComment = OrderComment();
+      int parentTicket = GetRecoveryParentTicket(orderComment);
+
+      ResetLastError();
+      if(OrderDelete(ticket, clrNONE))
+      {
+         deletedCount++;
+         DeleteProfitTrailState(ticket);
+
+         // A deleted recovery pending can be proposed again by a later
+         // valid cycle because it never became a market recovery order.
+         if(parentTicket > 0)
+         {
+            string key = RecoveryBOSKey(parentTicket);
+            if(GlobalVariableCheck(key))
+               GlobalVariableDel(key);
+         }
+
+         Print("PENDING DELETED | #", ticket,
+               " | ", reason,
+               " | ", orderComment);
+      }
+      else
+      {
+         failedCount++;
+         Print("PENDING DELETE FAILED | #", ticket,
+               " | Error ", GetLastError(),
+               " | ", reason);
+      }
+   }
+
+   if(deletedCount > 0 || failedCount > 0)
+   {
+      g_lastStatus = "Pending cleanup | Deleted " +
+                     IntegerToString(deletedCount) +
+                     " | Failed " +
+                     IntegerToString(failedCount) +
+                     " | " + reason;
+   }
+
+   return(failedCount == 0);
+}
+
+//+------------------------------------------------------------------+
+void CleanupPendingOrdersEveryInterval()
+{
+   if(!InpUsePendingStopOrders)
+      return;
+
+   int cleanupMinutes = InpPendingCleanupMinutes;
+   if(cleanupMinutes <= 0)
+      cleanupMinutes = 30;
+
+   long intervalSeconds = (long)cleanupMinutes * 60;
+   long currentSlot = (long)TimeCurrent() / intervalSeconds;
+
+   if(g_lastPendingCleanupSlot < 0)
+   {
+      g_lastPendingCleanupSlot = currentSlot;
+      g_lastPendingCleanupTime = TimeCurrent();
+      DeleteAllMyPendingOrders("EA startup pending cleanup");
+      return;
+   }
+
+   if(currentSlot == g_lastPendingCleanupSlot)
+      return;
+
+   g_lastPendingCleanupSlot = currentSlot;
+   g_lastPendingCleanupTime = TimeCurrent();
+
+   DeleteAllMyPendingOrders(
+      IntegerToString(cleanupMinutes) + "-minute cycle cleanup");
 }
 
 //+------------------------------------------------------------------+
@@ -1709,16 +1991,65 @@ bool GetRecoveryBasketInfo(double &basketProfit,
 }
 
 //+------------------------------------------------------------------+
+bool IsRecoveryLossComebackReady(int orderType,
+                                  double &basketCurrentProfit,
+                                  double &basketMinimumProfit)
+{
+   basketCurrentProfit = 0.0;
+   basketMinimumProfit = 0.0;
+
+   if(!InpUseRecoveryLossComebackTrigger)
+      return(false);
+
+   if(InpRecoveryDeepLossUSD <= 0.0 ||
+      InpRecoveryComebackImprovementUSD <= 0.0)
+   {
+      return(false);
+   }
+
+   if(CountMyOrdersByType(orderType) <= 0)
+      return(false);
+
+   // Refresh the independent BUY/SELL basket memory before reading it.
+   UpdateSideProfitState(orderType);
+
+   basketCurrentProfit = GetMyOpenProfitByType(orderType);
+   basketMinimumProfit =
+      GetSideProfitState(orderType,
+                         "MINIMUM",
+                         basketCurrentProfit);
+
+   bool deepLossTouched =
+      (basketMinimumProfit <= -MathAbs(InpRecoveryDeepLossUSD) +
+                              0.0000001);
+
+   bool improvedEnough =
+      (basketCurrentProfit >=
+       basketMinimumProfit +
+       MathAbs(InpRecoveryComebackImprovementUSD) -
+       0.0000001);
+
+   // Recovery is only useful while the side basket is still losing.
+   return(deepLossTouched &&
+          improvedEnough &&
+          basketCurrentProfit < -0.0000001);
+}
+
+//+------------------------------------------------------------------+
 bool FindRecoveryParent(int requiredType,
+                        bool lossComebackReady,
                         int &parentTicket,
                         double &parentProfit,
-                        double &rawDifference)
+                        double &rawDifference,
+                        bool &rawGapReached)
 {
    parentTicket  = -1;
    parentProfit  = 0.0;
    rawDifference = 0.0;
+   rawGapReached = false;
 
-   double largestRawDifference = -1.0;
+   double bestAdverseRaw = -1.0;
+   bool selectedByRawGap = false;
 
    for(int i = 0; i < OrdersTotal(); i++)
    {
@@ -1736,6 +2067,9 @@ bool FindRecoveryParent(int requiredType,
       if(profit >= 0.0)
          continue;
 
+      if(RecoveryAlreadyUsedForCurrentBOS(OrderTicket()))
+         continue;
+
       double adverseRaw = 0.0;
 
       if(requiredType == OP_BUY)
@@ -1743,15 +2077,32 @@ bool FindRecoveryParent(int requiredType,
       else
          adverseRaw = Ask - OrderOpenPrice();
 
-      if(adverseRaw < InpRecoveryRawDifference) continue;
-      if(RecoveryAlreadyUsedForCurrentBOS(OrderTicket())) continue;
+      bool thisRawGapReached =
+         (InpRecoveryRawDifference > 0.0 &&
+          adverseRaw + 0.0000001 >= InpRecoveryRawDifference);
 
-      if(adverseRaw > largestRawDifference)
+      // New rule: raw gap OR side basket loss-comeback trigger.
+      if(!thisRawGapReached && !lossComebackReady)
+         continue;
+
+      // Prefer a parent that independently satisfies the raw gap. If all
+      // candidates use the comeback trigger, choose the most adverse parent.
+      bool betterCandidate = false;
+
+      if(thisRawGapReached && !selectedByRawGap)
+         betterCandidate = true;
+      else if(thisRawGapReached == selectedByRawGap &&
+              adverseRaw > bestAdverseRaw)
+         betterCandidate = true;
+
+      if(betterCandidate)
       {
-         largestRawDifference = adverseRaw;
-         parentTicket         = OrderTicket();
-         parentProfit         = profit;
-         rawDifference        = adverseRaw;
+         selectedByRawGap = thisRawGapReached;
+         bestAdverseRaw   = adverseRaw;
+         parentTicket     = OrderTicket();
+         parentProfit     = profit;
+         rawDifference    = adverseRaw;
+         rawGapReached    = thisRawGapReached;
       }
    }
 
@@ -1766,9 +2117,20 @@ bool TryOpenRecoveryOrder()
    if(IsDailyNewOrderPaused()) return(false);
    if(!InpUseRecoveryOrders) return(false);
    if(!g_bosActive || g_bosDirection == 0) return(false);
-   if(InpRecoveryRawDifference <= 0.0) return(false);
    if(InpRecoveryLotSize <= 0.0) return(false);
    if(InpMaxRecoveryOrdersPerDirection <= 0) return(false);
+
+   bool rawTriggerEnabled =
+      (InpRecoveryRawDifference > 0.0);
+
+   bool comebackTriggerEnabled =
+      (InpUseRecoveryLossComebackTrigger &&
+       InpRecoveryDeepLossUSD > 0.0 &&
+       InpRecoveryComebackImprovementUSD > 0.0);
+
+   if(!rawTriggerEnabled && !comebackTriggerEnabled)
+      return(false);
+
    if(IsDubaiBlockedTime())
    {
       g_lastStatus = GetDubaiHoursPausedStatus();
@@ -1784,20 +2146,38 @@ bool TryOpenRecoveryOrder()
       return(false);
    }
 
+   double basketCurrentProfit = 0.0;
+   double basketMinimumProfit = 0.0;
+
+   bool lossComebackReady =
+      IsRecoveryLossComebackReady(requiredType,
+                                  basketCurrentProfit,
+                                  basketMinimumProfit);
+
    int parentTicket = -1;
    double parentProfit = 0.0;
    double rawDifference = 0.0;
+   bool rawGapReached = false;
 
    if(!FindRecoveryParent(requiredType,
+                          lossComebackReady,
                           parentTicket,
                           parentProfit,
-                          rawDifference))
+                          rawDifference,
+                          rawGapReached))
    {
       return(false);
    }
 
    string side =
       (requiredType == OP_BUY) ? "BUY" : "SELL";
+
+   string triggerText = rawGapReached ?
+      ("RAW GAP " + DoubleToString(rawDifference, 1)) :
+      ("LOSS COMEBACK minimum $" +
+       DoubleToString(basketMinimumProfit, 2) +
+       " -> current $" +
+       DoubleToString(basketCurrentProfit, 2));
 
    string orderComment =
       "BOS_RECOVERY_" + side +
@@ -1812,8 +2192,9 @@ bool TryOpenRecoveryOrder()
 
    MarkRecoveryUsedForCurrentBOS(parentTicket);
 
-   double entryPrice =
-      (requiredType == OP_BUY) ? Ask : Bid;
+   double entryPrice = InpUsePendingStopOrders ?
+      GetPendingStopEntryPrice(requiredType) :
+      ((requiredType == OP_BUY) ? Ask : Bid);
 
    DrawRecoveryArrow(g_bosDirection,
                      entryPrice,
@@ -1822,12 +2203,12 @@ bool TryOpenRecoveryOrder()
 
    g_lastStatus =
       "Recovery " + side +
-      " opened | Parent #" +
+      (InpUsePendingStopOrders ? " pending placed" : " opened") +
+      " | Parent #" +
       IntegerToString(parentTicket) +
       " | Parent P/L $" +
       DoubleToString(parentProfit, 2) +
-      " | Raw " +
-      DoubleToString(rawDifference, 1);
+      " | Trigger " + triggerText;
 
    Print(g_lastStatus);
    return(true);
@@ -1983,7 +2364,7 @@ if(allowOppositeBOSOrder &&
    CountRecoveryOrders(orderType) == 0)
 {
    // Apply the maximum separately to the new BOS direction.
-   if(CountMyOrdersByType(orderType) >= InpMaxOpenOrders)
+   if(CountMyOrderEntitiesByDirection(orderType) >= InpMaxOpenOrders)
    {
       g_lastStatus =
          (orderType == OP_BUY)
@@ -2007,7 +2388,7 @@ else
    
   // int orderType = (g_bosDirection > 0) ? OP_BUY : OP_SELL;
 
-if(CountMyOrdersByType(orderType) >= InpMaxOpenOrders)
+if(CountMyOrderEntitiesByDirection(orderType) >= InpMaxOpenOrders)
 {
    g_lastStatus = (orderType == OP_BUY)
                   ? "Blocked: max BUY orders"
@@ -2043,8 +2424,9 @@ if(CountMyOrdersByType(orderType) >= InpMaxOpenOrders)
       return(false);
    }
 
-   double entryPrice =
-      (type == OP_BUY) ? Ask : Bid;
+   double entryPrice = InpUsePendingStopOrders ?
+      GetPendingStopEntryPrice(type) :
+      ((type == OP_BUY) ? Ask : Bid);
 
    DrawCleanPullbackArrow(direction,
                           entryPrice,
@@ -2052,10 +2434,13 @@ if(CountMyOrdersByType(orderType) >= InpMaxOpenOrders)
                           sourceTicket);
 
    ClearCleanProfitPullback("");
-   ConsumeCurrentBOS("clean-profit continuation opened");
+   ConsumeCurrentBOS(InpUsePendingStopOrders ?
+                     "clean-profit continuation pending placed" :
+                     "clean-profit continuation opened");
 
    g_lastStatus =
-      "Clean BOS continuation " + side + " opened";
+      "Clean BOS continuation " + side +
+      (InpUsePendingStopOrders ? " pending placed" : " opened");
 
    Print(g_lastStatus, " | Source #", sourceTicket);
    return(true);
@@ -2104,10 +2489,10 @@ int GetLossTierFromMinimumProfit(double minimumProfit)
 
 //+------------------------------------------------------------------+
 // Effective base TP used by every profit-management path.
-// MIXED market uses half of the configured InpTakeProfitUSD, while
+// MIXED market uses half of the configured InpBasketProfitUSD, while
 // NOT MIXED keeps the full configured value. The input itself is never
 // overwritten, so returning to NOT MIXED automatically restores full TP.
-// Example: InpTakeProfitUSD = $0.40
+// Example: InpBasketProfitUSD = $0.40
 //   NOT MIXED = $0.40
 //   MIXED     = $0.20
 //+------------------------------------------------------------------+
@@ -2116,7 +2501,7 @@ double GetMarketModeTakeProfitUSD()
    double baseTakeProfit = g_originalTakeProfitUSD;
 
    if(baseTakeProfit <= 0.0)
-      baseTakeProfit = InpTakeProfitUSD;
+      baseTakeProfit = InpBasketProfitUSD;
 
    if(baseTakeProfit <= 0.0)
       return(0.0);
@@ -2128,11 +2513,10 @@ double GetMarketModeTakeProfitUSD()
 }
 
 //+------------------------------------------------------------------+
-// Clean dynamic-profit ladder increment after the first X1.0 level.
-// 0.50 creates X1.0, X1.5, X2.0, X2.5... levels.
-// 1.00 creates X1.0, X2.0, X3.0... levels.
-// The multiplier is applied to the active market-mode TP, so MIXED mode
-// still uses its reduced TP before the ladder increment is calculated.
+// Dynamic-profit ladder increment after X1.
+// InpDynamicBasketMultiplierStep=1.00 creates X1, X2, X3... levels.
+// A value of 0.50 creates X1, X1.5, X2, X2.5... levels.
+// The multiplier is applied to the active market-mode X1 value.
 //+------------------------------------------------------------------+
 double GetDynamicProfitLadderStepUSD()
 {
@@ -2141,11 +2525,11 @@ double GetDynamicProfitLadderStepUSD()
    if(activeTakeProfit <= 0.0)
       return(0.0);
 
-   double multiplier = InpDynamicProfitStepMultiplier;
+   double multiplier = InpDynamicBasketMultiplierStep;
 
-   // Invalid input falls back safely to the requested half-step ladder.
+   // Invalid input falls back safely to whole-X steps.
    if(multiplier <= 0.0)
-      multiplier = 0.50;
+      multiplier = 1.00;
 
    return(NormalizeDouble(activeTakeProfit * multiplier, 4));
 }
@@ -2267,10 +2651,10 @@ void RefreshAssignedTargetsBySide(bool writeStatus)
 void RestoreDefaultTakeProfitAfterClose()
 {
    if(g_originalTakeProfitUSD <= 0.0)
-      g_originalTakeProfitUSD = InpTakeProfitUSD;
+      g_originalTakeProfitUSD = InpBasketProfitUSD;
 
    // The external/default input is never changed by BUY or SELL losses.
-   InpTakeProfitUSD = g_originalTakeProfitUSD;
+   InpBasketProfitUSD = g_originalTakeProfitUSD;
 
    // Recalculate remaining BUY and SELL targets separately.
    RefreshAssignedTargetsBySide(false);
@@ -2281,10 +2665,10 @@ void RestoreDefaultTakeProfitAfterClose()
 void AssignTakeProfitFromOpenOrderLosses()
 {
    if(g_originalTakeProfitUSD <= 0.0)
-      g_originalTakeProfitUSD = InpTakeProfitUSD;
+      g_originalTakeProfitUSD = InpBasketProfitUSD;
 
    // Keep the configured input at its startup/default value.
-   InpTakeProfitUSD = g_originalTakeProfitUSD;
+   InpBasketProfitUSD = g_originalTakeProfitUSD;
 
    // No combined/global loss tier is used. Each direction has its own tier.
    RefreshAssignedTargetsBySide(true);
@@ -2585,20 +2969,40 @@ bool CloseSideBasketByDynamicProfit(int orderType)
 
    bool lockRaised = false;
 
-   // Clean dynamic-profit ladder:
-   // First lock is X1.0, then X1.5, X2.0, X2.5... when increment = 0.50.
-   // The active TP already includes the MIXED-market TP/2 adjustment.
+   // Separate minimum activation and minimum protected close.
+   // Example: arm=$0.25, close=$0.10, X1=$0.50, step X1:
+   //   below $0.25 => no lock and no dynamic-profit close
+   //   reach $0.25 => protect $0.10
+   //   reach $0.50 => protect $0.50
+   //   reach $1.00 => protect $1.00, then $1.50, $2.00...
+   // InpDynamicBasketProfitMaxX=0.0 means the ladder has no maximum.
    double activeTakeProfit = GetMarketModeTakeProfitUSD();
    double ladderStep       = GetDynamicProfitLadderStepUSD();
+   double minimumArm       =
+      MathMax(0.0, InpDynamicBasketMinimumArmUSD);
+   double minimumProtected =
+      MathMax(0.0, InpDynamicBasketMinimumCloseUSD);
 
-   if(lossTier <= 0 &&
-      activeTakeProfit > 0.0 &&
-      ladderStep > 0.0)
+   // Never allow the protected close to exceed its activation threshold.
+   if(minimumArm > 0.0 && minimumProtected > minimumArm)
+      minimumProtected = minimumArm;
+
+   if(lossTier <= 0)
    {
-      // The first completed lock is always the full active TP (X1.0).
-      // After that, advance by ladderStep: X1.5, X2.0, X2.5... when
-      // InpDynamicProfitStepMultiplier = 0.50.
-      if(peakProfit + 0.0000001 >= activeTakeProfit)
+      double calculatedLock = lockedProfit;
+
+      // The minimum close is armed only after a stronger profit move.
+      if(minimumProtected > 0.0 &&
+         minimumArm > 0.0 &&
+         peakProfit + 0.0000001 >= minimumArm)
+      {
+         calculatedLock = MathMax(calculatedLock,
+                                  minimumProtected);
+      }
+
+      if(activeTakeProfit > 0.0 &&
+         ladderStep > 0.0 &&
+         peakProfit + 0.0000001 >= activeTakeProfit)
       {
          double extraProfit = peakProfit - activeTakeProfit;
          if(extraProfit < 0.0)
@@ -2607,34 +3011,60 @@ bool CloseSideBasketByDynamicProfit(int orderType)
          double completedIncrements =
             MathFloor((extraProfit + 0.0000001) / ladderStep);
 
-         double calculatedLock =
+         double ladderLock =
             activeTakeProfit + completedIncrements * ladderStep;
 
-         calculatedLock = NormalizeDouble(calculatedLock, 4);
-
-         if(calculatedLock > lockedProfit + 0.0000001)
+         // Optional cap expressed as a multiplier of X1.
+         // 0.0 means unlimited. Values below X1 are normalized to X1.
+         if(InpDynamicBasketProfitMaxX > 0.0)
          {
-            lockedProfit = calculatedLock;
-            lockRaised = true;
+            double maximumX = MathMax(1.0,
+                                      InpDynamicBasketProfitMaxX);
+            double maximumLock = activeTakeProfit * maximumX;
+            ladderLock = MathMin(ladderLock, maximumLock);
+         }
 
-            string lockSide =
-               (orderType == OP_BUY) ? "BUY" : "SELL";
+         calculatedLock =
+            MathMax(calculatedLock,
+                    NormalizeDouble(ladderLock, 4));
+      }
 
-            double lockMultiplier = 0.0;
-            if(activeTakeProfit > 0.0)
-               lockMultiplier = lockedProfit / activeTakeProfit;
+      calculatedLock = NormalizeDouble(calculatedLock, 4);
+
+      if(calculatedLock > lockedProfit + 0.0000001)
+      {
+         lockedProfit = calculatedLock;
+         lockRaised = true;
+
+         string lockSide =
+            (orderType == OP_BUY) ? "BUY" : "SELL";
+
+         if(activeTakeProfit > 0.0 &&
+            lockedProfit + 0.0000001 >= activeTakeProfit)
+         {
+            double lockMultiplier =
+               lockedProfit / activeTakeProfit;
 
             g_lastStatus =
                lockSide + " basket advanced lock X" +
                DoubleToString(lockMultiplier, 1) +
                " to $" + DoubleToString(lockedProfit, 2) +
                " | Peak $" + DoubleToString(peakProfit, 2);
-
-            Print(g_lastStatus);
          }
+         else
+         {
+            g_lastStatus =
+               lockSide + " basket minimum lock armed at $" +
+               DoubleToString(lockedProfit, 2) +
+               " after arm $" +
+               DoubleToString(minimumArm, 2) +
+               " | Peak $" + DoubleToString(peakProfit, 2);
+         }
+
+         Print(g_lastStatus);
       }
    }
-   else if(lossTier > 0)
+   else
    {
       lockedProfit = 0.0;
    }
@@ -2647,10 +3077,8 @@ bool CloseSideBasketByDynamicProfit(int orderType)
 
    bool cleanTrailHit =
       (lossTier <= 0 &&
-       activeTakeProfit > 0.0 &&
-       ladderStep > 0.0 &&
+       lockedProfit > 0.0 &&
        !lockRaised &&
-       lockedProfit + 0.0000001 >= activeTakeProfit &&
        profitFalling &&
        currentProfit <= lockedProfit + 0.0000001);
 
@@ -3892,6 +4320,15 @@ void DrawDashboard(string status)
                 y, C'225,232,245');
    y += InpDashboardRowHeight;
 
+   DashboardRow("PENDING_COUNT", "BUY / SELL Pending",
+                IntegerToString(CountMyPendingOrdersByDirection(OP_BUY)) +
+                " / " +
+                IntegerToString(CountMyPendingOrdersByDirection(OP_SELL)) +
+                "   Gap " +
+                DoubleToString(InpPendingStopGapRawPrice, 1),
+                y, C'70,220,235');
+   y += InpDashboardRowHeight;
+
    DashboardRow("BUY_LIVE_PEAK", "BUY Current / Peak",
                 "$" + DoubleToString(buyCurrentProfit, 2) + " / $" +
                 DoubleToString(buyPeakProfit, 2),
@@ -3933,8 +4370,9 @@ void DrawDashboard(string status)
                     C'255,145,65');
    y += 26;
 
-   DashboardRow("DEFAULT_TP", "Base / Active / Increment",
-                "$" + DoubleToString(g_originalTakeProfitUSD, 4) +
+   DashboardRow("DEFAULT_TP", "Arm / Min / X1 / X Step",
+                "$" + DoubleToString(InpDynamicBasketMinimumArmUSD, 4) +
+                " / $" + DoubleToString(InpDynamicBasketMinimumCloseUSD, 4) +
                 " / $" + DoubleToString(GetMarketModeTakeProfitUSD(), 4) +
                 " / $" + DoubleToString(GetDynamicProfitLadderStepUSD(), 4),
                 y, InpMarketMixedMode ? C'255,180,55' : C'255,205,70');
