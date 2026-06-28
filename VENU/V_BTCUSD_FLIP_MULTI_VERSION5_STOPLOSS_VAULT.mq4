@@ -20,7 +20,7 @@ MARKET_MODE g_marketMode = MODE_RANGE;
 #ifndef OP_BALANCE
 #define OP_BALANCE 6
 #endif
-#property version   "1.40"
+#property version   "1.41"
 
 //======================== INPUTS ====================================
 string InpEAName                  = "DXB Version 5 - SAR Confirm 50 in 5 Min";
@@ -273,6 +273,17 @@ bool   InpOpenPendingRecoveryWhenSARMatches = false;
 double InpRecoveryGapRawPrice     = 50;//200.0;   // raw price difference, not points
 double InpRecoveryGapLot          = 0.02;
 int    InpMaxRecoveryGapOrdersPerSide = 1;  // recovery ladder: 50, 100, 150 from first order price
+
+// Alternate recovery trigger based on basket-loss improvement:
+// The raw-price recovery gap remains active. This is an additional OR condition.
+// Example with defaults:
+//   basket first touches -$3.00 or lower -> arm the loss-comeback trigger
+//   basket then improves by $1.00, for example -$3.00 -> -$2.00
+//   create one same-direction recovery order, subject to all existing safety filters.
+// Deeper losses work dynamically too: -$4 -> -$3, -$5 -> -$4, etc.
+bool   InpUseRecoveryLossComebackTrigger = true;
+double InpRecoveryLossArmUSD              = 3.00;
+double InpRecoveryLossComebackUSD         = 1.00;
 
 // Legacy special-guard compatibility:
 // This EA no longer creates SAR special guard orders.
@@ -782,6 +793,14 @@ string   g_lastRecoveryAudit          = "NONE";
 datetime g_lastRecoveryAuditTime      = 0;
 int      g_lastRecoveryAuditDirection = 0;
 double   g_lastRecoveryAuditGap       = 0.0;
+
+// Dynamic loss-comeback recovery memory. BUY and SELL are independent.
+// A side is armed after its basket touches -InpRecoveryLossArmUSD.
+// It becomes ready when loss improves by InpRecoveryLossComebackUSD.
+double   g_buyRecoveryWorstBasketProfit  = 0.0;
+double   g_sellRecoveryWorstBasketProfit = 0.0;
+bool     g_buyRecoveryLossComebackArmed  = false;
+bool     g_sellRecoveryLossComebackArmed = false;
 
 
 int      g_equityDay            = -1;
@@ -5754,7 +5773,7 @@ bool IsRecoveryHedgeOrderComment(string commentText)
   }
 
 //+------------------------------------------------------------------+
-bool OpenRecoveryGapMarketOrder(int direction, double gapMove)
+bool OpenRecoveryGapMarketOrder(int direction, double gapMove, string triggerReason)
   {
    if(direction == 0)
       return(false);
@@ -5869,11 +5888,16 @@ bool OpenRecoveryGapMarketOrder(int direction, double gapMove)
 
    double requiredGapForComment = InpRecoveryGapRawPrice * nextRecoveryNumber;
    int linkedParentTicket = GetParentTicketForRecoveryGap(direction);
+   bool lossComebackTrigger = (StringFind(triggerReason, "LOSS COMEBACK") >= 0);
 
    string comment = InpSARRecoveryGapOrderPrefix + IntegerToString(linkedParentTicket) +
-                    "_N" + IntegerToString(nextRecoveryNumber) +
-                    "_G" + DoubleToString(requiredGapForComment, 0) +
-                    "_" + DirectionText(direction);
+                    "_N" + IntegerToString(nextRecoveryNumber);
+
+   if(lossComebackTrigger)
+      comment += "_LC_" + DirectionText(direction);
+   else
+      comment += "_G" + DoubleToString(requiredGapForComment, 0) +
+                 "_" + DirectionText(direction);
 
    // Keep tag and parent ticket safe from broker comment truncation.
    if(StringLen(comment) > 30)
@@ -5928,6 +5952,7 @@ bool OpenRecoveryGapMarketOrder(int direction, double gapMove)
       DirectionText(GetSARDotDirection(1)) +
       " | LiveSAR=" +
       DirectionText(GetSARDotDirection(0)) +
+      " | Trigger=" + triggerReason +
       " | Gap=" + DoubleToString(gapMove,1);
    g_lastRecoveryAuditTime = TimeCurrent();
    g_lastRecoveryAuditDirection = direction;
@@ -5937,6 +5962,7 @@ bool OpenRecoveryGapMarketOrder(int direction, double gapMove)
          " | Direction=", DirectionText(direction),
          " | Lot=", DoubleToString(lot, 2),
          " | RecoveryNo=", nextRecoveryNumber,
+         " | Trigger=", triggerReason,
          " | RequiredGap=", DoubleToString(requiredGapForComment, Digits),
          " | ActualGap=", DoubleToString(gapMove, Digits),
          " | Comment=", comment);
@@ -6178,7 +6204,7 @@ bool TryOpenPendingRecoveryGap()
          " | SavedAt=", TimeToString(g_pendingRecoveryGapTime, TIME_DATE|TIME_SECONDS),
          " | OriginalReason=", g_pendingRecoveryGapReason);
 
-   if(OpenRecoveryGapMarketOrder(direction, gapForOrder))
+   if(OpenRecoveryGapMarketOrder(direction, gapForOrder, "RAW GAP RETRY"))
      {
       ClearPendingRecoveryGap("Opened pending recovery");
       return(true);
@@ -6287,6 +6313,167 @@ bool IsRecoveryDirectionStillValid(int direction,
   }
 
 //+------------------------------------------------------------------+
+//| Reset loss-comeback recovery memory for one basket side.         |
+//+------------------------------------------------------------------+
+void ResetRecoveryLossComebackState(int direction)
+  {
+   if(direction == 1)
+     {
+      g_buyRecoveryWorstBasketProfit = 0.0;
+      g_buyRecoveryLossComebackArmed = false;
+     }
+   else
+   if(direction == -1)
+     {
+      g_sellRecoveryWorstBasketProfit = 0.0;
+      g_sellRecoveryLossComebackArmed = false;
+     }
+  }
+
+//+------------------------------------------------------------------+
+//| Track the worst side-basket loss and arm the comeback trigger.   |
+//+------------------------------------------------------------------+
+void UpdateRecoveryLossComebackState(int direction,
+                                     bool hasBasket,
+                                     double currentProfit)
+  {
+   if(direction == 0)
+      return;
+
+   if(!hasBasket)
+     {
+      ResetRecoveryLossComebackState(direction);
+      return;
+     }
+
+   double armLoss = MathMax(0.01, MathAbs(InpRecoveryLossArmUSD));
+
+   if(direction == 1)
+     {
+      if(currentProfit < g_buyRecoveryWorstBasketProfit)
+         g_buyRecoveryWorstBasketProfit = currentProfit;
+
+      if(g_buyRecoveryWorstBasketProfit <= -armLoss)
+         g_buyRecoveryLossComebackArmed = true;
+     }
+   else
+     {
+      if(currentProfit < g_sellRecoveryWorstBasketProfit)
+         g_sellRecoveryWorstBasketProfit = currentProfit;
+
+      if(g_sellRecoveryWorstBasketProfit <= -armLoss)
+         g_sellRecoveryLossComebackArmed = true;
+     }
+  }
+
+//+------------------------------------------------------------------+
+//| Keep BUY/SELL worst-loss memory updated on every tick, even when |
+//| market mode, SAR, spread or candle filters temporarily block a   |
+//| recovery order.                                                   |
+//+------------------------------------------------------------------+
+void TrackRecoveryLossComebackAllSides()
+  {
+   bool hasBuyBasket = CountOpenOrdersByType(OP_BUY) > 0;
+   bool hasSellBasket = CountOpenOrdersByType(OP_SELL) > 0;
+
+   double buyProfit = hasBuyBasket ? GetBasketProfit(1) : 0.0;
+   double sellProfit = hasSellBasket ? GetBasketProfit(-1) : 0.0;
+
+   UpdateRecoveryLossComebackState(1, hasBuyBasket, buyProfit);
+   UpdateRecoveryLossComebackState(-1, hasSellBasket, sellProfit);
+  }
+
+//+------------------------------------------------------------------+
+//| Alternate recovery entry: deep loss has started improving.       |
+//| Default: worst <= -$3 and improvement >= $1, e.g. -$3 -> -$2.   |
+//+------------------------------------------------------------------+
+bool IsRecoveryLossComebackReady(int direction,
+                                 bool hasBasket,
+                                 double currentProfit,
+                                 string &reason)
+  {
+   reason = "LOSS COMEBACK NOT READY";
+
+   if(!InpUseRecoveryLossComebackTrigger || direction == 0)
+      return(false);
+
+   UpdateRecoveryLossComebackState(direction, hasBasket, currentProfit);
+
+   if(!hasBasket)
+     {
+      reason = "NO SIDE BASKET";
+      return(false);
+     }
+
+   // This alternate trigger creates the first recovery order for the side.
+   // The normal raw-price ladder remains responsible for later levels.
+   if(CountRecoveryGapOrdersByDirection(direction) > 0)
+     {
+      reason = "LOSS COMEBACK ALREADY USED";
+      return(false);
+     }
+
+   double worstProfit = direction == 1
+                        ? g_buyRecoveryWorstBasketProfit
+                        : g_sellRecoveryWorstBasketProfit;
+
+   bool armed = direction == 1
+                ? g_buyRecoveryLossComebackArmed
+                : g_sellRecoveryLossComebackArmed;
+
+   if(!armed)
+     {
+      reason = "WAIT TOUCH -$" +
+               DoubleToString(MathMax(0.01,
+                              MathAbs(InpRecoveryLossArmUSD)), 2);
+      return(false);
+     }
+
+   double comebackUSD = MathMax(0.01,
+                                MathAbs(InpRecoveryLossComebackUSD));
+   double comebackTarget = worstProfit + comebackUSD;
+   double improvedBy = currentProfit - worstProfit;
+
+   // Recovery is unnecessary after the basket has already returned to profit.
+   if(currentProfit >= 0.0)
+     {
+      reason = "BASKET ALREADY POSITIVE";
+      return(false);
+     }
+
+   if(currentProfit + 0.0000001 < comebackTarget)
+     {
+      reason = "LOSS COMEBACK WAIT | Worst=$" +
+               DoubleToString(worstProfit, 2) +
+               " Current=$" + DoubleToString(currentProfit, 2) +
+               " Target=$" + DoubleToString(comebackTarget, 2);
+      return(false);
+     }
+
+   reason = "LOSS COMEBACK | Worst=$" +
+            DoubleToString(worstProfit, 2) +
+            " Current=$" + DoubleToString(currentProfit, 2) +
+            " Improved=$" + DoubleToString(improvedBy, 2);
+   return(true);
+  }
+
+//+------------------------------------------------------------------+
+string RecoveryLossComebackStatusText(int direction)
+  {
+   bool hasBasket = CountOpenOrdersByType(direction == 1 ? OP_BUY : OP_SELL) > 0;
+   double currentProfit = hasBasket ? GetBasketProfit(direction) : 0.0;
+   string reason = "";
+
+   bool ready = IsRecoveryLossComebackReady(direction,
+                                            hasBasket,
+                                            currentProfit,
+                                            reason);
+
+   return((direction == 1 ? "BUY " : "SELL ") +
+          (ready ? "READY | " : "") + reason);
+  }
+
+//+------------------------------------------------------------------+
 void ProcessRecoveryGapOrders()
   {
    if(!InpUseRecoveryGapOrders)
@@ -6308,7 +6495,13 @@ void ProcessRecoveryGapOrders()
       return;
      }
 
-   if(InpRecoveryGapRawPrice <= 0.0 || InpRecoveryGapLot <= 0.0)
+   if(InpRecoveryGapLot <= 0.0)
+      return;
+
+   // At least one recovery trigger must be enabled:
+   // raw-price gap OR dynamic loss comeback.
+   if(InpRecoveryGapRawPrice <= 0.0 &&
+      !InpUseRecoveryLossComebackTrigger)
       return;
 
    if(CheckEquityConditions())
@@ -6351,6 +6544,34 @@ void ProcessRecoveryGapOrders()
    double buyRequiredGap = GetNextRecoveryLadderRequiredGap(1);     // 50, 100, 150
    double sellRequiredGap = GetNextRecoveryLadderRequiredGap(-1);   // 50, 100, 150
 
+   double buyBasketProfit = hasBuy ? GetBasketProfit(1) : 0.0;
+   double sellBasketProfit = hasSell ? GetBasketProfit(-1) : 0.0;
+
+   string buyLossComebackReason = "";
+   string sellLossComebackReason = "";
+
+   bool buyLossComebackReady =
+      IsRecoveryLossComebackReady(1,
+                                  hasBuy,
+                                  buyBasketProfit,
+                                  buyLossComebackReason);
+
+   bool sellLossComebackReady =
+      IsRecoveryLossComebackReady(-1,
+                                  hasSell,
+                                  sellBasketProfit,
+                                  sellLossComebackReason);
+
+   bool buyRawGapReady =
+      (InpRecoveryGapRawPrice > 0.0 &&
+       hasBuy &&
+       buyGap >= buyRequiredGap);
+
+   bool sellRawGapReady =
+      (InpRecoveryGapRawPrice > 0.0 &&
+       hasSell &&
+       sellGap >= sellRequiredGap);
+
    if(InpRecoveryGapMustMatchSARDirection)
      {
       if(hasBuy && !allowBuyRecoveryBySAR)
@@ -6364,8 +6585,7 @@ void ProcessRecoveryGapOrders()
                " | RequiredGap=", DoubleToString(sellRequiredGap, Digits));
      }
 
-   if(hasBuy &&
-      buyGap >= buyRequiredGap &&
+   if(buyRawGapReady &&
       buyRecoveryCount < InpMaxRecoveryGapOrdersPerSide &&
       !allowBuyRecoveryBySAR)
      {
@@ -6373,8 +6593,7 @@ void ProcessRecoveryGapOrders()
                                  "BUY recovery gap matched but SAR not BUY");
      }
 
-   if(hasSell &&
-      sellGap >= sellRequiredGap &&
+   if(sellRawGapReady &&
       sellRecoveryCount < InpMaxRecoveryGapOrdersPerSide &&
       !allowSellRecoveryBySAR)
      {
@@ -6382,40 +6601,70 @@ void ProcessRecoveryGapOrders()
                                  "SELL recovery gap matched but SAR not SELL");
      }
 
+   // Alternate trigger logic:
+   // RAW GAP ready OR LOSS COMEBACK ready.
+   // A confirmed loss comeback bypasses only the strong-opposite-move gap block,
+   // because improving P/L is itself the reversal confirmation. All other
+   // recovery filters remain enforced inside OpenRecoveryGapMarketOrder().
    bool buyReady = (allowBuyRecoveryBySAR &&
-                    hasBuy && buyGap >= buyRequiredGap &&
+                    hasBuy &&
                     buyRecoveryCount < InpMaxRecoveryGapOrdersPerSide &&
-                    !IsStrongOppositeMoveAgainstRecovery(1, buyGap));
+                    ((buyRawGapReady &&
+                      !IsStrongOppositeMoveAgainstRecovery(1, buyGap)) ||
+                     buyLossComebackReady));
 
    bool sellReady = (allowSellRecoveryBySAR &&
-                     hasSell && sellGap >= sellRequiredGap &&
+                     hasSell &&
                      sellRecoveryCount < InpMaxRecoveryGapOrdersPerSide &&
-                     !IsStrongOppositeMoveAgainstRecovery(-1, sellGap));
+                     ((sellRawGapReady &&
+                       !IsStrongOppositeMoveAgainstRecovery(-1, sellGap)) ||
+                      sellLossComebackReady));
 
    // Open only one recovery gap order per tick. Choose the side with the larger adverse move.
    if(buyReady && (!sellReady || buyGap >= sellGap))
      {
-      Print("RECOVERY LADDER READY | BUY | Base=", DoubleToString(buyBase, Digits),
+      string buyTriggerReason = buyLossComebackReady
+                                ? buyLossComebackReason
+                                : "RAW GAP";
+
+      Print("RECOVERY READY | BUY | Trigger=", buyTriggerReason,
+            " | BasketP/L=$", DoubleToString(buyBasketProfit, 2),
+            " | Base=", DoubleToString(buyBase, Digits),
             " | CurrentGap=", DoubleToString(buyGap, Digits),
             " | RequiredGap=", DoubleToString(buyRequiredGap, Digits),
             " | RecoveryCount=", buyRecoveryCount, "/", InpMaxRecoveryGapOrdersPerSide);
 
-      if(!OpenRecoveryGapMarketOrder(1, buyGap))
-         RememberPendingRecoveryGap(1, buyGap, buyRequiredGap,
-                                    "BUY recovery gap ready but OrderSend/condition failed");
+      if(!OpenRecoveryGapMarketOrder(1, buyGap, buyTriggerReason))
+        {
+         // Raw-gap matches can use the existing retry memory.
+         // Loss-comeback readiness is already remembered by worst-loss state
+         // and will be checked again automatically on the next tick.
+         if(buyRawGapReady && !buyLossComebackReady)
+            RememberPendingRecoveryGap(1, buyGap, buyRequiredGap,
+                                       "BUY recovery gap ready but OrderSend/condition failed");
+        }
       return;
      }
 
    if(sellReady)
      {
-      Print("RECOVERY LADDER READY | SELL | Base=", DoubleToString(sellBase, Digits),
+      string sellTriggerReason = sellLossComebackReady
+                                 ? sellLossComebackReason
+                                 : "RAW GAP";
+
+      Print("RECOVERY READY | SELL | Trigger=", sellTriggerReason,
+            " | BasketP/L=$", DoubleToString(sellBasketProfit, 2),
+            " | Base=", DoubleToString(sellBase, Digits),
             " | CurrentGap=", DoubleToString(sellGap, Digits),
             " | RequiredGap=", DoubleToString(sellRequiredGap, Digits),
             " | RecoveryCount=", sellRecoveryCount, "/", InpMaxRecoveryGapOrdersPerSide);
 
-      if(!OpenRecoveryGapMarketOrder(-1, sellGap))
-         RememberPendingRecoveryGap(-1, sellGap, sellRequiredGap,
-                                    "SELL recovery gap ready but OrderSend/condition failed");
+      if(!OpenRecoveryGapMarketOrder(-1, sellGap, sellTriggerReason))
+        {
+         if(sellRawGapReady && !sellLossComebackReady)
+            RememberPendingRecoveryGap(-1, sellGap, sellRequiredGap,
+                                       "SELL recovery gap ready but OrderSend/condition failed");
+        }
       return;
      }
   }
@@ -8687,6 +8936,11 @@ void OnTick()
 
 
    RefreshRates();
+
+   // Remember the deepest BUY/SELL basket loss continuously.
+   // This allows -$3 -> -$2 recovery detection even if entry filters
+   // were temporarily blocking recovery at the exact -$3 tick.
+   TrackRecoveryLossComebackAllSides();
 
    // Pending orders become normal BUY/SELL trades at broker execution.
    // Start delayed SAR-close tracking only after that activation.
@@ -11654,6 +11908,15 @@ void DrawLeftImportantOrderSettings(int direction)
                      " | Lot " + DoubleToString(InpRecoveryGapLot, 2),
                      InpUseRecoveryGapOrders ? clrLime : clrSilver);
 
+   LeftChecklistInfo("Recovery Loss Return",
+                     InpUseRecoveryLossComebackTrigger
+                     ? "Touch -$" +
+                       DoubleToString(MathAbs(InpRecoveryLossArmUSD), 2) +
+                       " | Improve +$" +
+                       DoubleToString(MathAbs(InpRecoveryLossComebackUSD), 2)
+                     : "OFF",
+                     InpUseRecoveryLossComebackTrigger ? clrAqua : clrSilver);
+
    LeftChecklistInfo("Recovery Count B/S",
                      IntegerToString(CountRecoveryGapOrdersByDirection(1)) + "/" +
                      IntegerToString(CountRecoveryGapOrdersByDirection(-1)) +
@@ -13676,7 +13939,7 @@ void DrawDashboard(string status)
                    13);
 
    DrawCornerLabel("DXB_RIGHT_SETTINGS_TITLE",
-                   liveModeText + " | VERSION 1.33",
+                   liveModeText + " | VERSION 1.41",
                    CORNER_RIGHT_UPPER,
                    300,287,
                    liveModeColor,
@@ -13812,6 +14075,18 @@ void DrawDashboard(string status)
 
    RightProRow("--- RECOVERY ---","",clrDimGray);
    RightProRow("Recovery Gap",DoubleToString(InpRecoveryGapRawPrice,0),clrAqua);
+   RightProRow("Loss Comeback",
+               InpUseRecoveryLossComebackTrigger
+               ? "-$" + DoubleToString(MathAbs(InpRecoveryLossArmUSD),2) +
+                 " +$" + DoubleToString(MathAbs(InpRecoveryLossComebackUSD),2)
+               : "OFF",
+               InpUseRecoveryLossComebackTrigger ? clrAqua : clrSilver);
+   RightProRow("BUY Loss State",
+               RecoveryLossComebackStatusText(1),
+               g_buyRecoveryLossComebackArmed ? clrYellow : clrSilver);
+   RightProRow("SELL Loss State",
+               RecoveryLossComebackStatusText(-1),
+               g_sellRecoveryLossComebackArmed ? clrYellow : clrSilver);
    RightProRow("Recovery Lot",DoubleToString(InpRecoveryGapLot,2),clrAqua);
    RightProRow("Max Recovery",IntegerToString(InpMaxRecoveryGapOrdersPerSide),clrAqua);
    RightProRow("Opp Move Block",OnOff(InpStopRecoveryOnStrongOppMove)+" | "+DoubleToString(InpStrongOppMoveBlockRecoveryGap,0),clrYellow);
