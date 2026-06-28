@@ -1,6 +1,6 @@
 //+------------------------------------------------------------------+
 //|                 DXB_SAR_EarlyTrend_Cycle_EA.mq4                  |
-//|  SAR cycle + armed minimum lock + dynamic X-profit ladder       |
+//|  SAR cycle + server-side SL + dynamic X-profit ladder          |
 //|  SAR flip closes opposite orders. Early reverse trend pauses SAR  |
 //|  cycle, draws arrows, closes opposite orders, resumes when aligned |
 //+------------------------------------------------------------------+
@@ -20,7 +20,7 @@ MARKET_MODE g_marketMode = MODE_RANGE;
 #ifndef OP_BALANCE
 #define OP_BALANCE 6
 #endif
-#property version   "1.42"
+#property version   "1.44"
 
 //======================== INPUTS ====================================
 string InpEAName                  = "DXB Version 5 - SAR Confirm 50 in 5 Min";
@@ -46,6 +46,18 @@ double InpProfitTargetPercent      = 20;//50.0;//50   // stop trading when equit
 bool   InpUseDynamicBasketProfitBooking   = true;
 double InpDynamicBasketMultiplierStep      = 1;//0.50; // 0.50 => X0.5, X1.0, X1.5...; 1.00 => X1, X2, X3...
 double InpDynamicBasketProfitMaxX          = 0.0;  // 0 = unlimited; otherwise highest protected X multiplier (supports 2.5, 3.5, etc.)
+
+// Broker/server-side dynamic profit protection:
+// When the BUY or SELL basket completes the minimum lock or a higher X level,
+// convert that protected basket USD amount into a real broker-side stop-loss.
+// The EA keeps advancing through X1, X2, X3... while the server SL follows.
+// A common basket SL price is calculated and applied to every market order on
+// that side. Existing SL values are never moved backward toward greater risk.
+// Buffer helps cover commission, swap changes, tick rounding and normal slippage.
+bool   InpUseServerSideProfitLock            = true;
+double InpServerProfitLockBufferUSD          = 0.03;
+int    InpServerProfitLockRetrySeconds       = 5;
+
 // Optional extra fall below the completed level before closing.
 // 0.00 = close as soon as profit returns to the protected X level.
 double InpDynamicBasketReturnBufferUSD     = 0.00;
@@ -882,6 +894,22 @@ double   g_sellBasketPeakProfit   = 0.0;
 double   g_buyBasketWorstProfit   = 0.0;
 double   g_sellBasketWorstProfit  = 0.0;
 string   g_dynamicBasketProfitStatus = "WAIT BASKET";
+
+// Broker-side dynamic basket-lock state. BUY and SELL retry independently.
+// These runtime values are rebuilt from live orders/stops after EA restart.
+datetime g_lastBuyServerLockAttemptTime  = 0;
+datetime g_lastSellServerLockAttemptTime = 0;
+double   g_buyServerProtectedProfit      = 0.0;
+double   g_sellServerProtectedProfit     = 0.0;
+double   g_buyServerStopPrice            = 0.0;
+double   g_sellServerStopPrice           = 0.0;
+double   g_buyServerEstimatedNetProfit   = 0.0;
+double   g_sellServerEstimatedNetProfit  = 0.0;
+bool     g_buyServerLockOK                = false;
+bool     g_sellServerLockOK               = false;
+string   g_buyServerLockStatus            = "WAIT ORDER";
+string   g_sellServerLockStatus           = "WAIT ORDER";
+
 datetime g_lastEarlySARWeakExitTime = 0;
 int      g_lastEarlySARWeakExitDirection = 0;
 
@@ -3969,6 +3997,534 @@ string DynamicBasketProfitDirectionStatusText(int direction)
   }
 
 //+------------------------------------------------------------------+
+//| Reset runtime broker-lock state for one side or both sides.       |
+//+------------------------------------------------------------------+
+void ResetServerSideProfitLockState(int direction)
+  {
+   if(direction == 0 || direction == 1)
+     {
+      g_lastBuyServerLockAttemptTime = 0;
+      g_buyServerProtectedProfit     = 0.0;
+      g_buyServerStopPrice           = 0.0;
+      g_buyServerEstimatedNetProfit  = 0.0;
+      g_buyServerLockOK               = false;
+      g_buyServerLockStatus           = "WAIT ORDER";
+     }
+
+   if(direction == 0 || direction == -1)
+     {
+      g_lastSellServerLockAttemptTime = 0;
+      g_sellServerProtectedProfit     = 0.0;
+      g_sellServerStopPrice           = 0.0;
+      g_sellServerEstimatedNetProfit  = 0.0;
+      g_sellServerLockOK               = false;
+      g_sellServerLockStatus           = "WAIT ORDER";
+     }
+  }
+
+//+------------------------------------------------------------------+
+//| Build a linear side-basket money model.                           |
+//| BUY  net P/L = (exit - weighted open) * coefficient + costs.      |
+//| SELL net P/L = (weighted open - exit) * coefficient + costs.      |
+//+------------------------------------------------------------------+
+bool GetSideServerLockPriceModel(int orderType,
+                                 double &totalCoefficient,
+                                 double &weightedOpenPrice,
+                                 double &fixedCosts,
+                                 int &orderCount)
+  {
+   totalCoefficient = 0.0;
+   weightedOpenPrice = 0.0;
+   fixedCosts = 0.0;
+   orderCount = 0;
+
+   if(orderType != OP_BUY && orderType != OP_SELL)
+      return(false);
+
+   double tickSize  = MarketInfo(Symbol(), MODE_TICKSIZE);
+   double tickValue = MarketInfo(Symbol(), MODE_TICKVALUE);
+
+   if(tickSize <= 0.0)
+      tickSize = Point;
+
+   if(tickSize <= 0.0 || tickValue <= 0.0)
+      return(false);
+
+   double weightedOpenTotal = 0.0;
+   double valuePerPriceUnitPerLot = tickValue / tickSize;
+
+   for(int i = OrdersTotal() - 1; i >= 0; i--)
+     {
+      if(!OrderSelect(i, SELECT_BY_POS, MODE_TRADES))
+         continue;
+      if(OrderSymbol() != Symbol())
+         continue;
+      if(OrderMagicNumber() != InpMagicNumber)
+         continue;
+      if(OrderType() != orderType)
+         continue;
+      if(IsSARGuardOrderComment(OrderComment()))
+         continue;
+
+      double coefficient =
+         valuePerPriceUnitPerLot * OrderLots();
+
+      if(coefficient <= 0.0)
+         continue;
+
+      totalCoefficient += coefficient;
+      weightedOpenTotal += OrderOpenPrice() * coefficient;
+      fixedCosts += OrderSwap() + OrderCommission();
+      orderCount++;
+     }
+
+   if(orderCount <= 0 || totalCoefficient <= 0.0)
+      return(false);
+
+   weightedOpenPrice =
+      weightedOpenTotal / totalCoefficient;
+
+   return(true);
+  }
+
+//+------------------------------------------------------------------+
+double EstimateSideNetProfitAtPrice(int orderType,
+                                    double exitPrice)
+  {
+   double totalCoefficient = 0.0;
+   double weightedOpenPrice = 0.0;
+   double fixedCosts = 0.0;
+   int orderCount = 0;
+
+   if(!GetSideServerLockPriceModel(orderType,
+                                   totalCoefficient,
+                                   weightedOpenPrice,
+                                   fixedCosts,
+                                   orderCount))
+      return(0.0);
+
+   double grossProfit = 0.0;
+
+   if(orderType == OP_BUY)
+      grossProfit =
+         (exitPrice - weightedOpenPrice) *
+         totalCoefficient;
+   else
+      grossProfit =
+         (weightedOpenPrice - exitPrice) *
+         totalCoefficient;
+
+   return(grossProfit + fixedCosts);
+  }
+
+//+------------------------------------------------------------------+
+//| Convert protected basket USD into one legal common server SL.     |
+//| A legal broker price is accepted only when it still estimates at  |
+//| least the requested protected profit. Otherwise the EA waits and  |
+//| retries after price moves farther beyond the protected level.     |
+//+------------------------------------------------------------------+
+bool CalculateSideServerLockPrice(int orderType,
+                                  double protectedProfitUSD,
+                                  double &stopPrice,
+                                  double &estimatedNetProfit,
+                                  string &waitReason)
+  {
+   stopPrice = 0.0;
+   estimatedNetProfit = 0.0;
+   waitReason = "NONE";
+
+   if(orderType != OP_BUY && orderType != OP_SELL)
+     {
+      waitReason = "invalid side";
+      return(false);
+     }
+
+   if(protectedProfitUSD <= 0.0)
+     {
+      waitReason = "no protected profit";
+      return(false);
+     }
+
+   double totalCoefficient = 0.0;
+   double weightedOpenPrice = 0.0;
+   double fixedCosts = 0.0;
+   int orderCount = 0;
+
+   if(!GetSideServerLockPriceModel(orderType,
+                                   totalCoefficient,
+                                   weightedOpenPrice,
+                                   fixedCosts,
+                                   orderCount))
+     {
+      waitReason = "tick-value model unavailable";
+      return(false);
+     }
+
+   double desiredNetProfit =
+      protectedProfitUSD +
+      MathMax(0.0, InpServerProfitLockBufferUSD);
+
+   // Commission/swap are normally negative, so gross price profit must
+   // replace those costs in addition to the requested net-profit lock.
+   double requiredGrossProfit =
+      desiredNetProfit - fixedCosts;
+
+   double desiredStopPrice = 0.0;
+
+   if(orderType == OP_BUY)
+      desiredStopPrice =
+         weightedOpenPrice +
+         requiredGrossProfit / totalCoefficient;
+   else
+      desiredStopPrice =
+         weightedOpenPrice -
+         requiredGrossProfit / totalCoefficient;
+
+   RefreshRates();
+
+   double stopLevelPoints =
+      MarketInfo(Symbol(), MODE_STOPLEVEL);
+   double freezeLevelPoints =
+      MarketInfo(Symbol(), MODE_FREEZELEVEL);
+
+   double minimumDistance =
+      (MathMax(stopLevelPoints, freezeLevelPoints) + 1.0) *
+      Point;
+
+   double legalStopPrice = desiredStopPrice;
+
+   if(orderType == OP_BUY)
+     {
+      double highestLegalBuySL = Bid - minimumDistance;
+
+      // Lower BUY SL protects less, but may be required by broker distance.
+      legalStopPrice =
+         MathMin(desiredStopPrice,
+                 highestLegalBuySL);
+
+      legalStopPrice =
+         NormalizeDouble(legalStopPrice, Digits);
+
+      if(legalStopPrice <= 0.0 ||
+         legalStopPrice >= Bid - Point * 0.5)
+        {
+         waitReason = "BUY SL inside stop/freeze level";
+         return(false);
+        }
+     }
+   else
+     {
+      double lowestLegalSellSL = Ask + minimumDistance;
+
+      // Higher SELL SL protects less, but may be required by broker distance.
+      legalStopPrice =
+         MathMax(desiredStopPrice,
+                 lowestLegalSellSL);
+
+      legalStopPrice =
+         NormalizeDouble(legalStopPrice, Digits);
+
+      if(legalStopPrice <= Ask + Point * 0.5)
+        {
+         waitReason = "SELL SL inside stop/freeze level";
+         return(false);
+        }
+     }
+
+   estimatedNetProfit =
+      EstimateSideNetProfitAtPrice(orderType,
+                                   legalStopPrice);
+
+   if(estimatedNetProfit + 0.0000001 <
+      protectedProfitUSD)
+     {
+      waitReason =
+         "price not far enough beyond protected level";
+
+      return(false);
+     }
+
+   stopPrice = legalStopPrice;
+   return(true);
+  }
+
+//+------------------------------------------------------------------+
+bool IsOrderStopAtLeastAsProtective(int orderType,
+                                    double existingStop,
+                                    double requiredStop)
+  {
+   if(existingStop <= 0.0)
+      return(false);
+
+   if(orderType == OP_BUY)
+      return(existingStop >=
+             requiredStop - Point * 0.5);
+
+   if(orderType == OP_SELL)
+      return(existingStop <=
+             requiredStop + Point * 0.5);
+
+   return(false);
+  }
+
+//+------------------------------------------------------------------+
+//| Apply one common server SL to every regular/recovery order side.  |
+//| Existing stops never move backward. The EA basket close remains   |
+//| active as a connected-terminal fallback while server SL protects  |
+//| the completed minimum/X level if terminal/VPS disconnects.        |
+//+------------------------------------------------------------------+
+bool ApplyServerSideProfitLock(int orderType,
+                               double protectedProfitUSD,
+                               bool forceAttempt)
+  {
+   if(!InpUseServerSideProfitLock)
+      return(false);
+
+   if(protectedProfitUSD <= 0.0)
+      return(false);
+
+   datetime now = TimeCurrent();
+   datetime lastAttempt =
+      (orderType == OP_BUY) ?
+      g_lastBuyServerLockAttemptTime :
+      g_lastSellServerLockAttemptTime;
+
+   int retrySeconds =
+      (int)MathMax(1, InpServerProfitLockRetrySeconds);
+
+   if(!forceAttempt &&
+      lastAttempt > 0 &&
+      now - lastAttempt < retrySeconds)
+     {
+      return((orderType == OP_BUY)
+             ? g_buyServerLockOK
+             : g_sellServerLockOK);
+     }
+
+   if(orderType == OP_BUY)
+      g_lastBuyServerLockAttemptTime = now;
+   else
+      g_lastSellServerLockAttemptTime = now;
+
+   double stopPrice = 0.0;
+   double estimatedNetProfit = 0.0;
+   string waitReason = "NONE";
+
+   if(!CalculateSideServerLockPrice(orderType,
+                                    protectedProfitUSD,
+                                    stopPrice,
+                                    estimatedNetProfit,
+                                    waitReason))
+     {
+      if(orderType == OP_BUY)
+        {
+         g_buyServerLockOK = false;
+         g_buyServerLockStatus =
+            "WAIT | $" +
+            DoubleToString(protectedProfitUSD, 2) +
+            " | " + waitReason;
+        }
+      else
+        {
+         g_sellServerLockOK = false;
+         g_sellServerLockStatus =
+            "WAIT | $" +
+            DoubleToString(protectedProfitUSD, 2) +
+            " | " + waitReason;
+        }
+
+      return(false);
+     }
+
+   int expectedOrders = 0;
+   int modifyFailures = 0;
+
+   for(int i = OrdersTotal() - 1; i >= 0; i--)
+     {
+      if(!OrderSelect(i, SELECT_BY_POS, MODE_TRADES))
+         continue;
+      if(OrderSymbol() != Symbol())
+         continue;
+      if(OrderMagicNumber() != InpMagicNumber)
+         continue;
+      if(OrderType() != orderType)
+         continue;
+      if(IsSARGuardOrderComment(OrderComment()))
+         continue;
+
+      expectedOrders++;
+
+      double existingStop = OrderStopLoss();
+
+      if(IsOrderStopAtLeastAsProtective(orderType,
+                                        existingStop,
+                                        stopPrice))
+         continue;
+
+      bool improvesStop =
+         (existingStop <= 0.0) ||
+         (orderType == OP_BUY &&
+          stopPrice > existingStop + Point * 0.5) ||
+         (orderType == OP_SELL &&
+          stopPrice < existingStop - Point * 0.5);
+
+      if(!improvesStop)
+         continue;
+
+      int ticket = OrderTicket();
+
+      ResetLastError();
+
+      bool modified =
+         OrderModify(ticket,
+                     OrderOpenPrice(),
+                     stopPrice,
+                     OrderTakeProfit(),
+                     0,
+                     clrNONE);
+
+      if(!modified)
+        {
+         int err = GetLastError();
+
+         // Error 1 = unchanged values; final verification decides success.
+         if(err != 1)
+           {
+            modifyFailures++;
+
+            Print("SERVER PROFIT SL MODIFY FAILED | Ticket=", ticket,
+                  " | Side=",
+                  (orderType == OP_BUY ? "BUY" : "SELL"),
+                  " | RequestedSL=", DoubleToString(stopPrice, Digits),
+                  " | Protected=$",
+                  DoubleToString(protectedProfitUSD, 2),
+                  " | Error=", err);
+           }
+        }
+     }
+
+   int protectedOrders = 0;
+
+   for(int v = OrdersTotal() - 1; v >= 0; v--)
+     {
+      if(!OrderSelect(v, SELECT_BY_POS, MODE_TRADES))
+         continue;
+      if(OrderSymbol() != Symbol())
+         continue;
+      if(OrderMagicNumber() != InpMagicNumber)
+         continue;
+      if(OrderType() != orderType)
+         continue;
+      if(IsSARGuardOrderComment(OrderComment()))
+         continue;
+
+      if(IsOrderStopAtLeastAsProtective(orderType,
+                                        OrderStopLoss(),
+                                        stopPrice))
+         protectedOrders++;
+     }
+
+   bool allProtected =
+      (expectedOrders > 0 &&
+       protectedOrders == expectedOrders);
+
+   string side = (orderType == OP_BUY) ? "BUY" : "SELL";
+
+   if(orderType == OP_BUY)
+     {
+      g_buyServerLockOK = allProtected;
+
+      if(allProtected)
+        {
+         g_buyServerProtectedProfit =
+            MathMax(g_buyServerProtectedProfit,
+                    protectedProfitUSD);
+         g_buyServerStopPrice = stopPrice;
+         g_buyServerEstimatedNetProfit = estimatedNetProfit;
+         g_buyServerLockStatus =
+            "OK | $" +
+            DoubleToString(g_buyServerProtectedProfit, 2) +
+            " | SL " +
+            DoubleToString(g_buyServerStopPrice, Digits);
+        }
+      else
+        {
+         g_buyServerLockStatus =
+            "WAIT | verify " +
+            IntegerToString(protectedOrders) + "/" +
+            IntegerToString(expectedOrders);
+        }
+     }
+   else
+     {
+      g_sellServerLockOK = allProtected;
+
+      if(allProtected)
+        {
+         g_sellServerProtectedProfit =
+            MathMax(g_sellServerProtectedProfit,
+                    protectedProfitUSD);
+         g_sellServerStopPrice = stopPrice;
+         g_sellServerEstimatedNetProfit = estimatedNetProfit;
+         g_sellServerLockStatus =
+            "OK | $" +
+            DoubleToString(g_sellServerProtectedProfit, 2) +
+            " | SL " +
+            DoubleToString(g_sellServerStopPrice, Digits);
+        }
+      else
+        {
+         g_sellServerLockStatus =
+            "WAIT | verify " +
+            IntegerToString(protectedOrders) + "/" +
+            IntegerToString(expectedOrders);
+        }
+     }
+
+   if(!allProtected)
+      return(false);
+
+   double previousServerLock =
+      (orderType == OP_BUY)
+      ? g_buyServerProtectedProfit
+      : g_sellServerProtectedProfit;
+
+   // The runtime protected value has already been advanced above. Print only
+   // when this call represents a new completed ladder protection level.
+   if(forceAttempt ||
+      protectedProfitUSD + 0.0000001 >= previousServerLock)
+     {
+      Print("SERVER PROFIT LOCK ACTIVE | Side=", side,
+            " | Protected=$",
+            DoubleToString(protectedProfitUSD, 2),
+            " | SL=", DoubleToString(stopPrice, Digits),
+            " | EstimatedNet=$",
+            DoubleToString(estimatedNetProfit, 2),
+            " | Orders=", expectedOrders,
+            " | ModifyFailures=", modifyFailures);
+     }
+
+   return(true);
+  }
+
+//+------------------------------------------------------------------+
+string ServerSideProfitLockStatusText(int direction)
+  {
+   if(!InpUseServerSideProfitLock)
+      return("OFF");
+
+   int orderType = (direction == 1) ? OP_BUY : OP_SELL;
+
+   if(CountOrdersByDirection(direction) <= 0)
+      return("WAIT ORDER");
+
+   if(direction == 1)
+      return(g_buyServerLockStatus);
+
+   return(g_sellServerLockStatus);
+  }
+
+//+------------------------------------------------------------------+
 bool ProcessDynamicBasketProfitByDirection(int direction,
                                            string &status)
   {
@@ -4034,6 +4590,22 @@ bool ProcessDynamicBasketProfitByDirection(int direction,
       status = g_dynamicBasketProfitStatus;
       return(false);
      }
+
+   // Install or advance the real broker-side SL. This is a fallback
+   // protection only; the connected EA continues its normal dynamic close.
+   int serverOrderType = (direction == 1) ? OP_BUY : OP_SELL;
+   double previousServerProtected =
+      (direction == 1)
+      ? g_buyServerProtectedProfit
+      : g_sellServerProtectedProfit;
+
+   bool serverLockRaised =
+      (protectedProfit >
+       previousServerProtected + 0.0000001);
+
+   ApplyServerSideProfitLock(serverOrderType,
+                             protectedProfit,
+                             serverLockRaised);
 
    // Never close while profit is making or matching its highest peak.
    // Close only after a genuine pullback to the best protected level.
@@ -4172,6 +4744,7 @@ void ResetBasketProfitPeaksAfterClose(int direction)
       g_sellBasketPeakProfit  = 0.0;
       g_buyBasketWorstProfit  = 0.0;
       g_sellBasketWorstProfit = 0.0;
+      ResetServerSideProfitLockState(0);
       return;
      }
 
@@ -4179,12 +4752,14 @@ void ResetBasketProfitPeaksAfterClose(int direction)
      {
       g_buyBasketPeakProfit  = 0.0;
       g_buyBasketWorstProfit = 0.0;
+      ResetServerSideProfitLockState(1);
      }
 
    if(direction == -1)
      {
       g_sellBasketPeakProfit  = 0.0;
       g_sellBasketWorstProfit = 0.0;
+      ResetServerSideProfitLockState(-1);
      }
   }
 
@@ -4237,6 +4812,7 @@ bool ProcessFirstPriorityBasketProfitClose(string &status)
      {
       g_buyBasketPeakProfit = 0.0;
       g_buyBasketWorstProfit = 0.0;
+      ResetServerSideProfitLockState(1);
      }
 
    if(sellCount > 0)
@@ -4251,6 +4827,7 @@ bool ProcessFirstPriorityBasketProfitClose(string &status)
      {
       g_sellBasketPeakProfit = 0.0;
       g_sellBasketWorstProfit = 0.0;
+      ResetServerSideProfitLockState(-1);
      }
 
    // BIG CANDLE PROFIT PROTECT:
@@ -13963,7 +14540,7 @@ void DrawDashboard(string status)
                    13);
 
    DrawCornerLabel("DXB_RIGHT_SETTINGS_TITLE",
-                   liveModeText + " | VERSION 1.41",
+                   liveModeText + " | VERSION 1.44",
                    CORNER_RIGHT_UPPER,
                    300,287,
                    liveModeColor,
@@ -14011,6 +14588,22 @@ void DrawDashboard(string status)
                ? DynamicBasketProfitDirectionStatusText(-1)
                : "OFF",
                InpUseDynamicBasketProfitBooking ? clrOrangeRed : clrSilver);
+   RightProRow("Server Profit SL",
+               InpUseServerSideProfitLock
+               ? "ON | Buffer $" +
+                 DoubleToString(
+                    MathMax(0.0,
+                            InpServerProfitLockBufferUSD),2)
+               : "OFF",
+               InpUseServerSideProfitLock ? clrAqua : clrSilver);
+   RightProRow("Broker Lock BUY",
+               ServerSideProfitLockStatusText(1),
+               g_buyServerLockOK ? clrLime :
+               (InpUseServerSideProfitLock ? clrYellow : clrSilver));
+   RightProRow("Broker Lock SELL",
+               ServerSideProfitLockStatusText(-1),
+               g_sellServerLockOK ? clrLime :
+               (InpUseServerSideProfitLock ? clrYellow : clrSilver));
    RightProRow("Mixed Mode TP",
                IsMixedModeHalfBasketTPActive()
                ? "ACTIVE | BASE/2 = $" +
