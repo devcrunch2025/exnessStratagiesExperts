@@ -96,12 +96,12 @@ int    InpBasketHalfTPAfterMinutes = 30;
 double InpBasketHalfTPAfterMinutesMultiplier = 0.50;
 
 //Live
-double InpBasketStopLossUSD       = 2;//5;//2;//5.00;    // BASKET stop loss in USD, 0 = disabled. This closes all orders in active SAR direction.
+double InpBasketStopLossUSD       = 3;;//2;//5;//2;//5.00;    // BASKET stop loss in USD, 0 = disabled. This closes all orders in active SAR direction.
 
-double InpContinuousTrendBasketSLUSD   =2;//5;//1;// 2;//5.00;
-double InpMediumTrendBasketSLUSD       = 2;//10;//10;//1;//2;//10.00;
+double InpContinuousTrendBasketSLUSD   =3;//2;//5;//1;// 2;//5.00;
+double InpMediumTrendBasketSLUSD       = 3;////2;//10;//10;//1;//2;//10.00;
 double InpMixedTrendBasketSLUSD        =3;// 2;//10;//5;//10;//1;//2;//10.00;
-double InpDangerModeBasketSLUSD        = 2;//5;//1;//2;//5.00;
+double InpDangerModeBasketSLUSD        = 3;//2;//5;//1;//2;//5.00;
 
 // Simple basket close mode:
 // true = close BUY basket and SELL basket only by fixed InpBasketProfitUSD / InpBasketStopLossUSD.
@@ -1484,24 +1484,24 @@ bool FirstSAROrderFilterCase(int filterId)
       case DXB_FILTER_SAR_PRICE_SIDE:   return(false);
       case DXB_FILTER_REPEATED_GAP:     return(false);
       case DXB_FILTER_SAR_CYCLE:        return(true);
-      case DXB_FILTER_H1_TREND:         return(true);
+      case DXB_FILTER_H1_TREND:         return(false);
       case DXB_FILTER_LATE_SAR:         return(false);
       case DXB_FILTER_STRICT_SAR_SCORE: return(false);
-      case DXB_FILTER_DOUBTFUL_CANDLE:  return(false);
+      case DXB_FILTER_DOUBTFUL_CANDLE:  return(true);
       case DXB_FILTER_SPREAD:           return(false);
       case DXB_FILTER_EQUITY_LOCK:      return(true);
       case DXB_FILTER_NO_NEW_HOUR:      return(false);
-      case DXB_FILTER_PROFIT_PAUSE:     return(false);
+      case DXB_FILTER_PROFIT_PAUSE:     return(true);
       case DXB_FILTER_OPPOSITE_PAUSE:   return(false);
-      case DXB_FILTER_BIG_CANDLE:       return(false);
-      case DXB_FILTER_SPIKE_WICK:       return(false);
-      case DXB_FILTER_MIN_GAP:          return(false);
-      case DXB_FILTER_TOTAL_OPEN:       return(false);
+      case DXB_FILTER_BIG_CANDLE:       return(true);
+      case DXB_FILTER_SPIKE_WICK:       return(true);
+      case DXB_FILTER_MIN_GAP:          return(true);
+      case DXB_FILTER_TOTAL_OPEN:       return(true);
       case DXB_FILTER_AUTO_MARKET_MODE: return(false);
       case DXB_FILTER_DYNAMIC_SAR:      return(false);
-      case DXB_FILTER_FLAT_MODE:        return(false);
+      case DXB_FILTER_FLAT_MODE:        return(true);
       case DXB_FILTER_EARLY_WEAK_EXIT:  return(false);
-      case DXB_FILTER_EARLY_REVERSE:    return(true);
+      case DXB_FILTER_EARLY_REVERSE:    return(false);
       case DXB_FILTER_ORDER_COOLDOWN:   return(false);
      }
 

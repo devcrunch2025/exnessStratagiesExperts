@@ -44,7 +44,7 @@ double InpMomentumContinuationRaw    = 100.0;
 // The worst BUY loss never changes SELL state, and vice versa.
 double InpTakeProfitUSD              = 0.50;//2;//0.40;
 double InpDynamicProfitStepMultiplier = 0.50; // After X1: X1.5, X2, X2.5...
-double InpFixedStopLossUSD                =2;//1;// 0.50;//10;//7;//6;//10;//6.00;
+double InpFixedStopLossUSD                =2;//2;//1;// 0.50;//10;//7;//6;//10;//6.00;
 
 
 
@@ -94,7 +94,7 @@ int    InpDashboardRowHeight         = 17;
 // Example: "14,15,16,17,18,19" blocks 14:00 through 19:59.
 // Separate hours are also supported: "4,8,14,17,22".
 // Leave empty ("") to disable the Dubai-hours pause.
-string InpDubaiBlockedHours          = "14,15,16,17,18,19,20,21,22,23,0,1,2";
+string InpDubaiBlockedHours          = "14,15,16,17,18,19,20";
 
 // Recovery order settings.
 // Recovery opens in the SAME direction as a losing regular parent only
