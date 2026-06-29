@@ -20,7 +20,7 @@ MARKET_MODE g_marketMode = MODE_RANGE;
 #ifndef OP_BALANCE
 #define OP_BALANCE 6
 #endif
-#property version   "1.44"
+#property version   "1.45"
 
 //======================== INPUTS ====================================
 string InpEAName                  = "DXB Version 5 - SAR Confirm 50 in 5 Min";
@@ -44,7 +44,7 @@ double InpProfitTargetPercent      = 20;//50.0;//50   // stop trading when equit
 // Close only when profit comes back to the highest protected level.
 // Set multiplier step=1.00 for the original X1, X2, X3... ladder.
 bool   InpUseDynamicBasketProfitBooking   = true;
-double InpDynamicBasketMultiplierStep      = 1;//0.50; // 0.50 => X0.5, X1.0, X1.5...; 1.00 => X1, X2, X3...
+double InpDynamicBasketMultiplierStep      = 0.50;//1;//0.50; // 0.50 => X0.5, X1.0, X1.5...; 1.00 => X1, X2, X3...
 double InpDynamicBasketProfitMaxX          = 0.0;  // 0 = unlimited; otherwise highest protected X multiplier (supports 2.5, 3.5, etc.)
 
 // Broker/server-side dynamic profit protection:
@@ -125,12 +125,12 @@ int    InpBasketHalfTPAfterMinutes = 30;
 double InpBasketHalfTPAfterMinutesMultiplier = 0.50;
 
 //Live
-double InpBasketStopLossUSD       =5;// 3;;//2;//5;//2;//5.00;    // BASKET stop loss in USD, 0 = disabled. This closes all orders in active SAR direction.
+double InpBasketStopLossUSD       = 0.50;//0.25;//5;// 3;;//2;//5;//2;//5.00;    // BASKET stop loss in USD, 0 = disabled. This closes all orders in active SAR direction.
 
-double InpContinuousTrendBasketSLUSD   =3;//2;//5;//1;// 2;//5.00;
-double InpMediumTrendBasketSLUSD       =3;//6;// 3;////2;//10;//10;//1;//2;//10.00;
-double InpMixedTrendBasketSLUSD        =6;//3;// 2;//10;//5;//10;//1;//2;//10.00;
-double InpDangerModeBasketSLUSD        = 3;//2;//5;//1;//2;//5.00;
+double InpContinuousTrendBasketSLUSD   = 0.50;//0.25;//3;//2;//5;//1;// 2;//5.00;
+double InpMediumTrendBasketSLUSD       = 0.50;//0.25;//3;//6;// 3;////2;//10;//10;//1;//2;//10.00;
+double InpMixedTrendBasketSLUSD        = 0.50;//0.25;//6;//3;// 2;//10;//5;//10;//1;//2;//10.00;
+double InpDangerModeBasketSLUSD        = 0.50;//0.25;// 3;//2;//5;//1;//2;//5.00;
 
 // Simple basket close mode:
 // true = close BUY basket and SELL basket only by fixed InpBasketProfitUSD / InpBasketStopLossUSD.
@@ -462,7 +462,7 @@ double InpContinuousOrderPriceGap    = 30;//10.0; //30  // raw price gap require
 int    InpContinuousOrderLookbackMinutes = 1;  // legacy input, not used by current continuity gap logic
 int    InpContinuousOrderGapMinutes  = 1;      // wait this many minutes after last order, then verify price gap
 
-double InpSARConfirmPriceDiff     = 100.0;   // SAR signal-change raw price diff confirmation only
+double InpSARConfirmPriceDiff     = 50.0;   // SAR signal-change raw price diff confirmation only
 int    InpSARConfirmMinutes       = 5;      // used by the full profile only
 // First normal order after every SAR flip:
 // true = bypass all strategy filters and require only the FIXED live raw-price
@@ -546,7 +546,7 @@ color  InpSARDotSellColor        = clrOrangeRed;
 // Default every SAR signal = 10 orders.
 // Restriction applies only when the previous opposite SAR color lasted long.
 // Example: long RED trend restricts next GREEN orders; long GREEN trend restricts next RED orders.
-bool   InpUseSARDurationDynamicLimit = false;
+bool   InpUseSARDurationDynamicLimit = true;
 int    InpSARDurationScanBars        = 1500;   // historical bars to scan for SAR changes
 
 int    InpSARVeryLongDurationMinutes = 60;    // opposite duration >=120 min => max 0
@@ -558,7 +558,7 @@ int    InpSARLongDurationMaxOrders   =2;//1;// 3;
 int    InpSARDurationMediumMinutes   = 10;     // opposite duration 30-59 min => max 5
 int    InpSARMediumDurationMaxOrders =1;//2;// 1;
 
-int    InpSARNormalDurationMaxOrders = 1;     // opposite duration <30 min or no data => max 10
+int    InpSARNormalDurationMaxOrders = 2;     // opposite duration <30 min or no data => max 10
 //1-?100
 //2 -67
 int InpSARGoodMomentumExtraOrders = 1;
@@ -570,7 +570,7 @@ int  InpSARActiveExtraOrders = 1;
 
 // SAR good-momentum upgrade
 // If current SAR trend is strong, increase current SAR signal-cycle max back to normal max.
-bool   InpUseSARGoodMomentumMaxUpgrade = false;
+bool   InpUseSARGoodMomentumMaxUpgrade = true;
 double InpSARGoodMomentumMinDotDistance = 300.0; // raw price distance from SAR dot
 int    InpSARGoodMomentumADXPeriod = 14;
 double InpSARGoodMomentumMinADX = 20.0;
@@ -1552,35 +1552,15 @@ bool GlobalFilterCase(int filterId)
 //+------------------------------------------------------------------+
 bool FirstSAROrderFilterCase(int filterId)
   {
+   // The actual first-order gate uses only these four checks.
+   // Every other strategy filter is deliberately bypassed and must be
+   // displayed as OFF/BYPASSED, not as an enabled PASS.
    switch(filterId)
      {
-      case DXB_FILTER_DIRECTION:       return(true);  // hard direction safety
-      case DXB_FILTER_SAR_CONFIRM:     return(true);  // FIXED InpSARConfirmPriceDiff only
+      case DXB_FILTER_DIRECTION:       return(true);
+      case DXB_FILTER_SAR_CONFIRM:     return(true);  // fixed live price difference
       case DXB_FILTER_TRADING_ALLOWED: return(true);  // MT4/broker safety
-      case DXB_FILTER_MAX_OPEN_DIR:    return(true);  // BUY/SELL independent cap
-
-      case DXB_FILTER_SAR_PRICE_SIDE:   return(true);
-      case DXB_FILTER_REPEATED_GAP:     return(true);
-      case DXB_FILTER_SAR_CYCLE:        return(true);
-      case DXB_FILTER_H1_TREND:         return(true);
-      case DXB_FILTER_LATE_SAR:         return(true);
-      case DXB_FILTER_STRICT_SAR_SCORE: return(true);
-      case DXB_FILTER_DOUBTFUL_CANDLE:  return(true);
-      case DXB_FILTER_SPREAD:           return(true);
-      case DXB_FILTER_EQUITY_LOCK:      return(true);
-      case DXB_FILTER_NO_NEW_HOUR:      return(true);
-      case DXB_FILTER_PROFIT_PAUSE:     return(true);
-      case DXB_FILTER_OPPOSITE_PAUSE:   return(true);
-      case DXB_FILTER_BIG_CANDLE:       return(true);
-      case DXB_FILTER_SPIKE_WICK:       return(true);
-      case DXB_FILTER_MIN_GAP:          return(true);
-      case DXB_FILTER_TOTAL_OPEN:       return(true);
-      case DXB_FILTER_AUTO_MARKET_MODE: return(true);
-      case DXB_FILTER_DYNAMIC_SAR:      return(true);
-      case DXB_FILTER_FLAT_MODE:        return(true);
-      case DXB_FILTER_EARLY_WEAK_EXIT:  return(true);
-      case DXB_FILTER_EARLY_REVERSE:    return(true);
-      case DXB_FILTER_ORDER_COOLDOWN:   return(true);
+      case DXB_FILTER_MAX_OPEN_DIR:    return(true);  // independent BUY/SELL cap
      }
 
    return(false);
@@ -2261,17 +2241,56 @@ bool IsAutoMarketNewOrderAllowed(string reason)
 }
 
 string AutoMarketModeStatusText()
-{
+  {
    if(!InpUseAutoMarketFlowMode)
-      return("OFF");
+      return("OFF | Auto market flow disabled");
 
-   string pauseText = IsAutoMarketTradingPaused() ? " | TRADING PAUSED" : "";
+   double last1Move = GetLastNCandlesRawMove(1);
+   string action = IsAutoMarketTradingPaused()
+                   ? "BLOCK ALL NEW ORDERS"
+                   : "ALLOW NEW ORDERS";
 
-   return(g_autoMarketModeText + pauseText +
-          " | Move " + DoubleToString(g_autoMarketMoveRaw,0) +
-          " | B/S " + IntegerToString(g_autoMarketBuyProfitCount) + "/" +
-          IntegerToString(g_autoMarketSellProfitCount));
-}
+   if(g_autoMarketMode == DXB_MARKET_MODE_DANGER)
+      return("DANGER SPIKE | " + action +
+             " | Last1 " + DoubleToString(last1Move,0) +
+             "/" + DoubleToString(InpBigCandleRawDifference,0) +
+             " | Last3 " + DoubleToString(g_autoMarketLast3MoveRaw,0) +
+             "/" + DoubleToString(InpDangerLast3MoveRaw,0));
+
+   if(g_autoMarketMode == DXB_MARKET_MODE_CONTINUOUS)
+      return("CONTINUOUS TREND | " + action +
+             " | Move " + DoubleToString(g_autoMarketMoveRaw,0) +
+             "/" + DoubleToString(InpContinuousTrendMoveRaw,0) +
+             " | Profit B/S " +
+             IntegerToString(g_autoMarketBuyProfitCount) + "/" +
+             IntegerToString(g_autoMarketSellProfitCount) +
+             " | Need " + IntegerToString(InpContinuousTrendProfitOrders) +
+             "/Opp<=" + IntegerToString(InpContinuousTrendOppProfitMax));
+
+   if(g_autoMarketMode == DXB_MARKET_MODE_MEDIUM)
+      return("MEDIUM TREND | " + action +
+             " | Move " + DoubleToString(g_autoMarketMoveRaw,0) +
+             " | Range " + DoubleToString(InpMediumTrendMinMoveRaw,0) +
+             "-" + DoubleToString(InpMediumTrendMaxMoveRaw,0) +
+             " | Last3 " + DoubleToString(g_autoMarketLast3MoveRaw,0) +
+             "/" + DoubleToString(InpDangerLast3MoveRaw,0));
+
+   if(g_autoMarketMode == DXB_MARKET_MODE_MIXED)
+     {
+      bool inConfiguredRange =
+         (g_autoMarketMoveRaw >= InpMixedTrendMinMoveRaw &&
+          g_autoMarketMoveRaw <= InpMixedTrendMaxMoveRaw);
+
+      return("MIXED TREND | " + action +
+             " | Move " + DoubleToString(g_autoMarketMoveRaw,0) +
+             " | Range " + DoubleToString(InpMixedTrendMinMoveRaw,0) +
+             "-" + DoubleToString(InpMixedTrendMaxMoveRaw,0) +
+             " | " + (inConfiguredRange ? "RANGE MATCH" : "FALLBACK MIXED"));
+     }
+
+   return(g_autoMarketModeText + " | " + action +
+          " | Move " + DoubleToString(g_autoMarketMoveRaw,0));
+  }
 
 //+------------------------------------------------------------------+ 
 //| Basket profit time-decay helpers                                 |
@@ -9491,7 +9510,16 @@ void TrackActivatedPendingNormalOrder()
 //+------------------------------------------------------------------+
 void OnTick()
   {
+  if(AccountEquity() <= 0)
+   {
+      string g_lastStatus =
+         "LOW EQUITY | NEW TRADING PAUSED | EQUITY $" +
+         DoubleToString(AccountEquity(), 2);
 
+      Print(g_lastStatus);
+      
+      return;
+   }
 /*
   if(AccountBalance() >= 40.0)
    {
@@ -11540,10 +11568,10 @@ bool IsFirstSAROrderAllowedByPriceDiffOnly(int direction,
    if(maxPerType < 1)
       maxPerType = 1;
 
-   if(CountOrdersByDirection(direction) >= maxPerType)
+   if(CountDirectionEntriesForCap(direction) >= maxPerType)
       return(BlockNormalOrderByModeProfile(
          "FIRST ORDER | MAX OPEN " + DirectionText(direction) +
-         " " + IntegerToString(CountOrdersByDirection(direction)) +
+         " " + IntegerToString(CountDirectionEntriesForCap(direction)) +
          "/" + IntegerToString(maxPerType) +
          " | Source=" + reason));
 
@@ -11583,7 +11611,7 @@ bool IsNormalOrderAllowedByMarketModeProfile(int direction,
       g_pendingSARConfirmDirection != 0 &&
       !IsSARFlipConfirmationReady())
       return(BlockNormalOrderByModeProfile(
-         "SAR CONFIRM | " + SARConfirmDurationStatusText() +
+         "SAR CONFIRM | " + SARConfirmExactStatusText(direction) +
          " | Source=" + reason));
 
    if(IsMarketModeEntryFilterEnabled(DXB_FILTER_SAR_PRICE_SIDE) &&
@@ -11595,8 +11623,8 @@ bool IsNormalOrderAllowedByMarketModeProfile(int direction,
    if(IsMarketModeEntryFilterEnabled(DXB_FILTER_REPEATED_GAP) &&
       !IsRepeatedPriceGapConfirmedForNormalOrder(direction, reason))
       return(BlockNormalOrderByModeProfile(
-         "REPEATED GAP | Direction=" +
-         DirectionText(direction) + " | Source=" + reason));
+         "REPEATED GAP | " + CheckListRepeatedGapText(direction) +
+         " | Source=" + reason));
 
    if(IsMarketModeEntryFilterEnabled(DXB_FILTER_SAR_CYCLE))
      {
@@ -11694,7 +11722,7 @@ bool IsNormalOrderAllowedByMarketModeProfile(int direction,
       EnforceBigCandleOrderBlock(direction, "NORMAL_PROFILE " + reason))
       return(BlockNormalOrderByModeProfile(
          "BIG CANDLE / SPIKE | " +
-         BigCandlePauseStatusText() +
+         BigCandleExactStatusText(direction) +
          " | Source=" + reason));
 
    if(IsMarketModeEntryFilterEnabled(DXB_FILTER_MIN_GAP))
@@ -11703,8 +11731,8 @@ bool IsNormalOrderAllowedByMarketModeProfile(int direction,
 
       if(minGap > 0.0 && !IsPriceGapValid(direction, minGap))
          return(BlockNormalOrderByModeProfile(
-            "MIN SAME-DIRECTION GAP " +
-            DoubleToString(minGap, Digits) +
+            "MIN SAME-DIRECTION GAP | " +
+            MinGapExactStatusText(direction) +
             " | Source=" + reason));
      }
 
@@ -12633,14 +12661,14 @@ bool CheckListMaxOpenAllowed(int direction)
   {
    if(direction == 0)
       return(false);
-   return(CountOrdersByDirection(direction) < InpMaxOrders);
+   return(CountDirectionEntriesForCap(direction) < InpMaxOrders);
   }
 
 bool CheckListTotalOpenAllowed()
   {
    if(InpMaxTotalOpenOrders <= 0)
       return(true);
-   return(CountAllOrders() < InpMaxTotalOpenOrders);
+   return(CountAllEntriesForCap() < InpMaxTotalOpenOrders);
   }
 
 bool CheckListMinGapAllowed(int direction)
@@ -12937,7 +12965,7 @@ void RefreshFirstSAROrderDiagnosticSnapshot(int direction,
       else if(filterId == DXB_FILTER_MAX_OPEN_DIR)
         {
          rawPassed = maxOpenOk;
-         detail = IntegerToString(CountOrdersByDirection(direction)) +
+         detail = IntegerToString(CountDirectionEntriesForCap(direction)) +
                   "/" + IntegerToString(maxPerType);
         }
 
@@ -12972,7 +13000,8 @@ void RefreshNormalEntryDiagnosticSnapshot(int direction,
    string lateReason = "";
    string dynamicReason = "";
 
-   bool rawDirection = (direction != 0);
+   bool rawDirection = (direction != 0 &&
+                        direction == g_activeSARDirection);
    bool rawSARConfirm = CheckListSARConfirmationReady();
    bool rawSARSide = CheckListSARSideAllowed(direction);
    bool rawRepeatedGap = CheckListRepeatedGapAllowed(direction);
@@ -13036,12 +13065,12 @@ void RefreshNormalEntryDiagnosticSnapshot(int direction,
    SetEntryDiagnosticFilter(
       DXB_FILTER_DIRECTION,
       rawDirection,
-      DirectionText(direction));
+      DirectionExactStatusText(direction));
 
    SetEntryDiagnosticFilter(
       DXB_FILTER_SAR_CONFIRM,
       rawSARConfirm,
-      SARConfirmDurationStatusText());
+      SARConfirmExactStatusText(direction));
 
    SetEntryDiagnosticFilter(
       DXB_FILTER_SAR_PRICE_SIDE,
@@ -13056,13 +13085,12 @@ void RefreshNormalEntryDiagnosticSnapshot(int direction,
    SetEntryDiagnosticFilter(
       DXB_FILTER_SAR_CYCLE,
       rawCycle,
-      IntegerToString(g_sarCycleOrdersCreated) + "/" +
-      IntegerToString(g_sarCycleMaxOrders));
+      SARCycleExactStatusText());
 
    SetEntryDiagnosticFilter(
       DXB_FILTER_H1_TREND,
       rawH1,
-      DirectionText(GetH1TrendDirection()));
+      H1TrendExactStatusText(direction));
 
    SetEntryDiagnosticFilter(
       DXB_FILTER_LATE_SAR,
@@ -13094,7 +13122,7 @@ void RefreshNormalEntryDiagnosticSnapshot(int direction,
    SetEntryDiagnosticFilter(
       DXB_FILTER_EQUITY_LOCK,
       rawEquity,
-      rawEquity ? "CLEAR" : "EQUITY/DAILY LOCK");
+      EquityLockExactStatusText());
 
    SetEntryDiagnosticFilter(
       DXB_FILTER_NO_NEW_HOUR,
@@ -13114,7 +13142,7 @@ void RefreshNormalEntryDiagnosticSnapshot(int direction,
    SetEntryDiagnosticFilter(
       DXB_FILTER_BIG_CANDLE,
       rawBig,
-      BigCandleDirectionalStatusText(direction));
+      BigCandleExactStatusText(direction));
 
    SetEntryDiagnosticFilter(
       DXB_FILTER_SPIKE_WICK,
@@ -13124,19 +13152,17 @@ void RefreshNormalEntryDiagnosticSnapshot(int direction,
    SetEntryDiagnosticFilter(
       DXB_FILTER_MIN_GAP,
       rawMinGap,
-      DoubleToString(GetEffectiveMinPriceGap(), 1));
+      MinGapExactStatusText(direction));
 
    SetEntryDiagnosticFilter(
       DXB_FILTER_MAX_OPEN_DIR,
       rawMaxOpen,
-      IntegerToString(CountOrdersByDirection(direction)) +
-      "/" + IntegerToString(InpMaxOrders));
+      MaxOpenDirectionExactStatusText(direction));
 
    SetEntryDiagnosticFilter(
       DXB_FILTER_TOTAL_OPEN,
       rawTotal,
-      IntegerToString(CountAllOrders()) + "/" +
-      IntegerToString(InpMaxTotalOpenOrders));
+      TotalOpenExactStatusText());
 
    SetEntryDiagnosticFilter(
       DXB_FILTER_AUTO_MARKET_MODE,
@@ -13146,12 +13172,12 @@ void RefreshNormalEntryDiagnosticSnapshot(int direction,
    SetEntryDiagnosticFilter(
       DXB_FILTER_DYNAMIC_SAR,
       rawDynamic,
-      dynamicReason);
+      DynamicSARExactStatusText(dynamicReason));
 
    SetEntryDiagnosticFilter(
       DXB_FILTER_FLAT_MODE,
       rawFlat,
-      rawFlat ? "CLEAR" : "FLAT");
+      FlatModeExactStatusText(rawFlat));
 
    SetEntryDiagnosticFilter(
       DXB_FILTER_EARLY_WEAK_EXIT,
@@ -13163,19 +13189,10 @@ void RefreshNormalEntryDiagnosticSnapshot(int direction,
       rawEarlyReverse,
       g_sarPausedByEarly ? "PAUSED" : "CLEAR");
 
-   int cooldownLeft = 0;
-
-   if(InpOrderCooldownSeconds > 0 &&
-      g_lastOrderTime > 0)
-      cooldownLeft =
-         MathMax(0,
-                 InpOrderCooldownSeconds -
-                 (int)(TimeCurrent() - g_lastOrderTime));
-
    SetEntryDiagnosticFilter(
       DXB_FILTER_ORDER_COOLDOWN,
       rawCooldown,
-      IntegerToString(cooldownLeft) + "s left");
+      CooldownExactStatusText());
 
    FinalizeEntryDiagnosticSnapshot();
   }
@@ -13275,8 +13292,14 @@ string PadTitle(string title,int len=22)
 
 void LeftProRow(string title,string value,color clrText=clrWhite)
   {
-   string text = PadTitle(title,22) + " : " + value;
-   DrawCornerLabel("DXB_PRO_LEFT_"+IntegerToString(g_leftDashRow),text,CORNER_LEFT_UPPER,10,45+(g_leftDashRow*16),clrText,8);
+   string text = PadTitle(title,20) + " : " + value;
+   DrawCornerLabel("DXB_PRO_LEFT_"+IntegerToString(g_leftDashRow),
+                   text,
+                   CORNER_LEFT_UPPER,
+                   10,
+                   45+(g_leftDashRow*16),
+                   clrText,
+                   8);
    g_leftDashRow++;
   }
 
@@ -13321,6 +13344,241 @@ string OnOff(bool v)
   {
    return(v ? "ON" : "OFF");
   }
+
+//+------------------------------------------------------------------+
+//| CLEAR DASHBOARD: exact live-value helpers                         |
+//+------------------------------------------------------------------+
+string EntryFilterDisplayName(int filterId)
+  {
+   if(filterId == DXB_FILTER_DIRECTION)        return("Direction");
+   if(filterId == DXB_FILTER_SAR_CONFIRM)      return("SAR Confirm");
+   if(filterId == DXB_FILTER_SAR_PRICE_SIDE)   return("SAR Price Side");
+   if(filterId == DXB_FILTER_REPEATED_GAP)     return("Repeated Gap");
+   if(filterId == DXB_FILTER_SAR_CYCLE)        return("SAR Cycle");
+   if(filterId == DXB_FILTER_H1_TREND)         return("H1 Trend");
+   if(filterId == DXB_FILTER_LATE_SAR)         return("Late SAR");
+   if(filterId == DXB_FILTER_STRICT_SAR_SCORE) return("Strict SAR Score");
+   if(filterId == DXB_FILTER_DOUBTFUL_CANDLE)  return("Doubtful Candle");
+   if(filterId == DXB_FILTER_TRADING_ALLOWED)  return("Trading Allowed");
+   if(filterId == DXB_FILTER_SPREAD)           return("Spread");
+   if(filterId == DXB_FILTER_EQUITY_LOCK)      return("Equity / Daily Lock");
+   if(filterId == DXB_FILTER_NO_NEW_HOUR)      return("Dubai No-New Hour");
+   if(filterId == DXB_FILTER_PROFIT_PAUSE)     return("Profit Pause");
+   if(filterId == DXB_FILTER_OPPOSITE_PAUSE)   return("Opposite Pause");
+   if(filterId == DXB_FILTER_BIG_CANDLE)       return("Big / Last3 Move");
+   if(filterId == DXB_FILTER_SPIKE_WICK)       return("Spike / Wick");
+   if(filterId == DXB_FILTER_MIN_GAP)          return("Min Same-Dir Gap");
+   if(filterId == DXB_FILTER_MAX_OPEN_DIR)     return("Max Open Direction");
+   if(filterId == DXB_FILTER_TOTAL_OPEN)       return("Total Open Cap");
+   if(filterId == DXB_FILTER_AUTO_MARKET_MODE) return("Auto Market Mode");
+   if(filterId == DXB_FILTER_DYNAMIC_SAR)      return("Dynamic SAR");
+   if(filterId == DXB_FILTER_FLAT_MODE)        return("Flat Mode");
+   if(filterId == DXB_FILTER_EARLY_WEAK_EXIT)  return("Early Weak Exit");
+   if(filterId == DXB_FILTER_EARLY_REVERSE)    return("Early Reverse");
+   if(filterId == DXB_FILTER_ORDER_COOLDOWN)   return("Order Cooldown");
+   return(EntryFilterToken(filterId));
+  }
+
+string SARConfirmExactStatusText(int direction)
+  {
+   if(IsFirstSAROrderAfterFlip(direction))
+      return(FirstSAROrderPriceDiffStatusText(direction));
+
+   if(g_pendingSARConfirmDirection == 0 ||
+      g_pendingSARConfirmTime <= 0)
+      return("No pending flip confirmation");
+
+   double currentDiff = GetSARConfirmCurrentPriceDiff();
+   double requiredDiff = MathMax(0.0, InpSARConfirmPriceDiff);
+
+   if(InpUseDynamicSAREngine)
+      requiredDiff = GetDynamicSARRequiredConfirmDiff();
+
+   int elapsed = GetSARConfirmElapsedSeconds();
+   int window = MathMax(0, InpSARConfirmMinutes) * 60;
+
+   return("Diff " + DoubleToString(currentDiff,1) +
+          "/" + DoubleToString(requiredDiff,1) +
+          " | Window " + IntegerToString(elapsed) +
+          "/" + IntegerToString(window) + "s");
+  }
+
+string DirectionExactStatusText(int direction)
+  {
+   return("Candidate " + DirectionText(direction) +
+          " / SAR " + DirectionText(g_activeSARDirection));
+  }
+
+string H1TrendExactStatusText(int direction)
+  {
+   int trend = GetH1TrendDirection();
+   return("Candidate " + DirectionText(direction) +
+          " / H1 " + DirectionText(trend));
+  }
+
+string SARCycleExactStatusText()
+  {
+   int remaining = MathMax(0,
+                           g_sarCycleMaxOrders -
+                           g_sarCycleOrdersCreated);
+
+   return("Created " + IntegerToString(g_sarCycleOrdersCreated) +
+          "/" + IntegerToString(g_sarCycleMaxOrders) +
+          " | Remaining " + IntegerToString(remaining));
+  }
+
+double GetNearestSameDirectionOrderGapRaw(int direction,
+                                           int &nearestTicket)
+  {
+   nearestTicket = -1;
+
+   if(direction == 0)
+      return(-1.0);
+
+   int type = (direction == 1) ? OP_BUY : OP_SELL;
+   double livePrice = (direction == 1) ? Ask : Bid;
+   double nearestGap = 1.0e100;
+
+   for(int i = OrdersTotal() - 1; i >= 0; i--)
+     {
+      if(!OrderSelect(i, SELECT_BY_POS, MODE_TRADES))
+         continue;
+      if(OrderSymbol() != Symbol() ||
+         OrderMagicNumber() != InpMagicNumber)
+         continue;
+      if(OrderType() != type)
+         continue;
+
+      double gap = MathAbs(livePrice - OrderOpenPrice());
+
+      if(gap < nearestGap)
+        {
+         nearestGap = gap;
+         nearestTicket = OrderTicket();
+        }
+     }
+
+   if(nearestTicket < 0)
+      return(-1.0);
+
+   return(nearestGap);
+  }
+
+string MinGapExactStatusText(int direction)
+  {
+   double required = GetEffectiveMinPriceGap();
+
+   if(required <= 0.0)
+      return("OFF | Required 0");
+
+   int nearestTicket = -1;
+   double liveGap =
+      GetNearestSameDirectionOrderGapRaw(direction,
+                                         nearestTicket);
+
+   if(liveGap < 0.0)
+      return("No existing " + DirectionText(direction) +
+             " order | Required " +
+             DoubleToString(required,1));
+
+   return("Gap " + DoubleToString(liveGap,1) +
+          "/" + DoubleToString(required,1) +
+          " | Nearest #" + IntegerToString(nearestTicket));
+  }
+
+string BigCandleExactStatusText(int direction)
+  {
+   double maxSingleMove = 0.0;
+
+   for(int shift = 0; shift <= 2 && shift < Bars; shift++)
+     {
+      double move = MathAbs(High[shift] - Low[shift]);
+      if(move > maxSingleMove)
+         maxSingleMove = move;
+     }
+
+   double last3Move = GetLastNCandlesRawMove(3);
+   string reason = "";
+   bool blocked =
+      IsBigCandleOrderBlockedForDirection(direction,
+                                          reason);
+
+   return((blocked ? "BLOCK" : "ALLOW") +
+          " | Single " + DoubleToString(maxSingleMove,1) +
+          "/" + DoubleToString(InpBigCandleRawDifference,1) +
+          " | Last3 " + DoubleToString(last3Move,1) +
+          "/" + DoubleToString(InpLast3CandlesRawDifference,1) +
+          (IsBigCandlePauseActive()
+           ? " | " + BigCandlePauseStatusText()
+           : ""));
+  }
+
+string EquityLockExactStatusText()
+  {
+   return("Equity $" + DoubleToString(AccountEquity(),2) +
+          " | Stop $" + DoubleToString(g_lossStopEquityLevel,2) +
+          " | Daily " +
+          (g_dailyProfitLock ? "LOCKED" : "CLEAR"));
+  }
+
+string MaxOpenDirectionExactStatusText(int direction)
+  {
+   return(DirectionText(direction) + " " +
+          IntegerToString(CountDirectionEntriesForCap(direction)) +
+          "/" + IntegerToString(InpMaxOrders));
+  }
+
+string TotalOpenExactStatusText()
+  {
+   if(InpMaxTotalOpenOrders <= 0)
+      return("OFF | Open " + IntegerToString(CountAllEntriesForCap()));
+
+   return(IntegerToString(CountAllEntriesForCap()) +
+          "/" + IntegerToString(InpMaxTotalOpenOrders));
+  }
+
+string DynamicSARExactStatusText(string reason)
+  {
+   string text = "Score " + IntegerToString(g_dynamicSARScore) +
+                 " | ATR " + DoubleToString(g_dynamicSARATR,1) +
+                 " | ADX " + DoubleToString(g_dynamicSARADX,1) +
+                 " | Dot " + DoubleToString(g_dynamicSARDotDistance,1);
+
+   if(reason != "")
+      text += " | " + StringSubstr(reason,0,34);
+
+   return(text);
+  }
+
+string FlatModeExactStatusText(bool clear)
+  {
+   return((clear ? "CLEAR" : "FLAT BLOCK") +
+          " | Lookback " +
+          IntegerToString(InpFlatLookbackCandles));
+  }
+
+string CooldownExactStatusText()
+  {
+   if(InpOrderCooldownSeconds <= 0)
+      return("OFF | Required 0s");
+
+   int elapsed = (g_lastOrderTime <= 0)
+                 ? InpOrderCooldownSeconds
+                 : (int)MathMax(0,
+                       TimeCurrent() - g_lastOrderTime);
+
+   return("Elapsed " + IntegerToString(elapsed) +
+          "/" + IntegerToString(InpOrderCooldownSeconds) + "s");
+  }
+
+string EntryDecisionHeadline()
+  {
+   if(g_entryDiagBlockedCount > 0)
+      return("BLOCKED | " + g_entryDiagPrimaryBlock);
+
+   return("READY TO OPEN");
+  }
+
 
 void DrawRecoveryChecklistPanel(int direction)
   {
@@ -13470,24 +13728,16 @@ void DrawTopCenterOrderAuditPanel()
       (int)ChartGetInteger(0, CHART_WIDTH_IN_PIXELS, 0);
 
    int panelX = 560;
-   int rightReserved = 500;
-   int panelW = chartWidth - panelX - rightReserved;
+   int panelW = chartWidth - 1230;
 
-   // if(panelW < 520)
-   //    panelW = 520;
+   if(panelW < 430)
+      panelW = 430;
+   if(panelW > 850)
+      panelW = 850;
 
-   // if(panelW > 980)
-   //    panelW = 980;
-
-   // Approximate readable characters for font size 8.
-   // Smaller value prevents text from being cut at the panel edge.
-   int charsPerLine = (panelW - 35) / 7;
-
-   // if(charsPerLine < 55)
-   //    charsPerLine = 55;
-
-   // if(charsPerLine > 125)
-   //    charsPerLine = 125;
+   int charsPerLine = MathMax(48,
+                              MathMin(115,
+                                      (panelW - 25) / 7));
 
    color decisionColor =
       (g_entryDiagBlockedCount > 0)
@@ -13496,216 +13746,103 @@ void DrawTopCenterOrderAuditPanel()
 
    DrawCornerPanel("DXB_ENTRY_AUDIT_PANEL",
                    CORNER_LEFT_UPPER,
-                   panelX,5,panelW,160,
+                   panelX,48,panelW,170,
                    clrBlack,decisionColor);
 
    DrawCornerLabel("DXB_ENTRY_AUDIT_TITLE",
-                   "NORMAL ORDER DECISION / FILTER AUDIT",
+                   "NEW ORDER GATE - EXACT LIVE REASON",
                    CORNER_LEFT_UPPER,
-                   panelX+10,10,
+                   panelX+10,53,
                    clrYellow,10);
 
-   string nowLine =
-      g_entryDiagDecision +
-      " | Candidate=" +
-      DirectionText(g_entryDiagDirection) +
-      " | Mode=" + g_autoMarketModeText +
-      " | Profile=" + g_entryDiagProfileText +
-      " | Passed=" +
-      IntegerToString(g_entryDiagPassedCount) +
-      "/" +
-      IntegerToString(g_entryDiagEnabledCount) +
-      " | Failed=" +
-      IntegerToString(g_entryDiagBlockedCount) +
-      " | Disabled=" +
-      IntegerToString(g_entryDiagDisabledCount);
+   string decision =
+      (g_entryDiagBlockedCount > 0
+       ? "BLOCKED"
+       : "READY TO OPEN") +
+      " | " + DirectionText(g_entryDiagDirection) +
+      " | " + g_entryDiagProfileText +
+      " | Pass " + IntegerToString(g_entryDiagPassedCount) +
+      "/" + IntegerToString(g_entryDiagEnabledCount) +
+      " | Fail " + IntegerToString(g_entryDiagBlockedCount);
 
    DrawCornerLabel("DXB_ENTRY_AUDIT_NOW1",
-                   EntryAuditSegment(nowLine,0,charsPerLine),
+                   EntryAuditSegment(decision,0,charsPerLine),
                    CORNER_LEFT_UPPER,
-                   panelX+10,20,
-                   decisionColor,9);
-
+                   panelX+10,73,
+                   decisionColor,10);
    DrawCornerLabel("DXB_ENTRY_AUDIT_NOW2",
-                   EntryAuditSegment(nowLine,1,charsPerLine),
+                   EntryAuditSegment(decision,1,charsPerLine),
                    CORNER_LEFT_UPPER,
-                   panelX+10,30,
+                   panelX+10,85,
                    decisionColor,9);
 
-   string primaryLine =
-      "PRIMARY BLOCK : " + g_entryDiagPrimaryBlock;
+   string primary = "WHY: " + g_entryDiagPrimaryBlock;
 
    DrawCornerLabel("DXB_ENTRY_AUDIT_PRIMARY1",
-                   EntryAuditSegment(primaryLine,0,charsPerLine),
+                   EntryAuditSegment(primary,0,charsPerLine),
                    CORNER_LEFT_UPPER,
-                   panelX+10,40,
-                   g_entryDiagBlockedCount > 0
-                   ? clrOrangeRed
-                   : clrLime,
-                   8);
-
+                   panelX+10,101,
+                   decisionColor,9);
    DrawCornerLabel("DXB_ENTRY_AUDIT_PRIMARY2",
-                   EntryAuditSegment(primaryLine,1,charsPerLine),
+                   EntryAuditSegment(primary,1,charsPerLine),
                    CORNER_LEFT_UPPER,
-                   panelX+10,50,
-                   g_entryDiagBlockedCount > 0
-                   ? clrOrangeRed
-                   : clrLime,
-                   8);
+                   panelX+10,113,
+                   decisionColor,9);
 
-   string blockerLine =
-      "ALL BLOCKERS : " + g_entryDiagBlockerList;
+   string modeLine = "MODE: " + AutoMarketModeStatusText();
 
    DrawCornerLabel("DXB_ENTRY_AUDIT_BLOCK1",
-                   EntryAuditSegment(blockerLine,0,charsPerLine),
+                   EntryAuditSegment(modeLine,0,charsPerLine),
                    CORNER_LEFT_UPPER,
-                   panelX+10,50,
-                   g_entryDiagBlockedCount > 0
-                   ? clrOrangeRed
-                   : clrSilver,
-                   8);
-
+                   panelX+10,131,
+                   MarketFlowModeColor(),8);
    DrawCornerLabel("DXB_ENTRY_AUDIT_BLOCK2",
-                   EntryAuditSegment(blockerLine,1,charsPerLine),
+                   EntryAuditSegment(modeLine,1,charsPerLine),
                    CORNER_LEFT_UPPER,
-                   panelX+10,60,
-                   g_entryDiagBlockedCount > 0
-                   ? clrOrangeRed
-                   : clrSilver,
-                   8);
-
+                   panelX+10,143,
+                   MarketFlowModeColor(),8);
    DrawCornerLabel("DXB_ENTRY_AUDIT_BLOCK3",
-                   EntryAuditSegment(blockerLine,2,charsPerLine),
+                   EntryAuditSegment(modeLine,2,charsPerLine),
                    CORNER_LEFT_UPPER,
-                   panelX+10,70,
-                   g_entryDiagBlockedCount > 0
-                   ? clrOrangeRed
-                   : clrSilver,
-                   8);
+                   panelX+10,155,
+                   MarketFlowModeColor(),8);
 
-   string lastAttempt =
-      "LAST ATTEMPT : " +
-      g_lastEntryAttemptDecision +
-      " | Direction=" +
-      DirectionText(g_lastEntryAttemptDirection) +
-      " | Source=" +
-      g_lastEntryAttemptSource +
-      " | Passed=" +
-      IntegerToString(g_lastEntryAttemptPassed) +
-      "/" +
-      IntegerToString(g_lastEntryAttemptEnabled) +
-      " | Failed=" +
-      IntegerToString(g_lastEntryAttemptBlocked) +
-      " | " +
-      EntryDiagnosticAgeText(g_lastEntryAttemptTime);
+   string allBlockers =
+      "ALL BLOCKERS: " + g_entryDiagBlockerList;
 
    DrawCornerLabel("DXB_ENTRY_AUDIT_ATTEMPT1",
-                   EntryAuditSegment(lastAttempt,0,charsPerLine),
+                   EntryAuditSegment(allBlockers,0,charsPerLine),
                    CORNER_LEFT_UPPER,
-                   panelX+10,80,
-                   g_lastEntryAttemptDecision == "OPENED"
-                   ? clrLime
-                   : (g_lastEntryAttemptDecision == "NONE"
-                      ? clrSilver
-                      : clrOrange),
-                   8);
-
+                   panelX+10,171,
+                   g_entryDiagBlockedCount > 0
+                   ? clrOrangeRed
+                   : clrSilver,8);
    DrawCornerLabel("DXB_ENTRY_AUDIT_ATTEMPT2",
-                   EntryAuditSegment(lastAttempt,1,charsPerLine),
+                   EntryAuditSegment(allBlockers,1,charsPerLine),
                    CORNER_LEFT_UPPER,
-                   panelX+10,90,
-                   g_lastEntryAttemptDecision == "OPENED"
-                   ? clrLime
-                   : (g_lastEntryAttemptDecision == "NONE"
-                      ? clrSilver
-                      : clrOrange),
-                   8);
+                   panelX+10,183,
+                   g_entryDiagBlockedCount > 0
+                   ? clrOrangeRed
+                   : clrSilver,8);
 
-   string openedLine = "LAST OPENED : NONE";
-
-   if(g_lastAuditOpenedTicket > 0)
-      openedLine =
-         "LAST OPENED : #" +
-         IntegerToString(g_lastAuditOpenedTicket) +
-         " | " +
-         DirectionText(g_lastAuditOpenedDirection) +
-         " | Price=" +
-         DoubleToString(g_lastAuditOpenedPrice,Digits) +
-         " | Lot=" +
-         DoubleToString(g_lastAuditOpenedLot,2) +
-         " | Mode=" +
-         g_lastAuditOpenedMode +
-         " | Profile=" +
-         g_lastAuditOpenedProfile +
-         " | Source=" +
-         g_lastAuditOpenedSource +
-         " | " +
-         EntryDiagnosticAgeText(g_lastAuditOpenedTime);
+   string lastAttempt =
+      "LAST ATTEMPT: " + g_lastEntryAttemptDecision +
+      " | " + EntryDiagnosticAgeText(g_lastEntryAttemptTime) +
+      " | " + g_lastEntryAttemptPrimary;
 
    DrawCornerLabel("DXB_ENTRY_AUDIT_OPENED1",
-                   EntryAuditSegment(openedLine,0,charsPerLine),
+                   EntryAuditSegment(lastAttempt,0,charsPerLine),
                    CORNER_LEFT_UPPER,
-                   panelX+10,100,
-                   g_lastAuditOpenedTicket > 0
-                   ? clrAqua
-                   : clrSilver,
-                   8);
+                   panelX+10,197,
+                   clrAqua,8);
 
-   DrawCornerLabel("DXB_ENTRY_AUDIT_OPENED2",
-                   EntryAuditSegment(openedLine,1,charsPerLine),
-                   CORNER_LEFT_UPPER,
-                   panelX+10,110,
-                   g_lastAuditOpenedTicket > 0
-                   ? clrAqua
-                   : clrSilver,
-                   8);
-
-   string auditLine =
-      "OPEN AUDIT : " +
-      IntegerToString(g_lastAuditOpenedPassed) +
-      "/" +
-      IntegerToString(g_lastAuditOpenedEnabled) +
-      " passed | " +
-      g_lastAuditSendResult;
-
-   DrawCornerLabel("DXB_ENTRY_AUDIT_COUNTS1",
-                   EntryAuditSegment(auditLine,0,charsPerLine),
-                   CORNER_LEFT_UPPER,
-                   panelX+10,120,
-                   g_lastAuditOpenedTicket > 0
-                   ? clrLime
-                   : clrSilver,
-                   8);
-
-   DrawCornerLabel("DXB_ENTRY_AUDIT_COUNTS2",
-                   EntryAuditSegment(auditLine,1,charsPerLine),
-                   CORNER_LEFT_UPPER,
-                   panelX+10,130,
-                   g_lastAuditOpenedTicket > 0
-                   ? clrLime
-                   : clrSilver,
-                   8);
-
-   string activeLine =
-      "ACTIVE FILTERS : " + g_lastAuditOpenedFilters;
-
-   DrawCornerLabel("DXB_ENTRY_AUDIT_FILTERS1",
-                   EntryAuditSegment(activeLine,0,charsPerLine),
-                   CORNER_LEFT_UPPER,
-                   panelX+10,140,
-                   g_lastAuditOpenedTicket > 0
-                   ? clrWhite
-                   : clrSilver,
-                   8);
-
-   DrawCornerLabel("DXB_ENTRY_AUDIT_FILTERS2",
-                   EntryAuditSegment(activeLine,1,charsPerLine),
-                   CORNER_LEFT_UPPER,
-                   panelX+10,150,
-                   g_lastAuditOpenedTicket > 0
-                   ? clrWhite
-                   : clrSilver,
-                   8);
+   // Clear labels used by the older, larger audit panel.
+   DrawCornerLabel("DXB_ENTRY_AUDIT_OPENED2","",
+                   CORNER_LEFT_UPPER,panelX+10,197,clrSilver,8);
+   DrawCornerLabel("DXB_ENTRY_AUDIT_COUNTS1","",
+                   CORNER_LEFT_UPPER,panelX+10,197,clrSilver,8);
+   DrawCornerLabel("DXB_ENTRY_AUDIT_COUNTS2","",
+                   CORNER_LEFT_UPPER,panelX+10,197,clrSilver,8);
   }
 
 //+------------------------------------------------------------------+
@@ -13723,98 +13860,100 @@ void ClearLeftProfessionalChecklistRows()
 //| Compact, truthful dashboard for the first order after SAR flip.   |
 //+------------------------------------------------------------------+
 void DrawFirstSAROrderCreationChecklist(string mainStatus,
-                                         int direction)
+                                             int direction)
   {
-   RefreshFirstSAROrderDiagnosticSnapshot(
-      direction,
-      "LIVE DASHBOARD FIRST ORDER");
+   RefreshFirstSAROrderDiagnosticSnapshot(direction,
+                                           "LIVE FIRST ORDER");
 
    bool allOk = (g_entryDiagBlockedCount == 0);
-   bool directionOk = (direction != 0 &&
-                       direction == g_activeSARDirection);
-   bool priceDiffOk = IsFirstSAROrderPriceDiffReady(direction);
-   bool tradingOk   = CheckListTradingAllowed();
-   bool maxOpenOk   = CheckListMaxOpenAllowed(direction);
-   int maxPerType = InpMaxOrders;
-   if(maxPerType < 1)
-      maxPerType = 1;
 
    DrawTopCenterOrderAuditPanel();
 
    DrawCornerPanel("DXB_LEFT_CHK_PANEL",
                    CORNER_LEFT_UPPER,
-                   5,15,400,430,
+                   5,15,400,710,
                    clrBlack,clrDimGray);
 
    DrawCornerLabel("DXB_LEFT_CHK_TITLE",
-                   "FIRST ORDER AFTER SAR FLIP - PRICE DIFF PROFILE",
+                   "FIRST SAR ORDER - EXACT ENTRY CHECK",
                    CORNER_LEFT_UPPER,
                    10,22,clrYellow,10);
 
    ClearLeftProfessionalChecklistRows();
    g_leftDashRow = 0;
 
-   LeftProRow("FINAL RESULT",
-              allOk ? "READY TO OPEN" : "WAITING / BLOCKED",
+   LeftProRow("NEW ORDER",
+              allOk ? "READY TO OPEN" : "BLOCKED",
               allOk ? clrLime : clrOrangeRed);
 
-   LeftProRow("Entry Profile",
-              "FIRST ORDER: PRICE DIFF ONLY",
-              clrAqua);
+   LeftProRow("PRIMARY REASON",
+              StringSubstr(g_entryDiagPrimaryBlock,0,62),
+              allOk ? clrLime : clrOrangeRed);
 
-   LeftProRow("Candidate",
-              DirectionText(direction),
+   LeftProRow("Candidate / SAR",
+              DirectionExactStatusText(direction),
               DirectionColor(direction));
 
-   LeftProRow("Direction Safety",
-              directionOk ? "PASS" : "BLOCK",
-              directionOk ? clrLime : clrOrangeRed);
+   LeftProRow("Market Mode",
+              StringSubstr(AutoMarketModeStatusText(),0,62),
+              MarketFlowModeColor());
 
-   LeftProRow("SAR Flip Reference",
-              DoubleToString(
-                 (g_pendingSARConfirmPrice > 0.0
-                  ? g_pendingSARConfirmPrice
-                  : g_activeSARSignalChangePrice),
-                 Digits),
-              clrWhite);
-
-   LeftProRow("Fixed Price Diff",
-              FirstSAROrderPriceDiffStatusText(direction),
-              priceDiffOk ? clrLime : clrOrange);
-
-   LeftProRow("Trading Allowed",
-              tradingOk ? "PASS" : "BLOCK",
-              tradingOk ? clrLime : clrOrangeRed);
-
-   LeftProRow("Max Open Dir",
-              IntegerToString(CountOrdersByDirection(direction)) +
-              "/" + IntegerToString(maxPerType) +
-              (maxOpenOk ? " PASS" : " BLOCK"),
-              maxOpenOk ? clrLime : clrOrangeRed);
-
-   LeftProRow("Strategy Filters",
-              "ALL OTHERS BYPASSED",
+   LeftProRow("Mode Effect",
+              "BYPASSED BY FIRST-ORDER PROFILE",
               clrYellow);
 
-   LeftProRow("Bypassed",
-              "MODE,H1,SCORE,FLAT,CANDLE,GAPS",
-              clrSilver);
-
-   LeftProRow("Also Bypassed",
-              "HOURS,SPREAD,SPIKE,COOLDOWN",
-              clrSilver);
-
-   LeftProRow("Runtime Status",
-              StringSubstr(mainStatus,0,55),
+   LeftProRow("Profile",
+              "PRICE DIFF + 3 SAFETY CHECKS",
               clrAqua);
 
-   LeftProRow("PRIMARY BLOCK",
-              StringSubstr(g_entryDiagPrimaryBlock,0,55),
-              allOk ? clrLime : clrOrangeRed);
+   LeftProRow("Active / Bypassed",
+              IntegerToString(g_entryDiagEnabledCount) +
+              " ACTIVE / " +
+              IntegerToString(g_entryDiagDisabledCount) +
+              " BYPASSED",
+              clrAqua);
+
+   LeftProRow("Runtime Status",
+              StringSubstr(mainStatus,0,62),
+              clrWhite);
+
+   LeftProRow("--- ACTIVE FIRST-ORDER CHECKS ---","",clrDimGray);
+
+   for(int filterId = 0; filterId < DXB_FILTER_COUNT; filterId++)
+     {
+      if(!g_entryDiagEnabled[filterId])
+         continue;
+
+      bool passed = g_entryDiagPassed[filterId];
+      string value = (passed ? "PASS | " : "BLOCK | ") +
+                     g_entryDiagDetail[filterId];
+
+      LeftProRow(EntryFilterDisplayName(filterId),
+                 StringSubstr(value,0,62),
+                 passed ? clrLime : clrOrangeRed);
+     }
+
+   LeftProRow("--- BYPASSED STRATEGY FILTERS ---","",clrDimGray);
+   LeftProRow("Bypassed 1",
+              EntryAuditSegment(g_entryDiagDisabledList,0,62),
+              clrSilver);
+   LeftProRow("Bypassed 2",
+              EntryAuditSegment(g_entryDiagDisabledList,1,62),
+              clrSilver);
+   LeftProRow("Bypassed 3",
+              EntryAuditSegment(g_entryDiagDisabledList,2,62),
+              clrSilver);
+
+   LeftProRow("IMPORTANT",
+              "MIXED/DANGER/HOURS/SCORE ARE BYPASSED HERE",
+              clrYellow);
 
    LeftProRow("Next Order",
-              allOk ? "ALLOWED NOW" : "WAIT PRICE DIFF",
-              allOk ? clrLime : clrOrange);
+              allOk
+              ? "ALLOWED NOW"
+              : "WAIT: " +
+                StringSubstr(g_entryDiagPrimaryBlock,0,48),
+              allOk ? clrLime : clrOrangeRed);
 
    DrawRecoveryChecklistPanel(direction);
   }
@@ -13827,263 +13966,17 @@ void DrawLeftOrderCreationChecklist(string mainStatus)
    ApplyMarketModeEntryFilterProfileState();
 
    int direction = GetChecklistDirection();
-
    EnsureSARSignalOrderCycle(direction);
 
    if(IsFirstSAROrderAfterFlip(direction))
      {
-      DrawFirstSAROrderCreationChecklist(mainStatus, direction);
+      DrawFirstSAROrderCreationChecklist(mainStatus,
+                                         direction);
       return;
      }
 
-   int spread = (int)MarketInfo(Symbol(), MODE_SPREAD);
-
-   string lateReason = "";
-   string dynamicReason = "";
-
-   bool rawDirection = (direction != 0);
-   bool rawTrading = CheckListTradingAllowed();
-   bool rawSpread = (spread <= InpMaxSpreadPoints);
-   bool rawEquity =
-      (!g_equityProtectionHit &&
-       !(g_dailyProfitLock && InpPauseAfterProfitTarget));
-   bool rawNoHour = (!InpUseNoNewOrderHours ||
-                     !IsConfiguredNoNewOrderHour(
-                        TimeHour(GetDubaiTime())));
-   bool rawProfitPause = (!IsProfitProtectPauseActive());
-   bool rawOppositePause =
-      (!IsOppositeDirectionProfitPauseActive() ||
-       direction != g_oppositePausedDirection);
-
-   bool rawBigCandle = true;
-   bool rawSpikeWick = true;
-
-   if(IsMarketModeEntryFilterEnabled(DXB_FILTER_BIG_CANDLE) ||
-      IsMarketModeEntryFilterEnabled(DXB_FILTER_SPIKE_WICK))
-     {
-      bool blockedByVolatility =
-         EnforceBigCandleOrderBlock(direction, "CHECKLIST_NORMAL");
-
-      rawBigCandle = !blockedByVolatility;
-      rawSpikeWick = !blockedByVolatility;
-     }
-
-   bool rawSARConfirm = CheckListSARConfirmationReady();
-   bool rawH1 = CheckListH1Allowed(direction);
-   bool rawCycle = CheckListCycleAllowed(direction);
-   bool rawMaxOpen = CheckListMaxOpenAllowed(direction);
-   bool rawTotalOpen = CheckListTotalOpenAllowed();
-   bool rawMinGap = CheckListMinGapAllowed(direction);
-   bool rawSARSide = CheckListSARSideAllowed(direction);
-   bool rawLateSAR =
-      !IsLateSARCycleEntryDanger(direction, lateReason);
-   bool rawRepeatedGap =
-      CheckListRepeatedGapAllowed(direction);
-   bool rawDoubtful =
-      IsDoubtfulCandleReadyForDashboard(direction);
-
-   int strictRequired = GetStrictSARMinimumScore();
-   int checklistScore =
-      (direction != 0)
-      ? GetDynamicSARStrengthScore(direction)
-      : 0;
-   bool rawStrictScore =
-      (checklistScore >= strictRequired);
-
-   bool rawAutoMarket =
-      IsAutoMarketNewOrderAllowed("NORMAL_PROFILE_CHECK");
-
-   bool rawDynamicSAR = true;
-
-   if(direction == 0)
-      rawDynamicSAR = false;
-   else
-      rawDynamicSAR =
-         IsDynamicSARAllowedForNewOrder(direction,
-                                        dynamicReason);
-
-   bool rawFlatMode = !DetectFlatMode();
-
-   bool rawEarlyWeak =
-      !(g_earlySARWeakExitActive &&
-        direction != 0 &&
-        CountOrdersByDirection(direction) > 0);
-
-   bool rawEarlyReverse = !g_sarPausedByEarly;
-
-   bool rawCooldown =
-      (InpOrderCooldownSeconds <= 0 ||
-       g_lastOrderTime <= 0 ||
-       TimeCurrent() - g_lastOrderTime >=
-       InpOrderCooldownSeconds);
-
-   bool okDirection =
-      !IsMarketModeEntryFilterEnabled(DXB_FILTER_DIRECTION) ||
-      rawDirection;
-   bool okSARConfirm =
-      !IsMarketModeEntryFilterEnabled(DXB_FILTER_SAR_CONFIRM) ||
-      rawSARConfirm;
-   bool okSARSide =
-      !IsMarketModeEntryFilterEnabled(DXB_FILTER_SAR_PRICE_SIDE) ||
-      rawSARSide;
-   bool okRepeatedGap =
-      !IsMarketModeEntryFilterEnabled(DXB_FILTER_REPEATED_GAP) ||
-      rawRepeatedGap;
-   bool okCycle =
-      !IsMarketModeEntryFilterEnabled(DXB_FILTER_SAR_CYCLE) ||
-      rawCycle;
-   bool okH1 =
-      !IsMarketModeEntryFilterEnabled(DXB_FILTER_H1_TREND) ||
-      rawH1;
-   bool okLate =
-      !IsMarketModeEntryFilterEnabled(DXB_FILTER_LATE_SAR) ||
-      rawLateSAR;
-   bool okStrict =
-      !IsMarketModeEntryFilterEnabled(DXB_FILTER_STRICT_SAR_SCORE) ||
-      rawStrictScore;
-   bool okDoubtful =
-      !IsMarketModeEntryFilterEnabled(DXB_FILTER_DOUBTFUL_CANDLE) ||
-      rawDoubtful;
-   bool okTrading =
-      !IsMarketModeEntryFilterEnabled(DXB_FILTER_TRADING_ALLOWED) ||
-      rawTrading;
-   bool okSpread =
-      !IsMarketModeEntryFilterEnabled(DXB_FILTER_SPREAD) ||
-      rawSpread;
-   bool okEquity =
-      !IsMarketModeEntryFilterEnabled(DXB_FILTER_EQUITY_LOCK) ||
-      rawEquity;
-   bool okNoHour =
-      !IsMarketModeEntryFilterEnabled(DXB_FILTER_NO_NEW_HOUR) ||
-      rawNoHour;
-   bool okProfit =
-      !IsMarketModeEntryFilterEnabled(DXB_FILTER_PROFIT_PAUSE) ||
-      rawProfitPause;
-   bool okOpposite =
-      !IsMarketModeEntryFilterEnabled(DXB_FILTER_OPPOSITE_PAUSE) ||
-      rawOppositePause;
-   bool okBig =
-      !IsMarketModeEntryFilterEnabled(DXB_FILTER_BIG_CANDLE) ||
-      rawBigCandle;
-   bool okSpike =
-      !IsMarketModeEntryFilterEnabled(DXB_FILTER_SPIKE_WICK) ||
-      rawSpikeWick;
-   bool okMinGap =
-      !IsMarketModeEntryFilterEnabled(DXB_FILTER_MIN_GAP) ||
-      rawMinGap;
-   bool okMaxOpen =
-      !IsMarketModeEntryFilterEnabled(DXB_FILTER_MAX_OPEN_DIR) ||
-      rawMaxOpen;
-   bool okTotal =
-      !IsMarketModeEntryFilterEnabled(DXB_FILTER_TOTAL_OPEN) ||
-      rawTotalOpen;
-   bool okAutoMarket =
-      !IsMarketModeEntryFilterEnabled(DXB_FILTER_AUTO_MARKET_MODE) ||
-      rawAutoMarket;
-   bool okDynamic =
-      !IsMarketModeEntryFilterEnabled(DXB_FILTER_DYNAMIC_SAR) ||
-      rawDynamicSAR;
-   bool okFlat =
-      !IsMarketModeEntryFilterEnabled(DXB_FILTER_FLAT_MODE) ||
-      rawFlatMode;
-   bool okEarlyWeak =
-      !IsMarketModeEntryFilterEnabled(DXB_FILTER_EARLY_WEAK_EXIT) ||
-      rawEarlyWeak;
-   bool okEarlyReverse =
-      !IsMarketModeEntryFilterEnabled(DXB_FILTER_EARLY_REVERSE) ||
-      rawEarlyReverse;
-   bool okCooldown =
-      !IsMarketModeEntryFilterEnabled(DXB_FILTER_ORDER_COOLDOWN) ||
-      rawCooldown;
-
-   ResetEntryDiagnosticSnapshot(direction, "LIVE DASHBOARD");
-
-   SetEntryDiagnosticFilter(DXB_FILTER_DIRECTION,
-                            rawDirection,
-                            DirectionText(direction));
-   SetEntryDiagnosticFilter(DXB_FILTER_SAR_CONFIRM,
-                            rawSARConfirm,
-                            SARConfirmDurationStatusText());
-   SetEntryDiagnosticFilter(DXB_FILTER_SAR_PRICE_SIDE,
-                            rawSARSide,
-                            SARSignalSideStatusText());
-   SetEntryDiagnosticFilter(DXB_FILTER_REPEATED_GAP,
-                            rawRepeatedGap,
-                            CheckListRepeatedGapText(direction));
-   SetEntryDiagnosticFilter(DXB_FILTER_SAR_CYCLE,
-                            rawCycle,
-                            IntegerToString(g_sarCycleOrdersCreated)+"/"+
-                            IntegerToString(g_sarCycleMaxOrders));
-   SetEntryDiagnosticFilter(DXB_FILTER_H1_TREND,
-                            rawH1,
-                            DirectionText(GetH1TrendDirection()));
-   SetEntryDiagnosticFilter(DXB_FILTER_LATE_SAR,
-                            rawLateSAR,
-                            rawLateSAR ? "SAFE" : lateReason);
-   SetEntryDiagnosticFilter(DXB_FILTER_STRICT_SAR_SCORE,
-                            rawStrictScore,
-                            IntegerToString(checklistScore)+"/"+
-                            IntegerToString(strictRequired));
-   SetEntryDiagnosticFilter(DXB_FILTER_DOUBTFUL_CANDLE,
-                            rawDoubtful,
-                            DoubtfulCandleStatusText(direction));
-   SetEntryDiagnosticFilter(DXB_FILTER_TRADING_ALLOWED,
-                            rawTrading,
-                            DashboardTradePermissionText());
-   SetEntryDiagnosticFilter(DXB_FILTER_SPREAD,
-                            rawSpread,
-                            IntegerToString(spread)+"/"+
-                            IntegerToString(InpMaxSpreadPoints));
-   SetEntryDiagnosticFilter(DXB_FILTER_EQUITY_LOCK,
-                            rawEquity,
-                            rawEquity ? "CLEAR" : "LOCKED");
-   SetEntryDiagnosticFilter(DXB_FILTER_NO_NEW_HOUR,
-                            rawNoHour,
-                            NoNewOrderHoursStatusText());
-   SetEntryDiagnosticFilter(DXB_FILTER_PROFIT_PAUSE,
-                            rawProfitPause,
-                            ProfitProtectPauseStatusText());
-   SetEntryDiagnosticFilter(DXB_FILTER_OPPOSITE_PAUSE,
-                            rawOppositePause,
-                            OppositeDirectionProfitPauseStatusText());
-   SetEntryDiagnosticFilter(DXB_FILTER_BIG_CANDLE,
-                            rawBigCandle,
-                            BigCandleDirectionalStatusText(
-                               direction));
-   SetEntryDiagnosticFilter(DXB_FILTER_SPIKE_WICK,
-                            rawSpikeWick,
-                            SpikeWickPauseStatusText());
-   SetEntryDiagnosticFilter(DXB_FILTER_MIN_GAP,
-                            rawMinGap,
-                            DoubleToString(GetEffectiveMinPriceGap(),1));
-   SetEntryDiagnosticFilter(DXB_FILTER_MAX_OPEN_DIR,
-                            rawMaxOpen,
-                            IntegerToString(CountOrdersByDirection(direction))+
-                            "/"+IntegerToString(InpMaxOrders));
-   SetEntryDiagnosticFilter(DXB_FILTER_TOTAL_OPEN,
-                            rawTotalOpen,
-                            IntegerToString(CountAllOrders())+
-                            "/"+IntegerToString(InpMaxTotalOpenOrders));
-   SetEntryDiagnosticFilter(DXB_FILTER_AUTO_MARKET_MODE,
-                            rawAutoMarket,
-                            AutoMarketModeStatusText());
-   SetEntryDiagnosticFilter(DXB_FILTER_DYNAMIC_SAR,
-                            rawDynamicSAR,
-                            dynamicReason);
-   SetEntryDiagnosticFilter(DXB_FILTER_FLAT_MODE,
-                            rawFlatMode,
-                            rawFlatMode ? "CLEAR" : "FLAT");
-   SetEntryDiagnosticFilter(DXB_FILTER_EARLY_WEAK_EXIT,
-                            rawEarlyWeak,
-                            g_earlySARWeakExitReason);
-   SetEntryDiagnosticFilter(DXB_FILTER_EARLY_REVERSE,
-                            rawEarlyReverse,
-                            g_sarPausedByEarly ? "PAUSED" : "CLEAR");
-   SetEntryDiagnosticFilter(DXB_FILTER_ORDER_COOLDOWN,
-                            rawCooldown,
-                            IntegerToString(InpOrderCooldownSeconds)+"s");
-
-   FinalizeEntryDiagnosticSnapshot();
+   RefreshNormalEntryDiagnosticSnapshot(direction,
+                                         "LIVE DASHBOARD");
 
    bool allOk = (g_entryDiagBlockedCount == 0);
 
@@ -14095,14 +13988,14 @@ void DrawLeftOrderCreationChecklist(string mainStatus)
                    clrBlack,clrDimGray);
 
    DrawCornerLabel("DXB_LEFT_CHK_TITLE",
-                   "ORDER CREATION CHECKLIST",
+                   "NEW ORDER DECISION - LIVE / REQUIRED VALUES",
                    CORNER_LEFT_UPPER,
                    10,22,clrYellow,10);
 
    ClearLeftProfessionalChecklistRows();
    g_leftDashRow = 0;
 
-   LeftProRow("FINAL RESULT",
+   LeftProRow("NEW ORDER",
               allOk
               ? "READY TO OPEN"
               : "BLOCKED BY " +
@@ -14110,230 +14003,89 @@ void DrawLeftOrderCreationChecklist(string mainStatus)
                 " FILTER(S)",
               allOk ? clrLime : clrOrangeRed);
 
-   LeftProRow("Candidate",
-              DirectionText(direction) +
-              " | " + g_autoMarketModeText,
-              DirectionColor(direction));
-
-   LeftProRow("Filter Case",
-              IntegerToString(g_entryDiagEnabledCount) +
-              " ON / " +
-              IntegerToString(g_entryDiagDisabledCount) +
-              " OFF | DIRECT MODE",
-              MarketFlowModeColor());
-
-   LeftProRow("Passed / Failed",
-              IntegerToString(g_entryDiagPassedCount) +
-              " / " +
-              IntegerToString(g_entryDiagBlockedCount),
-              allOk ? clrLime : clrOrangeRed);
-
-   LeftProRow("PRIMARY BLOCK",
-              StringSubstr(g_entryDiagPrimaryBlock,0,55),
+   LeftProRow("PRIMARY REASON",
+              StringSubstr(g_entryDiagPrimaryBlock,0,62),
               allOk ? clrLime : clrOrangeRed);
 
    LeftProRow("ALL BLOCKERS",
-              StringSubstr(g_entryDiagBlockerList,0,55),
+              StringSubstr(g_entryDiagBlockerList,0,62),
               allOk ? clrSilver : clrOrangeRed);
 
-   LeftProRow("Runtime Status",
-              StringSubstr(mainStatus,0,55),
+   LeftProRow("Candidate / SAR",
+              DirectionExactStatusText(direction),
+              DirectionColor(direction));
+
+   LeftProRow("MARKET MODE",
+              g_autoMarketModeText +
+              (IsAutoMarketTradingPaused()
+               ? " | BLOCK ALL NEW ORDERS"
+               : " | ALLOW NEW ORDERS"),
+              MarketFlowModeColor());
+
+   LeftProRow("Mode Exact",
+              StringSubstr(AutoMarketModeStatusText(),0,62),
+              MarketFlowModeColor());
+
+   LeftProRow("Profile",
+              g_entryDiagProfileText +
+              " | " +
+              IntegerToString(g_entryDiagEnabledCount) +
+              " ON / " +
+              IntegerToString(g_entryDiagDisabledCount) +
+              " OFF",
               clrAqua);
 
+   LeftProRow("Passed / Failed",
+              IntegerToString(g_entryDiagPassedCount) +
+              " / " + IntegerToString(g_entryDiagBlockedCount),
+              allOk ? clrLime : clrOrangeRed);
+
+   LeftProRow("Runtime Status",
+              StringSubstr(mainStatus,0,62),
+              clrWhite);
+
    LeftProRow("Last Runtime Block",
-              StringSubstr(g_lastOrderOpenReason,0,55),
+              StringSubstr(g_lastOrderOpenReason,0,62),
               g_lastOrderOpenReason == "WAIT ORDER"
-              ? clrWhite : clrOrange);
+              ? clrSilver : clrOrange);
+
+   LeftProRow("--- ACTIVE FILTERS: LIVE / REQUIRED ---","",clrDimGray);
+
+   for(int filterId = 0; filterId < DXB_FILTER_COUNT; filterId++)
+     {
+      if(!g_entryDiagEnabled[filterId])
+         continue;
+
+      bool passed = g_entryDiagPassed[filterId];
+      string value = (passed ? "PASS | " : "BLOCK | ") +
+                     g_entryDiagDetail[filterId];
+
+      LeftProRow(EntryFilterDisplayName(filterId),
+                 StringSubstr(value,0,62),
+                 passed ? clrLime : clrOrangeRed);
+     }
+
+   LeftProRow("--- DISABLED / BYPASSED FILTERS ---","",clrDimGray);
+   LeftProRow("Disabled 1",
+              EntryAuditSegment(g_entryDiagDisabledList,0,62),
+              clrSilver);
+   LeftProRow("Disabled 2",
+              EntryAuditSegment(g_entryDiagDisabledList,1,62),
+              clrSilver);
+   LeftProRow("Disabled 3",
+              EntryAuditSegment(g_entryDiagDisabledList,2,62),
+              clrSilver);
 
    LeftProRow("Last Close",
-              StringSubstr(g_lastOrderCloseMessage,0,55),
+              StringSubstr(g_lastOrderCloseMessage,0,62),
               g_lastOrderCloseMessage == "NO CLOSE YET"
               ? clrSilver : clrAqua);
 
-   LeftProRow("--- ORDER SIGNAL ---","",clrDimGray);
-
-   LeftProModeCheck("Direction",
-                    DXB_FILTER_DIRECTION,
-                    rawDirection,
-                    DirectionText(direction));
-
-   LeftProModeCheck("SAR Confirm",
-                    DXB_FILTER_SAR_CONFIRM,
-                    rawSARConfirm,
-                    SARConfirmDurationStatusText());
-
-   LeftProRow("SAR Age",
-              IntegerToString(GetSARSignalAgeMinutes()) +
-              "m / " +
-              IntegerToString(InpDynamicMinSignalMinutes) +
-              "m",
-              GetSARSignalAgeMinutes() >=
-              InpDynamicMinSignalMinutes
-              ? clrLime : clrOrange);
-
-   LeftProModeCheck("SAR Price Side",
-                    DXB_FILTER_SAR_PRICE_SIDE,
-                    rawSARSide,
-                    SARSignalSideStatusText());
-
-   LeftProModeCheck("Repeated Gap",
-                    DXB_FILTER_REPEATED_GAP,
-                    rawRepeatedGap,
-                    CheckListRepeatedGapText(direction));
-
-   LeftProModeCheck("SAR Cycle",
-                    DXB_FILTER_SAR_CYCLE,
-                    rawCycle,
-                    IntegerToString(g_sarCycleOrdersCreated) +
-                    "/" +
-                    IntegerToString(g_sarCycleMaxOrders));
-
-   LeftProRow("--- TREND FILTERS ---","",clrDimGray);
-
-   LeftProModeCheck("H1 Trend",
-                    DXB_FILTER_H1_TREND,
-                    rawH1,
-                    DirectionText(GetH1TrendDirection()));
-
-   LeftProRow("EMA Trend",
-              DirectionText(g_pendingSARConfirmDirection),
-              DirectionColor(g_pendingSARConfirmDirection));
-
-   LeftProRow("Early Trend",
-              DirectionText(g_earlyDirection),
-              DirectionColor(g_earlyDirection));
-
-   LeftProRow("SAR Momentum",
-              IsCurrentSARGoodMomentum(g_activeSARDirection)
-              ? "GOOD" : "WEAK",
-              IsCurrentSARGoodMomentum(g_activeSARDirection)
-              ? clrLime : clrOrangeRed);
-
-   LeftProRow("SAR Weak Mark",
-              StringSubstr(g_lastSARWeakSignalMarkerReason,0,45),
-              g_lastSARWeakSignalMarkerReason == "OFF"
-              ? clrSilver : InpSARWeakSignalMarkerColor);
-
-   LeftProModeCheck("Late Entry",
-                    DXB_FILTER_LATE_SAR,
-                    rawLateSAR,
-                    LateSARCycleEntryStatusText(direction));
-
-   LeftProModeCheck("Strict SAR Score",
-                    DXB_FILTER_STRICT_SAR_SCORE,
-                    rawStrictScore,
-                    IntegerToString(checklistScore) +
-                    "/" + IntegerToString(strictRequired));
-
-   LeftProModeCheck("Doubtful Candle",
-                    DXB_FILTER_DOUBTFUL_CANDLE,
-                    rawDoubtful,
-                    DoubtfulCandleStatusText(direction));
-
-   LeftProRow("SAR Score",
-              IntegerToString(g_dynamicSARScore) +
-              "/" + IntegerToString(strictRequired) +
-              " | " + g_dynamicSARDecision,
-              g_dynamicSARScore >= strictRequired
-              ? clrLime : clrOrange);
-
-   LeftProRow("--- TRADING FILTERS ---","",clrDimGray);
-
-   LeftProModeCheck("Trading Allowed",
-                    DXB_FILTER_TRADING_ALLOWED,
-                    rawTrading);
-
-   LeftProModeCheck("Spread",
-                    DXB_FILTER_SPREAD,
-                    rawSpread,
-                    IntegerToString(spread) + "/" +
-                    IntegerToString(InpMaxSpreadPoints));
-
-   LeftProModeCheck("Equity/Daily Lock",
-                    DXB_FILTER_EQUITY_LOCK,
-                    rawEquity);
-
-   LeftProModeCheck("No-New-Hour",
-                    DXB_FILTER_NO_NEW_HOUR,
-                    rawNoHour,
-                    NoNewOrderHoursStatusText());
-
-   LeftProModeCheck("Profit Pause",
-                    DXB_FILTER_PROFIT_PAUSE,
-                    rawProfitPause,
-                    ProfitProtectPauseStatusText());
-
-   LeftProModeCheck("Opposite Pause",
-                    DXB_FILTER_OPPOSITE_PAUSE,
-                    rawOppositePause,
-                    OppositeDirectionProfitPauseStatusText());
-
-   LeftProModeCheck("Big Candle",
-                    DXB_FILTER_BIG_CANDLE,
-                    rawBigCandle,
-                    BigCandleDirectionalStatusText(
-                       direction));
-
-   LeftProModeCheck("Spike/Wick",
-                    DXB_FILTER_SPIKE_WICK,
-                    rawSpikeWick,
-                    SpikeWickPauseStatusText());
-
-   LeftProModeCheck("Min Gap",
-                    DXB_FILTER_MIN_GAP,
-                    rawMinGap,
-                    DoubleToString(GetEffectiveMinPriceGap(),0));
-
-   LeftProRow("--- ORDER LIMITS ---","",clrDimGray);
-
-   LeftProModeCheck("Max Open Dir",
-                    DXB_FILTER_MAX_OPEN_DIR,
-                    rawMaxOpen,
-                    IntegerToString(
-                       CountOrdersByDirection(direction)) +
-                    "/" + IntegerToString(InpMaxOrders));
-
-   LeftProModeCheck("Total Open",
-                    DXB_FILTER_TOTAL_OPEN,
-                    rawTotalOpen,
-                    IntegerToString(CountAllOrders()) +
-                    "/" +
-                    IntegerToString(InpMaxTotalOpenOrders));
-
-   LeftProRow("--- INTERNAL GATES ---","",clrDimGray);
-
-   LeftProModeCheck("Auto Market Mode",
-                    DXB_FILTER_AUTO_MARKET_MODE,
-                    rawAutoMarket,
-                    AutoMarketModeStatusText());
-
-   LeftProModeCheck("Dynamic SAR",
-                    DXB_FILTER_DYNAMIC_SAR,
-                    rawDynamicSAR,
-                    dynamicReason);
-
-   LeftProModeCheck("Flat Mode",
-                    DXB_FILTER_FLAT_MODE,
-                    rawFlatMode,
-                    rawFlatMode ? "CLEAR" : "FLAT");
-
-   LeftProModeCheck("Early Weak Exit",
-                    DXB_FILTER_EARLY_WEAK_EXIT,
-                    rawEarlyWeak,
-                    g_earlySARWeakExitReason);
-
-   LeftProModeCheck("Early Reverse",
-                    DXB_FILTER_EARLY_REVERSE,
-                    rawEarlyReverse,
-                    g_sarPausedByEarly ? "PAUSED" : "CLEAR");
-
-   LeftProModeCheck("Order Cooldown",
-                    DXB_FILTER_ORDER_COOLDOWN,
-                    rawCooldown,
-                    IntegerToString(InpOrderCooldownSeconds) + "s");
-
-   LeftProRow("Next Order",
-              allOk ? "ALLOWED NOW" : "WAIT / BLOCKED",
+   LeftProRow("NEXT ORDER",
+              allOk
+              ? "ALLOWED NOW"
+              : "WAIT: " +
+                StringSubstr(g_entryDiagPrimaryBlock,0,48),
               allOk ? clrLime : clrOrangeRed);
 
    DrawRecoveryChecklistPanel(direction);
@@ -14520,7 +14272,7 @@ void DrawDashboard(string status)
   {
    DrawCornerPanel("DXB_RIGHT_SETTINGS_PANEL",
                    CORNER_RIGHT_UPPER,
-                   325,280,320,610,
+                   325,280,320,680,
                    clrBlack,clrDimGray);
 
    string liveModeText = DashboardLiveModeText();
@@ -14540,7 +14292,7 @@ void DrawDashboard(string status)
                    13);
 
    DrawCornerLabel("DXB_RIGHT_SETTINGS_TITLE",
-                   liveModeText + " | VERSION 1.44",
+                   liveModeText + " | VERSION 1.45",
                    CORNER_RIGHT_UPPER,
                    300,287,
                    liveModeColor,
@@ -14559,6 +14311,15 @@ void DrawDashboard(string status)
    RightProRow("EA Status",
                StringSubstr(status,0,38),
                clrYellow);
+   RightProRow("NEW ORDER GATE",
+               g_entryDiagBlockedCount > 0
+               ? "BLOCKED | " + StringSubstr(g_entryDiagPrimaryBlock,0,25)
+               : "READY TO OPEN",
+               g_entryDiagBlockedCount > 0 ? clrOrangeRed : clrLime);
+   RightProRow("MAJOR MODE",
+               g_autoMarketModeText +
+               (IsAutoMarketTradingPaused() ? " | BLOCK" : " | ALLOW"),
+               MarketFlowModeColor());
    RightProRow("--- TRADING ---","",clrDimGray);
    RightProRow("Lot Size",DoubleToString(InpFixedLot,2),clrWhite);
    RightProRow("Slippage",IntegerToString(InpSlippage),clrWhite);
@@ -14757,7 +14518,7 @@ void DrawDashboard(string status)
    DrawCornerLabel("DXB_ACC_6",PadTitle("Floating Total",20)+" : $"+DoubleToString(GetAllOpenEAOrdersProfit(),2),CORNER_RIGHT_UPPER,315,baseY+(g_rightDashRow++*16),GetAllOpenEAOrdersProfit()>=0 ? clrLime : clrRed,8);
    DrawCornerLabel("DXB_ACC_7",PadTitle("Daily Target",20)+" : $"+DoubleToString(g_profitTargetEquity,2),CORNER_RIGHT_UPPER,315,baseY+(g_rightDashRow++*16),clrLime,8);
    DrawCornerLabel("DXB_ACC_8",PadTitle("Loss Stop",20)+" : $"+DoubleToString(g_lossStopEquityLevel,2),CORNER_RIGHT_UPPER,315,baseY+(g_rightDashRow++*16),clrRed,8);
-   DrawCornerLabel("DXB_ACC_9",PadTitle("Open Orders",20)+" : "+IntegerToString(CountAllOrders())+" / "+IntegerToString(InpMaxTotalOpenOrders),CORNER_RIGHT_UPPER,315,baseY+(g_rightDashRow++*16),CountAllOrders()>=InpMaxTotalOpenOrders && InpMaxTotalOpenOrders>0 ? clrOrangeRed : clrLime,8);
+   DrawCornerLabel("DXB_ACC_9",PadTitle("Open Orders",20)+" : "+IntegerToString(CountAllEntriesForCap())+" / "+IntegerToString(InpMaxTotalOpenOrders),CORNER_RIGHT_UPPER,315,baseY+(g_rightDashRow++*16),CountAllEntriesForCap()>=InpMaxTotalOpenOrders && InpMaxTotalOpenOrders>0 ? clrOrangeRed : clrLime,8);
    DrawCornerLabel("DXB_ACC_10",PadTitle("SAR Max Rule",20)+" : Max "+IntegerToString(GetDynamicSARMaxOrders()),CORNER_RIGHT_UPPER,315,baseY+(g_rightDashRow++*16),GetDynamicSARMaxOrders()<=0 ? clrRed : clrYellow,8);
    DrawCornerLabel("DXB_ACC_11",PadTitle("Next Reset",20)+" : "+FormatSecondsToHHMM(GetSecondsUntilNextEquityReset()),CORNER_RIGHT_UPPER,315,baseY+(g_rightDashRow++*16),clrAqua,8);
 

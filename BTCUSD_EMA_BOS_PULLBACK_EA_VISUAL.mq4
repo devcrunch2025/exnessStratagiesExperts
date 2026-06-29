@@ -49,7 +49,7 @@ double InpMomentumContinuationRaw    = 100.0;
 double InpBasketProfitUSD                    = 0.50; // X1 base profit step
 double InpDynamicBasketMinimumArmUSD        = 0.25; // arm small-profit protection only here
 double InpDynamicBasketMinimumCloseUSD      = 0.10; // protected floor after minimum arm
-double InpDynamicBasketMultiplierStep       = 1.00; // X1, X2, X3... when set to 1.00
+double InpDynamicBasketMultiplierStep       = 0.50;//1.00; // X1, X2, X3... when set to 1.00
 double InpDynamicBasketProfitMaxX            = 0.0; // 0.0 = unlimited; e.g. 5.0 caps at X5
 
 // Broker/server-side profit protection:
@@ -63,7 +63,7 @@ bool   InpUseServerSideProfitLock            = true;
 double InpServerProfitLockBufferUSD          = 0.03;
 int    InpServerProfitLockRetrySeconds       = 5;
 
-double InpFixedStopLossUSD                   = 2.00;
+double InpFixedStopLossUSD                   = 0.25;//2.00;
 
 
 
