@@ -76,7 +76,7 @@ double InpDynamicBasketReturnBufferUSD     = 0.00;
 //   peak reaches X1.5 $0.75=> advance protection to X1.5, continuing upward
 // Close only when current profit comes back to the highest protected value.
 double InpDynamicBasketMinimumArmUSD       = 0.10;//0.20;//before Dynamic profit 
-double InpDynamicBasketMinimumCloseUSD     = 0.02;//0.10;//before Dynamic profit
+double InpDynamicBasketMinimumCloseUSD     = 0.05;//0.10;//before Dynamic profit
 
 // Drawdown comeback trailing floor:
 // Once a BUY/SELL basket touches a negative loss step, remember the worst loss

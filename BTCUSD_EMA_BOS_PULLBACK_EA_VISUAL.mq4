@@ -48,7 +48,9 @@ double InpMomentumContinuationRaw    = 100.0;
 // The worst BUY loss never changes SELL state, and vice versa.
 double InpBasketProfitUSD                    = 0.50; // X1 base profit step
 double InpDynamicBasketMinimumArmUSD        = 0.10; // touch $0.20 before protecting the $0.10 floor
-double InpDynamicBasketMinimumCloseUSD      = 0.02; // EA fallback floor after the $0.20 arm
+double InpDynamicBasketMinimumCloseUSD      = 0.05; // EA fallback floor after the $0.20 arm
+
+
 double InpDynamicBasketMultiplierStep       = 0.50; // X0.5, X1.0, X1.5... for a $0.50 X1 base
 double InpDynamicBasketProfitMaxX            = 0.0; // 0.0 = unlimited; e.g. 5.0 caps at X5
 
@@ -63,7 +65,7 @@ bool   InpUseServerSideProfitLock            = true;
 double InpServerProfitLockBufferUSD          = 0.01; // $0.10 floor requests about $0.11 net at broker SL
 int    InpServerProfitLockRetrySeconds       = 5;
 
-double InpFixedStopLossUSD                   = 0.25;//2.00;
+double InpFixedStopLossUSD                   = 0.50;//0.25;//2.00;
 
 
 
@@ -4703,11 +4705,11 @@ void DrawDashboard(string status)
                   ANCHOR_CENTER,
                   "Arial Bold");
 
-   int y = top + 63;
+   int y = top + 30;
 
-   DashboardSection("ACCOUNT", "ACCOUNT & DAILY PROTECTION", y,
-                    C'65,170,255');
-   y += 26;
+   // DashboardSection("ACCOUNT", "ACCOUNT & DAILY PROTECTION", y,
+   //                  C'65,170,255');
+   // y += 26;
 
    DashboardRow("BALANCE", "Account Balance",
                 "$" + DoubleToString(AccountBalance(), 2),
@@ -4737,7 +4739,7 @@ void DrawDashboard(string status)
 
    DashboardSection("SIGNAL", "MARKET SIGNAL", y,
                     C'185,110,255');
-   y += 26;
+   // y += 26;
 
    DashboardRow("EMA_TREND", "EMA Trend",
                 emaTxt,
@@ -4796,7 +4798,7 @@ void DrawDashboard(string status)
 
    DashboardSection("ORDERS", "ORDERS & LIVE PROFIT", y,
                     C'65,220,125');
-   y += 26;
+   // y += 26;
 
    DashboardRow("ORDER_COUNT", "BUY / SELL Orders",
                 IntegerToString(buyOrders) + " / " +
