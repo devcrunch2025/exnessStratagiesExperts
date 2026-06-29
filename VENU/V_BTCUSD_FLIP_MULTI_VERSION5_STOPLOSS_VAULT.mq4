@@ -377,7 +377,7 @@ bool   InpDeletePendingOrdersOnSARChange     = true;
 // Existing order close/profit/protection/recovery management continues.
 // TimeGMT()+4 is used, so broker-server, VPS and VPN time zones do not affect this rule.
 bool   InpUseNoNewOrderHours      = true;
-string InpNoNewOrderHourList      = "14,15,16,17,18,19,20"; // Dubai-time hours
+string InpNoNewOrderHourList      = "11,12,13,14,15,16,17,18,19,20"; // Dubai-time hours
   
 
 
@@ -464,7 +464,7 @@ double InpContinuousOrderPriceGap    = 30;//10.0; //30  // raw price gap require
 int    InpContinuousOrderLookbackMinutes = 1;  // legacy input, not used by current continuity gap logic
 int    InpContinuousOrderGapMinutes  = 1;      // wait this many minutes after last order, then verify price gap
 
-double InpSARConfirmPriceDiff     = 50.0;   // SAR signal-change raw price diff confirmation only
+double InpSARConfirmPriceDiff     =10;// 50.0;   // SAR signal-change raw price diff confirmation only
 int    InpSARConfirmMinutes       = 5;      // used by the full profile only
 // First normal order after every SAR flip:
 // true = bypass all strategy filters and require only the FIXED live raw-price
@@ -1565,6 +1565,9 @@ bool FirstSAROrderFilterCase(int filterId)
       case DXB_FILTER_SAR_CONFIRM:     return(true);  // fixed live price difference
       case DXB_FILTER_TRADING_ALLOWED: return(true);  // MT4/broker safety
       case DXB_FILTER_MAX_OPEN_DIR:    return(true);  // independent BUY/SELL cap
+
+       // Block first order during configured Dubai hours
+      case DXB_FILTER_NO_NEW_HOUR:      return(true);
      }
 
    return(false);
@@ -2612,8 +2615,15 @@ void MarkOpenedOrderOnChart(int ticket, int direction, string commentText, datet
   }
 
 //+------------------------------------------------------------------+
+
+int g_onInitTickCount = 0;
+int  g_tickConfirmationCount = 0;
 int OnInit()
   {
+
+     g_onInitTickCount        = GetTickCount();
+   g_tickConfirmationCount = 0;
+
    Print("PRE-LADDER SERVER LOCK CONFIG | Arm=$",
          DoubleToString(GetDynamicBasketMinimumArmUSD(),2),
          " | EA Floor=$",
@@ -2638,11 +2648,17 @@ int OnInit()
    InpProfitTargetPercent = 2000.0;
 }
 
-// if(AccountNumber()==291085426)
-// {
-//     InpProfitTargetPercent = 2000.0;
+if(AccountNumber()==291085426)
+{
+    InpProfitTargetPercent = 2000.0;
+    InpNoNewOrderHourList="";
 
-// }
+}
+else
+{
+  InpNoNewOrderHourList      = "11,12,13,14,15,16,17,18,19,20"; // Dubai-time hours
+   
+}
 
 
 
@@ -9554,6 +9570,28 @@ void TrackActivatedPendingNormalOrder()
 //+------------------------------------------------------------------+
 void OnTick()
   {
+
+
+
+// Print confirmation only for the first two received ticks.
+   if(g_tickConfirmationCount < 2)
+   {
+      g_tickConfirmationCount++;
+ string msg =
+      "EA IS WORKING | TICK RECEIVED | Confirmation " +
+      IntegerToString(g_tickConfirmationCount) +
+      "/2" +
+      " | Symbol " + Symbol() +
+      " | Bid " + DoubleToString(Bid, Digits) +
+      " | Ask " + DoubleToString(Ask, Digits) +
+      " | Dubai " +
+      TimeToString(GetDubaiTime(), TIME_DATE | TIME_SECONDS);
+
+   Print(msg);
+      Print(msg);
+            SendNotification(msg);
+   }
+
   if(AccountEquity() <= 0)
    {
       string g_lastStatus =

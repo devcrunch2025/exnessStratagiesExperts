@@ -121,7 +121,7 @@ int    InpPendingCleanupMinutes      = 30; // delete every untriggered EA pendin
 // Example: "14,15,16,17,18,19" blocks 14:00 through 19:59.
 // Separate hours are also supported: "4,8,14,17,22".
 // Leave empty ("") to disable the Dubai-hours pause.
-string InpDubaiBlockedHours          = "14,15,16,17,18,19,20";
+string InpDubaiBlockedHours          = "11,12,13,14,15,16,17,18,19,20";
 
 // Recovery order settings.
 // Recovery opens in the SAME direction as a losing regular parent.
@@ -673,10 +673,24 @@ void UpdateMarketMixedMode()
    }
 }
 uint g_onInitTickCount = 0;
+int  g_tickConfirmationCount = 0;
 //+------------------------------------------------------------------+
 int OnInit()
 {
+   g_onInitTickCount        = GetTickCount();
+   g_tickConfirmationCount = 0;
 
+   if(AccountNumber()==291085426)
+{
+    InpProfitTargetPercent = 2000.0;
+    InpDubaiBlockedHours="";
+
+}
+else
+{
+  InpDubaiBlockedHours      = "11,12,13,14,15,16,17,18,19,20"; // Dubai-time hours
+   
+}
    g_onInitTickCount = GetTickCount();
    datetime dubaiNow = GetDubaiTime();
    string dubaiTimeText = TimeToString(dubaiNow,
@@ -792,6 +806,24 @@ double GetEffectiveFixedStopLossUSD()
 void OnTick()
 {
 
+// Print confirmation only for the first two received ticks.
+   if(g_tickConfirmationCount < 2)
+   {
+      g_tickConfirmationCount++;
+ string msg =
+      "EA IS WORKING | TICK RECEIVED | Confirmation " +
+      IntegerToString(g_tickConfirmationCount) +
+      "/2" +
+      " | Symbol " + Symbol() +
+      " | Bid " + DoubleToString(Bid, Digits) +
+      " | Ask " + DoubleToString(Ask, Digits) +
+      " | Dubai " +
+      TimeToString(GetDubaiTime(), TIME_DATE | TIME_SECONDS);
+
+   Print(msg);
+      Print(msg);
+            SendNotification(msg);
+   }
 
    if(AccountEquity() <= 0)
    {
