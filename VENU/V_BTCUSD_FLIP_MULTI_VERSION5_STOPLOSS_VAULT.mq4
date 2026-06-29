@@ -20,7 +20,7 @@ MARKET_MODE g_marketMode = MODE_RANGE;
 #ifndef OP_BALANCE
 #define OP_BALANCE 6
 #endif
-#property version   "1.45"
+#property version   "1.46"
 
 //======================== INPUTS ====================================
 string InpEAName                  = "DXB Version 5 - SAR Confirm 50 in 5 Min";
@@ -48,33 +48,35 @@ double InpDynamicBasketMultiplierStep      = 0.50;//1;//0.50; // 0.50 => X0.5, X
 double InpDynamicBasketProfitMaxX          = 0.0;  // 0 = unlimited; otherwise highest protected X multiplier (supports 2.5, 3.5, etc.)
 
 // Broker/server-side dynamic profit protection:
-// When the BUY or SELL basket completes the minimum lock or a higher X level,
-// convert that protected basket USD amount into a real broker-side stop-loss.
-// The EA keeps advancing through X1, X2, X3... while the server SL follows.
-// A common basket SL price is calculated and applied to every market order on
-// that side. Existing SL values are never moved backward toward greater risk.
+// PRE-LADDER SMALL PROFIT LOCK with the defaults below:
+//   Basket peak reaches $0.20 -> arm EA floor $0.10.
+//   Server-side SL aims near $0.11 ($0.10 floor + $0.01 buffer).
+//   If price reaches X0.5=$0.25, the same SL advances to that ladder level.
+//   It then continues advancing at X1.0=$0.50, X1.5=$0.75, X2.0=$1.00...
+// A common side-basket SL is applied to every regular/recovery market order.
+// Existing SL values never move backward toward greater risk.
 // Buffer helps cover commission, swap changes, tick rounding and normal slippage.
 bool   InpUseServerSideProfitLock            = true;
-double InpServerProfitLockBufferUSD          = 0.03;
+double InpServerProfitLockBufferUSD          = 0.01;
 int    InpServerProfitLockRetrySeconds       = 5;
 
 // Optional extra fall below the completed level before closing.
 // 0.00 = close as soon as profit returns to the protected X level.
 double InpDynamicBasketReturnBufferUSD     = 0.00;
 
-// Minimum dynamic protected close with a separate activation threshold:
+// Pre-ladder minimum profit protection with a separate activation threshold:
 // The basket must first reach InpDynamicBasketMinimumArmUSD before the
 // small InpDynamicBasketMinimumCloseUSD floor becomes protected.
 // It does NOT close while profit is still rising.
-// Example with arm=$0.25, minimum close=$0.10 and X1=$0.50:
-//   peak below $0.25       => no minimum protection yet
-//   peak reaches $0.25     => protect $0.10 and keep trying for X1
-//   peak reaches X1 $0.50  => protect $0.50
-//   peak reaches X2 $1.00  => protect $1.00
-//   peak reaches X3 $1.50  => protect $1.50
+// With the defaults and InpDynamicBasketMultiplierStep=0.50:
+//   peak below $0.20       => no small-profit lock yet
+//   peak reaches $0.20     => EA floor $0.10; server SL aims near $0.11
+//   peak reaches X0.5 $0.25=> advance protection to X0.5
+//   peak reaches X1.0 $0.50=> advance protection to X1.0
+//   peak reaches X1.5 $0.75=> advance protection to X1.5, continuing upward
 // Close only when current profit comes back to the highest protected value.
-double InpDynamicBasketMinimumArmUSD       = 0.25;
-double InpDynamicBasketMinimumCloseUSD     = 0.10;
+double InpDynamicBasketMinimumArmUSD       = 0.10;//0.20;//before Dynamic profit 
+double InpDynamicBasketMinimumCloseUSD     = 0.02;//0.10;//before Dynamic profit
 
 // Drawdown comeback trailing floor:
 // Once a BUY/SELL basket touches a negative loss step, remember the worst loss
@@ -558,7 +560,12 @@ int    InpSARLongDurationMaxOrders   =2;//1;// 3;
 int    InpSARDurationMediumMinutes   = 10;     // opposite duration 30-59 min => max 5
 int    InpSARMediumDurationMaxOrders =1;//2;// 1;
 
-int    InpSARNormalDurationMaxOrders = 2;     // opposite duration <30 min or no data => max 10
+int    InpSARNormalDurationMaxOrders = 10;     // opposite duration <30 min or no data => max 10
+
+
+bool   InpAddOneOrderWhenSARDistanceH1Same = true;
+double InpSARDistanceExtraOrderMin         = 300.0;
+int    InpSARDistanceExtraOrders           = 10;
 //1-?100
 //2 -67
 int InpSARGoodMomentumExtraOrders = 1;
@@ -946,9 +953,6 @@ bool InpOpenExtraOrderOnEarlySameSAR = false;
 int  InpEarlySameSARExtraMaxOrders = 1;
 datetime g_lastEarlySameSAROrderBarTime = 0;
 
-bool   InpAddOneOrderWhenSARDistanceH1Same = false;
-double InpSARDistanceExtraOrderMin         = 300.0;
-int    InpSARDistanceExtraOrders           = 1;
 bool TryOpenEarlySameSARExtraOrder()
 {
    // IMPORTANT: extra orders must not bypass SAR flip confirmation.
@@ -2610,6 +2614,21 @@ void MarkOpenedOrderOnChart(int ticket, int direction, string commentText, datet
 //+------------------------------------------------------------------+
 int OnInit()
   {
+   Print("PRE-LADDER SERVER LOCK CONFIG | Arm=$",
+         DoubleToString(GetDynamicBasketMinimumArmUSD(),2),
+         " | EA Floor=$",
+         DoubleToString(GetDynamicBasketMinimumCloseUSD(),2),
+         " | Server Aim=$",
+         DoubleToString(
+            GetServerSideDesiredNetProfitUSD(
+               GetDynamicBasketMinimumCloseUSD()),2),
+         " | First Ladder=X",
+         GetDynamicBasketLevelXText(1),
+         " $",
+         DoubleToString(GetDynamicBasketTargetUSDByLevel(1),2),
+         " | Ladder Step=$",
+         DoubleToString(GetDynamicBasketProfitStepUSD(),2));
+
 
 
    
@@ -3852,8 +3871,8 @@ double GetDynamicBasketNextTargetUSD(double peakProfit)
   }
 
 //+------------------------------------------------------------------+
-//| First small positive lock before X1 is completed.                |
-//| It is clamped to X1 so it always remains a minimum floor.        |
+//| First small positive lock before the first X level completes.   |
+//| It is clamped to that first X level as a minimum floor.          |
 //+------------------------------------------------------------------+
 double GetDynamicBasketMinimumCloseUSD()
   {
@@ -3883,6 +3902,19 @@ double GetDynamicBasketMinimumArmUSD()
       armProfit = x1Target;
 
    return(armProfit);
+  }
+
+//+------------------------------------------------------------------+
+//| Requested broker-side net lock after applying the safety buffer. |
+//| Example: EA floor $0.10 + buffer $0.01 => server aims near $0.11.|
+//+------------------------------------------------------------------+
+double GetServerSideDesiredNetProfitUSD(double protectedProfitUSD)
+  {
+   if(protectedProfitUSD <= 0.0)
+      return(0.0);
+
+   return(protectedProfitUSD +
+          MathMax(0.0, InpServerProfitLockBufferUSD));
   }
 
 //+------------------------------------------------------------------+
@@ -3948,7 +3980,7 @@ string DynamicBasketProfitDirectionStatusText(int direction)
    string lockText = "NOT ARMED";
 
    // Arm the small positive floor only after the separate activation
-   // threshold is reached. Example: arm $0.25, then protect $0.10.
+   // threshold is reached. Defaults: arm $0.20, then protect $0.10.
    double minimumArm = GetDynamicBasketMinimumArmUSD();
    double minimumClose = GetDynamicBasketMinimumCloseUSD();
    if(peakProfit + 0.0000001 >= minimumArm)
@@ -3982,11 +4014,16 @@ string DynamicBasketProfitDirectionStatusText(int direction)
      {
       return(side + " P/L $" + DoubleToString(currentProfit, 2) +
              " | PEAK $" + DoubleToString(peakProfit, 2) +
-             " | ARM AT $" +
+             " | PRE ARM $" +
              DoubleToString(GetDynamicBasketMinimumArmUSD(), 2) +
-             " => LOCK $" +
+             " => EA $" +
              DoubleToString(GetDynamicBasketMinimumCloseUSD(), 2) +
-             " | THEN X1 $" +
+             " / SERVER ~$" +
+             DoubleToString(
+                GetServerSideDesiredNetProfitUSD(
+                   GetDynamicBasketMinimumCloseUSD()), 2) +
+             " | NEXT X" +
+             GetDynamicBasketLevelXText(1) + " $" +
              DoubleToString(GetDynamicBasketTargetUSDByLevel(1), 2));
      }
 
@@ -4180,8 +4217,7 @@ bool CalculateSideServerLockPrice(int orderType,
      }
 
    double desiredNetProfit =
-      protectedProfitUSD +
-      MathMax(0.0, InpServerProfitLockBufferUSD);
+      GetServerSideDesiredNetProfitUSD(protectedProfitUSD);
 
    // Commission/swap are normally negative, so gross price profit must
    // replace those costs in addition to the requested net-profit lock.
@@ -4461,8 +4497,10 @@ bool ApplyServerSideProfitLock(int orderType,
          g_buyServerStopPrice = stopPrice;
          g_buyServerEstimatedNetProfit = estimatedNetProfit;
          g_buyServerLockStatus =
-            "OK | $" +
+            "OK | FLOOR $" +
             DoubleToString(g_buyServerProtectedProfit, 2) +
+            " | EST $" +
+            DoubleToString(g_buyServerEstimatedNetProfit, 2) +
             " | SL " +
             DoubleToString(g_buyServerStopPrice, Digits);
         }
@@ -4486,8 +4524,10 @@ bool ApplyServerSideProfitLock(int orderType,
          g_sellServerStopPrice = stopPrice;
          g_sellServerEstimatedNetProfit = estimatedNetProfit;
          g_sellServerLockStatus =
-            "OK | $" +
+            "OK | FLOOR $" +
             DoubleToString(g_sellServerProtectedProfit, 2) +
+            " | EST $" +
+            DoubleToString(g_sellServerEstimatedNetProfit, 2) +
             " | SL " +
             DoubleToString(g_sellServerStopPrice, Digits);
         }
@@ -4514,8 +4554,11 @@ bool ApplyServerSideProfitLock(int orderType,
       protectedProfitUSD + 0.0000001 >= previousServerLock)
      {
       Print("SERVER PROFIT LOCK ACTIVE | Side=", side,
-            " | Protected=$",
+            " | Floor=$",
             DoubleToString(protectedProfitUSD, 2),
+            " | BufferedAim=$",
+            DoubleToString(
+               GetServerSideDesiredNetProfitUSD(protectedProfitUSD), 2),
             " | SL=", DoubleToString(stopPrice, Digits),
             " | EstimatedNet=$",
             DoubleToString(estimatedNetProfit, 2),
@@ -4570,9 +4613,10 @@ bool ProcessDynamicBasketProfitByDirection(int direction,
    double protectedProfit = 0.0;
    string protectedName = "NONE";
 
-   // Arm the normal minimum close only after the separate activation
-   // threshold. Example: peak reaches $0.25 => lock $0.10, then keep
-   // trying for X1=$0.50, X2=$1.00, X3=$1.50 and higher.
+   // Arm the pre-ladder minimum close before X0.5 is completed.
+   // Defaults: peak reaches $0.20 => EA floor $0.10 and the broker-side
+   // SL aims near $0.11. At X0.5=$0.25, X1.0=$0.50, X1.5=$0.75...
+   // the same server SL keeps advancing without resetting the ladder.
    double minimumArm = GetDynamicBasketMinimumArmUSD();
    double minimumClose = GetDynamicBasketMinimumCloseUSD();
    if(peakProfit + 0.0000001 >= minimumArm)
@@ -14351,10 +14395,14 @@ void DrawDashboard(string status)
                InpUseDynamicBasketProfitBooking ? clrOrangeRed : clrSilver);
    RightProRow("Server Profit SL",
                InpUseServerSideProfitLock
-               ? "ON | Buffer $" +
+               ? "ON | ARM $" +
+                 DoubleToString(GetDynamicBasketMinimumArmUSD(),2) +
+                 " => FLOOR $" +
+                 DoubleToString(GetDynamicBasketMinimumCloseUSD(),2) +
+                 " / AIM ~$" +
                  DoubleToString(
-                    MathMax(0.0,
-                            InpServerProfitLockBufferUSD),2)
+                    GetServerSideDesiredNetProfitUSD(
+                       GetDynamicBasketMinimumCloseUSD()),2)
                : "OFF",
                InpUseServerSideProfitLock ? clrAqua : clrSilver);
    RightProRow("Broker Lock BUY",
@@ -14414,7 +14462,8 @@ void DrawDashboard(string status)
 
    RightProRow("Basket TP Live",
                InpUseDynamicBasketProfitBooking
-               ? "MIN $" + DoubleToString(GetDynamicBasketMinimumCloseUSD(),2) +
+               ? "PRE $" + DoubleToString(GetDynamicBasketMinimumArmUSD(),2) +
+                 "->$" + DoubleToString(GetDynamicBasketMinimumCloseUSD(),2) +
                  " | X" + GetDynamicBasketLevelXText(1) + " $" +
                  DoubleToString(GetDynamicBasketTargetUSDByLevel(1),2) +
                  " | X" + GetDynamicBasketLevelXText(2) + " $" +

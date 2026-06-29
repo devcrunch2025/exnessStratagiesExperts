@@ -2,10 +2,10 @@
 //| BTCUSD_EMA_BOS_PENDING_RECOVERY_DYNAMIC_LOCK_V4.mq4            |
 //| All entries -> 20-raw pending STOP orders                       |
 //| Recovery: raw gap OR deep-loss comeback                         |
-//| Arm $0.25 -> broker SL lock $0.10 + dynamic X ladder           |
+//| Arm $0.20 -> lock $0.10, then X0.5/X1/X1.5 broker SL ladder    |
 //+------------------------------------------------------------------+
 #property strict
-#property version   "4.00"
+#property version   "4.01"
 
 double InpLotSize                    = 0.01;
 int    InpMagicNumber                = 44001;
@@ -32,10 +32,10 @@ double InpMomentumContinuationRaw    = 100.0;
 // SIDE-BASKET dynamic profit management (BUY and SELL are independent).
 // The small minimum close is NOT armed immediately. The basket must first
 // reach InpDynamicBasketMinimumArmUSD, then the protected floor becomes
-// InpDynamicBasketMinimumCloseUSD. After X1, locks advance by the configured
-// multiplier step. Example: arm=$0.25, minimum close=$0.10, X1=$0.50,
-// multiplier step=1.00 => no lock below $0.25, then $0.10, $0.50, $1.00,
-// $1.50... InpDynamicBasketProfitMaxX=0.0 keeps the ladder unlimited.
+// InpDynamicBasketMinimumCloseUSD. The X ladder starts at the configured
+// multiplier step. Example: arm=$0.20, minimum close=$0.10, X1=$0.50,
+// multiplier step=0.50 => no lock below $0.20, then $0.10, $0.25 (X0.5),
+// $0.50 (X1), $0.75 (X1.5)... ProfitMaxX=0.0 keeps it unlimited.
 // It does not close while profit is rising; it closes only when basket profit
 // falls back to the highest completed protected level.
 // Basket touched a full negative step: normal trailing is cancelled and the
@@ -47,9 +47,9 @@ double InpMomentumContinuationRaw    = 100.0;
 //   touch -$3.00         => comeback target = TP / 4
 // The worst BUY loss never changes SELL state, and vice versa.
 double InpBasketProfitUSD                    = 0.50; // X1 base profit step
-double InpDynamicBasketMinimumArmUSD        = 0.25; // arm small-profit protection only here
-double InpDynamicBasketMinimumCloseUSD      = 0.10; // protected floor after minimum arm
-double InpDynamicBasketMultiplierStep       = 0.50;//1.00; // X1, X2, X3... when set to 1.00
+double InpDynamicBasketMinimumArmUSD        = 0.10; // touch $0.20 before protecting the $0.10 floor
+double InpDynamicBasketMinimumCloseUSD      = 0.02; // EA fallback floor after the $0.20 arm
+double InpDynamicBasketMultiplierStep       = 0.50; // X0.5, X1.0, X1.5... for a $0.50 X1 base
 double InpDynamicBasketProfitMaxX            = 0.0; // 0.0 = unlimited; e.g. 5.0 caps at X5
 
 // Broker/server-side profit protection:
@@ -60,7 +60,7 @@ double InpDynamicBasketProfitMaxX            = 0.0; // 0.0 = unlimited; e.g. 5.0
 // absorb commission, swap changes, tick rounding and normal execution slippage.
 // Broker gaps and extreme slippage can still produce a different final result.
 bool   InpUseServerSideProfitLock            = true;
-double InpServerProfitLockBufferUSD          = 0.03;
+double InpServerProfitLockBufferUSD          = 0.01; // $0.10 floor requests about $0.11 net at broker SL
 int    InpServerProfitLockRetrySeconds       = 5;
 
 double InpFixedStopLossUSD                   = 0.25;//2.00;
@@ -2536,9 +2536,9 @@ double GetMarketModeTakeProfitUSD()
 }
 
 //+------------------------------------------------------------------+
-// Dynamic-profit ladder increment after X1.
+// Dynamic-profit ladder increment and first X lock.
 // InpDynamicBasketMultiplierStep=1.00 creates X1, X2, X3... levels.
-// A value of 0.50 creates X1, X1.5, X2, X2.5... levels.
+// A value of 0.50 creates X0.5, X1, X1.5, X2... levels.
 // The multiplier is applied to the active market-mode X1 value.
 //+------------------------------------------------------------------+
 double GetDynamicProfitLadderStepUSD()
@@ -3432,12 +3432,13 @@ bool CloseSideBasketByDynamicProfit(int orderType)
 
    bool lockRaised = false;
 
-   // Separate minimum activation and minimum protected close.
-   // Example: arm=$0.25, close=$0.10, X1=$0.50, step X1:
-   //   below $0.25 => no lock and no dynamic-profit close
-   //   reach $0.25 => protect $0.10
-   //   reach $0.50 => protect $0.50
-   //   reach $1.00 => protect $1.00, then $1.50, $2.00...
+   // Two-stage minimum floor followed by the configured X ladder.
+   // Example: arm=$0.20, close=$0.10, X1=$0.50, multiplier step=0.50:
+   //   below $0.20 => no profit lock
+   //   reach $0.20 => protect $0.10 (server request about $0.11 with buffer)
+   //   reach $0.25 => protect $0.25 (X0.5)
+   //   reach $0.50 => protect $0.50 (X1.0)
+   //   reach $0.75 => protect $0.75 (X1.5), then X2.0, X2.5...
    // InpDynamicBasketProfitMaxX=0.0 means the ladder has no maximum.
    double activeTakeProfit = GetMarketModeTakeProfitUSD();
    double ladderStep       = GetDynamicProfitLadderStepUSD();
@@ -3463,26 +3464,29 @@ bool CloseSideBasketByDynamicProfit(int orderType)
                                   minimumProtected);
       }
 
+      // The configured multiplier is both the first X level and the
+      // distance between later levels. With X1=$0.50 and step=0.50,
+      // completed locks are $0.25, $0.50, $0.75, $1.00...
       if(activeTakeProfit > 0.0 &&
          ladderStep > 0.0 &&
-         peakProfit + 0.0000001 >= activeTakeProfit)
+         peakProfit + 0.0000001 >= ladderStep)
       {
-         double extraProfit = peakProfit - activeTakeProfit;
-         if(extraProfit < 0.0)
-            extraProfit = 0.0;
-
-         double completedIncrements =
-            MathFloor((extraProfit + 0.0000001) / ladderStep);
+         double completedLevels =
+            MathFloor((peakProfit + 0.0000001) / ladderStep);
 
          double ladderLock =
-            activeTakeProfit + completedIncrements * ladderStep;
+            completedLevels * ladderStep;
 
          // Optional cap expressed as a multiplier of X1.
-         // 0.0 means unlimited. Values below X1 are normalized to X1.
+         // 0.0 means unlimited. A positive cap cannot be below the first
+         // configured ladder level.
          if(InpDynamicBasketProfitMaxX > 0.0)
          {
-            double maximumX = MathMax(1.0,
-                                      InpDynamicBasketProfitMaxX);
+            double firstLevelX =
+               ladderStep / activeTakeProfit;
+            double maximumX =
+               MathMax(firstLevelX,
+                       InpDynamicBasketProfitMaxX);
             double maximumLock = activeTakeProfit * maximumX;
             ladderLock = MathMin(ladderLock, maximumLock);
          }
