@@ -14,7 +14,7 @@ int    InpSlippage                   = 30;
 int    InpEMAPeriod                  = 50;
 int    InpSwingLookback              = 20;
 int    InpPullbackMaxBars            = 10;
-double InpMinBOSRawGap               = 20.0;
+double InpMinBOSRawGap               = 50.0;
 double InpPullbackMinRaw             = 30.0;
 double InpPullbackMaxRaw             = 120.0;
 
@@ -113,7 +113,7 @@ int    InpDashboardRowHeight         = 17;
 // BUY entries become BUYSTOP at Ask + raw gap.
 // SELL entries become SELLSTOP at Bid - raw gap.
 bool   InpUsePendingStopOrders       = true;
-double InpPendingStopGapRawPrice     = 20.0;
+double InpPendingStopGapRawPrice     = 50;//20.0;
 int    InpPendingCleanupMinutes      = 30; // delete every untriggered EA pending order
 
 // Dubai hours during which NEW orders are blocked.
@@ -141,7 +141,7 @@ bool   InpCloseRecoveryBasketAtTP        = true;
 // Any profitable REGULAR order that never recorded negative net P/L arms
 // one same-direction re-entry. It then waits for an active matching BOS.
 // The matching BOS does NOT need to exist at the exact closing tick.
-bool   InpUseCleanProfitPullback          = true;
+bool   InpUseCleanProfitPullback          = false;
 int    InpCleanProfitPullbackMaxBars      = 3;
 
 // Emergency money stop. Keep it above the break-even trigger.
