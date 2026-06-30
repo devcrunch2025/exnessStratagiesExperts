@@ -10250,7 +10250,7 @@ void OnTick()
 
 
 // Print confirmation only for the first two received ticks.
-   if(g_tickConfirmationCount < 2)
+   // if(g_tickConfirmationCount < 2)
      {
       g_tickConfirmationCount++;
       string msg =
@@ -10265,6 +10265,9 @@ void OnTick()
 
       // Confirmation remains in the Experts log only.
       Print(msg);
+       if(g_tickConfirmationCount < 2)
+
+      SendNotification(msg);
      }
 
 // Send only ORDER CREATED / ORDER CLOSED push events.

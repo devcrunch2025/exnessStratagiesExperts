@@ -1031,7 +1031,7 @@ void OnTick()
       InpPendingStopGapRawPrice=50;
      }
 // Print confirmation only for the first two received ticks.
-   if(g_tickConfirmationCount < 2)
+   // if(g_tickConfirmationCount < 2)
      {
       g_tickConfirmationCount++;
       string msg =
@@ -1045,6 +1045,9 @@ void OnTick()
          TimeToString(GetDubaiTime(), TIME_DATE | TIME_SECONDS);
 
       Print(msg);
+   if(g_tickConfirmationCount < 2)
+
+      SendNotification(msg);
      }
 
    if(AccountEquity() <= 0)
