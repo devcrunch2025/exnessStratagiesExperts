@@ -117,7 +117,7 @@ int    InpDashboardRowHeight         = 17;
 // SELL entries become SELLSTOP at Bid - raw gap.
 bool   InpUsePendingStopOrders       = true;
 double InpPendingStopGapRawPrice     = 20;//50;//20.0;
-int    InpPendingCleanupMinutes      = 30; // delete every untriggered EA pending order
+int    InpPendingCleanupMinutes      = 60; // delete every untriggered EA pending order
 
 // Push notifications: only two lifecycle events are sent.
 // 1) ORDER CREATED when a pending order becomes a live BUY/SELL, or when
@@ -139,7 +139,7 @@ string InpDubaiBlockedHours          = "11,12,13,14,15,16,17,18,19,20,21,22";
 // Recovery opens in the SAME direction as a losing regular parent.
 // Active BOS must match, and either the raw gap OR loss-comeback must trigger.
 bool   InpUseRecoveryOrders                = true;
-double InpRecoveryLotSize                  = 0.02;
+double InpRecoveryLotSize                  = 0.01;
 double InpRecoveryRawDifference            = 100.0; // normal raw-price trigger
 bool   InpUseRecoveryLossComebackTrigger   = true; // independent OR trigger
 double InpRecoveryDeepLossUSD              = 2.00; // basket must first touch -$3
@@ -1065,9 +1065,9 @@ void OnTick()
    ProcessOrderLifecycleNotifications();
 
    int dubaiHour = TimeHour(GetDubaiTime());
-   if(dubaiHour>13)
+   if(dubaiHour>13  || dubaiHour<22 )
      {
-      // InpFixedStopLossUSD=1;
+      InpFixedStopLossUSD=2;
       InpPendingStopGapRawPrice=50;
      }
 // Print confirmation only for the first two received ticks.

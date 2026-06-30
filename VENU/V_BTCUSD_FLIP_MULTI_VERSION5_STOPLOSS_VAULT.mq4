@@ -20,7 +20,7 @@ MARKET_MODE g_marketMode = MODE_RANGE;
 #ifndef OP_BALANCE
 #define OP_BALANCE 6
 #endif
-#property version   "1.50"
+#property version   "1.51"
 
 //======================== INPUTS ====================================
 string InpEAName                  = "DXB Version 5 - SAR Confirm 50 in 5 Min";
@@ -270,7 +270,13 @@ bool   InpCloseIfNextCandleNotProfit     = false;  // close order after next clo
 bool   InpOpenRecoveryAfterClose  = true;   // open recovery order after SL/SAR flip/early reverse close
 double InpRecoveryProfitUSD       = 1;//2.00;   // optional fixed close target; chain continuation does NOT wait for this target
 bool   InpRecoveryAfterSLReverse  = true;   // true: after basket SL, open opposite direction
-bool   InpContinueSLReverseRecoveryAfterProfit = false; // any SL-reverse chain recovery closed with net profit > $0 opens the next same-direction recovery continuously
+bool   InpContinueSLReverseRecoveryAfterProfit = true; // any SL-reverse chain recovery closed with net profit > $0 opens the next same-direction recovery continuously
+// SL-reverse recovery priority bypass:
+// Applies only to SLREV_RECOVERY_1 and SLREV_RECOVERY_CHAIN orders.
+// These orders ignore MIXED/DANGER market-mode pauses, big-candle pauses,
+// per-direction limits, total-order limits and the one-recovery-order limit.
+// Dubai no-new hours, AutoTrading/broker permission and equity locks remain active.
+bool   InpSLReverseRecoveryBypassEntryLimits = true;
 
 // Recovery gap orders: when existing BUY/SELL basket is in loss and price moves against it
 // by this raw price gap, open one more same-direction recovery order.
@@ -292,7 +298,7 @@ bool   InpKeepPendingRecoveryGapAfterBlock = false;
 bool   InpOpenPendingRecoveryWhenSARMatches = false;
 
 double InpRecoveryGapRawPrice     = 100;//50;//200.0;   // raw price difference, not points
-double InpRecoveryGapLot          = 0.02;
+double InpRecoveryGapLot          = 0.01;
 int    InpMaxRecoveryGapOrdersPerSide = 1;  // recovery ladder: 50, 100, 150 from first order price
 
 // Alternate recovery trigger based on basket-loss improvement:
@@ -6998,7 +7004,10 @@ void ProcessSLReverseRecoveryProfitContinuation()
    if(TimeCurrent() - g_recoveryChainLastOpenAttemptTime < 5)
       return;
 
-   if(CountRecoveryOrders() > 0)
+   // SL-reverse chain continuation is allowed even when another recovery/order
+   // exists when the dedicated bypass is enabled. OpenRecoveryOrder() still
+   // enforces Dubai hours, trading permission and equity protection.
+   if(!InpSLReverseRecoveryBypassEntryLimits && CountRecoveryOrders() > 0)
       return;
 
    if(IsDubaiNoNewOrderHourNow())
@@ -7127,6 +7136,10 @@ bool IsTradingAllowedNow()
 //+------------------------------------------------------------------+
 bool OpenRecoveryOrder(int direction, string sourceReason, int slReverseStage = 0)
   {
+   bool isSLReverseRecovery = (slReverseStage >= 1);
+   bool bypassSLReverseEntryLimits =
+      (isSLReverseRecovery && InpSLReverseRecoveryBypassEntryLimits);
+
    if(IsDubaiNoNewOrderHourNow())
      {
       string msg = "RECOVERY ORDER BLOCKED | DUBAI NO-NEW HOUR | DXB=" +
@@ -7138,13 +7151,22 @@ bool OpenRecoveryOrder(int direction, string sourceReason, int slReverseStage = 
       return(false);
      }
 
-// Big candle protection: do not create recovery orders during/after a big candle pause.
-   CheckBigCandlePauseOnNewBar(true);
-   if(EnforceBigCandleOrderBlock(direction, "OpenRecoveryOrder " + sourceReason))
+// Ordinary after-close recovery keeps big-candle protection.
+// SL-reverse recovery has priority and bypasses this filter when enabled.
+   if(!bypassSLReverseEntryLimits)
      {
-      Print("RECOVERY ORDER BLOCKED BY BIG CANDLE PAUSE | Source=", sourceReason,
-            " | ", BigCandlePauseStatusText());
-      return(false);
+      CheckBigCandlePauseOnNewBar(true);
+      if(EnforceBigCandleOrderBlock(direction, "OpenRecoveryOrder " + sourceReason))
+        {
+         Print("RECOVERY ORDER BLOCKED BY BIG CANDLE PAUSE | Source=", sourceReason,
+               " | ", BigCandlePauseStatusText());
+         return(false);
+        }
+     }
+   else
+     {
+      Print("SL REVERSE RECOVERY BYPASS | BIG CANDLE FILTER SKIPPED | Stage=",
+            slReverseStage, " | Source=", sourceReason);
      }
 
    if(!IsTradingAllowedNow())
@@ -7164,7 +7186,8 @@ bool OpenRecoveryOrder(int direction, string sourceReason, int slReverseStage = 
 // Recovery-gap orders continue to use those filters inside OpenRecoveryGapMarketOrder().
 
    UpdateAutoMarketFlowMode();
-   if(!IsAutoMarketNewOrderAllowed("RECOVERY " + sourceReason))
+   if(!bypassSLReverseEntryLimits &&
+      !IsAutoMarketNewOrderAllowed("RECOVERY " + sourceReason))
      {
       string modeMsg = "RECOVERY ORDER BLOCKED | " + AutoMarketModeStatusText() +
                        " | Source=" + sourceReason;
@@ -7173,18 +7196,37 @@ bool OpenRecoveryOrder(int direction, string sourceReason, int slReverseStage = 
       return(false);
      }
 
+   if(bypassSLReverseEntryLimits &&
+      (g_autoMarketMode == DXB_MARKET_MODE_MIXED ||
+       g_autoMarketMode == DXB_MARKET_MODE_DANGER))
+     {
+      Print("SL REVERSE RECOVERY BYPASS | MARKET MODE SKIPPED | Mode=",
+            g_autoMarketModeText, " | Stage=", slReverseStage,
+            " | Source=", sourceReason);
+     }
+
    if(IsOrderBlockedByOppositeDirectionProfitPause(direction, "OpenRecoveryOrder " + sourceReason))
       return(false);
 
    RefreshRates();
 
-// InpMaxOrders is a PER-TYPE cap.
-// A SELL already open blocks another SELL recovery, but BUY is unaffected.
-   if(IsDirectionOrderCapReached(direction, "OpenRecoveryOrder"))
-      return(false);
+// Ordinary recovery keeps per-direction and total-order limits.
+// SL-reverse recovery bypasses both limits when priority bypass is enabled.
+   if(!bypassSLReverseEntryLimits)
+     {
+      if(IsDirectionOrderCapReached(direction, "OpenRecoveryOrder"))
+         return(false);
 
-   if(IsTotalOpenOrderCapReached("OpenRecoveryOrder"))
-      return(false);
+      if(IsTotalOpenOrderCapReached("OpenRecoveryOrder"))
+         return(false);
+     }
+   else
+     {
+      Print("SL REVERSE RECOVERY BYPASS | DIRECTION/TOTAL ORDER LIMITS SKIPPED",
+            " | Direction=", DirectionText(direction),
+            " | Stage=", slReverseStage,
+            " | Source=", sourceReason);
+     }
 
    if(CheckEquityConditions())
      {
@@ -7199,12 +7241,20 @@ bool OpenRecoveryOrder(int direction, string sourceReason, int slReverseStage = 
 //    return(false);
 // }
 
-// Recovery is independent, but only ONE recovery order is allowed at a time.
-// It is NOT blocked by normal order count, normal price gap, or normal order creation gates.
-   if(CountRecoveryOrders() >= 1)
+// Ordinary recovery allows only one active recovery order.
+// SL-reverse recovery bypasses this count limit when explicitly enabled.
+   if(!bypassSLReverseEntryLimits && CountRecoveryOrders() >= 1)
      {
       Print("RECOVERY ORDER BLOCKED | One recovery order already active. Source=", sourceReason);
       return(false);
+     }
+
+   if(bypassSLReverseEntryLimits && CountRecoveryOrders() >= 1)
+     {
+      Print("SL REVERSE RECOVERY BYPASS | EXISTING RECOVERY COUNT SKIPPED",
+            " | Existing=", CountRecoveryOrders(),
+            " | Stage=", slReverseStage,
+            " | Source=", sourceReason);
      }
 
 // AFTER-CLOSE recovery may intentionally oppose the active SAR, so it must not
@@ -7252,7 +7302,9 @@ bool OpenRecoveryOrder(int direction, string sourceReason, int slReverseStage = 
      }
 
 // Final atomic same-type check immediately before OrderSend.
-   if(IsDirectionOrderCapReached(direction, "OpenRecoveryOrder FINAL"))
+// Skip only for priority SL-reverse recovery orders.
+   if(!bypassSLReverseEntryLimits &&
+      IsDirectionOrderCapReached(direction, "OpenRecoveryOrder FINAL"))
       return(false);
 
    if(IsDubaiNoNewOrderHourNow())
@@ -10615,17 +10667,17 @@ void OnTick()
    int dubaiHour = TimeHour(GetDubaiTime());
 
 
-   if(dubaiHour>13)
+   if(dubaiHour>13 || dubaiHour<22 )
      {
-      //         InpBasketStopLossUSD       = 1;//0.25;//5;// 3;;//2;//5;//2;//5.00;    // BASKET stop loss in USD, 0 = disabled. This closes all orders in active SAR direction.
+              InpBasketStopLossUSD       = 2;//1;//0.25;//5;// 3;;//2;//5;//2;//5.00;    // BASKET stop loss in USD, 0 = disabled. This closes all orders in active SAR direction.
 
-      //   InpContinuousTrendBasketSLUSD   =  1;//0.25;//3;//2;//5;//1;// 2;//5.00;
-      //   InpMediumTrendBasketSLUSD       =  1;//0.25;//3;//6;// 3;////2;//10;//10;//1;//2;//10.00;
-      //    InpMixedTrendBasketSLUSD        =  1;//0.25;//6;//3;// 2;//10;//5;//10;//1;//2;//10.00;
-      //  InpDangerModeBasketSLUSD        =  1;//0.25;// 3;//2;//5;//1;//2;//5.00;
+        InpContinuousTrendBasketSLUSD   = InpBasketStopLossUSD;// 1;//0.25;//3;//2;//5;//1;// 2;//5.00;
+        InpMediumTrendBasketSLUSD       =  InpBasketStopLossUSD;// 1;//0.25;//3;//6;// 3;////2;//10;//10;//1;//2;//10.00;
+         InpMixedTrendBasketSLUSD        = InpBasketStopLossUSD;//  1;//0.25;//6;//3;// 2;//10;//5;//10;//1;//2;//10.00;
+       InpDangerModeBasketSLUSD        = InpBasketStopLossUSD;//  1;//0.25;// 3;//2;//5;//1;//2;//5.00;
 
       InpPendingOrderRawGap=50;
-      InpSARConfirmPriceDiff=100;//
+      // InpSARConfirmPriceDiff=100;//
 
      }
 
