@@ -116,7 +116,7 @@ int    InpDashboardRowHeight         = 17;
 // BUY entries become BUYSTOP at Ask + raw gap.
 // SELL entries become SELLSTOP at Bid - raw gap.
 bool   InpUsePendingStopOrders       = true;
-double InpPendingStopGapRawPrice     = 20;//50;//20.0;
+double InpPendingStopGapRawPrice     = 10;//20;//50;//20.0;
 int    InpPendingCleanupMinutes      = 60; // delete every untriggered EA pending order
 
 // Push notifications: only two lifecycle events are sent.
@@ -1065,7 +1065,11 @@ void OnTick()
    ProcessOrderLifecycleNotifications();
 
    int dubaiHour = TimeHour(GetDubaiTime());
-   if(dubaiHour>13  || dubaiHour<22 )
+   if(IsTesting())
+   {
+      dubaiHour=TimeHour(TimeCurrent());
+   }
+   if(dubaiHour>13  && dubaiHour<22 )
      {
       InpFixedStopLossUSD=2;
       InpPendingStopGapRawPrice=50;

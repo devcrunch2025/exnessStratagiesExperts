@@ -269,8 +269,8 @@ bool   InpCloseIfNextCandleNotProfit     = false;  // close order after next clo
 
 bool   InpOpenRecoveryAfterClose  = true;   // open recovery order after SL/SAR flip/early reverse close
 double InpRecoveryProfitUSD       = 1;//2.00;   // optional fixed close target; chain continuation does NOT wait for this target
-bool   InpRecoveryAfterSLReverse  = true;   // true: after basket SL, open opposite direction
-bool   InpContinueSLReverseRecoveryAfterProfit = true; // any SL-reverse chain recovery closed with net profit > $0 opens the next same-direction recovery continuously
+bool   InpRecoveryAfterSLReverse  = false;   // true: after basket SL, open opposite direction
+bool   InpContinueSLReverseRecoveryAfterProfit = false; // any SL-reverse chain recovery closed with net profit > $0 opens the next same-direction recovery continuously
 // SL-reverse recovery priority bypass:
 // Applies only to SLREV_RECOVERY_1 and SLREV_RECOVERY_CHAIN orders.
 // These orders ignore MIXED/DANGER market-mode pauses, big-candle pauses,
@@ -378,7 +378,7 @@ double InpMinPriceGap             = 0.00;    // raw price gap, 0 = disabled
 // For a same-SAR replacement after a normal order closes, the last close price
 // is used as the preferred reference; broker/live-price safety may move it farther.
 bool   InpUsePendingOrderEntries             = true;
-double InpPendingOrderRawGap                 = 20.0;
+double InpPendingOrderRawGap                 = 30.0;
 bool   InpPendingUseLastClosedOrderPrice     = true;
 bool   InpDeletePendingOrdersOnSARChange     = true;
 
@@ -475,7 +475,7 @@ double InpContinuousOrderPriceGap    = 10;//10.0; //30  // raw price gap require
 int    InpContinuousOrderLookbackMinutes = 1;  // legacy input, not used by current continuity gap logic
 int    InpContinuousOrderGapMinutes  = 1;      // wait this many minutes after last order, then verify price gap
 
-double InpSARConfirmPriceDiff     = 50;//80.0;   // SAR signal-change raw price diff confirmation only
+double InpSARConfirmPriceDiff     =0;// 20;//80.0;   // SAR signal-change raw price diff confirmation only
 int    InpSARConfirmMinutes       = 5;      // used by the full profile only
 // First normal order after every SAR flip:
 // true = bypass all strategy filters and require only the FIXED live raw-price
@@ -10666,8 +10666,13 @@ void OnTick()
   {
    int dubaiHour = TimeHour(GetDubaiTime());
 
+   if(IsTesting())
+   {
+      dubaiHour=TimeHour(TimeCurrent());
+   }
 
-   if(dubaiHour>13 || dubaiHour<22 )
+
+   if(dubaiHour>13 &&  dubaiHour<22    )
      {
               InpBasketStopLossUSD       = 2;//1;//0.25;//5;// 3;;//2;//5;//2;//5.00;    // BASKET stop loss in USD, 0 = disabled. This closes all orders in active SAR direction.
 
