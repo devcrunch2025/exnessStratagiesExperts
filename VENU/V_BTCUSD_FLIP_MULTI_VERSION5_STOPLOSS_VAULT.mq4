@@ -20,7 +20,7 @@ MARKET_MODE g_marketMode = MODE_RANGE;
 #ifndef OP_BALANCE
 #define OP_BALANCE 6
 #endif
-#property version   "1.46"
+#property version   "1.47"
 
 //======================== INPUTS ====================================
 string InpEAName                  = "DXB Version 5 - SAR Confirm 50 in 5 Min";
@@ -31,28 +31,31 @@ double InpMinGapWhenMaxOrdersMoreThanOne = 100.0; // when InpMaxOrders > 1, enfo
 
 #define DXB_HARD_MAX_OPEN_ORDERS 6  // absolute safety cap for normal SAR orders per cycle
 
-double InpBasketProfitUSD         = 0.50;  // X1 basket profit step: X1=$0.50, X2=$1.00, X3=$1.50...
+double InpBasketProfitUSD         = 0.50;  // X1 base: custom ladder starts $0.50, $0.75, $0.875, $1.00...
 double InpProfitTargetPercent      = 20;//50.0;//50   // stop trading when equity reaches Base + 100%
 
 
 // Dynamic basket profit ladder:
 // The BUY basket and SELL basket are managed independently.
-// InpDynamicBasketMultiplierStep controls the X increase between levels.
-// Example: InpBasketProfitUSD=$0.40 and multiplier step=0.50:
-//   X0.5=$0.20, X1.0=$0.40, X1.5=$0.60, X2.0=$0.80...
+// The first two X levels can have a larger opening gap. After the second
+// level, InpDynamicBasketMultiplierStep is added repeatedly.
+// Defaults with InpBasketProfitUSD=$0.50:
+//   X1.00=$0.50, X1.50=$0.75, X1.75=$0.875, X2.00=$1.00,
+//   X2.25=$1.125, X2.50=$1.25, X2.75=$1.375...
 // Profit keeps moving upward through every completed level.
 // Close only when profit comes back to the highest protected level.
-// Set multiplier step=1.00 for the original X1, X2, X3... ladder.
-bool   InpUseDynamicBasketProfitBooking   = true;
-double InpDynamicBasketMultiplierStep      = 1;//0.50;//1;//0.50; // 0.50 => X0.5, X1.0, X1.5...; 1.00 => X1, X2, X3...
-double InpDynamicBasketProfitMaxX          = 0.0;  // 0 = unlimited; otherwise highest protected X multiplier (supports 2.5, 3.5, etc.)
+bool   InpUseDynamicBasketProfitBooking    = true;
+double InpDynamicBasketFirstLevelX          = 1.00; // first completed/protected ladder level
+double InpDynamicBasketSecondLevelX         = 1.25; // second completed/protected ladder level
+double InpDynamicBasketMultiplierStep       = 0.25; // added after X1.50: X1.75, X2.00, X2.25...
+double InpDynamicBasketProfitMaxX           = 0.0;  // 0 = unlimited; otherwise highest protected X multiplier
 
 // Broker/server-side dynamic profit protection:
 // PRE-LADDER SMALL PROFIT LOCK with the defaults below:
-//   Basket peak reaches $0.20 -> arm EA floor $0.10.
-//   Server-side SL aims near $0.11 ($0.10 floor + $0.01 buffer).
-//   If price reaches X0.5=$0.25, the same SL advances to that ladder level.
-//   It then continues advancing at X1.0=$0.50, X1.5=$0.75, X2.0=$1.00...
+//   Basket peak reaches $0.20 -> arm EA floor $0.05.
+//   Server-side SL aims near $0.06 ($0.05 floor + $0.01 buffer).
+//   If price reaches X1.0=$0.50, the same SL advances to that ladder level.
+//   It then continues at X1.5=$0.75, X1.75=$0.875, X2.0=$1.00...
 // A common side-basket SL is applied to every regular/recovery market order.
 // Existing SL values never move backward toward greater risk.
 // Buffer helps cover commission, swap changes, tick rounding and normal slippage.
@@ -68,14 +71,14 @@ double InpDynamicBasketReturnBufferUSD     = 0.00;
 // The basket must first reach InpDynamicBasketMinimumArmUSD before the
 // small InpDynamicBasketMinimumCloseUSD floor becomes protected.
 // It does NOT close while profit is still rising.
-// With the defaults and InpDynamicBasketMultiplierStep=0.50:
-//   peak below $0.20       => no small-profit lock yet
-//   peak reaches $0.20     => EA floor $0.10; server SL aims near $0.11
-//   peak reaches X0.5 $0.25=> advance protection to X0.5
-//   peak reaches X1.0 $0.50=> advance protection to X1.0
-//   peak reaches X1.5 $0.75=> advance protection to X1.5, continuing upward
+// With the default custom ladder:
+//   peak below $0.20        => no small-profit lock yet
+//   peak reaches $0.20      => EA floor $0.05; server SL aims near $0.06
+//   peak reaches X1.0 $0.50 => advance protection to X1.0
+//   peak reaches X1.5 $0.75 => advance protection to X1.5
+//   peak reaches X1.75      => advance protection to X1.75, continuing by X0.25
 // Close only when current profit comes back to the highest protected value.
-double InpDynamicBasketMinimumArmUSD       =0.30;// 0.10;//0.15;//0.20;//before Dynamic profit
+double InpDynamicBasketMinimumArmUSD       =0.20;// 0.10;//0.15;//0.20;//before Dynamic profit
 double InpDynamicBasketMinimumCloseUSD     = 0.05;//0.02;//0.05;//0.10;//0.10;//before Dynamic profit
 
 // Drawdown comeback trailing floor:
@@ -86,8 +89,8 @@ double InpDynamicBasketMinimumCloseUSD     = 0.05;//0.02;//0.05;//0.10;//0.10;//
 // from the highest peak to the best protected level reached.
 // Example with InpBasketProfitUSD=$0.40 and loss step=$1.00:
 //   touched -$1.xx => arm minimum lock at $0.40/2 = $0.20
-//   then X1=$0.40, X2=$0.80, X3=$1.20... keep moving upward
-//   if peak reaches $1.05, close only when profit comes back to $0.80
+//   then custom levels X1=$0.40, X1.5=$0.60, X1.75=$0.70... keep moving upward
+//   if peak reaches $1.05, the highest completed custom level is protected
 // The rule continues automatically for deeper whole-dollar drawdown levels.
 bool   InpUseDynamicBasketDrawdownComebackTP = true;
 double InpDynamicBasketDrawdownStepUSD        = 1.00;
@@ -3186,8 +3189,12 @@ int OnInit()
          GetDynamicBasketLevelXText(1),
          " $",
          DoubleToString(GetDynamicBasketTargetUSDByLevel(1),2),
-         " | Ladder Step=$",
-         DoubleToString(GetDynamicBasketProfitStepUSD(),2));
+         " | Second Ladder=X",
+         GetDynamicBasketLevelXText(2),
+         " $",
+         DoubleToString(GetDynamicBasketTargetUSDByLevel(2),2),
+         " | Later Step=$",
+         DoubleToString(GetDynamicBasketProfitStepUSD(),3));
 
 
 
@@ -4329,15 +4336,31 @@ double GetDynamicBasketProfitBaseUSD()
   }
 
 //+------------------------------------------------------------------+
-//| Sanitized multiplier increment used by every ladder calculation. |
+//| Sanitized custom ladder multipliers.                              |
 //+------------------------------------------------------------------+
+double GetDynamicBasketFirstLevelX()
+  {
+   return(MathMax(0.01, MathAbs(InpDynamicBasketFirstLevelX)));
+  }
+
+double GetDynamicBasketSecondLevelX()
+  {
+   double firstX = GetDynamicBasketFirstLevelX();
+   double secondX = MathAbs(InpDynamicBasketSecondLevelX);
+
+   if(secondX <= firstX)
+      secondX = firstX + MathMax(0.01, MathAbs(InpDynamicBasketMultiplierStep));
+
+   return(secondX);
+  }
+
 double GetDynamicBasketMultiplierStep()
   {
    return(MathMax(0.01, MathAbs(InpDynamicBasketMultiplierStep)));
   }
 
 //+------------------------------------------------------------------+
-//| USD distance between two consecutive ladder levels.              |
+//| Normal USD gap used after the specially configured second level. |
 //+------------------------------------------------------------------+
 double GetDynamicBasketProfitStepUSD()
   {
@@ -4346,14 +4369,22 @@ double GetDynamicBasketProfitStepUSD()
   }
 
 //+------------------------------------------------------------------+
-//| Convert internal integer step index to its visible X multiplier.  |
+//| Convert internal integer level index to its visible X multiplier. |
+//| Level 1=FirstX, level 2=SecondX, then add Step for every level.    |
 //+------------------------------------------------------------------+
 double GetDynamicBasketLevelMultiplier(int level)
   {
    if(level <= 0)
       return(0.0);
 
-   return(level * GetDynamicBasketMultiplierStep());
+   if(level == 1)
+      return(GetDynamicBasketFirstLevelX());
+
+   double secondX = GetDynamicBasketSecondLevelX();
+   if(level == 2)
+      return(secondX);
+
+   return(secondX + (level - 2) * GetDynamicBasketMultiplierStep());
   }
 
 //+------------------------------------------------------------------+
@@ -4387,7 +4418,8 @@ double GetDynamicBasketTargetUSDByLevel(int level)
    if(level <= 0)
       return(0.0);
 
-   return(level * GetDynamicBasketProfitStepUSD());
+   return(GetDynamicBasketProfitBaseUSD() *
+          GetDynamicBasketLevelMultiplier(level));
   }
 
 //+------------------------------------------------------------------+
@@ -4396,11 +4428,22 @@ int GetDynamicBasketMaximumLevel()
    if(InpDynamicBasketProfitMaxX <= 0.0)
       return(0); // unlimited
 
-   int maxLevel = (int)MathFloor(
-                     (MathAbs(InpDynamicBasketProfitMaxX) + 0.0000001) /
-                     GetDynamicBasketMultiplierStep());
+   double maxX = MathAbs(InpDynamicBasketProfitMaxX);
+   double firstX = GetDynamicBasketFirstLevelX();
+   double secondX = GetDynamicBasketSecondLevelX();
+   double stepX = GetDynamicBasketMultiplierStep();
+
+   if(maxX < secondX - 0.0000001)
+      return(1);
+
+   int maxLevel = 2 + (int)MathFloor(
+                         (maxX - secondX + 0.0000001) / stepX);
 
    if(maxLevel < 1)
+      maxLevel = 1;
+
+   // A configured max below FirstX still permits the first valid level.
+   if(maxX < firstX)
       maxLevel = 1;
 
    return(maxLevel);
@@ -4409,14 +4452,23 @@ int GetDynamicBasketMaximumLevel()
 //+------------------------------------------------------------------+
 int GetDynamicBasketCompletedLevel(double peakProfit)
   {
-   double profitStepUSD = GetDynamicBasketProfitStepUSD();
-   if(profitStepUSD <= 0.0 || peakProfit < profitStepUSD)
+   double baseUSD = GetDynamicBasketProfitBaseUSD();
+   if(baseUSD <= 0.0 || peakProfit <= 0.0)
       return(0);
 
-// level is an internal step index. With multiplier step 0.50:
-// level 1=X0.5, level 2=X1.0, level 3=X1.5, etc.
-   int level = (int)MathFloor((peakProfit + 0.0000001) /
-                              profitStepUSD);
+   double reachedX = peakProfit / baseUSD;
+   double firstX = GetDynamicBasketFirstLevelX();
+   double secondX = GetDynamicBasketSecondLevelX();
+   double stepX = GetDynamicBasketMultiplierStep();
+
+   if(reachedX + 0.0000001 < firstX)
+      return(0);
+
+   int level = 1;
+
+   if(reachedX + 0.0000001 >= secondX)
+      level = 2 + (int)MathFloor(
+                    (reachedX - secondX + 0.0000001) / stepX);
 
    int maxLevel = GetDynamicBasketMaximumLevel();
    if(maxLevel > 0 && level > maxLevel)
@@ -5197,9 +5249,9 @@ bool ProcessDynamicBasketProfitByDirection(int direction,
    double protectedProfit = 0.0;
    string protectedName = "NONE";
 
-// Arm the pre-ladder minimum close before X0.5 is completed.
-// Defaults: peak reaches $0.20 => EA floor $0.10 and the broker-side
-// SL aims near $0.11. At X0.5=$0.25, X1.0=$0.50, X1.5=$0.75...
+// Arm the pre-ladder minimum close before X1.0 is completed.
+// Defaults: peak reaches $0.20 => EA floor $0.05 and the broker-side
+// SL aims near $0.06. At X1.0=$0.50, X1.5=$0.75, X1.75=$0.875...
 // the same server SL keeps advancing without resetting the ladder.
    double minimumArm = GetDynamicBasketMinimumArmUSD();
    double minimumClose = GetDynamicBasketMinimumCloseUSD();

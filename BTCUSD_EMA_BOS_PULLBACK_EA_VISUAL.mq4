@@ -2,10 +2,10 @@
 //| BTCUSD_EMA_BOS_PENDING_RECOVERY_DYNAMIC_LOCK_V4.mq4            |
 //| All entries -> 20-raw pending STOP orders                       |
 //| Recovery: raw gap OR deep-loss comeback                         |
-//| Arm $0.20 -> lock $0.10, then X0.5/X1/X1.5 broker SL ladder    |
+//| Arm minimum floor, then custom X1/X1.25/X1.50... SL ladder |
 //+------------------------------------------------------------------+
 #property strict
-#property version   "4.02"
+#property version   "4.03"
 
 double InpLotSize                    = 0.01;
 int    InpMagicNumber                = 44001;
@@ -32,27 +32,30 @@ double InpMomentumContinuationRaw    = 100.0;
 // SIDE-BASKET dynamic profit management (BUY and SELL are independent).
 // The small minimum close is NOT armed immediately. The basket must first
 // reach InpDynamicBasketMinimumArmUSD, then the protected floor becomes
-// InpDynamicBasketMinimumCloseUSD. The X ladder starts at the configured
-// multiplier step. Example: arm=$0.20, minimum close=$0.10, X1=$0.50,
-// multiplier step=0.50 => no lock below $0.20, then $0.10, $0.25 (X0.5),
-// $0.50 (X1), $0.75 (X1.5)... ProfitMaxX=0.0 keeps it unlimited.
-// It does not close while profit is rising; it closes only when basket profit
-// falls back to the highest completed protected level.
+// InpDynamicBasketMinimumCloseUSD. It does not close while profit is rising;
+// it closes only when basket profit falls back to the highest protected level.
 // Basket touched a full negative step: normal trailing is cancelled and the
 // basket closes immediately when it recovers to the reduced positive target.
-// Example with InpAdaptiveLossLevelUSD = 1.00:
-//   minimum above -$1.00 => normal minimum/X1/X2/X3 ladder
-//   touch -$1.00         => comeback target = TP / 2
-//   touch -$2.00         => comeback target = TP / 3
-//   touch -$3.00         => comeback target = TP / 4
 // The worst BUY loss never changes SELL state, and vice versa.
 double InpBasketProfitUSD                    = 0.50; // X1 base profit step
-double InpDynamicBasketMinimumArmUSD        = 0.30;//0.10; // touch $0.20 before protecting the $0.10 floor
-double InpDynamicBasketMinimumCloseUSD      = 0.05; // EA fallback floor after the $0.20 arm
+double InpDynamicBasketMinimumArmUSD        = 0.20; // touch $0.20 before protecting the small floor
+double InpDynamicBasketMinimumCloseUSD      = 0.05; // EA fallback floor after the arm
 
-
-double InpDynamicBasketMultiplierStep       = 0.50; // X0.5, X1.0, X1.5... for a $0.50 X1 base
-double InpDynamicBasketProfitMaxX            = 0.0; // 0.0 = unlimited; e.g. 5.0 caps at X5
+// Dynamic basket profit ladder:
+// The BUY basket and SELL basket are managed independently.
+// The first two X levels are explicitly configured. After the second level,
+// InpDynamicBasketMultiplierStep is added repeatedly.
+// Defaults with InpBasketProfitUSD=$0.50 and SecondLevelX=1.25:
+//   X1.00=$0.50, X1.25=$0.625, X1.50=$0.75, X1.75=$0.875,
+//   X2.00=$1.00, X2.25=$1.125, X2.50=$1.25, X2.75=$1.375...
+// To use X1.00, X1.50, X1.75, X2.00... set SecondLevelX=1.50.
+// Profit keeps moving upward through every completed level.
+// Close only when profit comes back to the highest protected level.
+bool   InpUseDynamicBasketProfitBooking     = true;
+double InpDynamicBasketFirstLevelX          = 1.00; // first completed/protected ladder level
+double InpDynamicBasketSecondLevelX         = 1.25; // second completed/protected ladder level
+double InpDynamicBasketMultiplierStep       = 0.25; // repeated after the configured second level
+double InpDynamicBasketProfitMaxX           = 0.0;  // 0 = unlimited; otherwise highest protected X multiplier
 
 // Broker/server-side profit protection:
 // After the dynamic basket ladder arms a protected USD level, the EA converts
@@ -948,9 +951,13 @@ int OnInit()
          DoubleToString(InpDynamicBasketMinimumArmUSD, 2),
          " | Minimum close $",
          DoubleToString(InpDynamicBasketMinimumCloseUSD, 2),
-         " | X1 $",
-         DoubleToString(g_originalTakeProfitUSD, 2),
-         " | X step $",
+         " | Ladder ",
+         (InpUseDynamicBasketProfitBooking ? "ON" : "OFF"),
+         " | X", GetDynamicBasketLevelXText(1),
+         " $", DoubleToString(GetDynamicBasketTargetUSDByLevel(1), 3),
+         " | X", GetDynamicBasketLevelXText(2),
+         " $", DoubleToString(GetDynamicBasketTargetUSDByLevel(2), 3),
+         " | Later step $",
          DoubleToString(GetDynamicProfitLadderStepUSD(), 4),
          " | Server SL lock ",
          (InpUseServerSideProfitLock ? "ON" : "OFF"),
@@ -2872,10 +2879,176 @@ double GetMarketModeTakeProfitUSD()
   }
 
 //+------------------------------------------------------------------+
-// Dynamic-profit ladder increment and first X lock.
-// InpDynamicBasketMultiplierStep=1.00 creates X1, X2, X3... levels.
-// A value of 0.50 creates X0.5, X1, X1.5, X2... levels.
-// The multiplier is applied to the active market-mode X1 value.
+// Custom dynamic-profit ladder helpers.
+// Level 1 uses FirstLevelX, level 2 uses SecondLevelX, and every later
+// level adds MultiplierStep. The active market-mode TP remains the X1 base.
+//+------------------------------------------------------------------+
+double GetDynamicBasketFirstLevelX()
+  {
+   return(MathMax(0.01, MathAbs(InpDynamicBasketFirstLevelX)));
+  }
+
+//+------------------------------------------------------------------+
+double GetDynamicBasketMultiplierStep()
+  {
+   return(MathMax(0.01, MathAbs(InpDynamicBasketMultiplierStep)));
+  }
+
+//+------------------------------------------------------------------+
+double GetDynamicBasketSecondLevelX()
+  {
+   double firstX  = GetDynamicBasketFirstLevelX();
+   double secondX = MathAbs(InpDynamicBasketSecondLevelX);
+
+   if(secondX <= firstX + 0.0000001)
+      secondX = firstX + GetDynamicBasketMultiplierStep();
+
+   return(secondX);
+  }
+
+//+------------------------------------------------------------------+
+double GetDynamicBasketLevelMultiplier(int level)
+  {
+   if(level <= 0)
+      return(0.0);
+
+   if(level == 1)
+      return(GetDynamicBasketFirstLevelX());
+
+   double secondX = GetDynamicBasketSecondLevelX();
+
+   if(level == 2)
+      return(secondX);
+
+   return(secondX +
+          (level - 2) * GetDynamicBasketMultiplierStep());
+  }
+
+//+------------------------------------------------------------------+
+string DynamicBasketMultiplierText(double multiplier)
+  {
+   string text = DoubleToString(multiplier, 2);
+
+   while(StringLen(text) > 0 &&
+         StringSubstr(text, StringLen(text) - 1, 1) == "0")
+      text = StringSubstr(text, 0, StringLen(text) - 1);
+
+   if(StringLen(text) > 0 &&
+      StringSubstr(text, StringLen(text) - 1, 1) == ".")
+      text = StringSubstr(text, 0, StringLen(text) - 1);
+
+   return(text);
+  }
+
+//+------------------------------------------------------------------+
+string GetDynamicBasketLevelXText(int level)
+  {
+   return(DynamicBasketMultiplierText(
+             GetDynamicBasketLevelMultiplier(level)));
+  }
+
+//+------------------------------------------------------------------+
+double GetDynamicBasketTargetUSDByLevel(int level)
+  {
+   double activeTakeProfit = GetMarketModeTakeProfitUSD();
+
+   if(activeTakeProfit <= 0.0 || level <= 0)
+      return(0.0);
+
+   return(NormalizeDouble(
+             activeTakeProfit *
+             GetDynamicBasketLevelMultiplier(level),
+             4));
+  }
+
+//+------------------------------------------------------------------+
+int GetDynamicBasketMaximumLevel()
+  {
+   if(InpDynamicBasketProfitMaxX <= 0.0)
+      return(0); // unlimited
+
+   double maximumX = MathAbs(InpDynamicBasketProfitMaxX);
+   double firstX   = GetDynamicBasketFirstLevelX();
+   double secondX  = GetDynamicBasketSecondLevelX();
+   double stepX    = GetDynamicBasketMultiplierStep();
+
+// Preserve the original safety behaviour: a positive maximum cannot
+// disable the first configured ladder level.
+   if(maximumX < secondX - 0.0000001)
+      return(1);
+
+   int maximumLevel =
+      2 + (int)MathFloor(
+             (maximumX - secondX + 0.0000001) / stepX);
+
+   if(maximumX < firstX)
+      maximumLevel = 1;
+
+   if(maximumLevel < 1)
+      maximumLevel = 1;
+
+   return(maximumLevel);
+  }
+
+//+------------------------------------------------------------------+
+int GetDynamicBasketCompletedLevel(double peakProfit)
+  {
+   double activeTakeProfit = GetMarketModeTakeProfitUSD();
+
+   if(activeTakeProfit <= 0.0 || peakProfit <= 0.0)
+      return(0);
+
+   double reachedX = peakProfit / activeTakeProfit;
+   double firstX   = GetDynamicBasketFirstLevelX();
+   double secondX  = GetDynamicBasketSecondLevelX();
+   double stepX    = GetDynamicBasketMultiplierStep();
+
+   if(reachedX + 0.0000001 < firstX)
+      return(0);
+
+   int completedLevel = 1;
+
+   if(reachedX + 0.0000001 >= secondX)
+      completedLevel =
+         2 + (int)MathFloor(
+                (reachedX - secondX + 0.0000001) / stepX);
+
+   int maximumLevel = GetDynamicBasketMaximumLevel();
+
+   if(maximumLevel > 0 && completedLevel > maximumLevel)
+      completedLevel = maximumLevel;
+
+   if(completedLevel < 0)
+      completedLevel = 0;
+
+   return(completedLevel);
+  }
+
+//+------------------------------------------------------------------+
+double GetDynamicBasketProtectedProfitUSD(double peakProfit)
+  {
+   int completedLevel = GetDynamicBasketCompletedLevel(peakProfit);
+
+   if(completedLevel <= 0)
+      return(0.0);
+
+   return(GetDynamicBasketTargetUSDByLevel(completedLevel));
+  }
+
+//+------------------------------------------------------------------+
+double GetDynamicBasketNextTargetUSD(double peakProfit)
+  {
+   int completedLevel = GetDynamicBasketCompletedLevel(peakProfit);
+   int maximumLevel   = GetDynamicBasketMaximumLevel();
+
+   if(maximumLevel > 0 && completedLevel >= maximumLevel)
+      return(GetDynamicBasketTargetUSDByLevel(maximumLevel));
+
+   return(GetDynamicBasketTargetUSDByLevel(completedLevel + 1));
+  }
+
+//+------------------------------------------------------------------+
+// USD distance used after the explicitly configured second level.
 //+------------------------------------------------------------------+
 double GetDynamicProfitLadderStepUSD()
   {
@@ -2884,13 +3057,9 @@ double GetDynamicProfitLadderStepUSD()
    if(activeTakeProfit <= 0.0)
       return(0.0);
 
-   double multiplier = InpDynamicBasketMultiplierStep;
-
-// Invalid input falls back safely to whole-X steps.
-   if(multiplier <= 0.0)
-      multiplier = 1.00;
-
-   return(NormalizeDouble(activeTakeProfit * multiplier, 4));
+   return(NormalizeDouble(
+             activeTakeProfit * GetDynamicBasketMultiplierStep(),
+             4));
   }
 
 //+------------------------------------------------------------------+
@@ -3797,16 +3966,15 @@ bool CloseSideBasketByDynamicProfit(int orderType)
 
    bool lockRaised = false;
 
-// Two-stage minimum floor followed by the configured X ladder.
-// Example: arm=$0.20, close=$0.10, X1=$0.50, multiplier step=0.50:
+// Two-stage minimum floor followed by the custom X ladder.
+// With the default values in this file and X1 base=$0.50:
 //   below $0.20 => no profit lock
-//   reach $0.20 => protect $0.10 (server request about $0.11 with buffer)
-//   reach $0.25 => protect $0.25 (X0.5)
-//   reach $0.50 => protect $0.50 (X1.0)
-//   reach $0.75 => protect $0.75 (X1.5), then X2.0, X2.5...
+//   reach $0.20 => protect $0.05
+//   reach X1.00=$0.50 => protect $0.50
+//   reach X1.25=$0.625 => protect $0.625
+//   then X1.50, X1.75, X2.00... using the repeated 0.25 step.
 // InpDynamicBasketProfitMaxX=0.0 means the ladder has no maximum.
    double activeTakeProfit = GetMarketModeTakeProfitUSD();
-   double ladderStep       = GetDynamicProfitLadderStepUSD();
    double minimumArm       =
       MathMax(0.0, InpDynamicBasketMinimumArmUSD);
    double minimumProtected =
@@ -3820,45 +3988,32 @@ bool CloseSideBasketByDynamicProfit(int orderType)
      {
       double calculatedLock = lockedProfit;
 
-      // The minimum close is armed only after a stronger profit move.
-      if(minimumProtected > 0.0 &&
-         minimumArm > 0.0 &&
-         peakProfit + 0.0000001 >= minimumArm)
+      if(!InpUseDynamicBasketProfitBooking)
         {
-         calculatedLock = MathMax(calculatedLock,
-                                  minimumProtected);
+         calculatedLock = 0.0;
         }
-
-      // The configured multiplier is both the first X level and the
-      // distance between later levels. With X1=$0.50 and step=0.50,
-      // completed locks are $0.25, $0.50, $0.75, $1.00...
-      if(activeTakeProfit > 0.0 &&
-         ladderStep > 0.0 &&
-         peakProfit + 0.0000001 >= ladderStep)
+      else
         {
-         double completedLevels =
-            MathFloor((peakProfit + 0.0000001) / ladderStep);
-
-         double ladderLock =
-            completedLevels * ladderStep;
-
-         // Optional cap expressed as a multiplier of X1.
-         // 0.0 means unlimited. A positive cap cannot be below the first
-         // configured ladder level.
-         if(InpDynamicBasketProfitMaxX > 0.0)
+         // The minimum close is armed only after a stronger profit move.
+         if(minimumProtected > 0.0 &&
+            minimumArm > 0.0 &&
+            peakProfit + 0.0000001 >= minimumArm)
            {
-            double firstLevelX =
-               ladderStep / activeTakeProfit;
-            double maximumX =
-               MathMax(firstLevelX,
-                       InpDynamicBasketProfitMaxX);
-            double maximumLock = activeTakeProfit * maximumX;
-            ladderLock = MathMin(ladderLock, maximumLock);
+            calculatedLock = MathMax(calculatedLock,
+                                     minimumProtected);
            }
 
-         calculatedLock =
-            MathMax(calculatedLock,
-                    NormalizeDouble(ladderLock, 4));
+         int completedLevel =
+            GetDynamicBasketCompletedLevel(peakProfit);
+
+         if(completedLevel > 0)
+           {
+            double ladderLock =
+               GetDynamicBasketProtectedProfitUSD(peakProfit);
+
+            calculatedLock =
+               MathMax(calculatedLock, ladderLock);
+           }
         }
 
       calculatedLock = NormalizeDouble(calculatedLock, 4);
@@ -3871,17 +4026,18 @@ bool CloseSideBasketByDynamicProfit(int orderType)
          string lockSide =
             (orderType == OP_BUY) ? "BUY" : "SELL";
 
-         if(activeTakeProfit > 0.0 &&
-            lockedProfit + 0.0000001 >= activeTakeProfit)
-           {
-            double lockMultiplier =
-               lockedProfit / activeTakeProfit;
+         int lockedLevel =
+            GetDynamicBasketCompletedLevel(lockedProfit);
 
+         if(lockedLevel > 0 &&
+            lockedProfit + 0.0000001 >=
+            GetDynamicBasketTargetUSDByLevel(lockedLevel))
+           {
             g_lastStatus =
                lockSide + " basket advanced lock X" +
-               DoubleToString(lockMultiplier, 1) +
-               " to $" + DoubleToString(lockedProfit, 2) +
-               " | Peak $" + DoubleToString(peakProfit, 2);
+               GetDynamicBasketLevelXText(lockedLevel) +
+               " to $" + DoubleToString(lockedProfit, 3) +
+               " | Peak $" + DoubleToString(peakProfit, 3);
            }
          else
            {
@@ -3895,6 +4051,12 @@ bool CloseSideBasketByDynamicProfit(int orderType)
 
          Print(g_lastStatus);
         }
+      else
+         if(!InpUseDynamicBasketProfitBooking &&
+            lockedProfit > 0.0)
+           {
+            lockedProfit = 0.0;
+           }
      }
    else
      {
@@ -3908,11 +4070,20 @@ bool CloseSideBasketByDynamicProfit(int orderType)
       (currentProfit < previousProfit - 0.0000001);
 
    bool cleanTrailHit =
-      (lossTier <= 0 &&
+      (InpUseDynamicBasketProfitBooking &&
+       lossTier <= 0 &&
        lockedProfit > 0.0 &&
        !lockRaised &&
        profitFalling &&
        currentProfit <= lockedProfit + 0.0000001);
+
+// When the custom trailing ladder is disabled, use the active X1 basket
+// amount as a simple immediate side-basket target.
+   bool fixedBasketTargetHit =
+      (!InpUseDynamicBasketProfitBooking &&
+       lossTier <= 0 &&
+       activeTakeProfit > 0.0 &&
+       currentProfit + 0.0000001 >= activeTakeProfit);
 
 // CHANGE 2: after a full negative tier was touched, close immediately
 // at TP/(tier+1). There is no pullback wait in comeback mode.
@@ -3931,7 +4102,9 @@ bool CloseSideBasketByDynamicProfit(int orderType)
 // Install/retry the real broker-side SL after the minimum or X ladder
 // advances. It remains only a fallback: the EA dynamic fallback close
 // below still runs normally while the terminal is connected.
-   if(lossTier <= 0 && lockedProfit > 0.0)
+   if(InpUseDynamicBasketProfitBooking &&
+      lossTier <= 0 &&
+      lockedProfit > 0.0)
      {
       ApplyServerSideProfitLock(orderType,
                                 lockedProfit,
@@ -3939,6 +4112,17 @@ bool CloseSideBasketByDynamicProfit(int orderType)
      }
 
    string side = (orderType == OP_BUY) ? "BUY" : "SELL";
+
+   if(fixedBasketTargetHit)
+     {
+      return(CloseAllSideOrders(
+                orderType,
+                side + " fixed basket target $" +
+                DoubleToString(activeTakeProfit, 4),
+                currentProfit,
+                minimumProfit,
+                lossTier));
+     }
 
    if(reducedComebackHit)
      {
@@ -5291,11 +5475,13 @@ void DrawDashboard(string status)
                     C'255,145,65');
    y += 26;
 
-   DashboardRow("DEFAULT_TP", "Arm / Min / X1 / X Step",
-                "$" + DoubleToString(InpDynamicBasketMinimumArmUSD, 4) +
-                " / $" + DoubleToString(InpDynamicBasketMinimumCloseUSD, 4) +
-                " / $" + DoubleToString(GetMarketModeTakeProfitUSD(), 4) +
-                " / $" + DoubleToString(GetDynamicProfitLadderStepUSD(), 4),
+   DashboardRow("DEFAULT_TP", "Arm / Min / First / Second",
+                "$" + DoubleToString(InpDynamicBasketMinimumArmUSD, 3) +
+                " / $" + DoubleToString(InpDynamicBasketMinimumCloseUSD, 3) +
+                " / X" + GetDynamicBasketLevelXText(1) +
+                " $" + DoubleToString(GetDynamicBasketTargetUSDByLevel(1), 3) +
+                " / X" + GetDynamicBasketLevelXText(2) +
+                " $" + DoubleToString(GetDynamicBasketTargetUSDByLevel(2), 3),
                 y, InpMarketMixedMode ? C'255,180,55' : C'255,205,70');
    y += InpDashboardRowHeight;
 
