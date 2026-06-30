@@ -44,7 +44,7 @@ double InpProfitTargetPercent      = 20;//50.0;//50   // stop trading when equit
 // Close only when profit comes back to the highest protected level.
 // Set multiplier step=1.00 for the original X1, X2, X3... ladder.
 bool   InpUseDynamicBasketProfitBooking   = true;
-double InpDynamicBasketMultiplierStep      = 0.50;//1;//0.50; // 0.50 => X0.5, X1.0, X1.5...; 1.00 => X1, X2, X3...
+double InpDynamicBasketMultiplierStep      = 1;//0.50;//1;//0.50; // 0.50 => X0.5, X1.0, X1.5...; 1.00 => X1, X2, X3...
 double InpDynamicBasketProfitMaxX          = 0.0;  // 0 = unlimited; otherwise highest protected X multiplier (supports 2.5, 3.5, etc.)
 
 // Broker/server-side dynamic profit protection:
@@ -75,8 +75,8 @@ double InpDynamicBasketReturnBufferUSD     = 0.00;
 //   peak reaches X1.0 $0.50=> advance protection to X1.0
 //   peak reaches X1.5 $0.75=> advance protection to X1.5, continuing upward
 // Close only when current profit comes back to the highest protected value.
-double InpDynamicBasketMinimumArmUSD       = 0.10;//0.15;//0.20;//before Dynamic profit
-double InpDynamicBasketMinimumCloseUSD     = 0.02;//0.05;//0.10;//0.10;//before Dynamic profit
+double InpDynamicBasketMinimumArmUSD       =0.30;// 0.10;//0.15;//0.20;//before Dynamic profit
+double InpDynamicBasketMinimumCloseUSD     = 0.05;//0.02;//0.05;//0.10;//0.10;//before Dynamic profit
 
 // Drawdown comeback trailing floor:
 // Once a BUY/SELL basket touches a negative loss step, remember the worst loss

@@ -47,7 +47,7 @@ double InpMomentumContinuationRaw    = 100.0;
 //   touch -$3.00         => comeback target = TP / 4
 // The worst BUY loss never changes SELL state, and vice versa.
 double InpBasketProfitUSD                    = 0.50; // X1 base profit step
-double InpDynamicBasketMinimumArmUSD        = 0.10; // touch $0.20 before protecting the $0.10 floor
+double InpDynamicBasketMinimumArmUSD        = 0.30;//0.10; // touch $0.20 before protecting the $0.10 floor
 double InpDynamicBasketMinimumCloseUSD      = 0.05; // EA fallback floor after the $0.20 arm
 
 
