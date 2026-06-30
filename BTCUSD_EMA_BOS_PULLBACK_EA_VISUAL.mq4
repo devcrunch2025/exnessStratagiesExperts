@@ -1,11 +1,11 @@
 //+------------------------------------------------------------------+
 //| BTCUSD_EMA_BOS_PENDING_RECOVERY_DYNAMIC_LOCK_V4.mq4            |
 //| All entries -> 20-raw pending STOP orders                       |
-//| Recovery: raw gap OR deep-loss comeback                         |
+//| Recovery: raw gap, basket-SL reverse, plus one profit follow-up |
 //| Arm minimum floor, then custom X1/X1.25/X1.50... SL ladder |
 //+------------------------------------------------------------------+
 #property strict
-#property version   "4.03"
+#property version   "4.05"
 
 double InpLotSize                    = 0.01;
 int    InpMagicNumber                = 44001;
@@ -39,7 +39,7 @@ double InpMomentumContinuationRaw    = 100.0;
 // The worst BUY loss never changes SELL state, and vice versa.
 double InpBasketProfitUSD                    = 0.50; // X1 base profit step
 double InpDynamicBasketMinimumArmUSD        = 0.20; // touch $0.20 before protecting the small floor
-double InpDynamicBasketMinimumCloseUSD      = 0.05; // EA fallback floor after the arm
+double InpDynamicBasketMinimumCloseUSD      = 0.03; // EA fallback floor after the arm
 
 // Dynamic basket profit ladder:
 // The BUY basket and SELL basket are managed independently.
@@ -54,7 +54,7 @@ double InpDynamicBasketMinimumCloseUSD      = 0.05; // EA fallback floor after t
 bool   InpUseDynamicBasketProfitBooking     = true;
 double InpDynamicBasketFirstLevelX          = 1.00; // first completed/protected ladder level
 double InpDynamicBasketSecondLevelX         = 1.25; // second completed/protected ladder level
-double InpDynamicBasketMultiplierStep       = 0.25; // repeated after the configured second level
+double InpDynamicBasketMultiplierStep       = 0.50; // repeated after the configured second level
 double InpDynamicBasketProfitMaxX           = 0.0;  // 0 = unlimited; otherwise highest protected X multiplier
 
 // Broker/server-side profit protection:
@@ -149,6 +149,22 @@ int    InpMaxRecoveryOrdersPerDirection    = 1;
 // Close linked parent + recovery together at the assigned basket target.
 bool   InpCloseRecoveryBasketAtTP        = true;
 
+// Recovery after a direction basket emergency SL. InpUseRecoveryOrders is
+// the master switch. Direction behavior:
+//   true  = BUY basket SL -> SELL; SELL basket SL -> BUY
+//   false = reopen recovery in the same direction as the stopped basket
+// The source side must be completely closed first. The order uses
+// InpRecoveryLotSize and follows the configured market/pending order mode plus
+// the central daily/time/mixed safety guards.
+bool   InpRecoveryAfterSLReverse         = true;
+
+// After an SL-reverse recovery becomes a live market order and later closes
+// with positive net profit, open exactly ONE more order in the same direction.
+// The follow-up uses the closed recovery order's lot size (falling back to
+// InpRecoveryLotSize) and follows the same market/pending entry mode. Its own
+// close never creates another follow-up, preventing an endless order chain.
+bool   InpOpenOneMoreAfterSLReverseProfit = true;
+
 // Clean-profit BOS continuation re-entry.
 // Any profitable REGULAR order that never recorded negative net P/L arms
 // one same-direction re-entry. It then waits for an active matching BOS.
@@ -222,6 +238,23 @@ int      g_assignedSellLossTier       = 0;
 // side does not block the other side.
 datetime g_lastBuyServerLockAttemptTime  = 0;
 datetime g_lastSellServerLockAttemptTime = 0;
+
+//------------------- Basket-SL reverse recovery ---------------------
+// A failed/blocked placement remains armed and is retried on later ticks.
+bool     g_slReverseRecoveryPending      = false;
+int      g_slReverseRecoveryType         = -1;
+int      g_slReverseSourceType           = -1;
+datetime g_slReverseRecoveryArmTime      = 0;
+double   g_slReverseSourceBasketLoss     = 0.0;
+
+// One-time same-direction follow-up after a profitable SL-reverse recovery.
+// This state remains armed while Dubai-hours/MIXED safeguards block placement.
+bool     g_slReverseProfitNextPending     = false;
+int      g_slReverseProfitNextType        = -1;
+int      g_slReverseProfitSourceTicket    = -1;
+datetime g_slReverseProfitCloseTime       = 0;
+double   g_slReverseProfitAmount          = 0.0;
+double   g_slReverseProfitLots            = 0.0;
 
 //----------------------- Automatic market mode ----------------------
 double   g_mixedRangeRaw              = 0.0;
@@ -1129,8 +1162,18 @@ void OnTick()
 
 // A clean profitable close is allowed to arm re-entry even when no BOS
 // is active at this exact tick. The pending setup waits for a future
-// same-direction BOS.
+// same-direction BOS. Basket emergency SL processing can also arm an
+// opposite recovery; retry it here if its first placement was blocked.
    CloseByProfitOrLoss();
+
+// A profitable SL-reverse recovery creates exactly one same-direction
+// continuation order. Detect history after close processing so an EA-side
+// close can arm and place the follow-up on this same tick.
+   DetectClosedSLReverseRecoveryProfit();
+   TryOpenSLReverseProfitContinuation();
+
+// Basket-SL reverse recovery remains a separate trigger.
+   TryOpenSLReverseRecovery();
 
 // Refresh BUY and SELL adaptive summaries independently.
    AssignTakeProfitFromOpenOrderLosses();
@@ -4157,13 +4200,10 @@ bool CloseSideBasketByDynamicProfit(int orderType)
   }
 
 //+------------------------------------------------------------------+
-void CloseByProfitOrLoss()
+bool DeleteMyPendingOrdersByDirection(int marketType, string reason)
   {
-// BUY and SELL basket profit engines are completely independent.
-   CloseSideBasketByDynamicProfit(OP_BUY);
-   CloseSideBasketByDynamicProfit(OP_SELL);
+   int failedCount = 0;
 
-// Preserve the existing emergency stop as a per-order protection.
    for(int i = OrdersTotal() - 1; i >= 0; i--)
      {
       if(!OrderSelect(i, SELECT_BY_POS, MODE_TRADES))
@@ -4172,27 +4212,500 @@ void CloseByProfitOrLoss()
          continue;
       if(OrderMagicNumber() != InpMagicNumber)
          continue;
-      if(OrderType() != OP_BUY && OrderType() != OP_SELL)
+      if(!IsPendingOrderType(OrderType()))
+         continue;
+      if(!IsOrderTypeForMarketDirection(OrderType(), marketType))
          continue;
 
-      double profit =
-         OrderProfit() + OrderSwap() + OrderCommission();
+      int ticket = OrderTicket();
+      int parentTicket = GetRecoveryParentTicket(OrderComment());
 
-      double effectiveStopLossUSD =
-         GetEffectiveFixedStopLossUSD();
-
-      bool fixedStopHit =
-         (effectiveStopLossUSD > 0.0 &&
-          profit <= -effectiveStopLossUSD);
-
-      if(fixedStopHit)
+      ResetLastError();
+      if(OrderDelete(ticket, clrNONE))
         {
-         CloseSelectedOrder(
-            "Effective emergency SL -$" +
-            DoubleToString(effectiveStopLossUSD, 2),
-            profit);
+         DeleteProfitTrailState(ticket);
+
+         if(parentTicket > 0)
+           {
+            string key = RecoveryBOSKey(parentTicket);
+            if(GlobalVariableCheck(key))
+               GlobalVariableDel(key);
+           }
+
+         Print("BASKET SL PENDING DELETE | #", ticket,
+               " | ", reason);
+        }
+      else
+        {
+         failedCount++;
+         Print("BASKET SL PENDING DELETE FAILED | #", ticket,
+               " | Error ", GetLastError(),
+               " | ", reason);
         }
      }
+
+   return(failedCount == 0);
+  }
+
+//+------------------------------------------------------------------+
+bool IsSLReverseRecoveryComment(string orderComment)
+  {
+   return(StringFind(orderComment, "BOS_RECOVERY_SLR_", 0) == 0);
+  }
+
+//+------------------------------------------------------------------+
+string SLReverseProfitNextHandledKey(int sourceTicket)
+  {
+   return("EBP_SLR_NEXT_" +
+          IntegerToString(AccountNumber()) + "_" +
+          IntegerToString(InpMagicNumber) + "_" +
+          Symbol() + "_" +
+          IntegerToString(sourceTicket));
+  }
+
+//+------------------------------------------------------------------+
+bool WasSLReverseProfitNextHandled(int sourceTicket)
+  {
+   if(sourceTicket <= 0)
+      return(true);
+
+   return(GlobalVariableCheck(
+             SLReverseProfitNextHandledKey(sourceTicket)));
+  }
+
+//+------------------------------------------------------------------+
+void MarkSLReverseProfitNextHandled(int sourceTicket)
+  {
+   if(sourceTicket <= 0)
+      return;
+
+   GlobalVariableSet(SLReverseProfitNextHandledKey(sourceTicket),
+                     (double)TimeCurrent());
+  }
+
+//+------------------------------------------------------------------+
+void ClearSLReverseProfitContinuation(string reason)
+  {
+   if(g_slReverseProfitNextPending && reason != "")
+      Print("SL REVERSE PROFIT FOLLOW-UP CLEARED | ", reason);
+
+   g_slReverseProfitNextPending  = false;
+   g_slReverseProfitNextType     = -1;
+   g_slReverseProfitSourceTicket = -1;
+   g_slReverseProfitCloseTime    = 0;
+   g_slReverseProfitAmount       = 0.0;
+   g_slReverseProfitLots         = 0.0;
+  }
+
+//+------------------------------------------------------------------+
+void ArmSLReverseProfitContinuation(int sourceTicket,
+                                    int orderType,
+                                    datetime closeTime,
+                                    double netProfit,
+                                    double closedLots)
+  {
+   if(sourceTicket <= 0)
+      return;
+   if(orderType != OP_BUY && orderType != OP_SELL)
+      return;
+   if(netProfit <= 0.0)
+      return;
+
+   g_slReverseProfitNextPending  = true;
+   g_slReverseProfitNextType     = orderType;
+   g_slReverseProfitSourceTicket = sourceTicket;
+   g_slReverseProfitCloseTime    = closeTime;
+   g_slReverseProfitAmount       = netProfit;
+   g_slReverseProfitLots         = closedLots;
+
+   string side = (orderType == OP_BUY) ? "BUY" : "SELL";
+
+   g_lastStatus =
+      "SL reverse recovery closed profit | one more " +
+      side + " armed";
+
+   Print(g_lastStatus,
+         " | Source #", sourceTicket,
+         " | Net P/L $", DoubleToString(netProfit, 2),
+         " | Lot ", DoubleToString(closedLots, 2));
+  }
+
+//+------------------------------------------------------------------+
+void DetectClosedSLReverseRecoveryProfit()
+  {
+   if(!InpRecoveryAfterSLReverse ||
+      !InpOpenOneMoreAfterSLReverseProfit)
+      return;
+
+   // Do not replace an already-armed event. It must either be placed or
+   // deliberately cancelled by a higher-priority daily-target safeguard.
+   if(g_slReverseProfitNextPending)
+      return;
+
+   datetime baseTime = 0;
+   string baseKey = OrderLifecycleNotifyBaseKey();
+
+   if(GlobalVariableCheck(baseKey))
+      baseTime = (datetime)GlobalVariableGet(baseKey);
+
+   // Scan newest history first. Only the original SLR order comment matches;
+   // the follow-up comment is BOS_RECOVERY_NXT_* and cannot retrigger.
+   for(int h = OrdersHistoryTotal() - 1; h >= 0; h--)
+     {
+      if(!OrderSelect(h, SELECT_BY_POS, MODE_HISTORY))
+         continue;
+      if(OrderSymbol() != Symbol())
+         continue;
+      if(OrderMagicNumber() != InpMagicNumber)
+         continue;
+      if(OrderType() != OP_BUY && OrderType() != OP_SELL)
+         continue;
+      if(OrderCloseTime() <= 0 || OrderCloseTime() < baseTime)
+         continue;
+      if(!IsSLReverseRecoveryComment(OrderComment()))
+         continue;
+
+      int sourceTicket = OrderTicket();
+      if(WasSLReverseProfitNextHandled(sourceTicket))
+         continue;
+
+      double netProfit =
+         OrderProfit() + OrderSwap() + OrderCommission();
+
+      // A losing/break-even reverse recovery is final. Mark it handled so it
+      // cannot be reconsidered after a restart or settings change.
+      if(netProfit <= 0.0)
+        {
+         MarkSLReverseProfitNextHandled(sourceTicket);
+         continue;
+        }
+
+      ArmSLReverseProfitContinuation(sourceTicket,
+                                     OrderType(),
+                                     OrderCloseTime(),
+                                     netProfit,
+                                     OrderLots());
+      return;
+     }
+  }
+
+//+------------------------------------------------------------------+
+bool TryOpenSLReverseProfitContinuation()
+  {
+   if(!g_slReverseProfitNextPending)
+      return(false);
+
+   if(!InpRecoveryAfterSLReverse ||
+      !InpOpenOneMoreAfterSLReverseProfit)
+     {
+      MarkSLReverseProfitNextHandled(g_slReverseProfitSourceTicket);
+      ClearSLReverseProfitContinuation("feature disabled");
+      return(false);
+     }
+
+   if(g_slReverseProfitNextType != OP_BUY &&
+      g_slReverseProfitNextType != OP_SELL)
+     {
+      MarkSLReverseProfitNextHandled(g_slReverseProfitSourceTicket);
+      ClearSLReverseProfitContinuation("invalid follow-up direction");
+      return(false);
+     }
+
+   UpdateDailyProfitTargetState();
+   if(IsDailyNewOrderPaused())
+     {
+      // A completed Dubai daily target overrides delayed continuation entries.
+      MarkSLReverseProfitNextHandled(g_slReverseProfitSourceTicket);
+      ClearSLReverseProfitContinuation("daily target pause");
+      return(false);
+     }
+
+   double followLots = g_slReverseProfitLots;
+   if(followLots <= 0.0)
+      followLots = InpRecoveryLotSize;
+
+   if(followLots <= 0.0)
+     {
+      MarkSLReverseProfitNextHandled(g_slReverseProfitSourceTicket);
+      ClearSLReverseProfitContinuation("invalid follow-up lot size");
+      return(false);
+     }
+
+   string sideCode =
+      (g_slReverseProfitNextType == OP_BUY) ? "B" : "S";
+
+   // Intentionally different from BOS_RECOVERY_SLR_* so this follow-up's own
+   // profitable close cannot arm another order. It still remains classified
+   // as a recovery order by the general BOS_RECOVERY_ prefix.
+   string orderComment =
+      "BOS_RECOVERY_NXT_" + sideCode +
+      "_T" + IntegerToString(g_slReverseProfitSourceTicket);
+
+   if(!OpenOrderWithLots(g_slReverseProfitNextType,
+                         followLots,
+                         orderComment))
+     {
+      // Dubai-hours and MIXED mode keep the event armed for a later retry.
+      return(false);
+     }
+
+   double entryPrice = InpUsePendingStopOrders ?
+                       GetPendingStopEntryPrice(g_slReverseProfitNextType) :
+                       ((g_slReverseProfitNextType == OP_BUY) ? Ask : Bid);
+
+   int direction =
+      (g_slReverseProfitNextType == OP_BUY) ? 1 : -1;
+
+   DrawRecoveryArrow(direction,
+                     entryPrice,
+                     TimeCurrent(),
+                     g_slReverseProfitSourceTicket);
+
+   string side =
+      (g_slReverseProfitNextType == OP_BUY) ? "BUY" : "SELL";
+
+   g_lastStatus =
+      "SL reverse profit -> one more " + side +
+      (InpUsePendingStopOrders ?
+       " pending placed" : " order opened") +
+      " | Lot " + DoubleToString(followLots, 2);
+
+   Print(g_lastStatus,
+         " | Source reverse recovery #",
+         g_slReverseProfitSourceTicket,
+         " | Source profit $",
+         DoubleToString(g_slReverseProfitAmount, 2));
+
+   MarkSLReverseProfitNextHandled(g_slReverseProfitSourceTicket);
+   ClearSLReverseProfitContinuation("");
+   return(true);
+  }
+
+//+------------------------------------------------------------------+
+void ClearSLReverseRecovery(string reason)
+  {
+   if(g_slReverseRecoveryPending && reason != "")
+      Print("SL REVERSE RECOVERY CLEARED | ", reason);
+
+   g_slReverseRecoveryPending  = false;
+   g_slReverseRecoveryType     = -1;
+   g_slReverseSourceType       = -1;
+   g_slReverseRecoveryArmTime  = 0;
+   g_slReverseSourceBasketLoss = 0.0;
+  }
+
+//+------------------------------------------------------------------+
+void ArmSLReverseRecovery(int stoppedType, double basketLoss)
+  {
+   if(!InpUseRecoveryOrders)
+      return;
+   if(stoppedType != OP_BUY && stoppedType != OP_SELL)
+      return;
+
+   g_slReverseRecoveryPending  = true;
+   g_slReverseSourceType       = stoppedType;
+   g_slReverseRecoveryType     = stoppedType;
+
+   if(InpRecoveryAfterSLReverse)
+      g_slReverseRecoveryType =
+         (stoppedType == OP_BUY) ? OP_SELL : OP_BUY;
+   g_slReverseRecoveryArmTime  = TimeCurrent();
+   g_slReverseSourceBasketLoss = basketLoss;
+
+   string sourceSide =
+      (stoppedType == OP_BUY) ? "BUY" : "SELL";
+   string recoverySide =
+      (g_slReverseRecoveryType == OP_BUY) ? "BUY" : "SELL";
+
+   g_lastStatus =
+      sourceSide + " basket SL closed | " +
+      recoverySide + " reverse recovery armed";
+
+   Print(g_lastStatus,
+         " | Basket P/L $", DoubleToString(basketLoss, 2));
+  }
+
+//+------------------------------------------------------------------+
+bool TryOpenSLReverseRecovery()
+  {
+   if(!g_slReverseRecoveryPending)
+      return(false);
+
+   if(!InpUseRecoveryOrders)
+     {
+      ClearSLReverseRecovery("recovery feature disabled");
+      return(false);
+     }
+
+   if(g_slReverseRecoveryType != OP_BUY &&
+      g_slReverseRecoveryType != OP_SELL)
+     {
+      ClearSLReverseRecovery("invalid recovery direction");
+      return(false);
+     }
+
+   // Never reopen while any source-side market order remains. Retry deletion
+   // of source-side pending entries because a temporary trade-context error
+   // during the SL close must not permanently lose the reverse recovery event.
+   if(CountMyOrdersByType(g_slReverseSourceType) > 0)
+     {
+      g_lastStatus = "SL reverse recovery waiting source basket close";
+      return(false);
+     }
+
+   if(CountMyPendingOrdersByDirection(g_slReverseSourceType) > 0)
+     {
+      DeleteMyPendingOrdersByDirection(
+         g_slReverseSourceType,
+         "SL reverse recovery source cleanup retry");
+
+      if(CountMyPendingOrdersByDirection(g_slReverseSourceType) > 0)
+        {
+         g_lastStatus =
+            "SL reverse recovery waiting source pending cleanup";
+         return(false);
+        }
+     }
+
+   UpdateDailyProfitTargetState();
+   if(IsDailyNewOrderPaused())
+     {
+      ClearSLReverseRecovery("daily target pause");
+      return(false);
+     }
+
+   if(InpRecoveryLotSize <= 0.0)
+     {
+      ClearSLReverseRecovery("invalid recovery lot size");
+      return(false);
+     }
+
+   string sourceSide =
+      (g_slReverseSourceType == OP_BUY) ? "BUY" : "SELL";
+   string recoverySide =
+      (g_slReverseRecoveryType == OP_BUY) ? "BUY" : "SELL";
+
+   // Keep the broker comment within the usual MT4 31-character limit.
+   string recoveryCode =
+      (g_slReverseRecoveryType == OP_BUY) ? "B" : "S";
+
+   string orderComment =
+      "BOS_RECOVERY_SLR_" + recoveryCode +
+      "_T" + IntegerToString((int)g_slReverseRecoveryArmTime);
+
+   if(!OpenOrderWithLots(g_slReverseRecoveryType,
+                         InpRecoveryLotSize,
+                         orderComment))
+     {
+      // Keep the event armed. It can retry after Dubai-hours or MIXED pause.
+      return(false);
+     }
+
+   double entryPrice = InpUsePendingStopOrders ?
+                       GetPendingStopEntryPrice(g_slReverseRecoveryType) :
+                       ((g_slReverseRecoveryType == OP_BUY) ? Ask : Bid);
+
+   int recoveryDirection =
+      (g_slReverseRecoveryType == OP_BUY) ? 1 : -1;
+
+   DrawRecoveryArrow(recoveryDirection,
+                     entryPrice,
+                     TimeCurrent(),
+                     -1);
+
+   g_lastStatus =
+      sourceSide + " basket SL -> " + recoverySide +
+      (InpUsePendingStopOrders ?
+       " recovery pending placed" :
+       " recovery opened") +
+      " | Lot " + DoubleToString(InpRecoveryLotSize, 2);
+
+   Print(g_lastStatus,
+         " | Source basket P/L $",
+         DoubleToString(g_slReverseSourceBasketLoss, 2));
+
+   ClearSLReverseRecovery("");
+   return(true);
+  }
+
+//+------------------------------------------------------------------+
+bool ProcessSideBasketEmergencySL(int orderType)
+  {
+   int orderCount = CountMyOrdersByType(orderType);
+   if(orderCount <= 0)
+      return(false);
+
+   double effectiveStopLossUSD = GetEffectiveFixedStopLossUSD();
+   if(effectiveStopLossUSD <= 0.0)
+      return(false);
+
+   double basketProfit = GetMyOpenProfitByType(orderType);
+   if(basketProfit > -effectiveStopLossUSD)
+      return(false);
+
+   string side = (orderType == OP_BUY) ? "BUY" : "SELL";
+   double minimumProfit =
+      GetSideProfitState(orderType, "MINIMUM", basketProfit);
+   int lossTier =
+      (int)GetSideProfitState(orderType, "TIER", 0.0);
+
+   // Remove only the stopped side's pending entries so they cannot reopen
+   // the just-closed basket. Opposite-side orders/pending orders are untouched.
+   bool pendingDeleted =
+      DeleteMyPendingOrdersByDirection(
+         orderType,
+         side + " basket emergency SL");
+
+   bool closeAttempted =
+      CloseAllSideOrders(
+         orderType,
+         side + " basket emergency SL -$" +
+         DoubleToString(effectiveStopLossUSD, 2),
+         basketProfit,
+         minimumProfit,
+         lossTier);
+
+   bool sourceMarketClosed =
+      (CountMyOrdersByType(orderType) == 0);
+
+   if(sourceMarketClosed)
+     {
+      // Arm now even if a pending-delete attempt failed. The retry function
+      // will keep cleaning the source side before it opens the reverse order.
+      ArmSLReverseRecovery(orderType, basketProfit);
+     }
+   else
+     {
+      Print("BASKET SL REVERSE RECOVERY NOT ARMED | ", side,
+            " source market orders are still open");
+     }
+
+   if(!pendingDeleted)
+      Print("BASKET SL | ", side,
+            " pending cleanup will retry before reverse recovery");
+
+   return(closeAttempted || sourceMarketClosed);
+  }
+
+//+------------------------------------------------------------------+
+void CloseByProfitOrLoss()
+  {
+// BUY and SELL basket profit engines are completely independent.
+   CloseSideBasketByDynamicProfit(OP_BUY);
+   CloseSideBasketByDynamicProfit(OP_SELL);
+
+// Emergency stop is direction-basket based. A BUY basket SL closes only
+// BUY orders; a SELL basket SL closes only SELL orders. With
+// InpRecoveryAfterSLReverse=true, a fully closed source side arms one
+// opposite recovery: BUY SL -> SELL, SELL SL -> BUY.
+   // Handle at most one stopped direction per tick. The opposite recovery
+   // is opened by OnTick immediately after this function returns, preventing
+   // a newly opened reverse order from being re-evaluated as a stopped basket
+   // inside the same CloseByProfitOrLoss() pass.
+   if(ProcessSideBasketEmergencySL(OP_BUY))
+      return;
+
+   ProcessSideBasketEmergencySL(OP_SELL);
   }
 
 //+------------------------------------------------------------------+

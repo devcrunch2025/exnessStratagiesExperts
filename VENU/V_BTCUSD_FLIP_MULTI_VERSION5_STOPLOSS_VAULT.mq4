@@ -20,7 +20,7 @@ MARKET_MODE g_marketMode = MODE_RANGE;
 #ifndef OP_BALANCE
 #define OP_BALANCE 6
 #endif
-#property version   "1.47"
+#property version   "1.50"
 
 //======================== INPUTS ====================================
 string InpEAName                  = "DXB Version 5 - SAR Confirm 50 in 5 Min";
@@ -47,7 +47,7 @@ double InpProfitTargetPercent      = 20;//50.0;//50   // stop trading when equit
 bool   InpUseDynamicBasketProfitBooking    = true;
 double InpDynamicBasketFirstLevelX          = 1.00; // first completed/protected ladder level
 double InpDynamicBasketSecondLevelX         = 1.25; // second completed/protected ladder level
-double InpDynamicBasketMultiplierStep       = 0.25; // added after X1.50: X1.75, X2.00, X2.25...
+double InpDynamicBasketMultiplierStep       = 0.50; // added after X1.50: X1.75, X2.00, X2.25...
 double InpDynamicBasketProfitMaxX           = 0.0;  // 0 = unlimited; otherwise highest protected X multiplier
 
 // Broker/server-side dynamic profit protection:
@@ -79,7 +79,7 @@ double InpDynamicBasketReturnBufferUSD     = 0.00;
 //   peak reaches X1.75      => advance protection to X1.75, continuing by X0.25
 // Close only when current profit comes back to the highest protected value.
 double InpDynamicBasketMinimumArmUSD       =0.20;// 0.10;//0.15;//0.20;//before Dynamic profit
-double InpDynamicBasketMinimumCloseUSD     = 0.05;//0.02;//0.05;//0.10;//0.10;//before Dynamic profit
+double InpDynamicBasketMinimumCloseUSD     = 0.03;//0.02;//0.05;//0.10;//0.10;//before Dynamic profit
 
 // Drawdown comeback trailing floor:
 // Once a BUY/SELL basket touches a negative loss step, remember the worst loss
@@ -267,9 +267,10 @@ double InpProtectCloseAtUSD_5  = 1.50;
 int    InpIndividualProtectPauseMinutes     = 5;     // wait this many minutes before opening next normal order after profit protect close
 bool   InpCloseIfNextCandleNotProfit     = false;  // close order after next closed candle if profit is not above 0
 
-bool   InpOpenRecoveryAfterClose  = false;   // open recovery order after SL/SAR flip/early reverse close
-double InpRecoveryProfitUSD       = 2.00;   // close recovery order when this USD profit is reached
-bool   InpRecoveryAfterSLReverse  = false;   // true: after basket SL, open opposite direction
+bool   InpOpenRecoveryAfterClose  = true;   // open recovery order after SL/SAR flip/early reverse close
+double InpRecoveryProfitUSD       = 1;//2.00;   // optional fixed close target; chain continuation does NOT wait for this target
+bool   InpRecoveryAfterSLReverse  = true;   // true: after basket SL, open opposite direction
+bool   InpContinueSLReverseRecoveryAfterProfit = false; // any SL-reverse chain recovery closed with net profit > $0 opens the next same-direction recovery continuously
 
 // Recovery gap orders: when existing BUY/SELL basket is in loss and price moves against it
 // by this raw price gap, open one more same-direction recovery order.
@@ -827,6 +828,22 @@ double   g_buyRecoveryWorstBasketProfit  = 0.0;
 double   g_sellRecoveryWorstBasketProfit = 0.0;
 bool     g_buyRecoveryLossComebackArmed  = false;
 bool     g_sellRecoveryLossComebackArmed = false;
+
+// Continuous SL-reverse recovery chain tracker.
+// A chain starts with SLREV_REC1 after basket SL. Every chain recovery that
+// later closes with net profit > $0 queues the next same-direction recovery.
+// A zero/loss close ends the chain. Historical tickets are seeded on OnInit
+// so old profitable recoveries cannot restart a chain after EA reload.
+#define DXB_RECOVERY_CHAIN_HISTORY_CAPACITY 2000
+int      g_recoveryChainProcessedTickets[DXB_RECOVERY_CHAIN_HISTORY_CAPACITY];
+int      g_recoveryChainProcessedCount = 0;
+bool     g_recoveryChainTrackerInitialized = false;
+bool     g_recoveryChainContinuationPending = false;
+int      g_recoveryChainPendingDirection = 0;
+int      g_recoveryChainSourceTicket = 0;
+double   g_recoveryChainSourceProfit = 0.0;
+datetime g_recoveryChainSourceCloseTime = 0;
+datetime g_recoveryChainLastOpenAttemptTime = 0;
 
 
 int      g_equityDay            = -1;
@@ -3228,6 +3245,7 @@ int OnInit()
    InpMagicNumber=AccountNumber()+202; // override magic number with account number to prevent interference between charts/accounts. Orders are still filtered by symbol and magic in this EA.
 
    InitializeCreatedClosedPushTracker();
+   InitializeSLReverseRecoveryChainTracker();
 
 // Restore an active opposite-side pause after EA restart from account history.
    UpdateOppositeDirectionProfitPause(true);
@@ -6786,7 +6804,9 @@ bool IsRecoveryOrder()
   {
    string c = OrderComment();
    return(StringFind(c, "RECOVERY_TP_0.50") >= 0 ||
-          StringFind(c, "RECOVERY") >= 0);
+          StringFind(c, "RECOVERY") >= 0 ||
+          StringFind(c, "SLREV_REC1_") == 0 ||  // v1.49 compatibility
+          StringFind(c, "SLREV_REC2_") == 0);   // v1.49 compatibility
   }
 
 //+------------------------------------------------------------------+
@@ -6817,16 +6837,268 @@ int CountRecoveryOrders()
   }
 
 //+------------------------------------------------------------------+
-void CloseRecoveryOrdersAtProfit()
+bool IsSLReverseRecoveryChainComment(string commentText)
   {
-// DISABLED BY DESIGN:
-// Recovery orders should NOT close immediately at a fixed profit target.
-// They must close only after:
-// 1) Order profit first reaches InpIndividualProtectActivateUSD, and
-// 2) Profit falls back to InpIndividualProtectCloseAtUSD.
-// This logic is handled by ProcessIndividualProfitProtect().
-   return;
+   return(StringFind(commentText, "SLREV_REC1_") == 0 ||             // v1.49 compatibility
+          StringFind(commentText, "SLREV_REC2_") == 0 ||             // v1.49 compatibility
+          StringFind(commentText, "SLREV_CHAIN_") == 0 ||            // early v1.50 compatibility
+          StringFind(commentText, "SLREV_RECOVERY_1_") == 0 ||
+          StringFind(commentText, "SLREV_RECOVERY_CHAIN_") == 0);
   }
+
+//+------------------------------------------------------------------+
+bool IsRecoveryChainTicketProcessed(int ticket)
+  {
+   if(ticket <= 0)
+      return(false);
+
+   for(int i = 0; i < g_recoveryChainProcessedCount; i++)
+      if(g_recoveryChainProcessedTickets[i] == ticket)
+         return(true);
+
+   return(false);
+  }
+
+//+------------------------------------------------------------------+
+void AddRecoveryChainProcessedTicket(int ticket)
+  {
+   if(ticket <= 0 || IsRecoveryChainTicketProcessed(ticket))
+      return;
+
+   if(g_recoveryChainProcessedCount < DXB_RECOVERY_CHAIN_HISTORY_CAPACITY)
+     {
+      g_recoveryChainProcessedTickets[g_recoveryChainProcessedCount++] = ticket;
+      return;
+     }
+
+// Keep the newest tickets if the fixed safety array becomes full.
+   for(int i = 1; i < DXB_RECOVERY_CHAIN_HISTORY_CAPACITY; i++)
+      g_recoveryChainProcessedTickets[i - 1] = g_recoveryChainProcessedTickets[i];
+
+   g_recoveryChainProcessedTickets[DXB_RECOVERY_CHAIN_HISTORY_CAPACITY - 1] = ticket;
+  }
+
+//+------------------------------------------------------------------+
+void InitializeSLReverseRecoveryChainTracker()
+  {
+   g_recoveryChainProcessedCount = 0;
+   g_recoveryChainContinuationPending = false;
+   g_recoveryChainPendingDirection = 0;
+   g_recoveryChainSourceTicket = 0;
+   g_recoveryChainSourceProfit = 0.0;
+   g_recoveryChainSourceCloseTime = 0;
+   g_recoveryChainLastOpenAttemptTime = 0;
+
+// Seed recent history silently. This prevents an old profitable recovery from
+// opening a new chain order when the EA is attached or restarted.
+   int historyTotal = OrdersHistoryTotal();
+   int firstHistoryIndex = MathMax(0, historyTotal - DXB_PUSH_HISTORY_SCAN);
+
+   for(int h = firstHistoryIndex; h < historyTotal; h++)
+     {
+      if(!OrderSelect(h, SELECT_BY_POS, MODE_HISTORY))
+         continue;
+
+      if(OrderSymbol() != Symbol() ||
+         OrderMagicNumber() != InpMagicNumber)
+         continue;
+
+      int type = OrderType();
+      if(type != OP_BUY && type != OP_SELL)
+         continue;
+
+      if(IsSLReverseRecoveryChainComment(OrderComment()))
+         AddRecoveryChainProcessedTicket(OrderTicket());
+     }
+
+   g_recoveryChainTrackerInitialized = true;
+
+   Print("SL REVERSE RECOVERY CHAIN TRACKER READY | SeededClosed=",
+         g_recoveryChainProcessedCount,
+         " | ContinueAfterAnyProfit=",
+         InpContinueSLReverseRecoveryAfterProfit ? "YES" : "NO");
+  }
+
+//+------------------------------------------------------------------+
+void ProcessSLReverseRecoveryProfitContinuation()
+  {
+   if(!g_recoveryChainTrackerInitialized)
+      return;
+
+// Read newly closed chain tickets in chronological order. A chain continues
+// only when the individual recovery order's final NET result is above $0.
+   int historyTotal = OrdersHistoryTotal();
+   int firstHistoryIndex = MathMax(0, historyTotal - DXB_PUSH_HISTORY_SCAN);
+
+   for(int h = firstHistoryIndex; h < historyTotal; h++)
+     {
+      if(!OrderSelect(h, SELECT_BY_POS, MODE_HISTORY))
+         continue;
+
+      if(OrderSymbol() != Symbol() ||
+         OrderMagicNumber() != InpMagicNumber)
+         continue;
+
+      int type = OrderType();
+      if(type != OP_BUY && type != OP_SELL)
+         continue;
+
+      int ticket = OrderTicket();
+      if(IsRecoveryChainTicketProcessed(ticket))
+         continue;
+
+      string commentText = OrderComment();
+      if(!IsSLReverseRecoveryChainComment(commentText))
+         continue;
+
+      AddRecoveryChainProcessedTicket(ticket);
+
+      double netProfit = OrderProfit() + OrderSwap() + OrderCommission();
+      int closedDirection = (type == OP_BUY) ? 1 : -1;
+
+      if(InpOpenRecoveryAfterClose &&
+         InpRecoveryAfterSLReverse &&
+         InpContinueSLReverseRecoveryAfterProfit &&
+         netProfit > 0.0000001)
+        {
+         g_recoveryChainContinuationPending = true;
+         g_recoveryChainPendingDirection = closedDirection;
+         g_recoveryChainSourceTicket = ticket;
+         g_recoveryChainSourceProfit = netProfit;
+         g_recoveryChainSourceCloseTime = OrderCloseTime();
+
+         Print("SL REVERSE RECOVERY PROFIT DETECTED | Ticket=", ticket,
+               " | Direction=", DirectionText(closedDirection),
+               " | NetProfit=$", DoubleToString(netProfit, 2),
+               " | CloseReason independent | NEXT RECOVERY QUEUED");
+        }
+      else
+        {
+// A break-even/loss close ends this recovery chain. It does not matter which
+// EA close rule produced the close.
+         g_recoveryChainContinuationPending = false;
+         g_recoveryChainPendingDirection = 0;
+         g_recoveryChainSourceTicket = ticket;
+         g_recoveryChainSourceProfit = netProfit;
+         g_recoveryChainSourceCloseTime = OrderCloseTime();
+
+         Print("SL REVERSE RECOVERY CHAIN ENDED | Ticket=", ticket,
+               " | NetProfit=$", DoubleToString(netProfit, 2),
+               " | Continue switch=",
+               InpContinueSLReverseRecoveryAfterProfit ? "ON" : "OFF");
+        }
+     }
+
+   if(!g_recoveryChainContinuationPending ||
+      g_recoveryChainPendingDirection == 0)
+      return;
+
+// Do not spam OrderSend/filter checks. Keep the request pending and retry until
+// current safety rules allow the next order.
+   if(TimeCurrent() - g_recoveryChainLastOpenAttemptTime < 5)
+      return;
+
+   if(CountRecoveryOrders() > 0)
+      return;
+
+   if(IsDubaiNoNewOrderHourNow())
+      return;
+
+   g_recoveryChainLastOpenAttemptTime = TimeCurrent();
+
+   int nextDirection = g_recoveryChainPendingDirection;
+   int sourceTicket = g_recoveryChainSourceTicket;
+   double sourceProfit = g_recoveryChainSourceProfit;
+
+   bool opened = OpenRecoveryOrder(nextDirection,
+                                   "Continuous SL reverse recovery after profitable close #" +
+                                   IntegerToString(sourceTicket),
+                                   2);
+
+   if(opened)
+     {
+      Print("SL REVERSE RECOVERY CHAIN CONTINUED | PreviousTicket=", sourceTicket,
+            " | PreviousProfit=$", DoubleToString(sourceProfit, 2),
+            " | NewDirection=", DirectionText(nextDirection),
+            " | Continues again after next profitable close");
+
+      g_recoveryChainContinuationPending = false;
+      g_recoveryChainPendingDirection = 0;
+     }
+   else
+     {
+      Print("SL REVERSE RECOVERY CHAIN WAITING | PreviousTicket=", sourceTicket,
+            " | Direction=", DirectionText(nextDirection),
+            " | Request remains pending and will retry");
+     }
+  }
+
+//+------------------------------------------------------------------+
+bool CloseRecoveryOrdersAtProfit()
+  {
+   double target = MathMax(0.0, InpRecoveryProfitUSD);
+   if(target <= 0.0)
+      return(false);
+
+   RefreshRates();
+   bool closedAny = false;
+
+   for(int i = OrdersTotal() - 1; i >= 0; i--)
+     {
+      if(!OrderSelect(i, SELECT_BY_POS, MODE_TRADES))
+         continue;
+
+      if(OrderSymbol() != Symbol() || OrderMagicNumber() != InpMagicNumber)
+         continue;
+
+      int type = OrderType();
+      if(type != OP_BUY && type != OP_SELL)
+         continue;
+
+      if(IsSARGuardOrderComment(OrderComment()) || !IsRecoveryOrder())
+         continue;
+
+      double profit = OrderProfit() + OrderSwap() + OrderCommission();
+      if(profit + 0.0000001 < target)
+         continue;
+
+      int ticket = OrderTicket();
+      double lots = OrderLots();
+      double closePrice = (type == OP_BUY) ? Bid : Ask;
+      string commentText = OrderComment();
+
+      bool ok = OrderClose(ticket, lots, closePrice, InpSlippage, clrYellow);
+      if(!ok)
+        {
+         int err = GetLastError();
+         Print("RECOVERY FIXED PROFIT CLOSE FAILED | Ticket=", ticket,
+               " | Profit=$", DoubleToString(profit, 2),
+               " | Target=$", DoubleToString(target, 2),
+               " | Error=", err);
+         ResetLastError();
+         continue;
+        }
+
+      closedAny = true;
+      g_lastAnyOrderCloseTime = TimeCurrent();
+      SetLastOrderCloseDashboard(ticket, type, profit, closePrice,
+                                 "Recovery fixed profit target");
+
+      int idx = FindProfitProtectIndex(ticket);
+      if(idx >= 0)
+         RemoveProfitProtectIndex(idx);
+
+      Print("RECOVERY FIXED PROFIT CLOSED | Ticket=", ticket,
+            " | Type=", type == OP_BUY ? "BUY" : "SELL",
+            " | Profit=$", DoubleToString(profit, 2),
+            " | Target=$", DoubleToString(target, 2),
+            " | Comment=", commentText,
+            " | Chain continuation is based on actual profitable close history");
+     }
+
+   return(closedAny);
+  }
+
 //+------------------------------------------------------------------+
 //| Check MT4 trading permission                                     |
 //+------------------------------------------------------------------+
@@ -6853,7 +7125,7 @@ bool IsTradingAllowedNow()
    return(true);
   }
 //+------------------------------------------------------------------+
-bool OpenRecoveryOrder(int direction, string sourceReason)
+bool OpenRecoveryOrder(int direction, string sourceReason, int slReverseStage = 0)
   {
    if(IsDubaiNoNewOrderHourNow())
      {
@@ -6886,14 +7158,10 @@ bool OpenRecoveryOrder(int direction, string sourceReason)
    if(direction == 0)
       return(false);
 
-   if(!IsRecoveryDirectionStillValid(
-         direction,
-         "OpenRecoveryOrder"))
-      return(false);
-
-   if(!IsStrictSARScoreAllowedForNewOrder(direction,
-                                          "OpenRecoveryOrder " + sourceReason))
-      return(false);
+// AFTER-CLOSE recovery is intentionally independent from RECOVERY-GAP SAR matching.
+// It may be opposite to the still-active SAR after basket SL or early reverse.
+// Therefore do not apply IsRecoveryDirectionStillValid() or strict SAR score here.
+// Recovery-gap orders continue to use those filters inside OpenRecoveryGapMarketOrder().
 
    UpdateAutoMarketFlowMode();
    if(!IsAutoMarketNewOrderAllowed("RECOVERY " + sourceReason))
@@ -6939,8 +7207,9 @@ bool OpenRecoveryOrder(int direction, string sourceReason)
       return(false);
      }
 
-   if(!IsPendingEntryAllowedForCurrentSAR(direction, "OpenRecoveryOrder"))
-      return(false);
+// AFTER-CLOSE recovery may intentionally oppose the active SAR, so it must not
+// be blocked by IsPendingEntryAllowedForCurrentSAR(). Dubai hours, market mode,
+// big-candle protection, equity locks and order caps are still enforced above.
 
    int type = InpUsePendingOrderEntries
               ? (direction == 1 ? OP_BUYSTOP : OP_SELLSTOP)
@@ -6965,7 +7234,18 @@ bool OpenRecoveryOrder(int direction, string sourceReason)
 
    double lot = NormalizeLot(InpFixedLot);
 
-   string comment = "SAR_FLIP_V2_RECOVERY_TP_0.50_" + DirectionText(direction);
+   string comment = "AFTER_CLOSE_RECOVERY_" + DirectionText(direction);
+
+// Stage tags identify the continuous SL-reverse recovery lineage:
+//   SLREV_RECOVERY_1     = first reverse recovery opened after basket SL.
+//   SLREV_RECOVERY_CHAIN = every later continuation in the same direction.
+// The word RECOVERY keeps all existing recovery classification/protection active.
+// Both tags are eligible to continue again after ANY profitable close.
+   if(slReverseStage == 1)
+      comment = "SLREV_RECOVERY_1_" + DirectionText(direction);
+   else
+   if(slReverseStage >= 2)
+      comment = "SLREV_RECOVERY_CHAIN_" + DirectionText(direction);
    if(!IsTradingAllowedNow())
      {
       return(false);
@@ -8306,6 +8586,8 @@ void ProcessSARFlipStateAndClose()
       return;
 
    int oldDirection = g_activeSARDirection;
+   bool openedRecoveryAfterSARClose = false;
+   string sarRecoveryReason = "";
 
 // Every untriggered EA pending order belongs to the old SAR cycle.
 // Delete it before updating direction. The new cycle must complete its
@@ -8343,10 +8625,17 @@ void ProcessSARFlipStateAndClose()
         {
          if(CountOrdersByDirection(g_sarCloseTrackedDirection) > 0)
            {
-            CloseOrdersByDirection(g_sarCloseTrackedDirection,
+            int trackedDirectionToClose = g_sarCloseTrackedDirection;
+            CloseOrdersByDirection(trackedDirectionToClose,
                                    "Delayed SAR close on change #" + IntegerToString(g_sarChangesAfterLastNormalOrder));
 
-            Print("DELAYED SAR CLOSE DONE | ClosedDirection=", DirectionText(g_sarCloseTrackedDirection),
+            if(CountOrdersByDirection(trackedDirectionToClose) == 0)
+              {
+               openedRecoveryAfterSARClose = true;
+               sarRecoveryReason = "Delayed SAR flip close";
+              }
+
+            Print("DELAYED SAR CLOSE DONE | ClosedDirection=", DirectionText(trackedDirectionToClose),
                   " | ChangeCount=", g_sarChangesAfterLastNormalOrder,
                   " | Required=", requiredChanges);
            }
@@ -8376,7 +8665,16 @@ void ProcessSARFlipStateAndClose()
      {
       // Old immediate-close behaviour only when delayed close is disabled.
       if(!InpUseDelayedSARChangeClose && oldDirection != 0)
+        {
+         bool hadOldDirectionOrders = (CountOrdersByDirection(oldDirection) > 0);
          CloseOrdersByDirection(oldDirection, "SAR signal changed");
+
+         if(hadOldDirectionOrders && CountOrdersByDirection(oldDirection) == 0)
+           {
+            openedRecoveryAfterSARClose = true;
+            sarRecoveryReason = "Immediate SAR flip close";
+           }
+        }
 
       g_sarDelayedCloseStatus = InpUseDelayedSARChangeClose ? "WAIT ORDER" : "IMMEDIATE CLOSE";
      }
@@ -8394,6 +8692,11 @@ void ProcessSARFlipStateAndClose()
 
 // Start confirmation only for next new order.
    StartSARFlipConfirmation(sarFlip);
+
+   // SAR direction is now refreshed. Open recovery in the new SAR direction
+   // only when this SAR change actually closed a basket.
+   if(openedRecoveryAfterSARClose)
+      OpenRecoveryOrder(sarFlip, sarRecoveryReason);
 
    Print("SAR CHANGED | Old=", DirectionText(oldDirection),
          " New=", DirectionText(sarFlip),
@@ -9239,6 +9542,22 @@ bool ProcessDirectionWiseBasketStopLossOnly(string &status)
                                 sideText + " direction basket stop loss $" +
                                 DoubleToString(sideProfit, 2));
 
+         // Open the configured after-close recovery only after the losing side
+         // has actually been fully closed. Reverse means BUY SL -> SELL recovery
+         // and SELL SL -> BUY recovery.
+         if(CountOrdersByDirection(d) == 0)
+           {
+            int recoveryDirection = InpRecoveryAfterSLReverse ? -d : d;
+            OpenRecoveryOrder(recoveryDirection,
+                              sideText + " direction basket stop loss close",
+                              InpRecoveryAfterSLReverse ? 1 : 0);
+           }
+         else
+           {
+            Print("RECOVERY AFTER SL SKIPPED | Some ", sideText,
+                  " orders are still open after close attempt");
+           }
+
          if(d == g_sarCloseTrackedDirection)
            {
             g_sarChangesAfterLastNormalOrder = 0;
@@ -9281,6 +9600,14 @@ bool ProcessBasketCloseByDirection(int direction, string &status)
      {
       CloseOrdersByDirection(direction,
                              "Basket stop loss $" + DoubleToString(profit, 2));
+
+      if(CountOrdersByDirection(direction) == 0)
+        {
+         int recoveryDirection = InpRecoveryAfterSLReverse ? -direction : direction;
+         OpenRecoveryOrder(recoveryDirection,
+                           DirectionText(direction) + " basket stop loss close",
+                           InpRecoveryAfterSLReverse ? 1 : 0);
+        }
 
       if(direction == g_sarCloseTrackedDirection)
         {
@@ -9499,7 +9826,9 @@ bool ProcessCloseOrdersFirst(string &status)
       if(InpRecoveryAfterSLReverse)
          recoveryDirection = -oldDirection;
 
-      OpenRecoveryOrder(recoveryDirection, "Basket stop loss close");
+      OpenRecoveryOrder(recoveryDirection,
+                        "Basket stop loss close",
+                        InpRecoveryAfterSLReverse ? 1 : 0);
 
       Print("BASKET STOP LOSS HIT | Direction=", DirectionText(oldDirection),
             " | Loss=$", DoubleToString(activeProfit, 2),
@@ -10325,6 +10654,10 @@ void OnTick()
 // Send only ORDER CREATED / ORDER CLOSED push events.
    ProcessCreatedClosedPushNotifications();
 
+// Continue the SL-reverse recovery chain after ANY profitable recovery close.
+// This is based on final history profit, not only InpRecoveryProfitUSD closure.
+   ProcessSLReverseRecoveryProfitContinuation();
+
 // A pending BUYSTOP/SELLSTOP can otherwise activate at the broker during
 // a blocked Dubai hour. Remove all untriggered EA pending entries first.
    if(IsDubaiNoNewOrderHourNow())
@@ -10413,6 +10746,16 @@ void OnTick()
 
    ProcessSARSpecialGuardCleanup();
 
+// RECOVERY FIXED PROFIT TARGET FIRST:
+// Every active after-close/recovery-gap market order closes immediately when
+// its own net profit reaches InpRecoveryProfitUSD.
+   if(CloseRecoveryOrdersAtProfit())
+     {
+      DrawLeftOrderCreationChecklist("RECOVERY PROFIT TARGET CLOSED");
+      DrawDashboard("RECOVERY PROFIT TARGET CLOSED");
+      return;
+     }
+
 // DIRECTION-WISE BASKET STOP LOSS FIRST:
 // BUY loss closes only BUY orders; SELL loss closes only SELL orders.
 // Opposite side and any legacy guard order remain open.
@@ -10456,15 +10799,8 @@ void OnTick()
       return;
      }
 
-// Recovery orders must NOT close at fixed InpRecoveryProfitUSD.
-// They close only via ProcessIndividualProfitProtect():
-// peak >= InpIndividualProtectActivateUSD, then pullback <= InpIndividualProtectCloseAtUSD.
-// This keeps the oldest/base order open for basket recovery and lets recovery orders catch swings.
-// CloseRecoveryOrdersAtProfit();
-
-// Individual profit protection:
-// Recovery orders close ONLY after profit pullback:
-// InpIndividualProtectActivateUSD -> InpIndividualProtectCloseAtUSD.
+// Optional individual pullback protection remains available for normal and
+// recovery orders that have not yet reached InpRecoveryProfitUSD.
    ProcessIndividualProfitProtect();
 
 // Next candle loss protection: if order is not in profit after next candle closes, close it.
