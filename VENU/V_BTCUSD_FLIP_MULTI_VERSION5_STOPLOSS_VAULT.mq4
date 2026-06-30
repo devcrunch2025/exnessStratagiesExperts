@@ -75,8 +75,8 @@ double InpDynamicBasketReturnBufferUSD     = 0.00;
 //   peak reaches X1.0 $0.50=> advance protection to X1.0
 //   peak reaches X1.5 $0.75=> advance protection to X1.5, continuing upward
 // Close only when current profit comes back to the highest protected value.
-double InpDynamicBasketMinimumArmUSD       = 0.10;//0.20;//before Dynamic profit
-double InpDynamicBasketMinimumCloseUSD     = 0.05;//0.10;//before Dynamic profit
+double InpDynamicBasketMinimumArmUSD       = 0.10;//0.15;//0.20;//before Dynamic profit
+double InpDynamicBasketMinimumCloseUSD     = 0.02;//0.05;//0.10;//0.10;//before Dynamic profit
 
 // Drawdown comeback trailing floor:
 // Once a BUY/SELL basket touches a negative loss step, remember the worst loss
@@ -461,11 +461,11 @@ bool   InpUseSARPriceDiffConfirm  = true;
 // 2) Then verify live price has moved InpContinuousOrderPriceGap from that last order price.
 // No expiry timeout is used. If gap is not ready, EA keeps waiting.
 bool   InpUseRepeatedPriceGapConfirm = true;
-double InpContinuousOrderPriceGap    = 30;//10.0; //30  // raw price gap required from last confirmed normal order
+double InpContinuousOrderPriceGap    = 10;//10.0; //30  // raw price gap required from last confirmed normal order
 int    InpContinuousOrderLookbackMinutes = 1;  // legacy input, not used by current continuity gap logic
 int    InpContinuousOrderGapMinutes  = 1;      // wait this many minutes after last order, then verify price gap
 
-double InpSARConfirmPriceDiff     = 50.0;   // SAR signal-change raw price diff confirmation only
+double InpSARConfirmPriceDiff     = 50;//80.0;   // SAR signal-change raw price diff confirmation only
 int    InpSARConfirmMinutes       = 5;      // used by the full profile only
 // First normal order after every SAR flip:
 // true = bypass all strategy filters and require only the FIXED live raw-price
@@ -10567,7 +10567,7 @@ string FirstSAROrderPriceDiffStatusText(int direction)
    double requiredDiff = MathMax(0.0, InpSARConfirmPriceDiff);
 
    if(currentDiff < 0.0)
-      return("NO SAR FLIP REFERENCE");
+      return("NO SAR Min Distance "+InpSARConfirmPriceDiff +"/"+ DoubleToString(currentDiff, Digits) );
 
    return("LIVE DIFF " + DoubleToString(currentDiff, Digits) +
           "/" + DoubleToString(requiredDiff, Digits) +
