@@ -2,10 +2,10 @@
 //| BTCUSD_EMA_BOS_PENDING_RECOVERY_DYNAMIC_LOCK_V4.mq4            |
 //| All entries -> 20-raw pending STOP orders                       |
 //| Recovery: raw gap, basket-SL reverse, plus one profit follow-up |
-//| Arm minimum floor, then custom X1/X1.25/X1.50... SL ladder |
+//| Tick-speed frozen side SL + dynamic X-profit ladder          |
 //+------------------------------------------------------------------+
 #property strict
-#property version   "4.05"
+#property version   "4.06"
 
 double InpLotSize                    = 0.01;
 int    InpMagicNumber                = 44001;
@@ -38,8 +38,8 @@ double InpMomentumContinuationRaw    = 100.0;
 // basket closes immediately when it recovers to the reduced positive target.
 // The worst BUY loss never changes SELL state, and vice versa.
 double InpBasketProfitUSD                    = 0.50; // X1 base profit step
-double InpDynamicBasketMinimumArmUSD        = 0.20; // touch $0.20 before protecting the small floor
-double InpDynamicBasketMinimumCloseUSD      = 0.03; // EA fallback floor after the arm
+double InpDynamicBasketMinimumArmUSD        = 0.10; // touch $0.20 before protecting the small floor
+double InpDynamicBasketMinimumCloseUSD      = 0.01; // EA fallback floor after the arm
 
 // Dynamic basket profit ladder:
 // The BUY basket and SELL basket are managed independently.
@@ -68,7 +68,37 @@ bool   InpUseServerSideProfitLock            = true;
 double InpServerProfitLockBufferUSD          = 0.01; // $0.10 floor requests about $0.11 net at broker SL
 int    InpServerProfitLockRetrySeconds       = 5;
 
-double InpFixedStopLossUSD                   = 0.50;//0.25;//2.00;
+double InpFixedStopLossUSD                   = 2;//0.50;//0.25;//2.00;
+
+//================ LIVE TICK-SPEED ADAPTIVE BASKET SL ================
+// The EA measures live movement by combining:
+// 1) average height of recent CLOSED candles,
+// 2) current candle expansion speed,
+// 3) recent sample-window net/range/path movement, and
+// 4) tick frequency compared with its moving baseline.
+//
+// The selected multiplier is captured ONCE when a BUY or SELL market
+// basket becomes active. BUY and SELL keep independent frozen SL values.
+// The value never widens again while that side remains open.
+bool   InpUseTickSpeedAdaptiveBasketSL       = true;
+int    InpTickSpeedAverageCandleBars          = 10;
+int    InpTickSpeedSampleSeconds              = 5;
+
+double InpTickSpeedSlowSLMultiplier           = 1.00;
+double InpTickSpeedNormalSLMultiplier         = 1.50;
+double InpTickSpeedFastSLMultiplier           = 2.00;
+double InpTickSpeedDangerSLMultiplier         = 3.00;
+double InpTickSpeedWarmupSLMultiplier         = 1.50;
+
+// Dynamic speed classification thresholds relative to the average
+// CLOSED-candle range and the learned ticks-per-second baseline.
+double InpTickSpeedSlowCandleRatio            = 0.50;
+double InpTickSpeedFastCandleRatio            = 1.50;
+double InpTickSpeedDangerCandleRatio          = 2.50;
+double InpTickSpeedFastWindowRangeRatio       = 0.25;
+double InpTickSpeedDangerWindowRangeRatio     = 0.50;
+double InpTickSpeedHighTickRateRatio          = 1.50;
+double InpTickSpeedSlowTickRateRatio          = 0.75;
 
 
 
@@ -260,6 +290,583 @@ double   g_slReverseProfitLots            = 0.0;
 double   g_mixedRangeRaw              = 0.0;
 double   g_mixedEfficiency            = 0.0;
 int      g_mixedEMACrossings          = 0;
+
+//-------------------- Live tick-speed engine ------------------------
+enum EAMBOS_TICK_SPEED_STATE
+  {
+   EAMBOS_TICK_WARMING_UP = 0,
+   EAMBOS_TICK_SLOW       = 1,
+   EAMBOS_TICK_NORMAL     = 2,
+   EAMBOS_TICK_FAST       = 3,
+   EAMBOS_TICK_DANGER     = 4
+  };
+
+EAMBOS_TICK_SPEED_STATE g_tickSpeedState = EAMBOS_TICK_WARMING_UP;
+bool     g_tickSpeedSampleReady          = false;
+uint     g_tickSpeedWindowStartMs        = 0;
+double   g_tickSpeedWindowStartPrice     = 0.0;
+double   g_tickSpeedWindowLastPrice      = 0.0;
+double   g_tickSpeedWindowHigh           = 0.0;
+double   g_tickSpeedWindowLow            = 0.0;
+double   g_tickSpeedWindowPath           = 0.0;
+int      g_tickSpeedWindowTickCount      = 0;
+
+double   g_tickSpeedAverageCandleRange   = 0.0;
+double   g_tickSpeedCurrentCandleRange   = 0.0;
+double   g_tickSpeedCandleSpeedRatio     = 0.0;
+double   g_tickSpeedWindowNetMove        = 0.0;
+double   g_tickSpeedWindowRange          = 0.0;
+double   g_tickSpeedWindowPathMove       = 0.0;
+double   g_tickSpeedCurrentTPS           = 0.0;
+double   g_tickSpeedBaselineTPS          = 0.0;
+double   g_tickSpeedTickRateRatio        = 1.0;
+
+// BUY and SELL basket emergency SL snapshots are independent.
+bool     g_buyTickAdaptiveSLActive       = false;
+double   g_buyTickAdaptiveSLUSD          = 0.0;
+double   g_buyTickAdaptiveSLBaseUSD      = 0.0;
+int      g_buyTickAdaptiveSLSpeed        = EAMBOS_TICK_WARMING_UP;
+datetime g_buyTickAdaptiveSLCaptureTime  = 0;
+
+bool     g_sellTickAdaptiveSLActive      = false;
+double   g_sellTickAdaptiveSLUSD         = 0.0;
+double   g_sellTickAdaptiveSLBaseUSD     = 0.0;
+int      g_sellTickAdaptiveSLSpeed       = EAMBOS_TICK_WARMING_UP;
+datetime g_sellTickAdaptiveSLCaptureTime = 0;
+
+//+------------------------------------------------------------------+
+double GetTickSpeedAverageClosedCandleRange()
+  {
+   int requestedBars = InpTickSpeedAverageCandleBars;
+   if(requestedBars < 2)
+      requestedBars = 2;
+
+   int availableBars = Bars - 2;
+   if(availableBars <= 0)
+      return(0.0);
+
+   int barsToUse = requestedBars;
+   if(barsToUse > availableBars)
+      barsToUse = availableBars;
+
+   double totalRange = 0.0;
+   int validBars = 0;
+
+   for(int i = 1; i <= barsToUse; i++)
+     {
+      double candleRange = High[i] - Low[i];
+      if(candleRange <= 0.0)
+         continue;
+
+      totalRange += candleRange;
+      validBars++;
+     }
+
+   if(validBars <= 0)
+      return(0.0);
+
+   return(totalRange / validBars);
+  }
+
+//+------------------------------------------------------------------+
+string TickSpeedStateText(int state)
+  {
+   if(state == EAMBOS_TICK_SLOW)
+      return("SLOW");
+   if(state == EAMBOS_TICK_NORMAL)
+      return("NORMAL");
+   if(state == EAMBOS_TICK_FAST)
+      return("FAST");
+   if(state == EAMBOS_TICK_DANGER)
+      return("DANGER");
+
+   return("WARMING UP");
+  }
+
+//+------------------------------------------------------------------+
+color TickSpeedStateColor(int state)
+  {
+   if(state == EAMBOS_TICK_SLOW)
+      return(C'145,205,255');
+   if(state == EAMBOS_TICK_NORMAL)
+      return(C'65,220,125');
+   if(state == EAMBOS_TICK_FAST)
+      return(C'255,205,70');
+   if(state == EAMBOS_TICK_DANGER)
+      return(C'255,95,95');
+
+   return(C'180,185,200');
+  }
+
+//+------------------------------------------------------------------+
+double GetTickSpeedSLMultiplier(int state)
+  {
+   double multiplier = InpTickSpeedWarmupSLMultiplier;
+
+   if(state == EAMBOS_TICK_SLOW)
+      multiplier = InpTickSpeedSlowSLMultiplier;
+   else if(state == EAMBOS_TICK_NORMAL)
+      multiplier = InpTickSpeedNormalSLMultiplier;
+   else if(state == EAMBOS_TICK_FAST)
+      multiplier = InpTickSpeedFastSLMultiplier;
+   else if(state == EAMBOS_TICK_DANGER)
+      multiplier = InpTickSpeedDangerSLMultiplier;
+
+   return(MathMax(0.0, multiplier));
+  }
+
+//+------------------------------------------------------------------+
+void ClassifyLiveTickSpeed()
+  {
+   if(!g_tickSpeedSampleReady ||
+      g_tickSpeedAverageCandleRange <= 0.0)
+     {
+      g_tickSpeedState = EAMBOS_TICK_WARMING_UP;
+      return;
+     }
+
+   double averageRange = g_tickSpeedAverageCandleRange;
+
+   bool highTickActivity =
+      (g_tickSpeedTickRateRatio >= InpTickSpeedHighTickRateRatio);
+
+   bool dangerMovement =
+      (g_tickSpeedCandleSpeedRatio >= InpTickSpeedDangerCandleRatio ||
+       g_tickSpeedWindowNetMove >=
+          averageRange * InpTickSpeedDangerWindowRangeRatio ||
+       g_tickSpeedWindowRange >=
+          averageRange * InpTickSpeedDangerWindowRangeRatio ||
+       g_tickSpeedWindowPathMove >= averageRange);
+
+   bool extremeMovement =
+      (g_tickSpeedCandleSpeedRatio >=
+          InpTickSpeedDangerCandleRatio * 1.60 ||
+       g_tickSpeedWindowRange >= averageRange * 0.75 ||
+       g_tickSpeedWindowPathMove >= averageRange * 1.50);
+
+   if((dangerMovement && highTickActivity) || extremeMovement)
+     {
+      g_tickSpeedState = EAMBOS_TICK_DANGER;
+      return;
+     }
+
+   bool fastMovement =
+      (g_tickSpeedCandleSpeedRatio >= InpTickSpeedFastCandleRatio ||
+       g_tickSpeedWindowNetMove >=
+          averageRange * InpTickSpeedFastWindowRangeRatio ||
+       g_tickSpeedWindowRange >=
+          averageRange * InpTickSpeedFastWindowRangeRatio ||
+       g_tickSpeedWindowPathMove >= averageRange * 0.50 ||
+       (highTickActivity &&
+        g_tickSpeedWindowPathMove >= averageRange * 0.20));
+
+   if(fastMovement)
+     {
+      g_tickSpeedState = EAMBOS_TICK_FAST;
+      return;
+     }
+
+   bool slowMovement =
+      (g_tickSpeedCandleSpeedRatio < InpTickSpeedSlowCandleRatio &&
+       g_tickSpeedWindowRange < averageRange * 0.10 &&
+       g_tickSpeedWindowPathMove < averageRange * 0.20 &&
+       g_tickSpeedTickRateRatio < InpTickSpeedSlowTickRateRatio);
+
+   if(slowMovement)
+     {
+      g_tickSpeedState = EAMBOS_TICK_SLOW;
+      return;
+     }
+
+   g_tickSpeedState = EAMBOS_TICK_NORMAL;
+  }
+
+//+------------------------------------------------------------------+
+void UpdateLiveTickSpeedEngine()
+  {
+   double tickPrice = (Bid + Ask) * 0.50;
+   if(tickPrice <= 0.0)
+      tickPrice = Bid;
+
+   g_tickSpeedAverageCandleRange =
+      GetTickSpeedAverageClosedCandleRange();
+   g_tickSpeedCurrentCandleRange = High[0] - Low[0];
+
+   int chartPeriodSeconds = Period() * 60;
+   if(chartPeriodSeconds <= 0)
+      chartPeriodSeconds = 60;
+
+   double candleElapsedSeconds = (double)(TimeCurrent() - Time[0]);
+   if(candleElapsedSeconds < 5.0)
+      candleElapsedSeconds = 5.0;
+   if(candleElapsedSeconds > chartPeriodSeconds)
+      candleElapsedSeconds = chartPeriodSeconds;
+
+   double expectedRangeSoFar = 0.0;
+   if(g_tickSpeedAverageCandleRange > 0.0)
+      expectedRangeSoFar =
+         g_tickSpeedAverageCandleRange *
+         (candleElapsedSeconds / chartPeriodSeconds);
+
+   if(expectedRangeSoFar > 0.0000001)
+      g_tickSpeedCandleSpeedRatio =
+         g_tickSpeedCurrentCandleRange / expectedRangeSoFar;
+   else
+      g_tickSpeedCandleSpeedRatio = 0.0;
+
+   uint nowMs = GetTickCount();
+
+   if(g_tickSpeedWindowStartMs == 0)
+     {
+      g_tickSpeedWindowStartMs    = nowMs;
+      g_tickSpeedWindowStartPrice = tickPrice;
+      g_tickSpeedWindowLastPrice  = tickPrice;
+      g_tickSpeedWindowHigh       = tickPrice;
+      g_tickSpeedWindowLow        = tickPrice;
+      g_tickSpeedWindowPath       = 0.0;
+      g_tickSpeedWindowTickCount  = 1;
+      g_tickSpeedState            = EAMBOS_TICK_WARMING_UP;
+      return;
+     }
+
+   g_tickSpeedWindowTickCount++;
+   g_tickSpeedWindowPath +=
+      MathAbs(tickPrice - g_tickSpeedWindowLastPrice);
+   g_tickSpeedWindowLastPrice = tickPrice;
+
+   if(tickPrice > g_tickSpeedWindowHigh)
+      g_tickSpeedWindowHigh = tickPrice;
+   if(tickPrice < g_tickSpeedWindowLow)
+      g_tickSpeedWindowLow = tickPrice;
+
+   uint elapsedMs = nowMs - g_tickSpeedWindowStartMs;
+   int sampleSeconds = InpTickSpeedSampleSeconds;
+   if(sampleSeconds < 1)
+      sampleSeconds = 1;
+
+   if(elapsedMs >= (uint)(sampleSeconds * 1000))
+     {
+      double elapsedSeconds = elapsedMs / 1000.0;
+      if(elapsedSeconds < 0.001)
+         elapsedSeconds = sampleSeconds;
+
+      g_tickSpeedWindowNetMove =
+         MathAbs(tickPrice - g_tickSpeedWindowStartPrice);
+      g_tickSpeedWindowRange =
+         g_tickSpeedWindowHigh - g_tickSpeedWindowLow;
+      g_tickSpeedWindowPathMove = g_tickSpeedWindowPath;
+      g_tickSpeedCurrentTPS =
+         g_tickSpeedWindowTickCount / elapsedSeconds;
+
+      double previousBaseline = g_tickSpeedBaselineTPS;
+      if(previousBaseline <= 0.0000001)
+         previousBaseline = g_tickSpeedCurrentTPS;
+
+      if(previousBaseline > 0.0000001)
+         g_tickSpeedTickRateRatio =
+            g_tickSpeedCurrentTPS / previousBaseline;
+      else
+         g_tickSpeedTickRateRatio = 1.0;
+
+      if(g_tickSpeedBaselineTPS <= 0.0000001)
+         g_tickSpeedBaselineTPS = g_tickSpeedCurrentTPS;
+      else
+         g_tickSpeedBaselineTPS =
+            g_tickSpeedBaselineTPS * 0.90 +
+            g_tickSpeedCurrentTPS * 0.10;
+
+      g_tickSpeedSampleReady = true;
+
+      g_tickSpeedWindowStartMs    = nowMs;
+      g_tickSpeedWindowStartPrice = tickPrice;
+      g_tickSpeedWindowLastPrice  = tickPrice;
+      g_tickSpeedWindowHigh       = tickPrice;
+      g_tickSpeedWindowLow        = tickPrice;
+      g_tickSpeedWindowPath       = 0.0;
+      g_tickSpeedWindowTickCount  = 0;
+     }
+
+   ClassifyLiveTickSpeed();
+  }
+
+//+------------------------------------------------------------------+
+string TickAdaptiveSLKey(int orderType, string field)
+  {
+   string side = (orderType == OP_BUY) ? "B" : "S";
+
+   return("EBP_ASL_" +
+          IntegerToString(AccountNumber()) + "_" +
+          IntegerToString(InpMagicNumber) + "_" +
+          Symbol() + "_" + side + "_" + field);
+  }
+
+//+------------------------------------------------------------------+
+void DeleteTickAdaptiveSLGlobals(int orderType)
+  {
+   string fields[5];
+   fields[0] = "VALUE";
+   fields[1] = "BASE";
+   fields[2] = "SPEED";
+   fields[3] = "TIME";
+   fields[4] = "ACTIVE";
+
+   for(int i = 0; i < 5; i++)
+     {
+      string key = TickAdaptiveSLKey(orderType, fields[i]);
+      if(GlobalVariableCheck(key))
+         GlobalVariableDel(key);
+     }
+  }
+
+//+------------------------------------------------------------------+
+void ResetTickAdaptiveSLForSide(int orderType)
+  {
+   if(orderType == OP_BUY)
+     {
+      g_buyTickAdaptiveSLActive      = false;
+      g_buyTickAdaptiveSLUSD         = 0.0;
+      g_buyTickAdaptiveSLBaseUSD     = 0.0;
+      g_buyTickAdaptiveSLSpeed       = EAMBOS_TICK_WARMING_UP;
+      g_buyTickAdaptiveSLCaptureTime = 0;
+     }
+   else if(orderType == OP_SELL)
+     {
+      g_sellTickAdaptiveSLActive      = false;
+      g_sellTickAdaptiveSLUSD         = 0.0;
+      g_sellTickAdaptiveSLBaseUSD     = 0.0;
+      g_sellTickAdaptiveSLSpeed       = EAMBOS_TICK_WARMING_UP;
+      g_sellTickAdaptiveSLCaptureTime = 0;
+     }
+
+   DeleteTickAdaptiveSLGlobals(orderType);
+  }
+
+//+------------------------------------------------------------------+
+bool IsTickAdaptiveSLActive(int orderType)
+  {
+   if(orderType == OP_BUY)
+      return(g_buyTickAdaptiveSLActive);
+   if(orderType == OP_SELL)
+      return(g_sellTickAdaptiveSLActive);
+
+   return(false);
+  }
+
+//+------------------------------------------------------------------+
+double GetStoredTickAdaptiveSLUSD(int orderType)
+  {
+   if(orderType == OP_BUY)
+      return(g_buyTickAdaptiveSLUSD);
+   if(orderType == OP_SELL)
+      return(g_sellTickAdaptiveSLUSD);
+
+   return(0.0);
+  }
+
+//+------------------------------------------------------------------+
+void CaptureTickAdaptiveSLForSide(int orderType)
+  {
+   if(orderType != OP_BUY && orderType != OP_SELL)
+      return;
+
+   double baseSL = GetEffectiveFixedStopLossUSD();
+   int speedState = (int)g_tickSpeedState;
+   double multiplier = GetTickSpeedSLMultiplier(speedState);
+   double finalSL = 0.0;
+
+   if(baseSL > 0.0 && multiplier > 0.0)
+      finalSL = NormalizeDouble(baseSL * multiplier, 2);
+
+   datetime captureTime = TimeCurrent();
+
+   if(orderType == OP_BUY)
+     {
+      g_buyTickAdaptiveSLActive      = true;
+      g_buyTickAdaptiveSLUSD         = finalSL;
+      g_buyTickAdaptiveSLBaseUSD     = baseSL;
+      g_buyTickAdaptiveSLSpeed       = speedState;
+      g_buyTickAdaptiveSLCaptureTime = captureTime;
+     }
+   else
+     {
+      g_sellTickAdaptiveSLActive      = true;
+      g_sellTickAdaptiveSLUSD         = finalSL;
+      g_sellTickAdaptiveSLBaseUSD     = baseSL;
+      g_sellTickAdaptiveSLSpeed       = speedState;
+      g_sellTickAdaptiveSLCaptureTime = captureTime;
+     }
+
+   GlobalVariableSet(TickAdaptiveSLKey(orderType, "VALUE"), finalSL);
+   GlobalVariableSet(TickAdaptiveSLKey(orderType, "BASE"), baseSL);
+   GlobalVariableSet(TickAdaptiveSLKey(orderType, "SPEED"), speedState);
+   GlobalVariableSet(TickAdaptiveSLKey(orderType, "TIME"), captureTime);
+   GlobalVariableSet(TickAdaptiveSLKey(orderType, "ACTIVE"), 1.0);
+
+   Print("TICK ADAPTIVE SL CAPTURED | ",
+         (orderType == OP_BUY ? "BUY" : "SELL"),
+         " | Speed ", TickSpeedStateText(speedState),
+         " | Base $", DoubleToString(baseSL, 2),
+         " | Multiplier X", DoubleToString(multiplier, 2),
+         " | Frozen SL $", DoubleToString(finalSL, 2));
+  }
+
+//+------------------------------------------------------------------+
+void RestoreTickAdaptiveSLForSide(int orderType)
+  {
+   if(CountMyOrdersByType(orderType) <= 0)
+     {
+      ResetTickAdaptiveSLForSide(orderType);
+      return;
+     }
+
+   string activeKey = TickAdaptiveSLKey(orderType, "ACTIVE");
+   string valueKey  = TickAdaptiveSLKey(orderType, "VALUE");
+
+   bool storedActive =
+      (GlobalVariableCheck(activeKey) &&
+       GlobalVariableGet(activeKey) >= 0.5 &&
+       GlobalVariableCheck(valueKey));
+
+   if(!storedActive)
+     {
+      CaptureTickAdaptiveSLForSide(orderType);
+      return;
+     }
+
+   double value = GlobalVariableGet(valueKey);
+   double base = GlobalVariableCheck(TickAdaptiveSLKey(orderType, "BASE")) ?
+                 GlobalVariableGet(TickAdaptiveSLKey(orderType, "BASE")) :
+                 GetEffectiveFixedStopLossUSD();
+   int speed = GlobalVariableCheck(TickAdaptiveSLKey(orderType, "SPEED")) ?
+               (int)GlobalVariableGet(TickAdaptiveSLKey(orderType, "SPEED")) :
+               EAMBOS_TICK_WARMING_UP;
+   datetime captured =
+      GlobalVariableCheck(TickAdaptiveSLKey(orderType, "TIME")) ?
+      (datetime)GlobalVariableGet(TickAdaptiveSLKey(orderType, "TIME")) :
+      TimeCurrent();
+
+   if(orderType == OP_BUY)
+     {
+      g_buyTickAdaptiveSLActive      = true;
+      g_buyTickAdaptiveSLUSD         = value;
+      g_buyTickAdaptiveSLBaseUSD     = base;
+      g_buyTickAdaptiveSLSpeed       = speed;
+      g_buyTickAdaptiveSLCaptureTime = captured;
+     }
+   else
+     {
+      g_sellTickAdaptiveSLActive      = true;
+      g_sellTickAdaptiveSLUSD         = value;
+      g_sellTickAdaptiveSLBaseUSD     = base;
+      g_sellTickAdaptiveSLSpeed       = speed;
+      g_sellTickAdaptiveSLCaptureTime = captured;
+     }
+
+   Print("TICK ADAPTIVE SL RESTORED | ",
+         (orderType == OP_BUY ? "BUY" : "SELL"),
+         " | Speed ", TickSpeedStateText(speed),
+         " | Base $", DoubleToString(base, 2),
+         " | Frozen SL $", DoubleToString(value, 2));
+  }
+
+//+------------------------------------------------------------------+
+void RestoreTickSpeedAdaptiveSLStateOnInit()
+  {
+   if(!InpUseTickSpeedAdaptiveBasketSL)
+      return;
+
+   RestoreTickAdaptiveSLForSide(OP_BUY);
+   RestoreTickAdaptiveSLForSide(OP_SELL);
+  }
+
+//+------------------------------------------------------------------+
+void UpdateTickSpeedAdaptiveBasketSLStates()
+  {
+   if(!InpUseTickSpeedAdaptiveBasketSL)
+      return;
+
+   if(CountMyOrdersByType(OP_BUY) > 0)
+     {
+      if(!g_buyTickAdaptiveSLActive)
+         CaptureTickAdaptiveSLForSide(OP_BUY);
+     }
+   else if(g_buyTickAdaptiveSLActive ||
+           GlobalVariableCheck(TickAdaptiveSLKey(OP_BUY, "ACTIVE")))
+     {
+      ResetTickAdaptiveSLForSide(OP_BUY);
+     }
+
+   if(CountMyOrdersByType(OP_SELL) > 0)
+     {
+      if(!g_sellTickAdaptiveSLActive)
+         CaptureTickAdaptiveSLForSide(OP_SELL);
+     }
+   else if(g_sellTickAdaptiveSLActive ||
+           GlobalVariableCheck(TickAdaptiveSLKey(OP_SELL, "ACTIVE")))
+     {
+      ResetTickAdaptiveSLForSide(OP_SELL);
+     }
+  }
+
+//+------------------------------------------------------------------+
+double GetEffectiveFixedStopLossUSDForDirection(int orderType)
+  {
+   double baseSL = GetEffectiveFixedStopLossUSD();
+
+   if(!InpUseTickSpeedAdaptiveBasketSL || baseSL <= 0.0)
+      return(baseSL);
+
+   if(CountMyOrdersByType(orderType) > 0)
+     {
+      if(!IsTickAdaptiveSLActive(orderType))
+         CaptureTickAdaptiveSLForSide(orderType);
+
+      double frozenSL = GetStoredTickAdaptiveSLUSD(orderType);
+      if(frozenSL > 0.0)
+         return(frozenSL);
+     }
+
+   return(NormalizeDouble(
+             baseSL * GetTickSpeedSLMultiplier((int)g_tickSpeedState),
+             2));
+  }
+
+//+------------------------------------------------------------------+
+string GetTickAdaptiveSLDashboardText(int orderType)
+  {
+   string side = (orderType == OP_BUY) ? "B" : "S";
+   bool active = IsTickAdaptiveSLActive(orderType) &&
+                 CountMyOrdersByType(orderType) > 0;
+
+   int speed = (int)g_tickSpeedState;
+   double baseSL = GetEffectiveFixedStopLossUSD();
+   double finalSL = NormalizeDouble(
+                       baseSL * GetTickSpeedSLMultiplier(speed),
+                       2);
+   string prefix = "NEXT";
+
+   if(active)
+     {
+      prefix = "LOCK";
+      if(orderType == OP_BUY)
+        {
+         speed = g_buyTickAdaptiveSLSpeed;
+         baseSL = g_buyTickAdaptiveSLBaseUSD;
+         finalSL = g_buyTickAdaptiveSLUSD;
+        }
+      else
+        {
+         speed = g_sellTickAdaptiveSLSpeed;
+         baseSL = g_sellTickAdaptiveSLBaseUSD;
+         finalSL = g_sellTickAdaptiveSLUSD;
+        }
+     }
+
+   return(side + " " + prefix + " " +
+          TickSpeedStateText(speed) + " $" +
+          DoubleToString(baseSL, 2) + ">$" +
+          DoubleToString(finalSL, 2));
+  }
 
 //+------------------------------------------------------------------+
 datetime GetDubaiTime()
@@ -968,6 +1575,7 @@ int OnInit()
 
    UpdateMarketMixedMode();
    UpdateSideProfitStates();
+   RestoreTickSpeedAdaptiveSLStateOnInit();
 
    if(IsDubaiBlockedTime())
       g_lastStatus = GetDubaiHoursPausedStatus() +
@@ -1071,7 +1679,8 @@ void OnTick()
    }
    if(dubaiHour>13  && dubaiHour<22 )
      {
-      InpFixedStopLossUSD=2;
+      // Keep the configured base SL unchanged. Tick speed controls the
+      // frozen BUY/SELL emergency SL through its multiplier.
       InpPendingStopGapRawPrice=50;
      }
 // Print confirmation only for the first two received ticks.
@@ -1122,6 +1731,13 @@ void OnTick()
      }
 
    RefreshRates();
+
+// Update live market-speed measurements before any basket SL decision.
+   UpdateLiveTickSpeedEngine();
+
+// Capture a BUY/SELL adaptive SL once when that side first becomes a
+// live market basket. Pending orders do not trigger a snapshot.
+   UpdateTickSpeedAdaptiveBasketSLStates();
 
 // Delete every untriggered EA pending order at each 30-minute slot
 // before BOS/recovery/new-cycle entry logic is evaluated.
@@ -1178,6 +1794,10 @@ void OnTick()
 
 // Basket-SL reverse recovery remains a separate trigger.
    TryOpenSLReverseRecovery();
+
+// Reset a side whose basket was closed above and capture any direct-market
+// reverse/continuation order that was created on this same tick.
+   UpdateTickSpeedAdaptiveBasketSLStates();
 
 // Refresh BUY and SELL adaptive summaries independently.
    AssignTakeProfitFromOpenOrderLosses();
@@ -4639,7 +5259,8 @@ bool ProcessSideBasketEmergencySL(int orderType)
    if(orderCount <= 0)
       return(false);
 
-   double effectiveStopLossUSD = GetEffectiveFixedStopLossUSD();
+   double effectiveStopLossUSD =
+      GetEffectiveFixedStopLossUSDForDirection(orderType);
    if(effectiveStopLossUSD <= 0.0)
       return(false);
 
@@ -5751,7 +6372,7 @@ void DrawDashboard(string status)
    string displayStatus = GetEffectiveStatusText(status);
    color panelBorder = tradingColor;
 
-   int panelHeight = 270 + 29 * InpDashboardRowHeight;
+   int panelHeight = 365 + 33 * InpDashboardRowHeight;
    int top = InpDashboardTopMargin;
    int right = InpDashboardRightMargin;
    int width = InpDashboardWidth;
@@ -5838,6 +6459,37 @@ void DrawDashboard(string status)
    DashboardRow("ORDER_STATE", "New Orders",
                 newOrdersText,
                 y, tradingColor);
+   y += InpDashboardRowHeight + 4;
+
+   DashboardSection("TICK_SPEED", "LIVE TICK SPEED & ADAPTIVE SL", y,
+                    TickSpeedStateColor((int)g_tickSpeedState));
+   y += 24;
+
+   DashboardRow("TICK_STATE", "Tick Speed / Rate",
+                TickSpeedStateText((int)g_tickSpeedState) +
+                " / " + DoubleToString(g_tickSpeedCurrentTPS, 1) +
+                " tps X" + DoubleToString(g_tickSpeedTickRateRatio, 2),
+                y, TickSpeedStateColor((int)g_tickSpeedState));
+   y += InpDashboardRowHeight;
+
+   DashboardRow("TICK_CANDLE", "Avg / Live / Speed",
+                DoubleToString(g_tickSpeedAverageCandleRange, 1) +
+                " / " + DoubleToString(g_tickSpeedCurrentCandleRange, 1) +
+                " / X" + DoubleToString(g_tickSpeedCandleSpeedRatio, 2),
+                y, C'145,205,255');
+   y += InpDashboardRowHeight;
+
+   DashboardRow("TICK_WINDOW", "5s Net / Range / Path",
+                DoubleToString(g_tickSpeedWindowNetMove, 1) +
+                " / " + DoubleToString(g_tickSpeedWindowRange, 1) +
+                " / " + DoubleToString(g_tickSpeedWindowPathMove, 1),
+                y, C'210,218,235');
+   y += InpDashboardRowHeight;
+
+   DashboardRow("TICK_ASL", "Adaptive SL BUY / SELL",
+                GetTickAdaptiveSLDashboardText(OP_BUY) +
+                " | " + GetTickAdaptiveSLDashboardText(OP_SELL),
+                y, C'255,205,70');
    y += InpDashboardRowHeight + 4;
 
    DashboardSection("SIGNAL", "MARKET SIGNAL", y,
@@ -6030,12 +6682,15 @@ void DrawDashboard(string status)
                 y, DashboardProfitColor(sellMinimumProfit));
    y += InpDashboardRowHeight;
 
-   double effectiveStopLossUSD =
-      GetEffectiveFixedStopLossUSD();
+   double buyEffectiveStopLossUSD =
+      GetEffectiveFixedStopLossUSDForDirection(OP_BUY);
+   double sellEffectiveStopLossUSD =
+      GetEffectiveFixedStopLossUSDForDirection(OP_SELL);
 
-   DashboardRow("SL", "Effective / Configured SL",
-                "-$" + DoubleToString(effectiveStopLossUSD, 2) +
-                " / -$" + DoubleToString(InpFixedStopLossUSD, 2),
+   DashboardRow("SL", "BUY / SELL Frozen SL",
+                "-$" + DoubleToString(buyEffectiveStopLossUSD, 2) +
+                " / -$" + DoubleToString(sellEffectiveStopLossUSD, 2) +
+                "  Base -$" + DoubleToString(InpFixedStopLossUSD, 2),
                 y, C'255,95,95');
    y += InpDashboardRowHeight + 4;
 

@@ -20,7 +20,7 @@ MARKET_MODE g_marketMode = MODE_RANGE;
 #ifndef OP_BALANCE
 #define OP_BALANCE 6
 #endif
-#property version   "1.51"
+#property version   "1.56"
 
 //======================== INPUTS ====================================
 string InpEAName                  = "DXB Version 5 - SAR Confirm 50 in 5 Min";
@@ -129,13 +129,24 @@ bool   InpUseBasketHalfTPAfterMinutes = true;
 int    InpBasketHalfTPAfterMinutes = 30;
 double InpBasketHalfTPAfterMinutesMultiplier = 0.50;
 
-//Live
-double InpBasketStopLossUSD       = 0.50;//0.25;//5;// 3;;//2;//5;//2;//5.00;    // BASKET stop loss in USD, 0 = disabled. This closes all orders in active SAR direction.
-
-double InpContinuousTrendBasketSLUSD   = 0.50;//0.25;//3;//2;//5;//1;// 2;//5.00;
-double InpMediumTrendBasketSLUSD       = 0.50;//0.25;//3;//6;// 3;////2;//10;//10;//1;//2;//10.00;
-double InpMixedTrendBasketSLUSD        = 0.50;//0.25;//6;//3;// 2;//10;//5;//10;//1;//2;//10.00;
-double InpDangerModeBasketSLUSD        = 0.50;//0.25;// 3;//2;//5;//1;//2;//5.00;
+//================ BASKET STOP LOSS BY MARKET MODE ==================
+// InpBasketStopLossUSD is the fallback used when Auto Market Flow is OFF,
+// or when InpUseSimpleSideBasketCloseOnly=true.
+//
+// When Auto Market Flow is ON and simple-side mode is OFF, the detected
+// market mode selects ONE independent base SL below. The live tick-speed
+// multiplier is then applied once and frozen for that BUY/SELL basket.
+// Example defaults:
+//   CONTINUOUS $0.50 + FAST x2.00 = locked SL $1.00
+//   MEDIUM     $0.75 + NORMAL x1.50 = locked SL $1.125
+//   MIXED      $0.50 + FAST x2.00 = locked SL $1.00
+//   DANGER     $1.00 + DANGER x3.00 = locked SL $3.00
+// Change these values independently according to your tested risk limits.
+double InpBasketStopLossUSD              = 0.50; // fallback/simple-side SL, 0 = disabled
+double InpContinuousTrendBasketSLUSD     = 0.50;
+double InpMediumTrendBasketSLUSD         = 0.75;
+double InpMixedTrendBasketSLUSD          = 0.50;
+double InpDangerModeBasketSLUSD          = 1.00;
 
 // Simple basket close mode:
 // true = close BUY basket and SELL basket only by fixed InpBasketProfitUSD / InpBasketStopLossUSD.
@@ -143,6 +154,8 @@ double InpDangerModeBasketSLUSD        = 0.50;//0.25;// 3;//2;//5;//1;//2;//5.00
 // basket/individual profit protect, time-decay TP, SAR-weak basket close,
 // global equity trailing close, and auto market-flow SL adjustment.
 bool   InpUseSimpleSideBasketCloseOnly = false;
+
+//FIXED stoploss 
 
 
 //================ AUTO MARKET FLOW MODE ============================
@@ -371,6 +384,104 @@ bool   InpOneOrderPerBar          = true;
 int    InpOrderCooldownSeconds    = 0;       // 0 = disabled
 double InpMinPriceGap             = 0.00;    // raw price gap, 0 = disabled
 
+//================ LIVE TICK-SPEED DASHBOARD ========================
+// Display-only adaptive market-speed monitor. It does not block or create orders.
+// It combines:
+//   1) average range of closed candles,
+//   2) current-candle range expansion per elapsed second,
+//   3) recent price travel/range inside a short tick window, and
+//   4) live tick frequency compared with its own rolling baseline.
+bool   InpShowTickSpeedPanel              = true;
+int    InpTickSpeedAverageBars             = 10;
+int    InpTickSpeedWindowSeconds           = 5;
+double InpTickSpeedSlowCandleRatio         = 0.50;
+double InpTickSpeedFastCandleRatio         = 1.50;
+double InpTickSpeedDangerCandleRatio       = 2.50;
+double InpTickSpeedExtremeCandleRatio      = 4.00;
+double InpTickSpeedFastWindowMoveRatio     = 0.25;
+double InpTickSpeedDangerWindowMoveRatio   = 0.50;
+double InpTickSpeedExtremeWindowMoveRatio  = 0.75;
+double InpTickSpeedHighTickRateRatio       = 1.50;
+double InpTickSpeedSlowTickRateRatio       = 0.75;
+double InpTickSpeedBaselineSmoothing       = 0.15;
+
+// Adaptive basket stop loss selected from tick speed when a BUY/SELL basket
+// first becomes active. Base SL comes from the CURRENT market mode:
+// Continuous/Medium/Mixed/Danger. The selected USD loss is frozen for that
+// side until the complete side basket closes. It can never widen later because
+// of either a tick-speed change or a market-mode change while already open.
+bool   InpUseTickSpeedAdaptiveBasketSL       = true;
+double InpTickSpeedSlowSLMultiplier          = 1.00; // base $0.50 -> $0.50
+double InpTickSpeedNormalSLMultiplier        = 1.50; // base $0.50 -> $0.75
+double InpTickSpeedFastSLMultiplier          = 2.00; // base $0.50 -> $1.00
+double InpTickSpeedDangerSLMultiplier        = 3.00; // base $0.50 -> $1.50
+double InpTickSpeedWarmupSLMultiplier        = 1.50; // conservative fallback
+double InpTickSpeedAdaptiveSLMaxUSD          = 0.00; // 0 = unlimited safety cap
+
+//================ LIVE OPPOSITE-CANDLE TIGHT SL ====================
+// This protection does NOT wait for the current M1 candle to close.
+// It is checked on every tick after a BUY/SELL basket becomes active.
+// BUY protection: the live M1 candle is bearish and its full range is larger
+// than the previous closed M1 candle while the BUY basket is already negative.
+// SELL protection: the live M1 candle is bullish under the same conditions.
+// Once triggered, the reduced SL is latched for that side and can never widen
+// again until the complete BUY/SELL side basket closes.
+bool   InpUseLiveOppositeCandleTightSL       = true;
+double InpLiveOppositeCandleRangeRatio       = 1.00; // live M1 range must be > previous M1 range x this value
+double InpLiveOppositeCandleMinBodyPercent   = 35.0; // avoid arming only from a long wick; 0 disables
+double InpLiveOppositeCandleSLMultiplier     = 0.50; // frozen adaptive SL x 0.50, e.g. $0.50 -> $0.25
+double InpLiveOppositeCandleMinimumSLUSD     = 0.01; // smallest permitted tightened basket SL
+
+//================ OPPOSITE IMPULSE CONTINUATION ====================
+// After a losing BUY/SELL side closes specifically by the LIVE OPPOSITE M1
+// tightened SL, a strong opposite impulse can create ONE continuation pending
+// STOP order without waiting for the next candle.
+//
+// BUY loss + strong bearish impulse -> SELLSTOP below the live M1 low.
+// SELL loss + strong bullish impulse -> BUYSTOP above the live M1 high.
+//
+// This special entry bypasses normal strategy filters because the impulse itself
+// is the confirmation. Hard protections remain: Dubai no-new hours, tick speed,
+// broker permission, equity locks, direction cap and total cap.
+// Normally live SAR must match the impulse direction. A stricter pre-SAR DANGER
+// override can enter before the SAR dots flip when the momentum candle is very
+// strong. The activated order uses the existing adaptive SL, dynamic profit
+// ladder and server-side profit lock.
+bool   InpUseOppositeImpulseContinuation       = true;
+double InpImpulseCurrentVsPreviousRatio        = 1.20; // live M1 range >= previous closed M1 range x this
+double InpImpulseCurrentVsAverageRatio         = 1.50; // live M1 range >= average closed-candle range x this
+double InpImpulseMinimumBodyPercent            = 60.0; // normal SAR-confirmed impulse body
+double InpImpulseMaximumExitWickPercent        = 25.0; // SELL: lower wick; BUY: upper wick
+double InpImpulsePendingGapRaw                 = 15.0; // SELLSTOP below low / BUYSTOP above high
+int    InpImpulsePendingExpiryBars             = 2;    // cancel if not activated within this many M1 bars
+double InpImpulseMaximumRetracePercent         = 50.0; // cancel after this retracement into impulse range
+bool   InpImpulseRequireFastTickSpeed          = true; // normal impulse requires FAST or DANGER
+bool   InpImpulseRequireLiveSARDirection       = true; // normal path: live SAR must match impulse direction
+// Pre-SAR reversal override: catches a violent move before the slower SAR flip.
+// Used only when live SAR still points to the stopped side. Defaults require
+// DANGER speed, >=70% body and <=20% exit wick.
+bool   InpImpulseAllowPreSARReversalOverride   = true;
+bool   InpImpulsePreSARRequireDangerSpeed      = true;
+double InpImpulsePreSARMinimumBodyPercent      = 70.0;
+double InpImpulsePreSARMaximumExitWickPercent  = 20.0;
+bool   InpImpulseSkipNormalAfterCloseRecovery  = true; // do not also create the ordinary after-SL recovery
+int    InpImpulsePendingRetrySeconds           = 3;
+
+// PRE-SAR reversal-suspect entry while the old-direction basket is still open.
+// Example: active SAR BUY + open BUY basket + strong bearish live M1 candle
+// + weak SAR score => queue one SELLSTOP before SAR dots fully flip to SELL.
+// This is independent of the after-SL impulse trigger and is intentionally
+// limited to one opposite pending order.
+bool   InpUsePreSARReversalSuspectEntry        = true;
+double InpPreSARSuspectCurrentVsPreviousRatio  = 1.10;
+double InpPreSARSuspectCurrentVsAverageRatio   = 1.25;
+double InpPreSARSuspectMinimumBodyPercent      = 55.0;
+double InpPreSARSuspectMaximumExitWickPercent  = 30.0;
+bool   InpPreSARSuspectRequireFastTickSpeed    = true; // FAST or DANGER
+int    InpPreSARSuspectMaximumSARScore         = 4;    // weak/late SAR suspicion
+bool   InpPreSARSuspectRequireOldSideNotProfit = true; // old basket P/L must be <= threshold
+double InpPreSARSuspectMaxOldSideProfitUSD     = 0.05;
+
 //================ PENDING ORDER ENTRY MODE ==========================
 // Every approved BUY entry is placed as a BUYSTOP and every approved SELL
 // entry is placed as a SELLSTOP. The pending price is at least this RAW-price
@@ -381,6 +492,18 @@ bool   InpUsePendingOrderEntries             = true;
 double InpPendingOrderRawGap                 = 30.0;
 bool   InpPendingUseLastClosedOrderPrice     = true;
 bool   InpDeletePendingOrdersOnSARChange     = true;
+
+// Good-market continuation after the FIRST SAR order closes in strong profit:
+// If the first normal SAR order of the current cycle closes with NET profit
+// strictly greater than InpGoodMarketFirstOrderProfitUSD, immediately place
+// one same-direction BUYSTOP/SELLSTOP using InpPendingOrderRawGap.
+// This bonus pending entry bypasses normal strategy/timing filters because the
+// profitable first order is treated as live market confirmation. Hard safety
+// checks remain: Dubai no-new hours, current SAR direction, AutoTrading/broker
+// permission, per-direction open-entry cap and total-order cap.
+bool   InpOpenGoodMarketPendingAfterFirstProfit = true;
+double InpGoodMarketFirstOrderProfitUSD          = 0.50;
+int    InpGoodMarketPendingRetrySeconds           = 3;
 
 // Dubai no-new-order hours:
 // Block ALL new EA entries during every Dubai hour listed below:
@@ -789,6 +912,37 @@ datetime g_lastAnyOrderCloseTime   = 0;
 double   g_lastClosedNormalOrderPrice = 0.0;
 datetime g_lastClosedNormalOrderTime  = 0;
 int      g_lastClosedNormalOrderDirection = 0;
+
+// One-shot continuation request created only when the FIRST SAR order closes
+// above the configured good-market profit threshold.
+bool     g_goodMarketContinuationPending = false;
+int      g_goodMarketContinuationDirection = 0;
+int      g_goodMarketContinuationSourceTicket = 0;
+double   g_goodMarketContinuationSourceProfit = 0.0;
+double   g_goodMarketContinuationClosePrice = 0.0;
+datetime g_goodMarketContinuationCloseTime = 0;
+datetime g_goodMarketContinuationLastAttemptTime = 0;
+string   g_goodMarketContinuationStatus = "WAIT FIRST PROFIT";
+
+// One-shot opposite impulse continuation state.
+// The request is created only after a LIVE OPPOSITE M1 tightened-SL close.
+bool     g_oppositeImpulseRequestPending       = false;
+int      g_oppositeImpulseDirection            = 0;
+int      g_oppositeImpulseSourceDirection      = 0;
+double   g_oppositeImpulseSourceLoss           = 0.0;
+datetime g_oppositeImpulseSignalBarTime        = 0;
+datetime g_oppositeImpulseQueuedTime           = 0;
+datetime g_oppositeImpulseLastAttemptTime      = 0;
+double   g_oppositeImpulseSignalHigh           = 0.0;
+double   g_oppositeImpulseSignalLow            = 0.0;
+double   g_oppositeImpulseSignalRange          = 0.0;
+double   g_oppositeImpulsePreviousRange        = 0.0;
+double   g_oppositeImpulseAverageRange         = 0.0;
+double   g_oppositeImpulseBodyPercent          = 0.0;
+double   g_oppositeImpulseExitWickPercent      = 0.0;
+int      g_oppositeImpulsePendingTicket        = -1;
+bool     g_oppositeImpulsePreSAROverride       = false;
+string   g_oppositeImpulseStatus               = "WAIT IMPULSE";
 
 
 // Number of profitable NORMAL SAR orders closed in the current SAR signal cycle.
@@ -2401,7 +2555,7 @@ void UpdateAutoMarketFlowMode()
 //+------------------------------------------------------------------+
 //|                                                                  |
 //+------------------------------------------------------------------+
-double GetEffectiveBasketStopLossUSD()
+double GetBaseEffectiveBasketStopLossUSD()
   {
    if(InpUseSimpleSideBasketCloseOnly)
       return(InpBasketStopLossUSD);
@@ -3053,6 +3207,13 @@ void NotifyClosedOrderEvent(int ticket,
 
    AddTicketToPushList(ticket, 1);
 
+// A strongly profitable FIRST SAR order confirms a good market and queues
+// one immediate same-direction pending continuation entry.
+   QueueGoodMarketContinuationFromClosedTicket(ticket,
+                                                type,
+                                                profit,
+                                                closePrice);
+
    string shortReason = reason;
    if(StringLen(shortReason) > 42)
       shortReason = StringSubstr(shortReason, 0, 42);
@@ -3194,6 +3355,1369 @@ void ProcessCreatedClosedPushNotifications()
 
 int g_onInitTickCount = 0;
 int  g_tickConfirmationCount = 0;
+
+// Live tick-speed engine state. BUY/SELL trading logic does not depend on it.
+uint     g_tickSpeedWindowStartMs       = 0;
+uint     g_tickSpeedLastTickMs          = 0;
+double   g_tickSpeedWindowStartPrice    = 0.0;
+double   g_tickSpeedWindowMinPrice      = 0.0;
+double   g_tickSpeedWindowMaxPrice      = 0.0;
+double   g_tickSpeedWindowLastPrice     = 0.0;
+double   g_tickSpeedWindowPath          = 0.0;
+int      g_tickSpeedWindowTicks         = 0;
+int      g_tickSpeedCompletedWindows    = 0;
+double   g_tickSpeedLastWindowNetMove   = 0.0;
+double   g_tickSpeedLastWindowRange     = 0.0;
+double   g_tickSpeedLastWindowPath      = 0.0;
+double   g_tickSpeedLastWindowTickRate  = 0.0;
+double   g_tickSpeedBaselineTickRate    = 0.0;
+
+double   g_tickSpeedAvgCandleRange      = 0.0;
+double   g_tickSpeedCurrentCandleRange  = 0.0;
+double   g_tickSpeedCandleRatio         = 0.0;
+double   g_tickSpeedRecentNetMove       = 0.0;
+double   g_tickSpeedRecentRange         = 0.0;
+double   g_tickSpeedRecentPath          = 0.0;
+double   g_tickSpeedWindowMoveRatio     = 0.0;
+double   g_tickSpeedWindowPathRatio     = 0.0;
+double   g_tickSpeedCurrentTickRate     = 0.0;
+double   g_tickSpeedTickRateRatio       = 1.0;
+int      g_tickSpeedCandleElapsedSec    = 0;
+string   g_tickSpeedStatus              = "WARMING UP";
+
+// BUY and SELL keep independent adaptive SL snapshots.
+double   g_buyTickSpeedLockedSL          = 0.0;
+double   g_sellTickSpeedLockedSL         = 0.0;
+double   g_buyTickSpeedLockedBaseSL      = 0.0;
+double   g_sellTickSpeedLockedBaseSL     = 0.0;
+string   g_buyTickSpeedLockedStatus      = "WAIT ORDER";
+string   g_sellTickSpeedLockedStatus     = "WAIT ORDER";
+string   g_buyTickSpeedLockedMode        = "WAIT MODE";
+string   g_sellTickSpeedLockedMode       = "WAIT MODE";
+datetime g_buyTickSpeedSLActivatedTime   = 0;
+datetime g_sellTickSpeedSLActivatedTime  = 0;
+
+// Live opposite-candle emergency SL state. BUY and SELL are independent.
+// The tightened level is latched and is reset only after that side basket ends.
+bool     g_buyLiveOppositeCandleSLArmed   = false;
+bool     g_sellLiveOppositeCandleSLArmed  = false;
+double   g_buyLiveOppositeCandleSLUSD     = 0.0;
+double   g_sellLiveOppositeCandleSLUSD    = 0.0;
+datetime g_buyLiveOppositeCandleArmTime   = 0;
+datetime g_sellLiveOppositeCandleArmTime  = 0;
+double   g_liveOppositeCurrentM1Range     = 0.0;
+double   g_liveOppositePreviousM1Range    = 0.0;
+double   g_liveOppositeM1RangeRatio       = 0.0;
+double   g_liveOppositeCurrentBodyPercent = 0.0;
+int      g_liveOppositeCurrentDirection   = 0;
+
+//+------------------------------------------------------------------+
+//| Convert the current tick-speed status into one SL snapshot.      |
+//+------------------------------------------------------------------+
+double GetTickSpeedAdaptiveBasketSLUSD(string speedStatus)
+  {
+   double baseSL = MathAbs(GetBaseEffectiveBasketStopLossUSD());
+   if(baseSL <= 0.0)
+      return(0.0);
+
+   double multiplier = MathMax(0.0,InpTickSpeedWarmupSLMultiplier);
+
+   if(speedStatus == "SLOW")
+      multiplier = MathMax(0.0,InpTickSpeedSlowSLMultiplier);
+   else
+   if(speedStatus == "NORMAL")
+      multiplier = MathMax(0.0,InpTickSpeedNormalSLMultiplier);
+   else
+   if(speedStatus == "FAST")
+      multiplier = MathMax(0.0,InpTickSpeedFastSLMultiplier);
+   else
+   if(speedStatus == "DANGER")
+      multiplier = MathMax(0.0,InpTickSpeedDangerSLMultiplier);
+
+   double adaptiveSL = baseSL * multiplier;
+
+   if(InpTickSpeedAdaptiveSLMaxUSD > 0.0)
+      adaptiveSL = MathMin(adaptiveSL,MathAbs(InpTickSpeedAdaptiveSLMaxUSD));
+
+   return(MathMax(0.0,adaptiveSL));
+  }
+
+//+------------------------------------------------------------------+
+//| Snapshot/reset BUY and SELL adaptive SL independently.           |
+//+------------------------------------------------------------------+
+void UpdateTickSpeedAdaptiveBasketSLLocks()
+  {
+   if(!InpUseTickSpeedAdaptiveBasketSL)
+     {
+      g_buyTickSpeedLockedSL = 0.0;
+      g_sellTickSpeedLockedSL = 0.0;
+      g_buyTickSpeedLockedBaseSL = 0.0;
+      g_sellTickSpeedLockedBaseSL = 0.0;
+      g_buyTickSpeedLockedStatus = "OFF";
+      g_sellTickSpeedLockedStatus = "OFF";
+      g_buyTickSpeedLockedMode = "OFF";
+      g_sellTickSpeedLockedMode = "OFF";
+      return;
+     }
+
+   int buyCount = CountOrdersByDirection(1);
+   int sellCount = CountOrdersByDirection(-1);
+
+   if(buyCount <= 0)
+     {
+      g_buyTickSpeedLockedSL = 0.0;
+      g_buyTickSpeedLockedBaseSL = 0.0;
+      g_buyTickSpeedLockedStatus = "WAIT ORDER";
+      g_buyTickSpeedLockedMode = "WAIT MODE";
+      g_buyTickSpeedSLActivatedTime = 0;
+     }
+   else
+   if(g_buyTickSpeedLockedSL <= 0.0)
+     {
+      g_buyTickSpeedLockedBaseSL = MathAbs(GetBaseEffectiveBasketStopLossUSD());
+      g_buyTickSpeedLockedMode = g_autoMarketModeText;
+      g_buyTickSpeedLockedSL = GetTickSpeedAdaptiveBasketSLUSD(g_tickSpeedStatus);
+      g_buyTickSpeedLockedStatus = g_tickSpeedStatus;
+      g_buyTickSpeedSLActivatedTime = TimeCurrent();
+      Print("TICK SPEED SL SNAPSHOT | BUY | Mode=",g_buyTickSpeedLockedMode,
+            " | Speed=",g_buyTickSpeedLockedStatus,
+            " | BaseSL=$",DoubleToString(g_buyTickSpeedLockedBaseSL,2),
+            " | LockedSL=$",DoubleToString(g_buyTickSpeedLockedSL,2),
+            " | Orders=",buyCount);
+     }
+
+   if(sellCount <= 0)
+     {
+      g_sellTickSpeedLockedSL = 0.0;
+      g_sellTickSpeedLockedBaseSL = 0.0;
+      g_sellTickSpeedLockedStatus = "WAIT ORDER";
+      g_sellTickSpeedLockedMode = "WAIT MODE";
+      g_sellTickSpeedSLActivatedTime = 0;
+     }
+   else
+   if(g_sellTickSpeedLockedSL <= 0.0)
+     {
+      g_sellTickSpeedLockedBaseSL = MathAbs(GetBaseEffectiveBasketStopLossUSD());
+      g_sellTickSpeedLockedMode = g_autoMarketModeText;
+      g_sellTickSpeedLockedSL = GetTickSpeedAdaptiveBasketSLUSD(g_tickSpeedStatus);
+      g_sellTickSpeedLockedStatus = g_tickSpeedStatus;
+      g_sellTickSpeedSLActivatedTime = TimeCurrent();
+      Print("TICK SPEED SL SNAPSHOT | SELL | Mode=",g_sellTickSpeedLockedMode,
+            " | Speed=",g_sellTickSpeedLockedStatus,
+            " | BaseSL=$",DoubleToString(g_sellTickSpeedLockedBaseSL,2),
+            " | LockedSL=$",DoubleToString(g_sellTickSpeedLockedSL,2),
+            " | Orders=",sellCount);
+     }
+  }
+
+//+------------------------------------------------------------------+
+double GetNormalEffectiveBasketStopLossUSDForDirection(int direction)
+  {
+   double baseSL = GetBaseEffectiveBasketStopLossUSD();
+
+   if(!InpUseTickSpeedAdaptiveBasketSL)
+      return(baseSL);
+
+   if(direction > 0 && g_buyTickSpeedLockedSL > 0.0)
+      return(g_buyTickSpeedLockedSL);
+
+   if(direction < 0 && g_sellTickSpeedLockedSL > 0.0)
+      return(g_sellTickSpeedLockedSL);
+
+   // Before a snapshot exists, use the current status calculation. This is
+   // normally only the activation tick before Update... locks the value.
+   return(GetTickSpeedAdaptiveBasketSLUSD(g_tickSpeedStatus));
+  }
+
+//+------------------------------------------------------------------+
+// Final live SL for one side. The opposite-candle rule may only tighten the
+// normal frozen adaptive SL; it can never widen it.
+//+------------------------------------------------------------------+
+double GetEffectiveBasketStopLossUSDForDirection(int direction)
+  {
+   double normalSL = GetNormalEffectiveBasketStopLossUSDForDirection(direction);
+
+   if(normalSL <= 0.0 || !InpUseLiveOppositeCandleTightSL)
+      return(normalSL);
+
+   double tightenedSL = 0.0;
+
+   if(direction > 0 && g_buyLiveOppositeCandleSLArmed)
+      tightenedSL = g_buyLiveOppositeCandleSLUSD;
+   else
+   if(direction < 0 && g_sellLiveOppositeCandleSLArmed)
+      tightenedSL = g_sellLiveOppositeCandleSLUSD;
+
+   if(tightenedSL > 0.0)
+      return(MathMin(normalSL,tightenedSL));
+
+   return(normalSL);
+  }
+
+// Compatibility wrapper for existing status/dashboard calls.
+double GetEffectiveBasketStopLossUSD()
+  {
+   bool hasBuy = (CountOrdersByDirection(1) > 0);
+   bool hasSell = (CountOrdersByDirection(-1) > 0);
+
+   if(hasBuy && !hasSell)
+      return(GetEffectiveBasketStopLossUSDForDirection(1));
+   if(hasSell && !hasBuy)
+      return(GetEffectiveBasketStopLossUSDForDirection(-1));
+   if(hasBuy && hasSell)
+      return(MathMax(GetEffectiveBasketStopLossUSDForDirection(1),
+                     GetEffectiveBasketStopLossUSDForDirection(-1)));
+
+   return(GetBaseEffectiveBasketStopLossUSD());
+  }
+
+//+------------------------------------------------------------------+
+string TickSpeedAdaptiveSLStatusText(int direction)
+  {
+   double lockedSL = (direction > 0)
+                     ? g_buyTickSpeedLockedSL
+                     : g_sellTickSpeedLockedSL;
+   double lockedBaseSL = (direction > 0)
+                         ? g_buyTickSpeedLockedBaseSL
+                         : g_sellTickSpeedLockedBaseSL;
+   string lockedStatus = (direction > 0)
+                         ? g_buyTickSpeedLockedStatus
+                         : g_sellTickSpeedLockedStatus;
+   string lockedMode = (direction > 0)
+                       ? g_buyTickSpeedLockedMode
+                       : g_sellTickSpeedLockedMode;
+
+   if(!InpUseTickSpeedAdaptiveBasketSL)
+      return("OFF");
+
+   if(lockedSL > 0.0)
+      return(lockedMode + "/" + lockedStatus + " $" +
+             DoubleToString(lockedBaseSL,2) + ">" +
+             DoubleToString(lockedSL,2));
+
+   return("NEXT " + g_autoMarketModeText + "/" + g_tickSpeedStatus + " $" +
+          DoubleToString(MathAbs(GetBaseEffectiveBasketStopLossUSD()),2) + ">" +
+          DoubleToString(GetTickSpeedAdaptiveBasketSLUSD(g_tickSpeedStatus),2));
+  }
+
+//+------------------------------------------------------------------+
+void ResetLiveOppositeCandleEmergencySLState(int direction)
+  {
+   if(direction > 0)
+     {
+      g_buyLiveOppositeCandleSLArmed = false;
+      g_buyLiveOppositeCandleSLUSD   = 0.0;
+      g_buyLiveOppositeCandleArmTime = 0;
+     }
+   else
+   if(direction < 0)
+     {
+      g_sellLiveOppositeCandleSLArmed = false;
+      g_sellLiveOppositeCandleSLUSD   = 0.0;
+      g_sellLiveOppositeCandleArmTime = 0;
+     }
+  }
+
+//+------------------------------------------------------------------+
+bool IsLiveOppositeCandleEmergencySLArmed(int direction)
+  {
+   if(direction > 0)
+      return(g_buyLiveOppositeCandleSLArmed);
+   if(direction < 0)
+      return(g_sellLiveOppositeCandleSLArmed);
+   return(false);
+  }
+
+//+------------------------------------------------------------------+
+double GetLiveOppositeCandleEmergencySLUSD(int direction)
+  {
+   if(direction > 0)
+      return(g_buyLiveOppositeCandleSLUSD);
+   if(direction < 0)
+      return(g_sellLiveOppositeCandleSLUSD);
+   return(0.0);
+  }
+
+//+------------------------------------------------------------------+
+// Checks the still-forming M1 candle. No next-candle or candle-close wait.
+//+------------------------------------------------------------------+
+bool IsCurrentM1CandleLargeAndOpposite(int direction)
+  {
+   if(direction == 0 || iBars(Symbol(),PERIOD_M1) < 3)
+      return(false);
+
+   double currentOpen  = iOpen(Symbol(),PERIOD_M1,0);
+   double currentClose = iClose(Symbol(),PERIOD_M1,0);
+   double currentHigh  = iHigh(Symbol(),PERIOD_M1,0);
+   double currentLow   = iLow(Symbol(),PERIOD_M1,0);
+   double previousHigh = iHigh(Symbol(),PERIOD_M1,1);
+   double previousLow  = iLow(Symbol(),PERIOD_M1,1);
+
+   g_liveOppositeCurrentM1Range  = MathMax(0.0,currentHigh-currentLow);
+   g_liveOppositePreviousM1Range = MathMax(0.0,previousHigh-previousLow);
+   g_liveOppositeM1RangeRatio =
+      (g_liveOppositePreviousM1Range > 0.0)
+      ? g_liveOppositeCurrentM1Range/g_liveOppositePreviousM1Range
+      : 0.0;
+
+   double body = MathAbs(currentClose-currentOpen);
+   g_liveOppositeCurrentBodyPercent =
+      (g_liveOppositeCurrentM1Range > 0.0)
+      ? body/g_liveOppositeCurrentM1Range*100.0
+      : 0.0;
+
+   if(currentClose > currentOpen)
+      g_liveOppositeCurrentDirection = 1;
+   else
+   if(currentClose < currentOpen)
+      g_liveOppositeCurrentDirection = -1;
+   else
+      g_liveOppositeCurrentDirection = 0;
+
+   bool oppositeDirection =
+      (direction > 0 && g_liveOppositeCurrentDirection < 0) ||
+      (direction < 0 && g_liveOppositeCurrentDirection > 0);
+
+   double requiredRange =
+      g_liveOppositePreviousM1Range *
+      MathMax(0.0,InpLiveOppositeCandleRangeRatio);
+
+   bool largerThanPrevious =
+      (g_liveOppositeCurrentM1Range > requiredRange);
+
+   bool bodyConfirmed =
+      (InpLiveOppositeCandleMinBodyPercent <= 0.0 ||
+       g_liveOppositeCurrentBodyPercent >=
+       MathMin(100.0,InpLiveOppositeCandleMinBodyPercent));
+
+   return(oppositeDirection && largerThanPrevious && bodyConfirmed);
+  }
+
+//+------------------------------------------------------------------+
+// Arms a smaller basket SL as soon as the current M1 candle becomes larger
+// than the previous M1 candle and moves against an already-losing side.
+// The reduced value is latched, so a later intrabar reversal cannot widen it.
+//+------------------------------------------------------------------+
+void UpdateLiveOppositeCandleEmergencySL()
+  {
+   if(!InpUseLiveOppositeCandleTightSL)
+     {
+      ResetLiveOppositeCandleEmergencySLState(1);
+      ResetLiveOppositeCandleEmergencySLState(-1);
+      return;
+     }
+
+   for(int direction=1; direction>=-1; direction-=2)
+     {
+      int orderCount = CountOrdersByDirection(direction);
+
+      if(orderCount <= 0)
+        {
+         ResetLiveOppositeCandleEmergencySLState(direction);
+         continue;
+        }
+
+      if(IsLiveOppositeCandleEmergencySLArmed(direction))
+         continue;
+
+      double sideProfit = GetBasketProfit(direction);
+
+      // The user's requested protection starts only after loss has begun.
+      if(sideProfit >= 0.0)
+         continue;
+
+      if(!IsCurrentM1CandleLargeAndOpposite(direction))
+         continue;
+
+      double normalSL =
+         MathAbs(GetNormalEffectiveBasketStopLossUSDForDirection(direction));
+
+      if(normalSL <= 0.0)
+         continue;
+
+      double multiplier =
+         MathMax(0.0,MathMin(1.0,InpLiveOppositeCandleSLMultiplier));
+      double tightenedSL = normalSL*multiplier;
+      tightenedSL = MathMax(MathAbs(InpLiveOppositeCandleMinimumSLUSD),
+                            tightenedSL);
+      tightenedSL = MathMin(normalSL,tightenedSL);
+      tightenedSL = NormalizeDouble(tightenedSL,2);
+
+      if(direction > 0)
+        {
+         g_buyLiveOppositeCandleSLArmed = true;
+         g_buyLiveOppositeCandleSLUSD   = tightenedSL;
+         g_buyLiveOppositeCandleArmTime = TimeCurrent();
+        }
+      else
+        {
+         g_sellLiveOppositeCandleSLArmed = true;
+         g_sellLiveOppositeCandleSLUSD   = tightenedSL;
+         g_sellLiveOppositeCandleArmTime = TimeCurrent();
+        }
+
+      Print("LIVE OPPOSITE M1 TIGHT SL ARMED | Direction=",
+            DirectionText(direction),
+            " | Basket=$",DoubleToString(sideProfit,2),
+            " | CurrentRange=",DoubleToString(g_liveOppositeCurrentM1Range,1),
+            " | PreviousRange=",DoubleToString(g_liveOppositePreviousM1Range,1),
+            " | Ratio=",DoubleToString(g_liveOppositeM1RangeRatio,2),"x",
+            " | Body=",DoubleToString(g_liveOppositeCurrentBodyPercent,1),"%",
+            " | NormalSL=$",DoubleToString(normalSL,2),
+            " | TightSL=$",DoubleToString(tightenedSL,2));
+     }
+  }
+
+//+------------------------------------------------------------------+
+string LiveOppositeCandleSLStatusText(int direction)
+  {
+   if(!InpUseLiveOppositeCandleTightSL)
+      return("OFF");
+
+   if(CountOrdersByDirection(direction) <= 0)
+      return("WAIT ORDER");
+
+   if(IsLiveOppositeCandleEmergencySLArmed(direction))
+      return("ARMED $" +
+             DoubleToString(GetLiveOppositeCandleEmergencySLUSD(direction),2));
+
+   return("WATCH");
+  }
+
+//+------------------------------------------------------------------+
+bool IsOppositeImpulseOrderComment(string commentText)
+  {
+   return(StringFind(commentText,"OPP_IMPULSE",0) >= 0);
+  }
+
+//+------------------------------------------------------------------+
+void ClearOppositeImpulseRequest(string reason,bool keepTrackedTicket=false)
+  {
+   if(g_oppositeImpulseRequestPending ||
+      g_oppositeImpulsePendingTicket > 0 ||
+      g_oppositeImpulseDirection != 0)
+     {
+      Print("OPPOSITE IMPULSE STATE | Direction=",
+            DirectionText(g_oppositeImpulseDirection),
+            " | Source=",DirectionText(g_oppositeImpulseSourceDirection),
+            " | Ticket=",g_oppositeImpulsePendingTicket,
+            " | Reason=",reason);
+     }
+
+   g_oppositeImpulseRequestPending  = false;
+   g_oppositeImpulseDirection       = 0;
+   g_oppositeImpulseSourceDirection = 0;
+   g_oppositeImpulseSourceLoss      = 0.0;
+   g_oppositeImpulseSignalBarTime   = 0;
+   g_oppositeImpulseQueuedTime      = 0;
+   g_oppositeImpulseLastAttemptTime = 0;
+   g_oppositeImpulseSignalHigh      = 0.0;
+   g_oppositeImpulseSignalLow       = 0.0;
+   g_oppositeImpulseSignalRange     = 0.0;
+   g_oppositeImpulsePreviousRange   = 0.0;
+   g_oppositeImpulseAverageRange    = 0.0;
+   g_oppositeImpulseBodyPercent     = 0.0;
+   g_oppositeImpulseExitWickPercent = 0.0;
+   g_oppositeImpulsePreSAROverride = false;
+
+   if(!keepTrackedTicket)
+      g_oppositeImpulsePendingTicket = -1;
+
+   g_oppositeImpulseStatus = reason;
+  }
+
+//+------------------------------------------------------------------+
+bool IsOppositeImpulseContinuationBusy()
+  {
+   return(g_oppositeImpulseRequestPending ||
+          g_oppositeImpulsePendingTicket > 0);
+  }
+
+//+------------------------------------------------------------------+
+string OppositeImpulseStatusText()
+  {
+   if(!InpUseOppositeImpulseContinuation)
+      return("OFF");
+
+   if(g_oppositeImpulsePendingTicket > 0)
+      return("PENDING #" + IntegerToString(g_oppositeImpulsePendingTicket) +
+             " " + DirectionText(g_oppositeImpulseDirection) +
+             (g_oppositeImpulsePreSAROverride ? " PRE-SAR" : ""));
+
+   if(g_oppositeImpulseRequestPending)
+      return("QUEUED " + DirectionText(g_oppositeImpulseDirection) +
+             (g_oppositeImpulsePreSAROverride ? " PRE-SAR" : "") +
+             " | " + g_oppositeImpulseStatus);
+
+   return(g_oppositeImpulseStatus);
+  }
+
+//+------------------------------------------------------------------+
+// Snapshot strict continuation conditions from the still-forming M1 candle.
+// losingDirection is the side that is being closed; impulse direction is the
+// opposite side.
+//+------------------------------------------------------------------+
+bool GetCurrentOppositeImpulseSignal(int losingDirection,
+                                     int &impulseDirection,
+                                     double &signalHigh,
+                                     double &signalLow,
+                                     double &signalRange,
+                                     double &previousRange,
+                                     double &averageRange,
+                                     double &bodyPercent,
+                                     double &exitWickPercent,
+                                     string &blockReason)
+  {
+   impulseDirection = -losingDirection;
+   signalHigh        = 0.0;
+   signalLow         = 0.0;
+   signalRange       = 0.0;
+   previousRange     = 0.0;
+   averageRange      = 0.0;
+   bodyPercent       = 0.0;
+   exitWickPercent   = 0.0;
+   blockReason       = "NONE";
+   g_oppositeImpulsePreSAROverride = false;
+
+   if(!InpUseOppositeImpulseContinuation)
+     {
+      blockReason = "FEATURE OFF";
+      return(false);
+     }
+
+   if(losingDirection != 1 && losingDirection != -1)
+     {
+      blockReason = "INVALID LOSING DIRECTION";
+      return(false);
+     }
+
+   if(iBars(Symbol(),PERIOD_M1) < 12)
+     {
+      blockReason = "NOT ENOUGH M1 BARS";
+      return(false);
+     }
+
+   double candleOpen  = iOpen(Symbol(),PERIOD_M1,0);
+   double candleClose = iClose(Symbol(),PERIOD_M1,0);
+   signalHigh         = iHigh(Symbol(),PERIOD_M1,0);
+   signalLow          = iLow(Symbol(),PERIOD_M1,0);
+   double prevHigh    = iHigh(Symbol(),PERIOD_M1,1);
+   double prevLow     = iLow(Symbol(),PERIOD_M1,1);
+
+   signalRange   = MathMax(0.0,signalHigh-signalLow);
+   previousRange = MathMax(0.0,prevHigh-prevLow);
+   averageRange  = g_tickSpeedAvgCandleRange;
+   if(averageRange <= 0.0)
+      averageRange = GetTickSpeedAverageClosedCandleRange();
+
+   if(signalRange <= 0.0 || previousRange <= 0.0 || averageRange <= 0.0)
+     {
+      blockReason = "INVALID RANGE DATA";
+      return(false);
+     }
+
+   int candleDirection = 0;
+   if(candleClose > candleOpen)
+      candleDirection = 1;
+   else
+   if(candleClose < candleOpen)
+      candleDirection = -1;
+
+   if(candleDirection != impulseDirection)
+     {
+      blockReason = "LIVE M1 NOT IN IMPULSE DIRECTION";
+      return(false);
+     }
+
+   double body = MathAbs(candleClose-candleOpen);
+   bodyPercent = body/signalRange*100.0;
+
+   double exitWick = 0.0;
+   if(impulseDirection < 0)
+      exitWick = MathMax(0.0,MathMin(candleOpen,candleClose)-signalLow);
+   else
+      exitWick = MathMax(0.0,signalHigh-MathMax(candleOpen,candleClose));
+
+   exitWickPercent = exitWick/signalRange*100.0;
+
+   if(signalRange + Point*0.1 <
+      previousRange*MathMax(0.0,InpImpulseCurrentVsPreviousRatio))
+     {
+      blockReason = "LIVE RANGE BELOW PREVIOUS RATIO";
+      return(false);
+     }
+
+   if(signalRange + Point*0.1 <
+      averageRange*MathMax(0.0,InpImpulseCurrentVsAverageRatio))
+     {
+      blockReason = "LIVE RANGE BELOW AVERAGE RATIO";
+      return(false);
+     }
+
+   if(bodyPercent + 0.0001 <
+      MathMax(0.0,MathMin(100.0,InpImpulseMinimumBodyPercent)))
+     {
+      blockReason = "BODY TOO SMALL";
+      return(false);
+     }
+
+   if(exitWickPercent - 0.0001 >
+      MathMax(0.0,MathMin(100.0,InpImpulseMaximumExitWickPercent)))
+     {
+      blockReason = "EXIT WICK TOO LARGE";
+      return(false);
+     }
+
+   if(InpImpulseRequireFastTickSpeed &&
+      g_tickSpeedStatus != "FAST" &&
+      g_tickSpeedStatus != "DANGER")
+     {
+      blockReason = "TICK SPEED " + g_tickSpeedStatus;
+      return(false);
+     }
+
+   if(InpImpulseRequireLiveSARDirection)
+     {
+      int liveSAR = GetSARDotDirection(0);
+      if(liveSAR != impulseDirection)
+        {
+         bool preSARAllowed = InpImpulseAllowPreSARReversalOverride;
+
+         if(InpImpulsePreSARRequireDangerSpeed &&
+            g_tickSpeedStatus != "DANGER")
+            preSARAllowed = false;
+
+         double preSARMinBody =
+            MathMax(0.0,MathMin(100.0,
+                               InpImpulsePreSARMinimumBodyPercent));
+         double preSARMaxWick =
+            MathMax(0.0,MathMin(100.0,
+                               InpImpulsePreSARMaximumExitWickPercent));
+
+         if(bodyPercent + 0.0001 < preSARMinBody)
+            preSARAllowed = false;
+
+         if(exitWickPercent - 0.0001 > preSARMaxWick)
+            preSARAllowed = false;
+
+         if(!preSARAllowed)
+           {
+            blockReason = "LIVE SAR " + DirectionText(liveSAR) +
+                          " != " + DirectionText(impulseDirection) +
+                          " | PRE-SAR NEED DANGER/BODY/WICK";
+            return(false);
+           }
+
+         g_oppositeImpulsePreSAROverride = true;
+        }
+     }
+
+   return(true);
+  }
+
+//+------------------------------------------------------------------+
+bool QueueOppositeImpulseContinuation(int losingDirection,double sourceLoss)
+  {
+   if(g_oppositeImpulseRequestPending ||
+      g_oppositeImpulsePendingTicket > 0)
+     {
+      Print("OPPOSITE IMPULSE NOT QUEUED | Existing state | ",
+            OppositeImpulseStatusText());
+      return(false);
+     }
+
+   int impulseDirection = 0;
+   double signalHigh = 0.0;
+   double signalLow = 0.0;
+   double signalRange = 0.0;
+   double previousRange = 0.0;
+   double averageRange = 0.0;
+   double bodyPercent = 0.0;
+   double exitWickPercent = 0.0;
+   string blockReason = "NONE";
+
+   if(!GetCurrentOppositeImpulseSignal(losingDirection,
+                                       impulseDirection,
+                                       signalHigh,
+                                       signalLow,
+                                       signalRange,
+                                       previousRange,
+                                       averageRange,
+                                       bodyPercent,
+                                       exitWickPercent,
+                                       blockReason))
+     {
+      g_oppositeImpulseStatus = "NOT QUEUED | " + blockReason;
+      Print("OPPOSITE IMPULSE NOT QUEUED | LosingSide=",
+            DirectionText(losingDirection),
+            " | Reason=",blockReason,
+            " | TickSpeed=",g_tickSpeedStatus,
+            " | LiveSAR=",DirectionText(GetSARDotDirection(0)));
+      return(false);
+     }
+
+   // A loss-driven impulse setup takes priority over any old profitable
+   // continuation request so both strategies cannot place orders together.
+   ClearGoodMarketContinuation("CANCELLED | OPPOSITE IMPULSE PRIORITY");
+
+   g_oppositeImpulseRequestPending  = true;
+   g_oppositeImpulseDirection       = impulseDirection;
+   g_oppositeImpulseSourceDirection = losingDirection;
+   g_oppositeImpulseSourceLoss      = sourceLoss;
+   g_oppositeImpulseSignalBarTime   = iTime(Symbol(),PERIOD_M1,0);
+   g_oppositeImpulseQueuedTime      = TimeCurrent();
+   g_oppositeImpulseLastAttemptTime = 0;
+   g_oppositeImpulseSignalHigh      = signalHigh;
+   g_oppositeImpulseSignalLow       = signalLow;
+   g_oppositeImpulseSignalRange     = signalRange;
+   g_oppositeImpulsePreviousRange   = previousRange;
+   g_oppositeImpulseAverageRange    = averageRange;
+   g_oppositeImpulseBodyPercent     = bodyPercent;
+   g_oppositeImpulseExitWickPercent = exitWickPercent;
+   g_oppositeImpulsePendingTicket   = -1;
+   g_oppositeImpulseStatus          =
+      g_oppositeImpulsePreSAROverride ? "QUEUED PRE-SAR" : "QUEUED SAR CONFIRMED";
+
+   Print("OPPOSITE IMPULSE QUEUED | ClosedSide=",
+         DirectionText(losingDirection),
+         " | NewDirection=",DirectionText(impulseDirection),
+         " | SourceLoss=$",DoubleToString(sourceLoss,2),
+         " | Range=",DoubleToString(signalRange,1),
+         " | Prev=",DoubleToString(previousRange,1),
+         " | Avg=",DoubleToString(averageRange,1),
+         " | Body=",DoubleToString(bodyPercent,1),"%",
+         " | ExitWick=",DoubleToString(exitWickPercent,1),"%",
+         " | TickSpeed=",g_tickSpeedStatus,
+         " | LiveSAR=",DirectionText(GetSARDotDirection(0)),
+         " | Confirmation=",
+         (g_oppositeImpulsePreSAROverride ? "PRE-SAR DANGER OVERRIDE" : "SAR MATCH"));
+
+   return(true);
+  }
+
+//+------------------------------------------------------------------+
+// Queue one opposite pending order BEFORE SAR fully flips when the current
+// live M1 candle strongly suggests reversal against an existing old-side
+// basket. This does not wait for the old basket to close.
+//+------------------------------------------------------------------+
+bool TryQueuePreSARReversalSuspectEntry()
+  {
+   if(!InpUseOppositeImpulseContinuation ||
+      !InpUsePreSARReversalSuspectEntry)
+      return(false);
+
+   if(IsOppositeImpulseContinuationBusy())
+      return(false);
+
+   int oldDirection = GetSARDotDirection(0);
+
+   if(oldDirection != 1 && oldDirection != -1)
+      return(false);
+
+   // The suspect strategy can work in two situations:
+   // 1. An old-direction market basket is still open.
+   // 2. No market basket exists, but a strong opposite reversal is detected.
+   bool hasOldSideBasket =
+      (CountOrdersByDirection(oldDirection) > 0);
+
+   double oldSideProfit = 0.0;
+
+   if(hasOldSideBasket)
+      oldSideProfit = GetBasketProfit(oldDirection);
+
+   int newDirection = -oldDirection;
+
+   // Never duplicate an already-live or pending opposite-side entry.
+   if(CountDirectionEntriesForCap(newDirection) > 0)
+     {
+      g_oppositeImpulseStatus =
+         "SUSPECT BLOCKED | OPPOSITE SIDE EXISTS";
+
+      return(false);
+     }
+
+   // Apply the old-side profit restriction only when that basket exists.
+   if(hasOldSideBasket &&
+      InpPreSARSuspectRequireOldSideNotProfit &&
+      oldSideProfit > InpPreSARSuspectMaxOldSideProfitUSD)
+     {
+      g_oppositeImpulseStatus =
+         "SUSPECT WAIT | OLD SIDE PROFIT $" +
+         DoubleToString(oldSideProfit, 2);
+
+      return(false);
+     }
+
+   // Continue here with candle, tick-speed, range, body,
+   // wick, SAR-score and pending-order checks.
+      if(iBars(Symbol(),PERIOD_M1) < 12)
+      return(false);
+
+   double candleOpen  = iOpen(Symbol(),PERIOD_M1,0);
+   double candleClose = iClose(Symbol(),PERIOD_M1,0);
+   double signalHigh  = iHigh(Symbol(),PERIOD_M1,0);
+   double signalLow   = iLow(Symbol(),PERIOD_M1,0);
+   double signalRange = MathMax(0.0,signalHigh-signalLow);
+   double previousRange = MathMax(0.0,
+      iHigh(Symbol(),PERIOD_M1,1)-iLow(Symbol(),PERIOD_M1,1));
+   double averageRange = g_tickSpeedAvgCandleRange;
+   if(averageRange <= 0.0)
+      averageRange = GetTickSpeedAverageClosedCandleRange();
+
+   if(signalRange <= 0.0 || previousRange <= 0.0 || averageRange <= 0.0)
+      return(false);
+
+   int candleDirection = 0;
+   if(candleClose > candleOpen) candleDirection = 1;
+   else if(candleClose < candleOpen) candleDirection = -1;
+
+   if(candleDirection != newDirection)
+     {
+      g_oppositeImpulseStatus = "SUSPECT WAIT | LIVE M1 NOT OPPOSITE";
+      return(false);
+     }
+
+   double body = MathAbs(candleClose-candleOpen);
+   double bodyPercent = body/signalRange*100.0;
+   double exitWick = 0.0;
+   if(newDirection < 0)
+      exitWick = MathMax(0.0,MathMin(candleOpen,candleClose)-signalLow);
+   else
+      exitWick = MathMax(0.0,signalHigh-MathMax(candleOpen,candleClose));
+   double exitWickPercent = exitWick/signalRange*100.0;
+
+   if(signalRange + Point*0.1 <
+      previousRange*MathMax(0.0,InpPreSARSuspectCurrentVsPreviousRatio))
+     {
+      g_oppositeImpulseStatus = "SUSPECT WAIT | RANGE/PREV";
+      return(false);
+     }
+
+   if(signalRange + Point*0.1 <
+      averageRange*MathMax(0.0,InpPreSARSuspectCurrentVsAverageRatio))
+     {
+      g_oppositeImpulseStatus = "SUSPECT WAIT | RANGE/AVG";
+      return(false);
+     }
+
+   if(bodyPercent + 0.0001 <
+      MathMax(0.0,MathMin(100.0,InpPreSARSuspectMinimumBodyPercent)))
+     {
+      g_oppositeImpulseStatus = "SUSPECT WAIT | BODY " +
+                                DoubleToString(bodyPercent,1) + "%";
+      return(false);
+     }
+
+   if(exitWickPercent - 0.0001 >
+      MathMax(0.0,MathMin(100.0,InpPreSARSuspectMaximumExitWickPercent)))
+     {
+      g_oppositeImpulseStatus = "SUSPECT WAIT | EXIT WICK " +
+                                DoubleToString(exitWickPercent,1) + "%";
+      return(false);
+     }
+
+   if(InpPreSARSuspectRequireFastTickSpeed &&
+      g_tickSpeedStatus != "FAST" &&
+      g_tickSpeedStatus != "DANGER")
+     {
+      g_oppositeImpulseStatus = "SUSPECT WAIT | SPEED " + g_tickSpeedStatus;
+      return(false);
+     }
+
+   if(g_dynamicSARScore > InpPreSARSuspectMaximumSARScore)
+     {
+      g_oppositeImpulseStatus = "SUSPECT WAIT | SAR SCORE " +
+                                IntegerToString(g_dynamicSARScore) + "/" +
+                                IntegerToString(InpPreSARSuspectMaximumSARScore);
+      return(false);
+     }
+
+   // Hard safety gates remain active.
+   if(IsDubaiNoNewOrderHourNow() ||
+      g_dailyProfitLock || g_equityProtectionHit ||
+      g_globalEquityTrailLocked || !IsTradingAllowedNow())
+     {
+      g_oppositeImpulseStatus = "SUSPECT BLOCKED | HARD SAFETY";
+      return(false);
+     }
+
+   if(IsDirectionOrderCapReached(newDirection,"PRE-SAR SUSPECT") ||
+      IsTotalOpenOrderCapReached("PRE-SAR SUSPECT"))
+      return(false);
+
+   ClearGoodMarketContinuation("CANCELLED | PRE-SAR SUSPECT PRIORITY");
+
+   g_oppositeImpulseRequestPending  = true;
+   g_oppositeImpulseDirection       = newDirection;
+   g_oppositeImpulseSourceDirection = oldDirection;
+   g_oppositeImpulseSourceLoss      = oldSideProfit;
+   g_oppositeImpulseSignalBarTime   = iTime(Symbol(),PERIOD_M1,0);
+   g_oppositeImpulseQueuedTime      = TimeCurrent();
+   g_oppositeImpulseLastAttemptTime = 0;
+   g_oppositeImpulseSignalHigh      = signalHigh;
+   g_oppositeImpulseSignalLow       = signalLow;
+   g_oppositeImpulseSignalRange     = signalRange;
+   g_oppositeImpulsePreviousRange   = previousRange;
+   g_oppositeImpulseAverageRange    = averageRange;
+   g_oppositeImpulseBodyPercent     = bodyPercent;
+   g_oppositeImpulseExitWickPercent = exitWickPercent;
+   g_oppositeImpulsePendingTicket   = -1;
+   g_oppositeImpulsePreSAROverride  = true;
+   g_oppositeImpulseStatus          = "QUEUED PRE-SAR SUSPECT";
+
+   Print("PRE-SAR REVERSAL SUSPECT QUEUED | OldSAR=",
+         DirectionText(oldDirection),
+         " | NewPending=",DirectionText(newDirection),
+         " | OldSideP/L=$",DoubleToString(oldSideProfit,2),
+         " | Range=",DoubleToString(signalRange,1),
+         " | Prev=",DoubleToString(previousRange,1),
+         " | Avg=",DoubleToString(averageRange,1),
+         " | Body=",DoubleToString(bodyPercent,1),"%",
+         " | ExitWick=",DoubleToString(exitWickPercent,1),"%",
+         " | TickSpeed=",g_tickSpeedStatus,
+         " | SARScore=",g_dynamicSARScore);
+
+   return(true);
+  }
+
+//+------------------------------------------------------------------+
+double GetEffectiveImpulsePendingGapRaw()
+  {
+   double stopRaw   = MarketInfo(Symbol(),MODE_STOPLEVEL)*Point;
+   double freezeRaw = MarketInfo(Symbol(),MODE_FREEZELEVEL)*Point;
+   return(MathMax(MathMax(0.0,InpImpulsePendingGapRaw),
+                  MathMax(stopRaw,freezeRaw)+Point));
+  }
+
+//+------------------------------------------------------------------+
+double BuildOppositeImpulsePendingPrice(int direction)
+  {
+   RefreshRates();
+
+   double gap = GetEffectiveImpulsePendingGapRaw();
+
+   if(direction > 0)
+      return(NormalizeDouble(
+                MathMax(g_oppositeImpulseSignalHigh+gap,Ask+gap),
+                Digits));
+
+   if(direction < 0)
+      return(NormalizeDouble(
+                MathMin(g_oppositeImpulseSignalLow-gap,Bid-gap),
+                Digits));
+
+   return(0.0);
+  }
+
+//+------------------------------------------------------------------+
+bool HasOppositeImpulseRetracedTooFar()
+  {
+   if(g_oppositeImpulseSignalRange <= 0.0 ||
+      g_oppositeImpulseDirection == 0)
+      return(true);
+
+   double retraceFraction =
+      MathMax(0.0,MathMin(100.0,InpImpulseMaximumRetracePercent))/100.0;
+
+   if(g_oppositeImpulseDirection < 0)
+     {
+      double cancelAbove = g_oppositeImpulseSignalLow +
+                           g_oppositeImpulseSignalRange*retraceFraction;
+      return(Ask >= cancelAbove);
+     }
+
+   double cancelBelow = g_oppositeImpulseSignalHigh -
+                        g_oppositeImpulseSignalRange*retraceFraction;
+   return(Bid <= cancelBelow);
+  }
+
+//+------------------------------------------------------------------+
+bool IsOppositeImpulseExpired()
+  {
+   if(g_oppositeImpulseSignalBarTime <= 0)
+      return(true);
+
+   int shift = iBarShift(Symbol(),PERIOD_M1,
+                         g_oppositeImpulseSignalBarTime,false);
+   if(shift < 0)
+      return(true);
+
+   return(shift >= (int)MathMax(1,InpImpulsePendingExpiryBars));
+  }
+
+//+------------------------------------------------------------------+
+bool DeleteTrackedOppositeImpulsePending(string reason)
+  {
+   int ticket = g_oppositeImpulsePendingTicket;
+   if(ticket <= 0)
+     {
+      ClearOppositeImpulseRequest(reason);
+      return(true);
+     }
+
+   if(!OrderSelect(ticket,SELECT_BY_TICKET,MODE_TRADES))
+     {
+      ClearOppositeImpulseRequest(reason + " | TICKET NOT LIVE");
+      return(true);
+     }
+
+   if(OrderCloseTime() > 0)
+     {
+      ClearOppositeImpulseRequest(reason + " | ALREADY IN HISTORY");
+      return(true);
+     }
+
+   int type = OrderType();
+   if(type == OP_BUY || type == OP_SELL)
+     {
+      // The pending order has already activated. Do not delete the live trade.
+      ClearOppositeImpulseRequest("ACTIVATED #"+IntegerToString(ticket));
+      return(false);
+     }
+
+   if(!IsPendingOrderType(type))
+     {
+      ClearOppositeImpulseRequest(reason + " | NOT PENDING");
+      return(true);
+     }
+
+   ResetLastError();
+   if(!OrderDelete(ticket,clrNONE))
+     {
+      int err = GetLastError();
+      g_oppositeImpulseStatus = "DELETE RETRY " + IntegerToString(err);
+      Print("OPPOSITE IMPULSE DELETE FAILED | Ticket=",ticket,
+            " | Error=",err,
+            " | Reason=",reason);
+      ResetLastError();
+      return(false);
+     }
+
+   Print("OPPOSITE IMPULSE PENDING DELETED | Ticket=",ticket,
+         " | Reason=",reason);
+   ClearOppositeImpulseRequest(reason);
+   return(true);
+  }
+
+//+------------------------------------------------------------------+
+void RestoreOppositeImpulsePendingState()
+  {
+   g_oppositeImpulsePendingTicket = -1;
+   g_oppositeImpulsePreSAROverride = false;
+
+   for(int i=OrdersTotal()-1;i>=0;i--)
+     {
+      if(!OrderSelect(i,SELECT_BY_POS,MODE_TRADES))
+         continue;
+      if(OrderSymbol()!=Symbol() || OrderMagicNumber()!=InpMagicNumber)
+         continue;
+      if(!IsOppositeImpulseOrderComment(OrderComment()))
+         continue;
+
+      int type = OrderType();
+      if(type!=OP_BUYSTOP && type!=OP_SELLSTOP)
+         continue;
+
+      g_oppositeImpulsePendingTicket = OrderTicket();
+      g_oppositeImpulseDirection = (type==OP_BUYSTOP) ? 1 : -1;
+      g_oppositeImpulseSourceDirection = -g_oppositeImpulseDirection;
+      g_oppositeImpulsePreSAROverride =
+         (StringFind(OrderComment(),"PRESAR",0) >= 0);
+      g_oppositeImpulseQueuedTime = OrderOpenTime();
+      int openShift = iBarShift(Symbol(),PERIOD_M1,OrderOpenTime(),false);
+      if(openShift < 0)
+         openShift = 0;
+      g_oppositeImpulseSignalBarTime =
+         iTime(Symbol(),PERIOD_M1,openShift);
+      int shift = iBarShift(Symbol(),PERIOD_M1,
+                            g_oppositeImpulseSignalBarTime,false);
+      if(shift < 0)
+         shift = 0;
+      g_oppositeImpulseSignalHigh = iHigh(Symbol(),PERIOD_M1,shift);
+      g_oppositeImpulseSignalLow = iLow(Symbol(),PERIOD_M1,shift);
+      g_oppositeImpulseSignalRange = MathMax(0.0,
+         g_oppositeImpulseSignalHigh-g_oppositeImpulseSignalLow);
+      g_oppositeImpulseStatus =
+         g_oppositeImpulsePreSAROverride ?
+         "RESTORED PRE-SAR PENDING" : "RESTORED PENDING";
+
+      Print("OPPOSITE IMPULSE RESTORED | Ticket=",
+            g_oppositeImpulsePendingTicket,
+            " | Direction=",DirectionText(g_oppositeImpulseDirection),
+            " | PreSAR=",(g_oppositeImpulsePreSAROverride ? "YES" : "NO"));
+      return;
+     }
+  }
+
+//+------------------------------------------------------------------+
+// Place, retry and manage one special continuation pending order.
+// Returns true only when a new pending order is placed on this call.
+//+------------------------------------------------------------------+
+bool ProcessOppositeImpulseContinuation()
+  {
+   if(!InpUseOppositeImpulseContinuation)
+     {
+      if(g_oppositeImpulsePendingTicket > 0)
+         DeleteTrackedOppositeImpulsePending("FEATURE DISABLED");
+      else
+         ClearOppositeImpulseRequest("OFF");
+      return(false);
+     }
+
+   // Manage a pending order that was already placed.
+   if(g_oppositeImpulsePendingTicket > 0)
+     {
+      int ticket = g_oppositeImpulsePendingTicket;
+
+      if(!OrderSelect(ticket,SELECT_BY_TICKET,MODE_TRADES))
+        {
+         ClearOppositeImpulseRequest("PENDING FINISHED/REMOVED");
+         return(false);
+        }
+
+      if(OrderCloseTime() > 0)
+        {
+         ClearOppositeImpulseRequest("PENDING MOVED TO HISTORY");
+         return(false);
+        }
+
+      int type = OrderType();
+      if(type == OP_BUY || type == OP_SELL)
+        {
+         ClearOppositeImpulseRequest("ACTIVATED #"+IntegerToString(ticket));
+         return(false);
+        }
+
+      if(!IsPendingOrderType(type))
+        {
+         ClearOppositeImpulseRequest("NO LONGER PENDING");
+         return(false);
+        }
+
+      if(IsOppositeImpulseExpired())
+        {
+         DeleteTrackedOppositeImpulsePending("EXPIRED " +
+            IntegerToString((int)MathMax(1,InpImpulsePendingExpiryBars)) +
+            " M1 BARS");
+         return(false);
+        }
+
+      int pendingLiveSAR = GetSARDotDirection(0);
+
+      // A PRE-SAR pending is intentionally allowed while SAR still points to
+      // the stopped side. Once SAR flips into the impulse direction, the
+      // pending becomes normally SAR-confirmed and future invalidation applies.
+      if(g_oppositeImpulsePreSAROverride &&
+         pendingLiveSAR == g_oppositeImpulseDirection)
+        {
+         g_oppositeImpulsePreSAROverride = false;
+         g_oppositeImpulseStatus = "PENDING | SAR NOW CONFIRMED";
+        }
+
+      if(InpImpulseRequireLiveSARDirection &&
+         !g_oppositeImpulsePreSAROverride &&
+         pendingLiveSAR != g_oppositeImpulseDirection)
+        {
+         DeleteTrackedOppositeImpulsePending("LIVE SAR INVALIDATED");
+         return(false);
+        }
+
+      if(HasOppositeImpulseRetracedTooFar())
+        {
+         DeleteTrackedOppositeImpulsePending("RETRACE >= " +
+            DoubleToString(InpImpulseMaximumRetracePercent,0) + "%");
+         return(false);
+        }
+
+      g_oppositeImpulseStatus = "PENDING ACTIVE #"+
+                                IntegerToString(ticket);
+      return(false);
+     }
+
+   if(!g_oppositeImpulseRequestPending)
+      return(false);
+
+   int direction = g_oppositeImpulseDirection;
+
+   if(direction != 1 && direction != -1)
+     {
+      ClearOppositeImpulseRequest("INVALID DIRECTION");
+      return(false);
+     }
+
+   if(IsOppositeImpulseExpired())
+     {
+      ClearOppositeImpulseRequest("REQUEST EXPIRED");
+      return(false);
+     }
+
+   if(HasOppositeImpulseRetracedTooFar())
+     {
+      ClearOppositeImpulseRequest("REQUEST CANCELLED | RETRACED");
+      return(false);
+     }
+
+   if(InpImpulseRequireFastTickSpeed &&
+      g_tickSpeedStatus != "FAST" &&
+      g_tickSpeedStatus != "DANGER")
+     {
+      ClearOppositeImpulseRequest("REQUEST CANCELLED | SPEED " +
+                                  g_tickSpeedStatus);
+      return(false);
+     }
+
+   if(InpImpulseRequireLiveSARDirection &&
+      !g_oppositeImpulsePreSAROverride &&
+      GetSARDotDirection(0) != direction)
+     {
+      ClearOppositeImpulseRequest("REQUEST CANCELLED | LIVE SAR " +
+                                  DirectionText(GetSARDotDirection(0)));
+      return(false);
+     }
+
+   if(IsDubaiNoNewOrderHourNow())
+     {
+      ClearOppositeImpulseRequest("REQUEST CANCELLED | DUBAI NO-NEW HOUR");
+      return(false);
+     }
+
+   if(g_dailyProfitLock ||
+      g_equityProtectionHit ||
+      g_globalEquityTrailLocked)
+     {
+      ClearOppositeImpulseRequest("REQUEST CANCELLED | EQUITY/PROFIT LOCK");
+      return(false);
+     }
+
+   if(!IsTradingAllowedNow())
+     {
+      g_oppositeImpulseStatus = "WAIT TRADING PERMISSION";
+      return(false);
+     }
+
+   if(IsDirectionOrderCapReached(direction,"OPPOSITE IMPULSE"))
+     {
+      ClearOppositeImpulseRequest("REQUEST CANCELLED | DIRECTION CAP");
+      return(false);
+     }
+
+   if(IsTotalOpenOrderCapReached("OPPOSITE IMPULSE"))
+     {
+      ClearOppositeImpulseRequest("REQUEST CANCELLED | TOTAL CAP");
+      return(false);
+     }
+
+   int retrySeconds = (int)MathMax(0,InpImpulsePendingRetrySeconds);
+   if(retrySeconds > 0 &&
+      g_oppositeImpulseLastAttemptTime > 0 &&
+      TimeCurrent()-g_oppositeImpulseLastAttemptTime < retrySeconds)
+      return(false);
+
+   g_oppositeImpulseLastAttemptTime = TimeCurrent();
+
+   RefreshRates();
+   double price = BuildOppositeImpulsePendingPrice(direction);
+   if(price <= 0.0)
+     {
+      g_oppositeImpulseStatus = "PRICE BUILD FAILED";
+      return(false);
+     }
+
+   int type = (direction > 0) ? OP_BUYSTOP : OP_SELLSTOP;
+   double lot = NormalizeLot(InpFixedLot);
+   string reason;
+   if(g_oppositeImpulsePreSAROverride)
+      reason = (direction > 0)
+               ? "OPP_IMPULSE_PRESAR_BUY"
+               : "OPP_IMPULSE_PRESAR_SELL";
+   else
+      reason = (direction > 0)
+               ? "OPP_IMPULSE_BUY"
+               : "OPP_IMPULSE_SELL";
+   string orderComment = MakeSARParentOrderComment(reason);
+
+   // A SAR-confirmed impulse receives one normal cycle slot. A PRE-SAR
+   // override must not reset the still-active old SAR cycle before the dots
+   // actually flip, so it remains a separate special pending entry.
+   if(!g_oppositeImpulsePreSAROverride)
+     {
+      EnsureSARSignalOrderCycle(direction);
+      if(g_sarCycleMaxOrders <= g_sarCycleOrdersCreated)
+         g_sarCycleMaxOrders = g_sarCycleOrdersCreated + 1;
+     }
+
+   ResetLastError();
+   int ticket = OrderSend(Symbol(),
+                          type,
+                          lot,
+                          price,
+                          InpSlippage,
+                          0,
+                          0,
+                          orderComment,
+                          InpMagicNumber,
+                          0,
+                          GetOrderIconColorByComment(direction,orderComment));
+
+   if(ticket < 0)
+     {
+      int err = GetLastError();
+      g_oppositeImpulseStatus = "ORDERSEND RETRY " +
+                                IntegerToString(err);
+      g_lastOrderOpenReason =
+         "OPPOSITE IMPULSE PENDING FAILED | Error=" +
+         IntegerToString(err) +
+         " | Direction=" + DirectionText(direction) +
+         " | Price=" + DoubleToString(price,Digits);
+
+      Print(g_lastOrderOpenReason,
+            " | Loss=$",DoubleToString(g_oppositeImpulseSourceLoss,2),
+            " | Range=",DoubleToString(g_oppositeImpulseSignalRange,1),
+            " | Body=",DoubleToString(g_oppositeImpulseBodyPercent,1),"%",
+            " | ExitWick=",DoubleToString(g_oppositeImpulseExitWickPercent,1),"%");
+      ResetLastError();
+      return(false);
+     }
+
+   g_oppositeImpulsePendingTicket = ticket;
+   g_oppositeImpulseRequestPending = false;
+   g_oppositeImpulseStatus = "PENDING ACTIVE #"+
+                             IntegerToString(ticket);
+   g_lastOrderTime = TimeCurrent();
+   g_lastConfirmedOrderPrice = price;
+   g_lastConfirmedOrderTime = TimeCurrent();
+
+   MarkOpenedOrderOnChart(ticket,direction,orderComment,TimeCurrent(),price);
+   NotifyCreatedOrderTicket(ticket);
+   if(!g_oppositeImpulsePreSAROverride)
+      RegisterSARCycleOrderCreated(direction,false);
+
+   g_lastOrderOpenReason =
+      "OPPOSITE IMPULSE PENDING PLACED | Ticket="+
+      IntegerToString(ticket)+
+      " | Direction="+DirectionText(direction)+
+      " | Price="+DoubleToString(price,Digits)+
+      " | Gap="+DoubleToString(GetEffectiveImpulsePendingGapRaw(),1)+
+      " | Expiry="+IntegerToString((int)MathMax(1,InpImpulsePendingExpiryBars))+
+      " M1 bars";
+
+   Print(g_lastOrderOpenReason,
+         " | SourceSide=",DirectionText(g_oppositeImpulseSourceDirection),
+         " | SourceLoss=$",DoubleToString(g_oppositeImpulseSourceLoss,2),
+         " | Range/Prev/Avg=",
+         DoubleToString(g_oppositeImpulseSignalRange,1),"/",
+         DoubleToString(g_oppositeImpulsePreviousRange,1),"/",
+         DoubleToString(g_oppositeImpulseAverageRange,1),
+         " | Body=",DoubleToString(g_oppositeImpulseBodyPercent,1),"%",
+         " | ExitWick=",DoubleToString(g_oppositeImpulseExitWickPercent,1),"%",
+         " | TickSpeed=",g_tickSpeedStatus,
+         " | Confirmation=",
+         (g_oppositeImpulsePreSAROverride ? "PRE-SAR DANGER OVERRIDE" : "SAR MATCH"),
+         " | BYPASS=normal market filters");
+
+   return(true);
+  }
+
 int OnInit()
   {
 
@@ -3250,6 +4774,7 @@ int OnInit()
 
    InpMagicNumber=AccountNumber()+202; // override magic number with account number to prevent interference between charts/accounts. Orders are still filtered by symbol and magic in this EA.
 
+   RestoreOppositeImpulsePendingState();
    InitializeCreatedClosedPushTracker();
    InitializeSLReverseRecoveryChainTracker();
 
@@ -3281,7 +4806,9 @@ void OnDeinit(const int reason)
 
       if(StringFind(objectName,"DXB_ENTRY_AUDIT_") == 0 ||
          StringFind(objectName,"DXB_RECOVERY_") == 0 ||
-         StringFind(objectName,"DXB_PRO_REC_") == 0)
+         StringFind(objectName,"DXB_PRO_REC_") == 0 ||
+         StringFind(objectName,"DXB_TICK_SPEED_") == 0 ||
+         StringFind(objectName,"DXB_IMPULSE_") == 0)
          ObjectDelete(0,objectName);
      }
 
@@ -3361,6 +4888,31 @@ void ResetTradingCycleState()
    g_lastClosedNormalOrderPrice = 0.0;
    g_lastClosedNormalOrderTime  = 0;
    g_lastClosedNormalOrderDirection = 0;
+   g_goodMarketContinuationPending = false;
+   g_goodMarketContinuationDirection = 0;
+   g_goodMarketContinuationSourceTicket = 0;
+   g_goodMarketContinuationSourceProfit = 0.0;
+   g_goodMarketContinuationClosePrice = 0.0;
+   g_goodMarketContinuationCloseTime = 0;
+   g_goodMarketContinuationLastAttemptTime = 0;
+   g_goodMarketContinuationStatus = "WAIT FIRST PROFIT";
+   g_oppositeImpulseRequestPending = false;
+   g_oppositeImpulseDirection = 0;
+   g_oppositeImpulseSourceDirection = 0;
+   g_oppositeImpulseSourceLoss = 0.0;
+   g_oppositeImpulseSignalBarTime = 0;
+   g_oppositeImpulseQueuedTime = 0;
+   g_oppositeImpulseLastAttemptTime = 0;
+   g_oppositeImpulseSignalHigh = 0.0;
+   g_oppositeImpulseSignalLow = 0.0;
+   g_oppositeImpulseSignalRange = 0.0;
+   g_oppositeImpulsePreviousRange = 0.0;
+   g_oppositeImpulseAverageRange = 0.0;
+   g_oppositeImpulseBodyPercent = 0.0;
+   g_oppositeImpulseExitWickPercent = 0.0;
+   g_oppositeImpulsePendingTicket = -1;
+   g_oppositeImpulsePreSAROverride = false;
+   g_oppositeImpulseStatus = "WAIT IMPULSE";
    g_sarClosedProfitOrdersCount = 0;
    g_lastOrderOpenReason     = "WAIT ORDER";
    g_lastOrderBlockTime      = 0;
@@ -3393,6 +4945,11 @@ void ResetTradingCycleState()
    g_sarWeakBasketCloseLastProfit   = 0.0;
    g_sarWeakBasketCloseLastAgeMin   = 0;
    g_sarWeakBasketCloseLastReason   = "NONE";
+
+   // Preserve/recover a broker-side impulse pending order across a runtime
+   // equity-cycle reset. On initial startup this is repeated after the final
+   // account-derived magic number is assigned.
+   RestoreOppositeImpulsePendingState();
 
    Print("TRADING CYCLE RESET | Waiting for fresh SAR direction after equity stats reset.");
   }
@@ -3839,6 +5396,279 @@ bool IsPendingEntryAllowedForCurrentSAR(int direction, string source)
         }
      }
 
+   return(true);
+  }
+
+//+------------------------------------------------------------------+
+//| Good-market first-order continuation helpers                     |
+//+------------------------------------------------------------------+
+bool IsFirstSARCycleOrderComment(string commentText)
+  {
+// Broker comments may be truncated to 30/31 characters. The stable prefix
+// below remains present in SAR_PARENT_SAR_FLIP_FIRST_ORDER.
+   return(IsSARParentOrderComment(commentText) &&
+          StringFind(commentText, "SAR_FLIP_FIRST") >= 0);
+  }
+
+//+------------------------------------------------------------------+
+void ClearGoodMarketContinuation(string reason)
+  {
+   if(g_goodMarketContinuationPending ||
+      g_goodMarketContinuationSourceTicket > 0)
+     {
+      Print("GOOD MARKET CONTINUATION CLEARED | SourceTicket=",
+            g_goodMarketContinuationSourceTicket,
+            " | Direction=", DirectionText(g_goodMarketContinuationDirection),
+            " | Profit=$", DoubleToString(g_goodMarketContinuationSourceProfit, 2),
+            " | Reason=", reason);
+     }
+
+   g_goodMarketContinuationPending = false;
+   g_goodMarketContinuationDirection = 0;
+   g_goodMarketContinuationSourceTicket = 0;
+   g_goodMarketContinuationSourceProfit = 0.0;
+   g_goodMarketContinuationClosePrice = 0.0;
+   g_goodMarketContinuationCloseTime = 0;
+   g_goodMarketContinuationLastAttemptTime = 0;
+   g_goodMarketContinuationStatus = reason;
+  }
+
+//+------------------------------------------------------------------+
+void QueueGoodMarketContinuationFromClosedTicket(int ticket,
+                                                  int type,
+                                                  double netProfit,
+                                                  double closePrice)
+  {
+   if(!InpOpenGoodMarketPendingAfterFirstProfit)
+      return;
+
+// User requirement is strictly MORE THAN the threshold, not equal to it.
+   if(netProfit <= MathAbs(InpGoodMarketFirstOrderProfitUSD))
+      return;
+
+   if(type != OP_BUY && type != OP_SELL)
+      return;
+
+// SELECT_BY_TICKET confirms the actual historical comment. This excludes
+// recovery, hedge and later normal orders even when they close profitably.
+   if(!OrderSelect(ticket, SELECT_BY_TICKET, MODE_HISTORY))
+     {
+      Print("GOOD MARKET CONTINUATION NOT QUEUED | History select failed | Ticket=",
+            ticket,
+            " | Error=", GetLastError());
+      ResetLastError();
+      return;
+     }
+
+   if(OrderSymbol() != Symbol() ||
+      OrderMagicNumber() != InpMagicNumber ||
+      !IsFirstSARCycleOrderComment(OrderComment()))
+      return;
+
+   int direction = (type == OP_BUY) ? 1 : -1;
+
+// One first-order close creates exactly one continuation request.
+   if(g_goodMarketContinuationPending &&
+      g_goodMarketContinuationSourceTicket == ticket)
+      return;
+
+   g_goodMarketContinuationPending = true;
+   g_goodMarketContinuationDirection = direction;
+   g_goodMarketContinuationSourceTicket = ticket;
+   g_goodMarketContinuationSourceProfit = netProfit;
+   g_goodMarketContinuationClosePrice = closePrice;
+   g_goodMarketContinuationCloseTime = OrderCloseTime();
+   g_goodMarketContinuationLastAttemptTime = 0;
+   g_goodMarketContinuationStatus = "QUEUED";
+
+// Make the profitable close price available to the existing continuation
+// reference logic, including broker/server-side closes detected from history.
+   if(direction == g_activeSARDirection &&
+      direction == g_sarCycleDirection)
+     {
+      g_lastClosedNormalOrderPrice = closePrice;
+      g_lastClosedNormalOrderTime = TimeCurrent();
+      g_lastClosedNormalOrderDirection = direction;
+     }
+
+   Print("GOOD MARKET CONFIRMED | FIRST ORDER CLOSED ABOVE THRESHOLD",
+         " | Ticket=", ticket,
+         " | Direction=", DirectionText(direction),
+         " | NetProfit=$", DoubleToString(netProfit, 2),
+         " | Required>$", DoubleToString(MathAbs(InpGoodMarketFirstOrderProfitUSD), 2),
+         " | ClosePrice=", DoubleToString(closePrice, Digits),
+         " | NEXT=IMMEDIATE PENDING");
+  }
+
+//+------------------------------------------------------------------+
+double BuildGoodMarketContinuationPendingPrice(int direction,
+                                                double sourceClosePrice)
+  {
+   RefreshRates();
+
+   double gap = GetEffectivePendingOrderGapRaw();
+   double referencePrice = sourceClosePrice;
+
+   if(referencePrice <= 0.0)
+      referencePrice = (direction == 1) ? Ask : Bid;
+
+   double pendingPrice = 0.0;
+
+   if(direction == 1)
+      pendingPrice = MathMax(referencePrice + gap, Ask + gap);
+   else
+      if(direction == -1)
+         pendingPrice = MathMin(referencePrice - gap, Bid - gap);
+
+   return(NormalizeDouble(pendingPrice, Digits));
+  }
+
+//+------------------------------------------------------------------+
+bool ProcessGoodMarketFirstOrderContinuation()
+  {
+   if(!g_goodMarketContinuationPending)
+      return(false);
+
+   int direction = g_goodMarketContinuationDirection;
+
+// Never follow an old profitable direction after SAR has reversed.
+   if(direction == 0 ||
+      g_activeSARDirection == 0 ||
+      direction != g_activeSARDirection ||
+      direction != g_sarCycleDirection)
+     {
+      ClearGoodMarketContinuation("CANCELLED | SAR DIRECTION CHANGED");
+      return(false);
+     }
+
+// Dubai hours remain a hard lock. Do not keep a stale good-market request
+// until many hours later.
+   if(IsDubaiNoNewOrderHourNow())
+     {
+      ClearGoodMarketContinuation("CANCELLED | DUBAI NO-NEW HOUR");
+      return(false);
+     }
+
+   if(g_dailyProfitLock ||
+      g_equityProtectionHit ||
+      g_globalEquityTrailLocked)
+     {
+      ClearGoodMarketContinuation("CANCELLED | EQUITY/PROFIT LOCK");
+      return(false);
+     }
+
+   if(!IsTradingAllowedNow())
+     {
+      g_goodMarketContinuationStatus = "WAIT TRADING PERMISSION";
+      return(false);
+     }
+
+// The first order is already closed, so with InpMaxOrders=1 the slot is free.
+// Still keep the normal hard caps to prevent accidental duplicate exposure.
+   int directionEntries = CountDirectionEntriesForCap(direction);
+   int maxPerDirection = (int)MathMax(1, InpMaxOrders);
+   if(directionEntries >= maxPerDirection)
+     {
+      ClearGoodMarketContinuation(
+         "CANCELLED | DIRECTION CAP " +
+         IntegerToString(directionEntries) + "/" +
+         IntegerToString(maxPerDirection));
+      return(false);
+     }
+
+   int allEntries = CountAllEntriesForCap();
+   if(InpMaxTotalOpenOrders > 0 &&
+      allEntries >= InpMaxTotalOpenOrders)
+     {
+      ClearGoodMarketContinuation(
+         "CANCELLED | TOTAL CAP " +
+         IntegerToString(allEntries) + "/" +
+         IntegerToString(InpMaxTotalOpenOrders));
+      return(false);
+     }
+
+   int retrySeconds = (int)MathMax(0, InpGoodMarketPendingRetrySeconds);
+   if(retrySeconds > 0 &&
+      g_goodMarketContinuationLastAttemptTime > 0 &&
+      TimeCurrent() - g_goodMarketContinuationLastAttemptTime < retrySeconds)
+      return(false);
+
+   g_goodMarketContinuationLastAttemptTime = TimeCurrent();
+
+   RefreshRates();
+
+   int type = (direction == 1) ? OP_BUYSTOP : OP_SELLSTOP;
+   double price = BuildGoodMarketContinuationPendingPrice(
+                     direction,
+                     g_goodMarketContinuationClosePrice);
+   double lot = NormalizeLot(InpFixedLot);
+   string orderComment = MakeSARParentOrderComment("GOOD_FIRST_PROFIT_PENDING");
+
+// A profitable first order earns exactly one bonus cycle slot even when the
+// duration-based SAR-cycle maximum was originally one.
+   EnsureSARSignalOrderCycle(direction);
+   if(g_sarCycleMaxOrders <= g_sarCycleOrdersCreated)
+      g_sarCycleMaxOrders = g_sarCycleOrdersCreated + 1;
+
+   ResetLastError();
+   int ticket = OrderSend(Symbol(),
+                          type,
+                          lot,
+                          price,
+                          InpSlippage,
+                          0,
+                          0,
+                          orderComment,
+                          InpMagicNumber,
+                          0,
+                          GetOrderIconColorByComment(direction, orderComment));
+
+   if(ticket < 0)
+     {
+      int err = GetLastError();
+      g_goodMarketContinuationStatus =
+         "ORDERSEND RETRY | ERROR " + IntegerToString(err);
+      g_lastOrderOpenReason =
+         "GOOD MARKET PENDING FAILED | Error=" + IntegerToString(err) +
+         " | Direction=" + DirectionText(direction) +
+         " | Price=" + DoubleToString(price, Digits);
+
+      Print(g_lastOrderOpenReason,
+            " | SourceTicket=", g_goodMarketContinuationSourceTicket,
+            " | SourceProfit=$", DoubleToString(g_goodMarketContinuationSourceProfit, 2));
+      ResetLastError();
+      return(false);
+     }
+
+   g_lastOrderTime = TimeCurrent();
+   g_lastConfirmedOrderPrice = price;
+   g_lastConfirmedOrderTime = TimeCurrent();
+
+   MarkOpenedOrderOnChart(ticket,
+                          direction,
+                          orderComment,
+                          TimeCurrent(),
+                          price);
+   NotifyCreatedOrderTicket(ticket); // pending push waits until broker activation
+   RegisterSARCycleOrderCreated(direction, false);
+
+   g_lastOrderOpenReason =
+      "GOOD MARKET PENDING PLACED | Ticket=" + IntegerToString(ticket) +
+      " | Direction=" + DirectionText(direction) +
+      " | Price=" + DoubleToString(price, Digits) +
+      " | Gap=" + DoubleToString(GetEffectivePendingOrderGapRaw(), Digits) +
+      " | FirstProfit=$" + DoubleToString(g_goodMarketContinuationSourceProfit, 2);
+
+   Print(g_lastOrderOpenReason,
+         " | SourceTicket=", g_goodMarketContinuationSourceTicket,
+         " | SARCycleCreated=", g_sarCycleOrdersCreated,
+         "/", g_sarCycleMaxOrders,
+         " | BYPASS=normal filters",
+         " | KEPT=Dubai/SAR/trading/caps");
+
+   g_goodMarketContinuationStatus = "PENDING PLACED #" +
+                                    IntegerToString(ticket);
+   ClearGoodMarketContinuation(g_goodMarketContinuationStatus);
    return(true);
   }
 
@@ -9572,10 +11402,6 @@ void ProcessNextCandleLossProtect()
 //+------------------------------------------------------------------+
 bool ProcessDirectionWiseBasketStopLossOnly(string &status)
   {
-   double effectiveBasketSL = GetEffectiveBasketStopLossUSD();
-   if(effectiveBasketSL <= 0.0)
-      return(false);
-
 // Check BUY and SELL independently.
 // This prevents one losing side from closing the opposite side.
    for(int d = 1; d >= -1; d -= 2)
@@ -9583,26 +11409,73 @@ bool ProcessDirectionWiseBasketStopLossOnly(string &status)
       if(CountOrdersByDirection(d) <= 0)
          continue;
 
+      double effectiveBasketSL = GetEffectiveBasketStopLossUSDForDirection(d);
+      if(effectiveBasketSL <= 0.0)
+         continue;
+
       double sideProfit = GetBasketProfit(d);
       double limit = -MathAbs(effectiveBasketSL);
+      bool liveOppositeTightSL =
+         IsLiveOppositeCandleEmergencySLArmed(d);
+      double liveOppositeRangeRatio = g_liveOppositeM1RangeRatio;
+      double liveOppositeBodyPercent = g_liveOppositeCurrentBodyPercent;
 
       if(sideProfit <= limit)
         {
          string sideText = DirectionText(d);
+         string closeReason =
+            liveOppositeTightSL
+            ? sideText + " LIVE OPPOSITE M1 TIGHT SL $" +
+              DoubleToString(sideProfit,2)
+            : sideText + " direction basket stop loss $" +
+              DoubleToString(sideProfit,2);
 
-         CloseOrdersByDirection(d,
-                                sideText + " direction basket stop loss $" +
-                                DoubleToString(sideProfit, 2));
+         CloseOrdersByDirection(d,closeReason);
 
-         // Open the configured after-close recovery only after the losing side
-         // has actually been fully closed. Reverse means BUY SL -> SELL recovery
-         // and SELL SL -> BUY recovery.
+         // Open a strong opposite-impulse continuation first when the side
+         // closed specifically by the LIVE OPPOSITE M1 tightened SL. If the
+         // strict impulse conditions do not pass, preserve the original
+         // configured after-close recovery behaviour.
          if(CountOrdersByDirection(d) == 0)
            {
-            int recoveryDirection = InpRecoveryAfterSLReverse ? -d : d;
-            OpenRecoveryOrder(recoveryDirection,
-                              sideText + " direction basket stop loss close",
-                              InpRecoveryAfterSLReverse ? 1 : 0);
+            bool impulseQueued = false;
+
+            if(liveOppositeTightSL)
+               impulseQueued = QueueOppositeImpulseContinuation(d,sideProfit);
+
+            // The old side basket is finished. Any future order starts with a
+            // fresh live-candle protection state.
+            ResetLiveOppositeCandleEmergencySLState(d);
+
+            if(impulseQueued)
+              {
+               // Attempt the SELLSTOP/BUYSTOP immediately on this same tick.
+               ProcessOppositeImpulseContinuation();
+
+               if(!InpImpulseSkipNormalAfterCloseRecovery)
+                 {
+                  int recoveryDirection = InpRecoveryAfterSLReverse ? -d : d;
+                  OpenRecoveryOrder(recoveryDirection,
+                                    sideText +
+                                    " live opposite M1 tight SL + impulse",
+                                    InpRecoveryAfterSLReverse ? 1 : 0);
+                 }
+               else
+                 {
+                  Print("NORMAL AFTER-SL RECOVERY SKIPPED | Opposite impulse has priority",
+                        " | ClosedSide=",sideText,
+                        " | Impulse=",DirectionText(-d));
+                 }
+              }
+            else
+              {
+               int recoveryDirection = InpRecoveryAfterSLReverse ? -d : d;
+               OpenRecoveryOrder(recoveryDirection,
+                                 liveOppositeTightSL
+                                 ? sideText + " live opposite M1 tight SL close"
+                                 : sideText + " direction basket stop loss close",
+                                 InpRecoveryAfterSLReverse ? 1 : 0);
+              }
            }
          else
            {
@@ -9618,12 +11491,22 @@ bool ProcessDirectionWiseBasketStopLossOnly(string &status)
             g_sarDelayedCloseStatus          = sideText + " direction Basket SL reset";
            }
 
-         Print("DIRECTION-WISE BASKET STOP LOSS HIT | Direction=", sideText,
+         Print(liveOppositeTightSL
+               ? "LIVE OPPOSITE M1 TIGHT SL HIT | Direction="
+               : "DIRECTION-WISE BASKET STOP LOSS HIT | Direction=",
+               sideText,
                " | SideProfit=$", DoubleToString(sideProfit, 2),
                " | Limit=$", DoubleToString(MathAbs(effectiveBasketSL), 2),
+               liveOppositeTightSL
+               ? " | M1RangeRatio=" + DoubleToString(liveOppositeRangeRatio,2) +
+                 "x | Body=" + DoubleToString(liveOppositeBodyPercent,1) + "%"
+               : "",
                " | Opposite side left untouched");
 
-         status = sideText + " Basket SL only";
+         status = liveOppositeTightSL
+                  ? sideText + " LIVE M1 TIGHT SL | " +
+                    OppositeImpulseStatusText()
+                  : sideText + " Basket SL only";
          return(true);
         }
      }
@@ -9646,7 +11529,7 @@ bool ProcessBasketCloseByDirection(int direction, string &status)
    bool agedHalfTP = IsBasketHalfTPAfterTime(direction);
    bool fixedHalfTP = IsFixedHalfBasketTPActive();
    string reducedTPReason = GetReducedBasketTPReasonText(direction);
-   double effectiveBasketSL2 = GetEffectiveBasketStopLossUSD();
+   double effectiveBasketSL2 = GetEffectiveBasketStopLossUSDForDirection(direction);
 
    if(effectiveBasketSL2 > 0.0 && profit <= -MathAbs(effectiveBasketSL2))
      {
@@ -9863,7 +11746,7 @@ bool ProcessCloseOrdersFirst(string &status)
      }
 
 // PRIORITY 3: Basket stop loss / basket profit close.
-   double effectiveBasketSL3 = GetEffectiveBasketStopLossUSD();
+   double effectiveBasketSL3 = GetEffectiveBasketStopLossUSDForDirection(g_activeSARDirection);
    if(effectiveBasketSL3 > 0.0 && activeProfit <= -effectiveBasketSL3)
      {
       int oldDirection = g_activeSARDirection;
@@ -10662,8 +12545,405 @@ void TrackActivatedPendingNormalOrder()
   }
 
 //+------------------------------------------------------------------+
+//| Average High-Low range from fully closed candles only.           |
+//+------------------------------------------------------------------+
+double GetTickSpeedAverageClosedCandleRange()
+  {
+   int requested = MathMax(1, InpTickSpeedAverageBars);
+   int available = MathMin(requested, Bars - 1);
+   if(available <= 0)
+      return(0.0);
+
+   double total = 0.0;
+   int valid = 0;
+
+   for(int i = 1; i <= available; i++)
+     {
+      double range = High[i] - Low[i];
+      if(range <= 0.0)
+         continue;
+
+      total += range;
+      valid++;
+     }
+
+   if(valid <= 0)
+      return(0.0);
+
+   return(total / valid);
+  }
+
+//+------------------------------------------------------------------+
+void ResetTickSpeedWindow(uint nowMs,double price)
+  {
+   g_tickSpeedWindowStartMs    = nowMs;
+   g_tickSpeedLastTickMs       = nowMs;
+   g_tickSpeedWindowStartPrice = price;
+   g_tickSpeedWindowMinPrice   = price;
+   g_tickSpeedWindowMaxPrice   = price;
+   g_tickSpeedWindowLastPrice  = price;
+   g_tickSpeedWindowPath       = 0.0;
+   g_tickSpeedWindowTicks      = 1;
+  }
+
+//+------------------------------------------------------------------+
+void FinalizeTickSpeedWindow(uint elapsedMs)
+  {
+   if(elapsedMs <= 0 || g_tickSpeedWindowTicks <= 0)
+      return;
+
+   double elapsedSec = MathMax(0.001, elapsedMs / 1000.0);
+   int targetSeconds = MathMax(1, InpTickSpeedWindowSeconds);
+
+   // A window that became very old because no ticks arrived is not a true
+   // short-window movement sample. Keep its low tick rate but discard its
+   // stale movement distance.
+   bool staleWindow = (elapsedSec > targetSeconds * 2.5);
+
+   g_tickSpeedLastWindowNetMove = staleWindow
+                                  ? 0.0
+                                  : MathAbs(g_tickSpeedWindowLastPrice -
+                                            g_tickSpeedWindowStartPrice);
+   g_tickSpeedLastWindowRange = staleWindow
+                                ? 0.0
+                                : MathMax(0.0,
+                                          g_tickSpeedWindowMaxPrice -
+                                          g_tickSpeedWindowMinPrice);
+   g_tickSpeedLastWindowPath = staleWindow
+                               ? 0.0
+                               : MathMax(0.0,g_tickSpeedWindowPath);
+   g_tickSpeedLastWindowTickRate =
+      g_tickSpeedWindowTicks / elapsedSec;
+
+   // Do not let a long no-tick gap destroy the normal tick-rate baseline.
+   if(!staleWindow && g_tickSpeedLastWindowTickRate > 0.0)
+     {
+      double alpha = MathMax(0.01,
+                     MathMin(1.0,InpTickSpeedBaselineSmoothing));
+
+      if(g_tickSpeedBaselineTickRate <= 0.0)
+         g_tickSpeedBaselineTickRate = g_tickSpeedLastWindowTickRate;
+      else
+         g_tickSpeedBaselineTickRate =
+            (g_tickSpeedBaselineTickRate * (1.0 - alpha)) +
+            (g_tickSpeedLastWindowTickRate * alpha);
+
+      g_tickSpeedCompletedWindows++;
+     }
+  }
+
+//+------------------------------------------------------------------+
+string GetTickSpeedStatusText()
+  {
+   return(g_tickSpeedStatus);
+  }
+
+//+------------------------------------------------------------------+
+color GetTickSpeedStatusColor()
+  {
+   if(g_tickSpeedStatus == "DANGER")
+      return(clrRed);
+   if(g_tickSpeedStatus == "FAST")
+      return(clrOrange);
+   if(g_tickSpeedStatus == "NORMAL")
+      return(clrLime);
+   if(g_tickSpeedStatus == "SLOW")
+      return(clrSilver);
+
+   return(clrAqua);
+  }
+
+//+------------------------------------------------------------------+
+//| Update combined candle/tick movement statistics on every tick.   |
+//+------------------------------------------------------------------+
+void UpdateTickSpeedEngine()
+  {
+   // Always calculate tick speed because adaptive SL and impulse entry use it.
+   // InpShowTickSpeedPanel controls only whether the panel is drawn.
+   double price = Bid;
+   if(price <= 0.0)
+      price = Close[0];
+   if(price <= 0.0)
+      return;
+
+   uint nowMs = GetTickCount();
+   int windowSeconds = MathMax(1,InpTickSpeedWindowSeconds);
+   uint targetMs = (uint)(windowSeconds * 1000);
+
+   if(g_tickSpeedWindowStartMs == 0 ||
+      g_tickSpeedWindowStartPrice <= 0.0)
+     {
+      ResetTickSpeedWindow(nowMs,price);
+     }
+   else
+     {
+      uint elapsedMs = nowMs - g_tickSpeedWindowStartMs;
+
+      if(elapsedMs >= targetMs)
+        {
+         FinalizeTickSpeedWindow(elapsedMs);
+         ResetTickSpeedWindow(nowMs,price);
+        }
+      else
+        {
+         g_tickSpeedWindowTicks++;
+         g_tickSpeedWindowMinPrice =
+            MathMin(g_tickSpeedWindowMinPrice,price);
+         g_tickSpeedWindowMaxPrice =
+            MathMax(g_tickSpeedWindowMaxPrice,price);
+         g_tickSpeedWindowPath +=
+            MathAbs(price - g_tickSpeedWindowLastPrice);
+         g_tickSpeedWindowLastPrice = price;
+         g_tickSpeedLastTickMs = nowMs;
+        }
+     }
+
+   g_tickSpeedAvgCandleRange =
+      GetTickSpeedAverageClosedCandleRange();
+   g_tickSpeedCurrentCandleRange =
+      MathMax(0.0,High[0] - Low[0]);
+
+   int periodSeconds = MathMax(1,Period() * 60);
+   g_tickSpeedCandleElapsedSec =
+      (int)MathMax(1,MathMin(periodSeconds,
+                   (int)(TimeCurrent() - Time[0])));
+
+   double normalCandleSpeed =
+      (g_tickSpeedAvgCandleRange > 0.0)
+      ? g_tickSpeedAvgCandleRange / periodSeconds
+      : 0.0;
+   double currentCandleSpeed =
+      g_tickSpeedCurrentCandleRange /
+      MathMax(1,g_tickSpeedCandleElapsedSec);
+
+   g_tickSpeedCandleRatio =
+      (normalCandleSpeed > 0.0)
+      ? currentCandleSpeed / normalCandleSpeed
+      : 0.0;
+
+   uint activeElapsedMs = nowMs - g_tickSpeedWindowStartMs;
+   double activeElapsedSec = MathMax(1.0,activeElapsedMs / 1000.0);
+   double activeNetMove =
+      MathAbs(g_tickSpeedWindowLastPrice -
+              g_tickSpeedWindowStartPrice);
+   double activeRange =
+      MathMax(0.0,g_tickSpeedWindowMaxPrice -
+                  g_tickSpeedWindowMinPrice);
+   double activePath = MathMax(0.0,g_tickSpeedWindowPath);
+   double activeTickRate =
+      g_tickSpeedWindowTicks / activeElapsedSec;
+
+   // Keep the strongest valid short-window sample visible until the next
+   // window completes. Range catches rapid up/down movement that net move
+   // alone can miss.
+   g_tickSpeedRecentNetMove =
+      MathMax(activeNetMove,g_tickSpeedLastWindowNetMove);
+   g_tickSpeedRecentRange =
+      MathMax(activeRange,g_tickSpeedLastWindowRange);
+   g_tickSpeedRecentPath =
+      MathMax(activePath,g_tickSpeedLastWindowPath);
+   g_tickSpeedCurrentTickRate =
+      MathMax(activeTickRate,g_tickSpeedLastWindowTickRate);
+
+   if(g_tickSpeedAvgCandleRange > 0.0)
+     {
+      g_tickSpeedWindowMoveRatio =
+         MathMax(g_tickSpeedRecentNetMove,
+                 g_tickSpeedRecentRange) /
+         g_tickSpeedAvgCandleRange;
+      g_tickSpeedWindowPathRatio =
+         g_tickSpeedRecentPath /
+         g_tickSpeedAvgCandleRange;
+     }
+   else
+     {
+      g_tickSpeedWindowMoveRatio = 0.0;
+      g_tickSpeedWindowPathRatio = 0.0;
+     }
+
+   g_tickSpeedTickRateRatio =
+      (g_tickSpeedBaselineTickRate > 0.0)
+      ? g_tickSpeedCurrentTickRate /
+        g_tickSpeedBaselineTickRate
+      : 1.0;
+
+   if(g_tickSpeedAvgCandleRange <= 0.0 ||
+      g_tickSpeedCompletedWindows <= 0)
+     {
+      g_tickSpeedStatus = "WARMING UP";
+      return;
+     }
+
+   bool highTickActivity =
+      (g_tickSpeedTickRateRatio >=
+       MathMax(1.0,InpTickSpeedHighTickRateRatio));
+
+   bool extremeMovement =
+      (g_tickSpeedCandleRatio >=
+       MathMax(InpTickSpeedDangerCandleRatio,
+               InpTickSpeedExtremeCandleRatio)) ||
+      (g_tickSpeedWindowMoveRatio >=
+       MathMax(InpTickSpeedDangerWindowMoveRatio,
+               InpTickSpeedExtremeWindowMoveRatio));
+
+   bool dangerMovement =
+      (g_tickSpeedCandleRatio >=
+       InpTickSpeedDangerCandleRatio) ||
+      (g_tickSpeedWindowMoveRatio >=
+       InpTickSpeedDangerWindowMoveRatio) ||
+      (g_tickSpeedWindowPathRatio >=
+       InpTickSpeedExtremeWindowMoveRatio);
+
+   bool fastMovement =
+      (g_tickSpeedCandleRatio >=
+       InpTickSpeedFastCandleRatio) ||
+      (g_tickSpeedWindowMoveRatio >=
+       InpTickSpeedFastWindowMoveRatio) ||
+      (g_tickSpeedWindowPathRatio >=
+       InpTickSpeedDangerWindowMoveRatio);
+
+   bool slowMovement =
+      (g_tickSpeedCandleRatio <=
+       InpTickSpeedSlowCandleRatio) &&
+      (g_tickSpeedWindowMoveRatio <
+       InpTickSpeedFastWindowMoveRatio * 0.40) &&
+      (g_tickSpeedTickRateRatio <=
+       InpTickSpeedSlowTickRateRatio);
+
+   if(extremeMovement || (dangerMovement && highTickActivity))
+      g_tickSpeedStatus = "DANGER";
+   else
+   if(fastMovement)
+      g_tickSpeedStatus = "FAST";
+   else
+   if(slowMovement)
+      g_tickSpeedStatus = "SLOW";
+   else
+      g_tickSpeedStatus = "NORMAL";
+  }
+
+//+------------------------------------------------------------------+
+//| Compact panel in the free, absolute top-right chart corner.      |
+//+------------------------------------------------------------------+
+void DrawTickSpeedDashboardPanel()
+  {
+   if(!InpShowTickSpeedPanel)
+      return;
+
+   color stateColor = GetTickSpeedStatusColor();
+
+   DrawCornerPanel("DXB_TICK_SPEED_PANEL",
+                   CORNER_RIGHT_UPPER,
+                   5,5,310,191,
+                   clrBlack,stateColor);
+
+   DrawCornerLabel("DXB_TICK_SPEED_TITLE",
+                   "LIVE TICK SPEED",
+                   CORNER_RIGHT_UPPER,
+                   295,12,
+                   stateColor,
+                   12);
+
+   DrawCornerLabel("DXB_TICK_SPEED_STATUS",
+                   "STATUS : " + GetTickSpeedStatusText() +
+                   " | Candle " +
+                   DoubleToString(g_tickSpeedCandleRatio,2) + "x",
+                   CORNER_RIGHT_UPPER,
+                   295,35,
+                   stateColor,
+                   10);
+
+   DrawCornerLabel("DXB_TICK_SPEED_CANDLE",
+                   "Avg/Live candle : " +
+                   DoubleToString(g_tickSpeedAvgCandleRange,1) +
+                   " / " +
+                   DoubleToString(g_tickSpeedCurrentCandleRange,1) +
+                   " | " +
+                   IntegerToString(g_tickSpeedCandleElapsedSec) + "s",
+                   CORNER_RIGHT_UPPER,
+                   295,57,
+                   clrWhite,
+                   8);
+
+   DrawCornerLabel("DXB_TICK_SPEED_MOVE",
+                   IntegerToString((int)MathMax(1,InpTickSpeedWindowSeconds)) +
+                   "s Net/Range : " +
+                   DoubleToString(g_tickSpeedRecentNetMove,1) +
+                   " / " +
+                   DoubleToString(g_tickSpeedRecentRange,1) +
+                   " | " +
+                   DoubleToString(g_tickSpeedWindowMoveRatio,2) + "x",
+                   CORNER_RIGHT_UPPER,
+                   295,75,
+                   clrAqua,
+                   8);
+
+   DrawCornerLabel("DXB_TICK_SPEED_TICKS",
+                   "Ticks/sec : " +
+                   DoubleToString(g_tickSpeedCurrentTickRate,1) +
+                   " | Base " +
+                   DoubleToString(g_tickSpeedBaselineTickRate,1) +
+                   " | " +
+                   DoubleToString(g_tickSpeedTickRateRatio,2) + "x",
+                   CORNER_RIGHT_UPPER,
+                   295,93,
+                   clrYellow,
+                   8);
+
+   DrawCornerLabel("DXB_TICK_SPEED_PATH",
+                   "Tick path : " +
+                   DoubleToString(g_tickSpeedRecentPath,1) +
+                   " | " +
+                   DoubleToString(g_tickSpeedWindowPathRatio,2) +
+                   "x avg candle",
+                   CORNER_RIGHT_UPPER,
+                   295,111,
+                   clrSilver,
+                   8);
+
+   DrawCornerLabel("DXB_TICK_SPEED_SL",
+                   "Adaptive SL | B " +
+                   TickSpeedAdaptiveSLStatusText(1) +
+                   " | S " +
+                   TickSpeedAdaptiveSLStatusText(-1),
+                   CORNER_RIGHT_UPPER,
+                   295,129,
+                   stateColor,
+                   8);
+
+   bool anyLiveTight =
+      g_buyLiveOppositeCandleSLArmed ||
+      g_sellLiveOppositeCandleSLArmed;
+
+   DrawCornerLabel("DXB_TICK_SPEED_OPP_M1",
+                   "Opp M1 SL | B " +
+                   LiveOppositeCandleSLStatusText(1) +
+                   " | S " +
+                   LiveOppositeCandleSLStatusText(-1) +
+                   " | R " +
+                   DoubleToString(g_liveOppositeM1RangeRatio,2) + "x",
+                   CORNER_RIGHT_UPPER,
+                   295,147,
+                   anyLiveTight ? clrOrangeRed : clrSilver,
+                   8);
+
+   DrawCornerLabel("DXB_TICK_SPEED_IMPULSE",
+                   "Impulse | " + OppositeImpulseStatusText(),
+                   CORNER_RIGHT_UPPER,
+                   295,165,
+                   IsOppositeImpulseContinuationBusy()
+                   ? clrMagenta
+                   : clrSilver,
+                   8);
+  }
+
+//+------------------------------------------------------------------+
 void OnTick()
   {
+// Update and paint the display-only adaptive tick-speed monitor before any
+// trading-path return, so the top-right status remains current.
+   UpdateTickSpeedEngine();
+
    int dubaiHour = TimeHour(GetDubaiTime());
 
    if(IsTesting())
@@ -10672,19 +12952,19 @@ void OnTick()
    }
 
 
-   if(dubaiHour>13 &&  dubaiHour<22    )
+   if(dubaiHour > 13 && dubaiHour < 22)
      {
-              InpBasketStopLossUSD       = 2;//1;//0.25;//5;// 3;;//2;//5;//2;//5.00;    // BASKET stop loss in USD, 0 = disabled. This closes all orders in active SAR direction.
-
-        InpContinuousTrendBasketSLUSD   = InpBasketStopLossUSD;// 1;//0.25;//3;//2;//5;//1;// 2;//5.00;
-        InpMediumTrendBasketSLUSD       =  InpBasketStopLossUSD;// 1;//0.25;//3;//6;// 3;////2;//10;//10;//1;//2;//10.00;
-         InpMixedTrendBasketSLUSD        = InpBasketStopLossUSD;//  1;//0.25;//6;//3;// 2;//10;//5;//10;//1;//2;//10.00;
-       InpDangerModeBasketSLUSD        = InpBasketStopLossUSD;//  1;//0.25;// 3;//2;//5;//1;//2;//5.00;
-
-      InpPendingOrderRawGap=50;
-      // InpSARConfirmPriceDiff=100;//
-
+      // Keep the four market-mode basket SL inputs independent.
+      // Do NOT copy InpBasketStopLossUSD into them here. Otherwise every
+      // market mode becomes the same value and the mode-specific SL is lost.
+      InpPendingOrderRawGap = 50;
+      // InpSARConfirmPriceDiff = 100;
      }
+
+   // Draw the live speed values immediately. The adaptive BUY/SELL SL
+   // snapshot is taken later, after UpdateAutoMarketFlowMode() refreshes
+   // the CURRENT mode for this tick.
+   DrawTickSpeedDashboardPanel();
 
 
 // Print confirmation only for the first two received ticks.
@@ -10796,6 +13076,30 @@ void OnTick()
    UpdateOppositeDirectionProfitPause(false);
 
    UpdateAutoMarketFlowMode();
+
+   // IMPORTANT ORDER OF EXECUTION:
+   // 1. Auto Market Flow selects CONTINUOUS/MEDIUM/MIXED/DANGER base SL.
+   // 2. Tick-speed status selects its multiplier.
+   // 3. The resulting BUY/SELL SL is snapshotted once and cannot widen later.
+   UpdateTickSpeedAdaptiveBasketSLLocks();
+
+   // Live M1 adverse-candle protection is evaluated on this same tick.
+   // It can tighten the already-frozen side SL before close processing below.
+   UpdateLiveOppositeCandleEmergencySL();
+
+   // Detect a strong opposite reversal suspicion while the old SAR-side
+   // basket is still open. This can queue one pre-SAR SELLSTOP/BUYSTOP without
+   // waiting for the old basket to hit its stop loss or for SAR dots to flip.
+   TryQueuePreSARReversalSuspectEntry();
+
+   // Retry/place/delete the special opposite-impulse pending order on every
+   // tick. This manages expiry, SAR invalidation and retracement even when no
+   // new normal order is allowed.
+   bool oppositeImpulsePlacedThisTick =
+      ProcessOppositeImpulseContinuation();
+
+   DrawTickSpeedDashboardPanel();
+
    ApplyMarketModeEntryFilterProfileState();
 
 // Update spike/wick pause status on every tick so dashboard shows it immediately.
@@ -10885,7 +13189,9 @@ void OnTick()
    ProcessSARFlipStateAndClose();
 
 // SECTION 2: Close management FIRST. No new-order gate is allowed before this.
-   bool closedThisTick = closedByFirstPriority;
+   bool closedThisTick = closedByFirstPriority ||
+                         oppositeImpulsePlacedThisTick ||
+                         IsOppositeImpulseContinuationBusy();
 
    if(ProcessCloseOrdersFirst(status))
       closedThisTick = true;
@@ -10893,7 +13199,33 @@ void OnTick()
    ProcessSARSpecialGuardCleanup();
 
    if(closedByFirstPriority)
-      status = firstPriorityStatus + " | WAIT NEXT CANDLE";
+      status = firstPriorityStatus + " | GOOD MARKET CHECK";
+
+// FIRST-ORDER GOOD-MARKET CONTINUATION:
+// Place the bonus pending entry immediately after close management and before
+// recovery/standard entry logic. A placed or retrying request has priority so
+// the normal entry path cannot create a duplicate order on the same tick.
+   bool goodMarketPendingPlaced = false;
+   if(!IsOppositeImpulseContinuationBusy())
+      goodMarketPendingPlaced = ProcessGoodMarketFirstOrderContinuation();
+   if(goodMarketPendingPlaced)
+     {
+      status = g_lastOrderOpenReason;
+      closedThisTick = true;
+     }
+   else
+      if(g_goodMarketContinuationPending)
+        {
+         status = "GOOD MARKET PENDING WAIT | " +
+                  g_goodMarketContinuationStatus;
+         closedThisTick = true;
+        }
+
+   if(IsOppositeImpulseContinuationBusy())
+     {
+      status = "OPPOSITE IMPULSE | " + OppositeImpulseStatusText();
+      closedThisTick = true;
+     }
 
 // RECOVERY CREATION AFTER SAR UPDATE:
 // g_activeSARDirection and the closed-candle SAR signal are now current.
@@ -13584,7 +15916,8 @@ void DeleteOldDashboardObjects()
       string name = ObjectName(0, i);
       if(StringFind(name,"DXB_ROW_") == 0 ||
          StringFind(name,"DXB_LEFT_CHK_ROW_") == 0 ||
-         StringFind(name,"DXB_PANEL") == 0)
+         StringFind(name,"DXB_PANEL") == 0 ||
+         StringFind(name,"DXB_TICK_SPEED_") == 0)
         {
          ObjectDelete(0, name);
         }
@@ -15752,6 +18085,8 @@ color DashboardTradePermissionColor()
 //+------------------------------------------------------------------+
 void DrawDashboard(string status)
   {
+   DrawTickSpeedDashboardPanel();
+
    DrawCornerPanel("DXB_RIGHT_SETTINGS_PANEL",
                    CORNER_RIGHT_UPPER,
                    325,280,320,680,
@@ -15774,7 +18109,7 @@ void DrawDashboard(string status)
                    13);
 
    DrawCornerLabel("DXB_RIGHT_SETTINGS_TITLE",
-                   liveModeText + " | VERSION 1.45",
+                   liveModeText + " | VERSION 1.56",
                    CORNER_RIGHT_UPPER,
                    300,287,
                    liveModeColor,
@@ -15932,7 +18267,28 @@ void DrawDashboard(string status)
                : "OFF",
                InpUseBasketHalfTPAfterMinutes ? clrAqua : clrSilver);
    RightProRow("TP Time Decay",BasketProfitTimeDecayStatusText(),InpUseBasketProfitTimeDecay ? clrAqua : clrSilver);
-   RightProRow("Basket SL Live","$"+DoubleToString(GetEffectiveBasketStopLossUSD(),2) + (InpUseSimpleSideBasketCloseOnly ? " SIMPLE" : ""),clrRed);
+   RightProRow("Basket SL Live",
+               InpUseTickSpeedAdaptiveBasketSL
+               ? "BUY " + TickSpeedAdaptiveSLStatusText(1) +
+                 " | SELL " + TickSpeedAdaptiveSLStatusText(-1)
+               : "$" + DoubleToString(GetEffectiveBasketStopLossUSD(),2) +
+                 (InpUseSimpleSideBasketCloseOnly ? " SIMPLE" : ""),
+               clrRed);
+   RightProRow("Live Opp M1 SL",
+               InpUseLiveOppositeCandleTightSL
+               ? "B " + LiveOppositeCandleSLStatusText(1) +
+                 " | S " + LiveOppositeCandleSLStatusText(-1) +
+                 " | Current/Prev " +
+                 DoubleToString(g_liveOppositeCurrentM1Range,1) + "/" +
+                 DoubleToString(g_liveOppositePreviousM1Range,1)
+               : "OFF",
+               (g_buyLiveOppositeCandleSLArmed ||
+                g_sellLiveOppositeCandleSLArmed)
+               ? clrOrangeRed : clrSilver);
+   RightProRow("Impulse Pending",
+               OppositeImpulseStatusText(),
+               IsOppositeImpulseContinuationBusy()
+               ? clrMagenta : clrSilver);
    RightProRow("Market Mode",AutoMarketModeStatusText(),MarketFlowModeColor());
    RightProRow("Opposite Pause",OppositeDirectionProfitPauseStatusText(),IsOppositeDirectionProfitPauseActive() ? clrOrangeRed : clrSilver);
    RightProRow("Ind Profit Protect",OnOff(InpUseIndividualProfitProtect),InpUseIndividualProfitProtect ? clrLime : clrSilver);
