@@ -105,12 +105,12 @@ double InpTickSpeedSlowTickRateRatio          = 0.75;
 // Dubai daily account-profit protection.
 // Example: day-start balance $40 and target 50% means close all EA orders
 // when equity reaches $60 and pause until the next Dubai calendar date.
-double InpProfitTargetPercent        =20;// 50;//20.0;//market will be weak after some profit - avoid stoploss
+double InpProfitTargetPercent        =10;//20;// 50;//20.0;//market will be weak after some profit - avoid stoploss
 
-bool   InpUseAdaptiveLossTarget      = false;
+bool   InpUseAdaptiveLossTarget      = true;
 double InpAdaptiveLossLevelUSD       = 1.00;
-double InpBreakEvenCloseProfitUSD    = 0.00;
-double InpBreakEvenAfterLossUSD      =10;// 7;////5.00;
+double InpBreakEvenCloseProfitUSD    = 2;//0.00;
+double InpBreakEvenAfterLossUSD      =2;//10;// 7;////5.00;
 
 
 int    InpMaxOpenOrders              = 1;
@@ -1538,6 +1538,7 @@ int OnInit()
      {
       InpProfitTargetPercent = 2000.0;
       InpDubaiBlockedHours="";
+      InpUseAdaptiveLossTarget=false;
 
      }
    else
@@ -1557,7 +1558,14 @@ int OnInit()
          GetDubaiPauseWindowText());
 
    if(IsTesting())
+   {
+      InpUseAdaptiveLossTarget=false;
       InpProfitTargetPercent = 5000.0;
+      InpDubaiBlockedHours="";
+
+
+
+   }
 
    g_originalTakeProfitUSD     = InpBasketProfitUSD;
    g_assignedBuyTakeProfitUSD  = g_originalTakeProfitUSD;

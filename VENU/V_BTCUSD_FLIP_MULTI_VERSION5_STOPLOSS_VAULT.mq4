@@ -20,7 +20,7 @@ MARKET_MODE g_marketMode = MODE_RANGE;
 #ifndef OP_BALANCE
 #define OP_BALANCE 6
 #endif
-#property version   "1.61"
+#property version   "1.63"
 
 //======================== INPUTS ====================================
 string InpEAName                  = "DXB Version 5 - SAR Confirm 50 in 5 Min";
@@ -32,7 +32,7 @@ double InpMinGapWhenMaxOrdersMoreThanOne = 100.0; // when InpMaxOrders > 1, enfo
 #define DXB_HARD_MAX_OPEN_ORDERS 6  // absolute safety cap for normal SAR orders per cycle
 
 double InpBasketProfitUSD         = 0.50;  // X1 base: custom ladder starts $0.50, $0.75, $0.875, $1.00...
-double InpProfitTargetPercent      = 20;//50.0;//50   // stop trading when equity reaches Base + 100%
+double InpProfitTargetPercent      = 10.0; // pause when equity reaches opening balance + 10%
 
 
 // Dynamic basket profit ladder:
@@ -78,8 +78,8 @@ double InpDynamicBasketReturnBufferUSD     = 0.00;
 //   peak reaches X1.5 $0.75 => advance protection to X1.5
 //   peak reaches X1.75      => advance protection to X1.75, continuing by X0.25
 // Close only when current profit comes back to the highest protected value.
-double InpDynamicBasketMinimumArmUSD       =0.20;// 0.10;//0.15;//0.20;//before Dynamic profit
-double InpDynamicBasketMinimumCloseUSD     = 0.03;//0.02;//0.05;//0.10;//0.10;//before Dynamic profit
+double InpDynamicBasketMinimumArmUSD       =0.40;// 0.10;//0.15;//0.20;//before Dynamic profit
+double InpDynamicBasketMinimumCloseUSD     = 0.00;//0.02;//0.05;//0.10;//0.10;//before Dynamic profit
 
 // Drawdown comeback trailing floor:
 // Once a BUY/SELL basket touches a negative loss step, remember the worst loss
@@ -148,6 +148,23 @@ double InpMediumTrendBasketSLUSD         = 0.75;
 double InpMixedTrendBasketSLUSD          = 0.50;
 double InpDangerModeBasketSLUSD          = 1.00;
 
+//================ AVERAGE M1 CANDLE BASKET SL ======================
+// Calculates the average full candle height (High-Low) of the latest
+// CLOSED M1 candles. Shift 0/current forming candle is excluded.
+// The average RAW-price distance is converted into an estimated USD
+// basket-stop value using InpFixedLot and the broker tick value/size.
+//
+// Combine mode:
+//   0 = replace the normal market-mode basket SL with average-candle SL
+//   1 = use the smaller/tighter value
+//   2 = use the larger/wider value
+bool   InpUseAverageM1CandleBasketSL       = true;
+int    InpAverageM1CandleSLBars            = 10;
+double InpAverageM1CandleSLMultiplier      = 1.00;
+int    InpAverageM1CandleSLCombineMode     = 0;
+double InpAverageM1CandleSLMinimumUSD      = 0.10;
+double InpAverageM1CandleSLMaximumUSD      = 2.00; // 0 = unlimited
+
 // Simple basket close mode:
 // true = close BUY basket and SELL basket only by fixed InpBasketProfitUSD / InpBasketStopLossUSD.
 // It disables auto profit/loss adjustments such as combined all-basket profit close,
@@ -213,7 +230,7 @@ bool   InpUseOppositeDirectionProfitPause = false;
 int    InpOppositeDirectionProfitStreakOrders = 2;
 int    InpOppositeDirectionPauseMinutes = 30;
 
-double InpLossStopPercent          = 50.0;   // stop trading when equity reaches Base - 50%
+double InpLossStopPercent          = 20.0; // pause when equity reaches opening balance - 20%
 
 double InpBasketProfitUSD_12_17 = 0.50;//1.00; // profit target during 12,13,14,15,16,17 hours
 
@@ -282,7 +299,7 @@ bool   InpCloseIfNextCandleNotProfit     = false;  // close order after next clo
 
 bool   InpOpenRecoveryAfterClose  = true;   // open recovery order after SL/SAR flip/early reverse close
 double InpRecoveryProfitUSD       = 1;//2.00;   // optional fixed close target; chain continuation does NOT wait for this target
-bool   InpRecoveryAfterSLReverse  = false;   // true: after basket SL, open opposite direction
+bool   InpRecoveryAfterSLReverse  = true;   // true: after basket SL, open opposite direction
 bool   InpContinueSLReverseRecoveryAfterProfit = false; // any SL-reverse chain recovery closed with net profit > $0 opens the next same-direction recovery continuously
 // SL-reverse recovery priority bypass:
 // Applies only to SLREV_RECOVERY_1 and SLREV_RECOVERY_CHAIN orders.
@@ -359,20 +376,27 @@ double InpInitialServerSLNoSARDirectionUSD   =2;//3;// 0.50;
 bool   InpInitialServerSLForPending          = true;
 int    InpInitialServerSLRetrySeconds        = 3;
 
-// Daily equity protection / profit lock
-// Example: Balance=$100 -> Protected=$50, TradingCapital=$50, ProfitTarget=$25.
-// When target is reached, EA closes its orders and pauses until next day.
-// MT4 cannot literally move profit aside; this EA protects it by stopping new trades.
-bool   InpUseEquityProtection       = false;
-bool   InpAutoUseCurrentBalanceBase = true;   // true = take current account balance on EA load/new day
+// Opening-balance equity guard:
+// Example: opening balance $100 -> loss lock at $80 and profit lock at $110.
+// When either threshold is reached, the EA closes its own orders and pauses
+// until the next equity-cycle reset.
+// Live trading pauses for the current equity cycle when:
+//   Equity <= opening balance - 20%, or
+//   Equity >= opening balance + 10%.
+// On either threshold, all EA market orders are closed and all EA pending
+// orders are deleted. The guard is bypassed in Strategy Tester and on the
+// configured exempt account.
+bool   InpUseEquityProtection       = true;
+bool   InpAutoUseCurrentBalanceBase = true;   // capture AccountBalance() as the opening balance for each cycle
 double InpManualBaseCapitalUSD      = 20.0;   // used only when Auto=false
+bool   InpBypassEquityLockInTesting = true;
+int    InpEquityLockExemptAccount   = 291085426;
 
-
-double InpProtectionBufferUSD      = 0.00;   // optional buffer below loss-stop level
+double InpProtectionBufferUSD      = 0.00;   // optional extra amount below the 20% loss level
 bool   InpCloseOrdersOnEquityHit    = true;
 
-bool   InpUseDailyProfitLock        = false;
-bool   InpCloseOrdersOnProfitLock   = false;
+bool   InpUseDailyProfitLock        = true;
+bool   InpCloseOrdersOnProfitLock   = true;
 bool   InpPauseAfterProfitTarget    = true;
 
 // Equity statistics reset cycle
@@ -523,8 +547,8 @@ double InpPreSARSuspectMaxOldSideProfitUSD     = 0.05;
 // Only one continuation pending order is allowed per direction at a time.
 // The default per-side cap is 3 total entries: one base order plus two add-ons.
 bool   InpUseSARContinuationAddOns             = true;
-int    InpMaxSARContinuationOrdersPerSide      = 2;
-int    InpSARContinuationPendingExpiryBars     = 2;
+int    InpMaxSARContinuationOrdersPerSide      = 5;
+int    InpSARContinuationPendingExpiryBars     = 5;
 bool   InpSARContinuationOneOrderPerM1Bar      = true;
 bool   InpSARContinuationRequireNotSlow        = true;
 double InpSARContinuationRenewedBodyPercent    = 60.0;
@@ -1130,8 +1154,8 @@ int      g_equityDay            = -1;
 double   g_dayStartBalance      = 0.0;
 double   g_dayStartEquity       = 0.0;
 double   g_baseBalance          = 0.0;   // balance captured on EA load/new day
-double   g_lossStopEquityLevel = 0.0;  // base balance - 50% loss
-double   g_profitTargetEquity  = 0.0;  // base balance + 50% profit
+double   g_lossStopEquityLevel = 0.0;  // opening balance - configured loss percent
+double   g_profitTargetEquity  = 0.0;  // opening balance + configured profit percent
 double   g_dailyProfitTarget   = 0.0;  // dollar profit target from base
 double   g_lockedProfitToday    = 0.0;
 bool     g_dailyProfitLock      = false;
@@ -2675,24 +2699,148 @@ void UpdateAutoMarketFlowMode()
 //+------------------------------------------------------------------+
 //|                                                                  |
 //+------------------------------------------------------------------+
+//+------------------------------------------------------------------+
+//| Average RAW height of the latest CLOSED M1 candles              |
+//+------------------------------------------------------------------+
+double GetAverageClosedM1CandleHeightRaw()
+  {
+   int requestedBars = InpAverageM1CandleSLBars;
+   if(requestedBars < 1)
+      requestedBars = 1;
+
+   int availableBars = iBars(Symbol(), PERIOD_M1);
+   if(availableBars <= 1)
+      return(0.0);
+
+   int usableBars = requestedBars;
+   if(usableBars > availableBars - 1)
+      usableBars = availableBars - 1;
+
+   double totalHeightRaw = 0.0;
+   int validBars = 0;
+
+   for(int shift = 1; shift <= usableBars; shift++)
+     {
+      double candleHigh = iHigh(Symbol(), PERIOD_M1, shift);
+      double candleLow  = iLow(Symbol(), PERIOD_M1, shift);
+
+      if(candleHigh <= 0.0 || candleLow <= 0.0)
+         continue;
+
+      double candleHeightRaw = candleHigh - candleLow;
+      if(candleHeightRaw <= 0.0)
+         continue;
+
+      totalHeightRaw += candleHeightRaw;
+      validBars++;
+     }
+
+   if(validBars <= 0)
+      return(0.0);
+
+   return(totalHeightRaw / validBars);
+  }
+
+//+------------------------------------------------------------------+
+//| Convert a RAW-price distance into estimated USD P/L             |
+//+------------------------------------------------------------------+
+double ConvertRawPriceDistanceToUSD(double rawDistance, double lots)
+  {
+   if(rawDistance <= 0.0 || lots <= 0.0)
+      return(0.0);
+
+   double tickSize  = MarketInfo(Symbol(), MODE_TICKSIZE);
+   double tickValue = MarketInfo(Symbol(), MODE_TICKVALUE);
+
+   if(tickSize <= 0.0 || tickValue <= 0.0)
+     {
+      Print("AVERAGE M1 SL ERROR",
+            " | Invalid tick information",
+            " | TickSize=", DoubleToString(tickSize, 8),
+            " | TickValue=", DoubleToString(tickValue, 8));
+      return(0.0);
+     }
+
+   double tickCount = rawDistance / tickSize;
+   return(MathAbs(tickCount * tickValue * lots));
+  }
+
+//+------------------------------------------------------------------+
+//| Basket SL derived from the average closed-M1 candle height      |
+//+------------------------------------------------------------------+
+double GetAverageM1CandleBasketStopLossUSD()
+  {
+   if(!InpUseAverageM1CandleBasketSL)
+      return(0.0);
+
+   double averageHeightRaw = GetAverageClosedM1CandleHeightRaw();
+   if(averageHeightRaw <= 0.0)
+      return(0.0);
+
+   double multiplier = MathMax(0.0, InpAverageM1CandleSLMultiplier);
+   double effectiveHeightRaw = averageHeightRaw * multiplier;
+
+   double basketSLUSD = ConvertRawPriceDistanceToUSD(effectiveHeightRaw, InpFixedLot);
+   if(basketSLUSD <= 0.0)
+      return(0.0);
+
+   if(InpAverageM1CandleSLMinimumUSD > 0.0)
+      basketSLUSD = MathMax(basketSLUSD, InpAverageM1CandleSLMinimumUSD);
+
+   if(InpAverageM1CandleSLMaximumUSD > 0.0)
+      basketSLUSD = MathMin(basketSLUSD, InpAverageM1CandleSLMaximumUSD);
+
+   return(MathMax(0.0, basketSLUSD));
+  }
+
+//+------------------------------------------------------------------+
+//| Select the base basket SL                                       |
+//+------------------------------------------------------------------+
 double GetBaseEffectiveBasketStopLossUSD()
   {
+   double marketModeSL = 0.0;
+
    if(InpUseSimpleSideBasketCloseOnly)
-      return(InpBasketStopLossUSD);
+      marketModeSL = MathAbs(InpBasketStopLossUSD);
+   else
+      if(!InpUseAutoMarketFlowMode)
+         marketModeSL = MathAbs(InpBasketStopLossUSD);
+      else
+         if(g_autoMarketMode == DXB_MARKET_MODE_CONTINUOUS)
+            marketModeSL = MathAbs(InpContinuousTrendBasketSLUSD);
+         else
+            if(g_autoMarketMode == DXB_MARKET_MODE_MEDIUM)
+               marketModeSL = MathAbs(InpMediumTrendBasketSLUSD);
+            else
+               if(g_autoMarketMode == DXB_MARKET_MODE_MIXED)
+                  marketModeSL = MathAbs(InpMixedTrendBasketSLUSD);
+               else
+                  if(g_autoMarketMode == DXB_MARKET_MODE_DANGER)
+                     marketModeSL = MathAbs(InpDangerModeBasketSLUSD);
+                  else
+                     marketModeSL = MathAbs(InpBasketStopLossUSD);
 
-   if(!InpUseAutoMarketFlowMode)
-      return(InpBasketStopLossUSD);
+   if(!InpUseAverageM1CandleBasketSL)
+      return(marketModeSL);
 
-   if(g_autoMarketMode == DXB_MARKET_MODE_CONTINUOUS)
-      return(InpContinuousTrendBasketSLUSD);
-   if(g_autoMarketMode == DXB_MARKET_MODE_MEDIUM)
-      return(InpMediumTrendBasketSLUSD);
-   if(g_autoMarketMode == DXB_MARKET_MODE_MIXED)
-      return(InpMixedTrendBasketSLUSD);
-   if(g_autoMarketMode == DXB_MARKET_MODE_DANGER)
-      return(InpDangerModeBasketSLUSD);
+   double averageM1SL = GetAverageM1CandleBasketStopLossUSD();
+   if(averageM1SL <= 0.0)
+      return(marketModeSL);
 
-   return(InpBasketStopLossUSD);
+   // 1 = use the tighter/smaller value.
+   if(InpAverageM1CandleSLCombineMode == 1)
+     {
+      if(marketModeSL <= 0.0)
+         return(averageM1SL);
+      return(MathMin(marketModeSL, averageM1SL));
+     }
+
+   // 2 = use the wider/larger value.
+   if(InpAverageM1CandleSLCombineMode == 2)
+      return(MathMax(marketModeSL, averageM1SL));
+
+   // 0/default = average M1 candle SL replaces market-mode SL.
+   return(averageM1SL);
   }
 
 //+------------------------------------------------------------------+
@@ -6213,7 +6361,6 @@ int OnInit()
 
    if(IsTesting())
      {
-      InpProfitTargetPercent = 2000.0;
       InpNoNewOrderHourList  = "";
 
       g_consecutiveBasketSLCount      = 0;
@@ -6221,13 +6368,16 @@ int OnInit()
       g_consecutiveSLPauseStatus      = "TEST MODE | DISABLED";
 
       Print("TEST MODE | Dubai no-new hours disabled",
-            " | Consecutive SL pause disabled");
+            " | Consecutive SL pause disabled",
+            " | Opening-balance equity lock exempt");
      }
    else
-   if(AccountNumber()==291085426)
+   if(AccountNumber() == InpEquityLockExemptAccount)
      {
-      InpProfitTargetPercent = 2000.0;
-      InpNoNewOrderHourList  = "";
+      InpNoNewOrderHourList = "";
+
+      Print("LIVE ACCOUNT EXEMPT | Account=",AccountNumber(),
+            " | Opening-balance equity lock disabled");
      }
 
 
@@ -6299,7 +6449,7 @@ void InitializeEquityDay()
    g_dayStartEquity  = AccountEquity();
 
 // Fully automated: every cycle base is always taken from live AccountBalance().
-// Example: if AccountBalance() is $20 at reset, target=$30 and loss-stop=$10.
+// Example with $20 opening balance: target=$22 (+10%) and loss-stop=$16 (-20%).
    if(InpAutoUseCurrentBalanceBase)
       g_baseBalance = g_dayStartBalance;
    else
@@ -8030,6 +8180,21 @@ bool IsStrongOppositeMoveAgainstRecovery(int direction, double adverseGap)
    return(false);
   }
 //+------------------------------------------------------------------+
+//| Opening-balance equity guard exemption                           |
+//+------------------------------------------------------------------+
+bool IsOpeningBalanceEquityLockExempt()
+  {
+   if(InpBypassEquityLockInTesting && IsTesting())
+      return(true);
+
+   if(InpEquityLockExemptAccount > 0 &&
+      AccountNumber() == InpEquityLockExemptAccount)
+      return(true);
+
+   return(false);
+  }
+
+//+------------------------------------------------------------------+
 bool CheckEquityConditions()
   {
    ResetEquityDayIfNewDay();
@@ -8037,60 +8202,73 @@ bool CheckEquityConditions()
    if(CheckGlobalEquityTrailLock())
       return(true);
 
-// 1) Loss stop: if equity drops to base - loss percent, close EA orders and stop.
-   if(InpUseEquityProtection && AccountEquity() < g_lossStopEquityLevel)
+// Strategy Tester and the configured live account are intentionally exempt
+// from only this opening-balance 20% loss / 10% profit guard.
+   if(IsOpeningBalanceEquityLockExempt())
+     {
+      g_dailyProfitLock     = false;
+      g_equityProtectionHit = false;
+      return(false);
+     }
+
+// Keep a previously triggered lock latched until the next equity-cycle reset.
+   if(g_equityProtectionHit)
+      return(true);
+
+   if(g_dailyProfitLock && InpPauseAfterProfitTarget)
+      return(true);
+
+   double currentEquity = AccountEquity();
+
+// 1) Loss lock: equity reaches opening balance minus InpLossStopPercent.
+   if(InpUseEquityProtection &&
+      currentEquity <= g_lossStopEquityLevel)
      {
       g_equityProtectionHit = true;
 
       if(InpCloseOrdersOnEquityHit && CountAllOrders() > 0)
-         CloseAllEAOrders("50 percent equity protection hit");
+         CloseAllEAOrders("OPENING BALANCE LOSS LOCK -20%");
 
-      Print("EQUITY PROTECTION HIT | Equity=$", DoubleToString(AccountEquity(),2),
-            " Protected=$", DoubleToString(g_lossStopEquityLevel,2),
-            " Base=$", DoubleToString(g_baseBalance,2),
-            " LossStopEquity=$", DoubleToString(g_lossStopEquityLevel,2));
+      Print("OPENING BALANCE LOSS LOCK HIT",
+            " | Equity=$",DoubleToString(currentEquity,2),
+            " | OpeningBalance=$",DoubleToString(g_baseBalance,2),
+            " | LossPercent=",DoubleToString(InpLossStopPercent,2),"%",
+            " | StopEquity=$",DoubleToString(g_lossStopEquityLevel,2),
+            " | Trading paused until next equity reset.");
 
       if(InpNotifyOnEquityStop && !g_notifyEquityStopSent)
         {
          g_notifyEquityStopSent = true;
-         // SendEAAlert("TRADING STOPPED - EQUITY LOSS",
-         //             "Equity=$" + DoubleToString(AccountEquity(),2) +
-         //             " | Base=$" + DoubleToString(g_baseBalance,2) +
-         //             " | LossStop=$" + DoubleToString(g_lossStopEquityLevel,2));
         }
 
       return(true);
      }
 
-// 2) Daily profit lock: when equity reaches base + profit percent, close EA orders and pause.
+// 2) Profit lock: equity reaches opening balance plus InpProfitTargetPercent.
    if(InpUseDailyProfitLock)
      {
-      double profitFromBase = GetTodayProfitFromBase();
+      double profitFromBase = currentEquity - g_baseBalance;
 
-      if(!g_dailyProfitLock && profitFromBase >= g_dailyProfitTarget)
+      if(!g_dailyProfitLock &&
+         currentEquity >= g_profitTargetEquity)
         {
          g_dailyProfitLock   = true;
          g_lockedProfitToday = profitFromBase;
 
          if(InpCloseOrdersOnProfitLock && CountAllOrders() > 0)
-            CloseAllEAOrders("Daily profit lock: equity reached base plus profit percent");
+            CloseAllEAOrders("OPENING BALANCE PROFIT LOCK +10%");
 
-         Print("DAILY PROFIT LOCK HIT | Base=$", DoubleToString(g_baseBalance,2),
-               " Equity=$", DoubleToString(AccountEquity(),2),
-               " Profit=$", DoubleToString(profitFromBase,2),
-               " Target=$", DoubleToString(g_dailyProfitTarget,2),
-               " LossStopEquity=$", DoubleToString(g_lossStopEquityLevel,2),
-               " TargetEquity=$", DoubleToString(g_profitTargetEquity,2),
-               " | Trading paused until next day.");
+         Print("OPENING BALANCE PROFIT LOCK HIT",
+               " | OpeningBalance=$",DoubleToString(g_baseBalance,2),
+               " | Equity=$",DoubleToString(currentEquity,2),
+               " | Profit=$",DoubleToString(profitFromBase,2),
+               " | ProfitPercent=",DoubleToString(InpProfitTargetPercent,2),"%",
+               " | TargetEquity=$",DoubleToString(g_profitTargetEquity,2),
+               " | Trading paused until next equity reset.");
 
          if(InpNotifyOnProfitLock && !g_notifyProfitLockSent)
            {
             g_notifyProfitLockSent = true;
-            // SendEAAlert("TRADING STOPPED - PROFIT TARGET",
-            //             "Equity=$" + DoubleToString(AccountEquity(),2) +
-            //             " | Base=$" + DoubleToString(g_baseBalance,2) +
-            //             " | Profit=$" + DoubleToString(profitFromBase,2) +
-            //             " | Target=$" + DoubleToString(g_dailyProfitTarget,2));
            }
         }
 
@@ -15175,6 +15353,20 @@ void OnTick()
 // Send only ORDER CREATED / ORDER CLOSED push events.
    ProcessCreatedClosedPushNotifications();
 
+// HARD OPENING-BALANCE EQUITY GUARD FIRST:
+// Live accounts pause and close all EA orders at -20% or +10% from the
+// current cycle opening balance. Strategy Tester and account 291085426 are exempt.
+   if(CheckEquityConditions())
+     {
+      string equityPauseStatus = g_dailyProfitLock
+                                 ? "OPENING BALANCE PROFIT LOCK +10% - PAUSED"
+                                 : "OPENING BALANCE LOSS LOCK -20% - PAUSED";
+
+      DrawLeftOrderCreationChecklist(equityPauseStatus);
+      DrawDashboard(equityPauseStatus);
+      return;
+     }
+
 // Continue the SL-reverse recovery chain after ANY profitable recovery close.
 // This is based on final history profit, not only InpRecoveryProfitUSD closure.
    ProcessSLReverseRecoveryProfitContinuation();
@@ -15337,20 +15529,16 @@ void OnTick()
 // Closed trade profit will not trigger this because only OP_BALANCE is checked.
    CheckDepositAndResetEquityStats();
 
-// Equity protection may close all EA orders and intentionally stop processing.
-   if(IsMarketModeEntryFilterEnabled(DXB_FILTER_EQUITY_LOCK) &&
-      CheckEquityConditions())
+// SECOND EQUITY SAFETY CHECK after close management. This hard account-level
+// protection is intentionally independent of the active market-mode filter.
+   if(CheckEquityConditions())
      {
-      if(g_dailyProfitLock)
-        {
-         DrawLeftOrderCreationChecklist("DAILY PROFIT LOCK - PAUSED");
-         DrawDashboard("DAILY PROFIT LOCK - PAUSED");
-        }
-      else
-        {
-         DrawLeftOrderCreationChecklist("EQUITY PROTECTION - PAUSED");
-         DrawDashboard("EQUITY PROTECTION - PAUSED");
-        }
+      string equityPauseStatus = g_dailyProfitLock
+                                 ? "OPENING BALANCE PROFIT LOCK +10% - PAUSED"
+                                 : "OPENING BALANCE LOSS LOCK -20% - PAUSED";
+
+      DrawLeftOrderCreationChecklist(equityPauseStatus);
+      DrawDashboard(equityPauseStatus);
       return;
      }
 
@@ -19546,10 +19734,23 @@ string BigCandleExactStatusText(int direction)
 //+------------------------------------------------------------------+
 string EquityLockExactStatusText()
   {
+   if(IsOpeningBalanceEquityLockExempt())
+      return(IsTesting()
+             ? "EXEMPT | STRATEGY TESTER"
+             : "EXEMPT | ACCOUNT " + IntegerToString(AccountNumber()));
+
+   string state = "CLEAR";
+   if(g_equityProtectionHit)
+      state = "LOSS LOCKED";
+   else
+      if(g_dailyProfitLock)
+         state = "PROFIT LOCKED";
+
    return("Equity $" + DoubleToString(AccountEquity(),2) +
+          " | Base $" + DoubleToString(g_baseBalance,2) +
           " | Stop $" + DoubleToString(g_lossStopEquityLevel,2) +
-          " | Daily " +
-          (g_dailyProfitLock ? "LOCKED" : "CLEAR"));
+          " | Target $" + DoubleToString(g_profitTargetEquity,2) +
+          " | " + state);
   }
 
 //+------------------------------------------------------------------+
@@ -20352,7 +20553,7 @@ void DrawDashboard(string status)
                    13);
 
    DrawCornerLabel("DXB_RIGHT_SETTINGS_TITLE",
-                   liveModeText + " | VERSION 1.61",
+                   liveModeText + " | VERSION 1.63",
                    CORNER_RIGHT_UPPER,
                    300,287,
                    liveModeColor,
@@ -20618,12 +20819,12 @@ void DrawDashboard(string status)
    DrawCornerLabel("DXB_ACC_0",PadTitle("Balance",20)+" : $"+DoubleToString(AccountBalance(),2),CORNER_RIGHT_UPPER,315,baseY+(g_rightDashRow++*16),clrWhite,8);
    DrawCornerLabel("DXB_ACC_1",PadTitle("Equity",20)+" : $"+DoubleToString(AccountEquity(),2),CORNER_RIGHT_UPPER,315,baseY+(g_rightDashRow++*16),clrAqua,8);
    DrawCornerLabel("DXB_ACC_2",PadTitle("Equity Peak",20)+" : $"+DoubleToString(g_globalEquityPeak,2),CORNER_RIGHT_UPPER,315,baseY+(g_rightDashRow++*16),clrAqua,8);
-   DrawCornerLabel("DXB_ACC_3",PadTitle("Base Balance",20)+" : $"+DoubleToString(g_baseBalance,2),CORNER_RIGHT_UPPER,315,baseY+(g_rightDashRow++*16),clrWhite,8);
+   DrawCornerLabel("DXB_ACC_3",PadTitle("Opening Balance",20)+" : $"+DoubleToString(g_baseBalance,2),CORNER_RIGHT_UPPER,315,baseY+(g_rightDashRow++*16),clrWhite,8);
    DrawCornerLabel("DXB_ACC_4",PadTitle("BUY Basket",20)+" : $"+DoubleToString(GetBasketProfit(1),2),CORNER_RIGHT_UPPER,315,baseY+(g_rightDashRow++*16),GetBasketProfit(1)>=0 ? clrLime : clrRed,8);
    DrawCornerLabel("DXB_ACC_5",PadTitle("SELL Basket",20)+" : $"+DoubleToString(GetBasketProfit(-1),2),CORNER_RIGHT_UPPER,315,baseY+(g_rightDashRow++*16),GetBasketProfit(-1)>=0 ? clrLime : clrRed,8);
    DrawCornerLabel("DXB_ACC_6",PadTitle("Floating Total",20)+" : $"+DoubleToString(GetAllOpenEAOrdersProfit(),2),CORNER_RIGHT_UPPER,315,baseY+(g_rightDashRow++*16),GetAllOpenEAOrdersProfit()>=0 ? clrLime : clrRed,8);
-   DrawCornerLabel("DXB_ACC_7",PadTitle("Daily Target",20)+" : $"+DoubleToString(g_profitTargetEquity,2),CORNER_RIGHT_UPPER,315,baseY+(g_rightDashRow++*16),clrLime,8);
-   DrawCornerLabel("DXB_ACC_8",PadTitle("Loss Stop",20)+" : $"+DoubleToString(g_lossStopEquityLevel,2),CORNER_RIGHT_UPPER,315,baseY+(g_rightDashRow++*16),clrRed,8);
+   DrawCornerLabel("DXB_ACC_7",PadTitle("Profit Lock +10%",20)+" : $"+DoubleToString(g_profitTargetEquity,2),CORNER_RIGHT_UPPER,315,baseY+(g_rightDashRow++*16),clrLime,8);
+   DrawCornerLabel("DXB_ACC_8",PadTitle("Loss Lock -20%",20)+" : $"+DoubleToString(g_lossStopEquityLevel,2),CORNER_RIGHT_UPPER,315,baseY+(g_rightDashRow++*16),clrRed,8);
    DrawCornerLabel("DXB_ACC_9",PadTitle("Open Orders",20)+" : "+IntegerToString(CountAllEntriesForCap())+" / "+IntegerToString(InpMaxTotalOpenOrders),CORNER_RIGHT_UPPER,315,baseY+(g_rightDashRow++*16),CountAllEntriesForCap()>=InpMaxTotalOpenOrders && InpMaxTotalOpenOrders>0 ? clrOrangeRed : clrLime,8);
    DrawCornerLabel("DXB_ACC_10",PadTitle("SAR Max Rule",20)+" : Max "+IntegerToString(GetDynamicSARMaxOrders()),CORNER_RIGHT_UPPER,315,baseY+(g_rightDashRow++*16),GetDynamicSARMaxOrders()<=0 ? clrRed : clrYellow,8);
    DrawCornerLabel("DXB_ACC_11",PadTitle("Next Reset",20)+" : "+FormatSecondsToHHMM(GetSecondsUntilNextEquityReset()),CORNER_RIGHT_UPPER,315,baseY+(g_rightDashRow++*16),clrAqua,8);
