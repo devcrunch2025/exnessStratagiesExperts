@@ -20,12 +20,27 @@ MARKET_MODE g_marketMode = MODE_RANGE;
 #ifndef OP_BALANCE
 #define OP_BALANCE 6
 #endif
-#property version   "1.63"
+#property version   "1.65"
 
 //======================== INPUTS ====================================
 string InpEAName                  = "DXB Version 5 - SAR Confirm 50 in 5 Min";
 int    InpMagicNumber             = 989899;
-double InpFixedLot                = 0.01;
+double InpFixedLot                = 0.01; // fallback lot when dynamic balance lot is OFF
+
+//================ OPENING-BALANCE DYNAMIC LOT ======================
+// Lot is frozen from the current equity-cycle opening balance:
+//   $10 opening balance -> 0.01 lot
+//   $20 opening balance -> 0.02 lot
+//   $50 opening balance -> 0.05 lot
+// The broker lot step/min/max are respected. All configured trade-money
+// targets and stop values can scale by the same lot multiplier so their RAW
+// price distance remains comparable when the lot increases.
+bool   InpUseDynamicBalanceLot              = true;
+double InpDynamicLotBalanceStepUSD           = 10.0;
+double InpDynamicLotPerBalanceStep           = 0.01;
+double InpDynamicLotMinimum                  = 0.01;
+double InpDynamicLotMaximum                  = 0.00; // 0 = broker maximum
+bool   InpScaleTradeMoneyWithDynamicLot   = true;
 int    InpMaxOrders               = 3;     // per-side entry cap: 1 base SAR order + up to 2 continuation add-ons
 double InpMinGapWhenMaxOrdersMoreThanOne = 100.0; // when InpMaxOrders > 1, enforce at least this raw price gap between same-direction open orders
 
@@ -152,7 +167,7 @@ double InpDangerModeBasketSLUSD          = 1.00;
 // Calculates the average full candle height (High-Low) of the latest
 // CLOSED M1 candles. Shift 0/current forming candle is excluded.
 // The average RAW-price distance is converted into an estimated USD
-// basket-stop value using InpFixedLot and the broker tick value/size.
+// basket-stop value using the current dynamic lot and broker tick value/size.
 //
 // Combine mode:
 //   0 = replace the normal market-mode basket SL with average-candle SL
@@ -389,8 +404,8 @@ int    InpInitialServerSLRetrySeconds        = 3;
 bool   InpUseEquityProtection       = true;
 bool   InpAutoUseCurrentBalanceBase = true;   // capture AccountBalance() as the opening balance for each cycle
 double InpManualBaseCapitalUSD      = 20.0;   // used only when Auto=false
-bool   InpBypassEquityLockInTesting = true;
-int    InpEquityLockExemptAccount   = 291085426;
+bool   InpBypassEquityLockInTesting = false;
+int    InpEquityLockExemptAccount   = 0;//291085426; // 0 = no exempt live account
 
 double InpProtectionBufferUSD      = 0.00;   // optional extra amount below the 20% loss level
 bool   InpCloseOrdersOnEquityHit    = true;
@@ -758,6 +773,13 @@ double InpFlatMaxBodyTotal        = 0.00;    // raw price diff, 0 = auto using A
 int    InpFlatMaxSameColor        = 3;       // max green/red count allowed in flat
 bool   InpDrawFlatDots            = true;
 color  InpFlatDotColor            = clrSilver;
+
+//================ COMPACT LIVE DASHBOARD ===========================
+// true  = show the responsive three-panel dashboard:
+//         LEFT order creation, TOP-CENTER latest actions, RIGHT account/risk.
+// false = retain the older multi-panel diagnostic dashboard.
+bool   InpUseCompactDashboard              = true;
+bool   InpShowLegacyDashboardWhenCompactOff = true;
 
 // Visuals
 bool   InpDrawSARArrows           = false;  // disabled: show only EARLY trend arrows
@@ -2700,6 +2722,80 @@ void UpdateAutoMarketFlowMode()
 //|                                                                  |
 //+------------------------------------------------------------------+
 //+------------------------------------------------------------------+
+//| Opening-balance dynamic lot helpers                              |
+//+------------------------------------------------------------------+
+double GetDynamicLotReferenceBalance()
+  {
+   if(g_baseBalance > 0.0)
+      return(g_baseBalance);
+
+   if(g_dayStartBalance > 0.0)
+      return(g_dayStartBalance);
+
+   return(MathMax(0.0,AccountBalance()));
+  }
+
+//+------------------------------------------------------------------+
+double GetCurrentTradingLot()
+  {
+   if(!InpUseDynamicBalanceLot)
+      return(NormalizeLot(InpFixedLot));
+
+   double balanceStep = MathMax(0.01,InpDynamicLotBalanceStepUSD);
+   double lotPerStep  = MathMax(0.0001,InpDynamicLotPerBalanceStep);
+   double referenceBalance = GetDynamicLotReferenceBalance();
+
+   // Use complete balance steps. Example: $10-$19.99=0.01, $20-$29.99=0.02.
+   double completedSteps = MathFloor((referenceBalance + 0.0000001) / balanceStep);
+   if(completedSteps < 1.0)
+      completedSteps = 1.0;
+
+   double lot = completedSteps * lotPerStep;
+
+   if(InpDynamicLotMinimum > 0.0)
+      lot = MathMax(lot,InpDynamicLotMinimum);
+
+   if(InpDynamicLotMaximum > 0.0)
+      lot = MathMin(lot,InpDynamicLotMaximum);
+
+   return(NormalizeLot(lot));
+  }
+
+//+------------------------------------------------------------------+
+double GetCurrentRecoveryTradingLot()
+  {
+   if(InpUseDynamicBalanceLot)
+      return(GetCurrentTradingLot());
+
+   return(NormalizeLot(InpRecoveryGapLot));
+  }
+
+//+------------------------------------------------------------------+
+double GetDynamicLotMoneyMultiplier()
+  {
+   if(!InpUseDynamicBalanceLot ||
+      !InpScaleTradeMoneyWithDynamicLot)
+      return(1.0);
+
+   double baseLot = MathMax(0.0001,InpDynamicLotPerBalanceStep);
+   return(MathMax(0.01,GetCurrentTradingLot() / baseLot));
+  }
+
+//+------------------------------------------------------------------+
+double ScaleTradeMoneyByCurrentLot(double baseUSD)
+  {
+   return(baseUSD * GetDynamicLotMoneyMultiplier());
+  }
+
+//+------------------------------------------------------------------+
+string DynamicLotStatusText()
+  {
+   return("$" + DoubleToString(GetDynamicLotReferenceBalance(),2) +
+          " -> " + DoubleToString(GetCurrentTradingLot(),2) +
+          " lot | X" + DoubleToString(GetDynamicLotMoneyMultiplier(),2));
+  }
+
+//+------------------------------------------------------------------+
 //| Average RAW height of the latest CLOSED M1 candles              |
 //+------------------------------------------------------------------+
 double GetAverageClosedM1CandleHeightRaw()
@@ -2780,15 +2876,15 @@ double GetAverageM1CandleBasketStopLossUSD()
    double multiplier = MathMax(0.0, InpAverageM1CandleSLMultiplier);
    double effectiveHeightRaw = averageHeightRaw * multiplier;
 
-   double basketSLUSD = ConvertRawPriceDistanceToUSD(effectiveHeightRaw, InpFixedLot);
+   double basketSLUSD = ConvertRawPriceDistanceToUSD(effectiveHeightRaw, GetCurrentTradingLot());
    if(basketSLUSD <= 0.0)
       return(0.0);
 
-   if(InpAverageM1CandleSLMinimumUSD > 0.0)
-      basketSLUSD = MathMax(basketSLUSD, InpAverageM1CandleSLMinimumUSD);
+   if(ScaleTradeMoneyByCurrentLot(InpAverageM1CandleSLMinimumUSD) > 0.0)
+      basketSLUSD = MathMax(basketSLUSD, ScaleTradeMoneyByCurrentLot(InpAverageM1CandleSLMinimumUSD));
 
-   if(InpAverageM1CandleSLMaximumUSD > 0.0)
-      basketSLUSD = MathMin(basketSLUSD, InpAverageM1CandleSLMaximumUSD);
+   if(ScaleTradeMoneyByCurrentLot(InpAverageM1CandleSLMaximumUSD) > 0.0)
+      basketSLUSD = MathMin(basketSLUSD, ScaleTradeMoneyByCurrentLot(InpAverageM1CandleSLMaximumUSD));
 
    return(MathMax(0.0, basketSLUSD));
   }
@@ -2801,24 +2897,24 @@ double GetBaseEffectiveBasketStopLossUSD()
    double marketModeSL = 0.0;
 
    if(InpUseSimpleSideBasketCloseOnly)
-      marketModeSL = MathAbs(InpBasketStopLossUSD);
+      marketModeSL = MathAbs(ScaleTradeMoneyByCurrentLot(InpBasketStopLossUSD));
    else
       if(!InpUseAutoMarketFlowMode)
-         marketModeSL = MathAbs(InpBasketStopLossUSD);
+         marketModeSL = MathAbs(ScaleTradeMoneyByCurrentLot(InpBasketStopLossUSD));
       else
          if(g_autoMarketMode == DXB_MARKET_MODE_CONTINUOUS)
-            marketModeSL = MathAbs(InpContinuousTrendBasketSLUSD);
+            marketModeSL = MathAbs(ScaleTradeMoneyByCurrentLot(InpContinuousTrendBasketSLUSD));
          else
             if(g_autoMarketMode == DXB_MARKET_MODE_MEDIUM)
-               marketModeSL = MathAbs(InpMediumTrendBasketSLUSD);
+               marketModeSL = MathAbs(ScaleTradeMoneyByCurrentLot(InpMediumTrendBasketSLUSD));
             else
                if(g_autoMarketMode == DXB_MARKET_MODE_MIXED)
-                  marketModeSL = MathAbs(InpMixedTrendBasketSLUSD);
+                  marketModeSL = MathAbs(ScaleTradeMoneyByCurrentLot(InpMixedTrendBasketSLUSD));
                else
                   if(g_autoMarketMode == DXB_MARKET_MODE_DANGER)
-                     marketModeSL = MathAbs(InpDangerModeBasketSLUSD);
+                     marketModeSL = MathAbs(ScaleTradeMoneyByCurrentLot(InpDangerModeBasketSLUSD));
                   else
-                     marketModeSL = MathAbs(InpBasketStopLossUSD);
+                     marketModeSL = MathAbs(ScaleTradeMoneyByCurrentLot(InpBasketStopLossUSD));
 
    if(!InpUseAverageM1CandleBasketSL)
       return(marketModeSL);
@@ -3145,7 +3241,7 @@ double GetMixedModeBasketProfitTargetUSD()
   {
 // Exact fixed target. Do not divide by order count or apply time decay.
    return(MathMax(0.01,
-                  MathAbs(InpBasketProfitUSD) / 2.0));
+                  MathAbs(ScaleTradeMoneyByCurrentLot(InpBasketProfitUSD)) / 2.0));
   }
 
 //+------------------------------------------------------------------+
@@ -3170,7 +3266,7 @@ double GetBasketProfitTargetUSD()
          simpleCount = 1;
 
       return(MathMax(0.01,
-                     InpBasketProfitUSD / simpleCount));
+                     ScaleTradeMoneyByCurrentLot(InpBasketProfitUSD) / simpleCount));
      }
 
    int hourNow = TimeHour(TimeCurrent());
@@ -3180,10 +3276,10 @@ double GetBasketProfitTargetUSD()
    if(count <= 0)
       count = 1;
 
-   double baseTarget = InpBasketProfitUSD;
+   double baseTarget = ScaleTradeMoneyByCurrentLot(InpBasketProfitUSD);
 
    if(hourNow >= 12 && hourNow <= 17)
-      baseTarget = InpBasketProfitUSD_12_17;
+      baseTarget = ScaleTradeMoneyByCurrentLot(InpBasketProfitUSD_12_17);
 
    double target = baseTarget / count;
 
@@ -3704,8 +3800,8 @@ double GetTickSpeedAdaptiveBasketSLUSD(string speedStatus)
 
    double adaptiveSL = baseSL * multiplier;
 
-   if(InpTickSpeedAdaptiveSLMaxUSD > 0.0)
-      adaptiveSL = MathMin(adaptiveSL,MathAbs(InpTickSpeedAdaptiveSLMaxUSD));
+   if(ScaleTradeMoneyByCurrentLot(InpTickSpeedAdaptiveSLMaxUSD) > 0.0)
+      adaptiveSL = MathMin(adaptiveSL,MathAbs(ScaleTradeMoneyByCurrentLot(InpTickSpeedAdaptiveSLMaxUSD)));
 
    return(MathMax(0.0,adaptiveSL));
   }
@@ -4006,7 +4102,7 @@ void UpdateLiveOppositeCandleEmergencySL()
       double multiplier =
          MathMax(0.0,MathMin(1.0,InpLiveOppositeCandleSLMultiplier));
       double tightenedSL = normalSL*multiplier;
-      tightenedSL = MathMax(MathAbs(InpLiveOppositeCandleMinimumSLUSD),
+      tightenedSL = MathMax(MathAbs(ScaleTradeMoneyByCurrentLot(InpLiveOppositeCandleMinimumSLUSD)),
                             tightenedSL);
       tightenedSL = MathMin(normalSL,tightenedSL);
       tightenedSL = NormalizeDouble(tightenedSL,2);
@@ -4407,7 +4503,7 @@ bool TryQueuePreSARReversalSuspectEntry()
    // Apply the old-side profit restriction only when that basket exists.
    if(hasOldSideBasket &&
       InpPreSARSuspectRequireOldSideNotProfit &&
-      oldSideProfit > InpPreSARSuspectMaxOldSideProfitUSD)
+      oldSideProfit > ScaleTradeMoneyByCurrentLot(InpPreSARSuspectMaxOldSideProfitUSD))
      {
       g_oppositeImpulseStatus =
          "SUSPECT WAIT | OLD SIDE PROFIT $" +
@@ -4892,7 +4988,7 @@ bool ProcessOppositeImpulseContinuation()
      }
 
    int type = (direction > 0) ? OP_BUYSTOP : OP_SELLSTOP;
-   double lot = NormalizeLot(InpFixedLot);
+   double lot = GetCurrentTradingLot();
    string reason;
    if(g_oppositeImpulsePreSAROverride)
       reason = (direction > 0)
@@ -5424,7 +5520,7 @@ bool PlaceSARContinuationPending(int direction,
                  MathMin(referencePrice-gap,Bid-gap),
                  Digits);
 
-   double lot = NormalizeLot(InpFixedLot);
+   double lot = GetCurrentTradingLot();
    string reason = strategy + "_" + DirectionText(direction);
    string orderComment = MakeSARParentOrderComment(reason);
 
@@ -5723,7 +5819,7 @@ bool TryOpenSARProfitPyramidOrder(int direction)
 
    double basketProfit = GetBasketProfit(direction);
    if(basketProfit + 0.0001 <
-      MathMax(0.0,InpPyramidMinimumBasketProfitUSD))
+      MathMax(0.0,ScaleTradeMoneyByCurrentLot(InpPyramidMinimumBasketProfitUSD)))
      {
       g_sarContinuationStatus =
          "PYRAMID " + DirectionText(direction) +
@@ -5845,7 +5941,7 @@ bool TryOpenSARPullbackContinuationOrder(int direction)
 
    double basketProfit = GetBasketProfit(direction);
    if(basketProfit + 0.0001 <
-      MathMax(0.0,InpPullbackContinuationMinimumProfitUSD))
+      MathMax(0.0,ScaleTradeMoneyByCurrentLot(InpPullbackContinuationMinimumProfitUSD)))
      {
       g_sarContinuationStatus =
          "PULLBACK " + DirectionText(direction) +
@@ -5933,7 +6029,7 @@ bool TryOpenSARBreakoutContinuationOrder(int direction)
 
    double basketProfit = GetBasketProfit(direction);
    if(basketProfit + 0.0001 <
-      MathMax(0.0,InpBreakoutMinimumBasketProfitUSD))
+      MathMax(0.0,ScaleTradeMoneyByCurrentLot(InpBreakoutMinimumBasketProfitUSD)))
      {
       g_sarContinuationStatus =
          "BREAKOUT " + DirectionText(direction) +
@@ -6123,14 +6219,14 @@ double GetInitialServerSLUSDForSelectedOrder(int &sarDirectionOut,
       return(0.0);
 
    if(sarDirectionOut != 1 && sarDirectionOut != -1)
-      return(MathMax(0.0,InpInitialServerSLNoSARDirectionUSD));
+      return(MathMax(0.0,ScaleTradeMoneyByCurrentLot(InpInitialServerSLNoSARDirectionUSD)));
 
    matchesSAROut = (orderDirection == sarDirectionOut);
 
    if(matchesSAROut)
-      return(MathMax(0.0,InpInitialServerSLWithSARUSD));
+      return(MathMax(0.0,ScaleTradeMoneyByCurrentLot(InpInitialServerSLWithSARUSD)));
 
-   return(MathMax(0.0,InpInitialServerSLAgainstSARUSD));
+   return(MathMax(0.0,ScaleTradeMoneyByCurrentLot(InpInitialServerSLAgainstSARUSD)));
   }
 
 //+------------------------------------------------------------------+
@@ -6295,9 +6391,9 @@ void EnsureInitialServerSideSLForAllOrders()
    if(!InpUseInitialServerSideOrderSL)
       return;
 
-   if(InpInitialServerSLWithSARUSD <= 0.0 &&
-      InpInitialServerSLAgainstSARUSD <= 0.0 &&
-      InpInitialServerSLNoSARDirectionUSD <= 0.0)
+   if(ScaleTradeMoneyByCurrentLot(InpInitialServerSLWithSARUSD) <= 0.0 &&
+      ScaleTradeMoneyByCurrentLot(InpInitialServerSLAgainstSARUSD) <= 0.0 &&
+      ScaleTradeMoneyByCurrentLot(InpInitialServerSLNoSARDirectionUSD) <= 0.0)
       return;
 
    int retrySeconds = MathMax(1,InpInitialServerSLRetrySeconds);
@@ -6434,8 +6530,14 @@ void OnDeinit(const int reason)
       if(StringFind(objectName,"DXB_ENTRY_AUDIT_") == 0 ||
          StringFind(objectName,"DXB_RECOVERY_") == 0 ||
          StringFind(objectName,"DXB_PRO_REC_") == 0 ||
+         StringFind(objectName,"DXB_PRO_LEFT_") == 0 ||
+         StringFind(objectName,"DXB_PRO_RIGHT_") == 0 ||
          StringFind(objectName,"DXB_TICK_SPEED_") == 0 ||
-         StringFind(objectName,"DXB_IMPULSE_") == 0)
+         StringFind(objectName,"DXB_IMPULSE_") == 0 ||
+         StringFind(objectName,"DXB_RIGHT_") == 0 ||
+         StringFind(objectName,"DXB_LIVE_MODE_") == 0 ||
+         StringFind(objectName,"DXB_ACC_") == 0 ||
+         StringFind(objectName,"DXB_COMPACT_") == 0)
          ObjectDelete(0,objectName);
      }
 
@@ -7719,7 +7821,7 @@ void QueueGoodMarketContinuationFromClosedTicket(int ticket,
       return;
 
 // User requirement is strictly MORE THAN the threshold, not equal to it.
-   if(netProfit <= MathAbs(InpGoodMarketFirstOrderProfitUSD))
+   if(netProfit <= MathAbs(ScaleTradeMoneyByCurrentLot(InpGoodMarketFirstOrderProfitUSD)))
       return;
 
    if(type != OP_BUY && type != OP_SELL)
@@ -7771,7 +7873,7 @@ void QueueGoodMarketContinuationFromClosedTicket(int ticket,
          " | Ticket=", ticket,
          " | Direction=", DirectionText(direction),
          " | NetProfit=$", DoubleToString(netProfit, 2),
-         " | Required>$", DoubleToString(MathAbs(InpGoodMarketFirstOrderProfitUSD), 2),
+         " | Required>$", DoubleToString(MathAbs(ScaleTradeMoneyByCurrentLot(InpGoodMarketFirstOrderProfitUSD)), 2),
          " | ClosePrice=", DoubleToString(closePrice, Digits),
          " | NEXT=IMMEDIATE PENDING");
   }
@@ -7877,7 +7979,7 @@ bool ProcessGoodMarketFirstOrderContinuation()
    double price = BuildGoodMarketContinuationPendingPrice(
                      direction,
                      g_goodMarketContinuationClosePrice);
-   double lot = NormalizeLot(InpFixedLot);
+   double lot = GetCurrentTradingLot();
    string orderComment = MakeSARParentOrderComment("GOOD_FIRST_PROFIT_PENDING");
 
 // A profitable first order earns exactly one bonus cycle slot even when the
@@ -8506,7 +8608,7 @@ void ResetDelayedSARCloseAfterBasketClose(int direction, string resetReason)
 //+------------------------------------------------------------------+
 double GetDynamicBasketProfitBaseUSD()
   {
-   return(MathMax(0.01, MathAbs(InpBasketProfitUSD)));
+   return(MathMax(0.01, MathAbs(ScaleTradeMoneyByCurrentLot(InpBasketProfitUSD))));
   }
 
 //+------------------------------------------------------------------+
@@ -8662,7 +8764,7 @@ double GetDynamicBasketProtectedProfitUSD(double peakProfit)
       return(0.0);
 
    double protectedProfit = GetDynamicBasketTargetUSDByLevel(level);
-   double buffer = MathMax(0.0, InpDynamicBasketReturnBufferUSD);
+   double buffer = MathMax(0.0, ScaleTradeMoneyByCurrentLot(InpDynamicBasketReturnBufferUSD));
 
    protectedProfit -= buffer;
    return(MathMax(0.01, protectedProfit));
@@ -8687,7 +8789,7 @@ double GetDynamicBasketNextTargetUSD(double peakProfit)
 double GetDynamicBasketMinimumCloseUSD()
   {
    double minimumClose = MathMax(0.01,
-                                 MathAbs(InpDynamicBasketMinimumCloseUSD));
+                                 MathAbs(ScaleTradeMoneyByCurrentLot(InpDynamicBasketMinimumCloseUSD)));
    double x1Target = GetDynamicBasketTargetUSDByLevel(1);
 
    if(x1Target > 0.0 && minimumClose > x1Target)
@@ -8705,7 +8807,7 @@ double GetDynamicBasketMinimumArmUSD()
   {
    double minimumClose = GetDynamicBasketMinimumCloseUSD();
    double armProfit = MathMax(minimumClose,
-                              MathAbs(InpDynamicBasketMinimumArmUSD));
+                              MathAbs(ScaleTradeMoneyByCurrentLot(InpDynamicBasketMinimumArmUSD)));
    double x1Target = GetDynamicBasketTargetUSDByLevel(1);
 
    if(x1Target > 0.0 && armProfit > x1Target)
@@ -8724,7 +8826,7 @@ double GetServerSideDesiredNetProfitUSD(double protectedProfitUSD)
       return(0.0);
 
    return(protectedProfitUSD +
-          MathMax(0.0, InpServerProfitLockBufferUSD));
+          MathMax(0.0, ScaleTradeMoneyByCurrentLot(InpServerProfitLockBufferUSD)));
   }
 
 //+------------------------------------------------------------------+
@@ -8736,7 +8838,7 @@ int GetDynamicBasketDrawdownLevel(double worstProfit)
    if(!InpUseDynamicBasketDrawdownComebackTP || worstProfit >= 0.0)
       return(0);
 
-   double stepUSD = MathMax(0.01, MathAbs(InpDynamicBasketDrawdownStepUSD));
+   double stepUSD = MathMax(0.01, MathAbs(ScaleTradeMoneyByCurrentLot(InpDynamicBasketDrawdownStepUSD)));
    double lossUSD = MathAbs(worstProfit);
 
    if(lossUSD + 0.0000001 < stepUSD)
@@ -8759,7 +8861,7 @@ double GetDynamicBasketComebackTargetUSD(double worstProfit)
    int divisor = drawdownLevel + 1;
    double target = GetDynamicBasketProfitBaseUSD() / divisor;
    double minimumTarget = MathMax(0.01,
-                                  MathAbs(InpDynamicBasketMinComebackProfitUSD));
+                                  MathAbs(ScaleTradeMoneyByCurrentLot(InpDynamicBasketMinComebackProfitUSD)));
 
    return(MathMax(minimumTarget, target));
   }
@@ -11195,7 +11297,7 @@ void ProcessSLReverseRecoveryProfitContinuation()
 //+------------------------------------------------------------------+
 bool CloseRecoveryOrdersAtProfit()
   {
-   double target = MathMax(0.0, InpRecoveryProfitUSD);
+   double target = MathMax(0.0, ScaleTradeMoneyByCurrentLot(InpRecoveryProfitUSD));
    if(target <= 0.0)
       return(false);
 
@@ -11437,7 +11539,7 @@ bool OpenRecoveryOrder(int direction, string sourceReason, int slReverseStage = 
          sl = NormalizeDouble(price + InpStopLossPoints * Point, Digits);
      }
 
-   double lot = NormalizeLot(InpFixedLot);
+   double lot = GetCurrentTradingLot();
 
    string comment = "AFTER_CLOSE_RECOVERY_" + DirectionText(direction);
 
@@ -11505,7 +11607,7 @@ bool OpenRecoveryOrder(int direction, string sourceReason, int slReverseStage = 
 
    Print(InpUsePendingOrderEntries ? "RECOVERY PENDING PLACED | Ticket=" : "RECOVERY ORDER OPENED | Ticket=", ticket,
          " | Direction=", DirectionText(direction),
-         " | TargetProfit=$", DoubleToString(InpRecoveryProfitUSD, 2),
+         " | TargetProfit=$", DoubleToString(ScaleTradeMoneyByCurrentLot(InpRecoveryProfitUSD), 2),
          " | Comment=", comment,
          " | Source=", sourceReason);
 
@@ -11712,7 +11814,7 @@ bool OpenRecoveryGapMarketOrder(int direction, double gapMove, string triggerRea
 // SAR signal price side filter is NOT applied to RECOVERY_GAP orders.
 // Recovery ladder must follow adverse price gaps independently.
 
-   double lot = NormalizeLot(InpRecoveryGapLot);
+   double lot = GetCurrentRecoveryTradingLot();
    int nextRecoveryNumber = CountRecoveryGapOrdersByDirection(direction) + 1;
 
 // lot=lot*nextRecoveryNumber;
@@ -12199,7 +12301,7 @@ void UpdateRecoveryLossComebackState(int direction,
       return;
      }
 
-   double armLoss = MathMax(0.01, MathAbs(InpRecoveryLossArmUSD));
+   double armLoss = MathMax(0.01, MathAbs(ScaleTradeMoneyByCurrentLot(InpRecoveryLossArmUSD)));
 
    if(direction == 1)
      {
@@ -12278,12 +12380,12 @@ bool IsRecoveryLossComebackReady(int direction,
      {
       reason = "WAIT TOUCH -$" +
                DoubleToString(MathMax(0.01,
-                                      MathAbs(InpRecoveryLossArmUSD)), 2);
+                                      MathAbs(ScaleTradeMoneyByCurrentLot(InpRecoveryLossArmUSD))), 2);
       return(false);
      }
 
    double comebackUSD = MathMax(0.01,
-                                MathAbs(InpRecoveryLossComebackUSD));
+                                MathAbs(ScaleTradeMoneyByCurrentLot(InpRecoveryLossComebackUSD)));
    double comebackTarget = worstProfit + comebackUSD;
    double improvedBy = currentProfit - worstProfit;
 
@@ -12348,7 +12450,7 @@ void ProcessRecoveryGapOrders()
       return;
      }
 
-   if(InpRecoveryGapLot <= 0.0)
+   if(GetCurrentRecoveryTradingLot() <= 0.0)
       return;
 
 // At least one recovery trigger must be enabled:
@@ -13130,12 +13232,12 @@ bool IsEarlySARWeakExitSignal(int direction, double basketProfit, string &reason
      }
 
    bool enoughWeakness = (weakness >= InpEarlySARWeakExitNeedSignals);
-   bool profitClose    = (basketProfit >= InpEarlySARWeakExitMinProfitUSD);
-   bool lossClose      = (basketProfit <= -MathAbs(InpEarlySARWeakExitMaxLossUSD));
-   bool trailClose     = (g_activeBasketPeakProfit >= InpEarlySARWeakExitMinProfitUSD &&
-                          basketProfit <= g_activeBasketPeakProfit - MathAbs(InpEarlySARWeakExitTrailUSD));
+   bool profitClose    = (basketProfit >= ScaleTradeMoneyByCurrentLot(InpEarlySARWeakExitMinProfitUSD));
+   bool lossClose      = (basketProfit <= -MathAbs(ScaleTradeMoneyByCurrentLot(InpEarlySARWeakExitMaxLossUSD)));
+   bool trailClose     = (g_activeBasketPeakProfit >= ScaleTradeMoneyByCurrentLot(InpEarlySARWeakExitMinProfitUSD) &&
+                          basketProfit <= g_activeBasketPeakProfit - MathAbs(ScaleTradeMoneyByCurrentLot(InpEarlySARWeakExitTrailUSD)));
    bool candlePressureClose =
-      (candleWeakExit && basketProfit >= -MathAbs(InpEarlySARWeakExitMaxLossUSD));
+      (candleWeakExit && basketProfit >= -MathAbs(ScaleTradeMoneyByCurrentLot(InpEarlySARWeakExitMaxLossUSD)));
 
    if(!enoughWeakness)
       return(false);
@@ -13250,13 +13352,13 @@ bool ShouldCloseConfirmedSARWeakBasket(int direction,
 
    int basketAgeMin = GetBasketAgeMinutesByDirection(direction);
    bool profitClose = (InpSARWeakCloseProfitBasket &&
-                       basketProfit >= MathMax(0.0, InpSARWeakMinProfitToClose));
+                       basketProfit >= MathMax(0.0, ScaleTradeMoneyByCurrentLot(InpSARWeakMinProfitToClose)));
 
-   double maxSmallLoss = MathAbs(InpSARWeakMaxSmallLossToCloseUSD);
+   double maxSmallLoss = MathAbs(ScaleTradeMoneyByCurrentLot(InpSARWeakMaxSmallLossToCloseUSD));
    bool oldSmallLossClose =
       (InpSARWeakCloseOldSmallLoss &&
        basketAgeMin >= MathMax(1, InpSARWeakBasketAgeMinutes) &&
-       basketProfit < MathMax(0.0, InpSARWeakMinProfitToClose) &&
+       basketProfit < MathMax(0.0, ScaleTradeMoneyByCurrentLot(InpSARWeakMinProfitToClose)) &&
        basketProfit >= -maxSmallLoss);
 
    g_sarWeakBasketCloseLastDirection = direction;
@@ -13415,7 +13517,7 @@ bool GetIndividualProfitProtectLevel(double peakProfit,
 
    if(InpUseSARClosedProfitCountProtect &&
       sarClosedCount >= startCount &&
-      peakProfit > 0.0 && peakProfit>InpBasketProfitUSD / sarClosedCount && peakProfit>InpBasketProfitUSD/2)
+      peakProfit > 0.0 && peakProfit>ScaleTradeMoneyByCurrentLot(InpBasketProfitUSD) / sarClosedCount && peakProfit>ScaleTradeMoneyByCurrentLot(InpBasketProfitUSD)/2)
      {
       selectedActivate = peakProfit;
       // selectedCloseAt  = peakProfit / sarClosedCount;
@@ -13568,22 +13670,22 @@ void ProcessIndividualProfitProtect()
 
       // Keep your manual input as a fallback when basket target is disabled/zero.
       if(dynamicActivateProfit <= 0.0)
-         dynamicActivateProfit = MathMax(0.0, InpIndividualProtectActivateUSD);
+         dynamicActivateProfit = MathMax(0.0, ScaleTradeMoneyByCurrentLot(InpIndividualProtectActivateUSD));
 
       // Recovery orders must also be protected using the fixed manual values.
       // This protects RECOVERY_GAP_1 / RECOVERY_GAP_2 / RECOVERY_GAP_3 during sliding up/down market.
       if(recoveryOrder)
-         dynamicActivateProfit = MathMax(0.0, InpIndividualProtectActivateUSD);
+         dynamicActivateProfit = MathMax(0.0, ScaleTradeMoneyByCurrentLot(InpIndividualProtectActivateUSD));
 
       // Close after profit pulls back. Default for normal orders: 50% of dynamic target.
       double dynamicCloseAtProfit = dynamicActivateProfit * 0.50;
 
       // Keep at least your manual close value.
-      dynamicCloseAtProfit = MathMax(dynamicCloseAtProfit, MathMax(0.0, InpIndividualProtectCloseAtUSD));
+      dynamicCloseAtProfit = MathMax(dynamicCloseAtProfit, MathMax(0.0, ScaleTradeMoneyByCurrentLot(InpIndividualProtectCloseAtUSD)));
 
       // Recovery orders use exact manual close value, example: reached $0.50, close when back to $0.40.
       if(recoveryOrder)
-         dynamicCloseAtProfit = MathMax(0.0, InpIndividualProtectCloseAtUSD);
+         dynamicCloseAtProfit = MathMax(0.0, ScaleTradeMoneyByCurrentLot(InpIndividualProtectCloseAtUSD));
 
       double profit = OrderProfit() + OrderSwap() + OrderCommission();
 
@@ -14349,7 +14451,7 @@ double GetBasketProfitTargetForDirection(int direction)
          flipMultiplier = 1.0;
 
       double flipTarget =
-         MathMax(0.01, MathAbs(InpBasketProfitUSD) * flipMultiplier);
+         MathMax(0.01, MathAbs(ScaleTradeMoneyByCurrentLot(InpBasketProfitUSD)) * flipMultiplier);
 
       if(selectedTarget > 0.0)
          selectedTarget = MathMin(selectedTarget, flipTarget);
@@ -14367,7 +14469,7 @@ double GetBasketProfitTargetForDirection(int direction)
          timeMultiplier = 1.0;
 
       double timeTarget =
-         MathMax(0.01, MathAbs(InpBasketProfitUSD) * timeMultiplier);
+         MathMax(0.01, MathAbs(ScaleTradeMoneyByCurrentLot(InpBasketProfitUSD)) * timeMultiplier);
 
       if(selectedTarget > 0.0)
          selectedTarget = MathMin(selectedTarget, timeTarget);
@@ -15176,6 +15278,8 @@ void UpdateTickSpeedEngine()
 //+------------------------------------------------------------------+
 void DrawTickSpeedDashboardPanel()
   {
+   if(InpUseCompactDashboard)
+      return;
    if(!InpShowTickSpeedPanel)
       return;
 
@@ -17929,7 +18033,7 @@ bool OpenMarketOrder(int direction, string reason)
 
    sl = 0; // disable SL for now to test pure SAR cycle max logic
 
-   double lot = NormalizeLot(InpFixedLot);
+   double lot = GetCurrentTradingLot();
 
    RefreshRates();
    price = InpUsePendingOrderEntries
@@ -18347,14 +18451,27 @@ void DeleteOldDashboardObjects()
    for(int i = ObjectsTotal(0, -1, -1) - 1; i >= 0; i--)
      {
       string name = ObjectName(0, i);
-      if(StringFind(name,"DXB_ROW_") == 0 ||
-         StringFind(name,"DXB_LEFT_CHK_ROW_") == 0 ||
+
+      bool isDashboardObject =
+         StringFind(name,"DXB_ROW_") == 0 ||
+         StringFind(name,"DXB_LEFT_CHK_") == 0 ||
          StringFind(name,"DXB_PANEL") == 0 ||
-         StringFind(name,"DXB_TICK_SPEED_") == 0)
-        {
-         ObjectDelete(0, name);
-        }
+         StringFind(name,"DXB_TICK_SPEED_") == 0 ||
+         StringFind(name,"DXB_ENTRY_AUDIT_") == 0 ||
+         StringFind(name,"DXB_RECOVERY_") == 0 ||
+         StringFind(name,"DXB_PRO_LEFT_") == 0 ||
+         StringFind(name,"DXB_PRO_RIGHT_") == 0 ||
+         StringFind(name,"DXB_PRO_REC_") == 0 ||
+         StringFind(name,"DXB_RIGHT_") == 0 ||
+         StringFind(name,"DXB_LIVE_MODE_") == 0 ||
+         StringFind(name,"DXB_ACC_") == 0 ||
+         StringFind(name,"DXB_COMPACT_") == 0;
+
+      if(isDashboardObject)
+         ObjectDelete(0,name);
      }
+
+   g_compactDashboardLegacyCleared = true;
   }
 
 //+------------------------------------------------------------------+
@@ -18585,7 +18702,7 @@ void DrawLeftImportantOrderSettings(int direction)
                      MarketFlowModeColor());
 
    LeftChecklistInfo("Lot / Slippage",
-                     "Lot " + DoubleToString(InpFixedLot, 2) +
+                     "Lot " + DoubleToString(GetCurrentTradingLot(), 2) +
                      " | Slip " + IntegerToString(InpSlippage),
                      clrWhite);
 
@@ -18634,15 +18751,15 @@ void DrawLeftImportantOrderSettings(int direction)
    LeftChecklistInfo("Recovery Gap",
                      (InpUseRecoveryGapOrders ? "ON" : "OFF") +
                      " | Gap " + DoubleToString(InpRecoveryGapRawPrice, 0) +
-                     " | Lot " + DoubleToString(InpRecoveryGapLot, 2),
+                     " | Lot " + DoubleToString(GetCurrentRecoveryTradingLot(), 2),
                      InpUseRecoveryGapOrders ? clrLime : clrSilver);
 
    LeftChecklistInfo("Recovery Loss Return",
                      InpUseRecoveryLossComebackTrigger
                      ? "Touch -$" +
-                     DoubleToString(MathAbs(InpRecoveryLossArmUSD), 2) +
+                     DoubleToString(MathAbs(ScaleTradeMoneyByCurrentLot(InpRecoveryLossArmUSD)), 2) +
                      " | Improve +$" +
-                     DoubleToString(MathAbs(InpRecoveryLossComebackUSD), 2)
+                     DoubleToString(MathAbs(ScaleTradeMoneyByCurrentLot(InpRecoveryLossComebackUSD)), 2)
                      : "OFF",
                      InpUseRecoveryLossComebackTrigger ? clrAqua : clrSilver);
 
@@ -19391,6 +19508,8 @@ void CaptureOpenedOrderAudit(int ticket,
 int g_rightDashRow = 0;
 int g_recoveryDashRow = 0;
 int g_guardDashRow = 0;
+int g_compactDashRow = 0;
+bool g_compactDashboardLegacyCleared = false;
 
 //+------------------------------------------------------------------+
 //|                                                                  |
@@ -19835,6 +19954,8 @@ string EntryDecisionHeadline()
 //+------------------------------------------------------------------+
 void DrawRecoveryChecklistPanel(int direction)
   {
+   if(InpUseCompactDashboard)
+      return;
    bool enabled = InpUseRecoveryGapOrders;
    bool matchOk =
       (!InpRecoveryGapMustMatchSARDirection ||
@@ -19980,6 +20101,8 @@ void LeftProModeCheck(string title,
 //+------------------------------------------------------------------+
 void DrawTopCenterOrderAuditPanel()
   {
+   if(InpUseCompactDashboard)
+      return;
    int chartWidth =
       (int)ChartGetInteger(0, CHART_WIDTH_IN_PIXELS, 0);
 
@@ -20118,6 +20241,8 @@ void ClearLeftProfessionalChecklistRows()
 void DrawFirstSAROrderCreationChecklist(string mainStatus,
                                         int direction)
   {
+   if(InpUseCompactDashboard)
+      return;
    RefreshFirstSAROrderDiagnosticSnapshot(direction,
                                           "LIVE FIRST ORDER");
 
@@ -20217,6 +20342,8 @@ void DrawFirstSAROrderCreationChecklist(string mainStatus,
 //+------------------------------------------------------------------+
 void DrawLeftOrderCreationChecklist(string mainStatus)
   {
+   if(InpUseCompactDashboard)
+      return;
    RefreshRates();
    UpdateAutoMarketFlowMode();
    ApplyMarketModeEntryFilterProfileState();
@@ -20526,8 +20653,557 @@ color DashboardTradePermissionColor()
    return(clrLime);
   }
 
+
 //+------------------------------------------------------------------+
-void DrawDashboard(string status)
+//| Compact dashboard helpers                                        |
+//+------------------------------------------------------------------+
+int CompactCountMarketOrders(int direction)
+  {
+   int total = 0;
+
+   for(int i = OrdersTotal()-1; i >= 0; i--)
+     {
+      if(!OrderSelect(i,SELECT_BY_POS,MODE_TRADES))
+         continue;
+
+      if(OrderSymbol() != Symbol() ||
+         OrderMagicNumber() != InpMagicNumber)
+         continue;
+
+      int type = OrderType();
+
+      if(direction > 0 && type == OP_BUY)
+         total++;
+      else
+      if(direction < 0 && type == OP_SELL)
+         total++;
+      else
+      if(direction == 0 && (type == OP_BUY || type == OP_SELL))
+         total++;
+     }
+
+   return(total);
+  }
+
+//+------------------------------------------------------------------+
+int CompactCountPendingOrders(int direction)
+  {
+   int total = 0;
+
+   for(int i = OrdersTotal()-1; i >= 0; i--)
+     {
+      if(!OrderSelect(i,SELECT_BY_POS,MODE_TRADES))
+         continue;
+
+      if(OrderSymbol() != Symbol() ||
+         OrderMagicNumber() != InpMagicNumber)
+         continue;
+
+      int type = OrderType();
+      bool buyPending =
+         (type == OP_BUYSTOP || type == OP_BUYLIMIT);
+      bool sellPending =
+         (type == OP_SELLSTOP || type == OP_SELLLIMIT);
+
+      if(direction > 0 && buyPending)
+         total++;
+      else
+      if(direction < 0 && sellPending)
+         total++;
+      else
+      if(direction == 0 && (buyPending || sellPending))
+         total++;
+     }
+
+   return(total);
+  }
+
+//+------------------------------------------------------------------+
+string CompactEntryCoverageText()
+  {
+   int enabled = 1; // Normal SAR first/continuity order is always available.
+
+   if(InpOpenGoodMarketPendingAfterFirstProfit)
+      enabled++;
+   if(InpUseSARContinuationAddOns && InpUseProfitPyramidOrders)
+      enabled++;
+   if(InpUseSARContinuationAddOns && InpUsePullbackContinuationOrders)
+      enabled++;
+   if(InpUseSARContinuationAddOns && InpUseBreakoutContinuationOrders)
+      enabled++;
+   if(InpUseOppositeImpulseContinuation &&
+      InpUsePreSARReversalSuspectEntry)
+      enabled++;
+   if(InpUseOppositeImpulseContinuation)
+      enabled++;
+   if(InpUseRecoveryGapOrders)
+      enabled++;
+   if(InpOpenRecoveryAfterClose)
+      enabled++;
+
+   string result =
+      IntegerToString(enabled) + "/9 ENTRY PATHS ENABLED";
+
+   if(enabled >= 9)
+      result += " | COMPLETE";
+
+   return(result);
+  }
+
+//+------------------------------------------------------------------+
+string CompactEntryGateText()
+  {
+   if(g_dailyProfitLock)
+      return("BLOCK | +PROFIT EQUITY LOCK");
+
+   if(g_equityProtectionHit)
+      return("BLOCK | -LOSS EQUITY LOCK");
+
+   if(g_globalEquityTrailLocked)
+      return("BLOCK | GLOBAL EQUITY TRAIL");
+
+   if(IsNewOrderHardPauseActive())
+      return("BLOCK | " + GetNewOrderHardPauseReasonText());
+
+   if(!IsTradingAllowedNow())
+      return("BLOCK | AUTOTRADING/BROKER");
+
+   if(IsAutoMarketTradingPaused())
+      return("BLOCK | MODE " + g_autoMarketModeText);
+
+   if(g_entryDiagBlockedCount > 0)
+      return("BLOCK | " +
+             StringSubstr(g_entryDiagPrimaryBlock,0,34));
+
+   return("READY | " + DirectionText(g_activeSARDirection));
+  }
+
+//+------------------------------------------------------------------+
+color CompactEntryGateColor()
+  {
+   string gate = CompactEntryGateText();
+
+   if(StringFind(gate,"READY",0) >= 0)
+      return(clrLime);
+
+   return(clrOrangeRed);
+  }
+
+//+------------------------------------------------------------------+
+string CompactNextOrderText()
+  {
+   if(g_dailyProfitLock ||
+      g_equityProtectionHit ||
+      g_globalEquityTrailLocked ||
+      IsNewOrderHardPauseActive() ||
+      !IsTradingAllowedNow() ||
+      IsAutoMarketTradingPaused())
+      return("NONE | HARD SAFETY ACTIVE");
+
+   if(IsOppositeImpulseContinuationBusy())
+      return("IMPULSE/REVERSE | " +
+             StringSubstr(OppositeImpulseStatusText(),0,28));
+
+   if(g_goodMarketContinuationPending)
+      return("GOOD-FIRST | " +
+             StringSubstr(g_goodMarketContinuationStatus,0,30));
+
+   if(g_activeSARDirection != 0 &&
+      HasSARContinuationPending(g_activeSARDirection))
+      return("SAR ADD-ON PENDING | " +
+             DirectionText(g_activeSARDirection));
+
+   if(g_pendingRecoveryGapDirection != 0)
+      return("RECOVERY WAIT | " +
+             DirectionText(g_pendingRecoveryGapDirection));
+
+   if(g_entryDiagBlockedCount > 0)
+      return("NORMAL SAR WAIT | " +
+             StringSubstr(g_entryDiagPrimaryBlock,0,27));
+
+   return("NORMAL SAR " +
+          DirectionText(g_activeSARDirection) +
+          " | READY");
+  }
+
+//+------------------------------------------------------------------+
+string CompactPullbackStateText(int direction)
+  {
+   if(!InpUseSARContinuationAddOns ||
+      !InpUsePullbackContinuationOrders)
+      return("OFF");
+
+   bool armed = direction > 0
+                ? g_buyPullbackContinuationArmed
+                : g_sellPullbackContinuationArmed;
+
+   double raw = direction > 0
+                ? g_buyPullbackContinuationRaw
+                : g_sellPullbackContinuationRaw;
+
+   if(armed)
+      return("ARMED " +
+             DirectionText(direction) +
+             " | " +
+             DoubleToString(raw,1) +
+             " RAW");
+
+   return("WAIT | " +
+          DirectionText(direction));
+  }
+
+//+------------------------------------------------------------------+
+string CompactOpenOrderCountText()
+  {
+   int buyMarket  = CompactCountMarketOrders(1);
+   int sellMarket = CompactCountMarketOrders(-1);
+   int buyPending = CompactCountPendingOrders(1);
+   int sellPending= CompactCountPendingOrders(-1);
+
+   return("MKT B" + IntegerToString(buyMarket) +
+          "/S" + IntegerToString(sellMarket) +
+          " | PEND B" + IntegerToString(buyPending) +
+          "/S" + IntegerToString(sellPending));
+  }
+
+//+------------------------------------------------------------------+
+string CompactActiveCapText()
+  {
+   string totalCap = InpMaxTotalOpenOrders > 0
+                     ? IntegerToString(InpMaxTotalOpenOrders)
+                     : "UNLIMITED";
+
+   return("SIDE " + IntegerToString(InpMaxOrders) +
+          " | TOTAL " + totalCap +
+          " | GAP " +
+          DoubleToString(InpMinimumSameDirectionOrderGapRaw,0));
+  }
+
+//+------------------------------------------------------------------+
+string CompactHardLockText()
+  {
+   string hours =
+      IsDubaiNoNewOrderHourNow()
+      ? "DXB BLOCK"
+      : "DXB PASS";
+
+   string streak =
+      IsConsecutiveSLPauseActive()
+      ? "SL-STREAK BLOCK"
+      : "SL-STREAK PASS";
+
+   return(hours + " | " + streak);
+  }
+
+//+------------------------------------------------------------------+
+void CompactDashRow(string title,
+                    string value,
+                    color textColor=clrWhite)
+  {
+   string rowName =
+      "DXB_COMPACT_ROW_" +
+      IntegerToString(g_compactDashRow);
+
+   string rowText =
+      PadTitle(title,18) +
+      " : " +
+      StringSubstr(value,0,48);
+
+   DrawCornerLabel(rowName,
+                   rowText,
+                   CORNER_RIGHT_UPPER,
+                   10,
+                   44+(g_compactDashRow*15),
+                   textColor,
+                   8);
+
+   g_compactDashRow++;
+  }
+
+//+------------------------------------------------------------------+
+void CompactXYRow(string prefix,
+                  int &row,
+                  int x,
+                  int startY,
+                  string title,
+                  string value,
+                  color textColor=clrWhite,
+                  int valueChars=42)
+  {
+   string objectName = prefix + IntegerToString(row);
+   string rowText = PadTitle(title,15) + " : " +
+                    StringSubstr(value,0,valueChars);
+
+   DrawCornerLabel(objectName,
+                   rowText,
+                   CORNER_LEFT_UPPER,
+                   x,
+                   startY+(row*15),
+                   textColor,
+                   8);
+   row++;
+  }
+
+//+------------------------------------------------------------------+
+double CompactEquityChangePercent()
+  {
+   if(g_baseBalance <= 0.0)
+      return(0.0);
+
+   return(((AccountEquity()-g_baseBalance)/g_baseBalance)*100.0);
+  }
+
+//+------------------------------------------------------------------+
+string CompactNormalGateSummary()
+  {
+   if(g_entryDiagBlockedCount > 0)
+      return("BLOCK | " + StringSubstr(g_entryDiagPrimaryBlock,0,35));
+
+   return("READY | " + DirectionText(g_activeSARDirection));
+  }
+
+//+------------------------------------------------------------------+
+string CompactRecoverySummary()
+  {
+   if(!InpUseRecoveryGapOrders && !InpOpenRecoveryAfterClose)
+      return("OFF");
+
+   if(g_pendingRecoveryGapDirection != 0)
+      return("WAIT " + DirectionText(g_pendingRecoveryGapDirection) +
+             " | " + StringSubstr(g_pendingRecoveryGapReason,0,24));
+
+   return("GAP " + DoubleToString(InpRecoveryGapRawPrice,0) +
+          " | B" + IntegerToString(CountRecoveryGapOrdersByDirection(1)) +
+          "/S" + IntegerToString(CountRecoveryGapOrdersByDirection(-1)) +
+          " | AFTER-SL " + OnOff(InpOpenRecoveryAfterClose));
+  }
+
+//+------------------------------------------------------------------+
+void DrawCompactDashboard(string status)
+  {
+   if(!g_compactDashboardLegacyCleared)
+      DeleteOldDashboardObjects();
+
+   int chartWidth = (int)ChartGetInteger(0,CHART_WIDTH_IN_PIXELS,0);
+   if(chartWidth < 1000)
+      chartWidth = 1000;
+
+   int margin  = 8;
+   int sideW   = 300;
+   int centerW = 760;
+
+   if(chartWidth < 1500)
+     {
+      sideW = MathMax(330,(chartWidth-36)/2);
+      centerW = MathMin(720,chartWidth-20);
+     }
+
+   int centerX = MathMax(margin,(chartWidth-centerW)/2);
+   int leftX   = margin;
+   int rightX  = MathMax(margin,chartWidth-sideW-margin);
+   int topY    = 8;
+   int sideY   = 126;
+
+   color titleColor = DashboardTradePermissionColor();
+   color gateColor  = CompactEntryGateColor();
+
+   // TOP CENTER: latest order creation/close/account state.
+   DrawCornerPanel("DXB_COMPACT_TOP_PANEL",
+                   CORNER_LEFT_UPPER,
+                   centerX,topY,centerW,108,
+                   clrBlack,titleColor);
+
+   DrawCornerLabel("DXB_COMPACT_TOP_TITLE",
+                   "DXB SAR v1.65 | LATEST ACTIONS | " +
+                   (IsTesting() ? "TEST" : "LIVE") +
+                   " | " + Symbol() +
+                   " | LOT " + DoubleToString(GetCurrentTradingLot(),2),
+                   CORNER_LEFT_UPPER,
+                   centerX+10,topY+7,
+                   titleColor,10);
+
+   int topRow=0;
+   CompactXYRow("DXB_COMPACT_TOP_ROW_",topRow,
+                centerX+10,topY+28,
+                "STATUS",status,titleColor,88);
+   CompactXYRow("DXB_COMPACT_TOP_ROW_",topRow,
+                centerX+10,topY+28,
+                "LAST OPEN",g_lastOrderOpenReason,clrLime,88);
+   CompactXYRow("DXB_COMPACT_TOP_ROW_",topRow,
+                centerX+10,topY+28,
+                "LAST CLOSE",g_lastOrderCloseMessage,clrAqua,88);
+   CompactXYRow("DXB_COMPACT_TOP_ROW_",topRow,
+                centerX+10,topY+28,
+                "NEXT ORDER",CompactNextOrderText(),gateColor,88);
+   CompactXYRow("DXB_COMPACT_TOP_ROW_",topRow,
+                centerX+10,topY+28,
+                "ACCOUNT NOW",
+                "$"+DoubleToString(AccountBalance(),2)+
+                " / EQ $"+DoubleToString(AccountEquity(),2)+
+                " / " + DoubleToString(CompactEquityChangePercent(),1)+"%",
+                AccountEquity()>=g_baseBalance ? clrLime : clrOrangeRed,88);
+
+   // LEFT: order-creation information only.
+   DrawCornerPanel("DXB_COMPACT_LEFT_PANEL",
+                   CORNER_LEFT_UPPER,
+                   leftX,sideY,sideW,330,
+                   clrBlack,gateColor);
+
+   DrawCornerLabel("DXB_COMPACT_LEFT_TITLE",
+                   "ORDER CREATION / LIVE GATES",
+                   CORNER_LEFT_UPPER,
+                   leftX+10,sideY+7,
+                   clrYellow,10);
+
+   int leftRow=0;
+   int leftChars=MathMax(34,(sideW-135)/7);
+   CompactXYRow("DXB_COMPACT_LEFT_ROW_",leftRow,leftX+10,sideY+28,
+                "ENTRY GATE",CompactEntryGateText(),gateColor,leftChars);
+   CompactXYRow("DXB_COMPACT_LEFT_ROW_",leftRow,leftX+10,sideY+28,
+                "NORMAL SAR",CompactNormalGateSummary(),gateColor,leftChars);
+   CompactXYRow("DXB_COMPACT_LEFT_ROW_",leftRow,leftX+10,sideY+28,
+                "SAR / SCORE",
+                DirectionText(g_activeSARDirection)+
+                " | "+IntegerToString(g_dynamicSARScore)+
+                " | AGE "+IntegerToString(GetSARSignalAgeMinutes())+"m"+
+                " | CYCLE "+IntegerToString(g_sarCycleOrdersCreated)+
+                "/"+IntegerToString(g_sarCycleMaxOrders),
+                DirectionColor(g_activeSARDirection),leftChars);
+   CompactXYRow("DXB_COMPACT_LEFT_ROW_",leftRow,leftX+10,sideY+28,
+                "MODE / MOVE",
+                g_autoMarketModeText+" | "+
+                DoubleToString(g_autoMarketMoveRaw,0)+" RAW | "+
+                (IsAutoMarketTradingPaused()?"BLOCK":"ALLOW"),
+                IsAutoMarketTradingPaused()?clrOrangeRed:MarketFlowModeColor(),leftChars);
+   CompactXYRow("DXB_COMPACT_LEFT_ROW_",leftRow,leftX+10,sideY+28,
+                "H1 / SPEED",
+                DirectionText(GetH1TrendDirection())+" / "+g_tickSpeedStatus,
+                clrAqua,leftChars);
+   CompactXYRow("DXB_COMPACT_LEFT_ROW_",leftRow,leftX+10,sideY+28,
+                "OPEN / PENDING",CompactOpenOrderCountText(),clrWhite,leftChars);
+   CompactXYRow("DXB_COMPACT_LEFT_ROW_",leftRow,leftX+10,sideY+28,
+                "CAP / GAP",CompactActiveCapText(),clrAqua,leftChars);
+   CompactXYRow("DXB_COMPACT_LEFT_ROW_",leftRow,leftX+10,sideY+28,
+                "GOOD-FIRST",g_goodMarketContinuationStatus,
+                g_goodMarketContinuationPending?clrLime:clrSilver,leftChars);
+   CompactXYRow("DXB_COMPACT_LEFT_ROW_",leftRow,leftX+10,sideY+28,
+                "PYRAMID",
+                "B"+IntegerToString(CountSARContinuationOrdersCreated(1,"SAR_PYRAMID"))+
+                "/S"+IntegerToString(CountSARContinuationOrdersCreated(-1,"SAR_PYRAMID"))+
+                " | PROFIT $"+
+                DoubleToString(ScaleTradeMoneyByCurrentLot(InpPyramidMinimumBasketProfitUSD),2),
+                InpUseProfitPyramidOrders?clrLime:clrSilver,leftChars);
+   CompactXYRow("DXB_COMPACT_LEFT_ROW_",leftRow,leftX+10,sideY+28,
+                "PULLBACK",
+                CompactPullbackStateText(g_activeSARDirection),
+                InpUsePullbackContinuationOrders?clrLime:clrSilver,leftChars);
+   CompactXYRow("DXB_COMPACT_LEFT_ROW_",leftRow,leftX+10,sideY+28,
+                "BREAKOUT / BIG",
+                "B"+IntegerToString(CountSARContinuationOrdersCreated(1,"SAR_BREAKOUT"))+
+                "/S"+IntegerToString(CountSARContinuationOrdersCreated(-1,"SAR_BREAKOUT"))+
+                " | "+BigCandleExactStatusText(g_activeSARDirection),
+                InpUseBreakoutContinuationOrders?clrLime:clrSilver,leftChars);
+   CompactXYRow("DXB_COMPACT_LEFT_ROW_",leftRow,leftX+10,sideY+28,
+                "PRE-SAR",
+                InpUsePreSARReversalSuspectEntry?"ON | REVERSE SUSPECT":"OFF",
+                InpUsePreSARReversalSuspectEntry?clrMagenta:clrSilver,leftChars);
+   CompactXYRow("DXB_COMPACT_LEFT_ROW_",leftRow,leftX+10,sideY+28,
+                "IMPULSE",OppositeImpulseStatusText(),
+                IsOppositeImpulseContinuationBusy()?clrMagenta:clrSilver,leftChars);
+   CompactXYRow("DXB_COMPACT_LEFT_ROW_",leftRow,leftX+10,sideY+28,
+                "RECOVERY",CompactRecoverySummary(),
+                InpUseRecoveryGapOrders?clrAqua:clrSilver,leftChars);
+   CompactXYRow("DXB_COMPACT_LEFT_ROW_",leftRow,leftX+10,sideY+28,
+                "HARD LOCKS",CompactHardLockText(),
+                IsNewOrderHardPauseActive()?clrOrangeRed:clrLime,leftChars);
+   CompactXYRow("DXB_COMPACT_LEFT_ROW_",leftRow,leftX+10,sideY+28,
+                "ENTRY COVERAGE",CompactEntryCoverageText(),clrYellow,leftChars);
+
+   // RIGHT: account, dynamic lot, targets and risk.
+   DrawCornerPanel("DXB_COMPACT_RIGHT_PANEL",
+                   CORNER_LEFT_UPPER,
+                   rightX,sideY,sideW,330,
+                   clrBlack,clrDimGray);
+
+   DrawCornerLabel("DXB_COMPACT_RIGHT_TITLE",
+                   "ACCOUNT / DYNAMIC LOT / RISK",
+                   CORNER_LEFT_UPPER,
+                   rightX+10,sideY+7,
+                   clrYellow,10);
+
+   int rightRow=0;
+   int rightChars=MathMax(34,(sideW-135)/7);
+   CompactXYRow("DXB_COMPACT_RIGHT_ROW_",rightRow,rightX+10,sideY+28,
+                "BAL / EQUITY",
+                "$"+DoubleToString(AccountBalance(),2)+
+                " / $"+DoubleToString(AccountEquity(),2),
+                AccountEquity()>=g_baseBalance?clrLime:clrOrangeRed,rightChars);
+   CompactXYRow("DXB_COMPACT_RIGHT_ROW_",rightRow,rightX+10,sideY+28,
+                "OPENING BASE","$"+DoubleToString(g_baseBalance,2),clrWhite,rightChars);
+   CompactXYRow("DXB_COMPACT_RIGHT_ROW_",rightRow,rightX+10,sideY+28,
+                "PROFIT +10%","$"+DoubleToString(g_profitTargetEquity,2),clrLime,rightChars);
+   CompactXYRow("DXB_COMPACT_RIGHT_ROW_",rightRow,rightX+10,sideY+28,
+                "LOSS -20%","$"+DoubleToString(g_lossStopEquityLevel,2),clrRed,rightChars);
+   CompactXYRow("DXB_COMPACT_RIGHT_ROW_",rightRow,rightX+10,sideY+28,
+                "EQUITY CHANGE",DoubleToString(CompactEquityChangePercent(),2)+"%",
+                CompactEquityChangePercent()>=0?clrLime:clrOrangeRed,rightChars);
+   CompactXYRow("DXB_COMPACT_RIGHT_ROW_",rightRow,rightX+10,sideY+28,
+                "DYNAMIC LOT",DynamicLotStatusText(),clrAqua,rightChars);
+   CompactXYRow("DXB_COMPACT_RIGHT_ROW_",rightRow,rightX+10,sideY+28,
+                "LOT FORMULA",
+                "$"+DoubleToString(InpDynamicLotBalanceStepUSD,0)+
+                " = "+DoubleToString(InpDynamicLotPerBalanceStep,2)+
+                " | MONEY X"+DoubleToString(GetDynamicLotMoneyMultiplier(),2),
+                clrAqua,rightChars);
+   CompactXYRow("DXB_COMPACT_RIGHT_ROW_",rightRow,rightX+10,sideY+28,
+                "FLOAT B/S/T",
+                "$"+DoubleToString(GetBasketProfit(1),2)+
+                " / $"+DoubleToString(GetBasketProfit(-1),2)+
+                " / $"+DoubleToString(GetAllOpenEAOrdersProfit(),2),
+                GetAllOpenEAOrdersProfit()>=0?clrLime:clrRed,rightChars);
+   CompactXYRow("DXB_COMPACT_RIGHT_ROW_",rightRow,rightX+10,sideY+28,
+                "BASKET TP",
+                "$"+DoubleToString(GetBasketProfitTargetUSD(),2)+
+                " | LADDER BASE $"+
+                DoubleToString(GetDynamicBasketProfitBaseUSD(),2),
+                clrLime,rightChars);
+   CompactXYRow("DXB_COMPACT_RIGHT_ROW_",rightRow,rightX+10,sideY+28,
+                "AVG 10 M1",
+                DoubleToString(GetAverageClosedM1CandleHeightRaw(),1)+
+                " RAW | SL $"+
+                DoubleToString(GetAverageM1CandleBasketStopLossUSD(),2),
+                clrAqua,rightChars);
+   CompactXYRow("DXB_COMPACT_RIGHT_ROW_",rightRow,rightX+10,sideY+28,
+                "BASKET SL",
+                "BASE $"+DoubleToString(GetBaseEffectiveBasketStopLossUSD(),2)+
+                " | B $"+DoubleToString(g_buyTickSpeedLockedSL,2)+
+                " / S $"+DoubleToString(g_sellTickSpeedLockedSL,2),
+                clrRed,rightChars);
+   CompactXYRow("DXB_COMPACT_RIGHT_ROW_",rightRow,rightX+10,sideY+28,
+                "INITIAL SL",
+                "WITH SAR $"+
+                DoubleToString(ScaleTradeMoneyByCurrentLot(InpInitialServerSLWithSARUSD),2)+
+                " | REVERSE $"+
+                DoubleToString(ScaleTradeMoneyByCurrentLot(InpInitialServerSLAgainstSARUSD),2),
+                clrOrange,rightChars);
+   CompactXYRow("DXB_COMPACT_RIGHT_ROW_",rightRow,rightX+10,sideY+28,
+                "SERVER LOCK",
+                "B "+g_buyServerLockStatus+" | S "+g_sellServerLockStatus,
+                InpUseServerSideProfitLock?clrLime:clrSilver,rightChars);
+   CompactXYRow("DXB_COMPACT_RIGHT_ROW_",rightRow,rightX+10,sideY+28,
+                "EQUITY GUARD",EquityLockExactStatusText(),
+                (g_dailyProfitLock||g_equityProtectionHit)?clrOrangeRed:clrLime,rightChars);
+   CompactXYRow("DXB_COMPACT_RIGHT_ROW_",rightRow,rightX+10,sideY+28,
+                "NEXT RESET",FormatSecondsToHHMM(GetSecondsUntilNextEquityReset()),clrAqua,rightChars);
+   CompactXYRow("DXB_COMPACT_RIGHT_ROW_",rightRow,rightX+10,sideY+28,
+                "PERMISSION",DashboardTradePermissionText(),titleColor,rightChars);
+
+   ChartRedraw(0);
+  }
+
+
+//+------------------------------------------------------------------+
+void DrawLegacyDashboard(string status)
   {
    DrawTickSpeedDashboardPanel();
 
@@ -20553,7 +21229,7 @@ void DrawDashboard(string status)
                    13);
 
    DrawCornerLabel("DXB_RIGHT_SETTINGS_TITLE",
-                   liveModeText + " | VERSION 1.63",
+                   liveModeText + " | VERSION 1.64",
                    CORNER_RIGHT_UPPER,
                    300,287,
                    liveModeColor,
@@ -20582,10 +21258,10 @@ void DrawDashboard(string status)
                (IsAutoMarketTradingPaused() ? " | BLOCK" : " | ALLOW"),
                MarketFlowModeColor());
    RightProRow("--- TRADING ---","",clrDimGray);
-   RightProRow("Lot Size",DoubleToString(InpFixedLot,2),clrWhite);
+   RightProRow("Lot Size",DoubleToString(GetCurrentTradingLot(),2),clrWhite);
    RightProRow("Slippage",IntegerToString(InpSlippage),clrWhite);
    RightProRow("Spread Limit",IntegerToString((int)MarketInfo(Symbol(),MODE_SPREAD))+" / "+IntegerToString(InpMaxSpreadPoints),((int)MarketInfo(Symbol(),MODE_SPREAD)<=InpMaxSpreadPoints) ? clrLime : clrRed);
-   RightProRow("Basket TP Base","$"+DoubleToString(InpBasketProfitUSD,2),clrLime);
+   RightProRow("Basket TP Base","$"+DoubleToString(ScaleTradeMoneyByCurrentLot(InpBasketProfitUSD),2),clrLime);
    RightProRow("Dynamic Basket TP",
                InpUseDynamicBasketProfitBooking
                ? "ON | X LADDER + DD EXIT"
@@ -20595,7 +21271,7 @@ void DrawDashboard(string status)
                (InpUseDynamicBasketProfitBooking &&
                 InpUseDynamicBasketDrawdownComebackTP)
                ? "ON | -$" +
-               DoubleToString(InpDynamicBasketDrawdownStepUSD,2) +
+               DoubleToString(ScaleTradeMoneyByCurrentLot(InpDynamicBasketDrawdownStepUSD),2) +
                " STEPS"
                : "OFF",
                (InpUseDynamicBasketProfitBooking &&
@@ -20697,7 +21373,7 @@ void DrawDashboard(string status)
    RightProRow("Old Opposite TP",
                InpUseSARFlipOppositeBasketHalfTP
                ? "$"+DoubleToString(MathMax(0.01,
-                                    InpBasketProfitUSD * MathMax(0.0,
+                                    ScaleTradeMoneyByCurrentLot(InpBasketProfitUSD) * MathMax(0.0,
                                           MathMin(1.0, InpSARFlipOppositeBasketTPMultiplier))),2)
                : "OFF",
                InpUseSARFlipOppositeBasketHalfTP ? clrAqua : clrSilver);
@@ -20706,7 +21382,7 @@ void DrawDashboard(string status)
                ? IntegerToString(MathMax(1, InpBasketHalfTPAfterMinutes)) +
                "m -> $" +
                DoubleToString(MathMax(0.01,
-                                      InpBasketProfitUSD * MathMax(0.0,
+                                      ScaleTradeMoneyByCurrentLot(InpBasketProfitUSD) * MathMax(0.0,
                                             MathMin(1.0, InpBasketHalfTPAfterMinutesMultiplier))),2)
                : "OFF",
                InpUseBasketHalfTPAfterMinutes ? clrAqua : clrSilver);
@@ -20761,8 +21437,8 @@ void DrawDashboard(string status)
    RightProRow("Recovery Gap",DoubleToString(InpRecoveryGapRawPrice,0),clrAqua);
    RightProRow("Loss Comeback",
                InpUseRecoveryLossComebackTrigger
-               ? "-$" + DoubleToString(MathAbs(InpRecoveryLossArmUSD),2) +
-               " +$" + DoubleToString(MathAbs(InpRecoveryLossComebackUSD),2)
+               ? "-$" + DoubleToString(MathAbs(ScaleTradeMoneyByCurrentLot(InpRecoveryLossArmUSD)),2) +
+               " +$" + DoubleToString(MathAbs(ScaleTradeMoneyByCurrentLot(InpRecoveryLossComebackUSD)),2)
                : "OFF",
                InpUseRecoveryLossComebackTrigger ? clrAqua : clrSilver);
    RightProRow("BUY Loss State",
@@ -20771,7 +21447,7 @@ void DrawDashboard(string status)
    RightProRow("SELL Loss State",
                RecoveryLossComebackStatusText(-1),
                g_sellRecoveryLossComebackArmed ? clrYellow : clrSilver);
-   RightProRow("Recovery Lot",DoubleToString(InpRecoveryGapLot,2),clrAqua);
+   RightProRow("Recovery Lot",DoubleToString(GetCurrentRecoveryTradingLot(),2),clrAqua);
    RightProRow("Max Recovery",IntegerToString(InpMaxRecoveryGapOrdersPerSide),clrAqua);
    RightProRow("Opp Move Block",OnOff(InpStopRecoveryOnStrongOppMove)+" | "+DoubleToString(InpStrongOppMoveBlockRecoveryGap,0),clrYellow);
    RightProRow("Mode Recovery",IsAutoMarketRecoveryAllowed() ? "ALLOW" : "BLOCK",IsAutoMarketRecoveryAllowed() ? clrLime : clrRed);
@@ -20800,9 +21476,9 @@ void DrawDashboard(string status)
    RightProRow("SAR Weak Marker",OnOff(InpDrawSARWeakSignalMarker)+" | Violet",InpDrawSARWeakSignalMarker ? InpSARWeakSignalMarkerColor : clrSilver);
    RightProRow("Weak Basket Close",
                OnOff(InpUseConfirmedSARWeakBasketClose) +
-               " | Profit>=$" + DoubleToString(InpSARWeakMinProfitToClose,2) +
+               " | Profit>=$" + DoubleToString(ScaleTradeMoneyByCurrentLot(InpSARWeakMinProfitToClose),2) +
                " | Age " + IntegerToString(InpSARWeakBasketAgeMinutes) +
-               "m Loss<=$" + DoubleToString(InpSARWeakMaxSmallLossToCloseUSD,2),
+               "m Loss<=$" + DoubleToString(ScaleTradeMoneyByCurrentLot(InpSARWeakMaxSmallLossToCloseUSD),2),
                InpUseConfirmedSARWeakBasketClose ? clrLime : clrSilver);
    RightProRow("Spike Status",SpikeWickPauseStatusText(),IsSpikeWickPauseActive() ? clrOrangeRed : clrSilver);
    RightProRow("Global Trail",g_globalEquityTrailStatus,g_globalEquityTrailLocked ? clrOrangeRed : clrAqua);
@@ -20843,6 +21519,20 @@ void DrawDashboard(string status)
          " | Spike/Wick=", SpikeWickPauseStatusText(),
          " | EquityCycle=#", IntegerToString(g_equityCycleNumber),
          " | NextReset=", FormatSecondsToHHMM(GetSecondsUntilNextEquityReset()));
+  }
+
+
+//+------------------------------------------------------------------+
+void DrawDashboard(string status)
+  {
+   if(InpUseCompactDashboard)
+     {
+      DrawCompactDashboard(status);
+      return;
+     }
+
+   if(InpShowLegacyDashboardWhenCompactOff)
+      DrawLegacyDashboard(status);
   }
 
 //tested
