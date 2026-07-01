@@ -20,13 +20,13 @@ MARKET_MODE g_marketMode = MODE_RANGE;
 #ifndef OP_BALANCE
 #define OP_BALANCE 6
 #endif
-#property version   "1.56"
+#property version   "1.60"
 
 //======================== INPUTS ====================================
 string InpEAName                  = "DXB Version 5 - SAR Confirm 50 in 5 Min";
 int    InpMagicNumber             = 989899;
 double InpFixedLot                = 0.01;
-int    InpMaxOrders               = 1;     // maximum OPEN orders PER TYPE: BUY limit and SELL limit are independent
+int    InpMaxOrders               = 3;     // per-side entry cap: 1 base SAR order + up to 2 continuation add-ons
 double InpMinGapWhenMaxOrdersMoreThanOne = 100.0; // when InpMaxOrders > 1, enforce at least this raw price gap between same-direction open orders
 
 #define DXB_HARD_MAX_OPEN_ORDERS 6  // absolute safety cap for normal SAR orders per cycle
@@ -343,6 +343,16 @@ int    InpStopLossPoints          = 0;       // 0 = no hard SL
 int    InpSlippage                = 30;
 int    InpMaxSpreadPoints         = 3000;
 
+//================ INITIAL SERVER-SIDE ORDER SL =====================
+// Optional broker-side SL added immediately after every EA order is created.
+// The USD amount is PER ORDER, not per BUY/SELL basket.
+// Example: three 0.01 orders with $0.10 each can lose about $0.30 total,
+// plus commission, spread, slippage and broker stop-level adjustment.
+bool   InpUseInitialServerSideOrderSL = true;
+double InpInitialServerSideOrderSLUSD = 0.10;
+bool   InpInitialServerSLForPending   = true;
+int    InpInitialServerSLRetrySeconds = 3;
+
 // Daily equity protection / profit lock
 // Example: Balance=$100 -> Protected=$50, TradingCapital=$50, ProfitTarget=$25.
 // When target is reached, EA closes its orders and pauses until next day.
@@ -384,6 +394,24 @@ bool   InpOneOrderPerBar          = true;
 int    InpOrderCooldownSeconds    = 0;       // 0 = disabled
 double InpMinPriceGap             = 0.00;    // raw price gap, 0 = disabled
 
+//================ CENTRAL SAME-DIRECTION ORDER GAP SAFETY ==========
+// Prevents several BUY STOP or SELL STOP orders from activating together at
+// nearly the same price. The rule applies to normal SAR, impulse, pyramid,
+// pullback, breakout, good-market and recovery entry paths.
+//
+// 1) Only one untriggered pending order is allowed per BUY/SELL direction.
+// 2) A new same-direction entry must be at least the configured RAW-price gap
+//    from every existing same-direction market/pending entry.
+// 3) After one pending activates, any remaining same-direction pending order
+//    inside the gap is deleted immediately.
+// 4) If broker execution/slippage still creates two live orders inside the
+//    gap, the newer live order is closed as an emergency duplicate guard.
+bool   InpUseCentralOrderGapSafety                 = true;
+double InpMinimumSameDirectionOrderGapRaw          = 50.0;
+bool   InpOnlyOnePendingOrderPerDirection          = true;
+bool   InpDeletePendingTooCloseAfterActivation     = true;
+bool   InpCloseNewerLiveOrderIfGapViolated         = true;
+
 //================ LIVE TICK-SPEED DASHBOARD ========================
 // Display-only adaptive market-speed monitor. It does not block or create orders.
 // It combines:
@@ -411,11 +439,11 @@ double InpTickSpeedBaselineSmoothing       = 0.15;
 // side until the complete side basket closes. It can never widen later because
 // of either a tick-speed change or a market-mode change while already open.
 bool   InpUseTickSpeedAdaptiveBasketSL       = true;
-double InpTickSpeedSlowSLMultiplier          = 1.00; // base $0.50 -> $0.50
-double InpTickSpeedNormalSLMultiplier        = 1.50; // base $0.50 -> $0.75
-double InpTickSpeedFastSLMultiplier          = 2.00; // base $0.50 -> $1.00
-double InpTickSpeedDangerSLMultiplier        = 3.00; // base $0.50 -> $1.50
-double InpTickSpeedWarmupSLMultiplier        = 1.50; // conservative fallback
+double InpTickSpeedSlowSLMultiplier          = 1.25; // slower market may use slightly wider base SL
+double InpTickSpeedNormalSLMultiplier        = 1.00; // normal market uses the selected mode base SL
+double InpTickSpeedFastSLMultiplier          = 0.75; // fast market reduces risk instead of widening SL
+double InpTickSpeedDangerSLMultiplier        = 0.50; // danger market uses the smallest adaptive SL
+double InpTickSpeedWarmupSLMultiplier        = 1.00; // neutral fallback until speed engine is ready
 double InpTickSpeedAdaptiveSLMaxUSD          = 0.00; // 0 = unlimited safety cap
 
 //================ LIVE OPPOSITE-CANDLE TIGHT SL ====================
@@ -482,6 +510,58 @@ int    InpPreSARSuspectMaximumSARScore         = 4;    // weak/late SAR suspicio
 bool   InpPreSARSuspectRequireOldSideNotProfit = true; // old basket P/L must be <= threshold
 double InpPreSARSuspectMaxOldSideProfitUSD     = 0.05;
 
+//================ SAR TREND CONTINUATION ADD-ONS ====================
+// Mirrored for BUY and SELL. These are separate from recovery:
+//   BUY SAR + profitable BUY basket  -> BUY continuation pending orders.
+//   SELL SAR + profitable SELL basket -> SELL continuation pending orders.
+// Only one continuation pending order is allowed per direction at a time.
+// The default per-side cap is 3 total entries: one base order plus two add-ons.
+bool   InpUseSARContinuationAddOns             = true;
+int    InpMaxSARContinuationOrdersPerSide      = 2;
+int    InpSARContinuationPendingExpiryBars     = 2;
+bool   InpSARContinuationOneOrderPerM1Bar      = true;
+bool   InpSARContinuationRequireNotSlow        = true;
+double InpSARContinuationRenewedBodyPercent    = 60.0;
+double InpSARContinuationRenewedRangeAvgRatio  = 1.00;
+
+// 1) PROFIT PYRAMID:
+// Add in the existing SAR direction only when that side basket is already
+// profitable, price has travelled farther in profit from the latest entry,
+// and the live M1 candle creates a fresh trend extreme.
+bool   InpUseProfitPyramidOrders               = true;
+int    InpMaxProfitPyramidOrdersPerSide        = 2;
+double InpPyramidMinimumBasketProfitUSD        = 0.10;
+double InpPyramidRawGapFromLatestEntry         = 50.0;
+double InpPyramidPendingGapRaw                 = 10.0;
+double InpPyramidMinimumBodyPercent            = 50.0;
+int    InpPyramidMinimumSARScore               = 4;
+
+// 2) PULLBACK CONTINUATION:
+// Remember a 30-80 raw pullback from the best live price, then wait for a
+// new M1 candle to resume in the SAR direction before placing the STOP order.
+bool   InpUsePullbackContinuationOrders        = true;
+int    InpMaxPullbackContinuationOrdersPerSide = 1;
+double InpPullbackContinuationMinimumProfitUSD = 0.05;
+double InpPullbackContinuationMinRaw           = 30.0;
+double InpPullbackContinuationMaxRaw           = 80.0;
+double InpPullbackContinuationBreakRaw         = 5.0;
+double InpPullbackContinuationPendingGapRaw    = 10.0;
+double InpPullbackContinuationMinBodyPercent   = 45.0;
+int    InpPullbackContinuationMinSARScore      = 3;
+
+// 3) BREAKOUT CONTINUATION:
+// A strong closed M1 candle in the SAR direction followed by a fresh break of
+// its high/low can create another same-direction pending STOP.
+bool   InpUseBreakoutContinuationOrders        = true;
+int    InpMaxBreakoutContinuationOrdersPerSide = 2;
+double InpBreakoutMinimumBasketProfitUSD       = 0.10;
+double InpBreakoutTriggerRaw                   = 10.0;
+double InpBreakoutPendingGapRaw                = 10.0;
+double InpBreakoutMinimumBodyPercent           = 60.0;
+double InpBreakoutMaximumExitWickPercent       = 25.0;
+int    InpBreakoutMinimumSARScore              = 4;
+bool   InpBreakoutRequireFastTickSpeed         = true;
+
 //================ PENDING ORDER ENTRY MODE ==========================
 // Every approved BUY entry is placed as a BUYSTOP and every approved SELL
 // entry is placed as a SELLSTOP. The pending price is at least this RAW-price
@@ -511,7 +591,19 @@ int    InpGoodMarketPendingRetrySeconds           = 3;
 // Existing market-order close/profit/protection management continues.
 // TimeGMT()+4 is used, so broker-server, VPS and VPN time zones do not affect this rule.
 bool   InpUseNoNewOrderHours      = true;
-string InpNoNewOrderHourList      = "11,12,13,14,15,16,17,18,19,20,21,22"; // Dubai-time hours
+// Observed high-risk live session: block every NEW order from 16:00 through
+// 22:59 Dubai time. Existing market orders continue TP/SL management.
+// Every untriggered EA pending order is deleted while this lock is active.
+string InpNoNewOrderHourList      = "16,17,18,19,20,21,22";
+
+// Consecutive basket-stop protection:
+// Two basket SL events without an intervening profitable basket close pause
+// every new entry path for 120 minutes. Existing market orders remain managed.
+bool   InpUseConsecutiveSLPause       = true;
+int    InpConsecutiveSLPauseCount     = 2;
+int    InpConsecutiveSLPauseMinutes   = 120;
+bool   InpDeletePendingOnSLPause      = true;
+bool   InpResetSLStreakOnProfitClose  = true;
 
 
 
@@ -846,6 +938,7 @@ bool     g_sarPausedByEarly     = false;   // true when early reverse fights SAR
 bool     g_firstSARLocked       = false;
 datetime g_lastBarTime          = 0;
 datetime g_lastOrderTime        = 0;
+datetime g_lastInitialServerSLScanTime = 0;
 // Latest normal pending ticket that has become an active BUY/SELL market order.
 // Used to start delayed-SAR-close tracking only after actual execution.
 int      g_lastActivatedPendingMarketTicket = -1;
@@ -943,6 +1036,27 @@ double   g_oppositeImpulseExitWickPercent      = 0.0;
 int      g_oppositeImpulsePendingTicket        = -1;
 bool     g_oppositeImpulsePreSAROverride       = false;
 string   g_oppositeImpulseStatus               = "WAIT IMPULSE";
+
+// Consecutive basket-stop pause state. Persisted in terminal Global Variables
+// so restarting MT4/VPS cannot immediately bypass an active safety pause.
+int      g_consecutiveBasketSLCount          = 0;
+datetime g_consecutiveBasketSLPauseUntil     = 0;
+datetime g_lastConsecutiveSLRegisterTime     = 0;
+int      g_lastConsecutiveSLRegisterDirection = 0;
+string   g_consecutiveSLPauseStatus          = "READY | SL 0/2";
+
+// SAR same-direction continuation add-on runtime state.
+string   g_sarContinuationStatus              = "WAIT SAR ADD-ON";
+datetime g_lastSARContinuationBuyBarTime      = 0;
+datetime g_lastSARContinuationSellBarTime     = 0;
+double   g_buySARContinuationExtreme          = 0.0;
+double   g_sellSARContinuationExtreme         = 0.0;
+bool     g_buyPullbackContinuationArmed       = false;
+bool     g_sellPullbackContinuationArmed      = false;
+datetime g_buyPullbackContinuationArmBarTime  = 0;
+datetime g_sellPullbackContinuationArmBarTime = 0;
+double   g_buyPullbackContinuationRaw         = 0.0;
+double   g_sellPullbackContinuationRaw        = 0.0;
 
 
 // Number of profitable NORMAL SAR orders closed in the current SAR signal cycle.
@@ -4233,7 +4347,7 @@ bool TryQueuePreSARReversalSuspectEntry()
      }
 
    // Hard safety gates remain active.
-   if(IsDubaiNoNewOrderHourNow() ||
+   if(IsNewOrderHardPauseActive() ||
       g_dailyProfitLock || g_equityProtectionHit ||
       g_globalEquityTrailLocked || !IsTradingAllowedNow())
      {
@@ -4575,9 +4689,9 @@ bool ProcessOppositeImpulseContinuation()
       return(false);
      }
 
-   if(IsDubaiNoNewOrderHourNow())
+   if(IsNewOrderHardPauseActive())
      {
-      ClearOppositeImpulseRequest("REQUEST CANCELLED | DUBAI NO-NEW HOUR");
+      ClearOppositeImpulseRequest("REQUEST CANCELLED | " + GetNewOrderHardPauseReasonText());
       return(false);
      }
 
@@ -4646,6 +4760,15 @@ bool ProcessOppositeImpulseContinuation()
          g_sarCycleMaxOrders = g_sarCycleOrdersCreated + 1;
      }
 
+   if(!IsSameDirectionEntryGapAllowed(direction,
+                                             price,
+                                             true,
+                                             "OPPOSITE IMPULSE"))
+     {
+      g_oppositeImpulseStatus = "WAIT ORDER GAP / PENDING SLOT";
+      return(false);
+     }
+
    ResetLastError();
    int ticket = OrderSend(Symbol(),
                           type,
@@ -4683,6 +4806,7 @@ bool ProcessOppositeImpulseContinuation()
    g_oppositeImpulseRequestPending = false;
    g_oppositeImpulseStatus = "PENDING ACTIVE #"+
                              IntegerToString(ticket);
+   ApplyInitialServerSideSLToTicket(ticket);
    g_lastOrderTime = TimeCurrent();
    g_lastConfirmedOrderPrice = price;
    g_lastConfirmedOrderTime = TimeCurrent();
@@ -4718,6 +4842,1279 @@ bool ProcessOppositeImpulseContinuation()
    return(true);
   }
 
+
+//+------------------------------------------------------------------+
+//| SAR SAME-DIRECTION CONTINUATION ADD-ON ENGINE                    |
+//+------------------------------------------------------------------+
+bool IsSARContinuationOrderComment(string commentText)
+  {
+   return(StringFind(commentText,"SAR_PYRAMID",0) >= 0 ||
+          StringFind(commentText,"SAR_PULLBACK",0) >= 0 ||
+          StringFind(commentText,"SAR_BREAKOUT",0) >= 0);
+  }
+
+//+------------------------------------------------------------------+
+bool IsSARContinuationMarker(string commentText,string marker)
+  {
+   if(!IsSARContinuationOrderComment(commentText))
+      return(false);
+
+   if(marker == "")
+      return(true);
+
+   return(StringFind(commentText,marker,0) >= 0);
+  }
+
+//+------------------------------------------------------------------+
+int CountSARContinuationOrdersCreated(int direction,string marker)
+  {
+   int count = 0;
+   datetime cycleStart = 0;
+
+   if(g_sarCycleDirection == direction)
+      cycleStart = g_sarCycleStartTime;
+
+   for(int i=OrdersTotal()-1;i>=0;i--)
+     {
+      if(!OrderSelect(i,SELECT_BY_POS,MODE_TRADES))
+         continue;
+      if(OrderSymbol()!=Symbol() || OrderMagicNumber()!=InpMagicNumber)
+         continue;
+      if(!IsOrderTypeForDirection(OrderType(),direction,true))
+         continue;
+      if(!IsSARContinuationMarker(OrderComment(),marker))
+         continue;
+      if(cycleStart > 0 && OrderOpenTime() < cycleStart)
+         continue;
+
+      count++;
+     }
+
+   // Count only activated BUY/SELL history. Deleted/expired pending orders do
+   // not consume the cycle allowance, so a later valid setup can try again.
+   for(int h=OrdersHistoryTotal()-1;h>=0;h--)
+     {
+      if(!OrderSelect(h,SELECT_BY_POS,MODE_HISTORY))
+         continue;
+      if(OrderSymbol()!=Symbol() || OrderMagicNumber()!=InpMagicNumber)
+         continue;
+
+      int type = OrderType();
+      if(direction > 0 && type != OP_BUY)
+         continue;
+      if(direction < 0 && type != OP_SELL)
+         continue;
+      if(!IsSARContinuationMarker(OrderComment(),marker))
+         continue;
+      if(cycleStart > 0 && OrderOpenTime() < cycleStart)
+         continue;
+
+      count++;
+     }
+
+   return(count);
+  }
+
+//+------------------------------------------------------------------+
+bool HasSARContinuationPending(int direction)
+  {
+   for(int i=OrdersTotal()-1;i>=0;i--)
+     {
+      if(!OrderSelect(i,SELECT_BY_POS,MODE_TRADES))
+         continue;
+      if(OrderSymbol()!=Symbol() || OrderMagicNumber()!=InpMagicNumber)
+         continue;
+      if(!IsPendingOrderType(OrderType()))
+         continue;
+      if(!IsOrderTypeForDirection(OrderType(),direction,true))
+         continue;
+      if(IsSARContinuationOrderComment(OrderComment()))
+         return(true);
+     }
+
+   return(false);
+  }
+
+//+------------------------------------------------------------------+
+double GetLatestSARDirectionMarketEntryPrice(int direction)
+  {
+   double result = 0.0;
+   datetime latestTime = 0;
+   int requiredType = direction > 0 ? OP_BUY : OP_SELL;
+
+   for(int i=OrdersTotal()-1;i>=0;i--)
+     {
+      if(!OrderSelect(i,SELECT_BY_POS,MODE_TRADES))
+         continue;
+      if(OrderSymbol()!=Symbol() || OrderMagicNumber()!=InpMagicNumber)
+         continue;
+      if(OrderType()!=requiredType)
+         continue;
+      if(IsSARGuardOrderComment(OrderComment()))
+         continue;
+
+      if(OrderOpenTime() >= latestTime)
+        {
+         latestTime = OrderOpenTime();
+         result = OrderOpenPrice();
+        }
+     }
+
+   return(result);
+  }
+
+//+------------------------------------------------------------------+
+bool GetSARContinuationM1Stats(int shift,
+                               int direction,
+                               int &candleDirection,
+                               double &rangeRaw,
+                               double &bodyPercent,
+                               double &exitWickPercent)
+  {
+   candleDirection = 0;
+   rangeRaw = 0.0;
+   bodyPercent = 0.0;
+   exitWickPercent = 0.0;
+
+   if(iBars(Symbol(),PERIOD_M1) <= shift+2)
+      return(false);
+
+   double o = iOpen(Symbol(),PERIOD_M1,shift);
+   double c = iClose(Symbol(),PERIOD_M1,shift);
+   double h = iHigh(Symbol(),PERIOD_M1,shift);
+   double l = iLow(Symbol(),PERIOD_M1,shift);
+
+   rangeRaw = MathMax(0.0,h-l);
+   if(rangeRaw <= 0.0)
+      return(false);
+
+   if(c > o)
+      candleDirection = 1;
+   else
+   if(c < o)
+      candleDirection = -1;
+
+   double body = MathAbs(c-o);
+   bodyPercent = body/rangeRaw*100.0;
+
+   double exitWick = 0.0;
+   if(direction > 0)
+      exitWick = MathMax(0.0,h-MathMax(o,c));
+   else
+      exitWick = MathMax(0.0,MathMin(o,c)-l);
+
+   exitWickPercent = exitWick/rangeRaw*100.0;
+   return(true);
+  }
+
+//+------------------------------------------------------------------+
+bool IsSARContinuationTickSpeedAllowed(bool requireFast)
+  {
+   if(requireFast)
+      return(g_tickSpeedStatus == "FAST" ||
+             g_tickSpeedStatus == "DANGER");
+
+   if(!InpSARContinuationRequireNotSlow)
+      return(true);
+
+   return(g_tickSpeedStatus == "NORMAL" ||
+          g_tickSpeedStatus == "FAST" ||
+          g_tickSpeedStatus == "DANGER");
+  }
+
+//+------------------------------------------------------------------+
+bool IsSARContinuationRenewedMomentumStrong(int direction,
+                                            int minimumSARScore)
+  {
+   int candleDirection = 0;
+   double rangeRaw = 0.0;
+   double bodyPercent = 0.0;
+   double exitWickPercent = 0.0;
+
+   if(!GetSARContinuationM1Stats(0,direction,candleDirection,
+                                 rangeRaw,bodyPercent,exitWickPercent))
+      return(false);
+
+   double averageRange = g_tickSpeedAvgCandleRange;
+   if(averageRange <= 0.0)
+      averageRange = GetTickSpeedAverageClosedCandleRange();
+
+   if(candleDirection != direction)
+      return(false);
+
+   if(bodyPercent + 0.0001 <
+      MathMax(0.0,InpSARContinuationRenewedBodyPercent))
+      return(false);
+
+   if(averageRange > 0.0 &&
+      rangeRaw + Point*0.1 <
+      averageRange*MathMax(0.0,InpSARContinuationRenewedRangeAvgRatio))
+      return(false);
+
+   if(g_tickSpeedStatus != "FAST" &&
+      g_tickSpeedStatus != "DANGER")
+      return(false);
+
+   if(g_dynamicSARScore < minimumSARScore)
+      return(false);
+
+   return(true);
+  }
+
+//+------------------------------------------------------------------+
+bool IsSARContinuationCommonSafetyReady(int direction,
+                                        string strategy,
+                                        int minimumSARScore)
+  {
+   if(direction != 1 && direction != -1)
+      return(false);
+
+   if(GetSARDotDirection(0) != direction ||
+      g_activeSARDirection != direction)
+     {
+      g_sarContinuationStatus =
+         strategy + " WAIT | SAR " +
+         DirectionText(GetSARDotDirection(0)) +
+         " / Active " + DirectionText(g_activeSARDirection);
+      return(false);
+     }
+
+   if(CountOrdersByDirection(direction) <= 0)
+     {
+      g_sarContinuationStatus =
+         strategy + " WAIT | NO LIVE " + DirectionText(direction);
+      return(false);
+     }
+
+   if(IsNewOrderHardPauseActive())
+     {
+      g_sarContinuationStatus = strategy + " BLOCK | " + GetNewOrderHardPauseReasonText();
+      return(false);
+     }
+
+   if(g_dailyProfitLock ||
+      g_equityProtectionHit ||
+      g_globalEquityTrailLocked)
+     {
+      g_sarContinuationStatus = strategy + " BLOCK | EQUITY/PROFIT LOCK";
+      return(false);
+     }
+
+   if(!IsTradingAllowedNow())
+     {
+      g_sarContinuationStatus = strategy + " WAIT | TRADING PERMISSION";
+      return(false);
+     }
+
+   if(InpUseAutoMarketFlowMode && IsAutoMarketTradingPaused())
+     {
+      g_sarContinuationStatus =
+         strategy + " BLOCK | " + g_autoMarketModeText;
+      return(false);
+     }
+
+   int spread = (int)MarketInfo(Symbol(),MODE_SPREAD);
+   if(spread > InpMaxSpreadPoints)
+     {
+      g_sarContinuationStatus =
+         strategy + " BLOCK | SPREAD " +
+         IntegerToString(spread) + "/" +
+         IntegerToString(InpMaxSpreadPoints);
+      return(false);
+     }
+
+   if(g_dynamicSARScore < minimumSARScore)
+     {
+      g_sarContinuationStatus =
+         strategy + " WAIT | SAR SCORE " +
+         IntegerToString(g_dynamicSARScore) + "/" +
+         IntegerToString(minimumSARScore);
+      return(false);
+     }
+
+   // Keep the weak-exit protection active. It is bypassed only after renewed
+   // live momentum is independently reconfirmed by range, body, speed and score.
+   if(g_earlySARWeakExitActive &&
+      !IsSARContinuationRenewedMomentumStrong(direction,minimumSARScore))
+     {
+      g_sarContinuationStatus =
+         strategy + " BLOCK | EARLY WEAK | " +
+         StringSubstr(g_earlySARWeakExitReason,0,28);
+      return(false);
+     }
+
+   if(EnforceBigCandleOrderBlock(
+         direction,"SAR_CONTINUATION_"+strategy))
+     {
+      g_sarContinuationStatus = strategy + " BLOCK | BIG CANDLE";
+      return(false);
+     }
+
+   if(EnforceSpikeWickOrderBlock(
+         "SAR_CONTINUATION_"+strategy,false,false))
+     {
+      g_sarContinuationStatus = strategy + " BLOCK | SPIKE/WICK";
+      return(false);
+     }
+
+   if(IsDirectionOrderCapReached(direction,
+                                 "SAR CONTINUATION "+strategy))
+     {
+      g_sarContinuationStatus =
+         strategy + " BLOCK | DIR CAP " +
+         IntegerToString(CountDirectionEntriesForCap(direction)) +
+         "/" + IntegerToString((int)MathMax(1,InpMaxOrders));
+      return(false);
+     }
+
+   if(IsTotalOpenOrderCapReached("SAR CONTINUATION "+strategy))
+     {
+      g_sarContinuationStatus = strategy + " BLOCK | TOTAL CAP";
+      return(false);
+     }
+
+   EnsureSARSignalOrderCycle(direction);
+
+   if(CountSARContinuationOrdersCreated(direction,"") >=
+      (int)MathMax(0,InpMaxSARContinuationOrdersPerSide))
+     {
+      g_sarContinuationStatus =
+         strategy + " BLOCK | ADD-ON MAX " +
+         IntegerToString(
+            CountSARContinuationOrdersCreated(direction,"")) +
+         "/" +
+         IntegerToString(
+            (int)MathMax(0,InpMaxSARContinuationOrdersPerSide));
+      return(false);
+     }
+
+   if(HasSARContinuationPending(direction))
+     {
+      g_sarContinuationStatus =
+         strategy + " WAIT | CONTINUATION PENDING EXISTS";
+      return(false);
+     }
+
+   datetime currentM1Bar = iTime(Symbol(),PERIOD_M1,0);
+   datetime lastBar = direction > 0
+                      ? g_lastSARContinuationBuyBarTime
+                      : g_lastSARContinuationSellBarTime;
+
+   if(InpSARContinuationOneOrderPerM1Bar &&
+      currentM1Bar > 0 && currentM1Bar == lastBar)
+     {
+      g_sarContinuationStatus =
+         strategy + " WAIT | ONE ADD-ON/M1";
+      return(false);
+     }
+
+   return(true);
+  }
+
+//+------------------------------------------------------------------+
+double GetEffectiveSARContinuationPendingGapRaw(double requestedGap)
+  {
+   double stopRaw = MarketInfo(Symbol(),MODE_STOPLEVEL)*Point;
+   double freezeRaw = MarketInfo(Symbol(),MODE_FREEZELEVEL)*Point;
+
+   return(MathMax(MathMax(0.0,requestedGap),
+                  MathMax(stopRaw,freezeRaw)+Point));
+  }
+
+//+------------------------------------------------------------------+
+bool PlaceSARContinuationPending(int direction,
+                                 string strategy,
+                                 double referencePrice,
+                                 double requestedGap)
+  {
+   if(direction != 1 && direction != -1)
+      return(false);
+
+   if(GetSARDotDirection(0) != direction ||
+      g_activeSARDirection != direction)
+     {
+      g_sarContinuationStatus =
+         strategy + " CANCEL | SAR CHANGED";
+      return(false);
+     }
+
+   if(IsNewOrderHardPauseActive() ||
+      g_dailyProfitLock ||
+      g_equityProtectionHit ||
+      g_globalEquityTrailLocked ||
+      !IsTradingAllowedNow())
+     {
+      g_sarContinuationStatus =
+         strategy + " BLOCK | FINAL HARD SAFETY";
+      return(false);
+     }
+
+   if(IsDirectionOrderCapReached(direction,
+                                 "SAR CONTINUATION FINAL "+strategy) ||
+      IsTotalOpenOrderCapReached(
+         "SAR CONTINUATION FINAL "+strategy))
+      return(false);
+
+   RefreshRates();
+
+   double gap = GetEffectiveSARContinuationPendingGapRaw(requestedGap);
+   double price = 0.0;
+   int type = direction > 0 ? OP_BUYSTOP : OP_SELLSTOP;
+
+   if(direction > 0)
+      price = NormalizeDouble(
+                 MathMax(referencePrice+gap,Ask+gap),
+                 Digits);
+   else
+      price = NormalizeDouble(
+                 MathMin(referencePrice-gap,Bid-gap),
+                 Digits);
+
+   double lot = NormalizeLot(InpFixedLot);
+   string reason = strategy + "_" + DirectionText(direction);
+   string orderComment = MakeSARParentOrderComment(reason);
+
+   EnsureSARSignalOrderCycle(direction);
+   if(g_sarCycleMaxOrders <= g_sarCycleOrdersCreated)
+      g_sarCycleMaxOrders = g_sarCycleOrdersCreated + 1;
+
+   if(!IsSameDirectionEntryGapAllowed(direction,
+                                             price,
+                                             true,
+                                             "SAR CONTINUATION " + strategy))
+     {
+      g_sarContinuationStatus =
+         strategy + " WAIT | ORDER GAP / PENDING SLOT";
+      return(false);
+     }
+
+   ResetLastError();
+   int ticket = OrderSend(Symbol(),
+                          type,
+                          lot,
+                          price,
+                          InpSlippage,
+                          0,
+                          0,
+                          orderComment,
+                          InpMagicNumber,
+                          0,
+                          GetOrderIconColorByComment(
+                             direction,orderComment));
+
+   if(ticket < 0)
+     {
+      int err = GetLastError();
+      g_sarContinuationStatus =
+         strategy + " ORDERSEND ERROR " +
+         IntegerToString(err);
+
+      Print("SAR CONTINUATION ORDER FAILED | Strategy=",
+            strategy,
+            " | Direction=",DirectionText(direction),
+            " | Price=",DoubleToString(price,Digits),
+            " | Gap=",DoubleToString(gap,1),
+            " | Error=",err);
+      ResetLastError();
+      return(false);
+     }
+
+   ApplyInitialServerSideSLToTicket(ticket);
+   g_lastOrderTime = TimeCurrent();
+   g_lastConfirmedOrderPrice = price;
+   g_lastConfirmedOrderTime = TimeCurrent();
+
+   datetime currentM1Bar = iTime(Symbol(),PERIOD_M1,0);
+   if(direction > 0)
+      g_lastSARContinuationBuyBarTime = currentM1Bar;
+   else
+      g_lastSARContinuationSellBarTime = currentM1Bar;
+
+   MarkOpenedOrderOnChart(ticket,direction,orderComment,
+                          TimeCurrent(),price);
+   NotifyCreatedOrderTicket(ticket);
+   RegisterSARCycleOrderCreated(direction,false);
+
+   g_lastOrderOpenReason =
+      strategy + " " + DirectionText(direction) +
+      " PENDING #" + IntegerToString(ticket) +
+      " | Price=" + DoubleToString(price,Digits) +
+      " | Basket=$" +
+      DoubleToString(GetBasketProfit(direction),2);
+
+   g_sarContinuationStatus =
+      strategy + " " + DirectionText(direction) +
+      " PENDING #" + IntegerToString(ticket);
+
+   Print("SAR CONTINUATION PENDING PLACED | ",
+         g_lastOrderOpenReason,
+         " | SARScore=",g_dynamicSARScore,
+         " | TickSpeed=",g_tickSpeedStatus,
+         " | Cycle=",g_sarCycleOrdersCreated,
+         "/",g_sarCycleMaxOrders);
+
+   return(true);
+  }
+
+//+------------------------------------------------------------------+
+void ResetSARPullbackContinuationState(int direction,string reason)
+  {
+   if(direction > 0)
+     {
+      g_buySARContinuationExtreme = 0.0;
+      g_buyPullbackContinuationArmed = false;
+      g_buyPullbackContinuationArmBarTime = 0;
+      g_buyPullbackContinuationRaw = 0.0;
+     }
+   else
+   if(direction < 0)
+     {
+      g_sellSARContinuationExtreme = 0.0;
+      g_sellPullbackContinuationArmed = false;
+      g_sellPullbackContinuationArmBarTime = 0;
+      g_sellPullbackContinuationRaw = 0.0;
+     }
+
+   if(reason != "")
+      Print("SAR PULLBACK STATE RESET | Direction=",
+            DirectionText(direction),
+            " | Reason=",reason);
+  }
+
+//+------------------------------------------------------------------+
+void UpdateSARPullbackContinuationStateForDirection(int direction)
+  {
+   if(!InpUseSARContinuationAddOns ||
+      !InpUsePullbackContinuationOrders ||
+      CountOrdersByDirection(direction) <= 0 ||
+      GetSARDotDirection(0) != direction ||
+      g_activeSARDirection != direction)
+     {
+      ResetSARPullbackContinuationState(direction,"NO MATCHING LIVE BASKET/SAR");
+      return;
+     }
+
+   RefreshRates();
+   double livePrice = direction > 0 ? Bid : Ask;
+   double extreme = direction > 0
+                    ? g_buySARContinuationExtreme
+                    : g_sellSARContinuationExtreme;
+   bool armed = direction > 0
+                ? g_buyPullbackContinuationArmed
+                : g_sellPullbackContinuationArmed;
+
+   if(extreme <= 0.0)
+      extreme = livePrice;
+
+   bool newExtreme = false;
+   if(direction > 0 && livePrice > extreme)
+     {
+      extreme = livePrice;
+      newExtreme = true;
+     }
+   else
+   if(direction < 0 && livePrice < extreme)
+     {
+      extreme = livePrice;
+      newExtreme = true;
+     }
+
+   if(newExtreme && armed)
+      armed = false;
+
+   double pullbackRaw = direction > 0
+                        ? extreme-livePrice
+                        : livePrice-extreme;
+
+   int candleDirection = 0;
+   double rangeRaw = 0.0;
+   double bodyPercent = 0.0;
+   double exitWickPercent = 0.0;
+   GetSARContinuationM1Stats(0,direction,candleDirection,
+                             rangeRaw,bodyPercent,exitWickPercent);
+
+   double minRaw = MathMax(0.0,InpPullbackContinuationMinRaw);
+   double maxRaw = MathMax(minRaw,InpPullbackContinuationMaxRaw);
+
+   if(!armed &&
+      pullbackRaw + Point*0.1 >= minRaw &&
+      pullbackRaw <= maxRaw + Point*0.1 &&
+      candleDirection == -direction)
+     {
+      armed = true;
+      datetime armBar = iTime(Symbol(),PERIOD_M1,0);
+
+      if(direction > 0)
+         g_buyPullbackContinuationArmBarTime = armBar;
+      else
+         g_sellPullbackContinuationArmBarTime = armBar;
+
+      g_sarContinuationStatus =
+         "PULLBACK " + DirectionText(direction) +
+         " ARMED " + DoubleToString(pullbackRaw,1);
+
+      Print("SAR PULLBACK CONTINUATION ARMED | Direction=",
+            DirectionText(direction),
+            " | PullbackRaw=",DoubleToString(pullbackRaw,1),
+            " | Range=",DoubleToString(minRaw,1),
+            "-",DoubleToString(maxRaw,1));
+     }
+
+   if(direction > 0)
+     {
+      g_buySARContinuationExtreme = extreme;
+      g_buyPullbackContinuationArmed = armed;
+      g_buyPullbackContinuationRaw = pullbackRaw;
+     }
+   else
+     {
+      g_sellSARContinuationExtreme = extreme;
+      g_sellPullbackContinuationArmed = armed;
+      g_sellPullbackContinuationRaw = pullbackRaw;
+     }
+  }
+
+//+------------------------------------------------------------------+
+void UpdateSARPullbackContinuationState()
+  {
+   UpdateSARPullbackContinuationStateForDirection(1);
+   UpdateSARPullbackContinuationStateForDirection(-1);
+  }
+
+//+------------------------------------------------------------------+
+void ManageSARContinuationPendingOrders()
+  {
+   int expiryBars =
+      (int)MathMax(1,InpSARContinuationPendingExpiryBars);
+   int liveSAR = GetSARDotDirection(0);
+
+   for(int i=OrdersTotal()-1;i>=0;i--)
+     {
+      if(!OrderSelect(i,SELECT_BY_POS,MODE_TRADES))
+         continue;
+      if(OrderSymbol()!=Symbol() ||
+         OrderMagicNumber()!=InpMagicNumber)
+         continue;
+      if(!IsPendingOrderType(OrderType()) ||
+         !IsSARContinuationOrderComment(OrderComment()))
+         continue;
+
+      int direction =
+         (OrderType()==OP_BUYSTOP ||
+          OrderType()==OP_BUYLIMIT) ? 1 : -1;
+
+      bool deletePending = false;
+      string reason = "";
+
+      if(liveSAR != direction)
+        {
+         deletePending = true;
+         reason = "SAR CHANGED TO " + DirectionText(liveSAR);
+        }
+      else
+        {
+         int shift = iBarShift(Symbol(),PERIOD_M1,
+                               OrderOpenTime(),false);
+         if(shift < 0 || shift >= expiryBars)
+           {
+            deletePending = true;
+            reason = "EXPIRED " +
+                     IntegerToString(expiryBars) +
+                     " M1 BARS";
+           }
+        }
+
+      if(!deletePending)
+         continue;
+
+      int ticket = OrderTicket();
+      string comment = OrderComment();
+
+      ResetLastError();
+      if(OrderDelete(ticket,clrNONE))
+        {
+         g_sarContinuationStatus =
+            "DELETED " + comment + " | " + reason;
+         Print("SAR CONTINUATION PENDING DELETED | Ticket=",
+               ticket,
+               " | Comment=",comment,
+               " | Reason=",reason);
+        }
+      else
+        {
+         int err = GetLastError();
+         g_sarContinuationStatus =
+            "DELETE RETRY " + IntegerToString(err);
+         Print("SAR CONTINUATION DELETE FAILED | Ticket=",
+               ticket,
+               " | Error=",err,
+               " | Reason=",reason);
+         ResetLastError();
+        }
+     }
+  }
+
+//+------------------------------------------------------------------+
+bool TryOpenSARProfitPyramidOrder(int direction)
+  {
+   if(!InpUseSARContinuationAddOns ||
+      !InpUseProfitPyramidOrders)
+      return(false);
+
+   EnsureSARSignalOrderCycle(direction);
+
+   if(CountSARContinuationOrdersCreated(direction,"SAR_PYRAMID") >=
+      (int)MathMax(0,InpMaxProfitPyramidOrdersPerSide))
+      return(false);
+
+   double basketProfit = GetBasketProfit(direction);
+   if(basketProfit + 0.0001 <
+      MathMax(0.0,InpPyramidMinimumBasketProfitUSD))
+     {
+      g_sarContinuationStatus =
+         "PYRAMID " + DirectionText(direction) +
+         " WAIT | BASKET $" +
+         DoubleToString(basketProfit,2);
+      return(false);
+     }
+
+   double latestPrice =
+      GetLatestSARDirectionMarketEntryPrice(direction);
+   if(latestPrice <= 0.0)
+      return(false);
+
+   RefreshRates();
+   double favorableMove = direction > 0
+                          ? Ask-latestPrice
+                          : latestPrice-Bid;
+
+   if(favorableMove + Point*0.1 <
+      MathMax(0.0,InpPyramidRawGapFromLatestEntry))
+     {
+      g_sarContinuationStatus =
+         "PYRAMID " + DirectionText(direction) +
+         " WAIT | GAP " +
+         DoubleToString(favorableMove,1) + "/" +
+         DoubleToString(InpPyramidRawGapFromLatestEntry,1);
+      return(false);
+     }
+
+   int candleDirection = 0;
+   double rangeRaw = 0.0;
+   double bodyPercent = 0.0;
+   double exitWickPercent = 0.0;
+
+   if(!GetSARContinuationM1Stats(0,direction,candleDirection,
+                                 rangeRaw,bodyPercent,exitWickPercent))
+      return(false);
+
+   if(candleDirection != direction ||
+      bodyPercent + 0.0001 <
+      MathMax(0.0,InpPyramidMinimumBodyPercent))
+     {
+      g_sarContinuationStatus =
+         "PYRAMID " + DirectionText(direction) +
+         " WAIT | CANDLE/BODY " +
+         DoubleToString(bodyPercent,1) + "%";
+      return(false);
+     }
+
+   bool freshExtreme = direction > 0
+                       ? iHigh(Symbol(),PERIOD_M1,0) >
+                         iHigh(Symbol(),PERIOD_M1,1)+Point*0.1
+                       : iLow(Symbol(),PERIOD_M1,0) <
+                         iLow(Symbol(),PERIOD_M1,1)-Point*0.1;
+
+   if(!freshExtreme)
+     {
+      g_sarContinuationStatus =
+         "PYRAMID " + DirectionText(direction) +
+         " WAIT | NO FRESH EXTREME";
+      return(false);
+     }
+
+   if(!IsSARContinuationTickSpeedAllowed(false))
+     {
+      g_sarContinuationStatus =
+         "PYRAMID WAIT | SPEED " + g_tickSpeedStatus;
+      return(false);
+     }
+
+   if(!IsSARContinuationCommonSafetyReady(
+         direction,"SAR_PYRAMID",
+         (int)MathMax(0,InpPyramidMinimumSARScore)))
+      return(false);
+
+   double reference = direction > 0
+                      ? iHigh(Symbol(),PERIOD_M1,0)
+                      : iLow(Symbol(),PERIOD_M1,0);
+
+   return(PlaceSARContinuationPending(
+             direction,"SAR_PYRAMID",
+             reference,InpPyramidPendingGapRaw));
+  }
+
+//+------------------------------------------------------------------+
+bool TryOpenSARPullbackContinuationOrder(int direction)
+  {
+   if(!InpUseSARContinuationAddOns ||
+      !InpUsePullbackContinuationOrders)
+      return(false);
+
+   EnsureSARSignalOrderCycle(direction);
+
+   if(CountSARContinuationOrdersCreated(direction,"SAR_PULLBACK") >=
+      (int)MathMax(0,InpMaxPullbackContinuationOrdersPerSide))
+      return(false);
+
+   bool armed = direction > 0
+                ? g_buyPullbackContinuationArmed
+                : g_sellPullbackContinuationArmed;
+   datetime armBar = direction > 0
+                     ? g_buyPullbackContinuationArmBarTime
+                     : g_sellPullbackContinuationArmBarTime;
+   double pullbackRaw = direction > 0
+                        ? g_buyPullbackContinuationRaw
+                        : g_sellPullbackContinuationRaw;
+
+   if(!armed)
+      return(false);
+
+   datetime currentBar = iTime(Symbol(),PERIOD_M1,0);
+   if(currentBar <= 0 || currentBar == armBar)
+     {
+      g_sarContinuationStatus =
+         "PULLBACK " + DirectionText(direction) +
+         " ARMED | WAIT NEXT M1";
+      return(false);
+     }
+
+   double basketProfit = GetBasketProfit(direction);
+   if(basketProfit + 0.0001 <
+      MathMax(0.0,InpPullbackContinuationMinimumProfitUSD))
+     {
+      g_sarContinuationStatus =
+         "PULLBACK " + DirectionText(direction) +
+         " WAIT | BASKET $" +
+         DoubleToString(basketProfit,2);
+      return(false);
+     }
+
+   int candleDirection = 0;
+   double rangeRaw = 0.0;
+   double bodyPercent = 0.0;
+   double exitWickPercent = 0.0;
+
+   if(!GetSARContinuationM1Stats(0,direction,candleDirection,
+                                 rangeRaw,bodyPercent,exitWickPercent))
+      return(false);
+
+   if(candleDirection != direction ||
+      bodyPercent + 0.0001 <
+      MathMax(0.0,InpPullbackContinuationMinBodyPercent))
+     {
+      g_sarContinuationStatus =
+         "PULLBACK " + DirectionText(direction) +
+         " ARMED | WAIT RESUME";
+      return(false);
+     }
+
+   double breakRaw = MathMax(0.0,InpPullbackContinuationBreakRaw);
+   bool resumeBreak = direction > 0
+                      ? Ask >= iHigh(Symbol(),PERIOD_M1,1)+breakRaw
+                      : Bid <= iLow(Symbol(),PERIOD_M1,1)-breakRaw;
+
+   if(!resumeBreak)
+     {
+      g_sarContinuationStatus =
+         "PULLBACK " + DirectionText(direction) +
+         " WAIT | BREAK " +
+         DoubleToString(breakRaw,1);
+      return(false);
+     }
+
+   if(!IsSARContinuationTickSpeedAllowed(false))
+     {
+      g_sarContinuationStatus =
+         "PULLBACK WAIT | SPEED " + g_tickSpeedStatus;
+      return(false);
+     }
+
+   if(!IsSARContinuationCommonSafetyReady(
+         direction,"SAR_PULLBACK",
+         (int)MathMax(0,InpPullbackContinuationMinSARScore)))
+      return(false);
+
+   double reference = direction > 0
+                      ? iHigh(Symbol(),PERIOD_M1,0)
+                      : iLow(Symbol(),PERIOD_M1,0);
+
+   bool placed = PlaceSARContinuationPending(
+                    direction,"SAR_PULLBACK",
+                    reference,
+                    InpPullbackContinuationPendingGapRaw);
+
+   if(placed)
+      ResetSARPullbackContinuationState(
+         direction,
+         "PENDING PLACED AFTER " +
+         DoubleToString(pullbackRaw,1) +
+         " RAW PULLBACK");
+
+   return(placed);
+  }
+
+//+------------------------------------------------------------------+
+bool TryOpenSARBreakoutContinuationOrder(int direction)
+  {
+   if(!InpUseSARContinuationAddOns ||
+      !InpUseBreakoutContinuationOrders)
+      return(false);
+
+   EnsureSARSignalOrderCycle(direction);
+
+   if(CountSARContinuationOrdersCreated(direction,"SAR_BREAKOUT") >=
+      (int)MathMax(0,InpMaxBreakoutContinuationOrdersPerSide))
+      return(false);
+
+   double basketProfit = GetBasketProfit(direction);
+   if(basketProfit + 0.0001 <
+      MathMax(0.0,InpBreakoutMinimumBasketProfitUSD))
+     {
+      g_sarContinuationStatus =
+         "BREAKOUT " + DirectionText(direction) +
+         " WAIT | BASKET $" +
+         DoubleToString(basketProfit,2);
+      return(false);
+     }
+
+   int candleDirection = 0;
+   double rangeRaw = 0.0;
+   double bodyPercent = 0.0;
+   double exitWickPercent = 0.0;
+
+   if(!GetSARContinuationM1Stats(1,direction,candleDirection,
+                                 rangeRaw,bodyPercent,exitWickPercent))
+      return(false);
+
+   if(candleDirection != direction)
+     {
+      g_sarContinuationStatus =
+         "BREAKOUT " + DirectionText(direction) +
+         " WAIT | PREV CANDLE";
+      return(false);
+     }
+
+   if(bodyPercent + 0.0001 <
+      MathMax(0.0,InpBreakoutMinimumBodyPercent))
+     {
+      g_sarContinuationStatus =
+         "BREAKOUT WAIT | BODY " +
+         DoubleToString(bodyPercent,1) + "%";
+      return(false);
+     }
+
+   if(exitWickPercent - 0.0001 >
+      MathMax(0.0,InpBreakoutMaximumExitWickPercent))
+     {
+      g_sarContinuationStatus =
+         "BREAKOUT WAIT | EXIT WICK " +
+         DoubleToString(exitWickPercent,1) + "%";
+      return(false);
+     }
+
+   double triggerRaw = MathMax(0.0,InpBreakoutTriggerRaw);
+   bool broke = direction > 0
+                ? Ask >= iHigh(Symbol(),PERIOD_M1,1)+triggerRaw
+                : Bid <= iLow(Symbol(),PERIOD_M1,1)-triggerRaw;
+
+   if(!broke)
+     {
+      g_sarContinuationStatus =
+         "BREAKOUT " + DirectionText(direction) +
+         " WAIT | TRIGGER " +
+         DoubleToString(triggerRaw,1);
+      return(false);
+     }
+
+   if(!IsSARContinuationTickSpeedAllowed(
+         InpBreakoutRequireFastTickSpeed))
+     {
+      g_sarContinuationStatus =
+         "BREAKOUT WAIT | SPEED " + g_tickSpeedStatus;
+      return(false);
+     }
+
+   if(!IsSARContinuationCommonSafetyReady(
+         direction,"SAR_BREAKOUT",
+         (int)MathMax(0,InpBreakoutMinimumSARScore)))
+      return(false);
+
+   double reference = direction > 0
+                      ? MathMax(iHigh(Symbol(),PERIOD_M1,0),
+                                iHigh(Symbol(),PERIOD_M1,1))
+                      : MathMin(iLow(Symbol(),PERIOD_M1,0),
+                                iLow(Symbol(),PERIOD_M1,1));
+
+   return(PlaceSARContinuationPending(
+             direction,"SAR_BREAKOUT",
+             reference,InpBreakoutPendingGapRaw));
+  }
+
+//+------------------------------------------------------------------+
+// Priority: completed pullback setup, profitable pyramid, then breakout.
+// Only one add-on can be placed on a tick and one per M1 bar by default.
+//+------------------------------------------------------------------+
+bool ProcessSARContinuationAddOnOrders()
+  {
+   if(!InpUseSARContinuationAddOns)
+     {
+      g_sarContinuationStatus = "SAR ADD-ONS OFF";
+      return(false);
+     }
+
+   if(IsOppositeImpulseContinuationBusy() ||
+      g_goodMarketContinuationPending)
+     {
+      g_sarContinuationStatus =
+         "SAR ADD-ON WAIT | SPECIAL PENDING PRIORITY";
+      return(false);
+     }
+
+   int direction = GetSARDotDirection(0);
+   if(direction != 1 && direction != -1)
+     {
+      g_sarContinuationStatus = "SAR ADD-ON WAIT | NO SAR";
+      return(false);
+     }
+
+   if(CountOrdersByDirection(direction) <= 0)
+     {
+      g_sarContinuationStatus =
+         "SAR ADD-ON WAIT | NO LIVE " +
+         DirectionText(direction) + " BASKET";
+      return(false);
+     }
+
+   if(TryOpenSARPullbackContinuationOrder(direction))
+      return(true);
+
+   if(TryOpenSARProfitPyramidOrder(direction))
+      return(true);
+
+   if(TryOpenSARBreakoutContinuationOrder(direction))
+      return(true);
+
+   return(false);
+  }
+
+//+------------------------------------------------------------------+
+//| Convert a requested USD loss into symbol price distance          |
+//+------------------------------------------------------------------+
+double GetInitialServerSLPriceDistance(string symbol,
+                                       double lots,
+                                       double lossUSD)
+  {
+   if(lots <= 0.0 || lossUSD <= 0.0)
+      return(0.0);
+
+   double tickValue = MarketInfo(symbol, MODE_TICKVALUE);
+   double tickSize  = MarketInfo(symbol, MODE_TICKSIZE);
+
+   if(tickValue <= 0.0 || tickSize <= 0.0)
+     {
+      Print("INITIAL SERVER SL BLOCKED | Invalid tick data",
+            " | Symbol=",symbol,
+            " | TickValue=",DoubleToString(tickValue,8),
+            " | TickSize=",DoubleToString(tickSize,8));
+      return(0.0);
+     }
+
+   return((lossUSD / (tickValue * lots)) * tickSize);
+  }
+
+//+------------------------------------------------------------------+
+//| Add the initial broker-side SL to the currently selected order   |
+//+------------------------------------------------------------------+
+bool ApplyInitialServerSideSLToSelectedOrder()
+  {
+   if(!InpUseInitialServerSideOrderSL ||
+      InpInitialServerSideOrderSLUSD <= 0.0)
+      return(true);
+
+   int type = OrderType();
+
+   bool buySide = (type == OP_BUY ||
+                   type == OP_BUYSTOP ||
+                   type == OP_BUYLIMIT);
+   bool sellSide = (type == OP_SELL ||
+                    type == OP_SELLSTOP ||
+                    type == OP_SELLLIMIT);
+
+   if(!buySide && !sellSide)
+      return(false);
+
+   bool pending = (type == OP_BUYSTOP ||
+                   type == OP_BUYLIMIT ||
+                   type == OP_SELLSTOP ||
+                   type == OP_SELLLIMIT);
+
+   if(pending && !InpInitialServerSLForPending)
+      return(true);
+
+   // Never overwrite an existing SL. The existing server-profit-lock logic
+   // can later move the same SL forward into protected profit.
+   if(OrderStopLoss() > 0.0)
+      return(true);
+
+   string symbol = OrderSymbol();
+   double lots   = OrderLots();
+   double open   = OrderOpenPrice();
+   double point  = MarketInfo(symbol, MODE_POINT);
+   int digits    = (int)MarketInfo(symbol, MODE_DIGITS);
+
+   double priceDistance =
+      GetInitialServerSLPriceDistance(symbol,
+                                      lots,
+                                      InpInitialServerSideOrderSLUSD);
+
+   if(priceDistance <= 0.0 || point <= 0.0)
+      return(false);
+
+   double brokerMinDistance =
+      MathMax(MarketInfo(symbol, MODE_STOPLEVEL),
+              MarketInfo(symbol, MODE_FREEZELEVEL)) * point;
+
+   double bid = MarketInfo(symbol, MODE_BID);
+   double ask = MarketInfo(symbol, MODE_ASK);
+   double desiredSL = 0.0;
+   double finalSL   = 0.0;
+
+   if(buySide)
+     {
+      desiredSL = open - priceDistance;
+
+      if(type == OP_BUY)
+         finalSL = MathMin(desiredSL, bid - brokerMinDistance);
+      else
+         finalSL = MathMin(desiredSL, open - brokerMinDistance);
+     }
+   else
+     {
+      desiredSL = open + priceDistance;
+
+      if(type == OP_SELL)
+         finalSL = MathMax(desiredSL, ask + brokerMinDistance);
+      else
+         finalSL = MathMax(desiredSL, open + brokerMinDistance);
+     }
+
+   finalSL = NormalizeDouble(finalSL,digits);
+
+   if(finalSL <= 0.0)
+      return(false);
+
+   ResetLastError();
+   bool modified = OrderModify(OrderTicket(),
+                               OrderOpenPrice(),
+                               finalSL,
+                               OrderTakeProfit(),
+                               OrderExpiration(),
+                               clrNONE);
+
+   if(!modified)
+     {
+      int err = GetLastError();
+      Print("INITIAL SERVER SL MODIFY FAILED",
+            " | Ticket=",OrderTicket(),
+            " | Type=",type,
+            " | Open=",DoubleToString(open,digits),
+            " | SL=",DoubleToString(finalSL,digits),
+            " | RequestedLoss=$",
+            DoubleToString(InpInitialServerSideOrderSLUSD,2),
+            " | Error=",err);
+      ResetLastError();
+      return(false);
+     }
+
+   double estimatedLossUSD = 0.0;
+   double tickValue = MarketInfo(symbol, MODE_TICKVALUE);
+   double tickSize  = MarketInfo(symbol, MODE_TICKSIZE);
+
+   if(tickValue > 0.0 && tickSize > 0.0)
+      estimatedLossUSD =
+         (MathAbs(open-finalSL) / tickSize) * tickValue * lots;
+
+   Print("INITIAL SERVER SL ADDED",
+         " | Ticket=",OrderTicket(),
+         " | Side=",buySide ? "BUY" : "SELL",
+         " | Open=",DoubleToString(open,digits),
+         " | SL=",DoubleToString(finalSL,digits),
+         " | RequestedLoss=$",
+         DoubleToString(InpInitialServerSideOrderSLUSD,2),
+         " | EstimatedLoss=$",
+         DoubleToString(estimatedLossUSD,2));
+
+   return(true);
+  }
+
+//+------------------------------------------------------------------+
+//| Apply initial SL immediately to a newly created ticket           |
+//+------------------------------------------------------------------+
+bool ApplyInitialServerSideSLToTicket(int ticket)
+  {
+   if(ticket <= 0)
+      return(false);
+
+   if(!OrderSelect(ticket,SELECT_BY_TICKET,MODE_TRADES))
+      return(false);
+
+   if(OrderSymbol() != Symbol() ||
+      OrderMagicNumber() != InpMagicNumber)
+      return(false);
+
+   return(ApplyInitialServerSideSLToSelectedOrder());
+  }
+
+//+------------------------------------------------------------------+
+//| Retry missing initial server SL values for all live/pending EA   |
+//+------------------------------------------------------------------+
+void EnsureInitialServerSideSLForAllOrders()
+  {
+   if(!InpUseInitialServerSideOrderSL ||
+      InpInitialServerSideOrderSLUSD <= 0.0)
+      return;
+
+   int retrySeconds = MathMax(1,InpInitialServerSLRetrySeconds);
+
+   if(g_lastInitialServerSLScanTime > 0 &&
+      TimeCurrent()-g_lastInitialServerSLScanTime < retrySeconds)
+      return;
+
+   g_lastInitialServerSLScanTime = TimeCurrent();
+
+   for(int i=OrdersTotal()-1; i>=0; i--)
+     {
+      if(!OrderSelect(i,SELECT_BY_POS,MODE_TRADES))
+         continue;
+
+      if(OrderSymbol() != Symbol() ||
+         OrderMagicNumber() != InpMagicNumber)
+         continue;
+
+      int type = OrderType();
+      if(type != OP_BUY && type != OP_SELL &&
+         type != OP_BUYSTOP && type != OP_SELLSTOP &&
+         type != OP_BUYLIMIT && type != OP_SELLLIMIT)
+         continue;
+
+      if(OrderStopLoss() > 0.0)
+         continue;
+
+      ApplyInitialServerSideSLToSelectedOrder();
+     }
+  }
+
 int OnInit()
   {
 
@@ -4750,18 +6147,20 @@ int OnInit()
    if(IsTesting())
      {
       InpProfitTargetPercent = 2000.0;
-     }
+      InpNoNewOrderHourList  = "";
 
+      g_consecutiveBasketSLCount      = 0;
+      g_consecutiveBasketSLPauseUntil = 0;
+      g_consecutiveSLPauseStatus      = "TEST MODE | DISABLED";
+
+      Print("TEST MODE | Dubai no-new hours disabled",
+            " | Consecutive SL pause disabled");
+     }
+   else
    if(AccountNumber()==291085426)
      {
       InpProfitTargetPercent = 2000.0;
-      InpNoNewOrderHourList="";
-
-     }
-   else
-     {
-      //   InpNoNewOrderHourList      = "11,12,13,14,15,16,17,18,19,20,21,22"; // Dubai-time hours
-
+      InpNoNewOrderHourList  = "";
      }
 
 
@@ -4774,6 +6173,15 @@ int OnInit()
 
    InpMagicNumber=AccountNumber()+202; // override magic number with account number to prevent interference between charts/accounts. Orders are still filtered by symbol and magic in this EA.
 
+   if(!IsTesting())
+      LoadConsecutiveSLPauseState();
+   else
+     {
+      g_consecutiveBasketSLCount      = 0;
+      g_consecutiveBasketSLPauseUntil = 0;
+      g_consecutiveSLPauseStatus      = "TEST MODE | DISABLED";
+     }
+
    RestoreOppositeImpulsePendingState();
    InitializeCreatedClosedPushTracker();
    InitializeSLReverseRecoveryChainTracker();
@@ -4782,6 +6190,8 @@ int OnInit()
    UpdateOppositeDirectionProfitPause(true);
 
    Print(InpEAName, " initialized. Magic=", InpMagicNumber,
+         " | DubaiHighRiskHours=",InpNoNewOrderHourList,
+         " | SLStreak=",ConsecutiveSLPauseStatusText(),
          " | BaseBalance=$", DoubleToString(g_baseBalance,2),
          " | LossStopEquity=$", DoubleToString(g_lossStopEquityLevel,2),
          " | ProfitTargetEquity=$", DoubleToString(g_profitTargetEquity,2),
@@ -4984,16 +6394,29 @@ bool IsConfiguredEquityResetHour(int hourValue)
 //+------------------------------------------------------------------+
 bool IsConfiguredNoNewOrderHour(int hourValue)
   {
-   string parts[];
-   int total = StringSplit(InpNoNewOrderHourList, ',', parts);
+   string configuredHours = InpNoNewOrderHourList;
+   StringReplace(configuredHours," ","");
 
-   for(int i = 0; i < total; i++)
+   if(StringLen(configuredHours) <= 0)
+      return(false);
+
+   string parts[];
+   int total = StringSplit(configuredHours,',',parts);
+
+   if(total <= 0)
+      return(false);
+
+   for(int i=0; i<total; i++)
      {
-      int h = (int)StrToInteger(parts[i]);
-      if(h < 0)
-         h = 0;
-      if(h > 23)
-         h = 23;
+      string value = parts[i];
+      StringReplace(value," ","");
+
+      if(StringLen(value) <= 0)
+         continue;
+
+      int h = (int)StrToInteger(value);
+      if(h < 0 || h > 23)
+         continue;
 
       if(h == hourValue)
          return(true);
@@ -5002,6 +6425,7 @@ bool IsConfiguredNoNewOrderHour(int hourValue)
    return(false);
   }
 
+//+------------------------------------------------------------------+
 //+------------------------------------------------------------------+
 //| Current Dubai time (UTC+4). Dubai does not use daylight saving.  |
 //| Independent of broker-server, VPS and VPN time zones.            |
@@ -5014,7 +6438,17 @@ datetime GetDubaiTime()
 //+------------------------------------------------------------------+
 bool IsDubaiNoNewOrderHourNow()
   {
+   // Strategy Tester must never be blocked by Dubai session hours.
+   if(IsTesting())
+      return(false);
+
    if(!InpUseNoNewOrderHours)
+      return(false);
+
+   string configuredHours = InpNoNewOrderHourList;
+   StringReplace(configuredHours," ","");
+
+   if(StringLen(configuredHours) <= 0)
       return(false);
 
    int dubaiHour = TimeHour(GetDubaiTime());
@@ -5026,12 +6460,15 @@ bool IsDubaiNoNewOrderHourNow()
 // Dubai-time lock and no longer depends on the active market-mode profile.
 bool IsNoNewOrderHour()
   {
-   return(IsDubaiNoNewOrderHourNow());
+   return(IsNewOrderHardPauseActive());
   }
 
 //+------------------------------------------------------------------+
 string NoNewOrderHoursStatusText()
   {
+   if(IsTesting())
+      return("TEST MODE | DISABLED");
+
    if(!InpUseNoNewOrderHours)
       return("OFF");
 
@@ -5041,6 +6478,230 @@ string NoNewOrderHoursStatusText()
    return(status +
           " | DXB=" + TimeToString(dubaiNow, TIME_MINUTES) +
           " | HOURS=" + InpNoNewOrderHourList);
+  }
+
+
+//+------------------------------------------------------------------+
+string ConsecutiveSLStateKey(string field)
+  {
+   return("DXB_SL_STREAK_" +
+          IntegerToString(AccountNumber()) + "_" +
+          IntegerToString(InpMagicNumber) + "_" +
+          Symbol() + "_" + field);
+  }
+
+//+------------------------------------------------------------------+
+void SaveConsecutiveSLPauseState()
+  {
+   GlobalVariableSet(ConsecutiveSLStateKey("COUNT"),
+                     (double)g_consecutiveBasketSLCount);
+   GlobalVariableSet(ConsecutiveSLStateKey("UNTIL"),
+                     (double)g_consecutiveBasketSLPauseUntil);
+   GlobalVariablesFlush();
+  }
+
+//+------------------------------------------------------------------+
+void LoadConsecutiveSLPauseState()
+  {
+   g_consecutiveBasketSLCount      = 0;
+   g_consecutiveBasketSLPauseUntil = 0;
+
+   if(IsTesting())
+     {
+      g_consecutiveSLPauseStatus = "TEST MODE | DISABLED";
+      return;
+     }
+
+   string countKey = ConsecutiveSLStateKey("COUNT");
+   string untilKey = ConsecutiveSLStateKey("UNTIL");
+
+   if(GlobalVariableCheck(countKey))
+      g_consecutiveBasketSLCount =
+         MathMax(0,(int)GlobalVariableGet(countKey));
+
+   if(GlobalVariableCheck(untilKey))
+      g_consecutiveBasketSLPauseUntil =
+         (datetime)GlobalVariableGet(untilKey);
+
+   if(g_consecutiveBasketSLPauseUntil > 0 &&
+      TimeCurrent() >= g_consecutiveBasketSLPauseUntil)
+     {
+      g_consecutiveBasketSLCount      = 0;
+      g_consecutiveBasketSLPauseUntil = 0;
+      SaveConsecutiveSLPauseState();
+     }
+  }
+
+//+------------------------------------------------------------------+
+bool IsConsecutiveSLPauseActive()
+  {
+   if(IsTesting())
+      return(false);
+
+   if(!InpUseConsecutiveSLPause)
+      return(false);
+
+   if(g_consecutiveBasketSLPauseUntil <= 0)
+      return(false);
+
+   if(TimeCurrent() >= g_consecutiveBasketSLPauseUntil)
+     {
+      g_consecutiveBasketSLCount      = 0;
+      g_consecutiveBasketSLPauseUntil = 0;
+      g_consecutiveSLPauseStatus      = "READY | PAUSE EXPIRED";
+      SaveConsecutiveSLPauseState();
+      return(false);
+     }
+
+   return(true);
+  }
+
+//+------------------------------------------------------------------+
+string ConsecutiveSLPauseStatusText()
+  {
+   int required = MathMax(1,InpConsecutiveSLPauseCount);
+
+   if(IsTesting())
+      return("TEST MODE | DISABLED");
+
+   if(!InpUseConsecutiveSLPause)
+      return("OFF");
+
+   if(IsConsecutiveSLPauseActive())
+     {
+      int leftSec = (int)(g_consecutiveBasketSLPauseUntil-TimeCurrent());
+      if(leftSec < 0)
+         leftSec = 0;
+
+      return("BLOCK | SL " +
+             IntegerToString(g_consecutiveBasketSLCount) + "/" +
+             IntegerToString(required) +
+             " | LEFT " + IntegerToString(leftSec/60) + "m " +
+             IntegerToString(leftSec%60) + "s");
+     }
+
+   return("READY | SL " +
+          IntegerToString(g_consecutiveBasketSLCount) + "/" +
+          IntegerToString(required));
+  }
+
+//+------------------------------------------------------------------+
+bool IsNewOrderHardPauseActive()
+  {
+   return(IsDubaiNoNewOrderHourNow() ||
+          IsConsecutiveSLPauseActive());
+  }
+
+//+------------------------------------------------------------------+
+string GetNewOrderHardPauseReasonText()
+  {
+   string reason = "";
+
+   if(IsDubaiNoNewOrderHourNow())
+      reason = "DUBAI HIGH-RISK SESSION | DXB=" +
+               TimeToString(GetDubaiTime(),TIME_DATE|TIME_MINUTES) +
+               " | HOURS=" + InpNoNewOrderHourList;
+
+   if(IsConsecutiveSLPauseActive())
+     {
+      if(reason != "")
+         reason += " | ";
+      reason += "CONSECUTIVE SL PAUSE | " +
+                ConsecutiveSLPauseStatusText();
+     }
+
+   if(reason == "")
+      reason = "NEW ORDERS ALLOWED";
+
+   return(reason);
+  }
+
+//+------------------------------------------------------------------+
+void RegisterConsecutiveBasketSL(int direction,
+                                 double basketProfit,
+                                 string reason)
+  {
+   if(IsTesting())
+      return;
+
+   if(!InpUseConsecutiveSLPause)
+      return;
+
+   // Multiple close paths can inspect the same side on the same server second.
+   // Count that completed basket stop only once.
+   if(g_lastConsecutiveSLRegisterTime == TimeCurrent() &&
+      g_lastConsecutiveSLRegisterDirection == direction)
+      return;
+
+   g_lastConsecutiveSLRegisterTime      = TimeCurrent();
+   g_lastConsecutiveSLRegisterDirection = direction;
+   g_consecutiveBasketSLCount++;
+
+   int required = MathMax(1,InpConsecutiveSLPauseCount);
+
+   Print("CONSECUTIVE BASKET SL REGISTERED | Direction=",
+         DirectionText(direction),
+         " | BasketP/L=$",DoubleToString(basketProfit,2),
+         " | Count=",g_consecutiveBasketSLCount,"/",required,
+         " | Reason=",reason);
+
+   if(g_consecutiveBasketSLCount >= required)
+     {
+      int pauseMinutes = MathMax(1,InpConsecutiveSLPauseMinutes);
+      g_consecutiveBasketSLPauseUntil =
+         TimeCurrent() + pauseMinutes*60;
+
+      g_consecutiveSLPauseStatus =
+         "BLOCK | SL " +
+         IntegerToString(g_consecutiveBasketSLCount) + "/" +
+         IntegerToString(required) +
+         " | UNTIL " +
+         TimeToString(g_consecutiveBasketSLPauseUntil,
+                      TIME_DATE|TIME_MINUTES);
+
+      if(InpDeletePendingOnSLPause)
+         DeletePendingOrdersByDirection(
+            0,
+            "CONSECUTIVE BASKET SL PAUSE | " +
+            g_consecutiveSLPauseStatus,
+            false);
+
+      Print("ALL NEW ORDERS PAUSED AFTER CONSECUTIVE SL | ",
+            g_consecutiveSLPauseStatus);
+     }
+   else
+     {
+      g_consecutiveSLPauseStatus =
+         "READY | SL " +
+         IntegerToString(g_consecutiveBasketSLCount) + "/" +
+         IntegerToString(required);
+     }
+
+   SaveConsecutiveSLPauseState();
+  }
+
+//+------------------------------------------------------------------+
+void RegisterProfitableBasketClose(double basketProfit,
+                                   string reason)
+  {
+   if(!InpUseConsecutiveSLPause ||
+      !InpResetSLStreakOnProfitClose ||
+      basketProfit <= 0.0)
+      return;
+
+   if(g_consecutiveBasketSLCount <= 0 &&
+      g_consecutiveBasketSLPauseUntil <= 0)
+      return;
+
+   Print("CONSECUTIVE SL STREAK RESET BY PROFIT CLOSE | Profit=$",
+         DoubleToString(basketProfit,2),
+         " | PreviousCount=",g_consecutiveBasketSLCount,
+         " | Reason=",reason);
+
+   g_consecutiveBasketSLCount      = 0;
+   g_consecutiveBasketSLPauseUntil = 0;
+   g_consecutiveSLPauseStatus      = "READY | RESET BY PROFIT";
+   SaveConsecutiveSLPauseState();
   }
 
 //+------------------------------------------------------------------+
@@ -5312,6 +6973,404 @@ int CountAllEntriesForCap()
    return(total);
   }
 
+
+//+------------------------------------------------------------------+
+int CountPendingEntriesByDirection(int direction)
+  {
+   int total = 0;
+
+   for(int i = OrdersTotal() - 1; i >= 0; i--)
+     {
+      if(!OrderSelect(i, SELECT_BY_POS, MODE_TRADES))
+         continue;
+      if(OrderSymbol() != Symbol() ||
+         OrderMagicNumber() != InpMagicNumber)
+         continue;
+      if(IsSARGuardOrderComment(OrderComment()))
+         continue;
+      if(!IsPendingOrderType(OrderType()))
+         continue;
+      if(!IsOrderTypeForDirection(OrderType(), direction, true))
+         continue;
+
+      total++;
+     }
+
+   return(total);
+  }
+
+//+------------------------------------------------------------------+
+// Atomic pre-OrderSend guard shared by every entry strategy.
+bool IsSameDirectionEntryGapAllowed(int direction,
+                                    double candidatePrice,
+                                    bool candidateIsPending,
+                                    string source)
+  {
+   if(!InpUseCentralOrderGapSafety)
+      return(true);
+
+   if(direction != 1 && direction != -1)
+      return(false);
+
+   double minimumGap = MathMax(0.0,
+                               InpMinimumSameDirectionOrderGapRaw);
+
+   if(candidateIsPending &&
+      InpOnlyOnePendingOrderPerDirection &&
+      CountPendingEntriesByDirection(direction) > 0)
+     {
+      g_lastOrderOpenReason =
+         "ORDER GAP BLOCK | ONE " + DirectionText(direction) +
+         " PENDING ALREADY EXISTS | Source=" + source;
+      SetLastOrderBlockDashboard(g_lastOrderOpenReason);
+      Print(g_lastOrderOpenReason);
+      return(false);
+     }
+
+   if(minimumGap <= 0.0)
+      return(true);
+
+   for(int i = OrdersTotal() - 1; i >= 0; i--)
+     {
+      if(!OrderSelect(i, SELECT_BY_POS, MODE_TRADES))
+         continue;
+      if(OrderSymbol() != Symbol() ||
+         OrderMagicNumber() != InpMagicNumber)
+         continue;
+      if(IsSARGuardOrderComment(OrderComment()))
+         continue;
+      if(!IsOrderTypeForDirection(OrderType(), direction, true))
+         continue;
+
+      double existingPrice = OrderOpenPrice();
+      double gapRaw = MathAbs(candidatePrice - existingPrice);
+
+      if(gapRaw + 0.0000001 < minimumGap)
+        {
+         g_lastOrderOpenReason =
+            "ORDER GAP BLOCK | " + DirectionText(direction) +
+            " GAP " + DoubleToString(gapRaw, 1) +
+            "/" + DoubleToString(minimumGap, 1) +
+            " | Existing #" + IntegerToString(OrderTicket()) +
+            " @" + DoubleToString(existingPrice, Digits) +
+            " | Candidate @" + DoubleToString(candidatePrice, Digits) +
+            " | Source=" + source;
+
+         SetLastOrderBlockDashboard(g_lastOrderOpenReason);
+         Print(g_lastOrderOpenReason);
+         return(false);
+        }
+     }
+
+   return(true);
+  }
+
+//+------------------------------------------------------------------+
+// Delete duplicate/too-close same-direction pending orders. The oldest
+// pending ticket is kept when the one-pending option is enabled.
+int EnforcePendingOrderGapSafetyForDirection(int direction)
+  {
+   if(!InpUseCentralOrderGapSafety)
+      return(0);
+
+   double minimumGap = MathMax(0.0,
+                               InpMinimumSameDirectionOrderGapRaw);
+   int deleted = 0;
+
+   int keepTicket = -1;
+   datetime keepTime = 0;
+
+   if(InpOnlyOnePendingOrderPerDirection)
+     {
+      for(int k = OrdersTotal() - 1; k >= 0; k--)
+        {
+         if(!OrderSelect(k, SELECT_BY_POS, MODE_TRADES))
+            continue;
+         if(OrderSymbol() != Symbol() ||
+            OrderMagicNumber() != InpMagicNumber)
+            continue;
+         if(IsSARGuardOrderComment(OrderComment()) ||
+            !IsPendingOrderType(OrderType()) ||
+            !IsOrderTypeForDirection(OrderType(), direction, true))
+            continue;
+
+         if(keepTicket < 0 ||
+            OrderOpenTime() < keepTime ||
+            (OrderOpenTime() == keepTime && OrderTicket() < keepTicket))
+           {
+            keepTicket = OrderTicket();
+            keepTime = OrderOpenTime();
+           }
+        }
+     }
+
+   int tickets[200];
+   int count = 0;
+
+   for(int i = OrdersTotal() - 1; i >= 0 && count < 200; i--)
+     {
+      if(!OrderSelect(i, SELECT_BY_POS, MODE_TRADES))
+         continue;
+      if(OrderSymbol() != Symbol() ||
+         OrderMagicNumber() != InpMagicNumber)
+         continue;
+      if(IsSARGuardOrderComment(OrderComment()) ||
+         !IsPendingOrderType(OrderType()) ||
+         !IsOrderTypeForDirection(OrderType(), direction, true))
+         continue;
+
+      tickets[count++] = OrderTicket();
+     }
+
+   for(int p = 0; p < count; p++)
+     {
+      int ticket = tickets[p];
+      if(!OrderSelect(ticket, SELECT_BY_TICKET, MODE_TRADES))
+         continue;
+      if(OrderCloseTime() != 0 || !IsPendingOrderType(OrderType()))
+         continue;
+
+      bool deletePending = false;
+      string reason = "";
+
+      if(InpOnlyOnePendingOrderPerDirection &&
+         keepTicket > 0 && ticket != keepTicket)
+        {
+         deletePending = true;
+         reason = "ONLY ONE PENDING PER DIRECTION | KEEP #" +
+                  IntegerToString(keepTicket);
+        }
+
+      if(!deletePending &&
+         InpDeletePendingTooCloseAfterActivation &&
+         minimumGap > 0.0)
+        {
+         double pendingPrice = OrderOpenPrice();
+
+         for(int j = OrdersTotal() - 1; j >= 0; j--)
+           {
+            if(!OrderSelect(j, SELECT_BY_POS, MODE_TRADES))
+               continue;
+            if(OrderSymbol() != Symbol() ||
+               OrderMagicNumber() != InpMagicNumber)
+               continue;
+            if(IsSARGuardOrderComment(OrderComment()))
+               continue;
+
+            int marketType = OrderType();
+            if(direction == 1 && marketType != OP_BUY)
+               continue;
+            if(direction == -1 && marketType != OP_SELL)
+               continue;
+
+            double gapRaw = MathAbs(pendingPrice - OrderOpenPrice());
+            if(gapRaw + 0.0000001 < minimumGap)
+              {
+               deletePending = true;
+               reason = "ACTIVE ORDER GAP " +
+                        DoubleToString(gapRaw, 1) + "/" +
+                        DoubleToString(minimumGap, 1) +
+                        " | Open #" + IntegerToString(OrderTicket());
+               break;
+              }
+           }
+        }
+
+      if(!deletePending)
+         continue;
+
+      // The nested scan changes the selected order; select the pending again.
+      if(!OrderSelect(ticket, SELECT_BY_TICKET, MODE_TRADES) ||
+         OrderCloseTime() != 0 || !IsPendingOrderType(OrderType()))
+         continue;
+
+      ResetLastError();
+      if(OrderDelete(ticket))
+        {
+         deleted++;
+         Print("CENTRAL PENDING GAP DELETE | Ticket=", ticket,
+               " | Direction=", DirectionText(direction),
+               " | Reason=", reason);
+        }
+      else
+        {
+         int err = GetLastError();
+         Print("CENTRAL PENDING GAP DELETE FAILED | Ticket=", ticket,
+               " | Direction=", DirectionText(direction),
+               " | Reason=", reason,
+               " | Error=", err);
+         ResetLastError();
+        }
+     }
+
+   return(deleted);
+  }
+
+//+------------------------------------------------------------------+
+// Broker gaps or several pending triggers can still create live orders closer
+// than requested. Keep the oldest order and close the newer duplicate.
+int CloseNewerLiveOrdersInsideMinimumGap(int direction)
+  {
+   if(!InpUseCentralOrderGapSafety ||
+      !InpCloseNewerLiveOrderIfGapViolated)
+      return(0);
+
+   double minimumGap = MathMax(0.0,
+                               InpMinimumSameDirectionOrderGapRaw);
+   if(minimumGap <= 0.0)
+      return(0);
+
+   int tickets[200];
+   double prices[200];
+   datetime openTimes[200];
+   int count = 0;
+   int marketTypeWanted = direction > 0 ? OP_BUY : OP_SELL;
+
+   for(int i = OrdersTotal() - 1; i >= 0 && count < 200; i--)
+     {
+      if(!OrderSelect(i, SELECT_BY_POS, MODE_TRADES))
+         continue;
+      if(OrderSymbol() != Symbol() ||
+         OrderMagicNumber() != InpMagicNumber ||
+         OrderType() != marketTypeWanted ||
+         IsSARGuardOrderComment(OrderComment()))
+         continue;
+
+      tickets[count] = OrderTicket();
+      prices[count] = OrderOpenPrice();
+      openTimes[count] = OrderOpenTime();
+      count++;
+     }
+
+   // Oldest first. When several activate in the same second, the smaller
+   // ticket is treated as the original order and newer tickets are checked
+   // against only the orders that were actually kept.
+   for(int a = 0; a < count - 1; a++)
+     {
+      for(int b = a + 1; b < count; b++)
+        {
+         bool bOlder =
+            (openTimes[b] < openTimes[a]) ||
+            (openTimes[b] == openTimes[a] && tickets[b] < tickets[a]);
+
+         if(!bOlder)
+            continue;
+
+         int tempTicket = tickets[a];
+         tickets[a] = tickets[b];
+         tickets[b] = tempTicket;
+
+         double tempPrice = prices[a];
+         prices[a] = prices[b];
+         prices[b] = tempPrice;
+
+         datetime tempTime = openTimes[a];
+         openTimes[a] = openTimes[b];
+         openTimes[b] = tempTime;
+        }
+     }
+
+   double keptPrices[200];
+   int keptTickets[200];
+   int keptCount = 0;
+   int closed = 0;
+
+   for(int n = 0; n < count; n++)
+     {
+      bool violates = false;
+      int olderTicket = -1;
+      double violatingGap = 0.0;
+
+      for(int k = 0; k < keptCount; k++)
+        {
+         double gapRaw = MathAbs(prices[n] - keptPrices[k]);
+         if(gapRaw + 0.0000001 < minimumGap)
+           {
+            violates = true;
+            olderTicket = keptTickets[k];
+            violatingGap = gapRaw;
+            break;
+           }
+        }
+
+      if(!violates)
+        {
+         keptPrices[keptCount] = prices[n];
+         keptTickets[keptCount] = tickets[n];
+         keptCount++;
+         continue;
+        }
+
+      int ticketToClose = tickets[n];
+      if(!OrderSelect(ticketToClose, SELECT_BY_TICKET, MODE_TRADES))
+         continue;
+      if(OrderCloseTime() != 0 || OrderType() != marketTypeWanted)
+         continue;
+
+      double detectedProfit =
+         OrderProfit() + OrderSwap() + OrderCommission();
+      double lots = OrderLots();
+
+      RefreshRates();
+      double closePrice = direction > 0 ? Bid : Ask;
+
+      ResetLastError();
+      if(OrderClose(ticketToClose,
+                    lots,
+                    closePrice,
+                    InpSlippage,
+                    clrWhite))
+        {
+         closed++;
+         g_lastAnyOrderCloseTime = TimeCurrent();
+         SetLastOrderCloseDashboard(ticketToClose,
+                                    marketTypeWanted,
+                                    detectedProfit,
+                                    closePrice,
+                                    "Minimum raw-gap duplicate-order guard");
+
+         Print("CENTRAL LIVE GAP CLOSE | Newer #", ticketToClose,
+               " | Keep older #", olderTicket,
+               " | Direction=", DirectionText(direction),
+               " | Gap=", DoubleToString(violatingGap, 1),
+               "/", DoubleToString(minimumGap, 1),
+               " | P/L=$", DoubleToString(detectedProfit, 2));
+        }
+      else
+        {
+         int err = GetLastError();
+         Print("CENTRAL LIVE GAP CLOSE FAILED | Ticket=", ticketToClose,
+               " | Keep older #", olderTicket,
+               " | Gap=", DoubleToString(violatingGap, 1),
+               "/", DoubleToString(minimumGap, 1),
+               " | Error=", err);
+         ResetLastError();
+
+         // Keep the still-open order in the comparison set so another new
+         // duplicate cannot also survive beside it on the same tick.
+         keptPrices[keptCount] = prices[n];
+         keptTickets[keptCount] = tickets[n];
+         keptCount++;
+        }
+     }
+
+   return(closed);
+  }
+
+//+------------------------------------------------------------------+
+void EnforceCentralSameDirectionOrderGapSafety()
+  {
+   if(!InpUseCentralOrderGapSafety)
+      return;
+
+   // Close accidental live duplicates first, then remove stale pending orders.
+   CloseNewerLiveOrdersInsideMinimumGap(1);
+   CloseNewerLiveOrdersInsideMinimumGap(-1);
+
+   EnforcePendingOrderGapSafetyForDirection(1);
+   EnforcePendingOrderGapSafetyForDirection(-1);
+  }
+
 //+------------------------------------------------------------------+
 double GetEffectivePendingOrderGapRaw()
   {
@@ -5362,9 +7421,9 @@ bool IsPendingEntryAllowedForCurrentSAR(int direction, string source)
    if(!InpUsePendingOrderEntries)
       return(true);
 
-   if(IsDubaiNoNewOrderHourNow())
+   if(IsNewOrderHardPauseActive())
      {
-      Print("PENDING ENTRY BLOCKED | DUBAI NO-NEW HOUR | DXB=",
+      Print("PENDING ENTRY BLOCKED | ",GetNewOrderHardPauseReasonText()," | DXB=",
             TimeToString(GetDubaiTime(), TIME_DATE|TIME_MINUTES),
             " | Hours=", InpNoNewOrderHourList,
             " | Source=", source);
@@ -5543,9 +7602,9 @@ bool ProcessGoodMarketFirstOrderContinuation()
 
 // Dubai hours remain a hard lock. Do not keep a stale good-market request
 // until many hours later.
-   if(IsDubaiNoNewOrderHourNow())
+   if(IsNewOrderHardPauseActive())
      {
-      ClearGoodMarketContinuation("CANCELLED | DUBAI NO-NEW HOUR");
+      ClearGoodMarketContinuation("CANCELLED | " + GetNewOrderHardPauseReasonText());
       return(false);
      }
 
@@ -5610,6 +7669,16 @@ bool ProcessGoodMarketFirstOrderContinuation()
    if(g_sarCycleMaxOrders <= g_sarCycleOrdersCreated)
       g_sarCycleMaxOrders = g_sarCycleOrdersCreated + 1;
 
+   if(!IsSameDirectionEntryGapAllowed(direction,
+                                             price,
+                                             true,
+                                             "GOOD FIRST PROFIT"))
+     {
+      g_goodMarketContinuationStatus =
+         "WAIT ORDER GAP / PENDING SLOT";
+      return(false);
+     }
+
    ResetLastError();
    int ticket = OrderSend(Symbol(),
                           type,
@@ -5640,6 +7709,7 @@ bool ProcessGoodMarketFirstOrderContinuation()
       return(false);
      }
 
+   ApplyInitialServerSideSLToTicket(ticket);
    g_lastOrderTime = TimeCurrent();
    g_lastConfirmedOrderPrice = price;
    g_lastConfirmedOrderTime = TimeCurrent();
@@ -6095,6 +8165,8 @@ void CloseAllEAOrders(string reason)
   {
    RefreshRates();
 
+   double allProfitBeforeClose = GetAllOpenEAOrdersProfit();
+
 // Pending entries must be deleted; OrderClose works only for market orders.
    DeletePendingOrdersByDirection(0, reason + " | ALL EA CLOSE", false);
 
@@ -6132,6 +8204,9 @@ void CloseAllEAOrders(string reason)
          Print("CloseAllEAOrders closed | Ticket=", OrderTicket(), " Reason=", reason);
         }
      }
+
+   if(CountAllOrders() == 0 && allProfitBeforeClose > 0.0)
+      RegisterProfitableBasketClose(allProfitBeforeClose,reason);
   }
 //+------------------------------------------------------------------+
 
@@ -8840,7 +10915,7 @@ void ProcessSLReverseRecoveryProfitContinuation()
    if(!InpSLReverseRecoveryBypassEntryLimits && CountRecoveryOrders() > 0)
       return;
 
-   if(IsDubaiNoNewOrderHourNow())
+   if(IsNewOrderHardPauseActive())
       return;
 
    g_recoveryChainLastOpenAttemptTime = TimeCurrent();
@@ -8923,6 +10998,11 @@ bool CloseRecoveryOrdersAtProfit()
       SetLastOrderCloseDashboard(ticket, type, profit, closePrice,
                                  "Recovery fixed profit target");
 
+      int recoveryDirection = (type == OP_BUY) ? 1 : -1;
+      if(CountOrdersByDirection(recoveryDirection) == 0)
+         RegisterProfitableBasketClose(profit,
+                                       "Recovery fixed profit target");
+
       int idx = FindProfitProtectIndex(ticket);
       if(idx >= 0)
          RemoveProfitProtectIndex(idx);
@@ -8970,9 +11050,9 @@ bool OpenRecoveryOrder(int direction, string sourceReason, int slReverseStage = 
    bool bypassSLReverseEntryLimits =
       (isSLReverseRecovery && InpSLReverseRecoveryBypassEntryLimits);
 
-   if(IsDubaiNoNewOrderHourNow())
+   if(IsNewOrderHardPauseActive())
      {
-      string msg = "RECOVERY ORDER BLOCKED | DUBAI NO-NEW HOUR | DXB=" +
+      string msg = "RECOVERY ORDER BLOCKED | " + GetNewOrderHardPauseReasonText() + " | DXB=" +
                    TimeToString(GetDubaiTime(), TIME_DATE|TIME_MINUTES) +
                    " | Hours=" + InpNoNewOrderHourList +
                    " | Source=" + sourceReason;
@@ -9137,13 +11217,19 @@ bool OpenRecoveryOrder(int direction, string sourceReason, int slReverseStage = 
       IsDirectionOrderCapReached(direction, "OpenRecoveryOrder FINAL"))
       return(false);
 
-   if(IsDubaiNoNewOrderHourNow())
+   if(IsNewOrderHardPauseActive())
      {
-      Print("RECOVERY ORDERSEND CANCELLED | DUBAI NO-NEW HOUR | DXB=",
+      Print("RECOVERY ORDERSEND CANCELLED | ",GetNewOrderHardPauseReasonText()," | DXB=",
             TimeToString(GetDubaiTime(), TIME_DATE|TIME_MINUTES),
             " | Hours=", InpNoNewOrderHourList);
       return(false);
      }
+
+   if(!IsSameDirectionEntryGapAllowed(direction,
+                                             price,
+                                             InpUsePendingOrderEntries,
+                                             "AFTER CLOSE RECOVERY"))
+      return(false);
 
    int ticket = OrderSend(Symbol(),
                           type,
@@ -9167,6 +11253,7 @@ bool OpenRecoveryOrder(int direction, string sourceReason, int slReverseStage = 
       return(false);
      }
 
+   ApplyInitialServerSideSLToTicket(ticket);
    g_lastOrderTime = TimeCurrent();
    MarkOpenedOrderOnChart(ticket, direction, comment, TimeCurrent(), price);
    NotifyCreatedOrderTicket(ticket); // pending placement is ignored until activation
@@ -9263,9 +11350,9 @@ bool IsRecoveryHedgeOrderComment(string commentText)
 //+------------------------------------------------------------------+
 bool OpenRecoveryGapMarketOrder(int direction, double gapMove, string triggerReason)
   {
-   if(IsDubaiNoNewOrderHourNow())
+   if(IsNewOrderHardPauseActive())
      {
-      string msg = "RECOVERY GAP BLOCKED | DUBAI NO-NEW HOUR | DXB=" +
+      string msg = "RECOVERY GAP BLOCKED | " + GetNewOrderHardPauseReasonText() + " | DXB=" +
                    TimeToString(GetDubaiTime(), TIME_DATE|TIME_MINUTES) +
                    " | Hours=" + InpNoNewOrderHourList +
                    " | Trigger=" + triggerReason;
@@ -9416,13 +11503,19 @@ bool OpenRecoveryGapMarketOrder(int direction, double gapMove, string triggerRea
    if(IsDirectionOrderCapReached(direction, "OpenRecoveryGapMarketOrder FINAL"))
       return(false);
 
-   if(IsDubaiNoNewOrderHourNow())
+   if(IsNewOrderHardPauseActive())
      {
-      Print("RECOVERY GAP ORDERSEND CANCELLED | DUBAI NO-NEW HOUR | DXB=",
+      Print("RECOVERY GAP ORDERSEND CANCELLED | ",GetNewOrderHardPauseReasonText()," | DXB=",
             TimeToString(GetDubaiTime(), TIME_DATE|TIME_MINUTES),
             " | Hours=", InpNoNewOrderHourList);
       return(false);
      }
+
+   if(!IsSameDirectionEntryGapAllowed(direction,
+                                             price,
+                                             InpUsePendingOrderEntries,
+                                             "RECOVERY GAP"))
+      return(false);
 
    int ticket = OrderSend(Symbol(),
                           type,
@@ -9447,6 +11540,7 @@ bool OpenRecoveryGapMarketOrder(int direction, double gapMove, string triggerRea
       return(false);
      }
 
+   ApplyInitialServerSideSLToTicket(ticket);
    g_lastOrderTime = TimeCurrent();
    MarkOpenedOrderOnChart(ticket, direction, comment, TimeCurrent(), price);
    NotifyCreatedOrderTicket(ticket); // pending placement is ignored until activation
@@ -11432,6 +13526,9 @@ bool ProcessDirectionWiseBasketStopLossOnly(string &status)
 
          CloseOrdersByDirection(d,closeReason);
 
+         if(CountOrdersByDirection(d) == 0)
+            RegisterConsecutiveBasketSL(d,sideProfit,closeReason);
+
          // Open a strong opposite-impulse continuation first when the side
          // closed specifically by the LIVE OPPOSITE M1 tightened SL. If the
          // strict impulse conditions do not pass, preserve the original
@@ -11533,11 +13630,14 @@ bool ProcessBasketCloseByDirection(int direction, string &status)
 
    if(effectiveBasketSL2 > 0.0 && profit <= -MathAbs(effectiveBasketSL2))
      {
-      CloseOrdersByDirection(direction,
-                             "Basket stop loss $" + DoubleToString(profit, 2));
+      string sideSLReason =
+         "Basket stop loss $" + DoubleToString(profit, 2);
+
+      CloseOrdersByDirection(direction,sideSLReason);
 
       if(CountOrdersByDirection(direction) == 0)
         {
+         RegisterConsecutiveBasketSL(direction,profit,sideSLReason);
          int recoveryDirection = InpRecoveryAfterSLReverse ? -direction : direction;
          OpenRecoveryOrder(recoveryDirection,
                            DirectionText(direction) + " basket stop loss close",
@@ -11750,8 +13850,13 @@ bool ProcessCloseOrdersFirst(string &status)
    if(effectiveBasketSL3 > 0.0 && activeProfit <= -effectiveBasketSL3)
      {
       int oldDirection = g_activeSARDirection;
-      CloseOrdersByDirection(oldDirection,
-                             "Basket stop loss $" + DoubleToString(activeProfit, 2));
+      string activeSLReason =
+         "Basket stop loss $" + DoubleToString(activeProfit, 2);
+
+      CloseOrdersByDirection(oldDirection,activeSLReason);
+
+      if(CountOrdersByDirection(oldDirection) == 0)
+         RegisterConsecutiveBasketSL(oldDirection,activeProfit,activeSLReason);
 
       // Stop loss means the current SAR cycle gets a fresh normal limit.
       // This ignores the previous SAR duration restriction until the next SAR signal change.
@@ -12041,13 +14146,12 @@ bool ProcessNewOrderCreationLast(bool isNewBar, string &status)
 
 // HARD DUBAI-TIME ENTRY LOCK: applies to order #1 and every later
 // normal SAR order, regardless of the active filter profile.
-   if(IsDubaiNoNewOrderHourNow())
+   if(IsNewOrderHardPauseActive())
      {
       return(SetOrderBlockStatus(
                 status,
-                "NO NEW ORDERS DUBAI HOUR | DXB=" +
-                TimeToString(GetDubaiTime(), TIME_DATE|TIME_MINUTES) +
-                " | HOURS=" + InpNoNewOrderHourList));
+                "NEW-ORDER HARD LOCK | " +
+                GetNewOrderHardPauseReasonText()));
      }
 
 // ORDER #1 AFTER SAR FLIP:
@@ -12074,7 +14178,7 @@ bool ProcessNewOrderCreationLast(bool isNewBar, string &status)
    if(IsMarketModeEntryFilterEnabled(DXB_FILTER_NO_NEW_HOUR) &&
       IsNoNewOrderHour())
      {
-      return(SetOrderBlockStatus(status, "NO NEW ORDERS DUBAI HOUR - " + InpNoNewOrderHourList));
+      return(SetOrderBlockStatus(status, "NEW-ORDER HARD LOCK | " + GetNewOrderHardPauseReasonText()));
      }
 
 // Big candle blocks only a candidate OPPOSITE to the big candle.
@@ -12834,7 +14938,7 @@ void DrawTickSpeedDashboardPanel()
 
    DrawCornerPanel("DXB_TICK_SPEED_PANEL",
                    CORNER_RIGHT_UPPER,
-                   5,5,310,191,
+                   5,5,310,211,
                    clrBlack,stateColor);
 
    DrawCornerLabel("DXB_TICK_SPEED_TITLE",
@@ -12935,6 +15039,16 @@ void DrawTickSpeedDashboardPanel()
                    ? clrMagenta
                    : clrSilver,
                    8);
+
+   DrawCornerLabel("DXB_TICK_SPEED_CONTINUATION",
+                   "SAR Add-ons | " +
+                   StringSubstr(g_sarContinuationStatus,0,43),
+                   CORNER_RIGHT_UPPER,
+                   295,183,
+                   StringFind(g_sarContinuationStatus,"PENDING",0) >= 0
+                   ? clrLime
+                   : clrSilver,
+                   8);
   }
 
 //+------------------------------------------------------------------+
@@ -12943,6 +15057,9 @@ void OnTick()
 // Update and paint the display-only adaptive tick-speed monitor before any
 // trading-path return, so the top-right status remains current.
    UpdateTickSpeedEngine();
+
+   // Add/retry the optional broker-side per-order SL before any early return.
+   EnsureInitialServerSideSLForAllOrders();
 
    int dubaiHour = TimeHour(GetDubaiTime());
 
@@ -12997,13 +15114,12 @@ void OnTick()
 
 // A pending BUYSTOP/SELLSTOP can otherwise activate at the broker during
 // a blocked Dubai hour. Remove all untriggered EA pending entries first.
-   if(IsDubaiNoNewOrderHourNow())
+   if(IsNewOrderHardPauseActive())
      {
       DeletePendingOrdersByDirection(
          0,
-         "DUBAI NO-NEW HOUR HARD LOCK | DXB=" +
-         TimeToString(GetDubaiTime(), TIME_DATE|TIME_MINUTES) +
-         " | Hours=" + InpNoNewOrderHourList,
+         "NEW-ORDER HARD LOCK | " +
+         GetNewOrderHardPauseReasonText(),
          false);
      }
 
@@ -13072,6 +15188,12 @@ void OnTick()
 // Start delayed SAR-close tracking only after that activation.
    TrackActivatedPendingNormalOrder();
 
+
+// Central activation safety: if several pending orders trigger together,
+// close the newer live duplicates and delete pending entries that are inside
+// the required 50-raw same-direction spacing.
+   EnforceCentralSameDirectionOrderGapSafety();
+
 // Detect a new 3-profit streak immediately after history changes and maintain the 2-hour lock.
    UpdateOppositeDirectionProfitPause(false);
 
@@ -13097,6 +15219,11 @@ void OnTick()
    // new normal order is allowed.
    bool oppositeImpulsePlacedThisTick =
       ProcessOppositeImpulseContinuation();
+
+   // Maintain same-direction SAR add-on state and remove stale add-on
+   // BUYSTOP/SELLSTOP orders after expiry or a SAR direction change.
+   ManageSARContinuationPendingOrders();
+   UpdateSARPullbackContinuationState();
 
    DrawTickSpeedDashboardPanel();
 
@@ -13201,6 +15328,26 @@ void OnTick()
    if(closedByFirstPriority)
       status = firstPriorityStatus + " | GOOD MARKET CHECK";
 
+// CENTRAL NEW-ORDER HARD LOCK:
+// Close/profit/SL management above always remains active. From this point down,
+// every new-order path (normal, add-on, impulse, recovery and continuation)
+// is stopped during Dubai 16:00-22:59 or an active consecutive-SL pause.
+   if(IsNewOrderHardPauseActive())
+     {
+      DeletePendingOrdersByDirection(
+         0,
+         "CENTRAL NEW-ORDER HARD LOCK | " +
+         GetNewOrderHardPauseReasonText(),
+         false);
+
+      status = GetNewOrderHardPauseReasonText() +
+               " | EXISTING ORDERS MANAGED";
+
+      DrawLeftOrderCreationChecklist(status);
+      DrawDashboard(status);
+      return;
+     }
+
 // FIRST-ORDER GOOD-MARKET CONTINUATION:
 // Place the bonus pending entry immediately after close management and before
 // recovery/standard entry logic. A placed or retrying request has priority so
@@ -13227,9 +15374,25 @@ void OnTick()
       closedThisTick = true;
      }
 
+// SAME-DIRECTION SAR CONTINUATION ADD-ONS:
+// Pullback continuation has first priority, then profitable pyramid, then
+// strong-candle breakout. These paths use their own confirmations and do not
+// globally disable LATE_SAR/STRICT_SCORE/DOUBTFUL_CANDLE protections.
+   bool sarContinuationPlacedThisTick = false;
+   if(!closedThisTick)
+      sarContinuationPlacedThisTick =
+         ProcessSARContinuationAddOnOrders();
+
+   if(sarContinuationPlacedThisTick)
+     {
+      status = g_lastOrderOpenReason;
+      closedThisTick = true;
+     }
+
 // RECOVERY CREATION AFTER SAR UPDATE:
 // g_activeSARDirection and the closed-candle SAR signal are now current.
-// Do not create a recovery order on the same tick that closed an order.
+// Profitable continuation additions receive priority over averaging recovery.
+// Do not create a recovery order on the same tick that closed/placed an order.
    if(!closedThisTick && CountOpenOrders() > 0)
       ProcessRecoveryGapOrders();
 
@@ -15158,7 +17321,7 @@ bool IsFirstSAROrderAllowedByPriceDiffOnly(int direction,
    if(!IsFirstSAROrderAfterFlip(direction))
       return(true);
 
-   if(IsDubaiNoNewOrderHourNow())
+   if(IsNewOrderHardPauseActive())
       return(BlockNormalOrderByModeProfile(
                 "FIRST ORDER | DUBAI NO-NEW HOUR | DXB=" +
                 TimeToString(GetDubaiTime(), TIME_DATE|TIME_MINUTES) +
@@ -15316,7 +17479,7 @@ bool IsNormalOrderAllowedByMarketModeProfile(int direction,
    if(IsMarketModeEntryFilterEnabled(DXB_FILTER_NO_NEW_HOUR) &&
       IsNoNewOrderHour())
       return(BlockNormalOrderByModeProfile(
-                "NO NEW ORDER DUBAI HOUR | " + InpNoNewOrderHourList +
+                "NEW-ORDER HARD LOCK | " + GetNewOrderHardPauseReasonText() +
                 " | Source=" + reason));
 
    if(IsMarketModeEntryFilterEnabled(DXB_FILTER_PROFIT_PAUSE) &&
@@ -15418,7 +17581,7 @@ bool OpenMarketOrder(int direction, string reason)
    if(direction != 0)
       EnsureSARSignalOrderCycle(direction);
 
-   if(IsDubaiNoNewOrderHourNow())
+   if(IsNewOrderHardPauseActive())
       return BlockOrder(
                 "DUBAI NO-NEW HOUR HARD LOCK | DXB=" +
                 TimeToString(GetDubaiTime(), TIME_DATE|TIME_MINUTES) +
@@ -15540,7 +17703,7 @@ bool OpenMarketOrder(int direction, string reason)
       return BlockOrder("OrderSend cancelled last check | Trading not allowed now | Source=" + reason);
 
 // Final time recheck immediately before the atomic filter audit/OrderSend.
-   if(IsDubaiNoNewOrderHourNow())
+   if(IsNewOrderHardPauseActive())
       return BlockOrder(
                 "OrderSend cancelled last check | DUBAI NO-NEW HOUR | DXB=" +
                 TimeToString(GetDubaiTime(), TIME_DATE|TIME_MINUTES) +
@@ -15579,12 +17742,18 @@ bool OpenMarketOrder(int direction, string reason)
      }
 
 // Last possible check immediately before the broker request.
-   if(IsDubaiNoNewOrderHourNow())
+   if(IsNewOrderHardPauseActive())
       return BlockOrder(
                 "OrderSend aborted at broker boundary | DUBAI NO-NEW HOUR | DXB=" +
                 TimeToString(GetDubaiTime(), TIME_DATE|TIME_MINUTES) +
                 " | Hours=" + InpNoNewOrderHourList +
                 " | Source=" + reason);
+
+   if(!IsSameDirectionEntryGapAllowed(direction,
+                                             price,
+                                             InpUsePendingOrderEntries,
+                                             "NORMAL SAR " + reason))
+      return(false);
 
    ResetLastError();
 
@@ -15628,6 +17797,7 @@ bool OpenMarketOrder(int direction, string reason)
       return(false);
      }
 
+   ApplyInitialServerSideSLToTicket(ticket);
    g_lastOrderTime = TimeCurrent();
    MarkOpenedOrderOnChart(ticket, direction, orderComment, TimeCurrent(), price);
    NotifyCreatedOrderTicket(ticket); // pending placement is ignored until activation
@@ -15850,6 +18020,10 @@ void CloseOrdersByDirection(int direction, string reason)
 void CloseOrdersByType(int type, string reason)
   {
    RefreshRates();
+
+   int closingDirection = (type == OP_BUY) ? 1 : -1;
+   double basketProfitBeforeClose = GetBasketProfit(closingDirection);
+
    for(int i = OrdersTotal() - 1; i >= 0; i--)
      {
       if(!OrderSelect(i, SELECT_BY_POS, MODE_TRADES))
@@ -15886,6 +18060,10 @@ void CloseOrdersByType(int type, string reason)
    DeletePendingOrdersByDirection(pendingDirection,
                                   reason + " | SIDE CLOSE",
                                   false);
+
+   if(CountOrdersByDirection(closingDirection) == 0 &&
+      basketProfitBeforeClose > 0.0)
+      RegisterProfitableBasketClose(basketProfitBeforeClose,reason);
   }
 
 //+------------------------------------------------------------------+
@@ -16635,7 +18813,7 @@ void RefreshFirstSAROrderDiagnosticSnapshot(int direction,
    bool priceDiffOk = IsFirstSAROrderPriceDiffReady(direction);
    bool tradingOk   = CheckListTradingAllowed();
    bool maxOpenOk   = CheckListMaxOpenAllowed(direction);
-   bool noNewHourOk = !IsDubaiNoNewOrderHourNow();
+   bool noNewHourOk = !IsNewOrderHardPauseActive();
    int maxPerType = InpMaxOrders;
    if(maxPerType < 1)
       maxPerType = 1;
@@ -16729,9 +18907,7 @@ void RefreshNormalEntryDiagnosticSnapshot(int direction,
    bool rawEquity =
       (!g_equityProtectionHit &&
        !(g_dailyProfitLock && InpPauseAfterProfitTarget));
-   bool rawNoHour =
-      (!InpUseNoNewOrderHours ||
-       !IsConfiguredNoNewOrderHour(TimeHour(GetDubaiTime())));
+   bool rawNoHour = !IsDubaiNoNewOrderHourNow();
    bool rawProfit = !IsProfitProtectPauseActive();
    bool rawOpposite =
       (!IsOppositeDirectionProfitPauseActive() ||
@@ -18089,7 +20265,7 @@ void DrawDashboard(string status)
 
    DrawCornerPanel("DXB_RIGHT_SETTINGS_PANEL",
                    CORNER_RIGHT_UPPER,
-                   325,280,320,680,
+                   325,280,320,705,
                    clrBlack,clrDimGray);
 
    string liveModeText = DashboardLiveModeText();
@@ -18109,7 +20285,7 @@ void DrawDashboard(string status)
                    13);
 
    DrawCornerLabel("DXB_RIGHT_SETTINGS_TITLE",
-                   liveModeText + " | VERSION 1.56",
+                   liveModeText + " | VERSION 1.58",
                    CORNER_RIGHT_UPPER,
                    300,287,
                    liveModeColor,
@@ -18289,6 +20465,25 @@ void DrawDashboard(string status)
                OppositeImpulseStatusText(),
                IsOppositeImpulseContinuationBusy()
                ? clrMagenta : clrSilver);
+   RightProRow("SAR Add-ons",
+               StringSubstr(g_sarContinuationStatus,0,38),
+               StringFind(g_sarContinuationStatus,"PENDING",0) >= 0
+               ? clrLime
+               : (InpUseSARContinuationAddOns ? clrAqua : clrSilver));
+   RightProRow("Add-on Count",
+               "BUY " +
+               IntegerToString(
+                  CountSARContinuationOrdersCreated(1,"")) +
+               "/" +
+               IntegerToString(
+                  (int)MathMax(0,InpMaxSARContinuationOrdersPerSide)) +
+               " | SELL " +
+               IntegerToString(
+                  CountSARContinuationOrdersCreated(-1,"")) +
+               "/" +
+               IntegerToString(
+                  (int)MathMax(0,InpMaxSARContinuationOrdersPerSide)),
+               clrAqua);
    RightProRow("Market Mode",AutoMarketModeStatusText(),MarketFlowModeColor());
    RightProRow("Opposite Pause",OppositeDirectionProfitPauseStatusText(),IsOppositeDirectionProfitPauseActive() ? clrOrangeRed : clrSilver);
    RightProRow("Ind Profit Protect",OnOff(InpUseIndividualProfitProtect),InpUseIndividualProfitProtect ? clrLime : clrSilver);
@@ -18343,7 +20538,8 @@ void DrawDashboard(string status)
                InpUseConfirmedSARWeakBasketClose ? clrLime : clrSilver);
    RightProRow("Spike Status",SpikeWickPauseStatusText(),IsSpikeWickPauseActive() ? clrOrangeRed : clrSilver);
    RightProRow("Global Trail",g_globalEquityTrailStatus,g_globalEquityTrailLocked ? clrOrangeRed : clrAqua);
-   RightProRow("No-New Hours",NoNewOrderHoursStatusText(),IsNoNewOrderHour() ? clrOrangeRed : clrLime);
+   RightProRow("No-New Hours",NoNewOrderHoursStatusText(),IsDubaiNoNewOrderHourNow() ? clrOrangeRed : clrLime);
+   RightProRow("SL Streak Pause",ConsecutiveSLPauseStatusText(),IsConsecutiveSLPauseActive() ? clrOrangeRed : clrLime);
 
    DrawCornerPanel("DXB_RIGHT_ACCOUNT_PANEL",CORNER_RIGHT_UPPER,325,15,320,250,clrBlack,clrDimGray);
    DrawCornerLabel("DXB_RIGHT_ACCOUNT_TITLE","ACCOUNT / BASKET STATUS",CORNER_RIGHT_UPPER,300,23,clrYellow,10);
