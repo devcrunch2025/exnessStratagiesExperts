@@ -20,7 +20,7 @@ MARKET_MODE g_marketMode = MODE_RANGE;
 #ifndef OP_BALANCE
 #define OP_BALANCE 6
 #endif
-#property version   "1.60"
+#property version   "1.61"
 
 //======================== INPUTS ====================================
 string InpEAName                  = "DXB Version 5 - SAR Confirm 50 in 5 Min";
@@ -103,14 +103,14 @@ double InpDynamicBasketMinComebackProfitUSD   = 0.01;
 //
 // These two legacy inputs are retained for old SET-file compatibility.
 // MIXED half TP is now an automatic market-mode rule.
-bool   InpUseMixedModeHalfBasketTP       = true;  // legacy compatibility
+bool   InpUseMixedModeHalfBasketTP       = false;  // legacy compatibility
 double InpMixedModeBasketTPMultiplier    = 0.40;  // fixed/ignored: MIXED always uses 0.50
 
 // Weak SAR-score basket target:
 // When the current active SAR quality score is <= this value,
 // use the same exact fixed target: InpBasketProfitUSD / 2.
 // Example: score 3, 2, 1 or 0 => half TP.
-bool   InpUseLowSARScoreHalfBasketTP      = true;
+bool   InpUseLowSARScoreHalfBasketTP      = false;
 int    InpSARScoreHalfBasketTPMax         = 3;
 
 // SAR-flipped old basket profit target:
@@ -118,14 +118,14 @@ int    InpSARScoreHalfBasketTPMax         = 3;
 // while the BUY basket remains open. The old BUY basket is closed when its
 // floating profit reaches InpBasketProfitUSD * multiplier.
 // This never closes the old basket in loss.
-bool   InpUseSARFlipOppositeBasketHalfTP = true;
+bool   InpUseSARFlipOppositeBasketHalfTP = false;
 double InpSARFlipOppositeBasketTPMultiplier = 0.50;
 
 // Time-based half TP:
 // When a BUY or SELL basket remains open for this many minutes,
 // reduce only that side's profit target to InpBasketProfitUSD * multiplier.
 // It closes only after positive profit reaches the reduced target.
-bool   InpUseBasketHalfTPAfterMinutes = true;
+bool   InpUseBasketHalfTPAfterMinutes = false;
 int    InpBasketHalfTPAfterMinutes = 30;
 double InpBasketHalfTPAfterMinutesMultiplier = 0.50;
 
@@ -153,7 +153,7 @@ double InpDangerModeBasketSLUSD          = 1.00;
 // It disables auto profit/loss adjustments such as combined all-basket profit close,
 // basket/individual profit protect, time-decay TP, SAR-weak basket close,
 // global equity trailing close, and auto market-flow SL adjustment.
-bool   InpUseSimpleSideBasketCloseOnly = false;
+bool   InpUseSimpleSideBasketCloseOnly = true;
 
 //FIXED stoploss 
 
@@ -346,12 +346,18 @@ int    InpMaxSpreadPoints         = 3000;
 //================ INITIAL SERVER-SIDE ORDER SL =====================
 // Optional broker-side SL added immediately after every EA order is created.
 // The USD amount is PER ORDER, not per BUY/SELL basket.
-// Example: three 0.01 orders with $0.10 each can lose about $0.30 total,
-// plus commission, spread, slippage and broker stop-level adjustment.
-bool   InpUseInitialServerSideOrderSL = true;
-double InpInitialServerSideOrderSLUSD = 0.10;
-bool   InpInitialServerSLForPending   = true;
-int    InpInitialServerSLRetrySeconds = 3;
+// The selected value depends on the live SAR direction at order creation:
+//   SAR BUY  + BUY  order = InpInitialServerSLWithSARUSD
+//   SAR BUY  + SELL order = InpInitialServerSLAgainstSARUSD
+//   SAR SELL + SELL order = InpInitialServerSLWithSARUSD
+//   SAR SELL + BUY  order = InpInitialServerSLAgainstSARUSD
+// If SAR direction is unavailable, the conservative fallback value is used.
+bool   InpUseInitialServerSideOrderSL       = true;
+double InpInitialServerSLWithSARUSD          =1;//0.50;// 2;//0.90;
+double InpInitialServerSLAgainstSARUSD       =0.50;//1;// 0.50;
+double InpInitialServerSLNoSARDirectionUSD   =2;//3;// 0.50;
+bool   InpInitialServerSLForPending          = true;
+int    InpInitialServerSLRetrySeconds        = 3;
 
 // Daily equity protection / profit lock
 // Example: Balance=$100 -> Protected=$50, TradingCapital=$50, ProfitTarget=$25.
@@ -441,8 +447,8 @@ double InpTickSpeedBaselineSmoothing       = 0.15;
 bool   InpUseTickSpeedAdaptiveBasketSL       = true;
 double InpTickSpeedSlowSLMultiplier          = 1.25; // slower market may use slightly wider base SL
 double InpTickSpeedNormalSLMultiplier        = 1.00; // normal market uses the selected mode base SL
-double InpTickSpeedFastSLMultiplier          = 0.75; // fast market reduces risk instead of widening SL
-double InpTickSpeedDangerSLMultiplier        = 0.50; // danger market uses the smallest adaptive SL
+double InpTickSpeedFastSLMultiplier          = 2;//0.75; // fast market reduces risk instead of widening SL
+double InpTickSpeedDangerSLMultiplier        = 2;//0.50; // danger market uses the smallest adaptive SL
 double InpTickSpeedWarmupSLMultiplier        = 1.00; // neutral fallback until speed engine is ready
 double InpTickSpeedAdaptiveSLMaxUSD          = 0.00; // 0 = unlimited safety cap
 
@@ -457,7 +463,7 @@ double InpTickSpeedAdaptiveSLMaxUSD          = 0.00; // 0 = unlimited safety cap
 bool   InpUseLiveOppositeCandleTightSL       = true;
 double InpLiveOppositeCandleRangeRatio       = 1.00; // live M1 range must be > previous M1 range x this value
 double InpLiveOppositeCandleMinBodyPercent   = 35.0; // avoid arming only from a long wick; 0 disables
-double InpLiveOppositeCandleSLMultiplier     = 0.50; // frozen adaptive SL x 0.50, e.g. $0.50 -> $0.25
+double InpLiveOppositeCandleSLMultiplier     = 1;//0.50; // frozen adaptive SL x 0.50, e.g. $0.50 -> $0.25
 double InpLiveOppositeCandleMinimumSLUSD     = 0.01; // smallest permitted tightened basket SL
 
 //================ OPPOSITE IMPULSE CONTINUATION ====================
@@ -5934,25 +5940,66 @@ double GetInitialServerSLPriceDistance(string symbol,
   }
 
 //+------------------------------------------------------------------+
+//| Return BUY/SELL direction from a market or pending order type    |
+//+------------------------------------------------------------------+
+int GetInitialServerSLOrderDirection(int orderType)
+  {
+   if(orderType == OP_BUY ||
+      orderType == OP_BUYSTOP ||
+      orderType == OP_BUYLIMIT)
+      return(1);
+
+   if(orderType == OP_SELL ||
+      orderType == OP_SELLSTOP ||
+      orderType == OP_SELLLIMIT)
+      return(-1);
+
+   return(0);
+  }
+
+//+------------------------------------------------------------------+
+//| Select initial per-order USD risk from order direction vs SAR    |
+//+------------------------------------------------------------------+
+double GetInitialServerSLUSDForSelectedOrder(int &sarDirectionOut,
+                                              bool &matchesSAROut)
+  {
+   int orderDirection = GetInitialServerSLOrderDirection(OrderType());
+
+   sarDirectionOut = GetSARDotDirection(0);
+   if(sarDirectionOut != 1 && sarDirectionOut != -1)
+      sarDirectionOut = g_activeSARDirection;
+
+   matchesSAROut = false;
+
+   if(orderDirection != 1 && orderDirection != -1)
+      return(0.0);
+
+   if(sarDirectionOut != 1 && sarDirectionOut != -1)
+      return(MathMax(0.0,InpInitialServerSLNoSARDirectionUSD));
+
+   matchesSAROut = (orderDirection == sarDirectionOut);
+
+   if(matchesSAROut)
+      return(MathMax(0.0,InpInitialServerSLWithSARUSD));
+
+   return(MathMax(0.0,InpInitialServerSLAgainstSARUSD));
+  }
+
+//+------------------------------------------------------------------+
 //| Add the initial broker-side SL to the currently selected order   |
 //+------------------------------------------------------------------+
 bool ApplyInitialServerSideSLToSelectedOrder()
   {
-   if(!InpUseInitialServerSideOrderSL ||
-      InpInitialServerSideOrderSLUSD <= 0.0)
+   if(!InpUseInitialServerSideOrderSL)
       return(true);
 
    int type = OrderType();
+   int orderDirection = GetInitialServerSLOrderDirection(type);
 
-   bool buySide = (type == OP_BUY ||
-                   type == OP_BUYSTOP ||
-                   type == OP_BUYLIMIT);
-   bool sellSide = (type == OP_SELL ||
-                    type == OP_SELLSTOP ||
-                    type == OP_SELLLIMIT);
-
-   if(!buySide && !sellSide)
+   if(orderDirection != 1 && orderDirection != -1)
       return(false);
+
+   bool buySide = (orderDirection == 1);
 
    bool pending = (type == OP_BUYSTOP ||
                    type == OP_BUYLIMIT ||
@@ -5967,6 +6014,14 @@ bool ApplyInitialServerSideSLToSelectedOrder()
    if(OrderStopLoss() > 0.0)
       return(true);
 
+   int sarDirection = 0;
+   bool matchesSAR = false;
+   double selectedInitialSLUSD =
+      GetInitialServerSLUSDForSelectedOrder(sarDirection,matchesSAR);
+
+   if(selectedInitialSLUSD <= 0.0)
+      return(true);
+
    string symbol = OrderSymbol();
    double lots   = OrderLots();
    double open   = OrderOpenPrice();
@@ -5976,7 +6031,7 @@ bool ApplyInitialServerSideSLToSelectedOrder()
    double priceDistance =
       GetInitialServerSLPriceDistance(symbol,
                                       lots,
-                                      InpInitialServerSideOrderSLUSD);
+                                      selectedInitialSLUSD);
 
    if(priceDistance <= 0.0 || point <= 0.0)
       return(false);
@@ -6022,16 +6077,22 @@ bool ApplyInitialServerSideSLToSelectedOrder()
                                OrderExpiration(),
                                clrNONE);
 
+   string relationText = "NO SAR";
+   if(sarDirection == 1 || sarDirection == -1)
+      relationText = matchesSAR ? "WITH SAR" : "AGAINST SAR";
+
    if(!modified)
      {
       int err = GetLastError();
       Print("INITIAL SERVER SL MODIFY FAILED",
             " | Ticket=",OrderTicket(),
-            " | Type=",type,
+            " | OrderDir=",DirectionText(orderDirection),
+            " | SAR=",DirectionText(sarDirection),
+            " | Relation=",relationText,
             " | Open=",DoubleToString(open,digits),
             " | SL=",DoubleToString(finalSL,digits),
             " | RequestedLoss=$",
-            DoubleToString(InpInitialServerSideOrderSLUSD,2),
+            DoubleToString(selectedInitialSLUSD,2),
             " | Error=",err);
       ResetLastError();
       return(false);
@@ -6047,11 +6108,13 @@ bool ApplyInitialServerSideSLToSelectedOrder()
 
    Print("INITIAL SERVER SL ADDED",
          " | Ticket=",OrderTicket(),
-         " | Side=",buySide ? "BUY" : "SELL",
+         " | OrderDir=",DirectionText(orderDirection),
+         " | SAR=",DirectionText(sarDirection),
+         " | Relation=",relationText,
          " | Open=",DoubleToString(open,digits),
          " | SL=",DoubleToString(finalSL,digits),
          " | RequestedLoss=$",
-         DoubleToString(InpInitialServerSideOrderSLUSD,2),
+         DoubleToString(selectedInitialSLUSD,2),
          " | EstimatedLoss=$",
          DoubleToString(estimatedLossUSD,2));
 
@@ -6081,8 +6144,12 @@ bool ApplyInitialServerSideSLToTicket(int ticket)
 //+------------------------------------------------------------------+
 void EnsureInitialServerSideSLForAllOrders()
   {
-   if(!InpUseInitialServerSideOrderSL ||
-      InpInitialServerSideOrderSLUSD <= 0.0)
+   if(!InpUseInitialServerSideOrderSL)
+      return;
+
+   if(InpInitialServerSLWithSARUSD <= 0.0 &&
+      InpInitialServerSLAgainstSARUSD <= 0.0 &&
+      InpInitialServerSLNoSARDirectionUSD <= 0.0)
       return;
 
    int retrySeconds = MathMax(1,InpInitialServerSLRetrySeconds);
@@ -20285,7 +20352,7 @@ void DrawDashboard(string status)
                    13);
 
    DrawCornerLabel("DXB_RIGHT_SETTINGS_TITLE",
-                   liveModeText + " | VERSION 1.58",
+                   liveModeText + " | VERSION 1.61",
                    CORNER_RIGHT_UPPER,
                    300,287,
                    liveModeColor,
