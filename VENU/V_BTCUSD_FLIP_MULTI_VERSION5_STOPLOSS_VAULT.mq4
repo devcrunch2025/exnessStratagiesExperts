@@ -1,5 +1,5 @@
 //+------------------------------------------------------------------+
-//|                 DXB_SAR_EarlyTrend_Cycle_EA_StrictFreshDailyBoot_V168.mq4                  |
+//|                 DXB_SAR_EarlyTrend_Cycle_EA_Strict_2345_FreshBoot_V172.mq4                  |
 //|  SAR cycle + server-side SL + dynamic X-profit ladder          |
 //|  SAR flip closes opposite orders. Early reverse trend pauses SAR  |
 //|  cycle, draws arrows, closes opposite orders, resumes when aligned |
@@ -20,7 +20,7 @@ MARKET_MODE g_marketMode = MODE_RANGE;
 #ifndef OP_BALANCE
 #define OP_BALANCE 6
 #endif
-#property version   "1.68"
+#property version   "1.72"
 
 //======================== INPUTS ====================================
 string InpEAName                  = "DXB Version 5 - SAR Confirm 50 in 5 Min";
@@ -441,6 +441,32 @@ bool   InpFreshDayStrictNewAttachBoot        = true;
 bool   InpFreshDayDeleteEAStateGlobals       = true;
 bool   InpFreshDayResumeOnlyOnNewM1Bar       = true;
 int    InpFreshDayInternalResumeDelaySeconds = 1;
+
+
+//================ STRICT 23:45 DAY-END FRESH BOOT ==================
+// Live trading uses Dubai time (GMT+4). Strategy Tester uses tester time.
+// At the first tick from 23:45:00 onward, the EA:
+//   1) blocks every strategy path before any other OnTick calculation,
+//   2) deletes its pending orders,
+//   3) closes its market orders,
+//   4) clears all known runtime strategy memory,
+//   5) requests ChartSetSymbolPeriod() so MT4 reloads every compiled global
+//      variable from its declaration/default value,
+//   6) keeps OnTick blocked through 23:59:59.
+// At 00:00 the existing strict fresh-day routine creates the new daily
+// balance/equity cycle and the daily reinitialization performs a full startup.
+// This is safer than a JSON variable file: no setting name, type, array or new
+// runtime variable can be omitted from the actual MT4 program reload.
+bool   InpUseStrict2345DayEndFreshBoot       = true;
+int    InpDayEndFreshBootHour                = 23;
+int    InpDayEndFreshBootMinute              = 45;
+bool   InpDayEndCloseMarketOrders            = true;
+bool   InpDayEndDeletePendingOrders          = true;
+bool   InpDayEndResetRuntimeState            = true;
+bool   InpDayEndReinitializeEA               = true;
+bool   InpDayEndReinitializeEAInTesting      = false;
+// A one-second timer makes 23:45 and 00:00 processing independent of ticks.
+bool   InpUseFreshBootOneSecondTimer          = true;
 
 //================ DAILY EA SELF-REINITIALIZATION ===================
 // Optional final cleanup after the complete fresh-day reset finishes.
@@ -1224,6 +1250,15 @@ datetime g_freshDayInternalResumeAfter = 0;
 datetime g_freshDayInternalResumeBarTime = 0;
 bool     g_freshDayResetInProgress = false;
 string   g_freshDayStatus       = "WAIT INIT";
+
+
+// Strict 23:45 shutdown state. Prepared/reloaded date keys are also stored in
+// terminal Global Variables so a chart reload or terminal restart during the
+// 23:45-00:00 hold cannot accidentally run the shutdown twice or resume trade.
+int      g_dayEndPreparedDateKey = 0;
+int      g_dayEndReloadedDateKey = 0;
+bool     g_dayEndResetInProgress = false;
+string   g_dayEndFreshBootStatus = "WAIT INIT";
 
 // Daily chart-reinitialization state. The restart date and resume time are
 // stored in terminal Global Variables so a chart reinitialization cannot loop
@@ -6498,6 +6533,216 @@ void EnsureInitialServerSideSLForAllOrders()
 //+------------------------------------------------------------------+
 //| Terminal Global Variable key for daily EA reinitialization       |
 //+------------------------------------------------------------------+
+//| Strict 23:45 day-end fresh-boot terminal Global Variable keys.   |
+//+------------------------------------------------------------------+
+string GetDayEndPreparedGlobalKey()
+  {
+   return("DXB_DAYEND_PREPARED_" +
+          IntegerToString(AccountNumber()) + "_" +
+          Symbol() + "_" +
+          IntegerToString(Period()) + "_" +
+          IntegerToString(InpMagicNumber));
+  }
+
+//+------------------------------------------------------------------+
+string GetDayEndReloadedGlobalKey()
+  {
+   return("DXB_DAYEND_RELOADED_" +
+          IntegerToString(AccountNumber()) + "_" +
+          Symbol() + "_" +
+          IntegerToString(Period()) + "_" +
+          IntegerToString(InpMagicNumber));
+  }
+
+//+------------------------------------------------------------------+
+//| True from the configured Dubai/tester time through 23:59:59.     |
+//+------------------------------------------------------------------+
+bool IsStrictDayEndFreshBootWindowNow()
+  {
+   if(!InpUseStrict2345DayEndFreshBoot)
+      return(false);
+
+   datetime referenceTime = GetFreshDayReferenceTime();
+
+   int configuredHour = MathMax(0,MathMin(23,InpDayEndFreshBootHour));
+   int configuredMinute = MathMax(0,MathMin(59,InpDayEndFreshBootMinute));
+   int currentMinuteOfDay = TimeHour(referenceTime) * 60 +
+                            TimeMinute(referenceTime);
+   int startMinuteOfDay = configuredHour * 60 + configuredMinute;
+
+   return(currentMinuteOfDay >= startMinuteOfDay);
+  }
+
+//+------------------------------------------------------------------+
+//| Read persistent shutdown markers during every OnInit().          |
+//+------------------------------------------------------------------+
+void InitializeStrictDayEndFreshBootState()
+  {
+   g_dayEndPreparedDateKey = 0;
+   g_dayEndReloadedDateKey = 0;
+   g_dayEndResetInProgress = false;
+
+   string preparedKey = GetDayEndPreparedGlobalKey();
+   string reloadedKey = GetDayEndReloadedGlobalKey();
+
+   if(GlobalVariableCheck(preparedKey))
+      g_dayEndPreparedDateKey = (int)GlobalVariableGet(preparedKey);
+
+   if(GlobalVariableCheck(reloadedKey))
+      g_dayEndReloadedDateKey = (int)GlobalVariableGet(reloadedKey);
+
+   int currentDateKey = GetCurrentFreshDayDateKey();
+
+   if(IsStrictDayEndFreshBootWindowNow())
+     {
+      if(g_dayEndPreparedDateKey == currentDateKey)
+         g_dayEndFreshBootStatus =
+            "23:45 RESET COMPLETE | TICKS BLOCKED TO 00:00";
+      else
+         g_dayEndFreshBootStatus =
+            "23:45 RESET PENDING | TICKS BLOCKED";
+     }
+   else
+      g_dayEndFreshBootStatus =
+         "READY | NEXT 23:45 RESET";
+  }
+
+//+------------------------------------------------------------------+
+//| First OnTick gate: prepare at 23:45 and block until midnight.    |
+//+------------------------------------------------------------------+
+bool HandleStrict2345DayEndFreshBoot()
+  {
+   if(!InpUseStrict2345DayEndFreshBoot)
+      return(true);
+
+   int currentDateKey = GetCurrentFreshDayDateKey();
+
+   // Midnight/new day: release only this day-end gate. The existing fresh-day
+   // handler and daily EA reinitializer run immediately after this function.
+   if(!IsStrictDayEndFreshBootWindowNow())
+     {
+      g_dayEndResetInProgress = false;
+      g_dayEndFreshBootStatus = "READY | NEXT 23:45 RESET";
+      return(true);
+     }
+
+   string preparedKey = GetDayEndPreparedGlobalKey();
+   string reloadedKey = GetDayEndReloadedGlobalKey();
+
+   if(GlobalVariableCheck(preparedKey))
+      g_dayEndPreparedDateKey = (int)GlobalVariableGet(preparedKey);
+
+   if(GlobalVariableCheck(reloadedKey))
+      g_dayEndReloadedDateKey = (int)GlobalVariableGet(reloadedKey);
+
+   // Perform the close/delete/reset sequence only once for this date. If an
+   // order close fails, remain blocked and retry on the next tick.
+   if(g_dayEndPreparedDateKey != currentDateKey)
+     {
+      g_dayEndResetInProgress = true;
+      g_dayEndFreshBootStatus =
+         "23:45 RESETTING | ALL TICKS BLOCKED";
+
+      string reason = "STRICT 23:45 DAY-END RESET " +
+                      IntegerToString(currentDateKey);
+
+      if(InpDayEndDeletePendingOrders)
+         DeletePendingOrdersByDirection(0,reason,false);
+
+      int marketRemaining = 0;
+      if(InpDayEndCloseMarketOrders)
+         marketRemaining = CloseAllEAMarketOrdersForFreshDay(reason);
+      else
+         marketRemaining = CountAllEAMarketOrdersForRestart();
+
+      if(marketRemaining > 0)
+        {
+         g_dayEndFreshBootStatus =
+            "23:45 WAIT CLOSE | " +
+            IntegerToString(marketRemaining) +
+            " MARKET ORDER(S) | TICKS BLOCKED";
+
+         Print(g_dayEndFreshBootStatus);
+         return(false);
+        }
+
+      // Catch any pending order that changed state during the close loop.
+      if(InpDayEndDeletePendingOrders)
+         DeletePendingOrdersByDirection(0,reason + " | FINAL",false);
+
+      if(InpDayEndResetRuntimeState)
+         ResetAllFreshDayRuntimeState();
+
+      g_dayEndPreparedDateKey = currentDateKey;
+      g_dayEndResetInProgress = false;
+
+      GlobalVariableSet(preparedKey,(double)currentDateKey);
+      GlobalVariablesFlush();
+
+      Print("STRICT 23:45 DAY-END RESET COMPLETE",
+            " | Date=",currentDateKey,
+            " | MarketOrders=",CountAllEAMarketOrdersForRestart(),
+            " | PendingOrders=",CountAllEAPendingOrdersForRestart(),
+            " | HoldUntil=00:00");
+     }
+
+   bool mayReinitialize = InpDayEndReinitializeEA &&
+                          (!IsTesting() ||
+                           InpDayEndReinitializeEAInTesting);
+
+   // A real chart reinitialization reloads every compiled global/configuration
+   // declaration. This is the complete fallback that cannot miss a newly added
+   // runtime variable. The persistent RELOADED key prevents a reinit loop.
+   if(mayReinitialize &&
+      g_dayEndReloadedDateKey != currentDateKey)
+     {
+      GlobalVariableSet(reloadedKey,(double)currentDateKey);
+      GlobalVariablesFlush();
+      g_dayEndReloadedDateKey = currentDateKey;
+
+      g_dayEndFreshBootStatus =
+         "23:45 RESET COMPLETE | EA RELOAD REQUESTED | HOLD TO 00:00";
+
+      ResetLastError();
+      bool requested = ChartSetSymbolPeriod(
+                           0,
+                           NULL,
+                           (ENUM_TIMEFRAMES)Period()
+                       );
+
+      if(!requested)
+        {
+         int errorCode = GetLastError();
+
+         if(GlobalVariableCheck(reloadedKey))
+            GlobalVariableDel(reloadedKey);
+         GlobalVariablesFlush();
+
+         g_dayEndReloadedDateKey = 0;
+         g_dayEndFreshBootStatus =
+            "23:45 EA RELOAD FAILED | ERR " +
+            IntegerToString(errorCode) +
+            " | TICKS BLOCKED";
+
+         Print(g_dayEndFreshBootStatus);
+         ResetLastError();
+         return(false);
+        }
+
+      Print("STRICT 23:45 EA REINITIALIZATION REQUESTED",
+            " | Date=",currentDateKey,
+            " | Ticks remain blocked through 23:59:59");
+
+      return(false);
+     }
+
+   g_dayEndFreshBootStatus =
+      "23:45 RESET COMPLETE | TICKS BLOCKED TO 00:00";
+
+   return(false);
+  }
+
+//+------------------------------------------------------------------+
 string GetDailyEARestartGlobalKey()
   {
    return("DXB_REINIT_DATE_" +
@@ -6783,6 +7028,20 @@ int OnInit()
    // Global-Variable key is initialized.
    InpMagicNumber = AccountNumber() + 202;
 
+   // Load the persistent 23:45 markers before normal startup. A chart reload
+   // restores every compiled declaration, then normal initialization rebuilds
+   // safe trackers. OnTick is still absolutely blocked until 00:00.
+   InitializeStrictDayEndFreshBootState();
+
+   if(InpUseFreshBootOneSecondTimer)
+      EventSetTimer(1);
+
+   if(IsStrictDayEndFreshBootWindowNow())
+      Print("EA INITIALIZED DURING STRICT 23:45 HOLD",
+            " | Status=",g_dayEndFreshBootStatus,
+            " | ReferenceTime=",
+            TimeToString(GetFreshDayReferenceTime(),TIME_DATE|TIME_SECONDS));
+
    g_onInitTickCount        = GetTickCount();
    g_tickConfirmationCount = 0;
 
@@ -6881,6 +7140,9 @@ int OnInit()
 //+------------------------------------------------------------------+
 void OnDeinit(const int reason)
   {
+   if(InpUseFreshBootOneSecondTimer)
+      EventKillTimer();
+
    for(int i = ObjectsTotal(0,-1,-1)-1; i >= 0; i--)
      {
       string objectName = ObjectName(0,i);
@@ -16346,8 +16608,53 @@ void DrawTickSpeedDashboardPanel()
   }
 
 //+------------------------------------------------------------------+
+//| One-second clock guard for exact 23:45 shutdown and 00:00 boot.  |
+//| MT4 event handlers are serialized, so this cannot run in parallel|
+//| with OnTick. It performs only the mandatory day-boundary work.    |
+//+------------------------------------------------------------------+
+void OnTimer()
+  {
+   if(!InpUseFreshBootOneSecondTimer)
+      return;
+
+   // From 23:45 through 23:59:59 this performs/retries the shutdown and
+   // always returns false, keeping every normal strategy operation stopped.
+   if(!HandleStrict2345DayEndFreshBoot())
+     {
+      Comment(g_dayEndFreshBootStatus);
+      return;
+     }
+
+   // At the first timer event after 00:00, run the same mandatory fresh-day
+   // reset used by OnTick. This makes the new-day boot independent of quotes.
+   if(InpUseFreshDayStart &&
+      GetCurrentFreshDayDateKey() != g_freshDayDateKey)
+     {
+      if(!HandleFreshDayStart())
+        {
+         Comment(g_freshDayStatus);
+         return;
+        }
+
+      if(CheckDailyEARestart())
+        {
+         Comment(g_dailyEAReinitStatus);
+         return;
+        }
+     }
+  }
+
+//+------------------------------------------------------------------+
 void OnTick()
   {
+// ABSOLUTE FIRST GATE: from 23:45:00 through 23:59:59 no other
+// calculation, order-management path or variable update is allowed to run.
+   if(!HandleStrict2345DayEndFreshBoot())
+     {
+      Comment(g_dayEndFreshBootStatus);
+      return;
+     }
+
 // COMPLETE NEW-DAY RESET MUST RUN BEFORE EVERY OTHER CALCULATION.
 // If close/delete needs another tick, all new trading remains blocked.
    if(!HandleFreshDayStart())
