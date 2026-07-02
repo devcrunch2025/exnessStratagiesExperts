@@ -1,5 +1,5 @@
 //+------------------------------------------------------------------+
-//|                 DXB_SAR_EarlyTrend_Cycle_EA_Strict_2345_FreshBoot_V172.mq4                  |
+//|                 DXB_SAR_EarlyTrend_Cycle_EA_Strict_2345_FreshBoot_V175.mq4                  |
 //|  SAR cycle + server-side SL + dynamic X-profit ladder          |
 //|  SAR flip closes opposite orders. Early reverse trend pauses SAR  |
 //|  cycle, draws arrows, closes opposite orders, resumes when aligned |
@@ -20,7 +20,7 @@ MARKET_MODE g_marketMode = MODE_RANGE;
 #ifndef OP_BALANCE
 #define OP_BALANCE 6
 #endif
-#property version   "1.72"
+#property version   "1.75"
 
 //======================== INPUTS ====================================
 string InpEAName                  = "DXB Version 5 - SAR Confirm 50 in 5 Min";
@@ -487,10 +487,14 @@ bool   InpCloseOrdersOnDepositReset = false;     // optional: close EA orders be
 // Notifications
 bool   InpSendPushNotifications       = true;    // MT4 mobile push notification
 bool   InpSendTerminalAlerts          = false;    // desktop popup alert
-bool   InpNotifyOnProfitLock          = true;    // notify when trading stops after profit target
-bool   InpNotifyOnEquityStop          = true;    // notify when trading stops after equity/loss protection
+bool   InpNotifyOnProfitLock          = true;    // one pause-reason notification when daily profit locks
+bool   InpNotifyOnEquityStop          = true;    // one pause-reason notification when daily loss locks
 bool   InpNotifyOnEquityRestart       = true;    // notify when trading restarts after reset hour
 bool   InpNotifyOnEAStart             = true;    // notify when EA is loaded
+// Strict fresh-boot lifecycle notifications. Push delivery uses the existing
+// InpSendPushNotifications switch; desktop popup uses InpSendTerminalAlerts.
+bool   InpNotifyOnDayEndResetStarted  = true;    // one push when strict 23:45 reset begins
+bool   InpNotifyOnNewDayTradingStarted = true;   // one push after all 00:00 restart/resume holds finish
 
 
 // Continuous order controls
@@ -6555,6 +6559,195 @@ string GetDayEndReloadedGlobalKey()
   }
 
 //+------------------------------------------------------------------+
+//| Persistent one-time notification markers.                        |
+//| RESET_STARTED stores the old Dubai date that began the shutdown. |
+//| TRADING_STARTED stores the new Dubai date already announced.     |
+//+------------------------------------------------------------------+
+string GetDayEndResetStartedNotifyGlobalKey()
+  {
+   return("DXB_DAYEND_NOTIFY_STARTED_" +
+          IntegerToString(AccountNumber()) + "_" +
+          Symbol() + "_" +
+          IntegerToString(Period()) + "_" +
+          IntegerToString(InpMagicNumber));
+  }
+
+//+------------------------------------------------------------------+
+string GetNewDayTradingStartedNotifyGlobalKey()
+  {
+   return("DXB_NEWDAY_TRADING_NOTIFY_" +
+          IntegerToString(AccountNumber()) + "_" +
+          Symbol() + "_" +
+          IntegerToString(Period()) + "_" +
+          IntegerToString(InpMagicNumber));
+  }
+
+//+------------------------------------------------------------------+
+//| Fresh-boot push/terminal notification helper.                     |
+//+------------------------------------------------------------------+
+void SendFreshBootLifecycleNotification(string eventTitle,
+                                        string details)
+  {
+   string msg = InpEAName + " | " + Symbol() + " | " +
+                eventTitle + " | " + details;
+
+   // MT4 push messages have a limited payload. Keep a safe margin.
+   if(StringLen(msg) > 250)
+      msg = StringSubstr(msg,0,250);
+
+   Print("FRESH BOOT NOTIFICATION | ",msg);
+
+   if(InpSendTerminalAlerts)
+      Alert(msg);
+
+   if(InpSendPushNotifications && !IsTesting())
+     {
+      ResetLastError();
+      if(!SendNotification(msg))
+        {
+         int errorCode = GetLastError();
+         Print("FRESH BOOT PUSH FAILED | Event=",eventTitle,
+               " | Error=",errorCode);
+         ResetLastError();
+        }
+     }
+  }
+
+//+------------------------------------------------------------------+
+//| Persistent one-time trading-pause notification marker.           |
+//| One PROFIT and one LOSS pause alert are allowed per trading date. |
+//+------------------------------------------------------------------+
+string GetTradingPauseNotifyGlobalKey(string reasonCode)
+  {
+   return("DXB_TRADING_PAUSE_NOTIFY_" + reasonCode + "_" +
+          IntegerToString(AccountNumber()) + "_" +
+          Symbol() + "_" +
+          IntegerToString(Period()) + "_" +
+          IntegerToString(InpMagicNumber));
+  }
+
+//+------------------------------------------------------------------+
+//| Push only the reason why trading became paused.                   |
+//+------------------------------------------------------------------+
+void NotifyTradingPausedReasonOnce(string reasonCode,
+                                   string eventTitle,
+                                   string details)
+  {
+   int currentDateKey = GetCurrentFreshDayDateKey();
+   if(currentDateKey <= 0)
+      return;
+
+   string key = GetTradingPauseNotifyGlobalKey(reasonCode);
+   int notifiedDate = 0;
+
+   if(GlobalVariableCheck(key))
+      notifiedDate = (int)GlobalVariableGet(key);
+
+   if(notifiedDate == currentDateKey)
+      return;
+
+   // Store first so repeated ticks, close retries, or chart reloads cannot
+   // send the same trading-pause reason more than once for this date.
+   GlobalVariableSet(key,(double)currentDateKey);
+   GlobalVariablesFlush();
+
+   string msg = InpEAName + " | " + Symbol() + " | " +
+                eventTitle + " | " + details;
+
+   if(StringLen(msg) > 250)
+      msg = StringSubstr(msg,0,250);
+
+   Print("TRADING PAUSE NOTIFICATION | ",msg);
+
+   if(InpSendTerminalAlerts)
+      Alert(msg);
+
+   if(InpSendPushNotifications && !IsTesting())
+     {
+      ResetLastError();
+      if(!SendNotification(msg))
+        {
+         int errorCode = GetLastError();
+         Print("TRADING PAUSE PUSH FAILED | Reason=",reasonCode,
+               " | Error=",errorCode);
+         ResetLastError();
+        }
+     }
+  }
+
+//+------------------------------------------------------------------+
+//| Send exactly once when the strict 23:45 shutdown begins.         |
+//+------------------------------------------------------------------+
+void NotifyDayEndResetStartedOnce(int dateKey)
+  {
+   if(!InpNotifyOnDayEndResetStarted || dateKey <= 0)
+      return;
+
+   string key = GetDayEndResetStartedNotifyGlobalKey();
+   int notifiedDate = 0;
+
+   if(GlobalVariableCheck(key))
+      notifiedDate = (int)GlobalVariableGet(key);
+
+   if(notifiedDate == dateKey)
+      return;
+
+   // Save first so close/reload retries cannot create duplicate pushes.
+   GlobalVariableSet(key,(double)dateKey);
+   GlobalVariablesFlush();
+
+   string details =
+      "Dubai " + TimeToString(GetDubaiTime(),TIME_DATE|TIME_SECONDS) +
+      " | Closing EA orders | Trading blocked to 00:00";
+
+   SendFreshBootLifecycleNotification("23:45 RESET STARTED",details);
+  }
+
+//+------------------------------------------------------------------+
+//| Send after every new-day reload/delay/new-bar hold has finished. |
+//+------------------------------------------------------------------+
+void NotifyNewDayTradingStartedOnce()
+  {
+   if(!InpNotifyOnNewDayTradingStarted)
+      return;
+
+   int currentDateKey = GetCurrentFreshDayDateKey();
+   if(currentDateKey <= 0)
+      return;
+
+   // Do not announce a normal mid-day attach as a completed day reset.
+   // A previous-date RESET_STARTED marker proves the strict shutdown ran.
+   string resetKey = GetDayEndResetStartedNotifyGlobalKey();
+   if(!GlobalVariableCheck(resetKey))
+      return;
+
+   int resetDateKey = (int)GlobalVariableGet(resetKey);
+   if(resetDateKey <= 0 || resetDateKey == currentDateKey)
+      return;
+
+   string startedKey = GetNewDayTradingStartedNotifyGlobalKey();
+   int notifiedDate = 0;
+
+   if(GlobalVariableCheck(startedKey))
+      notifiedDate = (int)GlobalVariableGet(startedKey);
+
+   if(notifiedDate == currentDateKey)
+      return;
+
+   // Save first so any immediate chart/tick event cannot duplicate the push.
+   GlobalVariableSet(startedKey,(double)currentDateKey);
+   GlobalVariablesFlush();
+
+   string details =
+      "Dubai " + TimeToString(GetDubaiTime(),TIME_DATE|TIME_SECONDS) +
+      " | Balance $" + DoubleToString(AccountBalance(),2) +
+      " | Equity $" + DoubleToString(AccountEquity(),2) +
+      " | Lot " + DoubleToString(GetCurrentTradingLot(),2);
+
+   SendFreshBootLifecycleNotification("NEW DAY TRADING STARTED",details);
+  }
+
+//+------------------------------------------------------------------+
 //| True from the configured Dubai/tester time through 23:59:59.     |
 //+------------------------------------------------------------------+
 bool IsStrictDayEndFreshBootWindowNow()
@@ -6643,6 +6836,8 @@ bool HandleStrict2345DayEndFreshBoot()
       g_dayEndFreshBootStatus =
          "23:45 RESETTING | ALL TICKS BLOCKED";
 
+      NotifyDayEndResetStartedOnce(currentDateKey);
+
       string reason = "STRICT 23:45 DAY-END RESET " +
                       IntegerToString(currentDateKey);
 
@@ -6669,6 +6864,12 @@ bool HandleStrict2345DayEndFreshBoot()
       // Catch any pending order that changed state during the close loop.
       if(InpDayEndDeletePendingOrders)
          DeletePendingOrdersByDirection(0,reason + " | FINAL",false);
+
+      // Remove every known persistent strategy value that must not survive
+      // into the next day. Keep only the strict day-end anti-loop markers
+      // and the daily restart DATE marker required to trigger the 00:00
+      // post-reset ChartSetSymbolPeriod() reinitialization.
+      DeleteStrictDayEndPersistentStateExceptBootMarkers();
 
       if(InpDayEndResetRuntimeState)
          ResetAllFreshDayRuntimeState();
@@ -6760,6 +6961,58 @@ string GetDailyEAResumeGlobalKey()
           Symbol() + "_" +
           IntegerToString(Period()) + "_" +
           IntegerToString(InpMagicNumber));
+  }
+
+//+------------------------------------------------------------------+
+//| Delete persistent strategy memory at the strict 23:45 shutdown.  |
+//|                                                                  |
+//| PRESERVED intentionally:                                         |
+//|   DXB_DAYEND_PREPARED_*  prevents repeated close/reset loops.     |
+//|   DXB_DAYEND_RELOADED_*  prevents repeated chart reload loops.    |
+//|   DXB_REINIT_DATE_*      keeps the OLD date so 00:00 requests the |
+//|                          final post-reset EA reinitialization.     |
+//|   DXB_DAYEND_NOTIFY_*     prevents duplicate reset-start pushes.   |
+//|                                                                  |
+//| DELETED: old fresh-day history cutoff, stale post-restart wait,   |
+//| consecutive-SL persistence and legacy guard-parent mappings.      |
+//+------------------------------------------------------------------+
+void DeleteStrictDayEndPersistentStateExceptBootMarkers()
+  {
+   if(IsTesting())
+      return;
+
+   string cutoffTimeKey = GetFreshDayCutoffTimeGlobalKey();
+   string cutoffDateKey = GetFreshDayCutoffDateGlobalKey();
+   string resumeKey     = GetDailyEAResumeGlobalKey();
+   string slCountKey    = ConsecutiveSLStateKey("COUNT");
+   string slUntilKey    = ConsecutiveSLStateKey("UNTIL");
+
+   if(GlobalVariableCheck(cutoffTimeKey))
+      GlobalVariableDel(cutoffTimeKey);
+   if(GlobalVariableCheck(cutoffDateKey))
+      GlobalVariableDel(cutoffDateKey);
+   if(GlobalVariableCheck(resumeKey))
+      GlobalVariableDel(resumeKey);
+   if(GlobalVariableCheck(slCountKey))
+      GlobalVariableDel(slCountKey);
+   if(GlobalVariableCheck(slUntilKey))
+      GlobalVariableDel(slUntilKey);
+
+   string guardPrefix = "SAR_GUARD_PARENT_" + Symbol() + "_" +
+                        IntegerToString(InpMagicNumber) + "_";
+
+   for(int i=GlobalVariablesTotal()-1; i>=0; i--)
+     {
+      string name = GlobalVariableName(i);
+      if(StringFind(name,guardPrefix,0) == 0)
+         GlobalVariableDel(name);
+     }
+
+   GlobalVariablesFlush();
+
+   Print("STRICT 23:45 PERSISTENT STATE CLEARED",
+         " | Preserved=DAYEND_PREPARED,DAYEND_RELOADED,REINIT_DATE,DAYEND_NOTIFY",
+         " | Deleted=FRESH_CUTOFF,REINIT_WAIT,SL_STREAK,GUARD_MAPS");
   }
 
 //+------------------------------------------------------------------+
@@ -7028,22 +7281,58 @@ int OnInit()
    // Global-Variable key is initialized.
    InpMagicNumber = AccountNumber() + 202;
 
-   // Load the persistent 23:45 markers before normal startup. A chart reload
-   // restores every compiled declaration, then normal initialization rebuilds
-   // safe trackers. OnTick is still absolutely blocked until 00:00.
+   // Load only the persistent 23:45 anti-loop markers first. A chart reload
+   // has already recreated every compiled global/static variable from its
+   // declaration value. During the day-end hold we must NOT rebuild equity,
+   // order-history, recovery, pause or SAR-cycle state from the old day.
    InitializeStrictDayEndFreshBootState();
 
    if(InpUseFreshBootOneSecondTimer)
       EventSetTimer(1);
 
+   g_onInitTickCount        = GetTickCount();
+   g_tickConfirmationCount = 0;
+
    if(IsStrictDayEndFreshBootWindowNow())
+     {
+      int holdDateKey = GetCurrentFreshDayDateKey();
+
+      // Keep the OLD date only in these date trackers. At 00:00 the date
+      // mismatch forces HandleFreshDayStart() through the complete close,
+      // persistent cleanup, history-cutoff, opening-balance and startup path.
+      g_freshDayDateKey         = holdDateKey;
+      g_equityDateKey           = holdDateKey;
+      g_freshDayStartServerTime = GetCurrentFreshDayStartServerTime();
+      g_freshDayResetInProgress = false;
+      g_freshDayStatus          = "STRICT 23:45 HOLD | WAIT 00:00";
+
+      // This is one of the few values intentionally preserved. If the EA was
+      // attached for the first time during the hold, create the OLD-day marker
+      // now so CheckDailyEARestart() will still perform the final 00:00 reload.
+      if(InpRestartEADaily &&
+         (!IsTesting() || InpRestartEAInTesting))
+        {
+         string restartKey = GetDailyEARestartGlobalKey();
+         if(!GlobalVariableCheck(restartKey))
+           {
+            GlobalVariableSet(restartKey,(double)holdDateKey);
+            GlobalVariablesFlush();
+           }
+        }
+
+      g_dailyEAReinitStatus = "DAY-END HOLD | FINAL REINIT AFTER 00:00 RESET";
+
       Print("EA INITIALIZED DURING STRICT 23:45 HOLD",
+            " | All compiled globals/statics restored to declarations",
+            " | Old-day strategy reconstruction skipped",
+            " | Date=",holdDateKey,
             " | Status=",g_dayEndFreshBootStatus,
             " | ReferenceTime=",
             TimeToString(GetFreshDayReferenceTime(),TIME_DATE|TIME_SECONDS));
 
-   g_onInitTickCount        = GetTickCount();
-   g_tickConfirmationCount = 0;
+      Comment(g_dayEndFreshBootStatus);
+      return(INIT_SUCCEEDED);
+     }
 
    Print("PRE-LADDER SERVER LOCK CONFIG | Arm=$",
          DoubleToString(GetDynamicBasketMinimumArmUSD(),2),
@@ -9543,6 +9832,18 @@ bool CheckEquityConditions()
       if(InpNotifyOnEquityStop && !g_notifyEquityStopSent)
         {
          g_notifyEquityStopSent = true;
+
+         string pauseDetails =
+            "Reason: equity reached day loss limit" +
+            " | Equity $" + DoubleToString(currentEquity,2) +
+            " | Opening $" + DoubleToString(g_baseBalance,2) +
+            " | Loss $" + DoubleToString(MathMax(0.0,g_baseBalance-currentEquity),2) +
+            " | Stop $" + DoubleToString(g_lossStopEquityLevel,2);
+
+         NotifyTradingPausedReasonOnce(
+            "DAY_LOSS_LOCK",
+            "TRADING PAUSED - DAY LOSS LOCKED",
+            pauseDetails);
         }
 
       return(true);
@@ -9573,6 +9874,18 @@ bool CheckEquityConditions()
          if(InpNotifyOnProfitLock && !g_notifyProfitLockSent)
            {
             g_notifyProfitLockSent = true;
+
+            string pauseDetails =
+               "Reason: equity reached day profit target" +
+               " | Equity $" + DoubleToString(currentEquity,2) +
+               " | Opening $" + DoubleToString(g_baseBalance,2) +
+               " | Profit $" + DoubleToString(MathMax(0.0,profitFromBase),2) +
+               " | Target $" + DoubleToString(g_profitTargetEquity,2);
+
+            NotifyTradingPausedReasonOnce(
+               "PROFIT_LOCK",
+               "TRADING PAUSED - PROFIT LOCKED",
+               pauseDetails);
            }
         }
 
@@ -16691,6 +17004,11 @@ void OnTick()
       return;
      }
 
+// All mandatory new-day work is now complete: close/delete, runtime reset,
+// history cutoff, opening-balance capture, final chart reinitialization,
+// configured resume delay and optional new-M1-bar wait. Announce only once.
+   NotifyNewDayTradingStartedOnce();
+
 // Update and paint the display-only adaptive tick-speed monitor before any
 // trading-path return, so the top-right status remains current.
    UpdateTickSpeedEngine();
@@ -16708,7 +17026,7 @@ void OnTick()
 
 
 // Print confirmation only for the first two received ticks.
-   // if(g_tickConfirmationCount < 2)
+   if(g_tickConfirmationCount < 2)
      {
       g_tickConfirmationCount++;
       string msg =
