@@ -1,5 +1,5 @@
 //+------------------------------------------------------------------+
-//|                 DXB_SAR_EarlyTrend_Cycle_EA.mq4                  |
+//|                 DXB_SAR_EarlyTrend_Cycle_EA_StrictFreshDailyBoot_V168.mq4                  |
 //|  SAR cycle + server-side SL + dynamic X-profit ladder          |
 //|  SAR flip closes opposite orders. Early reverse trend pauses SAR  |
 //|  cycle, draws arrows, closes opposite orders, resumes when aligned |
@@ -20,7 +20,7 @@ MARKET_MODE g_marketMode = MODE_RANGE;
 #ifndef OP_BALANCE
 #define OP_BALANCE 6
 #endif
-#property version   "1.65"
+#property version   "1.68"
 
 //======================== INPUTS ====================================
 string InpEAName                  = "DXB Version 5 - SAR Confirm 50 in 5 Min";
@@ -421,6 +421,39 @@ bool   InpUseFixedEquityResetHours    = false;   // true = reset only at configu
 string InpEquityResetHourList         = "1"; // server-time hours to reset equity base
 bool   InpResetTradingCycleWithEquity = true;   // reset SAR/early/flat cycle when equity stats reset
 
+//================ COMPLETE FRESH DAY START =========================
+// Strategy Tester: a new tester/server date starts a completely fresh run.
+// Live trading: a new Dubai date starts a completely fresh run.
+// To reproduce a separate one-day test, pending and market orders are closed,
+// runtime strategy memory is cleared, persistent SL-streak state is reset,
+// the new opening balance is captured, and the dynamic lot is recalculated.
+bool   InpUseFreshDayStart                   = true;
+bool   InpFreshDayCloseMarketOrders          = true;
+bool   InpFreshDayDeletePendingOrders        = true;
+bool   InpFreshDayResetPersistentLocks       = true;
+bool   InpFreshDayIgnorePreviousTradeHistory = true;
+bool   InpFreshDayDisableRollingEquityReset  = true;
+// Strict mode reproduces a separately started one-day test as closely as
+// possible. The history cutoff is moved beyond all forced day-boundary closes,
+// all daily strategy memory is cleared, and the normal startup trackers are
+// initialized again from the fresh cutoff.
+bool   InpFreshDayStrictNewAttachBoot        = true;
+bool   InpFreshDayDeleteEAStateGlobals       = true;
+bool   InpFreshDayResumeOnlyOnNewM1Bar       = true;
+int    InpFreshDayInternalResumeDelaySeconds = 1;
+
+//================ DAILY EA SELF-REINITIALIZATION ===================
+// Optional final cleanup after the complete fresh-day reset finishes.
+// The EA first closes/deletes its own orders, resets all daily state and
+// captures the new opening balance. Only when the EA is flat does it request
+// ChartSetSymbolPeriod(), which causes OnDeinit() followed by OnInit().
+// Strategy Tester uses the deterministic internal fresh-day reset by default.
+bool   InpRestartEADaily                = true;
+bool   InpRestartEAOnlyWhenFlat         = true;
+bool   InpRestartEAInTesting            = false;
+int    InpRestartEAResumeDelayMinutes   = 1;
+bool   InpRestartEAWaitForNewM1Bar      = true;
+
 // Deposit detection reset
 bool   InpResetEquityStatsOnDeposit = true;      // detect OP_BALANCE deposit and reuse equity reset method
 bool   InpCloseOrdersOnDepositReset = false;     // optional: close EA orders before deposit reset
@@ -615,6 +648,14 @@ bool   InpBreakoutRequireFastTickSpeed         = true;
 // is used as the preferred reference; broker/live-price safety may move it farther.
 bool   InpUsePendingOrderEntries             = true;
 double InpPendingOrderRawGap                 = 30.0;
+
+// Runtime high-risk pending gap. The base input above is NEVER modified.
+// This prevents a 50-raw value from carrying from one day into the next.
+bool   InpUseHighRiskPendingOrderGap         = true;
+double InpHighRiskPendingOrderRawGap         = 50.0;
+int    InpHighRiskPendingGapStartHour        = 14; // inclusive
+int    InpHighRiskPendingGapEndHour          = 22; // exclusive
+
 bool   InpPendingUseLastClosedOrderPrice     = true;
 bool   InpDeletePendingOrdersOnSARChange     = true;
 
@@ -1172,7 +1213,24 @@ datetime g_recoveryChainSourceCloseTime = 0;
 datetime g_recoveryChainLastOpenAttemptTime = 0;
 
 
-int      g_equityDay            = -1;
+int      g_equityDateKey        = 0;
+int      g_freshDayDateKey      = 0;
+datetime g_freshDayStartServerTime = 0;
+// Strict history cutoff can be later than midnight. At a day reset it is
+// placed after forced order closures so those closures cannot influence the
+// new day's market mode, streak, continuation or recovery logic.
+datetime g_freshDayHistoryCutoffTime = 0;
+datetime g_freshDayInternalResumeAfter = 0;
+datetime g_freshDayInternalResumeBarTime = 0;
+bool     g_freshDayResetInProgress = false;
+string   g_freshDayStatus       = "WAIT INIT";
+
+// Daily chart-reinitialization state. The restart date and resume time are
+// stored in terminal Global Variables so a chart reinitialization cannot loop
+// and the post-restart delay survives OnDeinit()/OnInit().
+datetime g_dailyEAResumeAfter   = 0;
+datetime g_dailyEAReinitBarTime = 0;
+string   g_dailyEAReinitStatus  = "WAIT INIT";
 double   g_dayStartBalance      = 0.0;
 double   g_dayStartEquity       = 0.0;
 double   g_baseBalance          = 0.0;   // balance captured on EA load/new day
@@ -2442,6 +2500,8 @@ void UpdateOppositeDirectionProfitPause(bool forceScan=false)
          continue;
       if(OrderCloseTime() <= 0)
          continue;
+      if(!IsHistoryTimeInsideCurrentFreshDay(OrderCloseTime()))
+         continue;
       if(!IsNormalProfitOrderForMarketFlow(OrderComment()))
          continue;
 
@@ -2638,6 +2698,11 @@ int CountRecentProfitableOrdersForMarketFlow(int direction)
   {
    int count = 0;
    datetime fromTime = TimeCurrent() - MathMax(1, InpMarketFlowProfitHours) * 3600;
+
+   if(InpUseFreshDayStart &&
+      InpFreshDayIgnorePreviousTradeHistory &&
+      g_freshDayHistoryCutoffTime > fromTime)
+      fromTime = g_freshDayHistoryCutoffTime;
 
    for(int i = OrdersHistoryTotal() - 1; i >= 0; i--)
      {
@@ -3692,6 +3757,8 @@ void ProcessCreatedClosedPushNotifications()
 
       if(OrderSymbol() != Symbol() ||
          OrderMagicNumber() != InpMagicNumber)
+         continue;
+      if(!IsHistoryTimeInsideCurrentFreshDay(OrderCloseTime()))
          continue;
 
       int type = OrderType();
@@ -5148,6 +5215,8 @@ int CountSARContinuationOrdersCreated(int direction,string marker)
          continue;
       if(OrderSymbol()!=Symbol() || OrderMagicNumber()!=InpMagicNumber)
          continue;
+      if(!IsHistoryTimeInsideCurrentFreshDay(OrderCloseTime()))
+         continue;
 
       int type = OrderType();
       if(direction > 0 && type != OP_BUY)
@@ -6426,8 +6495,293 @@ void EnsureInitialServerSideSLForAllOrders()
      }
   }
 
+//+------------------------------------------------------------------+
+//| Terminal Global Variable key for daily EA reinitialization       |
+//+------------------------------------------------------------------+
+string GetDailyEARestartGlobalKey()
+  {
+   return("DXB_REINIT_DATE_" +
+          IntegerToString(AccountNumber()) + "_" +
+          Symbol() + "_" +
+          IntegerToString(Period()) + "_" +
+          IntegerToString(InpMagicNumber));
+  }
+
+//+------------------------------------------------------------------+
+string GetDailyEAResumeGlobalKey()
+  {
+   return("DXB_REINIT_WAIT_" +
+          IntegerToString(AccountNumber()) + "_" +
+          Symbol() + "_" +
+          IntegerToString(Period()) + "_" +
+          IntegerToString(InpMagicNumber));
+  }
+
+//+------------------------------------------------------------------+
+//| Count every EA market order, including a legacy guard order.     |
+//+------------------------------------------------------------------+
+int CountAllEAMarketOrdersForRestart()
+  {
+   int total = 0;
+
+   for(int i=OrdersTotal()-1; i>=0; i--)
+     {
+      if(!OrderSelect(i,SELECT_BY_POS,MODE_TRADES))
+         continue;
+
+      if(OrderSymbol() != Symbol() ||
+         OrderMagicNumber() != InpMagicNumber)
+         continue;
+
+      if(OrderType() == OP_BUY || OrderType() == OP_SELL)
+         total++;
+     }
+
+   return(total);
+  }
+
+//+------------------------------------------------------------------+
+//| Count every untriggered EA pending order.                        |
+//+------------------------------------------------------------------+
+int CountAllEAPendingOrdersForRestart()
+  {
+   int total = 0;
+
+   for(int i=OrdersTotal()-1; i>=0; i--)
+     {
+      if(!OrderSelect(i,SELECT_BY_POS,MODE_TRADES))
+         continue;
+
+      if(OrderSymbol() != Symbol() ||
+         OrderMagicNumber() != InpMagicNumber)
+         continue;
+
+      int type = OrderType();
+      if(type == OP_BUYSTOP || type == OP_SELLSTOP ||
+         type == OP_BUYLIMIT || type == OP_SELLLIMIT)
+         total++;
+     }
+
+   return(total);
+  }
+
+//+------------------------------------------------------------------+
+//| Initialize persistent daily restart tracking without restarting. |
+//+------------------------------------------------------------------+
+void InitializeDailyEARestart()
+  {
+   if(!InpRestartEADaily)
+     {
+      g_dailyEAReinitStatus = "OFF";
+      return;
+     }
+
+   if(IsTesting() && !InpRestartEAInTesting)
+     {
+      g_dailyEAReinitStatus = "TEST MODE | STRICT INTERNAL BOOT";
+      return;
+     }
+
+   string restartKey = GetDailyEARestartGlobalKey();
+   string resumeKey  = GetDailyEAResumeGlobalKey();
+   int currentDate   = GetCurrentFreshDayDateKey();
+
+   // First installation or a new magic/symbol/timeframe combination:
+   // remember today and do not immediately restart.
+   if(!GlobalVariableCheck(restartKey))
+     {
+      GlobalVariableSet(restartKey,currentDate);
+      GlobalVariablesFlush();
+      g_dailyEAReinitStatus = "INITIALIZED | " + IntegerToString(currentDate);
+
+      Print("EA DAILY RESTART INITIALIZED | Date=",currentDate,
+            " | Key=",restartKey);
+     }
+   else
+      g_dailyEAReinitStatus = "READY | " + IntegerToString(currentDate);
+
+   // Recover the post-restart hold written before ChartSetSymbolPeriod().
+   // Keep the hold even when the minute delay is zero because the optional
+   // new-M1-bar condition may still need to be satisfied.
+   if(GlobalVariableCheck(resumeKey))
+     {
+      datetime resumeTime = (datetime)GlobalVariableGet(resumeKey);
+
+      if(resumeTime < TimeCurrent())
+         resumeTime = TimeCurrent();
+
+      g_dailyEAResumeAfter   = resumeTime;
+      g_dailyEAReinitBarTime = iTime(Symbol(),PERIOD_M1,0);
+      g_dailyEAReinitStatus  = "POST-RESTART WAIT";
+     }
+  }
+
+//+------------------------------------------------------------------+
+//| Hold new strategy processing after reinitialization.             |
+//+------------------------------------------------------------------+
+bool IsDailyEAResumeHoldActive()
+  {
+   if(g_dailyEAResumeAfter <= 0)
+      return(false);
+
+   bool timeReady = (TimeCurrent() >= g_dailyEAResumeAfter);
+   datetime currentM1Bar = iTime(Symbol(),PERIOD_M1,0);
+   bool barReady = (!InpRestartEAWaitForNewM1Bar ||
+                    (currentM1Bar > 0 &&
+                     currentM1Bar != g_dailyEAReinitBarTime));
+
+   if(timeReady && barReady)
+     {
+      string resumeKey = GetDailyEAResumeGlobalKey();
+      if(GlobalVariableCheck(resumeKey))
+         GlobalVariableDel(resumeKey);
+
+      GlobalVariablesFlush();
+
+      g_dailyEAResumeAfter   = 0;
+      g_dailyEAReinitBarTime = 0;
+      g_dailyEAReinitStatus  = "READY AFTER REINIT | " +
+                               IntegerToString(GetCurrentFreshDayDateKey());
+
+      Print("EA DAILY RESTART HOLD COMPLETE | Trading may resume",
+            " | Date=",GetCurrentFreshDayDateKey());
+
+      return(false);
+     }
+
+   int secondsRemaining = (int)MathMax(0,g_dailyEAResumeAfter-TimeCurrent());
+
+   g_dailyEAReinitStatus =
+      "WAIT " + IntegerToString(secondsRemaining) + "s" +
+      (barReady ? " | BAR READY" : " | WAIT NEW M1");
+
+   return(true);
+  }
+
+//+------------------------------------------------------------------+
+//| Request one EA reinitialization per fresh day.                   |
+//+------------------------------------------------------------------+
+bool CheckDailyEARestart()
+  {
+   if(!InpRestartEADaily)
+     {
+      g_dailyEAReinitStatus = "OFF";
+      return(false);
+     }
+
+   if(IsTesting() && !InpRestartEAInTesting)
+     {
+      g_dailyEAReinitStatus = "TEST MODE | INTERNAL RESET ONLY";
+      return(false);
+     }
+
+   string restartKey = GetDailyEARestartGlobalKey();
+   string resumeKey  = GetDailyEAResumeGlobalKey();
+   int currentDate   = GetCurrentFreshDayDateKey();
+   int storedDate    = 0;
+
+   if(!GlobalVariableCheck(restartKey))
+     {
+      GlobalVariableSet(restartKey,currentDate);
+      GlobalVariablesFlush();
+      g_dailyEAReinitStatus = "INITIALIZED | " + IntegerToString(currentDate);
+      return(false);
+     }
+
+   storedDate = (int)GlobalVariableGet(restartKey);
+
+   if(storedDate == currentDate)
+      return(false);
+
+   // Never reinitialize while the mandatory fresh-day close/reset sequence
+   // is still incomplete.
+   if(g_freshDayResetInProgress)
+     {
+      g_dailyEAReinitStatus = "WAIT FRESH-DAY RESET";
+      return(false);
+     }
+
+   if(InpUseFreshDayStart && g_freshDayDateKey != currentDate)
+     {
+      g_dailyEAReinitStatus = "WAIT FRESH-DAY DATE";
+      return(false);
+     }
+
+   int marketOrders  = CountAllEAMarketOrdersForRestart();
+   int pendingOrders = CountAllEAPendingOrdersForRestart();
+
+   if(InpRestartEAOnlyWhenFlat &&
+      (marketOrders > 0 || pendingOrders > 0))
+     {
+      g_dailyEAReinitStatus =
+         "WAIT FLAT | MKT " + IntegerToString(marketOrders) +
+         " | PEND " + IntegerToString(pendingOrders);
+      return(false);
+     }
+
+   // Save the date before requesting reinitialization. This prevents an
+   // endless OnInit -> OnTick -> reinitialize loop.
+   GlobalVariableSet(restartKey,currentDate);
+
+   int delayMinutes = MathMax(0,InpRestartEAResumeDelayMinutes);
+   g_dailyEAResumeAfter = TimeCurrent() + delayMinutes*60;
+   g_dailyEAReinitBarTime = iTime(Symbol(),PERIOD_M1,0);
+
+   // Store at least the current time. New-M1 waiting can still keep the EA
+   // paused when the configured minute delay is zero.
+   GlobalVariableSet(resumeKey,g_dailyEAResumeAfter);
+   GlobalVariablesFlush();
+
+   g_dailyEAReinitStatus = "REINITIALIZATION REQUESTED | " +
+                            IntegerToString(currentDate);
+
+   Print("NEW FRESH DAY | EA SELF-REINITIALIZATION REQUESTED",
+         " | Date=",currentDate,
+         " | MarketOrders=",marketOrders,
+         " | PendingOrders=",pendingOrders,
+         " | ResumeAfter=",
+         TimeToString(g_dailyEAResumeAfter,TIME_DATE|TIME_SECONDS));
+
+   ResetLastError();
+
+   bool requested = ChartSetSymbolPeriod(
+                        0,
+                        NULL,
+                        (ENUM_TIMEFRAMES)Period()
+                    );
+
+   if(!requested)
+     {
+      int errorCode = GetLastError();
+
+      Print("EA DAILY REINITIALIZATION REQUEST FAILED",
+            " | Error=",errorCode,
+            " | Date=",currentDate);
+
+      // Restore the previous date so the next tick may retry.
+      GlobalVariableSet(restartKey,storedDate);
+      if(GlobalVariableCheck(resumeKey))
+         GlobalVariableDel(resumeKey);
+      GlobalVariablesFlush();
+
+      g_dailyEAResumeAfter   = 0;
+      g_dailyEAReinitBarTime = 0;
+      g_dailyEAReinitStatus  = "REQUEST FAILED | ERR " +
+                               IntegerToString(errorCode);
+
+      ResetLastError();
+      return(false);
+     }
+
+   return(true);
+  }
+
 int OnInit()
   {
+
+   // Resolve the final magic number before any order scan or terminal
+   // Global-Variable key is initialized.
+   InpMagicNumber = AccountNumber() + 202;
 
    g_onInitTickCount        = GetTickCount();
    g_tickConfirmationCount = 0;
@@ -6457,8 +6811,6 @@ int OnInit()
 
    if(IsTesting())
      {
-      InpNoNewOrderHourList  = "";
-
       g_consecutiveBasketSLCount      = 0;
       g_consecutiveBasketSLPauseUntil = 0;
       g_consecutiveSLPauseStatus      = "TEST MODE | DISABLED";
@@ -6470,8 +6822,6 @@ int OnInit()
    else
    if(AccountNumber() == InpEquityLockExemptAccount)
      {
-      InpNoNewOrderHourList = "";
-
       Print("LIVE ACCOUNT EXEMPT | Account=",AccountNumber(),
             " | Opening-balance equity lock disabled");
      }
@@ -6479,12 +6829,15 @@ int OnInit()
 
 
    InitializeEquityDay();
+   g_freshDayStatus = "READY | " + IntegerToString(g_freshDayDateKey);
    InitializeLastDepositBalanceOpTime();
    DeleteNonEarlySignalArrows();
    DeleteOldDashboardObjects();
    LoadLast5SARChangeDurations();
 
-   InpMagicNumber=AccountNumber()+202; // override magic number with account number to prevent interference between charts/accounts. Orders are still filtered by symbol and magic in this EA.
+   // Initialize after the final runtime magic number is known so the
+   // terminal Global Variable keys remain stable across reinitializations.
+   InitializeDailyEARestart();
 
    if(!IsTesting())
       LoadConsecutiveSLPauseState();
@@ -6508,7 +6861,12 @@ int OnInit()
          " | BaseBalance=$", DoubleToString(g_baseBalance,2),
          " | LossStopEquity=$", DoubleToString(g_lossStopEquityLevel,2),
          " | ProfitTargetEquity=$", DoubleToString(g_profitTargetEquity,2),
-         " | TargetProfit=$", DoubleToString(g_dailyProfitTarget,2));
+         " | TargetProfit=$", DoubleToString(g_dailyProfitTarget,2),
+         " | FreshDay=",g_freshDayStatus,
+         " | DailyReinit=",g_dailyEAReinitStatus,
+         " | PendingGap=",DoubleToString(GetConfiguredPendingOrderGapRaw(),1),
+         " | HistoryCutoff=",
+         TimeToString(g_freshDayHistoryCutoffTime,TIME_DATE|TIME_SECONDS));
 
    if(InpNotifyOnEAStart)
      {
@@ -6546,8 +6904,11 @@ void OnDeinit(const int reason)
 //+------------------------------------------------------------------+
 void InitializeEquityDay()
   {
-   g_equityDay       = TimeDay(TimeCurrent());
-   g_dayStartBalance = AccountBalance();
+   g_equityDateKey           = GetCurrentFreshDayDateKey();
+   g_freshDayDateKey         = g_equityDateKey;
+   g_freshDayStartServerTime = GetCurrentFreshDayStartServerTime();
+   g_freshDayHistoryCutoffTime = LoadFreshDayHistoryCutoff();
+   g_dayStartBalance         = AccountBalance();
    g_dayStartEquity  = AccountEquity();
 
 // Fully automated: every cycle base is always taken from live AccountBalance().
@@ -6605,6 +6966,7 @@ void ResetTradingCycleState()
    g_flatMode            = false;
    g_lastOrderTime       = 0;
    g_lastSARFlipV2LastOrderBarTime = 0;
+   g_lastSARFlipV2LastOrderTime    = 0;
    g_sarCycleDirection   = 0;
    g_sarCycleMaxOrders   = MathMax(0, InpSARNormalDurationMaxOrders);
    g_sarCycleOrdersCreated = 0;
@@ -6675,11 +7037,9 @@ void ResetTradingCycleState()
    g_sarWeakBasketCloseLastAgeMin   = 0;
    g_sarWeakBasketCloseLastReason   = "NONE";
 
-   // Preserve/recover a broker-side impulse pending order across a runtime
-   // equity-cycle reset. On initial startup this is repeated after the final
-   // account-derived magic number is assigned.
-   RestoreOppositeImpulsePendingState();
-
+   // Do not restore an old pending request here. Startup/fresh-day code
+   // performs restoration only after the final magic number and strict history
+   // cutoff are known.
    Print("TRADING CYCLE RESET | Waiting for fresh SAR direction after equity stats reset.");
   }
 
@@ -6754,6 +7114,531 @@ datetime GetDubaiTime()
    return(TimeGMT() + (4 * 60 * 60));
   }
 
+
+//+------------------------------------------------------------------+
+//| Complete date key used by the fresh-day and equity-cycle logic.  |
+//+------------------------------------------------------------------+
+int GetDateKeyFromTime(datetime value)
+  {
+   return(TimeYear(value) * 10000 +
+          TimeMonth(value) * 100 +
+          TimeDay(value));
+  }
+
+//+------------------------------------------------------------------+
+//| Tester uses tester/server date. Live uses Dubai date.            |
+//+------------------------------------------------------------------+
+datetime GetFreshDayReferenceTime()
+  {
+   if(IsTesting())
+      return(TimeCurrent());
+
+   return(GetDubaiTime());
+  }
+
+//+------------------------------------------------------------------+
+int GetCurrentFreshDayDateKey()
+  {
+   return(GetDateKeyFromTime(GetFreshDayReferenceTime()));
+  }
+
+//+------------------------------------------------------------------+
+string GetFreshDayCutoffTimeGlobalKey()
+  {
+   return("DXB_FRESH_CUTOFF_TIME_" +
+          IntegerToString(AccountNumber()) + "_" +
+          Symbol() + "_" +
+          IntegerToString(Period()) + "_" +
+          IntegerToString(InpMagicNumber));
+  }
+
+//+------------------------------------------------------------------+
+string GetFreshDayCutoffDateGlobalKey()
+  {
+   return("DXB_FRESH_CUTOFF_DATE_" +
+          IntegerToString(AccountNumber()) + "_" +
+          Symbol() + "_" +
+          IntegerToString(Period()) + "_" +
+          IntegerToString(InpMagicNumber));
+  }
+
+//+------------------------------------------------------------------+
+void SaveFreshDayHistoryCutoff(datetime cutoffTime,int dateKey)
+  {
+   g_freshDayHistoryCutoffTime = cutoffTime;
+
+   // Keep Strategy Tester runs isolated from terminal Global Variables.
+   // The in-memory cutoff survives the internal day reset, while a new tester
+   // run starts with the normal day-start cutoff exactly like a fresh attach.
+   if(IsTesting())
+      return;
+
+   GlobalVariableSet(GetFreshDayCutoffTimeGlobalKey(),(double)cutoffTime);
+   GlobalVariableSet(GetFreshDayCutoffDateGlobalKey(),(double)dateKey);
+   GlobalVariablesFlush();
+  }
+
+//+------------------------------------------------------------------+
+datetime LoadFreshDayHistoryCutoff()
+  {
+   datetime defaultCutoff = GetCurrentFreshDayStartServerTime();
+
+   if(!InpUseFreshDayStart || !InpFreshDayIgnorePreviousTradeHistory)
+      return(defaultCutoff);
+
+   int currentDate = GetCurrentFreshDayDateKey();
+
+   if(IsTesting())
+     {
+      if(g_freshDayDateKey == currentDate &&
+         g_freshDayHistoryCutoffTime >= defaultCutoff)
+         return(g_freshDayHistoryCutoffTime);
+
+      return(defaultCutoff);
+     }
+
+   string timeKey = GetFreshDayCutoffTimeGlobalKey();
+   string dateKey = GetFreshDayCutoffDateGlobalKey();
+
+   if(GlobalVariableCheck(timeKey) && GlobalVariableCheck(dateKey) &&
+      (int)GlobalVariableGet(dateKey) == currentDate)
+     {
+      datetime stored = (datetime)GlobalVariableGet(timeKey);
+      if(stored >= defaultCutoff)
+         return(stored);
+     }
+
+   return(defaultCutoff);
+  }
+
+//+------------------------------------------------------------------+
+//| Start of the current fresh day expressed in broker/server time.  |
+//| This allows order-history filters to ignore yesterday's trades.  |
+//+------------------------------------------------------------------+
+datetime GetCurrentFreshDayStartServerTime()
+  {
+   datetime serverNow = TimeCurrent();
+
+   if(IsTesting())
+      return(serverNow -
+             TimeHour(serverNow) * 3600 -
+             TimeMinute(serverNow) * 60 -
+             TimeSeconds(serverNow));
+
+   datetime dubaiNow = GetDubaiTime();
+   datetime dubaiStart = dubaiNow -
+                         TimeHour(dubaiNow) * 3600 -
+                         TimeMinute(dubaiNow) * 60 -
+                         TimeSeconds(dubaiNow);
+
+   int serverUtcOffset = (int)(TimeCurrent() - TimeGMT());
+
+   return(dubaiStart - (4 * 3600) + serverUtcOffset);
+  }
+
+//+------------------------------------------------------------------+
+bool IsHistoryTimeInsideCurrentFreshDay(datetime historyTime)
+  {
+   if(!InpUseFreshDayStart ||
+      !InpFreshDayIgnorePreviousTradeHistory)
+      return(true);
+
+   datetime cutoff = g_freshDayHistoryCutoffTime;
+   if(cutoff <= 0)
+      cutoff = g_freshDayStartServerTime;
+
+   if(cutoff <= 0)
+      return(true);
+
+   return(historyTime >= cutoff);
+  }
+
+//+------------------------------------------------------------------+
+//| Close every EA market order, including a legacy guard order.     |
+//| Returns the number of market orders still open after the attempt.|
+//+------------------------------------------------------------------+
+int CloseAllEAMarketOrdersForFreshDay(string reason)
+  {
+   RefreshRates();
+
+   for(int i = OrdersTotal() - 1; i >= 0; i--)
+     {
+      if(!OrderSelect(i, SELECT_BY_POS, MODE_TRADES))
+         continue;
+
+      if(OrderSymbol() != Symbol() ||
+         OrderMagicNumber() != InpMagicNumber)
+         continue;
+
+      int type = OrderType();
+      if(type != OP_BUY && type != OP_SELL)
+         continue;
+
+      int ticket = OrderTicket();
+      double lots = OrderLots();
+      double closePrice = (type == OP_BUY) ? Bid : Ask;
+      double closeProfit = OrderProfit() + OrderSwap() + OrderCommission();
+
+      ResetLastError();
+      if(OrderClose(ticket, lots, closePrice, InpSlippage, clrWhite))
+        {
+         g_lastAnyOrderCloseTime = TimeCurrent();
+         SetLastOrderCloseDashboard(ticket,
+                                    type,
+                                    closeProfit,
+                                    closePrice,
+                                    reason);
+
+         Print("FRESH DAY MARKET ORDER CLOSED | Ticket=",ticket,
+               " | Type=",type,
+               " | P/L=$",DoubleToString(closeProfit,2),
+               " | Reason=",reason);
+        }
+      else
+        {
+         int err = GetLastError();
+         Print("FRESH DAY MARKET CLOSE FAILED | Ticket=",ticket,
+               " | Error=",err,
+               " | Reason=",reason);
+         ResetLastError();
+        }
+     }
+
+   int remaining = 0;
+   for(int j = OrdersTotal() - 1; j >= 0; j--)
+     {
+      if(!OrderSelect(j, SELECT_BY_POS, MODE_TRADES))
+         continue;
+
+      if(OrderSymbol() == Symbol() &&
+         OrderMagicNumber() == InpMagicNumber &&
+         (OrderType() == OP_BUY || OrderType() == OP_SELL))
+         remaining++;
+     }
+
+   return(remaining);
+  }
+
+//+------------------------------------------------------------------+
+//| Clear all strategy/runtime memory that may carry across a day.   |
+//+------------------------------------------------------------------+
+void ResetAllFreshDayRuntimeState()
+  {
+   ResetTradingCycleState();
+   ResetBasketProfitPeaksAfterClose(0);
+   ResetRecoveryLossComebackState(1);
+   ResetRecoveryLossComebackState(-1);
+   ResetLiveOppositeCandleEmergencySLState(1);
+   ResetLiveOppositeCandleEmergencySLState(-1);
+
+   g_marketMode = MODE_RANGE;
+   g_lastBarTime = 0;
+   g_lastInitialServerSLScanTime = 0;
+   g_lastActivatedPendingMarketTicket = -1;
+   g_lastSARFlipV2LastOrderTime = 0;
+   g_lastEarlyArrowTime = 0;
+   g_lastSARArrowTime = 0;
+   g_lastSAREveryBarTime = 0;
+   g_lastFlatDotTime = 0;
+   g_lastEarlySameSAROrderBarTime = 0;
+
+   g_autoMarketMode = DXB_MARKET_MODE_OFF;
+   g_autoMarketModeText = "OFF";
+   g_autoMarketMoveRaw = 0.0;
+   g_autoMarketLast3MoveRaw = 0.0;
+   g_autoMarketBuyProfitCount = 0;
+   g_autoMarketSellProfitCount = 0;
+   g_autoMarketDirection = 0;
+
+   g_sarGoodMomentum = false;
+   g_sarGoodMomentumDotDistance = 0.0;
+   g_sarGoodMomentumADX = 0.0;
+   g_sarGoodMomentumATR = 0.0;
+   g_dynamicSARScore = 0;
+   g_dynamicSARDecision = "WAIT";
+   g_dynamicSARRequiredDiff = 0.0;
+   g_dynamicSARDotDistance = 0.0;
+   g_dynamicSARATR = 0.0;
+   g_dynamicSARADX = 0.0;
+   g_dynamicSARLongBarMove = 0.0;
+
+   g_earlySARWeakExitActive = false;
+   g_earlySARWeakExitReason = "";
+   g_activeBasketPeakProfit = 0.0;
+   g_dynamicBasketProfitStatus = "WAIT BASKET";
+   g_lastEarlySARWeakExitTime = 0;
+   g_lastEarlySARWeakExitDirection = 0;
+
+   g_sarContinuationStatus = "WAIT SAR ADD-ON";
+   g_lastSARContinuationBuyBarTime = 0;
+   g_lastSARContinuationSellBarTime = 0;
+   g_buySARContinuationExtreme = 0.0;
+   g_sellSARContinuationExtreme = 0.0;
+   g_buyPullbackContinuationArmed = false;
+   g_sellPullbackContinuationArmed = false;
+   g_buyPullbackContinuationArmBarTime = 0;
+   g_sellPullbackContinuationArmBarTime = 0;
+   g_buyPullbackContinuationRaw = 0.0;
+   g_sellPullbackContinuationRaw = 0.0;
+
+   g_lastRecoveryAudit = "NONE";
+   g_lastRecoveryAuditTime = 0;
+   g_lastRecoveryAuditDirection = 0;
+   g_lastRecoveryAuditGap = 0.0;
+   ArrayInitialize(g_recoveryChainProcessedTickets,0);
+   g_recoveryChainProcessedCount = 0;
+   g_recoveryChainTrackerInitialized = false;
+   g_recoveryChainContinuationPending = false;
+   g_recoveryChainPendingDirection = 0;
+   g_recoveryChainSourceTicket = 0;
+   g_recoveryChainSourceProfit = 0.0;
+   g_recoveryChainSourceCloseTime = 0;
+   g_recoveryChainLastOpenAttemptTime = 0;
+
+   g_oppositeProfitStreakDirection = 0;
+   g_oppositeProfitStreakCount = 0;
+   g_oppositePausedDirection = 0;
+   g_oppositeDirectionPauseUntil = 0;
+   g_oppositeDirectionPauseTriggerTime = 0;
+   g_oppositeDirectionPauseTriggerTicket = 0;
+   g_oppositeDirectionPauseWinner = 0;
+   g_oppositePauseLastHistoryTotal = -1;
+   g_oppositePauseLastScanTime = 0;
+   g_oppositePauseLastBlockPrintTime = 0;
+   g_oppositePauseLastPrintedDirection = 0;
+   g_oppositeDirectionPauseStatus = "FRESH DAY | WAIT STREAK";
+
+   if(InpFreshDayResetPersistentLocks)
+     {
+      g_consecutiveBasketSLCount = 0;
+      g_consecutiveBasketSLPauseUntil = 0;
+      g_lastConsecutiveSLRegisterTime = 0;
+      g_lastConsecutiveSLRegisterDirection = 0;
+      g_consecutiveSLPauseStatus = IsTesting()
+                                   ? "TEST MODE | DISABLED"
+                                   : "READY | FRESH DAY";
+
+      DeleteFreshDayEAStateGlobalVariables();
+     }
+
+   g_globalEquityPeak = AccountEquity();
+   g_globalEquityTrailPauseUntil = 0;
+   g_globalEquityTrailLocked = false;
+   g_globalEquityTrailStatus = "OFF | FRESH DAY";
+   g_profitProtectPauseUntil = 0;
+   g_profitProtectCount = 0;
+   ArrayInitialize(g_profitProtectTickets,0);
+   ArrayInitialize(g_profitProtectPeakProfit,0.0);
+
+   g_tickSpeedWindowStartMs = 0;
+   g_tickSpeedLastTickMs = 0;
+   g_tickSpeedWindowStartPrice = 0.0;
+   g_tickSpeedWindowMinPrice = 0.0;
+   g_tickSpeedWindowMaxPrice = 0.0;
+   g_tickSpeedWindowLastPrice = 0.0;
+   g_tickSpeedWindowPath = 0.0;
+   g_tickSpeedWindowTicks = 0;
+   g_tickSpeedCompletedWindows = 0;
+   g_tickSpeedLastWindowNetMove = 0.0;
+   g_tickSpeedLastWindowRange = 0.0;
+   g_tickSpeedLastWindowPath = 0.0;
+   g_tickSpeedLastWindowTickRate = 0.0;
+   g_tickSpeedBaselineTickRate = 0.0;
+   g_tickSpeedAvgCandleRange = 0.0;
+   g_tickSpeedCurrentCandleRange = 0.0;
+   g_tickSpeedCandleRatio = 0.0;
+   g_tickSpeedRecentNetMove = 0.0;
+   g_tickSpeedRecentRange = 0.0;
+   g_tickSpeedRecentPath = 0.0;
+   g_tickSpeedWindowMoveRatio = 0.0;
+   g_tickSpeedWindowPathRatio = 0.0;
+   g_tickSpeedCurrentTickRate = 0.0;
+   g_tickSpeedTickRateRatio = 1.0;
+   g_tickSpeedCandleElapsedSec = 0;
+   g_tickSpeedStatus = "WARMING UP";
+
+   g_buyTickSpeedLockedSL = 0.0;
+   g_sellTickSpeedLockedSL = 0.0;
+   g_buyTickSpeedLockedBaseSL = 0.0;
+   g_sellTickSpeedLockedBaseSL = 0.0;
+   g_buyTickSpeedLockedStatus = "WAIT ORDER";
+   g_sellTickSpeedLockedStatus = "WAIT ORDER";
+   g_buyTickSpeedLockedMode = "WAIT MODE";
+   g_sellTickSpeedLockedMode = "WAIT MODE";
+   g_buyTickSpeedSLActivatedTime = 0;
+   g_sellTickSpeedSLActivatedTime = 0;
+
+   g_buyLiveOppositeCandleSLArmed = false;
+   g_sellLiveOppositeCandleSLArmed = false;
+   g_buyLiveOppositeCandleSLUSD = 0.0;
+   g_sellLiveOppositeCandleSLUSD = 0.0;
+   g_buyLiveOppositeCandleArmTime = 0;
+   g_sellLiveOppositeCandleArmTime = 0;
+   g_liveOppositeCurrentM1Range = 0.0;
+   g_liveOppositePreviousM1Range = 0.0;
+   g_liveOppositeM1RangeRatio = 0.0;
+   g_liveOppositeCurrentBodyPercent = 0.0;
+   g_liveOppositeCurrentDirection = 0;
+
+   g_onInitTickCount = GetTickCount();
+   g_tickConfirmationCount = 0;
+   g_compactDashboardLegacyCleared = false;
+
+   ResetEntryDiagnosticSnapshot(0,"FRESH DAY START");
+   g_lastEntryAttemptTime = 0;
+   g_lastEntryAttemptDirection = 0;
+   g_lastEntryAttemptSource = "NONE";
+   g_lastEntryAttemptDecision = "NONE";
+   g_lastEntryAttemptPrimary = "NONE";
+   g_lastEntryAttemptBlockers = "NONE";
+   g_lastEntryAttemptEnabled = 0;
+   g_lastEntryAttemptPassed = 0;
+   g_lastEntryAttemptBlocked = 0;
+   g_lastAuditOpenedTicket = -1;
+   g_lastAuditOpenedTime = 0;
+   g_lastAuditOpenedDirection = 0;
+   g_lastAuditOpenedPrice = 0.0;
+   g_lastAuditOpenedLot = 0.0;
+   g_lastAuditOpenedSource = "NONE";
+   g_lastAuditOpenedMode = "NONE";
+   g_lastAuditOpenedProfile = "NONE";
+   g_lastAuditOpenedFilters = "NONE";
+   g_lastAuditDisabledFilters = "NONE";
+   g_lastAuditOpenedEnabled = 0;
+   g_lastAuditOpenedPassed = 0;
+   g_lastAuditSendResult = "NO ORDER ATTEMPT";
+
+  }
+
+//+------------------------------------------------------------------+
+bool IsFreshDayInternalResumeHoldActive()
+  {
+   if(g_freshDayInternalResumeAfter <= 0)
+      return(false);
+
+   bool timeReady = (TimeCurrent() >= g_freshDayInternalResumeAfter);
+   datetime currentBar = iTime(Symbol(),PERIOD_M1,0);
+   bool barReady = (!InpFreshDayResumeOnlyOnNewM1Bar ||
+                    (currentBar > 0 &&
+                     currentBar != g_freshDayInternalResumeBarTime));
+
+   if(timeReady && barReady)
+     {
+      g_freshDayInternalResumeAfter = 0;
+      g_freshDayInternalResumeBarTime = 0;
+      g_freshDayStatus = "STRICT FRESH RUN ACTIVE | " +
+                         IntegerToString(GetCurrentFreshDayDateKey());
+      return(false);
+     }
+
+   int left = (int)MathMax(0,g_freshDayInternalResumeAfter-TimeCurrent());
+   g_freshDayStatus = "FRESH BOOT WAIT " + IntegerToString(left) + "s" +
+                      (barReady ? " | BAR READY" : " | WAIT NEW M1");
+   return(true);
+  }
+
+//+------------------------------------------------------------------+
+//| Run before every other OnTick operation.                         |
+//+------------------------------------------------------------------+
+bool HandleFreshDayStart()
+  {
+   if(!InpUseFreshDayStart)
+      return(true);
+
+   int currentDateKey = GetCurrentFreshDayDateKey();
+
+   if(g_freshDayDateKey <= 0)
+     {
+      g_freshDayDateKey = currentDateKey;
+      g_equityDateKey = currentDateKey;
+      g_freshDayStartServerTime = GetCurrentFreshDayStartServerTime();
+      g_freshDayHistoryCutoffTime = LoadFreshDayHistoryCutoff();
+      g_freshDayStatus = "READY | " + IntegerToString(currentDateKey);
+      return(true);
+     }
+
+   if(currentDateKey == g_freshDayDateKey &&
+      !g_freshDayResetInProgress)
+      return(true);
+
+   g_freshDayResetInProgress = true;
+   g_freshDayStatus = "RESETTING NEW DAY " + IntegerToString(currentDateKey);
+
+   string reason = "FRESH DAY START " + IntegerToString(currentDateKey);
+
+   if(InpFreshDayDeletePendingOrders)
+      DeletePendingOrdersByDirection(0,reason,false);
+
+   int marketRemaining = 0;
+   if(InpFreshDayCloseMarketOrders)
+      marketRemaining = CloseAllEAMarketOrdersForFreshDay(reason);
+   else
+      marketRemaining = CountOpenOrders();
+
+   if(marketRemaining > 0)
+     {
+      g_freshDayStatus = "WAIT CLOSE | " +
+                         IntegerToString(marketRemaining) +
+                         " MARKET ORDER(S)";
+
+      SetLastOrderBlockDashboard(g_freshDayStatus);
+      return(false);
+     }
+
+   // A second pending deletion catches anything created/activated while the
+   // market-close loop was being processed.
+   if(InpFreshDayDeletePendingOrders)
+      DeletePendingOrdersByDirection(0,reason + " | FINAL",false);
+
+   // Establish the new date and strict history cutoff BEFORE rebuilding any
+   // startup tracker. Forced day-boundary closes are therefore invisible to
+   // the new day's strategy logic.
+   g_freshDayDateKey = currentDateKey;
+   g_equityDateKey = currentDateKey;
+   g_freshDayStartServerTime = GetCurrentFreshDayStartServerTime();
+
+   datetime strictCutoff = g_freshDayStartServerTime;
+   if(InpFreshDayStrictNewAttachBoot)
+      strictCutoff = TimeCurrent() + 1;
+
+   SaveFreshDayHistoryCutoff(strictCutoff,currentDateKey);
+   DeleteFreshDayEAStateGlobalVariables();
+
+   ResetAllFreshDayRuntimeState();
+
+   g_equityCycleNumber++;
+   InitializeEquityDay();
+
+   // Re-run the same strategy startup trackers used by OnInit(), but now with
+   // today's strict cutoff and a flat order book.
+   InitializeLastDepositBalanceOpTime();
+   DeleteNonEarlySignalArrows();
+   DeleteOldDashboardObjects();
+   LoadLast5SARChangeDurations();
+   RestoreOppositeImpulsePendingState();
+   InitializeCreatedClosedPushTracker();
+   InitializeSLReverseRecoveryChainTracker();
+   UpdateOppositeDirectionProfitPause(true);
+
+   g_freshDayInternalResumeAfter =
+      TimeCurrent() + MathMax(0,InpFreshDayInternalResumeDelaySeconds);
+   g_freshDayInternalResumeBarTime = iTime(Symbol(),PERIOD_M1,0);
+
+   g_freshDayResetInProgress = false;
+   g_freshDayStatus = "STRICT FRESH RUN READY | " + IntegerToString(currentDateKey);
+
+   Print("FRESH DAY COMPLETE | DateKey=",currentDateKey,
+         " | OpeningBalance=$",DoubleToString(g_baseBalance,2),
+         " | DynamicLot=",DoubleToString(GetCurrentTradingLot(),2),
+         " | ProfitTarget=$",DoubleToString(g_profitTargetEquity,2),
+         " | LossLimit=$",DoubleToString(g_lossStopEquityLevel,2),
+         " | PendingGap=",DoubleToString(GetConfiguredPendingOrderGapRaw(),1),
+         " | HistoryCutoff=",
+         TimeToString(g_freshDayHistoryCutoffTime,TIME_DATE|TIME_SECONDS));
+
+   return(true);
+  }
+
 //+------------------------------------------------------------------+
 bool IsDubaiNoNewOrderHourNow()
   {
@@ -6807,6 +7692,35 @@ string ConsecutiveSLStateKey(string field)
           IntegerToString(AccountNumber()) + "_" +
           IntegerToString(InpMagicNumber) + "_" +
           Symbol() + "_" + field);
+  }
+
+//+------------------------------------------------------------------+
+void DeleteFreshDayEAStateGlobalVariables()
+  {
+   if(!InpFreshDayDeleteEAStateGlobals || IsTesting())
+      return;
+
+   string countKey = ConsecutiveSLStateKey("COUNT");
+   string untilKey = ConsecutiveSLStateKey("UNTIL");
+
+   if(GlobalVariableCheck(countKey))
+      GlobalVariableDel(countKey);
+   if(GlobalVariableCheck(untilKey))
+      GlobalVariableDel(untilKey);
+
+   // Legacy guard-parent mappings are useless after the fresh-day routine
+   // has made this EA flat. Delete only this symbol/magic prefix.
+   string guardPrefix = "SAR_GUARD_PARENT_" + Symbol() + "_" +
+                        IntegerToString(InpMagicNumber) + "_";
+
+   for(int i=GlobalVariablesTotal()-1; i>=0; i--)
+     {
+      string name = GlobalVariableName(i);
+      if(StringFind(name,guardPrefix,0) == 0)
+         GlobalVariableDel(name);
+     }
+
+   GlobalVariablesFlush();
   }
 
 //+------------------------------------------------------------------+
@@ -7026,8 +7940,13 @@ void RegisterProfitableBasketClose(double basketProfit,
 //+------------------------------------------------------------------+
 void ResetEquityDayIfNewDay()
   {
+   // The complete fresh-day reset is handled as the first OnTick action.
+   // When enabled, do not also perform a rolling 24-hour reset later.
+   if(InpUseFreshDayStart && InpFreshDayDisableRollingEquityReset)
+      return;
+
    datetime now = TimeCurrent();
-   int today = TimeDay(now);
+   int currentDateKey = GetCurrentFreshDayDateKey();
 
    bool resetNow = false;
    string resetReason = "";
@@ -7038,8 +7957,8 @@ void ResetEquityDayIfNewDay()
         {
          int currentSlot = GetEquityResetSlot(now);
 
-         // Reset only once during configured server hours: 1, 7, 13, 19 by default.
-         if(IsConfiguredEquityResetHour(TimeHour(now)) && currentSlot != g_lastEquityResetSlot)
+         if(IsConfiguredEquityResetHour(TimeHour(now)) &&
+            currentSlot != g_lastEquityResetSlot)
            {
             resetNow = true;
             resetReason = "FIXED EQUITY RESET HOUR";
@@ -7047,8 +7966,9 @@ void ResetEquityDayIfNewDay()
         }
       else
         {
-         int resetSeconds = MathMax(1, InpEquityResetHours) * 3600;
-         if(g_lastEquityStatsResetTime <= 0 || now - g_lastEquityStatsResetTime >= resetSeconds)
+         int resetSeconds = MathMax(1,InpEquityResetHours) * 3600;
+         if(g_lastEquityStatsResetTime <= 0 ||
+            now - g_lastEquityStatsResetTime >= resetSeconds)
            {
             resetNow = true;
             resetReason = "ROLLING EQUITY RESET";
@@ -7056,9 +7976,8 @@ void ResetEquityDayIfNewDay()
         }
      }
 
-// If fixed reset hours are enabled, 01:00 handles the new-day reset.
-// If fixed hours are disabled, keep the old daily reset behavior.
-   if(!InpUseFixedEquityResetHours && today != g_equityDay)
+   if(!InpUseFixedEquityResetHours &&
+      currentDateKey != g_equityDateKey)
      {
       resetNow = true;
       resetReason = "NEW DAY";
@@ -7069,16 +7988,9 @@ void ResetEquityDayIfNewDay()
       g_equityCycleNumber++;
       InitializeEquityDay();
 
-      Print(resetReason, " | Equity statistics reset from AccountBalance(). Trading enabled. Hours=", InpEquityResetHourList);
-
-      if(InpNotifyOnEquityRestart)
-        {
-         // SendEAAlert("TRADING RESTARTED",
-         //             resetReason +
-         //             " | NewBase=$" + DoubleToString(g_baseBalance,2) +
-         //             " | Target=$" + DoubleToString(g_profitTargetEquity,2) +
-         //             " | LossStop=$" + DoubleToString(g_lossStopEquityLevel,2));
-        }
+      Print(resetReason,
+            " | Equity statistics reset from AccountBalance(). Trading enabled. Hours=",
+            InpEquityResetHourList);
      }
   }
 
@@ -7691,9 +8603,37 @@ void EnforceCentralSameDirectionOrderGapSafety()
   }
 
 //+------------------------------------------------------------------+
+double GetConfiguredPendingOrderGapRaw()
+  {
+   double normalGap = MathMax(0.0,InpPendingOrderRawGap);
+
+   if(!InpUseHighRiskPendingOrderGap)
+      return(normalGap);
+
+   int hourValue = IsTesting()
+                   ? TimeHour(TimeCurrent())
+                   : TimeHour(GetDubaiTime());
+
+   int startHour = (int)MathMax(0,MathMin(23,InpHighRiskPendingGapStartHour));
+   int endHour   = (int)MathMax(0,MathMin(23,InpHighRiskPendingGapEndHour));
+   bool inWindow = false;
+
+   if(startHour < endHour)
+      inWindow = (hourValue >= startHour && hourValue < endHour);
+   else
+   if(startHour > endHour)
+      inWindow = (hourValue >= startHour || hourValue < endHour);
+
+   if(inWindow)
+      return(MathMax(normalGap,MathMax(0.0,InpHighRiskPendingOrderRawGap)));
+
+   return(normalGap);
+  }
+
+//+------------------------------------------------------------------+
 double GetEffectivePendingOrderGapRaw()
   {
-   double requested = MathMax(0.0, InpPendingOrderRawGap);
+   double requested = GetConfiguredPendingOrderGapRaw();
    double stopRaw   = MarketInfo(Symbol(), MODE_STOPLEVEL)   * Point;
    double freezeRaw = MarketInfo(Symbol(), MODE_FREEZELEVEL) * Point;
 
@@ -10067,6 +11007,7 @@ void ResetBigCandlePauseState()
    g_bigCandleBlockBuyUntil = 0;
    g_bigCandleBlockSellUntil = 0;
    g_lastBigCandleMove = 0.0;
+   g_lastBigCandlePauseBarTime = 0;
    g_lastBigCandleFormationBarTime = 0;
    g_notifyBigCandlePauseSent = false;
   }
@@ -11160,6 +12101,8 @@ void InitializeSLReverseRecoveryChainTracker()
       if(OrderSymbol() != Symbol() ||
          OrderMagicNumber() != InpMagicNumber)
          continue;
+      if(!IsHistoryTimeInsideCurrentFreshDay(OrderCloseTime()))
+         continue;
 
       int type = OrderType();
       if(type != OP_BUY && type != OP_SELL)
@@ -11195,6 +12138,8 @@ void ProcessSLReverseRecoveryProfitContinuation()
 
       if(OrderSymbol() != Symbol() ||
          OrderMagicNumber() != InpMagicNumber)
+         continue;
+      if(!IsHistoryTimeInsideCurrentFreshDay(OrderCloseTime()))
          continue;
 
       int type = OrderType();
@@ -15403,6 +16348,42 @@ void DrawTickSpeedDashboardPanel()
 //+------------------------------------------------------------------+
 void OnTick()
   {
+// COMPLETE NEW-DAY RESET MUST RUN BEFORE EVERY OTHER CALCULATION.
+// If close/delete needs another tick, all new trading remains blocked.
+   if(!HandleFreshDayStart())
+     {
+      DrawLeftOrderCreationChecklist(g_freshDayStatus);
+      DrawDashboard(g_freshDayStatus);
+      return;
+     }
+
+// Optional final cleanup: after the complete fresh-day reset is flat and
+// finished, request one chart-based EA reinitialization for this date.
+   if(CheckDailyEARestart())
+     {
+      DrawLeftOrderCreationChecklist(g_dailyEAReinitStatus);
+      DrawDashboard(g_dailyEAReinitStatus);
+      return;
+     }
+
+// After OnInit(), wait for the configured delay and a genuinely new M1 bar
+// before allowing any strategy path to create another order.
+   if(IsDailyEAResumeHoldActive())
+     {
+      DrawLeftOrderCreationChecklist(g_dailyEAReinitStatus);
+      DrawDashboard(g_dailyEAReinitStatus);
+      return;
+     }
+
+   // In Strategy Tester, and whenever chart reinitialization is disabled,
+   // this strict internal hold completes the fresh-attach simulation.
+   if(IsFreshDayInternalResumeHoldActive())
+     {
+      DrawLeftOrderCreationChecklist(g_freshDayStatus);
+      DrawDashboard(g_freshDayStatus);
+      return;
+     }
+
 // Update and paint the display-only adaptive tick-speed monitor before any
 // trading-path return, so the top-right status remains current.
    UpdateTickSpeedEngine();
@@ -15410,22 +16391,8 @@ void OnTick()
    // Add/retry the optional broker-side per-order SL before any early return.
    EnsureInitialServerSideSLForAllOrders();
 
-   int dubaiHour = TimeHour(GetDubaiTime());
-
-   if(IsTesting())
-   {
-      dubaiHour=TimeHour(TimeCurrent());
-   }
-
-
-   if(dubaiHour > 13 && dubaiHour < 22)
-     {
-      // Keep the four market-mode basket SL inputs independent.
-      // Do NOT copy InpBasketStopLossUSD into them here. Otherwise every
-      // market mode becomes the same value and the mode-specific SL is lost.
-      InpPendingOrderRawGap = 50;
-      // InpSARConfirmPriceDiff = 100;
-     }
+   // IMPORTANT: InpPendingOrderRawGap is never changed at runtime.
+   // GetConfiguredPendingOrderGapRaw() selects 30 or 50 for this tick.
 
    // Draw the live speed values immediately. The adaptive BUY/SELL SL
    // snapshot is taken later, after UpdateAutoMarketFlowMode() refreshes
@@ -21002,7 +21969,7 @@ void DrawCompactDashboard(string status)
    int leftX   = margin;
    int rightX  = MathMax(margin,chartWidth-sideW-margin);
    int topY    = 8;
-   int sideY   = 126;
+   int sideY   = 142;
 
    color titleColor = DashboardTradePermissionColor();
    color gateColor  = CompactEntryGateColor();
@@ -21010,11 +21977,11 @@ void DrawCompactDashboard(string status)
    // TOP CENTER: latest order creation/close/account state.
    DrawCornerPanel("DXB_COMPACT_TOP_PANEL",
                    CORNER_LEFT_UPPER,
-                   centerX,topY,centerW,108,
+                   centerX,topY,centerW,140,
                    clrBlack,titleColor);
 
    DrawCornerLabel("DXB_COMPACT_TOP_TITLE",
-                   "DXB SAR v1.65 | LATEST ACTIONS | " +
+                   "DXB SAR v1.67 | LATEST ACTIONS | " +
                    (IsTesting() ? "TEST" : "LIVE") +
                    " | " + Symbol() +
                    " | LOT " + DoubleToString(GetCurrentTradingLot(),2),
@@ -21026,6 +21993,16 @@ void DrawCompactDashboard(string status)
    CompactXYRow("DXB_COMPACT_TOP_ROW_",topRow,
                 centerX+10,topY+28,
                 "STATUS",status,titleColor,88);
+   CompactXYRow("DXB_COMPACT_TOP_ROW_",topRow,
+                centerX+10,topY+28,
+                "FRESH DAY",g_freshDayStatus,
+                g_freshDayResetInProgress?clrOrangeRed:clrAqua,88);
+   CompactXYRow("DXB_COMPACT_TOP_ROW_",topRow,
+                centerX+10,topY+28,
+                "EA REINIT",g_dailyEAReinitStatus,
+                (StringFind(g_dailyEAReinitStatus,"WAIT") >= 0 ||
+                 StringFind(g_dailyEAReinitStatus,"FAILED") >= 0)
+                 ? clrOrangeRed : clrAqua,88);
    CompactXYRow("DXB_COMPACT_TOP_ROW_",topRow,
                 centerX+10,topY+28,
                 "LAST OPEN",g_lastOrderOpenReason,clrLime,88);
@@ -21229,7 +22206,7 @@ void DrawLegacyDashboard(string status)
                    13);
 
    DrawCornerLabel("DXB_RIGHT_SETTINGS_TITLE",
-                   liveModeText + " | VERSION 1.64",
+                   liveModeText + " | VERSION 1.67",
                    CORNER_RIGHT_UPPER,
                    300,287,
                    liveModeColor,
