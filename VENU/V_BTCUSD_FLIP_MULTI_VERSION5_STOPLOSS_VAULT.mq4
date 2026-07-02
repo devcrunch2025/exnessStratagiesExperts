@@ -1,5 +1,5 @@
 //+------------------------------------------------------------------+
-//|                 DXB_SAR_EarlyTrend_Cycle_EA_Strict_2345_FreshBoot_V175.mq4                  |
+//|                 DXB_SAR_EarlyTrend_Cycle_EA_Strict_2345_FreshBoot_V177.mq4                  |
 //|  SAR cycle + server-side SL + dynamic X-profit ladder          |
 //|  SAR flip closes opposite orders. Early reverse trend pauses SAR  |
 //|  cycle, draws arrows, closes opposite orders, resumes when aligned |
@@ -20,7 +20,7 @@ MARKET_MODE g_marketMode = MODE_RANGE;
 #ifndef OP_BALANCE
 #define OP_BALANCE 6
 #endif
-#property version   "1.75"
+#property version   "1.77"
 
 //======================== INPUTS ====================================
 string InpEAName                  = "DXB Version 5 - SAR Confirm 50 in 5 Min";
@@ -245,7 +245,7 @@ bool   InpUseOppositeDirectionProfitPause = false;
 int    InpOppositeDirectionProfitStreakOrders = 2;
 int    InpOppositeDirectionPauseMinutes = 30;
 
-double InpLossStopPercent          = 20.0; // pause when equity reaches opening balance - 20%
+double InpLossStopPercent          = 10;//20.0; // pause when equity reaches opening balance - 20%
 
 double InpBasketProfitUSD_12_17 = 0.50;//1.00; // profit target during 12,13,14,15,16,17 hours
 
@@ -439,8 +439,19 @@ bool   InpFreshDayDisableRollingEquityReset  = true;
 // initialized again from the fresh cutoff.
 bool   InpFreshDayStrictNewAttachBoot        = true;
 bool   InpFreshDayDeleteEAStateGlobals       = true;
-bool   InpFreshDayResumeOnlyOnNewM1Bar       = true;
-int    InpFreshDayInternalResumeDelaySeconds = 1;
+// Start the new day on the first available 00:00 tick after the strict
+// 23:45-23:59 shutdown. Do not skip the first M1 setup of the new day.
+bool   InpFreshDayResumeOnlyOnNewM1Bar       = false;
+int    InpFreshDayInternalResumeDelaySeconds = 0;
+
+// Strategy Tester standalone-day emulation:
+// In a multi-day test, each new day uses the ORIGINAL tester deposit as the
+// strategy capital reference for dynamic lot and scaled USD targets.
+// The tester account balance itself still carries prior-day P/L, therefore
+// equity locks are anchored to the actual equity captured at that day's 00:00.
+// This makes day 18 behave like a separate day-18 test without changing MT4's
+// tester account history.
+bool   InpTesterStandaloneFreshDayMode       = true;
 
 
 //================ STRICT 23:45 DAY-END FRESH BOOT ==================
@@ -490,11 +501,12 @@ bool   InpSendTerminalAlerts          = false;    // desktop popup alert
 bool   InpNotifyOnProfitLock          = true;    // one pause-reason notification when daily profit locks
 bool   InpNotifyOnEquityStop          = true;    // one pause-reason notification when daily loss locks
 bool   InpNotifyOnEquityRestart       = true;    // notify when trading restarts after reset hour
-bool   InpNotifyOnEAStart             = true;    // notify when EA is loaded
+bool   InpNotifyOnEAStart             = false;   // generic attach/reload alert disabled by default
 // Strict fresh-boot lifecycle notifications. Push delivery uses the existing
 // InpSendPushNotifications switch; desktop popup uses InpSendTerminalAlerts.
-bool   InpNotifyOnDayEndResetStarted  = true;    // one push when strict 23:45 reset begins
+bool   InpNotifyOnDayEndResetStarted   = true;   // one push when strict 23:45 reset begins
 bool   InpNotifyOnNewDayTradingStarted = true;   // one push after all 00:00 restart/resume holds finish
+int    InpNewDayNotifyWindowMinutes     = 15;     // allow NEW DAY alert only from 00:00 through 00:15 Dubai
 
 
 // Continuous order controls
@@ -707,10 +719,10 @@ int    InpGoodMarketPendingRetrySeconds           = 3;
 // Existing market-order close/profit/protection management continues.
 // TimeGMT()+4 is used, so broker-server, VPS and VPN time zones do not affect this rule.
 bool   InpUseNoNewOrderHours      = true;
-// Observed high-risk live session: block every NEW order from 16:00 through
+// Observed high-risk live session: block every NEW order from 14:00 through
 // 22:59 Dubai time. Existing market orders continue TP/SL management.
 // Every untriggered EA pending order is deleted while this lock is active.
-string InpNoNewOrderHourList      = "16,17,18,19,20,21,22";
+string InpNoNewOrderHourList      = "14,15,16,17,18,19,20,21,22";
 
 // Consecutive basket-stop protection:
 // Two basket SL events without an intervening profitable basket close pause
@@ -1272,8 +1284,10 @@ datetime g_dailyEAReinitBarTime = 0;
 string   g_dailyEAReinitStatus  = "WAIT INIT";
 double   g_dayStartBalance      = 0.0;
 double   g_dayStartEquity       = 0.0;
-double   g_baseBalance          = 0.0;   // balance captured on EA load/new day
-double   g_lossStopEquityLevel = 0.0;  // opening balance - configured loss percent
+double   g_baseBalance          = 0.0;   // strategy capital reference used for lot/target scaling
+double   g_equityCycleAnchor    = 0.0;   // actual equity at this day's fresh 00:00 start
+double   g_testerInitialReferenceBalance = 0.0; // original tester deposit; intentionally survives daily resets
+double   g_lossStopEquityLevel = 0.0;  // daily anchor minus configured reference-capital loss amount
 double   g_profitTargetEquity  = 0.0;  // opening balance + configured profit percent
 double   g_dailyProfitTarget   = 0.0;  // dollar profit target from base
 double   g_lockedProfitToday    = 0.0;
@@ -2827,6 +2841,44 @@ void UpdateAutoMarketFlowMode()
 //+------------------------------------------------------------------+
 //+------------------------------------------------------------------+
 //| Opening-balance dynamic lot helpers                              |
+//+------------------------------------------------------------------+
+double GetFreshDayStrategyReferenceBalance()
+  {
+   // In multi-day Strategy Tester runs, preserve the original deposit as the
+   // capital reference used by dynamic lot sizing and scaled USD settings.
+   if(IsTesting() &&
+      InpTesterStandaloneFreshDayMode &&
+      g_testerInitialReferenceBalance > 0.0)
+      return(g_testerInitialReferenceBalance);
+
+   if(InpAutoUseCurrentBalanceBase && g_dayStartBalance > 0.0)
+      return(g_dayStartBalance);
+
+   if(!InpAutoUseCurrentBalanceBase && InpManualBaseCapitalUSD > 0.0)
+      return(InpManualBaseCapitalUSD);
+
+   return(MathMax(0.0,AccountBalance()));
+  }
+
+//+------------------------------------------------------------------+
+//| Actual equity anchor for the current daily cycle.                |
+//+------------------------------------------------------------------+
+double GetEquityCycleAnchor()
+  {
+   if(g_equityCycleAnchor > 0.0)
+      return(g_equityCycleAnchor);
+
+   if(g_dayStartEquity > 0.0)
+      return(g_dayStartEquity);
+
+   if(g_baseBalance > 0.0)
+      return(g_baseBalance);
+
+   return(MathMax(0.0,AccountEquity()));
+  }
+
+//+------------------------------------------------------------------+
+//|                                                                  |
 //+------------------------------------------------------------------+
 double GetDynamicLotReferenceBalance()
   {
@@ -6565,21 +6617,68 @@ string GetDayEndReloadedGlobalKey()
 //+------------------------------------------------------------------+
 string GetDayEndResetStartedNotifyGlobalKey()
   {
-   return("DXB_DAYEND_NOTIFY_STARTED_" +
+   // Deliberately shared by every chart/timeframe copy of this EA inside
+   // the same MT4 terminal. Only one reset-start push is allowed for the
+   // account and symbol, regardless of Period() or magic-number copies.
+   return("DXB_V5_DAYEND_STARTED_" +
           IntegerToString(AccountNumber()) + "_" +
-          Symbol() + "_" +
-          IntegerToString(Period()) + "_" +
-          IntegerToString(InpMagicNumber));
+          Symbol());
   }
 
 //+------------------------------------------------------------------+
 string GetNewDayTradingStartedNotifyGlobalKey()
   {
-   return("DXB_NEWDAY_TRADING_NOTIFY_" +
+   // Shared by all chart/timeframe copies in this MT4 terminal.
+   return("DXB_V5_NEWDAY_STARTED_" +
           IntegerToString(AccountNumber()) + "_" +
-          Symbol() + "_" +
-          IntegerToString(Period()) + "_" +
-          IntegerToString(InpMagicNumber));
+          Symbol());
+  }
+
+//+------------------------------------------------------------------+
+//| Atomically claim a one-notification-per-date marker.             |
+//| GlobalVariableSetOnCondition prevents several charts from        |
+//| sending the same push when they process the same tick together.  |
+//+------------------------------------------------------------------+
+bool ClaimDailyNotificationMarker(string key,int dateKey)
+  {
+   if(dateKey <= 0 || StringLen(key) <= 0)
+      return(false);
+
+   if(!GlobalVariableCheck(key))
+     {
+      ResetLastError();
+      if(GlobalVariableSet(key,0.0) == 0)
+        {
+         int createError = GetLastError();
+         Print("NOTIFICATION MARKER CREATE FAILED | Key=",key,
+               " | Error=",createError);
+         ResetLastError();
+         return(false);
+        }
+     }
+
+   double oldValue = GlobalVariableGet(key);
+
+   if((int)oldValue == dateKey)
+      return(false);
+
+   ResetLastError();
+   if(!GlobalVariableSetOnCondition(key,(double)dateKey,oldValue))
+     {
+      int claimError = GetLastError();
+
+      // Error 0 normally means another chart claimed the marker first.
+      if(claimError != 0)
+         Print("NOTIFICATION MARKER CLAIM FAILED | Key=",key,
+               " | Date=",dateKey,
+               " | Error=",claimError);
+
+      ResetLastError();
+      return(false);
+     }
+
+   GlobalVariablesFlush();
+   return(true);
   }
 
 //+------------------------------------------------------------------+
@@ -6619,11 +6718,10 @@ void SendFreshBootLifecycleNotification(string eventTitle,
 //+------------------------------------------------------------------+
 string GetTradingPauseNotifyGlobalKey(string reasonCode)
   {
-   return("DXB_TRADING_PAUSE_NOTIFY_" + reasonCode + "_" +
+   // One pause-reason push per account/symbol/date, shared by all chart copies.
+   return("DXB_V5_TRADING_PAUSE_" + reasonCode + "_" +
           IntegerToString(AccountNumber()) + "_" +
-          Symbol() + "_" +
-          IntegerToString(Period()) + "_" +
-          IntegerToString(InpMagicNumber));
+          Symbol());
   }
 
 //+------------------------------------------------------------------+
@@ -6638,18 +6736,11 @@ void NotifyTradingPausedReasonOnce(string reasonCode,
       return;
 
    string key = GetTradingPauseNotifyGlobalKey(reasonCode);
-   int notifiedDate = 0;
 
-   if(GlobalVariableCheck(key))
-      notifiedDate = (int)GlobalVariableGet(key);
-
-   if(notifiedDate == currentDateKey)
+   // Atomic shared claim: repeated ticks, chart reloads and several chart
+   // copies cannot send the same pause reason more than once for this date.
+   if(!ClaimDailyNotificationMarker(key,currentDateKey))
       return;
-
-   // Store first so repeated ticks, close retries, or chart reloads cannot
-   // send the same trading-pause reason more than once for this date.
-   GlobalVariableSet(key,(double)currentDateKey);
-   GlobalVariablesFlush();
 
    string msg = InpEAName + " | " + Symbol() + " | " +
                 eventTitle + " | " + details;
@@ -6684,17 +6775,11 @@ void NotifyDayEndResetStartedOnce(int dateKey)
       return;
 
    string key = GetDayEndResetStartedNotifyGlobalKey();
-   int notifiedDate = 0;
 
-   if(GlobalVariableCheck(key))
-      notifiedDate = (int)GlobalVariableGet(key);
-
-   if(notifiedDate == dateKey)
+   // The shared account/symbol marker is claimed atomically so every chart
+   // cannot announce the same 23:45 shutdown.
+   if(!ClaimDailyNotificationMarker(key,dateKey))
       return;
-
-   // Save first so close/reload retries cannot create duplicate pushes.
-   GlobalVariableSet(key,(double)dateKey);
-   GlobalVariablesFlush();
 
    string details =
       "Dubai " + TimeToString(GetDubaiTime(),TIME_DATE|TIME_SECONDS) +
@@ -6715,35 +6800,38 @@ void NotifyNewDayTradingStartedOnce()
    if(currentDateKey <= 0)
       return;
 
-   // Do not announce a normal mid-day attach as a completed day reset.
-   // A previous-date RESET_STARTED marker proves the strict shutdown ran.
+   datetime dubaiNow = GetDubaiTime();
+   int minuteOfDay = TimeHour(dubaiNow) * 60 + TimeMinute(dubaiNow);
+   int notifyWindow = MathMax(1,MathMin(120,InpNewDayNotifyWindowMinutes));
+
+   // A genuine new-day notification is valid only shortly after 00:00 Dubai.
+   // This blocks false alerts caused by attaching/reloading the EA at midday.
+   if(minuteOfDay > notifyWindow)
+      return;
+
+   // The shutdown marker must be exactly yesterday's Dubai date. An older
+   // stale marker is not accepted as proof that last night's reset completed.
    string resetKey = GetDayEndResetStartedNotifyGlobalKey();
    if(!GlobalVariableCheck(resetKey))
       return;
 
    int resetDateKey = (int)GlobalVariableGet(resetKey);
-   if(resetDateKey <= 0 || resetDateKey == currentDateKey)
+   int previousDateKey = GetDateKeyFromTime(GetFreshDayReferenceTime()-86400);
+
+   if(resetDateKey <= 0 || resetDateKey != previousDateKey)
       return;
 
    string startedKey = GetNewDayTradingStartedNotifyGlobalKey();
-   int notifiedDate = 0;
 
-   if(GlobalVariableCheck(startedKey))
-      notifiedDate = (int)GlobalVariableGet(startedKey);
-
-   if(notifiedDate == currentDateKey)
+   // Atomic shared claim: only one chart/timeframe copy can announce today.
+   if(!ClaimDailyNotificationMarker(startedKey,currentDateKey))
       return;
 
-   // Save first so any immediate chart/tick event cannot duplicate the push.
-   GlobalVariableSet(startedKey,(double)currentDateKey);
-   GlobalVariablesFlush();
-
    string details =
-      "Dubai " + TimeToString(GetDubaiTime(),TIME_DATE|TIME_SECONDS) +
+      "Dubai " + TimeToString(dubaiNow,TIME_DATE|TIME_SECONDS) +
       " | Balance $" + DoubleToString(AccountBalance(),2) +
       " | Equity $" + DoubleToString(AccountEquity(),2) +
       " | Lot " + DoubleToString(GetCurrentTradingLot(),2);
-
    SendFreshBootLifecycleNotification("NEW DAY TRADING STARTED",details);
   }
 
@@ -7276,7 +7364,6 @@ bool CheckDailyEARestart()
 
 int OnInit()
   {
-
    // Resolve the final magic number before any order scan or terminal
    // Global-Variable key is initialized.
    InpMagicNumber = AccountNumber() + 202;
@@ -7411,6 +7498,7 @@ int OnInit()
          " | ProfitTargetEquity=$", DoubleToString(g_profitTargetEquity,2),
          " | TargetProfit=$", DoubleToString(g_dailyProfitTarget,2),
          " | FreshDay=",g_freshDayStatus,
+         " | TesterStandaloneDay=",(IsTesting() && InpTesterStandaloneFreshDayMode ? "YES" : "NO"),
          " | DailyReinit=",g_dailyEAReinitStatus,
          " | PendingGap=",DoubleToString(GetConfiguredPendingOrderGapRaw(),1),
          " | HistoryCutoff=",
@@ -7418,10 +7506,10 @@ int OnInit()
 
    if(InpNotifyOnEAStart)
      {
-      // SendEAAlert("EA STARTED",
-      //             "Base=$" + DoubleToString(g_baseBalance,2) +
-      //             " | Target=$" + DoubleToString(g_profitTargetEquity,2) +
-      //             " | LossStop=$" + DoubleToString(g_lossStopEquityLevel,2));
+      SendEAAlert("EA STARTED",
+                  "Base=$" + DoubleToString(g_baseBalance,2) +
+                  " | Target=$" + DoubleToString(g_profitTargetEquity,2) +
+                  " | LossStop=$" + DoubleToString(g_lossStopEquityLevel,2));
      }
 
    return(INIT_SUCCEEDED);
@@ -7459,27 +7547,48 @@ void InitializeEquityDay()
    g_freshDayDateKey         = g_equityDateKey;
    g_freshDayStartServerTime = GetCurrentFreshDayStartServerTime();
    g_freshDayHistoryCutoffTime = LoadFreshDayHistoryCutoff();
-   g_dayStartBalance         = AccountBalance();
+
+   // The strict 23:45 shutdown guarantees the new day is flat before these
+   // values are captured.
+   g_dayStartBalance = AccountBalance();
    g_dayStartEquity  = AccountEquity();
 
-// Fully automated: every cycle base is always taken from live AccountBalance().
-// Example with $20 opening balance: target=$22 (+10%) and loss-stop=$16 (-20%).
-   if(InpAutoUseCurrentBalanceBase)
-      g_baseBalance = g_dayStartBalance;
-   else
-      g_baseBalance = InpManualBaseCapitalUSD;
+   // Capture the tester's original deposit only once. Do not reset this value
+   // at midnight; it is the virtual capital reference that makes every later
+   // tester day use the same lot and scaled money settings as a standalone run.
+   if(IsTesting() &&
+      InpTesterStandaloneFreshDayMode &&
+      g_testerInitialReferenceBalance <= 0.0)
+      g_testerInitialReferenceBalance = MathMax(0.0,g_dayStartBalance);
+
+   g_baseBalance = GetFreshDayStrategyReferenceBalance();
 
    if(g_baseBalance <= 0.0)
-      g_baseBalance = AccountBalance();
+      g_baseBalance = MathMax(0.01,g_dayStartBalance);
+
+   // In standalone tester-day mode, actual tester balance still contains the
+   // previous day's P/L. Anchor today's locks to the real 00:00 equity, while
+   // calculating the allowed USD profit/loss from the original reference
+   // capital. Live trading keeps the original opening-balance behavior.
+   if(IsTesting() && InpTesterStandaloneFreshDayMode)
+      g_equityCycleAnchor = g_dayStartEquity;
+   else
+      g_equityCycleAnchor = g_baseBalance;
+
+   if(g_equityCycleAnchor <= 0.0)
+      g_equityCycleAnchor = MathMax(0.01,g_dayStartEquity);
 
    g_dailyProfitTarget =
       g_baseBalance * InpProfitTargetPercent / 100.0;
 
    g_profitTargetEquity =
-      g_baseBalance + g_dailyProfitTarget;
+      g_equityCycleAnchor + g_dailyProfitTarget;
+
+   double dailyLossAmount =
+      g_baseBalance * InpLossStopPercent / 100.0;
 
    g_lossStopEquityLevel =
-      g_baseBalance - (g_baseBalance * InpLossStopPercent / 100.0) - InpProtectionBufferUSD;
+      g_equityCycleAnchor - dailyLossAmount - InpProtectionBufferUSD;
 
    if(g_lossStopEquityLevel < 0.0)
       g_lossStopEquityLevel = 0.0;
@@ -7495,14 +7604,17 @@ void InitializeEquityDay()
    if(InpResetTradingCycleWithEquity)
       ResetTradingCycleState();
 
-   Print("EQUITY STATS INIT/RESET | Cycle=", g_equityCycleNumber,
-         " | ResetTime=", TimeToString(g_lastEquityStatsResetTime, TIME_DATE|TIME_SECONDS),
-         " | StartBalance=$", DoubleToString(g_dayStartBalance,2),
-         " | StartEquity=$", DoubleToString(g_dayStartEquity,2),
-         " | Base=$", DoubleToString(g_baseBalance,2),
-         " | LossStopEquity=$", DoubleToString(g_lossStopEquityLevel,2),
-         " | ProfitTargetEquity=$", DoubleToString(g_profitTargetEquity,2),
-         " | TargetProfit=$", DoubleToString(g_dailyProfitTarget,2));
+   Print("EQUITY STATS INIT/RESET | Cycle=",g_equityCycleNumber,
+         " | ResetTime=",TimeToString(g_lastEquityStatsResetTime,TIME_DATE|TIME_SECONDS),
+         " | ActualStartBalance=$",DoubleToString(g_dayStartBalance,2),
+         " | ActualStartEquity=$",DoubleToString(g_dayStartEquity,2),
+         " | StrategyReference=$",DoubleToString(g_baseBalance,2),
+         " | EquityAnchor=$",DoubleToString(g_equityCycleAnchor,2),
+         " | LossStopEquity=$",DoubleToString(g_lossStopEquityLevel,2),
+         " | ProfitTargetEquity=$",DoubleToString(g_profitTargetEquity,2),
+         " | TargetProfit=$",DoubleToString(g_dailyProfitTarget,2),
+         " | TesterStandaloneDay=",
+         (IsTesting() && InpTesterStandaloneFreshDayMode ? "YES" : "NO"));
   }
 
 //+------------------------------------------------------------------+
@@ -7883,6 +7995,10 @@ void ResetAllFreshDayRuntimeState()
    ResetLiveOppositeCandleEmergencySLState(-1);
 
    g_marketMode = MODE_RANGE;
+   g_equityCycleAnchor = 0.0;
+   ArrayInitialize(g_sarChangeTimes,0);
+   ArrayInitialize(g_sarChangeDirections,0);
+   ArrayInitialize(g_sarChangeDurationsSeconds,0);
    g_lastBarTime = 0;
    g_lastInitialServerSLScanTime = 0;
    g_lastActivatedPendingMarketTicket = -1;
@@ -8148,16 +8264,19 @@ bool HandleFreshDayStart()
    g_equityDateKey = currentDateKey;
    g_freshDayStartServerTime = GetCurrentFreshDayStartServerTime();
 
+   // The 23:45 shutdown already closed the old-day orders. Keep the new
+   // history cutoff exactly at 00:00 so the first new-day tick/bar is not
+   // skipped. This matches a standalone test that begins on this date.
    datetime strictCutoff = g_freshDayStartServerTime;
-   if(InpFreshDayStrictNewAttachBoot)
-      strictCutoff = TimeCurrent() + 1;
 
    SaveFreshDayHistoryCutoff(strictCutoff,currentDateKey);
    DeleteFreshDayEAStateGlobalVariables();
 
    ResetAllFreshDayRuntimeState();
 
-   g_equityCycleNumber++;
+   // A standalone test begins with equity cycle #1. Recreate that same
+   // day-start state instead of carrying yesterday's cycle number.
+   g_equityCycleNumber = 1;
    InitializeEquityDay();
 
    // Re-run the same strategy startup trackers used by OnInit(), but now with
@@ -8179,7 +8298,8 @@ bool HandleFreshDayStart()
    g_freshDayStatus = "STRICT FRESH RUN READY | " + IntegerToString(currentDateKey);
 
    Print("FRESH DAY COMPLETE | DateKey=",currentDateKey,
-         " | OpeningBalance=$",DoubleToString(g_baseBalance,2),
+         " | StrategyReference=$",DoubleToString(g_baseBalance,2),
+         " | EquityAnchor=$",DoubleToString(g_equityCycleAnchor,2),
          " | DynamicLot=",DoubleToString(GetCurrentTradingLot(),2),
          " | ProfitTarget=$",DoubleToString(g_profitTargetEquity,2),
          " | LossLimit=$",DoubleToString(g_lossStopEquityLevel,2),
@@ -8659,11 +8779,11 @@ bool CheckDepositAndResetEquityStats()
 
       if(InpNotifyOnEquityRestart)
         {
-         // SendEAAlert("TRADING RESTARTED - DEPOSIT RESET",
-         //             "Deposit=$" + DoubleToString(amount,2) +
-         //             " | NewBase=$" + DoubleToString(g_baseBalance,2) +
-         //             " | Target=$" + DoubleToString(g_profitTargetEquity,2) +
-         //             " | LossStop=$" + DoubleToString(g_lossStopEquityLevel,2));
+         SendEAAlert("TRADING RESTARTED - DEPOSIT RESET",
+                     "Deposit=$" + DoubleToString(amount,2) +
+                     " | NewBase=$" + DoubleToString(g_baseBalance,2) +
+                     " | Target=$" + DoubleToString(g_profitTargetEquity,2) +
+                     " | LossStop=$" + DoubleToString(g_lossStopEquityLevel,2));
         }
 
       resetDone = true;
@@ -8676,7 +8796,7 @@ bool CheckDepositAndResetEquityStats()
 //+------------------------------------------------------------------+
 double GetTodayProfitFromBase()
   {
-   return(AccountEquity() - g_baseBalance);
+   return(AccountEquity() - GetEquityCycleAnchor());
   }
 
 //+------------------------------------------------------------------+
@@ -9703,7 +9823,7 @@ bool CheckGlobalEquityTrailLock()
    if(eq > g_globalEquityPeak)
       g_globalEquityPeak = eq;
 
-   double profitFromBase = eq - g_baseBalance;
+   double profitFromBase = eq - GetEquityCycleAnchor();
 
    if(profitFromBase < InpGlobalEquityTrailStartProfit)
      {
@@ -9824,7 +9944,8 @@ bool CheckEquityConditions()
 
       Print("OPENING BALANCE LOSS LOCK HIT",
             " | Equity=$",DoubleToString(currentEquity,2),
-            " | OpeningBalance=$",DoubleToString(g_baseBalance,2),
+            " | EquityAnchor=$",DoubleToString(GetEquityCycleAnchor(),2),
+            " | StrategyReference=$",DoubleToString(g_baseBalance,2),
             " | LossPercent=",DoubleToString(InpLossStopPercent,2),"%",
             " | StopEquity=$",DoubleToString(g_lossStopEquityLevel,2),
             " | Trading paused until next equity reset.");
@@ -9836,8 +9957,9 @@ bool CheckEquityConditions()
          string pauseDetails =
             "Reason: equity reached day loss limit" +
             " | Equity $" + DoubleToString(currentEquity,2) +
-            " | Opening $" + DoubleToString(g_baseBalance,2) +
-            " | Loss $" + DoubleToString(MathMax(0.0,g_baseBalance-currentEquity),2) +
+            " | DayStart $" + DoubleToString(GetEquityCycleAnchor(),2) +
+            " | Ref $" + DoubleToString(g_baseBalance,2) +
+            " | Loss $" + DoubleToString(MathMax(0.0,GetEquityCycleAnchor()-currentEquity),2) +
             " | Stop $" + DoubleToString(g_lossStopEquityLevel,2);
 
          NotifyTradingPausedReasonOnce(
@@ -9852,7 +9974,7 @@ bool CheckEquityConditions()
 // 2) Profit lock: equity reaches opening balance plus InpProfitTargetPercent.
    if(InpUseDailyProfitLock)
      {
-      double profitFromBase = currentEquity - g_baseBalance;
+      double profitFromBase = currentEquity - GetEquityCycleAnchor();
 
       if(!g_dailyProfitLock &&
          currentEquity >= g_profitTargetEquity)
@@ -9864,7 +9986,8 @@ bool CheckEquityConditions()
             CloseAllEAOrders("OPENING BALANCE PROFIT LOCK +10%");
 
          Print("OPENING BALANCE PROFIT LOCK HIT",
-               " | OpeningBalance=$",DoubleToString(g_baseBalance,2),
+               " | EquityAnchor=$",DoubleToString(GetEquityCycleAnchor(),2),
+               " | StrategyReference=$",DoubleToString(g_baseBalance,2),
                " | Equity=$",DoubleToString(currentEquity,2),
                " | Profit=$",DoubleToString(profitFromBase,2),
                " | ProfitPercent=",DoubleToString(InpProfitTargetPercent,2),"%",
@@ -9878,7 +10001,8 @@ bool CheckEquityConditions()
             string pauseDetails =
                "Reason: equity reached day profit target" +
                " | Equity $" + DoubleToString(currentEquity,2) +
-               " | Opening $" + DoubleToString(g_baseBalance,2) +
+               " | DayStart $" + DoubleToString(GetEquityCycleAnchor(),2) +
+               " | Ref $" + DoubleToString(g_baseBalance,2) +
                " | Profit $" + DoubleToString(MathMax(0.0,profitFromBase),2) +
                " | Target $" + DoubleToString(g_profitTargetEquity,2);
 
@@ -16956,7 +17080,6 @@ void OnTimer()
         }
      }
   }
-
 //+------------------------------------------------------------------+
 void OnTick()
   {
@@ -21458,7 +21581,8 @@ string EquityLockExactStatusText()
          state = "PROFIT LOCKED";
 
    return("Equity $" + DoubleToString(AccountEquity(),2) +
-          " | Base $" + DoubleToString(g_baseBalance,2) +
+          " | Anchor $" + DoubleToString(GetEquityCycleAnchor(),2) +
+          " | Ref $" + DoubleToString(g_baseBalance,2) +
           " | Stop $" + DoubleToString(g_lossStopEquityLevel,2) +
           " | Target $" + DoubleToString(g_profitTargetEquity,2) +
           " | " + state);
@@ -22542,7 +22666,7 @@ double CompactEquityChangePercent()
    if(g_baseBalance <= 0.0)
       return(0.0);
 
-   return(((AccountEquity()-g_baseBalance)/g_baseBalance)*100.0);
+   return(((AccountEquity()-GetEquityCycleAnchor())/g_baseBalance)*100.0);
   }
 
 //+------------------------------------------------------------------+
@@ -22643,7 +22767,7 @@ void DrawCompactDashboard(string status)
                 "$"+DoubleToString(AccountBalance(),2)+
                 " / EQ $"+DoubleToString(AccountEquity(),2)+
                 " / " + DoubleToString(CompactEquityChangePercent(),1)+"%",
-                AccountEquity()>=g_baseBalance ? clrLime : clrOrangeRed,88);
+                AccountEquity()>=GetEquityCycleAnchor() ? clrLime : clrOrangeRed,88);
 
    // LEFT: order-creation information only.
    DrawCornerPanel("DXB_COMPACT_LEFT_PANEL",
@@ -22739,7 +22863,7 @@ void DrawCompactDashboard(string status)
                 "BAL / EQUITY",
                 "$"+DoubleToString(AccountBalance(),2)+
                 " / $"+DoubleToString(AccountEquity(),2),
-                AccountEquity()>=g_baseBalance?clrLime:clrOrangeRed,rightChars);
+                AccountEquity()>=GetEquityCycleAnchor()?clrLime:clrOrangeRed,rightChars);
    CompactXYRow("DXB_COMPACT_RIGHT_ROW_",rightRow,rightX+10,sideY+28,
                 "OPENING BASE","$"+DoubleToString(g_baseBalance,2),clrWhite,rightChars);
    CompactXYRow("DXB_COMPACT_RIGHT_ROW_",rightRow,rightX+10,sideY+28,
