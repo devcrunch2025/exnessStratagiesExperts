@@ -245,7 +245,7 @@ bool   InpUseOppositeDirectionProfitPause = false;
 int    InpOppositeDirectionProfitStreakOrders = 2;
 int    InpOppositeDirectionPauseMinutes = 30;
 
-double InpLossStopPercent          = 10;//20.0; // pause when equity reaches opening balance - 20%
+double InpLossStopPercent          = 20;//10;//20.0; // pause when equity reaches opening balance - 20%
 
 double InpBasketProfitUSD_12_17 = 0.50;//1.00; // profit target during 12,13,14,15,16,17 hours
 
@@ -1108,7 +1108,7 @@ datetime g_oppositePauseLastBlockPrintTime = 0;
 int      g_oppositePauseLastPrintedDirection = 0;
 string   g_oppositeDirectionPauseStatus = "WAIT 3 PROFITS";
 
-int      dotColor               = 0;       // 1 SAR below price, -1 SAR above price
+int      g_dotColor               = 0;       // 1 SAR below price, -1 SAR above price
 bool     g_flatMode             = false;   // true when price is compressed/sideways
 
 // Delayed SAR close state: this counter is reset only when a NEW normal SAR order is created.
@@ -20232,13 +20232,13 @@ void DrawSARDots()
         {
          ObjectSetInteger(0, name, OBJPROP_COLOR, InpSARDotBuyColor);
          if(i == 0)
-            dotColor = 1;
+            g_dotColor = 1;
         }
       else
         {
          ObjectSetInteger(0, name, OBJPROP_COLOR, InpSARDotSellColor);
          if(i == 0)
-            dotColor = -1;
+            g_dotColor = -1;
         }
      }
 
