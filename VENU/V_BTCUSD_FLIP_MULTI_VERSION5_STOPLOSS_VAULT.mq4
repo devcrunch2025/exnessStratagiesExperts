@@ -1,5 +1,5 @@
 //+------------------------------------------------------------------+
-//|                 DXB_SAR_EarlyTrend_Cycle_EA_Strict_2345_FreshBoot_V177.mq4                  |
+//|                 DXB_SAR_EarlyTrend_Cycle_EA_Strict_2345_FreshBoot_V181_HalfLossConditionalSLGapAndSARConfirm.mq4                  |
 //|  SAR cycle + server-side SL + dynamic X-profit ladder          |
 //|  SAR flip closes opposite orders. Early reverse trend pauses SAR  |
 //|  cycle, draws arrows, closes opposite orders, resumes when aligned |
@@ -20,7 +20,7 @@ MARKET_MODE g_marketMode = MODE_RANGE;
 #ifndef OP_BALANCE
 #define OP_BALANCE 6
 #endif
-#property version   "1.77"
+#property version   "1.81"
 
 //======================== INPUTS ====================================
 string InpEAName                  = "DXB Version 5 - SAR Confirm 50 in 5 Min";
@@ -245,7 +245,22 @@ bool   InpUseOppositeDirectionProfitPause = false;
 int    InpOppositeDirectionProfitStreakOrders = 2;
 int    InpOppositeDirectionPauseMinutes = 30;
 
-double InpLossStopPercent          = 20;//10;//20.0; // pause when equity reaches opening balance - 20%
+double InpLossStopPercent          = 20;//10;//20.0; // full day loss lock percent
+
+// Half-loss cooling pause:
+// When equity uses this percentage of the configured InpLossStopPercent
+// allowance, block every NEW order for the configured time. Existing market
+// orders remain open and continue normal TP/SL/profit management. All pending
+// EA entries are deleted when the pause starts and while it remains active.
+// Example: InpLossStopPercent=20 and trigger=50 => pause at a 10% drawdown.
+// The pause triggers only once per equity cycle, then trading resumes after
+// InpHalfLossPauseMinutes even if equity is still below the warning level.
+bool   InpUseHalfLossPause                = true;
+double InpHalfLossPauseTriggerPercent     = 50.0; // percentage of InpLossStopPercent, not account percent
+int    InpHalfLossPauseMinutes            =60*6;// 10;//60*4;
+bool   InpDeletePendingOnHalfLossPause    = true;
+
+double InpInitialServerSLExtraRawAfterHalfLoss =100;// 50.0; // extra RAW price gap for NEW orders after half-loss trigger
 
 double InpBasketProfitUSD_12_17 = 0.50;//1.00; // profit target during 12,13,14,15,16,17 hours
 
@@ -1298,6 +1313,13 @@ int      g_equityCycleNumber    = 1;
 int      g_lastEquityResetSlot  = -1;  // prevents repeated reset during the same reset hour
 bool     g_notifyProfitLockSent = false;
 bool     g_notifyEquityStopSent = false;
+
+// One-shot half-loss cooling pause for the current equity cycle.
+double   g_halfLossPauseEquityLevel = 0.0;
+datetime g_halfLossPauseUntil       = 0;
+bool     g_halfLossPauseTriggered   = false;
+string   g_halfLossPauseStatus      = "READY";
+
 datetime g_lastDepositBalanceOpTime = 0; // last processed OP_BALANCE deposit/withdrawal time
 bool     g_bigCandlePause          = false;
 datetime g_bigCandlePauseUntil     = 0;
@@ -1427,7 +1449,7 @@ bool TryOpenEarlySameSARExtraOrder()
                DirectionText(g_pendingSARConfirmDirection),
                " | Duration=", SARConfirmDurationStatusText(),
                " | PriceDiff=", DoubleToString(GetSARConfirmCurrentPriceDiff(), Digits),
-               " | RequiredDiff=", DoubleToString(InpSARConfirmPriceDiff, Digits));
+               " | RequiredDiff=", DoubleToString(GetEffectiveSARConfirmPriceDiff(), Digits));
          return(false);
         }
 
@@ -6440,6 +6462,19 @@ bool ApplyInitialServerSideSLToSelectedOrder()
    if(priceDistance <= 0.0 || point <= 0.0)
       return(false);
 
+   // Before the half-loss warning, use the normal calculated initial SL gap.
+   // After the one-shot half-loss trigger has occurred in this equity cycle,
+   // add the configured RAW price gap only to NEW orders without an existing SL.
+   double extraRawPriceGap = 0.0;
+
+   if(g_halfLossPauseTriggered)
+   { 
+      extraRawPriceGap =
+         MathMax(0.0,InpInitialServerSLExtraRawAfterHalfLoss);
+
+   }
+   priceDistance += extraRawPriceGap;
+
    double brokerMinDistance =
       MathMax(MarketInfo(symbol, MODE_STOPLEVEL),
               MarketInfo(symbol, MODE_FREEZELEVEL)) * point;
@@ -6497,6 +6532,9 @@ bool ApplyInitialServerSideSLToSelectedOrder()
             " | SL=",DoubleToString(finalSL,digits),
             " | RequestedLoss=$",
             DoubleToString(selectedInitialSLUSD,2),
+            " | BaseGapRaw=",DoubleToString(priceDistance-extraRawPriceGap,digits),
+            " | ExtraGapRaw=",DoubleToString(extraRawPriceGap,digits),
+            " | HalfLossTriggered=",(g_halfLossPauseTriggered ? "YES" : "NO"),
             " | Error=",err);
       ResetLastError();
       return(false);
@@ -6519,6 +6557,9 @@ bool ApplyInitialServerSideSLToSelectedOrder()
          " | SL=",DoubleToString(finalSL,digits),
          " | RequestedLoss=$",
          DoubleToString(selectedInitialSLUSD,2),
+         " | BaseGapRaw=",DoubleToString(priceDistance-extraRawPriceGap,digits),
+         " | ExtraGapRaw=",DoubleToString(extraRawPriceGap,digits),
+         " | HalfLossTriggered=",(g_halfLossPauseTriggered ? "YES" : "NO"),
          " | EstimatedLoss=$",
          DoubleToString(estimatedLossUSD,2));
 
@@ -7593,6 +7634,21 @@ void InitializeEquityDay()
    if(g_lossStopEquityLevel < 0.0)
       g_lossStopEquityLevel = 0.0;
 
+   double halfLossTriggerShare =
+      MathMax(0.0,MathMin(100.0,InpHalfLossPauseTriggerPercent)) / 100.0;
+
+   g_halfLossPauseEquityLevel =
+      g_equityCycleAnchor - (dailyLossAmount * halfLossTriggerShare);
+
+   if(g_halfLossPauseEquityLevel < g_lossStopEquityLevel)
+      g_halfLossPauseEquityLevel = g_lossStopEquityLevel;
+
+   g_halfLossPauseUntil     = 0;
+   g_halfLossPauseTriggered = false;
+   g_halfLossPauseStatus    = InpUseHalfLossPause
+                              ? "READY | WAIT HALF LOSS"
+                              : "OFF";
+
    g_lockedProfitToday    = 0.0;
    g_dailyProfitLock      = false;
    g_equityProtectionHit  = false;
@@ -7611,6 +7667,8 @@ void InitializeEquityDay()
          " | StrategyReference=$",DoubleToString(g_baseBalance,2),
          " | EquityAnchor=$",DoubleToString(g_equityCycleAnchor,2),
          " | LossStopEquity=$",DoubleToString(g_lossStopEquityLevel,2),
+         " | HalfLossPauseEquity=$",DoubleToString(g_halfLossPauseEquityLevel,2),
+         " | HalfLossPauseMinutes=",IntegerToString(InpHalfLossPauseMinutes),
          " | ProfitTargetEquity=$",DoubleToString(g_profitTargetEquity,2),
          " | TargetProfit=$",DoubleToString(g_dailyProfitTarget,2),
          " | TesterStandaloneDay=",
@@ -7996,6 +8054,10 @@ void ResetAllFreshDayRuntimeState()
 
    g_marketMode = MODE_RANGE;
    g_equityCycleAnchor = 0.0;
+   g_halfLossPauseEquityLevel = 0.0;
+   g_halfLossPauseUntil       = 0;
+   g_halfLossPauseTriggered   = false;
+   g_halfLossPauseStatus      = "READY";
    ArrayInitialize(g_sarChangeTimes,0);
    ArrayInitialize(g_sarChangeDirections,0);
    ArrayInitialize(g_sarChangeDurationsSeconds,0);
@@ -8490,10 +8552,137 @@ string ConsecutiveSLPauseStatusText()
   }
 
 //+------------------------------------------------------------------+
+//| One-shot cooling pause at a configurable share of the day loss.  |
+//| It blocks only NEW entries; existing market orders are managed.  |
+//+------------------------------------------------------------------+
+bool IsHalfLossPauseActive()
+  {
+   if(!InpUseHalfLossPause)
+      return(false);
+
+   if(g_halfLossPauseUntil <= 0)
+      return(false);
+
+   if(TimeCurrent() >= g_halfLossPauseUntil)
+     {
+      datetime expiredAt = g_halfLossPauseUntil;
+      g_halfLossPauseUntil = 0;
+      g_halfLossPauseStatus = "RESUMED | ONE-SHOT USED THIS CYCLE";
+
+      Print("HALF LOSS COOLING PAUSE ENDED | Trading resumed",
+            " | EndedAt=",TimeToString(expiredAt,TIME_DATE|TIME_SECONDS),
+            " | Equity=$",DoubleToString(AccountEquity(),2),
+            " | WarningLevel=$",DoubleToString(g_halfLossPauseEquityLevel,2),
+            " | FullLossStop=$",DoubleToString(g_lossStopEquityLevel,2),
+            " | BaseSARConfirmRaw=",DoubleToString(InpSARConfirmPriceDiff,2),
+            " | AddedSARConfirmRaw=",DoubleToString(MathMax(0.0,InpInitialServerSLExtraRawAfterHalfLoss),2),
+            " | EffectiveSARConfirmRaw=",DoubleToString(GetEffectiveSARConfirmPriceDiff(),2));
+
+      SendEAAlert(
+         "TRADING RESUMED - HALF LOSS PAUSE ENDED",
+         "Equity $" + DoubleToString(AccountEquity(),2) +
+         " | Full stop $" + DoubleToString(g_lossStopEquityLevel,2));
+
+      return(false);
+     }
+
+   return(true);
+  }
+
+//+------------------------------------------------------------------+
+string HalfLossPauseStatusText()
+  {
+   if(!InpUseHalfLossPause)
+      return("OFF");
+
+   if(IsHalfLossPauseActive())
+     {
+      int leftSec = (int)MathMax(0,g_halfLossPauseUntil-TimeCurrent());
+      return("BLOCK | LEFT " + IntegerToString(leftSec/60) + "m " +
+             IntegerToString(leftSec%60) + "s | LEVEL $" +
+             DoubleToString(g_halfLossPauseEquityLevel,2));
+     }
+
+   return(g_halfLossPauseStatus +
+          " | LEVEL $" + DoubleToString(g_halfLossPauseEquityLevel,2));
+  }
+
+//+------------------------------------------------------------------+
+void UpdateHalfLossPauseState()
+  {
+   if(!InpUseHalfLossPause || !InpUseEquityProtection)
+     {
+      g_halfLossPauseStatus = !InpUseHalfLossPause
+                              ? "OFF"
+                              : "OFF | EQUITY PROTECTION OFF";
+      return;
+     }
+
+   // Expire an active pause, but never trigger it again in the same cycle.
+   if(g_halfLossPauseTriggered)
+     {
+      IsHalfLossPauseActive();
+      return;
+     }
+
+   if(g_equityProtectionHit || g_dailyProfitLock)
+      return;
+
+   double currentEquity = AccountEquity();
+
+   if(currentEquity > g_halfLossPauseEquityLevel)
+      return;
+
+   // The full day-loss lock has priority and is handled before this method.
+   if(currentEquity <= g_lossStopEquityLevel)
+      return;
+
+   int pauseMinutes = MathMax(1,InpHalfLossPauseMinutes);
+
+   g_halfLossPauseTriggered = true;
+   g_halfLossPauseUntil = TimeCurrent() + pauseMinutes*60;
+   g_halfLossPauseStatus =
+      "BLOCK | UNTIL " +
+      TimeToString(g_halfLossPauseUntil,TIME_DATE|TIME_MINUTES);
+
+   if(InpDeletePendingOnHalfLossPause)
+      DeletePendingOrdersByDirection(
+         0,
+         "HALF LOSS COOLING PAUSE | " + g_halfLossPauseStatus,
+         false);
+
+   double drawdownUSD =
+      MathMax(0.0,GetEquityCycleAnchor()-currentEquity);
+
+   Print("HALF LOSS COOLING PAUSE STARTED",
+         " | Equity=$",DoubleToString(currentEquity,2),
+         " | EquityAnchor=$",DoubleToString(GetEquityCycleAnchor(),2),
+         " | StrategyReference=$",DoubleToString(g_baseBalance,2),
+         " | LossPercent=",DoubleToString(InpLossStopPercent,2),"%",
+         " | TriggerShare=",
+         DoubleToString(InpHalfLossPauseTriggerPercent,2),"%",
+         " | Drawdown=$",DoubleToString(drawdownUSD,2),
+         " | WarningLevel=$",DoubleToString(g_halfLossPauseEquityLevel,2),
+         " | FullLossStop=$",DoubleToString(g_lossStopEquityLevel,2),
+         " | PauseMinutes=",pauseMinutes,
+         " | Existing market orders remain managed.");
+
+   NotifyTradingPausedReasonOnce(
+      "HALF_LOSS_COOLING",
+      "TRADING PAUSED - HALF LOSS COOLING",
+      "Equity $" + DoubleToString(currentEquity,2) +
+      " | Drawdown $" + DoubleToString(drawdownUSD,2) +
+      " | Resume " +
+      TimeToString(g_halfLossPauseUntil,TIME_DATE|TIME_MINUTES) +
+      " | Full stop $" + DoubleToString(g_lossStopEquityLevel,2));
+  }
+
+//+------------------------------------------------------------------+
 bool IsNewOrderHardPauseActive()
   {
    return(IsDubaiNoNewOrderHourNow() ||
-          IsConsecutiveSLPauseActive());
+          IsConsecutiveSLPauseActive() ||
+          IsHalfLossPauseActive());
   }
 
 //+------------------------------------------------------------------+
@@ -8512,6 +8701,14 @@ string GetNewOrderHardPauseReasonText()
          reason += " | ";
       reason += "CONSECUTIVE SL PAUSE | " +
                 ConsecutiveSLPauseStatusText();
+     }
+
+   if(IsHalfLossPauseActive())
+     {
+      if(reason != "")
+         reason += " | ";
+      reason += "HALF LOSS COOLING PAUSE | " +
+                HalfLossPauseStatusText();
      }
 
    if(reason == "")
@@ -9970,6 +10167,10 @@ bool CheckEquityConditions()
 
       return(true);
      }
+
+// Half-loss warning pause: block only NEW entries for a fixed cooling period.
+// Existing market orders continue their normal management.
+   UpdateHalfLossPauseState();
 
 // 2) Profit lock: equity reaches opening balance plus InpProfitTargetPercent.
    if(InpUseDailyProfitLock)
@@ -17083,6 +17284,7 @@ void OnTimer()
 //+------------------------------------------------------------------+
 void OnTick()
   {
+
 // ABSOLUTE FIRST GATE: from 23:45:00 through 23:59:59 no other
 // calculation, order-management path or variable update is allowed to run.
    if(!HandleStrict2345DayEndFreshBoot())
@@ -17165,6 +17367,20 @@ void OnTick()
       // Confirmation remains in the Experts log only.
       Print(msg);
        if(g_tickConfirmationCount < 2)
+
+      SendNotification(msg);
+
+
+       
+       msg =
+        "EQUITY SETTINGS"+
+      " | LossPercent="+ DoubleToString(InpLossStopPercent,2)+
+      " | LossStopEquity=$"+ DoubleToString(g_lossStopEquityLevel,2)+
+      " | ProfitPercent="+ DoubleToString(InpProfitTargetPercent,2);
+
+      // Confirmation remains in the Experts log only.
+      Print(msg);
+       if(g_tickConfirmationCount < 3)
 
       SendNotification(msg);
      }
@@ -17563,12 +17779,44 @@ double GetFirstSAROrderLivePriceDiff(int direction)
   }
 
 //+------------------------------------------------------------------+
+//| Half-loss SAR confirmation adjustment                           |
+//| The configured input is never modified at runtime.              |
+//| Extra raw distance becomes active only AFTER cooling finishes.  |
+//+------------------------------------------------------------------+
+bool IsHalfLossCoolingPeriodCompleted()
+  {
+   if(!InpUseHalfLossPause || !g_halfLossPauseTriggered)
+      return(false);
+
+   if(g_halfLossPauseUntil <= 0)
+      return(true);
+
+   return(TimeCurrent() >= g_halfLossPauseUntil);
+  }
+
+//+------------------------------------------------------------------+
+double GetHalfLossSARConfirmExtraRaw()
+  {
+   if(!IsHalfLossCoolingPeriodCompleted())
+      return(0.0);
+
+   return(MathMax(0.0,InpInitialServerSLExtraRawAfterHalfLoss));
+  }
+
+//+------------------------------------------------------------------+
+double GetEffectiveSARConfirmPriceDiff()
+  {
+   return(MathMax(0.0,InpSARConfirmPriceDiff) +
+          GetHalfLossSARConfirmExtraRaw());
+  }
+
+//+------------------------------------------------------------------+
 bool IsFirstSAROrderPriceDiffReady(int direction)
   {
    if(direction == 0)
       return(false);
 
-   double requiredDiff = MathMax(0.0, InpSARConfirmPriceDiff);
+   double requiredDiff = GetEffectiveSARConfirmPriceDiff();
    double currentDiff  = GetFirstSAROrderLivePriceDiff(direction);
 
    if(currentDiff < 0.0)
@@ -17581,10 +17829,10 @@ bool IsFirstSAROrderPriceDiffReady(int direction)
 string FirstSAROrderPriceDiffStatusText(int direction)
   {
    double currentDiff  = GetFirstSAROrderLivePriceDiff(direction);
-   double requiredDiff = MathMax(0.0, InpSARConfirmPriceDiff);
+   double requiredDiff = GetEffectiveSARConfirmPriceDiff();
 
    if(currentDiff < 0.0)
-      return("NO SAR Min Distance "+InpSARConfirmPriceDiff +"/"+ DoubleToString(currentDiff, Digits) );
+      return("NO SAR Min Distance " + DoubleToString(requiredDiff,Digits) + "/" + DoubleToString(currentDiff, Digits));
 
    return("LIVE DIFF " + DoubleToString(currentDiff, Digits) +
           "/" + DoubleToString(requiredDiff, Digits) +
@@ -17711,7 +17959,7 @@ bool IsSARFlipConfirmationReady()
    if(InpUseSARPriceDiffConfirm)
      {
       double diff = GetSARConfirmCurrentPriceDiff();
-      double requiredDiff = InpSARConfirmPriceDiff;
+      double requiredDiff = GetEffectiveSARConfirmPriceDiff();
 
       if(InpUseDynamicSAREngine)
          requiredDiff = GetDynamicSARRequiredConfirmDiff();
@@ -17803,18 +18051,25 @@ double GetDynamicSARATR()
 //+------------------------------------------------------------------+
 double GetDynamicSARRequiredConfirmDiff()
   {
+   double configuredBase = MathMax(0.0,InpSARConfirmPriceDiff);
+   double halfLossExtra  = GetHalfLossSARConfirmExtraRaw();
+
    if(!InpUseDynamicSAREngine)
-      return(InpSARConfirmPriceDiff);
+      return(configuredBase + halfLossExtra);
 
    double atr = GetDynamicSARATR();
    if(atr <= 0.0)
-      return(InpSARConfirmPriceDiff);
+      return(configuredBase + halfLossExtra);
 
    double dynamicDiff = atr * InpDynamicConfirmATRMultiplier;
 
 // Safety: do not allow the dynamic requirement to become almost zero in dead market.
-   if(InpSARConfirmPriceDiff > 0.0)
-      dynamicDiff = MathMax(dynamicDiff, InpSARConfirmPriceDiff * 0.35);
+   if(configuredBase > 0.0)
+      dynamicDiff = MathMax(dynamicDiff,configuredBase * 0.35);
+
+// After the half-loss cooling period finishes, require the same extra RAW
+// confirmation distance in addition to the ATR-derived requirement.
+   dynamicDiff += halfLossExtra;
 
    return(dynamicDiff);
   }
@@ -20442,7 +20697,7 @@ void DrawLeftImportantOrderSettings(int direction)
                      InpMaxTotalOpenOrders > 0 ? clrAqua : clrSilver);
 
    LeftChecklistInfo("SAR Confirm",
-                     "Diff " + DoubleToString(InpSARConfirmPriceDiff, 0) +
+                     "Diff " + DoubleToString(GetEffectiveSARConfirmPriceDiff(), 0) +
                      " | Min " + IntegerToString(InpSARConfirmMinutes) +
                      " | " + (InpUseSARFlipConfirmations ? "ON" : "OFF"),
                      InpUseSARFlipConfirmations ? clrLime : clrSilver);
@@ -21421,7 +21676,7 @@ string SARConfirmExactStatusText(int direction)
       return("No pending flip confirmation");
 
    double currentDiff = GetSARConfirmCurrentPriceDiff();
-   double requiredDiff = MathMax(0.0, InpSARConfirmPriceDiff);
+   double requiredDiff = GetEffectiveSARConfirmPriceDiff();
 
    if(InpUseDynamicSAREngine)
       requiredDiff = GetDynamicSARRequiredConfirmDiff();
@@ -22608,7 +22863,12 @@ string CompactHardLockText()
       ? "SL-STREAK BLOCK"
       : "SL-STREAK PASS";
 
-   return(hours + " | " + streak);
+   string halfLoss =
+      IsHalfLossPauseActive()
+      ? "HALF-LOSS BLOCK"
+      : (g_halfLossPauseTriggered ? "HALF-LOSS USED" : "HALF-LOSS READY");
+
+   return(hours + " | " + streak + " | " + halfLoss);
   }
 
 //+------------------------------------------------------------------+
@@ -23181,7 +23441,8 @@ void DrawLegacyDashboard(string status)
 
    RightProRow("--- SAR SETTINGS ---","",clrDimGray);
    RightProRow("SAR Direction",DirectionText(g_activeSARDirection),DirectionColor(g_activeSARDirection));
-   RightProRow("Confirm Gap",DoubleToString(InpSARConfirmPriceDiff,0),clrAqua);
+   RightProRow("Confirm Gap",DoubleToString(GetEffectiveSARConfirmPriceDiff(),0),
+               GetHalfLossSARConfirmExtraRaw() > 0.0 ? clrOrange : clrAqua);
    RightProRow("Confirm Minutes",IntegerToString(InpSARConfirmMinutes),clrAqua);
    RightProRow("Continuous Gap",DoubleToString(InpContinuousOrderPriceGap,0),clrAqua);
    RightProRow("Gap Wait",IntegerToString(InpContinuousOrderGapMinutes)+"m",clrAqua);
@@ -23210,6 +23471,7 @@ void DrawLegacyDashboard(string status)
    RightProRow("Global Trail",g_globalEquityTrailStatus,g_globalEquityTrailLocked ? clrOrangeRed : clrAqua);
    RightProRow("No-New Hours",NoNewOrderHoursStatusText(),IsDubaiNoNewOrderHourNow() ? clrOrangeRed : clrLime);
    RightProRow("SL Streak Pause",ConsecutiveSLPauseStatusText(),IsConsecutiveSLPauseActive() ? clrOrangeRed : clrLime);
+   RightProRow("Half Loss Pause",HalfLossPauseStatusText(),IsHalfLossPauseActive() ? clrOrangeRed : (g_halfLossPauseTriggered ? clrYellow : clrLime));
 
    DrawCornerPanel("DXB_RIGHT_ACCOUNT_PANEL",CORNER_RIGHT_UPPER,325,15,320,250,clrBlack,clrDimGray);
    DrawCornerLabel("DXB_RIGHT_ACCOUNT_TITLE","ACCOUNT / BASKET STATUS",CORNER_RIGHT_UPPER,300,23,clrYellow,10);
