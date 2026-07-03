@@ -1,5 +1,5 @@
 //+------------------------------------------------------------------+
-//|                 DXB_SAR_EarlyTrend_Cycle_EA_Strict_2345_FreshBoot_V190_HighestProfit50PercentShareLock.mq4                  |
+//|                 DXB_SAR_EarlyTrend_Cycle_EA_Strict_2345_FreshBoot_V191_UnifiedTesterVPS_DailyCompounding.mq4                  |
 //|  SAR cycle + server-side SL + dynamic X-profit ladder          |
 //|  SAR flip closes opposite orders. Early reverse trend pauses SAR  |
 //|  cycle, draws arrows, closes opposite orders, resumes when aligned |
@@ -20,7 +20,7 @@ MARKET_MODE g_marketMode = MODE_RANGE;
 #ifndef OP_BALANCE
 #define OP_BALANCE 6
 #endif
-#property version   "1.90"
+#property version   "1.91"
 
 //======================== INPUTS ====================================
 string InpEAName                  = "DXB Version 5 - SAR Confirm 50 in 5 Min";
@@ -534,14 +534,14 @@ bool   InpFreshDayDeleteEAStateGlobals       = true;
 bool   InpFreshDayResumeOnlyOnNewM1Bar       = false;
 int    InpFreshDayInternalResumeDelaySeconds = 0;
 
-// Strategy Tester standalone-day emulation:
-// In a multi-day test, each new day uses the ORIGINAL tester deposit as the
-// strategy capital reference for dynamic lot and scaled USD targets.
-// The tester account balance itself still carries prior-day P/L, therefore
-// equity locks are anchored to the actual equity captured at that day's 00:00.
-// This makes day 18 behave like a separate day-18 test without changing MT4's
-// tester account history.
-bool   InpTesterStandaloneFreshDayMode       = true;
+// Unified new-day balance mode:
+// Strategy Tester and live VPS both use the actual AccountBalance() captured
+// at the new-day boundary for dynamic lot and scaled USD targets. The only
+// intended difference is the clock source: tester/report time in backtests and
+// Dubai time in live trading.
+// Legacy compatibility only. Tester and live now both use the actual new-day
+// AccountBalance() as the opening reference. Only their clock source differs.
+bool   InpTesterStandaloneFreshDayMode       = false;
 
 
 //================ STRICT 23:45 DAY-END FRESH BOOT ==================
@@ -3369,13 +3369,8 @@ void UpdateAutoMarketFlowMode()
 //+------------------------------------------------------------------+
 double GetFreshDayStrategyReferenceBalance()
   {
-   // In multi-day Strategy Tester runs, preserve the original deposit as the
-   // capital reference used by dynamic lot sizing and scaled USD settings.
-   if(IsTesting() &&
-      InpTesterStandaloneFreshDayMode &&
-      g_testerInitialReferenceBalance > 0.0)
-      return(g_testerInitialReferenceBalance);
-
+   // Unified tester/live behaviour: every new day uses the actual balance
+   // captured at that day boundary. Only the time source differs.
    if(InpAutoUseCurrentBalanceBase && g_dayStartBalance > 0.0)
       return(g_dayStartBalance);
 
@@ -8167,18 +8162,10 @@ int OnInit()
 
 
 
-   if(IsTesting())
-     {
-      g_consecutiveBasketSLCount      = 0;
-      g_consecutiveBasketSLPauseUntil = 0;
-      g_consecutiveSLPauseStatus      = "TEST MODE | DISABLED";
-
-      Print("TEST MODE | Dubai no-new hours disabled",
-            " | Consecutive SL pause disabled",
-            " | Opening-balance equity lock exempt");
-     }
-   else
-   if(AccountNumber() == InpEquityLockExemptAccount)
+   // Tester and live use the same trading protections. Only their clock source
+   // differs. Account-number exemption remains a live/account configuration.
+   if(AccountNumber() == InpEquityLockExemptAccount &&
+      InpEquityLockExemptAccount > 0)
      {
       Print("LIVE ACCOUNT EXEMPT | Account=",AccountNumber(),
             " | Opening-balance equity lock disabled");
@@ -8197,14 +8184,7 @@ int OnInit()
    // terminal Global Variable keys remain stable across reinitializations.
    InitializeDailyEARestart();
 
-   if(!IsTesting())
-      LoadConsecutiveSLPauseState();
-   else
-     {
-      g_consecutiveBasketSLCount      = 0;
-      g_consecutiveBasketSLPauseUntil = 0;
-      g_consecutiveSLPauseStatus      = "TEST MODE | DISABLED";
-     }
+   LoadConsecutiveSLPauseState();
 
    RestoreOppositeImpulsePendingState();
    InitializeCreatedClosedPushTracker();
@@ -8221,7 +8201,7 @@ int OnInit()
          " | ProfitTargetEquity=$", DoubleToString(g_profitTargetEquity,2),
          " | TargetProfit=$", DoubleToString(g_dailyProfitTarget,2),
          " | FreshDay=",g_freshDayStatus,
-         " | TesterStandaloneDay=",(IsTesting() && InpTesterStandaloneFreshDayMode ? "YES" : "NO"),
+         " | DailyBalanceMode=ACTUAL NEW-DAY BALANCE",
          " | DailyReinit=",g_dailyEAReinitStatus,
          " | PendingGap=",DoubleToString(GetConfiguredPendingOrderGapRaw(),1),
          " | HistoryCutoff=",
@@ -9113,27 +9093,15 @@ void InitializeEquityDay()
    g_dayStartBalance = AccountBalance();
    g_dayStartEquity  = AccountEquity();
 
-   // Capture the tester's original deposit only once. Do not reset this value
-   // at midnight; it is the virtual capital reference that makes every later
-   // tester day use the same lot and scaled money settings as a standalone run.
-   if(IsTesting() &&
-      InpTesterStandaloneFreshDayMode &&
-      g_testerInitialReferenceBalance <= 0.0)
-      g_testerInitialReferenceBalance = MathMax(0.0,g_dayStartBalance);
-
+   // Unified tester/live behaviour: use the actual new-day opening balance
+   // for dynamic lot, scaled money settings and equity-cycle calculations.
+   g_testerInitialReferenceBalance = 0.0; // legacy value is intentionally unused
    g_baseBalance = GetFreshDayStrategyReferenceBalance();
 
    if(g_baseBalance <= 0.0)
       g_baseBalance = MathMax(0.01,g_dayStartBalance);
 
-   // In standalone tester-day mode, actual tester balance still contains the
-   // previous day's P/L. Anchor today's locks to the real 00:00 equity, while
-   // calculating the allowed USD profit/loss from the original reference
-   // capital. Live trading keeps the original opening-balance behavior.
-   if(IsTesting() && InpTesterStandaloneFreshDayMode)
-      g_equityCycleAnchor = g_dayStartEquity;
-   else
-      g_equityCycleAnchor = g_baseBalance;
+   g_equityCycleAnchor = g_baseBalance;
 
    if(g_equityCycleAnchor <= 0.0)
       g_equityCycleAnchor = MathMax(0.01,g_dayStartEquity);
@@ -9283,8 +9251,7 @@ void InitializeEquityDay()
    " @ $" + DoubleToString(g_profitLadderLevel6Equity,2) +
    " | ProfitTargetEquity=$" + DoubleToString(g_profitTargetEquity,2) +
    " | TargetProfit=$" + DoubleToString(g_dailyProfitTarget,2) +
-   " | TesterStandaloneDay=" +
-   (IsTesting() && InpTesterStandaloneFreshDayMode ? "YES" : "NO");
+   " | DailyBalanceMode=ACTUAL NEW-DAY BALANCE";
 
 Print(equityResetMsg);
   }
@@ -9786,9 +9753,7 @@ void ResetAllFreshDayRuntimeState()
       g_consecutiveBasketSLPauseUntil = 0;
       g_lastConsecutiveSLRegisterTime = 0;
       g_lastConsecutiveSLRegisterDirection = 0;
-      g_consecutiveSLPauseStatus = IsTesting()
-                                   ? "TEST MODE | DISABLED"
-                                   : "READY | FRESH DAY";
+      g_consecutiveSLPauseStatus = "READY | FRESH DAY";
 
       DeleteFreshDayEAStateGlobalVariables();
      }
@@ -10130,6 +10095,9 @@ void DeleteFreshDayEAStateGlobalVariables()
 //+------------------------------------------------------------------+
 void SaveConsecutiveSLPauseState()
   {
+   if(IsTesting())
+      return;
+
    GlobalVariableSet(ConsecutiveSLStateKey("COUNT"),
                      (double)g_consecutiveBasketSLCount);
    GlobalVariableSet(ConsecutiveSLStateKey("UNTIL"),
@@ -10145,7 +10113,9 @@ void LoadConsecutiveSLPauseState()
 
    if(IsTesting())
      {
-      g_consecutiveSLPauseStatus = "TEST MODE | DISABLED";
+      // Strategy Tester uses the same pause logic but does not restore terminal
+      // Global Variables from an earlier test run.
+      g_consecutiveSLPauseStatus = "READY";
       return;
      }
 
@@ -10172,9 +10142,6 @@ void LoadConsecutiveSLPauseState()
 //+------------------------------------------------------------------+
 bool IsConsecutiveSLPauseActive()
   {
-   if(IsTesting())
-      return(false);
-
    if(!InpUseConsecutiveSLPause)
       return(false);
 
@@ -10197,9 +10164,6 @@ bool IsConsecutiveSLPauseActive()
 string ConsecutiveSLPauseStatusText()
   {
    int required = MathMax(1,InpConsecutiveSLPauseCount);
-
-   if(IsTesting())
-      return("TEST MODE | DISABLED");
 
    if(!InpUseConsecutiveSLPause)
       return("OFF");
@@ -10404,9 +10368,6 @@ void RegisterConsecutiveBasketSL(int direction,
                                  double basketProfit,
                                  string reason)
   {
-   if(IsTesting())
-      return;
-
    if(!InpUseConsecutiveSLPause)
       return;
 
