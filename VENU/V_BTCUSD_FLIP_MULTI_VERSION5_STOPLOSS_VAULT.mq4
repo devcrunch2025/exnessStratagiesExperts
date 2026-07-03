@@ -1,5 +1,5 @@
 //+------------------------------------------------------------------+
-//|                 DXB_SAR_EarlyTrend_Cycle_EA_Strict_2345_FreshBoot_V181_HalfLossConditionalSLGapAndSARConfirm.mq4                  |
+//|                 DXB_SAR_EarlyTrend_Cycle_EA_Strict_2345_FreshBoot_V183_SixStepProfitPercentLadder.mq4                  |
 //|  SAR cycle + server-side SL + dynamic X-profit ladder          |
 //|  SAR flip closes opposite orders. Early reverse trend pauses SAR  |
 //|  cycle, draws arrows, closes opposite orders, resumes when aligned |
@@ -20,7 +20,7 @@ MARKET_MODE g_marketMode = MODE_RANGE;
 #ifndef OP_BALANCE
 #define OP_BALANCE 6
 #endif
-#property version   "1.81"
+#property version   "1.83"
 
 //======================== INPUTS ====================================
 string InpEAName                  = "DXB Version 5 - SAR Confirm 50 in 5 Min";
@@ -47,7 +47,30 @@ double InpMinGapWhenMaxOrdersMoreThanOne = 100.0; // when InpMaxOrders > 1, enfo
 #define DXB_HARD_MAX_OPEN_ORDERS 6  // absolute safety cap for normal SAR orders per cycle
 
 double InpBasketProfitUSD         = 0.50;  // X1 base: custom ladder starts $0.50, $0.75, $0.875, $1.00...
-double InpProfitTargetPercent      = 10.0; // pause when equity reaches opening balance + 10%
+double InpProfitTargetPercent      = 10.0; // legacy fixed target used only when percentage ladder is OFF
+
+//================ DAILY EQUITY PROFIT PERCENT LADDER ===============
+// Uses the current equity-cycle anchor plus a percentage of g_baseBalance.
+// Six protected levels:
+//   Reach +10% -> protect +10%, continue toward +15%.
+//   Reach +15% -> protect +15%, continue toward +20%.
+//   Reach +20% -> protect +20%, continue toward +30%.
+//   Reach +30% -> protect +30%, continue toward +40%.
+//   Reach +40% -> protect +40%, continue toward +50%.
+//   Reach +50% -> close all EA orders and pause until the next equity reset.
+// If equity falls below the highest completed level before +50%, close all
+// EA orders and pause. InpProfitLadderReturnBufferPercent allows an optional
+// pullback below the protected level before closing.
+bool   InpUseDailyProfitPercentLadder       = true;
+double InpProfitLadderPercent1              = 10.0;
+double InpProfitLadderPercent2              = 15.0;
+double InpProfitLadderPercent3              = 20.0;
+double InpProfitLadderPercent4              = 30.0;
+double InpProfitLadderPercent5              = 40.0;
+double InpProfitLadderPercent6              = 50.0;
+double InpProfitLadderReturnBufferPercent   = 0.0;
+bool   InpCloseAtFinalProfitLadderLevel     = true;
+bool   InpPauseAfterProfitLadderClose       = true;
 
 
 // Dynamic basket profit ladder:
@@ -734,10 +757,13 @@ int    InpGoodMarketPendingRetrySeconds           = 3;
 // Existing market-order close/profit/protection management continues.
 // TimeGMT()+4 is used, so broker-server, VPS and VPN time zones do not affect this rule.
 bool   InpUseNoNewOrderHours      = true;
-// Observed high-risk live session: block every NEW order from 14:00 through
-// 22:59 Dubai time. Existing market orders continue TP/SL management.
+// Strategy Tester uses tester/report time so blocked hours can be verified.
+// Live trading uses Dubai time from GetDubaiTime().
+bool   InpApplyNoNewOrderHoursInTesting = true;
+// Block every NEW order during 07:00-07:59 and 14:00-22:59.
+// Existing market orders continue TP/SL management.
 // Every untriggered EA pending order is deleted while this lock is active.
-string InpNoNewOrderHourList      = "14,15,16,17,18,19,20,21,22";
+string InpNoNewOrderHourList      = "7,14,15,16,17,18,19,20,21,22";
 
 // Consecutive basket-stop protection:
 // Two basket SL events without an intervening profitable basket close pause
@@ -1303,8 +1329,20 @@ double   g_baseBalance          = 0.0;   // strategy capital reference used for 
 double   g_equityCycleAnchor    = 0.0;   // actual equity at this day's fresh 00:00 start
 double   g_testerInitialReferenceBalance = 0.0; // original tester deposit; intentionally survives daily resets
 double   g_lossStopEquityLevel = 0.0;  // daily anchor minus configured reference-capital loss amount
-double   g_profitTargetEquity  = 0.0;  // opening balance + configured profit percent
-double   g_dailyProfitTarget   = 0.0;  // dollar profit target from base
+double   g_profitTargetEquity  = 0.0;  // final ladder target, or legacy fixed target when ladder is OFF
+double   g_dailyProfitTarget   = 0.0;  // dollar amount of final/legacy target from strategy reference
+double   g_profitLadderLevel1Equity = 0.0;
+double   g_profitLadderLevel2Equity = 0.0;
+double   g_profitLadderLevel3Equity = 0.0;
+double   g_profitLadderLevel4Equity = 0.0;
+double   g_profitLadderLevel5Equity = 0.0;
+double   g_profitLadderLevel6Equity = 0.0;
+int      g_profitPercentHighestLevel = 0;
+double   g_profitPercentProtectedPercent = 0.0;
+double   g_profitPercentProtectedEquity = 0.0;
+double   g_profitPercentPeakPercent = 0.0;
+bool     g_profitPercentLadderHit = false;
+string   g_profitPercentLadderStatus = "READY";
 double   g_lockedProfitToday    = 0.0;
 bool     g_dailyProfitLock      = false;
 bool     g_equityProtectionHit  = false;
@@ -7582,6 +7620,322 @@ void OnDeinit(const int reason)
    Comment("");
   }
 //+------------------------------------------------------------------+
+//| Normalized daily profit-percentage ladder levels                 |
+//+------------------------------------------------------------------+
+int GetDailyProfitLadderMaxLevel()
+  {
+   return(6);
+  }
+
+//+------------------------------------------------------------------+
+double GetDailyProfitLadderPercent(int level)
+  {
+   double level1 = MathMax(0.0,InpProfitLadderPercent1);
+   double level2 = MathMax(level1,InpProfitLadderPercent2);
+   double level3 = MathMax(level2,InpProfitLadderPercent3);
+   double level4 = MathMax(level3,InpProfitLadderPercent4);
+   double level5 = MathMax(level4,InpProfitLadderPercent5);
+   double level6 = MathMax(level5,InpProfitLadderPercent6);
+
+   if(level <= 1) return(level1);
+   if(level == 2) return(level2);
+   if(level == 3) return(level3);
+   if(level == 4) return(level4);
+   if(level == 5) return(level5);
+   return(level6);
+  }
+
+//+------------------------------------------------------------------+
+string DailyProfitLadderLevelsText(int decimals)
+  {
+   string result = "";
+   int maxLevel = GetDailyProfitLadderMaxLevel();
+
+   for(int level=1; level<=maxLevel; level++)
+     {
+      if(level > 1)
+         result += "/";
+
+      result += DoubleToString(
+                   GetDailyProfitLadderPercent(level),
+                   decimals);
+     }
+
+   return(result + "%");
+  }
+
+//+------------------------------------------------------------------+
+double GetDailyProfitLadderEquity(double profitPercent)
+  {
+   return(GetEquityCycleAnchor() +
+          (MathMax(0.0,g_baseBalance) *
+           MathMax(0.0,profitPercent) / 100.0));
+  }
+
+//+------------------------------------------------------------------+
+double GetDailyEquityProfitPercent(double equityValue)
+  {
+   if(g_baseBalance <= 0.0)
+      return(0.0);
+
+   return((equityValue-GetEquityCycleAnchor()) /
+          g_baseBalance * 100.0);
+  }
+
+//+------------------------------------------------------------------+
+bool IsDailyProfitPauseActive()
+  {
+   if(!g_dailyProfitLock)
+      return(false);
+
+   if(InpUseDailyProfitPercentLadder)
+      return(InpPauseAfterProfitLadderClose);
+
+   return(InpPauseAfterProfitTarget);
+  }
+
+//+------------------------------------------------------------------+
+string DailyProfitPercentLadderStatusText()
+  {
+   if(!InpUseDailyProfitLock)
+      return("OFF | DAILY PROFIT LOCK OFF");
+
+   if(!InpUseDailyProfitPercentLadder)
+      return("FIXED " +
+             DoubleToString(InpProfitTargetPercent,2) +
+             "% | TARGET $" +
+             DoubleToString(g_profitTargetEquity,2));
+
+   double currentPercent =
+      GetDailyEquityProfitPercent(AccountEquity());
+
+   if(g_dailyProfitLock)
+      return(g_profitPercentLadderStatus);
+
+   if(g_profitPercentHighestLevel <= 0)
+      return("READY | NOW " +
+             DoubleToString(currentPercent,2) +
+             "% | NEXT " +
+             DoubleToString(GetDailyProfitLadderPercent(1),2) +
+             "%");
+
+   int maxLevel = GetDailyProfitLadderMaxLevel();
+   int nextLevel = MathMin(maxLevel,
+                           g_profitPercentHighestLevel+1);
+   double nextPercent =
+      GetDailyProfitLadderPercent(nextLevel);
+
+   return("L" +
+          IntegerToString(g_profitPercentHighestLevel) +
+          " PROTECTED " +
+          DoubleToString(g_profitPercentProtectedPercent,2) +
+          "% | NOW " +
+          DoubleToString(currentPercent,2) +
+          (g_profitPercentHighestLevel < maxLevel
+           ? "% | NEXT " +
+             DoubleToString(nextPercent,2) + "%"
+           : "% | FINAL LEVEL"));
+  }
+
+//+------------------------------------------------------------------+
+string DailyProfitPauseDashboardText()
+  {
+   if(g_equityProtectionHit)
+      return("OPENING BALANCE LOSS LOCK - PAUSED");
+
+   if(g_dailyProfitLock)
+     {
+      if(InpUseDailyProfitPercentLadder)
+         return("DAILY PROFIT PERCENT LADDER LOCK - PAUSED");
+
+      return("OPENING BALANCE PROFIT LOCK - PAUSED");
+     }
+
+   return("EQUITY GUARD CLEAR");
+  }
+
+//+------------------------------------------------------------------+
+bool LockDailyProfitPercentLadder(string lockReason,
+                                  double currentEquity,
+                                  double currentPercent)
+  {
+   if(g_dailyProfitLock)
+      return(IsDailyProfitPauseActive());
+
+   g_dailyProfitLock = true;
+   g_profitPercentLadderHit = true;
+   g_lockedProfitToday =
+      currentEquity-GetEquityCycleAnchor();
+
+   g_profitPercentLadderStatus =
+      "LOCKED | " + lockReason +
+      " | EQUITY $" +
+      DoubleToString(currentEquity,2) +
+      " | PROFIT " +
+      DoubleToString(currentPercent,2) +
+      "%";
+
+   if(InpCloseOrdersOnProfitLock && CountAllOrders() > 0)
+      CloseAllEAOrders("DAILY PROFIT PERCENT LADDER | " +
+                       lockReason);
+
+   Print("DAILY PROFIT PERCENT LADDER LOCK",
+         " | Reason=",lockReason,
+         " | EquityAnchor=$",
+         DoubleToString(GetEquityCycleAnchor(),2),
+         " | StrategyReference=$",
+         DoubleToString(g_baseBalance,2),
+         " | Equity=$",
+         DoubleToString(currentEquity,2),
+         " | Profit=$",
+         DoubleToString(g_lockedProfitToday,2),
+         " | ProfitPercent=",
+         DoubleToString(currentPercent,2),"%",
+         " | ProtectedPercent=",
+         DoubleToString(g_profitPercentProtectedPercent,2),"%",
+         " | ProtectedEquity=$",
+         DoubleToString(g_profitPercentProtectedEquity,2),
+         " | Trading ",
+         InpPauseAfterProfitLadderClose
+         ? "paused until next equity reset."
+         : "not permanently paused by ladder setting.");
+
+   if(InpNotifyOnProfitLock && !g_notifyProfitLockSent)
+     {
+      g_notifyProfitLockSent = true;
+
+      string pauseDetails =
+         "Reason: " + lockReason +
+         " | Equity $" +
+         DoubleToString(currentEquity,2) +
+         " | Anchor $" +
+         DoubleToString(GetEquityCycleAnchor(),2) +
+         " | Ref $" +
+         DoubleToString(g_baseBalance,2) +
+         " | Profit " +
+         DoubleToString(currentPercent,2) +
+         "% | Protected " +
+         DoubleToString(g_profitPercentProtectedPercent,2) +
+         "%";
+
+      NotifyTradingPausedReasonOnce(
+         "PROFIT_PERCENT_LADDER_LOCK",
+         "TRADING PAUSED - PROFIT LADDER LOCKED",
+         pauseDetails);
+     }
+
+   return(true);
+  }
+
+//+------------------------------------------------------------------+
+bool CheckDailyProfitPercentLadder(double currentEquity)
+  {
+   if(!InpUseDailyProfitLock ||
+      !InpUseDailyProfitPercentLadder)
+      return(false);
+
+   if(g_dailyProfitLock)
+      return(IsDailyProfitPauseActive());
+
+   int maxLevel = GetDailyProfitLadderMaxLevel();
+   double finalPercent =
+      GetDailyProfitLadderPercent(maxLevel);
+   double currentPercent =
+      GetDailyEquityProfitPercent(currentEquity);
+
+   if(currentPercent > g_profitPercentPeakPercent)
+      g_profitPercentPeakPercent = currentPercent;
+
+   int reachedLevel = 0;
+   for(int level=1; level<=maxLevel; level++)
+     {
+      double levelPercent =
+         GetDailyProfitLadderPercent(level);
+
+      if(levelPercent > 0.0 &&
+         currentPercent >= levelPercent)
+         reachedLevel = level;
+     }
+
+   bool levelAdvanced = false;
+
+   if(reachedLevel > g_profitPercentHighestLevel)
+     {
+      g_profitPercentHighestLevel = reachedLevel;
+      g_profitPercentProtectedPercent =
+         GetDailyProfitLadderPercent(reachedLevel);
+      g_profitPercentProtectedEquity =
+         GetDailyProfitLadderEquity(
+            g_profitPercentProtectedPercent);
+      levelAdvanced = true;
+
+      g_profitPercentLadderStatus =
+         "L" +
+         IntegerToString(reachedLevel) +
+         " ARMED | PROTECT " +
+         DoubleToString(
+            g_profitPercentProtectedPercent,2) +
+         "% | EQUITY $" +
+         DoubleToString(
+            g_profitPercentProtectedEquity,2);
+
+      Print("DAILY PROFIT PERCENT LADDER LEVEL REACHED",
+            " | Level=",reachedLevel,
+            "/",maxLevel,
+            " | CurrentPercent=",
+            DoubleToString(currentPercent,2),"%",
+            " | ProtectedPercent=",
+            DoubleToString(
+               g_profitPercentProtectedPercent,2),"%",
+            " | ProtectedEquity=$",
+            DoubleToString(
+               g_profitPercentProtectedEquity,2),
+            " | FinalPercent=",
+            DoubleToString(finalPercent,2),"%");
+     }
+
+   if(reachedLevel >= maxLevel &&
+      finalPercent > 0.0 &&
+      InpCloseAtFinalProfitLadderLevel)
+     {
+      return(LockDailyProfitPercentLadder(
+         "FINAL " +
+         DoubleToString(finalPercent,2) +
+         "% LEVEL REACHED",
+         currentEquity,
+         currentPercent));
+     }
+
+   if(g_profitPercentHighestLevel > 0)
+     {
+      double returnBuffer =
+         MathMax(0.0,
+                 InpProfitLadderReturnBufferPercent);
+      double closeThresholdPercent =
+         MathMax(0.0,
+                 g_profitPercentProtectedPercent -
+                 returnBuffer);
+
+      // Do not arm and close on the same tick. Close only after a
+      // later pullback below the highest protected percentage.
+      if(!levelAdvanced &&
+         currentPercent <
+         closeThresholdPercent-0.0000001)
+        {
+         return(LockDailyProfitPercentLadder(
+            "PULLBACK BELOW PROTECTED " +
+            DoubleToString(
+               g_profitPercentProtectedPercent,2) +
+            "% LEVEL",
+            currentEquity,
+            currentPercent));
+        }
+     }
+
+   return(false);
+  }
+
+//+------------------------------------------------------------------+
 void InitializeEquityDay()
   {
    g_equityDateKey           = GetCurrentFreshDayDateKey();
@@ -7619,11 +7973,41 @@ void InitializeEquityDay()
    if(g_equityCycleAnchor <= 0.0)
       g_equityCycleAnchor = MathMax(0.01,g_dayStartEquity);
 
+   double configuredFinalProfitPercent =
+      InpUseDailyProfitPercentLadder
+      ? GetDailyProfitLadderPercent(GetDailyProfitLadderMaxLevel())
+      : MathMax(0.0,InpProfitTargetPercent);
+
    g_dailyProfitTarget =
-      g_baseBalance * InpProfitTargetPercent / 100.0;
+      g_baseBalance * configuredFinalProfitPercent / 100.0;
 
    g_profitTargetEquity =
       g_equityCycleAnchor + g_dailyProfitTarget;
+
+   g_profitLadderLevel1Equity =
+      g_equityCycleAnchor +
+      (g_baseBalance *
+       GetDailyProfitLadderPercent(1) / 100.0);
+   g_profitLadderLevel2Equity =
+      g_equityCycleAnchor +
+      (g_baseBalance *
+       GetDailyProfitLadderPercent(2) / 100.0);
+   g_profitLadderLevel3Equity =
+      g_equityCycleAnchor +
+      (g_baseBalance *
+       GetDailyProfitLadderPercent(3) / 100.0);
+   g_profitLadderLevel4Equity =
+      g_equityCycleAnchor +
+      (g_baseBalance *
+       GetDailyProfitLadderPercent(4) / 100.0);
+   g_profitLadderLevel5Equity =
+      g_equityCycleAnchor +
+      (g_baseBalance *
+       GetDailyProfitLadderPercent(5) / 100.0);
+   g_profitLadderLevel6Equity =
+      g_equityCycleAnchor +
+      (g_baseBalance *
+       GetDailyProfitLadderPercent(6) / 100.0);
 
    double dailyLossAmount =
       g_baseBalance * InpLossStopPercent / 100.0;
@@ -7649,6 +8033,16 @@ void InitializeEquityDay()
                               ? "READY | WAIT HALF LOSS"
                               : "OFF";
 
+   g_profitPercentHighestLevel = 0;
+   g_profitPercentProtectedPercent = 0.0;
+   g_profitPercentProtectedEquity = 0.0;
+   g_profitPercentPeakPercent = 0.0;
+   g_profitPercentLadderHit = false;
+   g_profitPercentLadderStatus =
+      InpUseDailyProfitPercentLadder
+      ? "READY | WAIT LEVEL 1"
+      : "OFF | LEGACY FIXED TARGET";
+
    g_lockedProfitToday    = 0.0;
    g_dailyProfitLock      = false;
    g_equityProtectionHit  = false;
@@ -7669,6 +8063,34 @@ void InitializeEquityDay()
          " | LossStopEquity=$",DoubleToString(g_lossStopEquityLevel,2),
          " | HalfLossPauseEquity=$",DoubleToString(g_halfLossPauseEquityLevel,2),
          " | HalfLossPauseMinutes=",IntegerToString(InpHalfLossPauseMinutes),
+         " | ProfitMode=",
+         (InpUseDailyProfitPercentLadder
+          ? "LADDER"
+          : "FIXED"),
+         " | ProfitL1=",
+         DoubleToString(GetDailyProfitLadderPercent(1),2),"%",
+         " @ $",
+         DoubleToString(g_profitLadderLevel1Equity,2),
+         " | ProfitL2=",
+         DoubleToString(GetDailyProfitLadderPercent(2),2),"%",
+         " @ $",
+         DoubleToString(g_profitLadderLevel2Equity,2),
+         " | ProfitL3=",
+         DoubleToString(GetDailyProfitLadderPercent(3),2),"%",
+         " @ $",
+         DoubleToString(g_profitLadderLevel3Equity,2),
+         " | ProfitL4=",
+         DoubleToString(GetDailyProfitLadderPercent(4),2),"%",
+         " @ $",
+         DoubleToString(g_profitLadderLevel4Equity,2),
+         " | ProfitL5=",
+         DoubleToString(GetDailyProfitLadderPercent(5),2),"%",
+         " @ $",
+         DoubleToString(g_profitLadderLevel5Equity,2),
+         " | ProfitL6=",
+         DoubleToString(GetDailyProfitLadderPercent(6),2),"%",
+         " @ $",
+         DoubleToString(g_profitLadderLevel6Equity,2),
          " | ProfitTargetEquity=$",DoubleToString(g_profitTargetEquity,2),
          " | TargetProfit=$",DoubleToString(g_dailyProfitTarget,2),
          " | TesterStandaloneDay=",
@@ -8058,6 +8480,18 @@ void ResetAllFreshDayRuntimeState()
    g_halfLossPauseUntil       = 0;
    g_halfLossPauseTriggered   = false;
    g_halfLossPauseStatus      = "READY";
+   g_profitLadderLevel1Equity = 0.0;
+   g_profitLadderLevel2Equity = 0.0;
+   g_profitLadderLevel3Equity = 0.0;
+   g_profitLadderLevel4Equity = 0.0;
+   g_profitLadderLevel5Equity = 0.0;
+   g_profitLadderLevel6Equity = 0.0;
+   g_profitPercentHighestLevel = 0;
+   g_profitPercentProtectedPercent = 0.0;
+   g_profitPercentProtectedEquity = 0.0;
+   g_profitPercentPeakPercent = 0.0;
+   g_profitPercentLadderHit = false;
+   g_profitPercentLadderStatus = "READY";
    ArrayInitialize(g_sarChangeTimes,0);
    ArrayInitialize(g_sarChangeDirections,0);
    ArrayInitialize(g_sarChangeDurationsSeconds,0);
@@ -8375,10 +8809,6 @@ bool HandleFreshDayStart()
 //+------------------------------------------------------------------+
 bool IsDubaiNoNewOrderHourNow()
   {
-   // Strategy Tester must never be blocked by Dubai session hours.
-   if(IsTesting())
-      return(false);
-
    if(!InpUseNoNewOrderHours)
       return(false);
 
@@ -8388,13 +8818,25 @@ bool IsDubaiNoNewOrderHourNow()
    if(StringLen(configuredHours) <= 0)
       return(false);
 
+   if(IsTesting())
+     {
+      if(!InpApplyNoNewOrderHoursInTesting)
+         return(false);
+
+      // Strategy Tester/report time is used so the hour-by-hour
+      // backtest result can be reproduced deterministically.
+      int testerHour = TimeHour(TimeCurrent());
+      return(IsConfiguredNoNewOrderHour(testerHour));
+     }
+
    int dubaiHour = TimeHour(GetDubaiTime());
    return(IsConfiguredNoNewOrderHour(dubaiHour));
   }
 
 //+------------------------------------------------------------------+
-// Backward-compatible name used throughout the EA. This is now a hard
-// Dubai-time lock and no longer depends on the active market-mode profile.
+// Backward-compatible name used throughout the EA. This is a hard
+// no-new-order lock using tester time in Strategy Tester and Dubai
+// time in live trading.
 bool IsNoNewOrderHour()
   {
    return(IsNewOrderHardPauseActive());
@@ -8403,18 +8845,38 @@ bool IsNoNewOrderHour()
 //+------------------------------------------------------------------+
 string NoNewOrderHoursStatusText()
   {
-   if(IsTesting())
-      return("TEST MODE | DISABLED");
-
    if(!InpUseNoNewOrderHours)
       return("OFF");
 
+   if(IsTesting())
+     {
+      if(!InpApplyNoNewOrderHoursInTesting)
+         return("TEST MODE | DISABLED");
+
+      datetime testerNow = TimeCurrent();
+      string testerStatus =
+         IsDubaiNoNewOrderHourNow()
+         ? "BLOCK NOW"
+         : "ALLOW";
+
+      return(testerStatus +
+             " | TESTER=" +
+             TimeToString(testerNow,TIME_MINUTES) +
+             " | HOURS=" +
+             InpNoNewOrderHourList);
+     }
+
    datetime dubaiNow = GetDubaiTime();
-   string status = IsDubaiNoNewOrderHourNow() ? "BLOCK NOW" : "ALLOW";
+   string status =
+      IsDubaiNoNewOrderHourNow()
+      ? "BLOCK NOW"
+      : "ALLOW";
 
    return(status +
-          " | DXB=" + TimeToString(dubaiNow, TIME_MINUTES) +
-          " | HOURS=" + InpNoNewOrderHourList);
+          " | DXB=" +
+          TimeToString(dubaiNow,TIME_MINUTES) +
+          " | HOURS=" +
+          InpNoNewOrderHourList);
   }
 
 
@@ -8691,9 +9153,20 @@ string GetNewOrderHardPauseReasonText()
    string reason = "";
 
    if(IsDubaiNoNewOrderHourNow())
-      reason = "DUBAI HIGH-RISK SESSION | DXB=" +
-               TimeToString(GetDubaiTime(),TIME_DATE|TIME_MINUTES) +
-               " | HOURS=" + InpNoNewOrderHourList;
+     {
+      datetime lockClock =
+         IsTesting()
+         ? TimeCurrent()
+         : GetDubaiTime();
+
+      reason =
+         (IsTesting()
+          ? "TESTER BLOCKED HOUR | TESTER="
+          : "DUBAI HIGH-RISK SESSION | DXB=") +
+         TimeToString(lockClock,TIME_DATE|TIME_MINUTES) +
+         " | HOURS=" +
+         InpNoNewOrderHourList;
+     }
 
    if(IsConsecutiveSLPauseActive())
      {
@@ -10112,8 +10585,8 @@ bool CheckEquityConditions()
    if(CheckGlobalEquityTrailLock())
       return(true);
 
-// Strategy Tester and the configured live account are intentionally exempt
-// from only this opening-balance 20% loss / 10% profit guard.
+// Strategy Tester and the configured live account can be exempted from
+// this opening-balance loss/profit guard.
    if(IsOpeningBalanceEquityLockExempt())
      {
       g_dailyProfitLock     = false;
@@ -10125,7 +10598,7 @@ bool CheckEquityConditions()
    if(g_equityProtectionHit)
       return(true);
 
-   if(g_dailyProfitLock && InpPauseAfterProfitTarget)
+   if(IsDailyProfitPauseActive())
       return(true);
 
    double currentEquity = AccountEquity();
@@ -10137,7 +10610,7 @@ bool CheckEquityConditions()
       g_equityProtectionHit = true;
 
       if(InpCloseOrdersOnEquityHit && CountAllOrders() > 0)
-         CloseAllEAOrders("OPENING BALANCE LOSS LOCK -20%");
+         CloseAllEAOrders("OPENING BALANCE LOSS LOCK");
 
       Print("OPENING BALANCE LOSS LOCK HIT",
             " | Equity=$",DoubleToString(currentEquity,2),
@@ -10172,51 +10645,80 @@ bool CheckEquityConditions()
 // Existing market orders continue their normal management.
    UpdateHalfLossPauseState();
 
-// 2) Profit lock: equity reaches opening balance plus InpProfitTargetPercent.
-   if(InpUseDailyProfitLock)
+// 2) Daily profit lock.
+// Ladder ON: protect 10%, then 15%, and close/pause at 20% or on a
+// pullback below the highest protected level.
+// Ladder OFF: retain the original fixed InpProfitTargetPercent behavior.
+   if(InpUseDailyProfitLock &&
+      InpUseDailyProfitPercentLadder)
      {
-      double profitFromBase = currentEquity - GetEquityCycleAnchor();
-
-      if(!g_dailyProfitLock &&
-         currentEquity >= g_profitTargetEquity)
-        {
-         g_dailyProfitLock   = true;
-         g_lockedProfitToday = profitFromBase;
-
-         if(InpCloseOrdersOnProfitLock && CountAllOrders() > 0)
-            CloseAllEAOrders("OPENING BALANCE PROFIT LOCK +10%");
-
-         Print("OPENING BALANCE PROFIT LOCK HIT",
-               " | EquityAnchor=$",DoubleToString(GetEquityCycleAnchor(),2),
-               " | StrategyReference=$",DoubleToString(g_baseBalance,2),
-               " | Equity=$",DoubleToString(currentEquity,2),
-               " | Profit=$",DoubleToString(profitFromBase,2),
-               " | ProfitPercent=",DoubleToString(InpProfitTargetPercent,2),"%",
-               " | TargetEquity=$",DoubleToString(g_profitTargetEquity,2),
-               " | Trading paused until next equity reset.");
-
-         if(InpNotifyOnProfitLock && !g_notifyProfitLockSent)
-           {
-            g_notifyProfitLockSent = true;
-
-            string pauseDetails =
-               "Reason: equity reached day profit target" +
-               " | Equity $" + DoubleToString(currentEquity,2) +
-               " | DayStart $" + DoubleToString(GetEquityCycleAnchor(),2) +
-               " | Ref $" + DoubleToString(g_baseBalance,2) +
-               " | Profit $" + DoubleToString(MathMax(0.0,profitFromBase),2) +
-               " | Target $" + DoubleToString(g_profitTargetEquity,2);
-
-            NotifyTradingPausedReasonOnce(
-               "PROFIT_LOCK",
-               "TRADING PAUSED - PROFIT LOCKED",
-               pauseDetails);
-           }
-        }
-
-      if(g_dailyProfitLock && InpPauseAfterProfitTarget)
+      if(CheckDailyProfitPercentLadder(currentEquity))
          return(true);
      }
+   else
+      if(InpUseDailyProfitLock)
+        {
+         double profitFromBase =
+            currentEquity-GetEquityCycleAnchor();
+
+         if(!g_dailyProfitLock &&
+            currentEquity >= g_profitTargetEquity)
+           {
+            g_dailyProfitLock   = true;
+            g_lockedProfitToday = profitFromBase;
+
+            if(InpCloseOrdersOnProfitLock &&
+               CountAllOrders() > 0)
+               CloseAllEAOrders(
+                  "OPENING BALANCE FIXED PROFIT LOCK");
+
+            Print("OPENING BALANCE FIXED PROFIT LOCK HIT",
+                  " | EquityAnchor=$",
+                  DoubleToString(GetEquityCycleAnchor(),2),
+                  " | StrategyReference=$",
+                  DoubleToString(g_baseBalance,2),
+                  " | Equity=$",
+                  DoubleToString(currentEquity,2),
+                  " | Profit=$",
+                  DoubleToString(profitFromBase,2),
+                  " | ProfitPercent=",
+                  DoubleToString(
+                     InpProfitTargetPercent,2),"%",
+                  " | TargetEquity=$",
+                  DoubleToString(
+                     g_profitTargetEquity,2),
+                  " | Trading paused until next equity reset.");
+
+            if(InpNotifyOnProfitLock &&
+               !g_notifyProfitLockSent)
+              {
+               g_notifyProfitLockSent = true;
+
+               string pauseDetails =
+                  "Reason: equity reached fixed day profit target" +
+                  " | Equity $" +
+                  DoubleToString(currentEquity,2) +
+                  " | DayStart $" +
+                  DoubleToString(GetEquityCycleAnchor(),2) +
+                  " | Ref $" +
+                  DoubleToString(g_baseBalance,2) +
+                  " | Profit $" +
+                  DoubleToString(
+                     MathMax(0.0,profitFromBase),2) +
+                  " | Target $" +
+                  DoubleToString(
+                     g_profitTargetEquity,2);
+
+               NotifyTradingPausedReasonOnce(
+                  "PROFIT_LOCK",
+                  "TRADING PAUSED - PROFIT LOCKED",
+                  pauseDetails);
+              }
+           }
+
+         if(IsDailyProfitPauseActive())
+            return(true);
+        }
 
    return(false);
   }
@@ -17376,7 +17878,12 @@ void OnTick()
         "EQUITY SETTINGS"+
       " | LossPercent="+ DoubleToString(InpLossStopPercent,2)+
       " | LossStopEquity=$"+ DoubleToString(g_lossStopEquityLevel,2)+
-      " | ProfitPercent="+ DoubleToString(InpProfitTargetPercent,2);
+      " | ProfitMode="+
+      (InpUseDailyProfitPercentLadder
+       ? "LADDER "+
+         DailyProfitLadderLevelsText(2)
+       : "FIXED "+
+         DoubleToString(InpProfitTargetPercent,2)+"%");
 
       // Confirmation remains in the Experts log only.
       Print(msg);
@@ -17389,13 +17896,12 @@ void OnTick()
    ProcessCreatedClosedPushNotifications();
 
 // HARD OPENING-BALANCE EQUITY GUARD FIRST:
-// Live accounts pause and close all EA orders at -20% or +10% from the
-// current cycle opening balance. Strategy Tester and account 291085426 are exempt.
+// Loss lock uses InpLossStopPercent. Profit protection uses the enabled
+// 10/15/20 percentage ladder, or the legacy fixed target when ladder is OFF.
    if(CheckEquityConditions())
      {
-      string equityPauseStatus = g_dailyProfitLock
-                                 ? "OPENING BALANCE PROFIT LOCK +10% - PAUSED"
-                                 : "OPENING BALANCE LOSS LOCK -20% - PAUSED";
+      string equityPauseStatus =
+         DailyProfitPauseDashboardText();
 
       DrawLeftOrderCreationChecklist(equityPauseStatus);
       DrawDashboard(equityPauseStatus);
@@ -17568,9 +18074,8 @@ void OnTick()
 // protection is intentionally independent of the active market-mode filter.
    if(CheckEquityConditions())
      {
-      string equityPauseStatus = g_dailyProfitLock
-                                 ? "OPENING BALANCE PROFIT LOCK +10% - PAUSED"
-                                 : "OPENING BALANCE LOSS LOCK -20% - PAUSED";
+      string equityPauseStatus =
+         DailyProfitPauseDashboardText();
 
       DrawLeftOrderCreationChecklist(equityPauseStatus);
       DrawDashboard(equityPauseStatus);
@@ -21248,7 +21753,7 @@ void RefreshNormalEntryDiagnosticSnapshot(int direction,
    bool rawSpread = (spread <= InpMaxSpreadPoints);
    bool rawEquity =
       (!g_equityProtectionHit &&
-       !(g_dailyProfitLock && InpPauseAfterProfitTarget));
+       !IsDailyProfitPauseActive());
    bool rawNoHour = !IsDubaiNoNewOrderHourNow();
    bool rawProfit = !IsProfitProtectPauseActive();
    bool rawOpposite =
@@ -21835,11 +22340,17 @@ string EquityLockExactStatusText()
       if(g_dailyProfitLock)
          state = "PROFIT LOCKED";
 
+   string profitText =
+      InpUseDailyProfitPercentLadder
+      ? " | " + DailyProfitPercentLadderStatusText()
+      : " | Target $" +
+        DoubleToString(g_profitTargetEquity,2);
+
    return("Equity $" + DoubleToString(AccountEquity(),2) +
           " | Anchor $" + DoubleToString(GetEquityCycleAnchor(),2) +
           " | Ref $" + DoubleToString(g_baseBalance,2) +
           " | Stop $" + DoubleToString(g_lossStopEquityLevel,2) +
-          " | Target $" + DoubleToString(g_profitTargetEquity,2) +
+          profitText +
           " | " + state);
   }
 
@@ -23108,7 +23619,7 @@ void DrawCompactDashboard(string status)
    // RIGHT: account, dynamic lot, targets and risk.
    DrawCornerPanel("DXB_COMPACT_RIGHT_PANEL",
                    CORNER_LEFT_UPPER,
-                   rightX,sideY,sideW,330,
+                   rightX,sideY,sideW,350,
                    clrBlack,clrDimGray);
 
    DrawCornerLabel("DXB_COMPACT_RIGHT_TITLE",
@@ -23127,7 +23638,14 @@ void DrawCompactDashboard(string status)
    CompactXYRow("DXB_COMPACT_RIGHT_ROW_",rightRow,rightX+10,sideY+28,
                 "OPENING BASE","$"+DoubleToString(g_baseBalance,2),clrWhite,rightChars);
    CompactXYRow("DXB_COMPACT_RIGHT_ROW_",rightRow,rightX+10,sideY+28,
-                "PROFIT +10%","$"+DoubleToString(g_profitTargetEquity,2),clrLime,rightChars);
+                "PROFIT LADDER",
+                InpUseDailyProfitPercentLadder
+                ? DailyProfitLadderLevelsText(0) +
+                  " | FINAL $" +
+                  DoubleToString(g_profitLadderLevel6Equity,2)
+                : "FIXED $"+
+                  DoubleToString(g_profitTargetEquity,2),
+                clrLime,rightChars);
    CompactXYRow("DXB_COMPACT_RIGHT_ROW_",rightRow,rightX+10,sideY+28,
                 "LOSS -20%","$"+DoubleToString(g_lossStopEquityLevel,2),clrRed,rightChars);
    CompactXYRow("DXB_COMPACT_RIGHT_ROW_",rightRow,rightX+10,sideY+28,
@@ -23179,6 +23697,15 @@ void DrawCompactDashboard(string status)
    CompactXYRow("DXB_COMPACT_RIGHT_ROW_",rightRow,rightX+10,sideY+28,
                 "EQUITY GUARD",EquityLockExactStatusText(),
                 (g_dailyProfitLock||g_equityProtectionHit)?clrOrangeRed:clrLime,rightChars);
+   CompactXYRow("DXB_COMPACT_RIGHT_ROW_",rightRow,rightX+10,sideY+28,
+                "PROFIT % STATUS",
+                DailyProfitPercentLadderStatusText(),
+                g_dailyProfitLock
+                ? clrOrangeRed
+                : (g_profitPercentHighestLevel>0
+                   ? clrYellow
+                   : clrLime),
+                rightChars);
    CompactXYRow("DXB_COMPACT_RIGHT_ROW_",rightRow,rightX+10,sideY+28,
                 "NEXT RESET",FormatSecondsToHHMM(GetSecondsUntilNextEquityReset()),clrAqua,rightChars);
    CompactXYRow("DXB_COMPACT_RIGHT_ROW_",rightRow,rightX+10,sideY+28,
@@ -23487,7 +24014,15 @@ void DrawLegacyDashboard(string status)
    DrawCornerLabel("DXB_ACC_4",PadTitle("BUY Basket",20)+" : $"+DoubleToString(GetBasketProfit(1),2),CORNER_RIGHT_UPPER,315,baseY+(g_rightDashRow++*16),GetBasketProfit(1)>=0 ? clrLime : clrRed,8);
    DrawCornerLabel("DXB_ACC_5",PadTitle("SELL Basket",20)+" : $"+DoubleToString(GetBasketProfit(-1),2),CORNER_RIGHT_UPPER,315,baseY+(g_rightDashRow++*16),GetBasketProfit(-1)>=0 ? clrLime : clrRed,8);
    DrawCornerLabel("DXB_ACC_6",PadTitle("Floating Total",20)+" : $"+DoubleToString(GetAllOpenEAOrdersProfit(),2),CORNER_RIGHT_UPPER,315,baseY+(g_rightDashRow++*16),GetAllOpenEAOrdersProfit()>=0 ? clrLime : clrRed,8);
-   DrawCornerLabel("DXB_ACC_7",PadTitle("Profit Lock +10%",20)+" : $"+DoubleToString(g_profitTargetEquity,2),CORNER_RIGHT_UPPER,315,baseY+(g_rightDashRow++*16),clrLime,8);
+   DrawCornerLabel("DXB_ACC_7",
+                   PadTitle("Profit % Ladder",20)+" : "+
+                   (InpUseDailyProfitPercentLadder
+                    ? DailyProfitLadderLevelsText(0)
+                    : "FIXED "+
+                      DoubleToString(InpProfitTargetPercent,0)+"%"),
+                   CORNER_RIGHT_UPPER,315,
+                   baseY+(g_rightDashRow++*16),
+                   clrLime,8);
    DrawCornerLabel("DXB_ACC_8",PadTitle("Loss Lock -20%",20)+" : $"+DoubleToString(g_lossStopEquityLevel,2),CORNER_RIGHT_UPPER,315,baseY+(g_rightDashRow++*16),clrRed,8);
    DrawCornerLabel("DXB_ACC_9",PadTitle("Open Orders",20)+" : "+IntegerToString(CountAllEntriesForCap())+" / "+IntegerToString(InpMaxTotalOpenOrders),CORNER_RIGHT_UPPER,315,baseY+(g_rightDashRow++*16),CountAllEntriesForCap()>=InpMaxTotalOpenOrders && InpMaxTotalOpenOrders>0 ? clrOrangeRed : clrLime,8);
    DrawCornerLabel("DXB_ACC_10",PadTitle("SAR Max Rule",20)+" : Max "+IntegerToString(GetDynamicSARMaxOrders()),CORNER_RIGHT_UPPER,315,baseY+(g_rightDashRow++*16),GetDynamicSARMaxOrders()<=0 ? clrRed : clrYellow,8);
