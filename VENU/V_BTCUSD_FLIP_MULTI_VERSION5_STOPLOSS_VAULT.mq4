@@ -1,5 +1,5 @@
 //+------------------------------------------------------------------+
-//|                 DXB_SAR_EarlyTrend_Cycle_EA_Strict_2345_FreshBoot_V183_SixStepProfitPercentLadder.mq4                  |
+//|                 DXB_SAR_EarlyTrend_Cycle_EA_Strict_2345_FreshBoot_V184_ProfitGrowthProtection.mq4                  |
 //|  SAR cycle + server-side SL + dynamic X-profit ladder          |
 //|  SAR flip closes opposite orders. Early reverse trend pauses SAR  |
 //|  cycle, draws arrows, closes opposite orders, resumes when aligned |
@@ -20,7 +20,7 @@ MARKET_MODE g_marketMode = MODE_RANGE;
 #ifndef OP_BALANCE
 #define OP_BALANCE 6
 #endif
-#property version   "1.83"
+#property version   "1.84"
 
 //======================== INPUTS ====================================
 string InpEAName                  = "DXB Version 5 - SAR Confirm 50 in 5 Min";
@@ -51,16 +51,16 @@ double InpProfitTargetPercent      = 10.0; // legacy fixed target used only when
 
 //================ DAILY EQUITY PROFIT PERCENT LADDER ===============
 // Uses the current equity-cycle anchor plus a percentage of g_baseBalance.
-// Six protected levels:
-//   Reach +10% -> protect +10%, continue toward +15%.
-//   Reach +15% -> protect +15%, continue toward +20%.
-//   Reach +20% -> protect +20%, continue toward +30%.
-//   Reach +30% -> protect +30%, continue toward +40%.
-//   Reach +40% -> protect +40%, continue toward +50%.
-//   Reach +50% -> close all EA orders and pause until the next equity reset.
-// If equity falls below the highest completed level before +50%, close all
-// EA orders and pause. InpProfitLadderReturnBufferPercent allows an optional
-// pullback below the protected level before closing.
+// Six nominal levels: 10%, 15%, 20%, 30%, 40%, 50%.
+// Each level may arm slightly early using InpProfitLadderArmTolerancePercent,
+// then protect slightly below the nominal level using
+// InpProfitLadderProtectedOffsetPercent.
+// Example with 0.25 tolerance and 0.50 offset:
+//   15% nominal -> arm at 14.75%, protect 14.50%, continue toward 20%.
+// Final level arms, closes all EA orders and pauses until the next reset.
+// If equity later falls below the highest protected level, the EA closes all
+// EA orders and pauses. InpProfitLadderReturnBufferPercent allows an optional
+// extra pullback below the protected level before closing.
 bool   InpUseDailyProfitPercentLadder       = true;
 double InpProfitLadderPercent1              = 10.0;
 double InpProfitLadderPercent2              = 15.0;
@@ -69,6 +69,13 @@ double InpProfitLadderPercent4              = 30.0;
 double InpProfitLadderPercent5              = 40.0;
 double InpProfitLadderPercent6              = 50.0;
 double InpProfitLadderReturnBufferPercent   = 0.0;
+
+// Arm slightly before the nominal level, then protect slightly below it.
+// Example 15% level with 0.25 tolerance and 0.50 protected offset:
+// arm at 14.75%, protect 14.50%, continue toward 20%.
+double InpProfitLadderArmTolerancePercent   = 0.25;
+double InpProfitLadderProtectedOffsetPercent= 0.50;
+
 bool   InpCloseAtFinalProfitLadderLevel     = true;
 bool   InpPauseAfterProfitLadderClose       = true;
 
@@ -682,6 +689,16 @@ bool   InpSARContinuationRequireNotSlow        = true;
 double InpSARContinuationRenewedBodyPercent    = 60.0;
 double InpSARContinuationRenewedRangeAvgRatio  = 1.00;
 
+// Continuation growth is allowed only after the live side basket is already
+// protected by broker-side SL at break-even or better.
+// Daily ladder level controls how many SAR add-ons may be created.
+bool   InpContinuationRequireProtectedProfit   = true;
+bool   InpScaleContinuationByProfitLadder      = true;
+int    InpContinuationMaxBelowLevel1           = 0;
+int    InpContinuationMaxAtLevel1              = 1;
+int    InpContinuationMaxAtLevel2              = 2;
+int    InpContinuationMaxAtLevel3OrHigher      = 3;
+
 // 1) PROFIT PYRAMID:
 // Add in the existing SAR direction only when that side basket is already
 // profitable, price has travelled farther in profit from the latest entry,
@@ -774,6 +791,16 @@ int    InpConsecutiveSLPauseMinutes   = 120;
 bool   InpDeletePendingOnSLPause      = true;
 bool   InpResetSLStreakOnProfitClose  = true;
 
+// Side-specific consecutive-loss pause:
+// Two consecutive BUY losses pause only BUY entries.
+// Two consecutive SELL losses pause only SELL entries.
+// The pause ends after the configured minutes or earlier on the next SAR flip.
+bool   InpUseSideLossPause             = true;
+int    InpSideLossPauseAfterLosses     = 2;
+int    InpSideLossPauseMinutes         = 120;
+bool   InpSideLossPauseUntilSARFlip    = true;
+bool   InpDeletePendingOnSideLossPause = true;
+
 
 
 
@@ -861,6 +888,15 @@ int    InpContinuousOrderGapMinutes  = 1;      // wait this many minutes after l
 
 double InpSARConfirmPriceDiff     =0;// 20;//80.0;   // SAR signal-change raw price diff confirmation only
 int    InpSARConfirmMinutes       = 5;      // used by the full profile only
+
+// BUY-only stronger confirmation.
+// SELL keeps the normal configured score and confirmation distance.
+// BUY requires the higher score, a real H1 EMA trend match and an extra
+// raw-price move from the SAR flip reference.
+bool   InpUseBuyStrictConfirmation = false;
+int    InpBuyStrictSARMinimumScore = 6;//7;
+double InpBuyExtraSARConfirmRaw    = 50.0;
+bool   InpBuyRequireH1TrendMatch   = false;
 // First normal order after every SAR flip:
 // true = bypass all strategy filters and require only the FIXED live raw-price
 // difference in InpSARConfirmPriceDiff. Direction, broker trade permission and
@@ -1148,6 +1184,21 @@ datetime g_oppositePauseLastScanTime = 0;
 datetime g_oppositePauseLastBlockPrintTime = 0;
 int      g_oppositePauseLastPrintedDirection = 0;
 string   g_oppositeDirectionPauseStatus = "WAIT 3 PROFITS";
+
+// Side-specific consecutive-loss pause runtime.
+int      g_buySideLossStreak = 0;
+int      g_sellSideLossStreak = 0;
+datetime g_buySideLossPauseUntil = 0;
+datetime g_sellSideLossPauseUntil = 0;
+int      g_buySideLossPauseTriggerTicket = 0;
+int      g_sellSideLossPauseTriggerTicket = 0;
+datetime g_buySideLossPauseTriggerCloseTime = 0;
+datetime g_sellSideLossPauseTriggerCloseTime = 0;
+int      g_buySideLossPauseTriggerSARDirection = 0;
+int      g_sellSideLossPauseTriggerSARDirection = 0;
+string   g_buySideLossPauseStatus = "READY";
+string   g_sellSideLossPauseStatus = "READY";
+datetime g_sideLossPauseLastScanTime = 0;
 
 int      g_dotColor               = 0;       // 1 SAR below price, -1 SAR above price
 bool     g_flatMode             = false;   // true when price is compressed/sideways
@@ -1688,6 +1739,58 @@ bool IsOrderAllowedByH1Trend(int orderDirection)
      }
 
    return true;
+  }
+
+//+------------------------------------------------------------------+
+//| BUY-only stronger direction/score confirmation.                  |
+//| Uses the real H1 EMA50/EMA200 helper, independent of mode bypass. |
+//+------------------------------------------------------------------+
+bool IsBuyStrictEntryAllowed(int direction,string source)
+  {
+   if(!InpUseBuyStrictConfirmation ||
+      direction != 1)
+      return(true);
+
+   int required =
+      MathMax(0,
+              MathMin(7,
+                      InpBuyStrictSARMinimumScore));
+   int score =
+      GetDynamicSARStrengthScore(direction);
+
+   if(score < required)
+     {
+      string msg =
+         "BUY STRICT BLOCK | SAR SCORE " +
+         IntegerToString(score) + "/" +
+         IntegerToString(required) +
+         " | Source=" + source;
+
+      SetLastOrderBlockDashboard(msg);
+      Print(msg);
+      return(false);
+     }
+
+   if(InpBuyRequireH1TrendMatch)
+     {
+      int h1Trend =
+         GetH1TrendDirection1();
+
+      if(h1Trend != 1)
+        {
+         string msg =
+            "BUY STRICT BLOCK | H1 EMA TREND=" +
+            DirectionText(h1Trend) +
+            " | Required=BUY | Source=" +
+            source;
+
+         SetLastOrderBlockDashboard(msg);
+         Print(msg);
+         return(false);
+        }
+     }
+
+   return(true);
   }
 
 
@@ -2801,6 +2904,319 @@ bool IsOrderBlockedByOppositeDirectionProfitPause(int direction, string source)
       g_oppositePauseLastBlockPrintTime = TimeCurrent();
      }
 
+   return(true);
+  }
+
+//+------------------------------------------------------------------+
+//| Consecutive losses for one BUY/SELL side in the current fresh day.|
+//| Opposite-direction results do not reset this side's own streak.   |
+//+------------------------------------------------------------------+
+int GetCurrentSideConsecutiveLosses(int direction,
+                                    int &latestTicket,
+                                    datetime &latestCloseTime)
+  {
+   latestTicket = 0;
+   latestCloseTime = 0;
+
+   if(direction != 1 && direction != -1)
+      return(0);
+
+   int count = 0;
+   int historyTotal = OrdersHistoryTotal();
+
+   // MT4 history positions are normally oldest -> newest, so scan backward.
+   for(int i = historyTotal - 1; i >= 0; i--)
+     {
+      if(!OrderSelect(i, SELECT_BY_POS, MODE_HISTORY))
+         continue;
+      if(OrderSymbol() != Symbol() ||
+         OrderMagicNumber() != InpMagicNumber)
+         continue;
+      if(OrderType() != OP_BUY &&
+         OrderType() != OP_SELL)
+         continue;
+      if(OrderCloseTime() <= 0 ||
+         !IsHistoryTimeInsideCurrentFreshDay(OrderCloseTime()))
+         continue;
+
+      int orderDirection =
+         (OrderType() == OP_BUY) ? 1 : -1;
+
+      if(orderDirection != direction)
+         continue;
+
+      if(latestTicket == 0)
+        {
+         latestTicket = OrderTicket();
+         latestCloseTime = OrderCloseTime();
+        }
+
+      double netProfit =
+         OrderProfit() + OrderSwap() + OrderCommission();
+
+      if(netProfit < -0.000001)
+         count++;
+      else
+         break;
+     }
+
+   return(count);
+  }
+
+//+------------------------------------------------------------------+
+void ClearSideLossPause(int direction,string reason)
+  {
+   if(direction == 1)
+     {
+      g_buySideLossPauseUntil = 0;
+      g_buySideLossPauseTriggerSARDirection = 0;
+      g_buySideLossPauseStatus = reason;
+     }
+   else
+   if(direction == -1)
+     {
+      g_sellSideLossPauseUntil = 0;
+      g_sellSideLossPauseTriggerSARDirection = 0;
+      g_sellSideLossPauseStatus = reason;
+     }
+  }
+
+//+------------------------------------------------------------------+
+bool IsSideLossPauseActiveForDirection(int direction)
+  {
+   if(!InpUseSideLossPause ||
+      (direction != 1 && direction != -1))
+      return(false);
+
+   datetime pauseUntil =
+      (direction == 1)
+      ? g_buySideLossPauseUntil
+      : g_sellSideLossPauseUntil;
+
+   if(pauseUntil <= 0)
+      return(false);
+
+   int triggerSAR =
+      (direction == 1)
+      ? g_buySideLossPauseTriggerSARDirection
+      : g_sellSideLossPauseTriggerSARDirection;
+
+   if(InpSideLossPauseUntilSARFlip &&
+      triggerSAR != 0 &&
+      g_activeSARDirection != 0 &&
+      g_activeSARDirection != triggerSAR)
+     {
+      Print("SIDE LOSS PAUSE FINISHED BY SAR FLIP",
+            " | Direction=",DirectionText(direction),
+            " | TriggerSAR=",DirectionText(triggerSAR),
+            " | CurrentSAR=",DirectionText(g_activeSARDirection));
+
+      ClearSideLossPause(
+         direction,
+         "FINISHED BY SAR FLIP");
+      return(false);
+     }
+
+   if(TimeCurrent() >= pauseUntil)
+     {
+      Print("SIDE LOSS PAUSE FINISHED BY TIME",
+            " | Direction=",DirectionText(direction),
+            " | EndedAt=",
+            TimeToString(pauseUntil,
+                         TIME_DATE|TIME_SECONDS));
+
+      ClearSideLossPause(
+         direction,
+         "FINISHED BY TIME");
+      return(false);
+     }
+
+   return(true);
+  }
+
+//+------------------------------------------------------------------+
+string SideLossPauseStatusText(int direction)
+  {
+   if(!InpUseSideLossPause)
+      return("OFF");
+
+   if(IsSideLossPauseActiveForDirection(direction))
+     {
+      datetime pauseUntil =
+         (direction == 1)
+         ? g_buySideLossPauseUntil
+         : g_sellSideLossPauseUntil;
+
+      int remaining =
+         (int)MathMax(0,pauseUntil-TimeCurrent());
+
+      return("BLOCK " + DirectionText(direction) +
+             " | " + FormatSecondsToHHMM(remaining));
+     }
+
+   return(direction == 1
+          ? g_buySideLossPauseStatus
+          : g_sellSideLossPauseStatus);
+  }
+
+//+------------------------------------------------------------------+
+void UpdateSideLossPauseState(bool forceScan=false)
+  {
+   if(!InpUseSideLossPause)
+     {
+      g_buySideLossStreak = 0;
+      g_sellSideLossStreak = 0;
+      ClearSideLossPause(1,"OFF");
+      ClearSideLossPause(-1,"OFF");
+      return;
+     }
+
+   datetime now = TimeCurrent();
+
+   if(!forceScan &&
+      g_sideLossPauseLastScanTime > 0 &&
+      now-g_sideLossPauseLastScanTime < 2)
+     {
+      IsSideLossPauseActiveForDirection(1);
+      IsSideLossPauseActiveForDirection(-1);
+      return;
+     }
+
+   g_sideLossPauseLastScanTime = now;
+
+   int buyLatestTicket = 0;
+   int sellLatestTicket = 0;
+   datetime buyLatestCloseTime = 0;
+   datetime sellLatestCloseTime = 0;
+
+   g_buySideLossStreak =
+      GetCurrentSideConsecutiveLosses(
+         1,
+         buyLatestTicket,
+         buyLatestCloseTime);
+
+   g_sellSideLossStreak =
+      GetCurrentSideConsecutiveLosses(
+         -1,
+         sellLatestTicket,
+         sellLatestCloseTime);
+
+   int required =
+      MathMax(1,InpSideLossPauseAfterLosses);
+   int pauseSeconds =
+      MathMax(1,InpSideLossPauseMinutes)*60;
+
+   if(g_buySideLossStreak >= required &&
+      buyLatestTicket > 0 &&
+      buyLatestTicket !=
+      g_buySideLossPauseTriggerTicket)
+     {
+      g_buySideLossPauseTriggerTicket =
+         buyLatestTicket;
+      g_buySideLossPauseTriggerCloseTime =
+         buyLatestCloseTime;
+      g_buySideLossPauseTriggerSARDirection =
+         g_activeSARDirection;
+      g_buySideLossPauseUntil =
+         now+pauseSeconds;
+      g_buySideLossPauseStatus =
+         "BLOCK BUY | LOSS " +
+         IntegerToString(g_buySideLossStreak) +
+         "/" + IntegerToString(required);
+
+      Print("SIDE LOSS PAUSE STARTED",
+            " | Direction=BUY",
+            " | ConsecutiveLosses=",
+            g_buySideLossStreak,
+            "/",required,
+            " | TriggerTicket=",
+            buyLatestTicket,
+            " | TriggerClose=",
+            TimeToString(buyLatestCloseTime,
+                         TIME_DATE|TIME_SECONDS),
+            " | PauseUntil=",
+            TimeToString(g_buySideLossPauseUntil,
+                         TIME_DATE|TIME_SECONDS),
+            " | TriggerSAR=",
+            DirectionText(
+               g_buySideLossPauseTriggerSARDirection));
+
+      if(InpDeletePendingOnSideLossPause)
+         DeletePendingOrdersByDirection(
+            1,
+            "BUY SIDE LOSS PAUSE",
+            false);
+     }
+
+   if(g_sellSideLossStreak >= required &&
+      sellLatestTicket > 0 &&
+      sellLatestTicket !=
+      g_sellSideLossPauseTriggerTicket)
+     {
+      g_sellSideLossPauseTriggerTicket =
+         sellLatestTicket;
+      g_sellSideLossPauseTriggerCloseTime =
+         sellLatestCloseTime;
+      g_sellSideLossPauseTriggerSARDirection =
+         g_activeSARDirection;
+      g_sellSideLossPauseUntil =
+         now+pauseSeconds;
+      g_sellSideLossPauseStatus =
+         "BLOCK SELL | LOSS " +
+         IntegerToString(g_sellSideLossStreak) +
+         "/" + IntegerToString(required);
+
+      Print("SIDE LOSS PAUSE STARTED",
+            " | Direction=SELL",
+            " | ConsecutiveLosses=",
+            g_sellSideLossStreak,
+            "/",required,
+            " | TriggerTicket=",
+            sellLatestTicket,
+            " | TriggerClose=",
+            TimeToString(sellLatestCloseTime,
+                         TIME_DATE|TIME_SECONDS),
+            " | PauseUntil=",
+            TimeToString(g_sellSideLossPauseUntil,
+                         TIME_DATE|TIME_SECONDS),
+            " | TriggerSAR=",
+            DirectionText(
+               g_sellSideLossPauseTriggerSARDirection));
+
+      if(InpDeletePendingOnSideLossPause)
+         DeletePendingOrdersByDirection(
+            -1,
+            "SELL SIDE LOSS PAUSE",
+            false);
+     }
+
+   IsSideLossPauseActiveForDirection(1);
+   IsSideLossPauseActiveForDirection(-1);
+  }
+
+//+------------------------------------------------------------------+
+bool IsOrderBlockedBySideLossPause(int direction,string source)
+  {
+   UpdateSideLossPauseState(false);
+
+   if(!IsSideLossPauseActiveForDirection(direction))
+      return(false);
+
+   datetime pauseUntil =
+      (direction == 1)
+      ? g_buySideLossPauseUntil
+      : g_sellSideLossPauseUntil;
+
+   string message =
+      "SIDE LOSS PAUSE | Direction=" +
+      DirectionText(direction) +
+      " | Remaining=" +
+      FormatSecondsToHHMM(
+         (int)MathMax(0,pauseUntil-TimeCurrent())) +
+      " | Source=" + source;
+
+   SetLastOrderBlockDashboard(message);
+   Print("ORDER BLOCKED | ",message);
    return(true);
   }
 
@@ -5163,6 +5579,15 @@ bool ProcessOppositeImpulseContinuation()
       return(false);
      }
 
+   if(IsOrderBlockedBySideLossPause(
+         direction,
+         "OPPOSITE IMPULSE"))
+     {
+      ClearOppositeImpulseRequest(
+         "REQUEST CANCELLED | SIDE LOSS PAUSE");
+      return(false);
+     }
+
    if(g_dailyProfitLock ||
       g_equityProtectionHit ||
       g_globalEquityTrailLocked)
@@ -5532,6 +5957,82 @@ bool IsSARContinuationRenewedMomentumStrong(int direction,
   }
 
 //+------------------------------------------------------------------+
+bool IsSideBasketProtectedAtBreakEvenOrProfit(int direction)
+  {
+   if(direction != 1 && direction != -1)
+      return(false);
+
+   int marketOrders = 0;
+   double tolerance = Point*0.5;
+
+   for(int i=OrdersTotal()-1; i>=0; i--)
+     {
+      if(!OrderSelect(i,SELECT_BY_POS,MODE_TRADES))
+         continue;
+      if(OrderSymbol() != Symbol() ||
+         OrderMagicNumber() != InpMagicNumber)
+         continue;
+
+      if(direction == 1 && OrderType() != OP_BUY)
+         continue;
+      if(direction == -1 && OrderType() != OP_SELL)
+         continue;
+
+      marketOrders++;
+
+      double sl = OrderStopLoss();
+      if(sl <= 0.0)
+         return(false);
+
+      if(direction == 1 &&
+         sl+tolerance < OrderOpenPrice())
+         return(false);
+
+      if(direction == -1 &&
+         sl-tolerance > OrderOpenPrice())
+         return(false);
+     }
+
+   return(marketOrders > 0);
+  }
+
+//+------------------------------------------------------------------+
+int GetAllowedSARContinuationOrdersByProfitLadder()
+  {
+   int configuredMax =
+      (int)MathMax(0,
+                   InpMaxSARContinuationOrdersPerSide);
+
+   if(!InpScaleContinuationByProfitLadder ||
+      !InpUseDailyProfitPercentLadder)
+      return(configuredMax);
+
+   int allowed =
+      (int)MathMax(0,
+                   InpContinuationMaxBelowLevel1);
+
+   if(g_profitPercentHighestLevel >= 1)
+      allowed =
+         (int)MathMax(
+            allowed,
+            InpContinuationMaxAtLevel1);
+
+   if(g_profitPercentHighestLevel >= 2)
+      allowed =
+         (int)MathMax(
+            allowed,
+            InpContinuationMaxAtLevel2);
+
+   if(g_profitPercentHighestLevel >= 3)
+      allowed =
+         (int)MathMax(
+            allowed,
+            InpContinuationMaxAtLevel3OrHigher);
+
+   return(MathMin(configuredMax,allowed));
+  }
+
+//+------------------------------------------------------------------+
 bool IsSARContinuationCommonSafetyReady(int direction,
                                         string strategy,
                                         int minimumSARScore)
@@ -5553,6 +6054,33 @@ bool IsSARContinuationCommonSafetyReady(int direction,
      {
       g_sarContinuationStatus =
          strategy + " WAIT | NO LIVE " + DirectionText(direction);
+      return(false);
+     }
+
+   if(IsOrderBlockedBySideLossPause(
+         direction,
+         "SAR CONTINUATION " + strategy))
+     {
+      g_sarContinuationStatus =
+         strategy + " BLOCK | SIDE LOSS PAUSE";
+      return(false);
+     }
+
+   if(!IsBuyStrictEntryAllowed(
+         direction,
+         "SAR CONTINUATION " + strategy))
+     {
+      g_sarContinuationStatus =
+         strategy + " BLOCK | BUY STRICT";
+      return(false);
+     }
+
+   if(InpContinuationRequireProtectedProfit &&
+      !IsSideBasketProtectedAtBreakEvenOrProfit(direction))
+     {
+      g_sarContinuationStatus =
+         strategy +
+         " WAIT | SERVER SL NOT BE/PROFIT";
       return(false);
      }
 
@@ -5645,16 +6173,31 @@ bool IsSARContinuationCommonSafetyReady(int direction,
 
    EnsureSARSignalOrderCycle(direction);
 
-   if(CountSARContinuationOrdersCreated(direction,"") >=
-      (int)MathMax(0,InpMaxSARContinuationOrdersPerSide))
+   int allowedContinuationOrders =
+      GetAllowedSARContinuationOrdersByProfitLadder();
+   int createdContinuationOrders =
+      CountSARContinuationOrdersCreated(direction,"");
+
+   if(allowedContinuationOrders <= 0)
+     {
+      g_sarContinuationStatus =
+         strategy +
+         " WAIT | DAILY LADDER LEVEL " +
+         IntegerToString(g_profitPercentHighestLevel) +
+         " ALLOWS 0 ADD-ONS";
+      return(false);
+     }
+
+   if(createdContinuationOrders >=
+      allowedContinuationOrders)
      {
       g_sarContinuationStatus =
          strategy + " BLOCK | ADD-ON MAX " +
-         IntegerToString(
-            CountSARContinuationOrdersCreated(direction,"")) +
+         IntegerToString(createdContinuationOrders) +
          "/" +
-         IntegerToString(
-            (int)MathMax(0,InpMaxSARContinuationOrdersPerSide));
+         IntegerToString(allowedContinuationOrders) +
+         " | LadderLevel=" +
+         IntegerToString(g_profitPercentHighestLevel);
       return(false);
      }
 
@@ -5716,6 +6259,36 @@ bool PlaceSARContinuationPending(int direction,
      {
       g_sarContinuationStatus =
          strategy + " BLOCK | FINAL HARD SAFETY";
+      return(false);
+     }
+
+   if(IsOrderBlockedBySideLossPause(
+         direction,
+         "SAR CONTINUATION FINAL " + strategy))
+     {
+      g_sarContinuationStatus =
+         strategy + " BLOCK | SIDE LOSS PAUSE";
+      return(false);
+     }
+
+   if(InpContinuationRequireProtectedProfit &&
+      !IsSideBasketProtectedAtBreakEvenOrProfit(direction))
+     {
+      g_sarContinuationStatus =
+         strategy +
+         " BLOCK | SERVER SL LOST PROTECTION";
+      return(false);
+     }
+
+   int finalAllowedContinuation =
+      GetAllowedSARContinuationOrdersByProfitLadder();
+
+   if(CountSARContinuationOrdersCreated(direction,"") >=
+      finalAllowedContinuation)
+     {
+      g_sarContinuationStatus =
+         strategy + " BLOCK | FINAL ADD-ON MAX " +
+         IntegerToString(finalAllowedContinuation);
       return(false);
      }
 
@@ -7646,6 +8219,40 @@ double GetDailyProfitLadderPercent(int level)
   }
 
 //+------------------------------------------------------------------+
+double GetDailyProfitLadderArmPercent(int level)
+  {
+   double nominal =
+      GetDailyProfitLadderPercent(level);
+
+   return(MathMax(
+             0.0,
+             nominal -
+             MathMax(0.0,
+                     InpProfitLadderArmTolerancePercent)));
+  }
+
+//+------------------------------------------------------------------+
+double GetDailyProfitLadderProtectedPercent(int level)
+  {
+   double nominal =
+      GetDailyProfitLadderPercent(level);
+
+   double protectedPercent =
+      nominal -
+      MathMax(0.0,
+              InpProfitLadderProtectedOffsetPercent);
+
+   double armPercent =
+      GetDailyProfitLadderArmPercent(level);
+
+   // Protection cannot be above the percentage that actually arms the level.
+   protectedPercent = MathMin(protectedPercent,
+                              armPercent);
+
+   return(MathMax(0.0,protectedPercent));
+  }
+
+//+------------------------------------------------------------------+
 string DailyProfitLadderLevelsText(int decimals)
   {
    string result = "";
@@ -7717,6 +8324,8 @@ string DailyProfitPercentLadderStatusText()
              DoubleToString(currentPercent,2) +
              "% | NEXT " +
              DoubleToString(GetDailyProfitLadderPercent(1),2) +
+             "% ARM " +
+             DoubleToString(GetDailyProfitLadderArmPercent(1),2) +
              "%");
 
    int maxLevel = GetDailyProfitLadderMaxLevel();
@@ -7733,7 +8342,11 @@ string DailyProfitPercentLadderStatusText()
           DoubleToString(currentPercent,2) +
           (g_profitPercentHighestLevel < maxLevel
            ? "% | NEXT " +
-             DoubleToString(nextPercent,2) + "%"
+             DoubleToString(nextPercent,2) +
+             "% ARM " +
+             DoubleToString(
+                GetDailyProfitLadderArmPercent(
+                   nextLevel),2) + "%"
            : "% | FINAL LEVEL"));
   }
 
@@ -7840,6 +8453,8 @@ bool CheckDailyProfitPercentLadder(double currentEquity)
    int maxLevel = GetDailyProfitLadderMaxLevel();
    double finalPercent =
       GetDailyProfitLadderPercent(maxLevel);
+   double finalArmPercent =
+      GetDailyProfitLadderArmPercent(maxLevel);
    double currentPercent =
       GetDailyEquityProfitPercent(currentEquity);
 
@@ -7851,9 +8466,11 @@ bool CheckDailyProfitPercentLadder(double currentEquity)
      {
       double levelPercent =
          GetDailyProfitLadderPercent(level);
+      double armPercent =
+         GetDailyProfitLadderArmPercent(level);
 
       if(levelPercent > 0.0 &&
-         currentPercent >= levelPercent)
+         currentPercent >= armPercent)
          reachedLevel = level;
      }
 
@@ -7863,7 +8480,8 @@ bool CheckDailyProfitPercentLadder(double currentEquity)
      {
       g_profitPercentHighestLevel = reachedLevel;
       g_profitPercentProtectedPercent =
-         GetDailyProfitLadderPercent(reachedLevel);
+         GetDailyProfitLadderProtectedPercent(
+            reachedLevel);
       g_profitPercentProtectedEquity =
          GetDailyProfitLadderEquity(
             g_profitPercentProtectedPercent);
@@ -7872,7 +8490,11 @@ bool CheckDailyProfitPercentLadder(double currentEquity)
       g_profitPercentLadderStatus =
          "L" +
          IntegerToString(reachedLevel) +
-         " ARMED | PROTECT " +
+         " ARMED @" +
+         DoubleToString(
+            GetDailyProfitLadderArmPercent(
+               reachedLevel),2) +
+         "% | PROTECT " +
          DoubleToString(
             g_profitPercentProtectedPercent,2) +
          "% | EQUITY $" +
@@ -7884,6 +8506,14 @@ bool CheckDailyProfitPercentLadder(double currentEquity)
             "/",maxLevel,
             " | CurrentPercent=",
             DoubleToString(currentPercent,2),"%",
+            " | NominalPercent=",
+            DoubleToString(
+               GetDailyProfitLadderPercent(
+                  reachedLevel),2),"%",
+            " | ArmPercent=",
+            DoubleToString(
+               GetDailyProfitLadderArmPercent(
+                  reachedLevel),2),"%",
             " | ProtectedPercent=",
             DoubleToString(
                g_profitPercentProtectedPercent,2),"%",
@@ -7891,7 +8521,9 @@ bool CheckDailyProfitPercentLadder(double currentEquity)
             DoubleToString(
                g_profitPercentProtectedEquity,2),
             " | FinalPercent=",
-            DoubleToString(finalPercent,2),"%");
+            DoubleToString(finalPercent,2),"%",
+            " | FinalArmPercent=",
+            DoubleToString(finalArmPercent,2),"%");
      }
 
    if(reachedLevel >= maxLevel &&
@@ -7901,7 +8533,9 @@ bool CheckDailyProfitPercentLadder(double currentEquity)
       return(LockDailyProfitPercentLadder(
          "FINAL " +
          DoubleToString(finalPercent,2) +
-         "% LEVEL REACHED",
+         "% LEVEL ARMED AT " +
+         DoubleToString(finalArmPercent,2) +
+         "%",
          currentEquity,
          currentPercent));
      }
@@ -7975,7 +8609,8 @@ void InitializeEquityDay()
 
    double configuredFinalProfitPercent =
       InpUseDailyProfitPercentLadder
-      ? GetDailyProfitLadderPercent(GetDailyProfitLadderMaxLevel())
+      ? GetDailyProfitLadderArmPercent(
+           GetDailyProfitLadderMaxLevel())
       : MathMax(0.0,InpProfitTargetPercent);
 
    g_dailyProfitTarget =
@@ -7987,27 +8622,27 @@ void InitializeEquityDay()
    g_profitLadderLevel1Equity =
       g_equityCycleAnchor +
       (g_baseBalance *
-       GetDailyProfitLadderPercent(1) / 100.0);
+       GetDailyProfitLadderArmPercent(1) / 100.0);
    g_profitLadderLevel2Equity =
       g_equityCycleAnchor +
       (g_baseBalance *
-       GetDailyProfitLadderPercent(2) / 100.0);
+       GetDailyProfitLadderArmPercent(2) / 100.0);
    g_profitLadderLevel3Equity =
       g_equityCycleAnchor +
       (g_baseBalance *
-       GetDailyProfitLadderPercent(3) / 100.0);
+       GetDailyProfitLadderArmPercent(3) / 100.0);
    g_profitLadderLevel4Equity =
       g_equityCycleAnchor +
       (g_baseBalance *
-       GetDailyProfitLadderPercent(4) / 100.0);
+       GetDailyProfitLadderArmPercent(4) / 100.0);
    g_profitLadderLevel5Equity =
       g_equityCycleAnchor +
       (g_baseBalance *
-       GetDailyProfitLadderPercent(5) / 100.0);
+       GetDailyProfitLadderArmPercent(5) / 100.0);
    g_profitLadderLevel6Equity =
       g_equityCycleAnchor +
       (g_baseBalance *
-       GetDailyProfitLadderPercent(6) / 100.0);
+       GetDailyProfitLadderArmPercent(6) / 100.0);
 
    double dailyLossAmount =
       g_baseBalance * InpLossStopPercent / 100.0;
@@ -8043,6 +8678,20 @@ void InitializeEquityDay()
       ? "READY | WAIT LEVEL 1"
       : "OFF | LEGACY FIXED TARGET";
 
+   g_buySideLossStreak = 0;
+   g_sellSideLossStreak = 0;
+   g_buySideLossPauseUntil = 0;
+   g_sellSideLossPauseUntil = 0;
+   g_buySideLossPauseTriggerTicket = 0;
+   g_sellSideLossPauseTriggerTicket = 0;
+   g_buySideLossPauseTriggerCloseTime = 0;
+   g_sellSideLossPauseTriggerCloseTime = 0;
+   g_buySideLossPauseTriggerSARDirection = 0;
+   g_sellSideLossPauseTriggerSARDirection = 0;
+   g_buySideLossPauseStatus = "READY";
+   g_sellSideLossPauseStatus = "READY";
+   g_sideLossPauseLastScanTime = 0;
+
    g_lockedProfitToday    = 0.0;
    g_dailyProfitLock      = false;
    g_equityProtectionHit  = false;
@@ -8054,47 +8703,41 @@ void InitializeEquityDay()
    if(InpResetTradingCycleWithEquity)
       ResetTradingCycleState();
 
-   Print("EQUITY STATS INIT/RESET | Cycle=",g_equityCycleNumber,
-         " | ResetTime=",TimeToString(g_lastEquityStatsResetTime,TIME_DATE|TIME_SECONDS),
-         " | ActualStartBalance=$",DoubleToString(g_dayStartBalance,2),
-         " | ActualStartEquity=$",DoubleToString(g_dayStartEquity,2),
-         " | StrategyReference=$",DoubleToString(g_baseBalance,2),
-         " | EquityAnchor=$",DoubleToString(g_equityCycleAnchor,2),
-         " | LossStopEquity=$",DoubleToString(g_lossStopEquityLevel,2),
-         " | HalfLossPauseEquity=$",DoubleToString(g_halfLossPauseEquityLevel,2),
-         " | HalfLossPauseMinutes=",IntegerToString(InpHalfLossPauseMinutes),
-         " | ProfitMode=",
-         (InpUseDailyProfitPercentLadder
-          ? "LADDER"
-          : "FIXED"),
-         " | ProfitL1=",
-         DoubleToString(GetDailyProfitLadderPercent(1),2),"%",
-         " @ $",
-         DoubleToString(g_profitLadderLevel1Equity,2),
-         " | ProfitL2=",
-         DoubleToString(GetDailyProfitLadderPercent(2),2),"%",
-         " @ $",
-         DoubleToString(g_profitLadderLevel2Equity,2),
-         " | ProfitL3=",
-         DoubleToString(GetDailyProfitLadderPercent(3),2),"%",
-         " @ $",
-         DoubleToString(g_profitLadderLevel3Equity,2),
-         " | ProfitL4=",
-         DoubleToString(GetDailyProfitLadderPercent(4),2),"%",
-         " @ $",
-         DoubleToString(g_profitLadderLevel4Equity,2),
-         " | ProfitL5=",
-         DoubleToString(GetDailyProfitLadderPercent(5),2),"%",
-         " @ $",
-         DoubleToString(g_profitLadderLevel5Equity,2),
-         " | ProfitL6=",
-         DoubleToString(GetDailyProfitLadderPercent(6),2),"%",
-         " @ $",
-         DoubleToString(g_profitLadderLevel6Equity,2),
-         " | ProfitTargetEquity=$",DoubleToString(g_profitTargetEquity,2),
-         " | TargetProfit=$",DoubleToString(g_dailyProfitTarget,2),
-         " | TesterStandaloneDay=",
-         (IsTesting() && InpTesterStandaloneFreshDayMode ? "YES" : "NO"));
+   string equityResetMsg =
+   "EQUITY STATS INIT/RESET | Cycle=" + IntegerToString(g_equityCycleNumber) +
+   " | ResetTime=" + TimeToString(g_lastEquityStatsResetTime,TIME_DATE|TIME_SECONDS) +
+   " | ActualStartBalance=$" + DoubleToString(g_dayStartBalance,2) +
+   " | ActualStartEquity=$" + DoubleToString(g_dayStartEquity,2) +
+   " | StrategyReference=$" + DoubleToString(g_baseBalance,2) +
+   " | EquityAnchor=$" + DoubleToString(g_equityCycleAnchor,2) +
+   " | LossStopEquity=$" + DoubleToString(g_lossStopEquityLevel,2) +
+   " | HalfLossPauseEquity=$" + DoubleToString(g_halfLossPauseEquityLevel,2) +
+   " | HalfLossPauseMinutes=" + IntegerToString(InpHalfLossPauseMinutes) +
+   " | ProfitMode=" + (InpUseDailyProfitPercentLadder ? "LADDER" : "FIXED") +
+   " | ProfitL1=" + DoubleToString(GetDailyProfitLadderPercent(1),2) + "%" +
+   " Arm=" + DoubleToString(GetDailyProfitLadderArmPercent(1),2) + "%" +
+   " @ $" + DoubleToString(g_profitLadderLevel1Equity,2) +
+   " | ProfitL2=" + DoubleToString(GetDailyProfitLadderPercent(2),2) + "%" +
+   " Arm=" + DoubleToString(GetDailyProfitLadderArmPercent(2),2) + "%" +
+   " @ $" + DoubleToString(g_profitLadderLevel2Equity,2) +
+   " | ProfitL3=" + DoubleToString(GetDailyProfitLadderPercent(3),2) + "%" +
+   " Arm=" + DoubleToString(GetDailyProfitLadderArmPercent(3),2) + "%" +
+   " @ $" + DoubleToString(g_profitLadderLevel3Equity,2) +
+   " | ProfitL4=" + DoubleToString(GetDailyProfitLadderPercent(4),2) + "%" +
+   " Arm=" + DoubleToString(GetDailyProfitLadderArmPercent(4),2) + "%" +
+   " @ $" + DoubleToString(g_profitLadderLevel4Equity,2) +
+   " | ProfitL5=" + DoubleToString(GetDailyProfitLadderPercent(5),2) + "%" +
+   " Arm=" + DoubleToString(GetDailyProfitLadderArmPercent(5),2) + "%" +
+   " @ $" + DoubleToString(g_profitLadderLevel5Equity,2) +
+   " | ProfitL6=" + DoubleToString(GetDailyProfitLadderPercent(6),2) + "%" +
+   " Arm=" + DoubleToString(GetDailyProfitLadderArmPercent(6),2) + "%" +
+   " @ $" + DoubleToString(g_profitLadderLevel6Equity,2) +
+   " | ProfitTargetEquity=$" + DoubleToString(g_profitTargetEquity,2) +
+   " | TargetProfit=$" + DoubleToString(g_dailyProfitTarget,2) +
+   " | TesterStandaloneDay=" +
+   (IsTesting() && InpTesterStandaloneFreshDayMode ? "YES" : "NO");
+
+Print(equityResetMsg);
   }
 
 //+------------------------------------------------------------------+
@@ -8492,6 +9135,19 @@ void ResetAllFreshDayRuntimeState()
    g_profitPercentPeakPercent = 0.0;
    g_profitPercentLadderHit = false;
    g_profitPercentLadderStatus = "READY";
+   g_buySideLossStreak = 0;
+   g_sellSideLossStreak = 0;
+   g_buySideLossPauseUntil = 0;
+   g_sellSideLossPauseUntil = 0;
+   g_buySideLossPauseTriggerTicket = 0;
+   g_sellSideLossPauseTriggerTicket = 0;
+   g_buySideLossPauseTriggerCloseTime = 0;
+   g_sellSideLossPauseTriggerCloseTime = 0;
+   g_buySideLossPauseTriggerSARDirection = 0;
+   g_sellSideLossPauseTriggerSARDirection = 0;
+   g_buySideLossPauseStatus = "READY";
+   g_sellSideLossPauseStatus = "READY";
+   g_sideLossPauseLastScanTime = 0;
    ArrayInitialize(g_sarChangeTimes,0);
    ArrayInitialize(g_sarChangeDirections,0);
    ArrayInitialize(g_sarChangeDurationsSeconds,0);
@@ -10208,6 +10864,15 @@ bool ProcessGoodMarketFirstOrderContinuation()
       return(false);
      }
 
+   if(IsOrderBlockedBySideLossPause(
+         direction,
+         "GOOD MARKET CONTINUATION"))
+     {
+      ClearGoodMarketContinuation(
+         "CANCELLED | SIDE LOSS PAUSE");
+      return(false);
+     }
+
    if(g_dailyProfitLock ||
       g_equityProtectionHit ||
       g_globalEquityTrailLocked)
@@ -10646,7 +11311,8 @@ bool CheckEquityConditions()
    UpdateHalfLossPauseState();
 
 // 2) Daily profit lock.
-// Ladder ON: protect 10%, then 15%, and close/pause at 20% or on a
+// Ladder ON: six nominal levels 10/15/20/30/40/50 with configurable
+// arm tolerance and protected offset. Close/pause at final level or on a
 // pullback below the highest protected level.
 // Ladder OFF: retain the original fixed InpProfitTargetPercent behavior.
    if(InpUseDailyProfitLock &&
@@ -13919,6 +14585,11 @@ bool OpenRecoveryOrder(int direction, string sourceReason, int slReverseStage = 
       return(false);
      }
 
+   if(IsOrderBlockedBySideLossPause(
+         direction,
+         "AFTER CLOSE RECOVERY"))
+      return(false);
+
    if(!IsSameDirectionEntryGapAllowed(direction,
                                              price,
                                              InpUsePendingOrderEntries,
@@ -14204,6 +14875,11 @@ bool OpenRecoveryGapMarketOrder(int direction, double gapMove, string triggerRea
             " | Hours=", InpNoNewOrderHourList);
       return(false);
      }
+
+   if(IsOrderBlockedBySideLossPause(
+         direction,
+         "RECOVERY GAP"))
+      return(false);
 
    if(!IsSameDirectionEntryGapAllowed(direction,
                                              price,
@@ -17895,6 +18571,10 @@ void OnTick()
 // Send only ORDER CREATED / ORDER CLOSED push events.
    ProcessCreatedClosedPushNotifications();
 
+// Rebuild BUY/SELL consecutive-loss streaks from current-day history.
+// This can pause only the losing direction while the other side continues.
+   UpdateSideLossPauseState(false);
+
 // HARD OPENING-BALANCE EQUITY GUARD FIRST:
 // Loss lock uses InpLossStopPercent. Profit protection uses the enabled
 // 10/15/20 percentage ladder, or the legacy fixed target when ladder is OFF.
@@ -18309,10 +18989,32 @@ double GetHalfLossSARConfirmExtraRaw()
   }
 
 //+------------------------------------------------------------------+
-double GetEffectiveSARConfirmPriceDiff()
+double GetBuyStrictSARConfirmExtraRaw(int direction)
+  {
+   if(!InpUseBuyStrictConfirmation ||
+      direction != 1)
+      return(0.0);
+
+   return(MathMax(0.0,InpBuyExtraSARConfirmRaw));
+  }
+
+//+------------------------------------------------------------------+
+double GetEffectiveSARConfirmPriceDiffForDirection(int direction)
   {
    return(MathMax(0.0,InpSARConfirmPriceDiff) +
-          GetHalfLossSARConfirmExtraRaw());
+          GetHalfLossSARConfirmExtraRaw() +
+          GetBuyStrictSARConfirmExtraRaw(direction));
+  }
+
+//+------------------------------------------------------------------+
+double GetEffectiveSARConfirmPriceDiff()
+  {
+   int direction =
+      (g_pendingSARConfirmDirection != 0)
+      ? g_pendingSARConfirmDirection
+      : g_activeSARDirection;
+
+   return(GetEffectiveSARConfirmPriceDiffForDirection(direction));
   }
 
 //+------------------------------------------------------------------+
@@ -18321,7 +19023,8 @@ bool IsFirstSAROrderPriceDiffReady(int direction)
    if(direction == 0)
       return(false);
 
-   double requiredDiff = GetEffectiveSARConfirmPriceDiff();
+   double requiredDiff =
+      GetEffectiveSARConfirmPriceDiffForDirection(direction);
    double currentDiff  = GetFirstSAROrderLivePriceDiff(direction);
 
    if(currentDiff < 0.0)
@@ -18334,7 +19037,8 @@ bool IsFirstSAROrderPriceDiffReady(int direction)
 string FirstSAROrderPriceDiffStatusText(int direction)
   {
    double currentDiff  = GetFirstSAROrderLivePriceDiff(direction);
-   double requiredDiff = GetEffectiveSARConfirmPriceDiff();
+   double requiredDiff =
+      GetEffectiveSARConfirmPriceDiffForDirection(direction);
 
    if(currentDiff < 0.0)
       return("NO SAR Min Distance " + DoubleToString(requiredDiff,Digits) + "/" + DoubleToString(currentDiff, Digits));
@@ -18464,10 +19168,12 @@ bool IsSARFlipConfirmationReady()
    if(InpUseSARPriceDiffConfirm)
      {
       double diff = GetSARConfirmCurrentPriceDiff();
-      double requiredDiff = GetEffectiveSARConfirmPriceDiff();
+      double requiredDiff =
+         GetEffectiveSARConfirmPriceDiffForDirection(direction);
 
       if(InpUseDynamicSAREngine)
-         requiredDiff = GetDynamicSARRequiredConfirmDiff();
+         requiredDiff =
+            GetDynamicSARRequiredConfirmDiffForDirection(direction);
 
       g_dynamicSARRequiredDiff = requiredDiff;
 
@@ -18554,29 +19260,45 @@ double GetDynamicSARATR()
   }
 
 //+------------------------------------------------------------------+
-double GetDynamicSARRequiredConfirmDiff()
+double GetDynamicSARRequiredConfirmDiffForDirection(int direction)
   {
-   double configuredBase = MathMax(0.0,InpSARConfirmPriceDiff);
-   double halfLossExtra  = GetHalfLossSARConfirmExtraRaw();
+   double configuredBase =
+      MathMax(0.0,InpSARConfirmPriceDiff);
+   double conditionalExtra =
+      GetHalfLossSARConfirmExtraRaw() +
+      GetBuyStrictSARConfirmExtraRaw(direction);
 
    if(!InpUseDynamicSAREngine)
-      return(configuredBase + halfLossExtra);
+      return(configuredBase + conditionalExtra);
 
    double atr = GetDynamicSARATR();
    if(atr <= 0.0)
-      return(configuredBase + halfLossExtra);
+      return(configuredBase + conditionalExtra);
 
-   double dynamicDiff = atr * InpDynamicConfirmATRMultiplier;
+   double dynamicDiff =
+      atr * InpDynamicConfirmATRMultiplier;
 
 // Safety: do not allow the dynamic requirement to become almost zero in dead market.
    if(configuredBase > 0.0)
-      dynamicDiff = MathMax(dynamicDiff,configuredBase * 0.35);
+      dynamicDiff =
+         MathMax(dynamicDiff,
+                 configuredBase * 0.35);
 
-// After the half-loss cooling period finishes, require the same extra RAW
-// confirmation distance in addition to the ATR-derived requirement.
-   dynamicDiff += halfLossExtra;
+// Half-loss and BUY-only confirmation extras are added after the ATR rule.
+   dynamicDiff += conditionalExtra;
 
    return(dynamicDiff);
+  }
+
+//+------------------------------------------------------------------+
+double GetDynamicSARRequiredConfirmDiff()
+  {
+   int direction =
+      (g_pendingSARConfirmDirection != 0)
+      ? g_pendingSARConfirmDirection
+      : g_activeSARDirection;
+
+   return(GetDynamicSARRequiredConfirmDiffForDirection(direction));
   }
 
 //+------------------------------------------------------------------+
@@ -18774,9 +19496,15 @@ bool IsDynamicSARAllowedForNewOrder(int direction, string &whyBlocked)
   }
 
 //+------------------------------------------------------------------+
-int GetStrictSARMinimumScore()
+int GetStrictSARMinimumScoreForDirection(int direction)
   {
    int required = InpStrictSARMinimumScore;
+
+   if(InpUseBuyStrictConfirmation &&
+      direction == 1)
+      required =
+         MathMax(required,
+                 InpBuyStrictSARMinimumScore);
 
    if(required < 0)
       required = 0;
@@ -18784,6 +19512,17 @@ int GetStrictSARMinimumScore()
       required = 7;
 
    return(required);
+  }
+
+//+------------------------------------------------------------------+
+int GetStrictSARMinimumScore()
+  {
+   int direction =
+      (g_pendingSARConfirmDirection != 0)
+      ? g_pendingSARConfirmDirection
+      : g_activeSARDirection;
+
+   return(GetStrictSARMinimumScoreForDirection(direction));
   }
 
 //+------------------------------------------------------------------+
@@ -18805,7 +19544,8 @@ bool IsStrictSARScoreAllowedForNewOrder(int direction, string source)
       return(false);
      }
 
-   int required = GetStrictSARMinimumScore();
+   int required =
+      GetStrictSARMinimumScoreForDirection(direction);
    int score = GetDynamicSARStrengthScore(direction);
 
    if(score < required)
@@ -20274,7 +21014,8 @@ bool IsNormalOrderAllowedByMarketModeProfile(int direction,
    if(IsMarketModeEntryFilterEnabled(DXB_FILTER_STRICT_SAR_SCORE))
      {
       int score = GetDynamicSARStrengthScore(direction);
-      int required = GetStrictSARMinimumScore();
+      int required =
+         GetStrictSARMinimumScoreForDirection(direction);
 
       if(score < required)
          return(BlockNormalOrderByModeProfile(
@@ -20444,6 +21185,17 @@ bool OpenMarketOrder(int direction, string reason)
    if(IsDirectionOrderCapReached(direction, "OpenMarketOrder START | " + reason))
       return(false);
 
+   if(IsOrderBlockedBySideLossPause(
+         direction,
+         "OpenMarketOrder START | " + reason))
+      return(false);
+
+   // BUY-only hard safety applies even to the first SAR order profile.
+   if(!IsBuyStrictEntryAllowed(
+         direction,
+         "OpenMarketOrder START | " + reason))
+      return(false);
+
    bool entryProfileAllowed = isFirstSAROrder
                               ? IsFirstSAROrderAllowedByPriceDiffOnly(direction, reason)
                               : IsNormalOrderAllowedByMarketModeProfile(direction, reason);
@@ -20582,6 +21334,11 @@ bool OpenMarketOrder(int direction, string reason)
                 TimeToString(GetDubaiTime(), TIME_DATE|TIME_MINUTES) +
                 " | Hours=" + InpNoNewOrderHourList +
                 " | Source=" + reason);
+
+   if(IsOrderBlockedBySideLossPause(
+         direction,
+         "OpenMarketOrder BROKER BOUNDARY | " + reason))
+      return(false);
 
    if(!IsSameDirectionEntryGapAllowed(direction,
                                              price,
@@ -21742,7 +22499,8 @@ void RefreshNormalEntryDiagnosticSnapshot(int direction,
    bool rawH1 = CheckListH1Allowed(direction);
    bool rawLate = !IsLateSARCycleEntryDanger(direction, lateReason);
 
-   int strictRequired = GetStrictSARMinimumScore();
+   int strictRequired =
+      GetStrictSARMinimumScoreForDirection(direction);
    int score = (direction != 0)
                ? GetDynamicSARStrengthScore(direction)
                : 0;
@@ -22181,10 +22939,12 @@ string SARConfirmExactStatusText(int direction)
       return("No pending flip confirmation");
 
    double currentDiff = GetSARConfirmCurrentPriceDiff();
-   double requiredDiff = GetEffectiveSARConfirmPriceDiff();
+   double requiredDiff =
+      GetEffectiveSARConfirmPriceDiffForDirection(direction);
 
    if(InpUseDynamicSAREngine)
-      requiredDiff = GetDynamicSARRequiredConfirmDiff();
+      requiredDiff =
+         GetDynamicSARRequiredConfirmDiffForDirection(direction);
 
    int elapsed = GetSARConfirmElapsedSeconds();
    int window = MathMax(0, InpSARConfirmMinutes) * 60;
@@ -23941,8 +24701,16 @@ void DrawLegacyDashboard(string status)
                IntegerToString(
                   (int)MathMax(0,InpMaxSARContinuationOrdersPerSide)),
                clrAqua);
+   RightProRow("Add-ons Allowed",
+               IntegerToString(GetAllowedSARContinuationOrdersByProfitLadder()) +
+               " | Daily L" + IntegerToString(g_profitPercentHighestLevel) +
+               " | Protected " +
+               (InpContinuationRequireProtectedProfit ? "YES" : "NO"),
+               clrAqua);
    RightProRow("Market Mode",AutoMarketModeStatusText(),MarketFlowModeColor());
    RightProRow("Opposite Pause",OppositeDirectionProfitPauseStatusText(),IsOppositeDirectionProfitPauseActive() ? clrOrangeRed : clrSilver);
+   RightProRow("BUY Loss Pause",SideLossPauseStatusText(1),IsSideLossPauseActiveForDirection(1) ? clrOrangeRed : clrSilver);
+   RightProRow("SELL Loss Pause",SideLossPauseStatusText(-1),IsSideLossPauseActiveForDirection(-1) ? clrOrangeRed : clrSilver);
    RightProRow("Ind Profit Protect",OnOff(InpUseIndividualProfitProtect),InpUseIndividualProfitProtect ? clrLime : clrSilver);
    RightProRow("Basket Protect",OnOff(InpUseBasketProfitProtect),InpUseBasketProfitProtect ? clrLime : clrSilver);
 
@@ -23969,7 +24737,16 @@ void DrawLegacyDashboard(string status)
    RightProRow("--- SAR SETTINGS ---","",clrDimGray);
    RightProRow("SAR Direction",DirectionText(g_activeSARDirection),DirectionColor(g_activeSARDirection));
    RightProRow("Confirm Gap",DoubleToString(GetEffectiveSARConfirmPriceDiff(),0),
-               GetHalfLossSARConfirmExtraRaw() > 0.0 ? clrOrange : clrAqua);
+               (GetHalfLossSARConfirmExtraRaw() > 0.0 ||
+                GetBuyStrictSARConfirmExtraRaw(g_activeSARDirection) > 0.0)
+               ? clrOrange : clrAqua);
+   RightProRow("BUY Strict",
+               InpUseBuyStrictConfirmation
+               ? "Score " + IntegerToString(InpBuyStrictSARMinimumScore) +
+                 " | +Raw " + DoubleToString(InpBuyExtraSARConfirmRaw,0) +
+                 " | H1 " + (InpBuyRequireH1TrendMatch ? "YES" : "NO")
+               : "OFF",
+               InpUseBuyStrictConfirmation ? clrYellow : clrSilver);
    RightProRow("Confirm Minutes",IntegerToString(InpSARConfirmMinutes),clrAqua);
    RightProRow("Continuous Gap",DoubleToString(InpContinuousOrderPriceGap,0),clrAqua);
    RightProRow("Gap Wait",IntegerToString(InpContinuousOrderGapMinutes)+"m",clrAqua);
