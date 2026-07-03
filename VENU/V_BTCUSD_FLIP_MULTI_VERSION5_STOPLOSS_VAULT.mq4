@@ -1,5 +1,5 @@
 //+------------------------------------------------------------------+
-//|                 DXB_SAR_EarlyTrend_Cycle_EA_Strict_2345_FreshBoot_V184_ProfitGrowthProtection.mq4                  |
+//|                 DXB_SAR_EarlyTrend_Cycle_EA_Strict_2345_FreshBoot_V186_BookRestartProfitLadder.mq4                  |
 //|  SAR cycle + server-side SL + dynamic X-profit ladder          |
 //|  SAR flip closes opposite orders. Early reverse trend pauses SAR  |
 //|  cycle, draws arrows, closes opposite orders, resumes when aligned |
@@ -20,7 +20,7 @@ MARKET_MODE g_marketMode = MODE_RANGE;
 #ifndef OP_BALANCE
 #define OP_BALANCE 6
 #endif
-#property version   "1.84"
+#property version   "1.86"
 
 //======================== INPUTS ====================================
 string InpEAName                  = "DXB Version 5 - SAR Confirm 50 in 5 Min";
@@ -50,32 +50,48 @@ double InpBasketProfitUSD         = 0.50;  // X1 base: custom ladder starts $0.5
 double InpProfitTargetPercent      = 10.0; // legacy fixed target used only when percentage ladder is OFF
 
 //================ DAILY EQUITY PROFIT PERCENT LADDER ===============
-// Uses the current equity-cycle anchor plus a percentage of g_baseBalance.
-// Six nominal levels: 10%, 15%, 20%, 30%, 40%, 50%.
-// Each level may arm slightly early using InpProfitLadderArmTolerancePercent,
-// then protect slightly below the nominal level using
-// InpProfitLadderProtectedOffsetPercent.
-// Example with 0.25 tolerance and 0.50 offset:
-//   15% nominal -> arm at 14.75%, protect 14.50%, continue toward 20%.
-// Final level arms, closes all EA orders and pauses until the next reset.
-// If equity later falls below the highest protected level, the EA closes all
-// EA orders and pauses. InpProfitLadderReturnBufferPercent allows an optional
-// extra pullback below the protected level before closing.
+// BOOK-AND-RESTART ladder using the current equity-cycle anchor and
+// g_baseBalance as the percentage reference.
+//
+// IMPORTANT: the first visit to a target does NOT lock the day.
+//   Reach +10% exactly -> close/delete all EA orders, book the profit,
+//                        allow a fresh order cycle, then protect +5%.
+//   Reach +15% exactly -> book all orders, restart, then protect +10%.
+//   Reach +20% exactly -> book all orders, restart, then protect +15%.
+//   Reach +30% exactly -> book all orders, restart, then protect +20%.
+//   Reach +40% exactly -> book all orders, restart, then protect +30%.
+//   Reach +50% exactly -> close everything and pause for the day.
+//
+// The lower protected floor becomes active only after a NEW market order
+// opens following the target booking. Therefore reaching 10% itself cannot
+// immediately trigger the 5% day lock. If the fresh cycle later pulls total
+// daily equity below 5%, every order is closed and trading stops for the day.
 bool   InpUseDailyProfitPercentLadder       = true;
+
 double InpProfitLadderPercent1              = 10.0;
 double InpProfitLadderPercent2              = 15.0;
 double InpProfitLadderPercent3              = 20.0;
 double InpProfitLadderPercent4              = 30.0;
 double InpProfitLadderPercent5              = 40.0;
 double InpProfitLadderPercent6              = 50.0;
+
+double InpProfitLadderProtectPercent1       = 5.0;
+double InpProfitLadderProtectPercent2       = 10.0;
+double InpProfitLadderProtectPercent3       = 15.0;
+double InpProfitLadderProtectPercent4       = 20.0;
+double InpProfitLadderProtectPercent5       = 30.0;
+double InpProfitLadderProtectPercent6       = 50.0;
+
+// Default 0.00 means every target must be reached exactly.
+double InpProfitLadderArmTolerancePercent   = 0.0;
+bool   InpProfitLadderFinalLevelExact       = true;
+
+// Close all EA market/pending orders whenever an intermediate target is hit,
+// but do NOT pause. Normal strategy entries may start a fresh cycle afterward.
+bool   InpProfitLadderBookAtEachTarget      = true;
+bool   InpProfitLadderProtectAfterNewOrder  = true;
+
 double InpProfitLadderReturnBufferPercent   = 0.0;
-
-// Arm slightly before the nominal level, then protect slightly below it.
-// Example 15% level with 0.25 tolerance and 0.50 protected offset:
-// arm at 14.75%, protect 14.50%, continue toward 20%.
-double InpProfitLadderArmTolerancePercent   = 0.25;
-double InpProfitLadderProtectedOffsetPercent= 0.50;
-
 bool   InpCloseAtFinalProfitLadderLevel     = true;
 bool   InpPauseAfterProfitLadderClose       = true;
 
@@ -1393,6 +1409,9 @@ double   g_profitPercentProtectedPercent = 0.0;
 double   g_profitPercentProtectedEquity = 0.0;
 double   g_profitPercentPeakPercent = 0.0;
 bool     g_profitPercentLadderHit = false;
+bool     g_profitPercentAwaitingNewOrder = false;
+int      g_profitPercentLastBookedLevel = 0;
+datetime g_profitPercentLastBookTime = 0;
 string   g_profitPercentLadderStatus = "READY";
 double   g_lockedProfitToday    = 0.0;
 bool     g_dailyProfitLock      = false;
@@ -8224,6 +8243,10 @@ double GetDailyProfitLadderArmPercent(int level)
    double nominal =
       GetDailyProfitLadderPercent(level);
 
+   if(InpProfitLadderFinalLevelExact &&
+      level >= GetDailyProfitLadderMaxLevel())
+      return(nominal);
+
    return(MathMax(
              0.0,
              nominal -
@@ -8234,22 +8257,49 @@ double GetDailyProfitLadderArmPercent(int level)
 //+------------------------------------------------------------------+
 double GetDailyProfitLadderProtectedPercent(int level)
   {
-   double nominal =
-      GetDailyProfitLadderPercent(level);
+   double arm1 = GetDailyProfitLadderArmPercent(1);
+   double arm2 = GetDailyProfitLadderArmPercent(2);
+   double arm3 = GetDailyProfitLadderArmPercent(3);
+   double arm4 = GetDailyProfitLadderArmPercent(4);
+   double arm5 = GetDailyProfitLadderArmPercent(5);
+   double arm6 = GetDailyProfitLadderArmPercent(6);
 
-   double protectedPercent =
-      nominal -
-      MathMax(0.0,
-              InpProfitLadderProtectedOffsetPercent);
+   double protect1 =
+      MathMin(arm1,
+              MathMax(0.0,
+                      InpProfitLadderProtectPercent1));
 
-   double armPercent =
-      GetDailyProfitLadderArmPercent(level);
+   double protect2 =
+      MathMin(arm2,
+              MathMax(protect1,
+                      InpProfitLadderProtectPercent2));
 
-   // Protection cannot be above the percentage that actually arms the level.
-   protectedPercent = MathMin(protectedPercent,
-                              armPercent);
+   double protect3 =
+      MathMin(arm3,
+              MathMax(protect2,
+                      InpProfitLadderProtectPercent3));
 
-   return(MathMax(0.0,protectedPercent));
+   double protect4 =
+      MathMin(arm4,
+              MathMax(protect3,
+                      InpProfitLadderProtectPercent4));
+
+   double protect5 =
+      MathMin(arm5,
+              MathMax(protect4,
+                      InpProfitLadderProtectPercent5));
+
+   double protect6 =
+      MathMin(arm6,
+              MathMax(protect5,
+                      InpProfitLadderProtectPercent6));
+
+   if(level <= 1) return(protect1);
+   if(level == 2) return(protect2);
+   if(level == 3) return(protect3);
+   if(level == 4) return(protect4);
+   if(level == 5) return(protect5);
+   return(protect6);
   }
 
 //+------------------------------------------------------------------+
@@ -8269,6 +8319,34 @@ string DailyProfitLadderLevelsText(int decimals)
      }
 
    return(result + "%");
+  }
+
+//+------------------------------------------------------------------+
+string DailyProfitLadderTargetProtectText(int decimals)
+  {
+   string result = "";
+   int maxLevel = GetDailyProfitLadderMaxLevel();
+
+   for(int level=1; level<=maxLevel; level++)
+     {
+      if(level > 1)
+         result += "/";
+
+      result += DoubleToString(
+                   GetDailyProfitLadderPercent(level),
+                   decimals);
+
+      if(level >= maxLevel &&
+         InpCloseAtFinalProfitLadderLevel)
+         result += ">CLOSE";
+      else
+         result += ">" +
+                   DoubleToString(
+                      GetDailyProfitLadderProtectedPercent(level),
+                      decimals);
+     }
+
+   return(result);
   }
 
 //+------------------------------------------------------------------+
@@ -8322,31 +8400,36 @@ string DailyProfitPercentLadderStatusText()
    if(g_profitPercentHighestLevel <= 0)
       return("READY | NOW " +
              DoubleToString(currentPercent,2) +
-             "% | NEXT " +
+             "% | FIRST TARGET " +
              DoubleToString(GetDailyProfitLadderPercent(1),2) +
-             "% ARM " +
-             DoubleToString(GetDailyProfitLadderArmPercent(1),2) +
-             "%");
+             "% EXACT");
 
    int maxLevel = GetDailyProfitLadderMaxLevel();
    int nextLevel = MathMin(maxLevel,
                            g_profitPercentHighestLevel+1);
-   double nextPercent =
-      GetDailyProfitLadderPercent(nextLevel);
+
+   if(g_profitPercentAwaitingNewOrder)
+      return("L" +
+             IntegerToString(g_profitPercentHighestLevel) +
+             " BOOKED " +
+             DoubleToString(
+                GetDailyProfitLadderPercent(
+                   g_profitPercentHighestLevel),2) +
+             "% | WAIT NEW MARKET ORDER | THEN FLOOR " +
+             DoubleToString(g_profitPercentProtectedPercent,2) +
+             "% | NOW " +
+             DoubleToString(currentPercent,2) + "%");
 
    return("L" +
           IntegerToString(g_profitPercentHighestLevel) +
-          " PROTECTED " +
+          " NEW CYCLE ACTIVE | FLOOR " +
           DoubleToString(g_profitPercentProtectedPercent,2) +
           "% | NOW " +
           DoubleToString(currentPercent,2) +
           (g_profitPercentHighestLevel < maxLevel
-           ? "% | NEXT " +
-             DoubleToString(nextPercent,2) +
-             "% ARM " +
+           ? "% | NEXT BOOK " +
              DoubleToString(
-                GetDailyProfitLadderArmPercent(
-                   nextLevel),2) + "%"
+                GetDailyProfitLadderPercent(nextLevel),2) + "%"
            : "% | FINAL LEVEL"));
   }
 
@@ -8388,7 +8471,7 @@ bool LockDailyProfitPercentLadder(string lockReason,
       DoubleToString(currentPercent,2) +
       "%";
 
-   if(InpCloseOrdersOnProfitLock && CountAllOrders() > 0)
+   if(InpCloseOrdersOnProfitLock)
       CloseAllEAOrders("DAILY PROFIT PERCENT LADDER | " +
                        lockReason);
 
@@ -8453,13 +8536,39 @@ bool CheckDailyProfitPercentLadder(double currentEquity)
    int maxLevel = GetDailyProfitLadderMaxLevel();
    double finalPercent =
       GetDailyProfitLadderPercent(maxLevel);
-   double finalArmPercent =
-      GetDailyProfitLadderArmPercent(maxLevel);
    double currentPercent =
       GetDailyEquityProfitPercent(currentEquity);
 
    if(currentPercent > g_profitPercentPeakPercent)
       g_profitPercentPeakPercent = currentPercent;
+
+   // After an intermediate target is booked, the lower floor becomes active
+   // only after a genuinely new market order opens.
+   if(g_profitPercentAwaitingNewOrder &&
+      CountAllOrders() > 0)
+     {
+      g_profitPercentAwaitingNewOrder = false;
+      g_profitPercentLadderStatus =
+         "L" +
+         IntegerToString(g_profitPercentHighestLevel) +
+         " NEW ORDER CYCLE ACTIVE | PROTECT " +
+         DoubleToString(g_profitPercentProtectedPercent,2) +
+         "% | NEXT " +
+         DoubleToString(
+            GetDailyProfitLadderPercent(
+               MathMin(maxLevel,
+                       g_profitPercentHighestLevel+1)),2) +
+         "%";
+
+      Print("DAILY PROFIT LADDER NEW CYCLE STARTED",
+            " | BookedLevel=",g_profitPercentHighestLevel,
+            " | ActiveProtectedPercent=",
+            DoubleToString(g_profitPercentProtectedPercent,2),"%",
+            " | CurrentEquity=$",
+            DoubleToString(currentEquity,2),
+            " | CurrentPercent=",
+            DoubleToString(currentPercent,2),"%");
+     }
 
    int reachedLevel = 0;
    for(int level=1; level<=maxLevel; level++)
@@ -8474,73 +8583,90 @@ bool CheckDailyProfitPercentLadder(double currentEquity)
          reachedLevel = level;
      }
 
-   bool levelAdvanced = false;
-
+   // First visit to each higher intermediate target: book every order, but
+   // do not pause the EA. The normal entry engine may start a fresh cycle.
    if(reachedLevel > g_profitPercentHighestLevel)
      {
       g_profitPercentHighestLevel = reachedLevel;
       g_profitPercentProtectedPercent =
-         GetDailyProfitLadderProtectedPercent(
-            reachedLevel);
+         GetDailyProfitLadderProtectedPercent(reachedLevel);
       g_profitPercentProtectedEquity =
          GetDailyProfitLadderEquity(
             g_profitPercentProtectedPercent);
-      levelAdvanced = true;
 
-      g_profitPercentLadderStatus =
-         "L" +
-         IntegerToString(reachedLevel) +
-         " ARMED @" +
-         DoubleToString(
-            GetDailyProfitLadderArmPercent(
-               reachedLevel),2) +
-         "% | PROTECT " +
-         DoubleToString(
-            g_profitPercentProtectedPercent,2) +
-         "% | EQUITY $" +
-         DoubleToString(
-            g_profitPercentProtectedEquity,2);
-
-      Print("DAILY PROFIT PERCENT LADDER LEVEL REACHED",
-            " | Level=",reachedLevel,
-            "/",maxLevel,
+      Print("DAILY PROFIT LADDER TARGET REACHED",
+            " | Level=",reachedLevel,"/",maxLevel,
+            " | TargetPercent=",
+            DoubleToString(
+               GetDailyProfitLadderPercent(reachedLevel),2),"%",
             " | CurrentPercent=",
             DoubleToString(currentPercent,2),"%",
-            " | NominalPercent=",
+            " | NextProtectedPercent=",
+            DoubleToString(g_profitPercentProtectedPercent,2),"%",
+            " | CurrentEquity=$",
+            DoubleToString(currentEquity,2));
+
+      if(reachedLevel >= maxLevel &&
+         finalPercent > 0.0 &&
+         InpCloseAtFinalProfitLadderLevel)
+        {
+         g_profitPercentAwaitingNewOrder = false;
+
+         return(LockDailyProfitPercentLadder(
+            "FINAL " +
+            DoubleToString(finalPercent,2) +
+            "% TARGET REACHED",
+            currentEquity,
+            currentPercent));
+        }
+
+      g_profitPercentLastBookedLevel = reachedLevel;
+      g_profitPercentLastBookTime = TimeCurrent();
+      g_profitPercentAwaitingNewOrder =
+         InpProfitLadderProtectAfterNewOrder;
+
+      g_profitPercentLadderStatus =
+         "L" + IntegerToString(reachedLevel) +
+         " TARGET " +
+         DoubleToString(
+            GetDailyProfitLadderPercent(reachedLevel),2) +
+         "% REACHED | BOOK ORDERS | CONTINUE | NEXT FLOOR " +
+         DoubleToString(g_profitPercentProtectedPercent,2) + "%";
+
+      if(InpProfitLadderBookAtEachTarget)
+        {
+         // This method also deletes pending orders even when no market order
+         // is open, ensuring the fresh cycle starts cleanly.
+         CloseAllEAOrders(
+            "DAILY PROFIT LADDER L" +
+            IntegerToString(reachedLevel) +
+            " TARGET BOOKED - CONTINUE TRADING");
+        }
+
+      Print("DAILY PROFIT LADDER TARGET BOOKED - TRADING CONTINUES",
+            " | Level=",reachedLevel,
+            " | Target=",
+            DoubleToString(
+               GetDailyProfitLadderPercent(reachedLevel),2),"%",
+            " | Protection activates ",
+            InpProfitLadderProtectAfterNewOrder
+            ? "after the next market order opens"
+            : "immediately",
+            " | ProtectedFloor=",
+            DoubleToString(g_profitPercentProtectedPercent,2),"%",
+            " | NextTarget=",
             DoubleToString(
                GetDailyProfitLadderPercent(
-                  reachedLevel),2),"%",
-            " | ArmPercent=",
-            DoubleToString(
-               GetDailyProfitLadderArmPercent(
-                  reachedLevel),2),"%",
-            " | ProtectedPercent=",
-            DoubleToString(
-               g_profitPercentProtectedPercent,2),"%",
-            " | ProtectedEquity=$",
-            DoubleToString(
-               g_profitPercentProtectedEquity,2),
-            " | FinalPercent=",
-            DoubleToString(finalPercent,2),"%",
-            " | FinalArmPercent=",
-            DoubleToString(finalArmPercent,2),"%");
+                  MathMin(maxLevel,reachedLevel+1)),2),"%");
+
+      // Not a day lock. Keep the EA active.
+      return(false);
      }
 
-   if(reachedLevel >= maxLevel &&
-      finalPercent > 0.0 &&
-      InpCloseAtFinalProfitLadderLevel)
-     {
-      return(LockDailyProfitPercentLadder(
-         "FINAL " +
-         DoubleToString(finalPercent,2) +
-         "% LEVEL ARMED AT " +
-         DoubleToString(finalArmPercent,2) +
-         "%",
-         currentEquity,
-         currentPercent));
-     }
-
-   if(g_profitPercentHighestLevel > 0)
+   // No floor check while waiting for the first new market order after a
+   // target booking. With no market exposure there is no reason to end the day.
+   if(g_profitPercentHighestLevel > 0 &&
+      !g_profitPercentAwaitingNewOrder)
      {
       double returnBuffer =
          MathMax(0.0,
@@ -8550,17 +8676,14 @@ bool CheckDailyProfitPercentLadder(double currentEquity)
                  g_profitPercentProtectedPercent -
                  returnBuffer);
 
-      // Do not arm and close on the same tick. Close only after a
-      // later pullback below the highest protected percentage.
-      if(!levelAdvanced &&
-         currentPercent <
+      if(currentPercent <
          closeThresholdPercent-0.0000001)
         {
          return(LockDailyProfitPercentLadder(
-            "PULLBACK BELOW PROTECTED " +
+            "NEW CYCLE LOSS BELOW PROTECTED " +
             DoubleToString(
                g_profitPercentProtectedPercent,2) +
-            "% LEVEL",
+            "% FLOOR",
             currentEquity,
             currentPercent));
         }
@@ -8673,6 +8796,9 @@ void InitializeEquityDay()
    g_profitPercentProtectedEquity = 0.0;
    g_profitPercentPeakPercent = 0.0;
    g_profitPercentLadderHit = false;
+   g_profitPercentAwaitingNewOrder = false;
+   g_profitPercentLastBookedLevel = 0;
+   g_profitPercentLastBookTime = 0;
    g_profitPercentLadderStatus =
       InpUseDailyProfitPercentLadder
       ? "READY | WAIT LEVEL 1"
@@ -8716,21 +8842,27 @@ void InitializeEquityDay()
    " | ProfitMode=" + (InpUseDailyProfitPercentLadder ? "LADDER" : "FIXED") +
    " | ProfitL1=" + DoubleToString(GetDailyProfitLadderPercent(1),2) + "%" +
    " Arm=" + DoubleToString(GetDailyProfitLadderArmPercent(1),2) + "%" +
+   " Protect=" + DoubleToString(GetDailyProfitLadderProtectedPercent(1),2) + "%" +
    " @ $" + DoubleToString(g_profitLadderLevel1Equity,2) +
    " | ProfitL2=" + DoubleToString(GetDailyProfitLadderPercent(2),2) + "%" +
    " Arm=" + DoubleToString(GetDailyProfitLadderArmPercent(2),2) + "%" +
+   " Protect=" + DoubleToString(GetDailyProfitLadderProtectedPercent(2),2) + "%" +
    " @ $" + DoubleToString(g_profitLadderLevel2Equity,2) +
    " | ProfitL3=" + DoubleToString(GetDailyProfitLadderPercent(3),2) + "%" +
    " Arm=" + DoubleToString(GetDailyProfitLadderArmPercent(3),2) + "%" +
+   " Protect=" + DoubleToString(GetDailyProfitLadderProtectedPercent(3),2) + "%" +
    " @ $" + DoubleToString(g_profitLadderLevel3Equity,2) +
    " | ProfitL4=" + DoubleToString(GetDailyProfitLadderPercent(4),2) + "%" +
    " Arm=" + DoubleToString(GetDailyProfitLadderArmPercent(4),2) + "%" +
+   " Protect=" + DoubleToString(GetDailyProfitLadderProtectedPercent(4),2) + "%" +
    " @ $" + DoubleToString(g_profitLadderLevel4Equity,2) +
    " | ProfitL5=" + DoubleToString(GetDailyProfitLadderPercent(5),2) + "%" +
    " Arm=" + DoubleToString(GetDailyProfitLadderArmPercent(5),2) + "%" +
+   " Protect=" + DoubleToString(GetDailyProfitLadderProtectedPercent(5),2) + "%" +
    " @ $" + DoubleToString(g_profitLadderLevel5Equity,2) +
    " | ProfitL6=" + DoubleToString(GetDailyProfitLadderPercent(6),2) + "%" +
    " Arm=" + DoubleToString(GetDailyProfitLadderArmPercent(6),2) + "%" +
+   " Protect=" + DoubleToString(GetDailyProfitLadderProtectedPercent(6),2) + "%" +
    " @ $" + DoubleToString(g_profitLadderLevel6Equity,2) +
    " | ProfitTargetEquity=$" + DoubleToString(g_profitTargetEquity,2) +
    " | TargetProfit=$" + DoubleToString(g_dailyProfitTarget,2) +
@@ -9134,6 +9266,9 @@ void ResetAllFreshDayRuntimeState()
    g_profitPercentProtectedEquity = 0.0;
    g_profitPercentPeakPercent = 0.0;
    g_profitPercentLadderHit = false;
+   g_profitPercentAwaitingNewOrder = false;
+   g_profitPercentLastBookedLevel = 0;
+   g_profitPercentLastBookTime = 0;
    g_profitPercentLadderStatus = "READY";
    g_buySideLossStreak = 0;
    g_sellSideLossStreak = 0;
@@ -11311,9 +11446,10 @@ bool CheckEquityConditions()
    UpdateHalfLossPauseState();
 
 // 2) Daily profit lock.
-// Ladder ON: six nominal levels 10/15/20/30/40/50 with configurable
-// arm tolerance and protected offset. Close/pause at final level or on a
-// pullback below the highest protected level.
+// Ladder ON: exact book-and-restart targets 10/15/20/30/40/50.
+// Intermediate targets close/book all EA orders but trading continues.
+// The lower protected floor activates only after a new market order opens.
+// Final target or a later fall below the active floor closes/pauses the day.
 // Ladder OFF: retain the original fixed InpProfitTargetPercent behavior.
    if(InpUseDailyProfitLock &&
       InpUseDailyProfitPercentLadder)
@@ -18557,7 +18693,7 @@ void OnTick()
       " | ProfitMode="+
       (InpUseDailyProfitPercentLadder
        ? "LADDER "+
-         DailyProfitLadderLevelsText(2)
+         DailyProfitLadderTargetProtectText(2)
        : "FIXED "+
          DoubleToString(InpProfitTargetPercent,2)+"%");
 
@@ -18577,7 +18713,7 @@ void OnTick()
 
 // HARD OPENING-BALANCE EQUITY GUARD FIRST:
 // Loss lock uses InpLossStopPercent. Profit protection uses the enabled
-// 10/15/20 percentage ladder, or the legacy fixed target when ladder is OFF.
+// 10/15/20/30/40/50 target-to-protection ladder, or the legacy fixed target when ladder is OFF.
    if(CheckEquityConditions())
      {
       string equityPauseStatus =
@@ -24400,7 +24536,7 @@ void DrawCompactDashboard(string status)
    CompactXYRow("DXB_COMPACT_RIGHT_ROW_",rightRow,rightX+10,sideY+28,
                 "PROFIT LADDER",
                 InpUseDailyProfitPercentLadder
-                ? DailyProfitLadderLevelsText(0) +
+                ? DailyProfitLadderTargetProtectText(0) +
                   " | FINAL $" +
                   DoubleToString(g_profitLadderLevel6Equity,2)
                 : "FIXED $"+
@@ -24794,7 +24930,7 @@ void DrawLegacyDashboard(string status)
    DrawCornerLabel("DXB_ACC_7",
                    PadTitle("Profit % Ladder",20)+" : "+
                    (InpUseDailyProfitPercentLadder
-                    ? DailyProfitLadderLevelsText(0)
+                    ? DailyProfitLadderTargetProtectText(0)
                     : "FIXED "+
                       DoubleToString(InpProfitTargetPercent,0)+"%"),
                    CORNER_RIGHT_UPPER,315,
