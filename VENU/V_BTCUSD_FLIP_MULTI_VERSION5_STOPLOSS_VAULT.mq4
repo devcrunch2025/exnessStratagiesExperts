@@ -1,5 +1,5 @@
 //+------------------------------------------------------------------+
-//|                 DXB_SAR_EarlyTrend_Cycle_EA_Strict_2345_FreshBoot_V190_HighestProfit50PercentShareLock.mq4                  |
+//|                 DXB_SAR_EarlyTrend_Cycle_EA_Strict_2345_FreshBoot_V186_BookRestartProfitLadder.mq4                  |
 //|  SAR cycle + server-side SL + dynamic X-profit ladder          |
 //|  SAR flip closes opposite orders. Early reverse trend pauses SAR  |
 //|  cycle, draws arrows, closes opposite orders, resumes when aligned |
@@ -20,7 +20,7 @@ MARKET_MODE g_marketMode = MODE_RANGE;
 #ifndef OP_BALANCE
 #define OP_BALANCE 6
 #endif
-#property version   "1.90"
+#property version   "1.86"
 
 //======================== INPUTS ====================================
 string InpEAName                  = "DXB Version 5 - SAR Confirm 50 in 5 Min";
@@ -75,7 +75,7 @@ double InpProfitLadderPercent4              = 30.0;
 double InpProfitLadderPercent5              = 40.0;
 double InpProfitLadderPercent6              = 50.0;
 
-double InpProfitLadderProtectPercent1       = 8.0;
+double InpProfitLadderProtectPercent1       = 5.0;
 double InpProfitLadderProtectPercent2       = 10.0;
 double InpProfitLadderProtectPercent3       = 15.0;
 double InpProfitLadderProtectPercent4       = 20.0;
@@ -91,38 +91,9 @@ bool   InpProfitLadderFinalLevelExact       = true;
 bool   InpProfitLadderBookAtEachTarget      = true;
 bool   InpProfitLadderProtectAfterNewOrder  = true;
 
-// Close slightly BEFORE the protected floor to compensate for spread,
-// commission, fast-price movement and multi-order closing delay.
-// Example: protected floor 20% + buffer 0.50% => start closing at 20.50%,
-// aiming to finish near the intended 20% booked-profit floor.
-// The optional return buffer is subtracted from this early-close trigger.
-double InpProfitLadderFloorCloseBufferPercent = 0.50;
-double InpProfitLadderReturnBufferPercent     = 0.0;
-
-// Highest-total-daily-profit SHARE lock:
-// The first target remains the exact Level-1 target (default +10%).
-// At that first target the EA books all current orders, stays enabled and waits
-// for a genuinely new market order. From that point onward there is NO final
-// profit target and NO fixed 5-percentage-point trail gap.
-//
-// The EA remembers the highest TOTAL daily AccountEquity profit and locks a
-// percentage share of that peak profit:
-//   locked profit % = highest daily profit % * lock share / 100.
-//
-// Defaults with opening base $60 and 50% share:
-//   highest equity $66 -> peak profit $6  -> lock $3  -> locked equity $63
-//   highest equity $70 -> peak profit $10 -> lock $5  -> locked equity $65
-//   highest equity $80 -> peak profit $20 -> lock $10 -> locked equity $70
-//
-// The locked level only moves upward. Trading continues without an upper limit.
-// When AccountEquity falls to the buffered lock trigger, all EA orders are
-// closed/deleted and trading pauses until the next equity/fresh-day reset.
-bool   InpUseHighestProfitShareLock           = true;
-double InpHighestProfitLockSharePercent       = 50.00; // retain this share of the highest total daily profit
-
-// Unlimited mode: the old 50% final target is not used by the share-lock path.
-bool   InpCloseAtFinalProfitLadderLevel       = false;
-bool   InpPauseAfterProfitLadderClose         = true;
+double InpProfitLadderReturnBufferPercent   = 0.0;
+bool   InpCloseAtFinalProfitLadderLevel     = true;
+bool   InpPauseAfterProfitLadderClose       = true;
 
 
 // Dynamic basket profit ladder:
@@ -1437,7 +1408,6 @@ int      g_profitPercentHighestLevel = 0;
 double   g_profitPercentProtectedPercent = 0.0;
 double   g_profitPercentProtectedEquity = 0.0;
 double   g_profitPercentPeakPercent = 0.0;
-double   g_profitPercentLastTrailLogFloor = 0.0;
 bool     g_profitPercentLadderHit = false;
 bool     g_profitPercentAwaitingNewOrder = false;
 int      g_profitPercentLastBookedLevel = 0;
@@ -6060,28 +6030,6 @@ int GetAllowedSARContinuationOrdersByProfitLadder()
       (int)MathMax(0,
                    InpContinuationMaxBelowLevel1);
 
-   if(InpUseHighestProfitShareLock)
-     {
-      if(g_profitPercentHighestLevel >= 1)
-         allowed =
-            (int)MathMax(allowed,
-                         InpContinuationMaxAtLevel1);
-
-      if(g_profitPercentPeakPercent >=
-         GetDailyProfitLadderPercent(2))
-         allowed =
-            (int)MathMax(allowed,
-                         InpContinuationMaxAtLevel2);
-
-      if(g_profitPercentPeakPercent >=
-         GetDailyProfitLadderPercent(3))
-         allowed =
-            (int)MathMax(allowed,
-                         InpContinuationMaxAtLevel3OrHigher);
-
-      return(MathMin(configuredMax,allowed));
-     }
-
    if(g_profitPercentHighestLevel >= 1)
       allowed =
          (int)MathMax(
@@ -8355,103 +8303,6 @@ double GetDailyProfitLadderProtectedPercent(int level)
   }
 
 //+------------------------------------------------------------------+
-//| Fixed minimum floor belonging to the highest booked level       |
-//+------------------------------------------------------------------+
-double GetCurrentBookedLadderBaseFloorPercent()
-  {
-   if(g_profitPercentHighestLevel <= 0)
-      return(0.0);
-
-   return(GetDailyProfitLadderProtectedPercent(
-             g_profitPercentHighestLevel));
-  }
-
-//+------------------------------------------------------------------+
-//| Lock a share of the highest TOTAL daily profit                   |
-//+------------------------------------------------------------------+
-double GetHighestProfitShareLockedPercent()
-  {
-   if(!InpUseHighestProfitShareLock ||
-      g_profitPercentHighestLevel <= 0)
-      return(0.0);
-
-   double lockShare =
-      MathMax(0.0,
-              MathMin(100.0,
-                      InpHighestProfitLockSharePercent)) / 100.0;
-
-   return(MathMax(0.0,
-                  g_profitPercentPeakPercent * lockShare));
-  }
-
-//+------------------------------------------------------------------+
-//| Early close trigger used to retain the intended protected floor |
-//+------------------------------------------------------------------+
-double GetDailyProfitLadderCloseTriggerPercent(double protectedPercent)
-  {
-   double earlyCloseBuffer =
-      MathMax(0.0,InpProfitLadderFloorCloseBufferPercent);
-
-   double returnBuffer =
-      MathMax(0.0,InpProfitLadderReturnBufferPercent);
-
-   return(MathMax(0.0,
-                  MathMax(0.0,protectedPercent) +
-                  earlyCloseBuffer -
-                  returnBuffer));
-  }
-
-//+------------------------------------------------------------------+
-//| Raise lock to the configured share of the remembered peak profit|
-//+------------------------------------------------------------------+
-void UpdateHighestDailyProfitShareFloor()
-  {
-   if(g_profitPercentHighestLevel <= 0 ||
-      g_profitPercentAwaitingNewOrder ||
-      !InpUseHighestProfitShareLock)
-      return;
-
-   double candidate =
-      GetHighestProfitShareLockedPercent();
-
-   if(candidate <= g_profitPercentProtectedPercent+0.0000001)
-      return;
-
-   g_profitPercentProtectedPercent = candidate;
-   g_profitPercentProtectedEquity =
-      GetDailyProfitLadderEquity(
-         g_profitPercentProtectedPercent);
-
-   // Avoid flooding the Experts log on every tiny tick increase.
-   if(g_profitPercentProtectedPercent >=
-      g_profitPercentLastTrailLogFloor+0.50)
-     {
-      g_profitPercentLastTrailLogFloor =
-         g_profitPercentProtectedPercent;
-
-      string trailMsg =
-         "HIGHEST TOTAL DAILY PROFIT SHARE LOCK MOVED" +
-         " | PeakProfit=" +
-         DoubleToString(g_profitPercentPeakPercent,2) + "%" +
-         " | LockShare=" +
-         DoubleToString(
-            MathMax(0.0,
-                    MathMin(100.0,
-                            InpHighestProfitLockSharePercent)),2) + "%" +
-         " | LockedProfit=" +
-         DoubleToString(g_profitPercentProtectedPercent,2) + "%" +
-         " | LockedEquity=$" +
-         DoubleToString(g_profitPercentProtectedEquity,2) +
-         " | CloseTrigger=" +
-         DoubleToString(
-            GetDailyProfitLadderCloseTriggerPercent(
-               g_profitPercentProtectedPercent),2) + "%";
-
-      Print(trailMsg);
-     }
-  }
-
-//+------------------------------------------------------------------+
 string DailyProfitLadderLevelsText(int decimals)
   {
    string result = "";
@@ -8546,44 +8397,6 @@ string DailyProfitPercentLadderStatusText()
    if(g_dailyProfitLock)
       return(g_profitPercentLadderStatus);
 
-   if(InpUseHighestProfitShareLock)
-     {
-      double activationPercent =
-         MathMax(0.0,GetDailyProfitLadderPercent(1));
-
-      if(g_profitPercentHighestLevel <= 0)
-         return("READY | NOW " +
-                DoubleToString(currentPercent,2) +
-                "% | ACTIVATE " +
-                DoubleToString(activationPercent,2) +
-                "% EXACT | THEN LOCK " +
-                DoubleToString(
-                   MathMax(0.0,
-                           MathMin(100.0,
-                                   InpHighestProfitLockSharePercent)),0) +
-                "% OF PEAK PROFIT");
-
-      if(g_profitPercentAwaitingNewOrder)
-         return("FIRST " +
-                DoubleToString(activationPercent,2) +
-                "% BOOKED | WAIT NEW ORDER | PEAK " +
-                DoubleToString(g_profitPercentPeakPercent,2) +
-                "% | FUTURE LOCK " +
-                DoubleToString(
-                   GetHighestProfitShareLockedPercent(),2) + "%");
-
-      return("UNLIMITED SHARE LOCK | PEAK " +
-             DoubleToString(g_profitPercentPeakPercent,2) +
-             "% | LOCKED " +
-             DoubleToString(g_profitPercentProtectedPercent,2) +
-             "% | CLOSE " +
-             DoubleToString(
-                GetDailyProfitLadderCloseTriggerPercent(
-                   g_profitPercentProtectedPercent),2) +
-             "% | NOW " +
-             DoubleToString(currentPercent,2) + "%");
-     }
-
    if(g_profitPercentHighestLevel <= 0)
       return("READY | NOW " +
              DoubleToString(currentPercent,2) +
@@ -8602,28 +8415,19 @@ string DailyProfitPercentLadderStatusText()
              DoubleToString(
                 GetDailyProfitLadderPercent(
                    g_profitPercentHighestLevel),2) +
-             "% | WAIT NEW ORDER | BASE FLOOR " +
-             DoubleToString(
-                GetCurrentBookedLadderBaseFloorPercent(),2) +
-             "% | PEAK " +
-             DoubleToString(g_profitPercentPeakPercent,2) +
+             "% | WAIT NEW MARKET ORDER | THEN FLOOR " +
+             DoubleToString(g_profitPercentProtectedPercent,2) +
              "% | NOW " +
              DoubleToString(currentPercent,2) + "%");
 
    return("L" +
           IntegerToString(g_profitPercentHighestLevel) +
-          " ACTIVE | PEAK " +
-          DoubleToString(g_profitPercentPeakPercent,2) +
-          "% | FLOOR " +
+          " NEW CYCLE ACTIVE | FLOOR " +
           DoubleToString(g_profitPercentProtectedPercent,2) +
-          "% | CLOSE " +
-          DoubleToString(
-             GetDailyProfitLadderCloseTriggerPercent(
-                g_profitPercentProtectedPercent),2) +
           "% | NOW " +
           DoubleToString(currentPercent,2) +
           (g_profitPercentHighestLevel < maxLevel
-           ? "% | NEXT " +
+           ? "% | NEXT BOOK " +
              DoubleToString(
                 GetDailyProfitLadderPercent(nextLevel),2) + "%"
            : "% | FINAL LEVEL"));
@@ -8638,9 +8442,7 @@ string DailyProfitPauseDashboardText()
    if(g_dailyProfitLock)
      {
       if(InpUseDailyProfitPercentLadder)
-         return(InpUseHighestProfitShareLock
-                ? "HIGHEST PROFIT SHARE LOCK - PAUSED"
-                : "DAILY PROFIT PERCENT LADDER LOCK - PAUSED");
+         return("DAILY PROFIT PERCENT LADDER LOCK - PAUSED");
 
       return("OPENING BALANCE PROFIT LOCK - PAUSED");
      }
@@ -8685,8 +8487,6 @@ bool LockDailyProfitPercentLadder(string lockReason,
          DoubleToString(g_lockedProfitToday,2),
          " | ProfitPercent=",
          DoubleToString(currentPercent,2),"%",
-         " | PeakPercent=",
-         DoubleToString(g_profitPercentPeakPercent,2),"%",
          " | ProtectedPercent=",
          DoubleToString(g_profitPercentProtectedPercent,2),"%",
          " | ProtectedEquity=$",
@@ -8710,8 +8510,6 @@ bool LockDailyProfitPercentLadder(string lockReason,
          DoubleToString(g_baseBalance,2) +
          " | Profit " +
          DoubleToString(currentPercent,2) +
-         "% | Peak " +
-         DoubleToString(g_profitPercentPeakPercent,2) +
          "% | Protected " +
          DoubleToString(g_profitPercentProtectedPercent,2) +
          "%";
@@ -8726,155 +8524,6 @@ bool LockDailyProfitPercentLadder(string lockReason,
   }
 
 //+------------------------------------------------------------------+
-//| Unlimited highest-total-profit 50% share lock                    |
-//+------------------------------------------------------------------+
-bool CheckHighestProfitShareLock(double currentEquity)
-  {
-   if(!InpUseDailyProfitLock ||
-      !InpUseDailyProfitPercentLadder ||
-      !InpUseHighestProfitShareLock)
-      return(false);
-
-   if(g_dailyProfitLock)
-      return(IsDailyProfitPauseActive());
-
-   double currentPercent =
-      GetDailyEquityProfitPercent(currentEquity);
-
-   if(currentPercent > g_profitPercentPeakPercent)
-      g_profitPercentPeakPercent = currentPercent;
-
-   double activationPercent =
-      MathMax(0.0,GetDailyProfitLadderPercent(1));
-
-   // Before the first exact target there is no profit-share day lock.
-   if(g_profitPercentHighestLevel <= 0)
-     {
-      if(currentPercent+0.0000001 < activationPercent)
-        {
-         g_profitPercentLadderStatus =
-            "READY | NOW " +
-            DoubleToString(currentPercent,2) +
-            "% | ACTIVATE AT " +
-            DoubleToString(activationPercent,2) +
-            "% EXACT";
-         return(false);
-        }
-
-      // First target reached: book existing exposure but do not stop the EA.
-      g_profitPercentHighestLevel = 1;
-      g_profitPercentLastBookedLevel = 1;
-      g_profitPercentLastBookTime = TimeCurrent();
-      g_profitPercentProtectedPercent =
-         GetHighestProfitShareLockedPercent();
-      g_profitPercentProtectedEquity =
-         GetDailyProfitLadderEquity(
-            g_profitPercentProtectedPercent);
-      g_profitPercentLastTrailLogFloor =
-         g_profitPercentProtectedPercent;
-      g_profitPercentAwaitingNewOrder =
-         InpProfitLadderProtectAfterNewOrder;
-
-      g_profitPercentLadderStatus =
-         "FIRST " +
-         DoubleToString(activationPercent,2) +
-         "% BOOKED | WAIT NEW ORDER | PEAK " +
-         DoubleToString(g_profitPercentPeakPercent,2) +
-         "% | LOCK " +
-         DoubleToString(
-            MathMax(0.0,
-                    MathMin(100.0,
-                            InpHighestProfitLockSharePercent)),2) +
-         "% OF PEAK PROFIT";
-
-      Print("HIGHEST PROFIT SHARE LOCK ACTIVATED",
-            " | Activation=",DoubleToString(activationPercent,2),"%",
-            " | CurrentProfit=",DoubleToString(currentPercent,2),"%",
-            " | PeakProfit=",DoubleToString(g_profitPercentPeakPercent,2),"%",
-            " | LockedProfit=",DoubleToString(g_profitPercentProtectedPercent,2),"%",
-            " | LockedEquity=$",DoubleToString(g_profitPercentProtectedEquity,2),
-            " | LockShare=",DoubleToString(
-               MathMax(0.0,
-                       MathMin(100.0,
-                               InpHighestProfitLockSharePercent)),2),"%",
-            " | Trading continues after booking.");
-
-      if(InpProfitLadderBookAtEachTarget)
-         CloseAllEAOrders(
-            "FIRST DAILY PROFIT TARGET BOOKED - UNLIMITED SHARE LOCK CONTINUES");
-
-      return(false);
-     }
-
-   // Activate protection only when a genuinely new market order opens after
-   // the first-target booking. Pending orders alone do not activate the lock.
-   if(g_profitPercentAwaitingNewOrder &&
-      CountAllOrders() > 0)
-     {
-      g_profitPercentAwaitingNewOrder = false;
-      UpdateHighestDailyProfitShareFloor();
-
-      g_profitPercentLadderStatus =
-         "UNLIMITED SHARE LOCK ACTIVE | PEAK " +
-         DoubleToString(g_profitPercentPeakPercent,2) +
-         "% | LOCKED " +
-         DoubleToString(g_profitPercentProtectedPercent,2) +
-         "% | CLOSE " +
-         DoubleToString(
-            GetDailyProfitLadderCloseTriggerPercent(
-               g_profitPercentProtectedPercent),2) +
-         "% | NOW " +
-         DoubleToString(currentPercent,2) + "%";
-
-      Print("UNLIMITED HIGHEST PROFIT SHARE LOCK NEW CYCLE STARTED",
-            " | PeakProfit=",DoubleToString(g_profitPercentPeakPercent,2),"%",
-            " | LockedProfit=",DoubleToString(g_profitPercentProtectedPercent,2),"%",
-            " | LockedEquity=$",DoubleToString(g_profitPercentProtectedEquity,2),
-            " | CloseTrigger=",DoubleToString(
-               GetDailyProfitLadderCloseTriggerPercent(
-                  g_profitPercentProtectedPercent),2),"%",
-            " | CurrentProfit=",DoubleToString(currentPercent,2),"%");
-     }
-
-   // While waiting for the first post-booking market order, do not lock the day.
-   if(g_profitPercentAwaitingNewOrder)
-      return(false);
-
-   // Peak and locked share only move upward. There is no upper target.
-   UpdateHighestDailyProfitShareFloor();
-
-   double closeThresholdPercent =
-      GetDailyProfitLadderCloseTriggerPercent(
-         g_profitPercentProtectedPercent);
-
-   g_profitPercentLadderStatus =
-      "UNLIMITED SHARE LOCK | PEAK " +
-      DoubleToString(g_profitPercentPeakPercent,2) +
-      "% | LOCKED " +
-      DoubleToString(g_profitPercentProtectedPercent,2) +
-      "% | CLOSE " +
-      DoubleToString(closeThresholdPercent,2) +
-      "% | NOW " +
-      DoubleToString(currentPercent,2) + "%";
-
-   if(currentPercent <= closeThresholdPercent+0.0000001)
-     {
-      return(LockDailyProfitPercentLadder(
-         "50% SHARE OF HIGHEST TOTAL DAILY PROFIT HIT" +
-         " | PEAK " +
-         DoubleToString(g_profitPercentPeakPercent,2) +
-         "% | LOCKED " +
-         DoubleToString(g_profitPercentProtectedPercent,2) +
-         "% | TRIGGER " +
-         DoubleToString(closeThresholdPercent,2) + "%",
-         currentEquity,
-         currentPercent));
-     }
-
-   return(false);
-  }
-
-//+------------------------------------------------------------------+
 bool CheckDailyProfitPercentLadder(double currentEquity)
   {
    if(!InpUseDailyProfitLock ||
@@ -8883,9 +8532,6 @@ bool CheckDailyProfitPercentLadder(double currentEquity)
 
    if(g_dailyProfitLock)
       return(IsDailyProfitPauseActive());
-
-   if(InpUseHighestProfitShareLock)
-      return(CheckHighestProfitShareLock(currentEquity));
 
    int maxLevel = GetDailyProfitLadderMaxLevel();
    double finalPercent =
@@ -8902,29 +8548,11 @@ bool CheckDailyProfitPercentLadder(double currentEquity)
       CountAllOrders() > 0)
      {
       g_profitPercentAwaitingNewOrder = false;
-
-      // Activate the fixed floor and immediately upgrade it from the
-      // remembered highest daily profit when the trail is enabled.
-      g_profitPercentProtectedPercent =
-         MathMax(g_profitPercentProtectedPercent,
-                 GetHighestProfitShareLockedPercent());
-      g_profitPercentProtectedEquity =
-         GetDailyProfitLadderEquity(
-            g_profitPercentProtectedPercent);
-      g_profitPercentLastTrailLogFloor =
-         g_profitPercentProtectedPercent;
-
       g_profitPercentLadderStatus =
          "L" +
          IntegerToString(g_profitPercentHighestLevel) +
-         " NEW ORDER ACTIVE | PEAK " +
-         DoubleToString(g_profitPercentPeakPercent,2) +
-         "% | FLOOR " +
+         " NEW ORDER CYCLE ACTIVE | PROTECT " +
          DoubleToString(g_profitPercentProtectedPercent,2) +
-         "% | CLOSE " +
-         DoubleToString(
-            GetDailyProfitLadderCloseTriggerPercent(
-               g_profitPercentProtectedPercent),2) +
          "% | NEXT " +
          DoubleToString(
             GetDailyProfitLadderPercent(
@@ -8932,26 +8560,14 @@ bool CheckDailyProfitPercentLadder(double currentEquity)
                        g_profitPercentHighestLevel+1)),2) +
          "%";
 
-      string newCycleMsg =
-         "DAILY PROFIT LADDER NEW CYCLE STARTED" +
-         " | BookedLevel=" +
-         IntegerToString(g_profitPercentHighestLevel) +
-         " | Peak=" +
-         DoubleToString(g_profitPercentPeakPercent,2) + "%" +
-         " | BaseFloor=" +
-         DoubleToString(GetCurrentBookedLadderBaseFloorPercent(),2) + "%" +
-         " | ActiveProtected=" +
-         DoubleToString(g_profitPercentProtectedPercent,2) + "%" +
-         " | CloseTrigger=" +
-         DoubleToString(
-            GetDailyProfitLadderCloseTriggerPercent(
-               g_profitPercentProtectedPercent),2) + "%" +
-         " | CurrentEquity=$" +
-         DoubleToString(currentEquity,2) +
-         " | CurrentPercent=" +
-         DoubleToString(currentPercent,2) + "%";
-
-      Print(newCycleMsg);
+      Print("DAILY PROFIT LADDER NEW CYCLE STARTED",
+            " | BookedLevel=",g_profitPercentHighestLevel,
+            " | ActiveProtectedPercent=",
+            DoubleToString(g_profitPercentProtectedPercent,2),"%",
+            " | CurrentEquity=$",
+            DoubleToString(currentEquity,2),
+            " | CurrentPercent=",
+            DoubleToString(currentPercent,2),"%");
      }
 
    int reachedLevel = 0;
@@ -8972,20 +8588,11 @@ bool CheckDailyProfitPercentLadder(double currentEquity)
    if(reachedLevel > g_profitPercentHighestLevel)
      {
       g_profitPercentHighestLevel = reachedLevel;
-
-      double fixedProtectedPercent =
-         GetDailyProfitLadderProtectedPercent(reachedLevel);
-      double trailProtectedPercent =
-         GetHighestProfitShareLockedPercent();
-
       g_profitPercentProtectedPercent =
-         MathMax(fixedProtectedPercent,
-                 trailProtectedPercent);
+         GetDailyProfitLadderProtectedPercent(reachedLevel);
       g_profitPercentProtectedEquity =
          GetDailyProfitLadderEquity(
             g_profitPercentProtectedPercent);
-      g_profitPercentLastTrailLogFloor =
-         g_profitPercentProtectedPercent;
 
       Print("DAILY PROFIT LADDER TARGET REACHED",
             " | Level=",reachedLevel,"/",maxLevel,
@@ -8994,11 +8601,7 @@ bool CheckDailyProfitPercentLadder(double currentEquity)
                GetDailyProfitLadderPercent(reachedLevel),2),"%",
             " | CurrentPercent=",
             DoubleToString(currentPercent,2),"%",
-            " | PeakPercent=",
-            DoubleToString(g_profitPercentPeakPercent,2),"%",
-            " | BaseProtectedPercent=",
-            DoubleToString(fixedProtectedPercent,2),"%",
-            " | EffectiveProtectedPercent=",
+            " | NextProtectedPercent=",
             DoubleToString(g_profitPercentProtectedPercent,2),"%",
             " | CurrentEquity=$",
             DoubleToString(currentEquity,2));
@@ -9028,11 +8631,7 @@ bool CheckDailyProfitPercentLadder(double currentEquity)
          DoubleToString(
             GetDailyProfitLadderPercent(reachedLevel),2) +
          "% REACHED | BOOK ORDERS | CONTINUE | NEXT FLOOR " +
-         DoubleToString(g_profitPercentProtectedPercent,2) +
-         "% | EARLY CLOSE " +
-         DoubleToString(
-            GetDailyProfitLadderCloseTriggerPercent(
-               g_profitPercentProtectedPercent),2) + "%";
+         DoubleToString(g_profitPercentProtectedPercent,2) + "%";
 
       if(InpProfitLadderBookAtEachTarget)
         {
@@ -9055,10 +8654,6 @@ bool CheckDailyProfitPercentLadder(double currentEquity)
             : "immediately",
             " | ProtectedFloor=",
             DoubleToString(g_profitPercentProtectedPercent,2),"%",
-            " | EarlyCloseTrigger=",
-            DoubleToString(
-               GetDailyProfitLadderCloseTriggerPercent(
-                  g_profitPercentProtectedPercent),2),"%",
             " | NextTarget=",
             DoubleToString(
                GetDailyProfitLadderPercent(
@@ -9073,25 +8668,22 @@ bool CheckDailyProfitPercentLadder(double currentEquity)
    if(g_profitPercentHighestLevel > 0 &&
       !g_profitPercentAwaitingNewOrder)
      {
-      // Remembered peak and protected floor only move upward.
-      UpdateHighestDailyProfitShareFloor();
-
+      double returnBuffer =
+         MathMax(0.0,
+                 InpProfitLadderReturnBufferPercent);
       double closeThresholdPercent =
-         GetDailyProfitLadderCloseTriggerPercent(
-            g_profitPercentProtectedPercent);
+         MathMax(0.0,
+                 g_profitPercentProtectedPercent -
+                 returnBuffer);
 
       if(currentPercent <
          closeThresholdPercent-0.0000001)
         {
          return(LockDailyProfitPercentLadder(
-            "HIGHEST PROFIT TRAIL PULLBACK BELOW " +
-            DoubleToString(closeThresholdPercent,2) +
-            "% | PEAK " +
-            DoubleToString(g_profitPercentPeakPercent,2) +
-            "% | PROTECTED " +
+            "NEW CYCLE LOSS BELOW PROTECTED " +
             DoubleToString(
                g_profitPercentProtectedPercent,2) +
-            "%",
+            "% FLOOR",
             currentEquity,
             currentPercent));
         }
@@ -9203,16 +8795,13 @@ void InitializeEquityDay()
    g_profitPercentProtectedPercent = 0.0;
    g_profitPercentProtectedEquity = 0.0;
    g_profitPercentPeakPercent = 0.0;
-   g_profitPercentLastTrailLogFloor = 0.0;
    g_profitPercentLadderHit = false;
    g_profitPercentAwaitingNewOrder = false;
    g_profitPercentLastBookedLevel = 0;
    g_profitPercentLastBookTime = 0;
    g_profitPercentLadderStatus =
       InpUseDailyProfitPercentLadder
-      ? (InpUseHighestProfitShareLock
-         ? "READY | WAIT EXACT 10% SHARE-LOCK ACTIVATION"
-         : "READY | WAIT LEVEL 1")
+      ? "READY | WAIT LEVEL 1"
       : "OFF | LEGACY FIXED TARGET";
 
    g_buySideLossStreak = 0;
@@ -9251,12 +8840,6 @@ void InitializeEquityDay()
    " | HalfLossPauseEquity=$" + DoubleToString(g_halfLossPauseEquityLevel,2) +
    " | HalfLossPauseMinutes=" + IntegerToString(InpHalfLossPauseMinutes) +
    " | ProfitMode=" + (InpUseDailyProfitPercentLadder ? "LADDER" : "FIXED") +
-   " | HighestProfitShareLock=" +
-   (InpUseHighestProfitShareLock ? "ON" : "OFF") +
-   " | PeakProfitLockShare=" +
-   DoubleToString(InpHighestProfitLockSharePercent,2) + "%" +
-   " | FloorCloseBuffer=" +
-   DoubleToString(InpProfitLadderFloorCloseBufferPercent,2) + "%" +
    " | ProfitL1=" + DoubleToString(GetDailyProfitLadderPercent(1),2) + "%" +
    " Arm=" + DoubleToString(GetDailyProfitLadderArmPercent(1),2) + "%" +
    " Protect=" + DoubleToString(GetDailyProfitLadderProtectedPercent(1),2) + "%" +
@@ -9682,7 +9265,6 @@ void ResetAllFreshDayRuntimeState()
    g_profitPercentProtectedPercent = 0.0;
    g_profitPercentProtectedEquity = 0.0;
    g_profitPercentPeakPercent = 0.0;
-   g_profitPercentLastTrailLogFloor = 0.0;
    g_profitPercentLadderHit = false;
    g_profitPercentAwaitingNewOrder = false;
    g_profitPercentLastBookedLevel = 0;
@@ -19131,7 +18713,7 @@ void OnTick()
 
 // HARD OPENING-BALANCE EQUITY GUARD FIRST:
 // Loss lock uses InpLossStopPercent. Profit protection uses the enabled
-// 10/15/20/30/40/50 book-and-restart ladder with highest-profit share locking lock, or the legacy fixed target when ladder is OFF.
+// 10/15/20/30/40/50 target-to-protection ladder, or the legacy fixed target when ladder is OFF.
    if(CheckEquityConditions())
      {
       string equityPauseStatus =
@@ -24815,7 +24397,7 @@ void DrawCompactDashboard(string status)
                    clrBlack,titleColor);
 
    DrawCornerLabel("DXB_COMPACT_TOP_TITLE",
-                   "DXB SAR v1.90 | LATEST ACTIONS | " +
+                   "DXB SAR v1.67 | LATEST ACTIONS | " +
                    (IsTesting() ? "TEST" : "LIVE") +
                    " | " + Symbol() +
                    " | LOT " + DoubleToString(GetCurrentTradingLot(),2),
@@ -24954,15 +24536,9 @@ void DrawCompactDashboard(string status)
    CompactXYRow("DXB_COMPACT_RIGHT_ROW_",rightRow,rightX+10,sideY+28,
                 "PROFIT LADDER",
                 InpUseDailyProfitPercentLadder
-                ? (InpUseHighestProfitShareLock
-                   ? "ACT " +
-                     DoubleToString(GetDailyProfitLadderPercent(1),0) +
-                     "% | LOCK " +
-                     DoubleToString(InpHighestProfitLockSharePercent,0) +
-                     "% OF PEAK | UNLIMITED"
-                   : DailyProfitLadderTargetProtectText(0) +
-                     " | FINAL $" +
-                     DoubleToString(g_profitLadderLevel6Equity,2))
+                ? DailyProfitLadderTargetProtectText(0) +
+                  " | FINAL $" +
+                  DoubleToString(g_profitLadderLevel6Equity,2)
                 : "FIXED $"+
                   DoubleToString(g_profitTargetEquity,2),
                 clrLime,rightChars);
@@ -25062,7 +24638,7 @@ void DrawLegacyDashboard(string status)
                    13);
 
    DrawCornerLabel("DXB_RIGHT_SETTINGS_TITLE",
-                   liveModeText + " | VERSION 1.88",
+                   liveModeText + " | VERSION 1.67",
                    CORNER_RIGHT_UPPER,
                    300,287,
                    liveModeColor,
