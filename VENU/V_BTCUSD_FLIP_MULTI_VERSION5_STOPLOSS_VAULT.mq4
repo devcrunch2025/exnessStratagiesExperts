@@ -410,7 +410,7 @@ bool   InpContinueSLReverseRecoveryAfterProfit = false; // any SL-reverse chain 
 // Applies only to SLREV_RECOVERY_1 and SLREV_RECOVERY_CHAIN orders.
 // These orders ignore MIXED/DANGER market-mode pauses, big-candle pauses,
 // per-direction limits, total-order limits and the one-recovery-order limit.
-// Dubai no-new hours, AutoTrading/broker permission and equity locks remain active.
+// GMT0 no-new hours, AutoTrading/broker permission and equity locks remain active.
 bool   InpSLReverseRecoveryBypassEntryLimits = true;
 
 // Recovery gap orders: when existing BUY/SELL basket is in loss and price moves against it
@@ -513,7 +513,7 @@ bool   InpResetTradingCycleWithEquity = true;   // reset SAR/early/flat cycle wh
 
 //================ COMPLETE FRESH DAY START =========================
 // Strategy Tester: a new tester/server date starts a completely fresh run.
-// Live trading: a new Dubai date starts a completely fresh run.
+// Live trading: a new GMT0 date starts a completely fresh run.
 // To reproduce a separate one-day test, pending and market orders are closed,
 // runtime strategy memory is cleared, persistent SL-streak state is reset,
 // the new opening balance is captured, and the dynamic lot is recalculated.
@@ -538,14 +538,14 @@ int    InpFreshDayInternalResumeDelaySeconds = 0;
 // Strategy Tester and live VPS both use the actual AccountBalance() captured
 // at the new-day boundary for dynamic lot and scaled USD targets. The only
 // intended difference is the clock source: tester/report time in backtests and
-// Dubai time in live trading.
+// GMT0 time in live trading.
 // Legacy compatibility only. Tester and live now both use the actual new-day
 // AccountBalance() as the opening reference. Only their clock source differs.
 bool   InpTesterStandaloneFreshDayMode       = false;
 
 
 //================ STRICT 23:45 DAY-END FRESH BOOT ==================
-// Live trading uses Dubai time (GMT+4). Strategy Tester uses tester time.
+// Live trading uses GMT0/UTC time. Strategy Tester converts test/server time to GMT0.
 // At the first tick from 23:45:00 onward, the EA:
 //   1) blocks every strategy path before any other OnTick calculation,
 //   2) deletes its pending orders,
@@ -553,7 +553,7 @@ bool   InpTesterStandaloneFreshDayMode       = false;
 //   4) clears all known runtime strategy memory,
 //   5) requests ChartSetSymbolPeriod() so MT4 reloads every compiled global
 //      variable from its declaration/default value,
-//   6) keeps OnTick blocked through 23:59:59.
+//   6) keeps OnTick blocked through 23:59:59 GMT0.
 // At 00:00 the existing strict fresh-day routine creates the new daily
 // balance/equity cycle and the daily reinitialization performs a full startup.
 // This is safer than a JSON variable file: no setting name, type, array or new
@@ -594,9 +594,9 @@ bool   InpNotifyOnEquityRestart       = true;    // notify when trading restarts
 bool   InpNotifyOnEAStart             = false;   // generic attach/reload alert disabled by default
 // Strict fresh-boot lifecycle notifications. Push delivery uses the existing
 // InpSendPushNotifications switch; desktop popup uses InpSendTerminalAlerts.
-bool   InpNotifyOnDayEndResetStarted   = true;   // one push when strict 23:45 reset begins
+bool   InpNotifyOnDayEndResetStarted   = true;   // one push when strict 23:45 GMT0 reset begins
 bool   InpNotifyOnNewDayTradingStarted = true;   // one push after all 00:00 restart/resume holds finish
-int    InpNewDayNotifyWindowMinutes     = 15;     // allow NEW DAY alert only from 00:00 through 00:15 Dubai
+int    InpNewDayNotifyWindowMinutes     = 15;     // allow NEW DAY alert only from 00:00 through 00:15 GMT0
 
 // Trading-pause reason notifications:
 // Sends one mobile push/terminal alert when NEW orders become paused,
@@ -691,7 +691,7 @@ double InpLiveOppositeCandleMinimumSLUSD     = 0.01; // smallest permitted tight
 // SELL loss + strong bullish impulse -> BUYSTOP above the live M1 high.
 //
 // This special entry bypasses normal strategy filters because the impulse itself
-// is the confirmation. Hard protections remain: Dubai no-new hours, tick speed,
+// is the confirmation. Hard protections remain: GMT0 no-new hours, tick speed,
 // broker permission, equity locks, direction cap and total cap.
 // Normally live SAR must match the impulse direction. A stricter pre-SAR DANGER
 // override can enter before the SAR dots flip when the momentum candle is very
@@ -819,36 +819,26 @@ bool   InpDeletePendingOrdersOnSARChange     = true;
 // one same-direction BUYSTOP/SELLSTOP using InpPendingOrderRawGap.
 // This bonus pending entry bypasses normal strategy/timing filters because the
 // profitable first order is treated as live market confirmation. Hard safety
-// checks remain: Dubai no-new hours, current SAR direction, AutoTrading/broker
+// checks remain: GMT0 no-new hours, current SAR direction, AutoTrading/broker
 // permission, per-direction open-entry cap and total-order cap.
 bool   InpOpenGoodMarketPendingAfterFirstProfit = true;
 double InpGoodMarketFirstOrderProfitUSD          = 0.50;
 int    InpGoodMarketPendingRetrySeconds           = 3;
 
-// Dubai no-new-order hours:
-// Block ALL new EA entries during every Dubai hour listed below:
+// GMT0 / UTC no-new-order hours:
+// Block ALL new EA entries during every GMT0 hour listed below:
 // first SAR, later SAR, extra, recovery, recovery-gap and pending entries.
 // Existing market-order close/profit/protection management continues.
-// TimeGMT()+4 is used, so broker-server, VPS and VPN time zones do not affect this rule.
+// LIVE: TimeGMT() is used, so broker-server/VPS timezone does not matter.
+// TESTER: TimeCurrent() is converted to GMT0 using InpTesterServerGMTOffsetHours.
+//         GMT0 server/tester=0, GMT+2 server/tester=2.
 bool   InpUseNoNewOrderHours      = true;
-// Strategy Tester uses tester/report time so blocked hours can be verified.
-// Live trading uses Dubai time from GetDubaiTime().
 bool   InpApplyNoNewOrderHoursInTesting = true;
-// Block every NEW order during 07:00-07:59 and 14:00-22:59.
-// Existing market orders continue TP/SL management.
-// Every untriggered EA pending order is deleted while this lock is active.
-// string InpNoNewOrderHourList      = "4,10,16,17,18,19,20,21,22,23";//Dubai live GMT+4 
-// string InpNoNewOrderHourList      = "0,6,7,12,14,15,16,17,18,19,20,21,22";//testing
-// string InpNoNewOrderHourList      = "0,6,7,16,17,18,19,20,21,22";//testing
-// string InpNoNewOrderHourList      = "0,6,7,12,13,14,15,16,17,18,19,20,21,22,23";//testing GMT 0
-//  string InpNoNewOrderHourListDubai      = "4,10,11,16,17,18,19,20,21,22,23";//Dubai live GMT+4 
+int    InpTesterServerGMTOffsetHours = 0; // Strategy Tester only: GMT0 server=0, GMT+2 server=2. Blocked hours remain GMT0.
 
-// string InpNoNewOrderHourList      = "14,15,16,17,18,19,20,21,22";//original
-//  string InpNoNewOrderHourListDubai      ="":// "6,7,12,14,15,16,17,18,19,20,21,22";//Dubai live GMT+4 
-
-string InpNoNewOrderHourList      = "6,7,11,12,14,15,16,17,18,19,20,21,22";
-
-string InpNoNewOrderHourListDubai = "10,11,15,16,18,19,20,21,22,23,0,1,2"; // Dubai live GMT+4
+// Single source of truth. Do not create Dubai/server-hour copies.
+// Example: "6,7,11,12" blocks 06:00-06:59, 07:00-07:59, 11:00-11:59, 12:00-12:59 GMT0.
+string InpNoNewOrderHourList      = "6,7,11,12,13,14,15,16,17,18,19,20,21,22,23"; // GMT0 / UTC only
 
 
 
@@ -1435,7 +1425,7 @@ bool     g_freshDayResetInProgress = false;
 string   g_freshDayStatus       = "WAIT INIT";
 
 
-// Strict 23:45 shutdown state. Prepared/reloaded date keys are also stored in
+// Strict 23:45 GMT0 shutdown state. Prepared/reloaded date keys are also stored in
 // terminal Global Variables so a chart reload or terminal restart during the
 // 23:45-00:00 hold cannot accidentally run the shutdown twice or resume trade.
 int      g_dayEndPreparedDateKey = 0;
@@ -2427,7 +2417,7 @@ bool GlobalFilterCase(int filterId)
 bool FirstSAROrderFilterCase(int filterId)
   {
 // The actual first-order gate uses price difference plus mandatory
-// execution safety, including the hard Dubai no-new-order hours.
+// execution safety, including the hard GMT0 no-new-order hours.
 // Every other strategy filter is deliberately bypassed.
    switch(filterId)
      {
@@ -2441,7 +2431,7 @@ bool FirstSAROrderFilterCase(int filterId)
          return(true);  // independent BUY/SELL cap
 
       case DXB_FILTER_NO_NEW_HOUR:
-         return(true);  // mandatory Dubai-time lock
+         return(true);  // mandatory GMT0-time lock
      }
 
    return(false);
@@ -2472,7 +2462,7 @@ bool IsNormalEntryFilterEnabledForOrder(int direction, int filterId)
 string NormalEntryProfileText(int direction)
   {
    if(IsFirstSAROrderAfterFlip(direction))
-      return("FIRST ORDER: PRICE DIFF + DUBAI TIME");
+      return("FIRST ORDER: PRICE DIFF + GMT0 TIME");
 
    return("ORDER 2+: FULL MODE FILTERS");
   }
@@ -4259,7 +4249,7 @@ void SendCreatedOrderPushFromSelected()
                 " #" + IntegerToString(ticket) +
                 " | Lot " + DoubleToString(OrderLots(), 2) +
                 " | Open " + DoubleToString(OrderOpenPrice(), Digits) +
-                " | Dubai " + TimeToString(GetDubaiTime(), TIME_DATE|TIME_SECONDS);
+                " | GMT0 " + TimeToString(GetGMT0Time(), TIME_DATE|TIME_SECONDS);
 
    Print("PUSH ORDER CREATED | ", msg);
 
@@ -7398,8 +7388,8 @@ string GetDayEndReloadedGlobalKey()
 
 //+------------------------------------------------------------------+
 //| Persistent one-time notification markers.                        |
-//| RESET_STARTED stores the old Dubai date that began the shutdown. |
-//| TRADING_STARTED stores the new Dubai date already announced.     |
+//| RESET_STARTED stores the old GMT0 date that began the shutdown. |
+//| TRADING_STARTED stores the new GMT0 date already announced.     |
 //+------------------------------------------------------------------+
 string GetDayEndResetStartedNotifyGlobalKey()
   {
@@ -7621,7 +7611,7 @@ void NotifyNewOrderHardPauseReasonIfNeeded()
   }
 
 //+------------------------------------------------------------------+
-//| Send exactly once when the strict 23:45 shutdown begins.         |
+//| Send exactly once when the strict 23:45 GMT0 shutdown begins.         |
 //+------------------------------------------------------------------+
 void NotifyDayEndResetStartedOnce(int dateKey)
   {
@@ -7631,12 +7621,12 @@ void NotifyDayEndResetStartedOnce(int dateKey)
    string key = GetDayEndResetStartedNotifyGlobalKey();
 
    // The shared account/symbol marker is claimed atomically so every chart
-   // cannot announce the same 23:45 shutdown.
+   // cannot announce the same 23:45 GMT0 shutdown.
    if(!ClaimDailyNotificationMarker(key,dateKey))
       return;
 
    string details =
-      "Dubai " + TimeToString(GetDubaiTime(),TIME_DATE|TIME_SECONDS) +
+      "GMT0 " + TimeToString(GetGMT0Time(),TIME_DATE|TIME_SECONDS) +
       " | Closing EA orders | Trading blocked to 00:00";
 
    SendFreshBootLifecycleNotification("23:45 RESET STARTED",details);
@@ -7654,16 +7644,16 @@ void NotifyNewDayTradingStartedOnce()
    if(currentDateKey <= 0)
       return;
 
-   datetime dubaiNow = GetDubaiTime();
-   int minuteOfDay = TimeHour(dubaiNow) * 60 + TimeMinute(dubaiNow);
+   datetime gmt0Now = GetGMT0Time();
+   int minuteOfDay = TimeHour(gmt0Now) * 60 + TimeMinute(gmt0Now);
    int notifyWindow = MathMax(1,MathMin(120,InpNewDayNotifyWindowMinutes));
 
-   // A genuine new-day notification is valid only shortly after 00:00 Dubai.
+   // A genuine new-day notification is valid only shortly after 00:00 GMT0.
    // This blocks false alerts caused by attaching/reloading the EA at midday.
    if(minuteOfDay > notifyWindow)
       return;
 
-   // The shutdown marker must be exactly yesterday's Dubai date. An older
+   // The shutdown marker must be exactly yesterday's GMT0 date. An older
    // stale marker is not accepted as proof that last night's reset completed.
    string resetKey = GetDayEndResetStartedNotifyGlobalKey();
    if(!GlobalVariableCheck(resetKey))
@@ -7682,7 +7672,7 @@ void NotifyNewDayTradingStartedOnce()
       return;
 
    string details =
-      "Dubai " + TimeToString(dubaiNow,TIME_DATE|TIME_SECONDS) +
+      "GMT0 " + TimeToString(gmt0Now,TIME_DATE|TIME_SECONDS) +
       " | Balance $" + DoubleToString(AccountBalance(),2) +
       " | Equity $" + DoubleToString(AccountEquity(),2) +
       " | Lot " + DoubleToString(GetCurrentTradingLot(),2);
@@ -7690,7 +7680,7 @@ void NotifyNewDayTradingStartedOnce()
   }
 
 //+------------------------------------------------------------------+
-//| True from the configured Dubai/tester time through 23:59:59.     |
+//| True from the configured GMT0 time through 23:59:59 GMT0.     |
 //+------------------------------------------------------------------+
 bool IsStrictDayEndFreshBootWindowNow()
   {
@@ -7906,7 +7896,7 @@ string GetDailyEAResumeGlobalKey()
   }
 
 //+------------------------------------------------------------------+
-//| Delete persistent strategy memory at the strict 23:45 shutdown.  |
+//| Delete persistent strategy memory at the strict 23:45 GMT0 shutdown.  |
 //|                                                                  |
 //| PRESERVED intentionally:                                         |
 //|   DXB_DAYEND_PREPARED_*  prevents repeated close/reset loops.     |
@@ -8296,15 +8286,7 @@ int OnInit()
    // Global-Variable key is initialized.
    InpMagicNumber = AccountNumber() + 202;
 
-   if(!IsTesting())
-     {
-   //   InpNoNewOrderHourList=InpNoNewOrderHourListDubai;
-if(InpNoNewOrderHourListDubai=="")
-      InpNoNewOrderHourListDubai = CreateDubaiHourListFromGMT(InpNoNewOrderHourList, 4, true);
-
-   Print("GMT No New Order Hours: ", InpNoNewOrderHourList);
-   Print("Dubai No New Order Hours: ", InpNoNewOrderHourListDubai);
-     }
+   Print("NO NEW ORDER HOURS GMT0 ONLY: ", InpNoNewOrderHourList);
 
    // Load only the persistent 23:45 anti-loop markers first. A chart reload
    // has already recreated every compiled global/static variable from its
@@ -9308,7 +9290,7 @@ void InitializeEquityDay()
    g_freshDayStartServerTime = GetCurrentFreshDayStartServerTime();
    g_freshDayHistoryCutoffTime = LoadFreshDayHistoryCutoff();
 
-   // The strict 23:45 shutdown guarantees the new day is flat before these
+   // The strict 23:45 GMT0 shutdown guarantees the new day is flat before these
    // values are captured.
    g_dayStartBalance = AccountBalance();
    g_dayStartEquity  = AccountEquity();
@@ -9628,34 +9610,32 @@ bool IsConfiguredNoNewOrderHourInList(int hourValue,string configuredHours)
 //+------------------------------------------------------------------+
 string GetActiveNoNewOrderHourList()
   {
-   if(IsTesting())
-      return(InpNoNewOrderHourList);
-
-   string dubaiHours = InpNoNewOrderHourListDubai;
-   StringReplace(dubaiHours," ","");
-
-   if(StringLen(dubaiHours) > 0)
-      return(InpNoNewOrderHourListDubai);
-
    return(InpNoNewOrderHourList);
+  }
+
+//+------------------------------------------------------------------+
+//| Canonical GMT0 / UTC reference clock.                            |
+//| LIVE: TimeGMT() ignores broker-server and VPS timezone.           |
+//| TESTER: TimeCurrent() minus InpTesterServerGMTOffsetHours.       |
+//+------------------------------------------------------------------+
+datetime GetGMT0Time()
+  {
+   if(IsTesting())
+      return(TimeCurrent() - (InpTesterServerGMTOffsetHours * 3600));
+
+   return(TimeGMT());
   }
 
 //+------------------------------------------------------------------+
 datetime GetActiveNoNewOrderClock()
   {
-   if(IsTesting())
-      return(TimeCurrent());
-
-   return(GetDubaiTime());
+   return(GetGMT0Time());
   }
 
 //+------------------------------------------------------------------+
 string GetActiveNoNewOrderClockLabel()
   {
-   if(IsTesting())
-      return("TESTER");
-
-   return("DXB");
+   return("GMT0");
   }
 
 //+------------------------------------------------------------------+
@@ -9666,13 +9646,12 @@ bool IsConfiguredNoNewOrderHour(int hourValue)
   }
 
 //+------------------------------------------------------------------+
-//+------------------------------------------------------------------+
-//| Current Dubai time (UTC+4). Dubai does not use daylight saving.  |
-//| Independent of broker-server, VPS and VPN time zones.            |
+//| Backward-compatible name kept so the rest of the EA compiles.     |
+//| This now returns GMT0/UTC time, not Dubai time.                  |
 //+------------------------------------------------------------------+
 datetime GetDubaiTime()
   {
-   return(TimeGMT() + (4 * 60 * 60));
+   return(GetGMT0Time());
   }
 
 
@@ -9687,14 +9666,11 @@ int GetDateKeyFromTime(datetime value)
   }
 
 //+------------------------------------------------------------------+
-//| Tester uses tester/server date. Live uses Dubai date.            |
+//| Fresh-day reference now uses GMT0 in both live and tester modes.  |
 //+------------------------------------------------------------------+
 datetime GetFreshDayReferenceTime()
   {
-   if(IsTesting())
-      return(TimeCurrent());
-
-   return(GetDubaiTime());
+   return(GetGMT0Time());
   }
 
 //+------------------------------------------------------------------+
@@ -9778,23 +9754,17 @@ datetime LoadFreshDayHistoryCutoff()
 //+------------------------------------------------------------------+
 datetime GetCurrentFreshDayStartServerTime()
   {
-   datetime serverNow = TimeCurrent();
+   datetime gmt0Now = GetGMT0Time();
+   datetime gmt0Start = gmt0Now -
+                        TimeHour(gmt0Now) * 3600 -
+                        TimeMinute(gmt0Now) * 60 -
+                        TimeSeconds(gmt0Now);
 
-   if(IsTesting())
-      return(serverNow -
-             TimeHour(serverNow) * 3600 -
-             TimeMinute(serverNow) * 60 -
-             TimeSeconds(serverNow));
+   int serverUtcOffset = IsTesting()
+                         ? InpTesterServerGMTOffsetHours * 3600
+                         : (int)(TimeCurrent() - TimeGMT());
 
-   datetime dubaiNow = GetDubaiTime();
-   datetime dubaiStart = dubaiNow -
-                         TimeHour(dubaiNow) * 3600 -
-                         TimeMinute(dubaiNow) * 60 -
-                         TimeSeconds(dubaiNow);
-
-   int serverUtcOffset = (int)(TimeCurrent() - TimeGMT());
-
-   return(dubaiStart - (4 * 3600) + serverUtcOffset);
+   return(gmt0Start + serverUtcOffset);
   }
 
 //+------------------------------------------------------------------+
@@ -10193,7 +10163,7 @@ bool HandleFreshDayStart()
    g_equityDateKey = currentDateKey;
    g_freshDayStartServerTime = GetCurrentFreshDayStartServerTime();
 
-   // The 23:45 shutdown already closed the old-day orders. Keep the new
+   // The 23:45 GMT0 shutdown already closed the old-day orders. Keep the new
    // history cutoff exactly at 00:00 so the first new-day tick/bar is not
    // skipped. This matches a standalone test that begins on this date.
    datetime strictCutoff = g_freshDayStartServerTime;
@@ -10260,8 +10230,7 @@ bool IsDubaiNoNewOrderHourNow()
 
 //+------------------------------------------------------------------+
 // Backward-compatible name used throughout the EA. This is a hard
-// no-new-order lock using tester time in Strategy Tester and Dubai
-// time in live trading.
+// no-new-order lock using GMT0/UTC in every environment.
 bool IsNoNewOrderHour()
   {
    return(IsNewOrderHardPauseActive());
@@ -10574,7 +10543,7 @@ string GetNewOrderHardPauseReasonText()
       reason =
          (IsTesting()
           ? "TESTER BLOCKED HOUR | "
-          : "DUBAI HIGH-RISK SESSION | ") +
+          : "GMT0 BLOCKED SESSION | ") +
          clockLabel + "=" +
          TimeToString(lockClock,TIME_DATE|TIME_MINUTES) +
          " | HOUR=" + IntegerToString(TimeHour(lockClock)) +
@@ -11362,9 +11331,7 @@ double GetConfiguredPendingOrderGapRaw()
    if(!InpUseHighRiskPendingOrderGap)
       return(normalGap);
 
-   int hourValue = IsTesting()
-                   ? TimeHour(TimeCurrent())
-                   : TimeHour(GetDubaiTime());
+   int hourValue = TimeHour(GetGMT0Time());
 
    int startHour = (int)MathMax(0,MathMin(23,InpHighRiskPendingGapStartHour));
    int endHour   = (int)MathMax(0,MathMin(23,InpHighRiskPendingGapEndHour));
@@ -11434,8 +11401,8 @@ bool IsPendingEntryAllowedForCurrentSAR(int direction, string source)
 
    if(IsNewOrderHardPauseActive())
      {
-      Print("PENDING ENTRY BLOCKED | ",GetNewOrderHardPauseReasonText()," | DXB=",
-            TimeToString(GetDubaiTime(), TIME_DATE|TIME_MINUTES),
+      Print("PENDING ENTRY BLOCKED | ",GetNewOrderHardPauseReasonText()," | GMT0=",
+            TimeToString(GetGMT0Time(), TIME_DATE|TIME_MINUTES),
             " | Hours=", InpNoNewOrderHourList,
             " | Source=", source);
       return(false);
@@ -11611,7 +11578,7 @@ bool ProcessGoodMarketFirstOrderContinuation()
       return(false);
      }
 
-// Dubai hours remain a hard lock. Do not keep a stale good-market request
+// GMT0 hours remain a hard lock. Do not keep a stale good-market request
 // until many hours later.
    if(IsNewOrderHardPauseActive())
      {
@@ -11754,7 +11721,7 @@ bool ProcessGoodMarketFirstOrderContinuation()
          " | SARCycleCreated=", g_sarCycleOrdersCreated,
          "/", g_sarCycleMaxOrders,
          " | BYPASS=normal filters",
-         " | KEPT=Dubai/SAR/trading/caps");
+         " | KEPT=GMT0/SAR/trading/caps");
 
    g_goodMarketContinuationStatus = "PENDING PLACED #" +
                                     IntegerToString(ticket);
@@ -15027,7 +14994,7 @@ void ProcessSLReverseRecoveryProfitContinuation()
 
    // SL-reverse chain continuation is allowed even when another recovery/order
    // exists when the dedicated bypass is enabled. OpenRecoveryOrder() still
-   // enforces Dubai hours, trading permission and equity protection.
+   // enforces GMT0 hours, trading permission and equity protection.
    if(!InpSLReverseRecoveryBypassEntryLimits && CountRecoveryOrders() > 0)
       return;
 
@@ -15168,8 +15135,8 @@ bool OpenRecoveryOrder(int direction, string sourceReason, int slReverseStage = 
 
    if(IsNewOrderHardPauseActive())
      {
-      string msg = "RECOVERY ORDER BLOCKED | " + GetNewOrderHardPauseReasonText() + " | DXB=" +
-                   TimeToString(GetDubaiTime(), TIME_DATE|TIME_MINUTES) +
+      string msg = "RECOVERY ORDER BLOCKED | " + GetNewOrderHardPauseReasonText() + " | GMT0=" +
+                   TimeToString(GetGMT0Time(), TIME_DATE|TIME_MINUTES) +
                    " | Hours=" + InpNoNewOrderHourList +
                    " | Source=" + sourceReason;
       SetLastOrderBlockDashboard(msg);
@@ -15284,7 +15251,7 @@ bool OpenRecoveryOrder(int direction, string sourceReason, int slReverseStage = 
      }
 
 // AFTER-CLOSE recovery may intentionally oppose the active SAR, so it must not
-// be blocked by IsPendingEntryAllowedForCurrentSAR(). Dubai hours, market mode,
+// be blocked by IsPendingEntryAllowedForCurrentSAR(). GMT0 hours, market mode,
 // big-candle protection, equity locks and order caps are still enforced above.
 
    int type = InpUsePendingOrderEntries
@@ -15335,8 +15302,8 @@ bool OpenRecoveryOrder(int direction, string sourceReason, int slReverseStage = 
 
    if(IsNewOrderHardPauseActive())
      {
-      Print("RECOVERY ORDERSEND CANCELLED | ",GetNewOrderHardPauseReasonText()," | DXB=",
-            TimeToString(GetDubaiTime(), TIME_DATE|TIME_MINUTES),
+      Print("RECOVERY ORDERSEND CANCELLED | ",GetNewOrderHardPauseReasonText()," | GMT0=",
+            TimeToString(GetGMT0Time(), TIME_DATE|TIME_MINUTES),
             " | Hours=", InpNoNewOrderHourList);
       return(false);
      }
@@ -15473,8 +15440,8 @@ bool OpenRecoveryGapMarketOrder(int direction, double gapMove, string triggerRea
   {
    if(IsNewOrderHardPauseActive())
      {
-      string msg = "RECOVERY GAP BLOCKED | " + GetNewOrderHardPauseReasonText() + " | DXB=" +
-                   TimeToString(GetDubaiTime(), TIME_DATE|TIME_MINUTES) +
+      string msg = "RECOVERY GAP BLOCKED | " + GetNewOrderHardPauseReasonText() + " | GMT0=" +
+                   TimeToString(GetGMT0Time(), TIME_DATE|TIME_MINUTES) +
                    " | Hours=" + InpNoNewOrderHourList +
                    " | Trigger=" + triggerReason;
       SetLastOrderBlockDashboard(msg);
@@ -15626,8 +15593,8 @@ bool OpenRecoveryGapMarketOrder(int direction, double gapMove, string triggerRea
 
    if(IsNewOrderHardPauseActive())
      {
-      Print("RECOVERY GAP ORDERSEND CANCELLED | ",GetNewOrderHardPauseReasonText()," | DXB=",
-            TimeToString(GetDubaiTime(), TIME_DATE|TIME_MINUTES),
+      Print("RECOVERY GAP ORDERSEND CANCELLED | ",GetNewOrderHardPauseReasonText()," | GMT0=",
+            TimeToString(GetGMT0Time(), TIME_DATE|TIME_MINUTES),
             " | Hours=", InpNoNewOrderHourList);
       return(false);
      }
@@ -18270,7 +18237,7 @@ bool ProcessNewOrderCreationLast(bool isNewBar, string &status)
 
    EnsureSARSignalOrderCycle(g_activeSARDirection);
 
-// HARD DUBAI-TIME ENTRY LOCK: applies to order #1 and every later
+// HARD GMT0-TIME ENTRY LOCK: applies to order #1 and every later
 // normal SAR order, regardless of the active filter profile.
    if(IsNewOrderHardPauseActive())
      {
@@ -18282,13 +18249,13 @@ bool ProcessNewOrderCreationLast(bool isNewBar, string &status)
 
 // ORDER #1 AFTER SAR FLIP:
 // Go directly to the dedicated price-difference-only profile. This branch
-// bypasses optional strategy filters, but never bypasses the hard Dubai
+// bypasses optional strategy filters, but never bypasses the hard GMT0
 // no-new-order hours, trading permission, direction or per-side cap.
    if(IsFirstSAROrderAfterFlip(g_activeSARDirection))
      {
       if(OpenMarketOrder(g_activeSARDirection, "SAR_FLIP_FIRST_ORDER"))
         {
-         status = "FIRST SAR ORDER OPENED | PRICE DIFF + DUBAI TIME OK | " +
+         status = "FIRST SAR ORDER OPENED | PRICE DIFF + GMT0 TIME OK | " +
                   DirectionText(g_activeSARDirection);
          return(true);
         }
@@ -19180,7 +19147,7 @@ void DrawTickSpeedDashboardPanel()
   }
 
 //+------------------------------------------------------------------+
-//| One-second clock guard for exact 23:45 shutdown and 00:00 boot.  |
+//| One-second clock guard for exact 23:45 GMT0 shutdown and 00:00 boot.  |
 //| MT4 event handlers are serialized, so this cannot run in parallel|
 //| with OnTick. It performs only the mandatory day-boundary work.    |
 //+------------------------------------------------------------------+
@@ -19295,8 +19262,8 @@ void OnTick()
          " | Symbol " + Symbol() +
          " | Bid " + DoubleToString(Bid, Digits) +
          " | Ask " + DoubleToString(Ask, Digits) +
-         " | Dubai " +
-         TimeToString(GetDubaiTime(), TIME_DATE | TIME_SECONDS);
+         " | GMT0 " +
+         TimeToString(GetGMT0Time(), TIME_DATE | TIME_SECONDS);
 
       // Confirmation remains in the Experts log only.
       Print(msg);
@@ -19349,7 +19316,7 @@ void OnTick()
    ProcessSLReverseRecoveryProfitContinuation();
 
 // A pending BUYSTOP/SELLSTOP can otherwise activate at the broker during
-// a blocked Dubai hour. Remove all untriggered EA pending entries first.
+// a blocked GMT0 hour. Remove all untriggered EA pending entries first.
    NotifyNewOrderHardPauseReasonIfNeeded();
 
    if(IsNewOrderHardPauseActive())
@@ -19564,7 +19531,7 @@ void OnTick()
 // CENTRAL NEW-ORDER HARD LOCK:
 // Close/profit/SL management above always remains active. From this point down,
 // every new-order path (normal, add-on, impulse, recovery and continuation)
-// is stopped during Dubai 16:00-22:59 or an active consecutive-SL pause.
+// is stopped during GMT0 16:00-22:59 or an active consecutive-SL pause.
    if(IsNewOrderHardPauseActive())
      {
       DeletePendingOrdersByDirection(
@@ -21655,8 +21622,8 @@ bool IsFirstSAROrderAllowedByPriceDiffOnly(int direction,
 
    if(IsNewOrderHardPauseActive())
       return(BlockNormalOrderByModeProfile(
-                "FIRST ORDER | DUBAI NO-NEW HOUR | DXB=" +
-                TimeToString(GetDubaiTime(), TIME_DATE|TIME_MINUTES) +
+                "FIRST ORDER | GMT0 NO-NEW HOUR | GMT0=" +
+                TimeToString(GetGMT0Time(), TIME_DATE|TIME_MINUTES) +
                 " | Hours=" + InpNoNewOrderHourList +
                 " | Source=" + reason));
 
@@ -21916,8 +21883,8 @@ bool OpenMarketOrder(int direction, string reason)
 
    if(IsNewOrderHardPauseActive())
       return BlockOrder(
-                "DUBAI NO-NEW HOUR HARD LOCK | DXB=" +
-                TimeToString(GetDubaiTime(), TIME_DATE|TIME_MINUTES) +
+                "GMT0 NO-NEW HOUR HARD LOCK | GMT0=" +
+                TimeToString(GetGMT0Time(), TIME_DATE|TIME_MINUTES) +
                 " | Hours=" + InpNoNewOrderHourList +
                 " | Source=" + reason);
 
@@ -22049,8 +22016,8 @@ bool OpenMarketOrder(int direction, string reason)
 // Final time recheck immediately before the atomic filter audit/OrderSend.
    if(IsNewOrderHardPauseActive())
       return BlockOrder(
-                "OrderSend cancelled last check | DUBAI NO-NEW HOUR | DXB=" +
-                TimeToString(GetDubaiTime(), TIME_DATE|TIME_MINUTES) +
+                "OrderSend cancelled last check | GMT0 NO-NEW HOUR | GMT0=" +
+                TimeToString(GetGMT0Time(), TIME_DATE|TIME_MINUTES) +
                 " | Hours=" + InpNoNewOrderHourList +
                 " | Source=" + reason);
 
@@ -22088,8 +22055,8 @@ bool OpenMarketOrder(int direction, string reason)
 // Last possible check immediately before the broker request.
    if(IsNewOrderHardPauseActive())
       return BlockOrder(
-                "OrderSend aborted at broker boundary | DUBAI NO-NEW HOUR | DXB=" +
-                TimeToString(GetDubaiTime(), TIME_DATE|TIME_MINUTES) +
+                "OrderSend aborted at broker boundary | GMT0 NO-NEW HOUR | GMT0=" +
+                TimeToString(GetGMT0Time(), TIME_DATE|TIME_MINUTES) +
                 " | Hours=" + InpNoNewOrderHourList +
                 " | Source=" + reason);
 
@@ -23168,7 +23135,7 @@ void RefreshFirstSAROrderDiagnosticSnapshot(int direction,
   {
    ResetEntryDiagnosticSnapshot(direction, source);
    g_entryDiagFirstOrderProfile = true;
-   g_entryDiagProfileText = "FIRST ORDER: PRICE DIFF + DUBAI TIME";
+   g_entryDiagProfileText = "FIRST ORDER: PRICE DIFF + GMT0 TIME";
 
    bool directionOk = (direction != 0 &&
                        direction == g_activeSARDirection);
@@ -23213,7 +23180,7 @@ void RefreshFirstSAROrderDiagnosticSnapshot(int direction,
                   if(filterId == DXB_FILTER_NO_NEW_HOUR)
                     {
                      rawPassed = noNewHourOk;
-                     detail = "DXB=" + TimeToString(GetDubaiTime(), TIME_MINUTES) +
+                     detail = "GMT0=" + TimeToString(GetGMT0Time(), TIME_MINUTES) +
                               " | Hours=" + InpNoNewOrderHourList;
                     }
 
@@ -23654,7 +23621,7 @@ string EntryFilterDisplayName(int filterId)
    if(filterId == DXB_FILTER_EQUITY_LOCK)
       return("Equity / Daily Lock");
    if(filterId == DXB_FILTER_NO_NEW_HOUR)
-      return("Dubai No-New Hour");
+      return("GMT0 No-New Hour");
    if(filterId == DXB_FILTER_PROFIT_PAUSE)
       return("Profit Pause");
    if(filterId == DXB_FILTER_OPPOSITE_PAUSE)
@@ -24884,8 +24851,8 @@ string CompactHardLockText()
   {
    string hours =
       IsDubaiNoNewOrderHourNow()
-      ? "DXB BLOCK"
-      : "DXB PASS";
+      ? "GMT0 BLOCK"
+      : "GMT0 PASS";
 
    string streak =
       IsConsecutiveSLPauseActive()
