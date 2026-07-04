@@ -1,5 +1,5 @@
 //+------------------------------------------------------------------+
-//|                 DXB_SAR_EarlyTrend_Cycle_EA_Strict_2345_FreshBoot_V191_UnifiedTesterVPS_DailyCompounding.mq4                  |
+//|                 DXB_SAR_EarlyTrend_Cycle_EA_Strict_2345_FreshBoot_V192_PauseReasonNotifications.mq4                  |
 //|  SAR cycle + server-side SL + dynamic X-profit ladder          |
 //|  SAR flip closes opposite orders. Early reverse trend pauses SAR  |
 //|  cycle, draws arrows, closes opposite orders, resumes when aligned |
@@ -20,7 +20,7 @@ MARKET_MODE g_marketMode = MODE_RANGE;
 #ifndef OP_BALANCE
 #define OP_BALANCE 6
 #endif
-#property version   "1.91"
+#property version   "1.92"
 
 //======================== INPUTS ====================================
 string InpEAName                  = "DXB Version 5 - SAR Confirm 50 in 5 Min";
@@ -598,6 +598,18 @@ bool   InpNotifyOnDayEndResetStarted   = true;   // one push when strict 23:45 r
 bool   InpNotifyOnNewDayTradingStarted = true;   // one push after all 00:00 restart/resume holds finish
 int    InpNewDayNotifyWindowMinutes     = 15;     // allow NEW DAY alert only from 00:00 through 00:15 Dubai
 
+// Trading-pause reason notifications:
+// Sends one mobile push/terminal alert when NEW orders become paused,
+// including the active clock hour and the configured blocked-hour list.
+// Existing market orders still continue normal TP/SL/profit management unless
+// the pause reason itself is a full day equity/profit lock.
+bool   InpNotifyOnTradingPausedReason    = true;
+bool   InpNotifyOnNoNewOrderHourPause    = true;
+bool   InpNotifyOnConsecutiveSLPause     = true;
+bool   InpNotifyOnHalfLossPause          = true;
+bool   InpNotifyOnSideLossPause          = true;
+bool   InpNotifyOnOppositeDirectionPause = true;
+
 
 // Continuous order controls
 bool   InpOneOrderPerBar          = true;
@@ -834,9 +846,9 @@ bool   InpApplyNoNewOrderHoursInTesting = true;
 // string InpNoNewOrderHourList      = "14,15,16,17,18,19,20,21,22";//original
 //  string InpNoNewOrderHourListDubai      ="":// "6,7,12,14,15,16,17,18,19,20,21,22";//Dubai live GMT+4 
 
-string InpNoNewOrderHourList      = "6,7,12,14,15,16,17,18,19,20,21,22";
+string InpNoNewOrderHourList      = "6,7,11,12,14,15,16,17,18,19,20,21,22";
 
-string InpNoNewOrderHourListDubai = "10,11,16,18,19,20,21,22,23,0,1,2"; // Dubai live GMT+4
+string InpNoNewOrderHourListDubai = "10,11,15,16,18,19,20,21,22,23,0,1,2"; // Dubai live GMT+4
 
 
 
@@ -2894,6 +2906,18 @@ void UpdateOppositeDirectionProfitPause(bool forceScan=false)
                " | TriggerTicket=", g_oppositeDirectionPauseTriggerTicket,
                " | TriggerTime=", TimeToString(g_oppositeDirectionPauseTriggerTime, TIME_DATE|TIME_SECONDS),
                " | PauseUntil=", TimeToString(g_oppositeDirectionPauseUntil, TIME_DATE|TIME_SECONDS));
+
+         if(InpNotifyOnTradingPausedReason && InpNotifyOnOppositeDirectionPause)
+           {
+            NotifyTradingPausedReasonOnce(
+               "OPPOSITE_PAUSE_" + IntegerToString(g_oppositeDirectionPauseTriggerTicket),
+               DirectionText(g_oppositePausedDirection) + " TRADING PAUSED - OPPOSITE STREAK",
+               "Reason: " + DirectionText(g_oppositeDirectionPauseWinner) +
+               " profit streak " + IntegerToString(required) +
+               " | Block " + DirectionText(g_oppositePausedDirection) +
+               " | Resume " + TimeToString(g_oppositeDirectionPauseUntil,TIME_DATE|TIME_MINUTES) +
+               " | " + GetPauseClockDetails());
+           }
         }
      }
    else
@@ -3208,6 +3232,19 @@ void UpdateSideLossPauseState(bool forceScan=false)
             DirectionText(
                g_buySideLossPauseTriggerSARDirection));
 
+      if(InpNotifyOnTradingPausedReason && InpNotifyOnSideLossPause)
+        {
+         NotifyTradingPausedReasonOnce(
+            "SIDE_LOSS_BUY_" + IntegerToString(buyLatestTicket),
+            "BUY TRADING PAUSED - SIDE LOSS",
+            "Reason: BUY consecutive losses " +
+            IntegerToString(g_buySideLossStreak) + "/" +
+            IntegerToString(required) +
+            " | Ticket " + IntegerToString(buyLatestTicket) +
+            " | Resume " + TimeToString(g_buySideLossPauseUntil,TIME_DATE|TIME_MINUTES) +
+            " | " + GetPauseClockDetails());
+        }
+
       if(InpDeletePendingOnSideLossPause)
          DeletePendingOrdersByDirection(
             1,
@@ -3249,6 +3286,19 @@ void UpdateSideLossPauseState(bool forceScan=false)
             " | TriggerSAR=",
             DirectionText(
                g_sellSideLossPauseTriggerSARDirection));
+
+      if(InpNotifyOnTradingPausedReason && InpNotifyOnSideLossPause)
+        {
+         NotifyTradingPausedReasonOnce(
+            "SIDE_LOSS_SELL_" + IntegerToString(sellLatestTicket),
+            "SELL TRADING PAUSED - SIDE LOSS",
+            "Reason: SELL consecutive losses " +
+            IntegerToString(g_sellSideLossStreak) + "/" +
+            IntegerToString(required) +
+            " | Ticket " + IntegerToString(sellLatestTicket) +
+            " | Resume " + TimeToString(g_sellSideLossPauseUntil,TIME_DATE|TIME_MINUTES) +
+            " | " + GetPauseClockDetails());
+        }
 
       if(InpDeletePendingOnSideLossPause)
          DeletePendingOrdersByDirection(
@@ -7503,6 +7553,74 @@ void NotifyTradingPausedReasonOnce(string reasonCode,
   }
 
 //+------------------------------------------------------------------+
+//| Common clock/hour details appended to pause messages.             |
+//+------------------------------------------------------------------+
+string GetPauseClockDetails()
+  {
+   datetime activeClock = GetActiveNoNewOrderClock();
+   string activeLabel = GetActiveNoNewOrderClockLabel();
+   int activeHour = TimeHour(activeClock);
+
+   string modeText = IsTesting() ? "TESTER" : "LIVE";
+
+   string details =
+      "Mode " + modeText +
+      " | " + activeLabel + " " +
+      TimeToString(activeClock,TIME_DATE|TIME_MINUTES) +
+      " | Hour " + IntegerToString(activeHour);
+
+   if(!IsTesting())
+      details += " | Server " + TimeToString(TimeCurrent(),TIME_DATE|TIME_MINUTES);
+
+   return(details);
+  }
+
+//+------------------------------------------------------------------+
+//| Notify when any hard new-order pause is active.                   |
+//+------------------------------------------------------------------+
+void NotifyNewOrderHardPauseReasonIfNeeded()
+  {
+   if(!InpNotifyOnTradingPausedReason)
+      return;
+
+   if(IsDubaiNoNewOrderHourNow() && InpNotifyOnNoNewOrderHourPause)
+     {
+      int activeHour = TimeHour(GetActiveNoNewOrderClock());
+      string reasonCode = "NO_NEW_ORDER_HOUR_" + IntegerToString(activeHour);
+
+      NotifyTradingPausedReasonOnce(
+         reasonCode,
+         "TRADING PAUSED - NO NEW ORDER HOUR",
+         "Reason: blocked hour" +
+         " | " + GetPauseClockDetails() +
+         " | BlockHours " + GetActiveNoNewOrderHourList() +
+         " | Existing orders managed");
+     }
+
+   if(IsConsecutiveSLPauseActive() && InpNotifyOnConsecutiveSLPause)
+     {
+      NotifyTradingPausedReasonOnce(
+         "CONSECUTIVE_SL_PAUSE",
+         "TRADING PAUSED - CONSECUTIVE SL",
+         "Reason: consecutive basket SL" +
+         " | " + ConsecutiveSLPauseStatusText() +
+         " | " + GetPauseClockDetails() +
+         " | Existing orders managed");
+     }
+
+   if(IsHalfLossPauseActive() && InpNotifyOnHalfLossPause)
+     {
+      NotifyTradingPausedReasonOnce(
+         "HALF_LOSS_COOLING",
+         "TRADING PAUSED - HALF LOSS COOLING",
+         "Reason: half-loss cooling" +
+         " | " + HalfLossPauseStatusText() +
+         " | " + GetPauseClockDetails() +
+         " | Existing orders managed");
+     }
+  }
+
+//+------------------------------------------------------------------+
 //| Send exactly once when the strict 23:45 shutdown begins.         |
 //+------------------------------------------------------------------+
 void NotifyDayEndResetStartedOnce(int dateKey)
@@ -8296,7 +8414,7 @@ if(InpNoNewOrderHourListDubai=="")
    UpdateOppositeDirectionProfitPause(true);
 
    Print(InpEAName, " initialized. Magic=", InpMagicNumber,
-         " | DubaiHighRiskHours=",InpNoNewOrderHourList,
+         " | ActiveNoNewHours=",GetActiveNoNewOrderHourList(),
          " | SLStreak=",ConsecutiveSLPauseStatusText(),
          " | BaseBalance=$", DoubleToString(g_baseBalance,2),
          " | LossStopEquity=$", DoubleToString(g_lossStopEquityLevel,2),
@@ -9475,9 +9593,8 @@ bool IsConfiguredEquityResetHour(int hourValue)
   }
 
 //+------------------------------------------------------------------+
-bool IsConfiguredNoNewOrderHour(int hourValue)
+bool IsConfiguredNoNewOrderHourInList(int hourValue,string configuredHours)
   {
-   string configuredHours = InpNoNewOrderHourList;
    StringReplace(configuredHours," ","");
 
    if(StringLen(configuredHours) <= 0)
@@ -9506,6 +9623,46 @@ bool IsConfiguredNoNewOrderHour(int hourValue)
      }
 
    return(false);
+  }
+
+//+------------------------------------------------------------------+
+string GetActiveNoNewOrderHourList()
+  {
+   if(IsTesting())
+      return(InpNoNewOrderHourList);
+
+   string dubaiHours = InpNoNewOrderHourListDubai;
+   StringReplace(dubaiHours," ","");
+
+   if(StringLen(dubaiHours) > 0)
+      return(InpNoNewOrderHourListDubai);
+
+   return(InpNoNewOrderHourList);
+  }
+
+//+------------------------------------------------------------------+
+datetime GetActiveNoNewOrderClock()
+  {
+   if(IsTesting())
+      return(TimeCurrent());
+
+   return(GetDubaiTime());
+  }
+
+//+------------------------------------------------------------------+
+string GetActiveNoNewOrderClockLabel()
+  {
+   if(IsTesting())
+      return("TESTER");
+
+   return("DXB");
+  }
+
+//+------------------------------------------------------------------+
+bool IsConfiguredNoNewOrderHour(int hourValue)
+  {
+   return(IsConfiguredNoNewOrderHourInList(hourValue,
+                                           GetActiveNoNewOrderHourList()));
   }
 
 //+------------------------------------------------------------------+
@@ -10088,25 +10245,17 @@ bool IsDubaiNoNewOrderHourNow()
    if(!InpUseNoNewOrderHours)
       return(false);
 
-   string configuredHours = InpNoNewOrderHourList;
+   if(IsTesting() && !InpApplyNoNewOrderHoursInTesting)
+      return(false);
+
+   string configuredHours = GetActiveNoNewOrderHourList();
    StringReplace(configuredHours," ","");
 
    if(StringLen(configuredHours) <= 0)
       return(false);
 
-   if(IsTesting())
-     {
-      if(!InpApplyNoNewOrderHoursInTesting)
-         return(false);
-
-      // Strategy Tester/report time is used so the hour-by-hour
-      // backtest result can be reproduced deterministically.
-      int testerHour = TimeHour(TimeCurrent());
-      return(IsConfiguredNoNewOrderHour(testerHour));
-     }
-
-   int dubaiHour = TimeHour(GetDubaiTime());
-   return(IsConfiguredNoNewOrderHour(dubaiHour));
+   int activeHour = TimeHour(GetActiveNoNewOrderClock());
+   return(IsConfiguredNoNewOrderHourInList(activeHour,configuredHours));
   }
 
 //+------------------------------------------------------------------+
@@ -10124,35 +10273,24 @@ string NoNewOrderHoursStatusText()
    if(!InpUseNoNewOrderHours)
       return("OFF");
 
-   if(IsTesting())
-     {
-      if(!InpApplyNoNewOrderHoursInTesting)
-         return("TEST MODE | DISABLED");
+   if(IsTesting() && !InpApplyNoNewOrderHoursInTesting)
+      return("TEST MODE | DISABLED");
 
-      datetime testerNow = TimeCurrent();
-      string testerStatus =
-         IsDubaiNoNewOrderHourNow()
-         ? "BLOCK NOW"
-         : "ALLOW";
+   datetime activeClock = GetActiveNoNewOrderClock();
+   string activeLabel = GetActiveNoNewOrderClockLabel();
+   int activeHour = TimeHour(activeClock);
+   string activeHours = GetActiveNoNewOrderHourList();
 
-      return(testerStatus +
-             " | TESTER=" +
-             TimeToString(testerNow,TIME_MINUTES) +
-             " | HOURS=" +
-             InpNoNewOrderHourList);
-     }
-
-   datetime dubaiNow = GetDubaiTime();
    string status =
       IsDubaiNoNewOrderHourNow()
       ? "BLOCK NOW"
       : "ALLOW";
 
    return(status +
-          " | DXB=" +
-          TimeToString(dubaiNow,TIME_MINUTES) +
-          " | HOURS=" +
-          InpNoNewOrderHourList);
+          " | " + activeLabel + "=" +
+          TimeToString(activeClock,TIME_MINUTES) +
+          " | HOUR=" + IntegerToString(activeHour) +
+          " | HOURS=" + activeHours);
   }
 
 
@@ -10411,7 +10549,8 @@ void UpdateHalfLossPauseState()
       " | Drawdown $" + DoubleToString(drawdownUSD,2) +
       " | Resume " +
       TimeToString(g_halfLossPauseUntil,TIME_DATE|TIME_MINUTES) +
-      " | Full stop $" + DoubleToString(g_lossStopEquityLevel,2));
+      " | Full stop $" + DoubleToString(g_lossStopEquityLevel,2) +
+      " | " + GetPauseClockDetails());
   }
 
 //+------------------------------------------------------------------+
@@ -10429,18 +10568,18 @@ string GetNewOrderHardPauseReasonText()
 
    if(IsDubaiNoNewOrderHourNow())
      {
-      datetime lockClock =
-         IsTesting()
-         ? TimeCurrent()
-         : GetDubaiTime();
+      datetime lockClock = GetActiveNoNewOrderClock();
+      string clockLabel = GetActiveNoNewOrderClockLabel();
 
       reason =
          (IsTesting()
-          ? "TESTER BLOCKED HOUR | TESTER="
-          : "DUBAI HIGH-RISK SESSION | DXB=") +
+          ? "TESTER BLOCKED HOUR | "
+          : "DUBAI HIGH-RISK SESSION | ") +
+         clockLabel + "=" +
          TimeToString(lockClock,TIME_DATE|TIME_MINUTES) +
+         " | HOUR=" + IntegerToString(TimeHour(lockClock)) +
          " | HOURS=" +
-         InpNoNewOrderHourList;
+         GetActiveNoNewOrderHourList();
      }
 
    if(IsConsecutiveSLPauseActive())
@@ -19211,6 +19350,8 @@ void OnTick()
 
 // A pending BUYSTOP/SELLSTOP can otherwise activate at the broker during
 // a blocked Dubai hour. Remove all untriggered EA pending entries first.
+   NotifyNewOrderHardPauseReasonIfNeeded();
+
    if(IsNewOrderHardPauseActive())
      {
       DeletePendingOrdersByDirection(
