@@ -250,7 +250,7 @@ double InpDangerModeBasketSLUSD          = 1.00;
 //   2 = use the larger/wider value
 bool   InpUseAverageM1CandleBasketSL       = true;
 int    InpAverageM1CandleSLBars            = 10;
-double InpAverageM1CandleSLMultiplier      = 1.00;
+double InpAverageM1CandleSLMultiplier      = 1.25;//1.00;
 int    InpAverageM1CandleSLCombineMode     = 0;
 double InpAverageM1CandleSLMinimumUSD      = 0.10;
 double InpAverageM1CandleSLMaximumUSD      = 2.00; // 0 = unlimited
@@ -320,7 +320,7 @@ bool   InpUseOppositeDirectionProfitPause = false;
 int    InpOppositeDirectionProfitStreakOrders = 2;
 int    InpOppositeDirectionPauseMinutes = 30;
 
-double InpLossStopPercent          = 20;//10;//20.0; // full day loss lock percent
+double InpLossStopPercent          = 15;//20;//10;//20.0; // full day loss lock percent
 
 // Half-loss cooling pause:
 // When equity uses this percentage of the configured InpLossStopPercent
@@ -332,7 +332,7 @@ double InpLossStopPercent          = 20;//10;//20.0; // full day loss lock perce
 // InpHalfLossPauseMinutes even if equity is still below the warning level.
 bool   InpUseHalfLossPause                = true;
 double InpHalfLossPauseTriggerPercent     = 50.0; // percentage of InpLossStopPercent, not account percent
-int    InpHalfLossPauseMinutes            =60*6;// 10;//60*4;
+int    InpHalfLossPauseMinutes            =60*2;// 10;//60*4;
 bool   InpDeletePendingOnHalfLossPause    = true;
 
 double InpInitialServerSLExtraRawAfterHalfLoss =100;// 50.0; // extra RAW price gap for NEW orders after half-loss trigger
@@ -825,7 +825,25 @@ bool   InpApplyNoNewOrderHoursInTesting = true;
 // Block every NEW order during 07:00-07:59 and 14:00-22:59.
 // Existing market orders continue TP/SL management.
 // Every untriggered EA pending order is deleted while this lock is active.
-string InpNoNewOrderHourList      = "14,15,16,17,18,19,20,21,22";
+// string InpNoNewOrderHourList      = "4,10,16,17,18,19,20,21,22,23";//Dubai live GMT+4 
+// string InpNoNewOrderHourList      = "0,6,7,12,14,15,16,17,18,19,20,21,22";//testing
+// string InpNoNewOrderHourList      = "0,6,7,16,17,18,19,20,21,22";//testing
+// string InpNoNewOrderHourList      = "0,6,7,12,13,14,15,16,17,18,19,20,21,22,23";//testing GMT 0
+//  string InpNoNewOrderHourListDubai      = "4,10,11,16,17,18,19,20,21,22,23";//Dubai live GMT+4 
+
+// string InpNoNewOrderHourList      = "14,15,16,17,18,19,20,21,22";//original
+//  string InpNoNewOrderHourListDubai      ="":// "6,7,12,14,15,16,17,18,19,20,21,22";//Dubai live GMT+4 
+
+string InpNoNewOrderHourList      = "6,7,12,14,15,16,17,18,19,20,21,22";
+
+string InpNoNewOrderHourListDubai = "10,11,16,18,19,20,21,22,23,0,1,2"; // Dubai live GMT+4
+
+
+
+
+
+
+
 
 // Consecutive basket-stop protection:
 // Two basket SL events without an intervening profitable basket close pause
@@ -8079,12 +8097,96 @@ bool CheckDailyEARestart()
 
    return(true);
   }
+string CreateDubaiHourListFromGMT(string sourceHourList, int addHours = 4, bool sortResult = true)
+{
+   string parts[];
+   int count = StringSplit(sourceHourList, ',', parts);
 
+   bool used[24];
+   for(int i = 0; i < 24; i++)
+      used[i] = false;
+
+   for(int i = 0; i < count; i++)
+   {
+      string txt = StringTrimLeft(StringTrimRight(parts[i]));
+      if(txt == "")
+         continue;
+
+      int hour = (int)StringToInteger(txt);
+
+      if(hour < 0 || hour > 23)
+         continue;
+
+      int dubaiHour = hour + addHours;
+
+      while(dubaiHour >= 24)
+         dubaiHour -= 24;
+
+      while(dubaiHour < 0)
+         dubaiHour += 24;
+
+      used[dubaiHour] = true;
+   }
+
+   string result = "";
+
+   if(sortResult)
+   {
+      for(int h = 0; h < 24; h++)
+      {
+         if(used[h])
+         {
+            if(result != "")
+               result += ",";
+
+            result += IntegerToString(h);
+         }
+      }
+   }
+   else
+   {
+      for(int i = 0; i < count; i++)
+      {
+         string txt = StringTrimLeft(StringTrimRight(parts[i]));
+         if(txt == "")
+            continue;
+
+         int hour = (int)StringToInteger(txt);
+         if(hour < 0 || hour > 23)
+            continue;
+
+         int dubaiHour = hour + addHours;
+
+         while(dubaiHour >= 24)
+            dubaiHour -= 24;
+
+         while(dubaiHour < 0)
+            dubaiHour += 24;
+
+         if(result != "")
+            result += ",";
+
+         result += IntegerToString(dubaiHour);
+      }
+   }
+
+   return result;
+}
 int OnInit()
   {
    // Resolve the final magic number before any order scan or terminal
    // Global-Variable key is initialized.
    InpMagicNumber = AccountNumber() + 202;
+
+   if(!IsTesting())
+     {
+   //   InpNoNewOrderHourList=InpNoNewOrderHourListDubai;
+if(InpNoNewOrderHourListDubai=="")
+      InpNoNewOrderHourListDubai = CreateDubaiHourListFromGMT(InpNoNewOrderHourList, 4, true);
+
+   Print("GMT No New Order Hours: ", InpNoNewOrderHourList);
+   Print("Dubai No New Order Hours: ", InpNoNewOrderHourListDubai);
+     }
 
    // Load only the persistent 23:45 anti-loop markers first. A chart reload
    // has already recreated every compiled global/static variable from its
