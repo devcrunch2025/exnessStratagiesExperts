@@ -1,5 +1,5 @@
 //+------------------------------------------------------------------+
-//|                 DXB_SAR_EarlyTrend_Cycle_EA_Strict_2345_FreshBoot_V194_Hour22_AllSafetyUnlock.mq4                  |
+//|                 DXB_SAR_EA_V200_PercentageClean_LogicAuditFix.mq4                         |
 //|  SAR cycle + server-side SL + dynamic X-profit ladder          |
 //|  SAR flip closes opposite orders. Early reverse trend pauses SAR  |
 //|  cycle, draws arrows, closes opposite orders, resumes when aligned |
@@ -20,9 +20,23 @@ MARKET_MODE g_marketMode = MODE_RANGE;
 #ifndef OP_BALANCE
 #define OP_BALANCE 6
 #endif
-#property version   "1.93"
+#property version   "2.00-clean"
+//================ OPTIMIZED CLEAN BUILD NOTES =====================
+// Removed unused input declarations and unreferenced helper/dashboard functions
+// from the V196 unlimited/highest-share-protection build.
+// Safety-critical close, server-SL, daily reset, equity-loss and pause logic
+// is retained. Disabled feature blocks that are still referenced by active
+// code are kept to avoid accidental compile/runtime breakage.
+// V200 logic-audit fixes:
+// - Highest-share activation no longer deletes pending orders by default.
+// - Dashboard text now shows the configured first activation percent.
+// - First activation status says ARMED instead of WAIT NEW ORDER when immediate protection is enabled.
+//===================================================================
+
 
 //======================== INPUTS ====================================
+// V198 clean mode: old fixed USD profit-protect / individual-protect / global-trail systems removed.
+// Active profit protection is percentage-based highest-profit-share lock + server-side dynamic basket SL.
 string InpEAName                  = "DXB V196 - Unlimited Profit + Highest Share Protect";
 int    InpMagicNumber             = 989899;
 double InpFixedLot                = 0.01; // fallback lot when dynamic balance lot is OFF
@@ -96,7 +110,7 @@ bool   InpProfitLadderFinalLevelExact       = true;
 
 // Close all EA market/pending orders whenever an intermediate target is hit,
 // but do NOT pause. Normal strategy entries may start a fresh cycle afterward.
-bool   InpProfitLadderBookAtEachTarget      = true;
+bool   InpProfitLadderBookAtEachTarget      = false; // highest-share mode: do not delete/rebook pending orders at first activation
 bool   InpProfitLadderProtectAfterNewOrder  = false; // protect immediately after first activation, not after next order
 
 // Close slightly BEFORE the protected floor to compensate for spread,
@@ -206,6 +220,17 @@ bool   InpBlockSoftCloseBelowMinProfit     = true; // block SAR/weak/early soft 
 // false = old behaviour: daily locks use AccountEquity() including floating P/L.
 bool   InpDailyLocksUseClosedBalanceOnly   = false; // highest-share lock must watch live equity/floating P/L
 
+// Profit-share lock is a PROFIT-AREA guard only.
+// true = highest-profit/share or daily profit ladder can pause only while
+//        current evaluation value is ABOVE the day opening anchor.
+//        If value falls below opening balance, day-loss logic decides instead.
+bool   InpProfitLockOnlyWhenAboveOpeningBalance = true;
+
+// Day-loss lock can be evaluated from CLOSED balance while profit-share uses
+// live equity. This prevents a floating move from being treated as a closed
+// day loss, but still lets server SL/profit lock manage active orders.
+bool   InpDayLossLockUseClosedBalanceOnly = true;
+
 // true  = daily profit/loss locks pause NEW entries and delete pending orders,
 //         but leave active market orders to finish by broker/server SL/profit lock.
 // false = old behaviour: daily locks can close active market orders immediately.
@@ -238,8 +263,6 @@ double InpDynamicBasketMinComebackProfitUSD   = 0.01;
 //
 // These two legacy inputs are retained for old SET-file compatibility.
 // MIXED half TP is now an automatic market-mode rule.
-bool   InpUseMixedModeHalfBasketTP       = false;  // legacy compatibility
-double InpMixedModeBasketTPMultiplier    = 0.40;  // fixed/ignored: MIXED always uses 0.50
 
 // Weak SAR-score basket target:
 // When the current active SAR quality score is <= this value,
@@ -302,9 +325,8 @@ double InpAverageM1CandleSLMaximumUSD      = 2.00; // 0 = unlimited
 
 // Simple basket close mode:
 // true = close BUY basket and SELL basket only by fixed InpBasketProfitUSD / InpBasketStopLossUSD.
-// It disables auto profit/loss adjustments such as combined all-basket profit close,
-// basket/individual profit protect, time-decay TP, SAR-weak basket close,
-// global equity trailing close, and auto market-flow SL adjustment.
+// It disables legacy combined all-basket profit close and keeps the cleaner side-basket/server-SL flow.
+// Percentage daily protection remains handled by the highest-profit-share lock.
 bool   InpUseSimpleSideBasketCloseOnly = true;
 
 //FIXED stoploss 
@@ -361,7 +383,6 @@ bool   InpUseMarketModeFilterProfiles = true;
 // in one direction, block NEW orders in the opposite direction for the configured time.
 // Example: 3 consecutive profitable BUY closes => pause new SELL orders for 120 minutes.
 // Existing orders continue to be managed/closed normally. SAR special guard orders are exempt.
-bool   InpUseOppositeDirectionProfitPause = false;
 int    InpOppositeDirectionProfitStreakOrders = 2;
 int    InpOppositeDirectionPauseMinutes = 30;
 
@@ -383,69 +404,6 @@ bool   InpDeletePendingOnHalfLossPause    = true;
 double InpInitialServerSLExtraRawAfterHalfLoss =100;// 50.0; // extra RAW price gap for NEW orders after half-loss trigger
 
 double InpBasketProfitUSD_12_17 = 0.50;//1.00; // profit target during 12,13,14,15,16,17 hours
-
-// Time-decay basket target:
-// If no new EA order is created for 30 minutes, close basket faster.
-// Example: 0-29 min => InpBasketProfitUSD, 30-59 min => InpBasketProfitUSD/2,
-// 60-89 min => InpBasketProfitUSD/3, 90-119 min => InpBasketProfitUSD/4.
-bool   InpUseBasketProfitTimeDecay       = false;
-int    InpBasketProfitDecayStepMinutes   = 60;
-double InpBasketProfitDecayMinMultiplier = 0.10;  // safety floor, 0.10 = minimum 10% of normal target
-bool   InpBasketProfitDecayIncludeGuards = false; // false = ignore SAR special guard order time
-
-// Basket profit protection:
-// Works like individual profit protect, but for ALL basket, BUY basket, and SELL basket.
-// If basket profit first reaches a level and later comes back down, close that basket near protected profit.
-bool   InpUseBasketProfitProtect          = false;
-bool   InpUseMultiBasketProfitProtect     = false;
-double InpBasketProtectActivateUSD_1      = 0.50;
-double InpBasketProtectCloseAtUSD_1       = 0.25;
-double InpBasketProtectActivateUSD_2      = 1.00;
-double InpBasketProtectCloseAtUSD_2       = 0.50;
-double InpBasketProtectActivateUSD_3      = 2.00;
-double InpBasketProtectCloseAtUSD_3       = 1.00;
-double InpBasketProtectActivateUSD_4      = 3.00;
-double InpBasketProtectCloseAtUSD_4       = 1.50;
-double InpBasketProtectActivateUSD_5      = 5.00;
-double InpBasketProtectCloseAtUSD_5       = 2.50;
-
-// Dynamic basket fallback: if no fixed basket level matches,
-// close basket when profit falls back to this percent of peak.
-// Example: 50 = peak $2.00, close if basket profit falls to $1.00.
-double InpBasketDynamicClosePercent       = 50.0;
-double InpBasketDynamicMinPeakUSD         = 0.20;
-
-// Individual profit protection:
-// If an order first moves into profit and later comes back down, close it near this small profit.
-bool   InpUseIndividualProfitProtect      = false;
-double InpIndividualProtectActivateUSD    = 0.50;  // order must first reach this profit
-double InpIndividualProtectCloseAtUSD     = 0.40;  // then close if profit falls back near this value
-
-// SAR-cycle closed-profit count protection:
-// After SAR signal changes this counter resets to 0.
-// When 2 profitable normal orders are closed in the same SAR signal,
-// the next normal order uses dynamic pullback close = peakProfit / closedProfitCount.
-// Example: 2 closed profit orders => close at peak/2. 3 closed => close at peak/3.
-bool   InpUseSARClosedProfitCountProtect = true;
-int    InpSARClosedProfitCountStart      = 2;
-
-// Multiple individual profit-protect levels.
-// Highest reached level is used first.
-// Example: peak >= 2.00 closes on pullback to 1.50; peak >= 1.00 closes on pullback to 0.80; peak >= 0.50 closes on pullback to 0.40.
-bool   InpUseMultiIndividualProfitProtect = false;
-double InpProtectActivateUSD_1 = 0.30;
-double InpProtectCloseAtUSD_1  = 0.10;
-double InpProtectActivateUSD_2 =0.60;
-double InpProtectCloseAtUSD_2  = 0.40;
-double InpProtectActivateUSD_3 = 0.80;
-double InpProtectCloseAtUSD_3  = 0.50;
-double InpProtectActivateUSD_4 = 1.50;
-double InpProtectCloseAtUSD_4  = 1.00;
-double InpProtectActivateUSD_5 = 1.90;
-double InpProtectCloseAtUSD_5  = 1.50;
-
-int    InpIndividualProtectPauseMinutes     = 5;     // wait this many minutes before opening next normal order after profit protect close
-bool   InpCloseIfNextCandleNotProfit     = false;  // close order after next closed candle if profit is not above 0
 
 bool   InpOpenRecoveryAfterClose  = true;   // open recovery order after SL/SAR flip/early reverse close
 double InpRecoveryProfitUSD       = 1;//2.00;   // optional fixed close target; chain continuation does NOT wait for this target
@@ -572,7 +530,6 @@ bool   InpFreshDayDisableRollingEquityReset  = true;
 // possible. The history cutoff is moved beyond all forced day-boundary closes,
 // all daily strategy memory is cleared, and the normal startup trackers are
 // initialized again from the fresh cutoff.
-bool   InpFreshDayStrictNewAttachBoot        = true;
 bool   InpFreshDayDeleteEAStateGlobals       = true;
 // Start the new day on the first available 00:00 tick after the strict
 // 23:45-23:59 shutdown. Do not skip the first M1 setup of the new day.
@@ -586,10 +543,6 @@ int    InpFreshDayInternalResumeDelaySeconds = 0;
 // GMT0 time in live trading.
 // Legacy compatibility only. Tester and live now both use the actual new-day
 // AccountBalance() as the opening reference. Only their clock source differs.
-bool   InpTesterStandaloneFreshDayMode       = false;
-
-
-//================ STRICT 23:45 DAY-END FRESH BOOT ==================
 // Live trading uses GMT0/UTC time. Strategy Tester converts test/server time to GMT0.
 // At the first tick from 23:45:00 onward, the EA:
 //   1) blocks every strategy path before any other OnTick calculation,
@@ -884,7 +837,7 @@ int    InpTesterServerGMTOffsetHours = 0; // Strategy Tester only: GMT0 server=0
 // Single source of truth. Do not create Dubai/server-hour copies.
 // Example: "6,7,11,12" blocks 06:00-06:59, 07:00-07:59, 11:00-11:59, 12:00-12:59 GMT0.
 // string InpNoNewOrderHourList      = "6,7,11,12,13,14,15,16,17,18,19,20,21,22,23"; // GMT0 / UTC only
-string InpNoNewOrderHourList      = "4,11,12,13,14,15,16,17,18,19,20"; // GMT0 / UTC only
+string InpNoNewOrderHourList      = "11,12,13,14,15,16,17,18,19,20"; // GMT0 / UTC only
 
 //================ GMT0 END-OF-DAY SPECIAL ORDERS ===================
 // Controlled special order window for the strong end-of-day BTC flow.
@@ -913,18 +866,6 @@ bool   InpEODSpecialRespectBigCandleBlock  = true;
 // market order closes at break-even/loss or by server SL, EOD special entries
 // are stopped for the current GMT0 day. Normal non-EOD close management is not affected.
 bool   InpEODSpecialStopAfterStopLoss       = true;
-bool   InpEODSpecialContinueOnlyAfterProfit = true;
-bool   InpEODSpecialLockUntilNextGMT0Day    = true;
-
-
-
-
-
-
-
-
-
-// Consecutive basket-stop protection:
 // Two basket SL events without an intervening profitable basket close pause
 // every new entry path for 120 minutes. Existing market orders remain managed.
 bool   InpUseConsecutiveSLPause       = true;
@@ -944,8 +885,6 @@ bool   InpSideLossPauseUntilSARFlip    = true;
 bool   InpDeletePendingOnSideLossPause = true;
 
 
-
-
 //profit booking hours are 4,5,6,7,8
 
 // Big candle pause protection
@@ -962,12 +901,6 @@ bool   InpDrawBigCandleRedMarker  = true;     // draw red marker/box when big ca
 int    InpBigCandleMarkerArrowCode = 159;     // marker symbol for big candle
 color  InpBigCandleMarkerColor    = clrRed;   // red marker color for big candle
 
-// Big candle profit protection:
-// When a > InpBigCandleRawDifference candle/spike appears, all new/recovery orders are blocked.
-// If an existing basket is already in profit, protect 80% of the highest basket profit reached.
-// Example: peak profit $10, close if profit drops to $8 during big-candle pause.
-bool   InpUseBigCandleProfitProtect = false;
-double InpBigCandleProfitLockPercent = 80.0;
 // Extra safety: block recovery gap orders for N minutes when current/last candles are big/spike.
 bool   InpBlockRecoveryGapOnBigCandle = true;
 int    InpBigCandleRecoveryPauseMinutes = 5;
@@ -1025,7 +958,6 @@ bool   InpUseSARPriceDiffConfirm  = true;
 // No expiry timeout is used. If gap is not ready, EA keeps waiting.
 bool   InpUseRepeatedPriceGapConfirm = true;
 double InpContinuousOrderPriceGap    = 10;//10.0; //30  // raw price gap required from last confirmed normal order
-int    InpContinuousOrderLookbackMinutes = 1;  // legacy input, not used by current continuity gap logic
 int    InpContinuousOrderGapMinutes  = 1;      // wait this many minutes after last order, then verify price gap
 
 double InpSARConfirmPriceDiff     =0;// 20;//80.0;   // SAR signal-change raw price diff confirmation only
@@ -1056,7 +988,6 @@ bool   InpUseSARSignalPriceSideFilter = true;
 double InpSARSignalPriceSideMinGap    = 0.0;   // 0 = only correct side, >0 = require extra raw price gap
 
 // Early trend settings
-bool   InpUseEarlyTrend           = false;
 int    InpFastEMA                 = 9;
 int    InpSlowEMA                 = 21;
 int    InpEarlyLookbackCandles    = 10;
@@ -1068,7 +999,6 @@ bool   InpEarlyCloseAnyMagicOrders = true;
 bool   InpDrawEarlyArrows         = true;
 
 // Flat mode detection before early trend
-bool   InpUseFlatMode             = true;
 int    InpFlatLookbackCandles     = 5;       // closed candles to scan
 double InpFlatMaxEMADistance      = 0.00;    // raw price diff, 0 = auto using ATR
 double InpFlatMaxBodyTotal        = 0.00;    // raw price diff, 0 = auto using ATR
@@ -1084,7 +1014,6 @@ bool   InpUseCompactDashboard              = true;
 bool   InpShowLegacyDashboardWhenCompactOff = true;
 
 // Visuals
-bool   InpDrawSARArrows           = false;  // disabled: show only EARLY trend arrows
 bool   InpDrawSAREveryBarArrows   = false;  // disabled: show only EARLY trend arrows
 int    InpSAREveryBarLookback     = 200;    // historical SAR direction arrows to draw
 color  InpBuyColor                = clrLime;
@@ -1186,7 +1115,6 @@ int    InpStrictSARMinimumScore             = 6;     // strict recommended value
 // Normal SAR orders only. Recovery orders are not affected.
 // SELL: a long lower wick is doubtful. BUY: a long upper wick is doubtful.
 // The next fully closed candle must confirm before OrderSend.
-bool   InpUseDoubtfulCandleNextConfirm       = true;
 double InpDoubtfulOppositeWickMinRaw         = 20.0;
 double InpDoubtfulOppositeWickBodyRatio      = 0.70;
 double InpDoubtfulMinBodyPercentOfRange      = 35.0;
@@ -1224,7 +1152,6 @@ bool   InpLateSARBlockOnWeakExit          = true; // block if early SAR weak exi
 // SAR is still the main direction, but when the current GREEN/RED signal
 // starts dying, the EA stops adding orders and can close the basket early.
 bool   InpUseEarlySARWeakExit          = true;
-bool   InpStopNewOrdersOnSARWeakExit   = true;   // when SAR weak is detected, block adding new orders
 bool   InpCloseBasketOnSARWeakExit     = false;   // close active BUY/SELL basket early before SAR flip when profit/loss/trail condition is met
 double InpEarlySARWeakExitMinProfitUSD = 1;//0.20;  // close weak basket if already in small profit
 double InpEarlySARWeakExitMaxLossUSD   = 5;//1.50;  // close weak basket before SAR flip if loss reaches this
@@ -1253,13 +1180,6 @@ color  InpSARWeakSignalMarkerColor        = clrViolet;
 int    InpSARWeakSignalMarkerArrowCode    = 159;
 
 //================ PROFIT PROTECTION / RECOVERY SAFETY ==============
-// Protect total equity after a strong run. Example: equity peak 85,
-// trail 10 => close all orders and pause if equity falls to 75.
-bool   InpUseGlobalEquityTrailLock      = false;
-double InpGlobalEquityTrailStartProfit  = 10.0;   // start trailing only after equity is Base + this profit
-double InpGlobalEquityTrailLockUSD      = 10.0;   // close all if equity falls this much from peak
-int    InpGlobalEquityTrailPauseMinutes = 60;     // pause new trading after trail lock closes orders
-
 // Early close using pure candle pressure before SAR flip.
 // BUY SAR + 4 red candles out of last 5 = weak BUY.
 // SELL SAR + 4 green candles out of last 5 = weak SELL.
@@ -1439,8 +1359,6 @@ string   g_eodSpecialChainStatus           = "READY";
 string   g_eodSpecialStatus               = "WAIT EOD SPECIAL";
 
 // Number of profitable NORMAL SAR orders closed in the current SAR signal cycle.
-// Resets whenever SAR signal changes. Used by GetIndividualProfitProtectLevel().
-int      g_sarClosedProfitOrdersCount = 0;
 
 // Last normal order open result. Used by dashboard/status when OpenMarketOrder() returns false.
 string   g_lastOrderOpenReason    = "WAIT ORDER";
@@ -1661,19 +1579,8 @@ double   g_sarWeakBasketCloseLastProfit = 0.0;
 int      g_sarWeakBasketCloseLastAgeMin = 0;
 string   g_sarWeakBasketCloseLastReason = "NONE";
 
-double   g_globalEquityPeak              = 0.0;
-datetime g_globalEquityTrailPauseUntil   = 0;
-datetime g_profitProtectPauseUntil       = 0;   // pause new normal orders after individual profit protect close
-bool     g_globalEquityTrailLocked       = false;
-string   g_globalEquityTrailStatus       = "OFF";
 
 
-// Individual profit protection tracker by ticket
-int      g_profitProtectTickets[500];
-double   g_profitProtectPeakProfit[500];
-int      g_profitProtectCount = 0;
-
-bool   InpUseH1TrendFilter = false;
 int    InpH1FastEMA = 50;
 int    InpH1SlowEMA = 200;
 
@@ -1744,43 +1651,6 @@ bool TryOpenEarlySameSARExtraOrder()
 //+------------------------------------------------------------------+
 //|                                                                  |
 //+------------------------------------------------------------------+
-bool TryOpenEarlySameSARExtraOrder111111()
-  {
-   if(g_pendingSARConfirmDirection != 0 && !IsSARFlipConfirmationReady())
-      return false;
-
-   if(!InpOpenExtraOrderOnEarlySameSAR)
-      return false;
-
-   int early = DetectEarlyTrend();
-
-   if(early == 0)
-      return false;
-
-   if(early != g_activeSARDirection)
-      return false;
-
-   if(Time[1] == g_lastEarlySameSAROrderBarTime)
-      return false;
-
-   EnsureSARSignalOrderCycle(g_activeSARDirection);
-
-   g_sarCycleMaxOrders += InpEarlySameSARExtraMaxOrders;
-
-   if(OpenMarketOrder(g_activeSARDirection, "SAR_FLIP_V2"))
-     {
-      g_lastEarlySameSAROrderBarTime = Time[1];
-
-      Print("EARLY SAME SAR EXTRA ORDER OPENED | Direction=",
-            DirectionText(g_activeSARDirection),
-            " | NewMax=", g_sarCycleMaxOrders);
-
-      return true;
-     }
-
-   return false;
-  }
-
 //+------------------------------------------------------------------+
 //|                                                                  |
 //+------------------------------------------------------------------+
@@ -1826,14 +1696,6 @@ int GetH1TrendDirection()
       return -1;  // SELL trend
 
    return 0;      // RANGE
-
-
-
-
-
-
-
-
 
 
    int h1  = GetH1TrendDirection1();
@@ -2010,7 +1872,6 @@ enum DXB_ENTRY_FILTER_ID
    DXB_FILTER_SPREAD,
    DXB_FILTER_EQUITY_LOCK,
    DXB_FILTER_NO_NEW_HOUR,
-   DXB_FILTER_PROFIT_PAUSE,
    DXB_FILTER_OPPOSITE_PAUSE,
    DXB_FILTER_BIG_CANDLE,
    DXB_FILTER_SPIKE_WICK,
@@ -2027,7 +1888,7 @@ enum DXB_ENTRY_FILTER_ID
   };
 
 //================ NORMAL ORDER DIAGNOSTIC / AUDIT ==================
-// Live snapshot of all 26 normal-order filters.
+// Live snapshot of active normal-order filters.
 bool     g_entryDiagEnabled[DXB_FILTER_COUNT];
 bool     g_entryDiagPassed[DXB_FILTER_COUNT];
 string   g_entryDiagDetail[DXB_FILTER_COUNT];
@@ -2102,8 +1963,6 @@ string EntryFilterToken(int filterId)
       return("EQUITY_LOCK");
    if(filterId == DXB_FILTER_NO_NEW_HOUR)
       return("NO_NEW_HOUR");
-   if(filterId == DXB_FILTER_PROFIT_PAUSE)
-      return("PROFIT_PAUSE");
    if(filterId == DXB_FILTER_OPPOSITE_PAUSE)
       return("OPPOSITE_PAUSE");
    if(filterId == DXB_FILTER_BIG_CANDLE)
@@ -2180,8 +2039,6 @@ bool ContinuousTrendFilterCase(int filterId)
          return(false);
       case DXB_FILTER_NO_NEW_HOUR:
          return(true);
-      case DXB_FILTER_PROFIT_PAUSE:
-         return(true);
       case DXB_FILTER_OPPOSITE_PAUSE:
          return(false);
       case DXB_FILTER_BIG_CANDLE:
@@ -2246,8 +2103,6 @@ bool MediumTrendFilterCase(int filterId)
       case DXB_FILTER_EQUITY_LOCK:
          return(false);
       case DXB_FILTER_NO_NEW_HOUR:
-         return(true);
-      case DXB_FILTER_PROFIT_PAUSE:
          return(true);
       case DXB_FILTER_OPPOSITE_PAUSE:
          return(false);
@@ -2314,8 +2169,6 @@ bool MixedTrendFilterCase(int filterId)
          return(false);
       case DXB_FILTER_NO_NEW_HOUR:
          return(true);
-      case DXB_FILTER_PROFIT_PAUSE:
-         return(true);
       case DXB_FILTER_OPPOSITE_PAUSE:
          return(true);
       case DXB_FILTER_BIG_CANDLE:
@@ -2380,8 +2233,6 @@ bool DangerModeFilterCase(int filterId)
       case DXB_FILTER_EQUITY_LOCK:
          return(false);
       case DXB_FILTER_NO_NEW_HOUR:
-         return(true);
-      case DXB_FILTER_PROFIT_PAUSE:
          return(true);
       case DXB_FILTER_OPPOSITE_PAUSE:
          return(false);
@@ -2468,8 +2319,6 @@ bool GlobalFilterCase(int filterId)
          return(false);
       case DXB_FILTER_NO_NEW_HOUR:
          return(true);
-      case DXB_FILTER_PROFIT_PAUSE:
-         return(true);
       case DXB_FILTER_OPPOSITE_PAUSE:
          return(false);
       case DXB_FILTER_BIG_CANDLE:
@@ -2540,23 +2389,7 @@ bool IsFirstSAROrderAfterFlip(int direction)
   }
 
 //+------------------------------------------------------------------+
-bool IsNormalEntryFilterEnabledForOrder(int direction, int filterId)
-  {
-   if(IsFirstSAROrderAfterFlip(direction))
-      return(FirstSAROrderFilterCase(filterId));
-
-   return(IsMarketModeEntryFilterEnabled(filterId));
-  }
-
 //+------------------------------------------------------------------+
-string NormalEntryProfileText(int direction)
-  {
-   if(IsFirstSAROrderAfterFlip(direction))
-      return("FIRST ORDER: PRICE DIFF + GMT0 TIME");
-
-   return("ORDER 2+: FULL MODE FILTERS");
-  }
-
 //+------------------------------------------------------------------+
 bool IsMarketModeEntryFilterEnabled(int filterId)
   {
@@ -2573,23 +2406,6 @@ bool IsMarketModeEntryFilterEnabled(int filterId)
   }
 
 //+------------------------------------------------------------------+
-string EntryFilterModeStateText(int filterId)
-  {
-   if(IsHardLockedEntryFilter(filterId))
-      return("LOCKED ON");
-
-   if(!InpUseMarketModeFilterProfiles ||
-      !InpUseAutoMarketFlowMode ||
-      g_autoMarketMode == DXB_MARKET_MODE_OFF)
-      return(GlobalFilterCase(filterId)
-             ? "ON GLOBAL"
-             : "OFF GLOBAL");
-
-   return(IsMarketModeEntryFilterEnabled(filterId)
-          ? "ON MODE"
-          : "OFF MODE");
-  }
-
 //+------------------------------------------------------------------+
 string ActiveFilterCaseSummary()
   {
@@ -3800,14 +3616,6 @@ bool IsAutoMarketTradingPaused()
 //+------------------------------------------------------------------+
 //|                                                                  |
 //+------------------------------------------------------------------+
-string AutoMarketTradingPauseText()
-  {
-   if(!IsAutoMarketTradingPaused())
-      return("RUNNING");
-
-   return(g_autoMarketModeText + " | NEW TRADING PAUSED");
-  }
-
 //+------------------------------------------------------------------+
 //|                                                                  |
 //+------------------------------------------------------------------+
@@ -3947,84 +3755,6 @@ string AutoMarketModeStatusText()
   }
 
 //+------------------------------------------------------------------+
-//| Basket profit time-decay helpers                                 |
-//+------------------------------------------------------------------+
-datetime GetLatestEAOpenOrderTimeForBasketDecay()
-  {
-   datetime latestTime = 0;
-
-   for(int i = OrdersTotal() - 1; i >= 0; i--)
-     {
-      if(!OrderSelect(i, SELECT_BY_POS, MODE_TRADES))
-         continue;
-
-      if(OrderSymbol() != Symbol() || OrderMagicNumber() != InpMagicNumber)
-         continue;
-
-      if(OrderType() != OP_BUY && OrderType() != OP_SELL)
-         continue;
-
-      if(!InpBasketProfitDecayIncludeGuards && IsSARGuardOrderComment(OrderComment()))
-         continue;
-
-      if(OrderOpenTime() > latestTime)
-         latestTime = OrderOpenTime();
-     }
-
-// Fallback for the current tick / after restart edge cases.
-   if(latestTime <= 0 && g_lastOrderTime > 0)
-      latestTime = g_lastOrderTime;
-
-   return(latestTime);
-  }
-
-//+------------------------------------------------------------------+
-double GetBasketProfitTimeDecayMultiplier()
-  {
-   if(!InpUseBasketProfitTimeDecay)
-      return(1.0);
-
-   int stepMinutes = MathMax(1, InpBasketProfitDecayStepMinutes);
-   datetime latestOrderTime = GetLatestEAOpenOrderTimeForBasketDecay();
-
-   if(latestOrderTime <= 0)
-      return(1.0);
-
-   int elapsedMinutes = (int)((TimeCurrent() - latestOrderTime) / 60);
-
-   if(elapsedMinutes < stepMinutes)
-      return(1.0);
-
-   int divisor = (elapsedMinutes / stepMinutes) + 1;
-   if(divisor < 1)
-      divisor = 1;
-
-   double multiplier = 1.0 / divisor;
-   double minMultiplier = MathMax(0.01, MathMin(1.0, InpBasketProfitDecayMinMultiplier));
-
-   if(multiplier < minMultiplier)
-      multiplier = minMultiplier;
-
-   return(multiplier);
-  }
-
-//+------------------------------------------------------------------+
-string BasketProfitTimeDecayStatusText()
-  {
-   if(!InpUseBasketProfitTimeDecay)
-      return("OFF");
-
-   datetime latestOrderTime = GetLatestEAOpenOrderTimeForBasketDecay();
-   if(latestOrderTime <= 0)
-      return("WAIT ORDER");
-
-   int elapsedMinutes = (int)((TimeCurrent() - latestOrderTime) / 60);
-   double multiplier = GetBasketProfitTimeDecayMultiplier();
-
-   return(IntegerToString(elapsedMinutes) + "m | x" + DoubleToString(multiplier, 2));
-  }
-
-//+------------------------------------------------------------------+
 bool IsMixedModeHalfBasketTPActive()
   {
 // Automatic rule: MIXED market mode always uses exact half basket TP.
@@ -4066,15 +3796,6 @@ bool IsFixedHalfBasketTPActive()
   }
 
 //+------------------------------------------------------------------+
-double GetMixedModeBasketTPMultiplier()
-  {
-   if(!IsMixedModeHalfBasketTPActive())
-      return(1.0);
-
-// Fixed rule requested for MIXED mode.
-   return(0.50);
-  }
-
 //+------------------------------------------------------------------+
 double GetMixedModeBasketProfitTargetUSD()
   {
@@ -4090,10 +3811,7 @@ double GetBasketProfitTargetUSD()
 // 1) Auto Market Flow mode is MIXED, OR
 // 2) current active SAR score <= InpSARScoreHalfBasketTPMax.
 //
-// This return intentionally happens before:
-// - simple-mode order-count division,
-// - 12:00-17:00 target override,
-// - time-decay multiplier.
+// This return intentionally happens before simple-mode order-count division and the 12:00-17:00 target override.
    if(IsFixedHalfBasketTPActive())
       return(GetMixedModeBasketProfitTargetUSD());
 
@@ -4121,9 +3839,6 @@ double GetBasketProfitTargetUSD()
       baseTarget = ScaleTradeMoneyByCurrentLot(InpBasketProfitUSD_12_17);
 
    double target = baseTarget / count;
-
-   target =
-      target * GetBasketProfitTimeDecayMultiplier();
 
    return(MathMax(0.01, target));
   }
@@ -5457,7 +5172,7 @@ bool TryQueuePreSARReversalSuspectEntry()
    if(IsNewOrderHardPauseActive() ||
       g_dailyProfitLock ||
       (g_equityProtectionHit && !IsDayLossLockBypassedAfterGMT0Hour()) ||
-      g_globalEquityTrailLocked || !IsTradingAllowedNow())
+      !IsTradingAllowedNow())
      {
       g_oppositeImpulseStatus = "SUSPECT BLOCKED | HARD SAFETY";
       return(false);
@@ -5813,8 +5528,7 @@ bool ProcessOppositeImpulseContinuation()
      }
 
    if(g_dailyProfitLock ||
-      (g_equityProtectionHit && !IsDayLossLockBypassedAfterGMT0Hour()) ||
-      g_globalEquityTrailLocked)
+      (g_equityProtectionHit && !IsDayLossLockBypassedAfterGMT0Hour()))
      {
       ClearOppositeImpulseRequest("REQUEST CANCELLED | EQUITY/PROFIT LOCK");
       return(false);
@@ -6337,8 +6051,7 @@ bool IsSARContinuationCommonSafetyReady(int direction,
      }
 
    if(g_dailyProfitLock ||
-      IsDayLossLockActiveForNewOrders() ||
-      g_globalEquityTrailLocked)
+      IsDayLossLockActiveForNewOrders())
      {
       g_sarContinuationStatus = strategy + " BLOCK | EQUITY/PROFIT LOCK";
       return(false);
@@ -6500,7 +6213,6 @@ bool PlaceSARContinuationPending(int direction,
    if(IsNewOrderHardPauseActive() ||
       g_dailyProfitLock ||
       IsDayLossLockActiveForNewOrders() ||
-      g_globalEquityTrailLocked ||
       !IsTradingAllowedNow())
      {
       g_sarContinuationStatus =
@@ -8327,81 +8039,6 @@ bool CheckDailyEARestart()
 
    return(true);
   }
-string CreateDubaiHourListFromGMT(string sourceHourList, int addHours = 4, bool sortResult = true)
-{
-   string parts[];
-   int count = StringSplit(sourceHourList, ',', parts);
-
-   bool used[24];
-   for(int i = 0; i < 24; i++)
-      used[i] = false;
-
-   for(int i = 0; i < count; i++)
-   {
-      string txt = StringTrimLeft(StringTrimRight(parts[i]));
-      if(txt == "")
-         continue;
-
-      int hour = (int)StringToInteger(txt);
-
-      if(hour < 0 || hour > 23)
-         continue;
-
-      int dubaiHour = hour + addHours;
-
-      while(dubaiHour >= 24)
-         dubaiHour -= 24;
-
-      while(dubaiHour < 0)
-         dubaiHour += 24;
-
-      used[dubaiHour] = true;
-   }
-
-   string result = "";
-
-   if(sortResult)
-   {
-      for(int h = 0; h < 24; h++)
-      {
-         if(used[h])
-         {
-            if(result != "")
-               result += ",";
-
-            result += IntegerToString(h);
-         }
-      }
-   }
-   else
-   {
-      for(int i = 0; i < count; i++)
-      {
-         string txt = StringTrimLeft(StringTrimRight(parts[i]));
-         if(txt == "")
-            continue;
-
-         int hour = (int)StringToInteger(txt);
-         if(hour < 0 || hour > 23)
-            continue;
-
-         int dubaiHour = hour + addHours;
-
-         while(dubaiHour >= 24)
-            dubaiHour -= 24;
-
-         while(dubaiHour < 0)
-            dubaiHour += 24;
-
-         if(result != "")
-            result += ",";
-
-         result += IntegerToString(dubaiHour);
-      }
-   }
-
-   return result;
-}
 int OnInit()
   {
    // Resolve the final magic number before any order scan or terminal
@@ -8481,9 +8118,6 @@ int OnInit()
          DoubleToString(GetDynamicBasketTargetUSDByLevel(2),2),
          " | Later Step=$",
          DoubleToString(GetDynamicBasketProfitStepUSD(),3));
-
-
-
 
 
    // Tester and live use the same trading protections. Only their clock source
@@ -8756,24 +8390,6 @@ void UpdateHighestDailyProfitShareFloor()
   }
 
 //+------------------------------------------------------------------+
-string DailyProfitLadderLevelsText(int decimals)
-  {
-   string result = "";
-   int maxLevel = GetDailyProfitLadderMaxLevel();
-
-   for(int level=1; level<=maxLevel; level++)
-     {
-      if(level > 1)
-         result += "/";
-
-      result += DoubleToString(
-                   GetDailyProfitLadderPercent(level),
-                   decimals);
-     }
-
-   return(result + "%");
-  }
-
 //+------------------------------------------------------------------+
 string DailyProfitLadderTargetProtectText(int decimals)
   {
@@ -9123,7 +8739,7 @@ string DailyProfitPercentLadderStatusText()
       if(g_profitPercentAwaitingNewOrder)
          return("FIRST " +
                 DoubleToString(activationPercent,2) +
-                "% BOOKED | WAIT NEW ORDER | PEAK " +
+                "% ACTIVATED | SHARE LOCK ARMED | PEAK " +
                 DoubleToString(g_profitPercentPeakPercent,2) +
                 "% | FUTURE LOCK " +
                 DoubleToString(
@@ -9223,6 +8839,20 @@ bool LockDailyProfitPercentLadder(string lockReason,
       return(false);
      }
 
+   // Profit lock must not fire after the account has already fallen below
+   // the day opening anchor. Below opening balance is handled by day-loss
+   // protection, not by profit-share protection.
+   if(!IsAboveOpeningBalanceForProfitLock(currentEquity))
+     {
+      g_profitPercentLadderStatus =
+         "SKIP PROFIT LOCK BELOW OPENING BALANCE" +
+         " | Reason=" + lockReason +
+         " | Value $" + DoubleToString(currentEquity,2) +
+         " | Opening $" + DoubleToString(GetEquityCycleAnchor(),2) +
+         " | Profit " + DoubleToString(currentPercent,2) + "%";
+      return(false);
+     }
+
    if(g_dailyProfitLock)
       return(IsDailyProfitPauseActive());
 
@@ -9314,10 +8944,24 @@ bool CheckHighestProfitShareLock(double currentEquity)
    if(currentPercent > g_profitPercentPeakPercent)
       g_profitPercentPeakPercent = currentPercent;
 
+   // The highest-profit share lock is only a profit-side trailing lock.
+   // If current value is below the day opening balance, do not set/trigger
+   // a profit lock. Let day-loss / half-loss / SL rules decide instead.
+   if(!IsAboveOpeningBalanceForProfitLock(currentEquity))
+     {
+      g_profitPercentLadderStatus =
+         "PROFIT SHARE WAIT | BELOW OPENING BALANCE" +
+         " | VALUE $" + DoubleToString(currentEquity,2) +
+         " | OPENING $" + DoubleToString(GetEquityCycleAnchor(),2) +
+         " | NOW " + DoubleToString(currentPercent,2) +
+         "% | DAY LOSS RULE ACTIVE BELOW LIMIT";
+      return(false);
+     }
+
    double activationPercent =
       MathMax(0.0,GetDailyProfitLadderPercent(1));
 
-   // Before the first exact target there is no profit-share day lock.
+   // Before the first activation target there is no profit-share day lock.
    if(g_profitPercentHighestLevel <= 0)
      {
       if(currentPercent+0.0000001 < activationPercent)
@@ -9331,7 +8975,7 @@ bool CheckHighestProfitShareLock(double currentEquity)
          return(false);
         }
 
-      // First target reached: book existing exposure but do not stop the EA.
+      // First target reached: arm share lock. No market close; no pending delete unless InpProfitLadderBookAtEachTarget=true.
       g_profitPercentHighestLevel = 1;
       g_profitPercentLastBookedLevel = 1;
       g_profitPercentLastBookTime = TimeCurrent();
@@ -9348,7 +8992,7 @@ bool CheckHighestProfitShareLock(double currentEquity)
       g_profitPercentLadderStatus =
          "FIRST " +
          DoubleToString(activationPercent,2) +
-         "% BOOKED | WAIT NEW ORDER | PEAK " +
+         "% ACTIVATED | SHARE LOCK ARMED | PEAK " +
          DoubleToString(g_profitPercentPeakPercent,2) +
          "% | LOCK " +
          DoubleToString(
@@ -9367,11 +9011,11 @@ bool CheckHighestProfitShareLock(double currentEquity)
                MathMax(0.0,
                        MathMin(100.0,
                                InpHighestProfitLockSharePercent)),2),"%",
-            " | Trading continues after booking.");
+            " | Trading continues after share-lock activation.");
 
       if(InpProfitLadderBookAtEachTarget)
          HandleDailyProfitLossLockOrders(
-            "FIRST DAILY PROFIT TARGET BOOKED - UNLIMITED SHARE LOCK CONTINUES");
+            "FIRST DAILY PROFIT TARGET ACTIVATED - UNLIMITED SHARE LOCK CONTINUES");
 
       return(false);
      }
@@ -9769,7 +9413,7 @@ void InitializeEquityDay()
    g_profitPercentLadderStatus =
       InpUseDailyProfitPercentLadder
       ? (InpUseHighestProfitShareLock
-         ? "READY | WAIT EXACT 10% SHARE-LOCK ACTIVATION"
+         ? "READY | WAIT EXACT " + DoubleToString(GetDailyProfitLadderArmPercent(1),2) + "% SHARE-LOCK ACTIVATION"
          : "READY | WAIT LEVEL 1")
       : "OFF | LEGACY FIXED TARGET";
 
@@ -9899,7 +9543,6 @@ void ResetTradingCycleState()
    g_oppositeImpulsePendingTicket = -1;
    g_oppositeImpulsePreSAROverride = false;
    g_oppositeImpulseStatus = "WAIT IMPULSE";
-   g_sarClosedProfitOrdersCount = 0;
    g_lastOrderOpenReason     = "WAIT ORDER";
    g_lastOrderBlockTime      = 0;
    g_doubtConfirmDirection      = 0;
@@ -10030,21 +9673,10 @@ string GetActiveNoNewOrderClockLabel()
   }
 
 //+------------------------------------------------------------------+
-bool IsConfiguredNoNewOrderHour(int hourValue)
-  {
-   return(IsConfiguredNoNewOrderHourInList(hourValue,
-                                           GetActiveNoNewOrderHourList()));
-  }
-
 //+------------------------------------------------------------------+
 //| Backward-compatible name kept so the rest of the EA compiles.     |
 //| This now returns GMT0/UTC time, not Dubai time.                  |
 //+------------------------------------------------------------------+
-datetime GetDubaiTime()
-  {
-   return(GetGMT0Time());
-  }
-
 //+------------------------------------------------------------------+
 //| EOD special order reason tag.                                    |
 //+------------------------------------------------------------------+
@@ -10930,14 +10562,6 @@ void ResetAllFreshDayRuntimeState()
       DeleteFreshDayEAStateGlobalVariables();
      }
 
-   g_globalEquityPeak = AccountEquity();
-   g_globalEquityTrailPauseUntil = 0;
-   g_globalEquityTrailLocked = false;
-   g_globalEquityTrailStatus = "OFF | FRESH DAY";
-   g_profitProtectPauseUntil = 0;
-   g_profitProtectCount = 0;
-   ArrayInitialize(g_profitProtectTickets,0);
-   ArrayInitialize(g_profitProtectPeakProfit,0.0);
 
    g_tickSpeedWindowStartMs = 0;
    g_tickSpeedLastTickMs = 0;
@@ -11818,11 +11442,6 @@ bool CheckDepositAndResetEquityStats()
   }
 
 //+------------------------------------------------------------------+
-double GetTodayProfitFromBase()
-  {
-   return(AccountEquity() - GetEquityCycleAnchor());
-  }
-
 //+------------------------------------------------------------------+
 //| Pending-order entry helpers                                      |
 //+------------------------------------------------------------------+
@@ -12570,8 +12189,7 @@ bool ProcessGoodMarketFirstOrderContinuation()
      }
 
    if(g_dailyProfitLock ||
-      IsDayLossLockActiveForNewOrders() ||
-      g_globalEquityTrailLocked)
+      IsDayLossLockActiveForNewOrders())
      {
       ClearGoodMarketContinuation("CANCELLED | EQUITY/PROFIT LOCK");
       return(false);
@@ -12805,94 +12423,7 @@ bool IsDirectionOrderCapReached(int direction, string source)
 //+------------------------------------------------------------------+
 //| Global equity trailing lock                                      |
 //+------------------------------------------------------------------+
-bool IsGlobalEquityTrailPauseActive()
-  {
-   if(!InpUseGlobalEquityTrailLock)
-      return(false);
-
-   if(g_globalEquityTrailPauseUntil <= 0)
-      return(false);
-
-   if(TimeCurrent() >= g_globalEquityTrailPauseUntil)
-     {
-      g_globalEquityTrailPauseUntil = 0;
-      g_globalEquityTrailLocked = false;
-      g_globalEquityPeak = AccountEquity();
-      g_globalEquityTrailStatus = "RESUMED";
-
-      Print("GLOBAL EQUITY TRAIL PAUSE FINISHED | NewPeak=$",
-            DoubleToString(g_globalEquityPeak, 2));
-
-      return(false);
-     }
-
-   int leftSec = (int)(g_globalEquityTrailPauseUntil - TimeCurrent());
-   if(leftSec < 0)
-      leftSec = 0;
-
-   g_globalEquityTrailStatus = "PAUSED " + FormatSecondsToHHMM(leftSec);
-   return(true);
-  }
-
 //+------------------------------------------------------------------+
-bool CheckGlobalEquityTrailLock()
-  {
-   if(InpUseSimpleSideBasketCloseOnly)
-      return(false);
-
-   if(!InpUseGlobalEquityTrailLock)
-      return(false);
-
-   if(IsGlobalEquityTrailPauseActive())
-      return(true);
-
-   double eq = AccountEquity();
-
-   if(g_globalEquityPeak <= 0.0)
-      g_globalEquityPeak = eq;
-
-   if(eq > g_globalEquityPeak)
-      g_globalEquityPeak = eq;
-
-   double profitFromBase = eq - GetEquityCycleAnchor();
-
-   if(profitFromBase < InpGlobalEquityTrailStartProfit)
-     {
-      g_globalEquityTrailStatus = "WAIT +$" + DoubleToString(InpGlobalEquityTrailStartProfit, 2);
-      return(false);
-     }
-
-   double dropFromPeak = g_globalEquityPeak - eq;
-
-   g_globalEquityTrailStatus =
-      "ON Peak=$" + DoubleToString(g_globalEquityPeak, 2) +
-      " Drop=$" + DoubleToString(dropFromPeak, 2) +
-      "/" + DoubleToString(InpGlobalEquityTrailLockUSD, 2);
-
-   if(InpGlobalEquityTrailLockUSD > 0.0 && dropFromPeak >= InpGlobalEquityTrailLockUSD)
-     {
-      Print("GLOBAL EQUITY TRAIL LOCK HIT | Equity=$", DoubleToString(eq, 2),
-            " | Peak=$", DoubleToString(g_globalEquityPeak, 2),
-            " | Drop=$", DoubleToString(dropFromPeak, 2),
-            " | Trail=$", DoubleToString(InpGlobalEquityTrailLockUSD, 2));
-
-      if(CountAllOrders() > 0)
-         CloseAllEAOrders("Global equity trailing lock");
-
-      g_globalEquityTrailLocked = true;
-      g_globalEquityTrailPauseUntil =
-         TimeCurrent() + MathMax(1, InpGlobalEquityTrailPauseMinutes) * 60;
-
-      g_globalEquityPeak = AccountEquity();
-      g_globalEquityTrailStatus =
-         "LOCKED PAUSE " + IntegerToString(InpGlobalEquityTrailPauseMinutes) + "m";
-
-      return(true);
-     }
-
-   return(false);
-  }
-
 //+------------------------------------------------------------------+
 int CountOppositeCandlesForWeakExit(int direction)
   {
@@ -12948,10 +12479,6 @@ bool CheckEquityConditions()
    UnlockDailyProfitLockAtConfiguredGMT0Hour();
 
    bool dayLossBypassActive = IsDayLossLockBypassedAfterGMT0Hour();
-
-   if(CheckGlobalEquityTrailLock())
-      return(true);
-
 // Strategy Tester and the configured live account can be exempted from
 // this opening-balance loss/profit guard.
    if(IsOpeningBalanceEquityLockExempt())
@@ -12972,18 +12499,44 @@ bool CheckEquityConditions()
       g_notifyEquityStopSent = false;
      }
 
+   double currentEquity = GetDailyLockEvaluationValue();
+   double currentLossValue = GetDailyLossLockEvaluationValue();
+
+   // Profit-share/daily-profit pause is valid only while the profit-side
+   // evaluation value is still above the day opening anchor. If the account
+   // has fallen below the opening anchor, clear the PROFIT pause and let
+   // day-loss / half-loss / server SL rules control trading instead.
+   if(g_dailyProfitLock &&
+      InpProfitLockOnlyWhenAboveOpeningBalance &&
+      !IsAboveOpeningBalanceForProfitLock(currentEquity))
+     {
+      g_dailyProfitLock = false;
+      g_profitPercentLadderHit = false;
+      g_notifyProfitLockSent = false;
+      g_profitPercentLadderStatus =
+         "PROFIT LOCK CLEARED BELOW OPENING BALANCE" +
+         " | ProfitValue $" + DoubleToString(currentEquity,2) +
+         " | Opening $" + DoubleToString(GetEquityCycleAnchor(),2) +
+         " | LossCheck $" + DoubleToString(currentLossValue,2) +
+         " | WAIT DAY LOSS LIMIT $" + DoubleToString(g_lossStopEquityLevel,2);
+
+      Print("PROFIT LOCK CLEARED BELOW OPENING BALANCE",
+            " | ProfitValue=$",DoubleToString(currentEquity,2),
+            " | Opening=$",DoubleToString(GetEquityCycleAnchor(),2),
+            " | LossCheck=$",DoubleToString(currentLossValue,2),
+            " | DayLossStop=$",DoubleToString(g_lossStopEquityLevel,2));
+     }
+
    if(IsDailyProfitPauseActive())
       return(true);
 
-   double currentEquity = GetDailyLockEvaluationValue();
-
-// 1) Loss lock: closed balance/equity reaches opening balance minus InpLossStopPercent.
+// 1) Loss lock: configured loss value reaches opening balance minus InpLossStopPercent.
 //    In server-first mode this uses AccountBalance(), so a running order is
 //    not interrupted by floating drawdown. Broker/server SL remains responsible
 //    for the active order.
    if(InpUseEquityProtection &&
       !dayLossBypassActive &&
-      currentEquity <= g_lossStopEquityLevel)
+      currentLossValue <= g_lossStopEquityLevel)
      {
       g_equityProtectionHit = true;
 
@@ -12991,7 +12544,8 @@ bool CheckEquityConditions()
          HandleDailyProfitLossLockOrders("OPENING BALANCE LOSS LOCK");
 
       Print("OPENING BALANCE LOSS LOCK HIT",
-            " | Equity=$",DoubleToString(currentEquity,2),
+            " | LossCheckValue=$",DoubleToString(currentLossValue,2),
+            " | ProfitCheckValue=$",DoubleToString(currentEquity,2),
             " | EquityAnchor=$",DoubleToString(GetEquityCycleAnchor(),2),
             " | StrategyReference=$",DoubleToString(g_baseBalance,2),
             " | LossPercent=",DoubleToString(InpLossStopPercent,2),"%",
@@ -13004,10 +12558,11 @@ bool CheckEquityConditions()
 
          string pauseDetails =
             "Reason: equity reached day loss limit" +
-            " | Equity $" + DoubleToString(currentEquity,2) +
+            " | LossCheckValue $" + DoubleToString(currentLossValue,2) +
+            " | ProfitCheckValue $" + DoubleToString(currentEquity,2) +
             " | DayStart $" + DoubleToString(GetEquityCycleAnchor(),2) +
             " | Ref $" + DoubleToString(g_baseBalance,2) +
-            " | Loss $" + DoubleToString(MathMax(0.0,GetEquityCycleAnchor()-currentEquity),2) +
+            " | Loss $" + DoubleToString(MathMax(0.0,GetEquityCycleAnchor()-currentLossValue),2) +
             " | Stop $" + DoubleToString(g_lossStopEquityLevel,2);
 
          NotifyTradingPausedReasonOnce(
@@ -13158,37 +12713,9 @@ void RecordLastClosedNormalOrderReference(int orderType, double closePrice, stri
 //+------------------------------------------------------------------+
 void RegisterSARClosedProfitOrder(int orderType, string commentText, double closedProfit, string closeReason)
   {
-   if(!InpUseSARClosedProfitCountProtect)
-      return;
-
-   if(closedProfit <= 0.0)
-      return;
-
-   int closeDirection = 0;
-   if(orderType == OP_BUY)
-      closeDirection = 1;
-   else
-      if(orderType == OP_SELL)
-         closeDirection = -1;
-      else
-         return;
-
-// Count only normal SAR orders. Recovery/hedge closes must not increase this counter.
-   if(StringFind(commentText, "RECOVERY") >= 0 || StringFind(commentText, "HEDGE") >= 0 || IsSARGuardOrderComment(commentText))
-      return;
-
-// Count only orders closed inside the current SAR signal direction.
-   if(closeDirection != g_sarCycleDirection || closeDirection != g_activeSARDirection)
-      return;
-
-   g_sarClosedProfitOrdersCount++;
-
-   Print("SAR CLOSED PROFIT COUNT UPDATED | Direction=", DirectionText(closeDirection),
-         " | Count=", g_sarClosedProfitOrdersCount,
-         " | ClosedProfit=$", DoubleToString(closedProfit, 2),
-         " | Reason=", closeReason);
+   // Percentage-clean mode: old SAR closed-profit-count protection removed.
+   return;
   }
-
 //+------------------------------------------------------------------+
 //| Dashboard memory for last order block and last order close        |
 //+------------------------------------------------------------------+
@@ -13208,14 +12735,6 @@ bool SetOrderBlockStatus(string &status, string reason)
   }
 
 //+------------------------------------------------------------------+
-string DashboardTimeText(datetime t)
-  {
-   if(t <= 0)
-      return("NONE");
-
-   return(TimeToString(t, TIME_DATE|TIME_SECONDS));
-  }
-
 //+------------------------------------------------------------------+
 void SetLastOrderCloseDashboard(int ticket, int type, double profit, double closePrice, string reason)
   {
@@ -13300,11 +12819,38 @@ double GetDailyLockEvaluationValue()
   }
 
 //+------------------------------------------------------------------+
+// Profit-lock and loss-lock can use different accounting sources.
+// Profit share normally needs live equity so it can protect floating profit.
+// Day loss can use closed balance so a running order is not interrupted.
+double GetDailyLossLockEvaluationValue()
+  {
+   if(InpDayLossLockUseClosedBalanceOnly)
+      return(AccountBalance());
+
+   return(GetDailyLockEvaluationValue());
+  }
+
+//+------------------------------------------------------------------+
+bool IsAboveOpeningBalanceForProfitLock(double value)
+  {
+   if(!InpProfitLockOnlyWhenAboveOpeningBalance)
+      return(true);
+
+   return(value > GetEquityCycleAnchor()+0.0000001);
+  }
+
+//+------------------------------------------------------------------+
 string GetDailyLockEvaluationModeText()
   {
-   return(InpDailyLocksUseClosedBalanceOnly
-          ? "CLOSED BALANCE ONLY"
-          : "LIVE EQUITY INCLUDING FLOATING P/L");
+   string profitMode = InpDailyLocksUseClosedBalanceOnly
+                       ? "PROFIT: CLOSED BALANCE"
+                       : "PROFIT: LIVE EQUITY";
+
+   string lossMode = InpDayLossLockUseClosedBalanceOnly
+                    ? "LOSS: CLOSED BALANCE"
+                    : "LOSS: SAME AS PROFIT";
+
+   return(profitMode + " | " + lossMode);
   }
 
 //+------------------------------------------------------------------+
@@ -13563,17 +13109,6 @@ double GetDynamicBasketProtectedProfitUSD(double peakProfit)
   }
 
 //+------------------------------------------------------------------+
-double GetDynamicBasketNextTargetUSD(double peakProfit)
-  {
-   int level = GetDynamicBasketCompletedLevel(peakProfit);
-   int maxLevel = GetDynamicBasketMaximumLevel();
-
-   if(maxLevel > 0 && level >= maxLevel)
-      return(GetDynamicBasketTargetUSDByLevel(maxLevel));
-
-   return(GetDynamicBasketTargetUSDByLevel(level + 1));
-  }
-
 //+------------------------------------------------------------------+
 //| First small positive lock before the first X level completes.   |
 //| It is clamped to that first X level as a minimum floor.          |
@@ -14436,85 +13971,6 @@ bool ProcessDynamicBasketProfitByDirection(int direction,
   }
 
 //+------------------------------------------------------------------+
-//| Basket profit protection level selector                          |
-//| Same idea as GetIndividualProfitProtectLevel(), but for baskets.  |
-//| Highest reached fixed level is used first. If no fixed level      |
-//| matches, dynamic fallback protects a percentage of peak profit.   |
-//+------------------------------------------------------------------+
-bool GetBasketProfitProtectLevel(double peakProfit,
-                                 double defaultActivate,
-                                 double defaultCloseAt,
-                                 double &selectedActivate,
-                                 double &selectedCloseAt,
-                                 int &selectedLevel)
-  {
-   selectedActivate = MathMax(0.0, defaultActivate);
-   selectedCloseAt  = MathMax(0.0, defaultCloseAt);
-   selectedLevel    = 0;
-
-   if(!InpUseBasketProfitProtect)
-      return(false);
-
-   if(!InpUseMultiBasketProfitProtect)
-      return(selectedActivate > 0.0 && peakProfit >= selectedActivate && selectedCloseAt >= 0.0);
-
-   /*
-   if(InpBasketProtectActivateUSD_5 > 0.0 && peakProfit >= InpBasketProtectActivateUSD_5)
-   {
-   selectedActivate = InpBasketProtectActivateUSD_5;
-   selectedCloseAt  = InpBasketProtectCloseAtUSD_5;
-   selectedLevel    = 5;
-   return(true);
-   }
-
-   if(InpBasketProtectActivateUSD_4 > 0.0 && peakProfit >= InpBasketProtectActivateUSD_4)
-   {
-   selectedActivate = InpBasketProtectActivateUSD_4;
-   selectedCloseAt  = InpBasketProtectCloseAtUSD_4;
-   selectedLevel    = 4;
-   return(true);
-   }
-
-   if(InpBasketProtectActivateUSD_3 > 0.0 && peakProfit >= InpBasketProtectActivateUSD_3)
-   {
-   selectedActivate = InpBasketProtectActivateUSD_3;
-   selectedCloseAt  = InpBasketProtectCloseAtUSD_3;
-   selectedLevel    = 3;
-   return(true);
-   }
-
-   if(InpBasketProtectActivateUSD_2 > 0.0 && peakProfit >= InpBasketProtectActivateUSD_2)
-   {
-   selectedActivate = InpBasketProtectActivateUSD_2;
-   selectedCloseAt  = InpBasketProtectCloseAtUSD_2;
-   selectedLevel    = 2;
-   return(true);
-   }
-
-   if(InpBasketProtectActivateUSD_1 > 0.0 && peakProfit >= InpBasketProtectActivateUSD_1)
-   {
-   selectedActivate = InpBasketProtectActivateUSD_1;
-   selectedCloseAt  = InpBasketProtectCloseAtUSD_1;
-   selectedLevel    = 1;
-   return(true);
-   }
-
-   // Dynamic fallback:
-   // If no fixed basket level matched, but basket moved into profit,
-   // close when basket profit falls back to configured percent of peak profit.
-   if(peakProfit >= InpBasketDynamicMinPeakUSD && InpBasketDynamicClosePercent > 0.0)
-   {
-   selectedActivate = peakProfit;
-   selectedCloseAt  = peakProfit * MathMin(100.0, InpBasketDynamicClosePercent) / 100.0;
-   selectedLevel    = 0; // dynamic level
-   return(true);
-   }
-
-   */
-
-   return(false);
-  }
-
 //+------------------------------------------------------------------+
 void ResetBasketProfitPeaksAfterClose(int direction)
   {
@@ -14611,48 +14067,6 @@ bool ProcessFirstPriorityBasketProfitClose(string &status)
       ResetServerSideProfitLockState(-1);
      }
 
-// BIG CANDLE PROFIT PROTECT:
-// Big candles/spikes are used for profit booking, not for opening new/recovery orders.
-// During a big-candle pause, protect configured percent of the highest combined basket profit.
-   CheckBigCandlePauseOnNewBar(true);
-   bool bigCandleActiveForProfit = IsBigCandlePauseActive();
-
-   if(InpUseBigCandleProfitProtect &&
-      bigCandleActiveForProfit &&
-      g_allBasketPeakProfit > 0.0 &&
-      allProfit > 0.0)
-     {
-      double lockPercent = InpBigCandleProfitLockPercent;
-      if(lockPercent < 1.0)
-         lockPercent = 1.0;
-      if(lockPercent > 100.0)
-         lockPercent = 100.0;
-
-      double closeAt = g_allBasketPeakProfit * lockPercent / 100.0;
-
-      if(allProfit <= closeAt)
-        {
-         CloseAllEAOrders(
-            "BIG CANDLE PROFIT PROTECT | Peak $" +
-            DoubleToString(g_allBasketPeakProfit, 2) +
-            " -> Close $" + DoubleToString(allProfit, 2) +
-            " | Lock " + DoubleToString(lockPercent, 1) + "%");
-
-         ResetDelayedSARCloseAfterBasketClose(0, "Big candle profit protect reset");
-         ResetBasketProfitPeaksAfterClose(0);
-
-         Print("BIG CANDLE PROFIT PROTECT CLOSED | Peak=$",
-               DoubleToString(g_allBasketPeakProfit, 2),
-               " | Current=$", DoubleToString(allProfit, 2),
-               " | CloseAt=$", DoubleToString(closeAt, 2),
-               " | LockPercent=", DoubleToString(lockPercent, 1),
-               " | LastMove=", DoubleToString(g_lastBigCandleMove, Digits));
-
-         status = "BIG CANDLE PROFIT PROTECT $" + DoubleToString(allProfit, 2);
-         return(true);
-        }
-     }
-
 // DYNAMIC SIDE PROFIT LADDER:
 // BUY and SELL use separate peak/lock memory. The opposite side never reduces
 // the protected profit of the profitable side. Fixed all-basket and fixed
@@ -14710,41 +14124,6 @@ bool ProcessFirstPriorityBasketProfitClose(string &status)
       return(true);
      }
 
-// PRIORITY 1B:
-// Basket profit protect: if combined basket first reached profit peak
-// and then profit reduced to protected level, close all.
-   double protectActivate = 0.0;
-   double protectCloseAt  = 0.0;
-   int    protectLevel    = 0;
-
-   if(GetBasketProfitProtectLevel(g_allBasketPeakProfit,
-                                  target,
-                                  target / 2.0,
-                                  protectActivate,
-                                  protectCloseAt,
-                                  protectLevel))
-     {
-      if(g_allBasketPeakProfit >= protectActivate &&
-         allProfit > 0.0 &&
-         allProfit <= protectCloseAt)
-        {
-         CloseAllEAOrders("ALL BUY+SELL basket profit protect | Peak $" +
-                          DoubleToString(g_allBasketPeakProfit, 2) +
-                          " -> Close $" + DoubleToString(allProfit, 2));
-
-         ResetDelayedSARCloseAfterBasketClose(0, "All basket protect reset");
-         ResetBasketProfitPeaksAfterClose(0);
-
-         Print("ALL BASKET PROFIT PROTECT CLOSED | Level=", protectLevel,
-               " | Peak=$", DoubleToString(g_allBasketPeakProfit, 2),
-               " | Current=$", DoubleToString(allProfit, 2),
-               " | ProtectClose=$", DoubleToString(protectCloseAt, 2));
-
-         status = "ALL BASKET PROTECT $" + DoubleToString(allProfit, 2);
-         return(true);
-        }
-     }
-
 // PRIORITY 2A:
 // If combined profit is not enough, close the profitable side only
 // when BUY/SELL side reaches fixed target.
@@ -14797,64 +14176,6 @@ bool ProcessFirstPriorityBasketProfitClose(string &status)
      {
       status = closedText;
       return(true);
-     }
-
-// PRIORITY 2B:
-// BUY/SELL side basket profit protect.
-   if(buyCount > 0 &&
-      GetBasketProfitProtectLevel(g_buyBasketPeakProfit,
-                                  buyTarget,
-                                  buyTarget / 2.0,
-                                  protectActivate,
-                                  protectCloseAt,
-                                  protectLevel))
-     {
-      if(g_buyBasketPeakProfit >= protectActivate &&
-         buyProfit > 0.0 &&
-         buyProfit <= protectCloseAt)
-        {
-         CloseOrdersByDirection(1, "BUY basket profit protect | Peak $" +
-                                DoubleToString(g_buyBasketPeakProfit, 2) +
-                                " -> Close $" + DoubleToString(buyProfit, 2));
-         ResetDelayedSARCloseAfterBasketClose(1, "BUY basket protect reset");
-         ResetBasketProfitPeaksAfterClose(1);
-
-         Print("BUY BASKET PROFIT PROTECT CLOSED | Level=", protectLevel,
-               " | Peak=$", DoubleToString(g_buyBasketPeakProfit, 2),
-               " | Current=$", DoubleToString(buyProfit, 2),
-               " | ProtectClose=$", DoubleToString(protectCloseAt, 2));
-
-         status = "BUY BASKET PROTECT $" + DoubleToString(buyProfit, 2);
-         return(true);
-        }
-     }
-
-   if(sellCount > 0 &&
-      GetBasketProfitProtectLevel(g_sellBasketPeakProfit,
-                                  sellTarget,
-                                  sellTarget / 2.0,
-                                  protectActivate,
-                                  protectCloseAt,
-                                  protectLevel))
-     {
-      if(g_sellBasketPeakProfit >= protectActivate &&
-         sellProfit > 0.0 &&
-         sellProfit <= protectCloseAt)
-        {
-         CloseOrdersByDirection(-1, "SELL basket profit protect | Peak $" +
-                                DoubleToString(g_sellBasketPeakProfit, 2) +
-                                " -> Close $" + DoubleToString(sellProfit, 2));
-         ResetDelayedSARCloseAfterBasketClose(-1, "SELL basket protect reset");
-         ResetBasketProfitPeaksAfterClose(-1);
-
-         Print("SELL BASKET PROFIT PROTECT CLOSED | Level=", protectLevel,
-               " | Peak=$", DoubleToString(g_sellBasketPeakProfit, 2),
-               " | Current=$", DoubleToString(sellProfit, 2),
-               " | ProtectClose=$", DoubleToString(protectCloseAt, 2));
-
-         status = "SELL BASKET PROTECT $" + DoubleToString(sellProfit, 2);
-         return(true);
-        }
      }
 
    return(false);
@@ -15075,51 +14396,7 @@ bool IsBigCandleOrderBlockedForDirection(int orderDirection,
   }
 
 //+------------------------------------------------------------------+
-string BigCandleDirectionalStatusText(int orderDirection)
-  {
-   string reason = "";
-
-   bool blocked =
-      IsBigCandleOrderBlockedForDirection(orderDirection,
-                                          reason);
-
-   return((blocked ? "BLOCK | " : "ALLOW | ") + reason);
-  }
-
-
 //+------------------------------------------------------------------+
-void UpgradeSARCycleMaxToNormalBecauseBigCandle(int direction, double candleMove, string reason)
-  {
-   if(direction == 0)
-      return;
-
-   EnsureSARSignalOrderCycle(direction);
-
-   int normalMax = MathMax(0, InpSARNormalDurationMaxOrders);
-   if(normalMax <= 0)
-      return;
-
-   if(g_sarCycleMaxOrders >= normalMax)
-     {
-      Print("BIG CANDLE SAME SAR | Normal max already active | Direction=", DirectionText(direction),
-            " | MaxOrders=", g_sarCycleMaxOrders,
-            " | Created=", g_sarCycleOrdersCreated,
-            " | Move=", DoubleToString(candleMove, Digits));
-      return;
-     }
-
-   int oldMax = g_sarCycleMaxOrders;
-   g_sarCycleMaxOrders = normalMax;
-
-   Print("BIG CANDLE SAME SAR - MAX UPGRADED | Direction=", DirectionText(direction),
-         " | OldMax=", oldMax,
-         " | NewMax=", g_sarCycleMaxOrders,
-         " | Created=", g_sarCycleOrdersCreated,
-         " | Move=", DoubleToString(candleMove, Digits),
-         " | Reason=", reason);
-  }
-
-
 //+------------------------------------------------------------------+
 //| Big candle/spike formation protection                            |
 //| This checks the CURRENT forming candle High[0]-Low[0].            |
@@ -16160,11 +15437,6 @@ bool CloseRecoveryOrdersAtProfit()
       if(CountOrdersByDirection(recoveryDirection) == 0)
          RegisterProfitableBasketClose(profit,
                                        "Recovery fixed profit target");
-
-      int idx = FindProfitProtectIndex(ticket);
-      if(idx >= 0)
-         RemoveProfitProtectIndex(idx);
-
       Print("RECOVERY FIXED PROFIT CLOSED | Ticket=", ticket,
             " | Type=", type == OP_BUY ? "BUY" : "SELL",
             " | Profit=$", DoubleToString(profit, 2),
@@ -16457,53 +15729,6 @@ int CountRecoveryGapOrdersByDirection(int direction)
   }
 
 //+------------------------------------------------------------------+
-bool GetRecoveryGapReferencePrice(int direction, double &referencePrice, int &totalSideOrders)
-  {
-   totalSideOrders = 0;
-   referencePrice = 0.0;
-
-   int type = direction == 1 ? OP_BUY : OP_SELL;
-
-   for(int i = OrdersTotal() - 1; i >= 0; i--)
-     {
-      if(!OrderSelect(i, SELECT_BY_POS, MODE_TRADES))
-         continue;
-
-      if(OrderSymbol() != Symbol())
-         continue;
-
-      if(OrderMagicNumber() != InpMagicNumber)
-         continue;
-
-      if(OrderType() != type)
-         continue;
-
-      // SAR special guard orders are hedge/protection orders.
-      // They must NOT become parent/base orders for recovery gap logic.
-      if(IsSARGuardOrderComment(OrderComment()))
-         continue;
-
-      double op = OrderOpenPrice();
-
-      if(totalSideOrders == 0)
-         referencePrice = op;
-      else
-        {
-         // BUY recovery: use lowest BUY open price. Next BUY opens only after price drops 30 below it.
-         if(direction == 1 && op < referencePrice)
-            referencePrice = op;
-
-         // SELL recovery: use highest SELL open price. Next SELL opens only after price rises 30 above it.
-         if(direction == -1 && op > referencePrice)
-            referencePrice = op;
-        }
-
-      totalSideOrders++;
-     }
-
-   return(totalSideOrders > 0);
-  }
-
 //+------------------------------------------------------------------+
 bool IsRecoveryHedgeOrderComment(string commentText)
   {
@@ -16739,7 +15964,7 @@ bool OpenRecoveryGapMarketOrder(int direction, double gapMove, string triggerRea
 
 // After a recovery order is opened, open one reverse swing/hedge order.
 // Example: BUY recovery -> SELL hedge, SELL recovery -> BUY hedge.
-// The hedge is tagged as RECOVERY_HEDGE so ProcessIndividualProfitProtect()
+// The hedge is tagged as RECOVERY_HEDGE for recovery-order tracking.
 // will close it only after 0.50 peak -> 0.40 pullback.
 
    return(true);
@@ -16800,51 +16025,6 @@ bool GetRecoveryLadderBasePrice(int direction, double &basePrice, int &sideOrder
 //+------------------------------------------------------------------+
 //|                                                                  |
 //+------------------------------------------------------------------+
-bool GetRecoveryLadderBasePriceOld(int direction, double &basePrice, int &sideOrders)
-  {
-   basePrice = 0.0;
-   sideOrders = 0;
-
-   int type = direction == 1 ? OP_BUY : OP_SELL;
-
-   for(int i = OrdersTotal() - 1; i >= 0; i--)
-     {
-      if(!OrderSelect(i, SELECT_BY_POS, MODE_TRADES))
-         continue;
-
-      if(OrderSymbol() != Symbol())
-         continue;
-
-      if(OrderMagicNumber() != InpMagicNumber)
-         continue;
-
-      if(OrderType() != type)
-         continue;
-
-      // SAR special guard orders are hedge/protection orders.
-      // They must NOT become parent/base orders for recovery gap logic.
-      if(IsSARGuardOrderComment(OrderComment()))
-         continue;
-
-      double op = OrderOpenPrice();
-
-      if(sideOrders == 0)
-         basePrice = op;
-      else
-        {
-         if(direction == 1 && op > basePrice)
-            basePrice = op;
-
-         if(direction == -1 && op < basePrice)
-            basePrice = op;
-        }
-
-      sideOrders++;
-     }
-
-   return(sideOrders > 0);
-  }
-
 //+------------------------------------------------------------------+
 double GetRecoveryLadderCurrentGap(int direction, double basePrice)
   {
@@ -17543,15 +16723,6 @@ int GetParentTicketForRecoveryGap(int direction)
   }
 
 //+------------------------------------------------------------------+
-bool IsRecoveryGapLinkedToParent(string commentText, int parentTicket)
-  {
-   if(parentTicket <= 0)
-      return(false);
-
-   string key = InpSARRecoveryGapOrderPrefix + IntegerToString(parentTicket) + "_";
-   return(StringFind(commentText, key) >= 0);
-  }
-
 //+------------------------------------------------------------------+
 string SARGuardGlobalVariableName(int guardTicket)
   {
@@ -18219,450 +17390,17 @@ bool ShouldCloseConfirmedSARWeakBasket(int direction,
 
 
 //+------------------------------------------------------------------+
-bool IsProfitProtectPauseActive()
-  {
-   if(g_profitProtectPauseUntil <= 0)
-      return(false);
-
-   if(TimeCurrent() >= g_profitProtectPauseUntil)
-     {
-      g_profitProtectPauseUntil = 0;
-      return(false);
-     }
-
-   return(true);
-  }
-
 //+------------------------------------------------------------------+
-string ProfitProtectPauseStatusText()
-  {
-   if(!IsProfitProtectPauseActive())
-      return("OFF");
-
-   int leftSec = (int)(g_profitProtectPauseUntil - TimeCurrent());
-   if(leftSec < 0)
-      leftSec = 0;
-
-   return(IntegerToString(leftSec / 60) + "m " + IntegerToString(leftSec % 60) + "s");
-  }
-
 //+------------------------------------------------------------------+
-int FindProfitProtectIndex(int ticket)
-  {
-   for(int i = 0; i < g_profitProtectCount; i++)
-     {
-      if(g_profitProtectTickets[i] == ticket)
-         return(i);
-     }
-   return(-1);
-  }
-
 //+------------------------------------------------------------------+
-int EnsureProfitProtectIndex(int ticket)
-  {
-   int idx = FindProfitProtectIndex(ticket);
-   if(idx >= 0)
-      return(idx);
-
-   if(g_profitProtectCount >= 500)
-      return(-1);
-
-   idx = g_profitProtectCount;
-   g_profitProtectTickets[idx] = ticket;
-   g_profitProtectPeakProfit[idx] = -999999.0;
-   g_profitProtectCount++;
-   return(idx);
-  }
-
 //+------------------------------------------------------------------+
-void RemoveProfitProtectIndex(int idx)
-  {
-   if(idx < 0 || idx >= g_profitProtectCount)
-      return;
-
-   for(int i = idx; i < g_profitProtectCount - 1; i++)
-     {
-      g_profitProtectTickets[i] = g_profitProtectTickets[i + 1];
-      g_profitProtectPeakProfit[i] = g_profitProtectPeakProfit[i + 1];
-     }
-
-   g_profitProtectCount--;
-  }
-
 //+------------------------------------------------------------------+
-bool IsEAOrderTicketOpen(int ticket)
-  {
-   for(int i = OrdersTotal() - 1; i >= 0; i--)
-     {
-      if(!OrderSelect(i, SELECT_BY_POS, MODE_TRADES))
-         continue;
-
-      if(OrderTicket() == ticket &&
-         OrderSymbol() == Symbol() &&
-         OrderMagicNumber() == InpMagicNumber &&
-         (OrderType() == OP_BUY || OrderType() == OP_SELL))
-         return(true);
-     }
-   return(false);
-  }
-
 //+------------------------------------------------------------------+
-void CleanupProfitProtectClosedTickets()
-  {
-   for(int i = g_profitProtectCount - 1; i >= 0; i--)
-     {
-      if(!IsEAOrderTicketOpen(g_profitProtectTickets[i]))
-         RemoveProfitProtectIndex(i);
-     }
-  }
-
-
 //+------------------------------------------------------------------+
 // Select highest matching individual profit-protect level.
 // Returns TRUE when a valid protection level exists.
-bool GetIndividualProfitProtectLevel(double peakProfit,
-                                     double defaultActivate,
-                                     double defaultCloseAt,
-                                     double &selectedActivate,
-                                     double &selectedCloseAt,
-                                     int &selectedLevel,datetime orderopentime)
-  {
-   selectedActivate = MathMax(0.0, defaultActivate);
-   selectedCloseAt  = MathMax(0.0, defaultCloseAt);
-   selectedLevel    = 0;
-
-   if(!InpUseMultiIndividualProfitProtect)
-      return(selectedActivate > 0.0 && selectedCloseAt >= 0.0);
-
-// SAR closed-profit count dynamic protection.
-// Example: after 2 profitable normal closes in this SAR signal,
-// close current order if it pulls back to peak/2. After 3 closes, peak/3, etc.
-   int sarClosedCount = MathMax(0, g_sarClosedProfitOrdersCount);
-   int startCount = MathMax(1, InpSARClosedProfitCountStart);
-
-   if(InpUseSARClosedProfitCountProtect &&
-      sarClosedCount >= startCount &&
-      peakProfit > 0.0 && peakProfit>ScaleTradeMoneyByCurrentLot(InpBasketProfitUSD) / sarClosedCount && peakProfit>ScaleTradeMoneyByCurrentLot(InpBasketProfitUSD)/2)
-     {
-      selectedActivate = peakProfit;
-      // selectedCloseAt  = peakProfit / sarClosedCount;
-
-      // Keep at least a tiny positive close value so the order never closes at 0.
-      // selectedCloseAt = MathMax(0.01, selectedCloseAt);
-      selectedCloseAt = peakProfit * 0.80;
-
-      selectedLevel = 100 + sarClosedCount;
-      return(true);
-     }
-
-   /*
-   // Level 3 has highest priority after the order has reached that peak.
-   if(InpProtectActivateUSD_5 > 0.0 && peakProfit >= InpProtectActivateUSD_5)
-   {
-   selectedActivate = InpProtectActivateUSD_5;
-   selectedCloseAt  = InpProtectCloseAtUSD_5;
-   selectedLevel    = 5;
-   return(true);
-   }
-
-    if(InpProtectActivateUSD_4 > 0.0 && peakProfit >= InpProtectActivateUSD_4)
-   {
-   selectedActivate = InpProtectActivateUSD_4;
-   selectedCloseAt  = InpProtectCloseAtUSD_4;
-   selectedLevel    = 4;
-   return(true);
-   }
-    if(InpProtectActivateUSD_3 > 0.0 && peakProfit >= InpProtectActivateUSD_3)
-   {
-   selectedActivate = InpProtectActivateUSD_3;
-   selectedCloseAt  = InpProtectCloseAtUSD_3;
-   selectedLevel    = 3;
-   return(true);
-   }
-
-   if(InpProtectActivateUSD_2 > 0.0 && peakProfit >= InpProtectActivateUSD_2)
-   {
-   selectedActivate = InpProtectActivateUSD_2;
-   selectedCloseAt  = InpProtectCloseAtUSD_2;
-   selectedLevel    = 2;
-   return(true);
-   }
-
-   if(InpProtectActivateUSD_1 > 0.0)
-   {
-   selectedActivate = InpProtectActivateUSD_1;
-   selectedCloseAt  = InpProtectCloseAtUSD_1;
-   selectedLevel    = 1;
-   return(true);
-   }
-
-   */
-
-   /*
-   bool isNewBar = (Time[0] != g_lastBarTime);
-
-
-   if(g_sarCycleOrdersCreated>5 || TimeCurrent()-orderopentime>30)
-   {
-   if(peakProfit > 0.0 && peakProfit>1)
-      {
-       selectedActivate = peakProfit;
-       selectedCloseAt  = peakProfit *0.8;
-       selectedLevel    = 0; // dynamic level
-       return(true);
-      }
-     else  if(peakProfit > 0.0 && peakProfit>0.10)
-      {
-       selectedActivate = peakProfit;
-       selectedCloseAt  = peakProfit *0.8;
-       selectedLevel    = 0; // dynamic level
-       return(true);
-      }
-   }
-
-
-   if(isNewBar)
-   {
-    if(peakProfit > 0.0 && peakProfit>3)
-      {
-       selectedActivate = peakProfit;
-       selectedCloseAt  = peakProfit *0.8;
-       selectedLevel    = 0; // dynamic level
-       return(true);
-      }
-   }
-   else
-    if(peakProfit > 0.0 && peakProfit>3)
-      {
-       selectedActivate = peakProfit;
-       selectedCloseAt  = peakProfit *0.8;
-       selectedLevel    = 0; // dynamic level
-       return(true);
-      }
-   // Dynamic fallback:
-   // If no fixed level matched, but order moved into profit,
-   // close when profit falls back to 50% of peak profit.
-   if(peakProfit > 0.0 && peakProfit>0.20)
-   {
-   selectedActivate = peakProfit;
-   selectedCloseAt  = peakProfit / 2.0;
-   selectedLevel    = 0; // dynamic level
-   return(true);
-   }*/
-
-// Fallback to old single-level/dynamic values if all multi levels are disabled.
-   return(selectedActivate > 0.0 && selectedCloseAt >= 0.0);
-  }
-
 //+------------------------------------------------------------------+
-void ProcessIndividualProfitProtect()
-  {
-   if(InpUseSimpleSideBasketCloseOnly)
-      return;
-
-   if(!InpUseIndividualProfitProtect)
-      return;
-
-   RefreshRates();
-
-   double basketTarget = MathMax(0.0, GetBasketProfitTargetUSD());
-
-   for(int i = OrdersTotal() - 1; i >= 0; i--)
-     {
-      if(!OrderSelect(i, SELECT_BY_POS, MODE_TRADES))
-         continue;
-
-      if(OrderSymbol() != Symbol() || OrderMagicNumber() != InpMagicNumber)
-         continue;
-
-      if(OrderType() != OP_BUY && OrderType() != OP_SELL)
-         continue;
-
-      if(IsSARGuardOrderComment(OrderComment()))
-         continue;
-
-      int ticket = OrderTicket();
-      int type   = OrderType();
-      int sideOpenOrders = CountOpenOrdersByType(type);
-      if(sideOpenOrders <= 0)
-         sideOpenOrders = 1;
-
-      bool recoveryOrder = IsRecoveryOrder();
-
-      // Dynamic individual protection target for NORMAL orders:
-      // Example: Basket TP=$2 and 4 BUY orders => each BUY protect activation=$0.50.
-      double dynamicActivateProfit = basketTarget / sideOpenOrders;
-
-      // Keep your manual input as a fallback when basket target is disabled/zero.
-      if(dynamicActivateProfit <= 0.0)
-         dynamicActivateProfit = MathMax(0.0, ScaleTradeMoneyByCurrentLot(InpIndividualProtectActivateUSD));
-
-      // Recovery orders must also be protected using the fixed manual values.
-      // This protects RECOVERY_GAP_1 / RECOVERY_GAP_2 / RECOVERY_GAP_3 during sliding up/down market.
-      if(recoveryOrder)
-         dynamicActivateProfit = MathMax(0.0, ScaleTradeMoneyByCurrentLot(InpIndividualProtectActivateUSD));
-
-      // Close after profit pulls back. Default for normal orders: 50% of dynamic target.
-      double dynamicCloseAtProfit = dynamicActivateProfit * 0.50;
-
-      // Keep at least your manual close value.
-      dynamicCloseAtProfit = MathMax(dynamicCloseAtProfit, MathMax(0.0, ScaleTradeMoneyByCurrentLot(InpIndividualProtectCloseAtUSD)));
-
-      // Recovery orders use exact manual close value, example: reached $0.50, close when back to $0.40.
-      if(recoveryOrder)
-         dynamicCloseAtProfit = MathMax(0.0, ScaleTradeMoneyByCurrentLot(InpIndividualProtectCloseAtUSD));
-
-      double profit = OrderProfit() + OrderSwap() + OrderCommission();
-
-      int idx = EnsureProfitProtectIndex(ticket);
-      if(idx < 0)
-         continue;
-
-      if(profit > g_profitProtectPeakProfit[idx])
-         g_profitProtectPeakProfit[idx] = profit;
-
-      double selectedActivateProfit = dynamicActivateProfit;
-      double selectedCloseAtProfit  = dynamicCloseAtProfit;
-      int selectedProtectLevel      = 0;
-
-      if(!GetIndividualProfitProtectLevel(g_profitProtectPeakProfit[idx],
-                                          dynamicActivateProfit,
-                                          dynamicCloseAtProfit,
-                                          selectedActivateProfit,
-                                          selectedCloseAtProfit,
-                                          selectedProtectLevel,OrderOpenTime()))
-         continue;
-
-      // Rule: order first reaches the selected protection level,
-      // then if profit comes back down near that level's close value, close it.
-      if(g_profitProtectPeakProfit[idx] >= selectedActivateProfit &&
-         profit <= selectedCloseAtProfit &&
-         profit > 0.0)
-        {
-         double closePrice = (type == OP_BUY) ? Bid : Ask;
-         double lots = OrderLots();
-
-         bool ok = OrderClose(ticket, lots, closePrice, InpSlippage, clrYellow);
-
-         if(ok)
-           {
-            g_lastAnyOrderCloseTime = TimeCurrent();
-            SetLastOrderCloseDashboard(ticket, type, profit, closePrice, "Individual profit protect");
-            RecordLastClosedNormalOrderReference(type, closePrice, OrderComment(), "Individual profit protect");
-            RegisterSARClosedProfitOrder(type, OrderComment(), profit, "Individual profit protect");
-            Print("INDIVIDUAL PROFIT PROTECT CLOSED | Ticket=", ticket,
-                  " | Type=", type == OP_BUY ? "BUY" : "SELL",
-                  " | Comment=", OrderComment(),
-                  " | Recovery=", recoveryOrder ? "YES" : "NO",
-                  " | SideOpenOrders=", sideOpenOrders,
-                  " | BasketTarget=$", DoubleToString(basketTarget, 2),
-                  " | ProtectLevel=", selectedProtectLevel,
-                  " | SelectedActivate=$", DoubleToString(selectedActivateProfit, 2),
-                  " | SelectedCloseAt=$", DoubleToString(selectedCloseAtProfit, 2),
-                  " | DynamicActivate=$", DoubleToString(dynamicActivateProfit, 2),
-                  " | DynamicCloseAt=$", DoubleToString(dynamicCloseAtProfit, 2),
-                  " | PeakProfit=$", DoubleToString(g_profitProtectPeakProfit[idx], 2),
-                  " | ClosedProfit=$", DoubleToString(profit, 2));
-
-            // After individual profit protect closes an order, pause next normal SAR order for configured minutes.
-            g_profitProtectPauseUntil = TimeCurrent() + MathMax(1, InpIndividualProtectPauseMinutes) * 60;
-            Print("PROFIT PROTECT PAUSE STARTED | Next normal order blocked for ",
-                  MathMax(1, InpIndividualProtectPauseMinutes), " minutes | Until=",
-                  TimeToString(g_profitProtectPauseUntil, TIME_DATE|TIME_SECONDS));
-
-            RemoveProfitProtectIndex(idx);
-           }
-         else
-           {
-            int err = GetLastError();
-            Print("INDIVIDUAL PROFIT PROTECT CLOSE FAILED | Ticket=", ticket,
-                  " | Profit=$", DoubleToString(profit, 2),
-                  " | Error=", err);
-            ResetLastError();
-           }
-        }
-     }
-
-   CleanupProfitProtectClosedTickets();
-  }
-
-
 //+------------------------------------------------------------------+
-void ProcessNextCandleLossProtect()
-  {
-   if(!InpCloseIfNextCandleNotProfit)
-      return;
-
-   RefreshRates();
-
-   for(int i = OrdersTotal() - 1; i >= 0; i--)
-     {
-      if(!OrderSelect(i, SELECT_BY_POS, MODE_TRADES))
-         continue;
-
-      if(OrderSymbol() != Symbol() || OrderMagicNumber() != InpMagicNumber)
-         continue;
-
-      if(OrderType() != OP_BUY && OrderType() != OP_SELL)
-         continue;
-
-      if(IsSARGuardOrderComment(OrderComment()))
-         continue;
-
-      // Wait until the candle after the order-created candle has fully closed.
-      // Example on M1: order opens during candle A, candle B closes, then check profit.
-      int openShift = iBarShift(Symbol(), Period(), OrderOpenTime(), false);
-      if(openShift < 15)
-         continue;
-
-      double profit = OrderProfit() + OrderSwap() + OrderCommission();
-
-      // If order is not in profit after next candle close, close it before deeper loss.
-      if(profit <= 0.0)
-        {
-         int type = OrderType();
-         double closePrice = (type == OP_BUY) ? Bid : Ask;
-         int ticket = OrderTicket();
-         double lots = OrderLots();
-
-         if(!CanSoftCloseSelectedOrder("Next candle loss protect"))
-            continue;
-
-         bool ok = OrderClose(ticket, lots, closePrice, InpSlippage, clrOrange);
-
-         if(ok)
-           {
-            g_lastAnyOrderCloseTime = TimeCurrent();
-            SetLastOrderCloseDashboard(ticket, type, profit, closePrice, "Next candle loss protect");
-            RecordLastClosedNormalOrderReference(type, closePrice, OrderComment(), "Next candle loss protect");
-            RegisterSARClosedProfitOrder(type, OrderComment(), profit, "Next candle loss protect");
-            Print("NEXT CANDLE LOSS PROTECT CLOSED | Ticket=", ticket,
-                  " | Type=", type == OP_BUY ? "BUY" : "SELL",
-                  " | Profit=$", DoubleToString(profit, 2),
-                  " | OpenTime=", TimeToString(OrderOpenTime(), TIME_DATE|TIME_SECONDS),
-                  " | OpenShift=", openShift,
-                  " | Next normal order pause=", MathMax(1, InpIndividualProtectPauseMinutes), " minutes");
-
-            // Use same pause as individual profit protect, so EA does not immediately re-enter.
-            g_profitProtectPauseUntil = TimeCurrent() + MathMax(1, InpIndividualProtectPauseMinutes) * 60;
-
-            int idx = FindProfitProtectIndex(ticket);
-            if(idx >= 0)
-               RemoveProfitProtectIndex(idx);
-           }
-         else
-           {
-            int err = GetLastError();
-            Print("NEXT CANDLE LOSS PROTECT CLOSE FAILED | Ticket=", ticket,
-                  " | Profit=$", DoubleToString(profit, 2),
-                  " | Error=", err);
-            ResetLastError();
-           }
-        }
-     }
-  }
-
-
 //+------------------------------------------------------------------+
 //| Direction-wise basket stop loss                                  |
 //| BUY basket loss closes only BUY orders.                          |
@@ -19621,161 +18359,24 @@ void DrawEMALine(string name, int period, color clr, int width)
 //+------------------------------------------------------------------+
 //|                                                                  |
 //+------------------------------------------------------------------+
-void UpdateMarketMode()
-  {
-   double move30 =
-      MathAbs(Close[0] - iClose(Symbol(), PERIOD_M1, 30));
-
-   int h1Trend = GetH1TrendDirection();
-
-   int profitOrders = g_sarClosedProfitOrdersCount;
-
-   double ema50 =
-      iMA(Symbol(), PERIOD_M1, 50, 0, MODE_EMA, PRICE_CLOSE, 0);
-
-   double ema50Old =
-      iMA(Symbol(), PERIOD_M1, 50, 0, MODE_EMA, PRICE_CLOSE, 10);
-
-   bool strongSlope =
-      MathAbs(ema50 - ema50Old) > 100;
-
-   double lastRange =
-      MathAbs(High[1] - Low[1]);
-
-   if(lastRange > 300)
-     {
-      g_marketMode = MODE_DANGER;
-      return;
-     }
-
-   if(move30 > 500 &&
-      profitOrders >= 4 &&
-      h1Trend != 0 &&
-      strongSlope)
-     {
-      g_marketMode = MODE_STRONG_TREND;
-      return;
-     }
-
-   if(move30 >= 300)
-     {
-      g_marketMode = MODE_HEALTHY_TREND;
-      return;
-     }
-
-   g_marketMode = MODE_RANGE;
-  }
 //+------------------------------------------------------------------+
 //|                                                                  |
 //+------------------------------------------------------------------+
-bool AllowRecoveryOrders()
-  {
-   if(g_marketMode == MODE_STRONG_TREND)
-      return(false);
-
-   if(g_marketMode == MODE_DANGER)
-      return(false);
-
-   return(true);
-  }
-
 //+------------------------------------------------------------------+
 //|                                                                  |
 //+------------------------------------------------------------------+
-bool AllowSARWeakOrders()
-  {
-   if(g_marketMode == MODE_STRONG_TREND)
-      return(false);
-
-   if(g_marketMode == MODE_HEALTHY_TREND)
-      return(false);
-
-   if(g_marketMode == MODE_DANGER)
-      return(false);
-
-   return(true);
-  }
-
 //+------------------------------------------------------------------+
 //|                                                                  |
 //+------------------------------------------------------------------+
-bool AllowPullbackOrders()
-  {
-   if(g_marketMode == MODE_STRONG_TREND)
-      return(false);
-
-   if(g_marketMode == MODE_DANGER)
-      return(false);
-
-   return(true);
-  }
 //+------------------------------------------------------------------+
 //|                                                                  |
 //+------------------------------------------------------------------+
-double GetActiveBasketStopLoss()
-  {
-   switch(g_marketMode)
-     {
-      case MODE_STRONG_TREND:
-         return(5.0);
-
-      case MODE_HEALTHY_TREND:
-         return(10.0);
-
-      case MODE_RANGE:
-         return(10.0);
-
-      default:
-         return(10.0);
-     }
-  }
 //+------------------------------------------------------------------+
 //|                                                                  |
 //+------------------------------------------------------------------+
-string MarketModeText()
-  {
-   switch(g_marketMode)
-     {
-      case MODE_STRONG_TREND:
-         return("STRONG TREND");
-
-      case MODE_HEALTHY_TREND:
-         return("HEALTHY TREND");
-
-      case MODE_RANGE:
-         return("RANGE");
-
-      case MODE_DANGER:
-         return("DANGER");
-     }
-
-   return("UNKNOWN");
-  }
 //+------------------------------------------------------------------+
 //|                                                                  |
 //+------------------------------------------------------------------+
-double GetEffectiveRecoveryGapRawPrice()
-  {
-   if(!InpUseAutoMarketFlowMode)
-      return(InpRecoveryGapRawPrice);
-
-   switch(g_autoMarketMode)
-     {
-      case DXB_MARKET_MODE_CONTINUOUS:
-         return(999999); // disable
-
-      case DXB_MARKET_MODE_MEDIUM:
-         return(InpRecoveryGapRawPrice);
-
-      case DXB_MARKET_MODE_MIXED:
-         return(InpRecoveryGapRawPrice/2);
-
-      case DXB_MARKET_MODE_DANGER:
-         return(999999); // disable
-     }
-
-   return(InpRecoveryGapRawPrice);
-  }
 //+------------------------------------------------------------------+
 //| Detect when a normal pending entry has become a market order.     |
 //+------------------------------------------------------------------+
@@ -20494,9 +19095,6 @@ void OnTick()
 //   }
 
 
-
-
-
    RefreshRates();
 
 // Remember the deepest BUY/SELL basket loss continuously.
@@ -20613,14 +19211,6 @@ void OnTick()
             " | MarketOrders=", CountAllOrders(),
             " | New entries remain blocked by daily lock");
      }
-
-// Optional individual pullback protection remains available for normal and
-// recovery orders that have not yet reached InpRecoveryProfitUSD.
-   ProcessIndividualProfitProtect();
-
-// Next candle loss protection: if order is not in profit after next candle closes, close it.
-   ProcessNextCandleLossProtect();
-
 // Recovery processing is intentionally delayed until AFTER current
 // SAR state/flip processing. Running it here used the previous SAR direction
 // and could create a recovery order on the wrong side of a fresh flip.
@@ -21155,16 +19745,6 @@ double GetDynamicSARRequiredConfirmDiffForDirection(int direction)
   }
 
 //+------------------------------------------------------------------+
-double GetDynamicSARRequiredConfirmDiff()
-  {
-   int direction =
-      (g_pendingSARConfirmDirection != 0)
-      ? g_pendingSARConfirmDirection
-      : g_activeSARDirection;
-
-   return(GetDynamicSARRequiredConfirmDiffForDirection(direction));
-  }
-
 //+------------------------------------------------------------------+
 int CountDirectionalCandles(int direction, int lookback)
   {
@@ -21379,16 +19959,6 @@ int GetStrictSARMinimumScoreForDirection(int direction)
   }
 
 //+------------------------------------------------------------------+
-int GetStrictSARMinimumScore()
-  {
-   int direction =
-      (g_pendingSARConfirmDirection != 0)
-      ? g_pendingSARConfirmDirection
-      : g_activeSARDirection;
-
-   return(GetStrictSARMinimumScoreForDirection(direction));
-  }
-
 //+------------------------------------------------------------------+
 //| Final hard gate used before every non-guard market entry.        |
 //| Direct OrderSend paths cannot bypass this score requirement.      |
@@ -21803,21 +20373,6 @@ bool IsLateSARCycleEntryDanger(int direction, string &whyBlocked)
   }
 
 //+------------------------------------------------------------------+
-string LateSARCycleEntryStatusText(int direction)
-  {
-   if(!InpUseLateSARCycleEntryBlock)
-      return("OFF");
-
-   string why = "";
-   bool danger = IsLateSARCycleEntryDanger(direction, why);
-
-   if(danger)
-      return("DANGER | " + why);
-
-   return("SAFE age " + IntegerToString(GetSARSignalAgeMinutes()) + "m score " +
-          IntegerToString(g_dynamicSARScore) + "/" + IntegerToString(InpLateSARMaxWeakScore));
-  }
-
 //+------------------------------------------------------------------+
 bool IsCurrentSARGoodMomentum(int direction)
   {
@@ -22104,7 +20659,6 @@ void ResetSARSignalOrderCycle(int direction, string reason)
    g_lastClosedNormalOrderPrice = 0.0;
    g_lastClosedNormalOrderTime  = 0;
    g_lastClosedNormalOrderDirection = 0;
-   g_sarClosedProfitOrdersCount = 0;
 
    ResetDoubtfulCandleConfirmation("SAR CYCLE RESET");
    Print("SAR ORDER CYCLE RESET | Direction=", DirectionText(direction),
@@ -22127,7 +20681,6 @@ void ResetSARSignalOrderCycleToNormalAfterStopLoss(int direction, string reason)
    g_lastClosedNormalOrderPrice = 0.0;
    g_lastClosedNormalOrderTime  = 0;
    g_lastClosedNormalOrderDirection = 0;
-   g_sarClosedProfitOrdersCount = 0;
 
    ResetDoubtfulCandleConfirmation("STOPLOSS CYCLE RESET");
    Print("SAR ORDER CYCLE RESET AFTER STOPLOSS | Direction=", DirectionText(direction),
@@ -22421,16 +20974,6 @@ bool CanOpenNewOrder(int direction)
   {
    if(direction == 0)
       return(false);
-
-   if(IsMarketModeEntryFilterEnabled(DXB_FILTER_PROFIT_PAUSE) &&
-      IsProfitProtectPauseActive())
-     {
-      Print("ORDER BLOCKED | Individual profit protect pause active | Remaining=",
-            ProfitProtectPauseStatusText(), " | Direction=", DirectionText(direction));
-      DrawDashboard("PROFIT PROTECT PAUSE " + ProfitProtectPauseStatusText());
-      return(false);
-     }
-
    EnsureSARSignalOrderCycle(direction);
 // UpgradeSARCycleMaxIfGoodMomentum(direction, "CanOpenNewOrder");
    UpdateSARCycleMaxByMomentum(direction, "CanOpenNewOrder");
@@ -22920,13 +21463,6 @@ bool IsNormalOrderAllowedByMarketModeProfile(int direction,
       return(BlockNormalOrderByModeProfile(
                 "NEW-ORDER HARD LOCK | " + GetNewOrderHardPauseReasonText() +
                 " | Source=" + reason));
-
-   if(IsMarketModeEntryFilterEnabled(DXB_FILTER_PROFIT_PAUSE) &&
-      IsProfitProtectPauseActive())
-      return(BlockNormalOrderByModeProfile(
-                "PROFIT PAUSE | " + ProfitProtectPauseStatusText() +
-                " | Source=" + reason));
-
    if(IsMarketModeEntryFilterEnabled(DXB_FILTER_OPPOSITE_PAUSE) &&
       IsOrderBlockedByOppositeDirectionProfitPause(direction, reason))
       return(false);
@@ -23369,24 +21905,6 @@ int CountAllOrders()
    return total;
   }
 //+------------------------------------------------------------------+
-int CountAllSymbolMarketOrders()
-  {
-   int total = 0;
-
-   for(int i = OrdersTotal() - 1; i >= 0; i--)
-     {
-      if(!OrderSelect(i, SELECT_BY_POS, MODE_TRADES))
-         continue;
-
-      if(OrderSymbol() == Symbol() &&
-         (OrderType() == OP_BUY || OrderType() == OP_SELL))
-        {
-         total++;
-        }
-     }
-
-   return(total);
-  }
 //+------------------------------------------------------------------+
 
 //+------------------------------------------------------------------+
@@ -23535,11 +22053,6 @@ bool CanSoftCloseSelectedOrder(string reason)
   }
 
 //+------------------------------------------------------------------+
-void CloseOppositeOrders(int newDirection, string reason)
-  {
-   int closeType = newDirection == 1 ? OP_SELL : OP_BUY;
-   CloseOrdersByType(closeType, reason);
-  }
 //+------------------------------------------------------------------+
 void CloseOrdersByDirection(int direction, string reason)
   {
@@ -23706,37 +22219,6 @@ void DrawSARDots()
   }
 
 //+------------------------------------------------------------------+
-void DrawSAREveryBarArrowsHistory()
-  {
-   if(!InpDrawSAREveryBarArrows)
-      return;
-
-   int lookback = MathMin(InpSAREveryBarLookback, Bars - 2);
-   if(lookback <= 1)
-      return;
-
-   for(int i = 1; i <= lookback; i++)
-     {
-      int direction = GetSARDotDirection(i);
-      if(direction == 0)
-         continue;
-
-      double price = direction == 1 ? Low[i] : High[i];
-      string name = OBJ_PREFIX + "SAR_BAR_" + IntegerToString((int)Time[i]) + "_" + IntegerToString(direction);
-
-      if(ObjectFind(0, name) >= 0)
-         continue;
-
-      ObjectCreate(0, name, OBJ_ARROW, 0, Time[i], price);
-      ObjectSetInteger(0, name, OBJPROP_ARROWCODE, direction == 1 ? 233 : 234);
-      ObjectSetInteger(0, name, OBJPROP_COLOR, direction == 1 ? InpBuyColor : InpSellColor);
-      ObjectSetInteger(0, name, OBJPROP_WIDTH, 1);
-      ObjectSetInteger(0, name, OBJPROP_BACK, false);
-      ObjectSetInteger(0, name, OBJPROP_SELECTABLE, false);
-      ObjectSetInteger(0, name, OBJPROP_HIDDEN, true);
-     }
-  }
-
 //+------------------------------------------------------------------+
 void DrawSignalArrow(string tag, int direction, datetime t, double price, bool early)
   {
@@ -23783,224 +22265,26 @@ int GetChecklistDirection()
 //+------------------------------------------------------------------+
 //|                                                                  |
 //+------------------------------------------------------------------+
-string YesNo(bool ok)
-  {
-   return(ok ? "YES" : "NO");
-  }
-
 //+------------------------------------------------------------------+
 //|                                                                  |
 //+------------------------------------------------------------------+
-color YesNoColor(bool ok)
-  {
-   return(ok ? clrLime : clrOrangeRed);
-  }
-
 //+------------------------------------------------------------------+
 //|                                                                  |
 //+------------------------------------------------------------------+
-void DrawLeftPanel(string name,int x,int y,int w,int h,color bg)
-  {
-   if(ObjectFind(0,name) < 0)
-      ObjectCreate(0,name,OBJ_RECTANGLE_LABEL,0,0,0);
-
-   ObjectSetInteger(0,name,OBJPROP_CORNER,CORNER_LEFT_UPPER);
-   ObjectSetInteger(0,name,OBJPROP_XDISTANCE,x);
-   ObjectSetInteger(0,name,OBJPROP_YDISTANCE,y);
-   ObjectSetInteger(0,name,OBJPROP_XSIZE,w);
-   ObjectSetInteger(0,name,OBJPROP_YSIZE,h);
-   ObjectSetInteger(0,name,OBJPROP_BGCOLOR,bg);
-   ObjectSetInteger(0,name,OBJPROP_BORDER_COLOR,clrDimGray);
-   ObjectSetInteger(0,name,OBJPROP_BACK,false);
-   ObjectSetInteger(0,name,OBJPROP_HIDDEN,true);
-  }
-
 //+------------------------------------------------------------------+
 //|                                                                  |
 //+------------------------------------------------------------------+
-void DrawLeftLabel(string name,string text,int x,int y,color clrText,int size=9)
-  {
-   if(ObjectFind(0,name) < 0)
-      ObjectCreate(0,name,OBJ_LABEL,0,0,0);
-
-   ObjectSetInteger(0,name,OBJPROP_CORNER,CORNER_LEFT_UPPER);
-   ObjectSetInteger(0,name,OBJPROP_XDISTANCE,x);
-   ObjectSetInteger(0,name,OBJPROP_YDISTANCE,y);
-   ObjectSetString(0,name,OBJPROP_TEXT,text);
-   ObjectSetString(0,name,OBJPROP_FONT,"Consolas");
-   ObjectSetInteger(0,name,OBJPROP_FONTSIZE,size);
-   ObjectSetInteger(0,name,OBJPROP_COLOR,clrText);
-   ObjectSetInteger(0,name,OBJPROP_HIDDEN,true);
-   ObjectSetText(name,text,7,"Consolas",clrText);
-
-  }
-
 //+------------------------------------------------------------------+
 //|                                                                  |
 //+------------------------------------------------------------------+
-void LeftChecklistRow(string title,string value,bool ok,string extra="")
-  {
-   string rowName = "DXB_LEFT_CHK_ROW_" + IntegerToString(g_leftDashRow);
-   string text = StringSubstr(title + "                         ", 0, 24) + " : " + value;
-   if(extra != "")
-      text = text + " " + extra;
-
-   DrawLeftLabel(rowName,text,10,34 + (g_leftDashRow * 17),YesNoColor(ok),9);
-   g_leftDashRow++;
-  }
-
 //+------------------------------------------------------------------+
 //|                                                                  |
 //+------------------------------------------------------------------+
-void LeftChecklistInfo(string title,string value,color clrText=clrWhite)
-  {
-   string rowName = "DXB_LEFT_CHK_ROW_" + IntegerToString(g_leftDashRow);
-   string text = StringSubstr(title + "                         ", 0, 24) + " : " + value;
-   DrawLeftLabel(rowName,text,10,34 + (g_leftDashRow * 17),clrText,9);
-   g_leftDashRow++;
-  }
-
 //+------------------------------------------------------------------+
 //| Left-side dashboard: SAR special guard order information          |
 //+------------------------------------------------------------------+
 //| Left-side dashboard: important settings used before new orders    |
 //+------------------------------------------------------------------+
-void DrawLeftImportantOrderSettings(int direction)
-  {
-   LeftChecklistInfo("----- IMPORTANT ORDER SETTINGS -----", "", clrYellow);
-
-   LeftChecklistInfo("Filter Profile",
-                     g_autoMarketModeText + " | " +
-                     IntegerToString(CountEnabledMarketModeEntryFilters()) +
-                     "/" + IntegerToString(DXB_FILTER_COUNT) +
-                     " enabled",
-                     MarketFlowModeColor());
-
-   LeftChecklistInfo("Lot / Slippage",
-                     "Lot " + DoubleToString(GetCurrentTradingLot(), 2) +
-                     " | Slip " + IntegerToString(InpSlippage),
-                     clrWhite);
-
-   LeftChecklistInfo("Spread Limit",
-                     IntegerToString((int)MarketInfo(Symbol(), MODE_SPREAD)) +
-                     "/" + IntegerToString(InpMaxSpreadPoints) + " points",
-                     ((int)MarketInfo(Symbol(), MODE_SPREAD) <= InpMaxSpreadPoints) ? clrLime : clrOrangeRed);
-
-   LeftChecklistInfo("Max Orders / Type",
-                     "BUY " + IntegerToString(CountOrdersByDirection(1)) +
-                     "/" + IntegerToString(InpMaxOrders) +
-                     " | SELL " + IntegerToString(CountOrdersByDirection(-1)) +
-                     "/" + IntegerToString(InpMaxOrders) +
-                     " | Cycle " + IntegerToString(g_sarCycleOrdersCreated) +
-                     "/" + IntegerToString(g_sarCycleMaxOrders),
-                     clrAqua);
-
-   LeftChecklistInfo("Total Order Cap",
-                     InpMaxTotalOpenOrders > 0 ?
-                     IntegerToString(CountAllOrders()) + "/" + IntegerToString(InpMaxTotalOpenOrders) :
-                     "OFF",
-                     InpMaxTotalOpenOrders > 0 ? clrAqua : clrSilver);
-
-   LeftChecklistInfo("SAR Confirm",
-                     "Diff " + DoubleToString(GetEffectiveSARConfirmPriceDiff(), 0) +
-                     " | Min " + IntegerToString(InpSARConfirmMinutes) +
-                     " | " + (InpUseSARFlipConfirmations ? "ON" : "OFF"),
-                     InpUseSARFlipConfirmations ? clrLime : clrSilver);
-
-   LeftChecklistInfo("SAR Side Filter",
-                     (InpUseSARSignalPriceSideFilter ? "ON" : "OFF") +
-                     " | Gap " + DoubleToString(InpSARSignalPriceSideMinGap, 0),
-                     InpUseSARSignalPriceSideFilter ? clrLime : clrSilver);
-
-   LeftChecklistInfo("Continuous Gap",
-                     (InpUseRepeatedPriceGapConfirm ? "ON" : "OFF") +
-                     " | Gap " + DoubleToString(InpContinuousOrderPriceGap, 0) +
-                     " | Wait " + IntegerToString(InpContinuousOrderGapMinutes) + "m",
-                     InpUseRepeatedPriceGapConfirm ? clrLime : clrSilver);
-
-   LeftChecklistInfo("Min Same-Dir Gap",
-                     "Min " + DoubleToString(GetEffectiveMinPriceGap(), 0) +
-                     " | MultiMaxGap " + DoubleToString(InpMinGapWhenMaxOrdersMoreThanOne, 0),
-                     GetEffectiveMinPriceGap() > 0.0 ? clrLime : clrSilver);
-
-   LeftChecklistInfo("Recovery Gap",
-                     (InpUseRecoveryGapOrders ? "ON" : "OFF") +
-                     " | Gap " + DoubleToString(InpRecoveryGapRawPrice, 0) +
-                     " | Lot " + DoubleToString(GetCurrentRecoveryTradingLot(), 2),
-                     InpUseRecoveryGapOrders ? clrLime : clrSilver);
-
-   LeftChecklistInfo("Recovery Loss Return",
-                     InpUseRecoveryLossComebackTrigger
-                     ? "Touch -$" +
-                     DoubleToString(MathAbs(ScaleTradeMoneyByCurrentLot(InpRecoveryLossArmUSD)), 2) +
-                     " | Improve +$" +
-                     DoubleToString(MathAbs(ScaleTradeMoneyByCurrentLot(InpRecoveryLossComebackUSD)), 2)
-                     : "OFF",
-                     InpUseRecoveryLossComebackTrigger ? clrAqua : clrSilver);
-
-   LeftChecklistInfo("Recovery Count B/S",
-                     IntegerToString(CountRecoveryGapOrdersByDirection(1)) + "/" +
-                     IntegerToString(CountRecoveryGapOrdersByDirection(-1)) +
-                     " Max " + IntegerToString(InpMaxRecoveryGapOrdersPerSide) + "/side",
-                     clrAqua);
-
-   LeftChecklistInfo("Recovery SAR Match",
-                     InpRecoveryGapMustMatchSARDirection ? "YES" : "NO",
-                     InpRecoveryGapMustMatchSARDirection ? clrLime : clrOrange);
-
-   LeftChecklistInfo("Recovery Pending",
-                     g_pendingRecoveryGapDirection == 0 ? "NONE" :
-                     DirectionText(g_pendingRecoveryGapDirection) +
-                     " Gap " + DoubleToString(g_pendingRecoveryGapMove, 0) +
-                     " Req " + DoubleToString(g_pendingRecoveryRequiredGap, 0),
-                     g_pendingRecoveryGapDirection == 0 ? clrSilver : clrYellow);
-
-
-   LeftChecklistInfo("Basket TP / SL",
-                     "$" + DoubleToString(GetBasketProfitTargetUSD(), 2) +
-                     " / $" + DoubleToString(GetEffectiveBasketStopLossUSD(), 2),
-                     clrWhite);
-
-   LeftChecklistInfo("Profit Protect",
-                     (InpUseIndividualProfitProtect ? "Ind ON" : "Ind OFF") +
-                     " | " + (InpUseBasketProfitProtect ? "Basket ON" : "Basket OFF"),
-                     (InpUseIndividualProfitProtect || InpUseBasketProfitProtect) ? clrLime : clrSilver);
-
-   LeftChecklistInfo("Big Candle Block",
-                     (InpUseBigCandlePause ? "ON" : "OFF") +
-                     " | OPPOSITE ONLY" +
-                     " | " + DoubleToString(InpBigCandleRawDifference, 0) +
-                     " | " + IntegerToString(InpBigCandlePauseMinutes) + "m",
-                     InpUseBigCandlePause ? clrLime : clrSilver);
-
-   LeftChecklistInfo("Last3 Move Block",
-                     (InpUseLast3CandlesMovePause ? "ON" : "OFF") +
-                     " | " + DoubleToString(InpLast3CandlesRawDifference, 0) +
-                     " | Pause " + IntegerToString(InpLast3CandlesPauseMinutes) + "m",
-                     InpUseLast3CandlesMovePause ? clrLime : clrSilver);
-
-   LeftChecklistInfo("Late SAR Block",
-                     (InpUseLateSARCycleEntryBlock ? "ON" : "OFF") +
-                     " | Age " + IntegerToString(InpLateSARMinAgeMinutes) + "m" +
-                     " | Weak<=" + IntegerToString(InpLateSARMaxWeakScore),
-                     InpUseLateSARCycleEntryBlock ? clrLime : clrSilver);
-
-
-   LeftChecklistInfo("Weak Basket Close",
-                     OnOff(InpUseConfirmedSARWeakBasketClose) +
-                     " | " + g_sarWeakBasketCloseLastStatus +
-                     " | Age " + IntegerToString(g_sarWeakBasketCloseLastAgeMin) + "m" +
-                     " | P " + DoubleToString(g_sarWeakBasketCloseLastProfit, 2),
-                     (g_sarWeakBasketCloseLastStatus == "CLOSE PROFIT" ||
-                      g_sarWeakBasketCloseLastStatus == "CLOSE OLD LOSS") ? clrLime :
-                     (InpUseConfirmedSARWeakBasketClose ? clrYellow : clrSilver));
-
-   LeftChecklistInfo("No-New Hours",
-                     InpUseNoNewOrderHours ? InpNoNewOrderHourList : "OFF",
-                     InpUseNoNewOrderHours ? clrAqua : clrSilver);
-  }
-
-
 //+------------------------------------------------------------------+
 //|                                                                  |
 //+------------------------------------------------------------------+
@@ -24313,17 +22597,6 @@ string EntryDiagnosticAgeText(datetime eventTime)
   }
 
 //+------------------------------------------------------------------+
-string EntryDiagnosticLine(string value, int start, int length)
-  {
-   if(value == "")
-      return("");
-
-   if(start >= StringLen(value))
-      return("");
-
-   return(StringSubstr(value, start, length));
-  }
-
 //+------------------------------------------------------------------+
 //| Return one display segment without silently losing later text.   |
 //| segmentIndex starts at 0.                                        |
@@ -24456,7 +22729,6 @@ void RefreshNormalEntryDiagnosticSnapshot(int direction,
       (!IsDayLossLockActiveForNewOrders() &&
        !IsDailyProfitPauseActive());
    bool rawNoHour = !IsDubaiNoNewOrderHourNow();
-   bool rawProfit = !IsProfitProtectPauseActive();
    bool rawOpposite =
       (!IsOppositeDirectionProfitPauseActive() ||
        direction != g_oppositePausedDirection);
@@ -24561,10 +22833,6 @@ void RefreshNormalEntryDiagnosticSnapshot(int direction,
       rawNoHour,
       NoNewOrderHoursStatusText());
 
-   SetEntryDiagnosticFilter(
-      DXB_FILTER_PROFIT_PAUSE,
-      rawProfit,
-      ProfitProtectPauseStatusText());
 
    SetEntryDiagnosticFilter(
       DXB_FILTER_OPPOSITE_PAUSE,
@@ -24752,14 +23020,6 @@ void LeftProRow(string title,string value,color clrText=clrWhite)
 //+------------------------------------------------------------------+
 //|                                                                  |
 //+------------------------------------------------------------------+
-void LeftProCheck(string title,bool ok,string extra="")
-  {
-   string value = YesNo(ok);
-   if(extra != "")
-      value = value + " " + extra;
-   LeftProRow(title,value,YesNoColor(ok));
-  }
-
 //+------------------------------------------------------------------+
 //|                                                                  |
 //+------------------------------------------------------------------+
@@ -24840,8 +23100,6 @@ string EntryFilterDisplayName(int filterId)
       return("Equity / Daily Lock");
    if(filterId == DXB_FILTER_NO_NEW_HOUR)
       return("GMT0 No-New Hour");
-   if(filterId == DXB_FILTER_PROFIT_PAUSE)
-      return("Profit Pause");
    if(filterId == DXB_FILTER_OPPOSITE_PAUSE)
       return("Opposite Pause");
    if(filterId == DXB_FILTER_BIG_CANDLE)
@@ -25128,15 +23386,6 @@ string CooldownExactStatusText()
 //+------------------------------------------------------------------+
 //|                                                                  |
 //+------------------------------------------------------------------+
-string EntryDecisionHeadline()
-  {
-   if(g_entryDiagBlockedCount > 0)
-      return("BLOCKED | " + g_entryDiagPrimaryBlock);
-
-   return("READY TO OPEN");
-  }
-
-
 //+------------------------------------------------------------------+
 //|                                                                  |
 //+------------------------------------------------------------------+
@@ -25255,37 +23504,6 @@ void DrawRecoveryChecklistPanel(int direction)
 //+------------------------------------------------------------------+
 //|                                                                  |
 //+------------------------------------------------------------------+
-void LeftProModeCheck(string title,
-                      int filterId,
-                      bool conditionOk,
-                      string extra="")
-  {
-   bool enabled = IsMarketModeEntryFilterEnabled(filterId);
-   string state = EntryFilterModeStateText(filterId);
-
-   if(!enabled)
-     {
-      string offValue = "OFF | " + state;
-
-      if(extra != "")
-         offValue += " | " + extra;
-
-      LeftProRow(title, offValue, clrSilver);
-      return;
-     }
-
-   string detail = conditionOk
-                   ? "PASS | " + state
-                   : "BLOCK | " + state;
-
-   if(extra != "")
-      detail += " | " + extra;
-
-   LeftProRow(title,
-              detail,
-              conditionOk ? clrLime : clrOrangeRed);
-  }
-
 //+------------------------------------------------------------------+
 void DrawTopCenterOrderAuditPanel()
   {
@@ -25664,69 +23882,14 @@ void DrawLeftOrderCreationChecklist(string mainStatus)
 
 
 //+------------------------------------------------------------------+
-void DrawPanel(string name,int x,int y,int w,int h,color bg)
-  {
-   if(ObjectFind(0,name) < 0)
-     {
-      ObjectCreate(0,name,OBJ_RECTANGLE_LABEL,0,0,0);
-
-      ObjectSetInteger(0,name,OBJPROP_CORNER,CORNER_RIGHT_UPPER);
-      ObjectSetInteger(0,name,OBJPROP_XDISTANCE,x);
-      ObjectSetInteger(0,name,OBJPROP_YDISTANCE,y);
-
-      ObjectSetInteger(0,name,OBJPROP_XSIZE,w);
-      ObjectSetInteger(0,name,OBJPROP_YSIZE,h);
-
-      ObjectSetInteger(0,name,OBJPROP_BGCOLOR,bg);
-      ObjectSetInteger(0,name,OBJPROP_BORDER_COLOR,clrGray);
-      ObjectSetInteger(0,name,OBJPROP_BACK,false);
-      ObjectSetInteger(0,name,OBJPROP_HIDDEN,true);
-     }
-  }
-
 //+------------------------------------------------------------------+
 //|                                                                  |
 //+------------------------------------------------------------------+
-void DrawLabel(string name,
-               string text,
-               int x,
-               int y,
-               color clr,
-               int size=9)
-  {
-   if(ObjectFind(0,name) < 0)
-      ObjectCreate(0,name,OBJ_LABEL,0,0,0);
-
-   ObjectSetInteger(0,name,OBJPROP_CORNER,CORNER_RIGHT_UPPER);
-   ObjectSetInteger(0,name,OBJPROP_XDISTANCE,x);
-   ObjectSetInteger(0,name,OBJPROP_YDISTANCE,y);
-
-   ObjectSetString(0,name,OBJPROP_TEXT,text);
-   ObjectSetText(name,text,7,"Consolas",clr);
-   ObjectSetString(0,name,OBJPROP_FONT,"Consolas");
-
-   ObjectSetInteger(0,name,OBJPROP_FONTSIZE,size);
-   ObjectSetInteger(0,name,OBJPROP_COLOR,clr);
-  }
-
 int g_dashRow=0;
 
 //+------------------------------------------------------------------+
 //|                                                                  |
 //+------------------------------------------------------------------+
-void DashRow(string title,string value,color clrText=clrWhite)
-  {
-   DrawLabel(
-      "DXB_ROW_"+IntegerToString(g_dashRow),
-      title+" : "+value,
-      315,
-      20+(g_dashRow*18),
-      clrText,
-      9
-   );
-
-   g_dashRow++;
-  }
 //+------------------------------------------------------------------+
 //|                                                                  |
 //+------------------------------------------------------------------+
@@ -25947,7 +24110,6 @@ string CompactEntryGateText()
    if(IsDayLossLockActiveForNewOrders())
       return("BLOCK | -LOSS EQUITY LOCK");
 
-   if(g_globalEquityTrailLocked)
       return("BLOCK | GLOBAL EQUITY TRAIL");
 
    if(IsNewOrderHardPauseActive())
@@ -25982,7 +24144,6 @@ string CompactNextOrderText()
   {
    if(g_dailyProfitLock ||
       IsDayLossLockActiveForNewOrders() ||
-      g_globalEquityTrailLocked ||
       IsNewOrderHardPauseActive() ||
       !IsTradingAllowedNow() ||
       IsAutoMarketTradingPaused())
@@ -26089,30 +24250,6 @@ string CompactHardLockText()
   }
 
 //+------------------------------------------------------------------+
-void CompactDashRow(string title,
-                    string value,
-                    color textColor=clrWhite)
-  {
-   string rowName =
-      "DXB_COMPACT_ROW_" +
-      IntegerToString(g_compactDashRow);
-
-   string rowText =
-      PadTitle(title,18) +
-      " : " +
-      StringSubstr(value,0,48);
-
-   DrawCornerLabel(rowName,
-                   rowText,
-                   CORNER_RIGHT_UPPER,
-                   10,
-                   44+(g_compactDashRow*15),
-                   textColor,
-                   8);
-
-   g_compactDashRow++;
-  }
-
 //+------------------------------------------------------------------+
 void CompactXYRow(string prefix,
                   int &row,
@@ -26611,7 +24748,6 @@ void DrawLegacyDashboard(string status)
                                             MathMin(1.0, InpBasketHalfTPAfterMinutesMultiplier))),2)
                : "OFF",
                InpUseBasketHalfTPAfterMinutes ? clrAqua : clrSilver);
-   RightProRow("TP Time Decay",BasketProfitTimeDecayStatusText(),InpUseBasketProfitTimeDecay ? clrAqua : clrSilver);
    RightProRow("Basket SL Live",
                InpUseTickSpeedAdaptiveBasketSL
                ? "BUY " + TickSpeedAdaptiveSLStatusText(1) +
@@ -26663,9 +24799,6 @@ void DrawLegacyDashboard(string status)
    RightProRow("Opposite Pause",OppositeDirectionProfitPauseStatusText(),IsOppositeDirectionProfitPauseActive() ? clrOrangeRed : clrSilver);
    RightProRow("BUY Loss Pause",SideLossPauseStatusText(1),IsSideLossPauseActiveForDirection(1) ? clrOrangeRed : clrSilver);
    RightProRow("SELL Loss Pause",SideLossPauseStatusText(-1),IsSideLossPauseActiveForDirection(-1) ? clrOrangeRed : clrSilver);
-   RightProRow("Ind Profit Protect",OnOff(InpUseIndividualProfitProtect),InpUseIndividualProfitProtect ? clrLime : clrSilver);
-   RightProRow("Basket Protect",OnOff(InpUseBasketProfitProtect),InpUseBasketProfitProtect ? clrLime : clrSilver);
-
    RightProRow("--- RECOVERY ---","",clrDimGray);
    RightProRow("Recovery Gap",DoubleToString(InpRecoveryGapRawPrice,0),clrAqua);
    RightProRow("Loss Comeback",
@@ -26724,7 +24857,6 @@ void DrawLegacyDashboard(string status)
                "m Loss<=$" + DoubleToString(ScaleTradeMoneyByCurrentLot(InpSARWeakMaxSmallLossToCloseUSD),2),
                InpUseConfirmedSARWeakBasketClose ? clrLime : clrSilver);
    RightProRow("Spike Status",SpikeWickPauseStatusText(),IsSpikeWickPauseActive() ? clrOrangeRed : clrSilver);
-   RightProRow("Global Trail",g_globalEquityTrailStatus,g_globalEquityTrailLocked ? clrOrangeRed : clrAqua);
    RightProRow("No-New Hours",NoNewOrderHoursStatusText(),IsDubaiNoNewOrderHourNow() ? clrOrangeRed : clrLime);
    RightProRow("SL Streak Pause",ConsecutiveSLPauseStatusText(),IsConsecutiveSLPauseActive() ? clrOrangeRed : clrLime);
    RightProRow("Half Loss Pause",HalfLossPauseStatusText(),IsHalfLossPauseActive() ? clrOrangeRed : (g_halfLossPauseTriggered ? clrYellow : clrLime));
@@ -26738,7 +24870,6 @@ void DrawLegacyDashboard(string status)
 
    DrawCornerLabel("DXB_ACC_0",PadTitle("Balance",20)+" : $"+DoubleToString(AccountBalance(),2),CORNER_RIGHT_UPPER,315,baseY+(g_rightDashRow++*16),clrWhite,8);
    DrawCornerLabel("DXB_ACC_1",PadTitle("Equity",20)+" : $"+DoubleToString(AccountEquity(),2),CORNER_RIGHT_UPPER,315,baseY+(g_rightDashRow++*16),clrAqua,8);
-   DrawCornerLabel("DXB_ACC_2",PadTitle("Equity Peak",20)+" : $"+DoubleToString(g_globalEquityPeak,2),CORNER_RIGHT_UPPER,315,baseY+(g_rightDashRow++*16),clrAqua,8);
    DrawCornerLabel("DXB_ACC_3",PadTitle("Opening Balance",20)+" : $"+DoubleToString(g_baseBalance,2),CORNER_RIGHT_UPPER,315,baseY+(g_rightDashRow++*16),clrWhite,8);
    DrawCornerLabel("DXB_ACC_4",PadTitle("BUY Basket",20)+" : $"+DoubleToString(GetBasketProfit(1),2),CORNER_RIGHT_UPPER,315,baseY+(g_rightDashRow++*16),GetBasketProfit(1)>=0 ? clrLime : clrRed,8);
    DrawCornerLabel("DXB_ACC_5",PadTitle("SELL Basket",20)+" : $"+DoubleToString(GetBasketProfit(-1),2),CORNER_RIGHT_UPPER,315,baseY+(g_rightDashRow++*16),GetBasketProfit(-1)>=0 ? clrLime : clrRed,8);
