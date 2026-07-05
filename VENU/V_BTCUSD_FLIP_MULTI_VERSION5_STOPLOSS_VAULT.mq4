@@ -20,24 +20,26 @@ MARKET_MODE g_marketMode = MODE_RANGE;
 #ifndef OP_BALANCE
 #define OP_BALANCE 6
 #endif
-#property version   "2.00-clean"
+#property version   "2.02-band"
 //================ OPTIMIZED CLEAN BUILD NOTES =====================
 // Removed unused input declarations and unreferenced helper/dashboard functions
 // from the V196 unlimited/highest-share-protection build.
 // Safety-critical close, server-SL, daily reset, equity-loss and pause logic
 // is retained. Disabled feature blocks that are still referenced by active
 // code are kept to avoid accidental compile/runtime breakage.
-// V200 logic-audit fixes:
-// - Highest-share activation no longer deletes pending orders by default.
-// - Dashboard text now shows the configured first activation percent.
-// - First activation status says ARMED instead of WAIT NEW ORDER when immediate protection is enabled.
+// V202 band-mode fixes:
+// - InpProfitTargetPercent is the only minimum profit activation percent.
+// - Between day-loss stop and InpProfitTargetPercent, daily logic keeps trading.
+// - Highest-share protection starts only above InpProfitTargetPercent.
+// - Share lock protects only the excess profit above InpProfitTargetPercent.
+// - If profit falls back below InpProfitTargetPercent, profit-lock state is cleared.
 //===================================================================
 
 
 //======================== INPUTS ====================================
 // V198 clean mode: old fixed USD profit-protect / individual-protect / global-trail systems removed.
 // Active profit protection is percentage-based highest-profit-share lock + server-side dynamic basket SL.
-string InpEAName                  = "DXB V196 - Unlimited Profit + Highest Share Protect";
+string InpEAName                  = "DXB V202 - Band Trading + Profit Target Share Protect";
 int    InpMagicNumber             = 989899;
 double InpFixedLot                = 0.01; // fallback lot when dynamic balance lot is OFF
 
@@ -61,7 +63,7 @@ double InpMinGapWhenMaxOrdersMoreThanOne = 100.0; // when InpMaxOrders > 1, enfo
 #define DXB_HARD_MAX_OPEN_ORDERS 6  // absolute safety cap for normal SAR orders per cycle
 
 double InpBasketProfitUSD         = 0.50;  // X1 base: custom ladder starts $0.50, $0.75, $0.875, $1.00...
-double InpProfitTargetPercent      = 20;//10.0; // legacy fixed target used only when percentage ladder is OFF
+double InpProfitTargetPercent      = 20.0; // minimum daily profit % before highest-share protection starts
 
 //================ UNLIMITED PROFIT + HIGHEST-SHARE PROTECT =========
 // Profit has no fixed final cap. The first activation level starts the
@@ -90,7 +92,7 @@ double InpProfitTargetPercent      = 20;//10.0; // legacy fixed target used only
 // daily equity below 5%, every order is closed and trading stops for the day.
 bool   InpUseDailyProfitPercentLadder       = true;
 
-double InpProfitLadderPercent1              = 5.0;  // first activation for highest-profit share lock
+double InpProfitLadderPercent1              = 20.0; // legacy display only; share activation uses InpProfitTargetPercent
 double InpProfitLadderPercent2              = 30.0;
 double InpProfitLadderPercent3              = 50.0;
 double InpProfitLadderPercent4              = 80.0;
@@ -118,7 +120,7 @@ bool   InpProfitLadderProtectAfterNewOrder  = false; // protect immediately afte
 // Example: protected floor 20% + buffer 0.50% => start closing at 20.50%,
 // aiming to finish near the intended 20% booked-profit floor.
 // The optional return buffer is subtracted from this early-close trigger.
-double InpProfitLadderFloorCloseBufferPercent = 0.50;
+double InpProfitLadderFloorCloseBufferPercent = 0.00;
 double InpProfitLadderReturnBufferPercent     = 0.0;
 
 // Highest-total-daily-profit SHARE lock:
@@ -140,7 +142,7 @@ double InpProfitLadderReturnBufferPercent     = 0.0;
 // When AccountEquity falls to the buffered lock trigger, all EA orders are
 // closed/deleted and trading pauses until the next equity/fresh-day reset.
 bool   InpUseHighestProfitShareLock           = true;
-double InpHighestProfitLockSharePercent       = 50.00; // protect this share of the highest total daily profit
+double InpHighestProfitLockSharePercent       = 25;//50.00; // protect this share of the highest total daily profit
 
 // Unlimited mode: the old 50% final target is not used by the share-lock path.
 
@@ -225,6 +227,12 @@ bool   InpDailyLocksUseClosedBalanceOnly   = false; // highest-share lock must w
 //        current evaluation value is ABOVE the day opening anchor.
 //        If value falls below opening balance, day-loss logic decides instead.
 bool   InpProfitLockOnlyWhenAboveOpeningBalance = true;
+
+// Band mode:
+// - below InpProfitTargetPercent and above day-loss stop: continue trying entries
+// - at/above InpProfitTargetPercent: arm highest-profit share protection
+// - if profit falls back below InpProfitTargetPercent before day-loss stop: clear profit lock and continue
+bool   InpProfitShareProtectOnlyAboveProfitTarget = true;
 
 // Day-loss lock can be evaluated from CLOSED balance while profit-share uses
 // live equity. This prevents a floating move from being treated as a closed
@@ -396,7 +404,7 @@ double InpLossStopPercent          = 15;//20;//10;//20.0; // full day loss lock 
 // Example: InpLossStopPercent=20 and trigger=50 => pause at a 10% drawdown.
 // The pause triggers only once per equity cycle, then trading resumes after
 // InpHalfLossPauseMinutes even if equity is still below the warning level.
-bool   InpUseHalfLossPause                = true;
+bool   InpUseHalfLossPause                = false; // band mode: continue trading until InpLossStopPercent; set true to restore cooling pause
 double InpHalfLossPauseTriggerPercent     = 50.0; // percentage of InpLossStopPercent, not account percent
 int    InpHalfLossPauseMinutes            =60*2;// 10;//60*4;
 // Resume the half-loss cooling pause early when any EA market order closes in net profit.
@@ -8216,7 +8224,9 @@ int GetDailyProfitLadderMaxLevel()
 //+------------------------------------------------------------------+
 double GetDailyProfitLadderPercent(int level)
   {
-   double level1 = MathMax(0.0,InpProfitLadderPercent1);
+   // In percentage-band mode the first/activation level is the simple
+   // InpProfitTargetPercent. This avoids confusion with old ladder level-1.
+   double level1 = MathMax(0.0,InpProfitTargetPercent);
    double level2 = MathMax(level1,InpProfitLadderPercent2);
    double level3 = MathMax(level2,InpProfitLadderPercent3);
    double level4 = MathMax(level3,InpProfitLadderPercent4);
@@ -8229,6 +8239,23 @@ double GetDailyProfitLadderPercent(int level)
    if(level == 4) return(level4);
    if(level == 5) return(level5);
    return(level6);
+  }
+
+//+------------------------------------------------------------------+
+//| Minimum profit target for the daily band/share-lock mode          |
+//+------------------------------------------------------------------+
+double GetProfitShareActivationPercent()
+  {
+   return(MathMax(0.0,InpProfitTargetPercent));
+  }
+
+//+------------------------------------------------------------------+
+bool IsProfitShareProtectionZone(double profitPercent)
+  {
+   if(!InpProfitShareProtectOnlyAboveProfitTarget)
+      return(true);
+
+   return(profitPercent >= GetProfitShareActivationPercent()-0.0000001);
   }
 
 //+------------------------------------------------------------------+
@@ -8317,13 +8344,21 @@ double GetHighestProfitShareLockedPercent()
       g_profitPercentHighestLevel <= 0)
       return(0.0);
 
+   double activationPercent = GetProfitShareActivationPercent();
+
    double lockShare =
       MathMax(0.0,
               MathMin(100.0,
                       InpHighestProfitLockSharePercent)) / 100.0;
 
-   return(MathMax(0.0,
-                  g_profitPercentPeakPercent * lockShare));
+   // Band logic:
+   // 1) No profit-share protection below InpProfitTargetPercent.
+   // 2) After target is reached, protect only the excess profit above target.
+   // Example: target=20%, peak=40%, share=25% => protected=20+(40-20)*0.25=25%.
+   double peakAboveTarget =
+      MathMax(0.0,g_profitPercentPeakPercent-activationPercent);
+
+   return(activationPercent + (peakAboveTarget * lockShare));
   }
 
 //+------------------------------------------------------------------+
@@ -8831,6 +8866,31 @@ string DailyProfitPauseDashboardText()
   }
 
 //+------------------------------------------------------------------+
+void ClearProfitShareLockAndState(string reason,
+                                  double currentPercent)
+  {
+   if(g_dailyProfitLock ||
+      g_profitPercentHighestLevel > 0 ||
+      g_profitPercentLadderHit)
+     {
+      Print("PROFIT SHARE BAND RESET | ", reason,
+            " | CurrentProfit=",DoubleToString(currentPercent,2),"%",
+            " | Target=",DoubleToString(GetProfitShareActivationPercent(),2),"%");
+     }
+
+   g_dailyProfitLock = false;
+   g_profitPercentLadderHit = false;
+   g_notifyProfitLockSent = false;
+   g_profitPercentHighestLevel = 0;
+   g_profitPercentLastBookedLevel = 0;
+   g_profitPercentPeakPercent = MathMax(0.0,currentPercent);
+   g_profitPercentProtectedPercent = 0.0;
+   g_profitPercentProtectedEquity = 0.0;
+   g_profitPercentLastTrailLogFloor = 0.0;
+   g_profitPercentAwaitingNewOrder = false;
+  }
+
+//+------------------------------------------------------------------+
 bool LockDailyProfitPercentLadder(string lockReason,
                                   double currentEquity,
                                   double currentPercent)
@@ -8855,6 +8915,20 @@ bool LockDailyProfitPercentLadder(string lockReason,
          " | Value $" + DoubleToString(currentEquity,2) +
          " | Opening $" + DoubleToString(GetEquityCycleAnchor(),2) +
          " | Profit " + DoubleToString(currentPercent,2) + "%";
+      return(false);
+     }
+
+   // Percentage-band rule: profit-share pause is allowed only above
+   // InpProfitTargetPercent. Below target, but above day-loss stop, trading
+   // continues and the EA keeps trying entries.
+   if(!IsProfitShareProtectionZone(currentPercent))
+     {
+      g_profitPercentLadderStatus =
+         "SKIP PROFIT LOCK BELOW TARGET" +
+         " | Reason=" + lockReason +
+         " | Profit " + DoubleToString(currentPercent,2) +
+         "% | Target " + DoubleToString(GetProfitShareActivationPercent(),2) +
+         "% | TRADING CONTINUES";
       return(false);
      }
 
@@ -8931,7 +9005,7 @@ bool LockDailyProfitPercentLadder(string lockReason,
   }
 
 //+------------------------------------------------------------------+
-//| Unlimited highest-total-profit 50% share lock                    |
+//| Band mode: target first, then highest-profit share lock          |
 //+------------------------------------------------------------------+
 bool CheckHighestProfitShareLock(double currentEquity)
   {
@@ -8954,17 +9028,39 @@ bool CheckHighestProfitShareLock(double currentEquity)
    // a profit lock. Let day-loss / half-loss / SL rules decide instead.
    if(!IsAboveOpeningBalanceForProfitLock(currentEquity))
      {
+      if(InpProfitShareProtectOnlyAboveProfitTarget &&
+         currentPercent < GetProfitShareActivationPercent()-0.0000001)
+         ClearProfitShareLockAndState("below opening/target band",currentPercent);
+
       g_profitPercentLadderStatus =
-         "PROFIT SHARE WAIT | BELOW OPENING BALANCE" +
+         "BAND TRADING | BELOW OPENING BALANCE" +
          " | VALUE $" + DoubleToString(currentEquity,2) +
          " | OPENING $" + DoubleToString(GetEquityCycleAnchor(),2) +
          " | NOW " + DoubleToString(currentPercent,2) +
-         "% | DAY LOSS RULE ACTIVE BELOW LIMIT";
+         "% | DAY LOSS LIMIT " + DoubleToString(-MathAbs(InpLossStopPercent),2) + "%";
       return(false);
      }
 
    double activationPercent =
-      MathMax(0.0,GetDailyProfitLadderPercent(1));
+      GetProfitShareActivationPercent();
+
+   // Below the minimum profit target, do not keep any profit-share pause state.
+   // The strategy should continue trying entries until either target is reached
+   // or the day-loss stop is reached.
+   if(InpProfitShareProtectOnlyAboveProfitTarget &&
+      currentPercent+0.0000001 < activationPercent)
+     {
+      ClearProfitShareLockAndState("below InpProfitTargetPercent band",currentPercent);
+      g_profitPercentLadderStatus =
+         "BAND TRADING | NOW " +
+         DoubleToString(currentPercent,2) +
+         "% | TARGET " +
+         DoubleToString(activationPercent,2) +
+         "% | LOSS STOP -" +
+         DoubleToString(MathAbs(InpLossStopPercent),2) +
+         "% | CONTINUE ENTRIES";
+      return(false);
+     }
 
    // Before the first activation target there is no profit-share day lock.
    if(g_profitPercentHighestLevel <= 0)
@@ -9004,7 +9100,7 @@ bool CheckHighestProfitShareLock(double currentEquity)
             MathMax(0.0,
                     MathMin(100.0,
                             InpHighestProfitLockSharePercent)),2) +
-         "% OF PEAK PROFIT";
+         "% OF PROFIT ABOVE TARGET";
 
       Print("HIGHEST PROFIT SHARE LOCK ACTIVATED",
             " | Activation=",DoubleToString(activationPercent,2),"%",
@@ -9076,11 +9172,18 @@ bool CheckHighestProfitShareLock(double currentEquity)
       "% | NOW " +
       DoubleToString(currentPercent,2) + "%";
 
-   if(currentPercent <= closeThresholdPercent+0.0000001)
+   // Lock only inside the profit-protection zone above InpProfitTargetPercent.
+   // If profit falls below the target, the band rule clears the share state and
+   // the EA continues trying entries until day-loss stop is reached.
+   if(closeThresholdPercent > activationPercent+0.0000001 &&
+      currentPercent > activationPercent+0.0000001 &&
+      currentPercent <= closeThresholdPercent+0.0000001)
      {
       return(LockDailyProfitPercentLadder(
-         "50% SHARE OF HIGHEST TOTAL DAILY PROFIT HIT" +
-         " | PEAK " +
+         "SHARE LOCK OF PROFIT ABOVE TARGET HIT" +
+         " | TARGET " +
+         DoubleToString(activationPercent,2) +
+         "% | PEAK " +
          DoubleToString(g_profitPercentPeakPercent,2) +
          "% | LOCKED " +
          DoubleToString(g_profitPercentProtectedPercent,2) +
@@ -9346,10 +9449,12 @@ void InitializeEquityDay()
       g_equityCycleAnchor = MathMax(0.01,g_dayStartEquity);
 
    double configuredFinalProfitPercent =
-      InpUseDailyProfitPercentLadder
-      ? GetDailyProfitLadderArmPercent(
-           GetDailyProfitLadderMaxLevel())
-      : MathMax(0.0,InpProfitTargetPercent);
+      (InpUseDailyProfitPercentLadder && InpUseHighestProfitShareLock)
+      ? GetProfitShareActivationPercent()
+      : (InpUseDailyProfitPercentLadder
+         ? GetDailyProfitLadderArmPercent(
+              GetDailyProfitLadderMaxLevel())
+         : MathMax(0.0,InpProfitTargetPercent));
 
    g_dailyProfitTarget =
       g_baseBalance * configuredFinalProfitPercent / 100.0;
@@ -12596,27 +12701,34 @@ bool CheckEquityConditions()
    double currentEquity = GetDailyLockEvaluationValue();
    double currentLossValue = GetDailyLossLockEvaluationValue();
 
-   // Profit-share/daily-profit pause is valid only while the profit-side
-   // evaluation value is still above the day opening anchor. If the account
-   // has fallen below the opening anchor, clear the PROFIT pause and let
-   // day-loss / half-loss / server SL rules control trading instead.
-   if(g_dailyProfitLock &&
-      InpProfitLockOnlyWhenAboveOpeningBalance &&
-      !IsAboveOpeningBalanceForProfitLock(currentEquity))
-     {
-      g_dailyProfitLock = false;
-      g_profitPercentLadderHit = false;
-      g_notifyProfitLockSent = false;
-      g_profitPercentLadderStatus =
-         "PROFIT LOCK CLEARED BELOW OPENING BALANCE" +
-         " | ProfitValue $" + DoubleToString(currentEquity,2) +
-         " | Opening $" + DoubleToString(GetEquityCycleAnchor(),2) +
-         " | LossCheck $" + DoubleToString(currentLossValue,2) +
-         " | WAIT DAY LOSS LIMIT $" + DoubleToString(g_lossStopEquityLevel,2);
+   // Percentage-band rule:
+   // If a profit-share pause exists but the current profit value is no longer
+   // above InpProfitTargetPercent, clear the PROFIT pause. Trading should
+   // continue while the account is between the profit target and day-loss stop.
+   double currentProfitPercentForBand =
+      GetDailyEquityProfitPercent(currentEquity);
 
-      Print("PROFIT LOCK CLEARED BELOW OPENING BALANCE",
+   if(g_dailyProfitLock &&
+      ( (InpProfitLockOnlyWhenAboveOpeningBalance &&
+         !IsAboveOpeningBalanceForProfitLock(currentEquity)) ||
+        (InpProfitShareProtectOnlyAboveProfitTarget &&
+         currentProfitPercentForBand < GetProfitShareActivationPercent()-0.0000001) ))
+     {
+      ClearProfitShareLockAndState(
+         "profit lock cleared inside normal trading band",
+         currentProfitPercentForBand);
+
+      g_profitPercentLadderStatus =
+         "PROFIT LOCK CLEARED | BAND TRADING" +
+         " | Profit " + DoubleToString(currentProfitPercentForBand,2) +
+         "% | Target " + DoubleToString(GetProfitShareActivationPercent(),2) +
+         "% | LossStop -" + DoubleToString(MathAbs(InpLossStopPercent),2) +
+         "% | Continue entries";
+
+      Print("PROFIT LOCK CLEARED | BAND TRADING",
             " | ProfitValue=$",DoubleToString(currentEquity,2),
-            " | Opening=$",DoubleToString(GetEquityCycleAnchor(),2),
+            " | ProfitPercent=",DoubleToString(currentProfitPercentForBand,2),"%",
+            " | TargetPercent=",DoubleToString(GetProfitShareActivationPercent(),2),"%",
             " | LossCheck=$",DoubleToString(currentLossValue,2),
             " | DayLossStop=$",DoubleToString(g_lossStopEquityLevel,2));
      }
@@ -12682,12 +12794,11 @@ bool CheckEquityConditions()
       return(false);
      }
 
-// 2) Daily profit lock.
-// Ladder ON: exact book-and-restart targets 10/15/20/30/40/50.
-// Intermediate targets close/book all EA orders but trading continues.
-// The lower protected floor activates only after a new market order opens.
-// Final target or a later fall below the active floor closes/pauses the day.
-// Ladder OFF: retain the original fixed InpProfitTargetPercent behavior.
+// 2) Profit-side band/share protection.
+// Below InpProfitTargetPercent and above the day-loss stop, daily logic does
+// not block entries. At/above InpProfitTargetPercent, the highest-profit share
+// lock protects only the profit ABOVE that target. Ladder OFF keeps the old
+// fixed target behavior.
    if(InpUseDailyProfitLock &&
       InpUseDailyProfitPercentLadder)
      {
