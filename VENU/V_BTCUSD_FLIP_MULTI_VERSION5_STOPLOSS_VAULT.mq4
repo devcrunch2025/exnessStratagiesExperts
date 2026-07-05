@@ -118,7 +118,7 @@ double InpProfitLadderReturnBufferPercent     = 0.0;
 // When AccountEquity falls to the buffered lock trigger, all EA orders are
 // closed/deleted and trading pauses until the next equity/fresh-day reset.
 bool   InpUseHighestProfitShareLock           = true;
-double InpHighestProfitLockSharePercent       = 50.00; // retain this share of the highest total daily profit
+double InpHighestProfitLockSharePercent       = 25;//50.00; // retain this share of the highest total daily profit
 
 // Unlimited mode: the old 50% final target is not used by the share-lock path.
 bool   InpCloseAtFinalProfitLadderLevel       = false;
@@ -271,7 +271,7 @@ bool   InpUseAverageM1CandleBasketSL       = true;
 int    InpAverageM1CandleSLBars            = 10;
 double InpAverageM1CandleSLMultiplier      = 1.25;//1.00;
 int    InpAverageM1CandleSLCombineMode     = 0;
-double InpAverageM1CandleSLMinimumUSD      = 0.10;
+double InpAverageM1CandleSLMinimumUSD      = 0.50;//0.10;
 double InpAverageM1CandleSLMaximumUSD      = 2.00; // 0 = unlimited
 
 // Simple basket close mode:
