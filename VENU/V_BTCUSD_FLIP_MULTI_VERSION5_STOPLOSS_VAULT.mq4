@@ -23,7 +23,7 @@ MARKET_MODE g_marketMode = MODE_RANGE;
 #property version   "1.93"
 
 //======================== INPUTS ====================================
-string InpEAName                  = "DXB Version 5 - SAR Confirm 50 in 5 Min";
+string InpEAName                  = "DXB V196 - Unlimited Profit + Highest Share Protect";
 int    InpMagicNumber             = 989899;
 double InpFixedLot                = 0.01; // fallback lot when dynamic balance lot is OFF
 
@@ -49,6 +49,14 @@ double InpMinGapWhenMaxOrdersMoreThanOne = 100.0; // when InpMaxOrders > 1, enfo
 double InpBasketProfitUSD         = 0.50;  // X1 base: custom ladder starts $0.50, $0.75, $0.875, $1.00...
 double InpProfitTargetPercent      = 20;//10.0; // legacy fixed target used only when percentage ladder is OFF
 
+//================ UNLIMITED PROFIT + HIGHEST-SHARE PROTECT =========
+// Profit has no fixed final cap. The first activation level starts the
+// highest-total-daily-profit share lock. After activation, the lock trails
+// the best AccountEquity profit of the day and pauses NEW entries when
+// equity gives back to the protected share. In server-first mode, active
+// market orders are not force-closed by the daily lock; pending orders are
+// deleted and new entries pause while broker/server SL manages open trades.
+
 //================ DAILY EQUITY PROFIT PERCENT LADDER ===============
 // BOOK-AND-RESTART ladder using the current equity-cycle anchor and
 // g_baseBalance as the percentage reference.
@@ -68,7 +76,7 @@ double InpProfitTargetPercent      = 20;//10.0; // legacy fixed target used only
 // daily equity below 5%, every order is closed and trading stops for the day.
 bool   InpUseDailyProfitPercentLadder       = true;
 
-double InpProfitLadderPercent1              = 20.0;
+double InpProfitLadderPercent1              = 5.0;  // first activation for highest-profit share lock
 double InpProfitLadderPercent2              = 30.0;
 double InpProfitLadderPercent3              = 50.0;
 double InpProfitLadderPercent4              = 80.0;
@@ -89,7 +97,7 @@ bool   InpProfitLadderFinalLevelExact       = true;
 // Close all EA market/pending orders whenever an intermediate target is hit,
 // but do NOT pause. Normal strategy entries may start a fresh cycle afterward.
 bool   InpProfitLadderBookAtEachTarget      = true;
-bool   InpProfitLadderProtectAfterNewOrder  = true;
+bool   InpProfitLadderProtectAfterNewOrder  = false; // protect immediately after first activation, not after next order
 
 // Close slightly BEFORE the protected floor to compensate for spread,
 // commission, fast-price movement and multi-order closing delay.
@@ -118,7 +126,7 @@ double InpProfitLadderReturnBufferPercent     = 0.0;
 // When AccountEquity falls to the buffered lock trigger, all EA orders are
 // closed/deleted and trading pauses until the next equity/fresh-day reset.
 bool   InpUseHighestProfitShareLock           = true;
-double InpHighestProfitLockSharePercent       = 50;//75;//50.00; // keep/retain this share of the highest total daily profit
+double InpHighestProfitLockSharePercent       = 50.00; // protect this share of the highest total daily profit
 
 // Unlimited mode: the old 50% final target is not used by the share-lock path.
 
@@ -132,10 +140,10 @@ bool   InpPauseAfterProfitLadderClose         = true;
 // SAR cycle and the existing new-day reset remain unchanged.
 // Broker permission, spread, central order-gap safety, SAR score, big-candle
 // safety and strict 23:45 fresh-boot shutdown still remain active.
-bool   InpUnlockDailyProfitLockAtGMT0Hour      = true;
+bool   InpUnlockDailyProfitLockAtGMT0Hour      = false; // keep profit lock until next daily reset
 int    InpDailyProfitLockUnlockHourGMT0        = 22;
-bool   InpBlockDailyProfitRelockAfterUnlock    = true;
-bool   InpNotifyOnProfitLockUnlock             = true;
+bool   InpBlockDailyProfitRelockAfterUnlock    = false;
+bool   InpNotifyOnProfitLockUnlock             = false;
 
 // Optional hour-22 bypasses for other pause/lock layers.
 // Set any one of these to false if you want that protection to remain strict.
@@ -196,7 +204,7 @@ bool   InpBlockSoftCloseBelowMinProfit     = true; // block SAR/weak/early soft 
 // true  = daily profit/loss locks are calculated from AccountBalance() only,
 //         so floating profit/loss does not interrupt a running market order.
 // false = old behaviour: daily locks use AccountEquity() including floating P/L.
-bool   InpDailyLocksUseClosedBalanceOnly   = true;
+bool   InpDailyLocksUseClosedBalanceOnly   = false; // highest-share lock must watch live equity/floating P/L
 
 // true  = daily profit/loss locks pause NEW entries and delete pending orders,
 //         but leave active market orders to finish by broker/server SL/profit lock.
@@ -538,7 +546,7 @@ double InpProtectionBufferUSD      = 0.00;   // optional extra amount below the 
 bool   InpCloseOrdersOnEquityHit    = true;
 
 bool   InpUseDailyProfitLock        = true;
-bool   InpCloseOrdersOnProfitLock   = true;
+bool   InpCloseOrdersOnProfitLock   = true;  // with server-first mode: deletes pending only, keeps market orders
 bool   InpPauseAfterProfitTarget    = true;
 
 // Equity statistics reset cycle
