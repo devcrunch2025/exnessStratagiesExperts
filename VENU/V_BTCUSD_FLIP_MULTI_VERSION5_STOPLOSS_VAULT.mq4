@@ -271,7 +271,7 @@ bool   InpUseAverageM1CandleBasketSL       = true;
 int    InpAverageM1CandleSLBars            = 10;
 double InpAverageM1CandleSLMultiplier      = 1.25;//1.00;
 int    InpAverageM1CandleSLCombineMode     = 0;
-double InpAverageM1CandleSLMinimumUSD      = 0.50;//0.10;
+double InpAverageM1CandleSLMinimumUSD      = 0.10;
 double InpAverageM1CandleSLMaximumUSD      = 2.00; // 0 = unlimited
 
 // Simple basket close mode:
