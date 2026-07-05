@@ -121,6 +121,7 @@ bool   InpUseHighestProfitShareLock           = true;
 double InpHighestProfitLockSharePercent       = 25;//50.00; // retain this share of the highest total daily profit
 
 // Unlimited mode: the old 50% final target is not used by the share-lock path.
+
 bool   InpCloseAtFinalProfitLadderLevel       = false;
 bool   InpPauseAfterProfitLadderClose         = true;
 
