@@ -47,7 +47,7 @@ double InpMinGapWhenMaxOrdersMoreThanOne = 100.0; // when InpMaxOrders > 1, enfo
 #define DXB_HARD_MAX_OPEN_ORDERS 6  // absolute safety cap for normal SAR orders per cycle
 
 double InpBasketProfitUSD         = 0.50;  // X1 base: custom ladder starts $0.50, $0.75, $0.875, $1.00...
-double InpProfitTargetPercent      = 10.0; // legacy fixed target used only when percentage ladder is OFF
+double InpProfitTargetPercent      = 20;//10.0; // legacy fixed target used only when percentage ladder is OFF
 
 //================ DAILY EQUITY PROFIT PERCENT LADDER ===============
 // BOOK-AND-RESTART ladder using the current equity-cycle anchor and
@@ -68,19 +68,19 @@ double InpProfitTargetPercent      = 10.0; // legacy fixed target used only when
 // daily equity below 5%, every order is closed and trading stops for the day.
 bool   InpUseDailyProfitPercentLadder       = true;
 
-double InpProfitLadderPercent1              = 10.0;
-double InpProfitLadderPercent2              = 15.0;
-double InpProfitLadderPercent3              = 20.0;
-double InpProfitLadderPercent4              = 30.0;
-double InpProfitLadderPercent5              = 40.0;
-double InpProfitLadderPercent6              = 50.0;
+double InpProfitLadderPercent1              = 20.0;
+double InpProfitLadderPercent2              = 30.0;
+double InpProfitLadderPercent3              = 50.0;
+double InpProfitLadderPercent4              = 80.0;
+double InpProfitLadderPercent5              = 100.0;
+double InpProfitLadderPercent6              = 150.0;
 
-double InpProfitLadderProtectPercent1       = 8.0;
+double InpProfitLadderProtectPercent1       = 10;//8.0;
 double InpProfitLadderProtectPercent2       = 10.0;
-double InpProfitLadderProtectPercent3       = 15.0;
-double InpProfitLadderProtectPercent4       = 20.0;
-double InpProfitLadderProtectPercent5       = 30.0;
-double InpProfitLadderProtectPercent6       = 50.0;
+double InpProfitLadderProtectPercent3       = 25.0;
+double InpProfitLadderProtectPercent4       = 50.0;
+double InpProfitLadderProtectPercent5       = 80.0;
+double InpProfitLadderProtectPercent6       = 100.0;
 
 // Default 0.00 means every target must be reached exactly.
 double InpProfitLadderArmTolerancePercent   = 0.0;
@@ -118,7 +118,7 @@ double InpProfitLadderReturnBufferPercent     = 0.0;
 // When AccountEquity falls to the buffered lock trigger, all EA orders are
 // closed/deleted and trading pauses until the next equity/fresh-day reset.
 bool   InpUseHighestProfitShareLock           = true;
-double InpHighestProfitLockSharePercent       = 25;//50.00; // retain this share of the highest total daily profit
+double InpHighestProfitLockSharePercent       = 50;//75;//50.00; // keep/retain this share of the highest total daily profit
 
 // Unlimited mode: the old 50% final target is not used by the share-lock path.
 
@@ -860,7 +860,7 @@ int    InpTesterServerGMTOffsetHours = 0; // Strategy Tester only: GMT0 server=0
 // Single source of truth. Do not create Dubai/server-hour copies.
 // Example: "6,7,11,12" blocks 06:00-06:59, 07:00-07:59, 11:00-11:59, 12:00-12:59 GMT0.
 // string InpNoNewOrderHourList      = "6,7,11,12,13,14,15,16,17,18,19,20,21,22,23"; // GMT0 / UTC only
-string InpNoNewOrderHourList      = "11,12,13,14,15,16,17,18,19,20"; // GMT0 / UTC only
+string InpNoNewOrderHourList      = "4,11,12,13,14,15,16,17,18,19,20"; // GMT0 / UTC only
 
 //================ GMT0 END-OF-DAY SPECIAL ORDERS ===================
 // Controlled special order window for the strong end-of-day BTC flow.
