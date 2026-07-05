@@ -1,5 +1,5 @@
 //+------------------------------------------------------------------+
-//|                 DXB_SAR_EarlyTrend_Cycle_EA_Strict_2345_FreshBoot_V192_PauseReasonNotifications.mq4                  |
+//|                 DXB_SAR_EarlyTrend_Cycle_EA_Strict_2345_FreshBoot_V194_Hour22_AllSafetyUnlock.mq4                  |
 //|  SAR cycle + server-side SL + dynamic X-profit ladder          |
 //|  SAR flip closes opposite orders. Early reverse trend pauses SAR  |
 //|  cycle, draws arrows, closes opposite orders, resumes when aligned |
@@ -20,7 +20,7 @@ MARKET_MODE g_marketMode = MODE_RANGE;
 #ifndef OP_BALANCE
 #define OP_BALANCE 6
 #endif
-#property version   "1.92"
+#property version   "1.93"
 
 //======================== INPUTS ====================================
 string InpEAName                  = "DXB Version 5 - SAR Confirm 50 in 5 Min";
@@ -123,6 +123,25 @@ double InpHighestProfitLockSharePercent       = 50.00; // retain this share of t
 // Unlimited mode: the old 50% final target is not used by the share-lock path.
 bool   InpCloseAtFinalProfitLadderLevel       = false;
 bool   InpPauseAfterProfitLadderClose         = true;
+
+//================ GMT0 HOUR-22 TRADING-LOCK UNLOCK =================
+// At the configured GMT0 hour the EA can unlock the daily profit/highest-share
+// pause and, if enabled below, the day-loss / cooling safety pauses also.
+// This is NOT a full day reset. Daily balance, equity anchor, lot cycle,
+// SAR cycle and the existing new-day reset remain unchanged.
+// Broker permission, spread, central order-gap safety, SAR score, big-candle
+// safety and strict 23:45 fresh-boot shutdown still remain active.
+bool   InpUnlockDailyProfitLockAtGMT0Hour      = true;
+int    InpDailyProfitLockUnlockHourGMT0        = 22;
+bool   InpBlockDailyProfitRelockAfterUnlock    = true;
+bool   InpNotifyOnProfitLockUnlock             = true;
+
+// Optional hour-22 bypasses for other pause/lock layers.
+// Set any one of these to false if you want that protection to remain strict.
+bool   InpUnlockDayLossLockAtGMT0Hour          = true;
+bool   InpUnlockHalfLossPauseAtGMT0Hour        = true;
+bool   InpUnlockConsecutiveSLPauseAtGMT0Hour   = true;
+bool   InpUnlockSideLossPauseAtGMT0Hour        = true;
 
 
 // Dynamic basket profit ladder:
@@ -838,7 +857,39 @@ int    InpTesterServerGMTOffsetHours = 0; // Strategy Tester only: GMT0 server=0
 
 // Single source of truth. Do not create Dubai/server-hour copies.
 // Example: "6,7,11,12" blocks 06:00-06:59, 07:00-07:59, 11:00-11:59, 12:00-12:59 GMT0.
-string InpNoNewOrderHourList      = "6,7,11,12,13,14,15,16,17,18,19,20,21,22,23"; // GMT0 / UTC only
+// string InpNoNewOrderHourList      = "6,7,11,12,13,14,15,16,17,18,19,20,21,22,23"; // GMT0 / UTC only
+string InpNoNewOrderHourList      = "11,12,13,14,15,16,17,18,19,20"; // GMT0 / UTC only
+
+//================ GMT0 END-OF-DAY SPECIAL ORDERS ===================
+// Controlled special order window for the strong end-of-day BTC flow.
+// Hours are always GMT0/UTC, same standard as InpNoNewOrderHourList.
+// This special entry can bypass ONLY the GMT0 no-new-hour list when enabled.
+// Optional profit-lock bypass applies only to the DAILY PROFIT / highest-share
+// pause at 22/23 GMT0. Additional day-loss / cooling-pause bypasses are
+// controlled by the hour-22 unlock inputs above. Broker permission,
+// direction caps and central gap safety are never bypassed.
+bool   InpUseEODSpecialOrders              = false;
+string InpEODSpecialHourListGMT0           = "";//"22,23";
+bool   InpEODSpecialBypassNoNewHourLock    = true;
+bool   InpEODSpecialBypassDailyProfitLock  = true;
+int    InpEODSpecialMaxOrdersPerSide       = 1;
+double InpEODSpecialMinBodyRaw             = 25.0;
+double InpEODSpecialMinRangeRaw            = 40.0;
+double InpEODSpecialBreakoutGapRaw         = 5.0;
+int    InpEODSpecialMinSARScore            = 5;
+bool   InpEODSpecialRequireH1Trend         = false;
+bool   InpEODSpecialRequireFastTickSpeed   = false;
+bool   InpEODSpecialOnlyWithCurrentSAR     = true;
+bool   InpEODSpecialRespectBigCandleBlock  = true;
+// EOD chain safety:
+// First EOD setup may start normally. After that, the EOD special mode may
+// continue only while each closed EOD order is profitable. If any EOD special
+// market order closes at break-even/loss or by server SL, EOD special entries
+// are stopped for the current GMT0 day. Normal non-EOD close management is not affected.
+bool   InpEODSpecialStopAfterStopLoss       = true;
+bool   InpEODSpecialContinueOnlyAfterProfit = true;
+bool   InpEODSpecialLockUntilNextGMT0Day    = true;
+
 
 
 
@@ -1350,6 +1401,16 @@ datetime g_sellPullbackContinuationArmBarTime = 0;
 double   g_buyPullbackContinuationRaw         = 0.0;
 double   g_sellPullbackContinuationRaw        = 0.0;
 
+// GMT0 end-of-day special-order runtime state.
+datetime g_lastEODSpecialOrderBarTimeBuy  = 0;
+datetime g_lastEODSpecialOrderBarTimeSell = 0;
+int      g_eodSpecialChainDateKey          = 0;
+bool     g_eodSpecialStoppedAfterSL        = false;
+int      g_eodSpecialLastClosedTicket      = 0;
+double   g_eodSpecialLastClosedProfit      = 0.0;
+datetime g_eodSpecialLastClosedTime        = 0;
+string   g_eodSpecialChainStatus           = "READY";
+string   g_eodSpecialStatus               = "WAIT EOD SPECIAL";
 
 // Number of profitable NORMAL SAR orders closed in the current SAR signal cycle.
 // Resets whenever SAR signal changes. Used by GetIndividualProfitProtectLevel().
@@ -1465,6 +1526,9 @@ datetime g_profitPercentLastBookTime = 0;
 string   g_profitPercentLadderStatus = "READY";
 double   g_lockedProfitToday    = 0.0;
 bool     g_dailyProfitLock      = false;
+bool     g_dailyProfitLockUnlockedAfterHour = false;
+int      g_dailyProfitLockUnlockDateKey     = 0;
+string   g_dailyProfitLockUnlockStatus      = "WAIT GMT0 PROFIT UNLOCK";
 bool     g_equityProtectionHit  = false;
 datetime g_lastEquityStatsResetTime = 0;
 int      g_equityCycleNumber    = 1;
@@ -3069,6 +3133,9 @@ bool IsSideLossPauseActiveForDirection(int direction)
       (direction != 1 && direction != -1))
       return(false);
 
+   if(IsSideLossPauseBypassedAfterGMT0Hour())
+      return(false);
+
    datetime pauseUntil =
       (direction == 1)
       ? g_buySideLossPauseUntil
@@ -3149,6 +3216,15 @@ void UpdateSideLossPauseState(bool forceScan=false)
       g_sellSideLossStreak = 0;
       ClearSideLossPause(1,"OFF");
       ClearSideLossPause(-1,"OFF");
+      return;
+     }
+
+   if(IsSideLossPauseBypassedAfterGMT0Hour())
+     {
+      ClearSideLossPause(1,"UNLOCKED AT GMT0 HOUR " +
+                           IntegerToString(GetDailyProfitLockUnlockHourGMT0()));
+      ClearSideLossPause(-1,"UNLOCKED AT GMT0 HOUR " +
+                            IntegerToString(GetDailyProfitLockUnlockHourGMT0()));
       return;
      }
 
@@ -3304,6 +3380,9 @@ void UpdateSideLossPauseState(bool forceScan=false)
 //+------------------------------------------------------------------+
 bool IsOrderBlockedBySideLossPause(int direction,string source)
   {
+   if(IsSideLossPauseBypassedAfterGMT0Hour())
+      return(false);
+
    UpdateSideLossPauseState(false);
 
    if(!IsSideLossPauseActiveForDirection(direction))
@@ -4304,6 +4383,22 @@ void NotifyClosedOrderEvent(int ticket,
       return;
 
    AddTicketToPushList(ticket, 1);
+
+// EOD special chain rule: continue only after profit; stop after SL/loss.
+   string closedComment = "";
+   datetime closedTime = TimeCurrent();
+   if(OrderSelect(ticket, SELECT_BY_TICKET, MODE_HISTORY))
+     {
+      closedComment = OrderComment();
+      closedTime    = OrderCloseTime();
+     }
+
+   RegisterEODSpecialClosedOrder(ticket,
+                                 type,
+                                 profit,
+                                 closedTime,
+                                 closedComment,
+                                 reason);
 
 // A strongly profitable FIRST SAR order confirms a good market and queues
 // one immediate same-direction pending continuation entry.
@@ -5334,7 +5429,8 @@ bool TryQueuePreSARReversalSuspectEntry()
 
    // Hard safety gates remain active.
    if(IsNewOrderHardPauseActive() ||
-      g_dailyProfitLock || g_equityProtectionHit ||
+      g_dailyProfitLock ||
+      (g_equityProtectionHit && !IsDayLossLockBypassedAfterGMT0Hour()) ||
       g_globalEquityTrailLocked || !IsTradingAllowedNow())
      {
       g_oppositeImpulseStatus = "SUSPECT BLOCKED | HARD SAFETY";
@@ -5691,7 +5787,7 @@ bool ProcessOppositeImpulseContinuation()
      }
 
    if(g_dailyProfitLock ||
-      g_equityProtectionHit ||
+      (g_equityProtectionHit && !IsDayLossLockBypassedAfterGMT0Hour()) ||
       g_globalEquityTrailLocked)
      {
       ClearOppositeImpulseRequest("REQUEST CANCELLED | EQUITY/PROFIT LOCK");
@@ -6215,7 +6311,7 @@ bool IsSARContinuationCommonSafetyReady(int direction,
      }
 
    if(g_dailyProfitLock ||
-      g_equityProtectionHit ||
+      IsDayLossLockActiveForNewOrders() ||
       g_globalEquityTrailLocked)
      {
       g_sarContinuationStatus = strategy + " BLOCK | EQUITY/PROFIT LOCK";
@@ -6377,7 +6473,7 @@ bool PlaceSARContinuationPending(int direction,
 
    if(IsNewOrderHardPauseActive() ||
       g_dailyProfitLock ||
-      g_equityProtectionHit ||
+      IsDayLossLockActiveForNewOrders() ||
       g_globalEquityTrailLocked ||
       !IsTradingAllowedNow())
      {
@@ -8704,10 +8800,260 @@ bool IsDailyProfitPauseActive()
    if(!g_dailyProfitLock)
       return(false);
 
+   if(IsDailyProfitLockUnlockedAfterGMT0Hour())
+      return(false);
+
    if(InpUseDailyProfitPercentLadder)
       return(InpPauseAfterProfitLadderClose);
 
    return(InpPauseAfterProfitTarget);
+  }
+
+//+------------------------------------------------------------------+
+//| Safe configured GMT0 unlock hour.                                 |
+//+------------------------------------------------------------------+
+int GetDailyProfitLockUnlockHourGMT0()
+  {
+   int h = InpDailyProfitLockUnlockHourGMT0;
+   if(h < 0)
+      h = 0;
+   if(h > 23)
+      h = 23;
+   return(h);
+  }
+
+//+------------------------------------------------------------------+
+//| Reset hour-22 profit unlock state when GMT0 date changes.         |
+//+------------------------------------------------------------------+
+void ResetDailyProfitLockUnlockStateIfNewDay()
+  {
+   int currentDateKey = GetCurrentFreshDayDateKey();
+   if(currentDateKey <= 0)
+      return;
+
+   if(g_dailyProfitLockUnlockDateKey != currentDateKey)
+     {
+      g_dailyProfitLockUnlockedAfterHour = false;
+      g_dailyProfitLockUnlockStatus =
+         "WAIT GMT0 HOUR " +
+         IntegerToString(GetDailyProfitLockUnlockHourGMT0());
+     }
+  }
+
+//+------------------------------------------------------------------+
+//| True from configured GMT0 hour until strict day-end boot.         |
+//+------------------------------------------------------------------+
+bool IsDailyProfitLockUnlockWindowGMT0()
+  {
+   if(!InpUnlockDailyProfitLockAtGMT0Hour)
+      return(false);
+
+   datetime gmt0Now = GetGMT0Time();
+
+   int unlockHour = GetDailyProfitLockUnlockHourGMT0();
+
+   int nowMinuteOfDay = TimeHour(gmt0Now) * 60 + TimeMinute(gmt0Now);
+   int unlockMinuteOfDay = unlockHour * 60;
+
+   if(nowMinuteOfDay < unlockMinuteOfDay)
+      return(false);
+
+   // Do not unlock inside the strict 23:45 fresh-boot shutdown window.
+   if(InpUseStrict2345DayEndFreshBoot)
+     {
+      int bootHour = InpDayEndFreshBootHour;
+      if(bootHour < 0)
+         bootHour = 0;
+      if(bootHour > 23)
+         bootHour = 23;
+
+      int bootMinute = InpDayEndFreshBootMinute;
+      if(bootMinute < 0)
+         bootMinute = 0;
+      if(bootMinute > 59)
+         bootMinute = 59;
+
+      int bootMinuteOfDay = bootHour * 60 + bootMinute;
+
+      if(nowMinuteOfDay >= bootMinuteOfDay)
+         return(false);
+     }
+
+   return(true);
+  }
+
+//+------------------------------------------------------------------+
+//| Current-day flag used by all profit-lock checks.                  |
+//+------------------------------------------------------------------+
+bool IsDailyProfitLockUnlockedAfterGMT0Hour()
+  {
+   ResetDailyProfitLockUnlockStateIfNewDay();
+
+   if(!InpUnlockDailyProfitLockAtGMT0Hour)
+      return(false);
+
+   int currentDateKey = GetCurrentFreshDayDateKey();
+   if(currentDateKey <= 0)
+      return(false);
+
+   return(g_dailyProfitLockUnlockedAfterHour &&
+          g_dailyProfitLockUnlockDateKey == currentDateKey);
+  }
+
+//+------------------------------------------------------------------+
+//| Shared GMT0 hour-22 unlock window for optional safety bypasses.   |
+//+------------------------------------------------------------------+
+bool IsGMT0Hour22SafetyUnlockWindow()
+  {
+   // Uses the same GMT0 window as the profit-lock unlock and automatically
+   // stops inside the strict 23:45 day-end fresh-boot hold.
+   return(IsDailyProfitLockUnlockWindowGMT0());
+  }
+
+//+------------------------------------------------------------------+
+bool IsDayLossLockBypassedAfterGMT0Hour()
+  {
+   return(InpUnlockDayLossLockAtGMT0Hour &&
+          IsGMT0Hour22SafetyUnlockWindow());
+  }
+
+//+------------------------------------------------------------------+
+bool IsHalfLossPauseBypassedAfterGMT0Hour()
+  {
+   return(InpUnlockHalfLossPauseAtGMT0Hour &&
+          IsGMT0Hour22SafetyUnlockWindow());
+  }
+
+//+------------------------------------------------------------------+
+bool IsConsecutiveSLPauseBypassedAfterGMT0Hour()
+  {
+   return(InpUnlockConsecutiveSLPauseAtGMT0Hour &&
+          IsGMT0Hour22SafetyUnlockWindow());
+  }
+
+//+------------------------------------------------------------------+
+bool IsSideLossPauseBypassedAfterGMT0Hour()
+  {
+   return(InpUnlockSideLossPauseAtGMT0Hour &&
+          IsGMT0Hour22SafetyUnlockWindow());
+  }
+
+//+------------------------------------------------------------------+
+bool IsDayLossLockActiveForNewOrders()
+  {
+   return(g_equityProtectionHit &&
+          !IsDayLossLockBypassedAfterGMT0Hour());
+  }
+
+//+------------------------------------------------------------------+
+//| Unlock daily profit/highest-share lock and optional safety pauses.|
+//+------------------------------------------------------------------+
+void UnlockDailyProfitLockAtConfiguredGMT0Hour()
+  {
+   if(!InpUnlockDailyProfitLockAtGMT0Hour)
+      return;
+
+   ResetDailyProfitLockUnlockStateIfNewDay();
+
+   if(!IsDailyProfitLockUnlockWindowGMT0())
+      return;
+
+   int currentDateKey = GetCurrentFreshDayDateKey();
+   if(currentDateKey <= 0)
+      return;
+
+   if(g_dailyProfitLockUnlockedAfterHour &&
+      g_dailyProfitLockUnlockDateKey == currentDateKey)
+      return;
+
+   bool wasProfitLocked = g_dailyProfitLock;
+
+   g_dailyProfitLockUnlockedAfterHour = true;
+   g_dailyProfitLockUnlockDateKey     = currentDateKey;
+
+   // Clear the daily profit/highest-share pause. Optional unlock inputs below
+   // can also clear/bypass day-loss and cooling pauses. This does not reset
+   // daily balance, equity anchor, lot cycle or SAR cycle.
+   g_dailyProfitLock = false;
+   g_profitPercentLadderHit = false;
+   g_lockedProfitToday = 0.0;
+
+   if(InpUnlockDayLossLockAtGMT0Hour)
+     {
+      g_equityProtectionHit = false;
+      g_notifyEquityStopSent = false;
+     }
+
+   if(InpUnlockHalfLossPauseAtGMT0Hour)
+     {
+      g_halfLossPauseUntil = 0;
+      g_halfLossPauseStatus = "UNLOCKED AT GMT0 HOUR " +
+                              IntegerToString(GetDailyProfitLockUnlockHourGMT0());
+     }
+
+   if(InpUnlockConsecutiveSLPauseAtGMT0Hour)
+     {
+      g_consecutiveBasketSLPauseUntil = 0;
+      g_consecutiveSLPauseStatus = "UNLOCKED AT GMT0 HOUR " +
+                                   IntegerToString(GetDailyProfitLockUnlockHourGMT0());
+      SaveConsecutiveSLPauseState();
+     }
+
+   if(InpUnlockSideLossPauseAtGMT0Hour)
+     {
+      ClearSideLossPause(1,"UNLOCKED AT GMT0 HOUR " +
+                           IntegerToString(GetDailyProfitLockUnlockHourGMT0()));
+      ClearSideLossPause(-1,"UNLOCKED AT GMT0 HOUR " +
+                            IntegerToString(GetDailyProfitLockUnlockHourGMT0()));
+     }
+
+   double currentPercent = GetDailyEquityProfitPercent(AccountEquity());
+
+   g_dailyProfitLockUnlockStatus =
+      "UNLOCKED AT GMT0 HOUR " +
+      IntegerToString(GetDailyProfitLockUnlockHourGMT0()) +
+      " | DAILY PROFIT LOCK OFF UNTIL NEW GMT0 DAY" +
+      " | NOW " + DoubleToString(currentPercent,2) + "%" +
+      " | PEAK " + DoubleToString(g_profitPercentPeakPercent,2) + "%" +
+      " | NORMAL RESET UNCHANGED";
+
+   g_profitPercentLadderStatus = g_dailyProfitLockUnlockStatus;
+
+   string msg =
+      "PROFIT LOCK UNLOCKED AT GMT0 HOUR " +
+      IntegerToString(GetDailyProfitLockUnlockHourGMT0()) +
+      " | DateKey=" + IntegerToString(currentDateKey) +
+      " | Equity=$" + DoubleToString(AccountEquity(),2) +
+      " | Profit=" + DoubleToString(currentPercent,2) + "%" +
+      " | WasLocked=" + (wasProfitLocked ? "YES" : "NO") +
+      " | DayLossBypass=" + (InpUnlockDayLossLockAtGMT0Hour ? "ON" : "OFF") +
+      " | HalfLossBypass=" + (InpUnlockHalfLossPauseAtGMT0Hour ? "ON" : "OFF") +
+      " | SLPauseBypass=" + (InpUnlockConsecutiveSLPauseAtGMT0Hour ? "ON" : "OFF") +
+      " | SideLossBypass=" + (InpUnlockSideLossPauseAtGMT0Hour ? "ON" : "OFF") +
+      " | New-day reset unchanged";
+
+   Print(msg);
+
+   if(InpNotifyOnProfitLockUnlock)
+     {
+      string pushMsg = InpEAName + " | " + Symbol() + " | " + msg;
+      if(StringLen(pushMsg) > 250)
+         pushMsg = StringSubstr(pushMsg,0,250);
+
+      if(InpSendTerminalAlerts)
+         Alert(pushMsg);
+
+      if(InpSendPushNotifications && !IsTesting())
+        {
+         ResetLastError();
+         if(!SendNotification(pushMsg))
+           {
+            int errorCode = GetLastError();
+            Print("PROFIT LOCK UNLOCK PUSH FAILED | Error=",errorCode);
+            ResetLastError();
+           }
+        }
+     }
   }
 
 //+------------------------------------------------------------------+
@@ -8721,6 +9067,9 @@ string DailyProfitPercentLadderStatusText()
              DoubleToString(InpProfitTargetPercent,2) +
              "% | TARGET $" +
              DoubleToString(g_profitTargetEquity,2));
+
+   if(IsDailyProfitLockUnlockedAfterGMT0Hour())
+      return(g_dailyProfitLockUnlockStatus);
 
    double currentPercent =
       GetDailyEquityProfitPercent(AccountEquity());
@@ -8814,8 +9163,12 @@ string DailyProfitPercentLadderStatusText()
 //+------------------------------------------------------------------+
 string DailyProfitPauseDashboardText()
   {
-   if(g_equityProtectionHit)
+   if(IsDayLossLockActiveForNewOrders())
       return("OPENING BALANCE LOSS LOCK - PAUSED");
+
+   if(g_equityProtectionHit && IsDayLossLockBypassedAfterGMT0Hour())
+      return("DAY LOSS LOCK UNLOCKED AT GMT0 HOUR " +
+             IntegerToString(GetDailyProfitLockUnlockHourGMT0()));
 
    if(g_dailyProfitLock)
      {
@@ -8835,6 +9188,15 @@ bool LockDailyProfitPercentLadder(string lockReason,
                                   double currentEquity,
                                   double currentPercent)
   {
+   if(IsDailyProfitLockUnlockedAfterGMT0Hour() &&
+      InpBlockDailyProfitRelockAfterUnlock)
+     {
+      g_profitPercentLadderStatus =
+         g_dailyProfitLockUnlockStatus +
+         " | SKIP RELOCK: " + lockReason;
+      return(false);
+     }
+
    if(g_dailyProfitLock)
       return(IsDailyProfitPauseActive());
 
@@ -9401,6 +9763,9 @@ void InitializeEquityDay()
 
    g_lockedProfitToday    = 0.0;
    g_dailyProfitLock      = false;
+   g_dailyProfitLockUnlockedAfterHour = false;
+   g_dailyProfitLockUnlockDateKey     = 0;
+   g_dailyProfitLockUnlockStatus      = "WAIT GMT0 PROFIT UNLOCK";
    g_equityProtectionHit  = false;
    g_notifyProfitLockSent = false;
    g_notifyEquityStopSent = false;
@@ -9654,6 +10019,555 @@ datetime GetDubaiTime()
    return(GetGMT0Time());
   }
 
+//+------------------------------------------------------------------+
+//| EOD special order reason tag.                                    |
+//+------------------------------------------------------------------+
+bool IsEODSpecialReason(string reason)
+  {
+   return(StringFind(reason,"EOD_SPECIAL",0) >= 0);
+  }
+
+
+//+------------------------------------------------------------------+
+//| EOD special chain is reset at the start of each GMT0 day.         |
+//+------------------------------------------------------------------+
+void ResetEODSpecialChainIfNewDay()
+  {
+   int currentDateKey = GetCurrentFreshDayDateKey();
+   if(currentDateKey <= 0)
+      return;
+
+   if(g_eodSpecialChainDateKey == currentDateKey)
+      return;
+
+   g_eodSpecialChainDateKey     = currentDateKey;
+   g_eodSpecialStoppedAfterSL   = false;
+   g_eodSpecialLastClosedTicket = 0;
+   g_eodSpecialLastClosedProfit = 0.0;
+   g_eodSpecialLastClosedTime   = 0;
+   g_eodSpecialChainStatus      = "READY NEW GMT0 DAY " + IntegerToString(currentDateKey);
+  }
+
+//+------------------------------------------------------------------+
+//| EOD special order comments survive broker history truncation.     |
+//+------------------------------------------------------------------+
+bool IsEODSpecialOrderComment(string commentText)
+  {
+   return(StringFind(commentText,"EOD_SPECIAL",0) >= 0);
+  }
+
+//+------------------------------------------------------------------+
+//| Register a closed EOD order. Profit keeps chain alive; SL stops it.|
+//+------------------------------------------------------------------+
+void RegisterEODSpecialClosedOrder(int ticket,
+                                   int type,
+                                   double netProfit,
+                                   datetime closeTime,
+                                   string commentText,
+                                   string closeReason)
+  {
+   if(!InpUseEODSpecialOrders)
+      return;
+
+   if(!IsEODSpecialOrderComment(commentText))
+      return;
+
+   if(type != OP_BUY && type != OP_SELL)
+      return;
+
+   ResetEODSpecialChainIfNewDay();
+
+   if(ticket <= 0 || ticket == g_eodSpecialLastClosedTicket)
+      return;
+
+   g_eodSpecialLastClosedTicket = ticket;
+   g_eodSpecialLastClosedProfit = netProfit;
+   g_eodSpecialLastClosedTime   = closeTime;
+
+   if(InpEODSpecialStopAfterStopLoss && netProfit <= 0.0000001)
+     {
+      g_eodSpecialStoppedAfterSL = true;
+      g_eodSpecialChainStatus =
+         "STOPPED AFTER EOD SL/LOSS | Ticket=" + IntegerToString(ticket) +
+         " | P/L=$" + DoubleToString(netProfit,2) +
+         " | Reason=" + closeReason;
+
+      Print("EOD SPECIAL CHAIN STOPPED | Ticket=",ticket,
+            " | Type=",type,
+            " | P/L=$",DoubleToString(netProfit,2),
+            " | Comment=",commentText,
+            " | Reason=",closeReason,
+            " | DateKey=",g_eodSpecialChainDateKey);
+
+      return;
+     }
+
+   if(netProfit > 0.0000001)
+     {
+      g_eodSpecialChainStatus =
+         "PROFIT CONTINUE ALLOWED | Ticket=" + IntegerToString(ticket) +
+         " | P/L=$" + DoubleToString(netProfit,2);
+
+      Print("EOD SPECIAL PROFIT CLOSE | CONTINUATION ALLOWED | Ticket=",ticket,
+            " | Type=",type,
+            " | P/L=$",DoubleToString(netProfit,2),
+            " | Comment=",commentText,
+            " | Reason=",closeReason,
+            " | DateKey=",g_eodSpecialChainDateKey);
+     }
+  }
+
+//+------------------------------------------------------------------+
+//| Broker-side SL/history closes can happen outside EA OrderClose(). |
+//+------------------------------------------------------------------+
+void SyncEODSpecialClosedOrdersFromHistory()
+  {
+   if(!InpUseEODSpecialOrders)
+      return;
+
+   ResetEODSpecialChainIfNewDay();
+
+   int historyTotal = OrdersHistoryTotal();
+   int firstHistoryIndex = MathMax(0, historyTotal - DXB_PUSH_HISTORY_SCAN);
+
+   for(int h = historyTotal - 1; h >= firstHistoryIndex; h--)
+     {
+      if(!OrderSelect(h, SELECT_BY_POS, MODE_HISTORY))
+         continue;
+
+      if(OrderSymbol() != Symbol() || OrderMagicNumber() != InpMagicNumber)
+         continue;
+
+      if(!IsHistoryTimeInsideCurrentFreshDay(OrderCloseTime()))
+         continue;
+
+      int type = OrderType();
+      if(type != OP_BUY && type != OP_SELL)
+         continue;
+
+      string commentText = OrderComment();
+      if(!IsEODSpecialOrderComment(commentText))
+         continue;
+
+      int ticket = OrderTicket();
+      if(ticket == g_eodSpecialLastClosedTicket)
+         continue;
+
+      double netProfit = OrderProfit() + OrderSwap() + OrderCommission();
+      string closeReason = "HISTORY CLOSE";
+
+      if(OrderStopLoss() > 0.0 &&
+         MathAbs(OrderClosePrice() - OrderStopLoss()) <= MathMax(Point * 5, MarketInfo(Symbol(), MODE_SPREAD) * Point))
+         closeReason = "SERVER STOP LOSS";
+
+      RegisterEODSpecialClosedOrder(ticket,
+                                    type,
+                                    netProfit,
+                                    OrderCloseTime(),
+                                    commentText,
+                                    closeReason);
+
+      // The newest history item is enough for the chain decision.
+      return;
+     }
+  }
+
+//+------------------------------------------------------------------+
+//| True when EOD special is stopped after an SL/loss close.          |
+//+------------------------------------------------------------------+
+bool IsEODSpecialStoppedAfterSL()
+  {
+   if(!InpUseEODSpecialOrders || !InpEODSpecialStopAfterStopLoss)
+      return(false);
+
+   ResetEODSpecialChainIfNewDay();
+   SyncEODSpecialClosedOrdersFromHistory();
+
+   return(g_eodSpecialStoppedAfterSL);
+  }
+
+//+------------------------------------------------------------------+
+//| Allow EOD special to trade only through DAILY PROFIT lock.        |
+//| Loss locks and SL/cooling pauses still win.                       |
+//+------------------------------------------------------------------+
+bool IsEODSpecialDailyProfitLockBypassActive()
+  {
+   if(!InpUseEODSpecialOrders ||
+      !InpEODSpecialBypassDailyProfitLock)
+      return(false);
+
+   if(!IsEODSpecialHourNow())
+      return(false);
+
+   // Continue-only-profit rule must still stop the special chain.
+   if(IsEODSpecialStoppedAfterSL())
+      return(false);
+
+   // Only daily profit/highest-share pause may be bypassed.
+   if(!IsDailyProfitPauseActive())
+      return(false);
+
+   // Optional hour-22 controls decide whether other lock layers still win.
+   if(g_equityProtectionHit &&
+      !IsDayLossLockBypassedAfterGMT0Hour())
+      return(false);
+
+   if(IsHalfLossPauseActive() &&
+      !IsHalfLossPauseBypassedAfterGMT0Hour())
+      return(false);
+
+   if(IsConsecutiveSLPauseActive() &&
+      !IsConsecutiveSLPauseBypassedAfterGMT0Hour())
+      return(false);
+
+   return(true);
+  }
+
+//+------------------------------------------------------------------+
+//| Try one EOD special order while daily profit lock is active.      |
+//+------------------------------------------------------------------+
+bool TryEODSpecialDuringDailyProfitLock(string &status)
+  {
+   if(!IsEODSpecialDailyProfitLockBypassActive())
+      return(false);
+
+   if(TryOpenEODSpecialOrder())
+     {
+      status = "EOD SPECIAL DURING PROFIT LOCK | " + g_eodSpecialStatus;
+      return(true);
+     }
+
+   status = "PROFIT LOCK ACTIVE | EOD SPECIAL WAIT | " + g_eodSpecialStatus;
+   return(true);
+  }
+
+//+------------------------------------------------------------------+
+//| True during the configured GMT0 EOD special-order hours.          |
+//+------------------------------------------------------------------+
+bool IsEODSpecialHourNow()
+  {
+   if(!InpUseEODSpecialOrders)
+      return(false);
+
+   datetime gmt0Now = GetGMT0Time();
+   int hourNow      = TimeHour(gmt0Now);
+
+   if(!IsConfiguredNoNewOrderHourInList(hourNow,InpEODSpecialHourListGMT0))
+      return(false);
+
+   // The strict 23:45 fresh-boot window is a higher-priority safety gate.
+   if(InpUseStrict2345DayEndFreshBoot)
+     {
+      int bootHour   = MathMax(0,MathMin(23,InpDayEndFreshBootHour));
+      int bootMinute = MathMax(0,MathMin(59,InpDayEndFreshBootMinute));
+      int nowMinuteOfDay  = hourNow * 60 + TimeMinute(gmt0Now);
+      int bootMinuteOfDay = bootHour * 60 + bootMinute;
+
+      if(nowMinuteOfDay >= bootMinuteOfDay)
+         return(false);
+     }
+
+   return(true);
+  }
+
+//+------------------------------------------------------------------+
+//| EOD special may bypass only the GMT0 no-new-hour list.            |
+//+------------------------------------------------------------------+
+bool IsEODSpecialNoNewHourBypassActive(string reason)
+  {
+   return(InpEODSpecialBypassNoNewHourLock &&
+          IsEODSpecialReason(reason) &&
+          IsEODSpecialHourNow());
+  }
+
+//+------------------------------------------------------------------+
+//| Reason-aware hard pause check for special EOD orders.             |
+//+------------------------------------------------------------------+
+bool IsNewOrderHardPauseActiveForReason(string reason)
+  {
+   if(IsEODSpecialNoNewHourBypassActive(reason))
+     {
+      if(IsConsecutiveSLPauseActive() &&
+         !IsConsecutiveSLPauseBypassedAfterGMT0Hour())
+         return(true);
+
+      if(IsHalfLossPauseActive() &&
+         !IsHalfLossPauseBypassedAfterGMT0Hour())
+         return(true);
+
+      return(false);
+     }
+
+   return(IsNewOrderHardPauseActive());
+  }
+
+//+------------------------------------------------------------------+
+//| Reason-aware hard pause details for dashboards/prints.            |
+//+------------------------------------------------------------------+
+string GetNewOrderHardPauseReasonTextForReason(string reason)
+  {
+   if(!IsEODSpecialNoNewHourBypassActive(reason))
+      return(GetNewOrderHardPauseReasonText());
+
+   string details = "";
+
+   if(IsConsecutiveSLPauseActive() &&
+      !IsConsecutiveSLPauseBypassedAfterGMT0Hour())
+      details = "CONSECUTIVE SL PAUSE | " + ConsecutiveSLPauseStatusText();
+
+   if(IsHalfLossPauseActive() &&
+      !IsHalfLossPauseBypassedAfterGMT0Hour())
+     {
+      if(details != "")
+         details += " | ";
+      details += "HALF LOSS PAUSE | " + HalfLossPauseStatusText();
+     }
+
+   if(details == "")
+      details = "EOD SPECIAL BYPASSING GMT0 NO-NEW HOUR ONLY";
+
+   return(details);
+  }
+
+//+------------------------------------------------------------------+
+//| Count active/pending EOD special orders by direction.             |
+//+------------------------------------------------------------------+
+int CountEODSpecialOrdersByDirection(int direction)
+  {
+   int count = 0;
+
+   for(int i=OrdersTotal()-1; i>=0; i--)
+     {
+      if(!OrderSelect(i,SELECT_BY_POS,MODE_TRADES))
+         continue;
+
+      if(OrderSymbol() != Symbol() ||
+         OrderMagicNumber() != InpMagicNumber)
+         continue;
+
+      string c = OrderComment();
+      if(StringFind(c,"EOD_SPECIAL",0) < 0)
+         continue;
+
+      int type = OrderType();
+
+      if(direction == 1 &&
+         (type == OP_BUY || type == OP_BUYSTOP || type == OP_BUYLIMIT))
+         count++;
+
+      if(direction == -1 &&
+         (type == OP_SELL || type == OP_SELLSTOP || type == OP_SELLLIMIT))
+         count++;
+     }
+
+   return(count);
+  }
+
+//+------------------------------------------------------------------+
+//| Controlled GMT0 22/23 breakout continuation order.               |
+//+------------------------------------------------------------------+
+bool TryOpenEODSpecialOrder()
+  {
+   if(!InpUseEODSpecialOrders)
+     {
+      g_eodSpecialStatus = "OFF";
+      return(false);
+     }
+
+   ResetEODSpecialChainIfNewDay();
+   SyncEODSpecialClosedOrdersFromHistory();
+
+   if(IsEODSpecialStoppedAfterSL())
+     {
+      g_eodSpecialStatus = g_eodSpecialChainStatus;
+      SetLastOrderBlockDashboard("EOD SPECIAL STOPPED | " + g_eodSpecialChainStatus);
+      return(false);
+     }
+
+   if(!IsEODSpecialHourNow())
+     {
+      g_eodSpecialStatus = "WAIT HOUR | GMT0=" +
+                           TimeToString(GetGMT0Time(),TIME_MINUTES) +
+                           " | HOURS=" + InpEODSpecialHourListGMT0;
+      return(false);
+     }
+
+   if(Bars < 3)
+     {
+      g_eodSpecialStatus = "WAIT BARS";
+      return(false);
+     }
+
+   if(g_activeSARDirection == 0)
+     {
+      g_eodSpecialStatus = "WAIT SAR DIRECTION";
+      return(false);
+     }
+
+   int direction = g_activeSARDirection;
+
+   if(InpEODSpecialOnlyWithCurrentSAR && direction != g_activeSARDirection)
+     {
+      g_eodSpecialStatus = "WAIT CURRENT SAR MATCH";
+      return(false);
+     }
+
+   if(CountEODSpecialOrdersByDirection(direction) >=
+      MathMax(1,InpEODSpecialMaxOrdersPerSide))
+     {
+      g_eodSpecialStatus = "MAX EOD SPECIAL " +
+                           DirectionText(direction) + " " +
+                           IntegerToString(CountEODSpecialOrdersByDirection(direction)) +
+                           "/" + IntegerToString(MathMax(1,InpEODSpecialMaxOrdersPerSide));
+      return(false);
+     }
+
+   if(IsDirectionOrderCapReached(direction,"EOD SPECIAL PRECHECK"))
+     {
+      g_eodSpecialStatus = g_lastOrderOpenReason;
+      return(false);
+     }
+
+   if(!IsSideLossPauseBypassedAfterGMT0Hour() &&
+      IsOrderBlockedBySideLossPause(direction,"EOD SPECIAL PRECHECK"))
+     {
+      g_eodSpecialStatus = g_lastOrderOpenReason;
+      return(false);
+     }
+
+   if(InpEODSpecialRequireH1Trend &&
+      !IsOrderAllowedByH1Trend(direction))
+     {
+      g_eodSpecialStatus = "WAIT H1 TREND MATCH | " + DirectionText(direction);
+      return(false);
+     }
+
+   if(g_dynamicSARScore < MathMax(0,InpEODSpecialMinSARScore))
+     {
+      g_eodSpecialStatus = "WAIT SAR SCORE " +
+                           IntegerToString(g_dynamicSARScore) +
+                           "/" + IntegerToString(MathMax(0,InpEODSpecialMinSARScore));
+      return(false);
+     }
+
+   if(InpEODSpecialRequireFastTickSpeed &&
+      g_tickSpeedStatus != "FAST" &&
+      g_tickSpeedStatus != "DANGER")
+     {
+      g_eodSpecialStatus = "WAIT TICK SPEED " + g_tickSpeedStatus;
+      return(false);
+     }
+
+   if(InpEODSpecialRespectBigCandleBlock)
+     {
+      string bigReason = "";
+      if(IsBigCandleOrderBlockedForDirection(direction,bigReason))
+        {
+         g_eodSpecialStatus = "BIG CANDLE BLOCK | " + bigReason;
+         return(false);
+        }
+     }
+
+   double bodyRaw  = MathAbs(Close[1] - Open[1]);
+   double rangeRaw = High[1] - Low[1];
+
+   if(bodyRaw + 0.0000001 < MathMax(0.0,InpEODSpecialMinBodyRaw))
+     {
+      g_eodSpecialStatus = "WAIT BODY " +
+                           DoubleToString(bodyRaw,1) + "/" +
+                           DoubleToString(MathMax(0.0,InpEODSpecialMinBodyRaw),1);
+      return(false);
+     }
+
+   if(rangeRaw + 0.0000001 < MathMax(0.0,InpEODSpecialMinRangeRaw))
+     {
+      g_eodSpecialStatus = "WAIT RANGE " +
+                           DoubleToString(rangeRaw,1) + "/" +
+                           DoubleToString(MathMax(0.0,InpEODSpecialMinRangeRaw),1);
+      return(false);
+     }
+
+   RefreshRates();
+
+   double breakoutGap = MathMax(0.0,InpEODSpecialBreakoutGapRaw);
+
+   if(direction == 1)
+     {
+      if(Close[1] <= Open[1])
+        {
+         g_eodSpecialStatus = "WAIT BULLISH CLOSED CANDLE";
+         return(false);
+        }
+
+      if(Ask + 0.0000001 < High[1] + breakoutGap)
+        {
+         g_eodSpecialStatus = "WAIT BUY BREAKOUT | Ask=" +
+                              DoubleToString(Ask,Digits) +
+                              " < High1+Gap=" +
+                              DoubleToString(High[1]+breakoutGap,Digits);
+         return(false);
+        }
+
+      if(g_lastEODSpecialOrderBarTimeBuy == Time[1])
+        {
+         g_eodSpecialStatus = "WAIT NEW BUY BAR";
+         return(false);
+        }
+
+      if(OpenMarketOrder(1,"EOD_SPECIAL_BUY"))
+        {
+         g_lastEODSpecialOrderBarTimeBuy = Time[1];
+         g_eodSpecialStatus = "OPENED BUY | GMT0=" +
+                              TimeToString(GetGMT0Time(),TIME_DATE|TIME_MINUTES);
+         Print("EOD SPECIAL BUY ORDER OPENED | GMT0=",TimeToString(GetGMT0Time(),TIME_DATE|TIME_MINUTES),
+               " | Body=",DoubleToString(bodyRaw,1),
+               " | Range=",DoubleToString(rangeRaw,1),
+               " | SARScore=",g_dynamicSARScore,
+               " | TickSpeed=",g_tickSpeedStatus);
+         return(true);
+        }
+     }
+   else if(direction == -1)
+     {
+      if(Close[1] >= Open[1])
+        {
+         g_eodSpecialStatus = "WAIT BEARISH CLOSED CANDLE";
+         return(false);
+        }
+
+      if(Bid - 0.0000001 > Low[1] - breakoutGap)
+        {
+         g_eodSpecialStatus = "WAIT SELL BREAKOUT | Bid=" +
+                              DoubleToString(Bid,Digits) +
+                              " > Low1-Gap=" +
+                              DoubleToString(Low[1]-breakoutGap,Digits);
+         return(false);
+        }
+
+      if(g_lastEODSpecialOrderBarTimeSell == Time[1])
+        {
+         g_eodSpecialStatus = "WAIT NEW SELL BAR";
+         return(false);
+        }
+
+      if(OpenMarketOrder(-1,"EOD_SPECIAL_SELL"))
+        {
+         g_lastEODSpecialOrderBarTimeSell = Time[1];
+         g_eodSpecialStatus = "OPENED SELL | GMT0=" +
+                              TimeToString(GetGMT0Time(),TIME_DATE|TIME_MINUTES);
+         Print("EOD SPECIAL SELL ORDER OPENED | GMT0=",TimeToString(GetGMT0Time(),TIME_DATE|TIME_MINUTES),
+               " | Body=",DoubleToString(bodyRaw,1),
+               " | Range=",DoubleToString(rangeRaw,1),
+               " | SARScore=",g_dynamicSARScore,
+               " | TickSpeed=",g_tickSpeedStatus);
+         return(true);
+        }
+     }
+
+   g_eodSpecialStatus = g_lastOrderOpenReason;
+   return(false);
+  }
+
 
 //+------------------------------------------------------------------+
 //| Complete date key used by the fresh-day and equity-cycle logic.  |
@@ -9884,6 +10798,9 @@ void ResetAllFreshDayRuntimeState()
    g_profitPercentLastBookedLevel = 0;
    g_profitPercentLastBookTime = 0;
    g_profitPercentLadderStatus = "READY";
+   g_dailyProfitLockUnlockedAfterHour = false;
+   g_dailyProfitLockUnlockDateKey     = 0;
+   g_dailyProfitLockUnlockStatus      = "WAIT GMT0 PROFIT UNLOCK";
    g_buySideLossStreak = 0;
    g_sellSideLossStreak = 0;
    g_buySideLossPauseUntil = 0;
@@ -10354,6 +11271,9 @@ bool IsConsecutiveSLPauseActive()
    if(!InpUseConsecutiveSLPause)
       return(false);
 
+   if(IsConsecutiveSLPauseBypassedAfterGMT0Hour())
+      return(false);
+
    if(g_consecutiveBasketSLPauseUntil <= 0)
       return(false);
 
@@ -10402,6 +11322,9 @@ string ConsecutiveSLPauseStatusText()
 bool IsHalfLossPauseActive()
   {
    if(!InpUseHalfLossPause)
+      return(false);
+
+   if(IsHalfLossPauseBypassedAfterGMT0Hour())
       return(false);
 
    if(g_halfLossPauseUntil <= 0)
@@ -10462,6 +11385,14 @@ void UpdateHalfLossPauseState()
       return;
      }
 
+   if(IsHalfLossPauseBypassedAfterGMT0Hour())
+     {
+      g_halfLossPauseUntil = 0;
+      g_halfLossPauseStatus = "UNLOCKED AT GMT0 HOUR " +
+                              IntegerToString(GetDailyProfitLockUnlockHourGMT0());
+      return;
+     }
+
    // Expire an active pause, but never trigger it again in the same cycle.
    if(g_halfLossPauseTriggered)
      {
@@ -10469,7 +11400,7 @@ void UpdateHalfLossPauseState()
       return;
      }
 
-   if(g_equityProtectionHit || g_dailyProfitLock)
+   if(IsDayLossLockActiveForNewOrders() || g_dailyProfitLock)
       return;
 
    double currentEquity = AccountEquity();
@@ -10525,9 +11456,17 @@ void UpdateHalfLossPauseState()
 //+------------------------------------------------------------------+
 bool IsNewOrderHardPauseActive()
   {
+   bool consecutiveBlocked =
+      IsConsecutiveSLPauseActive() &&
+      !IsConsecutiveSLPauseBypassedAfterGMT0Hour();
+
+   bool halfLossBlocked =
+      IsHalfLossPauseActive() &&
+      !IsHalfLossPauseBypassedAfterGMT0Hour();
+
    return(IsDubaiNoNewOrderHourNow() ||
-          IsConsecutiveSLPauseActive() ||
-          IsHalfLossPauseActive());
+          consecutiveBlocked ||
+          halfLossBlocked);
   }
 
 //+------------------------------------------------------------------+
@@ -10551,7 +11490,8 @@ string GetNewOrderHardPauseReasonText()
          GetActiveNoNewOrderHourList();
      }
 
-   if(IsConsecutiveSLPauseActive())
+   if(IsConsecutiveSLPauseActive() &&
+      !IsConsecutiveSLPauseBypassedAfterGMT0Hour())
      {
       if(reason != "")
          reason += " | ";
@@ -10559,7 +11499,8 @@ string GetNewOrderHardPauseReasonText()
                 ConsecutiveSLPauseStatusText();
      }
 
-   if(IsHalfLossPauseActive())
+   if(IsHalfLossPauseActive() &&
+      !IsHalfLossPauseBypassedAfterGMT0Hour())
      {
       if(reason != "")
          reason += " | ";
@@ -10580,6 +11521,13 @@ void RegisterConsecutiveBasketSL(int direction,
   {
    if(!InpUseConsecutiveSLPause)
       return;
+
+   if(IsConsecutiveSLPauseBypassedAfterGMT0Hour())
+     {
+      g_consecutiveSLPauseStatus = "UNLOCKED AT GMT0 HOUR " +
+                                   IntegerToString(GetDailyProfitLockUnlockHourGMT0());
+      return;
+     }
 
    // Multiple close paths can inspect the same side on the same server second.
    // Count that completed basket stop only once.
@@ -11596,7 +12544,7 @@ bool ProcessGoodMarketFirstOrderContinuation()
      }
 
    if(g_dailyProfitLock ||
-      g_equityProtectionHit ||
+      IsDayLossLockActiveForNewOrders() ||
       g_globalEquityTrailLocked)
      {
       ClearGoodMarketContinuation("CANCELLED | EQUITY/PROFIT LOCK");
@@ -11969,6 +12917,12 @@ bool CheckEquityConditions()
   {
    ResetEquityDayIfNewDay();
 
+   // GMT0 hour-22 unlock is not a full day reset. It clears the configured
+   // lock/pause layers before equity checks can return early.
+   UnlockDailyProfitLockAtConfiguredGMT0Hour();
+
+   bool dayLossBypassActive = IsDayLossLockBypassedAfterGMT0Hour();
+
    if(CheckGlobalEquityTrailLock())
       return(true);
 
@@ -11981,9 +12935,16 @@ bool CheckEquityConditions()
       return(false);
      }
 
-// Keep a previously triggered lock latched until the next equity-cycle reset.
-   if(g_equityProtectionHit)
+// Keep a previously triggered lock latched until the next equity-cycle reset,
+// unless the GMT0 hour-22 day-loss bypass is explicitly enabled.
+   if(g_equityProtectionHit && !dayLossBypassActive)
       return(true);
+
+   if(g_equityProtectionHit && dayLossBypassActive)
+     {
+      g_equityProtectionHit = false;
+      g_notifyEquityStopSent = false;
+     }
 
    if(IsDailyProfitPauseActive())
       return(true);
@@ -11992,6 +12953,7 @@ bool CheckEquityConditions()
 
 // 1) Loss lock: equity reaches opening balance minus InpLossStopPercent.
    if(InpUseEquityProtection &&
+      !dayLossBypassActive &&
       currentEquity <= g_lossStopEquityLevel)
      {
       g_equityProtectionHit = true;
@@ -12031,6 +12993,16 @@ bool CheckEquityConditions()
 // Half-loss warning pause: block only NEW entries for a fixed cooling period.
 // Existing market orders continue their normal management.
    UpdateHalfLossPauseState();
+
+// If GMT0 hour-22 unlock already happened today, skip only the daily
+// profit/highest-share lock for the rest of the GMT0 day. New-day reset
+// will re-enable the normal daily profit lock automatically.
+   if(IsDailyProfitLockUnlockedAfterGMT0Hour() &&
+      InpBlockDailyProfitRelockAfterUnlock)
+     {
+      g_profitPercentLadderStatus = g_dailyProfitLockUnlockStatus;
+      return(false);
+     }
 
 // 2) Daily profit lock.
 // Ladder ON: exact book-and-restart targets 10/15/20/30/40/50.
@@ -18237,6 +19209,14 @@ bool ProcessNewOrderCreationLast(bool isNewBar, string &status)
 
    EnsureSARSignalOrderCycle(g_activeSARDirection);
 
+// GMT0 EOD special is checked before the normal hard-clock lock.
+// It can bypass ONLY the GMT0 no-new-hour list, not SL/loss safety pauses.
+   if(TryOpenEODSpecialOrder())
+     {
+      status = "EOD SPECIAL ORDER | " + g_eodSpecialStatus;
+      return(true);
+     }
+
 // HARD GMT0-TIME ENTRY LOCK: applies to order #1 and every later
 // normal SAR order, regardless of the active filter profile.
    if(IsNewOrderHardPauseActive())
@@ -18390,6 +19370,12 @@ bool ProcessNewOrderCreationLast(bool isNewBar, string &status)
      {
       status = "EARLY SAME SAR EXTRA ORDER";
       return true;
+     }
+
+   if(TryOpenEODSpecialOrder())
+     {
+      status = "EOD SPECIAL ORDER | " + g_eodSpecialStatus;
+      return(true);
      }
 
    if(IsMarketModeEntryFilterEnabled(DXB_FILTER_H1_TREND) &&
@@ -19181,6 +20167,9 @@ void OnTimer()
          return;
         }
      }
+
+   // Timer can also flip the GMT0 hour-22 unlock flag before the next quote.
+   UnlockDailyProfitLockAtConfiguredGMT0Hour();
   }
 //+------------------------------------------------------------------+
 void OnTick()
@@ -19234,6 +20223,10 @@ void OnTick()
 // history cutoff, opening-balance capture, final chart reinitialization,
 // configured resume delay and optional new-M1-bar wait. Announce only once.
    NotifyNewDayTradingStartedOnce();
+
+   // At GMT0 hour 22, unlock the daily profit/highest-share lock only.
+   // The existing new-day reset remains unchanged.
+   UnlockDailyProfitLockAtConfiguredGMT0Hour();
 
 // Update and paint the display-only adaptive tick-speed monitor before any
 // trading-path return, so the top-right status remains current.
@@ -19306,6 +20299,10 @@ void OnTick()
       string equityPauseStatus =
          DailyProfitPauseDashboardText();
 
+      // At 22/23 GMT0, EOD special may bypass ONLY the daily-profit/highest-share
+      // pause. It does not bypass day-loss, half-loss, consecutive-SL or side-loss safety.
+      TryEODSpecialDuringDailyProfitLock(equityPauseStatus);
+
       DrawLeftOrderCreationChecklist(equityPauseStatus);
       DrawDashboard(equityPauseStatus);
       return;
@@ -19319,12 +20316,12 @@ void OnTick()
 // a blocked GMT0 hour. Remove all untriggered EA pending entries first.
    NotifyNewOrderHardPauseReasonIfNeeded();
 
-   if(IsNewOrderHardPauseActive())
+   if(IsNewOrderHardPauseActiveForReason("EOD_SPECIAL_DELETE_CHECK"))
      {
       DeletePendingOrdersByDirection(
          0,
          "NEW-ORDER HARD LOCK | " +
-         GetNewOrderHardPauseReasonText(),
+         GetNewOrderHardPauseReasonTextForReason("EOD_SPECIAL_DELETE_CHECK"),
          false);
      }
 
@@ -19482,6 +20479,10 @@ void OnTick()
       string equityPauseStatus =
          DailyProfitPauseDashboardText();
 
+      // At 22/23 GMT0, EOD special may bypass ONLY the daily-profit/highest-share
+      // pause. It does not bypass day-loss, half-loss, consecutive-SL or side-loss safety.
+      TryEODSpecialDuringDailyProfitLock(equityPauseStatus);
+
       DrawLeftOrderCreationChecklist(equityPauseStatus);
       DrawDashboard(equityPauseStatus);
       return;
@@ -19534,11 +20535,23 @@ void OnTick()
 // is stopped during GMT0 16:00-22:59 or an active consecutive-SL pause.
    if(IsNewOrderHardPauseActive())
      {
-      DeletePendingOrdersByDirection(
-         0,
-         "CENTRAL NEW-ORDER HARD LOCK | " +
-         GetNewOrderHardPauseReasonText(),
-         false);
+      // EOD special gets one attempt before the central hard-clock return.
+      // OpenMarketOrder still blocks consecutive-SL and half-loss pauses; only
+      // the GMT0 no-new-hour list can be bypassed by EOD special.
+      if(TryOpenEODSpecialOrder())
+        {
+         status = "EOD SPECIAL ORDER | " + g_eodSpecialStatus;
+         DrawLeftOrderCreationChecklist(status);
+         DrawDashboard(status);
+         return;
+        }
+
+      if(IsNewOrderHardPauseActiveForReason("EOD_SPECIAL_CENTRAL_DELETE"))
+         DeletePendingOrdersByDirection(
+            0,
+            "CENTRAL NEW-ORDER HARD LOCK | " +
+            GetNewOrderHardPauseReasonTextForReason("EOD_SPECIAL_CENTRAL_DELETE"),
+            false);
 
       status = GetNewOrderHardPauseReasonText() +
                " | EXISTING ORDERS MANAGED";
@@ -21881,11 +22894,11 @@ bool OpenMarketOrder(int direction, string reason)
    if(direction != 0)
       EnsureSARSignalOrderCycle(direction);
 
-   if(IsNewOrderHardPauseActive())
+   bool isEODSpecialOrder = IsEODSpecialReason(reason);
+   if(IsNewOrderHardPauseActiveForReason(reason))
       return BlockOrder(
-                "GMT0 NO-NEW HOUR HARD LOCK | GMT0=" +
-                TimeToString(GetGMT0Time(), TIME_DATE|TIME_MINUTES) +
-                " | Hours=" + InpNoNewOrderHourList +
+                "NEW-ORDER HARD LOCK | " +
+                GetNewOrderHardPauseReasonTextForReason(reason) +
                 " | Source=" + reason);
 
    bool isFirstSAROrder = IsFirstSAROrderAfterFlip(direction);
@@ -21921,9 +22934,11 @@ bool OpenMarketOrder(int direction, string reason)
          "OpenMarketOrder START | " + reason))
       return(false);
 
-   bool entryProfileAllowed = isFirstSAROrder
-                              ? IsFirstSAROrderAllowedByPriceDiffOnly(direction, reason)
-                              : IsNormalOrderAllowedByMarketModeProfile(direction, reason);
+   bool entryProfileAllowed = isEODSpecialOrder
+                              ? true
+                              : (isFirstSAROrder
+                                 ? IsFirstSAROrderAllowedByPriceDiffOnly(direction, reason)
+                                 : IsNormalOrderAllowedByMarketModeProfile(direction, reason));
 
    if(!entryProfileAllowed)
      {
@@ -21938,9 +22953,18 @@ bool OpenMarketOrder(int direction, string reason)
 
    if(!IsPendingEntryAllowedForCurrentSAR(direction,
                                           "OpenMarketOrder " + reason))
-      return BlockOrder("Pending entry waiting current SAR confirmation | Direction=" +
-                        DirectionText(direction) +
-                        " | Source=" + reason);
+     {
+      // EOD special is allowed to bypass only the GMT0 no-new-hour list.
+      // Keep SAR-direction confirmation mandatory.
+      if(!(isEODSpecialOrder &&
+           IsEODSpecialNoNewHourBypassActive(reason) &&
+           direction == g_activeSARDirection &&
+           (g_pendingSARConfirmDirection == 0 ||
+            (g_pendingSARConfirmDirection == direction && IsSARFlipConfirmationReady()))))
+         return BlockOrder("Pending entry waiting current SAR confirmation | Direction=" +
+                           DirectionText(direction) +
+                           " | Source=" + reason);
+     }
 
    int type = InpUsePendingOrderEntries
               ? (direction == 1 ? OP_BUYSTOP : OP_SELLSTOP)
@@ -21950,7 +22974,8 @@ bool OpenMarketOrder(int direction, string reason)
                   ? BuildPendingOrderPrice(direction, true)
                   : (direction == 1 ? Ask : Bid);
 
-   if(!isFirstSAROrder &&
+   if(!isEODSpecialOrder &&
+      !isFirstSAROrder &&
       IsMarketModeEntryFilterEnabled(DXB_FILTER_SAR_PRICE_SIDE) &&
       !IsSARSignalPriceSideAllowed(direction, reason))
       return BlockOrder("SAR signal price side filter blocked | Direction=" +
@@ -21960,7 +22985,8 @@ bool OpenMarketOrder(int direction, string reason)
                         " | Ask=" + DoubleToString(Ask, Digits) +
                         " | Source=" + reason);
 
-   if(!isFirstSAROrder &&
+   if(!isEODSpecialOrder &&
+      !isFirstSAROrder &&
       IsMarketModeEntryFilterEnabled(DXB_FILTER_REPEATED_GAP) &&
       !IsRepeatedPriceGapConfirmedForNormalOrder(direction, reason))
       return BlockOrder("Repeated price gap not confirmed | Direction=" +
@@ -21995,7 +23021,8 @@ bool OpenMarketOrder(int direction, string reason)
    EnsureSARSignalOrderCycle(direction);
    UpdateSARCycleMaxByMomentum(direction, "OrderSend last check");
 
-   if(!isFirstSAROrder &&
+   if(!isEODSpecialOrder &&
+      !isFirstSAROrder &&
       IsMarketModeEntryFilterEnabled(DXB_FILTER_SAR_CYCLE) &&
       (g_sarCycleMaxOrders <= 0 ||
        g_sarCycleOrdersCreated >= g_sarCycleMaxOrders))
@@ -22014,11 +23041,10 @@ bool OpenMarketOrder(int direction, string reason)
       return BlockOrder("OrderSend cancelled last check | Trading not allowed now | Source=" + reason);
 
 // Final time recheck immediately before the atomic filter audit/OrderSend.
-   if(IsNewOrderHardPauseActive())
+   if(IsNewOrderHardPauseActiveForReason(reason))
       return BlockOrder(
-                "OrderSend cancelled last check | GMT0 NO-NEW HOUR | GMT0=" +
-                TimeToString(GetGMT0Time(), TIME_DATE|TIME_MINUTES) +
-                " | Hours=" + InpNoNewOrderHourList +
+                "OrderSend cancelled last check | " +
+                GetNewOrderHardPauseReasonTextForReason(reason) +
                 " | Source=" + reason);
 
 // FINAL ATOMIC FILTER SNAPSHOT:
@@ -22041,7 +23067,7 @@ bool OpenMarketOrder(int direction, string reason)
       direction,
       "FINAL ORDERSEND | " + reason);
 
-   if(g_entryDiagBlockedCount > 0)
+   if(!isEODSpecialOrder && g_entryDiagBlockedCount > 0)
      {
       CaptureLastEntryAttempt("FINAL FILTER BLOCK");
 
@@ -22053,11 +23079,10 @@ bool OpenMarketOrder(int direction, string reason)
      }
 
 // Last possible check immediately before the broker request.
-   if(IsNewOrderHardPauseActive())
+   if(IsNewOrderHardPauseActiveForReason(reason))
       return BlockOrder(
-                "OrderSend aborted at broker boundary | GMT0 NO-NEW HOUR | GMT0=" +
-                TimeToString(GetGMT0Time(), TIME_DATE|TIME_MINUTES) +
-                " | Hours=" + InpNoNewOrderHourList +
+                "OrderSend aborted at broker boundary | " +
+                GetNewOrderHardPauseReasonTextForReason(reason) +
                 " | Source=" + reason);
 
    if(IsOrderBlockedBySideLossPause(
@@ -23235,7 +24260,7 @@ void RefreshNormalEntryDiagnosticSnapshot(int direction,
    bool rawTrading = CheckListTradingAllowed();
    bool rawSpread = (spread <= InpMaxSpreadPoints);
    bool rawEquity =
-      (!g_equityProtectionHit &&
+      (!IsDayLossLockActiveForNewOrders() &&
        !IsDailyProfitPauseActive());
    bool rawNoHour = !IsDubaiNoNewOrderHourNow();
    bool rawProfit = !IsProfitProtectPauseActive();
@@ -23819,11 +24844,14 @@ string EquityLockExactStatusText()
              : "EXEMPT | ACCOUNT " + IntegerToString(AccountNumber()));
 
    string state = "CLEAR";
-   if(g_equityProtectionHit)
+   if(IsDayLossLockActiveForNewOrders())
       state = "LOSS LOCKED";
    else
-      if(g_dailyProfitLock)
-         state = "PROFIT LOCKED";
+      if(g_equityProtectionHit && IsDayLossLockBypassedAfterGMT0Hour())
+         state = "LOSS UNLOCKED H22";
+      else
+         if(g_dailyProfitLock)
+            state = "PROFIT LOCKED";
 
    string profitText =
       InpUseDailyProfitPercentLadder
@@ -24723,7 +25751,7 @@ string CompactEntryGateText()
    if(g_dailyProfitLock)
       return("BLOCK | +PROFIT EQUITY LOCK");
 
-   if(g_equityProtectionHit)
+   if(IsDayLossLockActiveForNewOrders())
       return("BLOCK | -LOSS EQUITY LOCK");
 
    if(g_globalEquityTrailLocked)
@@ -24760,7 +25788,7 @@ color CompactEntryGateColor()
 string CompactNextOrderText()
   {
    if(g_dailyProfitLock ||
-      g_equityProtectionHit ||
+      IsDayLossLockActiveForNewOrders() ||
       g_globalEquityTrailLocked ||
       IsNewOrderHardPauseActive() ||
       !IsTradingAllowedNow() ||
@@ -25187,7 +26215,7 @@ void DrawCompactDashboard(string status)
                 InpUseServerSideProfitLock?clrLime:clrSilver,rightChars);
    CompactXYRow("DXB_COMPACT_RIGHT_ROW_",rightRow,rightX+10,sideY+28,
                 "EQUITY GUARD",EquityLockExactStatusText(),
-                (g_dailyProfitLock||g_equityProtectionHit)?clrOrangeRed:clrLime,rightChars);
+                (g_dailyProfitLock||IsDayLossLockActiveForNewOrders())?clrOrangeRed:clrLime,rightChars);
    CompactXYRow("DXB_COMPACT_RIGHT_ROW_",rightRow,rightX+10,sideY+28,
                 "PROFIT % STATUS",
                 DailyProfitPercentLadderStatusText(),
