@@ -192,6 +192,22 @@ double InpDynamicBasketMinimumArmUSD       =0.40;// 0.10;//0.15;//0.20;//before 
 double InpDynamicBasketMinimumCloseUSD     = 0.00;//0.02;//0.05;//0.10;//0.10;//before Dynamic profit
 bool   InpBlockSoftCloseBelowMinProfit     = true; // block SAR/weak/early soft close below min profit
 
+// Server-first / closed-result daily accounting mode:
+// true  = daily profit/loss locks are calculated from AccountBalance() only,
+//         so floating profit/loss does not interrupt a running market order.
+// false = old behaviour: daily locks use AccountEquity() including floating P/L.
+bool   InpDailyLocksUseClosedBalanceOnly   = true;
+
+// true  = daily profit/loss locks pause NEW entries and delete pending orders,
+//         but leave active market orders to finish by broker/server SL/profit lock.
+// false = old behaviour: daily locks can close active market orders immediately.
+bool   InpDailyLocksDoNotCloseMarketOrders = true;
+
+// true  = dynamic basket ladder only raises broker/server SL. It does NOT
+//         EA-close the basket on pullback to the protected level.
+// false = old behaviour: EA can manually close the basket on protected pullback.
+bool   InpDynamicBasketServerSideCloseOnly = true;
+
 // Drawdown comeback trailing floor:
 // Once a BUY/SELL basket touches a negative loss step, remember the worst loss
 // separately for that side. The reduced positive comeback target becomes the
@@ -497,7 +513,7 @@ int    InpMaxSpreadPoints         = 3000;
 // If SAR direction is unavailable, the conservative fallback value is used.
 bool   InpUseInitialServerSideOrderSL       = true;
 double InpInitialServerSLWithSARUSD          =1;//0.50;// 2;//0.90;
-double InpInitialServerSLAgainstSARUSD       =0.50;//1;// 0.50;
+double InpInitialServerSLAgainstSARUSD       =1;//0.50;//1;// 0.50;
 double InpInitialServerSLNoSARDirectionUSD   =2;//3;// 0.50;
 bool   InpInitialServerSLForPending          = true;
 int    InpInitialServerSLRetrySeconds        = 3;
@@ -9216,8 +9232,8 @@ bool LockDailyProfitPercentLadder(string lockReason,
       "%";
 
    if(InpCloseOrdersOnProfitLock)
-      CloseAllEAOrders("DAILY PROFIT PERCENT LADDER | " +
-                       lockReason);
+      HandleDailyProfitLossLockOrders("DAILY PROFIT PERCENT LADDER | " +
+                                      lockReason);
 
    Print("DAILY PROFIT PERCENT LADDER LOCK",
          " | Reason=",lockReason,
@@ -9346,7 +9362,7 @@ bool CheckHighestProfitShareLock(double currentEquity)
             " | Trading continues after booking.");
 
       if(InpProfitLadderBookAtEachTarget)
-         CloseAllEAOrders(
+         HandleDailyProfitLossLockOrders(
             "FIRST DAILY PROFIT TARGET BOOKED - UNLIMITED SHARE LOCK CONTINUES");
 
       return(false);
@@ -9584,7 +9600,7 @@ bool CheckDailyProfitPercentLadder(double currentEquity)
         {
          // This method also deletes pending orders even when no market order
          // is open, ensuring the fresh cycle starts cleanly.
-         CloseAllEAOrders(
+         HandleDailyProfitLossLockOrders(
             "DAILY PROFIT LADDER L" +
             IntegerToString(reachedLevel) +
             " TARGET BOOKED - CONTINUE TRADING");
@@ -12951,9 +12967,12 @@ bool CheckEquityConditions()
    if(IsDailyProfitPauseActive())
       return(true);
 
-   double currentEquity = AccountEquity();
+   double currentEquity = GetDailyLockEvaluationValue();
 
-// 1) Loss lock: equity reaches opening balance minus InpLossStopPercent.
+// 1) Loss lock: closed balance/equity reaches opening balance minus InpLossStopPercent.
+//    In server-first mode this uses AccountBalance(), so a running order is
+//    not interrupted by floating drawdown. Broker/server SL remains responsible
+//    for the active order.
    if(InpUseEquityProtection &&
       !dayLossBypassActive &&
       currentEquity <= g_lossStopEquityLevel)
@@ -12961,7 +12980,7 @@ bool CheckEquityConditions()
       g_equityProtectionHit = true;
 
       if(InpCloseOrdersOnEquityHit && CountAllOrders() > 0)
-         CloseAllEAOrders("OPENING BALANCE LOSS LOCK");
+         HandleDailyProfitLossLockOrders("OPENING BALANCE LOSS LOCK");
 
       Print("OPENING BALANCE LOSS LOCK HIT",
             " | Equity=$",DoubleToString(currentEquity,2),
@@ -13032,7 +13051,7 @@ bool CheckEquityConditions()
 
             if(InpCloseOrdersOnProfitLock &&
                CountAllOrders() > 0)
-               CloseAllEAOrders(
+               HandleDailyProfitLossLockOrders(
                   "OPENING BALANCE FIXED PROFIT LOCK");
 
             Print("OPENING BALANCE FIXED PROFIT LOCK HIT",
@@ -13259,6 +13278,66 @@ void CloseAllEAOrders(string reason)
 
    if(CountAllOrders() == 0 && allProfitBeforeClose > 0.0)
       RegisterProfitableBasketClose(allProfitBeforeClose,reason);
+  }
+//+------------------------------------------------------------------+
+// Daily profit/loss locks should not interrupt a running market order when
+// server-first mode is enabled. In that mode they only delete pending entries
+// and pause NEW orders. Market orders continue under server SL/profit lock.
+double GetDailyLockEvaluationValue()
+  {
+   if(InpDailyLocksUseClosedBalanceOnly)
+      return(AccountBalance());
+
+   return(AccountEquity());
+  }
+
+//+------------------------------------------------------------------+
+string GetDailyLockEvaluationModeText()
+  {
+   return(InpDailyLocksUseClosedBalanceOnly
+          ? "CLOSED BALANCE ONLY"
+          : "LIVE EQUITY INCLUDING FLOATING P/L");
+  }
+
+//+------------------------------------------------------------------+
+void HandleDailyProfitLossLockOrders(string reason)
+  {
+   if(InpDailyLocksDoNotCloseMarketOrders)
+     {
+      DeletePendingOrdersByDirection(0,
+                                     reason +
+                                     " | DAILY LOCK: DELETE PENDING ONLY",
+                                     false);
+
+      Print("DAILY LOCK ORDER HANDLING | ",
+            "Mode=PAUSE NEW ORDERS ONLY",
+            " | MarketOrdersLeftForServer=", CountAllOrders(),
+            " | ClosedCalcMode=", GetDailyLockEvaluationModeText(),
+            " | Balance=$", DoubleToString(AccountBalance(),2),
+            " | Equity=$", DoubleToString(AccountEquity(),2),
+            " | Reason=", reason);
+      return;
+     }
+
+   CloseAllEAOrders(reason);
+  }
+
+//+------------------------------------------------------------------+
+bool AllowExistingOrderManagementDuringDailyLock()
+  {
+   if(!InpDailyLocksDoNotCloseMarketOrders)
+      return(false);
+
+   if(CountAllOrders() <= 0)
+      return(false);
+
+   if(g_dailyProfitLock)
+      return(true);
+
+   if(g_equityProtectionHit && !IsDayLossLockBypassedAfterGMT0Hour())
+      return(true);
+
+   return(false);
   }
 //+------------------------------------------------------------------+
 
@@ -14286,6 +14365,20 @@ bool ProcessDynamicBasketProfitByDirection(int direction,
    ApplyServerSideProfitLock(serverOrderType,
                              protectedProfit,
                              serverLockRaised);
+
+// Server-first mode: only move the broker/server SL upward. Do not manually
+// close on pullback; let the server SL/profit lock finish the basket.
+   if(InpDynamicBasketServerSideCloseOnly && InpUseServerSideProfitLock)
+     {
+      string side = DirectionText(direction);
+      g_dynamicBasketProfitStatus = side +
+                                    " SERVER-ONLY " + protectedName +
+                                    " | Peak $" + DoubleToString(peakProfit, 2) +
+                                    " | Protected $" + DoubleToString(protectedProfit, 2) +
+                                    " | Current $" + DoubleToString(currentProfit, 2);
+      status = g_dynamicBasketProfitStatus;
+      return(false);
+     }
 
 // Never close while profit is making or matching its highest peak.
 // Close only after a genuine pullback to the best protected level.
@@ -20312,9 +20405,17 @@ void OnTick()
       // pause. It does not bypass day-loss, half-loss, consecutive-SL or side-loss safety.
       TryEODSpecialDuringDailyProfitLock(equityPauseStatus);
 
-      DrawLeftOrderCreationChecklist(equityPauseStatus);
-      DrawDashboard(equityPauseStatus);
-      return;
+      if(!AllowExistingOrderManagementDuringDailyLock())
+        {
+         DrawLeftOrderCreationChecklist(equityPauseStatus);
+         DrawDashboard(equityPauseStatus);
+         return;
+        }
+
+      Print("DAILY LOCK ACTIVE | EXISTING MARKET ORDER MANAGEMENT CONTINUES",
+            " | ", equityPauseStatus,
+            " | MarketOrders=", CountAllOrders(),
+            " | New entries remain blocked by daily lock");
      }
 
 // Continue the SL-reverse recovery chain after ANY profitable recovery close.
@@ -20492,9 +20593,17 @@ void OnTick()
       // pause. It does not bypass day-loss, half-loss, consecutive-SL or side-loss safety.
       TryEODSpecialDuringDailyProfitLock(equityPauseStatus);
 
-      DrawLeftOrderCreationChecklist(equityPauseStatus);
-      DrawDashboard(equityPauseStatus);
-      return;
+      if(!AllowExistingOrderManagementDuringDailyLock())
+        {
+         DrawLeftOrderCreationChecklist(equityPauseStatus);
+         DrawDashboard(equityPauseStatus);
+         return;
+        }
+
+      Print("DAILY LOCK ACTIVE | EXISTING MARKET ORDER MANAGEMENT CONTINUES",
+            " | ", equityPauseStatus,
+            " | MarketOrders=", CountAllOrders(),
+            " | New entries remain blocked by daily lock");
      }
 
 // Optional individual pullback protection remains available for normal and
