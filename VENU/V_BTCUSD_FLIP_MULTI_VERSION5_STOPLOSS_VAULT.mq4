@@ -1,5 +1,5 @@
 //+------------------------------------------------------------------+
-//|                 DXB_SAR_EA_V200_PercentageClean_LogicAuditFix.mq4                         |
+//|                 DXB_SAR_EA_V203_ProtectedEquityDashboard.mq4                         |
 //|  SAR cycle + server-side SL + dynamic X-profit ladder          |
 //|  SAR flip closes opposite orders. Early reverse trend pauses SAR  |
 //|  cycle, draws arrows, closes opposite orders, resumes when aligned |
@@ -20,7 +20,7 @@ MARKET_MODE g_marketMode = MODE_RANGE;
 #ifndef OP_BALANCE
 #define OP_BALANCE 6
 #endif
-#property version   "2.00-clean"
+#property version   "2.03-dash"
 //================ OPTIMIZED CLEAN BUILD NOTES =====================
 // Removed unused input declarations and unreferenced helper/dashboard functions
 // from the V196 unlimited/highest-share-protection build.
@@ -24378,6 +24378,160 @@ double CompactEquityChangePercent()
   }
 
 //+------------------------------------------------------------------+
+//| Compact dashboard: percentage-profit target/protection details     |
+//+------------------------------------------------------------------+
+double GetDashboardProfitTargetPercent()
+  {
+   if(InpUseDailyProfitPercentLadder)
+      return(MathMax(0.0,GetDailyProfitLadderPercent(1)));
+
+   return(MathMax(0.0,InpProfitTargetPercent));
+  }
+
+//+------------------------------------------------------------------+
+string CompactProfitTargetText()
+  {
+   double targetPercent = GetDashboardProfitTargetPercent();
+   double targetEquity  = GetDailyProfitLadderEquity(targetPercent);
+
+   return(DoubleToString(targetPercent,1) + "% = $" +
+          DoubleToString(targetEquity,2));
+  }
+
+//+------------------------------------------------------------------+
+double GetDashboardProfitProtectedPercent()
+  {
+   if(!InpUseDailyProfitLock ||
+      !InpUseDailyProfitPercentLadder)
+      return(0.0);
+
+   if(g_profitPercentHighestLevel <= 0)
+      return(0.0);
+
+   double protectedPercent = g_profitPercentProtectedPercent;
+
+   if(protectedPercent <= 0.0)
+     {
+      if(InpUseHighestProfitShareLock)
+         protectedPercent = GetHighestProfitShareLockedPercent();
+      else
+         protectedPercent = GetCurrentBookedLadderBaseFloorPercent();
+     }
+
+   return(MathMax(0.0,protectedPercent));
+  }
+
+//+------------------------------------------------------------------+
+double GetDashboardProfitProtectedEquity()
+  {
+   double protectedPercent = GetDashboardProfitProtectedPercent();
+   if(protectedPercent <= 0.0)
+      return(0.0);
+
+   if(g_profitPercentProtectedEquity > 0.0 &&
+      MathAbs(g_profitPercentProtectedPercent-protectedPercent) < 0.01)
+      return(g_profitPercentProtectedEquity);
+
+   return(GetDailyProfitLadderEquity(protectedPercent));
+  }
+
+//+------------------------------------------------------------------+
+double GetDashboardProfitTriggerPercent()
+  {
+   double protectedPercent = GetDashboardProfitProtectedPercent();
+   if(protectedPercent <= 0.0)
+      return(0.0);
+
+   return(GetDailyProfitLadderCloseTriggerPercent(protectedPercent));
+  }
+
+//+------------------------------------------------------------------+
+double GetDashboardProfitTriggerEquity()
+  {
+   double triggerPercent = GetDashboardProfitTriggerPercent();
+   if(triggerPercent <= 0.0)
+      return(0.0);
+
+   return(GetDailyProfitLadderEquity(triggerPercent));
+  }
+
+//+------------------------------------------------------------------+
+string CompactProfitPeakNowText()
+  {
+   double currentPercent = GetDailyEquityProfitPercent(AccountEquity());
+   double peakPercent    = MathMax(g_profitPercentPeakPercent,currentPercent);
+
+   return("PEAK " + DoubleToString(peakPercent,2) +
+          "% | NOW " + DoubleToString(currentPercent,2) + "%");
+  }
+
+//+------------------------------------------------------------------+
+string CompactProfitProtectedText()
+  {
+   double protectedPercent = GetDashboardProfitProtectedPercent();
+
+   if(protectedPercent <= 0.0)
+      return("WAIT TARGET " + CompactProfitTargetText());
+
+   return("LOCK " + DoubleToString(protectedPercent,2) +
+          "% = $" +
+          DoubleToString(GetDashboardProfitProtectedEquity(),2));
+  }
+
+//+------------------------------------------------------------------+
+string CompactProfitTriggerText()
+  {
+   double triggerPercent = GetDashboardProfitTriggerPercent();
+
+   if(triggerPercent <= 0.0)
+      return("NOT ARMED");
+
+   return("TRIG " + DoubleToString(triggerPercent,2) +
+          "% = $" +
+          DoubleToString(GetDashboardProfitTriggerEquity(),2));
+  }
+
+//+------------------------------------------------------------------+
+string CompactProfitLockRoomText()
+  {
+   double triggerEquity = GetDashboardProfitTriggerEquity();
+   if(triggerEquity <= 0.0)
+      return("NOT ARMED");
+
+   double roomUSD = AccountEquity() - triggerEquity;
+   double roomPct = GetDailyEquityProfitPercent(AccountEquity()) -
+                    GetDashboardProfitTriggerPercent();
+
+   return("ROOM $" + DoubleToString(roomUSD,2) +
+          " / " + DoubleToString(roomPct,2) + "%");
+  }
+
+//+------------------------------------------------------------------+
+color CompactProfitLockRoomColor()
+  {
+   double triggerEquity = GetDashboardProfitTriggerEquity();
+   if(triggerEquity <= 0.0)
+      return(clrSilver);
+
+   double roomPct = GetDailyEquityProfitPercent(AccountEquity()) -
+                    GetDashboardProfitTriggerPercent();
+
+   if(roomPct < 0.0)
+      return(clrOrangeRed);
+   if(roomPct < 1.0)
+      return(clrYellow);
+
+   return(clrLime);
+  }
+
+//+------------------------------------------------------------------+
+string CompactLossStopText()
+  {
+   return("-" + DoubleToString(MathMax(0.0,InpLossStopPercent),1) +
+          "% = $" + DoubleToString(g_lossStopEquityLevel,2));
+  }
+
+//+------------------------------------------------------------------+
 string CompactNormalGateSummary()
   {
    if(g_entryDiagBlockedCount > 0)
@@ -24556,7 +24710,7 @@ void DrawCompactDashboard(string status)
    // RIGHT: account, dynamic lot, targets and risk.
    DrawCornerPanel("DXB_COMPACT_RIGHT_PANEL",
                    CORNER_LEFT_UPPER,
-                   rightX,sideY,sideW,350,
+                   rightX,sideY,sideW,425,
                    clrBlack,clrDimGray);
 
    DrawCornerLabel("DXB_COMPACT_RIGHT_TITLE",
@@ -24582,7 +24736,7 @@ void DrawCompactDashboard(string status)
                      DoubleToString(GetDailyProfitLadderPercent(1),0) +
                      "% | LOCK " +
                      DoubleToString(InpHighestProfitLockSharePercent,0) +
-                     "% OF PEAK | UNLIMITED"
+                     "% | UNLIMITED"
                    : DailyProfitLadderTargetProtectText(0) +
                      " | FINAL $" +
                      DoubleToString(g_profitLadderLevel6Equity,2))
@@ -24590,7 +24744,20 @@ void DrawCompactDashboard(string status)
                   DoubleToString(g_profitTargetEquity,2),
                 clrLime,rightChars);
    CompactXYRow("DXB_COMPACT_RIGHT_ROW_",rightRow,rightX+10,sideY+28,
-                "LOSS -20%","$"+DoubleToString(g_lossStopEquityLevel,2),clrRed,rightChars);
+                "PROFIT TARGET",CompactProfitTargetText(),clrLime,rightChars);
+   CompactXYRow("DXB_COMPACT_RIGHT_ROW_",rightRow,rightX+10,sideY+28,
+                "PEAK / NOW",CompactProfitPeakNowText(),clrAqua,rightChars);
+   CompactXYRow("DXB_COMPACT_RIGHT_ROW_",rightRow,rightX+10,sideY+28,
+                "PROTECTED EQ",CompactProfitProtectedText(),
+                GetDashboardProfitProtectedPercent()>0.0?clrYellow:clrSilver,rightChars);
+   CompactXYRow("DXB_COMPACT_RIGHT_ROW_",rightRow,rightX+10,sideY+28,
+                "LOCK TRIGGER",CompactProfitTriggerText(),
+                GetDashboardProfitTriggerPercent()>0.0?clrOrange:clrSilver,rightChars);
+   CompactXYRow("DXB_COMPACT_RIGHT_ROW_",rightRow,rightX+10,sideY+28,
+                "LOCK ROOM",CompactProfitLockRoomText(),
+                CompactProfitLockRoomColor(),rightChars);
+   CompactXYRow("DXB_COMPACT_RIGHT_ROW_",rightRow,rightX+10,sideY+28,
+                "LOSS LIMIT",CompactLossStopText(),clrRed,rightChars);
    CompactXYRow("DXB_COMPACT_RIGHT_ROW_",rightRow,rightX+10,sideY+28,
                 "EQUITY CHANGE",DoubleToString(CompactEquityChangePercent(),2)+"%",
                 CompactEquityChangePercent()>=0?clrLime:clrOrangeRed,rightChars);
