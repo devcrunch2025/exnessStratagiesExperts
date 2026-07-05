@@ -190,6 +190,7 @@ double InpDynamicBasketReturnBufferUSD     = 0.00;
 // Close only when current profit comes back to the highest protected value.
 double InpDynamicBasketMinimumArmUSD       =0.40;// 0.10;//0.15;//0.20;//before Dynamic profit
 double InpDynamicBasketMinimumCloseUSD     = 0.00;//0.02;//0.05;//0.10;//0.10;//before Dynamic profit
+bool   InpBlockSoftCloseBelowMinProfit     = true; // block SAR/weak/early soft close below min profit
 
 // Drawdown comeback trailing floor:
 // Once a BUY/SELL basket touches a negative loss step, remember the worst loss
@@ -17788,6 +17789,10 @@ void CloseOrdersByDirectionAnyMagic(int direction, string reason, bool anyMagic)
 
       double closePrice = type == OP_BUY ? Bid : Ask;
       double closeProfit = OrderProfit() + OrderSwap() + OrderCommission();
+
+      if(!CanSoftCloseSelectedOrder(reason))
+         continue;
+
       bool ok = OrderClose(OrderTicket(), OrderLots(), closePrice, InpSlippage, clrWhite);
 
       if(!ok)
@@ -18518,6 +18523,9 @@ void ProcessNextCandleLossProtect()
          double closePrice = (type == OP_BUY) ? Bid : Ask;
          int ticket = OrderTicket();
          double lots = OrderLots();
+
+         if(!CanSoftCloseSelectedOrder("Next candle loss protect"))
+            continue;
 
          bool ok = OrderClose(ticket, lots, closePrice, InpSlippage, clrOrange);
 
@@ -23346,6 +23354,69 @@ double GetBasketProfit(int direction)
      }
    return profit;
   }
+
+//+------------------------------------------------------------------+
+//| Soft EA-close guard                                               |
+//| Blocks signal-based EA closes from closing a market order below   |
+//| the configured minimum profit. Hard SL/day-loss/day-end/emergency |
+//| close paths are not marked as soft reasons, so they still close.  |
+//+------------------------------------------------------------------+
+bool IsSoftSignalCloseReason(string reason)
+  {
+   // SAR flip / SAR-change soft closes
+   if(StringFind(reason, "SAR signal changed") >= 0)
+      return(true);
+
+   if(StringFind(reason, "Delayed SAR close") >= 0)
+      return(true);
+
+   if(StringFind(reason, "Immediate SAR flip close") >= 0)
+      return(true);
+
+   // Early reverse soft close
+   if(StringFind(reason, "Early reverse") >= 0)
+      return(true);
+
+   // SAR weak soft closes
+   if(StringFind(reason, "Early SAR weak exit") >= 0)
+      return(true);
+
+   if(StringFind(reason, "CONFIRMED SAR WEAK OLD SMALL-LOSS EXIT") >= 0)
+      return(true);
+
+   // Optional next-candle soft loss close
+   if(StringFind(reason, "Next candle loss protect") >= 0)
+      return(true);
+
+   return(false);
+  }
+
+//+------------------------------------------------------------------+
+bool CanSoftCloseSelectedOrder(string reason)
+  {
+   if(!InpBlockSoftCloseBelowMinProfit)
+      return(true);
+
+   if(!IsSoftSignalCloseReason(reason))
+      return(true);
+
+   double netProfit = OrderProfit() + OrderSwap() + OrderCommission();
+   double requiredProfit = ScaleTradeMoneyByCurrentLot(InpDynamicBasketMinimumCloseUSD);
+
+   if(netProfit + 0.0000001 < requiredProfit)
+     {
+      Print("SOFT CLOSE BLOCKED | Ticket=", OrderTicket(),
+            " | Reason=", reason,
+            " | NetProfit=$", DoubleToString(netProfit, 2),
+            " | RequiredMin=$", DoubleToString(requiredProfit, 2),
+            " | Comment=", OrderComment());
+
+      return(false);
+     }
+
+   return(true);
+  }
+
 //+------------------------------------------------------------------+
 void CloseOppositeOrders(int newDirection, string reason)
   {
@@ -23380,6 +23451,10 @@ void CloseOrdersByType(int type, string reason)
 
       double closePrice = type == OP_BUY ? Bid : Ask;
       double closeProfit = OrderProfit() + OrderSwap() + OrderCommission();
+
+      if(!CanSoftCloseSelectedOrder(reason))
+         continue;
+
       bool ok = OrderClose(OrderTicket(), OrderLots(), closePrice, InpSlippage, clrWhite);
 
       if(!ok)
