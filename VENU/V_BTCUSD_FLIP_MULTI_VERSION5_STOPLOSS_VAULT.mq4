@@ -399,6 +399,9 @@ double InpLossStopPercent          = 15;//20;//10;//20.0; // full day loss lock 
 bool   InpUseHalfLossPause                = true;
 double InpHalfLossPauseTriggerPercent     = 50.0; // percentage of InpLossStopPercent, not account percent
 int    InpHalfLossPauseMinutes            =60*2;// 10;//60*4;
+// Resume the half-loss cooling pause early when any EA market order closes in net profit.
+// The pause is still one-shot for the current equity cycle, so it will not trigger again until reset.
+bool   InpResumeHalfLossPauseAfterProfitClose = true;
 bool   InpDeletePendingOnHalfLossPause    = true;
 
 double InpInitialServerSLExtraRawAfterHalfLoss =100;// 50.0; // extra RAW price gap for NEW orders after half-loss trigger
@@ -1483,6 +1486,7 @@ bool     g_notifyEquityStopSent = false;
 // One-shot half-loss cooling pause for the current equity cycle.
 double   g_halfLossPauseEquityLevel = 0.0;
 datetime g_halfLossPauseUntil       = 0;
+datetime g_halfLossPauseStartedAt   = 0;
 bool     g_halfLossPauseTriggered   = false;
 string   g_halfLossPauseStatus      = "READY";
 
@@ -8629,6 +8633,7 @@ void UnlockDailyProfitLockAtConfiguredGMT0Hour()
    if(InpUnlockHalfLossPauseAtGMT0Hour)
      {
       g_halfLossPauseUntil = 0;
+      g_halfLossPauseStartedAt = 0;
       g_halfLossPauseStatus = "UNLOCKED AT GMT0 HOUR " +
                               IntegerToString(GetDailyProfitLockUnlockHourGMT0());
      }
@@ -9396,6 +9401,7 @@ void InitializeEquityDay()
       g_halfLossPauseEquityLevel = g_lossStopEquityLevel;
 
    g_halfLossPauseUntil     = 0;
+   g_halfLossPauseStartedAt = 0;
    g_halfLossPauseTriggered = false;
    g_halfLossPauseStatus    = InpUseHalfLossPause
                               ? "READY | WAIT HALF LOSS"
@@ -10438,6 +10444,7 @@ void ResetAllFreshDayRuntimeState()
    g_equityCycleAnchor = 0.0;
    g_halfLossPauseEquityLevel = 0.0;
    g_halfLossPauseUntil       = 0;
+   g_halfLossPauseStartedAt   = 0;
    g_halfLossPauseTriggered   = false;
    g_halfLossPauseStatus      = "READY";
    g_profitLadderLevel1Equity = 0.0;
@@ -10966,6 +10973,87 @@ string ConsecutiveSLPauseStatusText()
   }
 
 //+------------------------------------------------------------------+
+//| Resume half-loss pause early after a profitable EA market close. |
+//+------------------------------------------------------------------+
+bool TryResumeHalfLossPauseAfterProfitClose()
+  {
+   if(!InpUseHalfLossPause || !InpResumeHalfLossPauseAfterProfitClose)
+      return(false);
+
+   if(g_halfLossPauseUntil <= 0 || g_halfLossPauseStartedAt <= 0)
+      return(false);
+
+   // Full day-loss and profit locks have priority. This helper only releases
+   // the temporary half-loss cooling pause.
+   if(IsDayLossLockActiveForNewOrders() || g_dailyProfitLock)
+      return(false);
+
+   int historyTotal = OrdersHistoryTotal();
+
+   for(int h = historyTotal - 1; h >= 0; h--)
+     {
+      if(!OrderSelect(h,SELECT_BY_POS,MODE_HISTORY))
+         continue;
+
+      if(OrderSymbol() != Symbol() || OrderMagicNumber() != InpMagicNumber)
+         continue;
+
+      int type = OrderType();
+      if(type != OP_BUY && type != OP_SELL)
+         continue;
+
+      datetime closeTime = OrderCloseTime();
+      if(closeTime <= 0)
+         continue;
+
+      if(!IsHistoryTimeInsideCurrentFreshDay(closeTime))
+         continue;
+
+      // History is normally sorted by close time. Once older than the pause
+      // start, there is no need to continue scanning.
+      if(closeTime < g_halfLossPauseStartedAt)
+         break;
+
+      double netProfit = OrderProfit() + OrderSwap() + OrderCommission();
+      if(netProfit <= 0.0)
+         continue;
+
+      int profitTicket = OrderTicket();
+      string profitType = (type == OP_BUY ? "BUY" : "SELL");
+      datetime startedAt = g_halfLossPauseStartedAt;
+
+      g_halfLossPauseUntil = 0;
+      g_halfLossPauseStartedAt = 0;
+      g_halfLossPauseStatus =
+         "RESUMED EARLY | PROFIT CLOSE #" +
+         IntegerToString(profitTicket) +
+         " $" + DoubleToString(netProfit,2);
+
+      Print("HALF LOSS COOLING PAUSE RESUMED EARLY AFTER PROFIT CLOSE",
+            " | Ticket=",profitTicket,
+            " | Type=",profitType,
+            " | NetProfit=$",DoubleToString(netProfit,2),
+            " | CloseTime=",TimeToString(closeTime,TIME_DATE|TIME_SECONDS),
+            " | PauseStartedAt=",TimeToString(startedAt,TIME_DATE|TIME_SECONDS),
+            " | Equity=$",DoubleToString(AccountEquity(),2),
+            " | Balance=$",DoubleToString(AccountBalance(),2),
+            " | WarningLevel=$",DoubleToString(g_halfLossPauseEquityLevel,2),
+            " | FullLossStop=$",DoubleToString(g_lossStopEquityLevel,2));
+
+      SendEAAlert(
+         "TRADING RESUMED - HALF LOSS PROFIT CLOSE",
+         "Ticket #" + IntegerToString(profitTicket) +
+         " " + profitType +
+         " profit $" + DoubleToString(netProfit,2) +
+         " | Equity $" + DoubleToString(AccountEquity(),2));
+
+      return(true);
+     }
+
+   return(false);
+  }
+
+//+------------------------------------------------------------------+
 //| One-shot cooling pause at a configurable share of the day loss.  |
 //| It blocks only NEW entries; existing market orders are managed.  |
 //+------------------------------------------------------------------+
@@ -10980,10 +11068,14 @@ bool IsHalfLossPauseActive()
    if(g_halfLossPauseUntil <= 0)
       return(false);
 
+   if(TryResumeHalfLossPauseAfterProfitClose())
+      return(false);
+
    if(TimeCurrent() >= g_halfLossPauseUntil)
      {
       datetime expiredAt = g_halfLossPauseUntil;
       g_halfLossPauseUntil = 0;
+      g_halfLossPauseStartedAt = 0;
       g_halfLossPauseStatus = "RESUMED | ONE-SHOT USED THIS CYCLE";
 
       Print("HALF LOSS COOLING PAUSE ENDED | Trading resumed",
@@ -11038,6 +11130,7 @@ void UpdateHalfLossPauseState()
    if(IsHalfLossPauseBypassedAfterGMT0Hour())
      {
       g_halfLossPauseUntil = 0;
+      g_halfLossPauseStartedAt = 0;
       g_halfLossPauseStatus = "UNLOCKED AT GMT0 HOUR " +
                               IntegerToString(GetDailyProfitLockUnlockHourGMT0());
       return;
@@ -11065,6 +11158,7 @@ void UpdateHalfLossPauseState()
    int pauseMinutes = MathMax(1,InpHalfLossPauseMinutes);
 
    g_halfLossPauseTriggered = true;
+   g_halfLossPauseStartedAt = TimeCurrent();
    g_halfLossPauseUntil = TimeCurrent() + pauseMinutes*60;
    g_halfLossPauseStatus =
       "BLOCK | UNTIL " +
