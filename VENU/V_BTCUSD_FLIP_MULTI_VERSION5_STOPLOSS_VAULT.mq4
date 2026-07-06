@@ -25183,7 +25183,7 @@ void DrawCompactDashboard(string status)
                    clrBlack,titleColor);
 
    DrawCornerLabel("DXB_COMPACT_TOP_TITLE",
-                   "DXB SAR v1.90 | LATEST ACTIONS | " +
+                   "DXB SAR v2 | LATEST ACTIONS | " +
                    (IsTesting() ? "TEST" : "LIVE") +
                    " | " + Symbol() +
                    " | LOT " + DoubleToString(GetCurrentTradingLot(),2),
