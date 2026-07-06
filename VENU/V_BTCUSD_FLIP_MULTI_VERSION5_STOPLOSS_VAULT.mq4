@@ -1,5 +1,5 @@
 //+------------------------------------------------------------------+
-//|                 DXB_SAR_EA_V203_ProtectedEquityDashboard.mq4                         |
+//|                 DXB_SAR_EA_V204_MixedBlocksNormalSAROnly.mq4                         |
 //|  SAR cycle + server-side SL + dynamic X-profit ladder          |
 //|  SAR flip closes opposite orders. Early reverse trend pauses SAR  |
 //|  cycle, draws arrows, closes opposite orders, resumes when aligned |
@@ -20,13 +20,15 @@ MARKET_MODE g_marketMode = MODE_RANGE;
 #ifndef OP_BALANCE
 #define OP_BALANCE 6
 #endif
-#property version   "2.03-dash"
+#property version   "2.04-mixed-sar-only"
 //================ OPTIMIZED CLEAN BUILD NOTES =====================
 // Removed unused input declarations and unreferenced helper/dashboard functions
 // from the V196 unlimited/highest-share-protection build.
 // Safety-critical close, server-SL, daily reset, equity-loss and pause logic
 // is retained. Disabled feature blocks that are still referenced by active
 // code are kept to avoid accidental compile/runtime breakage.
+// V204 mixed-mode logic:
+// - MIXED mode can block only normal SAR entries while allowing recovery/pullback by their own switches.
 // V200 logic-audit fixes:
 // - Highest-share activation no longer deletes pending orders by default.
 // - Dashboard text now shows the configured first activation percent.
@@ -353,9 +355,12 @@ double InpDangerLast3MoveRaw           = 500.0;
 
 
 bool   InpAutoModePauseOrdersInDanger  = true;
-bool   InpAutoModePauseOrdersInMixed   = true;  // true = block every NEW order while mode is MIXED
+bool   InpAutoModePauseOrdersInMixed   = true;  // mixed-mode entry block switch
+bool   InpAutoModeBlockNormalSAROnlyInMixed = true;  // true: MIXED controls normal SAR separately; recovery/pullback follow their own switches
+bool   InpMixedTrendAllowNormalSARAfterConfirmDiff = true; // true: MIXED normal SAR is allowed only after the mixed SAR confirm raw gap is ready
+double InpMixedTrendSARConfirmPriceDiff = 50.0; // MIXED mode fixed SAR signal-change raw confirmation gap
 bool   InpAutoModeAllowRecoveryMedium  = true;
-// The following MIXED permissions are used only when InpAutoModePauseOrdersInMixed=false.
+// When InpAutoModeBlockNormalSAROnlyInMixed=true, these MIXED permissions still control non-normal-SAR entries.
 bool   InpAutoModeAllowRecoveryMixed   = true;
 bool   InpAutoModeAllowSARWeakMixed    = false;
 bool   InpAutoModeAllowPullbackMixed   = true;
@@ -841,7 +846,7 @@ int    InpTesterServerGMTOffsetHours =0;//4;// 0; // Strategy Tester only: GMT0 
 // Example: "6,7,11,12" blocks 06:00-06:59, 07:00-07:59, 11:00-11:59, 12:00-12:59 GMT0.
 // string InpNoNewOrderHourList      = "6,7,11,12,13,14,15,16,17,18,19,20,21,22,23"; // GMT0 / UTC only
 // string InpNoNewOrderHourList      = "11,12,13,14,15,16,17,18,19,20"; // GMT0 / UTC only
-string InpNoNewOrderHourList      = "0,12,13,14,15,16,17,18,19,20"; // GMT0 / UTC only
+string InpNoNewOrderHourList      = "12,13,14,15,16,17,18,19,20,22,23"; // GMT0 / UTC only
 // string InpNoNewOrderHourListDubia      = "4,15,16,17,18,19,20"; // GMT0 / UTC only
 
 
@@ -3613,8 +3618,12 @@ bool IsAutoMarketTradingPaused()
       InpAutoModePauseOrdersInDanger)
       return(true);
 
+   // MIXED can either pause every new order, or only block normal SAR orders.
+   // When normal-SAR-only mode is enabled, this function must NOT return true,
+   // otherwise recovery/pullback/SAR-weak permission functions would also be blocked.
    if(g_autoMarketMode == DXB_MARKET_MODE_MIXED &&
-      InpAutoModePauseOrdersInMixed)
+      InpAutoModePauseOrdersInMixed &&
+      !InpAutoModeBlockNormalSAROnlyInMixed)
       return(true);
 
    return(false);
@@ -3691,11 +3700,24 @@ bool IsAutoMarketNewOrderAllowed(string reason)
    if(!InpUseAutoMarketFlowMode)
       return(true);
 
-// Complete pause: blocks normal SAR, continuity, pullback, recovery,
-// recovery-gap, recovery-hedge, extra and SAR-weak reverse entries.
-// Existing orders continue normal TP/SL/close management.
+// DANGER full pause still blocks every new entry path.
+// MIXED can either block all new entries or only normal SAR entries.
    if(IsAutoMarketTradingPaused())
       return(false);
+
+   if(g_autoMarketMode == DXB_MARKET_MODE_MIXED &&
+      InpAutoModePauseOrdersInMixed &&
+      InpAutoModeBlockNormalSAROnlyInMixed &&
+      IsNormalSAROrderReason(reason))
+     {
+      // MIXED normal SAR is not blindly blocked when this switch is true.
+      // It is allowed to continue through the normal checklist, where the
+      // mixed-mode SAR confirmation gap must pass.
+      if(InpMixedTrendAllowNormalSARAfterConfirmDiff)
+         return(true);
+
+      return(false);
+     }
 
    if(StringFind(reason, "RECOVERY") >= 0 && !IsAutoMarketRecoveryAllowed())
       return(false);
@@ -3718,6 +3740,11 @@ string AutoMarketModeStatusText()
    string action = IsAutoMarketTradingPaused()
                    ? "BLOCK ALL NEW ORDERS"
                    : "ALLOW NEW ORDERS";
+
+   if(g_autoMarketMode == DXB_MARKET_MODE_MIXED &&
+      InpAutoModePauseOrdersInMixed &&
+      InpAutoModeBlockNormalSAROnlyInMixed)
+      action = (InpMixedTrendAllowNormalSARAfterConfirmDiff ? "NORMAL SAR REQUIRES " + DoubleToString(InpMixedTrendSARConfirmPriceDiff,0) + " RAW" : "BLOCK NORMAL SAR ONLY");
 
    if(g_autoMarketMode == DXB_MARKET_MODE_DANGER)
       return("DANGER SPIKE | " + action +
@@ -19557,9 +19584,23 @@ double GetBuyStrictSARConfirmExtraRaw(int direction)
   }
 
 //+------------------------------------------------------------------+
+double GetMarketModeBaseSARConfirmPriceDiff()
+  {
+   double baseDiff = MathMax(0.0, InpSARConfirmPriceDiff);
+
+   // MIXED mode uses its own fixed raw confirmation gap.
+   // This keeps normal SAR entries stricter in mixed/ranging market conditions.
+   if(InpUseAutoMarketFlowMode &&
+      g_autoMarketMode == DXB_MARKET_MODE_MIXED)
+      return(MathMax(0.0, InpMixedTrendSARConfirmPriceDiff));
+
+   return(baseDiff);
+  }
+
+//+------------------------------------------------------------------+
 double GetEffectiveSARConfirmPriceDiffForDirection(int direction)
   {
-   return(MathMax(0.0,InpSARConfirmPriceDiff) +
+   return(GetMarketModeBaseSARConfirmPriceDiff() +
           GetHalfLossSARConfirmExtraRaw() +
           GetBuyStrictSARConfirmExtraRaw(direction));
   }
@@ -19821,10 +19862,16 @@ double GetDynamicSARATR()
 double GetDynamicSARRequiredConfirmDiffForDirection(int direction)
   {
    double configuredBase =
-      MathMax(0.0,InpSARConfirmPriceDiff);
+      GetMarketModeBaseSARConfirmPriceDiff();
    double conditionalExtra =
       GetHalfLossSARConfirmExtraRaw() +
       GetBuyStrictSARConfirmExtraRaw(direction);
+
+   // In MIXED mode the configured 50 raw gap is intended as a fixed minimum,
+   // not reduced by ATR/dynamic SAR calculations.
+   if(InpUseAutoMarketFlowMode &&
+      g_autoMarketMode == DXB_MARKET_MODE_MIXED)
+      return(configuredBase + conditionalExtra);
 
    if(!InpUseDynamicSAREngine)
       return(configuredBase + conditionalExtra);
@@ -22847,7 +22894,7 @@ void RefreshNormalEntryDiagnosticSnapshot(int direction,
    bool rawMaxOpen = CheckListMaxOpenAllowed(direction);
    bool rawTotal = CheckListTotalOpenAllowed();
    bool rawAutoMarket =
-      IsAutoMarketNewOrderAllowed("ENTRY_DIAGNOSTIC");
+      IsAutoMarketNewOrderAllowed("SAR_FLIP_ENTRY_DIAGNOSTIC");
 
    bool rawDynamic = false;
    if(direction != 0)
@@ -23908,11 +23955,16 @@ void DrawLeftOrderCreationChecklist(string mainStatus)
               DirectionExactStatusText(direction),
               DirectionColor(direction));
 
+   string marketModeActionText = " | ALLOW NEW ORDERS";
+   if(IsAutoMarketTradingPaused())
+      marketModeActionText = " | BLOCK ALL NEW ORDERS";
+   if(g_autoMarketMode == DXB_MARKET_MODE_MIXED &&
+      InpAutoModePauseOrdersInMixed &&
+      InpAutoModeBlockNormalSAROnlyInMixed)
+      marketModeActionText = (InpMixedTrendAllowNormalSARAfterConfirmDiff ? " | NORMAL SAR REQUIRES " + DoubleToString(InpMixedTrendSARConfirmPriceDiff,0) + " RAW" : " | BLOCK NORMAL SAR ONLY");
+
    LeftProRow("MARKET MODE",
-              g_autoMarketModeText +
-              (IsAutoMarketTradingPaused()
-               ? " | BLOCK ALL NEW ORDERS"
-               : " | ALLOW NEW ORDERS"),
+              g_autoMarketModeText + marketModeActionText,
               MarketFlowModeColor());
 
    LeftProRow("Mode Exact",
@@ -24667,12 +24719,22 @@ void DrawCompactDashboard(string status)
                 " | CYCLE "+IntegerToString(g_sarCycleOrdersCreated)+
                 "/"+IntegerToString(g_sarCycleMaxOrders),
                 DirectionColor(g_activeSARDirection),leftChars);
+   string compactModeAction = (IsAutoMarketTradingPaused()?"BLOCK":"ALLOW");
+   color compactModeColor = IsAutoMarketTradingPaused()?clrOrangeRed:MarketFlowModeColor();
+   if(g_autoMarketMode == DXB_MARKET_MODE_MIXED &&
+      InpAutoModePauseOrdersInMixed &&
+      InpAutoModeBlockNormalSAROnlyInMixed)
+     {
+      compactModeAction = "SAR-BLOCK";
+      compactModeColor = clrOrangeRed;
+     }
+
    CompactXYRow("DXB_COMPACT_LEFT_ROW_",leftRow,leftX+10,sideY+28,
                 "MODE / MOVE",
                 g_autoMarketModeText+" | "+
                 DoubleToString(g_autoMarketMoveRaw,0)+" RAW | "+
-                (IsAutoMarketTradingPaused()?"BLOCK":"ALLOW"),
-                IsAutoMarketTradingPaused()?clrOrangeRed:MarketFlowModeColor(),leftChars);
+                compactModeAction,
+                compactModeColor,leftChars);
    CompactXYRow("DXB_COMPACT_LEFT_ROW_",leftRow,leftX+10,sideY+28,
                 "H1 / SPEED",
                 DirectionText(GetH1TrendDirection())+" / "+g_tickSpeedStatus,
@@ -24888,7 +24950,10 @@ void DrawLegacyDashboard(string status)
                g_entryDiagBlockedCount > 0 ? clrOrangeRed : clrLime);
    RightProRow("MAJOR MODE",
                g_autoMarketModeText +
-               (IsAutoMarketTradingPaused() ? " | BLOCK" : " | ALLOW"),
+               ((g_autoMarketMode == DXB_MARKET_MODE_MIXED &&
+                 InpAutoModePauseOrdersInMixed &&
+                 InpAutoModeBlockNormalSAROnlyInMixed)
+                ? " | SAR50" : (IsAutoMarketTradingPaused() ? " | BLOCK" : " | ALLOW")),
                MarketFlowModeColor());
    RightProRow("--- TRADING ---","",clrDimGray);
    RightProRow("Lot Size",DoubleToString(GetCurrentTradingLot(),2),clrWhite);
