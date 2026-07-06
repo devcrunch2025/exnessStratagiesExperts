@@ -1,5 +1,5 @@
 //+------------------------------------------------------------------+
-//|                 DXB_SAR_EA_V204_MixedBlocksNormalSAROnly.mq4                         |
+//|                 DXB_SAR_EA_V206_DayWiseGMT0NoNewHours.mq4                         |
 //|  SAR cycle + server-side SL + dynamic X-profit ladder          |
 //|  SAR flip closes opposite orders. Early reverse trend pauses SAR  |
 //|  cycle, draws arrows, closes opposite orders, resumes when aligned |
@@ -20,7 +20,7 @@ MARKET_MODE g_marketMode = MODE_RANGE;
 #ifndef OP_BALANCE
 #define OP_BALANCE 6
 #endif
-#property version   "2.04-mixed-sar-only"
+#property version   "2.06-daywise-hours"
 //================ OPTIMIZED CLEAN BUILD NOTES =====================
 // Removed unused input declarations and unreferenced helper/dashboard functions
 // from the V196 unlimited/highest-share-protection build.
@@ -29,6 +29,8 @@ MARKET_MODE g_marketMode = MODE_RANGE;
 // code are kept to avoid accidental compile/runtime breakage.
 // V204 mixed-mode logic:
 // - MIXED mode can block only normal SAR entries while allowing recovery/pullback by their own switches.
+// V206 day-wise GMT0 no-new-hour logic:
+// - Common GMT0 hours plus optional Sunday/Monday/... GMT0 hour lists are merged for blocking new entries.
 // V200 logic-audit fixes:
 // - Highest-share activation no longer deletes pending orders by default.
 // - Dashboard text now shows the configured first activation percent.
@@ -358,7 +360,7 @@ bool   InpAutoModePauseOrdersInDanger  = true;
 bool   InpAutoModePauseOrdersInMixed   = true;  // mixed-mode entry block switch
 bool   InpAutoModeBlockNormalSAROnlyInMixed = true;  // true: MIXED controls normal SAR separately; recovery/pullback follow their own switches
 bool   InpMixedTrendAllowNormalSARAfterConfirmDiff = true; // true: MIXED normal SAR is allowed only after the mixed SAR confirm raw gap is ready
-double InpMixedTrendSARConfirmPriceDiff = 50.0; // MIXED mode fixed SAR signal-change raw confirmation gap
+double InpMixedTrendSARConfirmPriceDiff = 10;//50.0; // MIXED mode fixed SAR signal-change raw confirmation gap
 bool   InpAutoModeAllowRecoveryMedium  = true;
 // When InpAutoModeBlockNormalSAROnlyInMixed=true, these MIXED permissions still control non-normal-SAR entries.
 bool   InpAutoModeAllowRecoveryMixed   = true;
@@ -685,7 +687,7 @@ double InpTickSpeedAdaptiveSLMaxUSD          = 0.00; // 0 = unlimited safety cap
 bool   InpUseLiveOppositeCandleTightSL       = true;
 double InpLiveOppositeCandleRangeRatio       = 1.00; // live M1 range must be > previous M1 range x this value
 double InpLiveOppositeCandleMinBodyPercent   = 35.0; // avoid arming only from a long wick; 0 disables
-double InpLiveOppositeCandleSLMultiplier     = 1;//0.50; // frozen adaptive SL x 0.50, e.g. $0.50 -> $0.25
+double InpLiveOppositeCandleSLMultiplier     = 0.50;//1;//0.50; // frozen adaptive SL x 0.50, e.g. $0.50 -> $0.25
 double InpLiveOppositeCandleMinimumSLUSD     = 0.01; // smallest permitted tightened basket SL
 
 //================ OPPOSITE IMPULSE CONTINUATION ====================
@@ -846,8 +848,26 @@ int    InpTesterServerGMTOffsetHours =0;//4;// 0; // Strategy Tester only: GMT0 
 // Example: "6,7,11,12" blocks 06:00-06:59, 07:00-07:59, 11:00-11:59, 12:00-12:59 GMT0.
 // string InpNoNewOrderHourList      = "6,7,11,12,13,14,15,16,17,18,19,20,21,22,23"; // GMT0 / UTC only
 // string InpNoNewOrderHourList      = "11,12,13,14,15,16,17,18,19,20"; // GMT0 / UTC only
-string InpNoNewOrderHourList      = "12,13,14,15,16,17,18,19,20,22,23"; // GMT0 / UTC only
-// string InpNoNewOrderHourListDubia      = "4,15,16,17,18,19,20"; // GMT0 / UTC only
+string InpNoNewOrderHourList      = "12,13,14,15,16,17,18,19,20,22,23"; // COMMON GMT0 / UTC hours blocked every day
+// string InpNoNewOrderHourListDubia      = "4,15,16,17,18,19,20"; // removed: use GMT0 only
+
+//================ DAY-WISE GMT0 NO-NEW-ORDER HOURS ================
+// Optional extra blocked hours by GMT0/UTC weekday.
+// MT4 TimeDayOfWeek mapping: Sunday=0, Monday=1, Tuesday=2, Wednesday=3, Thursday=4, Friday=5, Saturday=6.
+// These lists are ADDED to InpNoNewOrderHourList.
+// If you want day-wise control only, set InpNoNewOrderHourList = "".
+// Example requested:
+//   Monday  0,1,2
+//   Tuesday 3,4
+// Existing market orders continue normal TP/SL/profit management.
+bool   InpUseDayWiseNoNewOrderHours       = true;
+string InpNoNewOrderHourListSaturday      = "0,1,2,3";
+string InpNoNewOrderHourListSunday        = "0,1,2,3";
+string InpNoNewOrderHourListMonday        = "0,1,2";
+string InpNoNewOrderHourListTuesday       = "";
+string InpNoNewOrderHourListWednesday     = "";
+string InpNoNewOrderHourListThursday      = "";
+string InpNoNewOrderHourListFriday        = "";
 
 
 //================ GMT0 END-OF-DAY SPECIAL ORDERS ===================
@@ -8079,7 +8099,7 @@ int OnInit()
    // Global-Variable key is initialized.
    InpMagicNumber = AccountNumber() + 202;
 
-   Print("NO NEW ORDER HOURS GMT0 ONLY: ", InpNoNewOrderHourList);
+   Print("NO NEW ORDER HOURS GMT0 ONLY | Common=", InpNoNewOrderHourList, " | DayWise=", (InpUseDayWiseNoNewOrderHours ? "ON" : "OFF"), " | Active=", GetActiveNoNewOrderHourList());
 
    // Load only the persistent 23:45 anti-loop markers first. A chart reload
    // has already recreated every compiled global/static variable from its
@@ -9678,9 +9698,79 @@ bool IsConfiguredNoNewOrderHourInList(int hourValue,string configuredHours)
   }
 
 //+------------------------------------------------------------------+
+string NormalizeHourListString(string hourList)
+  {
+   StringReplace(hourList," ","");
+   return(hourList);
+  }
+
+//+------------------------------------------------------------------+
+string MergeNoNewOrderHourLists(string commonHours,string dayHours)
+  {
+   commonHours = NormalizeHourListString(commonHours);
+   dayHours    = NormalizeHourListString(dayHours);
+
+   if(StringLen(commonHours) <= 0)
+      return(dayHours);
+   if(StringLen(dayHours) <= 0)
+      return(commonHours);
+
+   return(commonHours + "," + dayHours);
+  }
+
+//+------------------------------------------------------------------+
+string GMT0WeekdayName(int dayOfWeek)
+  {
+   if(dayOfWeek == 0) return("SUNDAY");
+   if(dayOfWeek == 1) return("MONDAY");
+   if(dayOfWeek == 2) return("TUESDAY");
+   if(dayOfWeek == 3) return("WEDNESDAY");
+   if(dayOfWeek == 4) return("THURSDAY");
+   if(dayOfWeek == 5) return("FRIDAY");
+   if(dayOfWeek == 6) return("SATURDAY");
+   return("UNKNOWN");
+  }
+
+//+------------------------------------------------------------------+
+string GetNoNewOrderHourListForGMT0Day(int dayOfWeek)
+  {
+   if(!InpUseDayWiseNoNewOrderHours)
+      return("");
+
+   if(dayOfWeek == 0) return(InpNoNewOrderHourListSunday);
+   if(dayOfWeek == 1) return(InpNoNewOrderHourListMonday);
+   if(dayOfWeek == 2) return(InpNoNewOrderHourListTuesday);
+   if(dayOfWeek == 3) return(InpNoNewOrderHourListWednesday);
+   if(dayOfWeek == 4) return(InpNoNewOrderHourListThursday);
+   if(dayOfWeek == 5) return(InpNoNewOrderHourListFriday);
+   if(dayOfWeek == 6) return(InpNoNewOrderHourListSaturday);
+
+   return("");
+  }
+
+//+------------------------------------------------------------------+
+string GetActiveDayWiseNoNewOrderHourList()
+  {
+   datetime activeClock = GetActiveNoNewOrderClock();
+   int dayOfWeek = TimeDayOfWeek(activeClock);
+   return(GetNoNewOrderHourListForGMT0Day(dayOfWeek));
+  }
+
+//+------------------------------------------------------------------+
+string GetActiveNoNewOrderDayName()
+  {
+   datetime activeClock = GetActiveNoNewOrderClock();
+   return(GMT0WeekdayName(TimeDayOfWeek(activeClock)));
+  }
+
+//+------------------------------------------------------------------+
 string GetActiveNoNewOrderHourList()
   {
-   return(InpNoNewOrderHourList);
+   if(!InpUseDayWiseNoNewOrderHours)
+      return(NormalizeHourListString(InpNoNewOrderHourList));
+
+   return(MergeNoNewOrderHourLists(InpNoNewOrderHourList,
+                                   GetActiveDayWiseNoNewOrderHourList()));
   }
 
 //+------------------------------------------------------------------+
@@ -10859,11 +10949,17 @@ string NoNewOrderHoursStatusText()
       ? "BLOCK NOW"
       : "ALLOW";
 
+   string dayName = GMT0WeekdayName(TimeDayOfWeek(activeClock));
+   string dayHours = GetNoNewOrderHourListForGMT0Day(TimeDayOfWeek(activeClock));
+
    return(status +
           " | " + activeLabel + "=" +
           TimeToString(activeClock,TIME_MINUTES) +
+          " | DAY=" + dayName +
           " | HOUR=" + IntegerToString(activeHour) +
-          " | HOURS=" + activeHours);
+          " | COMMON=" + NormalizeHourListString(InpNoNewOrderHourList) +
+          " | DAYHOURS=" + NormalizeHourListString(dayHours) +
+          " | ACTIVE=" + activeHours);
   }
 
 
@@ -11259,8 +11355,9 @@ string GetNewOrderHardPauseReasonText()
           : "GMT0 BLOCKED SESSION | ") +
          clockLabel + "=" +
          TimeToString(lockClock,TIME_DATE|TIME_MINUTES) +
+         " | DAY=" + GMT0WeekdayName(TimeDayOfWeek(lockClock)) +
          " | HOUR=" + IntegerToString(TimeHour(lockClock)) +
-         " | HOURS=" +
+         " | ACTIVE_HOURS=" +
          GetActiveNoNewOrderHourList();
      }
 
@@ -12120,7 +12217,7 @@ bool IsPendingEntryAllowedForCurrentSAR(int direction, string source)
      {
       Print("PENDING ENTRY BLOCKED | ",GetNewOrderHardPauseReasonText()," | GMT0=",
             TimeToString(GetGMT0Time(), TIME_DATE|TIME_MINUTES),
-            " | Hours=", InpNoNewOrderHourList,
+            " | Hours=", GetActiveNoNewOrderHourList(),
             " | Source=", source);
       return(false);
      }
@@ -15608,7 +15705,7 @@ bool OpenRecoveryOrder(int direction, string sourceReason, int slReverseStage = 
      {
       string msg = "RECOVERY ORDER BLOCKED | " + GetNewOrderHardPauseReasonText() + " | GMT0=" +
                    TimeToString(GetGMT0Time(), TIME_DATE|TIME_MINUTES) +
-                   " | Hours=" + InpNoNewOrderHourList +
+                   " | Hours=" + GetActiveNoNewOrderHourList() +
                    " | Source=" + sourceReason;
       SetLastOrderBlockDashboard(msg);
       Print(msg);
@@ -15775,7 +15872,7 @@ bool OpenRecoveryOrder(int direction, string sourceReason, int slReverseStage = 
      {
       Print("RECOVERY ORDERSEND CANCELLED | ",GetNewOrderHardPauseReasonText()," | GMT0=",
             TimeToString(GetGMT0Time(), TIME_DATE|TIME_MINUTES),
-            " | Hours=", InpNoNewOrderHourList);
+            " | Hours=", GetActiveNoNewOrderHourList());
       return(false);
      }
 
@@ -15866,7 +15963,7 @@ bool OpenRecoveryGapMarketOrder(int direction, double gapMove, string triggerRea
      {
       string msg = "RECOVERY GAP BLOCKED | " + GetNewOrderHardPauseReasonText() + " | GMT0=" +
                    TimeToString(GetGMT0Time(), TIME_DATE|TIME_MINUTES) +
-                   " | Hours=" + InpNoNewOrderHourList +
+                   " | Hours=" + GetActiveNoNewOrderHourList() +
                    " | Trigger=" + triggerReason;
       SetLastOrderBlockDashboard(msg);
       Print(msg);
@@ -16019,7 +16116,7 @@ bool OpenRecoveryGapMarketOrder(int direction, double gapMove, string triggerRea
      {
       Print("RECOVERY GAP ORDERSEND CANCELLED | ",GetNewOrderHardPauseReasonText()," | GMT0=",
             TimeToString(GetGMT0Time(), TIME_DATE|TIME_MINUTES),
-            " | Hours=", InpNoNewOrderHourList);
+            " | Hours=", GetActiveNoNewOrderHourList());
       return(false);
      }
 
@@ -19013,10 +19110,14 @@ Print("TIME CHECK | Tester/Server=",
       TimeToString(TimeCurrent(), TIME_DATE|TIME_SECONDS),
       " | EA_GMT0=",
       TimeToString(GetGMT0Time(), TIME_DATE|TIME_SECONDS),
+      " | GMT0_Day=",
+      GetActiveNoNewOrderDayName(),
       " | Offset=",
       IntegerToString(InpTesterServerGMTOffsetHours),
-      " | NoNewHours=",
-      InpNoNewOrderHourList);
+      " | CommonHours=",
+      InpNoNewOrderHourList,
+      " | ActiveHours=",
+      GetActiveNoNewOrderHourList());
 // ABSOLUTE FIRST GATE: from 23:45:00 through 23:59:59 no other
 // calculation, order-management path or variable update is allowed to run.
    if(!HandleStrict2345DayEndFreshBoot())
@@ -21457,7 +21558,7 @@ bool IsFirstSAROrderAllowedByPriceDiffOnly(int direction,
       return(BlockNormalOrderByModeProfile(
                 "FIRST ORDER | GMT0 NO-NEW HOUR | GMT0=" +
                 TimeToString(GetGMT0Time(), TIME_DATE|TIME_MINUTES) +
-                " | Hours=" + InpNoNewOrderHourList +
+                " | Hours=" + GetActiveNoNewOrderHourList() +
                 " | Source=" + reason));
 
    if(!IsFirstSAROrderPriceDiffReady(direction))
@@ -22823,7 +22924,7 @@ void RefreshFirstSAROrderDiagnosticSnapshot(int direction,
                     {
                      rawPassed = noNewHourOk;
                      detail = "GMT0=" + TimeToString(GetGMT0Time(), TIME_MINUTES) +
-                              " | Hours=" + InpNoNewOrderHourList;
+                              " | Hours=" + GetActiveNoNewOrderHourList();
                     }
 
       SetEntryDiagnosticFilter(filterId, rawPassed, detail);
