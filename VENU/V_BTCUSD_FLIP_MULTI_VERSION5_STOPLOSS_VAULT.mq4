@@ -1,5 +1,5 @@
 //+------------------------------------------------------------------+
-//|                 DXB_SAR_EA_V200_DayWiseGMT0NoNewHours.mq4                         |
+//|                 DXB_SAR_EA_V207_EquityPeak50ProfitProtect.mq4                         |
 //|  SAR cycle + server-side SL + dynamic X-profit ladder          |
 //|  SAR flip closes opposite orders. Early reverse trend pauses SAR  |
 //|  cycle, draws arrows, closes opposite orders, resumes when aligned |
@@ -20,7 +20,7 @@ MARKET_MODE g_marketMode = MODE_RANGE;
 #ifndef OP_BALANCE
 #define OP_BALANCE 6
 #endif
-#property version   "2.01-candle-sl"
+#property version   "2.07-equity-peak-50"
 //================ OPTIMIZED CLEAN BUILD NOTES =====================
 // Removed unused input declarations and unreferenced helper/dashboard functions
 // from the V196 unlimited/highest-share-protection build.
@@ -36,13 +36,26 @@ MARKET_MODE g_marketMode = MODE_RANGE;
 // V201 candle stop-loss logic:
 // - Average M1 candle basket SL can also be used for the INITIAL broker/server SL on market and pending orders.
 // - This prevents the fixed $1 initial server SL from overriding candle-based stop loss.
+// V207 clean equity protection logic:
+// - No single-SL shutdown by default.
+// - Trade may continue until InpLossStopPercent before first profit protection.
+// - After first protection level is reached, protect 50% of the latest/highest equity profit.
+// - Profit protection and loss stop use live equity, not closed balance.
+// - Profit has no upper cap; protected equity trails upward with peak equity.
+// Legacy single-SL half-lock functions are retained for compatibility only,
+// but the switch is OFF by default in this V207 clean equity-peak build.
+// V202 opening-balance server-decision logic:
+// - Opening-balance LOSS lock never closes active market orders by EA.
+// - It deletes pending orders, pauses new entries, keeps server SL/profit SL updates,
+//   and lets the broker/server close existing market orders by SL/profit lock.
+// - After all market orders close by server, the EA rechecks closed balance and decides.
 //===================================================================
 
 
 //======================== INPUTS ====================================
 // V198 clean mode: old fixed USD profit-protect / individual-protect / global-trail systems removed.
 // Active profit protection is percentage-based highest-profit-share lock + server-side dynamic basket SL.
-string InpEAName                  = "DXB V196 - Unlimited Profit + Highest Share Protect";
+string InpEAName                  = "DXB V207 - Equity Peak 50% Profit Protect";
 int    InpMagicNumber             = 989899;
 double InpFixedLot                = 0.01; // fallback lot when dynamic balance lot is OFF
 
@@ -118,12 +131,10 @@ bool   InpProfitLadderFinalLevelExact       = true;
 bool   InpProfitLadderBookAtEachTarget      = false; // highest-share mode: do not delete/rebook pending orders at first activation
 bool   InpProfitLadderProtectAfterNewOrder  = false; // protect immediately after first activation, not after next order
 
-// Close slightly BEFORE the protected floor to compensate for spread,
-// commission, fast-price movement and multi-order closing delay.
-// Example: protected floor 20% + buffer 0.50% => start closing at 20.50%,
-// aiming to finish near the intended 20% booked-profit floor.
-// The optional return buffer is subtracted from this early-close trigger.
-double InpProfitLadderFloorCloseBufferPercent = 0.50;
+// 0.00 = protect exactly the configured share of highest profit.
+// Example: first protection 5%, peak profit 10%, share 50% => lock 5%.
+// If you want earlier protection for slippage, set a small value such as 0.25.
+double InpProfitLadderFloorCloseBufferPercent = 0.00;
 double InpProfitLadderReturnBufferPercent     = 0.0;
 
 // Highest-total-daily-profit SHARE lock:
@@ -225,16 +236,17 @@ bool   InpBlockSoftCloseBelowMinProfit     = true; // block SAR/weak/early soft 
 // false = old behaviour: daily locks use AccountEquity() including floating P/L.
 bool   InpDailyLocksUseClosedBalanceOnly   = false; // highest-share lock must watch live equity/floating P/L
 
-// Profit-share lock is a PROFIT-AREA guard only.
-// true = highest-profit/share or daily profit ladder can pause only while
-//        current evaluation value is ABOVE the day opening anchor.
-//        If value falls below opening balance, day-loss logic decides instead.
-bool   InpProfitLockOnlyWhenAboveOpeningBalance = true;
+// Profit-share lock trigger scope.
+// false = once first protection is armed, the 50% peak-profit lock can still
+//         stop new orders even if equity falls quickly below opening balance.
+//         This prevents a fast move from skipping the protected floor.
+bool   InpProfitLockOnlyWhenAboveOpeningBalance = false;
 
-// Day-loss lock can be evaluated from CLOSED balance while profit-share uses
-// live equity. This prevents a floating move from being treated as a closed
-// day loss, but still lets server SL/profit lock manage active orders.
-bool   InpDayLossLockUseClosedBalanceOnly = true;
+// Day-loss lock uses LIVE EQUITY because equity is the real risk.
+// When equity reaches opening balance - InpLossStopPercent, new orders stop
+// and pending orders are deleted. Active market orders remain server-managed
+// while InpDailyLocksDoNotCloseMarketOrders=true.
+bool   InpDayLossLockUseClosedBalanceOnly = false;
 
 // true  = daily profit/loss locks pause NEW entries and delete pending orders,
 //         but leave active market orders to finish by broker/server SL/profit lock.
@@ -397,15 +409,10 @@ int    InpOppositeDirectionPauseMinutes = 30;
 
 double InpLossStopPercent          = 15;//20;//10;//20.0; // full day loss lock percent
 
-// Half-loss cooling pause:
-// When equity uses this percentage of the configured InpLossStopPercent
-// allowance, block every NEW order for the configured time. Existing market
-// orders remain open and continue normal TP/SL/profit management. All pending
-// EA entries are deleted when the pause starts and while it remains active.
-// Example: InpLossStopPercent=20 and trigger=50 => pause at a 10% drawdown.
-// The pause triggers only once per equity cycle, then trading resumes after
-// InpHalfLossPauseMinutes even if equity is still below the warning level.
-bool   InpUseHalfLossPause                = true;
+// Half-loss cooling pause is OFF in the clean equity-peak mode.
+// The account is allowed to trade until the full InpLossStopPercent before
+// first profit protection, unless other strategy filters block entries.
+bool   InpUseHalfLossPause                = false;
 double InpHalfLossPauseTriggerPercent     = 50.0; // percentage of InpLossStopPercent, not account percent
 int    InpHalfLossPauseMinutes            =60*2;// 10;//60*4;
 // Resume the half-loss cooling pause early when any EA market order closes in net profit.
@@ -513,7 +520,48 @@ bool   InpBypassEquityLockInTesting = false;
 int    InpEquityLockExemptAccount   = 0;//291085426; // 0 = no exempt live account
 
 double InpProtectionBufferUSD      = 0.00;   // optional extra amount below the 20% loss level
-bool   InpCloseOrdersOnEquityHit    = true;
+// Opening-balance loss lock is SERVER-FIRST.
+// false = the EA must not manually close active market orders when the
+// opening-balance/day-loss level is reached. Pending orders are deleted and
+// existing market orders must finish by broker/server SL or server profit SL.
+bool   InpCloseOrdersOnEquityHit    = false;
+
+// Strict server-decision mode for OPENING BALANCE LOSS LOCK.
+// While active: no EA close path is allowed to close market orders.
+// The EA may only delete pending orders and update broker/server SL protection.
+bool   InpOpeningBalanceLossLockServerOnly              = true;
+bool   InpOpeningBalanceLossLockDeletePendingOrders     = true;
+bool   InpOpeningBalanceLossLockAllowServerSLUpdates    = true;
+// After all market orders have closed by broker/server SL/profit lock,
+// re-check the closed balance. If recovered above the loss-stop level, clear
+// the lock and allow trading again; otherwise keep the loss lock paused.
+bool   InpOpeningBalanceLossLockResumeIfRecoveredAfterServerClose = true;
+
+
+//================ SINGLE-ORDER LOSS / SL EQUITY PEAK HALF LOCK =====
+// After the equity cycle has made profit, one meaningful losing order close or
+// server SL is enough to stop NEW orders and protect a configured share of the
+// highest equity profit seen in the cycle.
+// Example: Opening equity $10.00, peak equity $10.50 => peak profit $0.50.
+// With 50% share, protected equity is $10.25. If a loss/SL happens after that,
+// EA deletes pending orders, blocks all new entries, and lets existing market
+// orders finish only by broker/server SL or server-side profit SL.
+// Disabled in clean equity-peak mode.
+// Protection is based on live equity peak, not on a single SL event.
+bool   InpUseSingleSLHalfProfitEquityLock       = false;
+double InpSingleSLProfitLockSharePercent        = 50.0;
+bool   InpSingleSLProfitLockPauseImmediately    = true;
+bool   InpSingleSLProfitLockDeletePendingOrders = true;
+bool   InpSingleSLProfitLockServerOnly          = true;
+// true = activate only if peak equity was above opening/anchor by at least the value below.
+// This avoids stopping permanently after the first losing trade when the day never had profit.
+bool   InpSingleSLProfitLockRequireProfitPeak   = true;
+double InpSingleSLProfitLockMinPeakProfitUSD    = 0.50;
+// true = also trigger from EA/manual loss closes, not only broker history type "s/l".
+bool   InpSingleSLProfitLockTriggerOnAnyLossClose = true;
+double InpSingleSLProfitLockMinLossUSD          = 0.10;
+// false = a profitable server-profit SL does not stop the day.
+bool   InpSingleSLProfitLockTriggerOnServerSLEvenProfit = false;
 
 bool   InpUseDailyProfitLock        = true;
 bool   InpCloseOrdersOnProfitLock   = true;  // with server-first mode: deletes pending only, keeps market orders
@@ -899,7 +947,7 @@ bool   InpEODSpecialRespectBigCandleBlock  = true;
 bool   InpEODSpecialStopAfterStopLoss       = true;
 // Two basket SL events without an intervening profitable basket close pause
 // every new entry path for 120 minutes. Existing market orders remain managed.
-bool   InpUseConsecutiveSLPause       = true;
+bool   InpUseConsecutiveSLPause       = false;
 int    InpConsecutiveSLPauseCount     = 2;
 int    InpConsecutiveSLPauseMinutes   = 120;
 bool   InpDeletePendingOnSLPause      = true;
@@ -909,7 +957,7 @@ bool   InpResetSLStreakOnProfitClose  = true;
 // Two consecutive BUY losses pause only BUY entries.
 // Two consecutive SELL losses pause only SELL entries.
 // The pause ends after the configured minutes or earlier on the next SAR flip.
-bool   InpUseSideLossPause             = true;
+bool   InpUseSideLossPause             = false;
 int    InpSideLossPauseAfterLosses     = 2;
 int    InpSideLossPauseMinutes         = 120;
 bool   InpSideLossPauseUntilSARFlip    = true;
@@ -1517,6 +1565,17 @@ datetime g_halfLossPauseUntil       = 0;
 datetime g_halfLossPauseStartedAt   = 0;
 bool     g_halfLossPauseTriggered   = false;
 string   g_halfLossPauseStatus      = "READY";
+
+
+// Single loss/server-SL equity peak half-lock state.
+bool     g_singleSLProfitLockActive      = false;
+double   g_singleSLProfitAnchor          = 0.0; // frozen opening/equity-cycle anchor for profit-peak check
+double   g_singleSLProfitPeakEquity      = 0.0;
+double   g_singleSLProfitLockEquity      = 0.0;
+double   g_singleSLProfitProtectedProfit = 0.0;
+int      g_singleSLProfitLockTicket      = 0;
+datetime g_singleSLProfitLockTime        = 0;
+string   g_singleSLProfitLockReason      = "READY";
 
 datetime g_lastDepositBalanceOpTime = 0; // last processed OP_BALANCE deposit/withdrawal time
 bool     g_bigCandlePause          = false;
@@ -4209,12 +4268,19 @@ void NotifyClosedOrderEvent(int ticket,
                                  closedComment,
                                  reason);
 
+   RegisterSingleSLHalfProfitEquityLock(ticket,
+                                        type,
+                                        profit,
+                                        reason);
+
 // A strongly profitable FIRST SAR order confirms a good market and queues
-// one immediate same-direction pending continuation entry.
-   QueueGoodMarketContinuationFromClosedTicket(ticket,
-                                                type,
-                                                profit,
-                                                closePrice);
+// one immediate same-direction pending continuation entry. Do not queue it
+// after the single-loss/SL equity lock has stopped new orders.
+   if(!IsSingleSLHalfProfitEquityLockActive())
+      QueueGoodMarketContinuationFromClosedTicket(ticket,
+                                                   type,
+                                                   profit,
+                                                   closePrice);
 
    string shortReason = reason;
    if(StringLen(shortReason) > 42)
@@ -8905,7 +8971,18 @@ string DailyProfitPercentLadderStatusText()
 string DailyProfitPauseDashboardText()
   {
    if(IsDayLossLockActiveForNewOrders())
+     {
+      if(InpOpeningBalanceLossLockServerOnly)
+        {
+         if(CountOpenOrders() > 0)
+            return("OPENING BALANCE LOSS LOCK - SERVER ONLY | WAIT SERVER PL/SL | MKT " +
+                   IntegerToString(CountOpenOrders()));
+
+         return("OPENING BALANCE LOSS LOCK - FINAL DECISION");
+        }
+
       return("OPENING BALANCE LOSS LOCK - PAUSED");
+     }
 
    if(g_equityProtectionHit && IsDayLossLockBypassedAfterGMT0Hour())
       return("DAY LOSS LOCK UNLOCKED AT GMT0 HOUR " +
@@ -9500,6 +9577,9 @@ void InitializeEquityDay()
    g_halfLossPauseStatus    = InpUseHalfLossPause
                               ? "READY | WAIT HALF LOSS"
                               : "OFF";
+
+
+   ResetSingleSLHalfProfitEquityLockState("READY | NEW EQUITY CYCLE");
 
    g_profitPercentHighestLevel = 0;
    g_profitPercentProtectedPercent = 0.0;
@@ -11367,6 +11447,267 @@ void UpdateHalfLossPauseState()
       " | " + GetPauseClockDetails());
   }
 
+
+//+------------------------------------------------------------------+
+//| Single loss / server-SL equity peak half-lock                    |
+//+------------------------------------------------------------------+
+double GetSingleSLProfitCycleAnchor()
+  {
+   if(g_singleSLProfitAnchor > 0.0)
+      return(g_singleSLProfitAnchor);
+
+   double anchor = GetEquityCycleAnchor();
+
+   // Prefer values captured at the equity/day-cycle start. Do NOT let the
+   // first SL close lower the anchor to the new balance, otherwise the EA
+   // may think a false profit peak existed and stop after the first loss.
+   if(g_baseBalance > 0.0)
+      anchor = MathMax(anchor, g_baseBalance);
+   if(g_dayStartBalance > 0.0)
+      anchor = MathMax(anchor, g_dayStartBalance);
+   if(g_dayStartEquity > 0.0)
+      anchor = MathMax(anchor, g_dayStartEquity);
+
+   if(anchor <= 0.0)
+      anchor = MathMax(0.01, AccountBalance());
+
+   g_singleSLProfitAnchor = anchor;
+   return(anchor);
+  }
+
+//+------------------------------------------------------------------+
+//| Single loss / server-SL equity peak half-lock                    |
+//+------------------------------------------------------------------+
+void ResetSingleSLHalfProfitEquityLockState(string reason)
+  {
+   g_singleSLProfitLockActive      = false;
+   g_singleSLProfitAnchor          = 0.0;
+   double anchor                   = GetSingleSLProfitCycleAnchor();
+   g_singleSLProfitPeakEquity      = MathMax(anchor, AccountEquity());
+   g_singleSLProfitLockEquity      = 0.0;
+   g_singleSLProfitProtectedProfit = 0.0;
+   g_singleSLProfitLockTicket      = 0;
+   g_singleSLProfitLockTime        = 0;
+   g_singleSLProfitLockReason      = reason;
+  }
+
+//+------------------------------------------------------------------+
+void UpdateSingleSLHalfProfitEquityPeak()
+  {
+   if(!InpUseSingleSLHalfProfitEquityLock)
+      return;
+
+   double anchor = GetSingleSLProfitCycleAnchor();
+   if(anchor <= 0.0)
+      anchor = MathMax(0.01, AccountBalance());
+
+   double equityNow = AccountEquity();
+
+   if(g_singleSLProfitPeakEquity <= 0.0)
+      g_singleSLProfitPeakEquity = MathMax(anchor, equityNow);
+
+   if(equityNow > g_singleSLProfitPeakEquity)
+      g_singleSLProfitPeakEquity = equityNow;
+  }
+
+//+------------------------------------------------------------------+
+bool IsSingleSLHalfProfitEquityLockActive()
+  {
+   if(!InpUseSingleSLHalfProfitEquityLock)
+      return(false);
+
+   if(!g_singleSLProfitLockActive)
+      return(false);
+
+   if(InpSingleSLProfitLockRequireProfitPeak &&
+      g_singleSLProfitProtectedProfit <= 0.0)
+     {
+      g_singleSLProfitLockActive = false;
+      g_singleSLProfitLockReason = "AUTO-CLEARED | NO VALID PROFIT PEAK";
+      return(false);
+     }
+
+   if(InpSingleSLProfitLockPauseImmediately)
+      return(true);
+
+   if(g_singleSLProfitLockEquity <= 0.0)
+      return(true);
+
+   return(AccountEquity() <= g_singleSLProfitLockEquity + 0.0000001);
+  }
+
+//+------------------------------------------------------------------+
+string SingleSLHalfProfitEquityLockStatusText()
+  {
+   if(!InpUseSingleSLHalfProfitEquityLock)
+      return("OFF");
+
+   if(!g_singleSLProfitLockActive)
+     {
+      double anchor = GetSingleSLProfitCycleAnchor();
+      double peakProfit = MathMax(0.0, g_singleSLProfitPeakEquity - anchor);
+      return("READY | PEAK PROFIT $" + DoubleToString(peakProfit,2));
+     }
+
+   return("SINGLE LOSS/SL HALF PROFIT LOCK | SERVER ONLY" +
+          " | Ticket #" + IntegerToString(g_singleSLProfitLockTicket) +
+          " | Peak $" + DoubleToString(g_singleSLProfitPeakEquity,2) +
+          " | LockEq $" + DoubleToString(g_singleSLProfitLockEquity,2) +
+          " | NowEq $" + DoubleToString(AccountEquity(),2) +
+          " | Protected $" + DoubleToString(g_singleSLProfitProtectedProfit,2));
+  }
+
+//+------------------------------------------------------------------+
+bool IsSingleSLHalfProfitTriggerReason(string closeReason,
+                                       double netProfit)
+  {
+   bool serverSLReason = (StringFind(closeReason,"SERVER STOP LOSS",0) >= 0 ||
+                          StringFind(closeReason,"Basket stop loss",0) >= 0 ||
+                          StringFind(closeReason,"Basket SL",0) >= 0 ||
+                          StringFind(closeReason,"STOP LOSS",0) >= 0 ||
+                          StringFind(closeReason,"stop loss",0) >= 0 ||
+                          StringFind(closeReason,"s/l",0) >= 0 ||
+                          StringFind(closeReason,"S/L",0) >= 0);
+
+   double minLoss = MathMax(0.0, InpSingleSLProfitLockMinLossUSD);
+   bool lossClose = (netProfit <= -minLoss);
+
+   if(serverSLReason && (netProfit < 0.0 || InpSingleSLProfitLockTriggerOnServerSLEvenProfit))
+      return(true);
+
+   if(InpSingleSLProfitLockTriggerOnAnyLossClose && lossClose)
+      return(true);
+
+   return(false);
+  }
+
+//+------------------------------------------------------------------+
+void RegisterSingleSLHalfProfitEquityLock(int ticket,
+                                          int orderType,
+                                          double netProfit,
+                                          string closeReason)
+  {
+   if(!InpUseSingleSLHalfProfitEquityLock)
+      return;
+
+   if(g_singleSLProfitLockActive)
+      return;
+
+   if(orderType != OP_BUY && orderType != OP_SELL)
+      return;
+
+   if(!IsSingleSLHalfProfitTriggerReason(closeReason, netProfit))
+      return;
+
+   UpdateSingleSLHalfProfitEquityPeak();
+
+   double anchor = GetSingleSLProfitCycleAnchor();
+   if(anchor <= 0.0)
+      anchor = MathMax(0.01, AccountBalance());
+
+   double peakEquity = MathMax(g_singleSLProfitPeakEquity,
+                               MathMax(AccountEquity(), AccountBalance()));
+   double peakProfit = MathMax(0.0, peakEquity - anchor);
+
+   if(InpSingleSLProfitLockRequireProfitPeak &&
+      peakProfit < MathMax(0.0, InpSingleSLProfitLockMinPeakProfitUSD))
+     {
+      g_singleSLProfitLockReason =
+         "IGNORED SINGLE LOSS/SL | NO PROFIT PEAK | PeakProfit $" +
+         DoubleToString(peakProfit,2) +
+         " | Min $" + DoubleToString(InpSingleSLProfitLockMinPeakProfitUSD,2);
+
+      Print("SINGLE LOSS/SL HALF PROFIT LOCK IGNORED | No profit peak",
+            " | Ticket=",ticket,
+            " | NetP/L=$",DoubleToString(netProfit,2),
+            " | Anchor=$",DoubleToString(anchor,2),
+            " | Peak=$",DoubleToString(peakEquity,2),
+            " | PeakProfit=$",DoubleToString(peakProfit,2),
+            " | Reason=",closeReason);
+      return;
+     }
+
+   double share = MathMax(0.0, MathMin(100.0, InpSingleSLProfitLockSharePercent));
+   double protectedProfit = peakProfit * share / 100.0;
+   double lockEquity = anchor + protectedProfit;
+
+   g_singleSLProfitLockActive          = true;
+   g_singleSLProfitPeakEquity          = peakEquity;
+   g_singleSLProfitProtectedProfit     = protectedProfit;
+   g_singleSLProfitLockEquity          = lockEquity;
+   g_singleSLProfitLockTicket          = ticket;
+   g_singleSLProfitLockTime            = TimeCurrent();
+   g_singleSLProfitLockReason          =
+      "LOCKED AFTER SINGLE LOSS/SL | Ticket #" + IntegerToString(ticket) +
+      " | Peak $" + DoubleToString(peakEquity,2) +
+      " | Protect " + DoubleToString(share,2) + "% = $" +
+      DoubleToString(protectedProfit,2) +
+      " | LockEq $" + DoubleToString(lockEquity,2) +
+      " | NowEq $" + DoubleToString(AccountEquity(),2);
+
+   if(InpSingleSLProfitLockDeletePendingOrders)
+      DeletePendingOrdersByDirection(
+         0,
+         "SINGLE LOSS/SL HALF PROFIT EQUITY LOCK | " + g_singleSLProfitLockReason,
+         false);
+
+   Print("SINGLE LOSS/SL HALF PROFIT EQUITY LOCK ACTIVATED",
+         " | Ticket=",ticket,
+         " | OrderType=",(orderType == OP_BUY ? "BUY" : "SELL"),
+         " | NetP/L=$",DoubleToString(netProfit,2),
+         " | Anchor=$",DoubleToString(anchor,2),
+         " | PeakEquity=$",DoubleToString(peakEquity,2),
+         " | PeakProfit=$",DoubleToString(peakProfit,2),
+         " | Share=",DoubleToString(share,2),"%",
+         " | ProtectedProfit=$",DoubleToString(protectedProfit,2),
+         " | LockEquity=$",DoubleToString(lockEquity,2),
+         " | CurrentEquity=$",DoubleToString(AccountEquity(),2),
+         " | Reason=",closeReason,
+         " | New orders stopped for this equity cycle.");
+
+   NotifyTradingPausedReasonOnce(
+      "SINGLE_LOSS_HALF_PROFIT_LOCK",
+      "TRADING PAUSED - SINGLE LOSS HALF PROFIT LOCK",
+      "Ticket #" + IntegerToString(ticket) +
+      " loss/SL | Peak $" + DoubleToString(peakEquity,2) +
+      " | LockEq $" + DoubleToString(lockEquity,2) +
+      " | NowEq $" + DoubleToString(AccountEquity(),2));
+  }
+
+//+------------------------------------------------------------------+
+bool IsSingleSLServerOnlyModeActive()
+  {
+   return(IsSingleSLHalfProfitEquityLockActive() &&
+          InpSingleSLProfitLockServerOnly);
+  }
+
+//+------------------------------------------------------------------+
+bool ProcessSingleSLServerOnlyMode(string &status)
+  {
+   if(!IsSingleSLServerOnlyModeActive())
+      return(false);
+
+   if(InpSingleSLProfitLockDeletePendingOrders)
+      DeletePendingOrdersByDirection(
+         0,
+         "SINGLE LOSS/SL HALF PROFIT LOCK - DELETE PENDING | SERVER ONLY",
+         false);
+
+   EnsureInitialServerSideSLForAllOrders();
+
+   if(InpUseDynamicBasketProfitBooking &&
+      InpDynamicBasketServerSideCloseOnly &&
+      InpUseServerSideProfitLock)
+     {
+      string serverStatus = "SINGLE LOSS/SL SERVER ONLY";
+      ProcessFirstPriorityBasketProfitClose(serverStatus);
+     }
+
+   status = SingleSLHalfProfitEquityLockStatusText() +
+            " | NEW ORDERS STOPPED | WAIT SERVER PL/SL";
+   return(true);
+  }
+
 //+------------------------------------------------------------------+
 bool IsNewOrderHardPauseActive()
   {
@@ -11378,9 +11719,13 @@ bool IsNewOrderHardPauseActive()
       IsHalfLossPauseActive() &&
       !IsHalfLossPauseBypassedAfterGMT0Hour();
 
+   bool singleSLProfitBlocked =
+      IsSingleSLHalfProfitEquityLockActive();
+
    return(IsDubaiNoNewOrderHourNow() ||
           consecutiveBlocked ||
-          halfLossBlocked);
+          halfLossBlocked ||
+          singleSLProfitBlocked);
   }
 
 //+------------------------------------------------------------------+
@@ -11422,6 +11767,13 @@ string GetNewOrderHardPauseReasonText()
                 HalfLossPauseStatusText();
      }
 
+   if(IsSingleSLHalfProfitEquityLockActive())
+     {
+      if(reason != "")
+         reason += " | ";
+      reason += SingleSLHalfProfitEquityLockStatusText();
+     }
+
    if(reason == "")
       reason = "NEW ORDERS ALLOWED";
 
@@ -11433,6 +11785,12 @@ void RegisterConsecutiveBasketSL(int direction,
                                  double basketProfit,
                                  string reason)
   {
+   RegisterSingleSLHalfProfitEquityLock(
+      0,
+      (direction == 1 ? OP_BUY : OP_SELL),
+      basketProfit,
+      reason);
+
    if(!InpUseConsecutiveSLPause)
       return;
 
@@ -12733,6 +13091,176 @@ bool IsOpeningBalanceEquityLockExempt()
    return(false);
   }
 
+
+//+------------------------------------------------------------------+
+//| Opening-balance loss lock: SERVER-ONLY market-order management.  |
+//| This mode exists to prevent the EA from closing active orders in  |
+//| the middle of a drawdown. Pending orders are deleted, new entries |
+//| are paused, and active market orders are left for broker/server   |
+//| SL or server-side profit SL.                                      |
+//+------------------------------------------------------------------+
+bool IsOpeningBalanceLossServerOnlyActive()
+  {
+   if(!InpOpeningBalanceLossLockServerOnly)
+      return(false);
+
+   if(!g_equityProtectionHit)
+      return(false);
+
+   if(IsDayLossLockBypassedAfterGMT0Hour())
+      return(false);
+
+   if(IsOpeningBalanceEquityLockExempt())
+      return(false);
+
+   return(true);
+  }
+
+//+------------------------------------------------------------------+
+string OpeningBalanceLossServerOnlyStatusText()
+  {
+   string status = "OPENING BALANCE LOSS LOCK - SERVER ONLY";
+
+   int marketOrders = CountOpenOrders();
+   int allEntries   = CountAllEntriesForCap();
+
+   if(marketOrders > 0)
+      status += " | WAIT SERVER PL/SL | MKT " + IntegerToString(marketOrders);
+   else
+      status += " | FINAL DECISION";
+
+   status += " | ENTRIES " + IntegerToString(allEntries);
+   status += " | BAL $" + DoubleToString(AccountBalance(), 2);
+   status += " | EQ $" + DoubleToString(AccountEquity(), 2);
+   status += " | STOP $" + DoubleToString(g_lossStopEquityLevel, 2);
+
+   return(status);
+  }
+
+//+------------------------------------------------------------------+
+void UpdateBasketPeakWorstForServerOnly()
+  {
+   RefreshRates();
+
+   int buyCount  = CountOrdersByDirection(1);
+   int sellCount = CountOrdersByDirection(-1);
+
+   double allProfit = GetAllOpenEAOrdersProfit();
+   if(allProfit > g_allBasketPeakProfit)
+      g_allBasketPeakProfit = allProfit;
+
+   if(buyCount > 0)
+     {
+      double buyProfit = GetBasketProfit(1);
+      if(buyProfit > g_buyBasketPeakProfit)
+         g_buyBasketPeakProfit = buyProfit;
+      if(buyProfit < g_buyBasketWorstProfit)
+         g_buyBasketWorstProfit = buyProfit;
+     }
+   else
+     {
+      g_buyBasketPeakProfit = 0.0;
+      g_buyBasketWorstProfit = 0.0;
+      ResetServerSideProfitLockState(1);
+     }
+
+   if(sellCount > 0)
+     {
+      double sellProfit = GetBasketProfit(-1);
+      if(sellProfit > g_sellBasketPeakProfit)
+         g_sellBasketPeakProfit = sellProfit;
+      if(sellProfit < g_sellBasketWorstProfit)
+         g_sellBasketWorstProfit = sellProfit;
+     }
+   else
+     {
+      g_sellBasketPeakProfit = 0.0;
+      g_sellBasketWorstProfit = 0.0;
+      ResetServerSideProfitLockState(-1);
+     }
+  }
+
+//+------------------------------------------------------------------+
+void MaintainServerProtectionDuringOpeningBalanceLossLock(string &status)
+  {
+   status = OpeningBalanceLossServerOnlyStatusText();
+
+   if(InpOpeningBalanceLossLockDeletePendingOrders)
+     {
+      DeletePendingOrdersByDirection(
+         0,
+         "OPENING BALANCE LOSS LOCK - SERVER ONLY | DELETE PENDING",
+         false);
+     }
+
+   if(!InpOpeningBalanceLossLockAllowServerSLUpdates)
+      return;
+
+   // Keep the initial broker-side SL present/retried on every active order.
+   EnsureInitialServerSideSLForAllOrders();
+
+   // Keep the server-side dynamic profit SL advancing, but only when the
+   // configured dynamic basket mode is explicitly server-only. This avoids
+   // calling any fixed TP / EA-close path while the loss lock is active.
+   if(InpUseDynamicBasketProfitBooking &&
+      InpDynamicBasketServerSideCloseOnly &&
+      InpUseServerSideProfitLock)
+     {
+      UpdateBasketPeakWorstForServerOnly();
+
+      string buyStatus = "SERVER ONLY BUY";
+      string sellStatus = "SERVER ONLY SELL";
+
+      ProcessDynamicBasketProfitByDirection(1, buyStatus);
+      ProcessDynamicBasketProfitByDirection(-1, sellStatus);
+
+      status = OpeningBalanceLossServerOnlyStatusText() +
+               " | B " + ServerSideProfitLockStatusText(1) +
+               " | S " + ServerSideProfitLockStatusText(-1);
+     }
+  }
+
+//+------------------------------------------------------------------+
+bool TryReleaseOpeningBalanceLossLockAfterServerClose()
+  {
+   if(!InpOpeningBalanceLossLockServerOnly)
+      return(false);
+
+   if(!InpOpeningBalanceLossLockResumeIfRecoveredAfterServerClose)
+      return(false);
+
+   if(!g_equityProtectionHit)
+      return(false);
+
+   // Decision is made only after broker/server has closed all active market orders.
+   if(CountOpenOrders() > 0)
+      return(false);
+
+   double finalLossValue = GetDailyLossLockEvaluationValue();
+
+   if(finalLossValue > g_lossStopEquityLevel)
+     {
+      g_equityProtectionHit = false;
+      g_notifyEquityStopSent = false;
+
+      Print("OPENING BALANCE LOSS LOCK RELEASED AFTER SERVER CLOSE",
+            " | FinalLossValue=$", DoubleToString(finalLossValue, 2),
+            " | StopEquity=$", DoubleToString(g_lossStopEquityLevel, 2),
+            " | Balance=$", DoubleToString(AccountBalance(), 2),
+            " | Equity=$", DoubleToString(AccountEquity(), 2));
+
+      return(true);
+     }
+
+   Print("OPENING BALANCE LOSS LOCK CONFIRMED AFTER SERVER CLOSE",
+         " | FinalLossValue=$", DoubleToString(finalLossValue, 2),
+         " | StopEquity=$", DoubleToString(g_lossStopEquityLevel, 2),
+         " | Balance=$", DoubleToString(AccountBalance(), 2),
+         " | Equity=$", DoubleToString(AccountEquity(), 2));
+
+   return(false);
+  }
+
 //+------------------------------------------------------------------+
 bool CheckEquityConditions()
   {
@@ -12754,8 +13282,16 @@ bool CheckEquityConditions()
 
 // Keep a previously triggered lock latched until the next equity-cycle reset,
 // unless the GMT0 hour-22 day-loss bypass is explicitly enabled.
+// In server-decision mode, after all active market orders close by broker/server,
+// re-check the final closed balance. If it recovered above the loss-stop level,
+// clear the loss lock; otherwise keep it paused.
    if(g_equityProtectionHit && !dayLossBypassActive)
+     {
+      if(TryReleaseOpeningBalanceLossLockAfterServerClose())
+         return(false);
+
       return(true);
+     }
 
    if(g_equityProtectionHit && dayLossBypassActive)
      {
@@ -12804,8 +13340,23 @@ bool CheckEquityConditions()
      {
       g_equityProtectionHit = true;
 
-      if(InpCloseOrdersOnEquityHit && CountAllOrders() > 0)
-         HandleDailyProfitLossLockOrders("OPENING BALANCE LOSS LOCK");
+      if(InpOpeningBalanceLossLockServerOnly)
+        {
+         if(InpOpeningBalanceLossLockDeletePendingOrders)
+            DeletePendingOrdersByDirection(
+               0,
+               "OPENING BALANCE LOSS LOCK - SERVER ONLY | DELETE PENDING",
+               false);
+
+         Print("OPENING BALANCE LOSS LOCK SERVER-ONLY ACTIVE",
+               " | MarketOrders=", CountOpenOrders(),
+               " | Pending/Entries=", CountAllEntriesForCap(),
+               " | EA will not close active market orders.",
+               " | Waiting for broker/server SL or server profit lock.");
+        }
+      else
+         if(InpCloseOrdersOnEquityHit && CountAllOrders() > 0)
+            HandleDailyProfitLossLockOrders("OPENING BALANCE LOSS LOCK");
 
       Print("OPENING BALANCE LOSS LOCK HIT",
             " | LossCheckValue=$",DoubleToString(currentLossValue,2),
@@ -19206,6 +19757,7 @@ void OnTick()
 // Update and paint the display-only adaptive tick-speed monitor before any
 // trading-path return, so the top-right status remains current.
    UpdateTickSpeedEngine();
+   UpdateSingleSLHalfProfitEquityPeak();
 
    // Add/retry the optional broker-side per-order SL before any early return.
    EnsureInitialServerSideSLForAllOrders();
@@ -19218,6 +19770,13 @@ void OnTick()
    // the CURRENT mode for this tick.
    DrawTickSpeedDashboardPanel();
 
+   string singleSLServerOnlyStatus = "";
+   if(ProcessSingleSLServerOnlyMode(singleSLServerOnlyStatus))
+     {
+      DrawLeftOrderCreationChecklist(singleSLServerOnlyStatus);
+      DrawDashboard(singleSLServerOnlyStatus);
+      return;
+     }
 
 // Print confirmation only for the first two received ticks.
    if(g_tickConfirmationCount < 2)
@@ -19277,6 +19836,14 @@ void OnTick()
       // At 22/23 GMT0, EOD special may bypass ONLY the daily-profit/highest-share
       // pause. It does not bypass day-loss, half-loss, consecutive-SL or side-loss safety.
       TryEODSpecialDuringDailyProfitLock(equityPauseStatus);
+
+      if(IsOpeningBalanceLossServerOnlyActive())
+        {
+         MaintainServerProtectionDuringOpeningBalanceLossLock(equityPauseStatus);
+         DrawLeftOrderCreationChecklist(equityPauseStatus);
+         DrawDashboard(equityPauseStatus);
+         return;
+        }
 
       if(!AllowExistingOrderManagementDuringDailyLock())
         {
@@ -19462,6 +20029,14 @@ void OnTick()
       // At 22/23 GMT0, EOD special may bypass ONLY the daily-profit/highest-share
       // pause. It does not bypass day-loss, half-loss, consecutive-SL or side-loss safety.
       TryEODSpecialDuringDailyProfitLock(equityPauseStatus);
+
+      if(IsOpeningBalanceLossServerOnlyActive())
+        {
+         MaintainServerProtectionDuringOpeningBalanceLossLock(equityPauseStatus);
+         DrawLeftOrderCreationChecklist(equityPauseStatus);
+         DrawDashboard(equityPauseStatus);
+         return;
+        }
 
       if(!AllowExistingOrderManagementDuringDailyLock())
         {
