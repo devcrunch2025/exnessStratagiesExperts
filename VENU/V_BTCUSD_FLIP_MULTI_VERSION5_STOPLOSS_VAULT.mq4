@@ -1,5 +1,5 @@
 //+------------------------------------------------------------------+
-//|                 DXB_SAR_EA_V200_PercentageClean_LogicAuditFix.mq4                         |
+//|                 DXB_SAR_EA_V200_DayWiseGMT0NoNewHours.mq4                         |
 //|  SAR cycle + server-side SL + dynamic X-profit ladder          |
 //|  SAR flip closes opposite orders. Early reverse trend pauses SAR  |
 //|  cycle, draws arrows, closes opposite orders, resumes when aligned |
@@ -20,7 +20,7 @@ MARKET_MODE g_marketMode = MODE_RANGE;
 #ifndef OP_BALANCE
 #define OP_BALANCE 6
 #endif
-#property version   "2.00-clean"
+#property version   "2.00-daywise-hours"
 //================ OPTIMIZED CLEAN BUILD NOTES =====================
 // Removed unused input declarations and unreferenced helper/dashboard functions
 // from the V196 unlimited/highest-share-protection build.
@@ -31,6 +31,8 @@ MARKET_MODE g_marketMode = MODE_RANGE;
 // - Highest-share activation no longer deletes pending orders by default.
 // - Dashboard text now shows the configured first activation percent.
 // - First activation status says ARMED instead of WAIT NEW ORDER when immediate protection is enabled.
+// V200 day-wise GMT0 no-new-hour logic:
+// - Common GMT0 hours plus optional Sunday/Monday/... GMT0 hour lists are merged for blocking new entries.
 //===================================================================
 
 
@@ -840,7 +842,26 @@ int    InpTesterServerGMTOffsetHours = 0; // Strategy Tester only: GMT0 server=0
 // Single source of truth. Do not create Dubai/server-hour copies.
 // Example: "6,7,11,12" blocks 06:00-06:59, 07:00-07:59, 11:00-11:59, 12:00-12:59 GMT0.
 // string InpNoNewOrderHourList      = "6,7,11,12,13,14,15,16,17,18,19,20,21,22,23"; // GMT0 / UTC only
-string InpNoNewOrderHourList      = "11,12,13,14,15,16,17,18,19,20"; // GMT0 / UTC only
+string InpNoNewOrderHourList      = "11,12,13,14,15,16,17,18,19,20"; // COMMON GMT0 / UTC hours blocked every day
+
+//================ DAY-WISE GMT0 NO-NEW-ORDER HOURS ================
+// Optional extra blocked hours by GMT0/UTC weekday.
+// MT4 TimeDayOfWeek mapping: Sunday=0, Monday=1, Tuesday=2, Wednesday=3, Thursday=4, Friday=5, Saturday=6.
+// These lists are ADDED to InpNoNewOrderHourList.
+// If you want day-wise control only, set InpNoNewOrderHourList = "".
+// Example requested:
+//   Monday  0,1,2
+//   Tuesday 3,4
+// Existing market orders continue normal TP/SL/profit management.
+bool   InpUseDayWiseNoNewOrderHours       = true;
+string InpNoNewOrderHourListSaturday      = "0,1,2,3";
+
+string InpNoNewOrderHourListSunday        = "0,1,2,3";
+string InpNoNewOrderHourListMonday        = "0";
+string InpNoNewOrderHourListTuesday       = "";
+string InpNoNewOrderHourListWednesday     = "";
+string InpNoNewOrderHourListThursday      = "";
+string InpNoNewOrderHourListFriday        = "";
 
 //================ GMT0 END-OF-DAY SPECIAL ORDERS ===================
 // Controlled special order window for the strong end-of-day BTC flow.
@@ -8049,7 +8070,15 @@ int OnInit()
    // Global-Variable key is initialized.
    InpMagicNumber = AccountNumber() + 202;
 
-   Print("NO NEW ORDER HOURS GMT0 ONLY: ", InpNoNewOrderHourList);
+   Print("NO NEW ORDER HOURS GMT0 ONLY | Common=", InpNoNewOrderHourList,
+         " | DayWise=", (InpUseDayWiseNoNewOrderHours ? "ON" : "OFF"),
+         " | Sunday=", InpNoNewOrderHourListSunday,
+         " | Monday=", InpNoNewOrderHourListMonday,
+         " | Tuesday=", InpNoNewOrderHourListTuesday,
+         " | Wednesday=", InpNoNewOrderHourListWednesday,
+         " | Thursday=", InpNoNewOrderHourListThursday,
+         " | Friday=", InpNoNewOrderHourListFriday,
+         " | Saturday=", InpNoNewOrderHourListSaturday);
 
    // Load only the persistent 23:45 anti-loop markers first. A chart reload
    // has already recreated every compiled global/static variable from its
@@ -9648,9 +9677,80 @@ bool IsConfiguredNoNewOrderHourInList(int hourValue,string configuredHours)
   }
 
 //+------------------------------------------------------------------+
+string CleanHourListText(string hours)
+  {
+   StringReplace(hours," ","");
+   StringReplace(hours,";",",");
+   return(hours);
+  }
+
+//+------------------------------------------------------------------+
+string JoinNoNewOrderHourLists(string commonHours,string dayHours)
+  {
+   commonHours = CleanHourListText(commonHours);
+   dayHours    = CleanHourListText(dayHours);
+
+   if(StringLen(commonHours) <= 0)
+      return(dayHours);
+
+   if(StringLen(dayHours) <= 0)
+      return(commonHours);
+
+   return(commonHours + "," + dayHours);
+  }
+
+//+------------------------------------------------------------------+
+string GetGMT0WeekdayName(int dayOfWeek)
+  {
+   switch(dayOfWeek)
+     {
+      case 0: return("SUNDAY");
+      case 1: return("MONDAY");
+      case 2: return("TUESDAY");
+      case 3: return("WEDNESDAY");
+      case 4: return("THURSDAY");
+      case 5: return("FRIDAY");
+      case 6: return("SATURDAY");
+     }
+
+   return("UNKNOWN");
+  }
+
+//+------------------------------------------------------------------+
+string GetDayWiseNoNewOrderHourListByWeekday(int dayOfWeek)
+  {
+   if(!InpUseDayWiseNoNewOrderHours)
+      return("");
+
+   switch(dayOfWeek)
+     {
+      case 0: return(InpNoNewOrderHourListSunday);
+      case 1: return(InpNoNewOrderHourListMonday);
+      case 2: return(InpNoNewOrderHourListTuesday);
+      case 3: return(InpNoNewOrderHourListWednesday);
+      case 4: return(InpNoNewOrderHourListThursday);
+      case 5: return(InpNoNewOrderHourListFriday);
+      case 6: return(InpNoNewOrderHourListSaturday);
+     }
+
+   return("");
+  }
+
+//+------------------------------------------------------------------+
+string GetActiveDayWiseNoNewOrderHourList()
+  {
+   int dayOfWeek = TimeDayOfWeek(GetGMT0Time());
+   return(CleanHourListText(GetDayWiseNoNewOrderHourListByWeekday(dayOfWeek)));
+  }
+
+//+------------------------------------------------------------------+
 string GetActiveNoNewOrderHourList()
   {
-   return(InpNoNewOrderHourList);
+   int dayOfWeek = TimeDayOfWeek(GetGMT0Time());
+   string commonHours = InpNoNewOrderHourList;
+   string dayHours = GetDayWiseNoNewOrderHourListByWeekday(dayOfWeek);
+
+   return(JoinNoNewOrderHourLists(commonHours,dayHours));
   }
 
 //+------------------------------------------------------------------+
@@ -10823,6 +10923,8 @@ string NoNewOrderHoursStatusText()
    string activeLabel = GetActiveNoNewOrderClockLabel();
    int activeHour = TimeHour(activeClock);
    string activeHours = GetActiveNoNewOrderHourList();
+   string dayName = GetGMT0WeekdayName(TimeDayOfWeek(activeClock));
+   string dayHours = GetActiveDayWiseNoNewOrderHourList();
 
    string status =
       IsDubaiNoNewOrderHourNow()
@@ -10832,8 +10934,11 @@ string NoNewOrderHoursStatusText()
    return(status +
           " | " + activeLabel + "=" +
           TimeToString(activeClock,TIME_MINUTES) +
+          " | DAY=" + dayName +
           " | HOUR=" + IntegerToString(activeHour) +
-          " | HOURS=" + activeHours);
+          " | COMMON=" + CleanHourListText(InpNoNewOrderHourList) +
+          " | DAYHOURS=" + dayHours +
+          " | ACTIVE=" + activeHours);
   }
 
 
