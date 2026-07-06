@@ -405,7 +405,7 @@ double InpLossStopPercent          = 15;//20;//10;//20.0; // full day loss lock 
 // InpHalfLossPauseMinutes even if equity is still below the warning level.
 bool   InpUseHalfLossPause                = true;
 double InpHalfLossPauseTriggerPercent     = 50.0; // percentage of InpLossStopPercent, not account percent
-int    InpHalfLossPauseMinutes            =60*2;// 10;//60*4;
+int    InpHalfLossPauseMinutes            =60;//60*2;// 10;//60*4;
 // Resume the half-loss cooling pause early when any EA market order closes in net profit.
 // The pause is still one-shot for the current equity cycle, so it will not trigger again until reset.
 bool   InpResumeHalfLossPauseAfterProfitClose = true;
@@ -901,7 +901,7 @@ bool   InpEODSpecialStopAfterStopLoss       = true;
 // every new entry path for 120 minutes. Existing market orders remain managed.
 bool   InpUseConsecutiveSLPause       = true;
 int    InpConsecutiveSLPauseCount     = 2;
-int    InpConsecutiveSLPauseMinutes   = 120;
+int    InpConsecutiveSLPauseMinutes   = 60;//120;
 bool   InpDeletePendingOnSLPause      = true;
 bool   InpResetSLStreakOnProfitClose  = true;
 
@@ -911,7 +911,7 @@ bool   InpResetSLStreakOnProfitClose  = true;
 // The pause ends after the configured minutes or earlier on the next SAR flip.
 bool   InpUseSideLossPause             = true;
 int    InpSideLossPauseAfterLosses     = 2;
-int    InpSideLossPauseMinutes         = 120;
+int    InpSideLossPauseMinutes         = 60;//120;
 bool   InpSideLossPauseUntilSARFlip    = true;
 bool   InpDeletePendingOnSideLossPause = true;
 
@@ -19106,18 +19106,18 @@ void OnTimer()
 //+------------------------------------------------------------------+
 void OnTick()
   {
-Print("TIME CHECK | Tester/Server=",
-      TimeToString(TimeCurrent(), TIME_DATE|TIME_SECONDS),
-      " | EA_GMT0=",
-      TimeToString(GetGMT0Time(), TIME_DATE|TIME_SECONDS),
-      " | GMT0_Day=",
-      GetActiveNoNewOrderDayName(),
-      " | Offset=",
-      IntegerToString(InpTesterServerGMTOffsetHours),
-      " | CommonHours=",
-      InpNoNewOrderHourList,
-      " | ActiveHours=",
-      GetActiveNoNewOrderHourList());
+// Print("TIME CHECK | Tester/Server=",
+//       TimeToString(TimeCurrent(), TIME_DATE|TIME_SECONDS),
+//       " | EA_GMT0=",
+//       TimeToString(GetGMT0Time(), TIME_DATE|TIME_SECONDS),
+//       " | GMT0_Day=",
+//       GetActiveNoNewOrderDayName(),
+//       " | Offset=",
+//       IntegerToString(InpTesterServerGMTOffsetHours),
+//       " | CommonHours=",
+//       InpNoNewOrderHourList,
+//       " | ActiveHours=",
+//       GetActiveNoNewOrderHourList());
 // ABSOLUTE FIRST GATE: from 23:45:00 through 23:59:59 no other
 // calculation, order-management path or variable update is allowed to run.
    if(!HandleStrict2345DayEndFreshBoot())
