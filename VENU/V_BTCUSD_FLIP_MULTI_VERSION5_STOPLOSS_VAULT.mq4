@@ -20,7 +20,7 @@ MARKET_MODE g_marketMode = MODE_RANGE;
 #ifndef OP_BALANCE
 #define OP_BALANCE 6
 #endif
-#property version   "2.00-daywise-hours"
+#property version   "2.01-candle-sl"
 //================ OPTIMIZED CLEAN BUILD NOTES =====================
 // Removed unused input declarations and unreferenced helper/dashboard functions
 // from the V196 unlimited/highest-share-protection build.
@@ -33,6 +33,9 @@ MARKET_MODE g_marketMode = MODE_RANGE;
 // - First activation status says ARMED instead of WAIT NEW ORDER when immediate protection is enabled.
 // V200 day-wise GMT0 no-new-hour logic:
 // - Common GMT0 hours plus optional Sunday/Monday/... GMT0 hour lists are merged for blocking new entries.
+// V201 candle stop-loss logic:
+// - Average M1 candle basket SL can also be used for the INITIAL broker/server SL on market and pending orders.
+// - This prevents the fixed $1 initial server SL from overriding candle-based stop loss.
 //===================================================================
 
 
@@ -305,8 +308,8 @@ double InpBasketHalfTPAfterMinutesMultiplier = 0.50;
 double InpBasketStopLossUSD              = 0.50; // fallback/simple-side SL, 0 = disabled
 double InpContinuousTrendBasketSLUSD     = 0.50;
 double InpMediumTrendBasketSLUSD         = 0.75;
-double InpMixedTrendBasketSLUSD          = 0.50;
-double InpDangerModeBasketSLUSD          = 1.00;
+double InpMixedTrendBasketSLUSD          = 1;//0.50;
+double InpDangerModeBasketSLUSD          = 1.5;//1.00;
 
 //================ AVERAGE M1 CANDLE BASKET SL ======================
 // Calculates the average full candle height (High-Low) of the latest
@@ -319,11 +322,15 @@ double InpDangerModeBasketSLUSD          = 1.00;
 //   1 = use the smaller/tighter value
 //   2 = use the larger/wider value
 bool   InpUseAverageM1CandleBasketSL       = true;
-int    InpAverageM1CandleSLBars            = 10;
-double InpAverageM1CandleSLMultiplier      = 1.25;//1.00;
+int    InpAverageM1CandleSLBars            = 20;//10;
+double InpAverageM1CandleSLMultiplier      = 2;//1.50;//1.00;
 int    InpAverageM1CandleSLCombineMode     = 0;
-double InpAverageM1CandleSLMinimumUSD      = 0.50;//0.10;
+double InpAverageM1CandleSLMinimumUSD      = 1;//0.75;//0.50;//0.10;
 double InpAverageM1CandleSLMaximumUSD      = 2.00; // 0 = unlimited
+// Use the same candle-based SL also for the first broker/server SL that is
+// attached immediately after OrderSend/OrderModify. This is the important
+// switch that stops fixed $1 initial SL from overriding candle SL.
+bool   InpUseAverageM1CandleSLForInitialServerSL = true;
 
 // Simple basket close mode:
 // true = close BUY basket and SELL basket only by fixed InpBasketProfitUSD / InpBasketStopLossUSD.
@@ -857,7 +864,7 @@ bool   InpUseDayWiseNoNewOrderHours       = true;
 string InpNoNewOrderHourListSaturday      = "0,1,2,3";
 
 string InpNoNewOrderHourListSunday        = "0,1,2,3";
-string InpNoNewOrderHourListMonday        = "0";
+string InpNoNewOrderHourListMonday        = "0,1,2,3";
 string InpNoNewOrderHourListTuesday       = "";
 string InpNoNewOrderHourListWednesday     = "";
 string InpNoNewOrderHourListThursday      = "";
@@ -3468,6 +3475,28 @@ double ScaleTradeMoneyByCurrentLot(double baseUSD)
   }
 
 //+------------------------------------------------------------------+
+//| Scale configured USD values using a specific order lot           |
+//+------------------------------------------------------------------+
+double GetDynamicLotMoneyMultiplierForLot(double lots)
+  {
+   if(!InpUseDynamicBalanceLot ||
+      !InpScaleTradeMoneyWithDynamicLot)
+      return(1.0);
+
+   double baseLot = MathMax(0.0001,InpDynamicLotPerBalanceStep);
+   double safeLots = MathMax(0.0001,lots);
+   return(MathMax(0.01,safeLots / baseLot));
+  }
+
+//+------------------------------------------------------------------+
+//| Scale configured USD values using a specific order lot           |
+//+------------------------------------------------------------------+
+double ScaleTradeMoneyByLot(double baseUSD,double lots)
+  {
+   return(baseUSD * GetDynamicLotMoneyMultiplierForLot(lots));
+  }
+
+//+------------------------------------------------------------------+
 string DynamicLotStatusText()
   {
    return("$" + DoubleToString(GetDynamicLotReferenceBalance(),2) +
@@ -3542,12 +3571,15 @@ double ConvertRawPriceDistanceToUSD(double rawDistance, double lots)
   }
 
 //+------------------------------------------------------------------+
-//| Basket SL derived from the average closed-M1 candle height      |
+//| Basket SL derived from average closed-M1 height for a given lot  |
 //+------------------------------------------------------------------+
-double GetAverageM1CandleBasketStopLossUSD()
+double GetAverageM1CandleBasketStopLossUSDForLots(double lots)
   {
    if(!InpUseAverageM1CandleBasketSL)
       return(0.0);
+
+   if(lots <= 0.0)
+      lots = GetCurrentTradingLot();
 
    double averageHeightRaw = GetAverageClosedM1CandleHeightRaw();
    if(averageHeightRaw <= 0.0)
@@ -3556,17 +3588,28 @@ double GetAverageM1CandleBasketStopLossUSD()
    double multiplier = MathMax(0.0, InpAverageM1CandleSLMultiplier);
    double effectiveHeightRaw = averageHeightRaw * multiplier;
 
-   double basketSLUSD = ConvertRawPriceDistanceToUSD(effectiveHeightRaw, GetCurrentTradingLot());
+   double basketSLUSD = ConvertRawPriceDistanceToUSD(effectiveHeightRaw, lots);
    if(basketSLUSD <= 0.0)
       return(0.0);
 
-   if(ScaleTradeMoneyByCurrentLot(InpAverageM1CandleSLMinimumUSD) > 0.0)
-      basketSLUSD = MathMax(basketSLUSD, ScaleTradeMoneyByCurrentLot(InpAverageM1CandleSLMinimumUSD));
+   double minUSD = ScaleTradeMoneyByLot(InpAverageM1CandleSLMinimumUSD,lots);
+   double maxUSD = ScaleTradeMoneyByLot(InpAverageM1CandleSLMaximumUSD,lots);
 
-   if(ScaleTradeMoneyByCurrentLot(InpAverageM1CandleSLMaximumUSD) > 0.0)
-      basketSLUSD = MathMin(basketSLUSD, ScaleTradeMoneyByCurrentLot(InpAverageM1CandleSLMaximumUSD));
+   if(minUSD > 0.0)
+      basketSLUSD = MathMax(basketSLUSD, minUSD);
+
+   if(maxUSD > 0.0)
+      basketSLUSD = MathMin(basketSLUSD, maxUSD);
 
    return(MathMax(0.0, basketSLUSD));
+  }
+
+//+------------------------------------------------------------------+
+//| Basket SL derived from the average closed-M1 candle height      |
+//+------------------------------------------------------------------+
+double GetAverageM1CandleBasketStopLossUSD()
+  {
+   return(GetAverageM1CandleBasketStopLossUSDForLots(GetCurrentTradingLot()));
   }
 
 //+------------------------------------------------------------------+
@@ -7039,6 +7082,20 @@ bool ApplyInitialServerSideSLToSelectedOrder()
    double selectedInitialSLUSD =
       GetInitialServerSLUSDForSelectedOrder(sarDirection,matchesSAR);
 
+   double fixedInitialSLUSD   = selectedInitialSLUSD;
+   double averageInitialSLUSD = 0.0;
+   bool   usedAverageM1SL     = false;
+
+   if(InpUseAverageM1CandleSLForInitialServerSL)
+     {
+      averageInitialSLUSD = GetAverageM1CandleBasketStopLossUSDForLots(OrderLots());
+      if(averageInitialSLUSD > 0.0)
+        {
+         selectedInitialSLUSD = averageInitialSLUSD;
+         usedAverageM1SL = true;
+        }
+     }
+
    if(selectedInitialSLUSD <= 0.0)
       return(true);
 
@@ -7126,6 +7183,9 @@ bool ApplyInitialServerSideSLToSelectedOrder()
             " | SL=",DoubleToString(finalSL,digits),
             " | RequestedLoss=$",
             DoubleToString(selectedInitialSLUSD,2),
+            " | SLSource=",(usedAverageM1SL ? "AVERAGE_M1_CANDLE" : "FIXED_INITIAL"),
+            " | FixedInitial=$",DoubleToString(fixedInitialSLUSD,2),
+            " | AvgM1Initial=$",DoubleToString(averageInitialSLUSD,2),
             " | BaseGapRaw=",DoubleToString(priceDistance-extraRawPriceGap,digits),
             " | ExtraGapRaw=",DoubleToString(extraRawPriceGap,digits),
             " | HalfLossTriggered=",(g_halfLossPauseTriggered ? "YES" : "NO"),
@@ -7151,6 +7211,9 @@ bool ApplyInitialServerSideSLToSelectedOrder()
          " | SL=",DoubleToString(finalSL,digits),
          " | RequestedLoss=$",
          DoubleToString(selectedInitialSLUSD,2),
+         " | SLSource=",(usedAverageM1SL ? "AVERAGE_M1_CANDLE" : "FIXED_INITIAL"),
+         " | FixedInitial=$",DoubleToString(fixedInitialSLUSD,2),
+         " | AvgM1Initial=$",DoubleToString(averageInitialSLUSD,2),
          " | BaseGapRaw=",DoubleToString(priceDistance-extraRawPriceGap,digits),
          " | ExtraGapRaw=",DoubleToString(extraRawPriceGap,digits),
          " | HalfLossTriggered=",(g_halfLossPauseTriggered ? "YES" : "NO"),
@@ -7188,7 +7251,9 @@ void EnsureInitialServerSideSLForAllOrders()
 
    if(ScaleTradeMoneyByCurrentLot(InpInitialServerSLWithSARUSD) <= 0.0 &&
       ScaleTradeMoneyByCurrentLot(InpInitialServerSLAgainstSARUSD) <= 0.0 &&
-      ScaleTradeMoneyByCurrentLot(InpInitialServerSLNoSARDirectionUSD) <= 0.0)
+      ScaleTradeMoneyByCurrentLot(InpInitialServerSLNoSARDirectionUSD) <= 0.0 &&
+      (!InpUseAverageM1CandleSLForInitialServerSL ||
+       GetAverageM1CandleBasketStopLossUSD() <= 0.0))
       return;
 
    int retrySeconds = MathMax(1,InpInitialServerSLRetrySeconds);
