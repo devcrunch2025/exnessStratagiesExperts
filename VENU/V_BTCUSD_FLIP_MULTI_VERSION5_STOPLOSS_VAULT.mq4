@@ -1,5 +1,5 @@
 //+------------------------------------------------------------------+
-//|                 DXB_SAR_EA_V206_DayWiseGMT0NoNewHours.mq4                         |
+//|                 DXB_SAR_EA_V200_PercentageClean_LogicAuditFix.mq4                         |
 //|  SAR cycle + server-side SL + dynamic X-profit ladder          |
 //|  SAR flip closes opposite orders. Early reverse trend pauses SAR  |
 //|  cycle, draws arrows, closes opposite orders, resumes when aligned |
@@ -20,17 +20,13 @@ MARKET_MODE g_marketMode = MODE_RANGE;
 #ifndef OP_BALANCE
 #define OP_BALANCE 6
 #endif
-#property version   "2.06-daywise-hours"
+#property version   "2.00-clean"
 //================ OPTIMIZED CLEAN BUILD NOTES =====================
 // Removed unused input declarations and unreferenced helper/dashboard functions
 // from the V196 unlimited/highest-share-protection build.
 // Safety-critical close, server-SL, daily reset, equity-loss and pause logic
 // is retained. Disabled feature blocks that are still referenced by active
 // code are kept to avoid accidental compile/runtime breakage.
-// V204 mixed-mode logic:
-// - MIXED mode can block only normal SAR entries while allowing recovery/pullback by their own switches.
-// V206 day-wise GMT0 no-new-hour logic:
-// - Common GMT0 hours plus optional Sunday/Monday/... GMT0 hour lists are merged for blocking new entries.
 // V200 logic-audit fixes:
 // - Highest-share activation no longer deletes pending orders by default.
 // - Dashboard text now shows the configured first activation percent.
@@ -64,7 +60,7 @@ double InpMinGapWhenMaxOrdersMoreThanOne = 100.0; // when InpMaxOrders > 1, enfo
 
 #define DXB_HARD_MAX_OPEN_ORDERS 6  // absolute safety cap for normal SAR orders per cycle
 
-double InpBasketProfitUSD         = 0.30;//0.50;  // X1 base: custom ladder starts $0.50, $0.75, $0.875, $1.00...
+double InpBasketProfitUSD         = 0.50;  // X1 base: custom ladder starts $0.50, $0.75, $0.875, $1.00...
 double InpProfitTargetPercent      = 20;//10.0; // legacy fixed target used only when percentage ladder is OFF
 
 //================ UNLIMITED PROFIT + HIGHEST-SHARE PROTECT =========
@@ -357,12 +353,9 @@ double InpDangerLast3MoveRaw           = 500.0;
 
 
 bool   InpAutoModePauseOrdersInDanger  = true;
-bool   InpAutoModePauseOrdersInMixed   = true;  // mixed-mode entry block switch
-bool   InpAutoModeBlockNormalSAROnlyInMixed = true;  // true: MIXED controls normal SAR separately; recovery/pullback follow their own switches
-bool   InpMixedTrendAllowNormalSARAfterConfirmDiff = true; // true: MIXED normal SAR is allowed only after the mixed SAR confirm raw gap is ready
-double InpMixedTrendSARConfirmPriceDiff = 10;//50.0; // MIXED mode fixed SAR signal-change raw confirmation gap
+bool   InpAutoModePauseOrdersInMixed   = true;  // true = block every NEW order while mode is MIXED
 bool   InpAutoModeAllowRecoveryMedium  = true;
-// When InpAutoModeBlockNormalSAROnlyInMixed=true, these MIXED permissions still control non-normal-SAR entries.
+// The following MIXED permissions are used only when InpAutoModePauseOrdersInMixed=false.
 bool   InpAutoModeAllowRecoveryMixed   = true;
 bool   InpAutoModeAllowSARWeakMixed    = false;
 bool   InpAutoModeAllowPullbackMixed   = true;
@@ -405,7 +398,7 @@ double InpLossStopPercent          = 15;//20;//10;//20.0; // full day loss lock 
 // InpHalfLossPauseMinutes even if equity is still below the warning level.
 bool   InpUseHalfLossPause                = true;
 double InpHalfLossPauseTriggerPercent     = 50.0; // percentage of InpLossStopPercent, not account percent
-int    InpHalfLossPauseMinutes            =60;//60*2;// 10;//60*4;
+int    InpHalfLossPauseMinutes            =60*2;// 10;//60*4;
 // Resume the half-loss cooling pause early when any EA market order closes in net profit.
 // The pause is still one-shot for the current equity cycle, so it will not trigger again until reset.
 bool   InpResumeHalfLossPauseAfterProfitClose = true;
@@ -687,7 +680,7 @@ double InpTickSpeedAdaptiveSLMaxUSD          = 0.00; // 0 = unlimited safety cap
 bool   InpUseLiveOppositeCandleTightSL       = true;
 double InpLiveOppositeCandleRangeRatio       = 1.00; // live M1 range must be > previous M1 range x this value
 double InpLiveOppositeCandleMinBodyPercent   = 35.0; // avoid arming only from a long wick; 0 disables
-double InpLiveOppositeCandleSLMultiplier     = 0.50;//1;//0.50; // frozen adaptive SL x 0.50, e.g. $0.50 -> $0.25
+double InpLiveOppositeCandleSLMultiplier     = 1;//0.50; // frozen adaptive SL x 0.50, e.g. $0.50 -> $0.25
 double InpLiveOppositeCandleMinimumSLUSD     = 0.01; // smallest permitted tightened basket SL
 
 //================ OPPOSITE IMPULSE CONTINUATION ====================
@@ -842,33 +835,12 @@ int    InpGoodMarketPendingRetrySeconds           = 3;
 //         GMT0 server/tester=0, GMT+2 server/tester=2.
 bool   InpUseNoNewOrderHours      = true;
 bool   InpApplyNoNewOrderHoursInTesting = true;
-int    InpTesterServerGMTOffsetHours =0;//4;// 0; // Strategy Tester only: GMT0 server=0, GMT+2 server=2. Blocked hours remain GMT0.
+int    InpTesterServerGMTOffsetHours = 0; // Strategy Tester only: GMT0 server=0, GMT+2 server=2. Blocked hours remain GMT0.
 
 // Single source of truth. Do not create Dubai/server-hour copies.
 // Example: "6,7,11,12" blocks 06:00-06:59, 07:00-07:59, 11:00-11:59, 12:00-12:59 GMT0.
 // string InpNoNewOrderHourList      = "6,7,11,12,13,14,15,16,17,18,19,20,21,22,23"; // GMT0 / UTC only
-// string InpNoNewOrderHourList      = "11,12,13,14,15,16,17,18,19,20"; // GMT0 / UTC only
-string InpNoNewOrderHourList      = "12,13,14,15,16,17,18,19,20,22,23"; // COMMON GMT0 / UTC hours blocked every day
-// string InpNoNewOrderHourListDubia      = "4,15,16,17,18,19,20"; // removed: use GMT0 only
-
-//================ DAY-WISE GMT0 NO-NEW-ORDER HOURS ================
-// Optional extra blocked hours by GMT0/UTC weekday.
-// MT4 TimeDayOfWeek mapping: Sunday=0, Monday=1, Tuesday=2, Wednesday=3, Thursday=4, Friday=5, Saturday=6.
-// These lists are ADDED to InpNoNewOrderHourList.
-// If you want day-wise control only, set InpNoNewOrderHourList = "".
-// Example requested:
-//   Monday  0,1,2
-//   Tuesday 3,4
-// Existing market orders continue normal TP/SL/profit management.
-bool   InpUseDayWiseNoNewOrderHours       = true;
-string InpNoNewOrderHourListSaturday      = "0,1,2,3";
-string InpNoNewOrderHourListSunday        = "0,1,2,3";
-string InpNoNewOrderHourListMonday        = "0,1,2";
-string InpNoNewOrderHourListTuesday       = "";
-string InpNoNewOrderHourListWednesday     = "";
-string InpNoNewOrderHourListThursday      = "";
-string InpNoNewOrderHourListFriday        = "";
-
+string InpNoNewOrderHourList      = "11,12,13,14,15,16,17,18,19,20"; // GMT0 / UTC only
 
 //================ GMT0 END-OF-DAY SPECIAL ORDERS ===================
 // Controlled special order window for the strong end-of-day BTC flow.
@@ -901,7 +873,7 @@ bool   InpEODSpecialStopAfterStopLoss       = true;
 // every new entry path for 120 minutes. Existing market orders remain managed.
 bool   InpUseConsecutiveSLPause       = true;
 int    InpConsecutiveSLPauseCount     = 2;
-int    InpConsecutiveSLPauseMinutes   = 60;//120;
+int    InpConsecutiveSLPauseMinutes   = 120;
 bool   InpDeletePendingOnSLPause      = true;
 bool   InpResetSLStreakOnProfitClose  = true;
 
@@ -911,7 +883,7 @@ bool   InpResetSLStreakOnProfitClose  = true;
 // The pause ends after the configured minutes or earlier on the next SAR flip.
 bool   InpUseSideLossPause             = true;
 int    InpSideLossPauseAfterLosses     = 2;
-int    InpSideLossPauseMinutes         = 60;//120;
+int    InpSideLossPauseMinutes         = 120;
 bool   InpSideLossPauseUntilSARFlip    = true;
 bool   InpDeletePendingOnSideLossPause = true;
 
@@ -3638,12 +3610,8 @@ bool IsAutoMarketTradingPaused()
       InpAutoModePauseOrdersInDanger)
       return(true);
 
-   // MIXED can either pause every new order, or only block normal SAR orders.
-   // When normal-SAR-only mode is enabled, this function must NOT return true,
-   // otherwise recovery/pullback/SAR-weak permission functions would also be blocked.
    if(g_autoMarketMode == DXB_MARKET_MODE_MIXED &&
-      InpAutoModePauseOrdersInMixed &&
-      !InpAutoModeBlockNormalSAROnlyInMixed)
+      InpAutoModePauseOrdersInMixed)
       return(true);
 
    return(false);
@@ -3720,24 +3688,11 @@ bool IsAutoMarketNewOrderAllowed(string reason)
    if(!InpUseAutoMarketFlowMode)
       return(true);
 
-// DANGER full pause still blocks every new entry path.
-// MIXED can either block all new entries or only normal SAR entries.
+// Complete pause: blocks normal SAR, continuity, pullback, recovery,
+// recovery-gap, recovery-hedge, extra and SAR-weak reverse entries.
+// Existing orders continue normal TP/SL/close management.
    if(IsAutoMarketTradingPaused())
       return(false);
-
-   if(g_autoMarketMode == DXB_MARKET_MODE_MIXED &&
-      InpAutoModePauseOrdersInMixed &&
-      InpAutoModeBlockNormalSAROnlyInMixed &&
-      IsNormalSAROrderReason(reason))
-     {
-      // MIXED normal SAR is not blindly blocked when this switch is true.
-      // It is allowed to continue through the normal checklist, where the
-      // mixed-mode SAR confirmation gap must pass.
-      if(InpMixedTrendAllowNormalSARAfterConfirmDiff)
-         return(true);
-
-      return(false);
-     }
 
    if(StringFind(reason, "RECOVERY") >= 0 && !IsAutoMarketRecoveryAllowed())
       return(false);
@@ -3760,11 +3715,6 @@ string AutoMarketModeStatusText()
    string action = IsAutoMarketTradingPaused()
                    ? "BLOCK ALL NEW ORDERS"
                    : "ALLOW NEW ORDERS";
-
-   if(g_autoMarketMode == DXB_MARKET_MODE_MIXED &&
-      InpAutoModePauseOrdersInMixed &&
-      InpAutoModeBlockNormalSAROnlyInMixed)
-      action = (InpMixedTrendAllowNormalSARAfterConfirmDiff ? "NORMAL SAR REQUIRES " + DoubleToString(InpMixedTrendSARConfirmPriceDiff,0) + " RAW" : "BLOCK NORMAL SAR ONLY");
 
    if(g_autoMarketMode == DXB_MARKET_MODE_DANGER)
       return("DANGER SPIKE | " + action +
@@ -8099,7 +8049,7 @@ int OnInit()
    // Global-Variable key is initialized.
    InpMagicNumber = AccountNumber() + 202;
 
-   Print("NO NEW ORDER HOURS GMT0 ONLY | Common=", InpNoNewOrderHourList, " | DayWise=", (InpUseDayWiseNoNewOrderHours ? "ON" : "OFF"), " | Active=", GetActiveNoNewOrderHourList());
+   Print("NO NEW ORDER HOURS GMT0 ONLY: ", InpNoNewOrderHourList);
 
    // Load only the persistent 23:45 anti-loop markers first. A chart reload
    // has already recreated every compiled global/static variable from its
@@ -9698,79 +9648,9 @@ bool IsConfiguredNoNewOrderHourInList(int hourValue,string configuredHours)
   }
 
 //+------------------------------------------------------------------+
-string NormalizeHourListString(string hourList)
-  {
-   StringReplace(hourList," ","");
-   return(hourList);
-  }
-
-//+------------------------------------------------------------------+
-string MergeNoNewOrderHourLists(string commonHours,string dayHours)
-  {
-   commonHours = NormalizeHourListString(commonHours);
-   dayHours    = NormalizeHourListString(dayHours);
-
-   if(StringLen(commonHours) <= 0)
-      return(dayHours);
-   if(StringLen(dayHours) <= 0)
-      return(commonHours);
-
-   return(commonHours + "," + dayHours);
-  }
-
-//+------------------------------------------------------------------+
-string GMT0WeekdayName(int dayOfWeek)
-  {
-   if(dayOfWeek == 0) return("SUNDAY");
-   if(dayOfWeek == 1) return("MONDAY");
-   if(dayOfWeek == 2) return("TUESDAY");
-   if(dayOfWeek == 3) return("WEDNESDAY");
-   if(dayOfWeek == 4) return("THURSDAY");
-   if(dayOfWeek == 5) return("FRIDAY");
-   if(dayOfWeek == 6) return("SATURDAY");
-   return("UNKNOWN");
-  }
-
-//+------------------------------------------------------------------+
-string GetNoNewOrderHourListForGMT0Day(int dayOfWeek)
-  {
-   if(!InpUseDayWiseNoNewOrderHours)
-      return("");
-
-   if(dayOfWeek == 0) return(InpNoNewOrderHourListSunday);
-   if(dayOfWeek == 1) return(InpNoNewOrderHourListMonday);
-   if(dayOfWeek == 2) return(InpNoNewOrderHourListTuesday);
-   if(dayOfWeek == 3) return(InpNoNewOrderHourListWednesday);
-   if(dayOfWeek == 4) return(InpNoNewOrderHourListThursday);
-   if(dayOfWeek == 5) return(InpNoNewOrderHourListFriday);
-   if(dayOfWeek == 6) return(InpNoNewOrderHourListSaturday);
-
-   return("");
-  }
-
-//+------------------------------------------------------------------+
-string GetActiveDayWiseNoNewOrderHourList()
-  {
-   datetime activeClock = GetActiveNoNewOrderClock();
-   int dayOfWeek = TimeDayOfWeek(activeClock);
-   return(GetNoNewOrderHourListForGMT0Day(dayOfWeek));
-  }
-
-//+------------------------------------------------------------------+
-string GetActiveNoNewOrderDayName()
-  {
-   datetime activeClock = GetActiveNoNewOrderClock();
-   return(GMT0WeekdayName(TimeDayOfWeek(activeClock)));
-  }
-
-//+------------------------------------------------------------------+
 string GetActiveNoNewOrderHourList()
   {
-   if(!InpUseDayWiseNoNewOrderHours)
-      return(NormalizeHourListString(InpNoNewOrderHourList));
-
-   return(MergeNoNewOrderHourLists(InpNoNewOrderHourList,
-                                   GetActiveDayWiseNoNewOrderHourList()));
+   return(InpNoNewOrderHourList);
   }
 
 //+------------------------------------------------------------------+
@@ -10949,17 +10829,11 @@ string NoNewOrderHoursStatusText()
       ? "BLOCK NOW"
       : "ALLOW";
 
-   string dayName = GMT0WeekdayName(TimeDayOfWeek(activeClock));
-   string dayHours = GetNoNewOrderHourListForGMT0Day(TimeDayOfWeek(activeClock));
-
    return(status +
           " | " + activeLabel + "=" +
           TimeToString(activeClock,TIME_MINUTES) +
-          " | DAY=" + dayName +
           " | HOUR=" + IntegerToString(activeHour) +
-          " | COMMON=" + NormalizeHourListString(InpNoNewOrderHourList) +
-          " | DAYHOURS=" + NormalizeHourListString(dayHours) +
-          " | ACTIVE=" + activeHours);
+          " | HOURS=" + activeHours);
   }
 
 
@@ -11355,9 +11229,8 @@ string GetNewOrderHardPauseReasonText()
           : "GMT0 BLOCKED SESSION | ") +
          clockLabel + "=" +
          TimeToString(lockClock,TIME_DATE|TIME_MINUTES) +
-         " | DAY=" + GMT0WeekdayName(TimeDayOfWeek(lockClock)) +
          " | HOUR=" + IntegerToString(TimeHour(lockClock)) +
-         " | ACTIVE_HOURS=" +
+         " | HOURS=" +
          GetActiveNoNewOrderHourList();
      }
 
@@ -12217,7 +12090,7 @@ bool IsPendingEntryAllowedForCurrentSAR(int direction, string source)
      {
       Print("PENDING ENTRY BLOCKED | ",GetNewOrderHardPauseReasonText()," | GMT0=",
             TimeToString(GetGMT0Time(), TIME_DATE|TIME_MINUTES),
-            " | Hours=", GetActiveNoNewOrderHourList(),
+            " | Hours=", InpNoNewOrderHourList,
             " | Source=", source);
       return(false);
      }
@@ -15705,7 +15578,7 @@ bool OpenRecoveryOrder(int direction, string sourceReason, int slReverseStage = 
      {
       string msg = "RECOVERY ORDER BLOCKED | " + GetNewOrderHardPauseReasonText() + " | GMT0=" +
                    TimeToString(GetGMT0Time(), TIME_DATE|TIME_MINUTES) +
-                   " | Hours=" + GetActiveNoNewOrderHourList() +
+                   " | Hours=" + InpNoNewOrderHourList +
                    " | Source=" + sourceReason;
       SetLastOrderBlockDashboard(msg);
       Print(msg);
@@ -15872,7 +15745,7 @@ bool OpenRecoveryOrder(int direction, string sourceReason, int slReverseStage = 
      {
       Print("RECOVERY ORDERSEND CANCELLED | ",GetNewOrderHardPauseReasonText()," | GMT0=",
             TimeToString(GetGMT0Time(), TIME_DATE|TIME_MINUTES),
-            " | Hours=", GetActiveNoNewOrderHourList());
+            " | Hours=", InpNoNewOrderHourList);
       return(false);
      }
 
@@ -15963,7 +15836,7 @@ bool OpenRecoveryGapMarketOrder(int direction, double gapMove, string triggerRea
      {
       string msg = "RECOVERY GAP BLOCKED | " + GetNewOrderHardPauseReasonText() + " | GMT0=" +
                    TimeToString(GetGMT0Time(), TIME_DATE|TIME_MINUTES) +
-                   " | Hours=" + GetActiveNoNewOrderHourList() +
+                   " | Hours=" + InpNoNewOrderHourList +
                    " | Trigger=" + triggerReason;
       SetLastOrderBlockDashboard(msg);
       Print(msg);
@@ -16116,7 +15989,7 @@ bool OpenRecoveryGapMarketOrder(int direction, double gapMove, string triggerRea
      {
       Print("RECOVERY GAP ORDERSEND CANCELLED | ",GetNewOrderHardPauseReasonText()," | GMT0=",
             TimeToString(GetGMT0Time(), TIME_DATE|TIME_MINUTES),
-            " | Hours=", GetActiveNoNewOrderHourList());
+            " | Hours=", InpNoNewOrderHourList);
       return(false);
      }
 
@@ -19106,18 +18979,7 @@ void OnTimer()
 //+------------------------------------------------------------------+
 void OnTick()
   {
-// Print("TIME CHECK | Tester/Server=",
-//       TimeToString(TimeCurrent(), TIME_DATE|TIME_SECONDS),
-//       " | EA_GMT0=",
-//       TimeToString(GetGMT0Time(), TIME_DATE|TIME_SECONDS),
-//       " | GMT0_Day=",
-//       GetActiveNoNewOrderDayName(),
-//       " | Offset=",
-//       IntegerToString(InpTesterServerGMTOffsetHours),
-//       " | CommonHours=",
-//       InpNoNewOrderHourList,
-//       " | ActiveHours=",
-//       GetActiveNoNewOrderHourList());
+
 // ABSOLUTE FIRST GATE: from 23:45:00 through 23:59:59 no other
 // calculation, order-management path or variable update is allowed to run.
    if(!HandleStrict2345DayEndFreshBoot())
@@ -19685,23 +19547,9 @@ double GetBuyStrictSARConfirmExtraRaw(int direction)
   }
 
 //+------------------------------------------------------------------+
-double GetMarketModeBaseSARConfirmPriceDiff()
-  {
-   double baseDiff = MathMax(0.0, InpSARConfirmPriceDiff);
-
-   // MIXED mode uses its own fixed raw confirmation gap.
-   // This keeps normal SAR entries stricter in mixed/ranging market conditions.
-   if(InpUseAutoMarketFlowMode &&
-      g_autoMarketMode == DXB_MARKET_MODE_MIXED)
-      return(MathMax(0.0, InpMixedTrendSARConfirmPriceDiff));
-
-   return(baseDiff);
-  }
-
-//+------------------------------------------------------------------+
 double GetEffectiveSARConfirmPriceDiffForDirection(int direction)
   {
-   return(GetMarketModeBaseSARConfirmPriceDiff() +
+   return(MathMax(0.0,InpSARConfirmPriceDiff) +
           GetHalfLossSARConfirmExtraRaw() +
           GetBuyStrictSARConfirmExtraRaw(direction));
   }
@@ -19963,16 +19811,10 @@ double GetDynamicSARATR()
 double GetDynamicSARRequiredConfirmDiffForDirection(int direction)
   {
    double configuredBase =
-      GetMarketModeBaseSARConfirmPriceDiff();
+      MathMax(0.0,InpSARConfirmPriceDiff);
    double conditionalExtra =
       GetHalfLossSARConfirmExtraRaw() +
       GetBuyStrictSARConfirmExtraRaw(direction);
-
-   // In MIXED mode the configured 50 raw gap is intended as a fixed minimum,
-   // not reduced by ATR/dynamic SAR calculations.
-   if(InpUseAutoMarketFlowMode &&
-      g_autoMarketMode == DXB_MARKET_MODE_MIXED)
-      return(configuredBase + conditionalExtra);
 
    if(!InpUseDynamicSAREngine)
       return(configuredBase + conditionalExtra);
@@ -21558,7 +21400,7 @@ bool IsFirstSAROrderAllowedByPriceDiffOnly(int direction,
       return(BlockNormalOrderByModeProfile(
                 "FIRST ORDER | GMT0 NO-NEW HOUR | GMT0=" +
                 TimeToString(GetGMT0Time(), TIME_DATE|TIME_MINUTES) +
-                " | Hours=" + GetActiveNoNewOrderHourList() +
+                " | Hours=" + InpNoNewOrderHourList +
                 " | Source=" + reason));
 
    if(!IsFirstSAROrderPriceDiffReady(direction))
@@ -22924,7 +22766,7 @@ void RefreshFirstSAROrderDiagnosticSnapshot(int direction,
                     {
                      rawPassed = noNewHourOk;
                      detail = "GMT0=" + TimeToString(GetGMT0Time(), TIME_MINUTES) +
-                              " | Hours=" + GetActiveNoNewOrderHourList();
+                              " | Hours=" + InpNoNewOrderHourList;
                     }
 
       SetEntryDiagnosticFilter(filterId, rawPassed, detail);
@@ -22995,7 +22837,7 @@ void RefreshNormalEntryDiagnosticSnapshot(int direction,
    bool rawMaxOpen = CheckListMaxOpenAllowed(direction);
    bool rawTotal = CheckListTotalOpenAllowed();
    bool rawAutoMarket =
-      IsAutoMarketNewOrderAllowed("SAR_FLIP_ENTRY_DIAGNOSTIC");
+      IsAutoMarketNewOrderAllowed("ENTRY_DIAGNOSTIC");
 
    bool rawDynamic = false;
    if(direction != 0)
@@ -24056,16 +23898,11 @@ void DrawLeftOrderCreationChecklist(string mainStatus)
               DirectionExactStatusText(direction),
               DirectionColor(direction));
 
-   string marketModeActionText = " | ALLOW NEW ORDERS";
-   if(IsAutoMarketTradingPaused())
-      marketModeActionText = " | BLOCK ALL NEW ORDERS";
-   if(g_autoMarketMode == DXB_MARKET_MODE_MIXED &&
-      InpAutoModePauseOrdersInMixed &&
-      InpAutoModeBlockNormalSAROnlyInMixed)
-      marketModeActionText = (InpMixedTrendAllowNormalSARAfterConfirmDiff ? " | NORMAL SAR REQUIRES " + DoubleToString(InpMixedTrendSARConfirmPriceDiff,0) + " RAW" : " | BLOCK NORMAL SAR ONLY");
-
    LeftProRow("MARKET MODE",
-              g_autoMarketModeText + marketModeActionText,
+              g_autoMarketModeText +
+              (IsAutoMarketTradingPaused()
+               ? " | BLOCK ALL NEW ORDERS"
+               : " | ALLOW NEW ORDERS"),
               MarketFlowModeColor());
 
    LeftProRow("Mode Exact",
@@ -24541,160 +24378,6 @@ double CompactEquityChangePercent()
   }
 
 //+------------------------------------------------------------------+
-//| Compact dashboard: percentage-profit target/protection details     |
-//+------------------------------------------------------------------+
-double GetDashboardProfitTargetPercent()
-  {
-   if(InpUseDailyProfitPercentLadder)
-      return(MathMax(0.0,GetDailyProfitLadderPercent(1)));
-
-   return(MathMax(0.0,InpProfitTargetPercent));
-  }
-
-//+------------------------------------------------------------------+
-string CompactProfitTargetText()
-  {
-   double targetPercent = GetDashboardProfitTargetPercent();
-   double targetEquity  = GetDailyProfitLadderEquity(targetPercent);
-
-   return(DoubleToString(targetPercent,1) + "% = $" +
-          DoubleToString(targetEquity,2));
-  }
-
-//+------------------------------------------------------------------+
-double GetDashboardProfitProtectedPercent()
-  {
-   if(!InpUseDailyProfitLock ||
-      !InpUseDailyProfitPercentLadder)
-      return(0.0);
-
-   if(g_profitPercentHighestLevel <= 0)
-      return(0.0);
-
-   double protectedPercent = g_profitPercentProtectedPercent;
-
-   if(protectedPercent <= 0.0)
-     {
-      if(InpUseHighestProfitShareLock)
-         protectedPercent = GetHighestProfitShareLockedPercent();
-      else
-         protectedPercent = GetCurrentBookedLadderBaseFloorPercent();
-     }
-
-   return(MathMax(0.0,protectedPercent));
-  }
-
-//+------------------------------------------------------------------+
-double GetDashboardProfitProtectedEquity()
-  {
-   double protectedPercent = GetDashboardProfitProtectedPercent();
-   if(protectedPercent <= 0.0)
-      return(0.0);
-
-   if(g_profitPercentProtectedEquity > 0.0 &&
-      MathAbs(g_profitPercentProtectedPercent-protectedPercent) < 0.01)
-      return(g_profitPercentProtectedEquity);
-
-   return(GetDailyProfitLadderEquity(protectedPercent));
-  }
-
-//+------------------------------------------------------------------+
-double GetDashboardProfitTriggerPercent()
-  {
-   double protectedPercent = GetDashboardProfitProtectedPercent();
-   if(protectedPercent <= 0.0)
-      return(0.0);
-
-   return(GetDailyProfitLadderCloseTriggerPercent(protectedPercent));
-  }
-
-//+------------------------------------------------------------------+
-double GetDashboardProfitTriggerEquity()
-  {
-   double triggerPercent = GetDashboardProfitTriggerPercent();
-   if(triggerPercent <= 0.0)
-      return(0.0);
-
-   return(GetDailyProfitLadderEquity(triggerPercent));
-  }
-
-//+------------------------------------------------------------------+
-string CompactProfitPeakNowText()
-  {
-   double currentPercent = GetDailyEquityProfitPercent(AccountEquity());
-   double peakPercent    = MathMax(g_profitPercentPeakPercent,currentPercent);
-
-   return("PEAK " + DoubleToString(peakPercent,2) +
-          "% | NOW " + DoubleToString(currentPercent,2) + "%");
-  }
-
-//+------------------------------------------------------------------+
-string CompactProfitProtectedText()
-  {
-   double protectedPercent = GetDashboardProfitProtectedPercent();
-
-   if(protectedPercent <= 0.0)
-      return("WAIT TARGET " + CompactProfitTargetText());
-
-   return("LOCK " + DoubleToString(protectedPercent,2) +
-          "% = $" +
-          DoubleToString(GetDashboardProfitProtectedEquity(),2));
-  }
-
-//+------------------------------------------------------------------+
-string CompactProfitTriggerText()
-  {
-   double triggerPercent = GetDashboardProfitTriggerPercent();
-
-   if(triggerPercent <= 0.0)
-      return("NOT ARMED");
-
-   return("TRIG " + DoubleToString(triggerPercent,2) +
-          "% = $" +
-          DoubleToString(GetDashboardProfitTriggerEquity(),2));
-  }
-
-//+------------------------------------------------------------------+
-string CompactProfitLockRoomText()
-  {
-   double triggerEquity = GetDashboardProfitTriggerEquity();
-   if(triggerEquity <= 0.0)
-      return("NOT ARMED");
-
-   double roomUSD = AccountEquity() - triggerEquity;
-   double roomPct = GetDailyEquityProfitPercent(AccountEquity()) -
-                    GetDashboardProfitTriggerPercent();
-
-   return("ROOM $" + DoubleToString(roomUSD,2) +
-          " / " + DoubleToString(roomPct,2) + "%");
-  }
-
-//+------------------------------------------------------------------+
-color CompactProfitLockRoomColor()
-  {
-   double triggerEquity = GetDashboardProfitTriggerEquity();
-   if(triggerEquity <= 0.0)
-      return(clrSilver);
-
-   double roomPct = GetDailyEquityProfitPercent(AccountEquity()) -
-                    GetDashboardProfitTriggerPercent();
-
-   if(roomPct < 0.0)
-      return(clrOrangeRed);
-   if(roomPct < 1.0)
-      return(clrYellow);
-
-   return(clrLime);
-  }
-
-//+------------------------------------------------------------------+
-string CompactLossStopText()
-  {
-   return("-" + DoubleToString(MathMax(0.0,InpLossStopPercent),1) +
-          "% = $" + DoubleToString(g_lossStopEquityLevel,2));
-  }
-
-//+------------------------------------------------------------------+
 string CompactNormalGateSummary()
   {
    if(g_entryDiagBlockedCount > 0)
@@ -24820,22 +24503,12 @@ void DrawCompactDashboard(string status)
                 " | CYCLE "+IntegerToString(g_sarCycleOrdersCreated)+
                 "/"+IntegerToString(g_sarCycleMaxOrders),
                 DirectionColor(g_activeSARDirection),leftChars);
-   string compactModeAction = (IsAutoMarketTradingPaused()?"BLOCK":"ALLOW");
-   color compactModeColor = IsAutoMarketTradingPaused()?clrOrangeRed:MarketFlowModeColor();
-   if(g_autoMarketMode == DXB_MARKET_MODE_MIXED &&
-      InpAutoModePauseOrdersInMixed &&
-      InpAutoModeBlockNormalSAROnlyInMixed)
-     {
-      compactModeAction = "SAR-BLOCK";
-      compactModeColor = clrOrangeRed;
-     }
-
    CompactXYRow("DXB_COMPACT_LEFT_ROW_",leftRow,leftX+10,sideY+28,
                 "MODE / MOVE",
                 g_autoMarketModeText+" | "+
                 DoubleToString(g_autoMarketMoveRaw,0)+" RAW | "+
-                compactModeAction,
-                compactModeColor,leftChars);
+                (IsAutoMarketTradingPaused()?"BLOCK":"ALLOW"),
+                IsAutoMarketTradingPaused()?clrOrangeRed:MarketFlowModeColor(),leftChars);
    CompactXYRow("DXB_COMPACT_LEFT_ROW_",leftRow,leftX+10,sideY+28,
                 "H1 / SPEED",
                 DirectionText(GetH1TrendDirection())+" / "+g_tickSpeedStatus,
@@ -24883,7 +24556,7 @@ void DrawCompactDashboard(string status)
    // RIGHT: account, dynamic lot, targets and risk.
    DrawCornerPanel("DXB_COMPACT_RIGHT_PANEL",
                    CORNER_LEFT_UPPER,
-                   rightX,sideY,sideW,425,
+                   rightX,sideY,sideW,350,
                    clrBlack,clrDimGray);
 
    DrawCornerLabel("DXB_COMPACT_RIGHT_TITLE",
@@ -24909,7 +24582,7 @@ void DrawCompactDashboard(string status)
                      DoubleToString(GetDailyProfitLadderPercent(1),0) +
                      "% | LOCK " +
                      DoubleToString(InpHighestProfitLockSharePercent,0) +
-                     "% | UNLIMITED"
+                     "% OF PEAK | UNLIMITED"
                    : DailyProfitLadderTargetProtectText(0) +
                      " | FINAL $" +
                      DoubleToString(g_profitLadderLevel6Equity,2))
@@ -24917,20 +24590,7 @@ void DrawCompactDashboard(string status)
                   DoubleToString(g_profitTargetEquity,2),
                 clrLime,rightChars);
    CompactXYRow("DXB_COMPACT_RIGHT_ROW_",rightRow,rightX+10,sideY+28,
-                "PROFIT TARGET",CompactProfitTargetText(),clrLime,rightChars);
-   CompactXYRow("DXB_COMPACT_RIGHT_ROW_",rightRow,rightX+10,sideY+28,
-                "PEAK / NOW",CompactProfitPeakNowText(),clrAqua,rightChars);
-   CompactXYRow("DXB_COMPACT_RIGHT_ROW_",rightRow,rightX+10,sideY+28,
-                "PROTECTED EQ",CompactProfitProtectedText(),
-                GetDashboardProfitProtectedPercent()>0.0?clrYellow:clrSilver,rightChars);
-   CompactXYRow("DXB_COMPACT_RIGHT_ROW_",rightRow,rightX+10,sideY+28,
-                "LOCK TRIGGER",CompactProfitTriggerText(),
-                GetDashboardProfitTriggerPercent()>0.0?clrOrange:clrSilver,rightChars);
-   CompactXYRow("DXB_COMPACT_RIGHT_ROW_",rightRow,rightX+10,sideY+28,
-                "LOCK ROOM",CompactProfitLockRoomText(),
-                CompactProfitLockRoomColor(),rightChars);
-   CompactXYRow("DXB_COMPACT_RIGHT_ROW_",rightRow,rightX+10,sideY+28,
-                "LOSS LIMIT",CompactLossStopText(),clrRed,rightChars);
+                "LOSS -20%","$"+DoubleToString(g_lossStopEquityLevel,2),clrRed,rightChars);
    CompactXYRow("DXB_COMPACT_RIGHT_ROW_",rightRow,rightX+10,sideY+28,
                 "EQUITY CHANGE",DoubleToString(CompactEquityChangePercent(),2)+"%",
                 CompactEquityChangePercent()>=0?clrLime:clrOrangeRed,rightChars);
@@ -25051,10 +24711,7 @@ void DrawLegacyDashboard(string status)
                g_entryDiagBlockedCount > 0 ? clrOrangeRed : clrLime);
    RightProRow("MAJOR MODE",
                g_autoMarketModeText +
-               ((g_autoMarketMode == DXB_MARKET_MODE_MIXED &&
-                 InpAutoModePauseOrdersInMixed &&
-                 InpAutoModeBlockNormalSAROnlyInMixed)
-                ? " | SAR50" : (IsAutoMarketTradingPaused() ? " | BLOCK" : " | ALLOW")),
+               (IsAutoMarketTradingPaused() ? " | BLOCK" : " | ALLOW"),
                MarketFlowModeColor());
    RightProRow("--- TRADING ---","",clrDimGray);
    RightProRow("Lot Size",DoubleToString(GetCurrentTradingLot(),2),clrWhite);
