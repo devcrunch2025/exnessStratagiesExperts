@@ -841,7 +841,7 @@ int    InpTesterServerGMTOffsetHours =0;//4;// 0; // Strategy Tester only: GMT0 
 // Example: "6,7,11,12" blocks 06:00-06:59, 07:00-07:59, 11:00-11:59, 12:00-12:59 GMT0.
 // string InpNoNewOrderHourList      = "6,7,11,12,13,14,15,16,17,18,19,20,21,22,23"; // GMT0 / UTC only
 // string InpNoNewOrderHourList      = "11,12,13,14,15,16,17,18,19,20"; // GMT0 / UTC only
-string InpNoNewOrderHourList      = "11,12,13,14,15,16,17,18"; // GMT0 / UTC only
+string InpNoNewOrderHourList      = "0,12,13,14,15,16,17,18,19,20"; // GMT0 / UTC only
 // string InpNoNewOrderHourListDubia      = "4,15,16,17,18,19,20"; // GMT0 / UTC only
 
 
