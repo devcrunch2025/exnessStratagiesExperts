@@ -60,7 +60,7 @@ double InpMinGapWhenMaxOrdersMoreThanOne = 100.0; // when InpMaxOrders > 1, enfo
 
 #define DXB_HARD_MAX_OPEN_ORDERS 6  // absolute safety cap for normal SAR orders per cycle
 
-double InpBasketProfitUSD         = 0.50;  // X1 base: custom ladder starts $0.50, $0.75, $0.875, $1.00...
+double InpBasketProfitUSD         = 0.30;//0.50;  // X1 base: custom ladder starts $0.50, $0.75, $0.875, $1.00...
 double InpProfitTargetPercent      = 20;//10.0; // legacy fixed target used only when percentage ladder is OFF
 
 //================ UNLIMITED PROFIT + HIGHEST-SHARE PROTECT =========
@@ -835,12 +835,15 @@ int    InpGoodMarketPendingRetrySeconds           = 3;
 //         GMT0 server/tester=0, GMT+2 server/tester=2.
 bool   InpUseNoNewOrderHours      = true;
 bool   InpApplyNoNewOrderHoursInTesting = true;
-int    InpTesterServerGMTOffsetHours = 0; // Strategy Tester only: GMT0 server=0, GMT+2 server=2. Blocked hours remain GMT0.
+int    InpTesterServerGMTOffsetHours =0;//4;// 0; // Strategy Tester only: GMT0 server=0, GMT+2 server=2. Blocked hours remain GMT0.
 
 // Single source of truth. Do not create Dubai/server-hour copies.
 // Example: "6,7,11,12" blocks 06:00-06:59, 07:00-07:59, 11:00-11:59, 12:00-12:59 GMT0.
 // string InpNoNewOrderHourList      = "6,7,11,12,13,14,15,16,17,18,19,20,21,22,23"; // GMT0 / UTC only
-string InpNoNewOrderHourList      = "11,12,13,14,15,16,17,18,19,20"; // GMT0 / UTC only
+// string InpNoNewOrderHourList      = "11,12,13,14,15,16,17,18,19,20"; // GMT0 / UTC only
+string InpNoNewOrderHourList      = "11,12,13,14,15,16,17,18"; // GMT0 / UTC only
+// string InpNoNewOrderHourListDubia      = "4,15,16,17,18,19,20"; // GMT0 / UTC only
+
 
 //================ GMT0 END-OF-DAY SPECIAL ORDERS ===================
 // Controlled special order window for the strong end-of-day BTC flow.
@@ -18979,7 +18982,14 @@ void OnTimer()
 //+------------------------------------------------------------------+
 void OnTick()
   {
-
+Print("TIME CHECK | Tester/Server=",
+      TimeToString(TimeCurrent(), TIME_DATE|TIME_SECONDS),
+      " | EA_GMT0=",
+      TimeToString(GetGMT0Time(), TIME_DATE|TIME_SECONDS),
+      " | Offset=",
+      IntegerToString(InpTesterServerGMTOffsetHours),
+      " | NoNewHours=",
+      InpNoNewOrderHourList);
 // ABSOLUTE FIRST GATE: from 23:45:00 through 23:59:59 no other
 // calculation, order-management path or variable update is allowed to run.
    if(!HandleStrict2345DayEndFreshBoot())
