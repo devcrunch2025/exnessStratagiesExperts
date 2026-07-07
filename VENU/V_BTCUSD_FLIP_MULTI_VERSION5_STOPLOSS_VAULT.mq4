@@ -594,11 +594,12 @@ bool   InpSendTerminalAlerts          = false;    // desktop popup alert
 bool   InpNotifyOnProfitLock          = true;    // one pause-reason notification when daily profit locks
 bool   InpNotifyOnEquityStop          = true;    // one pause-reason notification when daily loss locks
 bool   InpNotifyOnEquityRestart       = true;    // notify when trading restarts after reset hour
-bool   InpNotifyOnEAStart             = false;   // generic attach/reload alert disabled by default
+bool   InpNotifyOnEAStart             = true;    // one push when EA OnInit/load completes
+bool   InpNotifyOnFirstTick           = true;    // one push when the first OnTick is received after load
 // Strict fresh-boot lifecycle notifications. Push delivery uses the existing
 // InpSendPushNotifications switch; desktop popup uses InpSendTerminalAlerts.
-bool   InpNotifyOnDayEndResetStarted   = true;   // one push when strict 23:45 GMT0 reset begins
-bool   InpNotifyOnFreshDayStart         = true;   // one push when InpUseFreshDayStart new-day reset starts
+bool   InpNotifyOnDayEndResetStarted   = false;  // OFF by default: avoid extra day-end reset push
+bool   InpNotifyOnFreshDayStart         = false;  // OFF by default: day-start push is sent by InpNotifyOnNewDayTradingStarted
 bool   InpNotifyOnNewDayTradingStarted = true;   // one push after all 00:00 restart/resume holds finish
 int    InpNewDayNotifyWindowMinutes     = 15;     // allow NEW DAY alert only from 00:00 through 00:15 GMT0
 
@@ -613,6 +614,7 @@ bool   InpNotifyOnConsecutiveSLPause     = true;
 bool   InpNotifyOnHalfLossPause          = true;
 bool   InpNotifyOnSideLossPause          = true;
 bool   InpNotifyOnOppositeDirectionPause = true;
+bool   InpTradingPauseNotifyOnePerDay   = false;  // false = one per reason/day; true = only first pause reason/day
 
 
 // Continuous order controls
@@ -2612,6 +2614,84 @@ void SendEAAlert(string eventTitle, string details)
   }
 
 //+------------------------------------------------------------------+
+//| One-time EA status push helper.                                  |
+//+------------------------------------------------------------------+
+void SendEAStatusNotification(string eventTitle,string details)
+  {
+   string msg = InpEAName + " | " + Symbol() + " | " +
+                eventTitle + " | " + details;
+
+   if(StringLen(msg) > 250)
+      msg = StringSubstr(msg,0,250);
+
+   Print("EA STATUS NOTIFICATION | ",msg);
+
+   if(InpSendTerminalAlerts)
+      Alert(msg);
+
+   if(InpSendPushNotifications && !IsTesting())
+     {
+      ResetLastError();
+      if(!SendNotification(msg))
+        {
+         int errorCode = GetLastError();
+         Print("EA STATUS PUSH FAILED | Event=",eventTitle,
+               " | Error=",errorCode);
+         ResetLastError();
+        }
+     }
+  }
+
+//+------------------------------------------------------------------+
+//| Send exactly once from OnInit/load.                              |
+//+------------------------------------------------------------------+
+void NotifyEALoadedOnce()
+  {
+   if(!InpNotifyOnEAStart)
+      return;
+
+   string details =
+      "ONINIT LOADED" +
+      " | Account " + IntegerToString(AccountNumber()) +
+      " | Magic " + IntegerToString(InpMagicNumber) +
+      " | Balance $" + DoubleToString(AccountBalance(),2) +
+      " | Equity $" + DoubleToString(AccountEquity(),2) +
+      " | GMT0 " + TimeToString(GetGMT0Time(),TIME_DATE|TIME_SECONDS) +
+      " | Status " + g_freshDayStatus;
+
+   SendEAStatusNotification("EA LOADED",details);
+  }
+
+//+------------------------------------------------------------------+
+//| Send exactly once from the first OnTick after EA load.           |
+//+------------------------------------------------------------------+
+void NotifyFirstTickReceivedOnce()
+  {
+   if(!InpNotifyOnFirstTick || g_firstTickNotificationSent)
+      return;
+
+   g_firstTickNotificationSent = true;
+
+   string details =
+      "FIRST ONTICK" +
+      " | Bid " + DoubleToString(Bid,Digits) +
+      " | Ask " + DoubleToString(Ask,Digits) +
+      " | Spread " + DoubleToString(MarketInfo(Symbol(),MODE_SPREAD),0) +
+      " | GMT0 " + TimeToString(GetGMT0Time(),TIME_DATE|TIME_SECONDS) +
+      " | ActiveHours " + GetActiveNoNewOrderHourList();
+
+   SendEAStatusNotification("FIRST TICK RECEIVED",details);
+
+   Print("FIRST TICK EQUITY SETTINGS",
+         " | LossPercent=",DoubleToString(InpLossStopPercent,2),
+         " | LossStopEquity=$",DoubleToString(g_lossStopEquityLevel,2),
+         " | ProfitMode=",
+         (InpUseDailyProfitPercentLadder
+          ? "LADDER " + DailyProfitLadderTargetProtectText(2)
+          : "FIXED " + DoubleToString(InpProfitTargetPercent,2) + "%"));
+  }
+
+//+------------------------------------------------------------------+
 //| Legacy comment classifiers                                        |
 //| Creation of these micro order types has been removed.             |
 //| These helpers remain only to classify old open/history orders.    |
@@ -4318,6 +4398,7 @@ void ProcessCreatedClosedPushNotifications()
 
 int g_onInitTickCount = 0;
 int  g_tickConfirmationCount = 0;
+bool g_firstTickNotificationSent = false;
 
 // Live tick-speed engine state. BUY/SELL trading logic does not depend on it.
 uint     g_tickSpeedWindowStartMs       = 0;
@@ -7384,8 +7465,13 @@ void SendFreshBootLifecycleNotification(string eventTitle,
 //+------------------------------------------------------------------+
 string GetTradingPauseNotifyGlobalKey(string reasonCode)
   {
-   // One pause-reason push per account/symbol/date, shared by all chart copies.
-   return("DXB_V5_TRADING_PAUSE_" + reasonCode + "_" +
+   // Default: one push per pause reason per GMT0 day.
+   // Optional strict mode: only the first pause reason of the day sends a push.
+   string code = reasonCode;
+   if(InpTradingPauseNotifyOnePerDay)
+      code = "ANY_REASON";
+
+   return("DXB_V5_TRADING_PAUSE_" + code + "_" +
           IntegerToString(AccountNumber()) + "_" +
           Symbol());
   }
@@ -8158,6 +8244,7 @@ int OnInit()
 
    g_onInitTickCount        = GetTickCount();
    g_tickConfirmationCount = 0;
+   g_firstTickNotificationSent = false;
 
    if(IsStrictDayEndFreshBootWindowNow())
      {
@@ -8196,6 +8283,7 @@ int OnInit()
             " | ReferenceTime=",
             TimeToString(GetFreshDayReferenceTime(),TIME_DATE|TIME_SECONDS));
 
+      NotifyEALoadedOnce();
       Comment(g_dayEndFreshBootStatus);
       return(INIT_SUCCEEDED);
      }
@@ -8265,13 +8353,7 @@ int OnInit()
          " | HistoryCutoff=",
          TimeToString(g_freshDayHistoryCutoffTime,TIME_DATE|TIME_SECONDS));
 
-   if(InpNotifyOnEAStart)
-     {
-      SendEAAlert("EA STARTED",
-                  "Base=$" + DoubleToString(g_baseBalance,2) +
-                  " | Target=$" + DoubleToString(g_profitTargetEquity,2) +
-                  " | LossStop=$" + DoubleToString(g_lossStopEquityLevel,2));
-     }
+   NotifyEALoadedOnce();
 
    return(INIT_SUCCEEDED);
   }
@@ -19155,6 +19237,7 @@ void OnTimer()
 //+------------------------------------------------------------------+
 void OnTick()
   {
+   NotifyFirstTickReceivedOnce();
 
 // ABSOLUTE FIRST GATE: from 23:45:00 through 23:59:59 no other
 // calculation, order-management path or variable update is allowed to run.
@@ -19225,10 +19308,12 @@ void OnTick()
    DrawTickSpeedDashboardPanel();
 
 
-// Print confirmation only for the first two received ticks.
+// Print confirmation only for the first two received ticks. Push notification
+// is handled once by NotifyFirstTickReceivedOnce() at the top of OnTick().
    if(g_tickConfirmationCount < 2)
      {
       g_tickConfirmationCount++;
+
       string msg =
          "EA IS WORKING | TICK RECEIVED | Confirmation " +
          IntegerToString(g_tickConfirmationCount) +
@@ -19239,30 +19324,7 @@ void OnTick()
          " | GMT0 " +
          TimeToString(GetGMT0Time(), TIME_DATE | TIME_SECONDS);
 
-      // Confirmation remains in the Experts log only.
       Print(msg);
-       if(g_tickConfirmationCount < 2)
-
-      SendNotification(msg);
-
-
-       
-       msg =
-        "EQUITY SETTINGS"+
-      " | LossPercent="+ DoubleToString(InpLossStopPercent,2)+
-      " | LossStopEquity=$"+ DoubleToString(g_lossStopEquityLevel,2)+
-      " | ProfitMode="+
-      (InpUseDailyProfitPercentLadder
-       ? "LADDER "+
-         DailyProfitLadderTargetProtectText(2)
-       : "FIXED "+
-         DoubleToString(InpProfitTargetPercent,2)+"%");
-
-      // Confirmation remains in the Experts log only.
-      Print(msg);
-       if(g_tickConfirmationCount < 3)
-
-      SendNotification(msg);
      }
 
 // Send only ORDER CREATED / ORDER CLOSED push events.
