@@ -851,14 +851,15 @@ string InpNoNewOrderHourList      = "11,12,13,14,15,16,17,18,19,20"; // COMMON G
 // If you want day-wise control only, set InpNoNewOrderHourList = "".
 // Example requested:
 //   Monday  0,1,2
-//   Tuesday 3,4
+//   Tuesday 3,4  
+
 // Existing market orders continue normal TP/SL/profit management.
 bool   InpUseDayWiseNoNewOrderHours       = true;
 string InpNoNewOrderHourListSaturday      = "0,1,2,3";
 
 string InpNoNewOrderHourListSunday        = "0,1,2,3";
 string InpNoNewOrderHourListMonday        = "0,1,2,3";
-string InpNoNewOrderHourListTuesday       = "";
+string InpNoNewOrderHourListTuesday       = "0,1,2";
 string InpNoNewOrderHourListWednesday     = "";
 string InpNoNewOrderHourListThursday      = "";
 string InpNoNewOrderHourListFriday        = "";
