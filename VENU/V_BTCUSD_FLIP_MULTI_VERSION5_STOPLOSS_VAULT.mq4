@@ -598,6 +598,7 @@ bool   InpNotifyOnEAStart             = false;   // generic attach/reload alert 
 // Strict fresh-boot lifecycle notifications. Push delivery uses the existing
 // InpSendPushNotifications switch; desktop popup uses InpSendTerminalAlerts.
 bool   InpNotifyOnDayEndResetStarted   = true;   // one push when strict 23:45 GMT0 reset begins
+bool   InpNotifyOnFreshDayStart         = true;   // one push when InpUseFreshDayStart new-day reset starts
 bool   InpNotifyOnNewDayTradingStarted = true;   // one push after all 00:00 restart/resume holds finish
 int    InpNewDayNotifyWindowMinutes     = 15;     // allow NEW DAY alert only from 00:00 through 00:15 GMT0
 
@@ -7271,6 +7272,35 @@ string GetNewDayTradingStartedNotifyGlobalKey()
   }
 
 //+------------------------------------------------------------------+
+string GetFreshDayResetStartedNotifyGlobalKey()
+  {
+   // Shared by all chart/timeframe copies in this MT4 terminal.
+   return("DXB_V5_FRESHDAY_RESET_STARTED_" +
+          IntegerToString(AccountNumber()) + "_" +
+          Symbol());
+  }
+
+//+------------------------------------------------------------------+
+string GetFreshDayResetCompletedNotifyGlobalKey()
+  {
+   // Shared by all chart/timeframe copies in this MT4 terminal.
+   return("DXB_V5_FRESHDAY_RESET_COMPLETED_" +
+          IntegerToString(AccountNumber()) + "_" +
+          Symbol());
+  }
+
+//+------------------------------------------------------------------+
+void MarkFreshDayResetCompletedForNotification(int dateKey)
+  {
+   if(dateKey <= 0)
+      return;
+
+   GlobalVariableSet(GetFreshDayResetCompletedNotifyGlobalKey(),
+                     (double)dateKey);
+   GlobalVariablesFlush();
+  }
+
+//+------------------------------------------------------------------+
 //| Atomically claim a one-notification-per-date marker.             |
 //| GlobalVariableSetOnCondition prevents several charts from        |
 //| sending the same push when they process the same tick together.  |
@@ -7493,6 +7523,28 @@ void NotifyDayEndResetStartedOnce(int dateKey)
   }
 
 //+------------------------------------------------------------------+
+//| Send exactly once when InpUseFreshDayStart begins reset.        |
+//+------------------------------------------------------------------+
+void NotifyFreshDayResetStartedOnce(int dateKey)
+  {
+   if(!InpNotifyOnFreshDayStart || dateKey <= 0)
+      return;
+
+   string key = GetFreshDayResetStartedNotifyGlobalKey();
+
+   // Shared atomic marker prevents duplicate pushes from multi-chart copies.
+   if(!ClaimDailyNotificationMarker(key,dateKey))
+      return;
+
+   string details =
+      "GMT0 " + TimeToString(GetGMT0Time(),TIME_DATE|TIME_SECONDS) +
+      " | DateKey " + IntegerToString(dateKey) +
+      " | Closing/Delete/Reset daily state";
+
+   SendFreshBootLifecycleNotification("FRESH DAY RESET STARTED",details);
+  }
+
+//+------------------------------------------------------------------+
 //| Send after every new-day reload/delay/new-bar hold has finished. |
 //+------------------------------------------------------------------+
 void NotifyNewDayTradingStartedOnce()
@@ -7513,16 +7565,30 @@ void NotifyNewDayTradingStartedOnce()
    if(minuteOfDay > notifyWindow)
       return;
 
-   // The shutdown marker must be exactly yesterday's GMT0 date. An older
-   // stale marker is not accepted as proof that last night's reset completed.
+   bool resetProofOK = false;
+
+   // Strict 23:45 proof: yesterday's shutdown marker.
    string resetKey = GetDayEndResetStartedNotifyGlobalKey();
-   if(!GlobalVariableCheck(resetKey))
-      return;
+   if(GlobalVariableCheck(resetKey))
+     {
+      int resetDateKey = (int)GlobalVariableGet(resetKey);
+      int previousDateKey = GetDateKeyFromTime(GetFreshDayReferenceTime()-86400);
 
-   int resetDateKey = (int)GlobalVariableGet(resetKey);
-   int previousDateKey = GetDateKeyFromTime(GetFreshDayReferenceTime()-86400);
+      if(resetDateKey > 0 && resetDateKey == previousDateKey)
+         resetProofOK = true;
+     }
 
-   if(resetDateKey <= 0 || resetDateKey != previousDateKey)
+   // Direct InpUseFreshDayStart proof: today's fresh-day reset completed.
+   string freshCompletedKey = GetFreshDayResetCompletedNotifyGlobalKey();
+   if(!resetProofOK && GlobalVariableCheck(freshCompletedKey))
+     {
+      int completedDateKey = (int)GlobalVariableGet(freshCompletedKey);
+
+      if(completedDateKey > 0 && completedDateKey == currentDateKey)
+         resetProofOK = true;
+     }
+
+   if(!resetProofOK)
       return;
 
    string startedKey = GetNewDayTradingStartedNotifyGlobalKey();
@@ -10805,6 +10871,8 @@ bool HandleFreshDayStart()
    g_freshDayResetInProgress = true;
    g_freshDayStatus = "RESETTING NEW DAY " + IntegerToString(currentDateKey);
 
+   NotifyFreshDayResetStartedOnce(currentDateKey);
+
    string reason = "FRESH DAY START " + IntegerToString(currentDateKey);
 
    if(InpFreshDayDeletePendingOrders)
@@ -10880,6 +10948,8 @@ bool HandleFreshDayStart()
          " | PendingGap=",DoubleToString(GetConfiguredPendingOrderGapRaw(),1),
          " | HistoryCutoff=",
          TimeToString(g_freshDayHistoryCutoffTime,TIME_DATE|TIME_SECONDS));
+
+   MarkFreshDayResetCompletedForNotification(currentDateKey);
 
    return(true);
   }
