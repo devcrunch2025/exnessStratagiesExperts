@@ -142,7 +142,7 @@ double InpProfitLadderReturnBufferPercent     = 0.0;
 // When AccountEquity falls to the buffered lock trigger, all EA orders are
 // closed/deleted and trading pauses until the next equity/fresh-day reset.
 bool   InpUseHighestProfitShareLock           = true;
-double InpHighestProfitLockSharePercent       = 50.00; // protect this share of the highest total daily profit
+double InpHighestProfitLockSharePercent       = 70;//50.00; // protect this share of the highest total daily profit
 
 // Unlimited mode: the old 50% final target is not used by the share-lock path.
 
@@ -302,11 +302,13 @@ double InpBasketHalfTPAfterMinutesMultiplier = 0.50;
 //   MIXED      $0.50 + FAST x2.00 = locked SL $1.00
 //   DANGER     $1.00 + DANGER x3.00 = locked SL $3.00
 // Change these values independently according to your tested risk limits.
-double InpBasketStopLossUSD              = 0.50; // fallback/simple-side SL, 0 = disabled
-double InpContinuousTrendBasketSLUSD     = 0.50;
-double InpMediumTrendBasketSLUSD         = 0.75;
-double InpMixedTrendBasketSLUSD          = 0.50;
-double InpDangerModeBasketSLUSD          = 1.00;
+double InpBasketStopLossUSD              = 1.25;//0.50; // fallback/simple-side SL, 0 = disabled
+double InpContinuousTrendBasketSLUSD     = 1.25;//0.50;
+double InpMediumTrendBasketSLUSD         = 1.25;//0.75;
+double InpMixedTrendBasketSLUSD          = 1.25;//0.50;
+double InpDangerModeBasketSLUSD          = 1.25;//1.00;
+double InpInitialServerSLExtraRawAfterHalfLoss =125;//100;// 50.0; // extra RAW price gap for NEW orders after half-loss trigger
+
 
 //================ AVERAGE M1 CANDLE BASKET SL ======================
 // Calculates the average full candle height (High-Low) of the latest
@@ -322,7 +324,7 @@ bool   InpUseAverageM1CandleBasketSL       = true;
 int    InpAverageM1CandleSLBars            = 10;
 double InpAverageM1CandleSLMultiplier      = 1.25;//1.00;
 int    InpAverageM1CandleSLCombineMode     = 0;
-double InpAverageM1CandleSLMinimumUSD      = 0.50;//0.10;
+double InpAverageM1CandleSLMinimumUSD      = 1.25;//0.50;//0.10;
 double InpAverageM1CandleSLMaximumUSD      = 2.00; // 0 = unlimited
 
 // Simple basket close mode:
@@ -406,7 +408,6 @@ int    InpHalfLossPauseMinutes            =60*2;// 10;//60*4;
 bool   InpResumeHalfLossPauseAfterProfitClose = true;
 bool   InpDeletePendingOnHalfLossPause    = true;
 
-double InpInitialServerSLExtraRawAfterHalfLoss =100;// 50.0; // extra RAW price gap for NEW orders after half-loss trigger
 
 double InpBasketProfitUSD_12_17 = 0.50;//1.00; // profit target during 12,13,14,15,16,17 hours
 
@@ -440,7 +441,7 @@ bool   InpRecoveryGapMustMatchH1Trend = false;
 bool   InpKeepPendingRecoveryGapAfterBlock = false;
 bool   InpOpenPendingRecoveryWhenSARMatches = false;
 
-double InpRecoveryGapRawPrice     = 100;//50;//200.0;   // raw price difference, not points
+double InpRecoveryGapRawPrice     = 500;//100;//50;//200.0;   // raw price difference, not points
 double InpRecoveryGapLot          = 0.01;
 int    InpMaxRecoveryGapOrdersPerSide = 1;  // recovery ladder: 50, 100, 150 from first order price
 
@@ -483,7 +484,7 @@ int    InpMaxSpreadPoints         = 3000;
 //   SAR SELL + BUY  order = InpInitialServerSLAgainstSARUSD
 // If SAR direction is unavailable, the conservative fallback value is used.
 bool   InpUseInitialServerSideOrderSL       = true;
-double InpInitialServerSLWithSARUSD          =1;//0.50;// 2;//0.90;
+double InpInitialServerSLWithSARUSD          =0.70;//0.50;//1.30;//1.5;//2.5;//1.30;//1;//0.50;// 2;//0.90;
 double InpInitialServerSLAgainstSARUSD       =1;//0.50;//1;// 0.50;
 double InpInitialServerSLNoSARDirectionUSD   =2;//3;// 0.50;
 bool   InpInitialServerSLForPending          = true;
@@ -807,7 +808,7 @@ bool   InpBreakoutRequireFastTickSpeed         = true;
 // For a same-SAR replacement after a normal order closes, the last close price
 // is used as the preferred reference; broker/live-price safety may move it farther.
 bool   InpUsePendingOrderEntries             = true;
-double InpPendingOrderRawGap                 = 30.0;
+double InpPendingOrderRawGap                 = 60;//50;//30.0;
 
 // Runtime high-risk pending gap. The base input above is NEVER modified.
 // This prevents a 50-raw value from carrying from one day into the next.
@@ -845,7 +846,11 @@ int    InpTesterServerGMTOffsetHours = 0; // Strategy Tester only: GMT0 server=0
 // Single source of truth. Do not create Dubai/server-hour copies.
 // Example: "6,7,11,12" blocks 06:00-06:59, 07:00-07:59, 11:00-11:59, 12:00-12:59 GMT0.
 // string InpNoNewOrderHourList      = "6,7,11,12,13,14,15,16,17,18,19,20,21,22,23"; // GMT0 / UTC only
-string InpNoNewOrderHourList      = "11,12,13,14,15,16,17,18,19,20"; // COMMON GMT0 / UTC hours blocked every day
+// string InpNoNewOrderHourList      = "11,12,13,14,15,16,17,18,19,20"; // COMMON GMT0 / UTC hours blocked every day
+string InpNoNewOrderHourList      = "11,12,13,14,15,16,17,18"; // COMMON GMT0 / UTC hours blocked every day
+
+//morning Day opening 2 hours , night day closing 2 hours trading
+
 
 //================ DAY-WISE GMT0 NO-NEW-ORDER HOURS ================
 // Optional extra blocked hours by GMT0/UTC weekday.
