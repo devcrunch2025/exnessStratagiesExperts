@@ -302,12 +302,12 @@ double InpBasketHalfTPAfterMinutesMultiplier = 0.50;
 //   MIXED      $0.50 + FAST x2.00 = locked SL $1.00
 //   DANGER     $1.00 + DANGER x3.00 = locked SL $3.00
 // Change these values independently according to your tested risk limits.
-double InpBasketStopLossUSD              = 1.25;//0.50; // fallback/simple-side SL, 0 = disabled
-double InpContinuousTrendBasketSLUSD     = 1.25;//0.50;
-double InpMediumTrendBasketSLUSD         = 1.25;//0.75;
-double InpMixedTrendBasketSLUSD          = 1.25;//0.50;
-double InpDangerModeBasketSLUSD          = 1.25;//1.00;
-double InpInitialServerSLExtraRawAfterHalfLoss =125;//100;// 50.0; // extra RAW price gap for NEW orders after half-loss trigger
+double InpBasketStopLossUSD              = 0.60;//1.25;//0.50; // fallback/simple-side SL, 0 = disabled
+double InpContinuousTrendBasketSLUSD     = 0.60;//1.25;//0.50;
+double InpMediumTrendBasketSLUSD         = 0.60;//1.25;//0.75;
+double InpMixedTrendBasketSLUSD          = 0.60;//1.25;//0.50;
+double InpDangerModeBasketSLUSD          = 0.60;//1.25;//1.00;
+double InpInitialServerSLExtraRawAfterHalfLoss =60;//125;//100;// 50.0; // extra RAW price gap for NEW orders after half-loss trigger
 
 
 //================ AVERAGE M1 CANDLE BASKET SL ======================
@@ -808,7 +808,7 @@ bool   InpBreakoutRequireFastTickSpeed         = true;
 // For a same-SAR replacement after a normal order closes, the last close price
 // is used as the preferred reference; broker/live-price safety may move it farther.
 bool   InpUsePendingOrderEntries             = true;
-double InpPendingOrderRawGap                 = 60;//50;//30.0;
+double InpPendingOrderRawGap                 = 60;//50;//30.0;//pending order server 
 
 // Runtime high-risk pending gap. The base input above is NEVER modified.
 // This prevents a 50-raw value from carrying from one day into the next.
