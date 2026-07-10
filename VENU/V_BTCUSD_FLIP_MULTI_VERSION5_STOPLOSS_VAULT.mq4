@@ -63,7 +63,7 @@ double InpMinGapWhenMaxOrdersMoreThanOne = 100.0; // when InpMaxOrders > 1, enfo
 #define DXB_HARD_MAX_OPEN_ORDERS 6  // absolute safety cap for normal SAR orders per cycle
 
 double InpBasketProfitUSD         = 0.50;  // X1 base: custom ladder starts $0.50, $0.75, $0.875, $1.00...
-double InpProfitTargetPercent      = 20;//10.0; // legacy fixed target used only when percentage ladder is OFF
+double InpProfitTargetPercent      = 1000;//50;//10.0; // legacy fixed target used only when percentage ladder is OFF
 
 //================ UNLIMITED PROFIT + HIGHEST-SHARE PROTECT =========
 // Profit has no fixed final cap. The first activation level starts the
@@ -92,7 +92,7 @@ double InpProfitTargetPercent      = 20;//10.0; // legacy fixed target used only
 // daily equity below 5%, every order is closed and trading stops for the day.
 bool   InpUseDailyProfitPercentLadder       = true;
 
-double InpProfitLadderPercent1              = 5.0;  // first activation for highest-profit share lock
+double InpProfitLadderPercent1              = 21;//5.0;  // first activation for highest-profit share lock
 double InpProfitLadderPercent2              = 30.0;
 double InpProfitLadderPercent3              = 50.0;
 double InpProfitLadderPercent4              = 80.0;
@@ -142,7 +142,7 @@ double InpProfitLadderReturnBufferPercent     = 0.0;
 // When AccountEquity falls to the buffered lock trigger, all EA orders are
 // closed/deleted and trading pauses until the next equity/fresh-day reset.
 bool   InpUseHighestProfitShareLock           = true;
-double InpHighestProfitLockSharePercent       = 70;//50.00; // protect this share of the highest total daily profit
+double InpHighestProfitLockSharePercent       = 80;//70;//50.00; // protect this share of the highest total daily profit
 
 // Unlimited mode: the old 50% final target is not used by the share-lock path.
 
@@ -212,7 +212,7 @@ double InpDynamicBasketReturnBufferUSD     = 0.00;
 //   peak reaches X1.5 $0.75 => advance protection to X1.5
 //   peak reaches X1.75      => advance protection to X1.75, continuing by X0.25
 // Close only when current profit comes back to the highest protected value.
-double InpDynamicBasketMinimumArmUSD       =0.40;// 0.10;//0.15;//0.20;//before Dynamic profit
+double InpDynamicBasketMinimumArmUSD       =0.10;//0.40;// 0.10;//0.15;//0.20;//before Dynamic profit
 double InpDynamicBasketMinimumCloseUSD     = 0.00;//0.02;//0.05;//0.10;//0.10;//before Dynamic profit
 bool   InpBlockSoftCloseBelowMinProfit     = true; // block SAR/weak/early soft close below min profit
 
@@ -302,12 +302,12 @@ double InpBasketHalfTPAfterMinutesMultiplier = 0.50;
 //   MIXED      $0.50 + FAST x2.00 = locked SL $1.00
 //   DANGER     $1.00 + DANGER x3.00 = locked SL $3.00
 // Change these values independently according to your tested risk limits.
-double InpBasketStopLossUSD              = 0.60;//1.25;//0.50; // fallback/simple-side SL, 0 = disabled
-double InpContinuousTrendBasketSLUSD     = 0.60;//1.25;//0.50;
-double InpMediumTrendBasketSLUSD         = 0.60;//1.25;//0.75;
-double InpMixedTrendBasketSLUSD          = 0.60;//1.25;//0.50;
-double InpDangerModeBasketSLUSD          = 0.60;//1.25;//1.00;
-double InpInitialServerSLExtraRawAfterHalfLoss =60;//125;//100;// 50.0; // extra RAW price gap for NEW orders after half-loss trigger
+double InpBasketStopLossUSD              =0.51;// 0.31;//0.11;//0.60;//1.25;//0.50; // fallback/simple-side SL, 0 = disabled
+double InpContinuousTrendBasketSLUSD     =0.51;// 0.31;//0.11;//0.60;//1.25;//0.50;
+double InpMediumTrendBasketSLUSD         =0.51;// 0.31;//0.11;//0.60;//1.25;//0.75;
+double InpMixedTrendBasketSLUSD          =0.51;// 0.31;//0.11;//0.60;//1.25;//0.50;
+double InpDangerModeBasketSLUSD          =0.51;// 0.31;//0.31;//0.11;//0.60;//1.25;//1.00;
+double InpInitialServerSLExtraRawAfterHalfLoss =11;//60;//125;//100;// 50.0; // extra RAW price gap for NEW orders after half-loss trigger
 
 
 //================ AVERAGE M1 CANDLE BASKET SL ======================
@@ -320,7 +320,7 @@ double InpInitialServerSLExtraRawAfterHalfLoss =60;//125;//100;// 50.0; // extra
 //   0 = replace the normal market-mode basket SL with average-candle SL
 //   1 = use the smaller/tighter value
 //   2 = use the larger/wider value
-bool   InpUseAverageM1CandleBasketSL       = true;
+bool   InpUseAverageM1CandleBasketSL       = false;
 int    InpAverageM1CandleSLBars            = 10;
 double InpAverageM1CandleSLMultiplier      = 1.25;//1.00;
 int    InpAverageM1CandleSLCombineMode     = 0;
@@ -390,7 +390,7 @@ bool   InpUseMarketModeFilterProfiles = true;
 int    InpOppositeDirectionProfitStreakOrders = 2;
 int    InpOppositeDirectionPauseMinutes = 30;
 
-double InpLossStopPercent          = 15;//20;//10;//20.0; // full day loss lock percent
+double InpLossStopPercent          = 7;//11;//15;//20;//10;//20.0; // full day loss lock percent
 
 // Half-loss cooling pause:
 // When equity uses this percentage of the configured InpLossStopPercent
@@ -401,8 +401,8 @@ double InpLossStopPercent          = 15;//20;//10;//20.0; // full day loss lock 
 // The pause triggers only once per equity cycle, then trading resumes after
 // InpHalfLossPauseMinutes even if equity is still below the warning level.
 bool   InpUseHalfLossPause                = true;
-double InpHalfLossPauseTriggerPercent     = 50.0; // percentage of InpLossStopPercent, not account percent
-int    InpHalfLossPauseMinutes            =60*2;// 10;//60*4;
+double InpHalfLossPauseTriggerPercent     = 1;//30;//50.0; // percentage of InpLossStopPercent, not account percent
+int    InpHalfLossPauseMinutes            =1;//60*2;// 10;//60*4;
 // Resume the half-loss cooling pause early when any EA market order closes in net profit.
 // The pause is still one-shot for the current equity cycle, so it will not trigger again until reset.
 bool   InpResumeHalfLossPauseAfterProfitClose = true;
@@ -484,7 +484,7 @@ int    InpMaxSpreadPoints         = 3000;
 //   SAR SELL + BUY  order = InpInitialServerSLAgainstSARUSD
 // If SAR direction is unavailable, the conservative fallback value is used.
 bool   InpUseInitialServerSideOrderSL       = true;
-double InpInitialServerSLWithSARUSD          =0.70;//0.50;//1.30;//1.5;//2.5;//1.30;//1;//0.50;// 2;//0.90;
+double InpInitialServerSLWithSARUSD          =0.55;//1.30;//1.5;//2.5;//1.30;//1;//0.50;// 2;//0.90;
 double InpInitialServerSLAgainstSARUSD       =1;//0.50;//1;// 0.50;
 double InpInitialServerSLNoSARDirectionUSD   =2;//3;// 0.50;
 bool   InpInitialServerSLForPending          = true;
@@ -667,7 +667,7 @@ double InpTickSpeedBaselineSmoothing       = 0.15;
 // Continuous/Medium/Mixed/Danger. The selected USD loss is frozen for that
 // side until the complete side basket closes. It can never widen later because
 // of either a tick-speed change or a market-mode change while already open.
-bool   InpUseTickSpeedAdaptiveBasketSL       = true;
+bool   InpUseTickSpeedAdaptiveBasketSL       = false;
 double InpTickSpeedSlowSLMultiplier          = 1.25; // slower market may use slightly wider base SL
 double InpTickSpeedNormalSLMultiplier        = 1.00; // normal market uses the selected mode base SL
 double InpTickSpeedFastSLMultiplier          = 2;//0.75; // fast market reduces risk instead of widening SL
@@ -808,7 +808,7 @@ bool   InpBreakoutRequireFastTickSpeed         = true;
 // For a same-SAR replacement after a normal order closes, the last close price
 // is used as the preferred reference; broker/live-price safety may move it farther.
 bool   InpUsePendingOrderEntries             = true;
-double InpPendingOrderRawGap                 = 60;//50;//30.0;//pending order server 
+double InpPendingOrderRawGap                 = 20;//60;//50;//30.0;//pending order server 
 
 // Runtime high-risk pending gap. The base input above is NEVER modified.
 // This prevents a 50-raw value from carrying from one day into the next.
@@ -847,7 +847,9 @@ int    InpTesterServerGMTOffsetHours = 0; // Strategy Tester only: GMT0 server=0
 // Example: "6,7,11,12" blocks 06:00-06:59, 07:00-07:59, 11:00-11:59, 12:00-12:59 GMT0.
 // string InpNoNewOrderHourList      = "6,7,11,12,13,14,15,16,17,18,19,20,21,22,23"; // GMT0 / UTC only
 // string InpNoNewOrderHourList      = "11,12,13,14,15,16,17,18,19,20"; // COMMON GMT0 / UTC hours blocked every day
-string InpNoNewOrderHourList      = "11,12,13,14,15,16,17,18"; // COMMON GMT0 / UTC hours blocked every day
+// string InpNoNewOrderHourList      = "11,12,13,14,15,16,17,18"; // COMMON GMT0 / UTC hours blocked every day
+string InpNoNewOrderHourList      = "0,11,12,13,14,15,16,17,18,19,20,21"; // COMMON GMT0 / UTC hours blocked every day
+
 
 //morning Day opening 2 hours , night day closing 2 hours trading
 
@@ -903,7 +905,7 @@ bool   InpEODSpecialStopAfterStopLoss       = true;
 // every new entry path for 120 minutes. Existing market orders remain managed.
 bool   InpUseConsecutiveSLPause       = true;
 int    InpConsecutiveSLPauseCount     = 2;
-int    InpConsecutiveSLPauseMinutes   = 120;
+int    InpConsecutiveSLPauseMinutes   = 30;//60*2;
 bool   InpDeletePendingOnSLPause      = true;
 bool   InpResetSLStreakOnProfitClose  = true;
 
@@ -993,8 +995,8 @@ bool   InpUseRepeatedPriceGapConfirm = true;
 double InpContinuousOrderPriceGap    = 10;//10.0; //30  // raw price gap required from last confirmed normal order
 int    InpContinuousOrderGapMinutes  = 1;      // wait this many minutes after last order, then verify price gap
 
-double InpSARConfirmPriceDiff     =0;// 20;//80.0;   // SAR signal-change raw price diff confirmation only
-int    InpSARConfirmMinutes       = 5;      // used by the full profile only
+double InpSARConfirmPriceDiff     =10;//0;// 20;//80.0;   // SAR signal-change raw price diff confirmation only
+int    InpSARConfirmMinutes       = 1;//5;      // used by the full profile only
 
 // BUY-only stronger confirmation.
 // SELL keeps the normal configured score and confirmation distance.
