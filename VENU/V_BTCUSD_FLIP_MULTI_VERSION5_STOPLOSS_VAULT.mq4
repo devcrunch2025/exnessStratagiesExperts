@@ -62,8 +62,8 @@ double InpMinGapWhenMaxOrdersMoreThanOne = 100.0; // when InpMaxOrders > 1, enfo
 
 #define DXB_HARD_MAX_OPEN_ORDERS 6  // absolute safety cap for normal SAR orders per cycle
 
-double InpBasketProfitUSD         = 0.50;  // X1 base: custom ladder starts $0.50, $0.75, $0.875, $1.00...
-double InpProfitTargetPercent      = 1000;//50;//10.0; // legacy fixed target used only when percentage ladder is OFF
+double InpBasketProfitUSD         = 0.30;  // X1 base: custom ladder starts $0.50, $0.75, $0.875, $1.00...
+double InpProfitTargetPercent      = 1000;//200;//100;//50;//100;//50;//10.0; // legacy fixed target used only when percentage ladder is OFF
 
 //================ UNLIMITED PROFIT + HIGHEST-SHARE PROTECT =========
 // Profit has no fixed final cap. The first activation level starts the
@@ -100,7 +100,7 @@ double InpProfitLadderPercent5              = 100.0;
 double InpProfitLadderPercent6              = 150.0;
 
 double InpProfitLadderProtectPercent1       = 10;//8.0;
-double InpProfitLadderProtectPercent2       = 10.0;
+double InpProfitLadderProtectPercent2       = 15.0;
 double InpProfitLadderProtectPercent3       = 25.0;
 double InpProfitLadderProtectPercent4       = 50.0;
 double InpProfitLadderProtectPercent5       = 80.0;
@@ -142,7 +142,7 @@ double InpProfitLadderReturnBufferPercent     = 0.0;
 // When AccountEquity falls to the buffered lock trigger, all EA orders are
 // closed/deleted and trading pauses until the next equity/fresh-day reset.
 bool   InpUseHighestProfitShareLock           = true;
-double InpHighestProfitLockSharePercent       = 80;//70;//50.00; // protect this share of the highest total daily profit
+double InpHighestProfitLockSharePercent       = 81;//80;//70;//50.00; // protect this share of the highest total daily profit
 
 // Unlimited mode: the old 50% final target is not used by the share-lock path.
 
@@ -213,7 +213,7 @@ double InpDynamicBasketReturnBufferUSD     = 0.00;
 //   peak reaches X1.75      => advance protection to X1.75, continuing by X0.25
 // Close only when current profit comes back to the highest protected value.
 double InpDynamicBasketMinimumArmUSD       =0.10;//0.40;// 0.10;//0.15;//0.20;//before Dynamic profit
-double InpDynamicBasketMinimumCloseUSD     = 0.00;//0.02;//0.05;//0.10;//0.10;//before Dynamic profit
+double InpDynamicBasketMinimumCloseUSD     = 0.05;//0.02;//0.05;//0.10;//0.10;//before Dynamic profit
 bool   InpBlockSoftCloseBelowMinProfit     = true; // block SAR/weak/early soft close below min profit
 
 // Server-first / closed-result daily accounting mode:
@@ -865,11 +865,11 @@ string InpNoNewOrderHourList      = "0,11,12,13,14,15,16,17,18,19,20,21"; // COM
 
 // Existing market orders continue normal TP/SL/profit management.
 bool   InpUseDayWiseNoNewOrderHours       = true;
-string InpNoNewOrderHourListSaturday      = "0,1,2,3";
+string InpNoNewOrderHourListSaturday      = "";//"0,1,2,3";
 
-string InpNoNewOrderHourListSunday        = "0,1,2,3";
-string InpNoNewOrderHourListMonday        = "0,1,2,3";
-string InpNoNewOrderHourListTuesday       = "0,1,2";
+string InpNoNewOrderHourListSunday        = "";//"0,1,2,3";
+string InpNoNewOrderHourListMonday        = "";//"0,1,2,3";
+string InpNoNewOrderHourListTuesday       = "";//"0,1,2";
 string InpNoNewOrderHourListWednesday     = "";
 string InpNoNewOrderHourListThursday      = "";
 string InpNoNewOrderHourListFriday        = "";
@@ -1096,13 +1096,13 @@ bool   InpUseSARDurationDynamicLimit = true;
 int    InpSARDurationScanBars        = 1500;   // historical bars to scan for SAR changes
 
 int    InpSARVeryLongDurationMinutes = 60;    // opposite duration >=120 min => max 0
-int    InpSARVeryLongDurationMaxOrders =2;//1;// 4;
+int    InpSARVeryLongDurationMaxOrders =10;//2;//1;// 4;
 
 int    InpSARDurationLongMinutes     = 30;     // opposite duration 60-119 min => max 2
-int    InpSARLongDurationMaxOrders   =2;//1;// 3;
+int    InpSARLongDurationMaxOrders   =10;//2;//1;// 3;
 
 int    InpSARDurationMediumMinutes   = 10;     // opposite duration 30-59 min => max 5
-int    InpSARMediumDurationMaxOrders =1;//2;// 1;
+int    InpSARMediumDurationMaxOrders =10;//1;//2;// 1;
 
 int    InpSARNormalDurationMaxOrders = 10;     // opposite duration <30 min or no data => max 10
 
@@ -1137,7 +1137,7 @@ int    InpSARGoodMomentumMinSameCandles = 1;
 // need to keep changing fixed BTC price values every week.
 bool   InpUseDynamicSAREngine              = true;
 bool   InpBlockNewOrdersWhenSARWeak        = true;
-bool   InpBlockFastSARFlip                 = true;
+bool   InpBlockFastSARFlip                 = false;//true;
 
 // STRICT SAR SCORE ENTRY:
 // Every NEW market order must reach this score before OrderSend.
@@ -5714,6 +5714,7 @@ bool ProcessOppositeImpulseContinuation()
       g_oppositeImpulseStatus = "WAIT ORDER GAP / PENDING SLOT";
       return(false);
      }
+RefreshRates();
 
    ResetLastError();
    int ticket = OrderSend(Symbol(),
@@ -5745,6 +5746,9 @@ bool ProcessOppositeImpulseContinuation()
             " | Body=",DoubleToString(g_oppositeImpulseBodyPercent,1),"%",
             " | ExitWick=",DoubleToString(g_oppositeImpulseExitWickPercent,1),"%");
       ResetLastError();
+
+
+      
       return(false);
      }
 
@@ -7191,6 +7195,7 @@ bool ApplyInitialServerSideSLToSelectedOrder()
 
    if(finalSL <= 0.0)
       return(false);
+RefreshRates();
 
    ResetLastError();
    bool modified = OrderModify(OrderTicket(),
@@ -12304,6 +12309,8 @@ double GetConfiguredPendingOrderGapRaw()
 //+------------------------------------------------------------------+
 double GetEffectivePendingOrderGapRaw()
   {
+   RefreshRates();
+
    double requested = GetConfiguredPendingOrderGapRaw();
    double stopRaw   = MarketInfo(Symbol(), MODE_STOPLEVEL)   * Point;
    double freezeRaw = MarketInfo(Symbol(), MODE_FREEZELEVEL) * Point;
@@ -12616,6 +12623,7 @@ bool ProcessGoodMarketFirstOrderContinuation()
          "WAIT ORDER GAP / PENDING SLOT";
       return(false);
      }
+   RefreshRates();
 
    ResetLastError();
    int ticket = OrderSend(Symbol(),
@@ -14027,6 +14035,7 @@ bool ApplyServerSideProfitLock(int orderType,
       int ticket = OrderTicket();
 
       ResetLastError();
+RefreshRates();
 
       bool modified =
          OrderModify(ticket,
@@ -16024,6 +16033,8 @@ bool OpenRecoveryOrder(int direction, string sourceReason, int slReverseStage = 
                                              InpUsePendingOrderEntries,
                                              "AFTER CLOSE RECOVERY"))
       return(false);
+   RefreshRates();
+
 
    int ticket = OrderSend(Symbol(),
                           type,
@@ -16268,6 +16279,7 @@ bool OpenRecoveryGapMarketOrder(int direction, double gapMove, string triggerRea
                                              InpUsePendingOrderEntries,
                                              "RECOVERY GAP"))
       return(false);
+   RefreshRates();
 
    int ticket = OrderSend(Symbol(),
                           type,
@@ -22100,6 +22112,7 @@ bool OpenMarketOrder(int direction, string reason)
    ResetLastError();
 
    string orderComment = MakeSARParentOrderComment(reason);
+   RefreshRates();
 
    int ticket = OrderSend(Symbol(),
                           type,
@@ -24817,8 +24830,23 @@ void DrawCompactDashboard(string status)
                 "$"+DoubleToString(AccountBalance(),2)+
                 " / $"+DoubleToString(AccountEquity(),2),
                 AccountEquity()>=GetEquityCycleAnchor()?clrLime:clrOrangeRed,rightChars);
-   CompactXYRow("DXB_COMPACT_RIGHT_ROW_",rightRow,rightX+10,sideY+28,
-                "OPENING BASE","$"+DoubleToString(g_baseBalance,2),clrWhite,rightChars);
+   // CompactXYRow("DXB_COMPACT_RIGHT_ROW_",rightRow,rightX+10,sideY+28,
+   //              "OPENING BASE","$"+DoubleToString(g_baseBalance,2),clrWhite,rightChars);
+
+
+
+                CompactXYRow(
+   "DXB_COMPACT_RIGHT_ROW_",
+   rightRow,
+   rightX+10,
+   sideY+28,
+   "OPENING BASE",
+   "$"+DoubleToString(g_baseBalance,2)
+   +" | TP "+DoubleToString(InpProfitTargetPercent,0)+"%"
+   +" | SL "+DoubleToString(InpLossStopPercent,0)+"%",
+   clrWhite,
+   rightChars
+);
    CompactXYRow("DXB_COMPACT_RIGHT_ROW_",rightRow,rightX+10,sideY+28,
                 "PROFIT LADDER",
                 InpUseDailyProfitPercentLadder
