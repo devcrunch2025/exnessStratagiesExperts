@@ -1005,7 +1005,7 @@ int    InpSARConfirmMinutes       = 1;//5;      // used by the full profile only
 bool   InpUseBuyStrictConfirmation = false;
 int    InpBuyStrictSARMinimumScore = 6;//7;
 double InpBuyExtraSARConfirmRaw    = 50.0;
-bool   InpBuyRequireH1TrendMatch   = false;
+bool   InpBuyRequireH1TrendMatch   = true;
 // First normal order after every SAR flip:
 // true = bypass all strategy filters and require only the FIXED live raw-price
 // difference in InpSARConfirmPriceDiff. Direction, broker trade permission and
