@@ -1,25 +1,32 @@
 //+------------------------------------------------------------------+
 //|                  SSL CHANNEL CROSS EA                            |
 //|                  TWO-STAGE PROFIT LADDER                         |
-//|                  OPPOSITE ORDER CLOSE ON SIGNAL                  |
+//|                  DYNAMIC DAILY LOSS PROTECTION                    |
+//|                  OPPOSITE PENDING DELETE ON SIGNAL               |
 //+------------------------------------------------------------------+
 #property strict
+
 
 //==================================================================
 // INPUTS
 //==================================================================
 
+//==================================================================
+// SSL SETTINGS
+//==================================================================
+
 int SSLPeriod = 10;
+
 
 //==================================================================
 // TRADING
 //==================================================================
 
-bool   EnableTrading = true;
+bool EnableTrading = true;
 
 double Lots = 0.01;
 
-int    MaxOpenOrders = 4;
+int MaxOpenOrders = 4;
 
 
 //==================================================================
@@ -27,6 +34,19 @@ int    MaxOpenOrders = 4;
 //==================================================================
 
 bool CloseOppositeOrdersOnSignal = false;
+
+
+//==================================================================
+// DELETE OPPOSITE PENDING STOP ORDERS
+//==================================================================
+
+// BUY signal:
+// Delete all SELL STOP orders.
+//
+// SELL signal:
+// Delete all BUY STOP orders.
+
+bool DeleteOppositePendingOnSignal = true;
 
 
 //==================================================================
@@ -44,32 +64,21 @@ double ProfitReEntryGapRaw = 30.0;
 // PROFIT LADDER 1
 //==================================================================
 
-// Enable first profit ladder
 bool EnableProfitLadder1 = true;
 
-// Ladder 1 profit step
-// Example:
-// Profit $0.20 -> lock $0.10
-// Profit $0.30 -> lock $0.20
-// Profit $0.40 -> lock $0.30
-double Ladder1ProfitUSD =0.10;//1;// 2;//0.10;
+double Ladder1ProfitUSD = 0.10;
 
 
 //==================================================================
 // PROFIT LADDER 2
 //==================================================================
 
-// Enable second profit ladder
 bool EnableProfitLadder2 = true;
 
-// Ladder 2 starts when profit reaches this amount
-double Ladder1StopMaxPriceUSD = 1.00;//10;//1.00;
+// Ladder 2 starts when floating profit reaches this amount
+double Ladder1StopMaxPriceUSD = 1.00;
 
-// Ladder 2 locking step
-// Example:
-// Profit $4.00 -> lock $3.00
-// Profit $5.00 -> lock $4.00
-// Profit $6.00 -> lock $5.00
+// Ladder 2 profit step
 double Ladder2ProfitUSD = 1.00;
 
 
@@ -78,6 +87,26 @@ double Ladder2ProfitUSD = 1.00;
 //==================================================================
 
 double StopLossUSD = 1.00;
+
+
+//==================================================================
+// DAILY LOSS PROTECTION
+//==================================================================
+
+// Maximum initial daily loss percentage
+double DailyLossProtectionPercent =5;//10;// 20.0;
+
+
+// Stop all NEW trading when protected balance is reached
+bool EnableDailyLossProtection = true;
+
+
+// Automatically reset protection on a new broker-server date
+bool ResetDailyProtectionEveryDay = true;
+
+
+// Do not close existing open trades when protection is activated
+bool CloseOpenOrdersOnDailyLoss = false;
 
 
 //==================================================================
@@ -132,7 +161,7 @@ int DashboardTopGap = 20;
 
 int DashboardWidth = 285;
 
-int DashboardHeight = 430;
+int DashboardHeight = 480;
 
 int DashboardFontSize = 9;
 
@@ -152,6 +181,21 @@ datetime LastProcessedClosedOrderTime = 0;
 int LastProcessedClosedTicket = -1;
 
 
+//==================================================================
+// DAILY LOSS GLOBAL VARIABLES
+//==================================================================
+
+string GV_DAY_DATE;
+
+string GV_DAY_START_BALANCE;
+
+string GV_DAY_HIGHEST_BALANCE;
+
+string GV_DAY_PROTECTED_BALANCE;
+
+string GV_DAY_TRADING_STOPPED;
+
+
 //+------------------------------------------------------------------+
 //| INITIALIZATION                                                   |
 //+------------------------------------------------------------------+
@@ -163,6 +207,8 @@ int OnInit()
    Print("SSL CHANNEL CROSS EA INITIALIZED");
 
    Print("TWO-STAGE PROFIT LADDER VERSION");
+
+   Print("DYNAMIC DAILY LOSS PROTECTION VERSION");
 
    Print("Symbol: ", Symbol());
 
@@ -194,6 +240,29 @@ int OnInit()
       CloseOppositeOrdersOnSignal ?
       "TRUE" :
       "FALSE"
+   );
+
+   Print(
+      "Delete Opposite Pending On Signal: ",
+      DeleteOppositePendingOnSignal ?
+      "TRUE" :
+      "FALSE"
+   );
+
+   Print(
+      "Daily Loss Protection: ",
+      EnableDailyLossProtection ?
+      "ON" :
+      "OFF"
+   );
+
+   Print(
+      "Daily Loss Protection Percent: ",
+      DoubleToString(
+         DailyLossProtectionPercent,
+         2
+      ),
+      "%"
    );
 
    Print(
@@ -238,9 +307,26 @@ int OnInit()
 
    Print("==================================================");
 
+
+   //===============================================================
+   // INITIALIZE DAILY LOSS PROTECTION
+   //===============================================================
+
+   InitializeDailyLossProtection();
+
+
+   //===============================================================
+   // DELETE CHART OBJECTS
+   //===============================================================
+
    DeleteOurObjects();
 
    DeleteDashboardObjects();
+
+
+   //===============================================================
+   // DRAW HISTORY
+   //===============================================================
 
    if(
       ShowHistoricalSignals ||
@@ -250,12 +336,23 @@ int OnInit()
       DrawHistoricalSignals();
    }
 
+
+   //===============================================================
+   // INITIALIZE CLOSED ORDER TRACKING
+   //===============================================================
+
    InitializeLastProcessedClosedOrder();
+
+
+   //===============================================================
+   // DASHBOARD
+   //===============================================================
 
    if(ShowDashboard)
    {
       UpdateDashboard();
    }
+
 
    return(
       INIT_SUCCEEDED
@@ -283,6 +380,13 @@ void OnDeinit(
 
 void OnTick()
 {
+   //===============================================================
+   // DAILY LOSS PROTECTION UPDATE
+   //===============================================================
+
+   UpdateDailyLossProtection();
+
+
    //===============================================================
    // LIVE SSL LINES
    //===============================================================
@@ -356,6 +460,7 @@ void OnTick()
       return;
    }
 
+
    LastProcessedBar =
       Time[0];
 
@@ -382,9 +487,24 @@ void OnTick()
          true
       );
 
+
       Print(
          "SSL CROSS SIGNAL -> BUY"
       );
+
+
+      //============================================================
+      // DELETE OPPOSITE SELL STOP ORDERS
+      //============================================================
+
+      if(
+         DeleteOppositePendingOnSignal
+      )
+      {
+         DeleteOppositePendingOrders(
+            OP_BUY
+         );
+      }
 
 
       //============================================================
@@ -405,7 +525,10 @@ void OnTick()
       // OPEN BUY
       //============================================================
 
-      if(EnableTrading)
+      if(
+         EnableTrading &&
+         !IsDailyTradingStopped()
+      )
       {
          if(
             GetTotalEAOrders() <
@@ -421,6 +544,12 @@ void OnTick()
             );
          }
       }
+      else
+      {
+         Print(
+            "BUY BLOCKED | DAILY LOSS PROTECTION ACTIVE"
+         );
+      }
    }
 
 
@@ -435,9 +564,24 @@ void OnTick()
          false
       );
 
+
       Print(
          "SSL CROSS SIGNAL -> SELL"
       );
+
+
+      //============================================================
+      // DELETE OPPOSITE BUY STOP ORDERS
+      //============================================================
+
+      if(
+         DeleteOppositePendingOnSignal
+      )
+      {
+         DeleteOppositePendingOrders(
+            OP_SELL
+         );
+      }
 
 
       //============================================================
@@ -458,7 +602,10 @@ void OnTick()
       // OPEN SELL
       //============================================================
 
-      if(EnableTrading)
+      if(
+         EnableTrading &&
+         !IsDailyTradingStopped()
+      )
       {
          if(
             GetTotalEAOrders() <
@@ -473,6 +620,140 @@ void OnTick()
                "SELL BLOCKED | MAX TOTAL ORDERS REACHED"
             );
          }
+      }
+      else
+      {
+         Print(
+            "SELL BLOCKED | DAILY LOSS PROTECTION ACTIVE"
+         );
+      }
+   }
+}
+
+
+//+------------------------------------------------------------------+
+//| DELETE OPPOSITE PENDING ORDERS                                   |
+//+------------------------------------------------------------------+
+
+void DeleteOppositePendingOrders(
+   int newSignalType
+)
+{
+   for(
+      int i =
+      OrdersTotal() -
+      1;
+
+      i >=
+      0;
+
+      i--
+   )
+   {
+      if(
+         !OrderSelect(
+            i,
+            SELECT_BY_POS,
+            MODE_TRADES
+         )
+      )
+      {
+         continue;
+      }
+
+
+      if(
+         OrderSymbol() !=
+         Symbol()
+      )
+      {
+         continue;
+      }
+
+
+      if(
+         OrderMagicNumber() !=
+         MagicNumber
+      )
+      {
+         continue;
+      }
+
+
+      int orderType =
+         OrderType();
+
+
+      bool deleteOrder =
+         false;
+
+
+      //============================================================
+      // BUY SIGNAL
+      // DELETE SELL STOP
+      //============================================================
+
+      if(
+         newSignalType ==
+         OP_BUY &&
+
+         orderType ==
+         OP_SELLSTOP
+      )
+      {
+         deleteOrder =
+            true;
+      }
+
+
+      //============================================================
+      // SELL SIGNAL
+      // DELETE BUY STOP
+      //============================================================
+
+      if(
+         newSignalType ==
+         OP_SELL &&
+
+         orderType ==
+         OP_BUYSTOP
+      )
+      {
+         deleteOrder =
+            true;
+      }
+
+
+      if(!deleteOrder)
+      {
+         continue;
+      }
+
+
+      int ticket =
+         OrderTicket();
+
+
+      if(
+         OrderDelete(
+            ticket,
+            clrYellow
+         )
+      )
+      {
+         Print(
+            "OPPOSITE PENDING ORDER DELETED ON SIGNAL CHANGE | Ticket: ",
+            ticket
+         );
+      }
+      else
+      {
+         Print(
+            "FAILED TO DELETE OPPOSITE PENDING ORDER | Ticket: ",
+            ticket,
+            " | Error: ",
+            GetLastError()
+         );
       }
    }
 }
@@ -494,7 +775,8 @@ void CloseOppositeOrders(
       OrdersTotal() -
       1;
 
-      i >= 0;
+      i >=
+      0;
 
       i--
    )
@@ -540,6 +822,7 @@ void CloseOppositeOrders(
       if(
          newSignalType ==
          OP_BUY &&
+
          orderType ==
          OP_SELL
       )
@@ -551,6 +834,7 @@ void CloseOppositeOrders(
             OrderLots();
 
          RefreshRates();
+
 
          bool closed =
             OrderClose(
@@ -588,6 +872,7 @@ void CloseOppositeOrders(
       if(
          newSignalType ==
          OP_SELL &&
+
          orderType ==
          OP_BUY
       )
@@ -599,6 +884,7 @@ void CloseOppositeOrders(
             OrderLots();
 
          RefreshRates();
+
 
          bool closed =
             OrderClose(
@@ -626,6 +912,640 @@ void CloseOppositeOrders(
                GetLastError()
             );
          }
+      }
+   }
+}
+
+
+//+------------------------------------------------------------------+
+//| INITIALIZE DAILY LOSS PROTECTION                                 |
+//+------------------------------------------------------------------+
+
+void InitializeDailyLossProtection()
+{
+   GV_DAY_DATE =
+      "SSL_DAY_DATE_" +
+      IntegerToString(
+         AccountNumber()
+      ) +
+      "_" +
+      IntegerToString(
+         MagicNumber
+      ) +
+      "_" +
+      Symbol();
+
+
+   GV_DAY_START_BALANCE =
+      "SSL_DAY_START_BALANCE_" +
+      IntegerToString(
+         AccountNumber()
+      ) +
+      "_" +
+      IntegerToString(
+         MagicNumber
+      ) +
+      "_" +
+      Symbol();
+
+
+   GV_DAY_HIGHEST_BALANCE =
+      "SSL_DAY_HIGHEST_BALANCE_" +
+      IntegerToString(
+         AccountNumber()
+      ) +
+      "_" +
+      IntegerToString(
+         MagicNumber
+      ) +
+      "_" +
+      Symbol();
+
+
+   GV_DAY_PROTECTED_BALANCE =
+      "SSL_DAY_PROTECTED_BALANCE_" +
+      IntegerToString(
+         AccountNumber()
+      ) +
+      "_" +
+      IntegerToString(
+         MagicNumber
+      ) +
+      "_" +
+      Symbol();
+
+
+   GV_DAY_TRADING_STOPPED =
+      "SSL_DAY_TRADING_STOPPED_" +
+      IntegerToString(
+         AccountNumber()
+      ) +
+      "_" +
+      IntegerToString(
+         MagicNumber
+      ) +
+      "_" +
+      Symbol();
+
+
+   string today =
+      TimeToString(
+         TimeCurrent(),
+         TIME_DATE
+      );
+
+
+   bool newDay =
+      true;
+
+
+   if(
+      GlobalVariableCheck(
+         GV_DAY_DATE
+      )
+   )
+   {
+      string savedDate =
+         DoubleToString(
+            GlobalVariableGet(
+               GV_DAY_DATE
+            ),
+            0
+         );
+
+
+      datetime savedDateTime =
+         (datetime)StringToInteger(
+            savedDate
+         );
+
+
+      if(
+         TimeToString(
+            savedDateTime,
+            TIME_DATE
+         )
+         ==
+         today
+      )
+      {
+         newDay =
+            false;
+      }
+   }
+
+
+   if(
+      !newDay &&
+      GlobalVariableCheck(
+         GV_DAY_START_BALANCE
+      ) &&
+      GlobalVariableCheck(
+         GV_DAY_HIGHEST_BALANCE
+      ) &&
+      GlobalVariableCheck(
+         GV_DAY_PROTECTED_BALANCE
+      ) &&
+      GlobalVariableCheck(
+         GV_DAY_TRADING_STOPPED
+      )
+   )
+   {
+      Print(
+         "DAILY LOSS PROTECTION RESTORED"
+      );
+
+      Print(
+         "Day Start Balance: $",
+         DoubleToString(
+            GlobalVariableGet(
+               GV_DAY_START_BALANCE
+            ),
+            2
+         )
+      );
+
+      Print(
+         "Highest Balance: $",
+         DoubleToString(
+            GlobalVariableGet(
+               GV_DAY_HIGHEST_BALANCE
+            ),
+            2
+         )
+      );
+
+      Print(
+         "Protected Balance: $",
+         DoubleToString(
+            GlobalVariableGet(
+               GV_DAY_PROTECTED_BALANCE
+            ),
+            2
+         )
+      );
+
+      return;
+   }
+
+
+   double startingBalance =
+      AccountBalance();
+
+
+   double initialLossAmount =
+      startingBalance *
+      DailyLossProtectionPercent /
+      100.0;
+
+
+   double protectedBalance =
+      startingBalance -
+      initialLossAmount;
+
+
+   GlobalVariableSet(
+      GV_DAY_DATE,
+      (double)StrToTime(
+         today
+      )
+   );
+
+
+   GlobalVariableSet(
+      GV_DAY_START_BALANCE,
+      startingBalance
+   );
+
+
+   GlobalVariableSet(
+      GV_DAY_HIGHEST_BALANCE,
+      startingBalance
+   );
+
+
+   GlobalVariableSet(
+      GV_DAY_PROTECTED_BALANCE,
+      protectedBalance
+   );
+
+
+   GlobalVariableSet(
+      GV_DAY_TRADING_STOPPED,
+      0
+   );
+
+
+   Print(
+      "=================================================="
+   );
+
+   Print(
+      "NEW DAILY LOSS PROTECTION INITIALIZED"
+   );
+
+   Print(
+      "Day Start Balance: $",
+      DoubleToString(
+         startingBalance,
+         2
+      )
+   );
+
+   Print(
+      "Initial Maximum Loss: $",
+      DoubleToString(
+         initialLossAmount,
+         2
+      )
+   );
+
+   Print(
+      "Initial Protected Balance: $",
+      DoubleToString(
+         protectedBalance,
+         2
+      )
+   );
+
+   Print(
+      "=================================================="
+   );
+}
+
+
+//+------------------------------------------------------------------+
+//| UPDATE DAILY LOSS PROTECTION                                    |
+//+------------------------------------------------------------------+
+
+void UpdateDailyLossProtection()
+{
+   if(
+      !EnableDailyLossProtection
+   )
+   {
+      return;
+   }
+
+
+   //===============================================================
+   // RESET ON NEW DAY
+   //===============================================================
+
+   if(
+      ResetDailyProtectionEveryDay
+   )
+   {
+      string today =
+         TimeToString(
+            TimeCurrent(),
+            TIME_DATE
+         );
+
+
+      datetime savedDate =
+         (datetime)
+         GlobalVariableGet(
+            GV_DAY_DATE
+         );
+
+
+      string savedDateString =
+         TimeToString(
+            savedDate,
+            TIME_DATE
+         );
+
+
+      if(
+         savedDateString !=
+         today
+      )
+      {
+         InitializeDailyLossProtection();
+
+         return;
+      }
+   }
+
+
+   double startingBalance =
+      GlobalVariableGet(
+         GV_DAY_START_BALANCE
+      );
+
+
+   double highestBalance =
+      GlobalVariableGet(
+         GV_DAY_HIGHEST_BALANCE
+      );
+
+
+   double protectedBalance =
+      GlobalVariableGet(
+         GV_DAY_PROTECTED_BALANCE
+      );
+
+
+   double currentBalance =
+      AccountBalance();
+
+
+   //===============================================================
+   // NEW ACCOUNT BALANCE HIGH
+   //===============================================================
+
+   if(
+      currentBalance >
+      highestBalance
+   )
+   {
+      highestBalance =
+         currentBalance;
+
+
+      GlobalVariableSet(
+         GV_DAY_HIGHEST_BALANCE,
+         highestBalance
+      );
+
+
+      //============================================================
+      // PROFIT ABOVE STARTING BALANCE
+      //============================================================
+
+      double profitAboveStart =
+         highestBalance -
+         startingBalance;
+
+
+      if(
+         profitAboveStart >
+         0
+      )
+      {
+         //=========================================================
+         // USER REQUESTED FORMULA
+         //
+         // Example:
+         //
+         // Starting Balance = $10
+         // Current Balance  = $12
+         //
+         // Profit = $2
+         //
+         // 20% of Profit = $0.40
+         //
+         // Protected Balance:
+         //
+         // $10 + $0.40 = $10.40
+         //
+         //=========================================================
+
+         protectedBalance =
+            startingBalance +
+            (
+               profitAboveStart *
+               DailyLossProtectionPercent /
+               100.0
+            );
+      }
+
+
+      GlobalVariableSet(
+         GV_DAY_PROTECTED_BALANCE,
+         protectedBalance
+      );
+
+
+      Print(
+         "DAILY BALANCE HIGH UPDATED"
+      );
+
+
+      Print(
+         "New Highest Balance: $",
+         DoubleToString(
+            highestBalance,
+            2
+         )
+      );
+
+
+      Print(
+         "New Protected Balance: $",
+         DoubleToString(
+            protectedBalance,
+            2
+         )
+      );
+   }
+
+
+   //===============================================================
+   // CHECK PROTECTED BALANCE
+   //===============================================================
+
+   if(
+      currentBalance <=
+      protectedBalance
+   )
+   {
+      if(
+         !IsDailyTradingStopped()
+      )
+      {
+         GlobalVariableSet(
+            GV_DAY_TRADING_STOPPED,
+            1
+         );
+
+
+         Print(
+            "=================================================="
+         );
+
+
+         Print(
+            "DAILY LOSS PROTECTION ACTIVATED"
+         );
+
+
+         Print(
+            "Current Balance: $",
+            DoubleToString(
+               currentBalance,
+               2
+            )
+         );
+
+
+         Print(
+            "Protected Balance: $",
+            DoubleToString(
+               protectedBalance,
+               2
+            )
+         );
+
+
+         Print(
+            "NEW TRADING STOPPED FOR TODAY"
+         );
+
+
+         Print(
+            "=================================================="
+         );
+
+
+         if(
+            CloseOpenOrdersOnDailyLoss
+         )
+         {
+            CloseAllEAOrdersOnDailyLoss();
+         }
+      }
+   }
+}
+
+
+//+------------------------------------------------------------------+
+//| IS DAILY TRADING STOPPED                                        |
+//+------------------------------------------------------------------+
+
+bool IsDailyTradingStopped()
+{
+   if(
+      !EnableDailyLossProtection
+   )
+   {
+      return false;
+   }
+
+
+   if(
+      !GlobalVariableCheck(
+         GV_DAY_TRADING_STOPPED
+      )
+   )
+   {
+      return false;
+   }
+
+
+   return(
+      GlobalVariableGet(
+         GV_DAY_TRADING_STOPPED
+      )
+      >
+      0
+   );
+}
+
+
+//+------------------------------------------------------------------+
+//| CLOSE ALL EA ORDERS ON DAILY LOSS                                |
+//+------------------------------------------------------------------+
+
+void CloseAllEAOrdersOnDailyLoss()
+{
+   for(
+      int i =
+      OrdersTotal() -
+      1;
+
+      i >=
+      0;
+
+      i--
+   )
+   {
+      if(
+         !OrderSelect(
+            i,
+            SELECT_BY_POS,
+            MODE_TRADES
+         )
+      )
+      {
+         continue;
+      }
+
+
+      if(
+         OrderSymbol() !=
+         Symbol()
+      )
+      {
+         continue;
+      }
+
+
+      if(
+         OrderMagicNumber() !=
+         MagicNumber
+      )
+      {
+         continue;
+      }
+
+
+      int type =
+         OrderType();
+
+
+      int ticket =
+         OrderTicket();
+
+
+      if(
+         type ==
+         OP_BUY
+      )
+      {
+         RefreshRates();
+
+
+         OrderClose(
+            ticket,
+            OrderLots(),
+            Bid,
+            Slippage,
+            clrRed
+         );
+      }
+
+
+      if(
+         type ==
+         OP_SELL
+      )
+      {
+         RefreshRates();
+
+
+         OrderClose(
+            ticket,
+            OrderLots(),
+            Ask,
+            Slippage,
+            clrRed
+         );
+      }
+
+
+      if(
+         type ==
+         OP_BUYSTOP ||
+         type ==
+         OP_SELLSTOP
+      )
+      {
+         OrderDelete(
+            ticket,
+            clrRed
+         );
       }
    }
 }
@@ -675,7 +1595,8 @@ void UpdateSSLChannelOnTick()
       int i =
       maxRecentBars;
 
-      i >= 0;
+      i >=
+      0;
 
       i--
    )
@@ -776,7 +1697,8 @@ void InitializeLastProcessedClosedOrder()
       OrdersHistoryTotal() -
       1;
 
-      i >= 0;
+      i >=
+      0;
 
       i--
    )
@@ -814,6 +1736,7 @@ void InitializeLastProcessedClosedOrder()
       if(
          OrderType() !=
          OP_BUY &&
+
          OrderType() !=
          OP_SELL
       )
@@ -871,7 +1794,8 @@ void CheckForProfitableClosedOrder()
       OrdersHistoryTotal() -
       1;
 
-      i >= 0;
+      i >=
+      0;
 
       i--
    )
@@ -909,6 +1833,7 @@ void CheckForProfitableClosedOrder()
       if(
          OrderType() !=
          OP_BUY &&
+
          OrderType() !=
          OP_SELL
       )
@@ -975,10 +1900,6 @@ void CheckForProfitableClosedOrder()
       latestCloseTime;
 
 
-   //===============================================================
-   // PROFITABLE CLOSE
-   //===============================================================
-
    if(
       latestProfit >=
       MinimumClosedProfitUSD
@@ -1031,7 +1952,8 @@ void CheckForProfitableClosedOrder()
 
 
       if(
-         EnableProfitReEntryStop
+         EnableProfitReEntryStop &&
+         !IsDailyTradingStopped()
       )
       {
          CreateProfitReEntryStop(
@@ -1078,6 +2000,14 @@ void CreateProfitReEntryStop(
 
 
    if(!EnableProfitReEntryStop)
+   {
+      return;
+   }
+
+
+   if(
+      IsDailyTradingStopped()
+   )
    {
       return;
    }
@@ -1304,7 +2234,8 @@ int GetTotalEAOrders()
       OrdersTotal() -
       1;
 
-      i >= 0;
+      i >=
+      0;
 
       i--
    )
@@ -1372,6 +2303,14 @@ int GetTotalEAOrders()
 
 void OpenBuy()
 {
+   if(
+      IsDailyTradingStopped()
+   )
+   {
+      return;
+   }
+
+
    if(
       GetTotalEAOrders() >=
       MaxOpenOrders
@@ -1460,6 +2399,14 @@ void OpenBuy()
 
 void OpenSell()
 {
+   if(
+      IsDailyTradingStopped()
+   )
+   {
+      return;
+   }
+
+
    if(
       GetTotalEAOrders() >=
       MaxOpenOrders
@@ -1604,7 +2551,8 @@ void ManageProfitLadder()
       OrdersTotal() -
       1;
 
-      i >= 0;
+      i >=
+      0;
 
       i--
    )
@@ -1677,13 +2625,12 @@ void ManageProfitLadder()
       //============================================================
       // LADDER 1
       //
-      // Active immediately
-      //
       // $0.10 -> lock $0.00
       // $0.20 -> lock $0.10
       // $0.30 -> lock $0.20
+      // $0.40 -> lock $0.30
       //
-      // Stops at $3.00
+      // Stops before Ladder 2 activation
       //============================================================
 
       if(
@@ -1722,11 +2669,11 @@ void ManageProfitLadder()
       //============================================================
       // LADDER 2
       //
-      // Activates at $3.00
+      // Example with activation $1.00:
       //
+      // $1.00 -> lock $0.00
+      // $2.00 -> lock $1.00
       // $3.00 -> lock $2.00
-      // $4.00 -> lock $3.00
-      // $5.00 -> lock $4.00
       //
       //============================================================
 
@@ -1749,7 +2696,7 @@ void ManageProfitLadder()
 
          if(
             ladder2Level >=
-            1
+            2
          )
          {
             lockedProfit =
@@ -1778,10 +2725,6 @@ void ManageProfitLadder()
             2
          );
 
-
-      //============================================================
-      // TICK INFORMATION
-      //============================================================
 
       double tickValue =
          MarketInfo(
@@ -1854,8 +2797,6 @@ void ManageProfitLadder()
             );
 
 
-         // Never move stop loss backward
-
          if(
             OrderStopLoss() >
             0 &&
@@ -1867,8 +2808,6 @@ void ManageProfitLadder()
             continue;
          }
 
-
-         // Broker minimum distance
 
          if(
             Bid -
@@ -1953,8 +2892,6 @@ void ManageProfitLadder()
             );
 
 
-         // Never move stop loss backward
-
          if(
             OrderStopLoss() >
             0 &&
@@ -1966,8 +2903,6 @@ void ManageProfitLadder()
             continue;
          }
 
-
-         // Broker minimum distance
 
          if(
             newStopLoss -
@@ -2918,34 +3853,26 @@ string TimeframeToString(
       case PERIOD_M1:
          return "M1";
 
-
       case PERIOD_M5:
          return "M5";
-
 
       case PERIOD_M15:
          return "M15";
 
-
       case PERIOD_M30:
          return "M30";
-
 
       case PERIOD_H1:
          return "H1";
 
-
       case PERIOD_H4:
          return "H4";
-
 
       case PERIOD_D1:
          return "D1";
 
-
       case PERIOD_W1:
          return "W1";
-
 
       case PERIOD_MN1:
          return "MN1";
@@ -3598,6 +4525,14 @@ void UpdateDashboard()
 
 
    if(
+      IsDailyTradingStopped()
+   )
+   {
+      statusText =
+         "DAILY LOSS STOPPED";
+   }
+   else
+   if(
       totalOrders >=
       MaxOpenOrders
    )
@@ -3609,6 +4544,23 @@ void UpdateDashboard()
    {
       statusText =
          "READY FOR NEXT SIGNAL";
+   }
+
+
+   color statusColor;
+
+
+   if(
+      IsDailyTradingStopped()
+   )
+   {
+      statusColor =
+         clrTomato;
+   }
+   else
+   {
+      statusColor =
+         clrLimeGreen;
    }
 
 
@@ -3624,7 +4576,7 @@ void UpdateDashboard()
 
       DashboardFontSize,
 
-      clrLimeGreen
+      statusColor
    );
 
 
@@ -3871,6 +4823,96 @@ void UpdateDashboard()
    );
 
 
+   //===============================================================
+   // DAILY LOSS INFORMATION
+   //===============================================================
+
+   if(
+      EnableDailyLossProtection
+   )
+   {
+      double startBalance =
+         GlobalVariableGet(
+            GV_DAY_START_BALANCE
+         );
+
+
+      double highestBalance =
+         GlobalVariableGet(
+            GV_DAY_HIGHEST_BALANCE
+         );
+
+
+      double protectedBalance =
+         GlobalVariableGet(
+            GV_DAY_PROTECTED_BALANCE
+         );
+
+
+      CreateDashboardLabel(
+         DASH_PREFIX +
+         "DAY_START",
+
+         "Day Start: $" +
+
+         DoubleToString(
+            startBalance,
+            2
+         ),
+
+         textX,
+
+         y + 340,
+
+         DashboardFontSize,
+
+         clrWhite
+      );
+
+
+      CreateDashboardLabel(
+         DASH_PREFIX +
+         "DAY_HIGH",
+
+         "Day High: $" +
+
+         DoubleToString(
+            highestBalance,
+            2
+         ),
+
+         textX,
+
+         y + 360,
+
+         DashboardFontSize,
+
+         clrDeepSkyBlue
+      );
+
+
+      CreateDashboardLabel(
+         DASH_PREFIX +
+         "PROTECTED",
+
+         "Protected: $" +
+
+         DoubleToString(
+            protectedBalance,
+            2
+         ),
+
+         textX,
+
+         y + 380,
+
+         DashboardFontSize,
+
+         clrGold
+      );
+   }
+
+
    CreateDashboardLabel(
       DASH_PREFIX +
       "DETAIL_TITLE",
@@ -3879,7 +4921,7 @@ void UpdateDashboard()
 
       textX,
 
-      y + 340,
+      y + 402,
 
       DashboardFontSize,
 
@@ -3900,7 +4942,7 @@ void UpdateDashboard()
 
          textX,
 
-         y + 362,
+         y + 422,
 
          DashboardFontSize,
 
@@ -3917,57 +4959,13 @@ void UpdateDashboard()
 
          textX,
 
-         y + 362,
+         y + 422,
 
          DashboardFontSize,
 
          clrSilver
       );
    }
-
-
-   CreateDashboardLabel(
-      DASH_PREFIX +
-      "PRICE",
-
-      "Bid: " +
-
-      DoubleToString(
-         Bid,
-
-         Digits
-      ),
-
-      textX,
-
-      y + 405,
-
-      DashboardFontSize,
-
-      clrWhite
-   );
-
-
-   CreateDashboardLabel(
-      DASH_PREFIX +
-      "UPDATE",
-
-      "Updated: " +
-
-      TimeToString(
-         TimeCurrent(),
-
-         TIME_SECONDS
-      ),
-
-      textX,
-
-      y + 423,
-
-      8,
-
-      clrSilver
-   );
 }
 
 
@@ -4017,7 +5015,8 @@ void DeleteOurObjects()
             PREFIX,
 
             0
-         ) ==
+         )
+         ==
          0
       )
       {
@@ -4077,7 +5076,8 @@ void DeleteDashboardObjects()
             DASH_PREFIX,
 
             0
-         ) ==
+         )
+         ==
          0
       )
       {
