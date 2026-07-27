@@ -2,6 +2,7 @@
 //|                  SSL CHANNEL CROSS EA                            |
 //|                  TWO-STAGE PROFIT LADDER                         |
 //|                  DYNAMIC DAILY LOSS PROTECTION                    |
+//|                  NO TERMINAL GLOBAL VARIABLES                    |
 //|                  OPPOSITE PENDING DELETE ON SIGNAL               |
 //+------------------------------------------------------------------+
 #property strict
@@ -33,18 +34,12 @@ int MaxOpenOrders = 4;
 // CLOSE OPPOSITE ORDERS
 //==================================================================
 
-bool CloseOppositeOrdersOnSignal = false;
+bool CloseOppositeOrdersOnSignal = true;
 
 
 //==================================================================
 // DELETE OPPOSITE PENDING STOP ORDERS
 //==================================================================
-
-// BUY signal:
-// Delete all SELL STOP orders.
-//
-// SELL signal:
-// Delete all BUY STOP orders.
 
 bool DeleteOppositePendingOnSignal = true;
 
@@ -75,10 +70,8 @@ double Ladder1ProfitUSD = 0.10;
 
 bool EnableProfitLadder2 = true;
 
-// Ladder 2 starts when floating profit reaches this amount
 double Ladder1StopMaxPriceUSD = 1.00;
 
-// Ladder 2 profit step
 double Ladder2ProfitUSD = 1.00;
 
 
@@ -93,19 +86,12 @@ double StopLossUSD = 1.00;
 // DAILY LOSS PROTECTION
 //==================================================================
 
-// Maximum initial daily loss percentage
-double DailyLossProtectionPercent =5;//10;// 20.0;
+double DailyLossProtectionPercent =0.0001;//1000*10;// 50;//10.0;
 
-
-// Stop all NEW trading when protected balance is reached
 bool EnableDailyLossProtection = true;
 
-
-// Automatically reset protection on a new broker-server date
 bool ResetDailyProtectionEveryDay = true;
 
-
-// Do not close existing open trades when protection is activated
 bool CloseOpenOrdersOnDailyLoss = false;
 
 
@@ -167,8 +153,39 @@ int DashboardFontSize = 9;
 
 
 //==================================================================
-// GLOBALS
+// LOCAL STATE STRUCTURE
 //==================================================================
+//
+// This is only a data structure definition.
+// No terminal Global Variables are used.
+//
+// The actual state is created as a local static variable inside
+// OnTick() and passed to functions by reference.
+//
+
+struct DailyProtectionState
+{
+   datetime DayDate;
+
+   double DayStartBalance;
+
+   double DayHighestBalance;
+
+   double DayProtectedBalance;
+
+   bool TradingStopped;
+
+   bool Initialized;
+};
+
+
+//==================================================================
+// GLOBAL RUNTIME VARIABLES
+//==================================================================
+//
+// These are normal EA runtime variables.
+// They are NOT MT4 Terminal Global Variables.
+//
 
 string PREFIX = "SSL_CROSS_";
 
@@ -179,21 +196,6 @@ datetime LastProcessedBar = 0;
 datetime LastProcessedClosedOrderTime = 0;
 
 int LastProcessedClosedTicket = -1;
-
-
-//==================================================================
-// DAILY LOSS GLOBAL VARIABLES
-//==================================================================
-
-string GV_DAY_DATE;
-
-string GV_DAY_START_BALANCE;
-
-string GV_DAY_HIGHEST_BALANCE;
-
-string GV_DAY_PROTECTED_BALANCE;
-
-string GV_DAY_TRADING_STOPPED;
 
 
 //+------------------------------------------------------------------+
@@ -209,6 +211,8 @@ int OnInit()
    Print("TWO-STAGE PROFIT LADDER VERSION");
 
    Print("DYNAMIC DAILY LOSS PROTECTION VERSION");
+
+   Print("NO TERMINAL GLOBAL VARIABLES");
 
    Print("Symbol: ", Symbol());
 
@@ -309,13 +313,6 @@ int OnInit()
 
 
    //===============================================================
-   // INITIALIZE DAILY LOSS PROTECTION
-   //===============================================================
-
-   InitializeDailyLossProtection();
-
-
-   //===============================================================
    // DELETE CHART OBJECTS
    //===============================================================
 
@@ -342,16 +339,6 @@ int OnInit()
    //===============================================================
 
    InitializeLastProcessedClosedOrder();
-
-
-   //===============================================================
-   // DASHBOARD
-   //===============================================================
-
-   if(ShowDashboard)
-   {
-      UpdateDashboard();
-   }
 
 
    return(
@@ -381,17 +368,49 @@ void OnDeinit(
 void OnTick()
 {
    //===============================================================
+   // LOCAL STATIC DAILY PROTECTION STATE
+   //===============================================================
+   //
+   // This is local to OnTick().
+   //
+   // It is NOT an MT4 Terminal Global Variable.
+   //
+   // The state remains available while the EA is running.
+   //
+
+   static DailyProtectionState dailyState;
+
+
+   //===============================================================
+   // INITIALIZE DAILY STATE
+   //===============================================================
+
+   if(
+      !dailyState.Initialized
+   )
+   {
+      InitializeDailyProtectionState(
+         dailyState
+      );
+   }
+
+
+   //===============================================================
    // DAILY LOSS PROTECTION UPDATE
    //===============================================================
 
-   UpdateDailyLossProtection();
+   UpdateDailyLossProtection(
+      dailyState
+   );
 
 
    //===============================================================
    // LIVE SSL LINES
    //===============================================================
 
-   if(ShowSSLLines)
+   if(
+      ShowSSLLines
+   )
    {
       UpdateSSLChannelOnTick();
    }
@@ -407,7 +426,9 @@ void OnTick()
       20
    )
    {
-      CheckForProfitableClosedOrder();
+      CheckForProfitableClosedOrder(
+         dailyState
+      );
    }
 
 
@@ -428,9 +449,13 @@ void OnTick()
    // DASHBOARD
    //===============================================================
 
-   if(ShowDashboard)
+   if(
+      ShowDashboard
+   )
    {
-      UpdateDashboard();
+      UpdateDashboard(
+         dailyState
+      );
    }
 
 
@@ -470,17 +495,23 @@ void OnTick()
    //===============================================================
 
    bool buySignal =
-      IsBuySignal(1);
+      IsBuySignal(
+         1
+      );
 
    bool sellSignal =
-      IsSellSignal(1);
+      IsSellSignal(
+         1
+      );
 
 
    //===============================================================
    // BUY SIGNAL
    //===============================================================
 
-   if(buySignal)
+   if(
+      buySignal
+   )
    {
       DrawLiveSignal(
          1,
@@ -527,7 +558,9 @@ void OnTick()
 
       if(
          EnableTrading &&
-         !IsDailyTradingStopped()
+         !IsDailyTradingStopped(
+            dailyState
+         )
       )
       {
          if(
@@ -557,7 +590,9 @@ void OnTick()
    // SELL SIGNAL
    //===============================================================
 
-   if(sellSignal)
+   if(
+      sellSignal
+   )
    {
       DrawLiveSignal(
          1,
@@ -604,7 +639,9 @@ void OnTick()
 
       if(
          EnableTrading &&
-         !IsDailyTradingStopped()
+         !IsDailyTradingStopped(
+            dailyState
+         )
       )
       {
          if(
@@ -628,6 +665,345 @@ void OnTick()
          );
       }
    }
+}
+
+
+//+------------------------------------------------------------------+
+//| INITIALIZE DAILY PROTECTION STATE                                |
+//+------------------------------------------------------------------+
+
+void InitializeDailyProtectionState(
+   DailyProtectionState &state
+)
+{
+   string today =
+      TimeToString(
+         TimeCurrent(),
+         TIME_DATE
+      );
+
+
+   state.DayDate =
+      StrToTime(
+         today
+      );
+
+
+   state.DayStartBalance =
+      AccountBalance();
+
+
+   state.DayHighestBalance =
+      state.DayStartBalance;
+
+
+   double initialLossAmount =
+      state.DayStartBalance *
+      DailyLossProtectionPercent /
+      100.0;
+
+
+   state.DayProtectedBalance =
+      state.DayStartBalance -
+      initialLossAmount;
+
+
+   state.TradingStopped =
+      false;
+
+
+   state.Initialized =
+      true;
+
+
+   Print(
+      "=================================================="
+   );
+
+
+   Print(
+      "NEW DAILY LOSS PROTECTION INITIALIZED"
+   );
+
+
+   Print(
+      "Day Start Balance: $",
+      DoubleToString(
+         state.DayStartBalance,
+         2
+      )
+   );
+
+
+   Print(
+      "Initial Maximum Loss: $",
+      DoubleToString(
+         initialLossAmount,
+         2
+      )
+   );
+
+
+   Print(
+      "Protected Balance: $",
+      DoubleToString(
+         state.DayProtectedBalance,
+         2
+      )
+   );
+
+
+   Print(
+      "=================================================="
+   );
+}
+
+
+//+------------------------------------------------------------------+
+//| UPDATE DAILY LOSS PROTECTION                                     |
+//+------------------------------------------------------------------+
+
+void UpdateDailyLossProtection(
+   DailyProtectionState &state
+)
+{
+   if(
+      !EnableDailyLossProtection
+   )
+   {
+      return;
+   }
+
+
+   string today =
+      TimeToString(
+         TimeCurrent(),
+         TIME_DATE
+      );
+
+
+   datetime todayDate =
+      StrToTime(
+         today
+      );
+
+
+   //===============================================================
+   // NEW BROKER SERVER DAY
+   //===============================================================
+
+   if(
+      ResetDailyProtectionEveryDay &&
+
+      state.DayDate !=
+      todayDate
+   )
+   {
+      state.DayDate =
+         todayDate;
+
+
+      state.DayStartBalance =
+         AccountBalance();
+
+
+      state.DayHighestBalance =
+         state.DayStartBalance;
+
+
+      state.DayProtectedBalance =
+         state.DayStartBalance -
+         (
+            state.DayStartBalance *
+            DailyLossProtectionPercent /
+            100.0
+         );
+
+
+      state.TradingStopped =
+         false;
+
+
+      Print(
+         "=================================================="
+      );
+
+
+      Print(
+         "NEW DAY - DAILY LOSS PROTECTION RESET"
+      );
+
+
+      Print(
+         "New Day Start Balance: $",
+         DoubleToString(
+            state.DayStartBalance,
+            2
+         )
+      );
+
+
+      Print(
+         "New Protected Balance: $",
+         DoubleToString(
+            state.DayProtectedBalance,
+            2
+         )
+      );
+
+
+      Print(
+         "=================================================="
+      );
+   }
+
+
+   double currentBalance =
+      AccountBalance();
+
+
+   //===============================================================
+   // NEW BALANCE HIGH
+   //===============================================================
+
+   if(
+      currentBalance >
+      state.DayHighestBalance
+   )
+   {
+      state.DayHighestBalance =
+         currentBalance;
+
+
+      double profitAboveStart =
+         state.DayHighestBalance -
+         state.DayStartBalance;
+
+
+      if(
+         profitAboveStart >
+         0
+      )
+      {
+         state.DayProtectedBalance =
+            state.DayStartBalance +
+            (
+               profitAboveStart *
+               DailyLossProtectionPercent /
+               100.0
+            );
+      }
+
+
+      Print(
+         "DAILY BALANCE HIGH UPDATED"
+      );
+
+
+      Print(
+         "New Highest Balance: $",
+         DoubleToString(
+            state.DayHighestBalance,
+            2
+         )
+      );
+
+
+      Print(
+         "New Protected Balance: $",
+         DoubleToString(
+            state.DayProtectedBalance,
+            2
+         )
+      );
+   }
+
+
+   //===============================================================
+   // CHECK PROTECTED BALANCE
+   //===============================================================
+
+   if(
+      currentBalance <=
+      state.DayProtectedBalance
+   )
+   {
+      if(
+         !state.TradingStopped
+      )
+      {
+         state.TradingStopped =
+            true;
+
+
+         Print(
+            "=================================================="
+         );
+
+
+         Print(
+            "DAILY LOSS PROTECTION ACTIVATED"
+         );
+
+
+         Print(
+            "Current Balance: $",
+            DoubleToString(
+               currentBalance,
+               2
+            )
+         );
+
+
+         Print(
+            "Protected Balance: $",
+            DoubleToString(
+               state.DayProtectedBalance,
+               2
+            )
+         );
+
+
+         Print(
+            "NEW TRADING STOPPED FOR TODAY"
+         );
+
+
+         Print(
+            "=================================================="
+         );
+
+
+         if(
+            CloseOpenOrdersOnDailyLoss
+         )
+         {
+            CloseAllEAOrdersOnDailyLoss();
+         }
+      }
+   }
+}
+
+
+//+------------------------------------------------------------------+
+//| IS DAILY TRADING STOPPED                                         |
+//+------------------------------------------------------------------+
+
+bool IsDailyTradingStopped(
+   DailyProtectionState &state
+)
+{
+   if(
+      !EnableDailyLossProtection
+   )
+   {
+      return false;
+   }
+
+
+   return(
+      state.TradingStopped
+   );
 }
 
 
@@ -688,11 +1064,6 @@ void DeleteOppositePendingOrders(
          false;
 
 
-      //============================================================
-      // BUY SIGNAL
-      // DELETE SELL STOP
-      //============================================================
-
       if(
          newSignalType ==
          OP_BUY &&
@@ -705,11 +1076,6 @@ void DeleteOppositePendingOrders(
             true;
       }
 
-
-      //============================================================
-      // SELL SIGNAL
-      // DELETE BUY STOP
-      //============================================================
 
       if(
          newSignalType ==
@@ -724,7 +1090,9 @@ void DeleteOppositePendingOrders(
       }
 
 
-      if(!deleteOrder)
+      if(
+         !deleteOrder
+      )
       {
          continue;
       }
@@ -732,6 +1100,9 @@ void DeleteOppositePendingOrders(
 
       int ticket =
          OrderTicket();
+
+
+      ResetLastError();
 
 
       if(
@@ -815,10 +1186,6 @@ void CloseOppositeOrders(
          OrderType();
 
 
-      //============================================================
-      // BUY SIGNAL -> CLOSE SELL
-      //============================================================
-
       if(
          newSignalType ==
          OP_BUY &&
@@ -830,10 +1197,15 @@ void CloseOppositeOrders(
          int ticket =
             OrderTicket();
 
+
          double lots =
             OrderLots();
 
+
          RefreshRates();
+
+
+         ResetLastError();
 
 
          bool closed =
@@ -846,7 +1218,9 @@ void CloseOppositeOrders(
             );
 
 
-         if(closed)
+         if(
+            closed
+         )
          {
             Print(
                "OPPOSITE SELL CLOSED ON BUY SIGNAL | Ticket: ",
@@ -865,10 +1239,6 @@ void CloseOppositeOrders(
       }
 
 
-      //============================================================
-      // SELL SIGNAL -> CLOSE BUY
-      //============================================================
-
       if(
          newSignalType ==
          OP_SELL &&
@@ -880,10 +1250,15 @@ void CloseOppositeOrders(
          int ticket =
             OrderTicket();
 
+
          double lots =
             OrderLots();
 
+
          RefreshRates();
+
+
+         ResetLastError();
 
 
          bool closed =
@@ -896,7 +1271,9 @@ void CloseOppositeOrders(
             );
 
 
-         if(closed)
+         if(
+            closed
+         )
          {
             Print(
                "OPPOSITE BUY CLOSED ON SELL SIGNAL | Ticket: ",
@@ -914,533 +1291,6 @@ void CloseOppositeOrders(
          }
       }
    }
-}
-
-
-//+------------------------------------------------------------------+
-//| INITIALIZE DAILY LOSS PROTECTION                                 |
-//+------------------------------------------------------------------+
-
-void InitializeDailyLossProtection()
-{
-   GV_DAY_DATE =
-      "SSL_DAY_DATE_" +
-      IntegerToString(
-         AccountNumber()
-      ) +
-      "_" +
-      IntegerToString(
-         MagicNumber
-      ) +
-      "_" +
-      Symbol();
-
-
-   GV_DAY_START_BALANCE =
-      "SSL_DAY_START_BALANCE_" +
-      IntegerToString(
-         AccountNumber()
-      ) +
-      "_" +
-      IntegerToString(
-         MagicNumber
-      ) +
-      "_" +
-      Symbol();
-
-
-   GV_DAY_HIGHEST_BALANCE =
-      "SSL_DAY_HIGHEST_BALANCE_" +
-      IntegerToString(
-         AccountNumber()
-      ) +
-      "_" +
-      IntegerToString(
-         MagicNumber
-      ) +
-      "_" +
-      Symbol();
-
-
-   GV_DAY_PROTECTED_BALANCE =
-      "SSL_DAY_PROTECTED_BALANCE_" +
-      IntegerToString(
-         AccountNumber()
-      ) +
-      "_" +
-      IntegerToString(
-         MagicNumber
-      ) +
-      "_" +
-      Symbol();
-
-
-   GV_DAY_TRADING_STOPPED =
-      "SSL_DAY_TRADING_STOPPED_" +
-      IntegerToString(
-         AccountNumber()
-      ) +
-      "_" +
-      IntegerToString(
-         MagicNumber
-      ) +
-      "_" +
-      Symbol();
-
-
-   string today =
-      TimeToString(
-         TimeCurrent(),
-         TIME_DATE
-      );
-
-
-   bool newDay =
-      true;
-
-
-   if(
-      GlobalVariableCheck(
-         GV_DAY_DATE
-      )
-   )
-   {
-      string savedDate =
-         DoubleToString(
-            GlobalVariableGet(
-               GV_DAY_DATE
-            ),
-            0
-         );
-
-
-      datetime savedDateTime =
-         (datetime)StringToInteger(
-            savedDate
-         );
-
-
-      if(
-         TimeToString(
-            savedDateTime,
-            TIME_DATE
-         )
-         ==
-         today
-      )
-      {
-         newDay =
-            false;
-      }
-   }
-
-
-   if(
-      !newDay &&
-      GlobalVariableCheck(
-         GV_DAY_START_BALANCE
-      ) &&
-      GlobalVariableCheck(
-         GV_DAY_HIGHEST_BALANCE
-      ) &&
-      GlobalVariableCheck(
-         GV_DAY_PROTECTED_BALANCE
-      ) &&
-      GlobalVariableCheck(
-         GV_DAY_TRADING_STOPPED
-      )
-   )
-   {
-      Print(
-         "DAILY LOSS PROTECTION RESTORED"
-      );
-
-      Print(
-         "Day Start Balance: $",
-         DoubleToString(
-            GlobalVariableGet(
-               GV_DAY_START_BALANCE
-            ),
-            2
-         )
-      );
-
-      Print(
-         "Highest Balance: $",
-         DoubleToString(
-            GlobalVariableGet(
-               GV_DAY_HIGHEST_BALANCE
-            ),
-            2
-         )
-      );
-
-      Print(
-         "Protected Balance: $",
-         DoubleToString(
-            GlobalVariableGet(
-               GV_DAY_PROTECTED_BALANCE
-            ),
-            2
-         )
-      );
-
-      return;
-   }
-
-
-   double startingBalance =
-      AccountBalance();
-
-
-   double initialLossAmount =
-      startingBalance *
-      DailyLossProtectionPercent /
-      100.0;
-
-
-   double protectedBalance =
-      startingBalance -
-      initialLossAmount;
-
-
-   GlobalVariableSet(
-      GV_DAY_DATE,
-      (double)StrToTime(
-         today
-      )
-   );
-
-
-   GlobalVariableSet(
-      GV_DAY_START_BALANCE,
-      startingBalance
-   );
-
-
-   GlobalVariableSet(
-      GV_DAY_HIGHEST_BALANCE,
-      startingBalance
-   );
-
-
-   GlobalVariableSet(
-      GV_DAY_PROTECTED_BALANCE,
-      protectedBalance
-   );
-
-
-   GlobalVariableSet(
-      GV_DAY_TRADING_STOPPED,
-      0
-   );
-
-
-   Print(
-      "=================================================="
-   );
-
-   Print(
-      "NEW DAILY LOSS PROTECTION INITIALIZED"
-   );
-
-   Print(
-      "Day Start Balance: $",
-      DoubleToString(
-         startingBalance,
-         2
-      )
-   );
-
-   Print(
-      "Initial Maximum Loss: $",
-      DoubleToString(
-         initialLossAmount,
-         2
-      )
-   );
-
-   Print(
-      "Initial Protected Balance: $",
-      DoubleToString(
-         protectedBalance,
-         2
-      )
-   );
-
-   Print(
-      "=================================================="
-   );
-}
-
-
-//+------------------------------------------------------------------+
-//| UPDATE DAILY LOSS PROTECTION                                    |
-//+------------------------------------------------------------------+
-
-void UpdateDailyLossProtection()
-{
-   if(
-      !EnableDailyLossProtection
-   )
-   {
-      return;
-   }
-
-
-   //===============================================================
-   // RESET ON NEW DAY
-   //===============================================================
-
-   if(
-      ResetDailyProtectionEveryDay
-   )
-   {
-      string today =
-         TimeToString(
-            TimeCurrent(),
-            TIME_DATE
-         );
-
-
-      datetime savedDate =
-         (datetime)
-         GlobalVariableGet(
-            GV_DAY_DATE
-         );
-
-
-      string savedDateString =
-         TimeToString(
-            savedDate,
-            TIME_DATE
-         );
-
-
-      if(
-         savedDateString !=
-         today
-      )
-      {
-         InitializeDailyLossProtection();
-
-         return;
-      }
-   }
-
-
-   double startingBalance =
-      GlobalVariableGet(
-         GV_DAY_START_BALANCE
-      );
-
-
-   double highestBalance =
-      GlobalVariableGet(
-         GV_DAY_HIGHEST_BALANCE
-      );
-
-
-   double protectedBalance =
-      GlobalVariableGet(
-         GV_DAY_PROTECTED_BALANCE
-      );
-
-
-   double currentBalance =
-      AccountBalance();
-
-
-   //===============================================================
-   // NEW ACCOUNT BALANCE HIGH
-   //===============================================================
-
-   if(
-      currentBalance >
-      highestBalance
-   )
-   {
-      highestBalance =
-         currentBalance;
-
-
-      GlobalVariableSet(
-         GV_DAY_HIGHEST_BALANCE,
-         highestBalance
-      );
-
-
-      //============================================================
-      // PROFIT ABOVE STARTING BALANCE
-      //============================================================
-
-      double profitAboveStart =
-         highestBalance -
-         startingBalance;
-
-
-      if(
-         profitAboveStart >
-         0
-      )
-      {
-         //=========================================================
-         // USER REQUESTED FORMULA
-         //
-         // Example:
-         //
-         // Starting Balance = $10
-         // Current Balance  = $12
-         //
-         // Profit = $2
-         //
-         // 20% of Profit = $0.40
-         //
-         // Protected Balance:
-         //
-         // $10 + $0.40 = $10.40
-         //
-         //=========================================================
-
-         protectedBalance =
-            startingBalance +
-            (
-               profitAboveStart *
-               DailyLossProtectionPercent /
-               100.0
-            );
-      }
-
-
-      GlobalVariableSet(
-         GV_DAY_PROTECTED_BALANCE,
-         protectedBalance
-      );
-
-
-      Print(
-         "DAILY BALANCE HIGH UPDATED"
-      );
-
-
-      Print(
-         "New Highest Balance: $",
-         DoubleToString(
-            highestBalance,
-            2
-         )
-      );
-
-
-      Print(
-         "New Protected Balance: $",
-         DoubleToString(
-            protectedBalance,
-            2
-         )
-      );
-   }
-
-
-   //===============================================================
-   // CHECK PROTECTED BALANCE
-   //===============================================================
-
-   if(
-      currentBalance <=
-      protectedBalance
-   )
-   {
-      if(
-         !IsDailyTradingStopped()
-      )
-      {
-         GlobalVariableSet(
-            GV_DAY_TRADING_STOPPED,
-            1
-         );
-
-
-         Print(
-            "=================================================="
-         );
-
-
-         Print(
-            "DAILY LOSS PROTECTION ACTIVATED"
-         );
-
-
-         Print(
-            "Current Balance: $",
-            DoubleToString(
-               currentBalance,
-               2
-            )
-         );
-
-
-         Print(
-            "Protected Balance: $",
-            DoubleToString(
-               protectedBalance,
-               2
-            )
-         );
-
-
-         Print(
-            "NEW TRADING STOPPED FOR TODAY"
-         );
-
-
-         Print(
-            "=================================================="
-         );
-
-
-         if(
-            CloseOpenOrdersOnDailyLoss
-         )
-         {
-            CloseAllEAOrdersOnDailyLoss();
-         }
-      }
-   }
-}
-
-
-//+------------------------------------------------------------------+
-//| IS DAILY TRADING STOPPED                                        |
-//+------------------------------------------------------------------+
-
-bool IsDailyTradingStopped()
-{
-   if(
-      !EnableDailyLossProtection
-   )
-   {
-      return false;
-   }
-
-
-   if(
-      !GlobalVariableCheck(
-         GV_DAY_TRADING_STOPPED
-      )
-   )
-   {
-      return false;
-   }
-
-
-   return(
-      GlobalVariableGet(
-         GV_DAY_TRADING_STOPPED
-      )
-      >
-      0
-   );
 }
 
 
@@ -1507,6 +1357,9 @@ void CloseAllEAOrdersOnDailyLoss()
          RefreshRates();
 
 
+         ResetLastError();
+
+
          OrderClose(
             ticket,
             OrderLots(),
@@ -1525,6 +1378,9 @@ void CloseAllEAOrdersOnDailyLoss()
          RefreshRates();
 
 
+         ResetLastError();
+
+
          OrderClose(
             ticket,
             OrderLots(),
@@ -1538,10 +1394,14 @@ void CloseAllEAOrdersOnDailyLoss()
       if(
          type ==
          OP_BUYSTOP ||
+
          type ==
          OP_SELLSTOP
       )
       {
+         ResetLastError();
+
+
          OrderDelete(
             ticket,
             clrRed
@@ -1557,7 +1417,9 @@ void CloseAllEAOrdersOnDailyLoss()
 
 void UpdateSSLChannelOnTick()
 {
-   if(!ShowSSLLines)
+   if(
+      !ShowSSLLines
+   )
    {
       return;
    }
@@ -1643,7 +1505,9 @@ void UpdateSSLChannelOnTick()
       DrawTrendSegment(
          PREFIX +
          "LIVE_UP_" +
-         IntegerToString(i),
+         IntegerToString(
+            i
+         ),
 
          Time[i],
 
@@ -1660,7 +1524,9 @@ void UpdateSSLChannelOnTick()
       DrawTrendSegment(
          PREFIX +
          "LIVE_DOWN_" +
-         IntegerToString(i),
+         IntegerToString(
+            i
+         ),
 
          Time[i],
 
@@ -1687,6 +1553,7 @@ void InitializeLastProcessedClosedOrder()
 {
    datetime latestCloseTime =
       0;
+
 
    int latestTicket =
       -1;
@@ -1753,6 +1620,7 @@ void InitializeLastProcessedClosedOrder()
          latestCloseTime =
             OrderCloseTime();
 
+
          latestTicket =
             OrderTicket();
       }
@@ -1761,6 +1629,7 @@ void InitializeLastProcessedClosedOrder()
 
    LastProcessedClosedOrderTime =
       latestCloseTime;
+
 
    LastProcessedClosedTicket =
       latestTicket;
@@ -1771,19 +1640,25 @@ void InitializeLastProcessedClosedOrder()
 //| CHECK PROFITABLE CLOSED ORDER                                    |
 //+------------------------------------------------------------------+
 
-void CheckForProfitableClosedOrder()
+void CheckForProfitableClosedOrder(
+   DailyProtectionState &state
+)
 {
    datetime latestCloseTime =
       0;
 
+
    double latestProfit =
       0;
+
 
    int latestTicket =
       -1;
 
+
    int latestType =
       -1;
+
 
    double latestClosePrice =
       0;
@@ -1854,8 +1729,10 @@ void CheckForProfitableClosedOrder()
       latestCloseTime =
          OrderCloseTime();
 
+
       latestTicket =
          OrderTicket();
+
 
       latestType =
          OrderType();
@@ -1895,6 +1772,7 @@ void CheckForProfitableClosedOrder()
 
    LastProcessedClosedTicket =
       latestTicket;
+
 
    LastProcessedClosedOrderTime =
       latestCloseTime;
@@ -1953,12 +1831,16 @@ void CheckForProfitableClosedOrder()
 
       if(
          EnableProfitReEntryStop &&
-         !IsDailyTradingStopped()
+
+         !IsDailyTradingStopped(
+            state
+         )
       )
       {
          CreateProfitReEntryStop(
             latestType,
-            latestClosePrice
+            latestClosePrice,
+            state
          );
       }
 
@@ -1990,23 +1872,31 @@ void CheckForProfitableClosedOrder()
 void CreateProfitReEntryStop(
    int closedOrderType,
 
-   double closedPrice
+   double closedPrice,
+
+   DailyProtectionState &state
 )
 {
-   if(!EnableTrading)
-   {
-      return;
-   }
-
-
-   if(!EnableProfitReEntryStop)
+   if(
+      !EnableTrading
+   )
    {
       return;
    }
 
 
    if(
-      IsDailyTradingStopped()
+      !EnableProfitReEntryStop
+   )
+   {
+      return;
+   }
+
+
+   if(
+      IsDailyTradingStopped(
+         state
+      )
    )
    {
       return;
@@ -2022,6 +1912,7 @@ void CreateProfitReEntryStop(
          "PROFIT RE-ENTRY STOP BLOCKED | MAX ORDERS"
       );
 
+
       return;
    }
 
@@ -2032,10 +1923,13 @@ void CreateProfitReEntryStop(
    double entryPrice =
       0;
 
+
    int pendingType =
       -1;
 
+
    color orderColor;
+
 
    string orderComment;
 
@@ -2049,11 +1943,14 @@ void CreateProfitReEntryStop(
          closedPrice +
          ProfitReEntryGapRaw;
 
+
       pendingType =
          OP_BUYSTOP;
 
+
       orderColor =
          BuyColor;
+
 
       orderComment =
          "SSL Profit ReEntry Buy Stop";
@@ -2068,11 +1965,14 @@ void CreateProfitReEntryStop(
          closedPrice -
          ProfitReEntryGapRaw;
 
+
       pendingType =
          OP_SELLSTOP;
 
+
       orderColor =
          SellColor;
+
 
       orderComment =
          "SSL Profit ReEntry Sell Stop";
@@ -2181,6 +2081,9 @@ void CreateProfitReEntryStop(
          stopLoss,
          Digits
       );
+
+
+   ResetLastError();
 
 
    int ticket =
@@ -2304,14 +2207,6 @@ int GetTotalEAOrders()
 void OpenBuy()
 {
    if(
-      IsDailyTradingStopped()
-   )
-   {
-      return;
-   }
-
-
-   if(
       GetTotalEAOrders() >=
       MaxOpenOrders
    )
@@ -2345,6 +2240,9 @@ void OpenBuy()
          slDistance,
          Digits
       );
+
+
+   ResetLastError();
 
 
    int ticket =
@@ -2400,14 +2298,6 @@ void OpenBuy()
 void OpenSell()
 {
    if(
-      IsDailyTradingStopped()
-   )
-   {
-      return;
-   }
-
-
-   if(
       GetTotalEAOrders() >=
       MaxOpenOrders
    )
@@ -2441,6 +2331,9 @@ void OpenSell()
          slDistance,
          Digits
       );
+
+
+   ResetLastError();
 
 
    int ticket =
@@ -2624,13 +2517,6 @@ void ManageProfitLadder()
 
       //============================================================
       // LADDER 1
-      //
-      // $0.10 -> lock $0.00
-      // $0.20 -> lock $0.10
-      // $0.30 -> lock $0.20
-      // $0.40 -> lock $0.30
-      //
-      // Stops before Ladder 2 activation
       //============================================================
 
       if(
@@ -2668,13 +2554,6 @@ void ManageProfitLadder()
 
       //============================================================
       // LADDER 2
-      //
-      // Example with activation $1.00:
-      //
-      // $1.00 -> lock $0.00
-      // $2.00 -> lock $1.00
-      // $3.00 -> lock $2.00
-      //
       //============================================================
 
       if(
@@ -2812,7 +2691,6 @@ void ManageProfitLadder()
          if(
             Bid -
             newStopLoss <
-
             stopLevel
          )
          {
@@ -2833,6 +2711,9 @@ void ManageProfitLadder()
             Bid
          )
          {
+            ResetLastError();
+
+
             if(
                OrderModify(
                   OrderTicket(),
@@ -2907,7 +2788,6 @@ void ManageProfitLadder()
          if(
             newStopLoss -
             Ask <
-
             stopLevel
          )
          {
@@ -2925,6 +2805,9 @@ void ManageProfitLadder()
             Ask
          )
          {
+            ResetLastError();
+
+
             if(
                OrderModify(
                   OrderTicket(),
@@ -3085,6 +2968,7 @@ void CalculateSSL(
             sslDown =
                smaHigh;
 
+
             sslUp =
                smaLow;
          }
@@ -3092,6 +2976,7 @@ void CalculateSSL(
          {
             sslDown =
                smaLow;
+
 
             sslUp =
                smaHigh;
@@ -3106,8 +2991,10 @@ void CalculateSSL(
    hlv =
       currentHlv;
 
+
    sslUp =
       0;
+
 
    sslDown =
       0;
@@ -3273,7 +3160,9 @@ void DrawHistoricalSignals()
    }
 
 
-   if(ShowSSLLines)
+   if(
+      ShowSSLLines
+   )
    {
       for(
          int i =
@@ -3324,7 +3213,9 @@ void DrawHistoricalSignals()
          DrawTrendSegment(
             PREFIX +
             "HIST_UP_" +
-            IntegerToString(i),
+            IntegerToString(
+               i
+            ),
 
             Time[i],
 
@@ -3341,7 +3232,9 @@ void DrawHistoricalSignals()
          DrawTrendSegment(
             PREFIX +
             "HIST_DOWN_" +
-            IntegerToString(i),
+            IntegerToString(
+               i
+            ),
 
             Time[i],
 
@@ -3357,7 +3250,9 @@ void DrawHistoricalSignals()
    }
 
 
-   if(ShowHistoricalSignals)
+   if(
+      ShowHistoricalSignals
+   )
    {
       for(
          int i =
@@ -3370,7 +3265,9 @@ void DrawHistoricalSignals()
       )
       {
          if(
-            IsBuySignal(i)
+            IsBuySignal(
+               i
+            )
          )
          {
             DrawHistoricalSignal(
@@ -3382,7 +3279,9 @@ void DrawHistoricalSignals()
 
 
          if(
-            IsSellSignal(i)
+            IsSellSignal(
+               i
+            )
          )
          {
             DrawHistoricalSignal(
@@ -3580,7 +3479,9 @@ void DrawHistoricalSignal(
    double price;
 
 
-   if(isBuy)
+   if(
+      isBuy
+   )
    {
       price =
          Low[shift] -
@@ -3596,7 +3497,9 @@ void DrawHistoricalSignal(
    }
 
 
-   if(ShowSignalArrows)
+   if(
+      ShowSignalArrows
+   )
    {
       string arrowName =
          baseName +
@@ -3690,7 +3593,9 @@ void DrawHistoricalSignal(
    }
 
 
-   if(ShowSignalText)
+   if(
+      ShowSignalText
+   )
    {
       string textName =
          baseName +
@@ -3700,7 +3605,9 @@ void DrawHistoricalSignal(
       double textPrice;
 
 
-      if(isBuy)
+      if(
+         isBuy
+      )
       {
          textPrice =
             price -
@@ -3853,26 +3760,34 @@ string TimeframeToString(
       case PERIOD_M1:
          return "M1";
 
+
       case PERIOD_M5:
          return "M5";
+
 
       case PERIOD_M15:
          return "M15";
 
+
       case PERIOD_M30:
          return "M30";
+
 
       case PERIOD_H1:
          return "H1";
 
+
       case PERIOD_H4:
          return "H4";
+
 
       case PERIOD_D1:
          return "D1";
 
+
       case PERIOD_W1:
          return "W1";
+
 
       case PERIOD_MN1:
          return "MN1";
@@ -4184,16 +4099,21 @@ void CreateDashboardLabel(
 //| DASHBOARD                                                        |
 //+------------------------------------------------------------------+
 
-void UpdateDashboard()
+void UpdateDashboard(
+   DailyProtectionState &state
+)
 {
    int totalOrders =
       0;
 
+
    int buyOrders =
       0;
 
+
    int sellOrders =
       0;
+
 
    int pendingOrders =
       0;
@@ -4202,8 +4122,10 @@ void UpdateDashboard()
    double floatingProfit =
       0;
 
+
    double totalSwap =
       0;
+
 
    double totalCommission =
       0;
@@ -4288,11 +4210,14 @@ void UpdateDashboard()
       {
          buyOrders++;
 
+
          floatingProfit +=
             OrderProfit();
 
+
          totalSwap +=
             OrderSwap();
+
 
          totalCommission +=
             OrderCommission();
@@ -4306,11 +4231,14 @@ void UpdateDashboard()
       {
          sellOrders++;
 
+
          floatingProfit +=
             OrderProfit();
 
+
          totalSwap +=
             OrderSwap();
+
 
          totalCommission +=
             OrderCommission();
@@ -4525,7 +4453,9 @@ void UpdateDashboard()
 
 
    if(
-      IsDailyTradingStopped()
+      IsDailyTradingStopped(
+         state
+      )
    )
    {
       statusText =
@@ -4551,7 +4481,9 @@ void UpdateDashboard()
 
 
    if(
-      IsDailyTradingStopped()
+      IsDailyTradingStopped(
+         state
+      )
    )
    {
       statusColor =
@@ -4585,6 +4517,7 @@ void UpdateDashboard()
       "SYMBOL",
 
       "Symbol: " +
+
       Symbol(),
 
       textX,
@@ -4831,24 +4764,6 @@ void UpdateDashboard()
       EnableDailyLossProtection
    )
    {
-      double startBalance =
-         GlobalVariableGet(
-            GV_DAY_START_BALANCE
-         );
-
-
-      double highestBalance =
-         GlobalVariableGet(
-            GV_DAY_HIGHEST_BALANCE
-         );
-
-
-      double protectedBalance =
-         GlobalVariableGet(
-            GV_DAY_PROTECTED_BALANCE
-         );
-
-
       CreateDashboardLabel(
          DASH_PREFIX +
          "DAY_START",
@@ -4856,7 +4771,7 @@ void UpdateDashboard()
          "Day Start: $" +
 
          DoubleToString(
-            startBalance,
+            state.DayStartBalance,
             2
          ),
 
@@ -4877,7 +4792,7 @@ void UpdateDashboard()
          "Day High: $" +
 
          DoubleToString(
-            highestBalance,
+            state.DayHighestBalance,
             2
          ),
 
@@ -4898,7 +4813,7 @@ void UpdateDashboard()
          "Protected: $" +
 
          DoubleToString(
-            protectedBalance,
+            state.DayProtectedBalance,
             2
          ),
 
