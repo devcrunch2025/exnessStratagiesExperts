@@ -57,7 +57,7 @@ double InpDynamicLotPerBalanceStep           = 0.01;
 double InpDynamicLotMinimum                  = 0.01;
 double InpDynamicLotMaximum                  = 0.00; // 0 = broker maximum
 bool   InpScaleTradeMoneyWithDynamicLot   = true;
-int    InpMaxOrders               = 3;     // per-side entry cap: 1 base SAR order + up to 2 continuation add-ons
+int    InpMaxOrders               =6;// 3;     // per-side entry cap: 1 base SAR order + up to 2 continuation add-ons
 double InpMinGapWhenMaxOrdersMoreThanOne = 100.0; // when InpMaxOrders > 1, enforce at least this raw price gap between same-direction open orders
 
 #define DXB_HARD_MAX_OPEN_ORDERS 6  // absolute safety cap for normal SAR orders per cycle
@@ -120,7 +120,7 @@ bool   InpProfitLadderProtectAfterNewOrder  = false; // protect immediately afte
 // Example: protected floor 20% + buffer 0.50% => start closing at 20.50%,
 // aiming to finish near the intended 20% booked-profit floor.
 // The optional return buffer is subtracted from this early-close trigger.
-double InpProfitLadderFloorCloseBufferPercent = 0.50;
+double InpProfitLadderFloorCloseBufferPercent = 0.20;//0.50;
 double InpProfitLadderReturnBufferPercent     = 0.0;
 
 // Highest-total-daily-profit SHARE lock:
@@ -212,8 +212,8 @@ double InpDynamicBasketReturnBufferUSD     = 0.00;
 //   peak reaches X1.5 $0.75 => advance protection to X1.5
 //   peak reaches X1.75      => advance protection to X1.75, continuing by X0.25
 // Close only when current profit comes back to the highest protected value.
-double InpDynamicBasketMinimumArmUSD       =0.20;//0/10;////0.40;// 0.10;//0.15;//0.20;//before Dynamic profit
-double InpDynamicBasketMinimumCloseUSD     = 0.01;//0.02;//0.05;//0.10;//0.10;//before Dynamic profit
+double InpDynamicBasketMinimumArmUSD       =0.10;//0/10;////0.40;// 0.10;//0.15;//0.20;//before Dynamic profit
+double InpDynamicBasketMinimumCloseUSD     = 0.00;//-0.10;//0.02;//0.05;//0.10;//0.10;//before Dynamic profit
 bool   InpBlockSoftCloseBelowMinProfit     = true; // block SAR/weak/early soft close below min profit
 
 // Server-first / closed-result daily accounting mode:
@@ -302,11 +302,11 @@ double InpBasketHalfTPAfterMinutesMultiplier = 0.50;
 //   MIXED      $0.50 + FAST x2.00 = locked SL $1.00
 //   DANGER     $1.00 + DANGER x3.00 = locked SL $3.00
 // Change these values independently according to your tested risk limits.
-double InpBasketStopLossUSD              =0.88;//0.51;// 0.31;//0.11;//0.60;//1.25;//0.50; // fallback/simple-side SL, 0 = disabled
-double InpContinuousTrendBasketSLUSD     =0.88;//0.51;// 0.31;//0.11;//0.60;//1.25;//0.50;
-double InpMediumTrendBasketSLUSD         =0.88;//0.51;// 0.31;//0.11;//0.60;//1.25;//0.75;
-double InpMixedTrendBasketSLUSD          =0.88;//0.51;// 0.31;//0.11;//0.60;//1.25;//0.50;
-double InpDangerModeBasketSLUSD          =0.88;//0.51;// 0.31;//0.31;//0.11;//0.60;//1.25;//1.00;
+double InpBasketStopLossUSD              =0.21;//0.88;//0.51;// 0.31;//0.11;//0.60;//1.25;//0.50; // fallback/simple-side SL, 0 = disabled
+double InpContinuousTrendBasketSLUSD     =0.21;//0.88;//0.51;// 0.31;//0.11;//0.60;//1.25;//0.50;
+double InpMediumTrendBasketSLUSD         =0.21;//0.88;//0.51;// 0.31;//0.11;//0.60;//1.25;//0.75;
+double InpMixedTrendBasketSLUSD          =0.05;//0.81;//0.88;//0.51;// 0.31;//0.11;//0.60;//1.25;//0.50;
+double InpDangerModeBasketSLUSD          =0.05;//0.88;//0.51;// 0.31;//0.31;//0.11;//0.60;//1.25;//1.00;
 double InpInitialServerSLExtraRawAfterHalfLoss =11;//60;//125;//100;// 50.0; // extra RAW price gap for NEW orders after half-loss trigger
 
 
@@ -390,7 +390,7 @@ bool   InpUseMarketModeFilterProfiles = true;
 int    InpOppositeDirectionProfitStreakOrders = 2;
 int    InpOppositeDirectionPauseMinutes = 30;
 
-double InpLossStopPercent          = 16;//7;//11;//15;//20;//10;//20.0; // full day loss lock percent
+double InpLossStopPercent          = 51;//50;//16;//7;//11;//15;//20;//10;//20.0; // full day loss lock percent
 
 // Half-loss cooling pause:
 // When equity uses this percentage of the configured InpLossStopPercent
@@ -848,7 +848,9 @@ int    InpTesterServerGMTOffsetHours = 0; // Strategy Tester only: GMT0 server=0
 // string InpNoNewOrderHourList      = "6,7,11,12,13,14,15,16,17,18,19,20,21,22,23"; // GMT0 / UTC only
 // string InpNoNewOrderHourList      = "11,12,13,14,15,16,17,18,19,20"; // COMMON GMT0 / UTC hours blocked every day
 // string InpNoNewOrderHourList      = "11,12,13,14,15,16,17,18"; // COMMON GMT0 / UTC hours blocked every day
-string InpNoNewOrderHourList      = "0,11,12,13,14,15,16,17,18"; // COMMON GMT0 / UTC hours blocked every day
+// string InpNoNewOrderHourList      = "11,12,13,14,15,16,17,18"; // COMMON GMT0 / UTC hours blocked every day
+string InpNoNewOrderHourList      = "11,12,13,14,15,16,17,18"; // COMMON GMT0 / UTC hours blocked every day
+
 
 
 //morning Day opening 2 hours , night day closing 2 hours trading
@@ -890,7 +892,7 @@ int    InpEODSpecialMaxOrdersPerSide       = 1;
 double InpEODSpecialMinBodyRaw             = 25.0;
 double InpEODSpecialMinRangeRaw            = 40.0;
 double InpEODSpecialBreakoutGapRaw         = 5.0;
-int    InpEODSpecialMinSARScore            = 5;
+int    InpEODSpecialMinSARScore            = 4;//5;
 bool   InpEODSpecialRequireH1Trend         = false;
 bool   InpEODSpecialRequireFastTickSpeed   = false;
 bool   InpEODSpecialOnlyWithCurrentSAR     = true;
@@ -905,7 +907,7 @@ bool   InpEODSpecialStopAfterStopLoss       = true;
 // every new entry path for 120 minutes. Existing market orders remain managed.
 bool   InpUseConsecutiveSLPause       = true;
 int    InpConsecutiveSLPauseCount     = 2;
-int    InpConsecutiveSLPauseMinutes   = 30;//60*2;
+int    InpConsecutiveSLPauseMinutes   =0;// 5;//30;//60*2;
 bool   InpDeletePendingOnSLPause      = true;
 bool   InpResetSLStreakOnProfitClose  = true;
 
@@ -1003,9 +1005,9 @@ int    InpSARConfirmMinutes       = 1;//5;      // used by the full profile only
 // BUY requires the higher score, a real H1 EMA trend match and an extra
 // raw-price move from the SAR flip reference.
 bool   InpUseBuyStrictConfirmation = false;
-int    InpBuyStrictSARMinimumScore = 6;//7;
+int    InpBuyStrictSARMinimumScore = 4;//5;////5555555;6;//7;
 double InpBuyExtraSARConfirmRaw    = 50.0;
-bool   InpBuyRequireH1TrendMatch   = true;
+bool   InpBuyRequireH1TrendMatch   = false;//true;
 // First normal order after every SAR flip:
 // true = bypass all strategy filters and require only the FIXED live raw-price
 // difference in InpSARConfirmPriceDiff. Direction, broker trade permission and
@@ -1143,8 +1145,8 @@ bool   InpBlockFastSARFlip                 = false;//true;
 // Every NEW market order must reach this score before OrderSend.
 // Current SAR quality score range is normally 0..7.
 // Legacy guard orders are recognized only for safe cleanup.
-bool   InpUseStrictSARScoreEntry            = true;
-int    InpStrictSARMinimumScore             = 6;     // strict recommended value: 6 of 7
+bool   InpUseStrictSARScoreEntry            = false;
+int    InpStrictSARMinimumScore             = 4;//6;     // strict recommended value: 6 of 7
 
 //================ DOUBTFUL CANDLE NEXT CONFIRMATION ================
 // Normal SAR orders only. Recovery orders are not affected.
@@ -1168,8 +1170,8 @@ double InpDynamicLongBarATRMultiplier      = 1.50; // long bar in SAR direction 
 double InpDynamicOppositeBarATRMultiplier  = 1.20; // long bar opposite SAR = danger
 double InpDynamicADXStrong                 = 25.0;
 double InpDynamicADXWeak                   = 18.0;
-int    InpDynamicStrongScore               = 5;
-int    InpDynamicVeryStrongScore           = 6;
+int    InpDynamicStrongScore               = 4;//5;
+int    InpDynamicVeryStrongScore           = 4;//6;
 int    InpDynamicWeakScore                 = 2;
 
 //================ LATE SAR CYCLE ENTRY PROTECTION ==================
@@ -2125,7 +2127,7 @@ bool MediumTrendFilterCase(int filterId)
       case DXB_FILTER_SAR_CYCLE:
          return(true);
       case DXB_FILTER_H1_TREND:
-         return(true);
+         return(false);
       case DXB_FILTER_LATE_SAR:
          return(true);
       case DXB_FILTER_STRICT_SAR_SCORE:
@@ -4341,6 +4343,22 @@ void InitializeCreatedClosedPushTracker()
 //+------------------------------------------------------------------+
 //|                                                                  |
 //+------------------------------------------------------------------+
+
+ 
+void NotifyGeneralTradeError(int ticket, int errorCode)
+{
+   string msg =
+      "EA TRADE ERROR | " +
+      Symbol() +
+      " | Ticket: " + IntegerToString(ticket) +
+      " | Error Code: " + IntegerToString(errorCode);
+
+   Print(msg);
+
+   if(InpSendPushNotifications)
+      SendNotification(msg);
+}
+
 void ProcessCreatedClosedPushNotifications()
   {
    if(!g_tradePushTrackerInitialized)
@@ -5437,6 +5455,11 @@ bool DeleteTrackedOppositeImpulsePending(string reason)
    if(!OrderDelete(ticket,clrNONE))
      {
       int err = GetLastError();
+
+NotifyGeneralTradeError(
+   OrderTicket(),
+   err
+);
       g_oppositeImpulseStatus = "DELETE RETRY " + IntegerToString(err);
       Print("OPPOSITE IMPULSE DELETE FAILED | Ticket=",ticket,
             " | Error=",err,
@@ -5732,6 +5755,11 @@ RefreshRates();
    if(ticket < 0)
      {
       int err = GetLastError();
+
+NotifyGeneralTradeError(
+   OrderTicket(),
+   err
+);
       g_oppositeImpulseStatus = "ORDERSEND RETRY " +
                                 IntegerToString(err);
       g_lastOrderOpenReason =
@@ -6425,6 +6453,11 @@ bool PlaceSARContinuationPending(int direction,
    if(ticket < 0)
      {
       int err = GetLastError();
+
+NotifyGeneralTradeError(
+   OrderTicket(),
+   err
+);
       g_sarContinuationStatus =
          strategy + " ORDERSEND ERROR " +
          IntegerToString(err);
@@ -6663,6 +6696,11 @@ void ManageSARContinuationPendingOrders()
       else
         {
          int err = GetLastError();
+
+NotifyGeneralTradeError(
+   OrderTicket(),
+   err
+);
          g_sarContinuationStatus =
             "DELETE RETRY " + IntegerToString(err);
          Print("SAR CONTINUATION DELETE FAILED | Ticket=",
@@ -7198,6 +7236,39 @@ bool ApplyInitialServerSideSLToSelectedOrder()
 RefreshRates();
 
    ResetLastError();
+
+
+
+RefreshRates();
+
+double stopLevel = MarketInfo(Symbol(), MODE_STOPLEVEL) * Point;
+finalSL = NormalizeDouble(finalSL, Digits);
+
+if(OrderType() == OP_BUY && finalSL >= Bid - stopLevel)
+{
+   Print("BLOCKED INVALID BUY SL | SL=", DoubleToString(finalSL, Digits),
+         " | Bid=", DoubleToString(Bid, Digits));
+   return(false);
+}
+
+if(OrderType() == OP_SELL && finalSL <= Ask + stopLevel)
+{
+   Print("BLOCKED INVALID SELL SL | SL=", DoubleToString(finalSL, Digits),
+         " | Ask=", DoubleToString(Ask, Digits));
+   return(false);
+}
+
+
+
+
+
+
+
+
+
+
+
+
    bool modified = OrderModify(OrderTicket(),
                                OrderOpenPrice(),
                                finalSL,
@@ -7212,6 +7283,11 @@ RefreshRates();
    if(!modified)
      {
       int err = GetLastError();
+
+NotifyGeneralTradeError(
+   OrderTicket(),
+   err
+);
       Print("INITIAL SERVER SL MODIFY FAILED",
             " | Ticket=",OrderTicket(),
             " | OrderDir=",DirectionText(orderDirection),
@@ -7746,10 +7822,10 @@ void InitializeStrictDayEndFreshBootState()
      {
       if(g_dayEndPreparedDateKey == currentDateKey)
          g_dayEndFreshBootStatus =
-            "23:45 RESET COMPLETE | TICKS BLOCKED TO 00:00";
+            " RESET COMPLETE | TICKS BLOCKED TO 00:00";
       else
          g_dayEndFreshBootStatus =
-            "23:45 RESET PENDING | TICKS BLOCKED";
+            " RESET PENDING | TICKS BLOCKED";
      }
    else
       g_dayEndFreshBootStatus =
@@ -7858,7 +7934,7 @@ bool HandleStrict2345DayEndFreshBoot()
       g_dayEndReloadedDateKey = currentDateKey;
 
       g_dayEndFreshBootStatus =
-         "23:45 RESET COMPLETE | EA RELOAD REQUESTED | HOLD TO 00:00";
+         " RESET COMPLETE | EA RELOAD REQUESTED | HOLD TO 00:00";
 
       ResetLastError();
       bool requested = ChartSetSymbolPeriod(
@@ -7894,7 +7970,7 @@ bool HandleStrict2345DayEndFreshBoot()
      }
 
    g_dayEndFreshBootStatus =
-      "23:45 RESET COMPLETE | TICKS BLOCKED TO 00:00";
+      "  RESET COMPLETE | TICKS BLOCKED TO 00:00";
 
    return(false);
   }
@@ -10667,6 +10743,11 @@ int CloseAllEAMarketOrdersForFreshDay(string reason)
       else
         {
          int err = GetLastError();
+
+NotifyGeneralTradeError(
+   OrderTicket(),
+   err
+);
          Print("FRESH DAY MARKET CLOSE FAILED | Ticket=",ticket,
                " | Error=",err,
                " | Reason=",reason);
@@ -11497,8 +11578,8 @@ string GetNewOrderHardPauseReasonText()
          (IsTesting()
           ? "TESTER BLOCKED HOUR | "
           : "GMT0 BLOCKED SESSION | ") +
-         clockLabel + "=" +
-         TimeToString(lockClock,TIME_DATE|TIME_MINUTES) +
+         // clockLabel + "=" +
+         // TimeToString(lockClock,TIME_DATE|TIME_MINUTES) +
          " | HOUR=" + IntegerToString(TimeHour(lockClock)) +
          " | HOURS=" +
          GetActiveNoNewOrderHourList();
@@ -12104,6 +12185,11 @@ int EnforcePendingOrderGapSafetyForDirection(int direction)
       else
         {
          int err = GetLastError();
+
+NotifyGeneralTradeError(
+   OrderTicket(),
+   err
+);
          Print("CENTRAL PENDING GAP DELETE FAILED | Ticket=", ticket,
                " | Direction=", DirectionText(direction),
                " | Reason=", reason,
@@ -12248,6 +12334,11 @@ int CloseNewerLiveOrdersInsideMinimumGap(int direction)
       else
         {
          int err = GetLastError();
+
+NotifyGeneralTradeError(
+   OrderTicket(),
+   err
+);
          Print("CENTRAL LIVE GAP CLOSE FAILED | Ticket=", ticketToClose,
                " | Keep older #", olderTicket,
                " | Gap=", DoubleToString(violatingGap, 1),
@@ -12641,6 +12732,11 @@ bool ProcessGoodMarketFirstOrderContinuation()
    if(ticket < 0)
      {
       int err = GetLastError();
+
+NotifyGeneralTradeError(
+   OrderTicket(),
+   err
+);
       g_goodMarketContinuationStatus =
          "ORDERSEND RETRY | ERROR " + IntegerToString(err);
       g_lastOrderOpenReason =
@@ -12721,6 +12817,11 @@ int DeletePendingOrdersByDirection(int direction,
       if(!OrderDelete(ticket))
         {
          int err = GetLastError();
+
+NotifyGeneralTradeError(
+   OrderTicket(),
+   err
+);
          Print("PENDING DELETE FAILED | Ticket=", ticket,
                " | Type=", type,
                " | Reason=", reason,
@@ -13157,6 +13258,11 @@ void CloseAllEAOrders(string reason)
       if(!ok)
         {
          int err = GetLastError();
+
+NotifyGeneralTradeError(
+   OrderTicket(),
+   err
+);
          Print("CloseAllEAOrders failed | Ticket=", OrderTicket(), " Reason=", reason, " Error=", err);
          ResetLastError();
         }
@@ -14037,17 +14143,48 @@ bool ApplyServerSideProfitLock(int orderType,
       ResetLastError();
 RefreshRates();
 
-      bool modified =
-         OrderModify(ticket,
-                     OrderOpenPrice(),
-                     stopPrice,
-                     OrderTakeProfit(),
-                     0,
-                     clrNONE);
+RefreshRates();
+
+ResetLastError();
+RefreshRates();
+
+double stopLevel = MarketInfo(Symbol(), MODE_STOPLEVEL) * Point;
+stopPrice = NormalizeDouble(stopPrice, Digits);
+
+if(orderType == OP_BUY && stopPrice >= Bid - stopLevel)
+{
+   Print("BLOCKED INVALID PROFIT LOCK BUY SL | SL=",
+         DoubleToString(stopPrice, Digits),
+         " | Bid=", DoubleToString(Bid, Digits));
+   modifyFailures++;
+   continue;
+}
+
+if(orderType == OP_SELL && stopPrice <= Ask + stopLevel)
+{
+   Print("BLOCKED INVALID PROFIT LOCK SELL SL | SL=",
+         DoubleToString(stopPrice, Digits),
+         " | Ask=", DoubleToString(Ask, Digits));
+   modifyFailures++;
+   continue;
+}
+
+bool modified =
+   OrderModify(ticket,
+               OrderOpenPrice(),
+               stopPrice,
+               OrderTakeProfit(),
+               0,
+               clrNONE);
 
       if(!modified)
         {
          int err = GetLastError();
+
+NotifyGeneralTradeError(
+   OrderTicket(),
+   err
+);
 
          // Error 1 = unchanged values; final verification decides success.
          if(err != 1)
@@ -15788,6 +15925,11 @@ bool CloseRecoveryOrdersAtProfit()
       if(!ok)
         {
          int err = GetLastError();
+
+NotifyGeneralTradeError(
+   OrderTicket(),
+   err
+);
          Print("RECOVERY FIXED PROFIT CLOSE FAILED | Ticket=", ticket,
                " | Profit=$", DoubleToString(profit, 2),
                " | Target=$", DoubleToString(target, 2),
@@ -16051,6 +16193,11 @@ bool OpenRecoveryOrder(int direction, string sourceReason, int slReverseStage = 
    if(ticket < 0)
      {
       int err = GetLastError();
+
+NotifyGeneralTradeError(
+   OrderTicket(),
+   err
+);
       Print("RECOVERY ORDER SEND FAILED | Direction=", DirectionText(direction),
             " | Source=", sourceReason,
             " | Error=", err);
@@ -16296,6 +16443,11 @@ bool OpenRecoveryGapMarketOrder(int direction, double gapMove, string triggerRea
    if(ticket < 0)
      {
       int err = GetLastError();
+
+NotifyGeneralTradeError(
+   OrderTicket(),
+   err
+);
       Print("RECOVERY GAP ORDER FAILED | Direction=", DirectionText(direction),
             " | Lot=", DoubleToString(lot, 2),
             " | GapMove=", DoubleToString(gapMove, Digits),
@@ -17242,6 +17394,11 @@ void ProcessSARSpecialGuardCleanup()
       if(!ok)
         {
          int err = GetLastError();
+
+NotifyGeneralTradeError(
+   OrderTicket(),
+   err
+);
          Print("SAR SPECIAL GUARD CLOSE FAILED | Guard=#", guardTicket,
                " | Parent=#", parentTicket,
                " | Error=", err);
@@ -17441,6 +17598,11 @@ void CloseOrdersByDirectionAnyMagic(int direction, string reason, bool anyMagic)
       if(!ok)
         {
          int err = GetLastError();
+
+NotifyGeneralTradeError(
+   OrderTicket(),
+   err
+);
          Print("EARLY CLOSE FAILED | Ticket=", OrderTicket(),
                " | Magic=", OrderMagicNumber(),
                " | Reason=", reason,
@@ -22130,6 +22292,11 @@ bool OpenMarketOrder(int direction, string reason)
      {
       int err = GetLastError();
 
+NotifyGeneralTradeError(
+   OrderTicket(),
+   err
+);
+
       g_lastOrderOpenReason =
          BuildOrderSendFailMessage(err,
                                    type,
@@ -22442,6 +22609,11 @@ void CloseOrdersByType(int type, string reason)
       if(!ok)
         {
          int err = GetLastError();
+
+NotifyGeneralTradeError(
+   OrderTicket(),
+   err
+);
          Print("Close failed. Ticket=", OrderTicket(), " reason=", reason, " error=", err);
          ResetLastError();
         }
@@ -24680,6 +24852,10 @@ void DrawCompactDashboard(string status)
       centerW = MathMin(720,chartWidth-20);
      }
 
+      
+
+
+
    int centerX = MathMax(margin,(chartWidth-centerW)/2);
    int leftX   = margin;
    int rightX  = MathMax(margin,chartWidth-sideW-margin);
@@ -24696,7 +24872,7 @@ void DrawCompactDashboard(string status)
                    clrBlack,titleColor);
 
    DrawCornerLabel("DXB_COMPACT_TOP_TITLE",
-                   "DXB SAR v1.90 | LATEST ACTIONS | " +
+                   "DXB  v1.90 | LATEST ACTIONS | " +
                    (IsTesting() ? "TEST" : "LIVE") +
                    " | " + Symbol() +
                    " | LOT " + DoubleToString(GetCurrentTradingLot(),2),
@@ -24708,6 +24884,14 @@ void DrawCompactDashboard(string status)
    CompactXYRow("DXB_COMPACT_TOP_ROW_",topRow,
                 centerX+10,topY+28,
                 "STATUS",status,titleColor,88);
+
+
+               
+CompactXYRow("DXB_COMPACT_TOP_ROW_",topRow,
+                centerX+10,topY+28,
+                "No Trading Hours", GetActiveNoNewOrderHourList(),
+                g_freshDayResetInProgress?clrOrangeRed:clrAqua,88);
+                /*
    CompactXYRow("DXB_COMPACT_TOP_ROW_",topRow,
                 centerX+10,topY+28,
                 "FRESH DAY",g_freshDayStatus,
@@ -24734,8 +24918,9 @@ void DrawCompactDashboard(string status)
                 " / EQ $"+DoubleToString(AccountEquity(),2)+
                 " / " + DoubleToString(CompactEquityChangePercent(),1)+"%",
                 AccountEquity()>=GetEquityCycleAnchor() ? clrLime : clrOrangeRed,88);
-
+*/
    // LEFT: order-creation information only.
+   /*
    DrawCornerPanel("DXB_COMPACT_LEFT_PANEL",
                    CORNER_LEFT_UPPER,
                    leftX,sideY,sideW,330,
@@ -24810,7 +24995,7 @@ void DrawCompactDashboard(string status)
                 IsNewOrderHardPauseActive()?clrOrangeRed:clrLime,leftChars);
    CompactXYRow("DXB_COMPACT_LEFT_ROW_",leftRow,leftX+10,sideY+28,
                 "ENTRY COVERAGE",CompactEntryCoverageText(),clrYellow,leftChars);
-
+*/
    // RIGHT: account, dynamic lot, targets and risk.
    DrawCornerPanel("DXB_COMPACT_RIGHT_PANEL",
                    CORNER_LEFT_UPPER,
@@ -24867,14 +25052,14 @@ void DrawCompactDashboard(string status)
    CompactXYRow("DXB_COMPACT_RIGHT_ROW_",rightRow,rightX+10,sideY+28,
                 "EQUITY CHANGE",DoubleToString(CompactEquityChangePercent(),2)+"%",
                 CompactEquityChangePercent()>=0?clrLime:clrOrangeRed,rightChars);
-   CompactXYRow("DXB_COMPACT_RIGHT_ROW_",rightRow,rightX+10,sideY+28,
+  /* CompactXYRow("DXB_COMPACT_RIGHT_ROW_",rightRow,rightX+10,sideY+28,
                 "DYNAMIC LOT",DynamicLotStatusText(),clrAqua,rightChars);
    CompactXYRow("DXB_COMPACT_RIGHT_ROW_",rightRow,rightX+10,sideY+28,
                 "LOT FORMULA",
                 "$"+DoubleToString(InpDynamicLotBalanceStepUSD,0)+
                 " = "+DoubleToString(InpDynamicLotPerBalanceStep,2)+
                 " | MONEY X"+DoubleToString(GetDynamicLotMoneyMultiplier(),2),
-                clrAqua,rightChars);
+                clrAqua,rightChars);*/
    CompactXYRow("DXB_COMPACT_RIGHT_ROW_",rightRow,rightX+10,sideY+28,
                 "FLOAT B/S/T",
                 "$"+DoubleToString(GetBasketProfit(1),2)+
@@ -24887,6 +25072,7 @@ void DrawCompactDashboard(string status)
                 " | LADDER BASE $"+
                 DoubleToString(GetDynamicBasketProfitBaseUSD(),2),
                 clrLime,rightChars);
+                /*
    CompactXYRow("DXB_COMPACT_RIGHT_ROW_",rightRow,rightX+10,sideY+28,
                 "AVG 10 M1",
                 DoubleToString(GetAverageClosedM1CandleHeightRaw(),1)+
@@ -24922,11 +25108,12 @@ void DrawCompactDashboard(string status)
                    ? clrYellow
                    : clrLime),
                 rightChars);
+*/
+
    CompactXYRow("DXB_COMPACT_RIGHT_ROW_",rightRow,rightX+10,sideY+28,
                 "NEXT RESET",FormatSecondsToHHMM(GetSecondsUntilNextEquityReset()),clrAqua,rightChars);
    CompactXYRow("DXB_COMPACT_RIGHT_ROW_",rightRow,rightX+10,sideY+28,
                 "PERMISSION",DashboardTradePermissionText(),titleColor,rightChars);
-
    ChartRedraw(0);
   }
 
