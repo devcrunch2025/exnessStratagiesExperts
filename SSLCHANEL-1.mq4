@@ -2,6 +2,7 @@
 //|                  SSL CHANNEL CROSS EA                            |
 //|                  TWO-STAGE PROFIT LADDER                         |
 //|                  DYNAMIC DAILY LOSS PROTECTION                    |
+//|                  MINIMUM CLOSED ORDERS PROTECTION                 |
 //|                  NO TERMINAL GLOBAL VARIABLES                    |
 //|                  OPPOSITE PENDING DELETE ON SIGNAL               |
 //+------------------------------------------------------------------+
@@ -11,6 +12,7 @@
 //==================================================================
 // INPUTS
 //==================================================================
+
 
 //==================================================================
 // SSL SETTINGS
@@ -83,16 +85,21 @@ double StopLossUSD = 1.00;
 
 
 //==================================================================
-// DAILY LOSS PROTECTION
+// DAILY PROFIT PROTECTION
 //==================================================================
 
-double DailyLossProtectionPercent =0.0001;//1000*10;// 50;//10.0;
+double DailyLossProtectionPercent = 75.0;
 
 bool EnableDailyLossProtection = true;
 
 bool ResetDailyProtectionEveryDay = true;
 
 bool CloseOpenOrdersOnDailyLoss = false;
+
+
+// Minimum closed market orders required before
+// daily profit protection can activate
+int MinimumClosedOrdersForDailyProtection = 10;
 
 
 //==================================================================
@@ -155,13 +162,6 @@ int DashboardFontSize = 9;
 //==================================================================
 // LOCAL STATE STRUCTURE
 //==================================================================
-//
-// This is only a data structure definition.
-// No terminal Global Variables are used.
-//
-// The actual state is created as a local static variable inside
-// OnTick() and passed to functions by reference.
-//
 
 struct DailyProtectionState
 {
@@ -173,6 +173,8 @@ struct DailyProtectionState
 
    double DayProtectedBalance;
 
+   int ClosedOrdersToday;
+
    bool TradingStopped;
 
    bool Initialized;
@@ -180,12 +182,8 @@ struct DailyProtectionState
 
 
 //==================================================================
-// GLOBAL RUNTIME VARIABLES
+// RUNTIME VARIABLES
 //==================================================================
-//
-// These are normal EA runtime variables.
-// They are NOT MT4 Terminal Global Variables.
-//
 
 string PREFIX = "SSL_CROSS_";
 
@@ -202,15 +200,257 @@ int LastProcessedClosedTicket = -1;
 //| INITIALIZATION                                                   |
 //+------------------------------------------------------------------+
 
+datetime DailyProtectionStartTime = 0;
+bool StartupSignalProcessed = false;
+//+------------------------------------------------------------------+
+//| RECOVER LAST SSL SIGNAL AFTER EA RESTART                         |
+//+------------------------------------------------------------------+
+
+void ProcessStartupSignal(
+   DailyProtectionState &dailyState
+)
+{
+   if(
+      StartupSignalProcessed
+   )
+   {
+      return;
+   }
+
+
+   if(
+      Bars <
+      SSLPeriod +
+      20
+   )
+   {
+      return;
+   }
+
+
+   StartupSignalProcessed =
+      true;
+
+
+   double upCurrent;
+
+   double downCurrent;
+
+   int hlvCurrent;
+
+
+   double upPrevious;
+
+   double downPrevious;
+
+   int hlvPrevious;
+
+
+   //===============================================================
+   // USE THE LAST CLOSED CANDLE
+   //===============================================================
+
+   CalculateSSL(
+      1,
+
+      upCurrent,
+
+      downCurrent,
+
+      hlvCurrent
+   );
+
+
+   CalculateSSL(
+      2,
+
+      upPrevious,
+
+      downPrevious,
+
+      hlvPrevious
+   );
+
+
+   bool buySignal =
+      upCurrent >
+      downCurrent;
+
+
+   bool sellSignal =
+      upCurrent <
+      downCurrent;
+
+
+   Print(
+      "=================================================="
+   );
+
+
+   Print(
+      "EA RESTART SIGNAL RECOVERY"
+   );
+
+
+   Print(
+      "Previous SSL Direction: ",
+
+      buySignal ?
+      "BUY" :
+      sellSignal ?
+      "SELL" :
+      "NONE"
+   );
+
+
+   Print(
+      "=================================================="
+   );
+
+
+   if(
+      buySignal
+   )
+   {
+      DrawLiveSignal(
+         1,
+
+         true
+      );
+
+
+      if(
+         DeleteOppositePendingOnSignal
+      )
+      {
+         DeleteOppositePendingOrders(
+            OP_BUY
+         );
+      }
+
+
+      if(
+         CloseOppositeOrdersOnSignal
+      )
+      {
+         CloseOppositeOrders(
+            OP_BUY
+         );
+      }
+
+
+      if(
+         EnableTrading &&
+         !IsDailyTradingStopped(
+            dailyState
+         )
+      )
+      {
+         if(
+            GetTotalEAOrders() <
+            MaxOpenOrders
+         )
+         {
+            OpenBuy();
+
+            Print(
+               "EA RESTART -> BUY OPENED USING PREVIOUS SSL SIGNAL"
+            );
+         }
+         else
+         {
+            Print(
+               "EA RESTART BUY BLOCKED | MAX TOTAL ORDERS REACHED"
+            );
+         }
+      }
+      else
+      {
+         Print(
+            "EA RESTART BUY BLOCKED | DAILY PROTECTION ACTIVE"
+         );
+      }
+   }
+
+
+   if(
+      sellSignal
+   )
+   {
+      DrawLiveSignal(
+         1,
+
+         false
+      );
+
+
+      if(
+         DeleteOppositePendingOnSignal
+      )
+      {
+         DeleteOppositePendingOrders(
+            OP_SELL
+         );
+      }
+
+
+      if(
+         CloseOppositeOrdersOnSignal
+      )
+      {
+         CloseOppositeOrders(
+            OP_SELL
+         );
+      }
+
+
+      if(
+         EnableTrading &&
+         !IsDailyTradingStopped(
+            dailyState
+         )
+      )
+      {
+         if(
+            GetTotalEAOrders() <
+            MaxOpenOrders
+         )
+         {
+            OpenSell();
+
+            Print(
+               "EA RESTART -> SELL OPENED USING PREVIOUS SSL SIGNAL"
+            );
+         }
+         else
+         {
+            Print(
+               "EA RESTART SELL BLOCKED | MAX TOTAL ORDERS REACHED"
+            );
+         }
+      }
+      else
+      {
+         Print(
+            "EA RESTART SELL BLOCKED | DAILY PROTECTION ACTIVE"
+         );
+      }
+   }
+}
 int OnInit()
 {
+
+   
+
    Print("==================================================");
 
    Print("SSL CHANNEL CROSS EA INITIALIZED");
 
    Print("TWO-STAGE PROFIT LADDER VERSION");
 
-   Print("DYNAMIC DAILY LOSS PROTECTION VERSION");
+   Print("DYNAMIC DAILY PROFIT PROTECTION VERSION");
+
+   Print("MINIMUM CLOSED ORDERS PROTECTION VERSION");
 
    Print("NO TERMINAL GLOBAL VARIABLES");
 
@@ -254,14 +494,19 @@ int OnInit()
    );
 
    Print(
-      "Daily Loss Protection: ",
+      "Daily Profit Protection: ",
       EnableDailyLossProtection ?
       "ON" :
       "OFF"
    );
 
    Print(
-      "Daily Loss Protection Percent: ",
+      "Minimum Closed Orders Required: ",
+      MinimumClosedOrdersForDailyProtection
+   );
+
+   Print(
+      "Daily Profit Protection Percent: ",
       DoubleToString(
          DailyLossProtectionPercent,
          2
@@ -312,18 +557,10 @@ int OnInit()
    Print("==================================================");
 
 
-   //===============================================================
-   // DELETE CHART OBJECTS
-   //===============================================================
-
    DeleteOurObjects();
 
    DeleteDashboardObjects();
 
-
-   //===============================================================
-   // DRAW HISTORY
-   //===============================================================
 
    if(
       ShowHistoricalSignals ||
@@ -332,11 +569,15 @@ int OnInit()
    {
       DrawHistoricalSignals();
    }
+DailyProtectionStartTime = TimeCurrent();
 
-
-   //===============================================================
-   // INITIALIZE CLOSED ORDER TRACKING
-   //===============================================================
+Print(
+   "DAILY PROTECTION ORDER COUNT START TIME: ",
+   TimeToString(
+      DailyProtectionStartTime,
+      TIME_DATE | TIME_SECONDS
+   )
+);
 
    InitializeLastProcessedClosedOrder();
 
@@ -367,23 +608,8 @@ void OnDeinit(
 
 void OnTick()
 {
-   //===============================================================
-   // LOCAL STATIC DAILY PROTECTION STATE
-   //===============================================================
-   //
-   // This is local to OnTick().
-   //
-   // It is NOT an MT4 Terminal Global Variable.
-   //
-   // The state remains available while the EA is running.
-   //
-
    static DailyProtectionState dailyState;
 
-
-   //===============================================================
-   // INITIALIZE DAILY STATE
-   //===============================================================
 
    if(
       !dailyState.Initialized
@@ -394,19 +620,17 @@ void OnTick()
       );
    }
 
-
+ //===============================================================
+   // RECOVER LAST SIGNAL AFTER EA RESTART
    //===============================================================
-   // DAILY LOSS PROTECTION UPDATE
-   //===============================================================
 
+   ProcessStartupSignal(
+      dailyState
+   );
    UpdateDailyLossProtection(
       dailyState
    );
 
-
-   //===============================================================
-   // LIVE SSL LINES
-   //===============================================================
 
    if(
       ShowSSLLines
@@ -415,10 +639,6 @@ void OnTick()
       UpdateSSLChannelOnTick();
    }
 
-
-   //===============================================================
-   // PROFITABLE CLOSED ORDER CHECK
-   //===============================================================
 
    if(
       Bars >=
@@ -432,10 +652,6 @@ void OnTick()
    }
 
 
-   //===============================================================
-   // TWO-STAGE PROFIT LADDER
-   //===============================================================
-
    if(
       EnableProfitLadder1 ||
       EnableProfitLadder2
@@ -444,10 +660,6 @@ void OnTick()
       ManageProfitLadder();
    }
 
-
-   //===============================================================
-   // DASHBOARD
-   //===============================================================
 
    if(
       ShowDashboard
@@ -459,10 +671,6 @@ void OnTick()
    }
 
 
-   //===============================================================
-   // BAR DATA CHECK
-   //===============================================================
-
    if(
       Bars <
       SSLPeriod +
@@ -472,10 +680,6 @@ void OnTick()
       return;
    }
 
-
-   //===============================================================
-   // ONE SIGNAL PER NEW CANDLE
-   //===============================================================
 
    if(
       Time[0] ==
@@ -490,24 +694,17 @@ void OnTick()
       Time[0];
 
 
-   //===============================================================
-   // SSL SIGNALS
-   //===============================================================
-
    bool buySignal =
       IsBuySignal(
          1
       );
+
 
    bool sellSignal =
       IsSellSignal(
          1
       );
 
-
-   //===============================================================
-   // BUY SIGNAL
-   //===============================================================
 
    if(
       buySignal
@@ -524,10 +721,6 @@ void OnTick()
       );
 
 
-      //============================================================
-      // DELETE OPPOSITE SELL STOP ORDERS
-      //============================================================
-
       if(
          DeleteOppositePendingOnSignal
       )
@@ -538,10 +731,6 @@ void OnTick()
       }
 
 
-      //============================================================
-      // CLOSE OPPOSITE SELL ORDERS
-      //============================================================
-
       if(
          CloseOppositeOrdersOnSignal
       )
@@ -551,10 +740,6 @@ void OnTick()
          );
       }
 
-
-      //============================================================
-      // OPEN BUY
-      //============================================================
 
       if(
          EnableTrading &&
@@ -580,15 +765,11 @@ void OnTick()
       else
       {
          Print(
-            "BUY BLOCKED | DAILY LOSS PROTECTION ACTIVE"
+            "BUY BLOCKED | DAILY PROFIT PROTECTION ACTIVE"
          );
       }
    }
 
-
-   //===============================================================
-   // SELL SIGNAL
-   //===============================================================
 
    if(
       sellSignal
@@ -605,10 +786,6 @@ void OnTick()
       );
 
 
-      //============================================================
-      // DELETE OPPOSITE BUY STOP ORDERS
-      //============================================================
-
       if(
          DeleteOppositePendingOnSignal
       )
@@ -619,10 +796,6 @@ void OnTick()
       }
 
 
-      //============================================================
-      // CLOSE OPPOSITE BUY ORDERS
-      //============================================================
-
       if(
          CloseOppositeOrdersOnSignal
       )
@@ -632,10 +805,6 @@ void OnTick()
          );
       }
 
-
-      //============================================================
-      // OPEN SELL
-      //============================================================
 
       if(
          EnableTrading &&
@@ -661,7 +830,7 @@ void OnTick()
       else
       {
          Print(
-            "SELL BLOCKED | DAILY LOSS PROTECTION ACTIVE"
+            "SELL BLOCKED | DAILY PROFIT PROTECTION ACTIVE"
          );
       }
    }
@@ -697,15 +866,14 @@ void InitializeDailyProtectionState(
       state.DayStartBalance;
 
 
-   double initialLossAmount =
-      state.DayStartBalance *
-      DailyLossProtectionPercent /
-      100.0;
-
-
    state.DayProtectedBalance =
-      state.DayStartBalance -
-      initialLossAmount;
+      state.DayStartBalance;
+
+
+   // state.ClosedOrdersToday =
+   //    CountTodayClosedEAOrders();
+
+      state.ClosedOrdersToday = 0;
 
 
    state.TradingStopped =
@@ -722,7 +890,7 @@ void InitializeDailyProtectionState(
 
 
    Print(
-      "NEW DAILY LOSS PROTECTION INITIALIZED"
+      "NEW DAILY PROFIT PROTECTION INITIALIZED"
    );
 
 
@@ -736,16 +904,29 @@ void InitializeDailyProtectionState(
 
 
    Print(
-      "Initial Maximum Loss: $",
-      DoubleToString(
-         initialLossAmount,
-         2
-      )
+      "Closed Orders Today: ",
+      state.ClosedOrdersToday
    );
 
 
    Print(
-      "Protected Balance: $",
+      "Minimum Required Closed Orders: ",
+      MinimumClosedOrdersForDailyProtection
+   );
+
+
+   Print(
+      "Daily Profit Protection: ",
+      DoubleToString(
+         DailyLossProtectionPercent,
+         2
+      ),
+      "%"
+   );
+
+
+   Print(
+      "Initial Protected Balance: $",
       DoubleToString(
          state.DayProtectedBalance,
          2
@@ -760,7 +941,7 @@ void InitializeDailyProtectionState(
 
 
 //+------------------------------------------------------------------+
-//| UPDATE DAILY LOSS PROTECTION                                     |
+//| UPDATE DAILY PROFIT PROTECTION                                   |
 //+------------------------------------------------------------------+
 
 void UpdateDailyLossProtection(
@@ -799,26 +980,32 @@ void UpdateDailyLossProtection(
       todayDate
    )
    {
-      state.DayDate =
-         todayDate;
+     state.DayDate =
+   todayDate;
 
 
-      state.DayStartBalance =
-         AccountBalance();
+state.DayStartBalance =
+   AccountBalance();
 
 
-      state.DayHighestBalance =
-         state.DayStartBalance;
+state.DayHighestBalance =
+   state.DayStartBalance;
 
 
-      state.DayProtectedBalance =
-         state.DayStartBalance -
-         (
-            state.DayStartBalance *
-            DailyLossProtectionPercent /
-            100.0
-         );
+state.DayProtectedBalance =
+   state.DayStartBalance;
 
+
+state.ClosedOrdersToday =
+   0;
+
+
+state.TradingStopped =
+   false;
+
+
+DailyProtectionStartTime =
+   TimeCurrent();
 
       state.TradingStopped =
          false;
@@ -830,7 +1017,7 @@ void UpdateDailyLossProtection(
 
 
       Print(
-         "NEW DAY - DAILY LOSS PROTECTION RESET"
+         "NEW DAY - DAILY PROFIT PROTECTION RESET"
       );
 
 
@@ -853,10 +1040,19 @@ void UpdateDailyLossProtection(
 
 
       Print(
+         "Minimum Closed Orders Required: ",
+         MinimumClosedOrdersForDailyProtection
+      );
+
+
+      Print(
          "=================================================="
       );
    }
 
+
+   state.ClosedOrdersToday =
+   CountClosedOrdersSinceInitialization();
 
    double currentBalance =
       AccountBalance();
@@ -885,13 +1081,20 @@ void UpdateDailyLossProtection(
          0
       )
       {
+         double protectedProfit =
+            profitAboveStart *
+            DailyLossProtectionPercent /
+            100.0;
+
+
          state.DayProtectedBalance =
             state.DayStartBalance +
-            (
-               profitAboveStart *
-               DailyLossProtectionPercent /
-               100.0
-            );
+            protectedProfit;
+      }
+      else
+      {
+         state.DayProtectedBalance =
+            state.DayStartBalance;
       }
 
 
@@ -910,12 +1113,44 @@ void UpdateDailyLossProtection(
 
 
       Print(
+         "Profit Above Day Start: $",
+         DoubleToString(
+            profitAboveStart,
+            2
+         )
+      );
+
+
+      Print(
+         "Protected Profit: $",
+         DoubleToString(
+            state.DayProtectedBalance -
+            state.DayStartBalance,
+            2
+         )
+      );
+
+
+      Print(
          "New Protected Balance: $",
          DoubleToString(
             state.DayProtectedBalance,
             2
          )
       );
+   }
+
+
+   //===============================================================
+   // MINIMUM CLOSED ORDER REQUIREMENT
+   //===============================================================
+
+   if(
+      state.ClosedOrdersToday <
+      MinimumClosedOrdersForDailyProtection
+   )
+   {
+      return;
    }
 
 
@@ -942,7 +1177,13 @@ void UpdateDailyLossProtection(
 
 
          Print(
-            "DAILY LOSS PROTECTION ACTIVATED"
+            "DAILY PROFIT PROTECTION ACTIVATED"
+         );
+
+
+         Print(
+            "Closed Orders Today: ",
+            state.ClosedOrdersToday
          );
 
 
@@ -982,6 +1223,184 @@ void UpdateDailyLossProtection(
          }
       }
    }
+}
+
+
+//+------------------------------------------------------------------+
+//| COUNT TODAY CLOSED EA ORDERS                                     |
+//+------------------------------------------------------------------+
+//+------------------------------------------------------------------+
+//| COUNT CLOSED ORDERS SINCE EA INITIALIZATION                      |
+//+------------------------------------------------------------------+
+
+int CountClosedOrdersSinceInitialization()
+{
+   int count =
+      0;
+
+
+   if(
+      DailyProtectionStartTime <=
+      0
+   )
+   {
+      return 0;
+   }
+
+
+   for(
+      int i =
+      OrdersHistoryTotal() - 1;
+
+      i >=
+      0;
+
+      i--
+   )
+   {
+      if(
+         !OrderSelect(
+            i,
+            SELECT_BY_POS,
+            MODE_HISTORY
+         )
+      )
+      {
+         continue;
+      }
+
+
+      if(
+         OrderSymbol() !=
+         Symbol()
+      )
+      {
+         continue;
+      }
+
+
+      if(
+         OrderMagicNumber() !=
+         MagicNumber
+      )
+      {
+         continue;
+      }
+
+
+      if(
+         OrderType() !=
+         OP_BUY &&
+
+         OrderType() !=
+         OP_SELL
+      )
+      {
+         continue;
+      }
+
+
+      //=============================================================
+      // ONLY COUNT ORDERS CLOSED AFTER EA INITIALIZATION
+      //=============================================================
+
+      if(
+         OrderCloseTime() <=
+         DailyProtectionStartTime
+      )
+      {
+         continue;
+      }
+
+
+      count++;
+   }
+
+
+   return count;
+}
+int CountTodayClosedEAOrdersold()
+{
+   int count =
+      0;
+
+
+   datetime todayDate =
+      StrToTime(
+         TimeToString(
+            TimeCurrent(),
+            TIME_DATE
+         )
+      );
+
+
+   for(
+      int i =
+      OrdersHistoryTotal() -
+      1;
+
+      i >=
+      0;
+
+      i--
+   )
+   {
+      if(
+         !OrderSelect(
+            i,
+            SELECT_BY_POS,
+            MODE_HISTORY
+         )
+      )
+      {
+         continue;
+      }
+
+
+      if(
+         OrderSymbol() !=
+         Symbol()
+      )
+      {
+         continue;
+      }
+
+
+      if(
+         OrderMagicNumber() !=
+         MagicNumber
+      )
+      {
+         continue;
+      }
+
+
+      if(
+         OrderType() !=
+         OP_BUY &&
+
+         OrderType() !=
+         OP_SELL
+      )
+      {
+         continue;
+      }
+
+
+      if(
+         OrderCloseTime() <
+         todayDate
+      )
+      {
+         continue;
+      }
+
+
+      count++;
+   }
+
+
+   return count;
 }
 
 
@@ -2515,10 +2934,6 @@ void ManageProfitLadder()
          0;
 
 
-      //============================================================
-      // LADDER 1
-      //============================================================
-
       if(
          EnableProfitLadder1 &&
 
@@ -2551,10 +2966,6 @@ void ManageProfitLadder()
          }
       }
 
-
-      //============================================================
-      // LADDER 2
-      //============================================================
 
       if(
          EnableProfitLadder2 &&
@@ -2655,10 +3066,6 @@ void ManageProfitLadder()
       double newStopLoss;
 
 
-      //============================================================
-      // BUY
-      //============================================================
-
       if(
          orderType ==
          OP_BUY
@@ -2751,10 +3158,6 @@ void ManageProfitLadder()
          }
       }
 
-
-      //============================================================
-      // SELL
-      //============================================================
 
       if(
          orderType ==
@@ -4459,7 +4862,16 @@ void UpdateDashboard(
    )
    {
       statusText =
-         "DAILY LOSS STOPPED";
+         "DAILY PROFIT PROTECTION STOPPED";
+   }
+   else
+   if(
+      state.ClosedOrdersToday <
+      MinimumClosedOrdersForDailyProtection
+   )
+   {
+      statusText =
+         "PROTECTION WAITING FOR ORDERS";
    }
    else
    if(
@@ -4488,6 +4900,15 @@ void UpdateDashboard(
    {
       statusColor =
          clrTomato;
+   }
+   else
+   if(
+      state.ClosedOrdersToday <
+      MinimumClosedOrdersForDailyProtection
+   )
+   {
+      statusColor =
+         clrGold;
    }
    else
    {
@@ -4756,14 +5177,41 @@ void UpdateDashboard(
    );
 
 
-   //===============================================================
-   // DAILY LOSS INFORMATION
-   //===============================================================
-
    if(
       EnableDailyLossProtection
    )
    {
+      CreateDashboardLabel(
+         DASH_PREFIX +
+         "CLOSED_TODAY",
+
+         "Closed Today: " +
+
+         IntegerToString(
+            state.ClosedOrdersToday
+         ) +
+
+         " / " +
+
+         IntegerToString(
+            MinimumClosedOrdersForDailyProtection
+         ),
+
+         textX,
+
+         y + 338,
+
+         DashboardFontSize,
+
+         state.ClosedOrdersToday >=
+         MinimumClosedOrdersForDailyProtection ?
+
+         clrLimeGreen :
+
+         clrGold
+      );
+
+
       CreateDashboardLabel(
          DASH_PREFIX +
          "DAY_START",
@@ -4777,7 +5225,7 @@ void UpdateDashboard(
 
          textX,
 
-         y + 340,
+         y + 360,
 
          DashboardFontSize,
 
@@ -4798,7 +5246,7 @@ void UpdateDashboard(
 
          textX,
 
-         y + 360,
+         y + 380,
 
          DashboardFontSize,
 
@@ -4819,7 +5267,7 @@ void UpdateDashboard(
 
          textX,
 
-         y + 380,
+         y + 400,
 
          DashboardFontSize,
 
@@ -4836,7 +5284,7 @@ void UpdateDashboard(
 
       textX,
 
-      y + 402,
+      y + 422,
 
       DashboardFontSize,
 
@@ -4857,7 +5305,7 @@ void UpdateDashboard(
 
          textX,
 
-         y + 422,
+         y + 442,
 
          DashboardFontSize,
 
@@ -4874,7 +5322,7 @@ void UpdateDashboard(
 
          textX,
 
-         y + 422,
+         y + 442,
 
          DashboardFontSize,
 
