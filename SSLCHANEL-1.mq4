@@ -1,698 +1,2504 @@
 //+------------------------------------------------------------------+
-//|                 SSL Channel Cross EA - ADVANCED                  |
-//|              With Enhanced Graphics & Statistics                 |
+//|                  SSL CHANNEL CROSS EA                            |
+//|                  COMPLETE MQL4 EA                                |
 //+------------------------------------------------------------------+
 #property strict
 
-//+------------------------------------------------------------------+
-//| Input Parameters
-//+------------------------------------------------------------------+
-input int      SSLPeriod = 10;              // SSL Channel Period
-input double   RiskPercent = 1.0;           // Risk per trade
-input int      TakeProfit = 100;            // Take Profit in pips
-input int      StopLoss = 50;               // Stop Loss in pips
-input int      MaxSpread = 20;              // Maximum spread
-input bool     UseTrailingStop = false;     // Enable trailing stop
-input int      TrailingStop = 30;           // Trailing stop distance
-input string   TradeComment = "SSL_Channel";
+//==================================================================
+// INPUTS
+//==================================================================
 
-// Visual Settings
-input bool     ShowSSLBands = true;         // Show SSL channels
-input bool     ShowSignals = true;          // Show arrows
-input bool     ShowDashboard = true;        // Show dashboard
-input bool     ShowPriceLevels = true;      // Show price levels for orders
-input bool     ShowPriceInfo = true;        // Show current price box
-input int      DashboardX = 10;             // Dashboard X
-input int      DashboardY = 40;             // Dashboard Y
-input color    DashboardBG = C'30,30,30';   // Dashboard background
-input color    BullishColor = clrLime;      // Bullish color
-input color    BearishColor = clrRed;       // Bearish color
-input bool     ShowChannelFill = true;      // Show channel background
+input int      SSLPeriod = 10;
+
+//========================= TRADING ================================
+
+input bool     EnableTrading = true;
+
+input double   Lots = 0.01;
+
+
+//==================================================================
+// PROFIT LADDER
+//==================================================================
+
+input bool     EnableProfitLadder = true;
+
+// First ladder level
+input double   LadderStepUSD = 1.00;
+
+// Distance between current ladder level and locked profit
+input double   LadderLockGapUSD = 0.50;
+
+// Initial broker-side stop loss
+input double   StopLossUSD = 0.50;
+
+input int      Slippage = 30;
+
+input int      MagicNumber = 6600123;
+
+
+//==================================================================
+// VISUALS
+//==================================================================
+
+input bool     ShowHistoricalSignals = true;
+
+input bool     ShowSSLLines = true;
+
+input int      HistoryBarsToDraw = 500;
+
+input bool     ShowSignalText = true;
+
+input bool     ShowSignalArrows = true;
+
+input int      SignalDistancePoints = 100;
+
+input int      SignalArrowWidth = 2;
+
+input int      SignalFontSize = 9;
+
+input color    BuyColor = clrBlue;
+
+input color    SellColor = clrRed;
+
+input color    SSLUpColor = clrLime;
+
+input color    SSLDownColor = clrRed;
+
+input int      SSLLineWidth = 2;
+
+
+//==================================================================
+// DASHBOARD
+//==================================================================
+
+input bool     ShowDashboard = true;
+
+// Right side of chart
+input int      DashboardCorner = 1;
+
+// 300px gap from right edge
+input int      DashboardRightGap = 300;
+
+input int      DashboardTopGap = 20;
+
+input int      DashboardWidth = 285;
+
+input int      DashboardHeight = 430;
+
+input int      DashboardFontSize = 9;
+
+
+//==================================================================
+// GLOBAL VARIABLES
+//==================================================================
+
+string PREFIX = "SSL_CROSS_";
+
+string DASH_PREFIX = "SSL_DASHBOARD_";
+
+datetime LastProcessedBar = 0;
+
 
 //+------------------------------------------------------------------+
-//| Global Variables
+//| INITIALIZATION                                                    |
 //+------------------------------------------------------------------+
-int slippage = 10;
-double lastSslUp = 0;
-double lastSslDown = 0;
-double currentSslUp = 0;
-double currentSslDown = 0;
-int hlv = 0;
-int lastHlv = 0;
 
-struct TradeStats
-{
-   int total;
-   int wins;
-   int losses;
-   double profit;
-   int today;
-   double profitToday;
-   double maxDrawdown;
-   double avgWin;
-   double avgLoss;
-};
-
-TradeStats stats;
-
-//+------------------------------------------------------------------+
-//| Expert initialization function
-//+------------------------------------------------------------------+
 int OnInit()
 {
-   if(Digits == 0)
-   {
-      Alert("Invalid currency pair");
-      return(INIT_FAILED);
-   }
-   
-   Print("SSL Channel Advanced EA initialized");
-   Print("Graphics Enabled: SSL=", ShowSSLBands, " Dashboard=", ShowDashboard);
-   
-   stats.total = 0;
-   stats.wins = 0;
-   stats.losses = 0;
-   stats.profit = 0;
-   stats.today = 0;
-   stats.profitToday = 0;
-   
+   Print("==================================================");
+
+   Print("SSL CHANNEL CROSS EA INITIALIZED");
+
+   Print("Symbol: ", Symbol());
+
+   Print("Timeframe: ", TimeframeToString(Period()));
+
+   Print("SSL Period: ", SSLPeriod);
+
+   Print("Lots: ", DoubleToString(Lots, 2));
+
+   Print("Initial SL: $",
+         DoubleToString(StopLossUSD, 2));
+
+   Print("Unlimited Profit Ladder: ENABLED");
+
+   Print("==================================================");
+
+   DeleteOurObjects();
+
+   DeleteDashboardObjects();
+
+   if(ShowHistoricalSignals)
+      DrawHistoricalSignals();
+
+   if(ShowDashboard)
+      UpdateDashboard();
+
    return(INIT_SUCCEEDED);
 }
 
-//+------------------------------------------------------------------+
-//| Expert deinitialization function
-//+------------------------------------------------------------------+
-void OnDeinit(const int reason)
-{
-   Print("SSL Channel Advanced EA deinitialized");
-   ObjectsDeleteAll(0, -1);
-}
 
 //+------------------------------------------------------------------+
-//| Expert tick function
+//| DEINITIALIZATION                                                  |
 //+------------------------------------------------------------------+
+
+void OnDeinit(
+   const int reason
+)
+{
+   DeleteOurObjects();
+
+   DeleteDashboardObjects();
+}
+
+
+//+------------------------------------------------------------------+
+//| MAIN TICK                                                         |
+//+------------------------------------------------------------------+
+
 void OnTick()
 {
-   if(Bars < SSLPeriod + 5)
-      return;
-   
-   if(Ask - Bid > MaxSpread * Point)
-      return;
-   
-   lastSslUp = currentSslUp;
-   lastSslDown = currentSslDown;
-   lastHlv = hlv;
-   
-   CalculateSSLChannel();
-   
-   if(ShowSSLBands)
-      DrawSSLBandsAdvanced();
-   
-   bool longCondition = CrossoverDetected(lastSslUp, lastSslDown, currentSslUp, currentSslDown);
-   bool shortCondition = CrossunderDetected(lastSslUp, lastSslDown, currentSslUp, currentSslDown);
-   
-   if(longCondition)
-   {
-      if(ShowSignals)
-         DrawSignalArrow(1);
-      CloseAllShortPositions();
-      OpenLongPosition();
-   }
-   
-   if(shortCondition)
-   {
-      if(ShowSignals)
-         DrawSignalArrow(-1);
-      CloseAllLongPositions();
-      OpenShortPosition();
-   }
-   
-   if(ShowPriceLevels)
-      DrawPriceLevels();
-   
-   if(UseTrailingStop)
-      UpdateTrailingStops();
-   
+   //===============================================================
+   // LIVE DASHBOARD
+   //===============================================================
+
    if(ShowDashboard)
-      UpdateAdvancedDashboard();
-   
-   if(ShowPriceInfo)
-      DrawPriceInfo();
+      UpdateDashboard();
+
+
+   //===============================================================
+   // CHECK BARS
+   //===============================================================
+
+   if(Bars < SSLPeriod + 20)
+      return;
+
+
+   //===============================================================
+   // DRAW HISTORICAL SIGNALS
+   //===============================================================
+
+   if(ShowHistoricalSignals)
+      DrawHistoricalSignals();
+
+
+   //===============================================================
+   // MANAGE UNLIMITED SERVER-SIDE PROFIT LADDER
+   //===============================================================
+
+   if(EnableProfitLadder)
+      ManageProfitLadder();
+
+
+   //===============================================================
+   // NEW CANDLE CHECK
+   //===============================================================
+
+   if(Time[0] == LastProcessedBar)
+      return;
+
+
+   LastProcessedBar = Time[0];
+
+
+   //===============================================================
+   // SIGNALS FROM LAST CLOSED CANDLE
+   //===============================================================
+
+   bool buySignal =
+      IsBuySignal(1);
+
+   bool sellSignal =
+      IsSellSignal(1);
+
+
+   //===============================================================
+   // BUY SIGNAL
+   //===============================================================
+
+   if(buySignal)
+   {
+      DrawLiveSignal(
+         1,
+         true
+      );
+
+      Print(
+         "SSL LONG SIGNAL -> BUY"
+      );
+
+      if(EnableTrading)
+      {
+         // IMPORTANT:
+         // DO NOT CLOSE SELL ORDERS
+         // WHEN BUY SIGNAL APPEARS.
+
+         if(!HasBuyOrder())
+            OpenBuy();
+      }
+   }
+
+
+   //===============================================================
+   // SELL SIGNAL
+   //===============================================================
+
+   if(sellSignal)
+   {
+      DrawLiveSignal(
+         1,
+         false
+      );
+
+      Print(
+         "SSL SHORT SIGNAL -> SELL"
+      );
+
+      if(EnableTrading)
+      {
+         // IMPORTANT:
+         // DO NOT CLOSE BUY ORDERS
+         // WHEN SELL SIGNAL APPEARS.
+
+         if(!HasSellOrder())
+            OpenSell();
+      }
+   }
 }
 
+
 //+------------------------------------------------------------------+
-//| Calculate SSL Channel
+//| CALCULATE SSL CHANNEL                                             |
 //+------------------------------------------------------------------+
-void CalculateSSLChannel()
+
+void CalculateSSL(
+   int shift,
+   double &sslUp,
+   double &sslDown,
+   int &hlv
+)
 {
-   double smaHigh = iMA(Symbol(), Period(), SSLPeriod, 0, MODE_SMA, PRICE_HIGH, 1);
-   double smaLow = iMA(Symbol(), Period(), SSLPeriod, 0, MODE_SMA, PRICE_LOW, 1);
-   double close = Close[1];
-   
-   if(close > smaHigh)
-      hlv = 1;
-   else if(close < smaLow)
-      hlv = -1;
-   
-   if(hlv < 0)
+   int oldest =
+      Bars -
+      SSLPeriod -
+      2;
+
+
+   if(oldest < shift)
+      oldest = shift;
+
+
+   int currentHlv = 0;
+
+
+   for(
+      int i = oldest;
+      i >= shift;
+      i--
+   )
    {
-      currentSslDown = smaHigh;
-      currentSslUp = smaLow;
+      double smaHigh =
+         iMA(
+            Symbol(),
+            Period(),
+            SSLPeriod,
+            0,
+            MODE_SMA,
+            PRICE_HIGH,
+            i
+         );
+
+
+      double smaLow =
+         iMA(
+            Symbol(),
+            Period(),
+            SSLPeriod,
+            0,
+            MODE_SMA,
+            PRICE_LOW,
+            i
+         );
+
+
+      double candleClose =
+         Close[i];
+
+
+      if(candleClose > smaHigh)
+      {
+         currentHlv = 1;
+      }
+      else
+      if(candleClose < smaLow)
+      {
+         currentHlv = -1;
+      }
+
+
+      if(i == shift)
+      {
+         hlv =
+            currentHlv;
+
+
+         if(currentHlv < 0)
+         {
+            sslDown =
+               smaHigh;
+
+            sslUp =
+               smaLow;
+         }
+         else
+         {
+            sslDown =
+               smaLow;
+
+            sslUp =
+               smaHigh;
+         }
+
+
+         return;
+      }
+   }
+
+
+   hlv =
+      currentHlv;
+
+
+   sslUp =
+      0;
+
+   sslDown =
+      0;
+}
+
+
+//+------------------------------------------------------------------+
+//| BUY SIGNAL                                                        |
+//+------------------------------------------------------------------+
+
+bool IsBuySignal(
+   int shift
+)
+{
+   if(shift + 1 >= Bars)
+      return false;
+
+
+   double upCurrent;
+
+   double downCurrent;
+
+   int hlvCurrent;
+
+
+   double upPrevious;
+
+   double downPrevious;
+
+   int hlvPrevious;
+
+
+   CalculateSSL(
+      shift,
+      upCurrent,
+      downCurrent,
+      hlvCurrent
+   );
+
+
+   CalculateSSL(
+      shift + 1,
+      upPrevious,
+      downPrevious,
+      hlvPrevious
+   );
+
+
+   return(
+      upPrevious <= downPrevious &&
+      upCurrent > downCurrent
+   );
+}
+
+
+//+------------------------------------------------------------------+
+//| SELL SIGNAL                                                       |
+//+------------------------------------------------------------------+
+
+bool IsSellSignal(
+   int shift
+)
+{
+   if(shift + 1 >= Bars)
+      return false;
+
+
+   double upCurrent;
+
+   double downCurrent;
+
+   int hlvCurrent;
+
+
+   double upPrevious;
+
+   double downPrevious;
+
+   int hlvPrevious;
+
+
+   CalculateSSL(
+      shift,
+      upCurrent,
+      downCurrent,
+      hlvCurrent
+   );
+
+
+   CalculateSSL(
+      shift + 1,
+      upPrevious,
+      downPrevious,
+      hlvPrevious
+   );
+
+
+   return(
+      upPrevious >= downPrevious &&
+      upCurrent < downCurrent
+   );
+}
+
+
+//+------------------------------------------------------------------+
+//| DRAW HISTORICAL SIGNALS                                           |
+//+------------------------------------------------------------------+
+
+void DrawHistoricalSignals()
+{
+   int barsToProcess =
+      HistoryBarsToDraw;
+
+
+   if(
+      barsToProcess >
+      Bars -
+      SSLPeriod -
+      3
+   )
+   {
+      barsToProcess =
+         Bars -
+         SSLPeriod -
+         3;
+   }
+
+
+   if(barsToProcess <= 0)
+      return;
+
+
+   //===============================================================
+   // SSL LINES
+   //===============================================================
+
+   if(ShowSSLLines)
+   {
+      for(
+         int i = barsToProcess;
+         i >= 1;
+         i--
+      )
+      {
+         double up1;
+
+         double down1;
+
+         int hlv1;
+
+
+         double up2;
+
+         double down2;
+
+         int hlv2;
+
+
+         CalculateSSL(
+            i,
+            up1,
+            down1,
+            hlv1
+         );
+
+
+         CalculateSSL(
+            i - 1,
+            up2,
+            down2,
+            hlv2
+         );
+
+
+         string upName =
+            PREFIX +
+            "UP_" +
+            IntegerToString(i);
+
+
+         string downName =
+            PREFIX +
+            "DOWN_" +
+            IntegerToString(i);
+
+
+         DrawTrendSegment(
+            upName,
+            Time[i],
+            up1,
+            Time[i - 1],
+            up2,
+            SSLUpColor
+         );
+
+
+         DrawTrendSegment(
+            downName,
+            Time[i],
+            down1,
+            Time[i - 1],
+            down2,
+            SSLDownColor
+         );
+      }
+   }
+
+
+   //===============================================================
+   // SIGNALS
+   //===============================================================
+
+   for(
+      int i = barsToProcess;
+      i >= 1;
+      i--
+   )
+   {
+      if(IsBuySignal(i))
+      {
+         DrawHistoricalSignal(
+            i,
+            true
+         );
+      }
+
+
+      if(IsSellSignal(i))
+      {
+         DrawHistoricalSignal(
+            i,
+            false
+         );
+      }
+   }
+
+
+   ChartRedraw();
+}
+
+
+//+------------------------------------------------------------------+
+//| DRAW SSL TREND SEGMENT                                            |
+//+------------------------------------------------------------------+
+
+void DrawTrendSegment(
+   string name,
+   datetime time1,
+   double price1,
+   datetime time2,
+   double price2,
+   color lineColor
+)
+{
+   if(ObjectFind(0, name) < 0)
+   {
+      ObjectCreate(
+         0,
+         name,
+         OBJ_TREND,
+         0,
+         time1,
+         price1,
+         time2,
+         price2
+      );
    }
    else
    {
-      currentSslDown = smaLow;
-      currentSslUp = smaHigh;
+      ObjectMove(
+         0,
+         name,
+         0,
+         time1,
+         price1
+      );
+
+
+      ObjectMove(
+         0,
+         name,
+         1,
+         time2,
+         price2
+      );
    }
+
+
+   ObjectSetInteger(
+      0,
+      name,
+      OBJPROP_COLOR,
+      lineColor
+   );
+
+
+   ObjectSetInteger(
+      0,
+      name,
+      OBJPROP_WIDTH,
+      SSLLineWidth
+   );
+
+
+   ObjectSetInteger(
+      0,
+      name,
+      OBJPROP_RAY_RIGHT,
+      false
+   );
+
+
+   ObjectSetInteger(
+      0,
+      name,
+      OBJPROP_BACK,
+      false
+   );
+
+
+   ObjectSetInteger(
+      0,
+      name,
+      OBJPROP_SELECTABLE,
+      false
+   );
 }
 
-//+------------------------------------------------------------------+
-//| Draw Advanced SSL Bands with Channel Fill
-//+------------------------------------------------------------------+
-void DrawSSLBandsAdvanced()
-{
-   ObjectDelete(0, "SSL_UP_LINE");
-   ObjectDelete(0, "SSL_DOWN_LINE");
-   ObjectDelete(0, "SSL_CHANNEL_FILL");
-   
-   // Draw SSL Up
-   if(ObjectCreate(0, "SSL_UP_LINE", OBJ_HLINE, 0, 0, currentSslUp))
-   {
-      ObjectSetInteger(0, "SSL_UP_LINE", OBJPROP_COLOR, BullishColor);
-      ObjectSetInteger(0, "SSL_UP_LINE", OBJPROP_WIDTH, 2);
-      ObjectSetInteger(0, "SSL_UP_LINE", OBJPROP_BACK, false);
-   }
-   
-   // Draw SSL Down
-   if(ObjectCreate(0, "SSL_DOWN_LINE", OBJ_HLINE, 0, 0, currentSslDown))
-   {
-      ObjectSetInteger(0, "SSL_DOWN_LINE", OBJPROP_COLOR, BearishColor);
-      ObjectSetInteger(0, "SSL_DOWN_LINE", OBJPROP_WIDTH, 2);
-      ObjectSetInteger(0, "SSL_DOWN_LINE", OBJPROP_BACK, false);
-   }
-   
-   // Draw channel fill
-   if(ShowChannelFill)
-   {
-      color fillColor = (hlv > 0) ? C'0,80,0' : C'80,0,0';
-      if(ObjectCreate(0, "SSL_CHANNEL_FILL", OBJ_RECTANGLE, 0, Time[5], currentSslUp, Time[0], currentSslDown))
-      {
-         ObjectSetInteger(0, "SSL_CHANNEL_FILL", OBJPROP_COLOR, fillColor);
-         ObjectSetInteger(0, "SSL_CHANNEL_FILL", OBJPROP_BACK, true);
-         ObjectSetInteger(0, "SSL_CHANNEL_FILL", OBJPROP_FILL, true);
-      }
-   }
-   
-   // Draw SSL values as text
-   DrawSSLLabels();
-}
 
 //+------------------------------------------------------------------+
-//| Draw SSL Band Labels
+//| DRAW SIGNAL                                                       |
 //+------------------------------------------------------------------+
-void DrawSSLLabels()
-{
-   ObjectDelete(0, "SSL_UP_LABEL");
-   ObjectDelete(0, "SSL_DOWN_LABEL");
-   
-   if(ObjectCreate(0, "SSL_UP_LABEL", OBJ_TEXT, 0, Time[0], currentSslUp))
-   {
-      ObjectSetString(0, "SSL_UP_LABEL", OBJPROP_TEXT, "SSL Up: " + DoubleToString(currentSslUp, Digits));
-      ObjectSetInteger(0, "SSL_UP_LABEL", OBJPROP_COLOR, BullishColor);
-      ObjectSetInteger(0, "SSL_UP_LABEL", OBJPROP_FONTSIZE, 8);
-      ObjectSetString(0, "SSL_UP_LABEL", OBJPROP_FONT, "Arial");
-   }
-   
-   if(ObjectCreate(0, "SSL_DOWN_LABEL", OBJ_TEXT, 0, Time[0], currentSslDown))
-   {
-      ObjectSetString(0, "SSL_DOWN_LABEL", OBJPROP_TEXT, "SSL Down: " + DoubleToString(currentSslDown, Digits));
-      ObjectSetInteger(0, "SSL_DOWN_LABEL", OBJPROP_COLOR, BearishColor);
-      ObjectSetInteger(0, "SSL_DOWN_LABEL", OBJPROP_FONTSIZE, 8);
-      ObjectSetString(0, "SSL_DOWN_LABEL", OBJPROP_FONT, "Arial");
-   }
-}
 
-//+------------------------------------------------------------------+
-//| Draw Signal Arrows
-//+------------------------------------------------------------------+
-void DrawSignalArrow(int direction)
+void DrawHistoricalSignal(
+   int shift,
+   bool isBuy
+)
 {
-   static int count = 0;
-   string name;
-   
-   if(direction > 0)
+   string type;
+
+
+   if(isBuy)
+      type = "BUY";
+   else
+      type = "SELL";
+
+
+   string baseName =
+      PREFIX +
+      type +
+      "_" +
+      IntegerToString(
+         (int)Time[shift]
+      );
+
+
+   double price;
+
+
+   if(isBuy)
    {
-      name = "SIGNAL_UP_" + IntegerToString(count);
-      if(ObjectCreate(0, name, OBJ_ARROW, 0, Time[1], Low[1] - 100 * Point))
-      {
-         ObjectSetInteger(0, name, OBJPROP_ARROWCODE, 241);
-         ObjectSetInteger(0, name, OBJPROP_COLOR, clrGreen);
-         ObjectSetInteger(0, name, OBJPROP_WIDTH, 4);
-      }
+      price =
+         Low[shift] -
+         SignalDistancePoints *
+         Point;
    }
    else
    {
-      name = "SIGNAL_DOWN_" + IntegerToString(count);
-      if(ObjectCreate(0, name, OBJ_ARROW, 0, Time[1], High[1] + 100 * Point))
-      {
-         ObjectSetInteger(0, name, OBJPROP_ARROWCODE, 242);
-         ObjectSetInteger(0, name, OBJPROP_COLOR, clrRed);
-         ObjectSetInteger(0, name, OBJPROP_WIDTH, 4);
-      }
+      price =
+         High[shift] +
+         SignalDistancePoints *
+         Point;
    }
-   
-   count++;
-   if(count > 50) count = 0;
-}
 
-//+------------------------------------------------------------------+
-//| Draw Price Levels for Orders
-//+------------------------------------------------------------------+
-void DrawPriceLevels()
-{
-   ObjectsDeleteAll(0, -1, OBJ_HLINE);
-   
-   for(int i = 0; i < OrdersTotal(); i++)
+
+   //===============================================================
+   // ARROW
+   //===============================================================
+
+   if(ShowSignalArrows)
    {
-      if(!OrderSelect(i, SELECT_BY_POS, MODE_TRADES))
-         continue;
-      
-      if(OrderSymbol() != Symbol())
-         continue;
-      
-      string ticket = IntegerToString(OrderTicket());
-      
-      // Entry line
-      if(ObjectCreate(0, "ENTRY_" + ticket, OBJ_HLINE, 0, 0, OrderOpenPrice()))
+      string arrowName =
+         baseName +
+         "_ARROW";
+
+
+      if(ObjectFind(0, arrowName) < 0)
       {
-         ObjectSetInteger(0, "ENTRY_" + ticket, OBJPROP_COLOR, clrBlue);
-         ObjectSetInteger(0, "ENTRY_" + ticket, OBJPROP_WIDTH, 1);
-         ObjectSetInteger(0, "ENTRY_" + ticket, OBJPROP_STYLE, STYLE_SOLID);
+         ObjectCreate(
+            0,
+            arrowName,
+            OBJ_ARROW,
+            0,
+            Time[shift],
+            price
+         );
       }
-      
-      // Stop Loss line
-      if(OrderStopLoss() != 0 && ObjectCreate(0, "SL_" + ticket, OBJ_HLINE, 0, 0, OrderStopLoss()))
-      {
-         ObjectSetInteger(0, "SL_" + ticket, OBJPROP_COLOR, clrDarkRed);
-         ObjectSetInteger(0, "SL_" + ticket, OBJPROP_WIDTH, 2);
-         ObjectSetInteger(0, "SL_" + ticket, OBJPROP_STYLE, STYLE_DASHDOT);
-      }
-      
-      // Take Profit line
-      if(OrderTakeProfit() != 0 && ObjectCreate(0, "TP_" + ticket, OBJ_HLINE, 0, 0, OrderTakeProfit()))
-      {
-         ObjectSetInteger(0, "TP_" + ticket, OBJPROP_COLOR, clrDarkGreen);
-         ObjectSetInteger(0, "TP_" + ticket, OBJPROP_WIDTH, 2);
-         ObjectSetInteger(0, "TP_" + ticket, OBJPROP_STYLE, STYLE_DASHDOT);
-      }
+
+
+      ObjectMove(
+         0,
+         arrowName,
+         0,
+         Time[shift],
+         price
+      );
+
+
+      ObjectSetInteger(
+         0,
+         arrowName,
+         OBJPROP_ARROWCODE,
+         isBuy ?
+         233 :
+         234
+      );
+
+
+      ObjectSetInteger(
+         0,
+         arrowName,
+         OBJPROP_COLOR,
+         isBuy ?
+         BuyColor :
+         SellColor
+      );
+
+
+      ObjectSetInteger(
+         0,
+         arrowName,
+         OBJPROP_WIDTH,
+         SignalArrowWidth
+      );
+
+
+      ObjectSetInteger(
+         0,
+         arrowName,
+         OBJPROP_SELECTABLE,
+         false
+      );
    }
-}
 
-//+------------------------------------------------------------------+
-//| Draw Price Information Box
-//+------------------------------------------------------------------+
-void DrawPriceInfo()
-{
-   int x = DashboardX;
-   int y = DashboardY + 450;
-   
-   // Background
-   ObjectDelete(0, "PRICE_INFO_BG");
-   if(ObjectCreate(0, "PRICE_INFO_BG", OBJ_RECTANGLE_LABEL, 0, 0, 0))
+
+   //===============================================================
+   // TEXT
+   //===============================================================
+
+   if(ShowSignalText)
    {
-      ObjectSetInteger(0, "PRICE_INFO_BG", OBJPROP_XDISTANCE, x);
-      ObjectSetInteger(0, "PRICE_INFO_BG", OBJPROP_YDISTANCE, y);
-      ObjectSetInteger(0, "PRICE_INFO_BG", OBJPROP_XSIZE, 300);
-      ObjectSetInteger(0, "PRICE_INFO_BG", OBJPROP_YSIZE, 100);
-      ObjectSetInteger(0, "PRICE_INFO_BG", OBJPROP_BGCOLOR, DashboardBG);
-      ObjectSetInteger(0, "PRICE_INFO_BG", OBJPROP_BORDER_COLOR, clrWhite);
-      // ObjectSetInteger(0, "PRICE_INFO_BG", OBJPROP_BORDER_WIDTH, 2);
-      ObjectSetInteger(0, "PRICE_INFO_BG", OBJPROP_CORNER, CORNER_LEFT_UPPER);
-      ObjectSetInteger(0, "PRICE_INFO_BG", OBJPROP_BACK, true);
-   }
-   
-   // Price info text
-   string priceInfo = "CURRENT PRICE\n";
-   priceInfo += "Bid: " + DoubleToString(Bid, Digits) + "\n";
-   priceInfo += "Ask: " + DoubleToString(Ask, Digits) + "\n";
-   priceInfo += "Spread: " + DoubleToString((Ask - Bid) / Point, 0) + " pips";
-   
-   DrawDashboardText(priceInfo, x + 5, y + 5, 9, clrWhite);
-}
+      string textName =
+         baseName +
+         "_TEXT";
 
-//+------------------------------------------------------------------+
-//| Update Advanced Dashboard
-//+------------------------------------------------------------------+
-void UpdateAdvancedDashboard()
-{
-   CalculateAdvancedStats();
-   DrawDashboardBackground();
-   DrawAdvancedStats();
-}
 
-//+------------------------------------------------------------------+
-//| Calculate Advanced Statistics
-//+------------------------------------------------------------------+
-void CalculateAdvancedStats()
-{
-   stats.total = 0;
-   stats.wins = 0;
-   stats.losses = 0;
-   stats.profit = 0;
-   stats.profitToday = 0;
-   
-   double totalWinAmount = 0;
-   double totalLossAmount = 0;
-   int winCount = 0;
-   int lossCount = 0;
-   
-   // Read history
-   int historyTotal = OrdersHistoryTotal();
-   for(int i = 0; i < historyTotal; i++)
-   {
-      if(!OrderSelect(i, SELECT_BY_POS, MODE_HISTORY))
-         continue;
-      
-      if(OrderSymbol() != Symbol())
-         continue;
-      
-      if(OrderCloseTime() > TimeCurrent() - 86400) // Today
+      double textPrice;
+
+
+      if(isBuy)
       {
-         stats.today++;
-         stats.profitToday += OrderProfit() + OrderCommission() + OrderSwap();
-      }
-      
-      stats.total++;
-      double orderProfit = OrderProfit() + OrderCommission() + OrderSwap();
-      stats.profit += orderProfit;
-      
-      if(orderProfit > 0)
-      {
-         stats.wins++;
-         totalWinAmount += orderProfit;
-         winCount++;
+         textPrice =
+            price -
+            SignalDistancePoints *
+            0.30 *
+            Point;
       }
       else
       {
-         stats.losses++;
-         totalLossAmount += orderProfit;
-         lossCount++;
+         textPrice =
+            price +
+            SignalDistancePoints *
+            0.30 *
+            Point;
       }
-   }
-   
-   if(winCount > 0)
-      stats.avgWin = totalWinAmount / winCount;
-   
-   if(lossCount > 0)
-      stats.avgLoss = totalLossAmount / lossCount;
-}
 
-//+------------------------------------------------------------------+
-//| Draw Dashboard Background
-//+------------------------------------------------------------------+
-void DrawDashboardBackground()
-{
-   ObjectDelete(0, "DASHBOARD_BG");
-   
-   if(ObjectCreate(0, "DASHBOARD_BG", OBJ_RECTANGLE_LABEL, 0, 0, 0))
-   {
-      ObjectSetInteger(0, "DASHBOARD_BG", OBJPROP_XDISTANCE, DashboardX);
-      ObjectSetInteger(0, "DASHBOARD_BG", OBJPROP_YDISTANCE, DashboardY);
-      ObjectSetInteger(0, "DASHBOARD_BG", OBJPROP_XSIZE, 330);
-      ObjectSetInteger(0, "DASHBOARD_BG", OBJPROP_YSIZE, 440);
-      ObjectSetInteger(0, "DASHBOARD_BG", OBJPROP_BGCOLOR, DashboardBG);
-      ObjectSetInteger(0, "DASHBOARD_BG", OBJPROP_BORDER_COLOR, clrGold);
-      // ObjectSetInteger(0, "DASHBOARD_BG", OBJPROP_BORDER_WIDTH, 2);
-      ObjectSetInteger(0, "DASHBOARD_BG", OBJPROP_CORNER, CORNER_LEFT_UPPER);
-      ObjectSetInteger(0, "DASHBOARD_BG", OBJPROP_BACK, true);
-   }
-}
 
-//+------------------------------------------------------------------+
-//| Draw Advanced Statistics
-//+------------------------------------------------------------------+
-void DrawAdvancedStats()
-{
-   int x = DashboardX + 10;
-   int y = DashboardY + 10;
-   
-   // Title
-   DrawDashboardText("═ SSL CHANNEL EA DASHBOARD ═", x, y, 11, clrGold);
-   y += 25;
-   
-   // Account Section
-   DrawDashboardText("ACCOUNT", x, y, 10, clrYellow);
-   y += 15;
-   DrawDashboardText("Balance: $" + DoubleToString(AccountBalance(), 2), x, y, 9, clrWhite);
-   y += 14;
-   DrawDashboardText("Equity: $" + DoubleToString(AccountEquity(), 2), x, y, 9, clrWhite);
-   y += 14;
-   DrawDashboardText("Margin: $" + DoubleToString(AccountFreeMargin(), 2), x, y, 9, clrWhite);
-   y += 20;
-   
-   // SSL Section
-   DrawDashboardText("SSL CHANNEL", x, y, 10, clrYellow);
-   y += 15;
-   DrawDashboardText("Up: " + DoubleToString(currentSslUp, Digits), x, y, 9, BullishColor);
-   y += 14;
-   DrawDashboardText("Down: " + DoubleToString(currentSslDown, Digits), x, y, 9, BearishColor);
-   y += 14;
-   color dirColor = (hlv > 0) ? BullishColor : BearishColor;
-   string dirText = (hlv > 0) ? "BULLISH" : "BEARISH";
-   DrawDashboardText("Trend: " + dirText, x, y, 9, dirColor);
-   y += 20;
-   
-   // Statistics Section
-   DrawDashboardText("STATISTICS", x, y, 10, clrYellow);
-   y += 15;
-   DrawDashboardText("Total Trades: " + IntegerToString(stats.total), x, y, 9, clrWhite);
-   y += 14;
-   DrawDashboardText("Wins: " + IntegerToString(stats.wins) + 
-      " | Losses: " + IntegerToString(stats.losses), x, y, 9, clrWhite);
-   y += 14;
-   
-   int winRate = (stats.total > 0) ? (int)((stats.wins * 100.0) / stats.total) : 0;
-   color rateColor = (winRate >= 50) ? clrGreen : clrRed;
-   DrawDashboardText("Win Rate: " + IntegerToString(winRate) + "%", x, y, 9, rateColor);
-   y += 20;
-   
-   // Profit Section
-   DrawDashboardText("PROFITABILITY", x, y, 10, clrYellow);
-   y += 15;
-   color profitColor = (stats.profit >= 0) ? clrGreen : clrRed;
-   DrawDashboardText("Total P/L: $" + DoubleToString(stats.profit, 2), x, y, 9, profitColor);
-   y += 14;
-   color todayColor = (stats.profitToday >= 0) ? clrGreen : clrRed;
-   DrawDashboardText("Today P/L: $" + DoubleToString(stats.profitToday, 2), x, y, 9, todayColor);
-   y += 14;
-   DrawDashboardText("Avg Win: $" + DoubleToString(stats.avgWin, 2), x, y, 9, clrGreen);
-   y += 14;
-   DrawDashboardText("Avg Loss: $" + DoubleToString(stats.avgLoss, 2), x, y, 9, clrRed);
-}
-
-//+------------------------------------------------------------------+
-//| Draw Dashboard Text
-//+------------------------------------------------------------------+
-void DrawDashboardText(string text, int x, int y, int fontSize, color textColor)
-{
-   string objName = "DTEXT_" + IntegerToString(rand());
-   ObjectDelete(0, objName);
-   
-   if(ObjectCreate(0, objName, OBJ_LABEL, 0, 0, 0))
-   {
-      ObjectSetInteger(0, objName, OBJPROP_XDISTANCE, x);
-      ObjectSetInteger(0, objName, OBJPROP_YDISTANCE, y);
-      ObjectSetString(0, objName, OBJPROP_TEXT, text);
-      ObjectSetInteger(0, objName, OBJPROP_CORNER, CORNER_LEFT_UPPER);
-      ObjectSetString(0, objName, OBJPROP_FONT, "Courier New");
-      ObjectSetInteger(0, objName, OBJPROP_FONTSIZE, fontSize);
-      ObjectSetInteger(0, objName, OBJPROP_COLOR, textColor);
-      ObjectSetInteger(0, objName, OBJPROP_BACK, false);
-   }
-}
-
-//+------------------------------------------------------------------+
-//| Crossover Detection
-//+------------------------------------------------------------------+
-bool CrossoverDetected(double prevUp, double prevDown, double currUp, double currDown)
-{
-   if(prevUp <= prevDown && currUp > currDown)
-      return true;
-   return false;
-}
-
-//+------------------------------------------------------------------+
-//| Crossunder Detection
-//+------------------------------------------------------------------+
-bool CrossunderDetected(double prevUp, double prevDown, double currUp, double currDown)
-{
-   if(prevUp >= prevDown && currUp < currDown)
-      return true;
-   return false;
-}
-
-//+------------------------------------------------------------------+
-//| Position Size Calculation
-//+------------------------------------------------------------------+
-double CalculateLotSize(int stopLossInPips)
-{
-   if(stopLossInPips <= 0)
-      return 0.01;
-   
-   double riskAmount = (AccountBalance() * RiskPercent) / 100;
-   double pipValue = MarketInfo(Symbol(), MODE_TICKVALUE);
-   double lotSize = riskAmount / (stopLossInPips * pipValue);
-   
-   double minLot = MarketInfo(Symbol(), MODE_MINLOT);
-   double maxLot = MarketInfo(Symbol(), MODE_MAXLOT);
-   double lotStep = MarketInfo(Symbol(), MODE_LOTSTEP);
-   
-   lotSize = MathMax(minLot, MathMin(maxLot, lotSize));
-   lotSize = MathFloor(lotSize / lotStep) * lotStep;
-   
-   return NormalizeDouble(lotSize, 2);
-}
-
-//+------------------------------------------------------------------+
-//| Open Long Position
-//+------------------------------------------------------------------+
-void OpenLongPosition()
-{
-   if(HasOpenLongPosition())
-      return;
-   
-   double lotSize = CalculateLotSize(StopLoss);
-   double stopLoss = NormalizeDouble(Bid - StopLoss * Point, Digits);
-   double takeProfit = NormalizeDouble(Ask + TakeProfit * Point, Digits);
-   
-   int ticket = OrderSend(Symbol(), OP_BUY, lotSize, Ask, slippage, stopLoss, takeProfit, 
-                          TradeComment, 0, 0, clrGreen);
-   
-   if(ticket > 0)
-   {
-      Print("Long opened: Ticket=", ticket);
-      stats.total++;
-      stats.today++;
-   }
-}
-
-//+------------------------------------------------------------------+
-//| Open Short Position
-//+------------------------------------------------------------------+
-void OpenShortPosition()
-{
-   if(HasOpenShortPosition())
-      return;
-   
-   double lotSize = CalculateLotSize(StopLoss);
-   double stopLoss = NormalizeDouble(Ask + StopLoss * Point, Digits);
-   double takeProfit = NormalizeDouble(Bid - TakeProfit * Point, Digits);
-   
-   int ticket = OrderSend(Symbol(), OP_SELL, lotSize, Bid, slippage, stopLoss, takeProfit,
-                          TradeComment, 0, 0, clrRed);
-   
-   if(ticket > 0)
-   {
-      Print("Short opened: Ticket=", ticket);
-      stats.total++;
-      stats.today++;
-   }
-}
-
-//+------------------------------------------------------------------+
-//| Close All Long Positions
-//+------------------------------------------------------------------+
-void CloseAllLongPositions()
-{
-   for(int i = OrdersTotal() - 1; i >= 0; i--)
-   {
-      if(!OrderSelect(i, SELECT_BY_POS, MODE_TRADES))
-         continue;
-      
-      if(OrderSymbol() == Symbol() && OrderType() == OP_BUY)
+      if(ObjectFind(0, textName) < 0)
       {
-         OrderClose(OrderTicket(), OrderOpenPrice(), Bid, slippage, clrRed);
+         ObjectCreate(
+            0,
+            textName,
+            OBJ_TEXT,
+            0,
+            Time[shift],
+            textPrice
+         );
       }
+
+
+      ObjectMove(
+         0,
+         textName,
+         0,
+         Time[shift],
+         textPrice
+      );
+
+
+      string signalText;
+
+
+      if(isBuy)
+         signalText = "Long +1";
+      else
+         signalText = "Short -1";
+
+
+      ObjectSetString(
+         0,
+         textName,
+         OBJPROP_TEXT,
+         signalText
+      );
+
+
+      ObjectSetInteger(
+         0,
+         textName,
+         OBJPROP_COLOR,
+         isBuy ?
+         BuyColor :
+         SellColor
+      );
+
+
+      ObjectSetInteger(
+         0,
+         textName,
+         OBJPROP_FONTSIZE,
+         SignalFontSize
+      );
+
+
+      ObjectSetString(
+         0,
+         textName,
+         OBJPROP_FONT,
+         "Arial"
+      );
+
+
+      ObjectSetInteger(
+         0,
+         textName,
+         OBJPROP_SELECTABLE,
+         false
+      );
    }
 }
 
+
 //+------------------------------------------------------------------+
-//| Close All Short Positions
+//| DRAW LIVE SIGNAL                                                  |
 //+------------------------------------------------------------------+
-void CloseAllShortPositions()
+
+void DrawLiveSignal(
+   int shift,
+   bool isBuy
+)
 {
-   for(int i = OrdersTotal() - 1; i >= 0; i--)
+   DrawHistoricalSignal(
+      shift,
+      isBuy
+   );
+
+
+   ChartRedraw();
+}
+
+
+//+------------------------------------------------------------------+
+//| GET TICK VALUE                                                    |
+//+------------------------------------------------------------------+
+
+double GetTickValue()
+{
+   return(
+      MarketInfo(
+         Symbol(),
+         MODE_TICKVALUE
+      )
+   );
+}
+
+
+//+------------------------------------------------------------------+
+//| GET TICK SIZE                                                     |
+//+------------------------------------------------------------------+
+
+double GetTickSize()
+{
+   return(
+      MarketInfo(
+         Symbol(),
+         MODE_TICKSIZE
+      )
+   );
+}
+
+
+//+------------------------------------------------------------------+
+//| CALCULATE PRICE DISTANCE FROM USD                                |
+//+------------------------------------------------------------------+
+
+double CalculatePriceDistanceUSD(
+   double usdAmount,
+   double orderLots
+)
+{
+   double tickValue =
+      GetTickValue();
+
+
+   double tickSize =
+      GetTickSize();
+
+
+   if(
+      tickValue <= 0 ||
+      tickSize <= 0 ||
+      orderLots <= 0
+   )
    {
-      if(!OrderSelect(i, SELECT_BY_POS, MODE_TRADES))
-         continue;
-      
-      if(OrderSymbol() == Symbol() && OrderType() == OP_SELL)
-      {
-         OrderClose(OrderTicket(), OrderOpenPrice(), Ask, slippage, clrGreen);
-      }
+      return 0;
+   }
+
+
+   double priceDistance =
+      (
+         usdAmount /
+         (
+            tickValue *
+            orderLots
+         )
+      )
+      *
+      tickSize;
+
+
+   return priceDistance;
+}
+
+
+//+------------------------------------------------------------------+
+//| OPEN BUY                                                          |
+//+------------------------------------------------------------------+
+
+void OpenBuy()
+{
+   RefreshRates();
+
+
+   double slDistance =
+      CalculatePriceDistanceUSD(
+         StopLossUSD,
+         Lots
+      );
+
+
+   if(slDistance <= 0)
+   {
+      Print(
+         "BUY: Invalid SL calculation"
+      );
+
+
+      return;
+   }
+
+
+   double stopLoss =
+      NormalizeDouble(
+         Ask -
+         slDistance,
+         Digits
+      );
+
+
+   // IMPORTANT:
+   // NO FIXED TAKE PROFIT.
+   // Unlimited profit ladder manages the SL.
+
+   double takeProfit = 0;
+
+
+   int ticket =
+      OrderSend(
+         Symbol(),
+         OP_BUY,
+         Lots,
+         Ask,
+         Slippage,
+         stopLoss,
+         takeProfit,
+         "SSL Long",
+         MagicNumber,
+         0,
+         BuyColor
+      );
+
+
+   if(ticket < 0)
+   {
+      Print(
+         "BUY OrderSend failed. Error: ",
+         GetLastError()
+      );
+   }
+   else
+   {
+      Print(
+         "BUY OPENED | Ticket: ",
+         ticket
+      );
    }
 }
 
+
 //+------------------------------------------------------------------+
-//| Check Long Position
+//| OPEN SELL                                                         |
 //+------------------------------------------------------------------+
-bool HasOpenLongPosition()
+
+void OpenSell()
 {
-   for(int i = 0; i < OrdersTotal(); i++)
+   RefreshRates();
+
+
+   double slDistance =
+      CalculatePriceDistanceUSD(
+         StopLossUSD,
+         Lots
+      );
+
+
+   if(slDistance <= 0)
    {
-      if(!OrderSelect(i, SELECT_BY_POS, MODE_TRADES))
+      Print(
+         "SELL: Invalid SL calculation"
+      );
+
+
+      return;
+   }
+
+
+   double stopLoss =
+      NormalizeDouble(
+         Bid +
+         slDistance,
+         Digits
+      );
+
+
+   // NO FIXED TAKE PROFIT
+
+   double takeProfit = 0;
+
+
+   int ticket =
+      OrderSend(
+         Symbol(),
+         OP_SELL,
+         Lots,
+         Bid,
+         Slippage,
+         stopLoss,
+         takeProfit,
+         "SSL Short",
+         MagicNumber,
+         0,
+         SellColor
+      );
+
+
+   if(ticket < 0)
+   {
+      Print(
+         "SELL OrderSend failed. Error: ",
+         GetLastError()
+      );
+   }
+   else
+   {
+      Print(
+         "SELL OPENED | Ticket: ",
+         ticket
+      );
+   }
+}
+
+
+//+------------------------------------------------------------------+
+//| CHECK BUY ORDER                                                   |
+//+------------------------------------------------------------------+
+
+bool HasBuyOrder()
+{
+   for(
+      int i = OrdersTotal() - 1;
+      i >= 0;
+      i--
+   )
+   {
+      if(
+         !OrderSelect(
+            i,
+            SELECT_BY_POS,
+            MODE_TRADES
+         )
+      )
          continue;
-      
-      if(OrderSymbol() == Symbol() && OrderType() == OP_BUY)
+
+
+      if(
+         OrderSymbol() !=
+         Symbol()
+      )
+         continue;
+
+
+      if(
+         OrderMagicNumber() !=
+         MagicNumber
+      )
+         continue;
+
+
+      if(
+         OrderType() ==
+         OP_BUY
+      )
          return true;
    }
+
+
    return false;
 }
 
+
 //+------------------------------------------------------------------+
-//| Check Short Position
+//| CHECK SELL ORDER                                                  |
 //+------------------------------------------------------------------+
-bool HasOpenShortPosition()
+
+bool HasSellOrder()
 {
-   for(int i = 0; i < OrdersTotal(); i++)
+   for(
+      int i = OrdersTotal() - 1;
+      i >= 0;
+      i--
+   )
    {
-      if(!OrderSelect(i, SELECT_BY_POS, MODE_TRADES))
+      if(
+         !OrderSelect(
+            i,
+            SELECT_BY_POS,
+            MODE_TRADES
+         )
+      )
          continue;
-      
-      if(OrderSymbol() == Symbol() && OrderType() == OP_SELL)
+
+
+      if(
+         OrderSymbol() !=
+         Symbol()
+      )
+         continue;
+
+
+      if(
+         OrderMagicNumber() !=
+         MagicNumber
+      )
+         continue;
+
+
+      if(
+         OrderType() ==
+         OP_SELL
+      )
          return true;
    }
+
+
    return false;
 }
 
+
 //+------------------------------------------------------------------+
-//| Update Trailing Stops
+//| CREATE DASHBOARD PANEL                                            |
 //+------------------------------------------------------------------+
-void UpdateTrailingStops()
+
+void CreateDashboardPanel(
+   string name,
+   int x,
+   int y,
+   int width,
+   int height,
+   color background
+)
 {
-   for(int i = 0; i < OrdersTotal(); i++)
+   if(ObjectFind(0, name) < 0)
    {
-      if(!OrderSelect(i, SELECT_BY_POS, MODE_TRADES))
+      ObjectCreate(
+         0,
+         name,
+         OBJ_RECTANGLE_LABEL,
+         0,
+         0,
+         0
+      );
+   }
+
+
+   ObjectSetInteger(
+      0,
+      name,
+      OBJPROP_CORNER,
+      CORNER_RIGHT_UPPER
+   );
+
+
+   ObjectSetInteger(
+      0,
+      name,
+      OBJPROP_XDISTANCE,
+      x
+   );
+
+
+   ObjectSetInteger(
+      0,
+      name,
+      OBJPROP_YDISTANCE,
+      y
+   );
+
+
+   ObjectSetInteger(
+      0,
+      name,
+      OBJPROP_XSIZE,
+      width
+   );
+
+
+   ObjectSetInteger(
+      0,
+      name,
+      OBJPROP_YSIZE,
+      height
+   );
+
+
+   ObjectSetInteger(
+      0,
+      name,
+      OBJPROP_BGCOLOR,
+      background
+   );
+
+
+   ObjectSetInteger(
+      0,
+      name,
+      OBJPROP_BORDER_TYPE,
+      BORDER_FLAT
+   );
+
+
+   ObjectSetInteger(
+      0,
+      name,
+      OBJPROP_COLOR,
+      clrDimGray
+   );
+
+
+   ObjectSetInteger(
+      0,
+      name,
+      OBJPROP_SELECTABLE,
+      false
+   );
+
+
+   ObjectSetInteger(
+      0,
+      name,
+      OBJPROP_HIDDEN,
+      true
+   );
+}
+
+
+//+------------------------------------------------------------------+
+//| CREATE DASHBOARD LABEL                                            |
+//+------------------------------------------------------------------+
+
+void CreateDashboardLabel(
+   string name,
+   string text,
+   int x,
+   int y,
+   int fontSize,
+   color textColor
+)
+{
+   if(ObjectFind(0, name) < 0)
+   {
+      ObjectCreate(
+         0,
+         name,
+         OBJ_LABEL,
+         0,
+         0,
+         0
+      );
+   }
+
+
+   ObjectSetInteger(
+      0,
+      name,
+      OBJPROP_CORNER,
+      CORNER_RIGHT_UPPER
+   );
+
+
+   ObjectSetInteger(
+      0,
+      name,
+      OBJPROP_XDISTANCE,
+      x
+   );
+
+
+   ObjectSetInteger(
+      0,
+      name,
+      OBJPROP_YDISTANCE,
+      y
+   );
+
+
+   ObjectSetString(
+      0,
+      name,
+      OBJPROP_TEXT,
+      text
+   );
+
+
+   ObjectSetString(
+      0,
+      name,
+      OBJPROP_FONT,
+      "Arial"
+   );
+
+
+   ObjectSetInteger(
+      0,
+      name,
+      OBJPROP_FONTSIZE,
+      fontSize
+   );
+
+
+   ObjectSetInteger(
+      0,
+      name,
+      OBJPROP_COLOR,
+      textColor
+   );
+
+
+   ObjectSetInteger(
+      0,
+      name,
+      OBJPROP_SELECTABLE,
+      false
+   );
+
+
+   ObjectSetInteger(
+      0,
+      name,
+      OBJPROP_HIDDEN,
+      true
+   );
+}
+
+
+//+------------------------------------------------------------------+
+//| UPDATE DASHBOARD                                                  |
+//+------------------------------------------------------------------+
+
+void UpdateDashboard()
+{
+   int totalOrders = 0;
+
+   int buyOrders = 0;
+
+   int sellOrders = 0;
+
+   double totalLots = 0;
+
+   double floatingProfit = 0;
+
+   double totalSwap = 0;
+
+   double totalCommission = 0;
+
+
+   string ordersDetails = "";
+
+
+   //===============================================================
+   // READ EA ORDERS
+   //===============================================================
+
+   for(
+      int i = OrdersTotal() - 1;
+      i >= 0;
+      i--
+   )
+   {
+      if(
+         !OrderSelect(
+            i,
+            SELECT_BY_POS,
+            MODE_TRADES
+         )
+      )
          continue;
-      
-      if(OrderSymbol() != Symbol())
+
+
+      if(
+         OrderSymbol() !=
+         Symbol()
+      )
          continue;
-      
-      if(OrderType() == OP_BUY)
+
+
+      if(
+         OrderMagicNumber() !=
+         MagicNumber
+      )
+         continue;
+
+
+      int type =
+         OrderType();
+
+
+      if(
+         type != OP_BUY &&
+         type != OP_SELL
+      )
+         continue;
+
+
+      totalOrders++;
+
+
+      totalLots +=
+         OrderLots();
+
+
+      floatingProfit +=
+         OrderProfit();
+
+
+      totalSwap +=
+         OrderSwap();
+
+
+      totalCommission +=
+         OrderCommission();
+
+
+      if(type == OP_BUY)
+         buyOrders++;
+
+
+      if(type == OP_SELL)
+         sellOrders++;
+
+
+      string orderType;
+
+
+      if(type == OP_BUY)
+         orderType = "BUY";
+      else
+         orderType = "SELL";
+
+
+      string orderLine =
+         "#" +
+         IntegerToString(
+            OrderTicket()
+         );
+
+
+      orderLine +=
+         "  " +
+         orderType;
+
+
+      orderLine +=
+         "  " +
+         DoubleToString(
+            OrderLots(),
+            2
+         );
+
+
+      orderLine +=
+         "  P/L: ";
+
+
+      double orderNetProfit =
+         OrderProfit() +
+         OrderSwap() +
+         OrderCommission();
+
+
+      if(orderNetProfit >= 0)
       {
-         double newSL = Bid - TrailingStop * Point;
-         if(newSL > OrderStopLoss())
-            OrderModify(OrderTicket(), OrderOpenPrice(), newSL, OrderTakeProfit(), 0, clrGreen);
+         orderLine +=
+            "+$" +
+            DoubleToString(
+               orderNetProfit,
+               2
+            );
       }
-      else if(OrderType() == OP_SELL)
+      else
       {
-         double newSL = Ask + TrailingStop * Point;
-         if(newSL < OrderStopLoss())
-            OrderModify(OrderTicket(), OrderOpenPrice(), newSL, OrderTakeProfit(), 0, clrRed);
+         orderLine +=
+            "-$" +
+            DoubleToString(
+               MathAbs(orderNetProfit),
+               2
+            );
+      }
+
+
+      ordersDetails +=
+         orderLine +
+         "\n";
+   }
+
+
+   //===============================================================
+   // NET P/L
+   //===============================================================
+
+   double netProfit =
+      floatingProfit +
+      totalSwap +
+      totalCommission;
+
+
+   //===============================================================
+   // DASHBOARD COLORS
+   //===============================================================
+
+   color dashboardBackground =
+      clrBlack;
+
+
+   color headerColor =
+      C'30,60,100';
+
+
+   color profitColor;
+
+
+   if(netProfit > 0)
+      profitColor = clrLimeGreen;
+   else
+   if(netProfit < 0)
+      profitColor = clrTomato;
+   else
+      profitColor = clrWhite;
+
+
+   color statusColor;
+
+
+   if(totalOrders > 0)
+      statusColor = clrLimeGreen;
+   else
+      statusColor = clrSilver;
+
+
+   //===============================================================
+   // RIGHT-SIDE POSITION
+   //===============================================================
+
+   int x =
+      DashboardRightGap;
+
+
+   int y =
+      DashboardTopGap;
+
+
+   //===============================================================
+   // MAIN BLACK PANEL
+   //===============================================================
+
+   CreateDashboardPanel(
+      DASH_PREFIX + "PANEL",
+      x,
+      y,
+      DashboardWidth,
+      DashboardHeight,
+      dashboardBackground
+   );
+
+
+   //===============================================================
+   // HEADER
+   //===============================================================
+
+   CreateDashboardPanel(
+      DASH_PREFIX + "HEADER",
+      x,
+      y,
+      DashboardWidth,
+      35,
+      headerColor
+   );
+
+
+   //===============================================================
+   // TITLE
+   //===============================================================
+
+   CreateDashboardLabel(
+      DASH_PREFIX + "TITLE",
+      "SSL CHANNEL CROSS EA",
+      x + DashboardWidth - 270,
+      y + 8,
+      11,
+      clrWhite
+   );
+
+
+   //===============================================================
+   // STATUS
+   //===============================================================
+
+   string statusText;
+
+
+   if(totalOrders > 0)
+      statusText = "TRADING ACTIVE";
+   else
+      statusText = "WAITING FOR SIGNAL";
+
+
+   CreateDashboardLabel(
+      DASH_PREFIX + "STATUS",
+      statusText,
+      x + DashboardWidth - 270,
+      y + 50,
+      DashboardFontSize,
+      statusColor
+   );
+
+
+   //===============================================================
+   // SYMBOL
+   //===============================================================
+
+   CreateDashboardLabel(
+      DASH_PREFIX + "SYMBOL",
+      "Symbol: " + Symbol(),
+      x + DashboardWidth - 270,
+      y + 72,
+      DashboardFontSize,
+      clrWhite
+   );
+
+
+   //===============================================================
+   // TIMEFRAME
+   //===============================================================
+
+   CreateDashboardLabel(
+      DASH_PREFIX + "TIMEFRAME",
+      "Timeframe: " +
+      TimeframeToString(Period()),
+      x + DashboardWidth - 270,
+      y + 94,
+      DashboardFontSize,
+      clrWhite
+   );
+
+
+   //===============================================================
+   // SEPARATOR
+   //===============================================================
+
+   CreateDashboardLabel(
+      DASH_PREFIX + "SEP1",
+      "-----------------------------",
+      x + DashboardWidth - 270,
+      y + 116,
+      DashboardFontSize,
+      clrGray
+   );
+
+
+   //===============================================================
+   // LIVE P/L
+   //===============================================================
+
+   string pnlText;
+
+
+   if(netProfit >= 0)
+   {
+      pnlText =
+         "LIVE P/L: +$" +
+         DoubleToString(
+            netProfit,
+            2
+         );
+   }
+   else
+   {
+      pnlText =
+         "LIVE P/L: -$" +
+         DoubleToString(
+            MathAbs(netProfit),
+            2
+         );
+   }
+
+
+   CreateDashboardLabel(
+      DASH_PREFIX + "PNL",
+      pnlText,
+      x + DashboardWidth - 270,
+      y + 142,
+      13,
+      profitColor
+   );
+
+
+   //===============================================================
+   // ORDER COUNT
+   //===============================================================
+
+   CreateDashboardLabel(
+      DASH_PREFIX + "ORDERS",
+      "Open Orders: " +
+      IntegerToString(
+         totalOrders
+      ),
+      x + DashboardWidth - 270,
+      y + 174,
+      DashboardFontSize,
+      clrWhite
+   );
+
+
+   //===============================================================
+   // BUY COUNT
+   //===============================================================
+
+   CreateDashboardLabel(
+      DASH_PREFIX + "BUY",
+      "BUY: " +
+      IntegerToString(
+         buyOrders
+      ),
+      x + DashboardWidth - 270,
+      y + 196,
+      DashboardFontSize,
+      clrDeepSkyBlue
+   );
+
+
+   //===============================================================
+   // SELL COUNT
+   //===============================================================
+
+   CreateDashboardLabel(
+      DASH_PREFIX + "SELL",
+      "SELL: " +
+      IntegerToString(
+         sellOrders
+      ),
+      x + DashboardWidth - 180,
+      y + 196,
+      DashboardFontSize,
+      clrTomato
+   );
+
+
+   //===============================================================
+   // LOTS
+   //===============================================================
+
+   CreateDashboardLabel(
+      DASH_PREFIX + "LOTS",
+      "Lots: " +
+      DoubleToString(
+         totalLots,
+         2
+      ),
+      x + DashboardWidth - 100,
+      y + 196,
+      DashboardFontSize,
+      clrGold
+   );
+
+
+   //===============================================================
+   // TRADE SETTINGS
+   //===============================================================
+
+   CreateDashboardLabel(
+      DASH_PREFIX + "SETTINGS",
+      "TRADE SETTINGS",
+      x + DashboardWidth - 270,
+      y + 228,
+      DashboardFontSize,
+      clrGold
+   );
+
+
+   CreateDashboardLabel(
+      DASH_PREFIX + "SL",
+      "Initial SL: -$" +
+      DoubleToString(
+         StopLossUSD,
+         2
+      ),
+      x + DashboardWidth - 270,
+      y + 250,
+      DashboardFontSize,
+      clrTomato
+   );
+
+
+   CreateDashboardLabel(
+      DASH_PREFIX + "LADDER",
+      "Ladder: $" +
+      DoubleToString(
+         LadderStepUSD,
+         2
+      ) +
+      " unlimited",
+      x + DashboardWidth - 270,
+      y + 272,
+      DashboardFontSize,
+      clrLimeGreen
+   );
+
+
+   //===============================================================
+   // ORDER DETAILS
+   //===============================================================
+
+   CreateDashboardLabel(
+      DASH_PREFIX + "DETAIL_TITLE",
+      "LIVE ORDER DETAILS",
+      x + DashboardWidth - 270,
+      y + 304,
+      DashboardFontSize,
+      clrGold
+   );
+
+
+   if(totalOrders > 0)
+   {
+      CreateDashboardLabel(
+         DASH_PREFIX + "DETAILS",
+         ordersDetails,
+         x + DashboardWidth - 270,
+         y + 326,
+         DashboardFontSize,
+         clrWhite
+      );
+   }
+   else
+   {
+      CreateDashboardLabel(
+         DASH_PREFIX + "DETAILS",
+         "No active orders",
+         x + DashboardWidth - 270,
+         y + 326,
+         DashboardFontSize,
+         clrSilver
+      );
+   }
+
+
+   //===============================================================
+   // CURRENT PRICE
+   //===============================================================
+
+   string priceText =
+      "Bid: " +
+      DoubleToString(
+         Bid,
+         Digits
+      );
+
+
+   CreateDashboardLabel(
+      DASH_PREFIX + "PRICE",
+      priceText,
+      x + DashboardWidth - 270,
+      y + 390,
+      DashboardFontSize,
+      clrWhite
+   );
+
+
+   //===============================================================
+   // LAST UPDATE
+   //===============================================================
+
+   CreateDashboardLabel(
+      DASH_PREFIX + "UPDATE",
+      "Updated: " +
+      TimeToString(
+         TimeCurrent(),
+         TIME_SECONDS
+      ),
+      x + DashboardWidth - 270,
+      y + 410,
+      8,
+      clrSilver
+   );
+
+
+   ChartRedraw();
+}
+
+
+//+------------------------------------------------------------------+
+//| UNLIMITED SERVER-SIDE PROFIT LADDER                              |
+//+------------------------------------------------------------------+
+
+void ManageProfitLadder()
+{
+   for(
+      int i = OrdersTotal() - 1;
+      i >= 0;
+      i--
+   )
+   {
+      if(
+         !OrderSelect(
+            i,
+            SELECT_BY_POS,
+            MODE_TRADES
+         )
+      )
+      {
+         continue;
+      }
+
+
+      if(
+         OrderSymbol() !=
+         Symbol()
+      )
+      {
+         continue;
+      }
+
+
+      if(
+         OrderMagicNumber() !=
+         MagicNumber
+      )
+      {
+         continue;
+      }
+
+
+      int orderType =
+         OrderType();
+
+
+      if(
+         orderType != OP_BUY &&
+         orderType != OP_SELL
+      )
+      {
+         continue;
+      }
+
+
+      double currentProfit =
+         OrderProfit() +
+         OrderSwap() +
+         OrderCommission();
+
+
+      //============================================================
+      // LADDER LEVEL
+      //============================================================
+
+      if(
+         currentProfit <
+         LadderStepUSD
+      )
+      {
+         continue;
+      }
+
+
+      int multiplier =
+         (int)MathFloor(
+            currentProfit /
+            LadderStepUSD
+         );
+
+
+      if(multiplier < 1)
+         multiplier = 1;
+
+
+      //============================================================
+      // LOCK PROFIT
+      //============================================================
+
+      double lockedProfit =
+         (
+            multiplier *
+            LadderStepUSD
+         )
+         -
+         LadderLockGapUSD;
+
+
+      if(lockedProfit <= 0)
+         continue;
+
+
+      double tickValue =
+         MarketInfo(
+            Symbol(),
+            MODE_TICKVALUE
+         );
+
+
+      double tickSize =
+         MarketInfo(
+            Symbol(),
+            MODE_TICKSIZE
+         );
+
+
+      if(
+         tickValue <= 0 ||
+         tickSize <= 0
+      )
+      {
+         continue;
+      }
+
+
+      double priceDistance =
+         (
+            lockedProfit /
+            (
+               tickValue *
+               OrderLots()
+            )
+         )
+         *
+         tickSize;
+
+
+      double newStopLoss;
+
+
+      //============================================================
+      // BUY
+      //============================================================
+
+      if(orderType == OP_BUY)
+      {
+         newStopLoss =
+            OrderOpenPrice() +
+            priceDistance;
+
+
+         newStopLoss =
+            NormalizeDouble(
+               newStopLoss,
+               Digits
+            );
+
+
+         // Never move SL backwards
+
+         if(
+            OrderStopLoss() > 0 &&
+            newStopLoss <=
+            OrderStopLoss()
+         )
+         {
+            continue;
+         }
+
+
+         double stopLevel =
+            MarketInfo(
+               Symbol(),
+               MODE_STOPLEVEL
+            )
+            *
+            Point;
+
+
+         if(
+            Bid -
+            newStopLoss
+            <
+            stopLevel
+         )
+         {
+            newStopLoss =
+               Bid -
+               stopLevel;
+
+
+            newStopLoss =
+               NormalizeDouble(
+                  newStopLoss,
+                  Digits
+               );
+         }
+
+
+         bool modified =
+            OrderModify(
+               OrderTicket(),
+               OrderOpenPrice(),
+               newStopLoss,
+               OrderTakeProfit(),
+               0,
+               clrLimeGreen
+            );
+
+
+         if(modified)
+         {
+            Print(
+               "PROFIT LADDER BUY | ",
+               multiplier,
+               "X | Current Profit: $",
+               DoubleToString(
+                  currentProfit,
+                  2
+               ),
+               " | Locked: $",
+               DoubleToString(
+                  lockedProfit,
+                  2
+               ),
+               " | SL: ",
+               DoubleToString(
+                  newStopLoss,
+                  Digits
+               )
+            );
+         }
+         else
+         {
+            Print(
+               "BUY Profit Ladder OrderModify failed. Error: ",
+               GetLastError()
+            );
+         }
+      }
+
+
+      //============================================================
+      // SELL
+      //============================================================
+
+      if(orderType == OP_SELL)
+      {
+         newStopLoss =
+            OrderOpenPrice() -
+            priceDistance;
+
+
+         newStopLoss =
+            NormalizeDouble(
+               newStopLoss,
+               Digits
+            );
+
+
+         // Never move SL backwards
+
+         if(
+            OrderStopLoss() > 0 &&
+            newStopLoss >=
+            OrderStopLoss()
+         )
+         {
+            continue;
+         }
+
+
+         double stopLevel =
+            MarketInfo(
+               Symbol(),
+               MODE_STOPLEVEL
+            )
+            *
+            Point;
+
+
+         if(
+            newStopLoss -
+            Ask
+            <
+            stopLevel
+         )
+         {
+            newStopLoss =
+               Ask +
+               stopLevel;
+
+
+            newStopLoss =
+               NormalizeDouble(
+                  newStopLoss,
+                  Digits
+               );
+         }
+
+
+         bool modified =
+            OrderModify(
+               OrderTicket(),
+               OrderOpenPrice(),
+               newStopLoss,
+               OrderTakeProfit(),
+               0,
+               clrTomato
+            );
+
+
+         if(modified)
+         {
+            Print(
+               "PROFIT LADDER SELL | ",
+               multiplier,
+               "X | Current Profit: $",
+               DoubleToString(
+                  currentProfit,
+                  2
+               ),
+               " | Locked: $",
+               DoubleToString(
+                  lockedProfit,
+                  2
+               ),
+               " | SL: ",
+               DoubleToString(
+                  newStopLoss,
+                  Digits
+               )
+            );
+         }
+         else
+         {
+            Print(
+               "SELL Profit Ladder OrderModify failed. Error: ",
+               GetLastError()
+            );
+         }
       }
    }
 }
 
+
 //+------------------------------------------------------------------+
-//| End of Expert Advisor
+//| TIMEFRAME STRING                                                  |
+//+------------------------------------------------------------------+
+
+string TimeframeToString(
+   int timeframe
+)
+{
+   switch(timeframe)
+   {
+      case PERIOD_M1:
+         return "M1";
+
+      case PERIOD_M5:
+         return "M5";
+
+      case PERIOD_M15:
+         return "M15";
+
+      case PERIOD_M30:
+         return "M30";
+
+      case PERIOD_H1:
+         return "H1";
+
+      case PERIOD_H4:
+         return "H4";
+
+      case PERIOD_D1:
+         return "D1";
+
+      case PERIOD_W1:
+         return "W1";
+
+      case PERIOD_MN1:
+         return "MN1";
+   }
+
+
+   return "CURRENT";
+}
+
+
+//+------------------------------------------------------------------+
+//| DELETE EA OBJECTS                                                 |
+//+------------------------------------------------------------------+
+
+void DeleteOurObjects()
+{
+   int total =
+      ObjectsTotal(
+         0,
+         -1,
+         -1
+      );
+
+
+   for(
+      int i = total - 1;
+      i >= 0;
+      i--
+   )
+   {
+      string name =
+         ObjectName(
+            0,
+            i,
+            -1,
+            -1
+         );
+
+
+      if(
+         StringFind(
+            name,
+            PREFIX,
+            0
+         ) == 0
+      )
+      {
+         ObjectDelete(
+            0,
+            name
+         );
+      }
+   }
+}
+
+
+//+------------------------------------------------------------------+
+//| DELETE DASHBOARD OBJECTS                                          |
+//+------------------------------------------------------------------+
+
+void DeleteDashboardObjects()
+{
+   int total =
+      ObjectsTotal(
+         0,
+         -1,
+         -1
+      );
+
+
+   for(
+      int i = total - 1;
+      i >= 0;
+      i--
+   )
+   {
+      string name =
+         ObjectName(
+            0,
+            i,
+            -1,
+            -1
+         );
+
+
+      if(
+         StringFind(
+            name,
+            DASH_PREFIX,
+            0
+         ) == 0
+      )
+      {
+         ObjectDelete(
+            0,
+            name
+         );
+      }
+   }
+}
+
 //+------------------------------------------------------------------+
