@@ -1,6 +1,7 @@
 //+------------------------------------------------------------------+
 //|                  SSL CHANNEL CROSS EA                            |
-//|                  SIGNAL + PROFIT RE-ENTRY STOP                   |
+//|                  TWO-STAGE PROFIT LADDER                         |
+//|                  OPPOSITE ORDER CLOSE ON SIGNAL                  |
 //+------------------------------------------------------------------+
 #property strict
 
@@ -15,28 +16,69 @@ int SSLPeriod = 10;
 //==================================================================
 
 bool   EnableTrading = true;
+
 double Lots = 0.01;
+
 int    MaxOpenOrders = 4;
+
+
+//==================================================================
+// CLOSE OPPOSITE ORDERS
+//==================================================================
+
+bool CloseOppositeOrdersOnSignal = false;
+
 
 //==================================================================
 // PROFIT RE-ENTRY STOP
 //==================================================================
 
-bool EnableProfitReEntryStop = false;
+bool EnableProfitReEntryStop = true;
 
 double MinimumClosedProfitUSD = 0.01;
 
 double ProfitReEntryGapRaw = 30.0;
 
+
 //==================================================================
-// PROFIT LADDER
+// PROFIT LADDER 1
 //==================================================================
 
-bool EnableProfitLadder = true;
+// Enable first profit ladder
+bool EnableProfitLadder1 = true;
 
-double LadderLockGapUSD = 0.05;
+// Ladder 1 profit step
+// Example:
+// Profit $0.20 -> lock $0.10
+// Profit $0.30 -> lock $0.20
+// Profit $0.40 -> lock $0.30
+double Ladder1ProfitUSD =0.10;//1;// 2;//0.10;
 
-double StopLossUSD = 0.25;
+
+//==================================================================
+// PROFIT LADDER 2
+//==================================================================
+
+// Enable second profit ladder
+bool EnableProfitLadder2 = true;
+
+// Ladder 2 starts when profit reaches this amount
+double Ladder1StopMaxPriceUSD = 1.00;//10;//1.00;
+
+// Ladder 2 locking step
+// Example:
+// Profit $4.00 -> lock $3.00
+// Profit $5.00 -> lock $4.00
+// Profit $6.00 -> lock $5.00
+double Ladder2ProfitUSD = 1.00;
+
+
+//==================================================================
+// INITIAL STOP LOSS
+//==================================================================
+
+double StopLossUSD = 1.00;
+
 
 //==================================================================
 // ORDER SETTINGS
@@ -45,6 +87,7 @@ double StopLossUSD = 0.25;
 int Slippage = 30;
 
 int MagicNumber = 6600123;
+
 
 //==================================================================
 // VISUALS
@@ -76,6 +119,7 @@ color SSLDownColor = clrRed;
 
 int SSLLineWidth = 2;
 
+
 //==================================================================
 // DASHBOARD
 //==================================================================
@@ -92,6 +136,7 @@ int DashboardHeight = 430;
 
 int DashboardFontSize = 9;
 
+
 //==================================================================
 // GLOBALS
 //==================================================================
@@ -106,6 +151,7 @@ datetime LastProcessedClosedOrderTime = 0;
 
 int LastProcessedClosedTicket = -1;
 
+
 //+------------------------------------------------------------------+
 //| INITIALIZATION                                                   |
 //+------------------------------------------------------------------+
@@ -113,23 +159,93 @@ int LastProcessedClosedTicket = -1;
 int OnInit()
 {
    Print("==================================================");
+
    Print("SSL CHANNEL CROSS EA INITIALIZED");
-   Print("SIGNAL + PROFIT RE-ENTRY STOP VERSION");
+
+   Print("TWO-STAGE PROFIT LADDER VERSION");
+
    Print("Symbol: ", Symbol());
-   Print("Timeframe: ", TimeframeToString(Period()));
-   Print("SSL Period: ", SSLPeriod);
-   Print("Lots: ", DoubleToString(Lots, 2));
-   Print("Max Total Orders: ", MaxOpenOrders);
-   Print("Profit Re-Entry Gap: ",
-         DoubleToString(ProfitReEntryGapRaw, Digits),
-         " raw price");
+
+   Print(
+      "Timeframe: ",
+      TimeframeToString(Period())
+   );
+
+   Print(
+      "SSL Period: ",
+      SSLPeriod
+   );
+
+   Print(
+      "Lots: ",
+      DoubleToString(
+         Lots,
+         2
+      )
+   );
+
+   Print(
+      "Max Total Orders: ",
+      MaxOpenOrders
+   );
+
+   Print(
+      "Close Opposite Orders On Signal: ",
+      CloseOppositeOrdersOnSignal ?
+      "TRUE" :
+      "FALSE"
+   );
+
+   Print(
+      "Ladder 1: ",
+      EnableProfitLadder1 ?
+      "ON" :
+      "OFF"
+   );
+
+   Print(
+      "Ladder 1 Profit Step: $",
+      DoubleToString(
+         Ladder1ProfitUSD,
+         2
+      )
+   );
+
+   Print(
+      "Ladder 2 Activation: $",
+      DoubleToString(
+         Ladder1StopMaxPriceUSD,
+         2
+      )
+   );
+
+   Print(
+      "Ladder 2 Profit Step: $",
+      DoubleToString(
+         Ladder2ProfitUSD,
+         2
+      )
+   );
+
+   Print(
+      "Profit Re-Entry Gap: ",
+      DoubleToString(
+         ProfitReEntryGapRaw,
+         Digits
+      ),
+      " raw price"
+   );
+
    Print("==================================================");
 
    DeleteOurObjects();
 
    DeleteDashboardObjects();
 
-   if(ShowHistoricalSignals || ShowSSLLines)
+   if(
+      ShowHistoricalSignals ||
+      ShowSSLLines
+   )
    {
       DrawHistoricalSignals();
    }
@@ -141,19 +257,25 @@ int OnInit()
       UpdateDashboard();
    }
 
-   return(INIT_SUCCEEDED);
+   return(
+      INIT_SUCCEEDED
+   );
 }
+
 
 //+------------------------------------------------------------------+
 //| DEINITIALIZATION                                                 |
 //+------------------------------------------------------------------+
 
-void OnDeinit(const int reason)
+void OnDeinit(
+   const int reason
+)
 {
    DeleteOurObjects();
 
    DeleteDashboardObjects();
 }
+
 
 //+------------------------------------------------------------------+
 //| MAIN TICK                                                        |
@@ -162,7 +284,7 @@ void OnDeinit(const int reason)
 void OnTick()
 {
    //===============================================================
-   // LIVE SSL LINES ON EVERY TICK
+   // LIVE SSL LINES
    //===============================================================
 
    if(ShowSSLLines)
@@ -170,23 +292,33 @@ void OnTick()
       UpdateSSLChannelOnTick();
    }
 
+
    //===============================================================
    // PROFITABLE CLOSED ORDER CHECK
    //===============================================================
 
-   if(Bars >= SSLPeriod + 20)
+   if(
+      Bars >=
+      SSLPeriod +
+      20
+   )
    {
       CheckForProfitableClosedOrder();
    }
 
+
    //===============================================================
-   // PROFIT LADDER
+   // TWO-STAGE PROFIT LADDER
    //===============================================================
 
-   if(EnableProfitLadder)
+   if(
+      EnableProfitLadder1 ||
+      EnableProfitLadder2
+   )
    {
       ManageProfitLadder();
    }
+
 
    //===============================================================
    // DASHBOARD
@@ -197,33 +329,47 @@ void OnTick()
       UpdateDashboard();
    }
 
+
    //===============================================================
    // BAR DATA CHECK
    //===============================================================
 
-   if(Bars < SSLPeriod + 20)
+   if(
+      Bars <
+      SSLPeriod +
+      20
+   )
    {
       return;
    }
 
+
    //===============================================================
-   // PROCESS ONLY ONE SSL SIGNAL PER NEW CANDLE
+   // ONE SIGNAL PER NEW CANDLE
    //===============================================================
 
-   if(Time[0] == LastProcessedBar)
+   if(
+      Time[0] ==
+      LastProcessedBar
+   )
    {
       return;
    }
 
-   LastProcessedBar = Time[0];
+   LastProcessedBar =
+      Time[0];
+
 
    //===============================================================
    // SSL SIGNALS
    //===============================================================
 
-   bool buySignal = IsBuySignal(1);
+   bool buySignal =
+      IsBuySignal(1);
 
-   bool sellSignal = IsSellSignal(1);
+   bool sellSignal =
+      IsSellSignal(1);
+
 
    //===============================================================
    // BUY SIGNAL
@@ -231,22 +377,52 @@ void OnTick()
 
    if(buySignal)
    {
-      DrawLiveSignal(1, true);
+      DrawLiveSignal(
+         1,
+         true
+      );
 
-      Print("SSL CROSS SIGNAL -> BUY");
+      Print(
+         "SSL CROSS SIGNAL -> BUY"
+      );
+
+
+      //============================================================
+      // CLOSE OPPOSITE SELL ORDERS
+      //============================================================
+
+      if(
+         CloseOppositeOrdersOnSignal
+      )
+      {
+         CloseOppositeOrders(
+            OP_BUY
+         );
+      }
+
+
+      //============================================================
+      // OPEN BUY
+      //============================================================
 
       if(EnableTrading)
       {
-         if(GetTotalEAOrders() < MaxOpenOrders)
+         if(
+            GetTotalEAOrders() <
+            MaxOpenOrders
+         )
          {
             OpenBuy();
          }
          else
          {
-            Print("BUY BLOCKED | MAX TOTAL ORDERS REACHED");
+            Print(
+               "BUY BLOCKED | MAX TOTAL ORDERS REACHED"
+            );
          }
       }
    }
+
 
    //===============================================================
    // SELL SIGNAL
@@ -254,23 +430,206 @@ void OnTick()
 
    if(sellSignal)
    {
-      DrawLiveSignal(1, false);
+      DrawLiveSignal(
+         1,
+         false
+      );
 
-      Print("SSL CROSS SIGNAL -> SELL");
+      Print(
+         "SSL CROSS SIGNAL -> SELL"
+      );
+
+
+      //============================================================
+      // CLOSE OPPOSITE BUY ORDERS
+      //============================================================
+
+      if(
+         CloseOppositeOrdersOnSignal
+      )
+      {
+         CloseOppositeOrders(
+            OP_SELL
+         );
+      }
+
+
+      //============================================================
+      // OPEN SELL
+      //============================================================
 
       if(EnableTrading)
       {
-         if(GetTotalEAOrders() < MaxOpenOrders)
+         if(
+            GetTotalEAOrders() <
+            MaxOpenOrders
+         )
          {
             OpenSell();
          }
          else
          {
-            Print("SELL BLOCKED | MAX TOTAL ORDERS REACHED");
+            Print(
+               "SELL BLOCKED | MAX TOTAL ORDERS REACHED"
+            );
          }
       }
    }
 }
+
+
+//+------------------------------------------------------------------+
+//| CLOSE OPPOSITE ORDERS ON SIGNAL                                  |
+//+------------------------------------------------------------------+
+
+void CloseOppositeOrders(
+   int newSignalType
+)
+{
+   RefreshRates();
+
+
+   for(
+      int i =
+      OrdersTotal() -
+      1;
+
+      i >= 0;
+
+      i--
+   )
+   {
+      if(
+         !OrderSelect(
+            i,
+            SELECT_BY_POS,
+            MODE_TRADES
+         )
+      )
+      {
+         continue;
+      }
+
+
+      if(
+         OrderSymbol() !=
+         Symbol()
+      )
+      {
+         continue;
+      }
+
+
+      if(
+         OrderMagicNumber() !=
+         MagicNumber
+      )
+      {
+         continue;
+      }
+
+
+      int orderType =
+         OrderType();
+
+
+      //============================================================
+      // BUY SIGNAL -> CLOSE SELL
+      //============================================================
+
+      if(
+         newSignalType ==
+         OP_BUY &&
+         orderType ==
+         OP_SELL
+      )
+      {
+         int ticket =
+            OrderTicket();
+
+         double lots =
+            OrderLots();
+
+         RefreshRates();
+
+         bool closed =
+            OrderClose(
+               ticket,
+               lots,
+               Ask,
+               Slippage,
+               clrRed
+            );
+
+
+         if(closed)
+         {
+            Print(
+               "OPPOSITE SELL CLOSED ON BUY SIGNAL | Ticket: ",
+               ticket
+            );
+         }
+         else
+         {
+            Print(
+               "FAILED TO CLOSE OPPOSITE SELL | Ticket: ",
+               ticket,
+               " | Error: ",
+               GetLastError()
+            );
+         }
+      }
+
+
+      //============================================================
+      // SELL SIGNAL -> CLOSE BUY
+      //============================================================
+
+      if(
+         newSignalType ==
+         OP_SELL &&
+         orderType ==
+         OP_BUY
+      )
+      {
+         int ticket =
+            OrderTicket();
+
+         double lots =
+            OrderLots();
+
+         RefreshRates();
+
+         bool closed =
+            OrderClose(
+               ticket,
+               lots,
+               Bid,
+               Slippage,
+               clrBlue
+            );
+
+
+         if(closed)
+         {
+            Print(
+               "OPPOSITE BUY CLOSED ON SELL SIGNAL | Ticket: ",
+               ticket
+            );
+         }
+         else
+         {
+            Print(
+               "FAILED TO CLOSE OPPOSITE BUY | Ticket: ",
+               ticket,
+               " | Error: ",
+               GetLastError()
+            );
+         }
+      }
+   }
+}
+
 
 //+------------------------------------------------------------------+
 //| UPDATE SSL CHANNEL ON EVERY TICK                                 |
@@ -283,58 +642,121 @@ void UpdateSSLChannelOnTick()
       return;
    }
 
-   if(Bars < SSLPeriod + 20)
+
+   if(
+      Bars <
+      SSLPeriod +
+      20
+   )
    {
       return;
    }
 
-   int maxRecentBars = 10;
 
-   if(maxRecentBars > Bars - SSLPeriod - 2)
+   int maxRecentBars =
+      10;
+
+
+   if(
+      maxRecentBars >
+      Bars -
+      SSLPeriod -
+      2
+   )
    {
-      maxRecentBars = Bars - SSLPeriod - 2;
+      maxRecentBars =
+         Bars -
+         SSLPeriod -
+         2;
    }
 
-   for(int i = maxRecentBars; i >= 0; i--)
+
+   for(
+      int i =
+      maxRecentBars;
+
+      i >= 0;
+
+      i--
+   )
    {
-      if(i + 1 >= Bars)
+      if(
+         i + 1 >=
+         Bars
+      )
       {
          continue;
       }
 
+
       double up1;
+
       double down1;
+
       int hlv1;
 
+
       double up2;
+
       double down2;
+
       int hlv2;
 
-      CalculateSSL(i, up1, down1, hlv1);
 
-      CalculateSSL(i + 1, up2, down2, hlv2);
+      CalculateSSL(
+         i,
+         up1,
+         down1,
+         hlv1
+      );
+
+
+      CalculateSSL(
+         i + 1,
+         up2,
+         down2,
+         hlv2
+      );
+
 
       DrawTrendSegment(
-         PREFIX + "LIVE_UP_" + IntegerToString(i),
+         PREFIX +
+         "LIVE_UP_" +
+         IntegerToString(i),
+
          Time[i],
+
          up1,
+
          Time[i + 1],
+
          up2,
+
          SSLUpColor
       );
 
+
       DrawTrendSegment(
-         PREFIX + "LIVE_DOWN_" + IntegerToString(i),
+         PREFIX +
+         "LIVE_DOWN_" +
+         IntegerToString(i),
+
          Time[i],
+
          down1,
+
          Time[i + 1],
+
          down2,
+
          SSLDownColor
       );
    }
 
+
    ChartRedraw();
 }
+
 
 //+------------------------------------------------------------------+
 //| INITIALIZE CLOSED ORDER TRACKING                                 |
@@ -342,44 +764,85 @@ void UpdateSSLChannelOnTick()
 
 void InitializeLastProcessedClosedOrder()
 {
-   datetime latestCloseTime = 0;
+   datetime latestCloseTime =
+      0;
 
-   int latestTicket = -1;
+   int latestTicket =
+      -1;
 
-   for(int i = OrdersHistoryTotal() - 1; i >= 0; i--)
+
+   for(
+      int i =
+      OrdersHistoryTotal() -
+      1;
+
+      i >= 0;
+
+      i--
+   )
    {
-      if(!OrderSelect(i, SELECT_BY_POS, MODE_HISTORY))
+      if(
+         !OrderSelect(
+            i,
+            SELECT_BY_POS,
+            MODE_HISTORY
+         )
+      )
       {
          continue;
       }
 
-      if(OrderSymbol() != Symbol())
+
+      if(
+         OrderSymbol() !=
+         Symbol()
+      )
       {
          continue;
       }
 
-      if(OrderMagicNumber() != MagicNumber)
+
+      if(
+         OrderMagicNumber() !=
+         MagicNumber
+      )
       {
          continue;
       }
 
-      if(OrderType() != OP_BUY && OrderType() != OP_SELL)
+
+      if(
+         OrderType() !=
+         OP_BUY &&
+         OrderType() !=
+         OP_SELL
+      )
       {
          continue;
       }
 
-      if(OrderCloseTime() > latestCloseTime)
-      {
-         latestCloseTime = OrderCloseTime();
 
-         latestTicket = OrderTicket();
+      if(
+         OrderCloseTime() >
+         latestCloseTime
+      )
+      {
+         latestCloseTime =
+            OrderCloseTime();
+
+         latestTicket =
+            OrderTicket();
       }
    }
 
-   LastProcessedClosedOrderTime = latestCloseTime;
 
-   LastProcessedClosedTicket = latestTicket;
+   LastProcessedClosedOrderTime =
+      latestCloseTime;
+
+   LastProcessedClosedTicket =
+      latestTicket;
 }
+
 
 //+------------------------------------------------------------------+
 //| CHECK PROFITABLE CLOSED ORDER                                    |
@@ -387,104 +850,189 @@ void InitializeLastProcessedClosedOrder()
 
 void CheckForProfitableClosedOrder()
 {
-   datetime latestCloseTime = 0;
+   datetime latestCloseTime =
+      0;
 
-   double latestProfit = 0;
+   double latestProfit =
+      0;
 
-   int latestTicket = -1;
+   int latestTicket =
+      -1;
 
-   int latestType = -1;
+   int latestType =
+      -1;
 
-   double latestClosePrice = 0;
+   double latestClosePrice =
+      0;
 
-   for(int i = OrdersHistoryTotal() - 1; i >= 0; i--)
+
+   for(
+      int i =
+      OrdersHistoryTotal() -
+      1;
+
+      i >= 0;
+
+      i--
+   )
    {
-      if(!OrderSelect(i, SELECT_BY_POS, MODE_HISTORY))
+      if(
+         !OrderSelect(
+            i,
+            SELECT_BY_POS,
+            MODE_HISTORY
+         )
+      )
       {
          continue;
       }
 
-      if(OrderSymbol() != Symbol())
+
+      if(
+         OrderSymbol() !=
+         Symbol()
+      )
       {
          continue;
       }
 
-      if(OrderMagicNumber() != MagicNumber)
+
+      if(
+         OrderMagicNumber() !=
+         MagicNumber
+      )
       {
          continue;
       }
 
-      if(OrderType() != OP_BUY && OrderType() != OP_SELL)
+
+      if(
+         OrderType() !=
+         OP_BUY &&
+         OrderType() !=
+         OP_SELL
+      )
       {
          continue;
       }
 
-      if(OrderCloseTime() <= latestCloseTime)
+
+      if(
+         OrderCloseTime() <=
+         latestCloseTime
+      )
       {
          continue;
       }
 
-      latestCloseTime = OrderCloseTime();
 
-      latestTicket = OrderTicket();
+      latestCloseTime =
+         OrderCloseTime();
 
-      latestType = OrderType();
+      latestTicket =
+         OrderTicket();
+
+      latestType =
+         OrderType();
+
 
       latestProfit =
          OrderProfit() +
          OrderSwap() +
          OrderCommission();
 
-      latestClosePrice = OrderClosePrice();
+
+      latestClosePrice =
+         OrderClosePrice();
    }
 
-   if(latestTicket < 0)
-   {
-      return;
-   }
 
    if(
-      latestTicket == LastProcessedClosedTicket &&
-      latestCloseTime == LastProcessedClosedOrderTime
+      latestTicket <
+      0
    )
    {
       return;
    }
 
-   LastProcessedClosedTicket = latestTicket;
 
-   LastProcessedClosedOrderTime = latestCloseTime;
+   if(
+      latestTicket ==
+      LastProcessedClosedTicket &&
+
+      latestCloseTime ==
+      LastProcessedClosedOrderTime
+   )
+   {
+      return;
+   }
+
+
+   LastProcessedClosedTicket =
+      latestTicket;
+
+   LastProcessedClosedOrderTime =
+      latestCloseTime;
+
 
    //===============================================================
    // PROFITABLE CLOSE
    //===============================================================
 
-   if(latestProfit >= MinimumClosedProfitUSD)
+   if(
+      latestProfit >=
+      MinimumClosedProfitUSD
+   )
    {
-      Print("==================================================");
+      Print(
+         "=================================================="
+      );
 
-      Print("PROFITABLE ORDER CLOSED");
 
-      Print("Ticket: ", latestTicket);
+      Print(
+         "PROFITABLE ORDER CLOSED"
+      );
+
+
+      Print(
+         "Ticket: ",
+         latestTicket
+      );
+
 
       Print(
          "Direction: ",
-         latestType == OP_BUY ? "BUY" : "SELL"
+
+         latestType ==
+         OP_BUY ?
+         "BUY" :
+         "SELL"
       );
+
 
       Print(
          "Close Price: ",
-         DoubleToString(latestClosePrice, Digits)
+
+         DoubleToString(
+            latestClosePrice,
+            Digits
+         )
       );
+
 
       Print(
          "Profit: $",
-         DoubleToString(latestProfit, 2)
+
+         DoubleToString(
+            latestProfit,
+            2
+         )
       );
 
-      Print("Creating new profit re-entry stop...");
 
-      if(EnableProfitReEntryStop)
+      if(
+         EnableProfitReEntryStop
+      )
       {
          CreateProfitReEntryStop(
             latestType,
@@ -492,16 +1040,26 @@ void CheckForProfitableClosedOrder()
          );
       }
 
-      Print("==================================================");
+
+      Print(
+         "=================================================="
+      );
+
 
       return;
    }
 
+
    Print(
       "ORDER CLOSED WITHOUT REQUIRED PROFIT | P/L: $",
-      DoubleToString(latestProfit, 2)
+
+      DoubleToString(
+         latestProfit,
+         2
+      )
    );
 }
+
 
 //+------------------------------------------------------------------+
 //| CREATE PROFIT RE-ENTRY STOP                                      |
@@ -509,6 +1067,7 @@ void CheckForProfitableClosedOrder()
 
 void CreateProfitReEntryStop(
    int closedOrderType,
+
    double closedPrice
 )
 {
@@ -517,12 +1076,17 @@ void CreateProfitReEntryStop(
       return;
    }
 
+
    if(!EnableProfitReEntryStop)
    {
       return;
    }
 
-   if(GetTotalEAOrders() >= MaxOpenOrders)
+
+   if(
+      GetTotalEAOrders() >=
+      MaxOpenOrders
+   )
    {
       Print(
          "PROFIT RE-ENTRY STOP BLOCKED | MAX ORDERS"
@@ -531,89 +1095,120 @@ void CreateProfitReEntryStop(
       return;
    }
 
+
    RefreshRates();
 
-   double entryPrice = 0;
 
-   int pendingType = -1;
+   double entryPrice =
+      0;
+
+   int pendingType =
+      -1;
 
    color orderColor;
 
    string orderComment;
 
-   //===============================================================
-   // BUY PROFIT CLOSE -> BUY STOP
-   //===============================================================
 
-   if(closedOrderType == OP_BUY)
+   if(
+      closedOrderType ==
+      OP_BUY
+   )
    {
       entryPrice =
          closedPrice +
          ProfitReEntryGapRaw;
 
-      pendingType = OP_BUYSTOP;
+      pendingType =
+         OP_BUYSTOP;
 
-      orderColor = BuyColor;
+      orderColor =
+         BuyColor;
 
-      orderComment = "SSL Profit ReEntry Buy Stop";
+      orderComment =
+         "SSL Profit ReEntry Buy Stop";
    }
-
-   //===============================================================
-   // SELL PROFIT CLOSE -> SELL STOP
-   //===============================================================
-
    else
-   if(closedOrderType == OP_SELL)
+   if(
+      closedOrderType ==
+      OP_SELL
+   )
    {
       entryPrice =
          closedPrice -
          ProfitReEntryGapRaw;
 
-      pendingType = OP_SELLSTOP;
+      pendingType =
+         OP_SELLSTOP;
 
-      orderColor = SellColor;
+      orderColor =
+         SellColor;
 
-      orderComment = "SSL Profit ReEntry Sell Stop";
+      orderComment =
+         "SSL Profit ReEntry Sell Stop";
    }
    else
    {
       return;
    }
 
-   //===============================================================
-   // BROKER MINIMUM STOP DISTANCE
-   //===============================================================
 
    double stopLevel =
-      MarketInfo(Symbol(), MODE_STOPLEVEL) *
+      MarketInfo(
+         Symbol(),
+         MODE_STOPLEVEL
+      )
+      *
       Point;
+
 
    double minimumGap =
       stopLevel +
       Point;
 
-   if(pendingType == OP_BUYSTOP)
+
+   if(
+      pendingType ==
+      OP_BUYSTOP
+   )
    {
-      if(entryPrice < Ask + minimumGap)
+      if(
+         entryPrice <
+         Ask +
+         minimumGap
+      )
       {
-         entryPrice = Ask + minimumGap;
+         entryPrice =
+            Ask +
+            minimumGap;
       }
    }
 
-   if(pendingType == OP_SELLSTOP)
+
+   if(
+      pendingType ==
+      OP_SELLSTOP
+   )
    {
-      if(entryPrice > Bid - minimumGap)
+      if(
+         entryPrice >
+         Bid -
+         minimumGap
+      )
       {
-         entryPrice = Bid - minimumGap;
+         entryPrice =
+            Bid -
+            minimumGap;
       }
    }
+
 
    entryPrice =
-      NormalizeDouble(entryPrice, Digits);
+      NormalizeDouble(
+         entryPrice,
+         Digits
+      );
 
-   //===============================================================
-   // INITIAL STOP LOSS
-   //===============================================================
 
    double slDistance =
       CalculatePriceDistanceUSD(
@@ -621,14 +1216,23 @@ void CreateProfitReEntryStop(
          Lots
       );
 
-   if(slDistance <= 0)
+
+   if(
+      slDistance <=
+      0
+   )
    {
       return;
    }
 
+
    double stopLoss;
 
-   if(pendingType == OP_BUYSTOP)
+
+   if(
+      pendingType ==
+      OP_BUYSTOP
+   )
    {
       stopLoss =
          entryPrice -
@@ -641,12 +1245,13 @@ void CreateProfitReEntryStop(
          slDistance;
    }
 
-   stopLoss =
-      NormalizeDouble(stopLoss, Digits);
 
-   //===============================================================
-   // CREATE PENDING ORDER
-   //===============================================================
+   stopLoss =
+      NormalizeDouble(
+         stopLoss,
+         Digits
+      );
+
 
    int ticket =
       OrderSend(
@@ -663,13 +1268,15 @@ void CreateProfitReEntryStop(
          orderColor
       );
 
-   if(ticket < 0)
-   {
-      int error = GetLastError();
 
+   if(
+      ticket <
+      0
+   )
+   {
       Print(
          "PROFIT RE-ENTRY STOP FAILED | ERROR: ",
-         error
+         GetLastError()
       );
    }
    else
@@ -678,20 +1285,9 @@ void CreateProfitReEntryStop(
          "PROFIT RE-ENTRY STOP CREATED | Ticket: ",
          ticket
       );
-
-      Print(
-         "Type: ",
-         pendingType == OP_BUYSTOP ?
-         "BUY STOP" :
-         "SELL STOP"
-      );
-
-      Print(
-         "Entry: ",
-         DoubleToString(entryPrice, Digits)
-      );
    }
 }
+
 
 //+------------------------------------------------------------------+
 //| TOTAL EA ORDERS                                                  |
@@ -699,40 +1295,76 @@ void CreateProfitReEntryStop(
 
 int GetTotalEAOrders()
 {
-   int count = 0;
+   int count =
+      0;
 
-   for(int i = OrdersTotal() - 1; i >= 0; i--)
+
+   for(
+      int i =
+      OrdersTotal() -
+      1;
+
+      i >= 0;
+
+      i--
+   )
    {
-      if(!OrderSelect(i, SELECT_BY_POS, MODE_TRADES))
+      if(
+         !OrderSelect(
+            i,
+            SELECT_BY_POS,
+            MODE_TRADES
+         )
+      )
       {
          continue;
       }
 
-      if(OrderSymbol() != Symbol())
-      {
-         continue;
-      }
-
-      if(OrderMagicNumber() != MagicNumber)
-      {
-         continue;
-      }
-
-      int type = OrderType();
 
       if(
-         type == OP_BUY ||
-         type == OP_SELL ||
-         type == OP_BUYSTOP ||
-         type == OP_SELLSTOP
+         OrderSymbol() !=
+         Symbol()
+      )
+      {
+         continue;
+      }
+
+
+      if(
+         OrderMagicNumber() !=
+         MagicNumber
+      )
+      {
+         continue;
+      }
+
+
+      int type =
+         OrderType();
+
+
+      if(
+         type ==
+         OP_BUY ||
+
+         type ==
+         OP_SELL ||
+
+         type ==
+         OP_BUYSTOP ||
+
+         type ==
+         OP_SELLSTOP
       )
       {
          count++;
       }
    }
 
+
    return count;
 }
+
 
 //+------------------------------------------------------------------+
 //| OPEN BUY                                                         |
@@ -740,12 +1372,17 @@ int GetTotalEAOrders()
 
 void OpenBuy()
 {
-   if(GetTotalEAOrders() >= MaxOpenOrders)
+   if(
+      GetTotalEAOrders() >=
+      MaxOpenOrders
+   )
    {
       return;
    }
 
+
    RefreshRates();
+
 
    double slDistance =
       CalculatePriceDistanceUSD(
@@ -753,33 +1390,54 @@ void OpenBuy()
          Lots
       );
 
-   if(slDistance <= 0)
+
+   if(
+      slDistance <=
+      0
+   )
    {
       return;
    }
 
+
    double stopLoss =
       NormalizeDouble(
-         Ask - slDistance,
+         Ask -
+         slDistance,
          Digits
       );
+
 
    int ticket =
       OrderSend(
          Symbol(),
+
          OP_BUY,
+
          Lots,
+
          Ask,
+
          Slippage,
+
          stopLoss,
+
          0,
+
          "SSL Long",
+
          MagicNumber,
+
          0,
+
          BuyColor
       );
 
-   if(ticket < 0)
+
+   if(
+      ticket <
+      0
+   )
    {
       Print(
          "BUY FAILED | ERROR: ",
@@ -795,18 +1453,24 @@ void OpenBuy()
    }
 }
 
+
 //+------------------------------------------------------------------+
 //| OPEN SELL                                                        |
 //+------------------------------------------------------------------+
 
 void OpenSell()
 {
-   if(GetTotalEAOrders() >= MaxOpenOrders)
+   if(
+      GetTotalEAOrders() >=
+      MaxOpenOrders
+   )
    {
       return;
    }
 
+
    RefreshRates();
+
 
    double slDistance =
       CalculatePriceDistanceUSD(
@@ -814,33 +1478,54 @@ void OpenSell()
          Lots
       );
 
-   if(slDistance <= 0)
+
+   if(
+      slDistance <=
+      0
+   )
    {
       return;
    }
 
+
    double stopLoss =
       NormalizeDouble(
-         Bid + slDistance,
+         Bid +
+         slDistance,
          Digits
       );
+
 
    int ticket =
       OrderSend(
          Symbol(),
+
          OP_SELL,
+
          Lots,
+
          Bid,
+
          Slippage,
+
          stopLoss,
+
          0,
+
          "SSL Short",
+
          MagicNumber,
+
          0,
+
          SellColor
       );
 
-   if(ticket < 0)
+
+   if(
+      ticket <
+      0
+   )
    {
       Print(
          "SELL FAILED | ERROR: ",
@@ -856,12 +1541,14 @@ void OpenSell()
    }
 }
 
+
 //+------------------------------------------------------------------+
 //| CALCULATE USD PRICE DISTANCE                                     |
 //+------------------------------------------------------------------+
 
 double CalculatePriceDistanceUSD(
    double usdAmount,
+
    double orderLots
 )
 {
@@ -871,116 +1558,219 @@ double CalculatePriceDistanceUSD(
          MODE_TICKVALUE
       );
 
+
    double tickSize =
       MarketInfo(
          Symbol(),
          MODE_TICKSIZE
       );
 
+
    if(
-      tickValue <= 0 ||
-      tickSize <= 0 ||
-      orderLots <= 0
+      tickValue <=
+      0 ||
+
+      tickSize <=
+      0 ||
+
+      orderLots <=
+      0
    )
    {
       return 0;
    }
 
+
    return(
       usdAmount /
-      (tickValue * orderLots)
+      (
+         tickValue *
+         orderLots
+      )
    )
    *
    tickSize;
 }
 
+
 //+------------------------------------------------------------------+
-//| PROFIT LADDER                                                    |
+//| TWO-STAGE PROFIT LADDER                                          |
 //+------------------------------------------------------------------+
 
 void ManageProfitLadder()
 {
-   if(LadderLockGapUSD <= 0)
+   for(
+      int i =
+      OrdersTotal() -
+      1;
+
+      i >= 0;
+
+      i--
+   )
    {
-      return;
-   }
-
-   for(int i = OrdersTotal() - 1; i >= 0; i--)
-   {
-      if(!OrderSelect(i, SELECT_BY_POS, MODE_TRADES))
-      {
-         continue;
-      }
-
-      if(OrderSymbol() != Symbol())
-      {
-         continue;
-      }
-
-      if(OrderMagicNumber() != MagicNumber)
-      {
-         continue;
-      }
-
-      int orderType = OrderType();
-
       if(
-         orderType != OP_BUY &&
-         orderType != OP_SELL
+         !OrderSelect(
+            i,
+            SELECT_BY_POS,
+            MODE_TRADES
+         )
       )
       {
          continue;
       }
+
+
+      if(
+         OrderSymbol() !=
+         Symbol()
+      )
+      {
+         continue;
+      }
+
+
+      if(
+         OrderMagicNumber() !=
+         MagicNumber
+      )
+      {
+         continue;
+      }
+
+
+      int orderType =
+         OrderType();
+
+
+      if(
+         orderType !=
+         OP_BUY &&
+
+         orderType !=
+         OP_SELL
+      )
+      {
+         continue;
+      }
+
 
       double currentProfit =
          OrderProfit() +
          OrderSwap() +
          OrderCommission();
 
-      //============================================================
-      // EXAMPLE:
-      //
-      // LadderLockGapUSD = 0.10
-      //
-      // Profit 0.20 -> lock 0.10
-      // Profit 0.30 -> lock 0.20
-      // Profit 0.40 -> lock 0.30
-      // Profit 0.50 -> lock 0.40
-      //
-      //============================================================
 
-      double firstTrigger =
-         LadderLockGapUSD * 2.0;
-
-      if(currentProfit < firstTrigger)
+      if(
+         currentProfit <=
+         0
+      )
       {
          continue;
       }
 
-      int ladderLevel =
-         (int)MathFloor(
-            (
-               currentProfit -
-               LadderLockGapUSD
-            )
-            /
-            LadderLockGapUSD
-         );
-
-      if(ladderLevel < 1)
-      {
-         ladderLevel = 1;
-      }
-
-      if(ladderLevel >2 && ladderLevel % 2 == 0)
-      {
-         continue;
-
-      }
 
       double lockedProfit =
-         ladderLevel *
-         LadderLockGapUSD;
+         0;
+
+
+      //============================================================
+      // LADDER 1
+      //
+      // Active immediately
+      //
+      // $0.10 -> lock $0.00
+      // $0.20 -> lock $0.10
+      // $0.30 -> lock $0.20
+      //
+      // Stops at $3.00
+      //============================================================
+
+      if(
+         EnableProfitLadder1 &&
+
+         Ladder1ProfitUSD >
+         0 &&
+
+         currentProfit <
+         Ladder1StopMaxPriceUSD
+      )
+      {
+         int ladder1Level =
+            (int)MathFloor(
+               currentProfit /
+               Ladder1ProfitUSD
+            );
+
+
+         if(
+            ladder1Level >=
+            2
+         )
+         {
+            lockedProfit =
+               (
+                  ladder1Level -
+                  1
+               )
+               *
+               Ladder1ProfitUSD;
+         }
+      }
+
+
+      //============================================================
+      // LADDER 2
+      //
+      // Activates at $3.00
+      //
+      // $3.00 -> lock $2.00
+      // $4.00 -> lock $3.00
+      // $5.00 -> lock $4.00
+      //
+      //============================================================
+
+      if(
+         EnableProfitLadder2 &&
+
+         Ladder2ProfitUSD >
+         0 &&
+
+         currentProfit >=
+         Ladder1StopMaxPriceUSD
+      )
+      {
+         int ladder2Level =
+            (int)MathFloor(
+               currentProfit /
+               Ladder2ProfitUSD
+            );
+
+
+         if(
+            ladder2Level >=
+            1
+         )
+         {
+            lockedProfit =
+               (
+                  ladder2Level -
+                  1
+               )
+               *
+               Ladder2ProfitUSD;
+         }
+      }
+
+
+      if(
+         lockedProfit <=
+         0
+      )
+      {
+         continue;
+      }
+
 
       lockedProfit =
          NormalizeDouble(
@@ -988,11 +1778,17 @@ void ManageProfitLadder()
             2
          );
 
+
+      //============================================================
+      // TICK INFORMATION
+      //============================================================
+
       double tickValue =
          MarketInfo(
             Symbol(),
             MODE_TICKVALUE
          );
+
 
       double tickSize =
          MarketInfo(
@@ -1000,13 +1796,18 @@ void ManageProfitLadder()
             MODE_TICKSIZE
          );
 
+
       if(
-         tickValue <= 0 ||
-         tickSize <= 0
+         tickValue <=
+         0 ||
+
+         tickSize <=
+         0
       )
       {
          continue;
       }
+
 
       double priceDistance =
          (
@@ -1019,7 +1820,6 @@ void ManageProfitLadder()
          *
          tickSize;
 
-      double newStopLoss;
 
       double stopLevel =
          MarketInfo(
@@ -1029,15 +1829,23 @@ void ManageProfitLadder()
          *
          Point;
 
+
+      double newStopLoss;
+
+
       //============================================================
       // BUY
       //============================================================
 
-      if(orderType == OP_BUY)
+      if(
+         orderType ==
+         OP_BUY
+      )
       {
          newStopLoss =
             OrderOpenPrice() +
             priceDistance;
+
 
          newStopLoss =
             NormalizeDouble(
@@ -1045,41 +1853,75 @@ void ManageProfitLadder()
                Digits
             );
 
+
+         // Never move stop loss backward
+
          if(
-            OrderStopLoss() > 0 &&
-            newStopLoss <= OrderStopLoss()
+            OrderStopLoss() >
+            0 &&
+
+            newStopLoss <=
+            OrderStopLoss()
          )
          {
             continue;
          }
 
-         if(Bid - newStopLoss < stopLevel)
+
+         // Broker minimum distance
+
+         if(
+            Bid -
+            newStopLoss <
+
+            stopLevel
+         )
          {
             newStopLoss =
                NormalizeDouble(
-                  Bid - stopLevel,
+                  Bid -
+                  stopLevel,
                   Digits
                );
          }
 
+
          if(
-            newStopLoss > 0 &&
-            newStopLoss < Bid
+            newStopLoss >
+            0 &&
+
+            newStopLoss <
+            Bid
          )
          {
             if(
                OrderModify(
                   OrderTicket(),
+
                   OrderOpenPrice(),
+
                   newStopLoss,
+
                   OrderTakeProfit(),
+
                   0,
+
                   clrLimeGreen
                )
             )
             {
                Print(
-                  "BUY LADDER | Locked: $",
+                  "BUY PROFIT LADDER | ",
+
+                  "Floating Profit: $",
+
+                  DoubleToString(
+                     currentProfit,
+                     2
+                  ),
+
+                  " | Locked: $",
+
                   DoubleToString(
                      lockedProfit,
                      2
@@ -1089,15 +1931,20 @@ void ManageProfitLadder()
          }
       }
 
+
       //============================================================
       // SELL
       //============================================================
 
-      if(orderType == OP_SELL)
+      if(
+         orderType ==
+         OP_SELL
+      )
       {
          newStopLoss =
             OrderOpenPrice() -
             priceDistance;
+
 
          newStopLoss =
             NormalizeDouble(
@@ -1105,38 +1952,72 @@ void ManageProfitLadder()
                Digits
             );
 
+
+         // Never move stop loss backward
+
          if(
-            OrderStopLoss() > 0 &&
-            newStopLoss >= OrderStopLoss()
+            OrderStopLoss() >
+            0 &&
+
+            newStopLoss >=
+            OrderStopLoss()
          )
          {
             continue;
          }
 
-         if(newStopLoss - Ask < stopLevel)
+
+         // Broker minimum distance
+
+         if(
+            newStopLoss -
+            Ask <
+
+            stopLevel
+         )
          {
             newStopLoss =
                NormalizeDouble(
-                  Ask + stopLevel,
+                  Ask +
+                  stopLevel,
                   Digits
                );
          }
 
-         if(newStopLoss > Ask)
+
+         if(
+            newStopLoss >
+            Ask
+         )
          {
             if(
                OrderModify(
                   OrderTicket(),
+
                   OrderOpenPrice(),
+
                   newStopLoss,
+
                   OrderTakeProfit(),
+
                   0,
+
                   clrTomato
                )
             )
             {
                Print(
-                  "SELL LADDER | Locked: $",
+                  "SELL PROFIT LADDER | ",
+
+                  "Floating Profit: $",
+
+                  DoubleToString(
+                     currentProfit,
+                     2
+                  ),
+
+                  " | Locked: $",
+
                   DoubleToString(
                      lockedProfit,
                      2
@@ -1148,14 +2029,18 @@ void ManageProfitLadder()
    }
 }
 
+
 //+------------------------------------------------------------------+
 //| CALCULATE SSL                                                    |
 //+------------------------------------------------------------------+
 
 void CalculateSSL(
    int shift,
+
    double &sslUp,
+
    double &sslDown,
+
    int &hlv
 )
 {
@@ -1164,154 +2049,261 @@ void CalculateSSL(
       SSLPeriod -
       2;
 
-   if(oldest < shift)
+
+   if(
+      oldest <
+      shift
+   )
    {
-      oldest = shift;
+      oldest =
+         shift;
    }
 
-   int currentHlv = 0;
 
-   for(int i = oldest; i >= shift; i--)
+   int currentHlv =
+      0;
+
+
+   for(
+      int i =
+      oldest;
+
+      i >=
+      shift;
+
+      i--
+   )
    {
       double smaHigh =
          iMA(
             Symbol(),
+
             Period(),
+
             SSLPeriod,
+
             0,
+
             MODE_SMA,
+
             PRICE_HIGH,
+
             i
          );
+
 
       double smaLow =
          iMA(
             Symbol(),
+
             Period(),
+
             SSLPeriod,
+
             0,
+
             MODE_SMA,
+
             PRICE_LOW,
+
             i
          );
 
-      double candleClose = Close[i];
 
-      if(candleClose > smaHigh)
+      double candleClose =
+         Close[i];
+
+
+      if(
+         candleClose >
+         smaHigh
+      )
       {
-         currentHlv = 1;
+         currentHlv =
+            1;
       }
       else
-      if(candleClose < smaLow)
+      if(
+         candleClose <
+         smaLow
+      )
       {
-         currentHlv = -1;
+         currentHlv =
+            -1;
       }
 
-      if(i == shift)
+
+      if(
+         i ==
+         shift
+      )
       {
-         hlv = currentHlv;
+         hlv =
+            currentHlv;
 
-         if(currentHlv < 0)
+
+         if(
+            currentHlv <
+            0
+         )
          {
-            sslDown = smaHigh;
+            sslDown =
+               smaHigh;
 
-            sslUp = smaLow;
+            sslUp =
+               smaLow;
          }
          else
          {
-            sslDown = smaLow;
+            sslDown =
+               smaLow;
 
-            sslUp = smaHigh;
+            sslUp =
+               smaHigh;
          }
+
 
          return;
       }
    }
 
-   hlv = currentHlv;
 
-   sslUp = 0;
+   hlv =
+      currentHlv;
 
-   sslDown = 0;
+   sslUp =
+      0;
+
+   sslDown =
+      0;
 }
+
 
 //+------------------------------------------------------------------+
 //| BUY SIGNAL                                                       |
 //+------------------------------------------------------------------+
 
-bool IsBuySignal(int shift)
+bool IsBuySignal(
+   int shift
+)
 {
-   if(shift + 1 >= Bars)
+   if(
+      shift + 1 >=
+      Bars
+   )
    {
       return false;
    }
 
+
    double upCurrent;
+
    double downCurrent;
+
    int hlvCurrent;
 
+
    double upPrevious;
+
    double downPrevious;
+
    int hlvPrevious;
+
 
    CalculateSSL(
       shift,
+
       upCurrent,
+
       downCurrent,
+
       hlvCurrent
    );
 
+
    CalculateSSL(
       shift + 1,
+
       upPrevious,
+
       downPrevious,
+
       hlvPrevious
    );
 
+
    return(
-      upPrevious <= downPrevious &&
-      upCurrent > downCurrent
+      upPrevious <=
+      downPrevious &&
+
+      upCurrent >
+      downCurrent
    );
 }
+
 
 //+------------------------------------------------------------------+
 //| SELL SIGNAL                                                      |
 //+------------------------------------------------------------------+
 
-bool IsSellSignal(int shift)
+bool IsSellSignal(
+   int shift
+)
 {
-   if(shift + 1 >= Bars)
+   if(
+      shift + 1 >=
+      Bars
+   )
    {
       return false;
    }
 
+
    double upCurrent;
+
    double downCurrent;
+
    int hlvCurrent;
 
+
    double upPrevious;
+
    double downPrevious;
+
    int hlvPrevious;
+
 
    CalculateSSL(
       shift,
+
       upCurrent,
+
       downCurrent,
+
       hlvCurrent
    );
 
+
    CalculateSSL(
       shift + 1,
+
       upPrevious,
+
       downPrevious,
+
       hlvPrevious
    );
 
+
    return(
-      upPrevious >= downPrevious &&
-      upCurrent < downCurrent
+      upPrevious >=
+      downPrevious &&
+
+      upCurrent <
+      downCurrent
    );
 }
+
 
 //+------------------------------------------------------------------+
 //| DRAW HISTORICAL SIGNALS                                          |
@@ -1321,6 +2313,7 @@ void DrawHistoricalSignals()
 {
    int barsToProcess =
       HistoryBarsToDraw;
+
 
    if(
       barsToProcess >
@@ -1335,79 +2328,141 @@ void DrawHistoricalSignals()
          3;
    }
 
-   if(barsToProcess <= 0)
+
+   if(
+      barsToProcess <=
+      0
+   )
    {
       return;
    }
 
+
    if(ShowSSLLines)
    {
-      for(int i = barsToProcess; i >= 1; i--)
+      for(
+         int i =
+         barsToProcess;
+
+         i >=
+         1;
+
+         i--
+      )
       {
          double up1;
+
          double down1;
+
          int hlv1;
 
+
          double up2;
+
          double down2;
+
          int hlv2;
+
 
          CalculateSSL(
             i,
+
             up1,
+
             down1,
+
             hlv1
          );
 
+
          CalculateSSL(
             i - 1,
+
             up2,
+
             down2,
+
             hlv2
          );
+
 
          DrawTrendSegment(
             PREFIX +
             "HIST_UP_" +
             IntegerToString(i),
+
             Time[i],
+
             up1,
+
             Time[i - 1],
+
             up2,
+
             SSLUpColor
          );
+
 
          DrawTrendSegment(
             PREFIX +
             "HIST_DOWN_" +
             IntegerToString(i),
+
             Time[i],
+
             down1,
+
             Time[i - 1],
+
             down2,
+
             SSLDownColor
          );
       }
    }
 
+
    if(ShowHistoricalSignals)
    {
-      for(int i = barsToProcess; i >= 1; i--)
+      for(
+         int i =
+         barsToProcess;
+
+         i >=
+         1;
+
+         i--
+      )
       {
-         if(IsBuySignal(i))
+         if(
+            IsBuySignal(i)
+         )
          {
-            DrawHistoricalSignal(i, true);
+            DrawHistoricalSignal(
+               i,
+
+               true
+            );
          }
 
-         if(IsSellSignal(i))
+
+         if(
+            IsSellSignal(i)
+         )
          {
-            DrawHistoricalSignal(i, false);
+            DrawHistoricalSignal(
+               i,
+
+               false
+            );
          }
       }
    }
 
+
    ChartRedraw();
 }
+
 
 //+------------------------------------------------------------------+
 //| DRAW TREND SEGMENT                                               |
@@ -1415,28 +2470,54 @@ void DrawHistoricalSignals()
 
 void DrawTrendSegment(
    string name,
+
    datetime time1,
+
    double price1,
+
    datetime time2,
+
    double price2,
+
    color lineColor
 )
 {
-   if(price1 <= 0 || price2 <= 0)
+   if(
+      price1 <=
+      0 ||
+
+      price2 <=
+      0
+   )
    {
       return;
    }
 
-   if(ObjectFind(0, name) < 0)
+
+   if(
+      ObjectFind(
+         0,
+
+         name
+      ) <
+      0
+   )
    {
       ObjectCreate(
          0,
+
          name,
+
          OBJ_TREND,
+
          0,
+
          time1,
+
          price1,
+
          time2,
+
          price2
       );
    }
@@ -1444,63 +2525,97 @@ void DrawTrendSegment(
    {
       ObjectMove(
          0,
+
          name,
+
          0,
+
          time1,
+
          price1
       );
 
+
       ObjectMove(
          0,
+
          name,
+
          1,
+
          time2,
+
          price2
       );
    }
 
+
    ObjectSetInteger(
       0,
+
       name,
+
       OBJPROP_COLOR,
+
       lineColor
    );
 
+
    ObjectSetInteger(
       0,
+
       name,
+
       OBJPROP_WIDTH,
+
       SSLLineWidth
    );
 
+
    ObjectSetInteger(
       0,
+
       name,
+
       OBJPROP_RAY_RIGHT,
+
       false
    );
 
+
    ObjectSetInteger(
       0,
+
       name,
+
       OBJPROP_BACK,
+
       false
    );
 
+
    ObjectSetInteger(
       0,
+
       name,
+
       OBJPROP_SELECTABLE,
+
       false
    );
 
+
    ObjectSetInteger(
       0,
+
       name,
+
       OBJPROP_HIDDEN,
+
       true
    );
 }
+
 
 //+------------------------------------------------------------------+
 //| DRAW SIGNAL                                                      |
@@ -1508,11 +2623,15 @@ void DrawTrendSegment(
 
 void DrawHistoricalSignal(
    int shift,
+
    bool isBuy
 )
 {
    string type =
-      isBuy ? "BUY" : "SELL";
+      isBuy ?
+      "BUY" :
+      "SELL";
+
 
    string baseName =
       PREFIX +
@@ -1522,7 +2641,9 @@ void DrawHistoricalSignal(
          (int)Time[shift]
       );
 
+
    double price;
+
 
    if(isBuy)
    {
@@ -1539,60 +2660,100 @@ void DrawHistoricalSignal(
          Point;
    }
 
+
    if(ShowSignalArrows)
    {
       string arrowName =
          baseName +
          "_ARROW";
 
-      if(ObjectFind(0, arrowName) < 0)
+
+      if(
+         ObjectFind(
+            0,
+
+            arrowName
+         ) <
+         0
+      )
       {
          ObjectCreate(
             0,
+
             arrowName,
+
             OBJ_ARROW,
+
             0,
+
             Time[shift],
+
             price
          );
       }
 
+
       ObjectMove(
          0,
+
          arrowName,
+
          0,
+
          Time[shift],
+
          price
       );
 
+
       ObjectSetInteger(
          0,
+
          arrowName,
+
          OBJPROP_ARROWCODE,
-         isBuy ? 233 : 234
+
+         isBuy ?
+         233 :
+         234
       );
+
 
       ObjectSetInteger(
          0,
+
          arrowName,
+
          OBJPROP_COLOR,
-         isBuy ? BuyColor : SellColor
+
+         isBuy ?
+         BuyColor :
+         SellColor
       );
+
 
       ObjectSetInteger(
          0,
+
          arrowName,
+
          OBJPROP_WIDTH,
+
          SignalArrowWidth
       );
 
+
       ObjectSetInteger(
          0,
+
          arrowName,
+
          OBJPROP_SELECTABLE,
+
          false
       );
    }
+
 
    if(ShowSignalText)
    {
@@ -1600,7 +2761,9 @@ void DrawHistoricalSignal(
          baseName +
          "_TEXT";
 
+
       double textPrice;
+
 
       if(isBuy)
       {
@@ -1619,62 +2782,105 @@ void DrawHistoricalSignal(
             Point;
       }
 
-      if(ObjectFind(0, textName) < 0)
+
+      if(
+         ObjectFind(
+            0,
+
+            textName
+         ) <
+         0
+      )
       {
          ObjectCreate(
             0,
+
             textName,
+
             OBJ_TEXT,
+
             0,
+
             Time[shift],
+
             textPrice
          );
       }
 
+
       ObjectMove(
          0,
+
          textName,
+
          0,
+
          Time[shift],
+
          textPrice
       );
 
+
       ObjectSetString(
          0,
+
          textName,
+
          OBJPROP_TEXT,
-         isBuy ? "Long +1" : "Short -1"
+
+         isBuy ?
+         "Long +1" :
+         "Short -1"
       );
+
 
       ObjectSetInteger(
          0,
+
          textName,
+
          OBJPROP_COLOR,
-         isBuy ? BuyColor : SellColor
+
+         isBuy ?
+         BuyColor :
+         SellColor
       );
+
 
       ObjectSetInteger(
          0,
+
          textName,
+
          OBJPROP_FONTSIZE,
+
          SignalFontSize
       );
 
+
       ObjectSetString(
          0,
+
          textName,
+
          OBJPROP_FONT,
+
          "Arial"
       );
 
+
       ObjectSetInteger(
          0,
+
          textName,
+
          OBJPROP_SELECTABLE,
+
          false
       );
    }
 }
+
 
 //+------------------------------------------------------------------+
 //| DRAW LIVE SIGNAL                                                 |
@@ -1682,55 +2888,73 @@ void DrawHistoricalSignal(
 
 void DrawLiveSignal(
    int shift,
+
    bool isBuy
 )
 {
    DrawHistoricalSignal(
       shift,
+
       isBuy
    );
 
+
    ChartRedraw();
 }
+
 
 //+------------------------------------------------------------------+
 //| TIMEFRAME STRING                                                 |
 //+------------------------------------------------------------------+
 
-string TimeframeToString(int timeframe)
+string TimeframeToString(
+   int timeframe
+)
 {
-   switch(timeframe)
+   switch(
+      timeframe
+   )
    {
       case PERIOD_M1:
          return "M1";
 
+
       case PERIOD_M5:
          return "M5";
+
 
       case PERIOD_M15:
          return "M15";
 
+
       case PERIOD_M30:
          return "M30";
+
 
       case PERIOD_H1:
          return "H1";
 
+
       case PERIOD_H4:
          return "H4";
+
 
       case PERIOD_D1:
          return "D1";
 
+
       case PERIOD_W1:
          return "W1";
+
 
       case PERIOD_MN1:
          return "MN1";
    }
 
+
    return "CURRENT";
 }
+
 
 //+------------------------------------------------------------------+
 //| DASHBOARD PANEL                                                  |
@@ -1738,95 +2962,153 @@ string TimeframeToString(int timeframe)
 
 void CreateDashboardPanel(
    string name,
+
    int x,
+
    int y,
+
    int width,
+
    int height,
+
    color background
 )
 {
-   if(ObjectFind(0, name) < 0)
+   if(
+      ObjectFind(
+         0,
+
+         name
+      ) <
+      0
+   )
    {
       ObjectCreate(
          0,
+
          name,
+
          OBJ_RECTANGLE_LABEL,
+
          0,
+
          0,
+
          0
       );
    }
 
+
    ObjectSetInteger(
       0,
+
       name,
+
       OBJPROP_CORNER,
+
       CORNER_RIGHT_UPPER
    );
 
+
    ObjectSetInteger(
       0,
+
       name,
+
       OBJPROP_XDISTANCE,
+
       x
    );
 
+
    ObjectSetInteger(
       0,
+
       name,
+
       OBJPROP_YDISTANCE,
+
       y
    );
 
+
    ObjectSetInteger(
       0,
+
       name,
+
       OBJPROP_XSIZE,
+
       width
    );
 
+
    ObjectSetInteger(
       0,
+
       name,
+
       OBJPROP_YSIZE,
+
       height
    );
 
+
    ObjectSetInteger(
       0,
+
       name,
+
       OBJPROP_BGCOLOR,
+
       background
    );
 
+
    ObjectSetInteger(
       0,
+
       name,
+
       OBJPROP_BORDER_TYPE,
+
       BORDER_FLAT
    );
 
+
    ObjectSetInteger(
       0,
+
       name,
+
       OBJPROP_COLOR,
+
       clrDimGray
    );
 
-   ObjectSetInteger(
-      0,
-      name,
-      OBJPROP_SELECTABLE,
-      false
-   );
 
    ObjectSetInteger(
       0,
+
       name,
+
+      OBJPROP_SELECTABLE,
+
+      false
+   );
+
+
+   ObjectSetInteger(
+      0,
+
+      name,
+
       OBJPROP_HIDDEN,
+
       true
    );
 }
+
 
 //+------------------------------------------------------------------+
 //| DASHBOARD LABEL                                                  |
@@ -1834,88 +3116,142 @@ void CreateDashboardPanel(
 
 void CreateDashboardLabel(
    string name,
+
    string text,
+
    int x,
+
    int y,
+
    int fontSize,
+
    color textColor
 )
 {
-   if(ObjectFind(0, name) < 0)
+   if(
+      ObjectFind(
+         0,
+
+         name
+      ) <
+      0
+   )
    {
       ObjectCreate(
          0,
+
          name,
+
          OBJ_LABEL,
+
          0,
+
          0,
+
          0
       );
    }
 
+
    ObjectSetInteger(
       0,
+
       name,
+
       OBJPROP_CORNER,
+
       CORNER_RIGHT_UPPER
    );
 
+
    ObjectSetInteger(
       0,
+
       name,
+
       OBJPROP_XDISTANCE,
+
       x
    );
 
+
    ObjectSetInteger(
       0,
+
       name,
+
       OBJPROP_YDISTANCE,
+
       y
    );
 
+
    ObjectSetString(
       0,
+
       name,
+
       OBJPROP_TEXT,
+
       text
    );
 
+
    ObjectSetString(
       0,
+
       name,
+
       OBJPROP_FONT,
+
       "Arial"
    );
 
+
    ObjectSetInteger(
       0,
+
       name,
+
       OBJPROP_FONTSIZE,
+
       fontSize
    );
 
+
    ObjectSetInteger(
       0,
+
       name,
+
       OBJPROP_COLOR,
+
       textColor
    );
 
-   ObjectSetInteger(
-      0,
-      name,
-      OBJPROP_SELECTABLE,
-      false
-   );
 
    ObjectSetInteger(
       0,
+
       name,
+
+      OBJPROP_SELECTABLE,
+
+      false
+   );
+
+
+   ObjectSetInteger(
+      0,
+
+      name,
+
       OBJPROP_HIDDEN,
+
       true
    );
 }
+
 
 //+------------------------------------------------------------------+
 //| DASHBOARD                                                        |
@@ -1923,124 +3259,219 @@ void CreateDashboardLabel(
 
 void UpdateDashboard()
 {
-   int totalOrders = 0;
+   int totalOrders =
+      0;
 
-   int buyOrders = 0;
+   int buyOrders =
+      0;
 
-   int sellOrders = 0;
+   int sellOrders =
+      0;
 
-   int pendingOrders = 0;
+   int pendingOrders =
+      0;
 
-   double floatingProfit = 0;
 
-   double totalSwap = 0;
+   double floatingProfit =
+      0;
 
-   double totalCommission = 0;
+   double totalSwap =
+      0;
 
-   string ordersDetails = "";
+   double totalCommission =
+      0;
 
-   for(int i = OrdersTotal() - 1; i >= 0; i--)
+
+   string ordersDetails =
+      "";
+
+
+   for(
+      int i =
+      OrdersTotal() -
+      1;
+
+      i >=
+      0;
+
+      i--
+   )
    {
-      if(!OrderSelect(i, SELECT_BY_POS, MODE_TRADES))
-      {
-         continue;
-      }
-
-      if(OrderSymbol() != Symbol())
-      {
-         continue;
-      }
-
-      if(OrderMagicNumber() != MagicNumber)
-      {
-         continue;
-      }
-
-      int type = OrderType();
-
       if(
-         type != OP_BUY &&
-         type != OP_SELL &&
-         type != OP_BUYSTOP &&
-         type != OP_SELLSTOP
+         !OrderSelect(
+            i,
+
+            SELECT_BY_POS,
+
+            MODE_TRADES
+         )
       )
       {
          continue;
       }
 
+
+      if(
+         OrderSymbol() !=
+         Symbol()
+      )
+      {
+         continue;
+      }
+
+
+      if(
+         OrderMagicNumber() !=
+         MagicNumber
+      )
+      {
+         continue;
+      }
+
+
+      int type =
+         OrderType();
+
+
+      if(
+         type !=
+         OP_BUY &&
+
+         type !=
+         OP_SELL &&
+
+         type !=
+         OP_BUYSTOP &&
+
+         type !=
+         OP_SELLSTOP
+      )
+      {
+         continue;
+      }
+
+
       totalOrders++;
 
-      if(type == OP_BUY)
+
+      if(
+         type ==
+         OP_BUY
+      )
       {
          buyOrders++;
 
-         floatingProfit += OrderProfit();
+         floatingProfit +=
+            OrderProfit();
 
-         totalSwap += OrderSwap();
+         totalSwap +=
+            OrderSwap();
 
-         totalCommission += OrderCommission();
+         totalCommission +=
+            OrderCommission();
       }
 
-      if(type == OP_SELL)
+
+      if(
+         type ==
+         OP_SELL
+      )
       {
          sellOrders++;
 
-         floatingProfit += OrderProfit();
+         floatingProfit +=
+            OrderProfit();
 
-         totalSwap += OrderSwap();
+         totalSwap +=
+            OrderSwap();
 
-         totalCommission += OrderCommission();
+         totalCommission +=
+            OrderCommission();
       }
 
+
       if(
-         type == OP_BUYSTOP ||
-         type == OP_SELLSTOP
+         type ==
+         OP_BUYSTOP ||
+
+         type ==
+         OP_SELLSTOP
       )
       {
          pendingOrders++;
       }
 
+
       string orderType;
 
-      if(type == OP_BUY)
+
+      if(
+         type ==
+         OP_BUY
+      )
       {
-         orderType = "BUY";
+         orderType =
+            "BUY";
       }
       else
-      if(type == OP_SELL)
+      if(
+         type ==
+         OP_SELL
+      )
       {
-         orderType = "SELL";
+         orderType =
+            "SELL";
       }
       else
-      if(type == OP_BUYSTOP)
+      if(
+         type ==
+         OP_BUYSTOP
+      )
       {
-         orderType = "BUY STOP";
+         orderType =
+            "BUY STOP";
       }
       else
       {
-         orderType = "SELL STOP";
+         orderType =
+            "SELL STOP";
       }
+
 
       string orderLine =
          "#" +
-         IntegerToString(OrderTicket()) +
+
+         IntegerToString(
+            OrderTicket()
+         ) +
+
          " " +
+
          orderType;
 
+
       if(
-         type == OP_BUY ||
-         type == OP_SELL
+         type ==
+         OP_BUY ||
+
+         type ==
+         OP_SELL
       )
       {
          double orderNetProfit =
             OrderProfit() +
+
             OrderSwap() +
+
             OrderCommission();
+
 
          orderLine +=
             " P/L: " +
+
             DoubleToString(
                orderNetProfit,
+
                2
             );
       }
@@ -2048,263 +3479,497 @@ void UpdateDashboard()
       {
          orderLine +=
             " @ " +
+
             DoubleToString(
                OrderOpenPrice(),
+
                Digits
             );
       }
 
+
       ordersDetails +=
          orderLine +
+
          "\n";
    }
 
+
    double netProfit =
       floatingProfit +
+
       totalSwap +
+
       totalCommission;
+
 
    color profitColor;
 
-   if(netProfit > 0)
+
+   if(
+      netProfit >
+      0
+   )
    {
-      profitColor = clrLimeGreen;
+      profitColor =
+         clrLimeGreen;
    }
    else
-   if(netProfit < 0)
+   if(
+      netProfit <
+      0
+   )
    {
-      profitColor = clrTomato;
+      profitColor =
+         clrTomato;
    }
    else
    {
-      profitColor = clrWhite;
+      profitColor =
+         clrWhite;
    }
 
-   int x = DashboardRightGap;
 
-   int y = DashboardTopGap;
+   int x =
+      DashboardRightGap;
+
+
+   int y =
+      DashboardTopGap;
+
 
    CreateDashboardPanel(
-      DASH_PREFIX + "PANEL",
+      DASH_PREFIX +
+      "PANEL",
+
       x,
+
       y,
+
       DashboardWidth,
+
       DashboardHeight,
+
       clrBlack
    );
 
+
    CreateDashboardPanel(
-      DASH_PREFIX + "HEADER",
+      DASH_PREFIX +
+      "HEADER",
+
       x,
+
       y,
+
       DashboardWidth,
+
       35,
+
       C'30,60,100'
    );
 
+
    int textX =
       x +
+
       DashboardWidth -
+
       300;
 
+
    CreateDashboardLabel(
-      DASH_PREFIX + "TITLE",
+      DASH_PREFIX +
+      "TITLE",
+
       "SSL CHANNEL CROSS EA",
+
       textX,
+
       y + 8,
+
       11,
+
       clrWhite
    );
+
 
    string statusText;
 
-   if(totalOrders >= MaxOpenOrders)
+
+   if(
+      totalOrders >=
+      MaxOpenOrders
+   )
    {
-      statusText = "MAX ORDERS REACHED";
+      statusText =
+         "MAX ORDERS REACHED";
    }
    else
    {
-      statusText = "READY FOR NEXT SIGNAL";
+      statusText =
+         "READY FOR NEXT SIGNAL";
    }
 
+
    CreateDashboardLabel(
-      DASH_PREFIX + "STATUS",
+      DASH_PREFIX +
+      "STATUS",
+
       statusText,
+
       textX,
+
       y + 50,
+
       DashboardFontSize,
+
       clrLimeGreen
    );
 
+
    CreateDashboardLabel(
-      DASH_PREFIX + "SYMBOL",
-      "Symbol: " + Symbol(),
+      DASH_PREFIX +
+      "SYMBOL",
+
+      "Symbol: " +
+      Symbol(),
+
       textX,
+
       y + 72,
+
       DashboardFontSize,
+
       clrWhite
    );
 
+
    CreateDashboardLabel(
-      DASH_PREFIX + "TIMEFRAME",
+      DASH_PREFIX +
+      "TIMEFRAME",
+
       "Timeframe: " +
-      TimeframeToString(Period()),
+
+      TimeframeToString(
+         Period()
+      ),
+
       textX,
+
       y + 94,
+
       DashboardFontSize,
+
       clrWhite
    );
 
+
    CreateDashboardLabel(
-      DASH_PREFIX + "PNL",
+      DASH_PREFIX +
+      "PNL",
+
       "LIVE P/L: " +
-      DoubleToString(netProfit, 2),
+
+      DoubleToString(
+         netProfit,
+
+         2
+      ),
+
       textX,
+
       y + 142,
+
       13,
+
       profitColor
    );
 
+
    CreateDashboardLabel(
-      DASH_PREFIX + "ORDERS",
+      DASH_PREFIX +
+      "ORDERS",
+
       "Total Orders: " +
-      IntegerToString(totalOrders) +
+
+      IntegerToString(
+         totalOrders
+      ) +
+
       " / " +
-      IntegerToString(MaxOpenOrders),
+
+      IntegerToString(
+         MaxOpenOrders
+      ),
+
       textX,
+
       y + 174,
+
       DashboardFontSize,
+
       clrWhite
    );
 
+
    CreateDashboardLabel(
-      DASH_PREFIX + "BUY",
+      DASH_PREFIX +
+      "BUY",
+
       "BUY: " +
-      IntegerToString(buyOrders),
+
+      IntegerToString(
+         buyOrders
+      ),
+
       textX,
+
       y + 196,
+
       DashboardFontSize,
+
       clrDeepSkyBlue
    );
 
+
    CreateDashboardLabel(
-      DASH_PREFIX + "SELL",
+      DASH_PREFIX +
+      "SELL",
+
       "SELL: " +
-      IntegerToString(sellOrders),
+
+      IntegerToString(
+         sellOrders
+      ),
+
       textX + 90,
+
       y + 196,
+
       DashboardFontSize,
+
       clrTomato
    );
 
+
    CreateDashboardLabel(
-      DASH_PREFIX + "PENDING",
+      DASH_PREFIX +
+      "PENDING",
+
       "Pending: " +
-      IntegerToString(pendingOrders),
+
+      IntegerToString(
+         pendingOrders
+      ),
+
       textX + 180,
+
       y + 196,
+
       DashboardFontSize,
+
       clrGold
    );
 
+
    CreateDashboardLabel(
-      DASH_PREFIX + "SL",
+      DASH_PREFIX +
+      "SL",
+
       "Initial SL: -$" +
+
       DoubleToString(
          StopLossUSD,
+
          2
       ),
+
       textX,
+
       y + 250,
+
       DashboardFontSize,
+
       clrTomato
    );
 
+
    CreateDashboardLabel(
-      DASH_PREFIX + "LADDER",
-      "Ladder Gap: $" +
+      DASH_PREFIX +
+      "LADDER",
+
+      "L1: $" +
+
       DoubleToString(
-         LadderLockGapUSD,
+         Ladder1ProfitUSD,
+
+         2
+      ) +
+
+      " | L2: $" +
+
+      DoubleToString(
+         Ladder2ProfitUSD,
+
          2
       ),
+
       textX,
+
       y + 272,
+
       DashboardFontSize,
+
       clrLimeGreen
    );
 
+
    CreateDashboardLabel(
-      DASH_PREFIX + "REENTRY",
+      DASH_PREFIX +
+      "LADDER2",
+
+      "L2 Starts: $" +
+
+      DoubleToString(
+         Ladder1StopMaxPriceUSD,
+
+         2
+      ),
+
+      textX,
+
+      y + 294,
+
+      DashboardFontSize,
+
+      clrGold
+   );
+
+
+   CreateDashboardLabel(
+      DASH_PREFIX +
+      "REENTRY",
+
       "Re-entry Gap: " +
+
       DoubleToString(
          ProfitReEntryGapRaw,
+
          Digits
       ) +
+
       " raw",
+
       textX,
-      y + 294,
+
+      y + 316,
+
       DashboardFontSize,
+
       clrGold
    );
+
 
    CreateDashboardLabel(
-      DASH_PREFIX + "DETAIL_TITLE",
+      DASH_PREFIX +
+      "DETAIL_TITLE",
+
       "LIVE ORDER DETAILS",
+
       textX,
-      y + 326,
+
+      y + 340,
+
       DashboardFontSize,
+
       clrGold
    );
 
-   if(totalOrders > 0)
+
+   if(
+      totalOrders >
+      0
+   )
    {
       CreateDashboardLabel(
-         DASH_PREFIX + "DETAILS",
+         DASH_PREFIX +
+         "DETAILS",
+
          ordersDetails,
+
          textX,
-         y + 348,
+
+         y + 362,
+
          DashboardFontSize,
+
          clrWhite
       );
    }
    else
    {
       CreateDashboardLabel(
-         DASH_PREFIX + "DETAILS",
+         DASH_PREFIX +
+         "DETAILS",
+
          "No active orders",
+
          textX,
-         y + 348,
+
+         y + 362,
+
          DashboardFontSize,
+
          clrSilver
       );
    }
 
+
    CreateDashboardLabel(
-      DASH_PREFIX + "PRICE",
+      DASH_PREFIX +
+      "PRICE",
+
       "Bid: " +
+
       DoubleToString(
          Bid,
+
          Digits
       ),
+
       textX,
-      y + 390,
+
+      y + 405,
+
       DashboardFontSize,
+
       clrWhite
    );
 
+
    CreateDashboardLabel(
-      DASH_PREFIX + "UPDATE",
+      DASH_PREFIX +
+      "UPDATE",
+
       "Updated: " +
+
       TimeToString(
          TimeCurrent(),
+
          TIME_SECONDS
       ),
+
       textX,
-      y + 410,
+
+      y + 423,
+
       8,
+
       clrSilver
    );
 }
+
 
 //+------------------------------------------------------------------+
 //| DELETE EA OBJECTS                                                |
@@ -2315,35 +3980,56 @@ void DeleteOurObjects()
    int total =
       ObjectsTotal(
          0,
+
          -1,
+
          -1
       );
 
-   for(int i = total - 1; i >= 0; i--)
+
+   for(
+      int i =
+      total -
+      1;
+
+      i >=
+      0;
+
+      i--
+   )
    {
       string name =
          ObjectName(
             0,
+
             i,
+
             -1,
+
             -1
          );
+
 
       if(
          StringFind(
             name,
+
             PREFIX,
+
             0
-         ) == 0
+         ) ==
+         0
       )
       {
          ObjectDelete(
             0,
+
             name
          );
       }
    }
 }
+
 
 //+------------------------------------------------------------------+
 //| DELETE DASHBOARD OBJECTS                                         |
@@ -2354,35 +4040,56 @@ void DeleteDashboardObjects()
    int total =
       ObjectsTotal(
          0,
+
          -1,
+
          -1
       );
 
-   for(int i = total - 1; i >= 0; i--)
+
+   for(
+      int i =
+      total -
+      1;
+
+      i >=
+      0;
+
+      i--
+   )
    {
       string name =
          ObjectName(
             0,
+
             i,
+
             -1,
+
             -1
          );
+
 
       if(
          StringFind(
             name,
+
             DASH_PREFIX,
+
             0
-         ) == 0
+         ) ==
+         0
       )
       {
          ObjectDelete(
             0,
+
             name
          );
       }
    }
 }
+
 
 //+------------------------------------------------------------------+
 //| END OF EA                                                        |
