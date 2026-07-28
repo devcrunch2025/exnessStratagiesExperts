@@ -72,9 +72,9 @@ double Ladder1ProfitUSD = 0.10;
 
 bool EnableProfitLadder2 = true;
 
-double Ladder1StopMaxPriceUSD = 1.00;
+double Ladder1StopMaxPriceUSD = 0.50;//1.00;
 
-double Ladder2ProfitUSD = 1.00;
+double Ladder2ProfitUSD =0.50;// 1.00;
 
 
 //==================================================================
@@ -99,7 +99,7 @@ bool CloseOpenOrdersOnDailyLoss = false;
 
 // Minimum closed market orders required before
 // daily profit protection can activate
-int MinimumClosedOrdersForDailyProtection = 10;
+int MinimumClosedOrdersForDailyProtection = 50;
 
 
 //==================================================================
