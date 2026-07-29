@@ -102,7 +102,7 @@ bool CloseOpenOrdersOnDailyLoss = false;
 
 // Minimum closed market orders required before
 // daily profit protection can activate
-int MinimumClosedOrdersForDailyProtection =100;// 50;
+int MinimumClosedOrdersForDailyProtection =10000;// 50;
 
 
 //==================================================================
