@@ -52,11 +52,14 @@ bool DeleteOppositePendingOnSignal = true;
 
 bool EnableProfitReEntryStop = true;
 
-double MinimumClosedProfitUSD = -4;//0.01;
+double MinimumClosedProfitUSD =0.01;// -10;//0.01;
 
-double ProfitReEntryGapRaw = 20.0;
+double ProfitReEntryGapRaw =20;//5;// 20.0;
 
-
+//==================================================================
+// SAME DIRECTION ORDER GAP
+//==================================================================
+double MinimumSameOrderGapRaw = 30;//20.0;
 //==================================================================
 // PROFIT LADDER 1
 //==================================================================
@@ -72,7 +75,7 @@ double Ladder1ProfitUSD = 0.10;//0.05;
 
 bool EnableProfitLadder2 = true;
 
-double Ladder1StopMaxPriceUSD = 0.50;//0.50;//1.00;
+double Ladder1StopMaxPriceUSD = 10;//0.50;//0.50;//1.00;
 
 double Ladder2ProfitUSD =0.50;// 1.00;
 
@@ -81,7 +84,7 @@ double Ladder2ProfitUSD =0.50;// 1.00;
 // INITIAL STOP LOSS
 //==================================================================
 
-double StopLossUSD = 10;//2;//3;//1.00;
+double StopLossUSD = 5;//10;//2;//3;//1.00;
 
 
 //==================================================================
@@ -605,6 +608,50 @@ void OnDeinit(
 //+------------------------------------------------------------------+
 //| MAIN TICK                                                        |
 //+------------------------------------------------------------------+
+
+//+------------------------------------------------------------------+
+//| CHECK MINIMUM GAP BETWEEN SAME TYPE ORDERS                       |
+//+------------------------------------------------------------------+
+bool HasMinimumSameOrderGap(int orderType)
+{
+   RefreshRates();
+
+   double currentPrice =
+      (orderType == OP_BUY) ? Ask : Bid;
+
+   for(int i = OrdersTotal() - 1; i >= 0; i--)
+   {
+      if(!OrderSelect(i, SELECT_BY_POS, MODE_TRADES))
+         continue;
+
+      if(OrderSymbol() != Symbol())
+         continue;
+
+      if(OrderMagicNumber() != MagicNumber)
+         continue;
+
+      if(OrderType() != orderType)
+         continue;
+
+      double gap =
+         MathAbs(currentPrice - OrderOpenPrice());
+
+      if(gap < MinimumSameOrderGapRaw)
+      {
+         Print(
+            "NEW ",
+            orderType == OP_BUY ? "BUY" : "SELL",
+            " BLOCKED | Existing order within ",
+            DoubleToString(gap, Digits),
+            " raw price."
+         );
+
+         return false;
+      }
+   }
+
+   return true;
+}
 
 void OnTick()
 {
@@ -2625,13 +2672,11 @@ int GetTotalEAOrders()
 
 void OpenBuy()
 {
-   if(
-      GetTotalEAOrders() >=
-      MaxOpenOrders
-   )
-   {
-      return;
-   }
+  if(GetTotalEAOrders() >= MaxOpenOrders)
+   return;
+
+if(!HasMinimumSameOrderGap(OP_BUY))
+   return;
 
 
    RefreshRates();
@@ -2716,13 +2761,11 @@ void OpenBuy()
 
 void OpenSell()
 {
-   if(
-      GetTotalEAOrders() >=
-      MaxOpenOrders
-   )
-   {
-      return;
-   }
+  if(GetTotalEAOrders() >= MaxOpenOrders)
+   return;
+
+if(!HasMinimumSameOrderGap(OP_SELL))
+   return;
 
 
    RefreshRates();
