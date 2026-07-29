@@ -4678,6 +4678,7 @@ void CreateDashboardLabel(
 //+------------------------------------------------------------------+
 //|                                                                  |
 //+------------------------------------------------------------------+
+
 void UpdateDashboard(
    DailyProtectionState &state
 )
@@ -5254,6 +5255,14 @@ void UpdateDashboard(
       clrGold
    );
 
+CreateDashboardLabel(
+   DASH_PREFIX + "EQUITY",
+   "Equity : $" + DoubleToString(AccountEquity(), 2),
+   textX,
+   y + 220,
+   DashboardFontSize,
+   clrLime
+);
 
    CreateDashboardLabel(
       DASH_PREFIX +
