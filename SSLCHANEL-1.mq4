@@ -29,14 +29,14 @@ bool EnableTrading = true;
 
 double Lots = 0.01;
 
-int MaxOpenOrders = 4;
+int MaxOpenOrders =10;// 4;
 
 
 //==================================================================
 // CLOSE OPPOSITE ORDERS
 //==================================================================
 
-bool CloseOppositeOrdersOnSignal = false;
+bool CloseOppositeOrdersOnSignal = true;
 
 
 //==================================================================
