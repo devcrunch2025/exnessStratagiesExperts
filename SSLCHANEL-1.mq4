@@ -36,7 +36,7 @@ int MaxOpenOrders =10;// 4;
 // CLOSE OPPOSITE ORDERS
 //==================================================================
 
-bool CloseOppositeOrdersOnSignal = true;
+bool CloseOppositeOrdersOnSignal = false;
 
 
 //==================================================================
@@ -63,7 +63,7 @@ double ProfitReEntryGapRaw = 20.0;
 
 bool EnableProfitLadder1 = true;
 
-double Ladder1ProfitUSD = 0.05;
+double Ladder1ProfitUSD = 0.10;//0.05;
 
 
 //==================================================================
@@ -81,7 +81,7 @@ double Ladder2ProfitUSD =0.50;// 1.00;
 // INITIAL STOP LOSS
 //==================================================================
 
-double StopLossUSD = 3;//1.00;
+double StopLossUSD = 10;//2;//3;//1.00;
 
 
 //==================================================================
