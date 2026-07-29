@@ -29,14 +29,14 @@ bool EnableTrading = true;
 
 double Lots = 0.01;
 
-int MaxOpenOrders = 10;
+int MaxOpenOrders = 4;
 
 
 //==================================================================
 // CLOSE OPPOSITE ORDERS
 //==================================================================
 
-bool CloseOppositeOrdersOnSignal = false;;
+bool CloseOppositeOrdersOnSignal = false;
 
 
 //==================================================================
@@ -52,9 +52,9 @@ bool DeleteOppositePendingOnSignal = true;
 
 bool EnableProfitReEntryStop = true;
 
-double MinimumClosedProfitUSD =-2;// 0.01;
+double MinimumClosedProfitUSD = -4;//0.01;
 
-double ProfitReEntryGapRaw = 30.0;
+double ProfitReEntryGapRaw = 20.0;
 
 
 //==================================================================
@@ -72,7 +72,7 @@ double Ladder1ProfitUSD = 0.05;
 
 bool EnableProfitLadder2 = true;
 
-double Ladder1StopMaxPriceUSD = 2;//0.50;//1.00;
+double Ladder1StopMaxPriceUSD = 0.50;//0.50;//1.00;
 
 double Ladder2ProfitUSD =0.50;// 1.00;
 
@@ -81,7 +81,7 @@ double Ladder2ProfitUSD =0.50;// 1.00;
 // INITIAL STOP LOSS
 //==================================================================
 
-double StopLossUSD = 2;//1.00;
+double StopLossUSD = 3;//1.00;
 
 
 //==================================================================
@@ -99,7 +99,7 @@ bool CloseOpenOrdersOnDailyLoss = false;
 
 // Minimum closed market orders required before
 // daily profit protection can activate
-int MinimumClosedOrdersForDailyProtection = 100;
+int MinimumClosedOrdersForDailyProtection =100;// 50;
 
 
 //==================================================================
@@ -351,14 +351,8 @@ void ProcessStartupSignal(
             MaxOpenOrders
          )
          {
-if(!EnableH1TrendFilter || IsH1TrendBuy())
-{
-   OpenBuy();
-}
-else
-{
-   Print("BUY BLOCKED | H1 TREND FILTER");
-}
+            OpenBuy();
+
             Print(
                "EA RESTART -> BUY OPENED USING PREVIOUS SSL SIGNAL"
             );
@@ -422,14 +416,8 @@ else
             MaxOpenOrders
          )
          {
-if(!EnableH1TrendFilter || IsH1TrendSell())
-{
-   OpenSell();
-}
-else
-{
-   Print("SELL BLOCKED | H1 TREND FILTER");
-}
+            OpenSell();
+
             Print(
                "EA RESTART -> SELL OPENED USING PREVIOUS SSL SIGNAL"
             );
@@ -617,25 +605,7 @@ void OnDeinit(
 //+------------------------------------------------------------------+
 //| MAIN TICK                                                        |
 //+------------------------------------------------------------------+
-bool EnableH1TrendFilter = false;
-ENUM_TIMEFRAMES H1TrendTF = PERIOD_H1;
-int H1TrendMAPeriod = 200;
-bool IsH1TrendBuy()
-{
-   double ma = iMA(Symbol(), H1TrendTF, H1TrendMAPeriod, 0, MODE_EMA, PRICE_CLOSE, 1);
-   double close = iClose(Symbol(), H1TrendTF, 1);
 
-   return (close > ma);
-}
-
-bool IsH1TrendSell()
-{
-   double ma = iMA(Symbol(), H1TrendTF, H1TrendMAPeriod, 0, MODE_EMA, PRICE_CLOSE, 1);
-
-   double close = iClose(Symbol(), H1TrendTF, 1);
-
-   return (close < ma);
-}
 void OnTick()
 {
    static DailyProtectionState dailyState;
@@ -783,14 +753,7 @@ void OnTick()
             MaxOpenOrders
          )
          {
-           if(!EnableH1TrendFilter || IsH1TrendBuy())
-{
-   OpenBuy();
-}
-else
-{
-   Print("BUY BLOCKED | H1 TREND FILTER");
-}
+            OpenBuy();
          }
          else
          {
@@ -855,14 +818,8 @@ else
             MaxOpenOrders
          )
          {
-if(!EnableH1TrendFilter || IsH1TrendSell())
-{
-   OpenSell();
-}
-else
-{
-   Print("SELL BLOCKED | H1 TREND FILTER");
-}         }
+            OpenSell();
+         }
          else
          {
             Print(
