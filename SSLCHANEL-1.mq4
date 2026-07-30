@@ -5254,12 +5254,30 @@ void UpdateDashboard(
 
       clrGold
    );
+ CreateDashboardLabel(
+         DASH_PREFIX +
+         "DAY_START1",
 
+         "Day Start: $" +
+
+         DoubleToString(
+            state.DayStartBalance,
+            2
+         ),
+
+         textX,
+
+         y + 210,
+
+         DashboardFontSize,
+
+         clrWhite
+      );
 CreateDashboardLabel(
    DASH_PREFIX + "EQUITY",
    "Equity : $" + DoubleToString(AccountEquity(), 2),
    textX,
-   y + 220,
+   y + 230,
    DashboardFontSize,
    clrLime
 );
