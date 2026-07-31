@@ -29,7 +29,7 @@ bool EnableTrading = true;
 
 double Lots = 0.01;
 
-int MaxOpenOrders =10;// 4;
+int MaxOpenOrders =20;// 4;
 
 
 //==================================================================
@@ -52,7 +52,7 @@ bool DeleteOppositePendingOnSignal = true;
 
 bool EnableProfitReEntryStop = true;
 
-double MinimumClosedProfitUSD =0.01;// -10;//0.01;
+double MinimumClosedProfitUSD =-9;//0.01;// -10;//0.01;
 
 double ProfitReEntryGapRaw =20;//5;// 20.0;
 
@@ -89,7 +89,7 @@ double StopLossUSD = 10;//5;//10;//2;//3;//1.00;
 //========================================================
 // RECOVERY
 //========================================================
-bool   EnableRecoveryOrders     = true;
+bool   EnableRecoveryOrders     = false;
 double RecoveryTriggerLossUSD   = -2.0;
 double RecoveryLotMultiplier    = 1.0;
 int    MaxRecoveryOrders        = 3;
@@ -2627,6 +2627,8 @@ Print(
    "ORDER CLOSED WITHOUT REQUIRED PROFIT | P/L: $",
    DoubleToString(latestProfit, 2)
 );
+
+
 
 // Open new order based on current SSL direction
 if(EnableTrading &&
