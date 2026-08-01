@@ -29,7 +29,7 @@ bool EnableTrading = true;
 
 double Lots = 0.01;
 
-int MaxOpenOrders =20;//10;// 4;
+int MaxOpenOrders =20;// 4;
 
 
 //==================================================================
@@ -52,7 +52,7 @@ bool DeleteOppositePendingOnSignal = true;
 
 bool EnableProfitReEntryStop = true;
 
-double MinimumClosedProfitUSD =0.01;// -10;//0.01;
+double MinimumClosedProfitUSD =-9;//0.01;// -10;//0.01;
 
 double ProfitReEntryGapRaw =20;//5;// 20.0;
 
@@ -66,7 +66,8 @@ double MinimumSameOrderGapRaw = 30;//20.0;
 
 bool EnableProfitLadder1 = true;
 
-double Ladder1ProfitUSD =0.20;// 0.10;//0.05;
+double Ladder1ProfitUSD =0.05;// 0.10;//0.05;
+//small amount safe side of order profit to avoid broker rounding issues
 
 
 //==================================================================
@@ -75,9 +76,9 @@ double Ladder1ProfitUSD =0.20;// 0.10;//0.05;
 
 bool EnableProfitLadder2 = true;
 
-double Ladder1StopMaxPriceUSD = 10;//0.50;//0.50;//1.00;
+double Ladder1StopMaxPriceUSD =0.20;// 10;//0.50;//0.50;//1.00;
 
-double Ladder2ProfitUSD =0.50;// 1.00;
+double Ladder2ProfitUSD =0.20;// 1.00;
 
 
 //==================================================================
@@ -85,6 +86,16 @@ double Ladder2ProfitUSD =0.50;// 1.00;
 //==================================================================
 
 double StopLossUSD = 10;//5;//10;//2;//3;//1.00;
+
+//========================================================
+// RECOVERY
+//========================================================
+bool   EnableRecoveryOrders     = true;
+double RecoveryTriggerLossUSD   =-0.50;// -2.0;
+double RecoveryLotMultiplier    = 2;//1.0;
+int    MaxRecoveryOrders        = 2;
+double RecoveryBasketProfitUSD  = 0.50;
+
 
 
 //==================================================================
@@ -705,7 +716,8 @@ void CheckDailyEquityTarget(DailyProtectionState &state)
 void OnTick()
   {
    static DailyProtectionState dailyState;
-
+   CheckRecoveryOrders();
+   ManageRecoveryBasket();
 
    if(
       !dailyState.Initialized
@@ -931,7 +943,217 @@ void OnTick()
         }
      }
   }
+//+------------------------------------------------------------------+
+//|                                                                  |
+//+------------------------------------------------------------------+
+void CheckRecoveryOrders()
+  {
+   if(!EnableRecoveryOrders)
+      return;
 
+   if(GetTotalEAOrders() >= MaxOpenOrders)
+      return;
+
+   RefreshRates();
+
+   for(int i=OrdersTotal()-1; i>=0; i--)
+     {
+      if(!OrderSelect(i,SELECT_BY_POS,MODE_TRADES))
+         continue;
+
+      if(OrderMagicNumber()!=MagicNumber)
+         continue;
+
+      if(OrderSymbol()!=Symbol())
+         continue;
+
+      if(OrderType()!=OP_BUY && OrderType()!=OP_SELL)
+         continue;
+
+      double profit=
+         OrderProfit()+
+         OrderSwap()+
+         OrderCommission();
+
+      if(profit>RecoveryTriggerLossUSD)
+         continue;
+
+      // already recovered?
+      if(HasRecoveryOrder(OrderTicket()))
+         continue;
+
+      // SSL confirmation
+      if(OrderType()==OP_BUY && !IsBuySignal(1))
+         continue;
+
+      if(OrderType()==OP_SELL && !IsSellSignal(1))
+         continue;
+
+      double lots=
+         NormalizeDouble(
+            OrderLots()*RecoveryLotMultiplier,
+            2);
+
+      if(OrderType()==OP_BUY)
+        {
+         if(!HasMinimumSameOrderGap(OP_BUY))
+            continue;
+
+         OrderSend(Symbol(),
+                   OP_BUY,
+                   lots,
+                   Ask,
+                   Slippage,
+                   0,
+                   0,
+                   "RECOVERY_"+IntegerToString(OrderTicket()),
+                   MagicNumber,
+                   0,
+                   clrAqua);
+        }
+      else
+        {
+         if(!HasMinimumSameOrderGap(OP_SELL))
+            continue;
+
+         OrderSend(Symbol(),
+                   OP_SELL,
+                   lots,
+                   Bid,
+                   Slippage,
+                   0,
+                   0,
+                   "RECOVERY_"+IntegerToString(OrderTicket()),
+                   MagicNumber,
+                   0,
+                   clrOrange);
+        }
+     }
+  }
+//+------------------------------------------------------------------+
+//|                                                                  |
+//+------------------------------------------------------------------+
+bool HasRecoveryOrder(int ParentTicket)
+  {
+   string txt="RECOVERY_"+IntegerToString(ParentTicket);
+
+   for(int i=OrdersTotal()-1; i>=0; i--)
+     {
+      if(!OrderSelect(i,SELECT_BY_POS,MODE_TRADES))
+         continue;
+
+      if(OrderMagicNumber()!=MagicNumber)
+         continue;
+
+      if(OrderComment()==txt)
+         return(true);
+     }
+
+   return(false);
+  }
+//+------------------------------------------------------------------+
+//|                                                                  |
+//+------------------------------------------------------------------+
+void ManageRecoveryBasket()
+  {
+   double buyProfit=0;
+   double sellProfit=0;
+
+   for(int i=OrdersTotal()-1; i>=0; i--)
+     {
+      if(!OrderSelect(i,SELECT_BY_POS,MODE_TRADES))
+         continue;
+
+      if(OrderMagicNumber()!=MagicNumber)
+         continue;
+
+      if(OrderSymbol()!=Symbol())
+         continue;
+
+      double p=
+         OrderProfit()+
+         OrderSwap()+
+         OrderCommission();
+
+      if(OrderType()==OP_BUY)
+         buyProfit+=p;
+
+      if(OrderType()==OP_SELL)
+         sellProfit+=p;
+     }
+
+   if(buyProfit>=RecoveryBasketProfitUSD)
+     {
+      CloseBasket(OP_BUY);
+      if(GetTotalBuyOrders() == 0 && IsBuySignal(1))
+
+        {
+         if(IsBuySignal(1))
+           {
+            if(EnableTrading &&
+               HasMinimumSameOrderGap(OP_BUY))
+              {
+               OpenBuy();
+               Print("Recovery basket closed -> New BUY opened using current SSL.");
+              }
+           }
+        }
+     }
+
+   if(sellProfit>=RecoveryBasketProfitUSD)
+     {
+      CloseBasket(OP_SELL);
+
+      if(GetTotalSellOrders() == 0 && IsSellSignal(1))
+        {
+         if(IsSellSignal(1))
+           {
+            if(EnableTrading &&
+               HasMinimumSameOrderGap(OP_SELL))
+              {
+               OpenSell();
+               Print("Recovery basket closed -> New SELL opened using current SSL.");
+              }
+           }
+        }
+     }
+  }
+//+------------------------------------------------------------------+
+//|                                                                  |
+//+------------------------------------------------------------------+
+void CloseBasket(int type)
+  {
+   RefreshRates();
+
+   for(int i=OrdersTotal()-1; i>=0; i--)
+     {
+      if(!OrderSelect(i,SELECT_BY_POS,MODE_TRADES))
+         continue;
+
+      if(OrderMagicNumber()!=MagicNumber)
+         continue;
+
+      if(OrderSymbol()!=Symbol())
+         continue;
+
+      if(OrderType()!=type)
+         continue;
+
+      if(type==OP_BUY)
+         OrderClose(OrderTicket(),
+                    OrderLots(),
+                    Bid,
+                    Slippage,
+                    clrRed);
+
+      else
+         OrderClose(OrderTicket(),
+                    OrderLots(),
+                    Ask,
+                    Slippage,
+                    clrBlue);
+     }
+  }
 
 //+------------------------------------------------------------------+
 //| INITIALIZE DAILY PROTECTION STATE                                |
@@ -2401,15 +2623,33 @@ void CheckForProfitableClosedOrder(
       return;
      }
 
+// Order closed without required profit
+Print(
+   "ORDER CLOSED WITHOUT REQUIRED PROFIT | P/L: $",
+   DoubleToString(latestProfit, 2)
+);
 
-   Print(
-      "ORDER CLOSED WITHOUT REQUIRED PROFIT | P/L: $",
 
-      DoubleToString(
-         latestProfit,
-         2
-      )
-   );
+
+// Open new order based on current SSL direction
+if(EnableTrading &&
+   !IsDailyTradingStopped(state))
+{
+   if(GetTotalBuyOrders() == 0 &&
+      IsBuySignal(1))
+   {
+      OpenBuy();
+      Print("BUY opened after closed order using current SSL.");
+   }
+
+   if(GetTotalSellOrders() == 0 &&
+      IsSellSignal(1))
+   {
+      OpenSell();
+      Print("SELL opened after closed order using current SSL.");
+   }
+}
+
   }
 
 
@@ -2672,7 +2912,54 @@ void CreateProfitReEntryStop(
      }
   }
 
+//+------------------------------------------------------------------+
+//|                                                                  |
+//+------------------------------------------------------------------+
+int GetTotalBuyOrders()
+  {
+   int count = 0;
 
+   for(int i = OrdersTotal() - 1; i >= 0; i--)
+     {
+      if(!OrderSelect(i, SELECT_BY_POS, MODE_TRADES))
+         continue;
+
+      if(OrderSymbol() != Symbol())
+         continue;
+
+      if(OrderMagicNumber() != MagicNumber)
+         continue;
+
+      if(OrderType() == OP_BUY)
+         count++;
+     }
+
+   return(count);
+  }
+//+------------------------------------------------------------------+
+//|                                                                  |
+//+------------------------------------------------------------------+
+int GetTotalSellOrders()
+  {
+   int count = 0;
+
+   for(int i = OrdersTotal() - 1; i >= 0; i--)
+     {
+      if(!OrderSelect(i, SELECT_BY_POS, MODE_TRADES))
+         continue;
+
+      if(OrderSymbol() != Symbol())
+         continue;
+
+      if(OrderMagicNumber() != MagicNumber)
+         continue;
+
+      if(OrderType() == OP_SELL)
+         count++;
+     }
+
+   return(count);
+  }
 //+------------------------------------------------------------------+
 //| TOTAL EA ORDERS                                                  |
 //+------------------------------------------------------------------+
@@ -4682,36 +4969,36 @@ void CreateDashboardLabel(
 //| LIVE ORDERS TABLE (LEFT SIDE)                                    |
 //+------------------------------------------------------------------+
 void DrawLiveOrdersTable()
-{
+  {
    string prefix = "LIVE_ORDERS_";
 
-   // Delete previous objects
-   for(int i=0;i<100;i++)
-   {
+// Delete previous objects
+   for(int i=0; i<100; i++)
+     {
       ObjectDelete(prefix+"L"+IntegerToString(i));
-   }
+     }
 
-   //====================================================
+//====================================================
 // BLACK BACKGROUND PANEL
 //====================================================
-ObjectDelete("LIVE_ORDERS_PANEL");
+   ObjectDelete("LIVE_ORDERS_PANEL");
 
-ObjectCreate("LIVE_ORDERS_PANEL",OBJ_RECTANGLE_LABEL,0,0,0);
+   ObjectCreate("LIVE_ORDERS_PANEL",OBJ_RECTANGLE_LABEL,0,0,0);
 
-ObjectSet("LIVE_ORDERS_PANEL",OBJPROP_CORNER,0);
-ObjectSet("LIVE_ORDERS_PANEL",OBJPROP_XDISTANCE,5);
-ObjectSet("LIVE_ORDERS_PANEL",OBJPROP_YDISTANCE,10);
+   ObjectSet("LIVE_ORDERS_PANEL",OBJPROP_CORNER,0);
+   ObjectSet("LIVE_ORDERS_PANEL",OBJPROP_XDISTANCE,5);
+   ObjectSet("LIVE_ORDERS_PANEL",OBJPROP_YDISTANCE,10);
 
-ObjectSet("LIVE_ORDERS_PANEL",OBJPROP_XSIZE,360);      // Width
-ObjectSet("LIVE_ORDERS_PANEL",OBJPROP_YSIZE,320);      // Height (adjust as needed)
+   ObjectSet("LIVE_ORDERS_PANEL",OBJPROP_XSIZE,360);      // Width
+   ObjectSet("LIVE_ORDERS_PANEL",OBJPROP_YSIZE,320);      // Height (adjust as needed)
 
-ObjectSet("LIVE_ORDERS_PANEL",OBJPROP_BGCOLOR,clrBlack);
-ObjectSet("LIVE_ORDERS_PANEL",OBJPROP_COLOR,clrDimGray);   // Border
-ObjectSet("LIVE_ORDERS_PANEL",OBJPROP_BORDER_TYPE,BORDER_FLAT);
-ObjectSet("LIVE_ORDERS_PANEL",OBJPROP_BACK,false);
-ObjectSet("LIVE_ORDERS_PANEL",OBJPROP_SELECTABLE,false);
-ObjectSet("LIVE_ORDERS_PANEL",OBJPROP_HIDDEN,true);
-ObjectSet("LIVE_ORDERS_PANEL",OBJPROP_ZORDER,0);
+   ObjectSet("LIVE_ORDERS_PANEL",OBJPROP_BGCOLOR,clrBlack);
+   ObjectSet("LIVE_ORDERS_PANEL",OBJPROP_COLOR,clrDimGray);   // Border
+   ObjectSet("LIVE_ORDERS_PANEL",OBJPROP_BORDER_TYPE,BORDER_FLAT);
+   ObjectSet("LIVE_ORDERS_PANEL",OBJPROP_BACK,false);
+   ObjectSet("LIVE_ORDERS_PANEL",OBJPROP_SELECTABLE,false);
+   ObjectSet("LIVE_ORDERS_PANEL",OBJPROP_HIDDEN,true);
+   ObjectSet("LIVE_ORDERS_PANEL",OBJPROP_ZORDER,0);
 
    int x = 10;      // Left margin
    int y = 20;      // Top margin
@@ -4720,9 +5007,9 @@ ObjectSet("LIVE_ORDERS_PANEL",OBJPROP_ZORDER,0);
    string font = "Consolas";
    int size = 9;
 
-   //===============================
-   // Header
-   //===============================
+//===============================
+// Header
+//===============================
    string txt =
       "Ticket     Type   Lot    Open        Profit";
 
@@ -4738,11 +5025,11 @@ ObjectSet("LIVE_ORDERS_PANEL",OBJPROP_ZORDER,0);
    double totalLots = 0;
    int totalOrders  = 0;
 
-   //===============================
-   // Live Orders
-   //===============================
-   for(int i=OrdersTotal()-1;i>=0;i--)
-   {
+//===============================
+// Live Orders
+//===============================
+   for(int i=OrdersTotal()-1; i>=0; i--)
+     {
       if(!OrderSelect(i,SELECT_BY_POS,MODE_TRADES))
          continue;
 
@@ -4770,12 +5057,12 @@ ObjectSet("LIVE_ORDERS_PANEL",OBJPROP_ZORDER,0);
 
       txt =
          StringFormat(
-         "%-9d %-5s %0.2f %10."+IntegerToString(Digits)+"f %7.2f",
-         OrderTicket(),
-         type,
-         OrderLots(),
-         OrderOpenPrice(),
-         pl);
+            "%-9d %-5s %0.2f %10."+IntegerToString(Digits)+"f %7.2f",
+            OrderTicket(),
+            type,
+            OrderLots(),
+            OrderOpenPrice(),
+            pl);
 
       string name = prefix+"L"+IntegerToString(row);
 
@@ -4785,17 +5072,19 @@ ObjectSet("LIVE_ORDERS_PANEL",OBJPROP_ZORDER,0);
       ObjectSet(name,OBJPROP_YDISTANCE,y+(row*16));
 
       color c = clrWhite;
-      if(pl>0) c=clrLime;
-      if(pl<0) c=clrRed;
+      if(pl>0)
+         c=clrLime;
+      if(pl<0)
+         c=clrRed;
 
       ObjectSetText(name,txt,size,font,c);
 
       row++;
-   }
+     }
 
-   //===============================
-   // Footer
-   //===============================
+//===============================
+// Footer
+//===============================
    txt="------------------------------------------------";
 
    ObjectCreate(prefix+"L"+IntegerToString(row),OBJ_LABEL,0,0,0);
@@ -4807,10 +5096,10 @@ ObjectSet("LIVE_ORDERS_PANEL",OBJPROP_ZORDER,0);
    row++;
 
    txt=StringFormat(
-      "Orders:%d   Lots:%.2f   Total P/L: %.2f",
-      totalOrders,
-      totalLots,
-      totalPL);
+          "Orders:%d   Lots:%.2f   Total P/L: %.2f",
+          totalOrders,
+          totalLots,
+          totalPL);
 
    ObjectCreate(prefix+"L"+IntegerToString(row),OBJ_LABEL,0,0,0);
    ObjectSet(prefix+"L"+IntegerToString(row),OBJPROP_CORNER,0);
@@ -4818,11 +5107,16 @@ ObjectSet("LIVE_ORDERS_PANEL",OBJPROP_ZORDER,0);
    ObjectSet(prefix+"L"+IntegerToString(row),OBJPROP_YDISTANCE,y+(row*16));
 
    color totalColor=clrWhite;
-   if(totalPL>0) totalColor=clrLime;
-   if(totalPL<0) totalColor=clrRed;
+   if(totalPL>0)
+      totalColor=clrLime;
+   if(totalPL<0)
+      totalColor=clrRed;
 
    ObjectSetText(prefix+"L"+IntegerToString(row),txt,size,font,totalColor);
-}
+  }
+//+------------------------------------------------------------------+
+//|                                                                  |
+//+------------------------------------------------------------------+
 void UpdateDashboard(
    DailyProtectionState &state
 )
@@ -5400,33 +5694,33 @@ void UpdateDashboard(
 
       clrGold
    );
- CreateDashboardLabel(
-         DASH_PREFIX +
-         "DAY_START1",
+   CreateDashboardLabel(
+      DASH_PREFIX +
+      "DAY_START1",
 
-         "Day Start: $" +
+      "Day Start: $" +
 
-         DoubleToString(
-            state.DayStartBalance,
-            2
-         ),
+      DoubleToString(
+         state.DayStartBalance,
+         2
+      ),
 
-         textX,
+      textX,
 
-         y + 210,
+      y + 210,
 
-         DashboardFontSize,
+      DashboardFontSize,
 
-         clrWhite
-      );
-CreateDashboardLabel(
-   DASH_PREFIX + "EQUITY",
-   "Equity : $" + DoubleToString(AccountEquity(), 2),
-   textX,
-   y + 230,
-   DashboardFontSize,
-   clrLime
-);
+      clrWhite
+   );
+   CreateDashboardLabel(
+      DASH_PREFIX + "EQUITY",
+      "Equity : $" + DoubleToString(AccountEquity(), 2),
+      textX,
+      y + 230,
+      DashboardFontSize,
+      clrLime
+   );
 
    CreateDashboardLabel(
       DASH_PREFIX +
