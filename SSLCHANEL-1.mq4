@@ -91,7 +91,7 @@ double StopLossUSD = 10;//5;//10;//2;//3;//1.00;
 // RECOVERY
 //========================================================
 bool   EnableRecoveryOrders     = true;
-double RecoveryTriggerLossUSD   =-0.50;// -2.0;
+double RecoveryTriggerLossUSD   = -2.0;
 double RecoveryLotMultiplier    = 2;//1.0;
 int    MaxRecoveryOrders        = 2;
 double RecoveryBasketProfitUSD  = 0.50;
