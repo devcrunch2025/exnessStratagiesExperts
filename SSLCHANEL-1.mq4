@@ -59,7 +59,7 @@ double ProfitReEntryGapRaw =20;//5;// 20.0;
 //==================================================================
 // SAME DIRECTION ORDER GAP
 //==================================================================
-double MinimumSameOrderGapRaw = 30;//20.0;
+double MinimumSameOrderGapRaw =10;//100;// 30;//20.0;
 //==================================================================
 // PROFIT LADDER 1
 //==================================================================
@@ -93,7 +93,7 @@ double StopLossUSD = 10;//5;//10;//2;//3;//1.00;
 bool   EnableRecoveryOrders     = true;
 double RecoveryTriggerLossUSD   = -2.0;
 double RecoveryLotMultiplier    = 2;//1.0;
-int    MaxRecoveryOrders        = 2;
+int    MaxRecoveryOrders        = 1;
 double RecoveryBasketProfitUSD  = 0.50;
 
 
