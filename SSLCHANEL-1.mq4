@@ -85,7 +85,7 @@ double Ladder2ProfitUSD =0.20;// 1.00;
 // INITIAL STOP LOSS
 //==================================================================
 
-double StopLossUSD = 10;//5;//10;//2;//3;//1.00;
+double StopLossUSD =50;// 10;//5;//10;//2;//3;//1.00;
 
 //========================================================
 // RECOVERY
@@ -765,8 +765,8 @@ double GetOpenPL(int OrderTypeFilter)
       if(OrderSymbol() != Symbol())
          continue;
 
-      // if(OrderMagicNumber() != MagicNumber)
-      //    continue;
+      if(OrderMagicNumber() != MagicNumber)
+         continue;
 
       if(OrderType() == OrderTypeFilter)
          OpenPL += OrderProfit() + OrderSwap() + OrderCommission();
@@ -2989,7 +2989,11 @@ void CreateProfitReEntryStop(
 
 
    ResetLastError();
-
+// Before opening a BUY order
+if(pendingType == OP_BUYSTOP)
+   ChangeLots(GetOpenPL(OP_BUY));
+else if(pendingType == OP_SELLSTOP)
+ChangeLots(GetOpenPL(OP_SELL));
 
    int ticket =
       OrderSend(
@@ -3267,6 +3271,8 @@ void OpenSell()
       return;
 
 ChangeLots(GetOpenPL(OP_BUY));
+
+Print("OpenSell: Adjusted Lots based on open BUY P/L. New Lots: ", Lots);
 
    RefreshRates();
 
@@ -6042,7 +6048,7 @@ void UpdateDashboard(
       DASH_PREFIX +
       "DETAIL_TITLE",
 
-      "LIVE ORDER DETAILS",
+      "LIVE ORDER DETAILS LOT: "+DoubleToString(Lots, 2) ,
 
       textX,
 
