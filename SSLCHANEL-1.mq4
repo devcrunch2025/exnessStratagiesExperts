@@ -59,7 +59,7 @@ double ProfitReEntryGapRaw =20;//5;// 20.0;
 //==================================================================
 // SAME DIRECTION ORDER GAP
 //==================================================================
-double MinimumSameOrderGapRaw =10;//100;// 30;//20.0;
+double MinimumSameOrderGapRaw =50;//10;//100;// 30;//20.0;
 //==================================================================
 // PROFIT LADDER 1
 //==================================================================
@@ -92,7 +92,7 @@ double StopLossUSD = 10;//5;//10;//2;//3;//1.00;
 //========================================================
 bool   EnableRecoveryOrders     = true;
 double RecoveryTriggerLossUSD   = -2.0;
-double RecoveryLotMultiplier    = 2;//1.0;
+double RecoveryLotMultiplier    = 1;//1.0;
 int    MaxRecoveryOrders        = 1;
 double RecoveryBasketProfitUSD  = 0.50;
 
@@ -102,18 +102,18 @@ double RecoveryBasketProfitUSD  = 0.50;
 // DAILY PROFIT PROTECTION
 //==================================================================
 
-double DailyLossProtectionPercent = 75.0;
+double DailyLossProtectionPercent = 50.0;
 
 bool EnableDailyLossProtection = true;
 
 bool ResetDailyProtectionEveryDay = true;
 
-bool CloseOpenOrdersOnDailyLoss = false;
+bool CloseOpenOrdersOnDailyLoss = true;
 
 
 // Minimum closed market orders required before
 // daily profit protection can activate
-int MinimumClosedOrdersForDailyProtection =10000;// 50;
+int MinimumClosedOrdersForDailyProtection =100;//10000;// 50;
 
 //===============================================================
 // DAILY EQUITY TARGET
@@ -464,10 +464,13 @@ void ProcessStartupSignal(
 //+------------------------------------------------------------------+
 //|                                                                  |
 //+------------------------------------------------------------------+
+double GlbFinalPL=0;//
 int OnInit()
   {
 
-
+OriginalLots              = Lots;
+  OriginalLadder1ProfitUSD  = Ladder1ProfitUSD;
+  OriginalLadder2ProfitUSD  = Ladder2ProfitUSD;
 
    Print("==================================================");
 
@@ -713,8 +716,88 @@ void CheckDailyEquityTarget(DailyProtectionState &state)
 //+------------------------------------------------------------------+
 //|                                                                  |
 //+------------------------------------------------------------------+
+double OriginalLots              = 0.01;
+double OriginalLadder1ProfitUSD  = 0.05;
+double OriginalLadder2ProfitUSD  = 0.20;
+
+
+// void changeLots()
+//   {
+//    if(GlbFinalPL < -10)
+//      {
+//       Lots = OriginalLots * 3;
+//       Ladder1ProfitUSD = OriginalLadder1ProfitUSD * 3;
+//       Ladder2ProfitUSD = OriginalLadder2ProfitUSD * 3;
+//      }
+//    else if(GlbFinalPL < -5)
+//      {
+//       Lots = OriginalLots * 2;
+//       Ladder1ProfitUSD = OriginalLadder1ProfitUSD * 2;
+//       Ladder2ProfitUSD = OriginalLadder2ProfitUSD * 2;
+//      }
+//    else
+//      {
+//       Lots = OriginalLots;
+//       Ladder1ProfitUSD = OriginalLadder1ProfitUSD;
+//       Ladder2ProfitUSD = OriginalLadder2ProfitUSD;
+//      }
+//   }
+
+//====================================================
+// BUY SETTINGS
+//====================================================
+
+//====================================================
+// RETURNS FLOATING P/L FOR BUY OR SELL ORDERS
+//====================================================
+//====================================================
+// RETURNS FLOATING P/L FOR BUY OR SELL ORDERS
+//====================================================
+double GetOpenPL(int OrderTypeFilter)
+{
+   double OpenPL = 0.0;
+
+   for(int i = OrdersTotal() - 1; i >= 0; i--)
+   {
+      if(!OrderSelect(i, SELECT_BY_POS, MODE_TRADES))
+         continue;
+
+      if(OrderSymbol() != Symbol())
+         continue;
+
+      // if(OrderMagicNumber() != MagicNumber)
+      //    continue;
+
+      if(OrderType() == OrderTypeFilter)
+         OpenPL += OrderProfit() + OrderSwap() + OrderCommission();
+   }
+
+   return OpenPL;
+}
+
+//====================================================
+// CHANGE LOTS & PROFIT TARGETS
+//====================================================
+void ChangeLots(double OpenPL)
+{
+   int Multiplier = 1;
+
+   if(OpenPL < -10)
+      Multiplier = 3;
+   else if(OpenPL < -5)
+      Multiplier = 2;
+
+   Lots              = OriginalLots * Multiplier;
+   Ladder1ProfitUSD  = OriginalLadder1ProfitUSD * Multiplier;
+   Ladder2ProfitUSD  = OriginalLadder2ProfitUSD * Multiplier;
+}
+ 
 void OnTick()
   {
+
+   
+
+
    static DailyProtectionState dailyState;
    CheckRecoveryOrders();
    ManageRecoveryBasket();
@@ -951,6 +1034,8 @@ void CheckRecoveryOrders()
    if(!EnableRecoveryOrders)
       return;
 
+      
+
    if(GetTotalEAOrders() >= MaxOpenOrders)
       return;
 
@@ -966,6 +1051,10 @@ void CheckRecoveryOrders()
 
       if(OrderSymbol()!=Symbol())
          continue;
+
+         // Never create a recovery for an existing recovery order
+if(StringFind(OrderComment(), "RECOVERY_") == 0)
+    continue;
 
       if(OrderType()!=OP_BUY && OrderType()!=OP_SELL)
          continue;
@@ -1304,8 +1393,7 @@ void UpdateDailyLossProtection(
       todayDate
    )
      {
-      state.DayDate =
-         todayDate;
+      state.DayDate =         todayDate;
 
 
       state.DayStartBalance =
@@ -1320,20 +1408,20 @@ void UpdateDailyLossProtection(
          state.DayStartBalance;
 
 
-      state.ClosedOrdersToday =
-         0;
+      state.ClosedOrdersToday =         0;
 
 
-      state.TradingStopped =
-         false;
+      state.TradingStopped =         false;
 
 
-      DailyProtectionStartTime =
-         TimeCurrent();
+      DailyProtectionStartTime =         TimeCurrent();
 
-      state.TradingStopped =
-         false;
+      state.TradingStopped =         false;
+ 
 
+  Lots              = OriginalLots;
+  Ladder1ProfitUSD  = OriginalLadder1ProfitUSD;
+   Ladder2ProfitUSD  = OriginalLadder2ProfitUSD;
 
       Print(
          "=================================================="
@@ -1380,7 +1468,33 @@ void UpdateDailyLossProtection(
 
    double currentBalance =
       AccountBalance();
+//===============================================================
+// EQUITY LOSS PROTECTION
+//===============================================================
+double currentEquity = AccountEquity();
+double minEquity = state.DayStartBalance *
+                   (1.0 - DailyLossProtectionPercent / 100.0);
 
+if(currentEquity <= minEquity)
+{
+   if(!state.TradingStopped)
+   {
+      state.TradingStopped = true;
+
+      Print("========================================");
+      Print("EQUITY LOSS LIMIT REACHED");
+      Print("Start Balance : ", DoubleToString(state.DayStartBalance,2));
+      Print("Current Equity: ", DoubleToString(currentEquity,2));
+      Print("Minimum Equity: ", DoubleToString(minEquity,2));
+      Print("Trading stopped for today.");
+      Print("========================================");
+
+      if(CloseOpenOrdersOnDailyLoss)
+         CloseAllEAOrdersOnDailyLoss();
+   }
+
+   return;
+}
 
 //===============================================================
 // NEW BALANCE HIGH
@@ -3050,12 +3164,16 @@ int GetTotalEAOrders()
 //+------------------------------------------------------------------+
 void OpenBuy()
   {
+
+
+
    if(GetTotalEAOrders() >= MaxOpenOrders)
       return;
 
    if(!HasMinimumSameOrderGap(OP_BUY))
       return;
-
+// Before opening a BUY order
+ChangeLots(GetOpenPL(OP_SELL));
 
    RefreshRates();
 
@@ -3148,6 +3266,7 @@ void OpenSell()
    if(!HasMinimumSameOrderGap(OP_SELL))
       return;
 
+ChangeLots(GetOpenPL(OP_BUY));
 
    RefreshRates();
 
@@ -5100,7 +5219,7 @@ void DrawLiveOrdersTable()
           totalOrders,
           totalLots,
           totalPL);
-
+GlbFinalPL=totalPL;
    ObjectCreate(prefix+"L"+IntegerToString(row),OBJ_LABEL,0,0,0);
    ObjectSet(prefix+"L"+IntegerToString(row),OBJPROP_CORNER,0);
    ObjectSet(prefix+"L"+IntegerToString(row),OBJPROP_XDISTANCE,x);
