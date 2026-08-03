@@ -29,16 +29,16 @@ double RecoveryBasketProfitUSD = 0.50;
 bool EnableDailyLossProtection = true;
 bool ResetDailyProtectionEveryDay = true;
 bool CloseOpenOrdersOnDailyLoss = true;
-int MinimumClosedOrdersForDailyProtection =1;// 100;
+int MinimumClosedOrdersForDailyProtection =10;// 100;
 bool EnableDailyEquityTarget = true;
 bool CloseOrdersOnDailyEquityTarget = true;
 bool EnableEquityLadder = true;
 
 
-double DailyEquityTargetPercent = 10;//Trading continue with 10% profit reccuring 
+double DailyEquityTargetPercent = 5;//10;//Trading continue with 10% profit reccuring 
 double DailyLossProtectionPercent = 30.0;// Trading stops if equity drops below this percentage of the starting balance for the day
 bool EnableDynamicEquityLadder = true;////Trading continue with 10% profit reccuring 
-double EquityLadderLossPercentAfterstep1=5;//
+double EquityLadderLossPercentAfterstep1=50;//5;//
 
 
 
@@ -91,10 +91,13 @@ double GlbFinalPL = 0, OriginalLots = 0.01, OriginalLadder1ProfitUSD = 0.05, Ori
 double CurrentMultiplier = 1.0, BasketHighestProfit = 0.0, BasketTrailingStop = 0.0, DynamicBasketHighestProfit = 0.0;
 
 //+------------------------------------------------------------------+
-void InitializeEquityLadder(DailyProtectionState &state) {
-   EquityLadderLevel = 1;
+void InitializeEquityLadder(DailyProtectionState &state)
+{
    LockedEquity = state.DayStartBalance;
-   NextEquityTarget = state.DayStartBalance * (1.0 + DailyEquityTargetPercent / 100.0);
+
+   NextEquityTarget =
+      state.DayStartBalance *
+      (1.0 + DailyEquityTargetPercent / 100.0);
 }
 
 void ProcessStartupSignal(DailyProtectionState &dailyState) {
@@ -106,11 +109,11 @@ void ProcessStartupSignal(DailyProtectionState &dailyState) {
    CalculateSSL(1, upCurrent, downCurrent, hlvCurrent);
    CalculateSSL(2, upPrevious, downPrevious, hlvPrevious);
    
-   // bool buySignal = (upCurrent > downCurrent);
-   // bool sellSignal = (upCurrent < downCurrent);
+   bool buySignal = (upCurrent > downCurrent);
+   bool sellSignal = (upCurrent < downCurrent);
 
-   bool buySignal = IsBuySignal(1);
-bool sellSignal = IsSellSignal(1);
+//    bool buySignal = IsBuySignal(1);
+// bool sellSignal = IsSellSignal(1);
    
    Print("==================================================");
    Print("EA RESTART SIGNAL RECOVERY - Direction: ", buySignal ? "BUY" : (sellSignal ? "SELL" : "NONE"));
@@ -159,7 +162,7 @@ int OnInit() {
    InitializeLastProcessedClosedOrder();
    return INIT_SUCCEEDED;
 }
-
+   int EAOrders = 0;
 void OnDeinit(const int reason) { DeleteOurObjects(); DeleteDashboardObjects(); }
 
 void OnTick() {
@@ -173,7 +176,7 @@ void OnTick() {
    UpdateDailyLossProtection(dailyState);
    CheckDynamicEquityLadder(dailyState);
    if(ShowSSLLines) UpdateSSLChannelOnTick();
-   if(Bars >= SSLPeriod + 20) CheckForProfitableClosedOrder(dailyState);
+   if(Bars >= SSLPeriod + 20 && EAOrders > 0) CheckForProfitableClosedOrder(dailyState);
    if(EnableProfitLadder1 || EnableProfitLadder2) ManageProfitLadder();
    if(ShowDashboard) UpdateDashboard(dailyState);
    
@@ -311,7 +314,10 @@ void InitializeDailyProtectionState(DailyProtectionState &state) {
    state.DayDate = StrToTime(today);
    state.DayStartBalance = AccountBalance();
    state.DayHighestBalance = state.DayStartBalance;
-   state.DayProtectedBalance = state.DayStartBalance;
+   // state.DayProtectedBalance = state.DayStartBalance;
+   state.DayProtectedBalance =
+    state.DayStartBalance *
+    (1.0 - DailyLossProtectionPercent/100.0);
    state.DayPeakProfit = 0.0;
    state.DailyClosedProfit = 0.0;
    state.DailyClosedOrders = 0;
@@ -329,13 +335,15 @@ void InitializeDailyProtectionState(DailyProtectionState &state) {
 }
 void CheckDynamicEquityLadder(DailyProtectionState &state)
 {
-   if(!EnableDynamicEquityLadder)
+   if(!EnableDynamicEquityLadder && EAOrders > 0)
       return;
 
    double equity = AccountEquity();
 
-   if(equity < NextEquityTarget)
+   if(equity < NextEquityTarget )
       return;
+      // else
+      // Print("-------------------EQUITY TARGET REACHED | Current Equity: $", DoubleToString(equity, 2), " | Target: $", DoubleToString(NextEquityTarget, 2));
 
    Print("==============================");
    Print("EQUITY TARGET REACHED");
@@ -382,7 +390,10 @@ if(GetTotalEAOrders()>0)
 
    state.DayStartBalance     = AccountBalance();
    state.DayHighestBalance   = state.DayStartBalance;
-   state.DayProtectedBalance = state.DayStartBalance;
+   // state.DayProtectedBalance = state.DayStartBalance;
+   state.DayProtectedBalance =
+    state.DayStartBalance *
+    (1.0 - DailyLossProtectionPercent/100.0);
    state.DayPeakProfit       = 0;
 
    state.DailyClosedProfit   = 0;
@@ -393,19 +404,44 @@ if(GetTotalEAOrders()>0)
    state.LossTriggered  = false;
 
    DailyProtectionStartTime = TimeCurrent();
-
+// if(NextEquityTarget > 0)
    // EquityLadderLevel++;
    InitializeEquityLadder(state);
 
-   // After first successful equity cycle,
-// tighten the daily loss protection
-// if(EquityLadderLevel == 1)
+// Increase ladder step
+EquityLadderLevel++;
+
+// if(EquityLadderLevel > 2)
+// {
+//    DailyLossProtectionPercent = EquityLadderLossPercentAfterstep1;
+
+//    Print("LADDER STEP ", EquityLadderLevel,
+//          " ACTIVE | Loss Protection changed to ",
+//          DoubleToString(DailyLossProtectionPercent,2),
+//          "%");
+// }
+
+double newBalance = AccountBalance();
+
+double earnedProfit = newBalance - state.DayHighestBalance;
+
+state.DayStartBalance = newBalance;
+
+if(EquityLadderLevel<=2)
 {
-   DailyLossProtectionPercent =EquityLadderLossPercentAfterstep1;// 5.0;
-   Print("Daily Loss Protection switched to 5%");
+   // First cycle uses normal daily loss %
+   state.DayProtectedBalance =
+      state.DayStartBalance *
+      (1.0 - DailyLossProtectionPercent/100.0);
+}
+else
+{
+   // Lock part of earned profit
+   state.DayProtectedBalance =
+      state.DayStartBalance +
+      (earnedProfit * EquityLadderLossPercentAfterstep1/100.0);
 }
 
-// EquityLadderLevel++;
 
    NextEquityTarget =
       state.DayStartBalance *
@@ -478,7 +514,10 @@ void UpdateDailyLossProtection(DailyProtectionState &state) {
       state.DayDate = todayDate;
       state.DayStartBalance = AccountBalance();
       state.DayHighestBalance = state.DayStartBalance;
-      state.DayProtectedBalance = state.DayStartBalance;
+      // state.DayProtectedBalance = state.DayStartBalance;
+      state.DayProtectedBalance =
+    state.DayStartBalance *
+    (1.0 - DailyLossProtectionPercent/100.0);
       state.ClosedOrdersToday = 0;
       state.TradingStopped = false;
           DailyLossProtectionPercent = OriginalDailyLossProtectionPercent;
@@ -501,40 +540,81 @@ void UpdateDailyLossProtection(DailyProtectionState &state) {
    state.ClosedOrdersToday = CountClosedOrdersSinceInitialization();
    double currentBalance = AccountBalance();
    double currentEquity = AccountEquity();
-   double minEquity = state.DayStartBalance * (1.0 - DailyLossProtectionPercent / 100.0);
-   
+   // double minEquity = state.DayStartBalance * (1.0 - DailyLossProtectionPercent / 100.0);
+   double minEquity =
+   state.DayStartBalance -
+   (state.DayStartBalance * DailyLossProtectionPercent / 100.0);
+
+
+if(AccountEquity() <= minEquity)
+{
+   state.TradingStopped=true;
+
+   Print("PROTECTED EQUITY STOP");
+   Print("Start Balance : $",DoubleToString(state.DayStartBalance,2));
+   Print("Protection %  : ",DoubleToString(DailyLossProtectionPercent,2));
+   Print("Stop Equity   : $",DoubleToString(minEquity,2));
+   Print("Current Equity:",DoubleToString(AccountEquity(),2));
+
+   if(CloseOpenOrdersOnDailyLoss)
+      CloseAllEAOrdersOnDailyLoss();
+
+   return;
+}
+
    if(currentEquity <= minEquity) {
       if(!state.TradingStopped) {
          state.TradingStopped = true;
-         Print("EQUITY LOSS LIMIT REACHED | Start: $", DoubleToString(state.DayStartBalance, 2), " | Current: $", DoubleToString(currentEquity, 2));
+         Print("EQUITY LOSS LIMIT REACHED | "+DoubleToString(DailyLossProtectionPercent,2)+"% Start: $", DoubleToString(state.DayStartBalance, 2), " | Current: $", DoubleToString(currentEquity, 2));
          if(CloseOpenOrdersOnDailyLoss) CloseAllEAOrdersOnDailyLoss();
       }
       return;
    }
    
-   if(currentBalance > state.DayHighestBalance) {
-      state.DayHighestBalance = currentBalance;
-      double profitAboveStart = state.DayHighestBalance - state.DayStartBalance;
+   // if(currentBalance > state.DayHighestBalance) {
+   //    state.DayHighestBalance = currentBalance;
+   //    double profitAboveStart = state.DayHighestBalance - state.DayStartBalance;
       
-      if(profitAboveStart > 0) {
-         double protectedProfit = profitAboveStart * DailyLossProtectionPercent / 100.0;
-         state.DayProtectedBalance = state.DayStartBalance + protectedProfit;
-      } else {
-         state.DayProtectedBalance = state.DayStartBalance;
-      }
+   //    if(profitAboveStart > 0) {
+   //       double protectedProfit = profitAboveStart * DailyLossProtectionPercent / 100.0;
+   //       state.DayProtectedBalance = state.DayStartBalance + protectedProfit;
+   //    } else {
+   //       // state.DayProtectedBalance = state.DayStartBalance;
+   //       state.DayProtectedBalance =
+   //  state.DayStartBalance *
+   //  (1.0 - DailyLossProtectionPercent/100.0);
+   //    }
       
-      Print("DAILY HIGH: $", DoubleToString(state.DayHighestBalance, 2), " | Profit: $", DoubleToString(profitAboveStart, 2), " | Protected: $", DoubleToString(state.DayProtectedBalance, 2));
-   }
+   //    Print("DAILY HIGH: $", DoubleToString(state.DayHighestBalance, 2), " | Profit: $", DoubleToString(profitAboveStart, 2), " | Protected: $", DoubleToString(state.DayProtectedBalance, 2));
+   // }
    
    if(state.ClosedOrdersToday < MinimumClosedOrdersForDailyProtection) return;
    
-   if(currentBalance <= state.DayProtectedBalance) {
-      if(!state.TradingStopped) {
-         state.TradingStopped = true;
-         Print("DAILY PROFIT PROTECTION ACTIVATED | Orders: ", state.ClosedOrdersToday, " | Balance: $", DoubleToString(currentBalance, 2));
-         if(CloseOpenOrdersOnDailyLoss) CloseAllEAOrdersOnDailyLoss();
-      }
+  // ================================
+// PROTECTED EQUITY STOP
+// ================================
+
+if(AccountEquity() <= state.DayProtectedBalance)
+{
+   if(!state.TradingStopped)
+   {
+      state.TradingStopped = true;
+      state.LossTriggered = true;
+
+      Print("===============================");
+      Print("PROTECTED EQUITY STOP TRIGGERED");
+      Print("Protected Equity : $", 
+            DoubleToString(state.DayProtectedBalance,2));
+      Print("Current Equity   : $", 
+            DoubleToString(AccountEquity(),2));
+      Print("===============================");
+
+      if(CloseOpenOrdersOnDailyLoss)
+         CloseAllEAOrdersOnDailyLoss();
    }
+
+   return;
+}
 }
 
 int CountClosedOrdersSinceInitialization() {
@@ -598,7 +678,13 @@ void CloseAllEAOrdersOnDailyLoss()
    bool finished = false;
    int retries = 0;
 
-   while(!finished && retries < 20)
+   if(EAOrders == 0)
+   {
+      Print("No EA orders to close.");
+      return;
+   }
+
+   while(!finished && retries < 3)
    {
       finished = true;
       RefreshRates();
@@ -858,9 +944,12 @@ int GetTotalEAOrders() {
 }
 
 void OpenBuy() {
+
+
    if(GetTotalEAOrders() >= MaxOpenOrders || !HasMinimumSameOrderGap(OP_BUY)) return;
    ChangeLots(GetOpenPL(OP_SELL));
    RefreshRates();
+   EAOrders++;
    
    double slDistance = CalculatePriceDistanceUSD(StopLossUSD, Lots);
    if(slDistance <= 0) return;
@@ -874,10 +963,12 @@ void OpenBuy() {
 }
 
 void OpenSell() {
+   
    if(GetTotalEAOrders() >= MaxOpenOrders || !HasMinimumSameOrderGap(OP_SELL)) return;
    ChangeLots(GetOpenPL(OP_BUY));
    RefreshRates();
-   
+      EAOrders++;
+
    double slDistance = CalculatePriceDistanceUSD(StopLossUSD, Lots);
    if(slDistance <= 0) return;
    
