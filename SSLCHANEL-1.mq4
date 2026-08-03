@@ -438,7 +438,7 @@ else
 {
    // Lock part of earned profit
    state.DayProtectedBalance =
-      state.DayStartBalance +
+      state.DayStartBalance -
       (earnedProfit * EquityLadderLossPercentAfterstep1/100.0);
 }
 
@@ -1431,7 +1431,7 @@ void UpdateDashboard(DailyProtectionState &state)
                         C'30,60,100');
 
    CreateDashboardLabel(DASH_PREFIX+"TITLE",
-                        "SSL CHANNEL CROSS EA",
+                        "202608- EA",
                         textX,
                         y+8,
                         11,
