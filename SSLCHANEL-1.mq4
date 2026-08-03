@@ -30,7 +30,7 @@ double DailyLossProtectionPercent = 50.0;
 bool EnableDailyLossProtection = true;
 bool ResetDailyProtectionEveryDay = true;
 bool CloseOpenOrdersOnDailyLoss = true;
-int MinimumClosedOrdersForDailyProtection = 100;
+int MinimumClosedOrdersForDailyProtection =1;// 100;
 bool EnableDailyEquityTarget = true;
 bool CloseOrdersOnDailyEquityTarget = true;
 bool EnableEquityLadder = true;
@@ -97,8 +97,11 @@ void ProcessStartupSignal(DailyProtectionState &dailyState) {
    CalculateSSL(1, upCurrent, downCurrent, hlvCurrent);
    CalculateSSL(2, upPrevious, downPrevious, hlvPrevious);
    
-   bool buySignal = (upCurrent > downCurrent);
-   bool sellSignal = (upCurrent < downCurrent);
+   // bool buySignal = (upCurrent > downCurrent);
+   // bool sellSignal = (upCurrent < downCurrent);
+
+   bool buySignal = IsBuySignal(1);
+bool sellSignal = IsSellSignal(1);
    
    Print("==================================================");
    Print("EA RESTART SIGNAL RECOVERY - Direction: ", buySignal ? "BUY" : (sellSignal ? "SELL" : "NONE"));
@@ -266,7 +269,7 @@ void ManageRecoveryBasket() {
    }
    
    if(buyProfit >= RecoveryBasketProfitUSD) {
-      CloseBasket(OP_BUY);
+      CloseBasket(OP_BUY); 
       if(GetTotalBuyOrders() == 0 && IsBuySignal(1) && EnableTrading && HasMinimumSameOrderGap(OP_BUY)) {
          OpenBuy();
          Print("Recovery basket closed -> New BUY opened");
@@ -313,8 +316,87 @@ void InitializeDailyProtectionState(DailyProtectionState &state) {
    Print("Daily Protection: ", DoubleToString(DailyLossProtectionPercent, 2), "%");
    Print("==================================================");
 }
+void CheckDynamicEquityLadder(DailyProtectionState &state)
+{
+   if(!EnableDynamicEquityLadder)
+      return;
 
-void CheckDynamicEquityLadder(DailyProtectionState &state) {
+   double equity = AccountEquity();
+
+   if(equity < NextEquityTarget)
+      return;
+
+   Print("==============================");
+   Print("EQUITY TARGET REACHED");
+   Print("Current Equity : ", DoubleToString(equity,2));
+   Print("==============================");
+
+   // Close every EA order
+   
+int retry=0;
+
+while(GetTotalEAOrders()>0 && retry<5)
+{
+   Sleep(500);
+   RefreshRates();
+   CloseAllEAOrdersOnDailyLoss();
+   retry++;
+}
+
+if(GetTotalEAOrders()>0)
+{
+   Print("Unable to close all orders.");
+   return;
+}
+
+   // -------- COMPLETE RESET --------
+
+   Lots = OriginalLots;
+
+   Ladder1ProfitUSD = OriginalLadder1ProfitUSD;
+   Ladder2ProfitUSD = OriginalLadder2ProfitUSD;
+
+   ProfitLadder1Triggered = false;
+   ProfitLadder2Triggered = false;
+
+   RecoveryMode = false;
+   RecoveryOrders = 0;
+
+   CurrentMultiplier = 1.0;
+
+   BasketHighestProfit = 0;
+   BasketTrailingStop = 0;
+   BasketTrailingArmed = false;
+   DynamicBasketHighestProfit = 0;
+
+   state.DayStartBalance     = AccountBalance();
+   state.DayHighestBalance   = state.DayStartBalance;
+   state.DayProtectedBalance = state.DayStartBalance;
+   state.DayPeakProfit       = 0;
+
+   state.DailyClosedProfit   = 0;
+   state.DailyClosedOrders   = 0;
+   state.ClosedOrdersToday   = 0;
+
+   state.TradingStopped = false;
+   state.LossTriggered  = false;
+
+   DailyProtectionStartTime = TimeCurrent();
+
+   // EquityLadderLevel++;
+   InitializeEquityLadder(state);
+
+   NextEquityTarget =
+      state.DayStartBalance *
+      (1.0 + DailyEquityTargetPercent/100.0);
+
+   Print("Fresh Trading Started");
+   Print("New Start Balance : ",
+         DoubleToString(state.DayStartBalance,2));
+   Print("Next Target : ",
+         DoubleToString(NextEquityTarget,2));
+}
+void CheckDynamicEquityLadderold(DailyProtectionState &state) {
    if(!EnableDynamicEquityLadder || state.TradingStopped || state.ClosedOrdersToday < MinimumClosedOrdersForDailyProtection) return;
    
    double equity = AccountEquity();
@@ -480,8 +562,114 @@ void CloseOppositeOrders(int newSignalType) {
       }
    }
 }
+//+------------------------------------------------------------------+
+//| Close ALL EA Orders and Pending Orders                           |
+//| Wait until everything is closed                                  |
+//+------------------------------------------------------------------+
+void CloseAllEAOrdersOnDailyLoss()
+{
+   Print("Closing all EA orders...");
 
-void CloseAllEAOrdersOnDailyLoss() {
+   bool finished = false;
+   int retries = 0;
+
+   while(!finished && retries < 20)
+   {
+      finished = true;
+      RefreshRates();
+
+      for(int i = OrdersTotal() - 1; i >= 0; i--)
+      {
+         if(!OrderSelect(i, SELECT_BY_POS, MODE_TRADES))
+            continue;
+
+         if(OrderSymbol() != Symbol())
+            continue;
+
+         if(OrderMagicNumber() != MagicNumber)
+            continue;
+
+         int type = OrderType();
+         bool result = false;
+
+         ResetLastError();
+
+         switch(type)
+         {
+            case OP_BUY:
+               result = OrderClose(
+                           OrderTicket(),
+                           OrderLots(),
+                           Bid,
+                           Slippage,
+                           clrRed);
+               break;
+
+            case OP_SELL:
+               result = OrderClose(
+                           OrderTicket(),
+                           OrderLots(),
+                           Ask,
+                           Slippage,
+                           clrBlue);
+               break;
+
+            case OP_BUYSTOP:
+            case OP_SELLSTOP:
+            case OP_BUYLIMIT:
+            case OP_SELLLIMIT:
+               result = OrderDelete(
+                           OrderTicket(),
+                           clrRed);
+               break;
+         }
+
+         if(!result)
+         {
+            int err = GetLastError();
+
+            Print("Failed Ticket ",
+                  OrderTicket(),
+                  " Error=",
+                  err);
+
+            finished = false;
+         }
+      }
+
+      if(!finished)
+      {
+         retries++;
+         Sleep(500);
+      }
+   }
+
+   RefreshRates();
+
+   int remain = 0;
+
+   for(int i = OrdersTotal() - 1; i >= 0; i--)
+   {
+      if(!OrderSelect(i, SELECT_BY_POS, MODE_TRADES))
+         continue;
+
+      if(OrderSymbol() == Symbol() &&
+         OrderMagicNumber() == MagicNumber)
+      {
+         remain++;
+      }
+   }
+
+   Print("----------------------------------------");
+   Print("Remaining EA Orders : ", remain);
+
+   if(remain == 0)
+      Print("ALL EA ORDERS CLOSED SUCCESSFULLY");
+   else
+      Print("WARNING : Some orders could not be closed.");
+   Print("----------------------------------------");
+}
+void CloseAllEAOrdersOnDailyLossold() {
    for(int i = OrdersTotal() - 1; i >= 0; i--) {
       if(!OrderSelect(i, SELECT_BY_POS, MODE_TRADES)) continue;
       if(OrderSymbol() != Symbol() || OrderMagicNumber() != MagicNumber) continue;
@@ -631,7 +819,15 @@ int GetTotalEAOrders() {
       if(!OrderSelect(i, SELECT_BY_POS, MODE_TRADES)) continue;
       if(OrderSymbol() != Symbol() || OrderMagicNumber() != MagicNumber) continue;
       int type = OrderType();
-      if(type == OP_BUY || type == OP_SELL || type == OP_BUYSTOP || type == OP_SELLSTOP) count++;
+     if(type==OP_BUY ||
+   type==OP_SELL ||
+   type==OP_BUYSTOP ||
+   type==OP_SELLSTOP ||
+   type==OP_BUYLIMIT ||
+   type==OP_SELLLIMIT)
+{
+   count++;
+}
    }
    return count;
 }
@@ -973,76 +1169,290 @@ void DrawLiveOrdersTable() {
    if(totalPL < 0) totalColor = clrRed;
    ObjectSetText(prefix + "L" + IntegerToString(row), txt, size, font, totalColor);
 }
-
-void UpdateDashboard(DailyProtectionState &state) {
+void UpdateDashboard(DailyProtectionState &state)
+{
    DrawLiveOrdersTable();
-   
-   int totalOrders = 0, buyOrders = 0, sellOrders = 0, pendingOrders = 0;
-   double floatingProfit = 0, totalSwap = 0, totalCommission = 0;
-   string ordersDetails = "";
-   
-   for(int i = OrdersTotal() - 1; i >= 0; i--) {
-      if(!OrderSelect(i, SELECT_BY_POS, MODE_TRADES)) continue;
-      if(OrderSymbol() != Symbol() || OrderMagicNumber() != MagicNumber) continue;
-      
-      int type = OrderType();
-      if(type != OP_BUY && type != OP_SELL && type != OP_BUYSTOP && type != OP_SELLSTOP) continue;
-      
+
+   int totalOrders=0,buyOrders=0,sellOrders=0,pendingOrders=0;
+   double floatingProfit=0,totalSwap=0,totalCommission=0;
+   string ordersDetails="";
+
+   for(int i=OrdersTotal()-1;i>=0;i--)
+   {
+      if(!OrderSelect(i,SELECT_BY_POS,MODE_TRADES))
+         continue;
+
+      if(OrderSymbol()!=Symbol() ||
+         OrderMagicNumber()!=MagicNumber)
+         continue;
+
+      int type=OrderType();
+
+      if(type!=OP_BUY &&
+         type!=OP_SELL &&
+         type!=OP_BUYSTOP &&
+         type!=OP_SELLSTOP)
+         continue;
+
       totalOrders++;
-      
-      if(type == OP_BUY) { buyOrders++; floatingProfit += OrderProfit(); totalSwap += OrderSwap(); totalCommission += OrderCommission(); }
-      else if(type == OP_SELL) { sellOrders++; floatingProfit += OrderProfit(); totalSwap += OrderSwap(); totalCommission += OrderCommission(); }
-      else if(type == OP_BUYSTOP || type == OP_SELLSTOP) pendingOrders++;
-      
-      string orderType = (type == OP_BUY) ? "BUY" : (type == OP_SELL) ? "SELL" : (type == OP_BUYSTOP) ? "BUY STOP" : "SELL STOP";
-      string orderLine = "#" + IntegerToString(OrderTicket()) + " " + orderType;
-      
-      if(type == OP_BUY || type == OP_SELL) {
-         double orderNetProfit = OrderProfit() + OrderSwap() + OrderCommission();
-         orderLine += " P/L: " + DoubleToString(orderNetProfit, 2);
-      } else {
-         orderLine += " @ " + DoubleToString(OrderOpenPrice(), Digits);
+
+      if(type==OP_BUY)
+      {
+         buyOrders++;
+         floatingProfit+=OrderProfit();
+         totalSwap+=OrderSwap();
+         totalCommission+=OrderCommission();
       }
-      ordersDetails += orderLine + "\n";
+      else if(type==OP_SELL)
+      {
+         sellOrders++;
+         floatingProfit+=OrderProfit();
+         totalSwap+=OrderSwap();
+         totalCommission+=OrderCommission();
+      }
+      else
+      {
+         pendingOrders++;
+      }
+
+      string orderType=
+         (type==OP_BUY)?"BUY":
+         (type==OP_SELL)?"SELL":
+         (type==OP_BUYSTOP)?"BUY STOP":"SELL STOP";
+
+      string line="#"+IntegerToString(OrderTicket())+" "+orderType;
+
+      if(type==OP_BUY || type==OP_SELL)
+      {
+         double p=OrderProfit()+OrderSwap()+OrderCommission();
+         line+=" P/L:"+DoubleToString(p,2);
+      }
+      else
+      {
+         line+=" @"+DoubleToString(OrderOpenPrice(),Digits);
+      }
+
+      ordersDetails+=line+"\n";
    }
-   
-   double netProfit = floatingProfit + totalSwap + totalCommission;
-   color profitColor = (netProfit > 0) ? clrLimeGreen : (netProfit < 0) ? clrTomato : clrWhite;
-   
-   int x = DashboardRightGap, y = DashboardTopGap;
-   
-   CreateDashboardPanel(DASH_PREFIX + "PANEL", x, y, DashboardWidth, DashboardHeight, clrBlack);
-   CreateDashboardPanel(DASH_PREFIX + "HEADER", x, y, DashboardWidth, 35, C'30,60,100');
-   
-   int textX = x + DashboardWidth - 300;
-   
-   CreateDashboardLabel(DASH_PREFIX + "TITLE", "SSL CHANNEL CROSS EA", textX, y + 8, 11, clrWhite);
-   
-   string statusText = IsDailyTradingStopped(state) ? "DAILY PROTECTION STOPPED" :
-                       (state.ClosedOrdersToday < MinimumClosedOrdersForDailyProtection) ? "WAITING FOR ORDERS" :
-                       (totalOrders >= MaxOpenOrders) ? "MAX ORDERS REACHED" : "READY FOR SIGNAL";
-   
-   color statusColor = IsDailyTradingStopped(state) ? clrTomato : (state.ClosedOrdersToday < MinimumClosedOrdersForDailyProtection) ? clrGold : clrLimeGreen;
-   
-   CreateDashboardLabel(DASH_PREFIX + "STATUS", statusText, textX, y + 50, DashboardFontSize, statusColor);
-   CreateDashboardLabel(DASH_PREFIX + "SYMBOL", "Symbol: " + Symbol(), textX, y + 72, DashboardFontSize, clrWhite);
-   CreateDashboardLabel(DASH_PREFIX + "TIMEFRAME", "Timeframe: " + TimeframeToString(Period()), textX, y + 94, DashboardFontSize, clrWhite);
-   CreateDashboardLabel(DASH_PREFIX + "PNL", "LIVE P/L: " + DoubleToString(netProfit, 2), textX, y + 142, 13, profitColor);
-   CreateDashboardLabel(DASH_PREFIX + "ORDERS", "Orders: " + IntegerToString(totalOrders) + "/" + IntegerToString(MaxOpenOrders), textX, y + 174, DashboardFontSize, clrWhite);
-   CreateDashboardLabel(DASH_PREFIX + "BUY", "BUY: " + IntegerToString(buyOrders), textX, y + 196, DashboardFontSize, clrDeepSkyBlue);
-   CreateDashboardLabel(DASH_PREFIX + "SELL", "SELL: " + IntegerToString(sellOrders), textX - 90, y + 196, DashboardFontSize, clrTomato);
-   CreateDashboardLabel(DASH_PREFIX + "PENDING", "Pending: " + IntegerToString(pendingOrders), textX - 180, y + 196, DashboardFontSize, clrGold);
-   CreateDashboardLabel(DASH_PREFIX + "EQUITY", "Equity: $" + DoubleToString(AccountEquity(), 2), textX, y + 230, DashboardFontSize, clrLime);
-   CreateDashboardLabel(DASH_PREFIX + "LADDER", "L1: $" + DoubleToString(Ladder1ProfitUSD, 2) + " | L2: $" + DoubleToString(Ladder2ProfitUSD, 2), textX, y + 272, DashboardFontSize, clrLimeGreen);
-   
-   if(EnableDailyLossProtection) {
-      CreateDashboardLabel(DASH_PREFIX + "CLOSED_TODAY", "Closed: " + IntegerToString(state.ClosedOrdersToday) + "/" + IntegerToString(MinimumClosedOrdersForDailyProtection),
-                          textX, y + 338, DashboardFontSize, (state.ClosedOrdersToday >= MinimumClosedOrdersForDailyProtection) ? clrLimeGreen : clrGold);
-      CreateDashboardLabel(DASH_PREFIX + "PROTECTED", "Protected: $" + DoubleToString(state.DayProtectedBalance, 2), textX, y + 400, DashboardFontSize, clrGold);
+
+   double netProfit=floatingProfit+totalSwap+totalCommission;
+
+   color pnlColor=
+      netProfit>0 ? clrLime :
+      netProfit<0 ? clrTomato :
+      clrWhite;
+
+   //---------------------------------
+   // LIVE STATUS
+   //---------------------------------
+
+   string liveStatus="WAITING SIGNAL";
+   color liveColor=clrLime;
+
+   if(IsDailyTradingStopped(state))
+   {
+      liveStatus="TRADING STOPPED";
+      liveColor=clrRed;
    }
-   
-   CreateDashboardLabel(DASH_PREFIX + "DETAIL_TITLE", "LIVE ORDERS LOT: " + DoubleToString(Lots, 2), textX, y + 422, DashboardFontSize, clrGold);
-   CreateDashboardLabel(DASH_PREFIX + "DETAILS", totalOrders > 0 ? ordersDetails : "No active orders", textX, y + 442, DashboardFontSize, totalOrders > 0 ? clrWhite : clrSilver);
+   else if(RecoveryMode)
+   {
+      liveStatus="RECOVERY MODE";
+      liveColor=clrOrange;
+   }
+   else if(GetTotalEAOrders()>=MaxOpenOrders)
+   {
+      liveStatus="MAX ORDERS";
+      liveColor=clrTomato;
+   }
+   else if(buyOrders>0 && sellOrders==0)
+   {
+      liveStatus="BUY RUNNING";
+      liveColor=clrDeepSkyBlue;
+   }
+   else if(sellOrders>0 && buyOrders==0)
+   {
+      liveStatus="SELL RUNNING";
+      liveColor=clrTomato;
+   }
+   else if(buyOrders>0 && sellOrders>0)
+   {
+      liveStatus="BUY + SELL";
+      liveColor=clrGold;
+   }
+
+   //---------------------------------
+
+   string statusText=
+      IsDailyTradingStopped(state)?
+      "DAILY PROTECTION STOPPED":
+      (state.ClosedOrdersToday<MinimumClosedOrdersForDailyProtection)?
+      "WAITING FOR ORDERS":
+      (totalOrders>=MaxOpenOrders)?
+      "MAX ORDERS REACHED":
+      "READY FOR SIGNAL";
+
+   color statusColor=
+      IsDailyTradingStopped(state)?
+      clrTomato:
+      (state.ClosedOrdersToday<MinimumClosedOrdersForDailyProtection)?
+      clrGold:
+      clrLimeGreen;
+
+   int x=DashboardRightGap;
+   int y=DashboardTopGap;
+   int textX=x+DashboardWidth-300;
+
+   CreateDashboardPanel(DASH_PREFIX+"PANEL",
+                        x,y,
+                        DashboardWidth,
+                        DashboardHeight,
+                        clrBlack);
+
+   CreateDashboardPanel(DASH_PREFIX+"HEADER",
+                        x,y,
+                        DashboardWidth,
+                        35,
+                        C'30,60,100');
+
+   CreateDashboardLabel(DASH_PREFIX+"TITLE",
+                        "SSL CHANNEL CROSS EA",
+                        textX,
+                        y+8,
+                        11,
+                        clrWhite);
+
+   CreateDashboardLabel(DASH_PREFIX+"STATUS",
+                        statusText,
+                        textX,
+                        y+50,
+                        DashboardFontSize,
+                        statusColor);
+
+   CreateDashboardLabel(DASH_PREFIX+"LIVESTATUS",
+                        "Live Status : "+liveStatus,
+                        textX,
+                        y+70,
+                        DashboardFontSize,
+                        liveColor);
+
+   CreateDashboardLabel(DASH_PREFIX+"SYMBOL",
+                        "Symbol : "+Symbol(),
+                        textX,
+                        y+92,
+                        DashboardFontSize,
+                        clrWhite);
+
+   CreateDashboardLabel(DASH_PREFIX+"TIMEFRAME",
+                        "Timeframe : "+TimeframeToString(Period()),
+                        textX,
+                        y+114,
+                        DashboardFontSize,
+                        clrWhite);
+
+   CreateDashboardLabel(DASH_PREFIX+"PNL",
+                        "Floating P/L : $"+DoubleToString(netProfit,2),
+                        textX,
+                        y+138,
+                        12,
+                        pnlColor);
+
+   CreateDashboardLabel(DASH_PREFIX+"EQUITY",
+                        "Equity : $"+DoubleToString(AccountEquity(),2),
+                        textX,
+                        y+160,
+                        DashboardFontSize,
+                        clrLime);
+
+   CreateDashboardLabel(DASH_PREFIX+"OPENBAL",
+                        "Opening Balance : $"+DoubleToString(state.DayStartBalance,2),
+                        textX,
+                        y+182,
+                        DashboardFontSize,
+                        clrAqua);
+
+   CreateDashboardLabel(DASH_PREFIX+"ORDERS",
+                        "Orders : "+
+                        IntegerToString(totalOrders)+"/"+
+                        IntegerToString(MaxOpenOrders),
+                        textX,
+                        y+204,
+                        DashboardFontSize,
+                        clrWhite);
+
+   CreateDashboardLabel(DASH_PREFIX+"BUY",
+                        "BUY : "+IntegerToString(buyOrders),
+                        textX,
+                        y+226,
+                        DashboardFontSize,
+                        clrDeepSkyBlue);
+
+   CreateDashboardLabel(DASH_PREFIX+"SELL",
+                        "SELL : "+IntegerToString(sellOrders),
+                        textX+90,
+                        y+226,
+                        DashboardFontSize,
+                        clrTomato);
+
+   CreateDashboardLabel(DASH_PREFIX+"PENDING",
+                        "Pending : "+IntegerToString(pendingOrders),
+                        textX,
+                        y+248,
+                        DashboardFontSize,
+                        clrGold);
+
+   CreateDashboardLabel(DASH_PREFIX+"LOT",
+                        "Current Lot : "+DoubleToString(Lots,2),
+                        textX,
+                        y+270,
+                        DashboardFontSize,
+                        clrAqua);
+
+   CreateDashboardLabel(DASH_PREFIX+"LADDER",
+                        "L1:$"+DoubleToString(Ladder1ProfitUSD,2)+
+                        "  L2:$"+DoubleToString(Ladder2ProfitUSD,2),
+                        textX,
+                        y+292,
+                        DashboardFontSize,
+                        clrLimeGreen);
+
+   if(EnableDailyLossProtection)
+   {
+      CreateDashboardLabel(
+         DASH_PREFIX+"CLOSED",
+         "Closed Today : "+
+         IntegerToString(state.ClosedOrdersToday)+"/"+
+         IntegerToString(MinimumClosedOrdersForDailyProtection),
+         textX,
+         y+330,
+         DashboardFontSize,
+         state.ClosedOrdersToday>=MinimumClosedOrdersForDailyProtection ?
+         clrLime : clrGold);
+
+      CreateDashboardLabel(
+         DASH_PREFIX+"PROTECTED",
+         "Protected : $"+
+         DoubleToString(state.DayProtectedBalance,2),
+         textX,
+         y+352,
+         DashboardFontSize,
+         clrGold);
+   }
+
+   CreateDashboardLabel(
+      DASH_PREFIX+"DETAILTITLE",
+      "LIVE ORDERS",
+      textX,
+      y+390,
+      DashboardFontSize,
+      clrYellow);
+
+   CreateDashboardLabel(
+      DASH_PREFIX+"DETAILS",
+      totalOrders>0 ? ordersDetails : "No active orders",
+      textX,
+      y+412,
+      DashboardFontSize,
+      totalOrders>0 ? clrWhite : clrSilver);
 }
 
 void DeleteOurObjects() {
