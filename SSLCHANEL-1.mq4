@@ -39,6 +39,10 @@ double DailyEquityTargetPercent = 10;//Trading continue with 10% profit reccurin
 double DailyLossProtectionPercent = 30.0;// Trading stops if equity drops below this percentage of the starting balance for the day
 bool EnableDynamicEquityLadder = true;////Trading continue with 10% profit reccuring 
 double EquityLadderLossPercentAfterstep1=5;//
+
+
+
+
 double OriginalDailyLossProtectionPercent = 30.0;
 
 double EquityLockPercent = 80;
