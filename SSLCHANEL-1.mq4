@@ -26,7 +26,6 @@ double RecoveryTriggerLossUSD = -2.0;
 double RecoveryLotMultiplier = 1;
 int MaxRecoveryOrders = 1;
 double RecoveryBasketProfitUSD = 0.50;
-double DailyLossProtectionPercent = 50.0;
 bool EnableDailyLossProtection = true;
 bool ResetDailyProtectionEveryDay = true;
 bool CloseOpenOrdersOnDailyLoss = true;
@@ -34,11 +33,17 @@ int MinimumClosedOrdersForDailyProtection =1;// 100;
 bool EnableDailyEquityTarget = true;
 bool CloseOrdersOnDailyEquityTarget = true;
 bool EnableEquityLadder = true;
-double DailyEquityTargetPercent = 1;
+
+
+double DailyEquityTargetPercent = 10;//Trading continue with 10% profit reccuring 
+double DailyLossProtectionPercent = 30.0;// Trading stops if equity drops below this percentage of the starting balance for the day
+bool EnableDynamicEquityLadder = true;////Trading continue with 10% profit reccuring 
+double EquityLadderLossPercentAfterstep1=5;//
+double OriginalDailyLossProtectionPercent = 30.0;
+
 double EquityLockPercent = 80;
 bool ContinueTradingAfterTarget = true;
 bool ResetLadderEveryDay = true;
-bool EnableDynamicEquityLadder = true;
 int EquityLadderLevel = 1;
 double NextEquityTarget = 0;
 double LockedEquity = 0;
@@ -132,6 +137,8 @@ int OnInit() {
    OriginalLots = Lots;
    OriginalLadder1ProfitUSD = Ladder1ProfitUSD;
    OriginalLadder2ProfitUSD = Ladder2ProfitUSD;
+
+   OriginalDailyLossProtectionPercent = DailyLossProtectionPercent;
    
    Print("========== SSL CHANNEL CROSS EA - FIXED VERSION ==========");
    Print("Symbol: ", Symbol(), " | Timeframe: ", TimeframeToString(Period()), " | SSL Period: ", SSLPeriod);
@@ -386,6 +393,16 @@ if(GetTotalEAOrders()>0)
    // EquityLadderLevel++;
    InitializeEquityLadder(state);
 
+   // After first successful equity cycle,
+// tighten the daily loss protection
+// if(EquityLadderLevel == 1)
+{
+   DailyLossProtectionPercent =EquityLadderLossPercentAfterstep1;// 5.0;
+   Print("Daily Loss Protection switched to 5%");
+}
+
+// EquityLadderLevel++;
+
    NextEquityTarget =
       state.DayStartBalance *
       (1.0 + DailyEquityTargetPercent/100.0);
@@ -396,6 +413,7 @@ if(GetTotalEAOrders()>0)
    Print("Next Target : ",
          DoubleToString(NextEquityTarget,2));
 }
+/*
 void CheckDynamicEquityLadderold(DailyProtectionState &state) {
    if(!EnableDynamicEquityLadder || state.TradingStopped || state.ClosedOrdersToday < MinimumClosedOrdersForDailyProtection) return;
    
@@ -444,6 +462,7 @@ void CheckDynamicEquityLadderold(DailyProtectionState &state) {
       if(CloseOrdersOnDailyEquityTarget) CloseAllEAOrdersOnDailyLoss();
    }
 }
+   */
 
 void UpdateDailyLossProtection(DailyProtectionState &state) {
    if(!EnableDailyLossProtection) return;
@@ -458,6 +477,8 @@ void UpdateDailyLossProtection(DailyProtectionState &state) {
       state.DayProtectedBalance = state.DayStartBalance;
       state.ClosedOrdersToday = 0;
       state.TradingStopped = false;
+          DailyLossProtectionPercent = OriginalDailyLossProtectionPercent;
+
       
       DailyProtectionStartTime = TimeCurrent();
       Lots = OriginalLots;
@@ -1363,47 +1384,117 @@ void UpdateDashboard(DailyProtectionState &state)
                         DashboardFontSize,
                         clrLime);
 
-   CreateDashboardLabel(DASH_PREFIX+"OPENBAL",
-                        "Opening Balance : $"+DoubleToString(state.DayStartBalance,2),
-                        textX,
-                        y+182,
-                        DashboardFontSize,
-                        clrAqua);
+  CreateDashboardLabel(DASH_PREFIX+"OPENBAL",
+                     "Opening Balance : $"+DoubleToString(state.DayStartBalance,2),
+                     textX,
+                     y+182,
+                     DashboardFontSize,
+                     clrAqua);
+
+
+// ================================
+// EQUITY LADDER INFORMATION
+// ================================
+
+CreateDashboardLabel(
+                     DASH_PREFIX+"LADDERLEVEL",
+                     "Equity Ladder Step : "+
+                     IntegerToString(EquityLadderLevel),
+                     textX,
+                     y+204,
+                     DashboardFontSize,
+                     clrYellow);
+
+
+CreateDashboardLabel(
+                     DASH_PREFIX+"LADDERSTART",
+                     "Ladder Start Balance : $"+
+                     DoubleToString(state.DayStartBalance,2),
+                     textX,
+                     y+226,
+                     DashboardFontSize,
+                     clrAqua);
+
+
+CreateDashboardLabel(
+                     DASH_PREFIX+"LOCKEDEQUITY",
+                     "Protected Equity : $"+
+                     DoubleToString(LockedEquity,2),
+                     textX,
+                     y+248,
+                     DashboardFontSize,
+                     clrGold);
+
+
+CreateDashboardLabel(
+                     DASH_PREFIX+"NEXTTARGET",
+                     "Next Equity Target : $"+
+                     DoubleToString(NextEquityTarget,2),
+                     textX,
+                     y+270,
+                     DashboardFontSize,
+                     clrLime);
+
+
+double ladderProgress=0;
+
+if(NextEquityTarget > state.DayStartBalance)
+{
+   ladderProgress =
+   ((AccountEquity()-state.DayStartBalance) /
+   (NextEquityTarget-state.DayStartBalance))*100;
+
+   if(ladderProgress < 0)
+      ladderProgress=0;
+}
+
+
+CreateDashboardLabel(
+                     DASH_PREFIX+"TARGETPROGRESS",
+                     "Target Progress : "+
+                     DoubleToString(ladderProgress,1)+"%",
+                     textX,
+                     y+292,
+                     DashboardFontSize,
+                     clrWhite);
+
+
+ 
 
    CreateDashboardLabel(DASH_PREFIX+"ORDERS",
                         "Orders : "+
                         IntegerToString(totalOrders)+"/"+
                         IntegerToString(MaxOpenOrders),
                         textX,
-                        y+204,
+                        y+310,
                         DashboardFontSize,
                         clrWhite);
 
    CreateDashboardLabel(DASH_PREFIX+"BUY",
                         "BUY : "+IntegerToString(buyOrders),
                         textX,
-                        y+226,
+                        y+332,
                         DashboardFontSize,
                         clrDeepSkyBlue);
 
    CreateDashboardLabel(DASH_PREFIX+"SELL",
                         "SELL : "+IntegerToString(sellOrders),
                         textX+90,
-                        y+226,
+                        y+354,
                         DashboardFontSize,
                         clrTomato);
 
    CreateDashboardLabel(DASH_PREFIX+"PENDING",
                         "Pending : "+IntegerToString(pendingOrders),
                         textX,
-                        y+248,
+                        y+376,
                         DashboardFontSize,
                         clrGold);
 
    CreateDashboardLabel(DASH_PREFIX+"LOT",
                         "Current Lot : "+DoubleToString(Lots,2),
                         textX,
-                        y+270,
+                        y+398,
                         DashboardFontSize,
                         clrAqua);
 
@@ -1411,7 +1502,7 @@ void UpdateDashboard(DailyProtectionState &state)
                         "L1:$"+DoubleToString(Ladder1ProfitUSD,2)+
                         "  L2:$"+DoubleToString(Ladder2ProfitUSD,2),
                         textX,
-                        y+292,
+                        y+410,
                         DashboardFontSize,
                         clrLimeGreen);
 
@@ -1423,7 +1514,7 @@ void UpdateDashboard(DailyProtectionState &state)
          IntegerToString(state.ClosedOrdersToday)+"/"+
          IntegerToString(MinimumClosedOrdersForDailyProtection),
          textX,
-         y+330,
+         y+420,
          DashboardFontSize,
          state.ClosedOrdersToday>=MinimumClosedOrdersForDailyProtection ?
          clrLime : clrGold);
@@ -1433,7 +1524,7 @@ void UpdateDashboard(DailyProtectionState &state)
          "Protected : $"+
          DoubleToString(state.DayProtectedBalance,2),
          textX,
-         y+352,
+         y+440,
          DashboardFontSize,
          clrGold);
    }
@@ -1442,7 +1533,7 @@ void UpdateDashboard(DailyProtectionState &state)
       DASH_PREFIX+"DETAILTITLE",
       "LIVE ORDERS",
       textX,
-      y+390,
+      y+460,
       DashboardFontSize,
       clrYellow);
 
@@ -1450,7 +1541,7 @@ void UpdateDashboard(DailyProtectionState &state)
       DASH_PREFIX+"DETAILS",
       totalOrders>0 ? ordersDetails : "No active orders",
       textX,
-      y+412,
+      y+480,
       DashboardFontSize,
       totalOrders>0 ? clrWhite : clrSilver);
 }
