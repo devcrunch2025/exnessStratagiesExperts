@@ -36,7 +36,7 @@ bool EnableEquityLadder = true;
 
 
 double DailyEquityTargetPercent = 5;//10;//Trading continue with 10% profit reccuring 
-double DailyLossProtectionPercent = 30.0;// Trading stops if equity drops below this percentage of the starting balance for the day
+double DailyLossProtectionPercent =50;// 30.0;// Trading stops if equity drops below this percentage of the starting balance for the day
 bool EnableDynamicEquityLadder = true;////Trading continue with 10% profit reccuring 
 double EquityLadderLossPercentAfterstep1=50;//5;//
 
@@ -254,10 +254,10 @@ void CheckRecoveryOrders() {
       
       double lots = NormalizeDouble(OrderLots() * RecoveryLotMultiplier, 2);
       if(OrderType() == OP_BUY) {
-         if(!HasMinimumSameOrderGap(OP_BUY)) continue;
+         // if(!HasMinimumSameOrderGap(OP_BUY)) continue;
          OrderSend(Symbol(), OP_BUY, lots, Ask, Slippage, 0, 0, "RECOVERY_" + IntegerToString(OrderTicket()), MagicNumber, 0, clrAqua);
       } else {
-         if(!HasMinimumSameOrderGap(OP_SELL)) continue;
+         // if(!HasMinimumSameOrderGap(OP_SELL)) continue;
          OrderSend(Symbol(), OP_SELL, lots, Bid, Slippage, 0, 0, "RECOVERY_" + IntegerToString(OrderTicket()), MagicNumber, 0, clrOrange);
       }
    }
