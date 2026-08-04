@@ -35,10 +35,10 @@ bool CloseOrdersOnDailyEquityTarget = true;
 bool EnableEquityLadder = true;
 
 
-double DailyEquityTargetPercent = 5;//10;//Trading continue with 10% profit reccuring 
+double DailyEquityTargetPercent = 3;//10;//Trading continue with 10% profit reccuring 
 double DailyLossProtectionPercent =50;// 30.0;// Trading stops if equity drops below this percentage of the starting balance for the day
 bool EnableDynamicEquityLadder = true;////Trading continue with 10% profit reccuring 
-double EquityLadderLossPercentAfterstep1=50;//5;//
+double EquityLadderLossPercentAfterstep1=10;//50;//50% of ladder protection
 
 
 
