@@ -26,7 +26,7 @@ double Ladder2ProfitUSD = 0.20;
 double GlbFinalPL = 0, OriginalLots = 0.01, OriginalLadder1ProfitUSD = 0.05, OriginalLadder2ProfitUSD = 0.20;
     double  OriginalLadder1StopMaxPriceUSD=0.20;
 
-
+double OriginalStopLossUSD=50;
 double StopLossUSD = 50;
 
 bool EnableRecoveryOrders = true;
@@ -186,10 +186,13 @@ int OnInit() {
    OriginalLadder2ProfitUSD = Ladder2ProfitUSD;
    OriginalLadder1StopMaxPriceUSD = Ladder1StopMaxPriceUSD;
    OriginalDailyLossProtectionPercent = DailyLossProtectionPercent;
+
 OriginalDailyEquityTargetPercent = DailyEquityTargetPercent;
 
 OriginalDailyEquityTargetPercent = DailyEquityTargetPercent;
 CurrentDynamicTargetPercent = DailyEquityTargetPercent;
+
+OriginalStopLossUSD = StopLossUSD;
 
    Print("========== SSL CHANNEL CROSS EA - FIXED VERSION ==========");
    Print("Symbol: ", Symbol(), " | Timeframe: ", TimeframeToString(Period()), " | SSL Period: ", SSLPeriod);
@@ -351,12 +354,15 @@ void CheckHighestProfitOrderForLadder()
       if(highestLot > 0.01)
       {
          Ladder1ProfitUSD = 0.01;
+            StopLossUSD=2;
 
          Print("Ladder1 Changed -> $0.01 because Lot > 0.01");
       }
       else
       {
          Ladder1ProfitUSD = OriginalLadder1ProfitUSD;
+            StopLossUSD=OriginalStopLossUSD;
+
 
          Print("Ladder1 Reset -> Original Value");
       }
@@ -365,7 +371,7 @@ void CheckHighestProfitOrderForLadder()
 //0.03
 void ChangeLots(double OpenPL,string reason) {
    // int Multiplier = 1;//(OpenPL < -10) ? 2 : (OpenPL < -2) ? 2 : 1;
-   int Multiplier = (OpenPL < -10) ? 2 : (OpenPL < -5) ? 2 : 1;
+   int Multiplier = (OpenPL < -10) ? 3 : (OpenPL < -2) ? 2 : 1;
 
 
    // int Multiplier1 = 1;
@@ -375,6 +381,14 @@ if(reason=="SSL Long" || reason=="SSL Short")
    Multiplier=3;
    //   Multiplier1 = 3;
 
+   StopLossUSD=2;
+
+   
+
+}
+else
+{
+   StopLossUSD=OriginalStopLossUSD;
 }
 
  Lots = OriginalLots * Multiplier;
