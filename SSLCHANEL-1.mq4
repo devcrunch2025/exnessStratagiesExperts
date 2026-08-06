@@ -43,10 +43,10 @@ bool CloseOrdersOnDailyEquityTarget = true;
 bool EnableEquityLadder = true;
 
 
-double DailyEquityTargetPercent =5;// 10;//2;//3;//1;//3;//10;//Trading continue with 10% profit reccuring 
+double DailyEquityTargetPercent =10;//5;// 10;//2;//3;//1;//3;//10;//Trading continue with 10% profit reccuring 
 double DailyLossProtectionPercent =100;//50;// 30.0;// Trading stops if equity drops below this percentage of the starting balance for the day
 bool EnableDynamicEquityLadder = true;////Trading continue with 10% profit reccuring 
-double EquityLadderLossPercentAfterstep1=50;//10;//50;//50% of ladder protection
+double EquityLadderLossPercentAfterstep1=80;//50;//10;//50;//50% of ladder protection
 
 double OriginalDailyEquityTargetPercent = 5.0;
 double CurrentDynamicTargetPercent = 5.0;
@@ -365,7 +365,7 @@ void CheckHighestProfitOrderForLadder()
 //0.03
 void ChangeLots(double OpenPL,string reason) {
    // int Multiplier = 1;//(OpenPL < -10) ? 2 : (OpenPL < -2) ? 2 : 1;
-   int Multiplier = (OpenPL < -10) ? 2 : (OpenPL < -2) ? 2 : 1;
+   int Multiplier = (OpenPL < -10) ? 2 : (OpenPL < -5) ? 2 : 1;
 
 
    // int Multiplier1 = 1;
