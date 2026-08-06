@@ -250,7 +250,7 @@ void OnTick() {
    ProcessStartupSignal(dailyState);
    UpdateDailyLossProtection(dailyState);
    UpdateDynamicEquityTarget(dailyState);
-
+CheckHighestProfitOrderForLadder();
    CheckDynamicEquityLadder(dailyState);
    if(ShowSSLLines) UpdateSSLChannelOnTick();
    if(Bars >= SSLPeriod + 20 && EAOrders > 0) CheckForProfitableClosedOrder(dailyState);
@@ -309,6 +309,59 @@ double GetOpenPL(int OrderTypeFilter) {
    }
    return OpenPL;
 }
+//+------------------------------------------------------------------+
+// Find highest profit order and adjust Ladder1
+//+------------------------------------------------------------------+
+void CheckHighestProfitOrderForLadder()
+{
+   double highestPL = -999999;
+   double highestLot = 0;
+   int highestTicket = -1;
+
+   for(int i = OrdersTotal()-1; i >= 0; i--)
+   {
+      if(!OrderSelect(i, SELECT_BY_POS, MODE_TRADES))
+         continue;
+
+      if(OrderSymbol() != Symbol() || OrderMagicNumber() != MagicNumber)
+         continue;
+
+      if(OrderType() != OP_BUY && OrderType() != OP_SELL)
+         continue;
+
+      double pl = OrderProfit() + OrderSwap() + OrderCommission();
+
+      if(pl > highestPL)
+      {
+         highestPL = pl;
+         highestLot = OrderLots();
+         highestTicket = OrderTicket();
+      }
+   }
+
+
+   if(highestTicket > 0)
+   {
+      Print("Highest P/L Order | Ticket: ", highestTicket,
+            " | Lot: ", DoubleToString(highestLot,2),
+            " | P/L: $", DoubleToString(highestPL,2));
+
+
+      // If highest lot is greater than 0.01
+      if(highestLot > 0.01)
+      {
+         Ladder1ProfitUSD = 0.01;
+
+         Print("Ladder1 Changed -> $0.01 because Lot > 0.01");
+      }
+      else
+      {
+         Ladder1ProfitUSD = OriginalLadder1ProfitUSD;
+
+         Print("Ladder1 Reset -> Original Value");
+      }
+   }
+}
 //0.03
 void ChangeLots(double OpenPL,string reason) {
    // int Multiplier = 1;//(OpenPL < -10) ? 2 : (OpenPL < -2) ? 2 : 1;
@@ -329,12 +382,12 @@ if(reason=="SSL Long" || reason=="SSL Short")
    Ladder2ProfitUSD = OriginalLadder2ProfitUSD * Multiplier;
 Ladder1StopMaxPriceUSD=OriginalLadder1StopMaxPriceUSD*Multiplier;
 
-// if(OpenPL<-1)
-// {
+if(Multiplier>1)
+{
       
-//    Ladder1ProfitUSD = 0.01;//OriginalLadder1ProfitUSD * Multiplier1;
+   Ladder1ProfitUSD = 0.01;//OriginalLadder1ProfitUSD * Multiplier;
    
-// }
+}
  
 
     
