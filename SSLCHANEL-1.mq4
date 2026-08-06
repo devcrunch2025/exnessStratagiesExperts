@@ -16,11 +16,19 @@ double MinimumClosedProfitUSD = -9;
 double ProfitReEntryGapRaw = 20;
 double MinimumSameOrderGapRaw = 50;
 bool EnableProfitLadder1 = true;
+
+
 double Ladder1ProfitUSD = 0.05;
 bool EnableProfitLadder2 = true;
 double Ladder1StopMaxPriceUSD = 0.20;
 double Ladder2ProfitUSD = 0.20;
+
+double GlbFinalPL = 0, OriginalLots = 0.01, OriginalLadder1ProfitUSD = 0.05, OriginalLadder2ProfitUSD = 0.20;
+    double  OriginalLadder1StopMaxPriceUSD=0.20;
+
+
 double StopLossUSD = 50;
+
 bool EnableRecoveryOrders = true;
 double RecoveryTriggerLossUSD = -2.0;
 double RecoveryLotMultiplier = 1;
@@ -87,7 +95,8 @@ datetime LastProcessedBar = 0, LastProcessedClosedOrderTime = 0, DailyProtection
 int LastProcessedClosedTicket = -1, RecoveryOrders = 0;
 bool StartupSignalProcessed = false, RecoveryMode = false, BasketTrailingArmed = false;
 bool ProfitLadder1Triggered = false, ProfitLadder2Triggered = false;
-double GlbFinalPL = 0, OriginalLots = 0.01, OriginalLadder1ProfitUSD = 0.05, OriginalLadder2ProfitUSD = 0.20;
+
+
 double CurrentMultiplier = 1.0, BasketHighestProfit = 0.0, BasketTrailingStop = 0.0, DynamicBasketHighestProfit = 0.0;
 
 //+------------------------------------------------------------------+
@@ -175,7 +184,7 @@ int OnInit() {
    OriginalLots = Lots;
    OriginalLadder1ProfitUSD = Ladder1ProfitUSD;
    OriginalLadder2ProfitUSD = Ladder2ProfitUSD;
-
+   OriginalLadder1StopMaxPriceUSD = Ladder1StopMaxPriceUSD;
    OriginalDailyLossProtectionPercent = DailyLossProtectionPercent;
 OriginalDailyEquityTargetPercent = DailyEquityTargetPercent;
 
@@ -220,6 +229,18 @@ bool IsOneCandleOrderAllowed()
 void OnDeinit(const int reason) { DeleteOurObjects(); DeleteDashboardObjects(); }
 
 void OnTick() {
+
+
+//    if(GetOpenPL(OP_BUY)<-1 || GetOpenPL(OP_SELL) < -1)
+// {
+      
+//    Ladder1ProfitUSD = 0.01;//OriginalLadder1ProfitUSD * Multiplier1;
+   
+// }
+// else
+// {
+//    Ladder1ProfitUSD = OriginalLadder1ProfitUSD;
+// }
    static DailyProtectionState dailyState;
    
    CheckRecoveryOrders();
@@ -290,16 +311,34 @@ double GetOpenPL(int OrderTypeFilter) {
 }
 //0.03
 void ChangeLots(double OpenPL,string reason) {
-   int Multiplier = 1;//(OpenPL < -10) ? 2 : (OpenPL < -2) ? 2 : 1;
+   // int Multiplier = 1;//(OpenPL < -10) ? 2 : (OpenPL < -2) ? 2 : 1;
+   int Multiplier = (OpenPL < -10) ? 2 : (OpenPL < -2) ? 2 : 1;
+
+
+   // int Multiplier1 = 1;
 
 if(reason=="SSL Long" || reason=="SSL Short")
 {
    Multiplier=3;
+   //   Multiplier1 = 3;
+
 }
 
-   Lots = OriginalLots * Multiplier;
+ Lots = OriginalLots * Multiplier;
    Ladder1ProfitUSD = OriginalLadder1ProfitUSD * Multiplier;
    Ladder2ProfitUSD = OriginalLadder2ProfitUSD * Multiplier;
+Ladder1StopMaxPriceUSD=OriginalLadder1StopMaxPriceUSD*Multiplier;
+
+// if(OpenPL<-1)
+// {
+      
+//    Ladder1ProfitUSD = 0.01;//OriginalLadder1ProfitUSD * Multiplier1;
+   
+// }
+ 
+
+    
+
 }
 
 void CheckRecoveryOrders() {
@@ -549,6 +588,7 @@ if(GetTotalEAOrders()>0)
 
    Ladder1ProfitUSD = OriginalLadder1ProfitUSD;
    Ladder2ProfitUSD = OriginalLadder2ProfitUSD;
+   Ladder1StopMaxPriceUSD=OriginalLadder1StopMaxPriceUSD;
 
    ProfitLadder1Triggered = false;
    ProfitLadder2Triggered = false;
@@ -702,6 +742,7 @@ void UpdateDailyLossProtection(DailyProtectionState &state) {
       Lots = OriginalLots;
       Ladder1ProfitUSD = OriginalLadder1ProfitUSD;
       Ladder2ProfitUSD = OriginalLadder2ProfitUSD;
+      Ladder1StopMaxPriceUSD=OriginalLadder1StopMaxPriceUSD;
       
       InitializeEquityLadder(state);
       EquityLadderLevel = 1;
