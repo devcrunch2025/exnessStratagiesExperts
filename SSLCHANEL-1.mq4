@@ -20,8 +20,8 @@ bool EnableProfitLadder1 = true;
 
 double Ladder1ProfitUSD =0.25;//0.50;// 0.05;
 bool EnableProfitLadder2 = true;
-double Ladder1StopMaxPriceUSD = 1;//0.20;
-double Ladder2ProfitUSD = 0.20;
+double Ladder1StopMaxPriceUSD = 0.50;//0.20;
+double Ladder2ProfitUSD = 0.10;
 
 double GlbFinalPL = 0, OriginalLots = 0.01, OriginalLadder1ProfitUSD = 0.05, OriginalLadder2ProfitUSD = 0.20;
     double  OriginalLadder1StopMaxPriceUSD=0.20;
@@ -46,7 +46,7 @@ bool EnableEquityLadder = true;
 double DailyEquityTargetPercent =5;//10;//5;// 10;//2;//3;//1;//3;//10;//Trading continue with 10% profit reccuring 
 double DailyLossProtectionPercent =100;//50;// 30.0;// Trading stops if equity drops below this percentage of the starting balance for the day
 bool EnableDynamicEquityLadder = true;////Trading continue with 10% profit reccuring 
-double EquityLadderLossPercentAfterstep1=80;//50;//10;//50;//50% of ladder protection
+double EquityLadderLossPercentAfterstep1=30;//80;//can loss upto 30% after step 1 profit is reached 
 
 double OriginalDailyEquityTargetPercent = 5.0;
 double CurrentDynamicTargetPercent = 5.0;
