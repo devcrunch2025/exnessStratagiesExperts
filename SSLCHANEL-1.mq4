@@ -18,6 +18,7 @@ double MinimumSameOrderGapRaw = 50;
 bool EnableProfitLadder1 = true;
 
 
+
 double Ladder1ProfitUSD =0.25;//0.50;// 0.05;
 bool EnableProfitLadder2 = true;
 double Ladder1StopMaxPriceUSD = 0.50;//0.20;
