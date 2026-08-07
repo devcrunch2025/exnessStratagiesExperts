@@ -18,9 +18,9 @@ double MinimumSameOrderGapRaw = 50;
 bool EnableProfitLadder1 = true;
 
 
-double Ladder1ProfitUSD = 0.05;
+double Ladder1ProfitUSD =0.25;//0.50;// 0.05;
 bool EnableProfitLadder2 = true;
-double Ladder1StopMaxPriceUSD = 0.20;
+double Ladder1StopMaxPriceUSD = 1;//0.20;
 double Ladder2ProfitUSD = 0.20;
 
 double GlbFinalPL = 0, OriginalLots = 0.01, OriginalLadder1ProfitUSD = 0.05, OriginalLadder2ProfitUSD = 0.20;
@@ -43,7 +43,7 @@ bool CloseOrdersOnDailyEquityTarget = true;
 bool EnableEquityLadder = true;
 
 
-double DailyEquityTargetPercent =10;//5;// 10;//2;//3;//1;//3;//10;//Trading continue with 10% profit reccuring 
+double DailyEquityTargetPercent =5;//10;//5;// 10;//2;//3;//1;//3;//10;//Trading continue with 10% profit reccuring 
 double DailyLossProtectionPercent =100;//50;// 30.0;// Trading stops if equity drops below this percentage of the starting balance for the day
 bool EnableDynamicEquityLadder = true;////Trading continue with 10% profit reccuring 
 double EquityLadderLossPercentAfterstep1=80;//50;//10;//50;//50% of ladder protection
@@ -353,8 +353,8 @@ void CheckHighestProfitOrderForLadder()
       // If highest lot is greater than 0.01
       if(highestLot > 0.01)
       {
-         Ladder1ProfitUSD = 0.01;
-            StopLossUSD=2;
+         // Ladder1ProfitUSD =0.05;// 0.01;//0.03
+            // StopLossUSD=2;
 
          Print("Ladder1 Changed -> $0.01 because Lot > 0.01");
       }
@@ -371,17 +371,17 @@ void CheckHighestProfitOrderForLadder()
 //0.03
 void ChangeLots(double OpenPL,string reason) {
    // int Multiplier = 1;//(OpenPL < -10) ? 2 : (OpenPL < -2) ? 2 : 1;
-   int Multiplier = (OpenPL < -10) ? 3 : (OpenPL < -2) ? 2 : 1;
+   int Multiplier = (OpenPL < -20) ? 5 : (OpenPL < -10) ? 3 : (OpenPL < -5) ? 2 : 1;
 
 
    // int Multiplier1 = 1;
 
-if(reason=="SSL Long" || reason=="SSL Short")
+if((reason=="SSL Long" || reason=="SSL Short" ) && OpenPL<-10)
 {
-   Multiplier=3;
+   Multiplier=5;
    //   Multiplier1 = 3;
 
-   StopLossUSD=2;
+   // StopLossUSD=2;
 
    
 
@@ -396,12 +396,12 @@ else
    Ladder2ProfitUSD = OriginalLadder2ProfitUSD * Multiplier;
 Ladder1StopMaxPriceUSD=OriginalLadder1StopMaxPriceUSD*Multiplier;
 
-if(Multiplier>1)
-{
+// if(Multiplier>1)
+// {
       
-   Ladder1ProfitUSD = 0.01;//OriginalLadder1ProfitUSD * Multiplier;
+//    Ladder1ProfitUSD = 0.01;//OriginalLadder1ProfitUSD * Multiplier;
    
-}
+// }
  
 
     
@@ -1180,8 +1180,8 @@ void CreateProfitReEntryStop(int closedOrderType, double closedPrice, DailyProte
    stopLoss = NormalizeDouble(stopLoss, Digits);
    
    ResetLastError();
-   if(pendingType == OP_BUYSTOP) ChangeLots(GetOpenPL(OP_BUY),"SSL Profit ReEntry Buy Stop");
-   else if(pendingType == OP_SELLSTOP) ChangeLots(GetOpenPL(OP_SELL),"SSL Profit ReEntry Sell Stop");
+   if(pendingType == OP_BUYSTOP) ChangeLots(GetOpenPL(OP_SELL),"SSL Profit ReEntry Buy Stop");
+   else if(pendingType == OP_SELLSTOP) ChangeLots(GetOpenPL(OP_BUY),"SSL Profit ReEntry Sell Stop");
    
    int ticket = OrderSend(Symbol(), pendingType, Lots, entryPrice, Slippage, stopLoss, 0, orderComment, MagicNumber, 0, orderColor);
    
