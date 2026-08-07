@@ -9,7 +9,11 @@ int SSLPeriod = 10;
 bool EnableTrading = true;
 double Lots = 0.01;
 int MaxOpenOrders = 20;
-bool CloseOppositeOrdersOnSignal = false;
+bool CloseOppositeOrdersOnSignal = true;
+double closeOppositeLossThreshold = -5.0;
+double OriginalStopLossUSD=2;//0.50;//50;
+double StopLossUSD =5;//3;//2;//0.50;// 50;
+
 bool DeleteOppositePendingOnSignal = true;
 bool EnableProfitReEntryStop = true;
 double MinimumClosedProfitUSD = -9;
@@ -19,7 +23,7 @@ bool EnableProfitLadder1 = true;
 
 
 
-double Ladder1ProfitUSD =0.25;//0.50;// 0.05;
+double Ladder1ProfitUSD =0.50;//1;//0.15;//0.25;//0.50;// 0.05;
 bool EnableProfitLadder2 = true;
 double Ladder1StopMaxPriceUSD = 0.50;//0.20;
 double Ladder2ProfitUSD = 0.10;
@@ -27,8 +31,7 @@ double Ladder2ProfitUSD = 0.10;
 double GlbFinalPL = 0, OriginalLots = 0.01, OriginalLadder1ProfitUSD = 0.05, OriginalLadder2ProfitUSD = 0.20;
 double  OriginalLadder1StopMaxPriceUSD=0.20;
 
-double OriginalStopLossUSD=50;
-double StopLossUSD = 50;
+
 
 bool EnableRecoveryOrders = false;
 double RecoveryTriggerLossUSD = -2.0;
@@ -47,12 +50,12 @@ bool EnableEquityLadder = true;
 double DailyEquityTargetPercent =5;//10;//5;// 10;//2;//3;//1;//3;//10;//Trading continue with 10% profit reccuring
 double DailyLossProtectionPercent =100;//50;// 30.0;// Trading stops if equity drops below this percentage of the starting balance for the day
 bool EnableDynamicEquityLadder = true;////Trading continue with 10% profit reccuring
-double EquityLadderLossPercentAfterstep1=30;//80;//can loss upto 30% after step 1 profit is reached
+double EquityLadderLossPercentAfterstep1=90;////not working 80;//can loss upto 30% after step 1 profit is reached
 
 double OriginalDailyEquityTargetPercent = 5.0;
 double CurrentDynamicTargetPercent = 5.0;
 
-double OriginalDailyLossProtectionPercent = 30.0;
+double OriginalDailyLossProtectionPercent =80;// 30.0;
 
 double EquityLockPercent = 80;
 bool ContinueTradingAfterTarget = true;
@@ -496,12 +499,13 @@ void ChangeLots(double OpenPL,string reason,int orderType)
 // int Multiplier1 = 1;
 
 
-   if((reason=="SSL Long" || reason=="SSL Short") && OpenPL<-10)
+   if((reason=="SSL Long" || reason=="SSL Short") && OpenPL < -0.5 )
      {
       Multiplier=5;
       //   Multiplier1 = 3;
 
       // StopLossUSD=2;
+      Multiplier = GetOpenOrdersCount(orderType==OP_BUY?OP_SELL:OP_BUY)==0?1:GetOpenOrdersCount(orderType==OP_BUY?OP_SELL:OP_BUY)+1;
 
 
 
@@ -513,7 +517,7 @@ void ChangeLots(double OpenPL,string reason,int orderType)
 
    if(OpenPL<-10 )
      {
-      Multiplier = GetOpenOrdersCount(orderType==OP_BUY?OP_SELL:OP_BUY)==0?1:GetOpenOrdersCount(orderType==OP_BUY?OP_SELL:OP_BUY)+1;
+      Multiplier = GetOpenOrdersCount(orderType==OP_BUY?OP_SELL:OP_BUY)==0?1:GetOpenOrdersCount(orderType==OP_BUY?OP_SELL:OP_BUY);
 
      }
 
@@ -1135,6 +1139,50 @@ void DeleteOppositePendingOrders(int newSignalType)
 //|                                                                  |
 //+------------------------------------------------------------------+
 void CloseOppositeOrders(int newSignalType)
+{
+   RefreshRates();
+
+   for(int i = OrdersTotal() - 1; i >= 0; i--)
+   {
+      if(!OrderSelect(i, SELECT_BY_POS, MODE_TRADES))
+         continue;
+
+      if(OrderSymbol() != Symbol() || OrderMagicNumber() != MagicNumber)
+         continue;
+
+      int orderType = OrderType();
+      int ticket = OrderTicket();
+      double lots = OrderLots();
+
+      double orderPL = OrderProfit() + OrderSwap() + OrderCommission();
+
+      // Close only opposite orders with loss less than -$3
+      if(orderPL > closeOppositeLossThreshold)
+         continue;
+
+      if((newSignalType == OP_BUY && orderType == OP_SELL) ||
+         (newSignalType == OP_SELL && orderType == OP_BUY))
+      {
+         RefreshRates();
+         ResetLastError();
+
+         bool closed = false;
+
+         if(orderType == OP_SELL)
+            closed = OrderClose(ticket, lots, Ask, Slippage, clrRed);
+         else if(orderType == OP_BUY)
+            closed = OrderClose(ticket, lots, Bid, Slippage, clrBlue);
+
+         if(closed)
+            Print("OPPOSITE LOSS CLOSED | Ticket: ", ticket,
+                  " | P/L: $", DoubleToString(orderPL,2));
+         else
+            Print("FAILED CLOSE | Ticket: ", ticket,
+                  " | Error: ", GetLastError());
+      }
+   }
+}
+void CloseOppositeOrdersold(int newSignalType)
   {
    RefreshRates();
    for(int i = OrdersTotal() - 1; i >= 0; i--)
