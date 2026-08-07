@@ -791,7 +791,7 @@ void InitializeDailyProtectionState(DailyProtectionState &state)
 //+------------------------------------------------------------------+
 void CheckDynamicEquityLadder(DailyProtectionState &state)
   {
-   if(!EnableDynamicEquityLadder && EAOrders > 0)
+if(!EnableDynamicEquityLadder)
       return;
 
    double equity = AccountEquity();
