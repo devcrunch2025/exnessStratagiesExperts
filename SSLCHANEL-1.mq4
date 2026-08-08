@@ -49,7 +49,7 @@ bool EnableEquityLadder = true;
 
 double DailyEquityTargetPercent =5;//10;//5;// 10;//2;//3;//1;//3;//10;//Trading continue with 10% profit reccuring
 double DailyLossProtectionPercent =100;//50;// 30.0;// Trading stops if equity drops below this percentage of the starting balance for the day
-bool EnableDynamicEquityLadder = true;////Trading continue with 10% profit reccuring
+bool EnableDynamicEquityLadder = false;////Trading continue with 10% profit reccuring
 double EquityLadderLossPercentAfterstep1=10;////not working 80;//can loss upto 30% after step 1 profit is reached
 
 double OriginalDailyEquityTargetPercent = 5.0;
@@ -106,13 +106,13 @@ double CurrentMultiplier = 1.0, BasketHighestProfit = 0.0, BasketTrailingStop = 
 
 //+------------------------------------------------------------------+
 void InitializeEquityLadder(DailyProtectionState &state)
-{
-    LockedEquity = state.DayStartBalance;
+  {
+   LockedEquity = state.DayStartBalance;
 
-    NextEquityTarget =
-        LockedEquity *
-        (1.0 + DailyEquityTargetPercent/100.0);
-}
+   NextEquityTarget =
+      state.DayStartBalance *
+      (1.0 + DailyEquityTargetPercent / 100.0);
+  }
 
 //+------------------------------------------------------------------+
 //|                                                                  |
@@ -292,7 +292,7 @@ void OnTick()
    CheckDynamicEquityLadder(dailyState);
    if(ShowSSLLines)
       UpdateSSLChannelOnTick();
-if(Bars >= SSLPeriod + 20 && GetTotalEAOrders() > 0)
+   if(Bars >= SSLPeriod + 20 && EAOrders > 0)
       CheckForProfitableClosedOrder(dailyState);
    if(EnableProfitLadder1 || EnableProfitLadder2)
       ManageProfitLadder();
@@ -791,7 +791,7 @@ void InitializeDailyProtectionState(DailyProtectionState &state)
 //+------------------------------------------------------------------+
 void CheckDynamicEquityLadder(DailyProtectionState &state)
   {
-if(!EnableDynamicEquityLadder)
+   if(!EnableDynamicEquityLadder && EAOrders > 0)
       return;
 
    double equity = AccountEquity();
@@ -837,24 +837,20 @@ if(!EnableDynamicEquityLadder)
 
    RecoveryMode = false;
    RecoveryOrders = 0;
-CurrentDynamicTargetPercent =
-    OriginalDailyEquityTargetPercent;
 
-DailyEquityTargetPercent =
-    CurrentDynamicTargetPercent;
    CurrentMultiplier = 1.0;
 
    BasketHighestProfit = 0;
    BasketTrailingStop = 0;
    BasketTrailingArmed = false;
    DynamicBasketHighestProfit = 0;
-LockedEquity = AccountBalance();
 
-state.DayStartBalance = LockedEquity;
-
-NextEquityTarget =
-LockedEquity *
-(1.0 + DailyEquityTargetPercent/100.0);
+   state.DayStartBalance     = AccountBalance();
+   state.DayHighestBalance   = state.DayStartBalance;
+// state.DayProtectedBalance = state.DayStartBalance;
+   state.DayProtectedBalance =
+      state.DayStartBalance *
+      (1.0 - DailyLossProtectionPercent/100.0);
    state.DayPeakProfit       = 0;
 
    state.DailyClosedProfit   = 0;
@@ -867,7 +863,7 @@ LockedEquity *
    DailyProtectionStartTime = TimeCurrent();
 // if(NextEquityTarget > 0)
 // EquityLadderLevel++;
-   // InitializeEquityLadder(state);
+   InitializeEquityLadder(state);
 
 // Increase ladder step
    EquityLadderLevel++;
@@ -882,27 +878,31 @@ LockedEquity *
 //          "%");
 // }
 
-  double newBalance = AccountBalance(); double earnedProfit = newBalance - LockedEquity; state.DayStartBalance = LockedEquity;
+   double newBalance = AccountBalance();
 
-   // if(EquityLadderLevel<=2)
-   //   {
-   //    // First cycle uses normal daily loss %
-   //    state.DayProtectedBalance =
-   //       state.DayStartBalance *
-   //       (1.0 - DailyLossProtectionPercent/100.0);
-   //   }
-   // else
-   //   {
-   //    // Lock part of earned profit
-   //    state.DayProtectedBalance =
-   //       state.DayStartBalance -
-   //       (earnedProfit * EquityLadderLossPercentAfterstep1/100.0);
-   //   }
-// Lock previous step permanently // Allow only X% retracement of NEW profit 
-if(earnedProfit > 0) { state.DayProtectedBalance = newBalance - (earnedProfit * EquityLadderLossPercentAfterstep1 / 100.0); } else { state.DayProtectedBalance = LockedEquity; }
+   double earnedProfit = newBalance - state.DayHighestBalance;
 
-   // Fixed 5% ladder from locked balance
-    NextEquityTarget = LockedEquity + (LockedEquity * DailyEquityTargetPercent / 100.0);
+   state.DayStartBalance = newBalance;
+
+   if(EquityLadderLevel<=2)
+     {
+      // First cycle uses normal daily loss %
+      state.DayProtectedBalance =
+         state.DayStartBalance *
+         (1.0 - DailyLossProtectionPercent/100.0);
+     }
+   else
+     {
+      // Lock part of earned profit
+      state.DayProtectedBalance =
+         state.DayStartBalance -
+         (earnedProfit * EquityLadderLossPercentAfterstep1/100.0);
+     }
+
+
+   NextEquityTarget =
+      state.DayStartBalance *
+      (1.0 + DailyEquityTargetPercent/100.0);
 
    Print("Fresh Trading Started");
    Print("New Start Balance : ",
@@ -1062,12 +1062,12 @@ void UpdateDailyLossProtection(DailyProtectionState &state)
 // PROTECTED EQUITY STOP
 // ================================
 
-if(AccountEquity() <= state.DayProtectedBalance)
+   if(AccountEquity() <= state.DayProtectedBalance)
      {
       if(!state.TradingStopped)
         {
-         // state.TradingStopped = true;
-         // state.LossTriggered = true;
+         state.TradingStopped = true;
+         state.LossTriggered = true;
 
          Print("===============================");
          Print("PROTECTED EQUITY STOP TRIGGERED");
@@ -1079,11 +1079,6 @@ if(AccountEquity() <= state.DayProtectedBalance)
 
          if(CloseOpenOrdersOnDailyLoss)
             CloseAllEAOrdersOnDailyLoss();
-
-            Print("Locked Equity Hit");
-Print("Waiting for next SSL signal...");
-
-return;
         }
 
       return;
@@ -1224,11 +1219,11 @@ void CloseAllEAOrdersOnDailyLoss()
    bool finished = false;
    int retries = 0;
 
-  if(GetTotalEAOrders()==0)
-{
-    Print("No EA orders to close.");
-    return;
-}
+   if(EAOrders == 0)
+     {
+      Print("No EA orders to close.");
+      return;
+     }
 
    while(!finished && retries < 3)
      {
@@ -1596,7 +1591,7 @@ void OpenBuy()
       return;
    ChangeLots(GetOpenPL(OP_SELL),"SSL Long",OP_BUY);
    RefreshRates();
-   // EAOrders++;
+   EAOrders++;
 
    double slDistance = CalculatePriceDistanceUSD(StopLossUSD, Lots);
    if(slDistance <= 0)
@@ -1623,7 +1618,7 @@ void OpenSell()
       return;
    ChangeLots(GetOpenPL(OP_BUY),"SSL Short",OP_SELL);
    RefreshRates();
-   // EAOrders++;
+   EAOrders++;
 
    double slDistance = CalculatePriceDistanceUSD(StopLossUSD, Lots);
    if(slDistance <= 0)
