@@ -10,9 +10,9 @@ bool EnableTrading = true;
 double Lots = 0.01;
 int MaxOpenOrders = 20;
 bool CloseOppositeOrdersOnSignal = true;
-double closeOppositeLossThreshold = -5.0;
-double OriginalStopLossUSD=5;//0.50;//50;
-double StopLossUSD =5;//3;//2;//0.50;// 50;
+double closeOppositeLossThreshold = -10.0;
+double OriginalStopLossUSD=10;//5;//0.50;//50;
+double StopLossUSD =10;//3;//2;//0.50;// 50;
 
 bool DeleteOppositePendingOnSignal = true;
 bool EnableProfitReEntryStop = true;
