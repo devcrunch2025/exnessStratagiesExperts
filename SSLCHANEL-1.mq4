@@ -11,7 +11,7 @@ double Lots = 0.01;
 int MaxOpenOrders = 20;
 bool CloseOppositeOrdersOnSignal = true;
 double closeOppositeLossThreshold = -5.0;
-double OriginalStopLossUSD=2;//0.50;//50;
+double OriginalStopLossUSD=5;//0.50;//50;
 double StopLossUSD =5;//3;//2;//0.50;// 50;
 
 bool DeleteOppositePendingOnSignal = true;
@@ -524,10 +524,17 @@ void ChangeLots(double OpenPL,string reason,int orderType)
      }
 
 
-   Lots = OriginalLots * Multiplier;
-   Ladder1ProfitUSD = OriginalLadder1ProfitUSD * Multiplier;
-   Ladder2ProfitUSD = OriginalLadder2ProfitUSD * Multiplier;
-   Ladder1StopMaxPriceUSD=OriginalLadder1StopMaxPriceUSD*Multiplier;
+     if(Multiplier==1)
+     {
+Multiplier=ChangeLotsOpposite(OpenPL,reason,orderType);
+     }
+
+
+   StopLossUSD = OriginalStopLossUSD * Multiplier;
+Lots        = OriginalLots * Multiplier;
+Ladder1ProfitUSD = OriginalLadder1ProfitUSD * Multiplier;
+Ladder2ProfitUSD = OriginalLadder2ProfitUSD * Multiplier;
+Ladder1StopMaxPriceUSD = OriginalLadder1StopMaxPriceUSD * Multiplier;
 
 // if(Multiplier>1)
 // {
@@ -540,7 +547,43 @@ void ChangeLots(double OpenPL,string reason,int orderType)
 
 
   }
+int ChangeLotsOpposite(double OpenPL, string reason, int orderType)
+{
+   int oppositeType = (orderType == OP_BUY) ? OP_SELL : OP_BUY;
 
+   double oppositePL = 0;
+   int oppositeCount = 0;
+
+   // Calculate opposite orders total P/L
+   for(int i = OrdersTotal() - 1; i >= 0; i--)
+   {
+      if(!OrderSelect(i, SELECT_BY_POS, MODE_TRADES))
+         continue;
+
+      if(OrderSymbol() != Symbol())
+         continue;
+
+      if(OrderMagicNumber() != MagicNumber)
+         continue;
+
+      if(OrderType() != oppositeType)
+         continue;
+
+      oppositePL += OrderProfit() + OrderSwap() + OrderCommission();
+      oppositeCount++;
+   }
+
+   // Default
+   int Multiplier = 1;
+
+   // Opposite basket loss > $3
+   if(oppositePL < -2.0)
+   {
+      Multiplier = oppositeCount + 1;
+   }
+
+  return Multiplier;
+}
 //+------------------------------------------------------------------+
 //|                                                                  |
 //+------------------------------------------------------------------+
@@ -2104,7 +2147,7 @@ void UpdateDashboard(DailyProtectionState &state)
 // LIVE STATUS
 //---------------------------------
 
-   string liveStatus="WAITING SIGNAL";
+   string liveStatus="Ladder Reached "+EquityLadderLevel+"and WAITING SIGNAL";
    color liveColor=clrLime;
 
    if(IsDailyTradingStopped(state))
@@ -2218,9 +2261,9 @@ void UpdateDashboard(DailyProtectionState &state)
                         y+138,
                         12,
                         pnlColor);
-
+StopLossUSD=Lots*StopLossUSD*100;
    CreateDashboardLabel(DASH_PREFIX+"EQUITY",
-                        "Equity : $"+DoubleToString(AccountEquity(),2),
+                        "Equity : $"+DoubleToString(AccountEquity(),2) +" // "+DoubleToString(StopLossUSD,2)+" USD SL",
                         textX,
                         y+160,
                         DashboardFontSize,
