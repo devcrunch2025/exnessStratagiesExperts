@@ -287,7 +287,7 @@ void OnTick()
 
    ProcessStartupSignal(dailyState);
    UpdateDailyLossProtection(dailyState);
-   UpdateDynamicEquityTarget(dailyState);
+   // UpdateDynamicEquityTarget(dailyState);
    CheckHighestProfitOrderForLadder();
    CheckDynamicEquityLadder(dailyState);
    if(ShowSSLLines)
@@ -611,18 +611,7 @@ bool HasRecoveryOrder(int ParentTicket)
 //+------------------------------------------------------------------+
 //|                                                                  |
 //+------------------------------------------------------------------+
-bool HasRecoveryOrderold(int ParentTicket)
-  {
-   string txt = "RECOVERY_" + IntegerToString(ParentTicket);
-   for(int i = OrdersTotal() - 1; i >= 0; i--)
-     {
-      if(!OrderSelect(i, SELECT_BY_POS, MODE_TRADES))
-         continue;
-      if(OrderMagicNumber() == MagicNumber && OrderComment() == txt)
-         return true;
-     }
-   return false;
-  }
+ 
 
 //+------------------------------------------------------------------+
 //|                                                                  |
@@ -983,58 +972,7 @@ void CheckDynamicEquityLadder(DailyProtectionState &state)
    //
    // Let the normal SSL signal logic run on the next tick.
    //===============================================================
-}
-/*
-void CheckDynamicEquityLadderold(DailyProtectionState &state) {
-   if(!EnableDynamicEquityLadder || state.TradingStopped || state.ClosedOrdersToday < MinimumClosedOrdersForDailyProtection) return;
-
-   double equity = AccountEquity();
-
-   if(equity >= NextEquityTarget) {
-      Print("=== NEW EQUITY LADDER LEVEL ", EquityLadderLevel, "X ===");
-
-      double previousBalance = state.DayStartBalance;
-      double gain = equity - previousBalance;
-
-      state.DayStartBalance = equity;
-      state.DayHighestBalance = equity;
-      state.DayPeakProfit = 0.0;
-      state.DailyClosedProfit = 0.0;
-      state.DailyClosedOrders = 0;
-      state.TradingStopped = false;
-      state.LossTriggered = false;
-
-      LockedEquity = previousBalance + (gain * EquityLockPercent / 100.0);
-      state.DayProtectedBalance = LockedEquity;
-      NextEquityTarget = equity * (1.0 + DailyEquityTargetPercent / 100.0);
-
-      LastProfitTargetTime = TimeCurrent();
-      RecoveryMode = false;
-      RecoveryOrders = 0;
-      CurrentMultiplier = 1.0;
-      BasketHighestProfit = 0.0;
-      BasketTrailingArmed = false;
-      BasketTrailingStop = 0.0;
-      DynamicBasketHighestProfit = 0.0;
-      ProfitLadder1Triggered = false;
-      ProfitLadder2Triggered = false;
-
-      EquityLadderLevel++;
-
-      Print("Level: ", EquityLadderLevel, "X | Equity: $", DoubleToString(equity, 2), " | Locked: $", DoubleToString(LockedEquity, 2));
-      Print("Next Target: $", DoubleToString(NextEquityTarget, 2));
-      CloseAllEAOrdersOnDailyLoss();
-      return;
-   }
-
-   if(equity <= LockedEquity && EquityLadderLevel > 1) {
-      Print("EQUITY LOCK HIT | Current: $", DoubleToString(equity, 2), " | Lock: $", DoubleToString(LockedEquity, 2));
-      state.TradingStopped = true;
-      if(CloseOrdersOnDailyEquityTarget) CloseAllEAOrdersOnDailyLoss();
-   }
-}
-   */
-
+} 
 //+------------------------------------------------------------------+
 //|                                                                  |
 //+------------------------------------------------------------------+
@@ -1256,32 +1194,7 @@ void CloseOppositeOrders(int newSignalType)
       }
    }
 }
-void CloseOppositeOrdersold(int newSignalType)
-  {
-   RefreshRates();
-   for(int i = OrdersTotal() - 1; i >= 0; i--)
-     {
-      if(!OrderSelect(i, SELECT_BY_POS, MODE_TRADES))
-         continue;
-      if(OrderSymbol() != Symbol() || OrderMagicNumber() != MagicNumber)
-         continue;
-
-      int orderType = OrderType();
-      int ticket = OrderTicket();
-      double lots = OrderLots();
-
-      if((newSignalType == OP_BUY && orderType == OP_SELL) || (newSignalType == OP_SELL && orderType == OP_BUY))
-        {
-         RefreshRates();
-         ResetLastError();
-         bool closed = (orderType == OP_SELL) ? OrderClose(ticket, lots, Ask, Slippage, clrRed) : OrderClose(ticket, lots, Bid, Slippage, clrBlue);
-         if(closed)
-            Print("OPPOSITE ", (orderType == OP_SELL ? "SELL" : "BUY"), " CLOSED | Ticket: ", ticket);
-         else
-            Print("FAILED TO CLOSE | Ticket: ", ticket, " | Error: ", GetLastError());
-        }
-     }
-  }
+ 
 //+------------------------------------------------------------------+
 //| Close ALL EA Orders and Pending Orders                           |
 //| Wait until everything is closed                                  |
@@ -1293,7 +1206,7 @@ void CloseAllEAOrdersOnDailyLoss()
    bool finished = false;
    int retries = 0;
 
-   if(EAOrders == 0)
+   if(GetTotalEAOrders() == 0)
      {
       Print("No EA orders to close.");
       return;
@@ -1398,31 +1311,7 @@ void CloseAllEAOrdersOnDailyLoss()
 //+------------------------------------------------------------------+
 //|                                                                  |
 //+------------------------------------------------------------------+
-void CloseAllEAOrdersOnDailyLossold()
-  {
-   for(int i = OrdersTotal() - 1; i >= 0; i--)
-     {
-      if(!OrderSelect(i, SELECT_BY_POS, MODE_TRADES))
-         continue;
-      if(OrderSymbol() != Symbol() || OrderMagicNumber() != MagicNumber)
-         continue;
-
-      int type = OrderType();
-      int ticket = OrderTicket();
-      RefreshRates();
-      ResetLastError();
-
-      if(type == OP_BUY)
-         OrderClose(ticket, OrderLots(), Bid, Slippage, clrRed);
-      else
-         if(type == OP_SELL)
-            OrderClose(ticket, OrderLots(), Ask, Slippage, clrRed);
-         else
-            if(type == OP_BUYSTOP || type == OP_SELLSTOP)
-               OrderDelete(ticket, clrRed);
-     }
-  }
-
+ 
 //+------------------------------------------------------------------+
 //|                                                                  |
 //+------------------------------------------------------------------+
