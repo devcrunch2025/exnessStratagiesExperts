@@ -10,7 +10,7 @@ bool EnableTrading = true;
 double Lots = 0.01;
 int MaxOpenOrders = 20;
 bool CloseOppositeOrdersOnSignal = true;
-double closeOppositeLossThreshold = 10.0;
+double closeOppositeLossThreshold = -10.0;
 double OriginalStopLossUSD=10;//5;//0.50;//50;
 double StopLossUSD =10;//3;//2;//0.50;// 50;
 
@@ -23,7 +23,7 @@ bool EnableProfitLadder1 = true;
 
 
 
-double Ladder1ProfitUSD =0.10;//0.50;//1;//0.15;//0.25;//0.50;// 0.05;
+double Ladder1ProfitUSD =0.50;//1;//0.15;//0.25;//0.50;// 0.05;
 bool EnableProfitLadder2 = true;
 double Ladder1StopMaxPriceUSD = 0.50;//0.20;
 double Ladder2ProfitUSD = 0.10;
@@ -49,7 +49,7 @@ bool EnableEquityLadder = true;
 
 
 
-double DailyEquityTargetPercent =2;//5;//2;//5;//10;//5;// 10;//2;//3;//1;//3;//10;//Trading continue with 10% profit reccuring
+double DailyEquityTargetPercent =5;//10;//5;// 10;//2;//3;//1;//3;//10;//Trading continue with 10% profit reccuring
 double DailyLossProtectionPercent =100;//50;// 30.0;// Trading stops if equity drops below this percentage of the starting balance for the day
 bool EnableDynamicEquityLadder = true;////Trading continue with 10% profit reccuring
 double EquityLadderLossPercentAfterstep1=10;////not working 80;//can loss upto 30% after step 1 profit is reached
@@ -419,9 +419,9 @@ void CheckHighestProfitOrderForLadder()
 
    if(highestTicket > 0)
      {
-      // Print("Highest P/L Order | Ticket: ", highestTicket,
-      //       " | Lot: ", DoubleToString(highestLot,2),
-      //       " | P/L: $", DoubleToString(highestPL,2));
+      Print("Highest P/L Order | Ticket: ", highestTicket,
+            " | Lot: ", DoubleToString(highestLot,2),
+            " | P/L: $", DoubleToString(highestPL,2));
 
 
       // If highest lot is greater than 0.01
@@ -431,7 +431,7 @@ void CheckHighestProfitOrderForLadder()
          // StopLossUSD=2;
 
 
-         // Print("Ladder1 Changed -> $0.01 because Lot > 0.01");
+         Print("Ladder1 Changed -> $0.01 because Lot > 0.01");
         }
       else
         {
@@ -439,7 +439,7 @@ void CheckHighestProfitOrderForLadder()
          StopLossUSD=OriginalStopLossUSD;
 
 
-         // Print("Ladder1 Reset -> Original Value");
+         Print("Ladder1 Reset -> Original Value");
         }
      }
   }
@@ -500,26 +500,21 @@ void ChangeLots(double OpenPL,string reason,int orderType)
 
 // int Multiplier1 = 1;
 
-if(reason=="SSL Long" || reason=="SSL Short" )
-     {
-      Multiplier =2;// GetOpenOrdersCount(orderType==OP_BUY?OP_SELL:OP_BUY)==0?1:GetOpenOrdersCount(orderType==OP_BUY?OP_SELL:OP_BUY)+1;
-
-     }
 
    if((reason=="SSL Long" || reason=="SSL Short") && OpenPL < -0.5 )
      {
-      // Multiplier=5;
+      Multiplier=5;
       //   Multiplier1 = 3;
 
       // StopLossUSD=2;
-      Multiplier = GetOpenOrdersCount(orderType==OP_BUY?OP_SELL:OP_BUY)==0?1:GetOpenOrdersCount(orderType==OP_BUY?OP_SELL:OP_BUY)+2;
+      Multiplier = GetOpenOrdersCount(orderType==OP_BUY?OP_SELL:OP_BUY)==0?1:GetOpenOrdersCount(orderType==OP_BUY?OP_SELL:OP_BUY)+1;
 
 
 
      }
    else
      {
-      // StopLossUSD=OriginalStopLossUSD;
+      StopLossUSD=OriginalStopLossUSD;
      }
 
    if(OpenPL<-10 )
@@ -535,17 +530,8 @@ Multiplier=ChangeLotsOpposite(OpenPL,reason,orderType);
      }
 
 
-     if(Multiplier>5)
-     {
-      Multiplier=5;
-     }
-
-
-   // StopLossUSD = OriginalStopLossUSD * Multiplier;
+   StopLossUSD = OriginalStopLossUSD * Multiplier;
 Lots        = OriginalLots * Multiplier;
-StopLossUSD=Lots*OriginalStopLossUSD*100;
-closeOppositeLossThreshold=Lots*OriginalStopLossUSD*100*Multiplier;
-
 Ladder1ProfitUSD = OriginalLadder1ProfitUSD * Multiplier;
 Ladder2ProfitUSD = OriginalLadder2ProfitUSD * Multiplier;
 Ladder1StopMaxPriceUSD = OriginalLadder1StopMaxPriceUSD * Multiplier;
@@ -1228,7 +1214,7 @@ void CloseOppositeOrders(int newSignalType)
       double orderPL = OrderProfit() + OrderSwap() + OrderCommission();
 
       // Close only opposite orders with loss less than -$3
-      if(orderPL > -closeOppositeLossThreshold)
+      if(orderPL > closeOppositeLossThreshold)
          continue;
 
       if((newSignalType == OP_BUY && orderType == OP_SELL) ||
@@ -2275,7 +2261,7 @@ void UpdateDashboard(DailyProtectionState &state)
                         y+138,
                         12,
                         pnlColor);
-StopLossUSD=Lots*OriginalStopLossUSD*100;
+StopLossUSD=Lots*StopLossUSD*100;
    CreateDashboardLabel(DASH_PREFIX+"EQUITY",
                         "Equity : $"+DoubleToString(AccountEquity(),2) +" // "+DoubleToString(StopLossUSD,2)+" USD SL",
                         textX,
