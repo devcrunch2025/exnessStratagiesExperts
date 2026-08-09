@@ -544,7 +544,7 @@ Multiplier=ChangeLotsOpposite(OpenPL,reason,orderType);
    // StopLossUSD = OriginalStopLossUSD * Multiplier;
 Lots        = OriginalLots * Multiplier;
 StopLossUSD=Lots*OriginalStopLossUSD*100;
-// closeOppositeLossThreshold=Lots*OriginalStopLossUSD*100;
+closeOppositeLossThreshold=Lots*OriginalStopLossUSD*100;
 
 Ladder1ProfitUSD = OriginalLadder1ProfitUSD * Multiplier;
 Ladder2ProfitUSD = OriginalLadder2ProfitUSD * Multiplier;
