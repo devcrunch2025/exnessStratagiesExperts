@@ -500,21 +500,26 @@ void ChangeLots(double OpenPL,string reason,int orderType)
 
 // int Multiplier1 = 1;
 
+if(reason=="SSL Long" || reason=="SSL Short" )
+     {
+      Multiplier =2;// GetOpenOrdersCount(orderType==OP_BUY?OP_SELL:OP_BUY)==0?1:GetOpenOrdersCount(orderType==OP_BUY?OP_SELL:OP_BUY)+1;
+
+     }
 
    if((reason=="SSL Long" || reason=="SSL Short") && OpenPL < -0.5 )
      {
-      Multiplier=5;
+      // Multiplier=5;
       //   Multiplier1 = 3;
 
       // StopLossUSD=2;
-      Multiplier = GetOpenOrdersCount(orderType==OP_BUY?OP_SELL:OP_BUY)==0?1:GetOpenOrdersCount(orderType==OP_BUY?OP_SELL:OP_BUY)+1;
+      Multiplier = GetOpenOrdersCount(orderType==OP_BUY?OP_SELL:OP_BUY)==0?1:GetOpenOrdersCount(orderType==OP_BUY?OP_SELL:OP_BUY)+2;
 
 
 
      }
    else
      {
-      StopLossUSD=OriginalStopLossUSD;
+      // StopLossUSD=OriginalStopLossUSD;
      }
 
    if(OpenPL<-10 )
@@ -530,8 +535,17 @@ Multiplier=ChangeLotsOpposite(OpenPL,reason,orderType);
      }
 
 
-   StopLossUSD = OriginalStopLossUSD * Multiplier;
+     if(Multiplier>5)
+     {
+      Multiplier=5;
+     }
+
+
+   // StopLossUSD = OriginalStopLossUSD * Multiplier;
 Lots        = OriginalLots * Multiplier;
+StopLossUSD=Lots*OriginalStopLossUSD*100;
+// closeOppositeLossThreshold=Lots*OriginalStopLossUSD*100;
+
 Ladder1ProfitUSD = OriginalLadder1ProfitUSD * Multiplier;
 Ladder2ProfitUSD = OriginalLadder2ProfitUSD * Multiplier;
 Ladder1StopMaxPriceUSD = OriginalLadder1StopMaxPriceUSD * Multiplier;
@@ -2261,7 +2275,7 @@ void UpdateDashboard(DailyProtectionState &state)
                         y+138,
                         12,
                         pnlColor);
-StopLossUSD=Lots*StopLossUSD*100;
+StopLossUSD=Lots*OriginalStopLossUSD*100;
    CreateDashboardLabel(DASH_PREFIX+"EQUITY",
                         "Equity : $"+DoubleToString(AccountEquity(),2) +" // "+DoubleToString(StopLossUSD,2)+" USD SL",
                         textX,
