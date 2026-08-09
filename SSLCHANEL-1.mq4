@@ -23,7 +23,7 @@ bool EnableProfitLadder1 = true;
 
 
 
-double Ladder1ProfitUSD =0.50;//1;//0.15;//0.25;//0.50;// 0.05;
+double Ladder1ProfitUSD =0.10;//0.50;//1;//0.15;//0.25;//0.50;// 0.05;
 bool EnableProfitLadder2 = true;
 double Ladder1StopMaxPriceUSD = 0.50;//0.20;
 double Ladder2ProfitUSD = 0.10;
