@@ -50,14 +50,14 @@ bool EnableEquityLadder = true;
 
 
 double DailyEquityTargetPercent =5;//10;//5;// 10;//2;//3;//1;//3;//10;//Trading continue with 10% profit reccuring
-double DailyLossProtectionPercent =20;//100;//50;// 30.0;// Trading stops if equity drops below this percentage of the starting balance for the day
+double DailyLossProtectionPercent =10;//20;//100;//50;// 30.0;// Trading stops if equity drops below this percentage of the starting balance for the day
 bool EnableDynamicEquityLadder = true;////Trading continue with 10% profit reccuring
 double EquityLadderLossPercentAfterstep1=10;////not working 80;//can loss upto 30% after step 1 profit is reached
 
 double OriginalDailyEquityTargetPercent = 5.0;
 double CurrentDynamicTargetPercent = 5.0;
 
-double OriginalDailyLossProtectionPercent =80;// 30.0;
+double OriginalDailyLossProtectionPercent =10;//80;// 30.0;
 
 double EquityLockPercent = 80;
 bool ContinueTradingAfterTarget = false;
@@ -422,9 +422,9 @@ void CheckHighestProfitOrderForLadder()
 
    if(highestTicket > 0)
      {
-      Print("Highest P/L Order | Ticket: ", highestTicket,
-            " | Lot: ", DoubleToString(highestLot,2),
-            " | P/L: $", DoubleToString(highestPL,2));
+      // Print("Highest P/L Order | Ticket: ", highestTicket,
+      //       " | Lot: ", DoubleToString(highestLot,2),
+      //       " | P/L: $", DoubleToString(highestPL,2));
 
 
       // If highest lot is greater than 0.01
@@ -442,7 +442,7 @@ void CheckHighestProfitOrderForLadder()
          StopLossUSD=OriginalStopLossUSD;
 
 
-         Print("Ladder1 Reset -> Original Value");
+         // Print("Ladder1 Reset -> Original Value");
         }
      }
   }
