@@ -79,6 +79,13 @@ int DashboardWidth = 285;
 int DashboardHeight = 480;
 int DashboardFontSize = 9;
 
+// ===== LEFT LIVE ORDERS DASHBOARD =====
+bool ShowLeftLiveOrdersDashboard = true;
+int LeftDashboardX = 10;
+int LeftDashboardY = 20;
+int LeftDashboardWidth = 330;
+int LeftDashboardMaxRows = 20;
+
 double OriginalLots = 0.01;
 double OriginalLadder1ProfitUSD = 0.05;
 double OriginalLadder2ProfitUSD = 0.20;
@@ -245,6 +252,7 @@ int OnInit()
 
    DeleteOurObjects();
    DeleteDashboardObjects();
+   DeleteLeftLiveOrdersDashboardObjects();
    if(ShowHistoricalSignals || ShowSSLLines)
       DrawHistoricalSignals();
 
@@ -271,7 +279,7 @@ bool IsOneCandleOrderAllowed()
 
    return true;
   }
-void OnDeinit(const int reason) { DeleteOurObjects(); DeleteDashboardObjects(); }
+void OnDeinit(const int reason) { DeleteOurObjects(); DeleteDashboardObjects(); DeleteLeftLiveOrdersDashboardObjects(); }
 int StartupProtectionTicks = 0;
 //+------------------------------------------------------------------+
 //|                                                                  |
@@ -326,6 +334,10 @@ void OnTick()
       ManageProfitLadder();
    if(ShowDashboard)
       UpdateDashboard(dailyState);
+
+   // Separate LEFT dashboard. Existing RIGHT dashboard is untouched.
+   if(ShowLeftLiveOrdersDashboard)
+      UpdateLeftLiveOrdersDashboard();
 
    if(Bars < SSLPeriod + 20 || Time[0] == LastProcessedBar)
       return;
@@ -2578,6 +2590,133 @@ void DeleteDashboardObjects()
       if(StringFind(name, DASH_PREFIX, 0) == 0)
          ObjectDelete(0, name);
      }
+  }
+
+//+------------------------------------------------------------------+
+//| LEFT LIVE ORDERS DASHBOARD - SEPARATE FROM RIGHT DASHBOARD       |
+//+------------------------------------------------------------------+
+string LEFT_LIVE_PREFIX = "SSL_LEFT_LIVE_";
+
+void CreateLeftLivePanel(string name,int x,int y,int width,int height,color background)
+  {
+   if(ObjectFind(0,name)<0) ObjectCreate(0,name,OBJ_RECTANGLE_LABEL,0,0,0);
+   ObjectSetInteger(0,name,OBJPROP_CORNER,CORNER_LEFT_UPPER);
+   ObjectSetInteger(0,name,OBJPROP_XDISTANCE,x);
+   ObjectSetInteger(0,name,OBJPROP_YDISTANCE,y);
+   ObjectSetInteger(0,name,OBJPROP_XSIZE,width);
+   ObjectSetInteger(0,name,OBJPROP_YSIZE,height);
+   ObjectSetInteger(0,name,OBJPROP_BGCOLOR,background);
+   ObjectSetInteger(0,name,OBJPROP_BORDER_TYPE,BORDER_FLAT);
+   ObjectSetInteger(0,name,OBJPROP_COLOR,clrDimGray);
+   ObjectSetInteger(0,name,OBJPROP_SELECTABLE,false);
+   ObjectSetInteger(0,name,OBJPROP_HIDDEN,true);
+  }
+
+void CreateLeftLiveLabel(string name,string text,int x,int y,int fontSize,color textColor)
+  {
+   if(ObjectFind(0,name)<0) ObjectCreate(0,name,OBJ_LABEL,0,0,0);
+   ObjectSetInteger(0,name,OBJPROP_CORNER,CORNER_LEFT_UPPER);
+   ObjectSetInteger(0,name,OBJPROP_XDISTANCE,x);
+   ObjectSetInteger(0,name,OBJPROP_YDISTANCE,y);
+   ObjectSetString(0,name,OBJPROP_TEXT,text);
+   ObjectSetString(0,name,OBJPROP_FONT,"Consolas");
+   ObjectSetInteger(0,name,OBJPROP_FONTSIZE,fontSize);
+   ObjectSetInteger(0,name,OBJPROP_COLOR,textColor);
+   ObjectSetInteger(0,name,OBJPROP_SELECTABLE,false);
+   ObjectSetInteger(0,name,OBJPROP_HIDDEN,true);
+  }
+
+void DeleteLeftLiveOrdersDashboardObjects()
+  {
+   int total=ObjectsTotal(0,-1,-1);
+   for(int i=total-1;i>=0;i--)
+     {
+      string name=ObjectName(0,i,-1,-1);
+      if(StringFind(name,LEFT_LIVE_PREFIX,0)==0) ObjectDelete(0,name);
+     }
+  }
+
+void UpdateLeftLiveOrdersDashboard()
+  {
+   int total=0,buyCount=0,sellCount=0,pendingCount=0;
+   double buyLots=0,sellLots=0,netPL=0;
+
+   for(int i=OrdersTotal()-1;i>=0;i--)
+     {
+      if(!OrderSelect(i,SELECT_BY_POS,MODE_TRADES)) continue;
+      if(OrderSymbol()!=Symbol() || OrderMagicNumber()!=MagicNumber) continue;
+      int type=OrderType();
+      if(type!=OP_BUY && type!=OP_SELL && type!=OP_BUYSTOP && type!=OP_SELLSTOP && type!=OP_BUYLIMIT && type!=OP_SELLLIMIT) continue;
+      total++;
+      if(type==OP_BUY)
+        {
+         buyCount++; buyLots+=OrderLots();
+         netPL+=OrderProfit()+OrderSwap()+OrderCommission();
+        }
+      else if(type==OP_SELL)
+        {
+         sellCount++; sellLots+=OrderLots();
+         netPL+=OrderProfit()+OrderSwap()+OrderCommission();
+        }
+      else pendingCount++;
+     }
+
+   int rows=LeftDashboardMaxRows;
+   if(rows<1) rows=1;
+   if(rows>30) rows=30;
+   int panelHeight=(total>0 ? 105+(rows*19) : 155);
+   int x=LeftDashboardX,y=LeftDashboardY,tx=x+12;
+
+   CreateLeftLivePanel(LEFT_LIVE_PREFIX+"PANEL",x,y,LeftDashboardWidth,panelHeight,C'12,16,22');
+   CreateLeftLivePanel(LEFT_LIVE_PREFIX+"HEADER",x,y,LeftDashboardWidth,34,C'25,70,115');
+
+   color pnlColor=netPL>0 ? clrLime : netPL<0 ? clrTomato : clrWhite;
+
+   CreateLeftLiveLabel(LEFT_LIVE_PREFIX+"TITLE","LIVE ORDERS  |  "+Symbol(),tx,y+8,11,clrWhite);
+   CreateLeftLiveLabel(LEFT_LIVE_PREFIX+"SUMMARY",
+      "ORDERS "+IntegerToString(total)+"/"+IntegerToString(MaxOpenOrders)+
+      "   BUY "+IntegerToString(buyCount)+"   SELL "+IntegerToString(sellCount)+
+      "   PENDING "+IntegerToString(pendingCount),tx,y+43,8,clrWhite);
+   CreateLeftLiveLabel(LEFT_LIVE_PREFIX+"LOTS",
+      "BUY LOT "+DoubleToString(buyLots,2)+"   SELL LOT "+DoubleToString(sellLots,2)+
+      "   P/L "+(netPL>=0?"+":"")+DoubleToString(netPL,2),tx,y+61,9,pnlColor);
+   CreateLeftLiveLabel(LEFT_LIVE_PREFIX+"HEAD",
+      "TICKET       TYPE       LOT       OPEN PRICE       P/L",tx,y+82,8,clrSilver);
+
+   for(int r=0;r<30;r++)
+      CreateLeftLiveLabel(LEFT_LIVE_PREFIX+"ROW"+IntegerToString(r),"",tx,y+101+(r*19),8,clrWhite);
+
+   int row=0;
+   for(int j=OrdersTotal()-1;j>=0;j--)
+     {
+      if(!OrderSelect(j,SELECT_BY_POS,MODE_TRADES)) continue;
+      if(OrderSymbol()!=Symbol() || OrderMagicNumber()!=MagicNumber) continue;
+      int type=OrderType();
+      if(type!=OP_BUY && type!=OP_SELL && type!=OP_BUYSTOP && type!=OP_SELLSTOP && type!=OP_BUYLIMIT && type!=OP_SELLLIMIT) continue;
+      if(row>=rows) break;
+
+      string typeText=type==OP_BUY ? "BUY" : type==OP_SELL ? "SELL" : type==OP_BUYSTOP ? "BUY ST" : type==OP_SELLSTOP ? "SELL ST" : type==OP_BUYLIMIT ? "BUY LM" : "SELL LM";
+      double pl=0;
+      if(type==OP_BUY || type==OP_SELL) pl=OrderProfit()+OrderSwap()+OrderCommission();
+
+      string rowText="#"+IntegerToString(OrderTicket())+
+         "   "+typeText+
+         "   "+DoubleToString(OrderLots(),2)+
+         "   "+DoubleToString(OrderOpenPrice(),Digits)+
+         "   "+(pl>=0?"+":"")+DoubleToString(pl,2);
+
+      color rowColor=clrWhite;
+      if(type==OP_BUY) rowColor=clrDeepSkyBlue;
+      if(type==OP_SELL) rowColor=clrTomato;
+      if(pl>0) rowColor=clrLime;
+      if(pl<0) rowColor=clrOrangeRed;
+
+      CreateLeftLiveLabel(LEFT_LIVE_PREFIX+"ROW"+IntegerToString(row),rowText,tx,y+101+(row*19),8,rowColor);
+      row++;
+     }
+
+   CreateLeftLiveLabel(LEFT_LIVE_PREFIX+"EMPTY",total==0 ? "NO ACTIVE EA ORDERS" : "",tx,y+105,9,clrSilver);
+   ChartRedraw();
   }
 
 //+------------------------------------------------------------------+
