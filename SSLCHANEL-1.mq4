@@ -119,55 +119,93 @@ void InitializeEquityLadder(DailyProtectionState &state)
 //+------------------------------------------------------------------+
 //|                                                                  |
 //+------------------------------------------------------------------+
+//+------------------------------------------------------------------+
+//| PROCESS STARTUP SIGNAL                                            |
+//| IMPORTANT: NEVER CLOSE EXISTING ORDERS ON EA RESTART             |
+//+------------------------------------------------------------------+
 void ProcessStartupSignal(DailyProtectionState &dailyState)
-  {
-   if(StartupSignalProcessed || Bars < SSLPeriod + 20)
+{
+   if(StartupSignalProcessed)
       return;
+
+   if(Bars < SSLPeriod + 20)
+      return;
+
+   // Mark processed BEFORE any trading action
    StartupSignalProcessed = true;
 
    int currentDirection = GetCurrentSSLDirection();
-   bool buySignal = (currentDirection > 0);
+
+   bool buySignal  = (currentDirection > 0);
    bool sellSignal = (currentDirection < 0);
 
-//    bool buySignal = IsBuySignal(1);
-// bool sellSignal = IsSellSignal(1);
-
    Print("==================================================");
-   Print("EA RESTART SIGNAL RECOVERY - Direction: ", buySignal ? "BUY" : (sellSignal ? "SELL" : "NONE"));
+   Print("EA STARTUP / RESTART SIGNAL RECOVERY");
+   Print("Current SSL Direction: ",
+         buySignal ? "BUY" :
+         sellSignal ? "SELL" : "NONE");
+   Print("Existing EA Orders   : ", GetTotalEAOrders());
+   Print("IMPORTANT: EXISTING ORDERS WILL NOT BE CLOSED");
    Print("==================================================");
 
+   //===============================================================
+   // BUY
+   //===============================================================
    if(buySignal)
-     {
+   {
       DrawLiveSignal(1, true);
-      if(DeleteOppositePendingOnSignal)
-         DeleteOppositePendingOrders(OP_BUY);
-      if(CloseOppositeOrdersOnSignal)
-         CloseOppositeOrders(OP_BUY);
-      if(EnableTrading && !IsDailyTradingStopped(dailyState) && GetTotalEAOrders() < MaxOpenOrders)
-        {
+
+      // IMPORTANT:
+      // Do NOT delete opposite pending orders on startup.
+      // Do NOT close opposite market orders on startup.
+
+      if(EnableTrading &&
+         !IsDailyTradingStopped(dailyState) &&
+         GetTotalEAOrders() < MaxOpenOrders)
+      {
          OpenBuy();
-         Print("EA RESTART -> BUY OPENED");
-        }
+
+         Print("EA RESTART -> BUY SIGNAL PROCESSED");
+         Print("EA RESTART -> EXISTING ORDERS PRESERVED");
+      }
       else
+      {
          Print("EA RESTART BUY BLOCKED");
-     }
+      }
 
+      return;
+   }
+
+   //===============================================================
+   // SELL
+   //===============================================================
    if(sellSignal)
-     {
+   {
       DrawLiveSignal(1, false);
-      if(DeleteOppositePendingOnSignal)
-         DeleteOppositePendingOrders(OP_SELL);
-      if(CloseOppositeOrdersOnSignal)
-         CloseOppositeOrders(OP_SELL);
-      if(EnableTrading && !IsDailyTradingStopped(dailyState) && GetTotalEAOrders() < MaxOpenOrders)
-        {
+
+      // IMPORTANT:
+      // Do NOT delete opposite pending orders on startup.
+      // Do NOT close opposite market orders on startup.
+
+      if(EnableTrading &&
+         !IsDailyTradingStopped(dailyState) &&
+         GetTotalEAOrders() < MaxOpenOrders)
+      {
          OpenSell();
-         Print("EA RESTART -> SELL OPENED");
-        }
+
+         Print("EA RESTART -> SELL SIGNAL PROCESSED");
+         Print("EA RESTART -> EXISTING ORDERS PRESERVED");
+      }
       else
+      {
          Print("EA RESTART SELL BLOCKED");
-     }
-  }
+      }
+
+      return;
+   }
+
+   Print("EA RESTART -> NO VALID SSL DIRECTION");
+}
 //+------------------------------------------------------------------+
 //|                                                                  |
 //+------------------------------------------------------------------+
@@ -175,6 +213,8 @@ void ProcessStartupSignal(DailyProtectionState &dailyState)
 //+------------------------------------------------------------------+
 //|                                                                  |
 //+------------------------------------------------------------------+
+bool EAStartupComplete = false;
+
 int OnInit()
   {
    Ladder1StopMaxPriceUSD=Ladder1ProfitUSD*2;
@@ -226,12 +266,30 @@ bool IsOneCandleOrderAllowed()
    return true;
   }
 void OnDeinit(const int reason) { DeleteOurObjects(); DeleteDashboardObjects(); }
-
+int StartupProtectionTicks = 0;
 //+------------------------------------------------------------------+
 //|                                                                  |
 //+------------------------------------------------------------------+
 void OnTick()
   {
+
+   TradeResetThisTick = false;
+
+   //===============================================================
+   // STARTUP SAFETY
+   //===============================================================
+   if(StartupProtectionTicks < 1)
+   {
+      StartupProtectionTicks++;
+
+      EAStartupComplete = true;
+
+      Print("==================================================");
+      Print("FIRST TICK AFTER EA START");
+      Print("Existing orders will be PRESERVED");
+      Print("No startup opposite-order closing allowed");
+      Print("==================================================");
+   }
 // else
 // {
 //    Ladder1ProfitUSD = OriginalLadder1ProfitUSD;
@@ -1194,6 +1252,15 @@ void DeleteOppositePendingOrders(int newSignalType)
 //+------------------------------------------------------------------+
 void CloseOppositeOrders(int newSignalType)
 {
+
+   //===============================================================
+   // NEVER CLOSE ORDERS DURING EA INITIALIZATION
+   //===============================================================
+   if(!EAStartupComplete)
+   {
+      Print("CLOSE OPPOSITE BLOCKED | EA STARTUP NOT COMPLETE");
+      return;
+   }
    RefreshRates();
 
    for(int i = OrdersTotal() - 1; i >= 0; i--)
@@ -1993,7 +2060,7 @@ void CreateDashboardPanel(string name, int x, int y, int width, int height, colo
    if(ObjectFind(0, name) < 0)
       ObjectCreate(0, name, OBJ_RECTANGLE_LABEL, 0, 0, 0);
    ObjectSetInteger(0, name, OBJPROP_CORNER, CORNER_RIGHT_UPPER);
-   ObjectSetInteger(0, name, OBJPROP_XDISTANCE, x);
+   ObjectSetInteger(0, name, OBJPROP_XDISTANCE, x+10);
    ObjectSetInteger(0, name, OBJPROP_YDISTANCE, y);
    ObjectSetInteger(0, name, OBJPROP_XSIZE, width);
    ObjectSetInteger(0, name, OBJPROP_YSIZE, height);
