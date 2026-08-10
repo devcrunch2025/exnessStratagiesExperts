@@ -48,6 +48,7 @@ bool EnableEquityLadder = true;
 double DailyEquityTargetPercent =5;//10;//5;// 10;//2;//3;//1;//3;//10;//Trading continue with 10% profit reccuring
 double DailyLossProtectionPercent =10;//20;//100;//50;// 30.0;// Trading stops if equity drops below this percentage of the starting balance for the day
 bool EnableDynamicEquityLadder = true;////Trading continue with 10% profit reccuring
+double OriginalDailyEquityTargetPercent =5;//10;//5;// 10;//2;//3;//1;//3;//10;//Trading continue with 10% profit reccuring
 
 
 double OriginalDailyLossProtectionPercent =10;//80;// 30.0;
@@ -227,6 +228,7 @@ int OnInit()
    OriginalLadder1ProfitUSD = Ladder1ProfitUSD;
    OriginalLadder2ProfitUSD = Ladder2ProfitUSD;
    OriginalLadder1StopMaxPriceUSD = Ladder1StopMaxPriceUSD;
+   OriginalDailyEquityTargetPercent = DailyEquityTargetPercent;
    OriginalDailyLossProtectionPercent = DailyLossProtectionPercent;
 
 
@@ -860,6 +862,16 @@ void ResetAfterProtectedEquity(DailyProtectionState &state)
    // ---------------------------------------------------------------
    EquityLadderLevel++;
 
+   if(EquityLadderLevel>1)
+         {
+             DailyEquityTargetPercent=OriginalDailyEquityTargetPercent/2;
+         }
+         else
+         {
+             DailyEquityTargetPercent=OriginalDailyEquityTargetPercent;
+            
+         }
+
    LockedEquity = newBalance;
 
    NextEquityTarget =
@@ -1045,9 +1057,14 @@ void CheckDynamicEquityLadder(DailyProtectionState &state)
 
       LockedEquity = state.DayStartBalance;
 
+
+
+      
       NextEquityTarget =
          state.DayStartBalance *
          (1.0 + DailyEquityTargetPercent / 100.0);
+
+         
 
       Print("EQUITY LADDER INITIALIZED");
       Print("Start Balance : $",
@@ -1137,6 +1154,16 @@ void CheckDynamicEquityLadder(DailyProtectionState &state)
    state.TradingStopped = false;
 
    DailyProtectionStartTime = TimeCurrent();
+
+   if(EquityLadderLevel>1)
+         {
+             DailyEquityTargetPercent=OriginalDailyEquityTargetPercent/2;
+         }
+         else
+         {
+             DailyEquityTargetPercent=OriginalDailyEquityTargetPercent;
+            
+         }
 
    //===============================================================
    // RESET TRADE / RECOVERY STATE
