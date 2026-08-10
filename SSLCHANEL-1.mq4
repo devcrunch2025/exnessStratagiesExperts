@@ -1,6 +1,6 @@
 //+------------------------------------------------------------------+
-//|                  SSL CHANNEL CROSS EA - ULTRA COMPACT             |
-//|                  TWO-STAGE PROFIT LADDER | FIXED & OPTIMIZED      |
+//|                  SSL CHANNEL CROSS EA - CONTINUOUS EQUITY LADDER             |
+//|                  TWO-STAGE PROFIT LADDER | CONTINUOUS RESET RE-ENTRY      |
 //+------------------------------------------------------------------+
 #property strict
 
@@ -103,6 +103,10 @@ datetime DailyProtectionStartTime = 0;
 int LastProcessedClosedTicket = -1;
 bool StartupSignalProcessed = false;
 bool TradeResetThisTick = false;
+
+// Persistent request to start a fresh trade after an Equity Ladder reset.
+// It remains TRUE until a market order is successfully opened.
+bool EquityResetReEntryPending = false;
 
 
 
@@ -305,6 +309,13 @@ void OnTick()
    ProcessStartupSignal(dailyState);
    UpdateDailyLossProtection(dailyState);
    CheckDynamicEquityLadder(dailyState);
+
+   // Continuous Equity Ladder re-entry.
+   // Uses CURRENT SSL direction; no new crossover is required.
+   // If an order cannot be opened now, the request remains pending.
+   if(EquityResetReEntryPending)
+      ProcessEquityResetReEntry(dailyState);
+
    if(ShowSSLLines)
       UpdateSSLChannelOnTick();
    if(Bars >= SSLPeriod + 20 && GetTotalEAOrders() > 0 && !TradeResetThisTick)
@@ -412,7 +423,9 @@ double GetOpenPL(int OrderTypeFilter)
 //+------------------------------------------------------------------+
 double GetOppositeOrdersLots(int orderType)
 {
-   double totalLots = 0.0;
+   // double totalLots = 0.0;
+   double totalLots = 0.01;
+
 
    int oppositeType =
       (orderType == OP_BUY)
@@ -445,42 +458,64 @@ double GetOppositeOrdersLots(int orderType)
 void ChangeLots(double OpenPL, string reason, int orderType)
 {
    //==================================================
-   // DEFAULT
+   // DEFAULT LOT
    //==================================================
    Lots = NormalizeLots(OriginalLots);
 
    //==================================================
-   // OPPOSITE BASKET LOTS
+   // TOTAL OPPOSITE ORDER LOTS
    //==================================================
    double oppositeLots = GetOppositeOrdersLots(orderType);
 
    //==================================================
-   // ONLY RECOVER IF OPPOSITE ORDERS ARE IN LOSS
+   // SSL RECOVERY
+   // New order lot = total opposite exposure
+   // ONLY when opposite basket is in loss
    //==================================================
-   if((reason == "SSL Long" || reason == "SSL Short") &&
-      OpenPL < 0.0)
-   {
-      if(oppositeLots > 0.0)
-      {
-         // New order protects the total opposite exposure
-         Lots = NormalizeLots(oppositeLots);
+   bool isSSLSignal =
+      (reason == "SSL Long" || reason == "SSL Short");
 
-         Print("SSL RECOVERY LOT");
-         Print("Reason          : ", reason);
-         Print("Opposite P/L    : $", DoubleToString(OpenPL,2));
-         Print("Opposite Lots   : ", DoubleToString(oppositeLots,2));
-         Print("NEW LOT         : ", DoubleToString(Lots,2));
-      }
+   if(isSSLSignal && OpenPL < 0.0 && oppositeLots > 0.0)
+   {
+      Lots = NormalizeLots(oppositeLots);
+
+      Print("========================================");
+      Print("SSL RECOVERY LOT");
+      Print("Reason        : ", reason);
+      Print("Opposite P/L  : $", DoubleToString(OpenPL, 2));
+      Print("Opposite Lots : ", DoubleToString(oppositeLots, 2));
+      Print("New Lot       : ", DoubleToString(Lots, 2));
+      Print("========================================");
    }
 
    //==================================================
-   // SL / LADDER VALUES BASED ON ACTUAL LOT SIZE
+   // NORMAL NEW ORDER
+   //==================================================
+   else
+   {
+      Lots = NormalizeLots(OriginalLots);
+   }
+
+   //==================================================
+   // LOT MULTIPLIER
    //==================================================
    double lotMultiplier = 1.0;
 
-   if(OriginalLots > 0.0)
-      lotMultiplier = Lots / OriginalLots;
+   if(oppositeLots > 0.0)
+   {
+      lotMultiplier = Lots / oppositeLots;
+   }
 
+   //==================================================
+   // SAFETY
+   //==================================================
+   if(lotMultiplier < 1.0)
+      lotMultiplier = 1.0;
+
+   //==================================================
+   // SL / EQUITY LADDER VALUES
+   // BASED ON ACTUAL LOT MULTIPLIER
+   //==================================================
    StopLossUSD =
       OriginalStopLossUSD * lotMultiplier;
 
@@ -493,16 +528,21 @@ void ChangeLots(double OpenPL, string reason, int orderType)
    Ladder1StopMaxPriceUSD =
       OriginalLadder1StopMaxPriceUSD * lotMultiplier;
 
-   Print("LOT CONFIG | Lots=",
-         DoubleToString(Lots,2),
-         " | Multiplier=",
-         DoubleToString(lotMultiplier,2),
-         " | SL=$",
-         DoubleToString(StopLossUSD,2),
-         " | L1=$",
-         DoubleToString(Ladder1ProfitUSD,2),
-         " | L2=$",
-         DoubleToString(Ladder2ProfitUSD,2));
+   //==================================================
+   // DEBUG
+   //==================================================
+   Print("========================================");
+   Print("LOT CONFIGURATION");
+   Print("Reason          : ", reason);
+   Print("Open P/L        : $", DoubleToString(OpenPL, 2));
+   Print("Opposite Lots   : ", DoubleToString(oppositeLots, 2));
+   Print("New Lots        : ", DoubleToString(Lots, 2));
+   Print("Lot Multiplier  : ", DoubleToString(lotMultiplier, 2));
+   Print("Stop Loss       : $", DoubleToString(StopLossUSD, 2));
+   Print("Ladder 1        : $", DoubleToString(Ladder1ProfitUSD, 2));
+   Print("Ladder 2        : $", DoubleToString(Ladder2ProfitUSD, 2));
+   Print("L1 Stop Max     : $", DoubleToString(Ladder1StopMaxPriceUSD, 2));
+   Print("========================================");
 }
 //+------------------------------------------------------------------+
 //|                                                                  |
@@ -833,11 +873,11 @@ void ResetAfterProtectedEquity(DailyProtectionState &state)
    OrderCreatedThisCandle = false;
 
    // ---------------------------------------------------------------
-   // 10. START TRADING IMMEDIATELY USING CURRENT SSL DIRECTION
+   // 10. QUEUE TRADING USING CURRENT SSL DIRECTION
    // ---------------------------------------------------------------
-   StartupSignalProcessed = true;
+   // Uses the same persistent re-entry mechanism as the Equity Ladder.
    TradeResetThisTick = true;
-   StartTradingAfterEquityReset(state);
+   QueueEquityResetReEntry();
 
    Print("================================================");
    Print("PROTECTED EQUITY RESET COMPLETE");
@@ -866,88 +906,121 @@ void ResetAfterProtectedEquity(DailyProtectionState &state)
 //| Start trading immediately after an Equity Ladder reset           |
 //| Uses the CURRENT SSL direction - no new crossover required       |
 //+------------------------------------------------------------------+
-void StartTradingAfterEquityReset(DailyProtectionState &state)
+//+------------------------------------------------------------------+
+//| Queue continuous Equity Ladder re-entry                         |
+//+------------------------------------------------------------------+
+void QueueEquityResetReEntry()
   {
-   if(!EnableTrading)
-     {
-      Print("EQUITY RESET -> TRADING DISABLED");
+   EquityResetReEntryPending = true;
+
+   // Allow the first order of the new equity cycle immediately.
+   OrderCreatedThisCandle = false;
+   LastOrderCandleTime    = 0;
+
+   Print("================================================");
+   Print("EQUITY RESET RE-ENTRY QUEUED");
+   Print("CURRENT SSL direction will be used");
+   Print("NO NEW SSL CROSSOVER REQUIRED");
+   Print("================================================");
+  }
+
+//+------------------------------------------------------------------+
+//| Process continuous Equity Ladder re-entry                       |
+//| Keeps retrying until a fresh market order is opened              |
+//+------------------------------------------------------------------+
+void ProcessEquityResetReEntry(DailyProtectionState &state)
+  {
+   if(!EquityResetReEntryPending)
       return;
-     }
+
+   // Temporary blocks do NOT cancel the request.
+   if(!EnableTrading)
+      return;
 
    if(IsDailyTradingStopped(state))
-     {
-      Print("EQUITY RESET -> BLOCKED BY DAILY PROTECTION");
       return;
-     }
 
    if(Bars < SSLPeriod + 20)
+      return;
+
+   // If an order is already present, the re-entry succeeded.
+   if(GetTotalEAOrders() > 0)
      {
-      Print("EQUITY RESET -> NOT ENOUGH BARS");
+      EquityResetReEntryPending = false;
       return;
      }
 
    if(GetTotalEAOrders() >= MaxOpenOrders)
-     {
-      Print("EQUITY RESET -> MAX ORDERS REACHED");
       return;
-     }
 
+   // IMPORTANT: current state, not crossover detection.
    int currentDirection = GetCurrentSSLDirection();
-   bool buyDirection  = (currentDirection > 0);
-   bool sellDirection = (currentDirection < 0);
 
-   Print("================================================");
-   Print("EQUITY RESET -> CURRENT SSL DIRECTION");
-   Print("DIRECTION: ",
-         buyDirection ? "BUY" :
-         sellDirection ? "SELL" : "NONE");
-   Print("================================================");
-
-   OrderCreatedThisCandle=false;
-   LastOrderCandleTime=0;
-
-   if(buyDirection)
+   if(currentDirection > 0)
      {
-      DrawLiveSignal(1,true);
+      OrderCreatedThisCandle = false;
+      LastOrderCandleTime    = 0;
 
-      if(DeleteOppositePendingOnSignal)
-         DeleteOppositePendingOrders(OP_BUY);
+      DrawLiveSignal(1, true);
 
-      if(CloseOppositeOrdersOnSignal)
-         CloseOppositeOrders(OP_BUY);
+      int beforeOrders = GetTotalEAOrders();
+      OpenBuy();
+      int afterOrders = GetTotalEAOrders();
 
-      if(GetTotalEAOrders() < MaxOpenOrders)
+      if(afterOrders > beforeOrders)
         {
-         OpenBuy();
-         Print("EQUITY RESET -> BUY OPENED IMMEDIATELY");
-        }
+         EquityResetReEntryPending = false;
+         TradeResetThisTick = true;
 
-      StartupSignalProcessed=true;
+         Print("================================================");
+         Print("EQUITY RESET -> BUY OPENED");
+         Print("CURRENT SSL : BUY");
+         Print("NO NEW SSL CROSSOVER REQUIRED");
+         Print("CONTINUOUS EQUITY LADDER TRADING RESUMED");
+         Print("================================================");
+        }
+      else
+        {
+         Print("EQUITY RESET -> BUY FAILED/BLOCKED");
+         Print("RE-ENTRY REMAINS PENDING - WILL RETRY");
+        }
       return;
      }
 
-   if(sellDirection)
+   if(currentDirection < 0)
      {
-      DrawLiveSignal(1,false);
+      OrderCreatedThisCandle = false;
+      LastOrderCandleTime    = 0;
 
-      if(DeleteOppositePendingOnSignal)
-         DeleteOppositePendingOrders(OP_SELL);
+      DrawLiveSignal(1, false);
 
-      if(CloseOppositeOrdersOnSignal)
-         CloseOppositeOrders(OP_SELL);
+      int beforeOrders = GetTotalEAOrders();
+      OpenSell();
+      int afterOrders = GetTotalEAOrders();
 
-      if(GetTotalEAOrders() < MaxOpenOrders)
+      if(afterOrders > beforeOrders)
         {
-         OpenSell();
-         Print("EQUITY RESET -> SELL OPENED IMMEDIATELY");
-        }
+         EquityResetReEntryPending = false;
+         TradeResetThisTick = true;
 
-      StartupSignalProcessed=true;
+         Print("================================================");
+         Print("EQUITY RESET -> SELL OPENED");
+         Print("CURRENT SSL : SELL");
+         Print("NO NEW SSL CROSSOVER REQUIRED");
+         Print("CONTINUOUS EQUITY LADDER TRADING RESUMED");
+         Print("================================================");
+        }
+      else
+        {
+         Print("EQUITY RESET -> SELL FAILED/BLOCKED");
+         Print("RE-ENTRY REMAINS PENDING - WILL RETRY");
+        }
       return;
      }
 
-   Print("EQUITY RESET -> NO CURRENT SSL DIRECTION");
-   StartupSignalProcessed=true;
+   // Neutral SSL: keep pending and check again on the next tick.
+   Print("EQUITY RESET -> CURRENT SSL = NONE");
+   Print("RE-ENTRY REMAINS PENDING");
   }
 
 //+------------------------------------------------------------------+
@@ -1124,12 +1197,11 @@ void CheckDynamicEquityLadder(DailyProtectionState &state)
    Print("================================================");
 
    //===============================================================
-   // START NEW TRADE IMMEDIATELY
-   // Uses current SSL direction. No new crossover is required.
+   // QUEUE CONTINUOUS NEW TRADE
+   // Uses CURRENT SSL direction. No new crossover is required.
    //===============================================================
-   StartupSignalProcessed = true;
    TradeResetThisTick = true;
-   StartTradingAfterEquityReset(state);
+   QueueEquityResetReEntry();
 } 
 //+------------------------------------------------------------------+
 //|                                                                  |
@@ -2192,6 +2264,12 @@ void UpdateDashboard(DailyProtectionState &state)
       statusColor=clrTomato;
      }
    else
+   if(EquityResetReEntryPending)
+     {
+      statusText="EQUITY RESET - WAITING RE-ENTRY";
+      statusColor=clrGold;
+     }
+   else
    if(GetTotalEAOrders()>=MaxOpenOrders)
      {
       statusText="MAX ORDERS REACHED";
@@ -2237,7 +2315,7 @@ void UpdateDashboard(DailyProtectionState &state)
    int x=DashboardRightGap;
    int y=DashboardTopGap;
    int textX=x+10;
-   int panelHeight=500;
+   int panelHeight=520;
 
    CreateDashboardPanel(DASH_PREFIX+"PANEL",
                         x,y,
@@ -2266,7 +2344,7 @@ void UpdateDashboard(DailyProtectionState &state)
                         statusColor);
 
    CreateDashboardLabel(DASH_PREFIX+"ENTRYMODE",
-                        "ENTRY MODE : SSL CROSS + RESET RE-ENTRY",
+                        "ENTRY MODE : SSL CROSS + CONTINUOUS RESET RE-ENTRY",
                         textX,
                         y+68,
                         DashboardFontSize,
@@ -2357,6 +2435,14 @@ void UpdateDashboard(DailyProtectionState &state)
       DashboardFontSize,
       clrWhite);
 
+   CreateDashboardLabel(
+      DASH_PREFIX+"REENTRY",
+      "RESET RE-ENTRY : "+(EquityResetReEntryPending ? "PENDING" : "READY"),
+      textX,
+      y+314,
+      DashboardFontSize,
+      EquityResetReEntryPending ? clrGold : clrLime);
+
    //===============================================================
    // ORDERS
    //===============================================================
@@ -2364,7 +2450,7 @@ void UpdateDashboard(DailyProtectionState &state)
       DASH_PREFIX+"ORDERS",
       "ORDERS : "+IntegerToString(totalOrders)+"/"+IntegerToString(MaxOpenOrders),
       textX,
-      y+318,
+      y+338,
       DashboardFontSize,
       clrWhite);
 
@@ -2373,7 +2459,7 @@ void UpdateDashboard(DailyProtectionState &state)
       "BUY : "+IntegerToString(buyOrders)+
       "     SELL : "+IntegerToString(sellOrders),
       textX,
-      y+338,
+      y+358,
       DashboardFontSize,
       clrWhite);
 
@@ -2381,7 +2467,7 @@ void UpdateDashboard(DailyProtectionState &state)
       DASH_PREFIX+"PENDING",
       "PENDING : "+IntegerToString(pendingOrders),
       textX,
-      y+358,
+      y+378,
       DashboardFontSize,
       clrGold);
 
@@ -2389,7 +2475,7 @@ void UpdateDashboard(DailyProtectionState &state)
       DASH_PREFIX+"LOT",
       "CURRENT LOT : "+DoubleToString(Lots,2),
       textX,
-      y+378,
+      y+398,
       DashboardFontSize,
       clrAqua);
 
@@ -2397,7 +2483,7 @@ void UpdateDashboard(DailyProtectionState &state)
       DASH_PREFIX+"SL",
       "STOP LOSS : $"+DoubleToString(StopLossUSD,2),
       textX,
-      y+398,
+      y+418,
       DashboardFontSize,
       clrTomato);
 
@@ -2409,7 +2495,7 @@ void UpdateDashboard(DailyProtectionState &state)
       "ORDER LADDER : L1 $"+DoubleToString(Ladder1ProfitUSD,2)+
       " | L2 $"+DoubleToString(Ladder2ProfitUSD,2),
       textX,
-      y+420,
+      y+440,
       DashboardFontSize,
       clrLimeGreen);
 
@@ -2421,7 +2507,7 @@ void UpdateDashboard(DailyProtectionState &state)
          IntegerToString(state.ClosedOrdersToday)+"/"+
          IntegerToString(MinimumClosedOrdersForDailyProtection),
          textX,
-         y+440,
+         y+460,
          DashboardFontSize,
          state.ClosedOrdersToday>=MinimumClosedOrdersForDailyProtection ?
          clrLime : clrGold);
@@ -2431,7 +2517,7 @@ void UpdateDashboard(DailyProtectionState &state)
       DASH_PREFIX+"DETAILTITLE",
       "LIVE ORDERS : "+(totalOrders>0 ? ordersDetails : "NO ACTIVE ORDERS"),
       textX,
-      y+462,
+      y+482,
       DashboardFontSize,
       totalOrders>0 ? clrWhite : clrSilver);
   }
