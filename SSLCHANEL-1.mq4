@@ -28,8 +28,6 @@ bool EnableProfitLadder2 = true;
 double Ladder1StopMaxPriceUSD = 1;//0.50;//0.20;
 double Ladder2ProfitUSD = 0.10;
 
-double GlbFinalPL = 0, OriginalLots = 0.01, OriginalLadder1ProfitUSD = 0.05, OriginalLadder2ProfitUSD = 0.20;
-double  OriginalLadder1StopMaxPriceUSD=0.20;
 
 
 
@@ -42,8 +40,6 @@ bool EnableDailyLossProtection = true;
 bool ResetDailyProtectionEveryDay = true;
 bool CloseOpenOrdersOnDailyLoss = true;
 int MinimumClosedOrdersForDailyProtection =10;// 100;
-bool EnableDailyEquityTarget = true;
-bool CloseOrdersOnDailyEquityTarget = true;
 bool EnableEquityLadder = true;
 
 
@@ -52,15 +48,10 @@ bool EnableEquityLadder = true;
 double DailyEquityTargetPercent =5;//10;//5;// 10;//2;//3;//1;//3;//10;//Trading continue with 10% profit reccuring
 double DailyLossProtectionPercent =10;//20;//100;//50;// 30.0;// Trading stops if equity drops below this percentage of the starting balance for the day
 bool EnableDynamicEquityLadder = true;////Trading continue with 10% profit reccuring
-double EquityLadderLossPercentAfterstep1=10;////not working 80;//can loss upto 30% after step 1 profit is reached
 
-double OriginalDailyEquityTargetPercent = 5.0;
-double CurrentDynamicTargetPercent = 5.0;
 
 double OriginalDailyLossProtectionPercent =10;//80;// 30.0;
 
-double EquityLockPercent = 80;
-bool ContinueTradingAfterTarget = false;
 bool ResetLadderEveryDay = true;
 int EquityLadderLevel = 1;
 double NextEquityTarget = 0;
@@ -87,24 +78,33 @@ int DashboardWidth = 285;
 int DashboardHeight = 480;
 int DashboardFontSize = 9;
 
+double OriginalLots = 0.01;
+double OriginalLadder1ProfitUSD = 0.05;
+double OriginalLadder2ProfitUSD = 0.20;
+double OriginalLadder1StopMaxPriceUSD = 0.20;
+
 // ===== STATE STRUCTURE =====
 struct DailyProtectionState
   {
    datetime          DayDate;
-   double            DayStartBalance, DayHighestBalance, DayProtectedBalance, DayPeakProfit, DailyClosedProfit;
-   int               DailyClosedOrders, ClosedOrdersToday;
-   bool              TradingStopped, LossTriggered, Initialized;
+   double DayStartBalance;
+   double DayProtectedBalance;
+   int ClosedOrdersToday;
+   bool TradingStopped;
+   bool Initialized;
   };
 
 // ===== RUNTIME VARIABLES =====
-string PREFIX = "SSL_CROSS_", DASH_PREFIX = "SSL_DASHBOARD_";
-datetime LastProcessedBar = 0, LastProcessedClosedOrderTime = 0, DailyProtectionStartTime = 0, LastProfitTargetTime = 0;
-int LastProcessedClosedTicket = -1, RecoveryOrders = 0;
-bool StartupSignalProcessed = false, RecoveryMode = false, BasketTrailingArmed = false;
-bool ProfitLadder1Triggered = false, ProfitLadder2Triggered = false;
+string PREFIX = "SSL_CROSS_";
+string DASH_PREFIX = "SSL_DASHBOARD_";
+datetime LastProcessedBar = 0;
+datetime LastProcessedClosedOrderTime = 0;
+datetime DailyProtectionStartTime = 0;
+int LastProcessedClosedTicket = -1;
+bool StartupSignalProcessed = false;
+bool TradeResetThisTick = false;
 
 
-double CurrentMultiplier = 1.0, BasketHighestProfit = 0.0, BasketTrailingStop = 0.0, DynamicBasketHighestProfit = 0.0;
 
 //+------------------------------------------------------------------+
 void InitializeEquityLadder(DailyProtectionState &state)
@@ -125,13 +125,9 @@ void ProcessStartupSignal(DailyProtectionState &dailyState)
       return;
    StartupSignalProcessed = true;
 
-   double upCurrent, downCurrent, upPrevious, downPrevious;
-   int hlvCurrent, hlvPrevious;
-   CalculateSSL(1, upCurrent, downCurrent, hlvCurrent);
-   CalculateSSL(2, upPrevious, downPrevious, hlvPrevious);
-
-   bool buySignal = (upCurrent > downCurrent);
-   bool sellSignal = (upCurrent < downCurrent);
+   int currentDirection = GetCurrentSSLDirection();
+   bool buySignal = (currentDirection > 0);
+   bool sellSignal = (currentDirection < 0);
 
 //    bool buySignal = IsBuySignal(1);
 // bool sellSignal = IsSellSignal(1);
@@ -175,38 +171,7 @@ void ProcessStartupSignal(DailyProtectionState &dailyState)
 //+------------------------------------------------------------------+
 //|                                                                  |
 //+------------------------------------------------------------------+
-void UpdateDynamicEquityTarget(DailyProtectionState &state)
-  {
-   if(state.DayStartBalance <= 0)
-      return;
 
-   double drawdown =
-      (state.DayStartBalance - AccountEquity()) /
-      state.DayStartBalance * 100.0;
-
-   int reduceSteps = (int)MathFloor(drawdown / 5.0);
-
-   double newTarget =
-      OriginalDailyEquityTargetPercent - reduceSteps;
-
-// Minimum allowed target
-   if(newTarget < 1.0)
-      newTarget = 1.0;
-
-// Only decrease, never increase
-   if(newTarget < CurrentDynamicTargetPercent)
-     {
-      CurrentDynamicTargetPercent = newTarget;
-      DailyEquityTargetPercent = CurrentDynamicTargetPercent;
-
-      NextEquityTarget =
-         state.DayStartBalance *
-         (1.0 + DailyEquityTargetPercent / 100.0);
-
-      Print("Dynamic Target Reduced -> ",
-            DoubleToString(DailyEquityTargetPercent,2), "%");
-     }
-  }
 //+------------------------------------------------------------------+
 //|                                                                  |
 //+------------------------------------------------------------------+
@@ -221,10 +186,7 @@ int OnInit()
    OriginalDailyLossProtectionPercent = DailyLossProtectionPercent;
 
 
-   OriginalDailyEquityTargetPercent = DailyEquityTargetPercent;
 
-   OriginalDailyEquityTargetPercent = DailyEquityTargetPercent;
-   CurrentDynamicTargetPercent = DailyEquityTargetPercent;
 
    OriginalStopLossUSD = StopLossUSD;
 
@@ -244,7 +206,6 @@ int OnInit()
    InitializeLastProcessedClosedOrder();
    return INIT_SUCCEEDED;
   }
-int EAOrders = 0;
 
 datetime LastOrderCandleTime = 0;
 bool OrderCreatedThisCandle = false;
@@ -271,19 +232,12 @@ void OnDeinit(const int reason) { DeleteOurObjects(); DeleteDashboardObjects(); 
 //+------------------------------------------------------------------+
 void OnTick()
   {
-
-
-//    if(GetOpenPL(OP_BUY)<-1 || GetOpenPL(OP_SELL) < -1)
-// {
-
-//    Ladder1ProfitUSD = 0.01;//OriginalLadder1ProfitUSD * Multiplier1;
-
-// }
 // else
 // {
 //    Ladder1ProfitUSD = OriginalLadder1ProfitUSD;
 // }
    static DailyProtectionState dailyState;
+   TradeResetThisTick = false;
 
    CheckRecoveryOrders();
    ManageRecoveryBasket();
@@ -292,12 +246,10 @@ void OnTick()
 
    ProcessStartupSignal(dailyState);
    UpdateDailyLossProtection(dailyState);
-   // UpdateDynamicEquityTarget(dailyState);
-   CheckHighestProfitOrderForLadder();
    CheckDynamicEquityLadder(dailyState);
    if(ShowSSLLines)
       UpdateSSLChannelOnTick();
-   if(Bars >= SSLPeriod + 20 && GetTotalEAOrders() > 0)
+   if(Bars >= SSLPeriod + 20 && GetTotalEAOrders() > 0 && !TradeResetThisTick)
       CheckForProfitableClosedOrder(dailyState);
    if(EnableProfitLadder1 || EnableProfitLadder2)
       ManageProfitLadder();
@@ -392,111 +344,18 @@ double GetOpenPL(int OrderTypeFilter)
 //+------------------------------------------------------------------+
 // Find highest profit order and adjust Ladder1
 //+------------------------------------------------------------------+
-void CheckHighestProfitOrderForLadder()
-  {
-   double highestPL = -999999;
-   double highestLot = 0;
-   int highestTicket = -1;
 
-   for(int i = OrdersTotal()-1; i >= 0; i--)
-     {
-      if(!OrderSelect(i, SELECT_BY_POS, MODE_TRADES))
-         continue;
-
-      if(OrderSymbol() != Symbol() || OrderMagicNumber() != MagicNumber)
-         continue;
-
-      if(OrderType() != OP_BUY && OrderType() != OP_SELL)
-         continue;
-
-      double pl = OrderProfit() + OrderSwap() + OrderCommission();
-
-      if(pl > highestPL)
-        {
-         highestPL = pl;
-         highestLot = OrderLots();
-         highestTicket = OrderTicket();
-        }
-     }
-
-
-   if(highestTicket > 0)
-     {
-      // Print("Highest P/L Order | Ticket: ", highestTicket,
-      //       " | Lot: ", DoubleToString(highestLot,2),
-      //       " | P/L: $", DoubleToString(highestPL,2));
-
-
-      // If highest lot is greater than 0.01
-      if(highestLot > 0.01)
-        {
-         // Ladder1ProfitUSD =0.05;// 0.01;//0.03
-         // StopLossUSD=2;
-
-
-         Print("Ladder1 Changed -> $0.01 because Lot > 0.01");
-        }
-      else
-        {
-         Ladder1ProfitUSD = OriginalLadder1ProfitUSD;
-         StopLossUSD=OriginalStopLossUSD;
-
-
-         // Print("Ladder1 Reset -> Original Value");
-        }
-     }
-  }
 //+------------------------------------------------------------------+
 //| Get Open Orders Count by Type                                    |
 //+------------------------------------------------------------------+
-int GetOpenOrdersCount(int orderType)
-{
-   int count = 0;
 
-   for(int i = OrdersTotal() - 1; i >= 0; i--)
-   {
-      if(!OrderSelect(i, SELECT_BY_POS, MODE_TRADES))
-         continue;
-
-      if(OrderSymbol() != Symbol())
-         continue;
-
-      if(OrderMagicNumber() != MagicNumber)
-         continue;
-
-      if(OrderType() == orderType)
-         count++;
-   }
-
-   return count;
-}
 //+------------------------------------------------------------------+
 //| Get Open Market Orders Count                                     |
 //+------------------------------------------------------------------+
-int GetOpenOrdersCountAll()
-  {
-   int count = 0;
 
-   for(int i = OrdersTotal() - 1; i >= 0; i--)
-     {
-      if(!OrderSelect(i, SELECT_BY_POS, MODE_TRADES))
-         continue;
-
-      if(OrderSymbol() != Symbol())
-         continue;
-
-      if(OrderMagicNumber() != MagicNumber)
-         continue;
-
-      if(OrderType() == OP_BUY || OrderType() == OP_SELL)
-         count++;
-     }
-
-   return count;
-  }
   double GetOppositeOrdersLots(int orderType)
 {
-   double totalLots = 0.01;
+   double totalLots = 0.0;
 
    int oppositeType =
       (orderType == OP_BUY) ? OP_SELL : OP_BUY;
@@ -518,9 +377,10 @@ int GetOpenOrdersCountAll()
       totalLots += OrderLots();
    }
 
-   //totalLots=totalLots+0.01;
+   if(totalLots <= 0.0)
+      return NormalizeLots(OriginalLots);
 
-   return NormalizeDouble(totalLots, 2);
+   return NormalizeLots(totalLots);
 }
 //0.03 
 void ChangeLots(double OpenPL, string reason, int orderType)
@@ -585,7 +445,7 @@ void ChangeLots(double OpenPL, string reason, int orderType)
       Ladder1StopMaxPriceUSD =
          OriginalLadder1StopMaxPriceUSD * Multiplier;
 
-      Print("RECOVERY LOT | OpenPL=$",
+      Print("LOT UPDATE | OpenPL=$",
             DoubleToString(OpenPL,2),
             " | New Order Type=",
             orderType == OP_BUY ? "BUY" : "SELL",
@@ -632,43 +492,7 @@ void ChangeLots(double OpenPL, string reason, int orderType)
    // Ladder1StopMaxPriceUSD =
    //    OriginalLadder1StopMaxPriceUSD * Multiplier;
 }
-int ChangeLotsOpposite(double OpenPL, string reason, int orderType)
-{
-   int oppositeType = (orderType == OP_BUY) ? OP_SELL : OP_BUY;
 
-   double oppositePL = 0;
-   int oppositeCount = 0;
-
-   // Calculate opposite orders total P/L
-   for(int i = OrdersTotal() - 1; i >= 0; i--)
-   {
-      if(!OrderSelect(i, SELECT_BY_POS, MODE_TRADES))
-         continue;
-
-      if(OrderSymbol() != Symbol())
-         continue;
-
-      if(OrderMagicNumber() != MagicNumber)
-         continue;
-
-      if(OrderType() != oppositeType)
-         continue;
-
-      oppositePL += OrderProfit() + OrderSwap() + OrderCommission();
-      oppositeCount++;
-   }
-
-   // Default
-   int Multiplier = 1;
-
-   // Opposite basket loss > $3
-   if(oppositePL < -2.0)
-   {
-      Multiplier = oppositeCount + 1;
-   }
-
-  return Multiplier;
-}
 //+------------------------------------------------------------------+
 //|                                                                  |
 //+------------------------------------------------------------------+
@@ -695,7 +519,7 @@ void CheckRecoveryOrders()
       if((OrderType() == OP_BUY && !IsBuySignal(1)) || (OrderType() == OP_SELL && !IsSellSignal(1)))
          continue;
 
-      double lots = NormalizeDouble(OrderLots() * RecoveryLotMultiplier, 2);
+      double lots = NormalizeLots(OrderLots() * RecoveryLotMultiplier);
 
       if(!IsOneCandleOrderAllowed())
          continue;
@@ -861,21 +685,7 @@ void ManageRecoveryBasket()
 //+------------------------------------------------------------------+
 //|                                                                  |
 //+------------------------------------------------------------------+
-void CloseBasket(int type)
-  {
-   RefreshRates();
-   for(int i = OrdersTotal() - 1; i >= 0; i--)
-     {
-      if(!OrderSelect(i, SELECT_BY_POS, MODE_TRADES))
-         continue;
-      if(OrderMagicNumber() != MagicNumber || OrderSymbol() != Symbol() || OrderType() != type)
-         continue;
-      if(type == OP_BUY)
-         OrderClose(OrderTicket(), OrderLots(), Bid, Slippage, clrRed);
-      else
-         OrderClose(OrderTicket(), OrderLots(), Ask, Slippage, clrBlue);
-     }
-  }
+
 
 //+------------------------------------------------------------------+
 //|                                                                  |
@@ -885,17 +695,12 @@ void InitializeDailyProtectionState(DailyProtectionState &state)
    string today = TimeToString(TimeCurrent(), TIME_DATE);
    state.DayDate = StrToTime(today);
    state.DayStartBalance = AccountBalance();
-   state.DayHighestBalance = state.DayStartBalance;
 // state.DayProtectedBalance = state.DayStartBalance;
    state.DayProtectedBalance =
       state.DayStartBalance *
       (1.0 - DailyLossProtectionPercent/100.0);
-   state.DayPeakProfit = 0.0;
-   state.DailyClosedProfit = 0.0;
-   state.DailyClosedOrders = 0;
    state.ClosedOrdersToday = 0;
    state.TradingStopped = false;
-   state.LossTriggered = false;
    state.Initialized = true;
 
    Print("==================================================");
@@ -959,19 +764,14 @@ void ResetAfterProtectedEquity(DailyProtectionState &state)
    // 4. NEW PROTECTED EQUITY / NEW STARTING BALANCE
    // ---------------------------------------------------------------
    state.DayStartBalance   = newBalance;
-   state.DayHighestBalance = newBalance;
 
-   state.DayPeakProfit     = 0.0;
-   state.DailyClosedProfit = 0.0;
 
    state.ClosedOrdersToday = 0;
-   state.DailyClosedOrders = 0;
 
    // ---------------------------------------------------------------
    // 5. IMPORTANT - ALLOW TRADING AGAIN
    // ---------------------------------------------------------------
    state.TradingStopped = false;
-   state.LossTriggered  = false;
 
    // ---------------------------------------------------------------
    // 6. RESET DAILY PROTECTION
@@ -999,19 +799,10 @@ void ResetAfterProtectedEquity(DailyProtectionState &state)
    Ladder1StopMaxPriceUSD =
       OriginalLadder1StopMaxPriceUSD;
 
-   ProfitLadder1Triggered = false;
-   ProfitLadder2Triggered = false;
 
-   RecoveryMode = false;
-   RecoveryOrders = 0;
 
-   CurrentMultiplier = 1.0;
 
-   BasketHighestProfit = 0.0;
-   BasketTrailingStop = 0.0;
-   BasketTrailingArmed = false;
 
-   DynamicBasketHighestProfit = 0.0;
 
    // ---------------------------------------------------------------
    // 8. RESET EQUITY LADDER
@@ -1024,7 +815,6 @@ void ResetAfterProtectedEquity(DailyProtectionState &state)
       newBalance *
       (1.0 + DailyEquityTargetPercent / 100.0);
 
-   LastProfitTargetTime = TimeCurrent();
 
    // ---------------------------------------------------------------
    // 9. RESET ORDER-CANDLE CONTROL
@@ -1035,6 +825,7 @@ void ResetAfterProtectedEquity(DailyProtectionState &state)
    // 10. START TRADING IMMEDIATELY USING CURRENT SSL DIRECTION
    // ---------------------------------------------------------------
    StartupSignalProcessed = true;
+   TradeResetThisTick = true;
    StartTradingAfterEquityReset(state);
 
    Print("================================================");
@@ -1090,19 +881,12 @@ void StartTradingAfterEquityReset(DailyProtectionState &state)
       return;
      }
 
-   double upCurrent, downCurrent;
-   int hlvCurrent;
-
-   CalculateSSL(1,upCurrent,downCurrent,hlvCurrent);
-
-   bool buyDirection  = (upCurrent > downCurrent);
-   bool sellDirection = (upCurrent < downCurrent);
+   int currentDirection = GetCurrentSSLDirection();
+   bool buyDirection  = (currentDirection > 0);
+   bool sellDirection = (currentDirection < 0);
 
    Print("================================================");
    Print("EQUITY RESET -> CURRENT SSL DIRECTION");
-   Print("SSL UP   : ",DoubleToString(upCurrent,Digits));
-   Print("SSL DOWN : ",DoubleToString(downCurrent,Digits));
-   Print("HLV      : ",hlvCurrent);
    Print("DIRECTION: ",
          buyDirection ? "BUY" :
          sellDirection ? "SELL" : "NONE");
@@ -1161,7 +945,7 @@ void StartTradingAfterEquityReset(DailyProtectionState &state)
 void CheckDynamicEquityLadder(DailyProtectionState &state)
 {
    // Equity ladder disabled
-   if(!EnableDynamicEquityLadder)
+   if(!EnableEquityLadder || !EnableDynamicEquityLadder)
       return;
 
    // Do not process while daily protection has stopped trading
@@ -1263,15 +1047,10 @@ void CheckDynamicEquityLadder(DailyProtectionState &state)
    // NEW LADDER START
    //===============================================================
    state.DayStartBalance   = newBalance;
-   state.DayHighestBalance = newBalance;
 
-   state.DayPeakProfit     = 0.0;
-   state.DailyClosedProfit = 0.0;
-   state.DailyClosedOrders = 0;
    state.ClosedOrdersToday = 0;
 
    state.TradingStopped = false;
-   state.LossTriggered  = false;
 
    DailyProtectionStartTime = TimeCurrent();
 
@@ -1289,19 +1068,10 @@ void CheckDynamicEquityLadder(DailyProtectionState &state)
    Ladder1StopMaxPriceUSD =
       OriginalLadder1StopMaxPriceUSD;
 
-   ProfitLadder1Triggered = false;
-   ProfitLadder2Triggered = false;
 
-   RecoveryMode = false;
-   RecoveryOrders = 0;
 
-   CurrentMultiplier = 1.0;
 
-   BasketHighestProfit = 0.0;
-   BasketTrailingStop = 0.0;
-   BasketTrailingArmed = false;
 
-   DynamicBasketHighestProfit = 0.0;
 
    //===============================================================
    // LOCK CURRENT BALANCE
@@ -1325,7 +1095,6 @@ void CheckDynamicEquityLadder(DailyProtectionState &state)
    //===============================================================
    // RESET TARGET TIMER
    //===============================================================
-   LastProfitTargetTime = TimeCurrent();
 
    //===============================================================
    // LOG NEW LADDER
@@ -1344,10 +1113,11 @@ void CheckDynamicEquityLadder(DailyProtectionState &state)
    Print("================================================");
 
    //===============================================================
-   //===============================================================
    // START NEW TRADE IMMEDIATELY
    // Uses current SSL direction. No new crossover is required.
    //===============================================================
+   StartupSignalProcessed = true;
+   TradeResetThisTick = true;
    StartTradingAfterEquityReset(state);
 } 
 //+------------------------------------------------------------------+
@@ -1365,8 +1135,7 @@ void UpdateDailyLossProtection(DailyProtectionState &state)
      {
       state.DayDate = todayDate;
       state.DayStartBalance = AccountBalance();
-      state.DayHighestBalance = state.DayStartBalance;
-      // state.DayProtectedBalance = state.DayStartBalance;
+         // state.DayProtectedBalance = state.DayStartBalance;
       state.DayProtectedBalance =
          state.DayStartBalance *
          (1.0 - DailyLossProtectionPercent/100.0);
@@ -1391,94 +1160,30 @@ void UpdateDailyLossProtection(DailyProtectionState &state)
      }
 
    state.ClosedOrdersToday = CountClosedOrdersSinceInitialization();
-   double currentBalance = AccountBalance();
    double currentEquity = AccountEquity();
-// double minEquity = state.DayStartBalance * (1.0 - DailyLossProtectionPercent / 100.0);
    double minEquity =
-      state.DayStartBalance -
-      (state.DayStartBalance * DailyLossProtectionPercent / 100.0);
+      state.DayStartBalance *
+      (1.0 - DailyLossProtectionPercent / 100.0);
 
-
- if(AccountEquity() <= minEquity)
-{
-   Print("================================================");
-   Print("PROTECTED EQUITY STOP TRIGGERED");
-   Print("Start Balance : $",
-         DoubleToString(state.DayStartBalance, 2));
-
-   Print("Protected Equity : $",
-         DoubleToString(minEquity, 2));
-
-   Print("Current Equity : $",
-         DoubleToString(AccountEquity(), 2));
-
-   Print("================================================");
-
-   if(CloseOpenOrdersOnDailyLoss)
-   {
-      ResetAfterProtectedEquity(state);
-   }
-
-   return;
-}
-
+   // One protection path only. The old EA checked this same condition
+   // three times, making the minimum-closed-orders condition ineffective.
    if(currentEquity <= minEquity)
-     {
-      if(!state.TradingStopped)
-        {
+   {
+      Print("================================================");
+      Print("PROTECTED EQUITY STOP TRIGGERED");
+      Print("Start Balance     : $", DoubleToString(state.DayStartBalance, 2));
+      Print("Protected Equity  : $", DoubleToString(minEquity, 2));
+      Print("Current Equity    : $", DoubleToString(currentEquity, 2));
+      Print("Closed Orders     : ", state.ClosedOrdersToday);
+      Print("================================================");
+
+      if(CloseOpenOrdersOnDailyLoss)
+         ResetAfterProtectedEquity(state);
+      else
          state.TradingStopped = true;
-         Print("EQUITY LOSS LIMIT REACHED | "+DoubleToString(DailyLossProtectionPercent,2)+"% Start: $", DoubleToString(state.DayStartBalance, 2), " | Current: $", DoubleToString(currentEquity, 2));
-         if(CloseOpenOrdersOnDailyLoss)
-            CloseAllEAOrdersOnDailyLoss();
-        }
-      return;
-     }
-
-// if(currentBalance > state.DayHighestBalance) {
-//    state.DayHighestBalance = currentBalance;
-//    double profitAboveStart = state.DayHighestBalance - state.DayStartBalance;
-
-//    if(profitAboveStart > 0) {
-//       double protectedProfit = profitAboveStart * DailyLossProtectionPercent / 100.0;
-//       state.DayProtectedBalance = state.DayStartBalance + protectedProfit;
-//    } else {
-//       // state.DayProtectedBalance = state.DayStartBalance;
-//       state.DayProtectedBalance =
-//  state.DayStartBalance *
-//  (1.0 - DailyLossProtectionPercent/100.0);
-//    }
-
-//    Print("DAILY HIGH: $", DoubleToString(state.DayHighestBalance, 2), " | Profit: $", DoubleToString(profitAboveStart, 2), " | Protected: $", DoubleToString(state.DayProtectedBalance, 2));
-// }
-
-   if(state.ClosedOrdersToday < MinimumClosedOrdersForDailyProtection)
-      return;
-
-// ================================
-// PROTECTED EQUITY STOP
-// ================================
-
-   if(AccountEquity() <= state.DayProtectedBalance)
-     {
-      if(!state.TradingStopped)
-        {
-         state.TradingStopped = true;
-         state.LossTriggered = true;
-
-         Print("===============================");
-         Print("PROTECTED EQUITY STOP TRIGGERED");
-         Print("Protected Equity : $",
-               DoubleToString(state.DayProtectedBalance,2));
-         Print("Current Equity   : $",
-               DoubleToString(AccountEquity(),2));
-         Print("===============================");
-
-         if(CloseOpenOrdersOnDailyLoss)
-            CloseAllEAOrdersOnDailyLoss();
-        }
 
       return;
-     }
+   }
   }
 
 //+------------------------------------------------------------------+
@@ -1552,7 +1257,7 @@ void CloseOppositeOrders(int newSignalType)
 
       double orderPL = OrderProfit() + OrderSwap() + OrderCommission();
 
-      // Close only opposite orders with loss less than -$3
+      // Close only opposite orders at or below the configured loss threshold
       if(orderPL > closeOppositeLossThreshold)
          continue;
 
@@ -1843,19 +1548,20 @@ void CreateProfitReEntryStop(int closedOrderType, double closedPrice, DailyProte
 
    entryPrice = NormalizeDouble(entryPrice, Digits);
 
+   ResetLastError();
+   if(pendingType == OP_BUYSTOP)
+      ChangeLots(GetOpenPL(OP_SELL), "SSL Profit ReEntry Buy Stop", OP_BUY);
+   else
+      ChangeLots(GetOpenPL(OP_BUY), "SSL Profit ReEntry Sell Stop", OP_SELL);
+
    double slDistance = CalculatePriceDistanceUSD(StopLossUSD, Lots);
    if(slDistance <= 0)
       return;
 
-   double stopLoss = (pendingType == OP_BUYSTOP) ? (entryPrice - slDistance) : (entryPrice + slDistance);
+   double stopLoss = (pendingType == OP_BUYSTOP) ?
+                     (entryPrice - slDistance) :
+                     (entryPrice + slDistance);
    stopLoss = NormalizeDouble(stopLoss, Digits);
-
-   ResetLastError();
-   if(pendingType == OP_BUYSTOP)
-      ChangeLots(GetOpenPL(OP_SELL),"SSL Profit ReEntry Buy Stop",OP_BUY);
-   else
-      if(pendingType == OP_SELLSTOP)
-         ChangeLots(GetOpenPL(OP_BUY),"SSL Profit ReEntry Sell Stop",OP_SELL);
 
    int ticket = OrderSend(Symbol(), pendingType, Lots, entryPrice, Slippage, stopLoss, 0, orderComment, MagicNumber, 0, orderColor);
 
@@ -1938,7 +1644,6 @@ void OpenBuy()
       return;
    ChangeLots(GetOpenPL(OP_SELL),"SSL Long",OP_BUY);
    RefreshRates();
-   // EAOrders++;
 
    double slDistance = CalculatePriceDistanceUSD(StopLossUSD, Lots);
    if(slDistance <= 0)
@@ -1959,15 +1664,22 @@ double NormalizeLots(double lots)
    double maxLot  = MarketInfo(Symbol(), MODE_MAXLOT);
    double lotStep = MarketInfo(Symbol(), MODE_LOTSTEP);
 
-   if(lots < minLot)
-      lots = minLot;
+   if(lotStep <= 0.0)
+      lotStep = minLot > 0.0 ? minLot : 0.01;
 
-   if(lots > maxLot)
-      lots = maxLot;
+   lots = MathMax(minLot, MathMin(maxLot, lots));
+   lots = MathFloor((lots + 1e-9) / lotStep) * lotStep;
+   lots = MathMax(minLot, MathMin(maxLot, lots));
 
-   lots = MathFloor(lots / lotStep) * lotStep;
+   int digits = 0;
+   double step = lotStep;
+   while(digits < 8 && MathAbs(step - MathRound(step)) > 1e-8)
+   {
+      step *= 10.0;
+      digits++;
+   }
 
-   return NormalizeDouble(lots, 2);
+   return NormalizeDouble(lots, digits);
 }
 //+------------------------------------------------------------------+
 //|                                                                  |
@@ -1980,7 +1692,6 @@ void OpenSell()
       return;
    ChangeLots(GetOpenPL(OP_BUY),"SSL Short",OP_SELL);
    RefreshRates();
-   // EAOrders++;
 
    double slDistance = CalculatePriceDistanceUSD(StopLossUSD, Lots);
    if(slDistance <= 0)
@@ -2131,6 +1842,37 @@ void CalculateSSL(int shift, double &sslUp, double &sslDown, int &hlv)
    sslUp = 0;
    sslDown = 0;
   }
+
+//+------------------------------------------------------------------+
+//| Cached current SSL direction                                    |
+//|  1 = BUY, -1 = SELL, 0 = NONE                                  |
+//+------------------------------------------------------------------+
+int GetCurrentSSLDirection()
+{
+   static datetime cachedBar = 0;
+   static int cachedDirection = 0;
+
+   if(Bars < SSLPeriod + 20)
+      return 0;
+
+   if(cachedBar != Time[0])
+   {
+      double up, down;
+      int hlv;
+      CalculateSSL(1, up, down, hlv);
+
+      if(up > down)
+         cachedDirection = 1;
+      else if(up < down)
+         cachedDirection = -1;
+      else
+         cachedDirection = 0;
+
+      cachedBar = Time[0];
+   }
+
+   return cachedDirection;
+}
 
 //+------------------------------------------------------------------+
 //|                                                                  |
@@ -2330,96 +2072,7 @@ void CreateDashboardLabel(string name, string text, int x, int y, int fontSize, 
 //+------------------------------------------------------------------+
 //|                                                                  |
 //+------------------------------------------------------------------+
-void DrawLiveOrdersTable()
-  {
-   string prefix = "LIVE_ORDERS_";
-   for(int i = 0; i < 100; i++)
-      ObjectDelete(prefix + "L" + IntegerToString(i));
 
-   ObjectDelete("LIVE_ORDERS_PANEL");
-   ObjectCreate("LIVE_ORDERS_PANEL", OBJ_RECTANGLE_LABEL, 0, 0, 0);
-   ObjectSet("LIVE_ORDERS_PANEL", OBJPROP_CORNER, 0);
-   ObjectSet("LIVE_ORDERS_PANEL", OBJPROP_XDISTANCE, 5);
-   ObjectSet("LIVE_ORDERS_PANEL", OBJPROP_YDISTANCE, 10);
-   ObjectSet("LIVE_ORDERS_PANEL", OBJPROP_XSIZE, 360);
-   ObjectSet("LIVE_ORDERS_PANEL", OBJPROP_YSIZE, 320);
-   ObjectSet("LIVE_ORDERS_PANEL", OBJPROP_BGCOLOR, clrBlack);
-   ObjectSet("LIVE_ORDERS_PANEL", OBJPROP_COLOR, clrDimGray);
-   ObjectSet("LIVE_ORDERS_PANEL", OBJPROP_BORDER_TYPE, BORDER_FLAT);
-   ObjectSet("LIVE_ORDERS_PANEL", OBJPROP_BACK, false);
-   ObjectSet("LIVE_ORDERS_PANEL", OBJPROP_SELECTABLE, false);
-   ObjectSet("LIVE_ORDERS_PANEL", OBJPROP_HIDDEN, true);
-   ObjectSet("LIVE_ORDERS_PANEL", OBJPROP_ZORDER, 0);
-
-   int x = 10, y = 20, row = 0;
-   string font = "Consolas", txt = "Ticket     Type   Lot    Open        Profit";
-   int size = 9;
-
-   ObjectCreate(prefix + "L0", OBJ_LABEL, 0, 0, 0);
-   ObjectSet(prefix + "L0", OBJPROP_CORNER, 0);
-   ObjectSet(prefix + "L0", OBJPROP_XDISTANCE, x);
-   ObjectSet(prefix + "L0", OBJPROP_YDISTANCE, y);
-   ObjectSetText(prefix + "L0", txt, size, font, clrYellow);
-   row++;
-
-   double totalPL = 0, totalLots = 0;
-   int totalOrders = 0;
-
-   for(int i = OrdersTotal() - 1; i >= 0; i--)
-     {
-      if(!OrderSelect(i, SELECT_BY_POS, MODE_TRADES))
-         continue;
-      if(OrderSymbol() != Symbol() || OrderMagicNumber() != MagicNumber)
-         continue;
-      if(OrderType() != OP_BUY && OrderType() != OP_SELL)
-         continue;
-
-      double pl = OrderProfit() + OrderSwap() + OrderCommission();
-      totalPL += pl;
-      totalLots += OrderLots();
-      totalOrders++;
-
-      string type = OrderType() == OP_BUY ? "BUY " : "SELL";
-      txt = StringFormat("%-9d %-5s %0.2f %10." + IntegerToString(Digits) + "f %7.2f", OrderTicket(), type, OrderLots(), OrderOpenPrice(), pl);
-
-      string name = prefix + "L" + IntegerToString(row);
-      ObjectCreate(name, OBJ_LABEL, 0, 0, 0);
-      ObjectSet(name, OBJPROP_CORNER, 0);
-      ObjectSet(name, OBJPROP_XDISTANCE, x);
-      ObjectSet(name, OBJPROP_YDISTANCE, y + (row * 16));
-
-      color c = clrWhite;
-      if(pl > 0)
-         c = clrLime;
-      if(pl < 0)
-         c = clrRed;
-      ObjectSetText(name, txt, size, font, c);
-      row++;
-     }
-
-   txt = "------------------------------------------------";
-   ObjectCreate(prefix + "L" + IntegerToString(row), OBJ_LABEL, 0, 0, 0);
-   ObjectSet(prefix + "L" + IntegerToString(row), OBJPROP_CORNER, 0);
-   ObjectSet(prefix + "L" + IntegerToString(row), OBJPROP_XDISTANCE, x);
-   ObjectSet(prefix + "L" + IntegerToString(row), OBJPROP_YDISTANCE, y + (row * 16));
-   ObjectSetText(prefix + "L" + IntegerToString(row), txt, size, font, clrSilver);
-   row++;
-
-   txt = StringFormat("Orders:%d   Lots:%.2f   Total P/L: %.2f", totalOrders, totalLots, totalPL);
-   GlbFinalPL = totalPL;
-
-   ObjectCreate(prefix + "L" + IntegerToString(row), OBJ_LABEL, 0, 0, 0);
-   ObjectSet(prefix + "L" + IntegerToString(row), OBJPROP_CORNER, 0);
-   ObjectSet(prefix + "L" + IntegerToString(row), OBJPROP_XDISTANCE, x);
-   ObjectSet(prefix + "L" + IntegerToString(row), OBJPROP_YDISTANCE, y + (row * 16));
-
-   color totalColor = clrWhite;
-   if(totalPL > 0)
-      totalColor = clrLime;
-   if(totalPL < 0)
-      totalColor = clrRed;
-   ObjectSetText(prefix + "L" + IntegerToString(row), txt, size, font, totalColor);
-  }
 //+------------------------------------------------------------------+
 //|                                                                  |
 //+------------------------------------------------------------------+
@@ -2494,24 +2147,17 @@ void UpdateDashboard(DailyProtectionState &state)
    string sslDirection="NONE";
    color sslColor=clrSilver;
 
-   if(Bars>=SSLPeriod+20)
+   int currentSSLDirection = GetCurrentSSLDirection();
+   if(currentSSLDirection > 0)
      {
-      double sslUp,sslDown;
-      int sslHLV;
-
-      CalculateSSL(1,sslUp,sslDown,sslHLV);
-
-      if(sslUp>sslDown)
-        {
-         sslDirection="BUY";
-         sslColor=clrDeepSkyBlue;
-        }
-      else
-      if(sslUp<sslDown)
-        {
-         sslDirection="SELL";
-         sslColor=clrTomato;
-        }
+      sslDirection="BUY";
+      sslColor=clrDeepSkyBlue;
+     }
+   else
+   if(currentSSLDirection < 0)
+     {
+      sslDirection="SELL";
+      sslColor=clrTomato;
      }
 
    //===============================================================
@@ -2524,12 +2170,6 @@ void UpdateDashboard(DailyProtectionState &state)
      {
       statusText="TRADING STOPPED";
       statusColor=clrTomato;
-     }
-   else
-   if(RecoveryMode)
-     {
-      statusText="RECOVERY MODE";
-      statusColor=clrOrange;
      }
    else
    if(GetTotalEAOrders()>=MaxOpenOrders)
@@ -2606,7 +2246,7 @@ void UpdateDashboard(DailyProtectionState &state)
                         statusColor);
 
    CreateDashboardLabel(DASH_PREFIX+"ENTRYMODE",
-                        "ENTRY MODE : IMMEDIATE AFTER RESET",
+                        "ENTRY MODE : SSL CROSS + RESET RE-ENTRY",
                         textX,
                         y+68,
                         DashboardFontSize,
