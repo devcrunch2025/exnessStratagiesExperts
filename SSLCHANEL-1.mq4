@@ -2542,6 +2542,11 @@ StopLossUSD= MathMin(50.0, Lots * OriginalStopLossUSD * 100.0);
       y+226,
       DashboardFontSize,
       clrAqua);
+
+      if(EquityLadderLevel>1)
+      {
+
+      }
 state.DayProtectedBalance==
       state.DayStartBalance *
       (1.0 - DailyLossProtectionPercent/100.0);
