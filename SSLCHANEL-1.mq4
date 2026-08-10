@@ -23,7 +23,7 @@ bool EnableProfitLadder1 = true;
 
 
 
-double Ladder1ProfitUSD =0.29;//1;//0.15;//0.25;//0.50;// 0.05;
+double Ladder1ProfitUSD =0.10;//1;//0.15;//0.25;//0.50;// 0.05;
 bool EnableProfitLadder2 = true;
 double Ladder1StopMaxPriceUSD = 1;//0.50;//0.20;
 double Ladder2ProfitUSD = 0.10;
@@ -212,13 +212,14 @@ void UpdateDynamicEquityTarget(DailyProtectionState &state)
 //+------------------------------------------------------------------+
 int OnInit()
   {
+   Ladder1StopMaxPriceUSD=Ladder1ProfitUSD*2;
+
    OriginalLots = Lots;
    OriginalLadder1ProfitUSD = Ladder1ProfitUSD;
    OriginalLadder2ProfitUSD = Ladder2ProfitUSD;
    OriginalLadder1StopMaxPriceUSD = Ladder1StopMaxPriceUSD;
    OriginalDailyLossProtectionPercent = DailyLossProtectionPercent;
 
-   Ladder1StopMaxPriceUSD=Ladder1ProfitUSD*2;
 
    OriginalDailyEquityTargetPercent = DailyEquityTargetPercent;
 
@@ -517,7 +518,7 @@ int GetOpenOrdersCountAll()
       totalLots += OrderLots();
    }
 
-   totalLots=totalLots+0.01;
+   //totalLots=totalLots+0.01;
 
    return NormalizeDouble(totalLots, 2);
 }
@@ -525,12 +526,17 @@ int GetOpenOrdersCountAll()
 void ChangeLots(double OpenPL, string reason, int orderType)
 {
    int Multiplier = 1;
+//    if((reason == "SSL Long" || reason == "SSL Short")){ 
+
+//    int Multiplier = 2;
+
+// }
 
    //==================================================
    // SSL RECOVERY / HEDGE LOT
    //==================================================
    if((reason == "SSL Long" || reason == "SSL Short") &&
-      OpenPL < -0.5)
+      OpenPL < -0.1)
    {
       double oppositeLots = GetOppositeOrdersLots(orderType);
 
@@ -2536,7 +2542,9 @@ StopLossUSD= MathMin(50.0, Lots * OriginalStopLossUSD * 100.0);
       y+226,
       DashboardFontSize,
       clrAqua);
-
+state.DayProtectedBalance==
+      state.DayStartBalance *
+      (1.0 - DailyLossProtectionPercent/100.0);
 
    CreateDashboardLabel(
    DASH_PREFIX+"LOCKEDEQUITY",
