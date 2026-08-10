@@ -352,15 +352,16 @@ double GetOpenPL(int OrderTypeFilter)
 //+------------------------------------------------------------------+
 //| Get Open Market Orders Count                                     |
 //+------------------------------------------------------------------+
-
-  double GetOppositeOrdersLots(int orderType)
+double GetOppositeOrdersLots(int orderType)
 {
    double totalLots = 0.0;
 
    int oppositeType =
-      (orderType == OP_BUY) ? OP_SELL : OP_BUY;
+      (orderType == OP_BUY)
+      ? OP_SELL
+      : OP_BUY;
 
-   for(int i = OrdersTotal() - 1; i >= 0; i--)
+   for(int i = OrdersTotal()-1; i >= 0; i--)
    {
       if(!OrderSelect(i, SELECT_BY_POS, MODE_TRADES))
          continue;
@@ -385,114 +386,66 @@ double GetOpenPL(int OrderTypeFilter)
 //0.03 
 void ChangeLots(double OpenPL, string reason, int orderType)
 {
-   int Multiplier = 1;
-//    if((reason == "SSL Long" || reason == "SSL Short")){ 
-
-//    int Multiplier = 2;
-
-// }
-      double oppositeLots = GetOppositeOrdersLots(orderType);
+   //==================================================
+   // DEFAULT
+   //==================================================
+   Lots = NormalizeLots(OriginalLots);
 
    //==================================================
-   // SSL RECOVERY / HEDGE LOT
+   // OPPOSITE BASKET LOTS
+   //==================================================
+   double oppositeLots = GetOppositeOrdersLots(orderType);
+
+   //==================================================
+   // ONLY RECOVER IF OPPOSITE ORDERS ARE IN LOSS
    //==================================================
    if((reason == "SSL Long" || reason == "SSL Short") &&
-      OpenPL < -0.1)
+      OpenPL < 0.0)
    {
-
-      if(oppositeLots > 0 && OriginalLots > 0)
+      if(oppositeLots > 0.0)
       {
-         // Calculate multiplier from opposite open lots
-         Multiplier = (int)MathRound(oppositeLots / OriginalLots);
-
-         // Safety: minimum multiplier = 1
-         if(Multiplier < 1)
-            Multiplier = 1;
-
-         // New order lot = opposite orders total
+         // New order protects the total opposite exposure
          Lots = NormalizeLots(oppositeLots);
-      }
-      else
-      {
-         Multiplier = 1;
-         Lots = NormalizeLots(OriginalLots);
-      }
 
-   }
-   else
-   {
-      Multiplier =
-         (OpenPL < -15) ? 5 :
-         (OpenPL < -10) ? 3 :
-         (OpenPL < -5)  ? 2 : 1;
-
-      Lots = NormalizeLots(OriginalLots * Multiplier);
+         Print("SSL RECOVERY LOT");
+         Print("Reason          : ", reason);
+         Print("Opposite P/L    : $", DoubleToString(OpenPL,2));
+         Print("Opposite Lots   : ", DoubleToString(oppositeLots,2));
+         Print("NEW LOT         : ", DoubleToString(Lots,2));
+      }
    }
 
-      //==================================================
-      // APPLY SAME MULTIPLIER TO ALL RELATED VALUES
-      //==================================================
-
-      StopLossUSD =
-         OriginalStopLossUSD * Multiplier;
-
-      Ladder1ProfitUSD =
-         OriginalLadder1ProfitUSD * Multiplier;
-
-      Ladder2ProfitUSD =
-         OriginalLadder2ProfitUSD * Multiplier;
-
-      Ladder1StopMaxPriceUSD =
-         OriginalLadder1StopMaxPriceUSD * Multiplier;
-
-      Print("LOT UPDATE | OpenPL=$",
-            DoubleToString(OpenPL,2),
-            " | New Order Type=",
-            orderType == OP_BUY ? "BUY" : "SELL",
-            " | Opposite Lots=",
-            DoubleToString(oppositeLots,2),
-            " | Multiplier=",
-            IntegerToString(Multiplier),
-            " | New Lots=",
-            DoubleToString(Lots,2),
-            " | SL=",
-            DoubleToString(StopLossUSD,2),
-            " | L1=",
-            DoubleToString(Ladder1ProfitUSD,2),
-            " | L2=",
-            DoubleToString(Ladder2ProfitUSD,2),
-            " | L1 Stop Max=",
-            DoubleToString(Ladder1StopMaxPriceUSD,2));
-
-      return;
-   
-    
-
    //==================================================
-   // NORMAL LOT LOGIC
+   // SL / LADDER VALUES BASED ON ACTUAL LOT SIZE
    //==================================================
+   double lotMultiplier = 1.0;
 
-   // Multiplier =
-   //    (OpenPL < -20) ? 5 :
-   //    (OpenPL < -10) ? 3 :
-   //    (OpenPL < -5)  ? 2 : 1;
+   if(OriginalLots > 0.0)
+      lotMultiplier = Lots / OriginalLots;
 
-   // Lots =
-   //    NormalizeLots(OriginalLots * Multiplier);
+   StopLossUSD =
+      OriginalStopLossUSD * lotMultiplier;
 
-   // StopLossUSD =
-   //    OriginalStopLossUSD * Multiplier;
+   Ladder1ProfitUSD =
+      OriginalLadder1ProfitUSD * lotMultiplier;
 
-   // Ladder1ProfitUSD =
-   //    OriginalLadder1ProfitUSD * Multiplier;
+   Ladder2ProfitUSD =
+      OriginalLadder2ProfitUSD * lotMultiplier;
 
-   // Ladder2ProfitUSD =
-   //    OriginalLadder2ProfitUSD * Multiplier;
+   Ladder1StopMaxPriceUSD =
+      OriginalLadder1StopMaxPriceUSD * lotMultiplier;
 
-   // Ladder1StopMaxPriceUSD =
-   //    OriginalLadder1StopMaxPriceUSD * Multiplier;
+   Print("LOT CONFIG | Lots=",
+         DoubleToString(Lots,2),
+         " | Multiplier=",
+         DoubleToString(lotMultiplier,2),
+         " | SL=$",
+         DoubleToString(StopLossUSD,2),
+         " | L1=$",
+         DoubleToString(Ladder1ProfitUSD,2),
+         " | L2=$",
+         DoubleToString(Ladder2ProfitUSD,2));
 }
-
 //+------------------------------------------------------------------+
 //|                                                                  |
 //+------------------------------------------------------------------+
