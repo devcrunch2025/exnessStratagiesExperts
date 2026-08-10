@@ -2261,7 +2261,7 @@ void UpdateDashboard(DailyProtectionState &state)
                         y+138,
                         12,
                         pnlColor);
-StopLossUSD=Lots*StopLossUSD*100;
+StopLossUSD= MathMin(50.0, Lots * OriginalStopLossUSD * 100.0);
    CreateDashboardLabel(DASH_PREFIX+"EQUITY",
                         "Equity : $"+DoubleToString(AccountEquity(),2) +" // "+DoubleToString(StopLossUSD,2)+" USD SL",
                         textX,
