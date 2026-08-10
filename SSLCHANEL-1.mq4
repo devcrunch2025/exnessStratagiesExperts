@@ -23,9 +23,9 @@ bool EnableProfitLadder1 = true;
 
 
 
-double Ladder1ProfitUSD =0.50;//1;//0.15;//0.25;//0.50;// 0.05;
+double Ladder1ProfitUSD =0.29;//1;//0.15;//0.25;//0.50;// 0.05;
 bool EnableProfitLadder2 = true;
-double Ladder1StopMaxPriceUSD = 0.50;//0.20;
+double Ladder1StopMaxPriceUSD = 1;//0.50;//0.20;
 double Ladder2ProfitUSD = 0.10;
 
 double GlbFinalPL = 0, OriginalLots = 0.01, OriginalLadder1ProfitUSD = 0.05, OriginalLadder2ProfitUSD = 0.20;
@@ -50,7 +50,7 @@ bool EnableEquityLadder = true;
 
 
 double DailyEquityTargetPercent =5;//10;//5;// 10;//2;//3;//1;//3;//10;//Trading continue with 10% profit reccuring
-double DailyLossProtectionPercent =100;//50;// 30.0;// Trading stops if equity drops below this percentage of the starting balance for the day
+double DailyLossProtectionPercent =20;//100;//50;// 30.0;// Trading stops if equity drops below this percentage of the starting balance for the day
 bool EnableDynamicEquityLadder = true;////Trading continue with 10% profit reccuring
 double EquityLadderLossPercentAfterstep1=10;////not working 80;//can loss upto 30% after step 1 profit is reached
 
@@ -217,6 +217,8 @@ int OnInit()
    OriginalLadder2ProfitUSD = Ladder2ProfitUSD;
    OriginalLadder1StopMaxPriceUSD = Ladder1StopMaxPriceUSD;
    OriginalDailyLossProtectionPercent = DailyLossProtectionPercent;
+
+   Ladder1StopMaxPriceUSD=Ladder1ProfitUSD*2;
 
    OriginalDailyEquityTargetPercent = DailyEquityTargetPercent;
 
@@ -491,62 +493,127 @@ int GetOpenOrdersCountAll()
 
    return count;
   }
-//0.03
-void ChangeLots(double OpenPL,string reason,int orderType)
-  {
-// int Multiplier = 1;//(OpenPL < -10) ? 2 : (OpenPL < -2) ? 2 : 1;
-   int Multiplier = (OpenPL < -20) ? 5 : (OpenPL < -10) ? 3 : (OpenPL < -5) ? 2 : 1;
+  double GetOppositeOrdersLots(int orderType)
+{
+   double totalLots = 0.01;
 
+   int oppositeType =
+      (orderType == OP_BUY) ? OP_SELL : OP_BUY;
 
-// int Multiplier1 = 1;
+   for(int i = OrdersTotal() - 1; i >= 0; i--)
+   {
+      if(!OrderSelect(i, SELECT_BY_POS, MODE_TRADES))
+         continue;
 
+      if(OrderSymbol() != Symbol())
+         continue;
 
-   if((reason=="SSL Long" || reason=="SSL Short") && OpenPL < -0.5 )
-     {
-      Multiplier=5;
-      //   Multiplier1 = 3;
+      if(OrderMagicNumber() != MagicNumber)
+         continue;
 
-      // StopLossUSD=2;
-      Multiplier = GetOpenOrdersCount(orderType==OP_BUY?OP_SELL:OP_BUY)==0?1:GetOpenOrdersCount(orderType==OP_BUY?OP_SELL:OP_BUY)+1;
+      if(OrderType() != oppositeType)
+         continue;
 
+      totalLots += OrderLots();
+   }
 
+   totalLots=totalLots+0.01;
 
-     }
-   else
-     {
-      StopLossUSD=OriginalStopLossUSD;
-     }
+   return NormalizeDouble(totalLots, 2);
+}
+//0.03 
+void ChangeLots(double OpenPL, string reason, int orderType)
+{
+   int Multiplier = 1;
 
-   if(OpenPL<-10 )
-     {
-      Multiplier = GetOpenOrdersCount(orderType==OP_BUY?OP_SELL:OP_BUY)==0?1:GetOpenOrdersCount(orderType==OP_BUY?OP_SELL:OP_BUY);
+   //==================================================
+   // SSL RECOVERY / HEDGE LOT
+   //==================================================
+   if((reason == "SSL Long" || reason == "SSL Short") &&
+      OpenPL < -0.5)
+   {
+      double oppositeLots = GetOppositeOrdersLots(orderType);
 
-     }
+      if(oppositeLots > 0 && OriginalLots > 0)
+      {
+         // Calculate multiplier from opposite open lots
+         Multiplier = (int)MathRound(oppositeLots / OriginalLots);
 
+         // Safety: minimum multiplier = 1
+         if(Multiplier < 1)
+            Multiplier = 1;
 
-     if(Multiplier==1)
-     {
-Multiplier=ChangeLotsOpposite(OpenPL,reason,orderType);
-     }
+         // New order lot = opposite orders total
+         Lots = NormalizeLots(oppositeLots);
+      }
+      else
+      {
+         Multiplier = 1;
+         Lots = NormalizeLots(OriginalLots);
+      }
 
+      //==================================================
+      // APPLY SAME MULTIPLIER TO ALL RELATED VALUES
+      //==================================================
 
-   StopLossUSD = OriginalStopLossUSD * Multiplier;
-Lots        = OriginalLots * Multiplier;
-Ladder1ProfitUSD = OriginalLadder1ProfitUSD * Multiplier;
-Ladder2ProfitUSD = OriginalLadder2ProfitUSD * Multiplier;
-Ladder1StopMaxPriceUSD = OriginalLadder1StopMaxPriceUSD * Multiplier;
+      StopLossUSD =
+         OriginalStopLossUSD * Multiplier;
 
-// if(Multiplier>1)
-// {
+      Ladder1ProfitUSD =
+         OriginalLadder1ProfitUSD * Multiplier;
 
-//    Ladder1ProfitUSD = 0.01;//OriginalLadder1ProfitUSD * Multiplier;
+      Ladder2ProfitUSD =
+         OriginalLadder2ProfitUSD * Multiplier;
 
-// }
+      Ladder1StopMaxPriceUSD =
+         OriginalLadder1StopMaxPriceUSD * Multiplier;
 
+      Print("RECOVERY LOT | OpenPL=$",
+            DoubleToString(OpenPL,2),
+            " | New Order Type=",
+            orderType == OP_BUY ? "BUY" : "SELL",
+            " | Opposite Lots=",
+            DoubleToString(oppositeLots,2),
+            " | Multiplier=",
+            IntegerToString(Multiplier),
+            " | New Lots=",
+            DoubleToString(Lots,2),
+            " | SL=",
+            DoubleToString(StopLossUSD,2),
+            " | L1=",
+            DoubleToString(Ladder1ProfitUSD,2),
+            " | L2=",
+            DoubleToString(Ladder2ProfitUSD,2),
+            " | L1 Stop Max=",
+            DoubleToString(Ladder1StopMaxPriceUSD,2));
 
+      return;
+   }
 
+   //==================================================
+   // NORMAL LOT LOGIC
+   //==================================================
 
-  }
+   // Multiplier =
+   //    (OpenPL < -20) ? 5 :
+   //    (OpenPL < -10) ? 3 :
+   //    (OpenPL < -5)  ? 2 : 1;
+
+   Lots =
+      NormalizeLots(OriginalLots * Multiplier);
+
+   StopLossUSD =
+      OriginalStopLossUSD * Multiplier;
+
+   Ladder1ProfitUSD =
+      OriginalLadder1ProfitUSD * Multiplier;
+
+   Ladder2ProfitUSD =
+      OriginalLadder2ProfitUSD * Multiplier;
+
+   Ladder1StopMaxPriceUSD =
+      OriginalLadder1StopMaxPriceUSD * Multiplier;
+}
 int ChangeLotsOpposite(double OpenPL, string reason, int orderType)
 {
    int oppositeType = (orderType == OP_BUY) ? OP_SELL : OP_BUY;
@@ -820,6 +887,154 @@ void InitializeDailyProtectionState(DailyProtectionState &state)
    Print("Daily Protection: ", DoubleToString(DailyLossProtectionPercent, 2), "%");
    Print("==================================================");
   }
+
+  //+------------------------------------------------------------------+
+//| Protected Equity Hit -> Close All -> Reset -> Continue Trading   |
+//+------------------------------------------------------------------+
+void ResetAfterProtectedEquity(DailyProtectionState &state)
+{
+   Print("================================================");
+   Print("PROTECTED EQUITY HIT");
+   Print("Current Equity : $", DoubleToString(AccountEquity(), 2));
+   Print("Closing ALL EA orders...");
+   Print("================================================");
+
+   // ---------------------------------------------------------------
+   // 1. CLOSE ALL EA ORDERS
+   // ---------------------------------------------------------------
+   int retry = 0;
+
+   while(GetTotalEAOrders() > 0 && retry < 10)
+   {
+      RefreshRates();
+
+      CloseAllEAOrdersOnDailyLoss();
+
+      Sleep(300);
+      retry++;
+   }
+
+   // ---------------------------------------------------------------
+   // 2. VERIFY ALL ORDERS CLOSED
+   // ---------------------------------------------------------------
+   if(GetTotalEAOrders() > 0)
+   {
+      Print("PROTECTED EQUITY RESET FAILED");
+      Print("Remaining Orders : ", GetTotalEAOrders());
+
+      // Keep trading stopped if orders could not be closed
+      state.TradingStopped = true;
+      return;
+   }
+
+   RefreshRates();
+
+   // ---------------------------------------------------------------
+   // 3. GET REAL BALANCE AFTER CLOSING ORDERS
+   // ---------------------------------------------------------------
+   double newBalance = AccountBalance();
+
+   Print("ALL EA ORDERS CLOSED");
+   Print("New Balance : $", DoubleToString(newBalance, 2));
+
+   // ---------------------------------------------------------------
+   // 4. NEW PROTECTED EQUITY / NEW STARTING BALANCE
+   // ---------------------------------------------------------------
+   state.DayStartBalance   = newBalance;
+   state.DayHighestBalance = newBalance;
+
+   state.DayPeakProfit     = 0.0;
+   state.DailyClosedProfit = 0.0;
+
+   state.ClosedOrdersToday = 0;
+   state.DailyClosedOrders = 0;
+
+   // ---------------------------------------------------------------
+   // 5. IMPORTANT - ALLOW TRADING AGAIN
+   // ---------------------------------------------------------------
+   state.TradingStopped = false;
+   state.LossTriggered  = false;
+
+   // ---------------------------------------------------------------
+   // 6. RESET DAILY PROTECTION
+   // ---------------------------------------------------------------
+   DailyProtectionStartTime = TimeCurrent();
+
+   DailyLossProtectionPercent =
+      OriginalDailyLossProtectionPercent;
+
+   state.DayProtectedBalance =
+      newBalance *
+      (1.0 - DailyLossProtectionPercent / 100.0);
+
+   // ---------------------------------------------------------------
+   // 7. RESET LOT / RECOVERY SETTINGS
+   // ---------------------------------------------------------------
+   Lots = OriginalLots;
+
+   Ladder1ProfitUSD =
+      OriginalLadder1ProfitUSD;
+
+   Ladder2ProfitUSD =
+      OriginalLadder2ProfitUSD;
+
+   Ladder1StopMaxPriceUSD =
+      OriginalLadder1StopMaxPriceUSD;
+
+   ProfitLadder1Triggered = false;
+   ProfitLadder2Triggered = false;
+
+   RecoveryMode = false;
+   RecoveryOrders = 0;
+
+   CurrentMultiplier = 1.0;
+
+   BasketHighestProfit = 0.0;
+   BasketTrailingStop = 0.0;
+   BasketTrailingArmed = false;
+
+   DynamicBasketHighestProfit = 0.0;
+
+   // ---------------------------------------------------------------
+   // 8. RESET EQUITY LADDER
+   // ---------------------------------------------------------------
+   EquityLadderLevel++;
+
+   LockedEquity = newBalance;
+
+   NextEquityTarget =
+      newBalance *
+      (1.0 + DailyEquityTargetPercent / 100.0);
+
+   LastProfitTargetTime = TimeCurrent();
+
+   // ---------------------------------------------------------------
+   // 9. RESET ORDER-CANDLE CONTROL
+   // ---------------------------------------------------------------
+   OrderCreatedThisCandle = false;
+
+   // ---------------------------------------------------------------
+   // 10. RESET STARTUP SIGNAL
+   // ---------------------------------------------------------------
+   StartupSignalProcessed = false;
+
+   Print("================================================");
+   Print("PROTECTED EQUITY RESET COMPLETE");
+   Print("Trading : ENABLED");
+   Print("New Start Balance : $",
+         DoubleToString(state.DayStartBalance, 2));
+
+   Print("New Protected Equity : $",
+         DoubleToString(state.DayProtectedBalance, 2));
+
+   Print("Next Equity Target : $",
+         DoubleToString(NextEquityTarget, 2));
+
+   Print("Lots Reset : ",
+         DoubleToString(Lots, 2));
+
+   Print("================================================");
+}
 //+------------------------------------------------------------------+
 //|                                                                  |
 //+------------------------------------------------------------------+
@@ -1067,21 +1282,28 @@ void UpdateDailyLossProtection(DailyProtectionState &state)
       (state.DayStartBalance * DailyLossProtectionPercent / 100.0);
 
 
-   if(AccountEquity() <= minEquity)
-     {
-      state.TradingStopped=true;
+ if(AccountEquity() <= minEquity)
+{
+   Print("================================================");
+   Print("PROTECTED EQUITY STOP TRIGGERED");
+   Print("Start Balance : $",
+         DoubleToString(state.DayStartBalance, 2));
 
-      Print("PROTECTED EQUITY STOP");
-      Print("Start Balance : $",DoubleToString(state.DayStartBalance,2));
-      Print("Protection %  : ",DoubleToString(DailyLossProtectionPercent,2));
-      Print("Stop Equity   : $",DoubleToString(minEquity,2));
-      Print("Current Equity:",DoubleToString(AccountEquity(),2));
+   Print("Protected Equity : $",
+         DoubleToString(minEquity, 2));
 
-      if(CloseOpenOrdersOnDailyLoss)
-         CloseAllEAOrdersOnDailyLoss();
+   Print("Current Equity : $",
+         DoubleToString(AccountEquity(), 2));
 
-      return;
-     }
+   Print("================================================");
+
+   if(CloseOpenOrdersOnDailyLoss)
+   {
+      ResetAfterProtectedEquity(state);
+   }
+
+   return;
+}
 
    if(currentEquity <= minEquity)
      {
@@ -1614,7 +1836,22 @@ void OpenBuy()
    else
       Print("BUY OPENED | Ticket: ", ticket);
   }
+double NormalizeLots(double lots)
+{
+   double minLot  = MarketInfo(Symbol(), MODE_MINLOT);
+   double maxLot  = MarketInfo(Symbol(), MODE_MAXLOT);
+   double lotStep = MarketInfo(Symbol(), MODE_LOTSTEP);
 
+   if(lots < minLot)
+      lots = minLot;
+
+   if(lots > maxLot)
+      lots = maxLot;
+
+   lots = MathFloor(lots / lotStep) * lotStep;
+
+   return NormalizeDouble(lots, 2);
+}
 //+------------------------------------------------------------------+
 //|                                                                  |
 //+------------------------------------------------------------------+
@@ -2302,13 +2539,13 @@ StopLossUSD= MathMin(50.0, Lots * OriginalStopLossUSD * 100.0);
 
 
    CreateDashboardLabel(
-      DASH_PREFIX+"LOCKEDEQUITY",
-      "Protected Equity : $"+
-      DoubleToString(LockedEquity,2),
-      textX,
-      y+248,
-      DashboardFontSize,
-      clrGold);
+   DASH_PREFIX+"LOCKEDEQUITY",
+   "Protected Equity : $"+
+   DoubleToString(state.DayProtectedBalance,2),
+   textX,
+   y+248,
+   DashboardFontSize,
+   clrGold);
 
 
    CreateDashboardLabel(
