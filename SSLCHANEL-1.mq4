@@ -531,6 +531,7 @@ void ChangeLots(double OpenPL, string reason, int orderType)
 //    int Multiplier = 2;
 
 // }
+      double oppositeLots = GetOppositeOrdersLots(orderType);
 
    //==================================================
    // SSL RECOVERY / HEDGE LOT
@@ -538,7 +539,6 @@ void ChangeLots(double OpenPL, string reason, int orderType)
    if((reason == "SSL Long" || reason == "SSL Short") &&
       OpenPL < -0.1)
    {
-      double oppositeLots = GetOppositeOrdersLots(orderType);
 
       if(oppositeLots > 0 && OriginalLots > 0)
       {
@@ -557,6 +557,15 @@ void ChangeLots(double OpenPL, string reason, int orderType)
          Multiplier = 1;
          Lots = NormalizeLots(OriginalLots);
       }
+
+   }
+   else
+   {
+  Multiplier =
+      (OpenPL < -15) ? 5 :
+      (OpenPL < -10) ? 3 :
+      (OpenPL < -5)  ? 2 : 1;
+   }
 
       //==================================================
       // APPLY SAME MULTIPLIER TO ALL RELATED VALUES
@@ -594,7 +603,8 @@ void ChangeLots(double OpenPL, string reason, int orderType)
             DoubleToString(Ladder1StopMaxPriceUSD,2));
 
       return;
-   }
+   
+    
 
    //==================================================
    // NORMAL LOT LOGIC
@@ -605,20 +615,20 @@ void ChangeLots(double OpenPL, string reason, int orderType)
    //    (OpenPL < -10) ? 3 :
    //    (OpenPL < -5)  ? 2 : 1;
 
-   Lots =
-      NormalizeLots(OriginalLots * Multiplier);
+   // Lots =
+   //    NormalizeLots(OriginalLots * Multiplier);
 
-   StopLossUSD =
-      OriginalStopLossUSD * Multiplier;
+   // StopLossUSD =
+   //    OriginalStopLossUSD * Multiplier;
 
-   Ladder1ProfitUSD =
-      OriginalLadder1ProfitUSD * Multiplier;
+   // Ladder1ProfitUSD =
+   //    OriginalLadder1ProfitUSD * Multiplier;
 
-   Ladder2ProfitUSD =
-      OriginalLadder2ProfitUSD * Multiplier;
+   // Ladder2ProfitUSD =
+   //    OriginalLadder2ProfitUSD * Multiplier;
 
-   Ladder1StopMaxPriceUSD =
-      OriginalLadder1StopMaxPriceUSD * Multiplier;
+   // Ladder1StopMaxPriceUSD =
+   //    OriginalLadder1StopMaxPriceUSD * Multiplier;
 }
 int ChangeLotsOpposite(double OpenPL, string reason, int orderType)
 {
