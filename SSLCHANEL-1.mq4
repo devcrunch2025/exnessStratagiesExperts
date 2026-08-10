@@ -243,7 +243,7 @@ int OnInit()
 
    OriginalStopLossUSD = StopLossUSD;
 
-   Print("========== SSL CHANNEL CROSS EA - FIXED VERSION ==========");
+   Print("========== SSL CHANNEL CROSS EA - FIXED VERSION V1- Final Version ==========");
    Print("Symbol: ", Symbol(), " | Timeframe: ", TimeframeToString(Period()), " | SSL Period: ", SSLPeriod);
    Print("Lots: ", DoubleToString(Lots, 2), " | Max Orders: ", MaxOpenOrders);
    Print("Daily Protection: ", EnableDailyLossProtection ? "ON" : "OFF", " | Ladder 1: ", EnableProfitLadder1 ? "ON" : "OFF");
@@ -2369,7 +2369,7 @@ void UpdateDashboard(DailyProtectionState &state)
                         C'30,60,100');
 
    CreateDashboardLabel(DASH_PREFIX+"TITLE",
-                        "SSL CHANNEL EA",
+                        "SSL CHANNEL EA - VERSION1-FINAL1",
                         textX,
                         y+8,
                         11,
