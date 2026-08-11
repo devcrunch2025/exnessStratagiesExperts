@@ -9,7 +9,7 @@ int SSLPeriod = 10;
 bool EnableTrading = true;
 double Lots = 0.01;
 int MaxOpenOrders = 20;
-bool CloseOppositeOrdersOnSignal = true;
+bool CloseOppositeOrdersOnSignal = false;
 double closeOppositeLossThreshold = -10.0;
 double OriginalStopLossUSD=10;//5;//0.50;//50;
 double StopLossUSD =10;//3;//2;//0.50;// 50;
@@ -31,8 +31,8 @@ double Ladder2ProfitUSD = 0.10;
 
 
 
-bool EnableRecoveryOrders = false;
-double RecoveryTriggerLossUSD = -2.0;
+bool EnableRecoveryOrders = true;
+double RecoveryTriggerLossUSD = -5.0;
 double RecoveryLotMultiplier = 1;
 int MaxRecoveryOrders = 1;
 double RecoveryBasketProfitUSD = 0.50;
@@ -46,7 +46,7 @@ bool EnableEquityLadder = true;
 
 
 double DailyEquityTargetPercent =5;//10;//5;// 10;//2;//3;//1;//3;//10;//Trading continue with 10% profit reccuring
-double DailyLossProtectionPercent =20;//10;//20;//100;//50;// 30.0;// Trading stops if equity drops below this percentage of the starting balance for the day
+double DailyLossProtectionPercent =50;//20;//10;//20;//100;//50;// 30.0;// Trading stops if equity drops below this percentage of the starting balance for the day
 bool EnableDynamicEquityLadder = true;////Trading continue with 10% profit reccuring
 double OriginalDailyEquityTargetPercent =5;//10;//5;// 10;//2;//3;//1;//3;//10;//Trading continue with 10% profit reccuring
 
@@ -474,7 +474,7 @@ void ChangeLots(double OpenPL, string reason, int orderType)
    //==================================================
    // MAX LOT LIMIT
    //==================================================
-   double MaxRecoveryLot = 0.10;
+   double MaxRecoveryLot = 0.06;
 
    //==================================================
    // DEFAULT LOT
@@ -526,7 +526,7 @@ void ChangeLots(double OpenPL, string reason, int orderType)
       if(OpenPL < 0.0)
       {
          lossMultiplier1 =
-            MathFloor(MathAbs(OpenPL) / 5.0);
+            MathFloor(MathAbs(OpenPL) / 10.0);
 
          // Never allow zero
          if(lossMultiplier1 < 1.0)
@@ -2595,7 +2595,7 @@ void UpdateDashboard(DailyProtectionState &state)
       textX,
       y+254,
       DashboardFontSize,
-      clrGold);
+      clrRed);
 
    CreateDashboardLabel(
       DASH_PREFIX+"NEXTTARGET",
