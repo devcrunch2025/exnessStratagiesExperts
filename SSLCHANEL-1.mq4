@@ -46,7 +46,7 @@ bool EnableEquityLadder = true;
 
 
 double DailyEquityTargetPercent =5;//10;//5;// 10;//2;//3;//1;//3;//10;//Trading continue with 10% profit reccuring
-double DailyLossProtectionPercent =50;//20;//10;//20;//100;//50;// 30.0;// Trading stops if equity drops below this percentage of the starting balance for the day
+double DailyLossProtectionPercent =20;//50;//20;//10;//20;//100;//50;// 30.0;// Trading stops if equity drops below this percentage of the starting balance for the day
 bool EnableDynamicEquityLadder = true;////Trading continue with 10% profit reccuring
 double OriginalDailyEquityTargetPercent =5;//10;//5;// 10;//2;//3;//1;//3;//10;//Trading continue with 10% profit reccuring
 
@@ -474,7 +474,7 @@ void ChangeLots(double OpenPL, string reason, int orderType)
    //==================================================
    // MAX LOT LIMIT
    //==================================================
-   double MaxRecoveryLot = 0.06;
+   double MaxRecoveryLot = 0.03;
 
    //==================================================
    // DEFAULT LOT
@@ -531,6 +531,12 @@ void ChangeLots(double OpenPL, string reason, int orderType)
          // Never allow zero
          if(lossMultiplier1 < 1.0)
             lossMultiplier1 = 1.0;
+
+            lossMultiplier1 = 1.0;
+
+
+
+
       }
 
       // Apply multiplier
@@ -574,7 +580,7 @@ void ChangeLots(double OpenPL, string reason, int orderType)
       if(OpenPL < 0.0)
       {
          lossMultiplier =
-            MathFloor(MathAbs(OpenPL) / 5.0);
+            MathFloor(MathAbs(OpenPL) / 10.0);
 
          // Never allow zero
          if(lossMultiplier < 1.0)
