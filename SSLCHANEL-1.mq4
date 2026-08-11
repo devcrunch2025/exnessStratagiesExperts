@@ -31,13 +31,13 @@ double Ladder2ProfitUSD = 0.10;
 
 
 
-bool EnableRecoveryOrders = true;
-double RecoveryTriggerLossUSD = -5.0;
+bool EnableRecoveryOrders = false;
+double RecoveryTriggerLossUSD = -2.0;
 double RecoveryLotMultiplier = 1;
 int MaxRecoveryOrders = 1;
 double RecoveryBasketProfitUSD = 0.50;
 bool EnableDailyLossProtection = true;
-bool ResetDailyProtectionEveryDay = false;
+bool ResetDailyProtectionEveryDay = true;
 bool CloseOpenOrdersOnDailyLoss = true;
 int MinimumClosedOrdersForDailyProtection =10;// 100;
 bool EnableEquityLadder = true;
@@ -46,12 +46,12 @@ bool EnableEquityLadder = true;
 
 
 double DailyEquityTargetPercent =5;//10;//5;// 10;//2;//3;//1;//3;//10;//Trading continue with 10% profit reccuring
-double DailyLossProtectionPercent =20;//50;//20;//10;//20;//100;//50;// 30.0;// Trading stops if equity drops below this percentage of the starting balance for the day
+double DailyLossProtectionPercent =10;//20;//100;//50;// 30.0;// Trading stops if equity drops below this percentage of the starting balance for the day
 bool EnableDynamicEquityLadder = true;////Trading continue with 10% profit reccuring
 double OriginalDailyEquityTargetPercent =5;//10;//5;// 10;//2;//3;//1;//3;//10;//Trading continue with 10% profit reccuring
 
 
-double OriginalDailyLossProtectionPercent =20;//10;//80;// 30.0;
+double OriginalDailyLossProtectionPercent =10;//80;// 30.0;
 
 bool ResetLadderEveryDay = true;
 int EquityLadderLevel = 1;
@@ -472,235 +472,90 @@ double GetOppositeOrdersLots(int orderType)
 void ChangeLots(double OpenPL, string reason, int orderType)
 {
    //==================================================
-   // MAX LOT LIMIT
-   //==================================================
-   double MaxRecoveryLot = 0.03;
-
-   //==================================================
    // DEFAULT LOT
    //==================================================
    Lots = NormalizeLots(OriginalLots);
 
    //==================================================
-   // TOTAL OPPOSITE TYPE LOTS
+   // TOTAL OPPOSITE ORDER LOTS
    //==================================================
    double oppositeLots = GetOppositeOrdersLots(orderType);
 
    //==================================================
-   // SSL SIGNAL?
+   // SSL RECOVERY
+   // New order lot = total opposite exposure
+   // ONLY when opposite basket is in loss
    //==================================================
    bool isSSLSignal =
       (reason == "SSL Long" || reason == "SSL Short");
 
-   //==================================================
-   // TYPE 1 - SSL SIGNAL
-   //
-   // Base Lot =
-   // Opposite Total Lots + Original Lot
-   //
-   // Multiplier:
-   // $0     to <$5  = 1X
-   // $5     to <$10 = 1X
-   // $10    to <$15 = 2X
-   // $15    to <$20 = 3X
-   //
-   // If you want:
-   // $0-$4.99 = 1X
-   // $5-$9.99 = 2X
-   // then use CEIL instead.
-   //==================================================
-   if(isSSLSignal && oppositeLots > 0.0)
+   if(isSSLSignal && OpenPL < 0.0 && oppositeLots > 0.0)
    {
-      // Base recovery lot
-      double baseLots =
-         oppositeLots + OriginalLots;
-
-      baseLots =
-         NormalizeLots(baseLots);
-
-      //================================================
-      // SSL LOSS MULTIPLIER
-      //================================================
-      double lossMultiplier1 = 1.0;
-
-      if(OpenPL < 0.0)
-      {
-         lossMultiplier1 =
-            MathFloor(MathAbs(OpenPL) / 10.0);
-
-         // Never allow zero
-         if(lossMultiplier1 < 1.0)
-            lossMultiplier1 = 1.0;
-
-            lossMultiplier1 = 1.0;
-
-
-
-
-      }
-
-      // Apply multiplier
-      Lots =
-         NormalizeLots(
-            baseLots * lossMultiplier1
-         );
+      Lots = NormalizeLots(oppositeLots);
 
       Print("========================================");
-      Print("TYPE 1 - SSL RECOVERY");
-      Print("Reason          : ", reason);
-      Print("Opposite P/L    : $",
-            DoubleToString(OpenPL, 2));
-      Print("Opposite Lots   : ",
-            DoubleToString(oppositeLots, 2));
-      Print("Original Lot    : ",
-            DoubleToString(OriginalLots, 2));
-      Print("Base Lots       : ",
-            DoubleToString(baseLots, 2));
-      Print("Loss Multiplier : ",
-            DoubleToString(lossMultiplier1, 2), "X");
-      Print("Calculated Lots : ",
-            DoubleToString(Lots, 2));
+      Print("SSL RECOVERY LOT");
+      Print("Reason        : ", reason);
+      Print("Opposite P/L  : $", DoubleToString(OpenPL, 2));
+      Print("Opposite Lots : ", DoubleToString(oppositeLots, 2));
+      Print("New Lot       : ", DoubleToString(Lots, 2));
       Print("========================================");
    }
 
    //==================================================
-   // TYPE 2 - NON SSL SIGNAL
-   //
-   // Loss multiplier based on $3
-   //
-   // -0 to -2.99 = 1X
-   // -3 to -5.99 = 1X
-   // -6 to -8.99 = 2X
-   // -9 to -11.99 = 3X
-   //==================================================
-   else if(!isSSLSignal && oppositeLots > 0.0)
-   {
-      double lossMultiplier = 1.0;
-
-      if(OpenPL < 0.0)
-      {
-         lossMultiplier =
-            MathFloor(MathAbs(OpenPL) / 10.0);
-
-         // Never allow zero
-         if(lossMultiplier < 1.0)
-            lossMultiplier = 1.0;
-      }
-
-      Lots =
-         NormalizeLots(
-            OriginalLots * lossMultiplier
-         );
-
-      Print("========================================");
-      Print("TYPE 2 - NON SSL RECOVERY");
-      Print("Reason          : ", reason);
-      Print("Opposite P/L    : $",
-            DoubleToString(OpenPL, 2));
-      Print("Opposite Lots   : ",
-            DoubleToString(oppositeLots, 2));
-      Print("P/L Multiplier  : ",
-            DoubleToString(lossMultiplier, 2), "X");
-      Print("Calculated Lots : ",
-            DoubleToString(Lots, 2));
-      Print("========================================");
-   }
-
-   //==================================================
-   // NO OPPOSITE ORDERS
+   // NORMAL NEW ORDER
    //==================================================
    else
    {
       Lots = NormalizeLots(OriginalLots);
-
-      Print("========================================");
-      Print("NO RECOVERY");
-      Print("Reason          : ", reason);
-      Print("Original Lots   : ",
-            DoubleToString(Lots, 2));
-      Print("========================================");
    }
 
    //==================================================
-   // HARD MAX LOT = 0.10
-   //==================================================
-   if(Lots > MaxRecoveryLot)
-   {
-      Print("MAX LOT LIMIT APPLIED");
-      Print("Calculated Lot : ",
-            DoubleToString(Lots, 2));
-      Print("Maximum Lot    : ",
-            DoubleToString(MaxRecoveryLot, 2));
-
-      Lots = NormalizeLots(MaxRecoveryLot);
-   }
-
-   //==================================================
-   // FINAL NORMALIZATION
-   //==================================================
-   Lots = NormalizeLots(Lots);
-
-   if(Lots > MaxRecoveryLot)
-      Lots = NormalizeLots(MaxRecoveryLot);
-
-   //==================================================
-   // ACTUAL LOT MULTIPLIER
+   // LOT MULTIPLIER
    //==================================================
    double lotMultiplier = 1.0;
 
    if(oppositeLots > 0.0)
    {
-      lotMultiplier =
-         Lots / oppositeLots;
+      lotMultiplier = Lots / oppositeLots;
    }
 
+   //==================================================
+   // SAFETY
+   //==================================================
    if(lotMultiplier < 1.0)
       lotMultiplier = 1.0;
 
    //==================================================
-   // SCALE SL / ORDER LADDER
-   // BASED ON ACTUAL NEW LOT
+   // SL / EQUITY LADDER VALUES
+   // BASED ON ACTUAL LOT MULTIPLIER
    //==================================================
    StopLossUSD =
-      OriginalStopLossUSD *
-      Lots * 100;
+      OriginalStopLossUSD * lotMultiplier;
 
    Ladder1ProfitUSD =
-      OriginalLadder1ProfitUSD *
-      Lots * 100;
+      OriginalLadder1ProfitUSD * lotMultiplier;
 
    Ladder2ProfitUSD =
-      OriginalLadder2ProfitUSD *
-      Lots * 100;
+      OriginalLadder2ProfitUSD * lotMultiplier;
 
    Ladder1StopMaxPriceUSD =
-      OriginalLadder1StopMaxPriceUSD *
-      Lots * 100;
+      OriginalLadder1StopMaxPriceUSD * lotMultiplier;
 
    //==================================================
-   // FINAL DEBUG
+   // DEBUG
    //==================================================
    Print("========================================");
-   Print("FINAL LOT CONFIGURATION");
+   Print("LOT CONFIGURATION");
    Print("Reason          : ", reason);
-   Print("Open P/L        : $",
-         DoubleToString(OpenPL, 2));
-   Print("Opposite Lots   : ",
-         DoubleToString(oppositeLots, 2));
-   Print("New Lots        : ",
-         DoubleToString(Lots, 2));
-   Print("Maximum Lot     : ",
-         DoubleToString(MaxRecoveryLot, 2));
-   Print("Lot Multiplier  : ",
-         DoubleToString(lotMultiplier, 2), "X");
-   Print("Stop Loss       : $",
-         DoubleToString(StopLossUSD, 2));
-   Print("Ladder 1        : $",
-         DoubleToString(Ladder1ProfitUSD, 2));
-   Print("Ladder 2        : $",
-         DoubleToString(Ladder2ProfitUSD, 2));
-   Print("L1 Stop Max     : $",
-         DoubleToString(Ladder1StopMaxPriceUSD, 2));
+   Print("Open P/L        : $", DoubleToString(OpenPL, 2));
+   Print("Opposite Lots   : ", DoubleToString(oppositeLots, 2));
+   Print("New Lots        : ", DoubleToString(Lots, 2));
+   Print("Lot Multiplier  : ", DoubleToString(lotMultiplier, 2));
+   Print("Stop Loss       : $", DoubleToString(StopLossUSD, 2));
+   Print("Ladder 1        : $", DoubleToString(Ladder1ProfitUSD, 2));
+   Print("Ladder 2        : $", DoubleToString(Ladder2ProfitUSD, 2));
+   Print("L1 Stop Max     : $", DoubleToString(Ladder1StopMaxPriceUSD, 2));
    Print("========================================");
 }
 //+------------------------------------------------------------------+
@@ -2601,7 +2456,7 @@ void UpdateDashboard(DailyProtectionState &state)
       textX,
       y+254,
       DashboardFontSize,
-      clrRed);
+      clrGold);
 
    CreateDashboardLabel(
       DASH_PREFIX+"NEXTTARGET",
