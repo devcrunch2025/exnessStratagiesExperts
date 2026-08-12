@@ -1,6 +1,6 @@
 //+------------------------------------------------------------------+
 //|                  SSL CHANNEL CROSS EA - CONTINUOUS EQUITY LADDER             |
-//|                  TWO-STAGE PROFIT LADDER | CONTINUOUS RESET RE-ENTRY      |
+//|                  TWO-STAGE PROFIT LADDER | CONTINUOUS RESET RE-ENTRY | LIVE INTRABAR SSL      |
 //+------------------------------------------------------------------+
 #property strict
 
@@ -43,10 +43,6 @@ bool ResetDailyProtectionEveryDay = false;
 bool CloseOpenOrdersOnDailyLoss = true;
 int MinimumClosedOrdersForDailyProtection =10;// 100;
 bool EnableEquityLadder = true;
-
-
-
-
 
 
 
@@ -118,6 +114,14 @@ int LastProcessedClosedTicket = -1;
 bool StartupSignalProcessed = false;
 bool TradeResetThisTick = false;
 
+//===============================================================
+// LIVE SSL INTRABAR STATE
+// SSL trading is evaluated on the currently forming candle (0).
+//===============================================================
+bool LiveSSLInitialized = false;
+int LastLiveSSLDirection = 0;
+datetime LastLiveSignalCandle = 0;
+
 // Persistent request to start a fresh trade after an Equity Ladder reset.
 // It remains TRUE until a market order is successfully opened.
 bool EquityResetReEntryPending = false;
@@ -178,7 +182,7 @@ void ProcessStartupSignal(DailyProtectionState &dailyState)
    //===============================================================
    if(buySignal)
    {
-      DrawLiveSignal(1, true);
+      DrawLiveSignal(0, true);
 
       // IMPORTANT:
       // Do NOT delete opposite pending orders on startup.
@@ -206,7 +210,7 @@ void ProcessStartupSignal(DailyProtectionState &dailyState)
    //===============================================================
    if(sellSignal)
    {
-      DrawLiveSignal(1, false);
+      DrawLiveSignal(0, false);
 
       // IMPORTANT:
       // Do NOT delete opposite pending orders on startup.
@@ -365,50 +369,79 @@ void OnTick()
    if(ShowLeftLiveOrdersDashboard)
       UpdateLeftLiveOrdersDashboard();
 
-   if(Bars < SSLPeriod + 20 || Time[0] == LastProcessedBar)
+   if(Bars < SSLPeriod + 20)
       return;
-   LastProcessedBar = Time[0];
 
-   bool buySignal = IsBuySignal(1);
-   bool sellSignal = IsSellSignal(1);
+   //===============================================================
+   // LIVE SSL CROSS - CURRENT FORMING CANDLE
+   //===============================================================
+   // No new-bar wait here. IsLiveBuySignal()/IsLiveSellSignal()
+   // evaluate candle 0 on every tick. This allows the EA to enter
+   // immediately when the SSL channel crosses during the candle.
+   // IsOneCandleOrderAllowed() prevents more than one successful
+   // normal market order from being opened on the same candle.
+   //===============================================================
+   bool buySignal  = IsLiveBuySignal();
+   bool sellSignal = IsLiveSellSignal();
 
    if(buySignal)
      {
-      DrawLiveSignal(1, true);
-      Print("SSL CROSS SIGNAL -> BUY");
-      if(DeleteOppositePendingOnSignal)
-         DeleteOppositePendingOrders(OP_BUY);
-      if(CloseOppositeOrdersOnSignal)
-         CloseOppositeOrders(OP_BUY);
-      if(EnableTrading && !IsDailyTradingStopped(dailyState))
-        {
-         if(GetTotalEAOrders() < MaxOpenOrders)
-            OpenBuy();
-         else
-            Print("BUY BLOCKED | MAX ORDERS");
-        }
-      else
-         Print("BUY BLOCKED | DAILY PROTECTION");
-     }
+      DrawLiveSignal(0, true);
 
+      // Avoid repeated processing on every tick while the same live
+      // cross remains active.
+      if(LastLiveSignalCandle != Time[0] || LastLiveSSLDirection != 1)
+        {
+         LastLiveSignalCandle = Time[0];
+         LastLiveSSLDirection = 1;
+
+         Print("LIVE SSL CROSS -> BUY | CURRENT FORMING CANDLE");
+
+         if(DeleteOppositePendingOnSignal)
+            DeleteOppositePendingOrders(OP_BUY);
+         if(CloseOppositeOrdersOnSignal)
+            CloseOppositeOrders(OP_BUY);
+
+         if(EnableTrading && !IsDailyTradingStopped(dailyState))
+           {
+            if(GetTotalEAOrders() < MaxOpenOrders)
+               OpenBuy();
+            else
+               Print("BUY BLOCKED | MAX ORDERS");
+           }
+         else
+            Print("BUY BLOCKED | DAILY PROTECTION");
+        }
+     }
+   else
    if(sellSignal)
      {
-      DrawLiveSignal(1, false);
-      Print("SSL CROSS SIGNAL -> SELL");
-      if(DeleteOppositePendingOnSignal)
-         DeleteOppositePendingOrders(OP_SELL);
-      if(CloseOppositeOrdersOnSignal)
-         CloseOppositeOrders(OP_SELL);
-      if(EnableTrading && !IsDailyTradingStopped(dailyState))
+      DrawLiveSignal(0, false);
+
+      if(LastLiveSignalCandle != Time[0] || LastLiveSSLDirection != -1)
         {
-         if(GetTotalEAOrders() < MaxOpenOrders)
-            OpenSell();
+         LastLiveSignalCandle = Time[0];
+         LastLiveSSLDirection = -1;
+
+         Print("LIVE SSL CROSS -> SELL | CURRENT FORMING CANDLE");
+
+         if(DeleteOppositePendingOnSignal)
+            DeleteOppositePendingOrders(OP_SELL);
+         if(CloseOppositeOrdersOnSignal)
+            CloseOppositeOrders(OP_SELL);
+
+         if(EnableTrading && !IsDailyTradingStopped(dailyState))
+           {
+            if(GetTotalEAOrders() < MaxOpenOrders)
+               OpenSell();
+            else
+               Print("SELL BLOCKED | MAX ORDERS");
+           }
          else
-            Print("SELL BLOCKED | MAX ORDERS");
+            Print("SELL BLOCKED | DAILY PROTECTION");
         }
-      else
-         Print("SELL BLOCKED | DAILY PROTECTION");
      }
+
   }
 
 //+------------------------------------------------------------------+
@@ -752,7 +785,7 @@ void CheckRecoveryOrders()
       double profit = OrderProfit() + OrderSwap() + OrderCommission();
       if(profit > RecoveryTriggerLossUSD || HasRecoveryOrder(OrderTicket()))
          continue;
-      if((OrderType() == OP_BUY && !IsBuySignal(1)) || (OrderType() == OP_SELL && !IsSellSignal(1)))
+      if((OrderType() == OP_BUY && !IsBuySignal(0)) || (OrderType() == OP_SELL && !IsSellSignal(0)))
          continue;
 
       double lots = NormalizeLots(OrderLots() * RecoveryLotMultiplier);
@@ -1204,7 +1237,7 @@ void ProcessEquityResetReEntry(DailyProtectionState &state)
       OrderCreatedThisCandle = false;
       LastOrderCandleTime    = 0;
 
-      DrawLiveSignal(1, true);
+      DrawLiveSignal(0, true);
 
       int beforeOrders = GetTotalEAOrders();
       OpenBuy();
@@ -1235,7 +1268,7 @@ void ProcessEquityResetReEntry(DailyProtectionState &state)
       OrderCreatedThisCandle = false;
       LastOrderCandleTime    = 0;
 
-      DrawLiveSignal(1, false);
+      DrawLiveSignal(0, false);
 
       int beforeOrders = GetTotalEAOrders();
       OpenSell();
@@ -1855,12 +1888,12 @@ void CheckForProfitableClosedOrder(DailyProtectionState &state)
    Print("ORDER CLOSED WITHOUT PROFIT | P/L: $", DoubleToString(latestProfit, 2));
    if(EnableTrading && !IsDailyTradingStopped(state))
      {
-      if(GetTotalBuyOrders() == 0 && IsBuySignal(1))
+      if(GetTotalBuyOrders() == 0 && IsBuySignal(0))
         {
          OpenBuy();
          Print("BUY opened after closed order");
         }
-      if(GetTotalSellOrders() == 0 && IsSellSignal(1))
+      if(GetTotalSellOrders() == 0 && IsSellSignal(0))
         {
          OpenSell();
          Print("SELL opened after closed order");
@@ -2006,7 +2039,14 @@ void OpenBuy()
    if(ticket < 0)
       Print("BUY FAILED | ERROR: ", GetLastError());
    else
-      Print("BUY OPENED | Ticket: ", ticket);
+     {
+      // Mark the candle only after OrderSend succeeds.
+      OrderCreatedThisCandle = true;
+      LastOrderCandleTime = Time[0];
+
+      Print("BUY OPENED | Ticket: ", ticket,
+            " | CANDLE: ", TimeToString(Time[0], TIME_DATE|TIME_SECONDS));
+     }
   }
 double NormalizeLots(double lots)
 {
@@ -2054,7 +2094,14 @@ void OpenSell()
    if(ticket < 0)
       Print("SELL FAILED | ERROR: ", GetLastError());
    else
-      Print("SELL OPENED | Ticket: ", ticket);
+     {
+      // Mark the candle only after OrderSend succeeds.
+      OrderCreatedThisCandle = true;
+      LastOrderCandleTime = Time[0];
+
+      Print("SELL OPENED | Ticket: ", ticket,
+            " | CANDLE: ", TimeToString(Time[0], TIME_DATE|TIME_SECONDS));
+     }
   }
 
 //+------------------------------------------------------------------+
@@ -2547,33 +2594,40 @@ void CalculateSSL(int shift, double &sslUp, double &sslDown, int &hlv)
 //+------------------------------------------------------------------+
 int GetCurrentSSLDirection()
 {
-   static datetime cachedBar = 0;
-   static int cachedDirection = 0;
-
    if(Bars < SSLPeriod + 20)
       return 0;
 
-   if(cachedBar != Time[0])
-   {
-      double up, down;
-      int hlv;
-      CalculateSSL(1, up, down, hlv);
+   // IMPORTANT: candle 0 is the currently forming candle.
+   // Do not cache this by bar because Close[0] changes on every tick.
+   double up, down;
+   int hlv;
+   CalculateSSL(0, up, down, hlv);
 
-      if(up > down)
-         cachedDirection = 1;
-      else if(up < down)
-         cachedDirection = -1;
-      else
-         cachedDirection = 0;
+   if(up > down)
+      return 1;
+   if(up < down)
+      return -1;
 
-      cachedBar = Time[0];
-   }
-
-   return cachedDirection;
+   return 0;
 }
 
 //+------------------------------------------------------------------+
 //|                                                                  |
+//+------------------------------------------------------------------+
+//+------------------------------------------------------------------+
+//| LIVE FORMING-CANDLE SIGNALS                                      |
+//+------------------------------------------------------------------+
+bool IsLiveBuySignal()
+  {
+   return IsBuySignal(0);
+  }
+
+//+------------------------------------------------------------------+
+bool IsLiveSellSignal()
+  {
+   return IsSellSignal(0);
+  }
+
 //+------------------------------------------------------------------+
 bool IsBuySignal(int shift)
   {
