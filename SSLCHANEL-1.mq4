@@ -11,7 +11,7 @@ int SSLPeriod = 10;
 // Optional directional filter for SSL entries.
 // BUY  -> price must be above EMA.
 // SELL -> price must be below EMA.
-bool InpUseEMA200Filter = false;
+bool InpUseEMA200Filter = true;
 int  InpEMA200Period = 200;
 int  InpEMAPriceShift = 0;   // 0 = live/current candle, 1 = last closed candle
 // ===== EMA CHART DISPLAY =====
@@ -63,7 +63,7 @@ bool EnableDailyLossProtection = true;
 // If equity is still above the original day-start balance but the
 // floating P/L of EA market orders reaches this loss, all EA orders close.
 bool EnableDay1CapitalProtectionExit = true;
-double ProtectionLossUSD = 25.0;
+double ProtectionLossUSD = 50.0;
 bool ResetDailyProtectionEveryDay = false;
 bool CloseOpenOrdersOnDailyLoss = true;
 int MinimumClosedOrdersForDailyProtection =10;// 100;
@@ -156,7 +156,7 @@ bool EquityResetReEntryPending = false;
 //===============================================================
 bool ProtectedEquityWaitActive = false;
 datetime ProtectedEquityWaitStartTime = 0;
-int ProtectedEquityWaitMinutes = 60;
+int ProtectedEquityWaitMinutes = 5;
 
 
 
@@ -735,6 +735,13 @@ bool CheckDay1CapitalProtectionExit(DailyProtectionState &state)
 //+------------------------------------------------------------------+
 void OnTick()
   {
+
+
+   if(EquityLadderLevel>1)
+   {
+      DailyLossProtectionPercent =2;// AccountBalance();
+OriginalDailyLossProtectionPercent =2;//
+   }
 
    TradeResetThisTick = false;
 
