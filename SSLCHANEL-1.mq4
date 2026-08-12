@@ -31,6 +31,8 @@ double Ladder2ProfitUSD = 0.10;//server api is has errors due to too many orders
 
 
 
+
+
 bool EnableRecoveryOrders = true;
 double RecoveryTriggerLossUSD = -5.0;
 double RecoveryLotMultiplier = 1;
