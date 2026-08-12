@@ -6,6 +6,24 @@
 
 // ===== INPUT SETTINGS =====
 int SSLPeriod = 10;
+
+// ===== EMA CONFIRMATION FILTER =====
+// Optional directional filter for SSL entries.
+// BUY  -> price must be above EMA.
+// SELL -> price must be below EMA.
+bool InpUseEMA200Filter = false;
+int  InpEMA200Period = 200;
+int  InpEMAPriceShift = 0;   // 0 = live/current candle, 1 = last closed candle
+// ===== EMA CHART DISPLAY =====
+// Displays the configured EMA directly on the MT4 chart even when the
+// EMA trading filter is disabled.
+bool ShowEMALine = true;
+color EMALineColor = clrGold;
+int EMALineWidth = 2;
+int EMALineBars = 500;
+string EMA_PREFIX = "SSL_EMA_LINE_";
+
+
 bool EnableTrading = true;
 double Lots = 0.01;
 int MaxOpenOrders = 20;
@@ -39,6 +57,13 @@ double RecoveryLotMultiplier = 1;
 int MaxRecoveryOrders = 1;
 double RecoveryBasketProfitUSD = 0.50;
 bool EnableDailyLossProtection = true;
+
+// ===== DAY-1 CAPITAL PROTECTION EXIT =====
+// Independent of the current equity-ladder target.
+// If equity is still above the original day-start balance but the
+// floating P/L of EA market orders reaches this loss, all EA orders close.
+bool EnableDay1CapitalProtectionExit = true;
+double ProtectionLossUSD = 25.0;
 bool ResetDailyProtectionEveryDay = false;
 bool CloseOpenOrdersOnDailyLoss = true;
 int MinimumClosedOrdersForDailyProtection =10;// 100;
@@ -47,7 +72,7 @@ bool EnableEquityLadder = true;
 
 
 
-double DailyEquityTargetPercent =3;//5;//10;//5;// 10;//2;//3;//1;//3;//10;//Trading continue with 10% profit reccuring
+double DailyEquityTargetPercent =2;//3;//5;//10;//5;// 10;//2;//3;//1;//3;//10;//Trading continue with 10% profit reccuring
 double DailyLossProtectionPercent =50;//20;//10;//20;//50;//20;//10;//20;//100;//50;// 30.0;// Trading stops if equity drops below this percentage of the starting balance for the day
 bool EnableDynamicEquityLadder = true;////Trading continue with 10% profit reccuring
 double OriginalDailyEquityTargetPercent =5;//10;//5;// 10;//2;//3;//1;//3;//10;//Trading continue with 10% profit reccuring
@@ -97,11 +122,11 @@ double OriginalLadder1StopMaxPriceUSD = 0.20;
 struct DailyProtectionState
   {
    datetime          DayDate;
-   double DayStartBalance;
-   double DayProtectedBalance;
-   int ClosedOrdersToday;
-   bool TradingStopped;
-   bool Initialized;
+   double            DayStartBalance;
+   double            DayProtectedBalance;
+   int               ClosedOrdersToday;
+   bool              TradingStopped;
+   bool              Initialized;
   };
 
 // ===== RUNTIME VARIABLES =====
@@ -149,18 +174,214 @@ void InitializeEquityLadder(DailyProtectionState &state)
 //|                                                                  |
 //+------------------------------------------------------------------+
 //+------------------------------------------------------------------+
+//| DRAW / UPDATE EMA LINE ON CHART                                   |
+//+------------------------------------------------------------------+
+void ClearEMALineObjects()
+  {
+   for(int i=ObjectsTotal()-1; i>=0; i--)
+     {
+      string name=ObjectName(i);
+      if(StringFind(name,EMA_PREFIX,0)==0)
+         ObjectDelete(0,name);
+     }
+  }
+
+//+------------------------------------------------------------------+
+//|                                                                  |
+//+------------------------------------------------------------------+
+void UpdateEMALineOnChart()
+  {
+   if(!ShowEMALine || Bars < InpEMA200Period + 2)
+      return;
+
+   int barsToDraw=EMALineBars;
+   if(barsToDraw<2)
+      barsToDraw=2;
+   if(barsToDraw>Bars-1)
+      barsToDraw=Bars-1;
+
+   static datetime lastDrawnBar=0;
+   bool rebuild=(lastDrawnBar!=Time[0]);
+
+// Build the historical EMA segments only when a new candle appears.
+// On every tick, update the live segment so EMA(0) follows price.
+   if(rebuild)
+     {
+      ClearEMALineObjects();
+
+      for(int i=barsToDraw-1; i>=0; i--)
+        {
+         int j=i+1;
+         if(j>=Bars)
+            continue;
+
+         double ema1=iMA(Symbol(),Period(),InpEMA200Period,0,MODE_EMA,PRICE_CLOSE,i);
+         double ema2=iMA(Symbol(),Period(),InpEMA200Period,0,MODE_EMA,PRICE_CLOSE,j);
+         if(ema1<=0 || ema2<=0)
+            continue;
+
+         string name=EMA_PREFIX+IntegerToString(i);
+         if(!ObjectCreate(0,name,OBJ_TREND,0,Time[j],ema2,Time[i],ema1))
+            continue;
+
+         ObjectSetInteger(0,name,OBJPROP_COLOR,EMALineColor);
+         ObjectSetInteger(0,name,OBJPROP_WIDTH,EMALineWidth);
+         ObjectSetInteger(0,name,OBJPROP_STYLE,STYLE_SOLID);
+         ObjectSetInteger(0,name,OBJPROP_RAY,false);
+         ObjectSetInteger(0,name,OBJPROP_BACK,false);
+         ObjectSetInteger(0,name,OBJPROP_SELECTABLE,false);
+         ObjectSetInteger(0,name,OBJPROP_SELECTED,false);
+         ObjectSetInteger(0,name,OBJPROP_HIDDEN,true);
+        }
+
+      lastDrawnBar=Time[0];
+     }
+
+// Always update the newest segment with the live EMA value.
+   double ema0=iMA(Symbol(),Period(),InpEMA200Period,0,MODE_EMA,PRICE_CLOSE,0);
+   double ema1=iMA(Symbol(),Period(),InpEMA200Period,0,MODE_EMA,PRICE_CLOSE,1);
+   string liveName=EMA_PREFIX+"0";
+
+   if(ema0>0 && ema1>0 && ObjectFind(0,liveName)>=0)
+     {
+      ObjectMove(0,liveName,0,Time[1],ema1);
+      ObjectMove(0,liveName,1,Time[0],ema0);
+     }
+
+   ChartRedraw(0);
+  }
+
+//+------------------------------------------------------------------+
+//| PROCESS STARTUP SIGNAL                                            |
+//| IMPORTANT: NEVER CLOSE EXISTING ORDERS ON EA RESTART             |
+//+------------------------------------------------------------------+
+//+------------------------------------------------------------------+
+//| EMA directional confirmation                                     |
+//+------------------------------------------------------------------+
+bool PassesEMAFilter(int orderType)
+  {
+   if(!InpUseEMA200Filter)
+      return true;
+
+   if(Bars < InpEMA200Period + 5)
+     {
+      Print("EMA FILTER BLOCKED | Not enough bars. Required: ",
+            InpEMA200Period + 5, " | Available: ", Bars);
+      return false;
+     }
+
+   if(orderType != OP_BUY && orderType != OP_SELL)
+      return false;
+
+   int shift = InpEMAPriceShift;
+   if(shift < 0)
+      shift = 0;
+   if(shift >= Bars)
+      shift = Bars - 1;
+
+   double ema = iMA(Symbol(), Period(), InpEMA200Period, 0,
+                    MODE_EMA, PRICE_CLOSE, shift);
+
+   if(ema <= 0.0)
+     {
+      Print("EMA FILTER BLOCKED | Invalid EMA value");
+      return false;
+     }
+
+   RefreshRates();
+
+   double price = (shift == 0)
+                  ? ((orderType == OP_BUY) ? Ask : Bid)
+                  : Close[shift];
+
+   bool allowed = (orderType == OP_BUY)
+                  ? (price > ema)
+                  : (price < ema);
+
+   Print("EMA FILTER | ",
+         orderType == OP_BUY ? "BUY" : "SELL",
+         " | Price=", DoubleToString(price, Digits),
+         " | EMA(", InpEMA200Period, ")=", DoubleToString(ema, Digits),
+         " | ", allowed ? "PASS" : "BLOCK");
+
+   return allowed;
+  }
+
+//+------------------------------------------------------------------+
+//| DRAW / UPDATE EMA LINE ON CHART                                   |
+//+------------------------------------------------------------------+
+void ClearEMALineObjects11()
+  {
+   for(int i=ObjectsTotal()-1; i>=0; i--)
+     {
+      string name=ObjectName(i);
+      if(StringFind(name,EMA_PREFIX,0)==0)
+         ObjectDelete(0,name);
+     }
+  }
+
+//+------------------------------------------------------------------+
+//|                                                                  |
+//+------------------------------------------------------------------+
+void UpdateEMALineOnChart11()
+  {
+   if(!ShowEMALine)
+      return;
+
+   if(Bars < InpEMA200Period + 2)
+      return;
+
+   int barsToDraw=EMALineBars;
+   if(barsToDraw<2)
+      barsToDraw=2;
+   if(barsToDraw>Bars-1)
+      barsToDraw=Bars-1;
+
+// Rebuild the EMA segments. This keeps the line synchronized with the
+// live candle and with chart scrolling/timeframe changes.
+   ClearEMALineObjects();
+
+   for(int i=barsToDraw-1; i>=0; i--)
+     {
+      int j=i+1;
+      if(j>=Bars)
+         continue;
+
+      double ema1=iMA(Symbol(),Period(),InpEMA200Period,0,MODE_EMA,PRICE_CLOSE,i);
+      double ema2=iMA(Symbol(),Period(),InpEMA200Period,0,MODE_EMA,PRICE_CLOSE,j);
+      if(ema1<=0 || ema2<=0)
+         continue;
+
+      string name=EMA_PREFIX+IntegerToString(i);
+      if(!ObjectCreate(0,name,OBJ_TREND,0,Time[j],ema2,Time[i],ema1))
+         continue;
+
+      ObjectSetInteger(0,name,OBJPROP_COLOR,EMALineColor);
+      ObjectSetInteger(0,name,OBJPROP_WIDTH,EMALineWidth);
+      ObjectSetInteger(0,name,OBJPROP_STYLE,STYLE_SOLID);
+      ObjectSetInteger(0,name,OBJPROP_RAY,false);
+      ObjectSetInteger(0,name,OBJPROP_BACK,false);
+      ObjectSetInteger(0,name,OBJPROP_SELECTABLE,false);
+      ObjectSetInteger(0,name,OBJPROP_SELECTED,false);
+      ObjectSetInteger(0,name,OBJPROP_HIDDEN,true);
+     }
+
+   ChartRedraw(0);
+  }
+
+//+------------------------------------------------------------------+
 //| PROCESS STARTUP SIGNAL                                            |
 //| IMPORTANT: NEVER CLOSE EXISTING ORDERS ON EA RESTART             |
 //+------------------------------------------------------------------+
 void ProcessStartupSignal(DailyProtectionState &dailyState)
-{
+  {
    if(StartupSignalProcessed)
       return;
 
    if(Bars < SSLPeriod + 20)
       return;
 
-   // Mark processed BEFORE any trading action
+// Mark processed BEFORE any trading action
    StartupSignalProcessed = true;
 
    int currentDirection = GetCurrentSSLDirection();
@@ -177,11 +398,11 @@ void ProcessStartupSignal(DailyProtectionState &dailyState)
    Print("IMPORTANT: EXISTING ORDERS WILL NOT BE CLOSED");
    Print("==================================================");
 
-   //===============================================================
-   // BUY
-   //===============================================================
+//===============================================================
+// BUY
+//===============================================================
    if(buySignal)
-   {
+     {
       DrawLiveSignal(0, true);
 
       // IMPORTANT:
@@ -190,26 +411,27 @@ void ProcessStartupSignal(DailyProtectionState &dailyState)
 
       if(EnableTrading &&
          !IsDailyTradingStopped(dailyState) &&
-         GetTotalEAOrders() < MaxOpenOrders)
-      {
+         GetTotalEAOrders() < MaxOpenOrders &&
+         PassesEMAFilter(OP_BUY))
+        {
          OpenBuy();
 
          Print("EA RESTART -> BUY SIGNAL PROCESSED");
          Print("EA RESTART -> EXISTING ORDERS PRESERVED");
-      }
+        }
       else
-      {
+        {
          Print("EA RESTART BUY BLOCKED");
-      }
+        }
 
       return;
-   }
+     }
 
-   //===============================================================
-   // SELL
-   //===============================================================
+//===============================================================
+// SELL
+//===============================================================
    if(sellSignal)
-   {
+     {
       DrawLiveSignal(0, false);
 
       // IMPORTANT:
@@ -218,23 +440,24 @@ void ProcessStartupSignal(DailyProtectionState &dailyState)
 
       if(EnableTrading &&
          !IsDailyTradingStopped(dailyState) &&
-         GetTotalEAOrders() < MaxOpenOrders)
-      {
+         GetTotalEAOrders() < MaxOpenOrders &&
+         PassesEMAFilter(OP_SELL))
+        {
          OpenSell();
 
          Print("EA RESTART -> SELL SIGNAL PROCESSED");
          Print("EA RESTART -> EXISTING ORDERS PRESERVED");
-      }
+        }
       else
-      {
+        {
          Print("EA RESTART SELL BLOCKED");
-      }
+        }
 
       return;
-   }
+     }
 
    Print("EA RESTART -> NO VALID SSL DIRECTION");
-}
+  }
 //+------------------------------------------------------------------+
 //|                                                                  |
 //+------------------------------------------------------------------+
@@ -244,6 +467,9 @@ void ProcessStartupSignal(DailyProtectionState &dailyState)
 //+------------------------------------------------------------------+
 bool EAStartupComplete = false;
 
+//+------------------------------------------------------------------+
+//|                                                                  |
+//+------------------------------------------------------------------+
 int OnInit()
   {
    Ladder1StopMaxPriceUSD=Ladder1ProfitUSD*2;
@@ -263,6 +489,10 @@ int OnInit()
    Print("========== SSL CHANNEL CROSS EA - FIXED VERSION V1- Final Version ==========");
    Print("Symbol: ", Symbol(), " | Timeframe: ", TimeframeToString(Period()), " | SSL Period: ", SSLPeriod);
    Print("Lots: ", DoubleToString(Lots, 2), " | Max Orders: ", MaxOpenOrders);
+   Print("EMA Filter: ", InpUseEMA200Filter ? "ON" : "OFF",
+         " | Period: ", InpEMA200Period,
+         " | Price Shift: ", InpEMAPriceShift,
+         " | Mode: ", InpEMAPriceShift == 0 ? "LIVE" : "CLOSED CANDLE");
    Print("Daily Protection: ", EnableDailyLossProtection ? "ON" : "OFF", " | Ladder 1: ", EnableProfitLadder1 ? "ON" : "OFF");
    Print("Ladder 1 Step: $", DoubleToString(Ladder1ProfitUSD, 2), " | Ladder 2 Step: $", DoubleToString(Ladder2ProfitUSD, 2));
    Print("=========================================================");
@@ -272,6 +502,9 @@ int OnInit()
    DeleteLeftLiveOrdersDashboardObjects();
    if(ShowHistoricalSignals || ShowSSLLines)
       DrawHistoricalSignals();
+
+// Display the configured EMA on the chart.
+   UpdateEMALineOnChart();
 
    DailyProtectionStartTime = TimeCurrent();
    InitializeLastProcessedClosedOrder();
@@ -296,8 +529,207 @@ bool IsOneCandleOrderAllowed()
 
    return true;
   }
-void OnDeinit(const int reason) { DeleteOurObjects(); DeleteDashboardObjects(); DeleteLeftLiveOrdersDashboardObjects(); }
+//+------------------------------------------------------------------+
+//|                                                                  |
+//+------------------------------------------------------------------+
+void OnDeinit(const int reason) { DeleteOurObjects(); DeleteDashboardObjects(); DeleteLeftLiveOrdersDashboardObjects(); ClearEMALineObjects(); }
 int StartupProtectionTicks = 0;
+//+------------------------------------------------------------------+
+//|                                                                  |
+//+------------------------------------------------------------------+
+//+------------------------------------------------------------------+
+//| DAY-1 CAPITAL PROTECTION EXIT                                    |
+//|                                                                  |
+//| Example:                                                        |
+//| Day Start Balance = $100                                         |
+//| Current Balance  = $150                                         |
+//| Current Equity   = $110                                         |
+//| Floating P/L     = -$40                                          |
+//| ProtectionLossUSD= $25                                           |
+//|                                                                  |
+//| Equity is still above the original day-start balance, but the    |
+//| floating loss has reached the protection threshold.              |
+//| Therefore ALL EA market/pending orders are closed.               |
+//|                                                                  |
+//| This check is completely independent of NextEquityTarget.         |
+//+------------------------------------------------------------------+
+double GetEAFloatingPL()
+  {
+   double floatingPL = 0.0;
+
+   for(int i=OrdersTotal()-1; i>=0; i--)
+     {
+      if(!OrderSelect(i, SELECT_BY_POS, MODE_TRADES))
+         continue;
+
+      if(OrderSymbol()!=Symbol() || OrderMagicNumber()!=MagicNumber)
+         continue;
+
+      int type = OrderType();
+
+      if(type==OP_BUY || type==OP_SELL)
+         floatingPL += OrderProfit() + OrderSwap() + OrderCommission();
+     }
+
+   return floatingPL;
+  }
+
+//+------------------------------------------------------------------+
+//| Close every open EA order for this symbol/magic                  |
+//+------------------------------------------------------------------+
+bool CloseAllEAOrdersForDay1Protection()
+  {
+   bool allClosed = true;
+
+   RefreshRates();
+
+// Delete pending orders first.
+   for(int i=OrdersTotal()-1; i>=0; i--)
+     {
+      if(!OrderSelect(i, SELECT_BY_POS, MODE_TRADES))
+         continue;
+
+      if(OrderSymbol()!=Symbol() || OrderMagicNumber()!=MagicNumber)
+         continue;
+
+      int type = OrderType();
+
+      if(type!=OP_BUYSTOP && type!=OP_SELLSTOP &&
+         type!=OP_BUYLIMIT && type!=OP_SELLLIMIT)
+         continue;
+
+      int ticket = OrderTicket();
+
+      ResetLastError();
+
+      if(!OrderDelete(ticket, clrNONE))
+        {
+         int err = GetLastError();
+         allClosed = false;
+
+         Print("DAY-1 PROTECTION | PENDING DELETE FAILED | Ticket=",
+               ticket, " | Error=", err);
+        }
+     }
+
+// Close market orders.
+   for(int j=OrdersTotal()-1; j>=0; j--)
+     {
+      if(!OrderSelect(j, SELECT_BY_POS, MODE_TRADES))
+         continue;
+
+      if(OrderSymbol()!=Symbol() || OrderMagicNumber()!=MagicNumber)
+         continue;
+
+      int marketType = OrderType();
+
+      if(marketType!=OP_BUY && marketType!=OP_SELL)
+         continue;
+
+      int marketTicket = OrderTicket();
+      double closeLots = OrderLots();
+
+      RefreshRates();
+
+      double closePrice =
+         (marketType==OP_BUY) ? Bid : Ask;
+
+      ResetLastError();
+
+      if(!OrderClose(marketTicket,
+                     closeLots,
+                     closePrice,
+                     Slippage,
+                     clrNONE))
+        {
+         int err2 = GetLastError();
+         allClosed = false;
+
+         Print("DAY-1 PROTECTION | MARKET CLOSE FAILED | Ticket=",
+               marketTicket, " | Lots=", DoubleToString(closeLots,2),
+               " | Error=", err2);
+        }
+      else
+        {
+         Print("DAY-1 PROTECTION | CLOSED | Ticket=",
+               marketTicket);
+        }
+     }
+
+   return allClosed;
+  }
+
+//+------------------------------------------------------------------+
+//| Independent Day-1 capital protection check                      |
+//+------------------------------------------------------------------+
+bool CheckDay1CapitalProtectionExit(DailyProtectionState &state)
+  {
+   if(!EnableDay1CapitalProtectionExit)
+      return false;
+
+   if(ProtectionLossUSD <= 0.0)
+      return false;
+
+   if(!state.Initialized)
+      return false;
+
+   if(state.TradingStopped)
+      return false;
+
+// IMPORTANT:
+// Use the ORIGINAL balance captured at the start of the day.
+// Do not use the current balance and do not use NextEquityTarget.
+   double dayStartBalance = state.DayStartBalance;
+   double currentEquity   = AccountEquity();
+   double floatingPL      = GetEAFloatingPL();
+
+// Required conditions:
+// 1. Equity must still be ABOVE the original day-start balance.
+// 2. EA floating P/L must be <= negative ProtectionLossUSD.
+   if(currentEquity <= dayStartBalance)
+      return false;
+
+   if(floatingPL > -ProtectionLossUSD)
+      return false;
+
+   Print("================================================");
+   Print("DAY-1 CAPITAL PROTECTION EXIT TRIGGERED");
+   Print("Day Start Balance : $", DoubleToString(dayStartBalance,2));
+   Print("Current Balance   : $", DoubleToString(AccountBalance(),2));
+   Print("Current Equity    : $", DoubleToString(currentEquity,2));
+   Print("Floating P/L      : $", DoubleToString(floatingPL,2));
+   Print("Loss Threshold    : -$", DoubleToString(ProtectionLossUSD,2));
+   Print("Current Ladder    : $", DoubleToString(NextEquityTarget,2));
+   Print("Action            : CLOSE ALL EA ORDERS");
+   Print("================================================");
+
+   bool closed = CloseAllEAOrdersForDay1Protection();
+
+// This is an EXIT, not a ladder reset.
+// Preserve the original DayStartBalance so the protection remains
+// anchored to the beginning-of-day capital.
+   if(closed)
+     {
+      state.TradingStopped = true;
+
+      // Cancel any queued ladder re-entry. Otherwise the continuous
+      // ladder could immediately open a fresh trade after this exit.
+      EquityResetReEntryPending = false;
+      ProtectedEquityWaitActive = false;
+
+      Print("DAY-1 CAPITAL PROTECTION | ALL EA ORDERS CLOSED");
+      Print("DAY-1 CAPITAL PROTECTION | TRADING STOPPED FOR CURRENT DAY");
+     }
+   else
+     {
+      // Keep the protection active so failed closes are retried on the
+      // next tick rather than allowing normal ladder processing.
+      Print("DAY-1 CAPITAL PROTECTION | SOME ORDERS REMAIN OPEN - RETRYING");
+     }
+
+   return true;
+  }
+
 //+------------------------------------------------------------------+
 //|                                                                  |
 //+------------------------------------------------------------------+
@@ -306,11 +738,11 @@ void OnTick()
 
    TradeResetThisTick = false;
 
-   //===============================================================
-   // STARTUP SAFETY
-   //===============================================================
+//===============================================================
+// STARTUP SAFETY
+//===============================================================
    if(StartupProtectionTicks < 1)
-   {
+     {
       StartupProtectionTicks++;
 
       EAStartupComplete = true;
@@ -320,7 +752,7 @@ void OnTick()
       Print("Existing orders will be PRESERVED");
       Print("No startup opposite-order closing allowed");
       Print("==================================================");
-   }
+     }
 // else
 // {
 //    Ladder1ProfitUSD = OriginalLadder1ProfitUSD;
@@ -333,16 +765,36 @@ void OnTick()
 
    UpdateDailyLossProtection(dailyState);
 
-   //===============================================================
-   // PROTECTED EQUITY WAIT - NO NEW TRADING DURING COOLDOWN
-   //===============================================================
-   if(IsProtectedEquityWaiting())
-   {
-      if(ShowSSLLines) UpdateSSLChannelOnTick();
-      if(ShowDashboard) UpdateDashboard(dailyState);
-      if(ShowLeftLiveOrdersDashboard) UpdateLeftLiveOrdersDashboard();
+//===============================================================
+// DAY-1 CAPITAL PROTECTION EXIT
+// Independent of the current equity-ladder target.
+//===============================================================
+   if(CheckDay1CapitalProtectionExit(dailyState))
+     {
+      if(ShowSSLLines)
+         UpdateSSLChannelOnTick();
+      UpdateEMALineOnChart();
+      if(ShowDashboard)
+         UpdateDashboard(dailyState);
+      if(ShowLeftLiveOrdersDashboard)
+         UpdateLeftLiveOrdersDashboard();
       return;
-   }
+     }
+
+//===============================================================
+// PROTECTED EQUITY WAIT - NO NEW TRADING DURING COOLDOWN
+//===============================================================
+   if(IsProtectedEquityWaiting())
+     {
+      if(ShowSSLLines)
+         UpdateSSLChannelOnTick();
+      UpdateEMALineOnChart();
+      if(ShowDashboard)
+         UpdateDashboard(dailyState);
+      if(ShowLeftLiveOrdersDashboard)
+         UpdateLeftLiveOrdersDashboard();
+      return;
+     }
 
    CheckRecoveryOrders();
    ManageRecoveryBasket();
@@ -350,14 +802,15 @@ void OnTick()
    ProcessStartupSignal(dailyState);
    CheckDynamicEquityLadder(dailyState);
 
-   // Continuous Equity Ladder re-entry.
-   // Uses CURRENT SSL direction; no new crossover is required.
-   // If an order cannot be opened now, the request remains pending.
+// Continuous Equity Ladder re-entry.
+// Uses CURRENT SSL direction; no new crossover is required.
+// If an order cannot be opened now, the request remains pending.
    if(EquityResetReEntryPending)
       ProcessEquityResetReEntry(dailyState);
 
    if(ShowSSLLines)
       UpdateSSLChannelOnTick();
+   UpdateEMALineOnChart();
    if(Bars >= SSLPeriod + 20 && GetTotalEAOrders() > 0 && !TradeResetThisTick)
       CheckForProfitableClosedOrder(dailyState);
    if(EnableProfitLadder1 || EnableProfitLadder2)
@@ -365,22 +818,22 @@ void OnTick()
    if(ShowDashboard)
       UpdateDashboard(dailyState);
 
-   // Separate LEFT dashboard. Existing RIGHT dashboard is untouched.
+// Separate LEFT dashboard. Existing RIGHT dashboard is untouched.
    if(ShowLeftLiveOrdersDashboard)
       UpdateLeftLiveOrdersDashboard();
 
    if(Bars < SSLPeriod + 20)
       return;
 
-   //===============================================================
-   // LIVE SSL CROSS - CURRENT FORMING CANDLE
-   //===============================================================
-   // No new-bar wait here. IsLiveBuySignal()/IsLiveSellSignal()
-   // evaluate candle 0 on every tick. This allows the EA to enter
-   // immediately when the SSL channel crosses during the candle.
-   // IsOneCandleOrderAllowed() prevents more than one successful
-   // normal market order from being opened on the same candle.
-   //===============================================================
+//===============================================================
+// LIVE SSL CROSS - CURRENT FORMING CANDLE
+//===============================================================
+// No new-bar wait here. IsLiveBuySignal()/IsLiveSellSignal()
+// evaluate candle 0 on every tick. This allows the EA to enter
+// immediately when the SSL channel crosses during the candle.
+// IsOneCandleOrderAllowed() prevents more than one successful
+// normal market order from being opened on the same candle.
+//===============================================================
    bool buySignal  = IsLiveBuySignal();
    bool sellSignal = IsLiveSellSignal();
 
@@ -414,33 +867,33 @@ void OnTick()
         }
      }
    else
-   if(sellSignal)
-     {
-      DrawLiveSignal(0, false);
-
-      if(LastLiveSignalCandle != Time[0] || LastLiveSSLDirection != -1)
+      if(sellSignal)
         {
-         LastLiveSignalCandle = Time[0];
-         LastLiveSSLDirection = -1;
+         DrawLiveSignal(0, false);
 
-         Print("LIVE SSL CROSS -> SELL | CURRENT FORMING CANDLE");
-
-         if(DeleteOppositePendingOnSignal)
-            DeleteOppositePendingOrders(OP_SELL);
-         if(CloseOppositeOrdersOnSignal)
-            CloseOppositeOrders(OP_SELL);
-
-         if(EnableTrading && !IsDailyTradingStopped(dailyState))
+         if(LastLiveSignalCandle != Time[0] || LastLiveSSLDirection != -1)
            {
-            if(GetTotalEAOrders() < MaxOpenOrders)
-               OpenSell();
+            LastLiveSignalCandle = Time[0];
+            LastLiveSSLDirection = -1;
+
+            Print("LIVE SSL CROSS -> SELL | CURRENT FORMING CANDLE");
+
+            if(DeleteOppositePendingOnSignal)
+               DeleteOppositePendingOrders(OP_SELL);
+            if(CloseOppositeOrdersOnSignal)
+               CloseOppositeOrders(OP_SELL);
+
+            if(EnableTrading && !IsDailyTradingStopped(dailyState))
+              {
+               if(GetTotalEAOrders() < MaxOpenOrders)
+                  OpenSell();
+               else
+                  Print("SELL BLOCKED | MAX ORDERS");
+              }
             else
-               Print("SELL BLOCKED | MAX ORDERS");
+               Print("SELL BLOCKED | DAILY PROTECTION");
            }
-         else
-            Print("SELL BLOCKED | DAILY PROTECTION");
         }
-     }
 
   }
 
@@ -495,8 +948,8 @@ double GetOpenPL(int OrderTypeFilter)
 //| Get Open Market Orders Count                                     |
 //+------------------------------------------------------------------+
 double GetOppositeOrdersLots(int orderType)
-{
-   // double totalLots = 0.0;
+  {
+// double totalLots = 0.0;
    double totalLots = 0.01;
 
 
@@ -506,7 +959,7 @@ double GetOppositeOrdersLots(int orderType)
       : OP_BUY;
 
    for(int i = OrdersTotal()-1; i >= 0; i--)
-   {
+     {
       if(!OrderSelect(i, SELECT_BY_POS, MODE_TRADES))
          continue;
 
@@ -520,56 +973,56 @@ double GetOppositeOrdersLots(int orderType)
          continue;
 
       totalLots += OrderLots();
-   }
+     }
 
    if(totalLots <= 0.0)
       return NormalizeLots(OriginalLots);
 
    return NormalizeLots(totalLots);
-}
-//0.03 
+  }
+//0.03
 void ChangeLots(double OpenPL, string reason, int orderType)
-{
-   //==================================================
-   // MAX LOT LIMIT
-   //==================================================
+  {
+//==================================================
+// MAX LOT LIMIT
+//==================================================
    double MaxRecoveryLot = 0.03;
 
-   //==================================================
-   // DEFAULT LOT
-   //==================================================
+//==================================================
+// DEFAULT LOT
+//==================================================
    Lots = NormalizeLots(OriginalLots);
 
-   //==================================================
-   // TOTAL OPPOSITE TYPE LOTS
-   //==================================================
+//==================================================
+// TOTAL OPPOSITE TYPE LOTS
+//==================================================
    double oppositeLots = GetOppositeOrdersLots(orderType);
 
-   //==================================================
-   // SSL SIGNAL?
-   //==================================================
+//==================================================
+// SSL SIGNAL?
+//==================================================
    bool isSSLSignal =
       (reason == "SSL Long" || reason == "SSL Short");
 
-   //==================================================
-   // TYPE 1 - SSL SIGNAL
-   //
-   // Base Lot =
-   // Opposite Total Lots + Original Lot
-   //
-   // Multiplier:
-   // $0     to <$5  = 1X
-   // $5     to <$10 = 1X
-   // $10    to <$15 = 2X
-   // $15    to <$20 = 3X
-   //
-   // If you want:
-   // $0-$4.99 = 1X
-   // $5-$9.99 = 2X
-   // then use CEIL instead.
-   //==================================================
+//==================================================
+// TYPE 1 - SSL SIGNAL
+//
+// Base Lot =
+// Opposite Total Lots + Original Lot
+//
+// Multiplier:
+// $0     to <$5  = 1X
+// $5     to <$10 = 1X
+// $10    to <$15 = 2X
+// $15    to <$20 = 3X
+//
+// If you want:
+// $0-$4.99 = 1X
+// $5-$9.99 = 2X
+// then use CEIL instead.
+//==================================================
    if(isSSLSignal && oppositeLots > 0.0)
-   {
+     {
       // Base recovery lot
       double baseLots =
          oppositeLots + OriginalLots;
@@ -583,7 +1036,7 @@ void ChangeLots(double OpenPL, string reason, int orderType)
       double lossMultiplier1 = 1.0;
 
       if(OpenPL < 0.0)
-      {
+        {
          lossMultiplier1 =
             MathFloor(MathAbs(OpenPL) / 10.0);
 
@@ -591,12 +1044,12 @@ void ChangeLots(double OpenPL, string reason, int orderType)
          if(lossMultiplier1 < 1.0)
             lossMultiplier1 = 1.0;
 
-            lossMultiplier1 = 1.0;
+         lossMultiplier1 = 1.0;
 
 
 
 
-      }
+        }
 
       // Apply multiplier
       Lots =
@@ -620,71 +1073,72 @@ void ChangeLots(double OpenPL, string reason, int orderType)
       Print("Calculated Lots : ",
             DoubleToString(Lots, 2));
       Print("========================================");
-   }
+     }
 
-   //==================================================
-   // TYPE 2 - NON SSL SIGNAL
-   //
-   // Loss multiplier based on $3
-   //
-   // -0 to -2.99 = 1X
-   // -3 to -5.99 = 1X
-   // -6 to -8.99 = 2X
-   // -9 to -11.99 = 3X
-   //==================================================
-   else if(!isSSLSignal && oppositeLots > 0.0)
-   {
-      double lossMultiplier = 1.0;
-
-      if(OpenPL < 0.0)
-      {
-         lossMultiplier =
-            MathFloor(MathAbs(OpenPL) / 10.0);
-
-         // Never allow zero
-         if(lossMultiplier < 1.0)
-            lossMultiplier = 1.0;
-      }
-
-      Lots =
-         NormalizeLots(
-            OriginalLots * lossMultiplier
-         );
-
-      Print("========================================");
-      Print("TYPE 2 - NON SSL RECOVERY");
-      Print("Reason          : ", reason);
-      Print("Opposite P/L    : $",
-            DoubleToString(OpenPL, 2));
-      Print("Opposite Lots   : ",
-            DoubleToString(oppositeLots, 2));
-      Print("P/L Multiplier  : ",
-            DoubleToString(lossMultiplier, 2), "X");
-      Print("Calculated Lots : ",
-            DoubleToString(Lots, 2));
-      Print("========================================");
-   }
-
-   //==================================================
-   // NO OPPOSITE ORDERS
-   //==================================================
+//==================================================
+// TYPE 2 - NON SSL SIGNAL
+//
+// Loss multiplier based on $3
+//
+// -0 to -2.99 = 1X
+// -3 to -5.99 = 1X
+// -6 to -8.99 = 2X
+// -9 to -11.99 = 3X
+//==================================================
    else
-   {
-      Lots = NormalizeLots(OriginalLots);
+      if(!isSSLSignal && oppositeLots > 0.0)
+        {
+         double lossMultiplier = 1.0;
 
-      Print("========================================");
-      Print("NO RECOVERY");
-      Print("Reason          : ", reason);
-      Print("Original Lots   : ",
-            DoubleToString(Lots, 2));
-      Print("========================================");
-   }
+         if(OpenPL < 0.0)
+           {
+            lossMultiplier =
+               MathFloor(MathAbs(OpenPL) / 10.0);
 
-   //==================================================
-   // HARD MAX LOT = 0.10
-   //==================================================
+            // Never allow zero
+            if(lossMultiplier < 1.0)
+               lossMultiplier = 1.0;
+           }
+
+         Lots =
+            NormalizeLots(
+               OriginalLots * lossMultiplier
+            );
+
+         Print("========================================");
+         Print("TYPE 2 - NON SSL RECOVERY");
+         Print("Reason          : ", reason);
+         Print("Opposite P/L    : $",
+               DoubleToString(OpenPL, 2));
+         Print("Opposite Lots   : ",
+               DoubleToString(oppositeLots, 2));
+         Print("P/L Multiplier  : ",
+               DoubleToString(lossMultiplier, 2), "X");
+         Print("Calculated Lots : ",
+               DoubleToString(Lots, 2));
+         Print("========================================");
+        }
+
+      //==================================================
+      // NO OPPOSITE ORDERS
+      //==================================================
+      else
+        {
+         Lots = NormalizeLots(OriginalLots);
+
+         Print("========================================");
+         Print("NO RECOVERY");
+         Print("Reason          : ", reason);
+         Print("Original Lots   : ",
+               DoubleToString(Lots, 2));
+         Print("========================================");
+        }
+
+//==================================================
+// HARD MAX LOT = 0.10
+//==================================================
    if(Lots > MaxRecoveryLot)
-   {
+     {
       Print("MAX LOT LIMIT APPLIED");
       Print("Calculated Lot : ",
             DoubleToString(Lots, 2));
@@ -692,34 +1146,34 @@ void ChangeLots(double OpenPL, string reason, int orderType)
             DoubleToString(MaxRecoveryLot, 2));
 
       Lots = NormalizeLots(MaxRecoveryLot);
-   }
+     }
 
-   //==================================================
-   // FINAL NORMALIZATION
-   //==================================================
+//==================================================
+// FINAL NORMALIZATION
+//==================================================
    Lots = NormalizeLots(Lots);
 
    if(Lots > MaxRecoveryLot)
       Lots = NormalizeLots(MaxRecoveryLot);
 
-   //==================================================
-   // ACTUAL LOT MULTIPLIER
-   //==================================================
+//==================================================
+// ACTUAL LOT MULTIPLIER
+//==================================================
    double lotMultiplier = 1.0;
 
    if(oppositeLots > 0.0)
-   {
+     {
       lotMultiplier =
          Lots / oppositeLots;
-   }
+     }
 
    if(lotMultiplier < 1.0)
       lotMultiplier = 1.0;
 
-   //==================================================
-   // SCALE SL / ORDER LADDER
-   // BASED ON ACTUAL NEW LOT
-   //==================================================
+//==================================================
+// SCALE SL / ORDER LADDER
+// BASED ON ACTUAL NEW LOT
+//==================================================
    StopLossUSD =
       OriginalStopLossUSD *
       Lots * 100;
@@ -736,9 +1190,9 @@ void ChangeLots(double OpenPL, string reason, int orderType)
       OriginalLadder1StopMaxPriceUSD *
       Lots * 100;
 
-   //==================================================
-   // FINAL DEBUG
-   //==================================================
+//==================================================
+// FINAL DEBUG
+//==================================================
    Print("========================================");
    Print("FINAL LOT CONFIGURATION");
    Print("Reason          : ", reason);
@@ -761,7 +1215,7 @@ void ChangeLots(double OpenPL, string reason, int orderType)
    Print("L1 Stop Max     : $",
          DoubleToString(Ladder1StopMaxPriceUSD, 2));
    Print("========================================");
-}
+  }
 //+------------------------------------------------------------------+
 //|                                                                  |
 //+------------------------------------------------------------------+
@@ -834,7 +1288,7 @@ bool HasRecoveryOrder(int ParentTicket)
 //+------------------------------------------------------------------+
 //|                                                                  |
 //+------------------------------------------------------------------+
- 
+
 
 //+------------------------------------------------------------------+
 //|                                                                  |
@@ -980,71 +1434,71 @@ void InitializeDailyProtectionState(DailyProtectionState &state)
    Print("==================================================");
   }
 
-  //+------------------------------------------------------------------+
+//+------------------------------------------------------------------+
 //| Protected Equity Hit -> Close All -> Reset -> Continue Trading   |
 //+------------------------------------------------------------------+
 void ResetAfterProtectedEquity(DailyProtectionState &state)
-{
+  {
    Print("================================================");
    Print("PROTECTED EQUITY HIT");
    Print("Current Equity : $", DoubleToString(AccountEquity(), 2));
    Print("Closing ALL EA orders...");
    Print("================================================");
 
-   // ---------------------------------------------------------------
-   // 1. CLOSE ALL EA ORDERS
-   // ---------------------------------------------------------------
+// ---------------------------------------------------------------
+// 1. CLOSE ALL EA ORDERS
+// ---------------------------------------------------------------
    int retry = 0;
 
    while(GetTotalEAOrders() > 0 && retry < 10)
-   {
+     {
       RefreshRates();
 
       CloseAllEAOrdersOnDailyLoss();
 
       Sleep(300);
       retry++;
-   }
+     }
 
-   // ---------------------------------------------------------------
-   // 2. VERIFY ALL ORDERS CLOSED
-   // ---------------------------------------------------------------
+// ---------------------------------------------------------------
+// 2. VERIFY ALL ORDERS CLOSED
+// ---------------------------------------------------------------
    if(GetTotalEAOrders() > 0)
-   {
+     {
       Print("PROTECTED EQUITY RESET FAILED");
       Print("Remaining Orders : ", GetTotalEAOrders());
 
       // Keep trading stopped if orders could not be closed
       state.TradingStopped = true;
       return;
-   }
+     }
 
    RefreshRates();
 
-   // ---------------------------------------------------------------
-   // 3. GET REAL BALANCE AFTER CLOSING ORDERS
-   // ---------------------------------------------------------------
+// ---------------------------------------------------------------
+// 3. GET REAL BALANCE AFTER CLOSING ORDERS
+// ---------------------------------------------------------------
    double newBalance = AccountBalance();
 
    Print("ALL EA ORDERS CLOSED");
    Print("New Balance : $", DoubleToString(newBalance, 2));
 
-   // ---------------------------------------------------------------
-   // 4. NEW PROTECTED EQUITY / NEW STARTING BALANCE
-   // ---------------------------------------------------------------
+// ---------------------------------------------------------------
+// 4. NEW PROTECTED EQUITY / NEW STARTING BALANCE
+// ---------------------------------------------------------------
    state.DayStartBalance   = newBalance;
 
 
    state.ClosedOrdersToday = 0;
 
-   // ---------------------------------------------------------------
-   // 5. IMPORTANT - ALLOW TRADING AGAIN
-   // ---------------------------------------------------------------
+// ---------------------------------------------------------------
+// 5. IMPORTANT - ALLOW TRADING AGAIN
+// ---------------------------------------------------------------
    state.TradingStopped = false;
 
-   // ---------------------------------------------------------------
-   // 6. RESET DAILY PROTECTION
-   // ---------------------------------------------------------------
+// ---------------------------------------------------------------
+// 6. RESET DAILY PROTECTION
+// ---------------------------------------------------------------
    DailyProtectionStartTime = TimeCurrent();
 
    DailyLossProtectionPercent =
@@ -1054,9 +1508,9 @@ void ResetAfterProtectedEquity(DailyProtectionState &state)
       newBalance *
       (1.0 - DailyLossProtectionPercent / 100.0);
 
-   // ---------------------------------------------------------------
-   // 7. RESET LOT / RECOVERY SETTINGS
-   // ---------------------------------------------------------------
+// ---------------------------------------------------------------
+// 7. RESET LOT / RECOVERY SETTINGS
+// ---------------------------------------------------------------
    Lots = OriginalLots;
 
    Ladder1ProfitUSD =
@@ -1073,20 +1527,20 @@ void ResetAfterProtectedEquity(DailyProtectionState &state)
 
 
 
-   // ---------------------------------------------------------------
-   // 8. RESET EQUITY LADDER
-   // ---------------------------------------------------------------
+// ---------------------------------------------------------------
+// 8. RESET EQUITY LADDER
+// ---------------------------------------------------------------
    EquityLadderLevel++;
-DailyLossProtectionPercent--;
+   DailyLossProtectionPercent--;
    if(EquityLadderLevel>1)
-         {
-             DailyEquityTargetPercent=OriginalDailyEquityTargetPercent/2;
-         }
-         else
-         {
-             DailyEquityTargetPercent=OriginalDailyEquityTargetPercent;
-            
-         }
+     {
+      DailyEquityTargetPercent=OriginalDailyEquityTargetPercent/2;
+     }
+   else
+     {
+      DailyEquityTargetPercent=OriginalDailyEquityTargetPercent;
+
+     }
 
    LockedEquity = newBalance;
 
@@ -1095,15 +1549,15 @@ DailyLossProtectionPercent--;
       (1.0 + DailyEquityTargetPercent / 100.0);
 
 
-   // ---------------------------------------------------------------
-   // 9. RESET ORDER-CANDLE CONTROL
-   // ---------------------------------------------------------------
+// ---------------------------------------------------------------
+// 9. RESET ORDER-CANDLE CONTROL
+// ---------------------------------------------------------------
    OrderCreatedThisCandle = false;
 
-   // ---------------------------------------------------------------
-   // 10. QUEUE TRADING USING CURRENT SSL DIRECTION
-   // ---------------------------------------------------------------
-   // Uses the same persistent re-entry mechanism as the Equity Ladder.
+// ---------------------------------------------------------------
+// 10. QUEUE TRADING USING CURRENT SSL DIRECTION
+// ---------------------------------------------------------------
+// Uses the same persistent re-entry mechanism as the Equity Ladder.
    TradeResetThisTick = true;
    StartProtectedEquityWait();
 
@@ -1123,7 +1577,7 @@ DailyLossProtectionPercent--;
          DoubleToString(Lots, 2));
 
    Print("================================================");
-}
+  }
 //+------------------------------------------------------------------+
 //|                                                                  |
 //+------------------------------------------------------------------+
@@ -1140,7 +1594,7 @@ DailyLossProtectionPercent--;
 //| Start 1-hour wait after Protected Equity is hit                  |
 //+------------------------------------------------------------------+
 void StartProtectedEquityWait()
-{
+  {
    ProtectedEquityWaitActive = true;
    ProtectedEquityWaitStartTime = TimeCurrent();
    EquityResetReEntryPending = false;
@@ -1151,14 +1605,19 @@ void StartProtectedEquityWait()
    Print("Wait Start : ", TimeToString(ProtectedEquityWaitStartTime, TIME_DATE|TIME_SECONDS));
    Print("Resume At  : ", TimeToString(ProtectedEquityWaitStartTime + ProtectedEquityWaitMinutes * 60, TIME_DATE|TIME_SECONDS));
    Print("================================================");
-}
+  }
 
+//+------------------------------------------------------------------+
+//|                                                                  |
+//+------------------------------------------------------------------+
 bool IsProtectedEquityWaiting()
-{
-   if(!ProtectedEquityWaitActive) return false;
+  {
+   if(!ProtectedEquityWaitActive)
+      return false;
 
    datetime resumeTime = ProtectedEquityWaitStartTime + ProtectedEquityWaitMinutes * 60;
-   if(TimeCurrent() < resumeTime) return true;
+   if(TimeCurrent() < resumeTime)
+      return true;
 
    ProtectedEquityWaitActive = false;
    Print("================================================");
@@ -1168,28 +1627,36 @@ bool IsProtectedEquityWaiting()
 
    QueueEquityResetReEntry();
    return false;
-}
+  }
 
+//+------------------------------------------------------------------+
+//|                                                                  |
+//+------------------------------------------------------------------+
 int GetProtectedEquityWaitSeconds()
-{
-   if(!ProtectedEquityWaitActive) return 0;
+  {
+   if(!ProtectedEquityWaitActive)
+      return 0;
    int remaining = (int)((ProtectedEquityWaitStartTime + ProtectedEquityWaitMinutes * 60) - TimeCurrent());
-   if(remaining < 0) remaining = 0;
+   if(remaining < 0)
+      remaining = 0;
    return remaining;
-}
+  }
 
+//+------------------------------------------------------------------+
+//|                                                                  |
+//+------------------------------------------------------------------+
 string GetProtectedEquityWaitText()
-{
+  {
    int seconds = GetProtectedEquityWaitSeconds();
    return StringFormat("%02d:%02d:%02d", seconds/3600, (seconds%3600)/60, seconds%60);
-}
+  }
 
 //+------------------------------------------------------------------+
 void QueueEquityResetReEntry()
   {
    EquityResetReEntryPending = true;
 
-   // Allow the first order of the new equity cycle immediately.
+// Allow the first order of the new equity cycle immediately.
    OrderCreatedThisCandle = false;
    LastOrderCandleTime    = 0;
 
@@ -1209,7 +1676,7 @@ void ProcessEquityResetReEntry(DailyProtectionState &state)
    if(!EquityResetReEntryPending)
       return;
 
-   // Temporary blocks do NOT cancel the request.
+// Temporary blocks do NOT cancel the request.
    if(!EnableTrading)
       return;
 
@@ -1219,7 +1686,7 @@ void ProcessEquityResetReEntry(DailyProtectionState &state)
    if(Bars < SSLPeriod + 20)
       return;
 
-   // If an order is already present, the re-entry succeeded.
+// If an order is already present, the re-entry succeeded.
    if(GetTotalEAOrders() > 0)
      {
       EquityResetReEntryPending = false;
@@ -1229,7 +1696,7 @@ void ProcessEquityResetReEntry(DailyProtectionState &state)
    if(GetTotalEAOrders() >= MaxOpenOrders)
       return;
 
-   // IMPORTANT: current state, not crossover detection.
+// IMPORTANT: current state, not crossover detection.
    int currentDirection = GetCurrentSSLDirection();
 
    if(currentDirection > 0)
@@ -1294,7 +1761,7 @@ void ProcessEquityResetReEntry(DailyProtectionState &state)
       return;
      }
 
-   // Neutral SSL: keep pending and check again on the next tick.
+// Neutral SSL: keep pending and check again on the next tick.
    Print("EQUITY RESET -> CURRENT SSL = NONE");
    Print("RE-ENTRY REMAINS PENDING");
   }
@@ -1303,32 +1770,32 @@ void ProcessEquityResetReEntry(DailyProtectionState &state)
 //|                                                                  |
 //+------------------------------------------------------------------+
 void CheckDynamicEquityLadder(DailyProtectionState &state)
-{
-   // Equity ladder disabled
+  {
+// Equity ladder disabled
    if(!EnableEquityLadder || !EnableDynamicEquityLadder)
       return;
 
-   // Do not process while daily protection has stopped trading
+// Do not process while daily protection has stopped trading
    if(state.TradingStopped)
       return;
 
    double equity = AccountEquity();
 
-   // Safety: initialize target if not available
+// Safety: initialize target if not available
    if(NextEquityTarget <= 0)
-   {
+     {
       state.DayStartBalance = AccountBalance();
 
       LockedEquity = state.DayStartBalance;
 
 
 
-      
+
       NextEquityTarget =
          state.DayStartBalance *
          (1.0 + DailyEquityTargetPercent / 100.0);
 
-         
+
 
       Print("EQUITY LADDER INITIALIZED");
       Print("Start Balance : $",
@@ -1337,11 +1804,11 @@ void CheckDynamicEquityLadder(DailyProtectionState &state)
             DoubleToString(NextEquityTarget, 2));
 
       return;
-   }
+     }
 
-   //===============================================================
-   // TARGET NOT REACHED
-   //===============================================================
+//===============================================================
+// TARGET NOT REACHED
+//===============================================================
    if(equity < NextEquityTarget)
       return;
 
@@ -1352,13 +1819,13 @@ void CheckDynamicEquityLadder(DailyProtectionState &state)
    Print("Ladder Level   : ", EquityLadderLevel);
    Print("================================================");
 
-   //===============================================================
-   // CLOSE ALL EA ORDERS
-   //===============================================================
+//===============================================================
+// CLOSE ALL EA ORDERS
+//===============================================================
    int retry = 0;
 
    while(GetTotalEAOrders() > 0 && retry < 10)
-   {
+     {
       RefreshRates();
 
       CloseAllEAOrdersOnDailyLoss();
@@ -1366,32 +1833,32 @@ void CheckDynamicEquityLadder(DailyProtectionState &state)
       Sleep(300);
 
       retry++;
-   }
+     }
 
-   //===============================================================
-   // VERIFY ALL ORDERS ARE CLOSED
-   //===============================================================
+//===============================================================
+// VERIFY ALL ORDERS ARE CLOSED
+//===============================================================
    if(GetTotalEAOrders() > 0)
-   {
+     {
       Print("EQUITY LADDER ERROR");
       Print("Unable to close all EA orders.");
       Print("Remaining Orders : ",
             GetTotalEAOrders());
 
       return;
-   }
+     }
 
-   //===============================================================
-   // IMPORTANT:
-   // Get REAL account balance AFTER orders are closed
-   //===============================================================
+//===============================================================
+// IMPORTANT:
+// Get REAL account balance AFTER orders are closed
+//===============================================================
    RefreshRates();
 
    double newBalance = AccountBalance();
 
-   //===============================================================
-   // CALCULATE PROFIT FROM THIS LADDER CYCLE
-   //===============================================================
+//===============================================================
+// CALCULATE PROFIT FROM THIS LADDER CYCLE
+//===============================================================
    double cycleProfit =
       newBalance - state.DayStartBalance;
 
@@ -1403,14 +1870,14 @@ void CheckDynamicEquityLadder(DailyProtectionState &state)
    Print("Cycle Profit   : $",
          DoubleToString(cycleProfit, 2));
 
-   //===============================================================
-   // INCREASE LADDER LEVEL
-   //===============================================================
+//===============================================================
+// INCREASE LADDER LEVEL
+//===============================================================
    EquityLadderLevel++;
-DailyLossProtectionPercent--;
-   //===============================================================
-   // NEW LADDER START
-   //===============================================================
+   DailyLossProtectionPercent--;
+//===============================================================
+// NEW LADDER START
+//===============================================================
    state.DayStartBalance   = newBalance;
 
    state.ClosedOrdersToday = 0;
@@ -1420,18 +1887,18 @@ DailyLossProtectionPercent--;
    DailyProtectionStartTime = TimeCurrent();
 
    if(EquityLadderLevel>1)
-         {
-             DailyEquityTargetPercent=OriginalDailyEquityTargetPercent/2;
-         }
-         else
-         {
-             DailyEquityTargetPercent=OriginalDailyEquityTargetPercent;
-            
-         }
+     {
+      DailyEquityTargetPercent=OriginalDailyEquityTargetPercent/2;
+     }
+   else
+     {
+      DailyEquityTargetPercent=OriginalDailyEquityTargetPercent;
 
-   //===============================================================
-   // RESET TRADE / RECOVERY STATE
-   //===============================================================
+     }
+
+//===============================================================
+// RESET TRADE / RECOVERY STATE
+//===============================================================
    Lots = OriginalLots;
 
    Ladder1ProfitUSD =
@@ -1448,32 +1915,32 @@ DailyLossProtectionPercent--;
 
 
 
-   //===============================================================
-   // LOCK CURRENT BALANCE
-   //===============================================================
+//===============================================================
+// LOCK CURRENT BALANCE
+//===============================================================
    LockedEquity = newBalance;
 
-   //===============================================================
-   // RESET DAILY PROTECTION FROM NEW BALANCE
-   //===============================================================
+//===============================================================
+// RESET DAILY PROTECTION FROM NEW BALANCE
+//===============================================================
    state.DayProtectedBalance =
       newBalance *
       (1.0 - DailyLossProtectionPercent / 100.0);
 
-   //===============================================================
-   // CALCULATE NEXT COMPOUNDING TARGET
-   //===============================================================
+//===============================================================
+// CALCULATE NEXT COMPOUNDING TARGET
+//===============================================================
    NextEquityTarget =
       newBalance *
       (1.0 + DailyEquityTargetPercent / 100.0);
 
-   //===============================================================
-   // RESET TARGET TIMER
-   //===============================================================
+//===============================================================
+// RESET TARGET TIMER
+//===============================================================
 
-   //===============================================================
-   // LOG NEW LADDER
-   //===============================================================
+//===============================================================
+// LOG NEW LADDER
+//===============================================================
    Print("================================================");
    Print("NEW EQUITY LADDER STARTED");
    Print("Ladder Level  : ", EquityLadderLevel);
@@ -1487,13 +1954,13 @@ DailyLossProtectionPercent--;
          DoubleToString(cycleProfit, 2));
    Print("================================================");
 
-   //===============================================================
-   // QUEUE CONTINUOUS NEW TRADE
-   // Uses CURRENT SSL direction. No new crossover is required.
-   //===============================================================
+//===============================================================
+// QUEUE CONTINUOUS NEW TRADE
+// Uses CURRENT SSL direction. No new crossover is required.
+//===============================================================
    TradeResetThisTick = true;
    QueueEquityResetReEntry();
-} 
+  }
 //+------------------------------------------------------------------+
 //|                                                                  |
 //+------------------------------------------------------------------+
@@ -1509,7 +1976,7 @@ void UpdateDailyLossProtection(DailyProtectionState &state)
      {
       state.DayDate = todayDate;
       state.DayStartBalance = AccountBalance();
-         // state.DayProtectedBalance = state.DayStartBalance;
+      // state.DayProtectedBalance = state.DayStartBalance;
       state.DayProtectedBalance =
          AccountBalance() *
          (1.0 - DailyLossProtectionPercent/100.0);
@@ -1539,10 +2006,10 @@ void UpdateDailyLossProtection(DailyProtectionState &state)
       state.DayStartBalance *
       (1.0 - DailyLossProtectionPercent / 100.0);
 
-   // One protection path only. The old EA checked this same condition
-   // three times, making the minimum-closed-orders condition ineffective.
+// One protection path only. The old EA checked this same condition
+// three times, making the minimum-closed-orders condition ineffective.
    if(currentEquity <= minEquity)
-   {
+     {
       Print("================================================");
       Print("PROTECTED EQUITY STOP TRIGGERED");
       Print("Start Balance     : $", DoubleToString(state.DayStartBalance, 2));
@@ -1557,7 +2024,7 @@ void UpdateDailyLossProtection(DailyProtectionState &state)
          state.TradingStopped = true;
 
       return;
-   }
+     }
   }
 
 //+------------------------------------------------------------------+
@@ -1614,20 +2081,20 @@ void DeleteOppositePendingOrders(int newSignalType)
 //|                                                                  |
 //+------------------------------------------------------------------+
 void CloseOppositeOrders(int newSignalType)
-{
+  {
 
-   //===============================================================
-   // NEVER CLOSE ORDERS DURING EA INITIALIZATION
-   //===============================================================
+//===============================================================
+// NEVER CLOSE ORDERS DURING EA INITIALIZATION
+//===============================================================
    if(!EAStartupComplete)
-   {
+     {
       Print("CLOSE OPPOSITE BLOCKED | EA STARTUP NOT COMPLETE");
       return;
-   }
+     }
    RefreshRates();
 
    for(int i = OrdersTotal() - 1; i >= 0; i--)
-   {
+     {
       if(!OrderSelect(i, SELECT_BY_POS, MODE_TRADES))
          continue;
 
@@ -1646,7 +2113,7 @@ void CloseOppositeOrders(int newSignalType)
 
       if((newSignalType == OP_BUY && orderType == OP_SELL) ||
          (newSignalType == OP_SELL && orderType == OP_BUY))
-      {
+        {
          RefreshRates();
          ResetLastError();
 
@@ -1654,8 +2121,9 @@ void CloseOppositeOrders(int newSignalType)
 
          if(orderType == OP_SELL)
             closed = OrderClose(ticket, lots, Ask, Slippage, clrRed);
-         else if(orderType == OP_BUY)
-            closed = OrderClose(ticket, lots, Bid, Slippage, clrBlue);
+         else
+            if(orderType == OP_BUY)
+               closed = OrderClose(ticket, lots, Bid, Slippage, clrBlue);
 
          if(closed)
             Print("OPPOSITE LOSS CLOSED | Ticket: ", ticket,
@@ -1663,10 +2131,10 @@ void CloseOppositeOrders(int newSignalType)
          else
             Print("FAILED CLOSE | Ticket: ", ticket,
                   " | Error: ", GetLastError());
-      }
-   }
-}
- 
+        }
+     }
+  }
+
 //+------------------------------------------------------------------+
 //| Close ALL EA Orders and Pending Orders                           |
 //| Wait until everything is closed                                  |
@@ -1783,7 +2251,7 @@ void CloseAllEAOrdersOnDailyLoss()
 //+------------------------------------------------------------------+
 //|                                                                  |
 //+------------------------------------------------------------------+
- 
+
 //+------------------------------------------------------------------+
 //|                                                                  |
 //+------------------------------------------------------------------+
@@ -2017,8 +2485,8 @@ int GetTotalEAOrders()
 //+------------------------------------------------------------------+
 void OpenBuy()
   {
-
-
+   if(!PassesEMAFilter(OP_BUY))
+      return;
 
    if(!IsOneCandleOrderAllowed())
       return;
@@ -2048,8 +2516,11 @@ void OpenBuy()
             " | CANDLE: ", TimeToString(Time[0], TIME_DATE|TIME_SECONDS));
      }
   }
+//+------------------------------------------------------------------+
+//|                                                                  |
+//+------------------------------------------------------------------+
 double NormalizeLots(double lots)
-{
+  {
    double minLot  = MarketInfo(Symbol(), MODE_MINLOT);
    double maxLot  = MarketInfo(Symbol(), MODE_MAXLOT);
    double lotStep = MarketInfo(Symbol(), MODE_LOTSTEP);
@@ -2064,18 +2535,21 @@ double NormalizeLots(double lots)
    int digits = 0;
    double step = lotStep;
    while(digits < 8 && MathAbs(step - MathRound(step)) > 1e-8)
-   {
+     {
       step *= 10.0;
       digits++;
-   }
+     }
 
    return NormalizeDouble(lots, digits);
-}
+  }
 //+------------------------------------------------------------------+
 //|                                                                  |
 //+------------------------------------------------------------------+
 void OpenSell()
   {
+   if(!PassesEMAFilter(OP_SELL))
+      return;
+
    if(!IsOneCandleOrderAllowed())
       return;
    if(GetTotalEAOrders() >= MaxOpenOrders || !HasMinimumSameOrderGap(OP_SELL))
@@ -2120,9 +2594,9 @@ double CalculatePriceDistanceUSD(double usdAmount, double orderLots)
 //|                                                                  |
 //+------------------------------------------------------------------+
 void ManageProfitLadder()
-{
+  {
    for(int i = OrdersTotal() - 1; i >= 0; i--)
-   {
+     {
       if(!OrderSelect(i, SELECT_BY_POS, MODE_TRADES))
          continue;
 
@@ -2194,18 +2668,18 @@ void ManageProfitLadder()
       if(EnableProfitLadder1 &&
          ladder1Profit > 0 &&
          currentProfit < ladder1StopMaxPrice)
-      {
+        {
          int ladder1Level =
             (int)MathFloor(
                currentProfit / ladder1Profit
             );
 
          if(ladder1Level >= 1)
-         {
+           {
             lockedProfit =
                ladder1Level * ladder1Profit;
-         }
-      }
+           }
+        }
 
       //==================================================
       // LADDER 2
@@ -2221,18 +2695,18 @@ void ManageProfitLadder()
       if(EnableProfitLadder2 &&
          ladder2Profit > 0 &&
          currentProfit >= ladder1StopMaxPrice)
-      {
+        {
          int ladder2Level =
             (int)MathFloor(
                currentProfit / ladder2Profit
             );
 
          if(ladder2Level >= 1)
-         {
+           {
             lockedProfit =
                ladder2Level * ladder2Profit;
-         }
-      }
+           }
+        }
 
       //==================================================
       // NOTHING TO LOCK
@@ -2262,27 +2736,27 @@ void ManageProfitLadder()
       double existingLockedProfit = 0.0;
 
       if(OrderStopLoss() > 0)
-      {
+        {
          double existingPriceDistance = 0.0;
 
          // BUY
          if(orderType == OP_BUY)
-         {
+           {
             existingPriceDistance =
                OrderStopLoss() -
                OrderOpenPrice();
-         }
+           }
 
          // SELL
          if(orderType == OP_SELL)
-         {
+           {
             existingPriceDistance =
                OrderOpenPrice() -
                OrderStopLoss();
-         }
+           }
 
          if(existingPriceDistance > 0)
-         {
+           {
             existingLockedProfit =
                (existingPriceDistance / tickSize) *
                tickValue *
@@ -2293,8 +2767,8 @@ void ManageProfitLadder()
                   existingLockedProfit,
                   2
                );
-         }
-      }
+           }
+        }
 
       //==================================================
       // DO NOT MODIFY IF CURRENT SL ALREADY LOCKS
@@ -2309,7 +2783,7 @@ void ManageProfitLadder()
       //==================================================
       double priceDistance =
          (lockedProfit /
-         (tickValue * orderLots)) *
+          (tickValue * orderLots)) *
          tickSize;
 
       if(priceDistance <= 0)
@@ -2328,7 +2802,7 @@ void ManageProfitLadder()
       // BUY
       //==================================================
       if(orderType == OP_BUY)
-      {
+        {
          //================================================
          // CALCULATE SL FROM OPEN PRICE
          //================================================
@@ -2347,15 +2821,15 @@ void ManageProfitLadder()
          //================================================
          if(OrderStopLoss() > 0 &&
             newStopLoss <= OrderStopLoss())
-         {
+           {
             continue;
-         }
+           }
 
          //================================================
          // BROKER MINIMUM DISTANCE
          //================================================
          if(Bid - newStopLoss < stopLevel)
-         {
+           {
             newStopLoss =
                Bid - stopLevel;
 
@@ -2364,7 +2838,7 @@ void ManageProfitLadder()
                   newStopLoss,
                   Digits
                );
-         }
+           }
 
          //================================================
          // VALIDATE BUY SL
@@ -2383,9 +2857,9 @@ void ManageProfitLadder()
                newStopLoss -
                OrderStopLoss()
             ) < Point)
-         {
+           {
             continue;
-         }
+           }
 
          //================================================
          // MODIFY BUY
@@ -2403,7 +2877,7 @@ void ManageProfitLadder()
             );
 
          if(modified)
-         {
+           {
             Print(
                "BUY LADDER UPDATED | ",
                "Ticket=", OrderTicket(),
@@ -2417,9 +2891,9 @@ void ManageProfitLadder()
                " | New SL=",
                DoubleToString(newStopLoss, Digits)
             );
-         }
+           }
          else
-         {
+           {
             int error =
                GetLastError();
 
@@ -2435,14 +2909,14 @@ void ManageProfitLadder()
                " | Error=",
                error
             );
-         }
-      }
+           }
+        }
 
       //==================================================
       // SELL
       //==================================================
       if(orderType == OP_SELL)
-      {
+        {
          //================================================
          // CALCULATE SL FROM OPEN PRICE
          //================================================
@@ -2461,15 +2935,15 @@ void ManageProfitLadder()
          //================================================
          if(OrderStopLoss() > 0 &&
             newStopLoss >= OrderStopLoss())
-         {
+           {
             continue;
-         }
+           }
 
          //================================================
          // BROKER MINIMUM DISTANCE
          //================================================
          if(newStopLoss - Ask < stopLevel)
-         {
+           {
             newStopLoss =
                Ask + stopLevel;
 
@@ -2478,7 +2952,7 @@ void ManageProfitLadder()
                   newStopLoss,
                   Digits
                );
-         }
+           }
 
          //================================================
          // VALIDATE SELL SL
@@ -2494,9 +2968,9 @@ void ManageProfitLadder()
                newStopLoss -
                OrderStopLoss()
             ) < Point)
-         {
+           {
             continue;
-         }
+           }
 
          //================================================
          // MODIFY SELL
@@ -2514,7 +2988,7 @@ void ManageProfitLadder()
             );
 
          if(modified)
-         {
+           {
             Print(
                "SELL LADDER UPDATED | ",
                "Ticket=", OrderTicket(),
@@ -2528,9 +3002,9 @@ void ManageProfitLadder()
                " | New SL=",
                DoubleToString(newStopLoss, Digits)
             );
-         }
+           }
          else
-         {
+           {
             int error =
                GetLastError();
 
@@ -2546,10 +3020,10 @@ void ManageProfitLadder()
                " | Error=",
                error
             );
-         }
-      }
-   }
-}
+           }
+        }
+     }
+  }
 
 //+------------------------------------------------------------------+
 //|                                                                  |
@@ -2593,12 +3067,12 @@ void CalculateSSL(int shift, double &sslUp, double &sslDown, int &hlv)
 //|  1 = BUY, -1 = SELL, 0 = NONE                                  |
 //+------------------------------------------------------------------+
 int GetCurrentSSLDirection()
-{
+  {
    if(Bars < SSLPeriod + 20)
       return 0;
 
-   // IMPORTANT: candle 0 is the currently forming candle.
-   // Do not cache this by bar because Close[0] changes on every tick.
+// IMPORTANT: candle 0 is the currently forming candle.
+// Do not cache this by bar because Close[0] changes on every tick.
    double up, down;
    int hlv;
    CalculateSSL(0, up, down, hlv);
@@ -2609,7 +3083,7 @@ int GetCurrentSSLDirection()
       return -1;
 
    return 0;
-}
+  }
 
 //+------------------------------------------------------------------+
 //|                                                                  |
@@ -2858,15 +3332,15 @@ void UpdateDashboard(DailyProtectionState &state)
          totalCommission+=OrderCommission();
         }
       else
-      if(type==OP_SELL)
-        {
-         sellOrders++;
-         floatingProfit+=OrderProfit();
-         totalSwap+=OrderSwap();
-         totalCommission+=OrderCommission();
-        }
-      else
-         pendingOrders++;
+         if(type==OP_SELL)
+           {
+            sellOrders++;
+            floatingProfit+=OrderProfit();
+            totalSwap+=OrderSwap();
+            totalCommission+=OrderCommission();
+           }
+         else
+            pendingOrders++;
 
       string orderType=
          (type==OP_BUY)?"BUY":
@@ -2893,9 +3367,9 @@ void UpdateDashboard(DailyProtectionState &state)
       netProfit<0 ? clrTomato :
       clrWhite;
 
-   //===============================================================
-   // CURRENT SSL DIRECTION
-   //===============================================================
+//===============================================================
+// CURRENT SSL DIRECTION
+//===============================================================
    string sslDirection="NONE";
    color sslColor=clrSilver;
 
@@ -2906,15 +3380,15 @@ void UpdateDashboard(DailyProtectionState &state)
       sslColor=clrDeepSkyBlue;
      }
    else
-   if(currentSSLDirection < 0)
-     {
-      sslDirection="SELL";
-      sslColor=clrTomato;
-     }
+      if(currentSSLDirection < 0)
+        {
+         sslDirection="SELL";
+         sslColor=clrTomato;
+        }
 
-   //===============================================================
-   // STATUS
-   //===============================================================
+//===============================================================
+// STATUS
+//===============================================================
    string statusText="READY - CURRENT SSL "+sslDirection;
    color statusColor=sslColor;
 
@@ -2924,45 +3398,45 @@ void UpdateDashboard(DailyProtectionState &state)
       statusColor=clrTomato;
      }
    else
-   if(ProtectedEquityWaitActive)
-     {
-      statusText="PROTECTED EQUITY - 1H WAIT";
-      statusColor=clrGold;
-     }
-   else
-   if(EquityResetReEntryPending)
-     {
-      statusText="EQUITY RESET - WAITING RE-ENTRY";
-      statusColor=clrGold;
-     }
-   else
-   if(GetTotalEAOrders()>=MaxOpenOrders)
-     {
-      statusText="MAX ORDERS REACHED";
-      statusColor=clrTomato;
-     }
-   else
-   if(buyOrders>0 && sellOrders==0)
-     {
-      statusText="BUY RUNNING";
-      statusColor=clrDeepSkyBlue;
-     }
-   else
-   if(sellOrders>0 && buyOrders==0)
-     {
-      statusText="SELL RUNNING";
-      statusColor=clrTomato;
-     }
-   else
-   if(buyOrders>0 && sellOrders>0)
-     {
-      statusText="BUY + SELL";
-      statusColor=clrGold;
-     }
+      if(ProtectedEquityWaitActive)
+        {
+         statusText="PROTECTED EQUITY - 1H WAIT";
+         statusColor=clrGold;
+        }
+      else
+         if(EquityResetReEntryPending)
+           {
+            statusText="EQUITY RESET - WAITING RE-ENTRY";
+            statusColor=clrGold;
+           }
+         else
+            if(GetTotalEAOrders()>=MaxOpenOrders)
+              {
+               statusText="MAX ORDERS REACHED";
+               statusColor=clrTomato;
+              }
+            else
+               if(buyOrders>0 && sellOrders==0)
+                 {
+                  statusText="BUY RUNNING";
+                  statusColor=clrDeepSkyBlue;
+                 }
+               else
+                  if(sellOrders>0 && buyOrders==0)
+                    {
+                     statusText="SELL RUNNING";
+                     statusColor=clrTomato;
+                    }
+                  else
+                     if(buyOrders>0 && sellOrders>0)
+                       {
+                        statusText="BUY + SELL";
+                        statusColor=clrGold;
+                       }
 
-   //===============================================================
-   // EQUITY LADDER PROGRESS
-   //===============================================================
+//===============================================================
+// EQUITY LADDER PROGRESS
+//===============================================================
    double ladderProgress=0;
 
    if(NextEquityTarget>state.DayStartBalance)
@@ -3058,9 +3532,9 @@ void UpdateDashboard(DailyProtectionState &state)
                         DashboardFontSize,
                         clrAqua);
 
-   //===============================================================
-   // EQUITY LADDER
-   //===============================================================
+//===============================================================
+// EQUITY LADDER
+//===============================================================
    CreateDashboardLabel(
       DASH_PREFIX+"LADDERLEVEL",
       "EQUITY LADDER : STEP "+IntegerToString(EquityLadderLevel),
@@ -3110,9 +3584,9 @@ void UpdateDashboard(DailyProtectionState &state)
       ProtectedEquityWaitActive ? clrGold :
       (EquityResetReEntryPending ? clrGold : clrLime));
 
-   //===============================================================
-   // ORDERS
-   //===============================================================
+//===============================================================
+// ORDERS
+//===============================================================
    CreateDashboardLabel(
       DASH_PREFIX+"ORDERS",
       "ORDERS : "+IntegerToString(totalOrders)+"/"+IntegerToString(MaxOpenOrders),
@@ -3154,9 +3628,9 @@ void UpdateDashboard(DailyProtectionState &state)
       DashboardFontSize,
       clrTomato);
 
-   //===============================================================
-   // PROFIT LADDER / DAILY
-   //===============================================================
+//===============================================================
+// PROFIT LADDER / DAILY
+//===============================================================
    CreateDashboardLabel(
       DASH_PREFIX+"LADDER",
       "ORDER LADDER : L1 $"+DoubleToString(Ladder1ProfitUSD,2)+
@@ -3225,9 +3699,13 @@ void DeleteDashboardObjects()
 //+------------------------------------------------------------------+
 string LEFT_LIVE_PREFIX = "SSL_LEFT_LIVE_";
 
+//+------------------------------------------------------------------+
+//|                                                                  |
+//+------------------------------------------------------------------+
 void CreateLeftLivePanel(string name,int x,int y,int width,int height,color background)
   {
-   if(ObjectFind(0,name)<0) ObjectCreate(0,name,OBJ_RECTANGLE_LABEL,0,0,0);
+   if(ObjectFind(0,name)<0)
+      ObjectCreate(0,name,OBJ_RECTANGLE_LABEL,0,0,0);
    ObjectSetInteger(0,name,OBJPROP_CORNER,CORNER_LEFT_UPPER);
    ObjectSetInteger(0,name,OBJPROP_XDISTANCE,x);
    ObjectSetInteger(0,name,OBJPROP_YDISTANCE,y);
@@ -3240,9 +3718,13 @@ void CreateLeftLivePanel(string name,int x,int y,int width,int height,color back
    ObjectSetInteger(0,name,OBJPROP_HIDDEN,true);
   }
 
+//+------------------------------------------------------------------+
+//|                                                                  |
+//+------------------------------------------------------------------+
 void CreateLeftLiveLabel(string name,string text,int x,int y,int fontSize,color textColor)
   {
-   if(ObjectFind(0,name)<0) ObjectCreate(0,name,OBJ_LABEL,0,0,0);
+   if(ObjectFind(0,name)<0)
+      ObjectCreate(0,name,OBJ_LABEL,0,0,0);
    ObjectSetInteger(0,name,OBJPROP_CORNER,CORNER_LEFT_UPPER);
    ObjectSetInteger(0,name,OBJPROP_XDISTANCE,x);
    ObjectSetInteger(0,name,OBJPROP_YDISTANCE,y);
@@ -3254,44 +3736,60 @@ void CreateLeftLiveLabel(string name,string text,int x,int y,int fontSize,color 
    ObjectSetInteger(0,name,OBJPROP_HIDDEN,true);
   }
 
+//+------------------------------------------------------------------+
+//|                                                                  |
+//+------------------------------------------------------------------+
 void DeleteLeftLiveOrdersDashboardObjects()
   {
    int total=ObjectsTotal(0,-1,-1);
-   for(int i=total-1;i>=0;i--)
+   for(int i=total-1; i>=0; i--)
      {
       string name=ObjectName(0,i,-1,-1);
-      if(StringFind(name,LEFT_LIVE_PREFIX,0)==0) ObjectDelete(0,name);
+      if(StringFind(name,LEFT_LIVE_PREFIX,0)==0)
+         ObjectDelete(0,name);
      }
   }
 
+//+------------------------------------------------------------------+
+//|                                                                  |
+//+------------------------------------------------------------------+
 void UpdateLeftLiveOrdersDashboard()
   {
    int total=0,buyCount=0,sellCount=0,pendingCount=0;
    double buyLots=0,sellLots=0,netPL=0;
 
-   for(int i=OrdersTotal()-1;i>=0;i--)
+   for(int i=OrdersTotal()-1; i>=0; i--)
      {
-      if(!OrderSelect(i,SELECT_BY_POS,MODE_TRADES)) continue;
-      if(OrderSymbol()!=Symbol() || OrderMagicNumber()!=MagicNumber) continue;
+      if(!OrderSelect(i,SELECT_BY_POS,MODE_TRADES))
+         continue;
+      if(OrderSymbol()!=Symbol() || OrderMagicNumber()!=MagicNumber)
+         continue;
       int type=OrderType();
-      if(type!=OP_BUY && type!=OP_SELL && type!=OP_BUYSTOP && type!=OP_SELLSTOP && type!=OP_BUYLIMIT && type!=OP_SELLLIMIT) continue;
+      if(type!=OP_BUY && type!=OP_SELL && type!=OP_BUYSTOP && type!=OP_SELLSTOP && type!=OP_BUYLIMIT && type!=OP_SELLLIMIT)
+         continue;
       total++;
       if(type==OP_BUY)
         {
-         buyCount++; buyLots+=OrderLots();
+         buyCount++;
+         buyLots+=OrderLots();
          netPL+=OrderProfit()+OrderSwap()+OrderCommission();
         }
-      else if(type==OP_SELL)
-        {
-         sellCount++; sellLots+=OrderLots();
-         netPL+=OrderProfit()+OrderSwap()+OrderCommission();
-        }
-      else pendingCount++;
+      else
+         if(type==OP_SELL)
+           {
+            sellCount++;
+            sellLots+=OrderLots();
+            netPL+=OrderProfit()+OrderSwap()+OrderCommission();
+           }
+         else
+            pendingCount++;
      }
 
    int rows=LeftDashboardMaxRows;
-   if(rows<1) rows=1;
-   if(rows>30) rows=30;
+   if(rows<1)
+      rows=1;
+   if(rows>30)
+      rows=30;
    int panelHeight=(total>0 ? 105+(rows*19) : 155);
    int x=LeftDashboardX,y=LeftDashboardY,tx=x+12;
 
@@ -3302,42 +3800,51 @@ void UpdateLeftLiveOrdersDashboard()
 
    CreateLeftLiveLabel(LEFT_LIVE_PREFIX+"TITLE","LIVE ORDERS  |  "+Symbol(),tx,y+8,11,clrWhite);
    CreateLeftLiveLabel(LEFT_LIVE_PREFIX+"SUMMARY",
-      "ORDERS "+IntegerToString(total)+"/"+IntegerToString(MaxOpenOrders)+
-      "   BUY "+IntegerToString(buyCount)+"   SELL "+IntegerToString(sellCount)+
-      "   PENDING "+IntegerToString(pendingCount),tx,y+43,8,clrWhite);
+                       "ORDERS "+IntegerToString(total)+"/"+IntegerToString(MaxOpenOrders)+
+                       "   BUY "+IntegerToString(buyCount)+"   SELL "+IntegerToString(sellCount)+
+                       "   PENDING "+IntegerToString(pendingCount),tx,y+43,8,clrWhite);
    CreateLeftLiveLabel(LEFT_LIVE_PREFIX+"LOTS",
-      "BUY LOT "+DoubleToString(buyLots,2)+"   SELL LOT "+DoubleToString(sellLots,2)+
-      "   P/L "+(netPL>=0?"+":"")+DoubleToString(netPL,2),tx,y+61,9,pnlColor);
+                       "BUY LOT "+DoubleToString(buyLots,2)+"   SELL LOT "+DoubleToString(sellLots,2)+
+                       "   P/L "+(netPL>=0?"+":"")+DoubleToString(netPL,2),tx,y+61,9,pnlColor);
    CreateLeftLiveLabel(LEFT_LIVE_PREFIX+"HEAD",
-      "TICKET       TYPE       LOT       OPEN PRICE       P/L",tx,y+82,8,clrSilver);
+                       "TICKET       TYPE       LOT       OPEN PRICE       P/L",tx,y+82,8,clrSilver);
 
-   for(int r=0;r<30;r++)
+   for(int r=0; r<30; r++)
       CreateLeftLiveLabel(LEFT_LIVE_PREFIX+"ROW"+IntegerToString(r),"",tx,y+101+(r*19),8,clrWhite);
 
    int row=0;
-   for(int j=OrdersTotal()-1;j>=0;j--)
+   for(int j=OrdersTotal()-1; j>=0; j--)
      {
-      if(!OrderSelect(j,SELECT_BY_POS,MODE_TRADES)) continue;
-      if(OrderSymbol()!=Symbol() || OrderMagicNumber()!=MagicNumber) continue;
+      if(!OrderSelect(j,SELECT_BY_POS,MODE_TRADES))
+         continue;
+      if(OrderSymbol()!=Symbol() || OrderMagicNumber()!=MagicNumber)
+         continue;
       int type=OrderType();
-      if(type!=OP_BUY && type!=OP_SELL && type!=OP_BUYSTOP && type!=OP_SELLSTOP && type!=OP_BUYLIMIT && type!=OP_SELLLIMIT) continue;
-      if(row>=rows) break;
+      if(type!=OP_BUY && type!=OP_SELL && type!=OP_BUYSTOP && type!=OP_SELLSTOP && type!=OP_BUYLIMIT && type!=OP_SELLLIMIT)
+         continue;
+      if(row>=rows)
+         break;
 
       string typeText=type==OP_BUY ? "BUY" : type==OP_SELL ? "SELL" : type==OP_BUYSTOP ? "BUY ST" : type==OP_SELLSTOP ? "SELL ST" : type==OP_BUYLIMIT ? "BUY LM" : "SELL LM";
       double pl=0;
-      if(type==OP_BUY || type==OP_SELL) pl=OrderProfit()+OrderSwap()+OrderCommission();
+      if(type==OP_BUY || type==OP_SELL)
+         pl=OrderProfit()+OrderSwap()+OrderCommission();
 
       string rowText="#"+IntegerToString(OrderTicket())+
-         "   "+typeText+
-         "   "+DoubleToString(OrderLots(),2)+
-         "   "+DoubleToString(OrderOpenPrice(),Digits)+
-         "   "+(pl>=0?"+":"")+DoubleToString(pl,2);
+                     "   "+typeText+
+                     "   "+DoubleToString(OrderLots(),2)+
+                     "   "+DoubleToString(OrderOpenPrice(),Digits)+
+                     "   "+(pl>=0?"+":"")+DoubleToString(pl,2);
 
       color rowColor=clrWhite;
-      if(type==OP_BUY) rowColor=clrDeepSkyBlue;
-      if(type==OP_SELL) rowColor=clrTomato;
-      if(pl>0) rowColor=clrLime;
-      if(pl<0) rowColor=clrOrangeRed;
+      if(type==OP_BUY)
+         rowColor=clrDeepSkyBlue;
+      if(type==OP_SELL)
+         rowColor=clrTomato;
+      if(pl>0)
+         rowColor=clrLime;
+      if(pl<0)
+         rowColor=clrOrangeRed;
 
       CreateLeftLiveLabel(LEFT_LIVE_PREFIX+"ROW"+IntegerToString(row),rowText,tx,y+101+(row*19),8,rowColor);
       row++;
