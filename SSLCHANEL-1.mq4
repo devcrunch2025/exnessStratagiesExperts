@@ -118,6 +118,13 @@ bool TradeResetThisTick = false;
 // It remains TRUE until a market order is successfully opened.
 bool EquityResetReEntryPending = false;
 
+//===============================================================
+// PROTECTED EQUITY RE-ENTRY DELAY
+//===============================================================
+bool ProtectedEquityWaitActive = false;
+datetime ProtectedEquityWaitStartTime = 0;
+int ProtectedEquityWaitMinutes = 60;
+
 
 
 //+------------------------------------------------------------------+
@@ -313,13 +320,26 @@ void OnTick()
    static DailyProtectionState dailyState;
    TradeResetThisTick = false;
 
-   CheckRecoveryOrders();
-   ManageRecoveryBasket();
    if(!dailyState.Initialized)
       InitializeDailyProtectionState(dailyState);
 
-   ProcessStartupSignal(dailyState);
    UpdateDailyLossProtection(dailyState);
+
+   //===============================================================
+   // PROTECTED EQUITY WAIT - NO NEW TRADING DURING COOLDOWN
+   //===============================================================
+   if(IsProtectedEquityWaiting())
+   {
+      if(ShowSSLLines) UpdateSSLChannelOnTick();
+      if(ShowDashboard) UpdateDashboard(dailyState);
+      if(ShowLeftLiveOrdersDashboard) UpdateLeftLiveOrdersDashboard();
+      return;
+   }
+
+   CheckRecoveryOrders();
+   ManageRecoveryBasket();
+
+   ProcessStartupSignal(dailyState);
    CheckDynamicEquityLadder(dailyState);
 
    // Continuous Equity Ladder re-entry.
@@ -1020,7 +1040,7 @@ void ResetAfterProtectedEquity(DailyProtectionState &state)
    // 8. RESET EQUITY LADDER
    // ---------------------------------------------------------------
    EquityLadderLevel++;
-
+DailyLossProtectionPercent--;
    if(EquityLadderLevel>1)
          {
              DailyEquityTargetPercent=OriginalDailyEquityTargetPercent/2;
@@ -1048,7 +1068,7 @@ void ResetAfterProtectedEquity(DailyProtectionState &state)
    // ---------------------------------------------------------------
    // Uses the same persistent re-entry mechanism as the Equity Ladder.
    TradeResetThisTick = true;
-   QueueEquityResetReEntry();
+   StartProtectedEquityWait();
 
    Print("================================================");
    Print("PROTECTED EQUITY RESET COMPLETE");
@@ -1079,6 +1099,54 @@ void ResetAfterProtectedEquity(DailyProtectionState &state)
 //+------------------------------------------------------------------+
 //+------------------------------------------------------------------+
 //| Queue continuous Equity Ladder re-entry                         |
+//+------------------------------------------------------------------+
+//| Start 1-hour wait after Protected Equity is hit                  |
+//+------------------------------------------------------------------+
+void StartProtectedEquityWait()
+{
+   ProtectedEquityWaitActive = true;
+   ProtectedEquityWaitStartTime = TimeCurrent();
+   EquityResetReEntryPending = false;
+
+   Print("================================================");
+   Print("PROTECTED EQUITY WAIT STARTED");
+   Print("Trading paused for ", ProtectedEquityWaitMinutes, " minutes");
+   Print("Wait Start : ", TimeToString(ProtectedEquityWaitStartTime, TIME_DATE|TIME_SECONDS));
+   Print("Resume At  : ", TimeToString(ProtectedEquityWaitStartTime + ProtectedEquityWaitMinutes * 60, TIME_DATE|TIME_SECONDS));
+   Print("================================================");
+}
+
+bool IsProtectedEquityWaiting()
+{
+   if(!ProtectedEquityWaitActive) return false;
+
+   datetime resumeTime = ProtectedEquityWaitStartTime + ProtectedEquityWaitMinutes * 60;
+   if(TimeCurrent() < resumeTime) return true;
+
+   ProtectedEquityWaitActive = false;
+   Print("================================================");
+   Print("PROTECTED EQUITY WAIT COMPLETED");
+   Print("1 HOUR PASSED - TRADING CAN RESUME");
+   Print("================================================");
+
+   QueueEquityResetReEntry();
+   return false;
+}
+
+int GetProtectedEquityWaitSeconds()
+{
+   if(!ProtectedEquityWaitActive) return 0;
+   int remaining = (int)((ProtectedEquityWaitStartTime + ProtectedEquityWaitMinutes * 60) - TimeCurrent());
+   if(remaining < 0) remaining = 0;
+   return remaining;
+}
+
+string GetProtectedEquityWaitText()
+{
+   int seconds = GetProtectedEquityWaitSeconds();
+   return StringFormat("%02d:%02d:%02d", seconds/3600, (seconds%3600)/60, seconds%60);
+}
+
 //+------------------------------------------------------------------+
 void QueueEquityResetReEntry()
   {
@@ -1302,7 +1370,7 @@ void CheckDynamicEquityLadder(DailyProtectionState &state)
    // INCREASE LADDER LEVEL
    //===============================================================
    EquityLadderLevel++;
-
+DailyLossProtectionPercent--;
    //===============================================================
    // NEW LADDER START
    //===============================================================
@@ -2798,6 +2866,12 @@ void UpdateDashboard(DailyProtectionState &state)
       statusColor=clrTomato;
      }
    else
+   if(ProtectedEquityWaitActive)
+     {
+      statusText="PROTECTED EQUITY - 1H WAIT";
+      statusColor=clrGold;
+     }
+   else
    if(EquityResetReEntryPending)
      {
       statusText="EQUITY RESET - WAITING RE-ENTRY";
@@ -2906,7 +2980,7 @@ void UpdateDashboard(DailyProtectionState &state)
                         clrWhite);
 
    CreateDashboardLabel(DASH_PREFIX+"EQUITY",
-                        "EQUITY : $"+DoubleToString(AccountEquity(),2),
+                        "EQUITY : $"+DoubleToString(AccountEquity(),2)+" / $"+DoubleToString(NextEquityTarget,2)+" / $"+DoubleToString(state.DayProtectedBalance,2),
                         textX,
                         y+150,
                         DashboardFontSize,
@@ -2971,11 +3045,12 @@ void UpdateDashboard(DailyProtectionState &state)
 
    CreateDashboardLabel(
       DASH_PREFIX+"REENTRY",
-      "RESET RE-ENTRY : "+(EquityResetReEntryPending ? "PENDING" : "READY"),
+      (ProtectedEquityWaitActive ? ("PROTECTED WAIT : "+GetProtectedEquityWaitText()) : "RESET RE-ENTRY : "+(EquityResetReEntryPending ? "PENDING" : "READY")),
       textX,
       y+314,
       DashboardFontSize,
-      EquityResetReEntryPending ? clrGold : clrLime);
+      ProtectedEquityWaitActive ? clrGold :
+      (EquityResetReEntryPending ? clrGold : clrLime));
 
    //===============================================================
    // ORDERS
