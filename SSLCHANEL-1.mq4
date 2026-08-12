@@ -23,16 +23,16 @@ bool EnableProfitLadder1 = true;
 
 
 
-double Ladder1ProfitUSD =0.10;//1;//0.15;//0.25;//0.50;// 0.05;
+double Ladder1ProfitUSD =0.15;//1;//0.15;//0.25;//0.50;// 0.05;
 bool EnableProfitLadder2 = true;
 double Ladder1StopMaxPriceUSD = 1;//0.50;//0.20;
-double Ladder2ProfitUSD = 0.10;
+double Ladder2ProfitUSD = 0.20;//server api is has errors due to too many orders, so we need to limit the number of orders to 1, and increase the profit target to 0.20
 
 
 
 
-bool EnableRecoveryOrders = false;
-double RecoveryTriggerLossUSD = -2.0;
+bool EnableRecoveryOrders = true;
+double RecoveryTriggerLossUSD = -5.0;
 double RecoveryLotMultiplier = 1;
 int MaxRecoveryOrders = 1;
 double RecoveryBasketProfitUSD = 0.50;
@@ -46,12 +46,12 @@ bool EnableEquityLadder = true;
 
 
 double DailyEquityTargetPercent =5;//10;//5;// 10;//2;//3;//1;//3;//10;//Trading continue with 10% profit reccuring
-double DailyLossProtectionPercent =10;//20;//100;//50;// 30.0;// Trading stops if equity drops below this percentage of the starting balance for the day
+double DailyLossProtectionPercent =20;//50;//20;//10;//20;//100;//50;// 30.0;// Trading stops if equity drops below this percentage of the starting balance for the day
 bool EnableDynamicEquityLadder = true;////Trading continue with 10% profit reccuring
 double OriginalDailyEquityTargetPercent =5;//10;//5;// 10;//2;//3;//1;//3;//10;//Trading continue with 10% profit reccuring
 
 
-double OriginalDailyLossProtectionPercent =10;//80;// 30.0;
+double OriginalDailyLossProtectionPercent =20;//10;//80;// 30.0;
 
 bool ResetLadderEveryDay = true;
 int EquityLadderLevel = 1;
@@ -472,90 +472,235 @@ double GetOppositeOrdersLots(int orderType)
 void ChangeLots(double OpenPL, string reason, int orderType)
 {
    //==================================================
+   // MAX LOT LIMIT
+   //==================================================
+   double MaxRecoveryLot = 0.03;
+
+   //==================================================
    // DEFAULT LOT
    //==================================================
    Lots = NormalizeLots(OriginalLots);
 
    //==================================================
-   // TOTAL OPPOSITE ORDER LOTS
+   // TOTAL OPPOSITE TYPE LOTS
    //==================================================
    double oppositeLots = GetOppositeOrdersLots(orderType);
 
    //==================================================
-   // SSL RECOVERY
-   // New order lot = total opposite exposure
-   // ONLY when opposite basket is in loss
+   // SSL SIGNAL?
    //==================================================
    bool isSSLSignal =
       (reason == "SSL Long" || reason == "SSL Short");
 
-   if(isSSLSignal && OpenPL < 0.0 && oppositeLots > 0.0)
+   //==================================================
+   // TYPE 1 - SSL SIGNAL
+   //
+   // Base Lot =
+   // Opposite Total Lots + Original Lot
+   //
+   // Multiplier:
+   // $0     to <$5  = 1X
+   // $5     to <$10 = 1X
+   // $10    to <$15 = 2X
+   // $15    to <$20 = 3X
+   //
+   // If you want:
+   // $0-$4.99 = 1X
+   // $5-$9.99 = 2X
+   // then use CEIL instead.
+   //==================================================
+   if(isSSLSignal && oppositeLots > 0.0)
    {
-      Lots = NormalizeLots(oppositeLots);
+      // Base recovery lot
+      double baseLots =
+         oppositeLots + OriginalLots;
+
+      baseLots =
+         NormalizeLots(baseLots);
+
+      //================================================
+      // SSL LOSS MULTIPLIER
+      //================================================
+      double lossMultiplier1 = 1.0;
+
+      if(OpenPL < 0.0)
+      {
+         lossMultiplier1 =
+            MathFloor(MathAbs(OpenPL) / 10.0);
+
+         // Never allow zero
+         if(lossMultiplier1 < 1.0)
+            lossMultiplier1 = 1.0;
+
+            lossMultiplier1 = 1.0;
+
+
+
+
+      }
+
+      // Apply multiplier
+      Lots =
+         NormalizeLots(
+            baseLots * lossMultiplier1
+         );
 
       Print("========================================");
-      Print("SSL RECOVERY LOT");
-      Print("Reason        : ", reason);
-      Print("Opposite P/L  : $", DoubleToString(OpenPL, 2));
-      Print("Opposite Lots : ", DoubleToString(oppositeLots, 2));
-      Print("New Lot       : ", DoubleToString(Lots, 2));
+      Print("TYPE 1 - SSL RECOVERY");
+      Print("Reason          : ", reason);
+      Print("Opposite P/L    : $",
+            DoubleToString(OpenPL, 2));
+      Print("Opposite Lots   : ",
+            DoubleToString(oppositeLots, 2));
+      Print("Original Lot    : ",
+            DoubleToString(OriginalLots, 2));
+      Print("Base Lots       : ",
+            DoubleToString(baseLots, 2));
+      Print("Loss Multiplier : ",
+            DoubleToString(lossMultiplier1, 2), "X");
+      Print("Calculated Lots : ",
+            DoubleToString(Lots, 2));
       Print("========================================");
    }
 
    //==================================================
-   // NORMAL NEW ORDER
+   // TYPE 2 - NON SSL SIGNAL
+   //
+   // Loss multiplier based on $3
+   //
+   // -0 to -2.99 = 1X
+   // -3 to -5.99 = 1X
+   // -6 to -8.99 = 2X
+   // -9 to -11.99 = 3X
+   //==================================================
+   else if(!isSSLSignal && oppositeLots > 0.0)
+   {
+      double lossMultiplier = 1.0;
+
+      if(OpenPL < 0.0)
+      {
+         lossMultiplier =
+            MathFloor(MathAbs(OpenPL) / 10.0);
+
+         // Never allow zero
+         if(lossMultiplier < 1.0)
+            lossMultiplier = 1.0;
+      }
+
+      Lots =
+         NormalizeLots(
+            OriginalLots * lossMultiplier
+         );
+
+      Print("========================================");
+      Print("TYPE 2 - NON SSL RECOVERY");
+      Print("Reason          : ", reason);
+      Print("Opposite P/L    : $",
+            DoubleToString(OpenPL, 2));
+      Print("Opposite Lots   : ",
+            DoubleToString(oppositeLots, 2));
+      Print("P/L Multiplier  : ",
+            DoubleToString(lossMultiplier, 2), "X");
+      Print("Calculated Lots : ",
+            DoubleToString(Lots, 2));
+      Print("========================================");
+   }
+
+   //==================================================
+   // NO OPPOSITE ORDERS
    //==================================================
    else
    {
       Lots = NormalizeLots(OriginalLots);
+
+      Print("========================================");
+      Print("NO RECOVERY");
+      Print("Reason          : ", reason);
+      Print("Original Lots   : ",
+            DoubleToString(Lots, 2));
+      Print("========================================");
    }
 
    //==================================================
-   // LOT MULTIPLIER
+   // HARD MAX LOT = 0.10
+   //==================================================
+   if(Lots > MaxRecoveryLot)
+   {
+      Print("MAX LOT LIMIT APPLIED");
+      Print("Calculated Lot : ",
+            DoubleToString(Lots, 2));
+      Print("Maximum Lot    : ",
+            DoubleToString(MaxRecoveryLot, 2));
+
+      Lots = NormalizeLots(MaxRecoveryLot);
+   }
+
+   //==================================================
+   // FINAL NORMALIZATION
+   //==================================================
+   Lots = NormalizeLots(Lots);
+
+   if(Lots > MaxRecoveryLot)
+      Lots = NormalizeLots(MaxRecoveryLot);
+
+   //==================================================
+   // ACTUAL LOT MULTIPLIER
    //==================================================
    double lotMultiplier = 1.0;
 
    if(oppositeLots > 0.0)
    {
-      lotMultiplier = Lots / oppositeLots;
+      lotMultiplier =
+         Lots / oppositeLots;
    }
 
-   //==================================================
-   // SAFETY
-   //==================================================
    if(lotMultiplier < 1.0)
       lotMultiplier = 1.0;
 
    //==================================================
-   // SL / EQUITY LADDER VALUES
-   // BASED ON ACTUAL LOT MULTIPLIER
+   // SCALE SL / ORDER LADDER
+   // BASED ON ACTUAL NEW LOT
    //==================================================
    StopLossUSD =
-      OriginalStopLossUSD * lotMultiplier;
+      OriginalStopLossUSD *
+      Lots * 100;
 
    Ladder1ProfitUSD =
-      OriginalLadder1ProfitUSD * lotMultiplier;
+      OriginalLadder1ProfitUSD *
+      Lots * 100;
 
    Ladder2ProfitUSD =
-      OriginalLadder2ProfitUSD * lotMultiplier;
+      OriginalLadder2ProfitUSD *
+      Lots * 100;
 
    Ladder1StopMaxPriceUSD =
-      OriginalLadder1StopMaxPriceUSD * lotMultiplier;
+      OriginalLadder1StopMaxPriceUSD *
+      Lots * 100;
 
    //==================================================
-   // DEBUG
+   // FINAL DEBUG
    //==================================================
    Print("========================================");
-   Print("LOT CONFIGURATION");
+   Print("FINAL LOT CONFIGURATION");
    Print("Reason          : ", reason);
-   Print("Open P/L        : $", DoubleToString(OpenPL, 2));
-   Print("Opposite Lots   : ", DoubleToString(oppositeLots, 2));
-   Print("New Lots        : ", DoubleToString(Lots, 2));
-   Print("Lot Multiplier  : ", DoubleToString(lotMultiplier, 2));
-   Print("Stop Loss       : $", DoubleToString(StopLossUSD, 2));
-   Print("Ladder 1        : $", DoubleToString(Ladder1ProfitUSD, 2));
-   Print("Ladder 2        : $", DoubleToString(Ladder2ProfitUSD, 2));
-   Print("L1 Stop Max     : $", DoubleToString(Ladder1StopMaxPriceUSD, 2));
+   Print("Open P/L        : $",
+         DoubleToString(OpenPL, 2));
+   Print("Opposite Lots   : ",
+         DoubleToString(oppositeLots, 2));
+   Print("New Lots        : ",
+         DoubleToString(Lots, 2));
+   Print("Maximum Lot     : ",
+         DoubleToString(MaxRecoveryLot, 2));
+   Print("Lot Multiplier  : ",
+         DoubleToString(lotMultiplier, 2), "X");
+   Print("Stop Loss       : $",
+         DoubleToString(StopLossUSD, 2));
+   Print("Ladder 1        : $",
+         DoubleToString(Ladder1ProfitUSD, 2));
+   Print("Ladder 2        : $",
+         DoubleToString(Ladder2ProfitUSD, 2));
+   Print("L1 Stop Max     : $",
+         DoubleToString(Ladder1StopMaxPriceUSD, 2));
    Print("========================================");
 }
 //+------------------------------------------------------------------+
@@ -1854,88 +1999,293 @@ double CalculatePriceDistanceUSD(double usdAmount, double orderLots)
 //|                                                                  |
 //+------------------------------------------------------------------+
 void ManageProfitLadder()
-  {
+{
    for(int i = OrdersTotal() - 1; i >= 0; i--)
-     {
+   {
       if(!OrderSelect(i, SELECT_BY_POS, MODE_TRADES))
          continue;
+
       if(OrderSymbol() != Symbol() || OrderMagicNumber() != MagicNumber)
          continue;
 
       int orderType = OrderType();
+
       if(orderType != OP_BUY && orderType != OP_SELL)
          continue;
 
-      double currentProfit = OrderProfit() + OrderSwap() + OrderCommission();
+      double currentProfit =
+         OrderProfit() +
+         OrderSwap() +
+         OrderCommission();
+
       if(currentProfit <= 0)
          continue;
 
       double lockedProfit = 0;
 
-      if(EnableProfitLadder1 && Ladder1ProfitUSD > 0 && currentProfit < Ladder1StopMaxPriceUSD)
-        {
-         int ladder1Level = (int)MathFloor(currentProfit / Ladder1ProfitUSD);
-         if(ladder1Level >= 2)
-            lockedProfit = (ladder1Level - 1) * Ladder1ProfitUSD;
-        }
+      //==================================================
+      // CURRENT ORDER LOT
+      //==================================================
+      double orderLots = OrderLots();
 
-      if(EnableProfitLadder2 && Ladder2ProfitUSD > 0 && currentProfit >= Ladder1StopMaxPriceUSD)
-        {
-         int ladder2Level = (int)MathFloor(currentProfit / Ladder2ProfitUSD);
+      //==================================================
+      // DYNAMIC LADDER VALUES
+      // BASED ON CURRENT ORDER LOT
+      //==================================================
+      double ladder1Profit =
+         OriginalLadder1ProfitUSD *
+         orderLots * 100.0;
+
+      double ladder2Profit =
+         OriginalLadder2ProfitUSD *
+         orderLots * 100.0;
+
+      double ladder1StopMaxPrice =
+         OriginalLadder1StopMaxPriceUSD *
+         orderLots * 100.0;
+
+      //==================================================
+      // LADDER 1
+      //==================================================
+      if(EnableProfitLadder1 &&
+         ladder1Profit > 0 &&
+         currentProfit < ladder1StopMaxPrice)
+      {
+         int ladder1Level =
+            (int)MathFloor(currentProfit / ladder1Profit);
+
+         if(ladder1Level >= 2)
+         {
+            lockedProfit =
+               (ladder1Level - 1) * ladder1Profit;
+         }
+      }
+
+      //==================================================
+      // LADDER 2
+      //==================================================
+      if(EnableProfitLadder2 &&
+         ladder2Profit > 0 &&
+         currentProfit >= ladder1StopMaxPrice)
+      {
+         int ladder2Level =
+            (int)MathFloor(currentProfit / ladder2Profit);
+
          if(ladder2Level >= 2)
-            lockedProfit = (ladder2Level - 1) * Ladder2ProfitUSD;
-        }
+         {
+            lockedProfit =
+               (ladder2Level - 1) * ladder2Profit;
+         }
+      }
 
       if(lockedProfit <= 0)
          continue;
 
       lockedProfit = NormalizeDouble(lockedProfit, 2);
+
+      //==================================================
+      // TICK INFORMATION
+      //==================================================
       double tickValue = MarketInfo(Symbol(), MODE_TICKVALUE);
-      double tickSize = MarketInfo(Symbol(), MODE_TICKSIZE);
+      double tickSize  = MarketInfo(Symbol(), MODE_TICKSIZE);
+
       if(tickValue <= 0 || tickSize <= 0)
          continue;
 
-      double priceDistance = (lockedProfit / (tickValue * OrderLots())) * tickSize;
-      double stopLevel = MarketInfo(Symbol(), MODE_STOPLEVEL) * Point;
-      double newStopLoss;
+      //==================================================
+      // CALCULATE CURRENTLY LOCKED PROFIT FROM SL
+      //==================================================
+      double existingLockedProfit = 0;
 
+      if(OrderStopLoss() > 0)
+      {
+         double existingPriceDistance = 0;
+
+         if(orderType == OP_BUY)
+         {
+            existingPriceDistance =
+               OrderStopLoss() - OrderOpenPrice();
+         }
+         else if(orderType == OP_SELL)
+         {
+            existingPriceDistance =
+               OrderOpenPrice() - OrderStopLoss();
+         }
+
+         if(existingPriceDistance > 0)
+         {
+            existingLockedProfit =
+               (existingPriceDistance / tickSize) *
+               tickValue *
+               orderLots;
+
+            existingLockedProfit =
+               NormalizeDouble(existingLockedProfit, 2);
+         }
+      }
+
+      //==================================================
+      // IMPORTANT:
+      // DO NOT MODIFY ORDER IF LADDER VALUE HAS NOT
+      // INCREASED
+      //==================================================
+      if(existingLockedProfit >= lockedProfit)
+         continue;
+
+      //==================================================
+      // CALCULATE NEW SL PRICE
+      //==================================================
+      double priceDistance =
+         (lockedProfit / (tickValue * orderLots)) *
+         tickSize;
+
+      double stopLevel =
+         MarketInfo(Symbol(), MODE_STOPLEVEL) * Point;
+
+      double newStopLoss = 0;
+
+      //==================================================
+      // BUY
+      //==================================================
       if(orderType == OP_BUY)
-        {
-         newStopLoss = NormalizeDouble(OrderOpenPrice() + priceDistance, Digits);
-         if(OrderStopLoss() > 0 && newStopLoss <= OrderStopLoss())
+      {
+         newStopLoss =
+            NormalizeDouble(
+               OrderOpenPrice() + priceDistance,
+               Digits
+            );
+
+         // Make sure SL is better than existing SL
+         if(OrderStopLoss() > 0 &&
+            newStopLoss <= OrderStopLoss())
             continue;
+
+         // Broker minimum distance
          if(Bid - newStopLoss < stopLevel)
-            newStopLoss = NormalizeDouble(Bid - stopLevel, Digits);
+         {
+            newStopLoss =
+               NormalizeDouble(
+                  Bid - stopLevel,
+                  Digits
+               );
+         }
 
-         if(newStopLoss > 0 && newStopLoss < Bid)
-           {
-            ResetLastError();
-            if(OrderModify(OrderTicket(), OrderOpenPrice(), newStopLoss, OrderTakeProfit(), 0, clrLimeGreen))
-              {
-               Print("BUY LADDER | Profit: $", DoubleToString(currentProfit, 2), " | Locked: $", DoubleToString(lockedProfit, 2));
-              }
-           }
-        }
-
-      if(orderType == OP_SELL)
-        {
-         newStopLoss = NormalizeDouble(OrderOpenPrice() - priceDistance, Digits);
-         if(OrderStopLoss() > 0 && newStopLoss >= OrderStopLoss())
+         if(newStopLoss <= 0 ||
+            newStopLoss >= Bid)
             continue;
-         if(newStopLoss - Ask < stopLevel)
-            newStopLoss = NormalizeDouble(Ask + stopLevel, Digits);
 
-         if(newStopLoss > Ask)
-           {
-            ResetLastError();
-            if(OrderModify(OrderTicket(), OrderOpenPrice(), newStopLoss, OrderTakeProfit(), 0, clrTomato))
-              {
-               Print("SELL LADDER | Profit: $", DoubleToString(currentProfit, 2), " | Locked: $", DoubleToString(lockedProfit, 2));
-              }
-           }
-        }
-     }
-  }
+         //==================================================
+         // FINAL PROTECTION AGAINST DUPLICATE MODIFY
+         //==================================================
+         if(OrderStopLoss() > 0 &&
+            MathAbs(newStopLoss - OrderStopLoss()) < Point)
+            continue;
+
+         ResetLastError();
+
+         if(OrderModify(
+               OrderTicket(),
+               OrderOpenPrice(),
+               newStopLoss,
+               OrderTakeProfit(),
+               0,
+               clrLimeGreen))
+         {
+            Print(
+               "BUY LADDER UPDATED | Ticket: ",
+               OrderTicket(),
+               " | Profit: $",
+               DoubleToString(currentProfit, 2),
+               " | Locked: $",
+               DoubleToString(lockedProfit, 2),
+               " | Old Locked: $",
+               DoubleToString(existingLockedProfit, 2)
+            );
+         }
+         else
+         {
+            int error = GetLastError();
+
+            Print(
+               "BUY LADDER MODIFY FAILED | Ticket: ",
+               OrderTicket(),
+               " | Error: ",
+               error
+            );
+         }
+      }
+
+      //==================================================
+      // SELL
+      //==================================================
+      if(orderType == OP_SELL)
+      {
+         newStopLoss =
+            NormalizeDouble(
+               OrderOpenPrice() - priceDistance,
+               Digits
+            );
+
+         // Make sure SL is better than existing SL
+         if(OrderStopLoss() > 0 &&
+            newStopLoss >= OrderStopLoss())
+            continue;
+
+         // Broker minimum distance
+         if(newStopLoss - Ask < stopLevel)
+         {
+            newStopLoss =
+               NormalizeDouble(
+                  Ask + stopLevel,
+                  Digits
+               );
+         }
+
+         if(newStopLoss <= Ask)
+            continue;
+
+         //==================================================
+         // FINAL PROTECTION AGAINST DUPLICATE MODIFY
+         //==================================================
+         if(OrderStopLoss() > 0 &&
+            MathAbs(newStopLoss - OrderStopLoss()) < Point)
+            continue;
+
+         ResetLastError();
+
+         if(OrderModify(
+               OrderTicket(),
+               OrderOpenPrice(),
+               newStopLoss,
+               OrderTakeProfit(),
+               0,
+               clrTomato))
+         {
+            Print(
+               "SELL LADDER UPDATED | Ticket: ",
+               OrderTicket(),
+               " | Profit: $",
+               DoubleToString(currentProfit, 2),
+               " | Locked: $",
+               DoubleToString(lockedProfit, 2),
+               " | Old Locked: $",
+               DoubleToString(existingLockedProfit, 2)
+            );
+         }
+         else
+         {
+            int error = GetLastError();
+
+            Print(
+               "SELL LADDER MODIFY FAILED | Ticket: ",
+               OrderTicket(),
+               " | Error: ",
+               error
+            );
+         }
+      }
+   }
+}
 
 //+------------------------------------------------------------------+
 //|                                                                  |
@@ -2456,7 +2806,7 @@ void UpdateDashboard(DailyProtectionState &state)
       textX,
       y+254,
       DashboardFontSize,
-      clrGold);
+      clrRed);
 
    CreateDashboardLabel(
       DASH_PREFIX+"NEXTTARGET",
