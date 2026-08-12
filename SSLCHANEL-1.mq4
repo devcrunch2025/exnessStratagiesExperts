@@ -909,7 +909,7 @@ void InitializeDailyProtectionState(DailyProtectionState &state)
    state.DayStartBalance = AccountBalance();
 // state.DayProtectedBalance = state.DayStartBalance;
    state.DayProtectedBalance =
-      state.DayStartBalance *
+      AccountBalance() *
       (1.0 - DailyLossProtectionPercent/100.0);
    state.ClosedOrdersToday = 0;
    state.TradingStopped = false;
@@ -1406,7 +1406,7 @@ void UpdateDailyLossProtection(DailyProtectionState &state)
       state.DayStartBalance = AccountBalance();
          // state.DayProtectedBalance = state.DayStartBalance;
       state.DayProtectedBalance =
-         state.DayStartBalance *
+         AccountBalance() *
          (1.0 - DailyLossProtectionPercent/100.0);
       state.ClosedOrdersToday = 0;
       state.TradingStopped = false;
