@@ -29,14 +29,14 @@ double Lots = 0.01;
 int MaxOpenOrders = 20;
 bool CloseOppositeOrdersOnSignal = true;
 double closeOppositeLossThreshold =-2;//-0.50;// -10.0;
-double OriginalStopLossUSD=10;//5;//0.50;//50;
-double StopLossUSD =10;//3;//2;//0.50;// 50;
+double OriginalStopLossUSD=2;//10;//5;//0.50;//50;
+double StopLossUSD =2;//10;//3;//2;//0.50;// 50;
 
 bool DeleteOppositePendingOnSignal = true;
 bool EnableProfitReEntryStop = true;
 double MinimumClosedProfitUSD = -9;
 double ProfitReEntryGapRaw =25;//5;//20;// 5;
-double MinimumSameOrderGapRaw = 10;//50;
+double MinimumSameOrderGapRaw = 100;//10;//50;
 bool EnableProfitLadder1 = true;
 
 
@@ -51,7 +51,7 @@ double Ladder2ProfitUSD = 0.10;//server api is has errors due to too many orders
 
 
 
-bool EnableRecoveryOrders = true;
+bool EnableRecoveryOrders = false;
 double RecoveryTriggerLossUSD = -5.0;
 double RecoveryLotMultiplier = 1;
 int MaxRecoveryOrders = 1;
@@ -82,7 +82,7 @@ bool SkipSignalsAfterLadderIncrement = false;
 
 
 
-double DailyEquityTargetPercent =5;//2;//3;//5;//10;//5;// 10;//2;//3;//1;//3;//10;//Trading continue with 10% profit reccuring
+double DailyEquityTargetPercent =100;//5;//2;//3;//5;//10;//5;// 10;//2;//3;//1;//3;//10;//Trading continue with 10% profit reccuring
 double DailyLossProtectionPercent =50;//20;//10;//20;//50;//20;//10;//20;//100;//50;// 30.0;// Trading stops if equity drops below this percentage of the starting balance for the day
 bool EnableDynamicEquityLadder = true;////Trading continue with 10% profit reccuring
 double OriginalDailyEquityTargetPercent =5;//10;//5;// 10;//2;//3;//1;//3;//10;//Trading continue with 10% profit reccuring
@@ -1017,7 +1017,7 @@ void ChangeLots(double OpenPL, string reason, int orderType)
 //==================================================
 // MAX LOT LIMIT
 //==================================================
-   double MaxRecoveryLot = 0.03;
+   double MaxRecoveryLot = 0.01;
 
 //==================================================
 // DEFAULT LOT
