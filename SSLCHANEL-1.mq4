@@ -77,6 +77,7 @@ bool EnableEquityLadder = true;
 // Close all EA market + pending orders when the equity ladder increments.
 // Re-entry after the increment is disabled by default.
 bool EnableLadderReEntryAfterIncrement = false;
+bool SkipSignalsAfterLadderIncrement = false;
 
 
 
@@ -692,7 +693,8 @@ bool CheckDay1CapitalProtectionExit(DailyProtectionState &state)
    if(Day1ProtectionDate != todayDate || Day1ProtectionStartBalance <= 0.0)
      {
       Day1ProtectionDate = todayDate;
-      Day1ProtectionStartBalance = state.DayStartBalance;
+      if(Day1ProtectionDate != state.DayDate)
+      Day1ProtectionStartBalance = AccountBalance();
       Print("DAY-1 PROTECTION ANCHOR SET | Balance=$",
             DoubleToString(Day1ProtectionStartBalance,2),
             " | Date=", TimeToString(Day1ProtectionDate,TIME_DATE));
@@ -1458,7 +1460,8 @@ void InitializeDailyProtectionState(DailyProtectionState &state)
    // Capture the original Day-1 balance once. Equity-ladder resets must
    // not overwrite this value.
    Day1ProtectionDate = state.DayDate;
-   Day1ProtectionStartBalance = state.DayStartBalance;
+   if(Day1ProtectionDate != state.DayDate)
+      Day1ProtectionStartBalance = AccountBalance();
 
    Print("==================================================");
    Print("NEW DAILY PROTECTION INITIALIZED");
@@ -1565,7 +1568,8 @@ void ResetAfterProtectedEquity(DailyProtectionState &state)
 // 8. RESET EQUITY LADDER
 // ---------------------------------------------------------------
    EquityLadderLevel++;
-   DailyLossProtectionPercent--;
+   // DailyLossProtectionPercent locked;
+   // DailyLossProtectionPercent--;
    if(EquityLadderLevel>1)
      {
       DailyEquityTargetPercent=OriginalDailyEquityTargetPercent/2;
@@ -1659,7 +1663,7 @@ bool IsProtectedEquityWaiting()
    Print("1 HOUR PASSED - TRADING CAN RESUME");
    Print("================================================");
 
-   QueueEquityResetReEntry();
+   // // QueueEquityResetReEntry();
    return false;
   }
 
@@ -1908,7 +1912,8 @@ void CheckDynamicEquityLadder(DailyProtectionState &state)
 // INCREASE LADDER LEVEL
 //===============================================================
    EquityLadderLevel++;
-   DailyLossProtectionPercent--;
+   // DailyLossProtectionPercent locked;
+   // DailyLossProtectionPercent--;
 //===============================================================
 // NEW LADDER START
 //===============================================================
@@ -1996,7 +2001,9 @@ void CheckDynamicEquityLadder(DailyProtectionState &state)
    TradeResetThisTick = true;
 
    if(EnableLadderReEntryAfterIncrement)
-      QueueEquityResetReEntry();
+     {
+      // QueueEquityResetReEntry();
+     }
   }
 //+------------------------------------------------------------------+
 //|                                                                  |
