@@ -11,7 +11,7 @@ int SSLPeriod = 10;
 // Optional directional filter for SSL entries.
 // BUY  -> price must be above EMA.
 // SELL -> price must be below EMA.
-bool InpUseEMA200Filter = true;
+bool InpUseEMA200Filter = false;
 int  InpEMA200Period = 200;
 int  InpEMAPriceShift = 0;   // 0 = live/current candle, 1 = last closed candle
 // ===== EMA CHART DISPLAY =====
@@ -64,10 +64,19 @@ bool EnableDailyLossProtection = true;
 // floating P/L of EA market orders reaches this loss, all EA orders close.
 bool EnableDay1CapitalProtectionExit = true;
 double ProtectionLossUSD = 50.0;
+
+// Immutable Day-1 protection anchor. This is NOT changed by equity-ladder
+// resets or protected-equity resets. It is refreshed only when a new
+// trading day starts.
+double Day1ProtectionStartBalance = 0.0;
+datetime Day1ProtectionDate = 0;
 bool ResetDailyProtectionEveryDay = false;
 bool CloseOpenOrdersOnDailyLoss = true;
 int MinimumClosedOrdersForDailyProtection =10;// 100;
 bool EnableEquityLadder = true;
+// Close all EA market + pending orders when the equity ladder increments.
+// Re-entry after the increment is disabled by default.
+bool EnableLadderReEntryAfterIncrement = false;
 
 
 
@@ -156,7 +165,7 @@ bool EquityResetReEntryPending = false;
 //===============================================================
 bool ProtectedEquityWaitActive = false;
 datetime ProtectedEquityWaitStartTime = 0;
-int ProtectedEquityWaitMinutes = 5;
+int ProtectedEquityWaitMinutes = 60;
 
 
 
@@ -676,10 +685,20 @@ bool CheckDay1CapitalProtectionExit(DailyProtectionState &state)
    if(state.TradingStopped)
       return false;
 
-// IMPORTANT:
-// Use the ORIGINAL balance captured at the start of the day.
-// Do not use the current balance and do not use NextEquityTarget.
-   double dayStartBalance = state.DayStartBalance;
+// IMPORTANT: use a separate immutable Day-1 anchor.
+// The normal daily/equity-ladder code can change state.DayStartBalance
+// after a reset. That must NEVER change this protection reference.
+   datetime todayDate = StrToTime(TimeToString(TimeCurrent(), TIME_DATE));
+   if(Day1ProtectionDate != todayDate || Day1ProtectionStartBalance <= 0.0)
+     {
+      Day1ProtectionDate = todayDate;
+      Day1ProtectionStartBalance = state.DayStartBalance;
+      Print("DAY-1 PROTECTION ANCHOR SET | Balance=$",
+            DoubleToString(Day1ProtectionStartBalance,2),
+            " | Date=", TimeToString(Day1ProtectionDate,TIME_DATE));
+     }
+
+   double dayStartBalance = Day1ProtectionStartBalance;
    double currentEquity   = AccountEquity();
    double floatingPL      = GetEAFloatingPL();
 
@@ -737,11 +756,11 @@ void OnTick()
   {
 
 
-   if(EquityLadderLevel>1)
-   {
-      DailyLossProtectionPercent =2;// AccountBalance();
-OriginalDailyLossProtectionPercent =2;//
-   }
+//    if(EquityLadderLevel>1)
+//    {
+//       DailyLossProtectionPercent =5;// AccountBalance();
+// OriginalDailyLossProtectionPercent =5;//
+//    }
 
    TradeResetThisTick = false;
 
@@ -770,11 +789,10 @@ OriginalDailyLossProtectionPercent =2;//
    if(!dailyState.Initialized)
       InitializeDailyProtectionState(dailyState);
 
-   UpdateDailyLossProtection(dailyState);
-
 //===============================================================
 // DAY-1 CAPITAL PROTECTION EXIT
-// Independent of the current equity-ladder target.
+// Run this BEFORE the normal daily/equity-ladder reset logic so the
+// protection remains completely independent of ladder changes.
 //===============================================================
    if(CheckDay1CapitalProtectionExit(dailyState))
      {
@@ -787,6 +805,10 @@ OriginalDailyLossProtectionPercent =2;//
          UpdateLeftLiveOrdersDashboard();
       return;
      }
+
+// Normal daily-loss protection is evaluated only after the independent
+// Day-1 capital protection check.
+   UpdateDailyLossProtection(dailyState);
 
 //===============================================================
 // PROTECTED EQUITY WAIT - NO NEW TRADING DURING COOLDOWN
@@ -1433,6 +1455,11 @@ void InitializeDailyProtectionState(DailyProtectionState &state)
    state.TradingStopped = false;
    state.Initialized = true;
 
+   // Capture the original Day-1 balance once. Equity-ladder resets must
+   // not overwrite this value.
+   Day1ProtectionDate = state.DayDate;
+   Day1ProtectionStartBalance = state.DayStartBalance;
+
    Print("==================================================");
    Print("NEW DAILY PROTECTION INITIALIZED");
    Print("Day Start Balance: $", DoubleToString(state.DayStartBalance, 2));
@@ -1962,11 +1989,14 @@ void CheckDynamicEquityLadder(DailyProtectionState &state)
    Print("================================================");
 
 //===============================================================
-// QUEUE CONTINUOUS NEW TRADE
-// Uses CURRENT SSL direction. No new crossover is required.
+// LADDER INCREMENT COMPLETE
+// All market + pending EA orders were closed before the increment.
+// Prevent an immediate new order unless explicitly enabled.
 //===============================================================
    TradeResetThisTick = true;
-   QueueEquityResetReEntry();
+
+   if(EnableLadderReEntryAfterIncrement)
+      QueueEquityResetReEntry();
   }
 //+------------------------------------------------------------------+
 //|                                                                  |
