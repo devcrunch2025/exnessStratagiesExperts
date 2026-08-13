@@ -27,15 +27,15 @@ string EMA_PREFIX = "SSL_EMA_LINE_";
 bool EnableTrading = true;
 double Lots = 0.01;
 int MaxOpenOrders = 20;
-bool CloseOppositeOrdersOnSignal = false;
-double closeOppositeLossThreshold = -10.0;
+bool CloseOppositeOrdersOnSignal = true;
+double closeOppositeLossThreshold =-2;//-0.50;// -10.0;
 double OriginalStopLossUSD=10;//5;//0.50;//50;
 double StopLossUSD =10;//3;//2;//0.50;// 50;
 
 bool DeleteOppositePendingOnSignal = true;
 bool EnableProfitReEntryStop = true;
 double MinimumClosedProfitUSD = -9;
-double ProfitReEntryGapRaw =5;//20;// 5;
+double ProfitReEntryGapRaw =25;//5;//20;// 5;
 double MinimumSameOrderGapRaw = 10;//50;
 bool EnableProfitLadder1 = true;
 
@@ -82,7 +82,7 @@ bool SkipSignalsAfterLadderIncrement = false;
 
 
 
-double DailyEquityTargetPercent =2;//3;//5;//10;//5;// 10;//2;//3;//1;//3;//10;//Trading continue with 10% profit reccuring
+double DailyEquityTargetPercent =5;//2;//3;//5;//10;//5;// 10;//2;//3;//1;//3;//10;//Trading continue with 10% profit reccuring
 double DailyLossProtectionPercent =50;//20;//10;//20;//50;//20;//10;//20;//100;//50;// 30.0;// Trading stops if equity drops below this percentage of the starting balance for the day
 bool EnableDynamicEquityLadder = true;////Trading continue with 10% profit reccuring
 double OriginalDailyEquityTargetPercent =5;//10;//5;// 10;//2;//3;//1;//3;//10;//Trading continue with 10% profit reccuring
@@ -154,8 +154,8 @@ bool TradeResetThisTick = false;
 // SSL trading is evaluated on the currently forming candle (0).
 //===============================================================
 bool LiveSSLInitialized = false;
-int LastLiveSSLDirection = 0;
-datetime LastLiveSignalCandle = 0;
+int LastLiveSSLDirection = 1;//0;
+datetime LastLiveSignalCandle = 1;//0;
 
 // Persistent request to start a fresh trade after an Equity Ladder reset.
 // It remains TRUE until a market order is successfully opened.
@@ -3137,13 +3137,13 @@ int GetCurrentSSLDirection()
 //+------------------------------------------------------------------+
 bool IsLiveBuySignal()
   {
-   return IsBuySignal(0);
+   return IsBuySignal(1);
   }
 
 //+------------------------------------------------------------------+
 bool IsLiveSellSignal()
   {
-   return IsSellSignal(0);
+   return IsSellSignal(1);
   }
 
 //+------------------------------------------------------------------+
