@@ -62,7 +62,7 @@ bool EnableDailyLossProtection = true;
 // Independent of the current equity-ladder target.
 // If equity is still above the original day-start balance but the
 // floating P/L of EA market orders reaches this loss, all EA orders close.
-bool EnableDay1CapitalProtectionExit = true;
+bool EnableDay1CapitalProtectionExit = false;
 double ProtectionLossUSD = 50.0;
 
 // Immutable Day-1 protection anchor. This is NOT changed by equity-ladder
