@@ -63,7 +63,7 @@ double RecoveryTriggerLossUSD = -5.0;
 double RecoveryLotMultiplier = 1;
 int MaxRecoveryOrders = 1;
 double RecoveryBasketProfitUSD = 0.50;
-bool EnableDailyLossProtection = true;
+bool EnableDailyLossProtection = false;// false= continue trading even after hit the stoploss  
 
 // ===== DAY-1 CAPITAL PROTECTION EXIT =====
 // Independent of the current equity-ladder target.
@@ -174,7 +174,7 @@ bool EquityResetReEntryPending = false;
 //===============================================================
 bool ProtectedEquityWaitActive = false;
 datetime ProtectedEquityWaitStartTime = 0;
-int ProtectedEquityWaitMinutes = 60;
+int ProtectedEquityWaitMinutes =0;// 60;
 
 
 
@@ -1019,8 +1019,9 @@ double GetOppositeOrdersLots(int orderType)
 
    return NormalizeLots(totalLots);
   }
+  int reEntryCounter=0;
 //0.03
-void ChangeLots(double OpenPL, string reason, int orderType)
+void ChangeLots(double OpenPL, string reason, int orderType,int stoplevelStep)
   {
 
 //    Final logic implemented
@@ -1037,7 +1038,7 @@ void ChangeLots(double OpenPL, string reason, int orderType)
    //==================================================
    // MAX LOT LIMIT
    //==================================================
-   double MaxRecoveryLot = 0.10;
+   double MaxRecoveryLot = 0.20;
 
    //==================================================
    // OPPOSITE TYPE TOTAL LOTS
@@ -1068,13 +1069,16 @@ void ChangeLots(double OpenPL, string reason, int orderType)
    // TYPE 1
    // SSL PROFIT RE-ENTRY
    //
-   // ALWAYS = 0.04
+   // ALWAYS = 0.20
    //
    // BUY STOP / SELL STOP
    //==================================================
    if(isSSLProfitReEntry)
      {
-      Lots = NormalizeLots(0.06);
+      // if(reEntryCounter>1)
+      //    Lots = NormalizeLots(0.20);
+      // else
+         Lots = NormalizeLots(0.20);   
 
       Print("========================================");
       Print("SSL PROFIT RE-ENTRY");
@@ -2493,9 +2497,11 @@ void CreateProfitReEntryStop(int closedOrderType, double closedPrice, DailyProte
 
    ResetLastError();
    if(pendingType == OP_BUYSTOP)
-      ChangeLots(GetOpenPL(OP_SELL), "SSL Profit ReEntry Buy Stop", OP_BUY);
+      ChangeLots(GetOpenPL(OP_SELL), "SSL Profit ReEntry Buy Stop", OP_BUY,stopLevel);
    else
-      ChangeLots(GetOpenPL(OP_BUY), "SSL Profit ReEntry Sell Stop", OP_SELL);
+      ChangeLots(GetOpenPL(OP_BUY), "SSL Profit ReEntry Sell Stop", OP_SELL,stopLevel);
+
+      reEntryCounter++;
 
    double slDistance = CalculatePriceDistanceUSD(StopLossUSD, Lots);
    if(slDistance <= 0)
@@ -2585,7 +2591,9 @@ void OpenBuy()
 
    if(GetTotalEAOrders() >= MaxOpenOrders || !HasMinimumSameOrderGap(OP_BUY))
       return;
-   ChangeLots(GetOpenPL(OP_SELL),"SSL Long",OP_BUY);
+
+      reEntryCounter=0;
+   ChangeLots(GetOpenPL(OP_SELL),"SSL Long",OP_BUY,0);
    RefreshRates();
 
    double slDistance = CalculatePriceDistanceUSD(StopLossUSD, Lots);
@@ -2646,7 +2654,9 @@ void OpenSell()
       return;
    if(GetTotalEAOrders() >= MaxOpenOrders || !HasMinimumSameOrderGap(OP_SELL))
       return;
-   ChangeLots(GetOpenPL(OP_BUY),"SSL Short",OP_SELL);
+
+      reEntryCounter=0;
+   ChangeLots(GetOpenPL(OP_BUY),"SSL Short",OP_SELL,0);
    RefreshRates();
 
    double slDistance = CalculatePriceDistanceUSD(StopLossUSD, Lots);
