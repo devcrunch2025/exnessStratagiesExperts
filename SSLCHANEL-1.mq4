@@ -1022,160 +1022,195 @@ double GetOppositeOrdersLots(int orderType)
 //0.03
 void ChangeLots(double OpenPL, string reason, int orderType)
   {
-//==================================================
-// MAX LOT LIMIT
-//==================================================
-   double MaxRecoveryLot = 0.01;
 
-//==================================================
-// DEFAULT LOT
-//==================================================
-   Lots = NormalizeLots(OriginalLots);
+//    Final logic implemented
+// Reason / condition	Lot
+// SSL Profit ReEntry Buy Stop	0.02
+// SSL Profit ReEntry Sell Stop	0.02
+// SSL Long + opposite orders	0.04
+// SSL Short + opposite orders	0.04
+// SSL Long + no opposite	0.10
+// SSL Short + no opposite	0.10
+// Non-SSL + no opposite	0.03
+// Non-SSL + opposite + OpenPL < -0.50	0.03
+// Non-SSL + opposite + OpenPL >= -0.50	OriginalLots
+   //==================================================
+   // MAX LOT LIMIT
+   //==================================================
+   double MaxRecoveryLot = 0.10;
 
-//==================================================
-// TOTAL OPPOSITE TYPE LOTS
-//==================================================
+   //==================================================
+   // OPPOSITE TYPE TOTAL LOTS
+   //==================================================
    double oppositeLots = GetOppositeOrdersLots(orderType);
 
-//==================================================
-// SSL SIGNAL?
-//==================================================
+   //==================================================
+   // IDENTIFY SSL SIGNAL
+   //==================================================
    bool isSSLSignal =
-      (reason == "SSL Long" || reason == "SSL Short");
+      (reason == "SSL Long" ||
+       reason == "SSL Short");
 
-//==================================================
-// TYPE 1 - SSL SIGNAL
-//
-// Base Lot =
-// Opposite Total Lots + Original Lot
-//
-// Multiplier:
-// $0     to <$5  = 1X
-// $5     to <$10 = 1X
-// $10    to <$15 = 2X
-// $15    to <$20 = 3X
-//
-// If you want:
-// $0-$4.99 = 1X
-// $5-$9.99 = 2X
-// then use CEIL instead.
-//==================================================
-   if(isSSLSignal && oppositeLots > 0.0)
+   //==================================================
+   // IDENTIFY SSL PROFIT RE-ENTRY
+   //==================================================
+   bool isSSLProfitReEntry =
+      (reason == "SSL Profit ReEntry Buy Stop" ||
+       reason == "SSL Profit ReEntry Sell Stop");
+
+   //==================================================
+   // DEFAULT
+   //==================================================
+   Lots = NormalizeLots(OriginalLots);
+
+
+   //==================================================
+   // TYPE 1
+   // SSL PROFIT RE-ENTRY
+   //
+   // ALWAYS = 0.02
+   //
+   // BUY STOP / SELL STOP
+   //==================================================
+   if(isSSLProfitReEntry)
      {
-      // Base recovery lot
-      double baseLots =
-         oppositeLots + OriginalLots;
-
-      baseLots =
-         NormalizeLots(baseLots);
-
-      //================================================
-      // SSL LOSS MULTIPLIER
-      //================================================
-      double lossMultiplier1 = 1.0;
-
-      if(OpenPL < 0.0)
-        {
-         lossMultiplier1 =
-            MathFloor(MathAbs(OpenPL) / 10.0);
-
-         // Never allow zero
-         if(lossMultiplier1 < 1.0)
-            lossMultiplier1 = 1.0;
-
-         lossMultiplier1 = 1.0;
-
-
-
-
-        }
-
-      // Apply multiplier
-      Lots =
-         NormalizeLots(
-            baseLots * lossMultiplier1
-         );
+      Lots = NormalizeLots(0.02);
 
       Print("========================================");
-      Print("TYPE 1 - SSL RECOVERY");
+      Print("SSL PROFIT RE-ENTRY");
       Print("Reason          : ", reason);
-      Print("Opposite P/L    : $",
+      Print("Open P/L        : $",
             DoubleToString(OpenPL, 2));
       Print("Opposite Lots   : ",
             DoubleToString(oppositeLots, 2));
-      Print("Original Lot    : ",
-            DoubleToString(OriginalLots, 2));
-      Print("Base Lots       : ",
-            DoubleToString(baseLots, 2));
-      Print("Loss Multiplier : ",
-            DoubleToString(lossMultiplier1, 2), "X");
-      Print("Calculated Lots : ",
+      Print("New Lots        : ",
             DoubleToString(Lots, 2));
       Print("========================================");
      }
 
-//==================================================
-// TYPE 2 - NON SSL SIGNAL
-//
-// Loss multiplier based on $3
-//
-// -0 to -2.99 = 1X
-// -3 to -5.99 = 1X
-// -6 to -8.99 = 2X
-// -9 to -11.99 = 3X
-//==================================================
+
+   //==================================================
+   // TYPE 2
+   // NORMAL SSL SIGNAL
+   //
+   // SSL LONG / SSL SHORT
+   //
+   // WITH OPPOSITE ORDERS    = 0.04
+   // WITHOUT OPPOSITE ORDERS = 0.10
+   //==================================================
    else
-      if(!isSSLSignal && oppositeLots > 0.0)
+      if(isSSLSignal)
         {
-         double lossMultiplier = 1.0;
-
-         if(OpenPL < 0.0)
+         if(oppositeLots > 0.0)
            {
-            lossMultiplier =
-               MathFloor(MathAbs(OpenPL) / 10.0);
+            //=========================================
+            // SSL WITH OPPOSITE ORDERS
+            //=========================================
+            Lots = NormalizeLots(0.04);
 
-            // Never allow zero
-            if(lossMultiplier < 1.0)
-               lossMultiplier = 1.0;
+            Print("========================================");
+            Print("SSL SIGNAL - OPPOSITE ORDERS");
+            Print("Reason          : ", reason);
+            Print("Open P/L        : $",
+                  DoubleToString(OpenPL, 2));
+            Print("Opposite Lots   : ",
+                  DoubleToString(oppositeLots, 2));
+            Print("New Lots        : ",
+                  DoubleToString(Lots, 2));
+            Print("========================================");
            }
+         else
+           {
+            //=========================================
+            // SSL WITHOUT OPPOSITE ORDERS
+            //=========================================
+            Lots = NormalizeLots(0.10);
 
-         Lots =
-            NormalizeLots(
-               OriginalLots * lossMultiplier
-            );
-
-         Print("========================================");
-         Print("TYPE 2 - NON SSL RECOVERY");
-         Print("Reason          : ", reason);
-         Print("Opposite P/L    : $",
-               DoubleToString(OpenPL, 2));
-         Print("Opposite Lots   : ",
-               DoubleToString(oppositeLots, 2));
-         Print("P/L Multiplier  : ",
-               DoubleToString(lossMultiplier, 2), "X");
-         Print("Calculated Lots : ",
-               DoubleToString(Lots, 2));
-         Print("========================================");
+            Print("========================================");
+            Print("SSL SIGNAL - NO OPPOSITE ORDERS");
+            Print("Reason          : ", reason);
+            Print("Open P/L        : $",
+                  DoubleToString(OpenPL, 2));
+            Print("Opposite Lots   : 0.00");
+            Print("New Lots        : ",
+                  DoubleToString(Lots, 2));
+            Print("========================================");
+           }
         }
 
-      //==================================================
-      // NO OPPOSITE ORDERS
-      //==================================================
+
+   //==================================================
+   // TYPE 3
+   // NON SSL SIGNAL
+   //
+   // NO OPPOSITE ORDERS = 0.03
+   //
+   // OPPOSITE ORDERS + LOSS < -0.50 = 0.03
+   //
+   // OTHERWISE = OriginalLots
+   //==================================================
       else
         {
-         Lots = NormalizeLots(OriginalLots);
+         if(oppositeLots <= 0.0)
+           {
+            //=========================================
+            // NO OPPOSITE ORDERS
+            //=========================================
+            Lots = NormalizeLots(0.03);
 
-         Print("========================================");
-         Print("NO RECOVERY");
-         Print("Reason          : ", reason);
-         Print("Original Lots   : ",
-               DoubleToString(Lots, 2));
-         Print("========================================");
+            Print("========================================");
+            Print("NO OPPOSITE ORDERS");
+            Print("Reason          : ", reason);
+            Print("Open P/L        : $",
+                  DoubleToString(OpenPL, 2));
+            Print("Opposite Lots   : 0.00");
+            Print("New Lots        : ",
+                  DoubleToString(Lots, 2));
+            Print("========================================");
+           }
+         else
+            if(OpenPL < -0.50)
+              {
+               //======================================
+               // OPPOSITE ORDERS + LOSS > $0.50
+               //======================================
+               Lots = NormalizeLots(0.03);
+
+               Print("========================================");
+               Print("OPPOSITE ORDERS - LOSS RECOVERY");
+               Print("Reason          : ", reason);
+               Print("Open P/L        : $",
+                     DoubleToString(OpenPL, 2));
+               Print("Opposite Lots   : ",
+                     DoubleToString(oppositeLots, 2));
+               Print("New Lots        : ",
+                     DoubleToString(Lots, 2));
+               Print("========================================");
+              }
+            else
+              {
+               //======================================
+               // OPPOSITE ORDERS BUT LOSS <= $0.50
+               //======================================
+               Lots = NormalizeLots(OriginalLots);
+
+               Print("========================================");
+               Print("OPPOSITE ORDERS - NORMAL");
+               Print("Reason          : ", reason);
+               Print("Open P/L        : $",
+                     DoubleToString(OpenPL, 2));
+               Print("Opposite Lots   : ",
+                     DoubleToString(oppositeLots, 2));
+               Print("New Lots        : ",
+                     DoubleToString(Lots, 2));
+               Print("========================================");
+              }
         }
 
-//==================================================
-// HARD MAX LOT = 0.10
-//==================================================
+
+   //==================================================
+   // HARD MAX LOT
+   //==================================================
    if(Lots > MaxRecoveryLot)
      {
       Print("MAX LOT LIMIT APPLIED");
@@ -1187,17 +1222,20 @@ void ChangeLots(double OpenPL, string reason, int orderType)
       Lots = NormalizeLots(MaxRecoveryLot);
      }
 
-//==================================================
-// FINAL NORMALIZATION
-//==================================================
+
+   //==================================================
+   // FINAL NORMALIZATION
+   //==================================================
    Lots = NormalizeLots(Lots);
+
 
    if(Lots > MaxRecoveryLot)
       Lots = NormalizeLots(MaxRecoveryLot);
 
-//==================================================
-// ACTUAL LOT MULTIPLIER
-//==================================================
+
+   //==================================================
+   // ACTUAL LOT MULTIPLIER
+   //==================================================
    double lotMultiplier = 1.0;
 
    if(oppositeLots > 0.0)
@@ -1209,10 +1247,11 @@ void ChangeLots(double OpenPL, string reason, int orderType)
    if(lotMultiplier < 1.0)
       lotMultiplier = 1.0;
 
-//==================================================
-// SCALE SL / ORDER LADDER
-// BASED ON ACTUAL NEW LOT
-//==================================================
+
+   //==================================================
+   // SCALE SL / ORDER LADDER
+   // BASED ON ACTUAL NEW LOT
+   //==================================================
    StopLossUSD =
       OriginalStopLossUSD *
       Lots * 100;
@@ -1229,9 +1268,10 @@ void ChangeLots(double OpenPL, string reason, int orderType)
       OriginalLadder1StopMaxPriceUSD *
       Lots * 100;
 
-//==================================================
-// FINAL DEBUG
-//==================================================
+
+   //==================================================
+   // FINAL DEBUG
+   //==================================================
    Print("========================================");
    Print("FINAL LOT CONFIGURATION");
    Print("Reason          : ", reason);
