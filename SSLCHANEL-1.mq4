@@ -34,7 +34,7 @@ string EMA_PREFIX = "SSL_EMA_LINE_";
 bool EnableTrading = true;
 double Lots = 0.01;
 int MaxOpenOrders = 20;
-bool CloseOppositeOrdersOnSignal = true;
+bool CloseOppositeOrdersOnSignal = false;
 double closeOppositeLossThreshold =-2;//-0.50;// -10.0;
 double OriginalStopLossUSD=2;//10;//5;//0.50;//50;
 double StopLossUSD =2;//10;//3;//2;//0.50;// 50;
@@ -1025,19 +1025,19 @@ void ChangeLots(double OpenPL, string reason, int orderType)
 
 //    Final logic implemented
 // Reason / condition	Lot
-// SSL Profit ReEntry Buy Stop	0.02
-// SSL Profit ReEntry Sell Stop	0.02
-// SSL Long + opposite orders	0.04
-// SSL Short + opposite orders	0.04
-// SSL Long + no opposite	0.10
-// SSL Short + no opposite	0.10
+// SSL Profit ReEntry Buy Stop	0.06
+// SSL Profit ReEntry Sell Stop	0.06
+// SSL Long + opposite orders	0.02
+// SSL Short + opposite orders	0.02
+// SSL Long + no opposite	0.01
+// SSL Short + no opposite	0.01
 // Non-SSL + no opposite	0.03
 // Non-SSL + opposite + OpenPL < -0.50	0.03
 // Non-SSL + opposite + OpenPL >= -0.50	OriginalLots
    //==================================================
    // MAX LOT LIMIT
    //==================================================
-   double MaxRecoveryLot = 0.05;
+   double MaxRecoveryLot = 0.10;
 
    //==================================================
    // OPPOSITE TYPE TOTAL LOTS
@@ -1068,13 +1068,13 @@ void ChangeLots(double OpenPL, string reason, int orderType)
    // TYPE 1
    // SSL PROFIT RE-ENTRY
    //
-   // ALWAYS = 0.02
+   // ALWAYS = 0.04
    //
    // BUY STOP / SELL STOP
    //==================================================
    if(isSSLProfitReEntry)
      {
-      Lots = NormalizeLots(0.02);
+      Lots = NormalizeLots(0.06);
 
       Print("========================================");
       Print("SSL PROFIT RE-ENTRY");
@@ -1095,7 +1095,7 @@ void ChangeLots(double OpenPL, string reason, int orderType)
    //
    // SSL LONG / SSL SHORT
    //
-   // WITH OPPOSITE ORDERS    = 0.04
+   // WITH OPPOSITE ORDERS    = 0.01
    // WITHOUT OPPOSITE ORDERS = 0.05
    //==================================================
    else
@@ -1106,7 +1106,7 @@ void ChangeLots(double OpenPL, string reason, int orderType)
             //=========================================
             // SSL WITH OPPOSITE ORDERS
             //=========================================
-            Lots = NormalizeLots(0.04);
+            Lots = NormalizeLots(0.01);
 
             Print("========================================");
             Print("SSL SIGNAL - OPPOSITE ORDERS");
@@ -1124,7 +1124,7 @@ void ChangeLots(double OpenPL, string reason, int orderType)
             //=========================================
             // SSL WITHOUT OPPOSITE ORDERS
             //=========================================
-            Lots = NormalizeLots(0.05);
+            Lots = NormalizeLots(0.02);
 
             Print("========================================");
             Print("SSL SIGNAL - NO OPPOSITE ORDERS");
