@@ -526,6 +526,7 @@ int OnInit()
 
    DailyProtectionStartTime = TimeCurrent();
    InitializeLastProcessedClosedOrder();
+   LoadReEntryCounter();
    return INIT_SUCCEEDED;
   }
 
@@ -618,15 +619,10 @@ bool CloseAllEAOrdersForDay1Protection()
 
       int ticket = OrderTicket();
 
-      ResetLastError();
-
-      if(!OrderDelete(ticket, clrNONE))
+      if(!SafeOrderDelete(ticket, clrNONE))
         {
-         int err = GetLastError();
          allClosed = false;
-
-         Print("DAY-1 PROTECTION | PENDING DELETE FAILED | Ticket=",
-               ticket, " | Error=", err);
+         Print("DAY-1 PROTECTION | PENDING DELETE FAILED | Ticket=",ticket);
         }
      }
 
@@ -647,30 +643,20 @@ bool CloseAllEAOrdersForDay1Protection()
       int marketTicket = OrderTicket();
       double closeLots = OrderLots();
 
-      RefreshRates();
-
-      double closePrice =
-         (marketType==OP_BUY) ? Bid : Ask;
-
-      ResetLastError();
-
-      if(!OrderClose(marketTicket,
-                     closeLots,
-                     closePrice,
-                     Slippage,
-                     clrNONE))
+      if(!SafeOrderClose(marketTicket,
+                         closeLots,
+                         marketType,
+                         Slippage,
+                         clrNONE))
         {
-         int err2 = GetLastError();
          allClosed = false;
 
          Print("DAY-1 PROTECTION | MARKET CLOSE FAILED | Ticket=",
-               marketTicket, " | Lots=", DoubleToString(closeLots,2),
-               " | Error=", err2);
+               marketTicket, " | Lots=", DoubleToString(closeLots,2));
         }
       else
         {
-         Print("DAY-1 PROTECTION | CLOSED | Ticket=",
-               marketTicket);
+         Print("DAY-1 PROTECTION | CLOSED | Ticket=",marketTicket);
         }
      }
 
@@ -762,6 +748,23 @@ bool CheckDay1CapitalProtectionExit(DailyProtectionState &state)
 //+------------------------------------------------------------------+
 //|                                                                  |
 //+------------------------------------------------------------------+
+void ProcessPendingReEntry(DailyProtectionState &state)
+  {
+   if(!ReEntryRetryPending)
+      return;
+
+   if(!EnableTrading || IsDailyTradingStopped(state))
+      return;
+
+   Print("RETRYING PENDING RE-ENTRY | Counter=",reEntryCounter,
+         " | Next #",reEntryCounter+1);
+
+   CreateProfitReEntryStop(ReEntryRetryClosedType,
+                           ReEntryRetryClosedPrice,
+                           state);
+  }
+
+//+------------------------------------------------------------------+
 void OnTick()
   {
 
@@ -798,6 +801,23 @@ void OnTick()
 
    if(!dailyState.Initialized)
       InitializeDailyProtectionState(dailyState);
+
+//===============================================================
+// SERVER ERROR SELF-TEST / RECOVERY
+// A trade-server error on the previous tick is checked first.
+// If the next tick is abnormal, reset transient EA runtime state.
+//===============================================================
+   if(ProcessServerRecovery(dailyState))
+     {
+      if(ShowSSLLines)
+         UpdateSSLChannelOnTick();
+      UpdateEMALineOnChart();
+      if(ShowDashboard)
+         UpdateDashboard(dailyState);
+      if(ShowLeftLiveOrdersDashboard)
+         UpdateLeftLiveOrdersDashboard();
+      return;
+     }
 
 //===============================================================
 // DAY-1 CAPITAL PROTECTION EXIT
@@ -850,6 +870,12 @@ void OnTick()
    if(ShowSSLLines)
       UpdateSSLChannelOnTick();
    UpdateEMALineOnChart();
+
+   // Retry a ReEntry that failed because of a trade/server error.
+   // This happens independently of the already-processed history ticket.
+   if(!TradeResetThisTick)
+      ProcessPendingReEntry(dailyState);
+
    if(Bars >= SSLPeriod + 20 && !TradeResetThisTick)
       CheckForProfitableClosedOrder(dailyState);
    if(EnableProfitLadder1 || EnableProfitLadder2)
@@ -1020,6 +1046,417 @@ double GetOppositeOrdersLots(int orderType)
    return NormalizeLots(totalLots);
   }
   int reEntryCounter=0;
+
+//===============================================================
+// RE-ENTRY / SERVER RECOVERY SAFETY
+//===============================================================
+bool ServerRecoveryPending = false;
+int  ServerRecoveryLastError = 0;
+datetime ServerRecoveryDetectedTime = 0;
+int ServerRecoveryResetCount = 0;
+int ServerRecoveryMaxRetries = 5;
+int ServerRecoveryRetryDelayMs = 400;
+string ReEntryGVPrefix = "SSL_REENTRY_";
+bool ReEntryRetryPending = false;
+int ReEntryRetryClosedType = -1;
+double ReEntryRetryClosedPrice = 0.0;
+
+
+// Return the lot required for a successful ReEntry number.
+// #1 = 0.01, #2 = 0.10, #3 = 0.09 ... #10 = 0.02, #11+ = 0.01.
+double GetReEntryLot(int reEntryNumber)
+  {
+   if(reEntryNumber <= 1)
+      return NormalizeLots(0.01);
+
+   double lot = 0.12 - (reEntryNumber * 0.01);
+   if(lot < 0.01)
+      lot = 0.01;
+
+   return NormalizeLots(lot);
+  }
+
+// Persistent counter protects the sequence across an EA refresh/restart.
+// It is only restored when an existing Profit ReEntry order is present.
+string GetReEntryGVName()
+  {
+   return ReEntryGVPrefix + IntegerToString(AccountNumber()) + "_" +
+          IntegerToString(MagicNumber) + "_" + Symbol();
+  }
+
+bool HasExistingProfitReEntryOrder()
+  {
+   for(int i=OrdersTotal()-1; i>=0; i--)
+     {
+      if(!OrderSelect(i,SELECT_BY_POS,MODE_TRADES))
+         continue;
+      if(OrderSymbol()!=Symbol() || OrderMagicNumber()!=MagicNumber)
+         continue;
+
+      string c=OrderComment();
+      if(StringFind(c,"SSL Profit ReEntry",0)==0)
+         return true;
+     }
+   return false;
+  }
+
+void LoadReEntryCounter()
+  {
+   string gv=GetReEntryGVName();
+
+   if(HasExistingProfitReEntryOrder() && GlobalVariableCheck(gv))
+      reEntryCounter=(int)GlobalVariableGet(gv);
+   else
+     {
+      reEntryCounter=0;
+      GlobalVariableSet(gv,0.0);
+     }
+
+   Print("REENTRY SEQUENCE LOADED | Counter=",reEntryCounter,
+         " | Next Lot=",DoubleToString(GetReEntryLot(reEntryCounter+1),2));
+  }
+
+void SaveReEntryCounter()
+  {
+   GlobalVariableSet(GetReEntryGVName(),(double)reEntryCounter);
+  }
+
+//---------------------------------------------------------------
+// Server error classification.
+// Temporary execution errors are retried. Any trade-operation
+// error also activates the self-test watchdog.
+//---------------------------------------------------------------
+bool IsRetryableTradeError(int err)
+  {
+   switch(err)
+     {
+      case 4:   // ERR_SERVER_BUSY
+      case 6:   // ERR_NO_CONNECTION
+      case 128: // ERR_TRADE_TIMEOUT
+      case 135: // ERR_PRICE_CHANGED
+      case 136: // ERR_OFF_QUOTES
+      case 137: // ERR_BROKER_BUSY
+      case 138: // ERR_REQUOTE
+      case 146: // ERR_TRADE_CONTEXT_BUSY
+         return true;
+     }
+   return false;
+  }
+
+void MarkServerError(int err,string operation)
+  {
+   ServerRecoveryPending=true;
+   ServerRecoveryLastError=err;
+   ServerRecoveryDetectedTime=TimeCurrent();
+
+   Print("==================================================");
+   Print("SERVER/TRADE ERROR WATCHDOG");
+   Print("Operation : ",operation);
+   Print("Error    : ",err);
+   Print("Recovery : NEXT TICK SELF-TEST");
+   Print("==================================================");
+  }
+
+bool IsTradeEnvironmentHealthy()
+  {
+   if(!IsConnected())
+      return false;
+
+   RefreshRates();
+
+   if(Bid<=0 || Ask<=0)
+      return false;
+
+   // For a running market, MT4 must allow trading.
+   if(!IsTradeAllowed())
+      return false;
+
+   return true;
+  }
+
+// Reset only transient EA runtime state. Existing broker orders,
+// the ReEntry sequence and processed-history markers are preserved.
+void ResetRuntimeAfterServerError(DailyProtectionState &state)
+  {
+   Print("==================================================");
+   Print("EA SERVER RECOVERY RESET");
+   Print("Existing orders will be PRESERVED");
+   Print("ReEntry counter preserved: ",reEntryCounter);
+   Print("Open EA orders: ",GetTotalEAOrders());
+   Print("==================================================");
+
+   RefreshRates();
+
+   TradeResetThisTick=false;
+   OrderCreatedThisCandle=false;
+   LastOrderCandleTime=0;
+   StartupProtectionTicks=0;
+   EAStartupComplete=true;
+
+   // Re-read the daily state from the current account/order reality
+   // without changing the configured input settings.
+   state.ClosedOrdersToday=CountClosedOrdersSinceInitialization();
+
+   // Rebuild the SSL live state from the current market.
+   LiveSSLInitialized=false;
+   LastLiveSSLDirection=GetCurrentSSLDirection();
+   LastLiveSignalCandle=Time[0];
+
+   // Rebuild equity ladder reference from the current protected state
+   // only if its current values are invalid.
+   if(NextEquityTarget<=0 || LockedEquity<=0)
+      InitializeEquityLadder(state);
+
+   // Do not reset reEntryCounter. Restore it from terminal storage.
+   if(HasExistingProfitReEntryOrder())
+      LoadReEntryCounter();
+
+   ServerRecoveryResetCount++;
+   ServerRecoveryPending=false;
+   ServerRecoveryLastError=0;
+  }
+
+// Called at the beginning of each tick after a trade-server error.
+// The next tick is tested first. A healthy next tick simply clears
+// recovery mode; an unhealthy tick causes a controlled runtime reset.
+bool ProcessServerRecovery(DailyProtectionState &state)
+  {
+   if(!ServerRecoveryPending)
+      return false;
+
+   Print("SERVER RECOVERY TEST | Last error=",ServerRecoveryLastError,
+         " | Tick=",TimeToString(TimeCurrent(),TIME_DATE|TIME_SECONDS));
+
+   if(IsTradeEnvironmentHealthy())
+     {
+      Print("SERVER RECOVERY TEST PASSED | Trading environment is normal");
+      ServerRecoveryPending=false;
+      ServerRecoveryLastError=0;
+      return false;
+     }
+
+   Print("SERVER RECOVERY TEST FAILED | Resetting EA runtime state");
+   ResetRuntimeAfterServerError(state);
+   return true;
+  }
+
+// Find an order which was actually created even though MT4 returned
+// an execution error/timeout. This prevents duplicate orders.
+int FindExistingOrderForRequest(int orderType,double lots,double price,
+                                string orderComment,datetime requestTime)
+  {
+   double priceTolerance=MathMax(Point*20.0,Point*Slippage*2.0);
+
+   for(int i=OrdersTotal()-1;i>=0;i--)
+     {
+      if(!OrderSelect(i,SELECT_BY_POS,MODE_TRADES))
+         continue;
+      if(OrderSymbol()!=Symbol() || OrderMagicNumber()!=MagicNumber)
+         continue;
+      if(OrderType()!=orderType)
+         continue;
+      if(MathAbs(OrderLots()-lots)>0.0000001)
+         continue;
+      if(OrderComment()!=orderComment)
+         continue;
+      if(OrderOpenTime()+3<requestTime)
+         continue;
+
+      if(orderType==OP_BUY || orderType==OP_SELL)
+        {
+         if(MathAbs(OrderOpenPrice()-price)<=priceTolerance)
+            return OrderTicket();
+        }
+      else
+        {
+         if(MathAbs(OrderOpenPrice()-price)<=MathMax(Point,priceTolerance))
+            return OrderTicket();
+        }
+     }
+
+   return -1;
+  }
+
+// Safe OrderSend with retry + duplicate detection.
+int SafeOrderSend(string symbol,int orderType,double lots,double price,
+                  int slippage,double stopLoss,double takeProfit,
+                  string comment,int magic,color arrowColor)
+  {
+   int ticket=-1;
+   datetime requestTime=TimeCurrent();
+
+   for(int attempt=1;attempt<=ServerRecoveryMaxRetries;attempt++)
+     {
+      RefreshRates();
+
+      double sendPrice=price;
+
+      if(orderType==OP_BUY)
+         sendPrice=Ask;
+      else
+         if(orderType==OP_SELL)
+            sendPrice=Bid;
+
+      sendPrice=NormalizeDouble(sendPrice,Digits);
+
+      ResetLastError();
+      ticket=OrderSend(symbol,orderType,lots,sendPrice,slippage,
+                       stopLoss,takeProfit,comment,magic,0,arrowColor);
+
+      if(ticket>0)
+         return ticket;
+
+      int err=GetLastError();
+
+      // The broker may have created the order even though the client
+      // received a timeout/server error.
+      int existing=FindExistingOrderForRequest(orderType,lots,sendPrice,
+                                                comment,requestTime);
+      if(existing>0)
+        {
+         Print("ORDER SEND AMBIGUOUS RESULT | Existing ticket found: ",existing,
+               " | Error=",err);
+         MarkServerError(err,"OrderSend/duplicate-check");
+         return existing;
+        }
+
+      MarkServerError(err,"OrderSend");
+
+      Print("OrderSend failed | Attempt=",attempt,
+            "/",ServerRecoveryMaxRetries,
+            " | Error=",err);
+
+      if(!IsRetryableTradeError(err))
+         break;
+
+      Sleep(ServerRecoveryRetryDelayMs);
+     }
+
+   return -1;
+  }
+
+// Safe OrderClose. If the order disappeared after an error, it is
+// considered successfully closed because the broker state is authoritative.
+bool SafeOrderClose(int ticket,double lots,int orderType,int slippage,color arrowColor)
+  {
+   for(int attempt=1;attempt<=ServerRecoveryMaxRetries;attempt++)
+     {
+      if(!OrderSelect(ticket,SELECT_BY_TICKET,MODE_TRADES))
+        {
+         // Check history: the close may have succeeded despite the error.
+         if(OrderSelect(ticket,SELECT_BY_TICKET,MODE_HISTORY))
+            return true;
+
+         MarkServerError(0,"OrderClose/OrderMissing");
+         return false;
+        }
+
+      RefreshRates();
+
+      double closePrice=(orderType==OP_BUY)?Bid:Ask;
+      ResetLastError();
+
+      if(OrderClose(ticket,OrderLots(),closePrice,slippage,arrowColor))
+         return true;
+
+      int err=GetLastError();
+      MarkServerError(err,"OrderClose");
+
+      Print("OrderClose failed | Ticket=",ticket,
+            " | Attempt=",attempt,"/",ServerRecoveryMaxRetries,
+            " | Error=",err);
+
+      // Verify actual status before retrying.
+      if(!OrderSelect(ticket,SELECT_BY_TICKET,MODE_TRADES))
+        {
+         if(OrderSelect(ticket,SELECT_BY_TICKET,MODE_HISTORY))
+            return true;
+        }
+
+      if(!IsRetryableTradeError(err))
+         return false;
+
+      Sleep(ServerRecoveryRetryDelayMs);
+     }
+
+   return false;
+  }
+
+// Safe OrderModify with retry and post-error verification.
+bool SafeOrderModify(int ticket,double openPrice,double stopLoss,
+                     double takeProfit,datetime expiration,color arrowColor)
+  {
+   for(int attempt=1;attempt<=ServerRecoveryMaxRetries;attempt++)
+     {
+      if(!OrderSelect(ticket,SELECT_BY_TICKET,MODE_TRADES))
+         return false;
+
+      RefreshRates();
+      ResetLastError();
+
+      if(OrderModify(ticket,openPrice,stopLoss,takeProfit,expiration,arrowColor))
+         return true;
+
+      int err=GetLastError();
+      MarkServerError(err,"OrderModify");
+
+      // If the requested SL/TP is already on the broker, the modification
+      // succeeded even though MT4 returned an error.
+      if(OrderSelect(ticket,SELECT_BY_TICKET,MODE_TRADES))
+        {
+         bool slOK=(stopLoss<=0 ||
+                    MathAbs(OrderStopLoss()-stopLoss)<=Point);
+         bool tpOK=(takeProfit<=0 ||
+                    MathAbs(OrderTakeProfit()-takeProfit)<=Point);
+
+         if(slOK && tpOK)
+            return true;
+        }
+
+      Print("OrderModify failed | Ticket=",ticket,
+            " | Attempt=",attempt,"/",ServerRecoveryMaxRetries,
+            " | Error=",err);
+
+      if(!IsRetryableTradeError(err))
+         return false;
+
+      Sleep(ServerRecoveryRetryDelayMs);
+     }
+
+   return false;
+  }
+
+bool SafeOrderDelete(int ticket,color arrowColor)
+  {
+   for(int attempt=1;attempt<=ServerRecoveryMaxRetries;attempt++)
+     {
+      if(!OrderSelect(ticket,SELECT_BY_TICKET,MODE_TRADES))
+         return true;
+
+      ResetLastError();
+
+      if(OrderDelete(ticket,arrowColor))
+         return true;
+
+      int err=GetLastError();
+      MarkServerError(err,"OrderDelete");
+
+      if(!OrderSelect(ticket,SELECT_BY_TICKET,MODE_TRADES))
+         return true;
+
+      Print("OrderDelete failed | Ticket=",ticket,
+            " | Attempt=",attempt,"/",ServerRecoveryMaxRetries,
+            " | Error=",err);
+
+      if(!IsRetryableTradeError(err))
+         return false;
+
+      Sleep(ServerRecoveryRetryDelayMs);
+     }
+
+   return false;
+  }
+
 //0.03
 void ChangeLots(double OpenPL, string reason, int orderType,int stoplevelStep)
   {
@@ -1076,14 +1513,15 @@ void ChangeLots(double OpenPL, string reason, int orderType,int stoplevelStep)
    //==================================================
    if(isSSLProfitReEntry)
      {
-      // if(reEntryCounter>1)
-      //    Lots = NormalizeLots(0.20);
-      // else
-         Lots = NormalizeLots(0.10);   
-         
+      // ReEntry sequence:
+      // #1=0.01, #2=0.10, #3=0.09 ... #10=0.02, #11+=0.01.
+      // The counter advances ONLY after a successful OrderSend.
+      int nextReEntryNumber = reEntryCounter + 1;
+      Lots = GetReEntryLot(nextReEntryNumber);
 
       Print("========================================");
       Print("SSL PROFIT RE-ENTRY");
+      Print("ReEntry Number  : #", nextReEntryNumber);
       Print("Reason          : ", reason);
       Print("Open P/L        : $",
             DoubleToString(OpenPL, 2));
@@ -1334,12 +1772,12 @@ void CheckRecoveryOrders()
       if(OrderType() == OP_BUY)
         {
          // if(!HasMinimumSameOrderGap(OP_BUY)) continue;
-         OrderSend(Symbol(), OP_BUY, lots, Ask, Slippage, 0, 0, "RECOVERY_" + IntegerToString(OrderTicket()), MagicNumber, 0, clrAqua);
+         SafeOrderSend(Symbol(), OP_BUY, lots, Ask, Slippage, 0, 0, "RECOVERY_" + IntegerToString(OrderTicket()), MagicNumber, clrAqua);
         }
       else
         {
          // if(!HasMinimumSameOrderGap(OP_SELL)) continue;
-         OrderSend(Symbol(), OP_SELL, lots, Bid, Slippage, 0, 0, "RECOVERY_" + IntegerToString(OrderTicket()), MagicNumber, 0, clrOrange);
+         SafeOrderSend(Symbol(), OP_SELL, lots, Bid, Slippage, 0, 0, "RECOVERY_" + IntegerToString(OrderTicket()), MagicNumber, clrOrange);
         }
 
       OrderCreatedThisCandle = true;
@@ -1446,29 +1884,13 @@ void ManageRecoveryBasket()
         {
 
          // close ONLY parent
-         RefreshRates();
-
-         bool closed=false;
-
-         if(OrderType()==OP_BUY)
-           {
-            closed=OrderClose(
-                      OrderTicket(),
-                      OrderLots(),
-                      Bid,
-                      Slippage,
-                      clrRed);
-           }
-         else
-            if(OrderType()==OP_SELL)
-              {
-               closed=OrderClose(
-                         OrderTicket(),
-                         OrderLots(),
-                         Ask,
-                         Slippage,
-                         clrBlue);
-              }
+         int closeType=OrderType();
+         bool closed=SafeOrderClose(
+                       OrderTicket(),
+                       OrderLots(),
+                       closeType,
+                       Slippage,
+                       (closeType==OP_BUY ? clrRed : clrBlue));
 
 
          if(closed)
@@ -2166,11 +2588,10 @@ void DeleteOppositePendingOrders(int newSignalType)
       if(deleteOrder)
         {
          int ticket = OrderTicket();
-         ResetLastError();
-         if(OrderDelete(ticket, clrYellow))
+         if(SafeOrderDelete(ticket, clrYellow))
             Print("OPPOSITE PENDING DELETED | Ticket: ", ticket);
          else
-            Print("FAILED TO DELETE | Ticket: ", ticket, " | Error: ", GetLastError());
+            Print("FAILED TO DELETE | Ticket: ", ticket);
         }
      }
   }
@@ -2212,23 +2633,18 @@ void CloseOppositeOrders(int newSignalType)
       if((newSignalType == OP_BUY && orderType == OP_SELL) ||
          (newSignalType == OP_SELL && orderType == OP_BUY))
         {
-         RefreshRates();
-         ResetLastError();
-
-         bool closed = false;
-
-         if(orderType == OP_SELL)
-            closed = OrderClose(ticket, lots, Ask, Slippage, clrRed);
-         else
-            if(orderType == OP_BUY)
-               closed = OrderClose(ticket, lots, Bid, Slippage, clrBlue);
+         bool closed = SafeOrderClose(
+                           ticket,
+                           lots,
+                           orderType,
+                           Slippage,
+                           (orderType==OP_SELL ? clrRed : clrBlue));
 
          if(closed)
             Print("OPPOSITE LOSS CLOSED | Ticket: ", ticket,
                   " | P/L: $", DoubleToString(orderPL,2));
          else
-            Print("FAILED CLOSE | Ticket: ", ticket,
-                  " | Error: ", GetLastError());
+            Print("FAILED CLOSE | Ticket: ", ticket);
         }
      }
   }
@@ -2269,24 +2685,22 @@ void CloseAllEAOrdersOnDailyLoss()
          int type = OrderType();
          bool result = false;
 
-         ResetLastError();
-
          switch(type)
            {
             case OP_BUY:
-               result = OrderClose(
+               result = SafeOrderClose(
                            OrderTicket(),
                            OrderLots(),
-                           Bid,
+                           OP_BUY,
                            Slippage,
                            clrRed);
                break;
 
             case OP_SELL:
-               result = OrderClose(
+               result = SafeOrderClose(
                            OrderTicket(),
                            OrderLots(),
-                           Ask,
+                           OP_SELL,
                            Slippage,
                            clrBlue);
                break;
@@ -2295,7 +2709,7 @@ void CloseAllEAOrdersOnDailyLoss()
             case OP_SELLSTOP:
             case OP_BUYLIMIT:
             case OP_SELLLIMIT:
-               result = OrderDelete(
+               result = SafeOrderDelete(
                            OrderTicket(),
                            clrRed);
                break;
@@ -2442,16 +2856,19 @@ void CheckForProfitableClosedOrder(DailyProtectionState &state)
    LastProcessedClosedTicket = latestTicket;
    LastProcessedClosedOrderTime = latestCloseTime;
 
-   if(latestProfit > 0.0)
+   Print("ORDER CLOSED | Ticket=",latestTicket,
+         " | Direction=",(latestType==OP_BUY ? "BUY" : "SELL"),
+         " | Close=",DoubleToString(latestClosePrice,Digits),
+         " | P/L=$",DoubleToString(latestProfit,2));
+
+   // Profit AND loss now continue the same ReEntry cycle.
+   if(EnableProfitReEntryStop && !IsDailyTradingStopped(state))
      {
-      Print("PROFITABLE ORDER CLOSED | Ticket: ", latestTicket, " | Direction: ", (latestType == OP_BUY ? "BUY" : "SELL"));
-      Print("Close: ", DoubleToString(latestClosePrice, Digits), " | Profit: $", DoubleToString(latestProfit, 2));
-      if(EnableProfitReEntryStop && !IsDailyTradingStopped(state))
-         CreateProfitReEntryStop(latestType, latestClosePrice, state);
+      CreateProfitReEntryStop(latestType, latestClosePrice, state);
       return;
      }
 
-   Print("ORDER CLOSED WITHOUT PROFIT | P/L: $", DoubleToString(latestProfit, 2));
+   // If ReEntry is disabled, retain the original SSL continuation behavior.
    if(EnableTrading && !IsDailyTradingStopped(state))
      {
       if(GetTotalBuyOrders() == 0 && IsBuySignal(0))
@@ -2459,6 +2876,7 @@ void CheckForProfitableClosedOrder(DailyProtectionState &state)
          OpenBuy();
          Print("BUY opened after closed order");
         }
+
       if(GetTotalSellOrders() == 0 && IsSellSignal(0))
         {
          OpenSell();
@@ -2467,9 +2885,29 @@ void CheckForProfitableClosedOrder(DailyProtectionState &state)
      }
   }
 
+
 //+------------------------------------------------------------------+
 //|                                                                  |
 //+------------------------------------------------------------------+
+bool HasPendingProfitReEntry(int pendingType)
+  {
+   for(int i=OrdersTotal()-1;i>=0;i--)
+     {
+      if(!OrderSelect(i,SELECT_BY_POS,MODE_TRADES))
+         continue;
+      if(OrderSymbol()!=Symbol() || OrderMagicNumber()!=MagicNumber)
+         continue;
+      if(OrderType()!=pendingType)
+         continue;
+
+      string c=OrderComment();
+      if(StringFind(c,"SSL Profit ReEntry",0)==0)
+         return true;
+     }
+
+   return false;
+  }
+
 void CreateProfitReEntryStop(int closedOrderType, double closedPrice, DailyProtectionState &state)
   {
    if(!EnableTrading || !EnableProfitReEntryStop || IsDailyTradingStopped(state))
@@ -2486,6 +2924,13 @@ void CreateProfitReEntryStop(int closedOrderType, double closedPrice, DailyProte
    int pendingType = (closedOrderType == OP_BUY) ? OP_BUYSTOP : OP_SELLSTOP;
    color orderColor = (closedOrderType == OP_BUY) ? BuyColor : SellColor;
    string orderComment = (closedOrderType == OP_BUY) ? "SSL Profit ReEntry Buy Stop" : "SSL Profit ReEntry Sell Stop";
+   if(HasPendingProfitReEntry(pendingType))
+     {
+      ReEntryRetryPending=false;
+      Print("PROFIT RE-ENTRY SKIPPED | Existing pending ReEntry already present");
+      return;
+     }
+
 
    double stopLevel = MarketInfo(Symbol(), MODE_STOPLEVEL) * Point;
    double minimumGap = stopLevel + Point;
@@ -2503,7 +2948,8 @@ void CreateProfitReEntryStop(int closedOrderType, double closedPrice, DailyProte
    else
       ChangeLots(GetOpenPL(OP_BUY), "SSL Profit ReEntry Sell Stop", OP_SELL,stopLevel);
 
-      reEntryCounter++;
+   // Do NOT increment here. A failed send must keep the same ReEntry number.
+   int requestedReEntryNumber = reEntryCounter + 1;
 
    double slDistance = CalculatePriceDistanceUSD(StopLossUSD, Lots);
    if(slDistance <= 0)
@@ -2514,12 +2960,34 @@ void CreateProfitReEntryStop(int closedOrderType, double closedPrice, DailyProte
                      (entryPrice + slDistance);
    stopLoss = NormalizeDouble(stopLoss, Digits);
 
-   int ticket = OrderSend(Symbol(), pendingType, Lots, entryPrice, Slippage, stopLoss, 0, orderComment, MagicNumber, 0, orderColor);
+   int ticket = SafeOrderSend(Symbol(), pendingType, Lots, entryPrice, Slippage,
+                              stopLoss, 0, orderComment, MagicNumber, orderColor);
 
    if(ticket < 0)
-      Print("PROFIT RE-ENTRY FAILED | ERROR: ", GetLastError());
+     {
+      Print("PROFIT RE-ENTRY FAILED | ReEntry #",requestedReEntryNumber,
+            " | Lot=",DoubleToString(Lots,2));
+
+      // A server/trade error must be retried on a later tick. The
+      // ReEntry number is deliberately NOT advanced.
+      if(ServerRecoveryPending)
+        {
+         ReEntryRetryPending=true;
+         ReEntryRetryClosedType=closedOrderType;
+         ReEntryRetryClosedPrice=closedPrice;
+        }
+     }
    else
-      Print("PROFIT RE-ENTRY CREATED | Ticket: ", ticket);
+     {
+      // Advance ONLY after the broker confirms/identifies the order.
+      reEntryCounter=requestedReEntryNumber;
+      SaveReEntryCounter();
+      ReEntryRetryPending=false;
+
+      Print("PROFIT RE-ENTRY CREATED | ReEntry #",reEntryCounter,
+            " | Lot=",DoubleToString(Lots,2),
+            " | Ticket: ", ticket);
+     }
   }
 
 //+------------------------------------------------------------------+
@@ -2595,6 +3063,7 @@ void OpenBuy()
       return;
 
       reEntryCounter=0;
+      SaveReEntryCounter();
    ChangeLots(GetOpenPL(OP_SELL),"SSL Long",OP_BUY,0);
    RefreshRates();
 
@@ -2603,11 +3072,11 @@ void OpenBuy()
       return;
 
    double stopLoss = NormalizeDouble(Ask - slDistance, Digits);
-   ResetLastError();
-   int ticket = OrderSend(Symbol(), OP_BUY, Lots, Ask, Slippage, stopLoss, 0, "SSL Long", MagicNumber, 0, BuyColor);
+   int ticket = SafeOrderSend(Symbol(), OP_BUY, Lots, Ask, Slippage,
+                              stopLoss, 0, "SSL Long", MagicNumber, BuyColor);
 
    if(ticket < 0)
-      Print("BUY FAILED | ERROR: ", GetLastError());
+      Print("BUY FAILED | OrderSend/Server error");
    else
      {
       // Mark the candle only after OrderSend succeeds.
@@ -2658,6 +3127,7 @@ void OpenSell()
       return;
 
       reEntryCounter=0;
+      SaveReEntryCounter();
    ChangeLots(GetOpenPL(OP_BUY),"SSL Short",OP_SELL,0);
    RefreshRates();
 
@@ -2666,11 +3136,11 @@ void OpenSell()
       return;
 
    double stopLoss = NormalizeDouble(Bid + slDistance, Digits);
-   ResetLastError();
-   int ticket = OrderSend(Symbol(), OP_SELL, Lots, Bid, Slippage, stopLoss, 0, "SSL Short", MagicNumber, 0, SellColor);
+   int ticket = SafeOrderSend(Symbol(), OP_SELL, Lots, Bid, Slippage,
+                              stopLoss, 0, "SSL Short", MagicNumber, SellColor);
 
    if(ticket < 0)
-      Print("SELL FAILED | ERROR: ", GetLastError());
+      Print("SELL FAILED | OrderSend/Server error");
    else
      {
       // Mark the candle only after OrderSend succeeds.
@@ -2971,7 +3441,7 @@ void ManageProfitLadder()
          ResetLastError();
 
          bool modified =
-            OrderModify(
+            SafeOrderModify(
                OrderTicket(),
                OrderOpenPrice(),
                newStopLoss,
@@ -3082,7 +3552,7 @@ void ManageProfitLadder()
          ResetLastError();
 
          bool modified =
-            OrderModify(
+            SafeOrderModify(
                OrderTicket(),
                OrderOpenPrice(),
                newStopLoss,
