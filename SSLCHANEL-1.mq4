@@ -1072,6 +1072,7 @@ void ChangeLots(double OpenPL, string reason, int orderType,int stoplevelStep)
    // ALWAYS = 0.20
    //
    // BUY STOP / SELL STOP
+   
    //==================================================
    if(isSSLProfitReEntry)
      {
