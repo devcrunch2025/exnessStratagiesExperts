@@ -1069,7 +1069,7 @@ void ChangeLots(double OpenPL, string reason, int orderType,int stoplevelStep)
    // TYPE 1
    // SSL PROFIT RE-ENTRY
    //
-   // ALWAYS = 0.20
+   // ALWAYS = 0.10
    //
    // BUY STOP / SELL STOP
    
@@ -1079,7 +1079,8 @@ void ChangeLots(double OpenPL, string reason, int orderType,int stoplevelStep)
       // if(reEntryCounter>1)
       //    Lots = NormalizeLots(0.20);
       // else
-         Lots = NormalizeLots(0.20);   
+         Lots = NormalizeLots(0.10);   
+         
 
       Print("========================================");
       Print("SSL PROFIT RE-ENTRY");
