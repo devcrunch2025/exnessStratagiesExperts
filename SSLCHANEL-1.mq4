@@ -850,7 +850,7 @@ void OnTick()
    if(ShowSSLLines)
       UpdateSSLChannelOnTick();
    UpdateEMALineOnChart();
-   if(Bars >= SSLPeriod + 20 && GetTotalEAOrders() > 0 && !TradeResetThisTick)
+   if(Bars >= SSLPeriod + 20 && !TradeResetThisTick)
       CheckForProfitableClosedOrder(dailyState);
    if(EnableProfitLadder1 || EnableProfitLadder2)
       ManageProfitLadder();
@@ -1037,7 +1037,7 @@ void ChangeLots(double OpenPL, string reason, int orderType)
    //==================================================
    // MAX LOT LIMIT
    //==================================================
-   double MaxRecoveryLot = 0.10;
+   double MaxRecoveryLot = 0.05;
 
    //==================================================
    // OPPOSITE TYPE TOTAL LOTS
@@ -1096,7 +1096,7 @@ void ChangeLots(double OpenPL, string reason, int orderType)
    // SSL LONG / SSL SHORT
    //
    // WITH OPPOSITE ORDERS    = 0.04
-   // WITHOUT OPPOSITE ORDERS = 0.10
+   // WITHOUT OPPOSITE ORDERS = 0.05
    //==================================================
    else
       if(isSSLSignal)
@@ -1124,7 +1124,7 @@ void ChangeLots(double OpenPL, string reason, int orderType)
             //=========================================
             // SSL WITHOUT OPPOSITE ORDERS
             //=========================================
-            Lots = NormalizeLots(0.10);
+            Lots = NormalizeLots(0.05);
 
             Print("========================================");
             Print("SSL SIGNAL - NO OPPOSITE ORDERS");
@@ -2436,7 +2436,7 @@ void CheckForProfitableClosedOrder(DailyProtectionState &state)
    LastProcessedClosedTicket = latestTicket;
    LastProcessedClosedOrderTime = latestCloseTime;
 
-   if(latestProfit >= MinimumClosedProfitUSD)
+   if(latestProfit > 0.0)
      {
       Print("PROFITABLE ORDER CLOSED | Ticket: ", latestTicket, " | Direction: ", (latestType == OP_BUY ? "BUY" : "SELL"));
       Print("Close: ", DoubleToString(latestClosePrice, Digits), " | Profit: $", DoubleToString(latestProfit, 2));
