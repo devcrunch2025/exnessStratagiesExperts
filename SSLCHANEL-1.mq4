@@ -4,6 +4,13 @@
 //+------------------------------------------------------------------+
 #property strict
 
+// Date	Opening Balance	Day P/L	Closing Balance
+// Jul 01, 2026	$100.00	+$26.00	$126.00
+// Jul 02, 2026	$126.00	+$2.67	$128.67
+// Jul 03, 2026	$128.67	+$3.90	$132.57
+// Jul 04, 2026	$132.57	-$0.46	$132.12
+// Jul 05, 2026	$132.12	-$4.90	$127.22
+
 // ===== INPUT SETTINGS =====
 int SSLPeriod = 10;
 
@@ -78,6 +85,7 @@ bool EnableEquityLadder = true;
 // Re-entry after the increment is disabled by default.
 bool EnableLadderReEntryAfterIncrement = false;
 bool SkipSignalsAfterLadderIncrement = false;
+
 
 
 
