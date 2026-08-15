@@ -114,7 +114,7 @@ double OriginalDailyEquityTargetPercent =5;//10;//5;// 10;//2;//3;//1;//3;//10;/
 
 double OriginalDailyLossProtectionPercent =50;//20;//10;//20;//10;//80;// 30.0;
 
-bool ResetLadderEveryDay = true;
+bool ResetLadderEveryDay = false;
 int EquityLadderLevel = 1;
 double NextEquityTarget = 0;
 double LockedEquity = 0;
