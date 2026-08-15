@@ -44,7 +44,7 @@ bool DeleteOppositePendingOnSignal = true;
 bool EnableProfitReEntryStop = true;
 double MinimumClosedProfitUSD = -9;
 double ProfitReEntryGapRaw =25;//5;//20;// 5;
-double MinimumSameOrderGapRaw = 100;//10;//50;
+double MinimumSameOrderGapRaw =25;// 100;//10;//50;
 
 // ===== STOP-LOSS / RE-ENTRY SAFETY =====
 bool EnableSLProtection = false;
@@ -99,14 +99,14 @@ int MinimumClosedOrdersForDailyProtection =10;// 100;
 bool EnableEquityLadder = true;
 // Close all EA market + pending orders when the equity ladder increments.
 // Re-entry after the increment is disabled by default.
-bool EnableLadderReEntryAfterIncrement = false;
+bool EnableLadderReEntryAfterIncrement = true;
 bool SkipSignalsAfterLadderIncrement = false;
 
 
 
 
 
-double DailyEquityTargetPercent =100;//5;//2;//3;//5;//10;//5;// 10;//2;//3;//1;//3;//10;//Trading continue with 10% profit reccuring
+double DailyEquityTargetPercent =5;//5;//2;//3;//5;//10;//5;// 10;//2;//3;//1;//3;//10;//Trading continue with 10% profit reccuring
 double DailyLossProtectionPercent =50;//20;//10;//20;//50;//20;//10;//20;//100;//50;// 30.0;// Trading stops if equity drops below this percentage of the starting balance for the day
 bool EnableDynamicEquityLadder = true;////Trading continue with 10% profit reccuring
 double OriginalDailyEquityTargetPercent =5;//10;//5;// 10;//2;//3;//1;//3;//10;//Trading continue with 10% profit reccuring
@@ -183,12 +183,12 @@ datetime LastLiveSignalCandle = 1;//0;
 
 // Persistent request to start a fresh trade after an Equity Ladder reset.
 // It remains TRUE until a market order is successfully opened.
-bool EquityResetReEntryPending = false;
+bool EquityResetReEntryPending = true;
 
 //===============================================================
 // PROTECTED EQUITY RE-ENTRY DELAY
 //===============================================================
-bool ProtectedEquityWaitActive = false;
+bool ProtectedEquityWaitActive = true;
 datetime ProtectedEquityWaitStartTime = 0;
 int ProtectedEquityWaitMinutes =0;// 60;
 
@@ -1757,6 +1757,75 @@ bool ReducePendingOrderLotTo01()
 
    return true;
 }
+// Delete a pending order for equity-ladder/daily reset.
+// The global pending-order rule applies here too: pending orders
+// younger than 6 hours must remain active.
+bool ForceDeletePendingOrder(int ticket,color arrowColor)
+  {
+   int lastErr=0;
+
+   for(int attempt=1;attempt<=ServerRecoveryMaxRetries;attempt++)
+     {
+      if(!OrderSelect(ticket,SELECT_BY_TICKET,MODE_TRADES))
+         return true; // Already gone.
+
+      int type=OrderType();
+      if(type!=OP_BUYSTOP && type!=OP_SELLSTOP &&
+         type!=OP_BUYLIMIT && type!=OP_SELLLIMIT)
+         return false;
+
+      // ==========================================================
+      // GLOBAL PENDING-ORDER AGE RULE
+      // Pending orders may only be deleted after they are 6 hours
+      // old. This rule also applies to equity/daily basket closing.
+      // ==========================================================
+      int ageSeconds=(int)(TimeCurrent()-OrderOpenTime());
+
+      if(ageSeconds < 6*60*60)
+        {
+         Print("Pending order kept | Ticket=",ticket,
+               " | Age=",DoubleToString(ageSeconds/3600.0,2),
+               " hours | Required=6.00 hours");
+
+         // Do not report a broker/server error. The order is being
+         // intentionally retained by the 6-hour pending-order rule.
+         ResetLastError();
+         return false;
+        }
+
+      ResetLastError();
+
+      if(OrderDelete(ticket,arrowColor))
+         return true;
+
+      lastErr=GetLastError();
+      MarkServerError(lastErr,"ForceOrderDelete");
+
+      // The broker may have completed the delete even though MT4
+      // reported a communication error. Verify broker state.
+      if(!OrderSelect(ticket,SELECT_BY_TICKET,MODE_TRADES))
+         return true;
+
+      Print("ForceOrderDelete failed | Ticket=",ticket,
+            " | Attempt=",attempt,"/",ServerRecoveryMaxRetries,
+            " | Error=",lastErr);
+
+      if(!IsRetryableTradeError(lastErr))
+         break;
+
+      RefreshRates();
+      Sleep(ServerRecoveryRetryDelayMs);
+     }
+
+   // MQL4 has no SetLastError(). Log the final broker error here.
+   if(lastErr!=0)
+      Print("ForceOrderDelete final failure | Ticket=",ticket,
+            " | Error=",lastErr);
+
+   return false;
+  }
+
+
 bool SafeOrderDelete(int ticket,color arrowColor)
   {
    for(int attempt=1;attempt<=ServerRecoveryMaxRetries;attempt++)
@@ -1767,16 +1836,21 @@ bool SafeOrderDelete(int ticket,color arrowColor)
 
             int ageSeconds = (int)(TimeCurrent() - OrderOpenTime());
 
+            // Global rule: pending orders can only be deleted after 6 hours.
+            // Do not modify the pending order before this age check.
+            if(ageSeconds < 6*60*60)
+            {
+               Print("Pending order kept | Ticket=",ticket,
+                     " | Age=",DoubleToString(ageSeconds/3600.0,2),
+                     " hours | Required=6.00 hours");
+               ResetLastError();
+               return false;
+            }
+
             if(OrderLots()>0.02)
 {
-              ReducePendingOrderLotTo01();
+               ReducePendingOrderLotTo01();
 }
-      // Delete only if pending order is 1 hour or older
-      if(ageSeconds < 3600*6 && OrderLots()<=0.02)
-      {
-         return false;
-
-      }
 
       ResetLastError();
 
@@ -2391,15 +2465,15 @@ void ResetAfterProtectedEquity(DailyProtectionState &state)
    EquityLadderLevel++;
    // DailyLossProtectionPercent locked;
    // DailyLossProtectionPercent--;
-   if(EquityLadderLevel>1)
-     {
-      DailyEquityTargetPercent=OriginalDailyEquityTargetPercent/2;
-     }
-   else
-     {
-      DailyEquityTargetPercent=OriginalDailyEquityTargetPercent;
+   // if(EquityLadderLevel>1)
+   //   {
+   //    DailyEquityTargetPercent=OriginalDailyEquityTargetPercent/2;
+   //   }
+   // else
+   //   {
+   //    DailyEquityTargetPercent=OriginalDailyEquityTargetPercent;
 
-     }
+   //   }
 
    LockedEquity = newBalance;
 
@@ -2628,6 +2702,99 @@ void ProcessEquityResetReEntry(DailyProtectionState &state)
 //+------------------------------------------------------------------+
 //|                                                                  |
 //+------------------------------------------------------------------+
+
+//+------------------------------------------------------------------+
+//| Close market orders for Equity Ladder.                           |
+//| Pending orders follow the global 6-hour rule.                    |
+//| IMPORTANT: young pending orders do NOT block ladder increment.   |
+//+------------------------------------------------------------------+
+bool CloseMarketOrdersForEquityLadder()
+  {
+   bool allMarketsClosed=true;
+
+   for(int pass=1; pass<=10; pass++)
+     {
+      bool foundMarket=false;
+
+      RefreshRates();
+
+      for(int i=OrdersTotal()-1; i>=0; i--)
+        {
+         if(!OrderSelect(i,SELECT_BY_POS,MODE_TRADES))
+            continue;
+
+         if(OrderSymbol()!=Symbol() || OrderMagicNumber()!=MagicNumber)
+            continue;
+
+         int type=OrderType();
+
+         if(type==OP_BUY || type==OP_SELL)
+           {
+            foundMarket=true;
+
+            int ticket=OrderTicket();
+            double lots=OrderLots();
+
+            ResetLastError();
+
+            if(SafeOrderClose(ticket,lots,type,Slippage,
+                              (type==OP_SELL ? clrRed : clrBlue)))
+              {
+               Print("EQUITY LADDER MARKET CLOSED | Ticket=",ticket);
+              }
+            else
+              {
+               int err=GetLastError();
+               Print("EQUITY LADDER MARKET CLOSE FAILED | Ticket=",ticket,
+                     " | Error=",err);
+               allMarketsClosed=false;
+              }
+           }
+         else
+         if(type==OP_BUYSTOP || type==OP_SELLSTOP ||
+            type==OP_BUYLIMIT || type==OP_SELLLIMIT)
+           {
+            // Delete only when the pending order is at least 6 hours old.
+            int ageSeconds=(int)(TimeCurrent()-OrderOpenTime());
+
+            if(ageSeconds >= 6*60*60)
+              {
+               int ticket=OrderTicket();
+
+               if(ForceDeletePendingOrder(ticket,clrRed))
+                  Print("EQUITY LADDER PENDING DELETED | Ticket=",ticket);
+               else
+                  Print("EQUITY LADDER PENDING DELETE FAILED/SKIPPED | Ticket=",ticket);
+              }
+            else
+              {
+               Print("EQUITY LADDER PENDING KEPT | Ticket=",OrderTicket(),
+                     " | Age=",DoubleToString(ageSeconds/3600.0,2),
+                     " hours | Required=6.00 hours");
+              }
+           }
+        }
+
+      // Check specifically for remaining MARKET orders.
+      int remainingMarkets=GetTotalBuyOrders()+GetTotalSellOrders();
+
+      if(remainingMarkets==0)
+         return true;
+
+      allMarketsClosed=false;
+
+      if(foundMarket)
+        {
+         RefreshRates();
+         Sleep(300);
+        }
+     }
+
+   return (GetTotalBuyOrders()+GetTotalSellOrders()==0);
+  }
+
+//+------------------------------------------------------------------+
+
 void CheckDynamicEquityLadder(DailyProtectionState &state)
   {
 // Equity ladder disabled
@@ -2681,31 +2848,27 @@ void CheckDynamicEquityLadder(DailyProtectionState &state)
 //===============================================================
 // CLOSE ALL EA ORDERS
 //===============================================================
-   int retry = 0;
-
-   while(GetTotalEAOrders() > 0 && retry < 10)
-     {
-      RefreshRates();
-
-      CloseAllEAOrdersOnDailyLoss();
-
-      Sleep(300);
-
-      retry++;
-     }
+   // Close all MARKET orders now. Pending orders are handled by the
+   // global 6-hour rule and therefore do NOT block ladder progression.
+   bool marketsClosed = CloseMarketOrdersForEquityLadder();
 
 //===============================================================
-// VERIFY ALL ORDERS ARE CLOSED
+// VERIFY MARKET ORDERS ARE CLOSED
 //===============================================================
-   if(GetTotalEAOrders() > 0)
-     {
-      Print("EQUITY LADDER ERROR");
-      Print("Unable to close all EA orders.");
-      Print("Remaining Orders : ",
-            GetTotalEAOrders());
+   int remainingMarkets = GetTotalBuyOrders() + GetTotalSellOrders();
 
+   if(!marketsClosed || remainingMarkets > 0)
+     {
+      Print("EQUITY LADDER WAITING - MARKET ORDERS STILL OPEN");
+      Print("Remaining Market Orders : ", remainingMarkets);
       return;
      }
+
+   // Pending orders younger than 6 hours are intentionally allowed to
+   // remain active. They must NOT prevent EquityLadderLevel++.
+   int remainingEAOrders = GetTotalEAOrders();
+   Print("EQUITY LADDER MARKET ORDERS CLOSED | Remaining EA Orders (pending may remain): ",
+         remainingEAOrders);
 
 //===============================================================
 // IMPORTANT:
@@ -2817,15 +2980,39 @@ void CheckDynamicEquityLadder(DailyProtectionState &state)
 //===============================================================
 // LADDER INCREMENT COMPLETE
 // All market + pending EA orders were closed before the increment.
-// Prevent an immediate new order unless explicitly enabled.
+//
+// IMPORTANT:
+// When EnableDynamicEquityLadder=true, the EA must NOT wait for a
+// new SSL crossover or the next candle. Continue immediately using
+// the CURRENT SSL direction after EquityLadderLevel++.
 //===============================================================
-   TradeResetThisTick = true;
-
-   if(EnableLadderReEntryAfterIncrement)
+   if(EnableDynamicEquityLadder)
      {
-      // QueueEquityResetReEntry();
+      EquityResetReEntryPending = true;
+
+      // Reset candle/order guards because this is a NEW equity-ladder
+      // cycle and the current SSL direction is intentionally reused.
+      OrderCreatedThisCandle = false;
+      LastOrderCandleTime    = 0;
+
+      // Execute the current-SSL re-entry immediately on this tick.
+      // If the broker/server blocks the order, the pending flag remains
+      // true and ProcessEquityResetReEntry() retries on subsequent ticks.
+      ProcessEquityResetReEntry(state);
+     }
+   else
+     {
+      // Dynamic ladder re-entry is disabled.
+      TradeResetThisTick = true;
+
+      if(EnableLadderReEntryAfterIncrement)
+        {
+         // Optional legacy/manual re-entry mode.
+         // QueueEquityResetReEntry();
+        }
      }
   }
+
 //+------------------------------------------------------------------+
 //|                                                                  |
 //+------------------------------------------------------------------+
@@ -3002,74 +3189,77 @@ void CloseAllEAOrdersOnDailyLoss()
   {
    Print("Closing all EA orders...");
 
-   bool finished = false;
-   int retries = 0;
+   bool finished=false;
+   int retries=0;
 
-   if(GetTotalEAOrders() == 0)
+   if(GetTotalEAOrders()==0)
      {
       Print("No EA orders to close.");
       return;
      }
 
-   while(!finished && retries < 3)
+   while(!finished && retries<3)
      {
-      finished = true;
+      finished=true;
       RefreshRates();
 
-      for(int i = OrdersTotal() - 1; i >= 0; i--)
+      for(int i=OrdersTotal()-1; i>=0; i--)
         {
-         if(!OrderSelect(i, SELECT_BY_POS, MODE_TRADES))
+         if(!OrderSelect(i,SELECT_BY_POS,MODE_TRADES))
             continue;
 
-         if(OrderSymbol() != Symbol())
+         if(OrderSymbol()!=Symbol() ||
+            OrderMagicNumber()!=MagicNumber)
             continue;
 
-         if(OrderMagicNumber() != MagicNumber)
-            continue;
+         int ticket=OrderTicket();
+         int type=OrderType();
+         bool result=false;
+         int lastErr=0;
 
-         int type = OrderType();
-         bool result = false;
-
-         switch(type)
+         if(type==OP_BUY || type==OP_SELL)
            {
-            case OP_BUY:
-               result = SafeOrderClose(
-                           OrderTicket(),
-                           OrderLots(),
-                           OP_BUY,
-                           Slippage,
-                           clrRed);
-               break;
+            double lots=OrderLots();
 
-            case OP_SELL:
-               result = SafeOrderClose(
-                           OrderTicket(),
-                           OrderLots(),
-                           OP_SELL,
-                           Slippage,
-                           clrBlue);
-               break;
+            ResetLastError();
+            result=SafeOrderClose(ticket,lots,type,Slippage,
+                                  (type==OP_SELL ? clrRed : clrBlue));
 
-            case OP_BUYSTOP:
-            case OP_SELLSTOP:
-            case OP_BUYLIMIT:
-            case OP_SELLLIMIT:
-               result = SafeOrderDelete(
-                           OrderTicket(),
-                           clrRed);
-               break;
+            if(!result)
+               lastErr=GetLastError();
+           }
+         else
+         if(type==OP_BUYSTOP || type==OP_SELLSTOP ||
+            type==OP_BUYLIMIT || type==OP_SELLLIMIT)
+           {
+            // IMPORTANT:
+            // Apply the same global 6-hour pending-order rule here.
+            // Young pending orders remain active until they reach 6 hours.
+            ResetLastError();
+            result=ForceDeletePendingOrder(ticket,clrRed);
+
+            if(!result)
+               lastErr=GetLastError();
+           }
+         else
+           {
+            // Unknown order type: treat it as already handled.
+            result=true;
            }
 
          if(!result)
            {
-            int err = GetLastError();
+            finished=false;
 
-            Print("Failed Ticket ",
-                  OrderTicket(),
-                  " Error=",
-                  err);
+            Print("Failed Ticket ",ticket,
+                  " Error=",lastErr,
+                  " Type=",type);
 
-            finished = false;
+            // If there was no MT4 error, explain why rather than
+            // misleadingly printing only Error=0.
+            if(lastErr==0)
+               Print("Close/Delete returned false without an MT4 error. ",
+                     "Order remains open/pending; will retry.");
            }
         }
 
@@ -3082,24 +3272,22 @@ void CloseAllEAOrdersOnDailyLoss()
 
    RefreshRates();
 
-   int remain = 0;
+   int remain=0;
 
-   for(int i = OrdersTotal() - 1; i >= 0; i--)
+   for(int i=OrdersTotal()-1; i>=0; i--)
      {
-      if(!OrderSelect(i, SELECT_BY_POS, MODE_TRADES))
+      if(!OrderSelect(i,SELECT_BY_POS,MODE_TRADES))
          continue;
 
-      if(OrderSymbol() == Symbol() &&
-         OrderMagicNumber() == MagicNumber)
-        {
+      if(OrderSymbol()==Symbol() &&
+         OrderMagicNumber()==MagicNumber)
          remain++;
-        }
      }
 
    Print("----------------------------------------");
-   Print("Remaining EA Orders : ", remain);
+   Print("Remaining EA Orders : ",remain);
 
-   if(remain == 0)
+   if(remain==0)
       Print("ALL EA ORDERS CLOSED SUCCESSFULLY");
    else
       Print("WARNING : Some orders could not be closed.");
