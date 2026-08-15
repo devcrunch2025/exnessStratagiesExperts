@@ -94,7 +94,7 @@ double ProtectionLossUSD = 50.0;
 double Day1ProtectionStartBalance = 0.0;
 datetime Day1ProtectionDate = 0;
 bool ResetDailyProtectionEveryDay = false;
-bool CloseOpenOrdersOnDailyLoss = true;
+bool CloseOpenOrdersOnDailyLoss = false;
 int MinimumClosedOrdersForDailyProtection =10;// 100;
 bool EnableEquityLadder = true;
 // Close all EA market + pending orders when the equity ladder increments.
@@ -1305,7 +1305,16 @@ void DeleteAllPendingEAOrders()
       if(OrderSymbol()!=Symbol() || OrderMagicNumber()!=MagicNumber) continue;
       int type=OrderType();
       if(type==OP_BUYSTOP || type==OP_SELLSTOP || type==OP_BUYLIMIT || type==OP_SELLLIMIT)
+      {
+ // Pending order age
+      // int ageSeconds = (int)(TimeCurrent() - OrderOpenTime());
+      // // Delete only if pending order is 1 hour or older
+      // if(ageSeconds >= 3600)
+      {
          SafeOrderDelete(OrderTicket(),clrRed);
+      }
+
+      }
      }
   }
 
@@ -1667,13 +1676,107 @@ bool SafeOrderModify(int ticket,double openPrice,double stopLoss,
      }
    return false;
   }
+bool ReducePendingOrderLotTo01()
+{
+   int ticket = OrderTicket();
 
+   if(ticket <= 0)
+      return false;
+
+   int type = OrderType();
+
+   // Only pending orders
+   if(type != OP_BUYLIMIT &&
+      type != OP_SELLLIMIT &&
+      type != OP_BUYSTOP &&
+      type != OP_SELLSTOP)
+      return false;
+
+   double oldLot       = OrderLots();
+   double openPrice    = OrderOpenPrice();
+   double stopLoss     = OrderStopLoss();
+   double takeProfit   = OrderTakeProfit();
+   datetime expiration = OrderExpiration();
+   string comment      = OrderComment();
+
+   // Only reduce orders greater than 0.02
+   if(oldLot <= 0.02)
+      return true;
+
+   double newLot = 0.01;
+
+   Print("REDUCING PENDING LOT | Ticket=", ticket,
+         " | OldLot=", DoubleToString(oldLot, 2),
+         " | NewLot=", DoubleToString(newLot, 2),
+         " | Price=", DoubleToString(openPrice, Digits),
+         " | SL=", DoubleToString(stopLoss, Digits),
+         " | TP=", DoubleToString(takeProfit, Digits));
+
+   // Delete original pending order
+   ResetLastError();
+
+   if(!OrderDelete(ticket, clrLimeGreen))
+   {
+      Print("REDUCE LOT FAILED - DELETE | Ticket=", ticket,
+            " | Error=", GetLastError());
+
+      return false;
+   }
+
+   RefreshRates();
+
+   // Recreate with 0.01 lot using all existing order parameters
+   ResetLastError();
+
+   int newTicket = OrderSend(
+      Symbol(),
+      type,
+      newLot,
+      openPrice,
+      0,
+      stopLoss,
+      takeProfit,
+      comment,
+      MagicNumber,
+      expiration,
+      clrLimeGreen
+   );
+
+   if(newTicket < 0)
+   {
+      Print("REDUCE LOT FAILED - RECREATE | OldTicket=", ticket,
+            " | Error=", GetLastError());
+
+      return false;
+   }
+
+   Print("PENDING LOT REDUCED SUCCESSFULLY | OldTicket=", ticket,
+         " | NewTicket=", newTicket,
+         " | OldLot=", DoubleToString(oldLot, 2),
+         " | NewLot=0.01");
+
+   return true;
+}
 bool SafeOrderDelete(int ticket,color arrowColor)
   {
    for(int attempt=1;attempt<=ServerRecoveryMaxRetries;attempt++)
      {
       if(!OrderSelect(ticket,SELECT_BY_TICKET,MODE_TRADES))
          return true;
+
+
+            int ageSeconds = (int)(TimeCurrent() - OrderOpenTime());
+
+            if(OrderLots()>0.02)
+{
+              ReducePendingOrderLotTo01();
+}
+      // Delete only if pending order is 1 hour or older
+      if(ageSeconds < 3600*6 && OrderLots()<=0.02)
+      {
+         return false;
+
+      }
 
       ResetLastError();
 
@@ -3190,12 +3293,12 @@ void CreateProfitReEntryStop(int closedOrderType, double closedPrice, DailyProte
    int pendingType = (closedOrderType == OP_BUY) ? OP_BUYSTOP : OP_SELLSTOP;
    color orderColor = (closedOrderType == OP_BUY) ? BuyColor : SellColor;
    string orderComment = (closedOrderType == OP_BUY) ? "SSL Profit ReEntry Buy Stop" : "SSL Profit ReEntry Sell Stop";
-   if(HasPendingProfitReEntry(pendingType))
-     {
-      ReEntryRetryPending=false;
-      Print("PROFIT RE-ENTRY SKIPPED | Existing pending ReEntry already present");
-      return;
-     }
+   // if(HasPendingProfitReEntry(pendingType))
+   //   {
+   //    ReEntryRetryPending=false;
+   //    Print("PROFIT RE-ENTRY SKIPPED | Existing pending ReEntry already present");
+   //    return;
+   //   }
 
 
    double minimumGap = GetRequiredStopDistance();
@@ -3503,7 +3606,7 @@ void ManageProfitLadder()
 
          if(orderLots == 0.10)
          {
-            ladder1Profit =0.05;// ladder1Profit/2;
+            ladder1Profit =0.10;// ladder1Profit/2;
          }
 
       double ladder2Profit =
