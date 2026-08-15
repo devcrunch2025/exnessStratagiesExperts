@@ -106,7 +106,7 @@ bool SkipSignalsAfterLadderIncrement = false;
 
 
 
-double DailyEquityTargetPercent =5;//5;//2;//3;//5;//10;//5;// 10;//2;//3;//1;//3;//10;//Trading continue with 10% profit reccuring
+double DailyEquityTargetPercent =5;//5;//5;//2;//3;//5;//10;//5;// 10;//2;//3;//1;//3;//10;//Trading continue with 10% profit reccuring
 double DailyLossProtectionPercent =50;//20;//10;//20;//50;//20;//10;//20;//100;//50;// 30.0;// Trading stops if equity drops below this percentage of the starting balance for the day
 bool EnableDynamicEquityLadder = true;////Trading continue with 10% profit reccuring
 double OriginalDailyEquityTargetPercent =5;//10;//5;// 10;//2;//3;//1;//3;//10;//Trading continue with 10% profit reccuring
@@ -2471,7 +2471,7 @@ void ResetAfterProtectedEquity(DailyProtectionState &state)
    //   }
    // else
    //   {
-   //    DailyEquityTargetPercent=OriginalDailyEquityTargetPercent;
+      DailyEquityTargetPercent=OriginalDailyEquityTargetPercent;
 
    //   }
 
@@ -2909,15 +2909,15 @@ void CheckDynamicEquityLadder(DailyProtectionState &state)
 
    DailyProtectionStartTime = TimeCurrent();
 
-   if(EquityLadderLevel>1)
-     {
-      DailyEquityTargetPercent=OriginalDailyEquityTargetPercent/2;
-     }
-   else
-     {
-      DailyEquityTargetPercent=OriginalDailyEquityTargetPercent;
+   // if(EquityLadderLevel>1)
+   //   {
+   //    DailyEquityTargetPercent=OriginalDailyEquityTargetPercent/2;
+   //   }
+   // else
+   //   {
+       DailyEquityTargetPercent=OriginalDailyEquityTargetPercent;
 
-     }
+   //   }
 
 //===============================================================
 // RESET TRADE / RECOVERY STATE
