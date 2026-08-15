@@ -3469,6 +3469,9 @@ void ManageProfitLadder()
          orderType != OP_SELL)
          continue;
 
+
+
+
       //==================================================
       // CURRENT ORDER PROFIT
       //==================================================
@@ -3495,6 +3498,12 @@ void ManageProfitLadder()
       double ladder1Profit =
          OriginalLadder1ProfitUSD *
          orderLots * 100.0;
+
+
+         if(orderLots == 0.10)
+         {
+            ladder1Profit =0.05;// ladder1Profit/2;
+         }
 
       double ladder2Profit =
          OriginalLadder2ProfitUSD *
@@ -4401,7 +4410,7 @@ void UpdateLeftLiveOrdersDashboard()
      }
 
    int x=LeftDashboardX,y=LeftDashboardY,tx=x+12;
-   int width=LeftDashboardWidth;
+   int width=LeftDashboardWidth+40;
    int panelHeight=rows*20+132;
    color pnlColor=netPL>0?clrLime:netPL<0?clrTomato:clrWhite;
 
