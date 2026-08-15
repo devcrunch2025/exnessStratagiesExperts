@@ -3105,7 +3105,8 @@ void CheckForProfitableClosedOrder(DailyProtectionState &state)
    // Profit AND loss now continue the same ReEntry cycle.
    if(EnableProfitReEntryStop && !IsDailyTradingStopped(state))
      {
-      CreateProfitReEntryStop(latestType, latestClosePrice, state);
+      // After a losing/stop-loss close, same-direction re-entry must use the base lot 0.01.
+      CreateProfitReEntryStop(latestType, latestClosePrice, state, (latestProfit < 0.0));
       return;
      }
 
@@ -3149,7 +3150,7 @@ bool HasPendingProfitReEntry(int pendingType)
    return false;
   }
 
-void CreateProfitReEntryStop(int closedOrderType, double closedPrice, DailyProtectionState &state)
+void CreateProfitReEntryStop(int closedOrderType, double closedPrice, DailyProtectionState &state, bool afterStopLoss=false)
   {
    if(!EnableTrading || !EnableProfitReEntryStop || IsDailyTradingStopped(state))
       return;
@@ -3206,10 +3207,22 @@ void CreateProfitReEntryStop(int closedOrderType, double closedPrice, DailyProte
    entryPrice = NormalizeDouble(entryPrice, Digits);
 
    ResetLastError();
-   if(pendingType == OP_BUYSTOP)
-      ChangeLots(GetOpenPL(OP_SELL), "SSL Profit ReEntry Buy Stop", OP_BUY,0);
+   if(afterStopLoss)
+     {
+      // A stop-loss must NOT escalate the re-entry sequence.
+      // Same-direction order after SL is always the base 0.01 lot.
+      Lots = NormalizeLots(0.01);
+      Print("SL RE-ENTRY LOT FIXED | Direction=",
+            (closedOrderType==OP_BUY ? "BUY" : "SELL"),
+            " | Lot=",DoubleToString(Lots,2));
+     }
    else
-      ChangeLots(GetOpenPL(OP_BUY), "SSL Profit ReEntry Sell Stop", OP_SELL,0);
+     {
+      if(pendingType == OP_BUYSTOP)
+         ChangeLots(GetOpenPL(OP_SELL), "SSL Profit ReEntry Buy Stop", OP_BUY,0);
+      else
+         ChangeLots(GetOpenPL(OP_BUY), "SSL Profit ReEntry Sell Stop", OP_SELL,0);
+     }
 
    // Do NOT increment here. A failed send must keep the same ReEntry number.
    int requestedReEntryNumber = reEntryCounter + 1;
@@ -3248,6 +3261,8 @@ void CreateProfitReEntryStop(int closedOrderType, double closedPrice, DailyProte
       ReEntryRetryPending=false;
 
       Print("PROFIT RE-ENTRY CREATED | ReEntry #",reEntryCounter,
+            " | SL-ReEntry=",afterStopLoss?"YES":"NO",
+            " | Lot=",DoubleToString(Lots,2),
             " | Lot=",DoubleToString(Lots,2),
             " | Ticket: ", ticket);
      }
