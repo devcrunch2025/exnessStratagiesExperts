@@ -44,6 +44,21 @@ bool EnableProfitReEntryStop = true;
 double MinimumClosedProfitUSD = -9;
 double ProfitReEntryGapRaw =25;//5;//20;// 5;
 double MinimumSameOrderGapRaw = 100;//10;//50;
+
+// ===== STOP-LOSS / RE-ENTRY SAFETY =====
+bool EnableSLProtection = false;
+int MaxSameDirectionOrders = 3;
+int MaxConsecutiveLosingSL = 2;
+int SLCooldownCandles = 3;
+double SLReEntryGapRaw = 50.0;
+double BasketNewOrderLossLimitUSD = 7.50;
+int SLProtectionSafetyBufferPoints = 2;
+bool DeletePendingOrdersAfterLosingSL = true;
+bool RequireFreshSSLAfterLosingSL = true;
+bool ContinueTradingAfterSL = true; // Continue normal signal trading after any losing SL; risk limits remain active
+bool EnableFreezeLevelProtection = true;
+double MinimumSLModifyGapRaw = 2.0;
+
 bool EnableProfitLadder1 = true;
 
 
@@ -513,6 +528,12 @@ int OnInit()
          " | Mode: ", InpEMAPriceShift == 0 ? "LIVE" : "CLOSED CANDLE");
    Print("Daily Protection: ", EnableDailyLossProtection ? "ON" : "OFF", " | Ladder 1: ", EnableProfitLadder1 ? "ON" : "OFF");
    Print("Ladder 1 Step: $", DoubleToString(Ladder1ProfitUSD, 2), " | Ladder 2 Step: $", DoubleToString(Ladder2ProfitUSD, 2));
+   Print("Continue After SL: ",ContinueTradingAfterSL?"YES":"NO");
+   Print("SL Protection: ",EnableSLProtection?"ON":"OFF",
+         " | MaxSameDirection=",MaxSameDirectionOrders,
+         " | MaxConsecutiveLossSL=",MaxConsecutiveLosingSL,
+         " | CooldownCandles=",SLCooldownCandles,
+         " | BasketLossLimit=$",DoubleToString(BasketNewOrderLossLimitUSD,2));
    Print("=========================================================");
 
    DeleteOurObjects();
@@ -526,6 +547,8 @@ int OnInit()
 
    DailyProtectionStartTime = TimeCurrent();
    InitializeLastProcessedClosedOrder();
+   // Do not treat an old historical loss as a new SL event immediately after restart.
+   LastProtectedLossTicket = LastProcessedClosedTicket;
    LoadReEntryCounter();
    return INIT_SUCCEEDED;
   }
@@ -840,6 +863,8 @@ void OnTick()
 // Day-1 capital protection check.
    UpdateDailyLossProtection(dailyState);
 
+   CheckLatestClosedTradeProtection();
+
 //===============================================================
 // PROTECTED EQUITY WAIT - NO NEW TRADING DURING COOLDOWN
 //===============================================================
@@ -915,6 +940,8 @@ void OnTick()
 
          Print("LIVE SSL CROSS -> BUY | CURRENT FORMING CANDLE");
 
+         if(FreshSSLRequiredDirection == -1) FreshSSLRequiredDirection = 0;
+
          if(DeleteOppositePendingOnSignal)
             DeleteOppositePendingOrders(OP_BUY);
          if(CloseOppositeOrdersOnSignal)
@@ -942,6 +969,8 @@ void OnTick()
             LastLiveSSLDirection = -1;
 
             Print("LIVE SSL CROSS -> SELL | CURRENT FORMING CANDLE");
+
+            if(FreshSSLRequiredDirection == 1) FreshSSLRequiredDirection = 0;
 
             if(DeleteOppositePendingOnSignal)
                DeleteOppositePendingOrders(OP_SELL);
@@ -1061,13 +1090,27 @@ bool ReEntryRetryPending = false;
 int ReEntryRetryClosedType = -1;
 double ReEntryRetryClosedPrice = 0.0;
 
+int LosingSLCount = 0;
+int LastProtectedLossTicket = -1;
+int BlockedSLDirection = 0;
+int FreshSSLRequiredDirection = 0;
+datetime SLProtectionUntil = 0;
+
 
 // Return the lot required for a successful ReEntry number.
 // #1 = 0.01, #2 = 0.10, #3 = 0.09 ... #10 = 0.02, #11+ = 0.01.
 double GetReEntryLot(int reEntryNumber)
   {
-   if(reEntryNumber <= 1)
+   if(reEntryNumber <=1)
       return NormalizeLots(0.01);
+
+     // if(reEntryNumber <= 10)
+      return NormalizeLots(0.10);
+
+      //  if(reEntryNumber > 5)
+      // return NormalizeLots(0.01);
+
+
 
    double lot = 0.12 - (reEntryNumber * 0.01);
    if(lot < 0.01)
@@ -1141,6 +1184,174 @@ bool IsRetryableTradeError(int err)
          return true;
      }
    return false;
+  }
+
+bool IsInvalidStopError(int err)
+  {
+   return (err == 130);
+  }
+
+double GetRequiredStopDistance()
+  {
+   double stopPts = MarketInfo(Symbol(),MODE_STOPLEVEL);
+   double freezePts = 0.0;
+   if(EnableFreezeLevelProtection)
+      freezePts = MarketInfo(Symbol(),MODE_FREEZELEVEL);
+   double requiredPts = MathMax(stopPts,freezePts) + SLProtectionSafetyBufferPoints;
+   if(requiredPts < 1.0) requiredPts = 1.0;
+   return requiredPts * Point;
+  }
+
+bool PrepareStopLossForOrder(int orderType,double referencePrice,double &stopLoss)
+  {
+   if(stopLoss <= 0.0) return true;
+   RefreshRates();
+   double minDistance=GetRequiredStopDistance();
+   if(orderType==OP_BUY || orderType==OP_BUYSTOP)
+     {
+      double maxSL=Bid-minDistance;
+      if(orderType==OP_BUYSTOP) maxSL=MathMin(maxSL,referencePrice-minDistance);
+      if(maxSL<=0.0) return false;
+      if(stopLoss>maxSL) stopLoss=maxSL;
+     }
+   else if(orderType==OP_SELL || orderType==OP_SELLSTOP)
+     {
+      double minSL=Ask+minDistance;
+      if(orderType==OP_SELLSTOP) minSL=MathMax(minSL,referencePrice+minDistance);
+      if(minSL<=0.0) return false;
+      if(stopLoss<minSL) stopLoss=minSL;
+     }
+   else return true;
+   stopLoss=NormalizeDouble(stopLoss,Digits);
+   if(orderType==OP_BUY || orderType==OP_BUYSTOP)
+     {
+      if(stopLoss<=0.0 || stopLoss>=Bid) return false;
+      if(orderType==OP_BUYSTOP && stopLoss>=referencePrice) return false;
+     }
+   else
+     {
+      if(stopLoss<=Ask) return false;
+      if(orderType==OP_SELLSTOP && stopLoss<=referencePrice) return false;
+     }
+   return true;
+  }
+
+bool IsDirectionBlockedAfterSL(int orderType)
+  {
+   // User setting: a stop-loss must NOT stop normal trading.
+   // Other safety limits (basket loss / max orders / server recovery) remain active.
+   if(ContinueTradingAfterSL) return false;
+   if(!EnableSLProtection) return false;
+   int dir=(orderType==OP_BUY)?1:-1;
+   if(SLProtectionUntil>TimeCurrent() && BlockedSLDirection==dir) return true;
+   if(RequireFreshSSLAfterLosingSL && FreshSSLRequiredDirection==dir) return true;
+   return false;
+  }
+
+bool HasBasketNewOrderLossLimit()
+  {
+   if(!EnableSLProtection || BasketNewOrderLossLimitUSD<=0.0) return false;
+   double basket=0.0;
+   for(int i=OrdersTotal()-1;i>=0;i--)
+     {
+      if(!OrderSelect(i,SELECT_BY_POS,MODE_TRADES)) continue;
+      if(OrderSymbol()!=Symbol() || OrderMagicNumber()!=MagicNumber) continue;
+      if(OrderType()!=OP_BUY && OrderType()!=OP_SELL) continue;
+      basket += OrderProfit()+OrderSwap()+OrderCommission();
+     }
+   return basket<=-BasketNewOrderLossLimitUSD;
+  }
+
+int CountDirectionOrders(int orderType)
+  {
+   int count=0;
+   for(int i=OrdersTotal()-1;i>=0;i--)
+     {
+      if(!OrderSelect(i,SELECT_BY_POS,MODE_TRADES)) continue;
+      if(OrderSymbol()==Symbol() && OrderMagicNumber()==MagicNumber && OrderType()==orderType) count++;
+     }
+   return count;
+  }
+
+bool IsSafeToCreateMarketOrder(int orderType)
+  {
+   if(!EnableSLProtection) return true;
+   if(!IsConnected()) return false;
+   if(HasBasketNewOrderLossLimit())
+     {
+      Print("NEW ORDER BLOCKED | Basket floating loss limit reached");
+      return false;
+     }
+   if(MaxSameDirectionOrders>0 && CountDirectionOrders(orderType)>=MaxSameDirectionOrders)
+     {
+      Print("NEW ORDER BLOCKED | Max same-direction orders reached | Direction=",orderType);
+      return false;
+     }
+   if(IsDirectionBlockedAfterSL(orderType))
+     {
+      Print("NEW ORDER BLOCKED | Losing-SL protection | Direction=",orderType,
+            " | LosingSLCount=",LosingSLCount);
+      return false;
+     }
+   return true;
+  }
+
+void DeleteAllPendingEAOrders()
+  {
+   for(int i=OrdersTotal()-1;i>=0;i--)
+     {
+      if(!OrderSelect(i,SELECT_BY_POS,MODE_TRADES)) continue;
+      if(OrderSymbol()!=Symbol() || OrderMagicNumber()!=MagicNumber) continue;
+      int type=OrderType();
+      if(type==OP_BUYSTOP || type==OP_SELLSTOP || type==OP_BUYLIMIT || type==OP_SELLLIMIT)
+         SafeOrderDelete(OrderTicket(),clrRed);
+     }
+  }
+
+void RegisterLosingSLProtection(int ticket,int orderType,double profit)
+  {
+   if(!EnableSLProtection || ticket<=0 || profit>=0.0 || ticket==LastProtectedLossTicket) return;
+   LastProtectedLossTicket=ticket;
+   LosingSLCount++;
+   BlockedSLDirection=(orderType==OP_BUY)?1:-1;
+   FreshSSLRequiredDirection=BlockedSLDirection;
+   SLProtectionUntil=TimeCurrent()+MathMax(0,SLCooldownCandles)*Period()*60;
+   Print("LOSING TRADE PROTECTION | Ticket=",ticket,
+         " | Direction=",(orderType==OP_BUY?"BUY":"SELL"),
+         " | Loss=$",DoubleToString(profit,2),
+         " | ConsecutiveLosses=",LosingSLCount,
+         " | CooldownUntil=",TimeToString(SLProtectionUntil,TIME_DATE|TIME_SECONDS));
+   if(DeletePendingOrdersAfterLosingSL && !ContinueTradingAfterSL) DeleteAllPendingEAOrders();
+  }
+
+void RegisterProfitableClose()
+  {
+   LosingSLCount=0;
+   BlockedSLDirection=0;
+   SLProtectionUntil=0;
+  }
+
+void CheckLatestClosedTradeProtection()
+  {
+   if(!EnableSLProtection) return;
+   datetime latest=0; int ticket=-1,type=-1; double profit=0.0;
+   for(int i=OrdersHistoryTotal()-1;i>=0;i--)
+     {
+      if(!OrderSelect(i,SELECT_BY_POS,MODE_HISTORY)) continue;
+      if(OrderSymbol()!=Symbol() || OrderMagicNumber()!=MagicNumber) continue;
+      if(OrderType()!=OP_BUY && OrderType()!=OP_SELL) continue;
+      if(OrderCloseTime()>latest)
+        {
+         latest=OrderCloseTime(); ticket=OrderTicket(); type=OrderType();
+         profit=OrderProfit()+OrderSwap()+OrderCommission();
+        }
+     }
+   if(ticket<0) return;
+   static int lastSeenProtectionTicket=-1;
+   if(ticket==lastSeenProtectionTicket) return;
+   lastSeenProtectionTicket=ticket;
+   if(profit<0.0) RegisterLosingSLProtection(ticket,type,profit);
+   else if(profit>0.0) RegisterProfitableClose();
   }
 
 void MarkServerError(int err,string operation)
@@ -1229,10 +1440,10 @@ bool ProcessServerRecovery(DailyProtectionState &state)
 
    if(IsTradeEnvironmentHealthy())
      {
-      Print("SERVER RECOVERY TEST PASSED | Trading environment is normal");
+      Print("SERVER RECOVERY TEST PASSED | Trading environment is normal | Current tick skipped for safety");
       ServerRecoveryPending=false;
       ServerRecoveryLastError=0;
-      return false;
+      return true;
      }
 
    Print("SERVER RECOVERY TEST FAILED | Resetting EA runtime state");
@@ -1299,9 +1510,18 @@ int SafeOrderSend(string symbol,int orderType,double lots,double price,
 
       sendPrice=NormalizeDouble(sendPrice,Digits);
 
+      double safeSL=stopLoss;
+      if(safeSL>0.0 && !PrepareStopLossForOrder(orderType,sendPrice,safeSL))
+        {
+         Print("OrderSend BLOCKED | Invalid/unsafe initial SL | Type=",orderType,
+               " | Price=",DoubleToString(sendPrice,Digits),
+               " | RequestedSL=",DoubleToString(stopLoss,Digits));
+         return -1;
+        }
+
       ResetLastError();
       ticket=OrderSend(symbol,orderType,lots,sendPrice,slippage,
-                       stopLoss,takeProfit,comment,magic,0,arrowColor);
+                       safeSL,takeProfit,comment,magic,0,arrowColor);
 
       if(ticket>0)
          return ticket;
@@ -1382,47 +1602,68 @@ bool SafeOrderClose(int ticket,double lots,int orderType,int slippage,color arro
    return false;
   }
 
-// Safe OrderModify with retry and post-error verification.
+// Safe OrderModify with strict SL validation and error classification.
 bool SafeOrderModify(int ticket,double openPrice,double stopLoss,
                      double takeProfit,datetime expiration,color arrowColor)
   {
    for(int attempt=1;attempt<=ServerRecoveryMaxRetries;attempt++)
      {
-      if(!OrderSelect(ticket,SELECT_BY_TICKET,MODE_TRADES))
-         return false;
-
+      if(!OrderSelect(ticket,SELECT_BY_TICKET,MODE_TRADES)) return false;
+      int orderType=OrderType();
       RefreshRates();
-      ResetLastError();
-
-      if(OrderModify(ticket,openPrice,stopLoss,takeProfit,expiration,arrowColor))
-         return true;
-
-      int err=GetLastError();
-      MarkServerError(err,"OrderModify");
-
-      // If the requested SL/TP is already on the broker, the modification
-      // succeeded even though MT4 returned an error.
-      if(OrderSelect(ticket,SELECT_BY_TICKET,MODE_TRADES))
+      double requestedSL=stopLoss;
+      if(requestedSL>0.0)
         {
-         bool slOK=(stopLoss<=0 ||
-                    MathAbs(OrderStopLoss()-stopLoss)<=Point);
-         bool tpOK=(takeProfit<=0 ||
-                    MathAbs(OrderTakeProfit()-takeProfit)<=Point);
+         if(!PrepareStopLossForOrder(orderType,OrderOpenPrice(),requestedSL))
+           {
+            Print("OrderModify BLOCKED | Unsafe SL | Ticket=",ticket,
+                  " | RequestedSL=",DoubleToString(stopLoss,Digits),
+                  " | Bid=",DoubleToString(Bid,Digits),
+                  " | Ask=",DoubleToString(Ask,Digits));
+            return false;
+           }
 
-         if(slOK && tpOK)
-            return true;
+         // Never move an existing protective SL backwards just because the
+         // market retraced while the broker's stop/freeze distance changed.
+         if(orderType==OP_BUY && OrderStopLoss()>0.0 && requestedSL<=OrderStopLoss())
+            return false;
+         if(orderType==OP_SELL && OrderStopLoss()>0.0 && requestedSL>=OrderStopLoss())
+            return false;
+        }
+      bool sameSL=(requestedSL<=0.0 && OrderStopLoss()<=0.0) ||
+                  (requestedSL>0.0 && MathAbs(OrderStopLoss()-requestedSL)<=MinimumSLModifyGapRaw*Point);
+      bool sameTP=(takeProfit<=0.0 && OrderTakeProfit()<=0.0) ||
+                  (takeProfit>0.0 && MathAbs(OrderTakeProfit()-takeProfit)<=Point);
+      if(sameSL && sameTP) return true;
+
+      ResetLastError();
+      if(OrderModify(ticket,openPrice,requestedSL,takeProfit,expiration,arrowColor)) return true;
+      int err=GetLastError();
+
+      if(err==130)
+        {
+         Print("OrderModify INVALID SL | Ticket=",ticket,
+               " | RequestedSL=",DoubleToString(requestedSL,Digits),
+               " | Bid=",DoubleToString(Bid,Digits),
+               " | Ask=",DoubleToString(Ask,Digits),
+               " | StopLevelPts=",DoubleToString(MarketInfo(Symbol(),MODE_STOPLEVEL),0),
+               " | FreezeLevelPts=",DoubleToString(MarketInfo(Symbol(),MODE_FREEZELEVEL),0));
+         return false;
         }
 
+      MarkServerError(err,"OrderModify");
+      if(OrderSelect(ticket,SELECT_BY_TICKET,MODE_TRADES))
+        {
+         bool slOK=(requestedSL<=0.0 || MathAbs(OrderStopLoss()-requestedSL)<=MinimumSLModifyGapRaw*Point);
+         bool tpOK=(takeProfit<=0.0 || MathAbs(OrderTakeProfit()-takeProfit)<=Point);
+         if(slOK && tpOK) return true;
+        }
       Print("OrderModify failed | Ticket=",ticket,
             " | Attempt=",attempt,"/",ServerRecoveryMaxRetries,
             " | Error=",err);
-
-      if(!IsRetryableTradeError(err))
-         return false;
-
+      if(!IsRetryableTradeError(err)) return false;
       Sleep(ServerRecoveryRetryDelayMs);
      }
-
    return false;
   }
 
@@ -2912,9 +3153,32 @@ void CreateProfitReEntryStop(int closedOrderType, double closedPrice, DailyProte
   {
    if(!EnableTrading || !EnableProfitReEntryStop || IsDailyTradingStopped(state))
       return;
+   if(ServerRecoveryPending || !IsConnected())
+     {
+      ReEntryRetryPending=true;
+      ReEntryRetryClosedType=closedOrderType;
+      ReEntryRetryClosedPrice=closedPrice;
+      Print("PROFIT RE-ENTRY BLOCKED | Server recovery/connection not healthy");
+      return;
+     }
+   if(HasBasketNewOrderLossLimit())
+     {
+      Print("PROFIT RE-ENTRY BLOCKED | Basket floating loss limit reached");
+      return;
+     }
+   if(IsDirectionBlockedAfterSL(closedOrderType))
+     {
+      Print("PROFIT RE-ENTRY BLOCKED | Losing-SL protection | Direction=",closedOrderType);
+      return;
+     }
    if(GetTotalEAOrders() >= MaxOpenOrders)
      {
       Print("PROFIT RE-ENTRY BLOCKED | MAX ORDERS");
+      return;
+     }
+   if(MaxSameDirectionOrders > 0 && CountDirectionOrders(closedOrderType) >= MaxSameDirectionOrders)
+     {
+      Print("PROFIT RE-ENTRY BLOCKED | Max same-direction orders");
       return;
      }
 
@@ -2932,8 +3196,7 @@ void CreateProfitReEntryStop(int closedOrderType, double closedPrice, DailyProte
      }
 
 
-   double stopLevel = MarketInfo(Symbol(), MODE_STOPLEVEL) * Point;
-   double minimumGap = stopLevel + Point;
+   double minimumGap = GetRequiredStopDistance();
 
    if(pendingType == OP_BUYSTOP && entryPrice < Ask + minimumGap)
       entryPrice = Ask + minimumGap;
@@ -2944,9 +3207,9 @@ void CreateProfitReEntryStop(int closedOrderType, double closedPrice, DailyProte
 
    ResetLastError();
    if(pendingType == OP_BUYSTOP)
-      ChangeLots(GetOpenPL(OP_SELL), "SSL Profit ReEntry Buy Stop", OP_BUY,stopLevel);
+      ChangeLots(GetOpenPL(OP_SELL), "SSL Profit ReEntry Buy Stop", OP_BUY,0);
    else
-      ChangeLots(GetOpenPL(OP_BUY), "SSL Profit ReEntry Sell Stop", OP_SELL,stopLevel);
+      ChangeLots(GetOpenPL(OP_BUY), "SSL Profit ReEntry Sell Stop", OP_SELL,0);
 
    // Do NOT increment here. A failed send must keep the same ReEntry number.
    int requestedReEntryNumber = reEntryCounter + 1;
@@ -3053,6 +3316,8 @@ int GetTotalEAOrders()
 //+------------------------------------------------------------------+
 void OpenBuy()
   {
+   if(!IsSafeToCreateMarketOrder(OP_BUY))
+      return;
    if(!PassesEMAFilter(OP_BUY))
       return;
 
@@ -3118,6 +3383,8 @@ double NormalizeLots(double lots)
 //+------------------------------------------------------------------+
 void OpenSell()
   {
+   if(!IsSafeToCreateMarketOrder(OP_SELL))
+      return;
    if(!PassesEMAFilter(OP_SELL))
       return;
 
@@ -3366,9 +3633,7 @@ void ManageProfitLadder()
       //==================================================
       // BROKER MINIMUM STOP DISTANCE
       //==================================================
-      double stopLevel =
-         MarketInfo(Symbol(), MODE_STOPLEVEL) *
-         Point;
+      double stopLevel = GetRequiredStopDistance();
 
       double newStopLoss = 0.0;
 
@@ -3667,13 +3932,13 @@ int GetCurrentSSLDirection()
 //+------------------------------------------------------------------+
 bool IsLiveBuySignal()
   {
-   return IsBuySignal(1);
+   return IsBuySignal(0);
   }
 
 //+------------------------------------------------------------------+
 bool IsLiveSellSignal()
   {
-   return IsSellSignal(1);
+   return IsSellSignal(0);
   }
 
 //+------------------------------------------------------------------+
@@ -3876,370 +4141,142 @@ void CreateDashboardLabel(string name, string text, int x, int y, int fontSize, 
 //+------------------------------------------------------------------+
 //|                                                                  |
 //+------------------------------------------------------------------+
+double GetTotalLots(int orderType)
+  {
+   double lots=0.0;
+   for(int i=OrdersTotal()-1;i>=0;i--)
+     {
+      if(!OrderSelect(i,SELECT_BY_POS,MODE_TRADES)) continue;
+      if(OrderSymbol()!=Symbol() || OrderMagicNumber()!=MagicNumber) continue;
+      if(OrderType()!=orderType) continue;
+      lots+=OrderLots();
+     }
+   return lots;
+  }
+
 void UpdateDashboard(DailyProtectionState &state)
   {
    int totalOrders=0,buyOrders=0,sellOrders=0,pendingOrders=0;
    double floatingProfit=0,totalSwap=0,totalCommission=0;
-   string ordersDetails="";
 
    for(int i=OrdersTotal()-1; i>=0; i--)
      {
-      if(!OrderSelect(i,SELECT_BY_POS,MODE_TRADES))
-         continue;
-
-      if(OrderSymbol()!=Symbol() || OrderMagicNumber()!=MagicNumber)
-         continue;
-
+      if(!OrderSelect(i,SELECT_BY_POS,MODE_TRADES)) continue;
+      if(OrderSymbol()!=Symbol() || OrderMagicNumber()!=MagicNumber) continue;
       int type=OrderType();
-
-      if(type!=OP_BUY && type!=OP_SELL &&
-         type!=OP_BUYSTOP && type!=OP_SELLSTOP)
-         continue;
-
+      if(type!=OP_BUY && type!=OP_SELL && type!=OP_BUYSTOP && type!=OP_SELLSTOP && type!=OP_BUYLIMIT && type!=OP_SELLLIMIT) continue;
       totalOrders++;
-
-      if(type==OP_BUY)
+      if(type==OP_BUY || type==OP_SELL)
         {
-         buyOrders++;
+         if(type==OP_BUY) buyOrders++; else sellOrders++;
          floatingProfit+=OrderProfit();
          totalSwap+=OrderSwap();
          totalCommission+=OrderCommission();
         }
-      else
-         if(type==OP_SELL)
-           {
-            sellOrders++;
-            floatingProfit+=OrderProfit();
-            totalSwap+=OrderSwap();
-            totalCommission+=OrderCommission();
-           }
-         else
-            pendingOrders++;
-
-      string orderType=
-         (type==OP_BUY)?"BUY":
-         (type==OP_SELL)?"SELL":
-         (type==OP_BUYSTOP)?"BUY STOP":"SELL STOP";
-
-      string line="#"+IntegerToString(OrderTicket())+" "+orderType;
-
-      if(type==OP_BUY || type==OP_SELL)
-        {
-         double p=OrderProfit()+OrderSwap()+OrderCommission();
-         line+=" P/L:"+DoubleToString(p,2);
-        }
-      else
-         line+=" @"+DoubleToString(OrderOpenPrice(),Digits);
-
-      ordersDetails+=line+" | ";
+      else pendingOrders++;
      }
 
    double netProfit=floatingProfit+totalSwap+totalCommission;
+   color pnlColor=netProfit>0?clrLime:netProfit<0?clrTomato:clrWhite;
 
-   color pnlColor=
-      netProfit>0 ? clrLime :
-      netProfit<0 ? clrTomato :
-      clrWhite;
+   int currentSSLDirection=GetCurrentSSLDirection();
+   string sslDirection=currentSSLDirection>0?"BUY":currentSSLDirection<0?"SELL":"NONE";
+   color sslColor=currentSSLDirection>0?clrDeepSkyBlue:currentSSLDirection<0?clrTomato:clrSilver;
 
-//===============================================================
-// CURRENT SSL DIRECTION
-//===============================================================
-   string sslDirection="NONE";
-   color sslColor=clrSilver;
-
-   int currentSSLDirection = GetCurrentSSLDirection();
-   if(currentSSLDirection > 0)
+   double ema=iMA(Symbol(),Period(),InpEMA200Period,0,MODE_EMA,PRICE_CLOSE,InpEMAPriceShift);
+   string emaState="N/A";
+   color emaColor=clrSilver;
+   if(ema>0)
      {
-      sslDirection="BUY";
-      sslColor=clrDeepSkyBlue;
+      if(Bid>ema) { emaState="BULLISH"; emaColor=clrLime; }
+      else if(Bid<ema) { emaState="BEARISH"; emaColor=clrTomato; }
+      else { emaState="AT EMA"; emaColor=clrGold; }
      }
-   else
-      if(currentSSLDirection < 0)
-        {
-         sslDirection="SELL";
-         sslColor=clrTomato;
-        }
 
-//===============================================================
-// STATUS
-//===============================================================
-   string statusText="READY - CURRENT SSL "+sslDirection;
-   color statusColor=sslColor;
+   string statusText="READY";
+   color statusColor=clrLime;
+   if(!EnableTrading) { statusText="TRADING DISABLED"; statusColor=clrTomato; }
+   else if(ServerRecoveryPending) { statusText="SERVER RECOVERY"; statusColor=clrGold; }
+   else if(!IsConnected()) { statusText="NO CONNECTION"; statusColor=clrTomato; }
+   else if(IsDailyTradingStopped(state)) { statusText="TRADING STOPPED"; statusColor=clrTomato; }
+   else if(HasBasketNewOrderLossLimit()) { statusText="BASKET RISK LOCK"; statusColor=clrOrangeRed; }
+   else if(!ContinueTradingAfterSL && LosingSLCount>=MaxConsecutiveLosingSL && MaxConsecutiveLosingSL>0) { statusText="SL LOSS LIMIT"; statusColor=clrTomato; }
+   else if(ProtectedEquityWaitActive) { statusText="PROTECTED EQUITY WAIT"; statusColor=clrGold; }
+   else if(EquityResetReEntryPending) { statusText="RESET RE-ENTRY PENDING"; statusColor=clrGold; }
+   else if(totalOrders>=MaxOpenOrders) { statusText="MAX ORDERS"; statusColor=clrOrangeRed; }
+   else if(buyOrders>0 && sellOrders>0) { statusText="HEDGE / MIXED"; statusColor=clrGold; }
+   else if(buyOrders>0) { statusText="BUY ACTIVE"; statusColor=clrDeepSkyBlue; }
+   else if(sellOrders>0) { statusText="SELL ACTIVE"; statusColor=clrTomato; }
 
-   if(IsDailyTradingStopped(state))
-     {
-      statusText="TRADING STOPPED";
-      statusColor=clrTomato;
-     }
-   else
-      if(ProtectedEquityWaitActive)
-        {
-         statusText="PROTECTED EQUITY - 1H WAIT";
-         statusColor=clrGold;
-        }
-      else
-         if(EquityResetReEntryPending)
-           {
-            statusText="EQUITY RESET - WAITING RE-ENTRY";
-            statusColor=clrGold;
-           }
-         else
-            if(GetTotalEAOrders()>=MaxOpenOrders)
-              {
-               statusText="MAX ORDERS REACHED";
-               statusColor=clrTomato;
-              }
-            else
-               if(buyOrders>0 && sellOrders==0)
-                 {
-                  statusText="BUY RUNNING";
-                  statusColor=clrDeepSkyBlue;
-                 }
-               else
-                  if(sellOrders>0 && buyOrders==0)
-                    {
-                     statusText="SELL RUNNING";
-                     statusColor=clrTomato;
-                    }
-                  else
-                     if(buyOrders>0 && sellOrders>0)
-                       {
-                        statusText="BUY + SELL";
-                        statusColor=clrGold;
-                       }
-
-//===============================================================
-// EQUITY LADDER PROGRESS
-//===============================================================
    double ladderProgress=0;
-
    if(NextEquityTarget>state.DayStartBalance)
      {
-      ladderProgress=
-         ((AccountEquity()-state.DayStartBalance)/
-          (NextEquityTarget-state.DayStartBalance))*100.0;
-
-      if(ladderProgress<0)
-         ladderProgress=0;
-
-      if(ladderProgress>100)
-         ladderProgress=100;
+      ladderProgress=((AccountEquity()-state.DayStartBalance)/(NextEquityTarget-state.DayStartBalance))*100.0;
+      if(ladderProgress<0) ladderProgress=0;
+      if(ladderProgress>100) ladderProgress=100;
      }
+
+   double dayPL=AccountEquity()-state.DayStartBalance;
+   double dayPLPct=(state.DayStartBalance>0)?(dayPL/state.DayStartBalance)*100.0:0;
+   double basketLoss=MathMin(0.0,netProfit);
+   double riskRemaining=BasketNewOrderLossLimitUSD>0 ? BasketNewOrderLossLimitUSD+netProfit : 0;
+   if(riskRemaining<0) riskRemaining=0;
+
+   string serverText="CONNECTED / OK";
+   color serverColor=clrLime;
+   if(!IsConnected()) { serverText="NO CONNECTION"; serverColor=clrTomato; }
+   else if(ServerRecoveryPending) { serverText="RECOVERY PENDING #"+IntegerToString(ServerRecoveryLastError); serverColor=clrGold; }
+   else if(ServerRecoveryLastError!=0) { serverText="LAST ERROR #"+IntegerToString(ServerRecoveryLastError); serverColor=clrGold; }
 
    int x=DashboardRightGap;
    int y=DashboardTopGap;
-   int textX=x+10;
-   int panelHeight=520;
+   int tx=x+12;
+   int w=DashboardWidth;
+   int row=20;
+   int panelHeight=610;
 
-   CreateDashboardPanel(DASH_PREFIX+"PANEL",
-                        x,y,
-                        DashboardWidth,
-                        panelHeight,
-                        clrBlack);
+   CreateDashboardPanel(DASH_PREFIX+"PANEL",x,y,w,panelHeight,C'12,16,22');
+   CreateDashboardPanel(DASH_PREFIX+"HEADER",x,y,w,38,C'25,70,115');
+   CreateDashboardLabel(DASH_PREFIX+"TITLE","SSL CHANNEL EA  |  PRO CONTROL",tx,y+8,11,clrWhite);
+   CreateDashboardLabel(DASH_PREFIX+"SUBTITLE",Symbol()+"  |  "+TimeframeToString(Period()),tx+w-125,y+10,8,clrLightGray);
 
-   CreateDashboardPanel(DASH_PREFIX+"HEADER",
-                        x,y,
-                        DashboardWidth,
-                        35,
-                        C'30,60,100');
+   CreateDashboardLabel(DASH_PREFIX+"STATUS", "STATUS       : "+statusText,tx,y+47,10,statusColor);
+   CreateDashboardLabel(DASH_PREFIX+"SIGNAL", "SSL SIGNAL   : "+sslDirection,tx,y+67,9,sslColor);
+   CreateDashboardLabel(DASH_PREFIX+"EMA", "EMA "+IntegerToString(InpEMA200Period)+"      : "+emaState+"  "+(ema>0?DoubleToString(ema,Digits):"-"),tx,y+87,9,emaColor);
+   CreateDashboardLabel(DASH_PREFIX+"PRICE", "BID / ASK    : "+DoubleToString(Bid,Digits)+" / "+DoubleToString(Ask,Digits),tx,y+107,9,clrWhite);
 
-   CreateDashboardLabel(DASH_PREFIX+"TITLE",
-                        "SSL CHANNEL EA - VERSION1-FINAL1",
-                        textX,
-                        y+8,
-                        11,
-                        clrWhite);
+   CreateDashboardPanel(DASH_PREFIX+"SEC_ACCOUNT",x,y+130,w-0,22,C'30,38,50');
+   CreateDashboardLabel(DASH_PREFIX+"ACCOUNT_H","ACCOUNT & EQUITY",tx,y+134,9,clrAqua);
+   CreateDashboardLabel(DASH_PREFIX+"BALANCE","BALANCE      : $"+DoubleToString(AccountBalance(),2),tx,y+157,9,clrWhite);
+   CreateDashboardLabel(DASH_PREFIX+"EQUITY","EQUITY       : $"+DoubleToString(AccountEquity(),2),tx,y+177,9,clrLime);
+   CreateDashboardLabel(DASH_PREFIX+"FREEMARGIN","FREE MARGIN   : $"+DoubleToString(AccountFreeMargin(),2),tx,y+197,9,clrWhite);
+   CreateDashboardLabel(DASH_PREFIX+"DAYPL","DAY P/L       : "+(dayPL>=0?"+":"")+DoubleToString(dayPL,2)+" ("+DoubleToString(dayPLPct,1)+"%)",tx,y+217,9,dayPL>=0?clrLime:clrTomato);
 
-   CreateDashboardLabel(DASH_PREFIX+"STATUS",
-                        "STATUS : "+statusText,
-                        textX,
-                        y+48,
-                        DashboardFontSize,
-                        statusColor);
+   CreateDashboardPanel(DASH_PREFIX+"SEC_LADDER",x,y+240,w,22,C'30,38,50');
+   CreateDashboardLabel(DASH_PREFIX+"LADDER_H","EQUITY LADDER",tx,y+244,9,clrAqua);
+   CreateDashboardLabel(DASH_PREFIX+"STEP","STEP         : "+IntegerToString(EquityLadderLevel),tx,y+267,9,clrYellow);
+   CreateDashboardLabel(DASH_PREFIX+"TARGET","NEXT TARGET  : $"+DoubleToString(NextEquityTarget,2),tx,y+287,9,clrLime);
+   CreateDashboardLabel(DASH_PREFIX+"LOCKED","LOCKED EQUITY : $"+DoubleToString(LockedEquity,2),tx,y+307,9,clrGold);
+   CreateDashboardLabel(DASH_PREFIX+"PROTECTED","DAY PROTECTED : $"+DoubleToString(state.DayProtectedBalance,2),tx,y+327,9,clrGold);
+   CreateDashboardLabel(DASH_PREFIX+"PROGRESS","PROGRESS      : "+DoubleToString(ladderProgress,1)+"%",tx,y+347,9,clrWhite);
 
-   CreateDashboardLabel(DASH_PREFIX+"ENTRYMODE",
-                        "ENTRY MODE : SSL CROSS + CONTINUOUS RESET RE-ENTRY",
-                        textX,
-                        y+68,
-                        DashboardFontSize,
-                        clrAqua);
+   CreateDashboardPanel(DASH_PREFIX+"SEC_RISK",x,y+370,w,22,C'30,38,50');
+   CreateDashboardLabel(DASH_PREFIX+"RISK_H","RISK & STOP-LOSS PROTECTION",tx,y+374,9,clrAqua);
+   CreateDashboardLabel(DASH_PREFIX+"FLOAT","FLOATING P/L  : "+(netProfit>=0?"+":"")+DoubleToString(netProfit,2),tx,y+397,9,pnlColor);
+   CreateDashboardLabel(DASH_PREFIX+"ORDERS","ORDERS       : "+IntegerToString(totalOrders)+" / "+IntegerToString(MaxOpenOrders)+"   B:"+IntegerToString(buyOrders)+" S:"+IntegerToString(sellOrders),tx,y+417,9,clrWhite);
+   CreateDashboardLabel(DASH_PREFIX+"LOTS","LOTS         : B "+DoubleToString(GetTotalLots(OP_BUY),2)+" / S "+DoubleToString(GetTotalLots(OP_SELL),2),tx,y+437,9,clrWhite);
+   CreateDashboardLabel(DASH_PREFIX+"SLRISK","SL LOSSES    : "+IntegerToString(LosingSLCount)+" | CONTINUE AFTER SL: "+(ContinueTradingAfterSL?"YES":"NO"),tx,y+457,9,ContinueTradingAfterSL?clrLime:(LosingSLCount>0?clrOrangeRed:clrLime));
+   CreateDashboardLabel(DASH_PREFIX+"BASKET","BASKET LOCK  : $"+DoubleToString(BasketNewOrderLossLimitUSD,2)+" | ROOM $"+DoubleToString(riskRemaining,2),tx,y+477,9,HasBasketNewOrderLossLimit()?clrTomato:clrLime);
+   CreateDashboardLabel(DASH_PREFIX+"COOLDOWN","SL COOLDOWN  : "+(SLProtectionUntil>TimeCurrent()?TimeToString(SLProtectionUntil,TIME_SECONDS):"READY"),tx,y+497,9,SLProtectionUntil>TimeCurrent()?clrGold:clrLime);
 
-   CreateDashboardLabel(DASH_PREFIX+"SSL",
-                        "CURRENT SSL : "+sslDirection,
-                        textX,
-                        y+88,
-                        DashboardFontSize,
-                        sslColor);
-
-   CreateDashboardLabel(DASH_PREFIX+"SYMBOL",
-                        "SYMBOL : "+Symbol(),
-                        textX,
-                        y+108,
-                        DashboardFontSize,
-                        clrWhite);
-
-   CreateDashboardLabel(DASH_PREFIX+"TIMEFRAME",
-                        "TIMEFRAME : "+TimeframeToString(Period()),
-                        textX,
-                        y+128,
-                        DashboardFontSize,
-                        clrWhite);
-
-   CreateDashboardLabel(DASH_PREFIX+"EQUITY",
-                        "EQUITY : $"+DoubleToString(AccountEquity(),2)+" / $"+DoubleToString(NextEquityTarget,2)+" / $"+DoubleToString(state.DayProtectedBalance,2),
-                        textX,
-                        y+150,
-                        DashboardFontSize,
-                        clrLime);
-
-   CreateDashboardLabel(DASH_PREFIX+"PNL",
-                        "FLOATING P/L : $"+DoubleToString(netProfit,2),
-                        textX,
-                        y+170,
-                        DashboardFontSize,
-                        pnlColor);
-
-   CreateDashboardLabel(DASH_PREFIX+"START",
-                        "LADDER START : $"+DoubleToString(state.DayStartBalance,2),
-                        textX,
-                        y+190,
-                        DashboardFontSize,
-                        clrAqua);
-
-//===============================================================
-// EQUITY LADDER
-//===============================================================
-   CreateDashboardLabel(
-      DASH_PREFIX+"LADDERLEVEL",
-      "EQUITY LADDER : STEP "+IntegerToString(EquityLadderLevel),
-      textX,
-      y+214,
-      DashboardFontSize,
-      clrYellow);
-
-   CreateDashboardLabel(
-      DASH_PREFIX+"TARGETPERCENT",
-      "TARGET PERCENT : "+DoubleToString(DailyEquityTargetPercent,2)+"%",
-      textX,
-      y+234,
-      DashboardFontSize,
-      clrYellow);
-
-   CreateDashboardLabel(
-      DASH_PREFIX+"PROTECTED",
-      "PROTECTED EQUITY : $"+DoubleToString(state.DayProtectedBalance,2),
-      textX,
-      y+254,
-      DashboardFontSize,
-      clrRed);
-
-   CreateDashboardLabel(
-      DASH_PREFIX+"NEXTTARGET",
-      "NEXT TARGET : $"+DoubleToString(NextEquityTarget,2),
-      textX,
-      y+274,
-      DashboardFontSize,
-      clrLime);
-
-   CreateDashboardLabel(
-      DASH_PREFIX+"PROGRESS",
-      "TARGET PROGRESS : "+DoubleToString(ladderProgress,1)+"%",
-      textX,
-      y+294,
-      DashboardFontSize,
-      clrWhite);
-
-   CreateDashboardLabel(
-      DASH_PREFIX+"REENTRY",
-      (ProtectedEquityWaitActive ? ("PROTECTED WAIT : "+GetProtectedEquityWaitText()) : "RESET RE-ENTRY : "+(EquityResetReEntryPending ? "PENDING" : "READY")),
-      textX,
-      y+314,
-      DashboardFontSize,
-      ProtectedEquityWaitActive ? clrGold :
-      (EquityResetReEntryPending ? clrGold : clrLime));
-
-//===============================================================
-// ORDERS
-//===============================================================
-   CreateDashboardLabel(
-      DASH_PREFIX+"ORDERS",
-      "ORDERS : "+IntegerToString(totalOrders)+"/"+IntegerToString(MaxOpenOrders),
-      textX,
-      y+338,
-      DashboardFontSize,
-      clrWhite);
-
-   CreateDashboardLabel(
-      DASH_PREFIX+"BUYSELL",
-      "BUY : "+IntegerToString(buyOrders)+
-      "     SELL : "+IntegerToString(sellOrders),
-      textX,
-      y+358,
-      DashboardFontSize,
-      clrWhite);
-
-   CreateDashboardLabel(
-      DASH_PREFIX+"PENDING",
-      "PENDING : "+IntegerToString(pendingOrders),
-      textX,
-      y+378,
-      DashboardFontSize,
-      clrGold);
-
-   CreateDashboardLabel(
-      DASH_PREFIX+"LOT",
-      "CURRENT LOT : "+DoubleToString(Lots,2),
-      textX,
-      y+398,
-      DashboardFontSize,
-      clrAqua);
-
-   CreateDashboardLabel(
-      DASH_PREFIX+"SL",
-      "STOP LOSS : $"+DoubleToString(StopLossUSD,2),
-      textX,
-      y+418,
-      DashboardFontSize,
-      clrTomato);
-
-//===============================================================
-// PROFIT LADDER / DAILY
-//===============================================================
-   CreateDashboardLabel(
-      DASH_PREFIX+"LADDER",
-      "ORDER LADDER : L1 $"+DoubleToString(Ladder1ProfitUSD,2)+
-      " | L2 $"+DoubleToString(Ladder2ProfitUSD,2),
-      textX,
-      y+440,
-      DashboardFontSize,
-      clrLimeGreen);
-
-   if(EnableDailyLossProtection)
-     {
-      CreateDashboardLabel(
-         DASH_PREFIX+"CLOSED",
-         "CLOSED TODAY : "+
-         IntegerToString(state.ClosedOrdersToday)+"/"+
-         IntegerToString(MinimumClosedOrdersForDailyProtection),
-         textX,
-         y+460,
-         DashboardFontSize,
-         state.ClosedOrdersToday>=MinimumClosedOrdersForDailyProtection ?
-         clrLime : clrGold);
-     }
-
-   CreateDashboardLabel(
-      DASH_PREFIX+"DETAILTITLE",
-      "LIVE ORDERS : "+(totalOrders>0 ? ordersDetails : "NO ACTIVE ORDERS"),
-      textX,
-      y+482,
-      DashboardFontSize,
-      totalOrders>0 ? clrWhite : clrSilver);
+   CreateDashboardPanel(DASH_PREFIX+"SEC_SERVER",x,y+520,w,22,C'30,38,50');
+   CreateDashboardLabel(DASH_PREFIX+"SERVER_H","SERVER / EA HEALTH",tx,y+524,9,clrAqua);
+   CreateDashboardLabel(DASH_PREFIX+"SERVER","CONNECTION   : "+serverText,tx,y+547,9,serverColor);
+   CreateDashboardLabel(DASH_PREFIX+"RECOVERY","RECOVERY CTS  : "+IntegerToString(ServerRecoveryResetCount)+"   LAST ERR: "+IntegerToString(ServerRecoveryLastError),tx,y+567,8,ServerRecoveryLastError==0?clrSilver:clrGold);
+   CreateDashboardLabel(DASH_PREFIX+"REENTRY","RE-ENTRY      : "+(EquityResetReEntryPending?"PENDING":(ProtectedEquityWaitActive?"WAIT":"READY")),tx,y+587,8,EquityResetReEntryPending||ProtectedEquityWaitActive?clrGold:clrLime);
+   ChartRedraw(0);
   }
 
-//+------------------------------------------------------------------+
-//|                                                                  |
-//+------------------------------------------------------------------+
 //+------------------------------------------------------------------+
 //|                                                                  |
 //+------------------------------------------------------------------+
@@ -4331,101 +4368,72 @@ void UpdateLeftLiveOrdersDashboard()
   {
    int total=0,buyCount=0,sellCount=0,pendingCount=0;
    double buyLots=0,sellLots=0,netPL=0;
+   int rows=LeftDashboardMaxRows;
+   if(rows<1) rows=1;
+   if(rows>24) rows=24;
 
-   for(int i=OrdersTotal()-1; i>=0; i--)
+   for(int i=OrdersTotal()-1;i>=0;i--)
      {
-      if(!OrderSelect(i,SELECT_BY_POS,MODE_TRADES))
-         continue;
-      if(OrderSymbol()!=Symbol() || OrderMagicNumber()!=MagicNumber)
-         continue;
+      if(!OrderSelect(i,SELECT_BY_POS,MODE_TRADES)) continue;
+      if(OrderSymbol()!=Symbol() || OrderMagicNumber()!=MagicNumber) continue;
       int type=OrderType();
-      if(type!=OP_BUY && type!=OP_SELL && type!=OP_BUYSTOP && type!=OP_SELLSTOP && type!=OP_BUYLIMIT && type!=OP_SELLLIMIT)
-         continue;
+      if(type!=OP_BUY && type!=OP_SELL && type!=OP_BUYSTOP && type!=OP_SELLSTOP && type!=OP_BUYLIMIT && type!=OP_SELLLIMIT) continue;
       total++;
-      if(type==OP_BUY)
-        {
-         buyCount++;
-         buyLots+=OrderLots();
-         netPL+=OrderProfit()+OrderSwap()+OrderCommission();
-        }
-      else
-         if(type==OP_SELL)
-           {
-            sellCount++;
-            sellLots+=OrderLots();
-            netPL+=OrderProfit()+OrderSwap()+OrderCommission();
-           }
-         else
-            pendingCount++;
+      if(type==OP_BUY) { buyCount++; buyLots+=OrderLots(); }
+      else if(type==OP_SELL) { sellCount++; sellLots+=OrderLots(); }
+      else pendingCount++;
+      if(type==OP_BUY || type==OP_SELL) netPL+=OrderProfit()+OrderSwap()+OrderCommission();
      }
 
-   int rows=LeftDashboardMaxRows;
-   if(rows<1)
-      rows=1;
-   if(rows>30)
-      rows=30;
-   int panelHeight=(total>0 ? 105+(rows*19) : 155);
    int x=LeftDashboardX,y=LeftDashboardY,tx=x+12;
+   int width=LeftDashboardWidth;
+   int panelHeight=rows*20+132;
+   color pnlColor=netPL>0?clrLime:netPL<0?clrTomato:clrWhite;
 
-   CreateLeftLivePanel(LEFT_LIVE_PREFIX+"PANEL",x,y,LeftDashboardWidth,panelHeight,C'12,16,22');
-   CreateLeftLivePanel(LEFT_LIVE_PREFIX+"HEADER",x,y,LeftDashboardWidth,34,C'25,70,115');
+   CreateLeftLivePanel(LEFT_LIVE_PREFIX+"PANEL",x,y,width,panelHeight,C'12,16,22');
+   CreateLeftLivePanel(LEFT_LIVE_PREFIX+"HEADER",x,y,width,38,C'25,70,115');
+   CreateLeftLiveLabel(LEFT_LIVE_PREFIX+"TITLE","LIVE POSITION MONITOR",tx,y+8,11,clrWhite);
+   CreateLeftLiveLabel(LEFT_LIVE_PREFIX+"SYMBOL",Symbol()+"  |  "+TimeframeToString(Period()),x+width-112,y+10,8,clrLightGray);
 
-   color pnlColor=netPL>0 ? clrLime : netPL<0 ? clrTomato : clrWhite;
+   CreateLeftLivePanel(LEFT_LIVE_PREFIX+"SUMMARYBAR",x,y+38,width,42,C'25,31,42');
+   CreateLeftLiveLabel(LEFT_LIVE_PREFIX+"SUMMARY","ORDERS "+IntegerToString(total)+"/"+IntegerToString(MaxOpenOrders)+"   BUY "+IntegerToString(buyCount)+"   SELL "+IntegerToString(sellCount)+"   PEND "+IntegerToString(pendingCount),tx,y+45,8,clrWhite);
+   CreateLeftLiveLabel(LEFT_LIVE_PREFIX+"TOTALS","BUY LOT "+DoubleToString(buyLots,2)+"   SELL LOT "+DoubleToString(sellLots,2)+"   NET P/L "+(netPL>=0?"+":"")+DoubleToString(netPL,2),tx,y+62,9,pnlColor);
 
-   CreateLeftLiveLabel(LEFT_LIVE_PREFIX+"TITLE","LIVE ORDERS  |  "+Symbol(),tx,y+8,11,clrWhite);
-   CreateLeftLiveLabel(LEFT_LIVE_PREFIX+"SUMMARY",
-                       "ORDERS "+IntegerToString(total)+"/"+IntegerToString(MaxOpenOrders)+
-                       "   BUY "+IntegerToString(buyCount)+"   SELL "+IntegerToString(sellCount)+
-                       "   PENDING "+IntegerToString(pendingCount),tx,y+43,8,clrWhite);
-   CreateLeftLiveLabel(LEFT_LIVE_PREFIX+"LOTS",
-                       "BUY LOT "+DoubleToString(buyLots,2)+"   SELL LOT "+DoubleToString(sellLots,2)+
-                       "   P/L "+(netPL>=0?"+":"")+DoubleToString(netPL,2),tx,y+61,9,pnlColor);
-   CreateLeftLiveLabel(LEFT_LIVE_PREFIX+"HEAD",
-                       "TICKET       TYPE       LOT       OPEN PRICE       P/L",tx,y+82,8,clrSilver);
+   CreateLeftLiveLabel(LEFT_LIVE_PREFIX+"HEAD","TICKET        TYPE       LOT        OPEN          SL           P/L",tx,y+88,8,clrSilver);
 
-   for(int r=0; r<30; r++)
-      CreateLeftLiveLabel(LEFT_LIVE_PREFIX+"ROW"+IntegerToString(r),"",tx,y+101+(r*19),8,clrWhite);
+   for(int r=0;r<24;r++)
+      CreateLeftLiveLabel(LEFT_LIVE_PREFIX+"ROW"+IntegerToString(r),"",tx,y+108+(r*20),8,clrWhite);
 
    int row=0;
-   for(int j=OrdersTotal()-1; j>=0; j--)
+   for(int j=OrdersTotal()-1;j>=0;j--)
      {
-      if(!OrderSelect(j,SELECT_BY_POS,MODE_TRADES))
-         continue;
-      if(OrderSymbol()!=Symbol() || OrderMagicNumber()!=MagicNumber)
-         continue;
+      if(!OrderSelect(j,SELECT_BY_POS,MODE_TRADES)) continue;
+      if(OrderSymbol()!=Symbol() || OrderMagicNumber()!=MagicNumber) continue;
       int type=OrderType();
-      if(type!=OP_BUY && type!=OP_SELL && type!=OP_BUYSTOP && type!=OP_SELLSTOP && type!=OP_BUYLIMIT && type!=OP_SELLLIMIT)
-         continue;
-      if(row>=rows)
-         break;
+      if(type!=OP_BUY && type!=OP_SELL && type!=OP_BUYSTOP && type!=OP_SELLSTOP && type!=OP_BUYLIMIT && type!=OP_SELLLIMIT) continue;
+      if(row>=rows) break;
 
-      string typeText=type==OP_BUY ? "BUY" : type==OP_SELL ? "SELL" : type==OP_BUYSTOP ? "BUY ST" : type==OP_SELLSTOP ? "SELL ST" : type==OP_BUYLIMIT ? "BUY LM" : "SELL LM";
-      double pl=0;
-      if(type==OP_BUY || type==OP_SELL)
-         pl=OrderProfit()+OrderSwap()+OrderCommission();
-
-      string rowText="#"+IntegerToString(OrderTicket())+
-                     "   "+typeText+
-                     "   "+DoubleToString(OrderLots(),2)+
-                     "   "+DoubleToString(OrderOpenPrice(),Digits)+
-                     "   "+(pl>=0?"+":"")+DoubleToString(pl,2);
-
+      string typeText=type==OP_BUY?"BUY":type==OP_SELL?"SELL":type==OP_BUYSTOP?"BUY ST":type==OP_SELLSTOP?"SELL ST":type==OP_BUYLIMIT?"BUY LM":"SELL LM";
+      double pl=(type==OP_BUY || type==OP_SELL)?OrderProfit()+OrderSwap()+OrderCommission():0;
+      double sl=OrderStopLoss();
+      double open=OrderOpenPrice();
+      string rowText=StringFormat("#%-8d %-8s %5.2f  %10s  %10s  %7s",OrderTicket(),typeText,OrderLots(),DoubleToString(open,Digits),sl>0?DoubleToString(sl,Digits):"-",(type==OP_BUY||type==OP_SELL)?DoubleToString(pl,2):"-");
       color rowColor=clrWhite;
-      if(type==OP_BUY)
-         rowColor=clrDeepSkyBlue;
-      if(type==OP_SELL)
-         rowColor=clrTomato;
-      if(pl>0)
-         rowColor=clrLime;
-      if(pl<0)
-         rowColor=clrOrangeRed;
-
-      CreateLeftLiveLabel(LEFT_LIVE_PREFIX+"ROW"+IntegerToString(row),rowText,tx,y+101+(row*19),8,rowColor);
+      if(type==OP_BUY) rowColor=clrDeepSkyBlue;
+      else if(type==OP_SELL) rowColor=clrTomato;
+      else rowColor=clrGold;
+      if((type==OP_BUY || type==OP_SELL) && pl>0) rowColor=clrLime;
+      if((type==OP_BUY || type==OP_SELL) && pl<0) rowColor=clrOrangeRed;
+      CreateLeftLiveLabel(LEFT_LIVE_PREFIX+"ROW"+IntegerToString(row),rowText,tx,y+108+(row*20),8,rowColor);
       row++;
      }
 
-   CreateLeftLiveLabel(LEFT_LIVE_PREFIX+"EMPTY",total==0 ? "NO ACTIVE EA ORDERS" : "",tx,y+105,9,clrSilver);
-   ChartRedraw();
+   if(total==0)
+      CreateLeftLiveLabel(LEFT_LIVE_PREFIX+"EMPTY","NO ACTIVE EA ORDERS",tx,y+108,9,clrSilver);
+   else
+      CreateLeftLiveLabel(LEFT_LIVE_PREFIX+"EMPTY","Showing "+IntegerToString(MathMin(total,rows))+" of "+IntegerToString(total)+" orders",tx,y+108+(rows*20)+4,8,clrSilver);
+
+   ChartRedraw(0);
   }
 
 //+------------------------------------------------------------------+
