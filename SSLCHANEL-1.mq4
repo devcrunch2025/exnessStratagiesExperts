@@ -121,6 +121,28 @@ double NextEquityTarget = 0;
 double LockedEquity = 0;
 int Slippage = 30;
 int MagicNumber = 6600123;
+
+// ===== TICK PERFORMANCE / TRADE REQUEST CONTROL =====
+// A failed trade request is never chased on the same tick.
+// This limit also prevents a single tick from flooding the broker.
+int MaxTradeRequestsPerTick = 5;
+int TradeRequestsThisTick = 0;
+
+// Per-tick order-count cache. It removes repeated full OrdersTotal()/OrderSelect()
+// scans when several strategy functions only need the current EA-order count.
+int CurrentTickSequence = 0;
+int CachedTotalEAOrders = -1;
+int CachedTotalEAOrdersTick = -1;
+
+// GUI work is throttled so dashboard/chart drawing cannot slow trading.
+int DashboardUpdateIntervalMs = 250;
+uint LastDashboardUpdateMs = 0;
+int EMARedrawIntervalMs = 100;
+uint LastEMARedrawMs = 0;
+bool EnableTickPerformanceLog = false;
+int SlowTickLogThresholdMs = 50;
+bool EnableTradeTimingLog = false;
+int SlowTradeRequestLogThresholdMs = 50;
 bool ShowHistoricalSignals = true;
 bool ShowSSLLines = true;
 int HistoryBarsToDraw = 500;
@@ -238,6 +260,11 @@ void UpdateEMALineOnChart()
    static datetime lastDrawnBar=0;
    bool rebuild=(lastDrawnBar!=Time[0]);
 
+   uint emaNow=GetTickCount();
+   if(!rebuild && LastEMARedrawMs!=0 &&
+      (uint)(emaNow-LastEMARedrawMs)<(uint)MathMax(0,EMARedrawIntervalMs))
+      return;
+
 // Build the historical EMA segments only when a new candle appears.
 // On every tick, update the live segment so EMA(0) follows price.
    if(rebuild)
@@ -283,7 +310,13 @@ void UpdateEMALineOnChart()
       ObjectMove(0,liveName,1,Time[0],ema0);
      }
 
-   ChartRedraw(0);
+   uint now=GetTickCount();
+   if(LastEMARedrawMs==0 ||
+      (uint)(now-LastEMARedrawMs)>=(uint)MathMax(0,EMARedrawIntervalMs))
+     {
+      LastEMARedrawMs=now;
+      ChartRedraw(0);
+     }
   }
 
 //+------------------------------------------------------------------+
@@ -792,7 +825,22 @@ void ProcessPendingReEntry(DailyProtectionState &state)
 //+------------------------------------------------------------------+
 void OnTick()
   {
+   uint tickStartMs=GetTickCount();
+   OnTickCore();
+   OnTickPerformanceEnd(tickStartMs);
+  }
 
+void OnTickCore()
+  {
+   CurrentTickSequence++;
+   CachedTotalEAOrders=-1;
+   CachedTotalEAOrdersTick=-1;
+
+   // A new OnTick means a new retry window. Failed trade requests from
+   // the previous tick may be attempted now with fresh market data.
+   ResetTradeErrorRetryGuards();
+   ResetTradeRequestBudget();
+   RefreshRates();
 
 //    if(EquityLadderLevel>1)
 //    {
@@ -837,10 +885,7 @@ void OnTick()
       if(ShowSSLLines)
          UpdateSSLChannelOnTick();
       UpdateEMALineOnChart();
-      if(ShowDashboard)
-         UpdateDashboard(dailyState);
-      if(ShowLeftLiveOrdersDashboard)
-         UpdateLeftLiveOrdersDashboard();
+      UpdateDashboardsThrottled(dailyState);
       return;
      }
 
@@ -854,10 +899,7 @@ void OnTick()
       if(ShowSSLLines)
          UpdateSSLChannelOnTick();
       UpdateEMALineOnChart();
-      if(ShowDashboard)
-         UpdateDashboard(dailyState);
-      if(ShowLeftLiveOrdersDashboard)
-         UpdateLeftLiveOrdersDashboard();
+      UpdateDashboardsThrottled(dailyState);
       return;
      }
 
@@ -875,10 +917,7 @@ void OnTick()
       if(ShowSSLLines)
          UpdateSSLChannelOnTick();
       UpdateEMALineOnChart();
-      if(ShowDashboard)
-         UpdateDashboard(dailyState);
-      if(ShowLeftLiveOrdersDashboard)
-         UpdateLeftLiveOrdersDashboard();
+      UpdateDashboardsThrottled(dailyState);
       return;
      }
 
@@ -907,12 +946,8 @@ void OnTick()
       CheckForProfitableClosedOrder(dailyState);
    if(EnableProfitLadder1 || EnableProfitLadder2)
       ManageProfitLadder();
-   if(ShowDashboard)
-      UpdateDashboard(dailyState);
-
-// Separate LEFT dashboard. Existing RIGHT dashboard is untouched.
-   if(ShowLeftLiveOrdersDashboard)
-      UpdateLeftLiveOrdersDashboard();
+   // UI is deliberately throttled; trading logic remains tick-by-tick.
+   UpdateDashboardsThrottled(dailyState);
 
    if(Bars < SSLPeriod + 20)
       return;
@@ -1453,10 +1488,15 @@ bool ProcessServerRecovery(DailyProtectionState &state)
 
    if(IsTradeEnvironmentHealthy())
      {
-      Print("SERVER RECOVERY TEST PASSED | Trading environment is normal | Current tick skipped for safety");
+      Print("SERVER RECOVERY TEST PASSED | Trading environment is normal | "
+            "NEXT TICK CONTINUES - failed order operation may retry with latest prices");
       ServerRecoveryPending=false;
       ServerRecoveryLastError=0;
-      return true;
+
+      // IMPORTANT:
+      // Do not consume/skip this tick. This IS the first retry opportunity.
+      // The calling logic will refresh/recalculate its order parameters.
+      return false;
      }
 
    Print("SERVER RECOVERY TEST FAILED | Resetting EA runtime state");
@@ -1501,184 +1541,450 @@ int FindExistingOrderForRequest(int orderType,double lots,double price,
    return -1;
   }
 
+
+//===============================================================
+// FAST TICK / TRADE REQUEST BUDGET
+//===============================================================
+void ResetTradeRequestBudget()
+  {
+   TradeRequestsThisTick=0;
+  }
+
+bool CanSendTradeRequest(string operation,string details="")
+  {
+   if(MaxTradeRequestsPerTick<=0)
+      return true;
+
+   if(TradeRequestsThisTick>=MaxTradeRequestsPerTick)
+     {
+      Print("TRADE REQUEST BUDGET REACHED | Operation=",operation,
+            " | RequestsThisTick=",TradeRequestsThisTick,
+            " | Limit=",MaxTradeRequestsPerTick,
+            " | Action=wait next tick | ",details);
+      return false;
+     }
+
+   TradeRequestsThisTick++;
+   return true;
+  }
+
+//===============================================================
+// THROTTLED UI UPDATE
+//===============================================================
+void UpdateDashboardsThrottled(DailyProtectionState &state,bool force=false)
+  {
+   uint now=GetTickCount();
+   if(!force && LastDashboardUpdateMs!=0 &&
+      (uint)(now-LastDashboardUpdateMs)<(uint)MathMax(0,DashboardUpdateIntervalMs))
+      return;
+
+   LastDashboardUpdateMs=now;
+
+   if(ShowDashboard)
+      UpdateDashboard(state);
+   if(ShowLeftLiveOrdersDashboard)
+      UpdateLeftLiveOrdersDashboard();
+  }
+
+//===============================================================
+// PERFORMANCE TIMING HELPERS
+//===============================================================
+void LogTradeTiming(string operation,uint startedMs)
+  {
+   if(!EnableTradeTimingLog)
+      return;
+   uint elapsed=GetTickCount()-startedMs;
+   if((int)elapsed>=SlowTradeRequestLogThresholdMs)
+      Print("SLOW TRADE REQUEST | ",operation,
+            " | ElapsedMs=",elapsed,
+            " | RequestsThisTick=",TradeRequestsThisTick);
+  }
+
+void OnTickPerformanceEnd(uint startedMs)
+  {
+   if(!EnableTickPerformanceLog)
+      return;
+   uint elapsed=GetTickCount()-startedMs;
+   if((int)elapsed>=SlowTickLogThresholdMs)
+      Print("SLOW EA TICK | ElapsedMs=",elapsed,
+            " | TradeRequestsThisTick=",TradeRequestsThisTick,
+            " | Bid=",DoubleToString(Bid,Digits),
+            " | Ask=",DoubleToString(Ask,Digits));
+  }
+
+//===============================================================
+// NEXT-TICK TRADE ERROR GUARD
+// Every failed trade request is recorded for the current OnTick.
+// The same request is NEVER chased again during that tick.
+// On the next OnTick the guard is cleared and the caller gets a
+// fresh opportunity using the latest market/order state.
+//===============================================================
+string TradeErrorBlockedKeys[200];
+int TradeErrorBlockedCount=0;
+
+void ResetTradeErrorRetryGuards()
+  {
+   TradeErrorBlockedCount=0;
+  }
+
+string MakeTradeErrorKey(string operation,int ticket,string extra)
+  {
+   return operation+"|"+IntegerToString(ticket)+"|"+extra;
+  }
+
+bool IsTradeErrorBlockedThisTick(string key)
+  {
+   for(int i=0;i<TradeErrorBlockedCount;i++)
+      if(TradeErrorBlockedKeys[i]==key)
+         return true;
+   return false;
+  }
+
+void BlockTradeErrorUntilNextTick(string key)
+  {
+   if(IsTradeErrorBlockedThisTick(key))
+      return;
+
+   if(TradeErrorBlockedCount<200)
+     {
+      TradeErrorBlockedKeys[TradeErrorBlockedCount]=key;
+      TradeErrorBlockedCount++;
+     }
+  }
+
+void LogTradeOperationError(string operation,int ticket,string details,int err)
+  {
+   Print("==================================================");
+   Print("TRADE OPERATION FAILED - RETRY NEXT TICK");
+   Print("Operation : ",operation);
+   if(ticket>0)
+      Print("Ticket    : ",ticket);
+   
+   Print("Symbol    : ",Symbol());
+   Print("Bid       : ",DoubleToString(Bid,Digits));
+   Print("Ask       : ",DoubleToString(Ask,Digits));
+   Print("Details   : ",details);
+   Print("Action    : NO SAME-TICK RETRY");
+   Print("Next     : Refresh latest tick and retry");
+   Print("==================================================");
+  }
+
 // Safe OrderSend with retry + duplicate detection.
+// Safe OrderSend: one broker request per failed request per tick.
+// A failure is recorded; no Sleep()/same-tick retry is performed.
+// The next tick retries with fresh Bid/Ask.
 int SafeOrderSend(string symbol,int orderType,double lots,double price,
                   int slippage,double stopLoss,double takeProfit,
                   string comment,int magic,color arrowColor)
   {
-   int ticket=-1;
-   datetime requestTime=TimeCurrent();
+   string key=MakeTradeErrorKey("SEND",-1,
+                                 IntegerToString(orderType)+"|"+
+                                 DoubleToString(lots,8)+"|"+comment);
 
-   for(int attempt=1;attempt<=ServerRecoveryMaxRetries;attempt++)
+   if(IsTradeErrorBlockedThisTick(key))
      {
-      RefreshRates();
-
-      double sendPrice=price;
-
-      if(orderType==OP_BUY)
-         sendPrice=Ask;
-      else
-         if(orderType==OP_SELL)
-            sendPrice=Bid;
-
-      sendPrice=NormalizeDouble(sendPrice,Digits);
-
-      double safeSL=stopLoss;
-      if(safeSL>0.0 && !PrepareStopLossForOrder(orderType,sendPrice,safeSL))
-        {
-         Print("OrderSend BLOCKED | Invalid/unsafe initial SL | Type=",orderType,
-               " | Price=",DoubleToString(sendPrice,Digits),
-               " | RequestedSL=",DoubleToString(stopLoss,Digits));
-         return -1;
-        }
-
-      ResetLastError();
-      ticket=OrderSend(symbol,orderType,lots,sendPrice,slippage,
-                       safeSL,takeProfit,comment,magic,0,arrowColor);
-
-      if(ticket>0)
-         return ticket;
-
-      int err=GetLastError();
-
-      // The broker may have created the order even though the client
-      // received a timeout/server error.
-      int existing=FindExistingOrderForRequest(orderType,lots,sendPrice,
-                                                comment,requestTime);
-      if(existing>0)
-        {
-         Print("ORDER SEND AMBIGUOUS RESULT | Existing ticket found: ",existing,
-               " | Error=",err);
-         MarkServerError(err,"OrderSend/duplicate-check");
-         return existing;
-        }
-
-      MarkServerError(err,"OrderSend");
-
-      Print("OrderSend failed | Attempt=",attempt,
-            "/",ServerRecoveryMaxRetries,
-            " | Error=",err);
-
-      if(!IsRetryableTradeError(err))
-         break;
-
-      Sleep(ServerRecoveryRetryDelayMs);
+      Print("OrderSend SKIPPED - previous failure this tick | ",
+            "Type=",orderType," | Lots=",DoubleToString(lots,2),
+            " | Comment=",comment,
+            " | Action=wait next tick");
+      return -1;
      }
 
+   RefreshRates();
+
+   double sendPrice=price;
+   if(orderType==OP_BUY)
+      sendPrice=Ask;
+   else if(orderType==OP_SELL)
+      sendPrice=Bid;
+
+   sendPrice=NormalizeDouble(sendPrice,Digits);
+
+   double safeSL=stopLoss;
+   if(safeSL>0.0 && !PrepareStopLossForOrder(orderType,sendPrice,safeSL))
+     {
+      BlockTradeErrorUntilNextTick(key);
+      LogTradeOperationError("OrderSend",-1,
+         "Unsafe initial SL | Type="+IntegerToString(orderType)+
+         " | Lots="+DoubleToString(lots,2)+
+         " | Price="+DoubleToString(sendPrice,Digits)+
+         " | RequestedSL="+DoubleToString(stopLoss,Digits)+
+         " | Comment="+comment,130);
+      MarkServerError(130,"OrderSend/unsafe-SL");
+      return -1;
+     }
+
+   datetime requestTime=TimeCurrent();
+
+   if(!CanSendTradeRequest("OrderSend",comment))
+      return -1;
+
+   ResetLastError();
+   uint tradeStartMs=GetTickCount();
+   int ticket=OrderSend(symbol,orderType,lots,sendPrice,slippage,
+                        safeSL,takeProfit,comment,magic,0,arrowColor);
+   LogTradeTiming("OrderSend",tradeStartMs);
+
+   if(ticket>0)
+     {
+      InvalidateTotalEAOrdersCache();
+      return ticket;
+     }
+
+   int err=GetLastError();
+
+   // The broker can execute the request while the client receives
+   // a timeout/connection error. Always check actual broker state.
+   int existing=FindExistingOrderForRequest(orderType,lots,sendPrice,
+                                             comment,requestTime);
+   if(existing>0)
+     {
+      Print("ORDER SEND AMBIGUOUS RESULT | Existing ticket found: ",
+            existing," | Original error=",err);
+      ServerRecoveryPending=false;
+      return existing;
+     }
+
+   BlockTradeErrorUntilNextTick(key);
+
+   LogTradeOperationError("OrderSend",-1,
+      "Type="+IntegerToString(orderType)+
+      " | Lots="+DoubleToString(lots,2)+
+      " | RequestedPrice="+DoubleToString(sendPrice,Digits)+
+      " | SL="+DoubleToString(safeSL,Digits)+
+      " | Comment="+comment,err);
+
+   MarkServerError(err,"OrderSend");
    return -1;
   }
 
+
+
 // Safe OrderClose. If the order disappeared after an error, it is
 // considered successfully closed because the broker state is authoritative.
+// Safe OrderClose: one broker request per ticket per tick.
+// Any failure is logged and deferred to the next tick.
 bool SafeOrderClose(int ticket,double lots,int orderType,int slippage,color arrowColor)
   {
-   for(int attempt=1;attempt<=ServerRecoveryMaxRetries;attempt++)
+   string key=MakeTradeErrorKey("CLOSE",ticket,"");
+
+   if(IsTradeErrorBlockedThisTick(key))
      {
-      if(!OrderSelect(ticket,SELECT_BY_TICKET,MODE_TRADES))
-        {
-         // Check history: the close may have succeeded despite the error.
-         if(OrderSelect(ticket,SELECT_BY_TICKET,MODE_HISTORY))
-            return true;
+      Print("OrderClose SKIPPED - previous failure this tick | Ticket=",
+            ticket," | Action=wait next tick");
+      return false;
+     }
 
-         MarkServerError(0,"OrderClose/OrderMissing");
-         return false;
-        }
-
-      RefreshRates();
-
-      double closePrice=(orderType==OP_BUY)?Bid:Ask;
-      ResetLastError();
-
-      if(OrderClose(ticket,OrderLots(),closePrice,slippage,arrowColor))
+   if(!OrderSelect(ticket,SELECT_BY_TICKET,MODE_TRADES))
+     {
+      if(OrderSelect(ticket,SELECT_BY_TICKET,MODE_HISTORY))
          return true;
 
-      int err=GetLastError();
-      MarkServerError(err,"OrderClose");
+      BlockTradeErrorUntilNextTick(key);
+      LogTradeOperationError("OrderClose",ticket,
+         "Order no longer in active trades/history could not be selected",0);
+      return false;
+     }
 
-      Print("OrderClose failed | Ticket=",ticket,
-            " | Attempt=",attempt,"/",ServerRecoveryMaxRetries,
-            " | Error=",err);
+   RefreshRates();
 
-      // Verify actual status before retrying.
-      if(!OrderSelect(ticket,SELECT_BY_TICKET,MODE_TRADES))
-        {
-         if(OrderSelect(ticket,SELECT_BY_TICKET,MODE_HISTORY))
-            return true;
-        }
+   double closePrice=(OrderType()==OP_BUY)?Bid:Ask;
+   closePrice=NormalizeDouble(closePrice,Digits);
 
-      if(!IsRetryableTradeError(err))
-         return false;
+   if(!CanSendTradeRequest("OrderClose","Ticket="+IntegerToString(ticket)))
+      return false;
 
-      Sleep(ServerRecoveryRetryDelayMs);
+   ResetLastError();
+   uint tradeStartMs=GetTickCount();
+   bool result=OrderClose(ticket,OrderLots(),closePrice,slippage,arrowColor);
+   LogTradeTiming("OrderClose",tradeStartMs);
+
+   if(result)
+     {
+      InvalidateTotalEAOrdersCache();
+      return true;
+     }
+
+   int err=GetLastError();
+
+   // Verify broker state before deciding it failed.
+   if(!OrderSelect(ticket,SELECT_BY_TICKET,MODE_TRADES))
+     {
+      if(OrderSelect(ticket,SELECT_BY_TICKET,MODE_HISTORY))
+         return true;
+     }
+
+   BlockTradeErrorUntilNextTick(key);
+
+   LogTradeOperationError("OrderClose",ticket,
+      "Type="+IntegerToString(orderType)+
+      " | Lots="+DoubleToString(lots,2)+
+      " | ClosePrice="+DoubleToString(closePrice,Digits),err);
+
+   MarkServerError(err,"OrderClose");
+   return false;
+  }
+
+
+
+// Safe OrderModify with strict SL validation and error classification.
+// Prevent repeated OrderModify() attempts for the same ticket on the same tick.
+// A failed modification is recorded and the caller must wait for a fresh tick,
+// then recalculate the SL using the latest Bid/Ask before trying again.
+bool WasOrderModifyAttemptedThisTick(int ticket)
+  {
+   static int  attemptTickets[100];
+   static uint attemptTicks[100];
+   static int  attemptCount=0;
+
+   uint thisTick=GetTickCount();
+
+   for(int i=0;i<attemptCount;i++)
+     {
+      if(attemptTickets[i]==ticket && attemptTicks[i]==thisTick)
+         return true;
+     }
+
+   if(attemptCount<100)
+     {
+      attemptTickets[attemptCount]=ticket;
+      attemptTicks[attemptCount]=thisTick;
+      attemptCount++;
+     }
+   else
+     {
+      // Reuse a slot when the small runtime history is full.
+      int slot=(int)(thisTick%100);
+      attemptTickets[slot]=ticket;
+      attemptTicks[slot]=thisTick;
      }
 
    return false;
   }
 
-// Safe OrderModify with strict SL validation and error classification.
+// Safe OrderModify: one broker request per ticket per tick.
+// Any failure is logged with complete order/market details and deferred
+// to the next tick. The caller must recalculate the requested SL/TP then.
 bool SafeOrderModify(int ticket,double openPrice,double stopLoss,
                      double takeProfit,datetime expiration,color arrowColor)
   {
-   for(int attempt=1;attempt<=ServerRecoveryMaxRetries;attempt++)
+   string key=MakeTradeErrorKey("MODIFY",ticket,"");
+
+   if(IsTradeErrorBlockedThisTick(key))
      {
-      if(!OrderSelect(ticket,SELECT_BY_TICKET,MODE_TRADES)) return false;
-      int orderType=OrderType();
-      RefreshRates();
-      double requestedSL=stopLoss;
-      if(requestedSL>0.0)
+      Print("OrderModify SKIPPED - previous failure this tick | Ticket=",
+            ticket," | Action=wait next tick");
+      return false;
+     }
+
+   if(!OrderSelect(ticket,SELECT_BY_TICKET,MODE_TRADES))
+     {
+      BlockTradeErrorUntilNextTick(key);
+      LogTradeOperationError("OrderModify",ticket,
+         "Order could not be selected from active trades",0);
+      return false;
+     }
+
+   int orderType=OrderType();
+
+   RefreshRates();
+
+   double requestedSL=stopLoss;
+
+   if(requestedSL>0.0)
+     {
+      if(!PrepareStopLossForOrder(orderType,OrderOpenPrice(),requestedSL))
         {
-         if(!PrepareStopLossForOrder(orderType,OrderOpenPrice(),requestedSL))
-           {
-            Print("OrderModify BLOCKED | Unsafe SL | Ticket=",ticket,
-                  " | RequestedSL=",DoubleToString(stopLoss,Digits),
-                  " | Bid=",DoubleToString(Bid,Digits),
-                  " | Ask=",DoubleToString(Ask,Digits));
-            return false;
-           }
-
-         // Never move an existing protective SL backwards just because the
-         // market retraced while the broker's stop/freeze distance changed.
-         if(orderType==OP_BUY && OrderStopLoss()>0.0 && requestedSL<=OrderStopLoss())
-            return false;
-         if(orderType==OP_SELL && OrderStopLoss()>0.0 && requestedSL>=OrderStopLoss())
-            return false;
-        }
-      bool sameSL=(requestedSL<=0.0 && OrderStopLoss()<=0.0) ||
-                  (requestedSL>0.0 && MathAbs(OrderStopLoss()-requestedSL)<=MinimumSLModifyGapRaw*Point);
-      bool sameTP=(takeProfit<=0.0 && OrderTakeProfit()<=0.0) ||
-                  (takeProfit>0.0 && MathAbs(OrderTakeProfit()-takeProfit)<=Point);
-      if(sameSL && sameTP) return true;
-
-      ResetLastError();
-      if(OrderModify(ticket,openPrice,requestedSL,takeProfit,expiration,arrowColor)) return true;
-      int err=GetLastError();
-
-      if(err==130)
-        {
-         Print("OrderModify INVALID SL | Ticket=",ticket,
-               " | RequestedSL=",DoubleToString(requestedSL,Digits),
-               " | Bid=",DoubleToString(Bid,Digits),
-               " | Ask=",DoubleToString(Ask,Digits),
-               " | StopLevelPts=",DoubleToString(MarketInfo(Symbol(),MODE_STOPLEVEL),0),
-               " | FreezeLevelPts=",DoubleToString(MarketInfo(Symbol(),MODE_FREEZELEVEL),0));
+         BlockTradeErrorUntilNextTick(key);
+         LogTradeOperationError("OrderModify",ticket,
+            "Unsafe SL at current tick | Type="+IntegerToString(orderType)+
+            " | Lots="+DoubleToString(OrderLots(),2)+
+            " | Open="+DoubleToString(OrderOpenPrice(),Digits)+
+            " | ExistingSL="+DoubleToString(OrderStopLoss(),Digits)+
+            " | RequestedSL="+DoubleToString(stopLoss,Digits),130);
+         MarkServerError(130,"OrderModify/unsafe-SL");
          return false;
         }
 
-      MarkServerError(err,"OrderModify");
-      if(OrderSelect(ticket,SELECT_BY_TICKET,MODE_TRADES))
+      if(orderType==OP_BUY && OrderStopLoss()>0.0 &&
+         requestedSL<=OrderStopLoss())
         {
-         bool slOK=(requestedSL<=0.0 || MathAbs(OrderStopLoss()-requestedSL)<=MinimumSLModifyGapRaw*Point);
-         bool tpOK=(takeProfit<=0.0 || MathAbs(OrderTakeProfit()-takeProfit)<=Point);
-         if(slOK && tpOK) return true;
+         Print("OrderModify DEFERRED | BUY SL cannot improve at current tick | ",
+               "Ticket=",ticket,
+               " | ExistingSL=",DoubleToString(OrderStopLoss(),Digits),
+               " | RequestedSL=",DoubleToString(requestedSL,Digits),
+               " | Bid=",DoubleToString(Bid,Digits),
+               " | Action=retry next tick with fresh calculation");
+         BlockTradeErrorUntilNextTick(key);
+         return false;
         }
-      Print("OrderModify failed | Ticket=",ticket,
-            " | Attempt=",attempt,"/",ServerRecoveryMaxRetries,
-            " | Error=",err);
-      if(!IsRetryableTradeError(err)) return false;
-      Sleep(ServerRecoveryRetryDelayMs);
+
+      if(orderType==OP_SELL && OrderStopLoss()>0.0 &&
+         requestedSL>=OrderStopLoss())
+        {
+         Print("OrderModify DEFERRED | SELL SL cannot improve at current tick | ",
+               "Ticket=",ticket,
+               " | ExistingSL=",DoubleToString(OrderStopLoss(),Digits),
+               " | RequestedSL=",DoubleToString(requestedSL,Digits),
+               " | Ask=",DoubleToString(Ask,Digits),
+               " | Action=retry next tick with fresh calculation");
+         BlockTradeErrorUntilNextTick(key);
+         return false;
+        }
      }
+
+   bool sameSL=(requestedSL<=0.0 && OrderStopLoss()<=0.0) ||
+               (requestedSL>0.0 &&
+                MathAbs(OrderStopLoss()-requestedSL)<=MinimumSLModifyGapRaw*Point);
+   bool sameTP=(takeProfit<=0.0 && OrderTakeProfit()<=0.0) ||
+               (takeProfit>0.0 &&
+                MathAbs(OrderTakeProfit()-takeProfit)<=Point);
+
+   if(sameSL && sameTP)
+      return true;
+
+   ResetLastError();
+
+   // EXACTLY ONE broker request for this ticket on this tick.
+   if(!CanSendTradeRequest("OrderModify","Ticket="+IntegerToString(ticket)))
+      return false;
+
+   uint tradeStartMs=GetTickCount();
+   bool modified=OrderModify(ticket,openPrice,requestedSL,
+                              takeProfit,expiration,arrowColor);
+   LogTradeTiming("OrderModify",tradeStartMs);
+
+   if(modified)
+     {
+      Print("OrderModify SUCCESS | Ticket=",ticket,
+            " | Type=",orderType,
+            " | Lots=",DoubleToString(OrderLots(),2),
+            " | NewSL=",DoubleToString(requestedSL,Digits),
+            " | Bid=",DoubleToString(Bid,Digits),
+            " | Ask=",DoubleToString(Ask,Digits));
+      return true;
+     }
+
+   int err=GetLastError();
+
+   BlockTradeErrorUntilNextTick(key);
+
+   LogTradeOperationError("OrderModify",ticket,
+      "Type="+IntegerToString(orderType)+
+      " | Lots="+DoubleToString(OrderLots(),2)+
+      " | Open="+DoubleToString(OrderOpenPrice(),Digits)+
+      " | ExistingSL="+DoubleToString(OrderStopLoss(),Digits)+
+      " | RequestedSL="+DoubleToString(requestedSL,Digits)+
+      " | TP="+DoubleToString(takeProfit,Digits)+
+      " | StopLevelPts="+DoubleToString(MarketInfo(Symbol(),MODE_STOPLEVEL),0)+
+      " | FreezeLevelPts="+DoubleToString(MarketInfo(Symbol(),MODE_FREEZELEVEL),0),
+      err);
+
+   MarkServerError(err,"OrderModify");
    return false;
   }
+
+
 bool ReducePendingOrderLotTo01()
 {
    int ticket = OrderTicket();
@@ -1715,21 +2021,44 @@ bool ReducePendingOrderLotTo01()
          " | SL=", DoubleToString(stopLoss, Digits),
          " | TP=", DoubleToString(takeProfit, Digits));
 
-   // Delete original pending order
+   // Delete original pending order. One broker request only.
+   string deleteKey=MakeTradeErrorKey("REDUCE_DELETE",ticket,"");
+   if(IsTradeErrorBlockedThisTick(deleteKey))
+      return false;
+
+   if(!CanSendTradeRequest("OrderDelete/ReduceLot","Ticket="+IntegerToString(ticket)))
+      return false;
+
    ResetLastError();
-
-   if(!OrderDelete(ticket, clrLimeGreen))
+   uint tradeStartMs=GetTickCount();
+   bool reducedDelete=OrderDelete(ticket, clrLimeGreen);
+   LogTradeTiming("OrderDelete/ReduceLot",tradeStartMs);
+   if(!reducedDelete)
    {
-      Print("REDUCE LOT FAILED - DELETE | Ticket=", ticket,
-            " | Error=", GetLastError());
-
+      int errDelete=GetLastError();
+      BlockTradeErrorUntilNextTick(deleteKey);
+      LogTradeOperationError("OrderDelete/ReduceLot",ticket,
+         "OldLot="+DoubleToString(oldLot,2)+
+         " | NewLot=0.01"+
+         " | OpenPrice="+DoubleToString(openPrice,Digits),errDelete);
+      MarkServerError(errDelete,"OrderDelete/ReduceLot");
       return false;
    }
 
+   InvalidateTotalEAOrdersCache();
    RefreshRates();
 
    // Recreate with 0.01 lot using all existing order parameters
+   string sendKey=MakeTradeErrorKey("REDUCE_SEND",-1,
+                                    IntegerToString(ticket)+"|"+comment);
+   if(IsTradeErrorBlockedThisTick(sendKey))
+      return false;
+
+   if(!CanSendTradeRequest("OrderSend/ReduceLot","OldTicket="+IntegerToString(ticket)))
+      return false;
+
    ResetLastError();
+   tradeStartMs=GetTickCount();
 
    int newTicket = OrderSend(
       Symbol(),
@@ -1744,14 +2073,22 @@ bool ReducePendingOrderLotTo01()
       expiration,
       clrLimeGreen
    );
+   LogTradeTiming("OrderSend/ReduceLot",tradeStartMs);
 
    if(newTicket < 0)
    {
-      Print("REDUCE LOT FAILED - RECREATE | OldTicket=", ticket,
-            " | Error=", GetLastError());
-
+      int errSend=GetLastError();
+      BlockTradeErrorUntilNextTick(sendKey);
+      LogTradeOperationError("OrderSend/ReduceLot",-1,
+         "OldTicket="+IntegerToString(ticket)+
+         " | NewLot=0.01"+
+         " | OpenPrice="+DoubleToString(openPrice,Digits)+
+         " | Comment="+comment,errSend);
+      MarkServerError(errSend,"OrderSend/ReduceLot");
       return false;
    }
+
+   InvalidateTotalEAOrdersCache();
 
    Print("PENDING LOT REDUCED SUCCESSFULLY | OldTicket=", ticket,
          " | NewTicket=", newTicket,
@@ -1763,121 +2100,118 @@ bool ReducePendingOrderLotTo01()
 // Delete a pending order for equity-ladder/daily reset.
 // The global pending-order rule applies here too: pending orders
 // younger than 6 hours must remain active.
+// ForceDeletePendingOrder: same next-tick rule as every other
+// trade operation. The 6-hour pending-order rule remains intact.
 bool ForceDeletePendingOrder(int ticket,color arrowColor)
   {
-   int lastErr=0;
+   string key=MakeTradeErrorKey("FORCE_DELETE",ticket,"");
 
-   for(int attempt=1;attempt<=ServerRecoveryMaxRetries;attempt++)
+   if(IsTradeErrorBlockedThisTick(key))
      {
-      if(!OrderSelect(ticket,SELECT_BY_TICKET,MODE_TRADES))
-         return true; // Already gone.
-
-      int type=OrderType();
-      if(type!=OP_BUYSTOP && type!=OP_SELLSTOP &&
-         type!=OP_BUYLIMIT && type!=OP_SELLLIMIT)
-         return false;
-
-      // ==========================================================
-      // GLOBAL PENDING-ORDER AGE RULE
-      // Pending orders may only be deleted after they are 6 hours
-      // old. This rule also applies to equity/daily basket closing.
-      // ==========================================================
-      int ageSeconds=(int)(TimeCurrent()-OrderOpenTime());
-
-      if(ageSeconds < 6*60*60)
-        {
-         Print("Pending order kept | Ticket=",ticket,
-               " | Age=",DoubleToString(ageSeconds/3600.0,2),
-               " hours | Required=6.00 hours");
-
-         // Do not report a broker/server error. The order is being
-         // intentionally retained by the 6-hour pending-order rule.
-         ResetLastError();
-         return false;
-        }
-
-      ResetLastError();
-
-      if(OrderDelete(ticket,arrowColor))
-         return true;
-
-      lastErr=GetLastError();
-      MarkServerError(lastErr,"ForceOrderDelete");
-
-      // The broker may have completed the delete even though MT4
-      // reported a communication error. Verify broker state.
-      if(!OrderSelect(ticket,SELECT_BY_TICKET,MODE_TRADES))
-         return true;
-
-      Print("ForceOrderDelete failed | Ticket=",ticket,
-            " | Attempt=",attempt,"/",ServerRecoveryMaxRetries,
-            " | Error=",lastErr);
-
-      if(!IsRetryableTradeError(lastErr))
-         break;
-
-      RefreshRates();
-      Sleep(ServerRecoveryRetryDelayMs);
+      Print("ForceOrderDelete SKIPPED - previous failure this tick | Ticket=",
+            ticket," | Action=wait next tick");
+      return false;
      }
 
-   // MQL4 has no SetLastError(). Log the final broker error here.
-   if(lastErr!=0)
-      Print("ForceOrderDelete final failure | Ticket=",ticket,
-            " | Error=",lastErr);
+   if(!OrderSelect(ticket,SELECT_BY_TICKET,MODE_TRADES))
+      return true;
 
+   int type=OrderType();
+   if(type!=OP_BUYSTOP && type!=OP_SELLSTOP &&
+      type!=OP_BUYLIMIT && type!=OP_SELLLIMIT)
+      return false;
+
+   int ageSeconds=(int)(TimeCurrent()-OrderOpenTime());
+   if(ageSeconds < 6*60*60)
+     {
+      Print("Pending order kept | Ticket=",ticket,
+            " | Age=",DoubleToString(ageSeconds/3600.0,2),
+            " hours | Required=6.00 hours");
+      return false;
+     }
+
+   ResetLastError();
+   uint tradeStartMs=GetTickCount();
+   bool result=OrderDelete(ticket,arrowColor);
+   LogTradeTiming("OrderDelete",tradeStartMs);
+
+   if(result)
+      return true;
+
+   int err=GetLastError();
+
+   if(!OrderSelect(ticket,SELECT_BY_TICKET,MODE_TRADES))
+      return true;
+
+   BlockTradeErrorUntilNextTick(key);
+
+   LogTradeOperationError("ForceOrderDelete",ticket,
+      "Type="+IntegerToString(type)+
+      " | Lots="+DoubleToString(OrderLots(),2)+
+      " | OpenPrice="+DoubleToString(OrderOpenPrice(),Digits),err);
+
+   MarkServerError(err,"ForceOrderDelete");
    return false;
   }
 
 
+
+
+// Safe OrderDelete: one broker request per ticket per tick.
+// Pending-order business rules remain unchanged.
 bool SafeOrderDelete(int ticket,color arrowColor)
   {
-   for(int attempt=1;attempt<=ServerRecoveryMaxRetries;attempt++)
+   string key=MakeTradeErrorKey("DELETE",ticket,"");
+
+   if(IsTradeErrorBlockedThisTick(key))
      {
-      if(!OrderSelect(ticket,SELECT_BY_TICKET,MODE_TRADES))
-         return true;
-
-
-            int ageSeconds = (int)(TimeCurrent() - OrderOpenTime());
-
-            // Global rule: pending orders can only be deleted after 6 hours.
-            // Do not modify the pending order before this age check.
-            if(ageSeconds < 6*60*60)
-            {
-               Print("Pending order kept | Ticket=",ticket,
-                     " | Age=",DoubleToString(ageSeconds/3600.0,2),
-                     " hours | Required=6.00 hours");
-               ResetLastError();
-               return false;
-            }
-
-            if(OrderLots()>0.02)
-{
-               ReducePendingOrderLotTo01();
-}
-
-      ResetLastError();
-
-      if(OrderDelete(ticket,arrowColor))
-         return true;
-
-      int err=GetLastError();
-      MarkServerError(err,"OrderDelete");
-
-      if(!OrderSelect(ticket,SELECT_BY_TICKET,MODE_TRADES))
-         return true;
-
-      Print("OrderDelete failed | Ticket=",ticket,
-            " | Attempt=",attempt,"/",ServerRecoveryMaxRetries,
-            " | Error=",err);
-
-      if(!IsRetryableTradeError(err))
-         return false;
-
-      Sleep(ServerRecoveryRetryDelayMs);
+      Print("OrderDelete SKIPPED - previous failure this tick | Ticket=",
+            ticket," | Action=wait next tick");
+      return false;
      }
 
+   if(!OrderSelect(ticket,SELECT_BY_TICKET,MODE_TRADES))
+      return true; // Already deleted.
+
+   int ageSeconds=(int)(TimeCurrent()-OrderOpenTime());
+   if(ageSeconds < 6*60*60)
+     {
+      Print("Pending order kept | Ticket=",ticket,
+            " | Age=",DoubleToString(ageSeconds/3600.0,2),
+            " hours | Required=6.00 hours");
+      return false;
+     }
+
+   if(OrderLots()>0.02)
+      ReducePendingOrderLotTo01();
+
+   if(!CanSendTradeRequest("OrderDelete","Ticket="+IntegerToString(ticket)))
+      return false;
+
+   ResetLastError();
+   bool result=OrderDelete(ticket,arrowColor);
+
+   if(result)
+      return true;
+
+   int err=GetLastError();
+
+   // If it disappeared, deletion actually succeeded.
+   if(!OrderSelect(ticket,SELECT_BY_TICKET,MODE_TRADES))
+      return true;
+
+   BlockTradeErrorUntilNextTick(key);
+
+   LogTradeOperationError("OrderDelete",ticket,
+      "Pending type="+IntegerToString(OrderType())+
+      " | Lots="+DoubleToString(OrderLots(),2)+
+      " | OpenPrice="+DoubleToString(OrderOpenPrice(),Digits),err);
+
+   MarkServerError(err,"OrderDelete");
    return false;
   }
+
+
 
 //0.03
 void ChangeLots(double OpenPL, string reason, int orderType,int stoplevelStep)
@@ -2391,17 +2725,10 @@ void ResetAfterProtectedEquity(DailyProtectionState &state)
 // ---------------------------------------------------------------
 // 1. CLOSE ALL EA ORDERS
 // ---------------------------------------------------------------
-   int retry = 0;
-
-   while(GetTotalEAOrders() > 0 && retry < 10)
-     {
-      RefreshRates();
-
-      CloseAllEAOrdersOnDailyLoss();
-
-      Sleep(300);
-      retry++;
-     }
+   // ONE PASS ONLY. Any failed close/delete is recorded and deferred
+   // to the next tick. Never chase the trade server in the same tick.
+   RefreshRates();
+   CloseAllEAOrdersOnDailyLoss();
 
 // ---------------------------------------------------------------
 // 2. VERIFY ALL ORDERS CLOSED
@@ -2721,88 +3048,62 @@ void ProcessEquityResetReEntry(DailyProtectionState &state)
 //+------------------------------------------------------------------+
 bool CloseMarketOrdersForEquityLadder()
   {
-   bool allMarketsClosed=true;
+   // ONE PASS ONLY.
+   // Failed close/delete requests are guarded by the global next-tick
+   // retry mechanism. Never Sleep() or loop against the server here.
+   RefreshRates();
 
-   for(int pass=1; pass<=10; pass++)
+   for(int i=OrdersTotal()-1; i>=0; i--)
      {
-      bool foundMarket=false;
+      if(!OrderSelect(i,SELECT_BY_POS,MODE_TRADES))
+         continue;
 
-      RefreshRates();
+      if(OrderSymbol()!=Symbol() || OrderMagicNumber()!=MagicNumber)
+         continue;
 
-      for(int i=OrdersTotal()-1; i>=0; i--)
+      int type=OrderType();
+
+      if(type==OP_BUY || type==OP_SELL)
         {
-         if(!OrderSelect(i,SELECT_BY_POS,MODE_TRADES))
-            continue;
+         int ticket=OrderTicket();
+         double lots=OrderLots();
 
-         if(OrderSymbol()!=Symbol() || OrderMagicNumber()!=MagicNumber)
-            continue;
-
-         int type=OrderType();
-
-         if(type==OP_BUY || type==OP_SELL)
-           {
-            foundMarket=true;
-
-            int ticket=OrderTicket();
-            double lots=OrderLots();
-
-            ResetLastError();
-
-            if(SafeOrderClose(ticket,lots,type,Slippage,
-                              (type==OP_SELL ? clrRed : clrBlue)))
-              {
-               Print("EQUITY LADDER MARKET CLOSED | Ticket=",ticket);
-              }
-            else
-              {
-               int err=GetLastError();
-               Print("EQUITY LADDER MARKET CLOSE FAILED | Ticket=",ticket,
-                     " | Error=",err);
-               allMarketsClosed=false;
-              }
-           }
+         if(SafeOrderClose(ticket,lots,type,Slippage,
+                           (type==OP_SELL ? clrRed : clrBlue)))
+            Print("EQUITY LADDER MARKET CLOSED | Ticket=",ticket);
          else
-         if(type==OP_BUYSTOP || type==OP_SELLSTOP ||
-            type==OP_BUYLIMIT || type==OP_SELLLIMIT)
-           {
-            // Delete only when the pending order is at least 6 hours old.
-            int ageSeconds=(int)(TimeCurrent()-OrderOpenTime());
-
-            if(ageSeconds >= 6*60*60)
-              {
-               int ticket=OrderTicket();
-
-               if(ForceDeletePendingOrder(ticket,clrRed))
-                  Print("EQUITY LADDER PENDING DELETED | Ticket=",ticket);
-               else
-                  Print("EQUITY LADDER PENDING DELETE FAILED/SKIPPED | Ticket=",ticket);
-              }
-            else
-              {
-               Print("EQUITY LADDER PENDING KEPT | Ticket=",OrderTicket(),
-                     " | Age=",DoubleToString(ageSeconds/3600.0,2),
-                     " hours | Required=6.00 hours");
-              }
-           }
+            Print("EQUITY LADDER MARKET CLOSE DEFERRED | Ticket=",ticket,
+                  " | Retry next tick");
         }
-
-      // Check specifically for remaining MARKET orders.
-      int remainingMarkets=GetTotalBuyOrders()+GetTotalSellOrders();
-
-      if(remainingMarkets==0)
-         return true;
-
-      allMarketsClosed=false;
-
-      if(foundMarket)
+      else
+      if(type==OP_BUYSTOP || type==OP_SELLSTOP ||
+         type==OP_BUYLIMIT || type==OP_SELLLIMIT)
         {
-         RefreshRates();
-         Sleep(300);
+         int ageSeconds=(int)(TimeCurrent()-OrderOpenTime());
+
+         if(ageSeconds >= 6*60*60)
+          {
+           int ticket=OrderTicket();
+
+           if(ForceDeletePendingOrder(ticket,clrRed))
+              Print("EQUITY LADDER PENDING DELETED | Ticket=",ticket);
+           else
+              Print("EQUITY LADDER PENDING DELETE DEFERRED | Ticket=",ticket,
+                    " | Retry next tick");
+          }
+         else
+           {
+            Print("EQUITY LADDER PENDING KEPT | Ticket=",OrderTicket(),
+                  " | Age=",DoubleToString(ageSeconds/3600.0,2),
+                  " hours | Required=6.00 hours");
+           }
         }
      }
 
    return (GetTotalBuyOrders()+GetTotalSellOrders()==0);
   }
+
+
 
 //+------------------------------------------------------------------+
 
@@ -3198,96 +3499,48 @@ void CloseOppositeOrders(int newSignalType)
 //+------------------------------------------------------------------+
 void CloseAllEAOrdersOnDailyLoss()
   {
-   Print("Closing all EA orders...");
-
-   bool finished=false;
-   int retries=0;
-
-   if(GetTotalEAOrders()==0)
+   // ONE PASS ONLY. Every failed close/delete is logged and deferred
+   // until the next OnTick. No Sleep and no same-tick server chasing.
+   for(int i=OrdersTotal()-1; i>=0; i--)
      {
-      Print("No EA orders to close.");
-      return;
-     }
+      if(!OrderSelect(i,SELECT_BY_POS,MODE_TRADES))
+         continue;
 
-   while(!finished && retries<3)
-     {
-      finished=true;
-      RefreshRates();
+      if(OrderSymbol()!=Symbol() || OrderMagicNumber()!=MagicNumber)
+         continue;
 
-      for(int i=OrdersTotal()-1; i>=0; i--)
+      int ticket=OrderTicket();
+      int type=OrderType();
+
+      bool result=false;
+
+      if(type==OP_BUY || type==OP_SELL)
         {
-         if(!OrderSelect(i,SELECT_BY_POS,MODE_TRADES))
-            continue;
-
-         if(OrderSymbol()!=Symbol() ||
-            OrderMagicNumber()!=MagicNumber)
-            continue;
-
-         int ticket=OrderTicket();
-         int type=OrderType();
-         bool result=false;
-         int lastErr=0;
-
-         if(type==OP_BUY || type==OP_SELL)
-           {
-            double lots=OrderLots();
-
-            ResetLastError();
-            result=SafeOrderClose(ticket,lots,type,Slippage,
-                                  (type==OP_SELL ? clrRed : clrBlue));
-
-            if(!result)
-               lastErr=GetLastError();
-           }
-         else
-         if(type==OP_BUYSTOP || type==OP_SELLSTOP ||
-            type==OP_BUYLIMIT || type==OP_SELLLIMIT)
-           {
-            // IMPORTANT:
-            // Apply the same global 6-hour pending-order rule here.
-            // Young pending orders remain active until they reach 6 hours.
-            ResetLastError();
-            result=ForceDeletePendingOrder(ticket,clrRed);
-
-            if(!result)
-               lastErr=GetLastError();
-           }
-         else
-           {
-            // Unknown order type: treat it as already handled.
-            result=true;
-           }
-
-         if(!result)
-           {
-            finished=false;
-
-            Print("Failed Ticket ",ticket,
-                  " Error=",lastErr,
-                  " Type=",type);
-
-            // If there was no MT4 error, explain why rather than
-            // misleadingly printing only Error=0.
-            if(lastErr==0)
-               Print("Close/Delete returned false without an MT4 error. ",
-                     "Order remains open/pending; will retry.");
-           }
+         result=SafeOrderClose(ticket,OrderLots(),type,Slippage,
+                               (type==OP_SELL ? clrRed : clrBlue));
+        }
+      else
+      if(type==OP_BUYSTOP || type==OP_SELLSTOP ||
+         type==OP_BUYLIMIT || type==OP_SELLLIMIT)
+        {
+         result=ForceDeletePendingOrder(ticket,clrRed);
+        }
+      else
+        {
+         result=true;
         }
 
-      if(!finished)
-        {
-         retries++;
-         Sleep(500);
-        }
+      if(!result)
+         Print("Daily protection operation deferred | Ticket=",ticket,
+               " | Type=",type," | Retry next tick");
      }
 
    RefreshRates();
 
    int remain=0;
-
-   for(int i=OrdersTotal()-1; i>=0; i--)
+   for(int j=OrdersTotal()-1; j>=0; j--)
      {
-      if(!OrderSelect(i,SELECT_BY_POS,MODE_TRADES))
+      if(!OrderSelect(j,SELECT_BY_POS,MODE_TRADES))
          continue;
 
       if(OrderSymbol()==Symbol() &&
@@ -3301,9 +3554,11 @@ void CloseAllEAOrdersOnDailyLoss()
    if(remain==0)
       Print("ALL EA ORDERS CLOSED SUCCESSFULLY");
    else
-      Print("WARNING : Some orders could not be closed.");
+      Print("Some orders remain - failed operations will be retried on next tick.");
    Print("----------------------------------------");
   }
+
+
 //+------------------------------------------------------------------+
 //|                                                                  |
 //+------------------------------------------------------------------+
@@ -3608,6 +3863,10 @@ int GetTotalSellOrders()
 //+------------------------------------------------------------------+
 int GetTotalEAOrders()
   {
+   if(CachedTotalEAOrdersTick==CurrentTickSequence &&
+      CachedTotalEAOrders>=0)
+      return CachedTotalEAOrders;
+
    int count = 0;
    for(int i = OrdersTotal() - 1; i >= 0; i--)
      {
@@ -3622,12 +3881,20 @@ int GetTotalEAOrders()
          type==OP_SELLSTOP ||
          type==OP_BUYLIMIT ||
          type==OP_SELLLIMIT)
-        {
          count++;
-        }
      }
+
+   CachedTotalEAOrders=count;
+   CachedTotalEAOrdersTick=CurrentTickSequence;
    return count;
   }
+
+void InvalidateTotalEAOrdersCache()
+  {
+   CachedTotalEAOrders=-1;
+   CachedTotalEAOrdersTick=-1;
+  }
+
 
 //+------------------------------------------------------------------+
 //|                                                                  |
