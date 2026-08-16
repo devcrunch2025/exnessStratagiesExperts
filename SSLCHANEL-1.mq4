@@ -34,7 +34,8 @@ string EMA_PREFIX = "SSL_EMA_LINE_";
 
 bool EnableTrading = true;
 double Lots = 0.01;
-int MaxOpenOrders = 20;
+int MaxOpenOrders = 100;//20;
+int AccountMultiplierLOT=200;
 bool CloseOppositeOrdersOnSignal = false;
 double closeOppositeLossThreshold =-2;//-0.50;// -10.0;
 double OriginalStopLossUSD=2;//10;//5;//0.50;//50;
@@ -2092,9 +2093,17 @@ void ChangeLots(double OpenPL, string reason, int orderType,int stoplevelStep)
    Lots = NormalizeLots(Lots);
 
 
-   if(Lots > MaxRecoveryLot)
-      Lots = NormalizeLots(MaxRecoveryLot);
+ int balancelomultipler =
+   (int)(AccountBalance() / AccountMultiplierLOT);
 
+if(balancelomultipler < 1)
+   balancelomultipler = 1;
+
+Lots = Lots * balancelomultipler;
+
+ 
+
+Lots = NormalizeLots(Lots);
 
    //==================================================
    // ACTUAL LOT MULTIPLIER
@@ -4579,8 +4588,12 @@ void UpdateDashboard(DailyProtectionState &state)
    CreateDashboardPanel(DASH_PREFIX+"SEC_RISK",x,y+370,w,22,C'30,38,50');
    CreateDashboardLabel(DASH_PREFIX+"RISK_H","RISK & STOP-LOSS PROTECTION",tx,y+374,9,clrAqua);
    CreateDashboardLabel(DASH_PREFIX+"FLOAT","FLOATING P/L  : "+(netProfit>=0?"+":"")+DoubleToString(netProfit,2),tx,y+397,9,pnlColor);
+   int balancelomultipler =
+   (int)(AccountBalance() / AccountMultiplierLOT);
+   if(balancelomultipler < 1)
+   balancelomultipler = 1;
    CreateDashboardLabel(DASH_PREFIX+"ORDERS","ORDERS       : "+IntegerToString(totalOrders)+" / "+IntegerToString(MaxOpenOrders)+"   B:"+IntegerToString(buyOrders)+" S:"+IntegerToString(sellOrders),tx,y+417,9,clrWhite);
-   CreateDashboardLabel(DASH_PREFIX+"LOTS","LOTS         : B "+DoubleToString(GetTotalLots(OP_BUY),2)+" / S "+DoubleToString(GetTotalLots(OP_SELL),2),tx,y+437,9,clrWhite);
+   CreateDashboardLabel(DASH_PREFIX+"LOTS","LOTS         : B "+DoubleToString(GetTotalLots(OP_BUY),2)+" / S "+DoubleToString(GetTotalLots(OP_SELL),2)+" Multi X "+IntegerToString(balancelomultipler),tx,y+437,9,clrWhite);
    CreateDashboardLabel(DASH_PREFIX+"SLRISK","SL LOSSES    : "+IntegerToString(LosingSLCount)+" | CONTINUE AFTER SL: "+(ContinueTradingAfterSL?"YES":"NO"),tx,y+457,9,ContinueTradingAfterSL?clrLime:(LosingSLCount>0?clrOrangeRed:clrLime));
    CreateDashboardLabel(DASH_PREFIX+"BASKET","BASKET LOCK  : $"+DoubleToString(BasketNewOrderLossLimitUSD,2)+" | ROOM $"+DoubleToString(riskRemaining,2),tx,y+477,9,HasBasketNewOrderLossLimit()?clrTomato:clrLime);
    CreateDashboardLabel(DASH_PREFIX+"COOLDOWN","SL COOLDOWN  : "+(SLProtectionUntil>TimeCurrent()?TimeToString(SLProtectionUntil,TIME_SECONDS):"READY"),tx,y+497,9,SLProtectionUntil>TimeCurrent()?clrGold:clrLime);
