@@ -1105,9 +1105,9 @@ datetime SLProtectionUntil = 0;
 double GetReEntryLot(int reEntryNumber)
   {
    if(reEntryNumber <=1)
-      return NormalizeLots(0.01);
-if(reEntryNumber <=2)
       return NormalizeLots(0.02);
+if(reEntryNumber <=2)
+      return NormalizeLots(0.03);
      // if(reEntryNumber <= 10)
       return NormalizeLots(0.10);
 
@@ -1972,7 +1972,7 @@ void ChangeLots(double OpenPL, string reason, int orderType,int stoplevelStep)
             //=========================================
             // SSL WITH OPPOSITE ORDERS
             //=========================================
-            Lots = NormalizeLots(0.01);
+            Lots = NormalizeLots(0.01); //0.05 is danger if market is moving continuous down with small ups and downs 
 
             Print("========================================");
             Print("SSL SIGNAL - OPPOSITE ORDERS");
@@ -1990,7 +1990,7 @@ void ChangeLots(double OpenPL, string reason, int orderType,int stoplevelStep)
             //=========================================
             // SSL WITHOUT OPPOSITE ORDERS
             //=========================================
-            Lots = NormalizeLots(0.02);
+            Lots = NormalizeLots(0.01); //0.05 is danger if market is moving continuous down with small ups and downs 
 
             Print("========================================");
             Print("SSL SIGNAL - NO OPPOSITE ORDERS");
