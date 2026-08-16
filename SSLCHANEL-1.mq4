@@ -1101,11 +1101,13 @@ datetime SLProtectionUntil = 0;
 
 // Return the lot required for a successful ReEntry number.
 // #1 = 0.01, #2 = 0.10, #3 = 0.09 ... #10 = 0.02, #11+ = 0.01.
+//0.03
 double GetReEntryLot(int reEntryNumber)
   {
    if(reEntryNumber <=1)
       return NormalizeLots(0.01);
-
+if(reEntryNumber <=2)
+      return NormalizeLots(0.02);
      // if(reEntryNumber <= 10)
       return NormalizeLots(0.10);
 
