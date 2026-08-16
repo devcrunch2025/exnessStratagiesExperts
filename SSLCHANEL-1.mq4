@@ -2072,6 +2072,14 @@ void ChangeLots(double OpenPL, string reason, int orderType,int stoplevelStep)
         }
 
 
+
+ int balancelomultipler =
+   (int)(AccountBalance() / AccountMultiplierLOT);
+
+if(balancelomultipler < 1)
+   balancelomultipler = 1;
+
+Lots = Lots * balancelomultipler;
    //==================================================
    // HARD MAX LOT
    //==================================================
@@ -2093,17 +2101,9 @@ void ChangeLots(double OpenPL, string reason, int orderType,int stoplevelStep)
    Lots = NormalizeLots(Lots);
 
 
- int balancelomultipler =
-   (int)(AccountBalance() / AccountMultiplierLOT);
-
-if(balancelomultipler < 1)
-   balancelomultipler = 1;
-
-Lots = Lots * balancelomultipler;
-
  
 
-Lots = NormalizeLots(Lots);
+// Lots = NormalizeLots(Lots);
 
    //==================================================
    // ACTUAL LOT MULTIPLIER
@@ -4647,6 +4647,13 @@ void CreateLeftLivePanel(string name,int x,int y,int width,int height,color back
    if(ObjectFind(0,name)<0)
       ObjectCreate(0,name,OBJ_RECTANGLE_LABEL,0,0,0);
    ObjectSetInteger(0,name,OBJPROP_CORNER,CORNER_LEFT_UPPER);
+
+
+ // IMPORTANT:
+   // Panel stays in front of chart lines
+   ObjectSetInteger(0,name,OBJPROP_BACK,false);
+   ObjectSetInteger(0,name,OBJPROP_ZORDER,1000);
+
    ObjectSetInteger(0,name,OBJPROP_XDISTANCE,x);
    ObjectSetInteger(0,name,OBJPROP_YDISTANCE,y);
    ObjectSetInteger(0,name,OBJPROP_XSIZE,width);
@@ -4721,6 +4728,8 @@ void UpdateLeftLiveOrdersDashboard()
 
    CreateLeftLivePanel(LEFT_LIVE_PREFIX+"PANEL",x,y,width,panelHeight,C'12,16,22');
    CreateLeftLivePanel(LEFT_LIVE_PREFIX+"HEADER",x,y,width,38,C'25,70,115');
+
+   
    CreateLeftLiveLabel(LEFT_LIVE_PREFIX+"TITLE","LIVE POSITION MONITOR",tx,y+8,11,clrWhite);
    CreateLeftLiveLabel(LEFT_LIVE_PREFIX+"SYMBOL",Symbol()+"  |  "+TimeframeToString(Period()),x+width-112,y+10,8,clrLightGray);
 
