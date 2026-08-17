@@ -77,9 +77,9 @@ double Ladder2ProfitUSD = 0.10;//server api is has errors due to too many orders
 
 bool EnableRecoveryOrders = false;//continuos market down will huge loss
 double RecoveryTriggerLossUSD = -0.50;//per lot 0.01
-double RecoveryLotMultiplier = 1;
+double RecoveryLotMultiplier = 2;
 int MaxRecoveryOrders = 1;
-double RecoveryBasketProfitUSD = 0.50;
+double RecoveryBasketProfitUSD =0.20;// 1;//0.50;
 bool EnableDailyLossProtection = false;// false= continue trading even after hit the stoploss  
 
 // ===== DAY-1 CAPITAL PROTECTION EXIT =====
@@ -2517,6 +2517,22 @@ Lots = Lots * balancelomultipler;
       lotMultiplier = 1.0;
 
 
+
+ 
+
+int StoplossWeekendMultiplier=1;
+
+ int dayOfWeek = TimeDayOfWeek(TimeCurrent());
+   if(dayOfWeek==6 || dayOfWeek==0 || dayOfWeek==1)
+     {
+      StoplossWeekendMultiplier=3;
+      EnableRecoveryOrders=true;
+     }
+     else
+     {
+      EnableRecoveryOrders=false;
+     }
+
    //==================================================
    // SCALE SL / ORDER LADDER
    // BASED ON ACTUAL NEW LOT
@@ -2524,6 +2540,11 @@ Lots = Lots * balancelomultipler;
    StopLossUSD =
       OriginalStopLossUSD *
       Lots * 100;
+
+      StopLossUSD=StopLossUSD*StoplossWeekendMultiplier;
+
+
+Print(OriginalStopLossUSD+" * "+" * "+Lots+" * "+100+" * "+StopLossUSD+" * "+OriginalStopLossUSD);
 
    Ladder1ProfitUSD =
       OriginalLadder1ProfitUSD *
@@ -2584,13 +2605,15 @@ void CheckRecoveryOrders()
       if(StringFind(OrderComment(), "RECOVERY_") == 0 || (OrderType() != OP_BUY && OrderType() != OP_SELL))
          continue;
 
+      double lots = NormalizeLots(OrderLots() * RecoveryLotMultiplier);
+
+
       double profit = OrderProfit() + OrderSwap() + OrderCommission();
-      if(profit > RecoveryTriggerLossUSD || HasRecoveryOrder(OrderTicket()))
+      if(profit > RecoveryTriggerLossUSD*100*lots || HasRecoveryOrder(OrderTicket()))
          continue;
       if((OrderType() == OP_BUY && !IsBuySignal(0)) || (OrderType() == OP_SELL && !IsSellSignal(0)))
          continue;
 
-      double lots = NormalizeLots(OrderLots() * RecoveryLotMultiplier);
 
       if(!IsOneCandleOrderAllowed())
          continue;
@@ -4146,6 +4169,11 @@ void ManageProfitLadder()
       // DYNAMIC LADDER VALUES
       // BASED ON CURRENT ORDER LOT
       //==================================================
+
+
+ 
+     
+
       double ladder1Profit =
          OriginalLadder1ProfitUSD *
          orderLots * 100.0;
@@ -4155,6 +4183,13 @@ void ManageProfitLadder()
          {
             ladder1Profit =0.10;// ladder1Profit/2;
          }
+
+         
+ int dayOfWeek = TimeDayOfWeek(TimeCurrent());
+   if(dayOfWeek==6 || dayOfWeek==0 || dayOfWeek==1)
+     {
+     ladder1Profit =0.10;// ladder1Profit/2;
+     }
 
       double ladder2Profit =
          OriginalLadder2ProfitUSD *
