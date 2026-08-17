@@ -1192,9 +1192,12 @@ double GetReEntryLot(int reEntryNumber)
   
    if(tradeDay==6 || tradeDay==0 || tradeDay==1)
    {
-
+if(reEntryNumber>=2)
  
-      return NormalizeLots(0.01*reEntryNumber);
+      return NormalizeLots(0.01*(5-reEntryNumber));
+      else
+
+      return 0.01;
 
    }
       
@@ -4325,25 +4328,25 @@ double NormalizeLots(double lots)
 
 // Weekend + Monday protection.
 // MQL4 TimeDayOfWeek(): Sunday=0, Monday=1, Saturday=6.
-   int dayOfWeek = TimeDayOfWeek(TimeCurrent());
-   if(dayOfWeek==6 || dayOfWeek==0 || dayOfWeek==1)
-     {
-      if(minLot <= 0.02)
-         lots = MathMin(lots,0.02);
-      else
-         Print("WARNING | Broker minimum lot ",DoubleToString(minLot,2),
-               " is greater than Monday/weekend cap 0.02");
-     }
+   // int dayOfWeek = TimeDayOfWeek(TimeCurrent());
+   // if(dayOfWeek==6 || dayOfWeek==0 || dayOfWeek==1)
+   //   {
+   //    if(minLot <= 0.02)
+   //       lots = MathMin(lots,0.02);
+   //    else
+   //       Print("WARNING | Broker minimum lot ",DoubleToString(minLot,2),
+   //             " is greater than Monday/weekend cap 0.02");
+   //   }
 
    lots = MathFloor((lots + 1e-9) / lotStep) * lotStep;
    lots = MathMax(minLot, MathMin(maxLot, lots));
 
 // Re-apply the cap after lot-step normalization.
-   if(dayOfWeek==6 || dayOfWeek==0 || dayOfWeek==1)
-     {
-      if(minLot <= 0.02)
-         lots = MathMin(lots,0.02);
-     }
+   // if(dayOfWeek==6 || dayOfWeek==0 || dayOfWeek==1)
+   //   {
+   //    if(minLot <= 0.02)
+   //       lots = MathMin(lots,0.02);
+   //   }
 
    int digits = 0;
    double step = lotStep;
