@@ -1690,6 +1690,24 @@ int SafeOrderSend(string symbol,int orderType,double lots,double price,
       return -1;
      }
 
+   // FINAL LOT SAFETY CAP:
+   // Saturday, Sunday and Monday: maximum lot = 0.02.
+   // This is applied immediately before the broker OrderSend request,
+   // so all SafeOrderSend callers (Long, Short, ReEntry, Recovery,
+   // pending orders, etc.) are protected.
+   int tradeDay = TimeDayOfWeek(TimeCurrent());
+   double requestedLots = lots;
+   if(tradeDay==6 || tradeDay==0 || tradeDay==1)
+      lots = MathMin(lots,0.02);
+
+   lots = NormalizeLots(lots);
+
+   if(MathAbs(requestedLots-lots)>0.0000001)
+      Print("DAY LOT CAP | Day=",tradeDay,
+            " | Requested=",DoubleToString(requestedLots,2),
+            " | Final=",DoubleToString(lots,2),
+            " | Max=0.02");
+
    RefreshRates();
 
    double sendPrice=price;
@@ -3950,8 +3968,28 @@ double NormalizeLots(double lots)
       lotStep = minLot > 0.0 ? minLot : 0.01;
 
    lots = MathMax(minLot, MathMin(maxLot, lots));
+
+   // Weekend + Monday protection.
+   // MQL4 TimeDayOfWeek(): Sunday=0, Monday=1, Saturday=6.
+   int dayOfWeek = TimeDayOfWeek(TimeCurrent());
+   if(dayOfWeek==6 || dayOfWeek==0 || dayOfWeek==1)
+     {
+      if(minLot <= 0.02)
+         lots = MathMin(lots,0.02);
+      else
+         Print("WARNING | Broker minimum lot ",DoubleToString(minLot,2),
+               " is greater than Monday/weekend cap 0.02");
+     }
+
    lots = MathFloor((lots + 1e-9) / lotStep) * lotStep;
    lots = MathMax(minLot, MathMin(maxLot, lots));
+
+   // Re-apply the cap after lot-step normalization.
+   if(dayOfWeek==6 || dayOfWeek==0 || dayOfWeek==1)
+     {
+      if(minLot <= 0.02)
+         lots = MathMin(lots,0.02);
+     }
 
    int digits = 0;
    double step = lotStep;
