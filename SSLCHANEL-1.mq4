@@ -125,7 +125,7 @@ int MagicNumber = 6600123;
 // ===== TICK PERFORMANCE / TRADE REQUEST CONTROL =====
 // A failed trade request is never chased on the same tick.
 // This limit also prevents a single tick from flooding the broker.
-int MaxTradeRequestsPerTick = 5;
+int MaxTradeRequestsPerTick = 10;
 int TradeRequestsThisTick = 0;
 
 // Per-tick order-count cache. It removes repeated full OrdersTotal()/OrderSelect()
@@ -4070,7 +4070,7 @@ void ManageProfitLadder()
          orderLots * 100.0;
 
 
-         if(orderLots == 0.10)
+         if(orderLots >= 0.10)
          {
             ladder1Profit =0.10;// ladder1Profit/2;
          }
