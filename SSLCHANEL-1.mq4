@@ -75,8 +75,8 @@ double Ladder2ProfitUSD = 0.10;//server api is has errors due to too many orders
 
 
 
-bool EnableRecoveryOrders = false;
-double RecoveryTriggerLossUSD = -5.0;
+bool EnableRecoveryOrders = false;//continuos market down will huge loss
+double RecoveryTriggerLossUSD = -0.50;//per lot 0.01
 double RecoveryLotMultiplier = 1;
 int MaxRecoveryOrders = 1;
 double RecoveryBasketProfitUSD = 0.50;
@@ -540,6 +540,49 @@ bool EAStartupComplete = false;
 //+------------------------------------------------------------------+
 int OnInit()
   {
+   //===============================================================
+   // DELETE ALL PENDING ORDERS ON EA INITIALIZATION
+   // Deletes Buy Stop, Sell Stop, Buy Limit and Sell Limit orders.
+   // Active BUY/SELL market positions are NOT closed.
+   //===============================================================
+   for(int initIndex = OrdersTotal() - 1; initIndex >= 0; initIndex--)
+     {
+      if(!OrderSelect(initIndex, SELECT_BY_POS, MODE_TRADES))
+         continue;
+
+      int initOrderType = OrderType();
+
+      if(initOrderType == OP_BUYSTOP  ||
+         initOrderType == OP_SELLSTOP ||
+         initOrderType == OP_BUYLIMIT ||
+         initOrderType == OP_SELLLIMIT)
+        {
+         int initTicket = OrderTicket();
+         string initSymbol = OrderSymbol();
+
+         ResetLastError();
+
+         if(OrderDelete(initTicket, clrNONE))
+           {
+            Print("INIT | Pending order deleted | Ticket=",
+                  initTicket,
+                  " | Type=", initOrderType,
+                  " | Symbol=", initSymbol);
+           }
+         else
+           {
+            int initErr = GetLastError();
+
+            Print("INIT | FAILED to delete pending order | Ticket=",
+                  initTicket,
+                  " | Type=", initOrderType,
+                  " | Symbol=", initSymbol,
+                  " | Error=", initErr);
+           }
+        }
+     }
+
+
    Ladder1StopMaxPriceUSD=Ladder1ProfitUSD*2;
 
    OriginalLots = Lots;
