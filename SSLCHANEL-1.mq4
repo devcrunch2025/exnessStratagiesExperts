@@ -102,7 +102,7 @@ double Ladder2ProfitUSD = 0.10;//server api is has errors due to too many orders
 
 
 
-bool EnableRecoveryOrders = false;//continuos market down will huge loss
+bool EnableRecoveryOrders = true;//false;//continuos market down will huge loss
 double RecoveryTriggerLossUSD =1;// -0.50;//per lot 0.01
 double RecoveryLotMultiplier = 2;
 int MaxRecoveryOrders = 1;
@@ -1325,12 +1325,18 @@ double GetReEntryLot(int reEntryNumber)
       return NormalizeLots(0.01);
 
    }
-   else
+   else if(reEntryNumber <=6)
    {
 
    return NormalizeLots(0.10);
 
    }
+   else
+     {
+   return NormalizeLots(0.01);
+
+
+     }
    // if(reEntryNumber <=4)
    //    return NormalizeLots(0.03);
 // if(reEntryNumber <= 10)
