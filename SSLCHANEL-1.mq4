@@ -992,8 +992,8 @@ void OnTickCore()
 // the previous tick may be attempted now with fresh market data.
    ResetTradeErrorRetryGuards();
 
-   // Send remembered orders only after the 30-minute directional condition passes.
-   ProcessDeferredOrders();
+   // Reset the per-tick trade budget before any trading/protection logic.
+   // Deferred orders are processed later, after all protection checks.
    ResetTradeRequestBudget();
    RefreshRates();
 
@@ -1087,6 +1087,12 @@ void OnTickCore()
 // If an order cannot be opened now, the request remains pending.
    if(EquityResetReEntryPending)
       ProcessEquityResetReEntry(dailyState);
+
+   // Release remembered orders only AFTER all current protection,
+   // recovery and equity-ladder checks have run. A queued order must
+   // never bypass a newly activated protection state.
+   if(!TradeResetThisTick)
+      ProcessDeferredOrders();
 
    if(ShowSSLLines)
       UpdateSSLChannelOnTick();
@@ -2092,7 +2098,7 @@ int FindDeferredOrder(string symbol,int orderType,string comment,int magic)
 
 int QueueDeferredOrder(string symbol,int orderType,double lots,double price,
                        int slippage,double stopLoss,double takeProfit,
-                       string comment,int magic,color arrowColor,bool bypassDeferred=false)
+                       string comment,int magic,color arrowColor)
   {
    int existing=FindDeferredOrder(symbol,orderType,comment,magic);
    if(existing>=0)
@@ -2100,7 +2106,7 @@ int QueueDeferredOrder(string symbol,int orderType,double lots,double price,
       Print("30M ORDER WAITING | Existing request retained | Type=",
             orderType," | Comment=",comment,
             " | Slot=",existing);
-      return existing;
+      return -2;
      }
 
    for(int i=0;i<MAX_DEFERRED_ORDERS;i++)
@@ -2137,6 +2143,63 @@ int QueueDeferredOrder(string symbol,int orderType,double lots,double price,
    return -1;
   }
 
+bool DeferredRequestStillValid(int slot)
+  {
+   if(slot<0 || slot>=MAX_DEFERRED_ORDERS || !DeferredActive[slot])
+      return false;
+
+   string comment=DeferredComment[slot];
+
+   // Recovery request: parent must still be open and this parent must
+   // still have no completed/active recovery.
+   if(StringFind(comment,"RECOVERY_",0)==0)
+     {
+      int parentTicket=StrToInteger(
+         StringSubstr(comment,StringLen("RECOVERY_")));
+
+      if(parentTicket<=0)
+         return false;
+
+      if(HasRecoveryOrder(parentTicket))
+        {
+         Print("30M DEFERRED CANCELLED | Recovery already exists/history | Parent=",
+               parentTicket);
+         return false;
+        }
+
+      if(!OrderSelect(parentTicket,SELECT_BY_TICKET,MODE_TRADES))
+        {
+         Print("30M DEFERRED CANCELLED | Recovery parent no longer open | Parent=",
+               parentTicket);
+         return false;
+        }
+
+      if(OrderSymbol()!=DeferredSymbol[slot] ||
+         OrderMagicNumber()!=DeferredMagic[slot] ||
+         (OrderType()!=OP_BUY && OrderType()!=OP_SELL))
+         {
+         Print("30M DEFERRED CANCELLED | Recovery parent invalid | Parent=",
+               parentTicket);
+         return false;
+        }
+     }
+
+   // IMPORTANT:
+   // Once an SSL BUY/SELL signal has been accepted and deferred because the
+   // 30-minute momentum condition was not valid, remember that signal.
+   // Do NOT re-check IsLiveBuySignal()/IsLiveSellSignal() here.
+   //
+   // The requested behavior is:
+   //   SSL signal -> remember direction -> wait for 30M condition -> send.
+   //
+   // Therefore an SSL signal must not be cancelled merely because the live
+   // SSL indicator changes while we are waiting for the 30M momentum filter.
+   // ReEntry and Recovery requests are also remembered until their own
+   // validity rules are satisfied.
+
+   return true;
+  }
+
 void ProcessDeferredOrders()
   {
    if(!EnableTrading)
@@ -2146,6 +2209,12 @@ void ProcessDeferredOrders()
      {
       if(!DeferredActive[i])
          continue;
+
+      if(!DeferredRequestStillValid(i))
+        {
+         DeferredActive[i]=false;
+         continue;
+        }
 
       int type=DeferredType[i];
       int direction=DeferredDirection(type);
@@ -2234,8 +2303,13 @@ int SafeOrderSend(string symbol,int orderType,double lots,double price,
    if(Enable30MinuteMomentumFilter && Enable30MinuteMomentumForAllOrders)
      {
       if(!PassesDeferredMomentum(orderType))
-         return QueueDeferredOrder(symbol,orderType,lots,price,slippage,stopLoss,
-                                   takeProfit,comment,magic,arrowColor);
+        {
+         QueueDeferredOrder(symbol,orderType,lots,price,slippage,stopLoss,
+                            takeProfit,comment,magic,arrowColor);
+         // -2 means "remembered in EA memory; NOT sent to broker".
+         // Never return a queue slot as a fake MT4 ticket.
+         return -2;
+        }
      }
 
    string key=MakeTradeErrorKey("SEND",-1,
@@ -2259,8 +2333,8 @@ int SafeOrderSend(string symbol,int orderType,double lots,double price,
 // pending orders, etc.) are protected.
    int tradeDay = TimeDayOfWeek(TimeCurrent());
    double requestedLots = lots;
-   // if(tradeDay==6 || tradeDay==0 || tradeDay==1)
-   //    lots = MathMin(lots,0.02);
+   if(tradeDay==6 || tradeDay==0 || tradeDay==1)
+      lots = MathMin(lots,0.02);
 
    lots = NormalizeLots(lots);
 
@@ -3192,14 +3266,16 @@ void CheckRecoveryOrders()
 
       // ---------------------------------------------------------
       // Recovery trigger
-      // RecoveryTriggerLossUSD is negative, e.g. -5.0
+      // RecoveryTriggerLossUSD is a positive loss magnitude, e.g. 5.0
       //
       // Example:
       // Parent = 0.01 lot
       // Trigger = -5.0 per 0.01 lot
       // ---------------------------------------------------------
+      // RecoveryTriggerLossUSD is treated as a LOSS MAGNITUDE.
+      // Example: 1.0 means -$1 per 0.01 lot.
       double recoveryTrigger =
-         RecoveryTriggerLossUSD * 100.0 * lots;
+         -MathAbs(RecoveryTriggerLossUSD) * 100.0 * lots;
 
 
       int dayOfWeek = TimeDayOfWeek(TimeCurrent());
@@ -3244,7 +3320,7 @@ void CheckRecoveryOrders()
          recoveryTicket = SafeOrderSend(
                              Symbol(),
                              OP_BUY,
-                             lots*2,
+                             lots,
                              Ask,
                              Slippage,
                              Ask-200,
@@ -3259,7 +3335,7 @@ void CheckRecoveryOrders()
          recoveryTicket = SafeOrderSend(
                              Symbol(),
                              OP_SELL,
-                             lots*2,
+                             lots,
                              Bid,
                              Slippage,
                              Ask+200,
@@ -3307,23 +3383,32 @@ bool HasRecoveryOrder(int ParentTicket)
   {
    string txt="RECOVERY_"+IntegerToString(ParentTicket);
 
-   for(int i=OrdersTotal()-1; i>=0; i--)
+   // Check BOTH live orders and account history. This guarantees that
+   // a parent can never receive a second recovery after the first
+   // recovery has already closed.
+   for(int mode=MODE_TRADES; mode<=MODE_HISTORY; mode++)
      {
-      if(!OrderSelect(i,SELECT_BY_POS,MODE_TRADES))
-         continue;
+      int total = (mode==MODE_TRADES) ? OrdersTotal() : OrdersHistoryTotal();
 
-      if(OrderSymbol()!=Symbol())
-         continue;
+      for(int i=total-1; i>=0; i--)
+        {
+         if(!OrderSelect(i,SELECT_BY_POS,mode))
+            continue;
 
-      if(OrderMagicNumber()!=MagicNumber)
-         continue;
+         if(OrderSymbol()!=Symbol())
+            continue;
 
-      if(OrderComment()==txt)
-         return true;
+         if(OrderMagicNumber()!=MagicNumber)
+            continue;
+
+         if(OrderComment()==txt)
+            return true;
+        }
      }
 
    return false;
   }
+
 //+------------------------------------------------------------------+
 //|                                                                  |
 //+------------------------------------------------------------------+
