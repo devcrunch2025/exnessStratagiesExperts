@@ -79,7 +79,7 @@ bool EnableRecoveryOrders = false;//continuos market down will huge loss
 double RecoveryTriggerLossUSD =1;// -0.50;//per lot 0.01
 double RecoveryLotMultiplier = 2;
 int MaxRecoveryOrders = 1;
-double RecoveryBasketProfitUSD =0.20;// 1;//0.50;
+double RecoveryBasketProfitUSD =0.10;// 1;//0.50;
 bool EnableDailyLossProtection = false;// false= continue trading even after hit the stoploss
 
 // ===== DAY-1 CAPITAL PROTECTION EXIT =====
@@ -107,7 +107,7 @@ bool SkipSignalsAfterLadderIncrement = false;
 
 
 
-double DailyEquityTargetPercent =5;//5;//5;//2;//3;//5;//10;//5;// 10;//2;//3;//1;//3;//10;//Trading continue with 10% profit reccuring
+double DailyEquityTargetPercent =2;//5;//5;//5;//2;//3;//5;//10;//5;// 10;//2;//3;//1;//3;//10;//Trading continue with 10% profit reccuring
 double DailyLossProtectionPercent =50;//20;//10;//20;//50;//20;//10;//20;//100;//50;// 30.0;// Trading stops if equity drops below this percentage of the starting balance for the day
 bool EnableDynamicEquityLadder = true;////Trading continue with 10% profit reccuring
 double OriginalDailyEquityTargetPercent =5;//10;//5;// 10;//2;//3;//1;//3;//10;//Trading continue with 10% profit reccuring
@@ -1192,10 +1192,10 @@ double GetReEntryLot(int reEntryNumber)
   
    if(tradeDay==6 || tradeDay==0 || tradeDay==1)
    {
-if(reEntryNumber>=2)
+// if(reEntryNumber>=2)
  
-      return NormalizeLots(0.01*(5-reEntryNumber));
-      else
+//       return NormalizeLots(0.01*(5-reEntryNumber));
+//       else
 
       return 0.01;
 
@@ -1208,7 +1208,9 @@ if(reEntryNumber>=2)
    if(reEntryNumber <=2)
       return NormalizeLots(0.03);
 // if(reEntryNumber <= 10)
-   return NormalizeLots(0.10);
+   // return NormalizeLots(0.10);
+   return NormalizeLots(0.05);
+
 
 //  if(reEntryNumber > 5)
 // return NormalizeLots(0.01);
@@ -2662,12 +2664,12 @@ void ChangeLots(double OpenPL, string reason, int orderType,int stoplevelStep)
    int dayOfWeek = TimeDayOfWeek(TimeCurrent());
    if(dayOfWeek==6 || dayOfWeek==0 || dayOfWeek==1)
      {
-      StoplossWeekendMultiplier=3;
-      EnableRecoveryOrders=false;
+      // StoplossWeekendMultiplier=2;
+       EnableRecoveryOrders=false;
      }
    else
      {
-      EnableRecoveryOrders=false;
+      // EnableRecoveryOrders=false;
      }
 
 //==================================================
@@ -2858,10 +2860,10 @@ void CheckRecoveryOrders()
          recoveryTicket = SafeOrderSend(
                              Symbol(),
                              OP_BUY,
-                             lots,
+                             lots*2,
                              Ask,
                              Slippage,
-                             0,
+                             Ask-200,
                              0,
                              "RECOVERY_" + IntegerToString(parentTicket),
                              MagicNumber,
@@ -2873,10 +2875,10 @@ void CheckRecoveryOrders()
          recoveryTicket = SafeOrderSend(
                              Symbol(),
                              OP_SELL,
-                             lots,
+                             lots*2,
                              Bid,
                              Slippage,
-                             0,
+                             Ask+200,
                              0,
                              "RECOVERY_" + IntegerToString(parentTicket),
                              MagicNumber,
