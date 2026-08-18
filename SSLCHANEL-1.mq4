@@ -1313,16 +1313,28 @@ double GetReEntryLot(int reEntryNumber)
 //       return 0.01;
 
 //    }
+
+
       
 
 
+
    if(reEntryNumber <=2)
+   {
+
       return NormalizeLots(0.01);
+
+   }
+   else
+   {
+
+   return NormalizeLots(0.10);
+
+   }
    // if(reEntryNumber <=4)
    //    return NormalizeLots(0.03);
 // if(reEntryNumber <= 10)
    // return NormalizeLots(0.10);
-   return NormalizeLots(0.10);
 
 
 //  if(reEntryNumber > 5)
