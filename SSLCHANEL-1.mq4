@@ -45,7 +45,7 @@ bool DeleteOppositePendingOnSignal = true;
 bool EnableProfitReEntryStop = true;
 double MinimumClosedProfitUSD = -9;
 double ProfitReEntryGapRaw =25;//5;//20;// 5;
-double MinimumSameOrderGapRaw =25;// 100;//10;//50;
+double MinimumSameOrderGapRaw =100;//for saerver safe side - less gap hit more server calls 25;// 100;//10;//50;
 
 // ===== STOP-LOSS / RE-ENTRY SAFETY =====
 bool EnableSLProtection = false;
@@ -107,7 +107,7 @@ bool SkipSignalsAfterLadderIncrement = false;
 
 
 
-double DailyEquityTargetPercent =2;//5;//5;//5;//2;//3;//5;//10;//5;// 10;//2;//3;//1;//3;//10;//Trading continue with 10% profit reccuring
+double DailyEquityTargetPercent =1;//2;//5;//5;//5;//2;//3;//5;//10;//5;// 10;//2;//3;//1;//3;//10;//Trading continue with 10% profit reccuring
 double DailyLossProtectionPercent =50;//20;//10;//20;//50;//20;//10;//20;//100;//50;// 30.0;// Trading stops if equity drops below this percentage of the starting balance for the day
 bool EnableDynamicEquityLadder = true;////Trading continue with 10% profit reccuring
 double OriginalDailyEquityTargetPercent =5;//10;//5;// 10;//2;//3;//1;//3;//10;//Trading continue with 10% profit reccuring
@@ -1188,28 +1188,28 @@ datetime SLProtectionUntil = 0;
 double GetReEntryLot(int reEntryNumber)
   {
 
- int tradeDay = TimeDayOfWeek(TimeCurrent());
+//  int tradeDay = TimeDayOfWeek(TimeCurrent());
   
-   if(tradeDay==6 || tradeDay==0 || tradeDay==1)
-   {
-if(reEntryNumber>3)
+//    if(tradeDay==6 || tradeDay==0 || tradeDay==1)
+//    {
+// if(reEntryNumber>3)
  
-      return NormalizeLots(0.01*2);
-      else
+//       return NormalizeLots(0.01*2);
+//       else
 
-      return 0.01;
+//       return 0.01;
 
-   }
+//    }
       
 
 
-   if(reEntryNumber >=3)
-      return NormalizeLots(0.02);
-   if(reEntryNumber <=4)
-      return NormalizeLots(0.03);
+   if(reEntryNumber <=2)
+      return NormalizeLots(0.01);
+   // if(reEntryNumber <=4)
+   //    return NormalizeLots(0.03);
 // if(reEntryNumber <= 10)
    // return NormalizeLots(0.10);
-   return NormalizeLots(0.05);
+   return NormalizeLots(0.10);
 
 
 //  if(reEntryNumber > 5)
@@ -2322,7 +2322,7 @@ bool ForceDeletePendingOrder(int ticket,color arrowColor)
       return false;
 
    int ageSeconds=(int)(TimeCurrent()-OrderOpenTime());
-   if(ageSeconds < 6*60*60)
+   if(ageSeconds < 0);//6*60*60)
      {
       Print("Pending order kept | Ticket=",ticket,
             " | Age=",DoubleToString(ageSeconds/3600.0,2),
@@ -2374,7 +2374,7 @@ bool SafeOrderDelete(int ticket,color arrowColor)
       return true; // Already deleted.
 
    int ageSeconds=(int)(TimeCurrent()-OrderOpenTime());
-   if(ageSeconds < 6*60*60)
+   if(ageSeconds < 0);// 6*60*60)
      {
       Print("Pending order kept | Ticket=",ticket,
             " | Age=",DoubleToString(ageSeconds/3600.0,2),
@@ -3449,7 +3449,7 @@ bool CloseMarketOrdersForEquityLadder()
            {
             int ageSeconds=(int)(TimeCurrent()-OrderOpenTime());
 
-            if(ageSeconds >= 6*60*60)
+            if(ageSeconds >=  0)//6*60*60)
               {
                int ticket=OrderTicket();
 
