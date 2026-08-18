@@ -1192,10 +1192,10 @@ double GetReEntryLot(int reEntryNumber)
   
    if(tradeDay==6 || tradeDay==0 || tradeDay==1)
    {
-// if(reEntryNumber>=2)
+if(reEntryNumber>3)
  
-//       return NormalizeLots(0.01*(5-reEntryNumber));
-//       else
+      return NormalizeLots(0.01*2);
+      else
 
       return 0.01;
 
@@ -1203,9 +1203,9 @@ double GetReEntryLot(int reEntryNumber)
       
 
 
-   if(reEntryNumber <=1)
+   if(reEntryNumber >=3)
       return NormalizeLots(0.02);
-   if(reEntryNumber <=2)
+   if(reEntryNumber <=4)
       return NormalizeLots(0.03);
 // if(reEntryNumber <= 10)
    // return NormalizeLots(0.10);
