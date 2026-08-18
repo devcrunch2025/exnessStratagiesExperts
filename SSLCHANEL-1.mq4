@@ -33,6 +33,33 @@ string EMA_PREFIX = "SSL_EMA_LINE_";
 
 
 bool EnableTrading = true;
+
+// ===== 30-MINUTE PRICE MOMENTUM FILTER =====
+// Normal SSL BUY requires current BUY price to be > 30-minute reference by this amount.
+// Normal SSL SELL requires current SELL price to be < 30-minute reference by this amount.
+// This filter is applied to every new trade request. Orders are remembered in EA
+// memory and sent to the broker only when the directional 30-minute condition passes.
+bool Enable30MinuteMomentumFilter = true;
+double Min30MinutePriceDifference = 100.0;
+bool Enable30MinuteMomentumForProfitReEntry = true;
+bool Enable30MinuteMomentumForAllOrders = true;
+
+// Deferred OrderSend queue: orders are kept in EA memory and sent to the
+// broker only when the 30-minute directional condition passes.
+#define MAX_DEFERRED_ORDERS 50
+bool   DeferredActive[MAX_DEFERRED_ORDERS];
+string DeferredSymbol[MAX_DEFERRED_ORDERS];
+int    DeferredType[MAX_DEFERRED_ORDERS];
+double DeferredLots[MAX_DEFERRED_ORDERS];
+double DeferredPrice[MAX_DEFERRED_ORDERS];
+int    DeferredSlippage[MAX_DEFERRED_ORDERS];
+double DeferredSL[MAX_DEFERRED_ORDERS];
+double DeferredTP[MAX_DEFERRED_ORDERS];
+string DeferredComment[MAX_DEFERRED_ORDERS];
+int    DeferredMagic[MAX_DEFERRED_ORDERS];
+color  DeferredColor[MAX_DEFERRED_ORDERS];
+datetime DeferredCreated[MAX_DEFERRED_ORDERS];
+
 double Lots = 0.01;
 int MaxOpenOrders = 100;//20;
 int AccountMultiplierLOT=200;
@@ -849,16 +876,95 @@ bool CheckDay1CapitalProtectionExit(DailyProtectionState &state)
 //+------------------------------------------------------------------+
 //|                                                                  |
 //+------------------------------------------------------------------+
+//+------------------------------------------------------------------+
+//| Gate SSL Profit ReEntry pending orders with 30-minute momentum   |
+//+------------------------------------------------------------------+
+void ManageProfitReEntryMomentumGate()
+  {
+   // Legacy broker-pending gate intentionally disabled. New ReEntry orders are
+   // deferred in EA memory before OrderSend, so no create/delete cycle is used.
+   return;
+   if(!Enable30MinuteMomentumForProfitReEntry || !Enable30MinuteMomentumFilter)
+      return;
+
+   for(int i=OrdersTotal()-1; i>=0; i--)
+     {
+      if(!OrderSelect(i,SELECT_BY_POS,MODE_TRADES))
+         continue;
+      if(OrderSymbol()!=Symbol() || OrderMagicNumber()!=MagicNumber)
+         continue;
+
+      int pendingType=OrderType();
+      if(pendingType!=OP_BUYSTOP && pendingType!=OP_SELLSTOP)
+         continue;
+
+      string comment=OrderComment();
+      if(StringFind(comment,"SSL Profit ReEntry",0)!=0)
+         continue;
+
+      int direction=(pendingType==OP_BUYSTOP) ? OP_BUY : OP_SELL;
+      double diff=Get30MinDifference(direction);
+      double threshold=MathAbs(Min30MinutePriceDifference);
+      bool allowed=(direction==OP_BUY) ? (diff>threshold) : (diff<-threshold);
+
+      if(allowed)
+        {
+         Print("PROFIT RE-ENTRY MOMENTUM PASS | ",
+               direction==OP_BUY ? "BUY STOP" : "SELL STOP",
+               " | Ticket=",OrderTicket(),
+               " | Diff=",DoubleToString(diff,Digits),
+               " | Threshold=",DoubleToString(threshold,Digits));
+         continue;
+        }
+
+      double queuedClosedPrice=OrderOpenPrice();
+      if(pendingType==OP_BUYSTOP)
+         queuedClosedPrice-=ProfitReEntryGapRaw;
+      else
+         queuedClosedPrice+=ProfitReEntryGapRaw;
+
+      int ticket=OrderTicket();
+      Print("PROFIT RE-ENTRY MOMENTUM BLOCKED | ",
+            direction==OP_BUY ? "BUY STOP" : "SELL STOP",
+            " | Ticket=",ticket,
+            " | Diff=",DoubleToString(diff,Digits),
+            " | Required=",
+            direction==OP_BUY ? "> +" : "< -",
+            DoubleToString(threshold,Digits),
+            " | ACTION=DELETE PENDING + WAIT");
+
+      if(ForceDeletePendingOrder(ticket,clrRed))
+        {
+         ReEntryRetryPending=true;
+         ReEntryRetryClosedType=direction;
+         ReEntryRetryClosedPrice=queuedClosedPrice;
+         Print("PROFIT RE-ENTRY QUEUED | Direction=",
+               direction==OP_BUY ? "BUY" : "SELL",
+               " | Will recreate only after 30M condition passes");
+        }
+     }
+  }
+
+//+------------------------------------------------------------------+
 void ProcessPendingReEntry(DailyProtectionState &state)
   {
+   // Legacy retry path is no longer responsible for momentum waiting.
+   // SafeOrderSend queues all new orders in EA memory.
+   return;
    if(!ReEntryRetryPending)
       return;
 
    if(!EnableTrading || IsDailyTradingStopped(state))
       return;
 
+   if(Enable30MinuteMomentumForProfitReEntry &&
+      Enable30MinuteMomentumFilter &&
+      !Passes30MinuteMomentumFilter(ReEntryRetryClosedType))
+      return;
+
    Print("RETRYING PENDING RE-ENTRY | Counter=",reEntryCounter,
-         " | Next #",reEntryCounter+1);
+         " | Next #",reEntryCounter+1,
+         " | 30M momentum condition PASSED");
 
    CreateProfitReEntryStop(ReEntryRetryClosedType,
                            ReEntryRetryClosedPrice,
@@ -885,6 +991,9 @@ void OnTickCore()
 // A new OnTick means a new retry window. Failed trade requests from
 // the previous tick may be attempted now with fresh market data.
    ResetTradeErrorRetryGuards();
+
+   // Send remembered orders only after the 30-minute directional condition passes.
+   ProcessDeferredOrders();
    ResetTradeRequestBudget();
    RefreshRates();
 
@@ -983,8 +1092,12 @@ void OnTickCore()
       UpdateSSLChannelOnTick();
    UpdateEMALineOnChart();
 
-// Retry a ReEntry that failed because of a trade/server error.
-// This happens independently of the already-processed history ticket.
+// Deferred-order queue handles the 30-minute momentum gate for all new orders.
+   if(!TradeResetThisTick)
+      ManageProfitReEntryMomentumGate();
+
+// Retry a ReEntry that failed because of a trade/server error or was
+// removed because the 30-minute momentum condition was not valid.
    if(!TradeResetThisTick)
       ProcessPendingReEntry(dailyState);
 
@@ -1851,13 +1964,266 @@ void LogTradeOperationError(string operation,int ticket,string details,int err)
 // Safe OrderSend: one broker request per failed request per tick.
 // A failure is recorded; no Sleep()/same-tick retry is performed.
 // The next tick retries with fresh Bid/Ask.
+
+double Get30MinDifference(int orderType = OP_BUY)
+{
+   RefreshRates();
+
+   // Use the actual side of the market used for entry.
+   // BUY executes at Ask; SELL executes at Bid.
+   double currentPrice = (orderType == OP_BUY) ? Ask : Bid;
+
+   datetime targetTime = TimeCurrent() - 30 * 60;
+
+   // Find the M1 candle covering the 30-minute reference time.
+   int shift = iBarShift(Symbol(), PERIOD_M1, targetTime, false);
+
+   if(shift < 0)
+   {
+      Print("30M FILTER | Unable to find M1 history | Target=",
+            TimeToString(targetTime, TIME_DATE|TIME_SECONDS));
+      return 0.0;
+   }
+
+   double oldPrice = iClose(Symbol(), PERIOD_M1, shift);
+
+   if(oldPrice <= 0.0)
+   {
+      Print("30M FILTER | Invalid reference price | Shift=",shift);
+      return 0.0;
+   }
+
+   return currentPrice - oldPrice;
+}
+
+//+------------------------------------------------------------------+
+//| 30-minute directional momentum filter for normal SSL entries     |
+//+------------------------------------------------------------------+
+bool Passes30MinuteMomentumFilter(int orderType)
+{
+   if(!Enable30MinuteMomentumFilter)
+      return true;
+
+   if(orderType != OP_BUY && orderType != OP_SELL)
+      return true;
+
+   double diff = Get30MinDifference(orderType);
+   double threshold = MathAbs(Min30MinutePriceDifference);
+
+   bool allowed = false;
+
+   if(orderType == OP_BUY)
+      allowed = (diff > threshold);
+   else
+   if(orderType == OP_SELL)
+      allowed = (diff < -threshold);
+
+   if(allowed)
+   {
+      Print("30M FILTER PASS | ",
+            orderType == OP_BUY ? "BUY" : "SELL",
+            " | Diff=",DoubleToString(diff,Digits),
+            " | Threshold=",DoubleToString(threshold,Digits));
+      return true;
+   }
+
+   Print("30M FILTER BLOCKED | ",
+         orderType == OP_BUY ? "BUY" : "SELL",
+         " | Diff=",DoubleToString(diff,Digits),
+         " | Required=",
+         orderType == OP_BUY ? "> +" : "< -",
+         DoubleToString(threshold,Digits));
+
+   return false;
+}
+int DeferredDirection(int orderType)
+  {
+   if(orderType==OP_BUY || orderType==OP_BUYSTOP || orderType==OP_BUYLIMIT)
+      return OP_BUY;
+   if(orderType==OP_SELL || orderType==OP_SELLSTOP || orderType==OP_SELLLIMIT)
+      return OP_SELL;
+   return -1;
+  }
+
+bool PassesDeferredMomentum(int orderType)
+  {
+   if(!Enable30MinuteMomentumFilter || !Enable30MinuteMomentumForAllOrders)
+      return true;
+
+   int direction=DeferredDirection(orderType);
+   if(direction!=OP_BUY && direction!=OP_SELL)
+      return true;
+
+   return Passes30MinuteMomentumFilter(direction);
+  }
+
+int FindDeferredOrder(string symbol,int orderType,string comment,int magic)
+  {
+   for(int i=0;i<MAX_DEFERRED_ORDERS;i++)
+     {
+      if(!DeferredActive[i])
+         continue;
+      if(DeferredSymbol[i]!=symbol || DeferredType[i]!=orderType ||
+         DeferredMagic[i]!=magic)
+         continue;
+      if(DeferredComment[i]==comment)
+         return i;
+     }
+   return -1;
+  }
+
+int QueueDeferredOrder(string symbol,int orderType,double lots,double price,
+                       int slippage,double stopLoss,double takeProfit,
+                       string comment,int magic,color arrowColor,bool bypassDeferred=false)
+  {
+   int existing=FindDeferredOrder(symbol,orderType,comment,magic);
+   if(existing>=0)
+     {
+      Print("30M ORDER WAITING | Existing request retained | Type=",
+            orderType," | Comment=",comment,
+            " | Slot=",existing);
+      return existing;
+     }
+
+   for(int i=0;i<MAX_DEFERRED_ORDERS;i++)
+     {
+      if(DeferredActive[i])
+         continue;
+
+      DeferredActive[i]=true;
+      DeferredSymbol[i]=symbol;
+      DeferredType[i]=orderType;
+      DeferredLots[i]=lots;
+      DeferredPrice[i]=price;
+      DeferredSlippage[i]=slippage;
+      DeferredSL[i]=stopLoss;
+      DeferredTP[i]=takeProfit;
+      DeferredComment[i]=comment;
+      DeferredMagic[i]=magic;
+      DeferredColor[i]=arrowColor;
+      DeferredCreated[i]=TimeCurrent();
+
+      Print("==================================================");
+      Print("30M ORDER QUEUED IN EA MEMORY");
+      Print("Type       : ",orderType);
+      Print("Direction  : ",DeferredDirection(orderType)==OP_BUY?"BUY":"SELL");
+      Print("Lots       : ",DoubleToString(lots,2));
+      Print("Comment    : ",comment);
+      Print("Diff       : waiting for 30M condition");
+      Print("Broker     : NO OrderSend yet");
+      Print("==================================================");
+      return -2;
+     }
+
+   Print("30M ORDER QUEUE FULL | Order skipped | Comment=",comment);
+   return -1;
+  }
+
+void ProcessDeferredOrders()
+  {
+   if(!EnableTrading)
+      return;
+
+   for(int i=0;i<MAX_DEFERRED_ORDERS;i++)
+     {
+      if(!DeferredActive[i])
+         continue;
+
+      int type=DeferredType[i];
+      int direction=DeferredDirection(type);
+
+      if(Enable30MinuteMomentumFilter && Enable30MinuteMomentumForAllOrders &&
+         !PassesDeferredMomentum(type))
+        {
+         Print("30M ORDER STILL WAITING | Direction=",
+               direction==OP_BUY?"BUY":"SELL",
+               " | Type=",type,
+               " | Comment=",DeferredComment[i]);
+         continue;
+        }
+
+      // Re-check global order limits at the moment the request is actually
+      // released. A queued request must never bypass MaxOpenOrders.
+      if(GetTotalEAOrders() >= MaxOpenOrders)
+        {
+         Print("30M ORDER WAITING | MaxOpenOrders reached | Comment=",
+               DeferredComment[i]);
+         continue;
+        }
+
+      // For broker-side pending ReEntry orders, refresh the pending price
+      // against the current market before the first server request.
+      double sendPrice=DeferredPrice[i];
+      if(type==OP_BUYSTOP || type==OP_SELLSTOP ||
+         type==OP_BUYLIMIT || type==OP_SELLLIMIT)
+        {
+         RefreshRates();
+         double minGap=GetRequiredStopDistance();
+         if(type==OP_BUYSTOP)
+            sendPrice=MathMax(sendPrice,Ask+minGap);
+         else if(type==OP_SELLSTOP)
+            sendPrice=MathMin(sendPrice,Bid-minGap);
+         sendPrice=NormalizeDouble(sendPrice,Digits);
+        }
+
+      Print("30M ORDER CONDITION PASSED | NOW SENDING TO SERVER | ",
+            direction==OP_BUY?"BUY":"SELL",
+            " | Type=",type,
+            " | Comment=",DeferredComment[i]);
+
+      int ticket=SafeOrderSend(DeferredSymbol[i],type,DeferredLots[i],sendPrice,
+                               DeferredSlippage[i],DeferredSL[i],DeferredTP[i],
+                               DeferredComment[i],DeferredMagic[i],DeferredColor[i]);
+
+      if(ticket>0)
+        {
+         Print("30M DEFERRED ORDER SENT | Ticket=",ticket,
+               " | Comment=",DeferredComment[i]);
+         if(type==OP_BUY || type==OP_SELL)
+           {
+            OrderCreatedThisCandle=true;
+            LastOrderCandleTime=Time[0];
+           }
+
+         // Profit/SL ReEntry sequence advances only after the broker confirms
+         // the deferred request. This preserves the original retry semantics.
+         if(StringFind(DeferredComment[i],"SSL Profit ReEntry",0)==0)
+           {
+            reEntryCounter++;
+            SaveReEntryCounter();
+            ReEntryRetryPending=false;
+            Print("DEFERRED RE-ENTRY COUNTER ADVANCED | #",reEntryCounter);
+           }
+
+         DeferredActive[i]=false;
+         InvalidateTotalEAOrdersCache();
+        }
+      else
+        {
+         Print("30M DEFERRED ORDER SEND FAILED | Will retry next tick | Comment=",
+               DeferredComment[i]);
+        }
+     }
+  }
+
 int SafeOrderSend(string symbol,int orderType,double lots,double price,
                   int slippage,double stopLoss,double takeProfit,
                   string comment,int magic,color arrowColor)
   {
+   // Universal 30-minute gate. Every new trade request (SSL Long/Short,
+   // Profit ReEntry, SL ReEntry, Recovery and ladder re-entry) is remembered
+   // in EA memory until its BUY/SELL momentum condition passes.
+   if(Enable30MinuteMomentumFilter && Enable30MinuteMomentumForAllOrders)
+     {
+      if(!PassesDeferredMomentum(orderType))
+         return QueueDeferredOrder(symbol,orderType,lots,price,slippage,stopLoss,
+                                   takeProfit,comment,magic,arrowColor);
+     }
+
    string key=MakeTradeErrorKey("SEND",-1,
                                 IntegerToString(orderType)+"|"+
                                 DoubleToString(lots,8)+"|"+comment);
+
 
    if(IsTradeErrorBlockedThisTick(key))
      {
