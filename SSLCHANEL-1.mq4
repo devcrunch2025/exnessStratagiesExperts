@@ -134,7 +134,7 @@ bool SkipSignalsAfterLadderIncrement = false;
 
 
 
-double DailyEquityTargetPercent =1;//2;//5;//5;//5;//2;//3;//5;//10;//5;// 10;//2;//3;//1;//3;//10;//Trading continue with 10% profit reccuring
+double DailyEquityTargetPercent =2;//2;//5;//5;//5;//2;//3;//5;//10;//5;// 10;//2;//3;//1;//3;//10;//Trading continue with 10% profit reccuring
 double DailyLossProtectionPercent =50;//20;//10;//20;//50;//20;//10;//20;//100;//50;// 30.0;// Trading stops if equity drops below this percentage of the starting balance for the day
 bool EnableDynamicEquityLadder = true;////Trading continue with 10% profit reccuring
 double OriginalDailyEquityTargetPercent =5;//10;//5;// 10;//2;//3;//1;//3;//10;//Trading continue with 10% profit reccuring
@@ -1314,9 +1314,15 @@ double GetReEntryLot(int reEntryNumber)
 
 //    }
 
-
+double lot = 0.10 - (reEntryNumber * 0.01);
+   if(lot < 0.01)
+      lot = 0.01;
       
 
+
+
+
+      return NormalizeLots(lot);
 
 
    if(reEntryNumber <=2)
@@ -1329,12 +1335,12 @@ double GetReEntryLot(int reEntryNumber)
    {
 // DailyEquityTargetPercent=1;
 
-   return NormalizeLots(0.01);
+   return NormalizeLots(0.02);
 
    }
    else
      {
-DailyEquityTargetPercent=1;
+// DailyEquityTargetPercent=1;
 
    return NormalizeLots(0.01);
 
@@ -1351,7 +1357,7 @@ DailyEquityTargetPercent=1;
 
 
 
-   double lot = 0.12 - (reEntryNumber * 0.01);
+     lot = 0.12 - (reEntryNumber * 0.01);
    if(lot < 0.01)
       lot = 0.01;
 
@@ -3064,7 +3070,7 @@ void ChangeLots(double OpenPL, string reason, int orderType,int stoplevelStep)
 // BASED ON ACTUAL NEW LOT
 //==================================================
 
-if(Lots>0.10)
+if(Lots>=0.05)
 {
 StopLossUSD =10;
 }
@@ -3257,7 +3263,7 @@ void CheckRecoveryOrders()
          recoveryTicket = SafeOrderSend(
                              Symbol(),
                              OP_BUY,
-                             lots*2,
+                             lots<=0.03?lots*2:lots,
                              Ask,
                              Slippage,
                              Ask-200,
@@ -3272,7 +3278,7 @@ void CheckRecoveryOrders()
          recoveryTicket = SafeOrderSend(
                              Symbol(),
                              OP_SELL,
-                             lots*2,
+                             lots<=0.03?lots*2:lots,
                              Bid,
                              Slippage,
                              Ask+200,
