@@ -44,23 +44,21 @@ double Min30MinutePriceDifference = 100.0;
 bool Enable30MinuteMomentumForProfitReEntry = true;
 bool Enable30MinuteMomentumForAllOrders = true;
 
-//===============================================================
-// SIGNAL MEMORY - 30 MINUTE MOMENTUM GATE
-// Only the signal/source is remembered. No order parameters are queued.
-// Once the 30M directional condition passes, the EA calls the original
-// order-creation function so the normal order type/lot/SL/pending logic runs.
-//===============================================================
-bool WaitingSSLBuySignal  = false;
-bool WaitingSSLSellSignal = false;
-
-bool WaitingReEntrySignal = false;
-int  WaitingReEntryType = -1;
-double WaitingReEntryClosedPrice = 0.0;
-bool WaitingReEntryAfterSL = false;
-
-// Recovery remembers only the parent ticket. CheckRecoveryOrders() rebuilds
-// the recovery request using the current parent order data when momentum passes.
-int WaitingRecoveryParentTicket = -1;
+// Deferred OrderSend queue: orders are kept in EA memory and sent to the
+// broker only when the 30-minute directional condition passes.
+#define MAX_DEFERRED_ORDERS 50
+bool   DeferredActive[MAX_DEFERRED_ORDERS];
+string DeferredSymbol[MAX_DEFERRED_ORDERS];
+int    DeferredType[MAX_DEFERRED_ORDERS];
+double DeferredLots[MAX_DEFERRED_ORDERS];
+double DeferredPrice[MAX_DEFERRED_ORDERS];
+int    DeferredSlippage[MAX_DEFERRED_ORDERS];
+double DeferredSL[MAX_DEFERRED_ORDERS];
+double DeferredTP[MAX_DEFERRED_ORDERS];
+string DeferredComment[MAX_DEFERRED_ORDERS];
+int    DeferredMagic[MAX_DEFERRED_ORDERS];
+color  DeferredColor[MAX_DEFERRED_ORDERS];
+datetime DeferredCreated[MAX_DEFERRED_ORDERS];
 
 double Lots = 0.01;
 int MaxOpenOrders = 100;//20;
@@ -881,6 +879,99 @@ bool CheckDay1CapitalProtectionExit(DailyProtectionState &state)
 //+------------------------------------------------------------------+
 //| Gate SSL Profit ReEntry pending orders with 30-minute momentum   |
 //+------------------------------------------------------------------+
+void ManageProfitReEntryMomentumGate()
+  {
+   // Legacy broker-pending gate intentionally disabled. New ReEntry orders are
+   // deferred in EA memory before OrderSend, so no create/delete cycle is used.
+   return;
+   if(!Enable30MinuteMomentumForProfitReEntry || !Enable30MinuteMomentumFilter)
+      return;
+
+   for(int i=OrdersTotal()-1; i>=0; i--)
+     {
+      if(!OrderSelect(i,SELECT_BY_POS,MODE_TRADES))
+         continue;
+      if(OrderSymbol()!=Symbol() || OrderMagicNumber()!=MagicNumber)
+         continue;
+
+      int pendingType=OrderType();
+      if(pendingType!=OP_BUYSTOP && pendingType!=OP_SELLSTOP)
+         continue;
+
+      string comment=OrderComment();
+      if(StringFind(comment,"SSL Profit ReEntry",0)!=0)
+         continue;
+
+      int direction=(pendingType==OP_BUYSTOP) ? OP_BUY : OP_SELL;
+      double diff=Get30MinDifference(direction);
+      double threshold=MathAbs(Min30MinutePriceDifference);
+      bool allowed=(direction==OP_BUY) ? (diff>threshold) : (diff<-threshold);
+
+      if(allowed)
+        {
+         Print("PROFIT RE-ENTRY MOMENTUM PASS | ",
+               direction==OP_BUY ? "BUY STOP" : "SELL STOP",
+               " | Ticket=",OrderTicket(),
+               " | Diff=",DoubleToString(diff,Digits),
+               " | Threshold=",DoubleToString(threshold,Digits));
+         continue;
+        }
+
+      double queuedClosedPrice=OrderOpenPrice();
+      if(pendingType==OP_BUYSTOP)
+         queuedClosedPrice-=ProfitReEntryGapRaw;
+      else
+         queuedClosedPrice+=ProfitReEntryGapRaw;
+
+      int ticket=OrderTicket();
+      Print("PROFIT RE-ENTRY MOMENTUM BLOCKED | ",
+            direction==OP_BUY ? "BUY STOP" : "SELL STOP",
+            " | Ticket=",ticket,
+            " | Diff=",DoubleToString(diff,Digits),
+            " | Required=",
+            direction==OP_BUY ? "> +" : "< -",
+            DoubleToString(threshold,Digits),
+            " | ACTION=DELETE PENDING + WAIT");
+
+      if(ForceDeletePendingOrder(ticket,clrRed))
+        {
+         ReEntryRetryPending=true;
+         ReEntryRetryClosedType=direction;
+         ReEntryRetryClosedPrice=queuedClosedPrice;
+         Print("PROFIT RE-ENTRY QUEUED | Direction=",
+               direction==OP_BUY ? "BUY" : "SELL",
+               " | Will recreate only after 30M condition passes");
+        }
+     }
+  }
+
+//+------------------------------------------------------------------+
+void ProcessPendingReEntry(DailyProtectionState &state)
+  {
+   // Legacy retry path is no longer responsible for momentum waiting.
+   // SafeOrderSend queues all new orders in EA memory.
+   return;
+   if(!ReEntryRetryPending)
+      return;
+
+   if(!EnableTrading || IsDailyTradingStopped(state))
+      return;
+
+   if(Enable30MinuteMomentumForProfitReEntry &&
+      Enable30MinuteMomentumFilter &&
+      !Passes30MinuteMomentumFilter(ReEntryRetryClosedType))
+      return;
+
+   Print("RETRYING PENDING RE-ENTRY | Counter=",reEntryCounter,
+         " | Next #",reEntryCounter+1,
+         " | 30M momentum condition PASSED");
+
+   CreateProfitReEntryStop(ReEntryRetryClosedType,
+                           ReEntryRetryClosedPrice,
+                           state);
+  }
+
+//+------------------------------------------------------------------+
 void OnTick()
   {
    uint tickStartMs=GetTickCount();
@@ -901,8 +992,8 @@ void OnTickCore()
 // the previous tick may be attempted now with fresh market data.
    ResetTradeErrorRetryGuards();
 
-   // Reset the per-tick trade budget before any trading/protection logic.
-   // Deferred orders are processed later, after all protection checks.
+   // Send remembered orders only after the 30-minute directional condition passes.
+   ProcessDeferredOrders();
    ResetTradeRequestBudget();
    RefreshRates();
 
@@ -997,14 +1088,18 @@ void OnTickCore()
    if(EquityResetReEntryPending)
       ProcessEquityResetReEntry(dailyState);
 
-   // Release remembered SIGNALS only AFTER all current protection,
-   // recovery and equity-ladder checks have run.
-   if(!TradeResetThisTick)
-      ProcessRememberedSignals(dailyState);
-
    if(ShowSSLLines)
       UpdateSSLChannelOnTick();
    UpdateEMALineOnChart();
+
+// Deferred-order queue handles the 30-minute momentum gate for all new orders.
+   if(!TradeResetThisTick)
+      ManageProfitReEntryMomentumGate();
+
+// Retry a ReEntry that failed because of a trade/server error or was
+// removed because the 30-minute momentum condition was not valid.
+   if(!TradeResetThisTick)
+      ProcessPendingReEntry(dailyState);
 
    if(Bars >= SSLPeriod + 20 && !TradeResetThisTick)
       CheckForProfitableClosedOrder(dailyState);
@@ -1226,18 +1321,21 @@ double GetReEntryLot(int reEntryNumber)
 
    if(reEntryNumber <=2)
    {
-
-      return NormalizeLots(0.01);
+DailyEquityTargetPercent=3;
+      return NormalizeLots(0.10);
 
    }
    else if(reEntryNumber <=6)
    {
+DailyEquityTargetPercent=1;
 
-   return NormalizeLots(0.10);
+   return NormalizeLots(0.01);
 
    }
    else
      {
+DailyEquityTargetPercent=1;
+
    return NormalizeLots(0.01);
 
 
@@ -1959,153 +2057,172 @@ bool Passes30MinuteMomentumFilter(int orderType)
 
    return false;
 }
-//===============================================================
-// SIGNAL MEMORY HELPERS\n//===============================================================
-bool IsWaitingSSLSignal(int orderType)
+int DeferredDirection(int orderType)
   {
-   if(orderType==OP_BUY)
-      return WaitingSSLBuySignal;
-   if(orderType==OP_SELL)
-      return WaitingSSLSellSignal;
-   return false;
+   if(orderType==OP_BUY || orderType==OP_BUYSTOP || orderType==OP_BUYLIMIT)
+      return OP_BUY;
+   if(orderType==OP_SELL || orderType==OP_SELLSTOP || orderType==OP_SELLLIMIT)
+      return OP_SELL;
+   return -1;
   }
 
-void RememberSSLSignal(int orderType)
+bool PassesDeferredMomentum(int orderType)
   {
-   if(orderType==OP_BUY)
+   if(!Enable30MinuteMomentumFilter || !Enable30MinuteMomentumForAllOrders)
+      return true;
+
+   int direction=DeferredDirection(orderType);
+   if(direction!=OP_BUY && direction!=OP_SELL)
+      return true;
+
+   return Passes30MinuteMomentumFilter(direction);
+  }
+
+int FindDeferredOrder(string symbol,int orderType,string comment,int magic)
+  {
+   for(int i=0;i<MAX_DEFERRED_ORDERS;i++)
      {
-      WaitingSSLBuySignal=true;
-      Print("30M SIGNAL REMEMBERED | SSL BUY | Waiting for Diff > +",
-            DoubleToString(MathAbs(Min30MinutePriceDifference),Digits));
+      if(!DeferredActive[i])
+         continue;
+      if(DeferredSymbol[i]!=symbol || DeferredType[i]!=orderType ||
+         DeferredMagic[i]!=magic)
+         continue;
+      if(DeferredComment[i]==comment)
+         return i;
      }
-   else
-   if(orderType==OP_SELL)
+   return -1;
+  }
+
+int QueueDeferredOrder(string symbol,int orderType,double lots,double price,
+                       int slippage,double stopLoss,double takeProfit,
+                       string comment,int magic,color arrowColor,bool bypassDeferred=false)
+  {
+   int existing=FindDeferredOrder(symbol,orderType,comment,magic);
+   if(existing>=0)
      {
-      WaitingSSLSellSignal=true;
-      Print("30M SIGNAL REMEMBERED | SSL SELL | Waiting for Diff < -",
-            DoubleToString(MathAbs(Min30MinutePriceDifference),Digits));
+      Print("30M ORDER WAITING | Existing request retained | Type=",
+            orderType," | Comment=",comment,
+            " | Slot=",existing);
+      return existing;
      }
+
+   for(int i=0;i<MAX_DEFERRED_ORDERS;i++)
+     {
+      if(DeferredActive[i])
+         continue;
+
+      DeferredActive[i]=true;
+      DeferredSymbol[i]=symbol;
+      DeferredType[i]=orderType;
+      DeferredLots[i]=lots;
+      DeferredPrice[i]=price;
+      DeferredSlippage[i]=slippage;
+      DeferredSL[i]=stopLoss;
+      DeferredTP[i]=takeProfit;
+      DeferredComment[i]=comment;
+      DeferredMagic[i]=magic;
+      DeferredColor[i]=arrowColor;
+      DeferredCreated[i]=TimeCurrent();
+
+      Print("==================================================");
+      Print("30M ORDER QUEUED IN EA MEMORY");
+      Print("Type       : ",orderType);
+      Print("Direction  : ",DeferredDirection(orderType)==OP_BUY?"BUY":"SELL");
+      Print("Lots       : ",DoubleToString(lots,2));
+      Print("Comment    : ",comment);
+      Print("Diff       : waiting for 30M condition");
+      Print("Broker     : NO OrderSend yet");
+      Print("==================================================");
+      return -2;
+     }
+
+   Print("30M ORDER QUEUE FULL | Order skipped | Comment=",comment);
+   return -1;
   }
 
-void ClearSSLSignal(int orderType)
+void ProcessDeferredOrders()
   {
-   if(orderType==OP_BUY)
-      WaitingSSLBuySignal=false;
-   else
-   if(orderType==OP_SELL)
-      WaitingSSLSellSignal=false;
-  }
-
-void RememberReEntrySignal(int orderType,double closedPrice,bool afterSL)
-  {
-   WaitingReEntrySignal=true;
-   WaitingReEntryType=orderType;
-   WaitingReEntryClosedPrice=closedPrice;
-   WaitingReEntryAfterSL=afterSL;
-
-   Print("30M SIGNAL REMEMBERED | RE-ENTRY | Direction=",
-         orderType==OP_BUY ? "BUY" : "SELL",
-         " | ClosedPrice=",DoubleToString(closedPrice,Digits),
-         " | AfterSL=",afterSL?"YES":"NO",
-         " | Waiting for directional 30M condition");
-  }
-
-void ClearReEntrySignal()
-  {
-   WaitingReEntrySignal=false;
-   WaitingReEntryType=-1;
-   WaitingReEntryClosedPrice=0.0;
-   WaitingReEntryAfterSL=false;
-  }
-
-void RememberRecoverySignal(int parentTicket)
-  {
-   WaitingRecoveryParentTicket=parentTicket;
-   Print("30M SIGNAL REMEMBERED | RECOVERY | Parent=",parentTicket,
-         " | Waiting for directional 30M condition");
-  }
-
-void ClearRecoverySignal(int parentTicket=-1)
-  {
-   if(parentTicket<0 || WaitingRecoveryParentTicket==parentTicket)
-      WaitingRecoveryParentTicket=-1;
-  }
-
-// Process only remembered SIGNALS. The original order creation functions
-// remain responsible for lots, SL, pending type, MaxOpenOrders, etc.
-void ProcessRememberedSignals(DailyProtectionState &state)
-  {
-   if(!EnableTrading || IsDailyTradingStopped(state))
+   if(!EnableTrading)
       return;
 
-   // If the remembered recovery parent disappeared before the 30M condition
-   // passed, forget only that recovery signal. SSL/ReEntry memories remain.
-   if(WaitingRecoveryParentTicket>0)
+   for(int i=0;i<MAX_DEFERRED_ORDERS;i++)
      {
-      if(!OrderSelect(WaitingRecoveryParentTicket,SELECT_BY_TICKET,MODE_TRADES) ||
-         OrderSymbol()!=Symbol() || OrderMagicNumber()!=MagicNumber ||
-         (OrderType()!=OP_BUY && OrderType()!=OP_SELL))
-         ClearRecoverySignal();
-     }
+      if(!DeferredActive[i])
+         continue;
 
-   // SSL BUY signal was remembered earlier.
-   if(WaitingSSLBuySignal)
-     {
-      if(Passes30MinuteMomentumFilter(OP_BUY))
+      int type=DeferredType[i];
+      int direction=DeferredDirection(type);
+
+      if(Enable30MinuteMomentumFilter && Enable30MinuteMomentumForAllOrders &&
+         !PassesDeferredMomentum(type))
         {
-         Print("30M SIGNAL READY | SSL BUY | Creating original BUY order");
-         int before=GetTotalBuyOrders();
-
-         // true = remembered signal. Do not require the current SSL/EMA signal
-         // again; only the 30M condition is being waited for.
-         OpenBuy(true);
-
-         int after=GetTotalBuyOrders();
-         if(after>before)
-           {
-            WaitingSSLBuySignal=false;
-            Print("30M SIGNAL EXECUTED | SSL BUY");
-           }
+         Print("30M ORDER STILL WAITING | Direction=",
+               direction==OP_BUY?"BUY":"SELL",
+               " | Type=",type,
+               " | Comment=",DeferredComment[i]);
+         continue;
         }
-     }
 
-   // SSL SELL signal was remembered earlier.
-   if(WaitingSSLSellSignal)
-     {
-      if(Passes30MinuteMomentumFilter(OP_SELL))
+      // Re-check global order limits at the moment the request is actually
+      // released. A queued request must never bypass MaxOpenOrders.
+      if(GetTotalEAOrders() >= MaxOpenOrders)
         {
-         Print("30M SIGNAL READY | SSL SELL | Creating original SELL order");
-         int before=GetTotalSellOrders();
-
-         OpenSell(true);
-
-         int after=GetTotalSellOrders();
-         if(after>before)
-           {
-            WaitingSSLSellSignal=false;
-            Print("30M SIGNAL EXECUTED | SSL SELL");
-           }
+         Print("30M ORDER WAITING | MaxOpenOrders reached | Comment=",
+               DeferredComment[i]);
+         continue;
         }
-     }
 
-   // Profit/loss ReEntry signal.
-   if(WaitingReEntrySignal)
-     {
-      if(Passes30MinuteMomentumFilter(WaitingReEntryType))
+      // For broker-side pending ReEntry orders, refresh the pending price
+      // against the current market before the first server request.
+      double sendPrice=DeferredPrice[i];
+      if(type==OP_BUYSTOP || type==OP_SELLSTOP ||
+         type==OP_BUYLIMIT || type==OP_SELLLIMIT)
         {
-         Print("30M SIGNAL READY | RE-ENTRY | Creating original pending order");
+         RefreshRates();
+         double minGap=GetRequiredStopDistance();
+         if(type==OP_BUYSTOP)
+            sendPrice=MathMax(sendPrice,Ask+minGap);
+         else if(type==OP_SELLSTOP)
+            sendPrice=MathMin(sendPrice,Bid-minGap);
+         sendPrice=NormalizeDouble(sendPrice,Digits);
+        }
 
-         bool wasWaiting=WaitingReEntrySignal;
-         int type=WaitingReEntryType;
-         double closedPrice=WaitingReEntryClosedPrice;
-         bool afterSL=WaitingReEntryAfterSL;
+      Print("30M ORDER CONDITION PASSED | NOW SENDING TO SERVER | ",
+            direction==OP_BUY?"BUY":"SELL",
+            " | Type=",type,
+            " | Comment=",DeferredComment[i]);
 
-         CreateProfitReEntryStop(type,closedPrice,state,afterSL,true);
+      int ticket=SafeOrderSend(DeferredSymbol[i],type,DeferredLots[i],sendPrice,
+                               DeferredSlippage[i],DeferredSL[i],DeferredTP[i],
+                               DeferredComment[i],DeferredMagic[i],DeferredColor[i]);
 
-         // CreateProfitReEntryStop clears the memory only after successful
-         // creation. Keep it otherwise.
-         if(wasWaiting && WaitingReEntrySignal)
-            Print("30M RE-ENTRY SIGNAL | Order creation not completed; signal retained");
+      if(ticket>0)
+        {
+         Print("30M DEFERRED ORDER SENT | Ticket=",ticket,
+               " | Comment=",DeferredComment[i]);
+         if(type==OP_BUY || type==OP_SELL)
+           {
+            OrderCreatedThisCandle=true;
+            LastOrderCandleTime=Time[0];
+           }
+
+         // Profit/SL ReEntry sequence advances only after the broker confirms
+         // the deferred request. This preserves the original retry semantics.
+         if(StringFind(DeferredComment[i],"SSL Profit ReEntry",0)==0)
+           {
+            reEntryCounter++;
+            SaveReEntryCounter();
+            ReEntryRetryPending=false;
+            Print("DEFERRED RE-ENTRY COUNTER ADVANCED | #",reEntryCounter);
+           }
+
+         DeferredActive[i]=false;
+         InvalidateTotalEAOrdersCache();
+        }
+      else
+        {
+         Print("30M DEFERRED ORDER SEND FAILED | Will retry next tick | Comment=",
+               DeferredComment[i]);
         }
      }
   }
@@ -2114,6 +2231,16 @@ int SafeOrderSend(string symbol,int orderType,double lots,double price,
                   int slippage,double stopLoss,double takeProfit,
                   string comment,int magic,color arrowColor)
   {
+   // Universal 30-minute gate. Every new trade request (SSL Long/Short,
+   // Profit ReEntry, SL ReEntry, Recovery and ladder re-entry) is remembered
+   // in EA memory until its BUY/SELL momentum condition passes.
+   if(Enable30MinuteMomentumFilter && Enable30MinuteMomentumForAllOrders)
+     {
+      if(!PassesDeferredMomentum(orderType))
+         return QueueDeferredOrder(symbol,orderType,lots,price,slippage,stopLoss,
+                                   takeProfit,comment,magic,arrowColor);
+     }
+
    string key=MakeTradeErrorKey("SEND",-1,
                                 IntegerToString(orderType)+"|"+
                                 DoubleToString(lots,8)+"|"+comment);
@@ -2135,8 +2262,8 @@ int SafeOrderSend(string symbol,int orderType,double lots,double price,
 // pending orders, etc.) are protected.
    int tradeDay = TimeDayOfWeek(TimeCurrent());
    double requestedLots = lots;
-   if(tradeDay==6 || tradeDay==0 || tradeDay==1)
-      lots = MathMin(lots,0.02);
+   // if(tradeDay==6 || tradeDay==0 || tradeDay==1)
+   //    lots = MathMin(lots,0.02);
 
    lots = NormalizeLots(lots);
 
@@ -2936,9 +3063,19 @@ void ChangeLots(double OpenPL, string reason, int orderType,int stoplevelStep)
 // SCALE SL / ORDER LADDER
 // BASED ON ACTUAL NEW LOT
 //==================================================
+
+if(Lots==0.10)
+{
+StopLossUSD =5;
+}
+else
+{
    StopLossUSD =
       OriginalStopLossUSD *
       Lots * 100;
+}
+
+   
 
    StopLossUSD=StopLossUSD*StoplossWeekendMultiplier;
 
@@ -3068,16 +3205,14 @@ void CheckRecoveryOrders()
 
       // ---------------------------------------------------------
       // Recovery trigger
-      // RecoveryTriggerLossUSD is a positive loss magnitude, e.g. 5.0
+      // RecoveryTriggerLossUSD is negative, e.g. -5.0
       //
       // Example:
       // Parent = 0.01 lot
       // Trigger = -5.0 per 0.01 lot
       // ---------------------------------------------------------
-      // RecoveryTriggerLossUSD is treated as a LOSS MAGNITUDE.
-      // Example: 1.0 means -$1 per 0.01 lot.
       double recoveryTrigger =
-         -MathAbs(RecoveryTriggerLossUSD) * 100.0 * lots;
+         RecoveryTriggerLossUSD * 100.0 * lots;
 
 
       int dayOfWeek = TimeDayOfWeek(TimeCurrent());
@@ -3090,24 +3225,17 @@ void CheckRecoveryOrders()
          continue;
 
       // ---------------------------------------------------------
-      // Recovery signal:
-      // - First occurrence requires the current SSL direction.
-      // - Once remembered, do NOT cancel/recheck SSL. Wait only for 30M.
+      // Recovery signal must match parent direction
       // ---------------------------------------------------------
-      bool rememberedRecovery=(WaitingRecoveryParentTicket==parentTicket);
-
-      if(!rememberedRecovery)
+      if(parentType == OP_BUY)
         {
-         if(parentType == OP_BUY)
-           {
-            if(!IsBuySignal(0))
-               continue;
-           }
-         else
-           {
-            if(!IsSellSignal(0))
-               continue;
-           }
+         if(!IsBuySignal(0))
+            continue;
+        }
+      else
+        {
+         if(!IsSellSignal(0))
+            continue;
         }
 
       // ---------------------------------------------------------
@@ -3115,17 +3243,6 @@ void CheckRecoveryOrders()
       // ---------------------------------------------------------
       if(!IsOneCandleOrderAllowed())
          continue;
-
-      // ---------------------------------------------------------
-      // 30-minute momentum gate. Remember only the parent signal when
-      // blocked; the recovery order is rebuilt normally later.
-      // ---------------------------------------------------------
-      if(Enable30MinuteMomentumFilter && Enable30MinuteMomentumForAllOrders &&
-         !Passes30MinuteMomentumFilter(parentType))
-        {
-         RememberRecoverySignal(parentTicket);
-         continue;
-        }
 
       // ---------------------------------------------------------
       // Final safety check BEFORE OrderSend
@@ -3140,7 +3257,7 @@ void CheckRecoveryOrders()
          recoveryTicket = SafeOrderSend(
                              Symbol(),
                              OP_BUY,
-                             lots,
+                             lots*2,
                              Ask,
                              Slippage,
                              Ask-200,
@@ -3155,7 +3272,7 @@ void CheckRecoveryOrders()
          recoveryTicket = SafeOrderSend(
                              Symbol(),
                              OP_SELL,
-                             lots,
+                             lots*2,
                              Bid,
                              Slippage,
                              Ask+200,
@@ -3171,9 +3288,6 @@ void CheckRecoveryOrders()
       // ---------------------------------------------------------
       if(recoveryTicket > 0)
         {
-         if(WaitingRecoveryParentTicket==parentTicket)
-            ClearRecoverySignal(parentTicket);
-
          OrderCreatedThisCandle = true;
          LastOrderCandleTime    = Time[0];
 
@@ -3206,32 +3320,23 @@ bool HasRecoveryOrder(int ParentTicket)
   {
    string txt="RECOVERY_"+IntegerToString(ParentTicket);
 
-   // Check BOTH live orders and account history. This guarantees that
-   // a parent can never receive a second recovery after the first
-   // recovery has already closed.
-   for(int mode=MODE_TRADES; mode<=MODE_HISTORY; mode++)
+   for(int i=OrdersTotal()-1; i>=0; i--)
      {
-      int total = (mode==MODE_TRADES) ? OrdersTotal() : OrdersHistoryTotal();
+      if(!OrderSelect(i,SELECT_BY_POS,MODE_TRADES))
+         continue;
 
-      for(int i=total-1; i>=0; i--)
-        {
-         if(!OrderSelect(i,SELECT_BY_POS,mode))
-            continue;
+      if(OrderSymbol()!=Symbol())
+         continue;
 
-         if(OrderSymbol()!=Symbol())
-            continue;
+      if(OrderMagicNumber()!=MagicNumber)
+         continue;
 
-         if(OrderMagicNumber()!=MagicNumber)
-            continue;
-
-         if(OrderComment()==txt)
-            return true;
-        }
+      if(OrderComment()==txt)
+         return true;
      }
 
    return false;
   }
-
 //+------------------------------------------------------------------+
 //|                                                                  |
 //+------------------------------------------------------------------+
@@ -4374,22 +4479,9 @@ bool HasPendingProfitReEntry(int pendingType)
 //+------------------------------------------------------------------+
 //|                                                                  |
 //+------------------------------------------------------------------+
-void CreateProfitReEntryStop(int closedOrderType, double closedPrice, DailyProtectionState &state, bool afterStopLoss=false, bool rememberedSignal=false)
+void CreateProfitReEntryStop(int closedOrderType, double closedPrice, DailyProtectionState &state, bool afterStopLoss=false)
   {
    if(!EnableTrading || !EnableProfitReEntryStop || IsDailyTradingStopped(state))
-      return;
-
-   // ReEntry signal memory: remember only direction + original closed price.
-   // The actual pending order is created later using the normal ReEntry logic.
-   if(!rememberedSignal && Enable30MinuteMomentumFilter &&
-      Enable30MinuteMomentumForAllOrders &&
-      !Passes30MinuteMomentumFilter(closedOrderType))
-     {
-      RememberReEntrySignal(closedOrderType,closedPrice,afterStopLoss);
-      return;
-     }
-
-   if(!rememberedSignal && WaitingReEntrySignal)
       return;
    if(ServerRecoveryPending || !IsConnected())
      {
@@ -4492,9 +4584,6 @@ void CreateProfitReEntryStop(int closedOrderType, double closedPrice, DailyProte
      }
    else
      {
-      if(rememberedSignal)
-         ClearReEntrySignal();
-
       // Advance ONLY after the broker confirms/identifies the order.
       reEntryCounter=requestedReEntryNumber;
       SaveReEntryCounter();
@@ -4584,30 +4673,15 @@ void InvalidateTotalEAOrdersCache()
 //+------------------------------------------------------------------+
 //|                                                                  |
 //+------------------------------------------------------------------+
-void OpenBuy(bool rememberedSignal=false)
+void OpenBuy()
   {
    if(!IsSafeToCreateMarketOrder(OP_BUY))
       return;
-
-   // A remembered SSL signal is no longer required to match the live SSL/EMA
-   // state. The only waiting condition is the 30-minute directional filter.
-   if(!rememberedSignal && !PassesEMAFilter(OP_BUY))
+   if(!PassesEMAFilter(OP_BUY))
       return;
 
    if(!IsOneCandleOrderAllowed())
       return;
-
-   if(!rememberedSignal && WaitingSSLBuySignal)
-      return;
-
-   // Normal SSL signal: remember ONLY the signal if 30M momentum is invalid.
-   if(!rememberedSignal && Enable30MinuteMomentumFilter &&
-      Enable30MinuteMomentumForAllOrders &&
-      !Passes30MinuteMomentumFilter(OP_BUY))
-     {
-      RememberSSLSignal(OP_BUY);
-      return;
-     }
 
    if(GetTotalEAOrders() >= MaxOpenOrders || !HasMinimumSameOrderGap(OP_BUY))
       return;
@@ -4629,9 +4703,6 @@ void OpenBuy(bool rememberedSignal=false)
       Print("BUY FAILED | OrderSend/Server error");
    else
      {
-      if(rememberedSignal)
-         WaitingSSLBuySignal=false;
-
       // Mark the candle only after OrderSend succeeds.
       OrderCreatedThisCandle = true;
       LastOrderCandleTime = Time[0];
@@ -4689,27 +4760,15 @@ double NormalizeLots(double lots)
 //+------------------------------------------------------------------+
 //|                                                                  |
 //+------------------------------------------------------------------+
-void OpenSell(bool rememberedSignal=false)
+void OpenSell()
   {
    if(!IsSafeToCreateMarketOrder(OP_SELL))
       return;
-
-   if(!rememberedSignal && !PassesEMAFilter(OP_SELL))
+   if(!PassesEMAFilter(OP_SELL))
       return;
 
    if(!IsOneCandleOrderAllowed())
       return;
-
-   if(!rememberedSignal && WaitingSSLSellSignal)
-      return;
-
-   if(!rememberedSignal && Enable30MinuteMomentumFilter &&
-      Enable30MinuteMomentumForAllOrders &&
-      !Passes30MinuteMomentumFilter(OP_SELL))
-     {
-      RememberSSLSignal(OP_SELL);
-      return;
-     }
    if(GetTotalEAOrders() >= MaxOpenOrders || !HasMinimumSameOrderGap(OP_SELL))
       return;
 
@@ -4730,9 +4789,6 @@ void OpenSell(bool rememberedSignal=false)
       Print("SELL FAILED | OrderSend/Server error");
    else
      {
-      if(rememberedSignal)
-         WaitingSSLSellSignal=false;
-
       // Mark the candle only after OrderSend succeeds.
       OrderCreatedThisCandle = true;
       LastOrderCandleTime = Time[0];
