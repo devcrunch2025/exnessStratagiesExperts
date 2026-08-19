@@ -40,7 +40,7 @@ bool EnableTrading = true;
 // This filter is applied to every new trade request. Orders are remembered in EA
 // memory and sent to the broker only when the directional 30-minute condition passes.
 bool Enable30MinuteMomentumFilter = true;
-double Min30MinutePriceDifference = 100.0;
+double Min30MinutePriceDifference = 50.0;
 bool Enable30MinuteMomentumForProfitReEntry = true;
 bool Enable30MinuteMomentumForAllOrders = true;
 
@@ -104,7 +104,7 @@ double Ladder2ProfitUSD = 0.10;//server api is has errors due to too many orders
 
 bool EnableRecoveryOrders = true;//false;//continuos market down will huge loss
 double RecoveryTriggerLossUSD =1;// -0.50;//per lot 0.01
-double RecoveryLotMultiplier = 2;
+double RecoveryLotMultiplier = 1;
 int MaxRecoveryOrders = 1;
 double RecoveryBasketProfitUSD =0.10;// 1;//0.50;
 bool EnableDailyLossProtection = false;// false= continue trading even after hit the stoploss
@@ -1321,13 +1321,13 @@ double GetReEntryLot(int reEntryNumber)
 
    if(reEntryNumber <=2)
    {
-DailyEquityTargetPercent=3;
+// DailyEquityTargetPercent=3;
       return NormalizeLots(0.10);
 
    }
    else if(reEntryNumber <=6)
    {
-DailyEquityTargetPercent=1;
+// DailyEquityTargetPercent=1;
 
    return NormalizeLots(0.01);
 
@@ -3064,9 +3064,9 @@ void ChangeLots(double OpenPL, string reason, int orderType,int stoplevelStep)
 // BASED ON ACTUAL NEW LOT
 //==================================================
 
-if(Lots==0.10)
+if(Lots>0.10)
 {
-StopLossUSD =5;
+StopLossUSD =10;
 }
 else
 {
