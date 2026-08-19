@@ -975,6 +975,17 @@ void ProcessPendingReEntry(DailyProtectionState &state)
 void OnTick()
   {
    uint tickStartMs=GetTickCount();
+// if( GetCurrentSSLDirection()==0 && GetOpenPL(OP_BUY)<-1 )
+// {
+// Enable30MinuteMomentumFilter=false;
+// }
+// else if( GetCurrentSSLDirection()==1 && GetOpenPL(OP_SELL)<-1 )
+// {
+// Enable30MinuteMomentumFilter=false;
+// }
+ 
+
+
    OnTickCore();
    OnTickPerformanceEnd(tickStartMs);
   }
@@ -993,7 +1004,13 @@ void OnTickCore()
    ResetTradeErrorRetryGuards();
 
    // Send remembered orders only after the 30-minute directional condition passes.
+
+
+{
    ProcessDeferredOrders();
+
+}
+
    ResetTradeRequestBudget();
    RefreshRates();
 
@@ -1293,7 +1310,19 @@ int LastProtectedLossTicket = -1;
 int BlockedSLDirection = 0;
 int FreshSSLRequiredDirection = 0;
 datetime SLProtectionUntil = 0;
+bool HasLargeM1Candle()
+{
+   for(int i = 1; i <= 15; i++)
+   {
+      double candleSize = iHigh(Symbol(), PERIOD_M1, i)
+                        - iLow(Symbol(), PERIOD_M1, i);
 
+      if(candleSize > 100)
+         return true;
+   }
+
+   return false;
+}
 
 // Return the lot required for a successful ReEntry number.
 // #1 = 0.01, #2 = 0.10, #3 = 0.09 ... #10 = 0.02, #11+ = 0.01.
@@ -1313,6 +1342,13 @@ double GetReEntryLot(int reEntryNumber)
 //       return 0.01;
 
 //    }
+
+
+if(HasLargeM1Candle())
+{
+      return NormalizeLots(0.02);
+
+}
 
 double lot = 0.10 - (reEntryNumber * 0.01);
    if(lot < 0.01)
@@ -2028,6 +2064,26 @@ double Get30MinDifference(int orderType = OP_BUY)
 //+------------------------------------------------------------------+
 bool Passes30MinuteMomentumFilter(int orderType)
 {
+
+
+
+// if( (orderType==OP_SELLSTOP ||  orderType==OP_SELLLIMIT || orderType==OP_SELL)  && GetCurrentSSLDirection()==0 && GetOpenPL(OP_BUY)<-1 )
+// {
+
+// }
+// else if( (orderType==OP_BUYSTOP ||  orderType==OP_BUYLLIMIT || orderType==OP_BUY)  &&  GetCurrentSSLDirection()==1 && GetOpenPL(OP_SELL)<-1 )
+// {
+
+// }
+//else
+{ 
+
+
+
+
+
+
+
    if(!Enable30MinuteMomentumFilter)
       return true;
 
@@ -2062,6 +2118,9 @@ bool Passes30MinuteMomentumFilter(int orderType)
          DoubleToString(threshold,Digits));
 
    return false;
+
+}
+   return true;
 }
 int DeferredDirection(int orderType)
   {
@@ -2074,6 +2133,21 @@ int DeferredDirection(int orderType)
 
 bool PassesDeferredMomentum(int orderType)
   {
+
+
+// if( (orderType==OP_SELLSTOP ||  orderType==OP_SELLLIMIT || orderType==OP_SELL)  && GetCurrentSSLDirection()==0 && GetOpenPL(OP_BUY)<-1 )
+// {
+
+// }
+// else if( (orderType==OP_BUYSTOP ||  orderType==OP_BUYLLIMIT || orderType==OP_BUY)  &&  GetCurrentSSLDirection()==1 && GetOpenPL(OP_SELL)<-1 )
+// {
+
+// }
+//else
+{ 
+
+
+
    if(!Enable30MinuteMomentumFilter || !Enable30MinuteMomentumForAllOrders)
       return true;
 
@@ -2082,6 +2156,9 @@ bool PassesDeferredMomentum(int orderType)
       return true;
 
    return Passes30MinuteMomentumFilter(direction);
+
+}
+   return true;
   }
 
 int FindDeferredOrder(string symbol,int orderType,string comment,int magic)
@@ -2159,6 +2236,18 @@ void ProcessDeferredOrders()
       int type=DeferredType[i];
       int direction=DeferredDirection(type);
 
+// if( (type==OP_SELLSTOP ||  type==OP_SELLLIMIT || type==OP_SELL)  && GetCurrentSSLDirection()==0 && GetOpenPL(OP_BUY)<-1 )
+// {
+
+// }
+// else if( (type==OP_BUYSTOP ||  type==OP_BUYLLIMIT || type==OP_BUY)  &&  GetCurrentSSLDirection()==1 && GetOpenPL(OP_SELL)<-1 )
+// {
+
+// }
+// else
+{ 
+
+      
       if(Enable30MinuteMomentumFilter && Enable30MinuteMomentumForAllOrders &&
          !PassesDeferredMomentum(type))
         {
@@ -2168,6 +2257,8 @@ void ProcessDeferredOrders()
                " | Comment=",DeferredComment[i]);
          continue;
         }
+
+      }
 
       // Re-check global order limits at the moment the request is actually
       // released. A queued request must never bypass MaxOpenOrders.
@@ -2240,13 +2331,24 @@ int SafeOrderSend(string symbol,int orderType,double lots,double price,
    // Universal 30-minute gate. Every new trade request (SSL Long/Short,
    // Profit ReEntry, SL ReEntry, Recovery and ladder re-entry) is remembered
    // in EA memory until its BUY/SELL momentum condition passes.
+
+// if( (orderType==OP_SELLSTOP ||  orderType==OP_SELLLIMIT || orderType==OP_SELL)  && GetCurrentSSLDirection()==0 && GetOpenPL(OP_BUY)<-1 )
+// {
+
+// }
+// else if( (orderType==OP_BUYSTOP ||  orderType==OP_BUYLLIMIT || orderType==OP_BUY)  &&  GetCurrentSSLDirection()==1 && GetOpenPL(OP_SELL)<-1 )
+// {
+
+// }
+// else
+{ 
    if(Enable30MinuteMomentumFilter && Enable30MinuteMomentumForAllOrders)
      {
       if(!PassesDeferredMomentum(orderType))
          return QueueDeferredOrder(symbol,orderType,lots,price,slippage,stopLoss,
                                    takeProfit,comment,magic,arrowColor);
      }
-
+   }
    string key=MakeTradeErrorKey("SEND",-1,
                                 IntegerToString(orderType)+"|"+
                                 DoubleToString(lots,8)+"|"+comment);
@@ -4048,6 +4150,7 @@ void CheckDynamicEquityLadder(DailyProtectionState &state)
 //===============================================================
 // RESET TARGET TIMER
 //===============================================================
+      DeleteAllPendingEAOrders();
 
 //===============================================================
 // LOG NEW LADDER
