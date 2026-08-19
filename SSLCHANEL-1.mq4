@@ -3172,11 +3172,11 @@ void ChangeLots(double OpenPL, string reason, int orderType,int stoplevelStep)
 // BASED ON ACTUAL NEW LOT
 //==================================================
 
-if(Lots>=0.05)
-{
-StopLossUSD =10;
-}
-else
+// if(Lots>=0.05)
+// {
+// StopLossUSD =Lots*100;//;
+// }
+// else
 {
    StopLossUSD =
       OriginalStopLossUSD *
