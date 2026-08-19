@@ -3054,16 +3054,16 @@ void ChangeLots(double OpenPL, string reason, int orderType,int stoplevelStep)
 
    int StoplossWeekendMultiplier=1;
 
-   int dayOfWeek = TimeDayOfWeek(TimeCurrent());
-   if(dayOfWeek==6 || dayOfWeek==0 || dayOfWeek==1)
-     {
-      // StoplossWeekendMultiplier=2;
-       EnableRecoveryOrders=false;
-     }
-   else
-     {
-      // EnableRecoveryOrders=false;
-     }
+   // int dayOfWeek = TimeDayOfWeek(TimeCurrent());
+   // if(dayOfWeek==6 || dayOfWeek==0 || dayOfWeek==1)
+   //   {
+   //    // StoplossWeekendMultiplier=2;
+   //     EnableRecoveryOrders=false;
+   //   }
+   // else
+   //   {
+   //    // EnableRecoveryOrders=false;
+   //   }
 
 //==================================================
 // SCALE SL / ORDER LADDER
@@ -3079,11 +3079,13 @@ else
    StopLossUSD =
       OriginalStopLossUSD *
       Lots * 100;
+
+   StopLossUSD=StopLossUSD*StoplossWeekendMultiplier;
+
 }
 
    
 
-   StopLossUSD=StopLossUSD*StoplossWeekendMultiplier;
 
 
    Print(OriginalStopLossUSD+" * "+" * "+Lots+" * "+100+" * "+StopLossUSD+" * "+OriginalStopLossUSD);
@@ -3221,11 +3223,11 @@ void CheckRecoveryOrders()
          RecoveryTriggerLossUSD * 100.0 * lots;
 
 
-      int dayOfWeek = TimeDayOfWeek(TimeCurrent());
-      if(dayOfWeek==6 || dayOfWeek==0 || dayOfWeek==1)
-        {
-         recoveryTrigger= recoveryTrigger*3;
-        }
+      // int dayOfWeek = TimeDayOfWeek(TimeCurrent());
+      // if(dayOfWeek==6 || dayOfWeek==0 || dayOfWeek==1)
+      //   {
+      //    recoveryTrigger= recoveryTrigger*3;
+      //   }
 
       if(profit > recoveryTrigger)
          continue;
@@ -4394,6 +4396,50 @@ void InitializeLastProcessedClosedOrder()
   }
 
 //+------------------------------------------------------------------+
+//| Rebase the continuous equity ladder after a stop-loss close      |
+//|                                                                  |
+//| Example:                                                         |
+//|   Target was $104.00                                             |
+//|   Stop-loss closes the trade and equity becomes $90.00           |
+//|   With a 2% target: new target = $90.00 * 1.02 = $91.80         |
+//|                                                                  |
+//| This prevents the old $104 target from surviving a losing cycle. |
+//+------------------------------------------------------------------+
+void RebaseEquityLadderAfterStopLoss(DailyProtectionState &state)
+  {
+   RefreshRates();
+
+   double newAnchor = AccountEquity();
+
+   if(newAnchor <= 0.0)
+      return;
+
+   // The new ladder cycle starts from the actual equity after the SL.
+   state.DayStartBalance = newAnchor;
+   LockedEquity           = newAnchor;
+
+   NextEquityTarget =
+      newAnchor *
+      (1.0 + DailyEquityTargetPercent / 100.0);
+
+   state.DayProtectedBalance =
+      newAnchor *
+      (1.0 - DailyLossProtectionPercent / 100.0);
+
+   state.ClosedOrdersToday = 0;
+   state.TradingStopped    = false;
+   DailyProtectionStartTime = TimeCurrent();
+
+   Print("================================================");
+   Print("EQUITY LADDER REBASED AFTER STOP-LOSS");
+   Print("New Equity Anchor : $", DoubleToString(newAnchor, 2));
+   Print("Target %          : ", DoubleToString(DailyEquityTargetPercent, 2), "%");
+   Print("New Next Target   : $", DoubleToString(NextEquityTarget, 2));
+   Print("Old target is discarded and will NOT be reused.");
+   Print("================================================");
+  }
+
+//+------------------------------------------------------------------+
 //|                                                                  |
 //+------------------------------------------------------------------+
 void CheckForProfitableClosedOrder(DailyProtectionState &state)
@@ -4433,6 +4479,21 @@ void CheckForProfitableClosedOrder(DailyProtectionState &state)
          " | Direction=",(latestType==OP_BUY ? "BUY" : "SELL"),
          " | Close=",DoubleToString(latestClosePrice,Digits),
          " | P/L=$",DoubleToString(latestProfit,2));
+
+// IMPORTANT:
+// A losing/stop-loss close starts a NEW equity-ladder cycle from the
+// actual post-close equity. Do not keep the previous profit target.
+//
+// Example:
+//   $100 -> target $102 -> target $104
+//   SL -> equity $90
+//   NEW target = $90 * 1.02 = $91.80
+//
+// The next successful ladder hit will then rebase again from its
+// realized balance/equity, so the ladder always follows current
+// capital instead of an old target from a previous cycle.
+   if(latestProfit < 0.0)
+      RebaseEquityLadderAfterStopLoss(state);
 
 // Profit AND loss now continue the same ReEntry cycle.
    if(EnableProfitReEntryStop && !IsDailyTradingStopped(state))
@@ -4881,11 +4942,11 @@ void ManageProfitLadder()
         }
 
 
-      int dayOfWeek = TimeDayOfWeek(TimeCurrent());
-      if(dayOfWeek==6 || dayOfWeek==0 || dayOfWeek==1)
-        {
-         // ladder1Profit =0.10;// ladder1Profit/2;
-        }
+      // int dayOfWeek = TimeDayOfWeek(TimeCurrent());
+      // if(dayOfWeek==6 || dayOfWeek==0 || dayOfWeek==1)
+      //   {
+      //    // ladder1Profit =0.10;// ladder1Profit/2;
+      //   }
 
       double ladder2Profit =
          OriginalLadder2ProfitUSD *
