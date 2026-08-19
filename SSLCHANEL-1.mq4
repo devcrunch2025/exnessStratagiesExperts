@@ -2036,7 +2036,7 @@ double Get30MinDifference(int orderType = OP_BUY)
    // BUY executes at Ask; SELL executes at Bid.
    double currentPrice = (orderType == OP_BUY) ? Ask : Bid;
 
-   datetime targetTime = TimeCurrent() - 30 * 60;
+   datetime targetTime = TimeCurrent() - 15 * 60;
 
    // Find the M1 candle covering the 30-minute reference time.
    int shift = iBarShift(Symbol(), PERIOD_M1, targetTime, false);
@@ -3172,11 +3172,11 @@ void ChangeLots(double OpenPL, string reason, int orderType,int stoplevelStep)
 // BASED ON ACTUAL NEW LOT
 //==================================================
 
-// if(Lots>=0.05)
-// {
-// StopLossUSD =Lots*100;//;
-// }
-// else
+if(Lots>=0.05)
+{
+StopLossUSD =Lots*100;//;
+}
+else
 {
    StopLossUSD =
       OriginalStopLossUSD *
