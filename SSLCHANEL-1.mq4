@@ -73,7 +73,7 @@ double StopLossUSD =4;//2;//10;//3;//2;//0.50;// 50;
 bool DeleteOppositePendingOnSignal = false;
 bool EnableProfitReEntryStop = true;
 double MinimumClosedProfitUSD = -9;
-double ProfitReEntryGapRaw =25;//5;//20;// 5;
+double ProfitReEntryGapRaw =15;//5;//20;// 5;
 double MinimumSameOrderGapRaw =50;//for saerver safe side - less gap hit more server calls 25;// 100;//10;//50;
 
 // ===== STOP-LOSS / RE-ENTRY SAFETY =====
@@ -264,8 +264,8 @@ bool IsH1SellAllowed()
 //+------------------------------------------------------------------+
 int GetH1Direction()
   {
-   double h1Open  = iOpen(Symbol(), PERIOD_H1, 1);
-   double h1Close = iClose(Symbol(), PERIOD_H1, 1);
+   double h1Open  = iOpen(Symbol(), PERIOD_H1, 0);
+   double h1Close = iClose(Symbol(), PERIOD_H1, 0);
 
    if(h1Close > h1Open)
       return 1;       // Bullish
@@ -1362,11 +1362,11 @@ double GetReEntryLot(int reEntryNumber)
   {
 
 
-if(IsH1BuyAllowed() && GetCurrentSSLDirection()==1)
+if(IsH1BuyAllowed() && GetCurrentSSLDirection()==1 && !HasLargeM1Candle())
 {
 
 
-    double lot = 0.05 - (reEntryNumber * 0.01);
+    double lot = 0.10 - (reEntryNumber * 0.01);
    if(lot < 0.01)
       lot = 0.01;
 
@@ -1374,7 +1374,7 @@ if(IsH1BuyAllowed() && GetCurrentSSLDirection()==1)
 
 
 }
-else if(IsH1SellAllowed() && GetCurrentSSLDirection()==-1)
+else if(IsH1SellAllowed() && GetCurrentSSLDirection()==-1 && !HasLargeM1Candle())
   
 {
       
