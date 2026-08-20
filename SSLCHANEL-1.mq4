@@ -1365,14 +1365,26 @@ double GetReEntryLot(int reEntryNumber)
 if(IsH1BuyAllowed() && GetCurrentSSLDirection()==1)
 {
 
-      return NormalizeLots(0.05);
+
+    double lot = 0.05 - (reEntryNumber * 0.01);
+   if(lot < 0.01)
+      lot = 0.01;
+
+        return NormalizeLots(lot);
 
 
 }
-else if(IsH1SellAllowed() && GetCurrentSSLDirection()==0)
+else if(IsH1SellAllowed() && GetCurrentSSLDirection()==-1)
   
 {
-      return NormalizeLots(0.05);
+      
+
+    double lot = 0.05 - (reEntryNumber * 0.01);
+   if(lot < 0.01)
+      lot = 0.01;
+
+        return NormalizeLots(lot);
+
 
 }
 else
@@ -5997,7 +6009,18 @@ void UpdateDashboard(DailyProtectionState &state)
    CreateDashboardLabel(DASH_PREFIX+"SUBTITLE",Symbol()+"  |  "+TimeframeToString(Period()),tx+w-125,y+10,8,clrLightGray);
 
    CreateDashboardLabel(DASH_PREFIX+"STATUS", "STATUS       : "+statusText,tx,y+47,10,statusColor);
-   CreateDashboardLabel(DASH_PREFIX+"SIGNAL", "SSL SIGNAL   : "+sslDirection,tx,y+67,9,sslColor);
+
+string H1Signal = IsH1BuyAllowed()
+                  ? "H1 BUY"
+                  : IsH1SellAllowed()
+                  ? "H1 SELL"
+                  : "";
+
+CreateDashboardLabel(
+   DASH_PREFIX+"SIGNAL",
+   "SSL SIGNAL : "+sslDirection+"/ "+H1Signal,
+   tx, y+67, 9, sslColor
+);
    CreateDashboardLabel(DASH_PREFIX+"EMA", "EMA "+IntegerToString(InpEMA200Period)+"      : "+emaState+"  "+(ema>0?DoubleToString(ema,Digits):"-"),tx,y+87,9,emaColor);
    CreateDashboardLabel(DASH_PREFIX+"PRICE", "BID / ASK    : "+DoubleToString(Bid,Digits)+" / "+DoubleToString(Ask,Digits),tx,y+107,9,clrWhite);
 
