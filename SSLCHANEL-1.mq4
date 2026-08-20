@@ -104,7 +104,7 @@ double Ladder2ProfitUSD = 0.10;//server api is has errors due to too many orders
 
 
 
-bool EnableRecoveryOrders = false;//false;//continuos market down will huge loss
+bool EnableRecoveryOrders = true;//false;//continuos market down will huge loss
 double RecoveryTriggerLossUSD =1;// -0.50;//per lot 0.01
 double RecoveryLotMultiplier = 1;
 int MaxRecoveryOrders = 1;
@@ -136,7 +136,7 @@ bool SkipSignalsAfterLadderIncrement = false;
 
 
 
-double DailyEquityTargetPercent =2;//2;//5;//5;//5;//2;//3;//5;//10;//5;// 10;//2;//3;//1;//3;//10;//Trading continue with 10% profit reccuring
+double DailyEquityTargetPercent =1;//2;//2;//5;//5;//5;//2;//3;//5;//10;//5;// 10;//2;//3;//1;//3;//10;//Trading continue with 10% profit reccuring
 double DailyLossProtectionPercent =50;//20;//10;//20;//50;//20;//10;//20;//100;//50;// 30.0;// Trading stops if equity drops below this percentage of the starting balance for the day
 bool EnableDynamicEquityLadder = true;////Trading continue with 10% profit reccuring
 double OriginalDailyEquityTargetPercent =5;//10;//5;// 10;//2;//3;//1;//3;//10;//Trading continue with 10% profit reccuring
@@ -651,7 +651,9 @@ int OnInit()
    OriginalDailyLossProtectionPercent = DailyLossProtectionPercent;
 
 
-   RecoveryTriggerLossUSD=StopLossUSD/2;
+   // Keep RecoveryTriggerLossUSD as the user-configured loss threshold.
+   // A positive value means the absolute loss allowed per 0.01 lot.
+   RecoveryTriggerLossUSD = MathAbs(RecoveryTriggerLossUSD);
 
    OriginalStopLossUSD = StopLossUSD;
 
@@ -664,6 +666,8 @@ int OnInit()
          " | Mode: ", InpEMAPriceShift == 0 ? "LIVE" : "CLOSED CANDLE");
    Print("Daily Protection: ", EnableDailyLossProtection ? "ON" : "OFF", " | Ladder 1: ", EnableProfitLadder1 ? "ON" : "OFF");
    Print("Ladder 1 Step: $", DoubleToString(Ladder1ProfitUSD, 2), " | Ladder 2 Step: $", DoubleToString(Ladder2ProfitUSD, 2));
+   Print("Recovery Trigger Loss per 0.01 lot: $", DoubleToString(RecoveryTriggerLossUSD,2));
+   Print("Recovery Basket Profit: $", DoubleToString(RecoveryBasketProfitUSD,2));
    Print("Continue After SL: ",ContinueTradingAfterSL?"YES":"NO");
    Print("SL Protection: ",EnableSLProtection?"ON":"OFF",
          " | MaxSameDirection=",MaxSameDirectionOrders,
@@ -3411,14 +3415,13 @@ void CheckRecoveryOrders()
 
       // ---------------------------------------------------------
       // Recovery trigger
-      // RecoveryTriggerLossUSD is negative, e.g. -5.0
-      //
-      // Example:
-      // Parent = 0.01 lot
-      // Trigger = -5.0 per 0.01 lot
+      // RecoveryTriggerLossUSD is the ABSOLUTE loss allowed per
+      // 0.01 lot. Example: 1.0 means a 0.01-lot parent must be
+      // at or below -$1.00 before recovery can be created.
+      // Larger lots scale proportionally.
       // ---------------------------------------------------------
       double recoveryTrigger =
-         RecoveryTriggerLossUSD * 100.0 * lots;
+         -MathAbs(RecoveryTriggerLossUSD) * (lots / 0.01);
 
 
       // int dayOfWeek = TimeDayOfWeek(TimeCurrent());
@@ -5093,6 +5096,11 @@ void ManageProfitLadder()
          OrderMagicNumber() != MagicNumber)
          continue;
 
+      // Recovery orders are managed ONLY by ManageRecoveryBasket().
+      // Never apply the normal per-order profit ladder to them.
+      if(StringFind(OrderComment(), "RECOVERY_") == 0)
+         continue;
+
       int orderType = OrderType();
 
       if(orderType != OP_BUY &&
@@ -5135,7 +5143,7 @@ void ManageProfitLadder()
          orderLots * 100.0;
 
 
-      if(orderLots >= 0.10)
+      if(orderLots >= 0.04)
         {
          ladder1Profit =0.10;// ladder1Profit/2;
         }
