@@ -73,7 +73,7 @@ double StopLossUSD =4;//2;//10;//3;//2;//0.50;// 50;
 bool DeleteOppositePendingOnSignal = false;
 bool EnableProfitReEntryStop = true;
 double MinimumClosedProfitUSD = -9;
-double ProfitReEntryGapRaw =15;//5;//20;// 5;
+double ProfitReEntryGapRaw =25;//5;//20;// 5;
 double MinimumSameOrderGapRaw =50;//for saerver safe side - less gap hit more server calls 25;// 100;//10;//50;
 
 // ===== STOP-LOSS / RE-ENTRY SAFETY =====
