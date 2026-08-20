@@ -6131,6 +6131,7 @@ void UpdateLeftLiveOrdersDashboard()
             rowColor=clrTomato;
          else
             rowColor=clrGold;
+            
       if((type==OP_BUY || type==OP_SELL) && pl>0)
          rowColor=clrLime;
       if((type==OP_BUY || type==OP_SELL) && pl<0)
