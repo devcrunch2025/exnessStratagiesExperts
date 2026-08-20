@@ -39,10 +39,12 @@ bool EnableTrading = true;
 // Normal SSL SELL requires current SELL price to be < 30-minute reference by this amount.
 // This filter is applied to every new trade request. Orders are remembered in EA
 // memory and sent to the broker only when the directional 30-minute condition passes.
-bool Enable30MinuteMomentumFilter = true;
-double Min30MinutePriceDifference = 30.0;
-bool Enable30MinuteMomentumForProfitReEntry = true;
-bool Enable30MinuteMomentumForAllOrders = true;
+bool Enable30MinuteMomentumFilter = false;
+double Min30MinutePriceDifference = 60*5*1;//30.0;
+double Min30MinutePriceDifferenceDuration = 60*1;//minutes
+
+bool Enable30MinuteMomentumForProfitReEntry = false;
+bool Enable30MinuteMomentumForAllOrders = false;
 
 // Deferred OrderSend queue: orders are kept in EA memory and sent to the
 // broker only when the 30-minute directional condition passes.
@@ -82,8 +84,8 @@ int SLCooldownCandles = 3;
 double SLReEntryGapRaw = 50.0;
 double BasketNewOrderLossLimitUSD = 7.50;
 int SLProtectionSafetyBufferPoints = 2;
-bool DeletePendingOrdersAfterLosingSL = true;
-bool RequireFreshSSLAfterLosingSL = true;
+bool DeletePendingOrdersAfterLosingSL = false;
+bool RequireFreshSSLAfterLosingSL = false;
 bool ContinueTradingAfterSL = true; // Continue normal signal trading after any losing SL; risk limits remain active
 bool EnableFreezeLevelProtection = true;
 double MinimumSLModifyGapRaw = 2.0;
@@ -102,7 +104,7 @@ double Ladder2ProfitUSD = 0.10;//server api is has errors due to too many orders
 
 
 
-bool EnableRecoveryOrders = true;//false;//continuos market down will huge loss
+bool EnableRecoveryOrders = false;//false;//continuos market down will huge loss
 double RecoveryTriggerLossUSD =1;// -0.50;//per lot 0.01
 double RecoveryLotMultiplier = 1;
 int MaxRecoveryOrders = 1;
@@ -242,8 +244,37 @@ bool ProtectedEquityWaitActive = true;
 datetime ProtectedEquityWaitStartTime = 0;
 int ProtectedEquityWaitMinutes =0;// 60;
 
+//+------------------------------------------------------------------+
+//|                                                                  |
+//+------------------------------------------------------------------+
+bool IsH1BuyAllowed()
+  {
+   return (GetH1Direction() == 1);
+  }
 
+//+------------------------------------------------------------------+
+//|                                                                  |
+//+------------------------------------------------------------------+
+bool IsH1SellAllowed()
+  {
+   return (GetH1Direction() == -1);
+  }
+//+------------------------------------------------------------------+
+//|                                                                  |
+//+------------------------------------------------------------------+
+int GetH1Direction()
+  {
+   double h1Open  = iOpen(Symbol(), PERIOD_H1, 1);
+   double h1Close = iClose(Symbol(), PERIOD_H1, 1);
 
+   if(h1Close > h1Open)
+      return 1;       // Bullish
+
+   if(h1Close < h1Open)
+      return -1;      // Bearish
+
+   return 0;          // Neutral / Doji
+  }
 //+------------------------------------------------------------------+
 void InitializeEquityLadder(DailyProtectionState &state)
   {
@@ -620,7 +651,7 @@ int OnInit()
    OriginalDailyLossProtectionPercent = DailyLossProtectionPercent;
 
 
-RecoveryTriggerLossUSD=StopLossUSD/2;
+   RecoveryTriggerLossUSD=StopLossUSD/2;
 
    OriginalStopLossUSD = StopLossUSD;
 
@@ -881,8 +912,8 @@ bool CheckDay1CapitalProtectionExit(DailyProtectionState &state)
 //+------------------------------------------------------------------+
 void ManageProfitReEntryMomentumGate()
   {
-   // Legacy broker-pending gate intentionally disabled. New ReEntry orders are
-   // deferred in EA memory before OrderSend, so no create/delete cycle is used.
+// Legacy broker-pending gate intentionally disabled. New ReEntry orders are
+// deferred in EA memory before OrderSend, so no create/delete cycle is used.
    return;
    if(!Enable30MinuteMomentumForProfitReEntry || !Enable30MinuteMomentumFilter)
       return;
@@ -948,8 +979,8 @@ void ManageProfitReEntryMomentumGate()
 //+------------------------------------------------------------------+
 void ProcessPendingReEntry(DailyProtectionState &state)
   {
-   // Legacy retry path is no longer responsible for momentum waiting.
-   // SafeOrderSend queues all new orders in EA memory.
+// Legacy retry path is no longer responsible for momentum waiting.
+// SafeOrderSend queues all new orders in EA memory.
    return;
    if(!ReEntryRetryPending)
       return;
@@ -983,7 +1014,7 @@ void OnTick()
 // {
 // Enable30MinuteMomentumFilter=false;
 // }
- 
+
 
 
    OnTickCore();
@@ -1003,13 +1034,13 @@ void OnTickCore()
 // the previous tick may be attempted now with fresh market data.
    ResetTradeErrorRetryGuards();
 
-   // Send remembered orders only after the 30-minute directional condition passes.
+// Send remembered orders only after the 30-minute directional condition passes.
 
 
-{
-   ProcessDeferredOrders();
+     {
+      ProcessDeferredOrders();
 
-}
+     }
 
    ResetTradeRequestBudget();
    RefreshRates();
@@ -1311,18 +1342,18 @@ int BlockedSLDirection = 0;
 int FreshSSLRequiredDirection = 0;
 datetime SLProtectionUntil = 0;
 bool HasLargeM1Candle()
-{
+  {
    for(int i = 1; i <= 15; i++)
-   {
+     {
       double candleSize = iHigh(Symbol(), PERIOD_M1, i)
-                        - iLow(Symbol(), PERIOD_M1, i);
+                          - iLow(Symbol(), PERIOD_M1, i);
 
       if(candleSize > 100)
          return true;
-   }
+     }
 
    return false;
-}
+  }
 
 // Return the lot required for a successful ReEntry number.
 // #1 = 0.01, #2 = 0.10, #3 = 0.09 ... #10 = 0.02, #11+ = 0.01.
@@ -1330,12 +1361,40 @@ bool HasLargeM1Candle()
 double GetReEntryLot(int reEntryNumber)
   {
 
-//  int tradeDay = TimeDayOfWeek(TimeCurrent());
+
+if(IsH1BuyAllowed() && GetCurrentSSLDirection()==1)
+{
+
+      return NormalizeLots(0.05);
+
+
+}
+else if(IsH1SellAllowed() && GetCurrentSSLDirection()==0)
   
+{
+      return NormalizeLots(0.05);
+
+}
+else
+
+      return NormalizeLots(0.01);
+
+
+
+
+
+
+
+
+
+
+
+//  int tradeDay = TimeDayOfWeek(TimeCurrent());
+
 //    if(tradeDay==6 || tradeDay==0 || tradeDay==1)
 //    {
 // if(reEntryNumber>3)
- 
+
 //       return NormalizeLots(0.01*2);
 //       else
 
@@ -1344,48 +1403,49 @@ double GetReEntryLot(int reEntryNumber)
 //    }
 
 
-if(HasLargeM1Candle())
-{
-      return NormalizeLots(0.02);
+   // if(HasLargeM1Candle())
+   //   {
+   //    return NormalizeLots(0.02);
 
-}
+   //   }
 
-double lot = 0.05 - (reEntryNumber * 0.01);
+   double lot = 0.05 - (reEntryNumber * 0.01);
    if(lot < 0.01)
       lot = 0.01;
-      
 
 
 
 
-      return NormalizeLots(lot);
 
+   return NormalizeLots(lot);
+/*
 
    if(reEntryNumber <=2)
-   {
-// DailyEquityTargetPercent=3;
+     {
+      // DailyEquityTargetPercent=3;
       return NormalizeLots(0.10);
 
-   }
-   else if(reEntryNumber <=6)
-   {
-// DailyEquityTargetPercent=1;
-
-   return NormalizeLots(0.02);
-
-   }
-   else
-     {
-// DailyEquityTargetPercent=1;
-
-   return NormalizeLots(0.01);
-
-
      }
-   // if(reEntryNumber <=4)
-   //    return NormalizeLots(0.03);
+   else
+      if(reEntryNumber <=6)
+        {
+         // DailyEquityTargetPercent=1;
+
+         return NormalizeLots(0.02);
+
+        }
+      else
+        {
+         // DailyEquityTargetPercent=1;
+
+         return NormalizeLots(0.01);
+
+
+        }
+// if(reEntryNumber <=4)
+//    return NormalizeLots(0.03);
 // if(reEntryNumber <= 10)
-   // return NormalizeLots(0.10);
+// return NormalizeLots(0.10);
 
 
 //  if(reEntryNumber > 5)
@@ -1393,10 +1453,10 @@ double lot = 0.05 - (reEntryNumber * 0.01);
 
 
 
-     lot = 0.12 - (reEntryNumber * 0.01);
+   lot = 0.12 - (reEntryNumber * 0.01);
    if(lot < 0.01)
       lot = 0.01;
-
+*/
    return NormalizeLots(lot);
   }
 
@@ -2028,42 +2088,47 @@ void LogTradeOperationError(string operation,int ticket,string details,int err)
 // A failure is recorded; no Sleep()/same-tick retry is performed.
 // The next tick retries with fresh Bid/Ask.
 
+//+------------------------------------------------------------------+
+//|                                                                  |
+//+------------------------------------------------------------------+
 double Get30MinDifference(int orderType = OP_BUY)
-{
+  {
    RefreshRates();
 
-   // Use the actual side of the market used for entry.
-   // BUY executes at Ask; SELL executes at Bid.
+// Use the actual side of the market used for entry.
+// BUY executes at Ask; SELL executes at Bid.
    double currentPrice = (orderType == OP_BUY) ? Ask : Bid;
 
-   datetime targetTime = TimeCurrent() - 15 * 60;
+// datetime targetTime = TimeCurrent() - 15 * 60;
 
-   // Find the M1 candle covering the 30-minute reference time.
+   datetime targetTime=Min30MinutePriceDifferenceDuration;
+
+// Find the M1 candle covering the 30-minute reference time.
    int shift = iBarShift(Symbol(), PERIOD_M1, targetTime, false);
 
    if(shift < 0)
-   {
-      Print("30M FILTER | Unable to find M1 history | Target=",
-            TimeToString(targetTime, TIME_DATE|TIME_SECONDS));
+     {
+      // Print("30M FILTER | Unable to find M1 history | Target=",
+      //       TimeToString(targetTime, TIME_DATE|TIME_SECONDS));
       return 0.0;
-   }
+     }
 
    double oldPrice = iClose(Symbol(), PERIOD_M1, shift);
 
    if(oldPrice <= 0.0)
-   {
-      Print("30M FILTER | Invalid reference price | Shift=",shift);
+     {
+      // Print("30M FILTER | Invalid reference price | Shift=",shift);
       return 0.0;
-   }
+     }
 
    return currentPrice - oldPrice;
-}
+  }
 
 //+------------------------------------------------------------------+
 //| 30-minute directional momentum filter for normal SSL entries     |
 //+------------------------------------------------------------------+
 bool Passes30MinuteMomentumFilter(int orderType)
-{
+  {
 
 
 
@@ -2076,7 +2141,7 @@ bool Passes30MinuteMomentumFilter(int orderType)
 
 // }
 //else
-{ 
+     {
 
 
 
@@ -2084,44 +2149,47 @@ bool Passes30MinuteMomentumFilter(int orderType)
 
 
 
-   if(!Enable30MinuteMomentumFilter)
-      return true;
+      if(!Enable30MinuteMomentumFilter)
+         return true;
 
-   if(orderType != OP_BUY && orderType != OP_SELL)
-      return true;
+      if(orderType != OP_BUY && orderType != OP_SELL)
+         return true;
 
-   double diff = Get30MinDifference(orderType);
-   double threshold = MathAbs(Min30MinutePriceDifference);
+      double diff = Get30MinDifference(orderType);
+      double threshold = MathAbs(Min30MinutePriceDifference);
 
-   bool allowed = false;
+      bool allowed = false;
 
-   if(orderType == OP_BUY)
-      allowed = (diff > threshold);
-   else
-   if(orderType == OP_SELL)
-      allowed = (diff < -threshold);
+      if(orderType == OP_BUY)
+         allowed = (diff > threshold);
+      else
+         if(orderType == OP_SELL)
+            allowed = (diff < -threshold);
 
-   if(allowed)
-   {
-      Print("30M FILTER PASS | ",
-            orderType == OP_BUY ? "BUY" : "SELL",
-            " | Diff=",DoubleToString(diff,Digits),
-            " | Threshold=",DoubleToString(threshold,Digits));
-      return true;
-   }
+      if(allowed)
+        {
+         // Print("30M FILTER PASS | ",
+         //       orderType == OP_BUY ? "BUY" : "SELL",
+         //       " | Diff=",DoubleToString(diff,Digits),
+         //       " | Threshold=",DoubleToString(threshold,Digits));
+         return true;
+        }
 
-   Print("30M FILTER BLOCKED | ",
-         orderType == OP_BUY ? "BUY" : "SELL",
-         " | Diff=",DoubleToString(diff,Digits),
-         " | Required=",
-         orderType == OP_BUY ? "> +" : "< -",
-         DoubleToString(threshold,Digits));
+      // Print("30M FILTER BLOCKED | ",
+      //       orderType == OP_BUY ? "BUY" : "SELL",
+      //       " | Diff=",DoubleToString(diff,Digits),
+      //       " | Required=",
+      //       orderType == OP_BUY ? "> +" : "< -",
+      //       DoubleToString(threshold,Digits));
 
-   return false;
+      return false;
 
-}
+     }
    return true;
-}
+  }
+//+------------------------------------------------------------------+
+//|                                                                  |
+//+------------------------------------------------------------------+
 int DeferredDirection(int orderType)
   {
    if(orderType==OP_BUY || orderType==OP_BUYSTOP || orderType==OP_BUYLIMIT)
@@ -2131,6 +2199,9 @@ int DeferredDirection(int orderType)
    return -1;
   }
 
+//+------------------------------------------------------------------+
+//|                                                                  |
+//+------------------------------------------------------------------+
 bool PassesDeferredMomentum(int orderType)
   {
 
@@ -2144,26 +2215,29 @@ bool PassesDeferredMomentum(int orderType)
 
 // }
 //else
-{ 
+     {
 
 
 
-   if(!Enable30MinuteMomentumFilter || !Enable30MinuteMomentumForAllOrders)
-      return true;
+      if(!Enable30MinuteMomentumFilter || !Enable30MinuteMomentumForAllOrders)
+         return true;
 
-   int direction=DeferredDirection(orderType);
-   if(direction!=OP_BUY && direction!=OP_SELL)
-      return true;
+      int direction=DeferredDirection(orderType);
+      if(direction!=OP_BUY && direction!=OP_SELL)
+         return true;
 
-   return Passes30MinuteMomentumFilter(direction);
+      return Passes30MinuteMomentumFilter(direction);
 
-}
+     }
    return true;
   }
 
+//+------------------------------------------------------------------+
+//|                                                                  |
+//+------------------------------------------------------------------+
 int FindDeferredOrder(string symbol,int orderType,string comment,int magic)
   {
-   for(int i=0;i<MAX_DEFERRED_ORDERS;i++)
+   for(int i=0; i<MAX_DEFERRED_ORDERS; i++)
      {
       if(!DeferredActive[i])
          continue;
@@ -2176,6 +2250,9 @@ int FindDeferredOrder(string symbol,int orderType,string comment,int magic)
    return -1;
   }
 
+//+------------------------------------------------------------------+
+//|                                                                  |
+//+------------------------------------------------------------------+
 int QueueDeferredOrder(string symbol,int orderType,double lots,double price,
                        int slippage,double stopLoss,double takeProfit,
                        string comment,int magic,color arrowColor,bool bypassDeferred=false)
@@ -2183,13 +2260,13 @@ int QueueDeferredOrder(string symbol,int orderType,double lots,double price,
    int existing=FindDeferredOrder(symbol,orderType,comment,magic);
    if(existing>=0)
      {
-      Print("30M ORDER WAITING | Existing request retained | Type=",
-            orderType," | Comment=",comment,
-            " | Slot=",existing);
+      // Print("30M ORDER WAITING | Existing request retained | Type=",
+      //       orderType," | Comment=",comment,
+      //       " | Slot=",existing);
       return existing;
      }
 
-   for(int i=0;i<MAX_DEFERRED_ORDERS;i++)
+   for(int i=0; i<MAX_DEFERRED_ORDERS; i++)
      {
       if(DeferredActive[i])
          continue;
@@ -2207,15 +2284,15 @@ int QueueDeferredOrder(string symbol,int orderType,double lots,double price,
       DeferredColor[i]=arrowColor;
       DeferredCreated[i]=TimeCurrent();
 
-      Print("==================================================");
-      Print("30M ORDER QUEUED IN EA MEMORY");
-      Print("Type       : ",orderType);
-      Print("Direction  : ",DeferredDirection(orderType)==OP_BUY?"BUY":"SELL");
-      Print("Lots       : ",DoubleToString(lots,2));
-      Print("Comment    : ",comment);
-      Print("Diff       : waiting for 30M condition");
-      Print("Broker     : NO OrderSend yet");
-      Print("==================================================");
+      // Print("==================================================");
+      // Print("30M ORDER QUEUED IN EA MEMORY");
+      // Print("Type       : ",orderType);
+      // Print("Direction  : ",DeferredDirection(orderType)==OP_BUY?"BUY":"SELL");
+      // Print("Lots       : ",DoubleToString(lots,2));
+      // Print("Comment    : ",comment);
+      // Print("Diff       : waiting for 30M condition");
+      // Print("Broker     : NO OrderSend yet");
+      // Print("==================================================");
       return -2;
      }
 
@@ -2223,12 +2300,15 @@ int QueueDeferredOrder(string symbol,int orderType,double lots,double price,
    return -1;
   }
 
+//+------------------------------------------------------------------+
+//|                                                                  |
+//+------------------------------------------------------------------+
 void ProcessDeferredOrders()
   {
    if(!EnableTrading)
       return;
 
-   for(int i=0;i<MAX_DEFERRED_ORDERS;i++)
+   for(int i=0; i<MAX_DEFERRED_ORDERS; i++)
      {
       if(!DeferredActive[i])
          continue;
@@ -2236,36 +2316,36 @@ void ProcessDeferredOrders()
       int type=DeferredType[i];
       int direction=DeferredDirection(type);
 
-// if( (type==OP_SELLSTOP ||  type==OP_SELLLIMIT || type==OP_SELL)  && GetCurrentSSLDirection()==0 && GetOpenPL(OP_BUY)<-1 )
-// {
+      // if( (type==OP_SELLSTOP ||  type==OP_SELLLIMIT || type==OP_SELL)  && GetCurrentSSLDirection()==0 && GetOpenPL(OP_BUY)<-1 )
+      // {
 
-// }
-// else if( (type==OP_BUYSTOP ||  type==OP_BUYLLIMIT || type==OP_BUY)  &&  GetCurrentSSLDirection()==1 && GetOpenPL(OP_SELL)<-1 )
-// {
+      // }
+      // else if( (type==OP_BUYSTOP ||  type==OP_BUYLLIMIT || type==OP_BUY)  &&  GetCurrentSSLDirection()==1 && GetOpenPL(OP_SELL)<-1 )
+      // {
 
-// }
-// else
-{ 
-
-      
-      if(Enable30MinuteMomentumFilter && Enable30MinuteMomentumForAllOrders &&
-         !PassesDeferredMomentum(type))
+      // }
+      // else
         {
-         Print("30M ORDER STILL WAITING | Direction=",
-               direction==OP_BUY?"BUY":"SELL",
-               " | Type=",type,
-               " | Comment=",DeferredComment[i]);
-         continue;
-        }
 
-      }
+
+         if(Enable30MinuteMomentumFilter && Enable30MinuteMomentumForAllOrders &&
+            !PassesDeferredMomentum(type))
+           {
+            // Print("30M ORDER STILL WAITING | Direction=",
+            //       direction==OP_BUY?"BUY":"SELL",
+            //       " | Type=",type,
+            //       " | Comment=",DeferredComment[i]);
+            continue;
+           }
+
+        }
 
       // Re-check global order limits at the moment the request is actually
       // released. A queued request must never bypass MaxOpenOrders.
       if(GetTotalEAOrders() >= MaxOpenOrders)
         {
-         Print("30M ORDER WAITING | MaxOpenOrders reached | Comment=",
-               DeferredComment[i]);
+         // Print("30M ORDER WAITING | MaxOpenOrders reached | Comment=",
+         //       DeferredComment[i]);
          continue;
         }
 
@@ -2279,15 +2359,16 @@ void ProcessDeferredOrders()
          double minGap=GetRequiredStopDistance();
          if(type==OP_BUYSTOP)
             sendPrice=MathMax(sendPrice,Ask+minGap);
-         else if(type==OP_SELLSTOP)
-            sendPrice=MathMin(sendPrice,Bid-minGap);
+         else
+            if(type==OP_SELLSTOP)
+               sendPrice=MathMin(sendPrice,Bid-minGap);
          sendPrice=NormalizeDouble(sendPrice,Digits);
         }
 
-      Print("30M ORDER CONDITION PASSED | NOW SENDING TO SERVER | ",
-            direction==OP_BUY?"BUY":"SELL",
-            " | Type=",type,
-            " | Comment=",DeferredComment[i]);
+      // Print("30M ORDER CONDITION PASSED | NOW SENDING TO SERVER | ",
+      //       direction==OP_BUY?"BUY":"SELL",
+      //       " | Type=",type,
+      //       " | Comment=",DeferredComment[i]);
 
       int ticket=SafeOrderSend(DeferredSymbol[i],type,DeferredLots[i],sendPrice,
                                DeferredSlippage[i],DeferredSL[i],DeferredTP[i],
@@ -2295,8 +2376,8 @@ void ProcessDeferredOrders()
 
       if(ticket>0)
         {
-         Print("30M DEFERRED ORDER SENT | Ticket=",ticket,
-               " | Comment=",DeferredComment[i]);
+         // Print("30M DEFERRED ORDER SENT | Ticket=",ticket,
+         //       " | Comment=",DeferredComment[i]);
          if(type==OP_BUY || type==OP_SELL)
            {
             OrderCreatedThisCandle=true;
@@ -2318,19 +2399,22 @@ void ProcessDeferredOrders()
         }
       else
         {
-         Print("30M DEFERRED ORDER SEND FAILED | Will retry next tick | Comment=",
-               DeferredComment[i]);
+         // Print("30M DEFERRED ORDER SEND FAILED | Will retry next tick | Comment=",
+         // DeferredComment[i]);
         }
      }
   }
 
+//+------------------------------------------------------------------+
+//|                                                                  |
+//+------------------------------------------------------------------+
 int SafeOrderSend(string symbol,int orderType,double lots,double price,
                   int slippage,double stopLoss,double takeProfit,
                   string comment,int magic,color arrowColor)
   {
-   // Universal 30-minute gate. Every new trade request (SSL Long/Short,
-   // Profit ReEntry, SL ReEntry, Recovery and ladder re-entry) is remembered
-   // in EA memory until its BUY/SELL momentum condition passes.
+// Universal 30-minute gate. Every new trade request (SSL Long/Short,
+// Profit ReEntry, SL ReEntry, Recovery and ladder re-entry) is remembered
+// in EA memory until its BUY/SELL momentum condition passes.
 
 // if( (orderType==OP_SELLSTOP ||  orderType==OP_SELLLIMIT || orderType==OP_SELL)  && GetCurrentSSLDirection()==0 && GetOpenPL(OP_BUY)<-1 )
 // {
@@ -2341,14 +2425,14 @@ int SafeOrderSend(string symbol,int orderType,double lots,double price,
 
 // }
 // else
-{ 
-   if(Enable30MinuteMomentumFilter && Enable30MinuteMomentumForAllOrders)
      {
-      if(!PassesDeferredMomentum(orderType))
-         return QueueDeferredOrder(symbol,orderType,lots,price,slippage,stopLoss,
-                                   takeProfit,comment,magic,arrowColor);
+      if(Enable30MinuteMomentumFilter && Enable30MinuteMomentumForAllOrders)
+        {
+         if(!PassesDeferredMomentum(orderType))
+            return QueueDeferredOrder(symbol,orderType,lots,price,slippage,stopLoss,
+                                      takeProfit,comment,magic,arrowColor);
+        }
      }
-   }
    string key=MakeTradeErrorKey("SEND",-1,
                                 IntegerToString(orderType)+"|"+
                                 DoubleToString(lots,8)+"|"+comment);
@@ -2370,8 +2454,8 @@ int SafeOrderSend(string symbol,int orderType,double lots,double price,
 // pending orders, etc.) are protected.
    int tradeDay = TimeDayOfWeek(TimeCurrent());
    double requestedLots = lots;
-   // if(tradeDay==6 || tradeDay==0 || tradeDay==1)
-   //    lots = MathMin(lots,0.02);
+// if(tradeDay==6 || tradeDay==0 || tradeDay==1)
+//    lots = MathMin(lots,0.02);
 
    lots = NormalizeLots(lots);
 
@@ -2970,17 +3054,17 @@ void ChangeLots(double OpenPL, string reason, int orderType,int stoplevelStep)
       int nextReEntryNumber = reEntryCounter + 1;
       Lots = GetReEntryLot(nextReEntryNumber);
 
-      Print("========================================");
-      Print("SSL PROFIT RE-ENTRY");
-      Print("ReEntry Number  : #", nextReEntryNumber);
-      Print("Reason          : ", reason);
-      Print("Open P/L        : $",
-            DoubleToString(OpenPL, 2));
-      Print("Opposite Lots   : ",
-            DoubleToString(oppositeLots, 2));
-      Print("New Lots        : ",
-            DoubleToString(Lots, 2));
-      Print("========================================");
+      // Print("========================================");
+      // Print("SSL PROFIT RE-ENTRY");
+      // Print("ReEntry Number  : #", nextReEntryNumber);
+      // Print("Reason          : ", reason);
+      // Print("Open P/L        : $",
+      //       DoubleToString(OpenPL, 2));
+      // Print("Opposite Lots   : ",
+      //       DoubleToString(oppositeLots, 2));
+      // Print("New Lots        : ",
+      //       DoubleToString(Lots, 2));
+      // Print("========================================");
      }
 
 
@@ -3003,16 +3087,16 @@ void ChangeLots(double OpenPL, string reason, int orderType,int stoplevelStep)
             //=========================================
             Lots = NormalizeLots(0.01); //0.05 is danger if market is moving continuous down with small ups and downs
 
-            Print("========================================");
-            Print("SSL SIGNAL - OPPOSITE ORDERS");
-            Print("Reason          : ", reason);
-            Print("Open P/L        : $",
-                  DoubleToString(OpenPL, 2));
-            Print("Opposite Lots   : ",
-                  DoubleToString(oppositeLots, 2));
-            Print("New Lots        : ",
-                  DoubleToString(Lots, 2));
-            Print("========================================");
+            // Print("========================================");
+            // Print("SSL SIGNAL - OPPOSITE ORDERS");
+            // Print("Reason          : ", reason);
+            // Print("Open P/L        : $",
+            //       DoubleToString(OpenPL, 2));
+            // Print("Opposite Lots   : ",
+            //       DoubleToString(oppositeLots, 2));
+            // Print("New Lots        : ",
+            //       DoubleToString(Lots, 2));
+            // Print("========================================");
            }
          else
            {
@@ -3021,15 +3105,15 @@ void ChangeLots(double OpenPL, string reason, int orderType,int stoplevelStep)
             //=========================================
             Lots = NormalizeLots(0.01); //0.05 is danger if market is moving continuous down with small ups and downs
 
-            Print("========================================");
-            Print("SSL SIGNAL - NO OPPOSITE ORDERS");
-            Print("Reason          : ", reason);
-            Print("Open P/L        : $",
-                  DoubleToString(OpenPL, 2));
-            Print("Opposite Lots   : 0.00");
-            Print("New Lots        : ",
-                  DoubleToString(Lots, 2));
-            Print("========================================");
+            // Print("========================================");
+            // Print("SSL SIGNAL - NO OPPOSITE ORDERS");
+            // Print("Reason          : ", reason);
+            // Print("Open P/L        : $",
+            //       DoubleToString(OpenPL, 2));
+            // Print("Opposite Lots   : 0.00");
+            // Print("New Lots        : ",
+            //       DoubleToString(Lots, 2));
+            // Print("========================================");
            }
         }
 
@@ -3055,13 +3139,13 @@ void ChangeLots(double OpenPL, string reason, int orderType,int stoplevelStep)
 
             Print("========================================");
             Print("NO OPPOSITE ORDERS");
-            Print("Reason          : ", reason);
-            Print("Open P/L        : $",
-                  DoubleToString(OpenPL, 2));
-            Print("Opposite Lots   : 0.00");
-            Print("New Lots        : ",
-                  DoubleToString(Lots, 2));
-            Print("========================================");
+            // Print("Reason          : ", reason);
+            // Print("Open P/L        : $",
+            //       DoubleToString(OpenPL, 2));
+            // Print("Opposite Lots   : 0.00");
+            // Print("New Lots        : ",
+            //       DoubleToString(Lots, 2));
+            // Print("========================================");
            }
          else
             if(OpenPL < -0.50)
@@ -3073,14 +3157,14 @@ void ChangeLots(double OpenPL, string reason, int orderType,int stoplevelStep)
 
                Print("========================================");
                Print("OPPOSITE ORDERS - LOSS RECOVERY");
-               Print("Reason          : ", reason);
-               Print("Open P/L        : $",
-                     DoubleToString(OpenPL, 2));
-               Print("Opposite Lots   : ",
-                     DoubleToString(oppositeLots, 2));
-               Print("New Lots        : ",
-                     DoubleToString(Lots, 2));
-               Print("========================================");
+               // Print("Reason          : ", reason);
+               // Print("Open P/L        : $",
+               //       DoubleToString(OpenPL, 2));
+               // Print("Opposite Lots   : ",
+               //       DoubleToString(oppositeLots, 2));
+               // Print("New Lots        : ",
+               //       DoubleToString(Lots, 2));
+               // Print("========================================");
               }
             else
               {
@@ -3091,14 +3175,14 @@ void ChangeLots(double OpenPL, string reason, int orderType,int stoplevelStep)
 
                Print("========================================");
                Print("OPPOSITE ORDERS - NORMAL");
-               Print("Reason          : ", reason);
-               Print("Open P/L        : $",
-                     DoubleToString(OpenPL, 2));
-               Print("Opposite Lots   : ",
-                     DoubleToString(oppositeLots, 2));
-               Print("New Lots        : ",
-                     DoubleToString(Lots, 2));
-               Print("========================================");
+               // Print("Reason          : ", reason);
+               // Print("Open P/L        : $",
+               //       DoubleToString(OpenPL, 2));
+               // Print("Opposite Lots   : ",
+               //       DoubleToString(oppositeLots, 2));
+               // Print("New Lots        : ",
+               //       DoubleToString(Lots, 2));
+               // Print("========================================");
               }
         }
 
@@ -3156,37 +3240,37 @@ void ChangeLots(double OpenPL, string reason, int orderType,int stoplevelStep)
 
    int StoplossWeekendMultiplier=1;
 
-   // int dayOfWeek = TimeDayOfWeek(TimeCurrent());
-   // if(dayOfWeek==6 || dayOfWeek==0 || dayOfWeek==1)
-   //   {
-   //    // StoplossWeekendMultiplier=2;
-   //     EnableRecoveryOrders=false;
-   //   }
-   // else
-   //   {
-   //    // EnableRecoveryOrders=false;
-   //   }
+// int dayOfWeek = TimeDayOfWeek(TimeCurrent());
+// if(dayOfWeek==6 || dayOfWeek==0 || dayOfWeek==1)
+//   {
+//    // StoplossWeekendMultiplier=2;
+//     EnableRecoveryOrders=false;
+//   }
+// else
+//   {
+//    // EnableRecoveryOrders=false;
+//   }
 
 //==================================================
 // SCALE SL / ORDER LADDER
 // BASED ON ACTUAL NEW LOT
 //==================================================
 
-if(Lots>=0.05)
-{
-StopLossUSD =Lots*100;//;
-}
-else
-{
-   StopLossUSD =
-      OriginalStopLossUSD *
-      Lots * 100;
+   // if(Lots>=0.05)
+   //   {
+   //    StopLossUSD =Lots*100;//;
+   //   }
+   // else
+     {
+      StopLossUSD =
+         OriginalStopLossUSD *
+         Lots * 100;
 
-   StopLossUSD=StopLossUSD*StoplossWeekendMultiplier;
+      StopLossUSD=StopLossUSD*StoplossWeekendMultiplier;
 
-}
+     }
 
-   
+
 
 
 
@@ -3208,28 +3292,28 @@ else
 //==================================================
 // FINAL DEBUG
 //==================================================
-   Print("========================================");
-   Print("FINAL LOT CONFIGURATION");
-   Print("Reason          : ", reason);
-   Print("Open P/L        : $",
-         DoubleToString(OpenPL, 2));
-   Print("Opposite Lots   : ",
-         DoubleToString(oppositeLots, 2));
-   Print("New Lots        : ",
-         DoubleToString(Lots, 2));
-   Print("Maximum Lot     : ",
-         DoubleToString(MaxRecoveryLot, 2));
-   Print("Lot Multiplier  : ",
-         DoubleToString(lotMultiplier, 2), "X");
-   Print("Stop Loss       : $",
-         DoubleToString(StopLossUSD, 2));
-   Print("Ladder 1        : $",
-         DoubleToString(Ladder1ProfitUSD, 2));
-   Print("Ladder 2        : $",
-         DoubleToString(Ladder2ProfitUSD, 2));
-   Print("L1 Stop Max     : $",
-         DoubleToString(Ladder1StopMaxPriceUSD, 2));
-   Print("========================================");
+// Print("========================================");
+// Print("FINAL LOT CONFIGURATION");
+// Print("Reason          : ", reason);
+// Print("Open P/L        : $",
+//       DoubleToString(OpenPL, 2));
+// Print("Opposite Lots   : ",
+//       DoubleToString(oppositeLots, 2));
+// Print("New Lots        : ",
+//       DoubleToString(Lots, 2));
+// Print("Maximum Lot     : ",
+//       DoubleToString(MaxRecoveryLot, 2));
+// Print("Lot Multiplier  : ",
+//       DoubleToString(lotMultiplier, 2), "X");
+// Print("Stop Loss       : $",
+//       DoubleToString(StopLossUSD, 2));
+// Print("Ladder 1        : $",
+//       DoubleToString(Ladder1ProfitUSD, 2));
+// Print("Ladder 2        : $",
+//       DoubleToString(Ladder2ProfitUSD, 2));
+// Print("L1 Stop Max     : $",
+//       DoubleToString(Ladder1StopMaxPriceUSD, 2));
+// Print("========================================");
   }
 //+------------------------------------------------------------------+
 //|                                                                  |
@@ -3861,12 +3945,12 @@ void ProcessEquityResetReEntry(DailyProtectionState &state)
          EquityResetReEntryPending = false;
          TradeResetThisTick = true;
 
-         Print("================================================");
+         // Print("================================================");
          Print("EQUITY RESET -> BUY OPENED");
-         Print("CURRENT SSL : BUY");
-         Print("NO NEW SSL CROSSOVER REQUIRED");
-         Print("CONTINUOUS EQUITY LADDER TRADING RESUMED");
-         Print("================================================");
+         // Print("CURRENT SSL : BUY");
+         // Print("NO NEW SSL CROSSOVER REQUIRED");
+         // Print("CONTINUOUS EQUITY LADDER TRADING RESUMED");
+         // Print("================================================");
         }
       else
         {
@@ -4150,7 +4234,7 @@ void CheckDynamicEquityLadder(DailyProtectionState &state)
 //===============================================================
 // RESET TARGET TIMER
 //===============================================================
-      DeleteAllPendingEAOrders();
+   DeleteAllPendingEAOrders();
 
 //===============================================================
 // LOG NEW LADDER
@@ -4517,7 +4601,7 @@ void RebaseEquityLadderAfterStopLoss(DailyProtectionState &state)
    if(newAnchor <= 0.0)
       return;
 
-   // The new ladder cycle starts from the actual equity after the SL.
+// The new ladder cycle starts from the actual equity after the SL.
    state.DayStartBalance = newAnchor;
    LockedEquity           = newAnchor;
 
@@ -4595,7 +4679,7 @@ void CheckForProfitableClosedOrder(DailyProtectionState &state)
 // The next successful ladder hit will then rebase again from its
 // realized balance/equity, so the ladder always follows current
 // capital instead of an old target from a previous cycle.
-   if(latestProfit < 0.0)
+   if(latestProfit < 0.0 && GetTotalBuyOrders()==0 && GetTotalSellOrders()==0)
       RebaseEquityLadderAfterStopLoss(state);
 
 // Profit AND loss now continue the same ReEntry cycle.
@@ -4897,25 +4981,25 @@ double NormalizeLots(double lots)
 
 // Weekend + Monday protection.
 // MQL4 TimeDayOfWeek(): Sunday=0, Monday=1, Saturday=6.
-   // int dayOfWeek = TimeDayOfWeek(TimeCurrent());
-   // if(dayOfWeek==6 || dayOfWeek==0 || dayOfWeek==1)
-   //   {
-   //    if(minLot <= 0.02)
-   //       lots = MathMin(lots,0.02);
-   //    else
-   //       Print("WARNING | Broker minimum lot ",DoubleToString(minLot,2),
-   //             " is greater than Monday/weekend cap 0.02");
-   //   }
+// int dayOfWeek = TimeDayOfWeek(TimeCurrent());
+// if(dayOfWeek==6 || dayOfWeek==0 || dayOfWeek==1)
+//   {
+//    if(minLot <= 0.02)
+//       lots = MathMin(lots,0.02);
+//    else
+//       Print("WARNING | Broker minimum lot ",DoubleToString(minLot,2),
+//             " is greater than Monday/weekend cap 0.02");
+//   }
 
    lots = MathFloor((lots + 1e-9) / lotStep) * lotStep;
    lots = MathMax(minLot, MathMin(maxLot, lots));
 
 // Re-apply the cap after lot-step normalization.
-   // if(dayOfWeek==6 || dayOfWeek==0 || dayOfWeek==1)
-   //   {
-   //    if(minLot <= 0.02)
-   //       lots = MathMin(lots,0.02);
-   //   }
+// if(dayOfWeek==6 || dayOfWeek==0 || dayOfWeek==1)
+//   {
+//    if(minLot <= 0.02)
+//       lots = MathMin(lots,0.02);
+//   }
 
    int digits = 0;
    double step = lotStep;
@@ -5927,7 +6011,7 @@ void UpdateDashboard(DailyProtectionState &state)
    CreateDashboardPanel(DASH_PREFIX+"SEC_LADDER",x,y+240,w,22,C'30,38,50');
    CreateDashboardLabel(DASH_PREFIX+"LADDER_H","EQUITY LADDER",tx,y+244,9,clrAqua);
    CreateDashboardLabel(DASH_PREFIX+"STEP","STEP         : "+IntegerToString(EquityLadderLevel),tx,y+267,9,clrYellow);
-   // CreateDashboardLabel(DASH_PREFIX+"TARGET","NEXT TARGET  : $"+DoubleToString(NextEquityTarget,2),tx,y+287,9,clrLime);
+// CreateDashboardLabel(DASH_PREFIX+"TARGET","NEXT TARGET  : $"+DoubleToString(NextEquityTarget,2),tx,y+287,9,clrLime);
 
    CreateDashboardLabel(DASH_PREFIX+"TARGET","NEXT TARGET  : $"+DoubleToString(NextEquityTarget,2)+" / "+IntegerToString(DailyEquityTargetPercent)+"%",tx,y+287,9,clrLime);
 
@@ -6135,7 +6219,7 @@ void UpdateLeftLiveOrdersDashboard()
             rowColor=clrTomato;
          else
             rowColor=clrGold;
-            
+
       if((type==OP_BUY || type==OP_SELL) && pl>0)
          rowColor=clrLime;
       if((type==OP_BUY || type==OP_SELL) && pl<0)
