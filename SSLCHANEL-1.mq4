@@ -105,7 +105,7 @@ bool SkipSignalsAfterLadderIncrement = false;
 
 
 
-
+//Testing Aug 17th with 5% $100 to $105
 
 double DailyEquityTargetPercent =5;//5;//5;//2;//3;//5;//10;//5;// 10;//2;//3;//1;//3;//10;//Trading continue with 10% profit reccuring
 double DailyLossProtectionPercent =50;//20;//10;//20;//50;//20;//10;//20;//100;//50;// 30.0;// Trading stops if equity drops below this percentage of the starting balance for the day
@@ -4945,7 +4945,7 @@ void UpdateDashboard(DailyProtectionState &state)
    CreateDashboardPanel(DASH_PREFIX+"SEC_LADDER",x,y+240,w,22,C'30,38,50');
    CreateDashboardLabel(DASH_PREFIX+"LADDER_H","EQUITY LADDER",tx,y+244,9,clrAqua);
    CreateDashboardLabel(DASH_PREFIX+"STEP","STEP         : "+IntegerToString(EquityLadderLevel),tx,y+267,9,clrYellow);
-   CreateDashboardLabel(DASH_PREFIX+"TARGET","NEXT TARGET  : $"+DoubleToString(NextEquityTarget,2),tx,y+287,9,clrLime);
+   CreateDashboardLabel(DASH_PREFIX+"TARGET","NEXT TARGET  : $"+DoubleToString(NextEquityTarget,2)+" / "+IntegerToString(DailyEquityTargetPercent)+"%",tx,y+287,9,clrLime);
    CreateDashboardLabel(DASH_PREFIX+"LOCKED","LOCKED EQUITY : $"+DoubleToString(LockedEquity,2),tx,y+307,9,clrGold);
    CreateDashboardLabel(DASH_PREFIX+"PROTECTED","DAY PROTECTED : $"+DoubleToString(state.DayProtectedBalance,2),tx,y+327,9,clrGold);
    CreateDashboardLabel(DASH_PREFIX+"PROGRESS","PROGRESS      : "+DoubleToString(ladderProgress,1)+"%",tx,y+347,9,clrWhite);
