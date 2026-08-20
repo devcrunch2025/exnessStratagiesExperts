@@ -3723,11 +3723,26 @@ void CheckForProfitableClosedOrder(DailyProtectionState &state)
 
    // Profit AND loss now continue the same ReEntry cycle.
    if(EnableProfitReEntryStop && !IsDailyTradingStopped(state))
-     {
-      // After a losing/stop-loss close, same-direction re-entry must use the base lot 0.01.
-      CreateProfitReEntryStop(latestType, latestClosePrice, state, (latestProfit < 0.0));
-      return;
-     }
+{
+   bool wasLoss = (latestProfit < 0.0);
+
+   // IMPORTANT:
+   // If SL/loss occurred, immediately rebase the next
+   // equity target from the new actual account balance.
+   if(wasLoss)
+      RebaseEquityTargetAfterLoss(state);
+
+   // After a losing/stop-loss close, same-direction re-entry
+   // must use the base lot 0.01.
+   CreateProfitReEntryStop(
+      latestType,
+      latestClosePrice,
+      state,
+      wasLoss
+   );
+
+   return;
+}
 
    // If ReEntry is disabled, retain the original SSL continuation behavior.
    if(EnableTrading && !IsDailyTradingStopped(state))
@@ -5046,7 +5061,31 @@ void DeleteLeftLiveOrdersDashboardObjects()
          ObjectDelete(0,name);
      }
   }
+void RebaseEquityTargetAfterLoss(DailyProtectionState &state)
+{
+   if(!EnableEquityLadder || !EnableDynamicEquityLadder)
+      return;
 
+   RefreshRates();
+
+   double newBase = AccountBalance();
+
+   if(newBase <= 0.0)
+      return;
+
+   state.DayStartBalance = newBase;
+   LockedEquity          = newBase;
+
+   NextEquityTarget =
+      newBase * (1.0 + DailyEquityTargetPercent / 100.0);
+
+   Print("================================================");
+   Print("EQUITY TARGET REBASED AFTER STOP LOSS");
+   Print("New Balance   : $", DoubleToString(newBase, 2));
+   Print("Target %      : ", DoubleToString(DailyEquityTargetPercent, 2), "%");
+   Print("NEW NEXT TARGET: $", DoubleToString(NextEquityTarget, 2));
+   Print("================================================");
+}
 //+------------------------------------------------------------------+
 //|                                                                  |
 //+------------------------------------------------------------------+
