@@ -74,7 +74,7 @@ bool DeleteOppositePendingOnSignal = false;
 bool EnableProfitReEntryStop = true;
 double MinimumClosedProfitUSD = -9;
 double ProfitReEntryGapRaw =25;//5;//20;// 5;
-double MinimumSameOrderGapRaw =50;//for saerver safe side - less gap hit more server calls 25;// 100;//10;//50;
+double MinimumSameOrderGapRaw =25;//50;//for saerver safe side - less gap hit more server calls 25;// 100;//10;//50;
 
 // ===== STOP-LOSS / RE-ENTRY SAFETY =====
 bool EnableSLProtection = false;
