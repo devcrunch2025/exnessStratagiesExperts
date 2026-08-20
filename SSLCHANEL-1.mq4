@@ -67,7 +67,7 @@ int MaxOpenOrders = 100;//20;
 int AccountMultiplierLOT=200;
 bool CloseOppositeOrdersOnSignal = false;
 double closeOppositeLossThreshold =-2;//-0.50;// -10.0;
-double OriginalStopLossUSD=2;//10;//5;//0.50;//50;
+double OriginalStopLossUSD=4;//2;//10;//5;//0.50;//50;
 double StopLossUSD =4;//2;//10;//3;//2;//0.50;// 50;
 
 bool DeleteOppositePendingOnSignal = false;
