@@ -3402,6 +3402,7 @@ void ChangeLots(double OpenPL, string reason, int orderType,int stoplevelStep)
 // All normal SSL and SSL-profit-re-entry orders now use the same
 // market-moment calculation. This removes the old final block that
 // could overwrite a calculated 0.02/0.03/0.05 lot back to 0.01.
+
    if(isSSLSignal)
      {
       Lots = GetMarketMomentLot(orderType);
