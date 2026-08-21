@@ -86,7 +86,7 @@ int AccountMultiplierLOT=200;
 bool CloseOppositeOrdersOnSignal = false;
 double closeOppositeLossThreshold =-2;//-0.50;// -10.0;
 double OriginalStopLossUSD=4;//2;//10;//5;//0.50;//50;
-double StopLossUSD =4;//2;//10;//3;//2;//0.50;// 50;
+double StopLossUSD =2;//4;//2;//10;//3;//2;//0.50;// 50;
 
 bool DeleteOppositePendingOnSignal = false;
 bool EnableProfitReEntryStop = true;
@@ -3312,16 +3312,16 @@ double GetMarketMomentLot(int orderType)
 
    double lot = 0.01;
    if(confirmationScore == 1)
-      lot = 0.02;
+      lot = 0.01;
    else
       if(confirmationScore == 2)
-         lot = 0.03;
+         lot = 0.04;
       else
          if(confirmationScore == 3)
-            lot = 0.04;
+            lot = 0.06;
          else
             if(confirmationScore >= 4)
-               lot = 0.05;
+               lot = 0.10;
 
    // Safety rule: if the higher-timeframe H1 bias is directly opposite
    // to the requested direction, do not allow an aggressive lot.
