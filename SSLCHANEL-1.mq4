@@ -1358,7 +1358,78 @@ bool HasLargeM1Candle()
      }
 
    return false;
-  }
+  }bool CanOpenRiskOrder(int orderType, double requestedLot)
+{
+   for(int i = OrdersTotal() - 1; i >= 0; i--)
+   {
+      if(!OrderSelect(i, SELECT_BY_POS, MODE_TRADES))
+         continue;
+
+      if(OrderSymbol() != Symbol())
+         continue;
+
+      if(OrderMagicNumber() != MagicNumber)
+         continue;
+
+      if(OrderType() != orderType)
+         continue;
+
+      double existingLot = OrderLots();
+
+      // Only check the same lot size
+      if(MathAbs(existingLot - requestedLot) > 0.000001)
+         continue;
+
+         
+
+      double pl = OrderProfit() + OrderSwap() + OrderCommission();
+
+      // $3 loss per 0.01 lot
+      double lossLimit = 3.0 * (requestedLot / 0.01);
+
+      // Existing same-lot order is already in significant loss.
+      // DO NOT open another same-lot risk order.
+      if(pl <= -lossLimit)
+         return false;
+   }
+
+   // No same-lot order in significant loss
+   return true;
+}
+  double GetMaxOpenLotByType11111(int orderType)
+{
+   double maxLot = 0.0;
+
+   for(int i = OrdersTotal() - 1; i >= 0; i--)
+   {
+      if(!OrderSelect(i, SELECT_BY_POS, MODE_TRADES))
+         continue;
+
+      if(OrderSymbol() != Symbol())
+         continue;
+
+      if(OrderMagicNumber() != MagicNumber)
+         continue;
+
+      if(OrderType() != orderType)
+         continue;
+
+      double lots = OrderLots();
+      double pl   = OrderProfit() + OrderSwap() + OrderCommission();
+
+      // Loss threshold: -$5 per 0.01 lot
+      double lossThreshold = 3.0 * (lots / 0.01);
+
+      // Only consider orders beyond their dynamic loss threshold
+      if(pl > -lossThreshold)
+      {
+         if(lots > maxLot)
+            maxLot = lots;
+      }
+   }
+
+   return maxLot;
+}
 double GetMaxOpenLotByType(int orderType)
 {
    double maxLot = 0.0;
@@ -3159,13 +3230,13 @@ void ChangeLots(double OpenPL, string reason, int orderType,int stoplevelStep)
 
 
 
-         if(orderType==OP_BUY && GetH1Direction()==1 && EMADirection==1 && GetMaxOpenLotByType(OP_BUY)!=0.10)
+         if(orderType==OP_BUY && GetH1Direction()==1 && EMADirection==1 && GetMaxOpenLotByType(OP_BUY)==0.10)
            {
             Lots = NormalizeLots(0.10);
 
            }
          else
-            if(orderType==OP_SELL && GetH1Direction()==-1 && EMADirection-1  && GetMaxOpenLotByType(OP_SELL)!=0.10)
+            if(orderType==OP_SELL && GetH1Direction()==-1 && EMADirection==-1  && GetMaxOpenLotByType(OP_SELL)==0.10)
               {
                Lots = NormalizeLots(0.10);
 
@@ -3276,6 +3347,13 @@ void ChangeLots(double OpenPL, string reason, int orderType,int stoplevelStep)
 //==================================================
    Lots = NormalizeLots(Lots);
 
+
+
+   if(OpenPL < -10 && Lots<0.10)
+   {
+Lots=Lots*2;
+
+   }
 
 
 
