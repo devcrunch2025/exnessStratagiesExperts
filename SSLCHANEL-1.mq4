@@ -127,7 +127,6 @@ double RecoveryTriggerLossUSD =1;// -0.50;//per lot 0.01
 double RecoveryLotMultiplier = 1;
 int MaxRecoveryOrders = 1;
 double RecoveryBasketProfitUSD =0.10;// 1;//0.50;
-bool EnableDailyLossProtection = false;// false= continue trading even after hit the stoploss
 
 // ===== STRICT DAY PROFIT LADDER - DYNAMIC / INDEFINITE =====
 // The ladder is based on the FRESH DAY OPENING BALANCE.
@@ -155,45 +154,24 @@ bool   EnableDayProfitLadder = true;
 double DayProfitLadder1Percent = 50.0;       // Dynamic ladder step: X1=50%, X2=100%, X3=150%...
 double DayProfitLadderLockRatio = 0.50;      // Protect 50% of achieved ladder profit: X1=25%, X2=50%...
 double DayProfitInitialProtectionPercent = 50.0; // Initial -50% protection
+// IMPORTANT: These three inputs belong ONLY to the daily equity ladder.
+// They do not control per-order Profit Ladder 1/2, recovery sizing, or
+// SL protection. This is the ONLY daily equity target/protection system.
 
 
 // ===== DAY-1 CAPITAL PROTECTION EXIT =====
 // Independent of the current equity-ladder target.
 // If equity is still above the original day-start balance but the
 // floating P/L of EA market orders reaches this loss, all EA orders close.
-bool EnableDay1CapitalProtectionExit = false;
-double ProtectionLossUSD = 50.0;
-
-// Immutable Day-1 protection anchor. This is NOT changed by equity-ladder
-// resets or protected-equity resets. It is refreshed only when a new
-// trading day starts.
-double Day1ProtectionStartBalance = 0.0;
-datetime Day1ProtectionDate = 0;
-bool ResetDailyProtectionEveryDay = false;
-bool CloseOpenOrdersOnDailyLoss = false;
-int MinimumClosedOrdersForDailyProtection =10;// 100;
-bool EnableEquityLadder = true;
-// Close all EA market + pending orders when the equity ladder increments.
-// Re-entry after the increment is disabled by default.
-bool EnableLadderReEntryAfterIncrement = true;
-bool SkipSignalsAfterLadderIncrement = false;
 
 
 
 
 
-double DailyEquityTargetPercent =10;//1;//2;//2;//5;//5;//5;//2;//3;//5;//10;//5;// 10;//2;//3;//1;//3;//10;//Trading continue with 10% profit reccuring
-double DailyLossProtectionPercent =50;//20;//10;//20;//50;//20;//10;//20;//100;//50;// 30.0;// Trading stops if equity drops below this percentage of the starting balance for the day
-bool EnableDynamicEquityLadder = true;////Trading continue with 10% profit reccuring
-double OriginalDailyEquityTargetPercent =5;//10;//5;// 10;//2;//3;//1;//3;//10;//Trading continue with 10% profit reccuring
 
 
-double OriginalDailyLossProtectionPercent =50;//20;//10;//20;//10;//80;// 30.0;
 
-bool ResetLadderEveryDay = false;
-int EquityLadderLevel = 1;
-double NextEquityTarget = 0;
-double LockedEquity = 0;
+
 int Slippage = 30;
 int MagicNumber = 6600123;
 
@@ -332,15 +310,6 @@ int GetH1Direction()
    return 0;          // Neutral / Doji
   }
 //+------------------------------------------------------------------+
-void InitializeEquityLadder(DailyProtectionState &state)
-  {
-   LockedEquity = state.DayStartBalance;
-
-   NextEquityTarget =
-      state.DayStartBalance *
-      (1.0 + DailyEquityTargetPercent / 100.0);
-  }
-
 //+------------------------------------------------------------------+
 //|                                                                  |
 //+------------------------------------------------------------------+
@@ -703,8 +672,6 @@ int OnInit()
    OriginalLadder1ProfitUSD = Ladder1ProfitUSD;
    OriginalLadder2ProfitUSD = Ladder2ProfitUSD;
    OriginalLadder1StopMaxPriceUSD = Ladder1StopMaxPriceUSD;
-   OriginalDailyEquityTargetPercent = DailyEquityTargetPercent;
-   OriginalDailyLossProtectionPercent = DailyLossProtectionPercent;
 
 
 // Keep RecoveryTriggerLossUSD as the user-configured loss threshold.
@@ -720,7 +687,7 @@ int OnInit()
          " | Period: ", InpEMA200Period,
          " | Price Shift: ", InpEMAPriceShift,
          " | Mode: ", InpEMAPriceShift == 0 ? "LIVE" : "CLOSED CANDLE");
-   Print("Daily Protection: ", EnableDailyLossProtection ? "ON" : "OFF", " | Ladder 1: ", EnableProfitLadder1 ? "ON" : "OFF");
+   Print("Per-Order Profit Ladder 1: ", EnableProfitLadder1 ? "ON" : "OFF");
    Print("Day Profit Ladder: ", EnableDayProfitLadder ? "ON" : "OFF",
          " | Dynamic Step=", DoubleToString(DayProfitLadder1Percent,2), "%",
          " | Lock Ratio=", DoubleToString(DayProfitLadderLockRatio*100.0,2), "%");
@@ -798,7 +765,6 @@ int StartupProtectionTicks = 0;
 //| floating loss has reached the protection threshold.              |
 //| Therefore ALL EA market/pending orders are closed.               |
 //|                                                                  |
-//| This check is completely independent of NextEquityTarget.         |
 //+------------------------------------------------------------------+
 double GetEAFloatingPL()
   {
@@ -824,155 +790,9 @@ double GetEAFloatingPL()
 //+------------------------------------------------------------------+
 //| Close every open EA order for this symbol/magic                  |
 //+------------------------------------------------------------------+
-bool CloseAllEAOrdersForDay1Protection()
-  {
-   bool allClosed = true;
-
-   RefreshRates();
-
-// Delete pending orders first.
-   for(int i=OrdersTotal()-1; i>=0; i--)
-     {
-      if(!OrderSelect(i, SELECT_BY_POS, MODE_TRADES))
-         continue;
-
-      if(OrderSymbol()!=Symbol() || OrderMagicNumber()!=MagicNumber)
-         continue;
-
-      int type = OrderType();
-
-      if(type!=OP_BUYSTOP && type!=OP_SELLSTOP &&
-         type!=OP_BUYLIMIT && type!=OP_SELLLIMIT)
-         continue;
-
-      int ticket = OrderTicket();
-
-      if(!SafeOrderDelete(ticket, clrNONE))
-        {
-         allClosed = false;
-         Print("DAY-1 PROTECTION | PENDING DELETE FAILED | Ticket=",ticket);
-        }
-     }
-
-// Close market orders.
-   for(int j=OrdersTotal()-1; j>=0; j--)
-     {
-      if(!OrderSelect(j, SELECT_BY_POS, MODE_TRADES))
-         continue;
-
-      if(OrderSymbol()!=Symbol() || OrderMagicNumber()!=MagicNumber)
-         continue;
-
-      int marketType = OrderType();
-
-      if(marketType!=OP_BUY && marketType!=OP_SELL)
-         continue;
-
-      int marketTicket = OrderTicket();
-      double closeLots = OrderLots();
-
-      if(!SafeOrderClose(marketTicket,
-                         closeLots,
-                         marketType,
-                         Slippage,
-                         clrNONE))
-        {
-         allClosed = false;
-
-         Print("DAY-1 PROTECTION | MARKET CLOSE FAILED | Ticket=",
-               marketTicket, " | Lots=", DoubleToString(closeLots,2));
-        }
-      else
-        {
-         Print("DAY-1 PROTECTION | CLOSED | Ticket=",marketTicket);
-        }
-     }
-
-   return allClosed;
-  }
-
 //+------------------------------------------------------------------+
 //| Independent Day-1 capital protection check                      |
 //+------------------------------------------------------------------+
-bool CheckDay1CapitalProtectionExit(DailyProtectionState &state)
-  {
-   if(!EnableDay1CapitalProtectionExit)
-      return false;
-
-   if(ProtectionLossUSD <= 0.0)
-      return false;
-
-   if(!state.Initialized)
-      return false;
-
-   if(state.TradingStopped)
-      return false;
-
-// IMPORTANT: use a separate immutable Day-1 anchor.
-// The normal daily/equity-ladder code can change state.DayStartBalance
-// after a reset. That must NEVER change this protection reference.
-   datetime todayDate = StrToTime(TimeToString(TimeCurrent(), TIME_DATE));
-   if(Day1ProtectionDate != todayDate || Day1ProtectionStartBalance <= 0.0)
-     {
-      Day1ProtectionDate = todayDate;
-      if(Day1ProtectionDate != state.DayDate)
-         Day1ProtectionStartBalance = AccountBalance();
-      Print("DAY-1 PROTECTION ANCHOR SET | Balance=$",
-            DoubleToString(Day1ProtectionStartBalance,2),
-            " | Date=", TimeToString(Day1ProtectionDate,TIME_DATE));
-     }
-
-   double dayStartBalance = Day1ProtectionStartBalance;
-   double currentEquity   = AccountEquity();
-   double floatingPL      = GetEAFloatingPL();
-
-// Required conditions:
-// 1. Equity must still be ABOVE the original day-start balance.
-// 2. EA floating P/L must be <= negative ProtectionLossUSD.
-   if(currentEquity <= dayStartBalance)
-      return false;
-
-   if(floatingPL > -ProtectionLossUSD)
-      return false;
-
-   Print("================================================");
-   Print("DAY-1 CAPITAL PROTECTION EXIT TRIGGERED");
-   Print("Day Start Balance : $", DoubleToString(dayStartBalance,2));
-   Print("Current Balance   : $", DoubleToString(AccountBalance(),2));
-   Print("Current Equity    : $", DoubleToString(currentEquity,2));
-   Print("Floating P/L      : $", DoubleToString(floatingPL,2));
-   Print("Loss Threshold    : -$", DoubleToString(ProtectionLossUSD,2));
-   Print("Current Ladder    : $", DoubleToString(NextEquityTarget,2));
-   Print("Action            : CLOSE ALL EA ORDERS");
-   Print("================================================");
-
-   bool closed = CloseAllEAOrdersForDay1Protection();
-
-// This is an EXIT, not a ladder reset.
-// Preserve the original DayStartBalance so the protection remains
-// anchored to the beginning-of-day capital.
-   if(closed)
-     {
-      state.TradingStopped = true;
-
-      // Cancel any queued ladder re-entry. Otherwise the continuous
-      // ladder could immediately open a fresh trade after this exit.
-      EquityResetReEntryPending = false;
-      ProtectedEquityWaitActive = false;
-
-      Print("DAY-1 CAPITAL PROTECTION | ALL EA ORDERS CLOSED");
-      Print("DAY-1 CAPITAL PROTECTION | TRADING STOPPED FOR CURRENT DAY");
-     }
-   else
-     {
-      // Keep the protection active so failed closes are retried on the
-      // next tick rather than allowing normal ladder processing.
-      Print("DAY-1 CAPITAL PROTECTION | SOME ORDERS REMAIN OPEN - RETRYING");
-     }
-
-   return true;
-  }
-
 //+------------------------------------------------------------------+
 //|                                                                  |
 //+------------------------------------------------------------------+
@@ -1114,12 +934,6 @@ void OnTickCore()
    ResetTradeRequestBudget();
    RefreshRates();
 
-//    if(EquityLadderLevel>1)
-//    {
-//       DailyLossProtectionPercent =5;// AccountBalance();
-// OriginalDailyLossProtectionPercent =5;//
-//    }
-
    TradeResetThisTick = false;
 
 //===============================================================
@@ -1172,15 +986,6 @@ void OnTickCore()
 // Run this BEFORE the normal daily/equity-ladder reset logic so the
 // protection remains completely independent of ladder changes.
 //===============================================================
-   if(CheckDay1CapitalProtectionExit(dailyState))
-     {
-      if(ShowSSLLines)
-         UpdateSSLChannelOnTick();
-      UpdateEMALineOnChart();
-      UpdateDashboardsThrottled(dailyState);
-      return;
-     }
-
 // Normal daily-loss protection is evaluated only after the independent
 // Day-1 capital protection check.
    UpdateDailyLossProtection(dailyState);
@@ -1203,7 +1008,6 @@ void OnTickCore()
    ManageRecoveryBasket();
 
    ProcessStartupSignal(dailyState);
-   CheckDynamicEquityLadder(dailyState);
 
 // Continuous Equity Ladder re-entry.
 // Uses CURRENT SSL direction; no new crossover is required.
@@ -1617,21 +1421,18 @@ double GetReEntryLot(int reEntryNumber)
 
       if(reEntryNumber <=2)
         {
-         // DailyEquityTargetPercent=3;
          return NormalizeLots(0.10);
 
         }
       else
          if(reEntryNumber <=6)
            {
-            // DailyEquityTargetPercent=1;
 
             return NormalizeLots(0.02);
 
            }
          else
            {
-            // DailyEquityTargetPercent=1;
 
             return NormalizeLots(0.01);
 
@@ -2057,8 +1858,6 @@ void ResetRuntimeAfterServerError(DailyProtectionState &state)
 
 // Rebuild equity ladder reference from the current protected state
 // only if its current values are invalid.
-   if(NextEquityTarget<=0 || LockedEquity<=0)
-      InitializeEquityLadder(state);
 
 // Do not reset reEntryCounter. Restore it from terminal storage.
    if(HasExistingProfitReEntryOrder())
@@ -3969,6 +3768,7 @@ double GetDayProfitLadderProtection(int stage)
 void InitializeDayProfitLadder()
   {
    DayProfitLadderDate = GetDayProfitLadderDate();
+   DailyProtectionStartTime = TimeCurrent();
 
    // Capture opening balance/equity ONCE for this day.
    // These values remain fixed until the next fresh day.
@@ -4128,9 +3928,13 @@ void ManageDayProfitLadder()
       DayProfitLadderTradingStopped = true;
       SaveDayProfitLadderState();
 
-      // Remove pending broker orders and remembered deferred orders so
+      // Remove pending broker orders AND remembered deferred requests so
       // nothing can create a new trade after the day is stopped.
       DeleteAllPendingEAOrders();
+      for(int dpl_i=0; dpl_i<MAX_DEFERRED_ORDERS; dpl_i++)
+         DeferredActive[dpl_i]=false;
+      EquityResetReEntryPending=false;
+      ReEntryRetryPending=false;
 
       Print("================================================");
       Print("DYNAMIC DAY PROFIT LADDER PROTECTION HIT");
@@ -4160,169 +3964,29 @@ bool IsDayProfitLadderTradingAllowed()
 //+------------------------------------------------------------------+
 void InitializeDailyProtectionState(DailyProtectionState &state)
   {
-   string today = TimeToString(TimeCurrent(), TIME_DATE);
-   state.DayDate = StrToTime(today);
-   state.DayStartBalance = AccountBalance();
-// state.DayProtectedBalance = state.DayStartBalance;
-   state.DayProtectedBalance =
-      AccountBalance() *
-      (1.0 - DailyLossProtectionPercent/100.0);
-   state.ClosedOrdersToday = 0;
-   state.TradingStopped = false;
+   // The Day Profit Ladder is the SINGLE source of daily equity protection.
+   ManageDayProfitLadder();
+
+   state.DayDate = DayProfitLadderDate;
+   state.DayStartBalance = DayProfitLadderStartBalance;
+   state.DayProtectedBalance = DayProfitLadderProtectionEquity;
+   state.ClosedOrdersToday = CountClosedOrdersSinceInitialization();
+   state.TradingStopped = DayProfitLadderTradingStopped;
    state.Initialized = true;
 
-// Capture the original Day-1 balance once. Equity-ladder resets must
-// not overwrite this value.
-   Day1ProtectionDate = state.DayDate;
-   if(Day1ProtectionDate != state.DayDate)
-      Day1ProtectionStartBalance = AccountBalance();
+   DailyProtectionStartTime = TimeCurrent();
 
    Print("==================================================");
-   Print("NEW DAILY PROTECTION INITIALIZED");
-   Print("Day Start Balance: $", DoubleToString(state.DayStartBalance, 2));
-   Print("Min Required Closed Orders: ", MinimumClosedOrdersForDailyProtection);
-   Print("Daily Protection: ", DoubleToString(DailyLossProtectionPercent, 2), "%");
+   Print("DAY EQUITY PROTECTION = DAY PROFIT LADDER ONLY");
+   Print("Opening Balance : $", DoubleToString(DayProfitLadderStartBalance,2));
+   Print("Opening Equity  : $", DoubleToString(DayProfitLadderStartEquity,2));
+   Print("Protection      : $", DoubleToString(DayProfitLadderProtectionEquity,2));
+   Print("Stage           : X", DayProfitLadderStage);
    Print("==================================================");
   }
-
 //+------------------------------------------------------------------+
 //| Protected Equity Hit -> Close All -> Reset -> Continue Trading   |
 //+------------------------------------------------------------------+
-void ResetAfterProtectedEquity(DailyProtectionState &state)
-  {
-   Print("================================================");
-   Print("PROTECTED EQUITY HIT");
-   Print("Current Equity : $", DoubleToString(AccountEquity(), 2));
-   Print("Closing ALL EA orders...");
-   Print("================================================");
-
-// ---------------------------------------------------------------
-// 1. CLOSE ALL EA ORDERS
-// ---------------------------------------------------------------
-// ONE PASS ONLY. Any failed close/delete is recorded and deferred
-// to the next tick. Never chase the trade server in the same tick.
-   RefreshRates();
-   CloseAllEAOrdersOnDailyLoss();
-
-// ---------------------------------------------------------------
-// 2. VERIFY ALL ORDERS CLOSED
-// ---------------------------------------------------------------
-   if(GetTotalEAOrders() > 0)
-     {
-      Print("PROTECTED EQUITY RESET FAILED");
-      Print("Remaining Orders : ", GetTotalEAOrders());
-
-      // Keep trading stopped if orders could not be closed
-      state.TradingStopped = true;
-      return;
-     }
-
-   RefreshRates();
-
-// ---------------------------------------------------------------
-// 3. GET REAL BALANCE AFTER CLOSING ORDERS
-// ---------------------------------------------------------------
-   double newBalance = AccountBalance();
-
-   Print("ALL EA ORDERS CLOSED");
-   Print("New Balance : $", DoubleToString(newBalance, 2));
-
-// ---------------------------------------------------------------
-// 4. NEW PROTECTED EQUITY / NEW STARTING BALANCE
-// ---------------------------------------------------------------
-   state.DayStartBalance   = newBalance;
-
-
-   state.ClosedOrdersToday = 0;
-
-// ---------------------------------------------------------------
-// 5. IMPORTANT - ALLOW TRADING AGAIN
-// ---------------------------------------------------------------
-   state.TradingStopped = false;
-
-// ---------------------------------------------------------------
-// 6. RESET DAILY PROTECTION
-// ---------------------------------------------------------------
-   DailyProtectionStartTime = TimeCurrent();
-
-   DailyLossProtectionPercent =
-      OriginalDailyLossProtectionPercent;
-
-   state.DayProtectedBalance =
-      newBalance *
-      (1.0 - DailyLossProtectionPercent / 100.0);
-
-// ---------------------------------------------------------------
-// 7. RESET LOT / RECOVERY SETTINGS
-// ---------------------------------------------------------------
-   Lots = OriginalLots;
-
-   Ladder1ProfitUSD =
-      OriginalLadder1ProfitUSD;
-
-   Ladder2ProfitUSD =
-      OriginalLadder2ProfitUSD;
-
-   Ladder1StopMaxPriceUSD =
-      OriginalLadder1StopMaxPriceUSD;
-
-
-
-
-
-
-// ---------------------------------------------------------------
-// 8. RESET EQUITY LADDER
-// ---------------------------------------------------------------
-   EquityLadderLevel++;
-// DailyLossProtectionPercent locked;
-// DailyLossProtectionPercent--;
-// if(EquityLadderLevel>1)
-//   {
-//    DailyEquityTargetPercent=OriginalDailyEquityTargetPercent/2;
-//   }
-// else
-//   {
-   DailyEquityTargetPercent=OriginalDailyEquityTargetPercent;
-
-//   }
-
-   LockedEquity = newBalance;
-
-   NextEquityTarget =
-      newBalance *
-      (1.0 + DailyEquityTargetPercent / 100.0);
-
-
-// ---------------------------------------------------------------
-// 9. RESET ORDER-CANDLE CONTROL
-// ---------------------------------------------------------------
-   OrderCreatedThisCandle = false;
-
-// ---------------------------------------------------------------
-// 10. QUEUE TRADING USING CURRENT SSL DIRECTION
-// ---------------------------------------------------------------
-// Uses the same persistent re-entry mechanism as the Equity Ladder.
-   TradeResetThisTick = true;
-   StartProtectedEquityWait();
-
-   Print("================================================");
-   Print("PROTECTED EQUITY RESET COMPLETE");
-   Print("Trading : ENABLED");
-   Print("New Start Balance : $",
-         DoubleToString(state.DayStartBalance, 2));
-
-   Print("New Protected Equity : $",
-         DoubleToString(state.DayProtectedBalance, 2));
-
-   Print("Next Equity Target : $",
-         DoubleToString(NextEquityTarget, 2));
-
-   Print("Lots Reset : ",
-         DoubleToString(Lots, 2));
-
-   Print("================================================");
-  }
 //+------------------------------------------------------------------+
 //|                                                                  |
 //+------------------------------------------------------------------+
@@ -4520,355 +4184,27 @@ void ProcessEquityResetReEntry(DailyProtectionState &state)
 //| Pending orders follow the global 6-hour rule.                    |
 //| IMPORTANT: young pending orders do NOT block ladder increment.   |
 //+------------------------------------------------------------------+
-bool CloseMarketOrdersForEquityLadder()
-  {
-// ONE PASS ONLY.
-// Failed close/delete requests are guarded by the global next-tick
-// retry mechanism. Never Sleep() or loop against the server here.
-   RefreshRates();
-
-   for(int i=OrdersTotal()-1; i>=0; i--)
-     {
-      if(!OrderSelect(i,SELECT_BY_POS,MODE_TRADES))
-         continue;
-
-      if(OrderSymbol()!=Symbol() || OrderMagicNumber()!=MagicNumber)
-         continue;
-
-      int type=OrderType();
-
-      if(type==OP_BUY || type==OP_SELL)
-        {
-         int ticket=OrderTicket();
-         double lots=OrderLots();
-
-         if(SafeOrderClose(ticket,lots,type,Slippage,
-                           (type==OP_SELL ? clrRed : clrBlue)))
-            Print("EQUITY LADDER MARKET CLOSED | Ticket=",ticket);
-         else
-            Print("EQUITY LADDER MARKET CLOSE DEFERRED | Ticket=",ticket,
-                  " | Retry next tick");
-        }
-      else
-         if(type==OP_BUYSTOP || type==OP_SELLSTOP ||
-            type==OP_BUYLIMIT || type==OP_SELLLIMIT)
-           {
-            int ageSeconds=(int)(TimeCurrent()-OrderOpenTime());
-
-            if(ageSeconds >=  0)//6*60*60)
-              {
-               int ticket=OrderTicket();
-
-               if(ForceDeletePendingOrder(ticket,clrRed))
-                  Print("EQUITY LADDER PENDING DELETED | Ticket=",ticket);
-               else
-                  Print("EQUITY LADDER PENDING DELETE DEFERRED | Ticket=",ticket,
-                        " | Retry next tick");
-              }
-            else
-              {
-               Print("EQUITY LADDER PENDING KEPT | Ticket=",OrderTicket(),
-                     " | Age=",DoubleToString(ageSeconds/3600.0,2),
-                     " hours | Required=6.00 hours");
-              }
-           }
-     }
-
-   return (GetTotalBuyOrders()+GetTotalSellOrders()==0);
-  }
-
-
-
 //+------------------------------------------------------------------+
 
 //+------------------------------------------------------------------+
 //|                                                                  |
 //+------------------------------------------------------------------+
-void CheckDynamicEquityLadder(DailyProtectionState &state)
-  {
-// Equity ladder disabled
-   if(!EnableEquityLadder || !EnableDynamicEquityLadder)
-      return;
-
-// Do not process while daily protection has stopped trading
-   if(state.TradingStopped)
-      return;
-
-   double equity = AccountEquity();
-
-// Safety: initialize target if not available
-   if(NextEquityTarget <= 0)
-     {
-      state.DayStartBalance = AccountBalance();
-
-      LockedEquity = state.DayStartBalance;
-
-
-
-
-      NextEquityTarget =
-         state.DayStartBalance *
-         (1.0 + DailyEquityTargetPercent / 100.0);
-
-
-
-      Print("EQUITY LADDER INITIALIZED");
-      Print("Start Balance : $",
-            DoubleToString(state.DayStartBalance, 2));
-      Print("Next Target   : $",
-            DoubleToString(NextEquityTarget, 2));
-
-      return;
-     }
-
-//===============================================================
-// TARGET NOT REACHED
-//===============================================================
-   if(equity < NextEquityTarget)
-      return;
-
-   Print("================================================");
-   Print("EQUITY TARGET REACHED");
-   Print("Current Equity : $", DoubleToString(equity, 2));
-   Print("Target Equity  : $", DoubleToString(NextEquityTarget, 2));
-   Print("Ladder Level   : ", EquityLadderLevel);
-   Print("================================================");
-
-//===============================================================
-// CLOSE ALL EA ORDERS
-//===============================================================
-// Close all MARKET orders now. Pending orders are handled by the
-// global 6-hour rule and therefore do NOT block ladder progression.
-   bool marketsClosed = CloseMarketOrdersForEquityLadder();
-
-//===============================================================
-// VERIFY MARKET ORDERS ARE CLOSED
-//===============================================================
-   int remainingMarkets = GetTotalBuyOrders() + GetTotalSellOrders();
-
-   if(!marketsClosed || remainingMarkets > 0)
-     {
-      Print("EQUITY LADDER WAITING - MARKET ORDERS STILL OPEN");
-      Print("Remaining Market Orders : ", remainingMarkets);
-      return;
-     }
-
-// Pending orders younger than 6 hours are intentionally allowed to
-// remain active. They must NOT prevent EquityLadderLevel++.
-   int remainingEAOrders = GetTotalEAOrders();
-   Print("EQUITY LADDER MARKET ORDERS CLOSED | Remaining EA Orders (pending may remain): ",
-         remainingEAOrders);
-
-//===============================================================
-// IMPORTANT:
-// Get REAL account balance AFTER orders are closed
-//===============================================================
-   RefreshRates();
-
-   double newBalance = AccountBalance();
-
-//===============================================================
-// CALCULATE PROFIT FROM THIS LADDER CYCLE
-//===============================================================
-   double cycleProfit =
-      newBalance - state.DayStartBalance;
-
-   Print("EQUITY LADDER CYCLE CLOSED");
-   Print("Previous Start : $",
-         DoubleToString(state.DayStartBalance, 2));
-   Print("New Balance    : $",
-         DoubleToString(newBalance, 2));
-   Print("Cycle Profit   : $",
-         DoubleToString(cycleProfit, 2));
-
-//===============================================================
-// INCREASE LADDER LEVEL
-//===============================================================
-   EquityLadderLevel++;
-// DailyLossProtectionPercent locked;
-// DailyLossProtectionPercent--;
-//===============================================================
-// NEW LADDER START
-//===============================================================
-   state.DayStartBalance   = newBalance;
-
-   state.ClosedOrdersToday = 0;
-
-   state.TradingStopped = false;
-
-   DailyProtectionStartTime = TimeCurrent();
-
-// if(EquityLadderLevel>1)
-//   {
-//    DailyEquityTargetPercent=OriginalDailyEquityTargetPercent/2;
-//   }
-// else
-//   {
-   DailyEquityTargetPercent=OriginalDailyEquityTargetPercent;
-
-//   }
-
-//===============================================================
-// RESET TRADE / RECOVERY STATE
-//===============================================================
-   Lots = OriginalLots;
-
-   Ladder1ProfitUSD =
-      OriginalLadder1ProfitUSD;
-
-   Ladder2ProfitUSD =
-      OriginalLadder2ProfitUSD;
-
-   Ladder1StopMaxPriceUSD =
-      OriginalLadder1StopMaxPriceUSD;
-
-
-
-
-
-
-//===============================================================
-// LOCK CURRENT BALANCE
-//===============================================================
-   LockedEquity = newBalance;
-
-//===============================================================
-// RESET DAILY PROTECTION FROM NEW BALANCE
-//===============================================================
-   state.DayProtectedBalance =
-      newBalance *
-      (1.0 - DailyLossProtectionPercent / 100.0);
-
-//===============================================================
-// CALCULATE NEXT COMPOUNDING TARGET
-//===============================================================
-   NextEquityTarget =
-      newBalance *
-      (1.0 + DailyEquityTargetPercent / 100.0);
-
-//===============================================================
-// RESET TARGET TIMER
-//===============================================================
-   DeleteAllPendingEAOrders();
-
-//===============================================================
-// LOG NEW LADDER
-//===============================================================
-   Print("================================================");
-   Print("NEW EQUITY LADDER STARTED");
-   Print("Ladder Level  : ", EquityLadderLevel);
-   Print("Start Balance : $",
-         DoubleToString(state.DayStartBalance, 2));
-   Print("Locked Equity : $",
-         DoubleToString(LockedEquity, 2));
-   Print("Next Target   : $",
-         DoubleToString(NextEquityTarget, 2));
-   Print("Cycle Profit  : $",
-         DoubleToString(cycleProfit, 2));
-   Print("================================================");
-
-//===============================================================
-// LADDER INCREMENT COMPLETE
-// All market + pending EA orders were closed before the increment.
-//
-// IMPORTANT:
-// When EnableDynamicEquityLadder=true, the EA must NOT wait for a
-// new SSL crossover or the next candle. Continue immediately using
-// the CURRENT SSL direction after EquityLadderLevel++.
-//===============================================================
-   if(EnableDynamicEquityLadder)
-     {
-      EquityResetReEntryPending = true;
-
-      // Reset candle/order guards because this is a NEW equity-ladder
-      // cycle and the current SSL direction is intentionally reused.
-      OrderCreatedThisCandle = false;
-      LastOrderCandleTime    = 0;
-
-      // Execute the current-SSL re-entry immediately on this tick.
-      // If the broker/server blocks the order, the pending flag remains
-      // true and ProcessEquityResetReEntry() retries on subsequent ticks.
-      ProcessEquityResetReEntry(state);
-     }
-   else
-     {
-      // Dynamic ladder re-entry is disabled.
-      TradeResetThisTick = true;
-
-      if(EnableLadderReEntryAfterIncrement)
-        {
-         // Optional legacy/manual re-entry mode.
-         // QueueEquityResetReEntry();
-        }
-     }
-  }
-
 //+------------------------------------------------------------------+
 //|                                                                  |
 //+------------------------------------------------------------------+
 void UpdateDailyLossProtection(DailyProtectionState &state)
   {
-   if(!EnableDailyLossProtection)
+   // Legacy daily-loss/equity ladder logic removed.
+   // DayProfitLadder is the only daily equity protection mechanism.
+   if(!EnableDayProfitLadder)
       return;
 
-   string today = TimeToString(TimeCurrent(), TIME_DATE);
-   datetime todayDate = StrToTime(today);
-
-   if(ResetDailyProtectionEveryDay && state.DayDate != todayDate)
-     {
-      state.DayDate = todayDate;
-      state.DayStartBalance = AccountBalance();
-      // state.DayProtectedBalance = state.DayStartBalance;
-      state.DayProtectedBalance =
-         AccountBalance() *
-         (1.0 - DailyLossProtectionPercent/100.0);
-      state.ClosedOrdersToday = 0;
-      state.TradingStopped = false;
-      DailyLossProtectionPercent = OriginalDailyLossProtectionPercent;
-
-
-      DailyProtectionStartTime = TimeCurrent();
-      Lots = OriginalLots;
-      Ladder1ProfitUSD = OriginalLadder1ProfitUSD;
-      Ladder2ProfitUSD = OriginalLadder2ProfitUSD;
-      Ladder1StopMaxPriceUSD=OriginalLadder1StopMaxPriceUSD;
-
-      InitializeEquityLadder(state);
-      EquityLadderLevel = 1;
-      LockedEquity = state.DayStartBalance;
-
-      Print("==== NEW DAY - DAILY PROFIT PROTECTION RESET ====");
-      Print("Day Start: $", DoubleToString(state.DayStartBalance, 2), " | Protected: $", DoubleToString(state.DayProtectedBalance, 2));
-      Print("==================================================");
-     }
-
+   state.DayDate = DayProfitLadderDate;
+   state.DayStartBalance = DayProfitLadderStartBalance;
+   state.DayProtectedBalance = DayProfitLadderProtectionEquity;
+   state.TradingStopped = DayProfitLadderTradingStopped;
    state.ClosedOrdersToday = CountClosedOrdersSinceInitialization();
-   double currentEquity = AccountEquity();
-   double minEquity =
-      state.DayStartBalance *
-      (1.0 - DailyLossProtectionPercent / 100.0);
-
-// One protection path only. The old EA checked this same condition
-// three times, making the minimum-closed-orders condition ineffective.
-   if(currentEquity <= minEquity)
-     {
-      Print("================================================");
-      Print("PROTECTED EQUITY STOP TRIGGERED");
-      Print("Start Balance     : $", DoubleToString(state.DayStartBalance, 2));
-      Print("Protected Equity  : $", DoubleToString(minEquity, 2));
-      Print("Current Equity    : $", DoubleToString(currentEquity, 2));
-      Print("Closed Orders     : ", state.ClosedOrdersToday);
-      Print("================================================");
-
-      if(CloseOpenOrdersOnDailyLoss)
-         ResetAfterProtectedEquity(state);
-      else
-         state.TradingStopped = true;
-
-      return;
-     }
   }
-
 //+------------------------------------------------------------------+
 //|                                                                  |
 //+------------------------------------------------------------------+
@@ -4892,12 +4228,8 @@ int CountClosedOrdersSinceInitialization()
 
 bool IsDailyTradingStopped(DailyProtectionState &state)
   {
-   if(EnableDayProfitLadder && DayProfitLadderTradingStopped)
-      return true;
-
-   return EnableDailyLossProtection && state.TradingStopped;
+   return EnableDayProfitLadder && DayProfitLadderTradingStopped;
   }
-
 //+------------------------------------------------------------------+
 //|                                                                  |
 //+------------------------------------------------------------------+
@@ -4981,68 +4313,6 @@ void CloseOppositeOrders(int newSignalType)
 //| Close ALL EA Orders and Pending Orders                           |
 //| Wait until everything is closed                                  |
 //+------------------------------------------------------------------+
-void CloseAllEAOrdersOnDailyLoss()
-  {
-// ONE PASS ONLY. Every failed close/delete is logged and deferred
-// until the next OnTick. No Sleep and no same-tick server chasing.
-   for(int i=OrdersTotal()-1; i>=0; i--)
-     {
-      if(!OrderSelect(i,SELECT_BY_POS,MODE_TRADES))
-         continue;
-
-      if(OrderSymbol()!=Symbol() || OrderMagicNumber()!=MagicNumber)
-         continue;
-
-      int ticket=OrderTicket();
-      int type=OrderType();
-
-      bool result=false;
-
-      if(type==OP_BUY || type==OP_SELL)
-        {
-         result=SafeOrderClose(ticket,OrderLots(),type,Slippage,
-                               (type==OP_SELL ? clrRed : clrBlue));
-        }
-      else
-         if(type==OP_BUYSTOP || type==OP_SELLSTOP ||
-            type==OP_BUYLIMIT || type==OP_SELLLIMIT)
-           {
-            result=ForceDeletePendingOrder(ticket,clrRed);
-           }
-         else
-           {
-            result=true;
-           }
-
-      if(!result)
-         Print("Daily protection operation deferred | Ticket=",ticket,
-               " | Type=",type," | Retry next tick");
-     }
-
-   RefreshRates();
-
-   int remain=0;
-   for(int j=OrdersTotal()-1; j>=0; j--)
-     {
-      if(!OrderSelect(j,SELECT_BY_POS,MODE_TRADES))
-         continue;
-
-      if(OrderSymbol()==Symbol() &&
-         OrderMagicNumber()==MagicNumber)
-         remain++;
-     }
-
-   Print("----------------------------------------");
-   Print("Remaining EA Orders : ",remain);
-
-   if(remain==0)
-      Print("ALL EA ORDERS CLOSED SUCCESSFULLY");
-   else
-      Print("Some orders remain - failed operations will be retried on next tick.");
-   Print("----------------------------------------");
-  }
-
-
 //+------------------------------------------------------------------+
 //|                                                                  |
 //+------------------------------------------------------------------+
@@ -5113,40 +4383,6 @@ void InitializeLastProcessedClosedOrder()
 //|                                                                  |
 //| This prevents the old $104 target from surviving a losing cycle. |
 //+------------------------------------------------------------------+
-void RebaseEquityLadderAfterStopLoss(DailyProtectionState &state)
-  {
-   RefreshRates();
-
-   double newAnchor = AccountEquity();
-
-   if(newAnchor <= 0.0)
-      return;
-
-// The new ladder cycle starts from the actual equity after the SL.
-   state.DayStartBalance = newAnchor;
-   LockedEquity           = newAnchor;
-
-   NextEquityTarget =
-      newAnchor *
-      (1.0 + DailyEquityTargetPercent / 100.0);
-
-   state.DayProtectedBalance =
-      newAnchor *
-      (1.0 - DailyLossProtectionPercent / 100.0);
-
-   state.ClosedOrdersToday = 0;
-   state.TradingStopped    = false;
-   DailyProtectionStartTime = TimeCurrent();
-
-   Print("================================================");
-   Print("EQUITY LADDER REBASED AFTER STOP-LOSS");
-   Print("New Equity Anchor : $", DoubleToString(newAnchor, 2));
-   Print("Target %          : ", DoubleToString(DailyEquityTargetPercent, 2), "%");
-   Print("New Next Target   : $", DoubleToString(NextEquityTarget, 2));
-   Print("Old target is discarded and will NOT be reused.");
-   Print("================================================");
-  }
-
 //+------------------------------------------------------------------+
 //|                                                                  |
 //+------------------------------------------------------------------+
@@ -5200,9 +4436,6 @@ void CheckForProfitableClosedOrder(DailyProtectionState &state)
 // The next successful ladder hit will then rebase again from its
 // realized balance/equity, so the ladder always follows current
 // capital instead of an old target from a previous cycle.
-   if(latestProfit < 0.0 && GetTotalBuyOrders()==0 && GetTotalSellOrders()==0)
-      RebaseEquityLadderAfterStopLoss(state);
-
 // Profit AND loss now continue the same ReEntry cycle.
    if(EnableProfitReEntryStop && !IsDailyTradingStopped(state))
      {
@@ -6479,13 +5712,12 @@ void UpdateDashboard(DailyProtectionState &state)
                                       }
 
    double ladderProgress=0;
-   if(NextEquityTarget>state.DayStartBalance)
+   if(DayProfitLadderNextTargetEquity>DayProfitLadderProtectionEquity)
      {
-      ladderProgress=((AccountEquity()-state.DayStartBalance)/(NextEquityTarget-state.DayStartBalance))*100.0;
-      if(ladderProgress<0)
-         ladderProgress=0;
-      if(ladderProgress>100)
-         ladderProgress=100;
+      ladderProgress=((AccountEquity()-DayProfitLadderProtectionEquity) /
+                      (DayProfitLadderNextTargetEquity-DayProfitLadderProtectionEquity))*100.0;
+      if(ladderProgress<0) ladderProgress=0;
+      if(ladderProgress>100) ladderProgress=100;
      }
 
    double dayPL=AccountEquity()-state.DayStartBalance;
@@ -6629,21 +5861,17 @@ void UpdateDashboard(DailyProtectionState &state)
    CreateDashboardLabel(DASH_PREFIX+"DAYPL","DAY P/L       : "+(dayPL>=0?"+":"")+DoubleToString(dayPL,2)+" ("+DoubleToString(dayPLPct,1)+"%)",tx,y+365,9,dayPL>=0?clrLime:clrTomato);
 
    CreateDashboardPanel(DASH_PREFIX+"SEC_LADDER",x,y+388,w,22,C'30,38,50');
-   CreateDashboardLabel(DASH_PREFIX+"LADDER_H","EQUITY LADDER",tx,y+392,9,clrAqua);
-   CreateDashboardLabel(DASH_PREFIX+"STEP","STEP         : "+IntegerToString(EquityLadderLevel),tx,y+415,9,clrYellow);
-   CreateDashboardLabel(DASH_PREFIX+"TARGET","NEXT TARGET  : $"+DoubleToString(NextEquityTarget,2)+" / "+IntegerToString(DailyEquityTargetPercent)+"%",tx,y+435,9,clrLime);
-   CreateDashboardLabel(DASH_PREFIX+"LOCKED","LOCKED EQUITY : $"+DoubleToString(LockedEquity,2),tx,y+455,9,clrGold);
-   CreateDashboardLabel(DASH_PREFIX+"PROTECTED","DAY PROTECTED : $"+DoubleToString(state.DayProtectedBalance,2),tx,y+475,9,clrGold);
-   CreateDashboardLabel(DASH_PREFIX+"PROGRESS","PROGRESS      : "+DoubleToString(ladderProgress,1)+"%",tx,y+495,9,clrWhite);
+   CreateDashboardLabel(DASH_PREFIX+"LADDER_H","DAY PROFIT LADDER - ONLY DAILY PROTECTION",tx,y+392,9,clrAqua);
+   CreateDashboardLabel(DASH_PREFIX+"DPL_START","OPEN BAL/EQ : $"+DoubleToString(DayProfitLadderStartBalance,2)+" / $"+DoubleToString(DayProfitLadderStartEquity,2),tx,y+415,8,clrWhite);
+   CreateDashboardLabel(DASH_PREFIX+"DPL_STAGE","CURRENT STAGE : X"+IntegerToString(DayProfitLadderStage),tx,y+435,9,clrYellow);
+   CreateDashboardLabel(DASH_PREFIX+"DPL_TARGET","NEXT TARGET   : $"+DoubleToString(DayProfitLadderNextTargetEquity,2),tx,y+455,8,clrLime);
+   CreateDashboardLabel(DASH_PREFIX+"DPL_LOCK","PROTECTION    : $"+DoubleToString(DayProfitLadderProtectionEquity,2),tx,y+475,8,clrGold);
+   CreateDashboardLabel(DASH_PREFIX+"PROGRESS","NEXT TARGET PROGRESS : "+DoubleToString(ladderProgress,1)+"%",tx,y+495,8,clrWhite);
 
    // Dynamic Day Profit Ladder status (X1, X2, X3 ... indefinitely).
    string dplStatus = DayProfitLadderTradingStopped ? "STOPPED" : "TRADING";
    color dplStatusColor = DayProfitLadderTradingStopped ? clrTomato : clrLime;
    CreateDashboardLabel(DASH_PREFIX+"DPL_STATUS","DAY LADDER    : "+dplStatus,tx,y+510,9,dplStatusColor);
-   CreateDashboardLabel(DASH_PREFIX+"DPL_START","DPL OPEN BAL  : $"+DoubleToString(DayProfitLadderStartBalance,2)+" / EQ $"+DoubleToString(DayProfitLadderStartEquity,2),tx,y+525,8,clrWhite);
-   CreateDashboardLabel(DASH_PREFIX+"DPL_STAGE","DPL STAGE      : X"+IntegerToString(DayProfitLadderStage),tx,y+540,9,clrYellow);
-   CreateDashboardLabel(DASH_PREFIX+"DPL_TARGET","DPL NEXT TARGET : $"+DoubleToString(DayProfitLadderNextTargetEquity,2),tx,y+555,8,clrLime);
-   CreateDashboardLabel(DASH_PREFIX+"DPL_LOCK","DPL PROTECTION : $"+DoubleToString(DayProfitLadderProtectionEquity,2),tx,y+570,8,clrGold);
 
    CreateDashboardPanel(DASH_PREFIX+"SEC_RISK",x,y+518,w,22,C'30,38,50');
    CreateDashboardLabel(DASH_PREFIX+"RISK_H","RISK & STOP-LOSS PROTECTION",tx,y+522,9,clrAqua);
