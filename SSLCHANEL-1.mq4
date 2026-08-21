@@ -129,6 +129,34 @@ int MaxRecoveryOrders = 1;
 double RecoveryBasketProfitUSD =0.10;// 1;//0.50;
 bool EnableDailyLossProtection = false;// false= continue trading even after hit the stoploss
 
+// ===== STRICT DAY PROFIT LADDER - DYNAMIC / INDEFINITE =====
+// The ladder is based on the FRESH DAY OPENING BALANCE.
+// Day opening equity is also captured for information/state restoration.
+//
+// Example with $100 opening balance and 50% ladder step:
+//   Initial protection = $50
+//   X1 target = $150 -> lock/protect $125 (+25% profit)
+//   X2 target = $200 -> lock/protect $150 (+50% profit)
+//   X3 target = $250 -> lock/protect $175 (+75% profit)
+//   X4 target = $300 -> lock/protect $200 (+100% profit)
+//   X5 target = $350 -> lock/protect $225 (+125% profit)
+//   ...continues indefinitely.
+//
+// For ladder N:
+//   Target = OpeningBalance * (1 + StepPercent*N/100)
+//   Lock   = OpeningBalance * (1 + StepPercent*N*LockRatio/100)
+//
+// With StepPercent=50 and LockRatio=0.50, X1 locks +25%, X2 +50%, etc.
+// The highest reached stage is NEVER reduced during the same day.
+// Equity <= current protection -> STOP ALL NEW TRADING FOR THE DAY.
+// At the next fresh day, ALL day-ladder state is reset and a new opening
+// balance/equity is captured. State is persisted so EA restarts do not reset it.
+bool   EnableDayProfitLadder = true;
+double DayProfitLadder1Percent = 50.0;       // Dynamic ladder step: X1=50%, X2=100%, X3=150%...
+double DayProfitLadderLockRatio = 0.50;      // Protect 50% of achieved ladder profit: X1=25%, X2=50%...
+double DayProfitInitialProtectionPercent = 50.0; // Initial -50% protection
+
+
 // ===== DAY-1 CAPITAL PROTECTION EXIT =====
 // Independent of the current equity-ladder target.
 // If equity is still above the original day-start balance but the
@@ -232,6 +260,16 @@ struct DailyProtectionState
    bool              TradingStopped;
    bool              Initialized;
   };
+
+// ===== STRICT DAY PROFIT LADDER RUNTIME STATE =====
+double   DayProfitLadderStartBalance = 0.0; // Fixed opening balance for this day
+double   DayProfitLadderStartEquity  = 0.0; // Fixed opening equity for this day
+double   DayProfitLadderProtectionEquity = 0.0;
+int      DayProfitLadderStage = 0; // 0=initial, 1=X1, 2=X2, 3=X3 ... indefinitely
+double   DayProfitLadderNextTargetEquity = 0.0;
+bool     DayProfitLadderTradingStopped = false;
+datetime DayProfitLadderDate = 0;
+bool     DayProfitLadderInitialized = false;
 
 // ===== RUNTIME VARIABLES =====
 string PREFIX = "SSL_CROSS_";
@@ -683,7 +721,9 @@ int OnInit()
          " | Price Shift: ", InpEMAPriceShift,
          " | Mode: ", InpEMAPriceShift == 0 ? "LIVE" : "CLOSED CANDLE");
    Print("Daily Protection: ", EnableDailyLossProtection ? "ON" : "OFF", " | Ladder 1: ", EnableProfitLadder1 ? "ON" : "OFF");
-   Print("Ladder 1 Step: $", DoubleToString(Ladder1ProfitUSD, 2), " | Ladder 2 Step: $", DoubleToString(Ladder2ProfitUSD, 2));
+   Print("Day Profit Ladder: ", EnableDayProfitLadder ? "ON" : "OFF",
+         " | Dynamic Step=", DoubleToString(DayProfitLadder1Percent,2), "%",
+         " | Lock Ratio=", DoubleToString(DayProfitLadderLockRatio*100.0,2), "%");
    Print("Recovery Trigger Loss per 0.01 lot: $", DoubleToString(RecoveryTriggerLossUSD,2));
    Print("Recovery Basket Profit: $", DoubleToString(RecoveryBasketProfitUSD,2));
    Print("Market Moment Lot Model: SSL + H1 + M5(3-candle) + EMA + 30M");
@@ -1106,6 +1146,12 @@ void OnTickCore()
 
    if(!dailyState.Initialized)
       InitializeDailyProtectionState(dailyState);
+
+//===============================================================
+// STRICT DAY PROFIT LADDER
+// Must run every tick before any new-order path.
+//===============================================================
+   ManageDayProfitLadder();
 
 //===============================================================
 // SERVER ERROR SELF-TEST / RECOVERY
@@ -1819,6 +1865,12 @@ int CountDirectionOrders(int orderType)
 //+------------------------------------------------------------------+
 bool IsSafeToCreateMarketOrder(int orderType)
   {
+   if(!IsDayProfitLadderTradingAllowed())
+     {
+      Print("NEW MARKET ORDER BLOCKED | DAY PROFIT LADDER PROTECTION");
+      return false;
+     }
+
    if(!EnableSLProtection)
       return true;
    if(!IsConnected())
@@ -2563,6 +2615,15 @@ int SafeOrderSend(string symbol,int orderType,double lots,double price,
                   int slippage,double stopLoss,double takeProfit,
                   string comment,int magic,color arrowColor)
   {
+   // STRICT DAY PROFIT LADDER:
+   // Blocks every new broker order type (market, pending, recovery,
+   // re-entry, deferred re-entry, etc.) after daily protection is hit.
+   if(!IsDayProfitLadderTradingAllowed())
+     {
+      Print("OrderSend BLOCKED | DAY PROFIT LADDER PROTECTION");
+      return -1;
+     }
+
 // Universal 30-minute gate. Every new trade request (SSL Long/Short,
 // Profit ReEntry, SL ReEntry, Recovery and ladder re-entry) is remembered
 // in EA memory until its BUY/SELL momentum condition passes.
@@ -3309,8 +3370,6 @@ double GetMarketMomentLot(int orderType)
    else
       momentumAligned = (momentumDiff < -momentumThreshold);
 
-
-      
 // Four confirmations determine normal lot strength.
    int confirmationScore = 0;
    if(h1Aligned)
@@ -3828,6 +3887,276 @@ void ManageRecoveryBasket()
 
 //+------------------------------------------------------------------+
 //|                                                                  |
+//+------------------------------------------------------------------+
+//+------------------------------------------------------------------+
+//| STRICT DAY PROFIT LADDER                                         |
+//|                                                                  |
+//| Fixed daily base:                                                 |
+//|   Start $100 -> initial protection $50                           |
+//|   Equity $150 -> L1, protection $125                             |
+//|   Equity $175 -> L2, protection $150                             |
+//|   Equity <= protection -> stop NEW trading until next fresh day  |
+//+------------------------------------------------------------------+
+string GetDayProfitLadderGVPrefix()
+  {
+   return "SSL_DPL_" +
+          IntegerToString(AccountNumber()) + "_" +
+          IntegerToString(MagicNumber) + "_" +
+          Symbol() + "_";
+  }
+
+//+------------------------------------------------------------------+
+string GetDayProfitLadderDateText()
+  {
+   return TimeToString(TimeCurrent(), TIME_DATE);
+  }
+
+//+------------------------------------------------------------------+
+datetime GetDayProfitLadderDate()
+  {
+   return StrToTime(GetDayProfitLadderDateText());
+  }
+
+//+------------------------------------------------------------------+
+void SaveDayProfitLadderState()
+  {
+   string p = GetDayProfitLadderGVPrefix();
+
+   GlobalVariableSet(p+"DATE",       (double)DayProfitLadderDate);
+   GlobalVariableSet(p+"START_BAL", DayProfitLadderStartBalance);
+   GlobalVariableSet(p+"START",      DayProfitLadderStartEquity);
+   GlobalVariableSet(p+"PROTECT",    DayProfitLadderProtectionEquity);
+   GlobalVariableSet(p+"STAGE",      (double)DayProfitLadderStage);
+   GlobalVariableSet(p+"NEXT",       DayProfitLadderNextTargetEquity);
+   GlobalVariableSet(p+"STOPPED",    DayProfitLadderTradingStopped ? 1.0 : 0.0);
+  }
+
+//+------------------------------------------------------------------+
+//| Calculate target for any ladder stage (X1, X2, X3 ... forever)   |
+//+------------------------------------------------------------------+
+double GetDayProfitLadderTarget(int stage)
+  {
+   if(stage <= 0 || DayProfitLadderStartBalance <= 0.0)
+      return DayProfitLadderStartBalance;
+
+   double step = MathAbs(DayProfitLadder1Percent) / 100.0;
+   if(step <= 0.0)
+      return DayProfitLadderStartBalance;
+
+   return DayProfitLadderStartBalance * (1.0 + step * stage);
+  }
+
+//+------------------------------------------------------------------+
+//| Calculate locked/protected equity for any stage                  |
+//| X1: +25%, X2: +50%, X3: +75% when step=50 and ratio=0.50       |
+//+------------------------------------------------------------------+
+double GetDayProfitLadderProtection(int stage)
+  {
+   if(stage <= 0 || DayProfitLadderStartBalance <= 0.0)
+      return DayProfitLadderStartBalance *
+             (1.0 - DayProfitInitialProtectionPercent / 100.0);
+
+   double step = MathAbs(DayProfitLadder1Percent) / 100.0;
+   double lockRatio = MathMax(0.0, DayProfitLadderLockRatio);
+
+   return DayProfitLadderStartBalance *
+          (1.0 + step * stage * lockRatio);
+  }
+
+//+------------------------------------------------------------------+
+//| Initialize completely fresh day ladder                          |
+//+------------------------------------------------------------------+
+void InitializeDayProfitLadder()
+  {
+   DayProfitLadderDate = GetDayProfitLadderDate();
+
+   // Capture opening balance/equity ONCE for this day.
+   // These values remain fixed until the next fresh day.
+   DayProfitLadderStartBalance = AccountBalance();
+   DayProfitLadderStartEquity  = AccountEquity();
+
+   // Reset ALL day-ladder statistics.
+   DayProfitLadderStage = 0;
+   DayProfitLadderTradingStopped = false;
+   DayProfitLadderNextTargetEquity = GetDayProfitLadderTarget(1);
+
+   // Initial protection is 50% below opening balance by default.
+   DayProfitLadderProtectionEquity =
+      DayProfitLadderStartBalance *
+      (1.0 - DayProfitInitialProtectionPercent / 100.0);
+
+   DayProfitLadderInitialized = true;
+   SaveDayProfitLadderState();
+
+   Print("================================================");
+   Print("DYNAMIC DAY PROFIT LADDER - NEW DAY");
+   Print("Date                 : ", GetDayProfitLadderDateText());
+   Print("Opening Balance      : $", DoubleToString(DayProfitLadderStartBalance,2));
+   Print("Opening Equity       : $", DoubleToString(DayProfitLadderStartEquity,2));
+   Print("Initial Protection   : $", DoubleToString(DayProfitLadderProtectionEquity,2));
+   Print("Ladder Step          : ", DoubleToString(DayProfitLadder1Percent,2), "%");
+   Print("Lock Ratio           : ", DoubleToString(DayProfitLadderLockRatio*100.0,2), "% of ladder profit");
+   Print("Next Target X1       : $", DoubleToString(DayProfitLadderNextTargetEquity,2));
+   Print("================================================");
+  }
+
+//+------------------------------------------------------------------+
+//| Load today's ladder state                                       |
+//+------------------------------------------------------------------+
+void LoadDayProfitLadderState()
+  {
+   string p = GetDayProfitLadderGVPrefix();
+   datetime today = GetDayProfitLadderDate();
+
+   if(GlobalVariableCheck(p+"DATE") &&
+      (datetime)GlobalVariableGet(p+"DATE") == today &&
+      GlobalVariableCheck(p+"START_BAL") &&
+      GlobalVariableCheck(p+"START") &&
+      GlobalVariableCheck(p+"PROTECT") &&
+      GlobalVariableCheck(p+"STAGE") &&
+      GlobalVariableCheck(p+"STOPPED"))
+     {
+      DayProfitLadderDate = (datetime)GlobalVariableGet(p+"DATE");
+      DayProfitLadderStartBalance = GlobalVariableGet(p+"START_BAL");
+      DayProfitLadderStartEquity = GlobalVariableGet(p+"START");
+      DayProfitLadderProtectionEquity = GlobalVariableGet(p+"PROTECT");
+      DayProfitLadderStage = (int)GlobalVariableGet(p+"STAGE");
+      DayProfitLadderTradingStopped = (GlobalVariableGet(p+"STOPPED") > 0.5);
+
+      if(GlobalVariableCheck(p+"NEXT"))
+         DayProfitLadderNextTargetEquity = GlobalVariableGet(p+"NEXT");
+      else
+         DayProfitLadderNextTargetEquity = GetDayProfitLadderTarget(DayProfitLadderStage + 1);
+
+      DayProfitLadderInitialized = true;
+
+      Print("DYNAMIC DAY PROFIT LADDER - STATE RESTORED");
+      Print("Opening Balance      : $", DoubleToString(DayProfitLadderStartBalance,2));
+      Print("Opening Equity       : $", DoubleToString(DayProfitLadderStartEquity,2));
+      Print("Current Stage        : X", DayProfitLadderStage);
+      Print("Protection Equity    : $", DoubleToString(DayProfitLadderProtectionEquity,2));
+      Print("Next Target          : $", DoubleToString(DayProfitLadderNextTargetEquity,2));
+      Print("Trading Stopped      : ", DayProfitLadderTradingStopped ? "YES" : "NO");
+      return;
+     }
+
+   // No valid state for today -> completely fresh day.
+   InitializeDayProfitLadder();
+  }
+
+//+------------------------------------------------------------------+
+//| Dynamic indefinite day profit ladder manager                    |
+//+------------------------------------------------------------------+
+void ManageDayProfitLadder()
+  {
+   if(!EnableDayProfitLadder)
+      return;
+
+   datetime today = GetDayProfitLadderDate();
+
+   if(!DayProfitLadderInitialized)
+     {
+      LoadDayProfitLadderState();
+      return;
+     }
+
+   // New day: reset EVERYTHING and capture the new opening balance/equity.
+   if(DayProfitLadderDate != today)
+     {
+      InitializeDayProfitLadder();
+      return;
+     }
+
+   // Once stopped, remain stopped until the next fresh day.
+   if(DayProfitLadderTradingStopped)
+      return;
+
+   if(DayProfitLadderStartBalance <= 0.0)
+      return;
+
+   double equity = AccountEquity();
+
+   //===============================================================
+   // DYNAMIC LADDER
+   // If equity jumps over multiple levels in one tick, catch up to
+   // the highest level actually reached. The ladder never decreases.
+   //===============================================================
+   double step = MathAbs(DayProfitLadder1Percent) / 100.0;
+
+   if(step > 0.0 && equity >= DayProfitLadderStartBalance * (1.0 + step))
+     {
+      double profitRatio = (equity / DayProfitLadderStartBalance) - 1.0;
+      int reachedStage = (int)MathFloor((profitRatio / step) + 0.000000001);
+
+      if(reachedStage > DayProfitLadderStage)
+        {
+         int oldStage = DayProfitLadderStage;
+         DayProfitLadderStage = reachedStage;
+
+         DayProfitLadderProtectionEquity =
+            GetDayProfitLadderProtection(DayProfitLadderStage);
+
+         DayProfitLadderNextTargetEquity =
+            GetDayProfitLadderTarget(DayProfitLadderStage + 1);
+
+         SaveDayProfitLadderState();
+
+         Print("================================================");
+         Print("DAY PROFIT LADDER ADVANCED");
+         Print("Previous Stage      : X", oldStage);
+         Print("Current Stage       : X", DayProfitLadderStage);
+         Print("Current Equity      : $", DoubleToString(equity,2));
+         Print("Reached Target      : $", DoubleToString(GetDayProfitLadderTarget(DayProfitLadderStage),2));
+         Print("NEW PROTECTION      : $", DoubleToString(DayProfitLadderProtectionEquity,2));
+         Print("NEXT TARGET X", DayProfitLadderStage+1,
+               "         : $", DoubleToString(DayProfitLadderNextTargetEquity,2));
+         Print("Trading continues");
+         Print("================================================");
+        }
+     }
+
+   //===============================================================
+   // STRICT PROTECTION
+   // Initial: $100 -> $50.
+   // After X1: $150 -> $125.
+   // After X2: $200 -> $150.
+   // After X3: $250 -> $175.
+   // ...indefinitely.
+   //===============================================================
+   if(equity <= DayProfitLadderProtectionEquity)
+     {
+      DayProfitLadderTradingStopped = true;
+      SaveDayProfitLadderState();
+
+      // Remove pending broker orders and remembered deferred orders so
+      // nothing can create a new trade after the day is stopped.
+      DeleteAllPendingEAOrders();
+
+      Print("================================================");
+      Print("DYNAMIC DAY PROFIT LADDER PROTECTION HIT");
+      Print("Opening Balance     : $", DoubleToString(DayProfitLadderStartBalance,2));
+      Print("Opening Equity      : $", DoubleToString(DayProfitLadderStartEquity,2));
+      Print("Current Equity      : $", DoubleToString(equity,2));
+      Print("Current Stage       : X", DayProfitLadderStage);
+      Print("Protected Equity    : $", DoubleToString(DayProfitLadderProtectionEquity,2));
+      Print("ALL NEW TRADING     : BLOCKED");
+      Print("DAY TRADING         : STOPPED");
+      Print("Reset               : NEXT FRESH DAY");
+      Print("================================================");
+     }
+  }
+
+//+------------------------------------------------------------------+
+bool IsDayProfitLadderTradingAllowed()
+  {
+   if(!EnableDayProfitLadder)
+      return true;
+
+   ManageDayProfitLadder();
+
+   return !DayProfitLadderTradingStopped;
+  }
+
 //+------------------------------------------------------------------+
 void InitializeDailyProtectionState(DailyProtectionState &state)
   {
@@ -4561,7 +4890,13 @@ int CountClosedOrdersSinceInitialization()
    return count;
   }
 
-bool IsDailyTradingStopped(DailyProtectionState &state) { return EnableDailyLossProtection && state.TradingStopped; }
+bool IsDailyTradingStopped(DailyProtectionState &state)
+  {
+   if(EnableDayProfitLadder && DayProfitLadderTradingStopped)
+      return true;
+
+   return EnableDailyLossProtection && state.TradingStopped;
+  }
 
 //+------------------------------------------------------------------+
 //|                                                                  |
@@ -6300,6 +6635,15 @@ void UpdateDashboard(DailyProtectionState &state)
    CreateDashboardLabel(DASH_PREFIX+"LOCKED","LOCKED EQUITY : $"+DoubleToString(LockedEquity,2),tx,y+455,9,clrGold);
    CreateDashboardLabel(DASH_PREFIX+"PROTECTED","DAY PROTECTED : $"+DoubleToString(state.DayProtectedBalance,2),tx,y+475,9,clrGold);
    CreateDashboardLabel(DASH_PREFIX+"PROGRESS","PROGRESS      : "+DoubleToString(ladderProgress,1)+"%",tx,y+495,9,clrWhite);
+
+   // Dynamic Day Profit Ladder status (X1, X2, X3 ... indefinitely).
+   string dplStatus = DayProfitLadderTradingStopped ? "STOPPED" : "TRADING";
+   color dplStatusColor = DayProfitLadderTradingStopped ? clrTomato : clrLime;
+   CreateDashboardLabel(DASH_PREFIX+"DPL_STATUS","DAY LADDER    : "+dplStatus,tx,y+510,9,dplStatusColor);
+   CreateDashboardLabel(DASH_PREFIX+"DPL_START","DPL OPEN BAL  : $"+DoubleToString(DayProfitLadderStartBalance,2)+" / EQ $"+DoubleToString(DayProfitLadderStartEquity,2),tx,y+525,8,clrWhite);
+   CreateDashboardLabel(DASH_PREFIX+"DPL_STAGE","DPL STAGE      : X"+IntegerToString(DayProfitLadderStage),tx,y+540,9,clrYellow);
+   CreateDashboardLabel(DASH_PREFIX+"DPL_TARGET","DPL NEXT TARGET : $"+DoubleToString(DayProfitLadderNextTargetEquity,2),tx,y+555,8,clrLime);
+   CreateDashboardLabel(DASH_PREFIX+"DPL_LOCK","DPL PROTECTION : $"+DoubleToString(DayProfitLadderProtectionEquity,2),tx,y+570,8,clrGold);
 
    CreateDashboardPanel(DASH_PREFIX+"SEC_RISK",x,y+518,w,22,C'30,38,50');
    CreateDashboardLabel(DASH_PREFIX+"RISK_H","RISK & STOP-LOSS PROTECTION",tx,y+522,9,clrAqua);
