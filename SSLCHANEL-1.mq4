@@ -3309,6 +3309,8 @@ double GetMarketMomentLot(int orderType)
    else
       momentumAligned = (momentumDiff < -momentumThreshold);
 
+
+      
 // Four confirmations determine normal lot strength.
    int confirmationScore = 0;
    if(h1Aligned)
