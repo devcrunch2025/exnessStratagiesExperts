@@ -46,6 +46,24 @@ double Min30MinutePriceDifferenceDuration = 30;//minutes
 bool Enable30MinuteMomentumForProfitReEntry = false;
 bool Enable30MinuteMomentumForAllOrders = false;
 
+// ===== MARKET-MOMENT SAFETY FILTERS FOR NORMAL LOT SIZING =====
+// H1 remains the primary higher-timeframe bias. If H1 is opposite to the
+// requested SSL direction, the trade is still allowed, but aggressive lot
+// sizing is disabled and the lot is capped at the base lot.
+bool CapLotWhenH1Opposite = true;
+
+// M5 confirmation uses the last 3 CLOSED M5 candles. A 2-of-3 majority
+// is BUY/SELL; otherwise it is neutral.
+int M5ConfirmationCandles = 3;
+
+// Extreme-volatility protection applies ONLY to normal SSL / profit
+// re-entry lot sizing. Recovery logic is intentionally unchanged.
+bool EnableATRVolatilityProtection = true;
+int ATRVolatilityTimeframe = PERIOD_M5;
+int ATRVolatilityPeriod = 14;
+double MaxCandleRangeATRMultiple = 1.80;
+double VolatilityLotCap = 0.01;
+
 // Deferred OrderSend queue: orders are kept in EA memory and sent to the
 // broker only when the 30-minute directional condition passes.
 #define MAX_DEFERRED_ORDERS 50
@@ -94,9 +112,9 @@ bool EnableProfitLadder1 = true;
 
 
 
-double Ladder1ProfitUSD =1;//0.20;//0.20;//0.05;//1;//0.15;//0.25;//0.50;// 0.05;
+double Ladder1ProfitUSD =0.20;//0.20;//0.05;//1;//0.15;//0.25;//0.50;// 0.05;
 bool EnableProfitLadder2 = true;
-double Ladder1StopMaxPriceUSD =10;// 0.40;//0.50;//0.20;
+double Ladder1StopMaxPriceUSD =0.60;//10;// 0.40;//0.50;//0.20;
 double Ladder2ProfitUSD = 0.10;//server api is has errors due to too many orders, so we need to limit the number of orders to 1, and increase the profit target to 0.20
 
 
@@ -104,7 +122,7 @@ double Ladder2ProfitUSD = 0.10;//server api is has errors due to too many orders
 
 
 
-bool EnableRecoveryOrders = true;//false;//continuos market down will huge loss
+bool EnableRecoveryOrders = false;//false;//continuos market down will huge loss
 double RecoveryTriggerLossUSD =1;// -0.50;//per lot 0.01
 double RecoveryLotMultiplier = 1;
 int MaxRecoveryOrders = 1;
@@ -668,6 +686,13 @@ int OnInit()
    Print("Ladder 1 Step: $", DoubleToString(Ladder1ProfitUSD, 2), " | Ladder 2 Step: $", DoubleToString(Ladder2ProfitUSD, 2));
    Print("Recovery Trigger Loss per 0.01 lot: $", DoubleToString(RecoveryTriggerLossUSD,2));
    Print("Recovery Basket Profit: $", DoubleToString(RecoveryBasketProfitUSD,2));
+   Print("Market Moment Lot Model: SSL + H1 + M5(3-candle) + EMA + 30M");
+   Print("H1 Opposite Lot Cap: ", CapLotWhenH1Opposite ? "ON" : "OFF");
+   Print("30M Lookback Minutes: ", DoubleToString(Min30MinutePriceDifferenceDuration,0));
+   Print("ATR Volatility Protection: ", EnableATRVolatilityProtection ? "ON" : "OFF",
+         " | TF=M5 | Period=", ATRVolatilityPeriod,
+         " | Max Range/ATR=", DoubleToString(MaxCandleRangeATRMultiple,2),
+         " | Lot Cap=", DoubleToString(VolatilityLotCap,2));
    Print("Continue After SL: ",ContinueTradingAfterSL?"YES":"NO");
    Print("SL Protection: ",EnableSLProtection?"ON":"OFF",
          " | MaxSameDirection=",MaxSameDirectionOrders,
@@ -3110,15 +3135,97 @@ bool SafeOrderDelete(int ticket,color arrowColor)
 
 //0.03
 //+------------------------------------------------------------------+
+//| M5 direction - last CLOSED M5 candle                             |
+//|                                                                   |
+//| This is used only by normal market-moment lot sizing. Recovery   |
+//| order sizing remains completely unchanged.                       |
+//+------------------------------------------------------------------+
+int GetM5Direction()
+  {
+   int candles = M5ConfirmationCandles;
+   if(candles < 1)
+      candles = 1;
+   if(candles > 5)
+      candles = 5;
+
+   int bullish = 0;
+   int bearish = 0;
+
+   for(int shift=1; shift<=candles; shift++)
+     {
+      double m5Open  = iOpen(Symbol(), PERIOD_M5, shift);
+      double m5Close = iClose(Symbol(), PERIOD_M5, shift);
+
+      if(m5Open <= 0.0 || m5Close <= 0.0)
+         continue;
+
+      if(m5Close > m5Open)
+         bullish++;
+      else
+         if(m5Close < m5Open)
+            bearish++;
+     }
+
+   if(bullish > bearish && bullish >= (candles/2 + 1))
+      return 1;
+
+   if(bearish > bullish && bearish >= (candles/2 + 1))
+      return -1;
+
+   return 0;
+  }
+
+//+------------------------------------------------------------------+
+//| Last closed M5 candle range divided by M5 ATR                    |
+//+------------------------------------------------------------------+
+double GetM5CandleATRRatio()
+  {
+   if(!EnableATRVolatilityProtection)
+      return 0.0;
+
+   int tf = ATRVolatilityTimeframe;
+   if(tf <= 0)
+      tf = PERIOD_M5;
+
+   int period = ATRVolatilityPeriod;
+   if(period < 2)
+      period = 2;
+
+   double high1 = iHigh(Symbol(), tf, 1);
+   double low1  = iLow(Symbol(), tf, 1);
+   double atr1  = iATR(Symbol(), tf, period, 1);
+
+   if(high1 <= 0.0 || low1 <= 0.0 || atr1 <= 0.0)
+      return 0.0;
+
+   return (high1-low1)/atr1;
+  }
+
+//+------------------------------------------------------------------+
+//| True when the last closed M5 candle is an extreme range candle   |
+//+------------------------------------------------------------------+
+bool IsExtremeVolatility()
+  {
+   if(!EnableATRVolatilityProtection)
+      return false;
+
+   double ratio = GetM5CandleATRRatio();
+   double limit = MathMax(0.1, MaxCandleRangeATRMultiple);
+
+   return (ratio > limit);
+  }
+
+//+------------------------------------------------------------------+
 //| Market-moment lot sizing                                         |
 //|                                                                   |
-//| Normal / SSL profit re-entry lots are decided by FOUR signals:   |
+//| Normal / SSL profit re-entry lots are decided by FIVE signals:   |
 //|   1. Live SSL direction                                           |
 //|   2. Last closed H1 candle direction                              |
-//|   3. EMA direction (same configured EMA used by the filter)      |
-//|   4. 30-minute price momentum                                    |
+//|   3. Last closed M5 candle direction                              |
+//|   4. EMA direction (same configured EMA used by the filter)      |
+//|   5. 30-minute price momentum                                    |
 //|                                                                   |
-//| SSL is the mandatory trade direction. H1/EMA/30M confirmations  |
+//| SSL is the mandatory trade direction. H1/M5/EMA/30M confirmations|
 //| increase the lot. A conflicting confirmation does NOT reverse the |
 //| trade; it simply keeps the lot smaller. Recovery order sizing is |
 //| NOT handled here and is intentionally left unchanged.            |
@@ -3131,7 +3238,7 @@ double GetMarketMomentLot(int orderType)
    int sslDirection = GetCurrentSSLDirection();
    int requestedDirection = (orderType == OP_BUY) ? 1 : -1;
 
-   // SSL must agree with the requested order direction.
+   // SSL is the master direction. If SSL disagrees, never increase size.
    if(sslDirection != requestedDirection)
      {
       Print("LOT MOMENT | SSL conflict | Requested=",
@@ -3142,16 +3249,24 @@ double GetMarketMomentLot(int orderType)
       return NormalizeLots(0.01);
      }
 
-   // 1) H1 direction - last CLOSED H1 candle.
+   // H1: last CLOSED candle is the higher-timeframe bias.
    int h1Direction = GetH1Direction();
    bool h1Aligned = (h1Direction == requestedDirection);
+   bool h1Opposite = (h1Direction == -requestedDirection);
 
-   // 2) EMA direction - use the same EMA period/shift configured for the EA.
+   // M5: majority of the last CLOSED M5 candles.
+   int m5Direction = GetM5Direction();
+   bool m5Aligned = (m5Direction == requestedDirection);
+
+   // EMA: same configured EMA and shift as the existing EMA filter.
    int emaShift = InpEMAPriceShift;
    if(emaShift < 0)
       emaShift = 0;
-   if(emaShift >= Bars)
-      emaShift = Bars - 1;
+   int chartBars = iBars(Symbol(), Period());
+   if(chartBars <= 0)
+      chartBars = Bars;
+   if(emaShift >= chartBars)
+      emaShift = chartBars - 1;
 
    double ema = iMA(Symbol(), Period(), InpEMA200Period, 0,
                     MODE_EMA, PRICE_CLOSE, emaShift);
@@ -3159,10 +3274,10 @@ double GetMarketMomentLot(int orderType)
    RefreshRates();
    double emaPrice = (emaShift == 0)
                      ? ((orderType == OP_BUY) ? Ask : Bid)
-                     : Close[emaShift];
+                     : iClose(Symbol(), Period(), emaShift);
 
    int emaDirection = 0;
-   if(ema > 0.0)
+   if(ema > 0.0 && emaPrice > 0.0)
      {
       if(emaPrice > ema)
          emaDirection = 1;
@@ -3173,8 +3288,8 @@ double GetMarketMomentLot(int orderType)
 
    bool emaAligned = (emaDirection == requestedDirection);
 
-   // 3) 30-minute momentum - current side price versus the price
-   //    approximately 30 minutes ago. The existing threshold input is reused.
+   // 30-minute momentum uses the actual 30-minute lookback configured
+   // above (default = 30 minutes) and the existing price-difference threshold.
    double momentumDiff = Get30MinDifference(orderType);
    double momentumThreshold = MathAbs(Min30MinutePriceDifference);
    bool momentumAligned = false;
@@ -3184,20 +3299,17 @@ double GetMarketMomentLot(int orderType)
    else
       momentumAligned = (momentumDiff < -momentumThreshold);
 
-   // Score only the three confirmations after SSL.
+   // Four confirmations determine normal lot strength.
    int confirmationScore = 0;
    if(h1Aligned)
+      confirmationScore++;
+   if(m5Aligned)
       confirmationScore++;
    if(emaAligned)
       confirmationScore++;
    if(momentumAligned)
       confirmationScore++;
 
-   // Lot ladder at the current account size:
-   // 0 confirmations = 0.01
-   // 1 confirmation  = 0.02
-   // 2 confirmations = 0.03
-   // 3 confirmations = 0.05
    double lot = 0.01;
    if(confirmationScore == 1)
       lot = 0.02;
@@ -3205,21 +3317,54 @@ double GetMarketMomentLot(int orderType)
       if(confirmationScore == 2)
          lot = 0.03;
       else
-         if(confirmationScore >= 3)
-            lot = 0.05;
+         if(confirmationScore == 3)
+            lot = 0.04;
+         else
+            if(confirmationScore >= 4)
+               lot = 0.05;
+
+   // Safety rule: if the higher-timeframe H1 bias is directly opposite
+   // to the requested direction, do not allow an aggressive lot.
+   if(CapLotWhenH1Opposite && h1Opposite)
+     {
+      lot = MathMin(lot, 0.01);
+      Print("LOT MOMENT | H1 OPPOSITE | Requested=",
+            orderType == OP_BUY ? "BUY" : "SELL",
+            " | H1=", h1Direction == 1 ? "BUY" : "SELL",
+            " | Lot capped to 0.01");
+     }
+
+   // Safety rule: an unusually large closed M5 candle relative to ATR means
+   // price is potentially in a spike. Cap normal entry size instead of
+   // increasing risk into the spike. Recovery orders are not affected.
+   double atrRatio = GetM5CandleATRRatio();
+   bool extremeVolatility = IsExtremeVolatility();
+   if(extremeVolatility)
+     {
+      lot = MathMin(lot, MathAbs(VolatilityLotCap));
+      Print("LOT MOMENT | EXTREME VOLATILITY | M5 Range/ATR=",
+            DoubleToString(atrRatio,2),
+            " | Limit=",DoubleToString(MaxCandleRangeATRMultiple,2),
+            " | Lot capped to ",DoubleToString(lot,2));
+     }
 
    Print("LOT MOMENT | ",
          orderType == OP_BUY ? "BUY" : "SELL",
          " | SSL=", sslDirection == 1 ? "BUY" : "SELL",
          " | H1=", h1Direction == 1 ? "BUY" : h1Direction == -1 ? "SELL" : "NONE",
+         " | M5=", m5Direction == 1 ? "BUY" : m5Direction == -1 ? "SELL" : "NONE",
          " | EMA=", emaDirection == 1 ? "BUY" : emaDirection == -1 ? "SELL" : "NONE",
-         " | 30MDiff=", DoubleToString(momentumDiff, Digits),
-         " | Threshold=", DoubleToString(momentumThreshold, Digits),
-         " | H1Aligned=", h1Aligned ? "YES" : "NO",
-         " | EMAAligned=", emaAligned ? "YES" : "NO",
-         " | MomentumAligned=", momentumAligned ? "YES" : "NO",
-         " | Score=", confirmationScore, "/3",
-         " | BaseLot=", DoubleToString(lot, 2));
+         " | 30MDiff=",DoubleToString(momentumDiff,Digits),
+         " | Threshold=",DoubleToString(momentumThreshold,Digits),
+         " | M5Range/ATR=",DoubleToString(atrRatio,2),
+         " | H1Aligned=",h1Aligned?"YES":"NO",
+         " | M5Aligned=",m5Aligned?"YES":"NO",
+         " | EMAAligned=",emaAligned?"YES":"NO",
+         " | MomentumAligned=",momentumAligned?"YES":"NO",
+         " | H1Opposite=",h1Opposite?"YES":"NO",
+         " | ExtremeVol=",extremeVolatility?"YES":"NO",
+         " | Score=",confirmationScore,"/4",
+         " | BaseLot=",DoubleToString(lot,2));
 
    return NormalizeLots(lot);
   }
@@ -5996,7 +6141,74 @@ void UpdateDashboard(DailyProtectionState &state)
    int tx=x+12;
    int w=DashboardWidth;
    int row=20;
-   int panelHeight=610;
+   int panelHeight=900;
+
+   //===============================================================
+   // MARKET-MOMENT CONFIRMATION VALUES
+   // These are the exact confirmations used by GetMarketMomentLot().
+   // SSL is mandatory; H1/M5/EMA/30M determine lot strength.
+   // H1 opposite and extreme ATR volatility cap the lot to the base lot.
+   //===============================================================
+   int h1Direction=GetH1Direction();
+   int m5Direction=GetM5Direction();
+   int dashboardDirection=(currentSSLDirection>0)?1:(currentSSLDirection<0?-1:0);
+
+   string h1Text=h1Direction>0?"BUY":h1Direction<0?"SELL":"NONE";
+   string m5Text=m5Direction>0?"BUY":m5Direction<0?"SELL":"NONE";
+
+   bool h1Confirm=(dashboardDirection!=0 && h1Direction==dashboardDirection);
+   bool m5Confirm=(dashboardDirection!=0 && m5Direction==dashboardDirection);
+   bool emaConfirm=(dashboardDirection!=0 && EMADirection==dashboardDirection);
+   bool h1Opposite=(dashboardDirection!=0 && h1Direction==-dashboardDirection);
+
+   double dashboardMomentumDiff=0.0;
+   double dashboardMomentumThreshold=MathAbs(Min30MinutePriceDifference);
+   bool momentumConfirm=false;
+   if(dashboardDirection!=0)
+     {
+      dashboardMomentumDiff=Get30MinDifference(dashboardDirection==1?OP_BUY:OP_SELL);
+      momentumConfirm=(dashboardDirection==1)
+                      ? (dashboardMomentumDiff>dashboardMomentumThreshold)
+                      : (dashboardMomentumDiff<-dashboardMomentumThreshold);
+     }
+
+   double dashboardATRRatio=GetM5CandleATRRatio();
+   bool dashboardExtremeVol=IsExtremeVolatility();
+
+   int dashboardScore=0;
+   if(h1Confirm) dashboardScore++;
+   if(m5Confirm) dashboardScore++;
+   if(emaConfirm) dashboardScore++;
+   if(momentumConfirm) dashboardScore++;
+
+   double dashboardSuggestedLot=0.01;
+   if(dashboardScore==1) dashboardSuggestedLot=0.02;
+   else if(dashboardScore==2) dashboardSuggestedLot=0.03;
+   else if(dashboardScore==3) dashboardSuggestedLot=0.04;
+   else if(dashboardScore>=4) dashboardSuggestedLot=0.05;
+
+   if(CapLotWhenH1Opposite && h1Opposite)
+      dashboardSuggestedLot=MathMin(dashboardSuggestedLot,0.01);
+
+   if(dashboardExtremeVol)
+      dashboardSuggestedLot=MathMin(dashboardSuggestedLot,MathAbs(VolatilityLotCap));
+
+   // Apply the same account multiplier used by ChangeLots().
+   int dashboardLotMultiplier=(int)(AccountBalance()/AccountMultiplierLOT);
+   if(dashboardLotMultiplier<1) dashboardLotMultiplier=1;
+   double dashboardFinalLot=NormalizeLots(MathMin(0.10,dashboardSuggestedLot*dashboardLotMultiplier));
+
+   string h1Mark=h1Confirm?"PASS":(h1Opposite?"OPPOSITE":"NO");
+   string m5Mark=m5Confirm?"PASS":"NO";
+   string emaMark=emaConfirm?"PASS":"NO";
+   string momMark=momentumConfirm?"PASS":"NO";
+   color h1Color=h1Confirm?clrLime:(h1Opposite?clrTomato:clrGold);
+   color m5Color=m5Confirm?clrLime:clrTomato;
+   color emaConfirmColor=emaConfirm?clrLime:clrTomato;
+   color momentumColor=momentumConfirm?clrLime:clrTomato;
+
+   string scoreText="SCORE        : "+IntegerToString(dashboardScore)+" / 4  -> LOT "+DoubleToString(dashboardFinalLot,2);
+   color scoreColor=(h1Opposite||dashboardExtremeVol)?clrGold:(dashboardScore>=3?clrLime:(dashboardScore>=1?clrGold:clrTomato));
 
    CreateDashboardPanel(DASH_PREFIX+"PANEL",x,y,w,panelHeight,C'12,16,22');
    CreateDashboardPanel(DASH_PREFIX+"HEADER",x,y,w,38,C'25,70,115');
@@ -6004,58 +6216,51 @@ void UpdateDashboard(DailyProtectionState &state)
    CreateDashboardLabel(DASH_PREFIX+"SUBTITLE",Symbol()+"  |  "+TimeframeToString(Period()),tx+w-125,y+10,8,clrLightGray);
 
    CreateDashboardLabel(DASH_PREFIX+"STATUS", "STATUS       : "+statusText,tx,y+47,10,statusColor);
+   CreateDashboardLabel(DASH_PREFIX+"SIGNAL","SSL SIGNAL   : "+sslDirection+"  (MASTER)",tx,y+67,9,sslColor);
 
-   string H1Signal = IsH1BuyAllowed()
-                     ? "H1 BUY"
-                     : IsH1SellAllowed()
-                     ? "H1 SELL"
-                     : "";
+   // Confirmation block - easy to read while EA is running.
+   CreateDashboardPanel(DASH_PREFIX+"SEC_CONFIRM",x,y+90,w,22,C'30,38,50');
+   CreateDashboardLabel(DASH_PREFIX+"CONF_H","MARKET-MOMENT CONFIRMATIONS",tx,y+94,9,clrAqua);
+   CreateDashboardLabel(DASH_PREFIX+"CONF_H1","H1 DIRECTION : "+h1Text+"  ["+h1Mark+"]",tx,y+117,9,h1Color);
+   CreateDashboardLabel(DASH_PREFIX+"CONF_M5","M5 3-CANDLE  : "+m5Text+"  ["+m5Mark+"]",tx,y+137,9,m5Color);
+   CreateDashboardLabel(DASH_PREFIX+"CONF_EMA","EMA "+IntegerToString(InpEMA200Period)+"     : "+emaState+"  ["+emaMark+"]",tx,y+157,9,emaConfirmColor);
+   CreateDashboardLabel(DASH_PREFIX+"CONF_30M","30M MOMENTUM  : "+DoubleToString(dashboardMomentumDiff,Digits)+" / "+DoubleToString(dashboardMomentumThreshold,Digits)+"  ["+momMark+"]",tx,y+177,8,momentumColor);
+   CreateDashboardLabel(DASH_PREFIX+"CONF_ATR","M5 RANGE/ATR : "+DoubleToString(dashboardATRRatio,2)+" / "+DoubleToString(MaxCandleRangeATRMultiple,2)+"  ["+(dashboardExtremeVol?"EXTREME":"OK")+"]",tx,y+197,8,dashboardExtremeVol?clrTomato:clrLime);
+   CreateDashboardLabel(DASH_PREFIX+"CONF_SCORE",scoreText,tx,y+217,10,scoreColor);
+   CreateDashboardLabel(DASH_PREFIX+"CONF_RULE","SSL MASTER | H1/M5/EMA/30M score | H1 opposite / ATR spike caps lot",tx,y+236,7,clrSilver);
+   CreateDashboardLabel(DASH_PREFIX+"PRICE","BID / ASK    : "+DoubleToString(Bid,Digits)+" / "+DoubleToString(Ask,Digits),tx,y+255,9,clrWhite);
 
-   CreateDashboardLabel(
-      DASH_PREFIX+"SIGNAL",
-      "SSL SIGNAL : "+sslDirection+"/ "+H1Signal,
-      tx, y+67, 9, sslColor
-   );
-   CreateDashboardLabel(DASH_PREFIX+"EMA", "EMA "+IntegerToString(InpEMA200Period)+"      : "+emaState+"  "+(ema>0?DoubleToString(ema,Digits):"-"),tx,y+87,9,emaColor);
-   CreateDashboardLabel(DASH_PREFIX+"PRICE", "BID / ASK    : "+DoubleToString(Bid,Digits)+" / "+DoubleToString(Ask,Digits),tx,y+107,9,clrWhite);
+   CreateDashboardPanel(DASH_PREFIX+"SEC_ACCOUNT",x,y+278,w,22,C'30,38,50');
+   CreateDashboardLabel(DASH_PREFIX+"ACCOUNT_H","ACCOUNT & EQUITY",tx,y+282,9,clrAqua);
+   CreateDashboardLabel(DASH_PREFIX+"BALANCE","BALANCE      : $"+DoubleToString(AccountBalance(),2),tx,y+305,9,clrWhite);
+   CreateDashboardLabel(DASH_PREFIX+"EQUITY","EQUITY       : $"+DoubleToString(AccountEquity(),2),tx,y+325,9,clrLime);
+   CreateDashboardLabel(DASH_PREFIX+"FREEMARGIN","FREE MARGIN   : $"+DoubleToString(AccountFreeMargin(),2),tx,y+345,9,clrWhite);
+   CreateDashboardLabel(DASH_PREFIX+"DAYPL","DAY P/L       : "+(dayPL>=0?"+":"")+DoubleToString(dayPL,2)+" ("+DoubleToString(dayPLPct,1)+"%)",tx,y+365,9,dayPL>=0?clrLime:clrTomato);
 
-   CreateDashboardPanel(DASH_PREFIX+"SEC_ACCOUNT",x,y+130,w-0,22,C'30,38,50');
-   CreateDashboardLabel(DASH_PREFIX+"ACCOUNT_H","ACCOUNT & EQUITY",tx,y+134,9,clrAqua);
-   CreateDashboardLabel(DASH_PREFIX+"BALANCE","BALANCE      : $"+DoubleToString(AccountBalance(),2),tx,y+157,9,clrWhite);
-   CreateDashboardLabel(DASH_PREFIX+"EQUITY","EQUITY       : $"+DoubleToString(AccountEquity(),2),tx,y+177,9,clrLime);
-   CreateDashboardLabel(DASH_PREFIX+"FREEMARGIN","FREE MARGIN   : $"+DoubleToString(AccountFreeMargin(),2),tx,y+197,9,clrWhite);
-   CreateDashboardLabel(DASH_PREFIX+"DAYPL","DAY P/L       : "+(dayPL>=0?"+":"")+DoubleToString(dayPL,2)+" ("+DoubleToString(dayPLPct,1)+"%)",tx,y+217,9,dayPL>=0?clrLime:clrTomato);
+   CreateDashboardPanel(DASH_PREFIX+"SEC_LADDER",x,y+388,w,22,C'30,38,50');
+   CreateDashboardLabel(DASH_PREFIX+"LADDER_H","EQUITY LADDER",tx,y+392,9,clrAqua);
+   CreateDashboardLabel(DASH_PREFIX+"STEP","STEP         : "+IntegerToString(EquityLadderLevel),tx,y+415,9,clrYellow);
+   CreateDashboardLabel(DASH_PREFIX+"TARGET","NEXT TARGET  : $"+DoubleToString(NextEquityTarget,2)+" / "+IntegerToString(DailyEquityTargetPercent)+"%",tx,y+435,9,clrLime);
+   CreateDashboardLabel(DASH_PREFIX+"LOCKED","LOCKED EQUITY : $"+DoubleToString(LockedEquity,2),tx,y+455,9,clrGold);
+   CreateDashboardLabel(DASH_PREFIX+"PROTECTED","DAY PROTECTED : $"+DoubleToString(state.DayProtectedBalance,2),tx,y+475,9,clrGold);
+   CreateDashboardLabel(DASH_PREFIX+"PROGRESS","PROGRESS      : "+DoubleToString(ladderProgress,1)+"%",tx,y+495,9,clrWhite);
 
-   CreateDashboardPanel(DASH_PREFIX+"SEC_LADDER",x,y+240,w,22,C'30,38,50');
-   CreateDashboardLabel(DASH_PREFIX+"LADDER_H","EQUITY LADDER",tx,y+244,9,clrAqua);
-   CreateDashboardLabel(DASH_PREFIX+"STEP","STEP         : "+IntegerToString(EquityLadderLevel),tx,y+267,9,clrYellow);
-// CreateDashboardLabel(DASH_PREFIX+"TARGET","NEXT TARGET  : $"+DoubleToString(NextEquityTarget,2),tx,y+287,9,clrLime);
+   CreateDashboardPanel(DASH_PREFIX+"SEC_RISK",x,y+518,w,22,C'30,38,50');
+   CreateDashboardLabel(DASH_PREFIX+"RISK_H","RISK & STOP-LOSS PROTECTION",tx,y+522,9,clrAqua);
+   CreateDashboardLabel(DASH_PREFIX+"FLOAT","FLOATING P/L  : "+(netProfit>=0?"+":"")+DoubleToString(netProfit,2),tx,y+545,9,pnlColor);
+   int balancelomultipler=(int)(AccountBalance()/AccountMultiplierLOT);
+   if(balancelomultipler<1) balancelomultipler=1;
+   CreateDashboardLabel(DASH_PREFIX+"ORDERS","ORDERS       : "+IntegerToString(totalOrders)+" / "+IntegerToString(MaxOpenOrders)+"   B:"+IntegerToString(buyOrders)+" S:"+IntegerToString(sellOrders),tx,y+565,9,clrWhite);
+   CreateDashboardLabel(DASH_PREFIX+"LOTS","LOTS         : B "+DoubleToString(GetTotalLots(OP_BUY),2)+" / S "+DoubleToString(GetTotalLots(OP_SELL),2)+" Multi X "+IntegerToString(balancelomultipler),tx,y+585,9,clrWhite);
+   CreateDashboardLabel(DASH_PREFIX+"SLRISK","SL LOSSES    : "+IntegerToString(LosingSLCount)+" | CONTINUE AFTER SL: "+(ContinueTradingAfterSL?"YES":"NO"),tx,y+605,9,ContinueTradingAfterSL?clrLime:(LosingSLCount>0?clrOrangeRed:clrLime));
+   CreateDashboardLabel(DASH_PREFIX+"BASKET","BASKET LOCK  : $"+DoubleToString(BasketNewOrderLossLimitUSD,2)+" | ROOM $"+DoubleToString(riskRemaining,2),tx,y+625,9,HasBasketNewOrderLossLimit()?clrTomato:clrLime);
+   CreateDashboardLabel(DASH_PREFIX+"COOLDOWN","SL COOLDOWN  : "+(SLProtectionUntil>TimeCurrent()?TimeToString(SLProtectionUntil,TIME_SECONDS):"READY"),tx,y+645,9,SLProtectionUntil>TimeCurrent()?clrGold:clrLime);
 
-   CreateDashboardLabel(DASH_PREFIX+"TARGET","NEXT TARGET  : $"+DoubleToString(NextEquityTarget,2)+" / "+IntegerToString(DailyEquityTargetPercent)+"%",tx,y+287,9,clrLime);
-
-
-   CreateDashboardLabel(DASH_PREFIX+"LOCKED","LOCKED EQUITY : $"+DoubleToString(LockedEquity,2),tx,y+307,9,clrGold);
-   CreateDashboardLabel(DASH_PREFIX+"PROTECTED","DAY PROTECTED : $"+DoubleToString(state.DayProtectedBalance,2),tx,y+327,9,clrGold);
-   CreateDashboardLabel(DASH_PREFIX+"PROGRESS","PROGRESS      : "+DoubleToString(ladderProgress,1)+"%",tx,y+347,9,clrWhite);
-
-   CreateDashboardPanel(DASH_PREFIX+"SEC_RISK",x,y+370,w,22,C'30,38,50');
-   CreateDashboardLabel(DASH_PREFIX+"RISK_H","RISK & STOP-LOSS PROTECTION",tx,y+374,9,clrAqua);
-   CreateDashboardLabel(DASH_PREFIX+"FLOAT","FLOATING P/L  : "+(netProfit>=0?"+":"")+DoubleToString(netProfit,2),tx,y+397,9,pnlColor);
-   int balancelomultipler =
-      (int)(AccountBalance() / AccountMultiplierLOT);
-   if(balancelomultipler < 1)
-      balancelomultipler = 1;
-   CreateDashboardLabel(DASH_PREFIX+"ORDERS","ORDERS       : "+IntegerToString(totalOrders)+" / "+IntegerToString(MaxOpenOrders)+"   B:"+IntegerToString(buyOrders)+" S:"+IntegerToString(sellOrders),tx,y+417,9,clrWhite);
-   CreateDashboardLabel(DASH_PREFIX+"LOTS","LOTS         : B "+DoubleToString(GetTotalLots(OP_BUY),2)+" / S "+DoubleToString(GetTotalLots(OP_SELL),2)+" Multi X "+IntegerToString(balancelomultipler),tx,y+437,9,clrWhite);
-   CreateDashboardLabel(DASH_PREFIX+"SLRISK","SL LOSSES    : "+IntegerToString(LosingSLCount)+" | CONTINUE AFTER SL: "+(ContinueTradingAfterSL?"YES":"NO"),tx,y+457,9,ContinueTradingAfterSL?clrLime:(LosingSLCount>0?clrOrangeRed:clrLime));
-   CreateDashboardLabel(DASH_PREFIX+"BASKET","BASKET LOCK  : $"+DoubleToString(BasketNewOrderLossLimitUSD,2)+" | ROOM $"+DoubleToString(riskRemaining,2),tx,y+477,9,HasBasketNewOrderLossLimit()?clrTomato:clrLime);
-   CreateDashboardLabel(DASH_PREFIX+"COOLDOWN","SL COOLDOWN  : "+(SLProtectionUntil>TimeCurrent()?TimeToString(SLProtectionUntil,TIME_SECONDS):"READY"),tx,y+497,9,SLProtectionUntil>TimeCurrent()?clrGold:clrLime);
-
-   CreateDashboardPanel(DASH_PREFIX+"SEC_SERVER",x,y+520,w,22,C'30,38,50');
-   CreateDashboardLabel(DASH_PREFIX+"SERVER_H","SERVER / EA HEALTH",tx,y+524,9,clrAqua);
-   CreateDashboardLabel(DASH_PREFIX+"SERVER","CONNECTION   : "+serverText,tx,y+547,9,serverColor);
-   CreateDashboardLabel(DASH_PREFIX+"RECOVERY","RECOVERY CTS  : "+IntegerToString(ServerRecoveryResetCount)+"   LAST ERR: "+IntegerToString(ServerRecoveryLastError),tx,y+567,8,ServerRecoveryLastError==0?clrSilver:clrGold);
-   CreateDashboardLabel(DASH_PREFIX+"REENTRY","RE-ENTRY      : "+(EquityResetReEntryPending?"PENDING":(ProtectedEquityWaitActive?"WAIT":"READY")),tx,y+587,8,EquityResetReEntryPending||ProtectedEquityWaitActive?clrGold:clrLime);
+   CreateDashboardPanel(DASH_PREFIX+"SEC_SERVER",x,y+668,w,22,C'30,38,50');
+   CreateDashboardLabel(DASH_PREFIX+"SERVER_H","SERVER / EA HEALTH",tx,y+672,9,clrAqua);
+   CreateDashboardLabel(DASH_PREFIX+"SERVER","CONNECTION   : "+serverText,tx,y+695,9,serverColor);
+   CreateDashboardLabel(DASH_PREFIX+"RECOVERY","RECOVERY CTS  : "+IntegerToString(ServerRecoveryResetCount)+"   LAST ERR: "+IntegerToString(ServerRecoveryLastError),tx,y+715,8,ServerRecoveryLastError==0?clrSilver:clrGold);
+   CreateDashboardLabel(DASH_PREFIX+"REENTRY","RE-ENTRY      : "+(EquityResetReEntryPending?"PENDING":(ProtectedEquityWaitActive?"WAIT":"READY")),tx,y+735,8,EquityResetReEntryPending||ProtectedEquityWaitActive?clrGold:clrLime);
    ChartRedraw(0);
   }
 
