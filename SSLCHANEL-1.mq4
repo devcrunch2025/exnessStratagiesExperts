@@ -264,8 +264,8 @@ bool IsH1SellAllowed()
 //+------------------------------------------------------------------+
 int GetH1Direction()
   {
-   double h1Open  = iOpen(Symbol(), PERIOD_M30, 0);
-   double h1Close = iClose(Symbol(), PERIOD_M30, 0);
+   double h1Open  = iOpen(Symbol(), PERIOD_M30, 1);
+   double h1Close = iClose(Symbol(), PERIOD_M30, 1);
 
    if(h1Close > h1Open)
       return 1;       // Bullish
@@ -1370,7 +1370,7 @@ if(IsH1BuyAllowed() && GetCurrentSSLDirection()==1 && !HasLargeM1Candle())
 {
 
 
-    double lot = 0.10 - (reEntryNumber * 0.01);
+    double lot = 0.05 - (reEntryNumber * 0.01);
    if(lot < 0.01)
       lot = 0.01;
 
@@ -3134,7 +3134,7 @@ void ChangeLots(double OpenPL, string reason, int orderType,int stoplevelStep)
 
 
 
-            Lots = NormalizeLots(0.20); //0.05 is danger if market is moving continuous down with small ups and downs
+            Lots = NormalizeLots(0.10); //0.05 is danger if market is moving continuous down with small ups and downs
 
 
 
