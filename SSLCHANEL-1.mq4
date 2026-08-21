@@ -94,9 +94,9 @@ bool EnableProfitLadder1 = true;
 
 
 
-double Ladder1ProfitUSD =0.20;//0.20;//0.05;//1;//0.15;//0.25;//0.50;// 0.05;
+double Ladder1ProfitUSD =1;//0.20;//0.20;//0.05;//1;//0.15;//0.25;//0.50;// 0.05;
 bool EnableProfitLadder2 = true;
-double Ladder1StopMaxPriceUSD = 0.40;//0.50;//0.20;
+double Ladder1StopMaxPriceUSD =10;// 0.40;//0.50;//0.20;
 double Ladder2ProfitUSD = 0.10;//server api is has errors due to too many orders, so we need to limit the number of orders to 1, and increase the profit target to 0.20
 
 
@@ -264,8 +264,8 @@ bool IsH1SellAllowed()
 //+------------------------------------------------------------------+
 int GetH1Direction()
   {
-   double h1Open  = iOpen(Symbol(), PERIOD_M30, 1);
-   double h1Close = iClose(Symbol(), PERIOD_M30, 1);
+   double h1Open  = iOpen(Symbol(), PERIOD_H1, 1);
+   double h1Close = iClose(Symbol(), PERIOD_H1, 1);
 
    if(h1Close > h1Open)
       return 1;       // Bullish
@@ -3230,15 +3230,15 @@ void ChangeLots(double OpenPL, string reason, int orderType,int stoplevelStep)
 
 
 
-         if(orderType==OP_BUY && GetH1Direction()==1 && EMADirection==1 && GetMaxOpenLotByType(OP_BUY)==0.10)
+         if(orderType==OP_BUY && GetH1Direction()==1 && EMADirection==1 && GetMaxOpenLotByType(OP_BUY)!=0.05)
            {
-            Lots = NormalizeLots(0.10);
+            Lots = NormalizeLots(0.05);
 
            }
          else
-            if(orderType==OP_SELL && GetH1Direction()==-1 && EMADirection==-1  && GetMaxOpenLotByType(OP_SELL)==0.10)
+            if(orderType==OP_SELL && GetH1Direction()==-1 && EMADirection==-1  && GetMaxOpenLotByType(OP_SELL)!=0.05)
               {
-               Lots = NormalizeLots(0.10);
+               Lots = NormalizeLots(0.05);
 
               }
             else
@@ -3338,6 +3338,7 @@ void ChangeLots(double OpenPL, string reason, int orderType,int stoplevelStep)
       Print("Maximum Lot    : ",
             DoubleToString(MaxRecoveryLot, 2));
 
+            
       Lots = NormalizeLots(MaxRecoveryLot);
      }
 
@@ -3346,12 +3347,18 @@ void ChangeLots(double OpenPL, string reason, int orderType,int stoplevelStep)
 // FINAL NORMALIZATION
 //==================================================
    Lots = NormalizeLots(Lots);
+        // if(orderType==OP_BUY && GetH1Direction()==1 && EMADirection==1 && GetMaxOpenLotByType(OP_BUY)!=0.05)
 
 
-
-   if(OpenPL < -10 && Lots<0.10)
+ if((orderType==OP_BUY && GetH1Direction()==1 ) || (orderType==OP_SELL && GetH1Direction()==-1))
+   if(OpenPL < -0.5 && Lots<0.10)
    {
 Lots=Lots*2;
+
+   }
+   else
+   {
+Lots=0.01;
 
    }
 
