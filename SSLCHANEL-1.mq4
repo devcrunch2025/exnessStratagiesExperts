@@ -264,8 +264,8 @@ bool IsH1SellAllowed()
 //+------------------------------------------------------------------+
 int GetH1Direction()
   {
-   double h1Open  = iOpen(Symbol(), PERIOD_H1, 0);
-   double h1Close = iClose(Symbol(), PERIOD_H1, 0);
+   double h1Open  = iOpen(Symbol(), PERIOD_M30, 0);
+   double h1Close = iClose(Symbol(), PERIOD_M30, 0);
 
    if(h1Close > h1Open)
       return 1;       // Bullish
@@ -3131,6 +3131,13 @@ void ChangeLots(double OpenPL, string reason, int orderType,int stoplevelStep)
             //       DoubleToString(Lots, 2));
             // Print("========================================");
            }
+
+
+
+            Lots = NormalizeLots(0.20); //0.05 is danger if market is moving continuous down with small ups and downs
+
+
+
         }
 
 
@@ -5143,10 +5150,10 @@ void ManageProfitLadder()
          orderLots * 100.0;
 
 
-      if(orderLots >= 0.04)
-        {
-         ladder1Profit =0.10;// ladder1Profit/2;
-        }
+      // if(orderLots >= 0.04)
+      //   {
+      //    ladder1Profit =0.10;// ladder1Profit/2;
+      //   }
 
 
       // int dayOfWeek = TimeDayOfWeek(TimeCurrent());
