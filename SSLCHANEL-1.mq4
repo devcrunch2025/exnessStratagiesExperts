@@ -1271,7 +1271,7 @@ void OnTickCore()
 //+------------------------------------------------------------------+
 bool HasMinimumSameOrderGap(int orderType)
   {
-   
+
    RefreshRates();
    double currentPrice = (orderType == OP_BUY) ? Ask : Bid;
    for(int i = OrdersTotal() - 1; i >= 0; i--)
@@ -1383,10 +1383,14 @@ bool HasLargeM1Candle()
      }
 
    return false;
-  }bool CanOpenRiskOrder(int orderType, double requestedLot)
-{
+  }
+//+------------------------------------------------------------------+
+//|                                                                  |
+//+------------------------------------------------------------------+
+bool CanOpenRiskOrder(int orderType, double requestedLot)
+  {
    for(int i = OrdersTotal() - 1; i >= 0; i--)
-   {
+     {
       if(!OrderSelect(i, SELECT_BY_POS, MODE_TRADES))
          continue;
 
@@ -1405,7 +1409,7 @@ bool HasLargeM1Candle()
       if(MathAbs(existingLot - requestedLot) > 0.000001)
          continue;
 
-         
+
 
       double pl = OrderProfit() + OrderSwap() + OrderCommission();
 
@@ -1416,17 +1420,20 @@ bool HasLargeM1Candle()
       // DO NOT open another same-lot risk order.
       if(pl <= -lossLimit)
          return false;
-   }
+     }
 
-   // No same-lot order in significant loss
+// No same-lot order in significant loss
    return true;
-}
-  double GetMaxOpenLotByType11111(int orderType)
-{
+  }
+//+------------------------------------------------------------------+
+//|                                                                  |
+//+------------------------------------------------------------------+
+double GetMaxOpenLotByType11111(int orderType)
+  {
    double maxLot = 0.0;
 
    for(int i = OrdersTotal() - 1; i >= 0; i--)
-   {
+     {
       if(!OrderSelect(i, SELECT_BY_POS, MODE_TRADES))
          continue;
 
@@ -1447,20 +1454,23 @@ bool HasLargeM1Candle()
 
       // Only consider orders beyond their dynamic loss threshold
       if(pl > -lossThreshold)
-      {
+        {
          if(lots > maxLot)
             maxLot = lots;
-      }
-   }
+        }
+     }
 
    return maxLot;
-}
+  }
+//+------------------------------------------------------------------+
+//|                                                                  |
+//+------------------------------------------------------------------+
 double GetMaxOpenLotByType(int orderType)
-{
+  {
    double maxLot = 0.0;
 
    for(int i = OrdersTotal() - 1; i >= 0; i--)
-   {
+     {
       if(!OrderSelect(i, SELECT_BY_POS, MODE_TRADES))
          continue;
 
@@ -1475,10 +1485,10 @@ double GetMaxOpenLotByType(int orderType)
 
       if(OrderLots() > maxLot)
          maxLot = OrderLots();
-   }
+     }
 
    return maxLot;
-}
+  }
 // Return the lot required for a successful ReEntry number.
 // #1 = 0.01, #2 = 0.10, #3 = 0.09 ... #10 = 0.02, #11+ = 0.01.
 //0.03
@@ -1495,7 +1505,7 @@ double GetReEntryLot(int reEntryNumber)
          lot = 0.01;
 
 
-         lot=0.05;//
+      lot=0.05;//
       return NormalizeLots(lot);
 
 
@@ -3238,7 +3248,7 @@ double GetMarketMomentLot(int orderType)
    int sslDirection = GetCurrentSSLDirection();
    int requestedDirection = (orderType == OP_BUY) ? 1 : -1;
 
-   // SSL is the master direction. If SSL disagrees, never increase size.
+// SSL is the master direction. If SSL disagrees, never increase size.
    if(sslDirection != requestedDirection)
      {
       Print("LOT MOMENT | SSL conflict | Requested=",
@@ -3249,16 +3259,16 @@ double GetMarketMomentLot(int orderType)
       return NormalizeLots(0.01);
      }
 
-   // H1: last CLOSED candle is the higher-timeframe bias.
+// H1: last CLOSED candle is the higher-timeframe bias.
    int h1Direction = GetH1Direction();
    bool h1Aligned = (h1Direction == requestedDirection);
    bool h1Opposite = (h1Direction == -requestedDirection);
 
-   // M5: majority of the last CLOSED M5 candles.
+// M5: majority of the last CLOSED M5 candles.
    int m5Direction = GetM5Direction();
    bool m5Aligned = (m5Direction == requestedDirection);
 
-   // EMA: same configured EMA and shift as the existing EMA filter.
+// EMA: same configured EMA and shift as the existing EMA filter.
    int emaShift = InpEMAPriceShift;
    if(emaShift < 0)
       emaShift = 0;
@@ -3288,8 +3298,8 @@ double GetMarketMomentLot(int orderType)
 
    bool emaAligned = (emaDirection == requestedDirection);
 
-   // 30-minute momentum uses the actual 30-minute lookback configured
-   // above (default = 30 minutes) and the existing price-difference threshold.
+// 30-minute momentum uses the actual 30-minute lookback configured
+// above (default = 30 minutes) and the existing price-difference threshold.
    double momentumDiff = Get30MinDifference(orderType);
    double momentumThreshold = MathAbs(Min30MinutePriceDifference);
    bool momentumAligned = false;
@@ -3299,7 +3309,7 @@ double GetMarketMomentLot(int orderType)
    else
       momentumAligned = (momentumDiff < -momentumThreshold);
 
-   // Four confirmations determine normal lot strength.
+// Four confirmations determine normal lot strength.
    int confirmationScore = 0;
    if(h1Aligned)
       confirmationScore++;
@@ -3323,8 +3333,8 @@ double GetMarketMomentLot(int orderType)
             if(confirmationScore >= 4)
                lot = 0.10;
 
-   // Safety rule: if the higher-timeframe H1 bias is directly opposite
-   // to the requested direction, do not allow an aggressive lot.
+// Safety rule: if the higher-timeframe H1 bias is directly opposite
+// to the requested direction, do not allow an aggressive lot.
    if(CapLotWhenH1Opposite && h1Opposite)
      {
       lot = MathMin(lot, 0.01);
@@ -3334,9 +3344,9 @@ double GetMarketMomentLot(int orderType)
             " | Lot capped to 0.01");
      }
 
-   // Safety rule: an unusually large closed M5 candle relative to ATR means
-   // price is potentially in a spike. Cap normal entry size instead of
-   // increasing risk into the spike. Recovery orders are not affected.
+// Safety rule: an unusually large closed M5 candle relative to ATR means
+// price is potentially in a spike. Cap normal entry size instead of
+// increasing risk into the spike. Recovery orders are not affected.
    double atrRatio = GetM5CandleATRRatio();
    bool extremeVolatility = IsExtremeVolatility();
    if(extremeVolatility)
@@ -3375,8 +3385,8 @@ double GetMarketMomentLot(int orderType)
 //+------------------------------------------------------------------+
 void ChangeLots(double OpenPL, string reason, int orderType,int stoplevelStep)
   {
-   // Preserve the existing account-size scaling and hard maximum.
-   // Recovery order calculation does not call this function.
+// Preserve the existing account-size scaling and hard maximum.
+// Recovery order calculation does not call this function.
    double MaxRecoveryLot = 0.10;
 
    double oppositeLots = GetOppositeOrdersLots(orderType);
@@ -3389,28 +3399,59 @@ void ChangeLots(double OpenPL, string reason, int orderType,int stoplevelStep)
       (reason == "SSL Profit ReEntry Buy Stop" ||
        reason == "SSL Profit ReEntry Sell Stop");
 
-   // All normal SSL and SSL-profit-re-entry orders now use the same
-   // market-moment calculation. This removes the old final block that
-   // could overwrite a calculated 0.02/0.03/0.05 lot back to 0.01.
-   if(isSSLSignal || isSSLProfitReEntry)
+// All normal SSL and SSL-profit-re-entry orders now use the same
+// market-moment calculation. This removes the old final block that
+// could overwrite a calculated 0.02/0.03/0.05 lot back to 0.01.
+   if(isSSLSignal)
      {
       Lots = GetMarketMomentLot(orderType);
+
      }
    else
-     {
-      // There are currently no ChangeLots() callers outside the two
-      // SSL paths above. Keep the legacy fallback for safety if a future
-      // caller is added.
-      if(oppositeLots <= 0.0)
-         Lots = NormalizeLots(0.03);
+      if(isSSLProfitReEntry)
+        {
+         Lots=0.10;//10;//
+         if(reEntryCounter<=2)
+           {
+            Lots=0.02;//
+
+           }
+         else
+           {
+
+            Lots = 0.15 - (reEntryCounter * 0.01);
+            if(Lots < 0.01)
+               Lots = 0.01;
+
+           }
+         // if(reEntryCounter<=2)
+         // {
+         // Lots=0.02;//
+
+         // }
+         //  if(reEntryCounter<=2)
+         // {
+         // Lots=0.02;//
+
+         // }
+        }
       else
-         if(OpenPL < -0.50)
+        {
+         // There are currently no ChangeLots() callers outside the two
+         // SSL paths above. Keep the legacy fallback for safety if a future
+         // caller is added.
+         if(oppositeLots <= 0.0)
             Lots = NormalizeLots(0.03);
          else
-            Lots = NormalizeLots(OriginalLots);
-     }
+            if(OpenPL < -0.50)
+               Lots = NormalizeLots(0.03);
+            else
+               Lots = NormalizeLots(OriginalLots);
+        }
 
-   // Existing account-balance scaling is retained.
+
+
+// Existing account-balance scaling is retained.
    int balancelomultipler =
       (int)(AccountBalance() / AccountMultiplierLOT);
 
@@ -3419,7 +3460,7 @@ void ChangeLots(double OpenPL, string reason, int orderType,int stoplevelStep)
 
    Lots = Lots * balancelomultipler;
 
-   // Existing hard maximum is retained.
+// Existing hard maximum is retained.
    if(Lots > MaxRecoveryLot)
      {
       Print("MAX LOT LIMIT APPLIED | Calculated=",
@@ -3430,7 +3471,7 @@ void ChangeLots(double OpenPL, string reason, int orderType,int stoplevelStep)
 
    Lots = NormalizeLots(Lots);
 
-   // Existing lot-dependent SL/profit-ladder calculations are retained.
+// Existing lot-dependent SL/profit-ladder calculations are retained.
    int StoplossWeekendMultiplier=1;
 
    StopLossUSD =
@@ -5270,7 +5311,7 @@ void ManageProfitLadder()
          orderLots * 100.0;
 
 
-      // if(orderLots >= 0.04)
+      // if(orderLots >= 0.06)
       //   {
       //    ladder1Profit =0.10;// ladder1Profit/2;
       //   }
@@ -6143,12 +6184,12 @@ void UpdateDashboard(DailyProtectionState &state)
    int row=20;
    int panelHeight=900;
 
-   //===============================================================
-   // MARKET-MOMENT CONFIRMATION VALUES
-   // These are the exact confirmations used by GetMarketMomentLot().
-   // SSL is mandatory; H1/M5/EMA/30M determine lot strength.
-   // H1 opposite and extreme ATR volatility cap the lot to the base lot.
-   //===============================================================
+//===============================================================
+// MARKET-MOMENT CONFIRMATION VALUES
+// These are the exact confirmations used by GetMarketMomentLot().
+// SSL is mandatory; H1/M5/EMA/30M determine lot strength.
+// H1 opposite and extreme ATR volatility cap the lot to the base lot.
+//===============================================================
    int h1Direction=GetH1Direction();
    int m5Direction=GetM5Direction();
    int dashboardDirection=(currentSSLDirection>0)?1:(currentSSLDirection<0?-1:0);
@@ -6176,16 +6217,27 @@ void UpdateDashboard(DailyProtectionState &state)
    bool dashboardExtremeVol=IsExtremeVolatility();
 
    int dashboardScore=0;
-   if(h1Confirm) dashboardScore++;
-   if(m5Confirm) dashboardScore++;
-   if(emaConfirm) dashboardScore++;
-   if(momentumConfirm) dashboardScore++;
+   if(h1Confirm)
+      dashboardScore++;
+   if(m5Confirm)
+      dashboardScore++;
+   if(emaConfirm)
+      dashboardScore++;
+   if(momentumConfirm)
+      dashboardScore++;
 
    double dashboardSuggestedLot=0.01;
-   if(dashboardScore==1) dashboardSuggestedLot=0.02;
-   else if(dashboardScore==2) dashboardSuggestedLot=0.03;
-   else if(dashboardScore==3) dashboardSuggestedLot=0.04;
-   else if(dashboardScore>=4) dashboardSuggestedLot=0.05;
+   if(dashboardScore==1)
+      dashboardSuggestedLot=0.02;
+   else
+      if(dashboardScore==2)
+         dashboardSuggestedLot=0.03;
+      else
+         if(dashboardScore==3)
+            dashboardSuggestedLot=0.04;
+         else
+            if(dashboardScore>=4)
+               dashboardSuggestedLot=0.05;
 
    if(CapLotWhenH1Opposite && h1Opposite)
       dashboardSuggestedLot=MathMin(dashboardSuggestedLot,0.01);
@@ -6193,9 +6245,10 @@ void UpdateDashboard(DailyProtectionState &state)
    if(dashboardExtremeVol)
       dashboardSuggestedLot=MathMin(dashboardSuggestedLot,MathAbs(VolatilityLotCap));
 
-   // Apply the same account multiplier used by ChangeLots().
+// Apply the same account multiplier used by ChangeLots().
    int dashboardLotMultiplier=(int)(AccountBalance()/AccountMultiplierLOT);
-   if(dashboardLotMultiplier<1) dashboardLotMultiplier=1;
+   if(dashboardLotMultiplier<1)
+      dashboardLotMultiplier=1;
    double dashboardFinalLot=NormalizeLots(MathMin(0.10,dashboardSuggestedLot*dashboardLotMultiplier));
 
    string h1Mark=h1Confirm?"PASS":(h1Opposite?"OPPOSITE":"NO");
@@ -6218,7 +6271,7 @@ void UpdateDashboard(DailyProtectionState &state)
    CreateDashboardLabel(DASH_PREFIX+"STATUS", "STATUS       : "+statusText,tx,y+47,10,statusColor);
    CreateDashboardLabel(DASH_PREFIX+"SIGNAL","SSL SIGNAL   : "+sslDirection+"  (MASTER)",tx,y+67,9,sslColor);
 
-   // Confirmation block - easy to read while EA is running.
+// Confirmation block - easy to read while EA is running.
    CreateDashboardPanel(DASH_PREFIX+"SEC_CONFIRM",x,y+90,w,22,C'30,38,50');
    CreateDashboardLabel(DASH_PREFIX+"CONF_H","MARKET-MOMENT CONFIRMATIONS",tx,y+94,9,clrAqua);
    CreateDashboardLabel(DASH_PREFIX+"CONF_H1","H1 DIRECTION : "+h1Text+"  ["+h1Mark+"]",tx,y+117,9,h1Color);
@@ -6249,7 +6302,8 @@ void UpdateDashboard(DailyProtectionState &state)
    CreateDashboardLabel(DASH_PREFIX+"RISK_H","RISK & STOP-LOSS PROTECTION",tx,y+522,9,clrAqua);
    CreateDashboardLabel(DASH_PREFIX+"FLOAT","FLOATING P/L  : "+(netProfit>=0?"+":"")+DoubleToString(netProfit,2),tx,y+545,9,pnlColor);
    int balancelomultipler=(int)(AccountBalance()/AccountMultiplierLOT);
-   if(balancelomultipler<1) balancelomultipler=1;
+   if(balancelomultipler<1)
+      balancelomultipler=1;
    CreateDashboardLabel(DASH_PREFIX+"ORDERS","ORDERS       : "+IntegerToString(totalOrders)+" / "+IntegerToString(MaxOpenOrders)+"   B:"+IntegerToString(buyOrders)+" S:"+IntegerToString(sellOrders),tx,y+565,9,clrWhite);
    CreateDashboardLabel(DASH_PREFIX+"LOTS","LOTS         : B "+DoubleToString(GetTotalLots(OP_BUY),2)+" / S "+DoubleToString(GetTotalLots(OP_SELL),2)+" Multi X "+IntegerToString(balancelomultipler),tx,y+585,9,clrWhite);
    CreateDashboardLabel(DASH_PREFIX+"SLRISK","SL LOSSES    : "+IntegerToString(LosingSLCount)+" | CONTINUE AFTER SL: "+(ContinueTradingAfterSL?"YES":"NO"),tx,y+605,9,ContinueTradingAfterSL?clrLime:(LosingSLCount>0?clrOrangeRed:clrLime));
