@@ -74,7 +74,7 @@ bool DeleteOppositePendingOnSignal = false;
 bool EnableProfitReEntryStop = true;
 double MinimumClosedProfitUSD = -9;
 double ProfitReEntryGapRaw =25;//5;//20;// 5;
-double MinimumSameOrderGapRaw =25;//50;//for saerver safe side - less gap hit more server calls 25;// 100;//10;//50;
+double MinimumSameOrderGapRaw =20;//50;//for saerver safe side - less gap hit more server calls 25;// 100;//10;//50;
 
 // ===== STOP-LOSS / RE-ENTRY SAFETY =====
 bool EnableSLProtection = false;
@@ -94,9 +94,9 @@ bool EnableProfitLadder1 = true;
 
 
 
-double Ladder1ProfitUSD =0.20;//0.05;//1;//0.15;//0.25;//0.50;// 0.05;
+double Ladder1ProfitUSD =0.20;//0.20;//0.05;//1;//0.15;//0.25;//0.50;// 0.05;
 bool EnableProfitLadder2 = true;
-double Ladder1StopMaxPriceUSD = 1;//0.50;//0.20;
+double Ladder1StopMaxPriceUSD = 0.40;//0.50;//0.20;
 double Ladder2ProfitUSD = 0.10;//server api is has errors due to too many orders, so we need to limit the number of orders to 1, and increase the profit target to 0.20
 
 
@@ -1246,6 +1246,7 @@ void OnTickCore()
 //+------------------------------------------------------------------+
 bool HasMinimumSameOrderGap(int orderType)
   {
+   
    RefreshRates();
    double currentPrice = (orderType == OP_BUY) ? Ask : Bid;
    for(int i = OrdersTotal() - 1; i >= 0; i--)
@@ -1358,7 +1359,30 @@ bool HasLargeM1Candle()
 
    return false;
   }
+double GetMaxOpenLotByType(int orderType)
+{
+   double maxLot = 0.0;
 
+   for(int i = OrdersTotal() - 1; i >= 0; i--)
+   {
+      if(!OrderSelect(i, SELECT_BY_POS, MODE_TRADES))
+         continue;
+
+      if(OrderSymbol() != Symbol())
+         continue;
+
+      if(OrderMagicNumber() != MagicNumber)
+         continue;
+
+      if(OrderType() != orderType)
+         continue;
+
+      if(OrderLots() > maxLot)
+         maxLot = OrderLots();
+   }
+
+   return maxLot;
+}
 // Return the lot required for a successful ReEntry number.
 // #1 = 0.01, #2 = 0.10, #3 = 0.09 ... #10 = 0.02, #11+ = 0.01.
 //0.03
@@ -3135,13 +3159,13 @@ void ChangeLots(double OpenPL, string reason, int orderType,int stoplevelStep)
 
 
 
-         if(orderType==OP_BUY && GetH1Direction()==1)
+         if(orderType==OP_BUY && GetH1Direction()==1 && EMADirection==1 && GetMaxOpenLotByType(OP_BUY)!=0.10)
            {
             Lots = NormalizeLots(0.10);
 
            }
          else
-            if(orderType==OP_SELL && GetH1Direction()==-1)
+            if(orderType==OP_SELL && GetH1Direction()==-1 && EMADirection-1  && GetMaxOpenLotByType(OP_SELL)!=0.10)
               {
                Lots = NormalizeLots(0.10);
 
@@ -5855,6 +5879,8 @@ double GetTotalLots(int orderType)
 //+------------------------------------------------------------------+
 //|                                                                  |
 //+------------------------------------------------------------------+
+
+int EMADirection=0;
 void UpdateDashboard(DailyProtectionState &state)
   {
    int totalOrders=0,buyOrders=0,sellOrders=0,pendingOrders=0;
@@ -5900,17 +5926,20 @@ void UpdateDashboard(DailyProtectionState &state)
         {
          emaState="BULLISH";
          emaColor=clrLime;
+         EMADirection=1;
         }
       else
          if(Bid<ema)
            {
             emaState="BEARISH";
             emaColor=clrTomato;
+            EMADirection=-1;
            }
          else
            {
             emaState="AT EMA";
             emaColor=clrGold;
+            EMADirection=0;
            }
      }
 
