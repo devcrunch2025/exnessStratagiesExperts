@@ -651,8 +651,8 @@ int OnInit()
    OriginalDailyLossProtectionPercent = DailyLossProtectionPercent;
 
 
-   // Keep RecoveryTriggerLossUSD as the user-configured loss threshold.
-   // A positive value means the absolute loss allowed per 0.01 lot.
+// Keep RecoveryTriggerLossUSD as the user-configured loss threshold.
+// A positive value means the absolute loss allowed per 0.01 lot.
    RecoveryTriggerLossUSD = MathAbs(RecoveryTriggerLossUSD);
 
    OriginalStopLossUSD = StopLossUSD;
@@ -1366,34 +1366,35 @@ double GetReEntryLot(int reEntryNumber)
   {
 
 
-if(IsH1BuyAllowed() && GetCurrentSSLDirection()==1 && !HasLargeM1Candle())
-{
+   if(IsH1BuyAllowed() && GetCurrentSSLDirection()==1 && !HasLargeM1Candle())
+     {
 
 
-    double lot = 0.05 - (reEntryNumber * 0.01);
-   if(lot < 0.01)
-      lot = 0.01;
+      double lot = 0.05 - (reEntryNumber * 0.01);
+      if(lot < 0.01)
+         lot = 0.01;
 
-        return NormalizeLots(lot);
-
-
-}
-else if(IsH1SellAllowed() && GetCurrentSSLDirection()==-1 && !HasLargeM1Candle())
-  
-{
-      
-
-    double lot = 0.05 - (reEntryNumber * 0.01);
-   if(lot < 0.01)
-      lot = 0.01;
-
-        return NormalizeLots(lot);
+      return NormalizeLots(lot);
 
 
-}
-else
+     }
+   else
+      if(IsH1SellAllowed() && GetCurrentSSLDirection()==-1 && !HasLargeM1Candle())
 
-      return NormalizeLots(0.01);
+        {
+
+
+         double lot = 0.05 - (reEntryNumber * 0.01);
+         if(lot < 0.01)
+            lot = 0.01;
+
+         return NormalizeLots(lot);
+
+
+        }
+      else
+
+         return NormalizeLots(0.01);
 
 
 
@@ -1419,11 +1420,11 @@ else
 //    }
 
 
-   // if(HasLargeM1Candle())
-   //   {
-   //    return NormalizeLots(0.02);
+// if(HasLargeM1Candle())
+//   {
+//    return NormalizeLots(0.02);
 
-   //   }
+//   }
 
    double lot = 0.05 - (reEntryNumber * 0.01);
    if(lot < 0.01)
@@ -1434,45 +1435,45 @@ else
 
 
    return NormalizeLots(lot);
-/*
+   /*
 
-   if(reEntryNumber <=2)
-     {
-      // DailyEquityTargetPercent=3;
-      return NormalizeLots(0.10);
-
-     }
-   else
-      if(reEntryNumber <=6)
+      if(reEntryNumber <=2)
         {
-         // DailyEquityTargetPercent=1;
-
-         return NormalizeLots(0.02);
+         // DailyEquityTargetPercent=3;
+         return NormalizeLots(0.10);
 
         }
       else
-        {
-         // DailyEquityTargetPercent=1;
+         if(reEntryNumber <=6)
+           {
+            // DailyEquityTargetPercent=1;
 
-         return NormalizeLots(0.01);
+            return NormalizeLots(0.02);
 
+           }
+         else
+           {
+            // DailyEquityTargetPercent=1;
 
-        }
-// if(reEntryNumber <=4)
-//    return NormalizeLots(0.03);
-// if(reEntryNumber <= 10)
-// return NormalizeLots(0.10);
-
-
-//  if(reEntryNumber > 5)
-// return NormalizeLots(0.01);
+            return NormalizeLots(0.01);
 
 
+           }
+   // if(reEntryNumber <=4)
+   //    return NormalizeLots(0.03);
+   // if(reEntryNumber <= 10)
+   // return NormalizeLots(0.10);
 
-   lot = 0.12 - (reEntryNumber * 0.01);
-   if(lot < 0.01)
-      lot = 0.01;
-*/
+
+   //  if(reEntryNumber > 5)
+   // return NormalizeLots(0.01);
+
+
+
+      lot = 0.12 - (reEntryNumber * 0.01);
+      if(lot < 0.01)
+         lot = 0.01;
+   */
    return NormalizeLots(lot);
   }
 
@@ -3026,7 +3027,7 @@ void ChangeLots(double OpenPL, string reason, int orderType,int stoplevelStep)
 //==================================================
 // MAX LOT LIMIT
 //==================================================
-   double MaxRecoveryLot = 0.20;
+   double MaxRecoveryLot = 0.10;
 
 //==================================================
 // OPPOSITE TYPE TOTAL LOTS
@@ -3134,7 +3135,20 @@ void ChangeLots(double OpenPL, string reason, int orderType,int stoplevelStep)
 
 
 
-            Lots = NormalizeLots(0.10); //0.05 is danger if market is moving continuous down with small ups and downs
+         if(orderType==OP_BUY && GetH1Direction()==1)
+           {
+            Lots = NormalizeLots(0.10);
+
+           }
+         else
+            if(orderType==OP_SELL && GetH1Direction()==-1)
+              {
+               Lots = NormalizeLots(0.10);
+
+              }
+            else
+
+               Lots = NormalizeLots(0.01); //0.05 is danger if market is moving continuous down with small ups and downs
 
 
 
@@ -3279,11 +3293,11 @@ void ChangeLots(double OpenPL, string reason, int orderType,int stoplevelStep)
 // BASED ON ACTUAL NEW LOT
 //==================================================
 
-   // if(Lots>=0.05)
-   //   {
-   //    StopLossUSD =Lots*100;//;
-   //   }
-   // else
+// if(Lots>=0.05)
+//   {
+//    StopLossUSD =Lots*100;//;
+//   }
+// else
      {
       StopLossUSD =
          OriginalStopLossUSD *
@@ -6025,17 +6039,17 @@ void UpdateDashboard(DailyProtectionState &state)
 
    CreateDashboardLabel(DASH_PREFIX+"STATUS", "STATUS       : "+statusText,tx,y+47,10,statusColor);
 
-string H1Signal = IsH1BuyAllowed()
-                  ? "H1 BUY"
-                  : IsH1SellAllowed()
-                  ? "H1 SELL"
-                  : "";
+   string H1Signal = IsH1BuyAllowed()
+                     ? "H1 BUY"
+                     : IsH1SellAllowed()
+                     ? "H1 SELL"
+                     : "";
 
-CreateDashboardLabel(
-   DASH_PREFIX+"SIGNAL",
-   "SSL SIGNAL : "+sslDirection+"/ "+H1Signal,
-   tx, y+67, 9, sslColor
-);
+   CreateDashboardLabel(
+      DASH_PREFIX+"SIGNAL",
+      "SSL SIGNAL : "+sslDirection+"/ "+H1Signal,
+      tx, y+67, 9, sslColor
+   );
    CreateDashboardLabel(DASH_PREFIX+"EMA", "EMA "+IntegerToString(InpEMA200Period)+"      : "+emaState+"  "+(ema>0?DoubleToString(ema,Digits):"-"),tx,y+87,9,emaColor);
    CreateDashboardLabel(DASH_PREFIX+"PRICE", "BID / ASK    : "+DoubleToString(Bid,Digits)+" / "+DoubleToString(Ask,Digits),tx,y+107,9,clrWhite);
 
