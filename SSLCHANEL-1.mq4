@@ -112,9 +112,9 @@ bool EnableProfitLadder1 = true;
 
 
 
-double Ladder1ProfitUSD =0.50;//0.20;//0.20;//0.05;//1;//0.15;//0.25;//0.50;// 0.05;
+double Ladder1ProfitUSD =0.20;//0.20;//0.20;//0.05;//1;//0.15;//0.25;//0.50;// 0.05;
 bool EnableProfitLadder2 = true;
-double Ladder1StopMaxPriceUSD =0.60;//10;// 0.40;//0.50;//0.20;
+double Ladder1StopMaxPriceUSD =0.40;//10;// 0.40;//0.50;//0.20;
 double Ladder2ProfitUSD = 0.10;//server api is has errors due to too many orders, so we need to limit the number of orders to 1, and increase the profit target to 0.20
 
 // ===== INITIAL PER-ORDER PROFIT FAILSAFE =====
