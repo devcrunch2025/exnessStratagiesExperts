@@ -40,7 +40,7 @@ bool EnableTrading = true;
 // This filter is applied to every new trade request. Orders are remembered in EA
 // memory and sent to the broker only when the directional 30-minute condition passes.
 bool Enable30MinuteMomentumFilter = false;
-double Min30MinutePriceDifference = 60*5*1;//30.0;
+double Min30MinutePriceDifference = 200;//60*5*1;//30.0;
 double Min30MinutePriceDifferenceDuration = 30;//minutes
 
 bool Enable30MinuteMomentumForProfitReEntry = false;
@@ -112,7 +112,7 @@ bool EnableProfitLadder1 = true;
 
 
 
-double Ladder1ProfitUSD =0.20;//0.20;//0.05;//1;//0.15;//0.25;//0.50;// 0.05;
+double Ladder1ProfitUSD =0.50;//0.20;//0.20;//0.05;//1;//0.15;//0.25;//0.50;// 0.05;
 bool EnableProfitLadder2 = true;
 double Ladder1StopMaxPriceUSD =0.60;//10;// 0.40;//0.50;//0.20;
 double Ladder2ProfitUSD = 0.10;//server api is has errors due to too many orders, so we need to limit the number of orders to 1, and increase the profit target to 0.20
@@ -121,7 +121,7 @@ double Ladder2ProfitUSD = 0.10;//server api is has errors due to too many orders
 // Every newly created order receives a broker-side TP of this profit amount
 // (scaled from the base 0.01 lot). This TP remains as a safety fallback if a
 // later ladder OrderModify request fails because of connection/server errors.
-double DefaultOrderProfitUSD = 0.50; // $0.50 at 0.01 lot
+double DefaultOrderProfitUSD =1;// 0.50; // $0.50 at 0.01 lot
 
 
 
@@ -740,16 +740,16 @@ int OnInit()
    InitializeLastProcessedClosedOrder();
 // Do not treat an old historical loss as a new SL event immediately after restart.
    LastProtectedLossTicket = LastProcessedClosedTicket;
-   // IMPORTANT: Every EA restart is a fresh trading session.
-   // Do not restore daily ladder/protection statistics from terminal state.
+// IMPORTANT: Every EA restart is a fresh trading session.
+// Do not restore daily ladder/protection statistics from terminal state.
    DayProfitLadderInitialized = false;
    DayProfitLadderTradingStopped = false;
    DayProfitLadderStage = 0;
    DayProfitLadderTargetReachedCandle = 0;
    InitializeDayProfitLadder();
 
-   // Re-entry sequence is also runtime-only. Existing broker orders remain
-   // untouched, but the sequence counter starts fresh after restart.
+// Re-entry sequence is also runtime-only. Existing broker orders remain
+// untouched, but the sequence counter starts fresh after restart.
    LoadReEntryCounter();
    return INIT_SUCCEEDED;
   }
@@ -961,12 +961,13 @@ void OnTickCore()
 
      }
 
-   // A failed broker request invalidates the current order snapshot.
-   // Do not continue order-management logic on this tick. The next tick
-   // starts with a completely fresh server order scan.
+// A failed broker request invalidates the current order snapshot.
+// Do not continue order-management logic on this tick. The next tick
+// starts with a completely fresh server order scan.
    if(TradeOperationFailedThisTick)
      {
-      if(ShowSSLLines) UpdateSSLChannelOnTick();
+      if(ShowSSLLines)
+         UpdateSSLChannelOnTick();
       UpdateEMALineOnChart();
       return;
      }
@@ -1550,9 +1551,9 @@ bool HasExistingProfitReEntryOrder()
 //+------------------------------------------------------------------+
 void LoadReEntryCounter()
   {
-   // Runtime-only session state. Do not restore historical re-entry statistics
-   // after an EA restart. Existing broker orders are still preserved, but the
-   // EA starts a fresh re-entry sequence.
+// Runtime-only session state. Do not restore historical re-entry statistics
+// after an EA restart. Existing broker orders are still preserved, but the
+// EA starts a fresh re-entry sequence.
    reEntryCounter=0;
 
    Print("REENTRY SEQUENCE RESET | Fresh EA session | Counter=0",
@@ -1564,7 +1565,7 @@ void LoadReEntryCounter()
 //+------------------------------------------------------------------+
 void SaveReEntryCounter()
   {
-   // INTENTIONALLY DISABLED. Re-entry statistics are runtime-only.
+// INTENTIONALLY DISABLED. Re-entry statistics are runtime-only.
    return;
   }
 
@@ -1859,8 +1860,8 @@ void CheckLatestClosedTradeProtection()
 //+------------------------------------------------------------------+
 void MarkServerError(int err,string operation)
   {
-   // A failed broker request invalidates any order snapshot being used by
-   // the current tick. Never continue trading from that stale snapshot.
+// A failed broker request invalidates any order snapshot being used by
+// the current tick. Never continue trading from that stale snapshot.
    TradeOperationFailedThisTick = true;
    ServerRecoveryPending=true;
    ServerRecoveryLastError=err;
@@ -1968,7 +1969,7 @@ bool ProcessServerRecovery(DailyProtectionState &state)
 int FindExistingOrderForRequest(int orderType,double lots,double price,
                                 string orderComment,datetime requestTime)
   {
-   // Always query the live server order pool; never reuse a prior ticket list.
+// Always query the live server order pool; never reuse a prior ticket list.
    RefreshRates();
    double priceTolerance=MathMax(Point*20.0,Point*Slippage*2.0);
 
@@ -2379,9 +2380,9 @@ void ProcessDeferredOrders()
    if(!EnableTrading)
       return;
 
-   // Respect Day Profit Ladder milestone timing. If the ladder target was
-   // reached on this candle, wait for the next candle before releasing any
-   // remembered/deferred order. No signal change is required.
+// Respect Day Profit Ladder milestone timing. If the ladder target was
+// reached on this candle, wait for the next candle before releasing any
+// remembered/deferred order. No signal change is required.
    if(!IsDayProfitLadderTradingAllowed())
       return;
 
@@ -2490,7 +2491,7 @@ void ProcessDeferredOrders()
 //| Target is defined at 0.01 lot and scales with the order lot.     |
 //+------------------------------------------------------------------+
 double CalculateDefaultProfitTargetPrice(int orderType,double openPrice,double orderLots,
-                                         double profitUSD)
+      double profitUSD)
   {
    if(openPrice<=0.0 || orderLots<=0.0 || profitUSD<=0.0)
       return 0.0;
@@ -2512,10 +2513,10 @@ double CalculateDefaultProfitTargetPrice(int orderType,double openPrice,double o
    if(orderType==OP_BUY || orderType==OP_BUYLIMIT || orderType==OP_BUYSTOP)
       target=openPrice+priceDistance;
    else
-   if(orderType==OP_SELL || orderType==OP_SELLLIMIT || orderType==OP_SELLSTOP)
-      target=openPrice-priceDistance;
-   else
-      return 0.0;
+      if(orderType==OP_SELL || orderType==OP_SELLLIMIT || orderType==OP_SELLSTOP)
+         target=openPrice-priceDistance;
+      else
+         return 0.0;
 
    return NormalizeDouble(target,Digits);
   }
@@ -2527,14 +2528,14 @@ int SafeOrderSend(string symbol,int orderType,double lots,double price,
                   int slippage,double stopLoss,double takeProfit,
                   string comment,int magic,color arrowColor)
   {
-   // Never send another trade request after a server/trade error on this tick.
-   // The next tick starts from a fresh server order scan.
+// Never send another trade request after a server/trade error on this tick.
+// The next tick starts from a fresh server order scan.
    if(TradeOperationFailedThisTick)
       return false;
 
-   // STRICT DAY PROFIT LADDER:
-   // Blocks every new broker order type (market, pending, recovery,
-   // re-entry, deferred re-entry, etc.) after daily protection is hit.
+// STRICT DAY PROFIT LADDER:
+// Blocks every new broker order type (market, pending, recovery,
+// re-entry, deferred re-entry, etc.) after daily protection is hit.
    if(!IsDayProfitLadderTradingAllowed())
      {
       Print("OrderSend BLOCKED | DAY PROFIT LADDER PROTECTION");
@@ -2605,14 +2606,14 @@ int SafeOrderSend(string symbol,int orderType,double lots,double price,
 
    sendPrice=NormalizeDouble(sendPrice,Digits);
 
-   // INITIAL PROFIT FAILSAFE:
-   // If no TP was supplied by the caller, attach a broker-side $0.50 target
-   // at 0.01 lot, scaled by lot size. This remains the safety fallback if a
-   // later ladder OrderModify request fails.
+// INITIAL PROFIT FAILSAFE:
+// If no TP was supplied by the caller, attach a broker-side $0.50 target
+// at 0.01 lot, scaled by lot size. This remains the safety fallback if a
+// later ladder OrderModify request fails.
    if(takeProfit<=0.0 && DefaultOrderProfitUSD>0.0)
      {
       double defaultTP=CalculateDefaultProfitTargetPrice(orderType,sendPrice,
-                                                          lots,DefaultOrderProfitUSD);
+                       lots,DefaultOrderProfitUSD);
       if(defaultTP>0.0)
         {
          takeProfit=defaultTP;
@@ -2690,8 +2691,8 @@ int SafeOrderSend(string symbol,int orderType,double lots,double price,
 // Any failure is logged and deferred to the next tick.
 bool SafeOrderClose(int ticket,double lots,int orderType,int slippage,color arrowColor)
   {
-   // Never send another trade request after a server/trade error on this tick.
-   // The next tick starts from a fresh server order scan.
+// Never send another trade request after a server/trade error on this tick.
+// The next tick starts from a fresh server order scan.
    if(TradeOperationFailedThisTick)
       return false;
 
@@ -2797,8 +2798,8 @@ bool WasOrderModifyAttemptedThisTick(int ticket)
 bool SafeOrderModify(int ticket,double openPrice,double stopLoss,
                      double takeProfit,datetime expiration,color arrowColor)
   {
-   // Never send another trade request after a server/trade error on this tick.
-   // The next tick starts from a fresh server order scan.
+// Never send another trade request after a server/trade error on this tick.
+// The next tick starts from a fresh server order scan.
    if(TradeOperationFailedThisTick)
       return false;
 
@@ -2924,8 +2925,8 @@ bool SafeOrderModify(int ticket,double openPrice,double stopLoss,
 //+------------------------------------------------------------------+
 bool ReducePendingOrderLotTo01()
   {
-   // Never send another trade request after a server/trade error on this tick.
-   // The next tick starts from a fresh server order scan.
+// Never send another trade request after a server/trade error on this tick.
+// The next tick starts from a fresh server order scan.
    if(TradeOperationFailedThisTick)
       return false;
 
@@ -2999,12 +3000,12 @@ bool ReducePendingOrderLotTo01()
    if(!CanSendTradeRequest("OrderSend/ReduceLot","OldTicket="+IntegerToString(ticket)))
       return false;
 
-   // Recalculate the default fallback TP for the recreated 0.01-lot
-   // pending order when the old order had no TP.
+// Recalculate the default fallback TP for the recreated 0.01-lot
+// pending order when the old order had no TP.
    if(takeProfit<=0.0 && DefaultOrderProfitUSD>0.0)
      {
       double defaultTP=CalculateDefaultProfitTargetPrice(type,openPrice,
-                                                          newLot,DefaultOrderProfitUSD);
+                       newLot,DefaultOrderProfitUSD);
       if(defaultTP>0.0)
          takeProfit=defaultTP;
      }
@@ -3056,8 +3057,8 @@ bool ReducePendingOrderLotTo01()
 // trade operation. The 6-hour pending-order rule remains intact.
 bool ForceDeletePendingOrder(int ticket,color arrowColor)
   {
-   // Never send another trade request after a server/trade error on this tick.
-   // The next tick starts from a fresh server order scan.
+// Never send another trade request after a server/trade error on this tick.
+// The next tick starts from a fresh server order scan.
    if(TradeOperationFailedThisTick)
       return false;
 
@@ -3118,8 +3119,8 @@ bool ForceDeletePendingOrder(int ticket,color arrowColor)
 // Pending-order business rules remain unchanged.
 bool SafeOrderDelete(int ticket,color arrowColor)
   {
-   // Never send another trade request after a server/trade error on this tick.
-   // The next tick starts from a fresh server order scan.
+// Never send another trade request after a server/trade error on this tick.
+// The next tick starts from a fresh server order scan.
    if(TradeOperationFailedThisTick)
       return false;
 
@@ -3455,21 +3456,21 @@ void ChangeLots(double OpenPL, string reason, int orderType,int stoplevelStep)
             Lots = 0.10 - (reEntryCounter * 0.01);
 
 
-      // GlobalBUYSELLdashboardScore=dashboardScore;
+            // GlobalBUYSELLdashboardScore=dashboardScore;
 
- Lots=Lots*GlobalBUYSELLdashboardScore;
+            Lots=Lots*GlobalBUYSELLdashboardScore;
 
 
 
-//             int lotStep = reEntryCounter % 10;
-// Lots = 0.10 - (lotStep * 0.01);
+            //             int lotStep = reEntryCounter % 10;
+            // Lots = 0.10 - (lotStep * 0.01);
             if(Lots < 0.01)
                Lots = 0.01;
 
-//                if(reEntryCounter>=8 && reEntryCounter<=15 && Lots==0.01)
-// {
-// Lots=0.02;
-// }
+            //                if(reEntryCounter>=8 && reEntryCounter<=15 && Lots==0.01)
+            // {
+            // Lots=0.02;
+            // }
 
            }
          // if(reEntryCounter<=2)
@@ -3906,11 +3907,11 @@ datetime GetDayProfitLadderDate()
 //+------------------------------------------------------------------+
 void SaveDayProfitLadderState()
   {
-   // INTENTIONALLY DISABLED.
-   // Day Profit Ladder statistics are runtime-only.
-   // Restarting/reloading the EA must ALWAYS create a completely fresh
-   // day-ladder state from the current AccountBalance()/AccountEquity().
-   // No GlobalVariableSet() is used for daily ladder state.
+// INTENTIONALLY DISABLED.
+// Day Profit Ladder statistics are runtime-only.
+// Restarting/reloading the EA must ALWAYS create a completely fresh
+// day-ladder state from the current AccountBalance()/AccountEquity().
+// No GlobalVariableSet() is used for daily ladder state.
    return;
   }
 
@@ -3954,18 +3955,18 @@ void InitializeDayProfitLadder()
    DayProfitLadderDate = GetDayProfitLadderDate();
    DailyProtectionStartTime = TimeCurrent();
 
-   // Capture opening balance/equity ONCE for this day.
-   // These values remain fixed until the next fresh day.
+// Capture opening balance/equity ONCE for this day.
+// These values remain fixed until the next fresh day.
    DayProfitLadderStartBalance = AccountBalance();
    DayProfitLadderStartEquity  = AccountEquity();
 
-   // Reset ALL day-ladder statistics.
+// Reset ALL day-ladder statistics.
    DayProfitLadderStage = 0;
    DayProfitLadderTradingStopped = false;
    DayProfitLadderTargetReachedCandle = 0;
    DayProfitLadderNextTargetEquity = GetDayProfitLadderTarget(1);
 
-   // Initial protection is 50% below opening balance by default.
+// Initial protection is 50% below opening balance by default.
    DayProfitLadderProtectionEquity =
       DayProfitLadderStartBalance *
       (1.0 - DayProfitInitialProtectionPercent / 100.0);
@@ -3990,9 +3991,9 @@ void InitializeDayProfitLadder()
 //+------------------------------------------------------------------+
 void LoadDayProfitLadderState()
   {
-   // INTENTIONALLY DISABLED.
-   // A restart is treated as a fresh EA session/day state. Do not restore
-   // yesterday/earlier runtime ladder statistics from terminal Global Variables.
+// INTENTIONALLY DISABLED.
+// A restart is treated as a fresh EA session/day state. Do not restore
+// yesterday/earlier runtime ladder statistics from terminal Global Variables.
    InitializeDayProfitLadder();
   }
 
@@ -4006,10 +4007,10 @@ void CloseAndDeleteAllEAOrdersOnTradingStop()
   {
    bool anyRemaining = false;
 
-   // IMPORTANT: build a FRESH ticket list from the current server order pool
-   // on every call/tick. Never keep/reuse an old pending-order ticket list.
-   // This avoids trying to delete tickets that were already filled, deleted,
-   // replaced, or otherwise changed while the EA was processing the stop.
+// IMPORTANT: build a FRESH ticket list from the current server order pool
+// on every call/tick. Never keep/reuse an old pending-order ticket list.
+// This avoids trying to delete tickets that were already filled, deleted,
+// replaced, or otherwise changed while the EA was processing the stop.
    int freshPendingTickets[1000];
    int freshPendingCount = 0;
 
@@ -4029,9 +4030,9 @@ void CloseAndDeleteAllEAOrdersOnTradingStop()
         }
      }
 
-   // Close current market positions using a fresh server selection by ticket.
-   // If a close fails, the ticket is NOT cached for later ticks; the next tick
-   // starts with a completely new server-side order scan.
+// Close current market positions using a fresh server selection by ticket.
+// If a close fails, the ticket is NOT cached for later ticks; the next tick
+// starts with a completely new server-side order scan.
    int freshOpenTickets[1000];
    int freshOpenCount=0;
 
@@ -4080,9 +4081,9 @@ void CloseAndDeleteAllEAOrdersOnTradingStop()
         }
      }
 
-   // Delete ONLY tickets captured in the fresh pending-order scan above.
-   // Before every delete, select the ticket again so we never operate on an
-   // old SELECT_BY_POS record after another pending order has disappeared.
+// Delete ONLY tickets captured in the fresh pending-order scan above.
+// Before every delete, select the ticket again so we never operate on an
+// old SELECT_BY_POS record after another pending order has disappeared.
    for(int p=0; p<freshPendingCount; p++)
      {
       int pendingTicket=freshPendingTickets[p];
@@ -4131,15 +4132,15 @@ void ManageDayProfitLadder()
       return;
      }
 
-   // New day: reset EVERYTHING and capture the new opening balance/equity.
+// New day: reset EVERYTHING and capture the new opening balance/equity.
    if(DayProfitLadderDate != today)
      {
       InitializeDayProfitLadder();
       return;
      }
 
-   // Once stopped, remain stopped until the next fresh day.
-   // Keep retrying broker cleanup on every tick until all EA orders are flat.
+// Once stopped, remain stopped until the next fresh day.
+// Keep retrying broker cleanup on every tick until all EA orders are flat.
    if(DayProfitLadderTradingStopped)
      {
       CloseAndDeleteAllEAOrdersOnTradingStop();
@@ -4151,11 +4152,11 @@ void ManageDayProfitLadder()
 
    double equity = AccountEquity();
 
-   //===============================================================
-   // DYNAMIC LADDER
-   // If equity jumps over multiple levels in one tick, catch up to
-   // the highest level actually reached. The ladder never decreases.
-   //===============================================================
+//===============================================================
+// DYNAMIC LADDER
+// If equity jumps over multiple levels in one tick, catch up to
+// the highest level actually reached. The ladder never decreases.
+//===============================================================
    double step = MathAbs(DayProfitLadder1Percent) / 100.0;
 
    if(step > 0.0 && equity >= DayProfitLadderStartBalance * (1.0 + step))
@@ -4196,14 +4197,14 @@ void ManageDayProfitLadder()
         }
      }
 
-   //===============================================================
-   // STRICT PROTECTION
-   // Initial: $100 -> $50.
-   // After X1: $150 -> $125.
-   // After X2: $200 -> $150.
-   // After X3: $250 -> $175.
-   // ...indefinitely.
-   //===============================================================
+//===============================================================
+// STRICT PROTECTION
+// Initial: $100 -> $50.
+// After X1: $150 -> $125.
+// After X2: $200 -> $150.
+// After X3: $250 -> $175.
+// ...indefinitely.
+//===============================================================
    if(equity <= DayProfitLadderProtectionEquity)
      {
       DayProfitLadderTradingStopped = true;
@@ -4249,9 +4250,9 @@ bool IsDayProfitLadderTradingAllowed()
    if(DayProfitLadderTradingStopped)
       return false;
 
-   // A ladder target is a milestone, NOT a trading stop.
-   // The only temporary block is the remainder of the candle in which
-   // the target was reached. The next candle is allowed automatically.
+// A ladder target is a milestone, NOT a trading stop.
+// The only temporary block is the remainder of the candle in which
+// the target was reached. The next candle is allowed automatically.
    if(DayProfitLadderTargetReachedCandle > 0 &&
       Time[0] == DayProfitLadderTargetReachedCandle)
      {
@@ -4264,7 +4265,7 @@ bool IsDayProfitLadderTradingAllowed()
 //+------------------------------------------------------------------+
 void InitializeDailyProtectionState(DailyProtectionState &state)
   {
-   // The Day Profit Ladder is the SINGLE source of daily equity protection.
+// The Day Profit Ladder is the SINGLE source of daily equity protection.
    ManageDayProfitLadder();
 
    state.DayDate = DayProfitLadderDate;
@@ -4494,8 +4495,8 @@ void ProcessEquityResetReEntry(DailyProtectionState &state)
 //+------------------------------------------------------------------+
 void UpdateDailyLossProtection(DailyProtectionState &state)
   {
-   // Legacy daily-loss/equity ladder logic removed.
-   // DayProfitLadder is the only daily equity protection mechanism.
+// Legacy daily-loss/equity ladder logic removed.
+// DayProfitLadder is the only daily equity protection mechanism.
    if(!EnableDayProfitLadder)
       return;
 
@@ -4526,6 +4527,9 @@ int CountClosedOrdersSinceInitialization()
    return count;
   }
 
+//+------------------------------------------------------------------+
+//|                                                                  |
+//+------------------------------------------------------------------+
 bool IsDailyTradingStopped(DailyProtectionState &state)
   {
    return EnableDayProfitLadder && DayProfitLadderTradingStopped;
@@ -5350,21 +5354,21 @@ void ManageProfitLadder()
          nextProfitTargetUSD=nextL1Level*ladder1Profit;
         }
       else
-      if(EnableProfitLadder2 &&
-         ladder2Profit>0.0)
-        {
-         int nextL2Level=(int)MathFloor(currentProfit/ladder2Profit)+1;
-         nextProfitTargetUSD=nextL2Level*ladder2Profit;
-        }
+         if(EnableProfitLadder2 &&
+            ladder2Profit>0.0)
+           {
+            int nextL2Level=(int)MathFloor(currentProfit/ladder2Profit)+1;
+            nextProfitTargetUSD=nextL2Level*ladder2Profit;
+           }
 
       double desiredTakeProfit=OrderTakeProfit();
 
       if(nextProfitTargetUSD>0.0)
         {
          double nextTP=CalculateDefaultProfitTargetPrice(orderType,
-                                                          OrderOpenPrice(),
-                                                          orderLots,
-                                                          nextProfitTargetUSD);
+                       OrderOpenPrice(),
+                       orderLots,
+                       nextProfitTargetUSD);
          double minimumTPDistance=GetRequiredStopDistance();
 
          if(nextTP>0.0)
@@ -5386,11 +5390,11 @@ void ManageProfitLadder()
                      desiredTakeProfit=nextTP;
                  }
                else
-               if(orderType==OP_SELL)
-                 {
-                  if(desiredTakeProfit<=0.0 || nextTP<desiredTakeProfit-Point)
-                     desiredTakeProfit=nextTP;
-                 }
+                  if(orderType==OP_SELL)
+                    {
+                     if(desiredTakeProfit<=0.0 || nextTP<desiredTakeProfit-Point)
+                        desiredTakeProfit=nextTP;
+                    }
               }
            }
         }
@@ -5405,13 +5409,13 @@ void ManageProfitLadder()
             takeProfitNeedsModify=true;
         }
       else
-      if(orderType==OP_SELL)
-        {
-         if(desiredTakeProfit>0.0 &&
-            (OrderTakeProfit()<=0.0 ||
-             desiredTakeProfit<OrderTakeProfit()-Point))
-            takeProfitNeedsModify=true;
-        }
+         if(orderType==OP_SELL)
+           {
+            if(desiredTakeProfit>0.0 &&
+               (OrderTakeProfit()<=0.0 ||
+                desiredTakeProfit<OrderTakeProfit()-Point))
+               takeProfitNeedsModify=true;
+           }
 
       //==================================================
       // DO NOT MODIFY IF CURRENT SL ALREADY LOCKS
@@ -5449,63 +5453,63 @@ void ManageProfitLadder()
             newStopLoss=OrderStopLoss();
          else
            {
-         //================================================
-         // CALCULATE SL FROM OPEN PRICE
-         //================================================
-         newStopLoss =
-            OrderOpenPrice() +
-            priceDistance;
-
-         newStopLoss =
-            NormalizeDouble(
-               newStopLoss,
-               Digits
-            );
-
-         //================================================
-         // SL MUST BE BETTER THAN EXISTING SL
-         //================================================
-         if(OrderStopLoss() > 0 &&
-            newStopLoss <= OrderStopLoss())
-           {
-            continue;
-           }
-
-         //================================================
-         // BROKER MINIMUM DISTANCE
-         //================================================
-         if(Bid - newStopLoss < stopLevel)
-           {
+            //================================================
+            // CALCULATE SL FROM OPEN PRICE
+            //================================================
             newStopLoss =
-               Bid - stopLevel;
+               OrderOpenPrice() +
+               priceDistance;
 
             newStopLoss =
                NormalizeDouble(
                   newStopLoss,
                   Digits
                );
-           }
 
-         //================================================
-         // VALIDATE BUY SL
-         //================================================
-         if(newStopLoss <= 0)
-            continue;
+            //================================================
+            // SL MUST BE BETTER THAN EXISTING SL
+            //================================================
+            if(OrderStopLoss() > 0 &&
+               newStopLoss <= OrderStopLoss())
+              {
+               continue;
+              }
 
-         if(newStopLoss >= Bid)
-            continue;
+            //================================================
+            // BROKER MINIMUM DISTANCE
+            //================================================
+            if(Bid - newStopLoss < stopLevel)
+              {
+               newStopLoss =
+                  Bid - stopLevel;
 
-         //================================================
-         // FINAL DUPLICATE PROTECTION
-         //================================================
-         if(OrderStopLoss() > 0 &&
-            MathAbs(
-               newStopLoss -
-               OrderStopLoss()
-            ) < Point)
-           {
-            continue;
-           }
+               newStopLoss =
+                  NormalizeDouble(
+                     newStopLoss,
+                     Digits
+                  );
+              }
+
+            //================================================
+            // VALIDATE BUY SL
+            //================================================
+            if(newStopLoss <= 0)
+               continue;
+
+            if(newStopLoss >= Bid)
+               continue;
+
+            //================================================
+            // FINAL DUPLICATE PROTECTION
+            //================================================
+            if(OrderStopLoss() > 0 &&
+               MathAbs(
+                  newStopLoss -
+                  OrderStopLoss()
+               ) < Point)
+              {
+               continue;
+              }
 
            }
 
@@ -5569,60 +5573,60 @@ void ManageProfitLadder()
             newStopLoss=OrderStopLoss();
          else
            {
-         //================================================
-         // CALCULATE SL FROM OPEN PRICE
-         //================================================
-         newStopLoss =
-            OrderOpenPrice() -
-            priceDistance;
-
-         newStopLoss =
-            NormalizeDouble(
-               newStopLoss,
-               Digits
-            );
-
-         //================================================
-         // SL MUST BE BETTER THAN EXISTING SL
-         //================================================
-         if(OrderStopLoss() > 0 &&
-            newStopLoss >= OrderStopLoss())
-           {
-            continue;
-           }
-
-         //================================================
-         // BROKER MINIMUM DISTANCE
-         //================================================
-         if(newStopLoss - Ask < stopLevel)
-           {
+            //================================================
+            // CALCULATE SL FROM OPEN PRICE
+            //================================================
             newStopLoss =
-               Ask + stopLevel;
+               OrderOpenPrice() -
+               priceDistance;
 
             newStopLoss =
                NormalizeDouble(
                   newStopLoss,
                   Digits
                );
-           }
 
-         //================================================
-         // VALIDATE SELL SL
-         //================================================
-         if(newStopLoss <= Ask)
-            continue;
+            //================================================
+            // SL MUST BE BETTER THAN EXISTING SL
+            //================================================
+            if(OrderStopLoss() > 0 &&
+               newStopLoss >= OrderStopLoss())
+              {
+               continue;
+              }
 
-         //================================================
-         // FINAL DUPLICATE PROTECTION
-         //================================================
-         if(OrderStopLoss() > 0 &&
-            MathAbs(
-               newStopLoss -
-               OrderStopLoss()
-            ) < Point)
-           {
-            continue;
-           }
+            //================================================
+            // BROKER MINIMUM DISTANCE
+            //================================================
+            if(newStopLoss - Ask < stopLevel)
+              {
+               newStopLoss =
+                  Ask + stopLevel;
+
+               newStopLoss =
+                  NormalizeDouble(
+                     newStopLoss,
+                     Digits
+                  );
+              }
+
+            //================================================
+            // VALIDATE SELL SL
+            //================================================
+            if(newStopLoss <= Ask)
+               continue;
+
+            //================================================
+            // FINAL DUPLICATE PROTECTION
+            //================================================
+            if(OrderStopLoss() > 0 &&
+               MathAbs(
+                  newStopLoss -
+                  OrderStopLoss()
+               ) < Point)
+              {
+               continue;
+              }
 
            }
 
@@ -6119,8 +6123,10 @@ void UpdateDashboard(DailyProtectionState &state)
      {
       ladderProgress=((AccountEquity()-DayProfitLadderProtectionEquity) /
                       (DayProfitLadderNextTargetEquity-DayProfitLadderProtectionEquity))*100.0;
-      if(ladderProgress<0) ladderProgress=0;
-      if(ladderProgress>100) ladderProgress=100;
+      if(ladderProgress<0)
+         ladderProgress=0;
+      if(ladderProgress>100)
+         ladderProgress=100;
      }
 
    double dayPL=AccountEquity()-state.DayStartBalance;
@@ -6199,7 +6205,7 @@ void UpdateDashboard(DailyProtectionState &state)
    if(momentumConfirm)
       dashboardScore++;
 
-      GlobalBUYSELLdashboardScore=dashboardScore;
+   GlobalBUYSELLdashboardScore=dashboardScore;
 
    double dashboardSuggestedLot=0.01;
    if(dashboardScore==1)
@@ -6273,7 +6279,7 @@ void UpdateDashboard(DailyProtectionState &state)
    CreateDashboardLabel(DASH_PREFIX+"DPL_LOCK","PROTECTION    : $"+DoubleToString(DayProfitLadderProtectionEquity,2),tx,y+475,8,clrGold);
    CreateDashboardLabel(DASH_PREFIX+"PROGRESS","NEXT TARGET PROGRESS : "+DoubleToString(ladderProgress,1)+"%",tx,y+495,8,clrWhite);
 
-   // Dynamic Day Profit Ladder status (X1, X2, X3 ... indefinitely).
+// Dynamic Day Profit Ladder status (X1, X2, X3 ... indefinitely).
    string dplStatus = DayProfitLadderTradingStopped ? "STOPPED" : "TRADING";
    color dplStatusColor = DayProfitLadderTradingStopped ? clrTomato : clrLime;
    CreateDashboardLabel(DASH_PREFIX+"DPL_STATUS","DAY LADDER    : "+dplStatus,tx,y+510,9,dplStatusColor);
