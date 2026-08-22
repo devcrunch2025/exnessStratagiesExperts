@@ -3455,6 +3455,10 @@ void ChangeLots(double OpenPL, string reason, int orderType,int stoplevelStep)
             Lots = 0.10 - (reEntryCounter * 0.01);
 
 
+      // GlobalBUYSELLdashboardScore=dashboardScore;
+
+ Lots=Lots*GlobalBUYSELLdashboardScore;
+
 
 
 //             int lotStep = reEntryCounter % 10;
@@ -5973,6 +5977,7 @@ double GetTotalLots(int orderType)
 //+------------------------------------------------------------------+
 
 int EMADirection=0;
+int GlobalBUYSELLdashboardScore=0;
 void UpdateDashboard(DailyProtectionState &state)
   {
    int totalOrders=0,buyOrders=0,sellOrders=0,pendingOrders=0;
@@ -6193,6 +6198,8 @@ void UpdateDashboard(DailyProtectionState &state)
       dashboardScore++;
    if(momentumConfirm)
       dashboardScore++;
+
+      GlobalBUYSELLdashboardScore=dashboardScore;
 
    double dashboardSuggestedLot=0.01;
    if(dashboardScore==1)
