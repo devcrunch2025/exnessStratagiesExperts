@@ -3444,7 +3444,7 @@ void ChangeLots(double OpenPL, string reason, int orderType,int stoplevelStep)
       if(isSSLProfitReEntry)
         {
          Lots=0.10;//10;//
-         if(reEntryCounter<=2)
+         if(reEntryCounter<=3)
            {
             Lots=0.02;//
 
@@ -3452,7 +3452,9 @@ void ChangeLots(double OpenPL, string reason, int orderType,int stoplevelStep)
          else
            {
 
-            Lots = 0.15 - (reEntryCounter * 0.01);
+            Lots = 0.10 - (reEntryCounter * 0.01);
+//             int lotStep = reEntryCounter % 10;
+// Lots = 0.10 - (lotStep * 0.01);
             if(Lots < 0.01)
                Lots = 0.01;
 
