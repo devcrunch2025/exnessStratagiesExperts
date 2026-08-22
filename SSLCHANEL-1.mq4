@@ -256,6 +256,9 @@ double   DayProfitLadderNextTargetEquity = 0.0;
 bool     DayProfitLadderTradingStopped = false;
 datetime DayProfitLadderDate = 0;
 bool     DayProfitLadderInitialized = false;
+// When a ladder target is reached, do not create another order on that same candle.
+// Resume automatically from the NEXT candle; no new SSL signal/crossover is required.
+datetime DayProfitLadderTargetReachedCandle = 0;
 
 // ===== RUNTIME VARIABLES =====
 string PREFIX = "SSL_CROSS_";
@@ -1676,7 +1679,12 @@ bool IsSafeToCreateMarketOrder(int orderType)
   {
    if(!IsDayProfitLadderTradingAllowed())
      {
-      Print("NEW MARKET ORDER BLOCKED | DAY PROFIT LADDER PROTECTION");
+      if(DayProfitLadderTargetReachedCandle > 0 &&
+         Time[0] == DayProfitLadderTargetReachedCandle &&
+         !DayProfitLadderTradingStopped)
+         Print("NEW MARKET ORDER WAITING | DAY PROFIT TARGET REACHED | RESUME NEXT CANDLE");
+      else
+         Print("NEW MARKET ORDER BLOCKED | DAY PROFIT LADDER PROTECTION");
       return false;
      }
 
@@ -2316,6 +2324,12 @@ int QueueDeferredOrder(string symbol,int orderType,double lots,double price,
 void ProcessDeferredOrders()
   {
    if(!EnableTrading)
+      return;
+
+   // Respect Day Profit Ladder milestone timing. If the ladder target was
+   // reached on this candle, wait for the next candle before releasing any
+   // remembered/deferred order. No signal change is required.
+   if(!IsDayProfitLadderTradingAllowed())
       return;
 
    for(int i=0; i<MAX_DEFERRED_ORDERS; i++)
@@ -3853,6 +3867,7 @@ void InitializeDayProfitLadder()
    // Reset ALL day-ladder statistics.
    DayProfitLadderStage = 0;
    DayProfitLadderTradingStopped = false;
+   DayProfitLadderTargetReachedCandle = 0;
    DayProfitLadderNextTargetEquity = GetDayProfitLadderTarget(1);
 
    // Initial protection is 50% below opening balance by default.
@@ -3897,6 +3912,7 @@ void LoadDayProfitLadderState()
       DayProfitLadderProtectionEquity = GlobalVariableGet(p+"PROTECT");
       DayProfitLadderStage = (int)GlobalVariableGet(p+"STAGE");
       DayProfitLadderTradingStopped = (GlobalVariableGet(p+"STOPPED") > 0.5);
+      DayProfitLadderTargetReachedCandle = 0;
 
       if(GlobalVariableCheck(p+"NEXT"))
          DayProfitLadderNextTargetEquity = GlobalVariableGet(p+"NEXT");
@@ -4026,6 +4042,12 @@ void ManageDayProfitLadder()
          int oldStage = DayProfitLadderStage;
          DayProfitLadderStage = reachedStage;
 
+         // Target was reached on the current candle. Do NOT immediately
+         // create/recreate another order on this same candle. Trading will
+         // resume automatically on the NEXT candle using the current
+         // direction/signal; no fresh SSL crossover is required.
+         DayProfitLadderTargetReachedCandle = Time[0];
+
          DayProfitLadderProtectionEquity =
             GetDayProfitLadderProtection(DayProfitLadderStage);
 
@@ -4059,6 +4081,7 @@ void ManageDayProfitLadder()
    if(equity <= DayProfitLadderProtectionEquity)
      {
       DayProfitLadderTradingStopped = true;
+      DayProfitLadderTargetReachedCandle = 0;
       SaveDayProfitLadderState();
 
       // Trading is now stopped: immediately close all open EA market orders
@@ -4096,7 +4119,19 @@ bool IsDayProfitLadderTradingAllowed()
 
    ManageDayProfitLadder();
 
-   return !DayProfitLadderTradingStopped;
+   if(DayProfitLadderTradingStopped)
+      return false;
+
+   // A ladder target is a milestone, NOT a trading stop.
+   // The only temporary block is the remainder of the candle in which
+   // the target was reached. The next candle is allowed automatically.
+   if(DayProfitLadderTargetReachedCandle > 0 &&
+      Time[0] == DayProfitLadderTargetReachedCandle)
+     {
+      return false;
+     }
+
+   return true;
   }
 
 //+------------------------------------------------------------------+
