@@ -117,6 +117,12 @@ bool EnableProfitLadder2 = true;
 double Ladder1StopMaxPriceUSD =0.60;//10;// 0.40;//0.50;//0.20;
 double Ladder2ProfitUSD = 0.10;//server api is has errors due to too many orders, so we need to limit the number of orders to 1, and increase the profit target to 0.20
 
+// ===== INITIAL PER-ORDER PROFIT FAILSAFE =====
+// Every newly created order receives a broker-side TP of this profit amount
+// (scaled from the base 0.01 lot). This TP remains as a safety fallback if a
+// later ladder OrderModify request fails because of connection/server errors.
+double DefaultOrderProfitUSD = 0.50; // $0.50 at 0.01 lot
+
 
 
 
@@ -2412,6 +2418,44 @@ void ProcessDeferredOrders()
 //+------------------------------------------------------------------+
 //|                                                                  |
 //+------------------------------------------------------------------+
+//+------------------------------------------------------------------+
+//| Calculate broker-side TP price for a fixed USD profit target     |
+//| Target is defined at 0.01 lot and scales with the order lot.     |
+//+------------------------------------------------------------------+
+double CalculateDefaultProfitTargetPrice(int orderType,double openPrice,double orderLots,
+                                         double profitUSD)
+  {
+   if(openPrice<=0.0 || orderLots<=0.0 || profitUSD<=0.0)
+      return 0.0;
+
+   double tickValue=MarketInfo(Symbol(),MODE_TICKVALUE);
+   double tickSize =MarketInfo(Symbol(),MODE_TICKSIZE);
+
+   if(tickValue<=0.0 || tickSize<=0.0)
+      return 0.0;
+
+   double scaledProfit=profitUSD*(orderLots/0.01);
+   double priceDistance=(scaledProfit/(tickValue*orderLots))*tickSize;
+
+   if(priceDistance<=0.0)
+      return 0.0;
+
+   double target=0.0;
+
+   if(orderType==OP_BUY || orderType==OP_BUYLIMIT || orderType==OP_BUYSTOP)
+      target=openPrice+priceDistance;
+   else
+   if(orderType==OP_SELL || orderType==OP_SELLLIMIT || orderType==OP_SELLSTOP)
+      target=openPrice-priceDistance;
+   else
+      return 0.0;
+
+   return NormalizeDouble(target,Digits);
+  }
+
+//+------------------------------------------------------------------+
+//|                                                                  |
+//+------------------------------------------------------------------+
 int SafeOrderSend(string symbol,int orderType,double lots,double price,
                   int slippage,double stopLoss,double takeProfit,
                   string comment,int magic,color arrowColor)
@@ -2488,6 +2532,25 @@ int SafeOrderSend(string symbol,int orderType,double lots,double price,
          sendPrice=Bid;
 
    sendPrice=NormalizeDouble(sendPrice,Digits);
+
+   // INITIAL PROFIT FAILSAFE:
+   // If no TP was supplied by the caller, attach a broker-side $0.50 target
+   // at 0.01 lot, scaled by lot size. This remains the safety fallback if a
+   // later ladder OrderModify request fails.
+   if(takeProfit<=0.0 && DefaultOrderProfitUSD>0.0)
+     {
+      double defaultTP=CalculateDefaultProfitTargetPrice(orderType,sendPrice,
+                                                          lots,DefaultOrderProfitUSD);
+      if(defaultTP>0.0)
+        {
+         takeProfit=defaultTP;
+         Print("INITIAL PROFIT TP | Type=",orderType,
+               " | Lots=",DoubleToString(lots,2),
+               " | ProfitTarget=$",DoubleToString(DefaultOrderProfitUSD*(lots/0.01),2),
+               " | TP=",DoubleToString(takeProfit,Digits),
+               " | Comment=",comment);
+        }
+     }
 
    double safeSL=stopLoss;
    if(safeSL>0.0 && !PrepareStopLossForOrder(orderType,sendPrice,safeSL))
@@ -2848,6 +2911,16 @@ bool ReducePendingOrderLotTo01()
 
    if(!CanSendTradeRequest("OrderSend/ReduceLot","OldTicket="+IntegerToString(ticket)))
       return false;
+
+   // Recalculate the default fallback TP for the recreated 0.01-lot
+   // pending order when the old order had no TP.
+   if(takeProfit<=0.0 && DefaultOrderProfitUSD>0.0)
+     {
+      double defaultTP=CalculateDefaultProfitTargetPrice(type,openPrice,
+                                                          newLot,DefaultOrderProfitUSD);
+      if(defaultTP>0.0)
+         takeProfit=defaultTP;
+     }
 
    ResetLastError();
    tradeStartMs=GetTickCount();
@@ -3847,6 +3920,60 @@ void LoadDayProfitLadderState()
   }
 
 //+------------------------------------------------------------------+
+//| Trading-stop emergency cleanup                                  |
+//| When the Day Profit Ladder stops trading, close every open EA   |
+//| market order and delete every pending EA order for this symbol. |
+//| Failed requests are retried on the next tick by the Safe* funcs. |
+//+------------------------------------------------------------------+
+void CloseAndDeleteAllEAOrdersOnTradingStop()
+  {
+   bool anyRemaining = false;
+
+   for(int i=OrdersTotal()-1; i>=0; i--)
+     {
+      if(!OrderSelect(i,SELECT_BY_POS,MODE_TRADES))
+         continue;
+
+      if(OrderSymbol()!=Symbol() || OrderMagicNumber()!=MagicNumber)
+         continue;
+
+      int ticket = OrderTicket();
+      int type   = OrderType();
+
+      if(type==OP_BUY || type==OP_SELL)
+        {
+         double pl = OrderProfit()+OrderSwap()+OrderCommission();
+
+         if(SafeOrderClose(ticket,OrderLots(),type,Slippage,
+                           (type==OP_BUY ? clrRed : clrBlue)))
+            Print("TRADING STOPPED | OPEN ORDER CLOSED | Ticket=",ticket,
+                  " | P/L=$",DoubleToString(pl,2));
+         else
+           {
+            anyRemaining = true;
+            Print("TRADING STOPPED | FAILED TO CLOSE OPEN ORDER | Ticket=",ticket,
+                  " | Retry next tick");
+           }
+        }
+      else if(type==OP_BUYSTOP || type==OP_SELLSTOP ||
+              type==OP_BUYLIMIT || type==OP_SELLLIMIT)
+        {
+         if(SafeOrderDelete(ticket,clrRed))
+            Print("TRADING STOPPED | PENDING ORDER DELETED | Ticket=",ticket);
+         else
+           {
+            anyRemaining = true;
+            Print("TRADING STOPPED | FAILED TO DELETE PENDING ORDER | Ticket=",ticket,
+                  " | Retry next tick");
+           }
+        }
+     }
+
+   if(anyRemaining)
+      Print("TRADING STOPPED | Some EA orders remain due to server/trade error. Retrying next tick.");
+  }
+
+//+------------------------------------------------------------------+
 //| Dynamic indefinite day profit ladder manager                    |
 //+------------------------------------------------------------------+
 void ManageDayProfitLadder()
@@ -3870,8 +3997,12 @@ void ManageDayProfitLadder()
      }
 
    // Once stopped, remain stopped until the next fresh day.
+   // Keep retrying broker cleanup on every tick until all EA orders are flat.
    if(DayProfitLadderTradingStopped)
+     {
+      CloseAndDeleteAllEAOrdersOnTradingStop();
       return;
+     }
 
    if(DayProfitLadderStartBalance <= 0.0)
       return;
@@ -3930,8 +4061,13 @@ void ManageDayProfitLadder()
       DayProfitLadderTradingStopped = true;
       SaveDayProfitLadderState();
 
-      // Remove pending broker orders AND remembered deferred requests so
-      // nothing can create a new trade after the day is stopped.
+      // Trading is now stopped: immediately close all open EA market orders
+      // and delete all EA pending orders. Failed broker requests are retried
+      // on subsequent ticks by CloseAndDeleteAllEAOrdersOnTradingStop().
+      CloseAndDeleteAllEAOrdersOnTradingStop();
+
+      // Remove remembered deferred requests so nothing can create a new
+      // trade after the day is stopped.
       DeleteAllPendingEAOrders();
       for(int dpl_i=0; dpl_i<MAX_DEFERRED_ORDERS; dpl_i++)
          DeferredActive[dpl_i]=false;
@@ -5027,10 +5163,99 @@ void ManageProfitLadder()
         }
 
       //==================================================
-      // DO NOT MODIFY IF CURRENT SL ALREADY LOCKS
-      // THIS LADDER LEVEL
+      // DYNAMIC TP FAILSAFE / LADDER ADVANCE
+      //
+      // The order is created with a $0.50 TP at 0.01 lot.
+      // As the ladder advances, TP is only moved FORWARD to the
+      // next ladder profit level. It is never reduced.
+      //
+      // Example at 0.01 lot:
+      //   Create -> TP $0.50
+      //   L1 $0.20 -> SL locks $0.20, TP remains $0.50
+      //   L1 $0.40 -> SL locks $0.40, TP moves to $0.60
+      //   L2 $0.60 -> SL locks $0.60, TP moves to $0.70
+      //
+      // A failed OrderModify therefore leaves the existing broker-side
+      // TP in place as the safety fallback.
       //==================================================
-      if(existingLockedProfit >= lockedProfit)
+      double nextProfitTargetUSD=0.0;
+
+      if(EnableProfitLadder1 &&
+         ladder1Profit>0.0 &&
+         currentProfit<ladder1StopMaxPrice)
+        {
+         int nextL1Level=(int)MathFloor(currentProfit/ladder1Profit)+1;
+         nextProfitTargetUSD=nextL1Level*ladder1Profit;
+        }
+      else
+      if(EnableProfitLadder2 &&
+         ladder2Profit>0.0)
+        {
+         int nextL2Level=(int)MathFloor(currentProfit/ladder2Profit)+1;
+         nextProfitTargetUSD=nextL2Level*ladder2Profit;
+        }
+
+      double desiredTakeProfit=OrderTakeProfit();
+
+      if(nextProfitTargetUSD>0.0)
+        {
+         double nextTP=CalculateDefaultProfitTargetPrice(orderType,
+                                                          OrderOpenPrice(),
+                                                          orderLots,
+                                                          nextProfitTargetUSD);
+         double minimumTPDistance=GetRequiredStopDistance();
+
+         if(nextTP>0.0)
+           {
+            bool validNextTP=true;
+
+            if(orderType==OP_BUY && nextTP-Ask<minimumTPDistance)
+               validNextTP=false;
+
+            if(orderType==OP_SELL && Bid-nextTP<minimumTPDistance)
+               validNextTP=false;
+
+            // Never move TP backwards.
+            if(validNextTP)
+              {
+               if(orderType==OP_BUY)
+                 {
+                  if(desiredTakeProfit<=0.0 || nextTP>desiredTakeProfit+Point)
+                     desiredTakeProfit=nextTP;
+                 }
+               else
+               if(orderType==OP_SELL)
+                 {
+                  if(desiredTakeProfit<=0.0 || nextTP<desiredTakeProfit-Point)
+                     desiredTakeProfit=nextTP;
+                 }
+              }
+           }
+        }
+
+      bool takeProfitNeedsModify=false;
+
+      if(orderType==OP_BUY)
+        {
+         if(desiredTakeProfit>0.0 &&
+            (OrderTakeProfit()<=0.0 ||
+             desiredTakeProfit>OrderTakeProfit()+Point))
+            takeProfitNeedsModify=true;
+        }
+      else
+      if(orderType==OP_SELL)
+        {
+         if(desiredTakeProfit>0.0 &&
+            (OrderTakeProfit()<=0.0 ||
+             desiredTakeProfit<OrderTakeProfit()-Point))
+            takeProfitNeedsModify=true;
+        }
+
+      //==================================================
+      // DO NOT MODIFY IF CURRENT SL ALREADY LOCKS
+      // THIS LADDER LEVEL AND TP DOES NOT NEED ADVANCING
+      //==================================================
+      if(existingLockedProfit>=lockedProfit && !takeProfitNeedsModify)
          continue;
 
       //==================================================
@@ -5051,12 +5276,17 @@ void ManageProfitLadder()
       double stopLevel = GetRequiredStopDistance();
 
       double newStopLoss = 0.0;
+      bool needStopLossModify = (existingLockedProfit < lockedProfit);
 
       //==================================================
       // BUY
       //==================================================
       if(orderType == OP_BUY)
         {
+         if(!needStopLossModify)
+            newStopLoss=OrderStopLoss();
+         else
+           {
          //================================================
          // CALCULATE SL FROM OPEN PRICE
          //================================================
@@ -5115,6 +5345,8 @@ void ManageProfitLadder()
             continue;
            }
 
+           }
+
          //================================================
          // MODIFY BUY
          //================================================
@@ -5125,7 +5357,7 @@ void ManageProfitLadder()
                OrderTicket(),
                OrderOpenPrice(),
                newStopLoss,
-               OrderTakeProfit(),
+               desiredTakeProfit,
                0,
                clrLimeGreen
             );
@@ -5171,6 +5403,10 @@ void ManageProfitLadder()
       //==================================================
       if(orderType == OP_SELL)
         {
+         if(!needStopLossModify)
+            newStopLoss=OrderStopLoss();
+         else
+           {
          //================================================
          // CALCULATE SL FROM OPEN PRICE
          //================================================
@@ -5226,6 +5462,8 @@ void ManageProfitLadder()
             continue;
            }
 
+           }
+
          //================================================
          // MODIFY SELL
          //================================================
@@ -5236,7 +5474,7 @@ void ManageProfitLadder()
                OrderTicket(),
                OrderOpenPrice(),
                newStopLoss,
-               OrderTakeProfit(),
+               desiredTakeProfit,
                0,
                clrTomato
             );
