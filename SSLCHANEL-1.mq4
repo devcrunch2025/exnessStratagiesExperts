@@ -159,6 +159,8 @@ double DayProfitInitialProtectionPercent = 50.0; // Initial -50% protection
 // SL protection. This is the ONLY daily equity target/protection system.
 
 
+
+
 // ===== DAY-1 CAPITAL PROTECTION EXIT =====
 // Independent of the current equity-ladder target.
 // If equity is still above the original day-start balance but the
