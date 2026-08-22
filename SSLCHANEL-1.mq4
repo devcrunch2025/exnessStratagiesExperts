@@ -270,6 +270,12 @@ int LastProcessedClosedTicket = -1;
 bool StartupSignalProcessed = false;
 bool TradeResetThisTick = false;
 
+// GLOBAL FRESH-SERVER-STATE RULE:
+// After ANY broker/server trade-operation error, no further trade request
+// is allowed on the same tick. All retry logic waits for the next tick,
+// then reads OrdersTotal()/OrderSelect() again from the live server state.
+bool TradeOperationFailedThisTick = false;
+
 //===============================================================
 // LIVE SSL INTRABAR STATE
 // SSL trading is evaluated on the currently forming candle (0).
@@ -712,6 +718,8 @@ int OnInit()
          " | Max Range/ATR=", DoubleToString(MaxCandleRangeATRMultiple,2),
          " | Lot Cap=", DoubleToString(VolatilityLotCap,2));
    Print("Continue After SL: ",ContinueTradingAfterSL?"YES":"NO");
+   Print("Default Broker TP Failsafe: $",DoubleToString(DefaultOrderProfitUSD,2)," per 0.01 lot");
+   Print("SERVER ERROR RULE: discard current order state; fresh server scan next tick");
    Print("SL Protection: ",EnableSLProtection?"ON":"OFF",
          " | MaxSameDirection=",MaxSameDirectionOrders,
          " | MaxConsecutiveLossSL=",MaxConsecutiveLosingSL,
@@ -732,6 +740,16 @@ int OnInit()
    InitializeLastProcessedClosedOrder();
 // Do not treat an old historical loss as a new SL event immediately after restart.
    LastProtectedLossTicket = LastProcessedClosedTicket;
+   // IMPORTANT: Every EA restart is a fresh trading session.
+   // Do not restore daily ladder/protection statistics from terminal state.
+   DayProfitLadderInitialized = false;
+   DayProfitLadderTradingStopped = false;
+   DayProfitLadderStage = 0;
+   DayProfitLadderTargetReachedCandle = 0;
+   InitializeDayProfitLadder();
+
+   // Re-entry sequence is also runtime-only. Existing broker orders remain
+   // untouched, but the sequence counter starts fresh after restart.
    LoadReEntryCounter();
    return INIT_SUCCEEDED;
   }
@@ -933,6 +951,7 @@ void OnTickCore()
 // A new OnTick means a new retry window. Failed trade requests from
 // the previous tick may be attempted now with fresh market data.
    ResetTradeErrorRetryGuards();
+   TradeOperationFailedThisTick = false;
 
 // Send remembered orders only after the 30-minute directional condition passes.
 
@@ -940,6 +959,16 @@ void OnTickCore()
      {
       ProcessDeferredOrders();
 
+     }
+
+   // A failed broker request invalidates the current order snapshot.
+   // Do not continue order-management logic on this tick. The next tick
+   // starts with a completely fresh server order scan.
+   if(TradeOperationFailedThisTick)
+     {
+      if(ShowSSLLines) UpdateSSLChannelOnTick();
+      UpdateEMALineOnChart();
+      return;
      }
 
    ResetTradeRequestBudget();
@@ -1016,15 +1045,23 @@ void OnTickCore()
      }
 
    CheckRecoveryOrders();
+   if(TradeOperationFailedThisTick)
+     { UpdateDashboardsThrottled(dailyState); return; }
    ManageRecoveryBasket();
+   if(TradeOperationFailedThisTick)
+     { UpdateDashboardsThrottled(dailyState); return; }
 
    ProcessStartupSignal(dailyState);
+   if(TradeOperationFailedThisTick)
+     { UpdateDashboardsThrottled(dailyState); return; }
 
 // Continuous Equity Ladder re-entry.
 // Uses CURRENT SSL direction; no new crossover is required.
 // If an order cannot be opened now, the request remains pending.
    if(EquityResetReEntryPending)
       ProcessEquityResetReEntry(dailyState);
+   if(TradeOperationFailedThisTick)
+     { UpdateDashboardsThrottled(dailyState); return; }
 
    if(ShowSSLLines)
       UpdateSSLChannelOnTick();
@@ -1033,16 +1070,24 @@ void OnTickCore()
 // Deferred-order queue handles the 30-minute momentum gate for all new orders.
    if(!TradeResetThisTick)
       ManageProfitReEntryMomentumGate();
+   if(TradeOperationFailedThisTick)
+     { UpdateDashboardsThrottled(dailyState); return; }
 
 // Retry a ReEntry that failed because of a trade/server error or was
 // removed because the 30-minute momentum condition was not valid.
    if(!TradeResetThisTick)
       ProcessPendingReEntry(dailyState);
+   if(TradeOperationFailedThisTick)
+     { UpdateDashboardsThrottled(dailyState); return; }
 
    if(Bars >= SSLPeriod + 20 && !TradeResetThisTick)
       CheckForProfitableClosedOrder(dailyState);
+   if(TradeOperationFailedThisTick)
+     { UpdateDashboardsThrottled(dailyState); return; }
    if(EnableProfitLadder1 || EnableProfitLadder2)
       ManageProfitLadder();
+   if(TradeOperationFailedThisTick)
+     { UpdateDashboardsThrottled(dailyState); return; }
 // UI is deliberately throttled; trading logic remains tick-by-tick.
    UpdateDashboardsThrottled(dailyState);
 
@@ -1082,6 +1127,9 @@ void OnTickCore()
          if(CloseOppositeOrdersOnSignal)
             CloseOppositeOrders(OP_BUY);
 
+         if(TradeOperationFailedThisTick)
+           { UpdateDashboardsThrottled(dailyState); return; }
+
          if(EnableTrading && !IsDailyTradingStopped(dailyState))
            {
             if(GetTotalEAOrders() < MaxOpenOrders)
@@ -1112,6 +1160,9 @@ void OnTickCore()
                DeleteOppositePendingOrders(OP_SELL);
             if(CloseOppositeOrdersOnSignal)
                CloseOppositeOrders(OP_SELL);
+
+            if(TradeOperationFailedThisTick)
+              { UpdateDashboardsThrottled(dailyState); return; }
 
             if(EnableTrading && !IsDailyTradingStopped(dailyState))
               {
@@ -1499,18 +1550,13 @@ bool HasExistingProfitReEntryOrder()
 //+------------------------------------------------------------------+
 void LoadReEntryCounter()
   {
-   string gv=GetReEntryGVName();
+   // Runtime-only session state. Do not restore historical re-entry statistics
+   // after an EA restart. Existing broker orders are still preserved, but the
+   // EA starts a fresh re-entry sequence.
+   reEntryCounter=0;
 
-   if(HasExistingProfitReEntryOrder() && GlobalVariableCheck(gv))
-      reEntryCounter=(int)GlobalVariableGet(gv);
-   else
-     {
-      reEntryCounter=0;
-      GlobalVariableSet(gv,0.0);
-     }
-
-   Print("REENTRY SEQUENCE LOADED | Counter=",reEntryCounter,
-         " | Next Lot=",DoubleToString(GetReEntryLot(reEntryCounter+1),2));
+   Print("REENTRY SEQUENCE RESET | Fresh EA session | Counter=0",
+         " | Next Lot=",DoubleToString(GetReEntryLot(1),2));
   }
 
 //+------------------------------------------------------------------+
@@ -1518,7 +1564,8 @@ void LoadReEntryCounter()
 //+------------------------------------------------------------------+
 void SaveReEntryCounter()
   {
-   GlobalVariableSet(GetReEntryGVName(),(double)reEntryCounter);
+   // INTENTIONALLY DISABLED. Re-entry statistics are runtime-only.
+   return;
   }
 
 //---------------------------------------------------------------
@@ -1812,6 +1859,9 @@ void CheckLatestClosedTradeProtection()
 //+------------------------------------------------------------------+
 void MarkServerError(int err,string operation)
   {
+   // A failed broker request invalidates any order snapshot being used by
+   // the current tick. Never continue trading from that stale snapshot.
+   TradeOperationFailedThisTick = true;
    ServerRecoveryPending=true;
    ServerRecoveryLastError=err;
    ServerRecoveryDetectedTime=TimeCurrent();
@@ -1918,6 +1968,8 @@ bool ProcessServerRecovery(DailyProtectionState &state)
 int FindExistingOrderForRequest(int orderType,double lots,double price,
                                 string orderComment,datetime requestTime)
   {
+   // Always query the live server order pool; never reuse a prior ticket list.
+   RefreshRates();
    double priceTolerance=MathMax(Point*20.0,Point*Slippage*2.0);
 
    for(int i=OrdersTotal()-1; i>=0; i--)
@@ -2036,6 +2088,7 @@ void OnTickPerformanceEnd(uint startedMs)
 //===============================================================
 string TradeErrorBlockedKeys[200];
 int TradeErrorBlockedCount=0;
+
 
 //+------------------------------------------------------------------+
 //|                                                                  |
@@ -2474,6 +2527,11 @@ int SafeOrderSend(string symbol,int orderType,double lots,double price,
                   int slippage,double stopLoss,double takeProfit,
                   string comment,int magic,color arrowColor)
   {
+   // Never send another trade request after a server/trade error on this tick.
+   // The next tick starts from a fresh server order scan.
+   if(TradeOperationFailedThisTick)
+      return false;
+
    // STRICT DAY PROFIT LADDER:
    // Blocks every new broker order type (market, pending, recovery,
    // re-entry, deferred re-entry, etc.) after daily protection is hit.
@@ -2632,6 +2690,11 @@ int SafeOrderSend(string symbol,int orderType,double lots,double price,
 // Any failure is logged and deferred to the next tick.
 bool SafeOrderClose(int ticket,double lots,int orderType,int slippage,color arrowColor)
   {
+   // Never send another trade request after a server/trade error on this tick.
+   // The next tick starts from a fresh server order scan.
+   if(TradeOperationFailedThisTick)
+      return false;
+
    string key=MakeTradeErrorKey("CLOSE",ticket,"");
 
    if(IsTradeErrorBlockedThisTick(key))
@@ -2734,6 +2797,11 @@ bool WasOrderModifyAttemptedThisTick(int ticket)
 bool SafeOrderModify(int ticket,double openPrice,double stopLoss,
                      double takeProfit,datetime expiration,color arrowColor)
   {
+   // Never send another trade request after a server/trade error on this tick.
+   // The next tick starts from a fresh server order scan.
+   if(TradeOperationFailedThisTick)
+      return false;
+
    string key=MakeTradeErrorKey("MODIFY",ticket,"");
 
    if(IsTradeErrorBlockedThisTick(key))
@@ -2856,6 +2924,11 @@ bool SafeOrderModify(int ticket,double openPrice,double stopLoss,
 //+------------------------------------------------------------------+
 bool ReducePendingOrderLotTo01()
   {
+   // Never send another trade request after a server/trade error on this tick.
+   // The next tick starts from a fresh server order scan.
+   if(TradeOperationFailedThisTick)
+      return false;
+
    int ticket = OrderTicket();
 
    if(ticket <= 0)
@@ -2983,6 +3056,11 @@ bool ReducePendingOrderLotTo01()
 // trade operation. The 6-hour pending-order rule remains intact.
 bool ForceDeletePendingOrder(int ticket,color arrowColor)
   {
+   // Never send another trade request after a server/trade error on this tick.
+   // The next tick starts from a fresh server order scan.
+   if(TradeOperationFailedThisTick)
+      return false;
+
    string key=MakeTradeErrorKey("FORCE_DELETE",ticket,"");
 
    if(IsTradeErrorBlockedThisTick(key))
@@ -3040,6 +3118,11 @@ bool ForceDeletePendingOrder(int ticket,color arrowColor)
 // Pending-order business rules remain unchanged.
 bool SafeOrderDelete(int ticket,color arrowColor)
   {
+   // Never send another trade request after a server/trade error on this tick.
+   // The next tick starts from a fresh server order scan.
+   if(TradeOperationFailedThisTick)
+      return false;
+
    string key=MakeTradeErrorKey("DELETE",ticket,"");
 
    if(IsTradeErrorBlockedThisTick(key))
@@ -3777,7 +3860,7 @@ void ManageRecoveryBasket()
 //|                                                                  |
 //+------------------------------------------------------------------+
 //+------------------------------------------------------------------+
-//| STRICT DAY PROFIT LADDER                                         |
+//| STRICT DAY PROFIT LADDER (RUNTIME-ONLY; NO PERSISTENT STATE)     |
 //|                                                                  |
 //| Fixed daily base:                                                 |
 //|   Start $100 -> initial protection $50                           |
@@ -3808,15 +3891,12 @@ datetime GetDayProfitLadderDate()
 //+------------------------------------------------------------------+
 void SaveDayProfitLadderState()
   {
-   string p = GetDayProfitLadderGVPrefix();
-
-   GlobalVariableSet(p+"DATE",       (double)DayProfitLadderDate);
-   GlobalVariableSet(p+"START_BAL", DayProfitLadderStartBalance);
-   GlobalVariableSet(p+"START",      DayProfitLadderStartEquity);
-   GlobalVariableSet(p+"PROTECT",    DayProfitLadderProtectionEquity);
-   GlobalVariableSet(p+"STAGE",      (double)DayProfitLadderStage);
-   GlobalVariableSet(p+"NEXT",       DayProfitLadderNextTargetEquity);
-   GlobalVariableSet(p+"STOPPED",    DayProfitLadderTradingStopped ? 1.0 : 0.0);
+   // INTENTIONALLY DISABLED.
+   // Day Profit Ladder statistics are runtime-only.
+   // Restarting/reloading the EA must ALWAYS create a completely fresh
+   // day-ladder state from the current AccountBalance()/AccountEquity().
+   // No GlobalVariableSet() is used for daily ladder state.
+   return;
   }
 
 //+------------------------------------------------------------------+
@@ -3895,43 +3975,9 @@ void InitializeDayProfitLadder()
 //+------------------------------------------------------------------+
 void LoadDayProfitLadderState()
   {
-   string p = GetDayProfitLadderGVPrefix();
-   datetime today = GetDayProfitLadderDate();
-
-   if(GlobalVariableCheck(p+"DATE") &&
-      (datetime)GlobalVariableGet(p+"DATE") == today &&
-      GlobalVariableCheck(p+"START_BAL") &&
-      GlobalVariableCheck(p+"START") &&
-      GlobalVariableCheck(p+"PROTECT") &&
-      GlobalVariableCheck(p+"STAGE") &&
-      GlobalVariableCheck(p+"STOPPED"))
-     {
-      DayProfitLadderDate = (datetime)GlobalVariableGet(p+"DATE");
-      DayProfitLadderStartBalance = GlobalVariableGet(p+"START_BAL");
-      DayProfitLadderStartEquity = GlobalVariableGet(p+"START");
-      DayProfitLadderProtectionEquity = GlobalVariableGet(p+"PROTECT");
-      DayProfitLadderStage = (int)GlobalVariableGet(p+"STAGE");
-      DayProfitLadderTradingStopped = (GlobalVariableGet(p+"STOPPED") > 0.5);
-      DayProfitLadderTargetReachedCandle = 0;
-
-      if(GlobalVariableCheck(p+"NEXT"))
-         DayProfitLadderNextTargetEquity = GlobalVariableGet(p+"NEXT");
-      else
-         DayProfitLadderNextTargetEquity = GetDayProfitLadderTarget(DayProfitLadderStage + 1);
-
-      DayProfitLadderInitialized = true;
-
-      Print("DYNAMIC DAY PROFIT LADDER - STATE RESTORED");
-      Print("Opening Balance      : $", DoubleToString(DayProfitLadderStartBalance,2));
-      Print("Opening Equity       : $", DoubleToString(DayProfitLadderStartEquity,2));
-      Print("Current Stage        : X", DayProfitLadderStage);
-      Print("Protection Equity    : $", DoubleToString(DayProfitLadderProtectionEquity,2));
-      Print("Next Target          : $", DoubleToString(DayProfitLadderNextTargetEquity,2));
-      Print("Trading Stopped      : ", DayProfitLadderTradingStopped ? "YES" : "NO");
-      return;
-     }
-
-   // No valid state for today -> completely fresh day.
+   // INTENTIONALLY DISABLED.
+   // A restart is treated as a fresh EA session/day state. Do not restore
+   // yesterday/earlier runtime ladder statistics from terminal Global Variables.
    InitializeDayProfitLadder();
   }
 
@@ -3945,48 +3991,113 @@ void CloseAndDeleteAllEAOrdersOnTradingStop()
   {
    bool anyRemaining = false;
 
+   // IMPORTANT: build a FRESH ticket list from the current server order pool
+   // on every call/tick. Never keep/reuse an old pending-order ticket list.
+   // This avoids trying to delete tickets that were already filled, deleted,
+   // replaced, or otherwise changed while the EA was processing the stop.
+   int freshPendingTickets[1000];
+   int freshPendingCount = 0;
+
    for(int i=OrdersTotal()-1; i>=0; i--)
      {
       if(!OrderSelect(i,SELECT_BY_POS,MODE_TRADES))
          continue;
+      if(OrderSymbol()!=Symbol() || OrderMagicNumber()!=MagicNumber)
+         continue;
+
+      int type=OrderType();
+      if(type==OP_BUYSTOP || type==OP_SELLSTOP ||
+         type==OP_BUYLIMIT || type==OP_SELLLIMIT)
+        {
+         if(freshPendingCount < 1000)
+            freshPendingTickets[freshPendingCount++]=OrderTicket();
+        }
+     }
+
+   // Close current market positions using a fresh server selection by ticket.
+   // If a close fails, the ticket is NOT cached for later ticks; the next tick
+   // starts with a completely new server-side order scan.
+   int freshOpenTickets[1000];
+   int freshOpenCount=0;
+
+   for(int j=OrdersTotal()-1; j>=0; j--)
+     {
+      if(!OrderSelect(j,SELECT_BY_POS,MODE_TRADES))
+         continue;
+      if(OrderSymbol()!=Symbol() || OrderMagicNumber()!=MagicNumber)
+         continue;
+
+      int marketType=OrderType();
+      if(marketType==OP_BUY || marketType==OP_SELL)
+        {
+         if(freshOpenCount < 1000)
+            freshOpenTickets[freshOpenCount++]=OrderTicket();
+        }
+     }
+
+   for(int k=0; k<freshOpenCount; k++)
+     {
+      int ticket=freshOpenTickets[k];
+
+      // Re-select by ticket immediately before the trade request.
+      if(!OrderSelect(ticket,SELECT_BY_TICKET,MODE_TRADES))
+         continue;
+      if(OrderSymbol()!=Symbol() || OrderMagicNumber()!=MagicNumber)
+         continue;
+
+      int type=OrderType();
+      if(type!=OP_BUY && type!=OP_SELL)
+         continue;
+
+      double lots=OrderLots();
+      double pl=OrderProfit()+OrderSwap()+OrderCommission();
+
+      if(SafeOrderClose(ticket,lots,type,Slippage,
+                        (type==OP_BUY ? clrRed : clrBlue)))
+         Print("TRADING STOPPED | OPEN ORDER CLOSED | Ticket=",ticket,
+               " | P/L=$",DoubleToString(pl,2));
+      else
+        {
+         anyRemaining=true;
+         Print("TRADING STOPPED | FAILED TO CLOSE OPEN ORDER | Ticket=",ticket,
+               " | Fresh server list will be collected next tick");
+         break;
+        }
+     }
+
+   // Delete ONLY tickets captured in the fresh pending-order scan above.
+   // Before every delete, select the ticket again so we never operate on an
+   // old SELECT_BY_POS record after another pending order has disappeared.
+   for(int p=0; p<freshPendingCount; p++)
+     {
+      int pendingTicket=freshPendingTickets[p];
+
+      if(!OrderSelect(pendingTicket,SELECT_BY_TICKET,MODE_TRADES))
+         continue; // Already gone from the server; nothing to delete.
 
       if(OrderSymbol()!=Symbol() || OrderMagicNumber()!=MagicNumber)
          continue;
 
-      int ticket = OrderTicket();
-      int type   = OrderType();
+      int pendingType=OrderType();
+      if(pendingType!=OP_BUYSTOP && pendingType!=OP_SELLSTOP &&
+         pendingType!=OP_BUYLIMIT && pendingType!=OP_SELLLIMIT)
+         continue; // It may have been filled since the scan.
 
-      if(type==OP_BUY || type==OP_SELL)
+      if(SafeOrderDelete(pendingTicket,clrRed))
+         Print("TRADING STOPPED | PENDING ORDER DELETED | Ticket=",pendingTicket);
+      else
         {
-         double pl = OrderProfit()+OrderSwap()+OrderCommission();
-
-         if(SafeOrderClose(ticket,OrderLots(),type,Slippage,
-                           (type==OP_BUY ? clrRed : clrBlue)))
-            Print("TRADING STOPPED | OPEN ORDER CLOSED | Ticket=",ticket,
-                  " | P/L=$",DoubleToString(pl,2));
-         else
-           {
-            anyRemaining = true;
-            Print("TRADING STOPPED | FAILED TO CLOSE OPEN ORDER | Ticket=",ticket,
-                  " | Retry next tick");
-           }
-        }
-      else if(type==OP_BUYSTOP || type==OP_SELLSTOP ||
-              type==OP_BUYLIMIT || type==OP_SELLLIMIT)
-        {
-         if(SafeOrderDelete(ticket,clrRed))
-            Print("TRADING STOPPED | PENDING ORDER DELETED | Ticket=",ticket);
-         else
-           {
-            anyRemaining = true;
-            Print("TRADING STOPPED | FAILED TO DELETE PENDING ORDER | Ticket=",ticket,
-                  " | Retry next tick");
-           }
+         anyRemaining=true;
+         Print("TRADING STOPPED | FAILED TO DELETE PENDING ORDER | Ticket=",
+               pendingTicket,
+               " | Fresh server list will be collected next tick");
+         break;
         }
      }
 
    if(anyRemaining)
-      Print("TRADING STOPPED | Some EA orders remain due to server/trade error. Retrying next tick.");
+      Print("TRADING STOPPED | Some EA orders remain due to server/trade error. "
+            "A NEW SERVER ORDER LIST WILL BE COLLECTED ON THE NEXT TICK.");
   }
 
 //+------------------------------------------------------------------+
@@ -4001,7 +4112,7 @@ void ManageDayProfitLadder()
 
    if(!DayProfitLadderInitialized)
      {
-      LoadDayProfitLadderState();
+      InitializeDayProfitLadder();
       return;
      }
 
@@ -4090,8 +4201,9 @@ void ManageDayProfitLadder()
       CloseAndDeleteAllEAOrdersOnTradingStop();
 
       // Remove remembered deferred requests so nothing can create a new
-      // trade after the day is stopped.
-      DeleteAllPendingEAOrders();
+      // trade after the day is stopped. The actual broker pending-order
+      // cleanup is handled only by CloseAndDeleteAllEAOrdersOnTradingStop(),
+      // which rebuilds a fresh server ticket list on every tick.
       for(int dpl_i=0; dpl_i<MAX_DEFERRED_ORDERS; dpl_i++)
          DeferredActive[dpl_i]=false;
       EquityResetReEntryPending=false;
