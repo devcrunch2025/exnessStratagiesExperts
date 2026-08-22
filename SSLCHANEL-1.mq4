@@ -3453,10 +3453,19 @@ void ChangeLots(double OpenPL, string reason, int orderType,int stoplevelStep)
            {
 
             Lots = 0.10 - (reEntryCounter * 0.01);
+
+
+
+
 //             int lotStep = reEntryCounter % 10;
 // Lots = 0.10 - (lotStep * 0.01);
             if(Lots < 0.01)
                Lots = 0.01;
+
+//                if(reEntryCounter>=8 && reEntryCounter<=15 && Lots==0.01)
+// {
+// Lots=0.02;
+// }
 
            }
          // if(reEntryCounter<=2)
