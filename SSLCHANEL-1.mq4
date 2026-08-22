@@ -157,7 +157,7 @@ double RecoveryBasketProfitUSD =0.10;// 1;//0.50;
 // At the next fresh day, ALL day-ladder state is reset and a new opening
 // balance/equity is captured. State is persisted so EA restarts do not reset it.
 bool   EnableDayProfitLadder = true;
-double DayProfitLadder1Percent =100;// 50.0;       // Dynamic ladder step: X1=50%, X2=100%, X3=150%...
+double DayProfitLadder1Percent =10;// 50.0;       // Dynamic ladder step: X1=50%, X2=100%, X3=150%...
 double DayProfitLadderLockRatio = 0.50;      // Protect 50% of achieved ladder profit: X1=25%, X2=50%...
 double DayProfitInitialProtectionPercent = 50.0; // Initial -50% protection
 // IMPORTANT: These three inputs belong ONLY to the daily equity ladder.
@@ -256,9 +256,15 @@ double   DayProfitLadderNextTargetEquity = 0.0;
 bool     DayProfitLadderTradingStopped = false;
 datetime DayProfitLadderDate = 0;
 bool     DayProfitLadderInitialized = false;
-// When a ladder target is reached, do not create another order on that same candle.
-// Resume automatically from the NEXT candle; no new SSL signal/crossover is required.
+// When a ladder target is reached, continuation is deferred until the NEXT TICK.
+// No new SSL signal/crossover is required.
 datetime DayProfitLadderTargetReachedCandle = 0;
+
+// Day-profit-ladder continuation state.
+// The continuation is attempted on the next tick without waiting for a new SSL crossover.
+bool DayProfitLadderResumePending = false;
+int  DayProfitLadderResumeDirection = 0; // 1=BUY, -1=SELL
+bool DayProfitLadderResumeTradeAttempt = false;
 
 // ===== RUNTIME VARIABLES =====
 string PREFIX = "SSL_CROSS_";
@@ -766,6 +772,10 @@ bool IsOneCandleOrderAllowed()
 
    if(OrderCreatedThisCandle)
      {
+      // Explicit exception for the Day Profit Ladder next-tick continuation.
+      if(DayProfitLadderResumeTradeAttempt)
+         return true;
+
       // Print("ORDER BLOCKED | Already opened on current candle");
       return false;
      }
@@ -1049,6 +1059,50 @@ void OnTickCore()
    if(TradeOperationFailedThisTick)
      { UpdateDashboardsThrottled(dailyState); return; }
    ManageRecoveryBasket();
+   if(TradeOperationFailedThisTick)
+     { UpdateDashboardsThrottled(dailyState); return; }
+
+   //===============================================================
+   // DAY PROFIT LADDER CONTINUATION
+   // If X1/X2/X3... was reached on the previous tick, attempt to
+   // continue in the SAME direction remembered at the milestone.
+   // No fresh SSL crossover is required.
+   //===============================================================
+   if(DayProfitLadderResumePending &&
+      DayProfitLadderResumeDirection != 0 &&
+      !DayProfitLadderTradingStopped)
+     {
+      int resumeDirection = DayProfitLadderResumeDirection;
+
+      Print("DAY PROFIT LADDER RESUME | NEXT TICK | Direction=",
+            resumeDirection == 1 ? "BUY" : "SELL",
+            " | Stage=X", DayProfitLadderStage,
+            " | SAME SIGNAL");
+
+      DayProfitLadderResumeTradeAttempt = true;
+
+      if(resumeDirection == 1)
+         OpenBuy();
+      else
+         if(resumeDirection == -1)
+            OpenSell();
+
+      DayProfitLadderResumeTradeAttempt = false;
+
+      // OpenBuy/OpenSell marks OrderCreatedThisCandle only after a
+      // successful broker order. Keep the request pending when blocked
+      // by gap/max-orders/filters/server errors so the next tick retries.
+      if(OrderCreatedThisCandle)
+        {
+         DayProfitLadderResumePending = false;
+         DayProfitLadderResumeDirection = 0;
+
+         Print("DAY PROFIT LADDER RESUME SUCCESS | Direction=",
+               resumeDirection == 1 ? "BUY" : "SELL",
+               " | Stage=X", DayProfitLadderStage);
+        }
+     }
+
    if(TradeOperationFailedThisTick)
      { UpdateDashboardsThrottled(dailyState); return; }
 
@@ -1727,12 +1781,7 @@ bool IsSafeToCreateMarketOrder(int orderType)
   {
    if(!IsDayProfitLadderTradingAllowed())
      {
-      if(DayProfitLadderTargetReachedCandle > 0 &&
-         Time[0] == DayProfitLadderTargetReachedCandle &&
-         !DayProfitLadderTradingStopped)
-         Print("NEW MARKET ORDER WAITING | DAY PROFIT TARGET REACHED | RESUME NEXT CANDLE");
-      else
-         Print("NEW MARKET ORDER BLOCKED | DAY PROFIT LADDER PROTECTION");
+      Print("NEW MARKET ORDER BLOCKED | DAY PROFIT LADDER PROTECTION");
       return false;
      }
 
@@ -3964,6 +4013,9 @@ void InitializeDayProfitLadder()
    DayProfitLadderStage = 0;
    DayProfitLadderTradingStopped = false;
    DayProfitLadderTargetReachedCandle = 0;
+   DayProfitLadderResumePending = false;
+   DayProfitLadderResumeDirection = 0;
+   DayProfitLadderResumeTradeAttempt = false;
    DayProfitLadderNextTargetEquity = GetDayProfitLadderTarget(1);
 
 // Initial protection is 50% below opening balance by default.
@@ -4169,11 +4221,17 @@ void ManageDayProfitLadder()
          int oldStage = DayProfitLadderStage;
          DayProfitLadderStage = reachedStage;
 
-         // Target was reached on the current candle. Do NOT immediately
-         // create/recreate another order on this same candle. Trading will
-         // resume automatically on the NEXT candle using the current
-         // direction/signal; no fresh SSL crossover is required.
+         // Target is a milestone, not a trading stop.
+         // Remember the direction NOW and resume on the NEXT TICK.
          DayProfitLadderTargetReachedCandle = Time[0];
+
+         // Prefer the live SSL direction at the exact milestone.
+         // If temporarily neutral, retain the last live SSL direction.
+         DayProfitLadderResumeDirection = GetCurrentSSLDirection();
+         if(DayProfitLadderResumeDirection == 0)
+            DayProfitLadderResumeDirection = LastLiveSSLDirection;
+
+         DayProfitLadderResumePending = (DayProfitLadderResumeDirection != 0);
 
          DayProfitLadderProtectionEquity =
             GetDayProfitLadderProtection(DayProfitLadderStage);
@@ -4209,6 +4267,9 @@ void ManageDayProfitLadder()
      {
       DayProfitLadderTradingStopped = true;
       DayProfitLadderTargetReachedCandle = 0;
+      DayProfitLadderResumePending = false;
+      DayProfitLadderResumeDirection = 0;
+      DayProfitLadderResumeTradeAttempt = false;
       SaveDayProfitLadderState();
 
       // Trading is now stopped: immediately close all open EA market orders
@@ -4250,15 +4311,10 @@ bool IsDayProfitLadderTradingAllowed()
    if(DayProfitLadderTradingStopped)
       return false;
 
-// A ladder target is a milestone, NOT a trading stop.
-// The only temporary block is the remainder of the candle in which
-// the target was reached. The next candle is allowed automatically.
-   if(DayProfitLadderTargetReachedCandle > 0 &&
-      Time[0] == DayProfitLadderTargetReachedCandle)
-     {
-      return false;
-     }
-
+   // A ladder target is a milestone, NOT a trading stop.
+   // There is no candle-based block. The dedicated resume logic attempts
+   // the remembered direction on the next tick without requiring a new
+   // SSL crossover.
    return true;
   }
 
