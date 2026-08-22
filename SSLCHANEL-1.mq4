@@ -3357,13 +3357,13 @@ double GetMarketMomentLot(int orderType)
       lot = 0.01;
    else
       if(confirmationScore == 2)
-         lot = 0.04;
+         lot = 0.02;
       else
          if(confirmationScore == 3)
-            lot = 0.06;
+            lot = 0.04;
          else
             if(confirmationScore >= 4)
-               lot = 0.10;
+               lot = 0.02;
 
 // Safety rule: if the higher-timeframe H1 bias is directly opposite
 // to the requested direction, do not allow an aggressive lot.
