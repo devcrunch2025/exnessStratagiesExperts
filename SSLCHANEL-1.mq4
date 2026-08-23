@@ -112,7 +112,7 @@ bool EnableProfitLadder1 = true;
 
 
 
-double Ladder1ProfitUSD =0.20;//0.20;//0.20;//0.05;//1;//0.15;//0.25;//0.50;// 0.05;
+double Ladder1ProfitUSD =0.30;//0.20;//0.20;//0.05;//1;//0.15;//0.25;//0.50;// 0.05;
 bool EnableProfitLadder2 = true;
 double Ladder1StopMaxPriceUSD =0.40;//10;// 0.40;//0.50;//0.20;
 double Ladder2ProfitUSD = 0.10;//server api is has errors due to too many orders, so we need to limit the number of orders to 1, and increase the profit target to 0.20
@@ -157,7 +157,7 @@ double RecoveryBasketProfitUSD =0.10;// 1;//0.50;
 // At the next fresh day, ALL day-ladder state is reset and a new opening
 // balance/equity is captured. State is persisted so EA restarts do not reset it.
 bool   EnableDayProfitLadder = true;
-double DayProfitLadder1Percent =10;// 50.0;       // Dynamic ladder step: X1=50%, X2=100%, X3=150%...
+double DayProfitLadder1Percent =50;//10;// 50.0;       // Dynamic ladder step: X1=50%, X2=100%, X3=150%...
 double DayProfitLadderLockRatio = 0.50;      // Protect 50% of achieved ladder profit: X1=25%, X2=50%...
 double DayProfitInitialProtectionPercent = 50.0; // Initial -50% protection
 // IMPORTANT: These three inputs belong ONLY to the daily equity ladder.
