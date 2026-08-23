@@ -1464,7 +1464,7 @@ double GetReEntryLot(int reEntryNumber)
   {
 
 
-   if(IsH1BuyAllowed() && GetCurrentSSLDirection()==1 && !HasLargeM1Candle())
+   if(IsH1BuyAllowed() && GetCurrentSSLDirection()==1) //&&  //!HasLargeM1Candle())
      {
 
 
@@ -1479,7 +1479,7 @@ double GetReEntryLot(int reEntryNumber)
 
      }
    else
-      if(IsH1SellAllowed() && GetCurrentSSLDirection()==-1 && !HasLargeM1Candle())
+      if(IsH1SellAllowed() && GetCurrentSSLDirection()==-1 )//&& !HasLargeM1Candle())
 
         {
 
@@ -3499,6 +3499,9 @@ void ChangeLots(double OpenPL, string reason, int orderType, int stoplevelStep)
       else
       {
          Lots = 0.10 - (reEntryCounter * 0.01);
+
+         // Lots = 0.10 - ((reEntryCounter % 10) * 0.01);
+
 
          // Apply dashboard score
          Lots = Lots * GlobalBUYSELLdashboardScore;
