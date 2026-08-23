@@ -124,6 +124,28 @@ double Ladder2ProfitUSD = 0.10;//server api is has errors due to too many orders
 // later ladder OrderModify request fails because of connection/server errors.
 double DefaultOrderProfitUSD =1;// 0.50; // $0.50 at 0.01 lot
 
+// ===== ONE-TIME POST-ORDER SL/TP VERIFICATION =====
+// After a successful OrderSend(), the order is registered in memory.
+// Nothing is modified immediately. After the configured delay, the order
+// is checked exactly once. If SL/TP is outside the allowed tolerance,
+// exactly one broker OrderModify() is attempted. No retry is performed
+// by this verification module.
+bool   EnablePostOrderSLTPVerification = true;
+int    PostOrderSLTPVerificationDelaySeconds = 60;
+double PostOrderSLTPTolerancePercent = 20.0;
+
+#define MAX_POST_ORDER_SLTP_VERIFY 200
+bool     PostOrderSLTPVerifyActive[MAX_POST_ORDER_SLTP_VERIFY];
+int      PostOrderSLTPVerifyTicket[MAX_POST_ORDER_SLTP_VERIFY];
+datetime PostOrderSLTPVerifyCreated[MAX_POST_ORDER_SLTP_VERIFY];
+bool     PostOrderSLTPVerifyChecked[MAX_POST_ORDER_SLTP_VERIFY];
+double   PostOrderSLTPVerifyExpectedSL[MAX_POST_ORDER_SLTP_VERIFY];
+double   PostOrderSLTPVerifyExpectedTP[MAX_POST_ORDER_SLTP_VERIFY];
+double   PostOrderSLTPVerifyExpectedOpen[MAX_POST_ORDER_SLTP_VERIFY];
+int      PostOrderSLTPVerifyType[MAX_POST_ORDER_SLTP_VERIFY];
+double   PostOrderSLTPVerifyLots[MAX_POST_ORDER_SLTP_VERIFY];
+
+
 
 
 
@@ -786,7 +808,12 @@ bool IsOneCandleOrderAllowed()
 //+------------------------------------------------------------------+
 //|                                                                  |
 //+------------------------------------------------------------------+
-void OnDeinit(const int reason) { DeleteOurObjects(); DeleteDashboardObjects(); DeleteLeftLiveOrdersDashboardObjects(); ClearEMALineObjects(); }
+void OnDeinit(const int reason) { 
+   DeleteOurObjects(); 
+   // DeleteDashboardObjects(); 
+   // DeleteLeftLiveOrdersDashboardObjects(); 
+   ClearEMALineObjects();
+ }
 int StartupProtectionTicks = 0;
 //+------------------------------------------------------------------+
 //|                                                                  |
@@ -963,6 +990,10 @@ void OnTickCore()
 // the previous tick may be attempted now with fresh market data.
    ResetTradeErrorRetryGuards();
    TradeOperationFailedThisTick = false;
+
+   // One-time post-order SL/TP verification. Each registered ticket waits
+   // 60 seconds, is checked once, and is never checked again.
+   ProcessPostOrderSLTPVerification();
 
 // Send remembered orders only after the 30-minute directional condition passes.
 
@@ -2574,6 +2605,241 @@ double CalculateDefaultProfitTargetPrice(int orderType,double openPrice,double o
 //+------------------------------------------------------------------+
 //|                                                                  |
 //+------------------------------------------------------------------+
+
+//+------------------------------------------------------------------+
+//| Register a newly created order for one-time SL/TP verification   |
+//+------------------------------------------------------------------+
+void RegisterPostOrderSLTPVerification(int ticket,double expectedSL,double expectedTP)
+  {
+   if(!EnablePostOrderSLTPVerification || ticket<=0)
+      return;
+
+   // Do not register the same ticket twice.
+   for(int i=0;i<MAX_POST_ORDER_SLTP_VERIFY;i++)
+     {
+      if(PostOrderSLTPVerifyActive[i] &&
+         PostOrderSLTPVerifyTicket[i]==ticket)
+         return;
+     }
+
+   int slot=-1;
+   for(int i=0;i<MAX_POST_ORDER_SLTP_VERIFY;i++)
+     {
+      if(!PostOrderSLTPVerifyActive[i])
+        {
+         slot=i;
+         break;
+        }
+     }
+
+   if(slot<0)
+     {
+      Print("SLTP VERIFY REGISTER FAILED | No free verification slot | Ticket=",ticket);
+      return;
+     }
+
+   double openPrice=0.0;
+   int orderType=-1;
+   double lots=0.0;
+
+   if(OrderSelect(ticket,SELECT_BY_TICKET,MODE_TRADES))
+     {
+      openPrice=OrderOpenPrice();
+      orderType=OrderType();
+      lots=OrderLots();
+
+      // Use the broker-confirmed values from the actual order whenever
+      // available. This preserves the EA's exact initial SL/TP logic,
+      // including SafeOrderSend's stop-distance preparation and default TP.
+      if(expectedSL<=0.0)
+         expectedSL=OrderStopLoss();
+      if(expectedTP<=0.0)
+         expectedTP=OrderTakeProfit();
+     }
+
+   PostOrderSLTPVerifyActive[slot]=true;
+   PostOrderSLTPVerifyTicket[slot]=ticket;
+   PostOrderSLTPVerifyCreated[slot]=TimeCurrent();
+   PostOrderSLTPVerifyChecked[slot]=false;
+   PostOrderSLTPVerifyExpectedSL[slot]=expectedSL;
+   PostOrderSLTPVerifyExpectedTP[slot]=expectedTP;
+   PostOrderSLTPVerifyExpectedOpen[slot]=openPrice;
+   PostOrderSLTPVerifyType[slot]=orderType;
+   PostOrderSLTPVerifyLots[slot]=lots;
+
+   Print("SLTP VERIFY REGISTERED | Ticket=",ticket,
+         " | CheckAfter=",PostOrderSLTPVerificationDelaySeconds," sec",
+         " | ExpectedSL=",DoubleToString(expectedSL,Digits),
+         " | ExpectedTP=",DoubleToString(expectedTP,Digits),
+         " | Open=",DoubleToString(openPrice,Digits),
+         " | Lots=",DoubleToString(lots,2));
+  }
+
+//+------------------------------------------------------------------+
+//| Check whether actual SL/TP matches expected price distance       |
+//| within the configured percentage tolerance.                     |
+//+------------------------------------------------------------------+
+bool PostOrderSLTPWithinTolerance(int orderType,double openPrice,
+                                  double expectedPrice,double actualPrice,
+                                  bool isSL)
+  {
+   // Expected no SL/TP means actual must also be absent.
+   if(expectedPrice<=0.0)
+      return (actualPrice<=0.0);
+
+   if(actualPrice<=0.0 || openPrice<=0.0)
+      return false;
+
+   double expectedDistance=MathAbs(expectedPrice-openPrice);
+   double actualDistance=MathAbs(actualPrice-openPrice);
+
+   if(expectedDistance<=Point)
+      return (MathAbs(actualPrice-expectedPrice)<=Point);
+
+   double tolerance=expectedDistance*(PostOrderSLTPTolerancePercent/100.0);
+
+   if(MathAbs(actualDistance-expectedDistance)>tolerance)
+      return false;
+
+   // Also require the price to be on the correct side of the open price.
+   // This prevents an equal-distance but directionally invalid SL/TP
+   // from being accepted.
+   if(orderType==OP_BUY || orderType==OP_BUYSTOP || orderType==OP_BUYLIMIT)
+     {
+      if(isSL && actualPrice>=openPrice)
+         return false;
+      if(!isSL && actualPrice<=openPrice)
+         return false;
+     }
+   else
+      if(orderType==OP_SELL || orderType==OP_SELLSTOP || orderType==OP_SELLLIMIT)
+        {
+         if(isSL && actualPrice<=openPrice)
+            return false;
+         if(!isSL && actualPrice>=openPrice)
+            return false;
+        }
+
+   return true;
+  }
+
+//+------------------------------------------------------------------+
+//| One-time post-order SL/TP verification                           |
+//| Waits 60 seconds, checks once, optionally modifies once, then   |
+//| permanently removes the ticket from this verification cycle.    |
+//+------------------------------------------------------------------+
+void ProcessPostOrderSLTPVerification()
+  {
+   if(!EnablePostOrderSLTPVerification)
+      return;
+
+   datetime now=TimeCurrent();
+
+   for(int i=0;i<MAX_POST_ORDER_SLTP_VERIFY;i++)
+     {
+      if(!PostOrderSLTPVerifyActive[i] || PostOrderSLTPVerifyChecked[i])
+         continue;
+
+      if((now-PostOrderSLTPVerifyCreated[i]) <
+         PostOrderSLTPVerificationDelaySeconds)
+         continue;
+
+      int ticket=PostOrderSLTPVerifyTicket[i];
+
+      // Mark checked BEFORE doing anything else. This guarantees that
+      // neither a modify failure nor a later tick can cause another check.
+      PostOrderSLTPVerifyChecked[i]=true;
+      PostOrderSLTPVerifyActive[i]=false;
+
+      if(!OrderSelect(ticket,SELECT_BY_TICKET,MODE_TRADES))
+        {
+         Print("SLTP VERIFY DONE | Ticket=",ticket,
+               " | Order no longer exists in active trades");
+         continue;
+        }
+
+      int orderType=OrderType();
+      double openPrice=OrderOpenPrice();
+      double actualSL=OrderStopLoss();
+      double actualTP=OrderTakeProfit();
+      double expectedSL=PostOrderSLTPVerifyExpectedSL[i];
+      double expectedTP=PostOrderSLTPVerifyExpectedTP[i];
+
+      bool slOK=PostOrderSLTPWithinTolerance(orderType,openPrice,
+                                              expectedSL,actualSL,true);
+      bool tpOK=PostOrderSLTPWithinTolerance(orderType,openPrice,
+                                              expectedTP,actualTP,false);
+
+      Print("SLTP VERIFY | Ticket=",ticket,
+            " | Lots=",DoubleToString(OrderLots(),2),
+            " | SL=",DoubleToString(actualSL,Digits),
+            " / Expected=",DoubleToString(expectedSL,Digits),
+            " | TP=",DoubleToString(actualTP,Digits),
+            " / Expected=",DoubleToString(expectedTP,Digits),
+            " | Tolerance=",DoubleToString(PostOrderSLTPTolerancePercent,1),"%",
+            " | SL_OK=",slOK?"YES":"NO",
+            " | TP_OK=",tpOK?"YES":"NO");
+
+      if(slOK && tpOK)
+        {
+         // Correct order already exists. Do not modify it.
+         Print("SLTP VERIFY ACCEPTED | Ticket=",ticket,
+               " | Actual SL/TP within tolerance | No modification");
+         continue;
+        }
+
+      // Exactly one modification attempt. Use the EA's expected values
+      // captured at successful OrderSend(), not a newly recalculated
+      // value that could change because market price moved.
+      if(!CanSendTradeRequest("PostOrderSLTPVerify",
+                              "Ticket="+IntegerToString(ticket)))
+        {
+         Print("SLTP VERIFY MODIFY NOT SENT | Ticket=",ticket,
+               " | Trade request budget/server state blocked the single attempt");
+         continue;
+        }
+
+      RefreshRates();
+      ResetLastError();
+
+      uint tradeStartMs=GetTickCount();
+      bool modified=OrderModify(ticket,openPrice,expectedSL,expectedTP,
+                                OrderExpiration(),CLR_NONE);
+      LogTradeTiming("PostOrderSLTPVerify/OrderModify",tradeStartMs);
+
+      if(modified)
+        {
+         Print("SLTP VERIFY MODIFY SUCCESS | Ticket=",ticket,
+               " | SL=",DoubleToString(expectedSL,Digits),
+               " | TP=",DoubleToString(expectedTP,Digits),
+               " | One-time check completed");
+        }
+      else
+        {
+         int err=GetLastError();
+
+         Print("SLTP VERIFY MODIFY FAILED | Ticket=",ticket,
+               " | Error=",err,
+               " | RequestedSL=",DoubleToString(expectedSL,Digits),
+               " | RequestedTP=",DoubleToString(expectedTP,Digits),
+               " | No retry will be performed");
+
+         LogTradeOperationError("PostOrderSLTPVerify/OrderModify",ticket,
+                                "One-time SL/TP verification modify failed"+
+                                " | Type="+IntegerToString(orderType)+
+                                " | Lots="+DoubleToString(OrderLots(),2)+
+                                " | Open="+DoubleToString(openPrice,Digits)+
+                                " | ExistingSL="+DoubleToString(actualSL,Digits)+
+                                " | ExistingTP="+DoubleToString(actualTP,Digits)+
+                                " | RequestedSL="+DoubleToString(expectedSL,Digits)+
+                                " | RequestedTP="+DoubleToString(expectedTP,Digits),
+                                err);
+        }
+     }
+  }
+
+//+------------------------------------------------------------------+
+
 int SafeOrderSend(string symbol,int orderType,double lots,double price,
                   int slippage,double stopLoss,double takeProfit,
                   string comment,int magic,color arrowColor)
@@ -2703,6 +2969,11 @@ int SafeOrderSend(string symbol,int orderType,double lots,double price,
    if(ticket>0)
      {
       InvalidateTotalEAOrdersCache();
+
+      // Register only after OrderSend has actually succeeded/identified a
+      // broker ticket. The verification module does nothing immediately.
+      RegisterPostOrderSLTPVerification(ticket,safeSL,takeProfit);
+
       return ticket;
      }
 
@@ -2716,6 +2987,13 @@ int SafeOrderSend(string symbol,int orderType,double lots,double price,
      {
       Print("ORDER SEND AMBIGUOUS RESULT | Existing ticket found: ",
             existing," | Original error=",err);
+
+      // The broker may have created the order even though the client
+      // received an ambiguous result. Treat the identified ticket as
+      // newly created and register it for the same one-time verification.
+      if(OrderSelect(existing,SELECT_BY_TICKET,MODE_TRADES))
+         RegisterPostOrderSLTPVerification(existing,safeSL,takeProfit);
+
       ServerRecoveryPending=false;
       return existing;
      }
