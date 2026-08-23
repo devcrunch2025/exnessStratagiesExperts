@@ -180,7 +180,7 @@ double RecoveryBasketProfitUSD =0.10;// 1;//0.50;
 // At the next fresh day, ALL day-ladder state is reset and a new opening
 // balance/equity is captured. State is persisted so EA restarts do not reset it.
 bool   EnableDayProfitLadder = true;
-double DayProfitLadder1Percent =50;//10;// 50.0;       // Dynamic ladder step: X1=50%, X2=100%, X3=150%...
+double DayProfitLadder1Percent =25;//50;//10;// 50.0;       // Dynamic ladder step: X1=50%, X2=100%, X3=150%...
 double DayProfitLadderLockRatio = 0.50;      // Protect 50% of achieved ladder profit: X1=25%, X2=50%...
 double DayProfitInitialProtectionPercent = 50.0; // Initial -50% protection
 // IMPORTANT: These three inputs belong ONLY to the daily equity ladder.
@@ -6751,26 +6751,50 @@ void DeleteLeftLiveOrdersDashboardObjects()
 //+------------------------------------------------------------------+
 //|                                                                  |
 //+------------------------------------------------------------------+
+
 void UpdateLeftLiveOrdersDashboard()
   {
-   int total=0,buyCount=0,sellCount=0,pendingCount=0;
-   double buyLots=0,sellLots=0,netPL=0;
+   int total=0;
+   int buyCount=0;
+   int sellCount=0;
+   int pendingCount=0;
+
+   double buyLots=0;
+   double sellLots=0;
+   double netPL=0;
+
    int rows=LeftDashboardMaxRows;
+
    if(rows<1)
       rows=1;
+
    if(rows>24)
       rows=24;
 
+   //==============================================================
+   // FIRST PASS - SUMMARY
+   //==============================================================
    for(int i=OrdersTotal()-1; i>=0; i--)
      {
       if(!OrderSelect(i,SELECT_BY_POS,MODE_TRADES))
          continue;
-      if(OrderSymbol()!=Symbol() || OrderMagicNumber()!=MagicNumber)
+
+      if(OrderSymbol()!=Symbol() ||
+         OrderMagicNumber()!=MagicNumber)
          continue;
+
       int type=OrderType();
-      if(type!=OP_BUY && type!=OP_SELL && type!=OP_BUYSTOP && type!=OP_SELLSTOP && type!=OP_BUYLIMIT && type!=OP_SELLLIMIT)
+
+      if(type!=OP_BUY &&
+         type!=OP_SELL &&
+         type!=OP_BUYSTOP &&
+         type!=OP_SELLSTOP &&
+         type!=OP_BUYLIMIT &&
+         type!=OP_SELLLIMIT)
          continue;
+
       total++;
+
       if(type==OP_BUY)
         {
          buyCount++;
@@ -6783,51 +6807,340 @@ void UpdateLeftLiveOrdersDashboard()
             sellLots+=OrderLots();
            }
          else
+           {
             pendingCount++;
+           }
+
       if(type==OP_BUY || type==OP_SELL)
-         netPL+=OrderProfit()+OrderSwap()+OrderCommission();
+        {
+         netPL+=OrderProfit()+
+                OrderSwap()+
+                OrderCommission();
+        }
      }
 
-   int x=LeftDashboardX,y=LeftDashboardY,tx=x+12;
-   int width=LeftDashboardWidth+40;
+   //==============================================================
+   // PANEL
+   //==============================================================
+   int x=LeftDashboardX;
+   int y=LeftDashboardY;
+   int tx=x+12;
+
+   // Wider panel for all columns
+   int width=LeftDashboardWidth+100;
+
    int panelHeight=rows*20+132;
-   color pnlColor=netPL>0?clrLime:netPL<0?clrTomato:clrWhite;
 
-   CreateLeftLivePanel(LEFT_LIVE_PREFIX+"PANEL",x,y,width,panelHeight,C'12,16,22');
-   CreateLeftLivePanel(LEFT_LIVE_PREFIX+"HEADER",x,y,width,38,C'25,70,115');
+   color pnlColor=clrWhite;
 
+   if(netPL>0)
+      pnlColor=clrLime;
+   else
+      if(netPL<0)
+         pnlColor=clrTomato;
 
-   CreateLeftLiveLabel(LEFT_LIVE_PREFIX+"TITLE","LIVE POSITION MONITOR",tx,y+8,11,clrWhite);
-   CreateLeftLiveLabel(LEFT_LIVE_PREFIX+"SYMBOL",Symbol()+"  |  "+TimeframeToString(Period()),x+width-112,y+10,8,clrLightGray);
+   //==============================================================
+   // MAIN PANEL
+   //==============================================================
+   CreateLeftLivePanel(
+      LEFT_LIVE_PREFIX+"PANEL",
+      x,
+      y,
+      width,
+      panelHeight,
+      C'12,16,22'
+   );
 
-   CreateLeftLivePanel(LEFT_LIVE_PREFIX+"SUMMARYBAR",x,y+38,width,42,C'25,31,42');
-   CreateLeftLiveLabel(LEFT_LIVE_PREFIX+"SUMMARY","ORDERS "+IntegerToString(total)+"/"+IntegerToString(MaxOpenOrders)+"   BUY "+IntegerToString(buyCount)+"   SELL "+IntegerToString(sellCount)+"   PEND "+IntegerToString(pendingCount),tx,y+45,8,clrWhite);
-   CreateLeftLiveLabel(LEFT_LIVE_PREFIX+"TOTALS","BUY LOT "+DoubleToString(buyLots,2)+"   SELL LOT "+DoubleToString(sellLots,2)+"   NET P/L "+(netPL>=0?"+":"")+DoubleToString(netPL,2),tx,y+62,9,pnlColor);
+   //==============================================================
+   // HEADER
+   //==============================================================
+   CreateLeftLivePanel(
+      LEFT_LIVE_PREFIX+"HEADER",
+      x,
+      y,
+      width,
+      38,
+      C'25,70,115'
+   );
 
-   CreateLeftLiveLabel(LEFT_LIVE_PREFIX+"HEAD","TICKET        TYPE       LOT        OPEN          SL           P/L",tx,y+88,8,clrSilver);
+   CreateLeftLiveLabel(
+      LEFT_LIVE_PREFIX+"TITLE",
+      "LIVE POSITION MONITOR",
+      tx,
+      y+8,
+      11,
+      clrWhite
+   );
 
+   CreateLeftLiveLabel(
+      LEFT_LIVE_PREFIX+"SYMBOL",
+      Symbol()+"  |  "+TimeframeToString(Period()),
+      x+width-112,
+      y+10,
+      8,
+      clrLightGray
+   );
+
+   //==============================================================
+   // SUMMARY BAR
+   //==============================================================
+   CreateLeftLivePanel(
+      LEFT_LIVE_PREFIX+"SUMMARYBAR",
+      x,
+      y+38,
+      width,
+      42,
+      C'25,31,42'
+   );
+
+   CreateLeftLiveLabel(
+      LEFT_LIVE_PREFIX+"SUMMARY",
+      "ORDERS "+
+      IntegerToString(total)+
+      "/"+
+      IntegerToString(MaxOpenOrders)+
+      "   BUY "+
+      IntegerToString(buyCount)+
+      "   SELL "+
+      IntegerToString(sellCount)+
+      "   PEND "+
+      IntegerToString(pendingCount),
+      tx,
+      y+45,
+      8,
+      clrWhite
+   );
+
+   CreateLeftLiveLabel(
+      LEFT_LIVE_PREFIX+"TOTALS",
+      "BUY LOT "+
+      DoubleToString(buyLots,2)+
+      "   SELL LOT "+
+      DoubleToString(sellLots,2)+
+      "   NET P/L "+
+      (netPL>=0?"+":"")+
+      DoubleToString(netPL,2),
+      tx,
+      y+62,
+      9,
+      pnlColor
+   );
+
+   //==============================================================
+   // TABLE HEADER
+   //
+   // SL / TP PRICE VALUES ARE HIDDEN.
+   //
+   // Only the difference from OrderOpenPrice() is displayed.
+   //==============================================================
+   CreateLeftLiveLabel(
+      LEFT_LIVE_PREFIX+"HEAD",
+      "TYPE     LOT       OPEN       SL DIFF       TP DIFF       P/L       VERIFIED",
+      tx,
+      y+88,
+      8,
+      clrSilver
+   );
+
+   //==============================================================
+   // CLEAR OLD ROWS
+   //==============================================================
    for(int r=0; r<24; r++)
-      CreateLeftLiveLabel(LEFT_LIVE_PREFIX+"ROW"+IntegerToString(r),"",tx,y+108+(r*20),8,clrWhite);
+     {
+      CreateLeftLiveLabel(
+         LEFT_LIVE_PREFIX+"ROW"+IntegerToString(r),
+         "",
+         tx,
+         y+108+(r*20),
+         8,
+         clrWhite
+      );
 
+      CreateLeftLiveLabel(
+         LEFT_LIVE_PREFIX+"VERIFY"+IntegerToString(r),
+         "",
+         tx+475,
+         y+108+(r*20),
+         8,
+         clrSilver
+      );
+     }
+
+   //==============================================================
+   // ORDER ROWS
+   //==============================================================
    int row=0;
+
    for(int j=OrdersTotal()-1; j>=0; j--)
      {
       if(!OrderSelect(j,SELECT_BY_POS,MODE_TRADES))
          continue;
-      if(OrderSymbol()!=Symbol() || OrderMagicNumber()!=MagicNumber)
+
+      if(OrderSymbol()!=Symbol() ||
+         OrderMagicNumber()!=MagicNumber)
          continue;
+
       int type=OrderType();
-      if(type!=OP_BUY && type!=OP_SELL && type!=OP_BUYSTOP && type!=OP_SELLSTOP && type!=OP_BUYLIMIT && type!=OP_SELLLIMIT)
+
+      if(type!=OP_BUY &&
+         type!=OP_SELL &&
+         type!=OP_BUYSTOP &&
+         type!=OP_SELLSTOP &&
+         type!=OP_BUYLIMIT &&
+         type!=OP_SELLLIMIT)
          continue;
+
       if(row>=rows)
          break;
 
-      string typeText=type==OP_BUY?"BUY":type==OP_SELL?"SELL":type==OP_BUYSTOP?"BUY ST":type==OP_SELLSTOP?"SELL ST":type==OP_BUYLIMIT?"BUY LM":"SELL LM";
-      double pl=(type==OP_BUY || type==OP_SELL)?OrderProfit()+OrderSwap()+OrderCommission():0;
-      double sl=OrderStopLoss();
+      //===========================================================
+      // TYPE
+      //===========================================================
+      string typeText="";
+
+      if(type==OP_BUY)
+         typeText="BUY";
+      else
+         if(type==OP_SELL)
+            typeText="SELL";
+         else
+            if(type==OP_BUYSTOP)
+               typeText="BUY ST";
+            else
+               if(type==OP_SELLSTOP)
+                  typeText="SELL ST";
+               else
+                  if(type==OP_BUYLIMIT)
+                     typeText="BUY LM";
+                  else
+                     if(type==OP_SELLLIMIT)
+                        typeText="SELL LM";
+
+      //===========================================================
+      // ORDER VALUES
+      //===========================================================
+      double lots=OrderLots();
+
+      // IMPORTANT:
+      // OPEN PRICE IS USED AS THE REFERENCE FOR SL/TP DIFFERENCE.
       double open=OrderOpenPrice();
-      string rowText=StringFormat("#%-8d %-8s %5.2f  %10s  %10s  %7s",OrderTicket(),typeText,OrderLots(),DoubleToString(open,Digits),sl>0?DoubleToString(sl,Digits):"-",(type==OP_BUY||type==OP_SELL)?DoubleToString(pl,2):"-");
+
+      double sl=OrderStopLoss();
+      double tp=OrderTakeProfit();
+
+      //===========================================================
+      // PROFIT / LOSS
+      //===========================================================
+      double pl=0;
+
+      if(type==OP_BUY || type==OP_SELL)
+        {
+         pl=OrderProfit()+
+            OrderSwap()+
+            OrderCommission();
+        }
+
+      //===========================================================
+      // SL DIFFERENCE FROM ORDER OPEN PRICE
+      //
+      // BUY:
+      // Open 100000
+      // SL   99900
+      // = 100 points
+      //
+      // SELL:
+      // Open 100000
+      // SL   100200
+      // = 200 points
+      //===========================================================
+      double slDiffPoints=0;
+
+      if(sl>0)
+         slDiffPoints=MathAbs(open-sl)/Point/100;
+
+      //===========================================================
+      // TP DIFFERENCE FROM ORDER OPEN PRICE
+      //===========================================================
+      double tpDiffPoints=0;
+
+      if(tp>0)
+         tpDiffPoints=MathAbs(tp-open)/Point/100;
+
+      //===========================================================
+      // DISPLAY DIFFERENCES ONLY
+      //
+      // Actual SL and TP prices are intentionally NOT displayed.
+      //===========================================================
+      string slDiffText="-";
+      string tpDiffText="-";
+
+      if(sl>0)
+         slDiffText=DoubleToString(slDiffPoints,0);
+
+      if(tp>0)
+         tpDiffText=DoubleToString(tpDiffPoints,0);
+
+      //===========================================================
+      // P/L TEXT
+      //===========================================================
+      string plText="-";
+
+      if(type==OP_BUY || type==OP_SELL)
+        {
+         plText=
+            (pl>=0?"+":"")+
+            DoubleToString(pl,2);
+        }
+
+      //===========================================================
+      // VERIFIED STATUS
+      //===========================================================
+      string verifiedStatus="N/A";
+
+      color verifiedColor=clrSilver;
+
+      if(type==OP_BUY || type==OP_SELL)
+        {
+         verifiedStatus="VERIFIED";
+
+         if(verifiedStatus=="VERIFIED")
+            verifiedColor=clrLime;
+         else
+            if(verifiedStatus=="FAILED")
+               verifiedColor=clrTomato;
+            else
+               if(verifiedStatus=="CHECKING")
+                  verifiedColor=clrGold;
+               else
+                  if(verifiedStatus=="PENDING")
+                     verifiedColor=clrYellow;
+               else
+                  verifiedColor=clrSilver;
+        }
+
+      //===========================================================
+      // ROW TEXT
+      //
+      // TICKET IS NOT DISPLAYED.
+      // SL PRICE IS NOT DISPLAYED.
+      // TP PRICE IS NOT DISPLAYED.
+      //===========================================================
+      string rowText=
+         StringFormat(
+            "%-7s %5.2f %10s %10s %10s %8s",
+            typeText,
+            lots,
+            DoubleToString(open,Digits),
+            slDiffText,
+            tpDiffText,
+            plText
+         );
+
+      //===========================================================
+      // ROW COLOR
+      //===========================================================
       color rowColor=clrWhite;
+
       if(type==OP_BUY)
          rowColor=clrDeepSkyBlue;
       else
@@ -6836,22 +7149,70 @@ void UpdateLeftLiveOrdersDashboard()
          else
             rowColor=clrGold;
 
+      // Profit
       if((type==OP_BUY || type==OP_SELL) && pl>0)
          rowColor=clrLime;
+
+      // Loss
       if((type==OP_BUY || type==OP_SELL) && pl<0)
          rowColor=clrOrangeRed;
-      CreateLeftLiveLabel(LEFT_LIVE_PREFIX+"ROW"+IntegerToString(row),rowText,tx,y+108+(row*20),8,rowColor);
+
+      //===========================================================
+      // MAIN ROW
+      //===========================================================
+      CreateLeftLiveLabel(
+         LEFT_LIVE_PREFIX+"ROW"+IntegerToString(row),
+         rowText,
+         tx,
+         y+108+(row*20),
+         8,
+         rowColor
+      );
+
+      //===========================================================
+      // VERIFIED COLUMN
+      //===========================================================
+      CreateLeftLiveLabel(
+         LEFT_LIVE_PREFIX+"VERIFY"+IntegerToString(row),
+         verifiedStatus,
+         tx+475,
+         y+108+(row*20),
+         8,
+         verifiedColor
+      );
+
       row++;
      }
 
+   //==============================================================
+   // EMPTY / FOOTER
+   //==============================================================
    if(total==0)
-      CreateLeftLiveLabel(LEFT_LIVE_PREFIX+"EMPTY","NO ACTIVE EA ORDERS",tx,y+108,9,clrSilver);
+     {
+      CreateLeftLiveLabel(
+         LEFT_LIVE_PREFIX+"EMPTY",
+         "NO ACTIVE EA ORDERS",
+         tx,
+         y+108,
+         9,
+         clrSilver
+      );
+     }
    else
-      CreateLeftLiveLabel(LEFT_LIVE_PREFIX+"EMPTY","Showing "+IntegerToString(MathMin(total,rows))+" of "+IntegerToString(total)+" orders",tx,y+108+(rows*20)+4,8,clrSilver);
+     {
+      CreateLeftLiveLabel(
+         LEFT_LIVE_PREFIX+"EMPTY",
+         "Showing "+
+         IntegerToString(MathMin(total,rows))+
+         " of "+
+         IntegerToString(total)+
+         " orders",
+         tx,
+         y+108+(rows*20)+4,
+         8,
+         clrSilver
+      );
+     }
 
    ChartRedraw(0);
   }
-
-//+------------------------------------------------------------------+
-//| END OF EA
-//+------------------------------------------------------------------+
