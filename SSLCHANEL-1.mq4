@@ -3413,7 +3413,7 @@ double GetMarketMomentLot(int orderType)
             lot = 0.04;
          else
             if(confirmationScore >= 4)
-               lot = 0.06;
+               lot = 0.02;
 
 // Safety rule: if the higher-timeframe H1 bias is directly opposite
 // to the requested direction, do not allow an aggressive lot.
@@ -3458,15 +3458,17 @@ double GetMarketMomentLot(int orderType)
          " | Score=",confirmationScore,"/4",
          " | BaseLot=",DoubleToString(lot,2));
 
- 
    return NormalizeLots(lot);
   }
+
 //+------------------------------------------------------------------+
 //| Change lots for normal SSL / profit re-entry orders              |
 //| Recovery orders remain completely outside this function.         |
 //+------------------------------------------------------------------+
-void ChangeLots(double OpenPL, string reason, int orderType, int stoplevelStep)
-{
+void ChangeLots(double OpenPL, string reason, int orderType,int stoplevelStep)
+  {
+// Preserve the existing account-size scaling and hard maximum.
+// Recovery order calculation does not call this function.
    double MaxRecoveryLot = 0.10;
 
    double oppositeLots = GetOppositeOrdersLots(orderType);
@@ -3479,65 +3481,75 @@ void ChangeLots(double OpenPL, string reason, int orderType, int stoplevelStep)
       (reason == "SSL Profit ReEntry Buy Stop" ||
        reason == "SSL Profit ReEntry Sell Stop");
 
-   //===============================================================
-   // 1. CALCULATE BASE LOT
-   //===============================================================
+// All normal SSL and SSL-profit-re-entry orders now use the same
+// market-moment calculation. This removes the old final block that
+// could overwrite a calculated 0.02/0.03/0.05 lot back to 0.01.
+
    if(isSSLSignal)
-   {
+     {
       Lots = GetMarketMomentLot(orderType);
-   }
+
+     }
    else
-   if(isSSLProfitReEntry)
-   {
-      Lots = 0.10;
+      if(isSSLProfitReEntry)
+        {
+         Lots=0.10;//10;//
+         if(reEntryCounter<=3)
+           {
+            Lots=0.02;//
 
-      if(reEntryCounter <= 3)
-      {
-         Lots = 0.02;
-      }
+           }
+         else
+           {
+
+            Lots = 0.10 - (reEntryCounter * 0.01);
+
+
+            // GlobalBUYSELLdashboardScore=dashboardScore;
+
+            Lots=Lots*GlobalBUYSELLdashboardScore;
+
+
+
+            //             int lotStep = reEntryCounter % 10;
+            // Lots = 0.10 - (lotStep * 0.01);
+            if(Lots < 0.01)
+               Lots = 0.01;
+
+            //                if(reEntryCounter>=8 && reEntryCounter<=15 && Lots==0.01)
+            // {
+            // Lots=0.02;
+            // }
+
+           }
+         // if(reEntryCounter<=2)
+         // {
+         // Lots=0.02;//
+
+         // }
+         //  if(reEntryCounter<=2)
+         // {
+         // Lots=0.02;//
+
+         // }
+        }
       else
-      {
-         Lots = 0.10 - (reEntryCounter * 0.01);
-
-         // Apply dashboard score
-         Lots = Lots * GlobalBUYSELLdashboardScore;
-
-         if(Lots < 0.01)
-            Lots = 0.01;
-      }
-   }
-   else
-   {
-      // Legacy fallback
-      if(oppositeLots <= 0.0)
-         Lots = NormalizeLots(0.03);
-      else
-      if(OpenPL < -0.50)
-         Lots = NormalizeLots(0.03);
-      else
-         Lots = NormalizeLots(OriginalLots);
-   }
+        {
+         // There are currently no ChangeLots() callers outside the two
+         // SSL paths above. Keep the legacy fallback for safety if a future
+         // caller is added.
+         if(oppositeLots <= 0.0)
+            Lots = NormalizeLots(0.03);
+         else
+            if(OpenPL < -0.50)
+               Lots = NormalizeLots(0.03);
+            else
+               Lots = NormalizeLots(OriginalLots);
+        }
 
 
-   //===============================================================
-   // 2. SSL / EMA DIRECTION CHECK
-   //
-   // MISMATCH DOES NOT BLOCK THE ORDER.
-   // It simply forces the lot to 0.01.
-   //===============================================================
-   if(GetCurrentSSLDirection() != EMADirection)
-   {
-      Print("LOT REDUCED TO 0.01 | SSL direction != EMA direction",
-            " | Reason=", reason,
-            " | PreviousLot=", DoubleToString(Lots, 2));
 
-      Lots = 0.01;
-   }
-
-
-   //===============================================================
-   // 3. ACCOUNT SIZE SCALING
-   //===============================================================
+// Existing account-balance scaling is retained.
    int balancelomultipler =
       (int)(AccountBalance() / AccountMultiplierLOT);
 
@@ -3546,72 +3558,45 @@ void ChangeLots(double OpenPL, string reason, int orderType, int stoplevelStep)
 
    Lots = Lots * balancelomultipler;
 
-
-   //===============================================================
-   // 4. HARD MAXIMUM LOT
-   //===============================================================
+// Existing hard maximum is retained.
    if(Lots > MaxRecoveryLot)
-   {
+     {
       Print("MAX LOT LIMIT APPLIED | Calculated=",
             DoubleToString(Lots, 2),
-            " | Maximum=",
-            DoubleToString(MaxRecoveryLot, 2));
-
+            " | Maximum=", DoubleToString(MaxRecoveryLot, 2));
       Lots = NormalizeLots(MaxRecoveryLot);
-   }
+     }
 
-
-   //===============================================================
-   // 5. FINAL NORMALIZATION
-   //===============================================================
    Lots = NormalizeLots(Lots);
 
-   if(Lots < 0.01)
-      Lots = 0.01;
-
-
-   //===============================================================
-   // 6. FINAL SL / PROFIT LADDER CALCULATIONS
-   //===============================================================
-   int StoplossWeekendMultiplier = 1;
+// Existing lot-dependent SL/profit-ladder calculations are retained.
+   int StoplossWeekendMultiplier=1;
 
    StopLossUSD =
       OriginalStopLossUSD *
-      Lots *
-      100;
+      Lots * 100;
 
-   StopLossUSD =
-      StopLossUSD *
-      StoplossWeekendMultiplier;
+   StopLossUSD = StopLossUSD * StoplossWeekendMultiplier;
 
    Ladder1ProfitUSD =
       OriginalLadder1ProfitUSD *
-      Lots *
-      100;
+      Lots * 100;
 
    Ladder2ProfitUSD =
       OriginalLadder2ProfitUSD *
-      Lots *
-      100;
+      Lots * 100;
 
    Ladder1StopMaxPriceUSD =
       OriginalLadder1StopMaxPriceUSD *
-      Lots *
-      100;
+      Lots * 100;
 
-
-   //===============================================================
-   // 7. FINAL LOG
-   //===============================================================
    Print("LOT FINAL | Reason=", reason,
-         " | SSL=", GetCurrentSSLDirection(),
-         " | EMA=", EMADirection,
          " | Lots=", DoubleToString(Lots, 2),
          " | StopLossUSD=", DoubleToString(StopLossUSD, 2),
          " | Ladder1=", DoubleToString(Ladder1ProfitUSD, 2),
          " | Ladder2=", DoubleToString(Ladder2ProfitUSD, 2),
          " | L1Max=", DoubleToString(Ladder1StopMaxPriceUSD, 2));
-}
+  }
 //+------------------------------------------------------------------+
 //|                                                                  |
 //+------------------------------------------------------------------+
