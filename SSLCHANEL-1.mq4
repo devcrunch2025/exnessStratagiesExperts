@@ -85,7 +85,7 @@ int MaxOpenOrders = 100;//20;
 int AccountMultiplierLOT=200;
 bool CloseOppositeOrdersOnSignal = false;
 double closeOppositeLossThreshold =-2;//-0.50;// -10.0;
-double OriginalStopLossUSD=4;//2;//10;//5;//0.50;//50;
+double OriginalStopLossUSD=3;//4;//2;//10;//5;//0.50;//50;
 double StopLossUSD =3;//4;//2;//10;//3;//2;//0.50;// 50;
 
 
@@ -818,12 +818,13 @@ bool IsOneCandleOrderAllowed()
 //+------------------------------------------------------------------+
 //|                                                                  |
 //+------------------------------------------------------------------+
-void OnDeinit(const int reason) { 
-   DeleteOurObjects(); 
-   // DeleteDashboardObjects(); 
-   // DeleteLeftLiveOrdersDashboardObjects(); 
+void OnDeinit(const int reason)
+  {
+   DeleteOurObjects();
+// DeleteDashboardObjects();
+// DeleteLeftLiveOrdersDashboardObjects();
    ClearEMALineObjects();
- }
+  }
 int StartupProtectionTicks = 0;
 //+------------------------------------------------------------------+
 //|                                                                  |
@@ -1001,8 +1002,8 @@ void OnTickCore()
    ResetTradeErrorRetryGuards();
    TradeOperationFailedThisTick = false;
 
-   // One-time post-order SL/TP verification. Each registered ticket waits
-   // 60 seconds, is checked once, and is never checked again.
+// One-time post-order SL/TP verification. Each registered ticket waits
+// 60 seconds, is checked once, and is never checked again.
    ProcessPostOrderSLTPVerification();
 
 // Send remembered orders only after the 30-minute directional condition passes.
@@ -1104,12 +1105,12 @@ void OnTickCore()
    if(TradeOperationFailedThisTick)
      { UpdateDashboardsThrottled(dailyState); return; }
 
-   //===============================================================
-   // DAY PROFIT LADDER TARGET CLEANUP
-   // Every target starts a fresh order cycle.
-   // OLD market orders are closed and OLD pending orders are deleted.
-   // Only after the EA is flat is the NEW pending order created.
-   //===============================================================
+//===============================================================
+// DAY PROFIT LADDER TARGET CLEANUP
+// Every target starts a fresh order cycle.
+// OLD market orders are closed and OLD pending orders are deleted.
+// Only after the EA is flat is the NEW pending order created.
+//===============================================================
    if(DayProfitLadderTargetCleanupPending &&
       !DayProfitLadderTradingStopped)
      {
@@ -1125,12 +1126,12 @@ void OnTickCore()
       Print("DAY PROFIT LADDER | NEXT ORDER IS THE NEW POST-TARGET ORDER");
      }
 
-   //===============================================================
-   // DAY PROFIT LADDER CONTINUATION
-   // If X1/X2/X3... was reached on the previous tick, attempt to
-   // continue in the SAME direction remembered at the milestone.
-   // No fresh SSL crossover is required.
-   //===============================================================
+//===============================================================
+// DAY PROFIT LADDER CONTINUATION
+// If X1/X2/X3... was reached on the previous tick, attempt to
+// continue in the SAME direction remembered at the milestone.
+// No fresh SSL crossover is required.
+//===============================================================
    if(DayProfitLadderResumePending &&
       DayProfitLadderResumeDirection != 0 &&
       !DayProfitLadderTradingStopped)
@@ -1552,7 +1553,7 @@ double GetReEntryLot(int reEntryNumber)
 
      }
    else
-      if(IsH1SellAllowed() && GetCurrentSSLDirection()==-1 )//&& !HasLargeM1Candle())
+      if(IsH1SellAllowed() && GetCurrentSSLDirection()==-1) //&& !HasLargeM1Candle())
 
         {
 
@@ -2656,8 +2657,8 @@ void RegisterPostOrderSLTPVerification(int ticket,double expectedSL,double expec
    if(!EnablePostOrderSLTPVerification || ticket<=0)
       return;
 
-   // Do not register the same ticket twice.
-   for(int i=0;i<MAX_POST_ORDER_SLTP_VERIFY;i++)
+// Do not register the same ticket twice.
+   for(int i=0; i<MAX_POST_ORDER_SLTP_VERIFY; i++)
      {
       if(PostOrderSLTPVerifyActive[i] &&
          PostOrderSLTPVerifyTicket[i]==ticket)
@@ -2665,7 +2666,7 @@ void RegisterPostOrderSLTPVerification(int ticket,double expectedSL,double expec
      }
 
    int slot=-1;
-   for(int i=0;i<MAX_POST_ORDER_SLTP_VERIFY;i++)
+   for(int i=0; i<MAX_POST_ORDER_SLTP_VERIFY; i++)
      {
       if(!PostOrderSLTPVerifyActive[i])
         {
@@ -2693,10 +2694,28 @@ void RegisterPostOrderSLTPVerification(int ticket,double expectedSL,double expec
       // Use the broker-confirmed values from the actual order whenever
       // available. This preserves the EA's exact initial SL/TP logic,
       // including SafeOrderSend's stop-distance preparation and default TP.
+      // if(expectedSL<=0.0)
+      //    expectedSL=OrderStopLoss();
+      // if(expectedTP<=0.0)
+      //    expectedTP=OrderTakeProfit();
+
       if(expectedSL<=0.0)
-         expectedSL=OrderStopLoss();
+        {
+         if(orderType==OP_BUY)
+            expectedSL=openPrice-Slippage-(StopLossUSD*100);
+         else
+            if(orderType==OP_SELL)
+               expectedSL=openPrice+Slippage+(StopLossUSD*100);
+        }
+
       if(expectedTP<=0.0)
-         expectedTP=OrderTakeProfit();
+        {
+         if(orderType==OP_BUY)
+            expectedTP=openPrice+Slippage+(DefaultOrderProfitUSD*100);
+         else
+            if(orderType==OP_SELL)
+               expectedTP=openPrice-Slippage-(DefaultOrderProfitUSD*100);
+        }
      }
 
    PostOrderSLTPVerifyActive[slot]=true;
@@ -2727,7 +2746,7 @@ bool PostOrderSLTPWithinTolerance(int orderType,double openPrice,
                                   double expectedPrice,double actualPrice,
                                   bool isSL)
   {
-   // Expected no SL/TP means actual must also be absent.
+// Expected no SL/TP means actual must also be absent.
    if(expectedPrice<=0.0)
       return (actualPrice<=0.0);
 
@@ -2745,9 +2764,9 @@ bool PostOrderSLTPWithinTolerance(int orderType,double openPrice,
    if(MathAbs(actualDistance-expectedDistance)>tolerance)
       return false;
 
-   // Also require the price to be on the correct side of the open price.
-   // This prevents an equal-distance but directionally invalid SL/TP
-   // from being accepted.
+// Also require the price to be on the correct side of the open price.
+// This prevents an equal-distance but directionally invalid SL/TP
+// from being accepted.
    if(orderType==OP_BUY || orderType==OP_BUYSTOP || orderType==OP_BUYLIMIT)
      {
       if(isSL && actualPrice>=openPrice)
@@ -2775,7 +2794,7 @@ string GetPostOrderSLTPVerificationStatus(int ticket)
    if(ticket<=0)
       return "NOT CHECKED";
 
-   for(int i=0;i<MAX_POST_ORDER_SLTP_VERIFY;i++)
+   for(int i=0; i<MAX_POST_ORDER_SLTP_VERIFY; i++)
      {
       if(PostOrderSLTPVerifyTicket[i]==ticket)
         {
@@ -2798,6 +2817,9 @@ string GetPostOrderSLTPVerificationStatus(int ticket)
 //|           OP_SELLLIMIT                                           |
 //+------------------------------------------------------------------+
 
+//+------------------------------------------------------------------+
+//|                                                                  |
+//+------------------------------------------------------------------+
 void ProcessPostOrderSLTPVerification()
   {
    if(!EnablePostOrderSLTPVerification)
@@ -2805,7 +2827,7 @@ void ProcessPostOrderSLTPVerification()
 
    datetime now=TimeCurrent();
 
-   for(int i=0;i<MAX_POST_ORDER_SLTP_VERIFY;i++)
+   for(int i=0; i<MAX_POST_ORDER_SLTP_VERIFY; i++)
      {
       if(!PostOrderSLTPVerifyActive[i] || PostOrderSLTPVerifyChecked[i])
          continue;
@@ -2841,7 +2863,7 @@ void ProcessPostOrderSLTPVerification()
 
       // ===== CHECK IF MARKET OR PENDING ORDER =====
       bool isMarketOrder=(orderType==OP_BUY || orderType==OP_SELL);
-      bool isPendingOrder=(orderType==OP_BUYSTOP || orderType==OP_SELLSTOP || 
+      bool isPendingOrder=(orderType==OP_BUYSTOP || orderType==OP_SELLSTOP ||
                            orderType==OP_BUYLIMIT || orderType==OP_SELLLIMIT);
 
       // ===== VERIFY PENDING ORDER PRICE (if applicable) =====
@@ -2868,9 +2890,9 @@ void ProcessPostOrderSLTPVerification()
 
       // ===== VERIFY SL/TP =====
       bool slOK=PostOrderSLTPWithinTolerance(orderType,openPrice,
-                                              expectedSL,actualSL,true);
+                                             expectedSL,actualSL,true);
       bool tpOK=PostOrderSLTPWithinTolerance(orderType,openPrice,
-                                              expectedTP,actualTP,false);
+                                             expectedTP,actualTP,false);
 
       Print("SLTP VERIFY | Ticket=",ticket,
             " | Type=",GetOrderTypeText(orderType),
@@ -2968,13 +2990,20 @@ string GetOrderTypeText(int orderType)
   {
    switch(orderType)
      {
-      case OP_BUY:        return "BUY";
-      case OP_SELL:       return "SELL";
-      case OP_BUYSTOP:    return "BUY STOP";
-      case OP_SELLSTOP:   return "SELL STOP";
-      case OP_BUYLIMIT:   return "BUY LIMIT";
-      case OP_SELLLIMIT:  return "SELL LIMIT";
-      default:            return "UNKNOWN";
+      case OP_BUY:
+         return "BUY";
+      case OP_SELL:
+         return "SELL";
+      case OP_BUYSTOP:
+         return "BUY STOP";
+      case OP_SELLSTOP:
+         return "SELL STOP";
+      case OP_BUYLIMIT:
+         return "BUY LIMIT";
+      case OP_SELLLIMIT:
+         return "SELL LIMIT";
+      default:
+         return "UNKNOWN";
      }
   }
 
@@ -2990,7 +3019,7 @@ void ProcessPostOrderSLTPVerification111()
 
    datetime now=TimeCurrent();
 
-   for(int i=0;i<MAX_POST_ORDER_SLTP_VERIFY;i++)
+   for(int i=0; i<MAX_POST_ORDER_SLTP_VERIFY; i++)
      {
       if(!PostOrderSLTPVerifyActive[i] || PostOrderSLTPVerifyChecked[i])
          continue;
@@ -3023,9 +3052,9 @@ void ProcessPostOrderSLTPVerification111()
       double expectedTP=PostOrderSLTPVerifyExpectedTP[i];
 
       bool slOK=PostOrderSLTPWithinTolerance(orderType,openPrice,
-                                              expectedSL,actualSL,true);
+                                             expectedSL,actualSL,true);
       bool tpOK=PostOrderSLTPWithinTolerance(orderType,openPrice,
-                                              expectedTP,actualTP,false);
+                                             expectedTP,actualTP,false);
 
       Print("SLTP VERIFY | Ticket=",ticket,
             " | Lots=",DoubleToString(OrderLots(),2),
@@ -3109,6 +3138,9 @@ void ProcessPostOrderSLTPVerification111()
 
 //+------------------------------------------------------------------+
 
+//+------------------------------------------------------------------+
+//|                                                                  |
+//+------------------------------------------------------------------+
 int SafeOrderSend(string symbol,int orderType,double lots,double price,
                   int slippage,double stopLoss,double takeProfit,
                   string comment,int magic,color arrowColor)
@@ -4007,7 +4039,7 @@ double GetMarketMomentLot(int orderType)
          " | Score=",confirmationScore,"/4",
          " | BaseLot=",DoubleToString(lot,2));
 
- 
+
    return NormalizeLots(lot);
   }
 //+------------------------------------------------------------------+
@@ -4015,7 +4047,7 @@ double GetMarketMomentLot(int orderType)
 //| Recovery orders remain completely outside this function.         |
 //+------------------------------------------------------------------+
 void ChangeLots(double OpenPL, string reason, int orderType, int stoplevelStep)
-{
+  {
    double MaxRecoveryLot = 0.10;
 
    double oppositeLots = GetOppositeOrdersLots(orderType);
@@ -4028,68 +4060,68 @@ void ChangeLots(double OpenPL, string reason, int orderType, int stoplevelStep)
       (reason == "SSL Profit ReEntry Buy Stop" ||
        reason == "SSL Profit ReEntry Sell Stop");
 
-   //===============================================================
-   // 1. CALCULATE BASE LOT
-   //===============================================================
+//===============================================================
+// 1. CALCULATE BASE LOT
+//===============================================================
    if(isSSLSignal)
-   {
+     {
       Lots = GetMarketMomentLot(orderType);
-   }
+     }
    else
-   if(isSSLProfitReEntry)
-   {
-      Lots = 0.10;
+      if(isSSLProfitReEntry)
+        {
+         Lots = 0.10;
 
-      if(reEntryCounter <= 3)
-      {
-         Lots = 0.02;
-      }
+         if(reEntryCounter <= 3)
+           {
+            Lots = 0.02;
+           }
+         else
+           {
+            Lots = 0.10 - (reEntryCounter * 0.01);
+
+            // Lots = 0.10 - ((reEntryCounter % 10) * 0.01);
+
+
+            // Apply dashboard score
+            Lots = Lots * GlobalBUYSELLdashboardScore;
+
+            if(Lots < 0.01)
+               Lots = 0.01;
+           }
+        }
       else
-      {
-         Lots = 0.10 - (reEntryCounter * 0.01);
-
-         // Lots = 0.10 - ((reEntryCounter % 10) * 0.01);
-
-
-         // Apply dashboard score
-         Lots = Lots * GlobalBUYSELLdashboardScore;
-
-         if(Lots < 0.01)
-            Lots = 0.01;
-      }
-   }
-   else
-   {
-      // Legacy fallback
-      if(oppositeLots <= 0.0)
-         Lots = NormalizeLots(0.03);
-      else
-      if(OpenPL < -0.50)
-         Lots = NormalizeLots(0.03);
-      else
-         Lots = NormalizeLots(OriginalLots);
-   }
+        {
+         // Legacy fallback
+         if(oppositeLots <= 0.0)
+            Lots = NormalizeLots(0.03);
+         else
+            if(OpenPL < -0.50)
+               Lots = NormalizeLots(0.03);
+            else
+               Lots = NormalizeLots(OriginalLots);
+        }
 
 
-   //===============================================================
-   // 2. SSL / EMA DIRECTION CHECK
-   //
-   // MISMATCH DOES NOT BLOCK THE ORDER.
-   // It simply forces the lot to 0.01.
-   //===============================================================
+//===============================================================
+// 2. SSL / EMA DIRECTION CHECK
+//
+// MISMATCH DOES NOT BLOCK THE ORDER.
+// It simply forces the lot to 0.01.
+//===============================================================
    if(GetCurrentSSLDirection() != EMADirection)
-   {
+     {
       Print("LOT REDUCED TO 0.01 | SSL direction != EMA direction",
             " | Reason=", reason,
             " | PreviousLot=", DoubleToString(Lots, 2));
 
       Lots = 0.01;
-   }
+     }
 
 
-   //===============================================================
-   // 3. ACCOUNT SIZE SCALING
-   //===============================================================
+//===============================================================
+// 3. ACCOUNT SIZE SCALING
+//===============================================================
    int balancelomultipler =
       (int)(AccountBalance() / AccountMultiplierLOT);
 
@@ -4099,38 +4131,41 @@ void ChangeLots(double OpenPL, string reason, int orderType, int stoplevelStep)
    Lots = Lots * balancelomultipler;
 
 
-   //===============================================================
-   // 4. HARD MAXIMUM LOT
-   //===============================================================
+//===============================================================
+// 4. HARD MAXIMUM LOT
+//===============================================================
    if(Lots > MaxRecoveryLot)
-   {
+     {
       Print("MAX LOT LIMIT APPLIED | Calculated=",
             DoubleToString(Lots, 2),
             " | Maximum=",
             DoubleToString(MaxRecoveryLot, 2));
 
       Lots = NormalizeLots(MaxRecoveryLot);
-   }
+     }
 
 
-   //===============================================================
-   // 5. FINAL NORMALIZATION
-   //===============================================================
+//===============================================================
+// 5. FINAL NORMALIZATION
+//===============================================================
    Lots = NormalizeLots(Lots);
 
    if(Lots < 0.01)
       Lots = 0.01;
 
 
-   //===============================================================
-   // 6. FINAL SL / PROFIT LADDER CALCULATIONS
-   //===============================================================
+//===============================================================
+// 6. FINAL SL / PROFIT LADDER CALCULATIONS
+//===============================================================
    int StoplossWeekendMultiplier = 1;
 
-   StopLossUSD =
-      OriginalStopLossUSD *
-      Lots *
-      100;
+StopLossUSD =
+   OriginalStopLossUSD *
+   Lots *
+   100;
+
+   // StopLossUSD =
+   //    OriginalStopLossUSD;
 
    StopLossUSD =
       StopLossUSD *
@@ -4152,9 +4187,9 @@ void ChangeLots(double OpenPL, string reason, int orderType, int stoplevelStep)
       100;
 
 
-   //===============================================================
-   // 7. FINAL LOG
-   //===============================================================
+//===============================================================
+// 7. FINAL LOG
+//===============================================================
    Print("LOT FINAL | Reason=", reason,
          " | SSL=", GetCurrentSSLDirection(),
          " | EMA=", EMADirection,
@@ -4163,7 +4198,7 @@ void ChangeLots(double OpenPL, string reason, int orderType, int stoplevelStep)
          " | Ladder1=", DoubleToString(Ladder1ProfitUSD, 2),
          " | Ladder2=", DoubleToString(Ladder2ProfitUSD, 2),
          " | L1Max=", DoubleToString(Ladder1StopMaxPriceUSD, 2));
-}
+  }
 //+------------------------------------------------------------------+
 //|                                                                  |
 //+------------------------------------------------------------------+
@@ -4555,19 +4590,19 @@ double GetDayProfitLadderProtection(int stage)
    if(DayProfitLadderStartBalance<=0.0)
       return 0.0;
 
-   // Stage 0:
-   // Opening balance = $100
-   // Initial protection = -50% = $50
+// Stage 0:
+// Opening balance = $100
+// Initial protection = -50% = $50
    if(stage<=0)
       return DayProfitLadderStartBalance *
              (1.0-DayProfitInitialProtectionPercent/100.0);
 
    double step=MathAbs(DayProfitLadder1Percent)/100.0;
 
-   // Protection is 50% of the accumulated ladder profit.
-   // Stage 1: $100 + ($25 * 50%) = $112.50
-   // Stage 2: $100 + ($50 * 50%) = $125.00
-   // Stage 3: $100 + ($75 * 50%) = $137.50
+// Protection is 50% of the accumulated ladder profit.
+// Stage 1: $100 + ($25 * 50%) = $112.50
+// Stage 2: $100 + ($50 * 50%) = $125.00
+// Stage 3: $100 + ($75 * 50%) = $137.50
    double protectionLockRatio=0.50;
 
    double accumulatedProfit=
@@ -4774,7 +4809,7 @@ bool CloseAllEAOrdersForLadderReset()
    int pendingTickets[1000];
    int pendingCount = 0;
 
-   // CHECK IF CLEANUP TIMEOUT HAS ELAPSED
+// CHECK IF CLEANUP TIMEOUT HAS ELAPSED
    if(DayProfitLadderCleanupStartTime > 0)
      {
       int elapsedSeconds = (int)(TimeCurrent() - DayProfitLadderCleanupStartTime);
@@ -4794,22 +4829,28 @@ bool CloseAllEAOrdersForLadderReset()
 
    for(int i=OrdersTotal()-1; i>=0; i--)
      {
-      if(!OrderSelect(i,SELECT_BY_POS,MODE_TRADES)) continue;
-      if(OrderSymbol()!=Symbol() || OrderMagicNumber()!=MagicNumber) continue;
+      if(!OrderSelect(i,SELECT_BY_POS,MODE_TRADES))
+         continue;
+      if(OrderSymbol()!=Symbol() || OrderMagicNumber()!=MagicNumber)
+         continue;
       int type=OrderType();
       if(type==OP_BUY || type==OP_SELL)
         { if(marketCount<1000) marketTickets[marketCount++]=OrderTicket(); }
-      else if(type==OP_BUYSTOP || type==OP_SELLSTOP || type==OP_BUYLIMIT || type==OP_SELLLIMIT)
-        { if(pendingCount<1000) pendingTickets[pendingCount++]=OrderTicket(); }
+      else
+         if(type==OP_BUYSTOP || type==OP_SELLSTOP || type==OP_BUYLIMIT || type==OP_SELLLIMIT)
+           { if(pendingCount<1000) pendingTickets[pendingCount++]=OrderTicket(); }
      }
 
    for(int m=0; m<marketCount; m++)
      {
       int ticket=marketTickets[m];
-      if(!OrderSelect(ticket,SELECT_BY_TICKET,MODE_TRADES)) continue;
-      if(OrderSymbol()!=Symbol() || OrderMagicNumber()!=MagicNumber) continue;
+      if(!OrderSelect(ticket,SELECT_BY_TICKET,MODE_TRADES))
+         continue;
+      if(OrderSymbol()!=Symbol() || OrderMagicNumber()!=MagicNumber)
+         continue;
       int type=OrderType();
-      if(type!=OP_BUY && type!=OP_SELL) continue;
+      if(type!=OP_BUY && type!=OP_SELL)
+         continue;
       double lots=OrderLots();
       double pl=OrderProfit()+OrderSwap()+OrderCommission();
       if(SafeOrderClose(ticket,lots,type,Slippage,(type==OP_BUY ? clrRed : clrBlue)))
@@ -4824,10 +4865,13 @@ bool CloseAllEAOrdersForLadderReset()
    for(int q=0; q<pendingCount; q++)
      {
       int ticket=pendingTickets[q];
-      if(!OrderSelect(ticket,SELECT_BY_TICKET,MODE_TRADES)) continue;
-      if(OrderSymbol()!=Symbol() || OrderMagicNumber()!=MagicNumber) continue;
+      if(!OrderSelect(ticket,SELECT_BY_TICKET,MODE_TRADES))
+         continue;
+      if(OrderSymbol()!=Symbol() || OrderMagicNumber()!=MagicNumber)
+         continue;
       int type=OrderType();
-      if(type!=OP_BUYSTOP && type!=OP_SELLSTOP && type!=OP_BUYLIMIT && type!=OP_SELLLIMIT) continue;
+      if(type!=OP_BUYSTOP && type!=OP_SELLSTOP && type!=OP_BUYLIMIT && type!=OP_SELLLIMIT)
+         continue;
       if(SafeOrderDelete(ticket,clrRed))
          Print("LADDER RESET | OLD PENDING DELETED | Ticket=",ticket);
       else
@@ -4839,7 +4883,8 @@ bool CloseAllEAOrdersForLadderReset()
 
    for(int j=OrdersTotal()-1; j>=0; j--)
      {
-      if(!OrderSelect(j,SELECT_BY_POS,MODE_TRADES)) continue;
+      if(!OrderSelect(j,SELECT_BY_POS,MODE_TRADES))
+         continue;
       if(OrderSymbol()==Symbol() && OrderMagicNumber()==MagicNumber)
         { anyRemaining=true; break; }
      }
@@ -4889,7 +4934,7 @@ bool CreateDayProfitLadderPending(int direction)
    int pendingType=(direction==OP_BUY) ? OP_BUYSTOP : OP_SELLSTOP;
    double minimumGap=GetRequiredStopDistance();
 
-   // Use the existing profit re-entry gap for the new ladder entry.
+// Use the existing profit re-entry gap for the new ladder entry.
    double gap=MathAbs(ProfitReEntryGapRaw);
    if(gap<minimumGap)
       gap=minimumGap;
@@ -4903,8 +4948,8 @@ bool CreateDayProfitLadderPending(int direction)
 
    entryPrice=NormalizeDouble(entryPrice,Digits);
 
-   // After the target cleanup there should be no floating P/L.
-   // Reset the ladder re-entry lot calculation using the existing EA logic.
+// After the target cleanup there should be no floating P/L.
+// Reset the ladder re-entry lot calculation using the existing EA logic.
    reEntryCounter=0;
    SaveReEntryCounter();
 
@@ -5123,10 +5168,10 @@ bool IsDayProfitLadderTradingAllowed()
    if(DayProfitLadderTradingStopped)
       return false;
 
-   // A ladder target is a milestone, NOT a trading stop.
-   // There is no candle-based block. The dedicated resume logic attempts
-   // the remembered direction on the next tick without requiring a new
-   // SSL crossover.
+// A ladder target is a milestone, NOT a trading stop.
+// There is no candle-based block. The dedicated resume logic attempts
+// the remembered direction on the next tick without requiring a new
+// SSL crossover.
    return true;
   }
 
@@ -7268,6 +7313,9 @@ void DeleteLeftLiveOrdersDashboardObjects()
 //|                                                                  |
 //+------------------------------------------------------------------+
 
+//+------------------------------------------------------------------+
+//|                                                                  |
+//+------------------------------------------------------------------+
 void UpdateLeftLiveOrdersDashboard()
   {
    int total=0;
@@ -7287,9 +7335,9 @@ void UpdateLeftLiveOrdersDashboard()
    if(rows>24)
       rows=24;
 
-   //==============================================================
-   // FIRST PASS - SUMMARY
-   //==============================================================
+//==============================================================
+// FIRST PASS - SUMMARY
+//==============================================================
    for(int i=OrdersTotal()-1; i>=0; i--)
      {
       if(!OrderSelect(i,SELECT_BY_POS,MODE_TRADES))
@@ -7335,14 +7383,14 @@ void UpdateLeftLiveOrdersDashboard()
         }
      }
 
-   //==============================================================
-   // PANEL
-   //==============================================================
+//==============================================================
+// PANEL
+//==============================================================
    int x=LeftDashboardX;
    int y=LeftDashboardY;
    int tx=x+12;
 
-   // Wider panel for all columns
+// Wider panel for all columns
    int width=LeftDashboardWidth+180;//black panel
 
    int panelHeight=rows*20+132;
@@ -7355,9 +7403,9 @@ void UpdateLeftLiveOrdersDashboard()
       if(netPL<0)
          pnlColor=clrTomato;
 
-   //==============================================================
-   // MAIN PANEL
-   //==============================================================
+//==============================================================
+// MAIN PANEL
+//==============================================================
    CreateLeftLivePanel(
       LEFT_LIVE_PREFIX+"PANEL",
       x,
@@ -7367,9 +7415,9 @@ void UpdateLeftLiveOrdersDashboard()
       C'12,16,22'
    );
 
-   //==============================================================
-   // HEADER
-   //==============================================================
+//==============================================================
+// HEADER
+//==============================================================
    CreateLeftLivePanel(
       LEFT_LIVE_PREFIX+"HEADER",
       x,
@@ -7397,9 +7445,9 @@ void UpdateLeftLiveOrdersDashboard()
       clrLightGray
    );
 
-   //==============================================================
-   // SUMMARY BAR
-   //==============================================================
+//==============================================================
+// SUMMARY BAR
+//==============================================================
    CreateLeftLivePanel(
       LEFT_LIVE_PREFIX+"SUMMARYBAR",
       x,
@@ -7442,13 +7490,13 @@ void UpdateLeftLiveOrdersDashboard()
       pnlColor
    );
 
-   //==============================================================
-   // TABLE HEADER
-   //
-   // SL / TP PRICE VALUES ARE HIDDEN.
-   //
-   // Only the difference from OrderOpenPrice() is displayed.
-   //==============================================================
+//==============================================================
+// TABLE HEADER
+//
+// SL / TP PRICE VALUES ARE HIDDEN.
+//
+// Only the difference from OrderOpenPrice() is displayed.
+//==============================================================
    CreateLeftLiveLabel(
       LEFT_LIVE_PREFIX+"HEAD",
       "TYPE     LOT       OPEN       SL        TP        P/L     VERIFIED",
@@ -7458,9 +7506,9 @@ void UpdateLeftLiveOrdersDashboard()
       clrSilver
    );
 
-   //==============================================================
-   // CLEAR OLD ROWS
-   //==============================================================
+//==============================================================
+// CLEAR OLD ROWS
+//==============================================================
    for(int r=0; r<24; r++)
      {
       CreateLeftLiveLabel(
@@ -7482,9 +7530,9 @@ void UpdateLeftLiveOrdersDashboard()
       );
      }
 
-   //==============================================================
-   // ORDER ROWS
-   //==============================================================
+//==============================================================
+// ORDER ROWS
+//==============================================================
    int row=0;
 
    for(int j=OrdersTotal()-1; j>=0; j--)
@@ -7631,9 +7679,9 @@ void UpdateLeftLiveOrdersDashboard()
             else
                if(verifiedStatus=="CHECKING")
                   verifiedColor=clrGold;
-            else
-               if(verifiedStatus=="NOT CHECKED")
-                  verifiedColor=clrOrange;
+               else
+                  if(verifiedStatus=="NOT CHECKED")
+                     verifiedColor=clrOrange;
         }
 
       //===========================================================
@@ -7702,9 +7750,9 @@ void UpdateLeftLiveOrdersDashboard()
       row++;
      }
 
-   //==============================================================
-   // EMPTY / FOOTER
-   //==============================================================
+//==============================================================
+// EMPTY / FOOTER
+//==============================================================
    if(total==0)
      {
       CreateLeftLiveLabel(
@@ -7734,3 +7782,4 @@ void UpdateLeftLiveOrdersDashboard()
 
    ChartRedraw(0);
   }
+//+------------------------------------------------------------------+
