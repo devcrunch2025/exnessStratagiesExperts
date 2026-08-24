@@ -130,7 +130,7 @@ double DefaultOrderProfitUSD =1;// 0.50; // $0.50 at 0.01 lot
 // is checked exactly once. If SL/TP is outside the allowed tolerance,
 // exactly one broker OrderModify() is attempted. No retry is performed
 // by this verification module.
-bool   EnablePostOrderSLTPVerification = true;
+bool   EnablePostOrderSLTPVerification = false;//true;
 int    PostOrderSLTPVerificationDelaySeconds = 60;
 double PostOrderSLTPTolerancePercent = 20.0;
 
@@ -3525,9 +3525,9 @@ double actualSLDistance = MathAbs(requestedSL - openPrice);
 if(actualSLDistance < requiredSLDistance)
   {
    if(orderType == OP_SELL)
-      requestedSL = openPrice + requiredSLDistance + Slippage;
+      requestedSL = openPrice + requiredSLDistance;// + Slippage;
    else
-      requestedSL = openPrice - requiredSLDistance - Slippage;
+      requestedSL = openPrice - requiredSLDistance;// - Slippage;
   }
 
    uint tradeStartMs=GetTickCount();
