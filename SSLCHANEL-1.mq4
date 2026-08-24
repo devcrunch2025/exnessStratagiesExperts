@@ -139,6 +139,8 @@ bool     PostOrderSLTPVerifyActive[MAX_POST_ORDER_SLTP_VERIFY];
 int      PostOrderSLTPVerifyTicket[MAX_POST_ORDER_SLTP_VERIFY];
 datetime PostOrderSLTPVerifyCreated[MAX_POST_ORDER_SLTP_VERIFY];
 bool     PostOrderSLTPVerifyChecked[MAX_POST_ORDER_SLTP_VERIFY];
+string   PostOrderSLTPVerifyStatus[MAX_POST_ORDER_SLTP_VERIFY];
+int      PostOrderSLTPVerifyLastError[MAX_POST_ORDER_SLTP_VERIFY];
 double   PostOrderSLTPVerifyExpectedSL[MAX_POST_ORDER_SLTP_VERIFY];
 double   PostOrderSLTPVerifyExpectedTP[MAX_POST_ORDER_SLTP_VERIFY];
 double   PostOrderSLTPVerifyExpectedOpen[MAX_POST_ORDER_SLTP_VERIFY];
@@ -181,7 +183,7 @@ double RecoveryBasketProfitUSD =0.10;// 1;//0.50;
 // balance/equity is captured. State is persisted so EA restarts do not reset it.
 bool   EnableDayProfitLadder = true;
 double DayProfitLadder1Percent =25;//50;//10;// 50.0;       // Dynamic ladder step: X1=50%, X2=100%, X3=150%...
-double DayProfitLadderLockRatio = 0.50;      // Protect 50% of achieved ladder profit: X1=25%, X2=50%...
+double DayProfitLadderLockRatio = 0.10;      // Protect 50% of achieved ladder profit: X1=25%, X2=50%...
 double DayProfitInitialProtectionPercent = 50.0; // Initial -50% protection
 // IMPORTANT: These three inputs belong ONLY to the daily equity ladder.
 // They do not control per-order Profit Ladder 1/2, recovery sizing, or
@@ -288,6 +290,9 @@ datetime DayProfitLadderTargetReachedCandle = 0;
 bool DayProfitLadderResumePending = false;
 int  DayProfitLadderResumeDirection = 0; // 1=BUY, -1=SELL
 bool DayProfitLadderResumeTradeAttempt = false;
+// After a ladder target is reached, all orders that existed before the
+// milestone are closed/deleted before the new ladder re-entry is opened.
+bool DayProfitLadderTargetCleanupPending = false;
 
 // ===== RUNTIME VARIABLES =====
 string PREFIX = "SSL_CROSS_";
@@ -1095,6 +1100,27 @@ void OnTickCore()
      { UpdateDashboardsThrottled(dailyState); return; }
 
    //===============================================================
+   // DAY PROFIT LADDER TARGET CLEANUP
+   // Every target starts a fresh order cycle.
+   // OLD market orders are closed and OLD pending orders are deleted.
+   // Only after the EA is flat is the NEW pending order created.
+   //===============================================================
+   if(DayProfitLadderTargetCleanupPending &&
+      !DayProfitLadderTradingStopped)
+     {
+      if(!CloseAllEAOrdersForLadderReset())
+        {
+         UpdateDashboardsThrottled(dailyState);
+         return;
+        }
+
+      DayProfitLadderTargetCleanupPending = false;
+      SaveDayProfitLadderState();
+      Print("DAY PROFIT LADDER | OLD ORDERS REMOVED");
+      Print("DAY PROFIT LADDER | NEXT ORDER IS THE NEW POST-TARGET ORDER");
+     }
+
+   //===============================================================
    // DAY PROFIT LADDER CONTINUATION
    // If X1/X2/X3... was reached on the previous tick, attempt to
    // continue in the SAME direction remembered at the milestone.
@@ -1113,25 +1139,36 @@ void OnTickCore()
 
       DayProfitLadderResumeTradeAttempt = true;
 
+      bool ladderPendingCreated=false;
+
       if(resumeDirection == 1)
-         OpenBuy();
+         ladderPendingCreated=CreateDayProfitLadderPending(OP_BUY);
       else
          if(resumeDirection == -1)
-            OpenSell();
+            ladderPendingCreated=CreateDayProfitLadderPending(OP_SELL);
 
       DayProfitLadderResumeTradeAttempt = false;
 
-      // OpenBuy/OpenSell marks OrderCreatedThisCandle only after a
-      // successful broker order. Keep the request pending when blocked
-      // by gap/max-orders/filters/server errors so the next tick retries.
-      if(OrderCreatedThisCandle)
+      // IMPORTANT:
+      // The NEW ladder pending order is created only AFTER the old market
+      // orders have been closed/deleted by CloseAllEAOrdersForLadderReset().
+      // Therefore this new pending order is preserved and is NOT part of
+      // the target cleanup cycle.
+      if(ladderPendingCreated)
         {
          DayProfitLadderResumePending = false;
          DayProfitLadderResumeDirection = 0;
 
-         Print("DAY PROFIT LADDER RESUME SUCCESS | Direction=",
-               resumeDirection == 1 ? "BUY" : "SELL",
+         Print("DAY PROFIT LADDER RESUME SUCCESS | NEW PENDING CREATED | Direction=",
+               resumeDirection == 1 ? "BUY STOP" : "SELL STOP",
                " | Stage=X", DayProfitLadderStage);
+        }
+      else
+        {
+         // Keep pending for retry on the next tick if broker/server/gap
+         // conditions prevent creation.
+         Print("DAY PROFIT LADDER RESUME WAITING | NEW PENDING NOT CREATED | Direction=",
+               resumeDirection == 1 ? "BUY STOP" : "SELL STOP");
         }
      }
 
@@ -2661,6 +2698,8 @@ void RegisterPostOrderSLTPVerification(int ticket,double expectedSL,double expec
    PostOrderSLTPVerifyTicket[slot]=ticket;
    PostOrderSLTPVerifyCreated[slot]=TimeCurrent();
    PostOrderSLTPVerifyChecked[slot]=false;
+   PostOrderSLTPVerifyStatus[slot]="CHECKING";
+   PostOrderSLTPVerifyLastError[slot]=0;
    PostOrderSLTPVerifyExpectedSL[slot]=expectedSL;
    PostOrderSLTPVerifyExpectedTP[slot]=expectedTP;
    PostOrderSLTPVerifyExpectedOpen[slot]=openPrice;
@@ -2724,6 +2763,32 @@ bool PostOrderSLTPWithinTolerance(int orderType,double openPrice,
   }
 
 //+------------------------------------------------------------------+
+//| Return current post-order SL/TP verification status for dashboard|
+//+------------------------------------------------------------------+
+string GetPostOrderSLTPVerificationStatus(int ticket)
+  {
+   if(ticket<=0)
+      return "NOT CHECKED";
+
+   for(int i=0;i<MAX_POST_ORDER_SLTP_VERIFY;i++)
+     {
+      if(PostOrderSLTPVerifyTicket[i]==ticket)
+        {
+         if(PostOrderSLTPVerifyStatus[i]!="")
+            return PostOrderSLTPVerifyStatus[i];
+
+         if(PostOrderSLTPVerifyActive[i] && !PostOrderSLTPVerifyChecked[i])
+            return "CHECKING";
+
+         if(PostOrderSLTPVerifyChecked[i])
+            return "CHECKED";
+        }
+     }
+
+   return "NOT CHECKED";
+  }
+
+//+------------------------------------------------------------------+
 //| One-time post-order SL/TP verification                           |
 //| Waits 60 seconds, checks once, optionally modifies once, then   |
 //| permanently removes the ticket from this verification cycle.    |
@@ -2753,6 +2818,8 @@ void ProcessPostOrderSLTPVerification()
 
       if(!OrderSelect(ticket,SELECT_BY_TICKET,MODE_TRADES))
         {
+         PostOrderSLTPVerifyStatus[i]="CHECKED";
+         PostOrderSLTPVerifyLastError[i]=0;
          Print("SLTP VERIFY DONE | Ticket=",ticket,
                " | Order no longer exists in active trades");
          continue;
@@ -2783,6 +2850,9 @@ void ProcessPostOrderSLTPVerification()
       if(slOK && tpOK)
         {
          // Correct order already exists. Do not modify it.
+         PostOrderSLTPVerifyStatus[i]="VERIFIED";
+         PostOrderSLTPVerifyLastError[i]=0;
+
          Print("SLTP VERIFY ACCEPTED | Ticket=",ticket,
                " | Actual SL/TP within tolerance | No modification");
          continue;
@@ -2794,6 +2864,9 @@ void ProcessPostOrderSLTPVerification()
       if(!CanSendTradeRequest("PostOrderSLTPVerify",
                               "Ticket="+IntegerToString(ticket)))
         {
+         PostOrderSLTPVerifyStatus[i]="FAILED";
+         PostOrderSLTPVerifyLastError[i]=0;
+
          Print("SLTP VERIFY MODIFY NOT SENT | Ticket=",ticket,
                " | Trade request budget/server state blocked the single attempt");
          continue;
@@ -2809,6 +2882,9 @@ void ProcessPostOrderSLTPVerification()
 
       if(modified)
         {
+         PostOrderSLTPVerifyStatus[i]="VERIFIED";
+         PostOrderSLTPVerifyLastError[i]=0;
+
          Print("SLTP VERIFY MODIFY SUCCESS | Ticket=",ticket,
                " | SL=",DoubleToString(expectedSL,Digits),
                " | TP=",DoubleToString(expectedTP,Digits),
@@ -2817,6 +2893,9 @@ void ProcessPostOrderSLTPVerification()
       else
         {
          int err=GetLastError();
+
+         PostOrderSLTPVerifyStatus[i]="FAILED";
+         PostOrderSLTPVerifyLastError[i]=err;
 
          Print("SLTP VERIFY MODIFY FAILED | Ticket=",ticket,
                " | Error=",err,
@@ -4313,6 +4392,7 @@ void InitializeDayProfitLadder()
    DayProfitLadderResumePending = false;
    DayProfitLadderResumeDirection = 0;
    DayProfitLadderResumeTradeAttempt = false;
+   DayProfitLadderTargetCleanupPending = false;
    DayProfitLadderNextTargetEquity = GetDayProfitLadderTarget(1);
 
 // Initial protection is 50% below opening balance by default.
@@ -4466,6 +4546,196 @@ void CloseAndDeleteAllEAOrdersOnTradingStop()
   }
 
 //+------------------------------------------------------------------+
+//| Close/delete all EA orders before a new ladder-cycle re-entry    |
+//| Returns true only when the EA is completely flat.                |
+//+------------------------------------------------------------------+
+bool CloseAllEAOrdersForLadderReset()
+  {
+   bool anyRemaining = false;
+   int marketTickets[1000];
+   int marketCount = 0;
+   int pendingTickets[1000];
+   int pendingCount = 0;
+
+   for(int i=OrdersTotal()-1; i>=0; i--)
+     {
+      if(!OrderSelect(i,SELECT_BY_POS,MODE_TRADES)) continue;
+      if(OrderSymbol()!=Symbol() || OrderMagicNumber()!=MagicNumber) continue;
+      int type=OrderType();
+      if(type==OP_BUY || type==OP_SELL)
+        { if(marketCount<1000) marketTickets[marketCount++]=OrderTicket(); }
+      else if(type==OP_BUYSTOP || type==OP_SELLSTOP || type==OP_BUYLIMIT || type==OP_SELLLIMIT)
+        { if(pendingCount<1000) pendingTickets[pendingCount++]=OrderTicket(); }
+     }
+
+   for(int m=0; m<marketCount; m++)
+     {
+      int ticket=marketTickets[m];
+      if(!OrderSelect(ticket,SELECT_BY_TICKET,MODE_TRADES)) continue;
+      if(OrderSymbol()!=Symbol() || OrderMagicNumber()!=MagicNumber) continue;
+      int type=OrderType();
+      if(type!=OP_BUY && type!=OP_SELL) continue;
+      double lots=OrderLots();
+      double pl=OrderProfit()+OrderSwap()+OrderCommission();
+      if(SafeOrderClose(ticket,lots,type,Slippage,(type==OP_BUY ? clrRed : clrBlue)))
+         Print("LADDER RESET | OLD ORDER CLOSED | Ticket=",ticket," | P/L=$",DoubleToString(pl,2));
+      else
+        {
+         anyRemaining=true;
+         Print("LADDER RESET | FAILED TO CLOSE OLD ORDER | Ticket=",ticket," | Will retry next tick");
+        }
+     }
+
+   for(int q=0; q<pendingCount; q++)
+     {
+      int ticket=pendingTickets[q];
+      if(!OrderSelect(ticket,SELECT_BY_TICKET,MODE_TRADES)) continue;
+      if(OrderSymbol()!=Symbol() || OrderMagicNumber()!=MagicNumber) continue;
+      int type=OrderType();
+      if(type!=OP_BUYSTOP && type!=OP_SELLSTOP && type!=OP_BUYLIMIT && type!=OP_SELLLIMIT) continue;
+      if(SafeOrderDelete(ticket,clrRed))
+         Print("LADDER RESET | OLD PENDING DELETED | Ticket=",ticket);
+      else
+        {
+         anyRemaining=true;
+         Print("LADDER RESET | FAILED TO DELETE OLD PENDING | Ticket=",ticket," | Will retry next tick");
+        }
+     }
+
+   for(int j=OrdersTotal()-1; j>=0; j--)
+     {
+      if(!OrderSelect(j,SELECT_BY_POS,MODE_TRADES)) continue;
+      if(OrderSymbol()==Symbol() && OrderMagicNumber()==MagicNumber)
+        { anyRemaining=true; break; }
+     }
+
+   if(anyRemaining)
+     {
+      Print("LADDER RESET | CLEANUP NOT COMPLETE | NEW ORDER WAITING");
+      return false;
+     }
+
+   Print("LADDER RESET | ALL OLD EA ORDERS CLOSED/DELETED");
+   Print("LADDER RESET | NEW ORDER MAY BE CREATED NOW");
+   return true;
+  }
+
+//+------------------------------------------------------------------+
+//| Create the NEW pending order after a Day Profit Ladder target    |
+//| has been reached and all OLD EA market/pending orders are gone.  |
+//| The new pending order belongs to the NEW ladder cycle and must   |
+//| never be deleted by the target cleanup that preceded it.        |
+//+------------------------------------------------------------------+
+bool CreateDayProfitLadderPending(int direction)
+  {
+   if(!EnableTrading || DayProfitLadderTradingStopped)
+      return false;
+
+   if(direction!=OP_BUY && direction!=OP_SELL)
+      return false;
+
+   if(ServerRecoveryPending || !IsConnected())
+     {
+      Print("DAY LADDER PENDING BLOCKED | Server/connection not ready");
+      return false;
+     }
+
+   if(GetTotalEAOrders() >= MaxOpenOrders)
+     {
+      Print("DAY LADDER PENDING BLOCKED | MaxOpenOrders reached");
+      return false;
+     }
+
+   RefreshRates();
+
+   int pendingType=(direction==OP_BUY) ? OP_BUYSTOP : OP_SELLSTOP;
+   double minimumGap=GetRequiredStopDistance();
+
+   // Use the existing profit re-entry gap for the new ladder entry.
+   double gap=MathAbs(ProfitReEntryGapRaw);
+   if(gap<minimumGap)
+      gap=minimumGap;
+
+   double entryPrice=0.0;
+
+   if(direction==OP_BUY)
+      entryPrice=Ask+gap;
+   else
+      entryPrice=Bid-gap;
+
+   entryPrice=NormalizeDouble(entryPrice,Digits);
+
+   // After the target cleanup there should be no floating P/L.
+   // Reset the ladder re-entry lot calculation using the existing EA logic.
+   reEntryCounter=0;
+   SaveReEntryCounter();
+
+   ChangeLots(0.0,
+              direction==OP_BUY ? "Day Ladder Buy Stop" : "Day Ladder Sell Stop",
+              direction,
+              0);
+
+   Lots=NormalizeLots(Lots);
+   if(Lots<=0.0)
+      return false;
+
+   double slDistance=CalculatePriceDistanceUSD(StopLossUSD,Lots);
+   if(slDistance<=0.0)
+     {
+      Print("DAY LADDER PENDING FAILED | Invalid SL distance");
+      return false;
+     }
+
+   double stopLoss=(direction==OP_BUY) ?
+                   (entryPrice-slDistance) :
+                   (entryPrice+slDistance);
+
+   stopLoss=NormalizeDouble(stopLoss,Digits);
+
+   string comment=(direction==OP_BUY) ?
+                  "Day Ladder Buy Stop" :
+                  "Day Ladder Sell Stop";
+
+   color orderColor=(direction==OP_BUY) ? BuyColor : SellColor;
+
+   int ticket=SafeOrderSend(Symbol(),
+                            pendingType,
+                            Lots,
+                            entryPrice,
+                            Slippage,
+                            stopLoss,
+                            0,
+                            comment,
+                            MagicNumber,
+                            orderColor);
+
+   if(ticket<0)
+     {
+      Print("DAY LADDER PENDING FAILED | Type=",
+            direction==OP_BUY ? "BUY STOP" : "SELL STOP",
+            " | Entry=",DoubleToString(entryPrice,Digits),
+            " | Lot=",DoubleToString(Lots,2));
+      return false;
+     }
+
+   InvalidateTotalEAOrdersCache();
+
+   Print("================================================");
+   Print("DAY PROFIT LADDER | NEW PENDING ORDER CREATED");
+   Print("Ticket       : ",ticket);
+   Print("Type         : ",direction==OP_BUY ? "BUY STOP" : "SELL STOP");
+   Print("Lot          : ",DoubleToString(Lots,2));
+   Print("Entry        : ",DoubleToString(entryPrice,Digits));
+   Print("SL           : ",DoubleToString(stopLoss,Digits));
+   Print("Stage        : X",DayProfitLadderStage);
+   Print("OLD ORDERS   : ALREADY CLOSED/DELETED");
+   Print("NEW PENDING  : PRESERVED");
+   Print("================================================");
+
+   return true;
+  }
+
+//+------------------------------------------------------------------+
 //| Dynamic indefinite day profit ladder manager                    |
 //+------------------------------------------------------------------+
 void ManageDayProfitLadder()
@@ -4528,6 +4798,10 @@ void ManageDayProfitLadder()
          if(DayProfitLadderResumeDirection == 0)
             DayProfitLadderResumeDirection = LastLiveSSLDirection;
 
+         // Start a fresh order cycle at every ladder target.
+         // OLD orders are removed first; the new order is created only
+         // after cleanup succeeds on the following tick.
+         DayProfitLadderTargetCleanupPending = true;
          DayProfitLadderResumePending = (DayProfitLadderResumeDirection != 0);
 
          DayProfitLadderProtectionEquity =
@@ -4547,7 +4821,9 @@ void ManageDayProfitLadder()
          Print("NEW PROTECTION      : $", DoubleToString(DayProfitLadderProtectionEquity,2));
          Print("NEXT TARGET X", DayProfitLadderStage+1,
                "         : $", DoubleToString(DayProfitLadderNextTargetEquity,2));
-         Print("Trading continues");
+         Print("OLD ORDERS       : CLOSE/DELETE BEFORE NEW RE-ENTRY");
+         Print("NEW ORDER        : WILL BE GENERATED AFTER CLEANUP");
+         Print("Trading resumes on next tick after cleanup");
          Print("================================================");
         }
      }
@@ -4567,6 +4843,7 @@ void ManageDayProfitLadder()
       DayProfitLadderResumePending = false;
       DayProfitLadderResumeDirection = 0;
       DayProfitLadderResumeTradeAttempt = false;
+      DayProfitLadderTargetCleanupPending = false;
       SaveDayProfitLadderState();
 
       // Trading is now stopped: immediately close all open EA market orders
@@ -6827,7 +7104,7 @@ void UpdateLeftLiveOrdersDashboard()
    int tx=x+12;
 
    // Wider panel for all columns
-   int width=LeftDashboardWidth+100;
+   int width=LeftDashboardWidth+180;//black panel
 
    int panelHeight=rows*20+132;
 
@@ -6935,7 +7212,7 @@ void UpdateLeftLiveOrdersDashboard()
    //==============================================================
    CreateLeftLiveLabel(
       LEFT_LIVE_PREFIX+"HEAD",
-      "TYPE     LOT       OPEN       SL DIFF       TP DIFF       P/L       VERIFIED",
+      "TYPE     LOT       OPEN       SL        TP        P/L     VERIFIED",
       tx,
       y+88,
       8,
@@ -7093,15 +7370,19 @@ void UpdateLeftLiveOrdersDashboard()
         }
 
       //===========================================================
-      // VERIFIED STATUS
+      // REAL POST-ORDER SL/TP VERIFICATION STATUS
+      //
+      // CHECKING     = order registered, 60-second check pending
+      // VERIFIED     = SL/TP already correct OR OrderModify succeeded
+      // FAILED       = check completed but correction was not successful
+      // NOT CHECKED  = order was not registered for verification
       //===========================================================
       string verifiedStatus="N/A";
-
       color verifiedColor=clrSilver;
 
       if(type==OP_BUY || type==OP_SELL)
         {
-         verifiedStatus="VERIFIED";
+         verifiedStatus=GetPostOrderSLTPVerificationStatus(OrderTicket());
 
          if(verifiedStatus=="VERIFIED")
             verifiedColor=clrLime;
@@ -7111,11 +7392,9 @@ void UpdateLeftLiveOrdersDashboard()
             else
                if(verifiedStatus=="CHECKING")
                   verifiedColor=clrGold;
-               else
-                  if(verifiedStatus=="PENDING")
-                     verifiedColor=clrYellow;
-               else
-                  verifiedColor=clrSilver;
+            else
+               if(verifiedStatus=="NOT CHECKED")
+                  verifiedColor=clrOrange;
         }
 
       //===========================================================
@@ -7175,7 +7454,7 @@ void UpdateLeftLiveOrdersDashboard()
       CreateLeftLiveLabel(
          LEFT_LIVE_PREFIX+"VERIFY"+IntegerToString(row),
          verifiedStatus,
-         tx+475,
+         tx+350,
          y+108+(row*20),
          8,
          verifiedColor
