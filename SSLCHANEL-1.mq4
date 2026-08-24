@@ -4259,7 +4259,7 @@ double GetMarketMomentLot(int orderType)
 //+------------------------------------------------------------------+
 void ChangeLots(double OpenPL, string reason, int orderType, int stoplevelStep)
   {
-   double MaxRecoveryLot = 0.10;
+   double MaxRecoveryLot =0.05;// 0.10;
 
    double oppositeLots = GetOppositeOrdersLots(orderType);
 
@@ -4281,7 +4281,7 @@ void ChangeLots(double OpenPL, string reason, int orderType, int stoplevelStep)
    else
       if(isSSLProfitReEntry)
         {
-         Lots = 0.10;
+         Lots = 0.05;//0.10;
 
          if(reEntryCounter <= 3)
            {
@@ -4289,7 +4289,7 @@ void ChangeLots(double OpenPL, string reason, int orderType, int stoplevelStep)
            }
          else
            {
-            Lots = 0.10 - (reEntryCounter * 0.01);
+            Lots = Lots - (reEntryCounter * 0.01);
 
             // Lots = 0.10 - ((reEntryCounter % 10) * 0.01);
 
@@ -7418,7 +7418,7 @@ void UpdateDashboard(DailyProtectionState &state)
    CreateDashboardLabel(DASH_PREFIX+"DPL_START","OPEN BAL/EQ : $"+DoubleToString(DayProfitLadderStartBalance,2)+" / $"+DoubleToString(DayProfitLadderStartEquity,2),tx,y+415,8,clrWhite);
    CreateDashboardLabel(DASH_PREFIX+"DPL_STAGE","CURRENT STAGE : X"+IntegerToString(DayProfitLadderStage),tx,y+435,9,clrYellow);
    CreateDashboardLabel(DASH_PREFIX+"DPL_TARGET","NEXT TARGET   : $"+DoubleToString(DayProfitLadderNextTargetEquity,2),tx,y+455,8,clrLime);
-   CreateDashboardLabel(DASH_PREFIX+"DPL_LOCK","PROTECTION    : $"+DoubleToString(DayProfitLadderProtectionEquity,2)+" / "+DoubleToString(DayProfitLadderStartBalance,2),tx,y+475,8,clrGold);
+   CreateDashboardLabel(DASH_PREFIX+"DPL_LOCK","PROTECTION    : $"+DoubleToString(DayProfitLadderProtectionEquity,2)+" / "+DoubleToString(DayProfitLadderNextTargetEquity-DayProfitLadder1Amount,2),tx,y+475,8,clrGold);
    CreateDashboardLabel(DASH_PREFIX+"PROGRESS","NEXT TARGET PROGRESS : "+DoubleToString(ladderProgress,1)+"%",tx,y+495,8,clrWhite);
 
 // Dynamic Day Profit Ladder status (X1, X2, X3 ... indefinitely).
