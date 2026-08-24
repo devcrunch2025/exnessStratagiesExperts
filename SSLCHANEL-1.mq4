@@ -185,6 +185,8 @@ double RecoveryBasketProfitUSD =0.10;// 1;//0.50;
 // balance/equity is captured. State is persisted so EA restarts do not reset it.
 bool   EnableDayProfitLadder = true;
 double DayProfitLadder1Percent =30;//25;//10;//25;      // Dynamic ladder step: X1=50%, X2=100%, X3=150%...
+double DayProfitLadder1Amount =25;//25;//10;//25;      // Dynamic ladder step: X1=50%, X2=100%, X3=150%...
+
 double DayProfitLadderLockRatio = 0.10;      // Protect 50% of achieved ladder profit: X1=25%, X2=50%...
 double DayProfitInitialProtectionPercent = 50.0; // Initial -50% protection
 // IMPORTANT: These three inputs belong ONLY to the daily equity ladder.
@@ -354,6 +356,211 @@ bool IsH1SellAllowed()
 //+------------------------------------------------------------------+
 //|                                                                  |
 //+------------------------------------------------------------------+
+
+
+// This function should be called in OnTick() after SSL signal detection
+bool EnableSSLImmediateOrderCreation = true;
+ 
+//+------------------------------------------------------------------+
+// FUNCTION: CheckSSLSignalAndCreateOrder()
+// Purpose: Monitor SSL signal and create immediate orders when conditions met
+// Called from: OnTick() main trading logic
+//+------------------------------------------------------------------+
+void CheckSSLSignalAndCreateOrder()
+{
+   // Exit if trading is disabled
+   if(!EnableTrading)
+      return;
+   
+   // Exit if immediate SSL orders are disabled
+   if(!EnableSSLImmediateOrderCreation)
+      return;
+   
+   // Get current SSL signal
+   int sslSignal = GetSSLSignal(); // Returns: 1=BUY, -1=SELL, 0=NEUTRAL
+   
+   if(sslSignal == 0)
+      return; // No valid signal
+   
+   // ===== BUY SIGNAL HANDLING =====
+   if(sslSignal == 1) // BUY signal
+   {
+      // Count existing BUY orders
+      int buyOrderCount = CountOrdersByType(OP_BUY);
+      
+      // If no BUY orders exist, create one immediately
+      if(buyOrderCount == 0)
+      {
+         double lots = CalculateLotSize(); // Use existing lot calculation
+         double stopLoss = Ask - (StopLossUSD / 100.0 / Bid) * Point;
+         double takeProfit = Ask + (DefaultOrderProfitUSD / 100.0 / Bid) * Point;
+         
+         int ticket = OrderSend(
+            Symbol(),
+            OP_BUY,
+            lots,
+            Ask,
+            Slippage,
+            stopLoss,
+            takeProfit,
+            "SSL_IMMEDIATE_BUY",
+            MagicNumber,
+            0,
+            clrBlue
+         );
+         
+         if(ticket > 0)
+         {
+            Print("SSL IMMEDIATE BUY ORDER CREATED - Ticket: ", ticket, 
+                  " Lots: ", lots, " Price: ", Ask);
+         }
+         else
+         {
+            Print("SSL IMMEDIATE BUY ORDER FAILED - Error: ", GetLastError());
+         }
+      }
+   }
+   
+   // ===== SELL SIGNAL HANDLING =====
+   else if(sslSignal == -1) // SELL signal
+   {
+      // Count existing SELL orders
+      int sellOrderCount = CountOrdersByType(OP_SELL);
+      
+      // If no SELL orders exist, create one immediately
+      if(sellOrderCount == 0)
+      {
+         double lots = CalculateLotSize(); // Use existing lot calculation
+         double stopLoss = Bid + (StopLossUSD / 100.0 / Bid) * Point;
+         double takeProfit = Bid - (DefaultOrderProfitUSD / 100.0 / Bid) * Point;
+         
+         int ticket = OrderSend(
+            Symbol(),
+            OP_SELL,
+            lots,
+            Bid,
+            Slippage,
+            stopLoss,
+            takeProfit,
+            "SSL_IMMEDIATE_SELL",
+            MagicNumber,
+            0,
+            clrRed
+         );
+         
+         if(ticket > 0)
+         {
+            Print("SSL IMMEDIATE SELL ORDER CREATED - Ticket: ", ticket, 
+                  " Lots: ", lots, " Price: ", Bid);
+         }
+         else
+         {
+            Print("SSL IMMEDIATE SELL ORDER FAILED - Error: ", GetLastError());
+         }
+      }
+   }
+}
+ 
+//+------------------------------------------------------------------+
+// FUNCTION: CountOrdersByType()
+// Purpose: Count orders of specific type (OP_BUY or OP_SELL)
+// Returns: Number of orders with specified type
+//+------------------------------------------------------------------+
+int CountOrdersByType(int orderType)
+{
+   int count = 0;
+   int total = OrdersTotal();
+   
+   for(int i = 0; i < total; i++)
+   {
+      if(!OrderSelect(i, SELECT_BY_POS, MODE_TRADES))
+         continue;
+      
+      if(OrderMagicNumber() != MagicNumber)
+         continue;
+      
+      if(OrderSymbol() != Symbol())
+         continue;
+      
+      if(OrderType() == orderType)
+         count++;
+   }
+   
+   return count;
+}
+ 
+//+------------------------------------------------------------------+
+// FUNCTION: GetSSLSignal()
+// Purpose: Determine SSL signal based on SSL Channel indicator
+// Returns: 1=BUY, -1=SELL, 0=NEUTRAL
+// 
+// SSL Channel uses ATR-based channels. 
+// BUY: Price crosses above upper channel
+// SELL: Price crosses below lower channel
+//+------------------------------------------------------------------+
+int GetSSLSignal()
+{
+   // Get SSL Channel values
+   double upper = iATR(Symbol(), 0, SSLPeriod, 0) + iMA(Symbol(), 0, SSLPeriod, 0, MODE_SMA, PRICE_CLOSE, 0);
+   double lower = iMA(Symbol(), 0, SSLPeriod, 0, MODE_SMA, PRICE_CLOSE, 0) - iATR(Symbol(), 0, SSLPeriod, 0);
+   
+   double currentClose = Close[0];
+   double previousClose = Close[1];
+   
+   // BUY Signal: Price crosses above upper band AND is above EMA (if filter enabled)
+   if(previousClose <= upper && currentClose > upper)
+   {
+      if(InpUseEMA200Filter)
+      {
+         double ema = iMA(Symbol(), 0, InpEMA200Period, InpEMAPriceShift, MODE_EMA, PRICE_CLOSE, 0);
+         if(currentClose > ema)
+            return 1; // BUY
+      }
+      else
+      {
+         return 1; // BUY
+      }
+   }
+   
+   // SELL Signal: Price crosses below lower band AND is below EMA (if filter enabled)
+   if(previousClose >= lower && currentClose < lower)
+   {
+      if(InpUseEMA200Filter)
+      {
+         double ema = iMA(Symbol(), 0, InpEMA200Period, InpEMAPriceShift, MODE_EMA, PRICE_CLOSE, 0);
+         if(currentClose < ema)
+            return -1; // SELL
+      }
+      else
+      {
+         return -1; // SELL
+      }
+   }
+   
+   return 0; // NEUTRAL/NO SIGNAL
+}
+ 
+//+------------------------------------------------------------------+
+// FUNCTION: CalculateLotSize()
+// Purpose: Calculate lot size based on account size and settings
+// Returns: Lot size to use for order
+//+------------------------------------------------------------------+
+double CalculateLotSize()
+{
+   // Use existing EA lot calculation
+   double accountBalance = AccountBalance();
+   double calculatedLots = (accountBalance / 100000.0) * Lots * AccountMultiplierLOT;
+   
+   // Ensure lot size doesn't exceed maximum
+   double maxLots = MarketInfo(Symbol(), MODE_MAXLOT);
+   double minLots = MarketInfo(Symbol(), MODE_MINLOT);
+   
+   calculatedLots = MathMin(calculatedLots, maxLots);
+   calculatedLots = MathMax(calculatedLots, minLots);
+   
+   return NormalizeDouble(calculatedLots, 2);
+}
+ 
 int GetH1Direction()
   {
    double h1Open  = iOpen(Symbol(), PERIOD_H1, 1);
@@ -988,6 +1195,8 @@ void OnTick()
 
    OnTickCore();
    OnTickPerformanceEnd(tickStartMs);
+
+   CheckSSLSignalAndCreateOrder();
   }
 
 //+------------------------------------------------------------------+
@@ -4571,7 +4780,7 @@ void SaveDayProfitLadderState()
 //+------------------------------------------------------------------+
 //| Calculate target for any ladder stage (X1, X2, X3 ... forever)   |
 //+------------------------------------------------------------------+
-double GetDayProfitLadderTarget(int stage)
+double GetDayProfitLadderTargetPercent(int stage)
   {
    if(stage <= 0 || DayProfitLadderStartBalance <= 0.0)
       return DayProfitLadderStartBalance;
@@ -4582,6 +4791,24 @@ double GetDayProfitLadderTarget(int stage)
 
    return DayProfitLadderStartBalance * (1.0 + step * stage);
   }
+
+  double GetDayProfitLadderTarget(int stage)
+  {
+   if(DayProfitLadderStartBalance <= 0.0)
+      return 0.0;
+
+   if(stage <= 0)
+      return DayProfitLadderStartBalance;
+
+   double stepAmount = MathAbs(DayProfitLadder1Amount);
+
+   if(stepAmount <= 0.0)
+      return DayProfitLadderStartBalance;
+
+   return DayProfitLadderStartBalance + (stepAmount * stage);
+  }
+
+  //DayProfitLadder1Amount
 
 //+------------------------------------------------------------------+
 //| Calculate locked/protected equity for any stage                  |
