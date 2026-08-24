@@ -3513,6 +3513,23 @@ bool SafeOrderModify(int ticket,double openPrice,double stopLoss,
    if(!CanSendTradeRequest("OrderModify","Ticket="+IntegerToString(ticket)))
       return false;
 
+
+       double requiredSLDistance = OriginalStopLossUSD * 100.0;
+
+if(requiredSLDistance < 250.0)
+   requiredSLDistance = 250.0;
+
+double actualSLDistance = MathAbs(requestedSL - openPrice);
+
+// Only increase/correct SL if it is too small
+if(actualSLDistance < requiredSLDistance)
+  {
+   if(orderType == OP_SELL)
+      requestedSL = openPrice + requiredSLDistance + Slippage;
+   else
+      requestedSL = openPrice - requiredSLDistance - Slippage;
+  }
+
    uint tradeStartMs=GetTickCount();
    bool modified=OrderModify(ticket,openPrice,requestedSL,
                              takeProfit,expiration,arrowColor);
@@ -4075,6 +4092,10 @@ void ChangeLots(double OpenPL, string reason, int orderType, int stoplevelStep)
          if(reEntryCounter <= 3)
            {
             Lots = 0.02;
+
+            if(GlobalBUYSELLdashboardScore>0)
+            Lots = Lots * GlobalBUYSELLdashboardScore;
+
            }
          else
            {
@@ -4084,6 +4105,7 @@ void ChangeLots(double OpenPL, string reason, int orderType, int stoplevelStep)
 
 
             // Apply dashboard score
+            if(GlobalBUYSELLdashboardScore>0)
             Lots = Lots * GlobalBUYSELLdashboardScore;
 
             if(Lots < 0.01)
@@ -4159,13 +4181,13 @@ void ChangeLots(double OpenPL, string reason, int orderType, int stoplevelStep)
 //===============================================================
    int StoplossWeekendMultiplier = 1;
 
-StopLossUSD =
-   OriginalStopLossUSD *
-   Lots *
-   100;
+// StopLossUSD =
+//    OriginalStopLossUSD *
+//    Lots *
+//    100;
 
-   // StopLossUSD =
-   //    OriginalStopLossUSD;
+   StopLossUSD =
+      OriginalStopLossUSD;
 
    StopLossUSD =
       StopLossUSD *
@@ -5916,6 +5938,8 @@ void OpenBuy()
    ChangeLots(GetOpenPL(OP_SELL),"SSL Long",OP_BUY,0);
    RefreshRates();
 
+   
+
    double slDistance = CalculatePriceDistanceUSD(StopLossUSD, Lots);
    if(slDistance <= 0)
       return;
@@ -6026,8 +6050,48 @@ void OpenSell()
 //+------------------------------------------------------------------+
 //|                                                                  |
 //+------------------------------------------------------------------+
+
 double CalculatePriceDistanceUSD(double usdAmount, double orderLots)
   {
+   if(orderLots <= 0.0)
+      return 0.0;
+
+   if(usdAmount <= 0.0)
+      return 0.0;
+
+   // StopLossUSD is the USD risk for 0.01 lot
+   double targetUSD = usdAmount * (orderLots / 0.01);
+
+   double tickValue = MarketInfo(Symbol(), MODE_TICKVALUE);
+   double tickSize  = MarketInfo(Symbol(), MODE_TICKSIZE);
+
+   if(tickValue <= 0.0 || tickSize <= 0.0)
+      return 0.0;
+
+   // Tick value returned by MT4 is normally for 1.00 lot.
+   double moneyPerTick = tickValue * orderLots;
+
+   if(moneyPerTick <= 0.0)
+      return 0.0;
+
+   double priceDistance =
+      (targetUSD / moneyPerTick) * tickSize;
+
+      // Minimum SL distance = 250 raw price units
+   if(priceDistance < 250.0)
+      priceDistance = 250.0;
+
+   return priceDistance;
+  }
+double CalculatePriceDistanceUSD111(double usdAmount, double orderLots)
+  {
+
+   usdAmount=StopLossUSD*orderLots*100;
+
+   if(usdAmount<3)
+   usdAmount=3;//
+
+
    double tickValue = MarketInfo(Symbol(), MODE_TICKVALUE);
    double tickSize = MarketInfo(Symbol(), MODE_TICKSIZE);
    if(tickValue <= 0 || tickSize <= 0 || orderLots <= 0)
@@ -6547,6 +6611,8 @@ void ManageProfitLadder()
          // MODIFY SELL
          //================================================
          ResetLastError();
+
+       
 
          bool modified =
             SafeOrderModify(
@@ -7187,7 +7253,7 @@ void UpdateDashboard(DailyProtectionState &state)
    CreateDashboardPanel(DASH_PREFIX+"SEC_LADDER",x,y+388,w,22,C'30,38,50');
    CreateDashboardLabel(DASH_PREFIX+"LADDER_H","DAY PROFIT LADDER - ONLY DAILY PROTECTION",tx,y+392,9,clrAqua);
    CreateDashboardLabel(DASH_PREFIX+"DPL_START","OPEN BAL/EQ : $"+DoubleToString(DayProfitLadderStartBalance,2)+" / $"+DoubleToString(DayProfitLadderStartEquity,2),tx,y+415,8,clrWhite);
-   CreateDashboardLabel(DASH_PREFIX+"DPL_STAGE","CURRENT STAGE : X"+IntegerToString(DayProfitLadderStage),tx,y+435,9,clrYellow);
+   CreateDashboardLabel(DASH_PREFIX+"DPL_STAGE","CURRENT STAGE : X"+IntegerToString(DayProfitLadderStage)+" "+ DoubleToString(DayProfitLadder1Percent,2),tx,y+435,9,clrYellow);
    CreateDashboardLabel(DASH_PREFIX+"DPL_TARGET","NEXT TARGET   : $"+DoubleToString(DayProfitLadderNextTargetEquity,2),tx,y+455,8,clrLime);
    CreateDashboardLabel(DASH_PREFIX+"DPL_LOCK","PROTECTION    : $"+DoubleToString(DayProfitLadderProtectionEquity,2)+" / "+DoubleToString(DayProfitLadderStartBalance,2),tx,y+475,8,clrGold);
    CreateDashboardLabel(DASH_PREFIX+"PROGRESS","NEXT TARGET PROGRESS : "+DoubleToString(ladderProgress,1)+"%",tx,y+495,8,clrWhite);
