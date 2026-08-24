@@ -182,7 +182,7 @@ double RecoveryBasketProfitUSD =0.10;// 1;//0.50;
 // At the next fresh day, ALL day-ladder state is reset and a new opening
 // balance/equity is captured. State is persisted so EA restarts do not reset it.
 bool   EnableDayProfitLadder = true;
-double DayProfitLadder1Percent =25;//50;//10;// 50.0;       // Dynamic ladder step: X1=50%, X2=100%, X3=150%...
+double DayProfitLadder1Percent =25;      // Dynamic ladder step: X1=50%, X2=100%, X3=150%...
 double DayProfitLadderLockRatio = 0.10;      // Protect 50% of achieved ladder profit: X1=25%, X2=50%...
 double DayProfitInitialProtectionPercent = 50.0; // Initial -50% protection
 // IMPORTANT: These three inputs belong ONLY to the daily equity ladder.
@@ -4552,16 +4552,42 @@ double GetDayProfitLadderTarget(int stage)
 //+------------------------------------------------------------------+
 double GetDayProfitLadderProtection(int stage)
   {
-   if(stage <= 0 || DayProfitLadderStartBalance <= 0.0)
+   if(DayProfitLadderStartBalance<=0.0)
+      return 0.0;
+
+   // Stage 0:
+   // Opening balance = $100
+   // Initial protection = -50% = $50
+   if(stage<=0)
       return DayProfitLadderStartBalance *
-             (1.0 - DayProfitInitialProtectionPercent / 100.0);
+             (1.0-DayProfitInitialProtectionPercent/100.0);
 
-   double step = MathAbs(DayProfitLadder1Percent) / 100.0;
-   double lockRatio = MathMax(0.0, DayProfitLadderLockRatio);
+   double step=MathAbs(DayProfitLadder1Percent)/100.0;
 
-   return DayProfitLadderStartBalance *
-          (1.0 + step * stage * lockRatio);
+   // Protection is 50% of the accumulated ladder profit.
+   // Stage 1: $100 + ($25 * 50%) = $112.50
+   // Stage 2: $100 + ($50 * 50%) = $125.00
+   // Stage 3: $100 + ($75 * 50%) = $137.50
+   double protectionLockRatio=0.50;
+
+   double accumulatedProfit=
+      DayProfitLadderStartBalance * step * stage;
+
+   return DayProfitLadderStartBalance +
+          (accumulatedProfit*protectionLockRatio);
   }
+// double GetDayProfitLadderProtection(int stage)
+//   {
+//    if(stage <= 0 || DayProfitLadderStartBalance <= 0.0)
+//       return DayProfitLadderStartBalance *
+//              (1.0 - DayProfitInitialProtectionPercent / 100.0);
+
+//    double step = MathAbs(DayProfitLadder1Percent) / 100.0;
+//    double lockRatio = MathMax(0.0, DayProfitLadderLockRatio);
+
+//    return DayProfitLadderStartBalance *
+//           (1.0 + step * stage * lockRatio);
+//   }
 
 //+------------------------------------------------------------------+
 //| Initialize completely fresh day ladder                          |
@@ -7118,10 +7144,11 @@ void UpdateDashboard(DailyProtectionState &state)
    CreateDashboardLabel(DASH_PREFIX+"DPL_START","OPEN BAL/EQ : $"+DoubleToString(DayProfitLadderStartBalance,2)+" / $"+DoubleToString(DayProfitLadderStartEquity,2),tx,y+415,8,clrWhite);
    CreateDashboardLabel(DASH_PREFIX+"DPL_STAGE","CURRENT STAGE : X"+IntegerToString(DayProfitLadderStage),tx,y+435,9,clrYellow);
    CreateDashboardLabel(DASH_PREFIX+"DPL_TARGET","NEXT TARGET   : $"+DoubleToString(DayProfitLadderNextTargetEquity,2),tx,y+455,8,clrLime);
-   CreateDashboardLabel(DASH_PREFIX+"DPL_LOCK","PROTECTION    : $"+DoubleToString(DayProfitLadderProtectionEquity,2),tx,y+475,8,clrGold);
+   CreateDashboardLabel(DASH_PREFIX+"DPL_LOCK","PROTECTION    : $"+DoubleToString(DayProfitLadderProtectionEquity,2)+" / "+DoubleToString(DayProfitLadderStartBalance,2),tx,y+475,8,clrGold);
    CreateDashboardLabel(DASH_PREFIX+"PROGRESS","NEXT TARGET PROGRESS : "+DoubleToString(ladderProgress,1)+"%",tx,y+495,8,clrWhite);
 
 // Dynamic Day Profit Ladder status (X1, X2, X3 ... indefinitely).
+
    string dplStatus = DayProfitLadderTradingStopped ? "STOPPED" : "TRADING";
    color dplStatusColor = DayProfitLadderTradingStopped ? clrTomato : clrLime;
    CreateDashboardLabel(DASH_PREFIX+"DPL_STATUS","DAY LADDER    : "+dplStatus,tx,y+510,9,dplStatusColor);
