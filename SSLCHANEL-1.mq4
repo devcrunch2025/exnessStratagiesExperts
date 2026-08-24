@@ -294,6 +294,11 @@ bool DayProfitLadderResumeTradeAttempt = false;
 // milestone are closed/deleted before the new ladder re-entry is opened.
 bool DayProfitLadderTargetCleanupPending = false;
 
+// ===== LADDER RESET CLEANUP TIMEOUT =====
+// Prevents infinite loop if pending orders are protected by age requirement
+datetime DayProfitLadderCleanupStartTime = 0;  // Timestamp when cleanup started
+int      LADDER_CLEANUP_TIMEOUT_SECONDS = 60;  // 1-minute timeout - then proceed anyway
+
 // ===== RUNTIME VARIABLES =====
 string PREFIX = "SSL_CROSS_";
 string DASH_PREFIX = "SSL_DASHBOARD_";
@@ -2787,13 +2792,198 @@ string GetPostOrderSLTPVerificationStatus(int ticket)
 
    return "NOT CHECKED";
   }
+//+------------------------------------------------------------------+
+//| ENHANCED: Post-Order SL/TP Verification for MARKET & PENDING      |
+//| Supports: OP_BUY, OP_SELL, OP_BUYSTOP, OP_SELLSTOP, OP_BUYLIMIT, |
+//|           OP_SELLLIMIT                                           |
+//+------------------------------------------------------------------+
+
+void ProcessPostOrderSLTPVerification()
+  {
+   if(!EnablePostOrderSLTPVerification)
+      return;
+
+   datetime now=TimeCurrent();
+
+   for(int i=0;i<MAX_POST_ORDER_SLTP_VERIFY;i++)
+     {
+      if(!PostOrderSLTPVerifyActive[i] || PostOrderSLTPVerifyChecked[i])
+         continue;
+
+      if((now-PostOrderSLTPVerifyCreated[i]) <
+         PostOrderSLTPVerificationDelaySeconds)
+         continue;
+
+      int ticket=PostOrderSLTPVerifyTicket[i];
+
+      // Mark checked BEFORE doing anything else. This guarantees that
+      // neither a modify failure nor a later tick can cause another check.
+      PostOrderSLTPVerifyChecked[i]=true;
+      PostOrderSLTPVerifyActive[i]=false;
+
+      if(!OrderSelect(ticket,SELECT_BY_TICKET,MODE_TRADES))
+        {
+         PostOrderSLTPVerifyStatus[i]="CHECKED";
+         PostOrderSLTPVerifyLastError[i]=0;
+         Print("SLTP VERIFY DONE | Ticket=",ticket,
+               " | Order no longer exists in active trades");
+         continue;
+        }
+
+      int orderType=OrderType();
+      double openPrice=OrderOpenPrice();
+      double actualSL=OrderStopLoss();
+      double actualTP=OrderTakeProfit();
+      double expectedSL=PostOrderSLTPVerifyExpectedSL[i];
+      double expectedTP=PostOrderSLTPVerifyExpectedTP[i];
+      double expectedOpen=PostOrderSLTPVerifyExpectedOpen[i];
+      double actualPending=openPrice;  // For pending orders, this is the pending price
+
+      // ===== CHECK IF MARKET OR PENDING ORDER =====
+      bool isMarketOrder=(orderType==OP_BUY || orderType==OP_SELL);
+      bool isPendingOrder=(orderType==OP_BUYSTOP || orderType==OP_SELLSTOP || 
+                           orderType==OP_BUYLIMIT || orderType==OP_SELLLIMIT);
+
+      // ===== VERIFY PENDING ORDER PRICE (if applicable) =====
+      bool pendingPriceOK=true;
+      if(isPendingOrder)
+        {
+         // For pending orders, verify the trigger price hasn't drifted
+         double pendingPriceTolerance=Point*50;  // 50 points tolerance
+         pendingPriceOK=(MathAbs(actualPending-expectedOpen) <= pendingPriceTolerance);
+
+         Print("PENDING PRICE CHECK | Ticket=",ticket,
+               " | Actual=",DoubleToString(actualPending,Digits),
+               " | Expected=",DoubleToString(expectedOpen,Digits),
+               " | Tolerance=",DoubleToString(pendingPriceTolerance,Digits),
+               " | OK=",pendingPriceOK?"YES":"NO");
+
+         if(!pendingPriceOK)
+           {
+            // Pending order price has drifted - this is unusual
+            Print("PENDING PRICE DRIFT DETECTED | Ticket=",ticket,
+                  " | This should not happen unless manually modified");
+           }
+        }
+
+      // ===== VERIFY SL/TP =====
+      bool slOK=PostOrderSLTPWithinTolerance(orderType,openPrice,
+                                              expectedSL,actualSL,true);
+      bool tpOK=PostOrderSLTPWithinTolerance(orderType,openPrice,
+                                              expectedTP,actualTP,false);
+
+      Print("SLTP VERIFY | Ticket=",ticket,
+            " | Type=",GetOrderTypeText(orderType),
+            " | Lots=",DoubleToString(OrderLots(),2),
+            " | Price=",DoubleToString(actualPending,Digits),
+            " | SL=",DoubleToString(actualSL,Digits),
+            " / Expected=",DoubleToString(expectedSL,Digits),
+            " | TP=",DoubleToString(actualTP,Digits),
+            " / Expected=",DoubleToString(expectedTP,Digits),
+            " | Tolerance=",DoubleToString(PostOrderSLTPTolerancePercent,1),"%",
+            " | SL_OK=",slOK?"YES":"NO",
+            " | TP_OK=",tpOK?"YES":"NO");
+
+      // ===== CHECK: All verifications pass? =====
+      bool allOK=slOK && tpOK;
+      if(isPendingOrder)
+         allOK=allOK && pendingPriceOK;
+
+      if(allOK)
+        {
+         // Correct order already exists. Do not modify it.
+         PostOrderSLTPVerifyStatus[i]="VERIFIED";
+         PostOrderSLTPVerifyLastError[i]=0;
+
+         Print("SLTP VERIFY ACCEPTED | Ticket=",ticket,
+               " | ",GetOrderTypeText(orderType),
+               " | Actual SL/TP within tolerance | No modification needed");
+         continue;
+        }
+
+      // ===== MODIFICATION NEEDED: Attempt one-time fix =====
+      if(!CanSendTradeRequest("PostOrderSLTPVerify",
+                              "Ticket="+IntegerToString(ticket)))
+        {
+         PostOrderSLTPVerifyStatus[i]="FAILED";
+         PostOrderSLTPVerifyLastError[i]=0;
+
+         Print("SLTP VERIFY MODIFY NOT SENT | Ticket=",ticket,
+               " | Trade request budget/server state blocked the single attempt");
+         continue;
+        }
+
+      RefreshRates();
+      ResetLastError();
+
+      uint tradeStartMs=GetTickCount();
+      bool modified=OrderModify(ticket,openPrice,expectedSL,expectedTP,
+                                OrderExpiration(),CLR_NONE);
+      LogTradeTiming("PostOrderSLTPVerify/OrderModify",tradeStartMs);
+
+      if(modified)
+        {
+         PostOrderSLTPVerifyStatus[i]="VERIFIED";
+         PostOrderSLTPVerifyLastError[i]=0;
+
+         Print("SLTP VERIFY MODIFY SUCCESS | Ticket=",ticket,
+               " | ",GetOrderTypeText(orderType),
+               " | SL=",DoubleToString(expectedSL,Digits),
+               " | TP=",DoubleToString(expectedTP,Digits),
+               " | One-time check completed");
+        }
+      else
+        {
+         int err=GetLastError();
+
+         PostOrderSLTPVerifyStatus[i]="FAILED";
+         PostOrderSLTPVerifyLastError[i]=err;
+
+         Print("SLTP VERIFY MODIFY FAILED | Ticket=",ticket,
+               " | ",GetOrderTypeText(orderType),
+               " | Error=",err,
+               " | RequestedSL=",DoubleToString(expectedSL,Digits),
+               " | RequestedTP=",DoubleToString(expectedTP,Digits),
+               " | No retry will be performed");
+
+         // LogTradeOperationError("PostOrderSLTPVerify/OrderModify",ticket,
+         //                        "One-time SL/TP verification modify failed"+
+         //                        " | Type="+IntegerToString(orderType)+
+         //                        " | Lots=",DoubleToString(OrderLots(),2)+
+         //                        " | Open="+DoubleToString(openPrice,Digits)+
+         //                        " | ExistingSL="+DoubleToString(actualSL,Digits)+
+         //                        " | ExistingTP="+DoubleToString(actualTP,Digits)+
+         //                        " | RequestedSL="+DoubleToString(expectedSL,Digits)+
+         //                        " | RequestedTP="+DoubleToString(expectedTP,Digits),
+         //                        err);
+        }
+     }
+  }
+
+
+//+------------------------------------------------------------------+
+//| HELPER: Get readable order type text                             |
+//+------------------------------------------------------------------+
+string GetOrderTypeText(int orderType)
+  {
+   switch(orderType)
+     {
+      case OP_BUY:        return "BUY";
+      case OP_SELL:       return "SELL";
+      case OP_BUYSTOP:    return "BUY STOP";
+      case OP_SELLSTOP:   return "SELL STOP";
+      case OP_BUYLIMIT:   return "BUY LIMIT";
+      case OP_SELLLIMIT:  return "SELL LIMIT";
+      default:            return "UNKNOWN";
+     }
+  }
 
 //+------------------------------------------------------------------+
 //| One-time post-order SL/TP verification                           |
 //| Waits 60 seconds, checks once, optionally modifies once, then   |
 //| permanently removes the ticket from this verification cycle.    |
 //+------------------------------------------------------------------+
-void ProcessPostOrderSLTPVerification()
+void ProcessPostOrderSLTPVerification111()
   {
    if(!EnablePostOrderSLTPVerification)
       return;
@@ -3544,11 +3734,12 @@ bool SafeOrderDelete(int ticket,color arrowColor)
       return true; // Already deleted.
 
    int ageSeconds=(int)(TimeCurrent()-OrderOpenTime());
-   if(ageSeconds < 0);// 6*60*60)
+   int requiredAgeSeconds = 6*60*60;  // 6 hours
+   if(ageSeconds < requiredAgeSeconds)
      {
       Print("Pending order kept | Ticket=",ticket,
             " | Age=",DoubleToString(ageSeconds/3600.0,2),
-            " hours | Required=6.00 hours");
+            " hours | Required=",DoubleToString(requiredAgeSeconds/3600.0,2)," hours");
       return false;
      }
 
@@ -4557,6 +4748,24 @@ bool CloseAllEAOrdersForLadderReset()
    int pendingTickets[1000];
    int pendingCount = 0;
 
+   // CHECK IF CLEANUP TIMEOUT HAS ELAPSED
+   if(DayProfitLadderCleanupStartTime > 0)
+     {
+      int elapsedSeconds = (int)(TimeCurrent() - DayProfitLadderCleanupStartTime);
+      if(elapsedSeconds >= LADDER_CLEANUP_TIMEOUT_SECONDS)
+        {
+         Print("LADDER RESET | TIMEOUT REACHED (60 sec) | Forcing cleanup completion");
+         DayProfitLadderCleanupStartTime = 0;  // Reset for next cycle
+         return true;  // FORCE PROCEED even if incomplete
+        }
+     }
+   else
+     {
+      // First call to cleanup - start the timer
+      DayProfitLadderCleanupStartTime = TimeCurrent();
+      Print("LADDER RESET | CLEANUP STARTED | 60-second timeout enabled");
+     }
+
    for(int i=OrdersTotal()-1; i>=0; i--)
      {
       if(!OrderSelect(i,SELECT_BY_POS,MODE_TRADES)) continue;
@@ -4611,10 +4820,13 @@ bool CloseAllEAOrdersForLadderReset()
 
    if(anyRemaining)
      {
-      Print("LADDER RESET | CLEANUP NOT COMPLETE | NEW ORDER WAITING");
+      int elapsedSeconds = (int)(TimeCurrent() - DayProfitLadderCleanupStartTime);
+      Print("LADDER RESET | CLEANUP NOT COMPLETE | ",
+            elapsedSeconds," sec elapsed | NEW ORDER WAITING");
       return false;
      }
 
+   DayProfitLadderCleanupStartTime = 0;  // Reset timer
    Print("LADDER RESET | ALL OLD EA ORDERS CLOSED/DELETED");
    Print("LADDER RESET | NEW ORDER MAY BE CREATED NOW");
    return true;
