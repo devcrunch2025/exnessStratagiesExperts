@@ -113,6 +113,8 @@ bool EnableProfitLadder1 = true;
 
 
 
+
+
 double Ladder1ProfitUSD =0.30;//0.20;//0.20;//0.05;//1;//0.15;//0.25;//0.50;// 0.05;
 bool EnableProfitLadder2 = true;
 double Ladder1StopMaxPriceUSD =0.40;//10;// 0.40;//0.50;//0.20;
