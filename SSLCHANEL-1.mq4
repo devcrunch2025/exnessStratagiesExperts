@@ -79,6 +79,7 @@ bool EnableFreezeLevelProtection = true;
 double MinimumSLModifyGapRaw = 2.0;
 bool EnableProfitLadder1 = true;
 double Ladder1ProfitUSD = 0.50;//0.15; // Tightened for faster lock-in
+
 bool EnableProfitLadder2 = true;
 double Ladder1StopMaxPriceUSD =0.40;
 double Ladder2ProfitUSD = 0.15; // Accelerates trailing increments
