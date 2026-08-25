@@ -34,6 +34,15 @@ string EMA_PREFIX = "SSL_EMA_LINE_";
 
 bool EnableTrading = true;
 
+// ===== DUBAI GST TRADING PAUSE =====
+// Dubai time is UTC+4 year-round.
+// "20,21,22,23,24" pauses new trading from 20:00 through 00:59 Dubai time.
+// 24 is treated as midnight (00:00-00:59).
+// Existing orders are NOT closed by this filter.
+bool EnableDubaiTradingPause = true;
+string DubaiTradingPauseHours = "20,21,22,23,24";
+
+
 // ===== 30-MINUTE PRICE MOMENTUM FILTER =====
 // Normal SSL BUY requires current BUY price to be > 30-minute reference by this amount.
 // Normal SSL SELL requires current SELL price to be < 30-minute reference by this amount.
@@ -368,6 +377,14 @@ bool EnableSSLImmediateOrderCreation = true;
 //+------------------------------------------------------------------+
 void CheckSSLSignalAndCreateOrder()
 {
+   // Respect Dubai GST trading pause for this direct OrderSend path.
+   if(IsDubaiTradingPauseHour())
+     {
+      LogDubaiTradingPause();
+      return;
+     }
+
+
    // Exit if trading is disabled
    if(!EnableTrading)
       return;
@@ -1029,6 +1046,8 @@ bool IsOneCandleOrderAllowed()
 //+------------------------------------------------------------------+
 void OnDeinit(const int reason)
   {
+   RemoveDubaiTradingPauseDashboard();
+
    DeleteOurObjects();
 // DeleteDashboardObjects();
 // DeleteLeftLiveOrdersDashboardObjects();
@@ -1181,6 +1200,10 @@ void ProcessPendingReEntry(DailyProtectionState &state)
 //+------------------------------------------------------------------+
 void OnTick()
   {
+   // Keep Dubai GST trading-pause status visible on the right side.
+   UpdateDubaiTradingPauseDashboard();
+
+
    uint tickStartMs=GetTickCount();
 // if( GetCurrentSSLDirection()==0 && GetOpenPL(OP_BUY)<-1 )
 // {
@@ -3352,6 +3375,120 @@ void ProcessPostOrderSLTPVerification111()
 //+------------------------------------------------------------------+
 //|                                                                  |
 //+------------------------------------------------------------------+
+//+------------------------------------------------------------------+
+//| Check Dubai GST trading pause hours                              |
+//| Dubai = UTC+4. Hours are configurable as CSV.                   |
+//| 24 is normalized to 0 (midnight).                               |
+//| This blocks NEW trade requests only; it does not close orders.   |
+//+------------------------------------------------------------------+
+bool IsDubaiTradingPauseHour()
+  {
+   if(!EnableDubaiTradingPause)
+      return false;
+
+   datetime dubaiTime = TimeGMT() + 4 * 60 * 60;
+   int currentHour = TimeHour(dubaiTime);
+
+   string hours[];
+   int count = StringSplit(DubaiTradingPauseHours, ',', hours);
+
+   if(count <= 0)
+      return false;
+
+   for(int i=0; i<count; i++)
+     {
+      int pauseHour = (int)StringToInteger(hours[i]);
+
+      // Allow 24 as an alias for midnight.
+      if(pauseHour == 24)
+         pauseHour = 0;
+
+      if(pauseHour < 0 || pauseHour > 23)
+         continue;
+
+      if(currentHour == pauseHour)
+         return true;
+     }
+
+   return false;
+  }
+
+//+------------------------------------------------------------------+
+void LogDubaiTradingPause()
+  {
+   datetime dubaiTime = TimeGMT() + 4 * 60 * 60;
+
+   Print("TRADING PAUSED | Dubai GST = ",
+         TimeToString(dubaiTime,TIME_DATE|TIME_SECONDS),
+         " | Hour=",TimeHour(dubaiTime),
+         " | PauseHours=",DubaiTradingPauseHours);
+  }
+
+//+------------------------------------------------------------------+
+
+
+//+------------------------------------------------------------------+
+//| Dubai Trading Pause Dashboard Status                             |
+//+------------------------------------------------------------------+
+string GetDubaiTradingPauseReason()
+  {
+   if(!EnableDubaiTradingPause)
+      return "";
+
+   if(!IsDubaiTradingPauseHour())
+      return "";
+
+   datetime dubaiTime = TimeGMT() + 4 * 60 * 60;
+   int currentHour = TimeHour(dubaiTime);
+
+   return "DUBAI GST TRADING PAUSED | Hour " +
+          IntegerToString(currentHour) +
+          ":00 | Pause Hours: " + DubaiTradingPauseHours;
+  }
+
+//+------------------------------------------------------------------+
+//| Update trading pause status on chart                              |
+//+------------------------------------------------------------------+
+void UpdateDubaiTradingPauseDashboard()
+  {
+   string name = "EA_DUBAI_TRADING_PAUSE_STATUS";
+   string reason = GetDubaiTradingPauseReason();
+
+   if(reason == "")
+     {
+      if(ObjectFind(0,name) >= 0)
+         ObjectDelete(0,name);
+      return;
+     }
+
+   if(ObjectFind(0,name) < 0)
+     {
+      ObjectCreate(0,name,OBJ_LABEL,0,0,0);
+      ObjectSetInteger(0,name,OBJPROP_CORNER,CORNER_RIGHT_UPPER);
+      ObjectSetInteger(0,name,OBJPROP_XDISTANCE,20);
+      ObjectSetInteger(0,name,OBJPROP_YDISTANCE,20);
+      ObjectSetInteger(0,name,OBJPROP_ANCHOR,ANCHOR_RIGHT_UPPER);
+      ObjectSetInteger(0,name,OBJPROP_FONTSIZE,10);
+      ObjectSetString(0,name,OBJPROP_FONT,"Arial Bold");
+     }
+
+   ObjectSetString(0,name,OBJPROP_TEXT,reason);
+   ObjectSetInteger(0,name,OBJPROP_COLOR,clrRed);
+   ObjectSetInteger(0,name,OBJPROP_XDISTANCE,20);
+   ObjectSetInteger(0,name,OBJPROP_YDISTANCE,20);
+  }
+
+//+------------------------------------------------------------------+
+void RemoveDubaiTradingPauseDashboard()
+  {
+   string name = "EA_DUBAI_TRADING_PAUSE_STATUS";
+
+   if(ObjectFind(0,name) >= 0)
+      ObjectDelete(0,name);
+  }
+
+//+------------------------------------------------------------------+
+
 int SafeOrderSend(string symbol,int orderType,double lots,double price,
                   int slippage,double stopLoss,double takeProfit,
                   string comment,int magic,color arrowColor)
@@ -3360,6 +3497,15 @@ int SafeOrderSend(string symbol,int orderType,double lots,double price,
 // The next tick starts from a fresh server order scan.
    if(TradeOperationFailedThisTick)
       return false;
+
+// DUBAI GST TRADING PAUSE:
+// Block all NEW broker order requests during configured Dubai hours.
+// Existing market/pending orders remain untouched and continue to be managed.
+   if(IsDubaiTradingPauseHour())
+     {
+      LogDubaiTradingPause();
+      return -1;
+     }
 
 // STRICT DAY PROFIT LADDER:
 // Blocks every new broker order type (market, pending, recovery,
@@ -4319,7 +4465,11 @@ void ChangeLots(double OpenPL, string reason, int orderType, int stoplevelStep)
             else
                Lots = NormalizeLots(OriginalLots);
         }
+if(GlobalBUYSELLdashboardScore<=1)
+{
+               Lots = 0.01;
 
+}
 
 //===============================================================
 // 2. SSL / EMA DIRECTION CHECK
