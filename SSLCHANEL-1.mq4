@@ -109,7 +109,7 @@ double RecoveryBasketProfitUSD =0.10;
 
 bool   EnableDayProfitLadder = true;
 double DayProfitLadder1Percent =30;
-double DayProfitLadder1Amount =25;
+double DayProfitLadder1Amount =10;//25;
 double DayProfitLadderLockRatio = 0.10;      
 double DayProfitInitialProtectionPercent = 50.0; 
 
