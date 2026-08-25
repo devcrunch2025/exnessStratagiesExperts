@@ -39,7 +39,7 @@ bool EnableTrading = true;
 // "20,21,22,23,24" pauses new trading from 20:00 through 00:59 Dubai time.
 // 24 is treated as midnight (00:00-00:59).
 // Existing orders are NOT closed by this filter.
-bool EnableDubaiTradingPause = true;
+bool EnableDubaiTradingPause = false;
 string DubaiTradingPauseHours = "20,21,22,23,24";
 
 
@@ -3386,6 +3386,13 @@ bool IsDubaiTradingPauseHour()
    if(!EnableDubaiTradingPause)
       return false;
 
+    return IsTradingSloweHours();
+  }
+
+  bool IsTradingSloweHours()
+  {
+   
+
    datetime dubaiTime = TimeGMT() + 4 * 60 * 60;
    int currentHour = TimeHour(dubaiTime);
 
@@ -4465,7 +4472,13 @@ void ChangeLots(double OpenPL, string reason, int orderType, int stoplevelStep)
             else
                Lots = NormalizeLots(OriginalLots);
         }
-if(GlobalBUYSELLdashboardScore<=1)
+if(GlobalBUYSELLdashboardScore<=1  )
+{
+               Lots = 0.01;
+
+}
+
+if(IsTradingSloweHours() && GlobalBUYSELLdashboardScore<=3)
 {
                Lots = 0.01;
 
