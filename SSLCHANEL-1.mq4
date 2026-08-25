@@ -4259,7 +4259,7 @@ double GetMarketMomentLot(int orderType)
 //+------------------------------------------------------------------+
 void ChangeLots(double OpenPL, string reason, int orderType, int stoplevelStep)
   {
-   double MaxRecoveryLot =0.05;// 0.10;
+   double MaxRecoveryLot =0.10;//0.05;// 0.10;
 
    double oppositeLots = GetOppositeOrdersLots(orderType);
 
@@ -4281,7 +4281,7 @@ void ChangeLots(double OpenPL, string reason, int orderType, int stoplevelStep)
    else
       if(isSSLProfitReEntry)
         {
-         Lots = 0.05;//0.10;
+         Lots = 0.10;//0.05;//0.10;
 
          if(reEntryCounter <= 3)
            {
