@@ -18,6 +18,12 @@ bool EnableTrading = true;
 bool EnableDubaiTradingPause = false;
 string DubaiTradingPauseHours = "20,21,22,23,24";
 
+// ===== SPREAD & RISK SETTINGS FOR $100 BALANCE =====
+double MaxAllowedSpreadUSD = 35.0; 
+int AccountMultiplierLOT = 100;    
+double OriginalStopLossUSD =3;// 1.50; 
+double StopLossUSD = 3;//1.50;         
+
 // ===== 30-MINUTE PRICE MOMENTUM FILTER =====
 bool Enable30MinuteMomentumFilter = false;
 double Min30MinutePriceDifference = 200;
@@ -50,11 +56,8 @@ datetime DeferredCreated[MAX_DEFERRED_ORDERS];
 
 double Lots = 0.01;
 int MaxOpenOrders = 100;
-int AccountMultiplierLOT=200;
 bool CloseOppositeOrdersOnSignal = false;
 double closeOppositeLossThreshold =-2;
-double OriginalStopLossUSD=3;
-double StopLossUSD =3;
 bool DeleteOppositePendingOnSignal = false;
 bool EnableProfitReEntryStop = true;
 double MinimumClosedProfitUSD = -9;
@@ -67,7 +70,7 @@ int MaxSameDirectionOrders = 1000;
 int MaxConsecutiveLosingSL = 1000;
 int SLCooldownCandles = 3;
 double SLReEntryGapRaw = 50.0;
-double BasketNewOrderLossLimitUSD = 7.50;
+double BasketNewOrderLossLimitUSD = 10.00; // Increased for strict 10% protection
 int SLProtectionSafetyBufferPoints = 2;
 bool DeletePendingOrdersAfterLosingSL = false;
 bool RequireFreshSSLAfterLosingSL = false;
@@ -75,11 +78,11 @@ bool ContinueTradingAfterSL = true;
 bool EnableFreezeLevelProtection = true;
 double MinimumSLModifyGapRaw = 2.0;
 bool EnableProfitLadder1 = true;
-double Ladder1ProfitUSD =0.30;
+double Ladder1ProfitUSD = 0.15; // Tightened for faster lock-in
 bool EnableProfitLadder2 = true;
 double Ladder1StopMaxPriceUSD =0.40;
-double Ladder2ProfitUSD = 0.10;
-double DefaultOrderProfitUSD =1; 
+double Ladder2ProfitUSD = 0.15; // Accelerates trailing increments
+double DefaultOrderProfitUSD = 0.75; 
 
 // ===== ONE-TIME POST-ORDER SL/TP VERIFICATION =====
 bool   EnablePostOrderSLTPVerification = false;
@@ -200,39 +203,6 @@ int ProtectedEquityWaitMinutes =0;
 bool IsH1BuyAllowed() { return (GetH1Direction() == 1); }
 bool IsH1SellAllowed() { return (GetH1Direction() == -1); }
 bool EnableSSLImmediateOrderCreation = true;
- 
-void CheckSSLSignalAndCreateOrder() {
-   if(IsDubaiTradingPauseHour()) { LogDubaiTradingPause(); return; }
-   if(!EnableTrading || !EnableSSLImmediateOrderCreation) return;
-   
-   int sslSignal = GetSSLSignal(); 
-   if(sslSignal == 0) return; 
-   
-   if(sslSignal == 1) {
-      if(CountOrdersByType(OP_BUY) == 0) {
-         double lots = CalculateLotSize(); 
-         double priceDistSL = CalculatePriceDistanceUSD(StopLossUSD, lots);
-         double priceDistTP = CalculatePriceDistanceUSD(DefaultOrderProfitUSD, lots);
-         double stopLoss = NormalizeDouble(Ask - priceDistSL, Digits);
-         double takeProfit = NormalizeDouble(Ask + priceDistTP, Digits);
-         
-         int ticket = OrderSend(Symbol(), OP_BUY, lots, Ask, Slippage, stopLoss, takeProfit, "SSL_IMMEDIATE_BUY", MagicNumber, 0, clrBlue);
-         if(ticket > 0) Print("SSL IMMEDIATE BUY ORDER CREATED - Ticket: ", ticket);
-      }
-   }
-   else if(sslSignal == -1) {
-      if(CountOrdersByType(OP_SELL) == 0) {
-         double lots = CalculateLotSize(); 
-         double priceDistSL = CalculatePriceDistanceUSD(StopLossUSD, lots);
-         double priceDistTP = CalculatePriceDistanceUSD(DefaultOrderProfitUSD, lots);
-         double stopLoss = NormalizeDouble(Bid + priceDistSL, Digits);
-         double takeProfit = NormalizeDouble(Bid - priceDistTP, Digits);
-         
-         int ticket = OrderSend(Symbol(), OP_SELL, lots, Bid, Slippage, stopLoss, takeProfit, "SSL_IMMEDIATE_SELL", MagicNumber, 0, clrRed);
-         if(ticket > 0) Print("SSL IMMEDIATE SELL ORDER CREATED - Ticket: ", ticket);
-      }
-   }
-}
  
 int CountOrdersByType(int orderType) {
    int count = 0;
@@ -432,6 +402,7 @@ void ManageProfitReEntryMomentumGate() { return; }
 void ProcessPendingReEntry(DailyProtectionState &state) { return; }
 
 void OnTick() {
+   UpdateMomentumBackground();
    UpdateDubaiTradingPauseDashboard();
    uint tickStartMs=GetTickCount();
    OnTickCore();
@@ -1086,13 +1057,22 @@ int SafeOrderSend(string symbol,int orderType,double lots,double price,int slipp
    if(TradeOperationFailedThisTick) return false;
    if(IsDubaiTradingPauseHour()) return -1;
    if(!IsDayProfitLadderTradingAllowed()) return -1;
+   
+   // --- SPREAD FILTER ---
+   RefreshRates();
+   double currentSpreadUSD = Ask - Bid;
+   if(currentSpreadUSD > MaxAllowedSpreadUSD) {
+      Print("TRADE BLOCKED | Spread too high: $", DoubleToString(currentSpreadUSD, 2), " | Max allowed: $", DoubleToString(MaxAllowedSpreadUSD, 2));
+      return -1;
+   }
+
    if(Enable30MinuteMomentumFilter && Enable30MinuteMomentumForAllOrders) {
       if(!PassesDeferredMomentum(orderType)) return QueueDeferredOrder(symbol,orderType,lots,price,slippage,stopLoss,takeProfit,comment,magic,arrowColor);
    }
    string key=MakeTradeErrorKey("SEND",-1,IntegerToString(orderType)+"|"+DoubleToString(lots,8)+"|"+comment);
    if(IsTradeErrorBlockedThisTick(key)) return -1;
    lots = NormalizeLots(lots);
-   RefreshRates();
+   
    double sendPrice=price;
    if(orderType==OP_BUY) sendPrice=Ask; else if(orderType==OP_SELL) sendPrice=Bid;
    sendPrice=NormalizeDouble(sendPrice,Digits);
@@ -1225,44 +1205,203 @@ double GetMarketMomentLot(int orderType) {
    if(orderType == OP_BUY) momentumAligned = (momentumDiff > momentumThreshold); else momentumAligned = (momentumDiff < -momentumThreshold);
    int confirmationScore = 0;
    if(h1Aligned) confirmationScore++; if(m5Aligned) confirmationScore++; if(emaAligned) confirmationScore++; if(momentumAligned) confirmationScore++;
+   
+   // --- STRICT LOT ALLOCATION CURVE ---
    double lot = 0.01;
-   if(confirmationScore == 1) lot = 0.01; else if(confirmationScore == 2) lot = 0.02; else if(confirmationScore == 3) lot = 0.04; else if(confirmationScore >= 4) lot = 0.06;
+   if(confirmationScore == 1) lot = 0.01; 
+   else if(confirmationScore == 2) lot = 0.03; 
+   else if(confirmationScore == 3) lot = 0.06; 
+   else if(confirmationScore >= 4) lot = 0.10; // Max aggression unlocked
+   
    if(CapLotWhenH1Opposite && h1Opposite) lot = MathMin(lot, 0.01);
    bool extremeVolatility = IsExtremeVolatility();
    if(extremeVolatility) lot = MathMin(lot, MathAbs(VolatilityLotCap));
-   return NormalizeLots(lot);
-}
-
-void ChangeLots(double OpenPL, string reason, int orderType, int stoplevelStep) {
-   double MaxRecoveryLot =0.10;
-   double oppositeLots = GetOppositeOrdersLots(orderType);
-   bool isSSLSignal = (reason == "SSL Long" || reason == "SSL Short");
-   bool isSSLProfitReEntry = (reason == "SSL Profit ReEntry Buy Stop" || reason == "SSL Profit ReEntry Sell Stop");
-
-   if(isSSLSignal) {
-      Lots = GetMarketMomentLot(orderType);
-      // FIXED: Removed logical overwrite here so confirmations correctly guide the size.
-   } else if(isSSLProfitReEntry) {
-      Lots = 0.10;
-      if(reEntryCounter <= 3) Lots = 0.02; else { Lots = Lots - (reEntryCounter * 0.01); Lots = Lots * GlobalBUYSELLdashboardScore; if(Lots < 0.01) Lots = 0.01; }
-   } else {
-      if(oppositeLots <= 0.0) Lots = NormalizeLots(0.03); else if(OpenPL < -0.50) Lots = NormalizeLots(0.03); else Lots = NormalizeLots(OriginalLots);
+   
+   // --- WEEKEND RISK CAP ---
+   int dayOfWeek = TimeDayOfWeek(TimeCurrent()); 
+   if(dayOfWeek == 0 || dayOfWeek == 6) {
+      lot = MathMin(lot, 0.02);
    }
 
-   if(GlobalBUYSELLdashboardScore<=1) Lots = 0.01;
-   if(IsTradingSloweHours() && GlobalBUYSELLdashboardScore<=3) Lots = 0.01;
-   if(GetCurrentSSLDirection() != EMADirection) Lots = 0.01;
+   return NormalizeLots(lot);
+}
+//+------------------------------------------------------------------+
+//| Check if an order with the same type & lot size is nearby        |
+//+------------------------------------------------------------------+
+bool IsSameLotOrderNearBy(int orderType, double checkLot, double gapRawThreshold)
+{
+   RefreshRates();
+   
+   // Reference price based on what we are trying to open
+   double currentPrice = (orderType == OP_BUY) ? Ask : Bid;
+   
+   for(int i = OrdersTotal() - 1; i >= 0; i--)
+   {
+      if(!OrderSelect(i, SELECT_BY_POS, MODE_TRADES)) continue;
+      
+      // Filter for our EA and symbol
+      if(OrderSymbol() != Symbol() || OrderMagicNumber() != MagicNumber) continue;
+      
+      // Filter for exact order type
+      if(OrderType() != orderType) continue;
+      
+      // Check if lot size matches exactly (using 0.00001 tolerance for safe float comparison)
+      if(MathAbs(OrderLots() - checkLot) > 0.00001) continue;
+      
+      // Calculate absolute gap distance from current market price
+      double distance = MathAbs(currentPrice - OrderOpenPrice());
+      
+      // If the distance is less than the gap limit, return true
+      if(distance < gapRawThreshold)
+      {
+         Print("NEARBY ORDER DETECTED | Type: ", (orderType == OP_BUY ? "BUY" : "SELL"), 
+               " | Lot: ", DoubleToString(checkLot, 2), 
+               " | Gap: ", DoubleToString(distance, Digits));
+               
+         return true; // Match found!
+      }
+   }
+   
+   return false; // No matching nearby order found
+}
+void ChangeLots(double OpenPL, string reason, int orderType, int stoplevelStep)
+{
+   double MaxRecoveryLot = 0.10;
 
-   int balancelomultipler = (int)(AccountBalance() / AccountMultiplierLOT);
-   if(balancelomultipler < 1) balancelomultipler = 1;
+   double oppositeLots = GetOppositeOrdersLots(orderType);
+
+   bool isSSLSignal =
+      (reason == "SSL Long" || reason == "SSL Short");
+
+   bool isSSLProfitReEntry =
+      (reason == "SSL Profit ReEntry Buy Stop" ||
+       reason == "SSL Profit ReEntry Sell Stop");
+
+   //==================================================
+   // BASE LOT CALCULATION
+   //==================================================
+   if(isSSLSignal)
+   {
+      Lots = GetMarketMomentLot(orderType);
+
+      if(GlobalBUYSELLdashboardScore>=3)
+      Lots=0.10;
+   }
+   else if(isSSLProfitReEntry)
+   {
+      Lots = 0.10;
+
+if(reEntryCounter > 2)
+{
+   int cycleCounter = (reEntryCounter) % 10;
+
+   Lots = Lots - (cycleCounter * 0.01);
+
+   if(Lots < 0.01)
+      Lots = 0.01;
+}
+
+// if(reEntryCounter > 3) { Lots = Lots - (reEntryCounter * 0.01); if(Lots < 0.01) Lots = 0.01; }
+   }
+   else
+   {
+      if(oppositeLots <= 0.0)
+         Lots = NormalizeLots(0.02);
+      else if(OpenPL < -0.50)
+         Lots = NormalizeLots(0.03);
+      else
+         Lots = NormalizeLots(OriginalLots);
+   }
+
+
+   //==================================================
+   // SSL / EMA DIRECTION OVERRIDE
+   //==================================================
+   bool sslEmaMismatch = (GetCurrentSSLDirection() != EMADirection);
+
+   if(sslEmaMismatch)
+   {
+      if(reEntryCounter >= 2)
+         Lots = 0.05;
+      else
+         Lots = 0.01;
+   }
+
+
+   //==================================================
+   // STRONG MOMENTUM OVERRIDE
+   //==================================================
+   if((orderType == OP_BUY || orderType == OP_SELL) &&
+      IsStrongMomentum(orderType))
+   {
+      // Lots = 0.10;
+
+      int dayOfWeek = TimeDayOfWeek(TimeCurrent());
+
+      // Weekend protection
+      if(dayOfWeek == 0 || dayOfWeek == 6)
+      {
+         Lots = MathMin(Lots, 0.02);
+      }
+   }
+
+
+   if(Lots>0.05 && IsSameLotOrderNearBy(orderType,Lots,100))
+   {
+      Lots=0.02;//
+   }
+
+   //==================================================
+   // DASHBOARD SCORE PROTECTION
+   //==================================================
+   if(GlobalBUYSELLdashboardScore <= 1)
+      Lots = 0.01;
+
+   if(IsTradingSloweHours() &&
+      GlobalBUYSELLdashboardScore <= 3)
+   {
+      Lots = 0.01;
+   }
+
+
+   //==================================================
+   // BALANCE LOT MULTIPLIER
+   //==================================================
+   int balancelomultipler =
+      (int)(AccountBalance() / AccountMultiplierLOT);
+
+   if(balancelomultipler < 1)
+      balancelomultipler = 1;
+
    Lots = Lots * balancelomultipler;
-   if(Lots > MaxRecoveryLot) Lots = NormalizeLots(MaxRecoveryLot);
-   Lots = NormalizeLots(Lots); if(Lots < 0.01) Lots = 0.01;
 
-   StopLossUSD = OriginalStopLossUSD * Lots * 100;
-   Ladder1ProfitUSD = OriginalLadder1ProfitUSD * Lots * 100;
-   Ladder2ProfitUSD = OriginalLadder2ProfitUSD * Lots * 100;
-   Ladder1StopMaxPriceUSD = OriginalLadder1StopMaxPriceUSD * Lots * 100;
+
+   //==================================================
+   // MAX LOT PROTECTION
+   //==================================================
+   if(Lots > MaxRecoveryLot)
+      Lots = MaxRecoveryLot;
+
+   Lots = NormalizeLots(Lots);
+
+   if(Lots < 0.01)
+      Lots = 0.01;
+
+
+   //==================================================
+   // DYNAMIC SL / LADDER VALUES
+   //==================================================
+   StopLossUSD =
+      OriginalStopLossUSD * Lots * 100;
+
+   Ladder1ProfitUSD =
+      OriginalLadder1ProfitUSD * Lots * 100;
+
+   Ladder2ProfitUSD =
+      OriginalLadder2ProfitUSD * Lots * 100;
+
+   Ladder1StopMaxPriceUSD =
+      OriginalLadder1StopMaxPriceUSD * Lots * 100;
 }
 
 void CheckRecoveryOrders() {
@@ -1288,8 +1427,7 @@ void CheckRecoveryOrders() {
       if(!IsOneCandleOrderAllowed() || HasRecoveryOrder(parentTicket)) continue;
       
       int recoveryTicket = -1;
-      // FIXED: Used proper Point offset mapping for SL
-      double pointDist = 2000 * Point; // Adjust to 200 or 2000 dynamically based on broker settings
+      double pointDist = 2000 * Point; 
       if(parentType == OP_BUY) {
          recoveryTicket = SafeOrderSend(Symbol(), OP_BUY, lots<=0.03?lots*2:lots, Ask, Slippage, Ask - pointDist, 0, "RECOVERY_" + IntegerToString(parentTicket), MagicNumber, clrAqua);
       } else {
@@ -1782,6 +1920,17 @@ void ManageProfitLadder() {
       double orderLots = OrderLots();
       if(orderLots <= 0) continue;
 
+      // --- INSTANT BREAK-EVEN FOR HIGH LOTS (>= 0.04) ---
+      if(orderLots >= 0.04 && currentProfit >= 0.50) {
+         double breakEvenPrice = (orderType == OP_BUY) ? (OrderOpenPrice() + Point * 10) : (OrderOpenPrice() - Point * 10);
+         breakEvenPrice = NormalizeDouble(breakEvenPrice, Digits);
+         bool needsBE = (orderType == OP_BUY) ? (OrderStopLoss() < OrderOpenPrice()) : (OrderStopLoss() > OrderOpenPrice() || OrderStopLoss() == 0);
+         if(needsBE) {
+            SafeOrderModify(OrderTicket(), OrderOpenPrice(), breakEvenPrice, OrderTakeProfit(), 0, clrGold);
+            Print("INSTANT BREAK-EVEN APPLIED | Ticket: ", OrderTicket(), " | Lots: ", orderLots);
+         }
+      }
+
       double ladder1Profit = OriginalLadder1ProfitUSD * orderLots * 100.0;
       double ladder2Profit = OriginalLadder2ProfitUSD * orderLots * 100.0;
       double ladder1StopMaxPrice = OriginalLadder1StopMaxPriceUSD * orderLots * 100.0;
@@ -1876,7 +2025,6 @@ void ManageProfitLadder() {
    }
 }
 
-// FIXED: Improved Intrabar SSL Performance Loop Lookback
 void CalculateSSL(int shift, double &sslUp, double &sslDown, int &hlv) {
    int oldest = MathMin(50, Bars - SSLPeriod - 2); 
    if(oldest < shift) oldest = shift;
@@ -2061,10 +2209,20 @@ void UpdateDashboard(DailyProtectionState &state) {
 
    int dashboardScore=0; if(h1Confirm) dashboardScore++; if(m5Confirm) dashboardScore++; if(emaConfirm) dashboardScore++; if(momentumConfirm) dashboardScore++;
    GlobalBUYSELLdashboardScore=dashboardScore;
+   
    double dashboardSuggestedLot=0.01;
-   if(dashboardScore==1) dashboardSuggestedLot=0.02; else if(dashboardScore==2) dashboardSuggestedLot=0.03; else if(dashboardScore==3) dashboardSuggestedLot=0.04; else if(dashboardScore>=4) dashboardSuggestedLot=0.05;
+   if(dashboardScore==1) dashboardSuggestedLot=0.01; 
+   else if(dashboardScore==2) dashboardSuggestedLot=0.03; 
+   else if(dashboardScore==3) dashboardSuggestedLot=0.06; 
+   else if(dashboardScore>=4) dashboardSuggestedLot=0.10;
+   
    if(CapLotWhenH1Opposite && h1Opposite) dashboardSuggestedLot=MathMin(dashboardSuggestedLot,0.01);
    if(dashboardExtremeVol) dashboardSuggestedLot=MathMin(dashboardSuggestedLot,MathAbs(VolatilityLotCap));
+   
+   int dayOfWeekDash = TimeDayOfWeek(TimeCurrent());
+   if(dayOfWeekDash == 0 || dayOfWeekDash == 6) {
+      dashboardSuggestedLot = MathMin(dashboardSuggestedLot, 0.02);
+   }
 
    int dashboardLotMultiplier=(int)(AccountBalance()/AccountMultiplierLOT); if(dashboardLotMultiplier<1) dashboardLotMultiplier=1;
    double dashboardFinalLot=NormalizeLots(MathMin(0.10,dashboardSuggestedLot*dashboardLotMultiplier));
@@ -2073,13 +2231,15 @@ void UpdateDashboard(DailyProtectionState &state) {
    color h1Color=h1Confirm?clrLime:(h1Opposite?clrTomato:clrGold); color m5Color=m5Confirm?clrLime:clrTomato; color emaConfirmColor=emaConfirm?clrLime:clrTomato; color momentumColor=momentumConfirm?clrLime:clrTomato;
    string scoreText="SCORE        : "+IntegerToString(dashboardScore)+" / 4  -> LOT "+DoubleToString(dashboardFinalLot,2);
    color scoreColor=(h1Opposite||dashboardExtremeVol)?clrGold:(dashboardScore>=3?clrLime:(dashboardScore>=1?clrGold:clrTomato));
+   
+   string strong=IsStrongMomentum(OrderType())?"STRONG":"Normal";
 
    CreateDashboardPanel(DASH_PREFIX+"PANEL",x,y,w,panelHeight,C'12,16,22');
    CreateDashboardPanel(DASH_PREFIX+"HEADER",x,y,w,38,C'25,70,115');
    CreateDashboardLabel(DASH_PREFIX+"TITLE","SSL CHANNEL EA  |  PRO CONTROL",tx,y+8,11,clrWhite);
    CreateDashboardLabel(DASH_PREFIX+"SUBTITLE",Symbol()+"  |  "+TimeframeToString(Period()),tx+w-125,y+10,8,clrLightGray);
    CreateDashboardLabel(DASH_PREFIX+"STATUS", "STATUS       : "+statusText,tx,y+47,10,statusColor);
-   CreateDashboardLabel(DASH_PREFIX+"SIGNAL","SSL SIGNAL   : "+sslDirection+"  (MASTER)",tx,y+67,9,sslColor);
+   CreateDashboardLabel(DASH_PREFIX+"SIGNAL","SSL SIGNAL   : "+sslDirection+"  ("+strong+")",tx,y+67,9,sslColor);
    CreateDashboardPanel(DASH_PREFIX+"SEC_CONFIRM",x,y+90,w,22,C'30,38,50');
    CreateDashboardLabel(DASH_PREFIX+"CONF_H","MARKET-MOMENT CONFIRMATIONS",tx,y+94,9,clrAqua);
    CreateDashboardLabel(DASH_PREFIX+"CONF_H1","H1 DIRECTION : "+h1Text+"  ["+h1Mark+"]",tx,y+117,9,h1Color);
@@ -2210,5 +2370,72 @@ void UpdateLeftLiveOrdersDashboard() {
    if(total==0) CreateLeftLiveLabel(LEFT_LIVE_PREFIX+"EMPTY", "NO ACTIVE EA ORDERS", tx, y+108, 9, clrSilver);
    else CreateLeftLiveLabel(LEFT_LIVE_PREFIX+"EMPTY", "Showing "+IntegerToString(MathMin(total,rows))+" of "+IntegerToString(total)+" orders", tx, y+108+(rows*20)+4, 8, clrSilver);
    ChartRedraw(0);
+}
+
+//+------------------------------------------------------------------+
+//| STRONG MOMENTUM DETECTION                                        |
+//+------------------------------------------------------------------+
+bool IsStrongMomentum(int direction)
+{
+   double adxMain = iADX(Symbol(), PERIOD_M5, 14, PRICE_CLOSE, MODE_MAIN, 0);
+   double adxPlus = iADX(Symbol(), PERIOD_M5, 14, PRICE_CLOSE, MODE_PLUSDI, 0);
+   double adxMin  = iADX(Symbol(), PERIOD_M5, 14, PRICE_CLOSE, MODE_MINUSDI, 0);
+
+   double candleRange = High[1] - Low[1];
+   double candleBody  = MathAbs(Open[1] - Close[1]);
+   bool isSolidCandle = false;
+   
+   if(candleRange > 0.0) {
+      isSolidCandle = (candleBody / candleRange) >= 0.75; 
+   }
+
+   if(direction == OP_BUY) {
+      return (adxMain > 25.0 && adxPlus > adxMin && isSolidCandle);
+   }
+   else if(direction == OP_SELL) {
+      return (adxMain > 25.0 && adxMin > adxPlus && isSolidCandle);
+   }
+
+   return false;
+}
+
+//+------------------------------------------------------------------+
+//| UPDATE SPECIFIC CANDLE BACKGROUND BASED ON MOMENTUM              |
+//+------------------------------------------------------------------+
+void UpdateMomentumBackground()
+{
+   bool strongBuy  = IsStrongMomentum(OP_BUY);
+   bool strongSell = IsStrongMomentum(OP_SELL);
+
+   if(!strongBuy && !strongSell) return;
+
+   // Create a unique object name for the current candle
+   string objName = PREFIX + "MOM_" + IntegerToString((int)Time[0]);
+
+   // Faint but solid Dark Green or Dark Red
+   color momColor = strongBuy ? C'0,40,0' : C'40,0,0'; 
+
+   // Calculate the area to highlight (Candle High/Low + 10% visual buffer)
+   double buffer = (High[0] - Low[0]) * 0.1;
+   double topPrice = High[0] + buffer;
+   double botPrice = Low[0] - buffer;
+   
+   // Calculate width (Current candle open time to next candle open time)
+   datetime endTime = Time[0] + Period() * 60;
+
+   // Draw the solid block behind the candle
+   if(ObjectFind(0, objName) < 0) {
+      ObjectCreate(0, objName, OBJ_RECTANGLE, 0, Time[0], topPrice, endTime, botPrice);
+      ObjectSetInteger(0, objName, OBJPROP_COLOR, momColor);
+      ObjectSetInteger(0, objName, OBJPROP_BACK, true);    // Keep it behind the candles
+      ObjectSetInteger(0, objName, OBJPROP_SELECTABLE, false);
+      ObjectSetInteger(0, objName, OBJPROP_HIDDEN, true);
+      ObjectSetInteger(0, objName, OBJPROP_FILL, true);    // Make it solid, NOT transparent
+   } else {
+      // Update size dynamically as the live candle moves
+      ObjectMove(0, objName, 0, Time[0], topPrice);
+      ObjectMove(0, objName, 1, endTime, botPrice);
+      ObjectSetInteger(0, objName, OBJPROP_COLOR, momColor);
+   }
 }
 //+------------------------------------------------------------------+
