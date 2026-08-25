@@ -78,9 +78,12 @@ bool ContinueTradingAfterSL = true;
 bool EnableFreezeLevelProtection = true;
 double MinimumSLModifyGapRaw = 2.0;
 bool EnableProfitLadder1 = true;
-double Ladder1ProfitUSD = 0.50;//0.15; // Tightened for faster lock-in
+
 
 bool EnableProfitLadder2 = true;
+
+double Ladder1ProfitUSD = 0.20;//0.15; // Tightened for faster lock-in
+
 double Ladder1StopMaxPriceUSD =0.40;
 double Ladder2ProfitUSD = 0.15; // Accelerates trailing increments
 double DefaultOrderProfitUSD = 0.75;
@@ -2068,45 +2071,53 @@ double GetMarketMomentLot(int orderType)
 //+------------------------------------------------------------------+
 //| Check if an order with the same type & lot size is nearby        |
 //+------------------------------------------------------------------+
+//+------------------------------------------------------------------+
+//| Check if ANY order (Market or Pending) with same lot is nearby   |
+//+------------------------------------------------------------------+
 bool IsSameLotOrderNearBy(int orderType, double checkLot, double gapRawThreshold)
   {
    RefreshRates();
 
-// Reference price based on what we are trying to open
-   double currentPrice = (orderType == OP_BUY) ? Ask : Bid;
+   // Reference price based on the trade being evaluated
+   double currentPrice = (orderType == OP_BUY || orderType == OP_BUYSTOP || orderType == OP_BUYLIMIT) ? Ask : Bid;
 
    for(int i = OrdersTotal() - 1; i >= 0; i--)
      {
       if(!OrderSelect(i, SELECT_BY_POS, MODE_TRADES))
          continue;
 
-      // Filter for our EA and symbol
+      // Filter for this EA and symbol
       if(OrderSymbol() != Symbol() || OrderMagicNumber() != MagicNumber)
          continue;
 
-      // Filter for exact order type
-      if(OrderType() != orderType)
+      int existingType = OrderType();
+
+      // Check all valid order types: Market (BUY/SELL) and Pending (STOP/LIMIT)
+      if(existingType != OP_BUY && existingType != OP_SELL &&
+         existingType != OP_BUYSTOP && existingType != OP_SELLSTOP &&
+         existingType != OP_BUYLIMIT && existingType != OP_SELLLIMIT)
          continue;
 
-      // Check if lot size matches exactly (using 0.00001 tolerance for safe float comparison)
+      // Check if lot size matches (safe float comparison)
       if(MathAbs(OrderLots() - checkLot) > 0.00001)
          continue;
 
-      // Calculate absolute gap distance from current market price
+      // Calculate absolute distance between current price and existing order/pending price
       double distance = MathAbs(currentPrice - OrderOpenPrice());
 
-      // If the distance is less than the gap limit, return true
+      // If within threshold, trigger safeguard
       if(distance < gapRawThreshold)
         {
-         Print("NEARBY ORDER DETECTED | Type: ", (orderType == OP_BUY ? "BUY" : "SELL"),
-               " | Lot: ", DoubleToString(checkLot, 2),
+         Print("NEARBY ORDER/PENDING DETECTED | Ticket: ", OrderTicket(),
+               " | Type: ", GetOrderTypeText(existingType),
+               " | Lot: ", DoubleToString(OrderLots(), 2),
                " | Gap: ", DoubleToString(distance, Digits));
 
          return true; // Match found!
         }
      }
 
-   return false; // No matching nearby order found
+   return false; // No matching order or pending order nearby
   }
 //+------------------------------------------------------------------+
 //|                                                                  |
@@ -2131,7 +2142,9 @@ void ChangeLots(double OpenPL, string reason, int orderType, int stoplevelStep)
      {
       Lots = GetMarketMomentLot(orderType);
 
-      if(GlobalBUYSELLdashboardScore>=3 && GetCurrentSSLDirection() == EMADirection)
+      // if(GlobalBUYSELLdashboardScore>=2 && GetCurrentSSLDirection() == EMADirection)
+      if(GetCurrentSSLDirection() == EMADirection || GlobalBUYSELLdashboardScore==4 )
+
          Lots=0.10;
      }
    else
