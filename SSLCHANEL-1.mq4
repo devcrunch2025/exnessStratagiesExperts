@@ -78,7 +78,7 @@ bool ContinueTradingAfterSL = true;
 bool EnableFreezeLevelProtection = true;
 double MinimumSLModifyGapRaw = 2.0;
 bool EnableProfitLadder1 = true;
-double Ladder1ProfitUSD = 0.15; // Tightened for faster lock-in
+double Ladder1ProfitUSD = 0.50;//0.15; // Tightened for faster lock-in
 bool EnableProfitLadder2 = true;
 double Ladder1StopMaxPriceUSD =0.40;
 double Ladder2ProfitUSD = 0.15; // Accelerates trailing increments
@@ -668,59 +668,60 @@ void OnTickCore()
 
    bool buySignal  = IsLiveBuySignal();
    bool sellSignal = IsLiveSellSignal();
+   
+   // --- CONTINUOUS FALLBACK DETECTION ---
+   // Check if we are missing orders for the current active trend
+   int currentTrend = GetCurrentSSLDirection();
+   bool missingBuyOrder = (currentTrend == 1 && CountDirectionOrders(OP_BUY) == 0 && CountDirectionOrders(OP_BUYSTOP) == 0);
+   bool missingSellOrder = (currentTrend == -1 && CountDirectionOrders(OP_SELL) == 0 && CountDirectionOrders(OP_SELLSTOP) == 0);
 
-   if(buySignal)
-     {
-      DrawLiveSignal(0, true);
-      if(LastLiveSignalCandle != Time[0] || LastLiveSSLDirection != 1)
-        {
+   // --- EXECUTE BUY ---
+   if(buySignal || missingBuyOrder) {
+      if(buySignal) DrawLiveSignal(0, true); // Only draw arrows on the actual cross
+      
+      if(LastLiveSignalCandle != Time[0] || LastLiveSSLDirection != 1 || missingBuyOrder) {
          LastLiveSignalCandle = Time[0];
          LastLiveSSLDirection = 1;
-         if(FreshSSLRequiredDirection == -1)
-            FreshSSLRequiredDirection = 0;
-         if(DeleteOppositePendingOnSignal)
-            DeleteOppositePendingOrders(OP_BUY);
-         if(CloseOppositeOrdersOnSignal)
-            CloseOppositeOrders(OP_BUY);
-         if(TradeOperationFailedThisTick)
-           {
-            UpdateDashboardsThrottled(dailyState);
-            return;
-           }
-         if(EnableTrading && !IsDailyTradingStopped(dailyState))
-           {
-            if(GetTotalEAOrders() < MaxOpenOrders)
-               OpenBuy();
-           }
-        }
-     }
-   else
-      if(sellSignal)
-        {
-         DrawLiveSignal(0, false);
-         if(LastLiveSignalCandle != Time[0] || LastLiveSSLDirection != -1)
-           {
-            LastLiveSignalCandle = Time[0];
-            LastLiveSSLDirection = -1;
-            if(FreshSSLRequiredDirection == 1)
-               FreshSSLRequiredDirection = 0;
-            if(DeleteOppositePendingOnSignal)
-               DeleteOppositePendingOrders(OP_SELL);
-            if(CloseOppositeOrdersOnSignal)
-               CloseOppositeOrders(OP_SELL);
-            if(TradeOperationFailedThisTick)
-              {
-               UpdateDashboardsThrottled(dailyState);
-               return;
-              }
-            if(EnableTrading && !IsDailyTradingStopped(dailyState))
-              {
-               if(GetTotalEAOrders() < MaxOpenOrders)
-                  OpenSell();
-              }
-           }
-        }
-  }
+         
+         if(FreshSSLRequiredDirection == -1) FreshSSLRequiredDirection = 0;
+         
+         // Only delete/close opposite orders on a fresh cross, not on a continuous fill
+         if(buySignal) {
+            if(DeleteOppositePendingOnSignal) DeleteOppositePendingOrders(OP_BUY);
+            if(CloseOppositeOrdersOnSignal) CloseOppositeOrders(OP_BUY);
+         }
+         
+         if(TradeOperationFailedThisTick) { UpdateDashboardsThrottled(dailyState); return; }
+         
+         if(EnableTrading && !IsDailyTradingStopped(dailyState)) {
+            if(GetTotalEAOrders() < MaxOpenOrders) OpenBuy();
+         }
+      }
+   } 
+   // --- EXECUTE SELL ---
+   else if(sellSignal || missingSellOrder) {
+      if(sellSignal) DrawLiveSignal(0, false); // Only draw arrows on the actual cross
+      
+      if(LastLiveSignalCandle != Time[0] || LastLiveSSLDirection != -1 || missingSellOrder) {
+         LastLiveSignalCandle = Time[0];
+         LastLiveSSLDirection = -1;
+         
+         if(FreshSSLRequiredDirection == 1) FreshSSLRequiredDirection = 0;
+         
+         // Only delete/close opposite orders on a fresh cross, not on a continuous fill
+         if(sellSignal) {
+            if(DeleteOppositePendingOnSignal) DeleteOppositePendingOrders(OP_SELL);
+            if(CloseOppositeOrdersOnSignal) CloseOppositeOrders(OP_SELL);
+         }
+         
+         if(TradeOperationFailedThisTick) { UpdateDashboardsThrottled(dailyState); return; }
+         
+         if(EnableTrading && !IsDailyTradingStopped(dailyState)) {
+            if(GetTotalEAOrders() < MaxOpenOrders) OpenSell();
+         }
+      }
+   }
+}
 
 //+------------------------------------------------------------------+
 //|                                                                  |
@@ -2129,7 +2130,7 @@ void ChangeLots(double OpenPL, string reason, int orderType, int stoplevelStep)
      {
       Lots = GetMarketMomentLot(orderType);
 
-      if(GlobalBUYSELLdashboardScore>=3)
+      if(GlobalBUYSELLdashboardScore>=3 && GetCurrentSSLDirection() == EMADirection)
          Lots=0.10;
      }
    else
@@ -3930,8 +3931,8 @@ void UpdateDashboard(DailyProtectionState &state)
    string scoreText="SCORE        : "+IntegerToString(dashboardScore)+" / 4  -> LOT "+DoubleToString(dashboardFinalLot,2);
    color scoreColor=(h1Opposite||dashboardExtremeVol)?clrGold:(dashboardScore>=3?clrLime:(dashboardScore>=1?clrGold:clrTomato));
 
-   string strong=IsStrongMomentum(OrderType())?"STRONG":"Normal";
-
+int checkDir = (currentSSLDirection > 0) ? OP_BUY : OP_SELL;
+string strong = (currentSSLDirection != 0 && IsStrongMomentum(checkDir)) ? "STRONG" : "Normal";
    CreateDashboardPanel(DASH_PREFIX+"PANEL",x,y,w,panelHeight,C'12,16,22');
    CreateDashboardPanel(DASH_PREFIX+"HEADER",x,y,w,38,C'25,70,115');
    CreateDashboardLabel(DASH_PREFIX+"TITLE","SSL CHANNEL EA  |  PRO CONTROL",tx,y+8,11,clrWhite);
