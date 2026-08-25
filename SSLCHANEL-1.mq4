@@ -4277,6 +4277,13 @@ void ChangeLots(double OpenPL, string reason, int orderType, int stoplevelStep)
    if(isSSLSignal)
      {
       Lots = GetMarketMomentLot(orderType);
+
+ if(GetCurrentSSLDirection() == EMADirection)
+     {
+       
+      Lots = 0.03;
+     }
+
      }
    else
       if(isSSLProfitReEntry)
