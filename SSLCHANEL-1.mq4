@@ -2267,6 +2267,7 @@ bool IsSameLotOrderNearBy(int orderType, double checkLot, double gapRawThreshold
 //+------------------------------------------------------------------+
 
 // Method 1: Decrease Lots
+// Method 1: Decrease Lots (Looping)
 double CalculateDecreaseLots(int reEntryCounter, double startLot, double endLot)
   {
 // Exception Case: Prevent negative counters
@@ -2275,21 +2276,23 @@ double CalculateDecreaseLots(int reEntryCounter, double startLot, double endLot)
       reEntryCounter = 0;
      }
 
-   int cycleCounter = reEntryCounter % 10;
+// Calculate total valid steps between start and end
+   int totalSteps = (int)MathRound((startLot - endLot) / 0.01) + 1;
+   
+// Failsafe in case of invalid inputs
+   if(totalSteps <= 0) 
+      return startLot; 
 
-// Start from the defined startLot and decrease by 0.01 per cycle
-   double calculatedLots = startLot - (cycleCounter * 0.01);
+// Cycle dynamically based on actual steps instead of a hardcoded 10
+   int currentStep = reEntryCounter % totalSteps;
 
-// Exception Case: Ensure it doesn't drop below the endLot (Floor)
-   if(calculatedLots < endLot)
-     {
-      calculatedLots = endLot;
-     }
+// Calculate current lot and normalize to prevent floating-point decimals
+   double calculatedLots = startLot - (currentStep * 0.01);
 
-   return calculatedLots;
+   return NormalizeDouble(calculatedLots, 2);
   }
 
-// Method 2: Increase Lots
+// Method 2: Increase Lots (Looping)
 double CalculateIncreaseLots(int reEntryCounter, double startLot, double endLot)
   {
 // Exception Case: Prevent negative counters
@@ -2298,18 +2301,20 @@ double CalculateIncreaseLots(int reEntryCounter, double startLot, double endLot)
       reEntryCounter = 0;
      }
 
-   int cycleCounter = reEntryCounter % 10;
+// Calculate total valid steps between start and end
+   int totalSteps = (int)MathRound((endLot - startLot) / 0.01) + 1;
+   
+// Failsafe in case of invalid inputs
+   if(totalSteps <= 0) 
+      return startLot; 
 
-// Start from the defined startLot and increase by 0.01 per cycle
-   double calculatedLots = startLot + (cycleCounter * 0.01);
+// Cycle dynamically based on actual steps instead of a hardcoded 10
+   int currentStep = reEntryCounter % totalSteps;
 
-// Exception Case: Ensure it doesn't exceed the endLot (Ceiling)
-   if(calculatedLots > endLot)
-     {
-      calculatedLots = endLot;
-     }
+// Calculate current lot and normalize to prevent floating-point decimals
+   double calculatedLots = startLot + (currentStep * 0.01);
 
-   return calculatedLots;
+   return NormalizeDouble(calculatedLots, 2);
   }
 //+------------------------------------------------------------------+
 //|                                                                  |
@@ -2353,7 +2358,7 @@ void ChangeLots(double OpenPL, string reason, int orderType, int stoplevelStep)
          if(GetCurrentSSLDirection() == EMADirection)
            {
             // Start at 0.10 and decrease until it hits the floor of 0.01
-            Lots = CalculateDecreaseLots(reEntryCounter, 0.10, 0.01);
+            Lots = CalculateDecreaseLots(reEntryCounter, 0.05, 0.01);
            }
          else
            {
@@ -2478,6 +2483,9 @@ void ChangeLots(double OpenPL, string reason, int orderType, int stoplevelStep)
 //+------------------------------------------------------------------+
 //|                                                                  |
 //+------------------------------------------------------------------+
+//+------------------------------------------------------------------+
+//| Check Recovery Orders (With Strict Momentum Confirmation)        |
+//+------------------------------------------------------------------+
 void CheckRecoveryOrders()
   {
    if(!EnableRecoveryOrders || GetTotalEAOrders() >= MaxOpenOrders)
@@ -2510,8 +2518,6 @@ void CheckRecoveryOrders()
          continue;
          
       double profit = OrderProfit() + OrderSwap() + OrderCommission();
-      
-      // FIX 1: Strictly respect the user's Lot Multiplier
       double lots = NormalizeLots(OrderLots() * RecoveryLotMultiplier);
       if(lots <= 0)
          continue;
@@ -2520,23 +2526,26 @@ void CheckRecoveryOrders()
       if(profit > recoveryTrigger)
          continue;
          
+      // --- STRICT MOMENTUM CONFIRMATION LOGIC ---
       if(parentType == OP_BUY)
         {
-         if(!IsBuySignal(0))
-            continue; // Note: EA will wait for trend to resume before recovering
+         // Wait for SSL to flip back to Buy AND require strong ADX/Candle momentum
+         if(!IsBuySignal(0) || !IsStrongMomentum(OP_BUY))
+            continue; 
         }
       else
         {
-         if(!IsSellSignal(0))
+         // Wait for SSL to flip back to Sell AND require strong ADX/Candle momentum
+         if(!IsSellSignal(0) || !IsStrongMomentum(OP_SELL))
             continue;
         }
+      // ------------------------------------------
         
       if(!IsOneCandleOrderAllowed() || HasRecoveryOrder(parentTicket))
          continue;
 
       int recoveryTicket = -1;
       
-      // FIX 2: Apply the dynamic USD Stop Loss distance to recovery orders
       double slDistance = CalculatePriceDistanceUSD(StopLossUSD, lots);
       double recoverySL = 0.0;
       
@@ -2559,7 +2568,6 @@ void CheckRecoveryOrders()
       break;
      }
   }
-
 //+------------------------------------------------------------------+
 //|                                                                  |
 //+------------------------------------------------------------------+
