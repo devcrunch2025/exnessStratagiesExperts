@@ -3310,6 +3310,8 @@ void CheckForProfitableClosedOrder(DailyProtectionState &state)
       latestClosePrice = OrderClosePrice();
       latestOpenTime = OrderOpenTime(); // Capture the open time
      }
+
+     
      
    if(latestTicket < 0)
       return;
