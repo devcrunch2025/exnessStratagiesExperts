@@ -2457,7 +2457,7 @@ void ChangeLots(double OpenPL, string reason, int orderType, int stoplevelStep)
         */
 
 
-   if(Lots>0.05 && IsSameLotOrderNearBy(orderType,Lots,100))
+   if(Lots>=0.05 && IsSameLotOrderNearBy(orderType,Lots,100))
      {
       Lots=0.02;//
      }
@@ -3331,7 +3331,7 @@ void CheckForProfitableClosedOrder(DailyProtectionState &state)
       // --- THE FIX: Calculate lifespan and block if >= 60 mins ---
       int orderDurationSeconds = (int)(latestCloseTime - latestOpenTime);
       
-      if(orderDurationSeconds < 3600) // 3600 seconds = 60 minutes
+      if(orderDurationSeconds < 60*60) // 3600 seconds = 60 minutes
         {
          CreateProfitReEntryStop(latestType, latestClosePrice, state, (latestProfit < 0.0));
         }
