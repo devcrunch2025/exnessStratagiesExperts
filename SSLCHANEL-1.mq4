@@ -89,11 +89,11 @@ bool EnableProfitLadder1 = true;
 
 bool EnableProfitLadder2 = true;
 //0.40 is default candle is jumping to 0
-double Ladder1ProfitUSD =0.20;//0.40;// 0.20;//0.15; // Tightened for faster lock-in
+double Ladder1ProfitUSD =1.00;//0.20;//0.40;// 0.20;//0.15; // Tightened for faster lock-in
 
-double Ladder1StopMaxPriceUSD =0.50;
+double Ladder1StopMaxPriceUSD =2;//0.50;
 double Ladder2ProfitUSD = 0.15; // Accelerates trailing increments
-double DefaultOrderProfitUSD = 0.75;
+double DefaultOrderProfitUSD =2.00;// 0.75;
 
 // ===== ONE-TIME POST-ORDER SL/TP VERIFICATION =====
 bool   EnablePostOrderSLTPVerification = false;
@@ -116,7 +116,7 @@ bool EnableRecoveryOrders = true;
 double RecoveryTriggerLossUSD =1;
 double RecoveryLotMultiplier = 1;
 int MaxRecoveryOrders = 1;
-double RecoveryBasketProfitUSD =0.10;
+double RecoveryBasketProfitUSD =0.20;
 
 bool   EnableDayProfitLadder = true;
 double DayProfitLadder1Percent =25;//5;//30;
@@ -499,6 +499,16 @@ int OnInit()
       if(initOrderType == OP_BUYSTOP || initOrderType == OP_SELLSTOP || initOrderType == OP_BUYLIMIT || initOrderType == OP_SELLLIMIT)
          OrderDelete(OrderTicket(), clrNONE);
      }
+
+
+
+ 
+
+
+Ladder1StopMaxPriceUSD=Ladder1ProfitUSD*1.5;
+DefaultOrderProfitUSD=Ladder1ProfitUSD*2;//
+
+
    OriginalLots = Lots;
    OriginalLadder1ProfitUSD = Ladder1ProfitUSD;
    OriginalLadder2ProfitUSD = Ladder2ProfitUSD;
