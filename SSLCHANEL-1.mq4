@@ -15,8 +15,10 @@ int EMALineWidth = 2;
 int EMALineBars = 500;
 string EMA_PREFIX = "SSL_EMA_LINE_";
 bool EnableTrading = true;
-bool EnableDubaiTradingPause = false;
-string DubaiTradingPauseHours = "20,21,22,23,24";
+bool EnableDubaiTradingPause = true;
+// string DubaiTradingPauseHours = "1,21,22,23,24";//final
+string DubaiTradingPauseHours = "1,21,22,23,24";
+
 
 // ===== SPREAD & RISK SETTINGS FOR $100 BALANCE =====
 double MaxAllowedSpreadUSD = 35.0;
@@ -528,13 +530,13 @@ void ForceDeleteAllPendingOrders()
      {
       if(!OrderSelect(i, SELECT_BY_POS, MODE_TRADES))
          continue;
-      
+
       // Ensure it belongs to this EA and Symbol
       if(OrderSymbol() != Symbol() || OrderMagicNumber() != MagicNumber)
          continue;
-         
+
       int type = OrderType();
-      
+
       // Check if it's a pending order
       if(type == OP_BUYSTOP || type == OP_SELLSTOP || type == OP_BUYLIMIT || type == OP_SELLLIMIT)
         {
@@ -547,6 +549,9 @@ void ForceDeleteAllPendingOrders()
         }
      }
   }
+//+------------------------------------------------------------------+
+//|                                                                  |
+//+------------------------------------------------------------------+
 void OnTickCore()
   {
    CurrentTickSequence++;
@@ -732,7 +737,7 @@ void OnTickCore()
                CloseOppositeOrders(OP_BUY);
 
 
-               if(DeleteOppositePendingOnSignal)
+            if(DeleteOppositePendingOnSignal)
                ForceDeleteAllPendingOrders(); // Replaced here
            }
 
@@ -773,8 +778,8 @@ void OnTickCore()
                   CloseOppositeOrders(OP_SELL);
 
 
-                  if(DeleteOppositePendingOnSignal)
-               ForceDeleteAllPendingOrders(); // Replaced here
+               if(DeleteOppositePendingOnSignal)
+                  ForceDeleteAllPendingOrders(); // Replaced here
               }
 
             if(TradeOperationFailedThisTick)
@@ -2187,6 +2192,55 @@ bool IsSameLotOrderNearBy(int orderType, double checkLot, double gapRawThreshold
 //+------------------------------------------------------------------+
 //|                                                                  |
 //+------------------------------------------------------------------+
+
+// Method 1: Decrease Lots
+double CalculateDecreaseLots(int reEntryCounter, double startLot, double endLot)
+  {
+// Exception Case: Prevent negative counters
+   if(reEntryCounter < 0)
+     {
+      reEntryCounter = 0;
+     }
+
+   int cycleCounter = reEntryCounter % 10;
+
+// Start from the defined startLot and decrease by 0.01 per cycle
+   double calculatedLots = startLot - (cycleCounter * 0.01);
+
+// Exception Case: Ensure it doesn't drop below the endLot (Floor)
+   if(calculatedLots < endLot)
+     {
+      calculatedLots = endLot;
+     }
+
+   return calculatedLots;
+  }
+
+// Method 2: Increase Lots
+double CalculateIncreaseLots(int reEntryCounter, double startLot, double endLot)
+  {
+// Exception Case: Prevent negative counters
+   if(reEntryCounter < 0)
+     {
+      reEntryCounter = 0;
+     }
+
+   int cycleCounter = reEntryCounter % 10;
+
+// Start from the defined startLot and increase by 0.01 per cycle
+   double calculatedLots = startLot + (cycleCounter * 0.01);
+
+// Exception Case: Ensure it doesn't exceed the endLot (Ceiling)
+   if(calculatedLots > endLot)
+     {
+      calculatedLots = endLot;
+     }
+
+   return calculatedLots;
+  }
+//+------------------------------------------------------------------+
+//|                                                                  |
+//+------------------------------------------------------------------+
 void ChangeLots(double OpenPL, string reason, int orderType, int stoplevelStep)
   {
    double MaxRecoveryLot = 0.10;
@@ -2223,44 +2277,15 @@ void ChangeLots(double OpenPL, string reason, int orderType, int stoplevelStep)
 
          // if(reEntryCounter > 2)
 
-         if(GetCurrentSSLDirection() != EMADirection)
+         if(GetCurrentSSLDirection() == EMADirection)
            {
-            
-            // int cycleCounter = reEntryCounter % 10;
-
-            // // Decrease: 0.10, 0.09 ... 0.01
-            // Lots = Lots - (cycleCounter * 0.01);
-
-            // if(Lots < 0.01)
-               Lots = 0.01;
+            // Start at 0.10 and decrease until it hits the floor of 0.01
+            Lots = CalculateDecreaseLots(reEntryCounter, 0.10, 0.01);
            }
          else
            {
-
-            // Define the starting lot size for the top of the cycle
-double baseLots = 0.10; 
-
-// cycleCounter will loop: 0, 1, 2 ... 9, 0, 1, 2 ...
-int cycleCounter = reEntryCounter % 10;
-
-// Calculate Lots based on the FIXED base, not the modified Lots
-  Lots = baseLots - (cycleCounter * 0.01);
-
-  
-
-// Safety floor
-if(Lots < 0.01) {
-    Lots = 0.01;
-}
-           /* int cycleCounter = reEntryCounter % 10;
-
-            // Increase: 0.01, 0.02 ... 0.10
-            Lots = 0.01 + (cycleCounter * 0.01);
-
-            if(Lots > 0.10)
-               Lots = 0.10;
-
-               */
+            // Start at 0.01 and increase until it hits the ceiling of 0.05
+            Lots = CalculateIncreaseLots(reEntryCounter, 0.01, 0.05);
            }
 
          // if(reEntryCounter > 3) { Lots = Lots - (reEntryCounter * 0.01); if(Lots < 0.01) Lots = 0.01; }
