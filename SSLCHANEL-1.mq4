@@ -2456,6 +2456,7 @@ void ChangeLots(double OpenPL, string reason, int orderType, int stoplevelStep)
 
         */
 
+        
 
    if(Lots>=0.05 && IsSameLotOrderNearBy(orderType,Lots,100))
      {
