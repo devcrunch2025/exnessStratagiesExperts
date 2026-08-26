@@ -4,6 +4,8 @@
 //+------------------------------------------------------------------+
 #property strict
 
+//FINAL VERSION - DO NOT CHNAGE ANYTHING - TESTED on August 1st and 2nd 
+
 // ===== INPUT SETTINGS =====
 int SSLPeriod = 10;
 bool InpUseEMA200Filter = false;
@@ -15,7 +17,7 @@ int EMALineWidth = 2;
 int EMALineBars = 500;
 string EMA_PREFIX = "SSL_EMA_LINE_";
 bool EnableTrading = true;
-bool EnableDubaiTradingPause = true;
+bool EnableDubaiTradingPause = false;
 // string DubaiTradingPauseHours = "0,1,21,22,23,24";//final
 string DubaiTradingPauseHours = "0,1,21,22,23,24";
 
@@ -1852,7 +1854,7 @@ string GetOrderTypeText(int orderType)
 //+------------------------------------------------------------------+
 //|                                                                  |
 //+------------------------------------------------------------------+
-bool IsDubaiTradingPauseHour() { return false; }
+bool IsDubaiTradingPauseHour() { if(EnableDubaiTradingPause) return IsTradingSloweHours(); return false; }
 //+------------------------------------------------------------------+
 //|                                                                  |
 //+------------------------------------------------------------------+
@@ -2456,7 +2458,7 @@ void ChangeLots(double OpenPL, string reason, int orderType, int stoplevelStep)
 
         */
 
-        
+
 
    if(Lots>=0.05 && IsSameLotOrderNearBy(orderType,Lots,100))
      {
