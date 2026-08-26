@@ -20,8 +20,10 @@ bool EnableDubaiTradingPause = true;
 string DubaiTradingPauseHours = "0,1,21,22,23,24";
 
 // ===== 5% CONTINUOUS LADDER SETTINGS =====
-  double CloseOrdersAtProfitFromOpeningBalance =2;// 5.0; // 5% profit increment
+  double CloseOrdersAtProfitFromOpeningBalance =5;//2;// 5.0; // 5% profit increment
 double Ladder5PercentBaseline = 0.0;
+
+bool enable5PercentClose=false;
 
 
 // ===== SPREAD & RISK SETTINGS FOR $100 BALANCE =====
@@ -255,6 +257,9 @@ int CountOrdersByType(int orderType)
 //+------------------------------------------------------------------+
 void Manage5PercentLadderReset()
   {
+
+
+
    // 1. Initialize the baseline balance if it hasn't been set yet
    if(Ladder5PercentBaseline <= 0.0)
      {
@@ -676,7 +681,7 @@ void OnTickCore()
       InitializeDailyProtectionState(dailyState);
    ManageDayProfitLadder();
 
-
+if(enable5PercentClose)
    Manage5PercentLadderReset();
 
    if(ProcessServerRecovery(dailyState))
@@ -2342,7 +2347,7 @@ double CalculateIncreaseLots(int reEntryCounter, double startLot, double endLot)
 //+------------------------------------------------------------------+
 void ChangeLots(double OpenPL, string reason, int orderType, int stoplevelStep)
   {
-   double MaxRecoveryLot = 0.10;
+   double MaxRecoveryLot = 0.05;
 
    double oppositeLots = GetOppositeOrdersLots(orderType);
 
@@ -2363,7 +2368,7 @@ void ChangeLots(double OpenPL, string reason, int orderType, int stoplevelStep)
       // if(GlobalBUYSELLdashboardScore>=2 && GetCurrentSSLDirection() == EMADirection)
       if(GetCurrentSSLDirection() == EMADirection || GlobalBUYSELLdashboardScore==4)
 
-         Lots=0.10;
+         Lots=0.05;
       else
          Lots=0.01;
 
@@ -2372,7 +2377,7 @@ void ChangeLots(double OpenPL, string reason, int orderType, int stoplevelStep)
      {
       if(isSSLProfitReEntry)
         {
-         Lots = 0.10;
+         Lots = 0.05;
 
          // if(reEntryCounter > 2)
 
@@ -3311,7 +3316,7 @@ void CheckForProfitableClosedOrder(DailyProtectionState &state)
       latestOpenTime = OrderOpenTime(); // Capture the open time
      }
 
-     
+
      
    if(latestTicket < 0)
       return;
