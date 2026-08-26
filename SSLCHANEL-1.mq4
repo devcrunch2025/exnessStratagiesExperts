@@ -17,9 +17,18 @@ int EMALineWidth = 2;
 int EMALineBars = 500;
 string EMA_PREFIX = "SSL_EMA_LINE_";
 bool EnableTrading = true;
-bool EnableDubaiTradingPause = false;
-// string DubaiTradingPauseHours = "0,1,21,22,23,24";//final
-string DubaiTradingPauseHours = "0,1,21,22,23,24";
+// bool EnableDubaiTradingPause = true;
+// // string DubaiTradingPauseHours = "0,1,21,22,23,24";//final
+// string DubaiTradingPauseHours ="0,3,9,11,14,15,18,19,20,21,22,23";
+// //01,05,07,10,12,13,16,18,21
+// //"0,9,15,21,22,23";
+// //03,09,14,15,18,23
+
+// ===== INPUT SETTINGS =====
+bool   EnableDubaiTradingPause    = true;
+string DubaiTradingPauseHours     = "0,3,9,11,14,15,18,19,20,21,22,23";
+int    ServerToDubaiOffsetHours   = 4; // Exness is UTC+0 -> Dubai is UTC+4 (Offset = 4)
+
 
 // ===== 5% CONTINUOUS LADDER SETTINGS =====
   double CloseOrdersAtProfitFromOpeningBalance =5;//2;// 5.0; // 5% profit increment
@@ -1854,28 +1863,48 @@ string GetOrderTypeText(int orderType)
 //+------------------------------------------------------------------+
 //|                                                                  |
 //+------------------------------------------------------------------+
-bool IsDubaiTradingPauseHour() { if(EnableDubaiTradingPause) return IsTradingSloweHours(); return false; }
+bool IsDubaiTradingPauseHour() 
+{ 
+   if(EnableDubaiTradingPause) 
+      return IsTradingSloweHours(); 
+   return false; 
+}
 //+------------------------------------------------------------------+
 //|                                                                  |
 //+------------------------------------------------------------------+
+//+------------------------------------------------------------------+
+//| Accurate Time Check (Works in Live & Strategy Tester)            |
+//+------------------------------------------------------------------+
 bool IsTradingSloweHours()
-  {
-   datetime dubaiTime = TimeGMT() + 4 * 60 * 60;
+{
+   // Use TimeCurrent() so backtesting and live trading both work accurately
+   datetime dubaiTime = TimeCurrent() + (ServerToDubaiOffsetHours * 3600);
    int currentHour = TimeHour(dubaiTime);
+
    string hours[];
    int count = StringSplit(DubaiTradingPauseHours, ',', hours);
    if(count <= 0)
       return false;
-   for(int i=0; i<count; i++)
-     {
-      int pauseHour = (int)StringToInteger(hours[i]);
+
+   for(int i = 0; i < count; i++)
+   {
+      string hourStr = hours[i];
+      StringTrimLeft(hourStr);
+      StringTrimRight(hourStr);
+      
+      // Skip empty segments to avoid false 0-hour matches
+      if(hourStr == "") 
+         continue;
+
+      int pauseHour = (int)StringToInteger(hourStr);
       if(pauseHour == 24)
          pauseHour = 0;
+
       if(currentHour == pauseHour)
          return true;
-     }
+   }
    return false;
-  }
+}
 //+------------------------------------------------------------------+
 //|                                                                  |
 //+------------------------------------------------------------------+
