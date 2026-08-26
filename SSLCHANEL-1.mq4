@@ -16,8 +16,12 @@ int EMALineBars = 500;
 string EMA_PREFIX = "SSL_EMA_LINE_";
 bool EnableTrading = true;
 bool EnableDubaiTradingPause = true;
-// string DubaiTradingPauseHours = "1,21,22,23,24";//final
-string DubaiTradingPauseHours = "1,21,22,23,24";
+// string DubaiTradingPauseHours = "0,1,21,22,23,24";//final
+string DubaiTradingPauseHours = "0,1,21,22,23,24";
+
+// ===== 5% CONTINUOUS LADDER SETTINGS =====
+  double CloseOrdersAtProfitFromOpeningBalance =2;// 5.0; // 5% profit increment
+double Ladder5PercentBaseline = 0.0;
 
 
 // ===== SPREAD & RISK SETTINGS FOR $100 BALANCE =====
@@ -84,8 +88,8 @@ bool EnableProfitLadder1 = true;
 
 
 bool EnableProfitLadder2 = true;
-
-double Ladder1ProfitUSD =0.40;// 0.20;//0.15; // Tightened for faster lock-in
+//0.40 is default candle is jumping to 0
+double Ladder1ProfitUSD =0.20;//0.40;// 0.20;//0.15; // Tightened for faster lock-in
 
 double Ladder1StopMaxPriceUSD =0.50;
 double Ladder2ProfitUSD = 0.15; // Accelerates trailing increments
@@ -108,7 +112,7 @@ double   PostOrderSLTPVerifyExpectedOpen[MAX_POST_ORDER_SLTP_VERIFY];
 int      PostOrderSLTPVerifyType[MAX_POST_ORDER_SLTP_VERIFY];
 double   PostOrderSLTPVerifyLots[MAX_POST_ORDER_SLTP_VERIFY];
 
-bool EnableRecoveryOrders = false;
+bool EnableRecoveryOrders = true;
 double RecoveryTriggerLossUSD =1;
 double RecoveryLotMultiplier = 1;
 int MaxRecoveryOrders = 1;
@@ -237,6 +241,72 @@ int CountOrdersByType(int orderType)
 //+------------------------------------------------------------------+
 //|                                                                  |
 //+------------------------------------------------------------------+
+
+//+------------------------------------------------------------------+
+//| Continuous 5% Balance Ladder Reset                               |
+//+------------------------------------------------------------------+
+
+//+------------------------------------------------------------------+
+//| Continuous 5% Balance Ladder Reset                               |
+//+------------------------------------------------------------------+
+void Manage5PercentLadderReset()
+  {
+   // 1. Initialize the baseline balance if it hasn't been set yet
+   if(Ladder5PercentBaseline <= 0.0)
+     {
+      Ladder5PercentBaseline = AccountBalance();
+      return;
+     }
+
+   // 2. Calculate the target equity based on the 5% increment
+   double targetEquity = Ladder5PercentBaseline * (1.0 + (CloseOrdersAtProfitFromOpeningBalance / 100.0));
+
+   // 3. Trigger the reset if current equity hits or exceeds the target
+   if(AccountEquity() >= targetEquity)
+     {
+      Print("5% Equity Ladder Target Reached. Closing all orders and resetting.");
+
+      // Close all open and pending EA orders
+      for(int i = OrdersTotal() - 1; i >= 0; i--)
+        {
+         if(OrderSelect(i, SELECT_BY_POS, MODE_TRADES))
+           {
+            if(OrderSymbol() == Symbol() && OrderMagicNumber() == MagicNumber)
+              {
+               int type = OrderType();
+               if(type == OP_BUY || type == OP_SELL)
+                 {
+                  SafeOrderClose(OrderTicket(), OrderLots(), type, Slippage, (type == OP_BUY ? clrRed : clrBlue));
+                 }
+               else if(type == OP_BUYSTOP || type == OP_SELLSTOP || type == OP_BUYLIMIT || type == OP_SELLLIMIT)
+                 {
+                  SafeOrderDelete(OrderTicket(), clrRed);
+                 }
+              }
+           }
+        }
+
+      // 4. Update the baseline for the next 5% run
+      Ladder5PercentBaseline = AccountBalance();
+
+      // --- THE FIX: Reset the candle block so the new order opens immediately ---
+      OrderCreatedThisCandle = false;
+      LastOrderCandleTime = 0;
+      TradeResetThisTick = true; 
+      // --------------------------------------------------------------------------
+
+      // 5. Open a new order immediately based on the current SSL signal
+      int currentSignal = GetCurrentSSLDirection();
+      if(currentSignal == 1)
+        {
+         OpenBuy();
+        }
+      else if(currentSignal == -1)
+        {
+         OpenSell();
+        }
+     }
+  }
 int GetSSLSignal()
   {
    double upper = iATR(Symbol(), 0, SSLPeriod, 0) + iMA(Symbol(), 0, SSLPeriod, 0, MODE_SMA, PRICE_CLOSE, 0);
@@ -584,6 +654,9 @@ void OnTickCore()
    if(!dailyState.Initialized)
       InitializeDailyProtectionState(dailyState);
    ManageDayProfitLadder();
+
+
+   Manage5PercentLadderReset();
 
    if(ProcessServerRecovery(dailyState))
      {
@@ -2402,6 +2475,9 @@ void ChangeLots(double OpenPL, string reason, int orderType, int stoplevelStep)
 //+------------------------------------------------------------------+
 //|                                                                  |
 //+------------------------------------------------------------------+
+//+------------------------------------------------------------------+
+//|                                                                  |
+//+------------------------------------------------------------------+
 void CheckRecoveryOrders()
   {
    if(!EnableRecoveryOrders || GetTotalEAOrders() >= MaxOpenOrders)
@@ -2413,49 +2489,66 @@ void CheckRecoveryOrders()
          continue;
       if(OrderMagicNumber() != MagicNumber || OrderSymbol() != Symbol())
          continue;
+      
       int parentTicket = OrderTicket();
       int parentType   = OrderType();
+      
       if(parentType != OP_BUY && parentType != OP_SELL)
          continue;
+         
       string comment = OrderComment();
       if(StringFind(comment, "RECOVERY_") == 0)
          continue;
+         
       bool validParent = false;
       if(StringFind(comment, "SSL Long") >= 0 || StringFind(comment, "SSL Short") >= 0 || StringFind(comment, "ReEntry") >= 0)
          validParent = true;
       if(!validParent)
          continue;
+         
       if(HasRecoveryOrder(parentTicket))
          continue;
+         
       double profit = OrderProfit() + OrderSwap() + OrderCommission();
+      
+      // FIX 1: Strictly respect the user's Lot Multiplier
       double lots = NormalizeLots(OrderLots() * RecoveryLotMultiplier);
       if(lots <= 0)
          continue;
+         
       double recoveryTrigger = -MathAbs(RecoveryTriggerLossUSD) * (lots / 0.01);
       if(profit > recoveryTrigger)
          continue;
+         
       if(parentType == OP_BUY)
         {
          if(!IsBuySignal(0))
-            continue;
+            continue; // Note: EA will wait for trend to resume before recovering
         }
       else
         {
          if(!IsSellSignal(0))
             continue;
         }
+        
       if(!IsOneCandleOrderAllowed() || HasRecoveryOrder(parentTicket))
          continue;
 
       int recoveryTicket = -1;
-      double pointDist = 2000 * Point;
+      
+      // FIX 2: Apply the dynamic USD Stop Loss distance to recovery orders
+      double slDistance = CalculatePriceDistanceUSD(StopLossUSD, lots);
+      double recoverySL = 0.0;
+      
       if(parentType == OP_BUY)
         {
-         recoveryTicket = SafeOrderSend(Symbol(), OP_BUY, lots<=0.03?lots*2:lots, Ask, Slippage, Ask - pointDist, 0, "RECOVERY_" + IntegerToString(parentTicket), MagicNumber, clrAqua);
+         recoverySL = (slDistance > 0) ? NormalizeDouble(Ask - slDistance, Digits) : 0;
+         recoveryTicket = SafeOrderSend(Symbol(), OP_BUY, lots, Ask, Slippage, recoverySL, 0, "RECOVERY_" + IntegerToString(parentTicket), MagicNumber, clrAqua);
         }
       else
         {
-         recoveryTicket = SafeOrderSend(Symbol(), OP_SELL, lots<=0.03?lots*2:lots, Bid, Slippage, Bid + pointDist, 0, "RECOVERY_" + IntegerToString(parentTicket), MagicNumber, clrOrange);
+         recoverySL = (slDistance > 0) ? NormalizeDouble(Bid + slDistance, Digits) : 0;
+         recoveryTicket = SafeOrderSend(Symbol(), OP_SELL, lots, Bid, Slippage, recoverySL, 0, "RECOVERY_" + IntegerToString(parentTicket), MagicNumber, clrOrange);
         }
 
       if(recoveryTicket > 0)
@@ -2467,6 +2560,54 @@ void CheckRecoveryOrders()
      }
   }
 
+//+------------------------------------------------------------------+
+//|                                                                  |
+//+------------------------------------------------------------------+
+void ManageRecoveryBasket()
+  {
+   if(!EnableRecoveryOrders)
+      return;
+      
+   for(int i = OrdersTotal()-1; i >= 0; i--)
+     {
+      if(!OrderSelect(i, SELECT_BY_POS, MODE_TRADES))
+         continue;
+      if(OrderSymbol()!=Symbol() || OrderMagicNumber()!=MagicNumber)
+         continue;
+         
+      string comment = OrderComment();
+      if(StringFind(comment,"RECOVERY_") != 0)
+         continue;
+         
+      // Save Recovery Order details before selecting parent
+      int recoveryTicket = OrderTicket();
+      double recoveryLots = OrderLots();
+      int recoveryType = OrderType();
+      double recoveryProfit = OrderProfit() + OrderSwap() + OrderCommission();
+      
+      int parentTicket = StrToInteger(StringSubstr(comment, StringLen("RECOVERY_")));
+      
+      // Select the parent order
+      if(!OrderSelect(parentTicket,SELECT_BY_TICKET))
+         continue;
+      if(OrderCloseTime()>0)
+         continue;
+         
+      // Save Parent Order details
+      double parentLots = OrderLots();
+      int parentType = OrderType();
+      double parentProfit = OrderProfit() + OrderSwap() + OrderCommission();
+      
+      double basketProfit = recoveryProfit + parentProfit;
+      
+      // FIX 3: Close BOTH the parent and the recovery order simultaneously
+      if(basketProfit >= RecoveryBasketProfitUSD)
+        {
+         SafeOrderClose(parentTicket, parentLots, parentType, Slippage, (parentType==OP_BUY ? clrRed : clrBlue));
+         SafeOrderClose(recoveryTicket, recoveryLots, recoveryType, Slippage, (recoveryType==OP_BUY ? clrRed : clrBlue));
+        }
+     }
+  }
 //+------------------------------------------------------------------+
 //|                                                                  |
 //+------------------------------------------------------------------+
@@ -2488,7 +2629,7 @@ bool HasRecoveryOrder(int ParentTicket)
 //+------------------------------------------------------------------+
 //|                                                                  |
 //+------------------------------------------------------------------+
-void ManageRecoveryBasket()
+void ManageRecoveryBasketold()
   {
    if(!EnableRecoveryOrders)
       return;
