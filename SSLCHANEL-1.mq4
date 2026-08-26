@@ -89,7 +89,7 @@ bool EnableProfitLadder1 = true;
 
 bool EnableProfitLadder2 = true;
 //0.40 is default candle is jumping to 0
-double Ladder1ProfitUSD =1.00;//0.20;//0.40;// 0.20;//0.15; // Tightened for faster lock-in
+double Ladder1ProfitUSD =0.50;//1.00;//0.20;//0.40;// 0.20;//0.15; // Tightened for faster lock-in
 
 double Ladder1StopMaxPriceUSD =2;//0.50;
 double Ladder2ProfitUSD = 0.15; // Accelerates trailing increments
@@ -249,6 +249,10 @@ int CountOrdersByType(int orderType)
 //+------------------------------------------------------------------+
 //| Continuous 5% Balance Ladder Reset                               |
 //+------------------------------------------------------------------+
+
+//+------------------------------------------------------------------+
+//| Continuous 5% Balance Ladder Reset                               |
+//+------------------------------------------------------------------+
 void Manage5PercentLadderReset()
   {
    // 1. Initialize the baseline balance if it hasn't been set yet
@@ -289,11 +293,15 @@ void Manage5PercentLadderReset()
       // 4. Update the baseline for the next 5% run
       Ladder5PercentBaseline = AccountBalance();
 
-      // --- THE FIX: Reset the candle block so the new order opens immediately ---
+      // --- THE FIX: Reset the Daily Ladder so it doesn't block trading ---
+      InitializeDayProfitLadder(); 
+      DayProfitLadderTradingStopped = false; 
+      // -------------------------------------------------------------------
+
+      // Reset the candle block so the new order opens immediately
       OrderCreatedThisCandle = false;
       LastOrderCandleTime = 0;
       TradeResetThisTick = true; 
-      // --------------------------------------------------------------------------
 
       // 5. Open a new order immediately based on the current SSL signal
       int currentSignal = GetCurrentSSLDirection();
@@ -501,11 +509,14 @@ int OnInit()
      }
 
 
-
+// double OriginalLots = 0.01;
+// double OriginalLadder1ProfitUSD = 0.05;
+// double OriginalLadder2ProfitUSD = 0.20;
+// double OriginalLadder1StopMaxPriceUSD = 0.20;
  
 
-
-Ladder1StopMaxPriceUSD=Ladder1ProfitUSD*1.5;
+OriginalLadder1ProfitUSD=Ladder1ProfitUSD;
+Ladder1StopMaxPriceUSD=Ladder1ProfitUSD*1.2;
 DefaultOrderProfitUSD=Ladder1ProfitUSD*2;//
 
 
@@ -3270,7 +3281,70 @@ void InitializeLastProcessedClosedOrder()
 //+------------------------------------------------------------------+
 //|                                                                  |
 //+------------------------------------------------------------------+
+//+------------------------------------------------------------------+
+//| Check For Profitable Closed Order (With 60-Min Lifespan Limit)   |
+//+------------------------------------------------------------------+
 void CheckForProfitableClosedOrder(DailyProtectionState &state)
+  {
+   datetime latestCloseTime = 0;
+   double latestProfit = 0;
+   int latestTicket = -1, latestType = -1;
+   double latestClosePrice = 0;
+   datetime latestOpenTime = 0; // Added to track when the order opened
+
+   for(int i = OrdersHistoryTotal() - 1; i >= 0; i--)
+     {
+      if(!OrderSelect(i, SELECT_BY_POS, MODE_HISTORY))
+         continue;
+      if(OrderSymbol() != Symbol() || OrderMagicNumber() != MagicNumber)
+         continue;
+      if(OrderType() != OP_BUY && OrderType() != OP_SELL)
+         continue;
+      if(OrderCloseTime() <= latestCloseTime)
+         continue;
+         
+      latestCloseTime = OrderCloseTime();
+      latestTicket = OrderTicket();
+      latestType = OrderType();
+      latestProfit = OrderProfit() + OrderSwap() + OrderCommission();
+      latestClosePrice = OrderClosePrice();
+      latestOpenTime = OrderOpenTime(); // Capture the open time
+     }
+     
+   if(latestTicket < 0)
+      return;
+   if(latestTicket == LastProcessedClosedTicket && latestCloseTime == LastProcessedClosedOrderTime)
+      return;
+      
+   LastProcessedClosedTicket = latestTicket;
+   LastProcessedClosedOrderTime = latestCloseTime;
+
+   if(EnableProfitReEntryStop && !IsDailyTradingStopped(state))
+     {
+      // --- THE FIX: Calculate lifespan and block if >= 60 mins ---
+      int orderDurationSeconds = (int)(latestCloseTime - latestOpenTime);
+      
+      if(orderDurationSeconds < 3600) // 3600 seconds = 60 minutes
+        {
+         CreateProfitReEntryStop(latestType, latestClosePrice, state, (latestProfit < 0.0));
+        }
+      else
+        {
+         Print("Re-entry BLOCKED: Order ", latestTicket, " was open for ", orderDurationSeconds / 60, " minutes.");
+        }
+      // -------------------------------------------------------------
+      return;
+     }
+     
+   if(EnableTrading && !IsDailyTradingStopped(state))
+     {
+      if(GetTotalBuyOrders() == 0 && IsBuySignal(0))
+         OpenBuy();
+      if(GetTotalSellOrders() == 0 && IsSellSignal(0))
+         OpenSell();
+     }
+  }
+void CheckForProfitableClosedOrderold(DailyProtectionState &state)
   {
    datetime latestCloseTime = 0;
    double latestProfit = 0;
@@ -3553,17 +3627,17 @@ void ManageProfitLadder()
          continue;
 
       // --- INSTANT BREAK-EVEN FOR HIGH LOTS (>= 0.04) ---
-      if(orderLots >= 0.04 && currentProfit >= 0.50)
-        {
-         double breakEvenPrice = (orderType == OP_BUY) ? (OrderOpenPrice() + Point * 10) : (OrderOpenPrice() - Point * 10);
-         breakEvenPrice = NormalizeDouble(breakEvenPrice, Digits);
-         bool needsBE = (orderType == OP_BUY) ? (OrderStopLoss() < OrderOpenPrice()) : (OrderStopLoss() > OrderOpenPrice() || OrderStopLoss() == 0);
-         if(needsBE)
-           {
-            SafeOrderModify(OrderTicket(), OrderOpenPrice(), breakEvenPrice, OrderTakeProfit(), 0, clrGold);
-            Print("INSTANT BREAK-EVEN APPLIED | Ticket: ", OrderTicket(), " | Lots: ", orderLots);
-           }
-        }
+      // if(orderLots >= 0.04 && currentProfit >= 0.50)
+      //   {
+      //    double breakEvenPrice = (orderType == OP_BUY) ? (OrderOpenPrice() + Point * 10) : (OrderOpenPrice() - Point * 10);
+      //    breakEvenPrice = NormalizeDouble(breakEvenPrice, Digits);
+      //    bool needsBE = (orderType == OP_BUY) ? (OrderStopLoss() < OrderOpenPrice()) : (OrderStopLoss() > OrderOpenPrice() || OrderStopLoss() == 0);
+      //    if(needsBE)
+      //      {
+      //       SafeOrderModify(OrderTicket(), OrderOpenPrice(), breakEvenPrice, OrderTakeProfit(), 0, clrGold);
+      //       Print("INSTANT BREAK-EVEN APPLIED | Ticket: ", OrderTicket(), " | Lots: ", orderLots);
+      //      }
+      //   }
 
       double ladder1Profit = OriginalLadder1ProfitUSD * orderLots * 100.0;
       double ladder2Profit = OriginalLadder2ProfitUSD * orderLots * 100.0;
