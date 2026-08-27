@@ -2474,8 +2474,7 @@ void ChangeLots(double OpenPL, string reason, int orderType, int stoplevelStep)
             //==================================================
             if(CheckFastProfitableRecentOrders())
               {
-               Lots = 0.03;
-               Print("Fast Profit Override Activated: Last 2 orders closed in < 30s with profit. Lots set to 0.05.");
+               Lots = 0.05;
               }
 
            }
