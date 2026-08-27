@@ -134,9 +134,9 @@ int MaxRecoveryOrders = 1;
 double RecoveryBasketProfitUSD =0.20;
 
 bool   EnableDayProfitLadder = true;
-double DayProfitLadder1Percent =25;//5;//30;
+double DayProfitLadder1Percent =50;//25;//5;//30;
 double DayProfitLadder1Amount =5;//10;//25;
-double DayProfitLadderLockRatio = 0.10;
+double DayProfitLadderLockRatio = 0.01;
 double DayProfitInitialProtectionPercent =95;//10;// 50.0; //leave money upto 80%
 
 int Slippage = 30;
