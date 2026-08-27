@@ -42,8 +42,8 @@ bool enable5PercentClose=false;
 // ===== SPREAD & RISK SETTINGS FOR $100 BALANCE =====
 double MaxAllowedSpreadUSD = 35.0;
 int AccountMultiplierLOT = 100;
-double OriginalStopLossUSD =3;// 1.50;
-double StopLossUSD = 3;//1.50;
+double OriginalStopLossUSD =4;//3;// 1.50;
+double StopLossUSD = 4;//3;//1.50;
 
 // ===== 30-MINUTE PRICE MOMENTUM FILTER =====
 bool Enable30MinuteMomentumFilter = false;
@@ -137,7 +137,7 @@ bool   EnableDayProfitLadder = true;
 double DayProfitLadder1Percent =25;//5;//30;
 double DayProfitLadder1Amount =5;//10;//25;
 double DayProfitLadderLockRatio = 0.10;
-double DayProfitInitialProtectionPercent = 50.0;
+double DayProfitInitialProtectionPercent =95;//10;// 50.0; //leave money upto 80%
 
 int Slippage = 30;
 int MagicNumber = 6600123;
@@ -2424,6 +2424,73 @@ bool CheckFastProfitableRecentOrders()
 // Return true only if we found exactly 2 orders and BOTH met the condition
    return (checkedOrders == 2 && validCount == 2);
   }
+
+  //+------------------------------------------------------------------+
+//| Detects a sharp bounceback against the prevailing trend          |
+//+------------------------------------------------------------------+
+//+------------------------------------------------------------------+
+//| Detects a sharp bounceback against the prevailing trend          |
+//+------------------------------------------------------------------+
+bool DetectBounceback(int direction)
+  {
+   double ema = iMA(Symbol(), Period(), InpEMA200Period, 0, MODE_EMA, PRICE_CLOSE, 1);
+   double close1 = Close[1];
+   double open1 = Open[1];
+   
+   // Get the Average True Range of the last 14 candles
+   double atr = iATR(Symbol(), Period(), 14, 1);
+   
+   // 1. Calculate distance from EMA in absolute price (not points)
+   double distanceFromEMA = MathAbs(close1 - ema);
+   
+   // Thresholds based on ATR multipliers instead of fixed points
+   double extremeDistance = atr * 10.0; // Price is 10x the normal candle range away from EMA
+   double strongCandleBody = atr * 2.5; // The reversal candle body is 2.5x larger than normal
+
+   if(direction == 1) // Detecting a bounce UP
+     {
+      if(close1 < ema && distanceFromEMA > extremeDistance)
+        {
+         if(close1 > open1 && (close1 - open1) > strongCandleBody)
+            return true; 
+        }
+     }
+   else if(direction == -1) // Detecting a bounce DOWN
+     {
+      if(close1 > ema && distanceFromEMA > extremeDistance)
+        {
+         if(close1 < open1 && (open1 - close1) > strongCandleBody)
+            return true; 
+        }
+     }
+
+   return false;
+  }
+  //+------------------------------------------------------------------+
+//| Draws a rounded bounceback icon on the chart                     |
+//+------------------------------------------------------------------+
+void DrawBouncebackIcon(datetime time, double price, int direction)
+  {
+   // Create a unique name for the object based on time
+   string objName = "BOUNCE_" + IntegerToString((int)time);
+   
+   // If the object doesn't exist, create it
+   if(ObjectFind(0, objName) < 0)
+     {
+      ObjectCreate(0, objName, OBJ_ARROW, 0, time, price);
+      
+      // 241 = Rounded Up Arrow, 242 = Rounded Down Arrow
+      int arrowCode = (direction == 1) ? 241 : 242; 
+      color arrowColor = (direction == 1) ? clrLimeGreen : C'174,255,0';
+      
+      ObjectSetInteger(0, objName, OBJPROP_ARROWCODE, arrowCode);
+      ObjectSetInteger(0, objName, OBJPROP_COLOR, arrowColor);
+      ObjectSetInteger(0, objName, OBJPROP_WIDTH, 3); // Size of the icon
+      ObjectSetInteger(0, objName, OBJPROP_BACK, false);
+      ObjectSetInteger(0, objName, OBJPROP_SELECTABLE, false);
+      ObjectSetInteger(0, objName, OBJPROP_HIDDEN, true);
+     }
+  }
 //+------------------------------------------------------------------+
 //|                                                                  |
 //+------------------------------------------------------------------+
@@ -2469,9 +2536,7 @@ void ChangeLots(double OpenPL, string reason, int orderType, int stoplevelStep)
             Lots = CalculateDecreaseLots(reEntryCounter, 0.05, 0.02);
 
 
-            //==================================================
-            // FAST PROFIT OVERRIDE (< 30s)
-            //==================================================
+             
             if(CheckFastProfitableRecentOrders())
               {
                Lots = 0.05;
@@ -2482,6 +2547,24 @@ void ChangeLots(double OpenPL, string reason, int orderType, int stoplevelStep)
            {
             // Start at 0.01 and increase until it hits the ceiling of 0.05
             Lots = CalculateIncreaseLots(reEntryCounter, 0.01, 0.05);
+
+              if(CheckFastProfitableRecentOrders()<0.03)
+              {
+               Lots = 0.03;
+              }
+
+              if(DetectBounceback(-1) )
+              {
+               DrawBouncebackIcon(Time[1], High[1] + (20 * Point), -1);
+               Lots = 0.05;
+
+              }
+               if(DetectBounceback(1)  )
+              {
+               DrawBouncebackIcon(Time[1], Low[1] - (20 * Point), 1);
+               Lots = 0.05;
+
+              }
            }
 
          // if(reEntryCounter > 3) { Lots = Lots - (reEntryCounter * 0.01); if(Lots < 0.01) Lots = 0.01; }
