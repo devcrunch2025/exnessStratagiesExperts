@@ -4,7 +4,7 @@
 //+------------------------------------------------------------------+
 #property strict
 
-//FINAL VERSION - DO NOT CHNAGE ANYTHING - TESTED on August 1st and 2nd 
+//FINAL VERSION - DO NOT CHNAGE ANYTHING - TESTED on August 1st and 2nd
 
 // ===== INPUT SETTINGS =====
 int SSLPeriod = 10;
@@ -33,7 +33,7 @@ int    ServerToDubaiOffsetHours   = 4; // Exness is UTC+0 -> Dubai is UTC+4 (Off
 
 
 // ===== 5% CONTINUOUS LADDER SETTINGS =====
-  double CloseOrdersAtProfitFromOpeningBalance =5;//2;// 5.0; // 5% profit increment
+double CloseOrdersAtProfitFromOpeningBalance =5;//2;// 5.0; // 5% profit increment
 double Ladder5PercentBaseline = 0.0;
 
 bool enable5PercentClose=false;
@@ -273,17 +273,17 @@ void Manage5PercentLadderReset()
 
 
 
-   // 1. Initialize the baseline balance if it hasn't been set yet
+// 1. Initialize the baseline balance if it hasn't been set yet
    if(Ladder5PercentBaseline <= 0.0)
      {
       Ladder5PercentBaseline = AccountBalance();
       return;
      }
 
-   // 2. Calculate the target equity based on the 5% increment
+// 2. Calculate the target equity based on the 5% increment
    double targetEquity = Ladder5PercentBaseline * (1.0 + (CloseOrdersAtProfitFromOpeningBalance / 100.0));
 
-   // 3. Trigger the reset if current equity hits or exceeds the target
+// 3. Trigger the reset if current equity hits or exceeds the target
    if(AccountEquity() >= targetEquity)
      {
       Print("5% Equity Ladder Target Reached. Closing all orders and resetting.");
@@ -300,10 +300,11 @@ void Manage5PercentLadderReset()
                  {
                   SafeOrderClose(OrderTicket(), OrderLots(), type, Slippage, (type == OP_BUY ? clrRed : clrBlue));
                  }
-               else if(type == OP_BUYSTOP || type == OP_SELLSTOP || type == OP_BUYLIMIT || type == OP_SELLLIMIT)
-                 {
-                  SafeOrderDelete(OrderTicket(), clrRed);
-                 }
+               else
+                  if(type == OP_BUYSTOP || type == OP_SELLSTOP || type == OP_BUYLIMIT || type == OP_SELLLIMIT)
+                    {
+                     SafeOrderDelete(OrderTicket(), clrRed);
+                    }
               }
            }
         }
@@ -312,14 +313,14 @@ void Manage5PercentLadderReset()
       Ladder5PercentBaseline = AccountBalance();
 
       // --- THE FIX: Reset the Daily Ladder so it doesn't block trading ---
-      InitializeDayProfitLadder(); 
-      DayProfitLadderTradingStopped = false; 
+      InitializeDayProfitLadder();
+      DayProfitLadderTradingStopped = false;
       // -------------------------------------------------------------------
 
       // Reset the candle block so the new order opens immediately
       OrderCreatedThisCandle = false;
       LastOrderCandleTime = 0;
-      TradeResetThisTick = true; 
+      TradeResetThisTick = true;
 
       // 5. Open a new order immediately based on the current SSL signal
       int currentSignal = GetCurrentSSLDirection();
@@ -327,12 +328,16 @@ void Manage5PercentLadderReset()
         {
          OpenBuy();
         }
-      else if(currentSignal == -1)
-        {
-         OpenSell();
-        }
+      else
+         if(currentSignal == -1)
+           {
+            OpenSell();
+           }
      }
   }
+//+------------------------------------------------------------------+
+//|                                                                  |
+//+------------------------------------------------------------------+
 int GetSSLSignal()
   {
    double upper = iATR(Symbol(), 0, SSLPeriod, 0) + iMA(Symbol(), 0, SSLPeriod, 0, MODE_SMA, PRICE_CLOSE, 0);
@@ -531,11 +536,11 @@ int OnInit()
 // double OriginalLadder1ProfitUSD = 0.05;
 // double OriginalLadder2ProfitUSD = 0.20;
 // double OriginalLadder1StopMaxPriceUSD = 0.20;
- 
 
-OriginalLadder1ProfitUSD=Ladder1ProfitUSD;
-Ladder1StopMaxPriceUSD=Ladder1ProfitUSD*1.2;
-DefaultOrderProfitUSD=Ladder1ProfitUSD*2;//
+
+   OriginalLadder1ProfitUSD=Ladder1ProfitUSD;
+   Ladder1StopMaxPriceUSD=Ladder1ProfitUSD*1.2;
+   DefaultOrderProfitUSD=Ladder1ProfitUSD*2;//
 
 
    OriginalLots = Lots;
@@ -694,8 +699,8 @@ void OnTickCore()
       InitializeDailyProtectionState(dailyState);
    ManageDayProfitLadder();
 
-if(enable5PercentClose)
-   Manage5PercentLadderReset();
+   if(enable5PercentClose)
+      Manage5PercentLadderReset();
 
    if(ProcessServerRecovery(dailyState))
      {
@@ -1865,12 +1870,12 @@ string GetOrderTypeText(int orderType)
 //+------------------------------------------------------------------+
 //|                                                                  |
 //+------------------------------------------------------------------+
-bool IsDubaiTradingPauseHour() 
-{ 
-   if(EnableDubaiTradingPause) 
-      return IsTradingSloweHours(); 
-   return false; 
-}
+bool IsDubaiTradingPauseHour()
+  {
+   if(EnableDubaiTradingPause)
+      return IsTradingSloweHours();
+   return false;
+  }
 //+------------------------------------------------------------------+
 //|                                                                  |
 //+------------------------------------------------------------------+
@@ -1878,8 +1883,8 @@ bool IsDubaiTradingPauseHour()
 //| Accurate Time Check (Works in Live & Strategy Tester)            |
 //+------------------------------------------------------------------+
 bool IsTradingSloweHours()
-{
-   // Use TimeCurrent() so backtesting and live trading both work accurately
+  {
+// Use TimeCurrent() so backtesting and live trading both work accurately
    datetime dubaiTime = TimeCurrent() + (ServerToDubaiOffsetHours * 3600);
    int currentHour = TimeHour(dubaiTime);
 
@@ -1889,13 +1894,13 @@ bool IsTradingSloweHours()
       return false;
 
    for(int i = 0; i < count; i++)
-   {
+     {
       string hourStr = hours[i];
       StringTrimLeft(hourStr);
       StringTrimRight(hourStr);
-      
+
       // Skip empty segments to avoid false 0-hour matches
-      if(hourStr == "") 
+      if(hourStr == "")
          continue;
 
       int pauseHour = (int)StringToInteger(hourStr);
@@ -1904,9 +1909,9 @@ bool IsTradingSloweHours()
 
       if(currentHour == pauseHour)
          return true;
-   }
+     }
    return false;
-}
+  }
 //+------------------------------------------------------------------+
 //|                                                                  |
 //+------------------------------------------------------------------+
@@ -2337,10 +2342,10 @@ double CalculateDecreaseLots(int reEntryCounter, double startLot, double endLot)
 
 // Calculate total valid steps between start and end
    int totalSteps = (int)MathRound((startLot - endLot) / 0.01) + 1;
-   
+
 // Failsafe in case of invalid inputs
-   if(totalSteps <= 0) 
-      return startLot; 
+   if(totalSteps <= 0)
+      return startLot;
 
 // Cycle dynamically based on actual steps instead of a hardcoded 10
    int currentStep = reEntryCounter % totalSteps;
@@ -2362,10 +2367,10 @@ double CalculateIncreaseLots(int reEntryCounter, double startLot, double endLot)
 
 // Calculate total valid steps between start and end
    int totalSteps = (int)MathRound((endLot - startLot) / 0.01) + 1;
-   
+
 // Failsafe in case of invalid inputs
-   if(totalSteps <= 0) 
-      return startLot; 
+   if(totalSteps <= 0)
+      return startLot;
 
 // Cycle dynamically based on actual steps instead of a hardcoded 10
    int currentStep = reEntryCounter % totalSteps;
@@ -2374,6 +2379,50 @@ double CalculateIncreaseLots(int reEntryCounter, double startLot, double endLot)
    double calculatedLots = startLot + (currentStep * 0.01);
 
    return NormalizeDouble(calculatedLots, 2);
+  }
+//+------------------------------------------------------------------+
+//|                                                                  |
+//+------------------------------------------------------------------+
+
+
+//+------------------------------------------------------------------+
+//| Check if the last 2 closed orders were fast (<30s) and profitable|
+//+------------------------------------------------------------------+
+bool CheckFastProfitableRecentOrders()
+  {
+   int validCount = 0;
+   int checkedOrders = 0;
+
+// Loop through history backwards (most recent first)
+   for(int i = OrdersHistoryTotal() - 1; i >= 0; i--)
+     {
+      if(checkedOrders >= 2)
+         break; // We only care about the last 2 closed orders
+
+      if(OrderSelect(i, SELECT_BY_POS, MODE_HISTORY))
+        {
+         // Ensure it belongs to this EA and Symbol
+         if(OrderSymbol() == Symbol() && OrderMagicNumber() == MagicNumber)
+           {
+            // Only count actual market trades
+            if(OrderType() == OP_BUY || OrderType() == OP_SELL)
+              {
+               double totalProfit = OrderProfit() + OrderSwap() + OrderCommission();
+               int durationSeconds = (int)(OrderCloseTime() - OrderOpenTime());
+
+               // Check if profitable AND closed under 30 seconds
+               if(totalProfit > 0.0 && durationSeconds < 30)
+                 {
+                  validCount++;
+                 }
+               checkedOrders++;
+              }
+           }
+        }
+     }
+
+// Return true only if we found exactly 2 orders and BOTH met the condition
+   return (checkedOrders == 2 && validCount == 2);
   }
 //+------------------------------------------------------------------+
 //|                                                                  |
@@ -2417,7 +2466,18 @@ void ChangeLots(double OpenPL, string reason, int orderType, int stoplevelStep)
          if(GetCurrentSSLDirection() == EMADirection)
            {
             // Start at 0.10 and decrease until it hits the floor of 0.01
-            Lots = CalculateDecreaseLots(reEntryCounter, 0.05, 0.01);
+            Lots = CalculateDecreaseLots(reEntryCounter, 0.05, 0.02);
+
+
+            //==================================================
+            // FAST PROFIT OVERRIDE (< 30s)
+            //==================================================
+            if(CheckFastProfitableRecentOrders())
+              {
+               Lots = 0.03;
+               Print("Fast Profit Override Activated: Last 2 orders closed in < 30s with profit. Lots set to 0.05.");
+              }
+
            }
          else
            {
@@ -2557,41 +2617,41 @@ void CheckRecoveryOrders()
          continue;
       if(OrderMagicNumber() != MagicNumber || OrderSymbol() != Symbol())
          continue;
-      
+
       int parentTicket = OrderTicket();
       int parentType   = OrderType();
-      
+
       if(parentType != OP_BUY && parentType != OP_SELL)
          continue;
-         
+
       string comment = OrderComment();
       if(StringFind(comment, "RECOVERY_") == 0)
          continue;
-         
+
       bool validParent = false;
       if(StringFind(comment, "SSL Long") >= 0 || StringFind(comment, "SSL Short") >= 0 || StringFind(comment, "ReEntry") >= 0)
          validParent = true;
       if(!validParent)
          continue;
-         
+
       if(HasRecoveryOrder(parentTicket))
          continue;
-         
+
       double profit = OrderProfit() + OrderSwap() + OrderCommission();
       double lots = NormalizeLots(OrderLots() * RecoveryLotMultiplier);
       if(lots <= 0)
          continue;
-         
+
       double recoveryTrigger = -MathAbs(RecoveryTriggerLossUSD) * (lots / 0.01);
       if(profit > recoveryTrigger)
          continue;
-         
+
       // --- STRICT MOMENTUM CONFIRMATION LOGIC ---
       if(parentType == OP_BUY)
         {
          // Wait for SSL to flip back to Buy AND require strong ADX/Candle momentum
          if(!IsBuySignal(0) || !IsStrongMomentum(OP_BUY))
-            continue; 
+            continue;
         }
       else
         {
@@ -2600,15 +2660,15 @@ void CheckRecoveryOrders()
             continue;
         }
       // ------------------------------------------
-        
+
       if(!IsOneCandleOrderAllowed() || HasRecoveryOrder(parentTicket))
          continue;
 
       int recoveryTicket = -1;
-      
+
       double slDistance = CalculatePriceDistanceUSD(StopLossUSD, lots);
       double recoverySL = 0.0;
-      
+
       if(parentType == OP_BUY)
         {
          recoverySL = (slDistance > 0) ? NormalizeDouble(Ask - slDistance, Digits) : 0;
@@ -2635,39 +2695,39 @@ void ManageRecoveryBasket()
   {
    if(!EnableRecoveryOrders)
       return;
-      
+
    for(int i = OrdersTotal()-1; i >= 0; i--)
      {
       if(!OrderSelect(i, SELECT_BY_POS, MODE_TRADES))
          continue;
       if(OrderSymbol()!=Symbol() || OrderMagicNumber()!=MagicNumber)
          continue;
-         
+
       string comment = OrderComment();
       if(StringFind(comment,"RECOVERY_") != 0)
          continue;
-         
+
       // Save Recovery Order details before selecting parent
       int recoveryTicket = OrderTicket();
       double recoveryLots = OrderLots();
       int recoveryType = OrderType();
       double recoveryProfit = OrderProfit() + OrderSwap() + OrderCommission();
-      
+
       int parentTicket = StrToInteger(StringSubstr(comment, StringLen("RECOVERY_")));
-      
+
       // Select the parent order
       if(!OrderSelect(parentTicket,SELECT_BY_TICKET))
          continue;
       if(OrderCloseTime()>0)
          continue;
-         
+
       // Save Parent Order details
       double parentLots = OrderLots();
       int parentType = OrderType();
       double parentProfit = OrderProfit() + OrderSwap() + OrderCommission();
-      
+
       double basketProfit = recoveryProfit + parentProfit;
-      
+
       // FIX 3: Close BOTH the parent and the recovery order simultaneously
       if(basketProfit >= RecoveryBasketProfitUSD)
         {
@@ -3341,7 +3401,7 @@ void CheckForProfitableClosedOrder(DailyProtectionState &state)
          continue;
       if(OrderCloseTime() <= latestCloseTime)
          continue;
-         
+
       latestCloseTime = OrderCloseTime();
       latestTicket = OrderTicket();
       latestType = OrderType();
@@ -3351,12 +3411,12 @@ void CheckForProfitableClosedOrder(DailyProtectionState &state)
      }
 
 
-     
+
    if(latestTicket < 0)
       return;
    if(latestTicket == LastProcessedClosedTicket && latestCloseTime == LastProcessedClosedOrderTime)
       return;
-      
+
    LastProcessedClosedTicket = latestTicket;
    LastProcessedClosedOrderTime = latestCloseTime;
 
@@ -3364,7 +3424,7 @@ void CheckForProfitableClosedOrder(DailyProtectionState &state)
      {
       // --- THE FIX: Calculate lifespan and block if >= 60 mins ---
       int orderDurationSeconds = (int)(latestCloseTime - latestOpenTime);
-      
+
       if(orderDurationSeconds < 60*60) // 3600 seconds = 60 minutes
         {
          CreateProfitReEntryStop(latestType, latestClosePrice, state, (latestProfit < 0.0));
@@ -3376,7 +3436,7 @@ void CheckForProfitableClosedOrder(DailyProtectionState &state)
       // -------------------------------------------------------------
       return;
      }
-     
+
    if(EnableTrading && !IsDailyTradingStopped(state))
      {
       if(GetTotalBuyOrders() == 0 && IsBuySignal(0))
@@ -3385,6 +3445,9 @@ void CheckForProfitableClosedOrder(DailyProtectionState &state)
          OpenSell();
      }
   }
+//+------------------------------------------------------------------+
+//|                                                                  |
+//+------------------------------------------------------------------+
 void CheckForProfitableClosedOrderold(DailyProtectionState &state)
   {
    datetime latestCloseTime = 0;
