@@ -530,7 +530,8 @@ int OnInit()
       if(initOrderType == OP_BUYSTOP || initOrderType == OP_SELLSTOP || initOrderType == OP_BUYLIMIT || initOrderType == OP_SELLLIMIT)
          OrderDelete(OrderTicket(), clrNONE);
      }
-
+// Scan history and draw V-Shape icons when the EA attaches to the chart
+   DrawHistoricalBouncebacks();
 
 // double OriginalLots = 0.01;
 // double OriginalLadder1ProfitUSD = 0.05;
@@ -618,7 +619,10 @@ double GetEAFloatingPL()
 //+------------------------------------------------------------------+
 void ManageProfitReEntryMomentumGate() { return; }
 void ProcessPendingReEntry(DailyProtectionState &state) { return; }
-
+// --- GLOBAL V-SHAPE VARIABLES ---
+bool GlobalVShapeBuy = false;
+bool GlobalVShapeSell = false;
+datetime LastVShapeCheckedTime = 0;
 //+------------------------------------------------------------------+
 //|                                                                  |
 //+------------------------------------------------------------------+
@@ -629,6 +633,32 @@ void OnTick()
    uint tickStartMs=GetTickCount();
    OnTickCore();
    OnTickPerformanceEnd(tickStartMs);
+
+   // --- V-SHAPE BOUNCEBACK DETECTION (LIVE GLOBAL UPDATE) ---
+   // Only check once per new candle
+   if(Time[0] != LastVShapeCheckedTime)
+     {
+      // Reset global flags for the new candle
+      GlobalVShapeBuy = false;
+      GlobalVShapeSell = false;
+      LastVShapeCheckedTime = Time[0];
+      
+      // Check if the previous candle formed a Bullish V-Shape
+      if(DetectBounceback(1, 1))
+        {
+         GlobalVShapeBuy = true;
+         DrawBouncebackIcon(Time[1], Low[1] - (50 * Point), 1);
+         Print("GLOBAL EVENT: Bullish V-Shape Bounceback Detected!");
+        }
+        
+      // Check if the previous candle formed a Bearish Inverted V-Shape
+      if(DetectBounceback(-1, 1))
+        {
+         GlobalVShapeSell = true;
+         DrawBouncebackIcon(Time[1], High[1] + (50 * Point), -1);
+         Print("GLOBAL EVENT: Bearish V-Shape Bounceback Detected!");
+        }
+     }
   }
 
 //+------------------------------------------------------------------+
@@ -2431,35 +2461,39 @@ bool CheckFastProfitableRecentOrders()
 //+------------------------------------------------------------------+
 //| Detects a sharp bounceback against the prevailing trend          |
 //+------------------------------------------------------------------+
-bool DetectBounceback(int direction)
+//+------------------------------------------------------------------+
+//| Detects a sharp bounceback against the prevailing trend          |
+//+------------------------------------------------------------------+
+bool DetectBounceback(int direction, int shift)
   {
-   double ema = iMA(Symbol(), Period(), InpEMA200Period, 0, MODE_EMA, PRICE_CLOSE, 1);
-   double close1 = Close[1];
-   double open1 = Open[1];
+   double ema = iMA(Symbol(), Period(), InpEMA200Period, 0, MODE_EMA, PRICE_CLOSE, shift);
+   double c = Close[shift];
+   double o = Open[shift];
    
-   // Get the Average True Range of the last 14 candles
-   double atr = iATR(Symbol(), Period(), 14, 1);
+   // Get the Average True Range for the specific candle shift
+   double atr = iATR(Symbol(), Period(), 14, shift);
    
-   // 1. Calculate distance from EMA in absolute price (not points)
-   double distanceFromEMA = MathAbs(close1 - ema);
+   // Calculate distance from EMA in absolute price
+   double distanceFromEMA = MathAbs(c - ema);
    
-   // Thresholds based on ATR multipliers instead of fixed points
-   double extremeDistance = atr * 10.0; // Price is 10x the normal candle range away from EMA
-   double strongCandleBody = atr * 2.5; // The reversal candle body is 2.5x larger than normal
+   // RELAXED THRESHOLDS: 
+   // Distance is 4x normal candle range, reversal body is 1.5x normal
+   double extremeDistance = atr * 4.0; 
+   double strongCandleBody = atr * 1.5; 
 
    if(direction == 1) // Detecting a bounce UP
      {
-      if(close1 < ema && distanceFromEMA > extremeDistance)
+      if(c < ema && distanceFromEMA > extremeDistance)
         {
-         if(close1 > open1 && (close1 - open1) > strongCandleBody)
+         if(c > o && (c - o) > strongCandleBody)
             return true; 
         }
      }
    else if(direction == -1) // Detecting a bounce DOWN
      {
-      if(close1 > ema && distanceFromEMA > extremeDistance)
+      if(c > ema && distanceFromEMA > extremeDistance)
         {
-         if(close1 < open1 && (open1 - close1) > strongCandleBody)
+         if(c < o && (o - c) > strongCandleBody)
             return true; 
         }
      }
@@ -2489,6 +2523,25 @@ void DrawBouncebackIcon(datetime time, double price, int direction)
       ObjectSetInteger(0, objName, OBJPROP_BACK, false);
       ObjectSetInteger(0, objName, OBJPROP_SELECTABLE, false);
       ObjectSetInteger(0, objName, OBJPROP_HIDDEN, true);
+     }
+  }
+  //+------------------------------------------------------------------+
+//| Scans history and draws bounceback icons when the EA loads       |
+//+------------------------------------------------------------------+
+void DrawHistoricalBouncebacks()
+  {
+   int lookback = MathMin(1000, Bars - 1);
+   
+   for(int i = lookback; i >= 1; i--)
+     {
+      if(DetectBounceback(1, i))
+        {
+         DrawBouncebackIcon(Time[i], Low[i] - (50 * Point), 1);
+        }
+      if(DetectBounceback(-1, i))
+        {
+         DrawBouncebackIcon(Time[i], High[i] + (50 * Point), -1);
+        }
      }
   }
 //+------------------------------------------------------------------+
@@ -2548,23 +2601,15 @@ void ChangeLots(double OpenPL, string reason, int orderType, int stoplevelStep)
             // Start at 0.01 and increase until it hits the ceiling of 0.05
             Lots = CalculateIncreaseLots(reEntryCounter, 0.01, 0.05);
 
-              if(CheckFastProfitableRecentOrders()<0.03)
+              if(CheckFastProfitableRecentOrders() && Lots<0.03)
               {
                Lots = 0.03;
               }
 
-              if(DetectBounceback(-1) )
-              {
-               DrawBouncebackIcon(Time[1], High[1] + (20 * Point), -1);
-               Lots = 0.05;
-
-              }
-               if(DetectBounceback(1)  )
-              {
-               DrawBouncebackIcon(Time[1], Low[1] - (20 * Point), 1);
-               Lots = 0.05;
-
-              }
+              if(GlobalVShapeBuy  || GlobalVShapeSell)
+  {
+   Lots = 0.05; // Aggressive lot size because we caught the bottom of a V-Shape
+  }
            }
 
          // if(reEntryCounter > 3) { Lots = Lots - (reEntryCounter * 0.01); if(Lots < 0.01) Lots = 0.01; }
@@ -2666,8 +2711,19 @@ void ChangeLots(double OpenPL, string reason, int orderType, int stoplevelStep)
 //==================================================
 // DYNAMIC SL / LADDER VALUES
 //==================================================
-   StopLossUSD =
+
+
+//  if(GetCurrentSSLDirection() == EMADirection)
+ {
+StopLossUSD =
       OriginalStopLossUSD * Lots * 100;
+ }
+//  else
+//  {
+// StopLossUSD =
+//       (OriginalStopLossUSD-2) * Lots * 100;
+//  }
+   
 
    Ladder1ProfitUSD =
       OriginalLadder1ProfitUSD * Lots * 100;
