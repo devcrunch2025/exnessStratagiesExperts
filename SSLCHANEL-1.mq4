@@ -618,6 +618,9 @@ double GetEAFloatingPL()
 //|                                                                  |
 //+------------------------------------------------------------------+
 void ManageProfitReEntryMomentumGate() { return; }
+//+------------------------------------------------------------------+
+//|                                                                  |
+//+------------------------------------------------------------------+
 void ProcessPendingReEntry(DailyProtectionState &state) { return; }
 // --- GLOBAL V-SHAPE VARIABLES ---
 bool GlobalVShapeBuy = false;
@@ -634,15 +637,15 @@ void OnTick()
    OnTickCore();
    OnTickPerformanceEnd(tickStartMs);
 
-   // --- V-SHAPE BOUNCEBACK DETECTION (LIVE GLOBAL UPDATE) ---
-   // Only check once per new candle
+// --- V-SHAPE BOUNCEBACK DETECTION (LIVE GLOBAL UPDATE) ---
+// Only check once per new candle
    if(Time[0] != LastVShapeCheckedTime)
      {
       // Reset global flags for the new candle
       GlobalVShapeBuy = false;
       GlobalVShapeSell = false;
       LastVShapeCheckedTime = Time[0];
-      
+
       // Check if the previous candle formed a Bullish V-Shape
       if(DetectBounceback(1, 1))
         {
@@ -650,7 +653,7 @@ void OnTick()
          DrawBouncebackIcon(Time[1], Low[1] - (50 * Point), 1);
          Print("GLOBAL EVENT: Bullish V-Shape Bounceback Detected!");
         }
-        
+
       // Check if the previous candle formed a Bearish Inverted V-Shape
       if(DetectBounceback(-1, 1))
         {
@@ -658,6 +661,9 @@ void OnTick()
          DrawBouncebackIcon(Time[1], High[1] + (50 * Point), -1);
          Print("GLOBAL EVENT: Bearish V-Shape Bounceback Detected!");
         }
+
+        // NEW: Scan for BounceOne, Double Taps, and Double Tops/Bottoms
+      ScanAndMarkStructuralPatterns();
      }
   }
 
@@ -2455,7 +2461,7 @@ bool CheckFastProfitableRecentOrders()
    return (checkedOrders == 2 && validCount == 2);
   }
 
-  //+------------------------------------------------------------------+
+//+------------------------------------------------------------------+
 //| Detects a sharp bounceback against the prevailing trend          |
 //+------------------------------------------------------------------+
 //+------------------------------------------------------------------+
@@ -2469,54 +2475,55 @@ bool DetectBounceback(int direction, int shift)
    double ema = iMA(Symbol(), Period(), InpEMA200Period, 0, MODE_EMA, PRICE_CLOSE, shift);
    double c = Close[shift];
    double o = Open[shift];
-   
-   // Get the Average True Range for the specific candle shift
+
+// Get the Average True Range for the specific candle shift
    double atr = iATR(Symbol(), Period(), 14, shift);
-   
-   // Calculate distance from EMA in absolute price
+
+// Calculate distance from EMA in absolute price
    double distanceFromEMA = MathAbs(c - ema);
-   
-   // RELAXED THRESHOLDS: 
-   // Distance is 4x normal candle range, reversal body is 1.5x normal
-   double extremeDistance = atr * 4.0; 
-   double strongCandleBody = atr * 1.5; 
+
+// RELAXED THRESHOLDS:
+// Distance is 4x normal candle range, reversal body is 1.5x normal
+   double extremeDistance = atr * 4.0;
+   double strongCandleBody = atr * 1.5;
 
    if(direction == 1) // Detecting a bounce UP
      {
       if(c < ema && distanceFromEMA > extremeDistance)
         {
          if(c > o && (c - o) > strongCandleBody)
-            return true; 
+            return true;
         }
      }
-   else if(direction == -1) // Detecting a bounce DOWN
-     {
-      if(c > ema && distanceFromEMA > extremeDistance)
+   else
+      if(direction == -1) // Detecting a bounce DOWN
         {
-         if(c < o && (o - c) > strongCandleBody)
-            return true; 
+         if(c > ema && distanceFromEMA > extremeDistance)
+           {
+            if(c < o && (o - c) > strongCandleBody)
+               return true;
+           }
         }
-     }
 
    return false;
   }
-  //+------------------------------------------------------------------+
+//+------------------------------------------------------------------+
 //| Draws a rounded bounceback icon on the chart                     |
 //+------------------------------------------------------------------+
 void DrawBouncebackIcon(datetime time, double price, int direction)
   {
-   // Create a unique name for the object based on time
+// Create a unique name for the object based on time
    string objName = "BOUNCE_" + IntegerToString((int)time);
-   
-   // If the object doesn't exist, create it
+
+// If the object doesn't exist, create it
    if(ObjectFind(0, objName) < 0)
      {
       ObjectCreate(0, objName, OBJ_ARROW, 0, time, price);
-      
+
       // 241 = Rounded Up Arrow, 242 = Rounded Down Arrow
-      int arrowCode = (direction == 1) ? 241 : 242; 
+      int arrowCode = (direction == 1) ? 241 : 242;
       color arrowColor = (direction == 1) ? clrLimeGreen : C'174,255,0';
-      
+
       ObjectSetInteger(0, objName, OBJPROP_ARROWCODE, arrowCode);
       ObjectSetInteger(0, objName, OBJPROP_COLOR, arrowColor);
       ObjectSetInteger(0, objName, OBJPROP_WIDTH, 3); // Size of the icon
@@ -2525,13 +2532,13 @@ void DrawBouncebackIcon(datetime time, double price, int direction)
       ObjectSetInteger(0, objName, OBJPROP_HIDDEN, true);
      }
   }
-  //+------------------------------------------------------------------+
+//+------------------------------------------------------------------+
 //| Scans history and draws bounceback icons when the EA loads       |
 //+------------------------------------------------------------------+
 void DrawHistoricalBouncebacks()
   {
    int lookback = MathMin(1000, Bars - 1);
-   
+
    for(int i = lookback; i >= 1; i--)
      {
       if(DetectBounceback(1, i))
@@ -2547,6 +2554,209 @@ void DrawHistoricalBouncebacks()
 //+------------------------------------------------------------------+
 //|                                                                  |
 //+------------------------------------------------------------------+
+
+//+------------------------------------------------------------------+
+//| BounceOne: Sharp & Fast Reversal                                 |
+//+------------------------------------------------------------------+
+bool IsBounceOne(int shift, int direction, double minReversalPoints)
+  {
+   double c0 = Close[shift],   o0 = Open[shift],   h0 = High[shift],   l0 = Low[shift];
+   double c1 = Close[shift+1], o1 = Open[shift+1], h1 = High[shift+1], l1 = Low[shift+1];
+
+   if(direction == 1) // Bullish Sharp Reversal
+     {
+      // Previous candle was bearish, current is bullish and engulfs or pushes hard
+      if(c1 < o1 && c0 > o0)
+        {
+         // Check if the bounce from the low exceeds the minimum points
+         if((c0 - l0) >= minReversalPoints * Point && c0 > h1)
+            return true;
+        }
+     }
+   else
+      if(direction == -1) // Bearish Sharp Reversal
+        {
+         // Previous candle was bullish, current is bearish and dumps hard
+         if(c1 > o1 && c0 < o0)
+           {
+            // Check if the drop from the high exceeds the minimum points
+            if((h0 - c0) >= minReversalPoints * Point && c0 < l1)
+               return true;
+           }
+        }
+   return false;
+  }
+
+//+------------------------------------------------------------------+
+//| Double Tap: Two tests of the same extreme with instant rejection |
+//+------------------------------------------------------------------+
+bool IsDoubleTap(int shift, int direction, int lookback, double tolerancePoints)
+  {
+   if(direction == 1) // Bullish Double Tap (Testing Support)
+     {
+      double currentLow = Low[shift];
+      int prevLowIdx = iLowest(Symbol(), Period(), MODE_LOW, lookback, shift + 2);
+
+      if(prevLowIdx == -1)
+         return false;
+      double prevLow = Low[prevLowIdx];
+
+      // If the current low taps the old low (within tolerance) AND closes bullishly
+      if(MathAbs(currentLow - prevLow) <= tolerancePoints * Point)
+        {
+         if(Close[shift] > Open[shift]) // Confirmed rejection
+            return true;
+        }
+     }
+   else
+      if(direction == -1) // Bearish Double Tap (Testing Resistance)
+        {
+         double currentHigh = High[shift];
+         int prevHighIdx = iHighest(Symbol(), Period(), MODE_HIGH, lookback, shift + 2);
+
+         if(prevHighIdx == -1)
+            return false;
+         double prevHigh = High[prevHighIdx];
+
+         // If the current high taps the old high (within tolerance) AND closes bearishly
+         if(MathAbs(currentHigh - prevHigh) <= tolerancePoints * Point)
+           {
+            if(Close[shift] < Open[shift]) // Confirmed rejection
+               return true;
+           }
+        }
+   return false;
+  }
+
+//+------------------------------------------------------------------+
+//| Double Bottom: Two lows + Neckline Breakout                      |
+//+------------------------------------------------------------------+
+bool IsDoubleBottom(int shift, int lookback, double tolerancePoints)
+  {
+// Split lookback to find two distinct structural lows
+   int searchHalf = lookback / 2;
+
+   int low2Idx = iLowest(Symbol(), Period(), MODE_LOW, searchHalf, shift + 1);
+   if(low2Idx == -1)
+      return false;
+
+   int low1Idx = iLowest(Symbol(), Period(), MODE_LOW, searchHalf, low2Idx + 2);
+   if(low1Idx == -1)
+      return false;
+
+// Find the Neckline (Highest point between Low 1 and Low 2)
+   int necklineIdx = iHighest(Symbol(), Period(), MODE_HIGH, (low1Idx - low2Idx), low2Idx + 1);
+   if(necklineIdx == -1)
+      return false;
+
+   double low1 = Low[low1Idx];
+   double low2 = Low[low2Idx];
+   double neckline = High[necklineIdx];
+
+// Verify the bottoms match within tolerance
+   if(MathAbs(low1 - low2) <= tolerancePoints * Point)
+     {
+      // Confirmed Breakout: Previous candle was below/at neckline, current closes above
+      if(Close[shift+1] <= neckline && Close[shift] > neckline)
+         return true;
+     }
+
+   return false;
+  }
+
+//+------------------------------------------------------------------+
+//| Double Top: Two highs + Neckline Breakdown                       |
+//+------------------------------------------------------------------+
+bool IsDoubleTop(int shift, int lookback, double tolerancePoints)
+  {
+// Split lookback to find two distinct structural highs
+   int searchHalf = lookback / 2;
+
+   int high2Idx = iHighest(Symbol(), Period(), MODE_HIGH, searchHalf, shift + 1);
+   if(high2Idx == -1)
+      return false;
+
+   int high1Idx = iHighest(Symbol(), Period(), MODE_HIGH, searchHalf, high2Idx + 2);
+   if(high1Idx == -1)
+      return false;
+
+// Find the Neckline (Lowest point between High 1 and High 2)
+   int necklineIdx = iLowest(Symbol(), Period(), MODE_LOW, (high1Idx - high2Idx), high2Idx + 1);
+   if(necklineIdx == -1)
+      return false;
+
+   double high1 = High[high1Idx];
+   double high2 = High[high2Idx];
+   double neckline = Low[necklineIdx];
+
+// Verify the tops match within tolerance
+   if(MathAbs(high1 - high2) <= tolerancePoints * Point)
+     {
+      // Confirmed Breakdown: Previous candle was above/at neckline, current closes below
+      if(Close[shift+1] >= neckline && Close[shift] < neckline)
+         return true;
+     }
+
+   return false;
+  }
+//+------------------------------------------------------------------+
+//|                                                                  |
+//+------------------------------------------------------------------+
+
+//+------------------------------------------------------------------+
+//| Draws a Yellow Circle Marker on the chart                        |
+//+------------------------------------------------------------------+
+void DrawPatternMarker(datetime time, double price, color color1)
+  {
+   string objName = "PATTERN_MARKER_" + IntegerToString((int)time);
+
+   // If the object doesn't exist, create it
+   if(ObjectFind(0, objName) < 0)
+     {
+      ObjectCreate(0, objName, OBJ_ARROW, 0, time, price);
+      
+      // ArrowCode 159 is a solid circle/dot in MT4
+      ObjectSetInteger(0, objName, OBJPROP_ARROWCODE, 159); 
+      ObjectSetInteger(0, objName, OBJPROP_COLOR, color1);
+      ObjectSetInteger(0, objName, OBJPROP_WIDTH, 10); // Size of the circle
+      ObjectSetInteger(0, objName, OBJPROP_BACK, false);
+      ObjectSetInteger(0, objName, OBJPROP_SELECTABLE, false);
+      ObjectSetInteger(0, objName, OBJPROP_HIDDEN, true);
+     }
+  }
+  //+------------------------------------------------------------------+
+//| Scans for structural patterns and plots a yellow circle          |
+//+------------------------------------------------------------------+
+void ScanAndMarkStructuralPatterns()
+  {
+   int shift = 1; // Always check the most recently closed candle
+   
+   int patternLookback = 30;         
+   double pointTolerance = 50.0;     
+   double minReversalPoints = 200.0; 
+
+   // Check Bullish Patterns (excluding GlobalVShapeBuy since it has its own icons)
+   bool isBullishPattern = IsBounceOne(shift, 1, minReversalPoints) || 
+                           IsDoubleTap(shift, 1, patternLookback, pointTolerance) || 
+                           IsDoubleBottom(shift, patternLookback, pointTolerance);
+
+   // Check Bearish Patterns (excluding GlobalVShapeSell since it has its own icons)
+   bool isBearishPattern = IsBounceOne(shift, -1, minReversalPoints) || 
+                           IsDoubleTap(shift, -1, patternLookback, pointTolerance) || 
+                           IsDoubleTop(shift, patternLookback, pointTolerance);
+
+   // Draw the yellow circle below the low if bullish
+   if(isBullishPattern)
+     {
+      DrawPatternMarker(Time[shift], Low[shift] - (50 * Point),clrGreen);
+     }
+
+   // Draw the yellow circle above the high if bearish
+   if(isBearishPattern)
+     {
+      DrawPatternMarker(Time[shift], High[shift] + (50 * Point),clrRed);
+     }
+  }
 void ChangeLots(double OpenPL, string reason, int orderType, int stoplevelStep)
   {
    double MaxRecoveryLot = 0.05;
@@ -2589,7 +2799,7 @@ void ChangeLots(double OpenPL, string reason, int orderType, int stoplevelStep)
             Lots = CalculateDecreaseLots(reEntryCounter, 0.05, 0.02);
 
 
-             
+
             if(CheckFastProfitableRecentOrders())
               {
                Lots = 0.05;
@@ -2601,15 +2811,15 @@ void ChangeLots(double OpenPL, string reason, int orderType, int stoplevelStep)
             // Start at 0.01 and increase until it hits the ceiling of 0.05
             Lots = CalculateIncreaseLots(reEntryCounter, 0.01, 0.05);
 
-              if(CheckFastProfitableRecentOrders() && Lots<0.03)
+            if(CheckFastProfitableRecentOrders() && Lots<0.03)
               {
                Lots = 0.03;
               }
 
-              if(GlobalVShapeBuy  || GlobalVShapeSell)
-  {
-   Lots = 0.05; // Aggressive lot size because we caught the bottom of a V-Shape
-  }
+            // if(GlobalVShapeBuy  || GlobalVShapeSell)
+            //   {
+            //    Lots = 0.05; // Aggressive lot size because we caught the bottom of a V-Shape
+            //   }
            }
 
          // if(reEntryCounter > 3) { Lots = Lots - (reEntryCounter * 0.01); if(Lots < 0.01) Lots = 0.01; }
@@ -2676,12 +2886,42 @@ void ChangeLots(double OpenPL, string reason, int orderType, int stoplevelStep)
 
         */
 
+// --- Set your pattern detection parameters ---
+   int patternLookback = 30;         // Look back 30 candles for Double Tops/Bottoms/Taps
+   double pointTolerance = 50.0;     // Allow a 50-point variance for touching support/resistance
+   double minReversalPoints = 200.0; // Require 200 points for the sharp BounceOne reversal
 
+// --- Evaluate Bullish Patterns (Testing closed candle at shift 1) ---
+   bool isBullishPattern = IsBounceOne(1, 1, minReversalPoints) ||
+                           IsDoubleTap(1, 1, patternLookback, pointTolerance) ||
+                           IsDoubleBottom(1, patternLookback, pointTolerance) ||
+                           GlobalVShapeBuy;
 
-   if(Lots>=0.05 && IsSameLotOrderNearBy(orderType,Lots,100))
+// --- Evaluate Bearish Patterns (Testing closed candle at shift 1) ---
+   bool isBearishPattern = IsBounceOne(1, -1, minReversalPoints) ||
+                           IsDoubleTap(1, -1, patternLookback, pointTolerance) ||
+                           IsDoubleTop(1, patternLookback, pointTolerance) ||
+                           GlobalVShapeSell;
+
+// --- Apply Aggressive Lot Sizing ---
+   if((isBullishPattern || isBearishPattern))
      {
-      Lots=0.02;//
+      Lots = 0.05; // Aggressive lot size because we caught a major structural reversal
      }
+     
+   //   else if(Lots>=0.02)
+   //   {
+   //    Lots =0.02;//
+   //   }
+   //   else  
+   //   {
+   //    Lots =0.01;//
+   //   }
+
+   // if(Lots>=0.05 && IsSameLotOrderNearBy(orderType,Lots,200))
+   //   {
+   //    Lots=0.02;//
+   //   }
 
 
 //==================================================
@@ -2714,16 +2954,16 @@ void ChangeLots(double OpenPL, string reason, int orderType, int stoplevelStep)
 
 
 //  if(GetCurrentSSLDirection() == EMADirection)
- {
-StopLossUSD =
-      OriginalStopLossUSD * Lots * 100;
- }
+     {
+      StopLossUSD =
+         OriginalStopLossUSD * Lots * 100;
+     }
 //  else
 //  {
 // StopLossUSD =
 //       (OriginalStopLossUSD-2) * Lots * 100;
 //  }
-   
+
 
    Ladder1ProfitUSD =
       OriginalLadder1ProfitUSD * Lots * 100;
@@ -3563,7 +3803,7 @@ void CheckForProfitableClosedOrder(DailyProtectionState &state)
       // --- THE FIX: Calculate lifespan and block if >= 60 mins ---
       int orderDurationSeconds = (int)(latestCloseTime - latestOpenTime);
 
-      if(orderDurationSeconds < 60*60) // 3600 seconds = 60 minutes
+      if(orderDurationSeconds < 60*10) // 3600 seconds = 60 minutes
         {
          CreateProfitReEntryStop(latestType, latestClosePrice, state, (latestProfit < 0.0));
         }
