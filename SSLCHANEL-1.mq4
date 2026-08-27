@@ -26,7 +26,9 @@ bool EnableTrading = true;
 
 // ===== INPUT SETTINGS =====
 bool   EnableDubaiTradingPause    = true;
-string DubaiTradingPauseHours     = "0,3,9,11,14,15,18,19,20,21,22,23";
+// string DubaiTradingPauseHours     = "0,3,9,11,14,15,18,19,20,21,22,23";
+string DubaiTradingPauseHours     = "19,20,21,22,23";
+
 int    ServerToDubaiOffsetHours   = 4; // Exness is UTC+0 -> Dubai is UTC+4 (Offset = 4)
 
 
