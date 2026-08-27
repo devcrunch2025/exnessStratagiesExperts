@@ -27,7 +27,7 @@ bool EnableTrading = true;
 // ===== INPUT SETTINGS =====
 bool   EnableDubaiTradingPause    = true;
 // string DubaiTradingPauseHours     = "0,3,9,11,14,15,18,19,20,21,22,23";
-string DubaiTradingPauseHours     = "19,20,21,22,23";
+string DubaiTradingPauseHours     = "19,20";
 
 int    ServerToDubaiOffsetHours   = 4; // Exness is UTC+0 -> Dubai is UTC+4 (Offset = 4)
 
@@ -662,7 +662,7 @@ void OnTick()
          Print("GLOBAL EVENT: Bearish V-Shape Bounceback Detected!");
         }
 
-        // NEW: Scan for BounceOne, Double Taps, and Double Tops/Bottoms
+      // NEW: Scan for BounceOne, Double Taps, and Double Tops/Bottoms
       ScanAndMarkStructuralPatterns();
      }
   }
@@ -2710,13 +2710,13 @@ void DrawPatternMarker(datetime time, double price, color color1)
   {
    string objName = "PATTERN_MARKER_" + IntegerToString((int)time);
 
-   // If the object doesn't exist, create it
+// If the object doesn't exist, create it
    if(ObjectFind(0, objName) < 0)
      {
       ObjectCreate(0, objName, OBJ_ARROW, 0, time, price);
-      
+
       // ArrowCode 159 is a solid circle/dot in MT4
-      ObjectSetInteger(0, objName, OBJPROP_ARROWCODE, 159); 
+      ObjectSetInteger(0, objName, OBJPROP_ARROWCODE, 159);
       ObjectSetInteger(0, objName, OBJPROP_COLOR, color1);
       ObjectSetInteger(0, objName, OBJPROP_WIDTH, 10); // Size of the circle
       ObjectSetInteger(0, objName, OBJPROP_BACK, false);
@@ -2724,39 +2724,78 @@ void DrawPatternMarker(datetime time, double price, color color1)
       ObjectSetInteger(0, objName, OBJPROP_HIDDEN, true);
      }
   }
-  //+------------------------------------------------------------------+
+//+------------------------------------------------------------------+
 //| Scans for structural patterns and plots a yellow circle          |
 //+------------------------------------------------------------------+
 void ScanAndMarkStructuralPatterns()
   {
    int shift = 1; // Always check the most recently closed candle
-   
-   int patternLookback = 30;         
-   double pointTolerance = 50.0;     
-   double minReversalPoints = 200.0; 
 
-   // Check Bullish Patterns (excluding GlobalVShapeBuy since it has its own icons)
-   bool isBullishPattern = IsBounceOne(shift, 1, minReversalPoints) || 
-                           IsDoubleTap(shift, 1, patternLookback, pointTolerance) || 
+   int patternLookback = 30;
+   double pointTolerance = 50.0;
+   double minReversalPoints = 200.0;
+
+// Check Bullish Patterns (excluding GlobalVShapeBuy since it has its own icons)
+   bool isBullishPattern = IsBounceOne(shift, 1, minReversalPoints) ||
+                           IsDoubleTap(shift, 1, patternLookback, pointTolerance) ||
                            IsDoubleBottom(shift, patternLookback, pointTolerance);
 
-   // Check Bearish Patterns (excluding GlobalVShapeSell since it has its own icons)
-   bool isBearishPattern = IsBounceOne(shift, -1, minReversalPoints) || 
-                           IsDoubleTap(shift, -1, patternLookback, pointTolerance) || 
+// Check Bearish Patterns (excluding GlobalVShapeSell since it has its own icons)
+   bool isBearishPattern = IsBounceOne(shift, -1, minReversalPoints) ||
+                           IsDoubleTap(shift, -1, patternLookback, pointTolerance) ||
                            IsDoubleTop(shift, patternLookback, pointTolerance);
 
-   // Draw the yellow circle below the low if bullish
+// Draw the yellow circle below the low if bullish
    if(isBullishPattern)
      {
       DrawPatternMarker(Time[shift], Low[shift] - (50 * Point),clrGreen);
      }
 
-   // Draw the yellow circle above the high if bearish
+// Draw the yellow circle above the high if bearish
    if(isBearishPattern)
      {
       DrawPatternMarker(Time[shift], High[shift] + (50 * Point),clrRed);
      }
   }
+//+------------------------------------------------------------------+
+//|                                                                  |
+//+------------------------------------------------------------------+
+
+//+------------------------------------------------------------------+
+//|                                                                  |
+//+------------------------------------------------------------------+
+double IsBullishORBearish()
+  {
+// --- Set your pattern detection parameters ---
+   int patternLookback = 30;         // Look back 30 candles for Double Tops/Bottoms/Taps
+   double pointTolerance = 50.0;     // Allow a 50-point variance for touching support/resistance
+   double minReversalPoints = 200.0; // Require 200 points for the sharp BounceOne reversal
+
+// --- Evaluate Bullish Patterns (Testing closed candle at shift 1) ---
+   bool isBullishPattern = IsBounceOne(1, 1, minReversalPoints) ||
+                           IsDoubleTap(1, 1, patternLookback, pointTolerance) ||
+                           IsDoubleBottom(1, patternLookback, pointTolerance) ||
+                           GlobalVShapeBuy;
+
+// --- Evaluate Bearish Patterns (Testing closed candle at shift 1) ---
+   bool isBearishPattern = IsBounceOne(1, -1, minReversalPoints) ||
+                           IsDoubleTap(1, -1, patternLookback, pointTolerance) ||
+                           IsDoubleTop(1, patternLookback, pointTolerance) ||
+                           GlobalVShapeSell;
+
+
+   if(isBullishPattern)
+      return 1;
+
+   else
+      if(isBearishPattern)
+         return -1;
+
+   return 0;
+  }
+//+------------------------------------------------------------------+
+//|                                                                  |
+//+------------------------------------------------------------------+
 void ChangeLots(double OpenPL, string reason, int orderType, int stoplevelStep)
   {
    double MaxRecoveryLot = 0.05;
@@ -2904,24 +2943,24 @@ void ChangeLots(double OpenPL, string reason, int orderType, int stoplevelStep)
                            GlobalVShapeSell;
 
 // --- Apply Aggressive Lot Sizing ---
-   if((isBullishPattern || isBearishPattern))
+   if(((isBullishPattern && orderType==1) || (isBearishPattern && orderType==-1)))
      {
       Lots = 0.05; // Aggressive lot size because we caught a major structural reversal
      }
-     
-   //   else if(Lots>=0.02)
-   //   {
-   //    Lots =0.02;//
-   //   }
-   //   else  
-   //   {
-   //    Lots =0.01;//
-   //   }
 
-   // if(Lots>=0.05 && IsSameLotOrderNearBy(orderType,Lots,200))
-   //   {
-   //    Lots=0.02;//
-   //   }
+//   else if(Lots>=0.02)
+//   {
+//    Lots =0.02;//
+//   }
+//   else
+//   {
+//    Lots =0.01;//
+//   }
+
+// if(Lots>=0.05 && IsSameLotOrderNearBy(orderType,Lots,200))
+//   {
+//    Lots=0.02;//
+//   }
 
 
 //==================================================
@@ -3803,7 +3842,7 @@ void CheckForProfitableClosedOrder(DailyProtectionState &state)
       // --- THE FIX: Calculate lifespan and block if >= 60 mins ---
       int orderDurationSeconds = (int)(latestCloseTime - latestOpenTime);
 
-      if(orderDurationSeconds < 60*10) // 3600 seconds = 60 minutes
+      if(orderDurationSeconds < 60*30 || ((IsBullishORBearish()==1 && latestType==1) || (IsBullishORBearish()==-1 && latestType==-1))) // 3600 seconds = 60 minutes
         {
          CreateProfitReEntryStop(latestType, latestClosePrice, state, (latestProfit < 0.0));
         }
@@ -4787,6 +4826,12 @@ void UpdateDashboard(DailyProtectionState &state)
 
    int checkDir = (currentSSLDirection > 0) ? OP_BUY : OP_SELL;
    string strong = (currentSSLDirection != 0 && IsStrongMomentum(checkDir)) ? "STRONG" : "Normal";
+
+if(IsBullishORBearish()==1) {          OpenBuy();
+ strong=strong+" Double";}
+if(IsBullishORBearish()==-1){ OpenSell(); strong=strong+" - "; }
+
+
    CreateDashboardPanel(DASH_PREFIX+"PANEL",x,y,w,panelHeight,C'12,16,22');
    CreateDashboardPanel(DASH_PREFIX+"HEADER",x,y,w,38,C'25,70,115');
    CreateDashboardLabel(DASH_PREFIX+"TITLE","SSL CHANNEL EA  |  PRO CONTROL",tx,y+8,11,clrWhite);
