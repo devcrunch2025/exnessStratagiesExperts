@@ -43,9 +43,9 @@ bool enableCircleOrders=false;
 
 // ===== SPREAD & RISK SETTINGS FOR $100 BALANCE =====
 double MaxAllowedSpreadUSD = 35.0;
-int AccountMultiplierLOT = 100;
+int AccountMultiplierLOT = 500;//100;
 double OriginalStopLossUSD =4;//3;// 1.50;
-double StopLossUSD = 4;//3;//1.50;
+double StopLossUSD = 10;//4;//3;//1.50;
 
 // ===== 30-MINUTE PRICE MOMENTUM FILTER =====
 bool Enable30MinuteMomentumFilter = false;
@@ -137,7 +137,7 @@ int MaxRecoveryOrders = 1;
 double RecoveryBasketProfitUSD =0.20;
 
 bool   EnableDayProfitLadder = true;
-double DayProfitLadder1Percent =25;//50;//25;//5;//30;//early morning book profit and close trading is best trail
+double DayProfitLadder1Percent =10;//25;//50;//25;//5;//30;//early morning book profit and close trading is best trail
 double DayProfitLadder1Amount =5;//10;//25;
 double DayProfitLadderLockRatio =80;// 0.01;//early morning book profit and close trading is best trail
 double DayProfitInitialProtectionPercent =95;//10;// 50.0; //leave money upto 80%
