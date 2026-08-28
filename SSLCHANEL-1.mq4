@@ -132,7 +132,7 @@ double   PostOrderSLTPVerifyLots[MAX_POST_ORDER_SLTP_VERIFY];
 
 bool EnableRecoveryOrders = true;
 double RecoveryTriggerLossUSD =1;
-double RecoveryLotMultiplier = 1;
+double RecoveryLotMultiplier = 2;
 int MaxRecoveryOrders = 1;
 double RecoveryBasketProfitUSD =0.20;
 
@@ -545,6 +545,9 @@ int OnInit()
    OriginalLadder1ProfitUSD=Ladder1ProfitUSD;
    Ladder1StopMaxPriceUSD=Ladder1ProfitUSD*1.2;
    DefaultOrderProfitUSD=Ladder1ProfitUSD*2;//
+
+RecoveryTriggerLossUSD=StopLossUSD/3;
+   
 
 
    OriginalLots = Lots;
