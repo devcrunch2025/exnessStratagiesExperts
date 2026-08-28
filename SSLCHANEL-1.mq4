@@ -38,6 +38,8 @@ double Ladder5PercentBaseline = 0.0;
 
 bool enable5PercentClose=false;
 
+bool enableCircleOrders=false;
+
 
 // ===== SPREAD & RISK SETTINGS FOR $100 BALANCE =====
 double MaxAllowedSpreadUSD = 35.0;
@@ -2766,6 +2768,10 @@ void ScanAndMarkStructuralPatterns()
 //+------------------------------------------------------------------+
 double IsBullishORBearish()
   {
+
+
+   if(!enableCircleOrders) return 0;
+
 // --- Set your pattern detection parameters ---
    int patternLookback = 30;         // Look back 30 candles for Double Tops/Bottoms/Taps
    double pointTolerance = 50.0;     // Allow a 50-point variance for touching support/resistance
@@ -2860,6 +2866,17 @@ void ChangeLots(double OpenPL, string reason, int orderType, int stoplevelStep)
             //    Lots = 0.05; // Aggressive lot size because we caught the bottom of a V-Shape
             //   }
            }
+if(orderType == OP_BUY)
+{
+   if(GetOpenPL(OP_SELL) <= -10)
+      Lots = 0.05;
+}
+else if(orderType == OP_SELL)
+{
+   if(GetOpenPL(OP_BUY) <= -10)
+      Lots = 0.05;
+}
+
 
          // if(reEntryCounter > 3) { Lots = Lots - (reEntryCounter * 0.01); if(Lots < 0.01) Lots = 0.01; }
         }
@@ -2924,7 +2941,7 @@ void ChangeLots(double OpenPL, string reason, int orderType, int stoplevelStep)
         }
 
         */
-
+/*
 // --- Set your pattern detection parameters ---
    int patternLookback = 30;         // Look back 30 candles for Double Tops/Bottoms/Taps
    double pointTolerance = 50.0;     // Allow a 50-point variance for touching support/resistance
@@ -2956,11 +2973,13 @@ void ChangeLots(double OpenPL, string reason, int orderType, int stoplevelStep)
 //   {
 //    Lots =0.01;//
 //   }
+*/
 
-// if(Lots>=0.05 && IsSameLotOrderNearBy(orderType,Lots,200))
-//   {
-//    Lots=0.02;//
-//   }
+
+if(Lots>=0.05 && IsSameLotOrderNearBy(orderType,Lots,200))
+  {
+   Lots=0.02;//
+  }
 
 
 //==================================================
