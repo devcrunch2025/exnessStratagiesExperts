@@ -358,10 +358,10 @@ int GetH1Direction()
   }
 
 //+------------------------------------------------------------------+
- 
+
 
 //+------------------------------------------------------------------+
- //+------------------------------------------------------------------+
+//+------------------------------------------------------------------+
 //| Clears EMA line and the Yellow Boundary objects                  |
 //+------------------------------------------------------------------+
 void ClearEMALineObjects()
@@ -387,30 +387,34 @@ void UpdateEMALineOnChart()
   {
    if(!ShowEMALine || Bars < InpEMA200Period + 2)
       return;
-      
+
    int barsToDraw=EMALineBars;
-   if(barsToDraw<2) barsToDraw=2;
-   if(barsToDraw>Bars-1) barsToDraw=Bars-1;
-   
+   if(barsToDraw<2)
+      barsToDraw=2;
+   if(barsToDraw>Bars-1)
+      barsToDraw=Bars-1;
+
    static datetime lastDrawnBar=0;
    bool rebuild=(lastDrawnBar!=Time[0]);
    uint emaNow=GetTickCount();
-   
+
    if(!rebuild && LastEMARedrawMs!=0 && (uint)(emaNow-LastEMARedrawMs)<(uint)MathMax(0,EMARedrawIntervalMs))
       return;
-      
+
    if(rebuild)
      {
       ClearEMALineObjects();
       for(int i=barsToDraw-1; i>=0; i--)
         {
          int j=i+1;
-         if(j>=Bars) continue;
-         
+         if(j>=Bars)
+            continue;
+
          double ema1=iMA(Symbol(),Period(),InpEMA200Period,0,MODE_EMA,PRICE_CLOSE,i);
          double ema2=iMA(Symbol(),Period(),InpEMA200Period,0,MODE_EMA,PRICE_CLOSE,j);
-         if(ema1<=0 || ema2<=0) continue;
-         
+         if(ema1<=0 || ema2<=0)
+            continue;
+
          // 1. Draw Main EMA Line
          string name=EMA_PREFIX+IntegerToString(i);
          if(ObjectCreate(0,name,OBJ_TREND,0,Time[j],ema2,Time[i],ema1))
@@ -423,7 +427,7 @@ void UpdateEMALineOnChart()
             ObjectSetInteger(0,name,OBJPROP_SELECTABLE,false);
             ObjectSetInteger(0,name,OBJPROP_HIDDEN,true);
            }
-           
+
          // 2. Draw Yellow Distance Boundaries
          if(EnableEmaDistanceClose)
            {
@@ -431,10 +435,10 @@ void UpdateEMALineOnChart()
             double upper2 = ema2 + EmaCloseDistancePoints;
             double lower1 = ema1 - EmaCloseDistancePoints;
             double lower2 = ema2 - EmaCloseDistancePoints;
-            
+
             string upperName = "EMA_UPPER_" + IntegerToString(i);
             string lowerName = "EMA_LOWER_" + IntegerToString(i);
-            
+
             // Draw Upper Boundary
             if(ObjectCreate(0,upperName,OBJ_TREND,0,Time[j],upper2,Time[i],upper1))
               {
@@ -445,7 +449,7 @@ void UpdateEMALineOnChart()
                ObjectSetInteger(0,upperName,OBJPROP_SELECTABLE,false);
                ObjectSetInteger(0,upperName,OBJPROP_HIDDEN,true);
               }
-              
+
             // Draw Lower Boundary
             if(ObjectCreate(0,lowerName,OBJ_TREND,0,Time[j],lower2,Time[i],lower1))
               {
@@ -460,11 +464,11 @@ void UpdateEMALineOnChart()
         }
       lastDrawnBar=Time[0];
      }
-     
-   // --- LIVE UPDATE (SHIFT 0) ---
+
+// --- LIVE UPDATE (SHIFT 0) ---
    double ema0=iMA(Symbol(),Period(),InpEMA200Period,0,MODE_EMA,PRICE_CLOSE,0);
    double ema1_live=iMA(Symbol(),Period(),InpEMA200Period,0,MODE_EMA,PRICE_CLOSE,1);
-   
+
    if(ema0>0 && ema1_live>0)
      {
       // Move Main EMA
@@ -474,13 +478,13 @@ void UpdateEMALineOnChart()
          ObjectMove(0,liveName,0,Time[1],ema1_live);
          ObjectMove(0,liveName,1,Time[0],ema0);
         }
-        
+
       // Move Yellow Boundaries
       if(EnableEmaDistanceClose)
         {
          string liveUpper = "EMA_UPPER_0";
          string liveLower = "EMA_LOWER_0";
-         
+
          if(ObjectFind(0,liveUpper)>=0)
            {
             ObjectMove(0,liveUpper,0,Time[1],ema1_live + EmaCloseDistancePoints);
@@ -493,7 +497,7 @@ void UpdateEMALineOnChart()
            }
         }
      }
-     
+
    uint now=GetTickCount();
    if(LastEMARedrawMs==0 || (uint)(now-LastEMARedrawMs)>=(uint)MathMax(0,EMARedrawIntervalMs))
      {
@@ -579,7 +583,7 @@ void TrackEmaFlip()
    LastTrackedEmaDirection = currentDirection;
   }
 
-  //+------------------------------------------------------------------+
+//+------------------------------------------------------------------+
 //| Calculates the distance in Points from the current price to EMA  |
 //+------------------------------------------------------------------+
 //+------------------------------------------------------------------+
@@ -588,20 +592,20 @@ void TrackEmaFlip()
 double GetDistanceToEMAPrice(int orderType = OP_BUY, bool absoluteValue = true)
   {
    double ema = iMA(Symbol(), Period(), InpEMA200Period, InpEMAPriceShift, MODE_EMA, PRICE_CLOSE, 0);
-   
-   if(ema <= 0.0) 
+
+   if(ema <= 0.0)
       return 0.0;
-      
+
    RefreshRates();
    double currentPrice = (orderType == OP_BUY) ? Ask : Bid;
-   
+
    double distance = currentPrice - ema;
-   
+
    if(absoluteValue)
      {
       return NormalizeDouble(MathAbs(distance), Digits);
      }
-     
+
    return NormalizeDouble(distance, Digits);
   }
 
@@ -614,7 +618,7 @@ void CloseOppositeOrdersOnEmaDistance()
    if(!EnableEmaDistanceClose || EmaCloseDistancePoints <= 0)
       return;
 
-   // 1. Wait for the flip before executing any gap closures
+// 1. Wait for the flip before executing any gap closures
    if(!HasEmaFlippedSinceLoad)
       return;
 
@@ -624,7 +628,7 @@ void CloseOppositeOrdersOnEmaDistance()
 
    RefreshRates();
 
-   // Removed "* Point" to calculate by raw price difference instead of fractional points
+// Removed "* Point" to calculate by raw price difference instead of fractional points
    double buyCutoff  = ema - EmaCloseDistancePoints;
    double sellCutoff = ema + EmaCloseDistancePoints;
 
@@ -2076,6 +2080,9 @@ bool IsTradingSloweHours()
 //|                                                                  |
 //+------------------------------------------------------------------+
 void LogDubaiTradingPause() { Print("TRADING PAUSED | Dubai GST"); }
+//+------------------------------------------------------------------+
+//|                                                                  |
+//+------------------------------------------------------------------+
 string GetDubaiTradingPauseReason() { return ""; }
 //+------------------------------------------------------------------+
 //|                                                                  |
@@ -2800,11 +2807,13 @@ void ChangeLots(double OpenPL, string reason, int orderType, int stoplevelStep)
         }
 
 
-        if(GetDistanceToEMAPrice(orderType,true)<100 ||  (MathAbs(  GetEmaAngleDegrees(30))<1   ))
+      // If EMA is flat (angle <= 1) AND price is near the EMA (distance < 100)
+      if(MathAbs(GetEmaAngleDegrees(30)) <= 1.0 && GetDistanceToEMAPrice(orderType, true) < 100.0)
         {
-         Lots=0.02;
-
+         Lots = 0.01;
         }
+
+
      }
    else
      {
@@ -3012,6 +3021,9 @@ bool HasRecoveryOrder(int ParentTicket)
 //|                                                                  |
 //+------------------------------------------------------------------+
 string GetDayProfitLadderGVPrefix() { return "SSL_DPL_" + IntegerToString(AccountNumber()) + "_" + IntegerToString(MagicNumber) + "_" + Symbol() + "_"; }
+//+------------------------------------------------------------------+
+//|                                                                  |
+//+------------------------------------------------------------------+
 string GetDayProfitLadderDateText() { return TimeToString(TimeCurrent(), TIME_DATE); }
 //+------------------------------------------------------------------+
 //|                                                                  |
@@ -3656,23 +3668,28 @@ void CheckForProfitableClosedOrder(DailyProtectionState &state)
   {
    datetime latestCloseTime = 0;
 
-   // 1. Find the absolute latest close time in history
+// 1. Find the absolute latest close time in history
    for(int i = OrdersHistoryTotal() - 1; i >= 0; i--)
      {
-      if(!OrderSelect(i, SELECT_BY_POS, MODE_HISTORY)) continue;
-      if(OrderSymbol() != Symbol() || OrderMagicNumber() != MagicNumber) continue;
-      if(OrderType() != OP_BUY && OrderType() != OP_SELL) continue;
-      
+      if(!OrderSelect(i, SELECT_BY_POS, MODE_HISTORY))
+         continue;
+      if(OrderSymbol() != Symbol() || OrderMagicNumber() != MagicNumber)
+         continue;
+      if(OrderType() != OP_BUY && OrderType() != OP_SELL)
+         continue;
+
       if(OrderCloseTime() > latestCloseTime)
          latestCloseTime = OrderCloseTime();
      }
 
-   if(latestCloseTime <= 0) return;
-   
-   // If we already processed this exact batch time, skip it
-   if(latestCloseTime == LastProcessedClosedOrderTime) return; 
+   if(latestCloseTime <= 0)
+      return;
 
-   // 2. Evaluate the ENTIRE BATCH that closed at that exact time
+// If we already processed this exact batch time, skip it
+   if(latestCloseTime == LastProcessedClosedOrderTime)
+      return;
+
+// 2. Evaluate the ENTIRE BATCH that closed at that exact time
    double batchProfit = 0.0;
    int latestTicket = -1, latestType = -1;
    double latestClosePrice = 0, latestProfit = 0;
@@ -3681,15 +3698,18 @@ void CheckForProfitableClosedOrder(DailyProtectionState &state)
 
    for(int i = OrdersHistoryTotal() - 1; i >= 0; i--)
      {
-      if(!OrderSelect(i, SELECT_BY_POS, MODE_HISTORY)) continue;
-      if(OrderSymbol() != Symbol() || OrderMagicNumber() != MagicNumber) continue;
-      if(OrderType() != OP_BUY && OrderType() != OP_SELL) continue;
+      if(!OrderSelect(i, SELECT_BY_POS, MODE_HISTORY))
+         continue;
+      if(OrderSymbol() != Symbol() || OrderMagicNumber() != MagicNumber)
+         continue;
+      if(OrderType() != OP_BUY && OrderType() != OP_SELL)
+         continue;
 
       // Group all orders that closed at the exact same second
       if(OrderCloseTime() == latestCloseTime)
         {
          batchProfit += (OrderProfit() + OrderSwap() + OrderCommission());
-         
+
          // Save the highest ticket's details to anchor the new pending order
          if(OrderTicket() > latestTicket)
            {
@@ -3703,7 +3723,8 @@ void CheckForProfitableClosedOrder(DailyProtectionState &state)
         }
      }
 
-   if(latestTicket < 0) return;
+   if(latestTicket < 0)
+      return;
 
    LastProcessedClosedTicket = latestTicket;
    LastProcessedClosedOrderTime = latestCloseTime;
@@ -3715,8 +3736,11 @@ void CheckForProfitableClosedOrder(DailyProtectionState &state)
      }
 
    int latestDirection = 0;
-   if(latestType == OP_BUY) latestDirection = 1;
-   else if(latestType == OP_SELL) latestDirection = -1;
+   if(latestType == OP_BUY)
+      latestDirection = 1;
+   else
+      if(latestType == OP_SELL)
+         latestDirection = -1;
 
    int patternDirection = (int)IsBullishORBearish();
    bool circleSignal = ((patternDirection == 1 && latestDirection == 1) || (patternDirection == -1 && latestDirection == -1));
@@ -3728,9 +3752,9 @@ void CheckForProfitableClosedOrder(DailyProtectionState &state)
       return;
      }
 
-   //===============================================================
-   // NORMAL PROFIT RE-ENTRY
-   //===============================================================
+//===============================================================
+// NORMAL PROFIT RE-ENTRY
+//===============================================================
    if(EnableProfitReEntryStop && !IsDailyTradingStopped(state))
      {
       int orderDurationSeconds = (int)(latestCloseTime - latestOpenTime);
@@ -3743,8 +3767,8 @@ void CheckForProfitableClosedOrder(DailyProtectionState &state)
         }
       else
         {
-         Print("Re-entry BLOCKED (Loss/Stalled): Batch closed at ", TimeToString(latestCloseTime, TIME_SECONDS), 
-               " | Batch Net Profit: $", DoubleToString(batchProfit, 2), 
+         Print("Re-entry BLOCKED (Loss/Stalled): Batch closed at ", TimeToString(latestCloseTime, TIME_SECONDS),
+               " | Batch Net Profit: $", DoubleToString(batchProfit, 2),
                " | Duration: ", orderDurationSeconds / 60, " mins.");
         }
       return;
@@ -3752,8 +3776,10 @@ void CheckForProfitableClosedOrder(DailyProtectionState &state)
 
    if(EnableTrading && !IsDailyTradingStopped(state))
      {
-      if(GetTotalBuyOrders() == 0 && IsBuySignal(0)) OpenBuy();
-      if(GetTotalSellOrders() == 0 && IsSellSignal(0)) OpenSell();
+      if(GetTotalBuyOrders() == 0 && IsBuySignal(0))
+         OpenBuy();
+      if(GetTotalSellOrders() == 0 && IsSellSignal(0))
+         OpenSell();
      }
   }
 
@@ -4682,7 +4708,7 @@ void UpdateDashboard(DailyProtectionState &state)
    CreateDashboardLabel(DASH_PREFIX+"TITLE","SSL CHANNEL EA  |  PRO CONTROL",tx,y+8,11,clrWhite);
    CreateDashboardLabel(DASH_PREFIX+"SUBTITLE",Symbol()+"  |  "+TimeframeToString(Period()),tx+w-125,y+10,8,clrLightGray);
    CreateDashboardLabel(DASH_PREFIX+"STATUS", "STATUS       : "+statusText,tx,y+47,10,statusColor);
-   CreateDashboardLabel(DASH_PREFIX+"SIGNAL","SSL SIGNAL   : "+sslDirection+"  ("+strong+")"+" "+DoubleToString(MathAbs(  GetEmaAngleDegrees(30)),2),tx,y+67,9,sslColor);
+   CreateDashboardLabel(DASH_PREFIX+"SIGNAL","SSL SIGNAL   : "+sslDirection+"  ("+strong+")"+" "+DoubleToString(MathAbs(GetEmaAngleDegrees(30)),2),tx,y+67,9,sslColor);
    CreateDashboardPanel(DASH_PREFIX+"SEC_CONFIRM",x,y+90,w,22,C'30,38,50');
    CreateDashboardLabel(DASH_PREFIX+"CONF_H","MARKET-MOMENT CONFIRMATIONS",tx,y+94,9,clrAqua);
    CreateDashboardLabel(DASH_PREFIX+"CONF_H1","H1 DIRECTION : "+h1Text+"  ["+h1Mark+"]",tx,y+117,9,h1Color);
@@ -4710,7 +4736,7 @@ void UpdateDashboard(DailyProtectionState &state)
    color dplStatusColor = DayProfitLadderTradingStopped ? clrTomato : clrLime;
    CreateDashboardLabel(DASH_PREFIX+"DPL_STATUS","DAY LADDER    : "+dplStatus,tx,y+510,9,dplStatusColor);
    CreateDashboardPanel(DASH_PREFIX+"SEC_RISK",x,y+518,w,22,C'30,38,50');
-    int balancelomultipler = (int)(AccountBalance() / AccountMultiplierLOT);
+   int balancelomultipler = (int)(AccountBalance() / AccountMultiplierLOT);
    if(balancelomultipler < 1)
       balancelomultipler = 1;
    CreateDashboardLabel(DASH_PREFIX+"RISK_H","RISK & STOP-LOSS PROTECTION",tx,y+522,9,clrAqua);
@@ -4999,35 +5025,37 @@ bool IsStrongMomentum(int direction)
 //+------------------------------------------------------------------+
 double GetEmaAngleDegrees(int lookbackBars = 5)
   {
-   if(lookbackBars <= 0) 
+   if(lookbackBars <= 0)
       return 0.0;
-   
+
    double emaCurrent  = iMA(Symbol(), Period(), InpEMA200Period, InpEMAPriceShift, MODE_EMA, PRICE_CLOSE, 0);
    double emaPrevious = iMA(Symbol(), Period(), InpEMA200Period, InpEMAPriceShift, MODE_EMA, PRICE_CLOSE, lookbackBars);
-   
-   if(emaCurrent <= 0 || emaPrevious <= 0) 
+
+   if(emaCurrent <= 0 || emaPrevious <= 0)
       return 0.0;
-   
-   // Normalize the price gap using the Average True Range (ATR)
-   // This prevents BTC's massive point values from skewing the angle to 89 degrees
+
+// Normalize the price gap using the Average True Range (ATR)
+// This prevents BTC's massive point values from skewing the angle to 89 degrees
    double atr = iATR(Symbol(), Period(), 14, 1);
-   if(atr <= 0) 
+   if(atr <= 0)
       atr = Point * 10; // Failsafe
-   
-   // Calculate normalized Rise over Run
+
+// Calculate normalized Rise over Run
    double normalizedRise = (emaCurrent - emaPrevious) / atr;
    double slope = normalizedRise / (double)lookbackBars;
-   
-   // Convert slope to degrees using Arctangent
+
+// Convert slope to degrees using Arctangent
    double angle = MathArctan(slope) * 180.0 / 3.14159265358979323846;
-   
-   // Amplify slightly for easier threshold reading (optional visual adjustment)
-   angle = angle * 2.0; 
-   
-   // Cap the maximum visual return to a realistic 85 degrees
-   if(angle > 85.0) angle = 85.0;
-   if(angle < -85.0) angle = -85.0;
-   
+
+// Amplify slightly for easier threshold reading (optional visual adjustment)
+   angle = angle * 2.0;
+
+// Cap the maximum visual return to a realistic 85 degrees
+   if(angle > 85.0)
+      angle = 85.0;
+   if(angle < -85.0)
+      angle = -85.0;
+
    return NormalizeDouble(angle, 2);
   }
 //+------------------------------------------------------------------+
