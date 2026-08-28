@@ -3999,7 +3999,7 @@ void CheckForProfitableClosedOrder(DailyProtectionState &state)
       // Existing EA rule: block ProfitReEntry after 30 minutes.
       int orderDurationSeconds = (int)(latestCloseTime - latestOpenTime);
 
-      if(orderDurationSeconds < 60 * 30)
+      if(orderDurationSeconds < 60 * 60 * 2)
         {
          CreateProfitReEntryStop(latestType, latestClosePrice, state,
                                  (latestProfit < 0.0));
