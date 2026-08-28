@@ -2324,7 +2324,7 @@ bool IsSameLotOrderNearBy(int orderType, double checkLot, double gapRawThreshold
   {
    RefreshRates();
 
-// Reference price based on the trade being evaluated
+   // Reference price: Ask for Buy directions, Bid for Sell directions
    double currentPrice = (orderType == OP_BUY || orderType == OP_BUYSTOP || orderType == OP_BUYLIMIT) ? Ask : Bid;
 
    for(int i = OrdersTotal() - 1; i >= 0; i--)
@@ -2332,38 +2332,33 @@ bool IsSameLotOrderNearBy(int orderType, double checkLot, double gapRawThreshold
       if(!OrderSelect(i, SELECT_BY_POS, MODE_TRADES))
          continue;
 
-      // Filter for this EA and symbol
+      // 1. EA and Symbol filter
       if(OrderSymbol() != Symbol() || OrderMagicNumber() != MagicNumber)
          continue;
 
-      int existingType = OrderType();
-
-      // Check all valid order types: Market (BUY/SELL) and Pending (STOP/LIMIT)
-      if(existingType != OP_BUY && existingType != OP_SELL &&
-         existingType != OP_BUYSTOP && existingType != OP_SELLSTOP &&
-         existingType != OP_BUYLIMIT && existingType != OP_SELLLIMIT)
+      // 2. SAME ORDER TYPE FILTER: Only check if it is the EXACT same order type
+      if(OrderType() != orderType)
          continue;
 
-      // Check if lot size matches (safe float comparison)
+      // 3. SAME LOT FILTER: Check if lot size matches (safe float comparison)
       if(MathAbs(OrderLots() - checkLot) > 0.00001)
          continue;
 
-      // Calculate absolute distance between current price and existing order/pending price
+      // 4. DISTANCE FILTER: Check if it is under your gap threshold (e.g., 200)
       double distance = MathAbs(currentPrice - OrderOpenPrice());
 
-      // If within threshold, trigger safeguard
       if(distance < gapRawThreshold)
         {
-         Print("NEARBY ORDER/PENDING DETECTED | Ticket: ", OrderTicket(),
-               " | Type: ", GetOrderTypeText(existingType),
+         Print("NEARBY ORDER DETECTED | Ticket: ", OrderTicket(),
+               " | Type: ", OrderType(),
                " | Lot: ", DoubleToString(OrderLots(), 2),
                " | Gap: ", DoubleToString(distance, Digits));
 
-         return true; // Match found!
+         return true; // Match found under 200 distance!
         }
      }
 
-   return false; // No matching order or pending order nearby
+   return false; // Safe to open, no exact same order type & lot nearby
   }
 //+------------------------------------------------------------------+
 //|                                                                  |
