@@ -3800,13 +3800,106 @@ void InitializeLastProcessedClosedOrder()
 //+------------------------------------------------------------------+
 //| Check For Profitable Closed Order (With 60-Min Lifespan Limit)   |
 //+------------------------------------------------------------------+
+//+------------------------------------------------------------------+
+//| CircleOrder helpers                                               |
+//+------------------------------------------------------------------+
+bool IsCircleOrderComment(string comment)
+  {
+   return (StringFind(comment, "CircleOrder", 0) == 0);
+  }
+
+//+------------------------------------------------------------------+
+//| Create immediate CircleOrder market order                         |
+//| CircleOrder never resets/increments reEntryCounter.               |
+//+------------------------------------------------------------------+
+bool CreateCircleOrder(int direction, DailyProtectionState &state)
+  {
+   if(!EnableTrading || IsDailyTradingStopped(state))
+      return false;
+   if(direction != 1 && direction != -1)
+      return false;
+   if(ServerRecoveryPending || !IsConnected())
+      return false;
+
+   int orderType = (direction == 1) ? OP_BUY : OP_SELL;
+
+   if(GetTotalEAOrders() >= MaxOpenOrders)
+      return false;
+   if(!IsSafeToCreateMarketOrder(orderType))
+      return false;
+   if(!PassesEMAFilter(orderType))
+      return false;
+   if(!IsOneCandleOrderAllowed())
+      return false;
+   if(!HasMinimumSameOrderGap(orderType))
+      return false;
+
+   RefreshRates();
+
+   // Use normal SSL lot sizing, but do NOT touch reEntryCounter.
+   if(orderType == OP_BUY)
+      ChangeLots(GetOpenPL(OP_SELL), "SSL Long", OP_BUY, 0);
+   else
+      ChangeLots(GetOpenPL(OP_BUY), "SSL Short", OP_SELL, 0);
+
+   Lots = NormalizeLots(Lots);
+   if(Lots <= 0.0)
+      return false;
+
+   double entryPrice = (orderType == OP_BUY) ? Ask : Bid;
+   entryPrice = NormalizeDouble(entryPrice, Digits);
+
+   double slDistance = CalculatePriceDistanceUSD(StopLossUSD, Lots);
+   if(slDistance <= 0.0)
+      return false;
+
+   double stopLoss = (orderType == OP_BUY)
+                     ? entryPrice - slDistance
+                     : entryPrice + slDistance;
+   stopLoss = NormalizeDouble(stopLoss, Digits);
+
+   string orderComment = (orderType == OP_BUY)
+                          ? "CircleOrder BUY"
+                          : "CircleOrder SELL";
+   color orderColor = (orderType == OP_BUY) ? BuyColor : SellColor;
+
+   int ticket = SafeOrderSend(Symbol(), orderType, Lots, entryPrice,
+                              Slippage, stopLoss, 0, orderComment,
+                              MagicNumber, orderColor);
+
+   if(ticket > 0)
+     {
+      OrderCreatedThisCandle = true;
+      LastOrderCandleTime = Time[0];
+
+      Print("CIRCLE ORDER CREATED | Ticket=", ticket,
+            " | Direction=", (orderType == OP_BUY ? "BUY" : "SELL"),
+            " | Lots=", DoubleToString(Lots, 2),
+            " | Pattern=", (direction == 1 ? "BULLISH" : "BEARISH"),
+            " | ProfitReEntry=DISABLED");
+      return true;
+     }
+
+   return false;
+  }
+
+//+------------------------------------------------------------------+
+//| Check latest closed order                                         |
+//|                                                                  |
+//| If pattern direction matches the latest closed order direction: |
+//|   BUY  + Bullish -> immediate BUY CircleOrder                   |
+//|   SELL + Bearish -> immediate SELL CircleOrder                   |
+//|                                                                  |
+//| Otherwise normal ProfitReEntry logic remains unchanged.          |
+//+------------------------------------------------------------------+
 void CheckForProfitableClosedOrder(DailyProtectionState &state)
   {
    datetime latestCloseTime = 0;
    double latestProfit = 0;
    int latestTicket = -1, latestType = -1;
    double latestClosePrice = 0;
-   datetime latestOpenTime = 0; // Added to track when the order opened
+   datetime latestOpenTime = 0;
+   string latestComment = "";
 
    for(int i = OrdersHistoryTotal() - 1; i >= 0; i--)
      {
@@ -3824,10 +3917,9 @@ void CheckForProfitableClosedOrder(DailyProtectionState &state)
       latestType = OrderType();
       latestProfit = OrderProfit() + OrderSwap() + OrderCommission();
       latestClosePrice = OrderClosePrice();
-      latestOpenTime = OrderOpenTime(); // Capture the open time
+      latestOpenTime = OrderOpenTime();
+      latestComment = OrderComment();
      }
-
-
 
    if(latestTicket < 0)
       return;
@@ -3837,20 +3929,62 @@ void CheckForProfitableClosedOrder(DailyProtectionState &state)
    LastProcessedClosedTicket = latestTicket;
    LastProcessedClosedOrderTime = latestCloseTime;
 
+   // CircleOrder must NEVER create a ProfitReEntry.
+   // Do not chain CircleOrder -> CircleOrder either.
+   if(IsCircleOrderComment(latestComment))
+     {
+      Print("CIRCLE ORDER CLOSED | Ticket=", latestTicket,
+            " | Profit=", DoubleToString(latestProfit, 2),
+            " | ProfitReEntry=BLOCKED");
+      return;
+     }
+
+   // Convert MT4 order constants to direction convention:
+   // BUY=+1, SELL=-1.
+   int latestDirection = 0;
+   if(latestType == OP_BUY)
+      latestDirection = 1;
+   else
+      if(latestType == OP_SELL)
+         latestDirection = -1;
+
+   int patternDirection = (int)IsBullishORBearish();
+
+   bool circleSignal =
+      ((patternDirection == 1 && latestDirection == 1) ||
+       (patternDirection == -1 && latestDirection == -1));
+
+   if(circleSignal)
+     {
+      Print("CIRCLE SIGNAL | Latest=",
+            (latestType == OP_BUY ? "BUY" : "SELL"),
+            " | Pattern=",
+            (patternDirection == 1 ? "BULLISH" : "BEARISH"));
+
+      CreateCircleOrder(latestDirection, state);
+
+      // Do not create ProfitReEntry for the same closed order.
+      return;
+     }
+
+   //===============================================================
+   // NORMAL PROFIT RE-ENTRY
+   //===============================================================
    if(EnableProfitReEntryStop && !IsDailyTradingStopped(state))
      {
-      // --- THE FIX: Calculate lifespan and block if >= 60 mins ---
+      // Existing EA rule: block ProfitReEntry after 30 minutes.
       int orderDurationSeconds = (int)(latestCloseTime - latestOpenTime);
 
-      if(orderDurationSeconds < 60*30 || ((IsBullishORBearish()==1 && latestType==1) || (IsBullishORBearish()==-1 && latestType==-1))) // 3600 seconds = 60 minutes
+      if(orderDurationSeconds < 60 * 30)
         {
-         CreateProfitReEntryStop(latestType, latestClosePrice, state, (latestProfit < 0.0));
+         CreateProfitReEntryStop(latestType, latestClosePrice, state,
+                                 (latestProfit < 0.0));
         }
       else
         {
-         Print("Re-entry BLOCKED: Order ", latestTicket, " was open for ", orderDurationSeconds / 60, " minutes.");
+         Print("Re-entry BLOCKED: Order ", latestTicket,
+               " was open for ", orderDurationSeconds / 60, " minutes.");
         }
-      // -------------------------------------------------------------
       return;
      }
 
@@ -3862,6 +3996,7 @@ void CheckForProfitableClosedOrder(DailyProtectionState &state)
          OpenSell();
      }
   }
+
 //+------------------------------------------------------------------+
 //|                                                                  |
 //+------------------------------------------------------------------+
@@ -4827,10 +4962,14 @@ void UpdateDashboard(DailyProtectionState &state)
    int checkDir = (currentSSLDirection > 0) ? OP_BUY : OP_SELL;
    string strong = (currentSSLDirection != 0 && IsStrongMomentum(checkDir)) ? "STRONG" : "Normal";
 
-if(IsBullishORBearish()==1) {          OpenBuy();
- strong=strong+" Double";}
-if(IsBullishORBearish()==-1){ OpenSell(); strong=strong+" - "; }
-
+// Pattern is dashboard information only. CircleOrder creation is
+// handled by CheckForProfitableClosedOrder() after a matching
+// closed order is detected.
+   if(IsBullishORBearish()==1)
+      strong=strong+" Double";
+   else
+      if(IsBullishORBearish()==-1)
+         strong=strong+" - ";
 
    CreateDashboardPanel(DASH_PREFIX+"PANEL",x,y,w,panelHeight,C'12,16,22');
    CreateDashboardPanel(DASH_PREFIX+"HEADER",x,y,w,38,C'25,70,115');
