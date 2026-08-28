@@ -2800,7 +2800,7 @@ void ChangeLots(double OpenPL, string reason, int orderType, int stoplevelStep)
         }
 
 
-        if(GetDistanceToEMAPrice(orderType,true)<100)
+        if(GetDistanceToEMAPrice(orderType,true)<100 ||  (MathAbs(  GetEmaAngleDegrees(30))<1   ))
         {
          Lots=0.02;
 
@@ -4682,7 +4682,7 @@ void UpdateDashboard(DailyProtectionState &state)
    CreateDashboardLabel(DASH_PREFIX+"TITLE","SSL CHANNEL EA  |  PRO CONTROL",tx,y+8,11,clrWhite);
    CreateDashboardLabel(DASH_PREFIX+"SUBTITLE",Symbol()+"  |  "+TimeframeToString(Period()),tx+w-125,y+10,8,clrLightGray);
    CreateDashboardLabel(DASH_PREFIX+"STATUS", "STATUS       : "+statusText,tx,y+47,10,statusColor);
-   CreateDashboardLabel(DASH_PREFIX+"SIGNAL","SSL SIGNAL   : "+sslDirection+"  ("+strong+")",tx,y+67,9,sslColor);
+   CreateDashboardLabel(DASH_PREFIX+"SIGNAL","SSL SIGNAL   : "+sslDirection+"  ("+strong+")"+" "+DoubleToString(MathAbs(  GetEmaAngleDegrees(30)),2),tx,y+67,9,sslColor);
    CreateDashboardPanel(DASH_PREFIX+"SEC_CONFIRM",x,y+90,w,22,C'30,38,50');
    CreateDashboardLabel(DASH_PREFIX+"CONF_H","MARKET-MOMENT CONFIRMATIONS",tx,y+94,9,clrAqua);
    CreateDashboardLabel(DASH_PREFIX+"CONF_H1","H1 DIRECTION : "+h1Text+"  ["+h1Mark+"]",tx,y+117,9,h1Color);
@@ -4991,7 +4991,45 @@ bool IsStrongMomentum(int direction)
         }
    return false;
   }
-
+//+------------------------------------------------------------------+
+//| Calculates the angle of the EMA in degrees                       |
+//+------------------------------------------------------------------+
+//+------------------------------------------------------------------+
+//| Calculates the visually normalized angle of the EMA in degrees   |
+//+------------------------------------------------------------------+
+double GetEmaAngleDegrees(int lookbackBars = 5)
+  {
+   if(lookbackBars <= 0) 
+      return 0.0;
+   
+   double emaCurrent  = iMA(Symbol(), Period(), InpEMA200Period, InpEMAPriceShift, MODE_EMA, PRICE_CLOSE, 0);
+   double emaPrevious = iMA(Symbol(), Period(), InpEMA200Period, InpEMAPriceShift, MODE_EMA, PRICE_CLOSE, lookbackBars);
+   
+   if(emaCurrent <= 0 || emaPrevious <= 0) 
+      return 0.0;
+   
+   // Normalize the price gap using the Average True Range (ATR)
+   // This prevents BTC's massive point values from skewing the angle to 89 degrees
+   double atr = iATR(Symbol(), Period(), 14, 1);
+   if(atr <= 0) 
+      atr = Point * 10; // Failsafe
+   
+   // Calculate normalized Rise over Run
+   double normalizedRise = (emaCurrent - emaPrevious) / atr;
+   double slope = normalizedRise / (double)lookbackBars;
+   
+   // Convert slope to degrees using Arctangent
+   double angle = MathArctan(slope) * 180.0 / 3.14159265358979323846;
+   
+   // Amplify slightly for easier threshold reading (optional visual adjustment)
+   angle = angle * 2.0; 
+   
+   // Cap the maximum visual return to a realistic 85 degrees
+   if(angle > 85.0) angle = 85.0;
+   if(angle < -85.0) angle = -85.0;
+   
+   return NormalizeDouble(angle, 2);
+  }
 //+------------------------------------------------------------------+
 //|                                                                  |
 //+------------------------------------------------------------------+
