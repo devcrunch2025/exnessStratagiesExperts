@@ -85,7 +85,8 @@ bool DeleteOppositePendingOnSignal = true;
 bool EnableProfitReEntryStop = true;
 double MinimumClosedProfitUSD = -9;
 double ProfitReEntryGapRaw =25;
-double MinimumSameOrderGapRaw =10;//0;//20;
+double MinimumSameOrderGapRawReEntry = 20;
+double MinimumSameOrderGapRawSSLLongShort = 10;
 
 // ===== STOP-LOSS / RE-ENTRY SAFETY =====
 bool EnableSLProtection = false;
@@ -955,7 +956,7 @@ void OnTickCore()
 //+------------------------------------------------------------------+
 //|                                                                  |
 //+------------------------------------------------------------------+
-bool HasMinimumSameOrderGap(int orderType)
+bool HasMinimumSameOrderGap(int orderType, double minimumGapRaw)
   {
    RefreshRates();
    double currentPrice = (orderType == OP_BUY) ? Ask : Bid;
@@ -965,7 +966,7 @@ bool HasMinimumSameOrderGap(int orderType)
          continue;
       if(OrderSymbol() != Symbol() || OrderMagicNumber() != MagicNumber || OrderType() != orderType)
          continue;
-      if(MathAbs(currentPrice - OrderOpenPrice()) < MinimumSameOrderGapRaw)
+      if(MathAbs(currentPrice - OrderOpenPrice()) < minimumGapRaw)
          return false;
      }
    return true;
@@ -2804,7 +2805,7 @@ double IsBullishORBearish()
 //+------------------------------------------------------------------+
 void ChangeLots(double OpenPL, string reason, int orderType, int stoplevelStep)
   {
-   double MaxRecoveryLot = 0.05;
+   double MaxRecoveryLot = 0.10;
 
    double oppositeLots = GetOppositeOrdersLots(orderType);
 
@@ -2825,9 +2826,16 @@ void ChangeLots(double OpenPL, string reason, int orderType, int stoplevelStep)
       // if(GlobalBUYSELLdashboardScore>=2 && GetCurrentSSLDirection() == EMADirection)
       if(GetCurrentSSLDirection() == EMADirection || GlobalBUYSELLdashboardScore==4)
 
-         Lots=0.05;
+         Lots=0.05;//0.05;
       else
          Lots=0.01;
+
+
+         if(GetCurrentSSLDirection() == EMADirection)
+         {
+         Lots=0.10;//0.05;
+
+         }
 
      }
    else
@@ -3850,9 +3858,8 @@ bool CreateCircleOrder(int direction, DailyProtectionState &state)
       return false;
    if(!IsOneCandleOrderAllowed())
       return false;
-   if(!HasMinimumSameOrderGap(orderType))
+   if(!HasMinimumSameOrderGap(orderType, MinimumSameOrderGapRawSSLLongShort))
       return false;
-
    RefreshRates();
 
    // Use normal SSL lot sizing, but do NOT touch reEntryCounter.
@@ -4094,6 +4101,11 @@ void CreateProfitReEntryStop(int closedOrderType, double closedPrice, DailyProte
      }
    if(HasBasketNewOrderLossLimit() || IsDirectionBlockedAfterSL(closedOrderType) || GetTotalEAOrders() >= MaxOpenOrders || (MaxSameDirectionOrders > 0 && CountDirectionOrders(closedOrderType) >= MaxSameDirectionOrders))
       return;
+
+   // Minimum same-order price gap is required ONLY for Profit ReEntry.
+   if(!HasMinimumSameOrderGap(closedOrderType, MinimumSameOrderGapRawReEntry))
+      return;
+
    RefreshRates();
    double entryPrice = (closedOrderType == OP_BUY) ? (closedPrice + ProfitReEntryGapRaw) : (closedPrice - ProfitReEntryGapRaw);
    int pendingType = (closedOrderType == OP_BUY) ? OP_BUYSTOP : OP_SELLSTOP;
@@ -4201,7 +4213,9 @@ void InvalidateTotalEAOrdersCache() { CachedTotalEAOrders=-1; CachedTotalEAOrder
 //+------------------------------------------------------------------+
 void OpenBuy()
   {
-   if(!IsSafeToCreateMarketOrder(OP_BUY) || !PassesEMAFilter(OP_BUY) || !IsOneCandleOrderAllowed() || GetTotalEAOrders() >= MaxOpenOrders || !HasMinimumSameOrderGap(OP_BUY))
+   if(!IsSafeToCreateMarketOrder(OP_BUY) || !PassesEMAFilter(OP_BUY) || !IsOneCandleOrderAllowed() || GetTotalEAOrders() >= MaxOpenOrders)
+      return;
+   if(!HasMinimumSameOrderGap(OP_BUY, MinimumSameOrderGapRawSSLLongShort))
       return;
    reEntryCounter=0;
    SaveReEntryCounter();
@@ -4247,7 +4261,9 @@ double NormalizeLots(double lots)
 //+------------------------------------------------------------------+
 void OpenSell()
   {
-   if(!IsSafeToCreateMarketOrder(OP_SELL) || !PassesEMAFilter(OP_SELL) || !IsOneCandleOrderAllowed() || GetTotalEAOrders() >= MaxOpenOrders || !HasMinimumSameOrderGap(OP_SELL))
+   if(!IsSafeToCreateMarketOrder(OP_SELL) || !PassesEMAFilter(OP_SELL) || !IsOneCandleOrderAllowed() || GetTotalEAOrders() >= MaxOpenOrders)
+      return;
+   if(!HasMinimumSameOrderGap(OP_SELL, MinimumSameOrderGapRawSSLLongShort))
       return;
    reEntryCounter=0;
    SaveReEntryCounter();
