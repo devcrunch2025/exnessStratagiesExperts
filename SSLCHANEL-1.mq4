@@ -45,7 +45,7 @@ bool enableCircleOrders=false;
 double MaxAllowedSpreadUSD = 35.0;
 int AccountMultiplierLOT = 500;//100;
 double OriginalStopLossUSD =4;//3;// 1.50;
-double StopLossUSD = 10;//4;//3;//1.50;
+double StopLossUSD =4;// 10;//4;//3;//1.50;
 
 // ===== 30-MINUTE PRICE MOMENTUM FILTER =====
 bool Enable30MinuteMomentumFilter = false;
@@ -130,17 +130,17 @@ double   PostOrderSLTPVerifyExpectedOpen[MAX_POST_ORDER_SLTP_VERIFY];
 int      PostOrderSLTPVerifyType[MAX_POST_ORDER_SLTP_VERIFY];
 double   PostOrderSLTPVerifyLots[MAX_POST_ORDER_SLTP_VERIFY];
 
-bool EnableRecoveryOrders = true;
+bool EnableRecoveryOrders = false;
 double RecoveryTriggerLossUSD =1;
-double RecoveryLotMultiplier = 2;
+double RecoveryLotMultiplier = 1;
 int MaxRecoveryOrders = 1;
 double RecoveryBasketProfitUSD =0.20;
 
 bool   EnableDayProfitLadder = true;
-double DayProfitLadder1Percent =10;//25;//50;//25;//5;//30;//early morning book profit and close trading is best trail
+double DayProfitLadder1Percent =5;//10;//25;//50;//25;//5;//30;//early morning book profit and close trading is best trail
 double DayProfitLadder1Amount =5;//10;//25;
-double DayProfitLadderLockRatio =80;// 0.01;//early morning book profit and close trading is best trail
-double DayProfitInitialProtectionPercent =95;//10;// 50.0; //leave money upto 80%
+double DayProfitLadderLockRatio =90;// 0.01;//early morning book profit and close trading is best trail
+double DayProfitInitialProtectionPercent =20;//(500 20% means 100 will be loss) 95;//10;// 50.0; //leave money upto 80%
 
 int Slippage = 30;
 int MagicNumber = 6600123;
@@ -2803,7 +2803,7 @@ double IsBullishORBearish()
 //+------------------------------------------------------------------+
 void ChangeLots(double OpenPL, string reason, int orderType, int stoplevelStep)
   {
-   double MaxRecoveryLot = 0.10;
+   double MaxRecoveryLot = 0.05;
 
    double oppositeLots = GetOppositeOrdersLots(orderType);
 
@@ -3048,11 +3048,15 @@ if(Lots>=0.05 && IsSameLotOrderNearBy(orderType,Lots,200))
 //+------------------------------------------------------------------+
 //| Check Recovery Orders (With Strict Momentum Confirmation)        |
 //+------------------------------------------------------------------+
+//| Check Recovery Orders (With Strict Momentum Confirmation)        |
+//+------------------------------------------------------------------+
 void CheckRecoveryOrders()
   {
    if(!EnableRecoveryOrders || GetTotalEAOrders() >= MaxOpenOrders)
       return;
+      
    RefreshRates();
+   
    for(int i = OrdersTotal() - 1; i >= 0; i--)
      {
       if(!OrderSelect(i, SELECT_BY_POS, MODE_TRADES))
@@ -3073,41 +3077,34 @@ void CheckRecoveryOrders()
       bool validParent = false;
       if(StringFind(comment, "SSL Long") >= 0 || StringFind(comment, "SSL Short") >= 0 || StringFind(comment, "ReEntry") >= 0)
          validParent = true;
+         
       if(!validParent)
          continue;
 
+      // Check this ONCE to save CPU cycles
       if(HasRecoveryOrder(parentTicket))
          continue;
 
       double profit = OrderProfit() + OrderSwap() + OrderCommission();
-      double lots = NormalizeLots(OrderLots() * RecoveryLotMultiplier);
-      if(lots <= 0)
-         continue;
-
-      double recoveryTrigger = -MathAbs(RecoveryTriggerLossUSD) * (lots / 0.01);
+      
+      // FIX: Calculate trigger based on the PARENT's lot size, not the new lot size
+      double recoveryTrigger = -MathAbs(RecoveryTriggerLossUSD) * (OrderLots() / 0.01);
       if(profit > recoveryTrigger)
          continue;
 
       // --- STRICT MOMENTUM CONFIRMATION LOGIC ---
-      if(parentType == OP_BUY)
-        {
-         // Wait for SSL to flip back to Buy AND require strong ADX/Candle momentum
-         if(!IsBuySignal(0) || !IsStrongMomentum(OP_BUY))
-            continue;
-        }
-      else
-        {
-         // Wait for SSL to flip back to Sell AND require strong ADX/Candle momentum
-         if(!IsSellSignal(0) || !IsStrongMomentum(OP_SELL))
-            continue;
-        }
+      if(parentType == OP_BUY && GetSSLSignal() != 1)
+         continue;
+      if(parentType == OP_SELL && GetSSLSignal() != -1)
+         continue;
       // ------------------------------------------
 
-      if(!IsOneCandleOrderAllowed() || HasRecoveryOrder(parentTicket))
+      // Calculate new lot size after verifying all conditions are met
+      double lots = NormalizeLots(OrderLots() * RecoveryLotMultiplier);
+      if(lots <= 0)
          continue;
 
       int recoveryTicket = -1;
-
       double slDistance = CalculatePriceDistanceUSD(StopLossUSD, lots);
       double recoverySL = 0.0;
 
@@ -3127,7 +3124,8 @@ void CheckRecoveryOrders()
          OrderCreatedThisCandle = true;
          LastOrderCandleTime    = Time[0];
         }
-      break;
+        
+      break; // Process only one recovery per tick
      }
   }
 //+------------------------------------------------------------------+
@@ -3183,14 +3181,29 @@ void ManageRecoveryBasket()
 //+------------------------------------------------------------------+
 bool HasRecoveryOrder(int ParentTicket)
   {
-   string txt="RECOVERY_"+IntegerToString(ParentTicket);
-   for(int i=OrdersTotal()-1; i>=0; i--)
+   // Build the target string once outside the loop
+   string targetComment = "RECOVERY_" + IntegerToString(ParentTicket);
+   
+   for(int i = OrdersTotal() - 1; i >= 0; i--)
      {
-      if(!OrderSelect(i,SELECT_BY_POS,MODE_TRADES))
+      if(!OrderSelect(i, SELECT_BY_POS, MODE_TRADES))
          continue;
-      if(OrderSymbol()!=Symbol() || OrderMagicNumber()!=MagicNumber)
+         
+      // 1. Fast integer check first
+      if(OrderMagicNumber() != MagicNumber)
          continue;
-      if(OrderComment()==txt)
+         
+      // 2. Filter by OrderType before checking strings
+      int type = OrderType();
+      if(type != OP_BUY && type != OP_SELL)
+         continue;
+         
+      // 3. String extraction and comparison last (heavier CPU cost)
+      if(OrderSymbol() != Symbol())
+         continue;
+         
+      // 4. Safer string matching
+      if(StringFind(OrderComment(), targetComment) == 0)
          return true;
      }
    return false;
@@ -5263,6 +5276,8 @@ void UpdateLeftLiveOrdersDashboard()
                   if(verifiedStatus=="NOT CHECKED")
                      verifiedColor=clrOrange;
         }
+
+        verifiedStatus=OrderComment();
       string rowText=StringFormat("%-7s %5.2f %10s %10s %10s %8s", typeText, lots, DoubleToString(open,Digits), slDiffText, tpDiffText, plText);
       color rowColor=clrWhite;
       if(type==OP_BUY)
