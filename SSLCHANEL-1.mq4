@@ -358,65 +358,142 @@ int GetH1Direction()
   }
 
 //+------------------------------------------------------------------+
+ 
+
+//+------------------------------------------------------------------+
+ //+------------------------------------------------------------------+
+//| Clears EMA line and the Yellow Boundary objects                  |
+//+------------------------------------------------------------------+
 void ClearEMALineObjects()
   {
    for(int i=ObjectsTotal()-1; i>=0; i--)
      {
       string name=ObjectName(i);
+      // Clear Main EMA
       if(StringFind(name,EMA_PREFIX,0)==0)
+         ObjectDelete(0,name);
+      // Clear Upper/Lower Yellow Boundaries
+      if(StringFind(name,"EMA_UPPER_",0)==0)
+         ObjectDelete(0,name);
+      if(StringFind(name,"EMA_LOWER_",0)==0)
          ObjectDelete(0,name);
      }
   }
 
 //+------------------------------------------------------------------+
+//| Draws the Main EMA and the Yellow Distance Boundaries            |
+//+------------------------------------------------------------------+
 void UpdateEMALineOnChart()
   {
    if(!ShowEMALine || Bars < InpEMA200Period + 2)
       return;
+      
    int barsToDraw=EMALineBars;
-   if(barsToDraw<2)
-      barsToDraw=2;
-   if(barsToDraw>Bars-1)
-      barsToDraw=Bars-1;
+   if(barsToDraw<2) barsToDraw=2;
+   if(barsToDraw>Bars-1) barsToDraw=Bars-1;
+   
    static datetime lastDrawnBar=0;
    bool rebuild=(lastDrawnBar!=Time[0]);
    uint emaNow=GetTickCount();
+   
    if(!rebuild && LastEMARedrawMs!=0 && (uint)(emaNow-LastEMARedrawMs)<(uint)MathMax(0,EMARedrawIntervalMs))
       return;
+      
    if(rebuild)
      {
       ClearEMALineObjects();
       for(int i=barsToDraw-1; i>=0; i--)
         {
          int j=i+1;
-         if(j>=Bars)
-            continue;
+         if(j>=Bars) continue;
+         
          double ema1=iMA(Symbol(),Period(),InpEMA200Period,0,MODE_EMA,PRICE_CLOSE,i);
          double ema2=iMA(Symbol(),Period(),InpEMA200Period,0,MODE_EMA,PRICE_CLOSE,j);
-         if(ema1<=0 || ema2<=0)
-            continue;
+         if(ema1<=0 || ema2<=0) continue;
+         
+         // 1. Draw Main EMA Line
          string name=EMA_PREFIX+IntegerToString(i);
-         if(!ObjectCreate(0,name,OBJ_TREND,0,Time[j],ema2,Time[i],ema1))
-            continue;
-         ObjectSetInteger(0,name,OBJPROP_COLOR,EMALineColor);
-         ObjectSetInteger(0,name,OBJPROP_WIDTH,EMALineWidth);
-         ObjectSetInteger(0,name,OBJPROP_STYLE,STYLE_SOLID);
-         ObjectSetInteger(0,name,OBJPROP_RAY,false);
-         ObjectSetInteger(0,name,OBJPROP_BACK,false);
-         ObjectSetInteger(0,name,OBJPROP_SELECTABLE,false);
-         ObjectSetInteger(0,name,OBJPROP_SELECTED,false);
-         ObjectSetInteger(0,name,OBJPROP_HIDDEN,true);
+         if(ObjectCreate(0,name,OBJ_TREND,0,Time[j],ema2,Time[i],ema1))
+           {
+            ObjectSetInteger(0,name,OBJPROP_COLOR,EMALineColor);
+            ObjectSetInteger(0,name,OBJPROP_WIDTH,EMALineWidth);
+            ObjectSetInteger(0,name,OBJPROP_STYLE,STYLE_SOLID);
+            ObjectSetInteger(0,name,OBJPROP_RAY_RIGHT,false);
+            ObjectSetInteger(0,name,OBJPROP_BACK,false);
+            ObjectSetInteger(0,name,OBJPROP_SELECTABLE,false);
+            ObjectSetInteger(0,name,OBJPROP_HIDDEN,true);
+           }
+           
+         // 2. Draw Yellow Distance Boundaries
+         if(EnableEmaDistanceClose)
+           {
+            double upper1 = ema1 + EmaCloseDistancePoints;
+            double upper2 = ema2 + EmaCloseDistancePoints;
+            double lower1 = ema1 - EmaCloseDistancePoints;
+            double lower2 = ema2 - EmaCloseDistancePoints;
+            
+            string upperName = "EMA_UPPER_" + IntegerToString(i);
+            string lowerName = "EMA_LOWER_" + IntegerToString(i);
+            
+            // Draw Upper Boundary
+            if(ObjectCreate(0,upperName,OBJ_TREND,0,Time[j],upper2,Time[i],upper1))
+              {
+               ObjectSetInteger(0,upperName,OBJPROP_COLOR,clrYellow);
+               ObjectSetInteger(0,upperName,OBJPROP_STYLE,STYLE_DOT); // Dot style for clarity
+               ObjectSetInteger(0,upperName,OBJPROP_RAY_RIGHT,false);
+               ObjectSetInteger(0,upperName,OBJPROP_BACK,true);
+               ObjectSetInteger(0,upperName,OBJPROP_SELECTABLE,false);
+               ObjectSetInteger(0,upperName,OBJPROP_HIDDEN,true);
+              }
+              
+            // Draw Lower Boundary
+            if(ObjectCreate(0,lowerName,OBJ_TREND,0,Time[j],lower2,Time[i],lower1))
+              {
+               ObjectSetInteger(0,lowerName,OBJPROP_COLOR,clrYellow);
+               ObjectSetInteger(0,lowerName,OBJPROP_STYLE,STYLE_DOT);
+               ObjectSetInteger(0,lowerName,OBJPROP_RAY_RIGHT,false);
+               ObjectSetInteger(0,lowerName,OBJPROP_BACK,true);
+               ObjectSetInteger(0,lowerName,OBJPROP_SELECTABLE,false);
+               ObjectSetInteger(0,lowerName,OBJPROP_HIDDEN,true);
+              }
+           }
         }
       lastDrawnBar=Time[0];
      }
+     
+   // --- LIVE UPDATE (SHIFT 0) ---
    double ema0=iMA(Symbol(),Period(),InpEMA200Period,0,MODE_EMA,PRICE_CLOSE,0);
-   double ema1=iMA(Symbol(),Period(),InpEMA200Period,0,MODE_EMA,PRICE_CLOSE,1);
-   string liveName=EMA_PREFIX+"0";
-   if(ema0>0 && ema1>0 && ObjectFind(0,liveName)>=0)
+   double ema1_live=iMA(Symbol(),Period(),InpEMA200Period,0,MODE_EMA,PRICE_CLOSE,1);
+   
+   if(ema0>0 && ema1_live>0)
      {
-      ObjectMove(0,liveName,0,Time[1],ema1);
-      ObjectMove(0,liveName,1,Time[0],ema0);
+      // Move Main EMA
+      string liveName=EMA_PREFIX+"0";
+      if(ObjectFind(0,liveName)>=0)
+        {
+         ObjectMove(0,liveName,0,Time[1],ema1_live);
+         ObjectMove(0,liveName,1,Time[0],ema0);
+        }
+        
+      // Move Yellow Boundaries
+      if(EnableEmaDistanceClose)
+        {
+         string liveUpper = "EMA_UPPER_0";
+         string liveLower = "EMA_LOWER_0";
+         
+         if(ObjectFind(0,liveUpper)>=0)
+           {
+            ObjectMove(0,liveUpper,0,Time[1],ema1_live + EmaCloseDistancePoints);
+            ObjectMove(0,liveUpper,1,Time[0],ema0 + EmaCloseDistancePoints);
+           }
+         if(ObjectFind(0,liveLower)>=0)
+           {
+            ObjectMove(0,liveLower,0,Time[1],ema1_live - EmaCloseDistancePoints);
+            ObjectMove(0,liveLower,1,Time[0],ema0 - EmaCloseDistancePoints);
+           }
+        }
      }
+     
    uint now=GetTickCount();
    if(LastEMARedrawMs==0 || (uint)(now-LastEMARedrawMs)>=(uint)MathMax(0,EMARedrawIntervalMs))
      {
@@ -424,7 +501,6 @@ void UpdateEMALineOnChart()
       ChartRedraw(0);
      }
   }
-
 //+------------------------------------------------------------------+
 bool PassesEMAFilter(int orderType)
   {
@@ -3573,58 +3649,76 @@ bool CreateCircleOrder(int direction, DailyProtectionState &state)
 //+------------------------------------------------------------------+
 //|                                                                  |
 //+------------------------------------------------------------------+
+//+------------------------------------------------------------------+
+//| Check latest closed orders (Supports Basket & Breakeven closures)|
+//+------------------------------------------------------------------+
 void CheckForProfitableClosedOrder(DailyProtectionState &state)
   {
    datetime latestCloseTime = 0;
-   double latestProfit = 0;
+
+   // 1. Find the absolute latest close time in history
+   for(int i = OrdersHistoryTotal() - 1; i >= 0; i--)
+     {
+      if(!OrderSelect(i, SELECT_BY_POS, MODE_HISTORY)) continue;
+      if(OrderSymbol() != Symbol() || OrderMagicNumber() != MagicNumber) continue;
+      if(OrderType() != OP_BUY && OrderType() != OP_SELL) continue;
+      
+      if(OrderCloseTime() > latestCloseTime)
+         latestCloseTime = OrderCloseTime();
+     }
+
+   if(latestCloseTime <= 0) return;
+   
+   // If we already processed this exact batch time, skip it
+   if(latestCloseTime == LastProcessedClosedOrderTime) return; 
+
+   // 2. Evaluate the ENTIRE BATCH that closed at that exact time
+   double batchProfit = 0.0;
    int latestTicket = -1, latestType = -1;
-   double latestClosePrice = 0;
+   double latestClosePrice = 0, latestProfit = 0;
    datetime latestOpenTime = 0;
    string latestComment = "";
 
    for(int i = OrdersHistoryTotal() - 1; i >= 0; i--)
      {
-      if(!OrderSelect(i, SELECT_BY_POS, MODE_HISTORY))
-         continue;
-      if(OrderSymbol() != Symbol() || OrderMagicNumber() != MagicNumber)
-         continue;
-      if(OrderType() != OP_BUY && OrderType() != OP_SELL)
-         continue;
-      if(OrderCloseTime() <= latestCloseTime)
-         continue;
+      if(!OrderSelect(i, SELECT_BY_POS, MODE_HISTORY)) continue;
+      if(OrderSymbol() != Symbol() || OrderMagicNumber() != MagicNumber) continue;
+      if(OrderType() != OP_BUY && OrderType() != OP_SELL) continue;
 
-      latestCloseTime = OrderCloseTime();
-      latestTicket = OrderTicket();
-      latestType = OrderType();
-      latestProfit = OrderProfit() + OrderSwap() + OrderCommission();
-      latestClosePrice = OrderClosePrice();
-      latestOpenTime = OrderOpenTime();
-      latestComment = OrderComment();
+      // Group all orders that closed at the exact same second
+      if(OrderCloseTime() == latestCloseTime)
+        {
+         batchProfit += (OrderProfit() + OrderSwap() + OrderCommission());
+         
+         // Save the highest ticket's details to anchor the new pending order
+         if(OrderTicket() > latestTicket)
+           {
+            latestTicket = OrderTicket();
+            latestType = OrderType();
+            latestClosePrice = OrderClosePrice();
+            latestOpenTime = OrderOpenTime();
+            latestComment = OrderComment();
+            latestProfit = OrderProfit() + OrderSwap() + OrderCommission();
+           }
+        }
      }
 
-   if(latestTicket < 0)
-      return;
-   if(latestTicket == LastProcessedClosedTicket && latestCloseTime == LastProcessedClosedOrderTime)
-      return;
+   if(latestTicket < 0) return;
 
    LastProcessedClosedTicket = latestTicket;
    LastProcessedClosedOrderTime = latestCloseTime;
 
    if(IsCircleOrderComment(latestComment))
      {
-      Print("CIRCLE ORDER CLOSED | Ticket=", latestTicket, " | Profit=", DoubleToString(latestProfit, 2), " | ProfitReEntry=BLOCKED");
+      Print("CIRCLE ORDER CLOSED | Ticket=", latestTicket, " | Batch Profit=", DoubleToString(batchProfit, 2), " | ProfitReEntry=BLOCKED");
       return;
      }
 
    int latestDirection = 0;
-   if(latestType == OP_BUY)
-      latestDirection = 1;
-   else
-      if(latestType == OP_SELL)
-         latestDirection = -1;
+   if(latestType == OP_BUY) latestDirection = 1;
+   else if(latestType == OP_SELL) latestDirection = -1;
 
    int patternDirection = (int)IsBullishORBearish();
-
    bool circleSignal = ((patternDirection == 1 && latestDirection == 1) || (patternDirection == -1 && latestDirection == -1));
 
    if(circleSignal)
@@ -3634,27 +3728,32 @@ void CheckForProfitableClosedOrder(DailyProtectionState &state)
       return;
      }
 
+   //===============================================================
+   // NORMAL PROFIT RE-ENTRY
+   //===============================================================
    if(EnableProfitReEntryStop && !IsDailyTradingStopped(state))
      {
       int orderDurationSeconds = (int)(latestCloseTime - latestOpenTime);
 
-      if(orderDurationSeconds < 60 * 60 * 2)
+      // BYPASS the lifespan time block if the ENTIRE BATCH hit profit or breakeven (>= 0.0)
+      if(batchProfit >= 0.0 || orderDurationSeconds < 60 * 60 * 2)
         {
-         CreateProfitReEntryStop(latestType, latestClosePrice, state, (latestProfit < 0.0));
+         // We pass (batchProfit < 0.0) so the EA knows if the whole grid was a loss
+         CreateProfitReEntryStop(latestType, latestClosePrice, state, (batchProfit < 0.0));
         }
       else
         {
-         Print("Re-entry BLOCKED: Order ", latestTicket, " was open for ", orderDurationSeconds / 60, " minutes.");
+         Print("Re-entry BLOCKED (Loss/Stalled): Batch closed at ", TimeToString(latestCloseTime, TIME_SECONDS), 
+               " | Batch Net Profit: $", DoubleToString(batchProfit, 2), 
+               " | Duration: ", orderDurationSeconds / 60, " mins.");
         }
       return;
      }
 
    if(EnableTrading && !IsDailyTradingStopped(state))
      {
-      if(GetTotalBuyOrders() == 0 && IsBuySignal(0))
-         OpenBuy();
-      if(GetTotalSellOrders() == 0 && IsSellSignal(0))
-         OpenSell();
+      if(GetTotalBuyOrders() == 0 && IsBuySignal(0)) OpenBuy();
+      if(GetTotalSellOrders() == 0 && IsSellSignal(0)) OpenSell();
      }
   }
 
