@@ -219,6 +219,9 @@ int ProtectedEquityWaitMinutes = 0;
 //|                                                                  |
 //+------------------------------------------------------------------+
 bool IsH1BuyAllowed() { return (GetH1Direction() == 1); }
+//+------------------------------------------------------------------+
+//|                                                                  |
+//+------------------------------------------------------------------+
 bool IsH1SellAllowed() { return (GetH1Direction() == -1); }
 bool EnableSSLImmediateOrderCreation = true;
 
@@ -2046,6 +2049,9 @@ bool IsTradingSloweHours()
 //|                                                                  |
 //+------------------------------------------------------------------+
 void LogDubaiTradingPause() { Print("TRADING PAUSED | Dubai GST"); }
+//+------------------------------------------------------------------+
+//|                                                                  |
+//+------------------------------------------------------------------+
 string GetDubaiTradingPauseReason() { return ""; }
 //+------------------------------------------------------------------+
 //|                                                                  |
@@ -2930,23 +2936,26 @@ void ChangeLots(double OpenPL, string reason, int orderType, int stoplevelStep)
         }
 
 
-        if(GetM5Direction()!=orderType && Lots>=0.05)
-        {
-          Lots=0.01;
-        }
+   if(GetM5Direction()!=orderType && Lots>=0.05)
+     {
+      Lots=0.01;
+     }
+ if(IsHeavyLotOrderNearBy(orderType, Lots, 100) && Lots>=0.05)
+     {
+      Lots = 0.01;
+     }
 
 
-        //--------------------Final 
+//--------------------Final
    int balancelomultipler = (int)(AccountBalance() / AccountMultiplierLOT);
    if(balancelomultipler < 1)
       balancelomultipler = 1;
    Lots = Lots * balancelomultipler;
-   if(Lots > MaxRecoveryLot)
+   
+  
+
+     if(Lots > MaxRecoveryLot)
       Lots = MaxRecoveryLot;
-   if(IsHeavyLotOrderNearBy(orderType, Lots, 100))
-     {
-      Lots = 0.02 * balancelomultipler;
-     }
 
 // 3. Normalize and finalize
    Lots = NormalizeLots(Lots);
@@ -3098,6 +3107,9 @@ bool HasRecoveryOrder(int ParentTicket)
 //|                                                                  |
 //+------------------------------------------------------------------+
 string GetDayProfitLadderGVPrefix() { return "SSL_DPL_" + IntegerToString(AccountNumber()) + "_" + IntegerToString(MagicNumber) + "_" + Symbol() + "_"; }
+//+------------------------------------------------------------------+
+//|                                                                  |
+//+------------------------------------------------------------------+
 string GetDayProfitLadderDateText() { return TimeToString(TimeCurrent(), TIME_DATE); }
 //+------------------------------------------------------------------+
 //|                                                                  |
