@@ -2835,7 +2835,7 @@ bool IsHeavyLotOrderNearBy(int orderType, double checkLot, double gapRawThreshol
 //+------------------------------------------------------------------+
 void ChangeLots(double OpenPL, string reason, int orderType, int stoplevelStep)
   {
-   double MaxRecoveryLot = 0.05;
+   double MaxRecoveryLot = 0.07;
    double oppositeLots = GetOppositeOrdersLots(orderType);
    bool isSSLSignal = (reason == "SSL Long" || reason == "SSL Short");
    bool isSSLProfitReEntry = (reason == "SSL Profit ReEntry Buy Stop" || reason == "SSL Profit ReEntry Sell Stop");
@@ -2947,6 +2947,17 @@ void ChangeLots(double OpenPL, string reason, int orderType, int stoplevelStep)
 
 
 //--------------------Final
+
+datetime dubaiTime = TimeCurrent() + (ServerToDubaiOffsetHours * 3600);
+   int currentHour = TimeHour(dubaiTime);
+
+if(TimeHour(dubaiTime)==0 ||TimeCurrent()==0 )
+{
+      Lots = 0.01;
+   
+}
+
+
    int balancelomultipler = (int)(AccountBalance() / AccountMultiplierLOT);
    if(balancelomultipler < 1)
       balancelomultipler = 1;
@@ -3828,16 +3839,33 @@ void CheckForProfitableClosedOrder(DailyProtectionState &state)
       CreateCircleOrder(latestDirection, state);
       return;
      }
-
-   if(EnableProfitReEntryStop && !IsDailyTradingStopped(state))
+if(EnableProfitReEntryStop && !IsDailyTradingStopped(state))
      {
+      // Prevent re-entry if the SSL direction has changed against the closed order
+      int currentSSL = GetCurrentSSLDirection();
+      int closedDirection = (latestType == OP_BUY) ? 1 : -1;
+      
+      if(currentSSL != 0 && currentSSL != closedDirection)
+        {
+         return; // Signal has flipped; skip re-entry for this old order
+        }
+
       int orderDurationSeconds = (int)(latestCloseTime - latestOpenTime);
-      if(batchProfit >= 0.0 || orderDurationSeconds < 60 * 60 * 2)
+      if(batchProfit >= 0.0 || orderDurationSeconds < 60 * 30 * 1)
         {
          CreateProfitReEntryStop(latestType, latestClosePrice, state, (batchProfit < 0.0));
         }
       return;
      }
+   // if(EnableProfitReEntryStop && !IsDailyTradingStopped(state))
+   //   {
+   //    int orderDurationSeconds = (int)(latestCloseTime - latestOpenTime);
+   //    if(batchProfit >= 0.0 || orderDurationSeconds < 60 * 30 * 1)
+   //      {
+   //       CreateProfitReEntryStop(latestType, latestClosePrice, state, (batchProfit < 0.0));
+   //      }
+   //    return;
+   //   }
 
    if(EnableTrading && !IsDailyTradingStopped(state))
      {
