@@ -1820,16 +1820,37 @@ bool IsSameLotOrderNearBy(int orderType, double checkLot, double gapRawThreshold
   {
    RefreshRates();
    double currentPrice = (orderType == OP_BUY || orderType == OP_BUYSTOP || orderType == OP_BUYLIMIT) ? Ask : Bid;
+   
+   // Explicitly categorize the requested order
+   bool isBuyDirection  = (orderType == OP_BUY  || orderType == OP_BUYSTOP  || orderType == OP_BUYLIMIT);
+   bool isSellDirection = (orderType == OP_SELL || orderType == OP_SELLSTOP || orderType == OP_SELLLIMIT);
+   
    for(int i = OrdersTotal() - 1; i >= 0; i--)
      {
       if(!OrderSelect(i, SELECT_BY_POS, MODE_TRADES)) continue;
       if(OrderSymbol() != Symbol() || OrderMagicNumber() != MagicNumber) continue;
-      if(OrderType() != orderType) continue;
+      
+      int existingType = OrderType();
+      
+      // Explicitly categorize the existing open/pending order
+      bool existingIsBuy  = (existingType == OP_BUY  || existingType == OP_BUYSTOP  || existingType == OP_BUYLIMIT);
+      bool existingIsSell = (existingType == OP_SELL || existingType == OP_SELLSTOP || existingType == OP_SELLLIMIT);
+      
+      // Strict matching: Only compare Buys to Buys, and Sells to Sells
+      if(isBuyDirection && !existingIsBuy) continue;
+      if(isSellDirection && !existingIsSell) continue;
+      
+      // Check if the lot sizes match
       if(MathAbs(OrderLots() - checkLot) > 0.00001) continue;
+      
+      // Check the distance
       double distance = MathAbs(currentPrice - OrderOpenPrice());
       if(distance < gapRawThreshold)
         {
-         Print("NEARBY ORDER DETECTED | Ticket: ", OrderTicket(), " | Type: ", OrderType(), " | Lot: ", DoubleToString(OrderLots(), 2), " | Gap: ", DoubleToString(distance, Digits));
+         Print("NEARBY ORDER DETECTED | Ticket: ", OrderTicket(), 
+               " | Type: ", existingType, 
+               " | Lot: ", DoubleToString(OrderLots(), 2), 
+               " | Gap: ", DoubleToString(distance, Digits));
          return true;
         }
      }
@@ -1997,7 +2018,7 @@ bool IsDoubleBottom(int shift, int lookback, double tolerancePoints)
    double low1 = Low[low1Idx];
    double low2 = Low[low2Idx];
    double neckline = High[necklineIdx];
-   if(MathAbs(low1 - low2) <= tolerancePoints * Point)
+  if(MathAbs(low1 - low2) <= tolerancePoints) // Removed "* Point"
      {
       if(Close[shift+1] <= neckline && Close[shift] > neckline) return true;
      }
@@ -2092,6 +2113,40 @@ double IsBullishORBearish()
    return 0;
   }
 
+ bool IsHeavyLotOrderNearBy(int orderType, double checkLot, double gapRawThreshold)
+  {
+   RefreshRates();
+   double currentPrice = (orderType == OP_BUY || orderType == OP_BUYSTOP || orderType == OP_BUYLIMIT) ? Ask : Bid;
+   
+   bool isBuyDirection  = (orderType == OP_BUY  || orderType == OP_BUYSTOP  || orderType == OP_BUYLIMIT);
+   bool isSellDirection = (orderType == OP_SELL || orderType == OP_SELLSTOP || orderType == OP_SELLLIMIT);
+   
+   for(int i = OrdersTotal() - 1; i >= 0; i--)
+     {
+      if(!OrderSelect(i, SELECT_BY_POS, MODE_TRADES)) continue;
+      if(OrderSymbol() != Symbol() || OrderMagicNumber() != MagicNumber) continue;
+      
+      int existingType = OrderType();
+      bool existingIsBuy  = (existingType == OP_BUY  || existingType == OP_BUYSTOP  || existingType == OP_BUYLIMIT);
+      bool existingIsSell = (existingType == OP_SELL || existingType == OP_SELLSTOP || existingType == OP_SELLLIMIT);
+      
+      if(isBuyDirection && !existingIsBuy) continue;
+      if(isSellDirection && !existingIsSell) continue;
+      
+      // Dynamic Check: Ignores small standard orders, triggers on heavy orders
+      // Using 0.8 catches orders that are at least 80% of the requested heavy lot
+      if(OrderLots() < (checkLot * 0.8)) continue;
+      
+      double distance = MathAbs(currentPrice - OrderOpenPrice());
+      if(distance < gapRawThreshold)
+        {
+         Print("HEAVY ORDER BLOCKED | Ticket: ", OrderTicket(), " | Gap: ", DoubleToString(distance, Digits));
+         return true;
+        }
+     }
+   return false;
+  }
+
 void ChangeLots(double OpenPL, string reason, int orderType, int stoplevelStep)
   {
    double MaxRecoveryLot = 0.05;
@@ -2099,6 +2154,7 @@ void ChangeLots(double OpenPL, string reason, int orderType, int stoplevelStep)
    bool isSSLSignal = (reason == "SSL Long" || reason == "SSL Short");
    bool isSSLProfitReEntry = (reason == "SSL Profit ReEntry Buy Stop" || reason == "SSL Profit ReEntry Sell Stop");
 
+   // --- 1. BASE LOT CALCULATION ---
    if(isSSLSignal)
      {
       Lots = GetMarketMomentLot(orderType);
@@ -2106,33 +2162,10 @@ void ChangeLots(double OpenPL, string reason, int orderType, int stoplevelStep)
       else Lots=0.01;
       if(GetCurrentSSLDirection() == EMADirection) Lots=0.10;
 
-     
-
-     
-     }
-   else
-     {
-      if(isSSLProfitReEntry)
-        {
-         Lots = 0.05;
-         if(GetCurrentSSLDirection() == EMADirection)
-           {
-            Lots = CalculateDecreaseLots(reEntryCounter, 0.05, 0.02);
-            if(CheckFastProfitableRecentOrders()) Lots = 0.05;
-           }
-         else
-           {
-            Lots = CalculateIncreaseLots(reEntryCounter, 0.01, 0.05);
-            if(CheckFastProfitableRecentOrders() && Lots<0.03) Lots = 0.03;
-           }
-         if(orderType == OP_BUY) { if(GetOpenPL(OP_SELL) <= -10) Lots = 0.05; }
-         else if(orderType == OP_SELL) { if(GetOpenPL(OP_BUY) <= -10) Lots = 0.05; }
-        }
-     }
- // --- TREND & DISTANCE LOT FILTER ---
+      // --- TREND & DISTANCE LOT FILTER (SSL ONLY) ---
       double emaAngle = GetEmaAngleDegrees(30);
       double emaDistance = GetDistanceToEMAPrice(orderType, true);
- if(orderType == OP_BUY)
+      if(orderType == OP_BUY)
         {
          if(emaAngle < 1.0) Lots = 0.01;
          else if(emaDistance < 100.0 && emaAngle < 1.0) Lots = 0.01;
@@ -2142,23 +2175,51 @@ void ChangeLots(double OpenPL, string reason, int orderType, int stoplevelStep)
          if(emaAngle > -1.0) Lots = 0.01;
          else if(emaDistance < 100.0 && emaAngle > -1.0) Lots = 0.01;
         }
-
-     // 1. Check for the 200 Raw Price V-Shape first
-      if(orderType == OP_BUY && GlobalVShapeBuy)
+     }
+   else if(isSSLProfitReEntry)
+     {
+      Lots = 0.05;
+      if(GetCurrentSSLDirection() == EMADirection)
         {
-         Lots = 0.04; // Immediate max lot boost for Bullish V-Shape snapback
+         Lots = CalculateDecreaseLots(reEntryCounter, 0.05, 0.02);
+         if(CheckFastProfitableRecentOrders()) Lots = 0.05;
         }
-      else if(orderType == OP_SELL && GlobalVShapeSell)
+      else
         {
-         Lots = 0.04; // Immediate max lot boost for Bearish Inverted V-Shape snapback
+         Lots = CalculateIncreaseLots(reEntryCounter, 0.01, 0.05);
+         if(CheckFastProfitableRecentOrders() && Lots<0.03) Lots = 0.03;
         }
+      if(orderType == OP_BUY) { if(GetOpenPL(OP_SELL) <= -10) Lots = 0.05; }
+      else if(orderType == OP_SELL) { if(GetOpenPL(OP_BUY) <= -10) Lots = 0.05; }
+     }
 
+   // --- 2. V-SHAPE OVERRIDE (APPLIES TO BOTH SSL AND RE-ENTRY) ---
+   if(orderType == OP_BUY && GlobalVShapeBuy)
+     {
+      Lots = 0.04; // Immediate max lot boost for Bullish V-Shape snapback
+     }
+   else if(orderType == OP_SELL && GlobalVShapeSell)
+     {
+      Lots = 0.04; // Immediate max lot boost for Bearish Inverted V-Shape snapback
+     }
+
+   // --- 3. FAILSAFES & NORMALIZATION ---
    if(Lots>=0.05 && IsSameLotOrderNearBy(orderType,Lots,200)) Lots=0.02;
 
    int balancelomultipler = (int)(AccountBalance() / AccountMultiplierLOT);
    if(balancelomultipler < 1) balancelomultipler = 1;
    Lots = Lots * balancelomultipler;
    if(Lots > MaxRecoveryLot) Lots = MaxRecoveryLot;
+
+   // 2. NOW check proximity to throttle down clustered heavy lots
+  //  if(Lots >= 0.04 && IsHeavyLotOrderNearBy(orderType, 200.0)) Lots = 0.02;
+
+   if(IsHeavyLotOrderNearBy(orderType, Lots, 200.0)) 
+     {
+      Lots = 0.01 * balancelomultipler; 
+     }
+
+   // 3. Normalize and finalize
    Lots = NormalizeLots(Lots);
    if(Lots < 0.01) Lots = 0.01;
 
