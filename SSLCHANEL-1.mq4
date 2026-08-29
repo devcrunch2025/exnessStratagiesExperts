@@ -125,7 +125,7 @@ int MaxRecoveryOrders = 1;
 double RecoveryBasketProfitUSD =0.20;
 
 bool   EnableDayProfitLadder = true;
-double DayProfitLadder1Percent =5;
+double DayProfitLadder1Percent =25;//5;
 double DayProfitLadder1Amount =5;
 double DayProfitLadderLockRatio =90;
 double DayProfitInitialProtectionPercent =20;
@@ -859,7 +859,7 @@ void OnTickCore()
 
 // --- CALL THE NEW FLIP TRACKER & GAP CLOSER HERE ---
    TrackEmaFlip();
-   CloseOppositeOrdersOnEmaDistance();
+   // CloseOppositeOrdersOnEmaDistance();
 // ---------------------------------------------------
 
    ProcessPostOrderSLTPVerification();
@@ -2807,11 +2807,11 @@ void ChangeLots(double OpenPL, string reason, int orderType, int stoplevelStep)
         }
 
 
-      // If EMA is flat (angle <= 1) AND price is near the EMA (distance < 100)
-      if(MathAbs(GetEmaAngleDegrees(30)) <= 1.0 && GetDistanceToEMAPrice(orderType, true) < 100.0)
-        {
-         Lots = 0.01;
-        }
+      // // If EMA is flat (angle <= 1) AND price is near the EMA (distance < 100)
+      // if(MathAbs(GetEmaAngleDegrees(30)) <= 1.0 && GetDistanceToEMAPrice(orderType, true) < 100.0)
+      //   {
+      //    Lots = 0.01;
+      //   }
 
 
      }
@@ -2849,6 +2849,41 @@ void ChangeLots(double OpenPL, string reason, int orderType, int stoplevelStep)
               }
         }
      }
+
+
+// --- TREND & DISTANCE LOT FILTER ---
+      double emaAngle = GetEmaAngleDegrees(30);
+      double emaDistance = GetDistanceToEMAPrice(orderType, true);
+
+      if(orderType == OP_BUY)
+        {
+         // 1. Restrict to 0.01 if the angle is weak or pointing down
+         if(emaAngle < 1.0)
+           {
+            Lots = 0.01;
+           }
+         // 2. The distance rule normally restricts lots if price < 100.0, 
+         // BUT we ignore it completely if we are in a good buy trend (emaAngle >= 1.0).
+         else if(emaDistance < 100.0 && emaAngle < 1.0)
+           {
+            Lots = 0.01;
+           }
+        }
+      else if(orderType == OP_SELL)
+        {
+         // 1. Restrict to 0.01 if the angle is weak or pointing up 
+         // (Note: A strong sell trend has a negative angle, e.g., -2.0)
+         if(emaAngle > -1.0)
+           {
+            Lots = 0.01;
+           }
+         // 2. The distance rule normally restricts lots if price < 100.0,
+         // BUT we ignore it completely if we are in a good sell trend (emaAngle <= -1.0).
+         else if(emaDistance < 100.0 && emaAngle > -1.0)
+           {
+            Lots = 0.01;
+           }
+        }
 
    if(Lots>=0.05 && IsSameLotOrderNearBy(orderType,Lots,200))
      {
@@ -3274,25 +3309,46 @@ bool CreateDayProfitLadderPending(int direction)
 //+------------------------------------------------------------------+
 //|                                                                  |
 //+------------------------------------------------------------------+
+
 void ManageDayProfitLadder()
   {
    if(!EnableDayProfitLadder)
       return;
+      
    datetime today = GetDayProfitLadderDate();
-   if(!DayProfitLadderInitialized || DayProfitLadderDate != today)
+   
+   // 1. Initial setup on EA load
+   if(!DayProfitLadderInitialized)
      {
       InitializeDayProfitLadder();
       return;
      }
+     
+   // 2. New Day Reset Logic (Basket P/L Gatekeeper)
+   if(DayProfitLadderDate != today)
+     {
+      // Only reset the day if the current open basket is in profit (or if no orders exist)
+      if(GetEAFloatingPL() >= 0.0)
+        {
+         InitializeDayProfitLadder();
+         return;
+        }
+      // If the basket is in a loss (< 0.0), we skip the reset. 
+      // The EA will keep DayProfitLadderDate as yesterday and continue tracking the existing cycle.
+     }
+
    if(DayProfitLadderTradingStopped)
      {
       CloseAndDeleteAllEAOrdersOnTradingStop();
       return;
      }
+     
    if(DayProfitLadderStartBalance <= 0.0)
       return;
+      
    double equity = AccountEquity();
    double step = MathAbs(DayProfitLadder1Percent) / 100.0;
+   
    if(step > 0.0 && equity >= DayProfitLadderStartBalance * (1.0 + step))
      {
       double profitRatio = (equity / DayProfitLadderStartBalance) - 1.0;
@@ -3311,6 +3367,7 @@ void ManageDayProfitLadder()
          SaveDayProfitLadderState();
         }
      }
+     
    if(equity <= DayProfitLadderProtectionEquity)
      {
       DayProfitLadderTradingStopped = true;
@@ -3327,7 +3384,6 @@ void ManageDayProfitLadder()
       ReEntryRetryPending=false;
      }
   }
-
 //+------------------------------------------------------------------+
 //|                                                                  |
 //+------------------------------------------------------------------+
