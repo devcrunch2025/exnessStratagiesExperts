@@ -116,8 +116,8 @@ double   PostOrderSLTPVerifyExpectedOpen[MAX_POST_ORDER_SLTP_VERIFY];
 int      PostOrderSLTPVerifyType[MAX_POST_ORDER_SLTP_VERIFY];
 double   PostOrderSLTPVerifyLots[MAX_POST_ORDER_SLTP_VERIFY];
 
-bool EnableRecoveryOrders = false;
-double RecoveryTriggerLossUSD = 1;
+bool EnableRecoveryOrders = true;
+double RecoveryTriggerLossUSD = 2;//0.50;
 double RecoveryLotMultiplier = 1;
 int MaxRecoveryOrders = 1;
 double RecoveryBasketProfitUSD = 0.20;
@@ -2835,7 +2835,7 @@ bool IsHeavyLotOrderNearBy(int orderType, double checkLot, double gapRawThreshol
 //+------------------------------------------------------------------+
 void ChangeLots(double OpenPL, string reason, int orderType, int stoplevelStep)
   {
-   double MaxRecoveryLot = 0.07;
+   double MaxRecoveryLot = 0.04;
    double oppositeLots = GetOppositeOrdersLots(orderType);
    bool isSSLSignal = (reason == "SSL Long" || reason == "SSL Short");
    bool isSSLProfitReEntry = (reason == "SSL Profit ReEntry Buy Stop" || reason == "SSL Profit ReEntry Sell Stop");
@@ -2845,11 +2845,11 @@ void ChangeLots(double OpenPL, string reason, int orderType, int stoplevelStep)
      {
       Lots = GetMarketMomentLot(orderType);
       if(GetCurrentSSLDirection() == EMADirection || GlobalBUYSELLdashboardScore==4)
-         Lots=0.07;
+         Lots=0.02;
       else
          Lots=0.01;
       if(GetCurrentSSLDirection() == EMADirection)
-         Lots=0.07;
+         Lots=0.02;
 
       // --- TREND & DISTANCE LOT FILTER (SSL ONLY) ---
       double emaAngle = GetEmaAngleDegrees(30);
@@ -2878,15 +2878,15 @@ void ChangeLots(double OpenPL, string reason, int orderType, int stoplevelStep)
          Lots = 0.05;
          if(GetCurrentSSLDirection() == EMADirection)
            {
-            Lots = CalculateDecreaseLots(reEntryCounter, 0.05, 0.02);
+            Lots = CalculateDecreaseLots(reEntryCounter, 0.04, 0.01);
             if(CheckFastProfitableRecentOrders())
-               Lots = 0.05;
+               Lots = 0.02;
            }
          else
            {
-            Lots = CalculateIncreaseLots(reEntryCounter, 0.01, 0.05);
+            Lots = CalculateIncreaseLots(reEntryCounter, 0.01, 0.04);
             if(CheckFastProfitableRecentOrders() && Lots<0.03)
-               Lots = 0.03;
+               Lots = 0.02;
            }
          // if(orderType == OP_BUY) { if(GetOpenPL(OP_SELL) <= -10) Lots = 0.05; }
          // else if(orderType == OP_SELL) { if(GetOpenPL(OP_BUY) <= -10) Lots = 0.05; }
@@ -2895,16 +2895,16 @@ void ChangeLots(double OpenPL, string reason, int orderType, int stoplevelStep)
 // --- 2. V-SHAPE OVERRIDE (APPLIES TO BOTH SSL AND RE-ENTRY) ---
    if(orderType == OP_BUY && GlobalVShapeBuy)
      {
-      Lots = 0.04; // Immediate max lot boost for Bullish V-Shape snapback
+      Lots = 0.02; // Immediate max lot boost for Bullish V-Shape snapback
      }
    else
       if(orderType == OP_SELL && GlobalVShapeSell)
         {
-         Lots = 0.04; // Immediate max lot boost for Bearish Inverted V-Shape snapback
+         Lots = 0.02; // Immediate max lot boost for Bearish Inverted V-Shape snapback
         }
 
 // --- 3. FAILSAFES & NORMALIZATION ---
-   if(Lots>=0.05 && IsSameLotOrderNearBy(orderType,Lots,300))
+   if(Lots>=0.05 && IsSameLotOrderNearBy(orderType,Lots,100))
       Lots=0.02;
 
 
@@ -2936,27 +2936,34 @@ void ChangeLots(double OpenPL, string reason, int orderType, int stoplevelStep)
         }
 
 
-   if(GetM5Direction()!=orderType && Lots>=0.05)
-     {
-      Lots=0.01;
-     }
+   // if(GetM5Direction()!=orderType && Lots>=0.05)
+   //   {
+   //    Lots=0.01;
+   //   }
  if(IsHeavyLotOrderNearBy(orderType, Lots, 100) && Lots>=0.05)
      {
       Lots = 0.01;
      }
 
 
+     if(MathAbs(  GetEmaAngleDegrees(30))<3)
+     {
+      Lots = 0.01;
+
+     }
+
 //--------------------Final
 
 datetime dubaiTime = TimeCurrent() + (ServerToDubaiOffsetHours * 3600);
    int currentHour = TimeHour(dubaiTime);
 
-if(TimeHour(dubaiTime)==0 ||TimeCurrent()==0 )
-{
-      Lots = 0.01;
+// if(TimeHour(dubaiTime)==0 ||TimeCurrent()==0 )
+// {
+//       Lots = 0.01;
    
-}
-
+// }
+if(Lots > MaxRecoveryLot)
+      Lots = MaxRecoveryLot;
 
    int balancelomultipler = (int)(AccountBalance() / AccountMultiplierLOT);
    if(balancelomultipler < 1)
@@ -2965,8 +2972,7 @@ if(TimeHour(dubaiTime)==0 ||TimeCurrent()==0 )
    
   
 
-     if(Lots > MaxRecoveryLot)
-      Lots = MaxRecoveryLot;
+     
 
 // 3. Normalize and finalize
    Lots = NormalizeLots(Lots);
@@ -2982,10 +2988,35 @@ if(TimeHour(dubaiTime)==0 ||TimeCurrent()==0 )
 //+------------------------------------------------------------------+
 //|                                                                  |
 //+------------------------------------------------------------------+
+int CountActiveRecoveryOrders()
+  {
+   int count = 0;
+   for(int i = OrdersTotal() - 1; i >= 0; i--)
+     {
+      if(!OrderSelect(i, SELECT_BY_POS, MODE_TRADES))
+         continue;
+      if(OrderSymbol() != Symbol() || OrderMagicNumber() != MagicNumber)
+         continue;
+      if(StringFind(OrderComment(), "RECOVERY_") == 0)
+         count++;
+     }
+   return count;
+  }
+
 void CheckRecoveryOrders()
   {
    if(!EnableRecoveryOrders || GetTotalEAOrders() >= MaxOpenOrders)
       return;
+
+   // Enforce a strict global limit: maximum 1 active recovery order at a time
+   if(CountActiveRecoveryOrders() >= 1)
+      return;
+
+   if(MathAbs(GetEmaAngleDegrees(30)) < 3) 
+      return;
+
+
+
    RefreshRates();
    for(int i = OrdersTotal() - 1; i >= 0; i--)
      {
@@ -2999,6 +3030,7 @@ void CheckRecoveryOrders()
 
       if(parentType != OP_BUY && parentType != OP_SELL)
          continue;
+         
 
       string comment = OrderComment();
       if(StringFind(comment, "RECOVERY_") == 0)
@@ -3016,9 +3048,9 @@ void CheckRecoveryOrders()
       if(profit > recoveryTrigger)
          continue;
 
-      if(parentType == OP_BUY && GetSSLSignal() != 1)
+      if(parentType == OP_BUY && GetSSLSignal() != 1 && EMADirection!=1)
          continue;
-      if(parentType == OP_SELL && GetSSLSignal() != -1)
+      if(parentType == OP_SELL && GetSSLSignal() != -1 && EMADirection!=-1)
          continue;
 
       double lots = NormalizeLots(OrderLots() * RecoveryLotMultiplier);
