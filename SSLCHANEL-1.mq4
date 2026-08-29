@@ -2858,13 +2858,13 @@ void ChangeLots(double OpenPL, string reason, int orderType, int stoplevelStep)
       if(orderType == OP_BUY)
         {
          // 1. Restrict to 0.01 if the angle is weak or pointing down
-         if(emaAngle < 1.0)
+         if(emaAngle < 2.0)
            {
             Lots = 0.01;
            }
          // 2. The distance rule normally restricts lots if price < 100.0, 
          // BUT we ignore it completely if we are in a good buy trend (emaAngle >= 1.0).
-         else if(emaDistance < 100.0 && emaAngle < 1.0)
+         else if(emaDistance < 100.0 && emaAngle < 2.0)
            {
             Lots = 0.01;
            }
@@ -2873,13 +2873,13 @@ void ChangeLots(double OpenPL, string reason, int orderType, int stoplevelStep)
         {
          // 1. Restrict to 0.01 if the angle is weak or pointing up 
          // (Note: A strong sell trend has a negative angle, e.g., -2.0)
-         if(emaAngle > -1.0)
+         if(emaAngle > -2.0)
            {
             Lots = 0.01;
            }
          // 2. The distance rule normally restricts lots if price < 100.0,
          // BUT we ignore it completely if we are in a good sell trend (emaAngle <= -1.0).
-         else if(emaDistance < 100.0 && emaAngle > -1.0)
+         else if(emaDistance < 100.0 && emaAngle > -2.0)
            {
             Lots = 0.01;
            }
@@ -4764,7 +4764,7 @@ void UpdateDashboard(DailyProtectionState &state)
    CreateDashboardLabel(DASH_PREFIX+"TITLE","SSL CHANNEL EA  |  PRO CONTROL",tx,y+8,11,clrWhite);
    CreateDashboardLabel(DASH_PREFIX+"SUBTITLE",Symbol()+"  |  "+TimeframeToString(Period()),tx+w-125,y+10,8,clrLightGray);
    CreateDashboardLabel(DASH_PREFIX+"STATUS", "STATUS       : "+statusText,tx,y+47,10,statusColor);
-   CreateDashboardLabel(DASH_PREFIX+"SIGNAL","SSL SIGNAL   : "+sslDirection+"  ("+strong+")"+" "+DoubleToString(MathAbs(GetEmaAngleDegrees(30)),2),tx,y+67,9,sslColor);
+   CreateDashboardLabel(DASH_PREFIX+"SIGNAL","SSL SIGNAL   : "+sslDirection+"  ("+strong+")"+" "+DoubleToString((GetEmaAngleDegrees(30)),2),tx,y+67,9,sslColor);
    CreateDashboardPanel(DASH_PREFIX+"SEC_CONFIRM",x,y+90,w,22,C'30,38,50');
    CreateDashboardLabel(DASH_PREFIX+"CONF_H","MARKET-MOMENT CONFIRMATIONS",tx,y+94,9,clrAqua);
    CreateDashboardLabel(DASH_PREFIX+"CONF_H1","H1 DIRECTION : "+h1Text+"  ["+h1Mark+"]",tx,y+117,9,h1Color);
