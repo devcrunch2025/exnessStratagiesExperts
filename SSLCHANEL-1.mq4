@@ -2829,7 +2829,7 @@ bool IsHeavyLotOrderNearBy(int orderType, double checkLot, double gapRawThreshol
 //+------------------------------------------------------------------+
 void ChangeLots(double OpenPL, string reason, int orderType, int stoplevelStep)
   {
-   double MaxRecoveryLot = 0.03;
+   double MaxRecoveryLot = 0.05;
    double oppositeLots = GetOppositeOrdersLots(orderType);
    bool isSSLSignal = (reason == "SSL Long" || reason == "SSL Short");
    bool isSSLProfitReEntry = (reason == "SSL Profit ReEntry Buy Stop" || reason == "SSL Profit ReEntry Sell Stop");
@@ -2839,11 +2839,11 @@ void ChangeLots(double OpenPL, string reason, int orderType, int stoplevelStep)
      {
       Lots = GetMarketMomentLot(orderType);
       if(GetCurrentSSLDirection() == EMADirection || GlobalBUYSELLdashboardScore==4)
-         Lots=0.05;
+         Lots=0.07;
       else
          Lots=0.01;
       if(GetCurrentSSLDirection() == EMADirection)
-         Lots=0.10;
+         Lots=0.07;
 
       // --- TREND & DISTANCE LOT FILTER (SSL ONLY) ---
       double emaAngle = GetEmaAngleDegrees(30);
@@ -2898,7 +2898,7 @@ void ChangeLots(double OpenPL, string reason, int orderType, int stoplevelStep)
         }
 
 // --- 3. FAILSAFES & NORMALIZATION ---
-   if(Lots>=0.05 && IsSameLotOrderNearBy(orderType,Lots,100))
+   if(Lots>=0.05 && IsSameLotOrderNearBy(orderType,Lots,300))
       Lots=0.02;
 
 
@@ -2928,6 +2928,15 @@ void ChangeLots(double OpenPL, string reason, int orderType, int stoplevelStep)
             Lots = Lots * 2;
            }
         }
+
+
+        if(GetM5Direction()!=orderType && Lots>=0.05)
+        {
+          Lots=0.01;
+        }
+
+
+        //--------------------Final 
    int balancelomultipler = (int)(AccountBalance() / AccountMultiplierLOT);
    if(balancelomultipler < 1)
       balancelomultipler = 1;
