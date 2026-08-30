@@ -3246,17 +3246,24 @@ void CheckRecoveryOrders()
 
       int recoveryTicket = -1;
       double slDistance = CalculatePriceDistanceUSD(StopLossUSD, recoveryLots);
+      double tpDistance = CalculatePriceDistanceUSD(5.0, recoveryLots); // Calculate exact price distance for $5 TP
+      
       double recoverySL = 0.0;
+      double recoveryTP = 0.0; // Initialize recovery TP
 
       if(parentType == OP_BUY)
         {
          recoverySL = (slDistance > 0) ? NormalizeDouble(Ask - slDistance, Digits) : 0;
-         recoveryTicket = SafeOrderSend(Symbol(), OP_BUY, recoveryLots, Ask, Slippage, recoverySL, 0, "RECOVERY_" + IntegerToString(parentTicket), MagicNumber, clrAqua);
+         recoveryTP = (tpDistance > 0) ? NormalizeDouble(Ask + tpDistance, Digits) : 0;
+         // Pass recoveryTP instead of 0
+         recoveryTicket = SafeOrderSend(Symbol(), OP_BUY, recoveryLots, Ask, Slippage, recoverySL, recoveryTP, "RECOVERY_" + IntegerToString(parentTicket), MagicNumber, clrAqua);
         }
       else
         {
          recoverySL = (slDistance > 0) ? NormalizeDouble(Bid + slDistance, Digits) : 0;
-         recoveryTicket = SafeOrderSend(Symbol(), OP_SELL, recoveryLots, Bid, Slippage, recoverySL, 0, "RECOVERY_" + IntegerToString(parentTicket), MagicNumber, clrOrange);
+         recoveryTP = (tpDistance > 0) ? NormalizeDouble(Bid - tpDistance, Digits) : 0;
+         // Pass recoveryTP instead of 0
+         recoveryTicket = SafeOrderSend(Symbol(), OP_SELL, recoveryLots, Bid, Slippage, recoverySL, recoveryTP, "RECOVERY_" + IntegerToString(parentTicket), MagicNumber, clrOrange);
         }
 
       if(recoveryTicket > 0)
