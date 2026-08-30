@@ -239,6 +239,11 @@ bool PassesUserRules(int orderType)
       return true;
 
    double emaAngle = GetEmaAngleDegrees(30);
+   // --- NEW EMA ANGLE HARD STOP ---
+   if(emaAngle > 5.0 && (orderType == OP_SELL || orderType == OP_SELLSTOP || orderType == OP_SELLLIMIT))
+      return false;
+   if(emaAngle < -5.0 && (orderType == OP_BUY || orderType == OP_BUYSTOP || orderType == OP_BUYLIMIT))
+      return false;
    RefreshRates();
 
    // 1. Check strong trend momentum (M5 ADX > 25 & aligned DIs)
@@ -2206,6 +2211,19 @@ int SafeOrderSend(string symbol,int orderType,double lots,double price,int slipp
       return -1;
    if(!IsDayProfitLadderTradingAllowed())
       return -1;
+// --- NEW EMA ANGLE HARD STOP ---
+   double currentAngle = GetEmaAngleDegrees(30);
+   if(currentAngle > 5.0 && (orderType == OP_SELL || orderType == OP_SELLSTOP || orderType == OP_SELLLIMIT))
+     {
+      Print("TRADE BLOCKED | EMA Angle (", DoubleToString(currentAngle, 2), ") > 5 prohibits Sell orders.");
+      return -1;
+     }
+   if(currentAngle < -5.0 && (orderType == OP_BUY || orderType == OP_BUYSTOP || orderType == OP_BUYLIMIT))
+     {
+      Print("TRADE BLOCKED | EMA Angle (", DoubleToString(currentAngle, 2), ") < -5 prohibits Buy orders.");
+      return -1;
+     }
+   // -------------------------------
 
    RefreshRates();
    double currentSpreadUSD = Ask - Bid;
