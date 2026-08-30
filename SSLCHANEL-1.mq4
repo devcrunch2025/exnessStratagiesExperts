@@ -16,6 +16,10 @@ int EMALineBars = 500;
 string EMA_PREFIX = "SSL_EMA_LINE_";
 bool EnableTrading = true;
 
+
+datetime CachedDayDate = 0;
+int      CachedDailyBias = 0;
+
 // ===== DUBAI TIMEZONE SETTINGS =====
 bool   EnableDubaiTradingPause    = true;
 string DubaiTradingPauseHours     = "19,20";
@@ -296,12 +300,26 @@ void Manage5PercentLadderReset()
 //+------------------------------------------------------------------+
 int GetPreviousDayActivityDirection()
   {
-   // Evaluates the previous closed Daily candle (shift 1 on D1) to determine strict single-direction bias
-   double d1Open  = iOpen(Symbol(), PERIOD_D1, 1);
-   double d1Close = iClose(Symbol(), PERIOD_D1, 1);
-   if(d1Close > d1Open) return 1;  // Bullish previous day -> Buy only
-   if(d1Close < d1Open) return -1; // Bearish previous day -> Sell only
-   return 0;
+   datetime currentDayDate = iTime(Symbol(), PERIOD_D1, 0); // Current day's open time
+   
+   // If the day has changed, re-evaluate and cache the bias based on the newly completed day (shift 1)
+   if(currentDayDate != CachedDayDate)
+     {
+      double d1Open  = iOpen(Symbol(), PERIOD_D1, 1);
+      double d1Close = iClose(Symbol(), PERIOD_D1, 1);
+      
+      if(d1Close > d1Open)
+         CachedDailyBias = 1;  // Bullish previous day -> Buy only
+      else if(d1Close < d1Open)
+         CachedDailyBias = -1; // Bearish previous day -> Sell only
+      else
+         CachedDailyBias = 0;  // Flat / Neutral
+         
+      CachedDayDate = currentDayDate;
+      Print("NEW DAY DETECTED: Daily Bias Locked to -> ", (CachedDailyBias == 1 ? "BUY ONLY" : (CachedDailyBias == -1 ? "SELL ONLY" : "NEUTRAL")));
+     }
+     
+   return CachedDailyBias;
   }
 
 //+------------------------------------------------------------------+
