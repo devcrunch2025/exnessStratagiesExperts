@@ -2239,6 +2239,7 @@ int SafeOrderSend(string symbol,int orderType,double lots,double price,int slipp
       Print("TRADE BLOCKED | EMA Angle (", DoubleToString(currentAngle, 2), ") < -5 prohibits Buy orders.");
       return -1;
      }
+     
 
      // --- 2. P&L & SSL DIRECTION BLOCK ---
    int currentSSL = GetCurrentSSLDirection();
