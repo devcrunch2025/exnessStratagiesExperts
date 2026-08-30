@@ -146,6 +146,8 @@ double DayProfitLadder2Percent = 10;
 double DayProfitLadderLockRatio = 10; // 10% loss allowance means 90% is locked
 double DayProfitInitialProtectionPercent = 80;
 
+double PeakProfitLockPercent = 80.0; // Locks 80% of maximum daily balance profit
+
 int Slippage = 30;
 int MagicNumber = 6600123;
 int MaxTradeRequestsPerTick = 10;
@@ -3822,8 +3824,53 @@ bool CreateDayProfitLadderPending(int direction)
 //+------------------------------------------------------------------+
 void ManageDayProfitLadder()
   {
+
+
+
+
+
+
    if(!EnableDayProfitLadder)
       return;
+
+
+
+
+
+
+
+// Inside ManageDayProfitLadder()
+
+   // Only activate the trailing lock if a ladder stage has been reached
+   if(DayProfitLadderStage > 0)
+     {
+      // 1. Calculate profit strictly from the REACHED Target Equity
+      double targetEquity = GetDayProfitLadderTarget(DayProfitLadderStage);
+      double targetProfit = targetEquity - DayProfitLadderStartBalance;
+      
+      if(targetProfit > 0)
+        {
+         // 2. Lock the specific percentage (e.g., 80%) of the TARGET's profit
+         double lockedProfitAmount = targetProfit * (PeakProfitLockPercent / 100.0);
+         double dynamicEquityFloor = DayProfitLadderStartBalance + lockedProfitAmount;
+         
+         // 3. Override Trigger: Equity drops below the locked target profit threshold
+         if(AccountEquity() <= dynamicEquityFloor)
+           {
+            Print("Target Profit Lock Hit! Stage: ", DayProfitLadderStage, " | Target: $", targetEquity, " | Equity dropped below $", dynamicEquityFloor, ". Flattening trades.");
+            
+            // Close all open trades immediately
+            CloseAndDeleteAllEAOrdersOnTradingStop(); 
+            
+            // Restart the ladder from this newly secured Equity baseline
+            InitializeDayProfitLadder(); 
+            return;
+           }
+        }
+     }
+
+
+
    datetime today = GetDayProfitLadderDate();
 
    if(!DayProfitLadderInitialized)
@@ -4574,6 +4621,10 @@ double CalculatePriceDistanceUSD(double usdAmount, double orderLots)
 //+------------------------------------------------------------------+
 void ManageProfitLadder()
   {
+
+
+
+   
    for(int i = OrdersTotal() - 1; i >= 0; i--)
      {
       if(!OrderSelect(i, SELECT_BY_POS, MODE_TRADES))
