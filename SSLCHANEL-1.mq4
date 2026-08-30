@@ -88,6 +88,10 @@ double MinimumSameOrderGapRawSSLLongShort = 10;
 double MinimumSameOrderGapRawMatched = 10;
 double MinimumSameOrderGapRawUnmatched = 100;
 
+double angleBlockAboveRule=3.0;
+double plBlockAboveRule=10.0;
+
+
 // ===== STOP-LOSS / RE-ENTRY SAFETY =====
 bool EnableSLProtection = false;
 int MaxSameDirectionOrders = 1000;
@@ -240,10 +244,22 @@ bool PassesUserRules(int orderType)
 
    double emaAngle = GetEmaAngleDegrees(30);
    // --- NEW EMA ANGLE HARD STOP ---
-   if(emaAngle > 5.0 && (orderType == OP_SELL || orderType == OP_SELLSTOP || orderType == OP_SELLLIMIT))
+   if(emaAngle > angleBlockAboveRule && (orderType == OP_SELL || orderType == OP_SELLSTOP || orderType == OP_SELLLIMIT))
       return false;
-   if(emaAngle < -5.0 && (orderType == OP_BUY || orderType == OP_BUYSTOP || orderType == OP_BUYLIMIT))
+   if(emaAngle < -angleBlockAboveRule && (orderType == OP_BUY || orderType == OP_BUYSTOP || orderType == OP_BUYLIMIT))
       return false;
+
+// --- 2. P&L & SSL DIRECTION BLOCK ---
+   int currentSSL = GetCurrentSSLDirection();
+   int requestedDirection = (orderType == OP_BUY || orderType == OP_BUYSTOP || orderType == OP_BUYLIMIT) ? 1 : -1;
+   int baseMarketType     = (requestedDirection == 1) ? OP_BUY : OP_SELL;
+   
+   if(GetOpenPL(baseMarketType) <= -plBlockAboveRule && currentSSL != requestedDirection)
+     {
+      Print("TRADE BLOCKED | Floating PL <= -", plBlockAboveRule, " and SSL does not match requested direction.");
+      return false;
+     }
+
    RefreshRates();
 
    // 1. Check strong trend momentum (M5 ADX > 25 & aligned DIs)
@@ -2213,14 +2229,25 @@ int SafeOrderSend(string symbol,int orderType,double lots,double price,int slipp
       return -1;
 // --- NEW EMA ANGLE HARD STOP ---
    double currentAngle = GetEmaAngleDegrees(30);
-   if(currentAngle > 5.0 && (orderType == OP_SELL || orderType == OP_SELLSTOP || orderType == OP_SELLLIMIT))
+   if(currentAngle > angleBlockAboveRule && (orderType == OP_SELL || orderType == OP_SELLSTOP || orderType == OP_SELLLIMIT))
      {
       Print("TRADE BLOCKED | EMA Angle (", DoubleToString(currentAngle, 2), ") > 5 prohibits Sell orders.");
       return -1;
      }
-   if(currentAngle < -5.0 && (orderType == OP_BUY || orderType == OP_BUYSTOP || orderType == OP_BUYLIMIT))
+   if(currentAngle < -angleBlockAboveRule && (orderType == OP_BUY || orderType == OP_BUYSTOP || orderType == OP_BUYLIMIT))
      {
       Print("TRADE BLOCKED | EMA Angle (", DoubleToString(currentAngle, 2), ") < -5 prohibits Buy orders.");
+      return -1;
+     }
+
+     // --- 2. P&L & SSL DIRECTION BLOCK ---
+   int currentSSL = GetCurrentSSLDirection();
+   int requestedDirection = (orderType == OP_BUY || orderType == OP_BUYSTOP || orderType == OP_BUYLIMIT) ? 1 : -1;
+   int baseMarketType     = (requestedDirection == 1) ? OP_BUY : OP_SELL;
+   
+   if(GetOpenPL(baseMarketType) <= -plBlockAboveRule && currentSSL != requestedDirection)
+     {
+      Print("TRADE BLOCKED | Floating PL <= -", plBlockAboveRule, " and SSL does not match requested direction.");
       return -1;
      }
    // -------------------------------
@@ -3106,7 +3133,7 @@ void ChangeLots(double OpenPL, string reason, int orderType, int stoplevelStep)
            }
         }
 
-   if(IsHeavyLotOrderNearBy(orderType, Lots, 100) && Lots>=MaxRecoveryLot)
+   if(IsHeavyLotOrderNearBy(orderType, Lots, 200) && Lots>=MaxRecoveryLot)
      {
       Lots = 0.01;
      }
