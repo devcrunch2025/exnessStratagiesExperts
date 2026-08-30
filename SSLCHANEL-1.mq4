@@ -132,6 +132,8 @@ double RecoveryLotMultiplier = 1;
 int MaxRecoveryOrders = 1;
 double RecoveryBasketProfitUSD = 0.20;
 
+double RecoveryMinDistanceRaw = 50.0; // Minimum adverse price distance (USD) before Recovery activates
+
 bool   EnableDayProfitLadder = true;
 double DayProfitLadder1Percent = 25;
 double DayProfitLadder1Amount = 5;
@@ -228,6 +230,9 @@ int ProtectedEquityWaitMinutes = 0;
 //+------------------------------------------------------------------+
 //| Check custom user rules for order creation                       |
 //+------------------------------------------------------------------+
+//+------------------------------------------------------------------+
+//| Check custom user rules with Breakout Momentum Bypass            |
+//+------------------------------------------------------------------+
 bool PassesUserRules(int orderType)
   {
    if(!InpEnableCustomRules)
@@ -236,34 +241,47 @@ bool PassesUserRules(int orderType)
    double emaAngle = GetEmaAngleDegrees(30);
    RefreshRates();
 
-// Collect the High and Low over the last 12 hours using H1 candles
-   int highIdx = iHighest(Symbol(), PERIOD_H1, MODE_HIGH, 12, 0);
-   int lowIdx  = iLowest(Symbol(), PERIOD_H1, MODE_LOW, 12, 0);
+   // 1. Check strong trend momentum (M5 ADX > 25 & aligned DIs)
+   double adxMain = iADX(Symbol(), PERIOD_M5, 14, PRICE_CLOSE, MODE_MAIN, 0);
+   double adxPlus = iADX(Symbol(), PERIOD_M5, 14, PRICE_CLOSE, MODE_PLUSDI, 0);
+   double adxMin  = iADX(Symbol(), PERIOD_M5, 14, PRICE_CLOSE, MODE_MINUSDI, 0);
+   
+   bool strongBullishMomentum = (adxMain >= 25.0 && adxPlus > adxMin && emaAngle >= 1.5);
+   bool strongBearishMomentum = (adxMain >= 25.0 && adxMin > adxPlus && emaAngle <= -1.5);
+
+   // 2. Collect High and Low over the last 12 hours (excluding current bar to avoid self-referencing)
+   int highIdx = iHighest(Symbol(), PERIOD_H1, MODE_HIGH, 12, 1);
+   int lowIdx  = iLowest(Symbol(), PERIOD_H1, MODE_LOW, 12, 1);
 
    double rolling12HourHigh = iHigh(Symbol(), PERIOD_H1, highIdx);
    double rolling12HourLow  = iLow(Symbol(), PERIOD_H1, lowIdx);
 
    if(orderType == OP_BUY || orderType == OP_BUYSTOP || orderType == OP_BUYLIMIT)
      {
-      // Rule 3: Strong momentum filter based on EMA angle (must be > set angle if enabled)
+      // Angle Filter
       if(InpEnableEmaAngleFilter && emaAngle <= InpMinEmaAngleDegrees)
          return false;
 
-      // Rule 1: Buy orders must be well below the 12-hour high (to avoid buying tops)
-      if(rolling12HourHigh > 0.0 && (rolling12HourHigh - Ask) <= InpPriceGapFromExtreme)
-         return false;
-     }
-   else
-      if(orderType == OP_SELL || orderType == OP_SELLSTOP || orderType == OP_SELLLIMIT)
+      // Extreme High Filter: Active ONLY if momentum is not in a confirmed breakout
+      if(!strongBullishMomentum)
         {
-         // Rule 3: Strong momentum filter based on EMA angle (must be < negative set angle if enabled)
-         if(InpEnableEmaAngleFilter && emaAngle >= -InpMinEmaAngleDegrees)
-            return false;
-
-         // Rule 2: Sell orders must be well above the 12-hour low (to avoid selling bottoms)
-         if(rolling12HourLow > 0.0 && (Bid - rolling12HourLow) <= InpPriceGapFromExtreme)
-            return false;
+         if(rolling12HourHigh > 0.0 && (rolling12HourHigh - Ask) <= InpPriceGapFromExtreme)
+            return false; // Near resistance in standard market -> Block
         }
+     }
+   else if(orderType == OP_SELL || orderType == OP_SELLSTOP || orderType == OP_SELLLIMIT)
+     {
+      // Angle Filter
+      if(InpEnableEmaAngleFilter && emaAngle >= -InpMinEmaAngleDegrees)
+         return false;
+
+      // Extreme Low Filter: Active ONLY if momentum is not in a confirmed breakdown
+      if(!strongBearishMomentum)
+        {
+         if(rolling12HourLow > 0.0 && (Bid - rolling12HourLow) <= InpPriceGapFromExtreme)
+            return false; // Near support in standard market -> Block
+        }
+     }
 
    return true;
   }
@@ -3130,12 +3148,15 @@ int CountActiveRecoveryOrders()
   //+------------------------------------------------------------------+
 //| Check and Create Recovery Orders                                 |
 //+------------------------------------------------------------------+
+//+------------------------------------------------------------------+
+//| Check and Create Recovery Orders with Distance Gate              |
+//+------------------------------------------------------------------+
 void CheckRecoveryOrders()
   {
-   if(!EnableRecoveryOrders || GetTotalEAOrders() >= MaxOpenOrders)
+   if(!EnableRecoveryOrders || GetTotalEAOrders() >= MaxOpenOrders || !IsOneCandleOrderAllowed())
       return;
 
-   // Enforce maximum 1 active recovery order globally
+   // Enforce strict global limit of 1 active recovery order
    if(CountActiveRecoveryOrders() >= 1)
       return;
 
@@ -3176,18 +3197,22 @@ void CheckRecoveryOrders()
       if(HasRecoveryOrder(parentTicket))
          continue;
 
-      // --- SCALED LOSS TRIGGER (RecoveryTriggerLossUSD x Lot) ---
       double parentLots = OrderLots();
       double currentProfitUSD = OrderProfit() + OrderSwap() + OrderCommission();
       
-      // Calculates exact loss threshold scaled to lot size (e.g., $2.00 loss per 0.01 lot -> $8.00 loss for 0.04 lot)
+      // 1. SCALED LOSS GATE: Requires $2.00 loss per 0.01 lot ($8.00 loss for 0.04 lot)
       double dynamicRecoveryLossLimit = -MathAbs(RecoveryTriggerLossUSD * parentLots * 100.0);
-
-      // Only trigger if floating loss is greater than the required dollar limit
       if(currentProfitUSD > dynamicRecoveryLossLimit)
          continue;
 
-      // Check alignment
+      // 2. PHYSICAL PRICE DISTANCE GATE: Price must drop/rise by at least RecoveryMinDistanceRaw
+      double currentPrice = (parentType == OP_BUY) ? Bid : Ask;
+      double adverseDistance = (parentType == OP_BUY) ? (OrderOpenPrice() - currentPrice) : (currentPrice - OrderOpenPrice());
+      
+      if(adverseDistance < RecoveryMinDistanceRaw)
+         continue;
+
+      // 3. Direction Filter
       if(parentType == OP_BUY && GetSSLSignal() != 1 && EMADirection != 1)
          continue;
       if(parentType == OP_SELL && GetSSLSignal() != -1 && EMADirection != -1)
