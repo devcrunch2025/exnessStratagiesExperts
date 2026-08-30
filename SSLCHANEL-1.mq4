@@ -3025,7 +3025,7 @@ void ChangeLots(double OpenPL, string reason, int orderType, int stoplevelStep)
    //   {
    //    Lots=0.01;
    //   }
- if(IsHeavyLotOrderNearBy(orderType, Lots, 100) && Lots>=0.05)
+ if(IsHeavyLotOrderNearBy(orderType, Lots, 100) && Lots>=MaxRecoveryLot)
      {
       Lots = 0.01;
      }
