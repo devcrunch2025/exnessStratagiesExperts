@@ -16,10 +16,6 @@ int EMALineBars = 500;
 string EMA_PREFIX = "SSL_EMA_LINE_";
 bool EnableTrading = true;
 
-
-datetime CachedDayDate = 0;
-int      CachedDailyBias = 0;
-
 // ===== DUBAI TIMEZONE SETTINGS =====
 bool   EnableDubaiTradingPause    = true;
 string DubaiTradingPauseHours     = "19,20";
@@ -81,6 +77,17 @@ double MinimumClosedProfitUSD = -9;
 double ProfitReEntryGapRaw = 25;
 double MinimumSameOrderGapRawReEntry = 20;
 double MinimumSameOrderGapRawSSLLongShort = 10;
+
+// ===== NEW ENTRY FILTERS =====
+// BUY must be within this maximum price gap below today's DAY HIGH.
+bool   EnableDayHighLowEntryFilter = true;
+double MaxBuyGapFromDayHigh = 100.0;
+// SELL must be at least this price gap above today's DAY LOW.
+double MinSellGapFromDayLow = 100.0;
+// Require strong EMA(200) slope momentum for every new BUY/SELL order.
+bool   EnableEmaAngleEntryFilter = true;
+double MinEmaAngleDegreesForEntry = 3.0;
+int    EmaAngleLookbackBarsForEntry = 30;
 
 // ===== STOP-LOSS / RE-ENTRY SAFETY =====
 bool EnableSLProtection = false;
@@ -294,37 +301,6 @@ void Manage5PercentLadderReset()
             OpenSell();
      }
   }
-
-//+------------------------------------------------------------------+
-//|                                                                  |
-//+------------------------------------------------------------------+
-int GetPreviousDayActivityDirection()
-  {
-   datetime currentDayDate = iTime(Symbol(), PERIOD_D1, 0); // Current day's open time
-   
-   // If the day has changed, re-evaluate and cache the bias based on the newly completed day (shift 1)
-   if(currentDayDate != CachedDayDate)
-     {
-      double d1Open  = iOpen(Symbol(), PERIOD_D1, 1);
-      double d1Close = iClose(Symbol(), PERIOD_D1, 1);
-      
-      if(d1Close > d1Open)
-         CachedDailyBias = 1;  // Bullish previous day -> Buy only
-      else if(d1Close < d1Open)
-         CachedDailyBias = -1; // Bearish previous day -> Sell only
-      else
-         CachedDailyBias = 0;  // Flat / Neutral
-         
-      CachedDayDate = currentDayDate;
-      Print("NEW DAY DETECTED: Daily Bias Locked to -> ", (CachedDailyBias == 1 ? "BUY ONLY" : (CachedDailyBias == -1 ? "SELL ONLY" : "NEUTRAL")));
-     }
-     
-   return CachedDailyBias;
-  }
-
-//+------------------------------------------------------------------+
-//|                                                                  |
-//+------------------------------------------------------------------+
 int GetSSLSignal()
   {
    if(Bars < SSLPeriod + 5)
@@ -349,11 +325,11 @@ int GetSSLSignal()
       return 0;
 
    // Enforce strict single-direction daily lock based on previous day's activity
-   int prevDayDir = GetPreviousDayActivityDirection();
+   // int prevDayDir = GetPreviousDayActivityDirection();
 
    if(previousClose <= upper && currentClose > upper)
      {
-      if(prevDayDir < 0) return 0; // Strictly block buys if previous day was bearish
+      //if(prevDayDir < 0) return 0; // Strictly block buys if previous day was bearish
       if(InpUseEMA200Filter)
         {
          double emaFilter = iMA(Symbol(), 0, InpEMA200Period, InpEMAPriceShift, MODE_EMA, PRICE_CLOSE, 1);
@@ -365,11 +341,42 @@ int GetSSLSignal()
      }
    if(previousClose >= lower && currentClose < lower)
      {
-      if(prevDayDir > 0) return 0; // Strictly block sells if previous day was bullish
+      // if(prevDayDir > 0) return 0; // Strictly block sells if previous day was bullish
       if(InpUseEMA200Filter)
         {
          double emaFilter = iMA(Symbol(), 0, InpEMA200Period, InpEMAPriceShift, MODE_EMA, PRICE_CLOSE, 1);
          if(currentClose < emaFilter)
+            return -1;
+        }
+      else
+         return -1;
+     }
+   return 0;
+  }
+//+------------------------------------------------------------------+
+//|                                                                  |
+//+------------------------------------------------------------------+
+int GetSSLSignalold()
+  {
+   double upper = iATR(Symbol(), 0, SSLPeriod, 0) + iMA(Symbol(), 0, SSLPeriod, 0, MODE_SMA, PRICE_CLOSE, 0);
+   double lower = iMA(Symbol(), 0, SSLPeriod, 0, MODE_SMA, PRICE_CLOSE, 0) - iATR(Symbol(), 0, SSLPeriod, 0);
+   double currentClose = Close[0];
+   double previousClose = Close[1];
+   if(previousClose <= upper && currentClose > upper)
+     {
+      if(InpUseEMA200Filter)
+        {
+         if(currentClose > iMA(Symbol(), 0, InpEMA200Period, InpEMAPriceShift, MODE_EMA, PRICE_CLOSE, 0))
+            return 1;
+        }
+      else
+         return 1;
+     }
+   if(previousClose >= lower && currentClose < lower)
+     {
+      if(InpUseEMA200Filter)
+        {
+         if(currentClose < iMA(Symbol(), 0, InpEMA200Period, InpEMAPriceShift, MODE_EMA, PRICE_CLOSE, 0))
             return -1;
         }
       else
@@ -2117,6 +2124,93 @@ void RemoveDubaiTradingPauseDashboard() { }
 //+------------------------------------------------------------------+
 //|                                                                  |
 //+------------------------------------------------------------------+
+//+------------------------------------------------------------------+
+//| Entry filter: day high/low location                             |
+//| BUY  = within MaxBuyGapFromDayHigh below today's D1 high        |
+//| SELL = at least MinSellGapFromDayLow above today's D1 low        |
+//+------------------------------------------------------------------+
+bool PassesDayHighLowEntryFilter(int orderType)
+  {
+   if(!EnableDayHighLowEntryFilter)
+      return true;
+
+   double dayHigh = iHigh(Symbol(), PERIOD_D1, 0);
+   double dayLow  = iLow(Symbol(), PERIOD_D1, 0);
+   if(dayHigh <= 0.0 || dayLow <= 0.0)
+      return false;
+
+   RefreshRates();
+
+   if(orderType == OP_BUY || orderType == OP_BUYSTOP || orderType == OP_BUYLIMIT)
+     {
+      double gapFromHigh = dayHigh - Ask;
+      if(gapFromHigh < 0.0)
+         gapFromHigh = 0.0;
+
+      if(gapFromHigh > MaxBuyGapFromDayHigh)
+        {
+         Print("ENTRY BLOCKED | BUY not within day-high zone | Gap=", DoubleToString(gapFromHigh, Digits),
+               " | Max=", DoubleToString(MaxBuyGapFromDayHigh, Digits),
+               " | DayHigh=", DoubleToString(dayHigh, Digits));
+         return false;
+        }
+      return true;
+     }
+
+   if(orderType == OP_SELL || orderType == OP_SELLSTOP || orderType == OP_SELLLIMIT)
+     {
+      double gapFromLow = Bid - dayLow;
+
+      if(gapFromLow < MinSellGapFromDayLow)
+        {
+         Print("ENTRY BLOCKED | SELL not above day-low zone | Gap=", DoubleToString(gapFromLow, Digits),
+               " | Min=", DoubleToString(MinSellGapFromDayLow, Digits),
+               " | DayLow=", DoubleToString(dayLow, Digits));
+         return false;
+        }
+      return true;
+     }
+
+   return true;
+  }
+
+//+------------------------------------------------------------------+
+//| Entry filter: EMA angle momentum                                 |
+//| Requirement: MathAbs(GetEmaAngleDegrees(30)) > 3 by default     |
+//+------------------------------------------------------------------+
+bool PassesEmaAngleEntryFilter(int orderType)
+  {
+   if(!EnableEmaAngleEntryFilter)
+      return true;
+
+   double angle = GetEmaAngleDegrees(EmaAngleLookbackBarsForEntry);
+   double absAngle = MathAbs(angle);
+
+   if(absAngle <= MinEmaAngleDegreesForEntry)
+     {
+      Print("ENTRY BLOCKED | EMA angle too weak | Angle=", DoubleToString(angle, 2),
+            " | Abs=", DoubleToString(absAngle, 2),
+            " | Required > ", DoubleToString(MinEmaAngleDegreesForEntry, 2),
+            " | Lookback=", IntegerToString(EmaAngleLookbackBarsForEntry));
+      return false;
+     }
+
+   return true;
+  }
+
+//+------------------------------------------------------------------+
+//| Combined new-order entry gate                                    |
+//+------------------------------------------------------------------+
+bool PassesNewOrderEntryFilters(int orderType)
+  {
+   if(!PassesDayHighLowEntryFilter(orderType))
+      return false;
+   if(!PassesEmaAngleEntryFilter(orderType))
+      return false;
+   return true;
+  }
+
+//+------------------------------------------------------------------+
 int SafeOrderSend(string symbol,int orderType,double lots,double price,int slippage,double stopLoss,double takeProfit,string comment,int magic,color arrowColor)
   {
    if(TradeOperationFailedThisTick)
@@ -2124,6 +2218,10 @@ int SafeOrderSend(string symbol,int orderType,double lots,double price,int slipp
    if(IsDubaiTradingPauseHour())
       return -1;
    if(!IsDayProfitLadderTradingAllowed())
+      return -1;
+
+   // NEW ENTRY FILTERS: every newly created BUY/SELL order must pass both rules.
+   if(!PassesNewOrderEntryFilters(orderType))
       return -1;
 
    RefreshRates();
@@ -2820,21 +2918,23 @@ double IsBullishORBearish()
                            IsDoubleTop(shift, patternLookback, pointTolerance);
 
 // 1. 5-Candle Price Confirmation Gate
-   int prevDayDir = GetPreviousDayActivityDirection();
-   if(isBullishPattern && Close[1] > High[shift] && prevDayDir >= 0)
+   if(isBullishPattern && Close[1] > High[shift])
       return 1;
-   if(isBearishPattern && Close[1] < Low[shift] && prevDayDir <= 0)
+   if(isBearishPattern && Close[1] < Low[shift])
       return -1;
 
 // 2. Instant V-Shape Overrides (No Delay for extreme capitulation)
-   if(GlobalVShapeBuy && prevDayDir >= 0)
+   if(GlobalVShapeBuy)
      {
+
       OpenBuy();
       return 1;
+
      }
-   if(GlobalVShapeSell && prevDayDir <= 0)
+   if(GlobalVShapeSell)
      {
       OpenSell();
+
       return -1;
      }
 
@@ -2941,6 +3041,8 @@ void ChangeLots(double OpenPL, string reason, int orderType, int stoplevelStep)
             if(CheckFastProfitableRecentOrders() && Lots<0.03)
                Lots = 0.02;
            }
+         // if(orderType == OP_BUY) { if(GetOpenPL(OP_SELL) <= -10) Lots = 0.05; }
+         // else if(orderType == OP_SELL) { if(GetOpenPL(OP_BUY) <= -10) Lots = 0.05; }
         }
 
 // --- 2. V-SHAPE OVERRIDE (APPLIES TO BOTH SSL AND RE-ENTRY) ---
@@ -2958,11 +3060,19 @@ void ChangeLots(double OpenPL, string reason, int orderType, int stoplevelStep)
    if(Lots>=0.05 && IsSameLotOrderNearBy(orderType,Lots,100))
       Lots=0.02;
 
+
+
+
+// 2. NOW check proximity to throttle down clustered heavy lots
+//  if(Lots >= 0.04 && IsHeavyLotOrderNearBy(orderType, 200.0)) Lots = 0.02;
+
+
    double buyPL  = GetOpenPL(OP_BUY);
    double sellPL = GetOpenPL(OP_SELL);
 
    if(orderType == OP_BUY && EMADirection==1)
      {
+      // If Buy has less loss than Sell (smaller absolute loss magnitude)
       if(MathAbs(buyPL) < MathAbs(sellPL))
         {
          Lots = Lots * 2;
@@ -2971,20 +3081,28 @@ void ChangeLots(double OpenPL, string reason, int orderType, int stoplevelStep)
    else
       if(orderType == OP_SELL && EMADirection==-1)
         {
+         // If Sell has less loss than Buy (smaller absolute loss magnitude)
          if(MathAbs(sellPL) < MathAbs(buyPL))
            {
             Lots = Lots * 2;
            }
         }
 
+
+   // if(GetM5Direction()!=orderType && Lots>=0.05)
+   //   {
+   //    Lots=0.01;
+   //   }
  if(IsHeavyLotOrderNearBy(orderType, Lots, 100) && Lots>=0.05)
      {
       Lots = 0.01;
      }
 
+
      if(MathAbs(  GetEmaAngleDegrees(30))<3)
      {
       Lots = 0.01;
+
      }
 
 //--------------------Final
@@ -2992,6 +3110,11 @@ void ChangeLots(double OpenPL, string reason, int orderType, int stoplevelStep)
 datetime dubaiTime = TimeCurrent() + (ServerToDubaiOffsetHours * 3600);
    int currentHour = TimeHour(dubaiTime);
 
+// if(TimeHour(dubaiTime)==0 ||TimeCurrent()==0 )
+// {
+//       Lots = 0.01;
+   
+// }
 if(Lots > MaxRecoveryLot)
       Lots = MaxRecoveryLot;
 
@@ -2999,6 +3122,10 @@ if(Lots > MaxRecoveryLot)
    if(balancelomultipler < 1)
       balancelomultipler = 1;
    Lots = Lots * balancelomultipler;
+   
+  
+
+     
 
 // 3. Normalize and finalize
    Lots = NormalizeLots(Lots);
@@ -3041,6 +3168,8 @@ void CheckRecoveryOrders()
    if(MathAbs(GetEmaAngleDegrees(30)) < 3) 
       return;
 
+
+
    RefreshRates();
    for(int i = OrdersTotal() - 1; i >= 0; i--)
      {
@@ -3054,6 +3183,7 @@ void CheckRecoveryOrders()
 
       if(parentType != OP_BUY && parentType != OP_SELL)
          continue;
+         
 
       string comment = OrderComment();
       if(StringFind(comment, "RECOVERY_") == 0)
@@ -3071,10 +3201,9 @@ void CheckRecoveryOrders()
       if(profit > recoveryTrigger)
          continue;
 
-      int prevDayDir = GetPreviousDayActivityDirection();
-      if(parentType == OP_BUY && (GetSSLSignal() != 1 || prevDayDir < 0))
+      if(parentType == OP_BUY && GetSSLSignal() != 1 && EMADirection!=1)
          continue;
-      if(parentType == OP_SELL && (GetSSLSignal() != -1 || prevDayDir > 0))
+      if(parentType == OP_SELL && GetSSLSignal() != -1 && EMADirection!=-1)
          continue;
 
       double lots = NormalizeLots(OrderLots() * RecoveryLotMultiplier);
@@ -3596,8 +3725,7 @@ void ProcessEquityResetReEntry(DailyProtectionState &state)
    if(GetTotalEAOrders() >= MaxOpenOrders)
       return;
    int currentDirection = GetCurrentSSLDirection();
-   int prevDayDir = GetPreviousDayActivityDirection();
-   if(currentDirection > 0 && prevDayDir >= 0)
+   if(currentDirection > 0)
      {
       OrderCreatedThisCandle = false;
       LastOrderCandleTime = 0;
@@ -3612,7 +3740,7 @@ void ProcessEquityResetReEntry(DailyProtectionState &state)
         }
       return;
      }
-   if(currentDirection < 0 && prevDayDir <= 0)
+   if(currentDirection < 0)
      {
       OrderCreatedThisCandle = false;
       LastOrderCandleTime = 0;
@@ -3774,10 +3902,6 @@ bool CreateCircleOrder(int direction, DailyProtectionState &state)
    if(ServerRecoveryPending || !IsConnected())
       return false;
 
-   int prevDayDir = GetPreviousDayActivityDirection();
-   if(direction == 1 && prevDayDir < 0) return false;
-   if(direction == -1 && prevDayDir > 0) return false;
-
    int orderType = (direction == 1) ? OP_BUY : OP_SELL;
    if(GetTotalEAOrders() >= MaxOpenOrders)
       return false;
@@ -3902,16 +4026,14 @@ void CheckForProfitableClosedOrder(DailyProtectionState &state)
      }
 if(EnableProfitReEntryStop && !IsDailyTradingStopped(state))
      {
+      // Prevent re-entry if the SSL direction has changed against the closed order
       int currentSSL = GetCurrentSSLDirection();
       int closedDirection = (latestType == OP_BUY) ? 1 : -1;
-      int prevDayDir = GetPreviousDayActivityDirection();
       
       if(currentSSL != 0 && currentSSL != closedDirection)
         {
-         return; 
+         return; // Signal has flipped; skip re-entry for this old order
         }
-      if(closedDirection == 1 && prevDayDir < 0) return;
-      if(closedDirection == -1 && prevDayDir > 0) return;
 
       int orderDurationSeconds = (int)(latestCloseTime - latestOpenTime);
       if(batchProfit >= 0.0 || orderDurationSeconds < 60 * 30 * 1)
@@ -3920,13 +4042,21 @@ if(EnableProfitReEntryStop && !IsDailyTradingStopped(state))
         }
       return;
      }
+   // if(EnableProfitReEntryStop && !IsDailyTradingStopped(state))
+   //   {
+   //    int orderDurationSeconds = (int)(latestCloseTime - latestOpenTime);
+   //    if(batchProfit >= 0.0 || orderDurationSeconds < 60 * 30 * 1)
+   //      {
+   //       CreateProfitReEntryStop(latestType, latestClosePrice, state, (batchProfit < 0.0));
+   //      }
+   //    return;
+   //   }
 
-   int prevDayDirCheck = GetPreviousDayActivityDirection();
    if(EnableTrading && !IsDailyTradingStopped(state))
      {
-      if(GetTotalBuyOrders() == 0 && IsBuySignal(0) && prevDayDirCheck >= 0)
+      if(GetTotalBuyOrders() == 0 && IsBuySignal(0))
          OpenBuy();
-      if(GetTotalSellOrders() == 0 && IsSellSignal(0) && prevDayDirCheck <= 0)
+      if(GetTotalSellOrders() == 0 && IsSellSignal(0))
          OpenSell();
      }
   }
@@ -3966,25 +4096,6 @@ void CreateProfitReEntryStop(int closedOrderType, double closedPrice, DailyProte
       return;
    if(!HasMinimumSameOrderGap(closedOrderType, MinimumSameOrderGapRawReEntry))
       return;
-
-   int prevDayDir = GetPreviousDayActivityDirection();
-   if(closedOrderType == OP_BUY && prevDayDir < 0) return;
-   if(closedOrderType == OP_SELL && prevDayDir > 0) return;
-
-   int high100Index = iHighest(Symbol(), PERIOD_D1, MODE_HIGH, 100, 1);
-   int low100Index  = iLowest(Symbol(), PERIOD_D1, MODE_LOW, 100, 1);
-   
-   if(high100Index >= 0 && low100Index >= 0)
-     {
-      double day100High = iHigh(Symbol(), PERIOD_D1, high100Index);
-      double day100Low  = iLow(Symbol(), PERIOD_D1, low100Index);
-      
-      if(closedOrderType == OP_BUY && closedPrice >= day100High)
-         return; 
-         
-      if(closedOrderType == OP_SELL && closedPrice <= day100Low)
-         return; 
-     }
 
    RefreshRates();
    double entryPrice = (closedOrderType == OP_BUY) ? (closedPrice + ProfitReEntryGapRaw) : (closedPrice - ProfitReEntryGapRaw);
@@ -4093,9 +4204,6 @@ void InvalidateTotalEAOrdersCache() { CachedTotalEAOrders=-1; CachedTotalEAOrder
 //+------------------------------------------------------------------+
 void OpenBuy()
   {
-   int prevDayDir = GetPreviousDayActivityDirection();
-   if(prevDayDir < 0) return; // Strictly block buy execution if previous day was bearish
-
    if(!IsSafeToCreateMarketOrder(OP_BUY) || !PassesEMAFilter(OP_BUY) || !IsOneCandleOrderAllowed() || GetTotalEAOrders() >= MaxOpenOrders)
       return;
    if(!HasMinimumSameOrderGap(OP_BUY, MinimumSameOrderGapRawSSLLongShort))
@@ -4144,9 +4252,6 @@ double NormalizeLots(double lots)
 //+------------------------------------------------------------------+
 void OpenSell()
   {
-   int prevDayDir = GetPreviousDayActivityDirection();
-   if(prevDayDir > 0) return; // Strictly block sell execution if previous day was bullish
-
    if(!IsSafeToCreateMarketOrder(OP_SELL) || !PassesEMAFilter(OP_SELL) || !IsOneCandleOrderAllowed() || GetTotalEAOrders() >= MaxOpenOrders)
       return;
    if(!HasMinimumSameOrderGap(OP_SELL, MinimumSameOrderGapRawSSLLongShort))
@@ -4460,7 +4565,7 @@ void DrawHistoricalSignals()
          CalculateSSL(i, up1, down1, hlv1);
          CalculateSSL(i - 1, up2, down2, hlv2);
          DrawTrendSegment(PREFIX + "HIST_UP_" + IntegerToString(i), Time[i], up1, Time[i - 1], up2, SSLUpColor);
-         DrawTrendSegment(PREFIX + "HIST_DOWN_" + IntegerToString(i), Time[i], down1, Time[i - 1], up2, SSLDownColor);
+         DrawTrendSegment(PREFIX + "HIST_DOWN_" + IntegerToString(i), Time[i], down1, Time[i - 1], down2, SSLDownColor);
         }
      }
    if(ShowHistoricalSignals)
@@ -4879,19 +4984,10 @@ void UpdateDashboard(DailyProtectionState &state)
    CreateDashboardLabel(DASH_PREFIX+"SUBTITLE",Symbol()+"  |  "+TimeframeToString(Period()),tx+w-125,y+10,8,clrLightGray);
    CreateDashboardLabel(DASH_PREFIX+"STATUS", "STATUS       : "+statusText,tx,y+47,10,statusColor);
    CreateDashboardLabel(DASH_PREFIX+"SIGNAL","SSL SIGNAL   : "+sslDirection+"  ("+strong+")"+" "+DoubleToString(MathAbs(GetEmaAngleDegrees(30)),2),tx,y+67,9,sslColor);
-   
-   // --- NEW: Display active day direction decided by previous day ---
-   int prevDayBias = GetPreviousDayActivityDirection();
-   string biasText = (prevDayBias > 0) ? "BUY ONLY (Bullish)" : (prevDayBias < 0) ? "SELL ONLY (Bearish)" : "NEUTRAL / BOTH";
-   color biasColor = (prevDayBias > 0) ? clrDeepSkyBlue : (prevDayBias < 0) ? clrTomato : clrGold;
-   CreateDashboardLabel(DASH_PREFIX+"DAILY_BIAS","DAILY BIAS   : "+biasText,tx,y+87,9,biasColor);
-   // -----------------------------------------------------------------
-
-   CreateDashboardPanel(DASH_PREFIX+"SEC_CONFIRM",x,y+110,w,22,C'30,38,50');
-   CreateDashboardLabel(DASH_PREFIX+"CONF_H","MARKET-MOMENT CONFIRMATIONS",tx,y+114,9,clrAqua);
-   CreateDashboardLabel(DASH_PREFIX+"CONF_H1","H1 DIRECTION : "+h1Text+"  ["+h1Mark+"]",tx,y+137,9,h1Color);
-   // ... (keep the rest of your dashboard labels following the shifted Y layout)
-   // CreateDashboardLabel(DASH_PREFIX+"CONF_M5","M5 3-CANDLE  : "+m5Text+"  ["+m5Mark+"]",tx,y+137,9,m5Color);
+   CreateDashboardPanel(DASH_PREFIX+"SEC_CONFIRM",x,y+90,w,22,C'30,38,50');
+   CreateDashboardLabel(DASH_PREFIX+"CONF_H","MARKET-MOMENT CONFIRMATIONS",tx,y+94,9,clrAqua);
+   CreateDashboardLabel(DASH_PREFIX+"CONF_H1","H1 DIRECTION : "+h1Text+"  ["+h1Mark+"]",tx,y+117,9,h1Color);
+   CreateDashboardLabel(DASH_PREFIX+"CONF_M5","M5 3-CANDLE  : "+m5Text+"  ["+m5Mark+"]",tx,y+137,9,m5Color);
    CreateDashboardLabel(DASH_PREFIX+"CONF_EMA","EMA "+IntegerToString(InpEMA200Period)+"     : "+emaState+"  ["+emaMark+"]",tx,y+157,9,emaConfirmColor);
    CreateDashboardLabel(DASH_PREFIX+"CONF_30M","30M MOMENTUM  : "+DoubleToString(dashboardMomentumDiff,Digits)+" / "+DoubleToString(dashboardMomentumThreshold,Digits)+"  ["+momMark+"]",tx,y+177,8,momentumColor);
    CreateDashboardLabel(DASH_PREFIX+"CONF_ATR","M5 RANGE/ATR : "+DoubleToString(dashboardATRRatio,2)+" / "+DoubleToString(MaxCandleRangeATRMultiple,2)+"  ["+(dashboardExtremeVol?"EXTREME":"OK")+"]",tx,y+197,8,dashboardExtremeVol?clrTomato:clrLime);
