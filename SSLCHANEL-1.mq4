@@ -130,7 +130,7 @@ bool EnableRecoveryOrders = true;
 double RecoveryTriggerLossUSD = 2;//0.50;
 double RecoveryLotMultiplier = 1;
 int MaxRecoveryOrders = 1;
-double RecoveryBasketProfitUSD = 0.20;
+double RecoveryBasketProfitUSD = 1;//0.20;
 
 double RecoveryMinDistanceRaw = 50.0; // Minimum adverse price distance (USD) before Recovery activates
 
@@ -3205,9 +3205,13 @@ void CheckRecoveryOrders()
       if(currentProfitUSD > dynamicRecoveryLossLimit)
          continue;
 
-      // 2. PHYSICAL PRICE DISTANCE GATE: Price must drop/rise by at least RecoveryMinDistanceRaw
-      double currentPrice = (parentType == OP_BUY) ? Bid : Ask;
-      double adverseDistance = (parentType == OP_BUY) ? (OrderOpenPrice() - currentPrice) : (currentPrice - OrderOpenPrice());
+      // 2. PHYSICAL PRICE DISTANCE GATE: True gap from Parent Open Price to NEW Order Open Price
+      double newExecutionPrice = (parentType == OP_BUY) ? Ask : Bid;
+      double adverseDistance = (parentType == OP_BUY) ? (OrderOpenPrice() - newExecutionPrice) : (newExecutionPrice - OrderOpenPrice());
+      
+      /* NOTE: If RecoveryMinDistanceRaw is in POINTS (e.g. 500), uncomment the line below:
+         adverseDistance = adverseDistance / Point; 
+      */
       
       if(adverseDistance < RecoveryMinDistanceRaw)
          continue;
@@ -3334,45 +3338,65 @@ void CheckRecoveryOrdersold()
 //+------------------------------------------------------------------+
 //|                                                                  |
 //+------------------------------------------------------------------+
+
 void ManageRecoveryBasket()
   {
    if(!EnableRecoveryOrders)
       return;
-   for(int i = OrdersTotal()-1; i >= 0; i--)
+
+   for(int i = OrdersTotal() - 1; i >= 0; i--)
      {
       if(!OrderSelect(i, SELECT_BY_POS, MODE_TRADES))
          continue;
-      if(OrderSymbol()!=Symbol() || OrderMagicNumber()!=MagicNumber)
+      if(OrderSymbol() != Symbol() || OrderMagicNumber() != MagicNumber)
          continue;
 
       string comment = OrderComment();
-      if(StringFind(comment,"RECOVERY_") != 0)
+      if(StringFind(comment, "RECOVERY_") != 0)
          continue;
 
       int recoveryTicket = OrderTicket();
       double recoveryLots = OrderLots();
       int recoveryType = OrderType();
       double recoveryProfit = OrderProfit() + OrderSwap() + OrderCommission();
-      int parentTicket = StrToInteger(StringSubstr(comment, StringLen("RECOVERY_")));
+      
+      // Extract the exact parent ticket from the comment (e.g., "RECOVERY_12345")
+      int parentTicket = (int)StringToInteger(StringSubstr(comment, 9));
 
-      if(!OrderSelect(parentTicket,SELECT_BY_TICKET))
+      bool parentFound = false;
+      double parentLots = 0.0;
+      int parentType = -1;
+      double parentProfit = 0.0;
+
+      // Scan exclusively for the exact matching parent order
+      for(int j = OrdersTotal() - 1; j >= 0; j--)
+        {
+         if(!OrderSelect(j, SELECT_BY_POS, MODE_TRADES)) continue;
+         if(OrderTicket() == parentTicket)
+           {
+            parentFound = true;
+            parentLots = OrderLots();
+            parentType = OrderType();
+            parentProfit = OrderProfit() + OrderSwap() + OrderCommission();
+            break;
+           }
+        }
+
+      if(!parentFound)
          continue;
-      if(OrderCloseTime()>0)
-         continue;
 
-      double parentLots = OrderLots();
-      int parentType = OrderType();
-      double parentProfit = OrderProfit() + OrderSwap() + OrderCommission();
-
+      // Evaluate the combined P/L of this specific pair ONLY
       double basketProfit = recoveryProfit + parentProfit;
+      
       if(basketProfit >= RecoveryBasketProfitUSD)
         {
-         SafeOrderClose(parentTicket, parentLots, parentType, Slippage, (parentType==OP_BUY ? clrRed : clrBlue));
-         SafeOrderClose(recoveryTicket, recoveryLots, recoveryType, Slippage, (recoveryType==OP_BUY ? clrRed : clrBlue));
+         SafeOrderClose(recoveryTicket, recoveryLots, recoveryType, Slippage, (recoveryType == OP_BUY ? clrRed : clrBlue));
+         SafeOrderClose(parentTicket, parentLots, parentType, Slippage, (parentType == OP_BUY ? clrRed : clrBlue));
+         
+         break; // Crucial: prevent index shifting errors after closing
         }
      }
   }
-
 //+------------------------------------------------------------------+
 //|                                                                  |
 //+------------------------------------------------------------------+
@@ -4412,6 +4436,10 @@ void ManageProfitLadder()
          continue;
       int orderType = OrderType();
       if(orderType != OP_BUY && orderType != OP_SELL)
+         continue;
+
+         // ADD THIS LINE: Ignore parent orders that are currently in recovery mode
+      if(HasRecoveryOrder(OrderTicket()))
          continue;
 
       double currentProfit = OrderProfit() + OrderSwap() + OrderCommission();
