@@ -19,6 +19,7 @@ bool EnableTrading = true;
 // ===== CUSTOM USER RULES SETTINGS =====
 bool   InpEnableCustomRules      = true;
 double InpPriceGapFromExtreme    = 100.0; // Distance required from Day High/Low
+bool   InpEnableEmaAngleFilter   = false;  // Enable/Disable EMA Angle filter
 double InpMinEmaAngleDegrees     = 1.0;   // Minimum EMA 30 angle
 
 // ===== DUBAI TIMEZONE SETTINGS =====
@@ -230,29 +231,32 @@ bool PassesUserRules(int orderType)
 
    double emaAngle = GetEmaAngleDegrees(30);
    RefreshRates();
-   double dayHigh = iHigh(Symbol(), PERIOD_D1, 0);
-   double dayLow  = iLow(Symbol(), PERIOD_D1, 0);
+   
+   // Collect the High and Low over the last 12 hours using H1 candles 
+   int highIdx = iHighest(Symbol(), PERIOD_H1, MODE_HIGH, 12, 0);
+   int lowIdx  = iLowest(Symbol(), PERIOD_H1, MODE_LOW, 12, 0);
+   
+   double rolling12HourHigh = iHigh(Symbol(), PERIOD_H1, highIdx);
+   double rolling12HourLow  = iLow(Symbol(), PERIOD_H1, lowIdx);
 
    if(orderType == OP_BUY || orderType == OP_BUYSTOP || orderType == OP_BUYLIMIT)
      {
-      // Rule 3: Strong momentum filter based on EMA angle (must be > 3)
-      if(emaAngle <= InpMinEmaAngleDegrees)
+      // Rule 3: Strong momentum filter based on EMA angle (must be > set angle if enabled)
+      if(InpEnableEmaAngleFilter && emaAngle <= InpMinEmaAngleDegrees)
          return false;
 
-      // Rule 1: Buy orders must be well below the day's high (to avoid buying tops)
-      // Price must be lower than (DayHigh - 100 gap)
-      if(dayHigh > 0.0 && (dayHigh - Ask) <= InpPriceGapFromExtreme)
+      // Rule 1: Buy orders must be well below the 12-hour high (to avoid buying tops)
+      if(rolling12HourHigh > 0.0 && (rolling12HourHigh - Ask) <= InpPriceGapFromExtreme)
          return false;
      }
    else if(orderType == OP_SELL || orderType == OP_SELLSTOP || orderType == OP_SELLLIMIT)
      {
-      // Rule 3: Strong momentum filter based on EMA angle (must be < -3)
-      if(emaAngle >= -InpMinEmaAngleDegrees)
+      // Rule 3: Strong momentum filter based on EMA angle (must be < negative set angle if enabled)
+      if(InpEnableEmaAngleFilter && emaAngle >= -InpMinEmaAngleDegrees)
          return false;
 
-      // Rule 2: Sell orders must be well above the day's low (to avoid selling bottoms)
-      // Price must be higher than (DayLow + 100 gap)
-      if(dayLow > 0.0 && (Bid - dayLow) <= InpPriceGapFromExtreme)
+      // Rule 2: Sell orders must be well above the 12-hour low (to avoid selling bottoms)
+      if(rolling12HourLow > 0.0 && (Bid - rolling12HourLow) <= InpPriceGapFromExtreme)
          return false;
      }
 
@@ -3020,10 +3024,13 @@ void ChangeLots(double OpenPL, string reason, int orderType, int stoplevelStep)
      }
 
    double currentEmaAngle = GetEmaAngleDegrees(30);
-   if((orderType == OP_BUY && currentEmaAngle <= InpMinEmaAngleDegrees) || 
-      (orderType == OP_SELL && currentEmaAngle >= -InpMinEmaAngleDegrees))
+   if(InpEnableEmaAngleFilter)
      {
-      Lots = 0.01;
+      if((orderType == OP_BUY && currentEmaAngle <= InpMinEmaAngleDegrees) || 
+         (orderType == OP_SELL && currentEmaAngle >= -InpMinEmaAngleDegrees))
+        {
+         Lots = 0.01;
+        }
      }
 
 //--------------------Final
@@ -3094,10 +3101,13 @@ void CheckRecoveryOrders()
          continue;
          
       // Direct angle check based on the order type
-      if(parentType == OP_BUY && emaAngle <= InpMinEmaAngleDegrees)
-         continue;
-      if(parentType == OP_SELL && emaAngle >= -InpMinEmaAngleDegrees)
-         continue;
+      if(InpEnableEmaAngleFilter)
+        {
+         if(parentType == OP_BUY && emaAngle <= InpMinEmaAngleDegrees)
+            continue;
+         if(parentType == OP_SELL && emaAngle >= -InpMinEmaAngleDegrees)
+            continue;
+        }
 
       string comment = OrderComment();
       if(StringFind(comment, "RECOVERY_") == 0)
@@ -4898,7 +4908,7 @@ void UpdateDashboard(DailyProtectionState &state)
    CreateDashboardLabel(DASH_PREFIX+"TITLE","SSL CHANNEL EA  |  PRO CONTROL",tx,y+8,11,clrWhite);
    CreateDashboardLabel(DASH_PREFIX+"SUBTITLE",Symbol()+"  |  "+TimeframeToString(Period()),tx+w-125,y+10,8,clrLightGray);
    CreateDashboardLabel(DASH_PREFIX+"STATUS", "STATUS       : "+statusText,tx,y+47,10,statusColor);
-   CreateDashboardLabel(DASH_PREFIX+"SIGNAL","SSL SIGNAL   : "+sslDirection+"  ("+strong+")"+" "+DoubleToString(MathAbs(GetEmaAngleDegrees(30)),2),tx,y+67,9,sslColor);
+   CreateDashboardLabel(DASH_PREFIX+"SIGNAL","SSL SIGNAL   : "+sslDirection+"  ("+strong+")"+" "+DoubleToString( (GetEmaAngleDegrees(30)),2),tx,y+67,9,sslColor);
    CreateDashboardPanel(DASH_PREFIX+"SEC_CONFIRM",x,y+90,w,22,C'30,38,50');
    CreateDashboardLabel(DASH_PREFIX+"CONF_H","MARKET-MOMENT CONFIRMATIONS",tx,y+94,9,clrAqua);
    CreateDashboardLabel(DASH_PREFIX+"CONF_H1","H1 DIRECTION : "+h1Text+"  ["+h1Mark+"]",tx,y+117,9,h1Color);
