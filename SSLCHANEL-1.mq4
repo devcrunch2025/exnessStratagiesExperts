@@ -2930,14 +2930,21 @@ bool IsHeavyLotOrderNearBy(int orderType, double checkLot, double gapRawThreshol
 double GetDynamicOrderGap(int orderType)
   {
    int currentSSL = GetCurrentSSLDirection();
+   int patternDirection = (int)IsBullishORBearish();
    
-   // Check if the signal matches the order type
+   // 1. Check if the SSL signal matches the order type
    if((orderType == OP_BUY && currentSSL == 1) || (orderType == OP_SELL && currentSSL == -1))
      {
       return MinimumSameOrderGapRawMatched;
      }
+
+   // 2. Check if the structural pattern (V-Shape/Double Top/Bottom) matches the order type
+   if((orderType == OP_BUY && patternDirection == 1) || (orderType == OP_SELL && patternDirection == -1))
+     {
+      return MinimumSameOrderGapRawMatched;
+     }
      
-   // Order type does not match the SSL signal
+   // 3. Order type does not match either the SSL signal or structural pattern
    return MinimumSameOrderGapRawUnmatched;
   }
 //+------------------------------------------------------------------+
