@@ -931,8 +931,8 @@ void OnTickCore()
    TradeOperationFailedThisTick = false;
 
    TrackEmaFlip();
-   CheckMomentumExhaustionExits();
-   ProcessPostOrderSLTPVerification();
+   // CheckMomentumExhaustionExits();
+   // ProcessPostOrderSLTPVerification();
    ProcessDeferredOrders();
 
    if(TradeOperationFailedThisTick)
@@ -3018,7 +3018,7 @@ void ChangeLots(double OpenPL, string reason, int orderType, int stoplevelStep)
            }
         }
 
- if(IsHeavyLotOrderNearBy(orderType, Lots, 100) && Lots>=0.05)
+ if(IsHeavyLotOrderNearBy(orderType, Lots, 100) && Lots>=MaxRecoveryLot)
      {
       Lots = 0.01;
      }
