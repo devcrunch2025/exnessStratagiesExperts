@@ -132,7 +132,7 @@ double RecoveryLotMultiplier = 1;
 int MaxRecoveryOrders = 1;
 double RecoveryBasketProfitUSD = 1;//0.20;
 
-double RecoveryMinDistanceRaw = 50.0; // Minimum adverse price distance (USD) before Recovery activates
+double RecoveryMinDistanceRaw = 200.0; // Minimum adverse price distance (USD) before Recovery activates
 
 bool   EnableDayProfitLadder = true;
 double DayProfitLadder1Percent = 25;
@@ -3400,9 +3400,15 @@ void ManageRecoveryBasket()
 //+------------------------------------------------------------------+
 //|                                                                  |
 //+------------------------------------------------------------------+
+
 bool HasRecoveryOrder(int ParentTicket)
   {
+   // 1. Memorize the ticket of the order currently being processed by the outer loop
+   int currentSelectedTicket = OrderTicket(); 
+   
    string targetComment = "RECOVERY_" + IntegerToString(ParentTicket);
+   bool found = false;
+   
    for(int i = OrdersTotal() - 1; i >= 0; i--)
      {
       if(!OrderSelect(i, SELECT_BY_POS, MODE_TRADES))
@@ -3415,11 +3421,18 @@ bool HasRecoveryOrder(int ParentTicket)
       if(OrderSymbol() != Symbol())
          continue;
       if(StringFind(OrderComment(), targetComment) == 0)
-         return true;
+        {
+         found = true;
+         break; // Stop searching once found
+        }
      }
-   return false;
+     
+   // 2. Restore the original order selection so the Profit Ladder doesn't break
+   if(currentSelectedTicket > 0)
+      OrderSelect(currentSelectedTicket, SELECT_BY_TICKET, MODE_TRADES);
+      
+   return found;
   }
-
 //+------------------------------------------------------------------+
 //|                                                                  |
 //+------------------------------------------------------------------+
