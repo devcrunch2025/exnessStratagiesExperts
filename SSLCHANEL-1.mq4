@@ -75,8 +75,8 @@ datetime DeferredCreated[MAX_DEFERRED_ORDERS];
 
 double Lots = 0.01;
 int MaxOpenOrders = 100;
-bool CloseOppositeOrdersOnSignal = false;
-double closeOppositeLossThreshold = -2;
+bool CloseOppositeOrdersOnSignal = true;
+double closeOppositeLossThreshold =0.01;
 bool DeleteOppositePendingOnSignal = true;
 bool EnableProfitReEntryStop = true;
 double MinimumClosedProfitUSD = -9;
@@ -3112,13 +3112,13 @@ void ChangeLots(double OpenPL, string reason, int orderType, int stoplevelStep)
         }
 
 // --- 3. FAILSAFES & NORMALIZATION ---
-   if(Lots>=0.05 && IsSameLotOrderNearBy(orderType,Lots,100))
-      Lots=0.02;
+   // if(Lots>=0.05 && IsSameLotOrderNearBy(orderType,Lots,100))
+   //    Lots=0.02;
 
    double buyPL  = GetOpenPL(OP_BUY);
    double sellPL = GetOpenPL(OP_SELL);
 
-   if(orderType == OP_BUY && EMADirection==1)
+   if(orderType == OP_BUY && EMADirection==1 && sellPL<=-10)
      {
       if(MathAbs(buyPL) < MathAbs(sellPL))
         {
@@ -3126,7 +3126,7 @@ void ChangeLots(double OpenPL, string reason, int orderType, int stoplevelStep)
         }
      }
    else
-      if(orderType == OP_SELL && EMADirection==-1)
+      if(orderType == OP_SELL && EMADirection==-1 && buyPL<=-10)
         {
          if(MathAbs(sellPL) < MathAbs(buyPL))
            {
@@ -3149,7 +3149,18 @@ void ChangeLots(double OpenPL, string reason, int orderType, int stoplevelStep)
         }
      }
 
+// --- NEW EXTREME PRICE LOT CAP ---
+   if(IsExtremePriceOrder(orderType, Lots,MaxRecoveryLot))
+     {
+      Lots = 0.02;
+      Print("LOT CAP APPLIED: New order is the extreme (Highest Buy / Lowest Sell). Lot reduced to 0.02");
+     }
+
+ 
+     
 //--------------------Final
+
+
 
    datetime dubaiTime = TimeCurrent() + (ServerToDubaiOffsetHours * 3600);
    int currentHour = TimeHour(dubaiTime);
@@ -3177,6 +3188,41 @@ int balancelomultipler = (int)(AccountBalance() / lotMultiplierDiv);
 //+------------------------------------------------------------------+
 //|                                                                  |
 //+------------------------------------------------------------------+
+bool IsExtremePriceOrder(int orderType, double requestedLot,double maxLot)
+  {
+   // Return false immediately if the lot isn't large enough to trigger the cap
+   if(requestedLot < maxLot)
+      return false;
+
+   bool isExtreme = true;
+   bool hasExistingOrders = false;
+   RefreshRates();
+   
+   double currentPrice = (orderType == OP_BUY) ? Ask : Bid;
+
+   for(int i = OrdersTotal() - 1; i >= 0; i--)
+     {
+      if(!OrderSelect(i, SELECT_BY_POS, MODE_TRADES))
+         continue;
+      if(OrderSymbol() != Symbol() || OrderMagicNumber() != MagicNumber)
+         continue;
+      if(OrderType() != orderType)
+         continue;
+
+      hasExistingOrders = true;
+
+      // If we find an existing order that is higher (for Buys) or lower (for Sells), 
+      // the new order is NOT the extreme.
+      if(orderType == OP_BUY && OrderOpenPrice() >= currentPrice)
+         isExtreme = false;
+         
+      if(orderType == OP_SELL && OrderOpenPrice() <= currentPrice)
+         isExtreme = false;
+     }
+
+   // Return true only if existing orders of the same type exist AND the current price is the new extreme
+   return (hasExistingOrders && isExtreme);
+  }
 int CountActiveRecoveryOrders()
   {
    int count = 0;
@@ -4017,12 +4063,16 @@ void CloseOppositeOrders(int newSignalType)
          continue;
       if(OrderSymbol() != Symbol() || OrderMagicNumber() != MagicNumber)
          continue;
+      
       int orderType = OrderType();
       int ticket = OrderTicket();
       double lots = OrderLots();
       double orderPL = OrderProfit() + OrderSwap() + OrderCommission();
-      if(orderPL > closeOppositeLossThreshold)
+      
+      // Skip closing if the order is at a loss or break-even (PL <= 0)
+      if(orderPL <= closeOppositeLossThreshold)
          continue;
+         
       if((newSignalType == OP_BUY && orderType == OP_SELL) || (newSignalType == OP_SELL && orderType == OP_BUY))
         {
          SafeOrderClose(ticket, lots, orderType, Slippage, (orderType==OP_SELL ? clrRed : clrBlue));
