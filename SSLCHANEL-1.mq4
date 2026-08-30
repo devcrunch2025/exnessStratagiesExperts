@@ -16,6 +16,11 @@ int EMALineBars = 500;
 string EMA_PREFIX = "SSL_EMA_LINE_";
 bool EnableTrading = true;
 
+// ===== CUSTOM USER RULES SETTINGS =====
+bool   InpEnableCustomRules      = true;
+double InpPriceGapFromExtreme    = 100.0; // Distance required from Day High/Low
+double InpMinEmaAngleDegrees     = 3.0;   // Minimum EMA 30 angle
+
 // ===== DUBAI TIMEZONE SETTINGS =====
 bool   EnableDubaiTradingPause    = true;
 string DubaiTradingPauseHours     = "19,20";
@@ -77,17 +82,6 @@ double MinimumClosedProfitUSD = -9;
 double ProfitReEntryGapRaw = 25;
 double MinimumSameOrderGapRawReEntry = 20;
 double MinimumSameOrderGapRawSSLLongShort = 10;
-
-// ===== NEW ENTRY FILTERS =====
-// BUY must be within this maximum price gap below today's DAY HIGH.
-bool   EnableDayHighLowEntryFilter = true;
-double MaxBuyGapFromDayHigh = 100.0;
-// SELL must be at least this price gap above today's DAY LOW.
-double MinSellGapFromDayLow = 100.0;
-// Require strong EMA(200) slope momentum for every new BUY/SELL order.
-bool   EnableEmaAngleEntryFilter = true;
-double MinEmaAngleDegreesForEntry = 3.0;
-int    EmaAngleLookbackBarsForEntry = 30;
 
 // ===== STOP-LOSS / RE-ENTRY SAFETY =====
 bool EnableSLProtection = false;
@@ -227,6 +221,40 @@ datetime ProtectedEquityWaitStartTime = 0;
 int ProtectedEquityWaitMinutes = 0;
 
 //+------------------------------------------------------------------+
+//| Check custom user rules for order creation                       |
+//+------------------------------------------------------------------+
+bool PassesUserRules(int orderType)
+  {
+   if(!InpEnableCustomRules)
+      return true;
+
+   // Rule 3: Strong momentum filter based on EMA angle (must be > 3)
+   if(MathAbs(GetEmaAngleDegrees(30)) <= InpMinEmaAngleDegrees)
+      return false;
+
+   RefreshRates();
+   double dayHigh = iHigh(Symbol(), PERIOD_D1, 0);
+   double dayLow  = iLow(Symbol(), PERIOD_D1, 0);
+
+   if(orderType == OP_BUY || orderType == OP_BUYSTOP || orderType == OP_BUYLIMIT)
+     {
+      // Rule 1: Buy orders must be well below the day's high (to avoid buying tops)
+      // Price must be lower than (DayHigh - 100 gap)
+      if(dayHigh > 0.0 && (dayHigh - Ask) <= InpPriceGapFromExtreme)
+         return false;
+     }
+   else if(orderType == OP_SELL || orderType == OP_SELLSTOP || orderType == OP_SELLLIMIT)
+     {
+      // Rule 2: Sell orders must be well above the day's low (to avoid selling bottoms)
+      // Price must be higher than (DayLow + 100 gap)
+      if(dayLow > 0.0 && (Bid - dayLow) <= InpPriceGapFromExtreme)
+         return false;
+     }
+
+   return true;
+  }
+
+//+------------------------------------------------------------------+
 //|                                                                  |
 //+------------------------------------------------------------------+
 bool IsH1BuyAllowed() { return (GetH1Direction() == 1); }
@@ -324,12 +352,8 @@ int GetSSLSignal()
    if(adxMain < 20.0)
       return 0;
 
-   // Enforce strict single-direction daily lock based on previous day's activity
-   // int prevDayDir = GetPreviousDayActivityDirection();
-
    if(previousClose <= upper && currentClose > upper)
      {
-      //if(prevDayDir < 0) return 0; // Strictly block buys if previous day was bearish
       if(InpUseEMA200Filter)
         {
          double emaFilter = iMA(Symbol(), 0, InpEMA200Period, InpEMAPriceShift, MODE_EMA, PRICE_CLOSE, 1);
@@ -341,7 +365,6 @@ int GetSSLSignal()
      }
    if(previousClose >= lower && currentClose < lower)
      {
-      // if(prevDayDir > 0) return 0; // Strictly block sells if previous day was bullish
       if(InpUseEMA200Filter)
         {
          double emaFilter = iMA(Symbol(), 0, InpEMA200Period, InpEMAPriceShift, MODE_EMA, PRICE_CLOSE, 1);
@@ -2124,93 +2147,6 @@ void RemoveDubaiTradingPauseDashboard() { }
 //+------------------------------------------------------------------+
 //|                                                                  |
 //+------------------------------------------------------------------+
-//+------------------------------------------------------------------+
-//| Entry filter: day high/low location                             |
-//| BUY  = within MaxBuyGapFromDayHigh below today's D1 high        |
-//| SELL = at least MinSellGapFromDayLow above today's D1 low        |
-//+------------------------------------------------------------------+
-bool PassesDayHighLowEntryFilter(int orderType)
-  {
-   if(!EnableDayHighLowEntryFilter)
-      return true;
-
-   double dayHigh = iHigh(Symbol(), PERIOD_D1, 0);
-   double dayLow  = iLow(Symbol(), PERIOD_D1, 0);
-   if(dayHigh <= 0.0 || dayLow <= 0.0)
-      return false;
-
-   RefreshRates();
-
-   if(orderType == OP_BUY || orderType == OP_BUYSTOP || orderType == OP_BUYLIMIT)
-     {
-      double gapFromHigh = dayHigh - Ask;
-      if(gapFromHigh < 0.0)
-         gapFromHigh = 0.0;
-
-      if(gapFromHigh > MaxBuyGapFromDayHigh)
-        {
-         Print("ENTRY BLOCKED | BUY not within day-high zone | Gap=", DoubleToString(gapFromHigh, Digits),
-               " | Max=", DoubleToString(MaxBuyGapFromDayHigh, Digits),
-               " | DayHigh=", DoubleToString(dayHigh, Digits));
-         return false;
-        }
-      return true;
-     }
-
-   if(orderType == OP_SELL || orderType == OP_SELLSTOP || orderType == OP_SELLLIMIT)
-     {
-      double gapFromLow = Bid - dayLow;
-
-      if(gapFromLow < MinSellGapFromDayLow)
-        {
-         Print("ENTRY BLOCKED | SELL not above day-low zone | Gap=", DoubleToString(gapFromLow, Digits),
-               " | Min=", DoubleToString(MinSellGapFromDayLow, Digits),
-               " | DayLow=", DoubleToString(dayLow, Digits));
-         return false;
-        }
-      return true;
-     }
-
-   return true;
-  }
-
-//+------------------------------------------------------------------+
-//| Entry filter: EMA angle momentum                                 |
-//| Requirement: MathAbs(GetEmaAngleDegrees(30)) > 3 by default     |
-//+------------------------------------------------------------------+
-bool PassesEmaAngleEntryFilter(int orderType)
-  {
-   if(!EnableEmaAngleEntryFilter)
-      return true;
-
-   double angle = GetEmaAngleDegrees(EmaAngleLookbackBarsForEntry);
-   double absAngle = MathAbs(angle);
-
-   if(absAngle <= MinEmaAngleDegreesForEntry)
-     {
-      Print("ENTRY BLOCKED | EMA angle too weak | Angle=", DoubleToString(angle, 2),
-            " | Abs=", DoubleToString(absAngle, 2),
-            " | Required > ", DoubleToString(MinEmaAngleDegreesForEntry, 2),
-            " | Lookback=", IntegerToString(EmaAngleLookbackBarsForEntry));
-      return false;
-     }
-
-   return true;
-  }
-
-//+------------------------------------------------------------------+
-//| Combined new-order entry gate                                    |
-//+------------------------------------------------------------------+
-bool PassesNewOrderEntryFilters(int orderType)
-  {
-   if(!PassesDayHighLowEntryFilter(orderType))
-      return false;
-   if(!PassesEmaAngleEntryFilter(orderType))
-      return false;
-   return true;
-  }
-
-//+------------------------------------------------------------------+
 int SafeOrderSend(string symbol,int orderType,double lots,double price,int slippage,double stopLoss,double takeProfit,string comment,int magic,color arrowColor)
   {
    if(TradeOperationFailedThisTick)
@@ -2218,10 +2154,6 @@ int SafeOrderSend(string symbol,int orderType,double lots,double price,int slipp
    if(IsDubaiTradingPauseHour())
       return -1;
    if(!IsDayProfitLadderTradingAllowed())
-      return -1;
-
-   // NEW ENTRY FILTERS: every newly created BUY/SELL order must pass both rules.
-   if(!PassesNewOrderEntryFilters(orderType))
       return -1;
 
    RefreshRates();
@@ -3515,6 +3447,8 @@ bool CloseAllEAOrdersForLadderReset()
 //+------------------------------------------------------------------+
 bool CreateDayProfitLadderPending(int direction)
   {
+   if(InpEnableCustomRules && !PassesUserRules(direction == OP_BUY ? OP_BUY : OP_SELL))
+      return false;
    if(!EnableTrading || DayProfitLadderTradingStopped)
       return false;
    if(direction!=OP_BUY && direction!=OP_SELL)
@@ -3895,6 +3829,9 @@ bool IsCircleOrderComment(string comment) { return (StringFind(comment, "CircleO
 //+------------------------------------------------------------------+
 bool CreateCircleOrder(int direction, DailyProtectionState &state)
   {
+   int orderType = (direction == 1) ? OP_BUY : OP_SELL;
+   if(InpEnableCustomRules && !PassesUserRules(orderType))
+      return false;
    if(!EnableTrading || IsDailyTradingStopped(state))
       return false;
    if(direction != 1 && direction != -1)
@@ -3902,7 +3839,6 @@ bool CreateCircleOrder(int direction, DailyProtectionState &state)
    if(ServerRecoveryPending || !IsConnected())
       return false;
 
-   int orderType = (direction == 1) ? OP_BUY : OP_SELL;
    if(GetTotalEAOrders() >= MaxOpenOrders)
       return false;
    if(!IsSafeToCreateMarketOrder(orderType))
@@ -4083,6 +4019,9 @@ bool HasPendingProfitReEntry(int pendingType)
 //+------------------------------------------------------------------+
 void CreateProfitReEntryStop(int closedOrderType, double closedPrice, DailyProtectionState &state, bool afterStopLoss=false)
   {
+   int pendingType = (closedOrderType == OP_BUY) ? OP_BUYSTOP : OP_SELLSTOP;
+   if(InpEnableCustomRules && !PassesUserRules(pendingType))
+      return;
    if(!EnableTrading || !EnableProfitReEntryStop || IsDailyTradingStopped(state))
       return;
    if(ServerRecoveryPending || !IsConnected())
@@ -4099,7 +4038,6 @@ void CreateProfitReEntryStop(int closedOrderType, double closedPrice, DailyProte
 
    RefreshRates();
    double entryPrice = (closedOrderType == OP_BUY) ? (closedPrice + ProfitReEntryGapRaw) : (closedPrice - ProfitReEntryGapRaw);
-   int pendingType = (closedOrderType == OP_BUY) ? OP_BUYSTOP : OP_SELLSTOP;
    color orderColor = (closedOrderType == OP_BUY) ? BuyColor : SellColor;
    string orderComment = (closedOrderType == OP_BUY) ? "SSL Profit ReEntry Buy Stop" : "SSL Profit ReEntry Sell Stop";
    double minimumGap = GetRequiredStopDistance();
@@ -4204,6 +4142,8 @@ void InvalidateTotalEAOrdersCache() { CachedTotalEAOrders=-1; CachedTotalEAOrder
 //+------------------------------------------------------------------+
 void OpenBuy()
   {
+   if(InpEnableCustomRules && !PassesUserRules(OP_BUY))
+      return;
    if(!IsSafeToCreateMarketOrder(OP_BUY) || !PassesEMAFilter(OP_BUY) || !IsOneCandleOrderAllowed() || GetTotalEAOrders() >= MaxOpenOrders)
       return;
    if(!HasMinimumSameOrderGap(OP_BUY, MinimumSameOrderGapRawSSLLongShort))
@@ -4252,6 +4192,8 @@ double NormalizeLots(double lots)
 //+------------------------------------------------------------------+
 void OpenSell()
   {
+   if(InpEnableCustomRules && !PassesUserRules(OP_SELL))
+      return;
    if(!IsSafeToCreateMarketOrder(OP_SELL) || !PassesEMAFilter(OP_SELL) || !IsOneCandleOrderAllowed() || GetTotalEAOrders() >= MaxOpenOrders)
       return;
    if(!HasMinimumSameOrderGap(OP_SELL, MinimumSameOrderGapRawSSLLongShort))
