@@ -3425,6 +3425,8 @@ bool HasRecoveryOrder(int ParentTicket)
          found = true;
          break; // Stop searching once found
         }
+
+        
      }
      
    // 2. Restore the original order selection so the Profit Ladder doesn't break
