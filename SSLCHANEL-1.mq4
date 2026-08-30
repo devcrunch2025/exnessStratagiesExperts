@@ -19,7 +19,7 @@ bool EnableTrading = true;
 // ===== CUSTOM USER RULES SETTINGS =====
 bool   InpEnableCustomRules      = true;
 double InpPriceGapFromExtreme    = 100.0; // Distance required from Day High/Low
-double InpMinEmaAngleDegrees     = 3.0;   // Minimum EMA 30 angle
+double InpMinEmaAngleDegrees     = 1.0;   // Minimum EMA 30 angle
 
 // ===== DUBAI TIMEZONE SETTINGS =====
 bool   EnableDubaiTradingPause    = true;
@@ -228,16 +228,17 @@ bool PassesUserRules(int orderType)
    if(!InpEnableCustomRules)
       return true;
 
-   // Rule 3: Strong momentum filter based on EMA angle (must be > 3)
-   if(MathAbs(GetEmaAngleDegrees(30)) <= InpMinEmaAngleDegrees)
-      return false;
-
+   double emaAngle = GetEmaAngleDegrees(30);
    RefreshRates();
    double dayHigh = iHigh(Symbol(), PERIOD_D1, 0);
    double dayLow  = iLow(Symbol(), PERIOD_D1, 0);
 
    if(orderType == OP_BUY || orderType == OP_BUYSTOP || orderType == OP_BUYLIMIT)
      {
+      // Rule 3: Strong momentum filter based on EMA angle (must be > 3)
+      if(emaAngle <= InpMinEmaAngleDegrees)
+         return false;
+
       // Rule 1: Buy orders must be well below the day's high (to avoid buying tops)
       // Price must be lower than (DayHigh - 100 gap)
       if(dayHigh > 0.0 && (dayHigh - Ask) <= InpPriceGapFromExtreme)
@@ -245,6 +246,10 @@ bool PassesUserRules(int orderType)
      }
    else if(orderType == OP_SELL || orderType == OP_SELLSTOP || orderType == OP_SELLLIMIT)
      {
+      // Rule 3: Strong momentum filter based on EMA angle (must be < -3)
+      if(emaAngle >= -InpMinEmaAngleDegrees)
+         return false;
+
       // Rule 2: Sell orders must be well above the day's low (to avoid selling bottoms)
       // Price must be higher than (DayLow + 100 gap)
       if(dayLow > 0.0 && (Bid - dayLow) <= InpPriceGapFromExtreme)
@@ -2973,8 +2978,6 @@ void ChangeLots(double OpenPL, string reason, int orderType, int stoplevelStep)
             if(CheckFastProfitableRecentOrders() && Lots<0.03)
                Lots = 0.02;
            }
-         // if(orderType == OP_BUY) { if(GetOpenPL(OP_SELL) <= -10) Lots = 0.05; }
-         // else if(orderType == OP_SELL) { if(GetOpenPL(OP_BUY) <= -10) Lots = 0.05; }
         }
 
 // --- 2. V-SHAPE OVERRIDE (APPLIES TO BOTH SSL AND RE-ENTRY) ---
@@ -2992,19 +2995,11 @@ void ChangeLots(double OpenPL, string reason, int orderType, int stoplevelStep)
    if(Lots>=0.05 && IsSameLotOrderNearBy(orderType,Lots,100))
       Lots=0.02;
 
-
-
-
-// 2. NOW check proximity to throttle down clustered heavy lots
-//  if(Lots >= 0.04 && IsHeavyLotOrderNearBy(orderType, 200.0)) Lots = 0.02;
-
-
    double buyPL  = GetOpenPL(OP_BUY);
    double sellPL = GetOpenPL(OP_SELL);
 
    if(orderType == OP_BUY && EMADirection==1)
      {
-      // If Buy has less loss than Sell (smaller absolute loss magnitude)
       if(MathAbs(buyPL) < MathAbs(sellPL))
         {
          Lots = Lots * 2;
@@ -3013,28 +3008,22 @@ void ChangeLots(double OpenPL, string reason, int orderType, int stoplevelStep)
    else
       if(orderType == OP_SELL && EMADirection==-1)
         {
-         // If Sell has less loss than Buy (smaller absolute loss magnitude)
          if(MathAbs(sellPL) < MathAbs(buyPL))
            {
             Lots = Lots * 2;
            }
         }
 
-
-   // if(GetM5Direction()!=orderType && Lots>=0.05)
-   //   {
-   //    Lots=0.01;
-   //   }
- if(IsHeavyLotOrderNearBy(orderType, Lots, 100) && Lots>=MaxRecoveryLot)
+ if(IsHeavyLotOrderNearBy(orderType, Lots, 100) && Lots>=0.05)
      {
       Lots = 0.01;
      }
 
-
-     if(MathAbs(  GetEmaAngleDegrees(30))<3)
+   double currentEmaAngle = GetEmaAngleDegrees(30);
+   if((orderType == OP_BUY && currentEmaAngle <= InpMinEmaAngleDegrees) || 
+      (orderType == OP_SELL && currentEmaAngle >= -InpMinEmaAngleDegrees))
      {
       Lots = 0.01;
-
      }
 
 //--------------------Final
@@ -3042,11 +3031,6 @@ void ChangeLots(double OpenPL, string reason, int orderType, int stoplevelStep)
 datetime dubaiTime = TimeCurrent() + (ServerToDubaiOffsetHours * 3600);
    int currentHour = TimeHour(dubaiTime);
 
-// if(TimeHour(dubaiTime)==0 ||TimeCurrent()==0 )
-// {
-//       Lots = 0.01;
-   
-// }
 if(Lots > MaxRecoveryLot)
       Lots = MaxRecoveryLot;
 
@@ -3054,10 +3038,6 @@ if(Lots > MaxRecoveryLot)
    if(balancelomultipler < 1)
       balancelomultipler = 1;
    Lots = Lots * balancelomultipler;
-   
-  
-
-     
 
 // 3. Normalize and finalize
    Lots = NormalizeLots(Lots);
@@ -3097,10 +3077,7 @@ void CheckRecoveryOrders()
    if(CountActiveRecoveryOrders() >= 1)
       return;
 
-   if(MathAbs(GetEmaAngleDegrees(30)) < 3) 
-      return;
-
-
+   double emaAngle = GetEmaAngleDegrees(30);
 
    RefreshRates();
    for(int i = OrdersTotal() - 1; i >= 0; i--)
@@ -3116,6 +3093,11 @@ void CheckRecoveryOrders()
       if(parentType != OP_BUY && parentType != OP_SELL)
          continue;
          
+      // Direct angle check based on the order type
+      if(parentType == OP_BUY && emaAngle <= InpMinEmaAngleDegrees)
+         continue;
+      if(parentType == OP_SELL && emaAngle >= -InpMinEmaAngleDegrees)
+         continue;
 
       string comment = OrderComment();
       if(StringFind(comment, "RECOVERY_") == 0)
@@ -3978,15 +3960,6 @@ if(EnableProfitReEntryStop && !IsDailyTradingStopped(state))
         }
       return;
      }
-   // if(EnableProfitReEntryStop && !IsDailyTradingStopped(state))
-   //   {
-   //    int orderDurationSeconds = (int)(latestCloseTime - latestOpenTime);
-   //    if(batchProfit >= 0.0 || orderDurationSeconds < 60 * 30 * 1)
-   //      {
-   //       CreateProfitReEntryStop(latestType, latestClosePrice, state, (batchProfit < 0.0));
-   //      }
-   //    return;
-   //   }
 
    if(EnableTrading && !IsDailyTradingStopped(state))
      {
