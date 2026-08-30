@@ -2710,90 +2710,94 @@ bool IsBounceOne(int shift, int direction, double minReversalPrice)
 //+------------------------------------------------------------------+
 //|                                                                  |
 //+------------------------------------------------------------------+
-bool IsDoubleTap(int shift, int direction, int lookback, double tolerancePoints)
+
+//+------------------------------------------------------------------+
+//| DOUBLE TAP - Standardized to raw price tolerance                 |
+//+------------------------------------------------------------------+
+bool IsDoubleTap(int shift, int direction, int lookback, double tolerancePrice)
   {
+   int minSwingBars = 3; // Minimum bars between taps
+
    if(direction == 1)
      {
       double currentLow = Low[shift];
-      int prevLowIdx = iLowest(Symbol(), Period(), MODE_LOW, lookback, shift + 2);
-      if(prevLowIdx == -1)
-         return false;
-      double prevLow = Low[prevLowIdx];
-      if(MathAbs(currentLow - prevLow) <= tolerancePoints * Point)
+      int prevLowIdx = iLowest(Symbol(), Period(), MODE_LOW, lookback, shift + minSwingBars);
+      if(prevLowIdx == -1) return false;
+      
+      if(MathAbs(currentLow - Low[prevLowIdx]) <= tolerancePrice)
         {
-         if(Close[shift] > Open[shift])
-            return true;
+         if(Close[shift] > Open[shift]) return true; // Bullish rejection
         }
      }
-   else
-      if(direction == -1)
+   else if(direction == -1)
+     {
+      double currentHigh = High[shift];
+      int prevHighIdx = iHighest(Symbol(), Period(), MODE_HIGH, lookback, shift + minSwingBars);
+      if(prevHighIdx == -1) return false;
+      
+      if(MathAbs(currentHigh - High[prevHighIdx]) <= tolerancePrice)
         {
-         double currentHigh = High[shift];
-         int prevHighIdx = iHighest(Symbol(), Period(), MODE_HIGH, lookback, shift + 2);
-         if(prevHighIdx == -1)
-            return false;
-         double prevHigh = High[prevHighIdx];
-         if(MathAbs(currentHigh - prevHigh) <= tolerancePoints * Point)
-           {
-            if(Close[shift] < Open[shift])
-               return true;
-           }
+         if(Close[shift] < Open[shift]) return true; // Bearish rejection
         }
+     }
    return false;
   }
 
 //+------------------------------------------------------------------+
-//|                                                                  |
+//| DOUBLE BOTTOM - Enforced swing gap & standard tolerance          |
 //+------------------------------------------------------------------+
-bool IsDoubleBottom(int shift, int lookback, double tolerancePoints)
+bool IsDoubleBottom(int shift, int lookback, double tolerancePrice)
   {
    int searchHalf = lookback / 2;
+   int minSwingBars = 5; // Force distinct V-shapes
+   
    int low2Idx = iLowest(Symbol(), Period(), MODE_LOW, searchHalf, shift + 1);
-   if(low2Idx == -1)
-      return false;
-   int low1Idx = iLowest(Symbol(), Period(), MODE_LOW, searchHalf, low2Idx + 2);
-   if(low1Idx == -1)
-      return false;
+   if(low2Idx == -1) return false;
+   
+   int low1Idx = iLowest(Symbol(), Period(), MODE_LOW, searchHalf, low2Idx + minSwingBars);
+   if(low1Idx == -1) return false;
+   
    int necklineIdx = iHighest(Symbol(), Period(), MODE_HIGH, (low1Idx - low2Idx), low2Idx + 1);
-   if(necklineIdx == -1)
-      return false;
-   double low1 = Low[low1Idx];
-   double low2 = Low[low2Idx];
+   if(necklineIdx == -1) return false;
+   
    double neckline = High[necklineIdx];
-   if(MathAbs(low1 - low2) <= tolerancePoints) // Removed "* Point"
+   
+   if(MathAbs(Low[low1Idx] - Low[low2Idx]) <= tolerancePrice)
      {
-      if(Close[shift+1] <= neckline && Close[shift] > neckline)
+      // Ensure the breakout is decisive (clears neckline by at least 25% of the tolerance)
+      if(Close[shift+1] <= neckline && Close[shift] > (neckline + (tolerancePrice * 0.25)))
          return true;
      }
    return false;
   }
 
 //+------------------------------------------------------------------+
-//|                                                                  |
+//| DOUBLE TOP - Fixed Point bug, matched to Double Bottom           |
 //+------------------------------------------------------------------+
-bool IsDoubleTop(int shift, int lookback, double tolerancePoints)
+bool IsDoubleTop(int shift, int lookback, double tolerancePrice)
   {
    int searchHalf = lookback / 2;
+   int minSwingBars = 5;
+   
    int high2Idx = iHighest(Symbol(), Period(), MODE_HIGH, searchHalf, shift + 1);
-   if(high2Idx == -1)
-      return false;
-   int high1Idx = iHighest(Symbol(), Period(), MODE_HIGH, searchHalf, high2Idx + 2);
-   if(high1Idx == -1)
-      return false;
+   if(high2Idx == -1) return false;
+   
+   int high1Idx = iHighest(Symbol(), Period(), MODE_HIGH, searchHalf, high2Idx + minSwingBars);
+   if(high1Idx == -1) return false;
+   
    int necklineIdx = iLowest(Symbol(), Period(), MODE_LOW, (high1Idx - high2Idx), high2Idx + 1);
-   if(necklineIdx == -1)
-      return false;
-   double high1 = High[high1Idx];
-   double high2 = High[high2Idx];
+   if(necklineIdx == -1) return false;
+   
    double neckline = Low[necklineIdx];
-   if(MathAbs(high1 - high2) <= tolerancePoints * Point)
+   
+   if(MathAbs(High[high1Idx] - High[high2Idx]) <= tolerancePrice)
      {
-      if(Close[shift+1] >= neckline && Close[shift] < neckline)
+      // Decisive breakout required
+      if(Close[shift+1] >= neckline && Close[shift] < (neckline - (tolerancePrice * 0.25)))
          return true;
      }
    return false;
   }
-
 //+------------------------------------------------------------------+
 //|                                                                  |
 //+------------------------------------------------------------------+
