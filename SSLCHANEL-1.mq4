@@ -138,11 +138,13 @@ double RecoveryBasketProfitUSD = 1;//0.20;
 
 double RecoveryMinDistanceRaw = 200.0; // Minimum adverse price distance (USD) before Recovery activates
 
+double DayProfitLadder1Amount = 5;
+
 bool   EnableDayProfitLadder = true;
 double DayProfitLadder1Percent = 25;
-double DayProfitLadder1Amount = 5;
-double DayProfitLadderLockRatio = 10;//loss upto 90% means 100-90=10
-double DayProfitInitialProtectionPercent =80;// 20;loss upto 90% means 100-90=10
+double DayProfitLadder2Percent = 10; 
+double DayProfitLadderLockRatio = 10; // 10% loss allowance means 90% is locked
+double DayProfitInitialProtectionPercent = 80;
 
 int Slippage = 30;
 int MagicNumber = 6600123;
@@ -3555,26 +3557,51 @@ double GetDayProfitLadderTarget(int stage)
   {
    if(stage <= 0 || DayProfitLadderStartBalance <= 0.0)
       return DayProfitLadderStartBalance;
-   double step = MathAbs(DayProfitLadder1Percent) / 100.0;
-   if(step <= 0.0)
-      return DayProfitLadderStartBalance;
-   return DayProfitLadderStartBalance * (1.0 + step * stage);
+
+   double step1 = MathAbs(DayProfitLadder1Percent) / 100.0;
+   double step2 = MathAbs(DayProfitLadder2Percent) / 100.0;
+
+   // Stage 1 Target
+   double target1 = DayProfitLadderStartBalance * (1.0 + step1);
+   if(stage == 1)
+      return target1;
+
+   // Subsequent targets use DayProfitLadder2Percent applied linearly 
+   double subsequentStepAmount = target1 * step2;
+   return target1 + (subsequentStepAmount * (stage - 1));
+  }
+
+double GetDayProfitLadderProtection(int stage)
+  {
+   if(DayProfitLadderStartBalance <= 0.0)
+      return 0.0;
+
+   // Base protection before reaching Stage 1
+   if(stage <= 0)
+      return DayProfitLadderStartBalance * (DayProfitInitialProtectionPercent / 100.0);
+
+   double currentTarget = GetDayProfitLadderTarget(stage);
+   
+   // If LockRatio is 10, we keep 90% of the target equity
+   double lockRatio = (100.0 - DayProfitLadderLockRatio) / 100.0; 
+
+   return currentTarget * lockRatio;
   }
 
 //+------------------------------------------------------------------+
 //|                                                                  |
 //+------------------------------------------------------------------+
-double GetDayProfitLadderProtection(int stage)
-  {
-   if(DayProfitLadderStartBalance<=0.0)
-      return 0.0;
-   if(stage<=0)
-      return DayProfitLadderStartBalance * (1.0-DayProfitInitialProtectionPercent/100.0);
-   double step=MathAbs(DayProfitLadder1Percent)/100.0;
-   double protectionLockRatio=0.50;
-   double accumulatedProfit= DayProfitLadderStartBalance * step * stage;
-   return DayProfitLadderStartBalance + (accumulatedProfit*protectionLockRatio);
-  }
+// double GetDayProfitLadderProtection(int stage)
+//   {
+//    if(DayProfitLadderStartBalance<=0.0)
+//       return 0.0;
+//    if(stage<=0)
+//       return DayProfitLadderStartBalance * (1.0-DayProfitInitialProtectionPercent/100.0);
+//    double step=MathAbs(DayProfitLadder1Percent)/100.0;
+//    double protectionLockRatio=0.50;
+//    double accumulatedProfit= DayProfitLadderStartBalance * step * stage;
+//    return DayProfitLadderStartBalance + (accumulatedProfit*protectionLockRatio);
+//   }
 
 //+------------------------------------------------------------------+
 //|                                                                  |
@@ -3805,7 +3832,6 @@ void ManageDayProfitLadder()
       return;
      }
 
-// --- BASKET P/L GATEKEEPER ---
    if(DayProfitLadderDate != today)
      {
       if(GetEAFloatingPL() >= 0.0)
@@ -3825,25 +3851,29 @@ void ManageDayProfitLadder()
       return;
 
    double equity = AccountEquity();
-   double step = MathAbs(DayProfitLadder1Percent) / 100.0;
 
-   if(step > 0.0 && equity >= DayProfitLadderStartBalance * (1.0 + step))
+   // Dynamically check which stage the equity currently clears
+   int checkStage = DayProfitLadderStage + 1;
+   while(equity >= GetDayProfitLadderTarget(checkStage))
      {
-      double profitRatio = (equity / DayProfitLadderStartBalance) - 1.0;
-      int reachedStage = (int)MathFloor((profitRatio / step) + 0.000000001);
-      if(reachedStage > DayProfitLadderStage)
-        {
-         DayProfitLadderStage = reachedStage;
-         DayProfitLadderTargetReachedCandle = Time[0];
-         DayProfitLadderResumeDirection = GetCurrentSSLDirection();
-         if(DayProfitLadderResumeDirection == 0)
-            DayProfitLadderResumeDirection = LastLiveSSLDirection;
-         DayProfitLadderTargetCleanupPending = true;
-         DayProfitLadderResumePending = (DayProfitLadderResumeDirection != 0);
-         DayProfitLadderProtectionEquity = GetDayProfitLadderProtection(DayProfitLadderStage);
-         DayProfitLadderNextTargetEquity = GetDayProfitLadderTarget(DayProfitLadderStage + 1);
-         SaveDayProfitLadderState();
-        }
+      checkStage++;
+     }
+     
+   int reachedStage = checkStage - 1;
+
+   if(reachedStage > DayProfitLadderStage)
+     {
+      DayProfitLadderStage = reachedStage;
+      DayProfitLadderTargetReachedCandle = Time[0];
+      DayProfitLadderResumeDirection = GetCurrentSSLDirection();
+      if(DayProfitLadderResumeDirection == 0)
+         DayProfitLadderResumeDirection = LastLiveSSLDirection;
+      DayProfitLadderTargetCleanupPending = true;
+      DayProfitLadderResumePending = (DayProfitLadderResumeDirection != 0);
+      
+      DayProfitLadderProtectionEquity = GetDayProfitLadderProtection(DayProfitLadderStage);
+      DayProfitLadderNextTargetEquity = GetDayProfitLadderTarget(DayProfitLadderStage + 1);
+      SaveDayProfitLadderState();
      }
 
    if(equity <= DayProfitLadderProtectionEquity)
