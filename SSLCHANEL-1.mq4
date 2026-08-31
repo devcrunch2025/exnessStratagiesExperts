@@ -2723,18 +2723,41 @@ bool DetectBounceback(int direction, int shift)
 //+------------------------------------------------------------------+
 void DrawBouncebackIcon(datetime time, double price, int direction)
   {
-   string objName = "BOUNCE_" + IntegerToString((int)time);
+   string objName = "BOUNCE_BOX_" + IntegerToString((int)time);
    if(ObjectFind(0, objName) < 0)
      {
-      ObjectCreate(0, objName, OBJ_ARROW, 0, time, price);
-      int arrowCode = (direction == 1) ? 241 : 242;
-      color arrowColor = (direction == 1) ? C'50,50,205' : C'255,0,195';
-      ObjectSetInteger(0, objName, OBJPROP_ARROWCODE, arrowCode);
-      ObjectSetInteger(0, objName, OBJPROP_COLOR, arrowColor);
-      ObjectSetInteger(0, objName, OBJPROP_WIDTH, 3);
-      ObjectSetInteger(0, objName, OBJPROP_BACK, false);
-      ObjectSetInteger(0, objName, OBJPROP_SELECTABLE, false);
-      ObjectSetInteger(0, objName, OBJPROP_HIDDEN, true);
+      // 1. Width: 5 Minutes (300 seconds)
+      datetime endTime = time + (5 * 60);
+      
+      // 2. Dynamic Height: Use 50% of the current average candle size
+      // This guarantees the box is always visually proportionate to the asset
+      double visibleHeight = iATR(Symbol(), Period(), 14, 1) * 0.5; 
+      
+      double topPrice = 0.0;
+      double bottomPrice = 0.0;
+      
+      if(direction == 1)
+        {
+         // Bullish (Green): Box anchors at price and extends UP
+         bottomPrice = price;
+         topPrice = price + visibleHeight*5;
+        }
+      else
+        {
+         // Bearish (Red): Box anchors at price and extends DOWN
+         topPrice = price;
+         bottomPrice = price - visibleHeight*5;
+        }
+
+      ObjectCreate(0, objName, OBJ_RECTANGLE, 0, time, topPrice, endTime, bottomPrice);
+      
+      // 3. Properties
+      ObjectSetInteger(0, objName, OBJPROP_COLOR, (direction == 1) ? clrGreen : clrRed);
+      ObjectSetInteger(0, objName, OBJPROP_BACK, true);        
+      ObjectSetInteger(0, objName, OBJPROP_FILL, true);        
+      ObjectSetInteger(0, objName, OBJPROP_SELECTABLE, false); 
+      // ObjectSetInteger(0, objName, OBJPROP_HIDDEN, true);      
+      ObjectSetString(0, objName, OBJPROP_TOOLTIP, (direction == 1) ? "Bullish Bounce Block" : "Bearish Bounce Block");
      }
   }
 
@@ -2881,7 +2904,7 @@ bool IsDoubleTop(int shift, int lookback, double tolerancePrice)
 //+------------------------------------------------------------------+
 //|                                                                  |
 //+------------------------------------------------------------------+
-void DrawPatternMarker(datetime time, double price, color color1)
+void DrawPatternMarker(datetime time, double price, color color1, string tooltipText="CIRCLE_REVERSE")
   {
    string objName = "PATTERN_MARKER_" + IntegerToString((int)time);
    if(ObjectFind(0, objName) < 0)
@@ -2889,10 +2912,13 @@ void DrawPatternMarker(datetime time, double price, color color1)
       ObjectCreate(0, objName, OBJ_ARROW, 0, time, price);
       ObjectSetInteger(0, objName, OBJPROP_ARROWCODE, 159);
       ObjectSetInteger(0, objName, OBJPROP_COLOR, color1);
-      ObjectSetInteger(0, objName, OBJPROP_WIDTH, 10);
+      ObjectSetInteger(0, objName, OBJPROP_WIDTH, 5);
       ObjectSetInteger(0, objName, OBJPROP_BACK, false);
       ObjectSetInteger(0, objName, OBJPROP_SELECTABLE, false);
       ObjectSetInteger(0, objName, OBJPROP_HIDDEN, true);
+      
+      // --- ADD HOVER TOOLTIP TEXT ---
+      ObjectSetString(0, objName, OBJPROP_TOOLTIP, tooltipText);
      }
   }
 
@@ -2916,11 +2942,11 @@ void ScanAndMarkStructuralPatterns()
 
    if(isBullishPattern && Close[1] > High[shift])
      {
-      DrawPatternMarker(Time[1], Low[1] - (50 * Point), C'55,161,193');
+      DrawPatternMarker(Time[1], Low[1] - (50 * Point), C'55,161,193',"CIRCLE_GREEN");
      }
    if(isBearishPattern && Close[1] < Low[shift])
      {
-      DrawPatternMarker(Time[1], High[1] + (50 * Point), C'255,230,0');
+      DrawPatternMarker(Time[1], High[1] + (50 * Point), C'255,230,0',"CIRCLE_RED");
      }
   }
 
