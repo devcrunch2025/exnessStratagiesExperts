@@ -238,6 +238,17 @@ double GlobalBuyPL = 0.0;
 double GlobalSellPL = 0.0;
 double Global30MinDiffBuy = 0.0;
 double Global30MinDiffSell = 0.0;
+
+double Get5MinDifferenceBuy1 = 0.0;
+double Get5MinDifferenceSell1 = 0.0;
+
+// --- MISSED SIGNAL MEMORY VARIABLES ---
+int      MissedSignalType  = 0;    // 1 for Buy, -1 for Sell, 0 for None
+double   MissedSignalPrice = 0.0;
+datetime MissedSignalTime  = 0;
+bool     MissedSignalOverride = false; // Flag to bypass EMA filter when market confirms
+
+
 int    EMADirection = 0;
 int    GlobalBUYSELLdashboardScore = 0;
 
@@ -996,6 +1007,12 @@ void OnTickCore()
    Global30MinDiffBuy = Get30MinDifference(OP_BUY);
    Global30MinDiffSell = Get30MinDifference(OP_SELL);
 
+      Get5MinDifferenceBuy1 = Get5MinDifference(OP_BUY);
+   Get5MinDifferenceSell1 = Get5MinDifference(OP_SELL);
+
+
+   
+
 // Single loop to sum all P&L (Replaces multiple GetOpenPL calls)
    GlobalBuyPL = 0.0;
    GlobalSellPL = 0.0;
@@ -1037,7 +1054,9 @@ void OnTickCore()
      }
 
    UpdateDailyLossProtection(dailyState);
+   
    CheckLatestClosedTradeProtection();
+   CheckMissedSignalMemory(dailyState); // <-- Add this here
 
    if(IsProtectedEquityWaiting())
      {
@@ -1154,7 +1173,7 @@ void OnTickCore()
    bool missingBuyOrder = (currentTrend == 1 && CountDirectionOrders(OP_BUY) == 0 && CountDirectionOrders(OP_BUYSTOP) == 0);
    bool missingSellOrder = (currentTrend == -1 && CountDirectionOrders(OP_SELL) == 0 && CountDirectionOrders(OP_SELLSTOP) == 0);
 
-   if(buySignal || missingBuyOrder)
+    if(buySignal || missingBuyOrder)
      {
       if(buySignal)
          DrawLiveSignal(0, true);
@@ -1163,98 +1182,154 @@ void OnTickCore()
          LastLiveSignalCandle = Time[0];
          LastLiveSSLDirection = 1;
 
-         if(FreshSSLRequiredDirection == -1)
-            FreshSSLRequiredDirection = 0;
-         if(buySignal)
-           {
-            if(DeleteOppositePendingOnSignal)
-               DeleteOppositePendingOrders(OP_BUY);
-            if(CloseOppositeOrdersOnSignal)
-               CloseOppositeOrders(OP_BUY);
-            if(DeleteOppositePendingOnSignal)
-               ForceDeleteAllPendingOrders();
-           }
-
-         if(TradeOperationFailedThisTick)
-           {
-            UpdateDashboardsThrottled(dailyState);
-            return;
-           }
          if(EnableTrading && !IsDailyTradingStopped(dailyState))
            {
             if(GetTotalEAOrders() < MaxOpenOrders)
-               OpenBuy();
+              {
+               if(PassesEMAFilter(OP_BUY))
+                 {
+                  OpenBuy();
+                 }
+               else
+                 {
+                  // MEMORY TRIGGER: Store missed Buy signal because EMA filter blocked it
+                  MissedSignalType = 1;
+                  MissedSignalPrice = Ask;
+                  MissedSignalTime = TimeCurrent();
+                  Print("STORED MISSED BUY SIGNAL: EMA filter blocked, waiting for market follow-through.");
+                 }
+              }
            }
         }
      }
-   else
-      if(sellSignal || missingSellOrder)
+   else if(sellSignal || missingSellOrder)
+     {
+      if(sellSignal)
+         DrawLiveSignal(0, false);
+      if(LastLiveSignalCandle != Time[0] || LastLiveSSLDirection != -1 || missingSellOrder)
         {
-         if(sellSignal)
-            DrawLiveSignal(0, false);
-         if(LastLiveSignalCandle != Time[0] || LastLiveSSLDirection != -1 || missingSellOrder)
+         LastLiveSignalCandle = Time[0];
+         LastLiveSSLDirection = -1;
+
+         if(EnableTrading && !IsDailyTradingStopped(dailyState))
            {
-            LastLiveSignalCandle = Time[0];
-            LastLiveSSLDirection = -1;
-
-            if(FreshSSLRequiredDirection == 1)
-               FreshSSLRequiredDirection = 0;
-            if(sellSignal)
+            if(GetTotalEAOrders() < MaxOpenOrders)
               {
-               if(DeleteOppositePendingOnSignal)
-                  DeleteOppositePendingOrders(OP_SELL);
-               if(CloseOppositeOrdersOnSignal)
-                  CloseOppositeOrders(OP_SELL);
-               if(DeleteOppositePendingOnSignal)
-                  ForceDeleteAllPendingOrders();
-              }
-
-            if(TradeOperationFailedThisTick)
-              {
-               UpdateDashboardsThrottled(dailyState);
-               return;
-              }
-            if(EnableTrading && !IsDailyTradingStopped(dailyState))
-              {
-               if(GetTotalEAOrders() < MaxOpenOrders)
+               if(PassesEMAFilter(OP_SELL))
+                 {
                   OpenSell();
+                 }
+               else
+                 {
+                  // MEMORY TRIGGER: Store missed Sell signal because EMA filter blocked it
+                  MissedSignalType = -1;
+                  MissedSignalPrice = Bid;
+                  MissedSignalTime = TimeCurrent();
+                  Print("STORED MISSED SELL SIGNAL: EMA filter blocked, waiting for market follow-through.");
+                 }
               }
            }
         }
+     }
   }
+  //+------------------------------------------------------------------+
+//| Evaluate Stored Missed Signals for Market Follow-Through         |
 //+------------------------------------------------------------------+
-//| Close Opposite Orders on Extreme EMA Angle (> 5 degrees)         |
+void CheckMissedSignalMemory(DailyProtectionState &dailyState)
+  {
+   if(MissedSignalType == 0)
+      return;
+
+   // EXPIRATION: Clear memory if 15 minutes (900 seconds) have passed without confirmation
+   if(TimeCurrent() - MissedSignalTime > 15 * 60)
+     {
+      Print("MISSED SIGNAL EXPIRED: 15 minutes elapsed without market confirmation.");
+      MissedSignalType = 0;
+      MissedSignalPrice = 0.0;
+      MissedSignalTime = 0;
+      return;
+     }
+
+   RefreshRates();
+
+   // Check for Buy confirmation (Price moves UP from stored reference price by at least 10 points)
+   if(MissedSignalType == 1)
+     {
+      if((Ask - MissedSignalPrice) / Point >= 10.0)
+        {
+         Print("MISSED BUY CONFIRMED: Market moved up in stored direction. Executing order.");
+         MissedSignalOverride = true;
+         if(EnableTrading && !IsDailyTradingStopped(dailyState))
+            OpenBuy();
+         MissedSignalOverride = false;
+         
+         // Reset memory
+         MissedSignalType = 0;
+        }
+     }
+   // Check for Sell confirmation (Price moves DOWN from stored reference price by at least 10 points)
+   else if(MissedSignalType == -1)
+     {
+      if((MissedSignalPrice - Bid) / Point >= 10.0)
+        {
+         Print("MISSED SELL CONFIRMED: Market moved down in stored direction. Executing order.");
+         MissedSignalOverride = true;
+         if(EnableTrading && !IsDailyTradingStopped(dailyState))
+            OpenSell();
+         MissedSignalOverride = false;
+         
+         // Reset memory
+         MissedSignalType = 0;
+        }
+     }
+  }
+datetime EmaAngleExtremeStartTime = 0;
+
+//+------------------------------------------------------------------+
+//| Close Opposite Orders on Extreme EMA Angle (> 5° for 30 Mins)    |
 //+------------------------------------------------------------------+
 void ManageEmaAngleOppositeClose()
   {
    double emaAngle = GlobalEmaAngle30;
    
-   // Only execute if angle magnitude exceeds 5.0 degrees
-   if(MathAbs(emaAngle) <= 5.0)
-      return;
-
-   for(int i = OrdersTotal() - 1; i >= 0; i--)
+   // Check if angle magnitude exceeds 5.0 degrees continuously
+   if(MathAbs(emaAngle) > 5.0)
      {
-      if(!OrderSelect(i, SELECT_BY_POS, MODE_TRADES))
-         continue;
-      if(OrderSymbol() != Symbol() || OrderMagicNumber() != MagicNumber)
-         continue;
+      if(EmaAngleExtremeStartTime == 0)
+        {
+         EmaAngleExtremeStartTime = TimeCurrent(); // Start tracking duration when threshold is first crossed
+        }
+      else if(TimeCurrent() - EmaAngleExtremeStartTime >= 30 * 60) // Check if 30 minutes have elapsed
+        {
+         for(int i = OrdersTotal() - 1; i >= 0; i--)
+           {
+            if(!OrderSelect(i, SELECT_BY_POS, MODE_TRADES))
+               continue;
+            if(OrderSymbol() != Symbol() || OrderMagicNumber() != MagicNumber)
+               continue;
 
-      int orderType = OrderType();
-      
-      // If EMA angle > 5 (Strong Bullish), close all SELL orders
-      if(emaAngle > 5.0 && orderType == OP_SELL)
-        {
-         Print("EMA ANGLE TRIGGER (> 5°): Closing SELL order due to strong bullish angle: ", DoubleToString(emaAngle, 2));
-         SafeOrderClose(OrderTicket(), OrderLots(), OP_SELL, Slippage, clrRed);
+            int orderType = OrderType();
+            
+            // If EMA angle > 5 continuously for 30m, close all SELL orders
+            if(emaAngle > 5.0 && orderType == OP_SELL)
+              {
+               Print("EMA ANGLE TRIGGER (> 5° for 30m): Closing SELL order. Angle: ", DoubleToString(emaAngle, 2));
+               SafeOrderClose(OrderTicket(), OrderLots(), OP_SELL, Slippage, clrRed);
+              }
+            
+            // If EMA angle < -5 continuously for 30m, close all BUY orders
+            else if(emaAngle < -5.0 && orderType == OP_BUY)
+              {
+               Print("EMA ANGLE TRIGGER (< -5° for 30m): Closing BUY order. Angle: ", DoubleToString(emaAngle, 2));
+               SafeOrderClose(OrderTicket(), OrderLots(), OP_BUY, Slippage, clrRed);
+              }
+           }
         }
-      
-      // If EMA angle < -5 (Strong Bearish), close all BUY orders
-      else if(emaAngle < -5.0 && orderType == OP_BUY)
-        {
-         Print("EMA ANGLE TRIGGER (< -5°): Closing BUY order due to strong bearish angle: ", DoubleToString(emaAngle, 2));
-         SafeOrderClose(OrderTicket(), OrderLots(), OP_BUY, Slippage, clrRed);
-        }
+     }
+   else
+     {
+      // Reset the timer immediately if the angle flattens or drops back within 5 degrees
+      EmaAngleExtremeStartTime = 0;
      }
   }
 //+------------------------------------------------------------------+
@@ -1840,6 +1915,21 @@ double Get30MinDifference(int orderType = OP_BUY)
    return currentPrice - oldPrice;
   }
 
+  double Get5MinDifference(int orderType = OP_BUY)
+  {
+   RefreshRates();
+   double currentPrice = (orderType == OP_BUY) ? Ask : Bid;
+   int lookbackMinutes = (int)MathMax(1.0, 5);
+   datetime targetTime = TimeCurrent() - lookbackMinutes * 60;
+   int shift = iBarShift(Symbol(), PERIOD_M1, targetTime, false);
+   if(shift < 0)
+      return 0.0;
+   double oldPrice = iClose(Symbol(), PERIOD_M1, shift);
+   if(oldPrice <= 0.0)
+      return 0.0;
+   return currentPrice - oldPrice;
+  }
+
 //+------------------------------------------------------------------+
 //|                                                                  |
 //+------------------------------------------------------------------+
@@ -2266,8 +2356,13 @@ int SafeOrderSend(string symbol,int orderType,double lots,double price,int slipp
    if(!IsDayProfitLadderTradingAllowed()) return -1;
 
    // --- CHECK IF THIS IS A V-SHAPE BOUNCE OVERRIDE ---
-   bool isVShapeOverride = ((orderType == OP_BUY || orderType == OP_BUYSTOP || orderType == OP_BUYLIMIT) && GlobalVShapeBuy) || 
-                           ((orderType == OP_SELL || orderType == OP_SELLSTOP || orderType == OP_SELLLIMIT) && GlobalVShapeSell);
+   // bool isVShapeOverride = ((orderType == OP_BUY || orderType == OP_BUYSTOP || orderType == OP_BUYLIMIT) && GlobalVShapeBuy) || 
+   //                         ((orderType == OP_SELL || orderType == OP_SELLSTOP || orderType == OP_SELLLIMIT) && GlobalVShapeSell);
+
+
+                           bool isVShapeOverride = ((orderType == OP_BUY || orderType == OP_BUYSTOP || orderType == OP_BUYLIMIT) && GlobalVShapeBuy) || 
+                           ((orderType == OP_SELL || orderType == OP_SELLSTOP || orderType == OP_SELLLIMIT) && GlobalVShapeSell) ||
+                           MissedSignalOverride; // <-- Added memory override flag
 
    // --- STRATEGY FILTERS (IGNORED FOR BOUNCE ORDERS) ---
    if(!isVShapeOverride)
@@ -2299,17 +2394,29 @@ int SafeOrderSend(string symbol,int orderType,double lots,double price,int slipp
         }
 
       // 3. 30-Minute Momentum Hard Block (50 points)
-      double minRequiredMomentum = 50.0; 
-      if((orderType == OP_BUY || orderType == OP_BUYSTOP || orderType == OP_BUYLIMIT) && Global30MinDiffBuy < minRequiredMomentum)
+      double minRequiredMomentum = 15.0;//50; 
+      if((orderType == OP_BUY || orderType == OP_BUYSTOP || orderType == OP_BUYLIMIT) && Get5MinDifferenceBuy1 < minRequiredMomentum)
         {
-         Print("TRADE BLOCKED | Weak Upward Momentum: 30-min diff is ", DoubleToString(Global30MinDiffBuy, 2), " (Requires >= ", minRequiredMomentum, ")");
+         Print("TRADE BLOCKED | Weak Upward Momentum: 30-min diff is ", DoubleToString(Get5MinDifferenceBuy1, 2), " (Requires >= ", minRequiredMomentum, ")");
          return -1;
         }
-      if((orderType == OP_SELL || orderType == OP_SELLSTOP || orderType == OP_SELLLIMIT) && Global30MinDiffSell > -minRequiredMomentum)
+      if((orderType == OP_SELL || orderType == OP_SELLSTOP || orderType == OP_SELLLIMIT) && Get5MinDifferenceSell1 > -minRequiredMomentum)
         {
-         Print("TRADE BLOCKED | Weak Downward Momentum: 30-min diff is ", DoubleToString(Global30MinDiffSell, 2), " (Requires <= -", minRequiredMomentum, ")");
+         Print("TRADE BLOCKED | Weak Downward Momentum: 30-min diff is ", DoubleToString(Get5MinDifferenceSell1, 2), " (Requires <= -", minRequiredMomentum, ")");
          return -1;
         }
+      // // 3. 30-Minute Momentum Hard Block (50 points)
+      // double minRequiredMomentum = 15.0;//50; 
+      // if((orderType == OP_BUY || orderType == OP_BUYSTOP || orderType == OP_BUYLIMIT) && Global30MinDiffBuy < minRequiredMomentum)
+      //   {
+      //    Print("TRADE BLOCKED | Weak Upward Momentum: 30-min diff is ", DoubleToString(Global30MinDiffBuy, 2), " (Requires >= ", minRequiredMomentum, ")");
+      //    return -1;
+      //   }
+      // if((orderType == OP_SELL || orderType == OP_SELLSTOP || orderType == OP_SELLLIMIT) && Global30MinDiffSell > -minRequiredMomentum)
+      //   {
+      //    Print("TRADE BLOCKED | Weak Downward Momentum: 30-min diff is ", DoubleToString(Global30MinDiffSell, 2), " (Requires <= -", minRequiredMomentum, ")");
+      //    return -1;
+      //   }
 
       // 4. P&L & SSL Direction Block
       int currentSSL = GlobalSSLDirection;
