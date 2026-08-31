@@ -81,11 +81,11 @@ bool DeleteOppositePendingOnSignal = true;
 bool EnableProfitReEntryStop = true;
 double MinimumClosedProfitUSD = -9;
 double ProfitReEntryGapRaw = 25;
-double MinimumSameOrderGapRawReEntry = 20;
-double MinimumSameOrderGapRawSSLLongShort = 10;
+double MinimumSameOrderGapRawReEntry =50;// 20;
+double MinimumSameOrderGapRawSSLLongShort = 50;//10;
 
 
-double MinimumSameOrderGapRawMatched = 10;
+double MinimumSameOrderGapRawMatched = 50;//10;
 double MinimumSameOrderGapRawUnmatched = 100;
 
 double angleBlockAboveRule=1.0;
@@ -246,6 +246,10 @@ bool PassesUserRules(int orderType)
    if(!InpEnableCustomRules)
       return true;
 
+
+
+      
+
    double emaAngle = GetEmaAngleDegrees(30);
    // --- NEW EMA ANGLE HARD STOP ---
    if(emaAngle > angleBlockAboveRule && (orderType == OP_SELL || orderType == OP_SELLSTOP || orderType == OP_SELLLIMIT))
@@ -257,6 +261,14 @@ bool PassesUserRules(int orderType)
    int currentSSL = GetCurrentSSLDirection();
    int requestedDirection = (orderType == OP_BUY || orderType == OP_BUYSTOP || orderType == OP_BUYLIMIT) ? 1 : -1;
    int baseMarketType     = (requestedDirection == 1) ? OP_BUY : OP_SELL;
+
+
+   if(currentSSL != requestedDirection && (emaAngle<6))
+   {
+      Print("TRADE BLOCKED | Floating PL <= -", plBlockAboveRule, " and SSL does not match requested direction.");
+
+      return false;
+   }
    
    if(GetOpenPL(baseMarketType) <= -plBlockAboveRule && currentSSL != requestedDirection)
      {
@@ -3177,7 +3189,7 @@ else if(orderType == OP_SELL && EMADirection == -1 && buyPL <= -10.0)
 
  
 
-   if(IsHeavyLotOrderNearBy(orderType, Lots, 300) && Lots>=MaxRecoveryLot)
+   if(IsHeavyLotOrderNearBy(orderType, Lots, 300) && Lots>=0.03)
      {
       Lots = 0.01;
      }
@@ -3193,7 +3205,7 @@ else if(orderType == OP_SELL && EMADirection == -1 && buyPL <= -10.0)
      }
 
 // --- NEW EXTREME PRICE LOT CAP ---
-   if(IsExtremePriceOrder(orderType, Lots,MaxRecoveryLot))
+   if(IsExtremePriceOrder(orderType, Lots,0.03))
      {
       Lots = 0.02;
       Print("LOT CAP APPLIED: New order is the extreme (Highest Buy / Lowest Sell). Lot reduced to 0.02");
@@ -3331,6 +3343,9 @@ void CheckRecoveryOrders()
          continue;
       if(HasRecoveryOrder(parentTicket))
          continue;
+
+
+         
 
       double parentLots = OrderLots();
       double currentProfitUSD = OrderProfit() + OrderSwap() + OrderCommission();
