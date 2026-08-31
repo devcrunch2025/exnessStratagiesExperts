@@ -88,7 +88,7 @@ double MinimumSameOrderGapRawSSLLongShort = 10;
 double MinimumSameOrderGapRawMatched = 10;
 double MinimumSameOrderGapRawUnmatched = 100;
 
-double angleBlockAboveRule=3.0;
+double angleBlockAboveRule=1.0;
 double plBlockAboveRule=10.0;
 
 
@@ -2226,23 +2226,44 @@ void RemoveDubaiTradingPauseDashboard() { }
 int SafeOrderSend(string symbol,int orderType,double lots,double price,int slippage,double stopLoss,double takeProfit,string comment,int magic,color arrowColor)
   {
    if(TradeOperationFailedThisTick)
-      return false;
+      return -1; // Changed from false to -1 to match int return type for ticket errors
    if(IsDubaiTradingPauseHour())
       return -1;
    if(!IsDayProfitLadderTradingAllowed())
       return -1;
-// --- NEW EMA ANGLE HARD STOP ---
+
+   // --- NEW EMA ANGLE HARD STOP ---
    double currentAngle = GetEmaAngleDegrees(30);
+   
+   // Block Sells against a steep uptrend
    if(currentAngle > angleBlockAboveRule && (orderType == OP_SELL || orderType == OP_SELLSTOP || orderType == OP_SELLLIMIT))
      {
-      Print("TRADE BLOCKED | EMA Angle (", DoubleToString(currentAngle, 2), ") > 5 prohibits Sell orders.");
+      Print("TRADE BLOCKED | EMA Angle (", DoubleToString(currentAngle, 2), ") > ", angleBlockAboveRule, " prohibits Sell orders.");
       return -1;
      }
+     
+   // Block Buys against a steep downtrend
    if(currentAngle < -angleBlockAboveRule && (orderType == OP_BUY || orderType == OP_BUYSTOP || orderType == OP_BUYLIMIT))
      {
-      Print("TRADE BLOCKED | EMA Angle (", DoubleToString(currentAngle, 2), ") < -5 prohibits Buy orders.");
+      Print("TRADE BLOCKED | EMA Angle (", DoubleToString(currentAngle, 2), ") < -", angleBlockAboveRule, " prohibits Buy orders.");
       return -1;
      }
+
+   // --- BLOCK LATE BUYS (Exhausted Uptrend) ---
+   if(currentAngle > angleBlockAboveRule && Get30MinDifference(OP_BUY) < 30 && (orderType == OP_BUY || orderType == OP_BUYSTOP || orderType == OP_BUYLIMIT))
+     {
+      Print("TRADE BLOCKED | EMA Angle (", DoubleToString(currentAngle, 2), ") > ", angleBlockAboveRule, " but Momentum < 30 prohibits Buy orders.");
+      return -1;
+     }
+
+   // --- BLOCK LATE SELLS (Exhausted Downtrend) ---
+   if(currentAngle < -angleBlockAboveRule && Get30MinDifference(OP_SELL) > -30 && (orderType == OP_SELL || orderType == OP_SELLSTOP || orderType == OP_SELLLIMIT))
+     {
+      Print("TRADE BLOCKED | EMA Angle (", DoubleToString(currentAngle, 2), ") < -", angleBlockAboveRule, " but Momentum > -30 prohibits Sell orders.");
+      return -1;
+     }
+     
+   // ... rest of your SafeOrderSend logic continues below ...
      
 
      // --- 2. P&L & SSL DIRECTION BLOCK ---
@@ -3049,7 +3070,7 @@ double GetDynamicOrderGap(int orderType)
 //+------------------------------------------------------------------+
 void ChangeLots(double OpenPL, string reason, int orderType, int stoplevelStep)
   {
-   double MaxRecoveryLot = 0.04;
+   double MaxRecoveryLot =0.10;// 0.04;
    double oppositeLots = GetOppositeOrdersLots(orderType);
    bool isSSLSignal = (reason == "SSL Long" || reason == "SSL Short");
    bool isSSLProfitReEntry = (reason == "SSL Profit ReEntry Buy Stop" || reason == "SSL Profit ReEntry Sell Stop");
@@ -3085,6 +3106,41 @@ void ChangeLots(double OpenPL, string reason, int orderType, int stoplevelStep)
                if(emaDistance < 100.0 && emaAngle > -1.0)
                   Lots = 0.01;
            }
+
+
+
+            double buyPL  = GetOpenPL(OP_BUY);
+double sellPL = GetOpenPL(OP_SELL);
+double currentAngle = GetEmaAngleDegrees(30);
+
+if(orderType == OP_BUY && EMADirection == 1 && sellPL <= -10.0)
+  {
+   // Check if Buy profit is worse than Sell loss to apply recovery lots
+   // if(MathAbs(buyPL) < MathAbs(sellPL))
+     {
+      // Check the deepest drawdown FIRST
+      if(sellPL <= -20.0 && currentAngle > 3.0)
+         Lots = 0.10;
+      else if(sellPL <= -10.0 && currentAngle > 3.0)
+         Lots = 0.05;
+      else
+         Lots = 0.03;
+     }
+  }
+else if(orderType == OP_SELL && EMADirection == -1 && buyPL <= -10.0)
+  {
+   // Check if Sell profit is worse than Buy loss to apply recovery lots
+   // if(MathAbs(sellPL) < MathAbs(buyPL))
+     {
+      // Check the deepest drawdown FIRST
+      if(buyPL <= -20.0 && currentAngle < -3.0)
+         Lots = 0.10;
+      else if(buyPL <= -10.0 && currentAngle < -3.0)
+         Lots = 0.05;
+      else
+         Lots = 0.03;
+     }
+  }
      }
    else
       if(isSSLProfitReEntry)
@@ -3119,26 +3175,9 @@ void ChangeLots(double OpenPL, string reason, int orderType, int stoplevelStep)
    // if(Lots>=0.05 && IsSameLotOrderNearBy(orderType,Lots,100))
    //    Lots=0.02;
 
-   double buyPL  = GetOpenPL(OP_BUY);
-   double sellPL = GetOpenPL(OP_SELL);
+ 
 
-   if(orderType == OP_BUY && EMADirection==1 && sellPL<=-10)
-     {
-      if(MathAbs(buyPL) < MathAbs(sellPL))
-        {
-         Lots = Lots * 2;
-        }
-     }
-   else
-      if(orderType == OP_SELL && EMADirection==-1 && buyPL<=-10)
-        {
-         if(MathAbs(sellPL) < MathAbs(buyPL))
-           {
-            Lots = Lots * 2;
-           }
-        }
-
-   if(IsHeavyLotOrderNearBy(orderType, Lots, 200) && Lots>=MaxRecoveryLot)
+   if(IsHeavyLotOrderNearBy(orderType, Lots, 300) && Lots>=MaxRecoveryLot)
      {
       Lots = 0.01;
      }
