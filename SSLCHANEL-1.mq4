@@ -81,9 +81,9 @@ bool DeleteOppositePendingOnSignal = true;
 bool EnableProfitReEntryStop = true;
 double MinimumClosedProfitUSD = -9;
 double ProfitReEntryGapRaw = 25;
-double MinimumSameOrderGapRawReEntry = 50;
-double MinimumSameOrderGapRawSSLLongShort = 50;
-double MinimumSameOrderGapRawMatched = 50;
+double MinimumSameOrderGapRawReEntry =20;// 50;
+double MinimumSameOrderGapRawSSLLongShort =20;// 50;
+double MinimumSameOrderGapRawMatched =20;// 50;
 double MinimumSameOrderGapRawUnmatched = 100;
 
 double angleBlockAboveRule = 3;//1.0; no opposite order above 3 angle 
@@ -106,7 +106,7 @@ double MinimumSLModifyGapRaw = 2.0;
 bool EnableProfitLadder1 = true;
 bool EnableProfitLadder2 = true;
 double Ladder1ProfitUSD = 0.50;
-double Ladder1StopMaxPriceUSD = 2;
+double Ladder1StopMaxPriceUSD = 0.70;//2;
 double Ladder2ProfitUSD = 0.15;
 double DefaultOrderProfitUSD = 2.00;
 
@@ -273,9 +273,9 @@ bool PassesUserRules(int orderType)
 
    double emaAngle = GlobalEmaAngle30;
 
-   if(emaAngle > angleBlockAboveRule && (orderType == OP_SELL || orderType == OP_SELLSTOP || orderType == OP_SELLLIMIT))
+   if(emaAngle > 3 && (orderType == OP_SELL || orderType == OP_SELLSTOP || orderType == OP_SELLLIMIT))
       return false;
-   if(emaAngle < -angleBlockAboveRule && (orderType == OP_BUY || orderType == OP_BUYSTOP || orderType == OP_BUYLIMIT))
+   if(emaAngle < -3 && (orderType == OP_BUY || orderType == OP_BUYSTOP || orderType == OP_BUYLIMIT))
       return false;
 
    int currentSSL = GlobalSSLDirection;
@@ -1239,19 +1239,22 @@ void OnTickCore()
 
          if(EnableTrading && !IsDailyTradingStopped(dailyState))
            {
+            if(CloseOppositeOrdersOnSignal)
+               CloseOppositeOrders(OP_BUY);
+
             if(GetTotalEAOrders() < MaxOpenOrders)
               {
-              if(PassesEMAFilter(OP_BUY))
-  {
-   OpenBuy();
-  }
-else
-  {
-   StoredBuySignalActive = true;
-   StoredBuySignalTime = TimeCurrent();
-   StoredSellSignalActive = false; // Clear opposite memory
-   Print("SSL BUY SIGNAL STORED: Blocked by EMA. Waiting for EMA to turn bullish.");
-  }
+               if(PassesEMAFilter(OP_BUY))
+                 {
+                  OpenBuy();
+                 }
+               else
+                 {
+                  StoredBuySignalActive = true;
+                  StoredBuySignalTime = TimeCurrent();
+                  StoredSellSignalActive = false;
+                  Print("SSL BUY SIGNAL STORED: Blocked by EMA. Waiting for EMA to turn bullish.");
+                 }
               }
            }
         }
@@ -1267,19 +1270,22 @@ else
 
          if(EnableTrading && !IsDailyTradingStopped(dailyState))
            {
+            if(CloseOppositeOrdersOnSignal)
+               CloseOppositeOrders(OP_SELL);
+
             if(GetTotalEAOrders() < MaxOpenOrders)
               {
-              if(PassesEMAFilter(OP_SELL))
-  {
-   OpenSell();
-  }
-else
-  {
-   StoredSellSignalActive = true;
-   StoredSellSignalTime = TimeCurrent();
-   StoredBuySignalActive = false; // Clear opposite memory
-   Print("SSL SELL SIGNAL STORED: Blocked by EMA. Waiting for EMA to turn bearish.");
-  }
+               if(PassesEMAFilter(OP_SELL))
+                 {
+                  OpenSell();
+                 }
+               else
+                 {
+                  StoredSellSignalActive = true;
+                  StoredSellSignalTime = TimeCurrent();
+                  StoredBuySignalActive = false;
+                  Print("SSL SELL SIGNAL STORED: Blocked by EMA. Waiting for EMA to turn bearish.");
+                 }
               }
            }
         }
@@ -3293,7 +3299,7 @@ void ChangeLots(double OpenPL, string reason, int orderType, int stoplevelStep)
    double oppositeLots = GetOppositeOrdersLots(orderType);
    bool isSSLSignal = (reason == "SSL Long" || reason == "SSL Short");
    bool isSSLProfitReEntry = (reason == "SSL Profit ReEntry Buy Stop" || reason == "SSL Profit ReEntry Sell Stop");
-
+/*
    if(isSSLSignal)
      {
       Lots = GetMarketMomentLot(orderType);
@@ -3399,6 +3405,26 @@ void ChangeLots(double OpenPL, string reason, int orderType, int stoplevelStep)
       Print("LOT CAP APPLIED: New order is the extreme (Highest Buy / Lowest Sell). Lot reduced to 0.02");
      }
 
+     */
+
+if(MathAbs(GlobalEmaAngle30)>4)
+Lots = 0.01 * MathRound(MathAbs(GlobalEmaAngle30));
+else
+Lots=0.01;
+
+// Check if EMA angle magnitude is greater than 1 degree
+      if(MathAbs(GlobalEmaAngle30) > 1.0)
+        {
+         int requestedDirection = (orderType == OP_BUY) ? 1 : -1;
+         int emaTrendDirection  = (GlobalEmaAngle30 > 0) ? 1 : -1;
+
+         // If the EMA trend direction disagrees with the requested order direction, lock lot size to 0.01
+         if(emaTrendDirection != requestedDirection)
+           {
+            Lots = 0.01;
+           }
+        }
+
      if(IsStrongMomentum(orderType))
      {
       Lots = 0.04;
@@ -3421,7 +3447,15 @@ void ChangeLots(double OpenPL, string reason, int orderType, int stoplevelStep)
    if(Lots < 0.01)
       Lots = 0.01;
 
-   StopLossUSD = OriginalStopLossUSD * Lots * 100;
+
+    int StopLossUSDA=10-  MathRound(MathAbs(GlobalEmaAngle30));
+    if(StopLossUSDA<2)
+    {
+      StopLossUSDA=2;
+    }
+     StopLossUSD = StopLossUSDA * Lots * 100;
+
+   // StopLossUSD = OriginalStopLossUSD * Lots * 100;
    Ladder1ProfitUSD = OriginalLadder1ProfitUSD * Lots * 100;
    Ladder2ProfitUSD = OriginalLadder2ProfitUSD * Lots * 100;
    Ladder1StopMaxPriceUSD = OriginalLadder1StopMaxPriceUSD * Lots * 100;
