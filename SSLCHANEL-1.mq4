@@ -827,96 +827,55 @@ void OnTick()
    uint tickStartMs=GetTickCount();
    OnTickCore();
    OnTickPerformanceEnd(tickStartMs);
+   
    if(Time[0] != LastVShapeCheckedTime)
      {
       GlobalVShapeBuy = false;
       GlobalVShapeSell = false;
       LastVShapeCheckedTime = Time[0];
 
-  // 1. Alert, Clear Opposite Orders, and Draw
-if(DetectBounceback(1, 1))
-  {
-   GlobalVShapeBuy = true; 
-   DrawBouncebackIcon(Time[1], Low[1] - (50 * Point), 1);
-   Print("GLOBAL EVENT: Bullish Bounce Detected! Closing Sells & waiting 5 mins.");
-   
-   // Close all opposite (SELL) orders
-   for(int i = OrdersTotal() - 1; i >= 0; i--)
-     {
-      if(OrderSelect(i, SELECT_BY_POS, MODE_TRADES) && OrderSymbol() == Symbol() && OrderMagicNumber() == MagicNumber)
+      // 1. Alert, Clear Opposite Orders, and Draw
+      if(DetectBounceback(1, 1))
         {
-         if(OrderType() == OP_SELL)
-            SafeOrderClose(OrderTicket(), OrderLots(), OP_SELL, Slippage, clrBlue);
-         else if(OrderType() == OP_SELLSTOP || OrderType() == OP_SELLLIMIT)
-            SafeOrderDelete(OrderTicket(), clrBlue);
+         GlobalVShapeBuy = true; 
+         DrawBouncebackIcon(Time[1], Low[1] - (50 * Point), 1);
+         Print("GLOBAL EVENT: Bullish Bounce Detected! Closing Sells & waiting 5 mins.");
+         
+         for(int i = OrdersTotal() - 1; i >= 0; i--)
+           {
+            if(OrderSelect(i, SELECT_BY_POS, MODE_TRADES) && OrderSymbol() == Symbol() && OrderMagicNumber() == MagicNumber)
+              {
+               if(OrderType() == OP_SELL)
+                  SafeOrderClose(OrderTicket(), OrderLots(), OP_SELL, Slippage, clrBlue);
+               else if(OrderType() == OP_SELLSTOP || OrderType() == OP_SELLLIMIT)
+                  SafeOrderDelete(OrderTicket(), clrBlue);
+              }
+           }
+           
+         PendingVShapeBuyTime = TimeCurrent();
+         PendingVShapeBuyPrice = Close[1]; 
         }
-     }
-     
-   // Capture the raw price using the close of the completed bounce candle
-   PendingVShapeBuyTime = TimeCurrent();
-   PendingVShapeBuyPrice = Close[1]; 
-  }
-  
-if(DetectBounceback(-1, 1))
-  {
-   GlobalVShapeSell = true; 
-   DrawBouncebackIcon(Time[1], High[1] + (50 * Point), -1);
-   Print("GLOBAL EVENT: Bearish Bounce Detected! Closing Buys & waiting 5 mins.");
-   
-   // Close all opposite (BUY) orders
-   for(int i = OrdersTotal() - 1; i >= 0; i--)
-     {
-      if(OrderSelect(i, SELECT_BY_POS, MODE_TRADES) && OrderSymbol() == Symbol() && OrderMagicNumber() == MagicNumber)
+        
+      if(DetectBounceback(-1, 1))
         {
-         if(OrderType() == OP_BUY)
-            SafeOrderClose(OrderTicket(), OrderLots(), OP_BUY, Slippage, clrRed);
-         else if(OrderType() == OP_BUYSTOP || OrderType() == OP_BUYLIMIT)
-            SafeOrderDelete(OrderTicket(), clrRed);
+         GlobalVShapeSell = true; 
+         DrawBouncebackIcon(Time[1], High[1] + (50 * Point), -1);
+         Print("GLOBAL EVENT: Bearish Bounce Detected! Closing Buys & waiting 5 mins.");
+         
+         for(int i = OrdersTotal() - 1; i >= 0; i--)
+           {
+            if(OrderSelect(i, SELECT_BY_POS, MODE_TRADES) && OrderSymbol() == Symbol() && OrderMagicNumber() == MagicNumber)
+              {
+               if(OrderType() == OP_BUY)
+                  SafeOrderClose(OrderTicket(), OrderLots(), OP_BUY, Slippage, clrRed);
+               else if(OrderType() == OP_BUYSTOP || OrderType() == OP_BUYLIMIT)
+                  SafeOrderDelete(OrderTicket(), clrRed);
+              }
+           }
+           
+         PendingVShapeSellTime = TimeCurrent();
+         PendingVShapeSellPrice = Close[1]; 
         }
-     }
-     
-   // Capture the raw price using the close of the completed bounce candle
-   PendingVShapeSellTime = TimeCurrent();
-   PendingVShapeSellPrice = Close[1]; 
-  }
-
-// --- 5-MINUTE DELAY & PRICE DIFFERENCE CHECK (Evaluated Every Tick) ---
-
-// Check if 5 minutes (300 seconds) have passed for a pending Buy
-if(PendingVShapeBuyTime > 0 && TimeCurrent() >= PendingVShapeBuyTime + 300)
-  {
-   // Check if the price has moved up by more than 30 points (use 300 if you mean 30 Pips)
-   if((Ask - PendingVShapeBuyPrice) / Point > 30)
-     {
-      GlobalVShapeBuy = true; // RE-ACTIVATE flag for SafeOrderSend override
-      if(EnableTrading) OpenBuy(); 
-      GlobalVShapeBuy = false; // <-- ADDED: Turn flag off immediately after execution
-     }
-   else
-     {
-      Print("Bullish bounce canceled: Price did not increase by 30 points in 5 mins.");
-     }
-     
-   PendingVShapeBuyTime = 0; // Reset regardless of condition met to avoid stale orders
-  }
-
-// Check if 5 minutes (300 seconds) have passed for a pending Sell
-if(PendingVShapeSellTime > 0 && TimeCurrent() >= PendingVShapeSellTime + 300)
-  {
-   // Check if the price has moved down by more than 30 points (use 300 if you mean 30 Pips)
-   if((PendingVShapeSellPrice - Bid) / Point > 30)
-     {
-      GlobalVShapeSell = true; // RE-ACTIVATE flag for SafeOrderSend override
-      if(EnableTrading) OpenSell(); 
-      GlobalVShapeSell = false; // <-- ADDED: Turn flag off immediately after execution
-     }
-   else
-     {
-      Print("Bearish bounce canceled: Price did not drop by 30 points in 5 mins.");
-     }
-     
-   PendingVShapeSellTime = 0; // Reset regardless of condition met to avoid stale orders
-  }
 
       for(int i = 1; i <= 10; i++)
         {
@@ -927,9 +886,43 @@ if(PendingVShapeSellTime > 0 && TimeCurrent() >= PendingVShapeSellTime + 300)
         }
 
       ScanAndMarkStructuralPatterns();
+     } // <-- End of new candle block
+
+   // ==========================================================
+   // 5-MINUTE TIMER CHECKS (RUNS EVERY TICK, OUTSIDE BAR BLOCK)
+   // ==========================================================
+   if(PendingVShapeBuyTime > 0 && TimeCurrent() >= PendingVShapeBuyTime + 300)
+     {
+      if((Ask - PendingVShapeBuyPrice) / Point > 30)
+        {
+         GlobalVShapeBuy  = true;  
+         GlobalVShapeSell = false; 
+         if(EnableTrading) OpenBuy(); 
+         GlobalVShapeBuy  = false; 
+        }
+      else
+        {
+         Print("Bullish bounce canceled: Price did not increase by 30 points in 5 mins.");
+        }
+      PendingVShapeBuyTime = 0; 
+     }
+
+   if(PendingVShapeSellTime > 0 && TimeCurrent() >= PendingVShapeSellTime + 300)
+     {
+      if((PendingVShapeSellPrice - Bid) / Point > 30)
+        {
+         GlobalVShapeSell = true;  
+         GlobalVShapeBuy  = false; 
+         if(EnableTrading) OpenSell(); 
+         GlobalVShapeSell = false; 
+        }
+      else
+        {
+         Print("Bearish bounce canceled: Price did not drop by 30 points in 5 mins.");
+        }
+      PendingVShapeSellTime = 0; 
      }
   }
-
 //+------------------------------------------------------------------+
 //|                                                                  |
 //+------------------------------------------------------------------+
@@ -983,6 +976,7 @@ void OnTickCore()
    TradeOperationFailedThisTick = false;
 
    TrackEmaFlip();
+   ManageEmaAngleOppositeClose(); // <-- Add this here
    ProcessDeferredOrders();
 
    if(TradeOperationFailedThisTick)
@@ -1228,7 +1222,41 @@ void OnTickCore()
            }
         }
   }
+//+------------------------------------------------------------------+
+//| Close Opposite Orders on Extreme EMA Angle (> 5 degrees)         |
+//+------------------------------------------------------------------+
+void ManageEmaAngleOppositeClose()
+  {
+   double emaAngle = GlobalEmaAngle30;
+   
+   // Only execute if angle magnitude exceeds 5.0 degrees
+   if(MathAbs(emaAngle) <= 5.0)
+      return;
 
+   for(int i = OrdersTotal() - 1; i >= 0; i--)
+     {
+      if(!OrderSelect(i, SELECT_BY_POS, MODE_TRADES))
+         continue;
+      if(OrderSymbol() != Symbol() || OrderMagicNumber() != MagicNumber)
+         continue;
+
+      int orderType = OrderType();
+      
+      // If EMA angle > 5 (Strong Bullish), close all SELL orders
+      if(emaAngle > 5.0 && orderType == OP_SELL)
+        {
+         Print("EMA ANGLE TRIGGER (> 5°): Closing SELL order due to strong bullish angle: ", DoubleToString(emaAngle, 2));
+         SafeOrderClose(OrderTicket(), OrderLots(), OP_SELL, Slippage, clrRed);
+        }
+      
+      // If EMA angle < -5 (Strong Bearish), close all BUY orders
+      else if(emaAngle < -5.0 && orderType == OP_BUY)
+        {
+         Print("EMA ANGLE TRIGGER (< -5°): Closing BUY order due to strong bearish angle: ", DoubleToString(emaAngle, 2));
+         SafeOrderClose(OrderTicket(), OrderLots(), OP_BUY, Slippage, clrRed);
+        }
+     }
+  }
 //+------------------------------------------------------------------+
 //|                                                                  |
 //+------------------------------------------------------------------+
