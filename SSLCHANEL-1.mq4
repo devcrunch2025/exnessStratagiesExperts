@@ -86,7 +86,7 @@ double MinimumSameOrderGapRawSSLLongShort = 50;
 double MinimumSameOrderGapRawMatched = 50;
 double MinimumSameOrderGapRawUnmatched = 100;
 
-double angleBlockAboveRule = 1.0;
+double angleBlockAboveRule = 3;//1.0; no opposite order above 3 angle 
 double plBlockAboveRule = 10.0;
 
 // ===== STOP-LOSS / RE-ENTRY SAFETY =====
@@ -283,17 +283,17 @@ bool PassesUserRules(int orderType)
    int baseMarketType     = (requestedDirection == 1) ? OP_BUY : OP_SELL;
    double currentPL       = (baseMarketType == OP_BUY) ? GlobalBuyPL : GlobalSellPL;
 
-   if(currentSSL != requestedDirection && (emaAngle < 6))
-     {
-      Print("TRADE BLOCKED | SSL does not match requested direction and angle < 6.");
-      return false;
-     }
+   // if(currentSSL != requestedDirection && (emaAngle < 6))
+   //   {
+   //    Print("TRADE BLOCKED | SSL does not match requested direction and angle < 6.");
+   //    return false;
+   //   }
 
-   if(currentPL <= -plBlockAboveRule && currentSSL != requestedDirection)
-     {
-      Print("TRADE BLOCKED | Floating PL <= -", plBlockAboveRule, " and SSL does not match requested direction.");
-      return false;
-     }
+   // if(currentPL <= -plBlockAboveRule && currentSSL != requestedDirection)
+   //   {
+   //    Print("TRADE BLOCKED | Floating PL <= -", plBlockAboveRule, " and SSL does not match requested direction.");
+   //    return false;
+   //   }
 
    RefreshRates();
 
@@ -3330,10 +3330,10 @@ void ChangeLots(double OpenPL, string reason, int orderType, int stoplevelStep)
 
       if(orderType == OP_BUY && EMADirection == 1 && sellPL <= -10.0)
         {
-         if(sellPL <= -20.0 && currentAngle > 3.0)
+         if(sellPL <= -10.0 && currentAngle > 1.0)
             Lots = 0.10;
          else
-            if(sellPL <= -10.0 && currentAngle > 3.0)
+            if(sellPL <= -5.0 && currentAngle > 1.0)
                Lots = 0.05;
             else
                Lots = 0.03;
@@ -3351,9 +3351,9 @@ void ChangeLots(double OpenPL, string reason, int orderType, int stoplevelStep)
            }
      }
    else
-      if(isSSLProfitReEntry)
+      if(isSSLProfitReEntry && MathAbs(  GlobalEmaAngle30)>3)
         {
-         Lots = 0.05;
+         Lots = 0.03;
          if(GlobalSSLDirection == EMADirection)
            {
             Lots = CalculateDecreaseLots(reEntryCounter, 0.04, 0.01);
@@ -3378,19 +3378,31 @@ void ChangeLots(double OpenPL, string reason, int orderType, int stoplevelStep)
       Lots = 0.01;
 
    double currentEmaAngle = GlobalEmaAngle30;
-   if(InpEnableEmaAngleFilter)
+   // if(InpEnableEmaAngleFilter)
+   //   {
+   //    if((orderType == OP_BUY && currentEmaAngle <= InpMinEmaAngleDegrees) ||
+   //       (orderType == OP_SELL && currentEmaAngle >= -InpMinEmaAngleDegrees))
+   //      {
+   //       Lots = 0.01;
+   //      }
+   //   }
+
+   if(MathAbs(InpEnableEmaAngleFilter)<3)
+   {
+      Lots = 0.01;
+
+   }
+
+   if(IsExtremePriceOrder(orderType, Lots,0.02))
      {
-      if((orderType == OP_BUY && currentEmaAngle <= InpMinEmaAngleDegrees) ||
-         (orderType == OP_SELL && currentEmaAngle >= -InpMinEmaAngleDegrees))
-        {
-         Lots = 0.01;
-        }
+      Lots = 0.01;
+      Print("LOT CAP APPLIED: New order is the extreme (Highest Buy / Lowest Sell). Lot reduced to 0.02");
      }
 
-   if(IsExtremePriceOrder(orderType, Lots,0.03))
+     if(IsStrongMomentum(orderType))
      {
-      Lots = 0.02;
-      Print("LOT CAP APPLIED: New order is the extreme (Highest Buy / Lowest Sell). Lot reduced to 0.02");
+      Lots = 0.04;
+
      }
 
    datetime dubaiTime = TimeCurrent() + (ServerToDubaiOffsetHours * 3600);
