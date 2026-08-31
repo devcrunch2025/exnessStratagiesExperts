@@ -3605,7 +3605,26 @@ string GetDayProfitLadderDateText() { return TimeToString(TimeCurrent(), TIME_DA
 //+------------------------------------------------------------------+
 datetime GetDayProfitLadderDate() { return StrToTime(GetDayProfitLadderDateText()); }
 void SaveDayProfitLadderState() { return; }
-
+datetime GetOldestOpenOrderTime()
+  {
+   datetime oldestTime = 0;
+   for(int i = OrdersTotal() - 1; i >= 0; i--)
+     {
+      if(OrderSelect(i, SELECT_BY_POS, MODE_TRADES))
+        {
+         if(OrderSymbol() == Symbol() && OrderMagicNumber() == MagicNumber)
+           {
+            int type = OrderType();
+            if(type == OP_BUY || type == OP_SELL)
+              {
+               if(oldestTime == 0 || OrderOpenTime() < oldestTime)
+                  oldestTime = OrderOpenTime();
+              }
+           }
+        }
+     }
+   return oldestTime;
+  }
 //+------------------------------------------------------------------+
 //|                                                                  |
 //+------------------------------------------------------------------+
@@ -3888,8 +3907,38 @@ void ManageDayProfitLadder()
       return;
 
 
-
-
+double equity = AccountEquity();
+   double balance = AccountBalance();
+// --- TIME-BASED 50% PROFIT EXIT (2-Hour Tactical Close) ---
+   datetime oldestOrderTime = GetOldestOpenOrderTime();
+   if(oldestOrderTime > 0)
+     {
+      int openDurationSeconds = (int)(TimeCurrent() - oldestOrderTime);
+      
+      // Check if the oldest order has been open for 2 hours (7200 seconds)
+      if(openDurationSeconds >= 7200)
+        {
+         // Calculate the baseline for the current ladder stage
+         double previousTarget = (DayProfitLadderStage == 0) ? DayProfitLadderStartBalance : GetDayProfitLadderTarget(DayProfitLadderStage);
+         double nextTarget = GetDayProfitLadderTarget(DayProfitLadderStage + 1);
+         
+         // Calculate the 50% halfway point for this specific leg
+         double requiredLegProfit = nextTarget - previousTarget;
+         double halfTargetEquity = previousTarget + (requiredLegProfit * 0.5);
+         
+         if(equity >= halfTargetEquity)
+           {
+            Print("TACTICAL EXIT: 2 Hours elapsed & 50% of leg target reached ($", DoubleToString(equity, 2), "). Closing stale orders.");
+            
+            // Close all open trades and pending orders to secure the profit
+            CloseAndDeleteAllEAOrdersOnTradingStop(); 
+            
+            // DO NOT reset the ladder. The EA remains in its current stage
+            // and will wait for the next valid SSL signal to resume trading.
+            return;
+           }
+        }
+     }
 
 
 
@@ -3951,7 +4000,7 @@ void ManageDayProfitLadder()
    if(DayProfitLadderStartBalance <= 0.0)
       return;
 
-   double equity = AccountEquity();
+    
 
    // Dynamically check which stage the equity currently clears
    int checkStage = DayProfitLadderStage + 1;
