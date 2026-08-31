@@ -827,19 +827,45 @@ void OnTick()
       GlobalVShapeSell = false;
       LastVShapeCheckedTime = Time[0];
 
+      // 1. Alert, Clear Opposite Orders, and Draw
       if(DetectBounceback(1, 1))
         {
+         GlobalVShapeBuy = true; // Ensure flag is active before OpenBuy()
          DrawBouncebackIcon(Time[1], Low[1] - (50 * Point), 1);
-         Print("GLOBAL EVENT: Bullish V-Shape Bounceback Detected!");
-         if(EnableTrading)
-            OpenBuy();
+         Print("GLOBAL EVENT: Bullish Bounce Detected! Closing all Sells.");
+         
+         // Close all opposite (SELL) orders
+         for(int i = OrdersTotal() - 1; i >= 0; i--)
+           {
+            if(OrderSelect(i, SELECT_BY_POS, MODE_TRADES) && OrderSymbol() == Symbol() && OrderMagicNumber() == MagicNumber)
+              {
+               if(OrderType() == OP_SELL)
+                  SafeOrderClose(OrderTicket(), OrderLots(), OP_SELL, Slippage, clrBlue);
+               else if(OrderType() == OP_SELLSTOP || OrderType() == OP_SELLLIMIT)
+                  SafeOrderDelete(OrderTicket(), clrBlue);
+              }
+           }
+         if(EnableTrading) OpenBuy(); 
         }
+        
       if(DetectBounceback(-1, 1))
         {
+         GlobalVShapeSell = true; // Ensure flag is active before OpenSell()
          DrawBouncebackIcon(Time[1], High[1] + (50 * Point), -1);
-         Print("GLOBAL EVENT: Bearish V-Shape Bounceback Detected!");
-         if(EnableTrading)
-            OpenSell();
+         Print("GLOBAL EVENT: Bearish Bounce Detected! Closing all Buys.");
+         
+         // Close all opposite (BUY) orders
+         for(int i = OrdersTotal() - 1; i >= 0; i--)
+           {
+            if(OrderSelect(i, SELECT_BY_POS, MODE_TRADES) && OrderSymbol() == Symbol() && OrderMagicNumber() == MagicNumber)
+              {
+               if(OrderType() == OP_BUY)
+                  SafeOrderClose(OrderTicket(), OrderLots(), OP_BUY, Slippage, clrRed);
+               else if(OrderType() == OP_BUYSTOP || OrderType() == OP_BUYLIMIT)
+                  SafeOrderDelete(OrderTicket(), clrRed);
+              }
+           }
+         if(EnableTrading) OpenSell(); 
         }
 
       for(int i = 1; i <= 10; i++)
@@ -2157,68 +2183,74 @@ void RemoveDubaiTradingPauseDashboard() { }
 //+------------------------------------------------------------------+
 int SafeOrderSend(string symbol,int orderType,double lots,double price,int slippage,double stopLoss,double takeProfit,string comment,int magic,color arrowColor)
   {
-   if(TradeOperationFailedThisTick)
-      return -1;
-   if(IsDubaiTradingPauseHour())
-      return -1;
-   if(!IsDayProfitLadderTradingAllowed())
-      return -1;
+   if(TradeOperationFailedThisTick) return -1; 
+   if(IsDubaiTradingPauseHour()) return -1;
+   if(!IsDayProfitLadderTradingAllowed()) return -1;
 
-   double currentAngle = GlobalEmaAngle30;
+   // --- CHECK IF THIS IS A V-SHAPE BOUNCE OVERRIDE ---
+   bool isVShapeOverride = ((orderType == OP_BUY || orderType == OP_BUYSTOP || orderType == OP_BUYLIMIT) && GlobalVShapeBuy) || 
+                           ((orderType == OP_SELL || orderType == OP_SELLSTOP || orderType == OP_SELLLIMIT) && GlobalVShapeSell);
 
-
-// --- 30-MINUTE MOMENTUM HARD BLOCK ---
-   double minRequiredMomentum = 20.0; // Minimum 50-point move required in the last 30 minutes
-
-// Block Buys if the 30-minute upward momentum is less than 50
-   if((orderType == OP_BUY || orderType == OP_BUYSTOP || orderType == OP_BUYLIMIT) && Global30MinDiffBuy < minRequiredMomentum)
+   // --- STRATEGY FILTERS (IGNORED FOR BOUNCE ORDERS) ---
+   if(!isVShapeOverride)
      {
-      Print("TRADE BLOCKED | Weak Upward Momentum: 30-min diff is ", DoubleToString(Global30MinDiffBuy, 2), " (Requires >= ", minRequiredMomentum, ")");
-      return -1;
+      double currentAngle = GlobalEmaAngle30;
+      
+      // 1. EMA Angle Hard Stops
+      if(currentAngle > angleBlockAboveRule && (orderType == OP_SELL || orderType == OP_SELLSTOP || orderType == OP_SELLLIMIT))
+        {
+         Print("TRADE BLOCKED | EMA Angle (", DoubleToString(currentAngle, 2), ") > ", angleBlockAboveRule, " prohibits Sell orders.");
+         return -1;
+        }
+      if(currentAngle < -angleBlockAboveRule && (orderType == OP_BUY || orderType == OP_BUYSTOP || orderType == OP_BUYLIMIT))
+        {
+         Print("TRADE BLOCKED | EMA Angle (", DoubleToString(currentAngle, 2), ") < -", angleBlockAboveRule, " prohibits Buy orders.");
+         return -1;
+        }
+
+      // 2. Late Entry Exhaustion Blocks
+      if(currentAngle > angleBlockAboveRule && Global30MinDiffBuy < 30 && (orderType == OP_BUY || orderType == OP_BUYSTOP || orderType == OP_BUYLIMIT))
+        {
+         Print("TRADE BLOCKED | EMA Angle (", DoubleToString(currentAngle, 2), ") > ", angleBlockAboveRule, " but Momentum < 30 prohibits Buy orders.");
+         return -1;
+        }
+      if(currentAngle < -angleBlockAboveRule && Global30MinDiffSell > -30 && (orderType == OP_SELL || orderType == OP_SELLSTOP || orderType == OP_SELLLIMIT))
+        {
+         Print("TRADE BLOCKED | EMA Angle (", DoubleToString(currentAngle, 2), ") < -", angleBlockAboveRule, " but Momentum > -30 prohibits Sell orders.");
+         return -1;
+        }
+
+      // 3. 30-Minute Momentum Hard Block (50 points)
+      double minRequiredMomentum = 50.0; 
+      if((orderType == OP_BUY || orderType == OP_BUYSTOP || orderType == OP_BUYLIMIT) && Global30MinDiffBuy < minRequiredMomentum)
+        {
+         Print("TRADE BLOCKED | Weak Upward Momentum: 30-min diff is ", DoubleToString(Global30MinDiffBuy, 2), " (Requires >= ", minRequiredMomentum, ")");
+         return -1;
+        }
+      if((orderType == OP_SELL || orderType == OP_SELLSTOP || orderType == OP_SELLLIMIT) && Global30MinDiffSell > -minRequiredMomentum)
+        {
+         Print("TRADE BLOCKED | Weak Downward Momentum: 30-min diff is ", DoubleToString(Global30MinDiffSell, 2), " (Requires <= -", minRequiredMomentum, ")");
+         return -1;
+        }
+
+      // 4. P&L & SSL Direction Block
+      int currentSSL = GlobalSSLDirection;
+      int requestedDirection = (orderType == OP_BUY || orderType == OP_BUYSTOP || orderType == OP_BUYLIMIT) ? 1 : -1;
+      int baseMarketType     = (requestedDirection == 1) ? OP_BUY : OP_SELL;
+      double currentPL       = (baseMarketType == OP_BUY) ? GlobalBuyPL : GlobalSellPL;
+      
+      if(currentPL <= -plBlockAboveRule && currentSSL != requestedDirection)
+        {
+         Print("TRADE BLOCKED | Floating PL <= -", plBlockAboveRule, " and SSL does not match requested direction.");
+         return -1;
+        }
+     }
+   else
+     {
+      Print("V-SHAPE OVERRIDE: Bypassing SafeOrderSend strategy filters for bounce trade.");
      }
 
-// Block Sells if the 30-minute downward momentum is greater than -50 (e.g., flat or trending up)
-   if((orderType == OP_SELL || orderType == OP_SELLSTOP || orderType == OP_SELLLIMIT) && Global30MinDiffSell > -minRequiredMomentum)
-     {
-      Print("TRADE BLOCKED | Weak Downward/Counter Momentum: 30-min diff is ", DoubleToString(Global30MinDiffSell, 2), " (Requires <= -", minRequiredMomentum, ")");
-      return -1;
-     }
-
-   if(currentAngle > angleBlockAboveRule && (orderType == OP_SELL || orderType == OP_SELLSTOP || orderType == OP_SELLLIMIT))
-     {
-      Print("TRADE BLOCKED | EMA Angle (", DoubleToString(currentAngle, 2), ") > ", angleBlockAboveRule, " prohibits Sell orders.");
-      return -1;
-     }
-
-   if(currentAngle < -angleBlockAboveRule && (orderType == OP_BUY || orderType == OP_BUYSTOP || orderType == OP_BUYLIMIT))
-     {
-      Print("TRADE BLOCKED | EMA Angle (", DoubleToString(currentAngle, 2), ") < -", angleBlockAboveRule, " prohibits Buy orders.");
-      return -1;
-     }
-
-   if(currentAngle > angleBlockAboveRule && Global30MinDiffBuy < 30 && (orderType == OP_BUY || orderType == OP_BUYSTOP || orderType == OP_BUYLIMIT))
-     {
-      Print("TRADE BLOCKED | EMA Angle (", DoubleToString(currentAngle, 2), ") > ", angleBlockAboveRule, " but Momentum < 30 prohibits Buy orders.");
-      return -1;
-     }
-
-   if(currentAngle < -angleBlockAboveRule && Global30MinDiffSell > -30 && (orderType == OP_SELL || orderType == OP_SELLSTOP || orderType == OP_SELLLIMIT))
-     {
-      Print("TRADE BLOCKED | EMA Angle (", DoubleToString(currentAngle, 2), ") < -", angleBlockAboveRule, " but Momentum > -30 prohibits Sell orders.");
-      return -1;
-     }
-
-   int currentSSL = GlobalSSLDirection;
-   int requestedDirection = (orderType == OP_BUY || orderType == OP_BUYSTOP || orderType == OP_BUYLIMIT) ? 1 : -1;
-   int baseMarketType     = (requestedDirection == 1) ? OP_BUY : OP_SELL;
-   double currentPL       = (baseMarketType == OP_BUY) ? GlobalBuyPL : GlobalSellPL;
-
-   if(currentPL <= -plBlockAboveRule && currentSSL != requestedDirection)
-     {
-      Print("TRADE BLOCKED | Floating PL <= -", plBlockAboveRule, " and SSL does not match requested direction.");
-      return -1;
-     }
-
+   // --- PHYSICAL SAFETY BLOCKS (APPLIES TO ALL ORDERS) ---
    RefreshRates();
    double currentSpreadUSD = Ask - Bid;
    if(currentSpreadUSD > MaxAllowedSpreadUSD)
@@ -2227,15 +2259,18 @@ int SafeOrderSend(string symbol,int orderType,double lots,double price,int slipp
       return -1;
      }
 
-   if(Enable30MinuteMomentumFilter && Enable30MinuteMomentumForAllOrders)
+   if(Enable30MinuteMomentumFilter && Enable30MinuteMomentumForAllOrders && !isVShapeOverride)
      {
       if(!PassesDeferredMomentum(orderType))
          return QueueDeferredOrder(symbol,orderType,lots,price,slippage,stopLoss,takeProfit,comment,magic,arrowColor);
      }
+     
    string key=MakeTradeErrorKey("SEND",-1,IntegerToString(orderType)+"|"+DoubleToString(lots,8)+"|"+comment);
-   if(IsTradeErrorBlockedThisTick(key))
-      return -1;
+   if(IsTradeErrorBlockedThisTick(key)) return -1;
+   
    lots = NormalizeLots(lots);
+
+   // ... [Rest of your standard execution logic below remains exactly the same] ...
 
    double sendPrice=price;
    if(orderType==OP_BUY)
@@ -2693,7 +2728,7 @@ void DrawBouncebackIcon(datetime time, double price, int direction)
      {
       ObjectCreate(0, objName, OBJ_ARROW, 0, time, price);
       int arrowCode = (direction == 1) ? 241 : 242;
-      color arrowColor = (direction == 1) ? clrLimeGreen : C'174,255,0';
+      color arrowColor = (direction == 1) ? C'50,50,205' : C'255,0,195';
       ObjectSetInteger(0, objName, OBJPROP_ARROWCODE, arrowCode);
       ObjectSetInteger(0, objName, OBJPROP_COLOR, arrowColor);
       ObjectSetInteger(0, objName, OBJPROP_WIDTH, 3);
@@ -2881,11 +2916,11 @@ void ScanAndMarkStructuralPatterns()
 
    if(isBullishPattern && Close[1] > High[shift])
      {
-      DrawPatternMarker(Time[1], Low[1] - (50 * Point), clrGreen);
+      DrawPatternMarker(Time[1], Low[1] - (50 * Point), C'55,161,193');
      }
    if(isBearishPattern && Close[1] < Low[shift])
      {
-      DrawPatternMarker(Time[1], High[1] + (50 * Point), clrRed);
+      DrawPatternMarker(Time[1], High[1] + (50 * Point), C'255,230,0');
      }
   }
 
