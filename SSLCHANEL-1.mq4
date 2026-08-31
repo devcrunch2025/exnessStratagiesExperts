@@ -248,6 +248,13 @@ double   MissedSignalPrice = 0.0;
 datetime MissedSignalTime  = 0;
 bool     MissedSignalOverride = false; // Flag to bypass EMA filter when market confirms
 
+// --- SSL SIGNAL MEMORY VARIABLES ---
+bool     StoredSellSignalActive = false;
+datetime StoredSellSignalTime   = 0;
+bool     StoredBuySignalActive  = false;
+datetime StoredBuySignalTime    = 0;
+bool     StoredSignalOverride   = false;
+
 
 int    EMADirection = 0;
 int    GlobalBUYSELLdashboardScore = 0;
@@ -974,7 +981,52 @@ void CheckMomentumExhaustionExits()
         }
      }
   }
+//+------------------------------------------------------------------+
+//| Check Stored Signals and Execute on EMA Trend Flip               |
+//+------------------------------------------------------------------+
+void CheckStoredSignals(DailyProtectionState &dailyState)
+  {
+   if(!EnableTrading || IsDailyTradingStopped(dailyState))
+      return;
 
+   int maxMemorySeconds = 7200; // 2 hours expiration window
+
+   if(StoredSellSignalActive)
+     {
+      if(TimeCurrent() - StoredSellSignalTime > maxMemorySeconds)
+        {
+         StoredSellSignalActive = false;
+         Print("STORED SELL SIGNAL EXPIRED: 2 hours elapsed without EMA flip.");
+        }
+      else if(PassesEMAFilter(OP_SELL))
+        {
+         Print("EMA FLIPPED TO SELL MODE: Executing stored SSL Sell signal.");
+         StoredSignalOverride = true;
+         if(GetTotalEAOrders() < MaxOpenOrders)
+            OpenSell();
+         StoredSignalOverride = false;
+         StoredSellSignalActive = false; 
+        }
+     }
+
+   if(StoredBuySignalActive)
+     {
+      if(TimeCurrent() - StoredBuySignalTime > maxMemorySeconds)
+        {
+         StoredBuySignalActive = false;
+         Print("STORED BUY SIGNAL EXPIRED: 2 hours elapsed without EMA flip.");
+        }
+      else if(PassesEMAFilter(OP_BUY))
+        {
+         Print("EMA FLIPPED TO BUY MODE: Executing stored SSL Buy signal.");
+         StoredSignalOverride = true;
+         if(GetTotalEAOrders() < MaxOpenOrders)
+            OpenBuy();
+         StoredSignalOverride = false;
+         StoredBuySignalActive = false; 
+        }
+     }
+  }
 //+------------------------------------------------------------------+
 //|                                                                  |
 //+------------------------------------------------------------------+
@@ -1056,7 +1108,8 @@ void OnTickCore()
    UpdateDailyLossProtection(dailyState);
    
    CheckLatestClosedTradeProtection();
-   CheckMissedSignalMemory(dailyState); // <-- Add this here
+   // CheckMissedSignalMemory(dailyState); // <-- Add this here
+   CheckStoredSignals(dailyState); // <-- Add this here
 
    if(IsProtectedEquityWaiting())
      {
@@ -1186,18 +1239,17 @@ void OnTickCore()
            {
             if(GetTotalEAOrders() < MaxOpenOrders)
               {
-               if(PassesEMAFilter(OP_BUY))
-                 {
-                  OpenBuy();
-                 }
-               else
-                 {
-                  // MEMORY TRIGGER: Store missed Buy signal because EMA filter blocked it
-                  MissedSignalType = 1;
-                  MissedSignalPrice = Ask;
-                  MissedSignalTime = TimeCurrent();
-                  Print("STORED MISSED BUY SIGNAL: EMA filter blocked, waiting for market follow-through.");
-                 }
+              if(PassesEMAFilter(OP_BUY))
+  {
+   OpenBuy();
+  }
+else
+  {
+   StoredBuySignalActive = true;
+   StoredBuySignalTime = TimeCurrent();
+   StoredSellSignalActive = false; // Clear opposite memory
+   Print("SSL BUY SIGNAL STORED: Blocked by EMA. Waiting for EMA to turn bullish.");
+  }
               }
            }
         }
@@ -1215,18 +1267,17 @@ void OnTickCore()
            {
             if(GetTotalEAOrders() < MaxOpenOrders)
               {
-               if(PassesEMAFilter(OP_SELL))
-                 {
-                  OpenSell();
-                 }
-               else
-                 {
-                  // MEMORY TRIGGER: Store missed Sell signal because EMA filter blocked it
-                  MissedSignalType = -1;
-                  MissedSignalPrice = Bid;
-                  MissedSignalTime = TimeCurrent();
-                  Print("STORED MISSED SELL SIGNAL: EMA filter blocked, waiting for market follow-through.");
-                 }
+              if(PassesEMAFilter(OP_SELL))
+  {
+   OpenSell();
+  }
+else
+  {
+   StoredSellSignalActive = true;
+   StoredSellSignalTime = TimeCurrent();
+   StoredBuySignalActive = false; // Clear opposite memory
+   Print("SSL SELL SIGNAL STORED: Blocked by EMA. Waiting for EMA to turn bearish.");
+  }
               }
            }
         }
@@ -2360,9 +2411,14 @@ int SafeOrderSend(string symbol,int orderType,double lots,double price,int slipp
    //                         ((orderType == OP_SELL || orderType == OP_SELLSTOP || orderType == OP_SELLLIMIT) && GlobalVShapeSell);
 
 
+                           // bool isVShapeOverride = ((orderType == OP_BUY || orderType == OP_BUYSTOP || orderType == OP_BUYLIMIT) && GlobalVShapeBuy) || 
+                           // ((orderType == OP_SELL || orderType == OP_SELLSTOP || orderType == OP_SELLLIMIT) && GlobalVShapeSell) ||
+                           // MissedSignalOverride; // <-- Added memory override flag
+
+
                            bool isVShapeOverride = ((orderType == OP_BUY || orderType == OP_BUYSTOP || orderType == OP_BUYLIMIT) && GlobalVShapeBuy) || 
                            ((orderType == OP_SELL || orderType == OP_SELLSTOP || orderType == OP_SELLLIMIT) && GlobalVShapeSell) ||
-                           MissedSignalOverride; // <-- Added memory override flag
+                           StoredSignalOverride; // <-- Added memory override flag
 
    // --- STRATEGY FILTERS (IGNORED FOR BOUNCE ORDERS) ---
    if(!isVShapeOverride)
