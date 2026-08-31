@@ -1105,6 +1105,8 @@ void OnTickCore()
       return;
      }
 
+
+
    UpdateDailyLossProtection(dailyState);
    
    CheckLatestClosedTradeProtection();
