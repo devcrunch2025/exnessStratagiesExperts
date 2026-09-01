@@ -129,11 +129,11 @@ int      PostOrderSLTPVerifyType[MAX_POST_ORDER_SLTP_VERIFY];
 double   PostOrderSLTPVerifyLots[MAX_POST_ORDER_SLTP_VERIFY];
 
 bool EnableRecoveryOrders = true;
-double RecoveryTriggerLossUSD =1;//0.50;// 2;
+double RecoveryTriggerLossUSD =2;//1;//0.50;// 2;
 double RecoveryLotMultiplier = 1;
 int MaxRecoveryOrders = 1;
 double RecoveryBasketProfitUSD = 1;
-double RecoveryMinDistanceRaw =20;// 200.0;
+double RecoveryMinDistanceRaw =100;//20;// 200.0;
 
 double DayProfitLadder1Amount = 5;
 
@@ -277,13 +277,13 @@ bool PassesUserRules(int orderType)
 // --- STRICT EMA TREND FILTER ---
    if(EMADirection != -1 && (orderType == OP_SELL || orderType == OP_SELLSTOP || orderType == OP_SELLLIMIT))
      {
-      Print("TRADE BLOCKED | EMA trend is not bearish for Sell order.");
+      // Print("TRADE BLOCKED | EMA trend is not bearish for Sell order.");
       return false;
      }
      
    if(EMADirection != 1 && (orderType == OP_BUY || orderType == OP_BUYSTOP || orderType == OP_BUYLIMIT))
      {
-      Print("TRADE BLOCKED | EMA trend is not bullish for Buy order.");
+      // Print("TRADE BLOCKED | EMA trend is not bullish for Buy order.");
       return false;
      }
 
@@ -903,6 +903,9 @@ void CloseOppositeOrdersOnEmaDistance()
 //+------------------------------------------------------------------+
 int OnInit()
   {
+
+      EmaFlipTime = TimeCurrent();
+
    for(int initIndex = OrdersTotal() - 1; initIndex >= 0; initIndex--)
      {
       if(!OrderSelect(initIndex, SELECT_BY_POS, MODE_TRADES))
@@ -921,7 +924,9 @@ int OnInit()
             LastTrackedEmaDirection = -1;
      }
    HasEmaFlippedSinceLoad = false;
-   EmaFlipTime = 0;
+   // EmaFlipTime = 0;
+      EmaFlipTime = TimeCurrent();
+
    DrawHistoricalBouncebacks();
 
    OriginalLadder1ProfitUSD = Ladder1ProfitUSD;
@@ -3652,17 +3657,18 @@ void ChangeLots(double OpenPL, string reason, int orderType, int stoplevelStep)
    }
    */
 
+   /*
    double angleAbs = MathAbs(GlobalEmaAngle30);
    Lots = 0.01; // Default fallback
 
    if(orderType == OP_BUY && GlobalEmaAngle30 > 1.0)
      {
-      Lots = 0.01 * (10 - MathRound(angleAbs));
+      Lots = 0.01 * (5 - MathRound(angleAbs));
      }
    else
       if(orderType == OP_SELL && GlobalEmaAngle30 < -1.0)
         {
-         Lots = 0.01 * (10 - MathRound(angleAbs));
+         Lots = 0.01 * (5 - MathRound(angleAbs));
         }
 
 // CRITICAL SAFETY CATCH: Prevent 0 or negative lots during extreme trends
@@ -3676,6 +3682,8 @@ void ChangeLots(double OpenPL, string reason, int orderType, int stoplevelStep)
 
      }
 
+     */
+
 //---------------------------------FINAL ----------------------------
 
     int closedCount = GetClosedOrdersCountSinceEmaFlip();
@@ -3685,6 +3693,9 @@ int cycleStep = closedCount % 5;
 
 // Subtract the cycle step from 5 to get the repeating 5-to-1 countdown
 Lots = 0.01 * (5 - cycleStep);
+
+
+Print("Closed Orders Since EMA Flip: ", closedCount, " | Cycle Step: ", cycleStep, " | Calculated Lots: ", Lots);
 
 // Safety catch
 if(Lots < 0.01)
@@ -3955,7 +3966,7 @@ void ManageRecoveryBasket()
 
       double basketProfit = recoveryProfit + parentProfit;
 
-      if(basketProfit >= RecoveryBasketProfitUSD)
+      if(basketProfit >= RecoveryBasketProfitUSD *(OrderLots() / 0.01))
         {
          SafeOrderClose(recoveryTicket, recoveryLots, recoveryType, Slippage, (recoveryType == OP_BUY ? clrRed : clrBlue));
          SafeOrderClose(parentTicket, parentLots, parentType, Slippage, (parentType == OP_BUY ? clrRed : clrBlue));
