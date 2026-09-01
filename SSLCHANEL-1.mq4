@@ -39,6 +39,19 @@ int AccountMultiplierLOT = 500;
 double OriginalStopLossUSD = 4;
 double StopLossUSD =10;//2;// 10;
 
+
+// ===== EMA FLIP PROFIT TARGET =====
+double TargetProfitPerFlipUSD = 10.0;
+// bool TradingHaltedUntilNextFlip = false;
+
+// ===== EMA FLIP PROFIT LADDER =====
+double FlipLadderStepUSD = 5;//10.0;
+double HighestCycleProfitUSD = 0.0;
+bool   TradingHaltedUntilNextFlip = false;
+
+ 
+int    HighestLadderLevelThisCycle = 0; // <-- NEW
+
 // ===== EMA DISTANCE CLOSE SETTINGS =====
 bool   EnableEmaDistanceClose = true;
 double EmaCloseDistancePoints = 50;
@@ -749,9 +762,137 @@ int GetClosedOrdersCountSinceEmaFlip()
      
    return closedCount;
   }
+
+  void DrawLadderBox(datetime time, double price, int level)
+  {
+   // Ensure unique name so boxes don't overwrite each other
+   string objName = "LADDER_BOX_" + IntegerToString((int)time) + "_LVL_" + IntegerToString(level);
+   
+   if(ObjectFind(0, objName) < 0)
+     {
+      ObjectCreate(0, objName, OBJ_ARROW, 0, time, price);
+      ObjectSetInteger(0, objName, OBJPROP_ARROWCODE, 110); // Solid square
+      ObjectSetInteger(0, objName, OBJPROP_COLOR, clrRed);
+      ObjectSetInteger(0, objName, OBJPROP_WIDTH, 4);       // Make it thick/visible
+      ObjectSetInteger(0, objName, OBJPROP_BACK, false);
+      ObjectSetInteger(0, objName, OBJPROP_SELECTABLE, false);
+      ObjectSetInteger(0, objName, OBJPROP_HIDDEN, true);
+      ObjectSetString(0, objName, OBJPROP_TOOLTIP, "Ladder Step Hit: Level " + IntegerToString(level));
+     }
+  }
 //+------------------------------------------------------------------+
 //|                                                                  |
 //+------------------------------------------------------------------+
+
+void CheckFlipProfitTarget()
+  {
+   if(TradingHaltedUntilNextFlip || EmaFlipTime == 0)
+      return;
+
+   double realizedProfit = 0.0;
+   
+   // Sum up all closed orders since the last EMA flip
+   for(int i = OrdersHistoryTotal() - 1; i >= 0; i--)
+     {
+      if(OrderSelect(i, SELECT_BY_POS, MODE_HISTORY))
+        {
+         if(OrderSymbol() == Symbol() && OrderMagicNumber() == MagicNumber)
+           {
+            if(OrderCloseTime() >= EmaFlipTime)
+               realizedProfit += (OrderProfit() + OrderSwap() + OrderCommission());
+           }
+        }
+     }
+
+   // Add current floating profit to closed profit
+   double floatingProfit = GetEAFloatingPL();
+   double totalCycleProfit = realizedProfit + floatingProfit;
+
+   // If the target is reached, close everything and halt
+   if(totalCycleProfit >= TargetProfitPerFlipUSD)
+     {
+      Print("Target reached: $", totalCycleProfit, ". Securing profit and halting until next EMA flip.");
+      TradingHaltedUntilNextFlip = true;
+      CloseAndDeleteAllEAOrdersOnTradingStop(); // Reuses your existing function
+     }
+  }
+  void ManageFlipProfitLadder()
+  {
+   if(TradingHaltedUntilNextFlip || EmaFlipTime == 0 || FlipLadderStepUSD <= 0)
+      return;
+
+   double realizedProfit = 0.0;
+   
+   // 1. Calculate closed profit since the last EMA flip
+   for(int i = OrdersHistoryTotal() - 1; i >= 0; i--)
+     {
+      if(OrderSelect(i, SELECT_BY_POS, MODE_HISTORY))
+        {
+         if(OrderSymbol() == Symbol() && OrderMagicNumber() == MagicNumber)
+           {
+            if(OrderCloseTime() >= EmaFlipTime)
+               realizedProfit += (OrderProfit() + OrderSwap() + OrderCommission());
+           }
+        }
+     }
+
+   // 2. Add floating profit
+   double floatingProfit = GetEAFloatingPL();
+   double totalCycleProfit = realizedProfit + floatingProfit;
+
+   // 3. Track the highest watermark profit reached in this cycle
+   if(totalCycleProfit > HighestCycleProfitUSD)
+     {
+      HighestCycleProfitUSD = totalCycleProfit;
+     }
+
+   // 4. Calculate ladder level (e.g., $25 / $10 = Level 2)
+   int ladderLevel = (int)MathFloor(HighestCycleProfitUSD / FlipLadderStepUSD);
+   // --- NEW: DRAW BOX WHEN A NEW LEVEL IS REACHED ---
+   if(ladderLevel > HighestLadderLevelThisCycle && ladderLevel >= 1)
+     {
+      HighestLadderLevelThisCycle = ladderLevel;
+      
+      // Draw the red square slightly above the current candle High
+      DrawLadderBox(Time[0], High[0] + (30 * Point), ladderLevel);
+      Print("DRAWING BOX: Ladder Step ", ladderLevel, " reached ($", HighestCycleProfitUSD, ")");
+     }
+   // 5. If we have reached at least Level 1 ($10+)
+   if(ladderLevel >= 1)
+     {
+      // Lock the previous step to give the trade breathing room
+      // Hit $20 (Level 2) -> Locks $10. Hit $30 (Level 3) -> Locks $20.
+      double lockedProfitTarget = (ladderLevel - 1) * FlipLadderStepUSD;
+      
+      // 6. If profit retraces down to the locked target, secure it and halt
+      if(totalCycleProfit <= lockedProfitTarget)
+        {
+         Print("FLIP LADDER TRIGGERED | Highest was $", HighestCycleProfitUSD, 
+               " | Retraced to lock level $", lockedProfitTarget, 
+               " | Halting until next EMA flip.");
+         // --- NEW: DRAW RED CIRCLE ABOVE CANDLE ---
+         DrawLadderHaltCircle(Time[0], High[0] + (50 * Point));
+         TradingHaltedUntilNextFlip = true;
+         CloseAndDeleteAllEAOrdersOnTradingStop(); // Uses your existing function
+        }
+     }
+  }
+  void DrawLadderHaltCircle(datetime time, double price)
+  {
+   string objName = "LADDER_HALT_" + IntegerToString((int)time);
+   
+   if(ObjectFind(0, objName) < 0)
+     {
+      ObjectCreate(0, objName, OBJ_ARROW, 0, time, price);
+      ObjectSetInteger(0, objName, OBJPROP_ARROWCODE, 159); // Solid circle/dot
+      ObjectSetInteger(0, objName, OBJPROP_COLOR, clrRed);
+      ObjectSetInteger(0, objName, OBJPROP_WIDTH, 5);       // Maximum thickness
+      ObjectSetInteger(0, objName, OBJPROP_BACK, false);
+      ObjectSetInteger(0, objName, OBJPROP_SELECTABLE, false);
+      ObjectSetInteger(0, objName, OBJPROP_HIDDEN, true);
+      ObjectSetString(0, objName, OBJPROP_TOOLTIP, "Trading Halted: EMA Ladder Locked");
+     }
+  }
 //+------------------------------------------------------------------+
 //|                                                                  |
 //+------------------------------------------------------------------+
@@ -773,6 +914,10 @@ void TrackEmaFlip()
      {
       HasEmaFlippedSinceLoad = true;
       EmaFlipTime = TimeCurrent();
+      
+TradingHaltedUntilNextFlip = false; // Add this
+      HighestCycleProfitUSD = 0.0;        // Add this
+      HighestLadderLevelThisCycle = 0; // <-- NEW: Reset the box trigger
       Print("EMA FLIP DETECTED: Trend changed. Evaluating open orders for closure.");
       for(int i = OrdersTotal() - 1; i >= 0; i--)
         {
@@ -1240,6 +1385,8 @@ void OnTickCore()
    TradeOperationFailedThisTick = false;
 
    TrackEmaFlip();
+   // CheckFlipProfitTarget(); // Add this line
+   ManageFlipProfitLadder(); // Add this line
    Manage50EmaClosures();
    ManageEmaAngleOppositeClose(); // <-- Add this here
    ProcessDeferredOrders();
@@ -1881,6 +2028,10 @@ int CountDirectionOrders(int orderType)
 //+------------------------------------------------------------------+
 bool IsSafeToCreateMarketOrder(int orderType)
   {
+   if(TradingHaltedUntilNextFlip) // Add this block
+      return false;
+   if(!IsDayProfitLadderTradingAllowed())
+      return false;
    if(!IsDayProfitLadderTradingAllowed())
       return false;
    if(!EnableSLProtection)
