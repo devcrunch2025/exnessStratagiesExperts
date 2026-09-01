@@ -24,7 +24,7 @@ double InpMinEmaAngleDegrees     = 1.0;
 
 // ===== DUBAI TIMEZONE SETTINGS =====
 bool   EnableDubaiTradingPause    = true;
-string DubaiTradingPauseHours     = "19,20";
+string DubaiTradingPauseHours     ="";// "19,20";
 int    ServerToDubaiOffsetHours   = 4;
 
 // ===== 5% CONTINUOUS LADDER SETTINGS =====
@@ -54,7 +54,7 @@ int    HighestLadderLevelThisCycle = 0; // <-- NEW
 
 // ===== EMA DISTANCE CLOSE SETTINGS =====
 bool   EnableEmaDistanceClose = true;
-double EmaCloseDistancePoints = 50;
+double EmaCloseDistancePoints =200;// 50;
 
 // ===== 30-MINUTE PRICE MOMENTUM FILTER =====
 bool Enable30MinuteMomentumFilter = false;
@@ -151,7 +151,7 @@ double RecoveryMinDistanceRaw =100;//20;// 200.0;
 double DayProfitLadder1Amount = 5;
 
 // ===== DYNAMIC DAY PROFIT LADDER =====
-bool   EnableDayProfitLadder = true;
+bool   EnableDayProfitLadder = false;
 double DayProfitLadder1Percent = 25;
 double DayProfitLadder2Percent = 10;
 double DayProfitLadderLockRatio = 10;
@@ -1048,6 +1048,7 @@ void CloseOppositeOrdersOnEmaDistance()
 //+------------------------------------------------------------------+
 int OnInit()
   {
+      EquityResetReEntryPending=false;
 
       EmaFlipTime = TimeCurrent();
 
@@ -1101,6 +1102,8 @@ int OnInit()
    DayProfitLadderTargetReachedCandle = 0;
    InitializeDayProfitLadder();
    LoadReEntryCounter();
+      EquityResetReEntryPending=false;
+
    return INIT_SUCCEEDED;
   }
 
@@ -1259,7 +1262,7 @@ void OnTick()
         {
          GlobalVShapeBuy  = true;
          GlobalVShapeSell = false;
-         // if(EnableTrading) OpenBuy();
+         if(EnableTrading) OpenBuy();
          GlobalVShapeBuy  = false;
         }
       else
@@ -1275,7 +1278,7 @@ void OnTick()
         {
          GlobalVShapeSell = true;
          GlobalVShapeBuy  = false;
-         // if(EnableTrading) OpenSell();
+         if(EnableTrading) OpenSell();
          GlobalVShapeSell = false;
         }
       else
