@@ -5861,71 +5861,77 @@ void UpdateDashboard(DailyProtectionState &state)
       statusColor=clrTomato;
      }
    else
-      if(ServerRecoveryPending)
+      if(TradingHaltedUntilNextFlip)
         {
-         statusText="SERVER RECOVERY";
-         statusColor=clrGold;
+         statusText="EMA LADDER HALT";
+         statusColor=clrTomato;
         }
       else
-         if(!IsConnected())
+         if(ServerRecoveryPending)
            {
-            statusText="NO CONNECTION";
-            statusColor=clrTomato;
+            statusText="SERVER RECOVERY";
+            statusColor=clrGold;
            }
          else
-            if(IsDailyTradingStopped(state))
+            if(!IsConnected())
               {
-               statusText="TRADING STOPPED";
+               statusText="NO CONNECTION";
                statusColor=clrTomato;
               }
             else
-               if(HasBasketNewOrderLossLimit())
+               if(IsDailyTradingStopped(state))
                  {
-                  statusText="BASKET RISK LOCK";
-                  statusColor=clrOrangeRed;
+                  statusText="TRADING STOPPED";
+                  statusColor=clrTomato;
                  }
                else
-                  if(!ContinueTradingAfterSL && LosingSLCount>=MaxConsecutiveLosingSL && MaxConsecutiveLosingSL>0)
+                  if(HasBasketNewOrderLossLimit())
                     {
-                     statusText="SL LOSS LIMIT";
-                     statusColor=clrTomato;
+                     statusText="BASKET RISK LOCK";
+                     statusColor=clrOrangeRed;
                     }
                   else
-                     if(ProtectedEquityWaitActive)
+                     if(!ContinueTradingAfterSL && LosingSLCount>=MaxConsecutiveLosingSL && MaxConsecutiveLosingSL>0)
                        {
-                        statusText="PROTECTED EQUITY WAIT";
-                        statusColor=clrGold;
+                        statusText="SL LOSS LIMIT";
+                        statusColor=clrTomato;
                        }
                      else
-                        if(EquityResetReEntryPending)
+                        if(ProtectedEquityWaitActive)
                           {
-                           statusText="RESET RE-ENTRY PENDING";
+                           statusText="PROTECTED EQUITY WAIT";
                            statusColor=clrGold;
                           }
                         else
-                           if(totalOrders>=MaxOpenOrders)
+                           if(EquityResetReEntryPending)
                              {
-                              statusText="MAX ORDERS";
-                              statusColor=clrOrangeRed;
+                              statusText="RESET RE-ENTRY PENDING";
+                              statusColor=clrGold;
                              }
                            else
-                              if(buyOrders>0 && sellOrders>0)
+                              if(totalOrders>=MaxOpenOrders)
                                 {
-                                 statusText="HEDGE / MIXED";
-                                 statusColor=clrGold;
+                                 statusText="MAX ORDERS";
+                                 statusColor=clrOrangeRed;
                                 }
                               else
-                                 if(buyOrders>0)
+                                 if(buyOrders>0 && sellOrders>0)
                                    {
-                                    statusText="BUY ACTIVE";
-                                    statusColor=clrDeepSkyBlue;
+                                    statusText="HEDGE / MIXED";
+                                    statusColor=clrGold;
                                    }
                                  else
-                                    if(sellOrders>0)
+                                    if(buyOrders>0)
                                       {
-                                       statusText="SELL ACTIVE";
-                                       statusColor=clrTomato;
+                                       statusText="BUY ACTIVE";
+                                       statusColor=clrDeepSkyBlue;
                                       }
+                                    else
+                                       if(sellOrders>0)
+                                         {
+                                          statusText="SELL ACTIVE";
+                                          statusColor=clrTomato;
+                                         }
 
    double ladderProgress=0;
    if(DayProfitLadderNextTargetEquity>DayProfitLadderProtectionEquity)
@@ -5962,7 +5968,7 @@ void UpdateDashboard(DailyProtectionState &state)
             serverColor=clrGold;
            }
 
-   int x=DashboardRightGap, y=DashboardTopGap, tx=x+12, w=DashboardWidth, panelHeight=900;
+   int x=DashboardRightGap, y=DashboardTopGap, tx=x+12, w=DashboardWidth, panelHeight=950;
    int h1Direction=GetH1Direction();
    int m5Direction=GetM5Direction();
    int dashboardDirection=(currentSSLDirection>0)?1:(currentSSLDirection<0?-1:0);
@@ -6048,52 +6054,79 @@ void UpdateDashboard(DailyProtectionState &state)
    CreateDashboardLabel(DASH_PREFIX+"SUBTITLE",Symbol()+"  |  "+TimeframeToString(Period()),tx+w-125,y+10,8,clrLightGray);
    CreateDashboardLabel(DASH_PREFIX+"STATUS", "STATUS       : "+statusText,tx,y+47,10,statusColor);
    CreateDashboardLabel(DASH_PREFIX+"SIGNAL","SSL SIGNAL   : "+sslDirection+"  ("+strong+")"+" "+DoubleToString((GlobalEmaAngle30),2),tx,y+67,9,sslColor);
-   CreateDashboardPanel(DASH_PREFIX+"SEC_CONFIRM",x,y+90,w,22,C'30,38,50');
-   CreateDashboardLabel(DASH_PREFIX+"CONF_H","MARKET-MOMENT CONFIRMATIONS",tx,y+94,9,clrAqua);
-   CreateDashboardLabel(DASH_PREFIX+"CONF_H1","H1 DIRECTION : "+h1Text+"  ["+h1Mark+"]",tx,y+117,9,h1Color);
-   CreateDashboardLabel(DASH_PREFIX+"CONF_M5","M5 3-CANDLE  : "+m5Text+"  ["+m5Mark+"]",tx,y+137,9,m5Color);
-   CreateDashboardLabel(DASH_PREFIX+"CONF_EMA","EMA "+IntegerToString(InpEMA200Period)+"     : "+emaState+"  ["+emaMark+"]",tx,y+157,9,emaConfirmColor);
-   CreateDashboardLabel(DASH_PREFIX+"CONF_30M","30M MOMENTUM  : "+DoubleToString(dashboardMomentumDiff,Digits)+" / "+DoubleToString(dashboardMomentumThreshold,Digits)+"  ["+momMark+"]",tx,y+177,8,momentumColor);
-   CreateDashboardLabel(DASH_PREFIX+"CONF_ATR","M5 RANGE/ATR : "+DoubleToString(dashboardATRRatio,2)+" / "+DoubleToString(MaxCandleRangeATRMultiple,2)+"  ["+(dashboardExtremeVol?"EXTREME":"OK")+"]",tx,y+197,8,dashboardExtremeVol?clrTomato:clrLime);
-   CreateDashboardLabel(DASH_PREFIX+"CONF_SCORE",scoreText,tx,y+217,10,scoreColor);
-   CreateDashboardLabel(DASH_PREFIX+"CONF_RULE","SSL MASTER | H1/M5/EMA/30M score | H1 opposite / ATR spike caps lot",tx,y+236,7,clrSilver);
-   CreateDashboardLabel(DASH_PREFIX+"PRICE","BID / ASK    : "+DoubleToString(Bid,Digits)+" / "+DoubleToString(Ask,Digits),tx,y+255,9,clrWhite);
-   CreateDashboardPanel(DASH_PREFIX+"SEC_ACCOUNT",x,y+278,w,22,C'30,38,50');
-   CreateDashboardLabel(DASH_PREFIX+"ACCOUNT_H","ACCOUNT & EQUITY",tx,y+282,9,clrAqua);
-   CreateDashboardLabel(DASH_PREFIX+"BALANCE","BALANCE      : $"+DoubleToString(AccountBalance(),2),tx,y+305,9,clrWhite);
-   CreateDashboardLabel(DASH_PREFIX+"EQUITY","EQUITY       : $"+DoubleToString(AccountEquity(),2),tx,y+325,9,clrLime);
-   CreateDashboardLabel(DASH_PREFIX+"FREEMARGIN","FREE MARGIN   : $"+DoubleToString(AccountFreeMargin(),2),tx,y+345,9,clrWhite);
-   CreateDashboardLabel(DASH_PREFIX+"DAYPL","DAY P/L       : "+(dayPL>=0?"+":"")+DoubleToString(dayPL,2)+" ("+DoubleToString(dayPLPct,1)+"%)",tx,y+365,9,dayPL>=0?clrLime:clrTomato);
-   CreateDashboardPanel(DASH_PREFIX+"SEC_LADDER",x,y+388,w,22,C'30,38,50');
-   CreateDashboardLabel(DASH_PREFIX+"LADDER_H","DAY PROFIT LADDER - ONLY DAILY PROTECTION",tx,y+392,9,clrAqua);
-   CreateDashboardLabel(DASH_PREFIX+"DPL_START","OPEN BAL/EQ : $"+DoubleToString(DayProfitLadderStartBalance,2)+" / $"+DoubleToString(DayProfitLadderStartEquity,2),tx,y+415,8,clrWhite);
-   CreateDashboardLabel(DASH_PREFIX+"DPL_STAGE","CURRENT STAGE : X"+IntegerToString(DayProfitLadderStage),tx,y+435,9,clrYellow);
-   CreateDashboardLabel(DASH_PREFIX+"DPL_TARGET","NEXT TARGET   : $"+DoubleToString(DayProfitLadderNextTargetEquity,2),tx,y+455,8,clrLime);
-   CreateDashboardLabel(DASH_PREFIX+"DPL_LOCK","PROTECTION    : $"+DoubleToString(DayProfitLadderProtectionEquity,2)+" / "+DoubleToString(DayProfitLadderNextTargetEquity-DayProfitLadder1Amount,2),tx,y+475,8,clrGold);
-   CreateDashboardLabel(DASH_PREFIX+"PROGRESS","NEXT TARGET PROGRESS : "+DoubleToString(ladderProgress,1)+"%",tx,y+495,8,clrWhite);
+
+   // ================= 1. EMA FLIP PROFIT LADDER (SWAPPED TO TOP) =================
+   CreateDashboardPanel(DASH_PREFIX+"SEC_EMA_LADDER",x,y+90,w,22,C'30,38,50');
+   CreateDashboardLabel(DASH_PREFIX+"EMA_LAD_H","EMA FLIP PROFIT LADDER",tx,y+94,9,clrAqua);
+   
+   int currEmaLvl = (int)MathFloor(HighestCycleProfitUSD / FlipLadderStepUSD);
+   double emaLockedPrf = (currEmaLvl >= 1) ? (currEmaLvl - 1) * FlipLadderStepUSD : 0.0;
+   double emaNextTarget = (currEmaLvl + 1) * FlipLadderStepUSD;
+
+   CreateDashboardLabel(DASH_PREFIX+"EMA_LAD_HIGH","HIGHEST REACHED: $"+DoubleToString(HighestCycleProfitUSD,2),tx,y+117,9,clrWhite);
+   CreateDashboardLabel(DASH_PREFIX+"EMA_LAD_LVL","CURRENT TIER   : LVL "+IntegerToString(currEmaLvl)+" (Step $"+DoubleToString(FlipLadderStepUSD,0)+")",tx,y+137,9,clrYellow);
+   CreateDashboardLabel(DASH_PREFIX+"EMA_LAD_TARGET","NEXT LEVEL HIT : $"+DoubleToString(emaNextTarget,2),tx,y+157,8,clrLime);
+   CreateDashboardLabel(DASH_PREFIX+"EMA_LAD_LOCK","LOCKED PROFIT  : $"+DoubleToString(emaLockedPrf,2),tx,y+177,8,clrGold);
+   
+   string emaHaltText = TradingHaltedUntilNextFlip ? "HALTED (WAITING FLIP)" : "ACTIVE";
+   color emaHaltColor = TradingHaltedUntilNextFlip ? clrTomato : clrLime;
+   CreateDashboardLabel(DASH_PREFIX+"EMA_LAD_STATUS","LADDER STATUS  : "+emaHaltText,tx,y+197,9,emaHaltColor);
+
+   // ================= 2. ACCOUNT & EQUITY =================
+   CreateDashboardPanel(DASH_PREFIX+"SEC_ACCOUNT",x,y+222,w,22,C'30,38,50');
+   CreateDashboardLabel(DASH_PREFIX+"ACCOUNT_H","ACCOUNT & EQUITY",tx,y+226,9,clrAqua);
+   CreateDashboardLabel(DASH_PREFIX+"BALANCE","BALANCE      : $"+DoubleToString(AccountBalance(),2),tx,y+249,9,clrWhite);
+   CreateDashboardLabel(DASH_PREFIX+"EQUITY","EQUITY       : $"+DoubleToString(AccountEquity(),2),tx,y+269,9,clrLime);
+   CreateDashboardLabel(DASH_PREFIX+"FREEMARGIN","FREE MARGIN   : $"+DoubleToString(AccountFreeMargin(),2),tx,y+289,9,clrWhite);
+   CreateDashboardLabel(DASH_PREFIX+"DAYPL","DAY P/L       : "+(dayPL>=0?"+":"")+DoubleToString(dayPL,2)+" ("+DoubleToString(dayPLPct,1)+"%)",tx,y+309,9,dayPL>=0?clrLime:clrTomato);
+
+   // ================= 3. DAY PROFIT LADDER =================
+   CreateDashboardPanel(DASH_PREFIX+"SEC_LADDER",x,y+334,w,22,C'30,38,50');
+   CreateDashboardLabel(DASH_PREFIX+"LADDER_H","DAY PROFIT LADDER - ONLY DAILY PROTECTION",tx,y+338,9,clrAqua);
+   CreateDashboardLabel(DASH_PREFIX+"DPL_START","OPEN BAL/EQ  : $"+DoubleToString(DayProfitLadderStartBalance,2)+" / $"+DoubleToString(DayProfitLadderStartEquity,2),tx,y+361,8,clrWhite);
+   CreateDashboardLabel(DASH_PREFIX+"DPL_STAGE","CURRENT STAGE: X"+IntegerToString(DayProfitLadderStage),tx,y+381,9,clrYellow);
+   CreateDashboardLabel(DASH_PREFIX+"DPL_TARGET","NEXT TARGET  : $"+DoubleToString(DayProfitLadderNextTargetEquity,2),tx,y+401,8,clrLime);
+   CreateDashboardLabel(DASH_PREFIX+"DPL_LOCK","PROTECTION   : $"+DoubleToString(DayProfitLadderProtectionEquity,2)+" / "+DoubleToString(DayProfitLadderNextTargetEquity-DayProfitLadder1Amount,2),tx,y+421,8,clrGold);
+   CreateDashboardLabel(DASH_PREFIX+"PROGRESS","NEXT TARGET PROGRESS : "+DoubleToString(ladderProgress,1)+"%",tx,y+441,8,clrWhite);
    string dplStatus = DayProfitLadderTradingStopped ? "STOPPED" : "TRADING";
    color dplStatusColor = DayProfitLadderTradingStopped ? clrTomato : clrLime;
-   CreateDashboardLabel(DASH_PREFIX+"DPL_STATUS","DAY LADDER    : "+dplStatus,tx,y+510,9,dplStatusColor);
-   CreateDashboardPanel(DASH_PREFIX+"SEC_RISK",x,y+518,w,22,C'30,38,50');
+   CreateDashboardLabel(DASH_PREFIX+"DPL_STATUS","DAY LADDER   : "+dplStatus,tx,y+458,9,dplStatusColor);
+
+   // ================= 4. MARKET-MOMENT CONFIRMATIONS (SWAPPED DOWN) =================
+   CreateDashboardPanel(DASH_PREFIX+"SEC_CONFIRM",x,y+483,w,22,C'30,38,50');
+   CreateDashboardLabel(DASH_PREFIX+"CONF_H","MARKET-MOMENT CONFIRMATIONS",tx,y+487,9,clrAqua);
+   CreateDashboardLabel(DASH_PREFIX+"CONF_H1","H1 DIRECTION : "+h1Text+"  ["+h1Mark+"]",tx,y+510,9,h1Color);
+   CreateDashboardLabel(DASH_PREFIX+"CONF_M5","M5 3-CANDLE  : "+m5Text+"  ["+m5Mark+"]",tx,y+530,9,m5Color);
+   CreateDashboardLabel(DASH_PREFIX+"CONF_EMA","EMA "+IntegerToString(InpEMA200Period)+"     : "+emaState+"  ["+emaMark+"]",tx,y+550,9,emaConfirmColor);
+   CreateDashboardLabel(DASH_PREFIX+"CONF_30M","30M MOMENTUM : "+DoubleToString(dashboardMomentumDiff,Digits)+" / "+DoubleToString(dashboardMomentumThreshold,Digits)+"  ["+momMark+"]",tx,y+570,8,momentumColor);
+   CreateDashboardLabel(DASH_PREFIX+"CONF_ATR","M5 RANGE/ATR: "+DoubleToString(dashboardATRRatio,2)+" / "+DoubleToString(MaxCandleRangeATRMultiple,2)+"  ["+(dashboardExtremeVol?"EXTREME":"OK")+"]",tx,y+590,8,dashboardExtremeVol?clrTomato:clrLime);
+   CreateDashboardLabel(DASH_PREFIX+"CONF_SCORE",scoreText,tx,y+610,10,scoreColor);
+   CreateDashboardLabel(DASH_PREFIX+"CONF_RULE","SSL MASTER | H1/M5/EMA/30M score | H1 opposite / ATR spike caps lot",tx,y+629,7,clrSilver);
+   CreateDashboardLabel(DASH_PREFIX+"PRICE","BID / ASK    : "+DoubleToString(Bid,Digits)+" / "+DoubleToString(Ask,Digits),tx,y+648,9,clrWhite);
+
+   // ================= 5. RISK & STOP-LOSS PROTECTION =================
+   CreateDashboardPanel(DASH_PREFIX+"SEC_RISK",x,y+673,w,22,C'30,38,50');
    int lotMultiplierDiv = (AccountMultiplierLOT > 0) ? AccountMultiplierLOT : 500;
    int balancelomultipler = (int)(AccountBalance() / lotMultiplierDiv);
    if(balancelomultipler < 1)
       balancelomultipler = 1;
-   CreateDashboardLabel(DASH_PREFIX+"RISK_H","RISK & STOP-LOSS PROTECTION",tx,y+522,9,clrAqua);
-   CreateDashboardLabel(DASH_PREFIX+"FLOAT","FLOATING P/L  : "+(netProfit>=0?"+":"")+DoubleToString(netProfit,2),tx,y+545,9,pnlColor);
-   CreateDashboardLabel(DASH_PREFIX+"ORDERS","ORDERS       : "+IntegerToString(totalOrders)+" / "+IntegerToString(MaxOpenOrders)+"   B:"+IntegerToString(buyOrders)+" S:"+IntegerToString(sellOrders),tx,y+565,9,clrWhite);
-   CreateDashboardLabel(DASH_PREFIX+"LOTS","LOTS         : B "+DoubleToString(GetTotalLots(OP_BUY),2)+" / S "+DoubleToString(GetTotalLots(OP_SELL),2)+" Multi X "+IntegerToString(balancelomultipler),tx,y+585,9,clrWhite);
-   CreateDashboardLabel(DASH_PREFIX+"SLRISK","SL LOSSES    : "+IntegerToString(LosingSLCount)+" | CONTINUE AFTER SL: "+(ContinueTradingAfterSL?"YES":"NO"),tx,y+605,9,ContinueTradingAfterSL?clrLime:(LosingSLCount>0?clrOrangeRed:clrLime));
-   CreateDashboardLabel(DASH_PREFIX+"BASKET","BASKET LOCK  : $"+DoubleToString(BasketNewOrderLossLimitUSD,2)+" | ROOM $"+DoubleToString(riskRemaining,2),tx,y+625,9,HasBasketNewOrderLossLimit()?clrTomato:clrLime);
-   CreateDashboardLabel(DASH_PREFIX+"COOLDOWN","SL COOLDOWN  : "+(SLProtectionUntil>TimeCurrent()?TimeToString(SLProtectionUntil,TIME_SECONDS):"READY"),tx,y+645,9,SLProtectionUntil>TimeCurrent()?clrGold:clrLime);
-   CreateDashboardPanel(DASH_PREFIX+"SEC_SERVER",x,y+668,w,22,C'30,38,50');
-   CreateDashboardLabel(DASH_PREFIX+"SERVER_H","SERVER / EA HEALTH",tx,y+672,9,clrAqua);
-   CreateDashboardLabel(DASH_PREFIX+"SERVER","CONNECTION   : "+serverText,tx,y+695,9,serverColor);
-   CreateDashboardLabel(DASH_PREFIX+"RECOVERY","RECOVERY CTS  : "+IntegerToString(ServerRecoveryResetCount)+"   LAST ERR: "+IntegerToString(ServerRecoveryLastError),tx,y+715,8,ServerRecoveryLastError==0?clrSilver:clrGold);
-   CreateDashboardLabel(DASH_PREFIX+"REENTRY","RE-ENTRY      : "+(EquityResetReEntryPending?"PENDING":(ProtectedEquityWaitActive?"WAIT":"READY")),tx,y+735,8,EquityResetReEntryPending||ProtectedEquityWaitActive?clrGold:clrLime);
+   CreateDashboardLabel(DASH_PREFIX+"RISK_H","RISK & STOP-LOSS PROTECTION",tx,y+677,9,clrAqua);
+   CreateDashboardLabel(DASH_PREFIX+"FLOAT","FLOATING P/L : "+(netProfit>=0?"+":"")+DoubleToString(netProfit,2),tx,y+700,9,pnlColor);
+   CreateDashboardLabel(DASH_PREFIX+"ORDERS","ORDERS       : "+IntegerToString(totalOrders)+" / "+IntegerToString(MaxOpenOrders)+"   B:"+IntegerToString(buyOrders)+" S:"+IntegerToString(sellOrders),tx,y+720,9,clrWhite);
+   CreateDashboardLabel(DASH_PREFIX+"LOTS","LOTS         : B "+DoubleToString(GetTotalLots(OP_BUY),2)+" / S "+DoubleToString(GetTotalLots(OP_SELL),2)+" Multi X "+IntegerToString(balancelomultipler),tx,y+740,9,clrWhite);
+   CreateDashboardLabel(DASH_PREFIX+"SLRISK","SL LOSSES    : "+IntegerToString(LosingSLCount)+" | CONTINUE AFTER SL: "+(ContinueTradingAfterSL?"YES":"NO"),tx,y+760,9,ContinueTradingAfterSL?clrLime:(LosingSLCount>0?clrOrangeRed:clrLime));
+   CreateDashboardLabel(DASH_PREFIX+"BASKET","BASKET LOCK  : $"+DoubleToString(BasketNewOrderLossLimitUSD,2)+" | ROOM $"+DoubleToString(riskRemaining,2),tx,y+780,9,HasBasketNewOrderLossLimit()?clrTomato:clrLime);
+   CreateDashboardLabel(DASH_PREFIX+"COOLDOWN","SL COOLDOWN  : "+(SLProtectionUntil>TimeCurrent()?TimeToString(SLProtectionUntil,TIME_SECONDS):"READY"),tx,y+800,9,SLProtectionUntil>TimeCurrent()?clrGold:clrLime);
+
+   // ================= 6. SERVER / EA HEALTH =================
+   CreateDashboardPanel(DASH_PREFIX+"SEC_SERVER",x,y+825,w,22,C'30,38,50');
+   CreateDashboardLabel(DASH_PREFIX+"SERVER_H","SERVER / EA HEALTH",tx,y+829,9,clrAqua);
+   CreateDashboardLabel(DASH_PREFIX+"SERVER","CONNECTION   : "+serverText,tx,y+852,9,serverColor);
+   CreateDashboardLabel(DASH_PREFIX+"RECOVERY","RECOVERY CTS : "+IntegerToString(ServerRecoveryResetCount)+"   LAST ERR: "+IntegerToString(ServerRecoveryLastError),tx,y+872,8,ServerRecoveryLastError==0?clrSilver:clrGold);
+   CreateDashboardLabel(DASH_PREFIX+"REENTRY","RE-ENTRY     : "+(EquityResetReEntryPending?"PENDING":(ProtectedEquityWaitActive?"WAIT":"READY")),tx,y+892,8,EquityResetReEntryPending||ProtectedEquityWaitActive?clrGold:clrLime);
+
    ChartRedraw(0);
   }
-
 //+------------------------------------------------------------------+
 //|                                                                  |
 //+------------------------------------------------------------------+
