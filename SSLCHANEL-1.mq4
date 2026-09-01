@@ -110,6 +110,7 @@ double Ladder1StopMaxPriceUSD = 0.70;//2;
 double Ladder2ProfitUSD = 0.15;
 double DefaultOrderProfitUSD = 2.00;
 
+
 // ===== ONE-TIME POST-ORDER SL/TP VERIFICATION =====
 bool   EnablePostOrderSLTPVerification = false;
 int    PostOrderSLTPVerificationDelaySeconds = 60;
