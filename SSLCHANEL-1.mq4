@@ -144,6 +144,8 @@ double   PostOrderSLTPVerifyExpectedOpen[MAX_POST_ORDER_SLTP_VERIFY];
 int      PostOrderSLTPVerifyType[MAX_POST_ORDER_SLTP_VERIFY];
 double   PostOrderSLTPVerifyLots[MAX_POST_ORDER_SLTP_VERIFY];
 
+
+
 bool EnableRecoveryOrders =false;// true;
 double RecoveryTriggerLossUSD =2;//1;//0.50;// 2;
 double RecoveryLotMultiplier = 1;
