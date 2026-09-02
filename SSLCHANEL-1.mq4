@@ -287,18 +287,21 @@ bool PassesUserRules(int orderType)
 
    double emaAngle = GlobalEmaAngle30;
 
-// --- STRICT EMA TREND FILTER ---
-   if(EMADirection != -1 && (orderType == OP_SELL || orderType == OP_SELLSTOP || orderType == OP_SELLLIMIT))
-     {
-      // Print("TRADE BLOCKED | EMA trend is not bearish for Sell order.");
-      return false;
-     }
+
+   
+
+// // --- STRICT EMA TREND FILTER ---
+//    if(EMADirection != -1 && (orderType == OP_SELL || orderType == OP_SELLSTOP || orderType == OP_SELLLIMIT))
+//      {
+//       // Print("TRADE BLOCKED | EMA trend is not bearish for Sell order.");
+//       return false;
+//      }
      
-   if(EMADirection != 1 && (orderType == OP_BUY || orderType == OP_BUYSTOP || orderType == OP_BUYLIMIT))
-     {
-      // Print("TRADE BLOCKED | EMA trend is not bullish for Buy order.");
-      return false;
-     }
+//    if(EMADirection != 1 && (orderType == OP_BUY || orderType == OP_BUYSTOP || orderType == OP_BUYLIMIT))
+//      {
+//       // Print("TRADE BLOCKED | EMA trend is not bullish for Buy order.");
+//       return false;
+//      }
 
    if(emaAngle > 3 && (orderType == OP_SELL || orderType == OP_SELLSTOP || orderType == OP_SELLLIMIT))
       return false;
@@ -2784,14 +2787,16 @@ int SafeOrderSend(string symbol,int orderType,double lots,double price,int slipp
       return -1;
 
       
+
+      
 // --- STRICT EMA TREND FILTER ---
-   if(EMADirection != -1 && (orderType == OP_SELL || orderType == OP_SELLSTOP || orderType == OP_SELLLIMIT))
+   if(GlobalEmaAngle30>2 && EMADirection != -1 && (orderType == OP_SELL || orderType == OP_SELLSTOP || orderType == OP_SELLLIMIT))
      {
       Print("TRADE BLOCKED | EMA trend is not bearish for Sell order.");
       return false;
      }
      
-   if(EMADirection != 1 && (orderType == OP_BUY || orderType == OP_BUYSTOP || orderType == OP_BUYLIMIT))
+   if(GlobalEmaAngle30 < -2 && EMADirection != 1 && (orderType == OP_BUY || orderType == OP_BUYSTOP || orderType == OP_BUYLIMIT))
      {
       Print("TRADE BLOCKED | EMA trend is not bullish for Buy order.");
       return false;
@@ -3851,7 +3856,7 @@ Lots = 0.01 * (5 - cycleStep);
 
 Print("Closed Orders Since EMA Flip: ", closedCount, " | Cycle Step: ", cycleStep, " | Calculated Lots: ", Lots);
 
-if(!isSSLSignal)
+if(!isSSLSignal && (GlobalEmaAngle30 > -2.0 && GlobalEmaAngle30 < 2.0))
 {
    Lots = 0.01;
 
