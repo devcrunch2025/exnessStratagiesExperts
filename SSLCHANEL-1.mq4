@@ -3087,7 +3087,7 @@ bool SafeOrderDelete(int ticket,color arrowColor)
    if(!OrderSelect(ticket,SELECT_BY_TICKET,MODE_TRADES))
       return true;
    int ageSeconds=(int)(TimeCurrent()-OrderOpenTime());
-   int requiredAgeSeconds = 6*60*60;
+   int requiredAgeSeconds =0;// 6*60*60;
    if(ageSeconds < requiredAgeSeconds)
       return false;
    if(!CanSendTradeRequest("OrderDelete","Ticket="+IntegerToString(ticket)))
