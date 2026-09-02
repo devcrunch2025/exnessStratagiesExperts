@@ -151,7 +151,7 @@ double RecoveryMinDistanceRaw =100;//20;// 200.0;
 double DayProfitLadder1Amount = 5;
 
 // ===== DYNAMIC DAY PROFIT LADDER =====
-bool   EnableDayProfitLadder = false;
+bool   EnableDayProfitLadder = false;//true;
 double DayProfitLadder1Percent = 25;
 double DayProfitLadder2Percent = 10;
 double DayProfitLadderLockRatio = 10;
@@ -3851,6 +3851,11 @@ Lots = 0.01 * (5 - cycleStep);
 
 Print("Closed Orders Since EMA Flip: ", closedCount, " | Cycle Step: ", cycleStep, " | Calculated Lots: ", Lots);
 
+if(!isSSLSignal)
+{
+   Lots = 0.01;
+
+}
 // Safety catch
 if(Lots < 0.01)
   {
