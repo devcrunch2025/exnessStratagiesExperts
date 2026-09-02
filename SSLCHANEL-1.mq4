@@ -51,6 +51,7 @@ double TargetProfitPerFlipUSD = 10.0;
 double FlipLadderStepUSD = 5;//10.0;
 double HighestCycleProfitUSD = 0.0;
 bool   TradingHaltedUntilNextFlip = false;
+double ActiveEquityBaseline = 0.0; // Add this new variable
 
  
 int    HighestLadderLevelThisCycle = 0; // <-- NEW
@@ -143,8 +144,6 @@ double   PostOrderSLTPVerifyExpectedTP[MAX_POST_ORDER_SLTP_VERIFY];
 double   PostOrderSLTPVerifyExpectedOpen[MAX_POST_ORDER_SLTP_VERIFY];
 int      PostOrderSLTPVerifyType[MAX_POST_ORDER_SLTP_VERIFY];
 double   PostOrderSLTPVerifyLots[MAX_POST_ORDER_SLTP_VERIFY];
-
-
 
 bool EnableRecoveryOrders =false;// true;
 double RecoveryTriggerLossUSD =2;//1;//0.50;// 2;
@@ -826,62 +825,54 @@ void CheckFlipProfitTarget()
   }
   void ManageFlipProfitLadder()
   {
-   if(TradingHaltedUntilNextFlip || EmaFlipTime == 0 || FlipLadderStepUSD <= 0)
+   if(TradingHaltedUntilNextFlip || FlipLadderStepUSD <= 0)
       return;
 
-   double realizedProfit = 0.0;
-   
-   // 1. Calculate closed profit since the last EMA flip
-   for(int i = OrdersHistoryTotal() - 1; i >= 0; i--)
+   // 1. Initialize the baseline if it is empty (e.g., EA startup)
+   if(ActiveEquityBaseline <= 0.0)
+      ActiveEquityBaseline = AccountBalance();
+
+   // 2. Calculate continuous profit based on actual Account Equity
+   double totalContinuousProfit = AccountEquity() - ActiveEquityBaseline;
+
+   // 3. Track the highest watermark profit reached across ALL flips
+   if(totalContinuousProfit > HighestCycleProfitUSD)
      {
-      if(OrderSelect(i, SELECT_BY_POS, MODE_HISTORY))
-        {
-         if(OrderSymbol() == Symbol() && OrderMagicNumber() == MagicNumber)
-           {
-            if(OrderCloseTime() >= EmaFlipTime)
-               realizedProfit += (OrderProfit() + OrderSwap() + OrderCommission());
-           }
-        }
+      HighestCycleProfitUSD = totalContinuousProfit;
      }
 
-   // 2. Add floating profit
-   double floatingProfit = GetEAFloatingPL();
-   double totalCycleProfit = realizedProfit + floatingProfit;
-
-   // 3. Track the highest watermark profit reached in this cycle
-   if(totalCycleProfit > HighestCycleProfitUSD)
-     {
-      HighestCycleProfitUSD = totalCycleProfit;
-     }
-
-   // 4. Calculate ladder level (e.g., $25 / $10 = Level 2)
+   // 4. Calculate ladder level
    int ladderLevel = (int)MathFloor(HighestCycleProfitUSD / FlipLadderStepUSD);
-   // --- NEW: DRAW BOX WHEN A NEW LEVEL IS REACHED ---
+   
+   // 5. Draw box when a new level is reached
    if(ladderLevel > HighestLadderLevelThisCycle && ladderLevel >= 1)
      {
       HighestLadderLevelThisCycle = ladderLevel;
-      
-      // Draw the red square slightly above the current candle High
       DrawLadderBox(Time[0], High[0] + (30 * Point), ladderLevel);
-      Print("DRAWING BOX: Ladder Step ", ladderLevel, " reached ($", HighestCycleProfitUSD, ")");
+      Print("DRAWING BOX: Continuous Ladder Step ", ladderLevel, " reached (+$", HighestCycleProfitUSD, ")");
      }
-   // 5. If we have reached at least Level 1 ($10+)
+     
+   // 6. If we have reached at least Level 1
    if(ladderLevel >= 1)
      {
-      // Lock the previous step to give the trade breathing room
-      // Hit $20 (Level 2) -> Locks $10. Hit $30 (Level 3) -> Locks $20.
+      // Lock the previous step (e.g., Level 2 ($10) locks $5)
       double lockedProfitTarget = (ladderLevel - 1) * FlipLadderStepUSD;
       
-      // 6. If profit retraces down to the locked target, secure it and halt
-      if(totalCycleProfit <= lockedProfitTarget)
+      // 7. If equity profit retraces down to the locked target, secure it
+      if(totalContinuousProfit <= lockedProfitTarget)
         {
-         Print("FLIP LADDER TRIGGERED | Highest was $", HighestCycleProfitUSD, 
-               " | Retraced to lock level $", lockedProfitTarget, 
+         Print("CONTINUOUS LADDER TRIGGERED | Peak was +$", HighestCycleProfitUSD, 
+               " | Retraced to lock +$", lockedProfitTarget, 
                " | Halting until next EMA flip.");
-         // --- NEW: DRAW RED CIRCLE ABOVE CANDLE ---
+         
          DrawLadderHaltCircle(Time[0], High[0] + (50 * Point));
          TradingHaltedUntilNextFlip = true;
-         CloseAndDeleteAllEAOrdersOnTradingStop(); // Uses your existing function
+         CloseAndDeleteAllEAOrdersOnTradingStop(); 
+         
+         // 8. RESET the baseline to the newly secured Account Balance so the next flip starts fresh
+         ActiveEquityBaseline = AccountBalance();
+         HighestCycleProfitUSD = 0.0;
+         HighestLadderLevelThisCycle = 0;
         }
      }
   }
@@ -924,8 +915,8 @@ void TrackEmaFlip()
       EmaFlipTime = TimeCurrent();
       
 TradingHaltedUntilNextFlip = false; // Add this
-      HighestCycleProfitUSD = 0.0;        // Add this
-      HighestLadderLevelThisCycle = 0; // <-- NEW: Reset the box trigger
+      // HighestCycleProfitUSD = 0.0;        // Add this
+      // HighestLadderLevelThisCycle = 0; // <-- NEW: Reset the box trigger
       // Print("EMA FLIP DETECTED: Trend changed. Evaluating open orders for closure.");
      
      /*
@@ -2788,6 +2779,12 @@ void RemoveDubaiTradingPauseDashboard() { }
 //+------------------------------------------------------------------+
 int SafeOrderSend(string symbol,int orderType,double lots,double price,int slippage,double stopLoss,double takeProfit,string comment,int magic,color arrowColor)
   {
+
+// ADD THIS LINE: Block re-entry orders if EMA Ladder is halted
+   if(TradingHaltedUntilNextFlip)       return -1;
+;
+
+
    if(TradeOperationFailedThisTick)
       return -1;
    if(IsDubaiTradingPauseHour())
@@ -2798,7 +2795,7 @@ int SafeOrderSend(string symbol,int orderType,double lots,double price,int slipp
        if(GlobalEmaAngle30<2 &&  GlobalEmaAngle30 > -2  )
      {
       Print("TRADE BLOCKED | BOTH SIDES Angle below 2 degrees. No trade allowed.");
-      return false;
+      return -1;;
      }
      
    // if(GlobalEmaAngle30 < -2  )
@@ -2809,16 +2806,16 @@ int SafeOrderSend(string symbol,int orderType,double lots,double price,int slipp
 
       
 // --- STRICT EMA TREND FILTER ---
-   if(GlobalEmaAngle30>2 && EMADirection != -1 && (orderType == OP_SELL || orderType == OP_SELLSTOP || orderType == OP_SELLLIMIT))
+   if(GlobalEmaAngle30<6 &&  GlobalEmaAngle30>2 && EMADirection != -1 && (orderType == OP_SELL || orderType == OP_SELLSTOP || orderType == OP_SELLLIMIT))
      {
       Print("TRADE BLOCKED | EMA trend is not bearish for Sell order.");
-      return false;
+      return -1;
      }
      
-   if(GlobalEmaAngle30 < -2 && EMADirection != 1 && (orderType == OP_BUY || orderType == OP_BUYSTOP || orderType == OP_BUYLIMIT))
+   if(GlobalEmaAngle30>-6 && GlobalEmaAngle30 < -2 && EMADirection != 1 && (orderType == OP_BUY || orderType == OP_BUYSTOP || orderType == OP_BUYLIMIT))
      {
       Print("TRADE BLOCKED | EMA trend is not bullish for Buy order.");
-      return false;
+      return -1;
      }
 
 // --- CHECK IF THIS IS A V-SHAPE BOUNCE OVERRIDE ---
@@ -3880,6 +3877,14 @@ Lots = 0.01 * (5 - cycleStep);
 if( (GlobalEmaAngle30 > -3.0 && GlobalEmaAngle30 < 3.0))
 {
    Lots = 0.01;
+
+}
+
+
+if((GlobalEmaAngle30>6 || GlobalEmaAngle30<-6) &&  GlobalSSLDirection != EMADirection)
+{
+   Lots = 0.01;
+
 
 }
 // Safety catch
@@ -5052,6 +5057,10 @@ bool HasPendingProfitReEntry(int pendingType)
 //+------------------------------------------------------------------+
 void CreateProfitReEntryStop(int closedOrderType, double closedPrice, DailyProtectionState &state, bool afterStopLoss=false)
   {
+
+// ADD THIS LINE: Block re-entry orders if EMA Ladder is halted
+   if(TradingHaltedUntilNextFlip) return;
+
    int pendingType = (closedOrderType == OP_BUY) ? OP_BUYSTOP : OP_SELLSTOP;
    if(InpEnableCustomRules && !PassesUserRules(pendingType))
       return;
