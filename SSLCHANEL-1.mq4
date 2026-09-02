@@ -925,6 +925,8 @@ TradingHaltedUntilNextFlip = false; // Add this
       HighestCycleProfitUSD = 0.0;        // Add this
       HighestLadderLevelThisCycle = 0; // <-- NEW: Reset the box trigger
       // Print("EMA FLIP DETECTED: Trend changed. Evaluating open orders for closure.");
+     
+     /*
       for(int i = OrdersTotal() - 1; i >= 0; i--)
         {
          if(OrderSelect(i, SELECT_BY_POS, MODE_TRADES))
@@ -962,7 +964,7 @@ double distanceUSD = GetDistanceToEmaUSD(type, 0.01);
                     }
               }
            }
-        }
+        }*/
      }
 
    LastTrackedEmaDirection = currentDirection;
