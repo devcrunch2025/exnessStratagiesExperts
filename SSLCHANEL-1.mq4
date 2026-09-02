@@ -37,7 +37,7 @@ bool enableCircleOrders = true;
 double MaxAllowedSpreadUSD = 35.0;
 int AccountMultiplierLOT = 500;
 double OriginalStopLossUSD = 4;
-double StopLossUSD =10;//2;// 10;
+double StopLossUSD =5;//10;//2;// 10;
 
 
 bool EnableBounceBackDetection = false;
@@ -57,7 +57,7 @@ double ActiveEquityBaseline = 0.0; // Add this new variable
 int    HighestLadderLevelThisCycle = 0; // <-- NEW
 
 // ===== EMA DISTANCE CLOSE SETTINGS =====
-bool   EnableEmaDistanceClose = true;
+bool   EnableEmaDistanceClose =false;// true;
 double EmaCloseDistancePoints =200;// 50;
 
 // ===== 30-MINUTE PRICE MOMENTUM FILTER =====
@@ -307,10 +307,10 @@ bool PassesUserRules(int orderType)
 //       return false;
 //      }
 
-   if(emaAngle > 3 && (orderType == OP_SELL || orderType == OP_SELLSTOP || orderType == OP_SELLLIMIT))
-      return false;
-   if(emaAngle < -3 && (orderType == OP_BUY || orderType == OP_BUYSTOP || orderType == OP_BUYLIMIT))
-      return false;
+   // if(emaAngle > 3 && (orderType == OP_SELL || orderType == OP_SELLSTOP || orderType == OP_SELLLIMIT))
+   //    return false;
+   // if(emaAngle < -3 && (orderType == OP_BUY || orderType == OP_BUYSTOP || orderType == OP_BUYLIMIT))
+   //    return false;
 
    int currentSSL = GlobalSSLDirection;
    int requestedDirection = (orderType == OP_BUY || orderType == OP_BUYSTOP || orderType == OP_BUYLIMIT) ? 1 : -1;
@@ -1030,7 +1030,9 @@ void CloseOppositeOrdersOnEmaDistance()
       if(OrderOpenTime() > EmaFlipTime)
          continue;
 
-
+// ADD THIS EXACT LINE TO PROTECT YOUR RECOVERY BASKETS
+      if(StringFind(OrderComment(), "RECOVERY_") == 0)
+         continue;
 
       int type = OrderType();
       if(type == OP_BUY && Bid < buyCutoff && EMADirection == -1)
@@ -2804,19 +2806,23 @@ int SafeOrderSend(string symbol,int orderType,double lots,double price,int slipp
    //    return false;
    //   }
 
-      
-// --- STRICT EMA TREND FILTER ---
-   if(GlobalEmaAngle30<6 &&  GlobalEmaAngle30>2 && EMADirection != -1 && (orderType == OP_SELL || orderType == OP_SELLSTOP || orderType == OP_SELLLIMIT))
-     {
-      Print("TRADE BLOCKED | EMA trend is not bearish for Sell order.");
-      return -1;
-     }
-     
-   if(GlobalEmaAngle30>-6 && GlobalEmaAngle30 < -2 && EMADirection != 1 && (orderType == OP_BUY || orderType == OP_BUYSTOP || orderType == OP_BUYLIMIT))
-     {
-      Print("TRADE BLOCKED | EMA trend is not bullish for Buy order.");
-      return -1;
-     }
+     // --- STRICT EMA TREND FILTER WITH EXHAUSTION ALLOWANCE ---
+
+// --- STRICT EMA TREND FILTER WITH EXHAUSTION ALLOWANCE ---
+
+// Block Sells during a standard strong uptrend (2 to 6 degrees). Allows Sells > 6 for extreme exhaustion.
+if(GlobalEmaAngle30 > 2.0 && GlobalEmaAngle30 <= 6.0 && EMADirection != -1 && (orderType == OP_SELL || orderType == OP_SELLSTOP || orderType == OP_SELLLIMIT))
+  {
+   Print("TRADE BLOCKED | EMA trend is strong (", DoubleToString(GlobalEmaAngle30, 2), " deg). Waiting for extreme exhaustion (>6) to Sell.");
+   return -1;
+  }
+  
+// Block Buys during a standard strong downtrend (-2 to -6 degrees). Allows Buys < -6 for extreme exhaustion.
+if(GlobalEmaAngle30 < -2.0 && GlobalEmaAngle30 >= -6.0 && EMADirection != 1 && (orderType == OP_BUY || orderType == OP_BUYSTOP || orderType == OP_BUYLIMIT))
+  {
+   Print("TRADE BLOCKED | EMA trend is strong (", DoubleToString(GlobalEmaAngle30, 2), " deg). Waiting for extreme exhaustion (<-6) to Buy.");
+   return -1;
+  }
 
 // --- CHECK IF THIS IS A V-SHAPE BOUNCE OVERRIDE ---
 // bool isVShapeOverride = ((orderType == OP_BUY || orderType == OP_BUYSTOP || orderType == OP_BUYLIMIT) && GlobalVShapeBuy) ||
@@ -4776,8 +4782,13 @@ void DeleteOppositePendingOrders(int newSignalType)
          continue;
       if(OrderSymbol() != Symbol() || OrderMagicNumber() != MagicNumber)
          continue;
+         
       int orderType = OrderType();
-      bool deleteOrder = ((newSignalType == OP_BUY && orderType == OP_SELLSTOP && EMADirection == 1) || (newSignalType == OP_SELL && orderType == OP_BUYSTOP && EMADirection == -1  ));
+      
+      // FIXED: EMA Direction must be opposite (-1 for OP_BUY, 1 for OP_SELL)
+      bool deleteOrder = ((newSignalType == OP_BUY && orderType == OP_SELLSTOP && EMADirection == -1) || 
+                          (newSignalType == OP_SELL && orderType == OP_BUYSTOP && EMADirection == 1));
+                          
       if(deleteOrder)
          SafeOrderDelete(OrderTicket(), clrYellow);
      }
@@ -6122,7 +6133,7 @@ void UpdateDashboard(DailyProtectionState &state)
    string emaHaltText = TradingHaltedUntilNextFlip ? "HALTED (WAITING FLIP)" : "ACTIVE";
    color emaHaltColor = TradingHaltedUntilNextFlip ? clrTomato : clrLime;
    CreateDashboardLabel(DASH_PREFIX+"EMA_LAD_STATUS","LADDER STATUS  : "+emaHaltText,tx,y+197,9,emaHaltColor);
-
+CreateDashboardLabel(DASH_PREFIX+"EMA_LAD_BASE","SECURED BASELINE: $"+DoubleToString(ActiveEquityBaseline, 2),tx,y+210,8,clrSilver);
    // ================= 2. ACCOUNT & EQUITY =================
    CreateDashboardPanel(DASH_PREFIX+"SEC_ACCOUNT",x,y+222,w,22,C'30,38,50');
    CreateDashboardLabel(DASH_PREFIX+"ACCOUNT_H","ACCOUNT & EQUITY",tx,y+226,9,clrAqua);
