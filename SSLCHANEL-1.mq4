@@ -91,7 +91,7 @@ datetime DeferredCreated[MAX_DEFERRED_ORDERS];
 
 double Lots = 0.01;
 int MaxOpenOrders = 100;
-bool CloseOppositeOrdersOnSignal = true;
+bool CloseOppositeOrdersOnSignal = false;
 double closeOppositeLossThreshold =0.01;
 bool DeleteOppositePendingOnSignal = true;
 bool EnableProfitReEntryStop = true;
@@ -1035,13 +1035,15 @@ void CloseOppositeOrdersOnEmaDistance()
       if(OrderOpenTime() > EmaFlipTime)
          continue;
 
+
+
       int type = OrderType();
-      if(type == OP_BUY && Bid < buyCutoff)
+      if(type == OP_BUY && Bid < buyCutoff && EMADirection == -1)
         {
          Print("EMA DISTANCE TRIGGER: Closing PRE-FLIP BUY.");
          SafeOrderClose(OrderTicket(), OrderLots(), type, Slippage, clrRed);
         }
-      if(type == OP_SELL && Ask > sellCutoff)
+      if(type == OP_SELL && Ask > sellCutoff && EMADirection == 1)
         {
          Print("EMA DISTANCE TRIGGER: Closing PRE-FLIP SELL.");
          SafeOrderClose(OrderTicket(), OrderLots(), type, Slippage, clrBlue);
@@ -4145,7 +4147,7 @@ void ManageRecoveryBasket()
 
       double basketProfit = recoveryProfit + parentProfit;
 
-      if(basketProfit >= RecoveryBasketProfitUSD *(OrderLots() / 0.01))
+      if(basketProfit >= RecoveryBasketProfitUSD )//*(OrderLots() / 0.01))
         {
          SafeOrderClose(recoveryTicket, recoveryLots, recoveryType, Slippage, (recoveryType == OP_BUY ? clrRed : clrBlue));
          SafeOrderClose(parentTicket, parentLots, parentType, Slippage, (parentType == OP_BUY ? clrRed : clrBlue));
@@ -4766,7 +4768,7 @@ void DeleteOppositePendingOrders(int newSignalType)
       if(OrderSymbol() != Symbol() || OrderMagicNumber() != MagicNumber)
          continue;
       int orderType = OrderType();
-      bool deleteOrder = ((newSignalType == OP_BUY && orderType == OP_SELLSTOP) || (newSignalType == OP_SELL && orderType == OP_BUYSTOP));
+      bool deleteOrder = ((newSignalType == OP_BUY && orderType == OP_SELLSTOP && EMADirection == 1) || (newSignalType == OP_SELL && orderType == OP_BUYSTOP && EMADirection == -1  ));
       if(deleteOrder)
          SafeOrderDelete(OrderTicket(), clrYellow);
      }
@@ -4795,7 +4797,7 @@ void CloseOppositeOrders(int newSignalType)
       if(orderPL <= closeOppositeLossThreshold)
          continue;
 
-      if((newSignalType == OP_BUY && orderType == OP_SELL) || (newSignalType == OP_SELL && orderType == OP_BUY))
+      if((newSignalType == OP_BUY && orderType == OP_SELL && EMADirection == 1) || (newSignalType == OP_SELL && orderType == OP_BUY && EMADirection == -1))
         {
          SafeOrderClose(ticket, lots, orderType, Slippage, (orderType==OP_SELL ? clrRed : clrBlue));
         }
