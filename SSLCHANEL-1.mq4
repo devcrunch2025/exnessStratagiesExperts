@@ -40,6 +40,9 @@ double OriginalStopLossUSD = 4;
 double StopLossUSD =10;//2;// 10;
 
 
+bool EnableBounceBackDetection = false;
+
+
 // ===== EMA FLIP PROFIT TARGET =====
 double TargetProfitPerFlipUSD = 10.0;
 // bool TradingHaltedUntilNextFlip = false;
@@ -921,7 +924,7 @@ void TrackEmaFlip()
 TradingHaltedUntilNextFlip = false; // Add this
       HighestCycleProfitUSD = 0.0;        // Add this
       HighestLadderLevelThisCycle = 0; // <-- NEW: Reset the box trigger
-      Print("EMA FLIP DETECTED: Trend changed. Evaluating open orders for closure.");
+      // Print("EMA FLIP DETECTED: Trend changed. Evaluating open orders for closure.");
       for(int i = OrdersTotal() - 1; i >= 0; i--)
         {
          if(OrderSelect(i, SELECT_BY_POS, MODE_TRADES))
@@ -2786,7 +2789,17 @@ int SafeOrderSend(string symbol,int orderType,double lots,double price,int slipp
    if(!IsDayProfitLadderTradingAllowed())
       return -1;
 
-      
+       if(GlobalEmaAngle30<2 &&  GlobalEmaAngle30 > -2  )
+     {
+      Print("TRADE BLOCKED | BOTH SIDES Angle below 2 degrees. No trade allowed.");
+      return false;
+     }
+     
+   // if(GlobalEmaAngle30 < -2  )
+   //   {
+   //    Print("TRADE BLOCKED | EMA trend is not bullish for Buy order.");
+   //    return false;
+   //   }
 
       
 // --- STRICT EMA TREND FILTER ---
@@ -3328,6 +3341,8 @@ bool CheckFastProfitableRecentOrders()
 //+------------------------------------------------------------------+
 bool DetectBounceback(int direction, int shift)
   {
+if(EnableBounceBackDetection == false)
+   return false; // Disable bounceback detection for now
    double ema = iMA(Symbol(), Period(), InpEMA200Period, 0, MODE_EMA, PRICE_CLOSE, shift);
    double c = Close[shift];
    double o = Open[shift];
@@ -3854,9 +3869,9 @@ int cycleStep = closedCount % 5;
 Lots = 0.01 * (5 - cycleStep);
 
 
-Print("Closed Orders Since EMA Flip: ", closedCount, " | Cycle Step: ", cycleStep, " | Calculated Lots: ", Lots);
+// Print("Closed Orders Since EMA Flip: ", closedCount, " | Cycle Step: ", cycleStep, " | Calculated Lots: ", Lots);
 
-if(!isSSLSignal && (GlobalEmaAngle30 > -2.0 && GlobalEmaAngle30 < 2.0))
+if( (GlobalEmaAngle30 > -3.0 && GlobalEmaAngle30 < 3.0))
 {
    Lots = 0.01;
 
