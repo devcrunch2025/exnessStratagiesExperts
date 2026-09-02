@@ -121,8 +121,8 @@ double MinimumSLModifyGapRaw = 2.0;
 
 bool EnableProfitLadder1 = true;
 bool EnableProfitLadder2 = true;
-double Ladder1ProfitUSD = 0.50;
-double Ladder1StopMaxPriceUSD = 0.70;//2;
+double Ladder1ProfitUSD =1;// 0.50;
+double Ladder1StopMaxPriceUSD =1.10;// 0.70;//2;
 double Ladder2ProfitUSD = 0.15;
 double DefaultOrderProfitUSD = 2.00;
 
@@ -144,7 +144,7 @@ double   PostOrderSLTPVerifyExpectedOpen[MAX_POST_ORDER_SLTP_VERIFY];
 int      PostOrderSLTPVerifyType[MAX_POST_ORDER_SLTP_VERIFY];
 double   PostOrderSLTPVerifyLots[MAX_POST_ORDER_SLTP_VERIFY];
 
-bool EnableRecoveryOrders = true;
+bool EnableRecoveryOrders =false;// true;
 double RecoveryTriggerLossUSD =2;//1;//0.50;// 2;
 double RecoveryLotMultiplier = 1;
 int MaxRecoveryOrders = 1;
@@ -5287,6 +5287,14 @@ void ManageProfitLadder()
          continue;
 
       double ladder1Profit = OriginalLadder1ProfitUSD * orderLots * 100.0;
+      
+      // --- NEW LOGIC: Reduce ladder1Profit by half if order is older than 1 hour ---
+      if(TimeCurrent() - OrderOpenTime() > 3600) // 3600 seconds = 1 hour
+        {
+         ladder1Profit = ladder1Profit / 2.0;
+        }
+      // -----------------------------------------------------------------------------
+
       double ladder2Profit = OriginalLadder2ProfitUSD * orderLots * 100.0;
       double ladder1StopMaxPrice = OriginalLadder1StopMaxPriceUSD * orderLots * 100.0;
       double lockedProfit = 0.0;
@@ -5327,62 +5335,62 @@ void ManageProfitLadder()
            }
         }
 
-      double nextProfitTargetUSD=0.0;
-      if(EnableProfitLadder1 && ladder1Profit>0.0 && currentProfit<ladder1StopMaxPrice)
+      double nextProfitTargetUSD = 0.0;
+      if(EnableProfitLadder1 && ladder1Profit > 0.0 && currentProfit < ladder1StopMaxPrice)
         {
-         int nextL1Level=(int)MathFloor(currentProfit/ladder1Profit)+1;
-         nextProfitTargetUSD=nextL1Level*ladder1Profit;
+         int nextL1Level = (int)MathFloor(currentProfit / ladder1Profit) + 1;
+         nextProfitTargetUSD = nextL1Level * ladder1Profit;
         }
       else
-         if(EnableProfitLadder2 && ladder2Profit>0.0)
+         if(EnableProfitLadder2 && ladder2Profit > 0.0)
            {
-            int nextL2Level=(int)MathFloor(currentProfit/ladder2Profit)+1;
-            nextProfitTargetUSD=nextL2Level*ladder2Profit;
+            int nextL2Level = (int)MathFloor(currentProfit / ladder2Profit) + 1;
+            nextProfitTargetUSD = nextL2Level * ladder2Profit;
            }
 
-      double desiredTakeProfit=OrderTakeProfit();
-      if(nextProfitTargetUSD>0.0)
+      double desiredTakeProfit = OrderTakeProfit();
+      if(nextProfitTargetUSD > 0.0)
         {
-         double nextTP=CalculateDefaultProfitTargetPrice(orderType, OrderOpenPrice(), orderLots, nextProfitTargetUSD);
-         double minimumTPDistance=GetRequiredStopDistance();
-         if(nextTP>0.0)
+         double nextTP = CalculateDefaultProfitTargetPrice(orderType, OrderOpenPrice(), orderLots, nextProfitTargetUSD);
+         double minimumTPDistance = GetRequiredStopDistance();
+         if(nextTP > 0.0)
            {
-            bool validNextTP=true;
-            if(orderType==OP_BUY && nextTP-Ask<minimumTPDistance)
-               validNextTP=false;
-            if(orderType==OP_SELL && Bid-nextTP<minimumTPDistance)
-               validNextTP=false;
+            bool validNextTP = true;
+            if(orderType == OP_BUY && nextTP - Ask < minimumTPDistance)
+               validNextTP = false;
+            if(orderType == OP_SELL && Bid - nextTP < minimumTPDistance)
+               validNextTP = false;
             if(validNextTP)
               {
-               if(orderType==OP_BUY)
+               if(orderType == OP_BUY)
                  {
-                  if(desiredTakeProfit<=0.0 || nextTP>desiredTakeProfit+Point)
-                     desiredTakeProfit=nextTP;
+                  if(desiredTakeProfit <= 0.0 || nextTP > desiredTakeProfit + Point)
+                     desiredTakeProfit = nextTP;
                  }
                else
-                  if(orderType==OP_SELL)
+                  if(orderType == OP_SELL)
                     {
-                     if(desiredTakeProfit<=0.0 || nextTP<desiredTakeProfit-Point)
-                        desiredTakeProfit=nextTP;
+                     if(desiredTakeProfit <= 0.0 || nextTP < desiredTakeProfit - Point)
+                        desiredTakeProfit = nextTP;
                     }
               }
            }
         }
 
-      bool takeProfitNeedsModify=false;
-      if(orderType==OP_BUY)
+      bool takeProfitNeedsModify = false;
+      if(orderType == OP_BUY)
         {
-         if(desiredTakeProfit>0.0 && (OrderTakeProfit()<=0.0 || desiredTakeProfit>OrderTakeProfit()+Point))
-            takeProfitNeedsModify=true;
+         if(desiredTakeProfit > 0.0 && (OrderTakeProfit() <= 0.0 || desiredTakeProfit > OrderTakeProfit() + Point))
+            takeProfitNeedsModify = true;
         }
       else
-         if(orderType==OP_SELL)
+         if(orderType == OP_SELL)
            {
-            if(desiredTakeProfit>0.0 && (OrderTakeProfit()<=0.0 || desiredTakeProfit<OrderTakeProfit()-Point))
-               takeProfitNeedsModify=true;
+            if(desiredTakeProfit > 0.0 && (OrderTakeProfit() <= 0.0 || desiredTakeProfit < OrderTakeProfit() - Point))
+               takeProfitNeedsModify = true;
            }
 
-      if(existingLockedProfit>=lockedProfit && !takeProfitNeedsModify)
+      if(existingLockedProfit >= lockedProfit && !takeProfitNeedsModify)
          continue;
       double priceDistance = (lockedProfit / (tickValue * orderLots)) * tickSize;
       if(priceDistance <= 0)
@@ -5394,7 +5402,7 @@ void ManageProfitLadder()
       if(orderType == OP_BUY)
         {
          if(!needStopLossModify)
-            newStopLoss=OrderStopLoss();
+            newStopLoss = OrderStopLoss();
          else
            {
             newStopLoss = OrderOpenPrice() + priceDistance;
@@ -5418,7 +5426,7 @@ void ManageProfitLadder()
       if(orderType == OP_SELL)
         {
          if(!needStopLossModify)
-            newStopLoss=OrderStopLoss();
+            newStopLoss = OrderStopLoss();
          else
            {
             newStopLoss = OrderOpenPrice() - priceDistance;
