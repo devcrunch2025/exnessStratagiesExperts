@@ -3077,6 +3077,7 @@ bool ForceDeletePendingOrder(int ticket,color arrowColor) { return SafeOrderDele
 //+------------------------------------------------------------------+
 //|                                                                  |
 //+------------------------------------------------------------------+
+
 bool SafeOrderDelete(int ticket,color arrowColor)
   {
    if(TradeOperationFailedThisTick)
