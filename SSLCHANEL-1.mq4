@@ -3927,6 +3927,13 @@ if((GlobalEmaAngle30>6 || GlobalEmaAngle30<-6) &&  GlobalSSLDirection != EMADire
 
 }
 
+if( GetDistanceToEMAPrice(orderType, true)<50)
+{
+      Lots = 0.01;
+
+}
+
+
 if(IsHeavyLotOrderNearBy(orderType, Lots, 300) && Lots>=0.02)
          Lots = 0.01;
 // Safety catch
