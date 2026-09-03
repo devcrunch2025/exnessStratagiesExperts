@@ -92,7 +92,9 @@ datetime DeferredCreated[MAX_DEFERRED_ORDERS];
 
 double Lots = 0.01;
 int MaxOpenOrders = 100;
-bool CloseOppositeOrdersOnSignal = false;
+
+
+bool CloseOppositeOrdersOnSignal =true;// false;
 double closeOppositeLossThreshold =0.01;
 bool DeleteOppositePendingOnSignal = true;
 bool EnableProfitReEntryStop = true;
@@ -4818,8 +4820,8 @@ void CloseOppositeOrders(int newSignalType)
       double lots = OrderLots();
       double orderPL = OrderProfit() + OrderSwap() + OrderCommission();
 
-      if(orderPL <= closeOppositeLossThreshold)
-         continue;
+      // if(orderPL <= closeOppositeLossThreshold)
+      //    continue;
 
       if((newSignalType == OP_BUY && orderType == OP_SELL && EMADirection == 1) || (newSignalType == OP_SELL && orderType == OP_BUY && EMADirection == -1))
         {
