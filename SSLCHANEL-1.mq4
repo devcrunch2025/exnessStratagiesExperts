@@ -53,6 +53,13 @@ double HighestCycleProfitUSD = 0.0;
 bool   TradingHaltedUntilNextFlip = false;
 double ActiveEquityBaseline = 0.0; // Add this new variable
 
+
+ 
+
+// --- NEW RESUME TIMER VARIABLES ---
+datetime LadderHaltStartTime = 0;
+input int InpResumeAfterHaltMinutes = 60; // Resume after 1 hour if no flip occurs
+
  
 int    HighestLadderLevelThisCycle = 0; // <-- NEW
 
@@ -861,21 +868,42 @@ void CheckFlipProfitTarget()
       double lockedProfitTarget = (ladderLevel - 1) * FlipLadderStepUSD;
       
       // 7. If equity profit retraces down to the locked target, secure it
-      if(totalContinuousProfit <= lockedProfitTarget)
-        {
-         Print("CONTINUOUS LADDER TRIGGERED | Peak was +$", HighestCycleProfitUSD, 
-               " | Retraced to lock +$", lockedProfitTarget, 
-               " | Halting until next EMA flip.");
-         
-         DrawLadderHaltCircle(Time[0], High[0] + (50 * Point));
-         TradingHaltedUntilNextFlip = true;
-         CloseAndDeleteAllEAOrdersOnTradingStop(); 
-         
-         // 8. RESET the baseline to the newly secured Account Balance so the next flip starts fresh
-         ActiveEquityBaseline = AccountBalance();
-         HighestCycleProfitUSD = 0.0;
-         HighestLadderLevelThisCycle = 0;
-        }
+   if(totalContinuousProfit <= lockedProfitTarget)
+     {
+      Print("CONTINUOUS LADDER TRIGGERED | Peak was +$", HighestCycleProfitUSD, 
+            " | Retraced to lock +$", lockedProfitTarget, 
+            " | Halting until next EMA flip.");
+      
+      DrawLadderHaltCircle(Time[0], High[0] + (50 * Point));
+      TradingHaltedUntilNextFlip = true;
+      LadderHaltStartTime = TimeCurrent(); // <-- RECORD HALT START TIME
+      CloseAndDeleteAllEAOrdersOnTradingStop(); 
+      
+      // 8. RESET the baseline to the newly secured Account Balance so the next flip starts fresh
+      ActiveEquityBaseline = AccountBalance();
+      HighestCycleProfitUSD = 0.0;
+      HighestLadderLevelThisCycle = 0;
+     }
+     }
+  }
+  //+------------------------------------------------------------------+
+//| Check if 1 hour has passed since halt and resume trading         |
+//+------------------------------------------------------------------+
+void CheckLadderHaltResume()
+  {
+   if(!TradingHaltedUntilNextFlip || LadderHaltStartTime == 0)
+      return;
+
+   // Check if 1 hour (3600 seconds) has elapsed
+   if(TimeCurrent() >= LadderHaltStartTime + (InpResumeAfterHaltMinutes * 60))
+     {
+      Print("LADDER RESUME TRIGGERED: 1 hour elapsed since halt. Resuming order creation.");
+      
+      TradingHaltedUntilNextFlip = false;
+      LadderHaltStartTime = 0;
+      ActiveEquityBaseline = AccountBalance(); // Fresh baseline for new orders
+      HighestCycleProfitUSD = 0.0;
+      HighestLadderLevelThisCycle = 0;
      }
   }
   void DrawLadderHaltCircle(datetime time, double price)
@@ -917,6 +945,7 @@ void TrackEmaFlip()
       EmaFlipTime = TimeCurrent();
       
 TradingHaltedUntilNextFlip = false; // Add this
+LadderHaltStartTime = 0; // <-- RESET TIMER ON NATURAL FLIP
       // HighestCycleProfitUSD = 0.0;        // Add this
       // HighestLadderLevelThisCycle = 0; // <-- NEW: Reset the box trigger
       // Print("EMA FLIP DETECTED: Trend changed. Evaluating open orders for closure.");
@@ -1393,6 +1422,7 @@ void OnTickCore()
    CachedTotalEAOrdersTick=-1;
    ResetTradeErrorRetryGuards();
    TradeOperationFailedThisTick = false;
+   CheckLadderHaltResume(); // <-- ADD THIS LINE HERE
 
    TrackEmaFlip();
    // CheckFlipProfitTarget(); // Add this line
