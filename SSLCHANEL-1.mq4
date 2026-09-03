@@ -4803,7 +4803,98 @@ void DeleteOppositePendingOrders(int newSignalType)
 //+------------------------------------------------------------------+
 //|                                                                  |
 //+------------------------------------------------------------------+
+
 void CloseOppositeOrders(int newSignalType)
+  {
+   if(!EAStartupComplete)
+      return;
+   RefreshRates();
+   
+   double ema = iMA(Symbol(), Period(), InpEMA200Period, InpEMAPriceShift, MODE_EMA, PRICE_CLOSE, 0);
+
+   for(int i = OrdersTotal() - 1; i >= 0; i--)
+     {
+      if(!OrderSelect(i, SELECT_BY_POS, MODE_TRADES))
+         continue;
+      if(OrderSymbol() != Symbol() || OrderMagicNumber() != MagicNumber)
+         continue;
+
+      int orderType = OrderType();
+      int ticket = OrderTicket();
+      double lots = OrderLots();
+      double orderPL = OrderProfit() + OrderSwap() + OrderCommission();
+      double profitThreshold = 0.25 * (lots / 0.01);
+
+      bool isOppositeSignal = ((newSignalType == OP_BUY && orderType == OP_SELL) || 
+                               (newSignalType == OP_SELL && orderType == OP_BUY));
+
+      if(isOppositeSignal)
+        {
+         // 1. EMA matches the EXISTING ORDER (EMA opposes the new SSL signal)
+         bool emaMatchesOrder = ((orderType == OP_BUY && EMADirection == 1) || 
+                                 (orderType == OP_SELL && EMADirection == -1));
+                                 
+         // 2. EMA matches the NEW SSL SIGNAL (EMA opposes the existing order)
+         bool emaMatchesSignal = ((newSignalType == OP_BUY && EMADirection == 1) || 
+                                  (newSignalType == OP_SELL && EMADirection == -1));
+
+         if(emaMatchesOrder)
+           {
+            // Wait for profit threshold because the primary trend (EMA) still supports the trade
+            if(orderPL > profitThreshold)
+              {
+               SafeOrderClose(ticket, lots, orderType, Slippage, (orderType==OP_SELL ? clrRed : clrBlue));
+              }
+           }
+         else if(emaMatchesSignal)
+           {
+            // Close immediately if distance > 100 because the trade is fighting both EMA and SSL
+            double currentPrice = (orderType == OP_BUY) ? Bid : Ask;
+            double distanceToEma = MathAbs(currentPrice - ema);
+            
+            if(distanceToEma > 100.0)
+              {
+               SafeOrderClose(ticket, lots, orderType, Slippage, (orderType==OP_SELL ? clrRed : clrBlue));
+              }
+           }
+        }
+     }
+  }
+
+void CloseOppositeOrdersold2(int newSignalType)
+  {
+   if(!EAStartupComplete)
+      return;
+   RefreshRates();
+   for(int i = OrdersTotal() - 1; i >= 0; i--)
+     {
+      if(!OrderSelect(i, SELECT_BY_POS, MODE_TRADES))
+         continue;
+      if(OrderSymbol() != Symbol() || OrderMagicNumber() != MagicNumber)
+         continue;
+
+      int orderType = OrderType();
+      int ticket = OrderTicket();
+      double lots = OrderLots();
+      double orderPL = OrderProfit() + OrderSwap() + OrderCommission();
+      double profitThreshold = 0.25 * (lots / 0.01);
+
+      // 1. Check if the order is opposite to the new SSL signal
+      bool isOppositeSignal = ((newSignalType == OP_BUY && orderType == OP_SELL) || 
+                               (newSignalType == OP_SELL && orderType == OP_BUY));
+
+      if(isOppositeSignal)
+        {
+         // 2. ONLY close if it has reached the profit threshold. 
+         // If it is below the threshold, it is ignored and left running.
+         if(orderPL > profitThreshold)
+           {
+            SafeOrderClose(ticket, lots, orderType, Slippage, (orderType==OP_SELL ? clrRed : clrBlue));
+           }
+        }
+     }
+  }
+void CloseOppositeOrdersold(int newSignalType)
   {
    if(!EAStartupComplete)
       return;
