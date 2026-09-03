@@ -837,9 +837,22 @@ void CheckFlipProfitTarget()
    if(TradingHaltedUntilNextFlip || FlipLadderStepUSD <= 0)
       return;
 
-   // 1. Initialize the baseline if it is empty (e.g., EA startup)
+   // 1. Initialize the baseline if it is empty
    if(ActiveEquityBaseline <= 0.0)
-      ActiveEquityBaseline = AccountBalance();
+      ActiveEquityBaseline = AccountBalance()-10;
+
+   // === DIRECT SAFETY CHECK: HARD BASELINE FLOOR ===
+   // If equity drops directly to or below your secured baseline, halt immediately!
+   if(AccountEquity() <= ActiveEquityBaseline && GetDistanceToEMAPrice(OP_BUY, true)>100)
+     {
+      Print("SECURED BASELINE BREACHED | Equity ($", AccountEquity(), ") fell to or below baseline ($", ActiveEquityBaseline, ") | Halting trading.");
+      
+      DrawLadderHaltCircle(Time[0], High[0] + (50 * Point));
+      TradingHaltedUntilNextFlip = true;
+      LadderHaltStartTime = TimeCurrent(); // Starts the 1-hour timer
+      CloseAndDeleteAllEAOrdersOnTradingStop(); 
+      return;
+     }
 
    // 2. Calculate continuous profit based on actual Account Equity
    double totalContinuousProfit = AccountEquity() - ActiveEquityBaseline;
@@ -867,26 +880,27 @@ void CheckFlipProfitTarget()
       // Lock the previous step (e.g., Level 2 ($10) locks $5)
       double lockedProfitTarget = (ladderLevel - 1) * FlipLadderStepUSD;
       
-      // 7. If equity profit retraces down to the locked target, secure it
-   if(totalContinuousProfit <= lockedProfitTarget)
-     {
-      Print("CONTINUOUS LADDER TRIGGERED | Peak was +$", HighestCycleProfitUSD, 
-            " | Retraced to lock +$", lockedProfitTarget, 
-            " | Halting until next EMA flip.");
-      
-      DrawLadderHaltCircle(Time[0], High[0] + (50 * Point));
-      TradingHaltedUntilNextFlip = true;
-      LadderHaltStartTime = TimeCurrent(); // <-- RECORD HALT START TIME
-      CloseAndDeleteAllEAOrdersOnTradingStop(); 
-      
-      // 8. RESET the baseline to the newly secured Account Balance so the next flip starts fresh
-      ActiveEquityBaseline = AccountBalance();
-      HighestCycleProfitUSD = 0.0;
-      HighestLadderLevelThisCycle = 0;
-     }
+      // 7. If equity profit retraces down to the locked target, secure it and HALT
+      if(totalContinuousProfit <= lockedProfitTarget)
+        {
+         Print("CONTINUOUS LADDER TRIGGERED | Peak was +$", HighestCycleProfitUSD, 
+               " | Retraced to lock +$", lockedProfitTarget, 
+               " | Halting until 1 hour elapses or next EMA flip.");
+         
+         DrawLadderHaltCircle(Time[0], High[0] + (50 * Point));
+         TradingHaltedUntilNextFlip = true;
+         LadderHaltStartTime = TimeCurrent(); // Starts the 1-hour countdown timer
+         CloseAndDeleteAllEAOrdersOnTradingStop(); 
+         
+         // DO NOT reset ActiveEquityBaseline here, otherwise it re-arms immediately.
+         // Keep ActiveEquityBaseline locked so it evaluates a true drop against the target.
+        }
      }
   }
   //+------------------------------------------------------------------+
+//| Check if 1 hour has passed since halt and resume trading         |
+//+------------------------------------------------------------------+
+//+------------------------------------------------------------------+
 //| Check if 1 hour has passed since halt and resume trading         |
 //+------------------------------------------------------------------+
 void CheckLadderHaltResume()
@@ -901,7 +915,7 @@ void CheckLadderHaltResume()
       
       TradingHaltedUntilNextFlip = false;
       LadderHaltStartTime = 0;
-      ActiveEquityBaseline = AccountBalance(); // Fresh baseline for new orders
+      ActiveEquityBaseline = AccountBalance(); // Safe to reset baseline now that time has cleared the penalty
       HighestCycleProfitUSD = 0.0;
       HighestLadderLevelThisCycle = 0;
      }
@@ -944,8 +958,12 @@ void TrackEmaFlip()
       HasEmaFlippedSinceLoad = true;
       EmaFlipTime = TimeCurrent();
       
-TradingHaltedUntilNextFlip = false; // Add this
-LadderHaltStartTime = 0; // <-- RESET TIMER ON NATURAL FLIP
+      TradingHaltedUntilNextFlip = false; 
+      LadderHaltStartTime = 0; // Clear timer on flip
+      ActiveEquityBaseline = AccountBalance(); // Reset baseline for the new trend direction
+      HighestCycleProfitUSD = 0.0;
+      HighestLadderLevelThisCycle = 0;
+     
       // HighestCycleProfitUSD = 0.0;        // Add this
       // HighestLadderLevelThisCycle = 0; // <-- NEW: Reset the box trigger
       // Print("EMA FLIP DETECTED: Trend changed. Evaluating open orders for closure.");
@@ -1412,6 +1430,48 @@ void CheckStoredSignals(DailyProtectionState &dailyState)
            }
      }
   }
+  //+------------------------------------------------------------------+
+//| Standalone: Close profitable opposite orders on SSL signal       |
+//+------------------------------------------------------------------+
+void CloseOppositeProfitableOrdersIndependent(int newSignalType)
+  {
+   if(!EAStartupComplete) 
+      return;
+      
+   RefreshRates();
+
+   // Loop through all open trades
+   for(int i = OrdersTotal() - 1; i >= 0; i--)
+     {
+      if(!OrderSelect(i, SELECT_BY_POS, MODE_TRADES)) 
+         continue;
+      if(OrderSymbol() != Symbol() || OrderMagicNumber() != MagicNumber) 
+         continue;
+
+      int orderType = OrderType();
+      int ticket = OrderTicket();
+      double lots = OrderLots();
+      double orderPL = OrderProfit() + OrderSwap() + OrderCommission();
+      
+      // Calculate profit threshold: $0.25 per 0.01 lot step
+      double profitThreshold = 0.25 * (lots / 0.01);
+
+      // Check if the open order is directly opposite to the incoming signal
+      bool isOppositeSignal = ((newSignalType == OP_BUY && orderType == OP_SELL) || 
+                               (newSignalType == OP_SELL && orderType == OP_BUY));
+
+      // If it's an opposite signal and has reached or exceeded the profit threshold, close it immediately
+      if(isOppositeSignal && orderPL >= profitThreshold)
+        {
+         Print("INDEPENDENT CLOSE TRIGGERED: Ticket #", ticket, 
+               " | Type: ", GetOrderTypeText(orderType), 
+               " | Profit: $", DoubleToString(orderPL, 2), 
+               " | Threshold: $", DoubleToString(profitThreshold, 2));
+               
+         SafeOrderClose(ticket, lots, orderType, Slippage, (orderType == OP_BUY ? clrRed : clrBlue));
+        }
+     }
+  }
 //+------------------------------------------------------------------+
 //|                                                                  |
 //+------------------------------------------------------------------+
@@ -1628,8 +1688,11 @@ void OnTickCore()
 
          if(EnableTrading && !IsDailyTradingStopped(dailyState))
            {
-            if(CloseOppositeOrdersOnSignal)
-               CloseOppositeOrders(OP_BUY);
+            // if(CloseOppositeOrdersOnSignal)
+            // CloseOppositeProfitableOrdersOnSignal(OP_BUY);
+
+            CloseOppositeProfitableOrdersIndependent(OP_BUY);
+               // CloseOppositeOrders(OP_BUY);
 
             if(GetTotalEAOrders() < MaxOpenOrders)
               {
@@ -1660,8 +1723,11 @@ void OnTickCore()
 
             if(EnableTrading && !IsDailyTradingStopped(dailyState))
               {
-               if(CloseOppositeOrdersOnSignal)
-                  CloseOppositeOrders(OP_SELL);
+               // if(CloseOppositeOrdersOnSignal)
+               // CloseOppositeProfitableOrdersOnSignal(OP_SELL);
+                  // CloseOppositeOrders(OP_SELL);
+
+                  CloseOppositeProfitableOrdersIndependent(OP_SELL);
 
                if(GetTotalEAOrders() < MaxOpenOrders)
                  {
@@ -4836,7 +4902,67 @@ void DeleteOppositePendingOrders(int newSignalType)
          SafeOrderDelete(OrderTicket(), clrYellow);
      }
   }
+//+------------------------------------------------------------------+
+//| Close opposite profitable orders on SSL signal + EMA condition   |
+//+------------------------------------------------------------------+
+void CloseOppositeProfitableOrdersOnSignal(int newSignalType)
+  {
+   if(!EAStartupComplete) 
+      return;
+      
+   RefreshRates();
 
+   // 1. Calculate current EMA and local direction
+   double ema = iMA(Symbol(), Period(), InpEMA200Period, InpEMAPriceShift, MODE_EMA, PRICE_CLOSE, 0);
+   int localEmaDirection = 0;
+   
+   if(ema > 0)
+     {
+      if(Bid > ema) 
+         localEmaDirection = 1;      // Bullish EMA
+      else if(Bid < ema) 
+         localEmaDirection = -1;   // Bearish EMA
+     }
+
+   // 2. Loop through open orders
+   for(int i = OrdersTotal() - 1; i >= 0; i--)
+     {
+      if(!OrderSelect(i, SELECT_BY_POS, MODE_TRADES)) 
+         continue;
+      if(OrderSymbol() != Symbol() || OrderMagicNumber() != MagicNumber) 
+         continue;
+
+      int orderType = OrderType();
+      int ticket = OrderTicket();
+      double lots = OrderLots();
+      double orderPL = OrderProfit() + OrderSwap() + OrderCommission();
+      
+      // Calculate profit threshold: $0.25 per 0.01 lot step
+      double profitThreshold = 0.25 * (lots / 0.01);
+
+      // Check if the order is opposite to the incoming signal
+      bool isOppositeSignal = ((newSignalType == OP_BUY && orderType == OP_SELL) || 
+                               (newSignalType == OP_SELL && orderType == OP_BUY));
+
+      if(isOppositeSignal)
+        {
+         // SCENARIO A: Sell order is open, EMA is Bullish (1), new signal is Buy
+         bool isSellOpenBullishEma = (orderType == OP_SELL && localEmaDirection == 1 && newSignalType == OP_BUY);
+         
+         // SCENARIO B: Buy order is open, EMA is Bearish (-1), new signal is Sell
+         bool isBuyOpenBearishEma  = (orderType == OP_BUY && localEmaDirection == -1 && newSignalType == OP_SELL);
+
+         // If either conflicting condition matches and the order has crossed the profit threshold
+         if((isSellOpenBullishEma || isBuyOpenBearishEma) && orderPL >= profitThreshold)
+           {
+            Print("PROFITABLE OPPOSITE CLOSE: Ticket #", ticket, " | Type: ", GetOrderTypeText(orderType), 
+                  " | Profit: $", DoubleToString(orderPL, 2), " | Reaching threshold ($", DoubleToString(profitThreshold, 2), ")");
+                  
+            SafeOrderClose(ticket, lots, orderType, Slippage, (orderType == OP_BUY ? clrRed : clrBlue));
+           }
+        }
+     }
+  }
 //+------------------------------------------------------------------+
 //|                                                                  |
 //+------------------------------------------------------------------+
