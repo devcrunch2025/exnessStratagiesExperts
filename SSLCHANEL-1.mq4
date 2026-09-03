@@ -4806,18 +4806,23 @@ void DeleteOppositePendingOrders(int newSignalType)
 
 void CloseOppositeOrders(int newSignalType)
   {
-   if(!EAStartupComplete)
-      return;
+   if(!EAStartupComplete) return;
    RefreshRates();
-   
+
+   // 1. Calculate EMA and True Direction instantly on this exact tick
    double ema = iMA(Symbol(), Period(), InpEMA200Period, InpEMAPriceShift, MODE_EMA, PRICE_CLOSE, 0);
+   int localEmaDirection = 0;
+   
+   if(ema > 0)
+     {
+      if(Bid > ema) localEmaDirection = 1;
+      else if(Bid < ema) localEmaDirection = -1;
+     }
 
    for(int i = OrdersTotal() - 1; i >= 0; i--)
      {
-      if(!OrderSelect(i, SELECT_BY_POS, MODE_TRADES))
-         continue;
-      if(OrderSymbol() != Symbol() || OrderMagicNumber() != MagicNumber)
-         continue;
+      if(!OrderSelect(i, SELECT_BY_POS, MODE_TRADES)) continue;
+      if(OrderSymbol() != Symbol() || OrderMagicNumber() != MagicNumber) continue;
 
       int orderType = OrderType();
       int ticket = OrderTicket();
@@ -4830,30 +4835,59 @@ void CloseOppositeOrders(int newSignalType)
 
       if(isOppositeSignal)
         {
-         // 1. EMA matches the EXISTING ORDER (EMA opposes the new SSL signal)
-         bool emaMatchesOrder = ((orderType == OP_BUY && EMADirection == 1) || 
-                                 (orderType == OP_SELL && EMADirection == -1));
+         // 2. Use localEmaDirection for absolute precision
+         bool emaMatchesOrder = ((orderType == OP_BUY && localEmaDirection == 1) || 
+                                 (orderType == OP_SELL && localEmaDirection == -1));
                                  
-         // 2. EMA matches the NEW SSL SIGNAL (EMA opposes the existing order)
-         bool emaMatchesSignal = ((newSignalType == OP_BUY && EMADirection == 1) || 
-                                  (newSignalType == OP_SELL && EMADirection == -1));
+         bool emaMatchesSignal = ((newSignalType == OP_BUY && localEmaDirection == 1) || 
+                                  (newSignalType == OP_SELL && localEmaDirection == -1));
 
          if(emaMatchesOrder)
            {
-            // Wait for profit threshold because the primary trend (EMA) still supports the trade
+            // Instead of closing, lock the SL at the profit threshold
             if(orderPL > profitThreshold)
               {
-               SafeOrderClose(ticket, lots, orderType, Slippage, (orderType==OP_SELL ? clrRed : clrBlue));
+               double tickValue = MarketInfo(Symbol(), MODE_TICKVALUE);
+               double tickSize  = MarketInfo(Symbol(), MODE_TICKSIZE);
+               
+               if(tickValue > 0 && tickSize > 0)
+                 {
+                  // Convert USD profit threshold into raw price distance
+                  double lockDistance = (profitThreshold / (tickValue * lots)) * tickSize;
+                  double newSL = 0.0;
+                  
+                  if(orderType == OP_BUY)
+                    {
+                     newSL = NormalizeDouble(OrderOpenPrice() + lockDistance, Digits);
+                     // Only modify if the current SL is lower than the new SL or doesn't exist
+                     if(OrderStopLoss() == 0 || newSL > OrderStopLoss())
+                       {
+                        Print("OPPOSITE SIGNAL: Locking Buy profit at threshold SL.");
+                        SafeOrderModify(ticket, OrderOpenPrice(), newSL, OrderTakeProfit(), 0, clrLimeGreen);
+                       }
+                    }
+                  else if(orderType == OP_SELL)
+                    {
+                     newSL = NormalizeDouble(OrderOpenPrice() - lockDistance, Digits);
+                     // Only modify if the current SL is higher than the new SL or doesn't exist
+                     if(OrderStopLoss() == 0 || newSL < OrderStopLoss())
+                       {
+                        Print("OPPOSITE SIGNAL: Locking Sell profit at threshold SL.");
+                        SafeOrderModify(ticket, OrderOpenPrice(), newSL, OrderTakeProfit(), 0, clrTomato);
+                       }
+                    }
+                 }
               }
            }
          else if(emaMatchesSignal)
            {
-            // Close immediately if distance > 100 because the trade is fighting both EMA and SSL
+            // Close immediately if distance > 100
             double currentPrice = (orderType == OP_BUY) ? Bid : Ask;
             double distanceToEma = MathAbs(currentPrice - ema);
             
             if(distanceToEma > 100.0)
               {
+               Print("CLOSE EXECUTED: Fighting EMA & SSL + Distance > 100.");
                SafeOrderClose(ticket, lots, orderType, Slippage, (orderType==OP_SELL ? clrRed : clrBlue));
               }
            }
