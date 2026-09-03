@@ -1395,8 +1395,8 @@ void OnTickCore()
    TrackEmaFlip();
    // CheckFlipProfitTarget(); // Add this line
    ManageFlipProfitLadder(); // Add this line
-   Manage50EmaClosures();
-   ManageEmaAngleOppositeClose(); // <-- Add this here
+   // Manage50EmaClosures();
+   // ManageEmaAngleOppositeClose(); // <-- Add this here
    ProcessDeferredOrders();
 
    if(TradeOperationFailedThisTick)
