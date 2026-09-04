@@ -56,12 +56,12 @@ bool   TradingHaltedUntilNextFlip = false;
 double ActiveEquityBaseline = 0.0; // Add this new variable
 double TargetEquityMilestone = 0.0; // Added for $5 profit milestone step tracking
 
-double EMAProtectPercentage = 0.80; // 80% of current equity as baseline
+double EMAProtectPercentage =0.90;// 0.80; // 80% of current equity as baseline
  
 
 // --- NEW RESUME TIMER VARIABLES ---
 datetime LadderHaltStartTime = 0;
-input int InpResumeAfterHaltMinutes = 60; // Resume after 1 hour if no flip occurs
+  int InpResumeAfterHaltMinutes = 60; // Resume after 1 hour if no flip occurs
 
  
 int    HighestLadderLevelThisCycle = 0; // <-- NEW
