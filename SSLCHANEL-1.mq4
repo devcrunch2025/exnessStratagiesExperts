@@ -167,12 +167,12 @@ double RecoveryMinDistanceRaw =100;//20;// 200.0;
 double DayProfitLadder1Amount = 5;
 
 // ===== DYNAMIC DAY PROFIT LADDER =====
-bool   EnableDayProfitLadder = false;//true;
-double DayProfitLadder1Percent = 25;
+bool   EnableDayProfitLadder = true;//false;//true;
+double DayProfitLadder1Percent = 100;
 double DayProfitLadder2Percent = 10;
 double DayProfitLadderLockRatio = 10;
-double DayProfitInitialProtectionPercent = 80;
-double PeakProfitLockPercent = 80.0;
+double DayProfitInitialProtectionPercent =50;// 80;
+double PeakProfitLockPercent =50;// 80.0;
 
 int Slippage = 30;
 int MagicNumber = 6600123;
