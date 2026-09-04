@@ -55,12 +55,13 @@ double HighestCycleProfitUSD = 0.0;
 bool   TradingHaltedUntilNextFlip = false;
 double ActiveEquityBaseline = 0.0; // Add this new variable
 
-
- 
+double EMAProtectPercentage = 0.80;
+ // 90% of current equity as baseline
+double TargetEquityMilestone = 0.0; 
 
 // --- NEW RESUME TIMER VARIABLES ---
 datetime LadderHaltStartTime = 0;
-input int InpResumeAfterHaltMinutes = 60; // Resume after 1 hour if no flip occurs
+  int InpResumeAfterHaltMinutes = 60; // Resume after 1 hour if no flip occurs
 
  
 int    HighestLadderLevelThisCycle = 0; // <-- NEW
@@ -837,70 +838,82 @@ void CheckFlipProfitTarget()
 //+------------------------------------------------------------------+
 //| Manage Continuous EMA Flip Profit Ladder                         |
 //+------------------------------------------------------------------+
+ //+------------------------------------------------------------------+
+//| Manage Continuous EMA Flip Profit Ladder ($5 Steps & Order Close)|
+//+------------------------------------------------------------------+
+//+------------------------------------------------------------------+
+//| Manage Continuous EMA Flip Profit Ladder ($5 Steps & Resume Timer)|
+//+------------------------------------------------------------------+
 void ManageFlipProfitLadder()
   {
    if(TradingHaltedUntilNextFlip || FlipLadderStepUSD <= 0)
       return;
 
-   // 1. Initialize the baseline if it is empty
-   if(ActiveEquityBaseline <= 0.0 || OrdersTotal() == 0)
-      ActiveEquityBaseline = AccountEquity() * 0.90;
-
-   // === DIRECT SAFETY CHECK: HARD BASELINE FLOOR ===
-   if(AccountEquity() <= ActiveEquityBaseline && GetDistanceToEMAPrice(OP_BUY, true) > 100)
+   // 1. Initialize baseline and target milestone on startup or fresh reset
+   if(ActiveEquityBaseline <= 0.0 || TargetEquityMilestone <= 0.0 || OrdersTotal() == 0)
      {
-      Print("SECURED BASELINE BREACHED | Equity ($", AccountEquity(), ") fell to or below baseline ($", ActiveEquityBaseline, ") | Halting trading.");
+      ActiveEquityBaseline = AccountEquity() * EMAProtectPercentage; // e.g., 80% of current equity
+      TargetEquityMilestone = AccountEquity() + FlipLadderStepUSD;   // Next $5 milestone
+      HighestCycleProfitUSD = 0.0;
+      HighestLadderLevelThisCycle = 0;
+     }
+
+   // === HARD BASELINE FLOOR BREACH (EQUITY DROP DEFENSE) ===
+   if(AccountEquity() <= ActiveEquityBaseline)
+     {
+      Print("SECURED BASELINE BREACHED | Equity ($", AccountEquity(), ") fell to or below baseline ($", ActiveEquityBaseline, ") | Halting trading and starting resume timer.");
       
       DrawLadderHaltCircle(Time[0], High[0] + (50 * Point));
       TradingHaltedUntilNextFlip = true;
-      LadderHaltStartTime = TimeCurrent(); 
-      CloseAndDeleteAllEAOrdersOnTradingStop(); 
+      LadderHaltStartTime = TimeCurrent(); // Start the pause timer
+      CloseAndDeleteAllEAOrdersOnTradingStop(); // Flatten all orders
       return;
      }
 
-   // 2. Calculate continuous profit based on actual Account Equity
-   double totalContinuousProfit = AccountEquity() - ActiveEquityBaseline;
+   // 2. Check if Account Equity has reached or exceeded the next $5 profit milestone
+   if(AccountEquity() >= TargetEquityMilestone)
+     {
+      HighestLadderLevelThisCycle++;
+      
+      Print("LADDER LEVEL ", HighestLadderLevelThisCycle, " REACHED! Equity hit: $", AccountEquity(), 
+            " | Closing all open orders to lock profit.");
 
-   // 3. Track the highest watermark profit reached
-   if(totalContinuousProfit > HighestCycleProfitUSD)
-     {
-      HighestCycleProfitUSD = totalContinuousProfit;
-     }
+      DrawLadderBox(Time[0], High[0] + (30 * Point), HighestLadderLevelThisCycle);
 
-   // 4. Calculate ladder level
-   int ladderLevel = (int)MathFloor(HighestCycleProfitUSD / FlipLadderStepUSD);
-   
-   // 5. Action taken when a new level is reached
-   if(ladderLevel > HighestLadderLevelThisCycle && ladderLevel >= 1)
-     {
-      HighestLadderLevelThisCycle = ladderLevel;
-      DrawLadderBox(Time[0], High[0] + (30 * Point), ladderLevel);
+      // ACTION: Close all open market orders and delete pending orders
+      CloseAndDeleteAllEAOrdersOnTradingStop();
+
+      // ACTION: Ratchet baseline upward to 80% of the NEW current equity
+      ActiveEquityBaseline = AccountEquity() * EMAProtectPercentage;
+
+      // ACTION: Set the next $5 milestone target based on current equity
+      TargetEquityMilestone = AccountEquity() + FlipLadderStepUSD;
       
-      // RATCHET UPWARD: Shift the secured baseline upward with each new level achieved
-      // This locks in a higher baseline floor (e.g., 90% of current equity or stepping up by the ladder step)
-      ActiveEquityBaseline = AccountEquity() * 0.90; 
-      
-      Print("LEVEL UP: Reached Level ", ladderLevel, " | Secured Baseline Ratcheted to: $", ActiveEquityBaseline);
+      Print("NEW BASELINE SET: $", ActiveEquityBaseline, " | NEXT TARGET MILESTONE: $", TargetEquityMilestone);
      }
-     
-   // 6. Manage locked profit targets for the current tier
-   if(ladderLevel >= 1)
+  }
+
+//+------------------------------------------------------------------+
+//| Check if pause time has elapsed since baseline hit and resume    |
+//+------------------------------------------------------------------+
+void CheckLadderHaltResume()
+  {
+   if(!TradingHaltedUntilNextFlip || LadderHaltStartTime == 0)
+      return;
+
+   // Check if the required wait time has passed (InpResumeAfterHaltMinutes * EMAFlipwaitingtimeMinutes)
+   if(TimeCurrent() >= LadderHaltStartTime + (InpResumeAfterHaltMinutes * EMAFlipwaitingtimeMinutes))
      {
-      double lockedProfitTarget = (ladderLevel - 1) * FlipLadderStepUSD;
+      Print("LADDER RESUME TRIGGERED: Time elapsed since baseline hit. Resuming trading.");
       
-      if(totalContinuousProfit <= lockedProfitTarget)
-        {
-         Print("CONTINUOUS LADDER TRIGGERED | Peak was +$", HighestCycleProfitUSD, 
-               " | Retraced to lock +$", lockedProfitTarget, 
-               " | Halting trading and updating secured baseline.");
-         
-         ActiveEquityBaseline = AccountEquity() * 0.90; 
-         
-         DrawLadderHaltCircle(Time[0], High[0] + (50 * Point));
-         TradingHaltedUntilNextFlip = true;
-         LadderHaltStartTime = TimeCurrent(); 
-         CloseAndDeleteAllEAOrdersOnTradingStop(); 
-        }
+      TradingHaltedUntilNextFlip = false;
+      LadderHaltStartTime = 0;
+      
+      // Reset baselines and milestones to current equity market state upon resuming
+      ActiveEquityBaseline = AccountEquity() * EMAProtectPercentage;
+      TargetEquityMilestone = AccountEquity() + FlipLadderStepUSD;
+      HighestCycleProfitUSD = 0.0;
+      HighestLadderLevelThisCycle = 0;
      }
   }
   //+------------------------------------------------------------------+
@@ -921,7 +934,7 @@ void CheckLadderHaltResume()
       
       TradingHaltedUntilNextFlip = false;
       LadderHaltStartTime = 0;
-      ActiveEquityBaseline = AccountEquity() * 0.90; // Refresh baseline relative to current equity on resume
+      ActiveEquityBaseline = AccountEquity() * EMAProtectPercentage;// * 0.90;
       HighestCycleProfitUSD = 0.0;
       HighestLadderLevelThisCycle = 0;
      }
@@ -966,7 +979,7 @@ void TrackEmaFlip()
       
       TradingHaltedUntilNextFlip = false; 
       LadderHaltStartTime = 0; // Clear timer on flip
-ActiveEquityBaseline = AccountEquity() * 0.90; // Updated to 10% less than current equity on flip
+ActiveEquityBaseline = AccountEquity() * EMAProtectPercentage;// * 0.90;
       HighestCycleProfitUSD = 0.0;
       HighestLadderLevelThisCycle = 0;
      
@@ -2903,7 +2916,7 @@ int SafeOrderSend(string symbol,int orderType,double lots,double price,int slipp
    if(!IsDayProfitLadderTradingAllowed())
       return -1;
 
-       if(GlobalEmaAngle30<2 &&  GlobalEmaAngle30 > -2  )
+       if(GlobalEmaAngle30<2 &&  GlobalEmaAngle30 > -2  && (StringFind(comment, "SSL Long", 0) >= 0 || StringFind(comment, "SSL Short", 0) >= 0))
      {
       Print("TRADE BLOCKED | BOTH SIDES Angle below 2 degrees. No trade allowed.");
       TradeMonitoringLog="TRADE BLOCKED | BOTH SIDES Angle below 2 degrees. No trade allowed.";
@@ -2914,13 +2927,7 @@ int SafeOrderSend(string symbol,int orderType,double lots,double price,int slipp
       TradeMonitoringLog="";
      }
      
-   // if(GlobalEmaAngle30 < -2  )
-   //   {
-   //    Print("TRADE BLOCKED | EMA trend is not bullish for Buy order.");
-   //    return false;
-   //   }
-
-     // --- STRICT EMA TREND FILTER WITH EXHAUSTION ALLOWANCE ---
+   
 
 // --- STRICT EMA TREND FILTER WITH EXHAUSTION ALLOWANCE ---
 
