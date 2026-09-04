@@ -43,7 +43,7 @@ double StopLossUSD =5;//10;//2;// 10;
 bool EnableBounceBackDetection = false;
 
 
-int EMAFlipwaitingtimeMinutes = 29; // Wait time after an EMA flip before resuming trading
+int EMAFlipwaitingtimeMinutes =10;// 29; // Wait time after an EMA flip before resuming trading
 
 // ===== EMA FLIP PROFIT TARGET =====
 double TargetProfitPerFlipUSD = 10.0;
@@ -844,7 +844,7 @@ void ManageFlipProfitLadder()
 
    // 1. Initialize the baseline if it is empty
    if(ActiveEquityBaseline <= 0.0 || OrdersTotal() == 0)
-      ActiveEquityBaseline = AccountEquity() * 0.90; // 10% less than current equity
+      ActiveEquityBaseline = AccountEquity() * 0.90;
 
    // === DIRECT SAFETY CHECK: HARD BASELINE FLOOR ===
    if(AccountEquity() <= ActiveEquityBaseline && GetDistanceToEMAPrice(OP_BUY, true) > 100)
@@ -870,27 +870,30 @@ void ManageFlipProfitLadder()
    // 4. Calculate ladder level
    int ladderLevel = (int)MathFloor(HighestCycleProfitUSD / FlipLadderStepUSD);
    
-   // 5. Draw box when a new level is reached
+   // 5. Action taken when a new level is reached
    if(ladderLevel > HighestLadderLevelThisCycle && ladderLevel >= 1)
      {
       HighestLadderLevelThisCycle = ladderLevel;
       DrawLadderBox(Time[0], High[0] + (30 * Point), ladderLevel);
-      Print("DRAWING BOX: Continuous Ladder Step ", ladderLevel, " reached (+$", HighestCycleProfitUSD, ")");
+      
+      // RATCHET UPWARD: Shift the secured baseline upward with each new level achieved
+      // This locks in a higher baseline floor (e.g., 90% of current equity or stepping up by the ladder step)
+      ActiveEquityBaseline = AccountEquity() * 0.90; 
+      
+      Print("LEVEL UP: Reached Level ", ladderLevel, " | Secured Baseline Ratcheted to: $", ActiveEquityBaseline);
      }
      
-   // 6. If we have reached at least Level 1
+   // 6. Manage locked profit targets for the current tier
    if(ladderLevel >= 1)
      {
       double lockedProfitTarget = (ladderLevel - 1) * FlipLadderStepUSD;
       
-      // 7. If equity profit retraces down to the locked target, secure it, update baseline to 10% below current equity, and HALT
       if(totalContinuousProfit <= lockedProfitTarget)
         {
          Print("CONTINUOUS LADDER TRIGGERED | Peak was +$", HighestCycleProfitUSD, 
                " | Retraced to lock +$", lockedProfitTarget, 
                " | Halting trading and updating secured baseline.");
          
-         // Lock baseline to exactly 10% less than the equity at this hit moment
          ActiveEquityBaseline = AccountEquity() * 0.90; 
          
          DrawLadderHaltCircle(Time[0], High[0] + (50 * Point));
@@ -2880,6 +2883,8 @@ string GetDubaiTradingPauseReason() { return ""; }
 void UpdateDubaiTradingPauseDashboard() { }
 void RemoveDubaiTradingPauseDashboard() { }
 
+
+string TradeMonitoringLog="";
 //+------------------------------------------------------------------+
 //|                                                                  |
 //+------------------------------------------------------------------+
@@ -2901,7 +2906,12 @@ int SafeOrderSend(string symbol,int orderType,double lots,double price,int slipp
        if(GlobalEmaAngle30<2 &&  GlobalEmaAngle30 > -2  )
      {
       Print("TRADE BLOCKED | BOTH SIDES Angle below 2 degrees. No trade allowed.");
+      TradeMonitoringLog="TRADE BLOCKED | BOTH SIDES Angle below 2 degrees. No trade allowed.";
       return -1;;
+     }
+     else
+     {
+      TradeMonitoringLog="";
      }
      
    // if(GlobalEmaAngle30 < -2  )
@@ -6233,6 +6243,14 @@ void UpdateDashboard(DailyProtectionState &state)
 
    string statusText="READY";
    color statusColor=clrLime;
+
+if(TradeMonitoringLog!="")
+   {
+    statusText="PAUSE - Waiting for Angle>2";
+    statusColor=clrGold;
+   }
+   else
+
    if(!EnableTrading)
      {
       statusText="TRADING DISABLED";
