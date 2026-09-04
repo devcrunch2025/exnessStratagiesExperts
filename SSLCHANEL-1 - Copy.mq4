@@ -834,26 +834,24 @@ void CheckFlipProfitTarget()
       CloseAndDeleteAllEAOrdersOnTradingStop(); // Reuses your existing function
      }
   }
-//+------------------------------------------------------------------+
-//| Manage Continuous EMA Flip Profit Ladder                         |
-//+------------------------------------------------------------------+
-void ManageFlipProfitLadder()
+  void ManageFlipProfitLadder()
   {
    if(TradingHaltedUntilNextFlip || FlipLadderStepUSD <= 0)
       return;
 
    // 1. Initialize the baseline if it is empty
-   if(ActiveEquityBaseline <= 0.0 || OrdersTotal() == 0)
-      ActiveEquityBaseline = AccountEquity() * 0.90; // 10% less than current equity
+   if(ActiveEquityBaseline <= 0.0 || OrdersTotal()==0)
+      ActiveEquityBaseline = AccountBalance()*0.90;
 
    // === DIRECT SAFETY CHECK: HARD BASELINE FLOOR ===
-   if(AccountEquity() <= ActiveEquityBaseline && GetDistanceToEMAPrice(OP_BUY, true) > 100)
+   // If equity drops directly to or below your secured baseline, halt immediately!
+   if(AccountEquity() <= ActiveEquityBaseline && GetDistanceToEMAPrice(OP_BUY, true)>100)
      {
       Print("SECURED BASELINE BREACHED | Equity ($", AccountEquity(), ") fell to or below baseline ($", ActiveEquityBaseline, ") | Halting trading.");
       
       DrawLadderHaltCircle(Time[0], High[0] + (50 * Point));
       TradingHaltedUntilNextFlip = true;
-      LadderHaltStartTime = TimeCurrent(); 
+      LadderHaltStartTime = TimeCurrent(); // Starts the 1-hour timer
       CloseAndDeleteAllEAOrdersOnTradingStop(); 
       return;
      }
@@ -861,7 +859,7 @@ void ManageFlipProfitLadder()
    // 2. Calculate continuous profit based on actual Account Equity
    double totalContinuousProfit = AccountEquity() - ActiveEquityBaseline;
 
-   // 3. Track the highest watermark profit reached
+   // 3. Track the highest watermark profit reached across ALL flips
    if(totalContinuousProfit > HighestCycleProfitUSD)
      {
       HighestCycleProfitUSD = totalContinuousProfit;
@@ -881,22 +879,23 @@ void ManageFlipProfitLadder()
    // 6. If we have reached at least Level 1
    if(ladderLevel >= 1)
      {
+      // Lock the previous step (e.g., Level 2 ($10) locks $5)
       double lockedProfitTarget = (ladderLevel - 1) * FlipLadderStepUSD;
       
-      // 7. If equity profit retraces down to the locked target, secure it, update baseline to 10% below current equity, and HALT
+      // 7. If equity profit retraces down to the locked target, secure it and HALT
       if(totalContinuousProfit <= lockedProfitTarget)
         {
          Print("CONTINUOUS LADDER TRIGGERED | Peak was +$", HighestCycleProfitUSD, 
                " | Retraced to lock +$", lockedProfitTarget, 
-               " | Halting trading and updating secured baseline.");
-         
-         // Lock baseline to exactly 10% less than the equity at this hit moment
-         ActiveEquityBaseline = AccountEquity() * 0.90; 
+               " | Halting until 1 hour elapses or next EMA flip.");
          
          DrawLadderHaltCircle(Time[0], High[0] + (50 * Point));
          TradingHaltedUntilNextFlip = true;
-         LadderHaltStartTime = TimeCurrent(); 
+         LadderHaltStartTime = TimeCurrent(); // Starts the 1-hour countdown timer
          CloseAndDeleteAllEAOrdersOnTradingStop(); 
+         
+         // DO NOT reset ActiveEquityBaseline here, otherwise it re-arms immediately.
+         // Keep ActiveEquityBaseline locked so it evaluates a true drop against the target.
         }
      }
   }
@@ -906,19 +905,19 @@ void ManageFlipProfitLadder()
 //+------------------------------------------------------------------+
 //| Check if 1 hour has passed since halt and resume trading         |
 //+------------------------------------------------------------------+
-// Inside CheckLadderHaltResume():
 void CheckLadderHaltResume()
   {
    if(!TradingHaltedUntilNextFlip || LadderHaltStartTime == 0)
       return;
 
+   // Check if 1 hour (3600 seconds) has elapsed
    if(TimeCurrent() >= LadderHaltStartTime + (InpResumeAfterHaltMinutes * EMAFlipwaitingtimeMinutes))
      {
-      Print("LADDER RESUME TRIGGERED: Time elapsed since halt. Resuming order creation.");
+      Print("LADDER RESUME TRIGGERED: 1 hour elapsed since halt. Resuming order creation.");
       
       TradingHaltedUntilNextFlip = false;
       LadderHaltStartTime = 0;
-      ActiveEquityBaseline = AccountEquity() * 0.90; // Refresh baseline relative to current equity on resume
+      ActiveEquityBaseline = AccountBalance()*0.90; // Safe to reset baseline now that time has cleared the penalty
       HighestCycleProfitUSD = 0.0;
       HighestLadderLevelThisCycle = 0;
      }
@@ -963,7 +962,7 @@ void TrackEmaFlip()
       
       TradingHaltedUntilNextFlip = false; 
       LadderHaltStartTime = 0; // Clear timer on flip
-ActiveEquityBaseline = AccountEquity() * 0.90; // Updated to 10% less than current equity on flip
+      ActiveEquityBaseline = AccountBalance()*0.90; // Reset baseline for the new trend direction
       HighestCycleProfitUSD = 0.0;
       HighestLadderLevelThisCycle = 0;
      
@@ -1547,9 +1546,6 @@ void OnTickCore()
 
    if(enable5PercentClose)
       Manage5PercentLadderReset();
-
-      // ADD THIS LINE HERE:
-   CheckEquitySurplusReset();
 
    if(ProcessServerRecovery(dailyState))
      {
@@ -5888,23 +5884,7 @@ void DrawHistoricalSignals()
      }
    ChartRedraw();
   }
-//+------------------------------------------------------------------+
-//| Check if Equity exceeds Balance by 5% or more                    |
-//+------------------------------------------------------------------+
-void CheckEquitySurplusReset()
-  {
-   double balance = AccountBalance();
-   double equity  = AccountEquity();
-   
-   // Check if equity is more than 5% above the account balance
-   if(balance > 0.0 && equity >= balance * 1.05)
-     {
-      Print("RARE EVENT: Equity ($", equity, ") exceeds Balance ($", balance, ") by 5%+. Triggering EMAladder target hit.");
-      
-      // Call your 5% ladder reset / target hit process
-      Manage5PercentLadderReset();
-     }
-  }
+
 //+------------------------------------------------------------------+
 //|                                                                  |
 //+------------------------------------------------------------------+
