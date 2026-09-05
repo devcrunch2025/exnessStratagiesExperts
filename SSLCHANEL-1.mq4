@@ -1693,9 +1693,9 @@ void OnTickCore()
 
    UpdateDashboardsThrottled(dailyState);
 
-   CloseOppositeProfitableOrdersIndependent(OP_BUY);
+   // CloseOppositeProfitableOrdersIndependent(OP_BUY);
 
-   CloseOppositeProfitableOrdersIndependent(OP_SELL);
+   // CloseOppositeProfitableOrdersIndependent(OP_SELL);
 
 
    if(Bars < SSLPeriod + 20)
@@ -2904,7 +2904,62 @@ string GetDubaiTradingPauseReason() { return ""; }
 //+------------------------------------------------------------------+
 void UpdateDubaiTradingPauseDashboard() { }
 void RemoveDubaiTradingPauseDashboard() { }
+//+------------------------------------------------------------------+
+//| Verify if BUY or SELL order is allowed based on EMA & 300 gap    |
+//+------------------------------------------------------------------+
+bool IsOrderAllowedByTrendAndGap(int orderType)
+  {
+   RefreshRates();
+   
+   bool isBuyRequest  = (orderType == OP_BUY || orderType == OP_BUYSTOP || orderType == OP_BUYLIMIT);
+   bool isSellRequest = (orderType == OP_SELL || orderType == OP_SELLSTOP || orderType == OP_SELLLIMIT);
 
+   // Check counter-trend Buy orders when EMA direction is bearish (-1)
+   if(EMADirection == -1 && isBuyRequest)
+     {
+      for(int i = OrdersTotal() - 1; i >= 0; i--)
+        {
+         if(!OrderSelect(i, SELECT_BY_POS, MODE_TRADES))
+            continue;
+         if(OrderSymbol() != Symbol() || OrderMagicNumber() != MagicNumber)
+            continue;
+            
+         if(OrderType() == OP_BUY)
+           {
+            double priceGap = MathAbs(Ask - OrderOpenPrice());
+            if(priceGap < 300.0)
+              {
+               Print("TRADE BLOCKED | EMADirection is Sell, open Buy exists, gap < 300.");
+               return false;
+              }
+           }
+        }
+     }
+
+   // Check counter-trend Sell orders when EMA direction is bullish (1)
+   if(EMADirection == 1 && isSellRequest)
+     {
+      for(int i = OrdersTotal() - 1; i >= 0; i--)
+        {
+         if(!OrderSelect(i, SELECT_BY_POS, MODE_TRADES))
+            continue;
+         if(OrderSymbol() != Symbol() || OrderMagicNumber() != MagicNumber)
+            continue;
+            
+         if(OrderType() == OP_SELL)
+           {
+            double priceGap = MathAbs(Bid - OrderOpenPrice());
+            if(priceGap < 300.0)
+              {
+               Print("TRADE BLOCKED | EMADirection is Buy, open Sell exists, gap < 300.");
+               return false;
+              }
+           }
+        }
+     }
+
+   return true;
+  }
 
 string TradeMonitoringLog="";
 //+------------------------------------------------------------------+
@@ -2958,6 +3013,12 @@ int SafeOrderSend(string symbol,int orderType,double lots,double price,int slipp
    if(GlobalEmaAngle30 < -2.0 && GlobalEmaAngle30 >= -6.0 && EMADirection != 1 && (orderType == OP_BUY || orderType == OP_BUYSTOP || orderType == OP_BUYLIMIT))
      {
       Print("TRADE BLOCKED | EMA trend is strong (", DoubleToString(GlobalEmaAngle30, 2), " deg). Waiting for extreme exhaustion (<-6) to Buy.");
+      return -1;
+     }
+
+     if(IsOrderAllowedByTrendAndGap(orderType) == false)
+     {
+      TradeMonitoringLog="TRADE BLOCKED | Counter-trend order blocked due to EMA direction and gap rules.";
       return -1;
      }
 
