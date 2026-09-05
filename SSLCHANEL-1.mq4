@@ -60,7 +60,7 @@ double ActiveEquityBaseline = 0.0; // Add this new variable
 
 // --- NEW RESUME TIMER VARIABLES ---
 datetime LadderHaltStartTime = 0;
-input int InpResumeAfterHaltMinutes = 60; // Resume after 1 hour if no flip occurs
+  int InpResumeAfterHaltMinutes = 60; // Resume after 1 hour if no flip occurs
 
 
 int    HighestLadderLevelThisCycle = 0; // <-- NEW
@@ -4152,6 +4152,12 @@ void ChangeLots(double OpenPL, string reason, int orderType, int stoplevelStep)
       Lots = 0.01;
      }
 
+     // --- PREVIOUS M1 CANDLE BODY HEIGHT FILTER (> 100 points) ---
+  if(MathAbs(Open[1] - Close[1]) > 100.0  )
+     {
+      Lots = 0.01;
+     }
+
 // Safety catch
    if(Lots < 0.01)
      {
@@ -4177,7 +4183,7 @@ void ChangeLots(double OpenPL, string reason, int orderType, int stoplevelStep)
 //    Lots = 0.04;
 
 //   }
-//final
+//*************************************final*****************************************************************
    datetime dubaiTime = TimeCurrent() + (ServerToDubaiOffsetHours * 3600);
    int currentHour = TimeHour(dubaiTime);
 
@@ -5863,7 +5869,7 @@ void ManageProfitLadder()
       double ladder1Profit = OriginalLadder1ProfitUSD * orderLots * 100.0;
 
       // --- NEW LOGIC: Reduce ladder1Profit by half if order is older than 1 hour ---
-      if(TimeCurrent() - OrderOpenTime() > 3600) // 3600 seconds = 1 hour
+      if(TimeCurrent() - OrderOpenTime() > 60*60) // 3600 seconds = 1 hour
         {
          ladder1Profit = ladder1Profit / 2.0;
         }
