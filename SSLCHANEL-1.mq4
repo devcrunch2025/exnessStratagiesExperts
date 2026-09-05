@@ -1676,6 +1676,11 @@ void OnTickCore()
 
    UpdateDashboardsThrottled(dailyState);
 
+            CloseOppositeProfitableOrdersIndependent(OP_BUY);
+
+            CloseOppositeProfitableOrdersIndependent(OP_SELL);
+
+
    if(Bars < SSLPeriod + 20)
       return;
 
@@ -3218,7 +3223,21 @@ bool SafeOrderDelete(int ticket,color arrowColor)
    MarkServerError(err,"OrderDelete");
    return false;
   }
-
+int GetCurrentM30Direction()
+  {
+   double m30Open  = iOpen(Symbol(), PERIOD_M30, 0);
+   double m30Close = iClose(Symbol(), PERIOD_M30, 0);
+   
+   if(m30Open <= 0.0 || m30Close <= 0.0)
+      return 0;
+      
+   if(m30Close > m30Open)
+      return 1;
+   if(m30Close < m30Open)
+      return -1;
+      
+   return 0;
+  }
 //+------------------------------------------------------------------+
 //|                                                                  |
 //+------------------------------------------------------------------+
@@ -4043,7 +4062,10 @@ if(IsHeavyLotOrderNearBy(orderType, Lots, 300) && Lots>=0.02)
       Lots = 0.01;
      }
      
-
+    if(GetCurrentM30Direction() != EMADirection && Lots >= 0.02)
+     {
+      Lots = 0.01;
+     }
 
 // Safety catch
 if(Lots < 0.01)
