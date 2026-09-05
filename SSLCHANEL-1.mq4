@@ -4061,6 +4061,18 @@ if(Lots < 0.01)
       Lots = 0.01;
 
 
+
+      StopLossUSD = OriginalStopLossUSD * Lots * 100;
+
+  // Corrected directional comparison for StopLossUSD assignment
+   int requestedDirection = (orderType == OP_BUY || orderType == OP_BUYSTOP || orderType == OP_BUYLIMIT) ? 1 : -1;
+   if(EMADirection != requestedDirection)
+     {
+      StopLossUSD = 1 * Lots * 100;
+     }
+  
+
+
    // int StopLossUSDA=10-  MathRound(MathAbs(GlobalEmaAngle30));
    // if(StopLossUSDA<2)
    //   {
@@ -4068,7 +4080,7 @@ if(Lots < 0.01)
    //   }
    // StopLossUSD = StopLossUSDA * Lots * 100;
 
-StopLossUSD = OriginalStopLossUSD * Lots * 100;
+// StopLossUSD = OriginalStopLossUSD * Lots * 100;
    Ladder1ProfitUSD = OriginalLadder1ProfitUSD * Lots * 100;
    Ladder2ProfitUSD = OriginalLadder2ProfitUSD * Lots * 100;
    Ladder1StopMaxPriceUSD = OriginalLadder1StopMaxPriceUSD * Lots * 100;
