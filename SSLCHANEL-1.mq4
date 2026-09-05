@@ -3912,12 +3912,18 @@ double GetDynamicOrderGap(int orderType)
   {
    int currentSSL = GlobalSSLDirection;
    int patternDirection = GetCachedPatternDirection();
+int multiplier = 1;
+double pl = GetOpenPL(orderType);
 
+if(pl < 0)
+  {
+   multiplier = 1 + (int)MathFloor(MathAbs(pl) / 3.0);
+  }
    if((orderType == OP_BUY && currentSSL == 1) || (orderType == OP_SELL && currentSSL == -1))
-      return MinimumSameOrderGapRawMatched;
+      return MinimumSameOrderGapRawMatched*multiplier;
 
    if((orderType == OP_BUY && patternDirection == 1) || (orderType == OP_SELL && patternDirection == -1))
-      return MinimumSameOrderGapRawMatched;
+      return MinimumSameOrderGapRawMatched*multiplier;
 
    return MinimumSameOrderGapRawUnmatched;
   }
@@ -4106,7 +4112,12 @@ void ChangeLots(double OpenPL, string reason, int orderType, int stoplevelStep)
 
      }
 
+if(GlobalSSLDirection != EMADirection)
+     {
+      Lots = 0.01;
 
+
+     }
    if((GlobalEmaAngle30>6 || GlobalEmaAngle30<-6) &&  GlobalSSLDirection != EMADirection)
      {
       Lots = 0.01;
