@@ -4065,11 +4065,11 @@ if(Lots < 0.01)
       StopLossUSD = OriginalStopLossUSD * Lots * 100;
 
   // Corrected directional comparison for StopLossUSD assignment
-   int requestedDirection = (orderType == OP_BUY || orderType == OP_BUYSTOP || orderType == OP_BUYLIMIT) ? 1 : -1;
-   if(EMADirection != requestedDirection)
-     {
-      StopLossUSD = 1 * Lots * 100;
-     }
+   // int requestedDirection = (orderType == OP_BUY || orderType == OP_BUYSTOP || orderType == OP_BUYLIMIT) ? 1 : -1;
+   // if(EMADirection != requestedDirection)
+   //   {
+   //    StopLossUSD = OriginalLadder1ProfitUSD/2 * Lots * 100;
+   //   }
   
 
 
