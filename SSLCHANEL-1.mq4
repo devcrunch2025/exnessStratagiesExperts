@@ -3991,6 +3991,7 @@ int cycleStep = closedCount % 5;
 
 // Subtract the cycle step from 5 to get the repeating 5-to-1 countdown
 Lots = 0.01 * (5 - cycleStep);
+// Lots = 0.01 * (10 - cycleStep);
 
 
 // Print("Closed Orders Since EMA Flip: ", closedCount, " | Cycle Step: ", cycleStep, " | Calculated Lots: ", Lots);
@@ -4018,6 +4019,32 @@ if( GetDistanceToEMAPrice(orderType, true)<50)
 
 if(IsHeavyLotOrderNearBy(orderType, Lots, 300) && Lots>=0.02)
          Lots = 0.01;
+
+// ===== NEW RULE: CAPP LOTS TO 0.02 IF EQUITY PROFIT > $10 AFTER FLIP =====
+   double realizedProfitAfterFlip = 0.0;
+   if(EmaFlipTime > 0)
+     {
+      for(int h = OrdersHistoryTotal() - 1; h >= 0; h--)
+        {
+         if(OrderSelect(h, SELECT_BY_POS, MODE_HISTORY))
+           {
+            if(OrderSymbol() == Symbol() && OrderMagicNumber() == MagicNumber)
+              {
+               if(OrderCloseTime() >= EmaFlipTime)
+                  realizedProfitAfterFlip += (OrderProfit() + OrderSwap() + OrderCommission());
+              }
+           }
+        }
+     }
+   double equityProfitAfterFlip = realizedProfitAfterFlip + GetEAFloatingPL();
+
+   if(equityProfitAfterFlip > 10.0 && Lots >= 0.02)
+     {
+      Lots = 0.01;
+     }
+     
+
+
 // Safety catch
 if(Lots < 0.01)
   {
@@ -4043,7 +4070,7 @@ if(Lots < 0.01)
 //    Lots = 0.04;
 
 //   }
-
+//final
    datetime dubaiTime = TimeCurrent() + (ServerToDubaiOffsetHours * 3600);
    int currentHour = TimeHour(dubaiTime);
 
