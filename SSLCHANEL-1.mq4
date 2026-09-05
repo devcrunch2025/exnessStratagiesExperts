@@ -4086,7 +4086,7 @@ void ChangeLots(double OpenPL, string reason, int orderType, int stoplevelStep)
       Lots = 0.01;
      }
 
-   if(GetCurrentM30Direction() != EMADirection && Lots >= 0.02)
+   if(GetCurrentM30Direction() != EMADirection && Lots >= 0.03)
      {
       Lots = 0.01;
      }
