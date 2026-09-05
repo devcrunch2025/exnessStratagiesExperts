@@ -40,6 +40,8 @@ double OriginalStopLossUSD = 4;
 double StopLossUSD =5;//10;//2;// 10;
 
 
+
+
 bool EnableBounceBackDetection = false;
 
 
