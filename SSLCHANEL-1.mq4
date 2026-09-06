@@ -36,8 +36,8 @@ bool enableCircleOrders = true;
 // ===== SPREAD & RISK SETTINGS =====
 double MaxAllowedSpreadUSD = 35.0;
 int AccountMultiplierLOT = 500;
-double OriginalStopLossUSD = 4;
-double StopLossUSD =5;//10;//2;// 10;
+double OriginalStopLossUSD = 6;//4;
+double StopLossUSD =6;//5;//10;//2;// 10;
 
 
 bool EnableBounceBackDetection = false;
@@ -897,7 +897,9 @@ void ManageFlipProfitLadder()
 // 6. Manage locked profit targets for the current tier
    if(ladderLevel >= 1)
      {
-      double lockedProfitTarget = (ladderLevel - 1) * FlipLadderStepUSD;
+      // double lockedProfitTarget = (ladderLevel - 1) * FlipLadderStepUSD;
+      double lockedProfitTarget = (ladderLevel - 2) * FlipLadderStepUSD;
+
 
       if(totalContinuousProfit <= lockedProfitTarget)
         {
@@ -1405,6 +1407,58 @@ void CheckMomentumExhaustionExits()
         }
      }
   }
+  //+------------------------------------------------------------------+
+//| Manage Overall Basket Profit (Requires Both Buy and Sell Orders) |
+//+------------------------------------------------------------------+
+void ManageOverallBasketProfit()
+  {
+   double totalBasketProfit = 0.0;
+   double totalLots = 0.0;
+   int buyOrdersCount = 0;
+   int sellOrdersCount = 0;
+
+   // 1. Calculate metrics and count buys/sells separately
+   for(int i = OrdersTotal() - 1; i >= 0; i--)
+     {
+      if(!OrderSelect(i, SELECT_BY_POS, MODE_TRADES))
+         continue;
+      if(OrderSymbol() != Symbol() || OrderMagicNumber() != MagicNumber)
+         continue;
+        
+      int type = OrderType();
+      if(type == OP_BUY)
+        {
+         totalBasketProfit += (OrderProfit() + OrderSwap() + OrderCommission());
+         totalLots += OrderLots();
+         buyOrdersCount++;
+        }
+      else if(type == OP_SELL)
+        {
+         totalBasketProfit += (OrderProfit() + OrderSwap() + OrderCommission());
+         totalLots += OrderLots();
+         sellOrdersCount++;
+        }
+     }
+
+   // 2. Only proceed if BOTH buy and sell orders are present
+   if(buyOrdersCount > 0 && sellOrdersCount > 0)
+     {
+      // Dynamic profit target: Total Lots * 0.50 * 100 (Total Lots * 50.0)
+      double dynamicProfitTarget = totalLots * 25.0;
+
+      if(totalBasketProfit > dynamicProfitTarget)
+        {
+         Print("HEDGED BASKET PROFIT TARGET HIT ($", DoubleToString(totalBasketProfit, 2), 
+               " > Target: $", DoubleToString(dynamicProfitTarget, 2), 
+               " for ", DoubleToString(totalLots, 2), " total lots). Closing all orders and continuing trading.");
+         
+         CloseAndDeleteAllEAOrdersOnTradingStop();
+         
+         TradingHaltedUntilNextFlip = false;
+         LadderHaltStartTime = 0;
+        }
+     }
+  }
 //+------------------------------------------------------------------+
 //| Check Stored Signals and Execute on EMA Trend Flip               |
 //+------------------------------------------------------------------+
@@ -1513,6 +1567,8 @@ void OnTickCore()
 // Manage50EmaClosures();
 // ManageEmaAngleOppositeClose(); // <-- Add this here
    ProcessDeferredOrders();
+
+   ManageOverallBasketProfit();
 
    if(TradeOperationFailedThisTick)
      {
@@ -3005,20 +3061,20 @@ int SafeOrderSend(string symbol,int orderType,double lots,double price,int slipp
 // Block Sells during a standard strong uptrend (2 to 6 degrees). Allows Sells > 6 for extreme exhaustion.
    if(GetOpenPL(OP_BUY) >-2 && GlobalEmaAngle30 > 2.0 && GlobalEmaAngle30 <= 6.0 && EMADirection != -1 && (orderType == OP_SELL || orderType == OP_SELLSTOP || orderType == OP_SELLLIMIT))
      {
-      Print("TRADE SELL BLOCKED | EMA trend is strong (", DoubleToString(GlobalEmaAngle30, 2), " deg). Waiting for extreme exhaustion (>6) to Sell.");
+      // Print("TRADE SELL BLOCKED | EMA trend is strong (", DoubleToString(GlobalEmaAngle30, 2), " deg). Waiting for extreme exhaustion (>6) to Sell.");
       return -1;
      }
 
 // Block Buys during a standard strong downtrend (-2 to -6 degrees). Allows Buys < -6 for extreme exhaustion.
    if(GetOpenPL(OP_SELL) > -2 && GlobalEmaAngle30 < -2.0 && GlobalEmaAngle30 >= -6.0 && EMADirection != 1 && (orderType == OP_BUY || orderType == OP_BUYSTOP || orderType == OP_BUYLIMIT))
      {
-      Print("TRADE BUY BLOCKED | EMA trend is strong (", DoubleToString(GlobalEmaAngle30, 2), " deg). Waiting for extreme exhaustion (<-6) to Buy.");
+      // Print("TRADE BUY BLOCKED | EMA trend is strong (", DoubleToString(GlobalEmaAngle30, 2), " deg). Waiting for extreme exhaustion (<-6) to Buy.");
       return -1;
      }
 
      if(IsOrderAllowedByTrendAndGap(orderType) == false)
      {
-      TradeMonitoringLog="TRADE BLOCKED | Counter-trend order blocked due to EMA direction and gap rules.";
+      // TradeMonitoringLog="TRADE BLOCKED | Counter-trend order blocked due to EMA direction and gap rules.";
       return -1;
      }
 
@@ -3918,7 +3974,7 @@ double pl = GetOpenPL(orderType);
 
 if(pl < 0)
   {
-   multiplier = 1 + (int)MathFloor(MathAbs(pl) / 3.0);
+   multiplier = 3 + (int)MathFloor(MathAbs(pl) / 2.0);
   }
    if((orderType == OP_BUY && currentSSL == 1) || (orderType == OP_SELL && currentSSL == -1))
       return MinimumSameOrderGapRawMatched*multiplier;
@@ -6735,7 +6791,13 @@ void UpdateDashboard(DailyProtectionState &state)
    string emaHaltText = TradingHaltedUntilNextFlip ? "HALTED (WAITING FLIP)" : "ACTIVE";
    color emaHaltColor = TradingHaltedUntilNextFlip ? clrTomato : clrLime;
    CreateDashboardLabel(DASH_PREFIX+"EMA_LAD_STATUS","LADDER STATUS  : "+emaHaltText,tx,y+197,9,emaHaltColor);
-   CreateDashboardLabel(DASH_PREFIX+"EMA_LAD_BASE","SECURED BASELINE: $"+DoubleToString(ActiveEquityBaseline, 2),tx,y+210,8,clrSilver);
+   double totalContinuousProfit = AccountEquity() - ActiveEquityBaseline;
+
+   int ladderLevel = (int)MathFloor(HighestCycleProfitUSD / FlipLadderStepUSD);
+
+      double lockedProfitTarget = (ladderLevel - 2) * FlipLadderStepUSD;
+
+   CreateDashboardLabel(DASH_PREFIX+"EMA_LAD_BASE","SECURED BASELINE: $"+DoubleToString(ActiveEquityBaseline, 2)+" / $"+DoubleToString( totalContinuousProfit, 2)+" <= $"+DoubleToString(lockedProfitTarget, 2),tx,y+210,8,clrSilver);
 // ================= 2. ACCOUNT & EQUITY =================
    CreateDashboardPanel(DASH_PREFIX+"SEC_ACCOUNT",x,y+222,w,22,C'30,38,50');
    CreateDashboardLabel(DASH_PREFIX+"ACCOUNT_H","ACCOUNT & EQUITY",tx,y+226,9,clrAqua);
