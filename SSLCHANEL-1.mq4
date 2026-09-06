@@ -893,14 +893,11 @@ void ManageFlipProfitLadder()
 
       Print("LEVEL UP: Reached Level ", ladderLevel, " | Secured Baseline Ratcheted to: $", ActiveEquityBaseline);
      }
-     
 
 // 6. Manage locked profit targets for the current tier
    if(ladderLevel >= 1)
      {
-      // double lockedProfitTarget = (ladderLevel - 1) * FlipLadderStepUSD;
-      double lockedProfitTarget = (ladderLevel - 2) * FlipLadderStepUSD;
-
+      double lockedProfitTarget = (ladderLevel - 1) * FlipLadderStepUSD;
 
       if(totalContinuousProfit <= lockedProfitTarget)
         {
@@ -3973,10 +3970,10 @@ double GetDynamicOrderGap(int orderType)
 int multiplier = 1;
 double pl = GetOpenPL(orderType);
 
-// if(pl < 0)
-//   {
-//    multiplier = 3 + (int)MathFloor(MathAbs(pl) / 2.0);
-//   }
+if(pl < 0)
+  {
+   multiplier = 1 + (int)MathFloor(MathAbs(pl) / 3.0);
+  }
    if((orderType == OP_BUY && currentSSL == 1) || (orderType == OP_SELL && currentSSL == -1))
       return MinimumSameOrderGapRawMatched*multiplier;
 
