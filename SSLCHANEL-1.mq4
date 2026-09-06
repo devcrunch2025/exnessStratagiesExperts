@@ -893,6 +893,7 @@ void ManageFlipProfitLadder()
 
       Print("LEVEL UP: Reached Level ", ladderLevel, " | Secured Baseline Ratcheted to: $", ActiveEquityBaseline);
      }
+     
 
 // 6. Manage locked profit targets for the current tier
    if(ladderLevel >= 1)
