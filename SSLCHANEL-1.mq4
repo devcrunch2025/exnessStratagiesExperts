@@ -3905,6 +3905,7 @@ bool IsHeavyLotOrderNearBy(int orderType, double checkLot, double gapRawThreshol
    return false;
   }
 
+
 //+------------------------------------------------------------------+
 //|                                                                  |
 //+------------------------------------------------------------------+
