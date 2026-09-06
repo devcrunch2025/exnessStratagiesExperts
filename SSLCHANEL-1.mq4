@@ -3972,10 +3972,10 @@ double GetDynamicOrderGap(int orderType)
 int multiplier = 1;
 double pl = GetOpenPL(orderType);
 
-if(pl < 0)
-  {
-   multiplier = 3 + (int)MathFloor(MathAbs(pl) / 2.0);
-  }
+// if(pl < 0)
+//   {
+//    multiplier = 3 + (int)MathFloor(MathAbs(pl) / 2.0);
+//   }
    if((orderType == OP_BUY && currentSSL == 1) || (orderType == OP_SELL && currentSSL == -1))
       return MinimumSameOrderGapRawMatched*multiplier;
 
