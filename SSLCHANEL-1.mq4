@@ -4,6 +4,9 @@
 //+------------------------------------------------------------------+
 #property strict
 
+//$100 to $170
+//https://github.com/devcrunch2025/exnessStratagiesExperts/commit/32fb1ba20d474fc8d4adb38d2558999b2ac82c56
+
 // ===== INPUT SETTINGS =====
 int SSLPeriod = 10;
 bool InpUseEMA200Filter = false;
@@ -38,6 +41,8 @@ double MaxAllowedSpreadUSD = 35.0;
 int AccountMultiplierLOT = 500;
 double OriginalStopLossUSD = 6;//4;
 double StopLossUSD =6;//5;//10;//2;// 10;
+
+
 
 
 bool EnableBounceBackDetection = false;
@@ -262,6 +267,7 @@ int ProtectedEquityWaitMinutes = 0;
 
 // --- GLOBAL TICK CACHE ---
 double GlobalEmaAngle30 = 0.0;
+double GlobalEmaAngle200 = 0.0;
 int    GlobalSSLDirection = 0;
 double GlobalBuyPL = 0.0;
 double GlobalSellPL = 0.0;
@@ -1630,6 +1636,8 @@ void OnTickCore()
 
 // --- UPDATE GLOBAL TICK VARIABLES ---
    GlobalEmaAngle30 = GetEmaAngleDegrees(30);
+   GlobalEmaAngle200 = GetEmaAngleDegrees(200);
+
    GlobalSSLDirection = GetCurrentSSLDirection();
    Global30MinDiffBuy = Get30MinDifference(OP_BUY);
    Global30MinDiffSell = Get30MinDifference(OP_SELL);
@@ -6832,7 +6840,7 @@ void UpdateDashboard(DailyProtectionState &state)
    CreateDashboardLabel(DASH_PREFIX+"TITLE","SSL CHANNEL EA  |  PRO CONTROL",tx,y+8,11,clrWhite);
    CreateDashboardLabel(DASH_PREFIX+"SUBTITLE",Symbol()+"  |  "+TimeframeToString(Period()),tx+w-125,y+10,8,clrLightGray);
    CreateDashboardLabel(DASH_PREFIX+"STATUS", "STATUS       : "+statusText,tx,y+47,10,statusColor);
-   CreateDashboardLabel(DASH_PREFIX+"SIGNAL","SSL SIGNAL   : "+sslDirection+"  ("+strong+")"+" "+DoubleToString((GlobalEmaAngle30),2),tx,y+67,9,sslColor);
+   CreateDashboardLabel(DASH_PREFIX+"SIGNAL","SSL SIGNAL-30   : "+sslDirection+"  ("+strong+")"+" "+DoubleToString((GlobalEmaAngle30),2),tx,y+67,9,sslColor);
 
 // ================= 1. EMA FLIP PROFIT LADDER (SWAPPED TO TOP) =================
    CreateDashboardPanel(DASH_PREFIX+"SEC_EMA_LADDER",x,y+90,w,22,C'30,38,50');
