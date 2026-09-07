@@ -985,6 +985,9 @@ void TrackEmaFlip()
       HighestCycleProfitUSD = 0.0;
       HighestLadderLevelThisCycle = 0;
 
+
+      // CloseOppositeLosingOrdersBeforeSignal(currentDirection); // Close any losing orders from the previous trend
+
       // HighestCycleProfitUSD = 0.0;        // Add this
       // HighestLadderLevelThisCycle = 0; // <-- NEW: Reset the box trigger
       // Print("EMA FLIP DETECTED: Trend changed. Evaluating open orders for closure.");
@@ -1503,6 +1506,52 @@ void CheckStoredSignals(DailyProtectionState &dailyState)
             StoredSignalOverride = false;
             StoredBuySignalActive = false;
            }
+     }
+  }
+  //+------------------------------------------------------------------+
+//| Close opposite orders created before signal change with loss > $2 |
+//+------------------------------------------------------------------+
+void CloseOppositeLosingOrdersBeforeSignal(int newSignalType)
+  {
+   if(!EAStartupComplete) 
+      return;
+      
+   RefreshRates();
+
+   // Loop through all open trades
+   for(int i = OrdersTotal() - 1; i >= 0; i--)
+     {
+      if(!OrderSelect(i, SELECT_BY_POS, MODE_TRADES)) 
+         continue;
+      if(OrderSymbol() != Symbol() || OrderMagicNumber() != MagicNumber) 
+         continue;
+
+      int orderType = OrderType();
+      int ticket = OrderTicket();
+      double lots = OrderLots();
+      double orderPL = OrderProfit() + OrderSwap() + OrderCommission();
+      
+      // 1. Check if the open order is directly opposite to the incoming signal
+      bool isOppositeSignal = ((newSignalType == OP_BUY && orderType == OP_SELL) || 
+                               (newSignalType == OP_SELL && orderType == OP_BUY));
+
+      // 2. Check if the order was created before the last EMA flip / signal change
+      bool isBeforeSignalChange = (EmaFlipTime > 0 && OrderOpenTime() < EmaFlipTime);
+
+      // 3. Calculate loss threshold: $2.00 per 0.01 lot step (scaled by lot size)
+      double lossThreshold = -2.0 * (lots / 0.01);
+      bool isLossExceeded = (orderPL <= lossThreshold);
+
+      // If all conditions match, close the losing opposite order immediately
+      if(isOppositeSignal && isBeforeSignalChange && isLossExceeded)
+        {
+         Print("OPPOSITE LOSING ORDER CLOSED: Ticket #", ticket, 
+               " | Type: ", GetOrderTypeText(orderType), 
+               " | Loss: $", DoubleToString(orderPL, 2), 
+               " | Threshold: $", DoubleToString(lossThreshold, 2));
+               
+         SafeOrderClose(ticket, lots, orderType, Slippage, (orderType == OP_BUY ? clrRed : clrBlue));
+        }
      }
   }
 //+------------------------------------------------------------------+
@@ -3051,20 +3100,32 @@ int SafeOrderSend(string symbol,int orderType,double lots,double price,int slipp
 //    Print("TRADE BLOCKED | EMA trend is not bullish for Buy order.");
 //    return false;
 //   }
+// --- SEPARATE CONDITION: Strict block for opposite orders during strong uptrend (2 to 6 degrees) ---
+//    if(EMADirection != -1 && (orderType == OP_SELL || orderType == OP_SELLSTOP || orderType == OP_SELLLIMIT))
+//      {
+//       Print("TRADE SELL BLOCKED | Strict opposite block: EMA trend is strong uptrend  ");
+//       return -1;
+//      }
 
+// // --- SEPARATE CONDITION: Strict block for opposite orders during strong downtrend (-2 to -6 degrees) ---
+//    if(EMADirection != 1 && (orderType == OP_BUY || orderType == OP_BUYSTOP || orderType == OP_BUYLIMIT))
+//      {
+//       Print("TRADE BUY BLOCKED | Strict opposite block: EMA trend is strong downtrend  ");
+//       return -1;
+//      }
 // --- STRICT EMA TREND FILTER WITH EXHAUSTION ALLOWANCE ---
 
 // --- STRICT EMA TREND FILTER WITH EXHAUSTION ALLOWANCE ---
 
 // Block Sells during a standard strong uptrend (2 to 6 degrees). Allows Sells > 6 for extreme exhaustion.
-   if(GetOpenPL(OP_BUY) >-2 && GlobalEmaAngle30 > 2.0 && GlobalEmaAngle30 <= 6.0 && EMADirection != -1 && (orderType == OP_SELL || orderType == OP_SELLSTOP || orderType == OP_SELLLIMIT))
+   if(GetOpenPL(OP_BUY) >-3 && GlobalEmaAngle30 > 3.0 && GlobalEmaAngle30 <= 6.0 && EMADirection != -1 && (orderType == OP_SELL || orderType == OP_SELLSTOP || orderType == OP_SELLLIMIT))
      {
       // Print("TRADE SELL BLOCKED | EMA trend is strong (", DoubleToString(GlobalEmaAngle30, 2), " deg). Waiting for extreme exhaustion (>6) to Sell.");
       return -1;
      }
 
 // Block Buys during a standard strong downtrend (-2 to -6 degrees). Allows Buys < -6 for extreme exhaustion.
-   if(GetOpenPL(OP_SELL) > -2 && GlobalEmaAngle30 < -2.0 && GlobalEmaAngle30 >= -6.0 && EMADirection != 1 && (orderType == OP_BUY || orderType == OP_BUYSTOP || orderType == OP_BUYLIMIT))
+   if(GetOpenPL(OP_SELL) > -3 && GlobalEmaAngle30 < -3.0 && GlobalEmaAngle30 >= -6.0 && EMADirection != 1 && (orderType == OP_BUY || orderType == OP_BUYSTOP || orderType == OP_BUYLIMIT))
      {
       // Print("TRADE BUY BLOCKED | EMA trend is strong (", DoubleToString(GlobalEmaAngle30, 2), " deg). Waiting for extreme exhaustion (<-6) to Buy.");
       return -1;
@@ -4173,18 +4234,26 @@ if(GlobalSSLDirection != EMADirection)
 
 
      }
-   if((GlobalEmaAngle30>6 || GlobalEmaAngle30<-6) &&  GlobalSSLDirection != EMADirection)
+     if(GetH1Direction() != EMADirection)
      {
       Lots = 0.01;
 
 
      }
 
-   if(GetDistanceToEMAPrice(orderType, true)<50)
-     {
-      Lots = 0.01;
+      
+   // if((GlobalEmaAngle30>6 || GlobalEmaAngle30<-6) &&  GlobalSSLDirection != EMADirection)
+   //   {
+   //    Lots = 0.01;
 
-     }
+
+   //   }
+
+   // if(GetDistanceToEMAPrice(orderType, true)<50)
+   //   {
+   //    Lots = 0.01;
+
+   //   }
 
 
    if(IsHeavyLotOrderNearBy(orderType, Lots, 300) && Lots>=0.02)
@@ -4218,8 +4287,8 @@ if(GlobalSSLDirection != EMADirection)
       Lots = 0.01;
      }
 
-     // --- PREVIOUS M1 CANDLE BODY HEIGHT FILTER (> 100 points) ---
-  if(MathAbs(Open[1] - Close[1]) > 100.0  )
+   // --- PREVIOUS 2 M1 CANDLES BODY HEIGHT FILTER (Each > 100 raw price difference) ---
+   if(MathAbs(Open[1] - Close[1]) > 100.0 && MathAbs(Open[2] - Close[2]) > 100.0)
      {
       Lots = 0.01;
      }
@@ -6792,8 +6861,9 @@ void UpdateDashboard(DailyProtectionState &state)
    double totalContinuousProfit = AccountEquity() - ActiveEquityBaseline;
 
    int ladderLevel = (int)MathFloor(HighestCycleProfitUSD / FlipLadderStepUSD);
-
       double lockedProfitTarget = (ladderLevel - 2) * FlipLadderStepUSD;
+
+      // double lockedProfitTarget = (ladderLevel - 2) * FlipLadderStepUSD;
 
    CreateDashboardLabel(DASH_PREFIX+"EMA_LAD_BASE","SECURED BASELINE: $"+DoubleToString(ActiveEquityBaseline, 2)+" / $"+DoubleToString( totalContinuousProfit, 2)+" <= $"+DoubleToString(lockedProfitTarget, 2),tx,y+210,8,clrSilver);
 // ================= 2. ACCOUNT & EQUITY =================
