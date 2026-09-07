@@ -1566,7 +1566,7 @@ void OnTickCore()
 // ManageEmaAngleOppositeClose(); // <-- Add this here
    ProcessDeferredOrders();
 
-   ManageOverallBasketProfit();
+   // ManageOverallBasketProfit();
 
    if(TradeOperationFailedThisTick)
      {
