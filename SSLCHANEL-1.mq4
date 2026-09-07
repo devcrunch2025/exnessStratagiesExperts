@@ -3154,22 +3154,34 @@ int SafeOrderSend(string symbol,int orderType,double lots,double price,int slipp
 
    bool skipEMA30Check=false;
 
-    if(orderType == OP_BUY || orderType == OP_BUYSTOP || orderType == OP_BUYLIMIT)
+   if(orderType == OP_BUY || orderType == OP_BUYSTOP || orderType == OP_BUYLIMIT)
      {
       if(EMADirection != 1)
         {
          // Print("TRADE BUY BLOCKED | Both EMA angles must be > 0");
          return -1;
         }
-     }
-   else if(orderType == OP_SELL || orderType == OP_SELLSTOP || orderType == OP_SELLLIMIT)
-     {
-      if(EMADirection != -1)
+
+        if(GetOpenPL(orderType)<=-3)
         {
-         // Print("TRADE SELL BLOCKED | Both EMA angles must be < 0");
          return -1;
+
         }
      }
+   else
+      if(orderType == OP_SELL || orderType == OP_SELLSTOP || orderType == OP_SELLLIMIT)
+        {
+         if(EMADirection != -1)
+           {
+            // Print("TRADE SELL BLOCKED | Both EMA angles must be < 0");
+            return -1;
+           }
+           if(GetOpenPL(orderType)<=-3)
+        {
+         return -1;
+
+        }
+        }
 
 //------------------EMA200--------------------------------------------------------
 
@@ -4157,35 +4169,38 @@ bool IsHeavyLotOrderNearBy(int orderType, double checkLot, double gapRawThreshol
      }
    return false;
   }
-bool 30MinutesBigcandlecheck()
-{
-   // ===== 30-MINUTE BIG CANDLE & DISTANCE FILTER =====
-int bigCandleCount = 0;
-int latestBigCandleShift = -1;
-
-for(int i = 1; i <= 30; i++)
+//+------------------------------------------------------------------+
+//|                                                                  |
+//+------------------------------------------------------------------+
+bool Test30MinutesBigcandlecheck(int orderType)
   {
-   if(MathAbs(Open[i] - Close[i]) > 100.0)
+// ===== 30-MINUTE BIG CANDLE & DISTANCE FILTER =====
+   int bigCandleCount = 0;
+   int latestBigCandleShift = -1;
+
+   for(int i = 1; i <= 30; i++)
      {
-      bigCandleCount++;
-      if(latestBigCandleShift == -1) // Captures the most recent big candle (closest to shift 1)
-         latestBigCandleShift = i;
+      if(MathAbs(Open[i] - Close[i]) > 100.0)
+        {
+         bigCandleCount++;
+         if(latestBigCandleShift == -1) // Captures the most recent big candle (closest to shift 1)
+            latestBigCandleShift = i;
+        }
      }
-  }
 
-if(bigCandleCount >= 2 && latestBigCandleShift != -1)
-  {
-   double currentRefPrice = (orderType == OP_BUY) ? Ask : Bid;
-   double priceDistanceFromLatest = MathAbs(currentRefPrice - Close[latestBigCandleShift]);
-
-   if(priceDistanceFromLatest < 20.0)
+   if(bigCandleCount >= 2 && latestBigCandleShift != -1)
      {
-      return true;
-     }
-  }
+      double currentRefPrice = (orderType == OP_BUY) ? Ask : Bid;
+      double priceDistanceFromLatest = MathAbs(currentRefPrice - Close[latestBigCandleShift]);
 
-  return false;
-}
+      if(priceDistanceFromLatest < 20.0)
+        {
+         return true;
+        }
+     }
+
+   return false;
+  }
 
 //+------------------------------------------------------------------+
 //|                                                                  |
@@ -4460,7 +4475,7 @@ void ChangeLots(double OpenPL, string reason, int orderType, int stoplevelStep)
      }
 
 
-// if(30MinutesBigcandlecheck())
+// if(Test30MinutesBigcandlecheck())
 //      {
 //       Lots = 0.01;
 //      }
