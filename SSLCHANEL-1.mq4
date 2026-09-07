@@ -15,7 +15,7 @@ int  InpEMAPriceShift = 0;
 bool ShowEMALine = true;
 color EMALineColor = clrGold;
 int EMALineWidth = 2;
-int EMALineBars = 500;
+int EMALineBars = 2000;
 string EMA_PREFIX = "SSL_EMA_LINE_";
 bool EnableTrading = true;
 
@@ -266,7 +266,7 @@ datetime ProtectedEquityWaitStartTime = 0;
 int ProtectedEquityWaitMinutes = 0;
 
 // --- GLOBAL TICK CACHE ---
-double GlobalEmaAngle30 = 0.0;
+double GlobalEmaLineAngle30 = 0.0;
 double GlobalEmaAngle200 = 0.0;
 int    GlobalSSLDirection = 0;
 double GlobalBuyPL = 0.0;
@@ -306,7 +306,7 @@ bool PassesUserRules(int orderType)
    if(!InpEnableCustomRules)
       return true;
 
-   double emaAngle = GlobalEmaAngle30;
+   double emaAngle = GlobalEmaLineAngle30;
 
 
 
@@ -548,7 +548,49 @@ int GetH1Direction()
       return -1;
    return 0;
   }
+void UpdateEMA30LineOnChart()
+  {
+   if(!ShowEMA30Line || Bars < EMA30Period + 2)
+      return;
+   int barsToDraw = EMALineBars;
+   if(barsToDraw < 2)
+      barsToDraw = 2;
+   if(barsToDraw > Bars - 1)
+      barsToDraw = Bars - 1;
 
+   // Always ensure objects exist for visible bars
+   for(int i = barsToDraw - 1; i >= 0; i--)
+     {
+      int j = i + 1;
+      if(j >= Bars)
+         continue;
+      double ema1 = iMA(Symbol(), Period(), EMA30Period, 0, MODE_EMA, PRICE_CLOSE, i);
+      double ema2 = iMA(Symbol(), Period(), EMA30Period, 0, MODE_EMA, PRICE_CLOSE, j);
+      if(ema1 <= 0 || ema2 <= 0)
+         continue;
+
+      string name = EMA30_PREFIX + IntegerToString(i);
+      if(ObjectFind(0, name) < 0)
+        {
+         if(ObjectCreate(0, name, OBJ_TREND, 0, Time[j], ema2, Time[i], ema1))
+           {
+            ObjectSetInteger(0, name, OBJPROP_COLOR, EMA30LineColor);
+            ObjectSetInteger(0, name, OBJPROP_WIDTH, EMA30LineWidth);
+            ObjectSetInteger(0, name, OBJPROP_STYLE, STYLE_SOLID);
+            ObjectSetInteger(0, name, OBJPROP_RAY_RIGHT, false);
+            ObjectSetInteger(0, name, OBJPROP_BACK, false);
+            ObjectSetInteger(0, name, OBJPROP_SELECTABLE, false);
+            ObjectSetInteger(0, name, OBJPROP_HIDDEN, true);
+           }
+        }
+      else
+        {
+         // Update positions dynamically so they never drop out on zoom/scroll
+         ObjectMove(0, name, 0, Time[j], ema2);
+         ObjectMove(0, name, 1, Time[i], ema1);
+        }
+     }
+  }
 //+------------------------------------------------------------------+
 //|                                                                  |
 //+------------------------------------------------------------------+
@@ -558,6 +600,8 @@ void ClearEMALineObjects()
      {
       string name=ObjectName(i);
       if(StringFind(name,EMA_PREFIX,0)==0)
+         ObjectDelete(0,name);
+      if(StringFind(name,EMA30_PREFIX,0)==0) // Added for EMA 30
          ObjectDelete(0,name);
       if(StringFind(name,"EMA_UPPER_",0)==0)
          ObjectDelete(0,name);
@@ -1020,10 +1064,10 @@ void TrackEmaFlip()
 
                    if(orderPL < lossThreshold || orderPL<-1.0)
                      {
-                      if(type == OP_BUY && (GlobalEmaAngle30<-1  ))
+                      if(type == OP_BUY && (GlobalEmaLineAngle30<-1  ))
                          SafeOrderClose(OrderTicket(), OrderLots(), type, Slippage, clrRed);
                       else
-                         if(type == OP_SELL && (GlobalEmaAngle30>1  ))
+                         if(type == OP_SELL && (GlobalEmaLineAngle30>1  ))
                             SafeOrderClose(OrderTicket(), OrderLots(), type, Slippage, clrBlue);
                      }
                   }
@@ -1177,6 +1221,7 @@ int OnInit()
    if(ShowHistoricalSignals || ShowSSLLines)
       DrawHistoricalSignals();
    UpdateEMALineOnChart();
+   UpdateEMA30LineOnChart();
    DailyProtectionStartTime = TimeCurrent();
    InitializeLastProcessedClosedOrder();
    LastProtectedLossTicket = LastProcessedClosedTicket;
@@ -1635,7 +1680,7 @@ void OnTickCore()
    RefreshRates();
 
 // --- UPDATE GLOBAL TICK VARIABLES ---
-   GlobalEmaAngle30 = GetEmaAngleDegrees(30);
+   GlobalEmaLineAngle30 = GetEmaAngleDegrees(30);
    GlobalEmaAngle200 = GetEmaAngleDegrees(200);
 
    GlobalSSLDirection = GetCurrentSSLDirection();
@@ -1948,7 +1993,7 @@ datetime EmaAngleExtremeStartTime = 0;
 //+------------------------------------------------------------------+
 void ManageEmaAngleOppositeClose()
   {
-   double emaAngle = GlobalEmaAngle30;
+   double emaAngle = GlobalEmaLineAngle30;
 
 // Check if angle magnitude exceeds 5.0 degrees continuously
    if(MathAbs(emaAngle) > 5.0)
@@ -3071,8 +3116,15 @@ bool IsOrderAllowedByTrendAndGap(int orderType)
 
    return true;
   }
-
+// ===== EMA 30 SETTINGS =====
+bool   ShowEMA30Line     = true;
+int    EMA30Period       = 30;
+color  EMA30LineColor    = clrPink;
+int    EMA30LineWidth    = 2;
+string EMA30_PREFIX      = "SSL_EMA30_LINE_";
 string TradeMonitoringLog="";
+
+
 //+------------------------------------------------------------------+
 //|                                                                  |
 //+------------------------------------------------------------------+
@@ -3092,7 +3144,53 @@ int SafeOrderSend(string symbol,int orderType,double lots,double price,int slipp
    if(!IsDayProfitLadderTradingAllowed())
       return -1;
 
-   if(GlobalEmaAngle30<2 &&  GlobalEmaAngle30 > -2)
+
+//------------------EMA200--------------------------------------------------------
+
+/*
+// ===== DUAL EMA ANGLE TREND FILTER =====
+if(orderType == OP_BUY || orderType == OP_BUYSTOP || orderType == OP_BUYLIMIT)
+  {
+   if(GlobalEmaAngle200 <= 2)
+     {
+      // Print("TRADE BUY BLOCKED | Both EMA angles must be > 0");
+      return -1;
+     }
+  }
+else if(orderType == OP_SELL || orderType == OP_SELLSTOP || orderType == OP_SELLLIMIT)
+  {
+   if(GlobalEmaAngle200 >= -1)
+     {
+      // Print("TRADE SELL BLOCKED | Both EMA angles must be < 0");
+      return -1;
+     }
+  }
+  */
+
+  //-----------------------------EMA30
+
+// // ===== DUAL EMA ANGLE TREND FILTER =====
+// if(orderType == OP_BUY || orderType == OP_BUYSTOP || orderType == OP_BUYLIMIT)
+//   {
+//    if(GlobalEmaAngle200 <= 0 || GlobalEmaLineAngle30 <= 0)
+//      {
+//       // Print("TRADE BUY BLOCKED | Both EMA angles must be > 0");
+//       return -1;
+//      }
+//   }
+// else if(orderType == OP_SELL || orderType == OP_SELLSTOP || orderType == OP_SELLLIMIT)
+//   {
+//    if(GlobalEmaAngle200 >= 0 || GlobalEmaLineAngle30 >= 0)
+//      {
+//       // Print("TRADE SELL BLOCKED | Both EMA angles must be < 0");
+//       return -1;
+//      }
+//   }
+
+
+      ///
+
+   if(GlobalEmaLineAngle30<2 &&  GlobalEmaLineAngle30 > -2)
      {
       // Print("TRADE BLOCKED | BOTH SIDES Angle below 2 degrees. No trade allowed.");
       TradeMonitoringLog="TRADE BLOCKED | BOTH SIDES Angle below 2 degrees. No trade allowed.";
@@ -3103,7 +3201,7 @@ int SafeOrderSend(string symbol,int orderType,double lots,double price,int slipp
       TradeMonitoringLog="";
      }
 
-// if(GlobalEmaAngle30 < -2  )
+// if(GlobalEmaLineAngle30 < -2  )
 //   {
 //    Print("TRADE BLOCKED | EMA trend is not bullish for Buy order.");
 //    return false;
@@ -3126,16 +3224,16 @@ int SafeOrderSend(string symbol,int orderType,double lots,double price,int slipp
 // --- STRICT EMA TREND FILTER WITH EXHAUSTION ALLOWANCE ---
 
 // Block Sells during a standard strong uptrend (2 to 6 degrees). Allows Sells > 6 for extreme exhaustion.
-   if(GetOpenPL(OP_BUY) >-2 && GlobalEmaAngle30 > 2.0 && GlobalEmaAngle30 <= 6.0 && EMADirection != -1 && (orderType == OP_SELL || orderType == OP_SELLSTOP || orderType == OP_SELLLIMIT))
+   if(GetOpenPL(OP_BUY) >-2 && GlobalEmaLineAngle30 > 2.0 && GlobalEmaLineAngle30 <= 6.0 && EMADirection != -1 && (orderType == OP_SELL || orderType == OP_SELLSTOP || orderType == OP_SELLLIMIT))
      {
-      // Print("TRADE SELL BLOCKED | EMA trend is strong (", DoubleToString(GlobalEmaAngle30, 2), " deg). Waiting for extreme exhaustion (>6) to Sell.");
+      // Print("TRADE SELL BLOCKED | EMA trend is strong (", DoubleToString(GlobalEmaLineAngle30, 2), " deg). Waiting for extreme exhaustion (>6) to Sell.");
       return -1;
      }
 
 // Block Buys during a standard strong downtrend (-2 to -6 degrees). Allows Buys < -6 for extreme exhaustion.
-   if(GetOpenPL(OP_SELL) > -2 && GlobalEmaAngle30 < -2.0 && GlobalEmaAngle30 >= -6.0 && EMADirection != 1 && (orderType == OP_BUY || orderType == OP_BUYSTOP || orderType == OP_BUYLIMIT))
+   if(GetOpenPL(OP_SELL) > -2 && GlobalEmaLineAngle30 < -2.0 && GlobalEmaLineAngle30 >= -6.0 && EMADirection != 1 && (orderType == OP_BUY || orderType == OP_BUYSTOP || orderType == OP_BUYLIMIT))
      {
-      // Print("TRADE BUY BLOCKED | EMA trend is strong (", DoubleToString(GlobalEmaAngle30, 2), " deg). Waiting for extreme exhaustion (<-6) to Buy.");
+      // Print("TRADE BUY BLOCKED | EMA trend is strong (", DoubleToString(GlobalEmaLineAngle30, 2), " deg). Waiting for extreme exhaustion (<-6) to Buy.");
       return -1;
      }
 
@@ -3162,7 +3260,7 @@ int SafeOrderSend(string symbol,int orderType,double lots,double price,int slipp
 // --- STRATEGY FILTERS (IGNORED FOR BOUNCE ORDERS) ---
    if(!isVShapeOverride)
      {
-      double currentAngle = GlobalEmaAngle30;
+      double currentAngle = GlobalEmaLineAngle30;
 
       // // 1. EMA Angle Hard Stops
       // if(currentAngle > angleBlockAboveRule && (orderType == OP_SELL || orderType == OP_SELLSTOP || orderType == OP_SELLLIMIT))
@@ -4072,7 +4170,7 @@ void ChangeLots(double OpenPL, string reason, int orderType, int stoplevelStep)
          if(GlobalSSLDirection == EMADirection)
             Lots=0.02;
 
-         double emaAngle = GlobalEmaAngle30;
+         double emaAngle = GlobalEmaLineAngle30;
          double emaDistance = GetDistanceToEMAPrice(orderType, true);
          if(orderType == OP_BUY)
            {
@@ -4094,7 +4192,7 @@ void ChangeLots(double OpenPL, string reason, int orderType, int stoplevelStep)
 
          double buyPL  = GlobalBuyPL;
          double sellPL = GlobalSellPL;
-         double currentAngle = GlobalEmaAngle30;
+         double currentAngle = GlobalEmaLineAngle30;
 
          if(orderType == OP_BUY && EMADirection == 1 && sellPL <= -10.0)
            {
@@ -4119,7 +4217,7 @@ void ChangeLots(double OpenPL, string reason, int orderType, int stoplevelStep)
               }
         }
       else
-         if(isSSLProfitReEntry && MathAbs(  GlobalEmaAngle30)>3)
+         if(isSSLProfitReEntry && MathAbs(  GlobalEmaLineAngle30)>3)
            {
             Lots = 0.03;
             if(GlobalSSLDirection == EMADirection)
@@ -4145,7 +4243,7 @@ void ChangeLots(double OpenPL, string reason, int orderType, int stoplevelStep)
       if(IsHeavyLotOrderNearBy(orderType, Lots, 300) && Lots>=0.03)
          Lots = 0.01;
 
-      double currentEmaAngle = GlobalEmaAngle30;
+      double currentEmaAngle = GlobalEmaLineAngle30;
       // if(InpEnableEmaAngleFilter)
       //   {
       //    if((orderType == OP_BUY && currentEmaAngle <= InpMinEmaAngleDegrees) ||
@@ -4190,15 +4288,15 @@ void ChangeLots(double OpenPL, string reason, int orderType, int stoplevelStep)
    */
 
    /*
-   double angleAbs = MathAbs(GlobalEmaAngle30);
+   double angleAbs = MathAbs(GlobalEmaLineAngle30);
    Lots = 0.01; // Default fallback
 
-   if(orderType == OP_BUY && GlobalEmaAngle30 > 1.0)
+   if(orderType == OP_BUY && GlobalEmaLineAngle30 > 1.0)
      {
       Lots = 0.01 * (5 - MathRound(angleAbs));
      }
    else
-      if(orderType == OP_SELL && GlobalEmaAngle30 < -1.0)
+      if(orderType == OP_SELL && GlobalEmaLineAngle30 < -1.0)
         {
          Lots = 0.01 * (5 - MathRound(angleAbs));
         }
@@ -4230,7 +4328,7 @@ void ChangeLots(double OpenPL, string reason, int orderType, int stoplevelStep)
 
 // Print("Closed Orders Since EMA Flip: ", closedCount, " | Cycle Step: ", cycleStep, " | Calculated Lots: ", Lots);
 
-   if((GlobalEmaAngle30 > -3.0 && GlobalEmaAngle30 < 3.0))
+   if((GlobalEmaLineAngle30 > -3.0 && GlobalEmaLineAngle30 < 3.0))
      {
       Lots = 0.01;
 
@@ -4250,7 +4348,7 @@ if(GlobalSSLDirection != EMADirection)
    //   }
 
       
-   // if((GlobalEmaAngle30>6 || GlobalEmaAngle30<-6) &&  GlobalSSLDirection != EMADirection)
+   // if((GlobalEmaLineAngle30>6 || GlobalEmaLineAngle30<-6) &&  GlobalSSLDirection != EMADirection)
    //   {
    //    Lots = 0.01;
 
@@ -4309,10 +4407,10 @@ if(GlobalSSLDirection != EMADirection)
 
 
 // Check if EMA angle magnitude is greater than 1 degree
-// if(MathAbs(GlobalEmaAngle30) > 1.0)
+// if(MathAbs(GlobalEmaLineAngle30) > 1.0)
 //   {
 //    int requestedDirection = (orderType == OP_BUY) ? 1 : -1;
-//    int emaTrendDirection  = (GlobalEmaAngle30 > 0) ? 1 : -1;
+//    int emaTrendDirection  = (GlobalEmaLineAngle30 > 0) ? 1 : -1;
 
 //    // If the EMA trend direction disagrees with the requested order direction, lock lot size to 0.01
 //    if(emaTrendDirection != requestedDirection)
@@ -4356,7 +4454,7 @@ if(GlobalSSLDirection != EMADirection)
 
 
 
-// int StopLossUSDA=10-  MathRound(MathAbs(GlobalEmaAngle30));
+// int StopLossUSDA=10-  MathRound(MathAbs(GlobalEmaLineAngle30));
 // if(StopLossUSDA<2)
 //   {
 //    StopLossUSDA=2;
@@ -4434,7 +4532,7 @@ void CheckRecoveryOrders()
    if(CountActiveRecoveryOrders() >= 1)
       return;
 
-   double emaAngle = GlobalEmaAngle30;
+   double emaAngle = GlobalEmaLineAngle30;
 
    RefreshRates();
    for(int i = OrdersTotal() - 1; i >= 0; i--)
@@ -6840,7 +6938,7 @@ void UpdateDashboard(DailyProtectionState &state)
    CreateDashboardLabel(DASH_PREFIX+"TITLE","SSL CHANNEL EA  |  PRO CONTROL",tx,y+8,11,clrWhite);
    CreateDashboardLabel(DASH_PREFIX+"SUBTITLE",Symbol()+"  |  "+TimeframeToString(Period()),tx+w-125,y+10,8,clrLightGray);
    CreateDashboardLabel(DASH_PREFIX+"STATUS", "STATUS       : "+statusText,tx,y+47,10,statusColor);
-   CreateDashboardLabel(DASH_PREFIX+"SIGNAL","SSL SIGNAL-30   : "+sslDirection+"  ("+strong+")"+" "+DoubleToString((GlobalEmaAngle30),2),tx,y+67,9,sslColor);
+   CreateDashboardLabel(DASH_PREFIX+"SIGNAL","SSL SIGNAL: "+sslDirection+"  ("+strong+")"+" "+DoubleToString((GlobalEmaAngle200),2)+" / "+DoubleToString((GlobalEmaLineAngle30),2),tx,y+67,9,sslColor);
 
 // ================= 1. EMA FLIP PROFIT LADDER (SWAPPED TO TOP) =================
    CreateDashboardPanel(DASH_PREFIX+"SEC_EMA_LADDER",x,y+90,w,22,C'30,38,50');
