@@ -4255,10 +4255,10 @@ double GetDynamicOrderGap(int orderType)
    int multiplier = 1;
    double pl = GetOpenPL(orderType);
 
-   // if(pl < 0)
+   if(pl < 0)
      {
-      // multiplier = 1 + (int)MathFloor(MathAbs(pl) / 3.0);
-      multiplier = GetTotalEAOrders() + (int)MathFloor(MathAbs(pl) / 3.0);
+      multiplier = 1 + (int)MathFloor(MathAbs(pl) / 3.0);
+      // multiplier = GetTotalEAOrders() + (int)MathFloor(MathAbs(pl) / 3.0);
 
      }
 if(multiplier < 1)
