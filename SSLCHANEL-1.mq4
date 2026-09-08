@@ -313,7 +313,7 @@ bool PassesUserRules(int orderType)
 
 
 
-   
+
 
 // // --- STRICT EMA TREND FILTER ---
 //    if(EMADirection != -1 && (orderType == OP_SELL || orderType == OP_SELLSTOP || orderType == OP_SELLLIMIT))
@@ -333,19 +333,19 @@ bool PassesUserRules(int orderType)
 // if(emaAngle < -3 && (orderType == OP_BUY || orderType == OP_BUYSTOP || orderType == OP_BUYLIMIT))
 //    return false;
 
-  int currentSSL = GlobalSSLDirection;
-int requestedDirection = (orderType == OP_BUY || orderType == OP_BUYSTOP || orderType == OP_BUYLIMIT) ? 1 : -1;
-int baseMarketType     = (requestedDirection == 1) ? OP_BUY : OP_SELL;
-double currentPL       = (baseMarketType == OP_BUY) ? GlobalBuyPL : GlobalSellPL;
+   int currentSSL = GlobalSSLDirection;
+   int requestedDirection = (orderType == OP_BUY || orderType == OP_BUYSTOP || orderType == OP_BUYLIMIT) ? 1 : -1;
+   int baseMarketType     = (requestedDirection == 1) ? OP_BUY : OP_SELL;
+   double currentPL       = (baseMarketType == OP_BUY) ? GlobalBuyPL : GlobalSellPL;
 
 // Ensure MOM_SIGNAL_direction is declared/available in your scope
-int MOM_SIGNAL_direction = (IsStrongMomentum(OP_BUY)) ? 1 : ((IsStrongMomentum(OP_SELL)) ? -1 : 0);
+   int MOM_SIGNAL_direction = (IsStrongMomentum(OP_BUY)) ? 1 : ((IsStrongMomentum(OP_SELL)) ? -1 : 0);
 
-if(currentSSL != requestedDirection && MOM_SIGNAL_direction != requestedDirection)
-  {
-   Print("TRADE BLOCKED | Neither SSL nor Momentum matches requested direction."+currentSSL+" vs "+requestedDirection+" | MOM_SIGNAL_direction: "+MOM_SIGNAL_direction);
-   return false;
-  }
+   if(currentSSL != requestedDirection && MOM_SIGNAL_direction != requestedDirection)
+     {
+      Print("TRADE BLOCKED | Neither SSL nor Momentum matches requested direction."+currentSSL+" vs "+requestedDirection+" | MOM_SIGNAL_direction: "+MOM_SIGNAL_direction);
+      return false;
+     }
 
 // if(currentSSL != requestedDirection && (emaAngle < 6))
 //   {
@@ -867,7 +867,29 @@ void DrawLadderBox(datetime time, double price, int level)
 //+------------------------------------------------------------------+
 //|                                                                  |
 //+------------------------------------------------------------------+
+double GetProfitAfterLastEmaFlip()
+  {
+   if(EmaFlipTime == 0)
+      return 0.0;
 
+   double realizedProfit = 0.0;
+
+
+// Sum up all closed orders since the last EMA flip
+   for(int i = OrdersHistoryTotal() - 1; i >= 0; i--)
+     {
+      if(OrderSelect(i, SELECT_BY_POS, MODE_HISTORY))
+        {
+         if(OrderSymbol() == Symbol() && OrderMagicNumber() == MagicNumber)
+           {
+            if(OrderCloseTime() >= EmaFlipTime)
+               realizedProfit += (OrderProfit() + OrderSwap() + OrderCommission());
+           }
+        }
+     }
+
+   return realizedProfit;
+  }
 //+------------------------------------------------------------------+
 //|                                                                  |
 //+------------------------------------------------------------------+
@@ -4255,13 +4277,24 @@ double GetDynamicOrderGap(int orderType)
    int multiplier = 1;
    double pl = GetOpenPL(orderType);
 
-   if(pl < 0)
-     {
-      multiplier = 1 + (int)MathFloor(MathAbs(pl) / 3.0);
-      // multiplier = GetTotalEAOrders() + (int)MathFloor(MathAbs(pl) / 3.0);
+// if(pl < 0)
+//   {
+//    multiplier = 1 + (int)MathFloor(MathAbs(pl) / 3.0);
+//    // multiplier = GetTotalEAOrders() + (int)MathFloor(MathAbs(pl) / 3.0);
 
+//   }
+
+   if(GetProfitAfterLastEmaFlip()>5)
+     {
+      multiplier=2;
      }
-if(multiplier < 1)
+   if(GetProfitAfterLastEmaFlip()>10)
+     {
+      multiplier=5;
+     }
+
+
+   if(multiplier < 1)
       multiplier = 1;
 
    if((orderType == OP_BUY && currentSSL == 1) || (orderType == OP_SELL && currentSSL == -1))
@@ -6680,7 +6713,7 @@ void DrawMomentumMarkers()
             ObjectSetInteger(0, objName, OBJPROP_COLOR, clrLime);
             ObjectSetInteger(0, objName, OBJPROP_WIDTH, 2);
            }
-           MOM_SIGNAL_direction=1;
+         MOM_SIGNAL_direction=1;
          // OpenBuy();
 
 
@@ -6695,7 +6728,7 @@ void DrawMomentumMarkers()
                ObjectSetInteger(0, objName, OBJPROP_COLOR, clrRed);
                ObjectSetInteger(0, objName, OBJPROP_WIDTH, 2);
               }
-           MOM_SIGNAL_direction=-1;
+            MOM_SIGNAL_direction=-1;
             // OpenSell();
 
            }
