@@ -3162,11 +3162,11 @@ int SafeOrderSend(string symbol,int orderType,double lots,double price,int slipp
          return -1;
         }
 
-        if(GetOpenPL(orderType)<=-3)
-        {
-         return -1;
+      //   if(GetOpenPL(orderType)<=-2)
+      //   {
+      //    return -1;
 
-        }
+      //   }
      }
    else
       if(orderType == OP_SELL || orderType == OP_SELLSTOP || orderType == OP_SELLLIMIT)
@@ -3176,11 +3176,11 @@ int SafeOrderSend(string symbol,int orderType,double lots,double price,int slipp
             // Print("TRADE SELL BLOCKED | Both EMA angles must be < 0");
             return -1;
            }
-           if(GetOpenPL(orderType)<=-3)
-        {
-         return -1;
+      //      if(GetOpenPL(orderType)<=-2)
+      //   {
+      //    return -1;
 
-        }
+      //   }
         }
 
 //------------------EMA200--------------------------------------------------------
@@ -4201,7 +4201,38 @@ bool Test30MinutesBigcandlecheck(int orderType)
 
    return false;
   }
+double GetSSLLineAngleDegrees(bool checkUpLine = true, int lookbackBars = 5)
+  {
+   if(lookbackBars <= 0 || Bars < SSLPeriod + lookbackBars)
+      return 0.0;
 
+   double up1, down1, up2, down2;
+   int hlv1, hlv2;
+
+   // Calculate SSL values at current (0) and lookback shift
+   CalculateSSL(0, up1, down1, hlv1);
+   CalculateSSL(lookbackBars, up2, down2, hlv2);
+
+   double valueCurrent  = checkUpLine ? up1 : down1;
+   double valuePrevious = checkUpLine ? up2 : down2;
+
+   if(valueCurrent <= 0 || valuePrevious <= 0)
+      return 0.0;
+
+   double atr = iATR(Symbol(), Period(), 14, 1);
+   if(atr <= 0)
+      atr = Point * 10;
+
+   double normalizedRise = (valueCurrent - valuePrevious) / atr;
+   double slope = normalizedRise / (double)lookbackBars;
+   double angle = MathArctan(slope) * 180.0 / 3.14159265358979323846;
+   angle = angle * 2.0;
+
+   if(angle > 85.0)  angle = 85.0;
+   if(angle < -85.0) angle = -85.0;
+
+   return NormalizeDouble(angle, 2);
+  }
 //+------------------------------------------------------------------+
 //|                                                                  |
 //+------------------------------------------------------------------+
@@ -4403,6 +4434,15 @@ void ChangeLots(double OpenPL, string reason, int orderType, int stoplevelStep)
 
 // Print("Closed Orders Since EMA Flip: ", closedCount, " | Cycle Step: ", cycleStep, " | Calculated Lots: ", Lots);
 
+    double sslUpAngle = GetSSLLineAngleDegrees(true, 5);   // Reads angle of the upper SSL line over 5 bars
+double sslDownAngle = GetSSLLineAngleDegrees(false, 5); // Reads angle of the lower SSL line over 5 bars
+if(sslUpAngle>40 || sslDownAngle<-40)
+  {
+   Lots = 0.05;
+  }
+
+//--------------------0.01----------------------------------------------
+
    if((GlobalEmaLineAngle30 > -3.0 && GlobalEmaLineAngle30 < 3.0))
      {
       Lots = 0.01;
@@ -4467,6 +4507,9 @@ void ChangeLots(double OpenPL, string reason, int orderType, int stoplevelStep)
      {
       Lots = 0.01;
      }
+
+  
+ 
 
 // --- PREVIOUS 2 M1 CANDLES BODY HEIGHT FILTER (Each > 100 raw price difference) ---
    if(MathAbs(Open[1] - Close[1]) > 100.0 && MathAbs(Open[2] - Close[2]) > 100.0)
@@ -6619,6 +6662,9 @@ void DrawMomentumMarkers()
             ObjectSetInteger(0, objName, OBJPROP_COLOR, clrLime);
             ObjectSetInteger(0, objName, OBJPROP_WIDTH, 2);
            }
+         OpenBuy();
+
+
         }
       else
          if(IsStrongMomentum(OP_SELL, i))
@@ -6630,6 +6676,8 @@ void DrawMomentumMarkers()
                ObjectSetInteger(0, objName, OBJPROP_COLOR, clrRed);
                ObjectSetInteger(0, objName, OBJPROP_WIDTH, 2);
               }
+         OpenSell();
+
            }
      }
   }
@@ -7018,12 +7066,20 @@ void UpdateDashboard(DailyProtectionState &state)
       if(GetCachedPatternDirection()==-1)
          strong=strong+" - ";
 
+
+         strong="";
+
+         double sslUpAngle = GetSSLLineAngleDegrees(true, 5);   // Reads angle of the upper SSL line over 5 bars
+double sslDownAngle = GetSSLLineAngleDegrees(false, 5); // Reads angle of the lower SSL line over 5 bars
+
+ 
+
    CreateDashboardPanel(DASH_PREFIX+"PANEL",x,y,w,panelHeight,C'12,16,22');
    CreateDashboardPanel(DASH_PREFIX+"HEADER",x,y,w,38,C'25,70,115');
    CreateDashboardLabel(DASH_PREFIX+"TITLE","SSL CHANNEL EA  |  PRO CONTROL",tx,y+8,11,clrWhite);
    CreateDashboardLabel(DASH_PREFIX+"SUBTITLE",Symbol()+"  |  "+TimeframeToString(Period()),tx+w-125,y+10,8,clrLightGray);
    CreateDashboardLabel(DASH_PREFIX+"STATUS", "STATUS       : "+statusText,tx,y+47,10,statusColor);
-   CreateDashboardLabel(DASH_PREFIX+"SIGNAL","SSL SIGNAL: "+sslDirection+"  ("+strong+")"+" "+DoubleToString((GlobalEmaAngle200),2)+" / "+DoubleToString((GlobalEmaLineAngle30),2),tx,y+67,9,sslColor);
+   CreateDashboardLabel(DASH_PREFIX+"SIGNAL","SSL SIGNAL: "+sslDirection+"  ("+strong+")"+" "+DoubleToString((GlobalEmaAngle200),2)+" / "+DoubleToString((GlobalEmaLineAngle30),2)+" / "+DoubleToString((sslUpAngle),2),tx,y+67,9,sslColor);
 
 // ================= 1. EMA FLIP PROFIT LADDER (SWAPPED TO TOP) =================
    CreateDashboardPanel(DASH_PREFIX+"SEC_EMA_LADDER",x,y+90,w,22,C'30,38,50');
