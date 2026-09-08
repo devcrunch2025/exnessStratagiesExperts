@@ -343,7 +343,7 @@ int MOM_SIGNAL_direction = (IsStrongMomentum(OP_BUY)) ? 1 : ((IsStrongMomentum(O
 
 if(currentSSL != requestedDirection && MOM_SIGNAL_direction != requestedDirection)
   {
-   Print("TRADE BLOCKED | Neither SSL nor Momentum matches requested direction.");
+   Print("TRADE BLOCKED | Neither SSL nor Momentum matches requested direction."+currentSSL+" vs "+requestedDirection+" | MOM_SIGNAL_direction: "+MOM_SIGNAL_direction);
    return false;
   }
 
@@ -6255,7 +6255,7 @@ void ManageProfitLadder()
       double ladder1Profit = OriginalLadder1ProfitUSD * orderLots * 100.0;
 
       // --- NEW LOGIC: Reduce ladder1Profit by half if order is older than 1 hour ---
-      if(TimeCurrent() - OrderOpenTime() > 60*60 || GetTotalEAOrders()>4) // 3600 seconds = 1 hour
+      if(TimeCurrent() - OrderOpenTime() > 60*60 || GetTotalEAOrders()>8) // 3600 seconds = 1 hour
         {
          ladder1Profit = ladder1Profit / 2.0;
         }
