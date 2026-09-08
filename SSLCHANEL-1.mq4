@@ -313,6 +313,8 @@ bool PassesUserRules(int orderType)
 
 
 
+   
+
 // // --- STRICT EMA TREND FILTER ---
 //    if(EMADirection != -1 && (orderType == OP_SELL || orderType == OP_SELLSTOP || orderType == OP_SELLLIMIT))
 //      {
