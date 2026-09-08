@@ -6253,9 +6253,10 @@ void ManageProfitLadder()
          continue;
 
       double ladder1Profit = OriginalLadder1ProfitUSD * orderLots * 100.0;
+      //GetTotalBuyOrders
 
       // --- NEW LOGIC: Reduce ladder1Profit by half if order is older than 1 hour ---
-      if(TimeCurrent() - OrderOpenTime() > 60*60 || GetTotalEAOrders()>8) // 3600 seconds = 1 hour
+      if(TimeCurrent() - OrderOpenTime() > 60*60 ||   GetTotalBuyOrders()>=3  || GetTotalSellOrders()>=3) // 3600 seconds = 1 hour
         {
          ladder1Profit = ladder1Profit / 2.0;
         }
@@ -6680,7 +6681,7 @@ void DrawMomentumMarkers()
             ObjectSetInteger(0, objName, OBJPROP_WIDTH, 2);
            }
            MOM_SIGNAL_direction=1;
-         OpenBuy();
+         // OpenBuy();
 
 
         }
@@ -6695,7 +6696,7 @@ void DrawMomentumMarkers()
                ObjectSetInteger(0, objName, OBJPROP_WIDTH, 2);
               }
            MOM_SIGNAL_direction=-1;
-            OpenSell();
+            // OpenSell();
 
            }
      }
