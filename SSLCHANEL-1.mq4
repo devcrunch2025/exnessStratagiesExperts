@@ -3071,6 +3071,13 @@ int SafeOrderSend(string symbol,int orderType,double lots,double price,int slipp
       TradeMonitoringLog="";
      }
 
+     // Inside PassesUserRules() or SafeOrderSend()
+// if(IsEmaDistanceReduced50PercentFromPeak(orderType))
+//   {
+//    Print("MOMENTUM EXHAUSTION: Distance to EMA200 reduced by 50%+ in the last hour.");
+//    // Block trade, reduce lot size, or tighten StopLoss
+//   }
+
 // if(GlobalEmaAngle30 < -2  )
 //   {
 //    Print("TRADE BLOCKED | EMA trend is not bullish for Buy order.");
@@ -3999,6 +4006,14 @@ if(pl < 0)
   {
    multiplier = 1 + (int)MathFloor(MathAbs(pl) / 3.0);
   }
+
+
+if(IsEmaDistanceReduced50PercentFromPeak(orderType))
+  {
+  multiplier=5;//
+  }
+
+
    if((orderType == OP_BUY && currentSSL == 1) || (orderType == OP_SELL && currentSSL == -1))
       return MinimumSameOrderGapRawMatched*multiplier;
 
@@ -4204,6 +4219,11 @@ if(GlobalSSLDirection != EMADirection)
 
 
      }
+
+     if(IsEmaDistanceReduced50PercentFromPeak(orderType))
+  {
+      Lots = 0.01;
+  }
 
    if(GetDistanceToEMAPrice(orderType, true)<50)
      {
@@ -6783,6 +6803,11 @@ void UpdateDashboard(DailyProtectionState &state)
       if(GetCachedPatternDirection()==-1)
          strong=strong+" - ";
 
+if(IsEmaDistanceReduced50PercentFromPeak())
+         strong=" Weak";
+         else 
+            strong= " STRONG";
+         
    CreateDashboardPanel(DASH_PREFIX+"PANEL",x,y,w,panelHeight,C'12,16,22');
    CreateDashboardPanel(DASH_PREFIX+"HEADER",x,y,w,38,C'25,70,115');
    CreateDashboardLabel(DASH_PREFIX+"TITLE","SSL CHANNEL EA  |  PRO CONTROL",tx,y+8,11,clrWhite);
@@ -6944,7 +6969,102 @@ void CreateLeftLiveLabel(string name,string text,int x,int y,int fontSize,color 
    ObjectSetInteger(0,name,OBJPROP_SELECTABLE,false);
    ObjectSetInteger(0,name,OBJPROP_HIDDEN,true);
   }
+  //+------------------------------------------------------------------+
+//| Check if price expanded away after EMA flip (>= 60 mins), and    |
+//| is now coming back down (distance reduced by 50%+ from peak)     |
+//+------------------------------------------------------------------+
+bool IsEmaDistanceReduced50PercentFromPeak(int orderType = -1)
+  {
+   // 1. Wait minimum 60 minutes (3600 seconds) after the EMA flip
+   if(EmaFlipTime == 0 || (TimeCurrent() - EmaFlipTime) < 3600)
+      return false;
 
+   RefreshRates();
+
+   // 2. Locate the starting bar where the EMA flipped
+   int flipShift = iBarShift(Symbol(), Period(), EmaFlipTime, false);
+   if(flipShift < 1 || flipShift >= Bars)
+      return false;
+
+   // 3. Scan all candles between flipShift and current bar to find the maximum peak distance
+   double maxDistance = 0.0;
+   for(int i = flipShift; i >= 1; i--)
+     {
+      double historicalEma = iMA(Symbol(), Period(), InpEMA200Period, InpEMAPriceShift, MODE_EMA, PRICE_CLOSE, i);
+      if(historicalEma <= 0.0)
+         continue;
+
+      // In uptrends, use High[i]; in downtrends, use Low[i] for extreme swing distance
+      double candleExtreme = (EMADirection == 1) ? High[i] : ((EMADirection == -1) ? Low[i] : Close[i]);
+      double dist = MathAbs(candleExtreme - historicalEma);
+
+      if(dist > maxDistance)
+         maxDistance = dist;
+     }
+
+   // Avoid calculating on flat markets where price never moved away
+   if(maxDistance <= Point * 10)
+      return false;
+
+   // 4. Current live distance to EMA200
+   double currentEma = iMA(Symbol(), Period(), InpEMA200Period, InpEMAPriceShift, MODE_EMA, PRICE_CLOSE, 0);
+   if(currentEma <= 0.0)
+      return false;
+
+   double currentPrice = (orderType == OP_BUY) ? Ask : ((orderType == OP_SELL) ? Bid : Bid);
+   double currentDistance = MathAbs(currentPrice - currentEma);
+
+   // 5. Verification:
+   // True: Price has contracted to 50% or less of its peak expansion (Coming down)
+   // False: Price is still expanding or above 50% of the peak range (Going up)
+   if(currentDistance <= (maxDistance * 0.50))
+      return true;
+
+   return false;
+  }
+//+------------------------------------------------------------------+
+//| Check if distance between price and EMA200 has reduced by 50%   |
+//| compared to the distance at the time of the last EMA flip        |
+//+------------------------------------------------------------------+
+bool IsEmaDistanceReduced50PercentSinceFlipold(int orderType = -1)
+  {
+   // 1. Ensure an EMA flip has actually occurred and at least 1 hour has passed since it
+   if(EmaFlipTime == 0 || TimeCurrent() - EmaFlipTime < 3600)
+      return false;
+
+   RefreshRates();
+
+   // 2. Current Live Price and EMA200
+   double currentEma = iMA(Symbol(), Period(), InpEMA200Period, InpEMAPriceShift, MODE_EMA, PRICE_CLOSE, 0);
+   if(currentEma <= 0.0)
+      return false;
+
+   double currentPrice = (orderType == OP_BUY) ? Ask : (orderType == OP_SELL ? Bid : Close[0]);
+   double currentDistance = MathAbs(currentPrice - currentEma);
+
+   // 3. Find the historical bar corresponding to the exact EmaFlipTime
+   int flipBarShift = iBarShift(Symbol(), Period(), EmaFlipTime, false);
+   if(flipBarShift < 0 || flipBarShift >= Bars)
+      return false;
+
+   // 4. Historical Price and EMA200 at the EMA flip time
+   double flipEma = iMA(Symbol(), Period(), InpEMA200Period, InpEMAPriceShift, MODE_EMA, PRICE_CLOSE, flipBarShift);
+   double flipPrice = iClose(Symbol(), Period(), flipBarShift);
+   if(flipEma <= 0.0 || flipPrice <= 0.0)
+      return false;
+
+   double flipDistance = MathAbs(flipPrice - flipEma);
+
+   // Avoid zero or negligible base distances
+   if(flipDistance <= Point)
+      return false;
+
+   // 5. Return true if current distance has contracted to 50% or less of the distance at flip time
+   if(currentDistance <= (flipDistance * 0.50))
+      return true;
+
+   return false;
+  }
 //+------------------------------------------------------------------+
 //|                                                                  |
 //+------------------------------------------------------------------+
