@@ -3176,21 +3176,32 @@ int SafeOrderSend(string symbol,int orderType,double lots,double price,int slipp
          Print("TRADE BLOCKED | Bearish trend pullback detected: Buying prohibited.");
          return -1;
         }
-        //opposite order 
-         if(EMADirection == -1 && GetCurrentMDirection(PERIOD_M15) ==1 &&  (orderType == OP_SELL || orderType == OP_SELLSTOP || orderType == OP_SELLLIMIT))
+      
+
+
+//         //
+//         bool isBuyRequest = (orderType == OP_BUY || orderType == OP_BUYSTOP || orderType == OP_BUYLIMIT);
+
+// if(EMADirection == -1 && isBuyRequest && GetCurrentMDirection(PERIOD_M15) != 1)
+//   {
+//    Print("TRADE BLOCKED | EMA direction is Sell and M15 is not bullish. Buy prohibited.");
+//    return -1;
+//   }
+
+
+     }
+
+       //opposite order 
+         if(EMADirection == 1 && GetCurrentMDirection(PERIOD_M15) !=-1 &&  (orderType == OP_SELL || orderType == OP_SELLSTOP || orderType == OP_SELLLIMIT))
         {
          Print("TRADE BLOCKED | Bullish trend pullback detected: Selling prohibited.");
          return -1;
         }
-     if(EMADirection == 1 && GetCurrentMDirection(PERIOD_M15) ==-1 && (orderType == OP_BUY || orderType == OP_BUYSTOP || orderType == OP_BUYLIMIT))
+     if(EMADirection == -1 && GetCurrentMDirection(PERIOD_M15) !=1 && (orderType == OP_BUY || orderType == OP_BUYSTOP || orderType == OP_BUYLIMIT))
         {
          Print("TRADE BLOCKED | Bearish trend pullback detected: Buying prohibited.");
          return -1;
         }
-
-
-
-     }
 
 
 
@@ -6612,7 +6623,7 @@ void DrawMomentumMarkers()
             ObjectSetInteger(0, objName, OBJPROP_WIDTH, 2);
            }
 
-         if(GetCurrentMDirection(PERIOD_M30) == OP_BUY)
+         if(GetCurrentMDirection(PERIOD_M30) == 1)
            {
 
             OpenBuy();
@@ -6629,7 +6640,7 @@ void DrawMomentumMarkers()
                ObjectSetInteger(0, objName, OBJPROP_COLOR, clrRed);
                ObjectSetInteger(0, objName, OBJPROP_WIDTH, 2);
               }
-            if(GetCurrentMDirection(PERIOD_M30) == OP_SELL)
+            if(GetCurrentMDirection(PERIOD_M30) == -1)
 
                OpenSell();
 
