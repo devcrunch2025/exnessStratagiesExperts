@@ -3189,6 +3189,8 @@ int SafeOrderSend(string symbol,int orderType,double lots,double price,int slipp
 //   }
 
 
+
+
      }
 
        //opposite order 
