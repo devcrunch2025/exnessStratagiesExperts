@@ -724,7 +724,7 @@ void Manage50EmaClosures()
                priceGap = ema50 - Bid; // Positive value means price is below EMA
                double distanceUSD = (priceGap / tickSize) * tickValue * lots;
 
-               if(distanceUSD >= 50.0)
+               if(distanceUSD >= 50.0  && GetCurrentMDirection(PERIOD_M5) != GetOrderDirection(type))
                  {
                   Print("CLOSING BUY: Price is below 50 EMA by $", DoubleToString(distanceUSD, 2));
                   SafeOrderClose(OrderTicket(), lots, type, Slippage, clrRed);
@@ -740,7 +740,7 @@ void Manage50EmaClosures()
                   priceGap = Ask - ema50; // Positive value means price is above EMA
                   double distanceUSD = (priceGap / tickSize) * tickValue * lots;
 
-                  if(distanceUSD >= 50.0)
+                  if(distanceUSD >= 50.0  && GetCurrentMDirection(PERIOD_M5) != GetOrderDirection(type))
                     {
                      Print("CLOSING SELL: Price is above 50 EMA by $", DoubleToString(distanceUSD, 2));
                      SafeOrderClose(OrderTicket(), lots, type, Slippage, clrBlue);
@@ -1135,12 +1135,12 @@ void CloseOppositeOrdersOnEmaDistance()
          continue;
 
       int type = OrderType();
-      if(type == OP_BUY && Bid < buyCutoff && EMADirection == -1)
+      if(type == OP_BUY && Bid < buyCutoff && EMADirection == -1 && GetCurrentMDirection(PERIOD_M5) != GetOrderDirection(type))
         {
          Print("EMA DISTANCE TRIGGER: Closing PRE-FLIP BUY.");
          SafeOrderClose(OrderTicket(), OrderLots(), type, Slippage, clrRed);
         }
-      if(type == OP_SELL && Ask > sellCutoff && EMADirection == 1)
+      if(type == OP_SELL && Ask > sellCutoff && EMADirection == 1 && GetCurrentMDirection(PERIOD_M5) != GetOrderDirection(type))
         {
          Print("EMA DISTANCE TRIGGER: Closing PRE-FLIP SELL.");
          SafeOrderClose(OrderTicket(), OrderLots(), type, Slippage, clrBlue);
@@ -1991,7 +1991,7 @@ void ManageEmaAngleOppositeClose()
                int orderType = OrderType();
 
                // If EMA angle > 5 continuously for 30m, close all SELL orders
-               if(emaAngle > 5.0 && orderType == OP_SELL)
+               if(emaAngle > 5.0 && orderType == OP_SELL && GetCurrentMDirection(PERIOD_M5) != GetOrderDirection(orderType))
                  {
                   Print("EMA ANGLE TRIGGER (> 5° for 30m): Closing SELL order. Angle: ", DoubleToString(emaAngle, 2));
                   SafeOrderClose(OrderTicket(), OrderLots(), OP_SELL, Slippage, clrRed);
@@ -1999,7 +1999,7 @@ void ManageEmaAngleOppositeClose()
 
                // If EMA angle < -5 continuously for 30m, close all BUY orders
                else
-                  if(emaAngle < -5.0 && orderType == OP_BUY)
+                  if(emaAngle < -5.0 && orderType == OP_BUY && GetCurrentMDirection(PERIOD_M5) != GetOrderDirection(orderType))
                     {
                      Print("EMA ANGLE TRIGGER (< -5° for 30m): Closing BUY order. Angle: ", DoubleToString(emaAngle, 2));
                      SafeOrderClose(OrderTicket(), OrderLots(), OP_BUY, Slippage, clrRed);
@@ -3127,8 +3127,13 @@ int SafeOrderSend(string symbol,int orderType,double lots,double price,int slipp
       TradeMonitoringLog="";
      }
 
+     if(GetDistanceToEMAPrice(orderType, true)<50)
+     {
+            return -1;;
+     }
 
-     if(IsEmaWEAKDistanceReduced50PercentFromPeak(orderType) && GetDistanceToEMAPrice(orderType, true)<100)
+
+     if(IsEmaWEAKDistanceReduced50PercentFromPeak(orderType) )//&& GetDistanceToEMAPrice(orderType, true)<100)
      {
             return -1;;
 
@@ -3149,7 +3154,7 @@ int SafeOrderSend(string symbol,int orderType,double lots,double price,int slipp
    //      }
    //   }
 
-//   if(GetCurrentMDirection(PERIOD_M15) != orderType)
+//   if(GetCurrentMDirection(PERIOD_M5) != orderType)
 //   {
 
 //    return -1;
@@ -3171,7 +3176,23 @@ int SafeOrderSend(string symbol,int orderType,double lots,double price,int slipp
          Print("TRADE BLOCKED | Bearish trend pullback detected: Buying prohibited.");
          return -1;
         }
+        //opposite order 
+         if(EMADirection == -1 && GetCurrentMDirection(PERIOD_M15) ==1 &&  (orderType == OP_SELL || orderType == OP_SELLSTOP || orderType == OP_SELLLIMIT))
+        {
+         Print("TRADE BLOCKED | Bullish trend pullback detected: Selling prohibited.");
+         return -1;
+        }
+     if(EMADirection == 1 && GetCurrentMDirection(PERIOD_M15) ==-1 && (orderType == OP_BUY || orderType == OP_BUYSTOP || orderType == OP_BUYLIMIT))
+        {
+         Print("TRADE BLOCKED | Bearish trend pullback detected: Buying prohibited.");
+         return -1;
+        }
+
+
+
      }
+
+
 
 
 // Inside PassesUserRules() or SafeOrderSend()
@@ -4137,7 +4158,7 @@ double GetDynamicOrderGap(int orderType)
       multiplier=5;//
      }
 
-     if(GetCurrentMDirection(PERIOD_M15) == orderType)
+     if(GetCurrentMDirection(PERIOD_M5) != GetOrderDirection(orderType))
            {
 
       multiplier=5;//
@@ -4343,16 +4364,29 @@ void ChangeLots(double OpenPL, string reason, int orderType, int stoplevelStep)
      {
       Lots = 0.02;
 
-      if(GetOpenPL(OP_BUY) < -2.0 && TimeCurrent() - EmaFlipTime > 60*60 && !IsEmaWEAKDistanceReduced50PercentFromPeak(orderType))
-         CloseOppositeOrders(OP_SELL);
+     
 
      }
    if(intOrdertype == 1 && GetOpenPL(OP_SELL) < -2.0 && Lots == 0.01)
      {
       Lots = 0.02;
-      if(GetOpenPL(OP_SELL) < -2.0 && TimeCurrent() - EmaFlipTime > 60*60 && !IsEmaWEAKDistanceReduced50PercentFromPeak(orderType))
-         CloseOppositeOrders(OP_BUY);
+      
      }
+if(intOrdertype == -1)
+  {
+   if(GetOpenPL(OP_BUY) < -2.0 && TimeCurrent() - EmaFlipTime > 60*60 && !IsEmaWEAKDistanceReduced50PercentFromPeak(orderType))
+     {
+      CloseOppositeOrders(OP_SELL);
+     }
+  }
+
+if(intOrdertype == 1)
+  {
+   if(GetOpenPL(OP_SELL) < -2.0 && TimeCurrent() - EmaFlipTime > 60*60 && !IsEmaWEAKDistanceReduced50PercentFromPeak(orderType))
+     {
+      CloseOppositeOrders(OP_BUY);
+     }
+  }
 
 
 
@@ -4881,7 +4915,7 @@ void CloseAndDeleteNonEmaMatchingOrders()
          // Check if market order direction matches EMADirection (Buy needs EMADirection == 1, Sell needs EMADirection == -1)
          bool matchesEma = (isBuy && EMADirection == 1) || (!isBuy && EMADirection == -1);
 
-         if(!matchesEma && nonMatchingOpenCount < 1000)
+         if(!matchesEma && nonMatchingOpenCount < 1000 && GetCurrentMDirection(PERIOD_M5)!=GetOrderDirection(type) )
            {
             nonMatchingOpenTickets[nonMatchingOpenCount++] = OrderTicket();
            }
@@ -4889,7 +4923,7 @@ void CloseAndDeleteNonEmaMatchingOrders()
       else
          if(isPending)
            {
-            bool isBuyPending = (type == OP_BUYSTOP || type == OP_BUYLIMIT);
+            bool isBuyPending = (type == OP_BUYSTOP || type == OP_BUYLIMIT && GetCurrentMDirection(PERIOD_M5)!=GetOrderDirection(type) );
             bool matchesEma = (isBuyPending && EMADirection == 1) || (!isBuyPending && EMADirection == -1);
 
             if(!matchesEma && nonMatchingPendingCount < 1000)
@@ -5576,7 +5610,7 @@ void CloseOppositeOrders(int newSignalType)
               }
            }
          else
-            if(emaMatchesSignal)
+            if(emaMatchesSignal && GetCurrentMDirection(PERIOD_M5) != GetOrderDirection(orderType))
               {
                // Close immediately if distance > 100
                double currentPrice = (orderType == OP_BUY) ? Bid : Ask;
@@ -5591,7 +5625,14 @@ void CloseOppositeOrders(int newSignalType)
         }
      }
   }
-
+int GetOrderDirection(int orderType)
+  {
+   if(orderType == OP_BUY || orderType == OP_BUYSTOP || orderType == OP_BUYLIMIT)
+      return 1;
+   if(orderType == OP_SELL || orderType == OP_SELLSTOP || orderType == OP_SELLLIMIT)
+      return -1;
+   return 0;
+  }
 //+------------------------------------------------------------------+
 //|                                                                  |
 //+------------------------------------------------------------------+
