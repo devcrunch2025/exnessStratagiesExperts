@@ -7235,6 +7235,9 @@ bool IsEmaWEAKDistanceReduced50PercentFromPeak(int orderType = -1)
       double candleExtreme = (EMADirection == 1) ? High[i] : ((EMADirection == -1) ? Low[i] : Close[i]);
       double dist = MathAbs(candleExtreme - historicalEma);
 
+
+      
+
       if(dist > maxDistance)
          maxDistance = dist;
      }
