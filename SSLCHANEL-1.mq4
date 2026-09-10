@@ -3142,16 +3142,16 @@ int SafeOrderSend(string symbol,int orderType,double lots,double price,int slipp
 
    //    if(IsEmaWEAKDistanceReduced50PercentFromPeak(orderType))
    //   {
-   //    if(EMADirection == -1 && (orderType == OP_SELL || orderType == OP_SELLSTOP || orderType == OP_SELLLIMIT))
-   //      {
-   //       Print("TRADE BLOCKED | Bullish trend pullback detected: Selling prohibited.");
-   //       return -1;
-   //      }
-   //    if(EMADirection == 1 && (orderType == OP_BUY || orderType == OP_BUYSTOP || orderType == OP_BUYLIMIT))
-   //      {
-   //       Print("TRADE BLOCKED | Bearish trend pullback detected: Buying prohibited.");
-   //       return -1;
-   //      }
+      if(EMADirection == 1 && (orderType == OP_SELL || orderType == OP_SELLSTOP || orderType == OP_SELLLIMIT))
+        {
+         Print("TRADE BLOCKED | Bullish trend pullback detected: Selling prohibited.");
+         return -1;
+        }
+      if(EMADirection == -1 && (orderType == OP_BUY || orderType == OP_BUYSTOP || orderType == OP_BUYLIMIT))
+        {
+         Print("TRADE BLOCKED | Bearish trend pullback detected: Buying prohibited.");
+         return -1;
+        }
    //   }
 
 //   if(GetCurrentMDirection(PERIOD_M5) != orderType)
@@ -4160,6 +4160,17 @@ double GetDynamicOrderGap(int orderType)
    int multiplier = 1;
    double pl = GetOpenPL(orderType);
 
+
+    if(orderType == OP_SELL)
+  {
+   multiplier = 1 + MathMax(1, GetTotalSellOrders());
+  }
+if(orderType == OP_BUY)
+  {
+   multiplier = 1 + MathMax(1, GetTotalBuyOrders());
+  }
+
+
    if(pl < 0)
      {
       multiplier = 1 + (int)MathFloor(MathAbs(pl) / 3.0);
@@ -4177,7 +4188,6 @@ double GetDynamicOrderGap(int orderType)
       multiplier=5;//
            }
 
-     
 
 
    if((orderType == OP_BUY && currentSSL == 1) || (orderType == OP_SELL && currentSSL == -1))
@@ -7206,18 +7216,15 @@ void CreateLeftLiveLabel(string name,string text,int x,int y,int fontSize,color 
 //+------------------------------------------------------------------+
 bool IsEmaWEAKDistanceReduced50PercentFromPeak(int orderType = -1)
   {
-// 1. Wait minimum 60 minutes (3600 seconds) after the EMA flip
-   if(EmaFlipTime == 0 || (TimeCurrent() - EmaFlipTime) < 3600)
+   if(EmaFlipTime == 0)
       return false;
 
    RefreshRates();
 
-// 2. Locate the starting bar where the EMA flipped
    int flipShift = iBarShift(Symbol(), Period(), EmaFlipTime, false);
    if(flipShift < 1 || flipShift >= Bars)
       return false;
 
-// 3. Scan all candles between flipShift and current bar to find the maximum peak distance
    double maxDistance = 0.0;
    for(int i = flipShift; i >= 1; i--)
      {
@@ -7225,7 +7232,6 @@ bool IsEmaWEAKDistanceReduced50PercentFromPeak(int orderType = -1)
       if(historicalEma <= 0.0)
          continue;
 
-      // In uptrends, use High[i]; in downtrends, use Low[i] for extreme swing distance
       double candleExtreme = (EMADirection == 1) ? High[i] : ((EMADirection == -1) ? Low[i] : Close[i]);
       double dist = MathAbs(candleExtreme - historicalEma);
 
@@ -7233,22 +7239,24 @@ bool IsEmaWEAKDistanceReduced50PercentFromPeak(int orderType = -1)
          maxDistance = dist;
      }
 
-// Avoid calculating on flat markets where price never moved away
    if(maxDistance <= Point * 10)
       return false;
 
-// 4. Current live distance to EMA200
    double currentEma = iMA(Symbol(), Period(), InpEMA200Period, InpEMAPriceShift, MODE_EMA, PRICE_CLOSE, 0);
    if(currentEma <= 0.0)
       return false;
 
-   double currentPrice = (orderType == OP_BUY) ? Ask : ((orderType == OP_SELL) ? Bid : Bid);
+   // Fix: Properly resolve price based on active EMADirection if orderType is omitted
+   double currentPrice = Bid;
+   if(orderType == OP_BUY)
+      currentPrice = Ask;
+   else if(orderType == OP_SELL)
+      currentPrice = Bid;
+   else
+      currentPrice = (EMADirection == 1) ? Bid : Ask;
+
    double currentDistance = MathAbs(currentPrice - currentEma);
 
-
-// 5. Verification:
-// True: Price has contracted to 50% or less of its peak expansion (Coming down)
-// False: Price is still expanding or above 50% of the peak range (Going up)
    if(currentDistance <= (maxDistance * 0.50))
       return true;
 
