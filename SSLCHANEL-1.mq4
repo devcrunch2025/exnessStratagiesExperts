@@ -169,7 +169,7 @@ double RecoveryMinDistanceRaw =100;//20;// 200.0;
 double DayProfitLadder1Amount = 5;
 
 // ===== DYNAMIC DAY PROFIT LADDER =====
-bool   EnableDayProfitLadder = false;//true;
+bool   EnableDayProfitLadder = false;//false;//true;
 double DayProfitLadder1Percent = 25;
 double DayProfitLadder2Percent = 10;
 double DayProfitLadderLockRatio = 10;
@@ -333,7 +333,7 @@ bool PassesUserRules(int orderType)
 
    if(currentSSL != requestedDirection)
      {
-      Print("TRADE BLOCKED | SSL does not match requested direction  ");
+      // Print("TRADE BLOCKED | SSL does not match requested direction  ");
       return false;
      }
 
@@ -3321,7 +3321,7 @@ int SafeOrderSend(string symbol,int orderType,double lots,double price,int slipp
 
       if(currentPL <= -plBlockAboveRule && currentSSL != requestedDirection)
         {
-         Print("TRADE BLOCKED | Floating PL <= -", plBlockAboveRule, " and SSL does not match requested direction.");
+         // Print("TRADE BLOCKED | Floating PL <= -", plBlockAboveRule, " and SSL does not match requested direction.");
          return -1;
         }
      }
@@ -4171,10 +4171,10 @@ if(orderType == OP_BUY)
   }
 
 
-   if(pl < 0)
-     {
-      multiplier = 1 + (int)MathFloor(MathAbs(pl) / 3.0);
-     }
+   // if(pl < 0)
+   //   {
+   //    multiplier = 1 + (int)MathFloor(MathAbs(pl) / 3.0);
+   //   }
 
 
    if(IsEmaWEAKDistanceReduced50PercentFromPeak(orderType) ||  TimeCurrent() - EmaFlipTime > 60*60)
