@@ -4379,7 +4379,7 @@ void ChangeLots(double OpenPL, string reason, int orderType, int stoplevelStep)
    int cycleStep = closedCount % 5;
 
 // Subtract the cycle step from 5 to get the repeating 5-to-1 countdown
-   Lots = 0.01 * (5 - cycleStep);
+   Lots = 0.01 * 5;//(5 - cycleStep);
 // Lots = 0.01 * (10 - cycleStep);
 
 
@@ -4419,7 +4419,7 @@ if(intOrdertype == 1)
      }
   }
 
- if(isSSLSignal)
+ if(isSSLSignal && closedCount==0)
  {
       Lots = 0.01;
 
