@@ -3103,7 +3103,54 @@ bool IsOrderAllowedByTrendAndGap(int orderType)
 
    return true;
   }
+bool emaflipstrongorweak()
+  {
+   if(EmaFlipTime == 0)
+      return false;
 
+   RefreshRates();
+
+   int flipShift = iBarShift(Symbol(), Period(), EmaFlipTime, false);
+   if(flipShift < 0)
+      flipShift = Bars - 1;
+
+   double threshold = 100.0 * Point;
+
+   // Handle Buy Direction (EMAdirection == 1)
+   if(EMADirection == 1)
+     {
+      double highestPrice = 0.0;
+      for(int i = flipShift; i >= 0; i--)
+        {
+         if(High[i] > highestPrice)
+            highestPrice = High[i];
+        }
+
+      double pullbackFromHigh = highestPrice - Bid;
+      if(pullbackFromHigh >= threshold)
+         return false; // Weak
+
+      return true; // Strong
+     }
+   // Handle Sell Direction (EMAdirection == -1)
+   else if(EMADirection == -1)
+     {
+      double lowestPrice = 999999.0;
+      for(int i = flipShift; i >= 0; i--)
+        {
+         if(Low[i] < lowestPrice)
+            lowestPrice = Low[i];
+        }
+
+      double bounceFromLow = Ask - lowestPrice;
+      if(bounceFromLow >= threshold)
+         return false; // Weak
+
+      return true; // Strong
+     }
+
+   return false;
+  }
 string TradeMonitoringLog="";
 //+------------------------------------------------------------------+
 //|                                                                  |
@@ -4169,14 +4216,18 @@ double GetDynamicOrderGap(int orderType)
    double pl = GetOpenPL(orderType);
 
 
-    if(orderType == OP_SELL)
+
+   
+
+    if(orderType == OP_SELL || orderType == OP_SELLLIMIT || orderType == OP_SELLSTOP)
   {
-   multiplier = 1 + MathMax(1, GetTotalSellOrders());
+   multiplier = 3 + MathMax(1, GetTotalSellOrders());
   }
-if(orderType == OP_BUY)
+if(orderType == OP_BUY || orderType == OP_BUYLIMIT || orderType == OP_BUYSTOP)
   {
-   multiplier = 1 + MathMax(1, GetTotalBuyOrders());
+   multiplier = 3 + MathMax(1, GetTotalBuyOrders());
   }
+           int ordersClosedCount=GetClosedOrdersCountSinceEmaFlip();
 
 
    // if(pl < 0)
@@ -4194,6 +4245,12 @@ if(orderType == OP_BUY)
            {
 
       multiplier=5;//
+           }
+
+
+           if(multiplier<5)
+           {
+            multiplier=ordersClosedCount;
            }
 
 
@@ -4379,7 +4436,7 @@ void ChangeLots(double OpenPL, string reason, int orderType, int stoplevelStep)
    int cycleStep = closedCount % 5;
 
 // Subtract the cycle step from 5 to get the repeating 5-to-1 countdown
-   Lots = 0.01 * 5;//(5 - cycleStep);
+   Lots = 0.01 * (5 - cycleStep);
 // Lots = 0.01 * (10 - cycleStep);
 
 
@@ -4420,6 +4477,12 @@ if(intOrdertype == 1)
   }
 
  if(isSSLSignal && closedCount==0)
+ {
+      Lots = 0.01;
+
+ }
+
+ if(!emaflipstrongorweak())
  {
       Lots = 0.01;
 
@@ -4593,9 +4656,9 @@ bool IsExtremePriceOrder(int orderType, double requestedLot,double maxLot)
 
       hasExistingOrders = true;
 
-      if(orderType == OP_BUY && OrderOpenPrice() >= currentPrice)
+      if((orderType == OP_BUY || orderType == OP_BUYLIMIT || orderType == OP_BUYSTOP) && OrderOpenPrice() >= currentPrice)
          isExtreme = false;
-      if(orderType == OP_SELL && OrderOpenPrice() <= currentPrice)
+      if((orderType == OP_SELL || orderType == OP_SELLLIMIT || orderType == OP_SELLSTOP) && OrderOpenPrice() <= currentPrice)
          isExtreme = false;
      }
    return (hasExistingOrders && isExtreme);
