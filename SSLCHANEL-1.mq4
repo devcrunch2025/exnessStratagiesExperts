@@ -4419,7 +4419,11 @@ if(intOrdertype == 1)
      }
   }
 
+ if(isSSLSignal)
+ {
+      Lots = 0.01;
 
+ }
 
 //between -3 and 3 degrees, set to 0.01
    if((GlobalEmaAngle30 > -3.0 && GlobalEmaAngle30 < 3.0))
