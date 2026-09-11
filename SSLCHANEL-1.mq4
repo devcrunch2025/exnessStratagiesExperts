@@ -867,8 +867,10 @@ void CheckFlipProfitTarget()
      {
       Print("Target reached: $", totalCycleProfit, ". Securing profit and halting until next EMA flip.");
       if((TimeCurrent() - EmaFlipTime) > 60*30)
+      { 
          TradingHaltedUntilNextFlip = true;
       CloseAndDeleteAllEAOrdersOnTradingStop(); // Reuses your existing function
+      }
      }
   }
 //+------------------------------------------------------------------+
@@ -884,17 +886,19 @@ void ManageFlipProfitLadder()
       ActiveEquityBaseline = AccountEquity() * 0.90;
 
 // === DIRECT SAFETY CHECK: HARD BASELINE FLOOR ===
-   if(AccountEquity() <= ActiveEquityBaseline && GetDistanceToEMAPrice(OP_BUY, true) > 100)
+   if(AccountEquity() <= ActiveEquityBaseline && GetDistanceToEMAPrice(OP_BUY, true) > 100   )
      {
       Print("EMA SECURED BASELINE BREACHED | Equity ($", AccountEquity(), ") fell to or below baseline ($", ActiveEquityBaseline, ") | Halting trading.");
 
       DrawLadderHaltCircle(Time[0], High[0] + (50 * Point));
       if((TimeCurrent() - EmaFlipTime) > 60*30)
+      {
 
          TradingHaltedUntilNextFlip = true;
       LadderHaltStartTime = TimeCurrent();
       //CloseAndDeleteAllEAOrdersOnTradingStop();
       CloseAndDeleteNonEmaMatchingOrders();
+      }
 
       return;
      }
@@ -939,11 +943,13 @@ void ManageFlipProfitLadder()
 
          DrawLadderHaltCircle(Time[0], High[0] + (50 * Point));
          if((TimeCurrent() - EmaFlipTime) > 60*30)
+         { 
 
             TradingHaltedUntilNextFlip = true;
          LadderHaltStartTime = TimeCurrent();
          //CloseAndDeleteAllEAOrdersOnTradingStop();
          CloseAndDeleteNonEmaMatchingOrders();
+         }
         }
      }
   }
