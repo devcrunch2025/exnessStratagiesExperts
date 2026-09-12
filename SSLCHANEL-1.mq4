@@ -870,8 +870,8 @@ void CheckFlipProfitTarget()
       { 
          TradingHaltedUntilNextFlip = true;
       CloseAndDeleteAllEAOrdersOnTradingStop(); // Reuses your existing function
-      }
      }
+  }
   }
 //+------------------------------------------------------------------+
 //| Manage Continuous EMA Flip Profit Ladder                         |
@@ -886,7 +886,7 @@ void ManageFlipProfitLadder()
       ActiveEquityBaseline = AccountEquity() * 0.90;
 
 // === DIRECT SAFETY CHECK: HARD BASELINE FLOOR ===
-   if(AccountEquity() <= ActiveEquityBaseline && GetDistanceToEMAPrice(OP_BUY, true) > 100   )
+   if(AccountEquity() <= ActiveEquityBaseline && GetDistanceToEMAPrice(OP_BUY, true) > 100)
      {
       Print("EMA SECURED BASELINE BREACHED | Equity ($", AccountEquity(), ") fell to or below baseline ($", ActiveEquityBaseline, ") | Halting trading.");
 
@@ -4248,12 +4248,6 @@ if(orderType == OP_BUY || orderType == OP_BUYLIMIT || orderType == OP_BUYSTOP)
            }
 
 
-           if(multiplier<5)
-           {
-            multiplier=ordersClosedCount;
-           }
-
-
 
    if((orderType == OP_BUY && currentSSL == 1) || (orderType == OP_SELL && currentSSL == -1))
       return MinimumSameOrderGapRawMatched*multiplier;
@@ -4480,19 +4474,7 @@ if(intOrdertype == 1)
      }
   }
 
-//  if(isSSLSignal && closedCount==0)
-//  {
-//       Lots = 0.01;
 
-//  }
- 
- 
-
- if(!emaflipstrongorweak() && TimeCurrent() - EmaFlipTime > 60*30)
- {
-      Lots = 0.01;
-
- }
 
 //between -3 and 3 degrees, set to 0.01
    if((GlobalEmaAngle30 > -3.0 && GlobalEmaAngle30 < 3.0))
@@ -4514,7 +4496,7 @@ if(intOrdertype == 1)
 
      }
 
-   if(IsEmaWEAKDistanceReduced50PercentFromPeak(orderType))//weak
+   if(IsEmaWEAKDistanceReduced50PercentFromPeak(orderType))
      {
       Lots = 0.01;
      }
