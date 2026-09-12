@@ -4439,7 +4439,11 @@ void ChangeLots(double OpenPL, string reason, int orderType, int stoplevelStep)
    Lots = 0.01 * (5 - cycleStep);
 // Lots = 0.01 * (10 - cycleStep);
 
+if(closedCount>=3 && closedCount<=10 && Lots<0.02 && emaflipstrongorweak() && !IsEmaWEAKDistanceReduced50PercentFromPeak(orderType))
+ {
+      Lots = 0.05;
 
+ }
 // Print("Closed Orders Since EMA Flip: ", closedCount, " | Cycle Step: ", cycleStep, " | Calculated Lots: ", Lots);
 
 
@@ -4482,11 +4486,7 @@ if(intOrdertype == 1)
 
 //  }
  
- if(closedCount>=3 && closedCount<=7 && Lots<0.02)
- {
-      Lots = 0.05;
-
- }
+ 
 
  if(!emaflipstrongorweak() && TimeCurrent() - EmaFlipTime > 60*30)
  {
@@ -4514,7 +4514,7 @@ if(intOrdertype == 1)
 
      }
 
-   if(IsEmaWEAKDistanceReduced50PercentFromPeak(orderType))
+   if(IsEmaWEAKDistanceReduced50PercentFromPeak(orderType))//weak
      {
       Lots = 0.01;
      }
