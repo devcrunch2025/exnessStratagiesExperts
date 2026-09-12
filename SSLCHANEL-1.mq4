@@ -7,6 +7,10 @@
 //$100 to $170
 //https://github.com/devcrunch2025/exnessStratagiesExperts/commit/32fb1ba20d474fc8d4adb38d2558999b2ac82c56
 
+//$100 to $170
+
+https://github.com/devcrunch2025/exnessStratagiesExperts/commit/bd37b6095eb5e15d8e9d6e9dcad922a027d08f53
+
 // ===== INPUT SETTINGS =====
 int SSLPeriod = 10;
 bool InpUseEMA200Filter = false;
@@ -4433,6 +4437,11 @@ void ChangeLots(double OpenPL, string reason, int orderType, int stoplevelStep)
    Lots = 0.01 * (5 - cycleStep);
 // Lots = 0.01 * (10 - cycleStep);
 
+if(Lots==0.01  )
+  {
+   Lots=0.02;
+  }
+
 if(closedCount>=3 && closedCount<=10 && Lots<0.02 && emaflipstrongorweak() && !IsEmaWEAKDistanceReduced50PercentFromPeak(orderType))
  {
       Lots = 0.05;
@@ -4549,6 +4558,11 @@ if(intOrdertype == 1)
    if(MathAbs(Open[1] - Close[1]) > 100.0)
      {
       Lots = 0.01;
+     }
+
+     if(closedCount==0)
+     {
+      Lots = 0.01;   
      }
 
 // Safety catch
