@@ -4535,12 +4535,12 @@ if(intOrdertype == 1)
      }
    double equityProfitAfterFlip = realizedProfitAfterFlip + GetEAFloatingPL();
 
-   if(equityProfitAfterFlip > 10.0 && Lots >= 0.02)
-     {
-      Lots = 0.01;
-     }
+   // if(equityProfitAfterFlip > 10.0 && Lots >= 0.02)
+   //   {
+   //    Lots = 0.01;
+   //   }
 
-   if(GetCurrentM30Direction() != EMADirection && Lots >= 0.03)
+   if(GetCurrentM30Direction() != EMADirection && Lots >= 0.02)
      {
       Lots = 0.01;
      }
