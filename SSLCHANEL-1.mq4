@@ -4476,13 +4476,19 @@ if(intOrdertype == 1)
      }
   }
 
- if(isSSLSignal && closedCount==0)
+//  if(isSSLSignal && closedCount==0)
+//  {
+//       Lots = 0.01;
+
+//  }
+ 
+ if(closedCount>=3 && closedCount<=7 && Lots<0.02)
  {
-      Lots = 0.01;
+      Lots = 0.05;
 
  }
 
- if(!emaflipstrongorweak())
+ if(!emaflipstrongorweak() && TimeCurrent() - EmaFlipTime > 60*30)
  {
       Lots = 0.01;
 
@@ -4513,11 +4519,11 @@ if(intOrdertype == 1)
       Lots = 0.01;
      }
 
-   if(TimeCurrent() - EmaFlipTime > 60*60)
-     {
-      Lots = 0.01;
+   // if(TimeCurrent() - EmaFlipTime > 60*60)
+   //   {
+   //    Lots = 0.01;
 
-     }
+   //   }
 
    if(GetDistanceToEMAPrice(orderType, true)<50)
      {
