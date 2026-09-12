@@ -8,6 +8,7 @@
 //https://github.com/devcrunch2025/exnessStratagiesExperts/commit/32fb1ba20d474fc8d4adb38d2558999b2ac82c56
 
 string strEAVersion="SSL CHANNEL EA  |  PRO CONTROL V.1.0.0  |  2026-09-12 20.30"; 
+////copied from - testing started 7th sep evening 7PM
 
 // ===== INPUT SETTINGS =====
 int SSLPeriod = 10;
@@ -6839,7 +6840,7 @@ void UpdateDashboard(DailyProtectionState &state)
 
    CreateDashboardPanel(DASH_PREFIX+"PANEL",x,y,w,panelHeight,C'12,16,22');
    CreateDashboardPanel(DASH_PREFIX+"HEADER",x,y,w,38,C'25,70,115');
-   CreateDashboardLabel(DASH_PREFIX+"TITLE",strEAVersion,tx,y+8,11,clrWhite);
+   CreateDashboardLabel(DASH_PREFIX+"TITLE","SSL CHANNEL EA  |  PRO CONTROL",tx,y+8,11,clrWhite);
    CreateDashboardLabel(DASH_PREFIX+"SUBTITLE",Symbol()+"  |  "+TimeframeToString(Period()),tx+w-125,y+10,8,clrLightGray);
    CreateDashboardLabel(DASH_PREFIX+"STATUS", "STATUS       : "+statusText,tx,y+47,10,statusColor);
    CreateDashboardLabel(DASH_PREFIX+"SIGNAL","SSL SIGNAL-30   : "+sslDirection+"  ("+strong+")"+" "+DoubleToString((GlobalEmaAngle30),2),tx,y+67,9,sslColor);
