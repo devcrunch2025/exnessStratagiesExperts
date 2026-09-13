@@ -7,7 +7,7 @@
 //$100 to $170
 //https://github.com/devcrunch2025/exnessStratagiesExperts/commit/32fb1ba20d474fc8d4adb38d2558999b2ac82c56
 
-string strEAVersion="SSL CHANNEL EA  |  PRO CONTROL V.2  |  2026-09-12 20.30"; 
+string strEAVersion="SSL CHANNEL EA  |  PRO CONTROL V.2  |  2026-09-13 11.00"; 
 ////copied from - testing started 7th sep evening 7PM
 
 // ===== INPUT SETTINGS =====
