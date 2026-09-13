@@ -7,7 +7,7 @@
 //$100 to $170
 //https://github.com/devcrunch2025/exnessStratagiesExperts/commit/32fb1ba20d474fc8d4adb38d2558999b2ac82c56
 
-string strEAVersion="SSL CHANNEL EA  |  PRO CONTROL V.1.0.0  |  2026-09-12 20.30"; 
+string strEAVersion="SSL CHANNEL EA  |  PRO CONTROL V.2  |  2026-09-12 20.30"; 
 ////copied from - testing started 7th sep evening 7PM
 
 // ===== INPUT SETTINGS =====
@@ -4329,6 +4329,29 @@ if(GlobalSSLDirection != EMADirection)
 //    Lots = 0.04;
 
 //   }
+
+
+// 0.01 / 0.03 / 0.05 / 0.05 / 0.01
+if(Lots==0.01)
+  {
+    Lots = 0.01;
+  }
+  else if(Lots==0.02)
+  {
+    Lots = 0.03;
+  }
+  else if(Lots==0.03)
+  {
+    Lots = 0.05;
+  }
+   else if(Lots==0.04)
+  {
+    Lots = 0.05;
+  }
+  else if(Lots==0.05)
+  {
+    Lots = 0.01;
+  }
 //*************************************final*****************************************************************
    datetime dubaiTime = TimeCurrent() + (ServerToDubaiOffsetHours * 3600);
    int currentHour = TimeHour(dubaiTime);
