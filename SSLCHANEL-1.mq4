@@ -4361,7 +4361,7 @@ void ChangeLots(double OpenPL, string reason, int orderType, int stoplevelStep)
    Lots = AdvanceLotProgression(Lots);
 
 // --- PREVIOUS 2 M1 CANDLES BODY HEIGHT FILTER (Each > 100 raw price difference) ---
-   if(MathAbs(Open[1] - Close[1]) > 100.0 && MathAbs(Open[2] - Close[2]) > 100.0)
+   if(MathAbs(Open[1] - Close[1]) > 100.0 ||  MathAbs(Open[2] - Close[2]) > 100.0)
      {
       Lots = 0.01;
      }
