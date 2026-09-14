@@ -4654,7 +4654,18 @@ void ChangeLots(double OpenPL, string reason, int orderType, int stoplevelStep)
       Lots = 0.01;
 
      }
+if(GetOpenPL(OP_BUY)<0 && intOrdertype == 1)
+     {
+      Lots = 0.01;
 
+
+     }
+    if (GetOpenPL(OP_SELL)<0 && intOrdertype == -1)
+     {
+      Lots = 0.01;
+
+
+     }
    if(GlobalSSLDirection != EMADirection)
      {
       Lots = 0.01;
@@ -4708,10 +4719,21 @@ void ChangeLots(double OpenPL, string reason, int orderType, int stoplevelStep)
      }
    double equityProfitAfterFlip = realizedProfitAfterFlip + GetEAFloatingPL();
 
-// if(equityProfitAfterFlip > 10.0 && Lots >= 0.02)
-//   {
-//    Lots = 0.01;
-//   }
+if(equityProfitAfterFlip > 10.0 )
+  {
+   Lots = 0.01;
+  }
+
+  if(GetTotalSellOrders()>0 && intOrdertype == -1)
+  {
+   Lots = 0.01;
+
+  }
+   if(GetTotalBuyOrders()>0 && intOrdertype == 1)
+  {
+   Lots = 0.01;
+
+  }
 
 // if(GetCurrentM30Direction() != EMADirection && Lots >= 0.02)
 //   {
@@ -4719,7 +4741,7 @@ void ChangeLots(double OpenPL, string reason, int orderType, int stoplevelStep)
 //   }
 
 // --- PREVIOUS M1 CANDLE BODY HEIGHT FILTER (> 100 points) ---
-   if((MathAbs(Open[1] - Close[1]) > 100.0 ||  MathAbs(Open[2] - Close[2]) > 100.0) && GetProfitAfterLastEmaFlip() > 10.0)
+   if((MathAbs(Open[1] - Close[1]) > 100.0 ||  MathAbs(Open[2] - Close[2]) > 100.0) || GetProfitAfterLastEmaFlip() > 10.0)
      {
       Lots = 0.01;
      }
