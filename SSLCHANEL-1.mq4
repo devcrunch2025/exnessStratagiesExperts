@@ -12,7 +12,7 @@
 //https://github.com/devcrunch2025/exnessStratagiesExperts/commit/bd37b6095eb5e15d8e9d6e9dcad922a027d08f53
 
 
-string glbVersion = "SSL CHANNEL EA  |  V10 14-09-2026 17.00";
+string glbVersion = "SSL CHANNEL EA  |  V12 14-09-2026 20.00";
 
 // ===== INPUT SETTINGS =====
 int SSLPeriod = 10;
@@ -53,7 +53,7 @@ double StopLossUSD =6;//5;//10;//2;// 10;
 bool EnableBounceBackDetection = false;
 
 
-int EMAFlipwaitingtimeMinutes =10;// 29; // Wait time after an EMA flip before resuming trading
+int EMAFlipwaitingtimeMinutes =29;//10;// 29; // Wait time after an EMA flip before resuming trading
 
 // ===== EMA FLIP PROFIT TARGET =====
 double TargetProfitPerFlipUSD = 10.0;
@@ -120,8 +120,8 @@ bool EnableProfitReEntryStop = true;
 double MinimumClosedProfitUSD = -9;
 double ProfitReEntryGapRaw = 25;
 double MinimumSameOrderGapRawReEntry =20;// 50;
-double MinimumSameOrderGapRawSSLLongShort =20;// 50;
-double MinimumSameOrderGapRawMatched =20;// 50;
+double MinimumSameOrderGapRawSSLLongShort =50;//20;// 50;
+double MinimumSameOrderGapRawMatched =50;//20;// 50;
 double MinimumSameOrderGapRawUnmatched =20;// 100;
 
 double angleBlockAboveRule = 3;//1.0; no opposite order above 3 angle
@@ -4538,7 +4538,7 @@ if(TimeCurrent() - EmaFlipTime < 60*60 && Lots>0.02)
 if(closedCount==0 )
       Lots = 0.01;
 
-   if(IsHeavyLotOrderNearBy(orderType, Lots, 300) && Lots>=0.04)
+   if(IsHeavyLotOrderNearBy(orderType, Lots, 300) && Lots>=0.02)
       Lots = 0.01;
 
 // ===== NEW RULE: CAPP LOTS TO 0.02 IF EQUITY PROFIT > $10 AFTER FLIP =====
@@ -6302,7 +6302,7 @@ void ManageProfitLadder()
       double ladder1Profit = OriginalLadder1ProfitUSD * orderLots * 100.0;
 
       // --- NEW LOGIC: Reduce ladder1Profit by half if order is older than 1 hour ---
-      if(TimeCurrent() - OrderOpenTime() > 60*60 || EMADirection!=GetOrderDirection(orderType) || orderLots>=0.03) // 3600 seconds = 1 hour
+      if(TimeCurrent() - OrderOpenTime() > 60*5 || EMADirection!=GetOrderDirection(orderType) || orderLots>=0.02) // 3600 seconds = 1 hour
         {
          // ladder1Profit = ladder1Profit / 2.0;
          ladder1Profit = ladder1Profit / 4.0;
