@@ -12,7 +12,7 @@
 //https://github.com/devcrunch2025/exnessStratagiesExperts/commit/bd37b6095eb5e15d8e9d6e9dcad922a027d08f53
 
 
-string glbVersion = "SSL CHANNEL EA  |  V7 14-09-2026 10.00";
+string glbVersion = "SSL CHANNEL EA  |  V8 14-09-2026 14.00";
 
 // ===== INPUT SETTINGS =====
 int SSLPeriod = 10;
@@ -1575,7 +1575,7 @@ void CloseOppositeProfitableOrdersIndependent(int newSignalType)
       double orderPL = OrderProfit() + OrderSwap() + OrderCommission();
 
       // Calculate profit threshold: $0.25 per 0.01 lot step
-      double profitThreshold = 0.25 * (lots / 0.01);
+      double profitThreshold = 0.10 * (lots / 0.01);
 
       // Check if the open order is directly opposite to the incoming signal
       bool isOppositeSignal = ((newSignalType == OP_BUY && orderType == OP_SELL) ||
@@ -6298,7 +6298,7 @@ void ManageProfitLadder()
       double ladder1Profit = OriginalLadder1ProfitUSD * orderLots * 100.0;
 
       // --- NEW LOGIC: Reduce ladder1Profit by half if order is older than 1 hour ---
-      if(TimeCurrent() - OrderOpenTime() > 60*60 || EMADirection!=GetOrderDirection(orderType)) // 3600 seconds = 1 hour
+      if(TimeCurrent() - OrderOpenTime() > 60*60 || EMADirection!=GetOrderDirection(orderType) orderLots>=0.03) // 3600 seconds = 1 hour
         {
          // ladder1Profit = ladder1Profit / 2.0;
          ladder1Profit = ladder1Profit / 4.0;
