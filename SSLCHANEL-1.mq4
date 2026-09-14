@@ -12,7 +12,7 @@
 //https://github.com/devcrunch2025/exnessStratagiesExperts/commit/bd37b6095eb5e15d8e9d6e9dcad922a027d08f53
 
 
-string glbVersion = "SSL CHANNEL EA  |  V12 14-09-2026 20.00";
+string glbVersion = "SSL CHANNEL EA  |  V16 14-09-2026 20.00";
 
 // ===== INPUT SETTINGS =====
 int SSLPeriod = 10;
@@ -3158,7 +3158,40 @@ bool emaflipstrongorweak()
 
    return false;
   }
+  bool HasAnyLargeCandle(string symbol, ENUM_TIMEFRAMES timeframe, int candleCount, double threshold, bool checkBody = true)
+  {
+   for(int i = 1; i <= candleCount; i++)
+     {
+      double o = iOpen(symbol, timeframe, i);
+      double c = iClose(symbol, timeframe, i);
+      double h = iHigh(symbol, timeframe, i);
+      double l = iLow(symbol, timeframe, i);
+
+      double size = checkBody ? MathAbs(o - c) : (h - l);
+
+      if(size > threshold)
+         return true;
+     }
+   return false;
+  }
 string TradeMonitoringLog="";
+bool IsFarEnoughFromPeak(string symbol, double proximityThreshold = 50.0)
+  {
+   // Last 1 hour on M1 = 60 candles (starting from bar 1)
+   int highestBar = iHighest(symbol, PERIOD_M1, MODE_HIGH, 60, 1);
+   if(highestBar < 0) return true;
+
+   double highestPrice = iHigh(symbol, PERIOD_M1, highestBar);
+   double currentPrice = SymbolInfoDouble(symbol, SYMBOL_BID); // or Close[0]
+
+   // Check if current price is within 'proximityThreshold' (e.g., 50) of the highest price
+   if((highestPrice - currentPrice) <= proximityThreshold)
+     {
+      return false; // Too close to the 1-hour high
+     }
+
+   return true;
+  }
 //+------------------------------------------------------------------+
 //|                                                                  |
 //+------------------------------------------------------------------+
@@ -3179,12 +3212,22 @@ int SafeOrderSend(string symbol,int orderType,double lots,double price,int slipp
       return -1;
 
 
-      if((MathAbs(Open[1] - Close[1]) > 200.0 ||  MathAbs(Open[2] - Close[2]) > 200.0) && GetProfitAfterLastEmaFlip() > 10.0)
-     {
-            return -1;
+   //    if((MathAbs(Open[1] - Close[1]) > 200.0 ||  MathAbs(Open[2] - Close[2]) > 200.0) && GetProfitAfterLastEmaFlip() > 10.0)
+   //   {
+   //          return -1;
 
-     }
+   //   }
 
+   if(HasAnyLargeCandle(Symbol(), PERIOD_M1, 5, 200.0, false))
+  {
+               return -1;
+
+  }
+if(IsFarEnoughFromPeak(Symbol(), 50.0))
+{
+               return -1;
+
+}
    if(GlobalEmaAngle30<2 &&  GlobalEmaAngle30 > -2)
      {
       // Print("TRADE BLOCKED | BOTH SIDES Angle below 2 degrees. No trade allowed.");
