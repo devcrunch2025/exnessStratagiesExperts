@@ -12,7 +12,7 @@
 //https://github.com/devcrunch2025/exnessStratagiesExperts/commit/bd37b6095eb5e15d8e9d6e9dcad922a027d08f53
 
 
-string glbVersion = "SSL CHANNEL EA  |  V5 14-09-2026 9.00";
+string glbVersion = "SSL CHANNEL EA  |  V6 14-09-2026 10.00";
 
 // ===== INPUT SETTINGS =====
 int SSLPeriod = 10;
@@ -6267,7 +6267,7 @@ double CalculatePriceDistanceUSD(double usdAmount, double orderLots)
       return 0.0;
    return (usdAmount / denom) * tickSize;
   }
-
+ 
 //+------------------------------------------------------------------+
 //|                                                                  |
 //+------------------------------------------------------------------+
@@ -6297,9 +6297,11 @@ void ManageProfitLadder()
       double ladder1Profit = OriginalLadder1ProfitUSD * orderLots * 100.0;
 
       // --- NEW LOGIC: Reduce ladder1Profit by half if order is older than 1 hour ---
-      if(TimeCurrent() - OrderOpenTime() > 60*60) // 3600 seconds = 1 hour
+      if(TimeCurrent() - OrderOpenTime() > 60*60 || EMADirection!=GetOrderDirection(orderType)) // 3600 seconds = 1 hour
         {
-         ladder1Profit = ladder1Profit / 2.0;
+         // ladder1Profit = ladder1Profit / 2.0;
+         ladder1Profit = ladder1Profit / 4.0;
+
         }
       // -----------------------------------------------------------------------------
 
