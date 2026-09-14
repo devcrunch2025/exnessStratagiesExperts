@@ -809,7 +809,7 @@ void DrawLadderBox(datetime time, double price, int level)
       ObjectCreate(0, objName, OBJ_ARROW, 0, time, price);
       ObjectSetInteger(0, objName, OBJPROP_ARROWCODE, 110); // Solid square
       ObjectSetInteger(0, objName, OBJPROP_COLOR, clrRed);
-      ObjectSetInteger(0, objName, OBJPROP_WIDTH, 4);       // Make it thick/visible
+      ObjectSetInteger(0, objName, OBJPROP_WIDTH, 1);       // Make it thick/visible
       ObjectSetInteger(0, objName, OBJPROP_BACK, false);
       ObjectSetInteger(0, objName, OBJPROP_SELECTABLE, false);
       ObjectSetInteger(0, objName, OBJPROP_HIDDEN, true);
@@ -3196,10 +3196,10 @@ int SafeOrderSend(string symbol,int orderType,double lots,double price,int slipp
       TradeMonitoringLog="";
      }
 
-   //   if(GetDistanceToEMAPrice(orderType, true)<50)
-   //   {
-   //          return -1;;
-   //   }
+     if(GetDistanceToEMAPrice(orderType, true)<50)
+     {
+            return -1;;
+     }
 
 
      if(IsEmaWEAKDistanceReduced50PercentFromPeak(orderType) )//&& GetDistanceToEMAPrice(orderType, true)<100)
