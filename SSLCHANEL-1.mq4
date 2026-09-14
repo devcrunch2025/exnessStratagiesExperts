@@ -9,7 +9,10 @@
 
 //$100 to $170
 
-https://github.com/devcrunch2025/exnessStratagiesExperts/commit/bd37b6095eb5e15d8e9d6e9dcad922a027d08f53
+//https://github.com/devcrunch2025/exnessStratagiesExperts/commit/bd37b6095eb5e15d8e9d6e9dcad922a027d08f53
+
+
+string glbVersion = "SSL CHANNEL EA  |  V4 14-09-2026 7AM";
 
 // ===== INPUT SETTINGS =====
 int SSLPeriod = 10;
@@ -4486,7 +4489,7 @@ if(intOrdertype == 1)
 
 
 //between -3 and 3 degrees, set to 0.01
-   if((GlobalEmaAngle30 > -3.0 && GlobalEmaAngle30 < 3.0))
+   if((GlobalEmaAngle30 > -2.0 && GlobalEmaAngle30 < 2.0))
      {
       Lots = 0.01;
 
@@ -4498,7 +4501,7 @@ if(intOrdertype == 1)
 
 
      }
-   if((GlobalEmaAngle30>6 || GlobalEmaAngle30<-6) &&  GlobalSSLDirection != EMADirection)
+   if((GlobalEmaAngle30>10 || GlobalEmaAngle30<-10) &&  GlobalSSLDirection != EMADirection)
      {
       Lots = 0.01;
 
@@ -4516,14 +4519,14 @@ if(intOrdertype == 1)
 
    //   }
 
-   if(GetDistanceToEMAPrice(orderType, true)<50)
-     {
-      Lots = 0.01;
+   // if(GetDistanceToEMAPrice(orderType, true)<50)
+   //   {
+   //    Lots = 0.01;
 
-     }
+   //   }
 
 
-   if(IsHeavyLotOrderNearBy(orderType, Lots, 300) && Lots>=0.02)
+   if(IsHeavyLotOrderNearBy(orderType, Lots, 300) && Lots>=0.04)
       Lots = 0.01;
 
 // ===== NEW RULE: CAPP LOTS TO 0.02 IF EQUITY PROFIT > $10 AFTER FLIP =====
@@ -4549,21 +4552,21 @@ if(intOrdertype == 1)
    //    Lots = 0.01;
    //   }
 
-   if(GetCurrentM30Direction() != EMADirection && Lots >= 0.02)
-     {
-      Lots = 0.01;
-     }
+   // if(GetCurrentM30Direction() != EMADirection && Lots >= 0.02)
+   //   {
+   //    Lots = 0.01;
+   //   }
 
 // --- PREVIOUS M1 CANDLE BODY HEIGHT FILTER (> 100 points) ---
-   if(MathAbs(Open[1] - Close[1]) > 100.0)
+    if(MathAbs(Open[1] - Close[1]) > 200.0 ||  MathAbs(Open[2] - Close[2]) > 200.0)
      {
       Lots = 0.01;
      }
 
-     if(closedCount==0)
-     {
-      Lots = 0.01;   
-     }
+   //   if(closedCount==0)
+   //   {
+   //    Lots = 0.01;   
+   //   }
 
 // Safety catch
    if(Lots < 0.01)
@@ -7128,7 +7131,7 @@ void UpdateDashboard(DailyProtectionState &state)
 
    CreateDashboardPanel(DASH_PREFIX+"PANEL",x,y,w,panelHeight,C'12,16,22');
    CreateDashboardPanel(DASH_PREFIX+"HEADER",x,y,w,38,C'25,70,115');
-   CreateDashboardLabel(DASH_PREFIX+"TITLE","SSL CHANNEL EA  |  PRO CONTROL",tx,y+8,11,clrWhite);
+   CreateDashboardLabel(DASH_PREFIX+"TITLE",glbVersion,tx,y+8,11,clrWhite);
    CreateDashboardLabel(DASH_PREFIX+"SUBTITLE",Symbol()+"  |  "+TimeframeToString(Period()),tx+w-125,y+10,8,clrLightGray);
    CreateDashboardLabel(DASH_PREFIX+"STATUS", "STATUS       : "+statusText,tx,y+47,10,statusColor);
    CreateDashboardLabel(DASH_PREFIX+"SIGNAL","SSL SIGNAL   : "+sslDirection+"  ("+strong+")"+" "+DoubleToString((GlobalEmaAngle30),2),tx,y+67,9,sslColor);
