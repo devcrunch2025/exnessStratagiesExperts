@@ -12,7 +12,7 @@
 //https://github.com/devcrunch2025/exnessStratagiesExperts/commit/bd37b6095eb5e15d8e9d6e9dcad922a027d08f53
 
 
-string glbVersion = "SSL CHANNEL EA  |  V6 14-09-2026 10.00";
+string glbVersion = "SSL CHANNEL EA  |  V7 14-09-2026 10.00";
 
 // ===== INPUT SETTINGS =====
 int SSLPeriod = 10;
@@ -3196,10 +3196,10 @@ int SafeOrderSend(string symbol,int orderType,double lots,double price,int slipp
       TradeMonitoringLog="";
      }
 
-     if(GetDistanceToEMAPrice(orderType, true)<50)
-     {
-            return -1;;
-     }
+   //   if(GetDistanceToEMAPrice(orderType, true)<50)
+   //   {
+   //          return -1;;
+   //   }
 
 
      if(IsEmaWEAKDistanceReduced50PercentFromPeak(orderType) )//&& GetDistanceToEMAPrice(orderType, true)<100)
@@ -3213,12 +3213,12 @@ int SafeOrderSend(string symbol,int orderType,double lots,double price,int slipp
    //   {
       if(EMADirection == 1 && (orderType == OP_SELL || orderType == OP_SELLSTOP || orderType == OP_SELLLIMIT))
         {
-         Print("TRADE BLOCKED | Bullish trend pullback detected: Selling prohibited.");
+         // Print("TRADE BLOCKED | Bullish trend pullback detected: Selling prohibited.");
          return -1;
         }
       if(EMADirection == -1 && (orderType == OP_BUY || orderType == OP_BUYSTOP || orderType == OP_BUYLIMIT))
         {
-         Print("TRADE BLOCKED | Bearish trend pullback detected: Buying prohibited.");
+         // Print("TRADE BLOCKED | Bearish trend pullback detected: Buying prohibited.");
          return -1;
         }
    //   }
@@ -4452,11 +4452,11 @@ if(Lots==0.01  )
    Lots=0.02;
   }
 
-if(closedCount>=3 && closedCount<=10 && Lots<0.02 && emaflipstrongorweak() && !IsEmaWEAKDistanceReduced50PercentFromPeak(orderType))
- {
-      Lots = 0.05;
+// if(closedCount>=3 && closedCount<=10 && Lots<0.02 && emaflipstrongorweak() && !IsEmaWEAKDistanceReduced50PercentFromPeak(orderType))
+//  {
+//       Lots = 0.05;
 
- }
+//  }
 // Print("Closed Orders Since EMA Flip: ", closedCount, " | Cycle Step: ", cycleStep, " | Calculated Lots: ", Lots);
 
 
@@ -4531,7 +4531,8 @@ if(intOrdertype == 1)
    //    Lots = 0.01;
 
    //   }
-
+if(closedCount==0 )
+      Lots = 0.01;
 
    if(IsHeavyLotOrderNearBy(orderType, Lots, 300) && Lots>=0.04)
       Lots = 0.01;
