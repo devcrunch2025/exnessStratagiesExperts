@@ -12,7 +12,7 @@
 //https://github.com/devcrunch2025/exnessStratagiesExperts/commit/bd37b6095eb5e15d8e9d6e9dcad922a027d08f53
 
 
-string glbVersion = "SSL CHANNEL EA  |  V4 14-09-2026 7AM";
+string glbVersion = "SSL CHANNEL EA  |  V5 14-09-2026 9.00";
 
 // ===== INPUT SETTINGS =====
 int SSLPeriod = 10;
@@ -3178,6 +3178,13 @@ int SafeOrderSend(string symbol,int orderType,double lots,double price,int slipp
    if(!IsDayProfitLadderTradingAllowed())
       return -1;
 
+
+      if((MathAbs(Open[1] - Close[1]) > 200.0 ||  MathAbs(Open[2] - Close[2]) > 200.0) && GetProfitAfterLastEmaFlip() > 10.0)
+     {
+            return -1;
+
+     }
+
    if(GlobalEmaAngle30<2 &&  GlobalEmaAngle30 > -2)
      {
       // Print("TRADE BLOCKED | BOTH SIDES Angle below 2 degrees. No trade allowed.");
@@ -4558,7 +4565,7 @@ if(intOrdertype == 1)
    //   }
 
 // --- PREVIOUS M1 CANDLE BODY HEIGHT FILTER (> 100 points) ---
-    if(MathAbs(Open[1] - Close[1]) > 200.0 ||  MathAbs(Open[2] - Close[2]) > 200.0)
+    if((MathAbs(Open[1] - Close[1]) > 100.0 ||  MathAbs(Open[2] - Close[2]) > 100.0) && GetProfitAfterLastEmaFlip() > 10.0)
      {
       Lots = 0.01;
      }
