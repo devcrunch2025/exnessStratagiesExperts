@@ -12,7 +12,7 @@
 //https://github.com/devcrunch2025/exnessStratagiesExperts/commit/bd37b6095eb5e15d8e9d6e9dcad922a027d08f53
 
 
-string glbVersion = "SSL CHANNEL EA  |  V9 14-09-2026 17.00";
+string glbVersion = "SSL CHANNEL EA  |  V10 14-09-2026 17.00";
 
 // ===== INPUT SETTINGS =====
 int SSLPeriod = 10;
@@ -7312,6 +7312,12 @@ bool IsEmaWEAKDistanceReduced50PercentFromPeak(int orderType = -1)
   {
    if(EmaFlipTime == 0)
       return false;
+
+
+      if(!emaflipstrongorweak())// if weak then return , if strong double check again 
+      {
+return false;
+      }
 
    RefreshRates();
 
