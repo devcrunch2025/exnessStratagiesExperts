@@ -3178,7 +3178,7 @@ string TradeMonitoringLog="";
 bool IsFarEnoughFromPeak(string symbol, double proximityThreshold = 50.0)
   {
    // Last 1 hour on M1 = 60 candles (starting from bar 1)
-   int highestBar = iHighest(symbol, PERIOD_M1, MODE_HIGH, 60, 1);
+   int highestBar = iHighest(symbol, PERIOD_M1, MODE_HIGH, 60, 10);
    if(highestBar < 0) return true;
 
    double highestPrice = iHigh(symbol, PERIOD_M1, highestBar);
