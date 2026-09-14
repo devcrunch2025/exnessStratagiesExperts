@@ -12,7 +12,7 @@
 //https://github.com/devcrunch2025/exnessStratagiesExperts/commit/bd37b6095eb5e15d8e9d6e9dcad922a027d08f53
 
 
-string glbVersion = "SSL CHANNEL EA  |  V18 14-09-2026 21.00";
+string glbVersion = "SSL CHANNEL EA  |  V19 14-09-2026 23.00";
 
 // ===== INPUT SETTINGS =====
 int SSLPeriod = 10;
@@ -3253,7 +3253,7 @@ bool CanOpenBuyOrder(string sym, double newPrice)
      {
       if(OrderSelect(i, SELECT_BY_POS, MODE_TRADES))
         {
-         if(OrderSymbol() == sym && OrderType() == OP_BUY)
+         if(OrderSymbol() == sym &&  (OrderType() == OP_BUY || OrderType() == OP_BUYSTOP || OrderType() == OP_BUYLIMIT))
            {
             // Do not open a new buy order if the new price is ABOVE an existing open buy order
             if(newPrice > OrderOpenPrice())
@@ -3271,7 +3271,7 @@ bool CanOpenSellOrder(string sym, double newPrice)
      {
       if(OrderSelect(i, SELECT_BY_POS, MODE_TRADES))
         {
-         if(OrderSymbol() == sym && OrderType() == OP_SELL)
+         if(OrderSymbol() == sym && (OrderType() == OP_SELL || OrderType() == OP_SELLSTOP || OrderType() == OP_SELLLIMIT))
            {
             // Do not open a new sell order if the new price is BELOW an existing open sell order
             // (Change '<' to '>' if you want to block when price is above the existing sell)
@@ -3314,15 +3314,15 @@ int SafeOrderSend(string symbol,int orderType,double lots,double price,int slipp
    double bidPrice = Bid;
 
 
-   if(!CanOpenBuyOrder(Symbol(), askPrice))
-     {
-      return -1;
-     }
+   // if(!CanOpenBuyOrder(Symbol(), askPrice)&& (orderType == OP_BUY || orderType == OP_BUYSTOP || orderType == OP_BUYLIMIT))
+   //   {
+   //    return -1;
+   //   }
 
-   if(!CanOpenSellOrder(Symbol(), bidPrice))
-     {
-      return -1;
-     }
+   // if(!CanOpenSellOrder(Symbol(), bidPrice) && (orderType == OP_SELL || orderType == OP_SELLSTOP || orderType == OP_SELLLIMIT))
+   //   {
+   //    return -1;
+   //   }
 
 
 
@@ -7466,9 +7466,9 @@ bool IsEmaWEAKDistanceReduced50PercentFromPeak(int orderType = -1)
       return false;
 
 
-   if(!emaflipstrongorweak())// if weak then return , if strong double check again
+   if(!emaflipstrongorweak())// if weak then return true , if strong double check again
      {
-      return false;
+      return true;
      }
 
    RefreshRates();
