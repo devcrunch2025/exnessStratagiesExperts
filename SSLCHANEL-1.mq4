@@ -12,7 +12,7 @@
 //https://github.com/devcrunch2025/exnessStratagiesExperts/commit/bd37b6095eb5e15d8e9d6e9dcad922a027d08f53
 
 
-string glbVersion = "SSL CHANNEL EA  |  V26 15-09-2026 19.00";
+string glbVersion = "SSL CHANNEL EA  |  V28 15-09-2026 23.00";
 
 // ===== INPUT SETTINGS =====
 int SSLPeriod = 10;
@@ -898,13 +898,13 @@ void ManageFlipProfitLadder()
       Print("EMA SECURED BASELINE BREACHED | Equity ($", AccountEquity(), ") fell to or below baseline ($", ActiveEquityBaseline, ") | Halting trading.");
 
       DrawLadderHaltCircle(Time[0], High[0] + (50 * Point));
-      if((TimeCurrent() - EmaFlipTime) > 60*30)
+      // if((TimeCurrent() - EmaFlipTime) > 60*30)
         {
 
          TradingHaltedUntilNextFlip = true;
          LadderHaltStartTime = TimeCurrent();
-         //CloseAndDeleteAllEAOrdersOnTradingStop();
-         CloseAndDeleteNonEmaMatchingOrders();
+         CloseAndDeleteAllEAOrdersOnTradingStop();
+         // CloseAndDeleteNonEmaMatchingOrders();
         }
 
       return;
@@ -951,13 +951,13 @@ void ManageFlipProfitLadder()
          ActiveEquityBaseline = AccountEquity() * 0.90;
 
          DrawLadderHaltCircle(Time[0], High[0] + (50 * Point));
-         if((TimeCurrent() - EmaFlipTime) > 60*30)
+         // if((TimeCurrent() - EmaFlipTime) > 60*30)
            {
 
             TradingHaltedUntilNextFlip = true;
             LadderHaltStartTime = TimeCurrent();
-            //CloseAndDeleteAllEAOrdersOnTradingStop();
-            CloseAndDeleteNonEmaMatchingOrders();
+            CloseAndDeleteAllEAOrdersOnTradingStop();
+            // CloseAndDeleteNonEmaMatchingOrders();
            }
         }
      }
@@ -3274,6 +3274,29 @@ bool IsFarEnoughFromTrough(string symbol, double proximityThreshold = 50.0)
 
    return true;
   }
+
+  // bool IsTradeAllowed(int orderType)
+//   {
+// // 1. Block if there's a huge candle (> 200.0) in the last 5 M1 bars (applies to both)
+//    if(HasAnyLargeCandle(Symbol(), PERIOD_M1, 5, 200.0, false))
+//       return false;
+
+//    if(orderType == OP_BUY)
+//      {
+//       // Block Buy if price is within 50 points of the 1-hour high
+//       if(!IsFarEnoughFromPeak(Symbol(), 50.0))
+//          return false;
+//      }
+//    else
+//       if(orderType == OP_SELL)
+//         {
+//          // For Sell, check proximity to 1-hour LOW instead of high (example logic)
+//          if(!IsFarEnoughFromTrough(Symbol(), 50.0))
+//             return false;
+//         }
+
+//    return true;
+//   }
 //+------------------------------------------------------------------+
 //|                                                                  |
 //+------------------------------------------------------------------+
@@ -3361,6 +3384,9 @@ int SafeOrderSend(string symbol,int orderType,double lots,double price,int slipp
       return -1;
 
      }
+
+      if(HasAnyLargeCandle(Symbol(), PERIOD_M1, 30, 200.0, false))
+      return -1;
 
 
 //    if((MathAbs(Open[1] - Close[1]) > 200.0 ||  MathAbs(Open[2] - Close[2]) > 200.0) && GetProfitAfterLastEmaFlip() > 10.0)
@@ -4840,6 +4866,10 @@ void ChangeLots(double OpenPL, string reason, int orderType, int stoplevelStep)
 //    Lots = 0.01;
 //   }
 
+ if(HasAnyLargeCandle(Symbol(), PERIOD_M1, 30, 100.0, false))
+      Lots = 0.01;
+
+
 // --- PREVIOUS M1 CANDLE BODY HEIGHT FILTER (> 100 points) ---
    if((MathAbs(Open[1] - Close[1]) > 100.0 ||  MathAbs(Open[2] - Close[2]) > 100.0) || GetProfitAfterLastEmaFlip() > 10.0)
      {
@@ -4897,11 +4927,11 @@ void ChangeLots(double OpenPL, string reason, int orderType, int stoplevelStep)
 
    StopLossUSD = OriginalStopLossUSD * Lots * 100;
 
-   if(Lots==0.05 || Lots==0.04  ||   (TimeCurrent() - EmaFlipTime > 60*60))
-   {
-   StopLossUSD = 2 * Lots * 100;
+   // if(Lots==0.05 || Lots==0.04  ||   (TimeCurrent() - EmaFlipTime > 60*60))
+   // {
+   // StopLossUSD = 2 * Lots * 100;
 
-   }
+   // }
 
 // Corrected directional comparison for StopLossUSD assignment
 // int requestedDirection = (orderType == OP_BUY || orderType == OP_BUYSTOP || orderType == OP_BUYLIMIT) ? 1 : -1;
@@ -6595,7 +6625,7 @@ void ManageProfitLadder()
 
         }
 
-        if(GetOpenPL(orderType)<0)          ladder1Profit = ladder1Profit / 10.0;
+      //   if(GetOpenPL(orderType)<0)          ladder1Profit = ladder1Profit / 10.0;
 
       // -----------------------------------------------------------------------------
 
