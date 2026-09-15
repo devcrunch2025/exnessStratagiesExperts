@@ -7517,6 +7517,8 @@ bool IsEmaWEAKDistanceReduced50PercentFromPeak(int orderType = -1)
    if(EmaFlipTime == 0)
       return false;
 
+      
+
 
    if(!emaflipstrongorweak())// if weak then return true , if strong double check again
      {
