@@ -12,7 +12,7 @@
 //https://github.com/devcrunch2025/exnessStratagiesExperts/commit/bd37b6095eb5e15d8e9d6e9dcad922a027d08f53
 
 
-string glbVersion = "SSL CHANNEL EA  |  V19 14-09-2026 23.00";
+string glbVersion = "SSL CHANNEL EA  |  V20 15-09-2026 06.00";
 
 // ===== INPUT SETTINGS =====
 int SSLPeriod = 10;
@@ -3206,14 +3206,15 @@ bool IsFarEnoughFromPeak(string symbol, double proximityThreshold = 50.0)
 //+------------------------------------------------------------------+
 bool IsFarEnoughFromTrough(string symbol, double proximityThreshold = 50.0)
   {
-   // Last 1 hour on M1 = 60 candles (starting from bar 1)
+// Last 1 hour on M1 = 60 candles (starting from bar 1)
    int lowestBar = iLowest(symbol, PERIOD_M1, MODE_LOW, 60, 1);
-   if(lowestBar < 0) return true;
+   if(lowestBar < 0)
+      return true;
 
    double lowestPrice = iLow(symbol, PERIOD_M1, lowestBar);
    double currentPrice = SymbolInfoDouble(symbol, SYMBOL_BID); // or Close[0]
 
-   // Check if current price is within 'proximityThreshold' (e.g., 50) of the lowest price
+// Check if current price is within 'proximityThreshold' (e.g., 50) of the lowest price
    if((currentPrice - lowestPrice) <= proximityThreshold)
      {
       return false; // Too close to the 1-hour low (don't sell right at the bottom)
@@ -3253,7 +3254,7 @@ bool CanOpenBuyOrder(string sym, double newPrice)
      {
       if(OrderSelect(i, SELECT_BY_POS, MODE_TRADES))
         {
-         if(OrderSymbol() == sym &&  (OrderType() == OP_BUY || OrderType() == OP_BUYSTOP || OrderType() == OP_BUYLIMIT))
+         if(OrderSymbol() == sym && (OrderType() == OP_BUY || OrderType() == OP_BUYSTOP || OrderType() == OP_BUYLIMIT))
            {
             // Do not open a new buy order if the new price is ABOVE an existing open buy order
             if(newPrice > OrderOpenPrice())
@@ -3282,6 +3283,7 @@ bool CanOpenSellOrder(string sym, double newPrice)
      }
    return true;
   }
+string TradeMonitoringLog2="";
 //+------------------------------------------------------------------+
 //|                                                                  |
 //+------------------------------------------------------------------+
@@ -3299,7 +3301,14 @@ int SafeOrderSend(string symbol,int orderType,double lots,double price,int slipp
    if(IsDubaiTradingPauseHour())
       return -1;
    if(!IsDayProfitLadderTradingAllowed())
+     {
+
+      Print("Blocked IsDayProfitLadderTradingAllowed");
+      TradeMonitoringLog2="Blocked IsDayProfitLadderTradingAllowed";
+
       return -1;
+
+     }
 
 
 //    if((MathAbs(Open[1] - Close[1]) > 200.0 ||  MathAbs(Open[2] - Close[2]) > 200.0) && GetProfitAfterLastEmaFlip() > 10.0)
@@ -3314,24 +3323,24 @@ int SafeOrderSend(string symbol,int orderType,double lots,double price,int slipp
    double bidPrice = Bid;
 
 
-   // if(!CanOpenBuyOrder(Symbol(), askPrice)&& (orderType == OP_BUY || orderType == OP_BUYSTOP || orderType == OP_BUYLIMIT))
-   //   {
-   //    return -1;
-   //   }
+// if(!CanOpenBuyOrder(Symbol(), askPrice)&& (orderType == OP_BUY || orderType == OP_BUYSTOP || orderType == OP_BUYLIMIT))
+//   {
+//    return -1;
+//   }
 
-   // if(!CanOpenSellOrder(Symbol(), bidPrice) && (orderType == OP_SELL || orderType == OP_SELLSTOP || orderType == OP_SELLLIMIT))
-   //   {
-   //    return -1;
-   //   }
+// if(!CanOpenSellOrder(Symbol(), bidPrice) && (orderType == OP_SELL || orderType == OP_SELLSTOP || orderType == OP_SELLLIMIT))
+//   {
+//    return -1;
+//   }
 
 
 
-   // if(!IsTradeAllowed(orderType))
+// if(!IsTradeAllowed(orderType))
 
-   //   {
-   //    return -1;
+//   {
+//    return -1;
 
-   //   }
+//   }
 
 
    if(GlobalEmaAngle30<2 &&  GlobalEmaAngle30 > -2)
@@ -3347,14 +3356,22 @@ int SafeOrderSend(string symbol,int orderType,double lots,double price,int slipp
 
    if(GetDistanceToEMAPrice(orderType, true)<50)
      {
-      return -1;;
+
+      Print("Blocked GetDistanceToEMAPrice");
+      TradeMonitoringLog2="Blocked GetDistanceToEMAPrice";
+
+      return -1;
+
      }
 
 
    if(IsEmaWEAKDistanceReduced50PercentFromPeak(orderType)) //&& GetDistanceToEMAPrice(orderType, true)<100)
      {
-      return -1;;
 
+      Print("Blocked IsEmaWEAKDistanceReduced50PercentFromPeak");
+      TradeMonitoringLog2="Blocked IsEmaWEAKDistanceReduced50PercentFromPeak";
+
+      return -1;
 
      }
 
@@ -3362,13 +3379,21 @@ int SafeOrderSend(string symbol,int orderType,double lots,double price,int slipp
 //   {
    if(EMADirection == 1 && (orderType == OP_SELL || orderType == OP_SELLSTOP || orderType == OP_SELLLIMIT))
      {
-      // Print("TRADE BLOCKED | Bullish trend pullback detected: Selling prohibited.");
+
+      Print("Blocked EMADirection");
+      TradeMonitoringLog2="Blocked EMADirection";
+
       return -1;
+
      }
    if(EMADirection == -1 && (orderType == OP_BUY || orderType == OP_BUYSTOP || orderType == OP_BUYLIMIT))
      {
-      // Print("TRADE BLOCKED | Bearish trend pullback detected: Buying prohibited.");
+
+      Print("Blocked EMADirection");
+      TradeMonitoringLog2="Blocked EMADirection";
+
       return -1;
+
      }
 //   }
 
@@ -3387,11 +3412,15 @@ int SafeOrderSend(string symbol,int orderType,double lots,double price,int slipp
       if(EMADirection == -1 && (orderType == OP_SELL || orderType == OP_SELLSTOP || orderType == OP_SELLLIMIT))
         {
          Print("TRADE BLOCKED | Bullish trend pullback detected: Selling prohibited.");
+         TradeMonitoringLog2="TRADE BLOCKED | Bullish trend pullback detected: Selling prohibited.";
+
          return -1;
         }
       if(EMADirection == 1 && (orderType == OP_BUY || orderType == OP_BUYSTOP || orderType == OP_BUYLIMIT))
         {
          Print("TRADE BLOCKED | Bearish trend pullback detected: Buying prohibited.");
+         TradeMonitoringLog2="TRADE BLOCKED | Bearish trend pullback detected: Buying prohibited.";
+
          return -1;
         }
 
@@ -3415,6 +3444,7 @@ int SafeOrderSend(string symbol,int orderType,double lots,double price,int slipp
    if(EMADirection == 1 && GetCurrentMDirection(PERIOD_M15) !=-1 && (orderType == OP_SELL || orderType == OP_SELLSTOP || orderType == OP_SELLLIMIT))
      {
       Print("TRADE BLOCKED | Bullish trend pullback detected: Selling prohibited.");
+
       return -1;
      }
    if(EMADirection == -1 && GetCurrentMDirection(PERIOD_M15) !=1 && (orderType == OP_BUY || orderType == OP_BUYSTOP || orderType == OP_BUYLIMIT))
@@ -4654,13 +4684,13 @@ void ChangeLots(double OpenPL, string reason, int orderType, int stoplevelStep)
       Lots = 0.01;
 
      }
-if(GetOpenPL(OP_BUY)<0 && intOrdertype == 1)
+   if(GetOpenPL(OP_BUY)<0 && intOrdertype == 1)
      {
       Lots = 0.01;
 
 
      }
-    if (GetOpenPL(OP_SELL)<0 && intOrdertype == -1)
+   if(GetOpenPL(OP_SELL)<0 && intOrdertype == -1)
      {
       Lots = 0.01;
 
@@ -4719,21 +4749,21 @@ if(GetOpenPL(OP_BUY)<0 && intOrdertype == 1)
      }
    double equityProfitAfterFlip = realizedProfitAfterFlip + GetEAFloatingPL();
 
-if(equityProfitAfterFlip > 10.0 )
-  {
-   Lots = 0.01;
-  }
+   if(equityProfitAfterFlip > 10.0)
+     {
+      Lots = 0.01;
+     }
 
-  if(GetTotalSellOrders()>0 && intOrdertype == -1)
-  {
-   Lots = 0.01;
+   if(GetTotalSellOrders()>0 && intOrdertype == -1)
+     {
+      Lots = 0.01;
 
-  }
+     }
    if(GetTotalBuyOrders()>0 && intOrdertype == 1)
-  {
-   Lots = 0.01;
+     {
+      Lots = 0.01;
 
-  }
+     }
 
 // if(GetCurrentM30Direction() != EMADirection && Lots >= 0.02)
 //   {
