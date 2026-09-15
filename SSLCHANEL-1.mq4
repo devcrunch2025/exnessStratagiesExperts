@@ -3125,7 +3125,7 @@ bool emaflipstrongorweak()
    if(flipShift < 0)
       flipShift = Bars - 1;
 
-   double threshold = 100.0 * Point;
+   double threshold = 2*100.0 * Point;
 
 // Handle Buy Direction (EMAdirection == 1)
    if(EMADirection == 1)
@@ -3365,15 +3365,15 @@ int SafeOrderSend(string symbol,int orderType,double lots,double price,int slipp
      }
 
 
-   if(IsEmaWEAKDistanceReduced50PercentFromPeak(orderType)) //&& GetDistanceToEMAPrice(orderType, true)<100)
-     {
+   // if(IsEmaWEAKDistanceReduced50PercentFromPeak(orderType)) //&& GetDistanceToEMAPrice(orderType, true)<100)
+   //   {
 
-      Print("Blocked IsEmaWEAKDistanceReduced50PercentFromPeak");
-      TradeMonitoringLog2="Blocked IsEmaWEAKDistanceReduced50PercentFromPeak";
+   //    Print("Blocked IsEmaWEAKDistanceReduced50PercentFromPeak");
+   //    TradeMonitoringLog2="Blocked IsEmaWEAKDistanceReduced50PercentFromPeak";
 
-      return -1;
+   //    return -1;
 
-     }
+   //   }
 
 //    if(IsEmaWEAKDistanceReduced50PercentFromPeak(orderType))
 //   {
@@ -3407,38 +3407,38 @@ int SafeOrderSend(string symbol,int orderType,double lots,double price,int slipp
 
 
 // --- EMA PEAK RETRACEMENT COUNTER-TREND BLOCK ---
-   if(IsEmaWEAKDistanceReduced50PercentFromPeak(orderType))
-     {
-      if(EMADirection == -1 && (orderType == OP_SELL || orderType == OP_SELLSTOP || orderType == OP_SELLLIMIT))
-        {
-         Print("TRADE BLOCKED | Bullish trend pullback detected: Selling prohibited.");
-         TradeMonitoringLog2="TRADE BLOCKED | Bullish trend pullback detected: Selling prohibited.";
+   // if(IsEmaWEAKDistanceReduced50PercentFromPeak(orderType))
+   //   {
+   //    if(EMADirection == -1 && (orderType == OP_SELL || orderType == OP_SELLSTOP || orderType == OP_SELLLIMIT))
+   //      {
+   //       Print("TRADE BLOCKED | Bullish trend pullback detected: Selling prohibited.");
+   //       TradeMonitoringLog2="TRADE BLOCKED | Bullish trend pullback detected: Selling prohibited.";
 
-         return -1;
-        }
-      if(EMADirection == 1 && (orderType == OP_BUY || orderType == OP_BUYSTOP || orderType == OP_BUYLIMIT))
-        {
-         Print("TRADE BLOCKED | Bearish trend pullback detected: Buying prohibited.");
-         TradeMonitoringLog2="TRADE BLOCKED | Bearish trend pullback detected: Buying prohibited.";
+   //       return -1;
+   //      }
+   //    if(EMADirection == 1 && (orderType == OP_BUY || orderType == OP_BUYSTOP || orderType == OP_BUYLIMIT))
+   //      {
+   //       Print("TRADE BLOCKED | Bearish trend pullback detected: Buying prohibited.");
+   //       TradeMonitoringLog2="TRADE BLOCKED | Bearish trend pullback detected: Buying prohibited.";
 
-         return -1;
-        }
-
-
-
-      //         //
-      //         bool isBuyRequest = (orderType == OP_BUY || orderType == OP_BUYSTOP || orderType == OP_BUYLIMIT);
-
-      // if(EMADirection == -1 && isBuyRequest && GetCurrentMDirection(PERIOD_M15) != 1)
-      //   {
-      //    Print("TRADE BLOCKED | EMA direction is Sell and M15 is not bullish. Buy prohibited.");
-      //    return -1;
-      //   }
+   //       return -1;
+   //      }
 
 
 
+   //    //         //
+   //    //         bool isBuyRequest = (orderType == OP_BUY || orderType == OP_BUYSTOP || orderType == OP_BUYLIMIT);
 
-     }
+   //    // if(EMADirection == -1 && isBuyRequest && GetCurrentMDirection(PERIOD_M15) != 1)
+   //    //   {
+   //    //    Print("TRADE BLOCKED | EMA direction is Sell and M15 is not bullish. Buy prohibited.");
+   //    //    return -1;
+   //    //   }
+
+
+
+
+   //   }
 
 //opposite order
    if(EMADirection == 1 && GetCurrentMDirection(PERIOD_M15) !=-1 && (orderType == OP_SELL || orderType == OP_SELLSTOP || orderType == OP_SELLLIMIT))
@@ -4429,7 +4429,7 @@ double GetDynamicOrderGap(int orderType)
 //   }
 
 
-   if(IsEmaWEAKDistanceReduced50PercentFromPeak(orderType) ||  TimeCurrent() - EmaFlipTime > 60*60)
+   if(IsEmaWEAKDistanceReduced50PercentFromPeak(orderType))// ||  TimeCurrent() - EmaFlipTime > 60*60)
      {
       multiplier=5;//
      }
@@ -7517,7 +7517,7 @@ bool IsEmaWEAKDistanceReduced50PercentFromPeak(int orderType = -1)
    if(EmaFlipTime == 0)
       return false;
 
-      
+
 
 
    if(!emaflipstrongorweak())// if weak then return true , if strong double check again
