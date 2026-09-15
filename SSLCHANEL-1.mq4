@@ -12,7 +12,7 @@
 //https://github.com/devcrunch2025/exnessStratagiesExperts/commit/bd37b6095eb5e15d8e9d6e9dcad922a027d08f53
 
 
-string glbVersion = "SSL CHANNEL EA  |  V25 15-09-2026 16.00";
+string glbVersion = "SSL CHANNEL EA  |  V26 15-09-2026 19.00";
 
 // ===== INPUT SETTINGS =====
 int SSLPeriod = 10;
@@ -939,7 +939,7 @@ void ManageFlipProfitLadder()
    if(ladderLevel >= 1)
      {
       // double lockedProfitTarget = (ladderLevel - 1) * FlipLadderStepUSD;
-      double lockedProfitTarget = (ladderLevel) * FlipLadderStepUSD;
+      double lockedProfitTarget = (ladderLevel-1) * FlipLadderStepUSD;
 
 
       if(totalContinuousProfit <= lockedProfitTarget)
@@ -4897,6 +4897,12 @@ void ChangeLots(double OpenPL, string reason, int orderType, int stoplevelStep)
 
    StopLossUSD = OriginalStopLossUSD * Lots * 100;
 
+   if(Lots==0.05 || Lots==0.04)
+   {
+   StopLossUSD = 1 * Lots * 100;
+
+   }
+
 // Corrected directional comparison for StopLossUSD assignment
 // int requestedDirection = (orderType == OP_BUY || orderType == OP_BUYSTOP || orderType == OP_BUYLIMIT) ? 1 : -1;
 // if(EMADirection != requestedDirection)
@@ -7463,7 +7469,7 @@ void UpdateDashboard(DailyProtectionState &state)
    // double lockedProfitTarget = (ladderLevel - 2) * FlipLadderStepUSD;
 
    // double lockedProfitTarget = (ladderLevel - 1) * FlipLadderStepUSD;
-   double lockedProfitTarget = (ladderLevel - 0) * FlipLadderStepUSD;
+   double lockedProfitTarget = (ladderLevel - 1) * FlipLadderStepUSD;
 
 
    CreateDashboardLabel(DASH_PREFIX+"EMA_LAD_BASE","SECURED BASELINE: $"+DoubleToString(ActiveEquityBaseline, 2)+" / $"+DoubleToString(totalContinuousProfit, 2)+" <= $"+DoubleToString(lockedProfitTarget, 2),tx,y+210,8,clrSilver);
