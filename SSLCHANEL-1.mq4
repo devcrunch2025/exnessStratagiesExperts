@@ -12,7 +12,7 @@
 //https://github.com/devcrunch2025/exnessStratagiesExperts/commit/bd37b6095eb5e15d8e9d6e9dcad922a027d08f53
 
 
-string glbVersion = "SSL CHANNEL EA  |  V21 15-09-2026 09.00";
+string glbVersion = "SSL CHANNEL EA  |  V22 15-09-2026 10.00";
 
 // ===== INPUT SETTINGS =====
 int SSLPeriod = 10;
@@ -3395,6 +3395,24 @@ int SafeOrderSend(string symbol,int orderType,double lots,double price,int slipp
       return -1;
 
      }
+      if(EMADirection == 1 && GlobalEmaAngle30>2 && (orderType == OP_SELL || orderType == OP_SELLSTOP || orderType == OP_SELLLIMIT) )
+     {
+
+      Print("Blocked EMADirection");
+      TradeMonitoringLog2="Blocked EMADirection";
+
+      return -1;
+
+     }
+   if(EMADirection == -1 &&  GlobalEmaAngle30<-2 &&(orderType == OP_BUY || orderType == OP_BUYSTOP || orderType == OP_BUYLIMIT))
+     {
+
+      Print("Blocked EMADirection");
+      TradeMonitoringLog2="Blocked EMADirection";
+
+      return -1;
+
+     }
 //   }
 
 //   if(GetCurrentMDirection(PERIOD_M5) != orderType)
@@ -4644,18 +4662,18 @@ void ChangeLots(double OpenPL, string reason, int orderType, int stoplevelStep)
                       ((orderType == OP_SELL || orderType == OP_SELLSTOP || orderType == OP_SELLLIMIT) ? -1 : 0);
 
 // 2. Scale lot to 0.02 if opening a Sell while Buy basket is down < -$2, or vice versa
-   if(intOrdertype == -1 && GetOpenPL(OP_BUY) < -2.0 && Lots == 0.01)
-     {
-      Lots = 0.02;
+   // if(intOrdertype == -1 && GetOpenPL(OP_BUY) < -2.0 && Lots == 0.01)
+   //   {
+   //    Lots = 0.02;
 
 
 
-     }
-   if(intOrdertype == 1 && GetOpenPL(OP_SELL) < -2.0 && Lots == 0.01)
-     {
-      Lots = 0.02;
+   //   }
+   // if(intOrdertype == 1 && GetOpenPL(OP_SELL) < -2.0 && Lots == 0.01)
+   //   {
+   //    Lots = 0.02;
 
-     }
+   //   }
    if(intOrdertype == -1)
      {
       if(GetOpenPL(OP_BUY) < -2.0 && TimeCurrent() - EmaFlipTime > 60*60 && !IsEmaWEAKDistanceReduced50PercentFromPeak(orderType))
