@@ -12,7 +12,7 @@
 //https://github.com/devcrunch2025/exnessStratagiesExperts/commit/bd37b6095eb5e15d8e9d6e9dcad922a027d08f53
 
 
-string glbVersion = "SSL CHANNEL EA  |  V22 15-09-2026 10.00";
+string glbVersion = "SSL CHANNEL EA  |  V23 15-09-2026 12.00";
 
 // ===== INPUT SETTINGS =====
 int SSLPeriod = 10;
@@ -3111,10 +3111,60 @@ bool IsOrderAllowedByTrendAndGap(int orderType)
 
    return true;
   }
+  bool emaflipstrongorweak()
+  {
+   if(EmaFlipTime == 0)
+      return false;
+
+   RefreshRates();
+
+   int flipShift = iBarShift(Symbol(), Period(), EmaFlipTime, false);
+   if(flipShift < 0)
+      flipShift = Bars - 1;
+
+   // 100.0 means exactly $100 USD price movement on BTCUSD
+   double threshold = 100.0; 
+
+   // Handle Buy Direction (EMAdirection == 1)
+   if(EMADirection == 1)
+     {
+      double highestPrice = -1.0;
+      for(int i = flipShift; i >= 0; i--)
+        {
+         if(High[i] > highestPrice)
+            highestPrice = High[i];
+        }
+
+      double pullbackFromHigh = highestPrice - Bid;
+      if(pullbackFromHigh >= threshold)
+         return false; // Weak (Price pulled back $100+ USD from the peak)
+
+      return true; // Strong
+     }
+   // Handle Sell Direction (EMAdirection == -1)
+   else if(EMADirection == -1)
+     {
+      double lowestPrice = 999999.0;
+      for(int i = flipShift; i >= 0; i--)
+        {
+         if(Low[i] < lowestPrice)
+            lowestPrice = Low[i];
+        }
+
+      // Measures how many USD the Ask price has bounced UP from the lowest low
+      double bounceFromLow = Ask - lowestPrice;
+      if(bounceFromLow >= threshold)
+         return false; // Weak (Price bounced up $100+ USD from the low -> do not sell)
+
+      return true; // Strong (Price has not bounced by $100+ USD)
+     }
+
+   return false;
+  }
 //+------------------------------------------------------------------+
 //|                                                                  |
 //+------------------------------------------------------------------+
-bool emaflipstrongorweak()
+bool emaflipstrongorweakOld()
   {
    if(EmaFlipTime == 0)
       return false;
