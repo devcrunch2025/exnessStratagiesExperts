@@ -4897,9 +4897,9 @@ void ChangeLots(double OpenPL, string reason, int orderType, int stoplevelStep)
 
    StopLossUSD = OriginalStopLossUSD * Lots * 100;
 
-   if(Lots==0.05 || Lots==0.04)
+   if(Lots==0.05 || Lots==0.04  ||   (TimeCurrent() - EmaFlipTime > 60*60))
    {
-   StopLossUSD = 1 * Lots * 100;
+   StopLossUSD = 2 * Lots * 100;
 
    }
 
