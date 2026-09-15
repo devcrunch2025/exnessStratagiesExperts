@@ -12,7 +12,7 @@
 //https://github.com/devcrunch2025/exnessStratagiesExperts/commit/bd37b6095eb5e15d8e9d6e9dcad922a027d08f53
 
 
-string glbVersion = "SSL CHANNEL EA  |  V23 15-09-2026 12.00";
+string glbVersion = "SSL CHANNEL EA  |  V24 15-09-2026 13.00";
 
 // ===== INPUT SETTINGS =====
 int SSLPeriod = 10;
@@ -4752,32 +4752,32 @@ void ChangeLots(double OpenPL, string reason, int orderType, int stoplevelStep)
       Lots = 0.01;
 
      }
-   if(GetOpenPL(OP_BUY)<0 && intOrdertype == 1)
-     {
-      Lots = 0.01;
+   // if(GetOpenPL(OP_BUY)<0 && intOrdertype == 1)
+   //   {
+   //    Lots = 0.01;
 
 
-     }
-   if(GetOpenPL(OP_SELL)<0 && intOrdertype == -1)
-     {
-      Lots = 0.01;
+   //   }
+   // if(GetOpenPL(OP_SELL)<0 && intOrdertype == -1)
+   //   {
+   //    Lots = 0.01;
 
 
-     }
+   //   }
    if(GlobalSSLDirection != EMADirection)
      {
       Lots = 0.01;
 
 
      }
-   if((GlobalEmaAngle30>10 || GlobalEmaAngle30<-10) &&  GlobalSSLDirection != EMADirection)
-     {
-      Lots = 0.01;
+   // if((GlobalEmaAngle30>10 || GlobalEmaAngle30<-10) &&  GlobalSSLDirection != EMADirection)
+   //   {
+   //    Lots = 0.01;
 
 
-     }
+   //   }
 
-   if(IsEmaWEAKDistanceReduced50PercentFromPeak(orderType))
+   if(IsEmaWEAKDistanceReduced50PercentFromPeak(orderType))//weak
      {
       Lots = 0.01;
      }
@@ -4822,16 +4822,16 @@ void ChangeLots(double OpenPL, string reason, int orderType, int stoplevelStep)
       Lots = 0.01;
      }
 
-   if(GetTotalSellOrders()>0 && intOrdertype == -1)
-     {
-      Lots = 0.01;
+   // if(GetTotalSellOrders()>0 && intOrdertype == -1)
+   //   {
+   //    Lots = 0.01;
 
-     }
-   if(GetTotalBuyOrders()>0 && intOrdertype == 1)
-     {
-      Lots = 0.01;
+   //   }
+   // if(GetTotalBuyOrders()>0 && intOrdertype == 1)
+   //   {
+   //    Lots = 0.01;
 
-     }
+   //   }
 
 // if(GetCurrentM30Direction() != EMADirection && Lots >= 0.02)
 //   {
@@ -6574,10 +6574,16 @@ void ManageProfitLadder()
       double ladder1Profit = OriginalLadder1ProfitUSD * orderLots * 100.0;
 
       // --- NEW LOGIC: Reduce ladder1Profit by half if order is older than 1 hour ---
-      if(TimeCurrent() - OrderOpenTime() >= 60*2 || EMADirection!=GetOrderDirection(orderType))// || orderLots>=0.02) // 3600 seconds = 1 hour
+      if(TimeCurrent() - OrderOpenTime() >= 60*2 || EMADirection!=GetOrderDirection(orderType) || orderLots>=0.03) // 3600 seconds = 1 hour
         {
          // ladder1Profit = ladder1Profit / 2.0;
          ladder1Profit = ladder1Profit / 4.0;
+
+        }
+        if(TimeCurrent() - OrderOpenTime() >= 60*2 || EMADirection!=GetOrderDirection(orderType) || orderLots>=0.02) // 3600 seconds = 1 hour
+        {
+         // ladder1Profit = ladder1Profit / 2.0;
+         ladder1Profit = ladder1Profit / 2.0;
 
         }
       // -----------------------------------------------------------------------------
@@ -7001,7 +7007,7 @@ void DrawMomentumMarkers()
             ObjectSetInteger(0, objName, OBJPROP_WIDTH, 2);
            }
 
-         if(GetCurrentMDirection(PERIOD_M30) == 1)
+         if(GetCurrentMDirection(PERIOD_M15) == 1)
            {
 
             OpenBuy();
@@ -7018,7 +7024,7 @@ void DrawMomentumMarkers()
                ObjectSetInteger(0, objName, OBJPROP_COLOR, clrRed);
                ObjectSetInteger(0, objName, OBJPROP_WIDTH, 2);
               }
-            if(GetCurrentMDirection(PERIOD_M30) == -1)
+            if(GetCurrentMDirection(PERIOD_M15) == -1)
 
                OpenSell();
 
