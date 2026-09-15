@@ -3131,7 +3131,7 @@ bool emaflipstrongorweak()
    if(EMADirection == 1)
      {
       double highestPrice = 0.0;
-      for(int i = flipShift; i >= 0; i--)
+      for(int i = flipShift-15; i >= 0; i--)
         {
          if(High[i] > highestPrice)
             highestPrice = High[i];
@@ -3148,7 +3148,7 @@ bool emaflipstrongorweak()
       if(EMADirection == -1)
         {
          double lowestPrice = 999999.0;
-         for(int i = flipShift; i >= 0; i--)
+         for(int i = flipShift-15; i >= 0; i--)
            {
             if(Low[i] < lowestPrice)
                lowestPrice = Low[i];
@@ -7522,8 +7522,10 @@ bool IsEmaWEAKDistanceReduced50PercentFromPeak(int orderType = -1)
 
    if(!emaflipstrongorweak())// if weak then return true , if strong double check again
      {
-      return true;
+      return true;//weak
      }
+     else
+     return false;//strong
 
    RefreshRates();
 
