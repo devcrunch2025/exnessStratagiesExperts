@@ -3385,8 +3385,8 @@ int SafeOrderSend(string symbol,int orderType,double lots,double price,int slipp
 
      }
 
-      if(HasAnyLargeCandle(Symbol(), PERIOD_M1, 30, 200.0, false))
-      return -1;
+      // if(HasAnyLargeCandle(Symbol(), PERIOD_M1, 30, 200.0, false))
+      // return -1;
 
 
 //    if((MathAbs(Open[1] - Close[1]) > 200.0 ||  MathAbs(Open[2] - Close[2]) > 200.0) && GetProfitAfterLastEmaFlip() > 10.0)
@@ -4932,6 +4932,9 @@ void ChangeLots(double OpenPL, string reason, int orderType, int stoplevelStep)
    // StopLossUSD = 2 * Lots * 100;
 
    // }
+
+   if(HasAnyLargeCandle(Symbol(), PERIOD_M1, 30, 200.0, false))
+      StopLossUSD = 1 * Lots * 100;
 
 // Corrected directional comparison for StopLossUSD assignment
 // int requestedDirection = (orderType == OP_BUY || orderType == OP_BUYSTOP || orderType == OP_BUYLIMIT) ? 1 : -1;
