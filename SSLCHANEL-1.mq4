@@ -12,7 +12,7 @@
 //https://github.com/devcrunch2025/exnessStratagiesExperts/commit/bd37b6095eb5e15d8e9d6e9dcad922a027d08f53
 
 
-string glbVersion = "SSL CHANNEL EA  |  V24 15-09-2026 13.00";
+string glbVersion = "SSL CHANNEL EA  |  V25 15-09-2026 16.00";
 
 // ===== INPUT SETTINGS =====
 int SSLPeriod = 10;
@@ -938,7 +938,9 @@ void ManageFlipProfitLadder()
 // 6. Manage locked profit targets for the current tier
    if(ladderLevel >= 1)
      {
-      double lockedProfitTarget = (ladderLevel - 1) * FlipLadderStepUSD;
+      // double lockedProfitTarget = (ladderLevel - 1) * FlipLadderStepUSD;
+      double lockedProfitTarget = (ladderLevel) * FlipLadderStepUSD;
+
 
       if(totalContinuousProfit <= lockedProfitTarget)
         {
@@ -1026,7 +1028,7 @@ void TrackEmaFlip()
 
       TradingHaltedUntilNextFlip = false;
       LadderHaltStartTime = 0; // Clear timer on flip
-      ActiveEquityBaseline = AccountEquity() * 0.90; // Updated to 10% less than current equity on flip
+      // ActiveEquityBaseline = AccountEquity() * 0.90; // Updated to 10% less than current equity on flip
       HighestCycleProfitUSD = 0.0;
       HighestLadderLevelThisCycle = 0;
 
@@ -6586,6 +6588,9 @@ void ManageProfitLadder()
          ladder1Profit = ladder1Profit / 2.0;
 
         }
+
+        if(GetOpenPL(orderType)<0)          ladder1Profit = ladder1Profit / 10.0;
+
       // -----------------------------------------------------------------------------
 
       double ladder2Profit = OriginalLadder2ProfitUSD * orderLots * 100.0;
@@ -7455,8 +7460,11 @@ void UpdateDashboard(DailyProtectionState &state)
    double totalContinuousProfit = AccountEquity() - ActiveEquityBaseline;
 
    int ladderLevel = (int)MathFloor(HighestCycleProfitUSD / FlipLadderStepUSD);
+   // double lockedProfitTarget = (ladderLevel - 2) * FlipLadderStepUSD;
 
-   double lockedProfitTarget = (ladderLevel - 2) * FlipLadderStepUSD;
+   // double lockedProfitTarget = (ladderLevel - 1) * FlipLadderStepUSD;
+   double lockedProfitTarget = (ladderLevel - 0) * FlipLadderStepUSD;
+
 
    CreateDashboardLabel(DASH_PREFIX+"EMA_LAD_BASE","SECURED BASELINE: $"+DoubleToString(ActiveEquityBaseline, 2)+" / $"+DoubleToString(totalContinuousProfit, 2)+" <= $"+DoubleToString(lockedProfitTarget, 2),tx,y+210,8,clrSilver);
 // ================= 2. ACCOUNT & EQUITY =================
