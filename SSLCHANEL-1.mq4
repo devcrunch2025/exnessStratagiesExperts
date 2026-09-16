@@ -12,7 +12,7 @@
 //https://github.com/devcrunch2025/exnessStratagiesExperts/commit/bd37b6095eb5e15d8e9d6e9dcad922a027d08f53
 
 
-string glbVersion = "SSL CHANNEL EA  |  V36 REV 16-09-2026 15.00 - ManagePartialCloses+close $5 step";
+string glbVersion = "SSL CHANNEL EA  |  V37 REV 16-09-2026 16.00 - ManagePartialCloses+close $5 step";
 
 // ===== INPUT SETTINGS =====
 int SSLPeriod = 10;
@@ -4651,7 +4651,7 @@ if(GlobalSSLDirection != EMADirection)
       Lots = 0.01;
      }
 
-     if(HasAnyLargeCandle(Symbol(), PERIOD_M1, 30, 200.0, false))
+     if(HasAnyLargeCandle(Symbol(), PERIOD_M1, 30, 100.0, false))
       Lots = 0.01;
 
 // Lots=0.05;//
@@ -6632,7 +6632,7 @@ void ManagePartialCloses()
                actionType = "PROFIT";
               }
             // Condition 2: Loss threshold reached WITH 30-minute cool-down check
-            else if(currentProfit <= -(orderLots * 100.0 * 1.0) && EMADirection != orderTypeInt)
+            else if(currentProfit <= -(orderLots * 100.0 * 2.0))// && EMADirection != orderTypeInt)
               {
                // Check if 30 minutes (1800 seconds) have passed since the last loss cut
                if(TimeCurrent() - g_lastLossCloseTime >= 30 * 60)
