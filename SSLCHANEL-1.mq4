@@ -888,7 +888,7 @@ void ManageFlipProfitLadder()
 
 // 1. Initialize the baseline if it is empty
    if(ActiveEquityBaseline <= 0.0 || OrdersTotal() == 0)
-      ActiveEquityBaseline = AccountEquity() * 0.95;
+      ActiveEquityBaseline = AccountBalance() * 0.95;
 
 // === DIRECT SAFETY CHECK: HARD BASELINE FLOOR ===
    if(AccountEquity() <= ActiveEquityBaseline && GetDistanceToEMAPrice(OP_BUY, true) > 100)
@@ -924,7 +924,7 @@ void ManageFlipProfitLadder()
 
       // RATCHET UPWARD: Shift the secured baseline upward with each new level achieved
       // This locks in a higher baseline floor (e.g., 90% of current equity or stepping up by the ladder step)
-      ActiveEquityBaseline = AccountEquity() * 0.95;
+      ActiveEquityBaseline = AccountBalance() * 0.95;
 
       Print("LEVEL UP: Reached Level ", ladderLevel, " | Secured Baseline Ratcheted to: $", ActiveEquityBaseline);
      }
@@ -940,7 +940,7 @@ void ManageFlipProfitLadder()
                " | Retraced to lock +$", lockedProfitTarget,
                " | Halting trading and updating secured baseline.");
 
-         ActiveEquityBaseline = AccountEquity() * 0.95;
+         ActiveEquityBaseline = AccountBalance() * 0.95;
 
          DrawLadderHaltCircle(Time[0], High[0] + (50 * Point));
          TradingHaltedUntilNextFlip = true;
@@ -968,7 +968,7 @@ void CheckLadderHaltResume()
 
       TradingHaltedUntilNextFlip = false;
       LadderHaltStartTime = 0;
-      ActiveEquityBaseline = AccountEquity() * 0.95; // Refresh baseline relative to current equity on resume
+      ActiveEquityBaseline = AccountBalance() * 0.95; // Refresh baseline relative to current equity on resume
       HighestCycleProfitUSD = 0.0;
       HighestLadderLevelThisCycle = 0;
      }
@@ -1016,7 +1016,7 @@ void TrackEmaFlip()
 
       TradingHaltedUntilNextFlip = false;
       LadderHaltStartTime = 0; // Clear timer on flip
-      ActiveEquityBaseline = AccountEquity() * 0.95; // Updated to 10% less than current equity on flip
+      ActiveEquityBaseline = AccountBalance() * 0.95; // Updated to 10% less than current equity on flip
       HighestCycleProfitUSD = 0.0;
       HighestLadderLevelThisCycle = 0;
 
@@ -3386,24 +3386,32 @@ int SafeOrderSend(string symbol,int orderType,double lots,double price,int slipp
 
      }
 
+ 
+     if(IsEmaWEAKDistanceReduced50PercentFromPeak(orderType))//weak
+     {
+            return -1;;
+
+
+     }
+
 // if(GlobalEmaAngle30 < -2  )
 //   {
 //    Print("TRADE BLOCKED | EMA trend is not bullish for Buy order.");
 //    return false;
 //   }
 // --- SEPARATE CONDITION: Strict block for opposite orders during strong uptrend (2 to 6 degrees) ---
-//    if(EMADirection != -1 && (orderType == OP_SELL || orderType == OP_SELLSTOP || orderType == OP_SELLLIMIT))
-//      {
-//       Print("TRADE SELL BLOCKED | Strict opposite block: EMA trend is strong uptrend  ");
-//       return -1;
-//      }
+   if(EMADirection != -1 && (orderType == OP_SELL || orderType == OP_SELLSTOP || orderType == OP_SELLLIMIT))
+     {
+      Print("TRADE SELL BLOCKED | Strict opposite block: EMA trend is strong uptrend  ");
+      return -1;
+     }
 
-// // --- SEPARATE CONDITION: Strict block for opposite orders during strong downtrend (-2 to -6 degrees) ---
-//    if(EMADirection != 1 && (orderType == OP_BUY || orderType == OP_BUYSTOP || orderType == OP_BUYLIMIT))
-//      {
-//       Print("TRADE BUY BLOCKED | Strict opposite block: EMA trend is strong downtrend  ");
-//       return -1;
-//      }
+// --- SEPARATE CONDITION: Strict block for opposite orders during strong downtrend (-2 to -6 degrees) ---
+   if(EMADirection != 1 && (orderType == OP_BUY || orderType == OP_BUYSTOP || orderType == OP_BUYLIMIT))
+     {
+      Print("TRADE BUY BLOCKED | Strict opposite block: EMA trend is strong downtrend  ");
+      return -1;
+     }
 // --- STRICT EMA TREND FILTER WITH EXHAUSTION ALLOWANCE ---
 
 // --- STRICT EMA TREND FILTER WITH EXHAUSTION ALLOWANCE ---
@@ -6345,7 +6353,7 @@ void ManageProfitLadder()
       double ladder1Profit = OriginalLadder1ProfitUSD * orderLots * 100.0;
 
       // --- NEW LOGIC: Reduce ladder1Profit by half if order is older than 1 hour ---
-      if(TimeCurrent() - OrderOpenTime() > 60*60) // 3600 seconds = 1 hour
+      if(TimeCurrent() - OrderOpenTime() > 60*60 ||orderLots>=0.03 ) // 3600 seconds = 1 hour
         {
          ladder1Profit = ladder1Profit / 2.0;
         }
