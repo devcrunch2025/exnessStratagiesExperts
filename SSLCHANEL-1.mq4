@@ -12,7 +12,7 @@
 //https://github.com/devcrunch2025/exnessStratagiesExperts/commit/bd37b6095eb5e15d8e9d6e9dcad922a027d08f53
 
 
-string glbVersion = "SSL CHANNEL EA  |  V33 REV 16-09-2026 13.00 - ManagePartialCloses+close $5 step";
+string glbVersion = "SSL CHANNEL EA  |  V34 REV 16-09-2026 13.00 - ManagePartialCloses+close $5 step";
 
 // ===== INPUT SETTINGS =====
 int SSLPeriod = 10;
@@ -4361,9 +4361,9 @@ void CheckEquityBalanceProfitTarget()
       // Close all open positions
       CloseAllOrders();
       
-      // Optional: Set your pause/halt flags if needed
-      TradingHaltedUntilNextFlip = true;
-      LadderHaltStartTime = TimeCurrent();
+      // // Optional: Set your pause/halt flags if needed
+      // TradingHaltedUntilNextFlip = true;
+      // LadderHaltStartTime = TimeCurrent();
      }
   }
 //+------------------------------------------------------------------+
