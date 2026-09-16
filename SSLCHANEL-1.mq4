@@ -12,7 +12,7 @@
 //https://github.com/devcrunch2025/exnessStratagiesExperts/commit/bd37b6095eb5e15d8e9d6e9dcad922a027d08f53
 
 
-string glbVersion = "SSL CHANNEL EA  |  V32 REV 16-09-2026 13.00 - ManagePartialCloses+close $5 step";
+string glbVersion = "SSL CHANNEL EA  |  V33 REV 16-09-2026 13.00 - ManagePartialCloses+close $5 step";
 
 // ===== INPUT SETTINGS =====
 int SSLPeriod = 10;
@@ -1302,6 +1302,8 @@ void OnTick()
    uint tickStartMs=GetTickCount();
    OnTickCore();
    OnTickPerformanceEnd(tickStartMs);
+
+   CheckEquityBalanceProfitTarget();
 
    CheckTrailingProfitLadder();
 
@@ -4342,7 +4344,28 @@ bool IsHeavyLotOrderNearBy(int orderType, double checkLot, double gapRawThreshol
    return false;
   }
 
-
+//+------------------------------------------------------------------+
+//| Close all orders if Equity exceeds Balance by $1.00 or more     |
+//+------------------------------------------------------------------+
+void CheckEquityBalanceProfitTarget()
+  {
+   double accountBalance = AccountBalance();
+   double accountEquity  = AccountEquity();
+   
+   // Check if Equity is greater than or equal to Balance + $1.00
+   if(accountEquity >= (accountBalance + 1.00))
+     {
+      Print("Equity Target Reached! Balance: $", DoubleToString(accountBalance, 2), 
+            " | Equity: $", DoubleToString(accountEquity, 2), ". Closing all open orders.");
+      
+      // Close all open positions
+      CloseAllOrders();
+      
+      // Optional: Set your pause/halt flags if needed
+      TradingHaltedUntilNextFlip = true;
+      LadderHaltStartTime = TimeCurrent();
+     }
+  }
 //+------------------------------------------------------------------+
 //|                                                                  |
 //+------------------------------------------------------------------+
@@ -4544,11 +4567,11 @@ void ChangeLots(double OpenPL, string reason, int orderType, int stoplevelStep)
 // Lots=0.05;//
 // Print("Closed Orders Since EMA Flip: ", closedCount, " | Cycle Step: ", cycleStep, " | Calculated Lots: ", Lots);
 
-   if((GlobalEmaAngle30 > -3.0 && GlobalEmaAngle30 < 3.0))
-     {
-      Lots = 0.01;
+   // if((GlobalEmaAngle30 > -3.0 && GlobalEmaAngle30 < 3.0))
+   //   {
+   //    Lots = 0.01;
 
-     }
+   //   }
 
 if(GlobalSSLDirection != EMADirection)
      {
@@ -4614,10 +4637,10 @@ if(GlobalSSLDirection != EMADirection)
       Lots = 0.01;
      }
 
-   if(GetCurrentM30Direction() != EMADirection && Lots >= 0.03)
-     {
-      Lots = 0.01;
-     }
+   // if(GetCurrentM30Direction() != EMADirection && Lots >= 0.03)
+   //   {
+   //    Lots = 0.01;
+   //   }
 
    // --- PREVIOUS 2 M1 CANDLES BODY HEIGHT FILTER (Each > 100 raw price difference) ---
    if(MathAbs(Open[1] - Close[1]) > 100.0 && MathAbs(Open[2] - Close[2]) > 100.0)
@@ -6463,9 +6486,9 @@ void CheckTrailingProfitLadder()
          g_targetUnlocked = false;
          g_peakCombinedProfit = 0.0;
          
-         // Trigger halt flags
-         TradingHaltedUntilNextFlip = true;
-         LadderHaltStartTime = TimeCurrent();
+         // // Trigger halt flags
+         // TradingHaltedUntilNextFlip = true;
+         // LadderHaltStartTime = TimeCurrent();
 
          // Advance to the next $5 step tier ($5 -> $10 -> $15...)
          g_currentStepTarget += 5.0;
