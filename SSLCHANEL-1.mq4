@@ -12,7 +12,7 @@
 //https://github.com/devcrunch2025/exnessStratagiesExperts/commit/bd37b6095eb5e15d8e9d6e9dcad922a027d08f53
 
 
-string glbVersion = "SSL CHANNEL EA  |  V30 REV 16-09-2026 09.00";
+string glbVersion = "SSL CHANNEL EA  |  V31 REV 16-09-2026 09.00";
 
 // ===== INPUT SETTINGS =====
 int SSLPeriod = 10;
@@ -888,7 +888,7 @@ void ManageFlipProfitLadder()
 
 // 1. Initialize the baseline if it is empty
    if(ActiveEquityBaseline <= 0.0 || OrdersTotal() == 0)
-      ActiveEquityBaseline = AccountEquity() * 0.90;
+      ActiveEquityBaseline = AccountEquity() * 0.95;
 
 // === DIRECT SAFETY CHECK: HARD BASELINE FLOOR ===
    if(AccountEquity() <= ActiveEquityBaseline && GetDistanceToEMAPrice(OP_BUY, true) > 100)
@@ -924,7 +924,7 @@ void ManageFlipProfitLadder()
 
       // RATCHET UPWARD: Shift the secured baseline upward with each new level achieved
       // This locks in a higher baseline floor (e.g., 90% of current equity or stepping up by the ladder step)
-      ActiveEquityBaseline = AccountEquity() * 0.90;
+      ActiveEquityBaseline = AccountEquity() * 0.95;
 
       Print("LEVEL UP: Reached Level ", ladderLevel, " | Secured Baseline Ratcheted to: $", ActiveEquityBaseline);
      }
@@ -940,7 +940,7 @@ void ManageFlipProfitLadder()
                " | Retraced to lock +$", lockedProfitTarget,
                " | Halting trading and updating secured baseline.");
 
-         ActiveEquityBaseline = AccountEquity() * 0.90;
+         ActiveEquityBaseline = AccountEquity() * 0.95;
 
          DrawLadderHaltCircle(Time[0], High[0] + (50 * Point));
          TradingHaltedUntilNextFlip = true;
@@ -968,7 +968,7 @@ void CheckLadderHaltResume()
 
       TradingHaltedUntilNextFlip = false;
       LadderHaltStartTime = 0;
-      ActiveEquityBaseline = AccountEquity() * 0.90; // Refresh baseline relative to current equity on resume
+      ActiveEquityBaseline = AccountEquity() * 0.95; // Refresh baseline relative to current equity on resume
       HighestCycleProfitUSD = 0.0;
       HighestLadderLevelThisCycle = 0;
      }
@@ -1016,7 +1016,7 @@ void TrackEmaFlip()
 
       TradingHaltedUntilNextFlip = false;
       LadderHaltStartTime = 0; // Clear timer on flip
-      ActiveEquityBaseline = AccountEquity() * 0.90; // Updated to 10% less than current equity on flip
+      ActiveEquityBaseline = AccountEquity() * 0.95; // Updated to 10% less than current equity on flip
       HighestCycleProfitUSD = 0.0;
       HighestLadderLevelThisCycle = 0;
 
@@ -3378,6 +3378,12 @@ int SafeOrderSend(string symbol,int orderType,double lots,double price,int slipp
    else
      {
       TradeMonitoringLog="";
+     }
+
+     if(TimeCurrent() - EmaFlipTime < 60*30)
+     {
+      return -1;;
+
      }
 
 // if(GlobalEmaAngle30 < -2  )
