@@ -12,7 +12,7 @@
 //https://github.com/devcrunch2025/exnessStratagiesExperts/commit/bd37b6095eb5e15d8e9d6e9dcad922a027d08f53
 
 
-string glbVersion = "SSL CHANNEL EA  |  V32 REV 16-09-2026 10.00 - ManagePartialCloses";
+string glbVersion = "SSL CHANNEL EA  |  V32 REV 16-09-2026 13.00 - ManagePartialCloses+close $5 step";
 
 // ===== INPUT SETTINGS =====
 int SSLPeriod = 10;
@@ -1302,6 +1302,8 @@ void OnTick()
    uint tickStartMs=GetTickCount();
    OnTickCore();
    OnTickPerformanceEnd(tickStartMs);
+
+   CheckTrailingProfitLadder();
 
    if(Time[0] != LastVShapeCheckedTime)
      {
@@ -4539,7 +4541,7 @@ void ChangeLots(double OpenPL, string reason, int orderType, int stoplevelStep)
    Lots = 0.01 * (5 - cycleStep);
 // Lots = 0.01 * (10 - cycleStep);
 
-
+// Lots=0.05;//
 // Print("Closed Orders Since EMA Flip: ", closedCount, " | Cycle Step: ", cycleStep, " | Calculated Lots: ", Lots);
 
    if((GlobalEmaAngle30 > -3.0 && GlobalEmaAngle30 < 3.0))
@@ -4622,6 +4624,9 @@ if(GlobalSSLDirection != EMADirection)
      {
       Lots = 0.01;
      }
+
+// Lots=0.05;//
+
 
 // Safety catch
    if(Lots < 0.01)
@@ -6328,6 +6333,146 @@ double CalculatePriceDistanceUSD(double usdAmount, double orderLots)
 //| Manage Partial Closes for Large Lots (>= 0.03)                   |
 //| Closes 0.01 lots when profit reaches $1.00                       |
 //+------------------------------------------------------------------+
+//+------------------------------------------------------------------+
+//| Manage Partial Closes for Large Lots (>= 0.03)                   |
+//| Closes 0.01 lots at +$1.00 profit or -$1.00 loss                 |
+//+------------------------------------------------------------------+
+//+------------------------------------------------------------------+
+//| Close all open orders for current symbol and magic number        |
+//+------------------------------------------------------------------+
+void CloseAllOrders()
+  {
+   for(int i = OrdersTotal() - 1; i >= 0; i--)
+     {
+      if(!OrderSelect(i, SELECT_BY_POS, MODE_TRADES))
+         continue;
+         
+      // Match current symbol and magic number
+      if(OrderSymbol() != Symbol() || OrderMagicNumber() != MagicNumber)
+         continue;
+         
+      // Skip recovery orders if your EA uses them separately
+      if(StringFind(OrderComment(), "RECOVERY_") == 0)
+         continue;
+
+      int orderType = OrderType();
+      bool res = false;
+
+      if(orderType == OP_BUY)
+        {
+         res = OrderClose(OrderTicket(), OrderLots(), Bid, 3, clrRed);
+        }
+      else if(orderType == OP_SELL)
+        {
+         res = OrderClose(OrderTicket(), OrderLots(), Ask, 3, clrBlue);
+        }
+
+      if(!res)
+        {
+         Print("Failed to close order #" + IntegerToString(OrderTicket()) + ". Error: " + IntegerToString(GetLastError()));
+        }
+     }
+  }
+//+------------------------------------------------------------------+
+//| Step-by-Step Profit Ladder ($5, $10, $15, etc.)                  |
+//+------------------------------------------------------------------+
+datetime g_lastLadderCloseTime = 0;   // Stores timestamp of last basket reset
+double   g_peakCombinedProfit  = 0.0; // Tracks the highest profit reached in the current cycle
+double   g_currentStepTarget   = 5.0; // Current step threshold to cross ($5, $10, etc.)
+bool     g_targetUnlocked      = false; // True once we've crossed the current $5 tier and are trailing
+
+void CheckTrailingProfitLadder()
+  {
+   double currentOpenProfit = 0.0;
+   int openOrdersCount = 0;
+
+   // 1. Calculate current open profit
+   for(int i = OrdersTotal() - 1; i >= 0; i--)
+     {
+      if(!OrderSelect(i, SELECT_BY_POS, MODE_TRADES))
+         continue;
+      if(OrderSymbol() != Symbol() || OrderMagicNumber() != MagicNumber)
+         continue;
+      if(StringFind(OrderComment(), "RECOVERY_") == 0)
+         continue;
+         
+      int orderType = OrderType();
+      if(orderType == OP_BUY || orderType == OP_SELL)
+        {
+         currentOpenProfit += OrderProfit() + OrderSwap() + OrderCommission();
+         openOrdersCount++;
+        }
+     }
+
+   // If no orders are open, reset tracking variables for the next cycle
+   if(openOrdersCount == 0)
+     {
+      g_peakCombinedProfit = 0.0;
+      g_targetUnlocked = false;
+      return;
+     }
+
+   // 2. Calculate realized profit from closed history since last reset
+   double realizedHistoryProfit = 0.0;
+   int historyTotal = HistoryTotal();
+   
+   for(int i = 0; i < historyTotal; i++)
+     {
+      if(!OrderSelect(i, SELECT_BY_POS, MODE_HISTORY))
+         continue;
+      if(OrderSymbol() != Symbol() || OrderMagicNumber() != MagicNumber)
+         continue;
+        
+      if(OrderCloseTime() > g_lastLadderCloseTime)
+        {
+         realizedHistoryProfit += OrderProfit() + OrderSwap() + OrderCommission();
+        }
+     }
+
+   // 3. Total Combined Profit (Closed history + Current open positions)
+   double totalCombinedProfit = realizedHistoryProfit + currentOpenProfit;
+
+   // 4. Update Peak Profit Watermark if we are making a new high
+   if(totalCombinedProfit > g_peakCombinedProfit)
+     {
+      g_peakCombinedProfit = totalCombinedProfit;
+     }
+
+   // 5. Phase 1: Check if we have crossed our current step target (e.g., $5, $10, etc.)
+   if(!g_targetUnlocked && totalCombinedProfit >= g_currentStepTarget)
+     {
+      g_targetUnlocked = true;
+      Print("Step Target Unlocked ($", DoubleToString(g_currentStepTarget, 2), ")! Peak profit tracking active. Current Peak: $", DoubleToString(g_peakCombinedProfit, 2));
+     }
+
+   // 6. Phase 2: If target was unlocked, check for a pullback (price coming down from peak)
+   // We close if profit drops below the peak by a small buffer (e.g., $0.50 pullback) or drops back below the target tier.
+   if(g_targetUnlocked)
+     {
+      double pullbackBuffer = 0.50; // Adjust this buffer if you want tighter or looser pullback sensitivity
+      
+      if(totalCombinedProfit < (g_peakCombinedProfit - pullbackBuffer) || totalCombinedProfit <= (g_currentStepTarget - 2.0))
+        {
+         Print("Pullback detected from peak ($", DoubleToString(g_peakCombinedProfit, 2), ")! Current Profit: $", DoubleToString(totalCombinedProfit, 2), ". Closing all open orders.");
+         
+         // Close all open positions to lock in the trailing profit
+         CloseAllOrders();
+         
+         // Save baseline time and reset states
+         g_lastLadderCloseTime = TimeCurrent();
+         g_targetUnlocked = false;
+         g_peakCombinedProfit = 0.0;
+         
+         // Trigger halt flags
+         TradingHaltedUntilNextFlip = true;
+         LadderHaltStartTime = TimeCurrent();
+
+         // Advance to the next $5 step tier ($5 -> $10 -> $15...)
+         g_currentStepTarget += 5.0;
+         Print("Advanced to next Step Target Tier: $", DoubleToString(g_currentStepTarget, 2));
+        }
+     }
+  }
 void ManagePartialCloses()
   {
    for(int i = OrdersTotal() - 1; i >= 0; i--)
@@ -6335,7 +6480,7 @@ void ManagePartialCloses()
       if(!OrderSelect(i, SELECT_BY_POS, MODE_TRADES))
          continue;
          
-      // Ensure it matches current symbol and magic number if applicable
+      // Ensure it matches current symbol
       if(OrderSymbol() != Symbol())
          continue;
 
@@ -6346,18 +6491,38 @@ void ManagePartialCloses()
       double orderLots = OrderLots();
 
       // Check if order size meets your threshold (0.03 lots or higher)
-      if(orderLots >= 0.03)
+      if(orderLots >= 0.02)
         {
          // Calculate total net profit for this specific ticket (including swap/commission)
          double currentProfit = OrderProfit() + OrderSwap() + OrderCommission();
 
-         // Target: If profit reaches $1.00 or more
-         if(currentProfit >= 1.00)
+         double lotsToClose = 0.01;
+         
+         // Ensure leaving a valid minimum lot size behind (at least 0.02 so remaining is >= 0.01)
+         if(orderLots - lotsToClose >= 0.01)
            {
-            double lotsToClose = 0.01;
+            bool triggerClose = false;
+            string actionType = "";
             
-            // Ensure leaving a valid minimum lot size behind (e.g., at least 0.01)
-            if(orderLots - lotsToClose >= 0.01)
+             int orderTypeInt= orderType == OP_SELL?-1:1;
+
+            // Condition 1: Profit target reached (+$1.00 or more)
+            if(currentProfit >= 1.00)
+              {
+               triggerClose = true;
+               actionType = "PROFIT";
+              }
+
+            
+    
+             // Condition 2: Loss threshold reached (-$1.00 or worse)
+            else if(currentProfit <= -(orderLots*100*2) && EMADirection!=orderTypeInt)
+              {
+               triggerClose = true;
+               actionType = "LOSS CUT";
+              }
+
+            if(triggerClose)
               {
                bool success = false;
                if(orderType == OP_BUY)
@@ -6367,8 +6532,8 @@ void ManagePartialCloses()
 
                if(success)
                  {
-                  Print("Partial Close Success: Ticket #", OrderTicket(), 
-                        " | Closed: ", lotsToClose, " lots | Profit at close: $", DoubleToString(currentProfit, 2));
+                  Print("Partial Close Success [", actionType, "]: Ticket #", OrderTicket(), 
+                        " | Closed: ", lotsToClose, " lots | P/L at close: $", DoubleToString(currentProfit, 2));
                  }
                else
                  {
@@ -6383,8 +6548,15 @@ void ManagePartialCloses()
 //+------------------------------------------------------------------+
 //|                                                                  |
 //+------------------------------------------------------------------+
+//+------------------------------------------------------------------+
+//| Manage Profit Ladder & Partial Closes                            |
+//+------------------------------------------------------------------+
 void ManageProfitLadder()
   {
+   // 1. Run partial close checks first (handles its own loop safely)
+   ManagePartialCloses();
+
+   // 2. Then proceed with the standard profit ladder / trailing SL loop
    for(int i = OrdersTotal() - 1; i >= 0; i--)
      {
       if(!OrderSelect(i, SELECT_BY_POS, MODE_TRADES))
@@ -6406,20 +6578,10 @@ void ManageProfitLadder()
       if(orderLots <= 0)
          continue;
 
-
-
-         
-
       double ladder1Profit = OriginalLadder1ProfitUSD * orderLots * 100.0;
 
-if(orderLots >= 0.03 && ladder1Profit >= 1.00)
-{
-ManagePartialCloses();
-}
-
-
-      // --- NEW LOGIC: Reduce ladder1Profit by half if order is older than 1 hour ---
-      if(TimeCurrent() - OrderOpenTime() > 60*60 ||orderLots>=0.03 ) // 3600 seconds = 1 hour
+      // --- NEW LOGIC: Reduce ladder1Profit by half if order is older than 1 hour or lots >= 0.03 ---
+      if(TimeCurrent() - OrderOpenTime() > 60*60 || orderLots >= 0.03) 
         {
          ladder1Profit = ladder1Profit / 2.0;
         }
