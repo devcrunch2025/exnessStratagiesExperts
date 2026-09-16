@@ -12,7 +12,7 @@
 //https://github.com/devcrunch2025/exnessStratagiesExperts/commit/bd37b6095eb5e15d8e9d6e9dcad922a027d08f53
 
 
-string glbVersion = "SSL CHANNEL EA  |  V38 REV 16-09-2026 18.00 - ManagePartialCloses+close $5 step";
+string glbVersion = "SSL CHANNEL EA  |  V38 REV 16-09-2026 18.00 Orderloss steps";
 
 // ===== INPUT SETTINGS =====
 int SSLPeriod = 10;
@@ -6631,35 +6631,16 @@ void ManagePartialCloses()
                triggerClose = true;
                actionType = "PROFIT";
               }
-            // // Condition 2: Loss threshold reached WITH 30-minute cool-down check
-            // else if(currentProfit <= -(orderLots * 100.0 * 2.0))// && EMADirection != orderTypeInt)
-            //   {
-            //    // Check if 30 minutes (1800 seconds) have passed since the last loss cut
-            //    if(TimeCurrent() - g_lastLossCloseTime >= 30 * 60)
-            //      {
-            //       triggerClose = true;
-            //       actionType = "LOSS CUT";
-            //      }
-            //   }
-
-            // Condition 2: Loss threshold reached in increments of $2.00 with 30-min gap
-else if(currentProfit <= -2.00)
-  {
-   // Check if 30 minutes (1800 seconds) have passed since the last loss cut
-   if(TimeCurrent() - g_lastLossCloseTime >= 30 * 60)
-     {
-      // Calculate how many $2 blocks of loss we have experienced
-      int lossLevel = (int)MathFloor(MathAbs(currentProfit) / 2.0);
-      
-      // For a 0.05 lot, we can do up to 4 partial cuts of 0.01.
-      // We track how many lots have already been trimmed or let the step match the depth.
-      if(lossLevel >= 1)
-        {
-         triggerClose = true;
-         actionType = "LOSS CUT ($2 Step)";
-        }
-     }
-  }
+            // Condition 2: Loss threshold reached WITH 30-minute cool-down check
+            else if(currentProfit <= -(orderLots * 100.0))// && EMADirection != orderTypeInt)
+              {
+               // Check if 30 minutes (1800 seconds) have passed since the last loss cut
+               if(TimeCurrent() - g_lastLossCloseTime >= 30 * 60)
+                 {
+                  triggerClose = true;
+                  actionType = "LOSS CUT";
+                 }
+              }
 
             if(triggerClose)
               {
