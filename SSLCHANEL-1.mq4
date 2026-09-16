@@ -12,7 +12,7 @@
 //https://github.com/devcrunch2025/exnessStratagiesExperts/commit/bd37b6095eb5e15d8e9d6e9dcad922a027d08f53
 
 
-string glbVersion = "SSL CHANNEL EA  |  V34 REV 16-09-2026 13.00 - ManagePartialCloses+close $5 step";
+string glbVersion = "SSL CHANNEL EA  |  V36 REV 16-09-2026 15.00 - ManagePartialCloses+close $5 step";
 
 // ===== INPUT SETTINGS =====
 int SSLPeriod = 10;
@@ -1305,7 +1305,7 @@ void OnTick()
 
    CheckEquityBalanceProfitTarget();
 
-   CheckTrailingProfitLadder();
+   CheckDynamicStepLadder();
 
    if(Time[0] != LastVShapeCheckedTime)
      {
@@ -4597,6 +4597,9 @@ if(GlobalSSLDirection != EMADirection)
 
 
      }
+
+
+
 // if((GlobalEmaAngle30>10 || GlobalEmaAngle30<-10) &&  GlobalSSLDirection != EMADirection)
    //   {
    //    Lots = 0.01;
@@ -4647,6 +4650,9 @@ if(GlobalSSLDirection != EMADirection)
      {
       Lots = 0.01;
      }
+
+     if(HasAnyLargeCandle(Symbol(), PERIOD_M1, 30, 200.0, false))
+      Lots = 0.01;
 
 // Lots=0.05;//
 
@@ -6396,15 +6402,12 @@ void CloseAllOrders()
         }
      }
   }
-//+------------------------------------------------------------------+
-//| Step-by-Step Profit Ladder ($5, $10, $15, etc.)                  |
-//+------------------------------------------------------------------+
-datetime g_lastLadderCloseTime = 0;   // Stores timestamp of last basket reset
-double   g_peakCombinedProfit  = 0.0; // Tracks the highest profit reached in the current cycle
-double   g_currentStepTarget   = 5.0; // Current step threshold to cross ($5, $10, etc.)
-bool     g_targetUnlocked      = false; // True once we've crossed the current $5 tier and are trailing
 
-void CheckTrailingProfitLadder()
+  datetime g_lastLadderCloseTime = 0;   // Stores timestamp of last basket reset
+double   g_peakCycleProfit     = 0.0; // Tracks the highest profit reached in the current cycle
+double   g_stepSize            = 5.0; // The step increment ($5)
+
+void CheckDynamicStepLadder()
   {
    double currentOpenProfit = 0.0;
    int openOrdersCount = 0;
@@ -6427,11 +6430,10 @@ void CheckTrailingProfitLadder()
         }
      }
 
-   // If no orders are open, reset tracking variables for the next cycle
+   // If no orders are open, reset peak tracking for the next cycle
    if(openOrdersCount == 0)
      {
-      g_peakCombinedProfit = 0.0;
-      g_targetUnlocked = false;
+      g_peakCycleProfit = 0.0;
       return;
      }
 
@@ -6452,50 +6454,144 @@ void CheckTrailingProfitLadder()
         }
      }
 
-   // 3. Total Combined Profit (Closed history + Current open positions)
-   double totalCombinedProfit = realizedHistoryProfit + currentOpenProfit;
+   // 3. Current active cycle profit
+   double cycleProfit = realizedHistoryProfit + currentOpenProfit;
 
-   // 4. Update Peak Profit Watermark if we are making a new high
-   if(totalCombinedProfit > g_peakCombinedProfit)
+   // 4. Update Peak Profit Watermark if we make a new high
+   if(cycleProfit > g_peakCycleProfit)
      {
-      g_peakCombinedProfit = totalCombinedProfit;
+      g_peakCycleProfit = cycleProfit;
      }
 
-   // 5. Phase 1: Check if we have crossed our current step target (e.g., $5, $10, etc.)
-   if(!g_targetUnlocked && totalCombinedProfit >= g_currentStepTarget)
-     {
-      g_targetUnlocked = true;
-      Print("Step Target Unlocked ($", DoubleToString(g_currentStepTarget, 2), ")! Peak profit tracking active. Current Peak: $", DoubleToString(g_peakCombinedProfit, 2));
-     }
+   // 5. Dynamically calculate the highest $5 step milestone unlocked by the peak
+   // e.g., if peak is $14, MathFloor(14 / 5) * 5 = $10 floor milestone.
+   // If peak is $17, MathFloor(17 / 5) * 5 = $15 floor milestone.
+   double unlockedStepFloor = MathFloor(g_peakCycleProfit / g_stepSize) * g_stepSize;
 
-   // 6. Phase 2: If target was unlocked, check for a pullback (price coming down from peak)
-   // We close if profit drops below the peak by a small buffer (e.g., $0.50 pullback) or drops back below the target tier.
-   if(g_targetUnlocked)
+   // Ensure we have at least crossed the first $5 step before trailing starts
+   if(unlockedStepFloor >= g_stepSize)
      {
-      double pullbackBuffer = 0.50; // Adjust this buffer if you want tighter or looser pullback sensitivity
-      
-      if(totalCombinedProfit < (g_peakCombinedProfit - pullbackBuffer) || totalCombinedProfit <= (g_currentStepTarget - 2.0))
+      // 6. If the current profit drops down to or below the previous step floor, close all orders!
+      // (e.g., Peak hit $14 -> Floor is $10. If current profit drops back to $10, trigger close.)
+      if(cycleProfit <= unlockedStepFloor)
         {
-         Print("Pullback detected from peak ($", DoubleToString(g_peakCombinedProfit, 2), ")! Current Profit: $", DoubleToString(totalCombinedProfit, 2), ". Closing all open orders.");
+         Print("Dynamic Step Exit! Peak reached: $", DoubleToString(g_peakCycleProfit, 2), 
+               " | Market came down to step floor: $", DoubleToString(unlockedStepFloor, 2), ". Closing all open orders.");
          
-         // Close all open positions to lock in the trailing profit
          CloseAllOrders();
          
-         // Save baseline time and reset states
+         // Save baseline time and reset peak for the next cycle
          g_lastLadderCloseTime = TimeCurrent();
-         g_targetUnlocked = false;
-         g_peakCombinedProfit = 0.0;
-         
-         // // Trigger halt flags
-         // TradingHaltedUntilNextFlip = true;
-         // LadderHaltStartTime = TimeCurrent();
-
-         // Advance to the next $5 step tier ($5 -> $10 -> $15...)
-         g_currentStepTarget += 5.0;
-         Print("Advanced to next Step Target Tier: $", DoubleToString(g_currentStepTarget, 2));
+         g_peakCycleProfit = 0.0;
         }
      }
   }
+// //+------------------------------------------------------------------+
+// //| Step-by-Step Profit Ladder ($5, $10, $15, etc.)                  |
+// //+------------------------------------------------------------------+
+// datetime g_lastLadderCloseTime = 0;   // Stores timestamp of last basket reset
+// double   g_peakCombinedProfit  = 0.0; // Tracks the highest profit reached in the current cycle
+// double   g_currentStepTarget   = 5.0; // Current step threshold to cross ($5, $10, etc.)
+// bool     g_targetUnlocked      = false; // True once we've crossed the current $5 tier and are trailing
+
+// void CheckTrailingProfitLadder()
+//   {
+//    double currentOpenProfit = 0.0;
+//    int openOrdersCount = 0;
+
+//    // 1. Calculate current open profit
+//    for(int i = OrdersTotal() - 1; i >= 0; i--)
+//      {
+//       if(!OrderSelect(i, SELECT_BY_POS, MODE_TRADES))
+//          continue;
+//       if(OrderSymbol() != Symbol() || OrderMagicNumber() != MagicNumber)
+//          continue;
+//       if(StringFind(OrderComment(), "RECOVERY_") == 0)
+//          continue;
+         
+//       int orderType = OrderType();
+//       if(orderType == OP_BUY || orderType == OP_SELL)
+//         {
+//          currentOpenProfit += OrderProfit() + OrderSwap() + OrderCommission();
+//          openOrdersCount++;
+//         }
+//      }
+
+//    // If no orders are open, reset tracking variables for the next cycle
+//    if(openOrdersCount == 0)
+//      {
+//       g_peakCombinedProfit = 0.0;
+//       g_targetUnlocked = false;
+//       return;
+//      }
+
+//    // 2. Calculate realized profit from closed history since last reset
+//    double realizedHistoryProfit = 0.0;
+//    int historyTotal = HistoryTotal();
+   
+//    for(int i = 0; i < historyTotal; i++)
+//      {
+//       if(!OrderSelect(i, SELECT_BY_POS, MODE_HISTORY))
+//          continue;
+//       if(OrderSymbol() != Symbol() || OrderMagicNumber() != MagicNumber)
+//          continue;
+        
+//       if(OrderCloseTime() > g_lastLadderCloseTime)
+//         {
+//          realizedHistoryProfit += OrderProfit() + OrderSwap() + OrderCommission();
+//         }
+//      }
+
+//    // 3. Total Combined Profit (Closed history + Current open positions)
+//    double totalCombinedProfit = realizedHistoryProfit + currentOpenProfit;
+
+//    // 4. Update Peak Profit Watermark if we are making a new high
+//    if(totalCombinedProfit > g_peakCombinedProfit)
+//      {
+//       g_peakCombinedProfit = totalCombinedProfit;
+//      }
+
+//    // 5. Phase 1: Check if we have crossed our current step target (e.g., $5, $10, etc.)
+//    if(!g_targetUnlocked && totalCombinedProfit >= g_currentStepTarget)
+//      {
+//       g_targetUnlocked = true;
+//       Print("Step Target Unlocked ($", DoubleToString(g_currentStepTarget, 2), ")! Peak profit tracking active. Current Peak: $", DoubleToString(g_peakCombinedProfit, 2));
+//      }
+
+//    // 6. Phase 2: If target was unlocked, check for a pullback (price coming down from peak)
+//    // We close if profit drops below the peak by a small buffer (e.g., $0.50 pullback) or drops back below the target tier.
+//    if(g_targetUnlocked)
+//      {
+//       double pullbackBuffer = 0.50; // Adjust this buffer if you want tighter or looser pullback sensitivity
+      
+//       if(totalCombinedProfit < (g_peakCombinedProfit - pullbackBuffer) || totalCombinedProfit <= (g_currentStepTarget - 2.0))
+//         {
+//          Print("Pullback detected from peak ($", DoubleToString(g_peakCombinedProfit, 2), ")! Current Profit: $", DoubleToString(totalCombinedProfit, 2), ". Closing all open orders.");
+         
+//          // Close all open positions to lock in the trailing profit
+//          CloseAllOrders();
+         
+//          // Save baseline time and reset states
+//          g_lastLadderCloseTime = TimeCurrent();
+//          g_targetUnlocked = false;
+//          g_peakCombinedProfit = 0.0;
+         
+//          // // Trigger halt flags
+//          // TradingHaltedUntilNextFlip = true;
+//          // LadderHaltStartTime = TimeCurrent();
+
+//          // Advance to the next $5 step tier ($5 -> $10 -> $15...)
+//          g_currentStepTarget += 5.0;
+//          Print("Advanced to next Step Target Tier: $", DoubleToString(g_currentStepTarget, 2));
+//         }
+//      }
+//   }
+// Global tracker for the 30-minute loss gap
+datetime g_lastLossCloseTime = 0; 
+
+//+------------------------------------------------------------------+
+//| Manage Partial Closes with 30-Minute Gap Between Losses          |
+//+------------------------------------------------------------------+
 void ManagePartialCloses()
   {
    for(int i = OrdersTotal() - 1; i >= 0; i--)
@@ -6513,7 +6609,7 @@ void ManagePartialCloses()
 
       double orderLots = OrderLots();
 
-      // Check if order size meets your threshold (0.03 lots or higher)
+      // Check if order size meets your threshold (0.02 lots or higher)
       if(orderLots >= 0.02)
         {
          // Calculate total net profit for this specific ticket (including swap/commission)
@@ -6527,22 +6623,23 @@ void ManagePartialCloses()
             bool triggerClose = false;
             string actionType = "";
             
-             int orderTypeInt= orderType == OP_SELL?-1:1;
+            int orderTypeInt = (orderType == OP_SELL) ? -1 : 1;
 
-            // Condition 1: Profit target reached (+$1.00 or more)
+            // Condition 1: Profit target reached (+$1.00 or more) - Unrestricted
             if(currentProfit >= 1.00)
               {
                triggerClose = true;
                actionType = "PROFIT";
               }
-
-            
-    
-             // Condition 2: Loss threshold reached (-$1.00 or worse)
-            else if(currentProfit <= -(orderLots*100*2) && EMADirection!=orderTypeInt)
+            // Condition 2: Loss threshold reached WITH 30-minute cool-down check
+            else if(currentProfit <= -(orderLots * 100.0 * 1.0) && EMADirection != orderTypeInt)
               {
-               triggerClose = true;
-               actionType = "LOSS CUT";
+               // Check if 30 minutes (1800 seconds) have passed since the last loss cut
+               if(TimeCurrent() - g_lastLossCloseTime >= 30 * 60)
+                 {
+                  triggerClose = true;
+                  actionType = "LOSS CUT";
+                 }
               }
 
             if(triggerClose)
@@ -6555,6 +6652,12 @@ void ManagePartialCloses()
 
                if(success)
                  {
+                  // If this was a loss cut, update our timer baseline
+                  if(actionType == "LOSS CUT")
+                    {
+                     g_lastLossCloseTime = TimeCurrent();
+                    }
+
                   Print("Partial Close Success [", actionType, "]: Ticket #", OrderTicket(), 
                         " | Closed: ", lotsToClose, " lots | P/L at close: $", DoubleToString(currentProfit, 2));
                  }
