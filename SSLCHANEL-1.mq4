@@ -6632,7 +6632,7 @@ void ManagePartialCloses()
                actionType = "PROFIT";
               }
             // Condition 2: Loss threshold reached WITH 30-minute cool-down check
-            else if(currentProfit <= -(orderLots * 100.0))// && EMADirection != orderTypeInt)
+            else if(currentProfit <= -(orderLots * 200.0 ))// && EMADirection != orderTypeInt)
               {
                // Check if 30 minutes (1800 seconds) have passed since the last loss cut
                if(TimeCurrent() - g_lastLossCloseTime >= 30 * 60)
