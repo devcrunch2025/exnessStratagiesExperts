@@ -12,7 +12,7 @@
 //https://github.com/devcrunch2025/exnessStratagiesExperts/commit/bd37b6095eb5e15d8e9d6e9dcad922a027d08f53
 
 
-string glbVersion = "SSL CHANNEL EA  |  V31 REV 16-09-2026 09.00";
+string glbVersion = "SSL CHANNEL EA  |  V32 REV 16-09-2026 10.00 - ManagePartialCloses";
 
 // ===== INPUT SETTINGS =====
 int SSLPeriod = 10;
@@ -6324,6 +6324,62 @@ double CalculatePriceDistanceUSD(double usdAmount, double orderLots)
    return (usdAmount / denom) * tickSize;
   }
 
+  //+------------------------------------------------------------------+
+//| Manage Partial Closes for Large Lots (>= 0.03)                   |
+//| Closes 0.01 lots when profit reaches $1.00                       |
+//+------------------------------------------------------------------+
+void ManagePartialCloses()
+  {
+   for(int i = OrdersTotal() - 1; i >= 0; i--)
+     {
+      if(!OrderSelect(i, SELECT_BY_POS, MODE_TRADES))
+         continue;
+         
+      // Ensure it matches current symbol and magic number if applicable
+      if(OrderSymbol() != Symbol())
+         continue;
+
+      int orderType = OrderType();
+      if(orderType != OP_BUY && orderType != OP_SELL)
+         continue;
+
+      double orderLots = OrderLots();
+
+      // Check if order size meets your threshold (0.03 lots or higher)
+      if(orderLots >= 0.03)
+        {
+         // Calculate total net profit for this specific ticket (including swap/commission)
+         double currentProfit = OrderProfit() + OrderSwap() + OrderCommission();
+
+         // Target: If profit reaches $1.00 or more
+         if(currentProfit >= 1.00)
+           {
+            double lotsToClose = 0.01;
+            
+            // Ensure leaving a valid minimum lot size behind (e.g., at least 0.01)
+            if(orderLots - lotsToClose >= 0.01)
+              {
+               bool success = false;
+               if(orderType == OP_BUY)
+                  success = OrderClose(OrderTicket(), lotsToClose, Bid, 3, clrOrange);
+               else if(orderType == OP_SELL)
+                  success = OrderClose(OrderTicket(), lotsToClose, Ask, 3, clrOrange);
+
+               if(success)
+                 {
+                  Print("Partial Close Success: Ticket #", OrderTicket(), 
+                        " | Closed: ", lotsToClose, " lots | Profit at close: $", DoubleToString(currentProfit, 2));
+                 }
+               else
+                 {
+                  Print("Partial Close Failed for Ticket #", OrderTicket(), ". Error: ", GetLastError());
+                 }
+              }
+           }
+        }
+     }
+  }
+
 //+------------------------------------------------------------------+
 //|                                                                  |
 //+------------------------------------------------------------------+
@@ -6350,7 +6406,17 @@ void ManageProfitLadder()
       if(orderLots <= 0)
          continue;
 
+
+
+         
+
       double ladder1Profit = OriginalLadder1ProfitUSD * orderLots * 100.0;
+
+if(orderLots >= 0.03 && ladder1Profit >= 1.00)
+{
+ManagePartialCloses();
+}
+
 
       // --- NEW LOGIC: Reduce ladder1Profit by half if order is older than 1 hour ---
       if(TimeCurrent() - OrderOpenTime() > 60*60 ||orderLots>=0.03 ) // 3600 seconds = 1 hour
