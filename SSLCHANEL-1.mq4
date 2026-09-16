@@ -12,7 +12,7 @@
 //https://github.com/devcrunch2025/exnessStratagiesExperts/commit/bd37b6095eb5e15d8e9d6e9dcad922a027d08f53
 
 
-string glbVersion = "SSL CHANNEL EA  |  V38 REV 16-09-2026 18.00 Orderloss steps";
+string glbVersion = "SSL CHANNEL EA  |  V38 REV 16-09-2026 18.00 Working Good - Aug 4th $100 to $105 . Aug 1st $100 to $110";
 
 // ===== INPUT SETTINGS =====
 int SSLPeriod = 10;
