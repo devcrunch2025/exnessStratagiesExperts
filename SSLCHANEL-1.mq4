@@ -4355,7 +4355,7 @@ void CheckEquityBalanceProfitTarget()
    double accountEquity  = AccountEquity();
    
    // Check if Equity is greater than or equal to Balance + $1.00
-   if(accountEquity >= (accountBalance + 1.00))
+   if(accountEquity >= (accountBalance + 2.00))
      {
       Print("Equity Target Reached! Balance: $", DoubleToString(accountBalance, 2), 
             " | Equity: $", DoubleToString(accountEquity, 2), ". Closing all open orders.");
