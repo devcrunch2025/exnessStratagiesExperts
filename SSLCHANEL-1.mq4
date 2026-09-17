@@ -14,7 +14,7 @@
 //https://github.com/devcrunch2025/exnessStratagiesExperts/commit/00c472a227581be00abce1564b92f74e160f3876
 
 
-string glbVersion = "SSL CHANNEL EA  |  V39  REV 16-09-2026 14.00 Working Good - Aug 1st to 3rd $100 to $130";
+string glbVersion = "SSL CHANNEL EA  |  V41  REV 16-09-2026 22.00  changed $1 to $2";
 
 // ===== INPUT SETTINGS =====
 int SSLPeriod = 10;
@@ -4566,6 +4566,9 @@ void ChangeLots(double OpenPL, string reason, int orderType, int stoplevelStep)
    Lots = 0.01 * (5 - cycleStep);
 // Lots = 0.01 * (10 - cycleStep);
 
+if(Lots==0.01)
+Lots=0.05;
+
 // Lots=0.05;//
 // Print("Closed Orders Since EMA Flip: ", closedCount, " | Cycle Step: ", cycleStep, " | Calculated Lots: ", Lots);
 
@@ -4620,27 +4623,27 @@ if(GlobalSSLDirection != EMADirection)
       Lots = 0.01;
 
 // ===== NEW RULE: CAPP LOTS TO 0.02 IF EQUITY PROFIT > $10 AFTER FLIP =====
-   double realizedProfitAfterFlip = 0.0;
-   if(EmaFlipTime > 0)
-     {
-      for(int h = OrdersHistoryTotal() - 1; h >= 0; h--)
-        {
-         if(OrderSelect(h, SELECT_BY_POS, MODE_HISTORY))
-           {
-            if(OrderSymbol() == Symbol() && OrderMagicNumber() == MagicNumber)
-              {
-               if(OrderCloseTime() >= EmaFlipTime)
-                  realizedProfitAfterFlip += (OrderProfit() + OrderSwap() + OrderCommission());
-              }
-           }
-        }
-     }
-   double equityProfitAfterFlip = realizedProfitAfterFlip + GetEAFloatingPL();
+   // double realizedProfitAfterFlip = 0.0;
+   // if(EmaFlipTime > 0)
+   //   {
+   //    for(int h = OrdersHistoryTotal() - 1; h >= 0; h--)
+   //      {
+   //       if(OrderSelect(h, SELECT_BY_POS, MODE_HISTORY))
+   //         {
+   //          if(OrderSymbol() == Symbol() && OrderMagicNumber() == MagicNumber)
+   //            {
+   //             if(OrderCloseTime() >= EmaFlipTime)
+   //                realizedProfitAfterFlip += (OrderProfit() + OrderSwap() + OrderCommission());
+   //            }
+   //         }
+   //      }
+   //   }
+   // double equityProfitAfterFlip = realizedProfitAfterFlip + GetEAFloatingPL();
 
-   if(equityProfitAfterFlip > 10.0 && Lots >= 0.02)
-     {
-      Lots = 0.01;
-     }
+   // if(equityProfitAfterFlip > 10.0 && Lots >= 0.02)
+   //   {
+   //    Lots = 0.01;
+   //   }
 
    // if(GetCurrentM30Direction() != EMADirection && Lots >= 0.03)
    //   {
@@ -6680,7 +6683,7 @@ void ManagePartialCloses()
             int orderTypeInt = (orderType == OP_SELL) ? -1 : 1;
 
             // Condition 1: Profit target reached (+$1.00 or more) - Unrestricted
-            if(currentProfit >= 1.00)
+            if(currentProfit >= 2.00)
               {
                triggerClose = true;
                actionType = "PROFIT";
