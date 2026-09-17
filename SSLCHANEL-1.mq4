@@ -11,8 +11,10 @@
 
 //https://github.com/devcrunch2025/exnessStratagiesExperts/commit/bd37b6095eb5e15d8e9d6e9dcad922a027d08f53
 
+//https://github.com/devcrunch2025/exnessStratagiesExperts/commit/00c472a227581be00abce1564b92f74e160f3876
 
-string glbVersion = "SSL CHANNEL EA  |  V38 REV 16-09-2026 18.00 Working Good - Aug 4th $100 to $105 . Aug 1st $100 to $110";
+
+string glbVersion = "SSL CHANNEL EA  |  V38 REV 16-09-2026 18.00 Working Good - Aug 1st to 3rd $100 to $130";
 
 // ===== INPUT SETTINGS =====
 int SSLPeriod = 10;
@@ -4654,7 +4656,23 @@ if(GlobalSSLDirection != EMADirection)
      if(HasAnyLargeCandle(Symbol(), PERIOD_M1, 30, 100.0, false))
       Lots = 0.01;
 
+
+      // if(IsAbsolutePriceDifferenceExceeded(5,200))
+      // {
+      // Lots = 0.01;
+
+      // }
+
 // Lots=0.05;//
+
+
+// Lots=Lots*2;
+
+if(Lots==0.02)
+{
+      Lots = 0.04;
+
+}
 
 
 // Safety catch
@@ -4732,6 +4750,42 @@ if(GlobalSSLDirection != EMADirection)
    Ladder1ProfitUSD = OriginalLadder1ProfitUSD * Lots * 100;
    Ladder2ProfitUSD = OriginalLadder2ProfitUSD * Lots * 100;
    Ladder1StopMaxPriceUSD = OriginalLadder1StopMaxPriceUSD * Lots * 100;
+  }
+
+  //+------------------------------------------------------------------+
+//| Check if absolute price difference exceeds threshold in timeframe|
+//+------------------------------------------------------------------+
+bool IsAbsolutePriceDifferenceExceeded(int minutes, double threshold)
+  {
+   // Assuming an M1 chart, 1 minute = 1 bar. 
+   // If your EA runs on M5, M15, etc., you can adjust the multiplier accordingly, 
+   // but assuming M1 execution:
+   int barsToCheck = minutes; 
+   
+   if(Bars < barsToCheck || barsToCheck <= 0) return false;
+
+   double highestPrice = High[0];
+   double lowestPrice  = Low[0];
+
+   // Scan the historical bars within the specified minute window
+   for(int i = 1; i < barsToCheck; i++)
+     {
+      if(High[i] > highestPrice) 
+         highestPrice = High[i];
+      if(Low[i] < lowestPrice)  
+         lowestPrice  = Low[i];
+     }
+
+   // Absolute distance between the ceiling and floor within the time window
+   double absoluteDifference = highestPrice - lowestPrice;
+
+   // Returns true if the absolute range exceeds the user-defined threshold
+   if(absoluteDifference > threshold)
+     {
+      return true;
+     }
+
+   return false;
   }
 
 //+------------------------------------------------------------------+
