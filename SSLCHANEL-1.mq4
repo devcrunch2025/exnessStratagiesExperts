@@ -14,7 +14,7 @@
 //https://github.com/devcrunch2025/exnessStratagiesExperts/commit/00c472a227581be00abce1564b92f74e160f3876
 
 
-string glbVersion = "SSL CHANNEL EA  |  V41  REV 16-09-2026 22.00  changed $1 to $2";
+string glbVersion = "SSL CHANNEL EA  |  V43  REV 17-09-2026 22.00  changed $1 to $2";
 
 // ===== INPUT SETTINGS =====
 int SSLPeriod = 10;
@@ -6683,7 +6683,7 @@ void ManagePartialCloses()
             int orderTypeInt = (orderType == OP_SELL) ? -1 : 1;
 
             // Condition 1: Profit target reached (+$1.00 or more) - Unrestricted
-            if(currentProfit >= 2.00)
+            if(currentProfit >= 1.00 &&  TimeCurrent() - g_lastLossCloseTime >= 60 * 1)
               {
                triggerClose = true;
                actionType = "PROFIT";
@@ -6710,7 +6710,7 @@ void ManagePartialCloses()
                if(success)
                  {
                   // If this was a loss cut, update our timer baseline
-                  if(actionType == "LOSS CUT")
+                  // if(actionType == "LOSS CUT")
                     {
                      g_lastLossCloseTime = TimeCurrent();
                     }
