@@ -14,7 +14,7 @@
 //https://github.com/devcrunch2025/exnessStratagiesExperts/commit/00c472a227581be00abce1564b92f74e160f3876
 
 
-string glbVersion = "SSL CHANNEL EA  |  V38 REV 16-09-2026 18.00 Working Good - Aug 1st to 3rd $100 to $130";
+string glbVersion = "SSL CHANNEL EA  |  V39  REV 16-09-2026 14.00 Working Good - Aug 1st to 3rd $100 to $130";
 
 // ===== INPUT SETTINGS =====
 int SSLPeriod = 10;
@@ -49,7 +49,7 @@ bool enableCircleOrders = true;
 double MaxAllowedSpreadUSD = 35.0;
 int AccountMultiplierLOT = 500;
 double OriginalStopLossUSD = 6;//4;
-double StopLossUSD =6;//5;//10;//2;// 10;
+double StopLossUSD =10;//6;//5;//10;//2;// 10;
 
 
 
@@ -6686,10 +6686,10 @@ void ManagePartialCloses()
                actionType = "PROFIT";
               }
             // Condition 2: Loss threshold reached WITH 30-minute cool-down check
-            else if(currentProfit <= -(orderLots * 200.0 ))// && EMADirection != orderTypeInt)
+            else if(currentProfit <= -(orderLots * 300.0 ))// && EMADirection != orderTypeInt)
               {
                // Check if 30 minutes (1800 seconds) have passed since the last loss cut
-               if(TimeCurrent() - g_lastLossCloseTime >= 30 * 60)
+               if(TimeCurrent() - g_lastLossCloseTime >= 60 * 60)
                  {
                   triggerClose = true;
                   actionType = "LOSS CUT";
