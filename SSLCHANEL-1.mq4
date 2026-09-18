@@ -15,7 +15,7 @@
 
 
 
-string glbVersion = "SSL CHANNEL EA  |  V54  REV 18-09-2026 20.00  FlipLadderStepUSD * StopLossUSD";
+string glbVersion = "SSL CHANNEL EA  |  V55  REV 18-09-2026 21.00  FlipLadderStepUSD * StopLossUSD";
 
 // ===== INPUT SETTINGS =====
 int SSLPeriod = 10;
@@ -6940,7 +6940,7 @@ bool GetTrackedTicketState(int ticket, datetime &outTime, double &outPrice)
      }
    return false;
   }
-  void ManagePartialCloses()
+  void ManagePartialClosesNew()
   {
    for(int i = OrdersTotal() - 1; i >= 0; i--)
      {
@@ -7046,7 +7046,7 @@ bool GetTrackedTicketState(int ticket, datetime &outTime, double &outPrice)
 //+------------------------------------------------------------------+
 //|                                                                  |
 //+------------------------------------------------------------------+
-void ManagePartialClosesOld()
+void ManagePartialCloses()
   {
    for(int i = OrdersTotal() - 1; i >= 0; i--)
      {
@@ -7069,6 +7069,8 @@ void ManagePartialClosesOld()
          // Calculate total net profit for this specific ticket (including swap/commission)
          double currentProfit = OrderProfit() + OrderSwap() + OrderCommission();
          double lotsToClose   = 0.01;
+
+         // g_lastClosedPrice=OrderOpenPrice();
 
          // Ensure leaving a valid minimum lot size behind (at least 0.01 remaining)
          if(orderLots - lotsToClose >= 0.01)
@@ -7096,6 +7098,8 @@ void ManagePartialClosesOld()
                if(currentProfit <= -(orderLots * 100.0))
                  {
                   bool priceGapReached = false;
+
+
 
                   if(g_lastClosedPrice == 0)
                     {
@@ -7152,7 +7156,7 @@ void ManagePartialClosesOld()
 //+------------------------------------------------------------------+
 //| Manage Partial Closes with 30-Minute Gap Between Losses          |
 //+------------------------------------------------------------------+
-void ManagePartialClosesNew()
+void ManagePartialClosesNew111()
   {
    for(int i = OrdersTotal() - 1; i >= 0; i--)
      {
