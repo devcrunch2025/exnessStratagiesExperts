@@ -15,7 +15,7 @@
 
 
 
-string glbVersion = "SSL CHANNEL EA  |  V55  REV 18-09-2026 21.00  FlipLadderStepUSD * StopLossUSD";
+string glbVersion = "SSL CHANNEL EA  |  V56  REV 18-09-2026 23.00  0.01 deleted from big candle";
 
 // ===== INPUT SETTINGS =====
 int SSLPeriod = 10;
@@ -3437,16 +3437,16 @@ int SafeOrderSend(string symbol,int orderType,double lots,double price,int slipp
    if(!IsDayProfitLadderTradingAllowed())
       return -1;
 
-   if(GlobalEmaAngle30<2 &&  GlobalEmaAngle30 > -2)
-     {
-      Comment("TRADE BLOCKED | BOTH SIDES Angle below 2 degrees. No trade allowed.");
-      TradeMonitoringLog="TRADE BLOCKED | BOTH SIDES Angle below 2 degrees. No trade allowed.";
-      return -1;;
-     }
-   else
-     {
-      TradeMonitoringLog="";
-     }
+   // if(GlobalEmaAngle30<2 &&  GlobalEmaAngle30 > -2)
+   //   {
+   //    Comment("TRADE BLOCKED | BOTH SIDES Angle below 2 degrees. No trade allowed.");
+   //    TradeMonitoringLog="TRADE BLOCKED | BOTH SIDES Angle below 2 degrees. No trade allowed.";
+   //    return -1;;
+   //   }
+   // else
+   //   {
+   //    TradeMonitoringLog="";
+   //   }
 
    if(TimeCurrent() - EmaFlipTime < 60*30)
      {
@@ -4879,10 +4879,10 @@ void ChangeLots(double OpenPL, string reason, int orderType, int stoplevelStep)
 //   }
 
 // --- PREVIOUS 2 M1 CANDLES BODY HEIGHT FILTER (Each > 100 raw price difference) ---
-   if(MathAbs(Open[1] - Close[1]) > 100.0 && MathAbs(Open[2] - Close[2]) > 100.0)
-     {
-      Lots = 0.01;
-     }
+   // if(MathAbs(Open[1] - Close[1]) > 100.0 && MathAbs(Open[2] - Close[2]) > 100.0)
+   //   {
+   //    Lots = 0.01;
+   //   }
 
    if(HasAnyLargeCandle(Symbol(), PERIOD_M1, 30, 100.0, false))
       Lots = 0.01;
