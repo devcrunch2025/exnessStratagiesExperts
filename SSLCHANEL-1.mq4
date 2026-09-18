@@ -14,7 +14,7 @@
 //https://github.com/devcrunch2025/exnessStratagiesExperts/commit/00c472a227581be00abce1564b92f74e160f3876
 
 
-string glbVersion = "SSL CHANNEL EA  |  V46  REV 18-09-2026 13.00  FlipLadderStepUSD * StopLossUSD";
+string glbVersion = "SSL CHANNEL EA  |  V47  REV 18-09-2026 13.00  FlipLadderStepUSD * StopLossUSD";
 
 // ===== INPUT SETTINGS =====
 int SSLPeriod = 10;
@@ -7073,13 +7073,18 @@ void ManageProfitLadder()
          continue;
 
       double ladder1Profit = OriginalLadder1ProfitUSD * orderLots * 100.0;
-
+double currentSL = OrderStopLoss();
       // --- NEW LOGIC: Reduce ladder1Profit by half if order is older than 1 hour or lots >= 0.03 ---
       // if(TimeCurrent() - OrderOpenTime() > 60*60 || orderLots >= 0.03) 
       if(TimeCurrent() - OrderOpenTime() > 60*60)
         {
          ladder1Profit = ladder1Profit / 2.0;
         }
+
+        if(currentSL <= 100 )
+           {
+            ladder1Profit = 0.10; // Or scale dynamically: (slDistance / 100.0) * 0.10
+           }
       // -----------------------------------------------------------------------------
 
       double ladder2Profit = OriginalLadder2ProfitUSD * orderLots * 100.0;
