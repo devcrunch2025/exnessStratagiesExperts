@@ -15,7 +15,7 @@
 
 
 
-string glbVersion = "SSL CHANNEL EA  |  V52  REV 18-09-2026 19.00  FlipLadderStepUSD * StopLossUSD";
+string glbVersion = "SSL CHANNEL EA  |  V53  REV 18-09-2026 20.00  FlipLadderStepUSD * StopLossUSD";
 
 // ===== INPUT SETTINGS =====
 int SSLPeriod = 10;
@@ -4499,7 +4499,7 @@ bool IsHeavyLotOrderNearBy(int orderType, double checkLot, double gapRawThreshol
       double distance = MathAbs(currentPrice - OrderOpenPrice());
       if(distance < gapRawThreshold)
         {
-         Print("HEAVY ORDER BLOCKED | Ticket: ", OrderTicket(), " | Gap: ", DoubleToString(distance, Digits));
+         Print("HEAVY ORDER Detected and Lots=0.01 | Ticket: ", OrderTicket(), " | Gap: ", DoubleToString(distance, Digits));
          return true;
         }
      }
@@ -4849,8 +4849,6 @@ void ChangeLots(double OpenPL, string reason, int orderType, int stoplevelStep)
      }
 
 
-   if(IsHeavyLotOrderNearBy(orderType, Lots, 300) && Lots>=0.02)
-      Lots = 0.01;
 
 // ===== NEW RULE: CAPP LOTS TO 0.02 IF EQUITY PROFIT > $10 AFTER FLIP =====
 // double realizedProfitAfterFlip = 0.0;
@@ -4909,6 +4907,13 @@ void ChangeLots(double OpenPL, string reason, int orderType, int stoplevelStep)
 
 
 // Safety catch
+
+
+
+   if(IsHeavyLotOrderNearBy(orderType, Lots, 300) && Lots>=0.02)
+      Lots = 0.01;
+
+      
    if(Lots < 0.01)
      {
       Lots = 0.01;
@@ -6886,11 +6891,160 @@ void CheckDynamicStepLadder()
 // Global tracker for the 30-minute loss gap
 datetime g_lastLossCloseTime = 0;
 double   g_lastClosedPrice   = 0;
+// Global arrays to track individual ticket states independently for multi-order support
+int      g_trackedTickets[];
+datetime g_lastLossCloseTimes[];
+double   g_lastClosedPrices[];
 
+void TrackTicketLossState(int ticket, datetime closeTime, double closePrice)
+  {
+   int size = ArraySize(g_trackedTickets);
+   int index = -1;
+   
+   for(int i = 0; i < size; i++)
+     {
+      if(g_trackedTickets[i] == ticket)
+        {
+         index = i;
+         break;
+        }
+     }
+     
+   if(index == -1)
+     {
+      ArrayResize(g_trackedTickets, size + 1);
+      ArrayResize(g_lastLossCloseTimes, size + 1);
+      ArrayResize(g_lastClosedPrices, size + 1);
+      index = size;
+      g_trackedTickets[index] = ticket;
+     }
+     
+   g_lastLossCloseTimes[index] = closeTime;
+   g_lastClosedPrices[index]   = closePrice;
+  }
+
+bool GetTrackedTicketState(int ticket, datetime &outTime, double &outPrice)
+  {
+   int size = ArraySize(g_trackedTickets);
+   for(int i = 0; i < size; i++)
+     {
+      if(g_trackedTickets[i] == ticket)
+        {
+         outTime  = g_lastLossCloseTimes[i];
+         outPrice = g_lastClosedPrices[i];
+         return true;
+        }
+     }
+   return false;
+  }
+
+void ManagePartialCloses()
+  {
+   for(int i = OrdersTotal() - 1; i >= 0; i--)
+     {
+      if(!OrderSelect(i, SELECT_BY_POS, MODE_TRADES))
+         continue;
+
+      // Ensure it matches current symbol
+      if(OrderSymbol() != Symbol())
+         continue;
+
+      int orderType = OrderType();
+      if(orderType != OP_BUY && orderType != OP_SELL)
+         continue;
+
+      double orderLots = OrderLots();
+      int currentTicket = OrderTicket();
+
+      // Check if order size meets your threshold (0.02 lots or higher)
+      if(orderLots >= 0.02)
+        {
+         // Calculate total net profit for this specific ticket (including swap/commission)
+         double currentProfit = OrderProfit() + OrderSwap() + OrderCommission();
+         double lotsToClose   = 0.01;
+
+         // Ensure leaving a valid minimum lot size behind (at least 0.01 remaining)
+         if(orderLots - lotsToClose >= 0.01)
+           {
+            bool   triggerClose = false;
+            string actionType   = "";
+            int    orderTypeInt = (orderType == OP_SELL) ? -1 : 1;
+            int    minimum_Profit = 2;
+
+            if(TimeCurrent() - OrderOpenTime() > 60 * 30)
+              {
+               minimum_Profit = 1;
+              }
+
+            // Retrieve independent state for this specific ticket
+            datetime ticketLastLossTime = 0;
+            double   ticketLastPrice    = 0;
+            bool     hasState           = GetTrackedTicketState(currentTicket, ticketLastLossTime, ticketLastPrice);
+
+            // === CONDITION 1: PROFIT TARGET REACHED ===
+            if(currentProfit >= minimum_Profit &&
+               TimeCurrent() - OrderOpenTime() > 60 * 1 &&
+               (!hasState || TimeCurrent() - ticketLastLossTime >= 60 * 2))
+              {
+               triggerClose = true;
+               actionType   = "PROFIT";
+              }
+            // === CONDITION 2: SEQUENTIAL LOSS GAP CUT ($100 GAPS) ===
+            else if(currentProfit <= -(orderLots * 100.0))
+              {
+               bool priceGapReached = false;
+
+               if(!hasState || ticketLastPrice == 0)
+                 {
+                  priceGapReached = true; // First partial loss close for this ticket
+                 }
+               else if(orderTypeInt == 1 && (ticketLastPrice - Bid) >= 100.0) // OP_BUY
+                 {
+                  priceGapReached = true;
+                 }
+               else if(orderTypeInt == -1 && (Ask - ticketLastPrice) >= 100.0) // OP_SELL
+                 {
+                  priceGapReached = true;
+                 }
+
+               if(priceGapReached)
+                 {
+                  triggerClose = true;
+                  actionType   = "LOSS CUT";
+                 }
+              }
+
+            // === EXECUTE ORDER CLOSE ONCE IF TRIGGERED ===
+            if(triggerClose)
+              {
+               RefreshRates();
+               double closePrice = (orderType == OP_BUY) ? Bid : Ask;
+
+               // Use higher slippage (20) to prevent Error 138 during fast market movement
+               bool success = OrderClose(currentTicket, lotsToClose, closePrice, 20, (actionType == "PROFIT" ? clrOrange : clrRed));
+
+               if(success)
+                 {
+                  // Save state independently for this ticket
+                  TrackTicketLossState(currentTicket, TimeCurrent(), closePrice);
+
+                  Print("Partial Close Success [", actionType, "]: Ticket #", currentTicket,
+                        " | Closed: ", lotsToClose, " lots | P/L: $", DoubleToString(currentProfit, 2),
+                        " | Price: ", closePrice);
+                 }
+               else
+                 {
+                  Print("Partial Close Failed for Ticket #", currentTicket, ". Error: ", GetLastError());
+                 }
+              }
+           }
+        }
+     }
+  }
 //+------------------------------------------------------------------+
 //|                                                                  |
 //+------------------------------------------------------------------+
-void ManagePartialCloses()
+void ManagePartialClosesOld()
   {
    for(int i = OrdersTotal() - 1; i >= 0; i--)
      {
