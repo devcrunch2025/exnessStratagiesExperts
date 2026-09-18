@@ -14,7 +14,7 @@
 //https://github.com/devcrunch2025/exnessStratagiesExperts/commit/00c472a227581be00abce1564b92f74e160f3876
 
 
-string glbVersion = "SSL CHANNEL EA  |  V47  REV 18-09-2026 13.00  FlipLadderStepUSD * StopLossUSD";
+string glbVersion = "SSL CHANNEL EA  |  V49  REV 18-09-2026 15.00  FlipLadderStepUSD * StopLossUSD";
 
 // ===== INPUT SETTINGS =====
 int SSLPeriod = 10;
@@ -64,7 +64,7 @@ double TargetProfitPerFlipUSD = 10.0;
 // bool TradingHaltedUntilNextFlip = false;
 
 // ===== EMA FLIP PROFIT LADDER =====
-double FlipLadderStepUSD =10;// 5;//10.0;
+double FlipLadderStepUSD =0;//10;// 5;//10.0;
 double HighestCycleProfitUSD = 0.0;
 bool   TradingHaltedUntilNextFlip = false;
 double ActiveEquityBaseline = 0.0; // Add this new variable
@@ -74,7 +74,7 @@ double SecurebaselinePercentage=0.90;
 
 // --- NEW RESUME TIMER VARIABLES ---
 datetime LadderHaltStartTime = 0;
-  int InpResumeAfterHaltMinutes = 60; // Resume after 1 hour if no flip occurs
+int InpResumeAfterHaltMinutes = 60; // Resume after 1 hour if no flip occurs
 
 
 int    HighestLadderLevelThisCycle = 0; // <-- NEW
@@ -901,7 +901,7 @@ void ManageFlipProfitLadder()
       TradingHaltedUntilNextFlip = true;
       LadderHaltStartTime = TimeCurrent();
       //CloseAndDeleteAllEAOrdersOnTradingStop();
-               CloseAndDeleteNonEmaMatchingOrders();
+      CloseAndDeleteNonEmaMatchingOrders();
 
       return;
      }
@@ -1165,7 +1165,7 @@ int OnInit()
   {
 
 
-   FlipLadderStepUSD=StopLossUSD;//
+   FlipLadderStepUSD=StopLossUSD*10;//
    SecurebaselinePercentage = (100.0 - (StopLossUSD * 2.0)) / 100.0;//
 
    EquityResetReEntryPending=false;
@@ -1454,7 +1454,7 @@ void CheckMomentumExhaustionExits()
         }
      }
   }
-  //+------------------------------------------------------------------+
+//+------------------------------------------------------------------+
 //| Manage Overall Basket Profit (Requires Both Buy and Sell Orders) |
 //+------------------------------------------------------------------+
 void ManageOverallBasketProfit()
@@ -1464,14 +1464,14 @@ void ManageOverallBasketProfit()
    int buyOrdersCount = 0;
    int sellOrdersCount = 0;
 
-   // 1. Calculate metrics and count buys/sells separately
+// 1. Calculate metrics and count buys/sells separately
    for(int i = OrdersTotal() - 1; i >= 0; i--)
      {
       if(!OrderSelect(i, SELECT_BY_POS, MODE_TRADES))
          continue;
       if(OrderSymbol() != Symbol() || OrderMagicNumber() != MagicNumber)
          continue;
-        
+
       int type = OrderType();
       if(type == OP_BUY)
         {
@@ -1479,15 +1479,16 @@ void ManageOverallBasketProfit()
          totalLots += OrderLots();
          buyOrdersCount++;
         }
-      else if(type == OP_SELL)
-        {
-         totalBasketProfit += (OrderProfit() + OrderSwap() + OrderCommission());
-         totalLots += OrderLots();
-         sellOrdersCount++;
-        }
+      else
+         if(type == OP_SELL)
+           {
+            totalBasketProfit += (OrderProfit() + OrderSwap() + OrderCommission());
+            totalLots += OrderLots();
+            sellOrdersCount++;
+           }
      }
 
-   // 2. Only proceed if BOTH buy and sell orders are present
+// 2. Only proceed if BOTH buy and sell orders are present
    if(buyOrdersCount > 0 && sellOrdersCount > 0)
      {
       // Dynamic profit target: Total Lots * 0.50 * 100 (Total Lots * 50.0)
@@ -1495,12 +1496,12 @@ void ManageOverallBasketProfit()
 
       if(totalBasketProfit > dynamicProfitTarget)
         {
-         Print("HEDGED BASKET PROFIT TARGET HIT ($", DoubleToString(totalBasketProfit, 2), 
-               " > Target: $", DoubleToString(dynamicProfitTarget, 2), 
+         Print("HEDGED BASKET PROFIT TARGET HIT ($", DoubleToString(totalBasketProfit, 2),
+               " > Target: $", DoubleToString(dynamicProfitTarget, 2),
                " for ", DoubleToString(totalLots, 2), " total lots). Closing all orders and continuing trading.");
-         
+
          CloseAndDeleteAllEAOrdersOnTradingStop();
-         
+
          TradingHaltedUntilNextFlip = false;
          LadderHaltStartTime = 0;
         }
@@ -1554,31 +1555,31 @@ void CheckStoredSignals(DailyProtectionState &dailyState)
            }
      }
   }
-  //+------------------------------------------------------------------+
+//+------------------------------------------------------------------+
 //| Close opposite orders created before signal change with loss > $2 |
 //+------------------------------------------------------------------+
 void CloseOppositeLosingOrdersBeforeSignal(int newSignalType)
   {
-   if(!EAStartupComplete) 
+   if(!EAStartupComplete)
       return;
-      
+
    RefreshRates();
 
-   // Loop through all open trades
+// Loop through all open trades
    for(int i = OrdersTotal() - 1; i >= 0; i--)
      {
-      if(!OrderSelect(i, SELECT_BY_POS, MODE_TRADES)) 
+      if(!OrderSelect(i, SELECT_BY_POS, MODE_TRADES))
          continue;
-      if(OrderSymbol() != Symbol() || OrderMagicNumber() != MagicNumber) 
+      if(OrderSymbol() != Symbol() || OrderMagicNumber() != MagicNumber)
          continue;
 
       int orderType = OrderType();
       int ticket = OrderTicket();
       double lots = OrderLots();
       double orderPL = OrderProfit() + OrderSwap() + OrderCommission();
-      
+
       // 1. Check if the open order is directly opposite to the incoming signal
-      bool isOppositeSignal = ((newSignalType == OP_BUY && orderType == OP_SELL) || 
+      bool isOppositeSignal = ((newSignalType == OP_BUY && orderType == OP_SELL) ||
                                (newSignalType == OP_SELL && orderType == OP_BUY));
 
       // 2. Check if the order was created before the last EMA flip / signal change
@@ -1591,11 +1592,11 @@ void CloseOppositeLosingOrdersBeforeSignal(int newSignalType)
       // If all conditions match, close the losing opposite order immediately
       if(isOppositeSignal && isBeforeSignalChange && isLossExceeded)
         {
-         Print("OPPOSITE LOSING ORDER CLOSED: Ticket #", ticket, 
-               " | Type: ", GetOrderTypeText(orderType), 
-               " | Loss: $", DoubleToString(orderPL, 2), 
+         Print("OPPOSITE LOSING ORDER CLOSED: Ticket #", ticket,
+               " | Type: ", GetOrderTypeText(orderType),
+               " | Loss: $", DoubleToString(orderPL, 2),
                " | Threshold: $", DoubleToString(lossThreshold, 2));
-               
+
          SafeOrderClose(ticket, lots, orderType, Slippage, (orderType == OP_BUY ? clrRed : clrBlue));
         }
      }
@@ -1641,24 +1642,24 @@ void CloseOppositeProfitableOrdersIndependent(int newSignalType)
          // SafeOrderClose(ticket, lots, orderType, Slippage, (orderType == OP_BUY ? clrRed : clrBlue));
 
          double targetSL = Bid - (15 * Point); // Example for a Buy order
-ModifyOrderStopLossByTicket(ticket, targetSL);
+         ModifyOrderStopLossByTicket(ticket, targetSL);
         }
      }
   }
 
-  //+------------------------------------------------------------------+
+//+------------------------------------------------------------------+
 //| Modify an open order's Stop Loss by Ticket                      |
 //+------------------------------------------------------------------+
 bool ModifyOrderStopLossByTicket(int ticket, double newStopLoss)
   {
-   // Select the order by ticket
+// Select the order by ticket
    if(!OrderSelect(ticket, SELECT_BY_TICKET, MODE_TRADES))
      {
       Print("Failed to select order #", ticket, " for modification. Error: ", GetLastError());
       return false;
      }
 
-   // Ensure the order is still open and belongs to the current chart symbol
+// Ensure the order is still open and belongs to the current chart symbol
    if(OrderCloseTime() != 0)
      {
       Print("Order #", ticket, " is already closed. Cannot modify.");
@@ -1676,13 +1677,13 @@ bool ModifyOrderStopLossByTicket(int ticket, double newStopLoss)
    double currentTP = OrderTakeProfit();
    double currentSL = OrderStopLoss();
 
-   // Only modify if the stop loss is actually different
+// Only modify if the stop loss is actually different
    if(NormalizeDouble(currentSL, Digits) == NormalizeDouble(newStopLoss, Digits))
      {
       return true; // Already set to this SL
      }
 
-   // Send the modification request
+// Send the modification request
    bool modified = OrderModify(ticket, openPrice, newStopLoss, currentTP, 0, clrYellow);
 
    if(!modified)
@@ -1713,7 +1714,7 @@ void OnTickCore()
 // ManageEmaAngleOppositeClose(); // <-- Add this here
    ProcessDeferredOrders();
 
-   // ManageOverallBasketProfit();
+// ManageOverallBasketProfit();
 
    if(TradeOperationFailedThisTick)
      {
@@ -1896,9 +1897,9 @@ void OnTickCore()
 
    UpdateDashboardsThrottled(dailyState);
 
-   // CloseOppositeProfitableOrdersIndependent(OP_BUY);
+// CloseOppositeProfitableOrdersIndependent(OP_BUY);
 
-   // CloseOppositeProfitableOrdersIndependent(OP_SELL);
+// CloseOppositeProfitableOrdersIndependent(OP_SELL);
 
 
    if(Bars < SSLPeriod + 20)
@@ -3106,6 +3107,9 @@ string GetDubaiTradingPauseReason() { return ""; }
 //|                                                                  |
 //+------------------------------------------------------------------+
 void UpdateDubaiTradingPauseDashboard() { }
+//+------------------------------------------------------------------+
+//|                                                                  |
+//+------------------------------------------------------------------+
 void RemoveDubaiTradingPauseDashboard() { }
 //+------------------------------------------------------------------+
 //| Verify if BUY or SELL order is allowed based on EMA & 300 gap    |
@@ -3113,11 +3117,11 @@ void RemoveDubaiTradingPauseDashboard() { }
 bool IsOrderAllowedByTrendAndGap(int orderType)
   {
    RefreshRates();
-   
+
    bool isBuyRequest  = (orderType == OP_BUY || orderType == OP_BUYSTOP || orderType == OP_BUYLIMIT);
    bool isSellRequest = (orderType == OP_SELL || orderType == OP_SELLSTOP || orderType == OP_SELLLIMIT);
 
-   // Check counter-trend Buy orders when EMA direction is bearish (-1)
+// Check counter-trend Buy orders when EMA direction is bearish (-1)
    if(EMADirection == -1 && isBuyRequest)
      {
       for(int i = OrdersTotal() - 1; i >= 0; i--)
@@ -3126,7 +3130,7 @@ bool IsOrderAllowedByTrendAndGap(int orderType)
             continue;
          if(OrderSymbol() != Symbol() || OrderMagicNumber() != MagicNumber)
             continue;
-            
+
          if(OrderType() == OP_BUY)
            {
             double priceGap = MathAbs(Ask - OrderOpenPrice());
@@ -3139,7 +3143,7 @@ bool IsOrderAllowedByTrendAndGap(int orderType)
         }
      }
 
-   // Check counter-trend Sell orders when EMA direction is bullish (1)
+// Check counter-trend Sell orders when EMA direction is bullish (1)
    if(EMADirection == 1 && isSellRequest)
      {
       for(int i = OrdersTotal() - 1; i >= 0; i--)
@@ -3148,7 +3152,7 @@ bool IsOrderAllowedByTrendAndGap(int orderType)
             continue;
          if(OrderSymbol() != Symbol() || OrderMagicNumber() != MagicNumber)
             continue;
-            
+
          if(OrderType() == OP_SELL)
            {
             double priceGap = MathAbs(Bid - OrderOpenPrice());
@@ -3434,7 +3438,7 @@ int SafeOrderSend(string symbol,int orderType,double lots,double price,int slipp
 
    if(GlobalEmaAngle30<2 &&  GlobalEmaAngle30 > -2)
      {
-      // Print("TRADE BLOCKED | BOTH SIDES Angle below 2 degrees. No trade allowed.");
+      Comment("TRADE BLOCKED | BOTH SIDES Angle below 2 degrees. No trade allowed.");
       TradeMonitoringLog="TRADE BLOCKED | BOTH SIDES Angle below 2 degrees. No trade allowed.";
       return -1;;
      }
@@ -3443,16 +3447,21 @@ int SafeOrderSend(string symbol,int orderType,double lots,double price,int slipp
       TradeMonitoringLog="";
      }
 
-     if(TimeCurrent() - EmaFlipTime < 60*30)
+   if(TimeCurrent() - EmaFlipTime < 60*30)
      {
+
+      Comment("TRADE BLOCKED | EmaFlipTime < 60*30");
+
       return -1;;
 
      }
 
- 
-     if(IsEmaWEAKDistanceReduced50PercentFromPeak(orderType))//weak
+
+   if(IsEmaWEAKDistanceReduced50PercentFromPeak(orderType))//weak
      {
-            return -1;;
+      Comment("TRADE BLOCKED | IsEmaWEAKDistanceReduced50PercentFromPeak");
+
+      return -1;;
 
 
      }
@@ -3465,14 +3474,14 @@ int SafeOrderSend(string symbol,int orderType,double lots,double price,int slipp
 // --- SEPARATE CONDITION: Strict block for opposite orders during strong uptrend (2 to 6 degrees) ---
    if(EMADirection != -1 && (orderType == OP_SELL || orderType == OP_SELLSTOP || orderType == OP_SELLLIMIT))
      {
-      Print("TRADE SELL BLOCKED | Strict opposite block: EMA trend is strong uptrend  ");
+      Comment("TRADE SELL BLOCKED | Strict opposite block: EMA trend is strong uptrend  ");
       return -1;
      }
 
 // --- SEPARATE CONDITION: Strict block for opposite orders during strong downtrend (-2 to -6 degrees) ---
    if(EMADirection != 1 && (orderType == OP_BUY || orderType == OP_BUYSTOP || orderType == OP_BUYLIMIT))
      {
-      Print("TRADE BUY BLOCKED | Strict opposite block: EMA trend is strong downtrend  ");
+      Comment("TRADE BUY BLOCKED | Strict opposite block: EMA trend is strong downtrend  ");
       return -1;
      }
 // --- STRICT EMA TREND FILTER WITH EXHAUSTION ALLOWANCE ---
@@ -3482,20 +3491,20 @@ int SafeOrderSend(string symbol,int orderType,double lots,double price,int slipp
 // Block Sells during a standard strong uptrend (2 to 6 degrees). Allows Sells > 6 for extreme exhaustion.
    if(GetOpenPL(OP_BUY) >-2 && GlobalEmaAngle30 > 2.0 && GlobalEmaAngle30 <= 6.0 && EMADirection != -1 && (orderType == OP_SELL || orderType == OP_SELLSTOP || orderType == OP_SELLLIMIT))
      {
-      // Print("TRADE SELL BLOCKED | EMA trend is strong (", DoubleToString(GlobalEmaAngle30, 2), " deg). Waiting for extreme exhaustion (>6) to Sell.");
+      Comment("TRADE SELL BLOCKED | EMA trend is strong (", DoubleToString(GlobalEmaAngle30, 2), " deg). Waiting for extreme exhaustion (>6) to Sell.");
       return -1;
      }
 
 // Block Buys during a standard strong downtrend (-2 to -6 degrees). Allows Buys < -6 for extreme exhaustion.
    if(GetOpenPL(OP_SELL) > -2 && GlobalEmaAngle30 < -2.0 && GlobalEmaAngle30 >= -6.0 && EMADirection != 1 && (orderType == OP_BUY || orderType == OP_BUYSTOP || orderType == OP_BUYLIMIT))
      {
-      // Print("TRADE BUY BLOCKED | EMA trend is strong (", DoubleToString(GlobalEmaAngle30, 2), " deg). Waiting for extreme exhaustion (<-6) to Buy.");
+      Comment("TRADE BUY BLOCKED | EMA trend is strong (", DoubleToString(GlobalEmaAngle30, 2), " deg). Waiting for extreme exhaustion (<-6) to Buy.");
       return -1;
      }
 
-     if(IsOrderAllowedByTrendAndGap(orderType) == false)
+   if(IsOrderAllowedByTrendAndGap(orderType) == false)
      {
-      // TradeMonitoringLog="TRADE BLOCKED | Counter-trend order blocked due to EMA direction and gap rules.";
+      Comment("TRADE BLOCKED | Counter-trend order blocked due to EMA direction and gap rules.");
       return -1;
      }
 
@@ -3660,11 +3669,11 @@ bool SafeOrderCloseNew(int ticket, double lots, int orderType, int slippage, col
   {
    if(TradeOperationFailedThisTick)
       return false;
-      
+
    string key = MakeTradeErrorKey("MANAGE", ticket, "");
    if(IsTradeErrorBlockedThisTick(key))
       return false;
-      
+
    if(!OrderSelect(ticket, SELECT_BY_TICKET, MODE_TRADES))
      {
       if(OrderSelect(ticket, SELECT_BY_TICKET, MODE_HISTORY))
@@ -3672,75 +3681,76 @@ bool SafeOrderCloseNew(int ticket, double lots, int orderType, int slippage, col
       return false;
      }
 
-   // Calculate total profit including commission and swap
+// Calculate total profit including commission and swap
    double totalProfit = OrderProfit() + OrderSwap() + OrderCommission();
    double openPrice = OrderOpenPrice();
    double currentTP = OrderTakeProfit();
 
    RefreshRates();
 
-   // --- BRANCH 1: IN PROFIT -> MODIFY STOP LOSS TO LOCK IN GAINS ---
+// --- BRANCH 1: IN PROFIT -> MODIFY STOP LOSS TO LOCK IN GAINS ---
    if(totalProfit >= 0)
      {
       double newStopLoss = 0;
-      
+
       if(orderType == OP_BUY)
         {
          newStopLoss = Bid - (15 * Point);
-         if(newStopLoss < openPrice) 
+         if(newStopLoss < openPrice)
             newStopLoss = openPrice + (2 * Point); // Ensure it locks in a slight profit above entry
         }
-      else if(orderType == OP_SELL)
-        {
-         newStopLoss = Ask + (15 * Point);
-         if(newStopLoss > openPrice) 
-            newStopLoss = openPrice - (2 * Point); // Ensure it locks in a slight profit below entry
-        }
-        
+      else
+         if(orderType == OP_SELL)
+           {
+            newStopLoss = Ask + (15 * Point);
+            if(newStopLoss > openPrice)
+               newStopLoss = openPrice - (2 * Point); // Ensure it locks in a slight profit below entry
+           }
+
       newStopLoss = NormalizeDouble(newStopLoss, Digits);
-      
+
       if(!CanSendTradeRequest("OrderModify", "Ticket=" + IntegerToString(ticket)))
          return false;
-         
+
       ResetLastError();
       bool modResult = OrderModify(ticket, openPrice, newStopLoss, currentTP, 0, arrowColor);
-      
+
       if(modResult)
         {
          InvalidateTotalEAOrdersCache();
          return true;
         }
-        
+
       int modErr = GetLastError();
       BlockTradeErrorUntilNextTick(key);
       MarkServerError(modErr, "OrderModify");
       return false;
      }
-   // --- BRANCH 2: IN LOSS -> CLOSE ORDER ---
+// --- BRANCH 2: IN LOSS -> CLOSE ORDER ---
    else
      {
       double closePrice = (orderType == OP_BUY) ? Bid : Ask;
       closePrice = NormalizeDouble(closePrice, Digits);
-      
+
       if(!CanSendTradeRequest("OrderClose", "Ticket=" + IntegerToString(ticket)))
          return false;
-         
+
       ResetLastError();
       bool closeResult = OrderClose(ticket, lots, closePrice, slippage, arrowColor);
-      
+
       if(closeResult)
         {
          InvalidateTotalEAOrdersCache();
          return true;
         }
-        
+
       int closeErr = GetLastError();
       if(!OrderSelect(ticket, SELECT_BY_TICKET, MODE_TRADES))
         {
          if(OrderSelect(ticket, SELECT_BY_TICKET, MODE_HISTORY))
             return true;
         }
-        
+
       BlockTradeErrorUntilNextTick(key);
       MarkServerError(closeErr, "OrderClose");
       return false;
@@ -4503,20 +4513,20 @@ void CheckEquityBalanceProfitTarget()
    double accountBalance = AccountBalance();
    double accountEquity  = AccountEquity();
    double targetProfit   = accountBalance + (Ladder1ProfitUSD * 5);
-   
-   // Check if Equity has reached the protection target
+
+// Check if Equity has reached the protection target
    if(accountEquity >= targetProfit)
      {
-      Print("Equity Target Reached! Balance: $", DoubleToString(accountBalance, 2), 
+      Print("Equity Target Reached! Balance: $", DoubleToString(accountBalance, 2),
             " | Equity: $", DoubleToString(accountEquity, 2), ". Modifying open orders to lock in profit and continuing trading.");
-      
+
       // Modify open positions to lock in profit instead of closing them
       ModifyOpenOrdersToSecureProfit();
      }
   }
 
 //+------------------------------------------------------------------+
-// Modify open orders to secure profit and keep trading active       
+// Modify open orders to secure profit and keep trading active
 //+------------------------------------------------------------------+
 void ModifyOpenOrdersToSecureProfit()
   {
@@ -4532,33 +4542,34 @@ void ModifyOpenOrdersToSecureProfit()
             double openPrice = OrderOpenPrice();
             double currentSL = OrderStopLoss();
             double currentTP = OrderTakeProfit();
-            
+
             bool modified = false;
             double newSL  = 0;
-            
+
             if(type == OP_BUY)
               {
                // Lock in profit by moving SL above the open price (e.g., securing a buffer below current Bid)
-               newSL = Bid - (20 * Point); 
-               
+               newSL = Bid - (20 * Point);
+
                // Only update if the new SL is higher than the entry price and better than the current SL
                if(newSL > openPrice && (currentSL == 0 || newSL > currentSL))
                  {
                   modified = OrderModify(ticket, openPrice, newSL, currentTP, 0, clrGreen);
                  }
               }
-            else if(type == OP_SELL)
-              {
-               // Lock in profit by moving SL below the open price (e.g., securing a buffer above current Ask)
-               newSL = Ask + (20 * Point);
-               
-               // Only update if the new SL is lower than the entry price and better than the current SL
-               if(newSL < openPrice && (currentSL == 0 || newSL < currentSL))
+            else
+               if(type == OP_SELL)
                  {
-                  modified = OrderModify(ticket, openPrice, newSL, currentTP, 0, clrRed);
+                  // Lock in profit by moving SL below the open price (e.g., securing a buffer above current Ask)
+                  newSL = Ask + (20 * Point);
+
+                  // Only update if the new SL is lower than the entry price and better than the current SL
+                  if(newSL < openPrice && (currentSL == 0 || newSL < currentSL))
+                    {
+                     modified = OrderModify(ticket, openPrice, newSL, currentTP, 0, clrRed);
+                    }
                  }
-              }
-              
+
             if(!modified && GetLastError() != 0)
               {
                Print("Failed to modify order #", ticket, ". Error: ", GetLastError());
@@ -4571,16 +4582,16 @@ void ModifyOpenOrdersToSecureProfit()
 //   {
 //    double accountBalance = AccountBalance();
 //    double accountEquity  = AccountEquity();
-   
+
 //    // Check if Equity is greater than or equal to Balance + $1.00
 //    if(accountEquity >= (accountBalance + (Ladder1ProfitUSD*5)))//2.00))
 //      {
-//       Print("Equity Target Reached! Balance: $", DoubleToString(accountBalance, 2), 
+//       Print("Equity Target Reached! Balance: $", DoubleToString(accountBalance, 2),
 //             " | Equity: $", DoubleToString(accountEquity, 2), ". Closing all open orders.");
-      
+
 //       // Close all open positions
 //       CloseAllOrders();
-      
+
 //       // // Optional: Set your pause/halt flags if needed
 //       // TradingHaltedUntilNextFlip = true;
 //       // LadderHaltStartTime = TimeCurrent();
@@ -4593,13 +4604,13 @@ double GetDynamicOrderGap(int orderType)
   {
    int currentSSL = GlobalSSLDirection;
    int patternDirection = GetCachedPatternDirection();
-int multiplier = 1;
-double pl = GetOpenPL(orderType);
+   int multiplier = 1;
+   double pl = GetOpenPL(orderType);
 
-if(pl < 0)
-  {
-   multiplier = 1 + (int)MathFloor(MathAbs(pl) / 3.0);
-  }
+   if(pl < 0)
+     {
+      multiplier = 1 + (int)MathFloor(MathAbs(pl) / 3.0);
+     }
    if((orderType == OP_BUY && currentSSL == 1) || (orderType == OP_SELL && currentSSL == -1))
       return MinimumSameOrderGapRawMatched*multiplier;
 
@@ -4784,30 +4795,30 @@ void ChangeLots(double OpenPL, string reason, int orderType, int stoplevelStep)
    Lots = 0.01 * (5 - cycleStep);
 // Lots = 0.01 * (10 - cycleStep);
 
-if(Lots==0.01)
-Lots=0.05;
+   if(Lots==0.01)
+      Lots=0.05;
 
 // Lots=0.05;//
 // Print("Closed Orders Since EMA Flip: ", closedCount, " | Cycle Step: ", cycleStep, " | Calculated Lots: ", Lots);
 
-   // if((GlobalEmaAngle30 > -3.0 && GlobalEmaAngle30 < 3.0))
-   //   {
-   //    Lots = 0.01;
+// if((GlobalEmaAngle30 > -3.0 && GlobalEmaAngle30 < 3.0))
+//   {
+//    Lots = 0.01;
 
-   //   }
+//   }
 
-if(GlobalSSLDirection != EMADirection)
+   if(GlobalSSLDirection != EMADirection)
      {
       Lots = 0.01;
 
 
      }
-   //   if(GetH1Direction() != EMADirection)
-   //   {
-   //    Lots = 0.01;
+//   if(GetH1Direction() != EMADirection)
+//   {
+//    Lots = 0.01;
 
 
-   //   }
+//   }
 // if(GetOpenPL(OP_SELL)<0 && intOrdertype == -1)
 //   {
 //    Lots = 0.01;
@@ -4824,11 +4835,11 @@ if(GlobalSSLDirection != EMADirection)
 
 
 // if((GlobalEmaAngle30>10 || GlobalEmaAngle30<-10) &&  GlobalSSLDirection != EMADirection)
-   //   {
-   //    Lots = 0.01;
+//   {
+//    Lots = 0.01;
 
 
-   //   }
+//   }
 
    if(IsEmaWEAKDistanceReduced50PercentFromPeak(orderType))//weak
      {
@@ -4841,59 +4852,59 @@ if(GlobalSSLDirection != EMADirection)
       Lots = 0.01;
 
 // ===== NEW RULE: CAPP LOTS TO 0.02 IF EQUITY PROFIT > $10 AFTER FLIP =====
-   // double realizedProfitAfterFlip = 0.0;
-   // if(EmaFlipTime > 0)
-   //   {
-   //    for(int h = OrdersHistoryTotal() - 1; h >= 0; h--)
-   //      {
-   //       if(OrderSelect(h, SELECT_BY_POS, MODE_HISTORY))
-   //         {
-   //          if(OrderSymbol() == Symbol() && OrderMagicNumber() == MagicNumber)
-   //            {
-   //             if(OrderCloseTime() >= EmaFlipTime)
-   //                realizedProfitAfterFlip += (OrderProfit() + OrderSwap() + OrderCommission());
-   //            }
-   //         }
-   //      }
-   //   }
-   // double equityProfitAfterFlip = realizedProfitAfterFlip + GetEAFloatingPL();
+// double realizedProfitAfterFlip = 0.0;
+// if(EmaFlipTime > 0)
+//   {
+//    for(int h = OrdersHistoryTotal() - 1; h >= 0; h--)
+//      {
+//       if(OrderSelect(h, SELECT_BY_POS, MODE_HISTORY))
+//         {
+//          if(OrderSymbol() == Symbol() && OrderMagicNumber() == MagicNumber)
+//            {
+//             if(OrderCloseTime() >= EmaFlipTime)
+//                realizedProfitAfterFlip += (OrderProfit() + OrderSwap() + OrderCommission());
+//            }
+//         }
+//      }
+//   }
+// double equityProfitAfterFlip = realizedProfitAfterFlip + GetEAFloatingPL();
 
-   // if(equityProfitAfterFlip > 10.0 && Lots >= 0.02)
-   //   {
-   //    Lots = 0.01;
-   //   }
+// if(equityProfitAfterFlip > 10.0 && Lots >= 0.02)
+//   {
+//    Lots = 0.01;
+//   }
 
-   // if(GetCurrentM30Direction() != EMADirection && Lots >= 0.03)
-   //   {
-   //    Lots = 0.01;
-   //   }
+// if(GetCurrentM30Direction() != EMADirection && Lots >= 0.03)
+//   {
+//    Lots = 0.01;
+//   }
 
-   // --- PREVIOUS 2 M1 CANDLES BODY HEIGHT FILTER (Each > 100 raw price difference) ---
+// --- PREVIOUS 2 M1 CANDLES BODY HEIGHT FILTER (Each > 100 raw price difference) ---
    if(MathAbs(Open[1] - Close[1]) > 100.0 && MathAbs(Open[2] - Close[2]) > 100.0)
      {
       Lots = 0.01;
      }
 
-     if(HasAnyLargeCandle(Symbol(), PERIOD_M1, 30, 100.0, false))
+   if(HasAnyLargeCandle(Symbol(), PERIOD_M1, 30, 100.0, false))
       Lots = 0.01;
 
 
-      // if(IsAbsolutePriceDifferenceExceeded(5,200))
-      // {
-      // Lots = 0.01;
+// if(IsAbsolutePriceDifferenceExceeded(5,200))
+// {
+// Lots = 0.01;
 
-      // }
+// }
 
 // Lots=0.05;//
 
 
 // Lots=Lots*2;
 
-if(Lots==0.02)
-{
+   if(Lots==0.02)
+     {
       Lots = 0.04;
 
-}
+     }
 
 
 // Safety catch
@@ -4973,34 +4984,35 @@ if(Lots==0.02)
    Ladder1StopMaxPriceUSD = OriginalLadder1StopMaxPriceUSD * Lots * 100;
   }
 
-  //+------------------------------------------------------------------+
+//+------------------------------------------------------------------+
 //| Check if absolute price difference exceeds threshold in timeframe|
 //+------------------------------------------------------------------+
 bool IsAbsolutePriceDifferenceExceeded(int minutes, double threshold)
   {
-   // Assuming an M1 chart, 1 minute = 1 bar. 
-   // If your EA runs on M5, M15, etc., you can adjust the multiplier accordingly, 
-   // but assuming M1 execution:
-   int barsToCheck = minutes; 
-   
-   if(Bars < barsToCheck || barsToCheck <= 0) return false;
+// Assuming an M1 chart, 1 minute = 1 bar.
+// If your EA runs on M5, M15, etc., you can adjust the multiplier accordingly,
+// but assuming M1 execution:
+   int barsToCheck = minutes;
+
+   if(Bars < barsToCheck || barsToCheck <= 0)
+      return false;
 
    double highestPrice = High[0];
    double lowestPrice  = Low[0];
 
-   // Scan the historical bars within the specified minute window
+// Scan the historical bars within the specified minute window
    for(int i = 1; i < barsToCheck; i++)
      {
-      if(High[i] > highestPrice) 
+      if(High[i] > highestPrice)
          highestPrice = High[i];
-      if(Low[i] < lowestPrice)  
+      if(Low[i] < lowestPrice)
          lowestPrice  = Low[i];
      }
 
-   // Absolute distance between the ceiling and floor within the time window
+// Absolute distance between the ceiling and floor within the time window
    double absoluteDifference = highestPrice - lowestPrice;
 
-   // Returns true if the absolute range exceeds the user-defined threshold
+// Returns true if the absolute range exceeds the user-defined threshold
    if(absoluteDifference > threshold)
      {
       return true;
@@ -5358,6 +5370,9 @@ void InitializeDayProfitLadder()
    SaveDayProfitLadderState();
   }
 
+//+------------------------------------------------------------------+
+//|                                                                  |
+//+------------------------------------------------------------------+
 void LoadDayProfitLadderState() { InitializeDayProfitLadder(); }
 //+------------------------------------------------------------------+
 //| Close and delete orders whose direction does not match EMADirection|
@@ -5366,11 +5381,11 @@ void CloseAndDeleteNonEmaMatchingOrders()
   {
    int nonMatchingPendingTickets[1000];
    int nonMatchingPendingCount = 0;
-   
+
    int nonMatchingOpenTickets[1000];
    int nonMatchingOpenCount = 0;
 
-   // 1. Scan and filter open and pending orders
+// 1. Scan and filter open and pending orders
    for(int i = OrdersTotal() - 1; i >= 0; i--)
      {
       if(!OrderSelect(i, SELECT_BY_POS, MODE_TRADES))
@@ -5393,19 +5408,20 @@ void CloseAndDeleteNonEmaMatchingOrders()
             nonMatchingOpenTickets[nonMatchingOpenCount++] = OrderTicket();
            }
         }
-      else if(isPending)
-        {
-         bool isBuyPending = (type == OP_BUYSTOP || type == OP_BUYLIMIT);
-         bool matchesEma = (isBuyPending && EMADirection == 1) || (!isBuyPending && EMADirection == -1);
-
-         if(!matchesEma && nonMatchingPendingCount < 1000)
+      else
+         if(isPending)
            {
-            nonMatchingPendingTickets[nonMatchingPendingCount++] = OrderTicket();
+            bool isBuyPending = (type == OP_BUYSTOP || type == OP_BUYLIMIT);
+            bool matchesEma = (isBuyPending && EMADirection == 1) || (!isBuyPending && EMADirection == -1);
+
+            if(!matchesEma && nonMatchingPendingCount < 1000)
+              {
+               nonMatchingPendingTickets[nonMatchingPendingCount++] = OrderTicket();
+              }
            }
-        }
      }
 
-   // 2. Close non-matching open market orders
+// 2. Close non-matching open market orders
    for(int k = 0; k < nonMatchingOpenCount; k++)
      {
       int ticket = nonMatchingOpenTickets[k];
@@ -5422,7 +5438,7 @@ void CloseAndDeleteNonEmaMatchingOrders()
       SafeOrderClose(ticket, lots, type, Slippage, (type == OP_BUY ? clrRed : clrBlue));
      }
 
-   // 3. Delete non-matching pending orders
+// 3. Delete non-matching pending orders
    for(int p = 0; p < nonMatchingPendingCount; p++)
      {
       int pendingTicket = nonMatchingPendingTickets[p];
@@ -6633,7 +6649,7 @@ double CalculatePriceDistanceUSD(double usdAmount, double orderLots)
    return (usdAmount / denom) * tickSize;
   }
 
-  //+------------------------------------------------------------------+
+//+------------------------------------------------------------------+
 //| Manage Partial Closes for Large Lots (>= 0.03)                   |
 //| Closes 0.01 lots when profit reaches $1.00                       |
 //+------------------------------------------------------------------+
@@ -6650,11 +6666,11 @@ void CloseAllOrders()
      {
       if(!OrderSelect(i, SELECT_BY_POS, MODE_TRADES))
          continue;
-         
+
       // Match current symbol and magic number
       if(OrderSymbol() != Symbol() || OrderMagicNumber() != MagicNumber)
          continue;
-         
+
       // Skip recovery orders if your EA uses them separately
       if(StringFind(OrderComment(), "RECOVERY_") == 0)
          continue;
@@ -6666,10 +6682,11 @@ void CloseAllOrders()
         {
          res = OrderClose(OrderTicket(), OrderLots(), Bid, 3, clrRed);
         }
-      else if(orderType == OP_SELL)
-        {
-         res = OrderClose(OrderTicket(), OrderLots(), Ask, 3, clrBlue);
-        }
+      else
+         if(orderType == OP_SELL)
+           {
+            res = OrderClose(OrderTicket(), OrderLots(), Ask, 3, clrBlue);
+           }
 
       if(!res)
         {
@@ -6678,16 +6695,19 @@ void CloseAllOrders()
      }
   }
 
-  datetime g_lastLadderCloseTime = 0;   // Stores timestamp of last basket reset
+datetime g_lastLadderCloseTime = 0;   // Stores timestamp of last basket reset
 double   g_peakCycleProfit     = 0.0; // Tracks the highest profit reached in the current cycle
 double   g_stepSize            = 5.0; // The step increment ($5)
 
+//+------------------------------------------------------------------+
+//|                                                                  |
+//+------------------------------------------------------------------+
 void CheckDynamicStepLadder()
   {
    double currentOpenProfit = 0.0;
    int openOrdersCount = 0;
 
-   // 1. Calculate current open profit
+// 1. Calculate current open profit
    for(int i = OrdersTotal() - 1; i >= 0; i--)
      {
       if(!OrderSelect(i, SELECT_BY_POS, MODE_TRADES))
@@ -6696,7 +6716,7 @@ void CheckDynamicStepLadder()
          continue;
       if(StringFind(OrderComment(), "RECOVERY_") == 0)
          continue;
-         
+
       int orderType = OrderType();
       if(orderType == OP_BUY || orderType == OP_SELL)
         {
@@ -6705,57 +6725,57 @@ void CheckDynamicStepLadder()
         }
      }
 
-   // If no orders are open, reset peak tracking for the next cycle
+// If no orders are open, reset peak tracking for the next cycle
    if(openOrdersCount == 0)
      {
       g_peakCycleProfit = 0.0;
       return;
      }
 
-   // 2. Calculate realized profit from closed history since last reset
+// 2. Calculate realized profit from closed history since last reset
    double realizedHistoryProfit = 0.0;
    int historyTotal = HistoryTotal();
-   
+
    for(int i = 0; i < historyTotal; i++)
      {
       if(!OrderSelect(i, SELECT_BY_POS, MODE_HISTORY))
          continue;
       if(OrderSymbol() != Symbol() || OrderMagicNumber() != MagicNumber)
          continue;
-        
+
       if(OrderCloseTime() > g_lastLadderCloseTime)
         {
          realizedHistoryProfit += OrderProfit() + OrderSwap() + OrderCommission();
         }
      }
 
-   // 3. Current active cycle profit
+// 3. Current active cycle profit
    double cycleProfit = realizedHistoryProfit + currentOpenProfit;
 
-   // 4. Update Peak Profit Watermark if we make a new high
+// 4. Update Peak Profit Watermark if we make a new high
    if(cycleProfit > g_peakCycleProfit)
      {
       g_peakCycleProfit = cycleProfit;
      }
 
-   // 5. Dynamically calculate the highest $5 step milestone unlocked by the peak
-   // e.g., if peak is $14, MathFloor(14 / 5) * 5 = $10 floor milestone.
-   // If peak is $17, MathFloor(17 / 5) * 5 = $15 floor milestone.
+// 5. Dynamically calculate the highest $5 step milestone unlocked by the peak
+// e.g., if peak is $14, MathFloor(14 / 5) * 5 = $10 floor milestone.
+// If peak is $17, MathFloor(17 / 5) * 5 = $15 floor milestone.
    double unlockedStepFloor = MathFloor(g_peakCycleProfit / g_stepSize) * g_stepSize;
 
-   // Ensure we have at least crossed the first $5 step before trailing starts
+// Ensure we have at least crossed the first $5 step before trailing starts
    if(unlockedStepFloor >= g_stepSize)
      {
       // 6. If the current profit drops down to or below the previous step floor, close all orders!
       // (e.g., Peak hit $14 -> Floor is $10. If current profit drops back to $10, trigger close.)
       if(cycleProfit <= unlockedStepFloor)
         {
-         Print("Dynamic Step Exit! Peak reached: $", DoubleToString(g_peakCycleProfit, 2), 
+         Print("Dynamic Step Exit! Peak reached: $", DoubleToString(g_peakCycleProfit, 2),
                " | Market came down to step floor: $", DoubleToString(unlockedStepFloor, 2), ". Closing all open orders.");
-         
+
          // CloseAllOrders();
          ModifyOpenOrdersToSecureProfit();
-         
+
          // Save baseline time and reset peak for the next cycle
          g_lastLadderCloseTime = TimeCurrent();
          g_peakCycleProfit = 0.0;
@@ -6784,7 +6804,7 @@ void CheckDynamicStepLadder()
 //          continue;
 //       if(StringFind(OrderComment(), "RECOVERY_") == 0)
 //          continue;
-         
+
 //       int orderType = OrderType();
 //       if(orderType == OP_BUY || orderType == OP_SELL)
 //         {
@@ -6804,14 +6824,14 @@ void CheckDynamicStepLadder()
 //    // 2. Calculate realized profit from closed history since last reset
 //    double realizedHistoryProfit = 0.0;
 //    int historyTotal = HistoryTotal();
-   
+
 //    for(int i = 0; i < historyTotal; i++)
 //      {
 //       if(!OrderSelect(i, SELECT_BY_POS, MODE_HISTORY))
 //          continue;
 //       if(OrderSymbol() != Symbol() || OrderMagicNumber() != MagicNumber)
 //          continue;
-        
+
 //       if(OrderCloseTime() > g_lastLadderCloseTime)
 //         {
 //          realizedHistoryProfit += OrderProfit() + OrderSwap() + OrderCommission();
@@ -6839,19 +6859,19 @@ void CheckDynamicStepLadder()
 //    if(g_targetUnlocked)
 //      {
 //       double pullbackBuffer = 0.50; // Adjust this buffer if you want tighter or looser pullback sensitivity
-      
+
 //       if(totalCombinedProfit < (g_peakCombinedProfit - pullbackBuffer) || totalCombinedProfit <= (g_currentStepTarget - 2.0))
 //         {
 //          Print("Pullback detected from peak ($", DoubleToString(g_peakCombinedProfit, 2), ")! Current Profit: $", DoubleToString(totalCombinedProfit, 2), ". Closing all open orders.");
-         
+
 //          // Close all open positions to lock in the trailing profit
 //          CloseAllOrders();
-         
+
 //          // Save baseline time and reset states
 //          g_lastLadderCloseTime = TimeCurrent();
 //          g_targetUnlocked = false;
 //          g_peakCombinedProfit = 0.0;
-         
+
 //          // // Trigger halt flags
 //          // TradingHaltedUntilNextFlip = true;
 //          // LadderHaltStartTime = TimeCurrent();
@@ -6863,92 +6883,101 @@ void CheckDynamicStepLadder()
 //      }
 //   }
 // Global tracker for the 30-minute loss gap
-datetime g_lastLossCloseTime = 0; 
+datetime g_lastLossCloseTime = 0;
 void ManagePartialCloses()
-{
-for(int i = OrdersTotal() - 1; i >= 0; i--)
-{
- if(!OrderSelect(i, SELECT_BY_POS, MODE_TRADES))
- continue;
- 
- // Ensure it matches current symbol
- if(OrderSymbol() != Symbol())
- continue;
-
- int orderType = OrderType();
- if(orderType != OP_BUY && orderType != OP_SELL)
- continue;
-
- double orderLots = OrderLots();
-
- // Check if order size meets your threshold (0.02 lots or higher)
- if(orderLots >= 0.02)
- {
- // Calculate total net profit for this specific ticket (including swap/commission)
- double currentProfit = OrderProfit() + OrderSwap() + OrderCommission();
-
- double lotsToClose = 0.01;
- 
- // Ensure leaving a valid minimum lot size behind (at least 0.02 so remaining is >= 0.01)
- if(orderLots - lotsToClose >= 0.01)
- {
-  bool triggerClose = false;
-  string actionType = "";
-  
-  int orderTypeInt = (orderType == OP_SELL) ? -1 : 1;
-
-
-  int minimum_Profit=2;//1.00;
-  // if(orderLots==0.05)
-  // {
-  // minimum_Profit=2;//
-  // }
-
-  // Condition 1: Profit target reached (+$1.00 or more) - Unrestricted
-  if(currentProfit >= minimum_Profit && TimeCurrent() - OrderOpenTime() > 60*1 && TimeCurrent() - g_lastLossCloseTime >= 60 * 2)
   {
-  triggerClose = true;
-  actionType = "PROFIT";
-  }
-  // Condition 2: Loss threshold reached WITH 30-minute cool-down check
-  else if(currentProfit <= -(orderLots * 300.0 ))// && EMADirection != orderTypeInt)
-  {
-  // Check if 30 minutes (1800 seconds) have passed since the last loss cut
-  if(TimeCurrent() - g_lastLossCloseTime >= 60 * 60)
-  {
-   triggerClose = true;
-   actionType = "LOSS CUT";
-  }
-  }
+   for(int i = OrdersTotal() - 1; i >= 0; i--)
+     {
+      if(!OrderSelect(i, SELECT_BY_POS, MODE_TRADES))
+         continue;
 
-  if(triggerClose)
-  {
-bool success = false;
-  if(orderType == OP_BUY)
-   success = OrderClose(OrderTicket(), lotsToClose, Bid, 3, clrOrange);
-  else if(orderType == OP_SELL)
-   success = OrderClose(OrderTicket(), lotsToClose, Ask, 3, clrOrange);
+      // Ensure it matches current symbol
+      if(OrderSymbol() != Symbol())
+         continue;
 
-  if(success)
-  {
-   // If this was a loss cut, update our timer baseline
-   // if(actionType == "LOSS CUT")
-   {
-   g_lastLossCloseTime = TimeCurrent();
-   }
+      int orderType = OrderType();
+      if(orderType != OP_BUY && orderType != OP_SELL)
+         continue;
 
-   Print("Partial Close Success [", actionType, "]: Ticket #", OrderTicket(), 
-    " | Closed: ", lotsToClose, " lots | P/L at close: $", DoubleToString(currentProfit, 2));
+      double orderLots = OrderLots();
+
+      // Check if order size meets your threshold (0.02 lots or higher)
+      if(orderLots >= 0.02)
+        {
+         // Calculate total net profit for this specific ticket (including swap/commission)
+         double currentProfit = OrderProfit() + OrderSwap() + OrderCommission();
+
+         double lotsToClose = 0.01;
+
+         // Ensure leaving a valid minimum lot size behind (at least 0.02 so remaining is >= 0.01)
+         if(orderLots - lotsToClose >= 0.01)
+           {
+            bool triggerClose = false;
+            string actionType = "";
+
+            int orderTypeInt = (orderType == OP_SELL) ? -1 : 1;
+
+
+            int minimum_Profit=2;//1.00;
+
+
+            if(TimeCurrent() - OrderOpenTime() > 60*30)
+            {
+              minimum_Profit=1;
+
+            }
+            // if(orderLots==0.05)
+            // {
+            // minimum_Profit=2;//
+            // }
+
+            // Condition 1: Profit target reached (+$1.00 or more) - Unrestricted
+            if(currentProfit >= minimum_Profit && TimeCurrent() - OrderOpenTime() > 60*1 && TimeCurrent() - g_lastLossCloseTime >= 60 * 2)
+              {
+               triggerClose = true;
+               actionType = "PROFIT";
+              }
+            // Condition 2: Loss threshold reached WITH 30-minute cool-down check
+            else
+               if(currentProfit <= -(orderLots * 300.0)) // && EMADirection != orderTypeInt)
+                 {
+                  // Check if 30 minutes (1800 seconds) have passed since the last loss cut
+                  if(TimeCurrent() - g_lastLossCloseTime >= 60 * 60)
+                    {
+                     triggerClose = true;
+                     actionType = "LOSS CUT";
+                    }
+                 }
+
+            if(triggerClose)
+              {
+               bool success = false;
+               if(orderType == OP_BUY)
+                  success = OrderClose(OrderTicket(), lotsToClose, Bid, 3, clrOrange);
+               else
+                  if(orderType == OP_SELL)
+                     success = OrderClose(OrderTicket(), lotsToClose, Ask, 3, clrOrange);
+
+               if(success)
+                 {
+                  // If this was a loss cut, update our timer baseline
+                  // if(actionType == "LOSS CUT")
+                    {
+                     g_lastLossCloseTime = TimeCurrent();
+                    }
+
+                  Print("Partial Close Success [", actionType, "]: Ticket #", OrderTicket(),
+                        " | Closed: ", lotsToClose, " lots | P/L at close: $", DoubleToString(currentProfit, 2));
+                 }
+               else
+                 {
+                  Print("Partial Close Failed for Ticket #", OrderTicket(), ". Error: ", GetLastError());
+                 }
+              }
+           }
+        }
+     }
   }
-  else
-  {
-   Print("Partial Close Failed for Ticket #", OrderTicket(), ". Error: ", GetLastError());
-  }
-  }
- }
- }
-}
-}
 //+------------------------------------------------------------------+
 //| Manage Partial Closes with 30-Minute Gap Between Losses          |
 //+------------------------------------------------------------------+
@@ -6958,7 +6987,7 @@ void ManagePartialClosesNew()
      {
       if(!OrderSelect(i, SELECT_BY_POS, MODE_TRADES))
          continue;
-         
+
       // Ensure it matches current symbol
       if(OrderSymbol() != Symbol())
          continue;
@@ -6984,18 +7013,19 @@ void ManagePartialClosesNew()
            {
             RefreshRates();
             bool success = false;
-            
+
             // 1. Partially close 0.01 lots to bank real profit
             if(orderType == OP_BUY)
                success = OrderClose(ticket, lotsToClose, Bid, 3, clrOrange);
-            else if(orderType == OP_SELL)
-               success = OrderClose(ticket, lotsToClose, Ask, 3, clrOrange);
+            else
+               if(orderType == OP_SELL)
+                  success = OrderClose(ticket, lotsToClose, Ask, 3, clrOrange);
 
             if(success)
               {
-               Print("Partial Close Success [PROFIT LOCK]: Ticket #", ticket, 
+               Print("Partial Close Success [PROFIT LOCK]: Ticket #", ticket,
                      " | Closed: ", lotsToClose, " lots | P/L at close: $", DoubleToString(currentProfit, 2));
-               
+
                // 2. Select the remaining portion (0.04 lots) and move SL to lock in profit on the rest
                if(OrderSelect(ticket, SELECT_BY_TICKET, MODE_TRADES))
                  {
@@ -7007,17 +7037,20 @@ void ManagePartialClosesNew()
                     {
                      // Set SL above open price to lock in a profit buffer for the remaining 0.04 lots
                      newSL = Bid - (15 * Point);
-                     if(newSL < openPrice) newSL = openPrice + (2 * Point); 
+                     if(newSL < openPrice)
+                        newSL = openPrice + (2 * Point);
                     }
-                  else if(orderType == OP_SELL)
-                    {
-                     // Set SL below open price to lock in a profit buffer for the remaining 0.04 lots
-                     newSL = Ask + (15 * Point);
-                     if(newSL > openPrice) newSL = openPrice - (2 * Point);
-                    }
+                  else
+                     if(orderType == OP_SELL)
+                       {
+                        // Set SL below open price to lock in a profit buffer for the remaining 0.04 lots
+                        newSL = Ask + (15 * Point);
+                        if(newSL > openPrice)
+                           newSL = openPrice - (2 * Point);
+                       }
 
                   newSL = NormalizeDouble(newSL, Digits);
-                  
+
                   // Modify the remaining active volume with the new profit-locking Stop Loss
                   bool modSuccess = OrderModify(ticket, openPrice, newSL, currentTP, 0, clrLime);
                   if(modSuccess)
@@ -7047,10 +7080,10 @@ void ManagePartialClosesNew()
 //+------------------------------------------------------------------+
 void ManageProfitLadder()
   {
-   // 1. Run partial close checks first (handles its own loop safely)
+// 1. Run partial close checks first (handles its own loop safely)
    ManagePartialCloses();
 
-   // 2. Then proceed with the standard profit ladder / trailing SL loop
+// 2. Then proceed with the standard profit ladder / trailing SL loop
    for(int i = OrdersTotal() - 1; i >= 0; i--)
      {
       if(!OrderSelect(i, SELECT_BY_POS, MODE_TRADES))
@@ -7073,18 +7106,18 @@ void ManageProfitLadder()
          continue;
 
       double ladder1Profit = OriginalLadder1ProfitUSD * orderLots * 100.0;
-double currentSL = OrderStopLoss();
+      double currentSL = OrderStopLoss();
       // --- NEW LOGIC: Reduce ladder1Profit by half if order is older than 1 hour or lots >= 0.03 ---
-      // if(TimeCurrent() - OrderOpenTime() > 60*60 || orderLots >= 0.03) 
-      if(TimeCurrent() - OrderOpenTime() > 60*60)
+      // if(TimeCurrent() - OrderOpenTime() > 60*60 || orderLots >= 0.03)
+      if(TimeCurrent() - OrderOpenTime() > 60*30)
         {
          ladder1Profit = ladder1Profit / 2.0;
         }
 
-        if(currentSL <= 100 )
-           {
-            ladder1Profit = 0.10; // Or scale dynamically: (slDistance / 100.0) * 0.10
-           }
+      if(currentSL <= 100)
+        {
+         ladder1Profit = 0.10; // Or scale dynamically: (slDistance / 100.0) * 0.10
+        }
       // -----------------------------------------------------------------------------
 
       double ladder2Profit = OriginalLadder2ProfitUSD * orderLots * 100.0;
@@ -7943,7 +7976,7 @@ void UpdateDashboard(DailyProtectionState &state)
    double totalContinuousProfit = AccountEquity() - ActiveEquityBaseline;
 
    int ladderLevel = (int)MathFloor(HighestCycleProfitUSD / FlipLadderStepUSD);
-      // double lockedProfitTarget = (ladderLevel - 2) * FlipLadderStepUSD;
+// double lockedProfitTarget = (ladderLevel - 2) * FlipLadderStepUSD;
 
 // double lockedProfitTarget = (ladderLevel - 1) * FlipLadderStepUSD;
    double lockedProfitTarget = (ladderLevel - 1) * FlipLadderStepUSD;
