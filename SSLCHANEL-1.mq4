@@ -15,7 +15,7 @@
 
 
 
-string glbVersion = "SSL CHANNEL EA  |  V53  REV 18-09-2026 20.00  FlipLadderStepUSD * StopLossUSD";
+string glbVersion = "SSL CHANNEL EA  |  V54  REV 18-09-2026 20.00  FlipLadderStepUSD * StopLossUSD";
 
 // ===== INPUT SETTINGS =====
 int SSLPeriod = 10;
@@ -4913,7 +4913,7 @@ void ChangeLots(double OpenPL, string reason, int orderType, int stoplevelStep)
    if(IsHeavyLotOrderNearBy(orderType, Lots, 300) && Lots>=0.02)
       Lots = 0.01;
 
-      
+
    if(Lots < 0.01)
      {
       Lots = 0.01;
@@ -6896,6 +6896,9 @@ int      g_trackedTickets[];
 datetime g_lastLossCloseTimes[];
 double   g_lastClosedPrices[];
 
+// Global arrays to track individual ticket states independently
+ 
+
 void TrackTicketLossState(int ticket, datetime closeTime, double closePrice)
   {
    int size = ArraySize(g_trackedTickets);
@@ -6937,8 +6940,7 @@ bool GetTrackedTicketState(int ticket, datetime &outTime, double &outPrice)
      }
    return false;
   }
-
-void ManagePartialCloses()
+  void ManagePartialCloses()
   {
    for(int i = OrdersTotal() - 1; i >= 0; i--)
      {
