@@ -15,7 +15,7 @@
 
 
 
-string glbVersion = "SSL CHANNEL EA  |  V50  REV 18-09-2026 15.00  FlipLadderStepUSD * StopLossUSD";
+string glbVersion = "SSL CHANNEL EA  |  V51  REV 18-09-2026 15.00  FlipLadderStepUSD * StopLossUSD";
 
 // ===== INPUT SETTINGS =====
 int SSLPeriod = 10;
@@ -4796,8 +4796,8 @@ void ChangeLots(double OpenPL, string reason, int orderType, int stoplevelStep)
    Lots = 0.01 * (5 - cycleStep);
 // Lots = 0.01 * (10 - cycleStep);
 
-   // if(Lots==0.01)
-      Lots=0.05;
+// if(Lots==0.01)
+   Lots=0.05;
 
 // Lots=0.05;//
 // Print("Closed Orders Since EMA Flip: ", closedCount, " | Cycle Step: ", cycleStep, " | Calculated Lots: ", Lots);
@@ -6887,6 +6887,9 @@ void CheckDynamicStepLadder()
 datetime g_lastLossCloseTime = 0;
 double   g_lastClosedPrice   = 0;
 
+//+------------------------------------------------------------------+
+//|                                                                  |
+//+------------------------------------------------------------------+
 void ManagePartialCloses()
   {
    for(int i = OrdersTotal() - 1; i >= 0; i--)
@@ -6925,44 +6928,47 @@ void ManagePartialCloses()
               }
 
             // === CONDITION 1: PROFIT TARGET REACHED ===
-            if(currentProfit >= minimum_Profit && 
-               TimeCurrent() - OrderOpenTime() > 60 * 1 && 
+            if(currentProfit >= minimum_Profit &&
+               TimeCurrent() - OrderOpenTime() > 60 * 1 &&
                TimeCurrent() - g_lastLossCloseTime >= 60 * 2)
               {
                triggerClose = true;
                actionType   = "PROFIT";
               }
             // === CONDITION 2: SEQUENTIAL LOSS GAP CUT ($100 GAPS) ===
-            else if(currentProfit <= -(orderLots * 100.0))
-              {
-               bool priceGapReached = false;
+            else
+               if(currentProfit <= -(orderLots * 100.0))
+                 {
+                  bool priceGapReached = false;
 
-               if(g_lastClosedPrice == 0)
-                 {
-                  priceGapReached = true; // First partial loss close
-                 }
-               else if(orderTypeInt == 1 && (g_lastClosedPrice - Bid) >= 100.0) // OP_BUY
-                 {
-                  priceGapReached = true; 
-                 }
-               else if(orderTypeInt == -1 && (Ask - g_lastClosedPrice) >= 100.0) // OP_SELL
-                 {
-                  priceGapReached = true; 
-                 }
+                  if(g_lastClosedPrice == 0)
+                    {
+                     priceGapReached = true; // First partial loss close
+                    }
+                  else
+                     if(orderTypeInt == 1 && (g_lastClosedPrice - Bid) >= 100.0) // OP_BUY
+                       {
+                        priceGapReached = true;
+                       }
+                     else
+                        if(orderTypeInt == -1 && (Ask - g_lastClosedPrice) >= 100.0) // OP_SELL
+                          {
+                           priceGapReached = true;
+                          }
 
-               if(priceGapReached)
-                 {
-                  triggerClose = true;
-                  actionType   = "LOSS CUT";
+                  if(priceGapReached)
+                    {
+                     triggerClose = true;
+                     actionType   = "LOSS CUT";
+                    }
                  }
-              }
 
             // === EXECUTE ORDER CLOSE ONCE IF TRIGGERED ===
             if(triggerClose)
               {
                RefreshRates();
                double closePrice = (orderType == OP_BUY) ? Bid : Ask;
-               
+
                // Use higher slippage (20) to prevent Error 138 during fast market movement
                bool success = OrderClose(OrderTicket(), lotsToClose, closePrice, 20, (actionType == "PROFIT" ? clrOrange : clrRed));
 
@@ -7115,7 +7121,15 @@ void ManageProfitLadder()
          continue;
 
       double ladder1Profit = OriginalLadder1ProfitUSD * orderLots * 100.0;
-      double currentSL = OrderStopLoss();
+      // double currentSL = OrderStopLoss();
+      double open=OrderOpenPrice();
+      double sl=OrderStopLoss();
+
+      double existingPriceDistance = 0.0;
+      if(orderType == OP_BUY)
+         existingPriceDistance = OrderStopLoss() - OrderOpenPrice();
+      if(orderType == OP_SELL)
+         existingPriceDistance = OrderOpenPrice() - OrderStopLoss();
       // --- NEW LOGIC: Reduce ladder1Profit by half if order is older than 1 hour or lots >= 0.03 ---
       // if(TimeCurrent() - OrderOpenTime() > 60*60 || orderLots >= 0.03)
       if(TimeCurrent() - OrderOpenTime() > 60*30)
@@ -7123,17 +7137,19 @@ void ManageProfitLadder()
          ladder1Profit = ladder1Profit / 2.0;
         }
 
-      if(currentSL <= 100)
+      if(existingPriceDistance <= 200)
         {
-         ladder1Profit = 0.10; // Or scale dynamically: (slDistance / 100.0) * 0.10
+         ladder1Profit = ladder1Profit / 5; // Or scale dynamically: (slDistance / 100.0) * 0.10
         }
+
+      Print("currentSL"+existingPriceDistance+" - "+ladder1Profit);
       // -----------------------------------------------------------------------------
 
       double ladder2Profit = OriginalLadder2ProfitUSD * orderLots * 100.0;
       double ladder1StopMaxPrice = OriginalLadder1StopMaxPriceUSD * orderLots * 100.0;
       double lockedProfit = 0.0;
 
-      if(EnableProfitLadder1 && ladder1Profit > 0 && currentProfit < ladder1StopMaxPrice)
+      if(EnableProfitLadder1 && ladder1Profit > 0 && (currentProfit < ladder1StopMaxPrice || existingPriceDistance <= 200))
         {
          int ladder1Level = (int)MathFloor(currentProfit / ladder1Profit);
          if(ladder1Level >= 1)
