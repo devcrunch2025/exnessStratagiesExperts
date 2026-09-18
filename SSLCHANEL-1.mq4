@@ -14,7 +14,7 @@
 //https://github.com/devcrunch2025/exnessStratagiesExperts/commit/00c472a227581be00abce1564b92f74e160f3876
 
 
-string glbVersion = "SSL CHANNEL EA  |  V49  REV 18-09-2026 15.00  FlipLadderStepUSD * StopLossUSD";
+string glbVersion = "SSL CHANNEL EA  |  V50  REV 18-09-2026 15.00  FlipLadderStepUSD * StopLossUSD";
 
 // ===== INPUT SETTINGS =====
 int SSLPeriod = 10;
@@ -4795,7 +4795,7 @@ void ChangeLots(double OpenPL, string reason, int orderType, int stoplevelStep)
    Lots = 0.01 * (5 - cycleStep);
 // Lots = 0.01 * (10 - cycleStep);
 
-   if(Lots==0.01)
+   // if(Lots==0.01)
       Lots=0.05;
 
 // Lots=0.05;//
@@ -6884,6 +6884,8 @@ void CheckDynamicStepLadder()
 //   }
 // Global tracker for the 30-minute loss gap
 datetime g_lastLossCloseTime = 0;
+double   g_lastClosedPrice   = 0;
+
 void ManagePartialCloses()
   {
    for(int i = OrdersTotal() - 1; i >= 0; i--)
@@ -6906,68 +6908,74 @@ void ManagePartialCloses()
         {
          // Calculate total net profit for this specific ticket (including swap/commission)
          double currentProfit = OrderProfit() + OrderSwap() + OrderCommission();
+         double lotsToClose   = 0.01;
 
-         double lotsToClose = 0.01;
-
-         // Ensure leaving a valid minimum lot size behind (at least 0.02 so remaining is >= 0.01)
+         // Ensure leaving a valid minimum lot size behind (at least 0.01 remaining)
          if(orderLots - lotsToClose >= 0.01)
            {
-            bool triggerClose = false;
-            string actionType = "";
+            bool   triggerClose = false;
+            string actionType   = "";
+            int    orderTypeInt = (orderType == OP_SELL) ? -1 : 1;
+            int    minimum_Profit = 2;
 
-            int orderTypeInt = (orderType == OP_SELL) ? -1 : 1;
+            if(TimeCurrent() - OrderOpenTime() > 60 * 30)
+              {
+               minimum_Profit = 1;
+              }
 
-
-            int minimum_Profit=2;//1.00;
-
-
-            if(TimeCurrent() - OrderOpenTime() > 60*30)
-            {
-              minimum_Profit=1;
-
-            }
-            // if(orderLots==0.05)
-            // {
-            // minimum_Profit=2;//
-            // }
-
-            // Condition 1: Profit target reached (+$1.00 or more) - Unrestricted
-            if(currentProfit >= minimum_Profit && TimeCurrent() - OrderOpenTime() > 60*1 && TimeCurrent() - g_lastLossCloseTime >= 60 * 2)
+            // === CONDITION 1: PROFIT TARGET REACHED ===
+            if(currentProfit >= minimum_Profit && 
+               TimeCurrent() - OrderOpenTime() > 60 * 1 && 
+               TimeCurrent() - g_lastLossCloseTime >= 60 * 2)
               {
                triggerClose = true;
-               actionType = "PROFIT";
+               actionType   = "PROFIT";
               }
-            // Condition 2: Loss threshold reached WITH 30-minute cool-down check
-            else
-               if(currentProfit <= -(orderLots * 300.0)) // && EMADirection != orderTypeInt)
+            // === CONDITION 2: SEQUENTIAL LOSS GAP CUT ($100 GAPS) ===
+            else if(currentProfit <= -(orderLots * 100.0))
+              {
+               bool priceGapReached = false;
+
+               if(g_lastClosedPrice == 0)
                  {
-                  // Check if 30 minutes (1800 seconds) have passed since the last loss cut
-                  if(TimeCurrent() - g_lastLossCloseTime >= 60 * 60)
-                    {
-                     triggerClose = true;
-                     actionType = "LOSS CUT";
-                    }
+                  priceGapReached = true; // First partial loss close
+                 }
+               else if(orderTypeInt == 1 && (g_lastClosedPrice - Bid) >= 100.0) // OP_BUY
+                 {
+                  priceGapReached = true; 
+                 }
+               else if(orderTypeInt == -1 && (Ask - g_lastClosedPrice) >= 100.0) // OP_SELL
+                 {
+                  priceGapReached = true; 
                  }
 
+               if(priceGapReached)
+                 {
+                  triggerClose = true;
+                  actionType   = "LOSS CUT";
+                 }
+              }
+
+            // === EXECUTE ORDER CLOSE ONCE IF TRIGGERED ===
             if(triggerClose)
               {
-               bool success = false;
-               if(orderType == OP_BUY)
-                  success = OrderClose(OrderTicket(), lotsToClose, Bid, 3, clrOrange);
-               else
-                  if(orderType == OP_SELL)
-                     success = OrderClose(OrderTicket(), lotsToClose, Ask, 3, clrOrange);
+               RefreshRates();
+               double closePrice = (orderType == OP_BUY) ? Bid : Ask;
+               
+               // Use higher slippage (20) to prevent Error 138 during fast market movement
+               bool success = OrderClose(OrderTicket(), lotsToClose, closePrice, 20, (actionType == "PROFIT" ? clrOrange : clrRed));
 
                if(success)
                  {
-                  // If this was a loss cut, update our timer baseline
                   // if(actionType == "LOSS CUT")
                     {
                      g_lastLossCloseTime = TimeCurrent();
+                     g_lastClosedPrice   = closePrice; // Save reference price for the next $100 gap
                     }
 
                   Print("Partial Close Success [", actionType, "]: Ticket #", OrderTicket(),
-                        " | Closed: ", lotsToClose, " lots | P/L at close: $", DoubleToString(currentProfit, 2));
+                        " | Closed: ", lotsToClose, " lots | P/L: $", DoubleToString(currentProfit, 2),
+                        " | Price: ", closePrice);
                  }
                else
                  {
