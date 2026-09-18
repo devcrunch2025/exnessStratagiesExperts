@@ -15,7 +15,7 @@
 
 
 
-string glbVersion = "SSL CHANNEL EA  |  V51  REV 18-09-2026 15.00  FlipLadderStepUSD * StopLossUSD";
+string glbVersion = "SSL CHANNEL EA  |  V51  REV 18-09-2026 18.00  FlipLadderStepUSD * StopLossUSD";
 
 // ===== INPUT SETTINGS =====
 int SSLPeriod = 10;
@@ -7137,7 +7137,7 @@ void ManageProfitLadder()
          ladder1Profit = ladder1Profit / 2.0;
         }
 
-      if(existingPriceDistance <= 200)
+      if(existingPriceDistance == 100 && orderLots==0.01)
         {
          ladder1Profit = ladder1Profit / 5; // Or scale dynamically: (slDistance / 100.0) * 0.10
         }
