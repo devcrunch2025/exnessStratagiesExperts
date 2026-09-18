@@ -14,7 +14,7 @@
 //https://github.com/devcrunch2025/exnessStratagiesExperts/commit/00c472a227581be00abce1564b92f74e160f3876
 
 
-string glbVersion = "SSL CHANNEL EA  |  V45  REV 18-09-2026 12.00  FlipLadderStepUSD * StopLossUSD";
+string glbVersion = "SSL CHANNEL EA  |  V46  REV 18-09-2026 13.00  FlipLadderStepUSD * StopLossUSD";
 
 // ===== INPUT SETTINGS =====
 int SSLPeriod = 10;
@@ -1638,9 +1638,61 @@ void CloseOppositeProfitableOrdersIndependent(int newSignalType)
                " | Profit: $", DoubleToString(orderPL, 2),
                " | Threshold: $", DoubleToString(profitThreshold, 2));
 
-         SafeOrderClose(ticket, lots, orderType, Slippage, (orderType == OP_BUY ? clrRed : clrBlue));
+         // SafeOrderClose(ticket, lots, orderType, Slippage, (orderType == OP_BUY ? clrRed : clrBlue));
+
+         double targetSL = Bid - (15 * Point); // Example for a Buy order
+ModifyOrderStopLossByTicket(ticket, targetSL);
         }
      }
+  }
+
+  //+------------------------------------------------------------------+
+//| Modify an open order's Stop Loss by Ticket                      |
+//+------------------------------------------------------------------+
+bool ModifyOrderStopLossByTicket(int ticket, double newStopLoss)
+  {
+   // Select the order by ticket
+   if(!OrderSelect(ticket, SELECT_BY_TICKET, MODE_TRADES))
+     {
+      Print("Failed to select order #", ticket, " for modification. Error: ", GetLastError());
+      return false;
+     }
+
+   // Ensure the order is still open and belongs to the current chart symbol
+   if(OrderCloseTime() != 0)
+     {
+      Print("Order #", ticket, " is already closed. Cannot modify.");
+      return false;
+     }
+
+   if(OrderSymbol() != Symbol())
+     {
+      Print("Order #", ticket, " symbol (", OrderSymbol(), ") does not match chart symbol (", Symbol(), ").");
+      return false;
+     }
+
+   int    type      = OrderType();
+   double openPrice = OrderOpenPrice();
+   double currentTP = OrderTakeProfit();
+   double currentSL = OrderStopLoss();
+
+   // Only modify if the stop loss is actually different
+   if(NormalizeDouble(currentSL, Digits) == NormalizeDouble(newStopLoss, Digits))
+     {
+      return true; // Already set to this SL
+     }
+
+   // Send the modification request
+   bool modified = OrderModify(ticket, openPrice, newStopLoss, currentTP, 0, clrYellow);
+
+   if(!modified)
+     {
+      Print("Failed to modify Stop Loss for order #", ticket, ". Error: ", GetLastError());
+      return false;
+     }
+
+   Print("Successfully updated Stop Loss for order #", ticket, " to ", DoubleToString(newStopLoss, Digits));
+   return true;
   }
 //+------------------------------------------------------------------+
 //|                                                                  |
@@ -3601,7 +3653,99 @@ int SafeOrderSend(string symbol,int orderType,double lots,double price,int slipp
    MarkServerError(err,"OrderSend");
    return -1;
   }
+//+------------------------------------------------------------------+
+//| Safely modify in-profit orders or close in-loss orders by ticket |
+//+------------------------------------------------------------------+
+bool SafeOrderCloseNew(int ticket, double lots, int orderType, int slippage, color arrowColor)
+  {
+   if(TradeOperationFailedThisTick)
+      return false;
+      
+   string key = MakeTradeErrorKey("MANAGE", ticket, "");
+   if(IsTradeErrorBlockedThisTick(key))
+      return false;
+      
+   if(!OrderSelect(ticket, SELECT_BY_TICKET, MODE_TRADES))
+     {
+      if(OrderSelect(ticket, SELECT_BY_TICKET, MODE_HISTORY))
+         return true; // Already closed
+      return false;
+     }
 
+   // Calculate total profit including commission and swap
+   double totalProfit = OrderProfit() + OrderSwap() + OrderCommission();
+   double openPrice = OrderOpenPrice();
+   double currentTP = OrderTakeProfit();
+
+   RefreshRates();
+
+   // --- BRANCH 1: IN PROFIT -> MODIFY STOP LOSS TO LOCK IN GAINS ---
+   if(totalProfit >= 0)
+     {
+      double newStopLoss = 0;
+      
+      if(orderType == OP_BUY)
+        {
+         newStopLoss = Bid - (15 * Point);
+         if(newStopLoss < openPrice) 
+            newStopLoss = openPrice + (2 * Point); // Ensure it locks in a slight profit above entry
+        }
+      else if(orderType == OP_SELL)
+        {
+         newStopLoss = Ask + (15 * Point);
+         if(newStopLoss > openPrice) 
+            newStopLoss = openPrice - (2 * Point); // Ensure it locks in a slight profit below entry
+        }
+        
+      newStopLoss = NormalizeDouble(newStopLoss, Digits);
+      
+      if(!CanSendTradeRequest("OrderModify", "Ticket=" + IntegerToString(ticket)))
+         return false;
+         
+      ResetLastError();
+      bool modResult = OrderModify(ticket, openPrice, newStopLoss, currentTP, 0, arrowColor);
+      
+      if(modResult)
+        {
+         InvalidateTotalEAOrdersCache();
+         return true;
+        }
+        
+      int modErr = GetLastError();
+      BlockTradeErrorUntilNextTick(key);
+      MarkServerError(modErr, "OrderModify");
+      return false;
+     }
+   // --- BRANCH 2: IN LOSS -> CLOSE ORDER ---
+   else
+     {
+      double closePrice = (orderType == OP_BUY) ? Bid : Ask;
+      closePrice = NormalizeDouble(closePrice, Digits);
+      
+      if(!CanSendTradeRequest("OrderClose", "Ticket=" + IntegerToString(ticket)))
+         return false;
+         
+      ResetLastError();
+      bool closeResult = OrderClose(ticket, lots, closePrice, slippage, arrowColor);
+      
+      if(closeResult)
+        {
+         InvalidateTotalEAOrdersCache();
+         return true;
+        }
+        
+      int closeErr = GetLastError();
+      if(!OrderSelect(ticket, SELECT_BY_TICKET, MODE_TRADES))
+        {
+         if(OrderSelect(ticket, SELECT_BY_TICKET, MODE_HISTORY))
+            return true;
+        }
+        
+      BlockTradeErrorUntilNextTick(key);
+      MarkServerError(closeErr, "OrderClose");
+      return false;
+     }
+  }
 //+------------------------------------------------------------------+
 //|                                                                  |
 //+------------------------------------------------------------------+
@@ -6720,11 +6864,95 @@ void CheckDynamicStepLadder()
 //   }
 // Global tracker for the 30-minute loss gap
 datetime g_lastLossCloseTime = 0; 
+void ManagePartialCloses()
+{
+for(int i = OrdersTotal() - 1; i >= 0; i--)
+{
+ if(!OrderSelect(i, SELECT_BY_POS, MODE_TRADES))
+ continue;
+ 
+ // Ensure it matches current symbol
+ if(OrderSymbol() != Symbol())
+ continue;
 
+ int orderType = OrderType();
+ if(orderType != OP_BUY && orderType != OP_SELL)
+ continue;
+
+ double orderLots = OrderLots();
+
+ // Check if order size meets your threshold (0.02 lots or higher)
+ if(orderLots >= 0.02)
+ {
+ // Calculate total net profit for this specific ticket (including swap/commission)
+ double currentProfit = OrderProfit() + OrderSwap() + OrderCommission();
+
+ double lotsToClose = 0.01;
+ 
+ // Ensure leaving a valid minimum lot size behind (at least 0.02 so remaining is >= 0.01)
+ if(orderLots - lotsToClose >= 0.01)
+ {
+  bool triggerClose = false;
+  string actionType = "";
+  
+  int orderTypeInt = (orderType == OP_SELL) ? -1 : 1;
+
+
+  int minimum_Profit=2;//1.00;
+  // if(orderLots==0.05)
+  // {
+  // minimum_Profit=2;//
+  // }
+
+  // Condition 1: Profit target reached (+$1.00 or more) - Unrestricted
+  if(currentProfit >= minimum_Profit && TimeCurrent() - OrderOpenTime() > 60*1 && TimeCurrent() - g_lastLossCloseTime >= 60 * 2)
+  {
+  triggerClose = true;
+  actionType = "PROFIT";
+  }
+  // Condition 2: Loss threshold reached WITH 30-minute cool-down check
+  else if(currentProfit <= -(orderLots * 300.0 ))// && EMADirection != orderTypeInt)
+  {
+  // Check if 30 minutes (1800 seconds) have passed since the last loss cut
+  if(TimeCurrent() - g_lastLossCloseTime >= 60 * 60)
+  {
+   triggerClose = true;
+   actionType = "LOSS CUT";
+  }
+  }
+
+  if(triggerClose)
+  {
+bool success = false;
+  if(orderType == OP_BUY)
+   success = OrderClose(OrderTicket(), lotsToClose, Bid, 3, clrOrange);
+  else if(orderType == OP_SELL)
+   success = OrderClose(OrderTicket(), lotsToClose, Ask, 3, clrOrange);
+
+  if(success)
+  {
+   // If this was a loss cut, update our timer baseline
+   // if(actionType == "LOSS CUT")
+   {
+   g_lastLossCloseTime = TimeCurrent();
+   }
+
+   Print("Partial Close Success [", actionType, "]: Ticket #", OrderTicket(), 
+    " | Closed: ", lotsToClose, " lots | P/L at close: $", DoubleToString(currentProfit, 2));
+  }
+  else
+  {
+   Print("Partial Close Failed for Ticket #", OrderTicket(), ". Error: ", GetLastError());
+  }
+  }
+ }
+ }
+}
+}
 //+------------------------------------------------------------------+
 //| Manage Partial Closes with 30-Minute Gap Between Losses          |
 //+------------------------------------------------------------------+
-void ManagePartialCloses()
+void ManagePartialClosesNew()
   {
    for(int i = OrdersTotal() - 1; i >= 0; i--)
      {
@@ -6740,70 +6968,71 @@ void ManagePartialCloses()
          continue;
 
       double orderLots = OrderLots();
+      int ticket = OrderTicket();
 
-      // Check if order size meets your threshold (0.02 lots or higher)
-      if(orderLots >= 0.02)
+      // Check if order size meets your threshold (e.g., 0.05 lots or higher)
+      if(orderLots >= 0.05)
         {
          // Calculate total net profit for this specific ticket (including swap/commission)
          double currentProfit = OrderProfit() + OrderSwap() + OrderCommission();
 
-         double lotsToClose = 0.01;
-         
-         // Ensure leaving a valid minimum lot size behind (at least 0.02 so remaining is >= 0.01)
-         if(orderLots - lotsToClose >=   0.01)
+         double lotsToClose = 0.01; // The portion to bank
+         double minimum_Profit = 2.0; // Your profit threshold
+
+         // Condition: Profit target reached
+         if(currentProfit >= minimum_Profit && TimeCurrent() - OrderOpenTime() > 60 * 1 && TimeCurrent() - g_lastLossCloseTime >= 60 * 2)
            {
-            bool triggerClose = false;
-            string actionType = "";
+            RefreshRates();
+            bool success = false;
             
-            int orderTypeInt = (orderType == OP_SELL) ? -1 : 1;
+            // 1. Partially close 0.01 lots to bank real profit
+            if(orderType == OP_BUY)
+               success = OrderClose(ticket, lotsToClose, Bid, 3, clrOrange);
+            else if(orderType == OP_SELL)
+               success = OrderClose(ticket, lotsToClose, Ask, 3, clrOrange);
 
-
-            int minimum_Profit=2;//1.00;
-            // if(orderLots==0.05)
-            // {
-            //    minimum_Profit=2;//
-            // }
-
-            // Condition 1: Profit target reached (+$1.00 or more) - Unrestricted
-            if(currentProfit >= minimum_Profit && TimeCurrent() - OrderOpenTime() > 60*1 &&  TimeCurrent() - g_lastLossCloseTime >= 60 * 2)
+            if(success)
               {
-               triggerClose = true;
-               actionType = "PROFIT";
-              }
-            // Condition 2: Loss threshold reached WITH 30-minute cool-down check
-            else if(currentProfit <= -(orderLots * 300.0 ))// && EMADirection != orderTypeInt)
-              {
-               // Check if 30 minutes (1800 seconds) have passed since the last loss cut
-               if(TimeCurrent() - g_lastLossCloseTime >= 60 * 60)
+               Print("Partial Close Success [PROFIT LOCK]: Ticket #", ticket, 
+                     " | Closed: ", lotsToClose, " lots | P/L at close: $", DoubleToString(currentProfit, 2));
+               
+               // 2. Select the remaining portion (0.04 lots) and move SL to lock in profit on the rest
+               if(OrderSelect(ticket, SELECT_BY_TICKET, MODE_TRADES))
                  {
-                  triggerClose = true;
-                  actionType = "LOSS CUT";
-                 }
-              }
+                  double openPrice = OrderOpenPrice();
+                  double currentTP = OrderTakeProfit();
+                  double newSL = 0;
 
-            if(triggerClose)
-              {
-               bool success = false;
-               if(orderType == OP_BUY)
-                  success = OrderClose(OrderTicket(), lotsToClose, Bid, 3, clrOrange);
-               else if(orderType == OP_SELL)
-                  success = OrderClose(OrderTicket(), lotsToClose, Ask, 3, clrOrange);
-
-               if(success)
-                 {
-                  // If this was a loss cut, update our timer baseline
-                  // if(actionType == "LOSS CUT")
+                  if(orderType == OP_BUY)
                     {
-                     g_lastLossCloseTime = TimeCurrent();
+                     // Set SL above open price to lock in a profit buffer for the remaining 0.04 lots
+                     newSL = Bid - (15 * Point);
+                     if(newSL < openPrice) newSL = openPrice + (2 * Point); 
+                    }
+                  else if(orderType == OP_SELL)
+                    {
+                     // Set SL below open price to lock in a profit buffer for the remaining 0.04 lots
+                     newSL = Ask + (15 * Point);
+                     if(newSL > openPrice) newSL = openPrice - (2 * Point);
                     }
 
-                  Print("Partial Close Success [", actionType, "]: Ticket #", OrderTicket(), 
-                        " | Closed: ", lotsToClose, " lots | P/L at close: $", DoubleToString(currentProfit, 2));
+                  newSL = NormalizeDouble(newSL, Digits);
+                  
+                  // Modify the remaining active volume with the new profit-locking Stop Loss
+                  bool modSuccess = OrderModify(ticket, openPrice, newSL, currentTP, 0, clrLime);
+                  if(modSuccess)
+                    {
+                     Print("Successfully moved Stop Loss on remaining ", OrderLots(), " lots for Ticket #", ticket);
+                    }
+                  else
+                    {
+                     Print("Failed to update SL on remaining volume for Ticket #", ticket, ". Error: ", GetLastError());
+                    }
                  }
-               else
-                 {
-                  Print("Partial Close Failed for Ticket #", OrderTicket(), ". Error: ", GetLastError());
-                 }
+              }
+            else
+              {
+               Print("Partial Close Failed for Ticket #", ticket, ". Error: ", GetLastError());
               }
            }
         }
