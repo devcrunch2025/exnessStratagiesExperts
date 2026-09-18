@@ -14,6 +14,7 @@
 //https://github.com/devcrunch2025/exnessStratagiesExperts/commit/00c472a227581be00abce1564b92f74e160f3876
 
 
+
 string glbVersion = "SSL CHANNEL EA  |  V50  REV 18-09-2026 15.00  FlipLadderStepUSD * StopLossUSD";
 
 // ===== INPUT SETTINGS =====
