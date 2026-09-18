@@ -15,7 +15,7 @@
 
 
 
-string glbVersion = "SSL CHANNEL EA  |  V51  REV 18-09-2026 18.00  FlipLadderStepUSD * StopLossUSD";
+string glbVersion = "SSL CHANNEL EA  |  V52  REV 18-09-2026 19.00  FlipLadderStepUSD * StopLossUSD";
 
 // ===== INPUT SETTINGS =====
 int SSLPeriod = 10;
@@ -7132,24 +7132,29 @@ void ManageProfitLadder()
          existingPriceDistance = OrderOpenPrice() - OrderStopLoss();
       // --- NEW LOGIC: Reduce ladder1Profit by half if order is older than 1 hour or lots >= 0.03 ---
       // if(TimeCurrent() - OrderOpenTime() > 60*60 || orderLots >= 0.03)
+
+      double currentSLPoints = MathAbs(OrderOpenPrice() - OrderStopLoss());
       if(TimeCurrent() - OrderOpenTime() > 60*30)
         {
          ladder1Profit = ladder1Profit / 2.0;
         }
 
-      if(existingPriceDistance == 100 && orderLots==0.01)
+      if(MathAbs(existingPriceDistance) == 100 && orderLots==0.01)
         {
-         ladder1Profit = ladder1Profit / 5; // Or scale dynamically: (slDistance / 100.0) * 0.10
+         ladder1Profit = 0.20; // Or scale dynamically: (slDistance / 100.0) * 0.10
         }
 
-      Print("currentSL"+existingPriceDistance+" - "+ladder1Profit);
       // -----------------------------------------------------------------------------
 
       double ladder2Profit = OriginalLadder2ProfitUSD * orderLots * 100.0;
       double ladder1StopMaxPrice = OriginalLadder1StopMaxPriceUSD * orderLots * 100.0;
+      
       double lockedProfit = 0.0;
 
-      if(EnableProfitLadder1 && ladder1Profit > 0 && (currentProfit < ladder1StopMaxPrice || existingPriceDistance <= 200))
+
+      Print("currentSL"+existingPriceDistance+" - "+ladder1Profit+" - "+ currentProfit+" < "+ ladder1StopMaxPrice);
+
+      if(EnableProfitLadder1 && ladder1Profit > 0 && (currentProfit < ladder1StopMaxPrice))// || existingPriceDistance == 100))
         {
          int ladder1Level = (int)MathFloor(currentProfit / ladder1Profit);
          if(ladder1Level >= 1)
