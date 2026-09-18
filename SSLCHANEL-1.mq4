@@ -14,7 +14,7 @@
 //https://github.com/devcrunch2025/exnessStratagiesExperts/commit/00c472a227581be00abce1564b92f74e160f3876
 
 
-string glbVersion = "SSL CHANNEL EA  |  V43  REV 17-09-2026 22.00  changed $1 to $2";
+string glbVersion = "SSL CHANNEL EA  |  V45  REV 18-09-2026 12.00  FlipLadderStepUSD * StopLossUSD";
 
 // ===== INPUT SETTINGS =====
 int SSLPeriod = 10;
@@ -64,12 +64,12 @@ double TargetProfitPerFlipUSD = 10.0;
 // bool TradingHaltedUntilNextFlip = false;
 
 // ===== EMA FLIP PROFIT LADDER =====
-double FlipLadderStepUSD = 5;//10.0;
+double FlipLadderStepUSD =10;// 5;//10.0;
 double HighestCycleProfitUSD = 0.0;
 bool   TradingHaltedUntilNextFlip = false;
 double ActiveEquityBaseline = 0.0; // Add this new variable
 
-
+double SecurebaselinePercentage=0.90;
 
 
 // --- NEW RESUME TIMER VARIABLES ---
@@ -890,7 +890,7 @@ void ManageFlipProfitLadder()
 
 // 1. Initialize the baseline if it is empty
    if(ActiveEquityBaseline <= 0.0 || OrdersTotal() == 0)
-      ActiveEquityBaseline = AccountBalance() * 0.95;
+      ActiveEquityBaseline = AccountBalance() * SecurebaselinePercentage;
 
 // === DIRECT SAFETY CHECK: HARD BASELINE FLOOR ===
    if(AccountEquity() <= ActiveEquityBaseline && GetDistanceToEMAPrice(OP_BUY, true) > 100)
@@ -926,7 +926,7 @@ void ManageFlipProfitLadder()
 
       // RATCHET UPWARD: Shift the secured baseline upward with each new level achieved
       // This locks in a higher baseline floor (e.g., 90% of current equity or stepping up by the ladder step)
-      ActiveEquityBaseline = AccountBalance() * 0.95;
+      ActiveEquityBaseline = AccountBalance() * SecurebaselinePercentage;
 
       Print("LEVEL UP: Reached Level ", ladderLevel, " | Secured Baseline Ratcheted to: $", ActiveEquityBaseline);
      }
@@ -942,7 +942,7 @@ void ManageFlipProfitLadder()
                " | Retraced to lock +$", lockedProfitTarget,
                " | Halting trading and updating secured baseline.");
 
-         ActiveEquityBaseline = AccountBalance() * 0.95;
+         ActiveEquityBaseline = AccountBalance() * SecurebaselinePercentage;
 
          DrawLadderHaltCircle(Time[0], High[0] + (50 * Point));
          TradingHaltedUntilNextFlip = true;
@@ -970,7 +970,7 @@ void CheckLadderHaltResume()
 
       TradingHaltedUntilNextFlip = false;
       LadderHaltStartTime = 0;
-      ActiveEquityBaseline = AccountBalance() * 0.95; // Refresh baseline relative to current equity on resume
+      ActiveEquityBaseline = AccountBalance() * SecurebaselinePercentage; // Refresh baseline relative to current equity on resume
       HighestCycleProfitUSD = 0.0;
       HighestLadderLevelThisCycle = 0;
      }
@@ -1018,7 +1018,7 @@ void TrackEmaFlip()
 
       TradingHaltedUntilNextFlip = false;
       LadderHaltStartTime = 0; // Clear timer on flip
-      ActiveEquityBaseline = AccountBalance() * 0.95; // Updated to 10% less than current equity on flip
+      ActiveEquityBaseline = AccountBalance() * SecurebaselinePercentage; // Updated to 10% less than current equity on flip
       HighestCycleProfitUSD = 0.0;
       HighestLadderLevelThisCycle = 0;
 
@@ -1163,6 +1163,11 @@ void CloseOppositeOrdersOnEmaDistance()
 //+------------------------------------------------------------------+
 int OnInit()
   {
+
+
+   FlipLadderStepUSD=StopLossUSD;//
+   SecurebaselinePercentage = (100.0 - (StopLossUSD * 2.0)) / 100.0;//
+
    EquityResetReEntryPending=false;
 
    EmaFlipTime = TimeCurrent();
@@ -4353,21 +4358,90 @@ void CheckEquityBalanceProfitTarget()
   {
    double accountBalance = AccountBalance();
    double accountEquity  = AccountEquity();
+   double targetProfit   = accountBalance + (Ladder1ProfitUSD * 5);
    
-   // Check if Equity is greater than or equal to Balance + $1.00
-   if(accountEquity >= (accountBalance + 2.00))
+   // Check if Equity has reached the protection target
+   if(accountEquity >= targetProfit)
      {
       Print("Equity Target Reached! Balance: $", DoubleToString(accountBalance, 2), 
-            " | Equity: $", DoubleToString(accountEquity, 2), ". Closing all open orders.");
+            " | Equity: $", DoubleToString(accountEquity, 2), ". Modifying open orders to lock in profit and continuing trading.");
       
-      // Close all open positions
-      CloseAllOrders();
-      
-      // // Optional: Set your pause/halt flags if needed
-      // TradingHaltedUntilNextFlip = true;
-      // LadderHaltStartTime = TimeCurrent();
+      // Modify open positions to lock in profit instead of closing them
+      ModifyOpenOrdersToSecureProfit();
      }
   }
+
+//+------------------------------------------------------------------+
+// Modify open orders to secure profit and keep trading active       
+//+------------------------------------------------------------------+
+void ModifyOpenOrdersToSecureProfit()
+  {
+   for(int i = OrdersTotal() - 1; i >= 0; i--)
+     {
+      if(OrderSelect(i, SELECT_BY_POS, MODE_TRADES))
+        {
+         // Ensure we only modify orders for the current chart symbol
+         if(OrderSymbol() == Symbol())
+           {
+            int    ticket    = OrderTicket();
+            int    type      = OrderType();
+            double openPrice = OrderOpenPrice();
+            double currentSL = OrderStopLoss();
+            double currentTP = OrderTakeProfit();
+            
+            bool modified = false;
+            double newSL  = 0;
+            
+            if(type == OP_BUY)
+              {
+               // Lock in profit by moving SL above the open price (e.g., securing a buffer below current Bid)
+               newSL = Bid - (20 * Point); 
+               
+               // Only update if the new SL is higher than the entry price and better than the current SL
+               if(newSL > openPrice && (currentSL == 0 || newSL > currentSL))
+                 {
+                  modified = OrderModify(ticket, openPrice, newSL, currentTP, 0, clrGreen);
+                 }
+              }
+            else if(type == OP_SELL)
+              {
+               // Lock in profit by moving SL below the open price (e.g., securing a buffer above current Ask)
+               newSL = Ask + (20 * Point);
+               
+               // Only update if the new SL is lower than the entry price and better than the current SL
+               if(newSL < openPrice && (currentSL == 0 || newSL < currentSL))
+                 {
+                  modified = OrderModify(ticket, openPrice, newSL, currentTP, 0, clrRed);
+                 }
+              }
+              
+            if(!modified && GetLastError() != 0)
+              {
+               Print("Failed to modify order #", ticket, ". Error: ", GetLastError());
+              }
+           }
+        }
+     }
+  }
+// void CheckEquityBalanceProfitTarget()
+//   {
+//    double accountBalance = AccountBalance();
+//    double accountEquity  = AccountEquity();
+   
+//    // Check if Equity is greater than or equal to Balance + $1.00
+//    if(accountEquity >= (accountBalance + (Ladder1ProfitUSD*5)))//2.00))
+//      {
+//       Print("Equity Target Reached! Balance: $", DoubleToString(accountBalance, 2), 
+//             " | Equity: $", DoubleToString(accountEquity, 2), ". Closing all open orders.");
+      
+//       // Close all open positions
+//       CloseAllOrders();
+      
+//       // // Optional: Set your pause/halt flags if needed
+//       // TradingHaltedUntilNextFlip = true;
+//       // LadderHaltStartTime = TimeCurrent();
+//      }
+//   }
 //+------------------------------------------------------------------+
 //|                                                                  |
 //+------------------------------------------------------------------+
@@ -6535,7 +6609,8 @@ void CheckDynamicStepLadder()
          Print("Dynamic Step Exit! Peak reached: $", DoubleToString(g_peakCycleProfit, 2), 
                " | Market came down to step floor: $", DoubleToString(unlockedStepFloor, 2), ". Closing all open orders.");
          
-         CloseAllOrders();
+         // CloseAllOrders();
+         ModifyOpenOrdersToSecureProfit();
          
          // Save baseline time and reset peak for the next cycle
          g_lastLadderCloseTime = TimeCurrent();
@@ -6675,15 +6750,22 @@ void ManagePartialCloses()
          double lotsToClose = 0.01;
          
          // Ensure leaving a valid minimum lot size behind (at least 0.02 so remaining is >= 0.01)
-         if(orderLots - lotsToClose >= 0.01)
+         if(orderLots - lotsToClose >=   0.01)
            {
             bool triggerClose = false;
             string actionType = "";
             
             int orderTypeInt = (orderType == OP_SELL) ? -1 : 1;
 
+
+            int minimum_Profit=2;//1.00;
+            // if(orderLots==0.05)
+            // {
+            //    minimum_Profit=2;//
+            // }
+
             // Condition 1: Profit target reached (+$1.00 or more) - Unrestricted
-            if(currentProfit >= 1.00 &&  TimeCurrent() - g_lastLossCloseTime >= 60 * 1)
+            if(currentProfit >= minimum_Profit && TimeCurrent() - OrderOpenTime() > 60*1 &&  TimeCurrent() - g_lastLossCloseTime >= 60 * 2)
               {
                triggerClose = true;
                actionType = "PROFIT";
@@ -6764,7 +6846,8 @@ void ManageProfitLadder()
       double ladder1Profit = OriginalLadder1ProfitUSD * orderLots * 100.0;
 
       // --- NEW LOGIC: Reduce ladder1Profit by half if order is older than 1 hour or lots >= 0.03 ---
-      if(TimeCurrent() - OrderOpenTime() > 60*60 || orderLots >= 0.03) 
+      // if(TimeCurrent() - OrderOpenTime() > 60*60 || orderLots >= 0.03) 
+      if(TimeCurrent() - OrderOpenTime() > 60*60)
         {
          ladder1Profit = ladder1Profit / 2.0;
         }
