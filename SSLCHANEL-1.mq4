@@ -18,7 +18,7 @@
 
 
 
-string glbVersion = "SSL CHANNEL EA  |  V59 19-09-2026 13.00  lot 0.05 to 0.10";
+string glbVersion = "SSL CHANNEL EA  |  V60 19-09-2026 13.00  lot 0.10 to 0.05";
 
 // ===== INPUT SETTINGS =====
 int SSLPeriod = 10;
@@ -4670,7 +4670,7 @@ double GetDynamicOrderGap(int orderType)
 //+------------------------------------------------------------------+
 void ChangeLots(double OpenPL, string reason, int orderType, int stoplevelStep)
   {
-   double MaxRecoveryLot =0.10;// 0.05;
+   double MaxRecoveryLot =0.05;//0.10;// 0.05;
    double oppositeLots = GetOppositeOrdersLots(orderType);
    bool isSSLSignal = (reason == "SSL Long" || reason == "SSL Short");
    bool isSSLProfitReEntry = (reason == "SSL Profit ReEntry Buy Stop" || reason == "SSL Profit ReEntry Sell Stop");
