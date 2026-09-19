@@ -18,7 +18,7 @@
 
 
 
-string glbVersion = "SSL CHANNEL EA  |  V61 19-09-2026 13.00  Multiplier Partial Close Profit and Loss";
+string glbVersion = "SSL CHANNEL EA  |  V61 19-09-2026 16.00  CloseAndDeleteNonEmaMatchingOrders";
 
 // ===== INPUT SETTINGS =====
 int SSLPeriod = 10;
@@ -73,7 +73,7 @@ double HighestCycleProfitUSD = 0.0;
 bool   TradingHaltedUntilNextFlip = false;
 double ActiveEquityBaseline = 0.0; // Add this new variable
 
-double SecurebaselinePercentage=0.90;
+double SecurebaselinePercentage=0.50;//0.90;
 
 
 // --- NEW RESUME TIMER VARIABLES ---
@@ -909,7 +909,7 @@ void ManageFlipProfitLadder()
       TradingHaltedUntilNextFlip = true;
       LadderHaltStartTime = TimeCurrent();
       //CloseAndDeleteAllEAOrdersOnTradingStop();
-      CloseAndDeleteNonEmaMatchingOrders();
+      ///////////CloseAndDeleteNonEmaMatchingOrders();
 
       return;
      }
@@ -956,7 +956,7 @@ void ManageFlipProfitLadder()
          TradingHaltedUntilNextFlip = true;
          LadderHaltStartTime = TimeCurrent();
          //CloseAndDeleteAllEAOrdersOnTradingStop();
-         CloseAndDeleteNonEmaMatchingOrders();
+         //////////////////CloseAndDeleteNonEmaMatchingOrders();
         }
      }
   }
