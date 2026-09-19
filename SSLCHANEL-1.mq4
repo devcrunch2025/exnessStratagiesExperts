@@ -4282,6 +4282,7 @@ void TrackTicketLossState(int ticket, datetime closeTime, double closePrice)
 
 
 double g_lastMilestoneLoss = 0.0;
+double MinimumPartialLossPriceGapRaw = 100.0;
 
 
 int GetOriginalTicket(int ticket, string comment)
@@ -4307,6 +4308,24 @@ double GetTicketLastClosePrice(int ticket)
      }
    return 0.0;
   }
+
+bool PassesPartialLossPriceGap(int orderType,double lastParentLossPrice)
+  {
+   double gap=MinimumPartialLossPriceGapRaw;
+   if(gap<=0.0 || lastParentLossPrice<=0.0)
+      return true;
+
+   RefreshRates();
+
+   if(orderType==OP_BUY)
+      return (lastParentLossPrice-Bid)>=gap;
+
+   if(orderType==OP_SELL)
+      return (Ask-lastParentLossPrice)>=gap;
+
+   return false;
+  }
+
 
 void ManagePartialCloses()
   {
@@ -4349,27 +4368,18 @@ void ManagePartialCloses()
 
       bool profitTrigger=(profit>=profitThreshold && age>60 && now-g_lastPartialCloseTime>=120);
       bool lossTrigger=false;
+      int ticket=OrderTicket();
+      string orderComment=OrderComment();
+      int parentTicket=GetOriginalTicket(ticket,orderComment);
+      double lastParentLossPrice=GetTicketLastClosePrice(parentTicket);
 
-      if(profit<=-(orderLots*100.0))
-        {
-         int parentTicket=GetOriginalTicket(OrderTicket(),OrderComment());
-         double lastLossPrice=GetTicketLastClosePrice(parentTicket);
-         RefreshRates();
-         if(lastLossPrice<=0.0)
-            lossTrigger=true;
-         else if(type==OP_BUY && (lastLossPrice-Bid)>=100.0)
-            lossTrigger=true;
-         else if(type==OP_SELL && (Ask-lastLossPrice)>=100.0)
-            lossTrigger=true;
-        }
+      if(profit<=-(orderLots*100.0) && PassesPartialLossPriceGap(type,lastParentLossPrice))
+         lossTrigger=true;
 
       if(!profitTrigger && !lossTrigger)
          continue;
 
-      int ticket=OrderTicket();
-      string orderComment=OrderComment();
       double lotsBefore=OrderLots();
-      int parentTicket=GetOriginalTicket(ticket,orderComment);
       RefreshRates();
       double closePrice=(type==OP_BUY)?Bid:Ask;
       color closeColor=profitTrigger?clrOrangeRed:clrRed;
@@ -4377,14 +4387,11 @@ void ManagePartialCloses()
 
       if(SafeOrderClose(ticket,closeLots,type,Slippage,closeColor))
         {
-         if(!profitTrigger)
+         g_lastPartialCloseTime=now;
+
+         if(lossTrigger)
            {
             TrackTicketLossState(parentTicket,now,closePrice);
-            g_lastPartialCloseTime=now;
-           }
-         else
-           {
-            g_lastPartialCloseTime=now;
            }
 
          Print(reason," CLOSE | Ticket #",ticket,
@@ -4392,7 +4399,8 @@ void ManagePartialCloses()
                " | Lots before: ",DoubleToString(lotsBefore,2),
                " | Balance multiplier: X",IntegerToString(balancelomultipler),
                " | P/L at trigger: $",DoubleToString(profit,2),
-               " | Close price: ",DoubleToString(closePrice,Digits));
+               " | Close price: ",DoubleToString(closePrice,Digits),
+               " | Loss gap required: $",DoubleToString(MinimumPartialLossPriceGapRaw,2));
          return;
         }
      }
