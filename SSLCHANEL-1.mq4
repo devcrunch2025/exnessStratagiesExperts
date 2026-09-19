@@ -18,7 +18,7 @@
 
 
 
-string glbVersion = "SSL CHANNEL EA  |  V58 19-09-2026 10.00  ignoreFlipTime";
+string glbVersion = "SSL CHANNEL EA  |  V58 19-09-2026 12.00  ignoreFlipTime stoplossusd $6";
 
 // ===== INPUT SETTINGS =====
 int SSLPeriod = 10;
@@ -53,7 +53,7 @@ bool enableCircleOrders = true;
 double MaxAllowedSpreadUSD = 35.0;
 int AccountMultiplierLOT = 500;
 double OriginalStopLossUSD = 6;//4;
-double StopLossUSD =10;//6;//5;//10;//2;// 10;
+double StopLossUSD =6;//10;//6;//5;//10;//2;// 10;
 
 
 
