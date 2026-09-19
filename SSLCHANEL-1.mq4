@@ -18,7 +18,7 @@
 
 
 
-string glbVersion = "SSL CHANNEL EA  |  V61 19-09-2026 16.00  CloseAndDeleteNonEmaMatchingOrders";
+string glbVersion = "SSL CHANNEL EA  |  V62 19-09-2026 16.00  CloseAndDeleteNonEmaMatchingOrders ManageFlipProfitLadder";
 
 // ===== INPUT SETTINGS =====
 int SSLPeriod = 10;
@@ -1717,7 +1717,7 @@ void OnTickCore()
 
    TrackEmaFlip();
 // CheckFlipProfitTarget(); // Add this line
-   ManageFlipProfitLadder(); // Add this line
+  ////////////// ManageFlipProfitLadder(); // Add this line
 // Manage50EmaClosures();
 // ManageEmaAngleOppositeClose(); // <-- Add this here
    ProcessDeferredOrders();
