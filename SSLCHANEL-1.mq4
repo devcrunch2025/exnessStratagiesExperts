@@ -13,9 +13,12 @@
 
 //https://github.com/devcrunch2025/exnessStratagiesExperts/commit/00c472a227581be00abce1564b92f74e160f3876
 
+//Deleted -2
+//https://github.com/devcrunch2025/exnessStratagiesExperts/commit/a3a7908f5cb6d3c86b516b18afa2cbd3525d9fc9
 
 
-string glbVersion = "SSL CHANNEL EA  |  V56  REV 18-09-2026 23.00  0.01 deleted from big candle";
+
+string glbVersion = "SSL CHANNEL EA  |  V57  REV 19-09-2026 08.00  Anggle 2";
 
 // ===== INPUT SETTINGS =====
 int SSLPeriod = 10;
@@ -3437,18 +3440,18 @@ int SafeOrderSend(string symbol,int orderType,double lots,double price,int slipp
    if(!IsDayProfitLadderTradingAllowed())
       return -1;
 
-   // if(GlobalEmaAngle30<2 &&  GlobalEmaAngle30 > -2)
-   //   {
-   //    Comment("TRADE BLOCKED | BOTH SIDES Angle below 2 degrees. No trade allowed.");
-   //    TradeMonitoringLog="TRADE BLOCKED | BOTH SIDES Angle below 2 degrees. No trade allowed.";
-   //    return -1;;
-   //   }
-   // else
-   //   {
-   //    TradeMonitoringLog="";
-   //   }
+   if(GlobalEmaAngle30<2 &&  GlobalEmaAngle30 > -2)
+     {
+      Comment("TRADE BLOCKED | BOTH SIDES Angle below 2 degrees. No trade allowed.");
+      TradeMonitoringLog="TRADE BLOCKED | BOTH SIDES Angle below 2 degrees. No trade allowed.";
+      return -1;;
+     }
+   else
+     {
+      TradeMonitoringLog="";
+     }
 
-   if(TimeCurrent() - EmaFlipTime < 60*30)
+   if(TimeCurrent() - EmaFlipTime < 60*15)
      {
 
       Comment("TRADE BLOCKED | EmaFlipTime < 60*30");
@@ -4886,7 +4889,8 @@ void ChangeLots(double OpenPL, string reason, int orderType, int stoplevelStep)
 
    if(HasAnyLargeCandle(Symbol(), PERIOD_M1, 30, 100.0, false))
       Lots = 0.01;
-
+if(GlobalEmaAngle30<2 &&  GlobalEmaAngle30 > -2)
+     Lots = 0.01;
 
 // if(IsAbsolutePriceDifferenceExceeded(5,200))
 // {
