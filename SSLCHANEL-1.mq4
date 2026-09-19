@@ -4282,6 +4282,8 @@ void TrackTicketLossState(int ticket, datetime closeTime, double closePrice)
 
 
 double g_lastMilestoneLoss = 0.0;
+double g_lastBuyPartialLossPrice = 0.0;
+double g_lastSellPartialLossPrice = 0.0;
 double MinimumPartialLossPriceGapRaw = 100.0;
 
 
@@ -4309,27 +4311,49 @@ double GetTicketLastClosePrice(int ticket)
    return 0.0;
   }
 
+void ResetPartialLossSequenceIfDirectionEmpty()
+  {
+   if(CountDirectionOrders(OP_BUY)==0)
+      g_lastBuyPartialLossPrice=0.0;
+   if(CountDirectionOrders(OP_SELL)==0)
+      g_lastSellPartialLossPrice=0.0;
+  }
+
+
 bool PassesPartialLossPriceGap(int orderType,double lastParentLossPrice)
   {
+   RefreshRates();
    double gap=MinimumPartialLossPriceGapRaw;
-   if(gap<=0.0 || lastParentLossPrice<=0.0)
+   if(gap<=0.0)
       return true;
 
-   RefreshRates();
+   double basketLastPrice=(orderType==OP_BUY)?g_lastBuyPartialLossPrice:g_lastSellPartialLossPrice;
 
-   if(orderType==OP_BUY)
-      return (lastParentLossPrice-Bid)>=gap;
+   if(lastParentLossPrice>0.0)
+     {
+      if(orderType==OP_BUY && (lastParentLossPrice-Bid)<gap)
+         return false;
+      if(orderType==OP_SELL && (Ask-lastParentLossPrice)<gap)
+         return false;
+     }
 
-   if(orderType==OP_SELL)
-      return (Ask-lastParentLossPrice)>=gap;
+   if(basketLastPrice>0.0)
+     {
+      if(orderType==OP_BUY && (basketLastPrice-Bid)<gap)
+         return false;
+      if(orderType==OP_SELL && (Ask-basketLastPrice)<gap)
+         return false;
+     }
 
-   return false;
+   return true;
   }
 
 
 void ManagePartialCloses()
   {
    UpdateBalanceMultiplier();
+   ResetPartialLossSequenceIfDirectionEmpty();
+
    double minLot=MarketInfo(Symbol(),MODE_MINLOT);
    if(minLot<=0.0)
       minLot=0.01;
@@ -4392,6 +4416,10 @@ void ManagePartialCloses()
          if(lossTrigger)
            {
             TrackTicketLossState(parentTicket,now,closePrice);
+            if(type==OP_BUY)
+               g_lastBuyPartialLossPrice=closePrice;
+            else
+               g_lastSellPartialLossPrice=closePrice;
            }
 
          Print(reason," CLOSE | Ticket #",ticket,
