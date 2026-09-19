@@ -18,7 +18,7 @@
 
 
 
-string glbVersion = "SSL CHANNEL EA  |  V57  REV 19-09-2026 08.00  Anggle 2";
+string glbVersion = "SSL CHANNEL EA  |  V58 19-09-2026 10.00  ignoreFlipTime";
 
 // ===== INPUT SETTINGS =====
 int SSLPeriod = 10;
@@ -3440,25 +3440,66 @@ int SafeOrderSend(string symbol,int orderType,double lots,double price,int slipp
    if(!IsDayProfitLadderTradingAllowed())
       return -1;
 
-   if(GlobalEmaAngle30<2 &&  GlobalEmaAngle30 > -2)
-     {
-      Comment("TRADE BLOCKED | BOTH SIDES Angle below 2 degrees. No trade allowed.");
-      TradeMonitoringLog="TRADE BLOCKED | BOTH SIDES Angle below 2 degrees. No trade allowed.";
-      return -1;;
-     }
-   else
-     {
-      TradeMonitoringLog="";
-     }
 
-   if(TimeCurrent() - EmaFlipTime < 60*15)
-     {
+    // Blokkeer Buys wanneer het verlies minder is dan $2 (P/L > -2.0) en de EMA-hoek kleiner is dan 2.0
+if(GetOpenPL(OP_BUY) > -2.0 && GlobalEmaAngle30 < 2.0 && 
+   (orderType == OP_BUY || orderType == OP_BUYSTOP || orderType == OP_BUYLIMIT))
+  {
+   Comment("TRADE BUY BLOCKED | Buy P/L is beter dan -$2 verlies en EMA-hoek is te laag (", DoubleToString(GlobalEmaAngle30, 2), " deg < 2.0).");
+   return -1;
+  }
 
-      Comment("TRADE BLOCKED | EmaFlipTime < 60*30");
+  // Block Sell orders when floating loss is less than $2 (P/L > -2.0) and EMA angle is greater than -2.0
+if(GetOpenPL(OP_SELL) > -2.0 && GlobalEmaAngle30 > -2.0 && 
+   (orderType == OP_SELL || orderType == OP_SELLSTOP || orderType == OP_SELLLIMIT))
+  {
+   Comment("TRADE SELL BLOCKED | Sell P/L is better than -$2 loss and EMA angle is too weak/flat (", DoubleToString(GlobalEmaAngle30, 2), " deg > -2.0).");
+   return -1;
+  }
 
-      return -1;;
+   // if(GlobalEmaAngle30<2 &&  GlobalEmaAngle30 > -2)
+   //   {
+   //    Comment("TRADE BLOCKED | BOTH SIDES Angle below 2 degrees. No trade allowed.");
+   //    TradeMonitoringLog="TRADE BLOCKED | BOTH SIDES Angle below 2 degrees. No trade allowed.";
+   //    return -1;;
+   //   }
+   // else
+   //   {
+   //    TradeMonitoringLog="";
+   //   }
 
-     }
+   // Determine whether to bypass EmaFlipTime for either Buy or Sell
+bool ignoreFlipTime = false;
+
+// Buy condition: EMA is bullish (+1) and open Buy loss is $2.00 or more
+if(EMADirection == 1 && GetOpenPL(OP_BUY) <= -2.0 && 
+   (orderType == OP_BUY || orderType == OP_BUYSTOP || orderType == OP_BUYLIMIT))
+  {
+   ignoreFlipTime = true;
+  }
+
+// Sell condition: EMA is bearish (-1) and open Sell loss is $2.00 or more
+if(EMADirection == -1 && GetOpenPL(OP_SELL) <= -2.0 && 
+   (orderType == OP_SELL || orderType == OP_SELLSTOP || orderType == OP_SELLLIMIT))
+  {
+   ignoreFlipTime = true;
+  }
+
+// Block trades if flip time is under 15 minutes and bypass criteria are NOT met
+if(!ignoreFlipTime && (TimeCurrent() - EmaFlipTime < 60 * 15))
+  {
+   Comment("TRADE BLOCKED | EmaFlipTime < 15 mins");
+   return -1;
+  }
+
+   // if(TimeCurrent() - EmaFlipTime < 60*15)
+   //   {
+
+   //    Comment("TRADE BLOCKED | EmaFlipTime < 60*30");
+
+   //    return -1;;
+
+   //   }
 
 
    if(IsEmaWEAKDistanceReduced50PercentFromPeak(orderType))//weak
@@ -3492,19 +3533,19 @@ int SafeOrderSend(string symbol,int orderType,double lots,double price,int slipp
 
 // --- STRICT EMA TREND FILTER WITH EXHAUSTION ALLOWANCE ---
 
-// Block Sells during a standard strong uptrend (2 to 6 degrees). Allows Sells > 6 for extreme exhaustion.
-   if(GetOpenPL(OP_BUY) >-2 && GlobalEmaAngle30 > 2.0 && GlobalEmaAngle30 <= 6.0 && EMADirection != -1 && (orderType == OP_SELL || orderType == OP_SELLSTOP || orderType == OP_SELLLIMIT))
-     {
-      Comment("TRADE SELL BLOCKED | EMA trend is strong (", DoubleToString(GlobalEmaAngle30, 2), " deg). Waiting for extreme exhaustion (>6) to Sell.");
-      return -1;
-     }
+// // Block Sells during a standard strong uptrend (2 to 6 degrees). Allows Sells > 6 for extreme exhaustion.
+//    if(GetOpenPL(OP_BUY) >-2 && GlobalEmaAngle30 > 2.0 && GlobalEmaAngle30 <= 6.0 && EMADirection != -1 && (orderType == OP_SELL || orderType == OP_SELLSTOP || orderType == OP_SELLLIMIT))
+//      {
+//       Comment("TRADE SELL BLOCKED | EMA trend is strong (", DoubleToString(GlobalEmaAngle30, 2), " deg). Waiting for extreme exhaustion (>6) to Sell.");
+//       return -1;
+//      }
 
-// Block Buys during a standard strong downtrend (-2 to -6 degrees). Allows Buys < -6 for extreme exhaustion.
-   if(GetOpenPL(OP_SELL) > -2 && GlobalEmaAngle30 < -2.0 && GlobalEmaAngle30 >= -6.0 && EMADirection != 1 && (orderType == OP_BUY || orderType == OP_BUYSTOP || orderType == OP_BUYLIMIT))
-     {
-      Comment("TRADE BUY BLOCKED | EMA trend is strong (", DoubleToString(GlobalEmaAngle30, 2), " deg). Waiting for extreme exhaustion (<-6) to Buy.");
-      return -1;
-     }
+// // Block Buys during a standard strong downtrend (-2 to -6 degrees). Allows Buys < -6 for extreme exhaustion.
+//    if(GetOpenPL(OP_SELL) > -2 && GlobalEmaAngle30 < -2.0 && GlobalEmaAngle30 >= -6.0 && EMADirection != 1 && (orderType == OP_BUY || orderType == OP_BUYSTOP || orderType == OP_BUYLIMIT))
+//      {
+//       Comment("TRADE BUY BLOCKED | EMA trend is strong (", DoubleToString(GlobalEmaAngle30, 2), " deg). Waiting for extreme exhaustion (<-6) to Buy.");
+//       return -1;
+//      }
 
    if(IsOrderAllowedByTrendAndGap(orderType) == false)
      {
@@ -7047,11 +7088,241 @@ bool GetTrackedTicketState(int ticket, datetime &outTime, double &outPrice)
         }
      }
   }
+
+  // Global variables to track equity-based step loss milestones
+double g_lastMilestoneLoss = 0.0; // Tracks the last loss step reached (e.g., -5, -10, -15...)
+
+void ManageEquityStepLoss()
+  {
+   // 1. Calculate total floating P/L across all open orders on the current symbol
+   double totalBasketProfit = 0.0;
+   int openOrdersCount = 0;
+
+   for(int i = OrdersTotal() - 1; i >= 0; i--)
+     {
+      if(!OrderSelect(i, SELECT_BY_POS, MODE_TRADES)) continue;
+      if(OrderSymbol() != Symbol() || OrderMagicNumber() != MagicNumber) continue;
+      if(OrderType() != OP_BUY && OrderType() != OP_SELL) continue;
+
+      totalBasketProfit += OrderProfit() + OrderSwap() + OrderCommission();
+      openOrdersCount++;
+     }
+
+   // If no orders or basket is in profit, reset milestone tracking and exit
+   if(openOrdersCount == 0 || totalBasketProfit >= 0)
+     {
+      g_lastMilestoneLoss = 0.0;
+      return;
+     }
+
+   // 2. Define your step size (e.g., every $5.00 step in total loss)
+   double stepSize = 5.00;
+
+   // Calculate which step milestone we are currently at (e.g., -5, -10, -15...)
+   // totalBasketProfit is negative, so we check against negative thresholds
+   double currentLossMagnitude = MathAbs(totalBasketProfit);
+   
+   // Determine if we crossed a new $5 step increment
+   bool   triggerStepClose = false;
+   double nextMilestone    = g_lastMilestoneLoss + stepSize;
+
+   if(currentLossMagnitude >= nextMilestone)
+     {
+      triggerStepClose = true;
+      g_lastMilestoneLoss = nextMilestone; // Update milestone tracker
+     }
+
+   if(triggerStepClose)
+     {
+      // 3. Find the open order with the LARGEST lot size
+      int    largestOrderTicket = -1;
+      double largestLotSize     = 0.0;
+      int    targetOrderType    = -1;
+
+      for(int i = OrdersTotal() - 1; i >= 0; i--)
+        {
+         if(!OrderSelect(i, SELECT_BY_POS, MODE_TRADES)) continue;
+         if(OrderSymbol() != Symbol() || OrderMagicNumber() != MagicNumber) continue;
+         
+         double lots = OrderLots();
+         // Ensure the order has enough volume to shave 0.01 while leaving at least 0.01 behind
+         if(lots >= 0.02 && lots > largestLotSize)
+           {
+            largestLotSize     = lots;
+            largestOrderTicket = OrderTicket();
+            targetOrderType    = OrderType();
+           }
+        }
+
+      // 4. Execute partial close (0.01) on the largest order found
+      if(largestOrderTicket != -1)
+        {
+         if(OrderSelect(largestOrderTicket, SELECT_BY_TICKET))
+           {
+            RefreshRates();
+            double closePrice = (targetOrderType == OP_BUY) ? Bid : Ask;
+            double lotsToClose = 0.01;
+
+            bool success = OrderClose(largestOrderTicket, lotsToClose, closePrice, 20, clrRed);
+            if(success)
+              {
+               Print("Equity Step Loss Triggered at Total P/L: $", DoubleToString(totalBasketProfit, 2),
+                     " | Closed 0.01 lots from Largest Order Ticket #", largestOrderTicket,
+                     " (Initial Lots: ", largestLotSize, ")");
+              }
+            else
+              {
+               Print("Equity Step Loss Close Failed for Ticket #", largestOrderTicket, ". Error: ", GetLastError());
+              }
+           }
+        }
+     }
+  }
+  // Global arrays to track individual ticket states independently for loss cuts
+//int      g_trackedTickets[];
+//double   g_lastClosedPrices[];
+// Helper to find the original parent ticket across partial closes
+int GetOriginalTicket(int ticket, string comment)
+  {
+   // MT4 formats partial closes as "from #12345"
+   int pos = StringFind(comment, "from #");
+   if(pos >= 0)
+     {
+      string parentStr = StringSubstr(comment, pos + 6);
+      return (int)StringToInteger(parentStr);
+     }
+   return ticket;
+  }
+// Helper function to update or add a ticket's last closed price
+void UpdateTicketClosePrice(int ticket, double closePrice)
+  {
+   int size = ArraySize(g_trackedTickets);
+   int index = -1;
+   
+   for(int i = 0; i < size; i++)
+     {
+      if(g_trackedTickets[i] == ticket)
+        {
+         index = i;
+         break;
+        }
+     }
+     
+   if(index == -1)
+     {
+      ArrayResize(g_trackedTickets, size + 1);
+      ArrayResize(g_lastClosedPrices, size + 1);
+      index = size;
+      g_trackedTickets[index] = ticket;
+     }
+     
+   g_lastClosedPrices[index] = closePrice;
+  }
+
+// Helper function to get a specific ticket's last closed price
+double GetTicketLastClosePrice(int ticket)
+  {
+   int size = ArraySize(g_trackedTickets);
+   for(int i = 0; i < size; i++)
+     {
+      if(g_trackedTickets[i] == ticket)
+         return g_lastClosedPrices[i];
+     }
+   return 0.0; // Returns 0 if this ticket has never partially closed yet
+  }
+  void ManagePartialClosesLoss()
+  {
+   for(int i = OrdersTotal() - 1; i >= 0; i--)
+     {
+      if(!OrderSelect(i, SELECT_BY_POS, MODE_TRADES))
+         continue;
+
+      // Ensure it matches current symbol and magic number
+      if(OrderSymbol() != Symbol() || OrderMagicNumber() != MagicNumber)
+         continue;
+
+      int orderType = OrderType();
+      if(orderType != OP_BUY && orderType != OP_SELL)
+         continue;
+
+      double orderLots = OrderLots();
+      int currentTicket = OrderTicket();
+
+      // Check if order size meets your threshold (0.02 lots or higher to allow partial close)
+      if(orderLots >= 0.02)
+        {
+         // Calculate total net profit for this specific ticket (including swap/commission)
+         double currentProfit = OrderProfit() + OrderSwap() + OrderCommission();
+         double lotsToClose   = 0.01;
+
+         // Ensure leaving a valid minimum lot size behind (at least 0.01 remaining)
+         if(orderLots - lotsToClose >= 0.01)
+           {
+            bool   triggerClose = false;
+            int    orderTypeInt = (orderType == OP_SELL) ? -1 : 1;
+
+            // Retrieve the last closed price specific to *this* unique ticket reference from our array
+           int baseTicket = GetOriginalTicket(currentTicket, OrderComment());
+      double lastClosedPrice = GetTicketLastClosePrice(baseTicket);
+
+            // === PURE LOSS GAP CUT CONDITION ($100 RAW PRICE GAP PER SPECIFIC ORDER) ===
+            if(currentProfit <= -(orderLots * 100.0))
+              {
+               bool priceGapReached = false;
+
+               if(lastClosedPrice == 0.0)
+                 {
+                  priceGapReached = true; // First partial loss close for this specific ticket
+                 }
+               else if(orderTypeInt == 1 && (lastClosedPrice - Bid) >= 100.0) // OP_BUY: Current Bid must be $100 lower than the last close price for THIS ticket
+                 {
+                  priceGapReached = true;
+                 }
+               else if(orderTypeInt == -1 && (Ask - lastClosedPrice) >= 100.0) // OP_SELL: Current Ask must be $100 higher than the last close price for THIS ticket
+                 {
+                  priceGapReached = true;
+                 }
+
+               if(priceGapReached)
+                 {
+                  triggerClose = true;
+                 }
+              }
+
+            // === EXECUTE ORDER CLOSE ONCE LOSS GAP IS TRIGGERED ===
+            if(triggerClose)
+              {
+               RefreshRates();
+               double closePrice = (orderType == OP_BUY) ? Bid : Ask;
+
+               // Slippage set to 20 to prevent Error 138 during fast market movement
+               bool success = OrderClose(currentTicket, lotsToClose, closePrice, 20, clrRed);
+
+               if(success)
+                 {
+                  // Save this close price exclusively referenced to this unique order ticket in the array
+UpdateTicketClosePrice(baseTicket, closePrice);
+                  Print("Partial Loss Cut Success: Ticket #", currentTicket,
+                        " | Closed: ", lotsToClose, " lots | P/L: $", DoubleToString(currentProfit, 2),
+                        " | Execution Price Recorded: ", closePrice);
+                 }
+               else
+                 {
+                  Print("Partial Loss Cut Failed for Ticket #", currentTicket, ". Error: ", GetLastError());
+                 }
+              }
+           }
+        }
+     }
+  }
 //+------------------------------------------------------------------+
 //|                                                                  |
 //+------------------------------------------------------------------+
 void ManagePartialCloses()
   {
+
+
+   ManagePartialClosesLoss();
    for(int i = OrdersTotal() - 1; i >= 0; i--)
      {
       if(!OrderSelect(i, SELECT_BY_POS, MODE_TRADES))
@@ -7097,35 +7368,35 @@ void ManagePartialCloses()
                triggerClose = true;
                actionType   = "PROFIT";
               }
-            // === CONDITION 2: SEQUENTIAL LOSS GAP CUT ($100 GAPS) ===
-            else
-               if(currentProfit <= -(orderLots * 100.0))
-                 {
-                  bool priceGapReached = false;
+            // // === CONDITION 2: SEQUENTIAL LOSS GAP CUT ($100 GAPS) ===
+            // else
+            //    if(currentProfit <= -(orderLots * 100.0))
+            //      {
+            //       bool priceGapReached = false;
 
 
 
-                  if(g_lastClosedPrice == 0)
-                    {
-                     priceGapReached = true; // First partial loss close
-                    }
-                  else
-                     if(orderTypeInt == 1 && (g_lastClosedPrice - Bid) >= 100.0) // OP_BUY
-                       {
-                        priceGapReached = true;
-                       }
-                     else
-                        if(orderTypeInt == -1 && (Ask - g_lastClosedPrice) >= 100.0) // OP_SELL
-                          {
-                           priceGapReached = true;
-                          }
+            //       if(g_lastClosedPrice == 0)
+            //         {
+            //          priceGapReached = true; // First partial loss close
+            //         }
+            //       else
+            //          if(orderTypeInt == 1 && (g_lastClosedPrice - Bid) >= 100.0) // OP_BUY
+            //            {
+            //             priceGapReached = true;
+            //            }
+            //          else
+            //             if(orderTypeInt == -1 && (Ask - g_lastClosedPrice) >= 100.0) // OP_SELL
+            //               {
+            //                priceGapReached = true;
+            //               }
 
-                  if(priceGapReached)
-                    {
-                     triggerClose = true;
-                     actionType   = "LOSS CUT";
-                    }
-                 }
+            //       if(priceGapReached)
+            //         {
+            //          triggerClose = true;
+            //          actionType   = "LOSS CUT";
+            //         }
+            //      }
 
             // === EXECUTE ORDER CLOSE ONCE IF TRIGGERED ===
             if(triggerClose)
