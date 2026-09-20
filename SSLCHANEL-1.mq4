@@ -18,7 +18,7 @@
 
 
 
-string glbVersion = "EA V209 20-09-2026 15.00  Heavy Order 300 gap";
+string glbVersion = "EA V210 20-09-2026 16.00  Change lot 0.05 to 0.01";
 
 // ===== INPUT SETTINGS =====
 int SSLPeriod = 10;
@@ -4981,7 +4981,7 @@ void ChangeLots(double OpenPL, string reason, int orderType, int stoplevelStep)
 // Lots = 0.01 * (10 - cycleStep);
 
 // if(Lots==0.01)
-   Lots=MaxRecoveryLot;
+   // Lots=MaxRecoveryLot;
 
 // Lots=0.05;//
 // Print("Closed Orders Since EMA Flip: ", closedCount, " | Cycle Step: ", cycleStep, " | Calculated Lots: ", Lots);
