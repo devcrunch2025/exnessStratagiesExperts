@@ -18,7 +18,7 @@
 
 
 
-string glbVersion = "EA V211 20-09-2026 19.00  Change lot 0.01 to 0.05 & ManagePartialClosesLoss multipler";
+string glbVersion = "EA V211 20-09-2026 19.00  Los 0.05, Stoploss X1, TP:1X, Gap 300 ";
 
 // ===== INPUT SETTINGS =====
 int SSLPeriod = 10;
