@@ -18,7 +18,7 @@
 
 
 
-string glbVersion = "EA V205 20-09-2026 11.00  partialclose profit to $4";
+string glbVersion = "EA V207 20-09-2026 13.00  Heavey Order";
 
 // ===== INPUT SETTINGS =====
 int SSLPeriod = 10;
@@ -5095,7 +5095,7 @@ if(GlobalEmaAngle30<2 &&  GlobalEmaAngle30 > -2)
 
 
 
-   if(IsHeavyLotOrderNearBy(orderType, 100) && Lots>=0.02)
+   if(IsHeavyLotOrderNearBy(orderType, 200) && Lots>=0.02)
       Lots = 0.01;
 
 
@@ -7700,7 +7700,7 @@ void ManagePartialCloses()
             bool   triggerClose = false;
             string actionType   = "";
             int    orderTypeInt = (orderType == OP_SELL) ? -1 : 1;
-            int    minimum_Profit = 2*2*balancelomultipler;
+            int    minimum_Profit = 1*2*balancelomultipler;
 
             if(TimeCurrent() - OrderOpenTime() > 60 * 30)
               {
