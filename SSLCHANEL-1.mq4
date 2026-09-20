@@ -18,7 +18,7 @@
 
 
 
-string glbVersion = "EA V211 20-09-2026 19.00  Los 0.05, Stoploss X1, TP:1X, Gap 300 ";
+string glbVersion = "EA V212 20-09-2026 19.00  Los 0.05, Stoploss X2, TP:1X, Gap 300 ";
 
 // ===== INPUT SETTINGS =====
 int SSLPeriod = 10;
@@ -7415,22 +7415,22 @@ void ManagePartialClosesLoss()
 
       if(MathAbs(orderLots - (0.05*balancelomultipler)) < 0.000001)
       {
-         lossTrigger = -(5.00*balancelomultipler*1);
+         lossTrigger = -(5.00*balancelomultipler*2);
       }
       else
       if(MathAbs(orderLots - 0.04) < 0.000001)
       {
-         lossTrigger = -(8.00*balancelomultipler*1);
+         lossTrigger = -(4.00*balancelomultipler*2);
       }
       else
       if(MathAbs(orderLots - 0.03) < 0.000001)
       {
-         lossTrigger = -(9.00*balancelomultipler*1);
+         lossTrigger = -(6.00*balancelomultipler*2);
       }
       else
       if(MathAbs(orderLots - 0.02) < 0.000001)
       {
-         lossTrigger = -(8.00*balancelomultipler*1);
+         lossTrigger = -(8.00*balancelomultipler*2);
       }
       else
       {
