@@ -18,7 +18,7 @@
 
 
 
-string glbVersion = "EA V208 20-09-2026 14.00  Adjusted less loss after reverse market";
+string glbVersion = "EA V209 20-09-2026 15.00  Heavy Order 300 gap";
 
 // ===== INPUT SETTINGS =====
 int SSLPeriod = 10;
@@ -5095,7 +5095,7 @@ if(GlobalEmaAngle30<2 &&  GlobalEmaAngle30 > -2)
 
 
 
-   if(IsHeavyLotOrderNearBy(orderType, 200) && Lots>=0.02)
+   if(IsHeavyLotOrderNearBy(orderType, 300) && Lots>=0.02)
       Lots = 0.01;
 
 
