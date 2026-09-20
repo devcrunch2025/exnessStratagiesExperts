@@ -18,7 +18,7 @@
 
 
 
-string glbVersion = "EA V210 20-09-2026 16.00  Change lot 0.05 to 0.01";
+string glbVersion = "EA V211 20-09-2026 19.00  Change lot 0.01 to 0.05 & ManagePartialClosesLoss multipler";
 
 // ===== INPUT SETTINGS =====
 int SSLPeriod = 10;
@@ -4981,7 +4981,7 @@ void ChangeLots(double OpenPL, string reason, int orderType, int stoplevelStep)
 // Lots = 0.01 * (10 - cycleStep);
 
 // if(Lots==0.01)
-   // Lots=MaxRecoveryLot;
+   Lots=MaxRecoveryLot;
 
 // Lots=0.05;//
 // Print("Closed Orders Since EMA Flip: ", closedCount, " | Cycle Step: ", cycleStep, " | Calculated Lots: ", Lots);
@@ -7415,22 +7415,22 @@ void ManagePartialClosesLoss()
 
       if(MathAbs(orderLots - (0.05*balancelomultipler)) < 0.000001)
       {
-         lossTrigger = -(5.00*balancelomultipler*2);
+         lossTrigger = -(5.00*balancelomultipler*1);
       }
       else
       if(MathAbs(orderLots - 0.04) < 0.000001)
       {
-         lossTrigger = -(8.00*balancelomultipler*2);
+         lossTrigger = -(8.00*balancelomultipler*1);
       }
       else
       if(MathAbs(orderLots - 0.03) < 0.000001)
       {
-         lossTrigger = -(9.00*balancelomultipler*2);
+         lossTrigger = -(9.00*balancelomultipler*1);
       }
       else
       if(MathAbs(orderLots - 0.02) < 0.000001)
       {
-         lossTrigger = -(8.00*balancelomultipler*2);
+         lossTrigger = -(8.00*balancelomultipler*1);
       }
       else
       {
