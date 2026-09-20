@@ -18,7 +18,7 @@
 
 
 
-string glbVersion = "EA V202 20-09-2026 08.00  Partial Close Rewrite";
+string glbVersion = "EA V203 20-09-2026 08.00  Heavey order modified - Not good";
 
 // ===== INPUT SETTINGS =====
 int SSLPeriod = 10;
@@ -4513,11 +4513,145 @@ double IsBullishORBearish()
 
    return 0;
   }
+  double GetCandidatePrice(int orderType, double pendingPrice = 0.0)
+{
+   RefreshRates();
 
+   switch(orderType)
+   {
+      case OP_BUY:
+         return Ask;
+
+      case OP_SELL:
+         return Bid;
+
+      case OP_BUYSTOP:
+      case OP_BUYLIMIT:
+         return pendingPrice;
+
+      case OP_SELLSTOP:
+      case OP_SELLLIMIT:
+         return pendingPrice;
+   }
+
+   return 0.0;
+}
+//+------------------------------------------------------------------+
+//| Check for nearby heavy same-direction orders                     |
+//|                                                                  |
+//| Practical rule:                                                  |
+//| BUY side  -> Ask is used as candidate price                     |
+//| SELL side -> Bid is used as candidate price                     |
+//|                                                                  |
+//| Pending orders are normally only 20-50 raw price units away,     |
+//| while the protection range is 300, so current market price is    |
+//| sufficient for the heavy-order zone calculation.                 |
+//+------------------------------------------------------------------+
+//+------------------------------------------------------------------+
+//| Detect nearby heavy order                                        |
+//|                                                                  |
+//| Heavy order = existing market/pending order >= 0.02 lot         |
+//| Same direction only                                              |
+//|                                                                  |
+//| New order is considered inside the protected zone when its       |
+//| candidate market price is within gapRawThreshold of an existing  |
+//| heavy order's price.                                              |
+//+------------------------------------------------------------------+
+bool IsHeavyLotOrderNearBy(int orderType,
+                           double gapRawThreshold)
+{
+   RefreshRates();
+
+   bool newIsBuy =
+      (orderType == OP_BUY ||
+       orderType == OP_BUYSTOP ||
+       orderType == OP_BUYLIMIT);
+
+   bool newIsSell =
+      (orderType == OP_SELL ||
+       orderType == OP_SELLSTOP ||
+       orderType == OP_SELLLIMIT);
+
+   if(!newIsBuy && !newIsSell)
+      return false;
+
+   // For your EA pending orders are normally 20-50 raw
+   // price units from the current market price.
+   double candidatePrice =
+      newIsBuy ? Ask : Bid;
+
+   if(candidatePrice <= 0.0)
+      return false;
+
+   // 0.02 and above = heavy order
+   double heavyLotMinimum = 0.02;
+
+   for(int i = OrdersTotal() - 1; i >= 0; i--)
+   {
+      if(!OrderSelect(i, SELECT_BY_POS, MODE_TRADES))
+         continue;
+
+      if(OrderSymbol() != Symbol())
+         continue;
+
+      if(OrderMagicNumber() != MagicNumber)
+         continue;
+
+      int existingType = OrderType();
+
+      bool existingIsBuy =
+         (existingType == OP_BUY ||
+          existingType == OP_BUYSTOP ||
+          existingType == OP_BUYLIMIT);
+
+      bool existingIsSell =
+         (existingType == OP_SELL ||
+          existingType == OP_SELLSTOP ||
+          existingType == OP_SELLLIMIT);
+
+      // Same direction only
+      if(newIsBuy && !existingIsBuy)
+         continue;
+
+      if(newIsSell && !existingIsSell)
+         continue;
+
+      // Only 0.02+ is a heavy order
+      if(OrderLots() < heavyLotMinimum)
+         continue;
+
+      double existingPrice = OrderOpenPrice();
+
+      if(existingPrice <= 0.0)
+         continue;
+
+      double distance =
+         MathAbs(candidatePrice - existingPrice);
+
+      if(distance < gapRawThreshold)
+      {
+         Print(
+            "HEAVY ORDER PROTECTION"
+            " | NewType=", orderType,
+            " | Candidate=", DoubleToString(candidatePrice, Digits),
+            " | ExistingTicket=", OrderTicket(),
+            " | ExistingType=", existingType,
+            " | ExistingLots=", DoubleToString(OrderLots(), 2),
+            " | ExistingPrice=", DoubleToString(existingPrice, Digits),
+            " | Distance=", DoubleToString(distance, 2),
+            " | Required=", DoubleToString(gapRawThreshold, 2)
+         );
+
+         return true;
+      }
+   }
+
+   return false;
+}
 //+------------------------------------------------------------------+
 //|                                                                  |
 //+------------------------------------------------------------------+
-bool IsHeavyLotOrderNearBy(int orderType, double checkLot, double gapRawThreshold)
+bool IsHeavyLotOrderNearByOld(int orderType, double checkLot, double gapRawThreshold)
   {
    RefreshRates();
    double currentPrice = (orderType == OP_BUY || orderType == OP_BUYSTOP || orderType == OP_BUYLIMIT) ? Ask : Bid;
@@ -4961,7 +5095,7 @@ if(GlobalEmaAngle30<2 &&  GlobalEmaAngle30 > -2)
 
 
 
-   if(IsHeavyLotOrderNearBy(orderType, Lots, 300) && Lots>=0.02)
+   if(IsHeavyLotOrderNearBy(orderType, 300) && Lots>=0.02)
       Lots = 0.01;
 
 
@@ -7277,26 +7411,26 @@ void ManagePartialClosesLoss()
       // Only these lot sizes are eligible for the requested mapping
       // -------------------------------------------------------------
       double lossTrigger = 0.0;
-      double lotsToClose = 0.01;
+      double lotsToClose = 0.01*balancelomultipler;
 
-      if(MathAbs(orderLots - 0.05) < 0.000001)
+      if(MathAbs(orderLots - (0.05*balancelomultipler)) < 0.000001)
       {
-         lossTrigger = -5.00;
+         lossTrigger = -(5.00*balancelomultipler);
       }
       else
       if(MathAbs(orderLots - 0.04) < 0.000001)
       {
-         lossTrigger = -8.00;
+         lossTrigger = -(8.00*balancelomultipler);
       }
       else
       if(MathAbs(orderLots - 0.03) < 0.000001)
       {
-         lossTrigger = -9.00;
+         lossTrigger = -(9.00*balancelomultipler);
       }
       else
       if(MathAbs(orderLots - 0.02) < 0.000001)
       {
-         lossTrigger = -8.00;
+         lossTrigger = -(8.00*balancelomultipler);
       }
       else
       {
