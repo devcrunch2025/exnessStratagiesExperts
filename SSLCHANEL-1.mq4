@@ -18,7 +18,7 @@
 
 
 
-string glbVersion = "SSL CHANNEL EA  |  V201 19-09-2026 21.00  CloseAndDeleteNonEmaMatchingOrders ManageFlipProfitLadder";
+string glbVersion = "EA V202 20-09-2026 08.00  Partial Close Rewrite";
 
 // ===== INPUT SETTINGS =====
 int SSLPeriod = 10;
@@ -7241,7 +7241,209 @@ double GetTicketLastClosePrice(int ticket)
      }
    return 0.0; // Returns 0 if this ticket has never partially closed yet
   }
-  void ManagePartialClosesLoss()
+  //+------------------------------------------------------------------+
+//| Partial Loss Close                                               |
+//|                                                                   |
+//| Lot Size   Loss Trigger   Partial Close                          |
+//| 0.05       <= -$5.00      0.01                                  |
+//| 0.04       <= -$8.00      0.01                                  |
+//| 0.03       <= -$9.00      0.01                                  |
+//| 0.02       <= -$8.00      0.01                                  |
+//|                                                                   |
+//| After the first partial loss close, the SAME parent order must   |
+//| move another 100 raw price units against the position before     |
+//| another partial loss close is allowed.                           |
+//+------------------------------------------------------------------+
+void ManagePartialClosesLoss()
+{
+   for(int i = OrdersTotal() - 1; i >= 0; i--)
+   {
+      if(!OrderSelect(i, SELECT_BY_POS, MODE_TRADES))
+         continue;
+
+      if(OrderSymbol() != Symbol() ||
+         OrderMagicNumber() != MagicNumber)
+         continue;
+
+      int orderType = OrderType();
+
+      if(orderType != OP_BUY && orderType != OP_SELL)
+         continue;
+
+      double orderLots     = OrderLots();
+      int    currentTicket = OrderTicket();
+
+      // -------------------------------------------------------------
+      // Only these lot sizes are eligible for the requested mapping
+      // -------------------------------------------------------------
+      double lossTrigger = 0.0;
+      double lotsToClose = 0.01;
+
+      if(MathAbs(orderLots - 0.05) < 0.000001)
+      {
+         lossTrigger = -5.00;
+      }
+      else
+      if(MathAbs(orderLots - 0.04) < 0.000001)
+      {
+         lossTrigger = -8.00;
+      }
+      else
+      if(MathAbs(orderLots - 0.03) < 0.000001)
+      {
+         lossTrigger = -9.00;
+      }
+      else
+      if(MathAbs(orderLots - 0.02) < 0.000001)
+      {
+         lossTrigger = -8.00;
+      }
+      else
+      {
+         // No partial-loss rule for other lot sizes
+         continue;
+      }
+
+      // Must leave at least 0.01 lot after partial close
+      double minLot = MarketInfo(Symbol(), MODE_MINLOT);
+      double lotStep = MarketInfo(Symbol(), MODE_LOTSTEP);
+
+      if(minLot <= 0.0)
+         minLot = 0.01;
+
+      if(lotStep <= 0.0)
+         lotStep = 0.01;
+
+      lotsToClose = MathFloor(lotsToClose / lotStep + 0.0000001) * lotStep;
+      lotsToClose = NormalizeDouble(lotsToClose, 2);
+
+      if(lotsToClose < minLot)
+         lotsToClose = minLot;
+
+      if(orderLots - lotsToClose < minLot)
+         continue;
+
+      // -------------------------------------------------------------
+      // Current order net P/L
+      // -------------------------------------------------------------
+      double currentProfit =
+         OrderProfit() +
+         OrderSwap() +
+         OrderCommission();
+
+      // -------------------------------------------------------------
+      // First condition: loss threshold reached
+      // -------------------------------------------------------------
+      if(currentProfit > lossTrigger)
+         continue;
+
+      // -------------------------------------------------------------
+      // Parent-ticket tracking
+      // -------------------------------------------------------------
+      int baseTicket = GetOriginalTicket(
+                           currentTicket,
+                           OrderComment()
+                       );
+
+      if(baseTicket <= 0)
+         baseTicket = currentTicket;
+
+      double lastClosedPrice =
+         GetTicketLastClosePrice(baseTicket);
+
+      RefreshRates();
+
+      // -------------------------------------------------------------
+      // $100 raw price gap between partial loss closes
+      // -------------------------------------------------------------
+      bool priceGapReached = false;
+
+      if(lastClosedPrice <= 0.0)
+      {
+         // First partial loss close for this parent order
+         priceGapReached = true;
+      }
+      else
+      {
+         if(orderType == OP_BUY)
+         {
+            // BUY must move $100 lower
+            if((lastClosedPrice - Bid) >= 100.0)
+               priceGapReached = true;
+         }
+         else
+         if(orderType == OP_SELL)
+         {
+            // SELL must move $100 higher
+            if((Ask - lastClosedPrice) >= 100.0)
+               priceGapReached = true;
+         }
+      }
+
+      if(!priceGapReached)
+         continue;
+
+      // -------------------------------------------------------------
+      // Execute partial loss close
+      // -------------------------------------------------------------
+      RefreshRates();
+
+      double closePrice =
+         (orderType == OP_BUY)
+         ? Bid
+         : Ask;
+
+      ResetLastError();
+
+      bool success = OrderClose(
+                        currentTicket,
+                        lotsToClose,
+                        closePrice,
+                        Slippage,
+                        (orderType == OP_BUY ? clrRed : clrBlue)
+                     );
+
+      if(success)
+      {
+         // Record this parent's latest partial-loss close price.
+         UpdateTicketClosePrice(
+            baseTicket,
+            closePrice
+         );
+
+         Print(
+            "PARTIAL LOSS CLOSE SUCCESS"
+            " | Ticket=", currentTicket,
+            " | Parent=", baseTicket,
+            " | Lots=", DoubleToString(lotsToClose, 2),
+            " | CurrentLots=", DoubleToString(orderLots, 2),
+            " | LossTrigger=$", DoubleToString(MathAbs(lossTrigger), 2),
+            " | CurrentPL=$", DoubleToString(currentProfit, 2),
+            " | ClosePrice=", DoubleToString(closePrice, Digits),
+            " | NextGap=$100"
+         );
+
+         // Important:
+         // Stop here so another loss-partial is NOT executed
+         // for another order during the same call/tick.
+         return;
+      }
+
+      int errorCode = GetLastError();
+
+      Print(
+         "PARTIAL LOSS CLOSE FAILED"
+         " | Ticket=", currentTicket,
+         " | Parent=", baseTicket,
+         " | Lots=", DoubleToString(lotsToClose, 2),
+         " | Error=", errorCode
+      );
+
+      // Do not continue closing other orders after a failed trade
+      return;
+   }
+}
+  void ManagePartialClosesLossOld()
   {
    for(int i = OrdersTotal() - 1; i >= 0; i--)
      {
@@ -7277,7 +7479,7 @@ double GetTicketLastClosePrice(int ticket)
       double lastClosedPrice = GetTicketLastClosePrice(baseTicket);
 
             // === PURE LOSS GAP CUT CONDITION ($100 RAW PRICE GAP PER SPECIFIC ORDER) ===
-            if(currentProfit <= -(orderLots * 100.0))
+            if(currentProfit <= -(orderLots * 100.0*2))
               {
                bool priceGapReached = false;
 
