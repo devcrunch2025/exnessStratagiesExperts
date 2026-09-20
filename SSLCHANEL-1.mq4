@@ -18,7 +18,7 @@
 
 
 
-string glbVersion = "EA V203 20-09-2026 08.00  Heavey order modified - Not good";
+string glbVersion = "EA V204 20-09-2026 08.00  partialcloseloss";
 
 // ===== INPUT SETTINGS =====
 int SSLPeriod = 10;
@@ -53,7 +53,7 @@ bool enableCircleOrders = true;
 double MaxAllowedSpreadUSD = 35.0;
 int AccountMultiplierLOT = 500;
 double OriginalStopLossUSD = 6;//4;
-double StopLossUSD =6;//10;//6;//5;//10;//2;// 10;
+double StopLossUSD =10;//6;//10;//6;//5;//10;//2;// 10;
 
 
 
@@ -7415,22 +7415,22 @@ void ManagePartialClosesLoss()
 
       if(MathAbs(orderLots - (0.05*balancelomultipler)) < 0.000001)
       {
-         lossTrigger = -(5.00*balancelomultipler);
+         lossTrigger = -(5.00*balancelomultipler*2);
       }
       else
       if(MathAbs(orderLots - 0.04) < 0.000001)
       {
-         lossTrigger = -(8.00*balancelomultipler);
+         lossTrigger = -(8.00*balancelomultipler*2);
       }
       else
       if(MathAbs(orderLots - 0.03) < 0.000001)
       {
-         lossTrigger = -(9.00*balancelomultipler);
+         lossTrigger = -(9.00*balancelomultipler*2);
       }
       else
       if(MathAbs(orderLots - 0.02) < 0.000001)
       {
-         lossTrigger = -(8.00*balancelomultipler);
+         lossTrigger = -(8.00*balancelomultipler*2);
       }
       else
       {
