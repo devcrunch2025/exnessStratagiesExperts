@@ -18,7 +18,7 @@
 
 
 
-string glbVersion = "EA V207 20-09-2026 13.00  Heavey Order";
+string glbVersion = "EA V208 20-09-2026 14.00  Adjusted less loss after reverse market";
 
 // ===== INPUT SETTINGS =====
 int SSLPeriod = 10;
@@ -7700,7 +7700,7 @@ void ManagePartialCloses()
             bool   triggerClose = false;
             string actionType   = "";
             int    orderTypeInt = (orderType == OP_SELL) ? -1 : 1;
-            int    minimum_Profit = 2*2*balancelomultipler;
+            int    minimum_Profit = 1*2*balancelomultipler;
 
             if(TimeCurrent() - OrderOpenTime() > 60 * 30)
               {
