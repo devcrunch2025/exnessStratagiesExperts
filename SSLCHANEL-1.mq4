@@ -7700,7 +7700,7 @@ void ManagePartialCloses()
             bool   triggerClose = false;
             string actionType   = "";
             int    orderTypeInt = (orderType == OP_SELL) ? -1 : 1;
-            int    minimum_Profit = 1*2*balancelomultipler;
+            int    minimum_Profit = 2*2*balancelomultipler;
 
             if(TimeCurrent() - OrderOpenTime() > 60 * 30)
               {
