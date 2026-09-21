@@ -18,7 +18,7 @@
 
 
 
-string glbVersion = "V301 21-09-2026 09.00 Changelots ";
+string glbVersion = "V302 21-09-2026 09.00 CheckEquitySurplusReset ";
 
 // ===== INPUT SETTINGS =====
 int SSLPeriod = 10;
@@ -8087,8 +8087,11 @@ void CheckEquitySurplusReset()
      {
       Print("RARE EVENT: Equity ($", equity, ") exceeds Balance ($", balance, ") by 5%+. Triggering EMAladder target hit.");
 
+         ModifyOpenOrdersToSecureProfit();
+
+
       // Call your 5% ladder reset / target hit process
-      Manage5PercentLadderReset();
+      // Manage5PercentLadderReset();
      }
   }
 //+------------------------------------------------------------------+
