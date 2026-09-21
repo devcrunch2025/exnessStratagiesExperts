@@ -18,7 +18,7 @@
 
 
 
-string glbVersion = "V312 21-09-2026 21.00 FINAL - Stepladder 25 CloseOrdersAtProfitFromOpeningBalance ";
+string glbVersion = "V313 21-09-2026 22.00 FINAL - Stepladder 25 with changelot ";
 
 // ===== INPUT SETTINGS =====
 int SSLPeriod = 10;
@@ -44,7 +44,7 @@ string DubaiTradingPauseHours     ="";// "19,20";
 int    ServerToDubaiOffsetHours   = 4;
 
 // ===== 5% CONTINUOUS LADDER SETTINGS =====
-double CloseOrdersAtProfitFromOpeningBalance =10;//25;// 5;
+double CloseOrdersAtProfitFromOpeningBalance =5;//10;//25;// 5;
 double Ladder5PercentBaseline = 0.0;
 bool enable5PercentClose = true;
 bool enableCircleOrders = true;
@@ -3507,11 +3507,11 @@ if(EMADirection == -1 && GetOpenPL(OP_SELL) <= -safeOrdersendLossCondition*balan
 
 
 // Block trades if flip time is under 15 minutes and bypass criteria are NOT met
-if(!ignoreFlipTime && (TimeCurrent() - EmaFlipTime < 60 * 5))
-  {
-   Comment("TRADE BLOCKED | EmaFlipTime < 15 mins");
-   return -1;
-  }
+// if(!ignoreFlipTime && (TimeCurrent() - EmaFlipTime < 60 * 5))
+//   {
+//    Comment("TRADE BLOCKED | EmaFlipTime < 15 mins");
+//    return -1;
+//   }
 
    // if(TimeCurrent() - EmaFlipTime < 60*15)
    //   {
@@ -4704,6 +4704,18 @@ void ChangeLots(double OpenPL, string reason, int orderType, int stoplevelStep)
    double oppositeLots = GetOppositeOrdersLots(orderType);
    bool isSSLSignal = (reason == "SSL Long" || reason == "SSL Short");
    bool isSSLProfitReEntry = (reason == "SSL Profit ReEntry Buy Stop" || reason == "SSL Profit ReEntry Sell Stop");
+
+
+   if(GetProfitAfterLastEmaFlip()>10)
+{
+      MaxRecoveryLot = 0.03;
+
+}
+   if(GetProfitAfterLastEmaFlip()>20)
+{
+      MaxRecoveryLot = 0.01;
+
+}
    /*
       if(isSSLSignal)
         {
@@ -5007,6 +5019,8 @@ if(requestedDirection==-1 && GetOpenPL(OP_SELL)<=-5)
       Lots = 0.01;
 
 }
+
+
 
    if(IsHeavyLotOrderNearBy(orderType, Lots, 300) && Lots>=0.02)
       Lots = 0.01;
