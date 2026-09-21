@@ -18,7 +18,7 @@
 
 
 
-string glbVersion = "V306 21-09-2026 12.00 Partial close multiple orders above the equity";
+string glbVersion = "V308 21-09-2026 13.00 MinimumSameOrderGapRawSSLLongShort ";
 
 // ===== INPUT SETTINGS =====
 int SSLPeriod = 10;
@@ -128,7 +128,7 @@ bool EnableProfitReEntryStop = true;
 double MinimumClosedProfitUSD = -9;
 double ProfitReEntryGapRaw = 25;
 double MinimumSameOrderGapRawReEntry =20;// 50;
-double MinimumSameOrderGapRawSSLLongShort =20;// 50;
+double MinimumSameOrderGapRawSSLLongShort =50;// 50;
 double MinimumSameOrderGapRawMatched =20;// 50;
 double MinimumSameOrderGapRawUnmatched =20;// 100;
 
@@ -4660,6 +4660,13 @@ double GetDynamicOrderGap(int orderType)
      {
       multiplier = 1 + (int)MathFloor(MathAbs(pl) / 3.0);
      }
+
+if(IsEmaWEAKDistanceReduced50PercentFromPeak() && multiplier<3)
+{
+   multiplier=3;
+}
+
+     
    if((orderType == OP_BUY && currentSSL == 1) || (orderType == OP_SELL && currentSSL == -1))
       return MinimumSameOrderGapRawMatched*multiplier;
 
@@ -4864,6 +4871,12 @@ void ChangeLots(double OpenPL, string reason, int orderType, int stoplevelStep)
 
 
      }
+
+if(MathAbs(GlobalEmaAngle30)<2)
+{
+   Lots = 0.01;
+}
+
 //   if(GetH1Direction() != EMADirection)
 //   {
 //    Lots = 0.01;
@@ -4960,14 +4973,28 @@ void ChangeLots(double OpenPL, string reason, int orderType, int stoplevelStep)
 
      }
 
+double buyLots  = GetTotalLots(OP_BUY);
+   double sellLots = GetTotalLots(OP_SELL);
 
-// Safety catch
+int requestedDirection = (orderType == OP_BUY || orderType == OP_BUYSTOP || orderType == OP_BUYLIMIT) ? 1 : -1;
 
 
+if(requestedDirection==1 && GetOpenPL(OP_BUY)<=-10)
+{
+      Lots = 0.01;
+
+}
+if(requestedDirection==-1 && GetOpenPL(OP_SELL)<=-10)
+
+{
+      Lots = 0.01;
+
+}
 
    if(IsHeavyLotOrderNearBy(orderType, Lots, 300) && Lots>=0.02)
       Lots = 0.01;
 
+// Safety catch
 
    if(Lots < 0.01)
      {
