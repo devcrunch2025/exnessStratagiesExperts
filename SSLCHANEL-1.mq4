@@ -18,7 +18,7 @@
 
 
 
-string glbVersion = "V311 21-09-2026 16.00 FINAL - Testing ";
+string glbVersion = "V312 21-09-2026 21.00 FINAL - Stepladder 25 CloseOrdersAtProfitFromOpeningBalance ";
 
 // ===== INPUT SETTINGS =====
 int SSLPeriod = 10;
@@ -44,9 +44,9 @@ string DubaiTradingPauseHours     ="";// "19,20";
 int    ServerToDubaiOffsetHours   = 4;
 
 // ===== 5% CONTINUOUS LADDER SETTINGS =====
-double CloseOrdersAtProfitFromOpeningBalance = 5;
+double CloseOrdersAtProfitFromOpeningBalance =10;//25;// 5;
 double Ladder5PercentBaseline = 0.0;
-bool enable5PercentClose = false;
+bool enable5PercentClose = true;
 bool enableCircleOrders = true;
 
 // ===== SPREAD & RISK SETTINGS =====
@@ -457,37 +457,40 @@ void Manage5PercentLadderReset()
    if(AccountEquity() >= targetEquity)
      {
       Print("5% Equity Ladder Target Reached. Closing all orders and resetting.");
-      for(int i = OrdersTotal() - 1; i >= 0; i--)
-        {
-         if(OrderSelect(i, SELECT_BY_POS, MODE_TRADES))
-           {
-            if(OrderSymbol() == Symbol() && OrderMagicNumber() == MagicNumber)
-              {
-               int type = OrderType();
-               if(type == OP_BUY || type == OP_SELL)
-                  SafeOrderClose(OrderTicket(), OrderLots(), type, Slippage, (type == OP_BUY ? clrRed : clrBlue));
-               else
-                  if(type == OP_BUYSTOP || type == OP_SELLSTOP || type == OP_BUYLIMIT || type == OP_SELLLIMIT)
-                     SafeOrderDelete(OrderTicket(), clrRed);
-              }
-           }
-        }
+      // for(int i = OrdersTotal() - 1; i >= 0; i--)
+      //   {
+      //    if(OrderSelect(i, SELECT_BY_POS, MODE_TRADES))
+      //      {
+      //       if(OrderSymbol() == Symbol() && OrderMagicNumber() == MagicNumber)
+      //         {
+      //          int type = OrderType();
+      //          if(type == OP_BUY || type == OP_SELL)
+      //             SafeOrderClose(OrderTicket(), OrderLots(), type, Slippage, (type == OP_BUY ? clrRed : clrBlue));
+      //          else
+      //             if(type == OP_BUYSTOP || type == OP_SELLSTOP || type == OP_BUYLIMIT || type == OP_SELLLIMIT)
+      //                SafeOrderDelete(OrderTicket(), clrRed);
+      //         }
+      //      }
+      //   }
+
+         ModifyOpenOrdersToSecureProfit();
+
       Ladder5PercentBaseline = AccountBalance();
       InitializeDayProfitLadder();
-      DayProfitLadderTradingStopped = false;
-      OrderCreatedThisCandle = false;
-      LastOrderCandleTime = 0;
-      TradeResetThisTick = true;
+      // DayProfitLadderTradingStopped = false;
+      // OrderCreatedThisCandle = false;
+      // LastOrderCandleTime = 0;
+      // TradeResetThisTick = true;
 
-      int currentSignal = GlobalSSLDirection;
-      if(currentSignal == 1)
-         OpenBuy();
-      else
-         if(currentSignal == -1)
-            OpenSell();
+      // int currentSignal = GlobalSSLDirection;
+      // if(currentSignal == 1)
+      //    OpenBuy();
+      // else
+      //    if(currentSignal == -1)
+      //       OpenSell();
      }
   }
-
+int MomDirection=0;
 //+------------------------------------------------------------------+
 //|                                                                  |
 //+------------------------------------------------------------------+
@@ -3424,6 +3427,16 @@ bool CanOpenSellOrder(string sym, double newPrice)
      }
    return true;
   }
+  double Get30MinutePriceDifference()
+{
+   double currentPrice = Bid;
+   double price30MinAgo = iClose(Symbol(), PERIOD_M1, 30);
+
+   if(price30MinAgo <= 0.0)
+      return 0.0;
+
+   return currentPrice - price30MinAgo;
+}
 string TradeMonitoringLog2="";
 //+------------------------------------------------------------------+
 //|                                                                  |
@@ -3461,7 +3474,7 @@ if(GetOpenPL(OP_SELL) > -safeOrdersendLossCondition*balancelomultipler && Global
    return -1;
   }
 
-   if( MathAbs(  GlobalEmaAngle30)<1)
+   if( MathAbs(  GlobalEmaAngle30)<1 && MathAbs(Get30MinutePriceDifference())<100)
      {
       Comment("TRADE BLOCKED | BOTH SIDES Angle below 2 degrees. No trade allowed.");
       TradeMonitoringLog="TRADE BLOCKED | BOTH SIDES Angle below 2 degrees. No trade allowed.";
@@ -3488,6 +3501,10 @@ if(EMADirection == -1 && GetOpenPL(OP_SELL) <= -safeOrdersendLossCondition*balan
   {
    ignoreFlipTime = true;
   }
+
+  if(MathAbs(Get30MinutePriceDifference())<100)
+   ignoreFlipTime = true;
+
 
 // Block trades if flip time is under 15 minutes and bypass criteria are NOT met
 if(!ignoreFlipTime && (TimeCurrent() - EmaFlipTime < 60 * 5))
@@ -6707,19 +6724,34 @@ double NormalizeLots(double lots)
 void OpenSell()
   {
    if(InpEnableCustomRules && !PassesUserRules(OP_SELL))
+   {
+      Print("InpEnableCustomRules ");
       return;
+
+   }
    if(!IsSafeToCreateMarketOrder(OP_SELL) || !PassesEMAFilter(OP_SELL) || !IsOneCandleOrderAllowed() || GetTotalEAOrders() >= MaxOpenOrders)
+     {
+      Print("IsSafeToCreateMarketOrder ");
       return;
+
+   }
    if(!HasMinimumSameOrderGap(OP_SELL, GetDynamicOrderGap(OP_SELL)))
+     {
+      Print("HasMinimumSameOrderGap ");
       return;
+
+   }
    reEntryCounter=0;
    SaveReEntryCounter();
    ChangeLots(GlobalBuyPL,"SSL Short",OP_SELL,0);
    RefreshRates();
    double slDistance = CalculatePriceDistanceUSD(StopLossUSD, Lots);
    if(slDistance <= 0)
+       {
+      Print("slDistance ");
       return;
-   double stopLoss = NormalizeDouble(Bid + slDistance, Digits);
+
+   }   double stopLoss = NormalizeDouble(Bid + slDistance, Digits);
    int ticket = SafeOrderSend(Symbol(), OP_SELL, Lots, Bid, Slippage, stopLoss, 0, "SSL Short", MagicNumber, SellColor);
    if(ticket > 0)
      {
@@ -8113,7 +8145,7 @@ void CheckEquitySurplusReset()
    double totalEALots = buyLots + sellLots;
 
    // Every 0.02 lots = 1% equity target
-   double targetSteps = (totalEALots * 100.0) / 2.0;
+   double targetSteps = (totalEALots * 100.0);// / 2.0;
 
    // Minimum target = 1%
    if(targetSteps < 1.0)
@@ -8293,6 +8325,8 @@ void DrawMomentumMarkers()
             ObjectSetInteger(0, objName, OBJPROP_WIDTH, 2);
               if(EMADirection == 1)// && !IsEmaWEAKDistanceReduced50PercentFromPeak(1))
       {
+
+         GlobalSSLDirection=1;
                   Print("MOM Buy open");
          OpenBuy();
 
@@ -8315,6 +8349,7 @@ void DrawMomentumMarkers()
                ObjectSetInteger(0, objName, OBJPROP_ARROWCODE, 234); // Wingdings Down Arrow
                ObjectSetInteger(0, objName, OBJPROP_COLOR, clrRed);
                ObjectSetInteger(0, objName, OBJPROP_WIDTH, 2);
+               GlobalSSLDirection=-1;
                 if(EMADirection == -1)// && !IsEmaWEAKDistanceReduced50PercentFromPeak(-1))
                {
                   Print("MOM Sell open");
