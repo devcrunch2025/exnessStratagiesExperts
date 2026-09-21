@@ -18,7 +18,7 @@
 
 
 
-string glbVersion = "213 21-09-2026 01.00  IsHeavyLotOrderNearBy restored from #201";
+string glbVersion = "V301 21-09-2026 09.00 Changelots ";
 
 // ===== INPUT SETTINGS =====
 int SSLPeriod = 10;
@@ -4936,8 +4936,12 @@ void ChangeLots(double OpenPL, string reason, int orderType, int stoplevelStep)
 
    if(HasAnyLargeCandle(Symbol(), PERIOD_M1, 30, 100.0, false))
       Lots = 0.01;
-if(GlobalEmaAngle30<2 &&  GlobalEmaAngle30 > -2)
-     Lots = 0.01;
+// if(GlobalEmaAngle30<2 &&  GlobalEmaAngle30 > -2)
+//      Lots = 0.01;
+
+
+
+// if( && GlobalEmaAngle30<2 && orderType==1)
 
 // if(IsAbsolutePriceDifferenceExceeded(5,200))
 // {
@@ -6759,7 +6763,7 @@ void CloseAllOrders()
 
 datetime g_lastLadderCloseTime = 0;   // Stores timestamp of last basket reset
 double   g_peakCycleProfit     = 0.0; // Tracks the highest profit reached in the current cycle
-double   g_stepSize            = 5.0; // The step increment ($5)
+double   g_stepSize            = 50.0; // The step increment ($5)
 
 //+------------------------------------------------------------------+
 //|                                                                  |
@@ -6837,6 +6841,7 @@ void CheckDynamicStepLadder()
 
          // CloseAllOrders();
          ModifyOpenOrdersToSecureProfit();
+
 
          // Save baseline time and reset peak for the next cycle
          g_lastLadderCloseTime = TimeCurrent();
@@ -7566,11 +7571,11 @@ void ManagePartialCloses()
             bool   triggerClose = false;
             string actionType   = "";
             int    orderTypeInt = (orderType == OP_SELL) ? -1 : 1;
-            int    minimum_Profit = 1*2*balancelomultipler;
+            int    minimum_Profit = 2*2*balancelomultipler;
 
             if(TimeCurrent() - OrderOpenTime() > 60 * 30)
               {
-               minimum_Profit = 1*balancelomultipler;
+               minimum_Profit =minimum_Profit/2;// 1*balancelomultipler;
               }
 
             // === CONDITION 1: PROFIT TARGET REACHED ===
