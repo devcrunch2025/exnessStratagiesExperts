@@ -4705,16 +4705,15 @@ void ChangeLots(double OpenPL, string reason, int orderType, int stoplevelStep)
    bool isSSLSignal = (reason == "SSL Long" || reason == "SSL Short");
    bool isSSLProfitReEntry = (reason == "SSL Profit ReEntry Buy Stop" || reason == "SSL Profit ReEntry Sell Stop");
 
+double profitAfterFlip = GetProfitAfterLastEmaFlip();
 
-   if(GetProfitAfterLastEmaFlip()>10)
+if(profitAfterFlip > 20)
 {
-      MaxRecoveryLot = 0.03;
-
+   MaxRecoveryLot = 0.01;
 }
-   if(GetProfitAfterLastEmaFlip()>20)
+else if(profitAfterFlip > 10)
 {
-      MaxRecoveryLot = 0.01;
-
+   MaxRecoveryLot = 0.03;
 }
    /*
       if(isSSLSignal)
