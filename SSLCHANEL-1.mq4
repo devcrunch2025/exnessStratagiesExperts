@@ -8809,7 +8809,7 @@ void UpdateDashboard(DailyProtectionState &state)
 // ================= 2. ACCOUNT & EQUITY =================
    CreateDashboardPanel(DASH_PREFIX+"SEC_ACCOUNT",x,y+222,w,22,C'30,38,50');
    CreateDashboardLabel(DASH_PREFIX+"ACCOUNT_H","ACCOUNT & EQUITY",tx,y+226,9,clrAqua);
-   CreateDashboardLabel(DASH_PREFIX+"BALANCE","BALANCE      : $"+DoubleToString(AccountBalance(),2),tx,y+249,9,clrWhite);
+   CreateDashboardLabel(DASH_PREFIX+"BALANCE","BALANCE      : $"+DoubleToString(AccountBalance(),2) +" / "+ DoubleToStrig(Ladder5PercentBaseline,2),tx,y+249,9,clrWhite);
    CreateDashboardLabel(DASH_PREFIX+"EQUITY","EQUITY       : $"+DoubleToString(AccountEquity(),2)+"/ "+DoubleToString(emaLockedPrf,2),tx,y+269,9,clrLime);
    CreateDashboardLabel(DASH_PREFIX+"FREEMARGIN","FREE MARGIN   : $"+DoubleToString(AccountFreeMargin(),2),tx,y+289,9,clrWhite);
    CreateDashboardLabel(DASH_PREFIX+"DAYPL","DAY P/L       : "+(dayPL>=0?"+":"")+DoubleToString(dayPL,2)+" ("+DoubleToString(dayPLPct,1)+"%)",tx,y+309,9,dayPL>=0?clrLime:clrTomato);
