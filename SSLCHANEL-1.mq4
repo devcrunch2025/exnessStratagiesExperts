@@ -18,7 +18,7 @@
 
 
 
-string glbVersion = "V310 21-09-2026 14.00 FINAL - No stpoloss in changelos ";
+string glbVersion = "V311 21-09-2026 16.00 FINAL - Testing ";
 
 // ===== INPUT SETTINGS =====
 int SSLPeriod = 10;
@@ -3461,16 +3461,16 @@ if(GetOpenPL(OP_SELL) > -safeOrdersendLossCondition*balancelomultipler && Global
    return -1;
   }
 
-   // if(GlobalEmaAngle30<2 &&  GlobalEmaAngle30 > -2)
-   //   {
-   //    Comment("TRADE BLOCKED | BOTH SIDES Angle below 2 degrees. No trade allowed.");
-   //    TradeMonitoringLog="TRADE BLOCKED | BOTH SIDES Angle below 2 degrees. No trade allowed.";
-   //    return -1;;
-   //   }
-   // else
-   //   {
-   //    TradeMonitoringLog="";
-   //   }
+   if( MathAbs(  GlobalEmaAngle30)<1)
+     {
+      Comment("TRADE BLOCKED | BOTH SIDES Angle below 2 degrees. No trade allowed.");
+      TradeMonitoringLog="TRADE BLOCKED | BOTH SIDES Angle below 2 degrees. No trade allowed.";
+      return -1;;
+     }
+   else
+     {
+      TradeMonitoringLog="";
+     }
 
    // Determine whether to bypass EmaFlipTime for either Buy or Sell
 bool ignoreFlipTime = false;
@@ -3490,7 +3490,7 @@ if(EMADirection == -1 && GetOpenPL(OP_SELL) <= -safeOrdersendLossCondition*balan
   }
 
 // Block trades if flip time is under 15 minutes and bypass criteria are NOT met
-if(!ignoreFlipTime && (TimeCurrent() - EmaFlipTime < 60 * 15))
+if(!ignoreFlipTime && (TimeCurrent() - EmaFlipTime < 60 * 5))
   {
    Comment("TRADE BLOCKED | EmaFlipTime < 15 mins");
    return -1;
@@ -4661,7 +4661,7 @@ double GetDynamicOrderGap(int orderType)
       multiplier = 1 + (int)MathFloor(MathAbs(pl) / 3.0);
      }
 
-if(IsEmaWEAKDistanceReduced50PercentFromPeak() && multiplier<3)
+if(IsEmaWEAKDistanceReduced50PercentFromPeak(orderType) && multiplier<3)
 {
    multiplier=3;
 }
@@ -4979,12 +4979,12 @@ double buyLots  = GetTotalLots(OP_BUY);
 int requestedDirection = (orderType == OP_BUY || orderType == OP_BUYSTOP || orderType == OP_BUYLIMIT) ? 1 : -1;
 
 
-if(requestedDirection==1 && GetOpenPL(OP_BUY)<=-10)
+if(requestedDirection==1 && GetOpenPL(OP_BUY)<=-5)
 {
       Lots = 0.01;
 
 }
-if(requestedDirection==-1 && GetOpenPL(OP_SELL)<=-10)
+if(requestedDirection==-1 && GetOpenPL(OP_SELL)<=-5)
 
 {
       Lots = 0.01;
@@ -6669,6 +6669,7 @@ void OpenBuy()
    if(slDistance <= 0)
       return;
    double stopLoss = NormalizeDouble(Ask - slDistance, Digits);
+   Print("SafeOrderSend");
    int ticket = SafeOrderSend(Symbol(), OP_BUY, Lots, Ask, Slippage, stopLoss, 0, "SSL Long", MagicNumber, BuyColor);
    if(ticket > 0)
      {
@@ -8213,6 +8214,9 @@ void DrawHistoricalSignal(int shift, bool isBuy)
       ObjectSetInteger(0, textName, OBJPROP_FONTSIZE, SignalFontSize);
       ObjectSetString(0, textName, OBJPROP_FONT, "Arial");
       ObjectSetInteger(0, textName, OBJPROP_SELECTABLE, false);
+
+if(isBuy) OpenBuy(); else OpenSell();
+
      }
   }
 
@@ -8287,10 +8291,16 @@ void DrawMomentumMarkers()
             ObjectSetInteger(0, objName, OBJPROP_ARROWCODE, 233); // Wingdings Up Arrow
             ObjectSetInteger(0, objName, OBJPROP_COLOR, clrLime);
             ObjectSetInteger(0, objName, OBJPROP_WIDTH, 2);
+              if(EMADirection == 1)// && !IsEmaWEAKDistanceReduced50PercentFromPeak(1))
+      {
+                  Print("MOM Buy open");
+         OpenBuy();
+
+
+      }
            }
 
-      if(EMADirection == 1 && !IsEmaWEAKDistanceReduced50PercentFromPeak())
-         OpenBuy();
+    
        
         
      
@@ -8305,10 +8315,15 @@ void DrawMomentumMarkers()
                ObjectSetInteger(0, objName, OBJPROP_ARROWCODE, 234); // Wingdings Down Arrow
                ObjectSetInteger(0, objName, OBJPROP_COLOR, clrRed);
                ObjectSetInteger(0, objName, OBJPROP_WIDTH, 2);
+                if(EMADirection == -1)// && !IsEmaWEAKDistanceReduced50PercentFromPeak(-1))
+               {
+                  Print("MOM Sell open");
+            OpenSell();
+
+               }
               }
 
-               if(EMADirection == -1 && !IsEmaWEAKDistanceReduced50PercentFromPeak())
-            OpenSell();
+              
            }
      }
   }
