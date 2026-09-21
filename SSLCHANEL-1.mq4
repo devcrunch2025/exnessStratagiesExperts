@@ -18,7 +18,7 @@
 
 
 
-string glbVersion = "V308 21-09-2026 13.00 MinimumSameOrderGapRawSSLLongShort ";
+string glbVersion = "V310 21-09-2026 14.00 FINAL - No stpoloss in changelos ";
 
 // ===== INPUT SETTINGS =====
 int SSLPeriod = 10;
@@ -128,8 +128,8 @@ bool EnableProfitReEntryStop = true;
 double MinimumClosedProfitUSD = -9;
 double ProfitReEntryGapRaw = 25;
 double MinimumSameOrderGapRawReEntry =20;// 50;
-double MinimumSameOrderGapRawSSLLongShort =50;// 50;
-double MinimumSameOrderGapRawMatched =20;// 50;
+// double MinimumSameOrderGapRawSSLLongShort =50;// 50;
+double MinimumSameOrderGapRawMatched =50;//20;// 50;
 double MinimumSameOrderGapRawUnmatched =20;// 100;
 
 double angleBlockAboveRule = 3;//1.0; no opposite order above 3 angle
@@ -353,7 +353,7 @@ bool PassesUserRules(int orderType)
 
    if(currentSSL != requestedDirection)
      {
-      Print("TRADE BLOCKED | SSL does not match requested direction  "+currentSSL+" - "+requestedDirection);
+      Print("TRADE BLOCKED | SSL does not match requested direction  "+currentSSL+" :  "+requestedDirection);
       return false;
      }
 
@@ -5050,8 +5050,8 @@ if(Lots < 0.01)
 
 // }
 
-   if(HasAnyLargeCandle(Symbol(), PERIOD_M1, 30, 200.0, false))
-      StopLossUSD = 1 * Lots * 200;
+   // if(HasAnyLargeCandle(Symbol(), PERIOD_M1, 30, 200.0, false))
+   //    StopLossUSD = 1 * Lots * 200;
 
 // Corrected directional comparison for StopLossUSD assignment
 // int requestedDirection = (orderType == OP_BUY || orderType == OP_BUYSTOP || orderType == OP_BUYLIMIT) ? 1 : -1;
