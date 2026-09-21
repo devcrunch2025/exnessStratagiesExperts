@@ -18,7 +18,7 @@
 
 
 
-string glbVersion = "V303 21-09-2026 10.00 CheckEquitySurplusReset 1.01";
+string glbVersion = "V306 21-09-2026 12.00 Partial close multiple orders above the equity";
 
 // ===== INPUT SETTINGS =====
 int SSLPeriod = 10;
@@ -353,7 +353,7 @@ bool PassesUserRules(int orderType)
 
    if(currentSSL != requestedDirection)
      {
-      Print("TRADE BLOCKED | SSL does not match requested direction  ");
+      Print("TRADE BLOCKED | SSL does not match requested direction  "+currentSSL+" - "+requestedDirection);
       return false;
      }
 
@@ -5024,7 +5024,7 @@ if(Lots < 0.01)
 // }
 
    if(HasAnyLargeCandle(Symbol(), PERIOD_M1, 30, 200.0, false))
-      StopLossUSD = 1 * Lots * 100;
+      StopLossUSD = 1 * Lots * 200;
 
 // Corrected directional comparison for StopLossUSD assignment
 // int requestedDirection = (orderType == OP_BUY || orderType == OP_BUYSTOP || orderType == OP_BUYLIMIT) ? 1 : -1;
@@ -8074,26 +8074,63 @@ void DrawHistoricalSignals()
      }
    ChartRedraw();
   }
-//+------------------------------------------------------------------+
-//| Check if Equity exceeds Balance by 5% or more                    |
-//+------------------------------------------------------------------+
 void CheckEquitySurplusReset()
-  {
+{
    double balance = AccountBalance();
    double equity  = AccountEquity();
 
-// Check if equity is more than 5% above the account balance
-   if(balance > 0.0 && equity >= balance * 1.01)
-     {
-      Print("RARE EVENT: Equity ($", equity, ") exceeds Balance ($", balance, ") by 5%+. Triggering EMAladder target hit.");
+   double buyLots  = GetTotalLots(OP_BUY);
+   double sellLots = GetTotalLots(OP_SELL);
 
-         ModifyOpenOrdersToSecureProfit();
+   double totalEALots = buyLots + sellLots;
+
+   // Every 0.02 lots = 1% equity target
+   double targetSteps = (totalEALots * 100.0) / 2.0;
+
+   // Minimum target = 1%
+   if(targetSteps < 1.0)
+      targetSteps = 1.0;
+
+   double targetPercent = 0.01 * targetSteps;
+   double equityTarget  = balance * (1.0 + targetPercent);
+
+   if(balance > 0.0 && equity >= equityTarget)
+   {
+      Print(
+         "EQUITY SURPLUS TARGET HIT",
+         " | Balance=$", DoubleToString(balance, 2),
+         " | Equity=$", DoubleToString(equity, 2),
+         " | BuyLots=", DoubleToString(buyLots, 2),
+         " | SellLots=", DoubleToString(sellLots, 2),
+         " | TotalLots=", DoubleToString(totalEALots, 2),
+         " | TargetSteps=", DoubleToString(targetSteps, 2),
+         " | Target=", DoubleToString(targetPercent * 100.0, 2), "%",
+         " | RequiredEquity=$", DoubleToString(equityTarget, 2)
+      );
+
+      ModifyOpenOrdersToSecureProfit();
+   }
+}
+//+------------------------------------------------------------------+
+//| Check if Equity exceeds Balance by 5% or more                    |
+//+------------------------------------------------------------------+
+// void CheckEquitySurplusReset()
+//   {
+//    double balance = AccountBalance();
+//    double equity  = AccountEquity();
+
+// // Check if equity is more than 5% above the account balance
+//    if(balance > 0.0 && equity >= balance * (1.00+(0.01*GetTotalEAOrders)))
+//      {
+//       Print("RARE EVENT: Equity ($", equity, ") exceeds Balance ($", balance, ") by 5%+. Triggering EMAladder target hit.");
+
+//          ModifyOpenOrdersToSecureProfit();
 
 
-      // Call your 5% ladder reset / target hit process
-      // Manage5PercentLadderReset();
-     }
-  }
+//       // Call your 5% ladder reset / target hit process
+//       // Manage5PercentLadderReset();
+//      }
+//   }
 //+------------------------------------------------------------------+
 //|                                                                  |
 //+------------------------------------------------------------------+
@@ -8224,6 +8261,13 @@ void DrawMomentumMarkers()
             ObjectSetInteger(0, objName, OBJPROP_COLOR, clrLime);
             ObjectSetInteger(0, objName, OBJPROP_WIDTH, 2);
            }
+
+      if(EMADirection == 1 && !IsEmaWEAKDistanceReduced50PercentFromPeak())
+         OpenBuy();
+       
+        
+     
+
         }
       else
          if(IsStrongMomentum(OP_SELL, i))
@@ -8235,6 +8279,9 @@ void DrawMomentumMarkers()
                ObjectSetInteger(0, objName, OBJPROP_COLOR, clrRed);
                ObjectSetInteger(0, objName, OBJPROP_WIDTH, 2);
               }
+
+               if(EMADirection == -1 && !IsEmaWEAKDistanceReduced50PercentFromPeak())
+            OpenSell();
            }
      }
   }
