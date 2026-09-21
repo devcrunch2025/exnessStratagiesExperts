@@ -18,7 +18,7 @@
 
 
 
-string glbVersion = "V302 21-09-2026 09.00 CheckEquitySurplusReset ";
+string glbVersion = "V303 21-09-2026 10.00 CheckEquitySurplusReset 1.01";
 
 // ===== INPUT SETTINGS =====
 int SSLPeriod = 10;
@@ -53,7 +53,7 @@ bool enableCircleOrders = true;
 double MaxAllowedSpreadUSD = 35.0;
 int AccountMultiplierLOT = 500;
 double OriginalStopLossUSD = 6;//4;
-double StopLossUSD =6;//10;//6;//5;//10;//2;// 10;
+double StopLossUSD =10;//6;//10;//6;//5;//10;//2;// 10;
 
 
 
@@ -3293,7 +3293,7 @@ bool HasAnyLargeCandle(string symbol, ENUM_TIMEFRAMES timeframe, int candleCount
       double h = iHigh(symbol, timeframe, i);
       double l = iLow(symbol, timeframe, i);
 
-      double size = checkBody ? MathAbs(o - c) : (h - l);
+      double size = checkBody ? MathAbs(o - c) : MathAbs(h - l);
 
       if(size > threshold)
          return true;
@@ -8083,7 +8083,7 @@ void CheckEquitySurplusReset()
    double equity  = AccountEquity();
 
 // Check if equity is more than 5% above the account balance
-   if(balance > 0.0 && equity >= balance * 1.05)
+   if(balance > 0.0 && equity >= balance * 1.01)
      {
       Print("RARE EVENT: Equity ($", equity, ") exceeds Balance ($", balance, ") by 5%+. Triggering EMAladder target hit.");
 
