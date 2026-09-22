@@ -18,7 +18,7 @@
 
 
 
-string glbVersion = "V401 22-09-2026 16.00 Recovery Orders ";
+string glbVersion = "V501 22-09-2026 20.00 TradingHaltedUntilNextFlip";
 
 // ===== INPUT SETTINGS =====
 int SSLPeriod = 10;
@@ -64,13 +64,13 @@ bool EnableBounceBackDetection = false;
 int EMAFlipwaitingtimeMinutes =10;// 29; // Wait time after an EMA flip before resuming trading
 
 // ===== EMA FLIP PROFIT TARGET =====
-double TargetProfitPerFlipUSD = 10.0;
+double TargetProfitPerFlipUSD =20;// 10.0;
 // bool TradingHaltedUntilNextFlip = false;
 
 // ===== EMA FLIP PROFIT LADDER =====
 double FlipLadderStepUSD =0;//10;// 5;//10.0;
 double HighestCycleProfitUSD = 0.0;
-bool   TradingHaltedUntilNextFlip = false;
+bool   TradingHaltedUntilNextFlip =true;// false;
 double ActiveEquityBaseline = 0.0; // Add this new variable
 
 double SecurebaselinePercentage=0.50;//0.90;
