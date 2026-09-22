@@ -18,7 +18,7 @@
 
 
 
-string glbVersion = "V317 22-09-2026 08.00 FINAL - Manage5PercentLadderReset       ModifyOpenOrdersToSecureProfit(); Updated ";
+string glbVersion = "V401 22-09-2026 16.00 Recovery Orders ";
 
 // ===== INPUT SETTINGS =====
 int SSLPeriod = 10;
@@ -174,12 +174,12 @@ double   PostOrderSLTPVerifyExpectedOpen[MAX_POST_ORDER_SLTP_VERIFY];
 int      PostOrderSLTPVerifyType[MAX_POST_ORDER_SLTP_VERIFY];
 double   PostOrderSLTPVerifyLots[MAX_POST_ORDER_SLTP_VERIFY];
 
-bool EnableRecoveryOrders =false;// true;
-double RecoveryTriggerLossUSD =2;//1;//0.50;// 2;
+bool EnableRecoveryOrders =true;// true;
+double RecoveryTriggerLossUSD =3;//2;//1;//0.50;// 2;
 double RecoveryLotMultiplier = 1;
 int MaxRecoveryOrders = 1;
 double RecoveryBasketProfitUSD = 1;
-double RecoveryMinDistanceRaw =100;//20;// 200.0;
+double RecoveryMinDistanceRaw =300;//100;//20;// 200.0;
 
 double DayProfitLadder1Amount = 5;
 
@@ -5441,6 +5441,12 @@ void CheckRecoveryOrders()
    if(CountActiveRecoveryOrders() >= 1)
       return;
 
+      if(!IsEmaWEAKDistanceReduced50PercentFromPeak())
+      {
+      return;
+
+      }
+
    double emaAngle = GlobalEmaAngle30;
 
    RefreshRates();
@@ -5549,6 +5555,12 @@ void ManageRecoveryBasket()
   {
    if(!EnableRecoveryOrders)
       return;
+
+       if(!IsEmaWEAKDistanceReduced50PercentFromPeak())
+      {
+      return;
+
+      }
 
    for(int i = OrdersTotal() - 1; i >= 0; i--)
      {
