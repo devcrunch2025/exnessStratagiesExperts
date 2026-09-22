@@ -18,7 +18,7 @@
 
 
 
-string glbVersion = "V501 22-09-2026 20.00 TradingHaltedUntilNextFlip";
+string glbVersion = "V501 22-09-2026 $20.00 TradingHaltedUntilNextFlip";
 
 // ===== INPUT SETTINGS =====
 int SSLPeriod = 10;
@@ -468,23 +468,23 @@ void Manage5PercentLadderReset()
 
 // Print("targetDifference"+targetDifference+" "+CloseOrdersAtProfitFromOpeningBalance*4*balancelomultipler +" gbltargetEquity="+gbltargetEquity);
 
-   if(targetDifference > CloseOrdersAtProfitFromOpeningBalance*4*balancelomultipler )
-   {
-      // targetEquity = currentEquity + 5.0;
+   // if(targetDifference > CloseOrdersAtProfitFromOpeningBalance*4*balancelomultipler )
+   // {
+   //    // targetEquity = currentEquity + 5.0;
 
-       Ladder5PercentBaseline=currentEquity;//
+   //     Ladder5PercentBaseline=currentEquity;//
 
-      Print(
-         "5% EQUITY LADDER TARGET ADJUSTED",
-         " | Baseline=$", DoubleToString(Ladder5PercentBaseline, 2),
-         " | CurrentEquity=$", DoubleToString(currentEquity, 2),
-         " | OldTarget=$", DoubleToString(
-               Ladder5PercentBaseline *
-               (1.0 + (CloseOrdersAtProfitFromOpeningBalance / 100.0)), 2),
-         " | Difference=$", DoubleToString(targetDifference, 2),
-         " | NewTarget=$", DoubleToString(targetEquity, 2)
-      );
-   }
+   //    Print(
+   //       "5% EQUITY LADDER TARGET ADJUSTED",
+   //       " | Baseline=$", DoubleToString(Ladder5PercentBaseline, 2),
+   //       " | CurrentEquity=$", DoubleToString(currentEquity, 2),
+   //       " | OldTarget=$", DoubleToString(
+   //             Ladder5PercentBaseline *
+   //             (1.0 + (CloseOrdersAtProfitFromOpeningBalance / 100.0)), 2),
+   //       " | Difference=$", DoubleToString(targetDifference, 2),
+   //       " | NewTarget=$", DoubleToString(targetEquity, 2)
+   //    );
+   // }
 
    // ---------------------------------------------------------
    // Target reached
@@ -954,7 +954,9 @@ void CheckFlipProfitTarget()
      {
       Print("Target reached: $", totalCycleProfit, ". Securing profit and halting until next EMA flip.");
       TradingHaltedUntilNextFlip = true;
-      CloseAndDeleteAllEAOrdersOnTradingStop(); // Reuses your existing function
+      // CloseAndDeleteAllEAOrdersOnTradingStop(); // Reuses your existing function
+         ModifyOpenOrdersToSecureProfit();
+
      }
   }
 //+------------------------------------------------------------------+
@@ -979,6 +981,9 @@ void ManageFlipProfitLadder()
       LadderHaltStartTime = TimeCurrent();
       //CloseAndDeleteAllEAOrdersOnTradingStop();
       ///////////CloseAndDeleteNonEmaMatchingOrders();
+
+         ModifyOpenOrdersToSecureProfit();
+
 
       return;
      }
@@ -1026,6 +1031,8 @@ void ManageFlipProfitLadder()
          LadderHaltStartTime = TimeCurrent();
          //CloseAndDeleteAllEAOrdersOnTradingStop();
          //////////////////CloseAndDeleteNonEmaMatchingOrders();
+         ModifyOpenOrdersToSecureProfit();
+
         }
      }
   }
@@ -1577,7 +1584,9 @@ void ManageOverallBasketProfit()
                " > Target: $", DoubleToString(dynamicProfitTarget, 2),
                " for ", DoubleToString(totalLots, 2), " total lots). Closing all orders and continuing trading.");
 
-         CloseAndDeleteAllEAOrdersOnTradingStop();
+         // CloseAndDeleteAllEAOrdersOnTradingStop();
+         ModifyOpenOrdersToSecureProfit();
+
 
          TradingHaltedUntilNextFlip = false;
          LadderHaltStartTime = 0;
