@@ -18,7 +18,7 @@
 
 
 
-string glbVersion = "V315 22-09-2026 08.00 FINAL - Manage5PercentLadderReset Account-Equity-20 ";
+string glbVersion = "V316 22-09-2026 08.00 FINAL - Manage5PercentLadderReset       ModifyOpenOrdersToSecureProfit(); Updated ";
 
 // ===== INPUT SETTINGS =====
 int SSLPeriod = 10;
@@ -4649,9 +4649,175 @@ void CheckEquityBalanceProfitTarget()
   }
 
 //+------------------------------------------------------------------+
-// Modify open orders to secure profit and keep trading active
+//| Modify profitable orders and close losing orders                 |
 //+------------------------------------------------------------------+
 void ModifyOpenOrdersToSecureProfit()
+{
+   RefreshRates();
+
+   for(int i = OrdersTotal() - 1; i >= 0; i--)
+   {
+      if(!OrderSelect(i, SELECT_BY_POS, MODE_TRADES))
+         continue;
+
+      // Current symbol only
+      if(OrderSymbol() != Symbol())
+         continue;
+
+      // Current EA only
+      if(OrderMagicNumber() != MagicNumber)
+         continue;
+
+      int ticket = OrderTicket();
+      int type   = OrderType();
+
+      // Only BUY / SELL
+      if(type != OP_BUY && type != OP_SELL)
+         continue;
+
+
+
+   RefreshRates();
+
+
+      double orderProfit =
+         OrderProfit() +
+         OrderSwap() +
+         OrderCommission();
+
+      //==============================================================
+      // LOSS ORDER → CLOSE
+      //==============================================================
+      if(orderProfit < 0.0)
+      {
+
+   RefreshRates();
+
+         double closePrice;
+
+         if(type == OP_BUY)
+            closePrice = Bid;
+         else
+            closePrice = Ask;
+
+         ResetLastError();
+
+         bool closed = OrderClose(
+            ticket,
+            OrderLots(),
+            closePrice,
+            Slippage,
+            clrRed
+         );
+
+         if(closed)
+         {
+            Print(
+               "LOSS ORDER CLOSED",
+               " | Ticket=", ticket,
+               " | Type=", type == OP_BUY ? "BUY" : "SELL",
+               " | Lots=", DoubleToString(OrderLots(), 2),
+               " | Loss=$", DoubleToString(orderProfit, 2)
+            );
+         }
+         else
+         {
+            Print(
+               "FAILED TO CLOSE LOSS ORDER",
+               " | Ticket=", ticket,
+               " | Error=", GetLastError()
+            );
+         }
+
+         continue;
+      }
+
+      //==============================================================
+      // PROFIT ORDER → MODIFY SL
+      //==============================================================
+      if(orderProfit > 0.0)
+      {
+
+   RefreshRates();
+
+         double openPrice = OrderOpenPrice();
+         double currentSL = OrderStopLoss();
+         double currentTP = OrderTakeProfit();
+
+         double newSL = 0.0;
+         bool modify = false;
+
+         // BUY
+         if(type == OP_BUY)
+         {
+            newSL = Bid - (20 * Point);
+            newSL = NormalizeDouble(newSL, Digits);
+
+            // SL must secure profit
+            if(newSL > openPrice)
+            {
+               // Only move SL forward
+               if(currentSL == 0.0 || newSL > currentSL)
+                  modify = true;
+            }
+         }
+
+         // SELL
+         else if(type == OP_SELL)
+         {
+            newSL = Ask + (20 * Point);
+            newSL = NormalizeDouble(newSL, Digits);
+
+            // SL must secure profit
+            if(newSL < openPrice)
+            {
+               // Only move SL forward
+               if(currentSL == 0.0 || newSL < currentSL)
+                  modify = true;
+            }
+         }
+
+         if(modify)
+         {
+            ResetLastError();
+
+            bool modified = OrderModify(
+               ticket,
+               openPrice,
+               newSL,
+               currentTP,
+               0,
+               type == OP_BUY ? clrGreen : clrRed
+            );
+
+            if(modified)
+            {
+               Print(
+                  "PROFIT ORDER SL MODIFIED",
+                  " | Ticket=", ticket,
+                  " | Type=", type == OP_BUY ? "BUY" : "SELL",
+                  " | Profit=$", DoubleToString(orderProfit, 2),
+                  " | NewSL=", DoubleToString(newSL, Digits)
+               );
+            }
+            else
+            {
+               Print(
+                  "FAILED TO MODIFY PROFIT ORDER",
+                  " | Ticket=", ticket,
+                  " | Error=", GetLastError()
+               );
+            }
+         }
+      }
+   }
+}
+
+
+//+------------------------------------------------------------------+
+// Modify open orders to secure profit and keep trading active
+//+------------------------------------------------------------------+
+void ModifyOpenOrdersToSecureProfitOld()
   {
    for(int i = OrdersTotal() - 1; i >= 0; i--)
      {
@@ -8861,12 +9027,16 @@ void UpdateDashboard(DailyProtectionState &state)
 // double lockedProfitTarget = (ladderLevel - 1) * FlipLadderStepUSD;
    double lockedProfitTarget = (ladderLevel - 1) * FlipLadderStepUSD;
 
+   double targetEquity =
+      Ladder5PercentBaseline *
+      (1.0 + (CloseOrdersAtProfitFromOpeningBalance / 100.0));
+
 
    CreateDashboardLabel(DASH_PREFIX+"EMA_LAD_BASE","SECURED BASELINE: $"+DoubleToString(ActiveEquityBaseline, 2)+" / $"+DoubleToString(totalContinuousProfit, 2)+" <= $"+DoubleToString(lockedProfitTarget, 2),tx,y+210,8,clrSilver);
 // ================= 2. ACCOUNT & EQUITY =================
    CreateDashboardPanel(DASH_PREFIX+"SEC_ACCOUNT",x,y+222,w,22,C'30,38,50');
    CreateDashboardLabel(DASH_PREFIX+"ACCOUNT_H","ACCOUNT & EQUITY",tx,y+226,9,clrAqua);
-   CreateDashboardLabel(DASH_PREFIX+"BALANCE","BALANCE      : $"+DoubleToString(AccountBalance(),2) +" / "+ DoubleToString(Ladder5PercentBaseline,2),tx,y+249,9,clrWhite);
+   CreateDashboardLabel(DASH_PREFIX+"BALANCE","BALANCE      : $"+DoubleToString(AccountBalance(),2) +" / "+ DoubleToString(targetEquity,2),tx,y+249,9,clrWhite);
    CreateDashboardLabel(DASH_PREFIX+"EQUITY","EQUITY       : $"+DoubleToString(AccountEquity(),2)+"/ "+DoubleToString(emaLockedPrf,2),tx,y+269,9,clrLime);
    CreateDashboardLabel(DASH_PREFIX+"FREEMARGIN","FREE MARGIN   : $"+DoubleToString(AccountFreeMargin(),2),tx,y+289,9,clrWhite);
    CreateDashboardLabel(DASH_PREFIX+"DAYPL","DAY P/L       : "+(dayPL>=0?"+":"")+DoubleToString(dayPL,2)+" ("+DoubleToString(dayPLPct,1)+"%)",tx,y+309,9,dayPL>=0?clrLime:clrTomato);
