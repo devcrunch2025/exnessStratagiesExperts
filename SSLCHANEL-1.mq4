@@ -18,7 +18,7 @@
 
 
 
-string glbVersion = "V314 21-09-2026 22.00 FINAL - ModifyOpenOrdersToSecureProfit ";
+string glbVersion = "V315 22-09-2026 08.00 FINAL - Manage5PercentLadderReset Account-Equity-20 ";
 
 // ===== INPUT SETTINGS =====
 int SSLPeriod = 10;
@@ -440,11 +440,67 @@ int CountOrdersByType(int orderType)
      }
    return count;
   }
+void Manage5PercentLadderReset()
+{
+   if(Ladder5PercentBaseline <= 0.0)
+   {
+      Ladder5PercentBaseline = AccountBalance();
+      return;
+   }
 
+   double currentEquity = AccountEquity();
+
+   double targetEquity =
+      Ladder5PercentBaseline *
+      (1.0 + (CloseOrdersAtProfitFromOpeningBalance / 100.0));
+
+   // ---------------------------------------------------------
+   // Dynamic target adjustment
+   // If current equity falls more than $20 below the target,
+   // move the target to current equity + $5.
+   // ---------------------------------------------------------
+   double targetDifference = targetEquity - currentEquity;
+
+   if(targetDifference > 20.0)
+   {
+      targetEquity = currentEquity + 5.0;
+
+      Print(
+         "5% EQUITY LADDER TARGET ADJUSTED",
+         " | Baseline=$", DoubleToString(Ladder5PercentBaseline, 2),
+         " | CurrentEquity=$", DoubleToString(currentEquity, 2),
+         " | OldTarget=$", DoubleToString(
+               Ladder5PercentBaseline *
+               (1.0 + (CloseOrdersAtProfitFromOpeningBalance / 100.0)), 2),
+         " | Difference=$", DoubleToString(targetDifference, 2),
+         " | NewTarget=$", DoubleToString(targetEquity, 2)
+      );
+   }
+
+   // ---------------------------------------------------------
+   // Target reached
+   // ---------------------------------------------------------
+   if(currentEquity >= targetEquity)
+   {
+      Print(
+         "5% EQUITY LADDER TARGET REACHED",
+         " | Equity=$", DoubleToString(currentEquity, 2),
+         " | Target=$", DoubleToString(targetEquity, 2),
+         " | Closing/Protecting orders."
+      );
+
+      ModifyOpenOrdersToSecureProfit();
+
+      // Reset ladder baseline
+      Ladder5PercentBaseline = AccountBalance();
+
+      InitializeDayProfitLadder();
+   }
+}
 //+------------------------------------------------------------------+
 //|                                                                  |
 //+------------------------------------------------------------------+
-void Manage5PercentLadderReset()
+void Manage5PercentLadderResetOld()
   {
    if(Ladder5PercentBaseline <= 0.0)
      {
