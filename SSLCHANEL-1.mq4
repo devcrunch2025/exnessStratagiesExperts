@@ -18,7 +18,7 @@
 
 
 
-string glbVersion = "V316 22-09-2026 08.00 FINAL - Manage5PercentLadderReset       ModifyOpenOrdersToSecureProfit(); Updated ";
+string glbVersion = "V317 22-09-2026 08.00 FINAL - Manage5PercentLadderReset       ModifyOpenOrdersToSecureProfit(); Updated ";
 
 // ===== INPUT SETTINGS =====
 int SSLPeriod = 10;
@@ -440,6 +440,9 @@ int CountOrdersByType(int orderType)
      }
    return count;
   }
+
+  //2026.09.22 09:42:18.950	2026.08.02 09:29:21  SSLCHANEL-1 BTCUSDm,M1: 5% EQUITY LADDER TARGET ADJUSTED | Baseline=$124.88 | CurrentEquity=$103.89 | OldTarget=$131.12 | Difference=$27.23 | NewTarget=$108.89
+
 void Manage5PercentLadderReset()
 {
    if(Ladder5PercentBaseline <= 0.0)
@@ -461,9 +464,11 @@ void Manage5PercentLadderReset()
    // ---------------------------------------------------------
    double targetDifference = targetEquity - currentEquity;
 
-   if(targetDifference > 20.0)
+   if(targetDifference > CloseOrdersAtProfitFromOpeningBalance*4*AccountMultiplierLOT )
    {
-      targetEquity = currentEquity + 5.0;
+      // targetEquity = currentEquity + 5.0;
+
+      Ladder5PercentBaseline=currentEquity;//
 
       Print(
          "5% EQUITY LADDER TARGET ADJUSTED",
