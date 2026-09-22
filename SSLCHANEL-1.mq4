@@ -472,7 +472,7 @@ void Manage5PercentLadderReset()
    {
       // targetEquity = currentEquity + 5.0;
 
-      // Ladder5PercentBaseline=currentEquity;//
+       Ladder5PercentBaseline=currentEquity;//
 
       Print(
          "5% EQUITY LADDER TARGET ADJUSTED",
@@ -3604,14 +3604,14 @@ if(EMADirection == -1 && GetOpenPL(OP_SELL) <= -safeOrdersendLossCondition*balan
 //    return false;
 //   }
 // --- SEPARATE CONDITION: Strict block for opposite orders during strong uptrend (2 to 6 degrees) ---
-   if(EMADirection != -1 && (orderType == OP_SELL || orderType == OP_SELLSTOP || orderType == OP_SELLLIMIT))
+   if((StringFind(OrderComment(), "RECOVERY_") <0) && EMADirection != -1 && (orderType == OP_SELL || orderType == OP_SELLSTOP || orderType == OP_SELLLIMIT))
      {
       Comment("TRADE SELL BLOCKED | Strict opposite block: EMA trend is strong uptrend  ");
       return -1;
      }
 
 // --- SEPARATE CONDITION: Strict block for opposite orders during strong downtrend (-2 to -6 degrees) ---
-   if(EMADirection != 1 && (orderType == OP_BUY || orderType == OP_BUYSTOP || orderType == OP_BUYLIMIT))
+   if((StringFind(OrderComment(), "RECOVERY_") <0) && EMADirection != 1 && (orderType == OP_BUY || orderType == OP_BUYSTOP || orderType == OP_BUYLIMIT))
      {
       Comment("TRADE BUY BLOCKED | Strict opposite block: EMA trend is strong downtrend  ");
       return -1;
@@ -7603,22 +7603,22 @@ double GetTicketLastClosePrice(int ticket)
 
       if(MathAbs(orderLots - (0.05*balancelomultipler)) < 0.000001)
       {
-         lossTrigger = -(5.00*balancelomultipler*2);
+         lossTrigger = -(5.00*balancelomultipler*3);
       }
       else
       if(MathAbs(orderLots - 0.04) < 0.000001)
       {
-         lossTrigger = -(4.00*balancelomultipler*2);
+         lossTrigger = -(4.00*balancelomultipler*3);
       }
       else
       if(MathAbs(orderLots - 0.03) < 0.000001)
       {
-         lossTrigger = -(6.00*balancelomultipler*2);
+         lossTrigger = -(6.00*balancelomultipler*3);
       }
       else
       if(MathAbs(orderLots - 0.02) < 0.000001)
       {
-         lossTrigger = -(8.00*balancelomultipler*2);
+         lossTrigger = -(8.00*balancelomultipler*3);
       }
       else
       {
