@@ -16,6 +16,13 @@
 //Deleted -2
 //https://github.com/devcrunch2025/exnessStratagiesExperts/commit/a3a7908f5cb6d3c86b516b18afa2cbd3525d9fc9
 
+//No Limit profit blockage 
+//https://github.com/devcrunch2025/exnessStratagiesExperts/commit/7e017c99e7de9bec2ae6e9e909eb567d0275fdb2
+
+
+//every Flip Stop 20%
+//https://github.com/devcrunch2025/exnessStratagiesExperts/commit/9ee1d4e897a5bcd34d5d5825dc2771c6eca50b78
+
 
 
 string glbVersion = "V502 22-09-2026 23.00 $20.00 TradingHaltedUntilNextFlip and Daypause 30%";
