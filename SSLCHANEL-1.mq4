@@ -18,7 +18,7 @@
 
 
 
-string glbVersion = "V501 22-09-2026 $20.00 TradingHaltedUntilNextFlip";
+string glbVersion = "V502 22-09-2026 23.00 $20.00 TradingHaltedUntilNextFlip and Daypause 30%";
 
 // ===== INPUT SETTINGS =====
 int SSLPeriod = 10;
@@ -184,12 +184,12 @@ double RecoveryMinDistanceRaw =300;//100;//20;// 200.0;
 double DayProfitLadder1Amount = 5;
 
 // ===== DYNAMIC DAY PROFIT LADDER =====
-bool   EnableDayProfitLadder = false;//true;
+bool   EnableDayProfitLadder = true;//false;//true;
 double DayProfitLadder1Percent = 25;
 double DayProfitLadder2Percent = 10;
 double DayProfitLadderLockRatio = 10;
 double DayProfitInitialProtectionPercent = 80;
-double PeakProfitLockPercent = 80.0;
+double PeakProfitLockPercent =30;// 80.0;
 
 int Slippage = 30;
 int MagicNumber = 6600123;
@@ -1382,12 +1382,55 @@ datetime PendingVShapeBuyTime = 0;
 double   PendingVShapeBuyPrice = 0.0;
 datetime PendingVShapeSellTime = 0;
 double   PendingVShapeSellPrice = 0.0;
+  bool   EnableDailyEquity30Stop = true;
+  double DailyEquityStopPercent  = 30.0;
 
+
+  int      g_dayNumber = -1;
+double   g_dayOpeningBalance = 0.0;
+bool     g_dailyEquityTradingBlocked = false;
+
+void CheckForNewDay()
+{
+   int today = TimeDayOfYear(TimeCurrent());
+
+   if(today != g_dayNumber)
+   {
+      // NEW DAY
+      g_dayNumber = today;
+
+      // Capture the balance at the start of the new day
+      g_dayOpeningBalance = AccountBalance();
+
+      // Reset daily protection
+      g_dailyEquityTradingBlocked = false;
+
+      Print("NEW DAY detected. Opening Balance = ",
+            DoubleToString(g_dayOpeningBalance, 2));
+   }
+}
+
+  bool IsDailyEquityStopReached()
+{
+   double stopEquity = g_dayOpeningBalance * 
+                       (DailyEquityStopPercent / 100.0);
+
+   if(AccountEquity() <= stopEquity)
+   {
+      g_dailyEquityTradingBlocked = true;
+      return true;
+   }
+
+   return g_dailyEquityTradingBlocked;
+}
 //+------------------------------------------------------------------+
 //|                                                                  |
 //+------------------------------------------------------------------+
 void OnTick()
   {
+
+      CheckForNewDay();
+
    UpdateMomentumBackground();
    UpdateDubaiTradingPauseDashboard();
    uint tickStartMs=GetTickCount();
@@ -1794,8 +1837,8 @@ void OnTickCore()
    CheckLadderHaltResume(); // <-- ADD THIS LINE HERE
 
    TrackEmaFlip();
-// CheckFlipProfitTarget(); // Add this line
-  ////////////// ManageFlipProfitLadder(); // Add this line
+CheckFlipProfitTarget(); // Add this line
+   ManageFlipProfitLadder(); // Add this line
 // Manage50EmaClosures();
 // ManageEmaAngleOppositeClose(); // <-- Add this here
    ProcessDeferredOrders();
@@ -3518,6 +3561,10 @@ string TradeMonitoringLog2="";
 //+------------------------------------------------------------------+
 int SafeOrderSend(string symbol,int orderType,double lots,double price,int slippage,double stopLoss,double takeProfit,string comment,int magic,color arrowColor)
   {
+
+
+if(IsDailyEquityStopReached())
+   return -1;
 
 // ADD THIS LINE: Block re-entry orders if EMA Ladder is halted
    if(TradingHaltedUntilNextFlip)
@@ -5831,6 +5878,11 @@ void CloseAndDeleteNonEmaMatchingOrders()
 //+------------------------------------------------------------------+
 void CloseAndDeleteAllEAOrdersOnTradingStop()
   {
+
+
+         ModifyOpenOrdersToSecureProfit();
+return ;
+
    int freshPendingTickets[1000];
    int freshPendingCount = 0;
    for(int i=OrdersTotal()-1; i>=0; i--)
@@ -6041,7 +6093,7 @@ void ManageDayProfitLadder()
          if(equity >= halfTargetEquity)
            {
             Print("TACTICAL EXIT: 2 Hours elapsed & 50% of leg target reached ($", DoubleToString(equity, 2), "). Closing stale orders.");
-            CloseAndDeleteAllEAOrdersOnTradingStop();
+            // CloseAndDeleteAllEAOrdersOnTradingStop();
             return;
            }
         }
