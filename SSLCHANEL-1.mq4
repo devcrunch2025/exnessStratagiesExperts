@@ -442,7 +442,7 @@ int CountOrdersByType(int orderType)
   }
 
   //2026.09.22 09:42:18.950	2026.08.02 09:29:21  SSLCHANEL-1 BTCUSDm,M1: 5% EQUITY LADDER TARGET ADJUSTED | Baseline=$124.88 | CurrentEquity=$103.89 | OldTarget=$131.12 | Difference=$27.23 | NewTarget=$108.89
-
+double gbltargetEquity=0;
 void Manage5PercentLadderReset()
 {
    if(Ladder5PercentBaseline <= 0.0)
@@ -464,11 +464,15 @@ void Manage5PercentLadderReset()
    // ---------------------------------------------------------
    double targetDifference = targetEquity - currentEquity;
 
+   gbltargetEquity=targetEquity;
+
+Print("targetDifference"+targetDifference+" "+CloseOrdersAtProfitFromOpeningBalance*4*AccountMultiplierLOT +" gbltargetEquity="+gbltargetEquity);
+
    if(targetDifference > CloseOrdersAtProfitFromOpeningBalance*4*AccountMultiplierLOT )
    {
       // targetEquity = currentEquity + 5.0;
 
-      Ladder5PercentBaseline=currentEquity;//
+      // Ladder5PercentBaseline=currentEquity;//
 
       Print(
          "5% EQUITY LADDER TARGET ADJUSTED",
@@ -9041,7 +9045,7 @@ void UpdateDashboard(DailyProtectionState &state)
 // ================= 2. ACCOUNT & EQUITY =================
    CreateDashboardPanel(DASH_PREFIX+"SEC_ACCOUNT",x,y+222,w,22,C'30,38,50');
    CreateDashboardLabel(DASH_PREFIX+"ACCOUNT_H","ACCOUNT & EQUITY",tx,y+226,9,clrAqua);
-   CreateDashboardLabel(DASH_PREFIX+"BALANCE","BALANCE      : $"+DoubleToString(AccountBalance(),2) +" / "+ DoubleToString(targetEquity,2),tx,y+249,9,clrWhite);
+   CreateDashboardLabel(DASH_PREFIX+"BALANCE","BALANCE      : $"+DoubleToString(AccountBalance(),2) +" / "+ DoubleToString(gbltargetEquity,2),tx,y+249,9,clrWhite);
    CreateDashboardLabel(DASH_PREFIX+"EQUITY","EQUITY       : $"+DoubleToString(AccountEquity(),2)+"/ "+DoubleToString(emaLockedPrf,2),tx,y+269,9,clrLime);
    CreateDashboardLabel(DASH_PREFIX+"FREEMARGIN","FREE MARGIN   : $"+DoubleToString(AccountFreeMargin(),2),tx,y+289,9,clrWhite);
    CreateDashboardLabel(DASH_PREFIX+"DAYPL","DAY P/L       : "+(dayPL>=0?"+":"")+DoubleToString(dayPL,2)+" ("+DoubleToString(dayPLPct,1)+"%)",tx,y+309,9,dayPL>=0?clrLime:clrTomato);
