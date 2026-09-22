@@ -466,9 +466,9 @@ void Manage5PercentLadderReset()
 
    gbltargetEquity=targetEquity;
 
-Print("targetDifference"+targetDifference+" "+CloseOrdersAtProfitFromOpeningBalance*4*AccountMultiplierLOT +" gbltargetEquity="+gbltargetEquity);
+// Print("targetDifference"+targetDifference+" "+CloseOrdersAtProfitFromOpeningBalance*4*balancelomultipler +" gbltargetEquity="+gbltargetEquity);
 
-   if(targetDifference > CloseOrdersAtProfitFromOpeningBalance*4*AccountMultiplierLOT )
+   if(targetDifference > CloseOrdersAtProfitFromOpeningBalance*4*balancelomultipler )
    {
       // targetEquity = currentEquity + 5.0;
 
@@ -5441,7 +5441,7 @@ void CheckRecoveryOrders()
    if(CountActiveRecoveryOrders() >= 1)
       return;
 
-      if(!IsEmaWEAKDistanceReduced50PercentFromPeak())
+      if(!IsEmaWEAKDistanceReduced50PercentFromPeak() && GlobalSSLDirection != 1 && EMADirection)
       {
       return;
 
@@ -5556,7 +5556,7 @@ void ManageRecoveryBasket()
    if(!EnableRecoveryOrders)
       return;
 
-       if(!IsEmaWEAKDistanceReduced50PercentFromPeak())
+       if(!IsEmaWEAKDistanceReduced50PercentFromPeak() && GlobalSSLDirection != 1 && EMADirection)
       {
       return;
 
@@ -6943,7 +6943,7 @@ void OpenBuy()
    if(slDistance <= 0)
       return;
    double stopLoss = NormalizeDouble(Ask - slDistance, Digits);
-   Print("SafeOrderSend");
+   // Print("SafeOrderSend");
    int ticket = SafeOrderSend(Symbol(), OP_BUY, Lots, Ask, Slippage, stopLoss, 0, "SSL Long", MagicNumber, BuyColor);
    if(ticket > 0)
      {
