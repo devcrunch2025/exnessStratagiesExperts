@@ -60,7 +60,7 @@ datetime g_lastLadderCloseTime = 0;   // Stores timestamp of last basket reset
 double   g_peakCycleProfit     = 0.0; // Tracks the highest profit reached in the current cycle
 double   g_stepSize            = 50.0; // The step increment ($5)
 
-double SecureOneDollarProfitPerOrder=1.0;
+double SecureOneDollarProfitPerOrder=1.0; //1X
 
 // ===== 5% CONTINUOUS LADDER SETTINGS =====
 double CloseOrdersAtProfitFromOpeningBalance =5;//10;//25;// 5;
@@ -474,10 +474,124 @@ int CountOrdersByType(int orderType)
      }
    return count;
   }
+   void SecureDistanceProfitLadder()
+  {
+   // The raw price gap increment (e.g., 50.0 represents a $50 price movement in BTC)
+   double distanceStep = 50.0; 
+   
+   if(distanceStep <= 0) return;
+
+   for(int i = OrdersTotal() - 1; i >= 0; i--)
+     {
+      if(!OrderSelect(i, SELECT_BY_POS, MODE_TRADES))
+         continue;
+
+      if(OrderSymbol() != Symbol() || OrderMagicNumber() != MagicNumber)
+         continue;
+
+      int type = OrderType();
+      if(type != OP_BUY && type != OP_SELL)
+         continue;
+      
+      RefreshRates();
+      
+      double currentSL = OrderStopLoss();
+      double openPrice = OrderOpenPrice();
+      
+      // 1. Calculate safe StopLevel (Fallback to 2x Spread for Crypto brokers with bugged limits)
+      double stopLevel = MarketInfo(Symbol(), MODE_STOPLEVEL) * Point;
+      double spreadBuf = (Ask - Bid) * 2.0;
+      double minSafeDistance = MathMax(stopLevel, spreadBuf);
+
+      double maxLockableDistance = 0.0;
+      
+      // 2. Calculate the maximum raw distance we can safely lock right now
+      if(type == OP_BUY)
+         maxLockableDistance = (Bid - minSafeDistance) - openPrice;
+      else if(type == OP_SELL)
+         maxLockableDistance = openPrice - (Ask + minSafeDistance);
+
+      // If we aren't even in profit, skip
+      if(maxLockableDistance <= 0) 
+         continue;
+
+      // 3. Determine the ladder level (1 = $50, 2 = $100, 3 = $150, etc.)
+      int ladderLevel = (int)MathFloor(maxLockableDistance / distanceStep);
+
+      // If price hasn't moved far enough to even lock the first step, skip
+      if(ladderLevel < 1)
+         continue;
+
+      // 4. Calculate the exact price for this distance ladder rung
+      double lockedDistance = ladderLevel * distanceStep;
+      double newSL = 0.0;
+      bool canModify = false;
+
+      if(type == OP_BUY)
+        {
+         newSL = NormalizeDouble(openPrice + lockedDistance, Digits);
+         
+         // FINAL BROKER CHECK: Ensure live price hasn't suddenly dropped too close to our new SL
+         if(Bid - newSL >= minSafeDistance)
+           {
+            // Ensure we only move the SL forward
+            if(currentSL == 0.0 || newSL > currentSL + (Point / 2.0))
+               canModify = true;
+           }
+        }
+      else if(type == OP_SELL)
+        {
+         newSL = NormalizeDouble(openPrice - lockedDistance, Digits);
+         
+         // FINAL BROKER CHECK: Ensure live price hasn't suddenly spiked too close to our new SL
+         if(newSL - Ask >= minSafeDistance)
+           {
+            // Ensure we only move the SL forward
+            if(currentSL == 0.0 || newSL < currentSL - (Point / 2.0))
+               canModify = true;
+           }
+        }
+
+      // 5. Modify the order with enhanced diagnostic logging
+      if(canModify)
+        {
+         ResetLastError();
+         bool modified = OrderModify(OrderTicket(), openPrice, newSL, OrderTakeProfit(), 0, clrDodgerBlue);
+         
+         if(modified)
+           {
+            Print("Secured Distance Ladder: ", ladderLevel, "X (+$", DoubleToString(lockedDistance, 2), " price gap)",
+                  " | Ticket=", OrderTicket(),
+                  " | Type=", type == OP_BUY ? "BUY" : "SELL",
+                  " | New SL=", DoubleToString(newSL, Digits));
+           }
+         else
+           {
+            // If it still fails, this print will tell you exactly why
+            Print("FAILED MODIFY DISTANCE SL | Ticket=", OrderTicket(),
+                  " | Error=", GetLastError(),
+                  " | Ask=", DoubleToString(Ask, Digits),
+                  " | Bid=", DoubleToString(Bid, Digits),
+                  " | Curr SL=", DoubleToString(currentSL, Digits),
+                  " | Attempted SL=", DoubleToString(newSL, Digits),
+                  " | Min Broker Distance=", DoubleToString(minSafeDistance, Digits));
+           }
+        }
+     }
+  }
 void SecureOneDollarProfit()
   {
+
+//    SecureDistanceProfitLadder();
+
+// return ;
    // The base 1X target amount in your account currency
    double baseProfitTarget = SecureOneDollarProfitPerOrder * balancelomultipler; 
+
+   if(IsEmaWEAKDistanceReduced50PercentFromPeak())
+   {
+      baseProfitTarget=baseProfitTarget/2;
+   }
    
    if(baseProfitTarget <= 0) 
       return; // Prevent division by zero if inputs are 0
@@ -3921,6 +4035,8 @@ int SafeOrderSend(string symbol,int orderType,double lots,double price,int slipp
 //       Comment("TRADE BUY BLOCKED | EMA trend is strong (", DoubleToString(GlobalEmaAngle30, 2), " deg). Waiting for extreme exhaustion (<-6) to Buy.");
 //       return -1;
 //      }
+
+
 
    if(IsOrderAllowedByTrendAndGap(orderType) == false)
      {
