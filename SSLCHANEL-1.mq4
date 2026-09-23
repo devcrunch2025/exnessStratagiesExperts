@@ -9202,6 +9202,8 @@ void UpdateDashboard(DailyProtectionState &state)
    else
       strong= " STRONG";
 
+      string txLock="Day "+DailyEquityStopPercent+"%"+" Flip "+TargetProfitPerFlipUSDPercentage+"%";
+
    CreateDashboardPanel(DASH_PREFIX+"PANEL",x,y,w,panelHeight,C'12,16,22');
    CreateDashboardPanel(DASH_PREFIX+"HEADER",x,y,w,38,C'25,70,115');
    CreateDashboardLabel(DASH_PREFIX+"TITLE",glbVersion,tx,y+8,11,clrWhite);
@@ -9211,8 +9213,9 @@ void UpdateDashboard(DailyProtectionState &state)
 
 // ================= 1. EMA FLIP PROFIT LADDER (SWAPPED TO TOP) =================
    CreateDashboardPanel(DASH_PREFIX+"SEC_EMA_LADDER",x,y+90,w,22,C'30,38,50');
-   CreateDashboardLabel(DASH_PREFIX+"EMA_LAD_H","EMA FLIP PROFIT LADDER",tx,y+94,9,clrAqua);
+   CreateDashboardLabel(DASH_PREFIX+"EMA_LAD_H","EMA FLIP PROFIT LADDER "+txLock,tx,y+94,9,clrAqua);
 
+ 
    int currEmaLvl = (int)MathFloor(HighestCycleProfitUSD / FlipLadderStepUSD);
    double emaLockedPrf = (currEmaLvl >= 1) ? (currEmaLvl - 1) * FlipLadderStepUSD : 0.0;
    double emaNextTarget = (currEmaLvl + 1) * FlipLadderStepUSD;
