@@ -25,7 +25,7 @@
 
 
 
-string glbVersion = "V1002 23-09-2026 12.00 TESTING Equity Ladder FlipLadderStepUSD 6";
+string glbVersion = "V1002 23-09-2026 12.00 TESTING BEST and SAFEST  FlipLadderStepUSD 6 DailyEquityStopPercent 50%  TargetProfitPerFlipUSDPercentage 20%";
 
 
 double DailyEquityStopPercent  =20*2.5;//10;//20;// 10;//30.0;
