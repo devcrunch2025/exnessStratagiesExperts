@@ -25,11 +25,11 @@
 
 
 
-string glbVersion = "V1002 23-09-2026 12.00 TESTING Equity Ladder FlipLadderStepUSD 5";
+string glbVersion = "V1002 23-09-2026 12.00 TESTING Equity Ladder FlipLadderStepUSD 6";
 
 
-double DailyEquityStopPercent  =20*5;//10;//20;// 10;//30.0;
-double TargetProfitPerFlipUSDPercentage =10*5;//10;//5;//20;// 10.0;
+double DailyEquityStopPercent  =20*2.5;//10;//20;// 10;//30.0;
+double TargetProfitPerFlipUSDPercentage =10*2;//10;//5;//20;// 10.0;
 
 int      g_dayNumber = -1;
 double   g_dayOpeningBalance = 0.0;
@@ -44,7 +44,7 @@ int EMAFlipwaitingtimeMinutes =10;// 29; // Wait time after an EMA flip before r
 // bool TradingHaltedUntilNextFlip = false;
 
 // ===== EMA FLIP PROFIT LADDER =====
-double FlipLadderStepUSD =5;//0;//10;// 5;//10.0;//0 means nothing not work
+double FlipLadderStepUSD =6;//0;//10;// 5;//10.0;//0 means nothing not work
 double HighestCycleProfitUSD = 0.0;
 bool   TradingHaltedUntilNextFlip =false;//true;// false;
 double ActiveEquityBaseline = 0.0; // Add this new variable
@@ -1060,6 +1060,8 @@ void ManageFlipProfitLadder()
      }
 
 // 4. Calculate ladder level
+//  if(FlipLadderStepUSD==0) FlipLadderStepUSD=1;
+
    int ladderLevel = (int)MathFloor(HighestCycleProfitUSD / FlipLadderStepUSD);
 
 // 5. Action taken when a new level is reached
@@ -1309,9 +1311,12 @@ void CloseOppositeOrdersOnEmaDistance()
 //+------------------------------------------------------------------+
 int OnInit()
   {
+ int lotMultiplierDiv =  (AccountMultiplierLOT > 0) ? AccountMultiplierLOT : 500;
+   balancelomultipler = (int)(AccountBalance() / lotMultiplierDiv);
 
+   if(balancelomultipler<=0) balancelomultipler=1;
 
-   FlipLadderStepUSD=StopLossUSD*1* balancelomultipler ;//
+   FlipLadderStepUSD=FlipLadderStepUSD*1* balancelomultipler ;//
    SecurebaselinePercentage = (100.0 - (StopLossUSD * 5.0)) / 100.0;//
 
    EquityResetReEntryPending=false;
@@ -1515,6 +1520,13 @@ bool IsDailyEquityStopReached()
 //+------------------------------------------------------------------+
 void OnTick()
   {
+
+
+ int lotMultiplierDiv = (AccountMultiplierLOT > 0) ? AccountMultiplierLOT : 500;
+  
+
+   balancelomultipler = (int)(AccountBalance() / lotMultiplierDiv);
+   if(balancelomultipler<=0) balancelomultipler=1;
 
    CheckForNewDay();
 
@@ -9215,7 +9227,7 @@ void UpdateDashboard(DailyProtectionState &state)
    CreateDashboardPanel(DASH_PREFIX+"SEC_EMA_LADDER",x,y+90,w,22,C'30,38,50');
    CreateDashboardLabel(DASH_PREFIX+"EMA_LAD_H","EMA FLIP PROFIT LADDER "+txLock,tx,y+94,9,clrAqua);
 
- 
+ if(FlipLadderStepUSD==0) FlipLadderStepUSD=5;
    int currEmaLvl = (int)MathFloor(HighestCycleProfitUSD / FlipLadderStepUSD);
    double emaLockedPrf = (currEmaLvl >= 1) ? (currEmaLvl - 1) * FlipLadderStepUSD : 0.0;
    double emaNextTarget = (currEmaLvl + 1) * FlipLadderStepUSD;
@@ -9237,6 +9249,7 @@ void UpdateDashboard(DailyProtectionState &state)
    color emaHaltColor = TradingHaltedUntilNextFlip ? clrTomato : clrLime;
    CreateDashboardLabel(DASH_PREFIX+"EMA_LAD_STATUS","LADDER STATUS  : "+emaHaltText,tx,y+197,9,emaHaltColor);
    double totalContinuousProfit = AccountEquity() - ActiveEquityBaseline;
+//  if(FlipLadderStepUSD==0) FlipLadderStepUSD=1;
 
    int ladderLevel = (int)MathFloor(HighestCycleProfitUSD / FlipLadderStepUSD);
 // double lockedProfitTarget = (ladderLevel - 2) * FlipLadderStepUSD;
@@ -9285,6 +9298,8 @@ void UpdateDashboard(DailyProtectionState &state)
 // ================= 5. RISK & STOP-LOSS PROTECTION =================
    CreateDashboardPanel(DASH_PREFIX+"SEC_RISK",x,y+673,w,22,C'30,38,50');
    int lotMultiplierDiv = (AccountMultiplierLOT > 0) ? AccountMultiplierLOT : 500;
+ if(lotMultiplierDiv<=0) lotMultiplierDiv=1;
+
    int balancelomultipler = (int)(AccountBalance() / lotMultiplierDiv);
    if(balancelomultipler < 1)
       balancelomultipler = 1;
