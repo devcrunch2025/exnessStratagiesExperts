@@ -25,7 +25,7 @@
 
 
 
-string glbVersion = "V502 22-09-2026 23.00 $20.00 TradingHaltedUntilNextFlip and Daypause 30%";
+string glbVersion = "V1001 23-09-2026 08.00 Full FLIP profit collection with Flip(TargetProfitPerFlipUSD) 5% and Day Limit 10%(DailyEquityStopPercent)";
 
 // ===== INPUT SETTINGS =====
 int SSLPeriod = 10;
@@ -65,19 +65,27 @@ double StopLossUSD =10;//6;//10;//6;//5;//10;//2;// 10;
 
 
 
+  bool   EnableDailyEquity30Stop = true;
+  double DailyEquityStopPercent  = 10;//30.0;
+
+
+  int      g_dayNumber = -1;
+double   g_dayOpeningBalance = 0.0;
+bool     g_dailyEquityTradingBlocked = false;
+
 bool EnableBounceBackDetection = false;
 
 
 int EMAFlipwaitingtimeMinutes =10;// 29; // Wait time after an EMA flip before resuming trading
 
 // ===== EMA FLIP PROFIT TARGET =====
-double TargetProfitPerFlipUSD =20;// 10.0;
+double TargetProfitPerFlipUSD =5;//20;// 10.0;
 // bool TradingHaltedUntilNextFlip = false;
 
 // ===== EMA FLIP PROFIT LADDER =====
 double FlipLadderStepUSD =0;//10;// 5;//10.0;
 double HighestCycleProfitUSD = 0.0;
-bool   TradingHaltedUntilNextFlip =true;// false;
+bool   TradingHaltedUntilNextFlip =false;//true;// false;
 double ActiveEquityBaseline = 0.0; // Add this new variable
 
 double SecurebaselinePercentage=0.50;//0.90;
@@ -1389,13 +1397,7 @@ datetime PendingVShapeBuyTime = 0;
 double   PendingVShapeBuyPrice = 0.0;
 datetime PendingVShapeSellTime = 0;
 double   PendingVShapeSellPrice = 0.0;
-  bool   EnableDailyEquity30Stop = true;
-  double DailyEquityStopPercent  = 30.0;
 
-
-  int      g_dayNumber = -1;
-double   g_dayOpeningBalance = 0.0;
-bool     g_dailyEquityTradingBlocked = false;
 
 void CheckForNewDay()
 {
@@ -3587,8 +3589,11 @@ if(IsDailyEquityStopReached())
       return -1;
 
 
+      
+
+
     // Blokkeer Buys wanneer het verlies minder is dan $2 (P/L > -2.0) en de EMA-hoek kleiner is dan 2.0
-if(GetOpenPL(OP_BUY) > -safeOrdersendLossCondition*balancelomultipler && GlobalEmaAngle30 < safeOrdersendLossCondition*balancelomultipler && 
+if(GetOpenPL(OP_BUY) > -safeOrdersendLossCondition*balancelomultipler && GlobalEmaAngle30 < 2 && 
    (orderType == OP_BUY || orderType == OP_BUYSTOP || orderType == OP_BUYLIMIT))
   {
    Comment("TRADE BUY BLOCKED | Buy P/L is beter dan -$2 verlies en EMA-hoek is te laag (", DoubleToString(GlobalEmaAngle30, 2), " deg < 2.0).");
@@ -3596,12 +3601,15 @@ if(GetOpenPL(OP_BUY) > -safeOrdersendLossCondition*balancelomultipler && GlobalE
   }
 
   // Block Sell orders when floating loss is less than $2 (P/L > -2.0) and EMA angle is greater than -2.0
-if(GetOpenPL(OP_SELL) > -safeOrdersendLossCondition*balancelomultipler && GlobalEmaAngle30 > -safeOrdersendLossCondition*balancelomultipler && 
+if(GetOpenPL(OP_SELL) > -safeOrdersendLossCondition*balancelomultipler && GlobalEmaAngle30 > -2 && 
    (orderType == OP_SELL || orderType == OP_SELLSTOP || orderType == OP_SELLLIMIT))
   {
    Comment("TRADE SELL BLOCKED | Sell P/L is better than -$2 loss and EMA angle is too weak/flat (", DoubleToString(GlobalEmaAngle30, 2), " deg > -2.0).");
    return -1;
   }
+
+
+  //minimum angele with price diff condition 
 
    if( MathAbs(  GlobalEmaAngle30)<1 && MathAbs(Get30MinutePriceDifference())<100)
      {
@@ -7050,19 +7058,19 @@ void OpenSell()
   {
    if(InpEnableCustomRules && !PassesUserRules(OP_SELL))
    {
-      Print("InpEnableCustomRules ");
+      // Print("InpEnableCustomRules ");
       return;
 
    }
    if(!IsSafeToCreateMarketOrder(OP_SELL) || !PassesEMAFilter(OP_SELL) || !IsOneCandleOrderAllowed() || GetTotalEAOrders() >= MaxOpenOrders)
      {
-      Print("IsSafeToCreateMarketOrder ");
+      // Print("IsSafeToCreateMarketOrder ");
       return;
 
    }
    if(!HasMinimumSameOrderGap(OP_SELL, GetDynamicOrderGap(OP_SELL)))
      {
-      Print("HasMinimumSameOrderGap ");
+      // Print("HasMinimumSameOrderGap ");
       return;
 
    }
