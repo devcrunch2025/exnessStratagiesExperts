@@ -25,11 +25,11 @@
 
 
 
-string glbVersion = "V1002 23-09-2026 12.00 TESTING BEST and SAFEST  FlipLadderStepUSD 6 DailyEquityStopPercent 50%  TargetProfitPerFlipUSDPercentage 20%";
+string glbVersion = "V1003 23-09-2026 12.00 TESTING BEST and SAFEST  FlipLadderStepUSD 7 DailyEquityStopPercent 50%  TargetProfitPerFlipUSDPercentage 10%";
 
 
 double DailyEquityStopPercent  =20*2.5;//10;//20;// 10;//30.0;
-double TargetProfitPerFlipUSDPercentage =10*2;//10;//5;//20;// 10.0;
+double TargetProfitPerFlipUSDPercentage =10;//10*2;//10;//5;//20;// 10.0;
 
 int      g_dayNumber = -1;
 double   g_dayOpeningBalance = 0.0;
@@ -44,10 +44,20 @@ int EMAFlipwaitingtimeMinutes =10;// 29; // Wait time after an EMA flip before r
 // bool TradingHaltedUntilNextFlip = false;
 
 // ===== EMA FLIP PROFIT LADDER =====
-double FlipLadderStepUSD =6;//0;//10;// 5;//10.0;//0 means nothing not work
+double FlipLadderStepUSD =7;//0;//10;// 5;//10.0;//0 means nothing not work
+int FlipStepbackLevelCount=1;
 double HighestCycleProfitUSD = 0.0;
 bool   TradingHaltedUntilNextFlip =false;//true;// false;
 double ActiveEquityBaseline = 0.0; // Add this new variable
+
+
+int partialCloseUSD=2*2;
+
+
+
+datetime g_lastLadderCloseTime = 0;   // Stores timestamp of last basket reset
+double   g_peakCycleProfit     = 0.0; // Tracks the highest profit reached in the current cycle
+double   g_stepSize            = 50.0; // The step increment ($5)
 
 // ===== INPUT SETTINGS =====
 int SSLPeriod = 10;
@@ -1080,7 +1090,7 @@ void ManageFlipProfitLadder()
 // 6. Manage locked profit targets for the current tier
    if(ladderLevel >= 1)
      {
-      double lockedProfitTarget = (ladderLevel - 1) * FlipLadderStepUSD;
+      double lockedProfitTarget = (ladderLevel - FlipStepbackLevelCount) * FlipLadderStepUSD;
 
       if(totalContinuousProfit <= lockedProfitTarget)
         {
@@ -7252,9 +7262,7 @@ void CloseAllOrders()
      }
   }
 
-datetime g_lastLadderCloseTime = 0;   // Stores timestamp of last basket reset
-double   g_peakCycleProfit     = 0.0; // Tracks the highest profit reached in the current cycle
-double   g_stepSize            = 50.0; // The step increment ($5)
+
 
 //+------------------------------------------------------------------+
 //|                                                                  |
@@ -8081,7 +8089,7 @@ void ManagePartialCloses()
             bool   triggerClose = false;
             string actionType   = "";
             int    orderTypeInt = (orderType == OP_SELL) ? -1 : 1;
-            int    minimum_Profit = 2*2*balancelomultipler;
+            int    minimum_Profit =partialCloseUSD*balancelomultipler;
 
             if(TimeCurrent() - OrderOpenTime() > 60 * 30)
               {
@@ -9214,7 +9222,7 @@ void UpdateDashboard(DailyProtectionState &state)
    else
       strong= " STRONG";
 
-      string txLock="Day "+DailyEquityStopPercent+"%"+" Flip "+TargetProfitPerFlipUSDPercentage+"%";
+      string txLock="FLIP Step "+FlipLadderStepUSD+"% Day Stop "+DailyEquityStopPercent+"%"+" Flip Stop "+TargetProfitPerFlipUSDPercentage+"%";
 
    CreateDashboardPanel(DASH_PREFIX+"PANEL",x,y,w,panelHeight,C'12,16,22');
    CreateDashboardPanel(DASH_PREFIX+"HEADER",x,y,w,38,C'25,70,115');
@@ -9225,11 +9233,11 @@ void UpdateDashboard(DailyProtectionState &state)
 
 // ================= 1. EMA FLIP PROFIT LADDER (SWAPPED TO TOP) =================
    CreateDashboardPanel(DASH_PREFIX+"SEC_EMA_LADDER",x,y+90,w,22,C'30,38,50');
-   CreateDashboardLabel(DASH_PREFIX+"EMA_LAD_H","EMA FLIP PROFIT LADDER "+txLock,tx,y+94,9,clrAqua);
+   CreateDashboardLabel(DASH_PREFIX+"EMA_LAD_H","LADDER "+txLock,tx,y+94,9,clrAqua);
 
  if(FlipLadderStepUSD==0) FlipLadderStepUSD=5;
    int currEmaLvl = (int)MathFloor(HighestCycleProfitUSD / FlipLadderStepUSD);
-   double emaLockedPrf = (currEmaLvl >= 1) ? (currEmaLvl - 1) * FlipLadderStepUSD : 0.0;
+   double emaLockedPrf = (currEmaLvl >= 1) ? (currEmaLvl - FlipStepbackLevelCount   ) * FlipLadderStepUSD : 0.0;
    double emaNextTarget = (currEmaLvl + 1) * FlipLadderStepUSD;
 
 // Ensure securedBaseline is defined in your EA (e.g., your base protection capital)
@@ -9255,7 +9263,7 @@ void UpdateDashboard(DailyProtectionState &state)
 // double lockedProfitTarget = (ladderLevel - 2) * FlipLadderStepUSD;
 
 // double lockedProfitTarget = (ladderLevel - 1) * FlipLadderStepUSD;
-   double lockedProfitTarget = (ladderLevel - 1) * FlipLadderStepUSD;
+   double lockedProfitTarget = (ladderLevel - FlipStepbackLevelCount) * FlipLadderStepUSD;
 
    double targetEquity =
       Ladder5PercentBaseline *
