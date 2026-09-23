@@ -25,7 +25,7 @@
 
 
 
-string glbVersion = "V1003 23-09-2026 12.00 TESTING BEST and SAFEST  FlipLadderStepUSD 7 DailyEquityStopPercent 50%  TargetProfitPerFlipUSDPercentage 10%";
+string glbVersion = "V2001 23-09-2026 16.00 OPTIMISED Partialclose, Close orders -   FlipLadderStepUSD 7 DailyEquityStopPercent 50%  TargetProfitPerFlipUSDPercentage 10%";
 
 
 double DailyEquityStopPercent  =20*2.5;//10;//20;// 10;//30.0;
@@ -53,11 +53,20 @@ double ActiveEquityBaseline = 0.0; // Add this new variable
 
 int partialCloseUSD=2*2;
 
+double modifyBasketProfitOrdersLotXPercent=20.0;//20 % means 0.05 X 20 modify order $1 profit 
 
 
 datetime g_lastLadderCloseTime = 0;   // Stores timestamp of last basket reset
 double   g_peakCycleProfit     = 0.0; // Tracks the highest profit reached in the current cycle
 double   g_stepSize            = 50.0; // The step increment ($5)
+
+
+
+// ===== 5% CONTINUOUS LADDER SETTINGS =====
+double CloseOrdersAtProfitFromOpeningBalance =5;//10;//25;// 5;
+double Ladder5PercentBaseline = 0.0;
+bool enable5PercentClose = false; //5;//
+bool enableCircleOrders = true;
 
 // ===== INPUT SETTINGS =====
 int SSLPeriod = 10;
@@ -82,11 +91,7 @@ bool   EnableDubaiTradingPause    = true;
 string DubaiTradingPauseHours     ="";// "19,20";
 int    ServerToDubaiOffsetHours   = 4;
 
-// ===== 5% CONTINUOUS LADDER SETTINGS =====
-double CloseOrdersAtProfitFromOpeningBalance =5;//10;//25;// 5;
-double Ladder5PercentBaseline = 0.0;
-bool enable5PercentClose = true;
-bool enableCircleOrders = true;
+
 
 // ===== SPREAD & RISK SETTINGS =====
 double MaxAllowedSpreadUSD = 35.0;
@@ -1105,7 +1110,7 @@ void ManageFlipProfitLadder()
          LadderHaltStartTime = TimeCurrent();
          //CloseAndDeleteAllEAOrdersOnTradingStop();
          //////////////////CloseAndDeleteNonEmaMatchingOrders();
-         ModifyOpenOrdersToSecureProfit();
+        //////////// ModifyOpenOrdersToSecureProfit();
 
         }
      }
@@ -1518,6 +1523,8 @@ bool IsDailyEquityStopReached()
      {
       g_dailyEquityTradingBlocked = true;
 
+      Print("IsDailyEquityStopReached");
+
       ModifyOpenOrdersToSecureProfit();
 
       return true;
@@ -1727,10 +1734,10 @@ void ManageOverallBasketProfit()
      }
 
 // 2. Only proceed if BOTH buy and sell orders are present
-   if(buyOrdersCount > 0 && sellOrdersCount > 0)
+   // if(buyOrdersCount > 0 && sellOrdersCount > 0)
      {
       // Dynamic profit target: Total Lots * 0.50 * 100 (Total Lots * 50.0)
-      double dynamicProfitTarget = totalLots * 25.0;
+      double dynamicProfitTarget = totalLots * modifyBasketProfitOrdersLotXPercent;
 
       if(totalBasketProfit > dynamicProfitTarget)
         {
@@ -1949,12 +1956,14 @@ void OnTickCore()
 
    TrackEmaFlip();
    CheckFlipProfitTarget(); // Add this line
-   ManageFlipProfitLadder(); // Add this line
+ 
+
+   //////////ManageFlipProfitLadder(); // Add this line// LEVEL 1 Step$5 profit ladder is not required - wrong calculation and closeing orders immidiatly/partial close orders having problem becauseo f this 
 // Manage50EmaClosures();
 // ManageEmaAngleOppositeClose(); // <-- Add this here
    ProcessDeferredOrders();
 
-// ManageOverallBasketProfit();
+ManageOverallBasketProfit();//modify basket orders at $1 profit 
 
    if(TradeOperationFailedThisTick)
      {
@@ -2166,7 +2175,7 @@ void OnTickCore()
             // if(CloseOppositeOrdersOnSignal)
             // CloseOppositeProfitableOrdersOnSignal(OP_BUY);
 
-            CloseOppositeProfitableOrdersIndependent(OP_BUY);
+            // CloseOppositeProfitableOrdersIndependent(OP_BUY);
             // CloseOppositeOrders(OP_BUY);
 
             if(GetTotalEAOrders() < MaxOpenOrders)
@@ -2202,7 +2211,7 @@ void OnTickCore()
                // CloseOppositeProfitableOrdersOnSignal(OP_SELL);
                // CloseOppositeOrders(OP_SELL);
 
-               CloseOppositeProfitableOrdersIndependent(OP_SELL);
+               // CloseOppositeProfitableOrdersIndependent(OP_SELL);
 
                if(GetTotalEAOrders() < MaxOpenOrders)
                  {
@@ -4860,61 +4869,72 @@ void ModifyOpenOrdersToSecureProfit()
       if(type != OP_BUY && type != OP_SELL)
          continue;
 
-
-
       RefreshRates();
 
-
-      double orderProfit =
-         OrderProfit() +
-         OrderSwap() +
-         OrderCommission();
+      double orderProfit = OrderProfit() + OrderSwap() + OrderCommission();
 
       //==============================================================
-      // LOSS ORDER → CLOSE
+      // LOSS ORDER → WIDEN SL BY $50 GAP (1-Min Cooldown)
       //==============================================================
       if(orderProfit < 0.0)
         {
+         // Create a unique global variable name to track this specific order's modification time
+         string gvName = "SL_ModTime_" + IntegerToString(ticket);
+         datetime lastModTime = 0;
+         
+         if(GlobalVariableCheck(gvName))
+            lastModTime = (datetime)GlobalVariableGet(gvName);
 
-         RefreshRates();
+         // Check if 60 seconds have passed since the last modification
+         if(TimeCurrent() - lastModTime < 60)
+            continue; // Skip this order if it was modified within the last minute
 
-         double closePrice;
+         // Define the gap (For BTC/Gold, 50.0 represents a $50 price gap)
+         double gapPrice = 50.0; 
+         double currentSL = OrderStopLoss();
+         double newSL = 0.0;
 
+         // Calculate new SL (widening the gap)
          if(type == OP_BUY)
-            closePrice = Bid;
-         else
-            closePrice = Ask;
-
-         ResetLastError();
-
-         bool closed = OrderClose(
-                          ticket,
-                          OrderLots(),
-                          closePrice,
-                          Slippage,
-                          clrRed
-                       );
-
-         if(closed)
            {
-            Print(
-               "LOSS ORDER CLOSED",
-               " | Ticket=", ticket,
-               " | Type=", type == OP_BUY ? "BUY" : "SELL",
-               " | Lots=", DoubleToString(OrderLots(), 2),
-               " | Loss=$", DoubleToString(orderProfit, 2)
-            );
+            if(currentSL == 0.0) newSL = OrderOpenPrice() - gapPrice;
+            else                 newSL = currentSL - gapPrice;
            }
-         else
+         else // OP_SELL
            {
-            Print(
-               "FAILED TO CLOSE LOSS ORDER",
-               " | Ticket=", ticket,
-               " | Error=", GetLastError()
-            );
+            if(currentSL == 0.0) newSL = OrderOpenPrice() + gapPrice;
+            else                 newSL = currentSL + gapPrice;
            }
 
-         continue;
+         newSL = NormalizeDouble(newSL, Digits);
+
+         // Avoid error 1 (ERR_NO_RESULT) by ensuring the new SL is actually different
+         if(MathAbs(newSL - currentSL) > Point / 2.0)
+           {
+            ResetLastError();
+            bool modified = OrderModify(ticket, OrderOpenPrice(), newSL, OrderTakeProfit(), 0, clrOrange);
+
+            if(modified)
+              {
+               // Save the exact time of successful modification
+               GlobalVariableSet(gvName, TimeCurrent());
+               
+               Print("LOSS ORDER PROTECTED",
+                     " | Ticket=", ticket,
+                     " | Type=", type == OP_BUY ? "BUY" : "SELL",
+                     " | Old SL=", DoubleToString(currentSL, Digits),
+                     " | New SL=", DoubleToString(newSL, Digits),
+                     " | Gap Widened by $50");
+              }
+            else
+              {
+               Print("FAILED TO MODIFY LOSS ORDER SL",
+                     " | Ticket=", ticket,
+                     " | Error=", GetLastError());
+              }
+           }
+           
+         continue; // Move to the next order
         }
 
       //==============================================================
@@ -6001,7 +6021,7 @@ void CloseAndDeleteNonEmaMatchingOrders()
 void CloseAndDeleteAllEAOrdersOnTradingStop()
   {
 
-
+Print("CloseAndDeleteAllEAOrdersOnTradingStop");
    ModifyOpenOrdersToSecureProfit();
    return ;
 
