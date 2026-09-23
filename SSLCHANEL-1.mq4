@@ -25,7 +25,7 @@
 
 
 
-string glbVersion = "V2001 23-09-2026 16.00 OPTIMISED Partialclose, Close orders -   FlipLadderStepUSD 7 DailyEquityStopPercent 50%  TargetProfitPerFlipUSDPercentage 10%";
+string glbVersion = "V2001 23-09-2026 16.00 OPTIMISED Partialclose, Close orders $1X close-   FlipLadderStepUSD 7 DailyEquityStopPercent 50%  TargetProfitPerFlipUSDPercentage 10%";
 
 
 double DailyEquityStopPercent  =20*2.5;//10;//20;// 10;//30.0;
@@ -60,7 +60,7 @@ datetime g_lastLadderCloseTime = 0;   // Stores timestamp of last basket reset
 double   g_peakCycleProfit     = 0.0; // Tracks the highest profit reached in the current cycle
 double   g_stepSize            = 50.0; // The step increment ($5)
 
-
+double SecureOneDollarProfitPerOrder=1.0;
 
 // ===== 5% CONTINUOUS LADDER SETTINGS =====
 double CloseOrdersAtProfitFromOpeningBalance =5;//10;//25;// 5;
@@ -474,7 +474,109 @@ int CountOrdersByType(int orderType)
      }
    return count;
   }
+void SecureOneDollarProfit()
+  {
+   // The base 1X target amount in your account currency
+   double baseProfitTarget = SecureOneDollarProfitPerOrder * balancelomultipler; 
+   
+   if(baseProfitTarget <= 0) 
+      return; // Prevent division by zero if inputs are 0
 
+   for(int i = OrdersTotal() - 1; i >= 0; i--)
+     {
+      if(!OrderSelect(i, SELECT_BY_POS, MODE_TRADES))
+         continue;
+
+      if(OrderSymbol() != Symbol() || OrderMagicNumber() != MagicNumber)
+         continue;
+
+      int type = OrderType();
+      if(type != OP_BUY && type != OP_SELL)
+         continue;
+
+      double tickValue = MarketInfo(Symbol(), MODE_TICKVALUE);
+      double tickSize  = MarketInfo(Symbol(), MODE_TICKSIZE);
+      double stopLevel = MarketInfo(Symbol(), MODE_STOPLEVEL) * Point;
+      
+      if(tickValue == 0 || tickSize == 0 || OrderLots() == 0) 
+         continue; 
+
+      RefreshRates();
+      
+      double currentSL = OrderStopLoss();
+      double openPrice = OrderOpenPrice();
+      double expenses  = OrderSwap() + OrderCommission();
+      
+      double maxLockableGross = 0.0;
+      
+      // 1. Calculate the maximum gross profit we could technically lock right now 
+      //    (Current price minus the broker's StopLevel distance)
+      if(type == OP_BUY)
+        {
+         double maxSL = Bid - stopLevel;
+         maxLockableGross = ((maxSL - openPrice) / tickSize) * (OrderLots() * tickValue);
+        }
+      else if(type == OP_SELL)
+        {
+         double maxSL = Ask + stopLevel;
+         maxLockableGross = ((openPrice - maxSL) / tickSize) * (OrderLots() * tickValue);
+        }
+
+      // 2. Convert maximum lockable gross into net profit
+      double maxLockableNet = maxLockableGross + expenses;
+
+      // 3. Determine the ladder level (e.g., 1X, 2X, 3X)
+      int ladderLevel = (int)MathFloor(maxLockableNet / baseProfitTarget);
+
+      // If price hasn't moved far enough to even lock 1X, skip this order
+      if(ladderLevel < 1)
+         continue;
+
+      // 4. Calculate the precise SL price for this specific ladder level
+      double targetNetProfit = ladderLevel * baseProfitTarget;
+      double requiredGrossProfit = targetNetProfit - expenses;
+      double priceDistance = (requiredGrossProfit / (OrderLots() * tickValue)) * tickSize;
+
+      double newSL = 0.0;
+      bool canModify = false;
+
+      if(type == OP_BUY)
+        {
+         newSL = NormalizeDouble(openPrice + priceDistance, Digits);
+         // Ensure we only move the SL forward
+         if(currentSL == 0.0 || newSL > currentSL + (Point / 2.0))
+            canModify = true;
+        }
+      else if(type == OP_SELL)
+        {
+         newSL = NormalizeDouble(openPrice - priceDistance, Digits);
+         // Ensure we only move the SL forward
+         if(currentSL == 0.0 || newSL < currentSL - (Point / 2.0))
+            canModify = true;
+        }
+
+      // 5. Modify the order if the new ladder rung is reached
+      if(canModify)
+        {
+         ResetLastError();
+         bool modified = OrderModify(OrderTicket(), openPrice, newSL, OrderTakeProfit(), 0, clrGreen);
+         
+         if(modified)
+           {
+            Print("Secured Ladder Profit: ", ladderLevel, "X ($", DoubleToString(targetNetProfit, 2), ")",
+                  " | Ticket=", OrderTicket(),
+                  " | Type=", type == OP_BUY ? "BUY" : "SELL",
+                  " | New SL=", DoubleToString(newSL, Digits));
+           }
+         else
+           {
+            Print("FAILED to secure ", ladderLevel, "X SL",
+                  " | Ticket=", OrderTicket(),
+                  " | Error=", GetLastError());
+           }
+        }
+     }
+  }
 //2026.09.22 09:42:18.950   2026.08.02 09:29:21  SSLCHANEL-1 BTCUSDm,M1: 5% EQUITY LADDER TARGET ADJUSTED | Baseline=$124.88 | CurrentEquity=$103.89 | OldTarget=$131.12 | Difference=$27.23 | NewTarget=$108.89
 double gbltargetEquity=0;
 void Manage5PercentLadderReset()
@@ -1541,7 +1643,6 @@ void OnTick()
 
  int lotMultiplierDiv = (AccountMultiplierLOT > 0) ? AccountMultiplierLOT : 500;
   
-
    balancelomultipler = (int)(AccountBalance() / lotMultiplierDiv);
    if(balancelomultipler<=0) balancelomultipler=1;
 
@@ -1619,6 +1720,8 @@ void OnTick()
         }
 
       ScanAndMarkStructuralPatterns();
+SecureOneDollarProfit();
+
      } // <-- End of new candle block
    DrawMomentumMarkers();
    CloseOppositeOrdersOnEmaDistance();
@@ -1734,7 +1837,7 @@ void ManageOverallBasketProfit()
      }
 
 // 2. Only proceed if BOTH buy and sell orders are present
-   // if(buyOrdersCount > 0 && sellOrdersCount > 0)
+   if(buyOrdersCount > 0 && sellOrdersCount > 0)
      {
       // Dynamic profit target: Total Lots * 0.50 * 100 (Total Lots * 50.0)
       double dynamicProfitTarget = totalLots * modifyBasketProfitOrdersLotXPercent;
