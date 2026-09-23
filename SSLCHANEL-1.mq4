@@ -25,11 +25,11 @@
 
 
 
-string glbVersion = "V1002 23-09-2026 11.00 DayProfit 10% Flip Profit 5%";
+string glbVersion = "V1002 23-09-2026 12.00 TESTING Equity Ladder FlipLadderStepUSD 5";
 
 
-double DailyEquityStopPercent  =20;//10;//20;// 10;//30.0;
-double TargetProfitPerFlipUSDPercentage =10;//10;//5;//20;// 10.0;
+double DailyEquityStopPercent  =20*5;//10;//20;// 10;//30.0;
+double TargetProfitPerFlipUSDPercentage =10*5;//10;//5;//20;// 10.0;
 
 int      g_dayNumber = -1;
 double   g_dayOpeningBalance = 0.0;
@@ -44,7 +44,7 @@ int EMAFlipwaitingtimeMinutes =10;// 29; // Wait time after an EMA flip before r
 // bool TradingHaltedUntilNextFlip = false;
 
 // ===== EMA FLIP PROFIT LADDER =====
-double FlipLadderStepUSD =0;//10;// 5;//10.0;
+double FlipLadderStepUSD =5;//0;//10;// 5;//10.0;//0 means nothing not work
 double HighestCycleProfitUSD = 0.0;
 bool   TradingHaltedUntilNextFlip =false;//true;// false;
 double ActiveEquityBaseline = 0.0; // Add this new variable
@@ -1311,8 +1311,8 @@ int OnInit()
   {
 
 
-   FlipLadderStepUSD=StopLossUSD*10;//
-   SecurebaselinePercentage = (100.0 - (StopLossUSD * 2.0)) / 100.0;//
+   FlipLadderStepUSD=StopLossUSD*1* balancelomultipler ;//
+   SecurebaselinePercentage = (100.0 - (StopLossUSD * 5.0)) / 100.0;//
 
    EquityResetReEntryPending=false;
 
@@ -1496,7 +1496,7 @@ bool IsDailyEquityStopReached()
 // Calculates the ceiling equity (e.g., 100 * (1.0 + 0.05) = 105)
    double targetEquity = g_dayOpeningBalance * (1.0 + (DailyEquityStopPercent / 100.0));
 
-   Print("targetEquity: ", DoubleToString(targetEquity, 2), " AccountEquity(): ", DoubleToString(AccountEquity(), 2));
+   // Print("targetEquity: ", DoubleToString(targetEquity, 2), " AccountEquity(): ", DoubleToString(AccountEquity(), 2));
 
 // Stop trading if equity hits or exceeds the target
    if(AccountEquity() >= targetEquity)
