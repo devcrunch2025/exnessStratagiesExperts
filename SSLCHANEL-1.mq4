@@ -25,7 +25,7 @@
 
 
 
-string glbVersion = "V2008 24-09-2026 13.00 200 balance ST-20 Partialclose, Close orders $1X close-   FlipLadderStepUSD 7 DailyEquityStopUSD 50%  TargetProfitPerFlipUSD 10%";
+string glbVersion = "V2009 24-09-2026 15.00 200 balance ST-20 Partialclose, Close orders $1X close-   FlipLadderStepUSD 7 DailyEquityStopUSD 50%  TargetProfitPerFlipUSD 10%";
 
 
 double DailyEquityStopUSD  =50;//20*2.5;//10;//20;// 10;//30.0; close all orders at $50Xmultipler 
@@ -40,6 +40,9 @@ double SecureOneDollarProfitPerOrder=1.0; //1X set modify order at profit $1(any
 //chance 2 
 int partialClose01in05IndividualPercentage=20;//10;//2*2;//per lot 0.01//if 0.05 close 0.01 at total profit of 20% means close 0.01 lot
 int partialLossMultipler=10; //0.05 means $50 close 0.01 partial lot 
+//50/5=10
+//48/4=12
+// 45/3=15
 
 //chance 3
 double FlipLadderStepUSD =8;//0;//10;// 5;//10.0;//0 means nothing not work close all orders at $7Xmultipler 
@@ -5439,10 +5442,10 @@ double GetDynamicOrderGap(int orderType)
    int multiplier = 1;
    double pl = GetOpenPL(orderType);
 
-   if(pl < 0)
-     {
-      multiplier = 1 + (int)MathFloor(MathAbs(pl) / 3.0);
-     }
+   // if(pl < 0)
+   //   {
+   //    multiplier = 1 + (int)MathFloor(MathAbs(pl) / 3.0);
+   //   }
 
    if(IsEmaWEAKDistanceReduced50PercentFromPeak(orderType) && multiplier<3)
      {
@@ -7561,16 +7564,43 @@ void OpenSell()
 //+------------------------------------------------------------------+
 //|                                                                  |
 //+------------------------------------------------------------------+
+// double CalculatePriceDistanceUSD(double usdAmount, double orderLots)
+//   {
+//    double tickValue = MarketInfo(Symbol(), MODE_TICKVALUE);
+//    double tickSize  = MarketInfo(Symbol(), MODE_TICKSIZE);
+//    if(tickValue <= 0.0 || tickSize <= 0.0 || orderLots <= 0.0)
+//       return 0.0;
+//    double denom = tickValue * orderLots;
+//    if(denom <= 0.0)
+//       return 0.0;
+//    return (usdAmount / denom) * tickSize;
+//   }
+
 double CalculatePriceDistanceUSD(double usdAmount, double orderLots)
   {
    double tickValue = MarketInfo(Symbol(), MODE_TICKVALUE);
    double tickSize  = MarketInfo(Symbol(), MODE_TICKSIZE);
-   if(tickValue <= 0.0 || tickSize <= 0.0 || orderLots <= 0.0)
-      return 0.0;
-   double denom = tickValue * orderLots;
-   if(denom <= 0.0)
-      return 0.0;
-   return (usdAmount / denom) * tickSize;
+   
+   // 1. Standard MT4 Calculation (If broker data is working)
+   if(tickValue > 0.0 && tickSize > 0.0 && orderLots > 0.0)
+     {
+      double denom = tickValue * orderLots;
+      if(denom > 0.0)
+         return (usdAmount / denom) * tickSize;
+     }
+     
+   // 2. FALLBACK (If broker Crypto data is broken/zero)
+   // We calculate a mathematically approximate price gap based purely on Lot Size.
+   // Example: $50 risk on 0.05 lots = 1000 price points distance.
+   if(orderLots > 0.0)
+     {
+      Print("Warning: Broker TickValue is 0. Using approximate StopLoss fallback.");
+      return (usdAmount / orderLots);
+     }
+     
+   // 3. Absolute Last Resort (If even Lots is 0)
+   // Just return the raw USD amount as a flat price distance (e.g., 50.0)
+   return usdAmount;
   }
 
 //+------------------------------------------------------------------+
