@@ -25,7 +25,7 @@
 
 
 
-string glbVersion = "V2006 24-09-2026 13.00 200 balance ST-20 Partialclose, Close orders $1X close-   FlipLadderStepUSD 7 DailyEquityStopUSD 50%  TargetProfitPerFlipUSD 10%";
+string glbVersion = "V2007 24-09-2026 13.00 200 balance ST-20 Partialclose, Close orders $1X close-   FlipLadderStepUSD 7 DailyEquityStopUSD 50%  TargetProfitPerFlipUSD 10%";
 
 
 double DailyEquityStopUSD  =50;//20*2.5;//10;//20;// 10;//30.0; close all orders at $50Xmultipler 
@@ -1200,44 +1200,37 @@ void CheckFlipProfitTarget()
    if(TradingHaltedUntilNextFlip || EmaFlipTime == 0)
       return;
 
-   double realizedProfit = 0.0;
+   // 1. Closed order profit since flip
+   double realizedProfit = profitAfterFlip;
 
-// Sum up all closed orders since the last EMA flip
-   // for(int i = OrdersHistoryTotal() - 1; i >= 0; i--)
-   //   {
-   //    if(OrderSelect(i, SELECT_BY_POS, MODE_HISTORY))
-   //      {
-   //       if(OrderSymbol() == Symbol() && OrderMagicNumber() == MagicNumber)
-   //         {
-   //          if(OrderCloseTime() >= EmaFlipTime)
-   //             realizedProfit += (OrderProfit() + OrderSwap() + OrderCommission());
-   //         }
-   //      }
-   //   }
-
-
-   realizedProfit=profitAfterFlip;
-
-// Add current floating profit to closed profit
+   // 2. Open floating order profit
    double floatingProfit = GetEAFloatingPL();
+
+   // 3. Combined total cycle profit (Closed + Open)
    double totalCycleProfit = realizedProfit + floatingProfit;
 
-// Calculate the starting balance at the time of the EMA flip
+   // 4. Calculate starting balance before this flip's closed profits
    double startingBalance = AccountBalance() - realizedProfit;
+   if(startingBalance <= 0) startingBalance = AccountBalance();
 
-// Calculate the monetary target based on the percentage input
-   double targetProfitCurrency = startingBalance * (TargetProfitPerFlipUSD / 100.0);
+   // 5. Target profit amount for this cycle
+   // (If TargetProfitPerFlipUSD represents a dollar target adjusted by your multiplier)
+   double targetProfitAmount = TargetProfitPerFlipUSD * balancelomultipler;
 
-   targetProfitCurrency=startingBalance+(TargetProfitPerFlipUSD* balancelomultipler);
+   // --- ALTERNATIVE: If TargetProfitPerFlipUSD is actually a PERCENTAGE (e.g., 2%):
+   // double targetProfitAmount = startingBalance * (TargetProfitPerFlipUSD / 100.0);
 
-// If the percentage target is reached, close everything and halt
-   if(totalCycleProfit >= targetProfitCurrency)
+   // 6. Check if combined cycle profit hits or exceeds target
+   if(totalCycleProfit >= targetProfitAmount && targetProfitAmount > 0.0)
      {
-      Print("Target reached: ", DoubleToString(TargetProfitPerFlipUSD*balancelomultipler, 2), "% ($", DoubleToString(totalCycleProfit, 2), "). Securing profit and halting until next EMA flip.");
-      TradingHaltedUntilNextFlip = true;
-      // CloseAndDeleteAllEAOrdersOnTradingStop();
-      ModifyOpenOrdersToSecureProfit();
+      Print("FLIP TARGET REACHED: Closed=$", DoubleToString(realizedProfit, 2),
+            " | Open=$", DoubleToString(floatingProfit, 2),
+            " | Total Cycle=$", DoubleToString(totalCycleProfit, 2),
+            " | Target=$", DoubleToString(targetProfitAmount, 2),
+            ". Securing profit and halting until next EMA flip.");
 
+      TradingHaltedUntilNextFlip = true;
+      ModifyOpenOrdersToSecureProfit();
      }
   }
 //+------------------------------------------------------------------+
@@ -9586,7 +9579,7 @@ void UpdateDashboard(DailyProtectionState &state)
    else
       strong= " STRONG";
 
-      string txLock="FLIP Step "+FlipLadderStepUSD*balancelomultipler+"% Day Stop "+DailyEquityStopUSD+"%"+" Flip Stop "+TargetProfitPerFlipUSD*balancelomultipler+"%";
+      string txLock="FLIP Step "+FlipLadderStepUSD*balancelomultipler+"% Day Stop $"+DailyEquityStopUSD*balancelomultipler+""+" Flip Stop $"+TargetProfitPerFlipUSD*balancelomultipler+"";
 
    CreateDashboardPanel(DASH_PREFIX+"PANEL",x,y,w,panelHeight,C'12,16,22');
    CreateDashboardPanel(DASH_PREFIX+"HEADER",x,y,w,38,C'25,70,115');
@@ -9608,7 +9601,17 @@ void UpdateDashboard(DailyProtectionState &state)
    double securedBaseline = state.DayStartBalance; // Adjust this to your actual baseline variable if different
    double expectedEquity = securedBaseline + emaNextTarget;
 
-   CreateDashboardLabel(DASH_PREFIX+"EMA_LAD_HIGH","HIGHEST Flip p/L : $"+DoubleToString(profitAfterFlip,2),tx,y+117,9,clrWhite);
+
+   // 2. Open floating order profit
+   double floatingProfit = GetEAFloatingPL();
+
+   // 3. Combined total cycle profit (Closed + Open)
+   double totalCycleProfit = profitAfterFlip + floatingProfit;
+
+   // 4. Calculate starting balance before this flip's closed profits
+   // double startingBalance = AccountBalance() - realizedProfit;
+
+   CreateDashboardLabel(DASH_PREFIX+"EMA_LAD_HIGH","HIGHEST Flip p/L : $"+DoubleToString(totalCycleProfit,2),tx,y+117,9,clrWhite);
    CreateDashboardLabel(DASH_PREFIX+"EMA_LAD_LVL","CURRENT TIER   : LVL "+IntegerToString(currEmaLvl)+" (Step $"+DoubleToString((FlipLadderStepUSD*balancelomultipler),0)+")",tx,y+137,9,clrYellow);
 
    string nextLevelLine = StringConcatenate("NEXT LEVEL HIT : $", DoubleToString(emaNextTarget, 2), " / $", DoubleToString(expectedEquity, 2));
