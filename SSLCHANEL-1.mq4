@@ -25,7 +25,7 @@
 
 
 
-string glbVersion = "V2003 24-09-2026 08.00 200 balance ST-20 Partialclose, Close orders $1X close-   FlipLadderStepUSD 7 DailyEquityStopPercent 50%  TargetProfitPerFlipUSDPercentage 10%";
+string glbVersion = "V2004 24-09-2026 08.00 200 balance ST-20 Partialclose, Close orders $1X close-   FlipLadderStepUSD 7 DailyEquityStopPercent 50%  TargetProfitPerFlipUSDPercentage 10%";
 
 
 double DailyEquityStopPercent  =20*2.5;//10;//20;// 10;//30.0;
@@ -51,7 +51,7 @@ bool   TradingHaltedUntilNextFlip =false;//true;// false;
 double ActiveEquityBaseline = 0.0; // Add this new variable
 
 
-int partialCloseUSD=10;//2*2;
+int partialCloseUSD=10;//10;//2*2;//per lot 0.01
 
 double modifyBasketProfitOrdersLotXPercent=20.0;//20 % means 0.05 X 20 modify order $1 profit 
 
@@ -5438,14 +5438,15 @@ double GetDynamicOrderGap(int orderType)
 //+------------------------------------------------------------------+
 
 int balancelomultipler=1;//
+   double profitAfterFlip = 0;
+
 void ChangeLots(double OpenPL, string reason, int orderType, int stoplevelStep)
   {
    double MaxRecoveryLot =0.05;//0.10;// 0.05;
    double oppositeLots = GetOppositeOrdersLots(orderType);
    bool isSSLSignal = (reason == "SSL Long" || reason == "SSL Short");
    bool isSSLProfitReEntry = (reason == "SSL Profit ReEntry Buy Stop" || reason == "SSL Profit ReEntry Sell Stop");
-
-   double profitAfterFlip = GetProfitAfterLastEmaFlip();
+profitAfterFlip = GetProfitAfterLastEmaFlip();
 
    if(profitAfterFlip > 20)
      {
@@ -8420,7 +8421,7 @@ void ManagePartialCloses()
             bool   triggerClose = false;
             string actionType   = "";
             int    orderTypeInt = (orderType == OP_SELL) ? -1 : 1;
-            int    minimum_Profit =partialCloseUSD*balancelomultipler;
+            int    minimum_Profit =orderLots*100*partialCloseUSD*balancelomultipler;
 
             if(TimeCurrent() - OrderOpenTime() > 60 * 30)
               {
@@ -9575,7 +9576,7 @@ void UpdateDashboard(DailyProtectionState &state)
    double securedBaseline = state.DayStartBalance; // Adjust this to your actual baseline variable if different
    double expectedEquity = securedBaseline + emaNextTarget;
 
-   CreateDashboardLabel(DASH_PREFIX+"EMA_LAD_HIGH","HIGHEST REACHED: $"+DoubleToString(HighestCycleProfitUSD,2),tx,y+117,9,clrWhite);
+   CreateDashboardLabel(DASH_PREFIX+"EMA_LAD_HIGH","HIGHEST Flip p/L : $"+DoubleToString(profitAfterFlip,2),tx,y+117,9,clrWhite);
    CreateDashboardLabel(DASH_PREFIX+"EMA_LAD_LVL","CURRENT TIER   : LVL "+IntegerToString(currEmaLvl)+" (Step $"+DoubleToString(FlipLadderStepUSD,0)+")",tx,y+137,9,clrYellow);
 
    string nextLevelLine = StringConcatenate("NEXT LEVEL HIT : $", DoubleToString(emaNextTarget, 2), " / $", DoubleToString(expectedEquity, 2));
