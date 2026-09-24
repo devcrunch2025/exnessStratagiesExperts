@@ -25,7 +25,7 @@
 
 
 
-string glbVersion = "V2007 24-09-2026 13.00 200 balance ST-20 Partialclose, Close orders $1X close-   FlipLadderStepUSD 7 DailyEquityStopUSD 50%  TargetProfitPerFlipUSD 10%";
+string glbVersion = "V2008 24-09-2026 13.00 200 balance ST-20 Partialclose, Close orders $1X close-   FlipLadderStepUSD 7 DailyEquityStopUSD 50%  TargetProfitPerFlipUSD 10%";
 
 
 double DailyEquityStopUSD  =50;//20*2.5;//10;//20;// 10;//30.0; close all orders at $50Xmultipler 
@@ -39,7 +39,7 @@ double SecureOneDollarProfitPerOrder=1.0; //1X set modify order at profit $1(any
 
 //chance 2 
 int partialClose01in05IndividualPercentage=20;//10;//2*2;//per lot 0.01//if 0.05 close 0.01 at total profit of 20% means close 0.01 lot
-
+int partialLossMultipler=10; //0.05 means $50 close 0.01 partial lot 
 
 //chance 3
 double FlipLadderStepUSD =8;//0;//10;// 5;//10.0;//0 means nothing not work close all orders at $7Xmultipler 
@@ -8156,22 +8156,22 @@ void ManagePartialClosesLoss()
 
       if(MathAbs(orderLots - (0.05*balancelomultipler)) < 0.000001)
         {
-         lossTrigger = -(5.00*balancelomultipler*3);
+         lossTrigger = -(5.00*balancelomultipler*partialLossMultipler);// 50/5=10
         }
       else
          if(MathAbs(orderLots - 0.04) < 0.000001)
            {
-            lossTrigger = -(4.00*balancelomultipler*3);
+            lossTrigger = -(4.80*balancelomultipler*(partialLossMultipler));// 48/4=12
            }
          else
             if(MathAbs(orderLots - 0.03) < 0.000001)
               {
-               lossTrigger = -(6.00*balancelomultipler*3);
+               lossTrigger = -(4.50*balancelomultipler*partialLossMultipler);// 45/3=15
               }
             else
                if(MathAbs(orderLots - 0.02) < 0.000001)
                  {
-                  lossTrigger = -(8.00*balancelomultipler*3);
+                  lossTrigger = -(4.00*balancelomultipler*partialLossMultipler);// 40/2=20
                  }
                else
                  {
@@ -9601,12 +9601,10 @@ void UpdateDashboard(DailyProtectionState &state)
    double securedBaseline = state.DayStartBalance; // Adjust this to your actual baseline variable if different
    double expectedEquity = securedBaseline + emaNextTarget;
 
-
-   // 2. Open floating order profit
-   double floatingProfit = GetEAFloatingPL();
+ 
 
    // 3. Combined total cycle profit (Closed + Open)
-   double totalCycleProfit = profitAfterFlip + floatingProfit;
+   double totalCycleProfit = profitAfterFlip +  GetEAFloatingPL();
 
    // 4. Calculate starting balance before this flip's closed profits
    // double startingBalance = AccountBalance() - realizedProfit;
