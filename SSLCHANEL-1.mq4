@@ -25,11 +25,32 @@
 
 
 
-string glbVersion = "V2005 24-09-2026 13.00 200 balance ST-20 Partialclose, Close orders $1X close-   FlipLadderStepUSD 7 DailyEquityStopUSD 50%  TargetProfitPerFlipUSD 10%";
+string glbVersion = "V2006 24-09-2026 13.00 200 balance ST-20 Partialclose, Close orders $1X close-   FlipLadderStepUSD 7 DailyEquityStopUSD 50%  TargetProfitPerFlipUSD 10%";
 
 
-double DailyEquityStopUSD  =50;//20*2.5;//10;//20;// 10;//30.0;
-double TargetProfitPerFlipUSD =20;//10;//10*2;//10;//5;//20;// 10.0;
+double DailyEquityStopUSD  =50;//20*2.5;//10;//20;// 10;//30.0; close all orders at $50Xmultipler 
+double TargetProfitPerFlipUSD =20;//10;//10*2;//10;//5;//20;// 10.0; close all orders at $20Xmultipler 
+
+
+
+
+//Chance 1
+double SecureOneDollarProfitPerOrder=1.0; //1X set modify order at profit $1(any lot)
+
+//chance 2 
+int partialClose01in05IndividualPercentage=20;//10;//2*2;//per lot 0.01//if 0.05 close 0.01 at total profit of 20% means close 0.01 lot
+
+
+//chance 3
+double FlipLadderStepUSD =8;//0;//10;// 5;//10.0;//0 means nothing not work close all orders at $7Xmultipler 
+
+//chance 4
+double modifyBasketProfitOrdersLotXPercent=10.0;//20 % means 0.05 X 20 modify orders in basket $1 profit//work if basket is full profit mode 
+
+//chance 5
+double CloseOrdersAtProfitFromOpeningBalanceEveryStep =5;//10;//25;// 5;// 5X step close orders every step 
+
+
 
 int      g_dayNumber = -1;
 double   g_dayOpeningBalance = 0.0;
@@ -43,28 +64,25 @@ bool EnableBounceBackDetection = false;
 // bool TradingHaltedUntilNextFlip = false;
 
 // ===== EMA FLIP PROFIT LADDER =====
-double FlipLadderStepUSD =7;//0;//10;// 5;//10.0;//0 means nothing not work
 int FlipStepbackLevelCount=1;
+
+
 double HighestCycleProfitUSD = 0.0;
 bool   TradingHaltedUntilNextFlip =false;//true;// false;
 double ActiveEquityBaseline = 0.0; // Add this new variable
 
 
-int partialCloseUSD=10;//10;//2*2;//per lot 0.01
 
-double modifyBasketProfitOrdersLotXPercent=10.0;//20 % means 0.05 X 20 modify order $1 profit 
 
 
 datetime g_lastLadderCloseTime = 0;   // Stores timestamp of last basket reset
 double   g_peakCycleProfit     = 0.0; // Tracks the highest profit reached in the current cycle
 double   g_stepSize            = 50.0; // The step increment ($5)
 
-double SecureOneDollarProfitPerOrder=1.0; //1X
 
 
 
 // ===== 5% CONTINUOUS LADDER SETTINGS =====
-double CloseOrdersAtProfitFromOpeningBalance =5;//10;//25;// 5;
 double Ladder5PercentBaseline = 0.0;
 bool enable5PercentClose = false; //5;//
 bool enableCircleOrders = true;
@@ -707,7 +725,7 @@ void Manage5PercentLadderReset()
 
    double targetEquity =
       Ladder5PercentBaseline *
-      (1.0 + (CloseOrdersAtProfitFromOpeningBalance / 100.0));
+      (1.0 + (CloseOrdersAtProfitFromOpeningBalanceEveryStep*balancelomultipler / 100.0));
 
 // ---------------------------------------------------------
 // Dynamic target adjustment
@@ -718,9 +736,9 @@ void Manage5PercentLadderReset()
 
    gbltargetEquity=targetEquity;
 
-// Print("targetDifference"+targetDifference+" "+CloseOrdersAtProfitFromOpeningBalance*4*balancelomultipler +" gbltargetEquity="+gbltargetEquity);
+// Print("targetDifference"+targetDifference+" "+CloseOrdersAtProfitFromOpeningBalanceEveryStep*4*balancelomultipler +" gbltargetEquity="+gbltargetEquity);
 
-// if(targetDifference > CloseOrdersAtProfitFromOpeningBalance*4*balancelomultipler )
+// if(targetDifference > CloseOrdersAtProfitFromOpeningBalanceEveryStep*4*balancelomultipler )
 // {
 //    // targetEquity = currentEquity + 5.0;
 
@@ -732,7 +750,7 @@ void Manage5PercentLadderReset()
 //       " | CurrentEquity=$", DoubleToString(currentEquity, 2),
 //       " | OldTarget=$", DoubleToString(
 //             Ladder5PercentBaseline *
-//             (1.0 + (CloseOrdersAtProfitFromOpeningBalance / 100.0)), 2),
+//             (1.0 + (CloseOrdersAtProfitFromOpeningBalanceEveryStep / 100.0)), 2),
 //       " | Difference=$", DoubleToString(targetDifference, 2),
 //       " | NewTarget=$", DoubleToString(targetEquity, 2)
 //    );
@@ -769,7 +787,7 @@ void Manage5PercentLadderResetOld()
       return;
      }
 
-   double targetEquity = Ladder5PercentBaseline * (1.0 + (CloseOrdersAtProfitFromOpeningBalance / 100.0));
+   double targetEquity = Ladder5PercentBaseline * (1.0 + (CloseOrdersAtProfitFromOpeningBalanceEveryStep*balancelomultipler / 100.0));
 
    if(AccountEquity() >= targetEquity)
      {
@@ -8435,7 +8453,7 @@ void ManagePartialCloses()
             bool   triggerClose = false;
             string actionType   = "";
             int    orderTypeInt = (orderType == OP_SELL) ? -1 : 1;
-            int    minimum_Profit =orderLots*100*partialCloseUSD*balancelomultipler;
+            int    minimum_Profit =orderLots*100*partialClose01in05IndividualPercentage;
 
             if(TimeCurrent() - OrderOpenTime() > 60 * 30)
               {
@@ -9613,7 +9631,7 @@ void UpdateDashboard(DailyProtectionState &state)
 
    double targetEquity =
       Ladder5PercentBaseline *
-      (1.0 + (CloseOrdersAtProfitFromOpeningBalance / 100.0));
+      (1.0 + (CloseOrdersAtProfitFromOpeningBalanceEveryStep*balancelomultipler / 100.0));
 
 
    CreateDashboardLabel(DASH_PREFIX+"EMA_LAD_BASE","SECURED BASELINE: $"+DoubleToString(ActiveEquityBaseline, 2)+" / $"+DoubleToString(totalContinuousProfit, 2)+" <= $"+DoubleToString(lockedProfitTarget, 2),tx,y+210,8,clrSilver);
