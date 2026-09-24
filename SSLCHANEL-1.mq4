@@ -25,7 +25,7 @@
 
 
 
-string glbVersion = "V2009 24-09-2026 15.00 200 balance ST-20 Partialclose, Close orders $1X close-   FlipLadderStepUSD 7 DailyEquityStopUSD 50%  TargetProfitPerFlipUSD 10%";
+string glbVersion = "V2010 24-09-2026 22.00 200 balance ST-20 Partialclose, Close orders $1X close-   FlipLadderStepUSD 7 DailyEquityStopUSD 50%  TargetProfitPerFlipUSD 10%";
 
 
 double DailyEquityStopUSD  =50;//20*2.5;//10;//20;// 10;//30.0; close all orders at $50Xmultipler 
@@ -189,7 +189,7 @@ double MinimumClosedProfitUSD = -9;
 double ProfitReEntryGapRaw = 25;
 double MinimumSameOrderGapRawReEntry =20;// 50;
 // double MinimumSameOrderGapRawSSLLongShort =50;// 50;
-double MinimumSameOrderGapRawMatched =50;//20;// 50;
+double MinimumSameOrderGapRawMatched =20;//50;//20;// 50;
 double MinimumSameOrderGapRawUnmatched =20;// 100;
 
 double angleBlockAboveRule = 3;//1.0; no opposite order above 3 angle
@@ -3930,7 +3930,8 @@ int SafeOrderSend(string symbol,int orderType,double lots,double price,int slipp
 
 
    if(g_dailyEquityTradingBlocked)
-      return -1;
+    
+   
 
 // ADD THIS LINE: Block re-entry orders if EMA Ladder is halted
    if(TradingHaltedUntilNextFlip)
@@ -3953,7 +3954,7 @@ int SafeOrderSend(string symbol,int orderType,double lots,double price,int slipp
    if(GetOpenPL(OP_BUY) > -safeOrdersendLossCondition*balancelomultipler && GlobalEmaAngle30 < 2 &&
       (orderType == OP_BUY || orderType == OP_BUYSTOP || orderType == OP_BUYLIMIT))
      {
-      Comment("TRADE BUY BLOCKED | Buy P/L is beter dan -$2 verlies en EMA-hoek is te laag (", DoubleToString(GlobalEmaAngle30, 2), " deg < 2.0).");
+      Print("TRADE BUY BLOCKED | Buy P/L is beter dan -$2 verlies en EMA-hoek is te laag (", DoubleToString(GlobalEmaAngle30, 2), " deg < 2.0).");
       return -1;
      }
 
@@ -3961,7 +3962,7 @@ int SafeOrderSend(string symbol,int orderType,double lots,double price,int slipp
    if(GetOpenPL(OP_SELL) > -safeOrdersendLossCondition*balancelomultipler && GlobalEmaAngle30 > -2 &&
       (orderType == OP_SELL || orderType == OP_SELLSTOP || orderType == OP_SELLLIMIT))
      {
-      Comment("TRADE SELL BLOCKED | Sell P/L is better than -$2 loss and EMA angle is too weak/flat (", DoubleToString(GlobalEmaAngle30, 2), " deg > -2.0).");
+      Print("TRADE SELL BLOCKED | Sell P/L is better than -$2 loss and EMA angle is too weak/flat (", DoubleToString(GlobalEmaAngle30, 2), " deg > -2.0).");
       return -1;
      }
 
@@ -3970,7 +3971,7 @@ int SafeOrderSend(string symbol,int orderType,double lots,double price,int slipp
 
    if(MathAbs(GlobalEmaAngle30)<1 && MathAbs(Get30MinutePriceDifference())<100)
      {
-      Comment("TRADE BLOCKED | BOTH SIDES Angle below 2 degrees. No trade allowed.");
+      Print("TRADE BLOCKED | BOTH SIDES Angle below 2 degrees. No trade allowed.");
       TradeMonitoringLog="TRADE BLOCKED | BOTH SIDES Angle below 2 degrees. No trade allowed.";
       return -1;;
      }
@@ -4019,7 +4020,7 @@ int SafeOrderSend(string symbol,int orderType,double lots,double price,int slipp
 
    if(IsEmaWEAKDistanceReduced50PercentFromPeak(orderType))//weak
      {
-      Comment("TRADE BLOCKED | IsEmaWEAKDistanceReduced50PercentFromPeak");
+      Print("TRADE BLOCKED | IsEmaWEAKDistanceReduced50PercentFromPeak");
 
       return -1;;
 
@@ -4034,14 +4035,14 @@ int SafeOrderSend(string symbol,int orderType,double lots,double price,int slipp
 // --- SEPARATE CONDITION: Strict block for opposite orders during strong uptrend (2 to 6 degrees) ---
    if((StringFind(OrderComment(), "RECOVERY_") <0) && EMADirection != -1 && (orderType == OP_SELL || orderType == OP_SELLSTOP || orderType == OP_SELLLIMIT))
      {
-      Comment("TRADE SELL BLOCKED | Strict opposite block: EMA trend is strong uptrend  ");
+      Print("TRADE SELL BLOCKED | Strict opposite block: EMA trend is strong uptrend  ");
       return -1;
      }
 
 // --- SEPARATE CONDITION: Strict block for opposite orders during strong downtrend (-2 to -6 degrees) ---
    if((StringFind(OrderComment(), "RECOVERY_") <0) && EMADirection != 1 && (orderType == OP_BUY || orderType == OP_BUYSTOP || orderType == OP_BUYLIMIT))
      {
-      Comment("TRADE BUY BLOCKED | Strict opposite block: EMA trend is strong downtrend  ");
+      Print("TRADE BUY BLOCKED | Strict opposite block: EMA trend is strong downtrend  ");
       return -1;
      }
 // --- STRICT EMA TREND FILTER WITH EXHAUSTION ALLOWANCE ---
@@ -5216,39 +5217,42 @@ void ModifyOpenOrdersToSecureProfit()
       //==============================================================
       // LOSS ORDER → WIDEN SL BY $50 GAP (1-Min Cooldown)
       //==============================================================
+      //==============================================================
+      // LOSS ORDER → WIDEN SL BY $50 GAP FROM CURRENT TICK PRICE
+      //==============================================================
       if(orderProfit < 0.0)
         {
-         // Create a unique global variable name to track this specific order's modification time
-         string gvName = "SL_ModTime_" + IntegerToString(ticket);
-         datetime lastModTime = 0;
-         
-         if(GlobalVariableCheck(gvName))
-            lastModTime = (datetime)GlobalVariableGet(gvName);
-
-         // Check if 60 seconds have passed since the last modification
-         if(TimeCurrent() - lastModTime < 60)
-            continue; // Skip this order if it was modified within the last minute
-
-         // Define the gap (For BTC/Gold, 50.0 represents a $50 price gap)
          double gapPrice = 50.0; 
          double currentSL = OrderStopLoss();
          double newSL = 0.0;
+         
+         // 1. Calculate the distance from the current live price to the existing Stop Loss
+         double distanceToSL = 0.0;
+         if(type == OP_BUY)  
+            distanceToSL = Bid - currentSL;
+         else if(type == OP_SELL) 
+            distanceToSL = currentSL - Ask;
 
-         // Calculate new SL (widening the gap)
+         // 2. FILTER: If an SL is already set and its distance from the live price is $50 or less, IGNORE IT.
+         // This ensures it never modifies an order that has already been adjusted to the $50 gap.
+         if(currentSL != 0.0 && distanceToSL <= gapPrice+10)
+           {
+            continue; // Skip this order
+           }
+
+         // 3. Calculate new SL based strictly on the CURRENT LIVE TICK PRICE
          if(type == OP_BUY)
            {
-            if(currentSL == 0.0) newSL = OrderOpenPrice() - gapPrice;
-            else                 newSL = currentSL - gapPrice;
+            newSL = Bid - gapPrice;
            }
          else // OP_SELL
            {
-            if(currentSL == 0.0) newSL = OrderOpenPrice() + gapPrice;
-            else                 newSL = currentSL + gapPrice;
+            newSL = Ask + gapPrice;
            }
 
          newSL = NormalizeDouble(newSL, Digits);
 
-         // Avoid error 1 (ERR_NO_RESULT) by ensuring the new SL is actually different
+         // 4. Modify the order
          if(MathAbs(newSL - currentSL) > Point / 2.0)
            {
             ResetLastError();
@@ -5256,15 +5260,12 @@ void ModifyOpenOrdersToSecureProfit()
 
             if(modified)
               {
-               // Save the exact time of successful modification
-               GlobalVariableSet(gvName, TimeCurrent());
-               
                Print("LOSS ORDER PROTECTED",
                      " | Ticket=", ticket,
                      " | Type=", type == OP_BUY ? "BUY" : "SELL",
                      " | Old SL=", DoubleToString(currentSL, Digits),
                      " | New SL=", DoubleToString(newSL, Digits),
-                     " | Gap Widened by $50");
+                     " | Gap Set to $50 from Current Price");
               }
             else
               {
@@ -7473,18 +7474,34 @@ void InvalidateTotalEAOrdersCache() { CachedTotalEAOrders=-1; CachedTotalEAOrder
 void OpenBuy()
   {
    if(InpEnableCustomRules && !PassesUserRules(OP_BUY))
+       {
+Print("Order Blocked InpEnableCustomRules");
       return;
+
+   }
    if(!IsSafeToCreateMarketOrder(OP_BUY) || !PassesEMAFilter(OP_BUY) || !IsOneCandleOrderAllowed() || GetTotalEAOrders() >= MaxOpenOrders)
+     {
+Print("Order Blocked IsSafeToCreateMarketOrder");
       return;
+
+   }
    if(!HasMinimumSameOrderGap(OP_BUY, GetDynamicOrderGap(OP_BUY)))
+   {
+Print("Order Blocked HasMinimumSameOrderGap "+GetDynamicOrderGap(OP_BUY));
       return;
+
+   }
    reEntryCounter=0;
    SaveReEntryCounter();
    ChangeLots(GlobalSellPL,"SSL Long",OP_BUY,0);
    RefreshRates();
    double slDistance = CalculatePriceDistanceUSD(StopLossUSD, Lots);
    if(slDistance <= 0)
+          {
+Print("Order Blocked CalculatePriceDistanceUSD");
       return;
+
+   }
    double stopLoss = NormalizeDouble(Ask - slDistance, Digits);
 // Print("SafeOrderSend");
    int ticket = SafeOrderSend(Symbol(), OP_BUY, Lots, Ask, Slippage, stopLoss, 0, "SSL Long", MagicNumber, BuyColor);
@@ -7525,19 +7542,19 @@ void OpenSell()
   {
    if(InpEnableCustomRules && !PassesUserRules(OP_SELL))
      {
-      // Print("InpEnableCustomRules ");
+       Print("InpEnableCustomRules ");
       return;
 
      }
    if(!IsSafeToCreateMarketOrder(OP_SELL) || !PassesEMAFilter(OP_SELL) || !IsOneCandleOrderAllowed() || GetTotalEAOrders() >= MaxOpenOrders)
      {
-      // Print("IsSafeToCreateMarketOrder ");
+       Print("IsSafeToCreateMarketOrder ");
       return;
 
      }
    if(!HasMinimumSameOrderGap(OP_SELL, GetDynamicOrderGap(OP_SELL)))
      {
-      // Print("HasMinimumSameOrderGap ");
+Print("Order Blocked HasMinimumSameOrderGap "+GetDynamicOrderGap(OP_BUY));
       return;
 
      }
@@ -7548,7 +7565,7 @@ void OpenSell()
    double slDistance = CalculatePriceDistanceUSD(StopLossUSD, Lots);
    if(slDistance <= 0)
      {
-      Print("slDistance ");
+      Print("CalculatePriceDistanceUSD ");
       return;
 
      }
