@@ -25,7 +25,7 @@
 
 
 
-string glbVersion = "V2001 23-09-2026 16.00 OPTIMISED Partialclose, Close orders $1X close-   FlipLadderStepUSD 7 DailyEquityStopPercent 50%  TargetProfitPerFlipUSDPercentage 10%";
+string glbVersion = "V2002 24-09-2026 08.00 OPTIMISED Partialclose, Close orders $1X close-   FlipLadderStepUSD 7 DailyEquityStopPercent 50%  TargetProfitPerFlipUSDPercentage 10%";
 
 
 double DailyEquityStopPercent  =20*2.5;//10;//20;// 10;//30.0;
@@ -581,10 +581,6 @@ int CountOrdersByType(int orderType)
   }
 void SecureOneDollarProfit()
   {
-
-//    SecureDistanceProfitLadder();
-
-// return ;
    // The base 1X target amount in your account currency
    double baseProfitTarget = SecureOneDollarProfitPerOrder * balancelomultipler; 
 
@@ -639,11 +635,12 @@ void SecureOneDollarProfit()
       // 2. Convert maximum lockable gross into net profit
       double maxLockableNet = maxLockableGross + expenses;
 
-      // 3. Determine the ladder level (e.g., 1X, 2X, 3X)
-      int ladderLevel = (int)MathFloor(maxLockableNet / baseProfitTarget);
+      // 3. Determine the ladder level in 0.5X increments (1.0, 1.5, 2.0, 2.5...)
+      double rawMultiplier = maxLockableNet / baseProfitTarget;
+      double ladderLevel = MathFloor(rawMultiplier * 2.0) / 2.0;
 
-      // If price hasn't moved far enough to even lock 1X, skip this order
-      if(ladderLevel < 1)
+      // If price hasn't moved far enough to even lock 1.0X, skip this order
+      if(ladderLevel < 1.0)
          continue;
 
       // 4. Calculate the precise SL price for this specific ladder level
@@ -677,14 +674,14 @@ void SecureOneDollarProfit()
          
          if(modified)
            {
-            Print("Secured Ladder Profit: ", ladderLevel, "X ($", DoubleToString(targetNetProfit, 2), ")",
+            Print("Secured Ladder Profit: ", DoubleToString(ladderLevel, 1), "X ($", DoubleToString(targetNetProfit, 2), ")",
                   " | Ticket=", OrderTicket(),
                   " | Type=", type == OP_BUY ? "BUY" : "SELL",
                   " | New SL=", DoubleToString(newSL, Digits));
            }
          else
            {
-            Print("FAILED to secure ", ladderLevel, "X SL",
+            Print("FAILED to secure ", DoubleToString(ladderLevel, 1), "X SL",
                   " | Ticket=", OrderTicket(),
                   " | Error=", GetLastError());
            }
@@ -4038,11 +4035,11 @@ int SafeOrderSend(string symbol,int orderType,double lots,double price,int slipp
 
 
 
-   if(IsOrderAllowedByTrendAndGap(orderType) == false)
-     {
-      Comment("TRADE BLOCKED | Counter-trend order blocked due to EMA direction and gap rules.");
-      return -1;
-     }
+   // if(IsOrderAllowedByTrendAndGap(orderType) == false)
+   //   {
+   //    Comment("TRADE BLOCKED | Counter-trend order blocked due to EMA direction and gap rules.");
+   //    return -1;
+   //   }
 
 // --- CHECK IF THIS IS A V-SHAPE BOUNCE OVERRIDE ---
 // bool isVShapeOverride = ((orderType == OP_BUY || orderType == OP_BUYSTOP || orderType == OP_BUYLIMIT) && GlobalVShapeBuy) ||
@@ -4295,7 +4292,102 @@ bool SafeOrderCloseNew(int ticket, double lots, int orderType, int slippage, col
 //+------------------------------------------------------------------+
 //|                                                                  |
 //+------------------------------------------------------------------+
-bool SafeOrderClose(int ticket,double lots,int orderType,int slippage,color arrowColor)
+bool SafeOrderClose(int ticket, double lots, int orderType, int slippage, color arrowColor)
+  {
+   if(TradeOperationFailedThisTick)
+      return false;
+      
+   string key = MakeTradeErrorKey("CLOSE_MOD", ticket, "");
+   if(IsTradeErrorBlockedThisTick(key))
+      return false;
+      
+   if(!OrderSelect(ticket, SELECT_BY_TICKET, MODE_TRADES))
+     {
+      // If it's already in history, the order is successfully closed
+      if(OrderSelect(ticket, SELECT_BY_TICKET, MODE_HISTORY))
+         return true;
+      return false;
+     }
+     
+   RefreshRates();
+   
+   double pl = OrderProfit() + OrderSwap() + OrderCommission();
+   double openPrice = OrderOpenPrice();
+   double currentSL = OrderStopLoss();
+   double newSL = 0.0;
+   
+   // Calculate safe stop limits to prevent Error 130
+   double stopLevel = MarketInfo(Symbol(), MODE_STOPLEVEL) * Point;
+   double spreadBuf = (Ask - Bid) * 2.0;
+   double minSafeDistance = MathMax(stopLevel, spreadBuf);
+   
+   // ==========================================
+   // LOSS: Set SL to a $50 raw gap
+   // ==========================================
+   if(pl < 0.0)
+     {
+      double lossGap = 50.0; 
+      if(orderType == OP_BUY)       newSL = openPrice - lossGap;
+      else if(orderType == OP_SELL) newSL = openPrice + lossGap;
+     }
+   // ==========================================
+   // PROFIT: Secure current profit tightly
+   // ==========================================
+   else 
+     {
+      // Place SL as close to the current price as the broker allows
+      if(orderType == OP_BUY)
+        {
+         newSL = Bid - minSafeDistance;
+         // Ensure the SL is actually locking in profit above the open price
+         if(newSL <= openPrice) newSL = openPrice + (minSafeDistance / 2.0);
+        }
+      else if(orderType == OP_SELL)
+        {
+         newSL = Ask + minSafeDistance;
+         // Ensure the SL is actually locking in profit below the open price
+         if(newSL >= openPrice) newSL = openPrice - (minSafeDistance / 2.0);
+        }
+     }
+     
+   newSL = NormalizeDouble(newSL, Digits);
+   
+   // Check if the SL is already at the target to prevent unnecessary modification spam
+   if(MathAbs(currentSL - newSL) < Point / 2.0)
+      return true; 
+      
+   // Final check against broker limits before sending
+   if(orderType == OP_BUY && Bid - newSL < minSafeDistance) return false;
+   if(orderType == OP_SELL && newSL - Ask < minSafeDistance) return false;
+
+   if(!CanSendTradeRequest("OrderModify", "Ticket=" + IntegerToString(ticket)))
+      return false;
+      
+   ResetLastError();
+   
+   // Execute Modify instead of Close
+   bool result = OrderModify(ticket, openPrice, newSL, OrderTakeProfit(), 0, arrowColor);
+   
+   if(result)
+     {
+      InvalidateTotalEAOrdersCache();
+      Print("SafeOrderClose intercepted: Modified SL instead. Ticket: ", ticket, " | New SL: ", DoubleToString(newSL, Digits));
+      return true;
+     }
+     
+   int err = GetLastError();
+   
+   if(!OrderSelect(ticket, SELECT_BY_TICKET, MODE_TRADES))
+     {
+      if(OrderSelect(ticket, SELECT_BY_TICKET, MODE_HISTORY))
+         return true;
+     }
+     
+   BlockTradeErrorUntilNextTick(key);
+   MarkServerError(err, "OrderModify (Intercepted from Close)");
+   return false;
+  }
+bool SafeOrderCloseOld(int ticket,double lots,int orderType,int slippage,color arrowColor)
   {
    if(TradeOperationFailedThisTick)
       return false;
@@ -5549,10 +5641,10 @@ void ChangeLots(double OpenPL, string reason, int orderType, int stoplevelStep)
 
      }
 
-   if(MathAbs(GlobalEmaAngle30)<2)
-     {
-      Lots = 0.01;
-     }
+   // if(MathAbs(GlobalEmaAngle30)<2)
+   //   {
+   //    Lots = 0.01;
+   //   }
 
 //   if(GetH1Direction() != EMADirection)
 //   {
@@ -5624,8 +5716,8 @@ void ChangeLots(double OpenPL, string reason, int orderType, int stoplevelStep)
 //    Lots = 0.01;
 //   }
 
-   if(HasAnyLargeCandle(Symbol(), PERIOD_M1, 30, 100.0, false))
-      Lots = 0.01;
+   // if(HasAnyLargeCandle(Symbol(), PERIOD_M1, 30, 300.0, false))
+   //    Lots = 0.01;
 // if(GlobalEmaAngle30<2 &&  GlobalEmaAngle30 > -2)
 //      Lots = 0.01;
 
@@ -5656,17 +5748,17 @@ void ChangeLots(double OpenPL, string reason, int orderType, int stoplevelStep)
    int requestedDirection = (orderType == OP_BUY || orderType == OP_BUYSTOP || orderType == OP_BUYLIMIT) ? 1 : -1;
 
 
-   if(requestedDirection==1 && GetOpenPL(OP_BUY)<=-5)
-     {
-      Lots = 0.01;
+   // if(requestedDirection==1 && GetOpenPL(OP_BUY)<=-5)
+   //   {
+   //    Lots = 0.01;
 
-     }
-   if(requestedDirection==-1 && GetOpenPL(OP_SELL)<=-5)
+   //   }
+   // if(requestedDirection==-1 && GetOpenPL(OP_SELL)<=-5)
 
-     {
-      Lots = 0.01;
+   //   {
+   //    Lots = 0.01;
 
-     }
+   //   }
 
 
 
