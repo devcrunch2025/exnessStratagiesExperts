@@ -25,7 +25,7 @@
 
 
 
-string glbVersion = "V2002 24-09-2026 08.00 OPTIMISED Partialclose, Close orders $1X close-   FlipLadderStepUSD 7 DailyEquityStopPercent 50%  TargetProfitPerFlipUSDPercentage 10%";
+string glbVersion = "V2002 24-09-2026 08.00 200 balance ST-20 Partialclose, Close orders $1X close-   FlipLadderStepUSD 7 DailyEquityStopPercent 50%  TargetProfitPerFlipUSDPercentage 10%";
 
 
 double DailyEquityStopPercent  =20*2.5;//10;//20;// 10;//30.0;
@@ -51,7 +51,7 @@ bool   TradingHaltedUntilNextFlip =false;//true;// false;
 double ActiveEquityBaseline = 0.0; // Add this new variable
 
 
-int partialCloseUSD=2*2;
+int partialCloseUSD=10;//2*2;
 
 double modifyBasketProfitOrdersLotXPercent=20.0;//20 % means 0.05 X 20 modify order $1 profit 
 
@@ -97,7 +97,7 @@ int    ServerToDubaiOffsetHours   = 4;
 double MaxAllowedSpreadUSD = 35.0;
 int AccountMultiplierLOT = 500;
 double OriginalStopLossUSD = 6;//4;
-double StopLossUSD =10;//6;//10;//6;//5;//10;//2;// 10;
+double StopLossUSD =20;//10;//6;//10;//6;//5;//10;//2;// 10;
 
 
 
