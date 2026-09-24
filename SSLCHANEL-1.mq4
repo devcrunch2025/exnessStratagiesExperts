@@ -625,7 +625,7 @@ void SecureOneDollarProfit()
 
    if(IsEmaWEAKDistanceReduced50PercentFromPeak())
      {
-      baseProfitTarget=baseProfitTarget/2;
+      baseProfitTarget = baseProfitTarget / 2;
      }
 
    if(baseProfitTarget <= 0)
@@ -659,7 +659,6 @@ void SecureOneDollarProfit()
       double maxLockableGross = 0.0;
 
       // 1. Calculate the maximum gross profit we could technically lock right now
-      //    (Current price minus the broker's StopLevel distance)
       if(type == OP_BUY)
         {
          double maxSL = Bid - stopLevel;
@@ -675,15 +674,15 @@ void SecureOneDollarProfit()
       // 2. Convert maximum lockable gross into net profit
       double maxLockableNet = maxLockableGross + expenses;
 
-      // 3. Determine the ladder level in 0.5X increments (1.0, 1.5, 2.0, 2.5...)
+      // 3. Determine the ladder level strictly in 1X increments (X1, X2, X3...)
       double rawMultiplier = maxLockableNet / baseProfitTarget;
-      double ladderLevel = MathFloor(rawMultiplier * 2.0) / 2.0;
+      double ladderLevel = MathFloor(rawMultiplier);
 
       // If price hasn't moved far enough to even lock 1.0X, skip this order
       if(ladderLevel < 1.0)
          continue;
 
-      // 4. Calculate the precise SL price for this specific ladder level
+      // 4. Calculate the precise SL price for this specific integer ladder level
       double targetNetProfit = ladderLevel * baseProfitTarget;
       double requiredGrossProfit = targetNetProfit - expenses;
       double priceDistance = (requiredGrossProfit / (OrderLots() * tickValue)) * tickSize;
@@ -715,14 +714,14 @@ void SecureOneDollarProfit()
 
          if(modified)
            {
-            Print("Secured Ladder Profit: ", DoubleToString(ladderLevel, 1), "X ($", DoubleToString(targetNetProfit, 2), ")",
+            Print("Secured Ladder Profit: X", DoubleToString(ladderLevel, 0), " ($", DoubleToString(targetNetProfit, 2), ")",
                   " | Ticket=", OrderTicket(),
                   " | Type=", type == OP_BUY ? "BUY" : "SELL",
                   " | New SL=", DoubleToString(newSL, Digits));
            }
          else
            {
-            Print("FAILED to secure ", DoubleToString(ladderLevel, 1), "X SL",
+            Print("FAILED to secure X", DoubleToString(ladderLevel, 0), " SL",
                   " | Ticket=", OrderTicket(),
                   " | Error=", GetLastError());
            }
@@ -3978,21 +3977,21 @@ int SafeOrderSend(string symbol,int orderType,double lots,double price,int slipp
 
 
 
-// Blokkeer Buys wanneer het verlies minder is dan $2 (P/L > -2.0) en de EMA-hoek kleiner is dan 2.0
-   if(GetOpenPL(OP_BUY) > -safeOrdersendLossCondition*balancelomultipler && GlobalEmaAngle30 < 2 &&
-      (orderType == OP_BUY || orderType == OP_BUYSTOP || orderType == OP_BUYLIMIT))
-     {
-      Print("TRADE BUY BLOCKED | Buy P/L is beter dan -$2 verlies en EMA-hoek is te laag (", DoubleToString(GlobalEmaAngle30, 2), " deg < 2.0).");
-      return -1;
-     }
+// // Blokkeer Buys wanneer het verlies minder is dan $2 (P/L > -2.0) en de EMA-hoek kleiner is dan 2.0
+//    if(GetOpenPL(OP_BUY) > -safeOrdersendLossCondition*balancelomultipler && GlobalEmaAngle30 < 2 &&
+//       (orderType == OP_BUY || orderType == OP_BUYSTOP || orderType == OP_BUYLIMIT))
+//      {
+//       Print("TRADE BUY BLOCKED | Buy P/L is beter dan -$2 verlies en EMA-hoek is te laag (", DoubleToString(GlobalEmaAngle30, 2), " deg < 2.0).");
+//       return -1;
+//      }
 
-// Block Sell orders when floating loss is less than $2 (P/L > -2.0) and EMA angle is greater than -2.0
-   if(GetOpenPL(OP_SELL) > -safeOrdersendLossCondition*balancelomultipler && GlobalEmaAngle30 > -2 &&
-      (orderType == OP_SELL || orderType == OP_SELLSTOP || orderType == OP_SELLLIMIT))
-     {
-      Print("TRADE SELL BLOCKED | Sell P/L is better than -$2 loss and EMA angle is too weak/flat (", DoubleToString(GlobalEmaAngle30, 2), " deg > -2.0).");
-      return -1;
-     }
+// // Block Sell orders when floating loss is less than $2 (P/L > -2.0) and EMA angle is greater than -2.0
+//    if(GetOpenPL(OP_SELL) > -safeOrdersendLossCondition*balancelomultipler && GlobalEmaAngle30 > -2 &&
+//       (orderType == OP_SELL || orderType == OP_SELLSTOP || orderType == OP_SELLLIMIT))
+//      {
+//       Print("TRADE SELL BLOCKED | Sell P/L is better than -$2 loss and EMA angle is too weak/flat (", DoubleToString(GlobalEmaAngle30, 2), " deg > -2.0).");
+//       return -1;
+//      }
 
 
 //minimum angele with price diff condition
