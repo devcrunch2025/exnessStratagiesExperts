@@ -27,7 +27,7 @@
 //https://github.com/devcrunch2025/exnessStratagiesExperts/commit/f4f1c1340be330cd32a75da3f3a9b4bd5f4e4cf3
 
 
-string glbVersion = "V3002 25-09-2026 14.00 closeAllOrdersLowestEquityIncreasePercentage Aug 2nd to Aug 4th $100 to $400 balance ST-20 Partialclose, Close orders $1X close-   FlipLadderStepUSD 7 DailyEquityStopUSD 50%  TargetProfitPerFlipUSD 10%";
+string glbVersion = "V3003 25-09-2026 20.00 closeAllOrdersLowestEquityIncreasePercentage Aug 2nd to Aug 4th $100 to $400 balance ST-20 Partialclose, Close orders $1X close-   FlipLadderStepUSD 7 DailyEquityStopUSD 50%  TargetProfitPerFlipUSD 10%";
 
 
 double DailyEquityStopUSD  =50;//20*2.5;//10;//20;// 10;//30.0; close all orders at $50Xmultipler
@@ -58,7 +58,7 @@ double CloseOrdersAtProfitFromOpeningBalanceEveryStep =5;//10;//25;// 5;// 5X st
 
 //chage 55
 // double closeAllOrdersLowestEquityIncreasePercentage=20;
-double closeAllOrdersLowestEquityIncreasePercentage =100;//50;// 50.0;
+double closeAllOrdersLowestEquityIncreasePercentage =20;//100//50;// 50.0;
 // equity is going down and increased equity more than 50% even in loss then close all orders
 //$100 $50 to $75 close all orders - close one side orders if any
 
@@ -7962,6 +7962,12 @@ double currentEquity=0;
 void MonitorLowestEquityRecovery()
   {
    currentEquity = AccountEquity();
+
+
+   if(currentEquity<g_dayOpeningBalance)
+   {
+      return;
+   }
 
 //==============================================================
 // FIRST RUN
