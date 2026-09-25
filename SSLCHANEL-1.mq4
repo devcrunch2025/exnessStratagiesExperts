@@ -58,9 +58,9 @@ double CloseOrdersAtProfitFromOpeningBalanceEveryStep =5;//10;//25;// 5;// 5X st
 
 //chage 55
 // double closeAllOrdersLowestEquityIncreasePercentage=20;
-  double closeAllOrdersLowestEquityIncreasePercentage =100;//50;// 50.0;
-  // equity is going down and increased equity more than 50% even in loss then close all orders 
-  //$100 $50 to $75 close all orders - close one side orders if any 
+double closeAllOrdersLowestEquityIncreasePercentage =100;//50;// 50.0;
+// equity is going down and increased equity more than 50% even in loss then close all orders
+//$100 $50 to $75 close all orders - close one side orders if any
 
 
 
@@ -136,7 +136,7 @@ int    ServerToDubaiOffsetHours   = 4;
 // ===== SPREAD & RISK SETTINGS =====
 double MaxAllowedSpreadUSD = 35.0;
 int AccountMultiplierLOT = 500;
-double OriginalStopLossUSD = 6;//4;
+double OriginalStopLossUSD = 20;//6;//4;
 double StopLossUSD =20;//10;//6;//10;//6;//5;//10;//2;// 10;
 
 
@@ -1818,6 +1818,22 @@ void OnTick()
    if(balancelomultipler<=0)
       balancelomultipler=1;
 
+
+   SecureOneDollarProfit();
+   CheckEquitySurplusReset();
+
+   ManageOverallBasketProfit();//modify basket orders at $1 profit
+
+   ManageDayProfitLadder();
+
+   if(enable5PercentClose)
+      Manage5PercentLadderReset();
+
+   if(GetTotalSellOrders()>1)
+      modifyOnlySellOrders();
+   if(GetTotalBuyOrders()>1)
+      modifyOnlyBuyOrders();
+
    CheckForNewDay();
 
    IsDailyEquityStopReached();
@@ -1831,6 +1847,10 @@ void OnTick()
    CheckEquityBalanceProfitTarget();
 
    CheckDynamicStepLadder();
+
+   MonitorLowestEquityRecovery();
+
+
 
    if(Time[0] != LastVShapeCheckedTime)
      {
@@ -1892,17 +1912,12 @@ void OnTick()
         }
 
       ScanAndMarkStructuralPatterns();
-      SecureOneDollarProfit();
-      if(GetTotalSellOrders()>1)
-         modifyOnlySellOrders();
-      if(GetTotalBuyOrders()>1)
 
-         modifyOnlyBuyOrders();
 
      } // <-- End of new candle block
    DrawMomentumMarkers();
    CloseOppositeOrdersOnEmaDistance();
-   MonitorLowestEquityRecovery();
+
 // ==========================================================
 // 5-MINUTE TIMER CHECKS (RUNS EVERY TICK, OUTSIDE BAR BLOCK)
 // ==========================================================
@@ -2244,7 +2259,6 @@ void OnTickCore()
 // ManageEmaAngleOppositeClose(); // <-- Add this here
    ProcessDeferredOrders();
 
-   ManageOverallBasketProfit();//modify basket orders at $1 profit
 
    if(TradeOperationFailedThisTick)
      {
@@ -2297,13 +2311,9 @@ void OnTickCore()
    static DailyProtectionState dailyState;
    if(!dailyState.Initialized)
       InitializeDailyProtectionState(dailyState);
-   ManageDayProfitLadder();
 
-   if(enable5PercentClose)
-      Manage5PercentLadderReset();
 
 // ADD THIS LINE HERE:
-   CheckEquitySurplusReset();
 
    if(ProcessServerRecovery(dailyState))
      {
@@ -7928,7 +7938,7 @@ void CheckDynamicStepLadder()
      }
   }
 
-  //+------------------------------------------------------------------+
+//+------------------------------------------------------------------+
 //| Dynamic Lowest Equity Recovery                                   |
 //|                                                                  |
 //| Logic:                                                           |
@@ -7950,14 +7960,14 @@ double currentEquity=0;
 //| Monitor Lowest Equity Recovery                                   |
 //+------------------------------------------------------------------+
 void MonitorLowestEquityRecovery()
-{
-     currentEquity = AccountEquity();
+  {
+   currentEquity = AccountEquity();
 
-   //==============================================================
-   // FIRST RUN
-   //==============================================================
+//==============================================================
+// FIRST RUN
+//==============================================================
    if(!LowestEquityInitialized)
-   {
+     {
       LowestEquity = currentEquity;
       LowestEquityInitialized = true;
 
@@ -7968,14 +7978,14 @@ void MonitorLowestEquityRecovery()
             DoubleToString(LowestEquity, 2));
 
       return;
-   }
+     }
 
 
-   //==============================================================
-   // EQUITY MAKES A NEW LOW
-   //==============================================================
+//==============================================================
+// EQUITY MAKES A NEW LOW
+//==============================================================
    if(currentEquity < LowestEquity)
-   {
+     {
       LowestEquity = currentEquity;
 
       Print("NEW LOWEST EQUITY",
@@ -7985,26 +7995,26 @@ void MonitorLowestEquityRecovery()
             DoubleToString(currentEquity, 2));
 
       return;
-   }
+     }
 
 
-   //==============================================================
-   // CALCULATE RECOVERY TARGET
-   //
-   // Example:
-   // Lowest Equity = $50
-   // Recovery = 20%
-   // Target = $60
-   //==============================================================
+//==============================================================
+// CALCULATE RECOVERY TARGET
+//
+// Example:
+// Lowest Equity = $50
+// Recovery = 20%
+// Target = $60
+//==============================================================
    double recoveryTarget =
       LowestEquity * (1.0 + closeAllOrdersLowestEquityIncreasePercentage / 100.0);
 
 
-   //==============================================================
-   // EQUITY RECOVERED 20%
-   //==============================================================
+//==============================================================
+// EQUITY RECOVERED 20%
+//==============================================================
    if(currentEquity >= recoveryTarget)
-   {
+     {
       Print("========================================");
       Print("EQUITY RECOVERY TARGET REACHED");
       Print("Lowest Equity   = ",
@@ -8033,8 +8043,8 @@ void MonitorLowestEquityRecovery()
       Print("LOWEST EQUITY RESET",
             " | New Lowest Equity = ",
             DoubleToString(LowestEquity, 2));
-   }
-}
+     }
+  }
 // //+------------------------------------------------------------------+
 // //| Step-by-Step Profit Ladder ($5, $10, $15, etc.)                  |
 // //+------------------------------------------------------------------+
@@ -9940,10 +9950,10 @@ void UpdateDashboard(DailyProtectionState &state)
 // 4. Calculate starting balance before this flip's closed profits
 // double startingBalance = AccountBalance() - realizedProfit;
 
- 
+
 
    CreateDashboardLabel(DASH_PREFIX+"EMA_LAD_HIGH","HIGHEST Flip p/L : $"+DoubleToString(totalCycleProfit,2),tx,y+117,9,clrWhite);
-   // CreateDashboardLabel(DASH_PREFIX+"EMA_LAD_LVL","CURRENT TIER   : LVL "+IntegerToString(currEmaLvl)+" (Step $"+DoubleToString((FlipLadderStepUSD*balancelomultipler),0)+")",tx,y+137,9,clrYellow);
+// CreateDashboardLabel(DASH_PREFIX+"EMA_LAD_LVL","CURRENT TIER   : LVL "+IntegerToString(currEmaLvl)+" (Step $"+DoubleToString((FlipLadderStepUSD*balancelomultipler),0)+")",tx,y+137,9,clrYellow);
    CreateDashboardLabel(DASH_PREFIX+"EMA_LAD_LVL","Equity Lowest/Current  $"+DoubleToString(LowestEquity,2)+" /  $"+DoubleToString((currentEquity),0)+"",tx,y+137,9,clrYellow);
 
    string nextLevelLine = StringConcatenate("NEXT LEVEL HIT : $", DoubleToString(emaNextTarget, 2), " / $", DoubleToString(expectedEquity, 2));
