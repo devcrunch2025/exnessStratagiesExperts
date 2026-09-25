@@ -58,7 +58,7 @@ double CloseOrdersAtProfitFromOpeningBalanceEveryStep =5;//10;//25;// 5;// 5X st
 
 //chage 55
 // double closeAllOrdersLowestEquityIncreasePercentage=20;
-  double closeAllOrdersLowestEquityIncreasePercentage =20;// 50.0;
+  double closeAllOrdersLowestEquityIncreasePercentage =10;// 50.0;
   // equity is going down and increased equity more than 50% even in loss then close all orders 
   //$100 $50 to $75 close all orders - close one side orders if any 
 
@@ -7943,6 +7943,7 @@ void CheckDynamicStepLadder()
 
 double LowestEquity = 0.0;
 bool   LowestEquityInitialized = false;
+double currentEquity=0;
 
 
 //+------------------------------------------------------------------+
@@ -7950,7 +7951,7 @@ bool   LowestEquityInitialized = false;
 //+------------------------------------------------------------------+
 void MonitorLowestEquityRecovery()
 {
-   double currentEquity = AccountEquity();
+     currentEquity = AccountEquity();
 
    //==============================================================
    // FIRST RUN
@@ -9939,8 +9940,11 @@ void UpdateDashboard(DailyProtectionState &state)
 // 4. Calculate starting balance before this flip's closed profits
 // double startingBalance = AccountBalance() - realizedProfit;
 
+ 
+
    CreateDashboardLabel(DASH_PREFIX+"EMA_LAD_HIGH","HIGHEST Flip p/L : $"+DoubleToString(totalCycleProfit,2),tx,y+117,9,clrWhite);
-   CreateDashboardLabel(DASH_PREFIX+"EMA_LAD_LVL","CURRENT TIER   : LVL "+IntegerToString(currEmaLvl)+" (Step $"+DoubleToString((FlipLadderStepUSD*balancelomultipler),0)+")",tx,y+137,9,clrYellow);
+   // CreateDashboardLabel(DASH_PREFIX+"EMA_LAD_LVL","CURRENT TIER   : LVL "+IntegerToString(currEmaLvl)+" (Step $"+DoubleToString((FlipLadderStepUSD*balancelomultipler),0)+")",tx,y+137,9,clrYellow);
+   CreateDashboardLabel(DASH_PREFIX+"EMA_LAD_LVL","Equity Lowest/Current  $"+DoubleToString(LowestEquity,2)+" /  $"+DoubleToString((currentEquity),0)+"",tx,y+137,9,clrYellow);
 
    string nextLevelLine = StringConcatenate("NEXT LEVEL HIT : $", DoubleToString(emaNextTarget, 2), " / $", DoubleToString(expectedEquity, 2));
    string displayLine = StringConcatenate("LOCKED PROFIT : $", DoubleToString(emaLockedPrf, 2), "  /  EQUITY : $", DoubleToString(AccountEquity(), 2));
