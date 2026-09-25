@@ -58,7 +58,7 @@ double CloseOrdersAtProfitFromOpeningBalanceEveryStep =5;//10;//25;// 5;// 5X st
 
 //chage 55
 // double closeAllOrdersLowestEquityIncreasePercentage=20;
-  double closeAllOrdersLowestEquityIncreasePercentage =10;// 50.0;
+  double closeAllOrdersLowestEquityIncreasePercentage =100;//50;// 50.0;
   // equity is going down and increased equity more than 50% even in loss then close all orders 
   //$100 $50 to $75 close all orders - close one side orders if any 
 
