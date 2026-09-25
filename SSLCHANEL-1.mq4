@@ -24,10 +24,10 @@
 //https://github.com/devcrunch2025/exnessStratagiesExperts/commit/9ee1d4e897a5bcd34d5d5825dc2771c6eca50b78
 
 //V3001 25-09-2026 08.00 Aug 2nd to Aug 4th $100 to $400
-https://github.com/devcrunch2025/exnessStratagiesExperts/commit/f4f1c1340be330cd32a75da3f3a9b4bd5f4e4cf3
+//https://github.com/devcrunch2025/exnessStratagiesExperts/commit/f4f1c1340be330cd32a75da3f3a9b4bd5f4e4cf3
 
 
-string glbVersion = "V3001 25-09-2026 08.00 Aug 2nd to Aug 4th $100 to $400 balance ST-20 Partialclose, Close orders $1X close-   FlipLadderStepUSD 7 DailyEquityStopUSD 50%  TargetProfitPerFlipUSD 10%";
+string glbVersion = "V3002 25-09-2026 14.00 closeAllOrdersLowestEquityIncreasePercentage Aug 2nd to Aug 4th $100 to $400 balance ST-20 Partialclose, Close orders $1X close-   FlipLadderStepUSD 7 DailyEquityStopUSD 50%  TargetProfitPerFlipUSD 10%";
 
 
 double DailyEquityStopUSD  =50;//20*2.5;//10;//20;// 10;//30.0; close all orders at $50Xmultipler
@@ -54,6 +54,14 @@ double modifyBasketProfitOrdersLotXPercent=10.0;//20 % means 0.05 X 20 modify or
 
 //chance 5
 double CloseOrdersAtProfitFromOpeningBalanceEveryStep =5;//10;//25;// 5;// 5X step close orders every step
+
+
+//chage 55
+// double closeAllOrdersLowestEquityIncreasePercentage=20;
+  double closeAllOrdersLowestEquityIncreasePercentage =20;// 50.0;
+  // equity is going down and increased equity more than 50% even in loss then close all orders 
+  //$100 $50 to $75 close all orders - close one side orders if any 
+
 
 
 
@@ -1894,6 +1902,7 @@ void OnTick()
      } // <-- End of new candle block
    DrawMomentumMarkers();
    CloseOppositeOrdersOnEmaDistance();
+   MonitorLowestEquityRecovery();
 // ==========================================================
 // 5-MINUTE TIMER CHECKS (RUNS EVERY TICK, OUTSIDE BAR BLOCK)
 // ==========================================================
@@ -7918,6 +7927,113 @@ void CheckDynamicStepLadder()
         }
      }
   }
+
+  //+------------------------------------------------------------------+
+//| Dynamic Lowest Equity Recovery                                   |
+//|                                                                  |
+//| Logic:                                                           |
+//| 1. Store the lowest equity reached                               |
+//| 2. If equity falls further, update LowestEquity                  |
+//| 3. When equity recovers 20% from LowestEquity:                  |
+//|      - Call ModifyOpenOrdersToSecureProfit()                     |
+//|      - Set LowestEquity = current equity                         |
+//| 4. Continue monitoring indefinitely                              |
+//+------------------------------------------------------------------+
+
+
+double LowestEquity = 0.0;
+bool   LowestEquityInitialized = false;
+
+
+//+------------------------------------------------------------------+
+//| Monitor Lowest Equity Recovery                                   |
+//+------------------------------------------------------------------+
+void MonitorLowestEquityRecovery()
+{
+   double currentEquity = AccountEquity();
+
+   //==============================================================
+   // FIRST RUN
+   //==============================================================
+   if(!LowestEquityInitialized)
+   {
+      LowestEquity = currentEquity;
+      LowestEquityInitialized = true;
+
+      Print("EQUITY MONITOR STARTED",
+            " | Current Equity = ",
+            DoubleToString(currentEquity, 2),
+            " | Lowest Equity = ",
+            DoubleToString(LowestEquity, 2));
+
+      return;
+   }
+
+
+   //==============================================================
+   // EQUITY MAKES A NEW LOW
+   //==============================================================
+   if(currentEquity < LowestEquity)
+   {
+      LowestEquity = currentEquity;
+
+      Print("NEW LOWEST EQUITY",
+            " | Lowest Equity = ",
+            DoubleToString(LowestEquity, 2),
+            " | Current Equity = ",
+            DoubleToString(currentEquity, 2));
+
+      return;
+   }
+
+
+   //==============================================================
+   // CALCULATE RECOVERY TARGET
+   //
+   // Example:
+   // Lowest Equity = $50
+   // Recovery = 20%
+   // Target = $60
+   //==============================================================
+   double recoveryTarget =
+      LowestEquity * (1.0 + closeAllOrdersLowestEquityIncreasePercentage / 100.0);
+
+
+   //==============================================================
+   // EQUITY RECOVERED 20%
+   //==============================================================
+   if(currentEquity >= recoveryTarget)
+   {
+      Print("========================================");
+      Print("EQUITY RECOVERY TARGET REACHED");
+      Print("Lowest Equity   = ",
+            DoubleToString(LowestEquity, 2));
+      Print("Current Equity  = ",
+            DoubleToString(currentEquity, 2));
+      Print("Recovery Target = ",
+            DoubleToString(recoveryTarget, 2));
+      Print("Recovery %      = ",
+            DoubleToString(closeAllOrdersLowestEquityIncreasePercentage, 2), "%");
+      Print("Calling ModifyOpenOrdersToSecureProfit()");
+      Print("========================================");
+
+
+      //==============================================================
+      // CALL YOUR EXISTING FUNCTION
+      //==============================================================
+      ModifyOpenOrdersToSecureProfit();
+
+
+      //==============================================================
+      // RESET LOWEST EQUITY TO CURRENT EQUITY
+      //==============================================================
+      LowestEquity = currentEquity;
+
+      Print("LOWEST EQUITY RESET",
+            " | New Lowest Equity = ",
+            DoubleToString(LowestEquity, 2));
+   }
+}
 // //+------------------------------------------------------------------+
 // //| Step-by-Step Profit Ladder ($5, $10, $15, etc.)                  |
 // //+------------------------------------------------------------------+
