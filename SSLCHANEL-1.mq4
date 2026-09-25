@@ -23,6 +23,8 @@
 //every Flip Stop 20%
 //https://github.com/devcrunch2025/exnessStratagiesExperts/commit/9ee1d4e897a5bcd34d5d5825dc2771c6eca50b78
 
+//V3001 25-09-2026 08.00 Aug 2nd to Aug 4th $100 to $400
+https://github.com/devcrunch2025/exnessStratagiesExperts/commit/f4f1c1340be330cd32a75da3f3a9b4bd5f4e4cf3
 
 
 string glbVersion = "V3001 25-09-2026 08.00 Aug 2nd to Aug 4th $100 to $400 balance ST-20 Partialclose, Close orders $1X close-   FlipLadderStepUSD 7 DailyEquityStopUSD 50%  TargetProfitPerFlipUSD 10%";
