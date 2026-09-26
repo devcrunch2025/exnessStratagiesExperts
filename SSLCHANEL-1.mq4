@@ -27,7 +27,7 @@
 //https://github.com/devcrunch2025/exnessStratagiesExperts/commit/f4f1c1340be330cd32a75da3f3a9b4bd5f4e4cf3
 
 
-string glbVersion = "V3004 26-09-2026 16.00 Old dayprofitladder is disabled Aug 2nd to Aug 4th $100 to $400 balance ST-20 Partialclose, Close orders $1X close-   FlipLadderStepUSD 7 DailyEquityStopUSD 50%  TargetProfitPerFlipUSD 10%";
+string glbVersion = "V3005 26-09-2026 23.00 Old dayprofitladder is disabled Aug 2nd to Aug 4th $100 to $400 balance ST-20 Partialclose, Close orders $1X close-   FlipLadderStepUSD 7 DailyEquityStopUSD 50%  TargetProfitPerFlipUSD 10%";
 
 
 double DailyEquityStopUSD  =50;//20*2.5;//10;//20;// 10;//30.0; close all orders at $50Xmultipler
@@ -37,7 +37,7 @@ double TargetProfitPerFlipUSD =20;//10;//10*2;//10;//5;//20;// 10.0; close all o
 
 
 //Chance 1
-double SecureOneDollarProfitPerOrder=1.0; //1X set modify order at profit $1(any lot)
+double SecureOneDollarProfitPerOrder=1.0*1; //1X set modify order at profit $1(any lot)
 
 //chance 2
 int partialClose01in05IndividualPercentage=20;//10;//2*2;//per lot 0.01//if 0.05 close 0.01 at total profit of 20% means close 0.01 lot
@@ -66,7 +66,7 @@ double closeAllOrdersLowestEquityIncreasePercentage =20;//100//50;// 50.0;
 
 
 //chance 6 - basket
-double basketBUYorSELLProfitModifyUSD=1; //if all combined basket BUY basket is profit >0 then modify stoploss
+double basketBUYorSELLProfitModifyUSD=1*1; //if all combined basket BUY basket is profit >0 then modify stoploss
 
 
 int      g_dayNumber = -1;
@@ -4017,16 +4017,16 @@ int SafeOrderSend(string symbol,int orderType,double lots,double price,int slipp
 
 //minimum angele with price diff condition
 
-   if(MathAbs(GlobalEmaAngle30)<1 && MathAbs(Get30MinutePriceDifference())<100)
-     {
-      Print("TRADE BLOCKED | BOTH SIDES Angle below 2 degrees. No trade allowed.");
-      TradeMonitoringLog="TRADE BLOCKED | BOTH SIDES Angle below 2 degrees. No trade allowed.";
-      return -1;;
-     }
-   else
-     {
-      TradeMonitoringLog="";
-     }
+   // if(MathAbs(GlobalEmaAngle30)<1 && MathAbs(Get30MinutePriceDifference())<100)
+   //   {
+   //    Print("TRADE BLOCKED | BOTH SIDES Angle below 2 degrees. No trade allowed.");
+   //    TradeMonitoringLog="TRADE BLOCKED | BOTH SIDES Angle below 2 degrees. No trade allowed.";
+   //    return -1;;
+   //   }
+   // else
+   //   {
+   //    TradeMonitoringLog="";
+   //   }
 
 // Determine whether to bypass EmaFlipTime for either Buy or Sell
    bool ignoreFlipTime = false;
@@ -4066,14 +4066,14 @@ int SafeOrderSend(string symbol,int orderType,double lots,double price,int slipp
 //   }
 
 
-   if(IsEmaWEAKDistanceReduced50PercentFromPeak(orderType))//weak
-     {
-      Print("TRADE BLOCKED | IsEmaWEAKDistanceReduced50PercentFromPeak");
+   // if(IsEmaWEAKDistanceReduced50PercentFromPeak(orderType))//weak
+   //   {
+   //    Print("TRADE BLOCKED | IsEmaWEAKDistanceReduced50PercentFromPeak");
 
-      return -1;;
+   //    return -1;;
 
 
-     }
+   //   }
 
 // if(GlobalEmaAngle30 < -2  )
 //   {
@@ -5974,7 +5974,7 @@ void ChangeLots(double OpenPL, string reason, int orderType, int stoplevelStep)
 
 
 
-   if(IsHeavyLotOrderNearBy(orderType, Lots, 300) && Lots>=0.02)
+   if(IsHeavyLotOrderNearBy(orderType, Lots, 200) && Lots>=0.02)
       Lots = 0.01;
 
 // Safety catch
