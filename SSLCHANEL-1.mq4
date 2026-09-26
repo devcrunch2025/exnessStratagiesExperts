@@ -200,11 +200,11 @@ double closeOppositeLossThreshold =0.01;
 bool DeleteOppositePendingOnSignal = true;
 bool EnableProfitReEntryStop = true;
 double MinimumClosedProfitUSD = -9;
-double ProfitReEntryGapRaw = 25;
-double MinimumSameOrderGapRawReEntry =20;// 50;
+double ProfitReEntryGapRaw =5;// 25;
+double MinimumSameOrderGapRawReEntry =10;//20;// 50;
 // double MinimumSameOrderGapRawSSLLongShort =50;// 50;
-double MinimumSameOrderGapRawMatched =20;//50;//20;// 50;
-double MinimumSameOrderGapRawUnmatched =20;// 100;
+double MinimumSameOrderGapRawMatched =10;//20;//50;//20;// 50;
+double MinimumSameOrderGapRawUnmatched =10;//20;// 100;
 
 double angleBlockAboveRule = 3;//1.0; no opposite order above 3 angle
 double plBlockAboveRule = 10.0;
