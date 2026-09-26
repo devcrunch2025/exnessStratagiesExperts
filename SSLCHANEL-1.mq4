@@ -27,7 +27,7 @@
 //https://github.com/devcrunch2025/exnessStratagiesExperts/commit/f4f1c1340be330cd32a75da3f3a9b4bd5f4e4cf3
 
 
-string glbVersion = "V3005 26-09-2026 23.00 Old dayprofitladder is disabled Aug 2nd to Aug 4th $100 to $400 balance ST-20 Partialclose, Close orders $1X close-   FlipLadderStepUSD 7 DailyEquityStopUSD 50%  TargetProfitPerFlipUSD 10%";
+string glbVersion = "V3006 26-09-2026 23.00 Open Opposite orders Aug 2nd to Aug 4th $100 to $400 balance ST-20 Partialclose, Close orders $1X close-   FlipLadderStepUSD 7 DailyEquityStopUSD 50%  TargetProfitPerFlipUSD 10%";
 
 
 double DailyEquityStopUSD  =50;//20*2.5;//10;//20;// 10;//30.0; close all orders at $50Xmultipler
@@ -4081,7 +4081,7 @@ int SafeOrderSend(string symbol,int orderType,double lots,double price,int slipp
 //    return false;
 //   }
 // --- SEPARATE CONDITION: Strict block for opposite orders during strong uptrend (2 to 6 degrees) ---
-   if((StringFind(OrderComment(), "RECOVERY_") <0) && EMADirection != -1 && (orderType == OP_SELL || orderType == OP_SELLSTOP || orderType == OP_SELLLIMIT))
+  /* if((StringFind(OrderComment(), "RECOVERY_") <0) && EMADirection != -1 && (orderType == OP_SELL || orderType == OP_SELLSTOP || orderType == OP_SELLLIMIT))
      {
       Print("TRADE SELL BLOCKED | Strict opposite block: EMA trend is strong uptrend  ");
       return -1;
@@ -4092,7 +4092,7 @@ int SafeOrderSend(string symbol,int orderType,double lots,double price,int slipp
      {
       Print("TRADE BUY BLOCKED | Strict opposite block: EMA trend is strong downtrend  ");
       return -1;
-     }
+     }*/
 // --- STRICT EMA TREND FILTER WITH EXHAUSTION ALLOWANCE ---
 
 // --- STRICT EMA TREND FILTER WITH EXHAUSTION ALLOWANCE ---
@@ -4188,6 +4188,7 @@ int SafeOrderSend(string symbol,int orderType,double lots,double price,int slipp
       //   }
 
       // 4. P&L & SSL Direction Block
+      /*
       int currentSSL = GlobalSSLDirection;
       int requestedDirection = (orderType == OP_BUY || orderType == OP_BUYSTOP || orderType == OP_BUYLIMIT) ? 1 : -1;
       int baseMarketType     = (requestedDirection == 1) ? OP_BUY : OP_SELL;
@@ -4198,6 +4199,7 @@ int SafeOrderSend(string symbol,int orderType,double lots,double price,int slipp
          Print("TRADE BLOCKED | Floating PL <= -", plBlockAboveRule, " and SSL does not match requested direction.");
          return -1;
         }
+         */
      }
    else
      {
@@ -9005,6 +9007,9 @@ void ManageProfitLadder()
          existingPriceDistance = OrderStopLoss() - OrderOpenPrice();
       if(orderType == OP_SELL)
          existingPriceDistance = OrderOpenPrice() - OrderStopLoss();
+
+
+         
       // --- NEW LOGIC: Reduce ladder1Profit by half if order is older than 1 hour or lots >= 0.03 ---
       // if(TimeCurrent() - OrderOpenTime() > 60*60 || orderLots >= 0.03)
 
@@ -9014,7 +9019,7 @@ void ManageProfitLadder()
          ladder1Profit = ladder1Profit / 2.0;
         }
 
-      if(MathAbs(existingPriceDistance) == 100 && orderLots==0.01)
+      if((MathAbs(existingPriceDistance) == 100 && orderLots==0.01) || (GlobalSSLDirection != EMADirection))
         {
          ladder1Profit = 0.20; // Or scale dynamically: (slDistance / 100.0) * 0.10
         }
