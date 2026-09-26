@@ -27,7 +27,7 @@
 //https://github.com/devcrunch2025/exnessStratagiesExperts/commit/f4f1c1340be330cd32a75da3f3a9b4bd5f4e4cf3
 
 
-string glbVersion = "V3003 25-09-2026 20.00 closeAllOrdersLowestEquityIncreasePercentage Aug 2nd to Aug 4th $100 to $400 balance ST-20 Partialclose, Close orders $1X close-   FlipLadderStepUSD 7 DailyEquityStopUSD 50%  TargetProfitPerFlipUSD 10%";
+string glbVersion = "V3004 26-09-2026 16.00 Old dayprofitladder is disabled Aug 2nd to Aug 4th $100 to $400 balance ST-20 Partialclose, Close orders $1X close-   FlipLadderStepUSD 7 DailyEquityStopUSD 50%  TargetProfitPerFlipUSD 10%";
 
 
 double DailyEquityStopUSD  =50;//20*2.5;//10;//20;// 10;//30.0; close all orders at $50Xmultipler
@@ -258,7 +258,7 @@ double RecoveryMinDistanceRaw =300;//100;//20;// 200.0;
 double DayProfitLadder1Amount = 5;
 
 // ===== DYNAMIC DAY PROFIT LADDER =====
-bool   EnableDayProfitLadder = true;//false;//true;
+bool   EnableDayProfitLadder =false; //true;//false;//true;
 double DayProfitLadder1Percent = 25;
 double DayProfitLadder2Percent = 10;
 double DayProfitLadderLockRatio = 10;
@@ -6546,6 +6546,7 @@ void CloseAndDeleteAllEAOrdersOnTradingStop()
 
    Print("CloseAndDeleteAllEAOrdersOnTradingStop");
    ModifyOpenOrdersToSecureProfit();
+   
    return ;
 
    int freshPendingTickets[1000];
