@@ -27,7 +27,7 @@
 //https://github.com/devcrunch2025/exnessStratagiesExperts/commit/f4f1c1340be330cd32a75da3f3a9b4bd5f4e4cf3
 
 
-string glbVersion = "V4001  27-09-2026 10.00 FINAL -Day 100% Aug 1st to Aug 5th $100 to $500- Attached Image  balance ST-20 Partialclose, Close orders $1X close-   FlipLadderStepUSD 7 DailyEquityStopUSD 50%  TargetProfitPerFlipUSD 10%";
+string glbVersion = "V4002  27-09-2026 10.00 FINAL -Day 100% Aug 1st to Aug 5th $100 to $500- Attached Image  balance ST-20 Partialclose, Close orders $1X close-   FlipLadderStepUSD 7 DailyEquityStopUSD 50%  TargetProfitPerFlipUSD 10%";
 
 
 double DailyEquityStopUSD  =100;//50;//20*2.5;//10;//20;// 10;//30.0; close all orders at $50Xmultipler
@@ -62,11 +62,13 @@ double closeAllOrdersLowestEquityIncreasePercentage =20;//100//50;// 50.0;
 // equity is going down and increased equity more than 50% even in loss then close all orders
 //$100 $50 to $75 close all orders - close one side orders if any
 
+//close all orders every step $50 equity changed - not required 
+double   g_stepSize            =1000;// 50.0; // The step increment ($50)
 
 
 
 //chance 6 - basket
-double basketBUYorSELLProfitModifyUSD=1*1; //if all combined basket BUY basket is profit >0 then modify stoploss
+double basketBUYorSELLProfitModifyUSD=1*5; //if all combined basket BUY basket is profit >0 then modify stoploss
 
 
 int      g_dayNumber = -1;
@@ -94,7 +96,6 @@ double ActiveEquityBaseline = 0.0; // Add this new variable
 
 datetime g_lastLadderCloseTime = 0;   // Stores timestamp of last basket reset
 double   g_peakCycleProfit     = 0.0; // Tracks the highest profit reached in the current cycle
-double   g_stepSize            = 50.0; // The step increment ($5)
 
 
 
@@ -5539,6 +5540,9 @@ void ModifyOpenOrdersToSecureProfit()
            }
         }
      }
+
+
+     ForceDeleteAllPendingOrders();
   }
 
 
