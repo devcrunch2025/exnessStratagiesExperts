@@ -62,13 +62,13 @@ double closeAllOrdersLowestEquityIncreasePercentage =20;//100//50;// 50.0;
 // equity is going down and increased equity more than 50% even in loss then close all orders
 //$100 $50 to $75 close all orders - close one side orders if any
 
-//close all orders every step $50 equity changed - not required 
+//close all orders(buy and sell) every step $50 equity changed - not required 
 double   g_stepSize            =1000;// 50.0; // The step increment ($50)
 
 
 
-//chance 6 - basket
-double basketBUYorSELLProfitModifyUSD=1*5; //if all combined basket BUY basket is profit >0 then modify stoploss
+//chance 6 - basket//IMPORTANT TO CLOSE ONE SIDE OPEN ORDERS as soon as possible
+double basketBUYorSELLProfitModifyUSD=1*1; //if all combined basket BUY OR SELL Only basket is profit >0 then modify stoploss
 
 
 int      g_dayNumber = -1;
