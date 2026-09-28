@@ -7505,6 +7505,9 @@ void CheckForProfitableClosedOrder(DailyProtectionState &state)
       if(currentSSL != 0 && currentSSL != closedDirection)
          return;
 
+         if(GlobalSSLDirection != EMADirection)
+         return ;
+
       int orderDurationSeconds = (int)(latestCloseTime - latestOpenTime);
       if(batchProfit >= 0.0 || orderDurationSeconds < 60 * 30 * 1)
         {
