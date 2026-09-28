@@ -6254,6 +6254,8 @@ void CheckRecoveryOrders()
       if(recoveryLots <= 0)
          continue;
 
+         StopLossUSD=OriginalStopLossUSD;
+
       int recoveryTicket = -1;
       double slDistance = CalculatePriceDistanceUSD(StopLossUSD, recoveryLots);
       double tpDistance = CalculatePriceDistanceUSD(5.0, recoveryLots);
