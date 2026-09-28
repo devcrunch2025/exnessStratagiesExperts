@@ -27,7 +27,7 @@
 //https://github.com/devcrunch2025/exnessStratagiesExperts/commit/f4f1c1340be330cd32a75da3f3a9b4bd5f4e4cf3
 
 
-string glbVersion = "V5001  27-09-2026 15.00  TEST RESULTS Aug 1st to Aug 10th $100 to $1000- Attached Image  balance ST-20 Partialclose, Close orders $1X close-   FlipLadderStepUSD 7 DailyEquityStopUSD 50%  TargetProfitPerFlipUSD 10%";
+string glbVersion = "V5002  28-09-2026 19.00 Recovery exclude  Aug 1st to Aug 10th $100 to $1000- Attached Image  balance ST-20 Partialclose, Close orders $1X close-   FlipLadderStepUSD 7 DailyEquityStopUSD 50%  TargetProfitPerFlipUSD 10%";
 
 
 double DailyEquityStopUSD  =100;//50;//20*2.5;//10;//20;// 10;//30.0; close all orders at $50Xmultipler
@@ -911,7 +911,7 @@ int GetSSLSignal()
 //+------------------------------------------------------------------+
 double CalculateLotSize()
   {
-   double calculatedLots = (AccountBalance() / 100000.0) * Lots * AccountMultiplierLOT;
+   double calculatedLots = (AccountEquity() / 100000.0) * Lots * AccountMultiplierLOT;
    double maxLots = MarketInfo(Symbol(), MODE_MAXLOT);
    double minLots = MarketInfo(Symbol(), MODE_MINLOT);
    calculatedLots = MathMin(calculatedLots, maxLots);
@@ -1590,7 +1590,7 @@ void CloseOppositeOrdersOnEmaDistance()
 int OnInit()
   {
    int lotMultiplierDiv = (AccountMultiplierLOT > 0) ? AccountMultiplierLOT : 500;
-   balancelomultipler = (int)(AccountBalance() / lotMultiplierDiv);
+   balancelomultipler = (int)(AccountEquity() / lotMultiplierDiv);
 
    if(balancelomultipler<=0)
       balancelomultipler=1;
@@ -1815,7 +1815,7 @@ void OnTick()
 
    int lotMultiplierDiv = (AccountMultiplierLOT > 0) ? AccountMultiplierLOT : 500;
 
-   balancelomultipler = (int)(AccountBalance() / lotMultiplierDiv);
+   balancelomultipler = (int)(AccountEquity() / lotMultiplierDiv);
    if(balancelomultipler<=0)
       balancelomultipler=1;
 
@@ -4528,6 +4528,12 @@ bool SafeOrderModify(int ticket,double openPrice,double stopLoss,double takeProf
    if(!OrderSelect(ticket,SELECT_BY_TICKET,MODE_TRADES))
       return false;
    int orderType=OrderType();
+
+      string comment = OrderComment();
+
+if(StringFind(comment, "RECOVERY_") == 0)
+         return false;
+
    RefreshRates();
    double requestedSL=stopLoss;
    if(requestedSL>0.0)
@@ -6023,7 +6029,7 @@ void ChangeLots(double OpenPL, string reason, int orderType, int stoplevelStep)
       Lots = MaxRecoveryLot;
 
    int lotMultiplierDiv = (AccountMultiplierLOT > 0) ? AccountMultiplierLOT : 500;
-   balancelomultipler = (int)(AccountBalance() / lotMultiplierDiv);
+   balancelomultipler = (int)(AccountEquity() / lotMultiplierDiv);
    if(balancelomultipler < 1)
       balancelomultipler = 1;
    Lots = Lots * balancelomultipler;
@@ -9030,10 +9036,14 @@ void ManageProfitLadder()
          ladder1Profit = 0.20; // Or scale dynamically: (slDistance / 100.0) * 0.10
         }
 
+        ladder1Profit=ladder1Profit*balancelomultipler;
+
       // -----------------------------------------------------------------------------
 
       double ladder2Profit = OriginalLadder2ProfitUSD * orderLots * 100.0;
       double ladder1StopMaxPrice = OriginalLadder1StopMaxPriceUSD * orderLots * 100.0;
+
+      ladder2Profit=ladder2Profit*balancelomultipler;
 
       double lockedProfit = 0.0;
 
@@ -9907,7 +9917,7 @@ void UpdateDashboard(DailyProtectionState &state)
    if(dayOfWeekDash == 0 || dayOfWeekDash == 6)
       dashboardSuggestedLot = MathMin(dashboardSuggestedLot, 0.02);
 
-   int dashboardLotMultiplier=(int)(AccountBalance()/AccountMultiplierLOT);
+   int dashboardLotMultiplier=(int)(AccountEquity()/AccountMultiplierLOT);
    if(dashboardLotMultiplier<1)
       dashboardLotMultiplier=1;
    double dashboardFinalLot=NormalizeLots(MathMin(0.10,dashboardSuggestedLot*dashboardLotMultiplier));
@@ -9943,7 +9953,9 @@ void UpdateDashboard(DailyProtectionState &state)
    CreateDashboardPanel(DASH_PREFIX+"HEADER",x,y,w,38,C'25,70,115');
    CreateDashboardLabel(DASH_PREFIX+"TITLE",glbVersion,tx,y+8,11,clrWhite);
    CreateDashboardLabel(DASH_PREFIX+"SUBTITLE",Symbol()+"  |  "+TimeframeToString(Period()),tx+w-125,y+10,8,clrLightGray);
-   CreateDashboardLabel(DASH_PREFIX+"STATUS", "STATUS       : "+statusText,tx,y+47,10,statusColor);
+   CreateDashboardLabel(DASH_PREFIX+"withdraw", "Withdraw : 20 % from the Profit",tx,y+47,10,statusColor);
+
+   CreateDashboardLabel(DASH_PREFIX+"STATUS", "STATUS       : "+statusText,tx,y+47,10,clrTomato);
    CreateDashboardLabel(DASH_PREFIX+"SIGNAL","SSL SIGNAL-30   : "+sslDirection+"  ("+strong+")"+" "+DoubleToString((GlobalEmaAngle30),2),tx,y+67,9,sslColor);
 
 // ================= 1. EMA FLIP PROFIT LADDER (SWAPPED TO TOP) =================
@@ -10036,7 +10048,7 @@ void UpdateDashboard(DailyProtectionState &state)
    if(lotMultiplierDiv<=0)
       lotMultiplierDiv=1;
 
-   int balancelomultipler = (int)(AccountBalance() / lotMultiplierDiv);
+   int balancelomultipler = (int)(AccountEquity() / lotMultiplierDiv);
    if(balancelomultipler < 1)
       balancelomultipler = 1;
    CreateDashboardLabel(DASH_PREFIX+"RISK_H","RISK & STOP-LOSS PROTECTION",tx,y+677,9,clrAqua);
