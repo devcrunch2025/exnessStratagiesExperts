@@ -1842,14 +1842,18 @@ void OnTick()
    UpdateMomentumBackground();
    UpdateDubaiTradingPauseDashboard();
    uint tickStartMs=GetTickCount();
-   OnTickCore();
-   OnTickPerformanceEnd(tickStartMs);
 
-   CheckEquityBalanceProfitTarget();
+    CheckEquityBalanceProfitTarget();
 
    CheckDynamicStepLadder();
 
    MonitorLowestEquityRecovery();
+   CloseOppositeOrdersOnEmaDistance();
+
+   OnTickCore();
+   OnTickPerformanceEnd(tickStartMs);
+
+  
 
 
 
@@ -1917,7 +1921,6 @@ void OnTick()
 
      } // <-- End of new candle block
    DrawMomentumMarkers();
-   CloseOppositeOrdersOnEmaDistance();
 
 // ==========================================================
 // 5-MINUTE TIMER CHECKS (RUNS EVERY TICK, OUTSIDE BAR BLOCK)
@@ -1955,6 +1958,9 @@ void OnTick()
         }
       PendingVShapeSellTime = 0;
      }
+
+
+     
   }
 //+------------------------------------------------------------------+
 //|                                                                  |
@@ -2421,8 +2427,7 @@ void OnTickCore()
       UpdateDashboardsThrottled(dailyState);
       return;
      }
-   if(Bars >= SSLPeriod + 20 && !TradeResetThisTick)
-      CheckForProfitableClosedOrder(dailyState);
+   
    if(TradeOperationFailedThisTick)
      {
       UpdateDashboardsThrottled(dailyState);
@@ -2522,6 +2527,9 @@ void OnTickCore()
               }
            }
         }
+
+        if(Bars >= SSLPeriod + 20 && !TradeResetThisTick)
+      CheckForProfitableClosedOrder(dailyState);
   }
 //+------------------------------------------------------------------+
 //| Evaluate Stored Missed Signals for Market Follow-Through         |
@@ -7511,11 +7519,11 @@ void CheckForProfitableClosedOrder(DailyProtectionState &state)
       if(currentSSL != 0 && currentSSL != closedDirection)
          return;
 
-         if(GlobalSSLDirection != EMADirection && !IsEmaWEAKDistanceReduced50PercentFromPeak())
-         return ;
+         // if(GlobalSSLDirection != EMADirection && !IsEmaWEAKDistanceReduced50PercentFromPeak())
+         // return ;
 
       int orderDurationSeconds = (int)(latestCloseTime - latestOpenTime);
-      if(batchProfit >= 0.0 || orderDurationSeconds < 60 * 30 * 1)
+      if(batchProfit >= 0.0 )//|| orderDurationSeconds < 60 * 30 * 1)
         {
          CreateProfitReEntryStop(latestType, latestClosePrice, state, (batchProfit < 0.0));
         }
