@@ -27,7 +27,7 @@
 //https://github.com/devcrunch2025/exnessStratagiesExperts/commit/f4f1c1340be330cd32a75da3f3a9b4bd5f4e4cf3
 
 
-string glbVersion = "V5006  29-09-2026 09.00 Recovery 5 exclude  Aug 1st to Aug 10th $100 to $1000- Attached Image  balance ST-20 Partialclose, Close orders $1X close-   FlipLadderStepUSD 7 DailyEquityStopUSD 50%  TargetProfitPerFlipUSD 10%";
+string glbVersion = "V5007  29-09-2026 17.00 Recovery 5 exclude  Aug 1st to Aug 10th $100 to $1000- Attached Image  balance ST-20 Partialclose, Close orders $1X close-   FlipLadderStepUSD 7 DailyEquityStopUSD 50%  TargetProfitPerFlipUSD 10%";
 
 
 double DailyEquityStopUSD  =100;//50;//20*2.5;//10;//20;// 10;//30.0; close all orders at $50Xmultipler
@@ -252,9 +252,9 @@ double   PostOrderSLTPVerifyLots[MAX_POST_ORDER_SLTP_VERIFY];
 bool EnableRecoveryOrders =true;// true;
 double RecoveryTriggerLossUSD =1;//2;//1;//0.50;// 2;
 double RecoveryLotMultiplier = 1;
-int MaxRecoveryOrders = 5;//1;
+int MaxRecoveryOrders =10;// 5;//1;
 double RecoveryBasketProfitUSD = 1;
-double RecoveryMinDistanceRaw =1000;//100;//20;// 200.0;
+double RecoveryMinDistanceRaw =300;//1000;//100;//20;// 200.0;
 
 double DayProfitLadder1Amount = 5;
 
@@ -603,7 +603,7 @@ void SecureDistanceProfitLadder()
       if(canModify)
         {
          ResetLastError();
-         bool modified = OrderModify(OrderTicket(), openPrice, newSL, OrderTakeProfit(), 0, clrDodgerBlue);
+         bool modified =SafeOrderModify(OrderTicket(), openPrice, newSL, OrderTakeProfit(), 0, clrDodgerBlue);
 
          if(modified)
            {
@@ -721,7 +721,7 @@ void SecureOneDollarProfit()
       if(canModify)
         {
          ResetLastError();
-         bool modified = OrderModify(OrderTicket(), openPrice, newSL, OrderTakeProfit(), 0, clrGreen);
+         bool modified =SafeOrderModify(OrderTicket(), openPrice, newSL, OrderTakeProfit(), 0, clrGreen);
 
          if(modified)
            {
@@ -2228,7 +2228,7 @@ bool ModifyOrderStopLossByTicket(int ticket, double newStopLoss)
      }
 
 // Send the modification request
-   bool modified = OrderModify(ticket, openPrice, newStopLoss, currentTP, 0, clrYellow);
+   bool modified =SafeOrderModify(ticket, openPrice, newStopLoss, currentTP, 0, clrYellow);
 
    if(!modified)
      {
@@ -4327,7 +4327,7 @@ bool SafeOrderCloseNew(int ticket, double lots, int orderType, int slippage, col
          return false;
 
       ResetLastError();
-      bool modResult = OrderModify(ticket, openPrice, newStopLoss, currentTP, 0, arrowColor);
+      bool modResult =SafeOrderModify(ticket, openPrice, newStopLoss, currentTP, 0, arrowColor);
 
       if(modResult)
         {
@@ -4455,7 +4455,7 @@ bool SafeOrderClose(int ticket, double lots, int orderType, int slippage, color 
    ResetLastError();
 
 // Execute Modify instead of Close
-   bool result = OrderModify(ticket, openPrice, newSL, OrderTakeProfit(), 0, arrowColor);
+   bool result =SafeOrderModify(ticket, openPrice, newSL, OrderTakeProfit(), 0, arrowColor);
 
    if(result)
      {
@@ -5293,7 +5293,7 @@ void modifyOnlyBuyOrders()
                if(currentSL == 0.0 || newSL > currentSL)
                  {
                   ResetLastError();
-                  bool modified = OrderModify(ticket, openPrice, newSL, currentTP, 0, clrGreen);
+                  bool modified =SafeOrderModify(ticket, openPrice, newSL, currentTP, 0, clrGreen);
 
                   if(modified)
                     {
@@ -5354,7 +5354,7 @@ void modifyOnlySellOrders()
                if(currentSL == 0.0 || newSL < currentSL)
                  {
                   ResetLastError();
-                  bool modified = OrderModify(ticket, openPrice, newSL, currentTP, 0, clrRed);
+                  bool modified =SafeOrderModify(ticket, openPrice, newSL, currentTP, 0, clrRed);
 
                   if(modified)
                     {
@@ -5446,7 +5446,7 @@ void ModifyOpenOrdersToSecureProfit()
          if(MathAbs(newSL - currentSL) > Point / 2.0)
            {
             ResetLastError();
-            bool modified = OrderModify(ticket, OrderOpenPrice(), newSL, OrderTakeProfit(), 0, clrOrange);
+            bool modified =SafeOrderModify(ticket, OrderOpenPrice(), newSL, OrderTakeProfit(), 0, clrOrange);
 
             if(modified)
               {
@@ -5518,7 +5518,7 @@ void ModifyOpenOrdersToSecureProfit()
            {
             ResetLastError();
 
-            bool modified = OrderModify(
+            bool modified =SafeOrderModify(
                                ticket,
                                openPrice,
                                newSL,
@@ -5583,7 +5583,7 @@ void ModifyOpenOrdersToSecureProfitOld()
                // Only update if the new SL is higher than the entry price and better than the current SL
                // if(newSL > openPrice && (currentSL == 0 || newSL > currentSL))
                  {
-                  modified = OrderModify(ticket, openPrice, newSL, currentTP, 0, clrGreen);
+                  modified =SafeOrderModify(ticket, openPrice, newSL, currentTP, 0, clrGreen);
                  }
               }
             else
@@ -5595,7 +5595,7 @@ void ModifyOpenOrdersToSecureProfitOld()
                   // Only update if the new SL is lower than the entry price and better than the current SL
                   // if(newSL < openPrice && (currentSL == 0 || newSL < currentSL))
                     {
-                     modified = OrderModify(ticket, openPrice, newSL, currentTP, 0, clrRed);
+                     modified =SafeOrderModify(ticket, openPrice, newSL, currentTP, 0, clrRed);
                     }
                  }
 
@@ -5641,10 +5641,10 @@ double GetDynamicOrderGap(int orderType)
 //    multiplier = 1 + (int)MathFloor(MathAbs(pl) / 3.0);
 //   }
 
-   if(IsEmaWEAKDistanceReduced50PercentFromPeak(orderType) && multiplier<3)
-     {
-      multiplier=3;
-     }
+   // if(IsEmaWEAKDistanceReduced50PercentFromPeak(orderType) && multiplier<3)
+   //   {
+   //    multiplier=3;
+   //   }
 
 
    if((orderType == OP_BUY && currentSSL == 1) || (orderType == OP_SELL && currentSSL == -1))
@@ -6234,18 +6234,18 @@ void CheckRecoveryOrders()
       double newExecutionPrice = (parentType == OP_BUY) ? Ask : Bid;
       double adverseDistance = (parentType == OP_BUY) ? (OrderOpenPrice() - newExecutionPrice) : (newExecutionPrice - OrderOpenPrice());
 
-      if(parentType == OP_BUY  && EMADirection == 1)// && GlobalSSLDirection == 1 && emaAngle > 5.0)
-        {
-         if(adverseDistance < (RecoveryMinDistanceRaw / 2.0))
-            continue;
-        }
-      else
-         if(parentType == OP_SELL && EMADirection == -1)// && GlobalSSLDirection == -1  && emaAngle < -5.0)
-           {
-            if(adverseDistance < (RecoveryMinDistanceRaw / 2.0))
-               continue;
-           }
-         else
+      // if(parentType == OP_BUY  && EMADirection == 1)// && GlobalSSLDirection == 1 && emaAngle > 5.0)
+      //   {
+      //    if(adverseDistance < (RecoveryMinDistanceRaw / 2.0))
+      //       continue;
+      //   }
+      // else
+      //    if(parentType == OP_SELL && EMADirection == -1)// && GlobalSSLDirection == -1  && emaAngle < -5.0)
+      //      {
+      //       if(adverseDistance < (RecoveryMinDistanceRaw / 2.0))
+      //          continue;
+      //      }
+      //    else
            {
             if(adverseDistance < RecoveryMinDistanceRaw)
                continue;
@@ -6264,7 +6264,7 @@ void CheckRecoveryOrders()
 
       int recoveryTicket = -1;
       double slDistance = CalculatePriceDistanceUSD(StopLossUSD, recoveryLots);
-      double tpDistance = CalculatePriceDistanceUSD(5.0, recoveryLots);
+      double tpDistance = CalculatePriceDistanceUSD((RecoveryMinDistanceRaw/100)+1, recoveryLots);
 
       double recoverySL = 0.0;
       double recoveryTP = 0.0;
@@ -7511,7 +7511,7 @@ void CheckForProfitableClosedOrder(DailyProtectionState &state)
       if(currentSSL != 0 && currentSSL != closedDirection)
          return;
 
-         if(GlobalSSLDirection != EMADirection)
+         if(GlobalSSLDirection != EMADirection && !IsEmaWEAKDistanceReduced50PercentFromPeak())
          return ;
 
       int orderDurationSeconds = (int)(latestCloseTime - latestOpenTime);
@@ -8801,6 +8801,10 @@ void ManagePartialCloses()
       if(orderType != OP_BUY && orderType != OP_SELL)
          continue;
 
+
+           if(StringFind(OrderComment(), "RECOVERY_") == 0)
+         continue;
+
       double orderLots = OrderLots();
 
       // Check if order size meets your threshold (0.02 lots or higher)
@@ -8967,7 +8971,7 @@ void ManagePartialCloses()
 //                   newSL = NormalizeDouble(newSL, Digits);
 
 //                   // Modify the remaining active volume with the new profit-locking Stop Loss
-//                   bool modSuccess = OrderModify(ticket, openPrice, newSL, currentTP, 0, clrLime);
+//                   bool modSuccess =SafeOrderModify(ticket, openPrice, newSL, currentTP, 0, clrLime);
 //                   if(modSuccess)
 //                     {
 //                      Print("Successfully moved Stop Loss on remaining ", OrderLots(), " lots for Ticket #", ticket);
