@@ -27,7 +27,7 @@
 //https://github.com/devcrunch2025/exnessStratagiesExperts/commit/f4f1c1340be330cd32a75da3f3a9b4bd5f4e4cf3
 
 
-string glbVersion = "V5002  28-09-2026 19.00 Recovery exclude  Aug 1st to Aug 10th $100 to $1000- Attached Image  balance ST-20 Partialclose, Close orders $1X close-   FlipLadderStepUSD 7 DailyEquityStopUSD 50%  TargetProfitPerFlipUSD 10%";
+string glbVersion = "V5006  29-09-2026 09.00 Recovery 5 exclude  Aug 1st to Aug 10th $100 to $1000- Attached Image  balance ST-20 Partialclose, Close orders $1X close-   FlipLadderStepUSD 7 DailyEquityStopUSD 50%  TargetProfitPerFlipUSD 10%";
 
 
 double DailyEquityStopUSD  =100;//50;//20*2.5;//10;//20;// 10;//30.0; close all orders at $50Xmultipler
@@ -250,11 +250,11 @@ int      PostOrderSLTPVerifyType[MAX_POST_ORDER_SLTP_VERIFY];
 double   PostOrderSLTPVerifyLots[MAX_POST_ORDER_SLTP_VERIFY];
 
 bool EnableRecoveryOrders =true;// true;
-double RecoveryTriggerLossUSD =3;//2;//1;//0.50;// 2;
+double RecoveryTriggerLossUSD =1;//2;//1;//0.50;// 2;
 double RecoveryLotMultiplier = 1;
-int MaxRecoveryOrders = 1;
+int MaxRecoveryOrders = 5;//1;
 double RecoveryBasketProfitUSD = 1;
-double RecoveryMinDistanceRaw =300;//100;//20;// 200.0;
+double RecoveryMinDistanceRaw =1000;//100;//20;// 200.0;
 
 double DayProfitLadder1Amount = 5;
 
@@ -5673,15 +5673,15 @@ void ChangeLots(double OpenPL, string reason, int orderType, int stoplevelStep)
    bool isSSLSignal = (reason == "SSL Long" || reason == "SSL Short");
    bool isSSLProfitReEntry = (reason == "SSL Profit ReEntry Buy Stop" || reason == "SSL Profit ReEntry Sell Stop");
 
-   if(profitAfterFlip > 20)
-     {
-      MaxRecoveryLot = 0.01;
-     }
-   else
-      if(profitAfterFlip > 10)
-        {
-         MaxRecoveryLot = 0.03;
-        }
+   // if(profitAfterFlip > 20)
+   //   {
+   //    MaxRecoveryLot = 0.01;
+   //   }
+   // else
+   //    if(profitAfterFlip > 10)
+   //      {
+   //       MaxRecoveryLot = 0.03;
+   //      }
    /*
       if(isSSLSignal)
         {
@@ -5860,12 +5860,12 @@ void ChangeLots(double OpenPL, string reason, int orderType, int stoplevelStep)
 
 //   }
 
-   if(GlobalSSLDirection != EMADirection)
-     {
-      Lots = 0.01;
+   // if(GlobalSSLDirection != EMADirection)
+   //   {
+   //    Lots = 0.01;
 
 
-     }
+   //   }
 
 // if(MathAbs(GlobalEmaAngle30)<2)
 //   {
@@ -5886,7 +5886,7 @@ void ChangeLots(double OpenPL, string reason, int orderType, int stoplevelStep)
 //   }
    if(GlobalSSLDirection != EMADirection)
      {
-      Lots = 0.01;
+      Lots = 0.02;
 
 
      }
@@ -5905,6 +5905,12 @@ void ChangeLots(double OpenPL, string reason, int orderType, int stoplevelStep)
       Lots = 0.01;
 
      }
+
+      double emaDistance = GetDistanceToEMAPrice(orderType, true);
+          
+             
+               if(emaDistance < 50  )
+                  Lots = 0.01;
 
 
 
@@ -5989,7 +5995,7 @@ void ChangeLots(double OpenPL, string reason, int orderType, int stoplevelStep)
 
 
    if(IsHeavyLotOrderNearBy(orderType, Lots, 200) && Lots>=0.02)
-      Lots = 0.01;
+      Lots = 0.02;
 
 // Safety catch
 
@@ -9038,7 +9044,7 @@ void ManageProfitLadder()
 
       if((MathAbs(existingPriceDistance) == 100 && orderLots==0.01) || (GlobalSSLDirection != EMADirection))
         {
-         ladder1Profit = 0.20; // Or scale dynamically: (slDistance / 100.0) * 0.10
+         ladder1Profit = 0.20*orderLots*100; // Or scale dynamically: (slDistance / 100.0) * 0.10
         }
 
         ladder1Profit=ladder1Profit*balancelomultipler;
@@ -9958,7 +9964,7 @@ void UpdateDashboard(DailyProtectionState &state)
    CreateDashboardPanel(DASH_PREFIX+"HEADER",x,y,w,38,C'25,70,115');
    CreateDashboardLabel(DASH_PREFIX+"TITLE",glbVersion,tx,y+8,11,clrWhite);
    CreateDashboardLabel(DASH_PREFIX+"SUBTITLE",Symbol()+"  |  "+TimeframeToString(Period()),tx+w-125,y+10,8,clrLightGray);
-   CreateDashboardLabel(DASH_PREFIX+"withdraw", "Withdraw : 20 % from the Profit",tx,y+47,10,statusColor);
+   CreateDashboardLabel(DASH_PREFIX+"withdraw", "Withdraw : 20 % from the Profit",tx,y+20,10,statusColor);
 
    CreateDashboardLabel(DASH_PREFIX+"STATUS", "STATUS       : "+statusText,tx,y+47,10,clrTomato);
    CreateDashboardLabel(DASH_PREFIX+"SIGNAL","SSL SIGNAL-30   : "+sslDirection+"  ("+strong+")"+" "+DoubleToString((GlobalEmaAngle30),2),tx,y+67,9,sslColor);
