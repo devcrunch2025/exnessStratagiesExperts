@@ -27,7 +27,7 @@
 //https://github.com/devcrunch2025/exnessStratagiesExperts/commit/f4f1c1340be330cd32a75da3f3a9b4bd5f4e4cf3
 
 
-string glbVersion = "V5008  29-09-2026 23.00 Recovery 5 exclude  Aug 1st to Aug 10th $100 to $1000- Attached Image  balance ST-20 Partialclose, Close orders $1X close-   FlipLadderStepUSD 7 DailyEquityStopUSD 50%  TargetProfitPerFlipUSD 10%";
+string glbVersion = "V5008  29-09-2026 23.00 Aug 1st to Aug 5th $100 to $1000 equity $500 - Attached Image  balance ST-20 Partialclose, Close orders $1X close-   FlipLadderStepUSD 7 DailyEquityStopUSD 50%  TargetProfitPerFlipUSD 10%";
 
 
 double DailyEquityStopUSD  =100;//50;//20*2.5;//10;//20;// 10;//30.0; close all orders at $50Xmultipler
@@ -206,6 +206,8 @@ double MinimumSameOrderGapRawReEntry =10;//20;// 50;
 // double MinimumSameOrderGapRawSSLLongShort =50;// 50;
 double MinimumSameOrderGapRawMatched =30;//10;//20;//50;//20;// 50;
 double MinimumSameOrderGapRawUnmatched =10;//10;//20;// 100;
+
+bool EnableReEntryNOnMatchingSignal=true;
 
 double angleBlockAboveRule = 3;//1.0; no opposite order above 3 angle
 double plBlockAboveRule = 10.0;
@@ -7522,8 +7524,12 @@ void CheckForProfitableClosedOrder(DailyProtectionState &state)
       // if(GlobalSSLDirection != EMADirection && !IsEmaWEAKDistanceReduced50PercentFromPeak())
       // return ;
 
+      if(!EnableReEntryNOnMatchingSignal && GlobalSSLDirection != EMADirection)
+      return ;
+
+
       int orderDurationSeconds = (int)(latestCloseTime - latestOpenTime);
-      if(batchProfit >= 0.0) //|| orderDurationSeconds < 60 * 30 * 1)
+      if(batchProfit >=-1)// 0.0) //|| orderDurationSeconds < 60 * 30 * 1)
         {
          CreateProfitReEntryStop(latestType, latestClosePrice, state, (batchProfit < 0.0));
         }
