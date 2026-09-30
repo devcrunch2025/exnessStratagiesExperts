@@ -27,7 +27,7 @@
 //https://github.com/devcrunch2025/exnessStratagiesExperts/commit/f4f1c1340be330cd32a75da3f3a9b4bd5f4e4cf3
 
 
-string glbVersion = "V5008  29-09-2026 23.00 Aug 1st to Aug 5th $100 to $1000 equity $500 - Attached Image  balance ST-20 Partialclose, Close orders $1X close-   FlipLadderStepUSD 7 DailyEquityStopUSD 50%  TargetProfitPerFlipUSD 10%";
+string glbVersion = "V6001  30-09-2026 12.00 Recovery Orders - Stoploss 30 - Attached Image  balance ST-20 Partialclose, Close orders $1X close-   FlipLadderStepUSD 7 DailyEquityStopUSD 50%  TargetProfitPerFlipUSD 10%";
 
 
 double DailyEquityStopUSD  =100;//50;//20*2.5;//10;//20;// 10;//30.0; close all orders at $50Xmultipler
@@ -41,7 +41,7 @@ double SecureOneDollarProfitPerOrder=1.0*1; //1X set modify order at profit $1(a
 
 //chance 2
 int partialClose01in05IndividualPercentage=20;//10;//2*2;//per lot 0.01//if 0.05 close 0.01 at total profit of 20% means close 0.01 lot
-int partialLossMultipler=10; //0.05 means $50 close 0.01 partial lot
+int partialLossMultipler=10;//stoploss /2 //0.05 means $50 close 0.01 partial lot
 //50/5=10
 //48/4=12
 // 45/3=15
@@ -138,7 +138,7 @@ int    ServerToDubaiOffsetHours   = 4;
 double MaxAllowedSpreadUSD = 35.0;
 int AccountMultiplierLOT = 500;
 double OriginalStopLossUSD = 20;//6;//4;
-double StopLossUSD =20;//10;//6;//10;//6;//5;//10;//2;// 10;
+double StopLossUSD =30;//20;//10;//6;//10;//6;//5;//10;//2;// 10;
 
 
 
@@ -253,10 +253,10 @@ double   PostOrderSLTPVerifyLots[MAX_POST_ORDER_SLTP_VERIFY];
 
 bool EnableRecoveryOrders =true;// true;
 double RecoveryTriggerLossUSD =1;//2;//1;//0.50;// 2;
-double RecoveryLotMultiplier = 1;
+double RecoveryLotMultiplier = 2;
 int MaxRecoveryOrders =10;// 5;//1;
 double RecoveryBasketProfitUSD = 1;
-double RecoveryMinDistanceRaw =300;//1000;//100;//20;// 200.0;
+double RecoveryMinDistanceRaw =2000;//2000;//1000;//1000;//100;//20;// 200.0;
 
 double DayProfitLadder1Amount = 5;
 
@@ -1597,6 +1597,9 @@ int OnInit()
    if(balancelomultipler<=0)
       balancelomultipler=1;
 
+
+   partialLossMultipler=  StopLossUSD/2;
+
    FlipLadderStepUSD=FlipLadderStepUSD*1* balancelomultipler ;//
    SecurebaselinePercentage = (100.0 - (StopLossUSD * 5.0)) / 100.0;//
 
@@ -2349,8 +2352,8 @@ void OnTickCore()
       UpdateDashboardsThrottled(dailyState);
       return;
      }
-
-   CheckRecoveryOrders();
+   if(LastLiveSignalCandle != Time[0])
+      CheckRecoveryOrders();
    if(TradeOperationFailedThisTick)
      {
       UpdateDashboardsThrottled(dailyState);
@@ -5916,7 +5919,7 @@ void ChangeLots(double OpenPL, string reason, int orderType, int stoplevelStep)
 
      }
 
-   // double emaDistance = GetDistanceToEMAPrice(orderType, true);
+// double emaDistance = GetDistanceToEMAPrice(orderType, true);
 
 
 // if(emaDistance < 50  )
@@ -6192,7 +6195,7 @@ void CheckRecoveryOrders()
    if(CountActiveRecoveryOrders() >= 1)
       return;
 
-   if(!IsEmaWEAKDistanceReduced50PercentFromPeak() && GlobalSSLDirection != 1 && EMADirection)
+   if(!IsEmaWEAKDistanceReduced50PercentFromPeak() || GlobalSSLDirection != EMADirection)
      {
       return;
 
@@ -6213,6 +6216,8 @@ void CheckRecoveryOrders()
 
       if(parentType != OP_BUY && parentType != OP_SELL)
          continue;
+
+
 
       // if(InpEnableEmaAngleFilter)
       //   {
@@ -6243,19 +6248,30 @@ void CheckRecoveryOrders()
 
       double newExecutionPrice = (parentType == OP_BUY) ? Ask : Bid;
       double adverseDistance = (parentType == OP_BUY) ? (OrderOpenPrice() - newExecutionPrice) : (newExecutionPrice - OrderOpenPrice());
+      if(adverseDistance < RecoveryMinDistanceRaw)
+         continue;
+      bool createRecovery=false;
 
-      // if(parentType == OP_BUY  && EMADirection == 1)// && GlobalSSLDirection == 1 && emaAngle > 5.0)
-      //   {
-      //    if(adverseDistance < (RecoveryMinDistanceRaw / 2.0))
-      //       continue;
-      //   }
+      if(parentType == OP_BUY  && GlobalSSLDirection == 1)// && GlobalSSLDirection == 1 && emaAngle > 5.0)
+        {
+
+         // continue;
+         createRecovery=true;
+        }
       // else
-      //    if(parentType == OP_SELL && EMADirection == -1)// && GlobalSSLDirection == -1  && emaAngle < -5.0)
-      //      {
-      //       if(adverseDistance < (RecoveryMinDistanceRaw / 2.0))
-      //          continue;
-      //      }
-      //    else
+      if(parentType == OP_SELL && EMADirection == -1)// && GlobalSSLDirection == -1  && emaAngle < -5.0)
+        {
+         // if(adverseDistance < (RecoveryMinDistanceRaw / 2.0))
+         //    continue;
+
+         createRecovery=true;
+        }
+      if(!createRecovery)
+        {
+         continue;
+
+        }
+
         {
          if(adverseDistance < RecoveryMinDistanceRaw)
             continue;
@@ -6273,8 +6289,8 @@ void CheckRecoveryOrders()
       StopLossUSD=OriginalStopLossUSD;
 
       int recoveryTicket = -1;
-      double slDistance = CalculatePriceDistanceUSD(StopLossUSD, recoveryLots);
-      double tpDistance = CalculatePriceDistanceUSD((RecoveryMinDistanceRaw/100)+1, recoveryLots);
+      double slDistance = CalculatePriceDistanceUSD(StopLossUSD*recoveryLots*100, recoveryLots);
+      double tpDistance = CalculatePriceDistanceUSD(20*recoveryLots*100, recoveryLots);
 
       double recoverySL = 0.0;
       double recoveryTP = 0.0;
@@ -6309,11 +6325,11 @@ void ManageRecoveryBasket()
    if(!EnableRecoveryOrders)
       return;
 
-   if(!IsEmaWEAKDistanceReduced50PercentFromPeak() && GlobalSSLDirection != 1 && EMADirection)
-     {
-      return;
+// if(!IsEmaWEAKDistanceReduced50PercentFromPeak() && GlobalSSLDirection != 1 && EMADirection)
+//   {
+//    return;
 
-     }
+//   }
 
    for(int i = OrdersTotal() - 1; i >= 0; i--)
      {
@@ -6352,8 +6368,8 @@ void ManageRecoveryBasket()
            }
         }
 
-      if(!parentFound)
-         continue;
+      // if(!parentFound)
+      //    continue;
 
       double basketProfit = recoveryProfit + parentProfit;
 
@@ -7525,7 +7541,7 @@ void CheckForProfitableClosedOrder(DailyProtectionState &state)
       // return ;
 
       if(!EnableReEntryNOnMatchingSignal && GlobalSSLDirection != EMADirection)
-      return ;
+         return ;
 
 
       int orderDurationSeconds = (int)(latestCloseTime - latestOpenTime);
@@ -8542,7 +8558,7 @@ void ManagePartialClosesLoss()
 
       if(MathAbs(orderLots - (0.05*balancelomultipler)) < 0.000001)
         {
-         lossTrigger = -(5.00*balancelomultipler*partialLossMultipler);// 50/5=10
+         lossTrigger = -(5.00*balancelomultipler*partialLossMultipler);// 50/5=10(partialLossMultipler==10)
         }
       else
          if(MathAbs(orderLots - 0.04) < 0.000001)
