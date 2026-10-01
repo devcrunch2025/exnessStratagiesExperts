@@ -27,11 +27,11 @@
 //https://github.com/devcrunch2025/exnessStratagiesExperts/commit/f4f1c1340be330cd32a75da3f3a9b4bd5f4e4cf3
 
 
-string glbVersion = "V6001  01-10-2026 11.00 FINAL VERSION - Attached Image  balance ST-20 Partialclose, Close orders $1X close-   FlipLadderStepUSD 7 DailyEquityStopUSD 50%  TargetProfitPerFlipUSD 10%";
+string glbVersion = "V6001  01-10-2026 11.00 FINAL VERSION -NO Flip Profit LIMIT  balance ST-20 Partialclose, Close orders $1X close-   FlipLadderStepUSD 7 DailyEquityStopUSD 50%  TargetProfitPerFlipUSD 10%";
 
 
-double DailyEquityStopUSD  =100;//50;//20*2.5;//10;//20;// 10;//30.0; close all orders at $50Xmultipler
-double TargetProfitPerFlipUSD =20;//10;//10*2;//10;//5;//20;// 10.0; close all orders at $20Xmultipler
+double DailyEquityStopUSD  =100*10;//50;//20*2.5;//10;//20;// 10;//30.0; close all orders at $50Xmultipler
+double TargetProfitPerFlipUSD =20*100;//10;//10*2;//10;//5;//20;// 10.0; close all orders at $20Xmultipler
 
 
 
@@ -6368,10 +6368,402 @@ void CheckEquityBalanceProfitTarget()
       ModifyOpenOrdersToSecureProfit();
      }
   }
+  void modifyOnlyBuyOrders()
+{
+   double basketBuyProfit = 0.0;
+
+
+   // ============================================================
+   // 1. CALCULATE TOTAL BUY BASKET PROFIT
+   // ============================================================
+
+   for(int i = OrdersTotal() - 1; i >= 0; i--)
+   {
+      if(!OrderSelect(i, SELECT_BY_POS, MODE_TRADES))
+         continue;
+
+
+      if(
+         OrderSymbol() == Symbol() &&
+         OrderMagicNumber() == MagicNumber &&
+         OrderType() == OP_BUY
+      )
+      {
+         basketBuyProfit +=
+            OrderProfit() +
+            OrderSwap() +
+            OrderCommission();
+      }
+   }
+
+
+   // ============================================================
+   // 2. ONLY MODIFY WHEN BUY BASKET PROFIT EXCEEDS TARGET
+   // ============================================================
+
+   double basketTrigger =
+      basketBUYorSELLProfitModifyUSD *
+      balancelomultipler;
+
+
+   if(basketBuyProfit <= basketTrigger)
+      return;
+
+
+   // ============================================================
+   // 3. REFRESH LIVE PRICE
+   // ============================================================
+
+   RefreshRates();
+
+
+   // ============================================================
+   // 4. LOOP THROUGH ALL BUY ORDERS
+   // ============================================================
+
+   for(int i = OrdersTotal() - 1; i >= 0; i--)
+   {
+      if(!OrderSelect(i, SELECT_BY_POS, MODE_TRADES))
+         continue;
+
+
+      if(
+         OrderSymbol() != Symbol() ||
+         OrderMagicNumber() != MagicNumber ||
+         OrderType() != OP_BUY
+      )
+      {
+         continue;
+      }
+
+
+      // =========================================================
+      // ORDER INFORMATION
+      // =========================================================
+
+      int ticket =
+         OrderTicket();
+
+      double openPrice =
+         OrderOpenPrice();
+
+      double currentSL =
+         OrderStopLoss();
+
+      double currentTP =
+         OrderTakeProfit();
+
+      double orderLots =
+         OrderLots();
+
+
+      if(orderLots <= 0.0)
+         continue;
+
+
+      // =========================================================
+      // CURRENT ORDER NET PROFIT
+      //
+      // This is the actual current profit including:
+      // Profit + Swap + Commission
+      // =========================================================
+
+      double currentOrderProfit =
+         OrderProfit() +
+         OrderSwap() +
+         OrderCommission();
+
+
+      // =========================================================
+      // $1 PROFIT GIVEBACK
+      //
+      // Example:
+      //
+      // Current profit = $5.00
+      // Protect        = $4.00
+      //
+      // Current profit = $2.30
+      // Protect        = $1.30
+      //
+      // Current profit = $1.00
+      // Protect        = $0.00
+      // =========================================================
+
+      double givebackUSD =
+         1.00 *
+         balancelomultipler;
+
+
+      // ---------------------------------------------------------
+      // Do not place a losing SL.
+      //
+      // If order profit <= $1, there isn't enough profit to
+      // protect current profit minus $1 without going below
+      // breakeven.
+      // ---------------------------------------------------------
+
+      if(currentOrderProfit < givebackUSD)
+         continue;
+
+
+      // =========================================================
+      // PROFIT WE WANT TO PROTECT
+      // =========================================================
+
+      double targetLockedProfit =
+         currentOrderProfit -
+         givebackUSD;
+
+
+      // =========================================================
+      // TICK INFORMATION
+      // =========================================================
+
+      double tickValue =
+         MarketInfo(
+            Symbol(),
+            MODE_TICKVALUE
+         );
+
+
+      double tickSize =
+         MarketInfo(
+            Symbol(),
+            MODE_TICKSIZE
+         );
+
+
+      if(
+         tickValue <= 0.0 ||
+         tickSize <= 0.0
+      )
+      {
+         Print(
+            "BUY BASKET SL SKIPPED - INVALID TICK DATA",
+            " | Ticket=", ticket,
+            " | TickValue=",
+            DoubleToString(tickValue, 8),
+            " | TickSize=",
+            DoubleToString(tickSize, 8)
+         );
+
+         continue;
+      }
+
+
+      // =========================================================
+      // CONVERT $1 GIVEBACK TO PRICE DISTANCE
+      //
+      // We are using the CURRENT BID as the reference.
+      //
+      // Example:
+      //
+      // Current Bid = 63000
+      // $1 price distance = 10
+      //
+      // New SL = 62990
+      //
+      // Therefore the SL is approximately $1 below the
+      // current order profit.
+      // =========================================================
+
+      double givebackPriceDistance =
+         (
+            givebackUSD /
+            (orderLots * tickValue)
+         )
+         * tickSize;
+
+
+      if(givebackPriceDistance <= 0.0)
+         continue;
+
+
+      // =========================================================
+      // CALCULATE NEW SL
+      //
+      // BUY:
+      //
+      // New SL = CURRENT BID - $1 PRICE DISTANCE
+      // =========================================================
+
+      double newSL =
+         Bid -
+         givebackPriceDistance;
+
+
+      newSL =
+         NormalizeDouble(
+            newSL,
+            Digits
+         );
+
+
+      // =========================================================
+      // SAFETY:
+      // NEW SL MUST BE ABOVE ENTRY IF WE ARE PROTECTING PROFIT
+      // =========================================================
+
+      if(newSL <= openPrice)
+      {
+         Print(
+            "BUY BASKET SL SKIPPED - SL NOT IN PROFIT",
+            " | Ticket=", ticket,
+            " | Entry=",
+            DoubleToString(openPrice, Digits),
+            " | Bid=",
+            DoubleToString(Bid, Digits),
+            " | NewSL=",
+            DoubleToString(newSL, Digits),
+            " | CurrentProfit=$",
+            DoubleToString(currentOrderProfit, 2),
+            " | TargetLock=$",
+            DoubleToString(targetLockedProfit, 2)
+         );
+
+         continue;
+      }
+
+
+      // =========================================================
+      // ONLY MOVE SL UP
+      // =========================================================
+
+      if(
+         currentSL > 0.0 &&
+         newSL <= currentSL
+      )
+      {
+         continue;
+      }
+
+
+      // =========================================================
+      // VERIFY SL HAS AT LEAST THE TARGET LOCK
+      // =========================================================
+
+      double actualLockedGrossProfit =
+         (
+            (newSL - openPrice) /
+            tickSize
+         )
+         *
+         (orderLots * tickValue);
+
+
+      double actualLockedNetProfit =
+         actualLockedGrossProfit +
+         OrderSwap() +
+         OrderCommission();
+
+
+      // ---------------------------------------------------------
+      // Because the target is current profit - $1,
+      // do not accidentally protect less than that.
+      // ---------------------------------------------------------
+
+      if(actualLockedNetProfit + 0.01 < targetLockedProfit)
+      {
+         Print(
+            "BUY BASKET SL SKIPPED - LOCK TOO LOW",
+            " | Ticket=", ticket,
+            " | CurrentProfit=$",
+            DoubleToString(currentOrderProfit, 2),
+            " | TargetLock=$",
+            DoubleToString(targetLockedProfit, 2),
+            " | ActualLock=$",
+            DoubleToString(actualLockedNetProfit, 2),
+            " | NewSL=",
+            DoubleToString(newSL, Digits)
+         );
+
+         continue;
+      }
+
+
+      // =========================================================
+      // LOG
+      // =========================================================
+
+      Print(
+         "BUY BASKET PROFIT PROTECTION",
+         " | Ticket=", ticket,
+         " | Entry=",
+         DoubleToString(openPrice, Digits),
+         " | CurrentProfit=$",
+         DoubleToString(currentOrderProfit, 2),
+         " | Giveback=$",
+         DoubleToString(givebackUSD, 2),
+         " | TargetLock=$",
+         DoubleToString(targetLockedProfit, 2),
+         " | CurrentBid=",
+         DoubleToString(Bid, Digits),
+         " | CurrentSL=",
+         DoubleToString(currentSL, Digits),
+         " | NewSL=",
+         DoubleToString(newSL, Digits),
+         " | ActualLock=$",
+         DoubleToString(actualLockedNetProfit, 2)
+      );
+
+
+      // =========================================================
+      // 5. MODIFY
+      //
+      // IMPORTANT:
+      //
+      // false = do NOT apply the half-distance profit-lock logic
+      // inside SafeOrderModify().
+      //
+      // This method has already calculated the exact SL.
+      // =========================================================
+
+      ResetLastError();
+
+
+      bool modified =
+         SafeOrderModify(
+            ticket,
+            openPrice,
+            newSL,
+            currentTP,
+            0,
+            clrGreen 
+         );
+
+
+      // =========================================================
+      // SUCCESS
+      // =========================================================
+
+      if(modified)
+      {
+         Print(
+            "BUY BASKET SL MODIFIED",
+            " | Ticket=", ticket,
+            " | CurrentProfit=$",
+            DoubleToString(currentOrderProfit, 2),
+            " | ProtectedProfit=$",
+            DoubleToString(targetLockedProfit, 2),
+            " | NewSL=",
+            DoubleToString(newSL, Digits)
+         );
+      }
+      else
+      {
+         Print(
+            "FAILED TO MODIFY BUY TICKET=",
+            ticket,
+            " | Error=",
+            GetLastError()
+         );
+      }
+   }
+}
 //+------------------------------------------------------------------+
 //| Modify ONLY BUY orders if total Buy Basket Profit > $1           |
 //+------------------------------------------------------------------+
-void modifyOnlyBuyOrders()
+void modifyOnlyBuyOrdersOld()
   {
    double basketBuyProfit = 0.0;
 
@@ -6428,11 +6820,439 @@ void modifyOnlyBuyOrders()
      }
   }
 
+void modifyOnlySellOrders()
+{
+   double basketSellProfit = 0.0;
 
+
+   // ============================================================
+   // 1. CALCULATE TOTAL SELL BASKET PROFIT
+   // ============================================================
+
+   for(int i = OrdersTotal() - 1; i >= 0; i--)
+   {
+      if(!OrderSelect(i, SELECT_BY_POS, MODE_TRADES))
+         continue;
+
+
+      if(
+         OrderSymbol() == Symbol() &&
+         OrderMagicNumber() == MagicNumber &&
+         OrderType() == OP_SELL
+      )
+      {
+         basketSellProfit +=
+            OrderProfit() +
+            OrderSwap() +
+            OrderCommission();
+      }
+   }
+
+
+   // ============================================================
+   // 2. BASKET PROFIT TRIGGER
+   // ============================================================
+
+   double basketTrigger =
+      basketBUYorSELLProfitModifyUSD *
+      balancelomultipler;
+
+
+   if(basketSellProfit <= basketTrigger)
+      return;
+
+
+   // ============================================================
+   // 3. REFRESH LIVE PRICE
+   // ============================================================
+
+   RefreshRates();
+
+
+   // ============================================================
+   // 4. MODIFY ALL SELL ORDERS
+   // ============================================================
+
+   for(int i = OrdersTotal() - 1; i >= 0; i--)
+   {
+      if(!OrderSelect(i, SELECT_BY_POS, MODE_TRADES))
+         continue;
+
+
+      if(
+         OrderSymbol() != Symbol() ||
+         OrderMagicNumber() != MagicNumber ||
+         OrderType() != OP_SELL
+      )
+      {
+         continue;
+      }
+
+
+      // =========================================================
+      // ORDER INFORMATION
+      // =========================================================
+
+      int ticket =
+         OrderTicket();
+
+      double openPrice =
+         OrderOpenPrice();
+
+      double currentSL =
+         OrderStopLoss();
+
+      double currentTP =
+         OrderTakeProfit();
+
+      double orderLots =
+         OrderLots();
+
+
+      if(orderLots <= 0.0)
+         continue;
+
+
+      // =========================================================
+      // CURRENT SELL ORDER NET PROFIT
+      // =========================================================
+
+      double currentOrderProfit =
+         OrderProfit() +
+         OrderSwap() +
+         OrderCommission();
+
+
+      // =========================================================
+      // $1 GIVEBACK
+      //
+      // Example:
+      //
+      // Current profit = $5.00
+      // Protected profit = $4.00
+      //
+      // Current profit = $2.50
+      // Protected profit = $1.50
+      // =========================================================
+
+      double givebackUSD =
+         1.00 *
+         balancelomultipler;
+
+
+      // =========================================================
+      // NOT ENOUGH PROFIT TO PROTECT
+      //
+      // Prevent SL from going below breakeven.
+      // =========================================================
+
+      if(currentOrderProfit < givebackUSD)
+         continue;
+
+
+      // =========================================================
+      // PROFIT THAT SHOULD BE PROTECTED
+      // =========================================================
+
+      double targetLockedProfit =
+         currentOrderProfit -
+         givebackUSD;
+
+
+      // =========================================================
+      // TICK INFORMATION
+      // =========================================================
+
+      double tickValue =
+         MarketInfo(
+            Symbol(),
+            MODE_TICKVALUE
+         );
+
+      double tickSize =
+         MarketInfo(
+            Symbol(),
+            MODE_TICKSIZE
+         );
+
+
+      if(
+         tickValue <= 0.0 ||
+         tickSize <= 0.0
+      )
+      {
+         Print(
+            "SELL BASKET SL SKIPPED - INVALID TICK DATA",
+            " | Ticket=", ticket,
+            " | TickValue=",
+            DoubleToString(tickValue, 8),
+            " | TickSize=",
+            DoubleToString(tickSize, 8)
+         );
+
+         continue;
+      }
+
+
+      // =========================================================
+      // CONVERT $1 GIVEBACK TO PRICE DISTANCE
+      // =========================================================
+
+      double givebackPriceDistance =
+         (
+            givebackUSD /
+            (
+               orderLots *
+               tickValue
+            )
+         )
+         *
+         tickSize;
+
+
+      if(givebackPriceDistance <= 0.0)
+         continue;
+
+
+      // =========================================================
+      // CALCULATE NEW SELL SL
+      //
+      // SELL:
+      //
+      // New SL = CURRENT ASK + PRICE DISTANCE EQUIVALENT TO $1
+      //
+      // This means if price reverses by $1 worth of price,
+      // the order closes and protects approximately:
+      //
+      // CurrentProfit - $1
+      // =========================================================
+
+      double newSL =
+         Ask +
+         givebackPriceDistance;
+
+
+      newSL =
+         NormalizeDouble(
+            newSL,
+            Digits
+         );
+
+
+      // =========================================================
+      // SAFETY:
+      // SELL SL MUST BE BELOW THE CURRENT PROFIT SIDE
+      // AND ABOVE CURRENT ASK.
+      // =========================================================
+
+      if(newSL <= Ask)
+      {
+         Print(
+            "SELL BASKET SL SKIPPED - INVALID SL",
+            " | Ticket=", ticket,
+            " | Ask=",
+            DoubleToString(Ask, Digits),
+            " | NewSL=",
+            DoubleToString(newSL, Digits)
+         );
+
+         continue;
+      }
+
+
+      // =========================================================
+      // ENSURE SL ONLY MOVES DOWN
+      //
+      // For SELL:
+      // Lower SL = better protection
+      // =========================================================
+
+      if(
+         currentSL > 0.0 &&
+         newSL >= currentSL
+      )
+      {
+         continue;
+      }
+
+
+      // =========================================================
+      // VERIFY ACTUAL LOCKED PROFIT
+      // =========================================================
+
+      double actualLockedGrossProfit =
+         (
+            (
+               openPrice -
+               newSL
+            )
+            /
+            tickSize
+         )
+         *
+         (
+            orderLots *
+            tickValue
+         );
+
+
+      double actualLockedNetProfit =
+         actualLockedGrossProfit +
+         OrderSwap() +
+         OrderCommission();
+
+
+      // =========================================================
+      // EXPECTED PROTECTED PROFIT
+      // =========================================================
+
+      if(
+         actualLockedNetProfit + 0.01 <
+         targetLockedProfit
+      )
+      {
+         Print(
+            "SELL BASKET SL SKIPPED - LOCK TOO LOW",
+            " | Ticket=", ticket,
+            " | CurrentProfit=$",
+            DoubleToString(
+               currentOrderProfit,
+               2
+            ),
+            " | TargetLock=$",
+            DoubleToString(
+               targetLockedProfit,
+               2
+            ),
+            " | ActualLock=$",
+            DoubleToString(
+               actualLockedNetProfit,
+               2
+            ),
+            " | NewSL=",
+            DoubleToString(
+               newSL,
+               Digits
+            )
+         );
+
+         continue;
+      }
+
+
+      // =========================================================
+      // LOG
+      // =========================================================
+
+      Print(
+         "SELL BASKET PROFIT PROTECTION",
+         " | Ticket=", ticket,
+         " | Entry=",
+         DoubleToString(
+            openPrice,
+            Digits
+         ),
+         " | CurrentProfit=$",
+         DoubleToString(
+            currentOrderProfit,
+            2
+         ),
+         " | Giveback=$",
+         DoubleToString(
+            givebackUSD,
+            2
+         ),
+         " | TargetLock=$",
+         DoubleToString(
+            targetLockedProfit,
+            2
+         ),
+         " | CurrentAsk=",
+         DoubleToString(
+            Ask,
+            Digits
+         ),
+         " | CurrentSL=",
+         DoubleToString(
+            currentSL,
+            Digits
+         ),
+         " | NewSL=",
+         DoubleToString(
+            newSL,
+            Digits
+         ),
+         " | ActualLock=$",
+         DoubleToString(
+            actualLockedNetProfit,
+            2
+         )
+      );
+
+
+      // =========================================================
+      // 5. MODIFY ORDER
+      //
+      // FALSE:
+      // SafeOrderModify() must NOT apply the other
+      // profit-lock/half-distance logic.
+      // =========================================================
+
+      ResetLastError();
+
+
+      bool modified =
+         SafeOrderModify(
+            ticket,
+            openPrice,
+            newSL,
+            currentTP,
+            0,
+            clrRed 
+         );
+
+
+      // =========================================================
+      // SUCCESS
+      // =========================================================
+
+      if(modified)
+      {
+         Print(
+            "SELL BASKET SL MODIFIED",
+            " | Ticket=", ticket,
+            " | CurrentProfit=$",
+            DoubleToString(
+               currentOrderProfit,
+               2
+            ),
+            " | ProtectedProfit=$",
+            DoubleToString(
+               targetLockedProfit,
+               2
+            ),
+            " | NewSL=",
+            DoubleToString(
+               newSL,
+               Digits
+            )
+         );
+      }
+      else
+      {
+         Print(
+            "FAILED TO MODIFY SELL TICKET=",
+            ticket,
+            " | Error=",
+            GetLastError()
+         );
+      }
+   }
+}
 //+------------------------------------------------------------------+
 //| Modify ONLY SELL orders if total Sell Basket Profit > $1         |
 //+------------------------------------------------------------------+
-void modifyOnlySellOrders()
+void modifyOnlySellOrdersold()
   {
    double basketSellProfit = 0.0;
 
@@ -10128,7 +10948,7 @@ void ManagePartialCloses()
 //         }
 //      }
 //   }
-void ManageProfitLadder()
+ void ManageProfitLadder()
 {
    // ============================================================
    // 1. RUN PARTIAL CLOSE CHECKS FIRST
@@ -10138,7 +10958,7 @@ void ManageProfitLadder()
 
 
    // ============================================================
-   // 2. STANDARD PROFIT LADDER / TRAILING SL LOOP
+   // 2. STANDARD PROFIT LADDER LOOP
    // ============================================================
 
    for(int i = OrdersTotal() - 1; i >= 0; i--)
@@ -10146,6 +10966,10 @@ void ManageProfitLadder()
       if(!OrderSelect(i, SELECT_BY_POS, MODE_TRADES))
          continue;
 
+
+      // =========================================================
+      // ORDER FILTERS
+      // =========================================================
 
       if(OrderSymbol() != Symbol() ||
          OrderMagicNumber() != MagicNumber)
@@ -10177,104 +11001,73 @@ void ManageProfitLadder()
          OrderCommission();
 
 
-      if(currentProfit <= 0)
+      if(currentProfit <= 0.0)
          continue;
 
 
       double orderLots = OrderLots();
 
-      if(orderLots <= 0)
+      if(orderLots <= 0.0)
          continue;
 
 
-      // =========================================================
-      // LADDER 1
-      // =========================================================
+      // ============================================================
+      // LADDER VALUES
+      // ============================================================
 
       double ladder1Profit =
          OriginalLadder1ProfitUSD *
          orderLots *
-         100.0;
-
-      ladder1Profit =
-         ladder1Profit *
+         100.0 *
          balancelomultipler;
 
-
-      // =========================================================
-      // ORDER PRICE INFORMATION
-      // =========================================================
-
-      double open = OrderOpenPrice();
-      double sl   = OrderStopLoss();
-
-
-      double existingPriceDistance = 0.0;
-
-
-      if(orderType == OP_BUY)
-      {
-         existingPriceDistance =
-            OrderStopLoss() -
-            OrderOpenPrice();
-      }
-
-
-      if(orderType == OP_SELL)
-      {
-         existingPriceDistance =
-            OrderOpenPrice() -
-            OrderStopLoss();
-      }
-
-
-      // =========================================================
-      // CURRENT SL DISTANCE
-      // =========================================================
-
-      double currentSLPoints =
-         MathAbs(
-            OrderOpenPrice() -
-            OrderStopLoss()
-         );
-
-
-      // =========================================================
-      // LADDER 2
-      // ============================================================
 
       double ladder2Profit =
          OriginalLadder2ProfitUSD *
          orderLots *
-         100.0;
+         100.0 *
+         balancelomultipler;
 
 
       double ladder1StopMaxPrice =
          OriginalLadder1StopMaxPriceUSD *
          orderLots *
-         100.0;
-
-
-      ladder2Profit =
-         ladder2Profit *
+         100.0 *
          balancelomultipler;
 
 
-      ladder1StopMaxPrice =
-         ladder1StopMaxPrice *
-         balancelomultipler;
+      if(ladder1Profit < 0.0)
+         ladder1Profit = 0.0;
+
+      if(ladder2Profit < 0.0)
+         ladder2Profit = 0.0;
 
 
       // ============================================================
-      // DETERMINE LADDER PROFIT REACHED
+      // DETERMINE CURRENT LADDER LEVEL
+      //
+      // IMPORTANT:
+      //
+      // Level 1 -> protect 0
+      // Level 2 -> protect Level 1
+      // Level 3 -> protect Level 2
+      // Level 4 -> protect Level 3
       // ============================================================
+
+      int ladderLevel = 0;
+
+      double ladderStepProfit = 0.0;
+
+      double ladderTargetProfit = 0.0;
 
       double lockedProfit = 0.0;
 
+      bool ladderReached = false;
 
-      // ------------------------------------------------------------
+
+      // ============================================================
       // LADDER 1
-      // ------------------------------------------------------------
+      // ============================================================
 
       if(
          EnableProfitLadder1 &&
@@ -10282,49 +11075,87 @@ void ManageProfitLadder()
          currentProfit < ladder1StopMaxPrice
       )
       {
-         int ladder1Level =
+         ladderLevel =
             (int)MathFloor(
                currentProfit /
                ladder1Profit
             );
 
 
-         if(ladder1Level >= 1)
+         if(ladderLevel >= 1)
          {
-            lockedProfit =
-               ladder1Level *
+            ladderReached = true;
+
+            ladderStepProfit =
                ladder1Profit;
+
+            // Current level target
+            ladderTargetProfit =
+               ladderLevel *
+               ladderStepProfit;
+
+
+            // ===================================================
+            // PROTECT PREVIOUS LEVEL
+            //
+            // Level 1 = 0
+            // Level 2 = L1
+            // Level 3 = L2
+            // ===================================================
+
+            lockedProfit =
+               (ladderLevel - 1) *
+               ladderStepProfit;
          }
       }
 
 
-      // ------------------------------------------------------------
+      // ============================================================
       // LADDER 2
-      // ------------------------------------------------------------
+      // ============================================================
 
-      if(
+      else if(
          EnableProfitLadder2 &&
          ladder2Profit > 0.0 &&
          currentProfit >= ladder1StopMaxPrice
       )
       {
-         int ladder2Level =
+         ladderLevel =
             (int)MathFloor(
                currentProfit /
                ladder2Profit
             );
 
 
-         if(ladder2Level >= 1)
+         if(ladderLevel >= 1)
          {
-            lockedProfit =
-               ladder2Level *
+            ladderReached = true;
+
+            ladderStepProfit =
                ladder2Profit;
+
+            // Current level target
+            ladderTargetProfit =
+               ladderLevel *
+               ladderStepProfit;
+
+
+            // ===================================================
+            // PROTECT PREVIOUS LEVEL
+            // ===================================================
+
+            lockedProfit =
+               (ladderLevel - 1) *
+               ladderStepProfit;
          }
       }
 
 
-      if(lockedProfit <= 0)
+      // ============================================================
+      // NO LADDER LEVEL REACHED
+      // ============================================================
+
+      if(!ladderReached)
          continue;
 
 
@@ -10333,6 +11164,26 @@ void ManageProfitLadder()
             lockedProfit,
             2
          );
+
+
+      // ============================================================
+      // LOG CURRENT LADDER STATE
+      // ============================================================
+
+      Print(
+         "PROFIT LADDER",
+         " | Ticket=", OrderTicket(),
+         " | Type=",
+         orderType == OP_BUY ? "BUY" : "SELL",
+         " | CurrentProfit=$",
+         DoubleToString(currentProfit, 2),
+         " | LadderLevel=",
+         IntegerToString(ladderLevel),
+         " | CurrentTarget=$",
+         DoubleToString(ladderTargetProfit, 2),
+         " | ProtectProfit=$",
+         DoubleToString(lockedProfit, 2)
+      );
 
 
       // ============================================================
@@ -10353,112 +11204,13 @@ void ManageProfitLadder()
          );
 
 
-      if(tickValue <= 0 ||
-         tickSize <= 0)
+      if(tickValue <= 0.0 ||
+         tickSize <= 0.0)
          continue;
 
 
       // ============================================================
-      // EXISTING LOCKED PROFIT
-      // ============================================================
-
-      double existingLockedProfit = 0.0;
-
-
-      if(OrderStopLoss() > 0)
-      {
-         double existingSLDistance = 0.0;
-
-
-         if(orderType == OP_BUY)
-         {
-            existingSLDistance =
-               OrderStopLoss() -
-               OrderOpenPrice();
-         }
-
-
-         if(orderType == OP_SELL)
-         {
-            existingSLDistance =
-               OrderOpenPrice() -
-               OrderStopLoss();
-         }
-
-
-         if(existingSLDistance > 0)
-         {
-            existingLockedProfit =
-               (
-                  existingSLDistance /
-                  tickSize
-               )
-               *
-               tickValue
-               *
-               orderLots;
-
-
-            existingLockedProfit =
-               NormalizeDouble(
-                  existingLockedProfit,
-                  2
-               );
-         }
-      }
-
-
-      // ============================================================
-      // IMPORTANT:
-      //
-      // LADDER PROFIT = FULL PROFIT TARGET REACHED
-      //
-      // STOP LOSS SHOULD LOCK ONLY 50%
-      //
-      // Example:
-      //
-      // Current ladder = $1.00
-      // SL lock        = $0.50
-      //
-      // Current ladder = $2.00
-      // SL lock        = $1.00
-      //
-      // Current ladder = $3.00
-      // SL lock        = $1.50
-      //
-      // ============================================================
-
-      double profitToLock =
-         lockedProfit * 0.50;
-
-
-      // ============================================================
-      // MINIMUM PROFIT LOCK
-      //
-      // Never allow less than $0.50.
-      // ============================================================
-
-      double minimumProfitToLock =
-         MinimumProfitToLockUSD *
-         balancelomultipler;
-
-
-      if(profitToLock < minimumProfitToLock)
-      {
-         profitToLock =
-            minimumProfitToLock;
-      }
-
-
-      profitToLock =
-         NormalizeDouble(
-            profitToLock,
-            2
-         );
-
-
-      // ============================================================
-      // NEXT PROFIT TARGET / TAKE PROFIT
+      // NEXT PROFIT TARGET
       // ============================================================
 
       double nextProfitTargetUSD = 0.0;
@@ -10579,7 +11331,7 @@ void ManageProfitLadder()
 
 
       // ============================================================
-      // CHECK TAKE PROFIT MODIFICATION
+      // TAKE PROFIT MODIFY CHECK
       // ============================================================
 
       bool takeProfitNeedsModify = false;
@@ -10617,31 +11369,26 @@ void ManageProfitLadder()
 
 
       // ============================================================
-      // CHECK WHETHER SL ALREADY LOCKS REQUIRED 50%
-      // ============================================================
-
-      if(
-         existingLockedProfit >= profitToLock &&
-         !takeProfitNeedsModify
-      )
-      {
-         continue;
-      }
-
-
-      // ============================================================
-      // PRICE DISTANCE FOR PROFIT TO LOCK
+      // CALCULATE SL PRICE
       //
       // IMPORTANT:
       //
-      // Use profitToLock, NOT lockedProfit.
+      // lockedProfit CAN BE ZERO.
       //
-      // This is the 50% lock.
+      // Level 1:
+      //     lockedProfit = 0
+      //     SL = Entry Price
+      //
+      // Level 2:
+      //     lockedProfit = Ladder1
+      //
+      // Level 3:
+      //     lockedProfit = Ladder2
       // ============================================================
 
       double priceDistance =
          (
-            profitToLock /
+            lockedProfit /
             (
                tickValue *
                orderLots
@@ -10651,13 +11398,9 @@ void ManageProfitLadder()
          tickSize;
 
 
-      if(priceDistance <= 0)
+      if(priceDistance < 0.0)
          continue;
 
-
-      // ============================================================
-      // BROKER STOP DISTANCE
-      // ============================================================
 
       double stopLevel =
          GetRequiredStopDistance();
@@ -10665,12 +11408,7 @@ void ManageProfitLadder()
 
       double newStopLoss = 0.0;
 
-
-      bool needStopLossModify =
-         (
-            existingLockedProfit <
-            profitToLock
-         );
+      bool needStopLossModify = false;
 
 
       // ============================================================
@@ -10679,157 +11417,137 @@ void ManageProfitLadder()
 
       if(orderType == OP_BUY)
       {
-         if(!needStopLossModify)
+         // ---------------------------------------------------------
+         // SL corresponding to PREVIOUS ladder level
+         // ---------------------------------------------------------
+
+         newStopLoss =
+            OrderOpenPrice() +
+            priceDistance;
+
+
+         newStopLoss =
+            NormalizeDouble(
+               newStopLoss,
+               Digits
+            );
+
+
+         // ---------------------------------------------------------
+         // Modify only if new SL is better than current SL
+         //
+         // Level 1:
+         // Existing SL below entry -> move to entry
+         //
+         // If already above target -> do not move backwards
+         // ---------------------------------------------------------
+
+         if(
+            OrderStopLoss() <= 0.0 ||
+            newStopLoss >
+            OrderStopLoss() + Point
+         )
          {
-            newStopLoss =
-               OrderStopLoss();
+            needStopLossModify = true;
          }
-         else
+
+
+         // ---------------------------------------------------------
+         // Broker minimum stop distance
+         //
+         // DO NOT move SL backward just to satisfy broker distance.
+         // If BE/profit SL cannot currently be placed, wait.
+         // ---------------------------------------------------------
+
+         if(needStopLossModify)
          {
-            // -----------------------------------------------------
-            // LOCK ONLY 50% OF LADDER PROFIT
-            // -----------------------------------------------------
-
-            newStopLoss =
-               OrderOpenPrice() +
-               priceDistance;
-
-
-            newStopLoss =
-               NormalizeDouble(
-                  newStopLoss,
-                  Digits
-               );
-
-
-            // -----------------------------------------------------
-            // New SL must be higher than existing SL
-            // -----------------------------------------------------
-
-            if(
-               OrderStopLoss() > 0 &&
-               newStopLoss <= OrderStopLoss()
-            )
-            {
-               continue;
-            }
-
-
-            // -----------------------------------------------------
-            // Broker minimum distance
-            // -----------------------------------------------------
-
             if(
                Bid - newStopLoss <
                stopLevel
             )
             {
-               newStopLoss =
-                  Bid - stopLevel;
-
-
-               newStopLoss =
-                  NormalizeDouble(
-                     newStopLoss,
-                     Digits
-                  );
-            }
-
-
-            // -----------------------------------------------------
-            // Safety
-            // -----------------------------------------------------
-
-            if(
-               newStopLoss <= 0 ||
-               newStopLoss >= Bid
-            )
-            {
-               continue;
-            }
-
-
-            // -----------------------------------------------------
-            // Must actually move SL
-            // -----------------------------------------------------
-
-            if(
-               OrderStopLoss() > 0 &&
-               MathAbs(
-                  newStopLoss -
-                  OrderStopLoss()
-               ) < Point
-            )
-            {
-               continue;
-            }
-
-
-            // -----------------------------------------------------
-            // VERY IMPORTANT:
-            //
-            // Broker stop-level adjustment above can move the SL.
-            // Verify that it is still at least the intended
-            // 50% profit lock.
-            // -----------------------------------------------------
-
-            double actualLockedProfit =
-               (
-                  (
-                     newStopLoss -
-                     OrderOpenPrice()
-                  )
-                  /
-                  tickSize
-               )
-               *
-               tickValue
-               *
-               orderLots;
-
-
-            if(
-               actualLockedProfit <
-               profitToLock
-            )
-            {
                Print(
-                  "BUY SL SKIPPED - BROKER STOP LEVEL WOULD REDUCE LOCK",
-                  " | Ticket=",
-                  OrderTicket(),
-                  " | RequiredLock=$",
+                  "BUY LADDER SL WAIT - BROKER STOP DISTANCE",
+                  " | Ticket=", OrderTicket(),
+                  " | Level=",
+                  IntegerToString(ladderLevel),
+                  " | Protect=$",
+                  DoubleToString(lockedProfit, 2),
+                  " | Entry=",
                   DoubleToString(
-                     profitToLock,
-                     2
-                  ),
-                  " | ActualLock=$",
-                  DoubleToString(
-                     actualLockedProfit,
-                     2
+                     OrderOpenPrice(),
+                     Digits
                   ),
                   " | NewSL=",
                   DoubleToString(
                      newStopLoss,
                      Digits
+                  ),
+                  " | Bid=",
+                  DoubleToString(
+                     Bid,
+                     Digits
+                  ),
+                  " | StopLevel=",
+                  DoubleToString(
+                     stopLevel,
+                     Digits
                   )
                );
 
-               continue;
+               needStopLossModify = false;
             }
          }
 
 
-         // =======================================================
+         // ---------------------------------------------------------
+         // Do not send an invalid BUY SL
+         // ---------------------------------------------------------
+
+         if(
+            needStopLossModify &&
+            (
+               newStopLoss <= 0.0 ||
+               newStopLoss >= Bid
+            )
+         )
+         {
+            needStopLossModify = false;
+         }
+
+
+         // ---------------------------------------------------------
+         // If neither SL nor TP needs modification
+         // ---------------------------------------------------------
+
+         if(
+            !needStopLossModify &&
+            !takeProfitNeedsModify
+         )
+         {
+            continue;
+         }
+
+
+         // ---------------------------------------------------------
+         // If SL doesn't need changing, preserve current SL
+         // ---------------------------------------------------------
+
+         if(!needStopLossModify)
+         {
+            newStopLoss =
+               OrderStopLoss();
+         }
+
+
+         // ---------------------------------------------------------
          // IMPORTANT:
          //
-         // Pass FALSE because this method has ALREADY calculated
-         // the 50% SL.
-         //
-         // Otherwise SafeOrderModify() would process it again.
-         // =======================================================
+         // FALSE means SafeOrderModify must NOT apply any
+         // additional 50% calculation.
+         // ---------------------------------------------------------
 
          ResetLastError();
-
 
          SafeOrderModify(
             OrderTicket(),
@@ -10849,150 +11567,128 @@ void ManageProfitLadder()
 
       if(orderType == OP_SELL)
       {
-         if(!needStopLossModify)
+         // ---------------------------------------------------------
+         // SL corresponding to PREVIOUS ladder level
+         // ---------------------------------------------------------
+
+         newStopLoss =
+            OrderOpenPrice() -
+            priceDistance;
+
+
+         newStopLoss =
+            NormalizeDouble(
+               newStopLoss,
+               Digits
+            );
+
+
+         // ---------------------------------------------------------
+         // Modify only if new SL is better than current SL
+         // ---------------------------------------------------------
+
+         if(
+            OrderStopLoss() <= 0.0 ||
+            newStopLoss <
+            OrderStopLoss() - Point
+         )
          {
-            newStopLoss =
-               OrderStopLoss();
+            needStopLossModify = true;
          }
-         else
+
+
+         // ---------------------------------------------------------
+         // Broker minimum stop distance
+         //
+         // Do NOT move SL backward.
+         // Wait until the requested protection is legal.
+         // ---------------------------------------------------------
+
+         if(needStopLossModify)
          {
-            // -----------------------------------------------------
-            // LOCK ONLY 50% OF LADDER PROFIT
-            // -----------------------------------------------------
-
-            newStopLoss =
-               OrderOpenPrice() -
-               priceDistance;
-
-
-            newStopLoss =
-               NormalizeDouble(
-                  newStopLoss,
-                  Digits
-               );
-
-
-            // -----------------------------------------------------
-            // New SL must be lower than existing SL
-            // -----------------------------------------------------
-
-            if(
-               OrderStopLoss() > 0 &&
-               newStopLoss >= OrderStopLoss()
-            )
-            {
-               continue;
-            }
-
-
-            // -----------------------------------------------------
-            // Broker minimum distance
-            // -----------------------------------------------------
-
             if(
                newStopLoss - Ask <
                stopLevel
             )
             {
-               newStopLoss =
-                  Ask + stopLevel;
-
-
-               newStopLoss =
-                  NormalizeDouble(
-                     newStopLoss,
-                     Digits
-                  );
-            }
-
-
-            // -----------------------------------------------------
-            // Safety
-            // -----------------------------------------------------
-
-            if(
-               newStopLoss <= Ask
-            )
-            {
-               continue;
-            }
-
-
-            // -----------------------------------------------------
-            // Must actually move SL
-            // -----------------------------------------------------
-
-            if(
-               OrderStopLoss() > 0 &&
-               MathAbs(
-                  newStopLoss -
-                  OrderStopLoss()
-               ) < Point
-            )
-            {
-               continue;
-            }
-
-
-            // -----------------------------------------------------
-            // Verify actual locked profit
-            // -----------------------------------------------------
-
-            double actualLockedProfit =
-               (
-                  (
-                     OrderOpenPrice() -
-                     newStopLoss
-                  )
-                  /
-                  tickSize
-               )
-               *
-               tickValue
-               *
-               orderLots;
-
-
-            if(
-               actualLockedProfit <
-               profitToLock
-            )
-            {
                Print(
-                  "SELL SL SKIPPED - BROKER STOP LEVEL WOULD REDUCE LOCK",
-                  " | Ticket=",
-                  OrderTicket(),
-                  " | RequiredLock=$",
+                  "SELL LADDER SL WAIT - BROKER STOP DISTANCE",
+                  " | Ticket=", OrderTicket(),
+                  " | Level=",
+                  IntegerToString(ladderLevel),
+                  " | Protect=$",
+                  DoubleToString(lockedProfit, 2),
+                  " | Entry=",
                   DoubleToString(
-                     profitToLock,
-                     2
-                  ),
-                  " | ActualLock=$",
-                  DoubleToString(
-                     actualLockedProfit,
-                     2
+                     OrderOpenPrice(),
+                     Digits
                   ),
                   " | NewSL=",
                   DoubleToString(
                      newStopLoss,
                      Digits
+                  ),
+                  " | Ask=",
+                  DoubleToString(
+                     Ask,
+                     Digits
+                  ),
+                  " | StopLevel=",
+                  DoubleToString(
+                     stopLevel,
+                     Digits
                   )
                );
 
-               continue;
+               needStopLossModify = false;
             }
          }
 
 
-         // =======================================================
+         // ---------------------------------------------------------
+         // Do not send invalid SELL SL
+         // ---------------------------------------------------------
+
+         if(
+            needStopLossModify &&
+            newStopLoss <= Ask
+         )
+         {
+            needStopLossModify = false;
+         }
+
+
+         // ---------------------------------------------------------
+         // Nothing to modify
+         // ---------------------------------------------------------
+
+         if(
+            !needStopLossModify &&
+            !takeProfitNeedsModify
+         )
+         {
+            continue;
+         }
+
+
+         // ---------------------------------------------------------
+         // Preserve existing SL if only TP changes
+         // ---------------------------------------------------------
+
+         if(!needStopLossModify)
+         {
+            newStopLoss =
+               OrderStopLoss();
+         }
+
+
+         // ---------------------------------------------------------
          // IMPORTANT:
          //
-         // FALSE = SafeOrderModify must NOT halve this SL again.
-         // =======================================================
+         // FALSE = no additional 50% SL processing
+         // ---------------------------------------------------------
 
          ResetLastError();
-
-         // SafeOrderModify(OrderTicket(), OrderOpenPrice(), newStopLoss, desiredTakeProfit, 0, clrTomato);
 
          SafeOrderModify(
             OrderTicket(),
@@ -11001,7 +11697,6 @@ void ManageProfitLadder()
             desiredTakeProfit,
             0,
             clrTomato
-            
          );
       }
    }
