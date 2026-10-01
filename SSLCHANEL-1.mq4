@@ -6510,6 +6510,9 @@ void ModifyOpenOrdersToSecureProfit()
       if(OrderMagicNumber() != MagicNumber)
          continue;
 
+
+
+
       int ticket = OrderTicket();
       int type   = OrderType();
 
@@ -7297,7 +7300,7 @@ void CheckRecoveryOrders()
   {
    if(!EnableRecoveryOrders || GetTotalEAOrders() >= MaxOpenOrders || !IsOneCandleOrderAllowed())
       return;
-   if(CountActiveRecoveryOrders() >= 1)
+   if(CountActiveRecoveryOrders() >= MaxRecoveryOrders)
       return;
 
    if(!IsEmaWEAKDistanceReduced50PercentFromPeak() || GlobalSSLDirection != EMADirection)
