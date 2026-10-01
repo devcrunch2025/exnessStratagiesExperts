@@ -531,19 +531,17 @@ flowchart TD
         P4 --&gt; M1{"ManageRecoveryBasket()"}
         M1 --&gt; M2{"Is Parent Trade Still Active?"}
 
-        M2 --&gt;|"YES: Parent is Active"| M3{"Profit Target Evaluation"}
-        M3 --&gt;|"Combined Basket Profit &gt;= $1.00"| E1["1. COMBINED BASKET EXIT<br>Closes BOTH Parent &amp; Recovery Together<br>(Wipes Parent Loss + Banks Net Profit)"]
-        M3 --&gt;|"Recovery Order Alone &gt;= $1.00<br>(Combined basket still negative)"| E2["2. INDEPENDENT PROFIT BANK<br>Closes Recovery Order at Market<br>(Banks &gt; $1 Cash, Parent Stays Active)"]
-        M3 --&gt;|"Neither Target Met"| MWait["Hold Pair &amp; Monitor Live Ticks"]
+        M2 --&gt;|"YES: Parent is Active &amp; Exists"| M3{"Combined Basket Profit Check<br>(RecoveryProfit + ParentProfit)"}
+        M3 --&gt;|"Combined Profit &gt;= $1.00"| E1["1. COMBINED BASKET EXIT<br>Closes BOTH Parent &amp; Recovery Together<br>(Wipes Parent Loss + Banks Net Profit)"]
+        M3 --&gt;|"Combined Profit &lt; $1.00"| MWait["Hold Pair &amp; Monitor Live Ticks<br>(Recovery NEVER closes alone while parent open)"]
 
         M2 --&gt;|"NO: Parent Already Closed (Orphan)"| M4{"Orphan Profit Evaluation"}
-        M4 --&gt;|"Orphan Recovery Profit &gt;= $1.00"| E3["3. CLEAN ORPHAN PROFIT EXIT<br>Closes Orphan Recovery Order at Market<br>(Banks &gt; $1 Cash, No Invalid Parent Errors)"]
+        M4 --&gt;|"Orphan Recovery Profit &gt;= $1.00"| E2["2. CLEAN ORPHAN PROFIT EXIT<br>Closes Orphan Recovery Order at Market<br>(Banks &gt;= $1 Cash, No Invalid Parent Errors)"]
         M4 --&gt;|"Profit &lt; $1.00"| OWait["Hold Orphan Recovery Until Profit &gt;= $1.00"]
     end
 
     E1 --&gt; Done(["Cycle Finished &amp; Profits Secured"])
-    E2 --&gt; ParentActive(["Parent Remains Open to Recover or Trigger Fresh Recovery Order"])
-    E3 --&gt; Done
+    E2 --&gt; Done
           </div>
         </div>
 
@@ -566,18 +564,13 @@ flowchart TD
           </div>
 
           <div class="card" style="border-left: 4px solid var(--accent-green); margin-bottom: 0;">
-            <div class="card-title" style="font-size: 16px;">💰 Exit Engine: 3 Distinct Profit Exit Paths</div>
+            <div class="card-title" style="font-size: 16px;">💰 Exit Engine: Two Clear Exit Rules</div>
             <ul style="color: var(--text-muted); font-size: 13px; line-height: 1.8; margin-left: 18px;">
-              <li><strong>Path 1: Combined Basket Win (&gt;= $1.00):</strong>
-                <br>When <code>RecoveryProfit + ParentProfit &gt;= RecoveryBasketProfitUSD</code> ($1.00), <strong>BOTH</strong> trades are closed simultaneously. The recovery order's profit completely wipes out the parent's loss, banking net positive profit.
+              <li><strong>Rule 1: Active Parent Pair (Combined Basket Exit &gt;= $1.00):</strong>
+                <br>As long as the parent order is open and exists, <strong>the recovery order will NEVER close alone</strong>. The recovery order stays bound to the parent trade until their <strong>combined net profit</strong> (<code>RecoveryProfit + ParentProfit</code>) reaches <strong>&gt;= $1.00</strong> (<code>RecoveryBasketProfitUSD</code>). When reached, <strong>BOTH</strong> trades close together, completely eliminating the parent's loss and banking profit!
               </li>
-              <li><strong>Path 2: Independent Profit Bank (&gt; $1.00 while Parent is Open):</strong>
-                <br>If the market bounces and the 2x recovery order alone gains <strong>&gt;= $1.00</strong> profit, but the parent is still in larger drawdown:
-                <strong>The recovery order closes immediately at market to BANK the cash!</strong>
-                The parent trade <strong>stays active</strong> to recover. Since the recovery ticket is cleared, the parent can receive another fresh recovery order if the price gaps again!
-              </li>
-              <li><strong>Path 3: Clean Orphan Exit (&gt; $1.00 with Parent Closed):</strong>
-                <br>If the parent was closed (via Stop Loss, manual close, or basket exit), the recovery order becomes an orphan. Once <code>recoveryProfit &gt;= $1.00</code>, the EA closes the orphan cleanly at market without throwing errors.
+              <li><strong>Rule 2: Clean Orphan Exit (&gt;= $1.00 with Parent Closed):</strong>
+                <br>If the parent was closed previously (via Stop Loss, manual close, or basket exit), the recovery order becomes an orphan. Once <code>recoveryProfit &gt;= $1.00</code>, the EA closes the orphan cleanly at market without attempting to close the non-existent parent order (eliminating error logs).
               </li>
             </ul>
           </div>
@@ -587,7 +580,7 @@ flowchart TD
       <div class="card">
         <div class="card-title">📊 Concrete Execution Walkthrough (BTCUSD)</div>
         <p style="color: var(--text-muted); font-size: 14px;">
-          Here is how a real live trading scenario plays out from parent drawdown to independent cash banking:
+          Here is how a real live trading scenario plays out from parent drawdown to combined basket exit:
         </p>
 
         <table>
@@ -624,17 +617,17 @@ flowchart TD
             </tr>
             <tr>
               <td><strong>4. Market Bounces</strong></td>
-              <td>Price rises 40 points up to $60,940.00.</td>
-              <td>Ticket #101: BUY 0.02 | P/L: -$39.20</td>
-              <td>Ticket #102: BUY 0.04 | P/L: <strong>+$1.60</strong> (&gt; $1.00)</td>
-              <td>Combined is -$37.60, but <strong>Recovery alone has +$1.60</strong>!</td>
+              <td>Price rises 700 points up to $61,600.00.</td>
+              <td>Ticket #101: BUY 0.02 | P/L: -$26.00</td>
+              <td>Ticket #102: BUY 0.04 | P/L: <strong>+$28.00</strong></td>
+              <td>Combined Net Profit: <code>-$26.00 + $28.00 = +$2.00</code> (&gt;= $1.00)!</td>
             </tr>
             <tr>
-              <td><strong>5. Independent Bank</strong></td>
-              <td><code>ManageRecoveryBasket()</code> detects Recovery Profit &gt;= $1.00.</td>
-              <td>Ticket #101 <strong>REMAINS OPEN</strong> at $62,900.00</td>
-              <td>Ticket #102 <strong>CLOSED AT MARKET</strong><br><span style="color: var(--accent-green);">+$1.60 Banked into Cash Balance</span></td>
-              <td><strong>Profit secured!</strong> Parent is preserved to recover. If market pulls back 2000 points again, a fresh recovery order can open.</td>
+              <td><strong>5. Combined Basket Win</strong></td>
+              <td><code>ManageRecoveryBasket()</code> detects Combined Profit &gt;= $1.00.</td>
+              <td>Ticket #101 <strong>CLOSED AT MARKET</strong></td>
+              <td>Ticket #102 <strong>CLOSED AT MARKET</strong></td>
+              <td><strong>Both closed simultaneously!</strong> Parent loss is completely wiped out, banking <strong>+$2.00 net profit</strong>.</td>
             </tr>
           </tbody>
         </table>

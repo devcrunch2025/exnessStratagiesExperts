@@ -201,19 +201,17 @@ flowchart TD
         P4 --> M1{"ManageRecoveryBasket()"}
         M1 --> M2{"Is Parent Trade Still Active?"}
 
-        M2 -->|"YES: Parent is Active"| M3{"Profit Target Evaluation"}
-        M3 -->|"Combined Basket Profit >= $1.00"| E1["1. COMBINED BASKET EXIT<br>Closes BOTH Parent & Recovery Together<br>(Wipes Parent Loss + Banks Net Profit)"]
-        M3 -->|"Recovery Order Alone >= $1.00<br>(Combined basket still negative)"| E2["2. INDEPENDENT PROFIT BANK<br>Closes Recovery Order at Market<br>(Banks > $1 Cash, Parent Stays Active)"]
-        M3 -->|"Neither Target Met"| MWait["Hold Pair & Monitor Live Ticks"]
+        M2 -->|"YES: Parent is Active & Exists"| M3{"Combined Basket Profit Check<br>(RecoveryProfit + ParentProfit)"}
+        M3 -->|"Combined Profit >= $1.00"| E1["1. COMBINED BASKET EXIT<br>Closes BOTH Parent & Recovery Together<br>(Wipes Parent Loss + Banks Net Profit)"]
+        M3 -->|"Combined Profit < $1.00"| MWait["Hold Pair & Monitor Live Ticks<br>(Recovery NEVER closes alone while parent open)"]
 
         M2 -->|"NO: Parent Already Closed (Orphan)"| M4{"Orphan Profit Evaluation"}
-        M4 -->|"Orphan Recovery Profit >= $1.00"| E3["3. CLEAN ORPHAN PROFIT EXIT<br>Closes Orphan Recovery Order at Market<br>(Banks > $1 Cash, No Invalid Parent Errors)"]
+        M4 -->|"Orphan Recovery Profit >= $1.00"| E2["2. CLEAN ORPHAN PROFIT EXIT<br>Closes Orphan Recovery Order at Market<br>(Banks >= $1 Cash, No Invalid Parent Errors)"]
         M4 -->|"Profit < $1.00"| OWait["Hold Orphan Recovery Until Profit >= $1.00"]
     end
 
     E1 --> Done(["Cycle Finished & Capital Protected"])
-    E2 --> ParentActive(["Parent Remains Open to Recover or Trigger Fresh Recovery Order"])
-    E3 --> Done
+    E2 --> Done
 ```
 
 ### Key Recovery Mechanics:
@@ -223,10 +221,9 @@ flowchart TD
    * **Momentum Alignment:** SSL Channel or EMA 200 must confirm resumption in the trade direction.
    * **Zero Weak Pullback Block:** Restrictive weak pullback filter removed to ensure timely activation.
    * **Lot Sizing:** Opens at **2x parent volume** (`RecoveryLotMultiplier = 2.0`).
-2. **Three Profit Exit Paths:**
-   * **Path 1 (Combined Basket Win $\ge \$1.00$):** Closes parent and recovery order simultaneously, fully wiping the parent loss.
-   * **Path 2 (Independent Profit Bank $>\$1.00$ with Parent Open):** Closes the recovery trade immediately at market to bank $> \$1.00$ cash while parent stays active to recover.
-   * **Path 3 (Clean Orphan Exit $>\$1.00$ with Parent Closed):** If parent closed previously, the orphan recovery order closes cleanly at market without throwing errors.
+2. **Two Clear Profit Exit Rules:**
+   * **Rule 1 (Active Parent Pair - Combined Basket Win $\ge \$1.00$):** As long as the parent trade is open and exists, the recovery order will **NEVER close alone**. Both trades are held together until `RecoveryProfit + ParentProfit >= $1.00`. When reached, both parent and recovery orders close simultaneously, wiping out the parent's loss and banking profit!
+   * **Rule 2 (Clean Orphan Exit $\ge \$1.00$ with Parent Closed):** If the parent was closed previously (via Stop Loss, manual close, etc.), the recovery order is an orphan. Once its profit reaches $\ge \$1.00$, it closes cleanly at market without throwing invalid ticket errors.
 
 ---
 
@@ -246,4 +243,4 @@ flowchart TD
 | **Daily Stop Exit** | BOTH | Account Equity reaches daily target | Stops new orders & secures open trades |
 | **Partial De-Risk** | BOTH | Drawdown hits loss tier + $100 price drop | Partially closes 0.01 lot to minimize risk |
 | **Recovery Order Open** | BOTH | Adverse Gap >= 2000 raw BTC & Parent Loss <= -$1 & Trend Aligns | Opens 2x lots recovery order (weak pullback filter removed) |
-| **Recovery Profit Exit** | BOTH | Combined >= $1 OR Recovery Order >= $1 (Parent Open / Orphan) | Banks > $1 profit immediately at market; parent stays active to recover |
+| **Recovery Profit Exit** | BOTH | Combined >= $1 (Parent Open) OR Orphan >= $1 (Parent Closed) | Closes pair together to wipe parent loss, or closes orphan cleanly |

@@ -31,9 +31,10 @@
 // V7001 01-10-2026 12.00 Antigravity - NO Flip Profit LIMIT, balance ST-20 Partialclose, Close orders $1X close, FlipLadderStepUSD 7, DailyEquityStopUSD 50%, TargetProfitPerFlipUSD 10%
 // V7002 01-10-2026 14.30 Antigravity - Profit Ratchet Guard (SafeOrderModify rejects less profit lock, BUY SL not less / SELL SL not more than current SL, $10 anti-churn across all trailing methods)
 // V7003 01-10-2026 15.00 Antigravity - Partial Basket Group Protect (>=2 profitable orders sum >= $1X -> Lock $1X/2 with unified SL; losing orders strictly untouched; no profit reduction)
-// V7004 01-10-2026 15.30 Antigravity - Recovery Order Gap Engine (2000 raw gap, weak EMA filter removed), Individual Recovery Profit Exit (> $1 with parent open), Clean Orphan Exit (> $1)
+// V7004 01-10-2026 15.30 Antigravity - Recovery Order Gap Engine (2000 raw gap, weak EMA filter removed), Clean Orphan Exit (> $1)
+// V7005 01-10-2026 15.45 Antigravity - Recovery Order strictly linked to Parent (NEVER close alone while parent open/exists; ONLY close together >= $1 basket profit; Orphan closes >= $1)
 
-string glbVersion = "V7004  01-10-2026 15.30 Recovery Engine (2000 Gap, Weak Pullback Block Removed), Indiv/Orphan Exit (> $1), Partial Basket Protect ($1->$0.50), Profit Ratchet Guard";
+string glbVersion = "V7005  01-10-2026 15.45 Recovery Engine (Parent Active -> Close Together >= $1; Orphan -> Close >= $1), Partial Basket Protect ($1->$0.50), Profit Ratchet Guard";
 
 
 double DailyEquityStopUSD  =100*10;//50;//20*2.5;//10;//20;// 10;//30.0; close all orders at $50Xmultipler
@@ -6506,13 +6507,11 @@ void CheckRecoveryOrders()
 
 //+------------------------------------------------------------------+
 //| ManageRecoveryBasket: Handles recovery order & basket profit exits|
-//| 1. Orphan Recovery Exit: If parent already closed, close recovery|
-//|    order cleanly once individual profit >= $1 (targetProfitUSD). |
-//| 2. Combined Basket Exit: If recovery + parent profit >= $1,      |
-//|    close BOTH parent and recovery order together.                |
-//| 3. Independent Recovery Exit: If parent is NOT exit, but         |
-//|    recovery order reaches individual profit >= $1, close recovery|
-//|    immediately at market to bank cash while parent stays open.   |
+//| 1. Active Parent Pair: If parent order is open and exists, never |
+//|    close recovery alone. Only close together when combined       |
+//|    basket profit (Recovery + Parent) >= $1.00 (targetProfitUSD). |
+//| 2. Clean Orphan Exit: If parent was already closed/exited, close |
+//|    the orphan recovery order cleanly once its profit >= $1.00.   |
 //+------------------------------------------------------------------+
 void ManageRecoveryBasket()
   {
@@ -6581,14 +6580,12 @@ void ManageRecoveryBasket()
         }
 
       // =============================================================
-      // CASE 2: PARENT IS ACTIVE (Parent has not exited)
-      // A. If combined basket profit >= targetProfitUSD: close BOTH!
-      // B. If recovery individual profit >= targetProfitUSD: close
-      //    recovery order immediately at market, parent stays open!
+      // CASE 2: PARENT IS ACTIVE (Parent order is open and exists)
+      // Recovery order is strictly tied to parent: NEVER close alone!
+      // ONLY close together when combined basket profit >= targetProfitUSD ($1X).
       // =============================================================
       double basketProfit = recoveryProfit + parentProfit;
 
-      // Option A: Combined basket hit profit target (neutralized parent loss)
       if(basketProfit >= targetProfitUSD)
         {
          ResetLastError();
@@ -6599,21 +6596,6 @@ void ManageRecoveryBasket()
                ") + Parent #", parentTicket,
                " (Profit=$", DoubleToString(parentProfit, 2),
                ") | TotalBasketProfit=$", DoubleToString(basketProfit, 2));
-         break;
-        }
-      // Option B: Parent is not exit, but Recovery Order reached individual profit >= targetProfitUSD (> $1)
-      else if(recoveryProfit >= targetProfitUSD)
-        {
-         ResetLastError();
-         bool closedIndiv = SafeOrderClose(recoveryTicket, recoveryLots, recoveryType, Slippage, (recoveryType == OP_BUY ? clrLimeGreen : clrTomato));
-         if(closedIndiv)
-           {
-            Print("RECOVERY INDIVIDUAL PROFIT EXIT (Parent Stays Open): Recovery #", recoveryTicket,
-                  " closed with Profit=$", DoubleToString(recoveryProfit, 2),
-                  " | Parent #", parentTicket,
-                  " stays open with Profit=$", DoubleToString(parentProfit, 2),
-                  " | CombinedBasketProfit=$", DoubleToString(basketProfit, 2));
-           }
          break;
         }
      }
