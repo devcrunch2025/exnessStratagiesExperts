@@ -1,0 +1,937 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>SSLCHANEL-1 EA | Trading Lifecycle & Execution Flowchart</title>
+  <style>
+    :root {
+      --bg: #090d16;
+      --card: #111827;
+      --card-hover: #1f293d;
+      --border: #1f293d;
+      --text: #f3f4f6;
+      --text-muted: #9ca3af;
+      --accent-blue: #38bdf8;
+      --accent-green: #10b981;
+      --accent-amber: #f59e0b;
+      --accent-red: #ef4444;
+      --accent-purple: #a855f7;
+    }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      background-color: var(--bg);
+      color: var(--text);
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+      line-height: 1.6;
+      padding: 24px;
+    }
+    .container { max-width: 1200px; margin: 0 auto; }
+    header {
+      border-bottom: 1px solid var(--border);
+      padding-bottom: 20px;
+      margin-bottom: 24px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      flex-wrap: wrap;
+      gap: 16px;
+    }
+    h1 { font-size: 26px; font-weight: 700; color: #fff; display: flex; align-items: center; gap: 10px; }
+    .badge {
+      display: inline-block;
+      padding: 4px 10px;
+      font-size: 12px;
+      font-weight: 600;
+      border-radius: 9999px;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+    }
+    .badge-blue { background: rgba(56, 189, 248, 0.15); color: var(--accent-blue); border: 1px solid rgba(56, 189, 248, 0.3); }
+    .badge-green { background: rgba(16, 185, 129, 0.15); color: var(--accent-green); border: 1px solid rgba(16, 185, 129, 0.3); }
+    .badge-amber { background: rgba(245, 158, 11, 0.15); color: var(--accent-amber); border: 1px solid rgba(245, 158, 11, 0.3); }
+    .badge-red { background: rgba(239, 68, 68, 0.15); color: var(--accent-red); border: 1px solid rgba(239, 68, 68, 0.3); }
+
+    /* Navigation Tabs */
+    .nav-tabs {
+      display: flex;
+      gap: 8px;
+      margin-bottom: 24px;
+      border-bottom: 1px solid var(--border);
+      padding-bottom: 8px;
+      overflow-x: auto;
+    }
+    .tab-btn {
+      background: transparent;
+      border: 1px solid transparent;
+      color: var(--text-muted);
+      padding: 10px 18px;
+      border-radius: 8px;
+      cursor: pointer;
+      font-size: 14px;
+      font-weight: 600;
+      transition: all 0.2s ease;
+      white-space: nowrap;
+    }
+    .tab-btn:hover { color: #fff; background: var(--card); }
+    .tab-btn.active {
+      color: #fff;
+      background: rgba(56, 189, 248, 0.15);
+      border-color: rgba(56, 189, 248, 0.4);
+    }
+
+    .tab-content { display: none; }
+    .tab-content.active { display: block; animation: fadeIn 0.25s ease-in-out; }
+    @keyframes fadeIn { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: translateY(0); } }
+
+    /* Cards & Panels */
+    .card {
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 24px;
+      margin-bottom: 24px;
+    }
+    .card-title {
+      font-size: 18px;
+      font-weight: 600;
+      margin-bottom: 12px;
+      color: #fff;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    /* Flow Steps Visualizer */
+    .flow-steps {
+      display: flex;
+      flex-direction: column;
+      gap: 16px;
+      margin: 20px 0;
+    }
+    .step-item {
+      display: flex;
+      align-items: flex-start;
+      gap: 16px;
+      background: rgba(31, 41, 61, 0.5);
+      border: 1px solid var(--border);
+      padding: 16px 20px;
+      border-radius: 10px;
+      position: relative;
+    }
+    .step-num {
+      width: 32px;
+      height: 32px;
+      background: var(--accent-blue);
+      color: #090d16;
+      border-radius: 50%;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-weight: 700;
+      font-size: 14px;
+      flex-shrink: 0;
+    }
+    .step-body h4 { font-size: 15px; font-weight: 600; margin-bottom: 4px; color: #fff; }
+    .step-body p { font-size: 13px; color: var(--text-muted); }
+    .step-rule {
+      margin-top: 8px;
+      padding: 6px 12px;
+      background: rgba(0, 0, 0, 0.25);
+      border-left: 3px solid var(--accent-blue);
+      font-family: monospace;
+      font-size: 12px;
+      color: #38bdf8;
+      border-radius: 4px;
+    }
+
+    /* Interactive Simulator */
+    .sim-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+      gap: 20px;
+      margin-top: 16px;
+    }
+    .sim-input-group {
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+      margin-bottom: 14px;
+    }
+    .sim-input-group label {
+      font-size: 12px;
+      font-weight: 600;
+      color: var(--text-muted);
+      text-transform: uppercase;
+    }
+    .sim-input-group input, .sim-input-group select {
+      background: #090d16;
+      border: 1px solid var(--border);
+      padding: 10px 14px;
+      border-radius: 6px;
+      color: #fff;
+      font-size: 14px;
+      outline: none;
+    }
+    .sim-input-group input:focus, .sim-input-group select:focus {
+      border-color: var(--accent-blue);
+    }
+    .sim-result-box {
+      background: #090d16;
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 20px;
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+    }
+    .sim-res-row {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      border-bottom: 1px solid rgba(255,255,255,0.05);
+      padding-bottom: 8px;
+      font-size: 13px;
+    }
+    .sim-res-val { font-family: monospace; font-weight: 700; color: #fff; }
+
+    /* Tables */
+    table { width: 100%; border-collapse: collapse; margin-top: 12px; font-size: 13px; }
+    th { text-align: left; padding: 12px; background: rgba(31, 41, 61, 0.7); color: var(--text-muted); font-weight: 600; }
+    td { padding: 12px; border-bottom: 1px solid var(--border); }
+    tr:hover td { background: rgba(255,255,255,0.02); }
+
+    /* Mermaid diagrams container */
+    .mermaid-container {
+      background: #0d121f;
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 20px;
+      margin: 16px 0;
+      overflow-x: auto;
+      text-align: center;
+    }
+  </style>
+  <!-- Mermaid.js for full SVG rendering -->
+  <script src="https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.min.js"></script>
+  <script>
+    mermaid.initialize({ startOnLoad: true, theme: 'dark', themeVariables: { darkMode: true, background: '#0d121f' } });
+  </script>
+</head>
+<body>
+  <div class="container">
+    <header>
+      <div>
+        <h1>
+          <span>⚡ SSLCHANEL-1 Trading Lifecycle</span>
+          <span class="badge badge-blue">BTCUSD Scalper</span>
+        </h1>
+        <p style="color: var(--text-muted); font-size: 14px; margin-top: 4px;">
+          Interactive visual guide for order creation, step-wise stop loss trailing, and trade exit triggers.
+        </p>
+      </div>
+      <div>
+        <span class="badge badge-green">v2.0 Optimized</span>
+        <span class="badge badge-amber">Safe Order Guard</span>
+      </div>
+    </header>
+
+    <!-- Navigation Tabs -->
+    <div class="nav-tabs">
+      <button class="tab-btn active" onclick="showTab('tab-overview')">📋 Master Flow</button>
+      <button class="tab-btn" onclick="showTab('tab-creation')">🟢 When Orders Open</button>
+      <button class="tab-btn" onclick="showTab('tab-modify')">🔵 StopLoss Trailing (Ladder)</button>
+      <button class="tab-btn" onclick="showTab('tab-closing')">🔴 When Orders Close</button>
+      <button class="tab-btn" onclick="showTab('tab-recovery')">🛡️ Recovery Strategy</button>
+      <button class="tab-btn" onclick="showTab('tab-simulator')">🧮 Interactive SL Simulator</button>
+      <button class="tab-btn" onclick="showTab('tab-cheatsheet')">📑 Summary Cheat Sheet</button>
+    </div>
+
+    <!-- TAB 1: MASTER OVERVIEW -->
+    <div id="tab-overview" class="tab-content active">
+      <div class="card">
+        <div class="card-title">High-Level Master Flowchart</div>
+        <p style="color: var(--text-muted); font-size: 14px;">Every tick on BTCUSD runs through this master pipeline.</p>
+        <div class="mermaid-container">
+          <div class="mermaid">
+flowchart TD
+    Tick["Incoming BTCUSD Tick"] --> GlobalCheck{"Safety Check"}
+    GlobalCheck -->|"Daily Target Hit OR Dubai Pause"| Idle["Pause New Trades & Monitor Running Positions"]
+    GlobalCheck -->|"Active Session"| Pipeline["Master Pipeline"]
+
+    Pipeline --> ModEngine["1. StopLoss Modification Engine (Every 500ms)"]
+    Pipeline --> ExitEngine["2. Order Exit & Close Engine (Every Tick)"]
+    Pipeline --> OpenEngine["3. Order Creation Engine (On Signal)"]
+
+    ModEngine --> Mod1["Individual Ladder (+100 -> +50)"]
+    ModEngine --> Mod2["Basket Ladder ($2->$1, $4->$2, $8->$4)"]
+
+    ExitEngine --> Ex1["Trailed SL Hit"]
+    ExitEngine --> Ex2["Daily Equity Target Reached"]
+    ExitEngine --> Ex3["Extreme EMA Distance Pull"]
+
+    OpenEngine --> Op1["SSL Channel Direction Signal"]
+    OpenEngine --> Op2["6 Strict Risk & Gap Gates"]
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- TAB 2: ORDER CREATION -->
+    <div id="tab-creation" class="tab-content">
+      <div class="card">
+        <div class="card-title">When & How Orders Are Opened</div>
+        <p style="color: var(--text-muted); font-size: 14px; margin-bottom: 16px;">
+          An order is opened <strong>only</strong> when a valid indicator signal occurs and clears all 6 risk gates.
+        </p>
+
+        <div class="mermaid-container">
+          <div class="mermaid">
+flowchart TD
+    Sig(["Indicator Signal (SSL or Bounceback)"]) --> G1{"Gate 1: Daily Profit Stop"}
+    G1 -->|"Hit ($100 * Multiplier)"| Stop1["BLOCK: Target Reached for Today"]
+    G1 -->|"Clear"| G2{"Gate 2: Session Schedule"}
+    G2 -->|"Dubai Pause Hour (12:00-14:00)"| Stop2["BLOCK: Low Volume Pause"]
+    G2 -->|"Active"| G3{"Gate 3: EMA 200 Trend Filter"}
+    G3 -->|"Price against EMA 200"| Stop3["BLOCK: Trend Conflict"]
+    G3 -->|"With Trend"| G4{"Gate 4: Candle Limit"}
+    G4 -->|"Trade already opened on this bar"| Stop4["BLOCK: 1 Order Per Candle"]
+    G4 -->|"New Bar"| G5{"Gate 5: Max Open Limit"}
+    G5 -->|"Orders >= MaxOpenOrders"| Stop5["BLOCK: Portfolio Cap Reached"]
+    G5 -->|"Room Available"| G6{"Gate 6: Dynamic Price Gap"}
+    G6 -->|"Too close to existing order"| Stop6["BLOCK: Minimum Gap Not Met"]
+    G6 -->|"Sufficient Distance"| Exec["SafeOrderSend() Executed"]
+          </div>
+        </div>
+
+        <div class="flow-steps">
+          <div class="step-item">
+            <div class="step-num">1</div>
+            <div class="step-body">
+              <h4>Signal Detection</h4>
+              <p>Triggers when the SSL Channel changes color/direction (Green = Buy, Red = Sell) or when a 5-minute V-shape bounceback is confirmed.</p>
+              <div class="step-rule">GlobalSSLDirection == 1 (Buy) || GlobalSSLDirection == -1 (Sell)</div>
+            </div>
+          </div>
+          <div class="step-item">
+            <div class="step-num">2</div>
+            <div class="step-body">
+              <h4>EMA 200 Trend Alignment</h4>
+              <p>The EA never opens a Buy if price is below the 200 EMA, and never opens a Sell if price is above the 200 EMA.</p>
+              <div class="step-rule">PassesEMAFilter() == true</div>
+            </div>
+          </div>
+          <div class="step-item">
+            <div class="step-num">3</div>
+            <div class="step-body">
+              <h4>Anti-Clustering Order Gap</h4>
+              <p>Prevents stacking orders at the same price. A minimum raw BTCUSD distance must exist between any new order and existing active orders.</p>
+              <div class="step-rule">HasMinimumSameOrderGap(orderType, DynamicGap) == true</div>
+            </div>
+          </div>
+          <div class="step-item">
+            <div class="step-num">4</div>
+            <div class="step-body">
+              <h4>Lot Sizing & Multiplier</h4>
+              <p>Lot size is automatically scaled with account equity using the <code>AccountMultiplierLOT</code> ratio.</p>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- TAB 3: STOPLOSS MODIFICATION -->
+    <div id="tab-modify" class="tab-content">
+      <div class="card">
+        <div class="card-title">StopLoss Trailing & Protection Logic</div>
+        <p style="color: var(--text-muted); font-size: 14px; margin-bottom: 16px;">
+          Runs every <strong>500 milliseconds</strong>. Uses the <strong>Ratchet Principle</strong> (SL strictly moves forward towards profit, never backward).
+        </p>
+
+        <div class="mermaid-container">
+          <div class="mermaid">
+flowchart TD
+    Tick500["Tick Trigger (Every 500ms)"] --> CheckMode{"Check Active Orders"}
+    
+    CheckMode -->|"Single Order (Count == 1)"| IndivLadder["Individual Order Trailing (+100 -> +50)"]
+    CheckMode -->|"Basket (Count > 1)"| BasketLadder["Cumulative Basket Ladder ($2->$1, $4->$2, $8->$4)"]
+    CheckMode -->|"Basket (Count >= 2 & Winners >= 2)"| BasketPartial["Basket Partial Protect (Lock $0.50 on Winners >= $1)"]
+    
+    IndivLadder --> AntiChurn{"Anti-Churn & Safety Gate"}
+    BasketLadder --> AntiChurn
+    BasketPartial --> AntiChurn
+
+    AntiChurn -->|"Distance to Live Market < $15"| Skip1["SKIP: Prevent Error 130 (Invalid Stops)"]
+    AntiChurn -->|"SL Improvement < $10"| Skip2["SKIP: Prevent Server Overload / Churn"]
+    AntiChurn -->|"Valid Improvement >= $10 & Safe Distance"| Modify["Execute SafeOrderModify()"]
+          </div>
+        </div>
+
+        <div class="sim-grid">
+          <div class="card" style="margin-bottom: 0;">
+            <h4 style="color: var(--accent-blue); margin-bottom: 10px;">1. Individual Order Ladder</h4>
+            <p style="font-size: 13px; color: var(--text-muted); margin-bottom: 12px;">Based on raw BTCUSD price distance from order open price:</p>
+            <table>
+              <tr><th>Profit Movement</th><th>Protected StopLoss</th></tr>
+              <tr><td>+$100 to +$199</td><td><span class="badge badge-green">+$50 Locked</span></td></tr>
+              <tr><td>+$200 to +$299</td><td><span class="badge badge-green">+$100 Locked</span></td></tr>
+              <tr><td>+$300 to +$399</td><td><span class="badge badge-green">+$150 Locked</span></td></tr>
+              <tr><td>Every +$100 step</td><td>Locks +$50 more</td></tr>
+            </table>
+          </div>
+
+          <div class="card" style="margin-bottom: 0;">
+            <h4 style="color: var(--accent-purple); margin-bottom: 10px;">2. Cumulative Basket Ladder</h4>
+            <p style="font-size: 13px; color: var(--text-muted); margin-bottom: 12px;">Based on total cumulative profit of all orders in that direction:</p>
+            <table>
+              <tr><th>Cumulative Profit</th><th>Protected Basket Floor</th></tr>
+              <tr><td>Reaches $2.00</td><td><span class="badge badge-green">$1.00 Locked</span></td></tr>
+              <tr><td>Reaches $4.00</td><td><span class="badge badge-green">$2.00 Locked</span></td></tr>
+              <tr><td>Reaches $8.00</td><td><span class="badge badge-green">$4.00 Locked</span></td></tr>
+              <tr><td>Scales by 2x</td><td>Locks 50% of milestone</td></tr>
+            </table>
+          </div>
+
+          <div class="card" style="margin-bottom: 0;">
+            <h4 style="color: #38bdf8; margin-bottom: 10px;">3. Basket Partial Protect</h4>
+            <p style="font-size: 13px; color: var(--text-muted); margin-bottom: 12px;">Protects individual winners even when cumulative basket profit is underwater:</p>
+            <table>
+              <tr><th>Condition</th><th>Action</th></tr>
+              <tr><td>Basket Count &gt;= 2 &amp; Winners &gt;= 2</td><td>Monitors each winning order</td></tr>
+              <tr><td>Order Profit &gt;= $1.00</td><td><span class="badge badge-green">Locks $0.50 Profit</span></td></tr>
+              <tr><td>Order Profit &gt;= $2.00</td><td><span class="badge badge-green">Locks $1.00 Profit</span></td></tr>
+              <tr><td>Losing Orders</td><td><span class="badge badge-amber">NEVER Touched / Loosened</span></td></tr>
+            </table>
+          </div>
+        </div>
+
+        <div class="card" style="margin-top: 20px; border-left: 4px solid var(--accent-amber);">
+          <h4 style="color: var(--accent-amber); margin-bottom: 6px;">Anti-Churn &amp; Broker Safety Rules (V7002 Core Guard)</h4>
+          <ul style="padding-left: 20px; font-size: 13px; color: var(--text-muted);">
+            <li><strong>Profit Ratchet Floor (V7002):</strong> An order will <strong>NEVER</strong> be modified if the proposed new SL locks <strong>LESS profit</strong> than the current SL (e.g., if an order already has $1.00 locked, any method proposing a $0.70 lock is immediately rejected). For BUY orders, SL can never move downward; for SELL orders, SL can never move upward.</li>
+            <li><strong>Minimum $10 SL Improvement:</strong> If an order already has an active SL, it will not be modified unless the new SL improves by at least <strong>$10.0 raw BTC</strong>. This stops micro-modifications from flooding the server.</li>
+            <li><strong>Minimum $15 Live Price Gap:</strong> The proposed SL must stay at least <strong>$15 (or broker stop level)</strong> away from the live Bid/Ask to avoid broker rejection (<strong>Error 130</strong>).</li>
+          </ul>
+        </div>
+      </div>
+    </div>
+
+    <!-- TAB 4: ORDER CLOSING -->
+    <div id="tab-closing" class="tab-content">
+      <div class="card">
+        <div class="card-title">When & How Orders Are Closed</div>
+        <p style="color: var(--text-muted); font-size: 14px; margin-bottom: 16px;">
+          Orders exit through one of the following 6 automated mechanisms:
+        </p>
+
+        <div class="mermaid-container">
+          <div class="mermaid">
+flowchart TD
+    ActiveOrder(["Open Order / Basket"]) --> ExitTrigger{"Which Event Triggered?"}
+    
+    ExitTrigger -->|"1. Market touches Trailed SL"| Ex1["Trailed Stop Loss Hit: Profit Locked In Bank"]
+    ExitTrigger -->|"2. Market touches TP (if set)"| Ex2["Take Profit Hit: Target Reached"]
+    ExitTrigger -->|"3. Account Equity reaches Daily Target"| Ex3["Daily Target Hit: Trading Halted & Profit Secured"]
+    ExitTrigger -->|"4. Price pulls far from EMA 200"| Ex4["EMA Distance Exit: Stale Opposite Orders Closed"]
+    ExitTrigger -->|"5. 5% Equity Surplus Milestone"| Ex5["5% Surplus Reset: Baseline Reset & Target Hit"]
+    ExitTrigger -->|"6. Deep Drawdown Partial De-Risking"| Ex6["Partial Loss Close: 0.01 lot closed step-wise"]
+
+    Ex1 --> Done(["Order Closed & Archived"])
+    Ex2 --> Done
+    Ex3 --> Done
+    Ex4 --> Done
+    Ex5 --> Done
+    Ex6 --> Done
+          </div>
+        </div>
+
+        <table>
+          <thead>
+            <tr>
+              <th>Exit Mechanism</th>
+              <th>MQL4 Method Name</th>
+              <th>Trigger Condition</th>
+              <th>Action Taken</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td><strong>1. Trailed StopLoss</strong></td>
+              <td><code style="color: #38bdf8;">Broker Native / OrderStopLoss()</code><br><span style="font-size: 11px; color: var(--text-muted);">(Trailed by <code>SecureDistanceProfitLadder()</code>, <code>modifyOnlyBuy/SellOrders()</code>, &amp; <code>BasketPartialProtect()</code>)</span></td>
+              <td>Price pulls back and hits the trailed SL price.</td>
+              <td>Closes order with secured profit (+50, +100, or partial basket $0.50).</td>
+            </tr>
+            <tr>
+              <td><strong>2. Daily Equity Stop</strong></td>
+              <td><code style="color: #38bdf8;">IsDailyEquityStopReached()</code><br><span style="font-size: 11px; color: var(--text-muted);">calls <code>ModifyOpenOrdersToSecureProfit()</code></span></td>
+              <td>Account Equity reaches <code>g_dayOpeningBalance + Target</code>.</td>
+              <td>Sets <code>g_dailyEquityTradingBlocked = true</code>; stops all new entries for the day.</td>
+            </tr>
+            <tr>
+              <td><strong>3. EMA Distance Pull</strong></td>
+              <td><code style="color: #38bdf8;">CloseOppositeOrdersOnEmaDistance()</code><br><span style="font-size: 11px; color: var(--text-muted);">calls <code>SafeOrderClose()</code></span></td>
+              <td>Price deviates far from EMA 200 (<code>EmaCloseDistancePoints</code>).</td>
+              <td>Closes lagging opposite trades to protect portfolio.</td>
+            </tr>
+            <tr>
+              <td><strong>4. 5% Equity Surplus</strong></td>
+              <td><code style="color: #38bdf8;">Manage5PercentLadderReset()</code><br><span style="font-size: 11px; color: var(--text-muted);">and <code>CheckEquitySurplusReset()</code></span></td>
+              <td>Equity spikes significantly above balance.</td>
+              <td>Secures profit and resets the daily ladder baseline.</td>
+            </tr>
+            <tr>
+              <td><strong>5. Partial Loss Close</strong></td>
+              <td><code style="color: #38bdf8;">ManagePartialClosesLoss()</code><br><span style="font-size: 11px; color: var(--text-muted);">calls <code>OrderClose()</code> for 0.01 lot chunks</span></td>
+              <td>Individual order in deep drawdown (loss trigger reached).</td>
+              <td>Progressively closes 0.01 lots every $100 price drop to avoid liquidation.</td>
+            </tr>
+            <tr>
+              <td><strong>6. V-Shape Reversal</strong></td>
+              <td><code style="color: #38bdf8;">DetectBounceback()</code><br><span style="font-size: 11px; color: var(--text-muted);">calls <code>SafeOrderClose()</code> on opposite orders</span></td>
+              <td>Bullish or Bearish 5-minute bounceback confirmed.</td>
+              <td>Clears conflicting positions in the opposing direction.</td>
+            </tr>
+            <tr>
+              <td><strong>7. Hard Take Profit</strong></td>
+              <td><code style="color: #38bdf8;">Broker Native / OrderTakeProfit()</code></td>
+              <td>Price reaches configured take profit target.</td>
+              <td>Instantly closes trade at target price.</td>
+            </tr>
+            <tr>
+              <td><strong>8. Recovery Basket &amp; Orphan Exit</strong></td>
+              <td><code style="color: #38bdf8;">ManageRecoveryBasket()</code><br><span style="font-size: 11px; color: var(--text-muted);">calls <code>SafeOrderClose()</code></span></td>
+              <td>Combined Profit &gt;= $1 (closes pair), OR Recovery Profit &gt;= $1 (closes recovery order while parent stays open, or closes orphan cleanly).</td>
+              <td>Banks &gt; $1 cash immediately at market; parent stays active to recover or receives fresh recovery order.</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <!-- TAB: RECOVERY ORDERS STRATEGY -->
+    <div id="tab-recovery" class="tab-content">
+      <div class="card">
+        <div class="card-title">🛡️ Recovery Orders Strategy &amp; Big Gap Protection</div>
+        <p style="color: var(--text-muted); font-size: 14px;">
+          The recovery engine is an automated safety mechanism designed to protect parent trades experiencing deep adverse drawdowns. When price pulls back by a <strong>big gap (&gt;= 2000 raw BTC)</strong> and trend momentum confirms resumption, the EA deploys a <strong>2x volume recovery trade</strong> at a deep discount to accelerate recovery, bank independent profits, or neutralize parent losses.
+        </p>
+
+        <div class="mermaid-container">
+          <div class="mermaid">
+flowchart TD
+    subgraph Trigger["1. Parent Drawdown &amp; Big Gap Qualification"]
+        P1["Parent Trade in Loss (&lt;= -$1.00 USD)"] --&gt; P2{"Adverse Price Gap Check<br>|Entry - LivePrice| &gt;= 2000 raw BTC?"}
+        P2 --&gt;|"No"| PWait["Wait for Minimum Gap Distance"]
+        P2 --&gt;|"Yes"| P3{"Trend Resumption Aligns?<br>(SSL or EMA confirms direction)"}
+        P3 --&gt;|"No"| PWait2["Wait for Momentum Confirmation"]
+        P3 --&gt;|"Yes"| P4["Open RECOVERY_ Trade<br>(2x Parent Lots, Weak Pullback Filter Removed)"]
+    end
+
+    subgraph Monitor["2. Real-Time Pair &amp; Orphan Monitoring (OnTick)"]
+        P4 --&gt; M1{"ManageRecoveryBasket()"}
+        M1 --&gt; M2{"Is Parent Trade Still Active?"}
+
+        M2 --&gt;|"YES: Parent is Active"| M3{"Profit Target Evaluation"}
+        M3 --&gt;|"Combined Basket Profit &gt;= $1.00"| E1["1. COMBINED BASKET EXIT<br>Closes BOTH Parent &amp; Recovery Together<br>(Wipes Parent Loss + Banks Net Profit)"]
+        M3 --&gt;|"Recovery Order Alone &gt;= $1.00<br>(Combined basket still negative)"| E2["2. INDEPENDENT PROFIT BANK<br>Closes Recovery Order at Market<br>(Banks &gt; $1 Cash, Parent Stays Active)"]
+        M3 --&gt;|"Neither Target Met"| MWait["Hold Pair &amp; Monitor Live Ticks"]
+
+        M2 --&gt;|"NO: Parent Already Closed (Orphan)"| M4{"Orphan Profit Evaluation"}
+        M4 --&gt;|"Orphan Recovery Profit &gt;= $1.00"| E3["3. CLEAN ORPHAN PROFIT EXIT<br>Closes Orphan Recovery Order at Market<br>(Banks &gt; $1 Cash, No Invalid Parent Errors)"]
+        M4 --&gt;|"Profit &lt; $1.00"| OWait["Hold Orphan Recovery Until Profit &gt;= $1.00"]
+    end
+
+    E1 --&gt; Done(["Cycle Finished &amp; Profits Secured"])
+    E2 --&gt; ParentActive(["Parent Remains Open to Recover or Trigger Fresh Recovery Order"])
+    E3 --&gt; Done
+          </div>
+        </div>
+
+        <div class="grid-2">
+          <div class="card" style="border-left: 4px solid var(--accent-blue); margin-bottom: 0;">
+            <div class="card-title" style="font-size: 16px;">🚀 Opening Engine: When Recovery Orders Open</div>
+            <ul style="color: var(--text-muted); font-size: 13px; line-height: 1.8; margin-left: 18px;">
+              <li><strong>Big Adverse Gap Requirement:</strong> The live price must have pulled back at least <code>RecoveryMinDistanceRaw = 2000</code> raw BTC points away from the parent order's open price.</li>
+              <li><strong>Parent Loss Threshold:</strong> The parent trade's floating loss must reach <code>dynamicRecoveryLossLimit &lt;= -$1.00</code>.</li>
+              <li><strong>Direction Resumption Confirmation:</strong>
+                <ul style="margin-left: 14px;">
+                  <li>For BUY Parent: <code>GlobalSSLDirection == 1 || EMADirection == 1</code></li>
+                  <li>For SELL Parent: <code>GlobalSSLDirection == -1 || EMADirection == -1</code></li>
+                </ul>
+              </li>
+              <li><strong>Weak EMA Filter Removed:</strong> The former restrictive pullback filter (<code>!IsEmaWEAKDistanceReduced50PercentFromPeak()</code>) was completely removed, allowing reliable entry whenever price gaps out into confirmed direction.</li>
+              <li><strong>Lot Size Multiplier:</strong> Recovery order opens with <code>parentLots * RecoveryLotMultiplier</code> (<strong>2.0x</strong> volume) with comment <code>RECOVERY_&lt;ParentTicket&gt;</code>.</li>
+              <li><strong>Order Throttling:</strong> Strictly respects <code>MaxRecoveryOrders = 10</code> and maximum 1 order per candle.</li>
+            </ul>
+          </div>
+
+          <div class="card" style="border-left: 4px solid var(--accent-green); margin-bottom: 0;">
+            <div class="card-title" style="font-size: 16px;">💰 Exit Engine: 3 Distinct Profit Exit Paths</div>
+            <ul style="color: var(--text-muted); font-size: 13px; line-height: 1.8; margin-left: 18px;">
+              <li><strong>Path 1: Combined Basket Win (&gt;= $1.00):</strong>
+                <br>When <code>RecoveryProfit + ParentProfit &gt;= RecoveryBasketProfitUSD</code> ($1.00), <strong>BOTH</strong> trades are closed simultaneously. The recovery order's profit completely wipes out the parent's loss, banking net positive profit.
+              </li>
+              <li><strong>Path 2: Independent Profit Bank (&gt; $1.00 while Parent is Open):</strong>
+                <br>If the market bounces and the 2x recovery order alone gains <strong>&gt;= $1.00</strong> profit, but the parent is still in larger drawdown:
+                <strong>The recovery order closes immediately at market to BANK the cash!</strong>
+                The parent trade <strong>stays active</strong> to recover. Since the recovery ticket is cleared, the parent can receive another fresh recovery order if the price gaps again!
+              </li>
+              <li><strong>Path 3: Clean Orphan Exit (&gt; $1.00 with Parent Closed):</strong>
+                <br>If the parent was closed (via Stop Loss, manual close, or basket exit), the recovery order becomes an orphan. Once <code>recoveryProfit &gt;= $1.00</code>, the EA closes the orphan cleanly at market without throwing errors.
+              </li>
+            </ul>
+          </div>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="card-title">📊 Concrete Execution Walkthrough (BTCUSD)</div>
+        <p style="color: var(--text-muted); font-size: 14px;">
+          Here is how a real live trading scenario plays out from parent drawdown to independent cash banking:
+        </p>
+
+        <table>
+          <thead>
+            <tr>
+              <th>Step</th>
+              <th>Market Event</th>
+              <th>Parent Order Status</th>
+              <th>Recovery Order Status</th>
+              <th>Combined Action</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td><strong>1. Initial Trade</strong></td>
+              <td>Bullish SSL signal triggers Buy entry at $62,900.00.</td>
+              <td>Ticket #101: BUY 0.02 @ 62,900.00 | P/L: $0.00</td>
+              <td>None</td>
+              <td>Normal trade opens with initial safety SL.</td>
+            </tr>
+            <tr>
+              <td><strong>2. Adverse Move</strong></td>
+              <td>Price pulls back 2000 points down to $60,900.00.</td>
+              <td>Ticket #101: BUY 0.02 | P/L: -$40.00 (&lt; -$1.00)</td>
+              <td>None</td>
+              <td>Adverse gap is 2000 raw BTC. Loss threshold exceeded.</td>
+            </tr>
+            <tr>
+              <td><strong>3. Recovery Deployed</strong></td>
+              <td>SSL flips Bullish (+1) at $60,900.00. Recovery triggers.</td>
+              <td>Ticket #101: BUY 0.02 @ 62,900.00</td>
+              <td>Ticket #102: BUY 0.04 @ 60,900.00 (2x Lots)<br><span style="color: #38bdf8;">Comment: RECOVERY_101</span></td>
+              <td>2x recovery lot bought at deep $2000 discount.</td>
+            </tr>
+            <tr>
+              <td><strong>4. Market Bounces</strong></td>
+              <td>Price rises 40 points up to $60,940.00.</td>
+              <td>Ticket #101: BUY 0.02 | P/L: -$39.20</td>
+              <td>Ticket #102: BUY 0.04 | P/L: <strong>+$1.60</strong> (&gt; $1.00)</td>
+              <td>Combined is -$37.60, but <strong>Recovery alone has +$1.60</strong>!</td>
+            </tr>
+            <tr>
+              <td><strong>5. Independent Bank</strong></td>
+              <td><code>ManageRecoveryBasket()</code> detects Recovery Profit &gt;= $1.00.</td>
+              <td>Ticket #101 <strong>REMAINS OPEN</strong> at $62,900.00</td>
+              <td>Ticket #102 <strong>CLOSED AT MARKET</strong><br><span style="color: var(--accent-green);">+$1.60 Banked into Cash Balance</span></td>
+              <td><strong>Profit secured!</strong> Parent is preserved to recover. If market pulls back 2000 points again, a fresh recovery order can open.</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+
+      <div class="card">
+        <div class="card-title">⚙️ Recovery Orders Parameter Reference</div>
+        <table>
+          <thead>
+            <tr>
+              <th>Parameter</th>
+              <th>Default Value</th>
+              <th>Description &amp; Operational Impact</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td><code>EnableRecoveryOrders</code></td>
+              <td><code>true</code></td>
+              <td>Master toggle to enable or disable automated recovery order creation and basket management.</td>
+            </tr>
+            <tr>
+              <td><code>RecoveryMinDistanceRaw</code></td>
+              <td><code>2000.0</code></td>
+              <td>The required raw price gap distance in BTC points between the parent open price and the current market entry price before a recovery order is eligible.</td>
+            </tr>
+            <tr>
+              <td><code>RecoveryTriggerLossUSD</code></td>
+              <td><code>1.0</code></td>
+              <td>The minimum parent floating loss (scaled by parent volume: <code>-$1.00 * Lots * 100</code>) required before recovery can trigger.</td>
+            </tr>
+            <tr>
+              <td><code>RecoveryLotMultiplier</code></td>
+              <td><code>2.0</code></td>
+              <td>Volume multiplier applied to the parent order lot size (e.g. 0.02 parent $\rightarrow$ 0.04 recovery).</td>
+            </tr>
+            <tr>
+              <td><code>RecoveryBasketProfitUSD</code></td>
+              <td><code>1.0</code></td>
+              <td>The dollar profit target ($1X * multiplier) required to trigger combined pair exit or independent recovery order profit taking.</td>
+            </tr>
+            <tr>
+              <td><code>MaxRecoveryOrders</code></td>
+              <td><code>10</code></td>
+              <td>The maximum number of concurrent active recovery orders allowed across the entire account to prevent excessive exposure.</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <!-- TAB 5: INTERACTIVE SIMULATOR -->
+    <div id="tab-simulator" class="tab-content">
+      <div class="card">
+        <div class="card-title">🧮 Interactive StopLoss Trailing Simulator</div>
+        <p style="color: var(--text-muted); font-size: 14px;">
+          Test any price scenario below to see the exact Stop Loss that will be set, the ladder rung, and the anti-churn check outcome.
+        </p>
+
+        <div class="sim-grid">
+          <div>
+            <div class="sim-input-group">
+              <label>Order Type</label>
+              <select id="sim-type" onchange="calcSim()">
+                <option value="BUY">BUY Order</option>
+                <option value="SELL">SELL Order</option>
+              </select>
+            </div>
+            <div class="sim-input-group">
+              <label>Order Open Price ($)</label>
+              <input type="number" id="sim-open" value="60000" step="10" oninput="calcSim()">
+            </div>
+            <div class="sim-input-group">
+              <label>Current Live Price (Bid/Ask) ($)</label>
+              <input type="number" id="sim-live" value="60240" step="10" oninput="calcSim()">
+            </div>
+            <div class="sim-input-group">
+              <label>Current Existing StopLoss ($)</label>
+              <input type="number" id="sim-curr-sl" value="0" step="10" oninput="calcSim()">
+            </div>
+          </div>
+
+          <div class="sim-result-box">
+            <h4 style="color: var(--accent-blue); font-size: 14px; text-transform: uppercase;">Simulation Outcome</h4>
+            <div class="sim-res-row">
+              <span style="color: var(--text-muted);">Profit Distance:</span>
+              <span class="sim-res-val" id="res-dist">$0.00</span>
+            </div>
+            <div class="sim-res-row">
+              <span style="color: var(--text-muted);">Ladder Rung:</span>
+              <span class="sim-res-val" id="res-rung">None</span>
+            </div>
+            <div class="sim-res-row">
+              <span style="color: var(--text-muted);">Calculated Target SL:</span>
+              <span class="sim-res-val" id="res-target-sl" style="color: var(--accent-green); font-size: 16px;">--</span>
+            </div>
+            <div class="sim-res-row">
+              <span style="color: var(--text-muted);">Anti-Churn Filter:</span>
+              <span class="sim-res-val" id="res-churn">--</span>
+            </div>
+            <div class="sim-res-row">
+              <span style="color: var(--text-muted);">Broker Safety Gap:</span>
+              <span class="sim-res-val" id="res-safety">--</span>
+            </div>
+            <div class="sim-res-row" style="border: none;">
+              <span style="color: var(--text-muted); font-weight: 600;">Action Decision:</span>
+              <span class="sim-res-val" id="res-action">--</span>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- TAB 6: CHEAT SHEET -->
+    <div id="tab-cheatsheet" class="tab-content">
+      <div class="card">
+        <div class="card-title">Quick Reference Cheat Sheet</div>
+        <table>
+          <thead>
+            <tr>
+              <th>Operation</th>
+              <th>MQL4 Method Name</th>
+              <th>Rule Formula</th>
+              <th>Key Guard</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td><strong>Open Buy</strong></td>
+              <td><code style="color: #38bdf8;">OpenBuy()</code></td>
+              <td>SSL Bullish + Above EMA 200</td>
+              <td>Gap &gt;= Min &amp; 1 order per candle</td>
+            </tr>
+            <tr>
+              <td><strong>Open Sell</strong></td>
+              <td><code style="color: #38bdf8;">OpenSell()</code></td>
+              <td>SSL Bearish + Below EMA 200</td>
+              <td>Gap &gt;= Min &amp; 1 order per candle</td>
+            </tr>
+            <tr>
+              <td><strong>Single Buy Trail</strong></td>
+              <td><code style="color: #38bdf8;">SecureDistanceProfitLadder()</code></td>
+              <td><code>Bid - Open &gt;= 100 * N</code> $\rightarrow$ <code>SL = Open + 50 * N</code></td>
+              <td>Improvement &gt;= $10 &amp; Live Gap &gt;= $15</td>
+            </tr>
+            <tr>
+              <td><strong>Single Sell Trail</strong></td>
+              <td><code style="color: #38bdf8;">SecureDistanceProfitLadder()</code></td>
+              <td><code>Open - Ask &gt;= 100 * N</code> $\rightarrow$ <code>SL = Open - 50 * N</code></td>
+              <td>Improvement &gt;= $10 &amp; Live Gap &gt;= $15</td>
+            </tr>
+            <tr>
+              <td><strong>Buy Basket Lock</strong></td>
+              <td><code style="color: #38bdf8;">modifyOnlyBuyOrders()</code></td>
+              <td>Cumulative Profit &gt;= $2 / $4 / $8</td>
+              <td>Locks $1 / $2 / $4 across all orders</td>
+            </tr>
+            <tr>
+              <td><strong>Sell Basket Lock</strong></td>
+              <td><code style="color: #38bdf8;">modifyOnlySellOrders()</code></td>
+              <td>Cumulative Profit &gt;= $2 / $4 / $8</td>
+              <td>Locks $1 / $2 / $4 across all orders</td>
+            </tr>
+            <tr>
+              <td><strong>Partial Basket Group Protect</strong></td>
+              <td><code style="color: #38bdf8;">BasketPartialProtect()</code></td>
+              <td>&gt;= 2 orders in profit &amp; Combined Winners Sum &gt;= $1X ($1.00, $2.00, etc.)</td>
+              <td>Calculates unified SL locking $1X / 2 ($0.50, $1.00, etc.) across all winning orders; losing orders strictly untouched</td>
+            </tr>
+            <tr>
+              <td><strong>Profit Ratchet Floor</strong></td>
+              <td><code style="color: #38bdf8;">SafeOrderModify() Guard</code></td>
+              <td><code>NewLockedUSD &lt; CurrentLockedUSD</code> OR SL worse</td>
+              <td>Rejects downgrade; preserves higher profit</td>
+            </tr>
+            <tr>
+              <td><strong>Anti-Churn</strong></td>
+              <td><code style="color: #38bdf8;">minSLImprovement check</code></td>
+              <td><code>|TargetSL - CurrentSL| &lt; 10.0</code></td>
+              <td>Skips modify to prevent server lag</td>
+            </tr>
+            <tr>
+              <td><strong>Broker Safety</strong></td>
+              <td><code style="color: #38bdf8;">minSafeDistance check</code></td>
+              <td><code>|LivePrice - TargetSL| &lt; 15.0</code></td>
+              <td>Skips modify to prevent Error 130</td>
+            </tr>
+            <tr>
+              <td><strong>Daily Stop Exit</strong></td>
+              <td><code style="color: #38bdf8;">IsDailyEquityStopReached()</code></td>
+              <td>Equity &gt;= OpeningBalance + Target</td>
+              <td>Halts trading &amp; blocks SafeOrderSend</td>
+            </tr>
+            <tr>
+              <td><strong>Partial De-Risk</strong></td>
+              <td><code style="color: #38bdf8;">ManagePartialClosesLoss()</code></td>
+              <td>Individual order drawdown milestone</td>
+              <td>Closes 0.01 lot chunks every $100 drop</td>
+            </tr>
+            <tr>
+              <td><strong>Recovery Order Open</strong></td>
+              <td><code style="color: #38bdf8;">CheckRecoveryOrders()</code></td>
+              <td>Adverse Gap &gt;= 2000 raw BTC &amp; Parent Loss &lt;= -$1 &amp; Trend Aligns</td>
+              <td>Opens 2x lots recovery order (weak pullback block removed) to protect parent</td>
+            </tr>
+            <tr>
+              <td><strong>Recovery Profit Exit</strong></td>
+              <td><code style="color: #38bdf8;">ManageRecoveryBasket()</code></td>
+              <td>Combined &gt;= $1 OR Recovery Order &gt;= $1 (Parent Open / Orphan)</td>
+              <td>Banks &gt; $1 cash immediately at market; parent stays active to recover</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    function showTab(tabId) {
+      document.querySelectorAll('.tab-content').forEach(el => el.classList.remove('active'));
+      document.querySelectorAll('.tab-btn').forEach(el => el.classList.remove('active'));
+      document.getElementById(tabId).classList.add('active');
+      event.currentTarget.classList.add('active');
+    }
+
+    function calcSim() {
+      const type = document.getElementById('sim-type').value;
+      const open = parseFloat(document.getElementById('sim-open').value) || 0;
+      const live = parseFloat(document.getElementById('sim-live').value) || 0;
+      const currSL = parseFloat(document.getElementById('sim-curr-sl').value) || 0;
+
+      let profitDist = (type === 'BUY') ? (live - open) : (open - live);
+      document.getElementById('res-dist').innerText = (profitDist >= 0 ? '+' : '') + profitDist.toFixed(2) + ' pts';
+
+      if (profitDist < 100) {
+        document.getElementById('res-rung').innerText = 'Below 1st Rung (< $100)';
+        document.getElementById('res-target-sl').innerText = currSL > 0 ? currSL.toFixed(2) : 'None';
+        document.getElementById('res-churn').innerText = 'N/A';
+        document.getElementById('res-safety').innerText = 'Safe';
+        document.getElementById('res-action').innerHTML = '<span class="badge badge-amber">No Change (Hold Current SL)</span>';
+        return;
+      }
+
+      const rung = Math.floor(profitDist / 100.0);
+      document.getElementById('res-rung').innerText = 'Rung ' + rung + ' (+' + (rung * 100) + ' trigger)';
+
+      let targetSL = (type === 'BUY') ? (open + (rung * 50.0)) : (open - (rung * 50.0));
+      document.getElementById('res-target-sl').innerText = targetSL.toFixed(2);
+
+      // Broker safety gap (>= 15 pts)
+      const liveGap = (type === 'BUY') ? (live - targetSL) : (targetSL - live);
+      let safetyPassed = liveGap >= 15.0;
+      document.getElementById('res-safety').innerHTML = safetyPassed
+        ? '<span style="color: var(--accent-green);">Gap: $' + liveGap.toFixed(1) + ' (Safe >= $15)</span>'
+        : '<span style="color: var(--accent-red);">Gap: $' + liveGap.toFixed(1) + ' (Too Close! Error 130 Risk)</span>';
+
+      // Anti churn check (>= 10 pts improvement)
+      let churnPassed = true;
+      let churnReason = 'New SL';
+      if (currSL > 0) {
+        if (type === 'BUY') {
+          if (targetSL <= currSL) {
+            churnPassed = false;
+            churnReason = 'Ratchet: SL cannot move backwards';
+          } else if (targetSL - currSL < 10.0) {
+            churnPassed = false;
+            churnReason = 'Improvement < $10 ($' + (targetSL - currSL).toFixed(1) + ')';
+          } else {
+            churnReason = 'Improvement: +$' + (targetSL - currSL).toFixed(1) + ' (>= $10)';
+          }
+        } else {
+          if (targetSL >= currSL) {
+            churnPassed = false;
+            churnReason = 'Ratchet: SL cannot move backwards';
+          } else if (currSL - targetSL < 10.0) {
+            churnPassed = false;
+            churnReason = 'Improvement < $10 ($' + (currSL - targetSL).toFixed(1) + ')';
+          } else {
+            churnReason = 'Improvement: +$' + (currSL - targetSL).toFixed(1) + ' (>= $10)';
+          }
+        }
+      }
+      document.getElementById('res-churn').innerHTML = churnPassed
+        ? '<span style="color: var(--accent-green);">' + churnReason + '</span>'
+        : '<span style="color: var(--accent-amber);">' + churnReason + '</span>';
+
+      if (!safetyPassed) {
+        document.getElementById('res-action').innerHTML = '<span class="badge badge-red">BLOCKED: Too Close to Market</span>';
+      } else if (!churnPassed) {
+        document.getElementById('res-action').innerHTML = '<span class="badge badge-amber">SKIPPED: ' + churnReason + '</span>';
+      } else {
+        document.getElementById('res-action').innerHTML = '<span class="badge badge-green">EXECUTE: Modify SL to ' + targetSL.toFixed(2) + '</span>';
+      }
+    }
+
+    // Run simulation once on load
+    calcSim();
+  </script>
+</body>
+</html>
