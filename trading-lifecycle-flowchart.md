@@ -51,10 +51,10 @@ flowchart TD
     F3 -->|"Price against EMA 200 trend"| Abort3["ABORT: Trend Conflict"]
     F3 -->|"Aligned with Trend"| F4{"Gate 4: Candle Limit"}
     
-    F4 -->|"Order already made this candle"| Abort4["ABORT: 1 Candle 1 Order Rule"]
-    F4 -->|"New Candle"| F5{"Gate 5: Max Orders"}
+    F4 -->|"2 Orders already made this candle"| Abort4["ABORT: Max 2 Orders Per Candle Reached"]
+    F4 -->|"Room Available (Under 2 Orders)"| F5{"Gate 5: Max Orders"}
     
-    F5 -->|"Total EA Orders >= MaxOpenOrders"| Abort5["ABORT: Max Orders Reached"]
+    F5 -->|"Total EA Orders at Max Limit"| Abort5["ABORT: Max Orders Reached"]
     F5 -->|"Room Available"| F6{"Gate 6: Minimum Order Gap"}
     
     F6 -->|"Price too close to existing order"| Abort6["ABORT: Gap Under Dynamic Minimum"]
@@ -71,7 +71,7 @@ flowchart TD
 | **Gate 1** | `!g_dailyEquityTradingBlocked` | Stop trading once daily equity goal is met |
 | **Gate 2** | `!IsDubaiTradingPauseHour()` & `!TradingHaltedUntilNextFlip` | Avoid dead hours / high-spread sessions |
 | **Gate 3** | `PassesEMAFilter(orderType)` | Never buy below or sell above EMA 200 |
-| **Gate 4** | `IsOneCandleOrderAllowed()` | Limits EA to max 1 order per candle |
+| **Gate 4** | `IsOneCandleOrderAllowed()` | Limits EA to max 2 orders per candle |
 | **Gate 5** | `GetTotalEAOrders() < MaxOpenOrders` | Portfolio exposure cap |
 | **Gate 6** | `HasMinimumSameOrderGap(...)` | Prevents clustering orders too close together |
 | **Lot Sizing** | Scaled via `balancelomultipler` | Scales position size proportionally with account equity |
@@ -220,7 +220,7 @@ flowchart TD
    * **Parent Loss Threshold:** Parent floating loss must reach $\le -\$1.00$ (`dynamicRecoveryLossLimit`).
    * **Momentum Alignment:** SSL Channel or EMA 200 must confirm resumption in the trade direction.
    * **Zero Weak Pullback Block:** Restrictive weak pullback filter removed to ensure timely activation.
-   * **Lot Sizing:** Opens at **2x parent volume** (`RecoveryLotMultiplier = 2.0`).
+   * **Lot Sizing & Limits:** Opens at **2x parent volume** (`RecoveryLotMultiplier = 2.0`), **strictly capped at max 0.05 lots** (`RecoveryMaxLots = 0.05`). Maximum active recovery orders capped at **5 orders** (`MaxRecoveryOrders = 5`).
 2. **Two Clear Profit Exit Rules:**
    * **Rule 1 (Active Parent Pair - Combined Basket Win $\ge \$1.00$):** As long as the parent trade is open and exists, the recovery order will **NEVER close alone**. Both trades are held together until `RecoveryProfit + ParentProfit >= $1.00`. When reached, both parent and recovery orders close simultaneously, wiping out the parent's loss and banking profit!
    * **Rule 2 (Clean Orphan Exit $\ge \$1.00$ with Parent Closed):** If the parent was closed previously (via Stop Loss, manual close, etc.), the recovery order is an orphan. Once its profit reaches $\ge \$1.00$, it closes cleanly at market without throwing invalid ticket errors.
