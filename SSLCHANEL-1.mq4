@@ -27,7 +27,7 @@
 //https://github.com/devcrunch2025/exnessStratagiesExperts/commit/f4f1c1340be330cd32a75da3f3a9b4bd5f4e4cf3
 
 
-string glbVersion = "V6001  01-10-2026 08.00 FINAL VERSION - Attached Image  balance ST-20 Partialclose, Close orders $1X close-   FlipLadderStepUSD 7 DailyEquityStopUSD 50%  TargetProfitPerFlipUSD 10%";
+string glbVersion = "V6001  01-10-2026 11.00 FINAL VERSION - Attached Image  balance ST-20 Partialclose, Close orders $1X close-   FlipLadderStepUSD 7 DailyEquityStopUSD 50%  TargetProfitPerFlipUSD 10%";
 
 
 double DailyEquityStopUSD  =100;//50;//20*2.5;//10;//20;// 10;//30.0; close all orders at $50Xmultipler
@@ -10128,14 +10128,891 @@ void ManagePartialCloses()
 //         }
 //      }
 //   }
+void ManageProfitLadder()
+{
+   // ============================================================
+   // 1. RUN PARTIAL CLOSE CHECKS FIRST
+   // ============================================================
 
+   ManagePartialCloses();
+
+
+   // ============================================================
+   // 2. STANDARD PROFIT LADDER / TRAILING SL LOOP
+   // ============================================================
+
+   for(int i = OrdersTotal() - 1; i >= 0; i--)
+   {
+      if(!OrderSelect(i, SELECT_BY_POS, MODE_TRADES))
+         continue;
+
+
+      if(OrderSymbol() != Symbol() ||
+         OrderMagicNumber() != MagicNumber)
+         continue;
+
+
+      if(StringFind(OrderComment(), "RECOVERY_") == 0)
+         continue;
+
+
+      int orderType = OrderType();
+
+      if(orderType != OP_BUY &&
+         orderType != OP_SELL)
+         continue;
+
+
+      if(HasRecoveryOrder(OrderTicket()))
+         continue;
+
+
+      // =========================================================
+      // CURRENT NET PROFIT
+      // =========================================================
+
+      double currentProfit =
+         OrderProfit() +
+         OrderSwap() +
+         OrderCommission();
+
+
+      if(currentProfit <= 0)
+         continue;
+
+
+      double orderLots = OrderLots();
+
+      if(orderLots <= 0)
+         continue;
+
+
+      // =========================================================
+      // LADDER 1
+      // =========================================================
+
+      double ladder1Profit =
+         OriginalLadder1ProfitUSD *
+         orderLots *
+         100.0;
+
+      ladder1Profit =
+         ladder1Profit *
+         balancelomultipler;
+
+
+      // =========================================================
+      // ORDER PRICE INFORMATION
+      // =========================================================
+
+      double open = OrderOpenPrice();
+      double sl   = OrderStopLoss();
+
+
+      double existingPriceDistance = 0.0;
+
+
+      if(orderType == OP_BUY)
+      {
+         existingPriceDistance =
+            OrderStopLoss() -
+            OrderOpenPrice();
+      }
+
+
+      if(orderType == OP_SELL)
+      {
+         existingPriceDistance =
+            OrderOpenPrice() -
+            OrderStopLoss();
+      }
+
+
+      // =========================================================
+      // CURRENT SL DISTANCE
+      // =========================================================
+
+      double currentSLPoints =
+         MathAbs(
+            OrderOpenPrice() -
+            OrderStopLoss()
+         );
+
+
+      // =========================================================
+      // LADDER 2
+      // ============================================================
+
+      double ladder2Profit =
+         OriginalLadder2ProfitUSD *
+         orderLots *
+         100.0;
+
+
+      double ladder1StopMaxPrice =
+         OriginalLadder1StopMaxPriceUSD *
+         orderLots *
+         100.0;
+
+
+      ladder2Profit =
+         ladder2Profit *
+         balancelomultipler;
+
+
+      ladder1StopMaxPrice =
+         ladder1StopMaxPrice *
+         balancelomultipler;
+
+
+      // ============================================================
+      // DETERMINE LADDER PROFIT REACHED
+      // ============================================================
+
+      double lockedProfit = 0.0;
+
+
+      // ------------------------------------------------------------
+      // LADDER 1
+      // ------------------------------------------------------------
+
+      if(
+         EnableProfitLadder1 &&
+         ladder1Profit > 0.0 &&
+         currentProfit < ladder1StopMaxPrice
+      )
+      {
+         int ladder1Level =
+            (int)MathFloor(
+               currentProfit /
+               ladder1Profit
+            );
+
+
+         if(ladder1Level >= 1)
+         {
+            lockedProfit =
+               ladder1Level *
+               ladder1Profit;
+         }
+      }
+
+
+      // ------------------------------------------------------------
+      // LADDER 2
+      // ------------------------------------------------------------
+
+      if(
+         EnableProfitLadder2 &&
+         ladder2Profit > 0.0 &&
+         currentProfit >= ladder1StopMaxPrice
+      )
+      {
+         int ladder2Level =
+            (int)MathFloor(
+               currentProfit /
+               ladder2Profit
+            );
+
+
+         if(ladder2Level >= 1)
+         {
+            lockedProfit =
+               ladder2Level *
+               ladder2Profit;
+         }
+      }
+
+
+      if(lockedProfit <= 0)
+         continue;
+
+
+      lockedProfit =
+         NormalizeDouble(
+            lockedProfit,
+            2
+         );
+
+
+      // ============================================================
+      // TICK INFORMATION
+      // ============================================================
+
+      double tickValue =
+         MarketInfo(
+            Symbol(),
+            MODE_TICKVALUE
+         );
+
+
+      double tickSize =
+         MarketInfo(
+            Symbol(),
+            MODE_TICKSIZE
+         );
+
+
+      if(tickValue <= 0 ||
+         tickSize <= 0)
+         continue;
+
+
+      // ============================================================
+      // EXISTING LOCKED PROFIT
+      // ============================================================
+
+      double existingLockedProfit = 0.0;
+
+
+      if(OrderStopLoss() > 0)
+      {
+         double existingSLDistance = 0.0;
+
+
+         if(orderType == OP_BUY)
+         {
+            existingSLDistance =
+               OrderStopLoss() -
+               OrderOpenPrice();
+         }
+
+
+         if(orderType == OP_SELL)
+         {
+            existingSLDistance =
+               OrderOpenPrice() -
+               OrderStopLoss();
+         }
+
+
+         if(existingSLDistance > 0)
+         {
+            existingLockedProfit =
+               (
+                  existingSLDistance /
+                  tickSize
+               )
+               *
+               tickValue
+               *
+               orderLots;
+
+
+            existingLockedProfit =
+               NormalizeDouble(
+                  existingLockedProfit,
+                  2
+               );
+         }
+      }
+
+
+      // ============================================================
+      // IMPORTANT:
+      //
+      // LADDER PROFIT = FULL PROFIT TARGET REACHED
+      //
+      // STOP LOSS SHOULD LOCK ONLY 50%
+      //
+      // Example:
+      //
+      // Current ladder = $1.00
+      // SL lock        = $0.50
+      //
+      // Current ladder = $2.00
+      // SL lock        = $1.00
+      //
+      // Current ladder = $3.00
+      // SL lock        = $1.50
+      //
+      // ============================================================
+
+      double profitToLock =
+         lockedProfit * 0.50;
+
+
+      // ============================================================
+      // MINIMUM PROFIT LOCK
+      //
+      // Never allow less than $0.50.
+      // ============================================================
+
+      double minimumProfitToLock =
+         MinimumProfitToLockUSD *
+         balancelomultipler;
+
+
+      if(profitToLock < minimumProfitToLock)
+      {
+         profitToLock =
+            minimumProfitToLock;
+      }
+
+
+      profitToLock =
+         NormalizeDouble(
+            profitToLock,
+            2
+         );
+
+
+      // ============================================================
+      // NEXT PROFIT TARGET / TAKE PROFIT
+      // ============================================================
+
+      double nextProfitTargetUSD = 0.0;
+
+
+      if(
+         EnableProfitLadder1 &&
+         ladder1Profit > 0.0 &&
+         currentProfit < ladder1StopMaxPrice
+      )
+      {
+         int nextL1Level =
+            (int)MathFloor(
+               currentProfit /
+               ladder1Profit
+            ) + 1;
+
+
+         nextProfitTargetUSD =
+            nextL1Level *
+            ladder1Profit;
+      }
+      else
+      if(
+         EnableProfitLadder2 &&
+         ladder2Profit > 0.0
+      )
+      {
+         int nextL2Level =
+            (int)MathFloor(
+               currentProfit /
+               ladder2Profit
+            ) + 1;
+
+
+         nextProfitTargetUSD =
+            nextL2Level *
+            ladder2Profit;
+      }
+
+
+      // ============================================================
+      // TAKE PROFIT
+      // ============================================================
+
+      double desiredTakeProfit =
+         OrderTakeProfit();
+
+
+      if(nextProfitTargetUSD > 0.0)
+      {
+         double nextTP =
+            CalculateDefaultProfitTargetPrice(
+               orderType,
+               OrderOpenPrice(),
+               orderLots,
+               nextProfitTargetUSD
+            );
+
+
+         double minimumTPDistance =
+            GetRequiredStopDistance();
+
+
+         if(nextTP > 0.0)
+         {
+            bool validNextTP = true;
+
+
+            if(
+               orderType == OP_BUY &&
+               nextTP - Ask < minimumTPDistance
+            )
+            {
+               validNextTP = false;
+            }
+
+
+            if(
+               orderType == OP_SELL &&
+               Bid - nextTP < minimumTPDistance
+            )
+            {
+               validNextTP = false;
+            }
+
+
+            if(validNextTP)
+            {
+               if(orderType == OP_BUY)
+               {
+                  if(
+                     desiredTakeProfit <= 0.0 ||
+                     nextTP >
+                     desiredTakeProfit + Point
+                  )
+                  {
+                     desiredTakeProfit =
+                        nextTP;
+                  }
+               }
+               else
+               if(orderType == OP_SELL)
+               {
+                  if(
+                     desiredTakeProfit <= 0.0 ||
+                     nextTP <
+                     desiredTakeProfit - Point
+                  )
+                  {
+                     desiredTakeProfit =
+                        nextTP;
+                  }
+               }
+            }
+         }
+      }
+
+
+      // ============================================================
+      // CHECK TAKE PROFIT MODIFICATION
+      // ============================================================
+
+      bool takeProfitNeedsModify = false;
+
+
+      if(orderType == OP_BUY)
+      {
+         if(
+            desiredTakeProfit > 0.0 &&
+            (
+               OrderTakeProfit() <= 0.0 ||
+               desiredTakeProfit >
+               OrderTakeProfit() + Point
+            )
+         )
+         {
+            takeProfitNeedsModify = true;
+         }
+      }
+      else
+      if(orderType == OP_SELL)
+      {
+         if(
+            desiredTakeProfit > 0.0 &&
+            (
+               OrderTakeProfit() <= 0.0 ||
+               desiredTakeProfit <
+               OrderTakeProfit() - Point
+            )
+         )
+         {
+            takeProfitNeedsModify = true;
+         }
+      }
+
+
+      // ============================================================
+      // CHECK WHETHER SL ALREADY LOCKS REQUIRED 50%
+      // ============================================================
+
+      if(
+         existingLockedProfit >= profitToLock &&
+         !takeProfitNeedsModify
+      )
+      {
+         continue;
+      }
+
+
+      // ============================================================
+      // PRICE DISTANCE FOR PROFIT TO LOCK
+      //
+      // IMPORTANT:
+      //
+      // Use profitToLock, NOT lockedProfit.
+      //
+      // This is the 50% lock.
+      // ============================================================
+
+      double priceDistance =
+         (
+            profitToLock /
+            (
+               tickValue *
+               orderLots
+            )
+         )
+         *
+         tickSize;
+
+
+      if(priceDistance <= 0)
+         continue;
+
+
+      // ============================================================
+      // BROKER STOP DISTANCE
+      // ============================================================
+
+      double stopLevel =
+         GetRequiredStopDistance();
+
+
+      double newStopLoss = 0.0;
+
+
+      bool needStopLossModify =
+         (
+            existingLockedProfit <
+            profitToLock
+         );
+
+
+      // ============================================================
+      // BUY
+      // ============================================================
+
+      if(orderType == OP_BUY)
+      {
+         if(!needStopLossModify)
+         {
+            newStopLoss =
+               OrderStopLoss();
+         }
+         else
+         {
+            // -----------------------------------------------------
+            // LOCK ONLY 50% OF LADDER PROFIT
+            // -----------------------------------------------------
+
+            newStopLoss =
+               OrderOpenPrice() +
+               priceDistance;
+
+
+            newStopLoss =
+               NormalizeDouble(
+                  newStopLoss,
+                  Digits
+               );
+
+
+            // -----------------------------------------------------
+            // New SL must be higher than existing SL
+            // -----------------------------------------------------
+
+            if(
+               OrderStopLoss() > 0 &&
+               newStopLoss <= OrderStopLoss()
+            )
+            {
+               continue;
+            }
+
+
+            // -----------------------------------------------------
+            // Broker minimum distance
+            // -----------------------------------------------------
+
+            if(
+               Bid - newStopLoss <
+               stopLevel
+            )
+            {
+               newStopLoss =
+                  Bid - stopLevel;
+
+
+               newStopLoss =
+                  NormalizeDouble(
+                     newStopLoss,
+                     Digits
+                  );
+            }
+
+
+            // -----------------------------------------------------
+            // Safety
+            // -----------------------------------------------------
+
+            if(
+               newStopLoss <= 0 ||
+               newStopLoss >= Bid
+            )
+            {
+               continue;
+            }
+
+
+            // -----------------------------------------------------
+            // Must actually move SL
+            // -----------------------------------------------------
+
+            if(
+               OrderStopLoss() > 0 &&
+               MathAbs(
+                  newStopLoss -
+                  OrderStopLoss()
+               ) < Point
+            )
+            {
+               continue;
+            }
+
+
+            // -----------------------------------------------------
+            // VERY IMPORTANT:
+            //
+            // Broker stop-level adjustment above can move the SL.
+            // Verify that it is still at least the intended
+            // 50% profit lock.
+            // -----------------------------------------------------
+
+            double actualLockedProfit =
+               (
+                  (
+                     newStopLoss -
+                     OrderOpenPrice()
+                  )
+                  /
+                  tickSize
+               )
+               *
+               tickValue
+               *
+               orderLots;
+
+
+            if(
+               actualLockedProfit <
+               profitToLock
+            )
+            {
+               Print(
+                  "BUY SL SKIPPED - BROKER STOP LEVEL WOULD REDUCE LOCK",
+                  " | Ticket=",
+                  OrderTicket(),
+                  " | RequiredLock=$",
+                  DoubleToString(
+                     profitToLock,
+                     2
+                  ),
+                  " | ActualLock=$",
+                  DoubleToString(
+                     actualLockedProfit,
+                     2
+                  ),
+                  " | NewSL=",
+                  DoubleToString(
+                     newStopLoss,
+                     Digits
+                  )
+               );
+
+               continue;
+            }
+         }
+
+
+         // =======================================================
+         // IMPORTANT:
+         //
+         // Pass FALSE because this method has ALREADY calculated
+         // the 50% SL.
+         //
+         // Otherwise SafeOrderModify() would process it again.
+         // =======================================================
+
+         ResetLastError();
+
+
+         SafeOrderModify(
+            OrderTicket(),
+            OrderOpenPrice(),
+            newStopLoss,
+            desiredTakeProfit,
+            0,
+            clrLimeGreen
+            
+         );
+      }
+
+
+      // ============================================================
+      // SELL
+      // ============================================================
+
+      if(orderType == OP_SELL)
+      {
+         if(!needStopLossModify)
+         {
+            newStopLoss =
+               OrderStopLoss();
+         }
+         else
+         {
+            // -----------------------------------------------------
+            // LOCK ONLY 50% OF LADDER PROFIT
+            // -----------------------------------------------------
+
+            newStopLoss =
+               OrderOpenPrice() -
+               priceDistance;
+
+
+            newStopLoss =
+               NormalizeDouble(
+                  newStopLoss,
+                  Digits
+               );
+
+
+            // -----------------------------------------------------
+            // New SL must be lower than existing SL
+            // -----------------------------------------------------
+
+            if(
+               OrderStopLoss() > 0 &&
+               newStopLoss >= OrderStopLoss()
+            )
+            {
+               continue;
+            }
+
+
+            // -----------------------------------------------------
+            // Broker minimum distance
+            // -----------------------------------------------------
+
+            if(
+               newStopLoss - Ask <
+               stopLevel
+            )
+            {
+               newStopLoss =
+                  Ask + stopLevel;
+
+
+               newStopLoss =
+                  NormalizeDouble(
+                     newStopLoss,
+                     Digits
+                  );
+            }
+
+
+            // -----------------------------------------------------
+            // Safety
+            // -----------------------------------------------------
+
+            if(
+               newStopLoss <= Ask
+            )
+            {
+               continue;
+            }
+
+
+            // -----------------------------------------------------
+            // Must actually move SL
+            // -----------------------------------------------------
+
+            if(
+               OrderStopLoss() > 0 &&
+               MathAbs(
+                  newStopLoss -
+                  OrderStopLoss()
+               ) < Point
+            )
+            {
+               continue;
+            }
+
+
+            // -----------------------------------------------------
+            // Verify actual locked profit
+            // -----------------------------------------------------
+
+            double actualLockedProfit =
+               (
+                  (
+                     OrderOpenPrice() -
+                     newStopLoss
+                  )
+                  /
+                  tickSize
+               )
+               *
+               tickValue
+               *
+               orderLots;
+
+
+            if(
+               actualLockedProfit <
+               profitToLock
+            )
+            {
+               Print(
+                  "SELL SL SKIPPED - BROKER STOP LEVEL WOULD REDUCE LOCK",
+                  " | Ticket=",
+                  OrderTicket(),
+                  " | RequiredLock=$",
+                  DoubleToString(
+                     profitToLock,
+                     2
+                  ),
+                  " | ActualLock=$",
+                  DoubleToString(
+                     actualLockedProfit,
+                     2
+                  ),
+                  " | NewSL=",
+                  DoubleToString(
+                     newStopLoss,
+                     Digits
+                  )
+               );
+
+               continue;
+            }
+         }
+
+
+         // =======================================================
+         // IMPORTANT:
+         //
+         // FALSE = SafeOrderModify must NOT halve this SL again.
+         // =======================================================
+
+         ResetLastError();
+
+         // SafeOrderModify(OrderTicket(), OrderOpenPrice(), newStopLoss, desiredTakeProfit, 0, clrTomato);
+
+         SafeOrderModify(
+            OrderTicket(),
+            OrderOpenPrice(),
+            newStopLoss,
+            desiredTakeProfit,
+            0,
+            clrTomato
+            
+         );
+      }
+   }
+}
 //+------------------------------------------------------------------+
 //|                                                                  |
 //+------------------------------------------------------------------+
 //+------------------------------------------------------------------+
 //| Manage Profit Ladder & Partial Closes                            |
 //+------------------------------------------------------------------+
-void ManageProfitLadder()
+void ManageProfitLadderOld1()
   {
 // 1. Run partial close checks first (handles its own loop safely)
    ManagePartialCloses();
