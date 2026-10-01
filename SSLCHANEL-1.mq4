@@ -10869,7 +10869,7 @@ void UpdateLeftLiveOrdersDashboard()
    CreateLeftLivePanel(LEFT_LIVE_PREFIX+"SUMMARYBAR", x, y+38, width, 42, C'25,31,42');
    CreateLeftLiveLabel(LEFT_LIVE_PREFIX+"SUMMARY", "ORDERS "+IntegerToString(total)+"/"+IntegerToString(MaxOpenOrders)+"   BUY "+IntegerToString(buyCount)+"   SELL "+IntegerToString(sellCount)+"   PEND "+IntegerToString(pendingCount), tx, y+45, 8, clrWhite);
    CreateLeftLiveLabel(LEFT_LIVE_PREFIX+"TOTALS", "BUY LOT "+DoubleToString(buyLots,2)+"   SELL LOT "+DoubleToString(sellLots,2)+"   NET P/L "+(netPL>=0?"+":"")+DoubleToString(netPL,2), tx, y+62, 9, pnlColor);
-   CreateLeftLiveLabel(LEFT_LIVE_PREFIX+"HEAD", "TYPE     LOT       OPEN       SL        TP        P/L     VERIFIED", tx, y+88, 8, clrSilver);
+   CreateLeftLiveLabel(LEFT_LIVE_PREFIX+"HEAD", "TYPE       LOT  #ORDER ID         SL         TP      P/L     VERIFIED", tx, y+88, 8, clrSilver);
 
    for(int r=0; r<24; r++)
      {
@@ -10952,8 +10952,9 @@ void UpdateLeftLiveOrdersDashboard()
                      verifiedColor=clrOrange;
         }
 
-      verifiedStatus=OrderComment();
-      string rowText=StringFormat("%-7s %5.2f %10s %10s %10s %8s", typeText, lots, DoubleToString(open,Digits), slDiffText, tpDiffText, plText);
+      verifiedStatus = OrderComment();
+      string orderIdText = "#" + IntegerToString(OrderTicket());
+      string rowText = StringFormat("%-7s %5.2f %10s %10s %10s %8s", typeText, lots, orderIdText, slDiffText, tpDiffText, plText);
       color rowColor=clrWhite;
       if(type==OP_BUY)
          rowColor=clrDeepSkyBlue;
