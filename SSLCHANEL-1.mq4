@@ -33,8 +33,10 @@
 // V7003 01-10-2026 15.00 Antigravity - Partial Basket Group Protect (>=2 profitable orders sum >= $1X -> Lock $1X/2 with unified SL; losing orders strictly untouched; no profit reduction)
 // V7004 01-10-2026 15.30 Antigravity - Recovery Order Gap Engine (2000 raw gap, weak EMA filter removed), Clean Orphan Exit (> $1)
 // V7005 01-10-2026 15.45 Antigravity - Recovery Order strictly linked to Parent (NEVER close alone while parent open/exists; ONLY close together >= $1 basket profit; Orphan closes >= $1)
+// V7006 01-10-2026 16.00 Antigravity - Max 2 Orders Per Candle Allowed (IsOneCandleOrderAllowed upgraded, candle order counter & persistence guard)
+// V7007 01-10-2026 17.30 Antigravity - Recovery Basket Market Close Fix (native OrderCloseMarket, $1.00 absolute trigger, unblock RECOVERY_ close)
 
-string glbVersion = "V7005  01-10-2026 15.45 Recovery Engine (Parent Active -> Close Together >= $1; Orphan -> Close >= $1), Partial Basket Protect ($1->$0.50), Profit Ratchet Guard";
+string glbVersion = "V7007  01-10-2026 17.30 Recovery Basket Market Close Fix ($1.00 Absolute Trigger), Max 2 Orders Per Candle";
 
 
 double DailyEquityStopUSD  =100*10;//50;//20*2.5;//10;//20;// 10;//30.0; close all orders at $50Xmultipler
@@ -271,7 +273,8 @@ double RecoveryTriggerLossUSD =1;//2;//1;//0.50;// 2;
 double RecoveryLotMultiplier = 2;
 int MaxRecoveryOrders =10;// 5;//1;
 double RecoveryBasketProfitUSD = 1;
-double RecoveryMinDistanceRaw =2000;//2000;//1000;//1000;//100;//20;// 200.0;
+double RecoveryMinDistanceRaw =500;//2000;//2000;//1000;//1000;//100;//20;// 200.0;
+bool UseBalanceMultiplierForRecoveryTarget = false; // Scaled by balance multiplier if true; default false ($1.00 fixed cash target)
 
 double DayProfitLadder1Amount = 5;
 
@@ -1378,19 +1381,63 @@ int OnInit()
    return INIT_SUCCEEDED;
   }
 
-datetime LastOrderCandleTime = 0;
-bool OrderCreatedThisCandle = false;
+int      MaxOrdersPerCandle      = 2;     // Maximum orders allowed per candle
+datetime LastOrderCandleTime     = 0;
+int      OrdersCreatedThisCandle = 0;
+bool     OrderCreatedThisCandle  = false;
 
 //+------------------------------------------------------------------+
-//|                                                                  |
+//| Registers a newly created order on the current candle            |
+//+------------------------------------------------------------------+
+void RegisterNewCandleOrder()
+  {
+   if(Time[0] != LastOrderCandleTime)
+     {
+      LastOrderCandleTime = Time[0];
+      OrdersCreatedThisCandle = 0;
+     }
+   OrdersCreatedThisCandle++;
+   if(OrdersCreatedThisCandle >= MaxOrdersPerCandle)
+      OrderCreatedThisCandle = true;
+   else
+      OrderCreatedThisCandle = false;
+   LastOrderCandleTime = Time[0];
+  }
+
+//+------------------------------------------------------------------+
+//| Checks whether an order is allowed on current candle (Max 2)     |
 //+------------------------------------------------------------------+
 bool IsOneCandleOrderAllowed()
   {
    if(Time[0] != LastOrderCandleTime)
      {
       LastOrderCandleTime = Time[0];
+      OrdersCreatedThisCandle = 0;
       OrderCreatedThisCandle = false;
      }
+
+   // Count open orders that were opened on the current candle (persistence guard across restarts)
+   int liveCandleOrders = 0;
+   for(int i = OrdersTotal() - 1; i >= 0; i--)
+     {
+      if(!OrderSelect(i, SELECT_BY_POS, MODE_TRADES))
+         continue;
+      if(OrderSymbol() == Symbol() && OrderMagicNumber() == MagicNumber)
+        {
+         if(OrderType() == OP_BUY || OrderType() == OP_SELL)
+           {
+            if(OrderOpenTime() >= Time[0])
+               liveCandleOrders++;
+           }
+        }
+     }
+
+   int effectiveOrders = MathMax(OrdersCreatedThisCandle, liveCandleOrders);
+   if(effectiveOrders >= MaxOrdersPerCandle)
+      OrderCreatedThisCandle = true;
+   else
+      OrderCreatedThisCandle = false;
+
    if(OrderCreatedThisCandle)
      {
       if(DayProfitLadderResumeTradeAttempt)
@@ -2810,6 +2857,7 @@ void ResetRuntimeAfterServerError(DailyProtectionState &state)
    RefreshRates();
    TradeResetThisTick=false;
    OrderCreatedThisCandle=false;
+   OrdersCreatedThisCandle=0;
    LastOrderCandleTime=0;
    StartupProtectionTicks=0;
    EAStartupComplete=true;
@@ -3118,8 +3166,7 @@ void ProcessDeferredOrders()
         {
          if(type==OP_BUY || type==OP_SELL)
            {
-            OrderCreatedThisCandle=true;
-            LastOrderCandleTime=Time[0];
+            RegisterNewCandleOrder();
            }
          if(StringFind(DeferredComment[i],"SSL Profit ReEntry",0)==0)
            {
@@ -3943,6 +3990,86 @@ int SafeOrderSend(string symbol,int orderType,double lots,double price,int slipp
    MarkServerError(err,"OrderSend");
    return -1;
   }
+//+------------------------------------------------------------------+
+//| Safely close an open market order cleanly via native OrderClose  |
+//+------------------------------------------------------------------+
+bool SafeOrderCloseMarket(int ticket, double lots, int slippage, color arrowColor)
+  {
+   if(TradeOperationFailedThisTick)
+      return false;
+
+   string key = MakeTradeErrorKey("CLOSE_MKT", ticket, "");
+   if(IsTradeErrorBlockedThisTick(key))
+      return false;
+
+   if(!OrderSelect(ticket, SELECT_BY_TICKET, MODE_TRADES))
+     {
+      // If it's already in history, the order is already closed
+      if(OrderSelect(ticket, SELECT_BY_TICKET, MODE_HISTORY))
+         return true;
+      return false;
+     }
+
+   int orderType = OrderType();
+   if(orderType != OP_BUY && orderType != OP_SELL)
+      return false;
+
+   string sym = OrderSymbol();
+   double closeLots = (lots > 0.0) ? lots : OrderLots();
+   closeLots = NormalizeLots(closeLots);
+
+   bool success = false;
+   int retries = 3;
+
+   for(int r = 0; r < retries; r++)
+     {
+      RefreshRates();
+      int digits = (int)MarketInfo(sym, MODE_DIGITS);
+      double closePrice = (orderType == OP_BUY) ? MarketInfo(sym, MODE_BID) : MarketInfo(sym, MODE_ASK);
+      closePrice = NormalizeDouble(closePrice, digits);
+
+      if(!CanSendTradeRequest("OrderClose", "Ticket=" + IntegerToString(ticket)))
+         return false;
+
+      ResetLastError();
+      success = OrderClose(ticket, closeLots, closePrice, slippage, arrowColor);
+
+      if(success)
+        {
+         InvalidateTotalEAOrdersCache();
+         Print("MARKET ORDER CLOSED: Ticket #", ticket,
+               " | Type=", (orderType == OP_BUY ? "BUY" : "SELL"),
+               " | Lots=", DoubleToString(closeLots, 2),
+               " | Price=", DoubleToString(closePrice, digits));
+         return true;
+        }
+
+      int err = GetLastError();
+      // Check if order was closed despite reporting error
+      if(!OrderSelect(ticket, SELECT_BY_TICKET, MODE_TRADES))
+        {
+         if(OrderSelect(ticket, SELECT_BY_TICKET, MODE_HISTORY))
+           {
+            InvalidateTotalEAOrdersCache();
+            return true;
+           }
+        }
+
+      // Requote or off quotes: brief pause and retry
+      if(err == 135 || err == 138 || err == 136 || err == 4107)
+        {
+         Sleep(100);
+         continue;
+        }
+
+      BlockTradeErrorUntilNextTick(key);
+      MarkServerError(err, "OrderCloseMarket");
+      break;
+     }
+
+   return success;
+  }
+
 //+------------------------------------------------------------------+
 //|                                                                  |
 //+------------------------------------------------------------------+
@@ -6137,6 +6264,11 @@ void ChangeLots(double OpenPL, string reason, int orderType, int stoplevelStep)
       Lots = 0.02;
 
      }
+      if(IsEmaWEAKDistanceReduced50PercentFromPeak(orderType) &&  GlobalSSLDirection == EMADirection)//weak
+     {
+      Lots = 0.01;
+
+     }
 
 // double emaDistance = GetDistanceToEMAPrice(orderType, true);
 
@@ -6493,8 +6625,7 @@ void CheckRecoveryOrders()
 
       if(recoveryTicket > 0)
         {
-         OrderCreatedThisCandle = true;
-         LastOrderCandleTime    = Time[0];
+         RegisterNewCandleOrder();
          Print("RECOVERY ORDER OPENED: Ticket #", recoveryTicket,
                " | Parent #", parentTicket,
                " | Lots=", DoubleToString(recoveryLots, 2),
@@ -6518,8 +6649,9 @@ void ManageRecoveryBasket()
    if(!EnableRecoveryOrders)
       return;
 
-   double m = (balancelomultipler > 0) ? balancelomultipler : 1.0;
-   double targetProfitUSD = (RecoveryBasketProfitUSD > 0.0 ? RecoveryBasketProfitUSD : 1.0) * m;
+   double targetProfitUSD = (RecoveryBasketProfitUSD > 0.0 ? RecoveryBasketProfitUSD : 1.0);
+   if(UseBalanceMultiplierForRecoveryTarget && balancelomultipler > 1)
+      targetProfitUSD *= balancelomultipler;
 
    for(int i = OrdersTotal() - 1; i >= 0; i--)
      {
@@ -6560,21 +6692,30 @@ void ManageRecoveryBasket()
 
       // =============================================================
       // CASE 1: ORPHAN RECOVERY ORDER (Parent already closed/exited)
-      // Close recovery order cleanly once individual profit >= $1.00
+      // Close recovery order cleanly once individual profit >= target
       // =============================================================
       if(!parentFound)
         {
+         static datetime lastOrphanLogTime = 0;
+         if(TimeCurrent() - lastOrphanLogTime >= 5)
+           {
+            lastOrphanLogTime = TimeCurrent();
+            Print("ORPHAN RECOVERY MONITOR: Rec #", recoveryTicket,
+                  " (Lots=", DoubleToString(recoveryLots, 2),
+                  ", P/L=$", DoubleToString(recoveryProfit, 2),
+                  ") | Parent #", parentTicket, " is closed | Target=$", DoubleToString(targetProfitUSD, 2),
+                  (recoveryProfit >= targetProfitUSD ? " [TARGET REACHED - CLOSING]" : " [WAITING]"));
+           }
+
          if(recoveryProfit >= targetProfitUSD)
            {
             ResetLastError();
-            bool closedOrphan = SafeOrderClose(recoveryTicket, recoveryLots, recoveryType, Slippage, (recoveryType == OP_BUY ? clrLimeGreen : clrTomato));
-            if(closedOrphan)
-              {
-               Print("ORPHAN RECOVERY PROFIT EXIT: Ticket #", recoveryTicket,
-                     " | Profit=$", DoubleToString(recoveryProfit, 2),
-                     " (Target=$", DoubleToString(targetProfitUSD, 2),
-                     ") | Parent #", parentTicket, " is already closed.");
-              }
+            bool closedOrphan = SafeOrderCloseMarket(recoveryTicket, recoveryLots, Slippage, (recoveryType == OP_BUY ? clrLimeGreen : clrTomato));
+            Print("ORPHAN RECOVERY PROFIT EXIT: Ticket #", recoveryTicket,
+                  " Closed=", closedOrphan,
+                  " | Profit=$", DoubleToString(recoveryProfit, 2),
+                  " (Target=$", DoubleToString(targetProfitUSD, 2),
+                  ") | Parent #", parentTicket, " was closed.");
            }
          continue;
         }
@@ -6586,16 +6727,49 @@ void ManageRecoveryBasket()
       // =============================================================
       double basketProfit = recoveryProfit + parentProfit;
 
+      static datetime lastRecLogTime = 0;
+      if(TimeCurrent() - lastRecLogTime >= 5)
+        {
+         lastRecLogTime = TimeCurrent();
+         Print("RECOVERY BASKET MONITOR: Rec #", recoveryTicket, " (Lots=", DoubleToString(recoveryLots, 2),
+               ", P/L=$", DoubleToString(recoveryProfit, 2),
+               ") + Parent #", parentTicket, " (Lots=", DoubleToString(parentLots, 2),
+               ", P/L=$", DoubleToString(parentProfit, 2),
+               ") => Combined Net=$", DoubleToString(basketProfit, 2),
+               " | Target=$", DoubleToString(targetProfitUSD, 2),
+               (basketProfit >= targetProfitUSD ? " [TARGET REACHED - CLOSING]" : " [WAITING]"));
+        }
+
       if(basketProfit >= targetProfitUSD)
         {
          ResetLastError();
-         bool closedRec = SafeOrderClose(recoveryTicket, recoveryLots, recoveryType, Slippage, (recoveryType == OP_BUY ? clrLimeGreen : clrTomato));
-         bool closedPar = SafeOrderClose(parentTicket, parentLots, parentType, Slippage, (parentType == OP_BUY ? clrLimeGreen : clrTomato));
-         Print("RECOVERY BASKET EXIT (Both Closed): Recovery #", recoveryTicket,
-               " (Profit=$", DoubleToString(recoveryProfit, 2),
-               ") + Parent #", parentTicket,
-               " (Profit=$", DoubleToString(parentProfit, 2),
-               ") | TotalBasketProfit=$", DoubleToString(basketProfit, 2));
+         Print("RECOVERY BASKET EXIT TRIGGERED: NetBasketProfit=$", DoubleToString(basketProfit, 2),
+               " >= Target=$", DoubleToString(targetProfitUSD, 2),
+               " | Closing Parent #", parentTicket, " ($", DoubleToString(parentProfit, 2),
+               ") & Recovery #", recoveryTicket, " (+$", DoubleToString(recoveryProfit, 2), ")");
+
+         bool closedPar = SafeOrderCloseMarket(parentTicket, parentLots, Slippage, (parentType == OP_BUY ? clrLimeGreen : clrTomato));
+         bool closedRec = SafeOrderCloseMarket(recoveryTicket, recoveryLots, Slippage, (recoveryType == OP_BUY ? clrLimeGreen : clrTomato));
+
+         if(!closedPar)
+           {
+            Sleep(100);
+            RefreshRates();
+            closedPar = SafeOrderCloseMarket(parentTicket, parentLots, Slippage, (parentType == OP_BUY ? clrLimeGreen : clrTomato));
+           }
+         if(!closedRec)
+           {
+            Sleep(100);
+            RefreshRates();
+            closedRec = SafeOrderCloseMarket(recoveryTicket, recoveryLots, Slippage, (recoveryType == OP_BUY ? clrLimeGreen : clrTomato));
+           }
+
+         Print("RECOVERY BASKET EXIT RESULT: Parent #", parentTicket,
+               " Closed=", closedPar,
+               " | Recovery #", recoveryTicket,
+               " Closed=", closedRec,
+               " | TotalBasketProfit=$", DoubleToString(basketProfit, 2));
+
          break;
         }
      }
@@ -7197,6 +7371,7 @@ void QueueEquityResetReEntry()
   {
    EquityResetReEntryPending = true;
    OrderCreatedThisCandle = false;
+   OrdersCreatedThisCandle = 0;
    LastOrderCandleTime = 0;
   }
 
@@ -7219,6 +7394,7 @@ void ProcessEquityResetReEntry(DailyProtectionState &state)
    if(currentDirection > 0)
      {
       OrderCreatedThisCandle = false;
+      OrdersCreatedThisCandle = 0;
       LastOrderCandleTime = 0;
       DrawLiveSignal(0, true);
       int beforeOrders = GetTotalEAOrders();
@@ -7234,6 +7410,7 @@ void ProcessEquityResetReEntry(DailyProtectionState &state)
    if(currentDirection < 0)
      {
       OrderCreatedThisCandle = false;
+      OrdersCreatedThisCandle = 0;
       LastOrderCandleTime = 0;
       DrawLiveSignal(0, false);
       int beforeOrders = GetTotalEAOrders();
@@ -7608,8 +7785,7 @@ bool CreateCircleOrder(int direction, DailyProtectionState &state)
    int ticket = SafeOrderSend(Symbol(), orderType, Lots, entryPrice, Slippage, stopLoss, 0, orderComment, MagicNumber, orderColor);
    if(ticket > 0)
      {
-      OrderCreatedThisCandle = true;
-      LastOrderCandleTime = Time[0];
+      RegisterNewCandleOrder();
       Print("CIRCLE ORDER CREATED | Ticket=", ticket, " | Direction=", (orderType == OP_BUY ? "BUY" : "SELL"), " | Lots=", DoubleToString(Lots, 2), " | Pattern=", (direction == 1 ? "BULLISH" : "BEARISH"), " | ProfitReEntry=DISABLED");
       return true;
      }
@@ -7923,8 +8099,7 @@ void OpenBuy()
    int ticket = SafeOrderSend(Symbol(), OP_BUY, Lots, Ask, Slippage, stopLoss, 0, "SSL Long", MagicNumber, BuyColor);
    if(ticket > 0)
      {
-      OrderCreatedThisCandle = true;
-      LastOrderCandleTime = Time[0];
+      RegisterNewCandleOrder();
      }
   }
 
@@ -7989,8 +8164,7 @@ void OpenSell()
    int ticket = SafeOrderSend(Symbol(), OP_SELL, Lots, Bid, Slippage, stopLoss, 0, "SSL Short", MagicNumber, SellColor);
    if(ticket > 0)
      {
-      OrderCreatedThisCandle = true;
-      LastOrderCandleTime = Time[0];
+      RegisterNewCandleOrder();
      }
   }
 
