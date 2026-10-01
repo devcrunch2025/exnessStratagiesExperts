@@ -4236,6 +4236,10 @@ void SecureOneDollarProfit()
       if(OrderMagicNumber() != MagicNumber)
          continue;
 
+      // Skip recovery orders - managed exclusively by ManageRecoveryBasket()
+      if(StringFind(OrderComment(), "RECOVERY_") == 0)
+         continue;
+
 
       // ------------------------------------------------------------
       // ONLY MARKET BUY / SELL ORDERS
@@ -6653,124 +6657,136 @@ void ManageRecoveryBasket()
    if(UseBalanceMultiplierForRecoveryTarget && balancelomultipler > 1)
       targetProfitUSD *= balancelomultipler;
 
-   for(int i = OrdersTotal() - 1; i >= 0; i--)
+   bool pairClosed = true;
+   int safetyCounter = 0;
+
+   while(pairClosed && safetyCounter < 10)
      {
-      if(!OrderSelect(i, SELECT_BY_POS, MODE_TRADES))
-         continue;
-      if(OrderSymbol() != Symbol() || OrderMagicNumber() != MagicNumber)
-         continue;
+      pairClosed = false;
+      safetyCounter++;
 
-      string comment = OrderComment();
-      if(StringFind(comment, "RECOVERY_") != 0)
-         continue;
-
-      int recoveryTicket = OrderTicket();
-      double recoveryLots = OrderLots();
-      int recoveryType = OrderType();
-      double recoveryProfit = OrderProfit() + OrderSwap() + OrderCommission();
-
-      int parentTicket = (int)StringToInteger(StringSubstr(comment, 9));
-
-      bool parentFound = false;
-      double parentLots = 0.0;
-      int parentType = -1;
-      double parentProfit = 0.0;
-
-      for(int j = OrdersTotal() - 1; j >= 0; j--)
+      for(int i = OrdersTotal() - 1; i >= 0; i--)
         {
-         if(!OrderSelect(j, SELECT_BY_POS, MODE_TRADES))
+         if(!OrderSelect(i, SELECT_BY_POS, MODE_TRADES))
             continue;
-         if(OrderTicket() == parentTicket)
-           {
-            parentFound = true;
-            parentLots = OrderLots();
-            parentType = OrderType();
-            parentProfit = OrderProfit() + OrderSwap() + OrderCommission();
-            break;
-           }
-        }
+         if(OrderSymbol() != Symbol() || OrderMagicNumber() != MagicNumber)
+            continue;
 
-      // =============================================================
-      // CASE 1: ORPHAN RECOVERY ORDER (Parent already closed/exited)
-      // Close recovery order cleanly once individual profit >= target
-      // =============================================================
-      if(!parentFound)
-        {
-         static datetime lastOrphanLogTime = 0;
-         if(TimeCurrent() - lastOrphanLogTime >= 5)
+         string comment = OrderComment();
+         if(StringFind(comment, "RECOVERY_") != 0)
+            continue;
+
+         int recoveryTicket = OrderTicket();
+         double recoveryLots = OrderLots();
+         int recoveryType = OrderType();
+         double recoveryProfit = OrderProfit() + OrderSwap() + OrderCommission();
+
+         int parentTicket = (int)StringToInteger(StringSubstr(comment, 9));
+
+         bool parentFound = false;
+         double parentLots = 0.0;
+         int parentType = -1;
+         double parentProfit = 0.0;
+
+         for(int j = OrdersTotal() - 1; j >= 0; j--)
            {
-            lastOrphanLogTime = TimeCurrent();
-            Print("ORPHAN RECOVERY MONITOR: Rec #", recoveryTicket,
-                  " (Lots=", DoubleToString(recoveryLots, 2),
+            if(!OrderSelect(j, SELECT_BY_POS, MODE_TRADES))
+               continue;
+            if(OrderTicket() == parentTicket)
+              {
+               parentFound = true;
+               parentLots = OrderLots();
+               parentType = OrderType();
+               parentProfit = OrderProfit() + OrderSwap() + OrderCommission();
+               break;
+              }
+           }
+
+         // =============================================================
+         // CASE 1: ORPHAN RECOVERY ORDER (Parent already closed/exited)
+         // Close recovery order cleanly once individual profit >= target
+         // =============================================================
+         if(!parentFound)
+           {
+            static datetime lastOrphanLogTime = 0;
+            if(TimeCurrent() - lastOrphanLogTime >= 5)
+              {
+               lastOrphanLogTime = TimeCurrent();
+               Print("ORPHAN RECOVERY MONITOR: Rec #", recoveryTicket,
+                     " (Lots=", DoubleToString(recoveryLots, 2),
+                     ", P/L=$", DoubleToString(recoveryProfit, 2),
+                     ") | Parent #", parentTicket, " is closed | Target=$", DoubleToString(targetProfitUSD, 2),
+                     (recoveryProfit >= targetProfitUSD ? " [TARGET REACHED - CLOSING]" : " [WAITING]"));
+              }
+
+            if(recoveryProfit >= targetProfitUSD)
+              {
+               ResetLastError();
+               bool closedOrphan = SafeOrderCloseMarket(recoveryTicket, recoveryLots, Slippage, (recoveryType == OP_BUY ? clrLimeGreen : clrTomato));
+               Print("ORPHAN RECOVERY PROFIT EXIT: Ticket #", recoveryTicket,
+                     " Closed=", closedOrphan,
+                     " | Profit=$", DoubleToString(recoveryProfit, 2),
+                     " (Target=$", DoubleToString(targetProfitUSD, 2),
+                     ") | Parent #", parentTicket, " was closed.");
+               pairClosed = true;
+               break; // Re-scan immediately to close remaining orders
+              }
+            continue;
+           }
+
+         // =============================================================
+         // CASE 2: PARENT IS ACTIVE (Parent order is open and exists)
+         // Recovery order is strictly tied to parent: NEVER close alone!
+         // ONLY close together when combined basket profit >= targetProfitUSD ($1X).
+         // =============================================================
+         double basketProfit = recoveryProfit + parentProfit;
+
+         static datetime lastRecLogTime = 0;
+         if(TimeCurrent() - lastRecLogTime >= 5)
+           {
+            lastRecLogTime = TimeCurrent();
+            Print("RECOVERY BASKET MONITOR: Rec #", recoveryTicket, " (Lots=", DoubleToString(recoveryLots, 2),
                   ", P/L=$", DoubleToString(recoveryProfit, 2),
-                  ") | Parent #", parentTicket, " is closed | Target=$", DoubleToString(targetProfitUSD, 2),
-                  (recoveryProfit >= targetProfitUSD ? " [TARGET REACHED - CLOSING]" : " [WAITING]"));
+                  ") + Parent #", parentTicket, " (Lots=", DoubleToString(parentLots, 2),
+                  ", P/L=$", DoubleToString(parentProfit, 2),
+                  ") => Combined Net=$", DoubleToString(basketProfit, 2),
+                  " | Target=$", DoubleToString(targetProfitUSD, 2),
+                  (basketProfit >= targetProfitUSD ? " [TARGET REACHED - CLOSING]" : " [WAITING]"));
            }
 
-         if(recoveryProfit >= targetProfitUSD)
+         if(basketProfit >= targetProfitUSD)
            {
             ResetLastError();
-            bool closedOrphan = SafeOrderCloseMarket(recoveryTicket, recoveryLots, Slippage, (recoveryType == OP_BUY ? clrLimeGreen : clrTomato));
-            Print("ORPHAN RECOVERY PROFIT EXIT: Ticket #", recoveryTicket,
-                  " Closed=", closedOrphan,
-                  " | Profit=$", DoubleToString(recoveryProfit, 2),
-                  " (Target=$", DoubleToString(targetProfitUSD, 2),
-                  ") | Parent #", parentTicket, " was closed.");
+            Print("RECOVERY BASKET EXIT TRIGGERED: NetBasketProfit=$", DoubleToString(basketProfit, 2),
+                  " >= Target=$", DoubleToString(targetProfitUSD, 2),
+                  " | Closing Parent #", parentTicket, " ($", DoubleToString(parentProfit, 2),
+                  ") & Recovery #", recoveryTicket, " (+$", DoubleToString(recoveryProfit, 2), ")");
+
+            bool closedPar = SafeOrderCloseMarket(parentTicket, parentLots, Slippage, (parentType == OP_BUY ? clrLimeGreen : clrTomato));
+            bool closedRec = SafeOrderCloseMarket(recoveryTicket, recoveryLots, Slippage, (recoveryType == OP_BUY ? clrLimeGreen : clrTomato));
+
+            if(!closedPar)
+              {
+               Sleep(100);
+               RefreshRates();
+               closedPar = SafeOrderCloseMarket(parentTicket, parentLots, Slippage, (parentType == OP_BUY ? clrLimeGreen : clrTomato));
+              }
+            if(!closedRec)
+              {
+               Sleep(100);
+               RefreshRates();
+               closedRec = SafeOrderCloseMarket(recoveryTicket, recoveryLots, Slippage, (recoveryType == OP_BUY ? clrLimeGreen : clrTomato));
+              }
+
+            Print("RECOVERY BASKET EXIT RESULT: Parent #", parentTicket,
+                  " Closed=", closedPar,
+                  " | Recovery #", recoveryTicket,
+                  " Closed=", closedRec,
+                  " | TotalBasketProfit=$", DoubleToString(basketProfit, 2));
+
+            pairClosed = true;
+            break; // Re-scan immediately to close the NEXT eligible pair in same tick!
            }
-         continue;
-        }
-
-      // =============================================================
-      // CASE 2: PARENT IS ACTIVE (Parent order is open and exists)
-      // Recovery order is strictly tied to parent: NEVER close alone!
-      // ONLY close together when combined basket profit >= targetProfitUSD ($1X).
-      // =============================================================
-      double basketProfit = recoveryProfit + parentProfit;
-
-      static datetime lastRecLogTime = 0;
-      if(TimeCurrent() - lastRecLogTime >= 5)
-        {
-         lastRecLogTime = TimeCurrent();
-         Print("RECOVERY BASKET MONITOR: Rec #", recoveryTicket, " (Lots=", DoubleToString(recoveryLots, 2),
-               ", P/L=$", DoubleToString(recoveryProfit, 2),
-               ") + Parent #", parentTicket, " (Lots=", DoubleToString(parentLots, 2),
-               ", P/L=$", DoubleToString(parentProfit, 2),
-               ") => Combined Net=$", DoubleToString(basketProfit, 2),
-               " | Target=$", DoubleToString(targetProfitUSD, 2),
-               (basketProfit >= targetProfitUSD ? " [TARGET REACHED - CLOSING]" : " [WAITING]"));
-        }
-
-      if(basketProfit >= targetProfitUSD)
-        {
-         ResetLastError();
-         Print("RECOVERY BASKET EXIT TRIGGERED: NetBasketProfit=$", DoubleToString(basketProfit, 2),
-               " >= Target=$", DoubleToString(targetProfitUSD, 2),
-               " | Closing Parent #", parentTicket, " ($", DoubleToString(parentProfit, 2),
-               ") & Recovery #", recoveryTicket, " (+$", DoubleToString(recoveryProfit, 2), ")");
-
-         bool closedPar = SafeOrderCloseMarket(parentTicket, parentLots, Slippage, (parentType == OP_BUY ? clrLimeGreen : clrTomato));
-         bool closedRec = SafeOrderCloseMarket(recoveryTicket, recoveryLots, Slippage, (recoveryType == OP_BUY ? clrLimeGreen : clrTomato));
-
-         if(!closedPar)
-           {
-            Sleep(100);
-            RefreshRates();
-            closedPar = SafeOrderCloseMarket(parentTicket, parentLots, Slippage, (parentType == OP_BUY ? clrLimeGreen : clrTomato));
-           }
-         if(!closedRec)
-           {
-            Sleep(100);
-            RefreshRates();
-            closedRec = SafeOrderCloseMarket(recoveryTicket, recoveryLots, Slippage, (recoveryType == OP_BUY ? clrLimeGreen : clrTomato));
-           }
-
-         Print("RECOVERY BASKET EXIT RESULT: Parent #", parentTicket,
-               " Closed=", closedPar,
-               " | Recovery #", recoveryTicket,
-               " Closed=", closedRec,
-               " | TotalBasketProfit=$", DoubleToString(basketProfit, 2));
-
-         break;
         }
      }
   }
