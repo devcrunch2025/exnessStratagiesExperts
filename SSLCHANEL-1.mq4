@@ -35,8 +35,9 @@
 // V7005 01-10-2026 15.45 Antigravity - Recovery Order strictly linked to Parent (NEVER close alone while parent open/exists; ONLY close together >= $1 basket profit; Orphan closes >= $1)
 // V7006 01-10-2026 16.00 Antigravity - Max 2 Orders Per Candle Allowed (IsOneCandleOrderAllowed upgraded, candle order counter & persistence guard)
 // V7007 01-10-2026 17.30 Antigravity - Recovery Basket Market Close Fix (native OrderCloseMarket, $1.00 absolute trigger, unblock RECOVERY_ close)
+// V7008 01-10-2026 18.00 Antigravity - Max Recovery Orders = 5 & Max Recovery Lot Cap = 0.05 (even 2X lot cannot exceed 0.05)
 
-string glbVersion = "V7007  01-10-2026 17.30 Recovery Basket Market Close Fix ($1.00 Absolute Trigger), Max 2 Orders Per Candle";
+string glbVersion = "V7008  01-10-2026 18.00 Max 5 Recovery Orders, Max Recovery Lot 0.05, Multi-Basket Market Exit";
 
 
 double DailyEquityStopUSD  =100*10;//50;//20*2.5;//10;//20;// 10;//30.0; close all orders at $50Xmultipler
@@ -271,7 +272,8 @@ double   PostOrderSLTPVerifyLots[MAX_POST_ORDER_SLTP_VERIFY];
 bool EnableRecoveryOrders =true;// true;
 double RecoveryTriggerLossUSD =1;//2;//1;//0.50;// 2;
 double RecoveryLotMultiplier = 2;
-int MaxRecoveryOrders =10;// 5;//1;
+int MaxRecoveryOrders = 5; // Maximum active recovery orders allowed
+double RecoveryMaxLots = 0.05; // Maximum lot cap for recovery order (even 2X lot cannot exceed 0.05)
 double RecoveryBasketProfitUSD = 1;
 double RecoveryMinDistanceRaw =500;//2000;//2000;//1000;//1000;//100;//20;// 200.0;
 bool UseBalanceMultiplierForRecoveryTarget = false; // Scaled by balance multiplier if true; default false ($1.00 fixed cash target)
@@ -6602,6 +6604,9 @@ void CheckRecoveryOrders()
          continue;
 
       double recoveryLots = NormalizeLots(parentLots * RecoveryLotMultiplier);
+      if(RecoveryMaxLots > 0.0 && recoveryLots > RecoveryMaxLots)
+         recoveryLots = RecoveryMaxLots;
+      recoveryLots = NormalizeLots(recoveryLots);
       if(recoveryLots <= 0)
          continue;
 
