@@ -1,4 +1,4 @@
-//+------------------------------------------------------------------+
+﻿//+------------------------------------------------------------------+
 //|                  SSL CHANNEL CROSS EA - CONTINUOUS EQUITY LADDER |
 //|                  TWO-STAGE PROFIT LADDER | CONTINUOUS RESET      |
 //+------------------------------------------------------------------+
@@ -54,38 +54,38 @@ double TargetProfitPerFlipUSD =20*100;//10;//10*2;//10;//5;//20;// 10.0; close a
 double SecureOneDollarProfitPerOrder=0.50*1; //1X set modify order at profit $1(any lot)
 
 // SecureOneDollarProfitFixedGAPStoploss Settings
-extern bool   EnableFixedGAPStoploss          = true;  // Enable SecureOneDollarProfitFixedGAPStoploss
-extern double FixedGAPMoveStepPoints          = 20.0;  // 20 raw BTC price gap per step (every 20X move in BTCUSD)
-extern double FixedGAPStopDistance            = 0.0;   // Buffer below LivePrice (0.0 = LivePrice with tightest broker safe buffer)
-extern bool   FixedGAPApplyToRecovery         = false; // Apply Fixed GAP SL to recovery orders (handled by Dynamic Recovery Trail if false)
+bool   EnableFixedGAPStoploss          = true;  // Enable SecureOneDollarProfitFixedGAPStoploss
+double FixedGAPMoveStepPoints          = 20.0;  // 20 raw BTC price gap per step (every 20X move in BTCUSD)
+double FixedGAPStopDistance            = 0.0;   // Buffer below LivePrice (0.0 = LivePrice with tightest broker safe buffer)
+bool   FixedGAPApplyToRecovery         = false; // Apply Fixed GAP SL to recovery orders (handled by Dynamic Recovery Trail if false)
 int           g_fixedGAPTrackedTickets[];              // Tracks tickets for Fixed GAP rungs
 int           g_fixedGAPLastAppliedRung[];             // Tracks last applied rung per ticket
 
 // Feature 1: Tiered Breathing Room Settings
-extern bool   EnableTieredBreathingRoom       = true;  // Feature 1: Cushion on Rung 1 (e.g. +5 raw BTC) to avoid whipsaws
-extern double TieredRung1BufferRaw            = 5.0;   // Raw BTC cushion above entry on Rung 1
+bool   EnableTieredBreathingRoom       = true;  // Feature 1: Cushion on Rung 1 (e.g. +5 raw BTC) to avoid whipsaws
+double TieredRung1BufferRaw            = 5.0;   // Raw BTC cushion above entry on Rung 1
 
 // Feature 2: Partial Profit Taking (Scale-Out) Settings
-extern bool   EnablePartialProfitTaking       = true;  // Feature 2: Bank cash by partially scaling out of winners
-extern double PartialTakeProfitTriggerUSD     = 1.0;   // Profit trigger per trade ($1.00)
-extern double PartialClosePercent             = 40.0;  // Percentage of position lots to close (e.g. 40% of 0.05 = 0.02)
-extern double PartialCloseMinRemainingLot     = 0.01;  // Ensure remaining runner has at least min lot
+bool   EnablePartialProfitTaking       = true;  // Feature 2: Bank cash by partially scaling out of winners
+double PartialTakeProfitTriggerUSD     = 1.0;   // Profit trigger per trade ($1.00)
+double PartialClosePercent             = 40.0;  // Percentage of position lots to close (e.g. 40% of 0.05 = 0.02)
+double PartialCloseMinRemainingLot     = 0.01;  // Ensure remaining runner has at least min lot
 int           g_partialProfitClosedTickets[];          // Tracks tickets that have executed partial profit take
 
 // Feature 3: Dynamic Recovery Profit Trail Settings
-extern bool   EnableRecoveryProfitTrailing    = true;  // Feature 3: Close losing parent first, let winning recovery order trail!
+bool   EnableRecoveryProfitTrailing    = true;  // Feature 3: Close losing parent first, let winning recovery order trail!
 
 // Feature 4: Volatility-Adaptive Step (ATR Dynamic Rungs) Settings
-extern bool   EnableATRDynamicRungs           = true;  // Feature 4: Dynamically expand rungs during high volatility
-extern int    ATRDynamicPeriod                = 14;    // ATR Period on M5
-extern double ATRDynamicMultiplier            = 0.5;   // Multiplier applied to ATR (dynamicStep = MathMax(20.0, ATR * 0.5))
+bool   EnableATRDynamicRungs           = true;  // Feature 4: Dynamically expand rungs during high volatility
+int    ATRDynamicPeriod                = 14;    // ATR Period on M5
+double ATRDynamicMultiplier            = 0.5;   // Multiplier applied to ATR (dynamicStep = MathMax(20.0, ATR * 0.5))
 
 // Feature 5: Risk-Free Trend Pyramiding Settings
-extern bool   EnableRiskFreePyramiding        = true;  // Feature 5: Open add-on trade when winner is locked in profit
-extern double PyramidTriggerProfitUSD         = 2.0;   // Floating profit needed to trigger pyramid trade ($2.00)
-extern double PyramidLotRatio                 = 0.5;   // Ratio of base order lot (0.5 * 0.05 = 0.02 lots)
-extern double PyramidMaxLot                   = 0.02;  // Hard cap on pyramid add-on lots
-extern int    PyramidMaxActiveOrders          = 2;     // Max concurrent active pyramid orders
+bool   EnableRiskFreePyramiding        = true;  // Feature 5: Open add-on trade when winner is locked in profit
+double PyramidTriggerProfitUSD         = 2.0;   // Floating profit needed to trigger pyramid trade ($2.00)
+double PyramidLotRatio                 = 0.5;   // Ratio of base order lot (0.5 * 0.05 = 0.02 lots)
+double PyramidMaxLot                   = 0.02;  // Hard cap on pyramid add-on lots
+int    PyramidMaxActiveOrders          = 2;     // Max concurrent active pyramid orders
 int           g_pyramidBaseTickets[];                  // Tracks base tickets that have spawned a pyramid trade
 
 // Forward declarations for clean module integration
@@ -266,11 +266,11 @@ double closeOppositeLossThreshold =0.01;
 bool DeleteOppositePendingOnSignal = true;
 bool EnableProfitReEntryStop = true;
 double MinimumClosedProfitUSD = -9;
-double ProfitReEntryGapRaw =10;// 25;
-double MinimumSameOrderGapRawReEntry =10;//20;// 50;
+double ProfitReEntryGapRaw =20;//10;// 25;
+double MinimumSameOrderGapRawReEntry =20;//10;//20;// 50;
 // double MinimumSameOrderGapRawSSLLongShort =50;// 50;
-double MinimumSameOrderGapRawMatched =30;//10;//20;//50;//20;// 50;
-double MinimumSameOrderGapRawUnmatched =10;//10;//20;// 100;
+double MinimumSameOrderGapRawMatched =50;//30;//10;//20;//50;//20;// 50;
+double MinimumSameOrderGapRawUnmatched =20;//10;//10;//20;// 100;
 
 bool EnableReEntryNOnMatchingSignal=true;
 
