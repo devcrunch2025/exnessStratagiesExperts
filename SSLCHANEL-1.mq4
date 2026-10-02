@@ -1,4 +1,4 @@
-﻿//+------------------------------------------------------------------+
+//+------------------------------------------------------------------+
 //|                  SSL CHANNEL CROSS EA - CONTINUOUS EQUITY LADDER |
 //|                  TWO-STAGE PROFIT LADDER | CONTINUOUS RESET      |
 //+------------------------------------------------------------------+
@@ -38,8 +38,10 @@
 // V7008 01-10-2026 18.00 Antigravity - Max Recovery Orders = 5 & Max Recovery Lot Cap = 0.05 (even 2X lot cannot exceed 0.05)
 // V7009 01-10-2026 18.30 Antigravity - Recovery Order displays Parent P/L in Live Monitor e.g. +5.19(-$10.09)
 // V7010 02-10-2026 08.30 Antigravity - SecureOneDollarProfitFixedGAPStoploss (20 points move SL to live price, every 20X move)
+// V7011 02-10-2026 09.15 Antigravity - SecureOneDollarProfitFixedGAPStoploss: 20 raw BTC gap, modify SL with LivePrice on every Rung X (never OpenPrice)
+// V7012 02-10-2026 10.00 Antigravity - 5 Profit Maximizers: Tiered Breathing Room, Partial Scale-Out (40%), Dynamic Recovery Trail, ATR Dynamic Rungs, Risk-Free Pyramiding
 
-string glbVersion = "V7010  02-10-2026 08.30 SecureOneDollarProfitFixedGAPStoploss 20X Move Live Price SL";
+string glbVersion = "V7012  02-10-2026 10.00 5 Profit Maximizers (Tiered, ScaleOut, RecTrail, ATR, Pyramid)";
 
 
 double DailyEquityStopUSD  =100*10;//50;//20*2.5;//10;//20;// 10;//30.0; close all orders at $50Xmultipler
@@ -53,9 +55,46 @@ double SecureOneDollarProfitPerOrder=0.50*1; //1X set modify order at profit $1(
 
 // SecureOneDollarProfitFixedGAPStoploss Settings
 extern bool   EnableFixedGAPStoploss          = true;  // Enable SecureOneDollarProfitFixedGAPStoploss
-extern double FixedGAPMoveStepPoints          = 20.0;  // 20 points profit move per step (every 20X move)
-extern double FixedGAPStopDistance            = 20.0;  // Fixed GAP distance from live price (20.0 = step gap, 0 = tightest broker safe distance)
-extern bool   FixedGAPApplyToRecovery         = false; // Apply Fixed GAP SL to recovery orders
+extern double FixedGAPMoveStepPoints          = 20.0;  // 20 raw BTC price gap per step (every 20X move in BTCUSD)
+extern double FixedGAPStopDistance            = 0.0;   // Buffer below LivePrice (0.0 = LivePrice with tightest broker safe buffer)
+extern bool   FixedGAPApplyToRecovery         = false; // Apply Fixed GAP SL to recovery orders (handled by Dynamic Recovery Trail if false)
+int           g_fixedGAPTrackedTickets[];              // Tracks tickets for Fixed GAP rungs
+int           g_fixedGAPLastAppliedRung[];             // Tracks last applied rung per ticket
+
+// Feature 1: Tiered Breathing Room Settings
+extern bool   EnableTieredBreathingRoom       = true;  // Feature 1: Cushion on Rung 1 (e.g. +5 raw BTC) to avoid whipsaws
+extern double TieredRung1BufferRaw            = 5.0;   // Raw BTC cushion above entry on Rung 1
+
+// Feature 2: Partial Profit Taking (Scale-Out) Settings
+extern bool   EnablePartialProfitTaking       = true;  // Feature 2: Bank cash by partially scaling out of winners
+extern double PartialTakeProfitTriggerUSD     = 1.0;   // Profit trigger per trade ($1.00)
+extern double PartialClosePercent             = 40.0;  // Percentage of position lots to close (e.g. 40% of 0.05 = 0.02)
+extern double PartialCloseMinRemainingLot     = 0.01;  // Ensure remaining runner has at least min lot
+int           g_partialProfitClosedTickets[];          // Tracks tickets that have executed partial profit take
+
+// Feature 3: Dynamic Recovery Profit Trail Settings
+extern bool   EnableRecoveryProfitTrailing    = true;  // Feature 3: Close losing parent first, let winning recovery order trail!
+
+// Feature 4: Volatility-Adaptive Step (ATR Dynamic Rungs) Settings
+extern bool   EnableATRDynamicRungs           = true;  // Feature 4: Dynamically expand rungs during high volatility
+extern int    ATRDynamicPeriod                = 14;    // ATR Period on M5
+extern double ATRDynamicMultiplier            = 0.5;   // Multiplier applied to ATR (dynamicStep = MathMax(20.0, ATR * 0.5))
+
+// Feature 5: Risk-Free Trend Pyramiding Settings
+extern bool   EnableRiskFreePyramiding        = true;  // Feature 5: Open add-on trade when winner is locked in profit
+extern double PyramidTriggerProfitUSD         = 2.0;   // Floating profit needed to trigger pyramid trade ($2.00)
+extern double PyramidLotRatio                 = 0.5;   // Ratio of base order lot (0.5 * 0.05 = 0.02 lots)
+extern double PyramidMaxLot                   = 0.02;  // Hard cap on pyramid add-on lots
+extern int    PyramidMaxActiveOrders          = 2;     // Max concurrent active pyramid orders
+int           g_pyramidBaseTickets[];                  // Tracks base tickets that have spawned a pyramid trade
+
+// Forward declarations for clean module integration
+double NormalizeLots(double lots);
+int    SafeOrderSend(string symbol,int orderType,double lots,double price,int slippage,double stopLoss,double takeProfit,string comment,int magic,color arrowColor);
+bool   SafeOrderCloseMarket(int ticket, double lots, int slippage, color arrowColor);
+bool   IsOneCandleOrderAllowed();
+void   RegisterNewCandleOrder();
+int    GetCurrentSSLDirection();
 
 double MinimumSLToLivePriceGapRaw = 50.0;
 double MinimumProfitToLockUSD     = 1;//0.50;
@@ -470,26 +509,217 @@ int CountOrdersByType(int orderType)
    return count;
   }
 //+------------------------------------------------------------------+
+//| Helper: Get or infer last modified Rung for ticket               |
+//+------------------------------------------------------------------+
+int GetFixedGAPLastRung(int ticket, int orderType, double openPrice, double currentSL, double stepRaw)
+  {
+   if(stepRaw <= 0.0)
+      stepRaw = 20.0;
+   for(int i = 0; i < ArraySize(g_fixedGAPTrackedTickets); i++)
+     {
+      if(g_fixedGAPTrackedTickets[i] == ticket)
+         return g_fixedGAPLastAppliedRung[i];
+     }
+   // If not tracked yet, infer from existing SL if already in profit
+   int inferredRung = 0;
+   if(currentSL > 0.0)
+     {
+      if(orderType == OP_BUY && currentSL > openPrice)
+         inferredRung = (int)MathFloor((currentSL - openPrice + (stepRaw * 0.25)) / stepRaw);
+      else if(orderType == OP_SELL && currentSL < openPrice)
+         inferredRung = (int)MathFloor((openPrice - currentSL + (stepRaw * 0.25)) / stepRaw);
+     }
+   return inferredRung;
+  }
+
+//+------------------------------------------------------------------+
+//| Helper: Update last modified Rung for ticket                     |
+//+------------------------------------------------------------------+
+void SetFixedGAPLastRung(int ticket, int rung)
+  {
+   for(int i = 0; i < ArraySize(g_fixedGAPTrackedTickets); i++)
+     {
+      if(g_fixedGAPTrackedTickets[i] == ticket)
+        {
+         g_fixedGAPLastAppliedRung[i] = rung;
+         return;
+        }
+     }
+   int sz = ArraySize(g_fixedGAPTrackedTickets);
+   ArrayResize(g_fixedGAPTrackedTickets, sz + 1);
+   ArrayResize(g_fixedGAPLastAppliedRung, sz + 1);
+   g_fixedGAPTrackedTickets[sz] = ticket;
+   g_fixedGAPLastAppliedRung[sz] = rung;
+  }
+
+//+------------------------------------------------------------------+
+//| Helper: Clean up closed tickets from Fixed GAP tracking array   |
+//+------------------------------------------------------------------+
+void CleanFixedGAPTrackedTickets()
+  {
+   int sz = ArraySize(g_fixedGAPTrackedTickets);
+   if(sz == 0)
+      return;
+   for(int i = sz - 1; i >= 0; i--)
+     {
+      int ticket = g_fixedGAPTrackedTickets[i];
+      if(!OrderSelect(ticket, SELECT_BY_TICKET, MODE_TRADES) || OrderCloseTime() > 0)
+        {
+         for(int j = i; j < sz - 1; j++)
+           {
+            g_fixedGAPTrackedTickets[j] = g_fixedGAPTrackedTickets[j + 1];
+            g_fixedGAPLastAppliedRung[j] = g_fixedGAPLastAppliedRung[j + 1];
+           }
+         sz--;
+         ArrayResize(g_fixedGAPTrackedTickets, sz);
+         ArrayResize(g_fixedGAPLastAppliedRung, sz);
+        }
+     }
+  }
+
+//+------------------------------------------------------------------+
+//| Helper: Check if an order is currently open in MODE_TRADES       |
+//+------------------------------------------------------------------+
+bool IsOrderOpenByTicket(int ticket)
+  {
+   if(ticket <= 0)
+      return false;
+   if(OrderSelect(ticket, SELECT_BY_TICKET, MODE_TRADES))
+     {
+      if(OrderCloseTime() == 0)
+         return true;
+     }
+   return false;
+  }
+
+//+------------------------------------------------------------------+
+//| Helpers: Partial Profit Taking tracking                          |
+//+------------------------------------------------------------------+
+bool IsPartialProfitAlreadyTaken(int ticket)
+  {
+   for(int i = 0; i < ArraySize(g_partialProfitClosedTickets); i++)
+     {
+      if(g_partialProfitClosedTickets[i] == ticket)
+         return true;
+     }
+   return false;
+  }
+
+void MarkPartialProfitTaken(int ticket)
+  {
+   int sz = ArraySize(g_partialProfitClosedTickets);
+   ArrayResize(g_partialProfitClosedTickets, sz + 1);
+   g_partialProfitClosedTickets[sz] = ticket;
+  }
+
+void CleanPartialProfitTrackedTickets()
+  {
+   int sz = ArraySize(g_partialProfitClosedTickets);
+   if(sz == 0)
+      return;
+   for(int i = sz - 1; i >= 0; i--)
+     {
+      int ticket = g_partialProfitClosedTickets[i];
+      if(!OrderSelect(ticket, SELECT_BY_TICKET, MODE_TRADES) || OrderCloseTime() > 0)
+        {
+         for(int j = i; j < sz - 1; j++)
+            g_partialProfitClosedTickets[j] = g_partialProfitClosedTickets[j + 1];
+         sz--;
+         ArrayResize(g_partialProfitClosedTickets, sz);
+        }
+     }
+  }
+
+//+------------------------------------------------------------------+
+//| Helpers: Risk-Free Trend Pyramiding tracking                     |
+//+------------------------------------------------------------------+
+bool IsPyramidBaseTracked(int ticket)
+  {
+   for(int i = 0; i < ArraySize(g_pyramidBaseTickets); i++)
+     {
+      if(g_pyramidBaseTickets[i] == ticket)
+         return true;
+     }
+   return false;
+  }
+
+void AddPyramidBaseTicket(int ticket)
+  {
+   int sz = ArraySize(g_pyramidBaseTickets);
+   ArrayResize(g_pyramidBaseTickets, sz + 1);
+   g_pyramidBaseTickets[sz] = ticket;
+  }
+
+void CleanPyramidBaseTrackedTickets()
+  {
+   int sz = ArraySize(g_pyramidBaseTickets);
+   if(sz == 0)
+      return;
+   for(int i = sz - 1; i >= 0; i--)
+     {
+      int ticket = g_pyramidBaseTickets[i];
+      if(!OrderSelect(ticket, SELECT_BY_TICKET, MODE_TRADES) || OrderCloseTime() > 0)
+        {
+         for(int j = i; j < sz - 1; j++)
+            g_pyramidBaseTickets[j] = g_pyramidBaseTickets[j + 1];
+         sz--;
+         ArrayResize(g_pyramidBaseTickets, sz);
+        }
+     }
+  }
+
+int CountActivePyramidOrders()
+  {
+   int cnt = 0;
+   for(int i = OrdersTotal() - 1; i >= 0; i--)
+     {
+      if(!OrderSelect(i, SELECT_BY_POS, MODE_TRADES))
+         continue;
+      if(OrderSymbol() != Symbol() || OrderMagicNumber() != MagicNumber)
+         continue;
+      if(StringFind(OrderComment(), "PYRAMID_") >= 0)
+         cnt++;
+     }
+   return cnt;
+  }
+
+//+------------------------------------------------------------------+
 //| SecureOneDollarProfitFixedGAPStoploss                            |
-//| If order moves FixedGAPMoveStepPoints (20 points) towards        |
-//| profit direction, modify order with stoploss with current live   |
-//| price (minus fixed gap). Every 20X move ratchets SL forward.     |
+//| Trigger: Every FixedGAPMoveStepPoints (20.0 raw BTC gap) move   |
+//| in profit direction (Rung 1 = 20, Rung 2 = 40, Rung 3 = 60...).   |
+//| Feature 1: Tiered Breathing Room (cushion on Rung 1, lock rung X)|
+//| Feature 4: ATR Dynamic Rungs (expands step during volatility)    |
 //+------------------------------------------------------------------+
 void SecureOneDollarProfitFixedGAPStoploss()
   {
-   double triggerStep = FixedGAPMoveStepPoints; // Default 20 points
+   if(!EnableFixedGAPStoploss)
+      return;
+
+   double triggerStep = FixedGAPMoveStepPoints; // Raw BTC price gap, default 20.0 USD
    if(triggerStep <= 0.0)
       triggerStep = 20.0;
 
-   double fixedGap = FixedGAPStopDistance;      // Default 20 points
-   if(fixedGap < 0.0)
-      fixedGap = 20.0;
+   // Feature 4: Volatility-Adaptive Step (ATR Dynamic Rungs)
+   if(EnableATRDynamicRungs)
+     {
+      double atrVal = iATR(Symbol(), PERIOD_M5, ATRDynamicPeriod, 0);
+      double dynamicStep = NormalizeDouble(atrVal * ATRDynamicMultiplier, 1);
+      triggerStep = MathMax(FixedGAPMoveStepPoints, dynamicStep);
+     }
 
    RefreshRates();
 
+   CleanFixedGAPTrackedTickets();
+
    double stopLevel = MarketInfo(Symbol(), MODE_STOPLEVEL) * Point;
-   double spreadBuf = (Ask - Bid) * 2.0;
-   double minSafeDistance = MathMax(stopLevel, MathMax(15.0, spreadBuf));
+   double spreadBuf = (Ask - Bid) * 1.5;
+   double reqDistance = GetRequiredStopDistance();
+   double minSafeDistance = MathMax(reqDistance, MathMax(stopLevel, spreadBuf));
+   if(minSafeDistance < 1.0)
+      minSafeDistance = 1.0;
+   if(FixedGAPStopDistance > 0.0)
+      minSafeDistance = MathMax(minSafeDistance, FixedGAPStopDistance);
+
    double minSLImprovement = 2.0;
 
    for(int i = OrdersTotal() - 1; i >= 0; i--)
@@ -500,13 +730,22 @@ void SecureOneDollarProfitFixedGAPStoploss()
       if(OrderSymbol() != Symbol() || OrderMagicNumber() != MagicNumber)
          continue;
 
-      if(!FixedGAPApplyToRecovery && StringFind(OrderComment(), "RECOVERY_") >= 0)
-         continue;
+      string comment = OrderComment();
+      if(StringFind(comment, "RECOVERY_") >= 0)
+        {
+         if(!FixedGAPApplyToRecovery)
+           {
+            int parTick = (int)StringToInteger(StringSubstr(comment, 9));
+            if(parTick > 0 && IsOrderOpenByTicket(parTick))
+               continue; // Parent is active, skip (managed by recovery engine)
+           }
+        }
 
       int type = OrderType();
       if(type != OP_BUY && type != OP_SELL)
          continue;
 
+      int ticket = OrderTicket();
       double currentSL = OrderStopLoss();
       double openPrice = OrderOpenPrice();
 
@@ -515,38 +754,45 @@ void SecureOneDollarProfitFixedGAPStoploss()
       // ========================================================
       if(type == OP_BUY)
         {
-         double profitDistance = Bid - openPrice;
+         double profitDistance = Bid - openPrice; // Raw BTC price gap
          if(profitDistance < triggerStep)
-            continue; // Must move at least 20 points in profit direction
+            continue; // Must move at least triggerStep raw BTC in profit direction
 
          int rung = (int)MathFloor(profitDistance / triggerStep);
          if(rung < 1)
             continue;
 
-         // Target SL: live price with fixed gap
-         // If fixedGap matches triggerStep (default 20 points):
-         // Rung 1 (+20 pts): SL = openPrice (breakeven, 20 pts from live price)
-         // Rung 2 (+40 pts): SL = openPrice + 20 (locks +20 pts)
-         // Rung 3 (+60 pts): SL = openPrice + 40 (locks +40 pts)
+         int lastRung = GetFixedGAPLastRung(ticket, type, openPrice, currentSL, triggerStep);
+         if(rung <= lastRung)
+            continue; // Already modified for this Rung X or higher
+
          double targetSL = 0.0;
-         if(fixedGap <= 0.0)
-            targetSL = Bid - minSafeDistance;
-         else if(MathAbs(fixedGap - triggerStep) < 0.001)
-            targetSL = openPrice + ((rung - 1) * triggerStep);
+         if(EnableTieredBreathingRoom)
+           {
+            // Feature 1: Tiered Breathing Room
+            if(rung == 1)
+              {
+               // Rung 1: Lock +TieredRung1BufferRaw above openPrice (e.g. +$5 raw profit)
+               // Leaving ample breathing room below peak to hit Rung 2
+               targetSL = NormalizeDouble(openPrice + TieredRung1BufferRaw, Digits);
+              }
+            else
+              {
+               // Rung X (X >= 2): Lock the previous rung milestone (e.g. Rung 2 locks +20, Rung 3 locks +40)
+               targetSL = NormalizeDouble(openPrice + ((rung - 1) * triggerStep), Digits);
+              }
+           }
          else
-            targetSL = Bid - fixedGap;
-
-         targetSL = NormalizeDouble(targetSL, Digits);
-
-         // Broker distance check (Error 130 prevention)
-         if(Bid - targetSL < minSafeDistance)
+           {
+            // LivePrice mode (tight trail)
             targetSL = NormalizeDouble(Bid - minSafeDistance, Digits);
+           }
 
-         // Strictly lock positive profit or breakeven above entry
-         if(targetSL < openPrice)
-            targetSL = openPrice;
+         // Strictly ensure SL locks positive profit above openPrice (never OpenPrice or below)
+         if(targetSL <= openPrice)
+            targetSL = NormalizeDouble(openPrice + 1.0, Digits);
 
-         // Ratchet check: never move BUY SL downwards
+         // Individual order ratchet check: never move SL downwards
          if(currentSL > 0.0)
            {
             if(targetSL <= currentSL)
@@ -556,15 +802,17 @@ void SecureOneDollarProfitFixedGAPStoploss()
            }
 
          ResetLastError();
-         bool modified = SafeOrderModify(OrderTicket(), openPrice, targetSL, OrderTakeProfit(), 0, clrLimeGreen);
+         bool modified = SafeOrderModify(ticket, openPrice, targetSL, OrderTakeProfit(), 0, clrLimeGreen);
          if(modified)
            {
-            Print("SecureOneDollarProfitFixedGAPStoploss BUY: Ticket #", OrderTicket(),
-                  " | 20X Rung=", rung,
-                  " | ProfitDist=", DoubleToString(profitDistance, Digits),
-                  " | Bid=", DoubleToString(Bid, Digits),
-                  " | NewSL=", DoubleToString(targetSL, Digits),
-                  " | OldSL=", DoubleToString(currentSL, Digits));
+            SetFixedGAPLastRung(ticket, rung);
+            Print("SecureOneDollarProfitFixedGAPStoploss BUY: Ticket #", ticket,
+                  " | Rung X=", rung,
+                  " (", DoubleToString(rung * triggerStep, 1), " raw BTC gap, step=", DoubleToString(triggerStep, 1), ")",
+                  " | LivePrice Bid=", DoubleToString(Bid, Digits),
+                  " | New SL=", DoubleToString(targetSL, Digits),
+                  " | LockedProfitRaw=+", DoubleToString(targetSL - openPrice, Digits),
+                  " | Old SL=", DoubleToString(currentSL, Digits));
            }
         }
       // ========================================================
@@ -572,38 +820,44 @@ void SecureOneDollarProfitFixedGAPStoploss()
       // ========================================================
       else if(type == OP_SELL)
         {
-         double profitDistance = openPrice - Ask;
+         double profitDistance = openPrice - Ask; // Raw BTC price gap
          if(profitDistance < triggerStep)
-            continue; // Must move at least 20 points in profit direction
+            continue; // Must move at least triggerStep raw BTC in profit direction
 
          int rung = (int)MathFloor(profitDistance / triggerStep);
          if(rung < 1)
             continue;
 
-         // Target SL: live price with fixed gap
-         // If fixedGap matches triggerStep (default 20 points):
-         // Rung 1 (+20 pts): SL = openPrice (breakeven, 20 pts from live price)
-         // Rung 2 (+40 pts): SL = openPrice - 20 (locks +20 pts)
-         // Rung 3 (+60 pts): SL = openPrice - 40 (locks +40 pts)
+         int lastRung = GetFixedGAPLastRung(ticket, type, openPrice, currentSL, triggerStep);
+         if(rung <= lastRung)
+            continue; // Already modified for this Rung X or higher
+
          double targetSL = 0.0;
-         if(fixedGap <= 0.0)
-            targetSL = Ask + minSafeDistance;
-         else if(MathAbs(fixedGap - triggerStep) < 0.001)
-            targetSL = openPrice - ((rung - 1) * triggerStep);
+         if(EnableTieredBreathingRoom)
+           {
+            // Feature 1: Tiered Breathing Room
+            if(rung == 1)
+              {
+               // Rung 1: Lock +TieredRung1BufferRaw below openPrice (e.g. +$5 raw profit)
+               targetSL = NormalizeDouble(openPrice - TieredRung1BufferRaw, Digits);
+              }
+            else
+              {
+               // Rung X (X >= 2): Lock the previous rung milestone
+               targetSL = NormalizeDouble(openPrice - ((rung - 1) * triggerStep), Digits);
+              }
+           }
          else
-            targetSL = Ask + fixedGap;
-
-         targetSL = NormalizeDouble(targetSL, Digits);
-
-         // Broker distance check (Error 130 prevention)
-         if(targetSL - Ask < minSafeDistance)
+           {
+            // LivePrice mode (tight trail)
             targetSL = NormalizeDouble(Ask + minSafeDistance, Digits);
+           }
 
-         // Strictly lock positive profit or breakeven below entry
-         if(targetSL > openPrice)
-            targetSL = openPrice;
+         // Strictly ensure SL locks positive profit below openPrice (never OpenPrice or above)
+         if(targetSL >= openPrice)
+            targetSL = NormalizeDouble(openPrice - 1.0, Digits);
 
-         // Ratchet check: never move SELL SL upwards
+         // Individual order ratchet check: never move SL upwards
          if(currentSL > 0.0)
            {
             if(targetSL >= currentSL)
@@ -613,15 +867,222 @@ void SecureOneDollarProfitFixedGAPStoploss()
            }
 
          ResetLastError();
-         bool modified = SafeOrderModify(OrderTicket(), openPrice, targetSL, OrderTakeProfit(), 0, clrOrangeRed);
+         bool modified = SafeOrderModify(ticket, openPrice, targetSL, OrderTakeProfit(), 0, clrOrangeRed);
          if(modified)
            {
-            Print("SecureOneDollarProfitFixedGAPStoploss SELL: Ticket #", OrderTicket(),
-                  " | 20X Rung=", rung,
-                  " | ProfitDist=", DoubleToString(profitDistance, Digits),
-                  " | Ask=", DoubleToString(Ask, Digits),
-                  " | NewSL=", DoubleToString(targetSL, Digits),
-                  " | OldSL=", DoubleToString(currentSL, Digits));
+            SetFixedGAPLastRung(ticket, rung);
+            Print("SecureOneDollarProfitFixedGAPStoploss SELL: Ticket #", ticket,
+                  " | Rung X=", rung,
+                  " (", DoubleToString(rung * triggerStep, 1), " raw BTC gap, step=", DoubleToString(triggerStep, 1), ")",
+                  " | LivePrice Ask=", DoubleToString(Ask, Digits),
+                  " | New SL=", DoubleToString(targetSL, Digits),
+                  " | LockedProfitRaw=+", DoubleToString(openPrice - targetSL, Digits),
+                  " | Old SL=", DoubleToString(currentSL, Digits));
+           }
+        }
+     }
+  }
+
+//+------------------------------------------------------------------+
+//| Feature 2: Partial Profit Taking (Scale-Out)                     |
+//| When trade net profit >= PartialTakeProfitTriggerUSD ($1.00),    |
+//| banks 40% of lots into balance, leaving runner to trail!         |
+//+------------------------------------------------------------------+
+void ManagePartialProfitTaking()
+  {
+   if(!EnablePartialProfitTaking)
+      return;
+
+   double triggerUSD = PartialTakeProfitTriggerUSD;
+   if(balancelomultipler > 1)
+      triggerUSD *= balancelomultipler;
+
+   CleanPartialProfitTrackedTickets();
+
+   for(int i = OrdersTotal() - 1; i >= 0; i--)
+     {
+      if(!OrderSelect(i, SELECT_BY_POS, MODE_TRADES))
+         continue;
+
+      if(OrderSymbol() != Symbol() || OrderMagicNumber() != MagicNumber)
+         continue;
+
+      int type = OrderType();
+      if(type != OP_BUY && type != OP_SELL)
+         continue;
+
+      string comment = OrderComment();
+      // Skip recovery and pyramid orders
+      if(StringFind(comment, "RECOVERY_") >= 0 || StringFind(comment, "PYRAMID_") >= 0)
+         continue;
+
+      int ticket = OrderTicket();
+      if(IsPartialProfitAlreadyTaken(ticket))
+         continue;
+
+      // Skip remnant tickets resulting from split
+      if(StringFind(comment, "from #") >= 0)
+         continue;
+
+      double curLots = OrderLots();
+      if(curLots <= 0.01)
+         continue; // Cannot split minimum lot
+
+      double profitUSD = OrderProfit() + OrderSwap() + OrderCommission();
+      if(profitUSD >= triggerUSD)
+        {
+         double closeLots = NormalizeLots(curLots * (PartialClosePercent / 100.0));
+         if(closeLots < 0.01)
+            closeLots = 0.01;
+
+         double remainingLots = NormalizeLots(curLots - closeLots);
+         if(remainingLots < PartialCloseMinRemainingLot)
+            continue; // Must keep at least min remaining runner
+
+         ResetLastError();
+         color closeClr = (type == OP_BUY ? clrGold : clrDarkOrange);
+         bool closed = SafeOrderCloseMarket(ticket, closeLots, Slippage, closeClr);
+         if(closed)
+           {
+            MarkPartialProfitTaken(ticket);
+            Print("PARTIAL PROFIT TAKEN: Ticket #", ticket,
+                  " | Scaled out ", DoubleToString(closeLots, 2), " lots (", DoubleToString(PartialClosePercent, 0), "%)",
+                  " | Remaining Lots=", DoubleToString(remainingLots, 2),
+                  " | Profit At Scale=$", DoubleToString(profitUSD, 2),
+                  " (Trigger=$", DoubleToString(triggerUSD, 2), ")");
+           }
+        }
+     }
+  }
+
+//+------------------------------------------------------------------+
+//| Feature 5: Risk-Free Trend Pyramiding                            |
+//| When a primary winner locks in >= $1.00 raw profit with SL,      |
+//| open an add-on trade (0.01-0.02 lots) financed by locked profit! |
+//+------------------------------------------------------------------+
+void ManageRiskFreePyramiding()
+  {
+   if(!EnableRiskFreePyramiding)
+      return;
+
+   if(!IsOneCandleOrderAllowed())
+      return;
+
+   if(CountActivePyramidOrders() >= PyramidMaxActiveOrders)
+      return;
+
+   CleanPyramidBaseTrackedTickets();
+
+   int trend = (GlobalSSLDirection != 0 ? GlobalSSLDirection : GetCurrentSSLDirection());
+   if(trend == 0)
+      return; // No clear trend
+
+   double triggerUSD = PyramidTriggerProfitUSD;
+   if(balancelomultipler > 1)
+      triggerUSD *= balancelomultipler;
+
+   RefreshRates();
+
+   for(int i = OrdersTotal() - 1; i >= 0; i--)
+     {
+      if(!OrderSelect(i, SELECT_BY_POS, MODE_TRADES))
+         continue;
+
+      if(OrderSymbol() != Symbol() || OrderMagicNumber() != MagicNumber)
+         continue;
+
+      int type = OrderType();
+      if(type != OP_BUY && type != OP_SELL)
+         continue;
+
+      string comment = OrderComment();
+      if(StringFind(comment, "RECOVERY_") >= 0 || StringFind(comment, "PYRAMID_") >= 0)
+         continue;
+
+      int ticket = OrderTicket();
+      if(IsPyramidBaseTracked(ticket))
+         continue;
+
+      // Check if any active trade already has this ticket as pyramid parent
+      bool alreadyHasPyramidChild = false;
+      string childCommentPrefix = "PYRAMID_" + IntegerToString(ticket);
+      for(int k = OrdersTotal() - 1; k >= 0; k--)
+        {
+         if(OrderSelect(k, SELECT_BY_POS, MODE_TRADES))
+           {
+            if(OrderComment() == childCommentPrefix)
+              {
+               alreadyHasPyramidChild = true;
+               break;
+              }
+           }
+        }
+      if(alreadyHasPyramidChild)
+        {
+         AddPyramidBaseTicket(ticket);
+         continue;
+        }
+
+      double openPrice = OrderOpenPrice();
+      double curSL = OrderStopLoss();
+      double lots = OrderLots();
+      double profitUSD = OrderProfit() + OrderSwap() + OrderCommission();
+
+      if(profitUSD < triggerUSD)
+         continue;
+
+      double addLot = NormalizeLots(MathMin(PyramidMaxLot, lots * PyramidLotRatio));
+      if(addLot < 0.01)
+         addLot = 0.01;
+
+      // BUY PYRAMID
+      if(type == OP_BUY && trend == 1)
+        {
+         // Strictly risk-free check: Base order SL must be above open price
+         if(curSL <= openPrice)
+            continue;
+         // Base order must lock at least 5.0 raw BTC profit
+         if((curSL - openPrice) < 5.0)
+            continue;
+
+         // Initial SL for add-on order set to base openPrice to protect capital
+         double pyramidSL = NormalizeDouble(openPrice, Digits);
+         int newTicket = SafeOrderSend(Symbol(), OP_BUY, addLot, Ask, Slippage, pyramidSL, 0, childCommentPrefix, MagicNumber, clrDeepSkyBlue);
+         if(newTicket > 0)
+           {
+            AddPyramidBaseTicket(ticket);
+            RegisterNewCandleOrder();
+            Print("PYRAMID ADD-ON BUY OPENED: Ticket #", newTicket,
+                  " | Base #", ticket,
+                  " | AddLots=", DoubleToString(addLot, 2),
+                  " | BaseLockedProfitRaw=+", DoubleToString(curSL - openPrice, Digits),
+                  " | BaseProfit=$", DoubleToString(profitUSD, 2));
+            break;
+           }
+        }
+      // SELL PYRAMID
+      else if(type == OP_SELL && trend == -1)
+        {
+         // Strictly risk-free check: Base order SL must be below open price
+         if(curSL == 0.0 || curSL >= openPrice)
+            continue;
+         // Base order must lock at least 5.0 raw BTC profit
+         if((openPrice - curSL) < 5.0)
+            continue;
+
+         // Initial SL for add-on order set to base openPrice to protect capital
+         double pyramidSL = NormalizeDouble(openPrice, Digits);
+         int newTicket = SafeOrderSend(Symbol(), OP_SELL, addLot, Bid, Slippage, pyramidSL, 0, childCommentPrefix, MagicNumber, clrDeepPink);
+         if(newTicket > 0)
+           {
+            AddPyramidBaseTicket(ticket);
+            RegisterNewCandleOrder();
+            Print("PYRAMID ADD-ON SELL OPENED: Ticket #", newTicket,
+                  " | Base #", ticket,
+                  " | AddLots=", DoubleToString(addLot, 2),
+                  " | BaseLockedProfitRaw=+", DoubleToString(openPrice - curSL, Digits),
+                  " | BaseProfit=$", DoubleToString(profitUSD, 2));
+            break;
            }
         }
      }
@@ -1548,7 +2009,7 @@ int OnInit()
    return INIT_SUCCEEDED;
   }
 
-int      MaxOrdersPerCandle      = 2;     // Maximum orders allowed per candle
+int      MaxOrdersPerCandle      = 5;     // Maximum orders allowed per candle
 datetime LastOrderCandleTime     = 0;
 int      OrdersCreatedThisCandle = 0;
 bool     OrderCreatedThisCandle  = false;
@@ -1748,6 +2209,10 @@ void OnTick()
          SecureOneDollarProfitFixedGAPStoploss();
       SecureDistanceProfitLadder();
       SecureOneDollarProfit();
+      if(EnablePartialProfitTaking)
+         ManagePartialProfitTaking();
+      if(EnableRiskFreePyramiding)
+         ManageRiskFreePyramiding();
      }
 
    if(GetTickCount() - LastEquitySurplusMs >= 1000)
@@ -4840,14 +5305,14 @@ bool SafeOrderModify(int ticket,double openPrice,double stopLoss,double takeProf
            }
         }
 
-      // C. Anti-Churn Check: Do not spam server if improvement is under $10 raw BTC
-      if(orderType == OP_BUY && (requestedSL - currentSL < 10.0))
+      // C. Anti-Churn Check: Do not spam server if improvement is under $2 raw BTC
+      if(orderType == OP_BUY && (requestedSL - currentSL < 2.0))
         {
-         return true; // Already safely protected within $10 raw gap
+         return true; // Already safely protected within $2 raw gap
         }
-      if(orderType == OP_SELL && (currentSL - requestedSL < 10.0))
+      if(orderType == OP_SELL && (currentSL - requestedSL < 2.0))
         {
-         return true; // Already safely protected within $10 raw gap
+         return true; // Already safely protected within $2 raw gap
         }
      }
 
@@ -6185,33 +6650,47 @@ void ModifyOpenOrdersToSecureProfit()
 //      }
 //   }
 //+------------------------------------------------------------------+
-//|                                                                  |
+//| GetDynamicOrderGap: Adaptive order gap based on trend alignment, |
+//| floating drawdown scaling ($10 step), and M5 ATR volatility.     |
 //+------------------------------------------------------------------+
 double GetDynamicOrderGap(int orderType)
   {
    int currentSSL = GlobalSSLDirection;
    int patternDirection = GetCachedPatternDirection();
-   int multiplier = 1;
    double pl = GetOpenPL(orderType);
 
-// if(pl < 0)
-//   {
-//    multiplier = 1 + (int)MathFloor(MathAbs(pl) / 3.0);
-//   }
+   // 1. Drawdown Scaling: Expand gap progressively per $10 drawdown (scaled by balance multiplier)
+   double lossStepUSD = 10.0 * (balancelomultipler > 0 ? balancelomultipler : 1.0);
+   int multiplier = 1;
+   if(pl < 0.0)
+     {
+      // $10 loss -> 2x gap, $20 loss -> 3x gap, $30 loss -> 4x gap (max 4x cap)
+      multiplier = 1 + (int)MathMin(3, MathFloor(MathAbs(pl) / lossStepUSD));
+     }
 
-// if(IsEmaWEAKDistanceReduced50PercentFromPeak(orderType) && multiplier<3)
-//   {
-//    multiplier=3;
-//   }
+   // 2. Volatility Adaptation: Ensure baseline gap respects M5 ATR
+   double baseMatched   = MinimumSameOrderGapRawMatched;   // default ~30.0
+   double baseUnmatched = MinimumSameOrderGapRawUnmatched; // default ~10.0
 
+   if(EnableATRDynamicRungs)
+     {
+      double atrHalf = iATR(Symbol(), PERIOD_M5, 14, 0) * 0.5;
+      baseMatched = MathMax(baseMatched, atrHalf);
+     }
 
-   if((orderType == OP_BUY && currentSSL == 1) || (orderType == OP_SELL && currentSSL == -1))
-      return MinimumSameOrderGapRawMatched*multiplier;
+   // 3. Directional Alignment Check
+   bool isSSLMatched     = (orderType == OP_BUY && currentSSL == 1) || (orderType == OP_SELL && currentSSL == -1);
+   bool isPatternMatched = (orderType == OP_BUY && patternDirection == 1) || (orderType == OP_SELL && patternDirection == -1);
 
-   if((orderType == OP_BUY && patternDirection == 1) || (orderType == OP_SELL && patternDirection == -1))
-      return MinimumSameOrderGapRawMatched*multiplier;
+   if(isSSLMatched || isPatternMatched)
+     {
+      // Trend-aligned order: clean spaced entry
+      return NormalizeDouble(baseMatched * multiplier, Digits);
+     }
 
-   return MinimumSameOrderGapRawUnmatched;
+   // 4. Counter-trend / Unmatched: MUST also scale with multiplier (demand at least 75% of matched spacing)
+   double unmatchedGap = MathMax(baseUnmatched, baseMatched * 0.75) * multiplier;
+   return NormalizeDouble(unmatchedGap, Digits);
   }
 
 //+------------------------------------------------------------------+
@@ -6442,12 +6921,12 @@ void ChangeLots(double OpenPL, string reason, int orderType, int stoplevelStep)
 
 
 //   }
-// if(GlobalSSLDirection != EMADirection)
-//   {
-//    Lots = 0.02;
+if(GlobalSSLDirection != EMADirection)
+  {
+   Lots = 0.02;
 
 
-//   }
+  }
 
 
 
@@ -6457,7 +6936,11 @@ void ChangeLots(double OpenPL, string reason, int orderType, int stoplevelStep)
 
 
 //   }
+ if(IsEmaWEAKDistanceReduced50PercentFromPeak(orderType)  )//weak
+     {
+      Lots = 0.02;
 
+     }
    if(IsEmaWEAKDistanceReduced50PercentFromPeak(orderType) &&  GlobalSSLDirection != EMADirection)//weak
      {
       Lots = 0.02;
@@ -6919,6 +7402,21 @@ void ManageRecoveryBasket()
 
             if(recoveryProfit >= targetProfitUSD)
               {
+               // If dynamic recovery trailing is active AND order has SL locked in profit, let it trail!
+               if(EnableRecoveryProfitTrailing)
+                 {
+                  double curRecSL = OrderStopLoss();
+                  double recOpenPr = OrderOpenPrice();
+                  bool slInProfit = false;
+                  if(recoveryType == OP_BUY && curRecSL > recOpenPr)
+                     slInProfit = true;
+                  else if(recoveryType == OP_SELL && curRecSL > 0.0 && curRecSL < recOpenPr)
+                     slInProfit = true;
+
+                  if(slInProfit)
+                     continue; // Protected with profit SL, let runner trail!
+                 }
+
                ResetLastError();
                bool closedOrphan = SafeOrderCloseMarket(recoveryTicket, recoveryLots, Slippage, (recoveryType == OP_BUY ? clrLimeGreen : clrTomato));
                Print("ORPHAN RECOVERY PROFIT EXIT: Ticket #", recoveryTicket,
@@ -6960,30 +7458,81 @@ void ManageRecoveryBasket()
                   " | Closing Parent #", parentTicket, " ($", DoubleToString(parentProfit, 2),
                   ") & Recovery #", recoveryTicket, " (+$", DoubleToString(recoveryProfit, 2), ")");
 
-            bool closedPar = SafeOrderCloseMarket(parentTicket, parentLots, Slippage, (parentType == OP_BUY ? clrLimeGreen : clrTomato));
-            bool closedRec = SafeOrderCloseMarket(recoveryTicket, recoveryLots, Slippage, (recoveryType == OP_BUY ? clrLimeGreen : clrTomato));
-
-            if(!closedPar)
+            if(EnableRecoveryProfitTrailing)
               {
-               Sleep(100);
-               RefreshRates();
-               closedPar = SafeOrderCloseMarket(parentTicket, parentLots, Slippage, (parentType == OP_BUY ? clrLimeGreen : clrTomato));
+               // 1. Close losing parent trade first to eliminate drawdown
+               bool closedPar = SafeOrderCloseMarket(parentTicket, parentLots, Slippage, (parentType == OP_BUY ? clrLimeGreen : clrTomato));
+               if(!closedPar)
+                 {
+                  Sleep(100);
+                  RefreshRates();
+                  closedPar = SafeOrderCloseMarket(parentTicket, parentLots, Slippage, (parentType == OP_BUY ? clrLimeGreen : clrTomato));
+                 }
+
+               // 2. Ratchet recovery order's Stop Loss into profit
+               if(OrderSelect(recoveryTicket, SELECT_BY_TICKET, MODE_TRADES))
+                 {
+                  RefreshRates();
+                  double recOpen = OrderOpenPrice();
+                  double recCurSL = OrderStopLoss();
+                  double stopLevel = MarketInfo(Symbol(), MODE_STOPLEVEL) * Point;
+                  double spreadBuf = (Ask - Bid) * 1.5;
+                  double reqDistance = GetRequiredStopDistance();
+                  double minSafeDist = MathMax(reqDistance, MathMax(stopLevel, spreadBuf));
+                  if(minSafeDist < 1.0)
+                     minSafeDist = 1.0;
+
+                  double recTargetSL = 0.0;
+                  if(recoveryType == OP_BUY)
+                    {
+                     recTargetSL = NormalizeDouble(Bid - minSafeDist, Digits);
+                     if(recTargetSL <= recOpen)
+                        recTargetSL = NormalizeDouble(recOpen + 1.0, Digits);
+                     if(recTargetSL > recCurSL)
+                        SafeOrderModify(recoveryTicket, recOpen, recTargetSL, OrderTakeProfit(), 0, clrLimeGreen);
+                    }
+                  else if(recoveryType == OP_SELL)
+                    {
+                     recTargetSL = NormalizeDouble(Ask + minSafeDist, Digits);
+                     if(recTargetSL >= recOpen)
+                        recTargetSL = NormalizeDouble(recOpen - 1.0, Digits);
+                     if(recCurSL == 0.0 || recTargetSL < recCurSL)
+                        SafeOrderModify(recoveryTicket, recOpen, recTargetSL, OrderTakeProfit(), 0, clrTomato);
+                    }
+                 }
+
+               Print("RECOVERY BASKET TRAIL ACTIVATED: Parent #", parentTicket, " Closed=", closedPar,
+                     " | Recovery #", recoveryTicket, " trailing locked profit!");
+               pairClosed = true;
+               break;
               }
-            if(!closedRec)
+            else
               {
-               Sleep(100);
-               RefreshRates();
-               closedRec = SafeOrderCloseMarket(recoveryTicket, recoveryLots, Slippage, (recoveryType == OP_BUY ? clrLimeGreen : clrTomato));
+               bool closedPar = SafeOrderCloseMarket(parentTicket, parentLots, Slippage, (parentType == OP_BUY ? clrLimeGreen : clrTomato));
+               bool closedRec = SafeOrderCloseMarket(recoveryTicket, recoveryLots, Slippage, (recoveryType == OP_BUY ? clrLimeGreen : clrTomato));
+
+               if(!closedPar)
+                 {
+                  Sleep(100);
+                  RefreshRates();
+                  closedPar = SafeOrderCloseMarket(parentTicket, parentLots, Slippage, (parentType == OP_BUY ? clrLimeGreen : clrTomato));
+                 }
+               if(!closedRec)
+                 {
+                  Sleep(100);
+                  RefreshRates();
+                  closedRec = SafeOrderCloseMarket(recoveryTicket, recoveryLots, Slippage, (recoveryType == OP_BUY ? clrLimeGreen : clrTomato));
+                 }
+
+               Print("RECOVERY BASKET EXIT RESULT: Parent #", parentTicket,
+                     " Closed=", closedPar,
+                     " | Recovery #", recoveryTicket,
+                     " Closed=", closedRec,
+                     " | TotalBasketProfit=$", DoubleToString(basketProfit, 2));
+
+               pairClosed = true;
+               break; // Re-scan immediately to close the NEXT eligible pair in same tick!
               }
-
-            Print("RECOVERY BASKET EXIT RESULT: Parent #", parentTicket,
-                  " Closed=", closedPar,
-                  " | Recovery #", recoveryTicket,
-                  " Closed=", closedRec,
-                  " | TotalBasketProfit=$", DoubleToString(basketProfit, 2));
-
-            pairClosed = true;
-            break; // Re-scan immediately to close the NEXT eligible pair in same tick!
            }
         }
      }
