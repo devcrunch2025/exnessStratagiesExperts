@@ -983,7 +983,7 @@
       <div class="header-pills">
         <div class="version-pill">
           <span class="pulse-dot"></span>
-          <span>V7012 Live</span>
+          <span>V7014 Live</span>
         </div>
         <div class="asset-pill">BTCUSD M5 / M1</div>
         <div class="broker-pill">Exness MT4</div>
@@ -1438,16 +1438,16 @@ flowchart TD
               <div class="card" style="margin-bottom: 0; border: 1px solid rgba(245, 158, 11, 0.4);">
                 <h4 style="color: var(--accent-amber); margin-bottom: 10px; display: flex; align-items: center; gap: 8px;">
                   <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"></circle><polyline points="12 6 12 12 16 14"></polyline></svg>
-                  4. Fixed Gap 20X Live Price SL (V7011)
+                  4. Fixed Gap 20X SL Trailing &amp; Max Steps (V7014)
                 </h4>
-                <p style="font-size: 13px; color: var(--text-muted); margin-bottom: 12px;">Method <code>SecureOneDollarProfitFixedGAPStoploss()</code> (20 is raw BTC gap, NOT points):</p>
+                <p style="font-size: 13px; color: var(--text-muted); margin-bottom: 12px;">Method <code>SecureOneDollarProfitFixedGAPStoploss()</code> with <code>FixedGAPMaxSteps</code> (0 = unlimited, 1 = stop at step 1, 2 = stop at step 2):</p>
                 <div class="table-container">
                   <table>
-                    <tr><th>Raw BTC Profit Move</th><th>StopLoss Target</th><th>Secured Cash (0.05 Lot)</th></tr>
-                    <tr><td>Rung 1: +20 raw BTC gap</td><td><span class="badge badge-green">LivePrice (Bid - Safe Gap, Never OpenPrice)</span></td><td>~$1.00 USD Locked</td></tr>
-                    <tr><td>Rung 2: +40 raw BTC gap (2x20)</td><td><span class="badge badge-green">LivePrice on Rung 2</span></td><td>~$2.00 USD Locked</td></tr>
-                    <tr><td>Rung 3: +60 raw BTC gap (3x20)</td><td><span class="badge badge-green">LivePrice on Rung 3</span></td><td>~$3.00 USD Locked</td></tr>
-                    <tr><td>Every Rung X (+X*20 gap)</td><td><span class="badge badge-blue">Ratchets SL to LivePrice on that Rung</span></td><td>+$1.00 USD per 20 gap</td></tr>
+                    <tr><th>Raw BTC Profit Move</th><th>StopLoss Target</th><th>Secured Cash (0.05 Lot)</th><th>MaxSteps Behavior</th></tr>
+                    <tr><td>Rung 1: +20 raw BTC gap</td><td><span class="badge badge-green">+$5 Cushion above Entry</span></td><td>~$1.00 USD Locked</td><td>Freezes here if <code>FixedGAPMaxSteps=1</code></td></tr>
+                    <tr><td>Rung 2: +40 raw BTC gap (2x20)</td><td><span class="badge badge-green">Locks Rung 1 (+20 BTC)</span></td><td>~$2.00 USD Locked</td><td>Freezes here if <code>FixedGAPMaxSteps=2</code></td></tr>
+                    <tr><td>Rung 3: +60 raw BTC gap (3x20)</td><td><span class="badge badge-green">Locks Rung 2 (+40 BTC)</span></td><td>~$3.00 USD Locked</td><td>Freezes here if <code>FixedGAPMaxSteps=3</code></td></tr>
+                    <tr><td>Every Rung X (+X*20 gap)</td><td><span class="badge badge-blue">Ratchets SL to Rung (X-1)</span></td><td>+$1.00 USD per 20 gap</td><td>Trails indefinitely if <code>FixedGAPMaxSteps=0</code></td></tr>
                   </table>
                 </div>
               </div>
@@ -1911,6 +1911,20 @@ flowchart TD
                   </tr>
                 </thead>
                 <tbody>
+                  <tr>
+                    <td><code>FixedGAPMaxSteps</code></td>
+                    <td><code>0</code></td>
+                    <td><code>int</code></td>
+                    <td>Fixed GAP</td>
+                    <td>Maximum steps/rungs to apply (0 = unlimited continuous trailing, 1 = freeze trailing at step 1, 2 = freeze trailing at step 2).</td>
+                  </tr>
+                  <tr>
+                    <td><code>FixedGAPMoveStepPoints</code></td>
+                    <td><code>20.0</code></td>
+                    <td><code>double</code></td>
+                    <td>Fixed GAP</td>
+                    <td>Raw BTCUSD price gap required per trailing step rung (every $20 move in Bitcoin price).</td>
+                  </tr>
                   <tr>
                     <td><code>EnableTieredBreathingRoom</code></td>
                     <td><code>true</code></td>

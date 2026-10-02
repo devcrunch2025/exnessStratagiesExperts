@@ -40,8 +40,10 @@
 // V7010 02-10-2026 08.30 Antigravity - SecureOneDollarProfitFixedGAPStoploss (20 points move SL to live price, every 20X move)
 // V7011 02-10-2026 09.15 Antigravity - SecureOneDollarProfitFixedGAPStoploss: 20 raw BTC gap, modify SL with LivePrice on every Rung X (never OpenPrice)
 // V7012 02-10-2026 10.00 Antigravity - 5 Profit Maximizers: Tiered Breathing Room, Partial Scale-Out (40%), Dynamic Recovery Trail, ATR Dynamic Rungs, Risk-Free Pyramiding
+// V7013 02-10-2026 16.30 Antigravity - Orphan Recovery Auto-Close Fix (re-select recovery ticket, close orphan >= $1 immediately)
+// V7014 02-10-2026 16.50 Antigravity - FixedGAPMaxSteps variable (0 = unlimited, 1 = stop at step 1, 2 = stop at step 2)
 
-string glbVersion = "V7012  02-10-2026 10.00 5 Profit Maximizers (Tiered, ScaleOut, RecTrail, ATR, Pyramid)";
+string glbVersion = "V7020  02-10-2026 18.00 $500 balance FixedGAPMaxSteps (0=unlimited, 1, 2)";
 
 
 double DailyEquityStopUSD  =100*10;//50;//20*2.5;//10;//20;// 10;//30.0; close all orders at $50Xmultipler
@@ -51,12 +53,13 @@ double TargetProfitPerFlipUSD =20*100;//10;//10*2;//10;//5;//20;// 10.0; close a
 
 
 //Chance 1
-double SecureOneDollarProfitPerOrder=0.50*1; //1X set modify order at profit $1(any lot)
+double SecureOneDollarProfitPerOrder=1*2;//0.50*4; //1X set modify order at profit $1(any lot)
 
 // SecureOneDollarProfitFixedGAPStoploss Settings
 bool   EnableFixedGAPStoploss          = true;  // Enable SecureOneDollarProfitFixedGAPStoploss
 double FixedGAPMoveStepPoints          = 20.0;  // 20 raw BTC price gap per step (every 20X move in BTCUSD)
 double FixedGAPStopDistance            = 0.0;   // Buffer below LivePrice (0.0 = LivePrice with tightest broker safe buffer)
+int    FixedGAPMaxSteps                = 1;//0;     // Maximum steps/rungs to apply (0 = unlimited, 1 = stop at step 1, 2 = stop at step 2)
 bool   FixedGAPApplyToRecovery         = false; // Apply Fixed GAP SL to recovery orders (handled by Dynamic Recovery Trail if false)
 int           g_fixedGAPTrackedTickets[];              // Tracks tickets for Fixed GAP rungs
 int           g_fixedGAPLastAppliedRung[];             // Tracks last applied rung per ticket
@@ -140,7 +143,7 @@ int      g_dayNumber = -1;
 double   g_dayOpeningBalance = 0.0;
 bool     g_dailyEquityTradingBlocked = false;
 
-bool EnableBounceBackDetection = false;
+bool EnableBounceBackDetection =true;// false;
 
 
 
@@ -266,10 +269,10 @@ double closeOppositeLossThreshold =0.01;
 bool DeleteOppositePendingOnSignal = true;
 bool EnableProfitReEntryStop = true;
 double MinimumClosedProfitUSD = -9;
-double ProfitReEntryGapRaw =10;//20;//10;// 25;
-double MinimumSameOrderGapRawReEntry =10;//20;//10;//20;// 50;
+double ProfitReEntryGapRaw =20;//10;//20;//10;// 25;
+double MinimumSameOrderGapRawReEntry =50;//20;//10;//20;// 50;
 // double MinimumSameOrderGapRawSSLLongShort =50;// 50;
-double MinimumSameOrderGapRawMatched =10;//50;//30;//10;//20;//50;//20;// 50;
+double MinimumSameOrderGapRawMatched =50;//30;//10;//20;//50;//20;// 50;
 double MinimumSameOrderGapRawUnmatched =50;//20;//10;//10;//20;// 100;
 
 bool EnableReEntryNOnMatchingSignal=true;
@@ -318,11 +321,11 @@ double   PostOrderSLTPVerifyLots[MAX_POST_ORDER_SLTP_VERIFY];
 
 bool EnableRecoveryOrders =true;// true;
 double RecoveryTriggerLossUSD =1;//2;//1;//0.50;// 2;
-double RecoveryLotMultiplier = 2;
-int MaxRecoveryOrders = 5; // Maximum active recovery orders allowed
+double RecoveryLotMultiplier =1;// 2;
+int MaxRecoveryOrders =100;// 5; // Maximum active recovery orders allowed
 double RecoveryMaxLots = 0.05; // Maximum lot cap for recovery order (even 2X lot cannot exceed 0.05)
 double RecoveryBasketProfitUSD = 1;
-double RecoveryMinDistanceRaw =500;//1000;//2000;//2000;//2000;//1000;//1000;//100;//20;// 200.0;
+double RecoveryMinDistanceRaw =50;//500;//1000;//2000;//2000;//2000;//1000;//1000;//100;//20;// 200.0;
 bool UseBalanceMultiplierForRecoveryTarget = false; // Scaled by balance multiplier if true; default false ($1.00 fixed cash target)
 
 double DayProfitLadder1Amount = 5;
@@ -762,7 +765,13 @@ void SecureOneDollarProfitFixedGAPStoploss()
          if(rung < 1)
             continue;
 
+         // Maximum steps restriction: 0 = unlimited, otherwise cap and stop at FixedGAPMaxSteps
+         if(FixedGAPMaxSteps > 0 && rung > FixedGAPMaxSteps)
+            rung = FixedGAPMaxSteps;
+
          int lastRung = GetFixedGAPLastRung(ticket, type, openPrice, currentSL, triggerStep);
+         if(FixedGAPMaxSteps > 0 && lastRung >= FixedGAPMaxSteps)
+            continue; // Already reached and applied maximum steps
          if(rung <= lastRung)
             continue; // Already modified for this Rung X or higher
 
@@ -828,7 +837,13 @@ void SecureOneDollarProfitFixedGAPStoploss()
          if(rung < 1)
             continue;
 
+         // Maximum steps restriction: 0 = unlimited, otherwise cap and stop at FixedGAPMaxSteps
+         if(FixedGAPMaxSteps > 0 && rung > FixedGAPMaxSteps)
+            rung = FixedGAPMaxSteps;
+
          int lastRung = GetFixedGAPLastRung(ticket, type, openPrice, currentSL, triggerStep);
+         if(FixedGAPMaxSteps > 0 && lastRung >= FixedGAPMaxSteps)
+            continue; // Already reached and applied maximum steps
          if(rung <= lastRung)
             continue; // Already modified for this Rung X or higher
 
@@ -7276,8 +7291,8 @@ void CheckRecoveryOrders()
       if(parentType == OP_SELL && (GlobalSSLDirection == -1 && EMADirection == -1))
          createRecovery = true;
 
-         if( GetDistanceToEMAPrice(parentType, true)<100) // 5-minute cooldown after EMA flip
-            createRecovery = false;
+         // if( GetDistanceToEMAPrice(parentType, true)<100) // 5-minute cooldown after EMA flip
+         //    createRecovery = false;
 
       if(!createRecovery)
          continue;
@@ -7293,7 +7308,7 @@ void CheckRecoveryOrders()
 
       int recoveryTicket = -1;
       double slDistance = CalculatePriceDistanceUSD(StopLossUSD * recoveryLots * 100, recoveryLots);
-      double tpDistance = CalculatePriceDistanceUSD(20 * recoveryLots * 100, recoveryLots);
+      double tpDistance = CalculatePriceDistanceUSD(10 * recoveryLots * 100, recoveryLots);
 
       double recoverySL = 0.0;
       double recoveryTP = 0.0;
@@ -7405,30 +7420,22 @@ void ManageRecoveryBasket()
 
             if(recoveryProfit >= targetProfitUSD)
               {
-               // If dynamic recovery trailing is active AND order has SL locked in profit, let it trail!
-               if(EnableRecoveryProfitTrailing)
+               // Re-select recovery order to ensure clean context
+               if(OrderSelect(recoveryTicket, SELECT_BY_TICKET, MODE_TRADES))
                  {
-                  double curRecSL = OrderStopLoss();
-                  double recOpenPr = OrderOpenPrice();
-                  bool slInProfit = false;
-                  if(recoveryType == OP_BUY && curRecSL > recOpenPr)
-                     slInProfit = true;
-                  else if(recoveryType == OP_SELL && curRecSL > 0.0 && curRecSL < recOpenPr)
-                     slInProfit = true;
-
-                  if(slInProfit)
-                     continue; // Protected with profit SL, let runner trail!
+                  ResetLastError();
+                  bool closedOrphan = SafeOrderCloseMarket(recoveryTicket, recoveryLots, Slippage, (recoveryType == OP_BUY ? clrLimeGreen : clrTomato));
+                  Print("ORPHAN RECOVERY PROFIT EXIT: Ticket #", recoveryTicket,
+                        " Closed=", closedOrphan,
+                        " | Profit=$", DoubleToString(recoveryProfit, 2),
+                        " (Target=$", DoubleToString(targetProfitUSD, 2),
+                        ") | Parent #", parentTicket, " was closed.");
+                  if(closedOrphan)
+                    {
+                     pairClosed = true;
+                     break; // Re-scan immediately to close remaining orders
+                    }
                  }
-
-               ResetLastError();
-               bool closedOrphan = SafeOrderCloseMarket(recoveryTicket, recoveryLots, Slippage, (recoveryType == OP_BUY ? clrLimeGreen : clrTomato));
-               Print("ORPHAN RECOVERY PROFIT EXIT: Ticket #", recoveryTicket,
-                     " Closed=", closedOrphan,
-                     " | Profit=$", DoubleToString(recoveryProfit, 2),
-                     " (Target=$", DoubleToString(targetProfitUSD, 2),
-                     ") | Parent #", parentTicket, " was closed.");
-               pairClosed = true;
-               break; // Re-scan immediately to close remaining orders
               }
             continue;
            }
