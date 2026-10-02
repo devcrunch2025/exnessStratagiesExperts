@@ -60,7 +60,7 @@ bool   EnableFixedGAPStoploss          = true;  // Enable SecureOneDollarProfitF
 double FixedGAPMoveStepPoints          = 20.0;  // 20 raw BTC price gap per step (every 20X move in BTCUSD)
 double FixedGAPStopDistance            = 0.0;   // Buffer below LivePrice (0.0 = LivePrice with tightest broker safe buffer)
 int    FixedGAPMaxSteps                = 1;//0;     // Maximum steps/rungs to apply (0 = unlimited, 1 = stop at step 1, 2 = stop at step 2)
-bool   FixedGAPApplyToRecovery         = false; // Apply Fixed GAP SL to recovery orders (handled by Dynamic Recovery Trail if false)
+bool   FixedGAPApplyToRecovery         = true;//false; // Apply Fixed GAP SL to recovery orders (handled by Dynamic Recovery Trail if false)
 int           g_fixedGAPTrackedTickets[];              // Tracks tickets for Fixed GAP rungs
 int           g_fixedGAPLastAppliedRung[];             // Tracks last applied rung per ticket
 
@@ -206,7 +206,7 @@ int    ServerToDubaiOffsetHours   = 4;
 double MaxAllowedSpreadUSD = 35.0;
 int AccountMultiplierLOT = 500;
 double OriginalStopLossUSD = 20;//6;//4;
-double StopLossUSD =20;//30;//20;//10;//6;//10;//6;//5;//10;//2;// 10;
+double StopLossUSD =30;//20;//30;//20;//10;//6;//10;//6;//5;//10;//2;// 10;
 
 
 
@@ -7281,7 +7281,7 @@ void CheckRecoveryOrders()
       // Adverse gap check: price must have moved away from parent by >= RecoveryMinDistanceRaw (2000 raw BTC points)
       double newExecutionPrice = (parentType == OP_BUY) ? Ask : Bid;
       double adverseDistance = (parentType == OP_BUY) ? (OrderOpenPrice() - newExecutionPrice) : (newExecutionPrice - OrderOpenPrice());
-      if(adverseDistance < RecoveryMinDistanceRaw)
+      if(adverseDistance < RecoveryMinDistanceRaw*100*parentLots)
          continue;
 
       // Direction confirmation in the trade direction
@@ -7298,8 +7298,8 @@ void CheckRecoveryOrders()
          continue;
 
       double recoveryLots = NormalizeLots(parentLots * RecoveryLotMultiplier);
-      if(RecoveryMaxLots > 0.0 && recoveryLots > RecoveryMaxLots)
-         recoveryLots = RecoveryMaxLots;
+      if(RecoveryMaxLots*balancelomultipler > 0.0 && recoveryLots > RecoveryMaxLots*balancelomultipler )
+         recoveryLots = RecoveryMaxLots*balancelomultipler ;
       recoveryLots = NormalizeLots(recoveryLots);
       if(recoveryLots <= 0)
          continue;
