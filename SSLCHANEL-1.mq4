@@ -266,11 +266,11 @@ double closeOppositeLossThreshold =0.01;
 bool DeleteOppositePendingOnSignal = true;
 bool EnableProfitReEntryStop = true;
 double MinimumClosedProfitUSD = -9;
-double ProfitReEntryGapRaw =20;//10;// 25;
-double MinimumSameOrderGapRawReEntry =20;//10;//20;// 50;
+double ProfitReEntryGapRaw =10;//20;//10;// 25;
+double MinimumSameOrderGapRawReEntry =10;//20;//10;//20;// 50;
 // double MinimumSameOrderGapRawSSLLongShort =50;// 50;
-double MinimumSameOrderGapRawMatched =50;//30;//10;//20;//50;//20;// 50;
-double MinimumSameOrderGapRawUnmatched =20;//10;//10;//20;// 100;
+double MinimumSameOrderGapRawMatched =10;//50;//30;//10;//20;//50;//20;// 50;
+double MinimumSameOrderGapRawUnmatched =50;//20;//10;//10;//20;// 100;
 
 bool EnableReEntryNOnMatchingSignal=true;
 
@@ -322,7 +322,7 @@ double RecoveryLotMultiplier = 2;
 int MaxRecoveryOrders = 5; // Maximum active recovery orders allowed
 double RecoveryMaxLots = 0.05; // Maximum lot cap for recovery order (even 2X lot cannot exceed 0.05)
 double RecoveryBasketProfitUSD = 1;
-double RecoveryMinDistanceRaw =2000;//2000;//2000;//1000;//1000;//100;//20;// 200.0;
+double RecoveryMinDistanceRaw =500;//1000;//2000;//2000;//2000;//1000;//1000;//100;//20;// 200.0;
 bool UseBalanceMultiplierForRecoveryTarget = false; // Scaled by balance multiplier if true; default false ($1.00 fixed cash target)
 
 double DayProfitLadder1Amount = 5;
@@ -7271,10 +7271,13 @@ void CheckRecoveryOrders()
 
       // Direction confirmation in the trade direction
       bool createRecovery = false;
-      if(parentType == OP_BUY && (GlobalSSLDirection == 1 || EMADirection == 1))
+      if(parentType == OP_BUY && (GlobalSSLDirection == 1 && EMADirection == 1))
          createRecovery = true;
-      if(parentType == OP_SELL && (GlobalSSLDirection == -1 || EMADirection == -1))
+      if(parentType == OP_SELL && (GlobalSSLDirection == -1 && EMADirection == -1))
          createRecovery = true;
+
+         if( GetDistanceToEMAPrice(parentType, true)<100) // 5-minute cooldown after EMA flip
+            createRecovery = false;
 
       if(!createRecovery)
          continue;
