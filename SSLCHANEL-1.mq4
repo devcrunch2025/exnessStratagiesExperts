@@ -1,4 +1,4 @@
-//+------------------------------------------------------------------+
+﻿//+------------------------------------------------------------------+
 //|                  SSL CHANNEL CROSS EA - CONTINUOUS EQUITY LADDER |
 //|                  TWO-STAGE PROFIT LADDER | CONTINUOUS RESET      |
 //+------------------------------------------------------------------+
@@ -36,8 +36,10 @@
 // V7006 01-10-2026 16.00 Antigravity - Max 2 Orders Per Candle Allowed (IsOneCandleOrderAllowed upgraded, candle order counter & persistence guard)
 // V7007 01-10-2026 17.30 Antigravity - Recovery Basket Market Close Fix (native OrderCloseMarket, $1.00 absolute trigger, unblock RECOVERY_ close)
 // V7008 01-10-2026 18.00 Antigravity - Max Recovery Orders = 5 & Max Recovery Lot Cap = 0.05 (even 2X lot cannot exceed 0.05)
+// V7009 01-10-2026 18.30 Antigravity - Recovery Order displays Parent P/L in Live Monitor e.g. +5.19(-$10.09)
+// V7010 02-10-2026 08.30 Antigravity - SecureOneDollarProfitFixedGAPStoploss (20 points move SL to live price, every 20X move)
 
-string glbVersion = "V7008  01-10-2026 18.00 Max 5 Recovery Orders, Max Recovery Lot 0.05, Multi-Basket Market Exit";
+string glbVersion = "V7010  02-10-2026 08.30 SecureOneDollarProfitFixedGAPStoploss 20X Move Live Price SL";
 
 
 double DailyEquityStopUSD  =100*10;//50;//20*2.5;//10;//20;// 10;//30.0; close all orders at $50Xmultipler
@@ -47,7 +49,13 @@ double TargetProfitPerFlipUSD =20*100;//10;//10*2;//10;//5;//20;// 10.0; close a
 
 
 //Chance 1
-double SecureOneDollarProfitPerOrder=1.0*2; //1X set modify order at profit $1(any lot)
+double SecureOneDollarProfitPerOrder=0.50*1; //1X set modify order at profit $1(any lot)
+
+// SecureOneDollarProfitFixedGAPStoploss Settings
+extern bool   EnableFixedGAPStoploss          = true;  // Enable SecureOneDollarProfitFixedGAPStoploss
+extern double FixedGAPMoveStepPoints          = 20.0;  // 20 points profit move per step (every 20X move)
+extern double FixedGAPStopDistance            = 20.0;  // Fixed GAP distance from live price (20.0 = step gap, 0 = tightest broker safe distance)
+extern bool   FixedGAPApplyToRecovery         = false; // Apply Fixed GAP SL to recovery orders
 
 double MinimumSLToLivePriceGapRaw = 50.0;
 double MinimumProfitToLockUSD     = 1;//0.50;
@@ -86,7 +94,7 @@ double   g_stepSize            =1000;// 50.0; // The step increment ($50)
 
 
 //chance 6 - basket//IMPORTANT TO CLOSE ONE SIDE OPEN ORDERS as soon as possible
-double basketBUYorSELLProfitModifyUSD=1*3; //if all combined basket BUY OR SELL Only basket is profit >0 then modify stoploss
+double basketBUYorSELLProfitModifyUSD=1*2; //if all combined basket BUY OR SELL Only basket is profit >0 then modify stoploss
 
 
 int      g_dayNumber = -1;
@@ -156,7 +164,7 @@ int    ServerToDubaiOffsetHours   = 4;
 double MaxAllowedSpreadUSD = 35.0;
 int AccountMultiplierLOT = 500;
 double OriginalStopLossUSD = 20;//6;//4;
-double StopLossUSD =30;//20;//10;//6;//10;//6;//5;//10;//2;// 10;
+double StopLossUSD =20;//30;//20;//10;//6;//10;//6;//5;//10;//2;// 10;
 
 
 
@@ -275,7 +283,7 @@ double RecoveryLotMultiplier = 2;
 int MaxRecoveryOrders = 5; // Maximum active recovery orders allowed
 double RecoveryMaxLots = 0.05; // Maximum lot cap for recovery order (even 2X lot cannot exceed 0.05)
 double RecoveryBasketProfitUSD = 1;
-double RecoveryMinDistanceRaw =500;//2000;//2000;//1000;//1000;//100;//20;// 200.0;
+double RecoveryMinDistanceRaw =2000;//2000;//2000;//1000;//1000;//100;//20;// 200.0;
 bool UseBalanceMultiplierForRecoveryTarget = false; // Scaled by balance multiplier if true; default false ($1.00 fixed cash target)
 
 double DayProfitLadder1Amount = 5;
@@ -460,6 +468,163 @@ int CountOrdersByType(int orderType)
          count++;
      }
    return count;
+  }
+//+------------------------------------------------------------------+
+//| SecureOneDollarProfitFixedGAPStoploss                            |
+//| If order moves FixedGAPMoveStepPoints (20 points) towards        |
+//| profit direction, modify order with stoploss with current live   |
+//| price (minus fixed gap). Every 20X move ratchets SL forward.     |
+//+------------------------------------------------------------------+
+void SecureOneDollarProfitFixedGAPStoploss()
+  {
+   double triggerStep = FixedGAPMoveStepPoints; // Default 20 points
+   if(triggerStep <= 0.0)
+      triggerStep = 20.0;
+
+   double fixedGap = FixedGAPStopDistance;      // Default 20 points
+   if(fixedGap < 0.0)
+      fixedGap = 20.0;
+
+   RefreshRates();
+
+   double stopLevel = MarketInfo(Symbol(), MODE_STOPLEVEL) * Point;
+   double spreadBuf = (Ask - Bid) * 2.0;
+   double minSafeDistance = MathMax(stopLevel, MathMax(15.0, spreadBuf));
+   double minSLImprovement = 2.0;
+
+   for(int i = OrdersTotal() - 1; i >= 0; i--)
+     {
+      if(!OrderSelect(i, SELECT_BY_POS, MODE_TRADES))
+         continue;
+
+      if(OrderSymbol() != Symbol() || OrderMagicNumber() != MagicNumber)
+         continue;
+
+      if(!FixedGAPApplyToRecovery && StringFind(OrderComment(), "RECOVERY_") >= 0)
+         continue;
+
+      int type = OrderType();
+      if(type != OP_BUY && type != OP_SELL)
+         continue;
+
+      double currentSL = OrderStopLoss();
+      double openPrice = OrderOpenPrice();
+
+      // ========================================================
+      // BUY ORDER
+      // ========================================================
+      if(type == OP_BUY)
+        {
+         double profitDistance = Bid - openPrice;
+         if(profitDistance < triggerStep)
+            continue; // Must move at least 20 points in profit direction
+
+         int rung = (int)MathFloor(profitDistance / triggerStep);
+         if(rung < 1)
+            continue;
+
+         // Target SL: live price with fixed gap
+         // If fixedGap matches triggerStep (default 20 points):
+         // Rung 1 (+20 pts): SL = openPrice (breakeven, 20 pts from live price)
+         // Rung 2 (+40 pts): SL = openPrice + 20 (locks +20 pts)
+         // Rung 3 (+60 pts): SL = openPrice + 40 (locks +40 pts)
+         double targetSL = 0.0;
+         if(fixedGap <= 0.0)
+            targetSL = Bid - minSafeDistance;
+         else if(MathAbs(fixedGap - triggerStep) < 0.001)
+            targetSL = openPrice + ((rung - 1) * triggerStep);
+         else
+            targetSL = Bid - fixedGap;
+
+         targetSL = NormalizeDouble(targetSL, Digits);
+
+         // Broker distance check (Error 130 prevention)
+         if(Bid - targetSL < minSafeDistance)
+            targetSL = NormalizeDouble(Bid - minSafeDistance, Digits);
+
+         // Strictly lock positive profit or breakeven above entry
+         if(targetSL < openPrice)
+            targetSL = openPrice;
+
+         // Ratchet check: never move BUY SL downwards
+         if(currentSL > 0.0)
+           {
+            if(targetSL <= currentSL)
+               continue; // Never loosen SL
+            if(targetSL - currentSL < minSLImprovement)
+               continue; // Avoid spam
+           }
+
+         ResetLastError();
+         bool modified = SafeOrderModify(OrderTicket(), openPrice, targetSL, OrderTakeProfit(), 0, clrLimeGreen);
+         if(modified)
+           {
+            Print("SecureOneDollarProfitFixedGAPStoploss BUY: Ticket #", OrderTicket(),
+                  " | 20X Rung=", rung,
+                  " | ProfitDist=", DoubleToString(profitDistance, Digits),
+                  " | Bid=", DoubleToString(Bid, Digits),
+                  " | NewSL=", DoubleToString(targetSL, Digits),
+                  " | OldSL=", DoubleToString(currentSL, Digits));
+           }
+        }
+      // ========================================================
+      // SELL ORDER
+      // ========================================================
+      else if(type == OP_SELL)
+        {
+         double profitDistance = openPrice - Ask;
+         if(profitDistance < triggerStep)
+            continue; // Must move at least 20 points in profit direction
+
+         int rung = (int)MathFloor(profitDistance / triggerStep);
+         if(rung < 1)
+            continue;
+
+         // Target SL: live price with fixed gap
+         // If fixedGap matches triggerStep (default 20 points):
+         // Rung 1 (+20 pts): SL = openPrice (breakeven, 20 pts from live price)
+         // Rung 2 (+40 pts): SL = openPrice - 20 (locks +20 pts)
+         // Rung 3 (+60 pts): SL = openPrice - 40 (locks +40 pts)
+         double targetSL = 0.0;
+         if(fixedGap <= 0.0)
+            targetSL = Ask + minSafeDistance;
+         else if(MathAbs(fixedGap - triggerStep) < 0.001)
+            targetSL = openPrice - ((rung - 1) * triggerStep);
+         else
+            targetSL = Ask + fixedGap;
+
+         targetSL = NormalizeDouble(targetSL, Digits);
+
+         // Broker distance check (Error 130 prevention)
+         if(targetSL - Ask < minSafeDistance)
+            targetSL = NormalizeDouble(Ask + minSafeDistance, Digits);
+
+         // Strictly lock positive profit or breakeven below entry
+         if(targetSL > openPrice)
+            targetSL = openPrice;
+
+         // Ratchet check: never move SELL SL upwards
+         if(currentSL > 0.0)
+           {
+            if(targetSL >= currentSL)
+               continue; // Never loosen SL
+            if(currentSL - targetSL < minSLImprovement)
+               continue; // Avoid spam
+           }
+
+         ResetLastError();
+         bool modified = SafeOrderModify(OrderTicket(), openPrice, targetSL, OrderTakeProfit(), 0, clrOrangeRed);
+         if(modified)
+           {
+            Print("SecureOneDollarProfitFixedGAPStoploss SELL: Ticket #", OrderTicket(),
+                  " | 20X Rung=", rung,
+                  " | ProfitDist=", DoubleToString(profitDistance, Digits),
+                  " | Ask=", DoubleToString(Ask, Digits),
+                  " | NewSL=", DoubleToString(targetSL, Digits),
+                  " | OldSL=", DoubleToString(currentSL, Digits));
+           }
+        }
+     }
   }
 //+------------------------------------------------------------------+
 //|                                                                  |
@@ -1579,6 +1744,8 @@ void OnTick()
    if(GetTickCount() - LastSecureOneDollarMs >= 500)
      {
       LastSecureOneDollarMs = GetTickCount();
+      if(EnableFixedGAPStoploss)
+         SecureOneDollarProfitFixedGAPStoploss();
       SecureDistanceProfitLadder();
       SecureOneDollarProfit();
      }
@@ -5471,10 +5638,19 @@ void modifyOnlyBuyOrders()
       if(OrderSymbol() != Symbol() || OrderMagicNumber() != MagicNumber || OrderType() != OP_BUY)
          continue;
 
+      // Never touch losing orders!
+      double netProfit = OrderProfit() + OrderSwap() + OrderCommission();
+      if(netProfit <= 0.0)
+         continue;
+
       double currentSL = OrderStopLoss();
       double openPrice = OrderOpenPrice();
 
-      // Ratchet check: never loosen SL, and require >=  improvement if SL already set
+      // Must strictly lock positive profit above open price
+      if(targetSL <= openPrice)
+         continue;
+
+      // Ratchet check: never loosen SL, and require >= 10 improvement if SL already set
       if(currentSL > 0.0)
         {
          if(targetSL <= currentSL)
@@ -5516,7 +5692,7 @@ void modifyOnlySellOrders()
 
    double m = (balancelomultipler > 0) ? balancelomultipler : 1.0;
 
-   // 2. Ladder check:  -> ,  -> ,  -> ...
+   // 2. Ladder check: 2.0 -> ...
    if(basketSellProfit < 2.0 * m)
       return;
 
@@ -5558,10 +5734,19 @@ void modifyOnlySellOrders()
       if(OrderSymbol() != Symbol() || OrderMagicNumber() != MagicNumber || OrderType() != OP_SELL)
          continue;
 
+      // Never touch losing orders!
+      double netProfit = OrderProfit() + OrderSwap() + OrderCommission();
+      if(netProfit <= 0.0)
+         continue;
+
       double currentSL = OrderStopLoss();
       double openPrice = OrderOpenPrice();
 
-      // Ratchet check: never loosen SL, and require >=  improvement if SL already set
+      // Must strictly lock positive profit below open price
+      if(targetSL >= openPrice)
+         continue;
+
+      // Ratchet check: never loosen SL, and require >= 10 improvement if SL already set
       if(currentSL > 0.0)
         {
          if(targetSL >= currentSL)
@@ -5667,6 +5852,10 @@ void BasketPartialProtect()
             double currentSL = OrderStopLoss();
             double openPrice = OrderOpenPrice();
 
+            // Must strictly lock positive profit above open price
+            if(targetSL <= openPrice)
+               continue;
+
             // Ratchet check: never move BUY SL downwards, and require >= $10 improvement if SL already set
             if(currentSL > 0.0)
               {
@@ -5758,6 +5947,10 @@ void BasketPartialProtect()
 
             double currentSL = OrderStopLoss();
             double openPrice = OrderOpenPrice();
+
+            // Must strictly lock positive profit below open price
+            if(targetSL >= openPrice)
+               continue;
 
             // Ratchet check: never move SELL SL upwards, and require >= $10 improvement if SL already set
             if(currentSL > 0.0)
@@ -10828,6 +11021,11 @@ void UpdateLeftLiveOrdersDashboard()
       rows=1;
    if(rows>24)
       rows=24;
+
+   int openTickets[500];
+   double openPLs[500];
+   int openCount=0;
+
    for(int i=OrdersTotal()-1; i>=0; i--)
      {
       if(!OrderSelect(i,SELECT_BY_POS,MODE_TRADES))
@@ -10853,8 +11051,15 @@ void UpdateLeftLiveOrdersDashboard()
             pendingCount++;
       if(type==OP_BUY || type==OP_SELL)
          netPL+=OrderProfit()+OrderSwap()+OrderCommission();
+
+      if(openCount < 500)
+        {
+         openTickets[openCount] = OrderTicket();
+         openPLs[openCount] = (type==OP_BUY || type==OP_SELL) ? (OrderProfit()+OrderSwap()+OrderCommission()) : 0.0;
+         openCount++;
+        }
      }
-   int x=LeftDashboardX, y=LeftDashboardY, tx=x+12, width=LeftDashboardWidth+180, panelHeight=rows*20+132;
+   int x=LeftDashboardX, y=LeftDashboardY, tx=x+12, width=LeftDashboardWidth+260, panelHeight=rows*20+132;
    color pnlColor=clrWhite;
    if(netPL>0)
       pnlColor=clrLime;
@@ -10869,12 +11074,12 @@ void UpdateLeftLiveOrdersDashboard()
    CreateLeftLivePanel(LEFT_LIVE_PREFIX+"SUMMARYBAR", x, y+38, width, 42, C'25,31,42');
    CreateLeftLiveLabel(LEFT_LIVE_PREFIX+"SUMMARY", "ORDERS "+IntegerToString(total)+"/"+IntegerToString(MaxOpenOrders)+"   BUY "+IntegerToString(buyCount)+"   SELL "+IntegerToString(sellCount)+"   PEND "+IntegerToString(pendingCount), tx, y+45, 8, clrWhite);
    CreateLeftLiveLabel(LEFT_LIVE_PREFIX+"TOTALS", "BUY LOT "+DoubleToString(buyLots,2)+"   SELL LOT "+DoubleToString(sellLots,2)+"   NET P/L "+(netPL>=0?"+":"")+DoubleToString(netPL,2), tx, y+62, 9, pnlColor);
-   CreateLeftLiveLabel(LEFT_LIVE_PREFIX+"HEAD", "TYPE       LOT  #ORDER ID         SL         TP      P/L     VERIFIED", tx, y+88, 8, clrSilver);
+   CreateLeftLiveLabel(LEFT_LIVE_PREFIX+"HEAD", "TYPE       LOT   #ORDER ID     SL     TP              P/L   COMMENT", tx, y+88, 8, clrSilver);
 
    for(int r=0; r<24; r++)
      {
       CreateLeftLiveLabel(LEFT_LIVE_PREFIX+"ROW"+IntegerToString(r), "", tx, y+108+(r*20), 8, clrWhite);
-      CreateLeftLiveLabel(LEFT_LIVE_PREFIX+"VERIFY"+IntegerToString(r), "", tx+475, y+108+(r*20), 8, clrSilver);
+      CreateLeftLiveLabel(LEFT_LIVE_PREFIX+"VERIFY"+IntegerToString(r), "", tx+415, y+108+(r*20), 8, clrSilver);
      }
 
    int row=0;
@@ -10930,31 +11135,79 @@ void UpdateLeftLiveOrdersDashboard()
       if(tp>0)
          tpDiffText=DoubleToString(tpDiffPoints,0);
 
-      string plText="-";
-      if(type==OP_BUY || type==OP_SELL)
-         plText=(pl>=0?"+":"")+DoubleToString(pl,2);
-
-      string verifiedStatus="N/A";
-      color verifiedColor=clrSilver;
-      if(type==OP_BUY || type==OP_SELL)
+      string comment = OrderComment();
+      bool isRecovery = false;
+      int parentTicket = 0;
+      int recPos = StringFind(comment, "RECOVERY_");
+      if(recPos >= 0)
         {
-         verifiedStatus=GetPostOrderSLTPVerificationStatus(OrderTicket());
-         if(verifiedStatus=="VERIFIED")
-            verifiedColor=clrLime;
-         else
-            if(verifiedStatus=="FAILED")
-               verifiedColor=clrTomato;
-            else
-               if(verifiedStatus=="CHECKING")
-                  verifiedColor=clrGold;
-               else
-                  if(verifiedStatus=="NOT CHECKED")
-                     verifiedColor=clrOrange;
+         isRecovery = true;
+         string numPart = StringSubstr(comment, recPos + 9);
+         parentTicket = (int)StringToInteger(numPart);
         }
 
-      verifiedStatus = OrderComment();
+      string plText="-";
+      if(type==OP_BUY || type==OP_SELL)
+        {
+         string selfPL = (pl>=0 ? "+" : "") + DoubleToString(pl, 2);
+         if(isRecovery && parentTicket > 0)
+           {
+            bool parentFound = false;
+            double parentPL = 0.0;
+
+            // 1. Check cached open trades
+            for(int k=0; k<openCount; k++)
+              {
+               if(openTickets[k] == parentTicket)
+                 {
+                  parentPL = openPLs[k];
+                  parentFound = true;
+                  break;
+                 }
+              }
+
+            // 2. If parent not open, check history
+            if(!parentFound)
+              {
+               for(int h=OrdersHistoryTotal()-1; h>=0; h--)
+                 {
+                  if(OrderSelect(h, SELECT_BY_POS, MODE_HISTORY))
+                    {
+                     if(OrderTicket() == parentTicket)
+                       {
+                        parentPL = OrderProfit()+OrderSwap()+OrderCommission();
+                        parentFound = true;
+                        break;
+                       }
+                    }
+                 }
+               // Restore current trade selection
+               OrderSelect(j, SELECT_BY_POS, MODE_TRADES);
+              }
+
+            if(parentFound)
+              {
+               string pSign = (parentPL >= 0.0) ? "+" : "-";
+               plText = selfPL + StringFormat("(%s$%0.2f)", pSign, MathAbs(parentPL));
+              }
+            else
+              {
+               plText = selfPL;
+              }
+           }
+         else
+           {
+            plText = selfPL;
+           }
+        }
+
+      string verifiedStatus = comment;
+      color verifiedColor = clrSilver;
+      if(isRecovery)
+         verifiedColor = clrAqua;
+
       string orderIdText = "#" + IntegerToString(OrderTicket());
-      string rowText = StringFormat("%-7s %5.2f %10s %10s %10s %8s", typeText, lots, orderIdText, slDiffText, tpDiffText, plText);
+      string rowText = StringFormat("%-7s %5.2f %11s %6s %6s %16s", typeText, lots, orderIdText, slDiffText, tpDiffText, plText);
       color rowColor=clrWhite;
       if(type==OP_BUY)
          rowColor=clrDeepSkyBlue;
@@ -10969,7 +11222,7 @@ void UpdateLeftLiveOrdersDashboard()
       if((type==OP_BUY || type==OP_SELL) && pl<0)
          rowColor=clrOrangeRed;
       CreateLeftLiveLabel(LEFT_LIVE_PREFIX+"ROW"+IntegerToString(row), rowText, tx, y+108+(row*20), 8, rowColor);
-      CreateLeftLiveLabel(LEFT_LIVE_PREFIX+"VERIFY"+IntegerToString(row), verifiedStatus, tx+350, y+108+(row*20), 8, verifiedColor);
+      CreateLeftLiveLabel(LEFT_LIVE_PREFIX+"VERIFY"+IntegerToString(row), verifiedStatus, tx+415, y+108+(row*20), 8, verifiedColor);
       row++;
      }
    if(total==0)
