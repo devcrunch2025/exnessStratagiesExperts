@@ -30,7 +30,7 @@
 //https://github.com/devcrunch2025/exnessStratagiesExperts/commit/f2b01e8fb84e16294381ff54065e07b98df282ec
 
 // Previous: V10010  03-10-2026 18.25 Partial Close Column in Live Position Monitor
-string glbVersion = "V10012  03-10-2026 20.40 Basket $10 Fixed Equity Step Lock Function";
+string glbVersion = "V10013  03-10-2026 20.40 Basket $10 Fixed Equity Step Lock Function";
 
 
 double DailyEquityStopUSD  =100*100;//50;//20*2.5;//10;//20;// 10;//30.0; close all orders at $50Xmultipler
@@ -74,15 +74,15 @@ double   g_stepSize            =1000;// 50.0; // The step increment ($50)
 double basketBUYorSELLProfitModifyUSD=1*1*1; //if all combined basket BUY OR SELL Only basket is profit >0 then modify stoploss
 
 //chance 7: Basket 10% Fixed Equity Step Lock (Compounding 10% Steps)
-extern bool   EnableBasket10USDLock        = true;  // Enable Basket $10 Fixed Equity Step Lock
-extern double Basket10USDLockStepUSD       = 10.0;  // $10 Fixed Equity Step Up (e.g. 100 -> 110 -> 120 -> 130)
+  bool   EnableBasket10USDLock        = true;  // Enable Basket $10 Fixed Equity Step Lock
+  double Basket10USDLockStepUSD       = 10.0;  // $10 Fixed Equity Step Up (e.g. 100 -> 110 -> 120 -> 130)
 double g_basket10USDBaselineEquity         = 0.0;   // Baseline equity when basket reset / entered
 double g_basket10USDNextTargetEquity       = 0.0;   // Next target equity ($10 step up)
 int    g_basket10USDStepCount              = 0;     // Number of $10 steps triggered in current basket
 datetime g_basket10USDLastModifyTime       = 0;     // Timestamp of last $10 lock modification
 
 
-double StopLossUSD =10;//40;//30;//10;//6;//10;//6;//5;//10;//2;// 10;
+double StopLossUSD =5;//10;//40;//30;//10;//6;//10;//6;//5;//10;//2;// 10;
 
 
 int      g_dayNumber = -1;
@@ -215,11 +215,11 @@ double closeOppositeLossThreshold =0.01;
 bool DeleteOppositePendingOnSignal = true;
 bool EnableProfitReEntryStop = true;
 double MinimumClosedProfitUSD = -9;
-double ProfitReEntryGapRaw = 50.0; // Raw gap ($50) for ReEntry stop placement
-double MinimumSameOrderGapRawReEntry = 50.0;//10;//20;// 50;
-double MinGapBetweenSSLAndReEntryRaw = 50.0; // Minimum $50 raw gap between SSL Short/Long and ReEntry orders
-double MinimumSameOrderGapRawMatched = 50.0;//30;//10;//20;//50;//20;// 50;
-double MinimumSameOrderGapRawUnmatched = 50.0;//10;//10;//20;// 100;
+double ProfitReEntryGapRaw =20;// 50.0; // Raw gap ($50) for ReEntry stop placement
+double MinimumSameOrderGapRawReEntry = 20;//50.0;//10;//20;// 50;
+double MinGapBetweenSSLAndReEntryRaw =  20;//50.0; // Minimum $50 raw gap between SSL Short/Long and ReEntry orders
+double MinimumSameOrderGapRawMatched =  20;//50.0;//30;//10;//20;//50;//20;// 50;
+double MinimumSameOrderGapRawUnmatched =  20;//50.0;//10;//10;//20;// 100;
 
 bool EnableReEntryNOnMatchingSignal=true;
 
@@ -11469,7 +11469,7 @@ void UpdateDashboard(DailyProtectionState &state)
 
 // Header Panel
    CreateDashboardPanel(DASH_PREFIX+"HEADER", x, y, w, 38, C'25,70,115');
-   string verShort = "V10012 | " + Symbol() + " " + TimeframeToString(Period());
+   string verShort = glbVersion+ "  | " + Symbol() + " " + TimeframeToString(Period());
    CreateDashboardLabel(DASH_PREFIX+"TITLE", verShort, tx, y+6, 9, clrWhite);
    CreateDashboardLabel(DASH_PREFIX+"WITHDRAW", "Withdraw : 20 % from the Profit", tx, y+22, 9, clrDeepSkyBlue);
 
