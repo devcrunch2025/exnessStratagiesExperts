@@ -272,7 +272,7 @@ double MinimumClosedProfitUSD = -9;
 double ProfitReEntryGapRaw =20;//10;//20;//10;// 25;
 double MinimumSameOrderGapRawReEntry =50;//20;//10;//20;// 50;
 // double MinimumSameOrderGapRawSSLLongShort =50;// 50;
-double MinimumSameOrderGapRawMatched =50;//30;//10;//20;//50;//20;// 50;
+double MinimumSameOrderGapRawMatched =100;//50;//30;//10;//20;//50;//20;// 50;
 double MinimumSameOrderGapRawUnmatched =50;//20;//10;//10;//20;// 100;
 
 bool EnableReEntryNOnMatchingSignal=true;

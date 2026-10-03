@@ -1,0 +1,1960 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=5.0">
+  <title>V-ScalpingBot.ex4 | High-Frequency BTCUSD Scalping Terminal &amp; Execution Engine</title>
+  <script src="https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.min.js"></script>
+  <script>
+    mermaid.initialize({
+      startOnLoad: false,
+      theme: 'dark',
+      themeVariables: {
+        darkMode: true,
+        background: '#090e1a',
+        primaryColor: '#1e293b',
+        primaryTextColor: '#f8fafc',
+        primaryBorderColor: '#38bdf8',
+        lineColor: '#38bdf8',
+        secondaryColor: '#0f172a',
+        tertiaryColor: '#1e1b4b'
+      },
+      flowchart: { curve: 'basis', htmlLabels: true }
+    });
+  </script>
+  <style>
+    :root {
+      --bg-base: #05070e;
+      --bg-sidebar: #080d1a;
+      --bg-header: rgba(8, 13, 26, 0.94);
+      --bg-card: #0d1527;
+      --bg-card-hover: #121c33;
+      --bg-subtle: rgba(255, 255, 255, 0.03);
+      --border: rgba(255, 255, 255, 0.08);
+      --border-subtle: rgba(255, 255, 255, 0.04);
+      --border-accent: rgba(56, 189, 248, 0.4);
+      --text: #f8fafc;
+      --text-muted: #94a3b8;
+      --text-dim: #64748b;
+      --accent-blue: #38bdf8;
+      --accent-green: #10b981;
+      --accent-amber: #f59e0b;
+      --accent-red: #ef4444;
+      --accent-purple: #a855f7;
+      --accent-cyan: #06b6d4;
+      --header-height: 64px;
+      --sidebar-width: 290px;
+    }
+
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+
+    html, body {
+      width: 100%;
+      min-height: 100vh;
+      background-color: var(--bg-base);
+      color: var(--text);
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Inter", Oxygen, Ubuntu, Cantarell, sans-serif;
+      line-height: 1.6;
+      -webkit-font-smoothing: antialiased;
+      overflow-x: hidden;
+    }
+
+    /* Scrollbars */
+    ::-webkit-scrollbar { width: 6px; height: 6px; }
+    ::-webkit-scrollbar-track { background: var(--bg-base); }
+    ::-webkit-scrollbar-thumb { background: #1e293b; border-radius: 4px; }
+    ::-webkit-scrollbar-thumb:hover { background: #334155; }
+
+    /* Top Global Header */
+    .app-header {
+      position: sticky;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: var(--header-height);
+      background: var(--bg-header);
+      backdrop-filter: blur(16px);
+      -webkit-backdrop-filter: blur(16px);
+      border-bottom: 1px solid var(--border);
+      z-index: 1000;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 0 24px;
+      gap: 16px;
+    }
+
+    .header-left {
+      display: flex;
+      align-items: center;
+      gap: 16px;
+      min-width: 0;
+    }
+
+    .mobile-menu-btn {
+      display: none;
+      width: 38px;
+      height: 38px;
+      background: rgba(255, 255, 255, 0.05);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      color: var(--text-muted);
+      cursor: pointer;
+      align-items: center;
+      justify-content: center;
+      flex-shrink: 0;
+      transition: all 0.2s ease;
+    }
+
+    .mobile-menu-btn:hover {
+      background: rgba(255, 255, 255, 0.1);
+      color: #fff;
+    }
+
+    .brand-identity {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      text-decoration: none;
+      flex-shrink: 0;
+    }
+
+    .brand-icon {
+      width: 40px;
+      height: 40px;
+      border-radius: 10px;
+      background: linear-gradient(135deg, rgba(56, 189, 248, 0.25), rgba(16, 185, 129, 0.25));
+      border: 1px solid rgba(56, 189, 248, 0.5);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      color: var(--accent-blue);
+      box-shadow: 0 0 16px rgba(56, 189, 248, 0.2);
+      flex-shrink: 0;
+    }
+
+    .brand-title {
+      font-size: 16px;
+      font-weight: 700;
+      color: #fff;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      line-height: 1.2;
+    }
+
+    .brand-subtitle {
+      font-size: 11px;
+      color: var(--text-dim);
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.6px;
+    }
+
+    .header-pills {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      flex-wrap: nowrap;
+    }
+
+    .pill {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      padding: 3px 9px;
+      border-radius: 6px;
+      font-size: 11.5px;
+      font-weight: 600;
+      white-space: nowrap;
+    }
+
+    .pill-green {
+      background: rgba(16, 185, 129, 0.12);
+      border: 1px solid rgba(16, 185, 129, 0.3);
+      color: var(--accent-green);
+    }
+
+    .pill-blue {
+      background: rgba(56, 189, 248, 0.12);
+      border: 1px solid rgba(56, 189, 248, 0.3);
+      color: var(--accent-blue);
+    }
+
+    .pill-purple {
+      background: rgba(168, 85, 247, 0.12);
+      border: 1px solid rgba(168, 85, 247, 0.3);
+      color: var(--accent-purple);
+    }
+
+    .pill-amber {
+      background: rgba(245, 158, 11, 0.12);
+      border: 1px solid rgba(245, 158, 11, 0.3);
+      color: var(--accent-amber);
+    }
+
+    .pulse-dot {
+      width: 7px;
+      height: 7px;
+      background-color: var(--accent-green);
+      border-radius: 50%;
+      box-shadow: 0 0 8px var(--accent-green);
+      animation: pulse 2s infinite;
+    }
+
+    @keyframes pulse {
+      0%, 100% { opacity: 1; transform: scale(1); }
+      50% { opacity: 0.4; transform: scale(0.85); }
+    }
+
+    .header-right {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      flex-shrink: 0;
+    }
+
+    .quick-nav {
+      display: flex;
+      align-items: center;
+      gap: 4px;
+      background: rgba(255, 255, 255, 0.03);
+      padding: 3px;
+      border-radius: 8px;
+      border: 1px solid var(--border-subtle);
+    }
+
+    .quick-link-btn {
+      background: transparent;
+      border: none;
+      color: var(--text-muted);
+      padding: 6px 12px;
+      font-size: 12.5px;
+      font-weight: 500;
+      border-radius: 6px;
+      cursor: pointer;
+      transition: all 0.15s ease;
+      white-space: nowrap;
+    }
+
+    .quick-link-btn:hover {
+      color: #fff;
+      background: rgba(255, 255, 255, 0.06);
+    }
+
+    .quick-link-btn.active {
+      color: var(--accent-blue);
+      background: rgba(56, 189, 248, 0.12);
+      font-weight: 600;
+    }
+
+    /* Page Layout */
+    .app-layout {
+      display: flex;
+      width: 100%;
+      min-height: calc(100vh - var(--header-height));
+      position: relative;
+    }
+
+    .sidebar-backdrop {
+      display: none;
+      position: fixed;
+      inset: 0;
+      background: rgba(0, 0, 0, 0.8);
+      backdrop-filter: blur(4px);
+      -webkit-backdrop-filter: blur(4px);
+      z-index: 1100;
+    }
+
+    /* Sidebar */
+    .app-sidebar {
+      position: fixed;
+      top: var(--header-height);
+      left: 0;
+      bottom: 0;
+      width: var(--sidebar-width);
+      background: var(--bg-sidebar);
+      border-right: 1px solid var(--border);
+      display: flex;
+      flex-direction: column;
+      z-index: 900;
+      overflow-y: auto;
+      transition: transform 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+    }
+
+    .sidebar-header-mobile {
+      display: none;
+      padding: 16px;
+      border-bottom: 1px solid var(--border);
+      align-items: center;
+      justify-content: space-between;
+    }
+
+    .sidebar-close-btn {
+      width: 32px;
+      height: 32px;
+      background: rgba(255, 255, 255, 0.05);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      color: var(--text-muted);
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      transition: all 0.15s ease;
+    }
+
+    .sidebar-close-btn:hover {
+      background: rgba(239, 68, 68, 0.2);
+      color: var(--accent-red);
+      border-color: rgba(239, 68, 68, 0.4);
+    }
+
+    .sidebar-nav {
+      flex: 1;
+      padding: 20px 14px;
+      display: flex;
+      flex-direction: column;
+      gap: 18px;
+    }
+
+    .nav-section {
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+    }
+
+    .nav-section-title {
+      font-size: 10.5px;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.8px;
+      color: var(--text-dim);
+      padding: 0 10px 6px;
+    }
+
+    .nav-btn {
+      width: 100%;
+      min-height: 42px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 10px;
+      padding: 9px 12px;
+      background: transparent;
+      border: 1px solid transparent;
+      border-radius: 8px;
+      color: var(--text-muted);
+      cursor: pointer;
+      text-align: left;
+      font-size: 13.5px;
+      font-weight: 500;
+      transition: all 0.15s ease;
+    }
+
+    .nav-btn-content {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      min-width: 0;
+    }
+
+    .nav-btn svg {
+      width: 18px;
+      height: 18px;
+      color: var(--text-dim);
+      transition: color 0.15s ease;
+      flex-shrink: 0;
+    }
+
+    .nav-btn:hover {
+      background: rgba(255, 255, 255, 0.04);
+      color: #fff;
+    }
+
+    .nav-btn:hover svg {
+      color: var(--text);
+    }
+
+    .nav-btn.active {
+      background: rgba(56, 189, 248, 0.12);
+      border-color: rgba(56, 189, 248, 0.3);
+      color: #fff;
+      font-weight: 600;
+    }
+
+    .nav-btn.active svg {
+      color: var(--accent-blue);
+    }
+
+    .nav-tag {
+      font-size: 10px;
+      font-weight: 700;
+      padding: 2px 6px;
+      border-radius: 4px;
+      letter-spacing: 0.3px;
+      flex-shrink: 0;
+    }
+
+    .tag-blue { background: rgba(56, 189, 248, 0.15); color: var(--accent-blue); }
+    .tag-green { background: rgba(16, 185, 129, 0.15); color: var(--accent-green); }
+    .tag-amber { background: rgba(245, 158, 11, 0.15); color: var(--accent-amber); }
+    .tag-purple { background: rgba(168, 85, 247, 0.15); color: var(--accent-purple); }
+    .tag-cyan { background: rgba(6, 182, 212, 0.15); color: var(--accent-cyan); }
+
+    .sidebar-footer {
+      padding: 16px 18px;
+      border-top: 1px solid var(--border);
+      background: rgba(5, 7, 14, 0.6);
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+    }
+
+    .footer-row {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      font-size: 11.5px;
+    }
+
+    .footer-label { color: var(--text-dim); }
+    .footer-val { font-weight: 600; color: var(--accent-green); }
+
+    /* Main Area */
+    .app-main {
+      margin-left: var(--sidebar-width);
+      flex: 1;
+      min-width: 0;
+      display: flex;
+      flex-direction: column;
+      background: var(--bg-base);
+    }
+
+    .app-breadcrumb-bar {
+      padding: 12px 36px;
+      background: rgba(13, 21, 39, 0.5);
+      border-bottom: 1px solid var(--border-subtle);
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 16px;
+      flex-wrap: wrap;
+    }
+
+    .breadcrumbs {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      font-size: 13px;
+      min-width: 0;
+    }
+
+    .breadcrumb-root { color: var(--text-dim); }
+    .breadcrumb-sep { color: var(--text-dim); font-size: 11px; }
+    .breadcrumb-cat { color: var(--text-muted); font-weight: 500; }
+    .breadcrumb-current { color: #fff; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
+    .content-badges {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      flex-wrap: wrap;
+    }
+
+    .app-content {
+      padding: 32px 36px 80px;
+      max-width: 1400px;
+      width: 100%;
+      min-width: 0;
+      margin: 0 auto;
+    }
+
+    .tab-content { display: none; }
+    .tab-content.active { display: block; animation: fadeIn 0.25s ease-in-out; }
+    @keyframes fadeIn { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: translateY(0); } }
+
+    /* Cards & Components */
+    .card {
+      background: var(--bg-card);
+      border: 1px solid var(--border);
+      border-radius: 14px;
+      padding: 26px;
+      margin-bottom: 24px;
+      box-shadow: 0 4px 20px -2px rgba(0, 0, 0, 0.4);
+      width: 100%;
+      min-width: 0;
+      transition: border-color 0.2s ease;
+    }
+
+    .card:hover { border-color: rgba(255, 255, 255, 0.14); }
+
+    .card-header {
+      margin-bottom: 18px;
+    }
+
+    .card-title {
+      font-size: 18px;
+      font-weight: 700;
+      color: #fff;
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      flex-wrap: wrap;
+    }
+
+    .card-subtitle {
+      color: var(--text-muted);
+      font-size: 13.5px;
+      margin-top: 6px;
+      line-height: 1.6;
+    }
+
+    .grid-2 {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(360px, 1fr));
+      gap: 20px;
+      margin-bottom: 24px;
+    }
+
+    .grid-3 {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+      gap: 20px;
+      margin-bottom: 24px;
+    }
+
+    .grid-4 {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+      gap: 16px;
+      margin-bottom: 24px;
+    }
+
+    .metric-card {
+      background: rgba(255, 255, 255, 0.02);
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      padding: 16px 20px;
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+    }
+
+    .metric-label {
+      font-size: 12px;
+      color: var(--text-dim);
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+    }
+
+    .metric-value {
+      font-size: 22px;
+      font-weight: 700;
+      color: #fff;
+      font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, monospace;
+    }
+
+    .metric-sub {
+      font-size: 11.5px;
+      color: var(--text-muted);
+    }
+
+    .badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 5px;
+      padding: 3px 8px;
+      border-radius: 6px;
+      font-size: 12px;
+      font-weight: 600;
+    }
+
+    .badge-green { background: rgba(16, 185, 129, 0.15); color: var(--accent-green); border: 1px solid rgba(16, 185, 129, 0.3); }
+    .badge-blue  { background: rgba(56, 189, 248, 0.15); color: var(--accent-blue);  border: 1px solid rgba(56, 189, 248, 0.3); }
+    .badge-amber { background: rgba(245, 158, 11, 0.15); color: var(--accent-amber); border: 1px solid rgba(245, 158, 11, 0.3); }
+    .badge-red   { background: rgba(239, 68, 68, 0.15);  color: var(--accent-red);   border: 1px solid rgba(239, 68, 68, 0.3); }
+    .badge-purple{ background: rgba(168, 85, 247, 0.15); color: var(--accent-purple);border: 1px solid rgba(168, 85, 247, 0.3); }
+
+    /* Flow Steps */
+    .flow-steps {
+      display: flex;
+      flex-direction: column;
+      gap: 14px;
+      margin-top: 18px;
+    }
+
+    .step-item {
+      display: flex;
+      align-items: flex-start;
+      gap: 14px;
+      background: var(--bg-subtle);
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      padding: 16px;
+    }
+
+    .step-num {
+      width: 32px;
+      height: 32px;
+      border-radius: 8px;
+      background: rgba(56, 189, 248, 0.15);
+      color: var(--accent-blue);
+      border: 1px solid rgba(56, 189, 248, 0.3);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-weight: 700;
+      font-size: 13px;
+      flex-shrink: 0;
+    }
+
+    .step-body h4 {
+      font-size: 15px;
+      color: #fff;
+      font-weight: 600;
+      margin-bottom: 4px;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .step-body p {
+      font-size: 13px;
+      color: var(--text-muted);
+      line-height: 1.5;
+    }
+
+    .step-rule {
+      margin-top: 8px;
+      display: inline-block;
+      font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, monospace;
+      font-size: 12px;
+      background: rgba(0, 0, 0, 0.4);
+      padding: 4px 9px;
+      border-radius: 4px;
+      border: 1px solid rgba(255, 255, 255, 0.05);
+      color: var(--accent-blue);
+    }
+
+    /* Callout Alert Boxes */
+    .alert-box {
+      border-radius: 10px;
+      padding: 16px 20px;
+      margin: 16px 0;
+      display: flex;
+      align-items: flex-start;
+      gap: 12px;
+      font-size: 13.5px;
+      line-height: 1.55;
+    }
+
+    .alert-box svg {
+      width: 20px;
+      height: 20px;
+      flex-shrink: 0;
+      margin-top: 2px;
+    }
+
+    .alert-info {
+      background: rgba(56, 189, 248, 0.08);
+      border: 1px solid rgba(56, 189, 248, 0.25);
+      color: #bae6fd;
+    }
+    .alert-info svg { color: var(--accent-blue); }
+
+    .alert-success {
+      background: rgba(16, 185, 129, 0.08);
+      border: 1px solid rgba(16, 185, 129, 0.25);
+      color: #a7f3d0;
+    }
+    .alert-success svg { color: var(--accent-green); }
+
+    .alert-warning {
+      background: rgba(245, 158, 11, 0.08);
+      border: 1px solid rgba(245, 158, 11, 0.25);
+      color: #fde68a;
+    }
+    .alert-warning svg { color: var(--accent-amber); }
+
+    /* Tables */
+    .table-container {
+      width: 100%;
+      overflow-x: auto;
+      -webkit-overflow-scrolling: touch;
+      margin: 14px 0;
+      border-radius: 10px;
+      border: 1px solid var(--border);
+    }
+
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 13px;
+      text-align: left;
+    }
+
+    th {
+      background: rgba(255, 255, 255, 0.04);
+      color: var(--text);
+      font-weight: 600;
+      padding: 12px 14px;
+      border-bottom: 1px solid var(--border);
+      white-space: nowrap;
+    }
+
+    td {
+      padding: 12px 14px;
+      border-bottom: 1px solid var(--border-subtle);
+      color: var(--text-muted);
+      vertical-align: middle;
+    }
+
+    tr:last-child td { border-bottom: none; }
+    tr:hover td { background: rgba(255, 255, 255, 0.02); }
+
+    code {
+      font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, monospace;
+      font-size: 12px;
+      background: rgba(0, 0, 0, 0.4);
+      padding: 2px 6px;
+      border-radius: 4px;
+      border: 1px solid rgba(255, 255, 255, 0.06);
+    }
+
+    /* Mermaid */
+    .mermaid-container {
+      background: #080d1a;
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 24px 16px;
+      margin: 18px 0;
+      overflow-x: auto;
+      text-align: center;
+    }
+
+    /* Simulator Styles */
+    .sim-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+      gap: 24px;
+      margin-top: 16px;
+    }
+
+    .sim-input-group {
+      margin-bottom: 16px;
+    }
+
+    .sim-input-group label {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      font-size: 12.5px;
+      font-weight: 600;
+      color: var(--text-muted);
+      margin-bottom: 8px;
+    }
+
+    .sim-input-group select,
+    .sim-input-group input {
+      width: 100%;
+      background: rgba(0, 0, 0, 0.4);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      color: #fff;
+      padding: 10px 12px;
+      font-size: 14px;
+      outline: none;
+      transition: border-color 0.2s;
+    }
+
+    .sim-input-group select:focus,
+    .sim-input-group input:focus {
+      border-color: var(--accent-blue);
+      box-shadow: 0 0 0 2px rgba(56, 189, 248, 0.2);
+    }
+
+    .sim-result-box {
+      background: rgba(0, 0, 0, 0.35);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 20px;
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+    }
+
+    .sim-res-row {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      padding-bottom: 10px;
+      border-bottom: 1px solid var(--border-subtle);
+      font-size: 13px;
+      gap: 12px;
+    }
+
+    .sim-res-val {
+      font-family: ui-monospace, SFMono-Regular, monospace;
+      font-weight: 700;
+      color: #fff;
+      text-align: right;
+    }
+
+    /* Slot Progress Bar for 5 orders */
+    .slot-bar {
+      display: flex;
+      gap: 8px;
+      margin: 12px 0;
+    }
+
+    .slot-cell {
+      flex: 1;
+      height: 36px;
+      border-radius: 8px;
+      background: rgba(255, 255, 255, 0.05);
+      border: 1px solid var(--border);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 12px;
+      font-weight: 700;
+      color: var(--text-dim);
+      transition: all 0.2s ease;
+    }
+
+    .slot-cell.filled {
+      background: rgba(56, 189, 248, 0.2);
+      border-color: var(--accent-blue);
+      color: var(--accent-blue);
+      box-shadow: 0 0 10px rgba(56, 189, 248, 0.2);
+    }
+
+    .slot-cell.blocked {
+      background: rgba(239, 68, 68, 0.15);
+      border-color: var(--accent-red);
+      color: var(--accent-red);
+    }
+
+    /* Responsive */
+    @media (max-width: 1080px) {
+      .header-pills .pill-purple,
+      .quick-nav { display: none; }
+    }
+
+    @media (max-width: 960px) {
+      .app-sidebar {
+        transform: translateX(-100%);
+        width: min(320px, 86vw);
+        z-index: 1200;
+        top: 0;
+      }
+      .app-sidebar.open {
+        transform: translateX(0);
+        box-shadow: 20px 0 60px rgba(0, 0, 0, 0.95);
+      }
+      .sidebar-header-mobile { display: flex; }
+      .sidebar-backdrop.open { display: block; }
+      .app-main { margin-left: 0; width: 100%; }
+      .mobile-menu-btn { display: flex; }
+      .app-content { padding: 20px 16px 60px; }
+      .app-breadcrumb-bar { padding: 10px 16px; }
+      .grid-2 { grid-template-columns: 1fr; }
+    }
+  </style>
+</head>
+<body>
+
+  <!-- GLOBAL STICKY TOPBAR -->
+  <header class="app-header">
+    <div class="header-left">
+      <button class="mobile-menu-btn" onclick="toggleSidebar()" aria-label="Open Navigation">
+        <svg viewBox="0 0 24 24" width="20" height="20" stroke="currentColor" stroke-width="2" fill="none"><line x1="3" y1="12" x2="21" y2="12"></line><line x1="3" y1="6" x2="21" y2="6"></line><line x1="3" y1="18" x2="21" y2="18"></line></svg>
+      </button>
+
+      <a href="#" class="brand-identity">
+        <div class="brand-icon">
+          <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2.2"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"></polyline></svg>
+        </div>
+        <div class="brand-text">
+          <div class="brand-title">
+            V-ScalpingBot.ex4
+            <span class="pill pill-green"><span class="pulse-dot"></span>LIVE MT4</span>
+          </div>
+          <div class="brand-subtitle">BTCUSD High-Frequency Execution Terminal</div>
+        </div>
+      </a>
+
+      <div class="header-pills">
+        <span class="pill pill-blue">BTCUSD • M1 Scalper</span>
+        <span class="pill pill-purple">Exness Raw / Zero</span>
+        <span class="pill pill-green">V10002 (03-10-2026 12.20)</span>
+      </div>
+    </div>
+
+    <div class="header-right">
+      <div class="quick-nav">
+        <button class="quick-link-btn active" data-qtab="tab-overview" onclick="showTab('tab-overview')">Overview</button>
+        <button class="quick-link-btn" data-qtab="tab-entry" onclick="showTab('tab-entry')">5-Order Engine</button>
+        <button class="quick-link-btn" data-qtab="tab-trailing" onclick="showTab('tab-trailing')">Never-Close SL</button>
+        <button class="quick-link-btn" data-qtab="tab-recovery" onclick="showTab('tab-recovery')">Recovery Basket</button>
+        <button class="quick-link-btn" data-qtab="tab-simulator" onclick="showTab('tab-simulator')">Simulator Lab</button>
+      </div>
+    </div>
+  </header>
+
+  <div class="app-layout">
+    <!-- Backdrop for mobile drawer -->
+    <div class="sidebar-backdrop" id="sidebarBackdrop" onclick="closeSidebar()"></div>
+
+    <!-- LEFT SIDEBAR NAVIGATION -->
+    <aside class="app-sidebar" id="appSidebar">
+      <div class="sidebar-header-mobile">
+        <span style="font-weight: 700; color: #fff; font-size: 15px;">Trading Navigation</span>
+        <button class="sidebar-close-btn" onclick="closeSidebar()">&times;</button>
+      </div>
+
+      <nav class="sidebar-nav">
+        <!-- Section 1: Architecture -->
+        <div class="nav-section">
+          <div class="nav-section-title">Core Execution</div>
+          <ul class="nav-list">
+            <li>
+              <button class="nav-btn active" data-tab="tab-overview" data-cat="Architecture" data-title="Master Scalping Architecture" onclick="showTab('tab-overview', 'Architecture')">
+                <div class="nav-btn-content">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="7"></rect><rect x="14" y="3" width="7" height="7"></rect><rect x="14" y="14" width="7" height="7"></rect><rect x="3" y="14" width="7" height="7"></rect></svg>
+                  <span>Master Execution Flow</span>
+                </div>
+                <span class="nav-tag tag-blue">FLOW</span>
+              </button>
+            </li>
+            <li>
+              <button class="nav-btn" data-tab="tab-entry" data-cat="Order Entry" data-title="Entry Gates &amp; 5 Orders Per Candle" onclick="showTab('tab-entry', 'Order Entry')">
+                <div class="nav-btn-content">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2v20M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"></path></svg>
+                  <span>5-Orders/Candle Engine</span>
+                </div>
+                <span class="nav-tag tag-green">MAX 5</span>
+              </button>
+            </li>
+            <li>
+              <button class="nav-btn" data-tab="tab-trailing" data-cat="Risk &amp; Modify" data-title="Never-Close-Immediately SL Trailing" onclick="showTab('tab-trailing', 'Risk &amp; Modify')">
+                <div class="nav-btn-content">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"></path></svg>
+                  <span>StopLoss Modify Engine</span>
+                </div>
+                <span class="nav-tag tag-cyan">NO-CLOSE</span>
+              </button>
+            </li>
+          </ul>
+        </div>
+
+        <!-- Section 2: Advanced Protection -->
+        <div class="nav-section">
+          <div class="nav-section-title">Recovery &amp; Ladders</div>
+          <ul class="nav-list">
+            <li>
+              <button class="nav-btn" data-tab="tab-recovery" data-cat="Adverse Gap" data-title="Recovery Orders &amp; Basket SL Trailing" onclick="showTab('tab-recovery', 'Adverse Gap')">
+                <div class="nav-btn-content">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21.5 2v6h-6M21.34 15.57a10 10 0 1 1-.57-8.38l5.67-5.67"></path></svg>
+                  <span>Recovery Basket Engine</span>
+                </div>
+                <span class="nav-tag tag-amber">ACTIVE</span>
+              </button>
+            </li>
+            <li>
+              <button class="nav-btn" data-tab="tab-ladders" data-cat="Profit Escalation" data-title="Continuous 5% &amp; Day Profit Ladders" onclick="showTab('tab-ladders', 'Profit Escalation')">
+                <div class="nav-btn-content">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="23 6 13.5 15.5 8.5 10.5 1 18"></polyline><polyline points="17 6 23 6 23 12"></polyline></svg>
+                  <span>Continuous Equity Ladders</span>
+                </div>
+                <span class="nav-tag tag-purple">5% TIER</span>
+              </button>
+            </li>
+          </ul>
+        </div>
+
+        <!-- Section 3: Scalper's Toolkit -->
+        <div class="nav-section">
+          <div class="nav-section-title">Scalper's Terminal</div>
+          <ul class="nav-list">
+            <li>
+              <button class="nav-btn" data-tab="tab-simulator" data-cat="Lab Tools" data-title="Interactive BTCUSD Scalper Lab" onclick="showTab('tab-simulator', 'Lab Tools')">
+                <div class="nav-btn-content">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="4" y="2" width="16" height="20" rx="2"></rect><line x1="8" y1="6" x2="16" y2="6"></line><line x1="16" y1="14" x2="16" y2="18"></line><path d="M8 10h.01M12 10h.01M16 10h.01M8 14h.01M12 14h.01M8 18h.01M12 18h.01"></path></svg>
+                  <span>Scalper's Interactive Lab</span>
+                </div>
+                <span class="nav-tag tag-green">CALC</span>
+              </button>
+            </li>
+            <li>
+              <button class="nav-btn" data-tab="tab-parameters" data-cat="Reference" data-title="Full Parameter &amp; Execution Dictionary" onclick="showTab('tab-parameters', 'Reference')">
+                <div class="nav-btn-content">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path><polyline points="14 2 14 8 20 8"></polyline><line x1="16" y1="13" x2="8" y2="13"></line><line x1="16" y1="17" x2="8" y2="17"></line><polyline points="10 9 9 9 8 9"></polyline></svg>
+                  <span>Parameters &amp; Settings</span>
+                </div>
+                <span class="nav-tag tag-blue">DICT</span>
+              </button>
+            </li>
+          </ul>
+        </div>
+      </nav>
+
+      <div class="sidebar-footer">
+        <div class="footer-row">
+          <span class="footer-label">Build Binary:</span>
+          <span class="footer-val">V-ScalpingBot.ex4</span>
+        </div>
+        <div class="footer-row">
+          <span class="footer-label">Compile Status:</span>
+          <span class="footer-val" style="color: var(--accent-green);">0 Errors • 138ms</span>
+        </div>
+        <div class="footer-row">
+          <span class="footer-label">Target Broker:</span>
+          <span class="footer-val" style="color: var(--accent-blue);">Exness BTCUSDm</span>
+        </div>
+      </div>
+    </aside>
+
+    <!-- MAIN CONTENT AREA -->
+    <main class="app-main">
+      <!-- Breadcrumbs Bar -->
+      <div class="app-breadcrumb-bar">
+        <div class="breadcrumbs">
+          <span class="breadcrumb-root">EA Architecture</span>
+          <span class="breadcrumb-sep">/</span>
+          <span class="breadcrumb-cat" id="topbar-category">Architecture</span>
+          <span class="breadcrumb-sep">/</span>
+          <span class="breadcrumb-current" id="topbar-title">Master Scalping Architecture</span>
+        </div>
+        <div class="content-badges">
+          <span class="badge badge-green">Candle Quota: 5 Max</span>
+          <span class="badge badge-blue">Recovery Trail: Active</span>
+          <span class="badge badge-purple">SafeOrderModify: Intercept</span>
+        </div>
+      </div>
+
+      <div class="app-content">
+
+        <!-- ========================================================
+             TAB 1: OVERVIEW & MASTER ARCHITECTURE
+             ======================================================== -->
+        <div class="tab-content active" id="tab-overview">
+          <div class="card">
+            <div class="card-header">
+              <h2 class="card-title">
+                <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="var(--accent-blue)" stroke-width="2.2"><polygon points="12 2 2 7 12 12 22 7 12 2"></polygon><polyline points="2 17 12 22 22 17"></polyline><polyline points="2 12 12 17 22 12"></polyline></svg>
+                Institutional BTCUSD Scalping Philosophy
+              </h2>
+              <p class="card-subtitle">
+                Engineered specifically for the intense micro-volatility, liquidity gaps, and rapid mean-reversion wicks of Bitcoin against USD. Designed around two bedrock scalping principles: <strong>Never accept premature market close slippage</strong> and <strong>Burst up to 5 strategic scalps per candle bar</strong> during sustained directional expansions.
+              </p>
+            </div>
+
+            <div class="grid-4">
+              <div class="metric-card">
+                <div class="metric-label">Max Orders / Candle</div>
+                <div class="metric-value" style="color: var(--accent-green);">5</div>
+                <div class="metric-sub">Full candle saturation limit</div>
+              </div>
+              <div class="metric-card">
+                <div class="metric-label">StopLoss Mode</div>
+                <div class="metric-value" style="color: var(--accent-cyan);">MODIFY</div>
+                <div class="metric-sub">Tight ratchet, zero market close</div>
+              </div>
+              <div class="metric-card">
+                <div class="metric-label">Recovery Trigger</div>
+                <div class="metric-value" style="color: var(--accent-amber);">$1.00 / 50 Gap</div>
+                <div class="metric-sub">Adverse gap reversal scaling</div>
+              </div>
+              <div class="metric-card">
+                <div class="metric-label">Equity Escalation</div>
+                <div class="metric-value" style="color: var(--accent-purple);">5% Baseline</div>
+                <div class="metric-sub">Continuous dynamic ratchet</div>
+              </div>
+            </div>
+
+            <div class="alert-box alert-info">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"></circle><line x1="12" y1="16" x2="12" y2="12"></line><line x1="12" y1="8" x2="12.01" y2="8"></line></svg>
+              <div>
+                <strong>BTCUSD Scalping Reality:</strong> Bitcoin spreads can expand from $15 to $60+ during sub-minute bursts. Conventional EAs get destroyed by executing panic market closes right into spread widening. <code>V-ScalpingBot.ex4</code> intercepts closure requests and instead ratchets the Stop Loss right below/above current price, letting the broker fill the exit without bid-ask penalties while allowing runner positions to catch explosive wicks.
+              </div>
+            </div>
+
+            <div class="mermaid-container">
+              <div class="mermaid">
+flowchart TD
+    A([Live Tick Ingest]) --> B{Daily Equity Stop / Dubai Pause?}
+    B -- Blocked --> C[Halt New Requests & Idle]
+    B -- Clear --> D[Update Live SSL & 200 EMA Angle]
+    
+    D --> E{Active Order Management}
+    E --> F[SecureOneDollarProfit: Lock 1X Profit]
+    E --> G[SecureDistanceProfitLadder: Lock $50 Gap]
+    E --> H[ManageRecoveryBasket: Trail Active/Orphan SL]
+    E --> I[Manage5PercentLadderReset: Ratchet Baseline]
+
+    D --> J{Is Entry Signal Active?}
+    J -- SSL Cross / Circle Pattern --> K{Candle Order Limiter: Orders < 5?}
+    K -- Effective >= 5 --> L[Block Order for Current Bar]
+    K -- Effective < 5 --> M{Passes EMA & ATR Filter?}
+    M -- Confirmed --> N[SafeOrderSend Dispatch]
+    N --> O[RegisterNewCandleOrder: Inc Slot 1..5]
+    O --> P[Draw Live Left & Right Dashboards]
+              </div>
+            </div>
+
+            <!-- Execution Engine & Server Call Optimizations Card -->
+            <div class="card" style="background: rgba(255, 255, 255, 0.02); margin-top: 24px; border-left: 3px solid var(--accent-green);">
+              <h3 style="font-size: 16px; color: var(--accent-green); margin-bottom: 8px; display: flex; align-items: center; gap: 8px;">
+                <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"></polyline></svg>
+                Institutional Low-Latency &amp; Server-Call Optimization Matrix
+              </h3>
+              <p style="font-size: 13px; color: var(--text-muted); line-height: 1.6; margin-bottom: 16px;">
+                Optimized for ultra-fast BTCUSD execution on Exness terminals. Reduces tick-to-trade latency, eliminates redundant indicator recalculations, and prevents broker network lockups:
+              </p>
+              <div class="grid-3">
+                <div style="background: rgba(16, 185, 129, 0.05); border: 1px solid rgba(16, 185, 129, 0.2); border-radius: 8px; padding: 14px;">
+                  <strong style="color: var(--accent-green); font-size: 13px;">1. Momentum Loop Throttle</strong>
+                  <p style="font-size: 12px; color: var(--text-muted); margin-top: 6px; line-height: 1.5;">
+                    Replaced the unthrottled 500-bar historical scan on every tick with a 1-bar closed tick check and bar-change refresh, eliminating up to <strong>3,000 redundant iADX indicator calls per price tick</strong>.
+                  </p>
+                </div>
+                <div style="background: rgba(56, 189, 248, 0.05); border: 1px solid rgba(56, 189, 248, 0.2); border-radius: 8px; padding: 14px;">
+                  <strong style="color: var(--accent-blue); font-size: 13px;">2. SSL Tick-Sequence Caching</strong>
+                  <p style="font-size: 12px; color: var(--text-muted); margin-top: 6px; line-height: 1.5;">
+                    <code>CalculateSSL(0)</code> and <code>CalculateSSL(1)</code> are now computed once per tick sequence and cached. Reused instantly across signal checks, eliminating <strong>~800 redundant iMA calculations per tick</strong>.
+                  </p>
+                </div>
+                <div style="background: rgba(168, 85, 247, 0.05); border: 1px solid rgba(168, 85, 247, 0.2); border-radius: 8px; padding: 14px;">
+                  <strong style="color: var(--accent-purple); font-size: 13px;">3. Order Count Snapshot Caching</strong>
+                  <p style="font-size: 12px; color: var(--text-muted); margin-top: 6px; line-height: 1.5;">
+                    <code>GetTotalBuyOrders()</code>, <code>GetTotalSellOrders()</code>, and <code>GetTotalEAOrders()</code> utilize tick-sequence caching. Cuts <strong>20+ redundant OrdersTotal() loops</strong> into $O(1)$ instant lookups.
+                  </p>
+                </div>
+                <div style="background: rgba(245, 158, 11, 0.05); border: 1px solid rgba(245, 158, 11, 0.2); border-radius: 8px; padding: 14px;">
+                  <strong style="color: var(--accent-amber); font-size: 13px;">4. Loop-Level MarketInfo Hoisting</strong>
+                  <p style="font-size: 12px; color: var(--text-muted); margin-top: 6px; line-height: 1.5;">
+                    Moved <code>MODE_TICKVALUE</code>, <code>MODE_TICKSIZE</code>, <code>MODE_STOPLEVEL</code>, and <code>RefreshRates()</code> outside order modification loops, preventing mid-loop rate desyncs and CPU churn.
+                  </p>
+                </div>
+                <div style="background: rgba(6, 182, 212, 0.05); border: 1px solid rgba(6, 182, 212, 0.2); border-radius: 8px; padding: 14px; grid-column: span 2;">
+                  <strong style="color: var(--accent-cyan); font-size: 13px;">5. SafeOrderClose Routing &amp; Slippage Protection</strong>
+                  <p style="font-size: 12px; color: var(--text-muted); margin-top: 6px; line-height: 1.5;">
+                    Replaced unthrottled raw <code>OrderClose()</code> with <code>SafeOrderClose()</code> using broker-compliant slippage, preventing ERR_REQUOTE (error 138) and ERR_PRICE_CHANGED (error 135) during fast BTCUSD volatility.
+                  </p>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- ========================================================
+             TAB 2: ORDER ENTRY & 5 ORDERS PER CANDLE
+             ======================================================== -->
+        <div class="tab-content" id="tab-entry">
+          <div class="card">
+            <div class="card-header">
+              <h2 class="card-title">
+                <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="var(--accent-green)" stroke-width="2.2"><path d="M12 2v20M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"></path></svg>
+                Order Entry Pipeline &amp; 5-Orders/Candle Quota
+              </h2>
+              <p class="card-subtitle">
+                High-frequency scalping requires bursting multiple orders during the high-velocity expansion phase of a 1-minute candle while strictly capping maximum exposure at 5 trades per bar to prevent cluster overfill.
+              </p>
+            </div>
+
+            <div class="grid-2">
+              <div class="step-item">
+                <div class="step-num">1</div>
+                <div class="step-body">
+                  <h4>SSL 10-Period Channel Crossover</h4>
+                  <p>Calculates high/low moving average channels. A bullish flip occurs when live Bid breaks above the SSL high band; bearish flip when Ask drops below the low band.</p>
+                  <span class="step-rule">CalculateSSL(0, sslUp, sslDown, hlv) &rarr; Direction = +1 / -1</span>
+                </div>
+              </div>
+
+              <div class="step-item">
+                <div class="step-num">2</div>
+                <div class="step-body">
+                  <h4>200 EMA &amp; Angle Filter</h4>
+                  <p>Buys are strictly blocked if 200 EMA angle &lt; -3.0° or macro H1 direction is down. Sells blocked if angle &gt; +3.0° or macro H1 is bullish.</p>
+                  <span class="step-rule">InpEnableCustomRules && passesUserRules(orderType)</span>
+                </div>
+              </div>
+
+              <div class="step-item">
+                <div class="step-num">3</div>
+                <div class="step-body">
+                  <h4>Max 5 Orders Per Candle &amp; 5s Interval Guard</h4>
+                  <p>Evaluates <code>MathMax(OrdersCreatedThisCandle, liveCandleOrders + historyCandleOrders)</code> up to a hard cap of 5 entries. When opening multiple orders in the same candle bar, enforces a mandatory minimum interval of <strong>5 seconds</strong> between consecutive orders to prevent cluster overfill during rapid tick bursts.</p>
+                  <span class="step-rule">IsOneCandleOrderAllowed() &rarr; effectiveOrders &lt; 5 &amp;&amp; (elapsed &ge; 5s)</span>
+                </div>
+              </div>
+
+              <div class="step-item">
+                <div class="step-num">4</div>
+                <div class="step-body">
+                  <h4>Dynamic Same-Order Gap Guard</h4>
+                  <p>Prevents stacking orders at the exact same price. Requires at least a $30 raw price movement on BTCUSD before opening order 2, 3, 4, or 5 in the same direction.</p>
+                  <span class="step-rule">HasMinimumSameOrderGap(type, MinimumSameOrderGapRawMatched = 30)</span>
+                </div>
+              </div>
+            </div>
+
+            <div class="mermaid-container">
+              <div class="mermaid">
+flowchart TD
+    S1[Tick Intake] --> S2{New Candle Bar?}
+    S2 -- Yes --> S3[Reset OrdersCreatedThisCandle = 0, Reset Timers]
+    S2 -- No --> S4[Count Live + History Candle Orders]
+    S3 --> S5[Calculate Effective Orders]
+    S4 --> S5
+    S5 --> S6{Effective Orders >= 5?}
+    S6 -- Yes (>= 5) --> S7[🛑 Candle Quota Full: Lock Entry Until New Bar]
+    S6 -- No (< 5) --> S8{Orders in Bar > 0?}
+    S8 -- No (1st Order) --> S11[Check $30 Price Gap from Nearest Order]
+    S8 -- Yes (Subsequent) --> S9{Elapsed >= 5 Seconds?}
+    S9 -- No (< 5s) --> S10[⏳ Intra-Candle Delay Guard: Wait 5s Spacing]
+    S9 -- Yes (>= 5s) --> S11
+    S11 -- Gap Verified --> S12[Dispatch SafeOrderSend]
+    S12 --> S13[RegisterNewCandleOrder: Slot + 1 & Timestamp Recorded]
+              </div>
+            </div>
+
+            <!-- ReEntry Direction Alignment Protection Card -->
+            <div class="card" style="background: rgba(255, 255, 255, 0.02); margin-top: 20px; border-left: 3px solid var(--accent-amber);">
+              <h3 style="font-size: 15px; color: var(--accent-amber); margin-bottom: 8px;">
+                Trend Alignment: Profitable Closed Order Re-Entry Engine
+              </h3>
+              <p style="font-size: 13px; color: var(--text-muted); line-height: 1.6; margin-bottom: 12px;">
+                When an order closes with profit and triggers the Profit Re-Entry engine, the EA strictly validates the live <code>SSLDirection</code> to eliminate counter-trend whipsaws:
+              </p>
+              <div class="grid-2">
+                <div style="background: rgba(16, 185, 129, 0.06); border: 1px solid rgba(16, 185, 129, 0.2); border-radius: 8px; padding: 12px;">
+                  <strong style="color: var(--accent-green); font-size: 13px;">Bullish Rule (SSLDirection = BUY / +1)</strong>
+                  <p style="font-size: 12px; color: var(--text-muted); margin-top: 4px;">
+                    If a <strong>Sell order</strong> closes with profit while SSL is <strong>BUY (+1)</strong>, all Sell Re-Entry orders are <strong>STRICTLY BLOCKED</strong>. Any existing pending Sell ReEntry stops are immediately purged.
+                  </p>
+                </div>
+                <div style="background: rgba(244, 63, 94, 0.06); border: 1px solid rgba(244, 63, 94, 0.2); border-radius: 8px; padding: 12px;">
+                  <strong style="color: var(--accent-red); font-size: 13px;">Bearish Rule (SSLDirection = SELL / -1)</strong>
+                  <p style="font-size: 12px; color: var(--text-muted); margin-top: 4px;">
+                    If a <strong>Buy order</strong> closes with profit while SSL is <strong>SELL (-1)</strong>, all Buy Re-Entry orders are <strong>STRICTLY BLOCKED</strong>. Any existing pending Buy ReEntry stops are immediately purged.
+                  </p>
+                </div>
+                <div style="background: rgba(245, 158, 11, 0.06); border: 1px solid rgba(245, 158, 11, 0.2); border-radius: 8px; padding: 12px; grid-column: span 2; margin-top: 8px;">
+                  <strong style="color: var(--accent-amber); font-size: 13px;">EMA Exhaustion Guard (IsEmaWEAKDistanceReduced50PercentFromPeak)</strong>
+                  <p style="font-size: 12px; color: var(--text-muted); margin-top: 4px;">
+                    Whenever <code>IsEmaWEAKDistanceReduced50PercentFromPeak()</code> is <strong>TRUE</strong> (price has pulled back &ge; 50% from cycle peak distance, signaling momentum decay), <strong>ALL Re-Entry orders are strictly blocked</strong>, and existing pending Re-Entry stops are immediately deleted from MT4.
+                  </p>
+                </div>
+              </div>
+            </div>
+
+            <!-- The SafeOrderSend Central Firewall: Master Wall & Entry Door -->
+            <div class="card" style="background: rgba(255, 255, 255, 0.02); margin-top: 24px; border-left: 3px solid var(--accent-blue);">
+              <h3 style="font-size: 16px; color: var(--accent-blue); margin-bottom: 8px; display: flex; align-items: center; gap: 8px;">
+                <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"></rect><path d="M7 11V7a5 5 0 0 1 10 0v4"></path></svg>
+                The Master Gateway: SafeOrderSend() Central Firewall ("The Wall &amp; Entry Door")
+              </h3>
+              <p style="font-size: 13px; color: var(--text-muted); line-height: 1.6; margin-bottom: 16px;">
+                All order dispatch paths across the entire EA (Market Entries, Breakout Stops, Re-Entry Orders, and Adverse Gap Recovery Orders) converge into a single centralized execution gateway: <code>SafeOrderSend()</code>. It operates as an impenetrable fortress wall where every trade must pass through 6 sequential security gates before reaching the broker:
+              </p>
+              <div class="grid-3">
+                <div style="background: rgba(56, 189, 248, 0.05); border: 1px solid rgba(56, 189, 248, 0.2); border-radius: 8px; padding: 14px;">
+                  <strong style="color: var(--accent-blue); font-size: 13px;">Gate 1: Global Circuit Breakers</strong>
+                  <ul style="font-size: 12px; color: var(--text-muted); margin-top: 6px; padding-left: 16px; line-height: 1.5;">
+                    <li>Daily Equity Drawdown Stop</li>
+                    <li>TradingHaltedUntilNextFlip pause</li>
+                    <li>Dubai session pause hour</li>
+                    <li>MaxOpenOrders account ceiling</li>
+                    <li>Losing SL direction cooldown</li>
+                  </ul>
+                </div>
+                <div style="background: rgba(245, 158, 11, 0.05); border: 1px solid rgba(245, 158, 11, 0.2); border-radius: 8px; padding: 14px;">
+                  <strong style="color: var(--accent-amber); font-size: 13px;">Gate 2 &amp; 3: Execution &amp; Candle Quota</strong>
+                  <ul style="font-size: 12px; color: var(--text-muted); margin-top: 6px; padding-left: 16px; line-height: 1.5;">
+                    <li>Broker Spread &le; MaxAllowedSpreadUSD</li>
+                    <li>Hard cap: Max 5 orders per candle bar</li>
+                    <li>Mandatory &ge; 5s delay between candle orders</li>
+                    <li>Post-send registration with ticket deduplication</li>
+                  </ul>
+                </div>
+                <div style="background: rgba(168, 85, 247, 0.05); border: 1px solid rgba(168, 85, 247, 0.2); border-radius: 8px; padding: 14px;">
+                  <strong style="color: var(--accent-purple); font-size: 13px;">Gate 4: Re-Entry Specialized Guard</strong>
+                  <ul style="font-size: 12px; color: var(--text-muted); margin-top: 6px; padding-left: 16px; line-height: 1.5;">
+                    <li>Block Sell ReEntry when SSL is BUY (+1)</li>
+                    <li>Block Buy ReEntry when SSL is SELL (-1)</li>
+                    <li>Block if EMA pullback &ge; 50% from cycle peak</li>
+                    <li>Enforce MinimumSameOrderGapRawReEntry</li>
+                  </ul>
+                </div>
+                <div style="background: rgba(6, 182, 212, 0.05); border: 1px solid rgba(6, 182, 212, 0.2); border-radius: 8px; padding: 14px;">
+                  <strong style="color: var(--accent-cyan); font-size: 13px;">Gate 5: Recovery Specialized Guard</strong>
+                  <ul style="font-size: 12px; color: var(--text-muted); margin-top: 6px; padding-left: 16px; line-height: 1.5;">
+                    <li>Enforce &ge; $50 raw gap between recovery orders</li>
+                    <li>Block if EMA pullback &ge; 50% from cycle peak</li>
+                    <li>Direction alignment: Buy (SSL=1 &amp; EMA=1), Sell (SSL=-1 &amp; EMA=-1)</li>
+                    <li>Cap active recovery orders at MaxRecoveryOrders</li>
+                  </ul>
+                </div>
+                <div style="background: rgba(16, 185, 129, 0.05); border: 1px solid rgba(16, 185, 129, 0.2); border-radius: 8px; padding: 14px; grid-column: span 2;">
+                  <strong style="color: var(--accent-green); font-size: 13px;">Gate 6: Standard Entry Strategy &amp; V-Shape Overrides</strong>
+                  <p style="font-size: 12px; color: var(--text-muted); margin-top: 6px; line-height: 1.5;">
+                    Standard market orders ("SSL Long", "SSL Short") must validate <code>PassesEMAFilter()</code> and custom rules. However, bounce entries carrying <code>GlobalVShapeBuy</code>, <code>GlobalVShapeSell</code>, or <code>StoredSignalOverride</code> bypass standard filters while still being strictly bound by Gates 1, 2, and 3.
+                  </p>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- ========================================================
+             TAB 3: "NEVER CLOSE IMMEDIATELY" STOPLOSS ENGINE
+             ======================================================== -->
+        <div class="tab-content" id="tab-trailing">
+          <div class="card">
+            <div class="card-header">
+              <h2 class="card-title">
+                <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="var(--accent-cyan)" stroke-width="2.2"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"></path></svg>
+                The "Never Close Immediately" Modify Architecture
+              </h2>
+              <p class="card-subtitle">
+                Instead of closing positions via <code>OrderClose()</code> and eating market spread penalties, the robot transforms close signals into high-precision Stop Loss modifications. It tightens risk on losers and ratchets profit on winners.
+              </p>
+            </div>
+
+            <div class="grid-2">
+              <div class="card" style="margin-bottom: 0; background: rgba(255,255,255,0.02);">
+                <h3 style="font-size: 15px; color: var(--accent-green); margin-bottom: 10px; display: flex; align-items: center; gap: 8px;">
+                  <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2"><polyline points="20 6 9 17 4 12"></polyline></svg>
+                  When Order Is in Profit (P/L &gt; 0)
+                </h3>
+                <p style="font-size: 13px; color: var(--text-muted); line-height: 1.6;">
+                  The engine computes the nearest broker-compliant distance:
+                  <br><code>minSafeDistance = MathMax(stopLevel, (Ask - Bid) * 2.0)</code>.
+                  <br><br>
+                  • <strong>BUY Position:</strong> SL is pulled to <code>Bid - minSafeDistance</code> (guaranteeing locked profit above open price).
+                  <br>• <strong>SELL Position:</strong> SL is pulled to <code>Ask + minSafeDistance</code> (guaranteeing locked profit below open price).
+                  <br><br>
+                  <em>Result:</em> Order is safely protected without leaving money on the table; if price continues in favor, the trade remains open to run!
+                </p>
+              </div>
+
+              <div class="card" style="margin-bottom: 0; background: rgba(255,255,255,0.02);">
+                <h3 style="font-size: 15px; color: var(--accent-red); margin-bottom: 10px; display: flex; align-items: center; gap: 8px;">
+                  <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>
+                  When Order Is in Loss (P/L &lt; 0)
+                </h3>
+                <p style="font-size: 13px; color: var(--text-muted); line-height: 1.6;">
+                  Rather than dumping the order at an unfavorable bid price, the engine sets a fixed $50 raw gap buffer:
+                  <br><br>
+                  • <strong>BUY Position:</strong> <code>newSL = openPrice - 50.0</code>
+                  <br>• <strong>SELL Position:</strong> <code>newSL = openPrice + 50.0</code>
+                  <br><br>
+                  <em>Result:</em> Caps further catastrophic drawdown while giving the Bitcoin price breathing room to mean-revert or trigger a paired recovery order.
+                </p>
+              </div>
+            </div>
+
+            <div class="alert-box alert-success" style="margin-top: 20px;">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"></path><polyline points="22 4 12 14.01 9 11.01"></polyline></svg>
+              <div>
+                <strong>Unblocked Recovery Modification:</strong> Previously, <code>SafeOrderModify()</code> rejected any ticket beginning with <code>RECOVERY_</code>. With the updated architecture, recovery orders can now participate in full Stop Loss ratcheting, locking in profits incrementally instead of forcing immediate terminations.
+              </div>
+            </div>
+
+            <div class="mermaid-container">
+              <div class="mermaid">
+sequenceDiagram
+    participant Scalper as Scalping Engine
+    participant Gate as SafeOrderClose Handler
+    participant Broker as MT4 Trade Server
+    
+    Scalper->>Gate: Trigger Exit / Close Request (Ticket #123)
+    Gate->>Gate: Calculate Current Floating P/L
+    alt Floating Profit >= 0
+        Gate->>Gate: Calculate minSafeDistance = MathMax(StopLevel, Spread * 2)
+        Gate->>Gate: Calculate newSL locked in profit above open price
+        Gate->>Broker: SafeOrderModify(ticket, openPrice, newSL, TP, 0)
+        Broker-->>Gate: SL Modified Successfully (Ticket Stays Open & Protected)
+    else Floating Loss < 0
+        Gate->>Gate: Set newSL = openPrice +/- $50 Gap
+        Gate->>Broker: SafeOrderModify(ticket, openPrice, newSL, TP, 0)
+        Broker-->>Gate: Risk Capped (No Panic Market Close)
+    end
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- ========================================================
+             TAB 4: RECOVERY ORDER & BASKET STRATEGY
+             ======================================================== -->
+        <div class="tab-content" id="tab-recovery">
+          <div class="card">
+            <div class="card-header">
+              <h2 class="card-title">
+                <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="var(--accent-amber)" stroke-width="2.2"><path d="M21.5 2v6h-6M21.34 15.57a10 10 0 1 1-.57-8.38l5.67-5.67"></path></svg>
+                Big Gap Recovery &amp; Basket Trailing System
+              </h2>
+              <p class="card-subtitle">
+                When market volatility forces a parent scalping order into drawdown, the recovery engine scales in with an aligned hedge trade once an adverse gap is verified, then trails both positions to secure net basket gains.
+              </p>
+            </div>
+
+            <div class="grid-4">
+              <div class="card" style="margin-bottom: 0; background: rgba(255,255,255,0.02);">
+                <h4 style="font-size: 14px; color: var(--accent-amber); margin-bottom: 8px;">1. Trigger Loss Threshold</h4>
+                <p style="font-size: 12.5px; color: var(--text-muted);">Parent trade must be in active floating loss of at least <code>-$1.00</code> (scaled by lot size). Profitable trades cannot spawn recovery orders.</p>
+                <div class="step-rule">Profit &le; -(RecoveryTriggerLossUSD * Lots * 100)</div>
+              </div>
+
+              <div class="card" style="margin-bottom: 0; background: rgba(255,255,255,0.02);">
+                <h4 style="font-size: 14px; color: var(--accent-blue); margin-bottom: 8px;">2. Adverse Gap from Parent</h4>
+                <p style="font-size: 12.5px; color: var(--text-muted);">Price must move away from parent entry by at least <code>$50.00</code> raw BTC movement before a recovery order is eligible.</p>
+                <div class="step-rule">AdverseDistance &ge; RecoveryMinDistanceRaw * 100 * Lots</div>
+              </div>
+
+              <div class="card" style="margin-bottom: 0; background: rgba(255,255,255,0.02);">
+                <h4 style="font-size: 14px; color: var(--accent-cyan); margin-bottom: 8px;">3. Inter-Recovery $50 Gap</h4>
+                <p style="font-size: 12.5px; color: var(--text-muted);">Enforces a minimum <code>$50.00</code> raw BTC distance between any existing open recovery order and new entry to eliminate order clustering.</p>
+                <div class="step-rule">HasMinimumRecoveryOrderGap() &ge; $50.0 Raw Gap</div>
+              </div>
+
+              <div class="card" style="margin-bottom: 0; background: rgba(255,255,255,0.02);">
+                <h4 style="font-size: 14px; color: var(--accent-green); margin-bottom: 8px;">4. Direction &amp; Pullback Guard</h4>
+                <p style="font-size: 12.5px; color: var(--text-muted);">Must confirm live trend: <code>GlobalSSLDirection</code> &amp; <code>EMADirection</code> align, and suppresses recovery if EMA retracement &gt; 50% from peak.</p>
+                <div class="step-rule">SSL == Type &amp;&amp; EMA == Type &amp;&amp; !IsWeakPullback</div>
+              </div>
+            </div>
+
+            <div class="table-container" style="margin-top: 24px;">
+              <table>
+                <thead>
+                  <tr>
+                    <th>Scenario</th>
+                    <th>Condition</th>
+                    <th>Execution Action</th>
+                    <th>Post-Execution State</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr>
+                    <td><strong>Active Parent + Recovery Pair</strong></td>
+                    <td>Combined Net P/L &ge; $1.00 Target</td>
+                    <td>Ratchets Recovery SL into profit; tightens Parent SL to reduce exposure</td>
+                    <td>Both orders stay open; recovery trails runner profits with zero downside</td>
+                  </tr>
+                  <tr>
+                    <td><strong>Inter-Recovery Order Spacing</strong></td>
+                    <td>Existing recovery trade within &lt; $50 raw distance</td>
+                    <td>Aborts new recovery dispatch via <code>HasMinimumRecoveryOrderGap()</code></td>
+                    <td>Prevents piling multiple recovery lots into micro-ranges</td>
+                  </tr>
+                  <tr>
+                    <td><strong>Orphan Recovery Trade</strong></td>
+                    <td>Parent was stopped/closed, Recovery P/L &ge; $1.00</td>
+                    <td>Modifies Recovery SL to <code>Bid - minSafeDist</code> (or <code>Ask + minSafeDist</code>)</td>
+                    <td>Order remains open trailing locked profit until natural wick exhaustion</td>
+                  </tr>
+                  <tr>
+                    <td><strong>Weak Pullback State</strong></td>
+                    <td>EMA distance contracted &gt; 50% from cycle peak (<code>IsEmaWEAKDistanceReduced50PercentFromPeak</code>)</td>
+                    <td>Suppresses recovery orders &amp; purges pending re-entry stops</td>
+                    <td>Protects margin during exhausted trend corrections</td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+
+            <div class="mermaid-container">
+              <div class="mermaid">
+flowchart TD
+    P1[Parent Order Floating in Drawdown] --> P2{Loss <= -$1.00 & Adverse Gap >= $50?}
+    P2 -- Conditions Met --> P2b{Min $50 Gap Between Recovery Orders?}
+    P2b -- Gap >= $50 --> P3{SSL & 200 EMA Confirm Direction & Not Weak Pullback?}
+    P2b -- Gap < $50 --> P2c[Abort: Clustered Recovery Blocked]
+    P3 -- Yes --> P4[Open RECOVERY_ Ticket]
+    P4 --> P5[RegisterNewCandleOrder Slot + 1]
+    P5 --> P6{Continuous Basket Monitor}
+    
+    P6 --> P7{Is Parent Open?}
+    P7 -- Yes --> P8{Combined Net P/L >= $1.00?}
+    P8 -- Target Hit --> P9[Modify Recovery SL into Profit]
+    P9 --> P10[Tighten Parent SL to Cap Loss]
+    P10 --> P11[Trail Both Orders into Maximum Profit]
+
+    P7 -- Parent Closed (Orphan) --> P12{Recovery Profit >= $1.00?}
+    P12 -- Target Hit --> P13[Modify Recovery SL to Lock $1.00+]
+    P13 --> P14[Hold Runner Position with Trailing SL]
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- ========================================================
+             TAB 5: CONTINUOUS EQUITY & MULTI-TIER LADDERS
+             ======================================================== -->
+        <div class="tab-content" id="tab-ladders">
+          <div class="card">
+            <div class="card-header">
+              <h2 class="card-title">
+                <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="var(--accent-purple)" stroke-width="2.2"><polyline points="23 6 13.5 15.5 8.5 10.5 1 18"></polyline><polyline points="17 6 23 6 23 12"></polyline></svg>
+                Continuous Equity &amp; Dynamic Profit Ladders
+              </h2>
+              <p class="card-subtitle">
+                A multi-layered capitalization engine that protects balance gains in escalating 5% tiers, triggers $1.00 integer order ratchets, and scales partial lots out of winning runs.
+              </p>
+            </div>
+
+            <div class="grid-3">
+              <div class="metric-card">
+                <div class="metric-label">5% Continuous Baseline</div>
+                <div class="metric-value" style="color: var(--accent-purple);">Dynamic</div>
+                <div class="metric-sub">Automatically steps up as equity hits +5%</div>
+              </div>
+              <div class="metric-card">
+                <div class="metric-label">Flip Profit Target</div>
+                <div class="metric-value" style="color: var(--accent-blue);">$20.00</div>
+                <div class="metric-sub">Closes or secures upon SSL channel flip</div>
+              </div>
+              <div class="metric-card">
+                <div class="metric-label">Partial Close Size</div>
+                <div class="metric-value" style="color: var(--accent-green);">0.01 Lot</div>
+                <div class="metric-sub">De-risks 0.02+ lot trades into profit</div>
+              </div>
+            </div>
+
+            <div class="flow-steps">
+              <div class="step-item">
+                <div class="step-num">1</div>
+                <div class="step-body">
+                  <h4>SecureOneDollarProfit Engine</h4>
+                  <p>When an individual ticket's net profit reaches integer rungs ($1.00, $2.00, $3.00), the Stop Loss is modified to guarantee that exact dollar tier, adjusted for commission and swap.</p>
+                  <span class="step-rule">ladderLevel = MathFloor(maxLockableNet / baseProfitTarget)</span>
+                </div>
+              </div>
+
+              <div class="step-item">
+                <div class="step-num">2</div>
+                <div class="step-body">
+                  <h4>5% Continuous Equity Reset (Manage5PercentLadderReset)</h4>
+                  <p>Maintains <code>Ladder5PercentBaseline</code>. If account equity surges 5% above baseline, the baseline resets to the new high watermark, locking in gains and updating the next target.</p>
+                  <span class="step-rule">targetEquity = Baseline * (1.0 + (5 * multiplier / 100))</span>
+                </div>
+              </div>
+
+              <div class="step-item">
+                <div class="step-num">3</div>
+                <div class="step-body">
+                  <h4>Dynamic Lowest Equity Recovery Protection</h4>
+                  <p>Tracks the lowest drawdown floor reached during any cycle. If equity drops and then bounces back by 20% of that trough, the bot immediately calls order securing functions to bank the recovery.</p>
+                  <span class="step-rule">currentEquity >= LowestEquity + (LowestEquity * 0.20)</span>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- ========================================================
+             TAB 6: SCALPER'S INTERACTIVE SIMULATOR LAB
+             ======================================================== -->
+        <div class="tab-content" id="tab-simulator">
+          <div class="card">
+            <div class="card-header">
+              <h2 class="card-title">
+                <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="var(--accent-green)" stroke-width="2.2"><rect x="4" y="2" width="16" height="20" rx="2"></rect><line x1="8" y1="6" x2="16" y2="6"></line><line x1="16" y1="14" x2="16" y2="18"></line><path d="M8 10h.01M12 10h.01M16 10h.01M8 14h.01M12 14h.01M8 18h.01M12 18h.01"></path></svg>
+                BTCUSD Scalper's Interactive Execution Lab
+              </h2>
+              <p class="card-subtitle">
+                Test real-time broker parameters, simulate candle order saturation up to the 5-order cap, calculate exact recovery basket profit triggers, and test Stop Loss ratchet distances without risk.
+              </p>
+            </div>
+
+            <!-- Simulator 1: 5-Order Candle Saturation -->
+            <div class="card" style="background: rgba(255, 255, 255, 0.02);">
+              <h3 style="font-size: 15px; color: var(--accent-blue); margin-bottom: 12px;">Candle Order Quota Simulator (Max 5 Limit)</h3>
+              <div class="slot-bar" id="slotBar">
+                <div class="slot-cell" id="slot1">Slot 1</div>
+                <div class="slot-cell" id="slot2">Slot 2</div>
+                <div class="slot-cell" id="slot3">Slot 3</div>
+                <div class="slot-cell" id="slot4">Slot 4</div>
+                <div class="slot-cell" id="slot5">Slot 5</div>
+              </div>
+              <div style="display: flex; gap: 10px; margin-top: 12px; align-items: center; flex-wrap: wrap;">
+                <button onclick="addSimOrder()" class="quick-link-btn" style="background: var(--accent-blue); color: #000; font-weight: 700; padding: 8px 16px;">+ Simulate Order Fill</button>
+                <button onclick="resetSimCandle()" class="quick-link-btn" style="background: rgba(255,255,255,0.08); color: #fff; padding: 8px 16px;">New Candle Bar (Reset)</button>
+                <span id="simSlotStatus" style="font-size: 13px; color: var(--text-muted); margin-left: 10px;">Orders Created This Candle: <strong>0 / 5</strong></span>
+                <span id="simDelayNotice" style="font-size: 13px; margin-left: 10px; display: none;"></span>
+              </div>
+            </div>
+
+            <!-- Simulator 2: StopLoss Ratchet & Recovery Basket Calculator -->
+            <div class="sim-grid">
+              <div class="card" style="background: rgba(255, 255, 255, 0.02); margin-bottom: 0;">
+                <h3 style="font-size: 15px; color: var(--accent-amber); margin-bottom: 14px;">Recovery Basket &amp; SL Ratchet Lab</h3>
+                
+                <div class="sim-input-group">
+                  <label for="sim-order-type">Order Type</label>
+                  <select id="sim-order-type" onchange="runLabSim()">
+                    <option value="BUY">BUY Position</option>
+                    <option value="SELL">SELL Position</option>
+                  </select>
+                </div>
+
+                <div class="sim-input-group">
+                  <label for="sim-entry">Parent Entry Price (BTCUSD)</label>
+                  <input type="number" id="sim-entry" value="65000.00" step="10.0" oninput="runLabSim()">
+                </div>
+
+                <div class="sim-input-group">
+                  <label for="sim-current">Live Market Price (BTCUSD)</label>
+                  <input type="number" id="sim-current" value="65120.00" step="5.0" oninput="runLabSim()">
+                </div>
+
+                <div class="sim-input-group">
+                  <label for="sim-spread">Broker Spread (USD Points)</label>
+                  <input type="number" id="sim-spread" value="25.00" step="1.0" oninput="runLabSim()">
+                </div>
+              </div>
+
+              <div class="sim-result-box">
+                <h4 style="font-size: 14px; color: #fff; border-bottom: 1px solid var(--border); padding-bottom: 8px;">Execution Engine Diagnostics</h4>
+
+                <div class="sim-res-row">
+                  <span style="color: var(--text-dim);">Price Differential:</span>
+                  <span class="sim-res-val" id="lab-diff">+120.00 pts</span>
+                </div>
+
+                <div class="sim-res-row">
+                  <span style="color: var(--text-dim);">Broker StopLevel Buffer:</span>
+                  <span class="sim-res-val" id="lab-safe-buffer" style="color: var(--accent-blue);">$50.00</span>
+                </div>
+
+                <div class="sim-res-row">
+                  <span style="color: var(--text-dim);">New Trailed SL (Modify):</span>
+                  <span class="sim-res-val" id="lab-target-sl" style="color: var(--accent-green);">65070.00</span>
+                </div>
+
+                <div class="sim-res-row">
+                  <span style="color: var(--text-dim);">Net Locked Profit:</span>
+                  <span class="sim-res-val" id="lab-locked-profit" style="color: var(--accent-green);">+$0.70</span>
+                </div>
+
+                <div class="sim-res-row">
+                  <span style="color: var(--text-dim);">Engine Decision:</span>
+                  <span class="sim-res-val" id="lab-action"><span class="badge badge-green">EXECUTE MODIFY</span></span>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- ========================================================
+             TAB 7: PARAMETER MATRIX & REFERENCE
+             ======================================================== -->
+        <div class="tab-content" id="tab-parameters">
+          <div class="card">
+            <div class="card-header">
+              <h2 class="card-title">
+                <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="var(--accent-blue)" stroke-width="2.2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path><polyline points="14 2 14 8 20 8"></polyline><line x1="16" y1="13" x2="8" y2="13"></line><line x1="16" y1="17" x2="8" y2="17"></line></svg>
+                Complete Parameter &amp; Logic Reference
+              </h2>
+              <p class="card-subtitle">
+                Production settings for high-frequency BTCUSD scalping on Exness MT4 terminals with account multiplier scaling.
+              </p>
+            </div>
+
+            <div class="table-container">
+              <table>
+                <thead>
+                  <tr>
+                    <th>Parameter Identifier</th>
+                    <th>Type</th>
+                    <th>Default</th>
+                    <th>Scalper Role &amp; Technical Behavior</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr>
+                    <td><code>MaxOrdersPerCandle</code></td>
+                    <td>int</td>
+                    <td><strong style="color: var(--accent-green);">5</strong></td>
+                    <td>Maximum orders permitted per candle bar; persistent across broker disconnects.</td>
+                  </tr>
+                  <tr>
+                    <td><code>MinSecondsBetweenOrdersInCandle</code></td>
+                    <td>int</td>
+                    <td><strong style="color: var(--accent-green);">5</strong></td>
+                    <td>Minimum delay (in seconds) enforced between two orders when opening multiple orders within the same candle bar.</td>
+                  </tr>
+                  <tr>
+                    <td><code>EnableProfitReEntryStop</code></td>
+                    <td>bool</td>
+                    <td><strong style="color: var(--accent-green);">true</strong></td>
+                    <td>Allows trailing re-entry stops upon profitable order close; strictly filtered so Sell ReEntry is blocked if SSL is BUY, and Buy ReEntry is blocked if SSL is SELL.</td>
+                  </tr>
+                  <tr>
+                    <td><code>EnableRecoveryOrders</code></td>
+                    <td>bool</td>
+                    <td><strong style="color: var(--accent-green);">true</strong></td>
+                    <td>Enables scaling into big gap adverse movements to recover drawdowns.</td>
+                  </tr>
+                  <tr>
+                    <td><code>EnableRecoveryProfitTrailing</code></td>
+                    <td>bool</td>
+                    <td><strong style="color: var(--accent-green);">true</strong></td>
+                    <td>Ratchets recovery order SL into profit instead of terminating positions at market.</td>
+                  </tr>
+                  <tr>
+                    <td><code>RecoveryTriggerLossUSD</code></td>
+                    <td>double</td>
+                    <td><code>1.00</code></td>
+                    <td>Parent order loss threshold before a recovery hedge trade is eligible.</td>
+                  </tr>
+                  <tr>
+                    <td><code>RecoveryMinDistanceRaw</code></td>
+                    <td>double</td>
+                    <td><code>50.0</code></td>
+                    <td>Adverse price distance in raw BTCUSD points required before opening recovery.</td>
+                  </tr>
+                  <tr>
+                    <td><code>MinGapBetweenRecoveryOrdersRaw</code></td>
+                    <td>double</td>
+                    <td><strong style="color: var(--accent-green);">50.0</strong></td>
+                    <td>Enforces minimum $50 raw BTCUSD distance between consecutive recovery orders to prevent stacking.</td>
+                  </tr>
+                  <tr>
+                    <td><code>RecoveryBasketProfitUSD</code></td>
+                    <td>double</td>
+                    <td><code>1.00</code></td>
+                    <td>Net combined basket cash profit target that triggers the trailing SL ratchet.</td>
+                  </tr>
+                  <tr>
+                    <td><code>SecureOneDollarProfitPerOrder</code></td>
+                    <td>double</td>
+                    <td><code>1.00</code></td>
+                    <td>Integer multiplier profit ladder rung; locks $1X profit per order.</td>
+                  </tr>
+                  <tr>
+                    <td><code>FlipLadderStepUSD</code></td>
+                    <td>double</td>
+                    <td><code>8.00</code></td>
+                    <td>Price step increment for EMA/SSL flip basket profit protection.</td>
+                  </tr>
+                  <tr>
+                    <td><code>DailyEquityStopUSD</code></td>
+                    <td>double</td>
+                    <td><code>100.00</code></td>
+                    <td>Account capital circuit breaker; halts trading if daily drawdown ceiling hit.</td>
+                  </tr>
+                  <tr>
+                    <td><code>MaxAllowedSpreadUSD</code></td>
+                    <td>double</td>
+                    <td><code>35.0</code></td>
+                    <td>Spread filter threshold in points; skips order creation during rollover widening.</td>
+                  </tr>
+                  <tr>
+                    <td><code>SSLPeriod</code></td>
+                    <td>int</td>
+                    <td><code>10</code></td>
+                    <td>Bar lookback period for calculating high/low SSL Channel crossover bands.</td>
+                  </tr>
+                  <tr>
+                    <td><code>InpEMA200Period</code></td>
+                    <td>int</td>
+                    <td><code>200</code></td>
+                    <td>Trend baseline filter; ensures scalping entries align with macro momentum.</td>
+                  </tr>
+                  <tr>
+                    <td><code>IsEmaWEAKDistanceReduced50%</code></td>
+                    <td>filter</td>
+                    <td><strong style="color: var(--accent-cyan);">Active Guard</strong></td>
+                    <td>Exhaustion pullback logic: blocks all re-entry stop orders and recovery orders when EMA distance retraces &gt; 50% from cycle peak.</td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+
+            <div class="alert-box alert-warning">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"></path><line x1="12" y1="9" x2="12" y2="13"></line><line x1="12" y1="17" x2="12.01" y2="17"></line></svg>
+              <div>
+                <strong>Exness Crypto Broker Execution Notes:</strong> BTCUSD spreads fluctuate widely during high volatility. Ensure <code>MaxAllowedSpreadUSD</code> is kept between <code>30.0</code> and <code>45.0</code> to allow smooth entry during momentum expansions while protecting against off-hours spreads.
+              </div>
+            </div>
+          </div>
+        </div>
+
+      </div>
+    </main>
+  </div>
+
+  <script>
+    // Tab Switching
+    function showTab(tabId, categoryName) {
+      document.querySelectorAll('.nav-btn').forEach(btn => btn.classList.remove('active'));
+      const activeBtn = document.querySelector(`.nav-btn[data-tab="${tabId}"]`);
+      if (activeBtn) activeBtn.classList.add('active');
+
+      document.querySelectorAll('.quick-link-btn').forEach(btn => btn.classList.remove('active'));
+      const activeQuickBtn = document.querySelector(`.quick-link-btn[data-qtab="${tabId}"]`);
+      if (activeQuickBtn) activeQuickBtn.classList.add('active');
+
+      document.querySelectorAll('.tab-content').forEach(el => el.classList.remove('active'));
+      const activeContent = document.getElementById(tabId);
+      if (activeContent) activeContent.classList.add('active');
+
+      if (activeBtn) {
+        const title = activeBtn.getAttribute('data-title') || activeBtn.innerText.trim();
+        const cat = categoryName || activeBtn.getAttribute('data-cat') || 'Architecture';
+        document.getElementById('topbar-title').innerText = title;
+        document.getElementById('topbar-category').innerText = cat;
+      }
+
+      closeSidebar();
+
+      // Render unprocessed mermaid diagrams
+      if (window.mermaid && activeContent) {
+        try {
+          const unprocessed = activeContent.querySelectorAll('.mermaid:not([data-processed="true"])');
+          if (unprocessed.length > 0) {
+            mermaid.run({ nodes: unprocessed });
+          }
+        } catch(e) {
+          console.error("Mermaid execution error:", e);
+        }
+      }
+
+      window.scrollTo({ top: 0, behavior: 'smooth' });
+    }
+
+    function toggleSidebar() {
+      document.getElementById('appSidebar').classList.toggle('open');
+      document.getElementById('sidebarBackdrop').classList.toggle('open');
+    }
+
+    function closeSidebar() {
+      const sidebar = document.getElementById('appSidebar');
+      const backdrop = document.getElementById('sidebarBackdrop');
+      if (sidebar && sidebar.classList.contains('open')) {
+        sidebar.classList.remove('open');
+        backdrop.classList.remove('open');
+      }
+    }
+
+    // 5-Order Slot Simulator with 5s Intra-Candle Interval Guard
+    let simOrderCount = 0;
+    let lastOrderSimTime = 0;
+    let delayTimer = null;
+
+    function addSimOrder() {
+      const now = Date.now();
+      const notice = document.getElementById('simDelayNotice');
+      if (simOrderCount >= 5) {
+        updateSlotStatus();
+        return;
+      }
+      if (simOrderCount > 0 && (now - lastOrderSimTime < 5000)) {
+        const remaining = Math.ceil((5000 - (now - lastOrderSimTime)) / 1000);
+        notice.style.display = 'inline-block';
+        notice.innerHTML = `<span class="badge badge-amber">⏳ Intra-Candle 5s Guard Active: Wait ${remaining}s before opening next order!</span>`;
+        if (delayTimer) clearInterval(delayTimer);
+        delayTimer = setInterval(() => {
+          const rem = Math.ceil((5000 - (Date.now() - lastOrderSimTime)) / 1000);
+          if (rem <= 0) {
+            clearInterval(delayTimer);
+            notice.innerHTML = `<span class="badge badge-green">✅ Ready: 5s delay elapsed. Next order permitted!</span>`;
+            setTimeout(() => { notice.style.display = 'none'; }, 2000);
+          } else {
+            notice.innerHTML = `<span class="badge badge-amber">⏳ Intra-Candle 5s Guard Active: Wait ${rem}s before opening next order!</span>`;
+          }
+        }, 300);
+        return;
+      }
+      if (delayTimer) clearInterval(delayTimer);
+      notice.style.display = 'none';
+      lastOrderSimTime = now;
+      simOrderCount++;
+      const cell = document.getElementById('slot' + simOrderCount);
+      cell.classList.add('filled');
+      cell.innerText = 'Order #' + simOrderCount + ' Filled';
+      updateSlotStatus();
+    }
+
+    function resetSimCandle() {
+      if (delayTimer) clearInterval(delayTimer);
+      const notice = document.getElementById('simDelayNotice');
+      if (notice) notice.style.display = 'none';
+      simOrderCount = 0;
+      lastOrderSimTime = 0;
+      for (let i = 1; i <= 5; i++) {
+        const cell = document.getElementById('slot' + i);
+        cell.classList.remove('filled', 'blocked');
+        cell.innerText = 'Slot ' + i;
+      }
+      updateSlotStatus();
+    }
+
+    function updateSlotStatus() {
+      const status = document.getElementById('simSlotStatus');
+      if (simOrderCount >= 5) {
+        status.innerHTML = 'Orders Created This Candle: <strong style="color: var(--accent-red);">5 / 5 (QUOTA FULL - GATE CLOSED)</strong>';
+        for (let i = 1; i <= 5; i++) {
+          document.getElementById('slot' + i).classList.add('filled');
+        }
+      } else {
+        status.innerHTML = 'Orders Created This Candle: <strong style="color: var(--accent-green);">' + simOrderCount + ' / 5 (GATE OPEN)</strong>';
+      }
+    }
+
+    // Interactive Ratchet Simulator
+    function runLabSim() {
+      const type = document.getElementById('sim-order-type').value;
+      const entry = parseFloat(document.getElementById('sim-entry').value) || 0;
+      const live = parseFloat(document.getElementById('sim-current').value) || 0;
+      const spread = parseFloat(document.getElementById('sim-spread').value) || 20;
+
+      const diff = (type === 'BUY') ? (live - entry) : (entry - live);
+      document.getElementById('lab-diff').innerText = (diff >= 0 ? '+' : '') + diff.toFixed(2) + ' pts';
+
+      const minSafeDist = Math.max(15.0, spread * 1.5);
+      document.getElementById('lab-safe-buffer').innerText = '$' + minSafeDist.toFixed(2);
+
+      let targetSL = 0;
+      let lockedProfit = 0;
+      if (type === 'BUY') {
+        targetSL = live - minSafeDist;
+        if (targetSL <= entry) targetSL = entry + 1.0;
+        lockedProfit = (targetSL - entry) * 0.01;
+      } else {
+        targetSL = live + minSafeDist;
+        if (targetSL >= entry) targetSL = entry - 1.0;
+        lockedProfit = (entry - targetSL) * 0.01;
+      }
+
+      document.getElementById('lab-target-sl').innerText = targetSL.toFixed(2);
+      document.getElementById('lab-locked-profit').innerText = (lockedProfit >= 0 ? '+' : '') + '$' + lockedProfit.toFixed(2);
+
+      const actionEl = document.getElementById('lab-action');
+      if (diff > minSafeDist) {
+        actionEl.innerHTML = '<span class="badge badge-green">EXECUTE MODIFY (SL TRAILED)</span>';
+      } else if (diff < 0) {
+        actionEl.innerHTML = '<span class="badge badge-amber">LOSS BUFFER SET (OPEN +/- $50)</span>';
+      } else {
+        actionEl.innerHTML = '<span class="badge badge-blue">HOLD POSITION (GAP &lt; BUFFER)</span>';
+      }
+    }
+
+    window.addEventListener('DOMContentLoaded', () => {
+      runLabSim();
+      // Render initial tab's diagrams
+      if (window.mermaid) {
+        mermaid.run({ nodes: document.querySelectorAll('#tab-overview .mermaid') });
+      }
+    });
+  </script>
+</body>
+</html>

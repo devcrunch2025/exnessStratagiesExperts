@@ -29,11 +29,12 @@
 
 //https://github.com/devcrunch2025/exnessStratagiesExperts/commit/f2b01e8fb84e16294381ff54065e07b98df282ec
 
-string glbVersion = "V10001  03-10-2026 10.00 Modified Dashboard and Recovery Orders";
+// Previous: V10001  03-10-2026 10.00 Modified Dashboard and Recovery Orders
+string glbVersion = "V10002  03-10-2026 12.20 SafeOrderSend Firewall and Optimizations";
 
 
-double DailyEquityStopUSD  =100;//50;//20*2.5;//10;//20;// 10;//30.0; close all orders at $50Xmultipler
-double TargetProfitPerFlipUSD =20;//10;//10*2;//10;//5;//20;// 10.0; close all orders at $20Xmultipler
+double DailyEquityStopUSD  =100*100;//50;//20*2.5;//10;//20;// 10;//30.0; close all orders at $50Xmultipler
+double TargetProfitPerFlipUSD =20*100;//10;//10*2;//10;//5;//20;// 10.0; close all orders at $20Xmultipler
 
 
 
@@ -42,7 +43,7 @@ double TargetProfitPerFlipUSD =20;//10;//10*2;//10;//5;//20;// 10.0; close all o
 double SecureOneDollarProfitPerOrder=1.0*1; //1X set modify order at profit $1(any lot)
 
 //chance 2
-int partialClose01in05IndividualPercentage=20;//10;//2*2;//per lot 0.01//if 0.05 close 0.01 at total profit of 20% means close 0.01 lot
+int partialClose01in05IndividualPercentage=20*1;//10;//2*2;//per lot 0.01//if 0.05 close 0.01 at total profit of 20% means close 0.01 lot
 int partialLossMultipler=10; //0.05 means $50 close 0.01 partial lot
 //50/5=10
 //48/4=12
@@ -70,7 +71,10 @@ double   g_stepSize            =1000;// 50.0; // The step increment ($50)
 
 
 //chance 6 - basket//IMPORTANT TO CLOSE ONE SIDE OPEN ORDERS as soon as possible
-double basketBUYorSELLProfitModifyUSD=1*1; //if all combined basket BUY OR SELL Only basket is profit >0 then modify stoploss
+double basketBUYorSELLProfitModifyUSD=1*1*1; //if all combined basket BUY OR SELL Only basket is profit >0 then modify stoploss
+
+
+double StopLossUSD =30;//10;//6;//10;//6;//5;//10;//2;// 10;
 
 
 int      g_dayNumber = -1;
@@ -140,7 +144,7 @@ int    ServerToDubaiOffsetHours   = 4;
 double MaxAllowedSpreadUSD = 35.0;
 int AccountMultiplierLOT = 500;
 double OriginalStopLossUSD = 20;//6;//4;
-double StopLossUSD =20;//10;//6;//10;//6;//5;//10;//2;// 10;
+
 
 
 
@@ -203,11 +207,11 @@ double closeOppositeLossThreshold =0.01;
 bool DeleteOppositePendingOnSignal = true;
 bool EnableProfitReEntryStop = true;
 double MinimumClosedProfitUSD = -9;
-double ProfitReEntryGapRaw =10;// 25;
-double MinimumSameOrderGapRawReEntry =10;//20;// 50;
+double ProfitReEntryGapRaw =30;//10;// 25;
+double MinimumSameOrderGapRawReEntry =50;//10;//20;// 50;
 // double MinimumSameOrderGapRawSSLLongShort =50;// 50;
-double MinimumSameOrderGapRawMatched =30;//10;//20;//50;//20;// 50;
-double MinimumSameOrderGapRawUnmatched =10;//10;//20;// 100;
+double MinimumSameOrderGapRawMatched =50;//30;//10;//20;//50;//20;// 50;
+double MinimumSameOrderGapRawUnmatched =50;//10;//10;//20;// 100;
 
 bool EnableReEntryNOnMatchingSignal=true;
 
@@ -259,7 +263,8 @@ double RecoveryLotMultiplier =1;// 2;
 int MaxRecoveryOrders =100;// 5; // Maximum active recovery orders allowed
 double RecoveryMaxLots = 0.05; // Maximum lot cap for recovery order (even 2X lot cannot exceed 0.05)
 double RecoveryBasketProfitUSD = 1;
-double RecoveryMinDistanceRaw =50;//500;//1000;//2000;//2000;//2000;//1000;//1000;//100;//20;// 200.0;
+double RecoveryMinDistanceRaw =200;//50*2;//500;//1000;//2000;//2000;//2000;//1000;//1000;//100;//20;// 200.0;
+  double MinGapBetweenRecoveryOrdersRaw =100;// 50.0; // Minimum raw price gap ($50) between two recovery orders
 bool UseBalanceMultiplierForRecoveryTarget = false; // Scaled by balance multiplier if true; default false ($1.00 fixed cash target)
 bool EnableRecoveryProfitTrailing = true; // Close losing parent first, let winning recovery order trail!
 
@@ -364,6 +369,14 @@ bool EquityResetReEntryPending = true;
 bool ProtectedEquityWaitActive = true;
 datetime ProtectedEquityWaitStartTime = 0;
 int ProtectedEquityWaitMinutes = 0;
+
+void DeleteOppositePendingReEntryOrders(int liveSSL);
+bool HasMinimumRecoveryOrderGap(int orderType, double currentPrice, double minGapRaw = 50.0);
+bool IsEmaWEAKDistanceReduced50PercentFromPeak(int orderType = -1);
+int  CountActiveRecoveryOrders();
+void RegisterNewCandleOrder(int ticket = -1);
+int  GetCurrentSSLDirection();
+double GetDynamicOrderGap(int orderType);
 
 // --- GLOBAL TICK CACHE ---
 double GlobalEmaAngle30 = 0.0;
@@ -534,6 +547,11 @@ void SecureDistanceProfitLadder()
    if(distanceStep <= 0)
       return;
 
+   RefreshRates();
+   double stopLevel = MarketInfo(Symbol(), MODE_STOPLEVEL) * Point;
+   double spreadBuf = (Ask - Bid) * 2.0;
+   double minSafeDistance = MathMax(stopLevel, spreadBuf);
+
    for(int i = OrdersTotal() - 1; i >= 0; i--)
      {
       if(!OrderSelect(i, SELECT_BY_POS, MODE_TRADES))
@@ -546,15 +564,8 @@ void SecureDistanceProfitLadder()
       if(type != OP_BUY && type != OP_SELL)
          continue;
 
-      RefreshRates();
-
       double currentSL = OrderStopLoss();
       double openPrice = OrderOpenPrice();
-
-      // 1. Calculate safe StopLevel (Fallback to 2x Spread for Crypto brokers with bugged limits)
-      double stopLevel = MarketInfo(Symbol(), MODE_STOPLEVEL) * Point;
-      double spreadBuf = (Ask - Bid) * 2.0;
-      double minSafeDistance = MathMax(stopLevel, spreadBuf);
 
       double maxLockableDistance = 0.0;
 
@@ -650,6 +661,14 @@ void SecureOneDollarProfit()
    if(baseProfitTarget <= 0)
       return; // Prevent division by zero if inputs are 0
 
+   double tickValue = MarketInfo(Symbol(), MODE_TICKVALUE);
+   double tickSize  = MarketInfo(Symbol(), MODE_TICKSIZE);
+   double stopLevel = MarketInfo(Symbol(), MODE_STOPLEVEL) * Point;
+   if(tickValue == 0 || tickSize == 0)
+      return;
+
+   RefreshRates();
+
    for(int i = OrdersTotal() - 1; i >= 0; i--)
      {
       if(!OrderSelect(i, SELECT_BY_POS, MODE_TRADES))
@@ -662,14 +681,8 @@ void SecureOneDollarProfit()
       if(type != OP_BUY && type != OP_SELL)
          continue;
 
-      double tickValue = MarketInfo(Symbol(), MODE_TICKVALUE);
-      double tickSize  = MarketInfo(Symbol(), MODE_TICKSIZE);
-      double stopLevel = MarketInfo(Symbol(), MODE_STOPLEVEL) * Point;
-
-      if(tickValue == 0 || tickSize == 0 || OrderLots() == 0)
+      if(OrderLots() == 0)
          continue;
-
-      RefreshRates();
 
       double currentSL = OrderStopLoss();
       double openPrice = OrderOpenPrice();
@@ -1608,6 +1621,9 @@ int OnInit()
 
    EquityResetReEntryPending=false;
 
+   partialLossMultipler=  StopLossUSD/2;
+
+
    EmaFlipTime = TimeCurrent();
 
    for(int initIndex = OrdersTotal() - 1; initIndex >= 0; initIndex--)
@@ -1665,10 +1681,13 @@ int OnInit()
    return INIT_SUCCEEDED;
   }
 
-int      MaxOrdersPerCandle      = 5;     // Maximum orders allowed per candle
-datetime LastOrderCandleTime     = 0;
-int      OrdersCreatedThisCandle = 0;
-bool     OrderCreatedThisCandle  = false;
+  int      MaxOrdersPerCandle              = 5;     // Maximum orders allowed per candle
+  int      MinSecondsBetweenOrdersInCandle = 1;     // Minimum seconds between orders in same candle
+datetime LastOrderCandleTime             = 0;
+int      OrdersCreatedThisCandle         = 0;
+bool     OrderCreatedThisCandle          = false;
+datetime LastCandleOrderExactTime        = 0;
+uint     LastCandleOrderTickMs           = 0;
 
 //+------------------------------------------------------------------+
 //|                                                                  |
@@ -1680,10 +1699,13 @@ bool IsOneCandleOrderAllowed()
       LastOrderCandleTime = Time[0];
       OrdersCreatedThisCandle = 0;
       OrderCreatedThisCandle = false;
+      LastCandleOrderExactTime = 0;
+      LastCandleOrderTickMs = 0;
      }
 
    // Count open orders opened on current candle (persistence guard across ticks and restarts)
    int liveCandleOrders = 0;
+   datetime mostRecentOrderTimeInCandle = 0;
    for(int i = OrdersTotal() - 1; i >= 0; i--)
      {
       if(!OrderSelect(i, SELECT_BY_POS, MODE_TRADES))
@@ -1693,12 +1715,39 @@ bool IsOneCandleOrderAllowed()
          if(OrderType() == OP_BUY || OrderType() == OP_SELL)
            {
             if(OrderOpenTime() >= Time[0])
+              {
                liveCandleOrders++;
+               if(OrderOpenTime() > mostRecentOrderTimeInCandle)
+                  mostRecentOrderTimeInCandle = OrderOpenTime();
+              }
            }
         }
      }
 
-   int effectiveOrders = MathMax(OrdersCreatedThisCandle, liveCandleOrders);
+   // Count closed orders opened on current candle (in case an order closed within this same candle)
+   int histLimit = MathMin(OrdersHistoryTotal(), 30);
+   int historyCandleOrders = 0;
+   for(int h = OrdersHistoryTotal() - 1; h >= OrdersHistoryTotal() - histLimit; h--)
+     {
+      if(h < 0)
+         break;
+      if(!OrderSelect(h, SELECT_BY_POS, MODE_HISTORY))
+         continue;
+      if(OrderSymbol() == Symbol() && OrderMagicNumber() == MagicNumber)
+        {
+         if(OrderType() == OP_BUY || OrderType() == OP_SELL)
+           {
+            if(OrderOpenTime() >= Time[0])
+              {
+               historyCandleOrders++;
+               if(OrderOpenTime() > mostRecentOrderTimeInCandle)
+                  mostRecentOrderTimeInCandle = OrderOpenTime();
+              }
+           }
+        }
+     }
+
+   int effectiveOrders = MathMax(OrdersCreatedThisCandle, liveCandleOrders + historyCandleOrders);
    if(effectiveOrders >= MaxOrdersPerCandle)
       OrderCreatedThisCandle = true;
    else
@@ -1710,6 +1759,24 @@ bool IsOneCandleOrderAllowed()
          return true;
       return false;
      }
+
+   // Condition between two orders when opening multiple orders in same candle (minimum MinSecondsBetweenOrdersInCandle seconds)
+   if(effectiveOrders > 0 && MinSecondsBetweenOrdersInCandle > 0)
+     {
+      datetime latestOrderTime = MathMax(LastCandleOrderExactTime, mostRecentOrderTimeInCandle);
+      if(LastCandleOrderTickMs > 0)
+        {
+         uint elapsedMs = GetTickCount() - LastCandleOrderTickMs;
+         if(elapsedMs < (uint)(MinSecondsBetweenOrdersInCandle * 1000))
+            return false;
+        }
+      if(latestOrderTime > 0)
+        {
+         if((TimeCurrent() - latestOrderTime) < MinSecondsBetweenOrdersInCandle)
+            return false;
+        }
+     }
+
    return true;
   }
 
@@ -1839,6 +1906,7 @@ bool IsDailyEquityStopReached()
 //+------------------------------------------------------------------+
 void OnTick()
   {
+   CurrentTickSequence++;
    profitAfterFlip = GetProfitAfterLastEmaFlip();
 
 
@@ -2317,6 +2385,7 @@ void OnTickCore()
    GlobalEmaAngle200 = GetEmaAngleDegrees(200);
 
    GlobalSSLDirection = GetCurrentSSLDirection();
+   DeleteOppositePendingReEntryOrders(GlobalSSLDirection);
    Global30MinDiffBuy = Get30MinDifference(OP_BUY);
    Global30MinDiffSell = Get30MinDifference(OP_SELL);
 
@@ -2683,6 +2752,29 @@ bool HasMinimumSameOrderGap(int orderType, double minimumGapRaw)
          continue;
       if(MathAbs(currentPrice - OrderOpenPrice()) < minimumGapRaw)
          return false;
+     }
+   return true;
+  }
+
+//+------------------------------------------------------------------+
+//| Verify minimum raw gap between two recovery orders ($50 raw gap) |
+//+------------------------------------------------------------------+
+bool HasMinimumRecoveryOrderGap(int orderType, double currentPrice, double minGapRaw = 50.0)
+  {
+   for(int i = OrdersTotal() - 1; i >= 0; i--)
+     {
+      if(!OrderSelect(i, SELECT_BY_POS, MODE_TRADES))
+         continue;
+      if(OrderSymbol() != Symbol() || OrderMagicNumber() != MagicNumber)
+         continue;
+      if(OrderType() != orderType)
+         continue;
+      string comment = OrderComment();
+      if(StringFind(comment, "RECOVERY_") == 0)
+        {
+         if(MathAbs(currentPrice - OrderOpenPrice()) < minGapRaw)
+            return false;
+        }
      }
    return true;
   }
@@ -3086,6 +3178,9 @@ void ResetRuntimeAfterServerError(DailyProtectionState &state)
    TradeResetThisTick=false;
    OrderCreatedThisCandle=false;
    LastOrderCandleTime=0;
+   OrdersCreatedThisCandle=0;
+   LastCandleOrderExactTime=0;
+   LastCandleOrderTickMs=0;
    StartupProtectionTicks=0;
    EAStartupComplete=true;
    state.ClosedOrdersToday=CountClosedOrdersSinceInitialization();
@@ -3387,6 +3482,32 @@ void ProcessDeferredOrders()
             if(type==OP_SELLSTOP)
                sendPrice=MathMin(sendPrice,Bid-minGap);
          sendPrice=NormalizeDouble(sendPrice,Digits);
+        }
+      if(StringFind(DeferredComment[i],"SSL Profit ReEntry",0)==0)
+        {
+         if(IsEmaWEAKDistanceReduced50PercentFromPeak(type == OP_BUYSTOP ? OP_BUY : OP_SELL))
+           {
+            Print("BLOCK REENTRY [Deferred]: IsEmaWEAKDistanceReduced50PercentFromPeak() is TRUE. Cancelling deferred ReEntry.");
+            DeferredActive[i] = false;
+            ReEntryRetryPending = false;
+            continue;
+           }
+         int liveSSL = GetCurrentSSLDirection();
+         if(liveSSL == 0) liveSSL = GlobalSSLDirection;
+         if(type == OP_SELLSTOP && liveSSL > 0)
+           {
+            Print("BLOCK REENTRY [Deferred]: Cancelling deferred Sell ReEntry because SSL Direction is BUY (+1).");
+            DeferredActive[i] = false;
+            ReEntryRetryPending = false;
+            continue;
+           }
+         if(type == OP_BUYSTOP && liveSSL < 0)
+           {
+            Print("BLOCK REENTRY [Deferred]: Cancelling deferred Buy ReEntry because SSL Direction is SELL (-1).");
+            DeferredActive[i] = false;
+            ReEntryRetryPending = false;
+            continue;
+           }
         }
       int ticket=SafeOrderSend(DeferredSymbol[i],type,DeferredLots[i],sendPrice,DeferredSlippage[i],DeferredSL[i],DeferredTP[i],DeferredComment[i],DeferredMagic[i],DeferredColor[i]);
       if(ticket>0)
@@ -4017,247 +4138,223 @@ string TradeMonitoringLog2="";
 //+------------------------------------------------------------------+
 int SafeOrderSend(string symbol,int orderType,double lots,double price,int slippage,double stopLoss,double takeProfit,string comment,int magic,color arrowColor)
   {
+   // =========================================================================
+   // GATE 0: ORDER CLASSIFICATION & DIRECTION
+   // =========================================================================
+   bool isRecoveryOrder = (StringFind(comment, "RECOVERY_") == 0);
+   bool isReEntryOrder  = (StringFind(comment, "ReEntry") >= 0 || StringFind(comment, "SSL Profit ReEntry") >= 0);
+   bool isMarketOrder   = (orderType == OP_BUY || orderType == OP_SELL);
+   bool isPendingOrder  = (orderType == OP_BUYSTOP || orderType == OP_SELLSTOP || orderType == OP_BUYLIMIT || orderType == OP_SELLLIMIT);
+   int  direction       = (orderType == OP_BUY || orderType == OP_BUYSTOP || orderType == OP_BUYLIMIT) ? OP_BUY : OP_SELL;
 
+   // =========================================================================
+   // GATE 1: CRITICAL SYSTEM & ACCOUNT LEVEL CIRCUIT BREAKERS
+   // =========================================================================
+   if(!EnableTrading)
+     {
+      Print("SAFEORDERSEND BLOCKED [Global]: EnableTrading is disabled.");
+      return -1;
+     }
 
-   if(g_dailyEquityTradingBlocked)
+   if(!IsConnected())
+     {
+      Print("SAFEORDERSEND BLOCKED [Broker]: Terminal not connected to trade server.");
+      return -1;
+     }
 
-
-
-      // ADD THIS LINE: Block re-entry orders if EMA Ladder is halted
-      if(TradingHaltedUntilNextFlip)
-         return -1;
-   ;
-
+   if(!IsTradeAllowed())
+     {
+      Print("SAFEORDERSEND BLOCKED [Broker]: Expert Advisor automated trading is not allowed.");
+      return -1;
+     }
 
    if(TradeOperationFailedThisTick)
       return -1;
+
+   if(g_dailyEquityTradingBlocked)
+     {
+      Print("SAFEORDERSEND BLOCKED [Daily Equity]: Trading halted due to Daily Equity Stop.");
+      return -1;
+     }
+
+   if(TradingHaltedUntilNextFlip)
+     {
+      Print("SAFEORDERSEND BLOCKED [Ladder]: Trading halted until next SSL/EMA flip.");
+      return -1;
+     }
+
    if(IsDubaiTradingPauseHour())
+     {
+      Print("SAFEORDERSEND BLOCKED [Time]: Dubai Trading Pause Hour active.");
       return -1;
+     }
+
    if(!IsDayProfitLadderTradingAllowed())
+     {
+      Print("SAFEORDERSEND BLOCKED [Day Ladder]: Day Profit Ladder Trading not allowed.");
       return -1;
-
-
-
-
-
-// // Blokkeer Buys wanneer het verlies minder is dan $2 (P/L > -2.0) en de EMA-hoek kleiner is dan 2.0
-//    if(GetOpenPL(OP_BUY) > -safeOrdersendLossCondition*balancelomultipler && GlobalEmaAngle30 < 2 &&
-//       (orderType == OP_BUY || orderType == OP_BUYSTOP || orderType == OP_BUYLIMIT))
-//      {
-//       Print("TRADE BUY BLOCKED | Buy P/L is beter dan -$2 verlies en EMA-hoek is te laag (", DoubleToString(GlobalEmaAngle30, 2), " deg < 2.0).");
-//       return -1;
-//      }
-
-// // Block Sell orders when floating loss is less than $2 (P/L > -2.0) and EMA angle is greater than -2.0
-//    if(GetOpenPL(OP_SELL) > -safeOrdersendLossCondition*balancelomultipler && GlobalEmaAngle30 > -2 &&
-//       (orderType == OP_SELL || orderType == OP_SELLSTOP || orderType == OP_SELLLIMIT))
-//      {
-//       Print("TRADE SELL BLOCKED | Sell P/L is better than -$2 loss and EMA angle is too weak/flat (", DoubleToString(GlobalEmaAngle30, 2), " deg > -2.0).");
-//       return -1;
-//      }
-
-
-//minimum angele with price diff condition
-
-// if(MathAbs(GlobalEmaAngle30)<1 && MathAbs(Get30MinutePriceDifference())<100)
-//   {
-//    Print("TRADE BLOCKED | BOTH SIDES Angle below 2 degrees. No trade allowed.");
-//    TradeMonitoringLog="TRADE BLOCKED | BOTH SIDES Angle below 2 degrees. No trade allowed.";
-//    return -1;;
-//   }
-// else
-//   {
-//    TradeMonitoringLog="";
-//   }
-
-// Determine whether to bypass EmaFlipTime for either Buy or Sell
-   bool ignoreFlipTime = false;
-
-// Buy condition: EMA is bullish (+1) and open Buy loss is $2.00 or more
-   if(EMADirection == 1 && GetOpenPL(OP_BUY) <= -safeOrdersendLossCondition*balancelomultipler &&
-      (orderType == OP_BUY || orderType == OP_BUYSTOP || orderType == OP_BUYLIMIT))
-     {
-      ignoreFlipTime = true;
      }
 
-// Sell condition: EMA is bearish (-1) and open Sell loss is $2.00 or more
-   if(EMADirection == -1 && GetOpenPL(OP_SELL) <= -safeOrdersendLossCondition*balancelomultipler &&
-      (orderType == OP_SELL || orderType == OP_SELLSTOP || orderType == OP_SELLLIMIT))
+   if(GetTotalEAOrders() >= MaxOpenOrders)
      {
-      ignoreFlipTime = true;
+      Print("SAFEORDERSEND BLOCKED [Max Orders]: Total EA orders (", GetTotalEAOrders(), ") reached MaxOpenOrders (", MaxOpenOrders, ").");
+      return -1;
      }
 
-   if(MathAbs(Get30MinutePriceDifference())<100)
-      ignoreFlipTime = true;
-
-
-// Block trades if flip time is under 15 minutes and bypass criteria are NOT met
-// if(!ignoreFlipTime && (TimeCurrent() - EmaFlipTime < 60 * 5))
-//   {
-//    Comment("TRADE BLOCKED | EmaFlipTime < 15 mins");
-//    return -1;
-//   }
-
-// if(TimeCurrent() - EmaFlipTime < 60*15)
-//   {
-
-//    Comment("TRADE BLOCKED | EmaFlipTime < 60*30");
-
-//    return -1;;
-
-//   }
-
-
-// if(IsEmaWEAKDistanceReduced50PercentFromPeak(orderType))//weak
-//   {
-//    Print("TRADE BLOCKED | IsEmaWEAKDistanceReduced50PercentFromPeak");
-
-//    return -1;;
-
-
-//   }
-
-// if(GlobalEmaAngle30 < -2  )
-//   {
-//    Print("TRADE BLOCKED | EMA trend is not bullish for Buy order.");
-//    return false;
-//   }
-// --- SEPARATE CONDITION: Strict block for opposite orders during strong uptrend (2 to 6 degrees) ---
-   /* if((StringFind(OrderComment(), "RECOVERY_") <0) && EMADirection != -1 && (orderType == OP_SELL || orderType == OP_SELLSTOP || orderType == OP_SELLLIMIT))
-      {
-       Print("TRADE SELL BLOCKED | Strict opposite block: EMA trend is strong uptrend  ");
-       return -1;
-      }
-
-   // --- SEPARATE CONDITION: Strict block for opposite orders during strong downtrend (-2 to -6 degrees) ---
-    if((StringFind(OrderComment(), "RECOVERY_") <0) && EMADirection != 1 && (orderType == OP_BUY || orderType == OP_BUYSTOP || orderType == OP_BUYLIMIT))
-      {
-       Print("TRADE BUY BLOCKED | Strict opposite block: EMA trend is strong downtrend  ");
-       return -1;
-      }*/
-// --- STRICT EMA TREND FILTER WITH EXHAUSTION ALLOWANCE ---
-
-// --- STRICT EMA TREND FILTER WITH EXHAUSTION ALLOWANCE ---
-
-// // Block Sells during a standard strong uptrend (2 to 6 degrees). Allows Sells > 6 for extreme exhaustion.
-//    if(GetOpenPL(OP_BUY) >-2 && GlobalEmaAngle30 > 2.0 && GlobalEmaAngle30 <= 6.0 && EMADirection != -1 && (orderType == OP_SELL || orderType == OP_SELLSTOP || orderType == OP_SELLLIMIT))
-//      {
-//       Comment("TRADE SELL BLOCKED | EMA trend is strong (", DoubleToString(GlobalEmaAngle30, 2), " deg). Waiting for extreme exhaustion (>6) to Sell.");
-//       return -1;
-//      }
-
-// // Block Buys during a standard strong downtrend (-2 to -6 degrees). Allows Buys < -6 for extreme exhaustion.
-//    if(GetOpenPL(OP_SELL) > -2 && GlobalEmaAngle30 < -2.0 && GlobalEmaAngle30 >= -6.0 && EMADirection != 1 && (orderType == OP_BUY || orderType == OP_BUYSTOP || orderType == OP_BUYLIMIT))
-//      {
-//       Comment("TRADE BUY BLOCKED | EMA trend is strong (", DoubleToString(GlobalEmaAngle30, 2), " deg). Waiting for extreme exhaustion (<-6) to Buy.");
-//       return -1;
-//      }
-
-
-
-// if(IsOrderAllowedByTrendAndGap(orderType) == false)
-//   {
-//    Comment("TRADE BLOCKED | Counter-trend order blocked due to EMA direction and gap rules.");
-//    return -1;
-//   }
-
-// --- CHECK IF THIS IS A V-SHAPE BOUNCE OVERRIDE ---
-// bool isVShapeOverride = ((orderType == OP_BUY || orderType == OP_BUYSTOP || orderType == OP_BUYLIMIT) && GlobalVShapeBuy) ||
-//                         ((orderType == OP_SELL || orderType == OP_SELLSTOP || orderType == OP_SELLLIMIT) && GlobalVShapeSell);
-
-
-// bool isVShapeOverride = ((orderType == OP_BUY || orderType == OP_BUYSTOP || orderType == OP_BUYLIMIT) && GlobalVShapeBuy) ||
-// ((orderType == OP_SELL || orderType == OP_SELLSTOP || orderType == OP_SELLLIMIT) && GlobalVShapeSell) ||
-// MissedSignalOverride; // <-- Added memory override flag
-
-
-   bool isVShapeOverride = ((orderType == OP_BUY || orderType == OP_BUYSTOP || orderType == OP_BUYLIMIT) && GlobalVShapeBuy) ||
-                           ((orderType == OP_SELL || orderType == OP_SELLSTOP || orderType == OP_SELLLIMIT) && GlobalVShapeSell) ||
-                           StoredSignalOverride; // <-- Added memory override flag
-
-// --- STRATEGY FILTERS (IGNORED FOR BOUNCE ORDERS) ---
-   if(!isVShapeOverride)
+   if(HasBasketNewOrderLossLimit())
      {
-      double currentAngle = GlobalEmaAngle30;
-
-      // // 1. EMA Angle Hard Stops
-      // if(currentAngle > angleBlockAboveRule && (orderType == OP_SELL || orderType == OP_SELLSTOP || orderType == OP_SELLLIMIT))
-      //   {
-      //    Print("TRADE BLOCKED | EMA Angle (", DoubleToString(currentAngle, 2), ") > ", angleBlockAboveRule, " prohibits Sell orders.");
-      //    return -1;
-      //   }
-      // if(currentAngle < -angleBlockAboveRule && (orderType == OP_BUY || orderType == OP_BUYSTOP || orderType == OP_BUYLIMIT))
-      //   {
-      //    Print("TRADE BLOCKED | EMA Angle (", DoubleToString(currentAngle, 2), ") < -", angleBlockAboveRule, " prohibits Buy orders.");
-      //    return -1;
-      //   }
-
-      // 2. Late Entry Exhaustion Blocks
-      // if(currentAngle > angleBlockAboveRule && Global30MinDiffBuy < 30 && (orderType == OP_BUY || orderType == OP_BUYSTOP || orderType == OP_BUYLIMIT))
-      //   {
-      //    Print("TRADE BLOCKED | EMA Angle (", DoubleToString(currentAngle, 2), ") > ", angleBlockAboveRule, " but Momentum < 30 prohibits Buy orders.");
-      //    return -1;
-      //   }
-      // if(currentAngle < -angleBlockAboveRule && Global30MinDiffSell > -30 && (orderType == OP_SELL || orderType == OP_SELLSTOP || orderType == OP_SELLLIMIT))
-      //   {
-      //    Print("TRADE BLOCKED | EMA Angle (", DoubleToString(currentAngle, 2), ") < -", angleBlockAboveRule, " but Momentum > -30 prohibits Sell orders.");
-      //    return -1;
-      //   }
-
-      // // 3. 30-Minute Momentum Hard Block (50 points)
-      // double minRequiredMomentum = 15.0;//50;
-      // if((orderType == OP_BUY || orderType == OP_BUYSTOP || orderType == OP_BUYLIMIT) && Get5MinDifferenceBuy1 < minRequiredMomentum)
-      //   {
-      //    Print("TRADE BLOCKED | Weak Upward Momentum: 30-min diff is ", DoubleToString(Get5MinDifferenceBuy1, 2), " (Requires >= ", minRequiredMomentum, ")");
-      //    return -1;
-      //   }
-      // if((orderType == OP_SELL || orderType == OP_SELLSTOP || orderType == OP_SELLLIMIT) && Get5MinDifferenceSell1 > -minRequiredMomentum)
-      //   {
-      //    Print("TRADE BLOCKED | Weak Downward Momentum: 30-min diff is ", DoubleToString(Get5MinDifferenceSell1, 2), " (Requires <= -", minRequiredMomentum, ")");
-      //    return -1;
-      //   }
-      // // 3. 30-Minute Momentum Hard Block (50 points)
-      // double minRequiredMomentum = 15.0;//50;
-      // if((orderType == OP_BUY || orderType == OP_BUYSTOP || orderType == OP_BUYLIMIT) && Global30MinDiffBuy < minRequiredMomentum)
-      //   {
-      //    Print("TRADE BLOCKED | Weak Upward Momentum: 30-min diff is ", DoubleToString(Global30MinDiffBuy, 2), " (Requires >= ", minRequiredMomentum, ")");
-      //    return -1;
-      //   }
-      // if((orderType == OP_SELL || orderType == OP_SELLSTOP || orderType == OP_SELLLIMIT) && Global30MinDiffSell > -minRequiredMomentum)
-      //   {
-      //    Print("TRADE BLOCKED | Weak Downward Momentum: 30-min diff is ", DoubleToString(Global30MinDiffSell, 2), " (Requires <= -", minRequiredMomentum, ")");
-      //    return -1;
-      //   }
-
-      // 4. P&L & SSL Direction Block
-      /*
-      int currentSSL = GlobalSSLDirection;
-      int requestedDirection = (orderType == OP_BUY || orderType == OP_BUYSTOP || orderType == OP_BUYLIMIT) ? 1 : -1;
-      int baseMarketType     = (requestedDirection == 1) ? OP_BUY : OP_SELL;
-      double currentPL       = (baseMarketType == OP_BUY) ? GlobalBuyPL : GlobalSellPL;
-
-      if(currentPL <= -plBlockAboveRule && currentSSL != requestedDirection)
-        {
-         Print("TRADE BLOCKED | Floating PL <= -", plBlockAboveRule, " and SSL does not match requested direction.");
-         return -1;
-        }
-         */
-     }
-   else
-     {
-      Print("V-SHAPE OVERRIDE: Bypassing SafeOrderSend strategy filters for bounce trade.");
+      Print("SAFEORDERSEND BLOCKED [Basket Loss]: Basket loss limit exceeded.");
+      return -1;
      }
 
-// --- PHYSICAL SAFETY BLOCKS (APPLIES TO ALL ORDERS) ---
+   // Directional SL cooldown protection (skip for recovery orders)
+   if(!isRecoveryOrder && IsDirectionBlockedAfterSL(direction))
+     {
+      Print("SAFEORDERSEND BLOCKED [SL Protection]: Direction ", GetOrderTypeText(direction), " is temporarily blocked after losing SL.");
+      return -1;
+     }
+
+   if(MaxSameDirectionOrders > 0 && CountDirectionOrders(direction) >= MaxSameDirectionOrders)
+     {
+      Print("SAFEORDERSEND BLOCKED [Direction Max]: Max same direction orders reached (", MaxSameDirectionOrders, ").");
+      return -1;
+     }
+
+   // =========================================================================
+   // GATE 2: PHYSICAL BROKER CONDITIONS (SPREAD FILTER)
+   // =========================================================================
    RefreshRates();
    double currentSpreadUSD = Ask - Bid;
    if(currentSpreadUSD > MaxAllowedSpreadUSD)
      {
-      Print("TRADE BLOCKED | Spread too high: $", DoubleToString(currentSpreadUSD, 2), " | Max allowed: $", DoubleToString(MaxAllowedSpreadUSD, 2));
+      Print("SAFEORDERSEND BLOCKED [Spread]: Spread too high: $", DoubleToString(currentSpreadUSD, 2), " | Max allowed: $", DoubleToString(MaxAllowedSpreadUSD, 2));
       return -1;
      }
 
-   if(Enable30MinuteMomentumFilter && Enable30MinuteMomentumForAllOrders && !isVShapeOverride)
+   // =========================================================================
+   // GATE 3: CANDLE ORDER QUOTA & FREQUENCY GUARD (MAX 5 ORDERS & 5S INTERVAL)
+   // =========================================================================
+   if(isMarketOrder)
+     {
+      if(!IsOneCandleOrderAllowed())
+        {
+         Print("SAFEORDERSEND BLOCKED [Candle Quota]: Max orders per candle reached (", MaxOrdersPerCandle, ") or intra-candle interval guard active.");
+         return -1;
+        }
+     }
+
+   // =========================================================================
+   // GATE 4: RE-ENTRY ORDER SPECIFIC GATEWAY
+   // =========================================================================
+   if(isReEntryOrder)
+     {
+      if(!EnableProfitReEntryStop)
+        {
+         Print("SAFEORDERSEND BLOCKED [ReEntry]: EnableProfitReEntryStop is false.");
+         return -1;
+        }
+
+      // 4A. Weak EMA Pullback 50% from cycle peak: Block ReEntry
+      if(IsEmaWEAKDistanceReduced50PercentFromPeak(direction))
+        {
+         Print("SAFEORDERSEND BLOCKED [ReEntry]: IsEmaWEAKDistanceReduced50PercentFromPeak() is TRUE. Exhaustion pullback detected.");
+         return -1;
+        }
+
+      // 4B. SSL Directional Alignment:
+      // Block Sell ReEntry when SSL is BUY (+1)
+      // Block Buy ReEntry when SSL is SELL (-1)
+      int liveSSL = GetCurrentSSLDirection();
+      if(liveSSL == 0) liveSSL = GlobalSSLDirection;
+
+      if(direction == OP_SELL && liveSSL > 0)
+        {
+         Print("SAFEORDERSEND BLOCKED [ReEntry SSL]: Sell ReEntry blocked because live SSL Direction is BUY (+1).");
+         return -1;
+        }
+      if(direction == OP_BUY && liveSSL < 0)
+        {
+         Print("SAFEORDERSEND BLOCKED [ReEntry SSL]: Buy ReEntry blocked because live SSL Direction is SELL (-1).");
+         return -1;
+        }
+
+      // 4C. Check minimum same order gap
+      if(!HasMinimumSameOrderGap(direction, MinimumSameOrderGapRawReEntry))
+        {
+         Print("SAFEORDERSEND BLOCKED [ReEntry Gap]: Minimum same order gap not met.");
+         return -1;
+        }
+     }
+
+   // =========================================================================
+   // GATE 5: RECOVERY ORDER SPECIFIC GATEWAY
+   // =========================================================================
+   if(isRecoveryOrder)
+     {
+      if(!EnableRecoveryOrders)
+        {
+         Print("SAFEORDERSEND BLOCKED [Recovery]: EnableRecoveryOrders is false.");
+         return -1;
+        }
+
+      if(CountActiveRecoveryOrders() >= MaxRecoveryOrders)
+        {
+         Print("SAFEORDERSEND BLOCKED [Recovery]: MaxRecoveryOrders (", MaxRecoveryOrders, ") reached.");
+         return -1;
+        }
+
+      // 5A. Weak EMA Pullback 50% from peak: Block Recovery
+      if(IsEmaWEAKDistanceReduced50PercentFromPeak(direction))
+        {
+         Print("SAFEORDERSEND BLOCKED [Recovery]: IsEmaWEAKDistanceReduced50PercentFromPeak() is TRUE. Recovery blocked.");
+         return -1;
+        }
+
+      // 5B. Minimum $50 Raw Price Gap between Recovery Orders
+      double executionPrice = (direction == OP_BUY) ? Ask : Bid;
+      if(!HasMinimumRecoveryOrderGap(direction, executionPrice, MinGapBetweenRecoveryOrdersRaw))
+        {
+         Print("SAFEORDERSEND BLOCKED [Recovery $50 Gap]: Another recovery order exists within $", DoubleToString(MinGapBetweenRecoveryOrdersRaw, 2), " raw gap.");
+         return -1;
+        }
+
+      // 5C. Directional Alignment with Live SSL & EMA
+      if(direction == OP_BUY && (GlobalSSLDirection != 1 || EMADirection != 1))
+        {
+         Print("SAFEORDERSEND BLOCKED [Recovery Direction]: Buy recovery requires GlobalSSLDirection==1 and EMADirection==1.");
+         return -1;
+        }
+      if(direction == OP_SELL && (GlobalSSLDirection != -1 || EMADirection != -1))
+        {
+         Print("SAFEORDERSEND BLOCKED [Recovery Direction]: Sell recovery requires GlobalSSLDirection==-1 and EMADirection==-1.");
+         return -1;
+        }
+     }
+
+   // =========================================================================
+   // GATE 6: STANDARD ENTRY STRATEGY FILTERS & OVERRIDES
+   // =========================================================================
+   bool isVShapeOverride = ((orderType == OP_BUY || orderType == OP_BUYSTOP || orderType == OP_BUYLIMIT) && GlobalVShapeBuy) ||
+                           ((orderType == OP_SELL || orderType == OP_SELLSTOP || orderType == OP_SELLLIMIT) && GlobalVShapeSell) ||
+                           StoredSignalOverride;
+
+   if(!isVShapeOverride && !isRecoveryOrder && !isReEntryOrder)
+     {
+      if(InpEnableCustomRules && !PassesUserRules(orderType))
+        {
+         Print("SAFEORDERSEND BLOCKED [Standard Entry]: Fails PassesUserRules.");
+         return -1;
+        }
+
+      if(!PassesEMAFilter(direction))
+        {
+         Print("SAFEORDERSEND BLOCKED [Standard Entry]: Fails PassesEMAFilter for direction ", GetOrderTypeText(direction));
+         return -1;
+        }
+     }
+
+   // 30-Minute Momentum Deferred Queue (if enabled)
+   if(Enable30MinuteMomentumFilter && Enable30MinuteMomentumForAllOrders && !isVShapeOverride && !isRecoveryOrder)
      {
       if(!PassesDeferredMomentum(orderType))
          return QueueDeferredOrder(symbol,orderType,lots,price,slippage,stopLoss,takeProfit,comment,magic,arrowColor);
@@ -4269,21 +4366,20 @@ int SafeOrderSend(string symbol,int orderType,double lots,double price,int slipp
 
    lots = NormalizeLots(lots);
 
-// ... [Rest of your standard execution logic below remains exactly the same] ...
-
    double sendPrice=price;
    if(orderType==OP_BUY)
       sendPrice=Ask;
-   else
-      if(orderType==OP_SELL)
-         sendPrice=Bid;
+   else if(orderType==OP_SELL)
+      sendPrice=Bid;
    sendPrice=NormalizeDouble(sendPrice,Digits);
+
    if(takeProfit<=0.0 && DefaultOrderProfitUSD>0.0)
      {
       double defaultTP=CalculateDefaultProfitTargetPrice(orderType,sendPrice,lots,DefaultOrderProfitUSD);
       if(defaultTP>0.0)
          takeProfit=defaultTP;
      }
+
    double safeSL=stopLoss;
    if(safeSL>0.0 && !PrepareStopLossForOrder(orderType,sendPrice,safeSL))
      {
@@ -4291,19 +4387,25 @@ int SafeOrderSend(string symbol,int orderType,double lots,double price,int slipp
       MarkServerError(130,"OrderSend/unsafe-SL");
       return -1;
      }
+
    datetime requestTime=TimeCurrent();
    if(!CanSendTradeRequest("OrderSend",comment))
       return -1;
+
    ResetLastError();
    uint tradeStartMs=GetTickCount();
    int ticket=OrderSend(symbol,orderType,lots,sendPrice,slippage,safeSL,takeProfit,comment,magic,0,arrowColor);
    LogTradeTiming("OrderSend",tradeStartMs);
+
    if(ticket>0)
      {
       InvalidateTotalEAOrdersCache();
       RegisterPostOrderSLTPVerification(ticket,safeSL,takeProfit);
+      if(isMarketOrder)
+         RegisterNewCandleOrder(ticket);
       return ticket;
      }
+
    int err=GetLastError();
    int existing=FindExistingOrderForRequest(orderType,lots,sendPrice,comment,requestTime);
    if(existing>0)
@@ -4311,8 +4413,11 @@ int SafeOrderSend(string symbol,int orderType,double lots,double price,int slipp
       if(OrderSelect(existing,SELECT_BY_TICKET,MODE_TRADES))
          RegisterPostOrderSLTPVerification(existing,safeSL,takeProfit);
       ServerRecoveryPending=false;
+      if(isMarketOrder)
+         RegisterNewCandleOrder(existing);
       return existing;
      }
+
    BlockTradeErrorUntilNextTick(key);
    MarkServerError(err,"OrderSend");
    return -1;
@@ -5713,34 +5818,55 @@ void ModifyOpenOrdersToSecureProfitOld()
 //       // LadderHaltStartTime = TimeCurrent();
 //      }
 //   }
+
+
+// Feature 4: Volatility-Adaptive Step (ATR Dynamic Rungs) Settings
+bool   EnableATRDynamicRungs           = true;  // Feature 4: Dynamically expand rungs during high volatility
+int    ATRDynamicPeriod                = 14;    // ATR Period on M5
+double ATRDynamicMultiplier            = 0.5;   // Multiplier applied to ATR (dynamicStep = MathMax(20.0, ATR * 0.5))
+
 //+------------------------------------------------------------------+
-//|                                                                  |
+//| GetDynamicOrderGap: Adaptive order gap based on trend alignment, |
+//| floating drawdown scaling ($10 step), and M5 ATR volatility.     |
 //+------------------------------------------------------------------+
 double GetDynamicOrderGap(int orderType)
   {
    int currentSSL = GlobalSSLDirection;
    int patternDirection = GetCachedPatternDirection();
-   int multiplier = 1;
    double pl = GetOpenPL(orderType);
 
-// if(pl < 0)
-//   {
-//    multiplier = 1 + (int)MathFloor(MathAbs(pl) / 3.0);
-//   }
+   // 1. Drawdown Scaling: Expand gap progressively per $10 drawdown (scaled by balance multiplier)
+   double lossStepUSD = 10.0 * (balancelomultipler > 0 ? balancelomultipler : 1.0);
+   int multiplier = 1;
+   if(pl < 0.0)
+     {
+      // $10 loss -> 2x gap, $20 loss -> 3x gap, $30 loss -> 4x gap (max 4x cap)
+      multiplier = 1 + (int)MathMin(3, MathFloor(MathAbs(pl) / lossStepUSD));
+     }
 
-// if(IsEmaWEAKDistanceReduced50PercentFromPeak(orderType) && multiplier<3)
-//   {
-//    multiplier=3;
-//   }
+   // 2. Volatility Adaptation: Ensure baseline gap respects M5 ATR
+   double baseMatched   = MinimumSameOrderGapRawMatched;   // default ~30.0
+   double baseUnmatched = MinimumSameOrderGapRawUnmatched; // default ~10.0
 
+   if(EnableATRDynamicRungs)
+     {
+      double atrHalf = iATR(Symbol(), PERIOD_M5, 14, 0) * 0.5;
+      baseMatched = MathMax(baseMatched, atrHalf);
+     }
 
-   if((orderType == OP_BUY && currentSSL == 1) || (orderType == OP_SELL && currentSSL == -1))
-      return MinimumSameOrderGapRawMatched*multiplier;
+   // 3. Directional Alignment Check
+   bool isSSLMatched     = (orderType == OP_BUY && currentSSL == 1) || (orderType == OP_SELL && currentSSL == -1);
+   bool isPatternMatched = (orderType == OP_BUY && patternDirection == 1) || (orderType == OP_SELL && patternDirection == -1);
 
-   if((orderType == OP_BUY && patternDirection == 1) || (orderType == OP_SELL && patternDirection == -1))
-      return MinimumSameOrderGapRawMatched*multiplier;
+   if(isSSLMatched || isPatternMatched)
+     {
+      // Trend-aligned order: clean spaced entry
+      return NormalizeDouble(baseMatched * multiplier, Digits);
+     }
 
-   return MinimumSameOrderGapRawUnmatched;
+   // 4. Counter-trend / Unmatched: MUST also scale with multiplier (demand at least 75% of matched spacing)
+   double unmatchedGap = MathMax(baseUnmatched, baseMatched * 0.75) * multiplier;
+   return NormalizeDouble(unmatchedGap, Digits);
   }
 
 //+------------------------------------------------------------------+
@@ -5755,7 +5881,7 @@ double profitAfterFlip = 0;
 //+------------------------------------------------------------------+
 void ChangeLots(double OpenPL, string reason, int orderType, int stoplevelStep)
   {
-   double MaxRecoveryLot =0.05;//0.10;// 0.05;
+   double MaxRecoveryLot =0.02;//0.05;//0.10;// 0.05;
    double oppositeLots = GetOppositeOrdersLots(orderType);
    bool isSSLSignal = (reason == "SSL Long" || reason == "SSL Short");
    bool isSSLProfitReEntry = (reason == "SSL Profit ReEntry Buy Stop" || reason == "SSL Profit ReEntry Sell Stop");
@@ -5971,12 +6097,12 @@ void ChangeLots(double OpenPL, string reason, int orderType, int stoplevelStep)
 
 
 //   }
-   if(GlobalSSLDirection != EMADirection)
-     {
-      Lots = 0.02;
+if(GlobalSSLDirection != EMADirection)
+  {
+   Lots = 0.01;
 
 
-     }
+  }
 
 
 
@@ -5986,14 +6112,23 @@ void ChangeLots(double OpenPL, string reason, int orderType, int stoplevelStep)
 
 
 //   }
-
-   if(IsEmaWEAKDistanceReduced50PercentFromPeak(orderType))//weak
+ if(IsEmaWEAKDistanceReduced50PercentFromPeak(orderType)  )//weak
      {
-      Lots = 0.03;
+      Lots = 0.01;
+
+     }
+   if(IsEmaWEAKDistanceReduced50PercentFromPeak(orderType) &&  GlobalSSLDirection != EMADirection)//weak
+     {
+      Lots = 0.01;
+
+     }
+      if(IsEmaWEAKDistanceReduced50PercentFromPeak(orderType) &&  GlobalSSLDirection == EMADirection)//weak
+     {
+      Lots = 0.01;
 
      }
 
-   // double emaDistance = GetDistanceToEMAPrice(orderType, true);
+// double emaDistance = GetDistanceToEMAPrice(orderType, true);
 
 
 // if(emaDistance < 50  )
@@ -6055,11 +6190,11 @@ void ChangeLots(double OpenPL, string reason, int orderType, int stoplevelStep)
 
 // Lots=Lots*2;
 
-   if(Lots==0.02)
-     {
-      Lots = 0.04;
+// if(Lots==0.02)
+//   {
+//    Lots = 0.04;
 
-     }
+//   }
 
    double buyLots  = GetTotalLots(OP_BUY);
    double sellLots = GetTotalLots(OP_SELL);
@@ -6067,17 +6202,17 @@ void ChangeLots(double OpenPL, string reason, int orderType, int stoplevelStep)
    int requestedDirection = (orderType == OP_BUY || orderType == OP_BUYSTOP || orderType == OP_BUYLIMIT) ? 1 : -1;
 
 
-// if(requestedDirection==1 && GetOpenPL(OP_BUY)<=-5)
-//   {
-//    Lots = 0.01;
+ if(requestedDirection==1 && GetOpenPL(OP_BUY)<=-5)
+    {
+     Lots = 0.01;
 
-//   }
-// if(requestedDirection==-1 && GetOpenPL(OP_SELL)<=-5)
+    }
+  if(requestedDirection==-1 && GetOpenPL(OP_SELL)<=-5)
 
-//   {
-//    Lots = 0.01;
+    {
+     Lots = 0.01;
 
-//   }
+    }
 
 
 
@@ -6317,6 +6452,13 @@ void CheckRecoveryOrders()
       if(adverseDistance < RecoveryMinDistanceRaw*100*parentLots)
          continue;
 
+      // Minimum $50 raw gap between two recovery orders
+      if(!HasMinimumRecoveryOrderGap(parentType, newExecutionPrice, MinGapBetweenRecoveryOrdersRaw))
+        {
+         Print("SKIPPING RECOVERY: Another recovery order exists within $", DoubleToString(MinGapBetweenRecoveryOrdersRaw, 2), " raw gap.");
+         continue;
+        }
+
       // Direction confirmation in the trade direction
       bool createRecovery = false;
       if(parentType == OP_BUY && (GlobalSSLDirection == 1 && EMADirection == 1))
@@ -6371,8 +6513,14 @@ void CheckRecoveryOrders()
       break;
      }
   }
-void RegisterNewCandleOrder()
+int lastRegisteredCandleTicket = -1;
+void RegisterNewCandleOrder(int ticket = -1)
   {
+   if(ticket > 0 && ticket == lastRegisteredCandleTicket)
+      return;
+   if(ticket > 0)
+      lastRegisteredCandleTicket = ticket;
+
    if(Time[0] != LastOrderCandleTime)
      {
       LastOrderCandleTime = Time[0];
@@ -6384,6 +6532,12 @@ void RegisterNewCandleOrder()
    else
       OrderCreatedThisCandle = false;
    LastOrderCandleTime = Time[0];
+   LastCandleOrderExactTime = TimeCurrent();
+   LastCandleOrderTickMs = GetTickCount();
+   Print("CANDLE ORDER REGISTERED: #", OrdersCreatedThisCandle, "/", MaxOrdersPerCandle, 
+         (ticket > 0 ? (" (Ticket #" + IntegerToString(ticket) + ")") : ""),
+         " at ", TimeToStr(TimeCurrent(), TIME_SECONDS), 
+         " | MinIntervalNext=", MinSecondsBetweenOrdersInCandle, "s");
   }
 
 //+------------------------------------------------------------------+
@@ -7251,6 +7405,9 @@ void QueueEquityResetReEntry()
    EquityResetReEntryPending = true;
    OrderCreatedThisCandle = false;
    LastOrderCandleTime = 0;
+   OrdersCreatedThisCandle = 0;
+   LastCandleOrderExactTime = 0;
+   LastCandleOrderTickMs = 0;
   }
 
 //+------------------------------------------------------------------+
@@ -7273,6 +7430,9 @@ void ProcessEquityResetReEntry(DailyProtectionState &state)
      {
       OrderCreatedThisCandle = false;
       LastOrderCandleTime = 0;
+      OrdersCreatedThisCandle = 0;
+      LastCandleOrderExactTime = 0;
+      LastCandleOrderTickMs = 0;
       DrawLiveSignal(0, true);
       int beforeOrders = GetTotalEAOrders();
       OpenBuy();
@@ -7288,6 +7448,9 @@ void ProcessEquityResetReEntry(DailyProtectionState &state)
      {
       OrderCreatedThisCandle = false;
       LastOrderCandleTime = 0;
+      OrdersCreatedThisCandle = 0;
+      LastCandleOrderExactTime = 0;
+      LastCandleOrderTickMs = 0;
       DrawLiveSignal(0, false);
       int beforeOrders = GetTotalEAOrders();
       OpenSell();
@@ -7352,12 +7515,53 @@ void DeleteOppositePendingOrders(int newSignalType)
 
       int orderType = OrderType();
 
-      // FIXED: EMA Direction must be opposite (-1 for OP_BUY, 1 for OP_SELL)
-      bool deleteOrder = ((newSignalType == OP_BUY && orderType == OP_SELLSTOP && EMADirection == -1) ||
-                          (newSignalType == OP_SELL && orderType == OP_BUYSTOP && EMADirection == 1));
+      bool deleteOrder = ((newSignalType == OP_BUY && orderType == OP_SELLSTOP) ||
+                          (newSignalType == OP_SELL && orderType == OP_BUYSTOP));
 
       if(deleteOrder)
          SafeOrderDelete(OrderTicket(), clrYellow);
+     }
+  }
+
+//+------------------------------------------------------------------+
+//| Delete conflicting pending ReEntry stop orders opposing live SSL |
+//+------------------------------------------------------------------+
+void DeleteOppositePendingReEntryOrders(int liveSSL)
+  {
+   if(liveSSL == 0)
+      return;
+   for(int i = OrdersTotal() - 1; i >= 0; i--)
+     {
+      if(!OrderSelect(i, SELECT_BY_POS, MODE_TRADES))
+         continue;
+      if(OrderSymbol() != Symbol() || OrderMagicNumber() != MagicNumber)
+         continue;
+      int type = OrderType();
+      if(type != OP_BUYSTOP && type != OP_SELLSTOP)
+         continue;
+      if(StringFind(OrderComment(), "SSL Profit ReEntry", 0) < 0)
+         continue;
+
+      // Delete pending ReEntry stop if EMA weak distance condition is true
+      if(IsEmaWEAKDistanceReduced50PercentFromPeak(type == OP_BUYSTOP ? OP_BUY : OP_SELL))
+        {
+         Print("DELETING PENDING REENTRY STOP #", OrderTicket(), " because IsEmaWEAKDistanceReduced50PercentFromPeak() is TRUE.");
+         SafeOrderDelete(OrderTicket(), clrYellow);
+         continue;
+        }
+
+      // If SSL is BUY (+1), delete any pending Sell ReEntry Stop
+      if(liveSSL > 0 && type == OP_SELLSTOP)
+        {
+         Print("DELETING CONFLICTING SELL REENTRY STOP #", OrderTicket(), " because SSL Direction is BUY (+1).");
+         SafeOrderDelete(OrderTicket(), clrYellow);
+        }
+      // If SSL is SELL (-1), delete any pending Buy ReEntry Stop
+      else if(liveSSL < 0 && type == OP_BUYSTOP)
+        {
+         Print("DELETING CONFLICTING BUY REENTRY STOP #", OrderTicket(), " because SSL Direction is SELL (-1).");
+         SafeOrderDelete(OrderTicket(), clrYellow);
+        }
      }
   }
 //+------------------------------------------------------------------+
@@ -7802,21 +8006,43 @@ void CheckForProfitableClosedOrder(DailyProtectionState &state)
      }
    if(EnableProfitReEntryStop && !IsDailyTradingStopped(state))
      {
-      int currentSSL = GlobalSSLDirection;
-      int closedDirection = (latestType == OP_BUY) ? 1 : -1;
+      // RULE 0: Block ReEntry if EMA Weak Distance is reduced 50% from peak
+      if(IsEmaWEAKDistanceReduced50PercentFromPeak(latestType))
+        {
+         Print("BLOCK REENTRY: IsEmaWEAKDistanceReduced50PercentFromPeak() is TRUE (Weak pullback from peak). Blocking ReEntry for ticket #", latestTicket);
+         return;
+        }
 
+      int currentSSL = GetCurrentSSLDirection();
+      if(currentSSL == 0)
+         currentSSL = GlobalSSLDirection;
+
+      // RULE 1: Block Sell ReEntry when SSL Direction is BUY (+1)
+      if(latestType == OP_SELL && currentSSL > 0)
+        {
+         Print("BLOCK SELL RE-ENTRY: Sell order #", latestTicket, " closed with profit ($", DoubleToString(latestProfit, 2), "), but SSL Direction is BUY (+1). Blocking Sell ReEntry.");
+         return;
+        }
+
+      // RULE 2: Block Buy ReEntry when SSL Direction is SELL (-1)
+      if(latestType == OP_BUY && currentSSL < 0)
+        {
+         Print("BLOCK BUY RE-ENTRY: Buy order #", latestTicket, " closed with profit ($", DoubleToString(latestProfit, 2), "), but SSL Direction is SELL (-1). Blocking Buy ReEntry.");
+         return;
+        }
+
+      int closedDirection = (latestType == OP_BUY) ? 1 : -1;
       if(currentSSL != 0 && currentSSL != closedDirection)
+        {
+         Print("BLOCK REENTRY: SSL Direction (", currentSSL, ") does not match closed order direction (", closedDirection, ").");
+         return;
+        }
+
+      if(!EnableReEntryNOnMatchingSignal && currentSSL != EMADirection)
          return;
 
-      // if(GlobalSSLDirection != EMADirection && !IsEmaWEAKDistanceReduced50PercentFromPeak())
-      // return ;
-
-      if(!EnableReEntryNOnMatchingSignal && GlobalSSLDirection != EMADirection)
-      return ;
-
-
       int orderDurationSeconds = (int)(latestCloseTime - latestOpenTime);
-      if(batchProfit >=-1)// 0.0) //|| orderDurationSeconds < 60 * 30 * 1)
+      if(batchProfit >= -1)
         {
          CreateProfitReEntryStop(latestType, latestClosePrice, state, (batchProfit < 0.0));
         }
@@ -7858,6 +8084,32 @@ void CreateProfitReEntryStop(int closedOrderType, double closedPrice, DailyProte
 // ADD THIS LINE: Block re-entry orders if EMA Ladder is halted
    if(TradingHaltedUntilNextFlip)
       return;
+
+   // Block ReEntry if EMA Weak Distance is reduced 50% from peak
+   if(IsEmaWEAKDistanceReduced50PercentFromPeak(closedOrderType))
+     {
+      Print("BLOCK REENTRY [CreateProfitReEntryStop]: IsEmaWEAKDistanceReduced50PercentFromPeak() is TRUE. Blocking ReEntry Stop.");
+      return;
+     }
+
+   // SSL Direction validation for ReEntry orders
+   int liveSSL = GetCurrentSSLDirection();
+   if(liveSSL == 0)
+      liveSSL = GlobalSSLDirection;
+
+   // Block Sell ReEntry when SSL Direction is BUY (+1)
+   if(closedOrderType == OP_SELL && liveSSL > 0)
+     {
+      Print("BLOCK REENTRY [CreateProfitReEntryStop]: Sell order closed with profit, but SSL Direction is BUY (+1). Blocking Sell ReEntry Stop.");
+      return;
+     }
+
+   // Block Buy ReEntry when SSL Direction is SELL (-1)
+   if(closedOrderType == OP_BUY && liveSSL < 0)
+     {
+      Print("BLOCK REENTRY [CreateProfitReEntryStop]: Buy order closed with profit, but SSL Direction is SELL (-1). Blocking Buy ReEntry Stop.");
+      return;
+     }
 
    int pendingType = (closedOrderType == OP_BUY) ? OP_BUYSTOP : OP_SELLSTOP;
    if(InpEnableCustomRules && !PassesUserRules(pendingType))
@@ -7923,8 +8175,15 @@ void CreateProfitReEntryStop(int closedOrderType, double closedPrice, DailyProte
 //+------------------------------------------------------------------+
 //|                                                                  |
 //+------------------------------------------------------------------+
+int CachedTotalBuyOrders = -1;
+int CachedTotalBuyOrdersTick = -1;
+int CachedTotalSellOrders = -1;
+int CachedTotalSellOrdersTick = -1;
+
 int GetTotalBuyOrders()
   {
+   if(CachedTotalBuyOrdersTick == CurrentTickSequence && CachedTotalBuyOrders >= 0)
+      return CachedTotalBuyOrders;
    int count = 0;
    for(int i = OrdersTotal() - 1; i >= 0; i--)
      {
@@ -7933,6 +8192,8 @@ int GetTotalBuyOrders()
       if(OrderSymbol() == Symbol() && OrderMagicNumber() == MagicNumber && OrderType() == OP_BUY)
          count++;
      }
+   CachedTotalBuyOrders = count;
+   CachedTotalBuyOrdersTick = CurrentTickSequence;
    return count;
   }
 
@@ -7941,6 +8202,8 @@ int GetTotalBuyOrders()
 //+------------------------------------------------------------------+
 int GetTotalSellOrders()
   {
+   if(CachedTotalSellOrdersTick == CurrentTickSequence && CachedTotalSellOrders >= 0)
+      return CachedTotalSellOrders;
    int count = 0;
    for(int i = OrdersTotal() - 1; i >= 0; i--)
      {
@@ -7949,6 +8212,8 @@ int GetTotalSellOrders()
       if(OrderSymbol() == Symbol() && OrderMagicNumber() == MagicNumber && OrderType() == OP_SELL)
          count++;
      }
+   CachedTotalSellOrders = count;
+   CachedTotalSellOrdersTick = CurrentTickSequence;
    return count;
   }
 
@@ -7975,7 +8240,15 @@ int GetTotalEAOrders()
    return count;
   }
 
-void InvalidateTotalEAOrdersCache() { CachedTotalEAOrders=-1; CachedTotalEAOrdersTick=-1; }
+void InvalidateTotalEAOrdersCache()
+  {
+   CachedTotalEAOrders = -1;
+   CachedTotalEAOrdersTick = -1;
+   CachedTotalBuyOrders = -1;
+   CachedTotalBuyOrdersTick = -1;
+   CachedTotalSellOrders = -1;
+   CachedTotalSellOrdersTick = -1;
+  }
 
 //+------------------------------------------------------------------+
 //|                                                                  |
@@ -8157,21 +8430,9 @@ void CloseAllOrders()
          continue;
 
       int orderType = OrderType();
-      bool res = false;
-
-      if(orderType == OP_BUY)
+      if(orderType == OP_BUY || orderType == OP_SELL)
         {
-         res = OrderClose(OrderTicket(), OrderLots(), Bid, 3, clrRed);
-        }
-      else
-         if(orderType == OP_SELL)
-           {
-            res = OrderClose(OrderTicket(), OrderLots(), Ask, 3, clrBlue);
-           }
-
-      if(!res)
-        {
-         Print("Failed to close order #" + IntegerToString(OrderTicket()) + ". Error: " + IntegerToString(GetLastError()));
+         SafeOrderClose(OrderTicket(), OrderLots(), orderType, Slippage, (orderType == OP_BUY ? clrRed : clrBlue));
         }
      }
   }
@@ -8819,36 +9080,40 @@ void ManagePartialClosesLoss()
       double orderLots     = OrderLots();
       int    currentTicket = OrderTicket();
 
-      // -------------------------------------------------------------
-      // Only these lot sizes are eligible for the requested mapping
-      // -------------------------------------------------------------
-      double lossTrigger = 0.0;
+       double lossTrigger = 0.0;
       double lotsToClose = 0.01*balancelomultipler;
 
       if(MathAbs(orderLots - (0.05*balancelomultipler)) < 0.000001)
         {
-         lossTrigger = -(5.00*balancelomultipler*partialLossMultipler);// 50/5=10
+         lossTrigger = -(5.00*balancelomultipler*partialLossMultipler);// 50/5=10(partialLossMultipler==10)
         }
       else
          if(MathAbs(orderLots - 0.04) < 0.000001)
            {
-            lossTrigger = -(4.80*balancelomultipler*(partialLossMultipler));// 48/4=12
+            // lossTrigger = -(4.80*balancelomultipler*(partialLossMultipler));// 48/4=12
+             lossTrigger = -(6*balancelomultipler*(partialLossMultipler));// 48/4=12
+
            }
          else
             if(MathAbs(orderLots - 0.03) < 0.000001)
               {
-               lossTrigger = -(4.50*balancelomultipler*partialLossMultipler);// 45/3=15
+               // lossTrigger = -(4.50*balancelomultipler*partialLossMultipler);// 45/3=15
+               lossTrigger = -(7*balancelomultipler*partialLossMultipler);// 45/3=15
+
               }
             else
                if(MathAbs(orderLots - 0.02) < 0.000001)
                  {
-                  lossTrigger = -(4.00*balancelomultipler*partialLossMultipler);// 40/2=20
+                  // lossTrigger = -(4.00*balancelomultipler*partialLossMultipler);// 40/2=20
+                  lossTrigger = -(8*balancelomultipler*partialLossMultipler);// 40/2=20
+
                  }
                else
                  {
                   // No partial-loss rule for other lot sizes
                   continue;
                  }
+
 
       // Must leave at least 0.01 lot after partial close
       double minLot = MarketInfo(Symbol(), MODE_MINLOT);
@@ -9520,6 +9785,34 @@ void ManageProfitLadder()
 //+------------------------------------------------------------------+
 void CalculateSSL(int shift, double &sslUp, double &sslDown, int &hlv)
   {
+   static int cachedSSLSequence = -1;
+   static double cachedSSLUp0 = 0.0, cachedSSLDown0 = 0.0; static int cachedSSLHlv0 = 0;
+   static double cachedSSLUp1 = 0.0, cachedSSLDown1 = 0.0; static int cachedSSLHlv1 = 0;
+   static bool cachedSSLShift0Valid = false;
+   static bool cachedSSLShift1Valid = false;
+
+   if(cachedSSLSequence != CurrentTickSequence)
+     {
+      cachedSSLSequence = CurrentTickSequence;
+      cachedSSLShift0Valid = false;
+      cachedSSLShift1Valid = false;
+     }
+
+   if(shift == 0 && cachedSSLShift0Valid)
+     {
+      sslUp = cachedSSLUp0;
+      sslDown = cachedSSLDown0;
+      hlv = cachedSSLHlv0;
+      return;
+     }
+   if(shift == 1 && cachedSSLShift1Valid)
+     {
+      sslUp = cachedSSLUp1;
+      sslDown = cachedSSLDown1;
+      hlv = cachedSSLHlv1;
+      return;
+     }
+
    int oldest = MathMin(50, Bars - SSLPeriod - 2);
    if(oldest < shift)
       oldest = shift;
@@ -9539,6 +9832,20 @@ void CalculateSSL(int shift, double &sslUp, double &sslDown, int &hlv)
          hlv = currentHlv;
          sslUp = (currentHlv < 0) ? smaLow : smaHigh;
          sslDown = (currentHlv < 0) ? smaHigh : smaLow;
+         if(shift == 0)
+           {
+            cachedSSLUp0 = sslUp;
+            cachedSSLDown0 = sslDown;
+            cachedSSLHlv0 = hlv;
+            cachedSSLShift0Valid = true;
+           }
+         else if(shift == 1)
+           {
+            cachedSSLUp1 = sslUp;
+            cachedSSLDown1 = sslDown;
+            cachedSSLHlv1 = hlv;
+            cachedSSLShift1Valid = true;
+           }
          return;
         }
      }
@@ -9557,6 +9864,11 @@ int GetCurrentSSLDirection()
    double up, down;
    int hlv;
    CalculateSSL(0, up, down, hlv);
+   if(up > down)
+      return 1;
+   if(up < down)
+      return -1;
+   CalculateSSL(1, up, down, hlv);
    if(up > down)
       return 1;
    if(up < down)
@@ -9810,7 +10122,24 @@ void CreateDashboardPanel(string name, int x, int y, int width, int height, colo
 //+------------------------------------------------------------------+
 void DrawMomentumMarkers()
   {
-   int lookback = 500; // Number of historical bars to scan
+   static datetime lastMomentumBar = 0;
+   bool isNewBar = (Time[0] != lastMomentumBar);
+
+   int lookback = 1; // On intra-candle ticks, only evaluate the latest closed bar (i = 1)
+   if(isNewBar)
+     {
+      lastMomentumBar = Time[0];
+      static bool initialScanDone = false;
+      if(!initialScanDone)
+        {
+         lookback = MathMin(100, Bars - 1); // Initial scan once on startup
+         initialScanDone = true;
+        }
+      else
+        {
+         lookback = 3; // On bar change, scan the last 3 bars
+        }
+     }
    if(lookback > Bars - 1)
       lookback = Bars - 1;
 
