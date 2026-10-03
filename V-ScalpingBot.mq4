@@ -30,7 +30,7 @@
 //https://github.com/devcrunch2025/exnessStratagiesExperts/commit/f2b01e8fb84e16294381ff54065e07b98df282ec
 
 // Previous: V10010  03-10-2026 18.25 Partial Close Column in Live Position Monitor
-string glbVersion = "V10013  03-10-2026 20.40 Basket $10 Fixed Equity Step Lock Function";
+string glbVersion = "V10014 Stoploss $5  03-10-2026 20.40 Basket $10 Fixed Equity Step Lock Function";
 
 
 double DailyEquityStopUSD  =100*100;//50;//20*2.5;//10;//20;// 10;//30.0; close all orders at $50Xmultipler
@@ -4465,6 +4465,10 @@ int SafeOrderSend(string symbol,int orderType,double lots,double price,int slipp
          return -1;
         }
      }
+
+
+   //  if(EMADirection!=GlobalSSLDirection)
+   //  return -1;
 
 // =========================================================================
 // GATE 4: RE-ENTRY ORDER SPECIFIC GATEWAY
