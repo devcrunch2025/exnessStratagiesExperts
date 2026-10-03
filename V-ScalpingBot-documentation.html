@@ -1,4 +1,4 @@
-<!DOCTYPE html>
+﻿<!DOCTYPE html>
 <html lang="en">
 <head>
   <meta charset="UTF-8">
@@ -889,7 +889,7 @@
       <div class="header-pills">
         <span class="pill pill-blue">BTCUSD • M1 Scalper</span>
         <span class="pill pill-purple">Exness Raw / Zero</span>
-        <span class="pill pill-green">V10008 (03-10-2026 15.30)</span>
+        <span class="pill pill-green">V10012 (03-10-2026 20.40)</span>
       </div>
     </div>
 
@@ -1491,6 +1491,20 @@ sequenceDiagram
                     <td>Suppresses recovery orders &amp; purges pending re-entry stops</td>
                     <td>Protects margin during exhausted trend corrections</td>
                   </tr>
+                  <tr>
+                    <td><code>Step 942</code><br><small style="color: var(--accent-amber);">19:50</small></td>
+                    <td><strong>Basket 10% Equity Step Lock Function (Compounding Fixed Steps)</strong><br><small style="color: var(--text-dim);">Locks basket profit by modifying all open orders' StopLoss to live price on every 10% equity rise</small></td>
+                    <td><code>ManageBasket10PercentLockEquity()</code><br><code>ResetBasket10PercentLock()</code><br><code>glbVersion = "V10011"</code></td>
+                    <td>Implemented compounding basket equity locking mechanism: (1) Whenever account equity rises by 10% step-by-step from previous baseline reset ($100 &rarr; $110 &rarr; $121 &rarr; $133.10...), immediately modifies ALL open basket orders' SL to current live market price (Bid for BUY, Ask for SELL adjusted by broker minimum stop level), regardless of whether individual positions are in profit or loss; (2) Strictly compares against the baseline set when basket resets/first order opens, never reverting to starting equity; (3) Added Section 3 right-dashboard live monitor displaying current equity vs 10% target, step count, and trigger state; (4) Clean MetaEditor 4 build (0 errors, 20 warnings).</td>
+                    <td><span class="badge badge-green">VERIFIED &amp; DEPLOYED</span></td>
+                  </tr>
+                  <tr>
+                    <td><code>Step 943</code><br><small style="color: var(--accent-amber);">20:40</small></td>
+                    <td><strong>Basket $10 Fixed Equity Step Lock (Linear $10 Increments)</strong><br><small style="color: var(--text-dim);">Changed from 10% compounding to $10 fixed step up: $100 &rarr; $110 &rarr; $120 &rarr; $130...</small></td>
+                    <td><code>ManageBasket10USDLockEquity()</code><br><code>ResetBasket10USDLock()</code><br><code>glbVersion = "V10012"</code></td>
+                    <td>Converted basket equity locking from 10% compounding to fixed $10 USD increments: (1) Baseline is captured when basket resets or first position opens ($100 baseline); (2) Successive targets advance linearly by fixed +$10 ($100 &rarr; $110 &rarr; $120 &rarr; $130...); (3) On each $10 milestone reached, modifies ALL open basket positions' SL to current live market price (Bid for BUY, Ask for SELL via <code>GetRequiredStopDistance()</code>); (4) Maintains full backwards-compatible forwarding for <code>ResetBasket10PercentLock()</code> and <code>ManageBasket10PercentLockEquity()</code>; (5) Right-side Section 3 dashboard updated to <code>$10 LOCK : ...</code>; (6) Clean MetaEditor 4 build (0 errors, 20 warnings).</td>
+                    <td><span class="badge badge-green">VERIFIED &amp; DEPLOYED</span></td>
+                  </tr>
                 </tbody>
               </table>
             </div>
@@ -1800,6 +1814,20 @@ flowchart TD
                     <td><strong style="color: var(--accent-cyan);">Active Guard</strong></td>
                     <td>Exhaustion pullback logic: blocks all re-entry stop orders and recovery orders when EMA distance retraces &gt; 50% from cycle peak.</td>
                   </tr>
+                  <tr>
+                    <td><code>Step 942</code><br><small style="color: var(--accent-amber);">19:50</small></td>
+                    <td><strong>Basket 10% Equity Step Lock Function (Compounding Fixed Steps)</strong><br><small style="color: var(--text-dim);">Locks basket profit by modifying all open orders' StopLoss to live price on every 10% equity rise</small></td>
+                    <td><code>ManageBasket10PercentLockEquity()</code><br><code>ResetBasket10PercentLock()</code><br><code>glbVersion = "V10011"</code></td>
+                    <td>Implemented compounding basket equity locking mechanism: (1) Whenever account equity rises by 10% step-by-step from previous baseline reset ($100 &rarr; $110 &rarr; $121 &rarr; $133.10...), immediately modifies ALL open basket orders' SL to current live market price (Bid for BUY, Ask for SELL adjusted by broker minimum stop level), regardless of whether individual positions are in profit or loss; (2) Strictly compares against the baseline set when basket resets/first order opens, never reverting to starting equity; (3) Added Section 3 right-dashboard live monitor displaying current equity vs 10% target, step count, and trigger state; (4) Clean MetaEditor 4 build (0 errors, 20 warnings).</td>
+                    <td><span class="badge badge-green">VERIFIED &amp; DEPLOYED</span></td>
+                  </tr>
+                  <tr>
+                    <td><code>Step 943</code><br><small style="color: var(--accent-amber);">20:40</small></td>
+                    <td><strong>Basket $10 Fixed Equity Step Lock (Linear $10 Increments)</strong><br><small style="color: var(--text-dim);">Changed from 10% compounding to $10 fixed step up: $100 &rarr; $110 &rarr; $120 &rarr; $130...</small></td>
+                    <td><code>ManageBasket10USDLockEquity()</code><br><code>ResetBasket10USDLock()</code><br><code>glbVersion = "V10012"</code></td>
+                    <td>Converted basket equity locking from 10% compounding to fixed $10 USD increments: (1) Baseline is captured when basket resets or first position opens ($100 baseline); (2) Successive targets advance linearly by fixed +$10 ($100 &rarr; $110 &rarr; $120 &rarr; $130...); (3) On each $10 milestone reached, modifies ALL open basket positions' SL to current live market price (Bid for BUY, Ask for SELL via <code>GetRequiredStopDistance()</code>); (4) Maintains full backwards-compatible forwarding for <code>ResetBasket10PercentLock()</code> and <code>ManageBasket10PercentLockEquity()</code>; (5) Right-side Section 3 dashboard updated to <code>$10 LOCK : ...</code>; (6) Clean MetaEditor 4 build (0 errors, 20 warnings).</td>
+                    <td><span class="badge badge-green">VERIFIED &amp; DEPLOYED</span></td>
+                  </tr>
                 </tbody>
               </table>
             </div>
@@ -1832,18 +1860,18 @@ flowchart TD
             <div class="grid-4" style="margin-bottom: 24px;">
               <div class="stat-card">
                 <div class="stat-label">Total User Directives</div>
-                <div class="stat-value" style="color: var(--accent-green);">21 / 21</div>
+                <div class="stat-value" style="color: var(--accent-green);">25 / 25</div>
                 <div class="stat-desc">100% Implemented &amp; Audited</div>
               </div>
               <div class="stat-card">
                 <div class="stat-label">Compiler Verification</div>
                 <div class="stat-value" style="color: var(--accent-blue);">0 Errors</div>
-                <div class="stat-desc">MetaEditor 4 • 116ms Clean Build</div>
+                <div class="stat-desc">MetaEditor 4 • 172ms Clean Build</div>
               </div>
               <div class="stat-card">
                 <div class="stat-label">Active Production Build</div>
-                <div class="stat-value" style="color: var(--accent-purple);">V10008</div>
-                <div class="stat-desc">03-10-2026 15.30 Deployed</div>
+                <div class="stat-value" style="color: var(--accent-purple);">V10012</div>
+                <div class="stat-desc">03-10-2026 20.40 Deployed</div>
               </div>
               <div class="stat-card">
                 <div class="stat-label">Centralized Firewall</div>
@@ -2012,6 +2040,34 @@ flowchart TD
                     <td>Replaced legacy multi-panel ladder clutter with a high-density, unified 505px dashboard eliminating off-screen vertical clipping: (1) <strong>Order Creation Engine:</strong> Live SSL-30 signal, EMA-30 angle &amp; gap rule (&lt;3&deg; halved to $25 vs &ge;3&deg; full $50), 50% weak pullback trigger, live Buy/Sell order gaps with nearest order proximity, spread gate, candle quota &amp; anti-spam timer. (2) <strong>Re-Entry &amp; Recovery Engine:</strong> Re-entry stop status, 1st recovery eligibility, 2nd recovery adverse gap progress, and recovery basket combined P/L. (3) <strong>Order Closing Engine:</strong> Flip basket TP progress, daily hard equity SL buffer, single-order $1 profit lock count, and opposite signal close rule. (4) <strong>Momentum &amp; Bid/Ask:</strong> Live score, dynamic lot size, bid/ask, and live spread. Advanced build to <code>V10008</code>.</td>
                     <td><span class="badge badge-green">VERIFIED &amp; DEPLOYED</span></td>
                   </tr>
+                  <tr>
+                    <td><code>Step 940</code><br><small style="color: var(--accent-amber);">17:00</small></td>
+                    <td><strong>Real-Time Partial Loss Close Observability &amp; Live Price Gap Tracking</strong><br><small style="color: var(--text-dim);">Live tracking of partial 0.01 lot shave eligibility and adverse price gap</small></td>
+                    <td><code>UpdateDashboard()</code><br><code>ManagePartialClosesLoss()</code><br><code>glbVersion = "V10009"</code></td>
+                    <td>Added real-time partial close status monitor into Section 3 of the right-side dashboard. Scans all open orders with lots &gt; 0.01 (regular and recovery orders) and displays the most critical/near order: (1) Ticket, lot size, direction, and live floating P/L vs loss trigger threshold; (2) Live adverse price difference: tracks progress against the $100 raw price gap from prior partial cut or adverse points from open price for 1st cut; (3) Live trigger state dynamically badges <code>[READY: SHAVE 0.01 NOW]</code> when loss threshold and price gap are reached, or remaining distance to trigger <code>[Need $X.X move]</code>; (4) Enhanced <code>ManagePartialClosesLoss()</code> to evaluate all orders with Lots &gt; 0.01 across scaled lot multipliers. Clean MetaEditor 4 build (0 errors, 20 warnings).</td>
+                    <td><span class="badge badge-green">VERIFIED &amp; DEPLOYED</span></td>
+                  </tr>
+                  <tr>
+                    <td><code>Step 941</code><br><small style="color: var(--accent-amber);">18:25</small></td>
+                    <td><strong>Dedicated Partial Close Column in Left Live Order Monitor</strong><br><small style="color: var(--text-dim);">Real-time per-order live adverse price difference and shave trigger column</small></td>
+                    <td><code>UpdateLeftLiveOrdersDashboard()</code><br><code>glbVersion = "V10010"</code><br>Expanded 830px Monospace Layout</td>
+                    <td>Added a dedicated <code>PART-CLOSE (LIVE DIFF/TRIG)</code> column to each order row in the Left Live Position Monitor table between <code>P/L</code> and <code>COMMENT</code>: (1) Orders with lot &le; 0.01: badged as <code>- [0.01L]</code> (single minimum lot, exempt from partial cuts); (2) Orders with lot &gt; 0.01: tracks live adverse price difference from entry (1st cut) or from prior partial close price ($100 gap requirement); (3) Trigger state: displays remaining price move and loss distance (e.g. <code>Diff $7.6/$10.0 [Need -$12.4]</code>, <code>Diff $45.2/$100 [Need $54.8]</code>), or flashes bright lime <code>READY [Shave 0.01]</code> when conditions are met; (4) Expanded panel width to 830px with Consolas monospace alignment ensuring zero overlap with right dashboard or comments. Clean MetaEditor 4 build (0 errors, 20 warnings).</td>
+                    <td><span class="badge badge-green">VERIFIED &amp; DEPLOYED</span></td>
+                  </tr>
+                  <tr>
+                    <td><code>Step 942</code><br><small style="color: var(--accent-amber);">19:50</small></td>
+                    <td><strong>Basket 10% Equity Step Lock Function (Compounding Fixed Steps)</strong><br><small style="color: var(--text-dim);">Locks basket profit by modifying all open orders' StopLoss to live price on every 10% equity rise</small></td>
+                    <td><code>ManageBasket10PercentLockEquity()</code><br><code>ResetBasket10PercentLock()</code><br><code>glbVersion = "V10011"</code></td>
+                    <td>Implemented compounding basket equity locking mechanism: (1) Whenever account equity rises by 10% step-by-step from previous baseline reset ($100 &rarr; $110 &rarr; $121 &rarr; $133.10...), immediately modifies ALL open basket orders' SL to current live market price (Bid for BUY, Ask for SELL adjusted by broker minimum stop level), regardless of whether individual positions are in profit or loss; (2) Strictly compares against the baseline set when basket resets/first order opens, never reverting to starting equity; (3) Added Section 3 right-dashboard live monitor displaying current equity vs 10% target, step count, and trigger state; (4) Clean MetaEditor 4 build (0 errors, 20 warnings).</td>
+                    <td><span class="badge badge-green">VERIFIED &amp; DEPLOYED</span></td>
+                  </tr>
+                  <tr>
+                    <td><code>Step 943</code><br><small style="color: var(--accent-amber);">20:40</small></td>
+                    <td><strong>Basket $10 Fixed Equity Step Lock (Linear $10 Increments)</strong><br><small style="color: var(--text-dim);">Changed from 10% compounding to $10 fixed step up: $100 &rarr; $110 &rarr; $120 &rarr; $130...</small></td>
+                    <td><code>ManageBasket10USDLockEquity()</code><br><code>ResetBasket10USDLock()</code><br><code>glbVersion = "V10012"</code></td>
+                    <td>Converted basket equity locking from 10% compounding to fixed $10 USD increments: (1) Baseline is captured when basket resets or first position opens ($100 baseline); (2) Successive targets advance linearly by fixed +$10 ($100 &rarr; $110 &rarr; $120 &rarr; $130...); (3) On each $10 milestone reached, modifies ALL open basket positions' SL to current live market price (Bid for BUY, Ask for SELL via <code>GetRequiredStopDistance()</code>); (4) Maintains full backwards-compatible forwarding for <code>ResetBasket10PercentLock()</code> and <code>ManageBasket10PercentLockEquity()</code>; (5) Right-side Section 3 dashboard updated to <code>$10 LOCK : ...</code>; (6) Clean MetaEditor 4 build (0 errors, 20 warnings).</td>
+                    <td><span class="badge badge-green">VERIFIED &amp; DEPLOYED</span></td>
+                  </tr>
                 </tbody>
               </table>
             </div>
@@ -2130,10 +2186,44 @@ flowchart TD
                   <div class="step-num" style="background: rgba(16, 185, 129, 0.15); color: var(--accent-green); border-color: rgba(16, 185, 129, 0.3);">✓</div>
                   <div class="step-body" style="flex: 1;">
                     <h4>Order Creation &amp; Closing Real-Time Observability Dashboard <span class="badge badge-green">Active</span></h4>
-                    <p>Unified 505px right-side dashboard displaying all critical live gating factors: EMA 30 angle compression, 50% weak retracement state, live Buy/Sell order gaps with nearest distance, spread &amp; candle quota, recovery adverse gap tracking, flip basket TP progress, and daily hard equity stop loss buffer.</p>
+                    <p>Unified 525px right-side dashboard displaying all critical live gating factors: EMA 30 angle compression, 50% weak retracement state, live Buy/Sell order gaps with nearest distance, spread &amp; candle quota, recovery adverse gap tracking, flip basket TP progress, and daily hard equity stop loss buffer.</p>
                     <div id="chk10" style="display: none; margin-top: 10px; font-size: 12.5px; color: var(--accent-blue); background: rgba(0,0,0,0.3); padding: 8px 12px; border-radius: 6px;">
-                      <strong>Code Anchor:</strong> <code>UpdateDashboard()</code> (L10555-11090), <code>DASH_PREFIX</code> rendering, 4 clean functional sections, zero off-screen clipping &bull; Clean MetaEditor 4 build (0 errors, 20 warnings).
+                      <strong>Code Anchor:</strong> <code>UpdateDashboard()</code> (L10581-11158), <code>DASH_PREFIX</code> rendering, 4 clean functional sections, zero off-screen clipping &bull; Clean MetaEditor 4 build (0 errors, 20 warnings).
                     </div>
+                  </div>
+                </div>
+
+                <div class="step-item" style="cursor: pointer;" onclick="toggleAuditDetail('chk11')">
+                  <div class="step-num" style="background: rgba(16, 185, 129, 0.15); color: var(--accent-green); border-color: rgba(16, 185, 129, 0.3);">✓</div>
+                  <div class="step-body" style="flex: 1;">
+                    <h4>Partial Loss Close Live Price Gap &amp; Shave Eligibility <span class="badge badge-green">Active</span></h4>
+                    <p>Real-time Section 3 dashboard monitor identifying the nearest open order with lots &gt; 0.01 (regular and recovery orders). Tracks floating P/L against loss trigger thresholds (e.g. -$50 for 0.05, -$60 for 0.04, -$70 for 0.03, -$80 for 0.02) and measures live adverse price difference against the $100 raw gap requirement. Dynamically badges <code>[READY: SHAVE 0.01 NOW]</code> or remaining distance needed.</p>
+                    <div id="chk11" style="display: none; margin-top: 10px; font-size: 12.5px; color: var(--accent-blue); background: rgba(0,0,0,0.3); padding: 8px 12px; border-radius: 6px;">
+                      <strong>Code Anchor:</strong> <code>ManagePartialClosesLoss()</code> (L9321-9513), <code>UpdateDashboard() Section 3</code> (L11090-11158), <code>DASH_PREFIX+"S3_PART"</code>, <code>DASH_PREFIX+"S3_PGAP"</code>, <code>glbVersion = "V10009  03-10-2026 17.00"</code> (L33) &bull; Clean MetaEditor 4 build (0 errors, 20 warnings).
+                    </div>
+                  </div>
+                </div>
+
+                <div class="step-item" style="cursor: pointer;" onclick="toggleAuditDetail('chk12')">
+                  <div class="step-num" style="background: rgba(16, 185, 129, 0.15); color: var(--accent-green); border-color: rgba(16, 185, 129, 0.3);">✓</div>
+                  <div class="step-body" style="flex: 1;">
+                    <h4>Left Live Order Monitor: Dedicated Partial Close Column <span class="badge badge-green">Active</span></h4>
+                    <p>Per-order real-time partial shave tracking column embedded into the Left Live Position Monitor table between <code>P/L</code> and <code>COMMENT</code>. For each position, dynamically displays live adverse price difference vs threshold, remaining loss needed, and triggers <code>READY [Shave 0.01]</code> when conditions are met.</p>
+                    <div id="chk12" style="display: none; margin-top: 10px; font-size: 12.5px; color: var(--accent-blue); background: rgba(0,0,0,0.3); padding: 8px 12px; border-radius: 6px;">
+                      <strong>Code Anchor:</strong> <code>UpdateLeftLiveOrdersDashboard()</code> (L11515-11700), <code>LEFT_LIVE_PREFIX+"PART"</code> at <code>tx+410</code>, <code>LEFT_LIVE_PREFIX+"HEAD_PART"</code>, <code>width = 830px</code>, <code>glbVersion = "V10010  03-10-2026 18.25"</code> (L33) &bull; Clean MetaEditor 4 build (0 errors, 20 warnings).
+                    </div>
+                  </div>
+                </div>
+
+                <div class="step-item" style="cursor: pointer;" onclick="toggleAuditDetail('chk13')">
+                  <div class="step-num" style="background: rgba(16, 185, 129, 0.15); color: var(--accent-green); border-color: rgba(16, 185, 129, 0.3);">&#10003;</div>
+                  <div class="step-body" style="flex: 1;">
+                    <h4>Basket $10 Fixed Equity Step Lock (Linear $10 Increments) <span class="badge badge-green">Active</span></h4>
+                    <p>Monitors floating account equity against fixed $10 target steps from baseline ($100 &rarr; $110 &rarr; $120 &rarr; $130...). Upon each $10 target hit, safely modifies ALL open basket positions' SL to current live market price (via <code>GetRequiredStopDistance()</code>) to guarantee locked equity gains while keeping runner positions protected.</p>
+                    <div id="chk13" style="display: none; margin-top: 10px; font-size: 12.5px; color: var(--accent-blue); background: rgba(0,0,0,0.3); padding: 8px 12px; border-radius: 6px;">
+                      <strong>Code Anchor:</strong> <code>ManageBasket10USDLockEquity()</code> (L2199-2330), <code>ResetBasket10USDLock()</code> (L2181-2191), Section 3 Dashboard <code>DASH_PREFIX+"S3_10LK"</code> (L11511), <code>glbVersion = "V10012  03-10-2026 20.40"</code> (L33) &bull; Clean MetaEditor 4 build (0 errors, 20 warnings).
+                    </div>
+
                   </div>
                 </div>
               </div>

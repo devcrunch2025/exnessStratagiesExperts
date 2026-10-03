@@ -1,4 +1,4 @@
-//+------------------------------------------------------------------+
+﻿//+------------------------------------------------------------------+
 //|                  SSL CHANNEL CROSS EA - CONTINUOUS EQUITY LADDER |
 //|                  TWO-STAGE PROFIT LADDER | CONTINUOUS RESET      |
 //+------------------------------------------------------------------+
@@ -29,8 +29,8 @@
 
 //https://github.com/devcrunch2025/exnessStratagiesExperts/commit/f2b01e8fb84e16294381ff54065e07b98df282ec
 
-// Previous: V10007  03-10-2026 15.00 Reduce Matched Order Gap Half on Low EMA Angle
-string glbVersion = "V10008  03-10-2026 15.30 Reorganized Live Order Creation and Closing Dashboard";
+// Previous: V10010  03-10-2026 18.25 Partial Close Column in Live Position Monitor
+string glbVersion = "V10012  03-10-2026 20.40 Basket $10 Fixed Equity Step Lock Function";
 
 
 double DailyEquityStopUSD  =100*100;//50;//20*2.5;//10;//20;// 10;//30.0; close all orders at $50Xmultipler
@@ -73,8 +73,16 @@ double   g_stepSize            =1000;// 50.0; // The step increment ($50)
 //chance 6 - basket//IMPORTANT TO CLOSE ONE SIDE OPEN ORDERS as soon as possible
 double basketBUYorSELLProfitModifyUSD=1*1*1; //if all combined basket BUY OR SELL Only basket is profit >0 then modify stoploss
 
+//chance 7: Basket 10% Fixed Equity Step Lock (Compounding 10% Steps)
+extern bool   EnableBasket10USDLock        = true;  // Enable Basket $10 Fixed Equity Step Lock
+extern double Basket10USDLockStepUSD       = 10.0;  // $10 Fixed Equity Step Up (e.g. 100 -> 110 -> 120 -> 130)
+double g_basket10USDBaselineEquity         = 0.0;   // Baseline equity when basket reset / entered
+double g_basket10USDNextTargetEquity       = 0.0;   // Next target equity ($10 step up)
+int    g_basket10USDStepCount              = 0;     // Number of $10 steps triggered in current basket
+datetime g_basket10USDLastModifyTime       = 0;     // Timestamp of last $10 lock modification
 
-double StopLossUSD =40;//30;//10;//6;//10;//6;//5;//10;//2;// 10;
+
+double StopLossUSD =10;//40;//30;//10;//6;//10;//6;//5;//10;//2;// 10;
 
 
 int      g_dayNumber = -1;
@@ -1933,6 +1941,7 @@ void OnTick()
    CheckEquitySurplusReset();
 
    ManageOverallBasketProfit();//modify basket orders at $1 profit
+   ManageBasket10USDLockEquity(); // Lock basket profit with live SL on $10 fixed equity steps
 
    ManageDayProfitLadder();
 
@@ -2164,7 +2173,165 @@ void ManageOverallBasketProfit()
          TradingHaltedUntilNextFlip = false;
          LadderHaltStartTime = 0;
         }
+   }
      }
+//+------------------------------------------------------------------+
+//| Reset Basket $10 Equity Lock State                              |
+//+------------------------------------------------------------------+
+void ResetBasket10USDLock(double resetEquity = 0.0)
+  {
+   if(resetEquity <= 0.0)
+      resetEquity = AccountEquity();
+   g_basket10USDBaselineEquity = resetEquity;
+   g_basket10USDNextTargetEquity = g_basket10USDBaselineEquity + Basket10USDLockStepUSD;
+   g_basket10USDStepCount = 0;
+   Print("BASKET $10 EQUITY LOCK RESET | Baseline Equity=$", DoubleToString(g_basket10USDBaselineEquity, 2),
+         " | Next $10 Target=$", DoubleToString(g_basket10USDNextTargetEquity, 2));
+  }
+
+void ResetBasket10PercentLock(double resetEquity = 0.0)
+  {
+   ResetBasket10USDLock(resetEquity);
+  }
+
+//+------------------------------------------------------------------+
+//| Manage Basket $10 Fixed Equity Lock                              |
+//| Every $10 fixed equity rise from baseline, modifies ALL basket   |
+//| orders' SL to live price whether order is in profit or loss.     |
+//| Example: $100 -> $110 -> $120 -> $130...                         |
+//+------------------------------------------------------------------+
+void ManageBasket10USDLockEquity()
+  {
+   if(!EnableBasket10USDLock)
+      return;
+
+   int totalOpenEAOrders = 0;
+   for(int i = OrdersTotal() - 1; i >= 0; i--)
+     {
+      if(!OrderSelect(i, SELECT_BY_POS, MODE_TRADES))
+         continue;
+      if(OrderSymbol() != Symbol() || OrderMagicNumber() != MagicNumber)
+         continue;
+      int t = OrderType();
+      if(t == OP_BUY || t == OP_SELL)
+         totalOpenEAOrders++;
+     }
+
+   // 1. If no open orders, reset state so next basket starts fresh
+   if(totalOpenEAOrders == 0)
+     {
+      g_basket10USDBaselineEquity = 0.0;
+      g_basket10USDNextTargetEquity = 0.0;
+      g_basket10USDStepCount = 0;
+      return;
+     }
+
+   double curEquity = AccountEquity();
+
+   // 2. Initialize baseline when first order opens
+   if(g_basket10USDBaselineEquity <= 0.0)
+     {
+      g_basket10USDBaselineEquity = curEquity;
+      g_basket10USDNextTargetEquity = g_basket10USDBaselineEquity + Basket10USDLockStepUSD;
+      g_basket10USDStepCount = 0;
+      return;
+     }
+
+   // 3. Check if current equity reached or exceeded the $10 target
+   if(curEquity >= g_basket10USDNextTargetEquity && g_basket10USDNextTargetEquity > 0.0)
+     {
+      RefreshRates();
+      double minDistance = GetRequiredStopDistance();
+      if(minDistance <= 0.0)
+         minDistance = Point * 10;
+
+      int modifiedCount = 0;
+      int failedCount = 0;
+
+      Print("==================================================================");
+      Print("BASKET $10 LOCK EQUITY TARGET REACHED: Step #", g_basket10USDStepCount + 1,
+            " | Live Equity=$", DoubleToString(curEquity, 2),
+            " >= Target=$", DoubleToString(g_basket10USDNextTargetEquity, 2),
+            " (Baseline=$", DoubleToString(g_basket10USDBaselineEquity, 2), ")");
+      Print("Modifying ALL open basket orders' SL to current live price...");
+
+      for(int j = OrdersTotal() - 1; j >= 0; j--)
+        {
+         if(!OrderSelect(j, SELECT_BY_POS, MODE_TRADES))
+            continue;
+         if(OrderSymbol() != Symbol() || OrderMagicNumber() != MagicNumber)
+            continue;
+         int oType = OrderType();
+         if(oType != OP_BUY && oType != OP_SELL)
+            continue;
+
+         int tkt = OrderTicket();
+         double oOpen = OrderOpenPrice();
+         double oCurSL = OrderStopLoss();
+         double oTP = OrderTakeProfit();
+         double oPL = OrderProfit() + OrderSwap() + OrderCommission();
+
+         RefreshRates();
+         double newSL = 0.0;
+         if(oType == OP_BUY)
+            newSL = NormalizeDouble(Bid - minDistance, Digits);
+         else if(oType == OP_SELL)
+            newSL = NormalizeDouble(Ask + minDistance, Digits);
+
+         // Avoid redundant modify if SL is already within 1/2 point of live price
+         if(oCurSL > 0.0 && MathAbs(oCurSL - newSL) < Point / 2.0)
+            continue;
+
+         bool ok = SafeOrderModify(tkt, oOpen, newSL, oTP, 0, clrGold);
+         if(!ok)
+           {
+            // Direct OrderModify fallback with safe stop distance
+            if(PrepareStopLossForOrder(oType, oOpen, newSL))
+              {
+               ResetLastError();
+               ok = OrderModify(tkt, oOpen, newSL, oTP, 0, clrGold);
+              }
+           }
+
+         if(ok)
+           {
+            modifiedCount++;
+            Print("BASKET $10 LOCK: Order #", tkt, " (", (oType == OP_BUY ? "BUY " : "SELL "),
+                  DoubleToString(OrderLots(), 2), "L, P/L=$", DoubleToString(oPL, 2), ") -> SL set to Live Price=", DoubleToString(newSL, Digits));
+           }
+         else
+           {
+            failedCount++;
+            Print("BASKET $10 LOCK: Failed to modify Order #", tkt, " | Error=", GetLastError());
+           }
+        }
+
+      Print("BASKET $10 LOCK COMPLETE: Modified=", modifiedCount, " orders, Failed=", failedCount);
+      Print("==================================================================");
+
+      // Advance baseline and calculate next $10 target:
+      // e.g. $100 -> $110 -> next target is $110 + $10 = $120 -> next $120 + $10 = $130
+      g_basket10USDStepCount++;
+      g_basket10USDLastModifyTime = TimeCurrent();
+      g_basket10USDBaselineEquity = g_basket10USDNextTargetEquity;
+      g_basket10USDNextTargetEquity = g_basket10USDBaselineEquity + Basket10USDLockStepUSD;
+
+      // In case equity jumped through multiple $10 levels in a fast spike:
+      while(curEquity >= g_basket10USDNextTargetEquity && g_basket10USDNextTargetEquity > 0.0)
+        {
+         g_basket10USDStepCount++;
+         g_basket10USDBaselineEquity = g_basket10USDNextTargetEquity;
+         g_basket10USDNextTargetEquity = g_basket10USDBaselineEquity + Basket10USDLockStepUSD;
+        }
+
+      Print("BASKET $10 NEXT TARGET SET: Next Equity Target=$", DoubleToString(g_basket10USDNextTargetEquity, 2),
+            " (Step #", g_basket10USDStepCount + 1, ")");
+     }
+  }
+
+void ManageBasket10PercentLockEquity()
+  {
+   ManageBasket10USDLockEquity();
   }
 //+------------------------------------------------------------------+
 //| Check Stored Signals and Execute on EMA Trend Flip               |
@@ -6006,7 +6173,7 @@ double profitAfterFlip = 0;
 //+------------------------------------------------------------------+
 void ChangeLots(double OpenPL, string reason, int orderType, int stoplevelStep)
   {
-   double MaxRecoveryLot =0.02;//0.05;//0.10;// 0.05;
+   double MaxRecoveryLot =0.05;//0.02;//0.05;//0.10;// 0.05;
    double oppositeLots = GetOppositeOrdersLots(orderType);
    bool isSSLSignal = (reason == "SSL Long" || reason == "SSL Short");
    bool isSSLProfitReEntry = (reason == "SSL Profit ReEntry Buy Stop" || reason == "SSL Profit ReEntry Sell Stop");
@@ -9340,36 +9507,40 @@ void ManagePartialClosesLoss()
       double lossTrigger = 0.0;
       double lotsToClose = 0.01*balancelomultipler;
 
-      if(MathAbs(orderLots - (0.05*balancelomultipler)) < 0.000001)
+      if(MathAbs(orderLots - (0.05*balancelomultipler)) < 0.000001 || MathAbs(orderLots - 0.05) < 0.000001)
         {
          lossTrigger = -(5.00*balancelomultipler*partialLossMultipler);// 50/5=10(partialLossMultipler==10)
         }
       else
-         if(MathAbs(orderLots - 0.04) < 0.000001)
+         if(MathAbs(orderLots - (0.04*balancelomultipler)) < 0.000001 || MathAbs(orderLots - 0.04) < 0.000001)
            {
-            // lossTrigger = -(4.80*balancelomultipler*(partialLossMultipler));// 48/4=12
             lossTrigger = -(6*balancelomultipler*(partialLossMultipler));// 48/4=12
-
            }
          else
-            if(MathAbs(orderLots - 0.03) < 0.000001)
+            if(MathAbs(orderLots - (0.03*balancelomultipler)) < 0.000001 || MathAbs(orderLots - 0.03) < 0.000001)
               {
-               // lossTrigger = -(4.50*balancelomultipler*partialLossMultipler);// 45/3=15
                lossTrigger = -(7*balancelomultipler*partialLossMultipler);// 45/3=15
-
               }
             else
-               if(MathAbs(orderLots - 0.02) < 0.000001)
+               if(MathAbs(orderLots - (0.02*balancelomultipler)) < 0.000001 || MathAbs(orderLots - 0.02) < 0.000001)
                  {
-                  // lossTrigger = -(4.00*balancelomultipler*partialLossMultipler);// 40/2=20
                   lossTrigger = -(8*balancelomultipler*partialLossMultipler);// 40/2=20
-
                  }
                else
-                 {
-                  // No partial-loss rule for other lot sizes
-                  continue;
-                 }
+                  if(orderLots > 0.01 + 0.000001)
+                    {
+                     // General rule for all other lot sizes > 0.01 (including recovery orders)
+                     int lotUnits = (int)MathRound(orderLots / (0.01 * (balancelomultipler > 0 ? balancelomultipler : 1)));
+                     double baseFactor = 10.0 - (double)lotUnits;
+                     if(baseFactor < 2.0)
+                        baseFactor = 2.0;
+                     lossTrigger = -(baseFactor * balancelomultipler * partialLossMultipler);
+                    }
+                  else
+                    {
+                     // No partial-loss rule for orders with lots <= 0.01
+                     continue;
+                    }
 
 
       // Must leave at least 0.01 lot after partial close
@@ -11086,12 +11257,204 @@ void UpdateDashboard(DailyProtectionState &state)
    string sec1Str = StringConcatenate("ACTIVE ($", DoubleToString(SecureOneDollarProfitPerOrder, 2), " Lock) | Secured: ", IntegerToString(securedOrdersCount), " / ", IntegerToString(buyOrders + sellOrders));
    string oppCloseStr = CloseOppositeOrdersOnSignal ? StringConcatenate("ACTIVE (Close <= $", DoubleToString(closeOppositeLossThreshold, 2), " Loss on Signal Flip)") : "DISABLED";
 
-// 7. VISUAL RENDERING (COMPACT 510px PANEL)
+// 6B. PARTIAL LOSS CLOSE & LIVE PRICE DIFFERENCE MONITOR
+   int partEligibleCount = 0;
+   int bestPartTicket = -1;
+   int bestPartType = -1;
+   double bestPartLots = 0.0;
+   double bestPartPL = 0.0;
+   double bestPartLossTrig = 0.0;
+   double bestPartLiveDiff = 0.0;
+   double bestPartReqDiff = 0.0;
+   double bestPartPriorCls = 0.0;
+   bool bestPartIsReady = false;
+   double bestPartScore = -999999.0;
+
+   for(int p = OrdersTotal() - 1; p >= 0; p--)
+     {
+      if(!OrderSelect(p, SELECT_BY_POS, MODE_TRADES))
+         continue;
+      if(OrderSymbol() != Symbol() || OrderMagicNumber() != MagicNumber)
+         continue;
+      int pType = OrderType();
+      if(pType != OP_BUY && pType != OP_SELL)
+         continue;
+
+      double pLots = OrderLots();
+      if(pLots <= 0.01 + 0.000001)
+         continue;
+
+      partEligibleCount++;
+      int curTkt = OrderTicket();
+      double curPL = OrderProfit() + OrderSwap() + OrderCommission();
+
+      double lTrig = 0.0;
+      if(MathAbs(pLots - (0.05 * balancelomultipler)) < 0.000001 || MathAbs(pLots - 0.05) < 0.000001)
+         lTrig = -(5.00 * balancelomultipler * partialLossMultipler);
+      else if(MathAbs(pLots - (0.04 * balancelomultipler)) < 0.000001 || MathAbs(pLots - 0.04) < 0.000001)
+         lTrig = -(6.00 * balancelomultipler * partialLossMultipler);
+      else if(MathAbs(pLots - (0.03 * balancelomultipler)) < 0.000001 || MathAbs(pLots - 0.03) < 0.000001)
+         lTrig = -(7.00 * balancelomultipler * partialLossMultipler);
+      else if(MathAbs(pLots - (0.02 * balancelomultipler)) < 0.000001 || MathAbs(pLots - 0.02) < 0.000001)
+         lTrig = -(8.00 * balancelomultipler * partialLossMultipler);
+      else
+        {
+         int lotU = (int)MathRound(pLots / (0.01 * (balancelomultipler > 0 ? balancelomultipler : 1)));
+         double baseF = 10.0 - (double)lotU;
+         if(baseF < 2.0)
+            baseF = 2.0;
+         lTrig = -(baseF * balancelomultipler * partialLossMultipler);
+        }
+
+      int bTicket = GetOriginalTicket(curTkt, OrderComment());
+      if(bTicket <= 0)
+         bTicket = curTkt;
+      double priorCls = GetTicketLastClosePrice(bTicket);
+
+      double liveDiff = 0.0;
+      double reqDiff = 0.0;
+      bool gapMet = false;
+
+      if(priorCls > 0.0)
+        {
+         reqDiff = 100.0;
+         if(pType == OP_BUY)
+            liveDiff = priorCls - curBid;
+         else
+            liveDiff = curAsk - priorCls;
+
+         if(liveDiff >= 100.0)
+            gapMet = true;
+        }
+      else
+        {
+         if(pType == OP_BUY)
+            liveDiff = OrderOpenPrice() - curBid;
+         else
+            liveDiff = curAsk - OrderOpenPrice();
+
+         double dPerPt = pLots * 100.0;
+         if(dPerPt > 0.0)
+            reqDiff = MathAbs(lTrig) / dPerPt;
+         else
+            reqDiff = 10.0;
+
+         if(curPL <= lTrig)
+            gapMet = true;
+        }
+
+      bool isReady = (curPL <= lTrig && gapMet);
+
+      double score = 0.0;
+      if(isReady)
+         score = 1000.0 + MathAbs(curPL - lTrig);
+      else
+        {
+         double plProg = (lTrig < 0.0 && curPL < 0.0) ? (curPL / lTrig) : 0.0;
+         double gapProg = (reqDiff > 0.0 && liveDiff > 0.0) ? (liveDiff / reqDiff) : 0.0;
+         score = MathMax(plProg, gapProg);
+        }
+
+      if(bestPartTicket == -1 || score > bestPartScore)
+        {
+         bestPartScore = score;
+         bestPartTicket = curTkt;
+         bestPartType = pType;
+         bestPartLots = pLots;
+         bestPartPL = curPL;
+         bestPartLossTrig = lTrig;
+         bestPartLiveDiff = liveDiff;
+         bestPartReqDiff = reqDiff;
+         bestPartPriorCls = priorCls;
+         bestPartIsReady = isReady;
+        }
+     }
+
+   string part1Str = "";
+   string part2Str = "";
+   color part1Color = clrSilver;
+   color part2Color = clrSilver;
+
+   if(partEligibleCount == 0)
+     {
+      part1Str = "NONE (All Orders <= 0.01L | Single Lot)";
+      part2Str = "IDLE (Partial cuts trigger at Lots >= 0.02)";
+      part1Color = clrSilver;
+      part2Color = clrSilver;
+     }
+   else
+     {
+      string pTypeStr = (bestPartType == OP_BUY) ? "BUY" : "SELL";
+      part1Str = StringConcatenate("#", IntegerToString(bestPartTicket), " (", DoubleToString(bestPartLots, 2), "L ", pTypeStr, ") | P/L: ", (bestPartPL >= 0 ? "+$" : "-$"), DoubleToString(MathAbs(bestPartPL), 2), " / Trig -$ ", DoubleToString(MathAbs(bestPartLossTrig), 2));
+
+      if(bestPartIsReady)
+        {
+         part2Str = StringConcatenate("Diff $", DoubleToString(bestPartLiveDiff, 2), " / Req $", DoubleToString(bestPartReqDiff, 2), " [READY: SHAVE 0.01 NOW]");
+         part1Color = clrLime;
+         part2Color = clrLime;
+        }
+      else if(bestPartPriorCls > 0.0)
+        {
+         double remGap = bestPartReqDiff - bestPartLiveDiff;
+         if(remGap < 0.0) remGap = 0.0;
+         part2Str = StringConcatenate("Prior @", DoubleToString(bestPartPriorCls, 1), " | Diff $", DoubleToString(bestPartLiveDiff, 2), "/$100 [Need $", DoubleToString(remGap, 2), "]");
+         part1Color = (bestPartPL <= bestPartLossTrig) ? clrGold : clrTomato;
+         part2Color = (bestPartLiveDiff >= 100.0) ? clrLime : clrTomato;
+        }
+      else
+        {
+         double remMove = bestPartReqDiff - bestPartLiveDiff;
+         if(remMove < 0.0) remMove = 0.0;
+         double remPL = bestPartPL - bestPartLossTrig;
+         if(remPL < 0.0) remPL = 0.0;
+         part2Str = StringConcatenate("1st Cut | Live Diff $", DoubleToString(bestPartLiveDiff, 2), "/$", DoubleToString(bestPartReqDiff, 2), " [Need -$ ", DoubleToString(remPL, 2), " / $", DoubleToString(remMove, 2), " move]");
+         part1Color = (bestPartPL <= bestPartLossTrig) ? clrLime : clrTomato;
+         part2Color = clrGold;
+        }
+     }
+
+   string basket10LockStr = "";
+   color basket10LockColor = clrSilver;
+   if(!EnableBasket10USDLock)
+     {
+      basket10LockStr = "DISABLED";
+      basket10LockColor = clrSilver;
+     }
+   else if(totalOrders == 0)
+     {
+      basket10LockStr = "IDLE (Waiting for new basket entry)";
+      basket10LockColor = clrSilver;
+     }
+   else
+     {
+      double curEq = AccountEquity();
+      if(g_basket10USDNextTargetEquity <= 0.0)
+        {
+         basket10LockStr = StringConcatenate("ACTIVE | Base $", DoubleToString(g_basket10USDBaselineEquity, 2));
+         basket10LockColor = clrGold;
+        }
+      else
+        {
+         double diff10 = g_basket10USDNextTargetEquity - curEq;
+         if(diff10 <= 0.0)
+           {
+            basket10LockStr = StringConcatenate("STEP #", IntegerToString(g_basket10USDStepCount + 1), " HIT -> [LOCKED SL TO LIVE]");
+            basket10LockColor = clrLime;
+           }
+         else
+           {
+            basket10LockStr = StringConcatenate("Live $", DoubleToString(curEq, 2), " / Tgt $", DoubleToString(g_basket10USDNextTargetEquity, 2), " (Step #", IntegerToString(g_basket10USDStepCount + 1), ": Need +$", DoubleToString(diff10, 2), ")");
+            basket10LockColor = (curEq >= g_basket10USDBaselineEquity) ? clrGold : clrTomato;
+           }
+        }
+     }
+
+// 7. VISUAL RENDERING (COMPACT 542px PANEL)
    x = DashboardRightGap;
    y = DashboardTopGap;
    tx = x + 12;
    w = DashboardWidth;
-   panelHeight = 505;
+   panelHeight = 542;
 
 // One-time cleanup if layout version changes to avoid orphaned labels
    static string lastLayoutVer = "";
@@ -11106,7 +11469,7 @@ void UpdateDashboard(DailyProtectionState &state)
 
 // Header Panel
    CreateDashboardPanel(DASH_PREFIX+"HEADER", x, y, w, 38, C'25,70,115');
-   string verShort = "V10008 | " + Symbol() + " " + TimeframeToString(Period());
+   string verShort = "V10012 | " + Symbol() + " " + TimeframeToString(Period());
    CreateDashboardLabel(DASH_PREFIX+"TITLE", verShort, tx, y+6, 9, clrWhite);
    CreateDashboardLabel(DASH_PREFIX+"WITHDRAW", "Withdraw : 20 % from the Profit", tx, y+22, 9, clrDeepSkyBlue);
 
@@ -11143,12 +11506,15 @@ void UpdateDashboard(DailyProtectionState &state)
    CreateDashboardLabel(DASH_PREFIX+"S3_SL", "HARD SL : " + dailySLStr, tx, y+386, 8, dailySLColor);
    CreateDashboardLabel(DASH_PREFIX+"S3_LOCK", "SL LOCK : " + sec1Str, tx, y+402, 8, clrLime);
    CreateDashboardLabel(DASH_PREFIX+"S3_OPP", "OPP CLS : " + oppCloseStr, tx, y+418, 8, clrWhite);
+   CreateDashboardLabel(DASH_PREFIX+"S3_PART", "PART CLS: " + part1Str, tx, y+434, 8, part1Color);
+   CreateDashboardLabel(DASH_PREFIX+"S3_PGAP", "PART GAP: " + part2Str, tx, y+450, 8, part2Color);
+   CreateDashboardLabel(DASH_PREFIX+"S3_10LK", "$10 LOCK : " + basket10LockStr, tx, y+466, 8, basket10LockColor);
 
 // SECTION 4: MARKET MOMENTUM & PRICES
-   CreateDashboardPanel(DASH_PREFIX+"S4_BAR", x, y+436, w, 18, C'30,45,65');
-   CreateDashboardLabel(DASH_PREFIX+"S4_H", "--- MARKET MOMENTUM & BID/ASK ---", tx, y+438, 8, clrAqua);
-   CreateDashboardLabel(DASH_PREFIX+"S4_SCORE", "SCORE   : " + scoreText, tx, y+456, 8, scoreColor);
-   CreateDashboardLabel(DASH_PREFIX+"S4_PRICE", "BID/ASK : " + DoubleToString(curBid, Digits) + " / " + DoubleToString(curAsk, Digits) + " (Sprd: " + DoubleToString(curSpread, 1) + ")", tx, y+474, 8, clrWhite);
+   CreateDashboardPanel(DASH_PREFIX+"S4_BAR", x, y+484, w, 18, C'30,45,65');
+   CreateDashboardLabel(DASH_PREFIX+"S4_H", "--- MARKET MOMENTUM & BID/ASK ---", tx, y+486, 8, clrAqua);
+   CreateDashboardLabel(DASH_PREFIX+"S4_SCORE", "SCORE   : " + scoreText, tx, y+504, 8, scoreColor);
+   CreateDashboardLabel(DASH_PREFIX+"S4_PRICE", "BID/ASK : " + DoubleToString(curBid, Digits) + " / " + DoubleToString(curAsk, Digits) + " (Sprd: " + DoubleToString(curSpread, 1) + ")", tx, y+520, 8, clrWhite);
 
    ChartRedraw(0);
   }
@@ -11350,13 +11716,20 @@ void UpdateLeftLiveOrdersDashboard()
          openCount++;
         }
      }
-   int x=LeftDashboardX, y=LeftDashboardY, tx=x+12, width=LeftDashboardWidth+260, panelHeight=rows*20+132;
+   int x=LeftDashboardX, y=LeftDashboardY, tx=x+12, width=LeftDashboardWidth+500, panelHeight=rows*20+132;
    color pnlColor=clrWhite;
    if(netPL>0)
       pnlColor=clrLime;
    else
       if(netPL<0)
          pnlColor=clrTomato;
+
+   static string lastLeftLayoutVer = "";
+   if(lastLeftLayoutVer != glbVersion)
+     {
+      DeleteLeftLiveOrdersDashboardObjects();
+      lastLeftLayoutVer = glbVersion;
+     }
 
    CreateLeftLivePanel(LEFT_LIVE_PREFIX+"PANEL", x, y, width, panelHeight, C'12,16,22');
    CreateLeftLivePanel(LEFT_LIVE_PREFIX+"HEADER", x, y, width, 38, C'25,70,115');
@@ -11365,12 +11738,15 @@ void UpdateLeftLiveOrdersDashboard()
    CreateLeftLivePanel(LEFT_LIVE_PREFIX+"SUMMARYBAR", x, y+38, width, 42, C'25,31,42');
    CreateLeftLiveLabel(LEFT_LIVE_PREFIX+"SUMMARY", "ORDERS "+IntegerToString(total)+"/"+IntegerToString(MaxOpenOrders)+"   BUY "+IntegerToString(buyCount)+"   SELL "+IntegerToString(sellCount)+"   PEND "+IntegerToString(pendingCount), tx, y+45, 8, clrWhite);
    CreateLeftLiveLabel(LEFT_LIVE_PREFIX+"TOTALS", "BUY LOT "+DoubleToString(buyLots,2)+"   SELL LOT "+DoubleToString(sellLots,2)+"   NET P/L "+(netPL>=0?"+":"")+DoubleToString(netPL,2), tx, y+62, 9, pnlColor);
-   CreateLeftLiveLabel(LEFT_LIVE_PREFIX+"HEAD", "TYPE       LOT   #ORDER ID     SL     TP              P/L   COMMENT", tx, y+88, 8, clrSilver);
+   CreateLeftLiveLabel(LEFT_LIVE_PREFIX+"HEAD", "TYPE       LOT   #ORDER ID     SL     TP              P/L", tx, y+88, 8, clrSilver);
+   CreateLeftLiveLabel(LEFT_LIVE_PREFIX+"HEAD_PART", "PART-CLOSE (LIVE DIFF/TRIG)", tx+410, y+88, 8, clrSilver);
+   CreateLeftLiveLabel(LEFT_LIVE_PREFIX+"HEAD_COMMENT", "COMMENT", tx+655, y+88, 8, clrSilver);
 
    for(int r=0; r<24; r++)
      {
       CreateLeftLiveLabel(LEFT_LIVE_PREFIX+"ROW"+IntegerToString(r), "", tx, y+108+(r*20), 8, clrWhite);
-      CreateLeftLiveLabel(LEFT_LIVE_PREFIX+"VERIFY"+IntegerToString(r), "", tx+415, y+108+(r*20), 8, clrSilver);
+      CreateLeftLiveLabel(LEFT_LIVE_PREFIX+"PART"+IntegerToString(r), "", tx+410, y+108+(r*20), 8, clrSilver);
+      CreateLeftLiveLabel(LEFT_LIVE_PREFIX+"VERIFY"+IntegerToString(r), "", tx+655, y+108+(r*20), 8, clrSilver);
      }
 
    int row=0;
@@ -11492,6 +11868,124 @@ void UpdateLeftLiveOrdersDashboard()
            }
         }
 
+      string partCloseCellText = "-";
+      color partCloseCellColor = clrDimGray;
+
+      if(type == OP_BUY || type == OP_SELL)
+        {
+         if(lots > 0.01 + 0.000001)
+           {
+            double lossTrigger = 0.0;
+            if(MathAbs(lots - (0.05 * balancelomultipler)) < 0.000001 || MathAbs(lots - 0.05) < 0.000001)
+               lossTrigger = -(5.00 * balancelomultipler * partialLossMultipler);
+            else if(MathAbs(lots - (0.04 * balancelomultipler)) < 0.000001 || MathAbs(lots - 0.04) < 0.000001)
+               lossTrigger = -(6.00 * balancelomultipler * partialLossMultipler);
+            else if(MathAbs(lots - (0.03 * balancelomultipler)) < 0.000001 || MathAbs(lots - 0.03) < 0.000001)
+               lossTrigger = -(7.00 * balancelomultipler * partialLossMultipler);
+            else if(MathAbs(lots - (0.02 * balancelomultipler)) < 0.000001 || MathAbs(lots - 0.02) < 0.000001)
+               lossTrigger = -(8.00 * balancelomultipler * partialLossMultipler);
+            else
+              {
+               int lotUnits = (int)MathRound(lots / (0.01 * (balancelomultipler > 0 ? balancelomultipler : 1)));
+               double baseFactor = 10.0 - (double)lotUnits;
+               if(baseFactor < 2.0)
+                  baseFactor = 2.0;
+               lossTrigger = -(baseFactor * balancelomultipler * partialLossMultipler);
+              }
+
+            int baseTicket = GetOriginalTicket(OrderTicket(), comment);
+            if(baseTicket <= 0)
+               baseTicket = OrderTicket();
+            double priorCls = GetTicketLastClosePrice(baseTicket);
+
+            RefreshRates();
+            double liveDiff = 0.0;
+            double reqDiff = 0.0;
+            bool gapMet = false;
+
+            if(priorCls > 0.0)
+              {
+               reqDiff = 100.0;
+               if(type == OP_BUY)
+                  liveDiff = priorCls - Bid;
+               else
+                  liveDiff = Ask - priorCls;
+
+               if(liveDiff >= 100.0)
+                  gapMet = true;
+              }
+            else
+              {
+               if(type == OP_BUY)
+                  liveDiff = open - Bid;
+               else
+                  liveDiff = Ask - open;
+
+               double dPerPt = lots * 100.0;
+               if(dPerPt > 0.0)
+                  reqDiff = MathAbs(lossTrigger) / dPerPt;
+               else
+                  reqDiff = 10.0;
+
+               if(pl <= lossTrigger)
+                  gapMet = true;
+              }
+
+            bool isReady = (pl <= lossTrigger && gapMet);
+
+            if(isReady)
+              {
+               partCloseCellText = "READY [Shave 0.01]";
+               partCloseCellColor = clrLime;
+              }
+            else if(priorCls > 0.0)
+              {
+               double remGap = 100.0 - liveDiff;
+               if(remGap < 0.0)
+                  remGap = 0.0;
+               if(liveDiff >= 100.0)
+                 {
+                  partCloseCellText = StringFormat("GapMet($%0.1f)|Need PL", liveDiff);
+                  partCloseCellColor = clrGold;
+                 }
+               else
+                 {
+                  partCloseCellText = StringFormat("Diff $%0.1f/$100 [Need $%0.1f]", liveDiff, remGap);
+                  partCloseCellColor = clrTomato;
+                 }
+              }
+            else
+              {
+               if(pl > 0)
+                 {
+                  partCloseCellText = StringFormat("InProfit(+$%0.1f)[No Loss]", pl);
+                  partCloseCellColor = clrDeepSkyBlue;
+                 }
+               else
+                 {
+                  double remPL = pl - lossTrigger;
+                  if(remPL < 0.0)
+                     remPL = 0.0;
+                  double remMove = reqDiff - liveDiff;
+                  if(remMove < 0.0)
+                     remMove = 0.0;
+                  partCloseCellText = StringFormat("Diff $%0.1f/$%0.1f [Need -$%0.1f]", liveDiff, reqDiff, remPL);
+                  partCloseCellColor = (pl <= lossTrigger) ? clrGold : clrTomato;
+                 }
+              }
+           }
+         else
+           {
+            partCloseCellText = "- [0.01L]";
+            partCloseCellColor = clrDimGray;
+           }
+        }
+      else
+        {
+         partCloseCellText = "- [Pending]";
+         partCloseCellColor = clrDarkGray;
+        }
+
       string verifiedStatus = comment;
       color verifiedColor = clrSilver;
       if(isRecovery)
@@ -11512,8 +12006,10 @@ void UpdateLeftLiveOrdersDashboard()
          rowColor=clrLime;
       if((type==OP_BUY || type==OP_SELL) && pl<0)
          rowColor=clrOrangeRed;
+
       CreateLeftLiveLabel(LEFT_LIVE_PREFIX+"ROW"+IntegerToString(row), rowText, tx, y+108+(row*20), 8, rowColor);
-      CreateLeftLiveLabel(LEFT_LIVE_PREFIX+"VERIFY"+IntegerToString(row), verifiedStatus, tx+415, y+108+(row*20), 8, verifiedColor);
+      CreateLeftLiveLabel(LEFT_LIVE_PREFIX+"PART"+IntegerToString(row), partCloseCellText, tx+410, y+108+(row*20), 8, partCloseCellColor);
+      CreateLeftLiveLabel(LEFT_LIVE_PREFIX+"VERIFY"+IntegerToString(row), verifiedStatus, tx+655, y+108+(row*20), 8, verifiedColor);
       row++;
      }
    if(total==0)
