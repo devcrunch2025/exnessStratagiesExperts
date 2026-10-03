@@ -889,7 +889,7 @@
       <div class="header-pills">
         <span class="pill pill-blue">BTCUSD • M1 Scalper</span>
         <span class="pill pill-purple">Exness Raw / Zero</span>
-        <span class="pill pill-green">V10007 (03-10-2026 15.00)</span>
+        <span class="pill pill-green">V10008 (03-10-2026 15.30)</span>
       </div>
     </div>
 
@@ -1832,18 +1832,18 @@ flowchart TD
             <div class="grid-4" style="margin-bottom: 24px;">
               <div class="stat-card">
                 <div class="stat-label">Total User Directives</div>
-                <div class="stat-value" style="color: var(--accent-green);">20 / 20</div>
+                <div class="stat-value" style="color: var(--accent-green);">21 / 21</div>
                 <div class="stat-desc">100% Implemented &amp; Audited</div>
               </div>
               <div class="stat-card">
                 <div class="stat-label">Compiler Verification</div>
                 <div class="stat-value" style="color: var(--accent-blue);">0 Errors</div>
-                <div class="stat-desc">MetaEditor 4 • 127ms Clean Build</div>
+                <div class="stat-desc">MetaEditor 4 • 116ms Clean Build</div>
               </div>
               <div class="stat-card">
                 <div class="stat-label">Active Production Build</div>
-                <div class="stat-value" style="color: var(--accent-purple);">V10007</div>
-                <div class="stat-desc">03-10-2026 15.00 Deployed</div>
+                <div class="stat-value" style="color: var(--accent-purple);">V10008</div>
+                <div class="stat-desc">03-10-2026 15.30 Deployed</div>
               </div>
               <div class="stat-card">
                 <div class="stat-label">Centralized Firewall</div>
@@ -1862,7 +1862,7 @@ flowchart TD
     classDef blockNode fill:#450a0a,stroke:#ef4444,stroke-width:1.5px,color:#fff
     classDef passNode fill:#064e3b,stroke:#10b981,stroke-width:2px,color:#fff
 
-    UserReq["User Instruction History (Steps 0 - 938)"]:::startNode --> SOS["SafeOrderSend() Central Entry Firewall"]:::gateNode
+    UserReq["User Instruction History (Steps 0 - 939)"]:::startNode --> SOS["SafeOrderSend() Central Entry Firewall"]:::gateNode
 
     SOS --> Gate1["Gate 1: System Circuit Breakers<br/>Equity/Profit Locks • Trading Hours"]:::gateNode
     SOS --> Gate2["Gate 2: Physical Spread Filter<br/>Spread &le; MaxAllowedSpreadUSD"]:::gateNode
@@ -2005,6 +2005,13 @@ flowchart TD
                     <td>Compressed <code>MinimumSameOrderGapRawMatched</code> by 50% (50.0 &rarr; 25.0 raw points) dynamically inside <code>GetDynamicOrderGap()</code> whenever <code>MathAbs(GlobalEmaAngle30) &lt; 3.0</code> (flat consolidation conditions), facilitating tighter entries during low-slope sideways markets without trigger starvation. Advanced build to <code>V10007</code>.</td>
                     <td><span class="badge badge-green">VERIFIED &amp; DEPLOYED</span></td>
                   </tr>
+                  <tr>
+                    <td><code>Step 939</code><br><small style="color: var(--accent-amber);">15:30</small></td>
+                    <td><strong>Restructured Real-Time Order Creation &amp; Closing Dashboard</strong><br><small style="color: var(--text-dim);">Live variable observability for trade entry, gating, and exit triggers</small></td>
+                    <td><code>UpdateDashboard()</code><br><code>glbVersion = "V10008"</code><br>4-Section High-Density Layout</td>
+                    <td>Replaced legacy multi-panel ladder clutter with a high-density, unified 505px dashboard eliminating off-screen vertical clipping: (1) <strong>Order Creation Engine:</strong> Live SSL-30 signal, EMA-30 angle &amp; gap rule (&lt;3&deg; halved to $25 vs &ge;3&deg; full $50), 50% weak pullback trigger, live Buy/Sell order gaps with nearest order proximity, spread gate, candle quota &amp; anti-spam timer. (2) <strong>Re-Entry &amp; Recovery Engine:</strong> Re-entry stop status, 1st recovery eligibility, 2nd recovery adverse gap progress, and recovery basket combined P/L. (3) <strong>Order Closing Engine:</strong> Flip basket TP progress, daily hard equity SL buffer, single-order $1 profit lock count, and opposite signal close rule. (4) <strong>Momentum &amp; Bid/Ask:</strong> Live score, dynamic lot size, bid/ask, and live spread. Advanced build to <code>V10008</code>.</td>
+                    <td><span class="badge badge-green">VERIFIED &amp; DEPLOYED</span></td>
+                  </tr>
                 </tbody>
               </table>
             </div>
@@ -2114,7 +2121,18 @@ flowchart TD
                     <h4>Low EMA Angle Order Gap Halving (|Angle| &lt; 3&deg;) <span class="badge badge-green">Active</span></h4>
                     <p>Reduces <code>MinimumSameOrderGapRawMatched</code> by 50% (from 50 to 25 raw points) when <code>MathAbs(GlobalEmaAngle30) &lt; 3.0</code>. Tightly clusters trend-aligned entries during low-slope sideways markets while expanding during strong momentum.</p>
                     <div id="chk9" style="display: none; margin-top: 10px; font-size: 12.5px; color: var(--accent-blue); background: rgba(0,0,0,0.3); padding: 8px 12px; border-radius: 6px;">
-                      <strong>Code Anchor:</strong> <code>GetDynamicOrderGap()</code> (L5958-5967), <code>MinimumSameOrderGapRawMatched</code> (L213), <code>glbVersion = "V10007  03-10-2026 15.00"</code> (L33) &bull; Clean MetaEditor 4 build (0 errors).
+                      <strong>Code Anchor:</strong> <code>GetDynamicOrderGap()</code> (L5958-5967), <code>MinimumSameOrderGapRawMatched</code> (L213), <code>glbVersion = "V10008  03-10-2026 15.30"</code> (L33) &bull; Clean MetaEditor 4 build (0 errors).
+                    </div>
+                  </div>
+                </div>
+
+                <div class="step-item" style="cursor: pointer;" onclick="toggleAuditDetail('chk10')">
+                  <div class="step-num" style="background: rgba(16, 185, 129, 0.15); color: var(--accent-green); border-color: rgba(16, 185, 129, 0.3);">✓</div>
+                  <div class="step-body" style="flex: 1;">
+                    <h4>Order Creation &amp; Closing Real-Time Observability Dashboard <span class="badge badge-green">Active</span></h4>
+                    <p>Unified 505px right-side dashboard displaying all critical live gating factors: EMA 30 angle compression, 50% weak retracement state, live Buy/Sell order gaps with nearest distance, spread &amp; candle quota, recovery adverse gap tracking, flip basket TP progress, and daily hard equity stop loss buffer.</p>
+                    <div id="chk10" style="display: none; margin-top: 10px; font-size: 12.5px; color: var(--accent-blue); background: rgba(0,0,0,0.3); padding: 8px 12px; border-radius: 6px;">
+                      <strong>Code Anchor:</strong> <code>UpdateDashboard()</code> (L10555-11090), <code>DASH_PREFIX</code> rendering, 4 clean functional sections, zero off-screen clipping &bull; Clean MetaEditor 4 build (0 errors, 20 warnings).
                     </div>
                   </div>
                 </div>

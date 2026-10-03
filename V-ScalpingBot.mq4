@@ -29,8 +29,8 @@
 
 //https://github.com/devcrunch2025/exnessStratagiesExperts/commit/f2b01e8fb84e16294381ff54065e07b98df282ec
 
-// Previous: V10006  03-10-2026 14.15 Second Recovery Order with $2000 Raw Gap
-string glbVersion = "V10007  03-10-2026 15.00 Reduce Matched Order Gap Half on Low EMA Angle";
+// Previous: V10007  03-10-2026 15.00 Reduce Matched Order Gap Half on Low EMA Angle
+string glbVersion = "V10008  03-10-2026 15.30 Reorganized Live Order Creation and Closing Dashboard";
 
 
 double DailyEquityStopUSD  =100*100;//50;//20*2.5;//10;//20;// 10;//30.0; close all orders at $50Xmultipler
@@ -264,9 +264,9 @@ int MaxRecoveryOrders =100;// 5; // Maximum active recovery orders allowed
 double RecoveryMaxLots = 0.05; // Maximum lot cap for recovery order (even 2X lot cannot exceed 0.05)
 double RecoveryBasketProfitUSD = 1;
 double RecoveryMinDistanceRaw =200;//50*2;//500;//1000;//2000;//2000;//2000;//1000;//1000;//100;//20;// 200.0;
-  double MinGapBetweenRecoveryOrdersRaw = 50.0; // Minimum raw price gap ($50) between two recovery orders
-  double Recovery2ndOrderMinDistanceRaw =1000;// 2000.0; // Minimum raw price gap ($2000) from 1st recovery order for 2nd recovery order
-  int    MaxRecoveryOrdersPerParent = 2; // Maximum recovery orders allowed per parent trade (1st + 2nd)
+double MinGapBetweenRecoveryOrdersRaw = 50.0; // Minimum raw price gap ($50) between two recovery orders
+double Recovery2ndOrderMinDistanceRaw =1000;// 2000.0; // Minimum raw price gap ($2000) from 1st recovery order for 2nd recovery order
+int    MaxRecoveryOrdersPerParent = 2; // Maximum recovery orders allowed per parent trade (1st + 2nd)
 bool UseBalanceMultiplierForRecoveryTarget = false; // Scaled by balance multiplier if true; default false ($1.00 fixed cash target)
 bool EnableRecoveryProfitTrailing = true; // Close losing parent first, let winning recovery order trail!
 
@@ -372,6 +372,9 @@ bool ProtectedEquityWaitActive = true;
 datetime ProtectedEquityWaitStartTime = 0;
 int ProtectedEquityWaitMinutes = 0;
 
+//+------------------------------------------------------------------+
+//|                                                                  |
+//+------------------------------------------------------------------+
 void DeleteOppositePendingReEntryOrders(int liveSSL);
 bool HasMinimumRecoveryOrderGap(int orderType, double currentPrice, double minGapRaw = 50.0);
 bool HasMinimumSSLAndReEntryGap(int direction, double targetPrice, double minGapRaw = 50.0, int excludeTicket = -1);
@@ -1685,8 +1688,8 @@ int OnInit()
    return INIT_SUCCEEDED;
   }
 
-  int      MaxOrdersPerCandle              = 5;     // Maximum orders allowed per candle
-  int      MinSecondsBetweenOrdersInCandle = 5;     // Minimum seconds between orders in same candle (>= 5s)
+int      MaxOrdersPerCandle              = 5;     // Maximum orders allowed per candle
+int      MinSecondsBetweenOrdersInCandle = 5;     // Minimum seconds between orders in same candle (>= 5s)
 datetime LastOrderCandleTime             = 0;
 int      OrdersCreatedThisCandle         = 0;
 bool     OrderCreatedThisCandle          = false;
@@ -1707,7 +1710,7 @@ bool IsOneCandleOrderAllowed()
       LastCandleOrderTickMs = 0;
      }
 
-   // Count open orders opened on current candle (persistence guard across ticks and restarts)
+// Count open orders opened on current candle (persistence guard across ticks and restarts)
    int liveCandleOrders = 0;
    datetime mostRecentOrderTimeInCandle = 0;
    for(int i = OrdersTotal() - 1; i >= 0; i--)
@@ -1728,7 +1731,7 @@ bool IsOneCandleOrderAllowed()
         }
      }
 
-   // Count closed orders opened on current candle (in case an order closed within this same candle)
+// Count closed orders opened on current candle (in case an order closed within this same candle)
    int histLimit = MathMin(OrdersHistoryTotal(), 30);
    int historyCandleOrders = 0;
    for(int h = OrdersHistoryTotal() - 1; h >= OrdersHistoryTotal() - histLimit; h--)
@@ -1764,7 +1767,7 @@ bool IsOneCandleOrderAllowed()
       return false;
      }
 
-   // Condition between two orders when opening multiple orders in same candle (minimum MinSecondsBetweenOrdersInCandle seconds)
+// Condition between two orders when opening multiple orders in same candle (minimum MinSecondsBetweenOrdersInCandle seconds)
    if(effectiveOrders > 0 && MinSecondsBetweenOrdersInCandle > 0)
      {
       datetime latestOrderTime = MathMax(LastCandleOrderExactTime, mostRecentOrderTimeInCandle);
@@ -3545,7 +3548,8 @@ void ProcessDeferredOrders()
             continue;
            }
          int liveSSL = GetCurrentSSLDirection();
-         if(liveSSL == 0) liveSSL = GlobalSSLDirection;
+         if(liveSSL == 0)
+            liveSSL = GlobalSSLDirection;
          if(type == OP_SELLSTOP && liveSSL > 0)
            {
             Print("BLOCK REENTRY [Deferred]: Cancelling deferred Sell ReEntry because SSL Direction is BUY (+1).");
@@ -4190,18 +4194,18 @@ string TradeMonitoringLog2="";
 //+------------------------------------------------------------------+
 int SafeOrderSend(string symbol,int orderType,double lots,double price,int slippage,double stopLoss,double takeProfit,string comment,int magic,color arrowColor)
   {
-   // =========================================================================
-   // GATE 0: ORDER CLASSIFICATION & DIRECTION
-   // =========================================================================
+// =========================================================================
+// GATE 0: ORDER CLASSIFICATION & DIRECTION
+// =========================================================================
    bool isRecoveryOrder = (StringFind(comment, "RECOVERY_") == 0);
    bool isReEntryOrder  = (StringFind(comment, "ReEntry") >= 0 || StringFind(comment, "SSL Profit ReEntry") >= 0);
    bool isMarketOrder   = (orderType == OP_BUY || orderType == OP_SELL);
    bool isPendingOrder  = (orderType == OP_BUYSTOP || orderType == OP_SELLSTOP || orderType == OP_BUYLIMIT || orderType == OP_SELLLIMIT);
    int  direction       = (orderType == OP_BUY || orderType == OP_BUYSTOP || orderType == OP_BUYLIMIT) ? OP_BUY : OP_SELL;
 
-   // =========================================================================
-   // GATE 1: CRITICAL SYSTEM & ACCOUNT LEVEL CIRCUIT BREAKERS
-   // =========================================================================
+// =========================================================================
+// GATE 1: CRITICAL SYSTEM & ACCOUNT LEVEL CIRCUIT BREAKERS
+// =========================================================================
    if(!EnableTrading)
      {
       Print("SAFEORDERSEND BLOCKED [Global]: EnableTrading is disabled.");
@@ -4259,7 +4263,7 @@ int SafeOrderSend(string symbol,int orderType,double lots,double price,int slipp
       return -1;
      }
 
-   // Directional SL cooldown protection (skip for recovery orders)
+// Directional SL cooldown protection (skip for recovery orders)
    if(!isRecoveryOrder && IsDirectionBlockedAfterSL(direction))
      {
       Print("SAFEORDERSEND BLOCKED [SL Protection]: Direction ", GetOrderTypeText(direction), " is temporarily blocked after losing SL.");
@@ -4272,9 +4276,9 @@ int SafeOrderSend(string symbol,int orderType,double lots,double price,int slipp
       return -1;
      }
 
-   // =========================================================================
-   // GATE 2: PHYSICAL BROKER CONDITIONS (SPREAD FILTER)
-   // =========================================================================
+// =========================================================================
+// GATE 2: PHYSICAL BROKER CONDITIONS (SPREAD FILTER)
+// =========================================================================
    RefreshRates();
    double currentSpreadUSD = Ask - Bid;
    if(currentSpreadUSD > MaxAllowedSpreadUSD)
@@ -4283,9 +4287,9 @@ int SafeOrderSend(string symbol,int orderType,double lots,double price,int slipp
       return -1;
      }
 
-   // =========================================================================
-   // GATE 3: CANDLE ORDER QUOTA & FREQUENCY GUARD (MAX 5 ORDERS & 5S INTERVAL)
-   // =========================================================================
+// =========================================================================
+// GATE 3: CANDLE ORDER QUOTA & FREQUENCY GUARD (MAX 5 ORDERS & 5S INTERVAL)
+// =========================================================================
    if(isMarketOrder)
      {
       if(!IsOneCandleOrderAllowed())
@@ -4295,9 +4299,9 @@ int SafeOrderSend(string symbol,int orderType,double lots,double price,int slipp
         }
      }
 
-   // =========================================================================
-   // GATE 4: RE-ENTRY ORDER SPECIFIC GATEWAY
-   // =========================================================================
+// =========================================================================
+// GATE 4: RE-ENTRY ORDER SPECIFIC GATEWAY
+// =========================================================================
    if(isReEntryOrder)
      {
       if(!EnableProfitReEntryStop)
@@ -4317,7 +4321,8 @@ int SafeOrderSend(string symbol,int orderType,double lots,double price,int slipp
       // Block Sell ReEntry when SSL is BUY (+1)
       // Block Buy ReEntry when SSL is SELL (-1)
       int liveSSL = GetCurrentSSLDirection();
-      if(liveSSL == 0) liveSSL = GlobalSSLDirection;
+      if(liveSSL == 0)
+         liveSSL = GlobalSSLDirection;
 
       if(direction == OP_SELL && liveSSL > 0)
         {
@@ -4345,9 +4350,9 @@ int SafeOrderSend(string symbol,int orderType,double lots,double price,int slipp
         }
      }
 
-   // =========================================================================
-   // GATE 5: RECOVERY ORDER SPECIFIC GATEWAY
-   // =========================================================================
+// =========================================================================
+// GATE 5: RECOVERY ORDER SPECIFIC GATEWAY
+// =========================================================================
    if(isRecoveryOrder)
      {
       if(!EnableRecoveryOrders)
@@ -4374,7 +4379,8 @@ int SafeOrderSend(string symbol,int orderType,double lots,double price,int slipp
       // BUY Recovery: requires SSLSignal BUY (liveSSL > 0), opposite direction SELL (EMADirection == -1), and opposite SELL is weak (isOppositeWeak == true)
       // SELL Recovery: requires SSLSignal SELL (liveSSL < 0), opposite direction BUY (EMADirection == 1), and opposite BUY is weak (isOppositeWeak == true)
       int liveSSL = GetCurrentSSLDirection();
-      if(liveSSL == 0) liveSSL = GlobalSSLDirection;
+      if(liveSSL == 0)
+         liveSSL = GlobalSSLDirection;
       bool isOppositeWeak = IsEmaWEAKDistanceReduced50PercentFromPeak();
 
       if(direction == OP_BUY)
@@ -4386,15 +4392,16 @@ int SafeOrderSend(string symbol,int orderType,double lots,double price,int slipp
             return -1;
            }
         }
-      else if(direction == OP_SELL)
-        {
-         if(!(liveSSL < 0 && EMADirection == 1 && isOppositeWeak))
+      else
+         if(direction == OP_SELL)
            {
-            Print("SAFEORDERSEND BLOCKED [Recovery Opposite Weak]: SELL recovery rejected. Requires SSL SELL (liveSSL=", liveSSL,
-                  "), opposite EMA BUY (EMADirection=", EMADirection, " == 1), and opposite BUY is weak (isOppositeWeak=", isOppositeWeak, ").");
-            return -1;
+            if(!(liveSSL < 0 && EMADirection == 1 && isOppositeWeak))
+              {
+               Print("SAFEORDERSEND BLOCKED [Recovery Opposite Weak]: SELL recovery rejected. Requires SSL SELL (liveSSL=", liveSSL,
+                     "), opposite EMA BUY (EMADirection=", EMADirection, " == 1), and opposite BUY is weak (isOppositeWeak=", isOppositeWeak, ").");
+               return -1;
+              }
            }
-        }
 
       // 5C. Second Recovery Order: Minimum $2000 Raw Price Gap from 1st Recovery Order
       if(StringFind(comment, "_2") >= 0)
@@ -4433,9 +4440,9 @@ int SafeOrderSend(string symbol,int orderType,double lots,double price,int slipp
         }
      }
 
-   // =========================================================================
-   // GATE 6: STANDARD ENTRY STRATEGY FILTERS & OVERRIDES
-   // =========================================================================
+// =========================================================================
+// GATE 6: STANDARD ENTRY STRATEGY FILTERS & OVERRIDES
+// =========================================================================
    bool isVShapeOverride = ((orderType == OP_BUY || orderType == OP_BUYSTOP || orderType == OP_BUYLIMIT) && GlobalVShapeBuy) ||
                            ((orderType == OP_SELL || orderType == OP_SELLSTOP || orderType == OP_SELLLIMIT) && GlobalVShapeSell) ||
                            StoredSignalOverride;
@@ -4464,7 +4471,7 @@ int SafeOrderSend(string symbol,int orderType,double lots,double price,int slipp
         }
      }
 
-   // 30-Minute Momentum Deferred Queue (if enabled)
+// 30-Minute Momentum Deferred Queue (if enabled)
    if(Enable30MinuteMomentumFilter && Enable30MinuteMomentumForAllOrders && !isVShapeOverride && !isRecoveryOrder)
      {
       if(!PassesDeferredMomentum(orderType))
@@ -4480,8 +4487,9 @@ int SafeOrderSend(string symbol,int orderType,double lots,double price,int slipp
    double sendPrice=price;
    if(orderType==OP_BUY)
       sendPrice=Ask;
-   else if(orderType==OP_SELL)
-      sendPrice=Bid;
+   else
+      if(orderType==OP_SELL)
+         sendPrice=Bid;
    sendPrice=NormalizeDouble(sendPrice,Digits);
 
    if(takeProfit<=0.0 && DefaultOrderProfitUSD>0.0)
@@ -5946,7 +5954,7 @@ double GetDynamicOrderGap(int orderType)
    int patternDirection = GetCachedPatternDirection();
    double pl = GetOpenPL(orderType);
 
-   // 1. Drawdown Scaling: Expand gap progressively per $10 drawdown (scaled by balance multiplier)
+// 1. Drawdown Scaling: Expand gap progressively per $10 drawdown (scaled by balance multiplier)
    double lossStepUSD = 5.0 * (balancelomultipler > 0 ? balancelomultipler : 1.0);
    int multiplier = 1;
    if(pl < 0.0)
@@ -5955,22 +5963,23 @@ double GetDynamicOrderGap(int orderType)
       multiplier = 1 + (int)MathMin(3, MathFloor(MathAbs(pl) / lossStepUSD));
      }
 
-   // 2. Volatility Adaptation & EMA Angle Compression:
+// 2. Volatility Adaptation & EMA Angle Compression:
    double baseMatched   = MinimumSameOrderGapRawMatched;   // default ~50.0
    double baseUnmatched = MinimumSameOrderGapRawUnmatched; // default ~50.0
 
-   // Reduce MinimumSameOrderGapRawMatched by half when MathAbs(GlobalEmaAngle30) < 3.0 (e.g. 50 -> 25)
+// Reduce MinimumSameOrderGapRawMatched by half when MathAbs(GlobalEmaAngle30) < 3.0 (e.g. 50 -> 25)
    if(MathAbs(GlobalEmaAngle30) < 3.0)
      {
       baseMatched = MinimumSameOrderGapRawMatched * 0.5;
      }
-   else if(EnableATRDynamicRungs)
-     {
-      double atrHalf = iATR(Symbol(), PERIOD_M5, 14, 0) * 0.5;
-      baseMatched = MathMax(baseMatched, atrHalf);
-     }
+   else
+      if(EnableATRDynamicRungs)
+        {
+         double atrHalf = iATR(Symbol(), PERIOD_M5, 14, 0) * 0.5;
+         baseMatched = MathMax(baseMatched, atrHalf);
+        }
 
-   // 3. Directional Alignment Check
+// 3. Directional Alignment Check
    bool isSSLMatched     = (orderType == OP_BUY && currentSSL == 1) || (orderType == OP_SELL && currentSSL == -1);
    bool isPatternMatched = (orderType == OP_BUY && patternDirection == 1) || (orderType == OP_SELL && patternDirection == -1);
 
@@ -5980,7 +5989,7 @@ double GetDynamicOrderGap(int orderType)
       return NormalizeDouble(baseMatched * multiplier, Digits);
      }
 
-   // 4. Counter-trend / Unmatched: MUST also scale with multiplier (demand at least 75% of matched spacing)
+// 4. Counter-trend / Unmatched: MUST also scale with multiplier (demand at least 75% of matched spacing)
    double unmatchedGap = MathMax(baseUnmatched, baseMatched * 0.75) * multiplier;
    return NormalizeDouble(unmatchedGap, Digits);
   }
@@ -6213,12 +6222,12 @@ void ChangeLots(double OpenPL, string reason, int orderType, int stoplevelStep)
 
 
 //   }
-if(GlobalSSLDirection != EMADirection)
-  {
-   Lots = 0.01;
+   if(GlobalSSLDirection != EMADirection)
+     {
+      Lots = 0.01;
 
 
-  }
+     }
 
 
 
@@ -6228,7 +6237,7 @@ if(GlobalSSLDirection != EMADirection)
 
 
 //   }
- if(IsEmaWEAKDistanceReduced50PercentFromPeak(orderType)  )//weak
+   if(IsEmaWEAKDistanceReduced50PercentFromPeak(orderType))  //weak
      {
       Lots = 0.01;
 
@@ -6238,7 +6247,7 @@ if(GlobalSSLDirection != EMADirection)
       Lots = 0.01;
 
      }
-      if(IsEmaWEAKDistanceReduced50PercentFromPeak(orderType) &&  GlobalSSLDirection == EMADirection)//weak
+   if(IsEmaWEAKDistanceReduced50PercentFromPeak(orderType) &&  GlobalSSLDirection == EMADirection)//weak
      {
       Lots = 0.01;
 
@@ -6318,17 +6327,17 @@ if(GlobalSSLDirection != EMADirection)
    int requestedDirection = (orderType == OP_BUY || orderType == OP_BUYSTOP || orderType == OP_BUYLIMIT) ? 1 : -1;
 
 
- if(requestedDirection==1 && GetOpenPL(OP_BUY)<=-5)
-    {
-     Lots = 0.01;
+   if(requestedDirection==1 && GetOpenPL(OP_BUY)<=-5)
+     {
+      Lots = 0.01;
 
-    }
-  if(requestedDirection==-1 && GetOpenPL(OP_SELL)<=-5)
+     }
+   if(requestedDirection==-1 && GetOpenPL(OP_SELL)<=-5)
 
-    {
-     Lots = 0.01;
+     {
+      Lots = 0.01;
 
-    }
+     }
 
 
 
@@ -6521,13 +6530,13 @@ void CheckRecoveryOrders()
       return;
 
 
-      //if(IsEmaWEAKDistanceReduced50PercentFromPeak())//weak
-      {
-        // Print("Recovery Order Check Skipped: EMA distance reduced 50% from peak (weak pullback).");
-         //return;
-      }
+//if(IsEmaWEAKDistanceReduced50PercentFromPeak())//weak
+     {
+      // Print("Recovery Order Check Skipped: EMA distance reduced 50% from peak (weak pullback).");
+      //return;
+     }
 
-   // Restrictive weak pullback filter removed per user requirement (keeps 2000 raw gap, removes weak pullback block)
+// Restrictive weak pullback filter removed per user requirement (keeps 2000 raw gap, removes weak pullback block)
    RefreshRates();
    for(int i = OrdersTotal() - 1; i >= 0; i--)
      {
@@ -6578,24 +6587,25 @@ void CheckRecoveryOrders()
          if(adverseDistance < RecoveryMinDistanceRaw * 100 * parentLots)
             continue;
         }
-      else if(recCount == 1)
-        {
-         if(firstRecTicket <= 0)
-            continue;
-         if(!OrderSelect(firstRecTicket, SELECT_BY_TICKET, MODE_TRADES))
-            continue;
-         double firstRecOpenPrice = OrderOpenPrice();
-         double adverseGapFrom1st = (parentType == OP_BUY) ? (firstRecOpenPrice - newExecutionPrice) : (newExecutionPrice - firstRecOpenPrice);
-         if(adverseGapFrom1st < Recovery2ndOrderMinDistanceRaw)
-            continue;
-         // Reselect parent order for subsequent calculations
-         if(!OrderSelect(parentTicket, SELECT_BY_TICKET, MODE_TRADES))
-            continue;
-        }
       else
-        {
-         continue;
-        }
+         if(recCount == 1)
+           {
+            if(firstRecTicket <= 0)
+               continue;
+            if(!OrderSelect(firstRecTicket, SELECT_BY_TICKET, MODE_TRADES))
+               continue;
+            double firstRecOpenPrice = OrderOpenPrice();
+            double adverseGapFrom1st = (parentType == OP_BUY) ? (firstRecOpenPrice - newExecutionPrice) : (newExecutionPrice - firstRecOpenPrice);
+            if(adverseGapFrom1st < Recovery2ndOrderMinDistanceRaw)
+               continue;
+            // Reselect parent order for subsequent calculations
+            if(!OrderSelect(parentTicket, SELECT_BY_TICKET, MODE_TRADES))
+               continue;
+           }
+         else
+           {
+            continue;
+           }
 
       // Minimum $50 raw gap between two recovery orders
       if(!HasMinimumRecoveryOrderGap(parentType, newExecutionPrice, MinGapBetweenRecoveryOrdersRaw))
@@ -6608,7 +6618,8 @@ void CheckRecoveryOrders()
       // BUY Recovery: SSLSignal is BUY (liveSSL > 0), opposite EMADirection is SELL (-1), and opposite SELL is weak (isWeak == true)
       // SELL Recovery: SSLSignal is SELL (liveSSL < 0), opposite EMADirection is BUY (1), and opposite BUY is weak (isWeak == true)
       int liveSSL = GetCurrentSSLDirection();
-      if(liveSSL == 0) liveSSL = GlobalSSLDirection;
+      if(liveSSL == 0)
+         liveSSL = GlobalSSLDirection;
       bool isWeak = IsEmaWEAKDistanceReduced50PercentFromPeak();
 
       bool createRecovery = false;
@@ -6621,7 +6632,7 @@ void CheckRecoveryOrders()
          continue;
 
       double recoveryLots = NormalizeLots(parentLots * RecoveryLotMultiplier);
-      if(RecoveryMaxLots*balancelomultipler > 0.0 && recoveryLots > RecoveryMaxLots*balancelomultipler )
+      if(RecoveryMaxLots*balancelomultipler > 0.0 && recoveryLots > RecoveryMaxLots*balancelomultipler)
          recoveryLots = RecoveryMaxLots*balancelomultipler ;
       recoveryLots = NormalizeLots(recoveryLots);
       if(recoveryLots <= 0)
@@ -6695,9 +6706,9 @@ void RegisterNewCandleOrder(int ticket = -1)
    LastOrderCandleTime = Time[0];
    LastCandleOrderExactTime = TimeCurrent();
    LastCandleOrderTickMs = GetTickCount();
-   Print("CANDLE ORDER REGISTERED: #", OrdersCreatedThisCandle, "/", MaxOrdersPerCandle, 
+   Print("CANDLE ORDER REGISTERED: #", OrdersCreatedThisCandle, "/", MaxOrdersPerCandle,
          (ticket > 0 ? (" (Ticket #" + IntegerToString(ticket) + ")") : ""),
-         " at ", TimeToStr(TimeCurrent(), TIME_SECONDS), 
+         " at ", TimeToStr(TimeCurrent(), TIME_SECONDS),
          " | MinIntervalNext=", MinSecondsBetweenOrdersInCandle, "s");
   }
 
@@ -6976,14 +6987,15 @@ void ManageRecoveryBasket()
                      if(rCurSL == 0.0 || rTargetSL > rCurSL + (Point / 2.0))
                         canModRec = true;
                     }
-                  else if(rType == OP_SELL)
-                    {
-                     rTargetSL = NormalizeDouble(Ask + minSafeDist, Digits);
-                     if(rTargetSL >= rOpen)
-                        rTargetSL = NormalizeDouble(rOpen - 1.0, Digits);
-                     if(rCurSL == 0.0 || rTargetSL < rCurSL - (Point / 2.0))
-                        canModRec = true;
-                    }
+                  else
+                     if(rType == OP_SELL)
+                       {
+                        rTargetSL = NormalizeDouble(Ask + minSafeDist, Digits);
+                        if(rTargetSL >= rOpen)
+                           rTargetSL = NormalizeDouble(rOpen - 1.0, Digits);
+                        if(rCurSL == 0.0 || rTargetSL < rCurSL - (Point / 2.0))
+                           canModRec = true;
+                       }
 
                   if(canModRec && OrderSelect(rTicket, SELECT_BY_TICKET, MODE_TRADES))
                     {
@@ -6991,7 +7003,8 @@ void ManageRecoveryBasket()
                      Print("RECOVERY BASKET - MODIFIED RECOVERY SL: Ticket #", rTicket,
                            " | New SL=", DoubleToString(rTargetSL, Digits),
                            " | ModSuccess=", modR);
-                     if(modR) pairClosed = true;
+                     if(modR)
+                        pairClosed = true;
                     }
                  }
 
@@ -7011,14 +7024,15 @@ void ManageRecoveryBasket()
                         if(parentCurSL == 0.0 || parTargetSL > parentCurSL + (Point / 2.0))
                            canModPar = true;
                        }
-                     else if(parentType == OP_SELL)
-                       {
-                        parTargetSL = NormalizeDouble(Ask + minSafeDist, Digits);
-                        if(parTargetSL >= parentOpen)
-                           parTargetSL = NormalizeDouble(parentOpen - 1.0, Digits);
-                        if(parentCurSL == 0.0 || parTargetSL < parentCurSL - (Point / 2.0))
-                           canModPar = true;
-                       }
+                     else
+                        if(parentType == OP_SELL)
+                          {
+                           parTargetSL = NormalizeDouble(Ask + minSafeDist, Digits);
+                           if(parTargetSL >= parentOpen)
+                              parTargetSL = NormalizeDouble(parentOpen - 1.0, Digits);
+                           if(parentCurSL == 0.0 || parTargetSL < parentCurSL - (Point / 2.0))
+                              canModPar = true;
+                          }
                     }
                   else
                     {
@@ -7028,12 +7042,13 @@ void ManageRecoveryBasket()
                         if(parentCurSL == 0.0 || parTargetSL > parentCurSL + (Point / 2.0))
                            canModPar = true;
                        }
-                     else if(parentType == OP_SELL)
-                       {
-                        parTargetSL = NormalizeDouble(Ask + minSafeDist, Digits);
-                        if(parentCurSL == 0.0 || parTargetSL < parentCurSL - (Point / 2.0))
-                           canModPar = true;
-                       }
+                     else
+                        if(parentType == OP_SELL)
+                          {
+                           parTargetSL = NormalizeDouble(Ask + minSafeDist, Digits);
+                           if(parentCurSL == 0.0 || parTargetSL < parentCurSL - (Point / 2.0))
+                              canModPar = true;
+                          }
                     }
 
                   if(canModPar)
@@ -7042,7 +7057,8 @@ void ManageRecoveryBasket()
                      Print("RECOVERY BASKET - MODIFIED PARENT SL: Ticket #", currentParentTicket,
                            " | New SL=", DoubleToString(parTargetSL, Digits),
                            " | ModSuccess=", modP);
-                     if(modP) pairClosed = true;
+                     if(modP)
+                        pairClosed = true;
                     }
                  }
 
@@ -7772,11 +7788,12 @@ void DeleteOppositePendingReEntryOrders(int liveSSL)
          SafeOrderDelete(OrderTicket(), clrYellow);
         }
       // If SSL is SELL (-1), delete any pending Buy ReEntry Stop
-      else if(liveSSL < 0 && type == OP_BUYSTOP)
-        {
-         Print("DELETING CONFLICTING BUY REENTRY STOP #", OrderTicket(), " because SSL Direction is SELL (-1).");
-         SafeOrderDelete(OrderTicket(), clrYellow);
-        }
+      else
+         if(liveSSL < 0 && type == OP_BUYSTOP)
+           {
+            Print("DELETING CONFLICTING BUY REENTRY STOP #", OrderTicket(), " because SSL Direction is SELL (-1).");
+            SafeOrderDelete(OrderTicket(), clrYellow);
+           }
      }
   }
 //+------------------------------------------------------------------+
@@ -8303,26 +8320,26 @@ void CreateProfitReEntryStop(int closedOrderType, double closedPrice, DailyProte
    if(TradingHaltedUntilNextFlip)
       return;
 
-   // Block ReEntry if EMA Weak Distance is reduced 50% from peak
+// Block ReEntry if EMA Weak Distance is reduced 50% from peak
    if(IsEmaWEAKDistanceReduced50PercentFromPeak(closedOrderType))
      {
       Print("BLOCK REENTRY [CreateProfitReEntryStop]: IsEmaWEAKDistanceReduced50PercentFromPeak() is TRUE. Blocking ReEntry Stop.");
       return;
      }
 
-   // SSL Direction validation for ReEntry orders
+// SSL Direction validation for ReEntry orders
    int liveSSL = GetCurrentSSLDirection();
    if(liveSSL == 0)
       liveSSL = GlobalSSLDirection;
 
-   // Block Sell ReEntry when SSL Direction is BUY (+1)
+// Block Sell ReEntry when SSL Direction is BUY (+1)
    if(closedOrderType == OP_SELL && liveSSL > 0)
      {
       Print("BLOCK REENTRY [CreateProfitReEntryStop]: Sell order closed with profit, but SSL Direction is BUY (+1). Blocking Sell ReEntry Stop.");
       return;
      }
 
-   // Block Buy ReEntry when SSL Direction is SELL (-1)
+// Block Buy ReEntry when SSL Direction is SELL (-1)
    if(closedOrderType == OP_BUY && liveSSL < 0)
      {
       Print("BLOCK REENTRY [CreateProfitReEntryStop]: Buy order closed with profit, but SSL Direction is SELL (-1). Blocking Buy ReEntry Stop.");
@@ -8357,7 +8374,7 @@ void CreateProfitReEntryStop(int closedOrderType, double closedPrice, DailyProte
       entryPrice = Bid - minimumGap;
    entryPrice = NormalizeDouble(entryPrice, Digits);
 
-   // Enforce minimum $50 raw gap between ReEntry order and any existing SSL or ReEntry order
+// Enforce minimum $50 raw gap between ReEntry order and any existing SSL or ReEntry order
    if(!HasMinimumSSLAndReEntryGap(closedOrderType, entryPrice, MinGapBetweenSSLAndReEntryRaw))
      {
       Print("BLOCK REENTRY [CreateProfitReEntryStop]: Minimum $50 raw gap to existing SSL / ReEntry order not met. Planned EntryPrice=", DoubleToString(entryPrice, Digits));
@@ -8406,6 +8423,9 @@ int CachedTotalBuyOrdersTick = -1;
 int CachedTotalSellOrders = -1;
 int CachedTotalSellOrdersTick = -1;
 
+//+------------------------------------------------------------------+
+//|                                                                  |
+//+------------------------------------------------------------------+
 int GetTotalBuyOrders()
   {
    if(CachedTotalBuyOrdersTick == CurrentTickSequence && CachedTotalBuyOrders >= 0)
@@ -8466,6 +8486,9 @@ int GetTotalEAOrders()
    return count;
   }
 
+//+------------------------------------------------------------------+
+//|                                                                  |
+//+------------------------------------------------------------------+
 void InvalidateTotalEAOrdersCache()
   {
    CachedTotalEAOrders = -1;
@@ -9314,7 +9337,7 @@ void ManagePartialClosesLoss()
       double orderLots     = OrderLots();
       int    currentTicket = OrderTicket();
 
-       double lossTrigger = 0.0;
+      double lossTrigger = 0.0;
       double lotsToClose = 0.01*balancelomultipler;
 
       if(MathAbs(orderLots - (0.05*balancelomultipler)) < 0.000001)
@@ -9325,7 +9348,7 @@ void ManagePartialClosesLoss()
          if(MathAbs(orderLots - 0.04) < 0.000001)
            {
             // lossTrigger = -(4.80*balancelomultipler*(partialLossMultipler));// 48/4=12
-             lossTrigger = -(6*balancelomultipler*(partialLossMultipler));// 48/4=12
+            lossTrigger = -(6*balancelomultipler*(partialLossMultipler));// 48/4=12
 
            }
          else
@@ -10020,8 +10043,10 @@ void ManageProfitLadder()
 void CalculateSSL(int shift, double &sslUp, double &sslDown, int &hlv)
   {
    static int cachedSSLSequence = -1;
-   static double cachedSSLUp0 = 0.0, cachedSSLDown0 = 0.0; static int cachedSSLHlv0 = 0;
-   static double cachedSSLUp1 = 0.0, cachedSSLDown1 = 0.0; static int cachedSSLHlv1 = 0;
+   static double cachedSSLUp0 = 0.0, cachedSSLDown0 = 0.0;
+   static int cachedSSLHlv0 = 0;
+   static double cachedSSLUp1 = 0.0, cachedSSLDown1 = 0.0;
+   static int cachedSSLHlv1 = 0;
    static bool cachedSSLShift0Valid = false;
    static bool cachedSSLShift1Valid = false;
 
@@ -10073,13 +10098,14 @@ void CalculateSSL(int shift, double &sslUp, double &sslDown, int &hlv)
             cachedSSLHlv0 = hlv;
             cachedSSLShift0Valid = true;
            }
-         else if(shift == 1)
-           {
-            cachedSSLUp1 = sslUp;
-            cachedSSLDown1 = sslDown;
-            cachedSSLHlv1 = hlv;
-            cachedSSLShift1Valid = true;
-           }
+         else
+            if(shift == 1)
+              {
+               cachedSSLUp1 = sslUp;
+               cachedSSLDown1 = sslDown;
+               cachedSSLHlv1 = hlv;
+               cachedSSLShift1Valid = true;
+              }
          return;
         }
      }
@@ -10556,6 +10582,19 @@ void UpdateDashboard(DailyProtectionState &state)
   {
    int totalOrders=0,buyOrders=0,sellOrders=0,pendingOrders=0;
    double floatingProfit=0,totalSwap=0,totalCommission=0;
+   double nearestBuyDist=999999.0, nearestSellDist=999999.0;
+   int recCountTotal=0, recCount1st=0, recCount2nd=0;
+   int securedOrdersCount=0;
+   int uniqueRecParents[50];
+   double recParentProfit[50];
+   ArrayInitialize(uniqueRecParents, 0);
+   ArrayInitialize(recParentProfit, 0.0);
+   int uniqueRecParentsCount=0;
+
+   RefreshRates();
+   double curAsk = Ask;
+   double curBid = Bid;
+
    for(int i=OrdersTotal()-1; i>=0; i--)
      {
       if(!OrderSelect(i,SELECT_BY_POS,MODE_TRADES))
@@ -10568,16 +10607,81 @@ void UpdateDashboard(DailyProtectionState &state)
       totalOrders++;
       if(type==OP_BUY || type==OP_SELL)
         {
-         if(type==OP_BUY)
-            buyOrders++;
-         else
-            sellOrders++;
+         double orderPL = OrderProfit()+OrderSwap()+OrderCommission();
          floatingProfit+=OrderProfit();
          totalSwap+=OrderSwap();
          totalCommission+=OrderCommission();
+
+         if(type==OP_BUY)
+           {
+            buyOrders++;
+            double d = MathAbs(curAsk - OrderOpenPrice());
+            if(d < nearestBuyDist)
+               nearestBuyDist = d;
+            if(OrderStopLoss() > OrderOpenPrice() && OrderStopLoss() > 0)
+               securedOrdersCount++;
+           }
+         else
+           {
+            sellOrders++;
+            double d = MathAbs(curBid - OrderOpenPrice());
+            if(d < nearestSellDist)
+               nearestSellDist = d;
+            if(OrderStopLoss() < OrderOpenPrice() && OrderStopLoss() > 0)
+               securedOrdersCount++;
+           }
+
+         string cmt = OrderComment();
+         if(StringFind(cmt, "RECOVERY_") == 0)
+           {
+            recCountTotal++;
+            if(StringFind(cmt, "_2") > 0)
+               recCount2nd++;
+            else
+               recCount1st++;
+
+            int pTicket = (int)StringToInteger(StringSubstr(cmt, 9));
+            if(pTicket > 0)
+              {
+               bool found = false;
+               for(int u = 0; u < uniqueRecParentsCount; u++)
+                 {
+                  if(uniqueRecParents[u] == pTicket)
+                    {
+                     recParentProfit[u] += orderPL;
+                     found = true;
+                     break;
+                    }
+                 }
+               if(!found && uniqueRecParentsCount < 50)
+                 {
+                  uniqueRecParents[uniqueRecParentsCount] = pTicket;
+                  recParentProfit[uniqueRecParentsCount] = orderPL;
+                  uniqueRecParentsCount++;
+                 }
+              }
+           }
         }
       else
          pendingOrders++;
+     }
+
+// Aggregate parent order floating PL into recovery basket total
+   double totalRecBasketProfit = 0.0;
+   for(int u = 0; u < uniqueRecParentsCount; u++)
+     {
+      int pTicket = uniqueRecParents[u];
+      for(int i = OrdersTotal() - 1; i >= 0; i--)
+        {
+         if(!OrderSelect(i, SELECT_BY_POS, MODE_TRADES))
+            continue;
+         if(OrderTicket() == pTicket)
+           {
+            recParentProfit[u] += (OrderProfit() + OrderSwap() + OrderCommission());
+            break;
+           }
+        }
+      totalRecBasketProfit += recParentProfit[u];
      }
 
    double netProfit=floatingProfit+totalSwap+totalCommission;
@@ -10825,124 +10929,226 @@ void UpdateDashboard(DailyProtectionState &state)
    else
       strong= " STRONG";
 
-   string txLock="FLIP Step "+FlipLadderStepUSD*balancelomultipler+"% Day Stop $"+DailyEquityStopUSD*balancelomultipler+""+" Flip Stop $"+TargetProfitPerFlipUSD*balancelomultipler+"";
+// 1. ANGLE AND HALVING RULE
+   double curAngle = GlobalEmaAngle30;
+   bool isAngleHalved = (MathAbs(curAngle) < 3.0);
+   string angleStr = isAngleHalved ?
+                     StringConcatenate(DoubleToString(curAngle, 2), "° (<3°: GAP $25 HALVED)") :
+                     StringConcatenate(DoubleToString(curAngle, 2), "° (>=3°: GAP $50 FULL)");
+   color angleColor = isAngleHalved ? clrGold : clrDeepSkyBlue;
 
-   CreateDashboardPanel(DASH_PREFIX+"PANEL",x,y,w,panelHeight,C'12,16,22');
-   CreateDashboardPanel(DASH_PREFIX+"HEADER",x,y,w,38,C'25,70,115');
-   CreateDashboardLabel(DASH_PREFIX+"TITLE",glbVersion,tx,y+8,11,clrWhite);
-   CreateDashboardLabel(DASH_PREFIX+"SUBTITLE",Symbol()+"  |  "+TimeframeToString(Period()),tx+w-125,y+10,8,clrLightGray);
-   CreateDashboardLabel(DASH_PREFIX+"withdraw", "Withdraw : 20 % from the Profit",tx,y+20,10,statusColor);
+// 2. 50% WEAK RETRACEMENT
+   bool isWeak50 = IsEmaWEAKDistanceReduced50PercentFromPeak();
+   string weakStr = isWeak50 ? "WEAK (Rec OK | ReEntry BLK)" : "STRONG (Trend Active | ReEntry OK)";
+   color weakColor = isWeak50 ? clrOrange : clrLime;
 
-   CreateDashboardLabel(DASH_PREFIX+"STATUS", "STATUS       : "+statusText,tx,y+47,10,clrTomato);
-   CreateDashboardLabel(DASH_PREFIX+"SIGNAL","SSL SIGNAL-30   : "+sslDirection+"  ("+strong+")"+" "+DoubleToString((GlobalEmaAngle30),2),tx,y+67,9,sslColor);
+// 3. DYNAMIC ORDER GAPS
+   double reqBuyGap = GetDynamicOrderGap(OP_BUY);
+   double reqSellGap = GetDynamicOrderGap(OP_SELL);
 
-// ================= 1. EMA FLIP PROFIT LADDER (SWAPPED TO TOP) =================
-   CreateDashboardPanel(DASH_PREFIX+"SEC_EMA_LADDER",x,y+90,w,22,C'30,38,50');
-   CreateDashboardLabel(DASH_PREFIX+"EMA_LAD_H","LADDER "+txLock,tx,y+94,9,clrAqua);
+   string buyGapStr = "";
+   color buyGapColor = clrLime;
+   if(buyOrders == 0)
+      buyGapStr = "No Buys Open [PASS]";
+   else
+      if(nearestBuyDist >= reqBuyGap)
+         buyGapStr = StringConcatenate("Near $", DoubleToString(nearestBuyDist, 1), " / Req $", DoubleToString(reqBuyGap, 1), " [PASS]");
+      else
+        {
+         buyGapStr = StringConcatenate("Near $", DoubleToString(nearestBuyDist, 1), " / Req $", DoubleToString(reqBuyGap, 1), " [BLOCK]");
+         buyGapColor = clrTomato;
+        }
 
-   if(FlipLadderStepUSD==0)
-      FlipLadderStepUSD=5*balancelomultipler;
-   int currEmaLvl = (int)MathFloor(HighestCycleProfitUSD / (FlipLadderStepUSD*balancelomultipler));
-   double emaLockedPrf = (currEmaLvl >= 1) ? (currEmaLvl - FlipStepbackLevelCount) * (FlipLadderStepUSD*balancelomultipler) : 0.0;
-   double emaNextTarget = (currEmaLvl + 1) * FlipLadderStepUSD*balancelomultipler;
+   string sellGapStr = "";
+   color sellGapColor = clrLime;
+   if(sellOrders == 0)
+      sellGapStr = "No Sells Open [PASS]";
+   else
+      if(nearestSellDist >= reqSellGap)
+         sellGapStr = StringConcatenate("Near $", DoubleToString(nearestSellDist, 1), " / Req $", DoubleToString(reqSellGap, 1), " [PASS]");
+      else
+        {
+         sellGapStr = StringConcatenate("Near $", DoubleToString(nearestSellDist, 1), " / Req $", DoubleToString(reqSellGap, 1), " [BLOCK]");
+         sellGapColor = clrTomato;
+        }
 
-// Ensure securedBaseline is defined in your EA (e.g., your base protection capital)
-   double securedBaseline = state.DayStartBalance; // Adjust this to your actual baseline variable if different
-   double expectedEquity = securedBaseline + emaNextTarget;
+// 4. SPREAD & CANDLE QUOTA & ANTI-SPAM
+   double curSpread = (curAsk - curBid);
+   bool spreadPass = (curSpread <= MaxAllowedSpreadUSD);
+   string spreadStr = StringConcatenate("$", DoubleToString(curSpread, 2), " / Max $", DoubleToString(MaxAllowedSpreadUSD, 2), spreadPass ? " [PASS]" : " [BLOCK]");
+   color spreadColor = spreadPass ? clrLime : clrTomato;
 
+   int cndlOrders = OrdersCreatedThisCandle;
+   bool quotaPass = (cndlOrders < MaxOrdersPerCandle);
+   string quotaStr = StringConcatenate(IntegerToString(cndlOrders), " / ", IntegerToString(MaxOrdersPerCandle), quotaPass ? " [PASS]" : " [MAXED]");
+   color quotaColor = quotaPass ? clrLime : clrTomato;
 
+   string antiSpamStr = "READY";
+   color antiSpamColor = clrLime;
+   if(LastCandleOrderTickMs > 0)
+     {
+      uint elapsedSec = (GetTickCount() - LastCandleOrderTickMs) / 1000;
+      if(elapsedSec < (uint)MinSecondsBetweenOrdersInCandle)
+        {
+         antiSpamStr = StringConcatenate("WAIT (", IntegerToString(MinSecondsBetweenOrdersInCandle - (int)elapsedSec), "s)");
+         antiSpamColor = clrGold;
+        }
+      else
+        {
+         antiSpamStr = StringConcatenate("READY (", IntegerToString((int)elapsedSec), "s)");
+        }
+     }
 
-// 3. Combined total cycle profit (Closed + Open)
-   double totalCycleProfit = profitAfterFlip +  GetEAFloatingPL();
+// 5. RE-ENTRY & RECOVERY ENGINE
+   string reEntryStr = "";
+   color reEntryColor = clrSilver;
+   if(!EnableProfitReEntryStop)
+      reEntryStr = "DISABLED";
+   else
+      if(isWeak50)
+        {
+         reEntryStr = "PAUSED (50% Weak Retrace Block)";
+         reEntryColor = clrGold;
+        }
+      else
+        {
+         reEntryStr = StringConcatenate("READY (Gap $", DoubleToString(MinGapBetweenSSLAndReEntryRaw, 0), " Raw)");
+         reEntryColor = clrLime;
+        }
 
-// 4. Calculate starting balance before this flip's closed profits
-// double startingBalance = AccountBalance() - realizedProfit;
+   string rec1Str = "";
+   color rec1Color = clrSilver;
+   string rec2Str = "";
+   color rec2Color = clrSilver;
+   if(!EnableRecoveryOrders)
+     {
+      rec1Str = "DISABLED";
+      rec2Str = "DISABLED";
+     }
+   else
+     {
+      bool canRecBuy = (currentSSLDirection > 0 && EMADirection == -1 && isWeak50);
+      bool canRecSell = (currentSSLDirection < 0 && EMADirection == 1 && isWeak50);
+      if(canRecBuy)
+        {
+         rec1Str = "ELIGIBLE (BUY Rec: SSL+ EMA- Wk)";
+         rec1Color = clrLime;
+        }
+      else
+         if(canRecSell)
+           {
+            rec1Str = "ELIGIBLE (SELL Rec: SSL- EMA+ Wk)";
+            rec1Color = clrLime;
+           }
+         else
+           {
+            rec1Str = "WAITING (Need Opp-Weak Trend)";
+            rec1Color = clrGold;
+           }
 
+      if(recCount1st > 0)
+        {
+         rec2Str = StringConcatenate("1st Rec Open | Need $", DoubleToString(Recovery2ndOrderMinDistanceRaw, 0), " Gap");
+         rec2Color = clrGold;
+        }
+      else
+        {
+         rec2Str = "IDLE (No 1st Rec Open)";
+         rec2Color = clrSilver;
+        }
+     }
 
+   double targetRecProfit = (RecoveryBasketProfitUSD > 0 ? RecoveryBasketProfitUSD : 1.0) * (balancelomultipler > 1 ? balancelomultipler : 1);
+   string recExitStr = "";
+   color recExitColor = clrSilver;
+   if(uniqueRecParentsCount > 0)
+     {
+      recExitStr = StringConcatenate("P/L: ", (totalRecBasketProfit >= 0 ? "+$" : "-$"), DoubleToString(MathAbs(totalRecBasketProfit), 2), " / Tgt +$", DoubleToString(targetRecProfit, 2), " (", IntegerToString(uniqueRecParentsCount), " Open)");
+      recExitColor = (totalRecBasketProfit >= targetRecProfit) ? clrLime : (totalRecBasketProfit >= 0 ? clrLime : clrTomato);
+     }
+   else
+     {
+      recExitStr = StringConcatenate("No Active Basket (Target +$", DoubleToString(targetRecProfit, 2), ")");
+     }
 
-   CreateDashboardLabel(DASH_PREFIX+"EMA_LAD_HIGH","HIGHEST Flip p/L : $"+DoubleToString(totalCycleProfit,2),tx,y+117,9,clrWhite);
-// CreateDashboardLabel(DASH_PREFIX+"EMA_LAD_LVL","CURRENT TIER   : LVL "+IntegerToString(currEmaLvl)+" (Step $"+DoubleToString((FlipLadderStepUSD*balancelomultipler),0)+")",tx,y+137,9,clrYellow);
-   CreateDashboardLabel(DASH_PREFIX+"EMA_LAD_LVL","Equity Lowest/Current  $"+DoubleToString(LowestEquity,2)+" /  $"+DoubleToString((currentEquity),0)+"",tx,y+137,9,clrYellow);
+// 6. ORDER CLOSING & EXIT ENGINE
+   double targetFlipUSD = TargetProfitPerFlipUSD * balancelomultipler;
+   double diffToFlipTP = targetFlipUSD - netProfit;
+   string flipTPStr = StringConcatenate("Target: +$", DoubleToString(targetFlipUSD, 2), " | Float: ", (netProfit >= 0 ? "+$" : "-$"), DoubleToString(MathAbs(netProfit), 2));
+   string flipProgStr = (diffToFlipTP <= 0) ? "TARGET HIT -> CLOSING BASKET" : StringConcatenate("Need +$", DoubleToString(diffToFlipTP, 2), " to Close Basket");
+   color flipColor = (diffToFlipTP <= 0) ? clrLime : (netProfit >= 0 ? clrLime : clrTomato);
 
-   string nextLevelLine = StringConcatenate("NEXT LEVEL HIT : $", DoubleToString(emaNextTarget, 2), " / $", DoubleToString(expectedEquity, 2));
-   string displayLine = StringConcatenate("LOCKED PROFIT : $", DoubleToString(emaLockedPrf, 2), "  /  EQUITY : $", DoubleToString(AccountEquity(), 2));
+   double dailyStopUSD = DailyEquityStopUSD * balancelomultipler;
+   double remStopBuffer = dailyStopUSD + dayPL;
+   string dailySLStr = StringConcatenate("Stop: -$", DoubleToString(dailyStopUSD, 2), " | Buffer: $", DoubleToString(remStopBuffer, 2));
+   color dailySLColor = (remStopBuffer > dailyStopUSD * 0.5) ? clrLime : (remStopBuffer > 0 ? clrGold : clrTomato);
 
-   CreateDashboardLabel(DASH_PREFIX+"EMA_LAD_TARGET", nextLevelLine, tx, y+157, 8, clrLime);
-   CreateDashboardLabel(DASH_PREFIX+"EMA_LAD_LOCKED", displayLine, tx, y+177, 8, clrOrange);
+   string sec1Str = StringConcatenate("ACTIVE ($", DoubleToString(SecureOneDollarProfitPerOrder, 2), " Lock) | Secured: ", IntegerToString(securedOrdersCount), " / ", IntegerToString(buyOrders + sellOrders));
+   string oppCloseStr = CloseOppositeOrdersOnSignal ? StringConcatenate("ACTIVE (Close <= $", DoubleToString(closeOppositeLossThreshold, 2), " Loss on Signal Flip)") : "DISABLED";
 
-   string emaHaltText = TradingHaltedUntilNextFlip ? "HALTED (WAITING FLIP)" : "ACTIVE";
-   color emaHaltColor = TradingHaltedUntilNextFlip ? clrTomato : clrLime;
-   CreateDashboardLabel(DASH_PREFIX+"EMA_LAD_STATUS","LADDER STATUS  : "+emaHaltText,tx,y+197,9,emaHaltColor);
-   double totalContinuousProfit = AccountEquity() - ActiveEquityBaseline;
-//  if(FlipLadderStepUSD==0) FlipLadderStepUSD=1;
+// 7. VISUAL RENDERING (COMPACT 510px PANEL)
+   x = DashboardRightGap;
+   y = DashboardTopGap;
+   tx = x + 12;
+   w = DashboardWidth;
+   panelHeight = 505;
 
-   int ladderLevel = (int)MathFloor(HighestCycleProfitUSD / (FlipLadderStepUSD*balancelomultipler));
-// double lockedProfitTarget = (ladderLevel - 2) * FlipLadderStepUSD;
+// One-time cleanup if layout version changes to avoid orphaned labels
+   static string lastLayoutVer = "";
+   if(lastLayoutVer != glbVersion)
+     {
+      DeleteDashboardObjects();
+      lastLayoutVer = glbVersion;
+     }
 
-// double lockedProfitTarget = (ladderLevel - 1) * FlipLadderStepUSD;
-   double lockedProfitTarget = (ladderLevel - FlipStepbackLevelCount) * (FlipLadderStepUSD*balancelomultipler);
+// Master Background Panel
+   CreateDashboardPanel(DASH_PREFIX+"PANEL", x, y, w, panelHeight, C'12,16,22');
 
-   double targetEquity =
-      Ladder5PercentBaseline *
-      (1.0 + (CloseOrdersAtProfitFromOpeningBalanceEveryStep*balancelomultipler / 100.0));
+// Header Panel
+   CreateDashboardPanel(DASH_PREFIX+"HEADER", x, y, w, 38, C'25,70,115');
+   string verShort = "V10008 | " + Symbol() + " " + TimeframeToString(Period());
+   CreateDashboardLabel(DASH_PREFIX+"TITLE", verShort, tx, y+6, 9, clrWhite);
+   CreateDashboardLabel(DASH_PREFIX+"WITHDRAW", "Withdraw : 20 % from the Profit", tx, y+22, 9, clrDeepSkyBlue);
 
+// Status & Bal/Eq/P&L
+   CreateDashboardLabel(DASH_PREFIX+"STATUS", "STATUS  : " + statusText, tx, y+44, 9, statusColor);
+   CreateDashboardLabel(DASH_PREFIX+"BALEQ", "BAL/EQ  : $" + DoubleToString(AccountBalance(), 2) + " / $" + DoubleToString(AccountEquity(), 2), tx, y+62, 9, clrWhite);
+   CreateDashboardLabel(DASH_PREFIX+"FLOAT", "FLOAT   : " + (netProfit >= 0 ? "+$" : "-$") + DoubleToString(MathAbs(netProfit), 2) + " | DAY: " + (dayPL >= 0 ? "+$" : "-$") + DoubleToString(MathAbs(dayPL), 2) + " (" + DoubleToString(dayPLPct, 1) + "%)", tx, y+80, 8, pnlColor);
 
-   CreateDashboardLabel(DASH_PREFIX+"EMA_LAD_BASE","SECURED BASELINE: $"+DoubleToString(ActiveEquityBaseline, 2)+" / $"+DoubleToString(totalContinuousProfit, 2)+" <= $"+DoubleToString(lockedProfitTarget, 2),tx,y+210,8,clrSilver);
-// ================= 2. ACCOUNT & EQUITY =================
-   CreateDashboardPanel(DASH_PREFIX+"SEC_ACCOUNT",x,y+222,w,22,C'30,38,50');
-   CreateDashboardLabel(DASH_PREFIX+"ACCOUNT_H","ACCOUNT & EQUITY",tx,y+226,9,clrAqua);
-   CreateDashboardLabel(DASH_PREFIX+"BALANCE","BALANCE      : $"+DoubleToString(AccountBalance(),2) +" / "+ DoubleToString(gbltargetEquity,2),tx,y+249,9,clrWhite);
-   CreateDashboardLabel(DASH_PREFIX+"EQUITY","EQUITY       : $"+DoubleToString(AccountEquity(),2)+"/ "+DoubleToString(emaLockedPrf,2),tx,y+269,9,clrLime);
-   CreateDashboardLabel(DASH_PREFIX+"FREEMARGIN","FREE MARGIN   : $"+DoubleToString(AccountFreeMargin(),2),tx,y+289,9,clrWhite);
-   CreateDashboardLabel(DASH_PREFIX+"DAYPL","DAY P/L       : "+(dayPL>=0?"+":"")+DoubleToString(dayPL,2)+" ("+DoubleToString(dayPLPct,1)+"%)",tx,y+309,9,dayPL>=0?clrLime:clrTomato);
+// SECTION 1: ORDER CREATION ENGINE
+   CreateDashboardPanel(DASH_PREFIX+"S1_BAR", x, y+98, w, 18, C'30,45,65');
+   CreateDashboardLabel(DASH_PREFIX+"S1_H", "--- ORDER CREATION ENGINE ---", tx, y+100, 8, clrAqua);
+   CreateDashboardLabel(DASH_PREFIX+"S1_SSL", "SSL-30  : " + sslDirection + " (" + strong + ") | EMA: " + emaState, tx, y+118, 8, sslColor);
+   CreateDashboardLabel(DASH_PREFIX+"S1_ANG", "EMA-30  : " + angleStr, tx, y+134, 8, angleColor);
+   CreateDashboardLabel(DASH_PREFIX+"S1_WEAK", "PULLBACK: " + weakStr, tx, y+150, 8, weakColor);
+   CreateDashboardLabel(DASH_PREFIX+"S1_BGAP", "BUY GAP : " + buyGapStr, tx, y+166, 8, buyGapColor);
+   CreateDashboardLabel(DASH_PREFIX+"S1_SGAP", "SELL GAP: " + sellGapStr, tx, y+182, 8, sellGapColor);
+   CreateDashboardLabel(DASH_PREFIX+"S1_SPRD", "SPREAD  : " + spreadStr, tx, y+198, 8, spreadColor);
+   CreateDashboardLabel(DASH_PREFIX+"S1_QTA", "CANDLE  : " + quotaStr + " | Anti-Spam: " + antiSpamStr, tx, y+214, 8, quotaColor);
+   CreateDashboardLabel(DASH_PREFIX+"S1_ORDS", "ORDERS  : " + IntegerToString(totalOrders) + " / " + IntegerToString(MaxOpenOrders) + " (B:" + IntegerToString(buyOrders) + " S:" + IntegerToString(sellOrders) + " P:" + IntegerToString(pendingOrders) + ")", tx, y+230, 8, clrWhite);
 
-// ================= 3. DAY PROFIT LADDER =================
-   CreateDashboardPanel(DASH_PREFIX+"SEC_LADDER",x,y+334,w,22,C'30,38,50');
-   CreateDashboardLabel(DASH_PREFIX+"LADDER_H","DAY PROFIT LADDER - ONLY DAILY PROTECTION",tx,y+338,9,clrAqua);
-   CreateDashboardLabel(DASH_PREFIX+"DPL_START","OPEN BAL/EQ  : $"+DoubleToString(DayProfitLadderStartBalance,2)+" / $"+DoubleToString(DayProfitLadderStartEquity,2),tx,y+361,8,clrWhite);
-   CreateDashboardLabel(DASH_PREFIX+"DPL_STAGE","CURRENT STAGE: X"+IntegerToString(DayProfitLadderStage),tx,y+381,9,clrYellow);
-   CreateDashboardLabel(DASH_PREFIX+"DPL_TARGET","NEXT TARGET  : $"+DoubleToString(DayProfitLadderNextTargetEquity,2),tx,y+401,8,clrLime);
-   CreateDashboardLabel(DASH_PREFIX+"DPL_LOCK","PROTECTION   : $"+DoubleToString(DayProfitLadderProtectionEquity,2)+" / "+DoubleToString(DayProfitLadderNextTargetEquity-DayProfitLadder1Amount,2),tx,y+421,8,clrGold);
-   CreateDashboardLabel(DASH_PREFIX+"PROGRESS","NEXT TARGET PROGRESS : "+DoubleToString(ladderProgress,1)+"%",tx,y+441,8,clrWhite);
-   string dplStatus = DayProfitLadderTradingStopped ? "STOPPED" : "TRADING";
-   color dplStatusColor = DayProfitLadderTradingStopped ? clrTomato : clrLime;
-   CreateDashboardLabel(DASH_PREFIX+"DPL_STATUS","DAY LADDER   : "+dplStatus,tx,y+458,9,dplStatusColor);
+// SECTION 2: RE-ENTRY & RECOVERY ENGINE
+   CreateDashboardPanel(DASH_PREFIX+"S2_BAR", x, y+248, w, 18, C'30,45,65');
+   CreateDashboardLabel(DASH_PREFIX+"S2_H", "--- RE-ENTRY & RECOVERY ENGINE ---", tx, y+250, 8, clrAqua);
+   CreateDashboardLabel(DASH_PREFIX+"S2_RE", "RE-ENTRY: " + reEntryStr, tx, y+268, 8, reEntryColor);
+   CreateDashboardLabel(DASH_PREFIX+"S2_REC1", "1ST REC : " + rec1Str, tx, y+284, 8, rec1Color);
+   CreateDashboardLabel(DASH_PREFIX+"S2_REC2", "2ND REC : " + rec2Str, tx, y+300, 8, rec2Color);
+   CreateDashboardLabel(DASH_PREFIX+"S2_EXIT", "REC EXIT: " + recExitStr, tx, y+316, 8, recExitColor);
 
-// ================= 4. MARKET-MOMENT CONFIRMATIONS (SWAPPED DOWN) =================
-   CreateDashboardPanel(DASH_PREFIX+"SEC_CONFIRM",x,y+483,w,22,C'30,38,50');
-   CreateDashboardLabel(DASH_PREFIX+"CONF_H","MARKET-MOMENT CONFIRMATIONS",tx,y+487,9,clrAqua);
-   CreateDashboardLabel(DASH_PREFIX+"CONF_H1","H1 DIRECTION : "+h1Text+"  ["+h1Mark+"]",tx,y+510,9,h1Color);
-   CreateDashboardLabel(DASH_PREFIX+"CONF_M5","M5 3-CANDLE  : "+m5Text+"  ["+m5Mark+"]",tx,y+530,9,m5Color);
-   CreateDashboardLabel(DASH_PREFIX+"CONF_EMA","EMA "+IntegerToString(InpEMA200Period)+"     : "+emaState+"  ["+emaMark+"]",tx,y+550,9,emaConfirmColor);
-   CreateDashboardLabel(DASH_PREFIX+"CONF_30M","30M MOMENTUM : "+DoubleToString(dashboardMomentumDiff,Digits)+" / "+DoubleToString(dashboardMomentumThreshold,Digits)+"  ["+momMark+"]",tx,y+570,8,momentumColor);
-   CreateDashboardLabel(DASH_PREFIX+"CONF_ATR","M5 RANGE/ATR: "+DoubleToString(dashboardATRRatio,2)+" / "+DoubleToString(MaxCandleRangeATRMultiple,2)+"  ["+(dashboardExtremeVol?"EXTREME":"OK")+"]",tx,y+590,8,dashboardExtremeVol?clrTomato:clrLime);
-   CreateDashboardLabel(DASH_PREFIX+"CONF_SCORE",scoreText,tx,y+610,10,scoreColor);
-   CreateDashboardLabel(DASH_PREFIX+"CONF_RULE","SSL MASTER | H1/M5/EMA/30M score | H1 opposite / ATR spike caps lot",tx,y+629,7,clrSilver);
-   CreateDashboardLabel(DASH_PREFIX+"PRICE","BID / ASK    : "+DoubleToString(Bid,Digits)+" / "+DoubleToString(Ask,Digits),tx,y+648,9,clrWhite);
+// SECTION 3: ORDER CLOSING ENGINE
+   CreateDashboardPanel(DASH_PREFIX+"S3_BAR", x, y+334, w, 18, C'30,45,65');
+   CreateDashboardLabel(DASH_PREFIX+"S3_H", "--- ORDER CLOSING & EXIT ENGINE ---", tx, y+336, 8, clrAqua);
+   CreateDashboardLabel(DASH_PREFIX+"S3_FLIP", "FLIP TP : " + flipTPStr, tx, y+354, 8, flipColor);
+   CreateDashboardLabel(DASH_PREFIX+"S3_GOAL", "TP GOAL : " + flipProgStr, tx, y+370, 8, flipColor);
+   CreateDashboardLabel(DASH_PREFIX+"S3_SL", "HARD SL : " + dailySLStr, tx, y+386, 8, dailySLColor);
+   CreateDashboardLabel(DASH_PREFIX+"S3_LOCK", "SL LOCK : " + sec1Str, tx, y+402, 8, clrLime);
+   CreateDashboardLabel(DASH_PREFIX+"S3_OPP", "OPP CLS : " + oppCloseStr, tx, y+418, 8, clrWhite);
 
-// ================= 5. RISK & STOP-LOSS PROTECTION =================
-   CreateDashboardPanel(DASH_PREFIX+"SEC_RISK",x,y+673,w,22,C'30,38,50');
-   int lotMultiplierDiv = (AccountMultiplierLOT > 0) ? AccountMultiplierLOT : 500;
-   if(lotMultiplierDiv<=0)
-      lotMultiplierDiv=1;
-
-   balancelomultipler = (int)(AccountEquity() / lotMultiplierDiv);
-   if(balancelomultipler < 1)
-      balancelomultipler = 1;
-   CreateDashboardLabel(DASH_PREFIX+"RISK_H","RISK & STOP-LOSS PROTECTION",tx,y+677,9,clrAqua);
-   CreateDashboardLabel(DASH_PREFIX+"FLOAT","FLOATING P/L : "+(netProfit>=0?"+":"")+DoubleToString(netProfit,2),tx,y+700,9,pnlColor);
-   CreateDashboardLabel(DASH_PREFIX+"ORDERS","ORDERS       : "+IntegerToString(totalOrders)+" / "+IntegerToString(MaxOpenOrders)+"   B:"+IntegerToString(buyOrders)+" S:"+IntegerToString(sellOrders),tx,y+720,9,clrWhite);
-   CreateDashboardLabel(DASH_PREFIX+"LOTS","LOTS         : B "+DoubleToString(GetTotalLots(OP_BUY),2)+" / S "+DoubleToString(GetTotalLots(OP_SELL),2)+" Multi X "+IntegerToString(balancelomultipler),tx,y+740,9,clrWhite);
-   CreateDashboardLabel(DASH_PREFIX+"SLRISK","SL LOSSES    : "+IntegerToString(LosingSLCount)+" | CONTINUE AFTER SL: "+(ContinueTradingAfterSL?"YES":"NO"),tx,y+760,9,ContinueTradingAfterSL?clrLime:(LosingSLCount>0?clrOrangeRed:clrLime));
-   CreateDashboardLabel(DASH_PREFIX+"BASKET","BASKET LOCK  : $"+DoubleToString(BasketNewOrderLossLimitUSD,2)+" | ROOM $"+DoubleToString(riskRemaining,2),tx,y+780,9,HasBasketNewOrderLossLimit()?clrTomato:clrLime);
-   CreateDashboardLabel(DASH_PREFIX+"COOLDOWN","SL COOLDOWN  : "+(SLProtectionUntil>TimeCurrent()?TimeToString(SLProtectionUntil,TIME_SECONDS):"READY"),tx,y+800,9,SLProtectionUntil>TimeCurrent()?clrGold:clrLime);
-
-// ================= 6. SERVER / EA HEALTH =================
-   CreateDashboardPanel(DASH_PREFIX+"SEC_SERVER",x,y+825,w,22,C'30,38,50');
-   CreateDashboardLabel(DASH_PREFIX+"SERVER_H","SERVER / EA HEALTH",tx,y+829,9,clrAqua);
-   CreateDashboardLabel(DASH_PREFIX+"SERVER","CONNECTION   : "+serverText,tx,y+852,9,serverColor);
-   CreateDashboardLabel(DASH_PREFIX+"RECOVERY","RECOVERY CTS : "+IntegerToString(ServerRecoveryResetCount)+"   LAST ERR: "+IntegerToString(ServerRecoveryLastError),tx,y+872,8,ServerRecoveryLastError==0?clrSilver:clrGold);
-   CreateDashboardLabel(DASH_PREFIX+"REENTRY","RE-ENTRY     : "+(EquityResetReEntryPending?"PENDING":(ProtectedEquityWaitActive?"WAIT":"READY")),tx,y+892,8,EquityResetReEntryPending||ProtectedEquityWaitActive?clrGold:clrLime);
+// SECTION 4: MARKET MOMENTUM & PRICES
+   CreateDashboardPanel(DASH_PREFIX+"S4_BAR", x, y+436, w, 18, C'30,45,65');
+   CreateDashboardLabel(DASH_PREFIX+"S4_H", "--- MARKET MOMENTUM & BID/ASK ---", tx, y+438, 8, clrAqua);
+   CreateDashboardLabel(DASH_PREFIX+"S4_SCORE", "SCORE   : " + scoreText, tx, y+456, 8, scoreColor);
+   CreateDashboardLabel(DASH_PREFIX+"S4_PRICE", "BID/ASK : " + DoubleToString(curBid, Digits) + " / " + DoubleToString(curAsk, Digits) + " (Sprd: " + DoubleToString(curSpread, 1) + ")", tx, y+474, 8, clrWhite);
 
    ChartRedraw(0);
   }
@@ -11322,28 +11528,28 @@ void UpdateLeftLiveOrdersDashboard()
 //+------------------------------------------------------------------+
 //|                                                                  |
 //+------------------------------------------------------------------+
- 
+
 
 //+------------------------------------------------------------------+
 //|                                                                  |
 //+------------------------------------------------------------------+
- 
 
- 
+
+
 
 //+------------------------------------------------------------------+
 //|                                                                  |
 //+------------------------------------------------------------------+
- 
+
 //+------------------------------------------------------------------+
 //|                                                                  |
 //+------------------------------------------------------------------+
- 
+
 //+------------------------------------------------------------------+
 //| Check if price expanded away after EMA flip (>= 60 mins), and    |
 //| is now coming back down (distance reduced by 50%+ from peak)     |
 //+------------------------------------------------------------------+
- 
+
 //+------------------------------------------------------------------+
 //| Check if distance between price and EMA200 has reduced by 50%   |
 //| compared to the distance at the time of the last EMA flip        |
@@ -11390,10 +11596,10 @@ bool IsEmaDistanceReduced50PercentSinceFlipold(int orderType = -1)
 //+------------------------------------------------------------------+
 //|                                                                  |
 //+------------------------------------------------------------------+
- 
+
 //+------------------------------------------------------------------+
 //|                                                                  |
 //+------------------------------------------------------------------+
- 
+
 //+------------------------------------------------------------------+
 //+------------------------------------------------------------------+
