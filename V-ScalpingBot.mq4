@@ -1,4 +1,4 @@
-﻿//+------------------------------------------------------------------+
+//+------------------------------------------------------------------+
 //|                  SSL CHANNEL CROSS EA - CONTINUOUS EQUITY LADDER |
 //|                  TWO-STAGE PROFIT LADDER | CONTINUOUS RESET      |
 //+------------------------------------------------------------------+
@@ -31,7 +31,7 @@
 
 // Previous: V10010  03-10-2026 18.25 Partial Close Column in Live Position Monitor
 string TimeframeToString(int timeframe);
-string glbVersion = "V10036  04-10-2026 22.25 All Orders 100-Step Raw Gap Trailing StopLoss";
+string glbVersion = "V10036  04-10-2026 23.40 FLIP Basket Step Trailing SL (-100 at Step 1, +100 at Step 2)";
 string verShort = "V10036 | " + Symbol() + " " + TimeframeToString(Period());
 
 extern bool OnlyAllowFLIPBasketSupportOrders =false;// true; // TEST ISOLATION: When true, blocks ALL orders in SafeOrderSend except FLIPBasketSupport
@@ -7609,10 +7609,10 @@ int CreateFLIPBasketSupportOrder(int flipDirection)
 //| StopLoss engine for FLIPBasketSupport orders.                    |
 //| Ratchets StopLoss forward on every 100 raw BTC step move in      |
 //| positive profit (FLIPBasketSupportTakeProfitDistanceStopLossStep)|
-//| Step 1 (+100 move): Ratchet SL to Breakeven (openPrice)          |
-//| Step 2 (+200 move): Ratchet SL to openPrice + 100                |
-//| Step 3 (+300 move): Ratchet SL to openPrice + 200                |
-//| Step N (+N*100 move): Ratchet SL to openPrice + (N-1)*100        |
+//| Step 1 (+100 move): Ratchet SL to -$100 raw distance from open   |
+//| Step 2 (+200 move): $200-$100 = Ratchet SL to +100 from open     |
+//| Step 3 (+300 move): $300-$100 = Ratchet SL to +200 from open     |
+//| Step N (+N*100 move): Ratchet SL to openPrice +/- (N-1)*100      |
 //| Respects broker MODE_STOPLEVEL / GetRequiredStopDistance().      |
 //+------------------------------------------------------------------+
 void ManageFLIPBasketSupportTrailingStopLoss()
@@ -7657,18 +7657,19 @@ void ManageFLIPBasketSupportTrailingStopLoss()
          if(steps < 1)
             continue;
 
-         // Step 1 (+100): openPrice + 0*stepSize = openPrice (Breakeven)
-         // Step 2 (+200): openPrice + 1*stepSize (+100 locked)
-         // Step N (+N*100): openPrice + (steps - 1)*stepSize
-         double targetSL = NormalizeDouble(openPrice + ((steps - 1) * stepSize), Digits);
+         // Step 1 (+100 move): -$100 raw distance from open (openPrice - 100)
+         // Step 2 (+200 move): $200 - $100 = +$100 raw distance from open (openPrice + 100)
+         // Step 3 (+300 move): $300 - $100 = +$200 raw distance from open (openPrice + 200)
+         // Step N (+N*100 move): (N - 1) * stepSize raw distance from open
+         double targetSL = 0.0;
+         if(steps == 1)
+            targetSL = NormalizeDouble(openPrice - stepSize, Digits);
+         else
+            targetSL = NormalizeDouble(openPrice + ((steps - 1) * stepSize), Digits);
 
          // Broker safety: SL cannot be closer to Bid than minSafeDist
          if(targetSL > Bid - minSafeDist)
             continue;
-
-         // Target SL must be at least breakeven
-         if(targetSL < openPrice)
-            targetSL = openPrice;
 
          // Ratchet check: Only move SL forward (higher), never loosen
          if(curSL == 0.0 || targetSL > curSL + (Point * 0.5))
@@ -7693,18 +7694,19 @@ void ManageFLIPBasketSupportTrailingStopLoss()
             if(steps < 1)
                continue;
 
-            // Step 1 (+100): openPrice - 0*stepSize = openPrice (Breakeven)
-            // Step 2 (+200): openPrice - 1*stepSize (-100 locked)
-            // Step N (+N*100): openPrice - (steps - 1)*stepSize
-            double targetSL = NormalizeDouble(openPrice - ((steps - 1) * stepSize), Digits);
+            // Step 1 (+100 move): -$100 raw distance from open (openPrice + 100)
+            // Step 2 (+200 move): $200 - $100 = +$100 raw distance from open (openPrice - 100)
+            // Step 3 (+300 move): $300 - $100 = +$200 raw distance from open (openPrice - 200)
+            // Step N (+N*100 move): (N - 1) * stepSize raw distance from open
+            double targetSL = 0.0;
+            if(steps == 1)
+               targetSL = NormalizeDouble(openPrice + stepSize, Digits);
+            else
+               targetSL = NormalizeDouble(openPrice - ((steps - 1) * stepSize), Digits);
 
             // Broker safety: SL cannot be closer to Ask than minSafeDist
             if(targetSL < Ask + minSafeDist)
                continue;
-
-            // Target SL must be at least breakeven
-            if(targetSL > openPrice)
-               targetSL = openPrice;
 
             // Ratchet check: Only move SL forward (lower), never loosen
             if(curSL == 0.0 || targetSL < curSL - (Point * 0.5))
@@ -7724,10 +7726,10 @@ void ManageFLIPBasketSupportTrailingStopLoss()
 //+------------------------------------------------------------------+
 //| ManageRecoveryOrderStepTrailingStopLoss: Step-trailing StopLoss  |
 //| for Recovery orders on every 100X raw gap profit jump.           |
-//| Step 1 (+100 move): Ratchet SL to openPrice (Breakeven)          |
-//| Step 2 (+200 move): Ratchet SL to openPrice + 100                |
-//| Step 3 (+300 move): Ratchet SL to openPrice + 200                |
-//| Step N (+N*100 move): Ratchet SL to openPrice + (N-1)*100        |
+//| Step 1 (+100 move): Ratchet SL to -$100 raw distance from open   |
+//| Step 2 (+200 move): $200-$100 = Ratchet SL to +100 from open     |
+//| Step 3 (+300 move): $300-$100 = Ratchet SL to +200 from open     |
+//| Step N (+N*100 move): Ratchet SL to openPrice +/- (N-1)*100      |
 //| Respects broker MODE_STOPLEVEL / GetRequiredStopDistance().      |
 //+------------------------------------------------------------------+
 void ManageRecoveryOrderStepTrailingStopLoss()
@@ -7776,18 +7778,19 @@ void ManageRecoveryOrderStepTrailingStopLoss()
          if(steps < 1)
             continue;
 
-         // Step 1 (+100): openPrice + 0*stepSize = openPrice (Breakeven)
-         // Step 2 (+200): openPrice + 1*stepSize (+100 locked)
-         // Step N (+N*100): openPrice + (steps - 1)*stepSize
-         double targetSL = NormalizeDouble(openPrice + ((steps - 1) * stepSize), Digits);
+         // Step 1 (+100 move): -$100 raw distance from open (openPrice - 100)
+         // Step 2 (+200 move): $200 - $100 = +$100 raw distance from open (openPrice + 100)
+         // Step 3 (+300 move): $300 - $100 = +$200 raw distance from open (openPrice + 200)
+         // Step N (+N*100 move): (N - 1) * stepSize raw distance from open
+         double targetSL = 0.0;
+         if(steps == 1)
+            targetSL = NormalizeDouble(openPrice - stepSize, Digits);
+         else
+            targetSL = NormalizeDouble(openPrice + ((steps - 1) * stepSize), Digits);
 
          // Broker safety: SL cannot be closer to Bid than minSafeDist
          if(targetSL > Bid - minSafeDist)
             continue;
-
-         // Target SL must be at least breakeven
-         if(targetSL < openPrice)
-            targetSL = openPrice;
 
          // Ratchet check: Only move SL forward (higher), never loosen
          if(curSL == 0.0 || targetSL > curSL + (Point * 0.5))
@@ -7813,18 +7816,19 @@ void ManageRecoveryOrderStepTrailingStopLoss()
             if(steps < 1)
                continue;
 
-            // Step 1 (+100): openPrice - 0*stepSize = openPrice (Breakeven)
-            // Step 2 (+200): openPrice - 1*stepSize (-100 locked)
-            // Step N (+N*100): openPrice - (steps - 1)*stepSize
-            double targetSL = NormalizeDouble(openPrice - ((steps - 1) * stepSize), Digits);
+            // Step 1 (+100 move): -$100 raw distance from open (openPrice + 100)
+            // Step 2 (+200 move): $200 - $100 = +$100 raw distance from open (openPrice - 100)
+            // Step 3 (+300 move): $300 - $100 = +$200 raw distance from open (openPrice - 200)
+            // Step N (+N*100 move): (N - 1) * stepSize raw distance from open
+            double targetSL = 0.0;
+            if(steps == 1)
+               targetSL = NormalizeDouble(openPrice + stepSize, Digits);
+            else
+               targetSL = NormalizeDouble(openPrice - ((steps - 1) * stepSize), Digits);
 
             // Broker safety: SL cannot be closer to Ask than minSafeDist
             if(targetSL < Ask + minSafeDist)
                continue;
-
-            // Target SL must be at least breakeven
-            if(targetSL > openPrice)
-               targetSL = openPrice;
 
             // Ratchet check: Only move SL forward (lower), never loosen
             if(curSL == 0.0 || targetSL < curSL - (Point * 0.5))
@@ -7847,10 +7851,10 @@ void ManageRecoveryOrderStepTrailingStopLoss()
 //| StopLoss for ALL open orders on every 100 raw gap profit move.   |
 //| Applies to all active positions (Parent, ReEntry, Recovery,      |
 //| FLIPBasketSupport, Candle orders, etc.)                          |
-//| Step 1 (+100 move): Ratchet SL to openPrice (Breakeven)          |
-//| Step 2 (+200 move): Ratchet SL to openPrice + 100                |
-//| Step 3 (+300 move): Ratchet SL to openPrice + 200                |
-//| Step N (+N*100 move): Ratchet SL to openPrice + (N-1)*100        |
+//| Step 1 (+100 move): Ratchet SL to -$100 raw distance from open   |
+//| Step 2 (+200 move): $200-$100 = Ratchet SL to +100 from open     |
+//| Step 3 (+300 move): $300-$100 = Ratchet SL to +200 from open     |
+//| Step N (+N*100 move): Ratchet SL to openPrice +/- (N-1)*100      |
 //| Respects broker MODE_STOPLEVEL / GetRequiredStopDistance().      |
 //+------------------------------------------------------------------+
 void ManageAllOrdersStepTrailingStopLoss()
@@ -7907,18 +7911,19 @@ void ManageAllOrdersStepTrailingStopLoss()
          if(steps < 1)
             continue;
 
-         // Step 1 (+100): openPrice + 0*stepSize = openPrice (Breakeven)
-         // Step 2 (+200): openPrice + 1*stepSize (+100 locked)
-         // Step N (+N*100): openPrice + (steps - 1)*stepSize
-         double targetSL = NormalizeDouble(openPrice + ((steps - 1) * stepSize), Digits);
+         // Step 1 (+100 move): -$100 raw distance from open (openPrice - 100)
+         // Step 2 (+200 move): $200 - $100 = +$100 raw distance from open (openPrice + 100)
+         // Step 3 (+300 move): $300 - $100 = +$200 raw distance from open (openPrice + 200)
+         // Step N (+N*100 move): (N - 1) * stepSize raw distance from open
+         double targetSL = 0.0;
+         if(steps == 1)
+            targetSL = NormalizeDouble(openPrice - stepSize, Digits);
+         else
+            targetSL = NormalizeDouble(openPrice + ((steps - 1) * stepSize), Digits);
 
          // Broker safety: SL cannot be closer to Bid than minSafeDist
          if(targetSL > Bid - minSafeDist)
             continue;
-
-         // Target SL must be at least breakeven
-         if(targetSL < openPrice)
-            targetSL = openPrice;
 
          // Ratchet check: Only move SL forward (higher), never loosen
          if(curSL == 0.0 || targetSL > curSL + (Point * 0.5))
@@ -7944,18 +7949,19 @@ void ManageAllOrdersStepTrailingStopLoss()
             if(steps < 1)
                continue;
 
-            // Step 1 (+100): openPrice - 0*stepSize = openPrice (Breakeven)
-            // Step 2 (+200): openPrice - 1*stepSize (-100 locked)
-            // Step N (+N*100): openPrice - (steps - 1)*stepSize
-            double targetSL = NormalizeDouble(openPrice - ((steps - 1) * stepSize), Digits);
+            // Step 1 (+100 move): -$100 raw distance from open (openPrice + 100)
+            // Step 2 (+200 move): $200 - $100 = +$100 raw distance from open (openPrice - 100)
+            // Step 3 (+300 move): $300 - $100 = +$200 raw distance from open (openPrice - 200)
+            // Step N (+N*100 move): (N - 1) * stepSize raw distance from open
+            double targetSL = 0.0;
+            if(steps == 1)
+               targetSL = NormalizeDouble(openPrice + stepSize, Digits);
+            else
+               targetSL = NormalizeDouble(openPrice - ((steps - 1) * stepSize), Digits);
 
             // Broker safety: SL cannot be closer to Ask than minSafeDist
             if(targetSL < Ask + minSafeDist)
                continue;
-
-            // Target SL must be at least breakeven
-            if(targetSL > openPrice)
-               targetSL = openPrice;
 
             // Ratchet check: Only move SL forward (lower), never loosen
             if(curSL == 0.0 || targetSL < curSL - (Point * 0.5))

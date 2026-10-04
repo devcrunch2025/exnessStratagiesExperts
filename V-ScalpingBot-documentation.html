@@ -889,7 +889,7 @@
       <div class="header-pills">
         <span class="pill pill-blue">BTCUSD • M1 Scalper</span>
         <span class="pill pill-purple">Exness Raw / Zero</span>
-        <span class="pill pill-green">V10035 (04-10-2026 22.25)</span>
+        <span class="pill pill-green">V10036 (04-10-2026 23.40)</span>
       </div>
     </div>
 
@@ -2252,7 +2252,7 @@ flowchart TD
             <div class="grid-4" style="margin-bottom: 24px;">
               <div class="stat-card">
                 <div class="stat-label">Total User Directives</div>
-                <div class="stat-value" style="color: var(--accent-green);">43 / 43</div>
+                <div class="stat-value" style="color: var(--accent-green);">44 / 44</div>
                 <div class="stat-desc">100% Implemented &amp; Audited</div>
               </div>
               <div class="stat-card">
@@ -2262,8 +2262,8 @@ flowchart TD
               </div>
               <div class="stat-card">
                 <div class="stat-label">Active Production Build</div>
-                <div class="stat-value" style="color: var(--accent-purple);">V10035</div>
-                <div class="stat-desc">04-10-2026 22.25 Deployed</div>
+                <div class="stat-value" style="color: var(--accent-purple);">V10036</div>
+                <div class="stat-desc">04-10-2026 23.40 Deployed</div>
               </div>
               <div class="stat-card">
                 <div class="stat-label">Centralized Firewall</div>
@@ -2668,6 +2668,13 @@ flowchart TD
                     <td><strong>Pre-Creation Close &amp; Global Single Active FLIPBasketSupport Gate</strong><br><small style="color: var(--text-dim);">Unconditionally closes already open support order before new creation; strictly max 1 active order total</small></td>
                     <td><code>CreateFLIPBasketSupportOrder()</code> L7165<br><code>CloseFLIPBasketSupportOrders(-1)</code> L7124<br><code>HasOpenFLIPBasketSupportOrder(-1)</code> L7105<br><code>glbVersion = "V10024"</code></td>
                     <td>Enforced the safest execution model for <code>FLIPBasketSupport</code>: (1) Inside <code>CreateFLIPBasketSupportOrder()</code>, unconditionally calls <code>CloseFLIPBasketSupportOrders(-1)</code> with 3-attempt retry to close any already open support orders before creating a new one; (2) Enforced global single active support order gate via <code>HasOpenFLIPBasketSupportOrder(-1)</code> which aborts new creation if any support order is still active, guaranteeing strictly at most 1 <code>FLIPBasketSupport</code> runner active across the entire account at any moment. Clean MetaEditor 4 build (0 errors, 20 warnings).</td>
+                    <td><span class="badge badge-green">VERIFIED &amp; DEPLOYED</span></td>
+                  </tr>
+                  <tr>
+                    <td><code>Step 962</code><br><small style="color: var(--accent-amber);">23:40</small></td>
+                    <td><strong>FLIP Basket Orders Step Trailing SL (-$100 at Step 1, +$100 at Step 2)</strong><br><small style="color: var(--text-dim);">Sets SL to -$100 raw distance on Step 1, $200-$100=+$100 on Step 2, $300-$100=+$200 on Step 3</small></td>
+                    <td><code>ManageFLIPBasketSupportTrailingStopLoss()</code> L7618<br><code>ManageAllOrdersStepTrailingStopLoss()</code> L7860<br><code>glbVersion = "V10036"</code></td>
+                    <td>Refined the discrete step-trailing StopLoss engine for <code>FLIPBasketSupport</code> and active orders per user specification: (1) At Step 1 (+100 raw move in profit): ratchets StopLoss to -$100 raw distance from order open (<code>openPrice - 100</code> for BUY, <code>openPrice + 100</code> for SELL), capping maximum risk at $100 while allowing a full 200-point buffer; (2) At Step 2 (+200 raw gap): ratchets StopLoss to $200 - $100 = +$100 raw distance from order open (<code>openPrice + 100</code> for BUY, <code>openPrice - 100</code> for SELL), locking in +$100 profit; (3) At Step 3 (+300 raw gap): ratchets StopLoss to $300 - $100 = +$200 raw distance from order open (<code>openPrice + 200</code> for BUY, <code>openPrice - 200</code> for SELL); (4) At Step $N$: ratchets StopLoss to <code>openPrice &plusmn; (N - 1) * stepSize</code>; (5) Forward-only ratchet check prevents any regression; (6) Complies with broker <code>MODE_STOPLEVEL</code>. Clean MetaEditor 4 build (0 errors, 20 warnings).</td>
                     <td><span class="badge badge-green">VERIFIED &amp; DEPLOYED</span></td>
                   </tr>
                   <tr>
@@ -3107,6 +3114,17 @@ flowchart TD
                     <p>Universal discrete step-trailing StopLoss engine ratchets StopLoss by $100 raw price increments on every positive profit move for ALL active market orders (Parent, ReEntry, Recovery, Support, Candle, etc.), locking breakeven on Step 1 (+100) and ratcheting +(N-1)*100 profit lock on subsequent steps while respecting broker stop levels.</p>
                     <div id="chk31" style="display: none; margin-top: 10px; font-size: 12.5px; color: var(--accent-blue); background: rgba(0,0,0,0.3); padding: 8px 12px; border-radius: 6px;">
                       <strong>Code Anchor:</strong> <code>AllOrdersStopLossStepRaw = 100.0</code> (L299), <code>ManageAllOrdersStepTrailingStopLoss()</code> (L7846), <code>OnTick()</code> (L2234), <code>OnTickCore()</code> (L3022), <code>glbVersion = "V10035  04-10-2026 22.25"</code> (L34) &bull; Clean MetaEditor 4 build (0 errors, 20 warnings).
+                    </div>
+                  </div>
+                </div>
+
+                <div class="step-item" style="cursor: pointer;" onclick="toggleAuditDetail('chk32')">
+                  <div class="step-num" style="background: rgba(16, 185, 129, 0.15); color: var(--accent-green); border-color: rgba(16, 185, 129, 0.3);">&#10003;</div>
+                  <div class="step-body" style="flex: 1;">
+                    <h4>FLIP Basket Step Trailing StopLoss (-$100 at Step 1, +$100 at Step 2) <span class="badge badge-green">Active</span></h4>
+                    <p>Refined step-trailing StopLoss engine for FLIPBasketSupport orders: at Step 1 (+100 raw move in profit), ratchets StopLoss to -$100 raw distance from open; at Step 2 (+200 move), ratchets to $200-$100=+$100 from open; at Step 3 (+300 move), ratchets to $300-$100=+$200 from open.</p>
+                    <div id="chk32" style="display: none; margin-top: 10px; font-size: 12.5px; color: var(--accent-blue); background: rgba(0,0,0,0.3); padding: 8px 12px; border-radius: 6px;">
+                      <strong>Code Anchor:</strong> <code>ManageFLIPBasketSupportTrailingStopLoss()</code> (L7618), <code>ManageAllOrdersStepTrailingStopLoss()</code> (L7860), <code>glbVersion = "V10036  04-10-2026 23.40"</code> (L34) &bull; Clean MetaEditor 4 build (0 errors, 20 warnings).
                     </div>
                   </div>
                 </div>
