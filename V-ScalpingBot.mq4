@@ -31,8 +31,8 @@
 
 // Previous: V10010  03-10-2026 18.25 Partial Close Column in Live Position Monitor
 string TimeframeToString(int timeframe);
-string glbVersion = "V10035  04-10-2026 22.25 All Orders 100-Step Raw Gap Trailing StopLoss";
-string verShort = "V10035 | " + Symbol() + " " + TimeframeToString(Period());
+string glbVersion = "V10036  04-10-2026 22.25 All Orders 100-Step Raw Gap Trailing StopLoss";
+string verShort = "V10036 | " + Symbol() + " " + TimeframeToString(Period());
 
 extern bool OnlyAllowFLIPBasketSupportOrders =false;// true; // TEST ISOLATION: When true, blocks ALL orders in SafeOrderSend except FLIPBasketSupport
 
@@ -1794,8 +1794,8 @@ void TrackEmaFlip()
          CloseFLIPBasketSupportOrders(OP_BUY);
         }
 
-   // If FLIPBasketSupport order was deferred at flip because EMAdistance gap <= 50,
-   // check if EMAdistance gap from live price has now expanded > 50 to open the support order for this flip cycle
+// If FLIPBasketSupport order was deferred at flip because EMAdistance gap <= 50,
+// check if EMAdistance gap from live price has now expanded > 50 to open the support order for this flip cycle
    if(!FLIPBasketSupportOpenedThisCycle && currentDirection != 0 && !HasOpenFLIPBasketSupportOrder(-1))
      {
       // [COMMENTED OUT EMA ANGLE GATE per user instruction: replaced with EMAdistance gap from live price > 50]
@@ -6868,6 +6868,13 @@ void ChangeLots(double OpenPL, string reason, int orderType, int stoplevelStep)
 
      }
 
+   if(requestedDirection==-1)
+
+     {
+      Lots = 0.01;
+
+     }
+
    if(MathAbs(GlobalEmaAngle30) < 5)
      {
       Lots = 0.01;
@@ -6880,16 +6887,16 @@ void ChangeLots(double OpenPL, string reason, int orderType, int stoplevelStep)
         {
          Lots = 0.02;
         }
-      
+
      }
-if(requestedDirection == 1 && (GetOpenPL(OP_BUY)) <-1)
-        {
-         Lots = 0.01;
-        }
-      if(requestedDirection == -1 && (GetOpenPL(OP_SELL)) <-1)
-        {
-         Lots = 0.01;
-        }
+   if(requestedDirection == 1 && (GetOpenPL(OP_BUY)) <-1)
+     {
+      Lots = 0.01;
+     }
+   if(requestedDirection == -1 && (GetOpenPL(OP_SELL)) <-1)
+     {
+      Lots = 0.01;
+     }
 
 
 // Safety catch
@@ -7524,16 +7531,16 @@ int CreateFLIPBasketSupportOrder(int flipDirection)
       return -1;
      }
 
-   // [COMMENTED OUT EMA ANGLE GATE per user instruction: replaced with EMAdistance gap from live price > 50]
-   // GlobalEmaAngle30 = GetEmaAngleDegrees(30);
-   // if(MathAbs(GlobalEmaAngle30) <= FLIPBasketSupportMinEmaAngle)
-   //   {
-   //    Print("FLIPBasketSupport order skipped: MathAbs(GlobalEmaAngle30)=", DoubleToString(MathAbs(GlobalEmaAngle30), 2),
-   //          " <= ", DoubleToString(FLIPBasketSupportMinEmaAngle, 2), " (Angle=", DoubleToString(GlobalEmaAngle30, 2), ")");
-   //    return -1;
-   //   }
+// [COMMENTED OUT EMA ANGLE GATE per user instruction: replaced with EMAdistance gap from live price > 50]
+// GlobalEmaAngle30 = GetEmaAngleDegrees(30);
+// if(MathAbs(GlobalEmaAngle30) <= FLIPBasketSupportMinEmaAngle)
+//   {
+//    Print("FLIPBasketSupport order skipped: MathAbs(GlobalEmaAngle30)=", DoubleToString(MathAbs(GlobalEmaAngle30), 2),
+//          " <= ", DoubleToString(FLIPBasketSupportMinEmaAngle, 2), " (Angle=", DoubleToString(GlobalEmaAngle30, 2), ")");
+//    return -1;
+//   }
 
-   // 0. EMA Distance Gate: Only open FLIPBasketSupport order when EMAdistance gap from live price > 50
+// 0. EMA Distance Gate: Only open FLIPBasketSupport order when EMAdistance gap from live price > 50
    int targetOrderType = (flipDirection == 1) ? OP_BUY : OP_SELL;
    double currentEmaDist = GetDistanceToEMAPrice(targetOrderType, true);
    if(currentEmaDist <= FLIPBasketSupportMinEmaDistance)
@@ -7795,42 +7802,43 @@ void ManageRecoveryOrderStepTrailingStopLoss()
                   " | Success=", modified);
            }
         }
-      else if(oType == OP_SELL)
-        {
-         double favorableMove = openPrice - Ask;
-         if(favorableMove < stepSize)
-            continue; // Not yet reached 1st step (+100)
-
-         int steps = (int)MathFloor(favorableMove / stepSize);
-         if(steps < 1)
-            continue;
-
-         // Step 1 (+100): openPrice - 0*stepSize = openPrice (Breakeven)
-         // Step 2 (+200): openPrice - 1*stepSize (-100 locked)
-         // Step N (+N*100): openPrice - (steps - 1)*stepSize
-         double targetSL = NormalizeDouble(openPrice - ((steps - 1) * stepSize), Digits);
-
-         // Broker safety: SL cannot be closer to Ask than minSafeDist
-         if(targetSL < Ask + minSafeDist)
-            continue;
-
-         // Target SL must be at least breakeven
-         if(targetSL > openPrice)
-            targetSL = openPrice;
-
-         // Ratchet check: Only move SL forward (lower), never loosen
-         if(curSL == 0.0 || targetSL < curSL - (Point * 0.5))
+      else
+         if(oType == OP_SELL)
            {
-            ResetLastError();
-            bool modified = SafeOrderModify(ticket, openPrice, targetSL, curTP, 0, clrTomato);
-            Print("Recovery Step-Trailing: SELL #", ticket,
-                  " (", comment, ")",
-                  " Step=", steps, " (+", DoubleToString(favorableMove, 2), " pts)",
-                  " | Prev SL=", DoubleToString(curSL, Digits),
-                  " | New SL=", DoubleToString(targetSL, Digits),
-                  " | Success=", modified);
+            double favorableMove = openPrice - Ask;
+            if(favorableMove < stepSize)
+               continue; // Not yet reached 1st step (+100)
+
+            int steps = (int)MathFloor(favorableMove / stepSize);
+            if(steps < 1)
+               continue;
+
+            // Step 1 (+100): openPrice - 0*stepSize = openPrice (Breakeven)
+            // Step 2 (+200): openPrice - 1*stepSize (-100 locked)
+            // Step N (+N*100): openPrice - (steps - 1)*stepSize
+            double targetSL = NormalizeDouble(openPrice - ((steps - 1) * stepSize), Digits);
+
+            // Broker safety: SL cannot be closer to Ask than minSafeDist
+            if(targetSL < Ask + minSafeDist)
+               continue;
+
+            // Target SL must be at least breakeven
+            if(targetSL > openPrice)
+               targetSL = openPrice;
+
+            // Ratchet check: Only move SL forward (lower), never loosen
+            if(curSL == 0.0 || targetSL < curSL - (Point * 0.5))
+              {
+               ResetLastError();
+               bool modified = SafeOrderModify(ticket, openPrice, targetSL, curTP, 0, clrTomato);
+               Print("Recovery Step-Trailing: SELL #", ticket,
+                     " (", comment, ")",
+                     " Step=", steps, " (+", DoubleToString(favorableMove, 2), " pts)",
+                     " | Prev SL=", DoubleToString(curSL, Digits),
+                     " | New SL=", DoubleToString(targetSL, Digits),
+                     " | Success=", modified);
+              }
            }
-        }
      }
   }
 
@@ -7882,8 +7890,9 @@ void ManageAllOrdersStepTrailingStopLoss()
       double stepSize = AllOrdersStopLossStepRaw;
       if(IsFLIPBasketSupportOrder(ticket, comment) && FLIPBasketSupportTakeProfitDistanceStopLossStep > 0.0)
          stepSize = FLIPBasketSupportTakeProfitDistanceStopLossStep;
-      else if(StringFind(comment, "RECOVERY") >= 0 && RecoveryOrderStopLossStepRaw > 0.0)
-         stepSize = RecoveryOrderStopLossStepRaw;
+      else
+         if(StringFind(comment, "RECOVERY") >= 0 && RecoveryOrderStopLossStepRaw > 0.0)
+            stepSize = RecoveryOrderStopLossStepRaw;
 
       if(stepSize <= 0.0)
          continue;
@@ -7924,42 +7933,43 @@ void ManageAllOrdersStepTrailingStopLoss()
                   " | Success=", modified);
            }
         }
-      else if(oType == OP_SELL)
-        {
-         double favorableMove = openPrice - Ask;
-         if(favorableMove < stepSize)
-            continue; // Not yet reached 1st step (+100)
-
-         int steps = (int)MathFloor(favorableMove / stepSize);
-         if(steps < 1)
-            continue;
-
-         // Step 1 (+100): openPrice - 0*stepSize = openPrice (Breakeven)
-         // Step 2 (+200): openPrice - 1*stepSize (-100 locked)
-         // Step N (+N*100): openPrice - (steps - 1)*stepSize
-         double targetSL = NormalizeDouble(openPrice - ((steps - 1) * stepSize), Digits);
-
-         // Broker safety: SL cannot be closer to Ask than minSafeDist
-         if(targetSL < Ask + minSafeDist)
-            continue;
-
-         // Target SL must be at least breakeven
-         if(targetSL > openPrice)
-            targetSL = openPrice;
-
-         // Ratchet check: Only move SL forward (lower), never loosen
-         if(curSL == 0.0 || targetSL < curSL - (Point * 0.5))
+      else
+         if(oType == OP_SELL)
            {
-            ResetLastError();
-            bool modified = SafeOrderModify(ticket, openPrice, targetSL, curTP, 0, clrTomato);
-            Print("All-Orders Step-Trailing: SELL #", ticket,
-                  " (", comment, ")",
-                  " Step=", steps, " (+", DoubleToString(favorableMove, 2), " pts)",
-                  " | Prev SL=", DoubleToString(curSL, Digits),
-                  " | New SL=", DoubleToString(targetSL, Digits),
-                  " | Success=", modified);
+            double favorableMove = openPrice - Ask;
+            if(favorableMove < stepSize)
+               continue; // Not yet reached 1st step (+100)
+
+            int steps = (int)MathFloor(favorableMove / stepSize);
+            if(steps < 1)
+               continue;
+
+            // Step 1 (+100): openPrice - 0*stepSize = openPrice (Breakeven)
+            // Step 2 (+200): openPrice - 1*stepSize (-100 locked)
+            // Step N (+N*100): openPrice - (steps - 1)*stepSize
+            double targetSL = NormalizeDouble(openPrice - ((steps - 1) * stepSize), Digits);
+
+            // Broker safety: SL cannot be closer to Ask than minSafeDist
+            if(targetSL < Ask + minSafeDist)
+               continue;
+
+            // Target SL must be at least breakeven
+            if(targetSL > openPrice)
+               targetSL = openPrice;
+
+            // Ratchet check: Only move SL forward (lower), never loosen
+            if(curSL == 0.0 || targetSL < curSL - (Point * 0.5))
+              {
+               ResetLastError();
+               bool modified = SafeOrderModify(ticket, openPrice, targetSL, curTP, 0, clrTomato);
+               Print("All-Orders Step-Trailing: SELL #", ticket,
+                     " (", comment, ")",
+                     " Step=", steps, " (+", DoubleToString(favorableMove, 2), " pts)",
+                     " | Prev SL=", DoubleToString(curSL, Digits),
+                     " | New SL=", DoubleToString(targetSL, Digits),
+                     " | Success=", modified);
+              }
            }
-        }
      }
   }
 
@@ -12522,7 +12532,7 @@ void UpdateDashboard(DailyProtectionState &state)
               }
             else
               {
-               basket10LockStr = StringConcatenate("Live $", DoubleToString(curEq, 2), " / Tgt $", DoubleToString(g_basket10USDNextTargetEquity, 2), " (Step #", IntegerToString(g_basket10USDStepCount + 1), ": Need +$", DoubleToString(diff10, 2), ")");
+               basket10LockStr = StringConcatenate("$", DoubleToString(curEq, 2), " / T $", DoubleToString(g_basket10USDNextTargetEquity, 2), " (Step #", IntegerToString(g_basket10USDStepCount + 1), ":  +$", DoubleToString(diff10, 2), ")");
                basket10LockColor = (curEq >= g_basket10USDBaselineEquity) ? clrGold : clrTomato;
               }
            }
