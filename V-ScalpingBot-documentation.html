@@ -889,7 +889,7 @@
       <div class="header-pills">
         <span class="pill pill-blue">BTCUSD • M1 Scalper</span>
         <span class="pill pill-purple">Exness Raw / Zero</span>
-        <span class="pill pill-green">V10028 (04-10-2026 16.45)</span>
+        <span class="pill pill-green">V10029 (04-10-2026 19.30)</span>
       </div>
     </div>
 
@@ -2252,7 +2252,7 @@ flowchart TD
             <div class="grid-4" style="margin-bottom: 24px;">
               <div class="stat-card">
                 <div class="stat-label">Total User Directives</div>
-                <div class="stat-value" style="color: var(--accent-green);">36 / 36</div>
+                <div class="stat-value" style="color: var(--accent-green);">37 / 37</div>
                 <div class="stat-desc">100% Implemented &amp; Audited</div>
               </div>
               <div class="stat-card">
@@ -2262,8 +2262,8 @@ flowchart TD
               </div>
               <div class="stat-card">
                 <div class="stat-label">Active Production Build</div>
-                <div class="stat-value" style="color: var(--accent-purple);">V10028</div>
-                <div class="stat-desc">04-10-2026 16.45 Deployed</div>
+                <div class="stat-value" style="color: var(--accent-purple);">V10029</div>
+                <div class="stat-desc">04-10-2026 19.30 Deployed</div>
               </div>
               <div class="stat-card">
                 <div class="stat-label">Centralized Firewall</div>
@@ -2668,7 +2668,13 @@ flowchart TD
                     <td><strong>Pre-Creation Close &amp; Global Single Active FLIPBasketSupport Gate</strong><br><small style="color: var(--text-dim);">Unconditionally closes already open support order before new creation; strictly max 1 active order total</small></td>
                     <td><code>CreateFLIPBasketSupportOrder()</code> L7165<br><code>CloseFLIPBasketSupportOrders(-1)</code> L7124<br><code>HasOpenFLIPBasketSupportOrder(-1)</code> L7105<br><code>glbVersion = "V10024"</code></td>
                     <td>Enforced the safest execution model for <code>FLIPBasketSupport</code>: (1) Inside <code>CreateFLIPBasketSupportOrder()</code>, unconditionally calls <code>CloseFLIPBasketSupportOrders(-1)</code> with 3-attempt retry to close any already open support orders before creating a new one; (2) Enforced global single active support order gate via <code>HasOpenFLIPBasketSupportOrder(-1)</code> which aborts new creation if any support order is still active, guaranteeing strictly at most 1 <code>FLIPBasketSupport</code> runner active across the entire account at any moment. Clean MetaEditor 4 build (0 errors, 20 warnings).</td>
+                  <tr>
+                    <td><code>Step 955</code><br><small style="color: var(--accent-amber);">19:30</small></td>
+                    <td><strong>Live Order Creation Engine Possible Lot HUD Display</strong><br><small style="color: var(--text-dim);">Displays real-time possible lot evaluated dynamically from ChangeLots logic as per live moment without state mutation</small></td>
+                    <td><code>GetLiveCalculatedLot()</code> L6894<br><code>ChangeLots()</code> L6460<br><code>UpdateDashboard()</code> L11736, L12095<br><code>glbVersion = "V10029"</code></td>
+                    <td>Implemented dynamic on-tick calculation and dashboard HUD display for possible order lots: (1) Created isolated probe function <code>GetLiveCalculatedLot()</code> that runs the native <code>ChangeLots()</code> engine for BUY and SELL under live moment conditions, completely preserving global variables (<code>Lots</code>, <code>balancelomultipler</code>, <code>StopLossUSD</code>, <code>Ladder Profit/Stop</code>); (2) Added <code>DASH_PREFIX+"S1_LOT"</code> (<code>POSS LOT:</code>) to right-hand Section 1 (ORDER CREATION ENGINE), showing the active possible lot for the prevailing SSL/EMA direction and opposing direction (e.g. <code>0.05 L [BUY] (Sell: 0.01 L)</code>); (3) Dynamic color grading based on lot sizing tier (Lime for full $\ge 0.03\text{L}$, Sky Blue for $0.02\text{L}$, Gold for defensive $0.01\text{L}$); (4) Proportioned panel height from 542px to 558px with automatic object cleanup on build change. Clean MetaEditor 4 build (0 errors, 20 warnings).</td>
                     <td><span class="badge badge-green">VERIFIED &amp; DEPLOYED</span></td>
+                  </tr>
                   <tr>
                     <td><code>Step 954</code><br><small style="color: var(--accent-amber);">16:45</small></td>
                     <td><strong>Dual-Mode Recovery Qualification Engine (Same-Strong or Opp-Weak)</strong><br><small style="color: var(--text-dim);">Opens recovery orders when trend matches parent and is strong, or opposes parent and is weak; blocks same-weak and opp-strong</small></td>
@@ -2980,6 +2986,17 @@ flowchart TD
                     <p>Allows recovery orders in two distinct market conditions with parent adverse gap: (1) Same direction as parent and Strong (trend momentum alignment); or (2) Opposite direction to parent and Weak (exhaustion reversal alignment). Strictly blocks recovery when same direction is Weak or opposite direction is Strong.</p>
                     <div id="chk24" style="display: none; margin-top: 10px; font-size: 12.5px; color: var(--accent-blue); background: rgba(0,0,0,0.3); padding: 8px 12px; border-radius: 6px;">
                       <strong>Code Anchor:</strong> <code>CheckRecoveryOrders()</code> (L7078), <code>SafeOrderSend()</code> Gate 5B (L4807), <code>UpdateDashboard()</code> (L11728), <code>glbVersion = "V10028  04-10-2026 16.45"</code> (L34) &bull; Clean MetaEditor 4 build (0 errors, 20 warnings).
+                    </div>
+                  </div>
+                </div>
+
+                <div class="step-item" style="cursor: pointer;" onclick="toggleAuditDetail('chk25')">
+                  <div class="step-num" style="background: rgba(16, 185, 129, 0.15); color: var(--accent-green); border-color: rgba(16, 185, 129, 0.3);">&#10003;</div>
+                  <div class="step-body" style="flex: 1;">
+                    <h4>Live Order Creation Engine Possible Lot HUD Display <span class="badge badge-green">Active</span></h4>
+                    <p>Displays the exact real-time lot size evaluated by the native <code>ChangeLots()</code> engine for the live market moment, probed without mutating any EA state via <code>GetLiveCalculatedLot()</code>. Rendered dynamically in Section 1 (ORDER CREATION ENGINE) with tier color coding (Lime for full &ge; 0.03L, Sky Blue for 0.02L, Gold for defensive 0.01L).</p>
+                    <div id="chk25" style="display: none; margin-top: 10px; font-size: 12.5px; color: var(--accent-blue); background: rgba(0,0,0,0.3); padding: 8px 12px; border-radius: 6px;">
+                      <strong>Code Anchor:</strong> <code>GetLiveCalculatedLot()</code> (L6894), <code>ChangeLots()</code> (L6460), <code>UpdateDashboard()</code> (L11736, L12095), <code>glbVersion = "V10029  04-10-2026 19.30"</code> (L34) &bull; Clean MetaEditor 4 build (0 errors, 20 warnings).
                     </div>
                   </div>
                 </div>

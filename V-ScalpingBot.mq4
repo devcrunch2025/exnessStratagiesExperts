@@ -31,8 +31,8 @@
 
 // Previous: V10010  03-10-2026 18.25 Partial Close Column in Live Position Monitor
 string TimeframeToString(int timeframe);
-string glbVersion = "V10028  04-10-2026 16.45 Dual-Mode Recovery (Same-Strong or Opp-Weak)";
-string verShort = "V10028 | " + Symbol() + " " + TimeframeToString(Period());
+string glbVersion = "V10029  04-10-2026 19.30 Live Order Creation Possible Lot Display";
+string verShort = "V10029 | " + Symbol() + " " + TimeframeToString(Period());
 
 double DailyEquityStopUSD  =100*100;//50;//20*2.5;//10;//20;// 10;//30.0; close all orders at $50Xmultipler
 double TargetProfitPerFlipUSD =20*100;//10;//10*2;//10;//5;//20;// 10.0; close all orders at $20Xmultipler
@@ -408,6 +408,7 @@ int  CreateFLIPBasketSupportOrder(int flipDirection);
 void RegisterNewCandleOrder(int ticket = -1);
 int  GetCurrentSSLDirection();
 double GetDynamicOrderGap(int orderType);
+double GetLiveCalculatedLot(int orderType);
 
 // --- GLOBAL TICK CACHE ---
 double GlobalEmaAngle30 = 0.0;
@@ -811,8 +812,8 @@ void ModifyPairProfitWithStopLoss()
    if(!EnablePairProfitSLModify)
       return;
 
-   // 1. Scan and collect all eligible market orders
-   #define MAX_PAIR_SCAN_ORDERS 100
+// 1. Scan and collect all eligible market orders
+#define MAX_PAIR_SCAN_ORDERS 100
    int    candTickets[MAX_PAIR_SCAN_ORDERS];
    int    candTypes[MAX_PAIR_SCAN_ORDERS];
    double candLots[MAX_PAIR_SCAN_ORDERS];
@@ -872,7 +873,7 @@ void ModifyPairProfitWithStopLoss()
    if(candCount < 2)
       return; // Need at least 2 orders to form a combination
 
-   // 2. Evaluate all 2-order combinations (i, j)
+// 2. Evaluate all 2-order combinations (i, j)
    int qualifyingPairsCount = 0;
    for(int i = 0; i < candCount - 1; i++)
      {
@@ -895,7 +896,7 @@ void ModifyPairProfitWithStopLoss()
    if(qualifyingPairsCount == 0)
       return;
 
-   // 3. Modify qualifying orders with live StopLoss to lock profit
+// 3. Modify qualifying orders with live StopLoss to lock profit
    RefreshRates();
    double minDistance = GetRequiredStopDistance();
    if(minDistance < Point * 10)
@@ -946,26 +947,27 @@ void ModifyPairProfitWithStopLoss()
 
          shouldModify = true;
         }
-      else if(oType == OP_SELL)
-        {
-         proposedSL = NormalizeDouble(curAsk + rawGap, Digits);
-         if((proposedSL - curAsk) < minDistance)
-            proposedSL = NormalizeDouble(curAsk + minDistance, Digits);
+      else
+         if(oType == OP_SELL)
+           {
+            proposedSL = NormalizeDouble(curAsk + rawGap, Digits);
+            if((proposedSL - curAsk) < minDistance)
+               proposedSL = NormalizeDouble(curAsk + minDistance, Digits);
 
-         // Ensure SL is strictly valid above Ask
-         if(proposedSL <= curAsk)
-            continue;
+            // Ensure SL is strictly valid above Ask
+            if(proposedSL <= curAsk)
+               continue;
 
-         // For SELL: never move SL backward; only move forward (lower)
-         if(curSL > 0.0 && proposedSL >= curSL)
-            continue;
+            // For SELL: never move SL backward; only move forward (lower)
+            if(curSL > 0.0 && proposedSL >= curSL)
+               continue;
 
-         // Avoid micro modifications below minimum modify gap
-         if(curSL > 0.0 && (curSL - proposedSL) < MinimumSLModifyGapRaw * Point)
-            continue;
+            // Avoid micro modifications below minimum modify gap
+            if(curSL > 0.0 && (curSL - proposedSL) < MinimumSLModifyGapRaw * Point)
+               continue;
 
-         shouldModify = true;
-        }
+            shouldModify = true;
+           }
 
       if(shouldModify && proposedSL > 0.0)
         {
@@ -4816,16 +4818,19 @@ int SafeOrderSend(string symbol,int orderType,double lots,double price,int slipp
         {
          if(EMADirection == 1 && isStrong)
             allowRecovery = true;
-         else if(EMADirection == -1 && isWeak)
-            allowRecovery = true;
+         else
+            if(EMADirection == -1 && isWeak)
+               allowRecovery = true;
         }
-      else if(direction == OP_SELL)
-        {
-         if(EMADirection == -1 && isStrong)
-            allowRecovery = true;
-         else if(EMADirection == 1 && isWeak)
-            allowRecovery = true;
-        }
+      else
+         if(direction == OP_SELL)
+           {
+            if(EMADirection == -1 && isStrong)
+               allowRecovery = true;
+            else
+               if(EMADirection == 1 && isWeak)
+                  allowRecovery = true;
+           }
 
       if(!allowRecovery)
         {
@@ -6884,8 +6889,36 @@ void ChangeLots(double OpenPL, string reason, int orderType, int stoplevelStep)
    Ladder1ProfitUSD = OriginalLadder1ProfitUSD * Lots * 100;
    Ladder2ProfitUSD = OriginalLadder2ProfitUSD * Lots * 100;
    Ladder1StopMaxPriceUSD = OriginalLadder1StopMaxPriceUSD * Lots * 100;
+  }
 
+//+------------------------------------------------------------------+
+//| Get live possible lot size based on ChangeLots logic without     |
+//| mutating any live trading state or globals                       |
+//+------------------------------------------------------------------+
+double GetLiveCalculatedLot(int orderType)
+  {
+   double savedLots = Lots;
+   int savedMultiplier = balancelomultipler;
+   double savedSL = StopLossUSD;
+   double savedL1 = Ladder1ProfitUSD;
+   double savedL2 = Ladder2ProfitUSD;
+   double savedL1Stop = Ladder1StopMaxPriceUSD;
 
+   double openPL = (orderType == OP_BUY) ? GlobalSellPL : GlobalBuyPL;
+   string reason = (orderType == OP_BUY) ? "SSL Long" : "SSL Short";
+
+   ChangeLots(openPL, reason, orderType, 0);
+   double calcLot = NormalizeLots(Lots);
+
+   // Restore previous global state completely
+   Lots = savedLots;
+   balancelomultipler = savedMultiplier;
+   StopLossUSD = savedSL;
+   Ladder1ProfitUSD = savedL1;
+   Ladder2ProfitUSD = savedL2;
+   Ladder1StopMaxPriceUSD = savedL1Stop;
+
+   return calcLot;
   }
 
 //+------------------------------------------------------------------+
@@ -7087,16 +7120,19 @@ void CheckRecoveryOrders()
         {
          if(EMADirection == 1 && isStrong)       // Same order type strong with gap
             createRecovery = true;
-         else if(EMADirection == -1 && isWeak)   // Opposite order type weak with gap
-            createRecovery = true;
+         else
+            if(EMADirection == -1 && isWeak)   // Opposite order type weak with gap
+               createRecovery = true;
         }
-      else if(parentType == OP_SELL)
-        {
-         if(EMADirection == -1 && isStrong)      // Same order type strong with gap
-            createRecovery = true;
-         else if(EMADirection == 1 && isWeak)    // Opposite order type weak with gap
-            createRecovery = true;
-        }
+      else
+         if(parentType == OP_SELL)
+           {
+            if(EMADirection == -1 && isStrong)      // Same order type strong with gap
+               createRecovery = true;
+            else
+               if(EMADirection == 1 && isWeak)    // Opposite order type weak with gap
+                  createRecovery = true;
+           }
 
       if(!createRecovery)
          continue;
@@ -7417,7 +7453,7 @@ int CreateFLIPBasketSupportOrder(int flipDirection)
      }
 
    RefreshRates();
-   double flipLots = 0.01 * (balancelomultipler > 0 ? balancelomultipler : 1);
+   double flipLots = 0.01*5 * (balancelomultipler > 0 ? balancelomultipler : 1);
    flipLots = NormalizeLots(flipLots);
 
    int ticket = -1;
@@ -11698,6 +11734,31 @@ void UpdateDashboard(DailyProtectionState &state)
         }
      }
 
+// 4B. LIVE ORDER CREATION POSSIBLE LOT (ChangeLots Logic)
+   double liveBuyLot = GetLiveCalculatedLot(OP_BUY);
+   double liveSellLot = GetLiveCalculatedLot(OP_SELL);
+   double liveActiveLot = (currentSSLDirection > 0) ? liveBuyLot : ((currentSSLDirection < 0) ? liveSellLot : (EMADirection == 1 ? liveBuyLot : liveSellLot));
+
+   string possLotStr = "";
+   if(liveBuyLot == liveSellLot)
+     {
+      possLotStr = StringConcatenate(DoubleToString(liveActiveLot, 2), " L [B:", DoubleToString(liveBuyLot, 2), " S:", DoubleToString(liveSellLot, 2), "]");
+     }
+   else if(currentSSLDirection > 0)
+     {
+      possLotStr = StringConcatenate(DoubleToString(liveBuyLot, 2), " L [BUY] (Sell: ", DoubleToString(liveSellLot, 2), " L)");
+     }
+   else if(currentSSLDirection < 0)
+     {
+      possLotStr = StringConcatenate(DoubleToString(liveSellLot, 2), " L [SELL] (Buy: ", DoubleToString(liveBuyLot, 2), " L)");
+     }
+   else
+     {
+      possLotStr = StringConcatenate("Buy ", DoubleToString(liveBuyLot, 2), " L / Sell ", DoubleToString(liveSellLot, 2), " L");
+     }
+
+   color possLotColor = (liveActiveLot >= 0.03) ? clrLime : ((liveActiveLot == 0.02) ? clrDeepSkyBlue : clrGold);
+
 // 5. RE-ENTRY & RECOVERY ENGINE
    string reEntryStr = "";
    color reEntryColor = clrSilver;
@@ -11997,7 +12058,7 @@ void UpdateDashboard(DailyProtectionState &state)
    y = DashboardTopGap;
    tx = x + 12;
    w = DashboardWidth;
-   panelHeight = 542;
+   panelHeight = 558;
 
 // One-time cleanup if layout version changes to avoid orphaned labels
    static string lastLayoutVer = "";
@@ -12032,32 +12093,33 @@ void UpdateDashboard(DailyProtectionState &state)
    CreateDashboardLabel(DASH_PREFIX+"S1_SPRD", "SPREAD  : " + spreadStr, tx, y+198, 8, spreadColor);
    CreateDashboardLabel(DASH_PREFIX+"S1_QTA", "CANDLE  : " + quotaStr + " | Anti-Spam: " + antiSpamStr, tx, y+214, 8, quotaColor);
    CreateDashboardLabel(DASH_PREFIX+"S1_ORDS", "ORDERS  : " + IntegerToString(totalOrders) + " / " + IntegerToString(MaxOpenOrders) + " (B:" + IntegerToString(buyOrders) + " S:" + IntegerToString(sellOrders) + " P:" + IntegerToString(pendingOrders) + ")", tx, y+230, 8, clrWhite);
+   CreateDashboardLabel(DASH_PREFIX+"S1_LOT",  "POSS LOT: " + possLotStr, tx, y+246, 8, possLotColor);
 
 // SECTION 2: ORDER CLOSING & EXIT ENGINE
-   CreateDashboardPanel(DASH_PREFIX+"S2_BAR", x, y+248, w, 18, C'30,45,65');
-   CreateDashboardLabel(DASH_PREFIX+"S2_H", "--- ORDER CLOSING & EXIT ENGINE ---", tx, y+250, 8, clrAqua);
-   CreateDashboardLabel(DASH_PREFIX+"S2_FLIP", "FLIP TP : " + flipTPStr, tx, y+268, 8, flipColor);
-   CreateDashboardLabel(DASH_PREFIX+"S2_GOAL", "TP GOAL : " + flipProgStr, tx, y+284, 8, flipColor);
-   CreateDashboardLabel(DASH_PREFIX+"S2_SL", "HARD SL : " + dailySLStr, tx, y+300, 8, dailySLColor);
-   CreateDashboardLabel(DASH_PREFIX+"S2_LOCK", "SL LOCK : " + sec1Str, tx, y+316, 8, clrLime);
-   CreateDashboardLabel(DASH_PREFIX+"S2_OPP", "OPP CLS : " + oppCloseStr, tx, y+332, 8, clrWhite);
-   CreateDashboardLabel(DASH_PREFIX+"S2_PART", "PART CLS: " + part1Str, tx, y+348, 8, part1Color);
-   CreateDashboardLabel(DASH_PREFIX+"S2_PGAP", "PART GAP: " + part2Str, tx, y+364, 8, part2Color);
-   CreateDashboardLabel(DASH_PREFIX+"S2_10LK", "$10 LOCK : " + basket10LockStr, tx, y+380, 8, basket10LockColor);
+   CreateDashboardPanel(DASH_PREFIX+"S2_BAR", x, y+264, w, 18, C'30,45,65');
+   CreateDashboardLabel(DASH_PREFIX+"S2_H", "--- ORDER CLOSING & EXIT ENGINE ---", tx, y+266, 8, clrAqua);
+   CreateDashboardLabel(DASH_PREFIX+"S2_FLIP", "FLIP TP : " + flipTPStr, tx, y+284, 8, flipColor);
+   CreateDashboardLabel(DASH_PREFIX+"S2_GOAL", "TP GOAL : " + flipProgStr, tx, y+300, 8, flipColor);
+   CreateDashboardLabel(DASH_PREFIX+"S2_SL", "HARD SL : " + dailySLStr, tx, y+316, 8, dailySLColor);
+   CreateDashboardLabel(DASH_PREFIX+"S2_LOCK", "SL LOCK : " + sec1Str, tx, y+332, 8, clrLime);
+   CreateDashboardLabel(DASH_PREFIX+"S2_OPP", "OPP CLS : " + oppCloseStr, tx, y+348, 8, clrWhite);
+   CreateDashboardLabel(DASH_PREFIX+"S2_PART", "PART CLS: " + part1Str, tx, y+364, 8, part1Color);
+   CreateDashboardLabel(DASH_PREFIX+"S2_PGAP", "PART GAP: " + part2Str, tx, y+380, 8, part2Color);
+   CreateDashboardLabel(DASH_PREFIX+"S2_10LK", "$10 LOCK : " + basket10LockStr, tx, y+396, 8, basket10LockColor);
 
 // SECTION 3: RE-ENTRY & RECOVERY ENGINE
-   CreateDashboardPanel(DASH_PREFIX+"S3_BAR", x, y+398, w, 18, C'30,45,65');
-   CreateDashboardLabel(DASH_PREFIX+"S3_H", "--- RE-ENTRY & RECOVERY ENGINE ---", tx, y+400, 8, clrAqua);
-   CreateDashboardLabel(DASH_PREFIX+"S3_RE", "RE-ENTRY: " + reEntryStr, tx, y+418, 8, reEntryColor);
-   CreateDashboardLabel(DASH_PREFIX+"S3_REC1", "1ST REC : " + rec1Str, tx, y+434, 8, rec1Color);
-   CreateDashboardLabel(DASH_PREFIX+"S3_REC2", "2ND REC : " + rec2Str, tx, y+450, 8, rec2Color);
-   CreateDashboardLabel(DASH_PREFIX+"S3_EXIT", "REC EXIT: " + recExitStr, tx, y+466, 8, recExitColor);
+   CreateDashboardPanel(DASH_PREFIX+"S3_BAR", x, y+414, w, 18, C'30,45,65');
+   CreateDashboardLabel(DASH_PREFIX+"S3_H", "--- RE-ENTRY & RECOVERY ENGINE ---", tx, y+416, 8, clrAqua);
+   CreateDashboardLabel(DASH_PREFIX+"S3_RE", "RE-ENTRY: " + reEntryStr, tx, y+434, 8, reEntryColor);
+   CreateDashboardLabel(DASH_PREFIX+"S3_REC1", "1ST REC : " + rec1Str, tx, y+450, 8, rec1Color);
+   CreateDashboardLabel(DASH_PREFIX+"S3_REC2", "2ND REC : " + rec2Str, tx, y+466, 8, rec2Color);
+   CreateDashboardLabel(DASH_PREFIX+"S3_EXIT", "REC EXIT: " + recExitStr, tx, y+482, 8, recExitColor);
 
 // SECTION 4: MARKET MOMENTUM & PRICES
-   CreateDashboardPanel(DASH_PREFIX+"S4_BAR", x, y+484, w, 18, C'30,45,65');
-   CreateDashboardLabel(DASH_PREFIX+"S4_H", "--- MARKET MOMENTUM & BID/ASK ---", tx, y+486, 8, clrAqua);
-   CreateDashboardLabel(DASH_PREFIX+"S4_SCORE", "SCORE   : " + scoreText, tx, y+504, 8, scoreColor);
-   CreateDashboardLabel(DASH_PREFIX+"S4_PRICE", "BID/ASK : " + DoubleToString(curBid, Digits) + " / " + DoubleToString(curAsk, Digits) + " (Sprd: " + DoubleToString(curSpread, 1) + ")", tx, y+520, 8, clrWhite);
+   CreateDashboardPanel(DASH_PREFIX+"S4_BAR", x, y+500, w, 18, C'30,45,65');
+   CreateDashboardLabel(DASH_PREFIX+"S4_H", "--- MARKET MOMENTUM & BID/ASK ---", tx, y+502, 8, clrAqua);
+   CreateDashboardLabel(DASH_PREFIX+"S4_SCORE", "SCORE   : " + scoreText, tx, y+520, 8, scoreColor);
+   CreateDashboardLabel(DASH_PREFIX+"S4_PRICE", "BID/ASK : " + DoubleToString(curBid, Digits) + " / " + DoubleToString(curAsk, Digits) + " (Sprd: " + DoubleToString(curSpread, 1) + ")", tx, y+536, 8, clrWhite);
 
    ChartRedraw(0);
   }
