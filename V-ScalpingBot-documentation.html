@@ -889,7 +889,7 @@
       <div class="header-pills">
         <span class="pill pill-blue">BTCUSD • M1 Scalper</span>
         <span class="pill pill-purple">Exness Raw / Zero</span>
-        <span class="pill pill-green">V10012 (03-10-2026 20.40)</span>
+        <span class="pill pill-green">V10018 (04-10-2026 10.30)</span>
       </div>
     </div>
 
@@ -1505,6 +1505,20 @@ sequenceDiagram
                     <td>Converted basket equity locking from 10% compounding to fixed $10 USD increments: (1) Baseline is captured when basket resets or first position opens ($100 baseline); (2) Successive targets advance linearly by fixed +$10 ($100 &rarr; $110 &rarr; $120 &rarr; $130...); (3) On each $10 milestone reached, modifies ALL open basket positions' SL to current live market price (Bid for BUY, Ask for SELL via <code>GetRequiredStopDistance()</code>); (4) Maintains full backwards-compatible forwarding for <code>ResetBasket10PercentLock()</code> and <code>ManageBasket10PercentLockEquity()</code>; (5) Right-side Section 3 dashboard updated to <code>$10 LOCK : ...</code>; (6) Clean MetaEditor 4 build (0 errors, 20 warnings).</td>
                     <td><span class="badge badge-green">VERIFIED &amp; DEPLOYED</span></td>
                   </tr>
+                  <tr>
+                    <td><code>Step 944</code><br><small style="color: var(--accent-amber);">09:30</small></td>
+                    <td><strong>Lock Recovery Orders to Basket Profit Only (Immunity from Independent Close / Profit SL Modify)</strong><br><small style="color: var(--text-dim);">Guarantees recovery 1 &amp; 2 orders never close independently or modify profit SL while parent exists</small></td>
+                    <td><code>IsRecoveryOrderWithActiveParent()</code><br><code>EnableRecoveryProfitTrailing = false</code><br><code>glbVersion = "V10013"</code></td>
+                    <td>Enforced strict basket-only resolution for all recovery orders: (1) Implemented <code>IsRecoveryOrderWithActiveParent()</code> to protect recovery orders from individual profit SL modification across <code>ManageProfitLadder()</code>, <code>SecureOneDollarProfit()</code>, <code>SecureOneDollarProfitByDistance()</code>, <code>modifyOnlyBuyOrders()</code>, and <code>modifyOnlySellOrders()</code>; (2) Shielded recovery orders from independent closures in <code>CloseOppositeOrders()</code>, <code>CloseOppositeProfitableOrdersIndependent()</code>, and <code>CloseOppositeLosingOrdersBeforeSignal()</code> while parent trade remains open; (3) Disabled individual TakeProfit on recovery creation (<code>recoveryTP = 0.0</code>); (4) Set <code>EnableRecoveryProfitTrailing = false</code> in <code>ManageRecoveryBasket()</code> so parent + recovery 1 + recovery 2 always close together in an atomic pass upon reaching target basket profit ( or scaled). Clean MetaEditor 4 build (0 errors, 20 warnings).</td>
+                    <td><span class="badge badge-green">VERIFIED &amp; DEPLOYED</span></td>
+                  </tr>
+                  <tr>
+                    <td><code>Step 945</code><br><small style="color: var(--accent-amber);">10:30</small></td>
+                    <td><strong>Dynamic Angle Lot Sizing (&lt;5&deg;) &amp; Mandatory Per-Change Version Increment Protocol</strong><br><small style="color: var(--text-dim);">Increments glbVersion and verShort on every change; balances low-angle lots based on open P/L</small></td>
+                    <td><code>glbVersion = "V10018"</code><br><code>verShort = "V10018 | ..."</code><br><code>ChangeLots()</code> L6521</td>
+                    <td>(1) Standardized EA versioning protocol across codebase: updated <code>glbVersion</code> and <code>verShort</code> to V10018, provided <code>TimeframeToString(int timeframe)</code> forward prototype, and wired dynamic chart symbol/period synchronization; (2) Integrated Low-Angle (&lt;5&deg;) dynamic lot sizing and floating P/L drawdown rebalancing in <code>ChangeLots()</code> (sets base 0.01 lot when angle is flat, dynamically boosting to 0.02 lot if the requested direction has &le; half the drawdown of the opposing direction to hedge/rebalance exposure). Clean MetaEditor 4 build (0 errors, 20 warnings).</td>
+                    <td><span class="badge badge-green">VERIFIED &amp; DEPLOYED</span></td>
+                  </tr>
                 </tbody>
               </table>
             </div>
@@ -1828,6 +1842,20 @@ flowchart TD
                     <td>Converted basket equity locking from 10% compounding to fixed $10 USD increments: (1) Baseline is captured when basket resets or first position opens ($100 baseline); (2) Successive targets advance linearly by fixed +$10 ($100 &rarr; $110 &rarr; $120 &rarr; $130...); (3) On each $10 milestone reached, modifies ALL open basket positions' SL to current live market price (Bid for BUY, Ask for SELL via <code>GetRequiredStopDistance()</code>); (4) Maintains full backwards-compatible forwarding for <code>ResetBasket10PercentLock()</code> and <code>ManageBasket10PercentLockEquity()</code>; (5) Right-side Section 3 dashboard updated to <code>$10 LOCK : ...</code>; (6) Clean MetaEditor 4 build (0 errors, 20 warnings).</td>
                     <td><span class="badge badge-green">VERIFIED &amp; DEPLOYED</span></td>
                   </tr>
+                  <tr>
+                    <td><code>Step 944</code><br><small style="color: var(--accent-amber);">09:30</small></td>
+                    <td><strong>Lock Recovery Orders to Basket Profit Only (Immunity from Independent Close / Profit SL Modify)</strong><br><small style="color: var(--text-dim);">Guarantees recovery 1 &amp; 2 orders never close independently or modify profit SL while parent exists</small></td>
+                    <td><code>IsRecoveryOrderWithActiveParent()</code><br><code>EnableRecoveryProfitTrailing = false</code><br><code>glbVersion = "V10013"</code></td>
+                    <td>Enforced strict basket-only resolution for all recovery orders: (1) Implemented <code>IsRecoveryOrderWithActiveParent()</code> to protect recovery orders from individual profit SL modification across <code>ManageProfitLadder()</code>, <code>SecureOneDollarProfit()</code>, <code>SecureOneDollarProfitByDistance()</code>, <code>modifyOnlyBuyOrders()</code>, and <code>modifyOnlySellOrders()</code>; (2) Shielded recovery orders from independent closures in <code>CloseOppositeOrders()</code>, <code>CloseOppositeProfitableOrdersIndependent()</code>, and <code>CloseOppositeLosingOrdersBeforeSignal()</code> while parent trade remains open; (3) Disabled individual TakeProfit on recovery creation (<code>recoveryTP = 0.0</code>); (4) Set <code>EnableRecoveryProfitTrailing = false</code> in <code>ManageRecoveryBasket()</code> so parent + recovery 1 + recovery 2 always close together in an atomic pass upon reaching target basket profit ( or scaled). Clean MetaEditor 4 build (0 errors, 20 warnings).</td>
+                    <td><span class="badge badge-green">VERIFIED &amp; DEPLOYED</span></td>
+                  </tr>
+                  <tr>
+                    <td><code>Step 945</code><br><small style="color: var(--accent-amber);">10:30</small></td>
+                    <td><strong>Dynamic Angle Lot Sizing (&lt;5&deg;) &amp; Mandatory Per-Change Version Increment Protocol</strong><br><small style="color: var(--text-dim);">Increments glbVersion and verShort on every change; balances low-angle lots based on open P/L</small></td>
+                    <td><code>glbVersion = "V10018"</code><br><code>verShort = "V10018 | ..."</code><br><code>ChangeLots()</code> L6521</td>
+                    <td>(1) Standardized EA versioning protocol across codebase: updated <code>glbVersion</code> and <code>verShort</code> to V10018, provided <code>TimeframeToString(int timeframe)</code> forward prototype, and wired dynamic chart symbol/period synchronization; (2) Integrated Low-Angle (&lt;5&deg;) dynamic lot sizing and floating P/L drawdown rebalancing in <code>ChangeLots()</code> (sets base 0.01 lot when angle is flat, dynamically boosting to 0.02 lot if the requested direction has &le; half the drawdown of the opposing direction to hedge/rebalance exposure). Clean MetaEditor 4 build (0 errors, 20 warnings).</td>
+                    <td><span class="badge badge-green">VERIFIED &amp; DEPLOYED</span></td>
+                  </tr>
                 </tbody>
               </table>
             </div>
@@ -1860,7 +1888,7 @@ flowchart TD
             <div class="grid-4" style="margin-bottom: 24px;">
               <div class="stat-card">
                 <div class="stat-label">Total User Directives</div>
-                <div class="stat-value" style="color: var(--accent-green);">25 / 25</div>
+                <div class="stat-value" style="color: var(--accent-green);">27 / 27</div>
                 <div class="stat-desc">100% Implemented &amp; Audited</div>
               </div>
               <div class="stat-card">
@@ -1870,8 +1898,8 @@ flowchart TD
               </div>
               <div class="stat-card">
                 <div class="stat-label">Active Production Build</div>
-                <div class="stat-value" style="color: var(--accent-purple);">V10012</div>
-                <div class="stat-desc">03-10-2026 20.40 Deployed</div>
+                <div class="stat-value" style="color: var(--accent-purple);">V10018</div>
+                <div class="stat-desc">04-10-2026 10.30 Deployed</div>
               </div>
               <div class="stat-card">
                 <div class="stat-label">Centralized Firewall</div>
@@ -2068,6 +2096,20 @@ flowchart TD
                     <td>Converted basket equity locking from 10% compounding to fixed $10 USD increments: (1) Baseline is captured when basket resets or first position opens ($100 baseline); (2) Successive targets advance linearly by fixed +$10 ($100 &rarr; $110 &rarr; $120 &rarr; $130...); (3) On each $10 milestone reached, modifies ALL open basket positions' SL to current live market price (Bid for BUY, Ask for SELL via <code>GetRequiredStopDistance()</code>); (4) Maintains full backwards-compatible forwarding for <code>ResetBasket10PercentLock()</code> and <code>ManageBasket10PercentLockEquity()</code>; (5) Right-side Section 3 dashboard updated to <code>$10 LOCK : ...</code>; (6) Clean MetaEditor 4 build (0 errors, 20 warnings).</td>
                     <td><span class="badge badge-green">VERIFIED &amp; DEPLOYED</span></td>
                   </tr>
+                  <tr>
+                    <td><code>Step 944</code><br><small style="color: var(--accent-amber);">09:30</small></td>
+                    <td><strong>Lock Recovery Orders to Basket Profit Only (Immunity from Independent Close / Profit SL Modify)</strong><br><small style="color: var(--text-dim);">Guarantees recovery 1 &amp; 2 orders never close independently or modify profit SL while parent exists</small></td>
+                    <td><code>IsRecoveryOrderWithActiveParent()</code><br><code>EnableRecoveryProfitTrailing = false</code><br><code>glbVersion = "V10013"</code></td>
+                    <td>Enforced strict basket-only resolution for all recovery orders: (1) Implemented <code>IsRecoveryOrderWithActiveParent()</code> to protect recovery orders from individual profit SL modification across <code>ManageProfitLadder()</code>, <code>SecureOneDollarProfit()</code>, <code>SecureOneDollarProfitByDistance()</code>, <code>modifyOnlyBuyOrders()</code>, and <code>modifyOnlySellOrders()</code>; (2) Shielded recovery orders from independent closures in <code>CloseOppositeOrders()</code>, <code>CloseOppositeProfitableOrdersIndependent()</code>, and <code>CloseOppositeLosingOrdersBeforeSignal()</code> while parent trade remains open; (3) Disabled individual TakeProfit on recovery creation (<code>recoveryTP = 0.0</code>); (4) Set <code>EnableRecoveryProfitTrailing = false</code> in <code>ManageRecoveryBasket()</code> so parent + recovery 1 + recovery 2 always close together in an atomic pass upon reaching target basket profit ( or scaled). Clean MetaEditor 4 build (0 errors, 20 warnings).</td>
+                    <td><span class="badge badge-green">VERIFIED &amp; DEPLOYED</span></td>
+                  </tr>
+                  <tr>
+                    <td><code>Step 945</code><br><small style="color: var(--accent-amber);">10:30</small></td>
+                    <td><strong>Dynamic Angle Lot Sizing (&lt;5&deg;) &amp; Mandatory Per-Change Version Increment Protocol</strong><br><small style="color: var(--text-dim);">Increments glbVersion and verShort on every change; balances low-angle lots based on open P/L</small></td>
+                    <td><code>glbVersion = "V10018"</code><br><code>verShort = "V10018 | ..."</code><br><code>ChangeLots()</code> L6521</td>
+                    <td>(1) Standardized EA versioning protocol across codebase: updated <code>glbVersion</code> and <code>verShort</code> to V10018, provided <code>TimeframeToString(int timeframe)</code> forward prototype, and wired dynamic chart symbol/period synchronization; (2) Integrated Low-Angle (&lt;5&deg;) dynamic lot sizing and floating P/L drawdown rebalancing in <code>ChangeLots()</code> (sets base 0.01 lot when angle is flat, dynamically boosting to 0.02 lot if the requested direction has &le; half the drawdown of the opposing direction to hedge/rebalance exposure). Clean MetaEditor 4 build (0 errors, 20 warnings).</td>
+                    <td><span class="badge badge-green">VERIFIED &amp; DEPLOYED</span></td>
+                  </tr>
                 </tbody>
               </table>
             </div>
@@ -2224,6 +2266,28 @@ flowchart TD
                       <strong>Code Anchor:</strong> <code>ManageBasket10USDLockEquity()</code> (L2199-2330), <code>ResetBasket10USDLock()</code> (L2181-2191), Section 3 Dashboard <code>DASH_PREFIX+"S3_10LK"</code> (L11511), <code>glbVersion = "V10012  03-10-2026 20.40"</code> (L33) &bull; Clean MetaEditor 4 build (0 errors, 20 warnings).
                     </div>
 
+                  </div>
+                </div>
+
+                <div class="step-item" style="cursor: pointer;" onclick="toggleAuditDetail('chk14')">
+                  <div class="step-num" style="background: rgba(16, 185, 129, 0.15); color: var(--accent-green); border-color: rgba(16, 185, 129, 0.3);">&#10003;</div>
+                  <div class="step-body" style="flex: 1;">
+                    <h4>Recovery Orders (1 &amp; 2) Locked to Basket Profit Only <span class="badge badge-green">Active</span></h4>
+                    <p>Ensures recovery orders (1st and 2nd) are never modified with individual profit SL rungs or closed independently while their parent order exists. All individual profit trailing,  lock rungs, and opposite signal closes are bypassed via <code>IsRecoveryOrderWithActiveParent()</code>, guaranteeing the entire recovery basket (Parent + Recovery 1 + Recovery 2) waits and closes together at target profit.</p>
+                    <div id="chk14" style="display: none; margin-top: 10px; font-size: 12.5px; color: var(--accent-blue); background: rgba(0,0,0,0.3); padding: 8px 12px; border-radius: 6px;">
+                      <strong>Code Anchor:</strong> <code>IsRecoveryOrderWithActiveParent()</code> (L6950), <code>EnableRecoveryProfitTrailing = false</code> (L279), <code>CheckRecoveryOrders()</code> (L6826), <code>ManageProfitLadder()</code> (L10069), <code>SecureOneDollarProfit()</code> (L703), <code>glbVersion = "V10013  04-10-2026 09.30"</code> (L33) &bull; Clean MetaEditor 4 build (0 errors, 20 warnings).
+                    </div>
+                  </div>
+                </div>
+
+                <div class="step-item" style="cursor: pointer;" onclick="toggleAuditDetail('chk15')">
+                  <div class="step-num" style="background: rgba(16, 185, 129, 0.15); color: var(--accent-green); border-color: rgba(16, 185, 129, 0.3);">&#10003;</div>
+                  <div class="step-body" style="flex: 1;">
+                    <h4>Mandatory Per-Change Version Increment &amp; Low-Angle Lot Rebalancing <span class="badge badge-green">Active</span></h4>
+                    <p>Enforces strict per-change version increments for <code>glbVersion</code> and <code>verShort</code> (V10018) with dynamic chart symbol/timeframe display via <code>TimeframeToString(Period())</code>. Also incorporates flat-market (&lt;5&deg;) lot scaling (0.01 base, 0.02 when opposite side has &ge; 2x drawdown).</p>
+                    <div id="chk15" style="display: none; margin-top: 10px; font-size: 12.5px; color: var(--accent-blue); background: rgba(0,0,0,0.3); padding: 8px 12px; border-radius: 6px;">
+                      <strong>Code Anchor:</strong> <code>glbVersion = "V10018  04-10-2026 10.30"</code> (L33), <code>verShort = "V10018 | " + Symbol() + " " + TimeframeToString(Period())</code> (L34), <code>ChangeLots()</code> (L6521) &bull; Clean MetaEditor 4 build (0 errors, 20 warnings).
+                    </div>
                   </div>
                 </div>
               </div>
