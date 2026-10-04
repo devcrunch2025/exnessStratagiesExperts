@@ -31,7 +31,7 @@
 
 // Previous: V10010  03-10-2026 18.25 Partial Close Column in Live Position Monitor
 string TimeframeToString(int timeframe);
-string glbVersion = "V10018  04-10-2026 10.30  Basket $5 step Dynamic Angle Lot Sizing & Recovery Basket Lock";
+string glbVersion = "V10019  04-10-2026 10.30  Basket $5 step Dynamic Angle Lot Sizing & Recovery Basket Lock";
 string verShort = "V10019 Basket $5 step | " + Symbol() + " " + TimeframeToString(Period());
 
 double DailyEquityStopUSD  =100*100;//50;//20*2.5;//10;//20;// 10;//30.0; close all orders at $50Xmultipler
