@@ -1,4 +1,4 @@
-<!DOCTYPE html>
+﻿<!DOCTYPE html>
 <html lang="en">
 <head>
   <meta charset="UTF-8">
@@ -889,7 +889,7 @@
       <div class="header-pills">
         <span class="pill pill-blue">BTCUSD • M1 Scalper</span>
         <span class="pill pill-purple">Exness Raw / Zero</span>
-        <span class="pill pill-green">V10029 (04-10-2026 19.30)</span>
+        <span class="pill pill-green">V10035 (04-10-2026 22.25)</span>
       </div>
     </div>
 
@@ -2252,18 +2252,18 @@ flowchart TD
             <div class="grid-4" style="margin-bottom: 24px;">
               <div class="stat-card">
                 <div class="stat-label">Total User Directives</div>
-                <div class="stat-value" style="color: var(--accent-green);">37 / 37</div>
+                <div class="stat-value" style="color: var(--accent-green);">43 / 43</div>
                 <div class="stat-desc">100% Implemented &amp; Audited</div>
               </div>
               <div class="stat-card">
                 <div class="stat-label">Compiler Verification</div>
                 <div class="stat-value" style="color: var(--accent-blue);">0 Errors</div>
-                <div class="stat-desc">MetaEditor 4 • 132ms Clean Build</div>
+                <div class="stat-desc">MetaEditor 4 • 118ms Clean Build</div>
               </div>
               <div class="stat-card">
                 <div class="stat-label">Active Production Build</div>
-                <div class="stat-value" style="color: var(--accent-purple);">V10029</div>
-                <div class="stat-desc">04-10-2026 19.30 Deployed</div>
+                <div class="stat-value" style="color: var(--accent-purple);">V10035</div>
+                <div class="stat-desc">04-10-2026 22.25 Deployed</div>
               </div>
               <div class="stat-card">
                 <div class="stat-label">Centralized Firewall</div>
@@ -2668,6 +2668,50 @@ flowchart TD
                     <td><strong>Pre-Creation Close &amp; Global Single Active FLIPBasketSupport Gate</strong><br><small style="color: var(--text-dim);">Unconditionally closes already open support order before new creation; strictly max 1 active order total</small></td>
                     <td><code>CreateFLIPBasketSupportOrder()</code> L7165<br><code>CloseFLIPBasketSupportOrders(-1)</code> L7124<br><code>HasOpenFLIPBasketSupportOrder(-1)</code> L7105<br><code>glbVersion = "V10024"</code></td>
                     <td>Enforced the safest execution model for <code>FLIPBasketSupport</code>: (1) Inside <code>CreateFLIPBasketSupportOrder()</code>, unconditionally calls <code>CloseFLIPBasketSupportOrders(-1)</code> with 3-attempt retry to close any already open support orders before creating a new one; (2) Enforced global single active support order gate via <code>HasOpenFLIPBasketSupportOrder(-1)</code> which aborts new creation if any support order is still active, guaranteeing strictly at most 1 <code>FLIPBasketSupport</code> runner active across the entire account at any moment. Clean MetaEditor 4 build (0 errors, 20 warnings).</td>
+                    <td><span class="badge badge-green">VERIFIED &amp; DEPLOYED</span></td>
+                  </tr>
+                  <tr>
+                    <td><code>Step 961</code><br><small style="color: var(--accent-amber);">22:25</small></td>
+                    <td><strong>All Orders 100-Step Raw Gap Step-Trailing StopLoss</strong><br><small style="color: var(--text-dim);">Universal discrete step-trailing StopLoss ratchets SL on every 100-point raw price jump in positive profit for ALL active orders</small></td>
+                    <td><code>AllOrdersStopLossStepRaw = 100.0</code> L299<br><code>ManageAllOrdersStepTrailingStopLoss()</code> L7846<br><code>OnTick()</code> L2234<br><code>OnTickCore()</code> L3022<br><code>glbVersion = "V10035"</code></td>
+                    <td>Universalized discrete step-trailing StopLoss across EVERY active market order on the account (Parent, ReEntry, Recovery, FLIPBasketSupport, Candle orders, etc.): (1) Parameterized via <code>extern double AllOrdersStopLossStepRaw = 100.0</code> ($100 raw BTC price points jump) and <code>extern bool EnableAllOrdersStepTrailingStopLoss = true</code>; (2) For any active BUY or SELL order moving in the favorable profit direction: Step 1 (+100 move) ratchets SL to Breakeven (<code>openPrice</code>); Step 2 (+200 move) locks +100 raw profit; Step $N$ ($+N \times 100$ move) locks <code>openPrice &plusmn; (N - 1) * stepSize</code>; (3) Intelligently preserves dedicated step sizes for <code>FLIPBasketSupport</code> and <code>RECOVERY</code> orders if custom configured; (4) Strictly ratchets forward, never loosens SL; (5) Respects broker <code>MODE_STOPLEVEL</code>, spread buffers, and <code>GetRequiredStopDistance()</code> to prevent error 130. Clean MetaEditor 4 build (0 errors, 20 warnings).</td>
+                    <td><span class="badge badge-green">VERIFIED &amp; DEPLOYED</span></td>
+                  </tr>
+                  <tr>
+                    <td><code>Step 960</code><br><small style="color: var(--accent-amber);">22:15</small></td>
+                    <td><strong>Recovery Orders 100X Raw Gap Step-Trailing StopLoss</strong><br><small style="color: var(--text-dim);">Ratchets StopLoss on every 100-point raw price jump in positive profit for recovery orders</small></td>
+                    <td><code>RecoveryOrderStopLossStepRaw = 100.0</code> L292<br><code>ManageRecoveryOrderStepTrailingStopLoss()</code> L7717<br><code>OnTick()</code> L2229<br><code>OnTickCore()</code> L3016<br><code>glbVersion = "V10034"</code></td>
+                    <td>Added dedicated step-trailing StopLoss engine for recovery orders (<code>RECOVERY_&lt;parent&gt;</code> and <code>RECOVERY_&lt;parent&gt;_2</code>): (1) Parameterized via <code>extern double RecoveryOrderStopLossStepRaw = 100.0</code> ($100 raw BTC price points jump); (2) At Step 1 (+100 move), ratchets SL to Breakeven (<code>openPrice</code>); (3) At Step 2 (+200 move), locks +100 raw profit (<code>openPrice + 100</code> for BUY, <code>openPrice - 100</code> for SELL); (4) At Step $N$ ($+N \times 100$ move), ratchets SL to lock <code>openPrice + (N - 1) * stepSize</code> for BUY, and <code>openPrice - (N - 1) * stepSize</code> for SELL; (5) Strictly ratchets forward, never loosens SL; (6) Enforces broker safety limits against <code>MODE_STOPLEVEL</code> and spread buffer. Clean MetaEditor 4 build (0 errors, 20 warnings).</td>
+                    <td><span class="badge badge-green">VERIFIED &amp; DEPLOYED</span></td>
+                  </tr>
+                  <tr>
+                    <td><code>Step 959</code><br><small style="color: var(--accent-amber);">22:05</small></td>
+                    <td><strong>Comment EMA Angle Gate &amp; Add EMAdistance Gap from Live Price &gt; 50</strong><br><small style="color: var(--text-dim);">Replaced EMA angle gate with raw price distance from live price (Ask/Bid) to 200 EMA &gt; $50</small></td>
+                    <td><code>FLIPBasketSupportMinEmaDistance = 50.0</code> L295<br><code>GetDistanceToEMAPrice()</code> L1807<br><code>CreateFLIPBasketSupportOrder()</code> L7524<br><code>TrackEmaFlip()</code> L1715, L1799<br><code>glbVersion = "V10033"</code></td>
+                    <td>Replaced EMA angle magnitude gate with raw EMA distance gap from live price: (1) Parameterized via <code>extern double FLIPBasketSupportMinEmaDistance = 50.0</code>; (2) Fully commented out the EMA angle gate inside <code>CreateFLIPBasketSupportOrder()</code> and <code>TrackEmaFlip()</code> per instruction; (3) Added Gate 0 in <code>CreateFLIPBasketSupportOrder()</code> verifying <code>GetDistanceToEMAPrice(targetType, true) &gt; 50.0</code>, rejecting early entries where live price is hugging the EMA 200 line; (4) In <code>TrackEmaFlip()</code>, evaluates raw EMA price distance at flip moment; if price gap &le; $50, safely defers creation with <code>FLIPBasketSupportOpenedThisCycle = false</code>; (5) On subsequent ticks during the same flip cycle, triggers support order creation the instant live price expands &gt; $50 away from the EMA line. Clean MetaEditor 4 build (0 errors, 20 warnings).</td>
+                    <td><span class="badge badge-green">VERIFIED &amp; DEPLOYED</span></td>
+                  </tr>
+                  <tr>
+                    <td><code>Step 958</code><br><small style="color: var(--accent-amber);">21:45</small></td>
+                    <td><strong>FLIPBasketSupport MathAbs(GlobalEmaAngle30) &gt; 1 Gate</strong><br><small style="color: var(--text-dim);">Only opens FLIPBasketSupport order when 30-bar EMA angle magnitude strictly exceeds 1.0 degree</small></td>
+                    <td><code>FLIPBasketSupportMinEmaAngle = 1.0</code> L294<br><code>CreateFLIPBasketSupportOrder()</code> L7507<br><code>TrackEmaFlip()</code> L1712, L1785<br><code>glbVersion = "V10032"</code></td>
+                    <td>Enforced strict EMA angle magnitude requirement for <code>FLIPBasketSupport</code> orders: (1) Parameterized via <code>extern double FLIPBasketSupportMinEmaAngle = 1.0</code>; (2) Inside <code>CreateFLIPBasketSupportOrder()</code>, added Gate 0 auditing <code>MathAbs(GlobalEmaAngle30) &gt; FLIPBasketSupportMinEmaAngle</code>, rejecting flat/shallow entries; (3) In <code>TrackEmaFlip()</code>, evaluates angle at flip moment; if angle &le; 1.0&deg;, safely defers creation and arms cycle state flag <code>FLIPBasketSupportOpenedThisCycle = false</code>; (4) On subsequent ticks during the same trend cycle, triggers support order creation the instant <code>MathAbs(GlobalEmaAngle30) &gt; 1.0</code> is confirmed; (5) Automatically resets cycle state upon opposite EMA flip change. Clean MetaEditor 4 build (0 errors, 20 warnings).</td>
+                    <td><span class="badge badge-green">VERIFIED &amp; DEPLOYED</span></td>
+                  </tr>
+                  <tr>
+                    <td><code>Step 957</code><br><small style="color: var(--accent-amber);">20:45</small></td>
+                    <td><strong>FLIPBasketSupport 100-Step Trailing StopLoss Engine</strong><br><small style="color: var(--text-dim);">Dedicated step-trailing StopLoss advancing on every 100 raw BTC step move in positive profit</small></td>
+                    <td><code>FLIPBasketSupportTakeProfitDistanceStopLossStep = 100.0</code> L293<br><code>ManageFLIPBasketSupportTrailingStopLoss()</code> L7519<br><code>OnTick()</code> L2179, L2965<br><code>glbVersion = "V10031"</code></td>
+                    <td>Implemented dedicated positive-profit step-trailing engine for <code>FLIPBasketSupport</code> orders: (1) Parameterized via <code>extern double FLIPBasketSupportTakeProfitDistanceStopLossStep = 100.0</code>; (2) On every 100 raw BTC favorable price move, calculates step index <em>N</em> = &lfloor;favorableMove / stepSize&rfloor;; (3) Step 1 (+100 move) ratchets StopLoss to Breakeven (<code>openPrice</code>); Step 2 (+200 move) ratchets StopLoss to +100 locked profit (<code>openPrice + 100</code> for BUY, <code>openPrice - 100</code> for SELL); Step <em>N</em> locks openPrice &plusmn; (<em>N</em> - 1) &times; stepSize; (4) Ratchet constraint guarantees StopLoss only advances forward, never loosens or regresses; (5) Strictly complies with broker <code>GetRequiredStopDistance()</code> and <code>MODE_STOPLEVEL</code> to prevent Error 130 invalid stops. Clean MetaEditor 4 build (0 errors, 20 warnings).</td>
+                    <td><span class="badge badge-green">VERIFIED &amp; DEPLOYED</span></td>
+                  </tr>
+                  <tr>
+                    <td><code>Step 956</code><br><small style="color: var(--accent-amber);">19:50</small></td>
+                    <td><strong>FLIPBasketSupport Isolation Test Gate in SafeOrderSend</strong><br><small style="color: var(--text-dim);">Blocks all orders in SafeOrderSend except FLIPBasketSupport to allow isolated testing</small></td>
+                    <td><code>OnlyAllowFLIPBasketSupportOrders = true</code> L35<br><code>SafeOrderSend()</code> L4635<br><code>UpdateDashboard()</code> L11467<br><code>glbVersion = "V10030"</code></td>
+                    <td>Implemented dedicated test isolation mode via <code>OnlyAllowFLIPBasketSupportOrders = true</code>: (1) Placed right after Gate 0 in <code>SafeOrderSend()</code>, rejecting 100% of order submissions (SSL market orders, re-entry stops, recovery orders, ladder orders, deferred trades) unless identified as <code>FLIPBasketSupport</code> via <code>IsFLIPBasketSupportOrder()</code>; (2) Detailed execution logging for blocked attempts; (3) Dashboard status HUD displays <code>STATUS : TEST: FLIP SUPPORT ONLY</code> in Magenta for real-time visual feedback; (4) Fully configurable so normal multi-order execution can be toggled without recompiling. Clean MetaEditor 4 build (0 errors, 20 warnings).</td>
+                    <td><span class="badge badge-green">VERIFIED &amp; DEPLOYED</span></td>
+                  </tr>
                   <tr>
                     <td><code>Step 955</code><br><small style="color: var(--accent-amber);">19:30</small></td>
                     <td><strong>Live Order Creation Engine Possible Lot HUD Display</strong><br><small style="color: var(--text-dim);">Displays real-time possible lot evaluated dynamically from ChangeLots logic as per live moment without state mutation</small></td>
@@ -2997,6 +3041,72 @@ flowchart TD
                     <p>Displays the exact real-time lot size evaluated by the native <code>ChangeLots()</code> engine for the live market moment, probed without mutating any EA state via <code>GetLiveCalculatedLot()</code>. Rendered dynamically in Section 1 (ORDER CREATION ENGINE) with tier color coding (Lime for full &ge; 0.03L, Sky Blue for 0.02L, Gold for defensive 0.01L).</p>
                     <div id="chk25" style="display: none; margin-top: 10px; font-size: 12.5px; color: var(--accent-blue); background: rgba(0,0,0,0.3); padding: 8px 12px; border-radius: 6px;">
                       <strong>Code Anchor:</strong> <code>GetLiveCalculatedLot()</code> (L6894), <code>ChangeLots()</code> (L6460), <code>UpdateDashboard()</code> (L11736, L12095), <code>glbVersion = "V10029  04-10-2026 19.30"</code> (L34) &bull; Clean MetaEditor 4 build (0 errors, 20 warnings).
+                    </div>
+                  </div>
+                </div>
+
+                <div class="step-item" style="cursor: pointer;" onclick="toggleAuditDetail('chk26')">
+                  <div class="step-num" style="background: rgba(16, 185, 129, 0.15); color: var(--accent-green); border-color: rgba(16, 185, 129, 0.3);">&#10003;</div>
+                  <div class="step-body" style="flex: 1;">
+                    <h4>FLIPBasketSupport Isolation Test Gate in SafeOrderSend <span class="badge badge-green">Active</span></h4>
+                    <p>Dedicated testing isolation firewall via <code>OnlyAllowFLIPBasketSupportOrders = true</code>. Blocks 100% of order submissions in <code>SafeOrderSend()</code> (SSL market trades, re-entry stops, recovery orders, ladder orders, deferred trades) unless the order is identified as <code>FLIPBasketSupport</code>, displaying <code>STATUS : TEST: FLIP SUPPORT ONLY</code> on the dashboard HUD.</p>
+                    <div id="chk26" style="display: none; margin-top: 10px; font-size: 12.5px; color: var(--accent-blue); background: rgba(0,0,0,0.3); padding: 8px 12px; border-radius: 6px;">
+                      <strong>Code Anchor:</strong> <code>OnlyAllowFLIPBasketSupportOrders = true</code> (L35), <code>SafeOrderSend()</code> (L4635), <code>UpdateDashboard()</code> (L11467), <code>glbVersion = "V10030  04-10-2026 19.50"</code> (L34) &bull; Clean MetaEditor 4 build (0 errors, 20 warnings).
+                    </div>
+                  </div>
+                </div>
+
+                <div class="step-item" style="cursor: pointer;" onclick="toggleAuditDetail('chk27')">
+                  <div class="step-num" style="background: rgba(16, 185, 129, 0.15); color: var(--accent-green); border-color: rgba(16, 185, 129, 0.3);">&#10003;</div>
+                  <div class="step-body" style="flex: 1;">
+                    <h4>FLIPBasketSupport 100-Step Trailing StopLoss Engine <span class="badge badge-green">Active</span></h4>
+                    <p>Dedicated positive-profit step-trailing StopLoss engine for <code>FLIPBasketSupport</code> orders. Every 100-point favorable move in raw BTC price advances StopLoss by 100 points: Step 1 (+100 move) moves SL to breakeven, Step 2 (+200 move) locks +100 profit, Step <em>N</em> locks (<em>N</em> - 1) &times; 100 profit with broker StopLevel safety checks.</p>
+                    <div id="chk27" style="display: none; margin-top: 10px; font-size: 12.5px; color: var(--accent-blue); background: rgba(0,0,0,0.3); padding: 8px 12px; border-radius: 6px;">
+                      <strong>Code Anchor:</strong> <code>FLIPBasketSupportTakeProfitDistanceStopLossStep = 100.0</code> (L293), <code>ManageFLIPBasketSupportTrailingStopLoss()</code> (L7519), <code>OnTick()</code> (L2179, L2965), <code>glbVersion = "V10031  04-10-2026 20.45"</code> (L34) &bull; Clean MetaEditor 4 build (0 errors, 20 warnings).
+                    </div>
+                  </div>
+                </div>
+
+                <div class="step-item" style="cursor: pointer;" onclick="toggleAuditDetail('chk28')">
+                  <div class="step-num" style="background: rgba(16, 185, 129, 0.15); color: var(--accent-green); border-color: rgba(16, 185, 129, 0.3);">&#10003;</div>
+                  <div class="step-body" style="flex: 1;">
+                    <h4>FLIPBasketSupport MathAbs(GlobalEmaAngle30) &gt; 1 Gate <span class="badge badge-green">Active</span></h4>
+                    <p>Dedicated angle magnitude gate for <code>FLIPBasketSupport</code> orders. Blocks execution when $|angle| \le 1.0&deg;$, deferring creation until trend momentum confirms <code>MathAbs(GlobalEmaAngle30) &gt; 1.0</code> during the active EMA flip cycle.</p>
+                    <div id="chk28" style="display: none; margin-top: 10px; font-size: 12.5px; color: var(--accent-blue); background: rgba(0,0,0,0.3); padding: 8px 12px; border-radius: 6px;">
+                      <strong>Code Anchor:</strong> <code>FLIPBasketSupportMinEmaAngle = 1.0</code> (L294), <code>CreateFLIPBasketSupportOrder()</code> (L7507), <code>TrackEmaFlip()</code> (L1712, L1785), <code>glbVersion = "V10032  04-10-2026 21.45"</code> (L34) &bull; Clean MetaEditor 4 build (0 errors, 20 warnings).
+                    </div>
+                  </div>
+                </div>
+
+                <div class="step-item" style="cursor: pointer;" onclick="toggleAuditDetail('chk29')">
+                  <div class="step-num" style="background: rgba(16, 185, 129, 0.15); color: var(--accent-green); border-color: rgba(16, 185, 129, 0.3);">&#10003;</div>
+                  <div class="step-body" style="flex: 1;">
+                    <h4>Comment EMA Angle Gate &amp; Add EMAdistance Gap from Live Price &gt; 50 <span class="badge badge-green">Active</span></h4>
+                    <p>Replaced EMA angle gate with raw distance filter: requires live market price (Ask for BUY, Bid for SELL) to have expanded &gt; $50 away from the 200 EMA before triggering <code>FLIPBasketSupport</code>, preventing entries when price hugs the EMA.</p>
+                    <div id="chk29" style="display: none; margin-top: 10px; font-size: 12.5px; color: var(--accent-blue); background: rgba(0,0,0,0.3); padding: 8px 12px; border-radius: 6px;">
+                      <strong>Code Anchor:</strong> <code>FLIPBasketSupportMinEmaDistance = 50.0</code> (L295), <code>GetDistanceToEMAPrice()</code> (L1807), <code>CreateFLIPBasketSupportOrder()</code> (L7524), <code>TrackEmaFlip()</code> (L1715, L1799), <code>glbVersion = "V10033  04-10-2026 22.05"</code> (L34) &bull; Clean MetaEditor 4 build (0 errors, 20 warnings).
+                    </div>
+                  </div>
+                </div>
+
+                <div class="step-item" style="cursor: pointer;" onclick="toggleAuditDetail('chk30')">
+                  <div class="step-num" style="background: rgba(16, 185, 129, 0.15); color: var(--accent-green); border-color: rgba(16, 185, 129, 0.3);">&#10003;</div>
+                  <div class="step-body" style="flex: 1;">
+                    <h4>Recovery Orders 100X Raw Gap StopLoss Trailing on Profit Jump <span class="badge badge-green">Active</span></h4>
+                    <p>Dedicated step-trailing StopLoss engine ratchets StopLoss by $100 raw price increments on every positive profit jump for recovery orders, locking breakeven on Step 1 (+100) and ratcheting +(N-1)*100 profit lock on subsequent steps while respecting broker stop levels.</p>
+                    <div id="chk30" style="display: none; margin-top: 10px; font-size: 12.5px; color: var(--accent-blue); background: rgba(0,0,0,0.3); padding: 8px 12px; border-radius: 6px;">
+                      <strong>Code Anchor:</strong> <code>RecoveryOrderStopLossStepRaw = 100.0</code> (L292), <code>ManageRecoveryOrderStepTrailingStopLoss()</code> (L7717), <code>OnTick()</code> (L2229), <code>OnTickCore()</code> (L3016), <code>glbVersion = "V10034  04-10-2026 22.15"</code> (L34) &bull; Clean MetaEditor 4 build (0 errors, 20 warnings).
+                    </div>
+                  </div>
+                </div>
+
+                <div class="step-item" style="cursor: pointer;" onclick="toggleAuditDetail('chk31')">
+                  <div class="step-num" style="background: rgba(16, 185, 129, 0.15); color: var(--accent-green); border-color: rgba(16, 185, 129, 0.3);">&#10003;</div>
+                  <div class="step-body" style="flex: 1;">
+                    <h4>All Orders 100-Step Raw Gap StopLoss Trailing on Profit Move <span class="badge badge-green">Active</span></h4>
+                    <p>Universal discrete step-trailing StopLoss engine ratchets StopLoss by $100 raw price increments on every positive profit move for ALL active market orders (Parent, ReEntry, Recovery, Support, Candle, etc.), locking breakeven on Step 1 (+100) and ratcheting +(N-1)*100 profit lock on subsequent steps while respecting broker stop levels.</p>
+                    <div id="chk31" style="display: none; margin-top: 10px; font-size: 12.5px; color: var(--accent-blue); background: rgba(0,0,0,0.3); padding: 8px 12px; border-radius: 6px;">
+                      <strong>Code Anchor:</strong> <code>AllOrdersStopLossStepRaw = 100.0</code> (L299), <code>ManageAllOrdersStepTrailingStopLoss()</code> (L7846), <code>OnTick()</code> (L2234), <code>OnTickCore()</code> (L3022), <code>glbVersion = "V10035  04-10-2026 22.25"</code> (L34) &bull; Clean MetaEditor 4 build (0 errors, 20 warnings).
                     </div>
                   </div>
                 </div>

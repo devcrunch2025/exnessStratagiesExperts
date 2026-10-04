@@ -1,4 +1,4 @@
-//+------------------------------------------------------------------+
+﻿//+------------------------------------------------------------------+
 //|                  SSL CHANNEL CROSS EA - CONTINUOUS EQUITY LADDER |
 //|                  TWO-STAGE PROFIT LADDER | CONTINUOUS RESET      |
 //+------------------------------------------------------------------+
@@ -31,8 +31,10 @@
 
 // Previous: V10010  03-10-2026 18.25 Partial Close Column in Live Position Monitor
 string TimeframeToString(int timeframe);
-string glbVersion = "V10029  04-10-2026 19.30 Live Order Creation Possible Lot Display";
-string verShort = "V10029 | " + Symbol() + " " + TimeframeToString(Period());
+string glbVersion = "V10035  04-10-2026 22.25 All Orders 100-Step Raw Gap Trailing StopLoss";
+string verShort = "V10035 | " + Symbol() + " " + TimeframeToString(Period());
+
+extern bool OnlyAllowFLIPBasketSupportOrders =false;// true; // TEST ISOLATION: When true, blocks ALL orders in SafeOrderSend except FLIPBasketSupport
 
 double DailyEquityStopUSD  =100*100;//50;//20*2.5;//10;//20;// 10;//30.0; close all orders at $50Xmultipler
 double TargetProfitPerFlipUSD =20*100;//10;//10*2;//10;//5;//20;// 10.0; close all orders at $20Xmultipler
@@ -279,16 +281,23 @@ double RecoveryLotMultiplier =2;//1;// 2;
 int MaxRecoveryOrders =100;// 5; // Maximum active recovery orders allowed
 double RecoveryMaxLots = 0.05; // Maximum lot cap for recovery order (even 2X lot cannot exceed 0.05)
 double RecoveryBasketProfitUSD = 0.50;//1;
-double RecoveryMinDistanceRaw =200;//50*2;//500;//1000;//2000;//2000;//2000;//1000;//1000;//100;//20;// 200.0;
-double MinGapBetweenRecoveryOrdersRaw = 50.0; // Minimum raw price gap ($50) between two recovery orders
+double RecoveryMinDistanceRaw =500;//200;//50*2;//500;//1000;//2000;//2000;//2000;//1000;//1000;//100;//20;// 200.0;
+double MinGapBetweenRecoveryOrdersRaw = 100;//50.0; // Minimum raw price gap ($50) between two recovery orders
 bool IgnoreRecoveryRawGapCondition = true; // Ignore raw gap condition for recovery orders
 double Recovery2ndOrderMinDistanceRaw =1000;// 2000.0; // Minimum raw price gap ($2000) from 1st recovery order for 2nd recovery order
 int    MaxRecoveryOrdersPerParent = 2; // Maximum recovery orders allowed per parent trade (1st + 2nd)
 bool UseBalanceMultiplierForRecoveryTarget = false; // Scaled by balance multiplier if true; default false ($1.00 fixed cash target)
 bool EnableRecoveryProfitTrailing = false; // Always close parent + recovery 1 + recovery 2 together on recovery basket profit!
 double RecoveryTakeProfitDistanceRaw =1000;// 500.0; // Take profit distance ( raw BTC price distance) for Recovery orders
-double FLIPBasketSupportTakeProfitDistanceRaw =1000;// 500.0; // Take profit distance ( raw BTC price distance) for FLIPBasketSupport orders
-
+extern double RecoveryOrderStopLossStepRaw = 100.0; // Positive profit jump raw gap step size ($100 raw BTC price) to ratchet Recovery order StopLoss
+double RecoveryTakeProfitDistanceStopLossStep = 100.0; // 100X raw gap stoploss step on every profit jump
+double FLIPBasketSupportTakeProfitDistanceRaw =2000;//100*2;// 500.0; // Take profit distance ( raw BTC price distance) for FLIPBasketSupport orders
+extern double FLIPBasketSupportTakeProfitDistanceStopLossStep = 100.0; // Positive profit move step size (raw BTC price) to ratchet FLIPBasketSupport StopLoss
+// extern double FLIPBasketSupportMinEmaAngle = 1.0; // [COMMENTED OUT per user instruction: EMA Angle Gate replaced by EMAdistance gap > 50]
+extern double FLIPBasketSupportMinEmaDistance = 50.0; // Minimum raw price gap from live price to EMA ($50) required to open FLIPBasketSupport order
+extern bool   EnableAllOrdersStepTrailingStopLoss = true; // Enable 100-step raw gap StopLoss order modify when moving in profit direction for every order
+extern double AllOrdersStopLossStepRaw = 100.0; // Positive profit move raw gap step size ($100 raw BTC price) to ratchet StopLoss for ALL orders
+double AllOrdersTakeProfitDistanceStopLossStep = 100.0; // 100-step raw gap stoploss step on every profit move for all orders
 
 double DayProfitLadder1Amount = 5;
 
@@ -405,10 +414,14 @@ bool IsFLIPBasketSupportOrder(int ticket, string comment = "");
 bool HasOpenFLIPBasketSupportOrder(int targetType = -1);
 void CloseFLIPBasketSupportOrders(int targetType = -1);
 int  CreateFLIPBasketSupportOrder(int flipDirection);
+void ManageFLIPBasketSupportTrailingStopLoss();
+void ManageRecoveryOrderStepTrailingStopLoss();
+void ManageAllOrdersStepTrailingStopLoss();
 void RegisterNewCandleOrder(int ticket = -1);
 int  GetCurrentSSLDirection();
 double GetDynamicOrderGap(int orderType);
 double GetLiveCalculatedLot(int orderType);
+double GetDistanceToEMAPrice(int orderType = OP_BUY, bool absoluteValue = true);
 
 // --- GLOBAL TICK CACHE ---
 double GlobalEmaAngle30 = 0.0;
@@ -1700,8 +1713,27 @@ void TrackEmaFlip()
       // Close previous FLIPBasketSupport orders immediately on flip change
       CloseFLIPBasketSupportOrders();
 
-      // Create FLIP Basket Support order on every flip
-      CreateFLIPBasketSupportOrder(currentDirection);
+      // Reset support order creation flag for this flip cycle
+      FLIPBasketSupportOpenedThisCycle = false;
+
+      // [COMMENTED OUT EMA ANGLE GATE per user instruction: replaced with EMAdistance gap from live price > 50]
+      // GlobalEmaAngle30 = GetEmaAngleDegrees(30);
+      // if(MathAbs(GlobalEmaAngle30) > FLIPBasketSupportMinEmaAngle)
+
+      // Create FLIP Basket Support order on flip when EMAdistance gap from live price > 50
+      int oType = (currentDirection == 1) ? OP_BUY : OP_SELL;
+      double emaDist = GetDistanceToEMAPrice(oType, true);
+      if(emaDist > FLIPBasketSupportMinEmaDistance)
+        {
+         int flpTkt = CreateFLIPBasketSupportOrder(currentDirection);
+         if(flpTkt > 0)
+            FLIPBasketSupportOpenedThisCycle = true;
+        }
+      else
+        {
+         Print("FLIPBasketSupport deferred at flip: EMAdistance gap from live price = ", DoubleToString(emaDist, 2),
+               " <= ", DoubleToString(FLIPBasketSupportMinEmaDistance, 2), " (Waiting for EMAdistance gap > ", DoubleToString(FLIPBasketSupportMinEmaDistance, 2), ")");
+        }
 
 
       // CloseOppositeLosingOrdersBeforeSignal(currentDirection); // Close any losing orders from the previous trend
@@ -1761,6 +1793,28 @@ void TrackEmaFlip()
         {
          CloseFLIPBasketSupportOrders(OP_BUY);
         }
+
+   // If FLIPBasketSupport order was deferred at flip because EMAdistance gap <= 50,
+   // check if EMAdistance gap from live price has now expanded > 50 to open the support order for this flip cycle
+   if(!FLIPBasketSupportOpenedThisCycle && currentDirection != 0 && !HasOpenFLIPBasketSupportOrder(-1))
+     {
+      // [COMMENTED OUT EMA ANGLE GATE per user instruction: replaced with EMAdistance gap from live price > 50]
+      // GlobalEmaAngle30 = GetEmaAngleDegrees(30);
+      // if(MathAbs(GlobalEmaAngle30) > FLIPBasketSupportMinEmaAngle)
+
+      int oType = (currentDirection == 1) ? OP_BUY : OP_SELL;
+      double emaDist = GetDistanceToEMAPrice(oType, true);
+      if(emaDist > FLIPBasketSupportMinEmaDistance)
+        {
+         int flpTkt = CreateFLIPBasketSupportOrder(currentDirection);
+         if(flpTkt > 0)
+           {
+            FLIPBasketSupportOpenedThisCycle = true;
+            Print("FLIPBasketSupport order created on EMAdistance gap > ", DoubleToString(FLIPBasketSupportMinEmaDistance, 2),
+                  ": Ticket #", flpTkt, " EmaDistance=", DoubleToString(emaDist, 2), " for Direction=", currentDirection);
+           }
+        }
+     }
 
    LastTrackedEmaDirection = currentDirection;
   }
@@ -1889,6 +1943,7 @@ int OnInit()
             LastTrackedEmaDirection = -1;
      }
    HasEmaFlippedSinceLoad = false;
+   FLIPBasketSupportOpenedThisCycle = HasOpenFLIPBasketSupportOrder(-1);
 // EmaFlipTime = 0;
    EmaFlipTime = TimeCurrent();
 
@@ -2068,6 +2123,7 @@ datetime LastVShapeCheckedTime = 0;
 bool HasEmaFlippedSinceLoad = false;
 datetime EmaFlipTime = 0;
 int LastTrackedEmaDirection = 0;
+bool FLIPBasketSupportOpenedThisCycle = false;
 
 // --- PENDING BOUNCE VARIABLES ---
 datetime PendingVShapeBuyTime = 0;
@@ -2173,6 +2229,9 @@ void OnTick()
    ManageOverallBasketProfit();//modify basket orders at $1 profit
    ManageBasket10USDLockEquity(); // Lock basket profit with live SL on $10 fixed equity steps
    ModifyPairProfitWithStopLoss(); // Live SL modifier when any 2-order combination profit > $1
+   ManageFLIPBasketSupportTrailingStopLoss(); // Dedicated step-trailing StopLoss on every 100 step move in positive profit
+   ManageRecoveryOrderStepTrailingStopLoss(); // Dedicated 100X raw gap step-trailing StopLoss on every profit jump for recovery orders
+   ManageAllOrdersStepTrailingStopLoss(); // Universal 100-step raw gap step-trailing StopLoss for ALL orders moving in profit
 
    ManageDayProfitLadder();
 
@@ -2958,6 +3017,9 @@ void OnTickCore()
      }
    if(EnableProfitLadder1 || EnableProfitLadder2)
       ManageProfitLadder();
+   ManageFLIPBasketSupportTrailingStopLoss();
+   ManageRecoveryOrderStepTrailingStopLoss();
+   ManageAllOrdersStepTrailingStopLoss();
    if(TradeOperationFailedThisTick)
      {
       UpdateDashboardsThrottled(dailyState);
@@ -4626,6 +4688,15 @@ int SafeOrderSend(string symbol,int orderType,double lots,double price,int slipp
    bool isMarketOrder       = (orderType == OP_BUY || orderType == OP_SELL);
    bool isPendingOrder  = (orderType == OP_BUYSTOP || orderType == OP_SELLSTOP || orderType == OP_BUYLIMIT || orderType == OP_SELLLIMIT);
    int  direction       = (orderType == OP_BUY || orderType == OP_BUYSTOP || orderType == OP_BUYLIMIT) ? OP_BUY : OP_SELL;
+
+// =========================================================================
+// TEST ISOLATION GATE: Only allow FLIPBasketSupport orders
+// =========================================================================
+   if(OnlyAllowFLIPBasketSupportOrders && !isFlipBasketSupport)
+     {
+      Print("SAFEORDERSEND BLOCKED [FLIP Test Mode]: Only FLIPBasketSupport orders allowed. Blocked order: '", comment, "' (Type=", orderType, ", Lots=", lots, ")");
+      return -1;
+     }
 
 // =========================================================================
 // GATE 1: CRITICAL SYSTEM & ACCOUNT LEVEL CIRCUIT BREAKERS
@@ -6775,6 +6846,10 @@ void ChangeLots(double OpenPL, string reason, int orderType, int stoplevelStep)
 
 //   }
 
+
+   if(IsHeavyLotOrderNearBy(orderType, Lots, 200) && Lots>=0.02)
+      Lots = 0.02;
+
    double buyLots  = GetTotalLots(OP_BUY);
    double sellLots = GetTotalLots(OP_SELL);
 
@@ -6805,10 +6880,17 @@ void ChangeLots(double OpenPL, string reason, int orderType, int stoplevelStep)
         {
          Lots = 0.02;
         }
+      
      }
+if(requestedDirection == 1 && (GetOpenPL(OP_BUY)) <-1)
+        {
+         Lots = 0.01;
+        }
+      if(requestedDirection == -1 && (GetOpenPL(OP_SELL)) <-1)
+        {
+         Lots = 0.01;
+        }
 
-   if(IsHeavyLotOrderNearBy(orderType, Lots, 200) && Lots>=0.02)
-      Lots = 0.02;
 
 // Safety catch
 
@@ -6910,7 +6992,7 @@ double GetLiveCalculatedLot(int orderType)
    ChangeLots(openPL, reason, orderType, 0);
    double calcLot = NormalizeLots(Lots);
 
-   // Restore previous global state completely
+// Restore previous global state completely
    Lots = savedLots;
    balancelomultipler = savedMultiplier;
    StopLossUSD = savedSL;
@@ -7442,6 +7524,25 @@ int CreateFLIPBasketSupportOrder(int flipDirection)
       return -1;
      }
 
+   // [COMMENTED OUT EMA ANGLE GATE per user instruction: replaced with EMAdistance gap from live price > 50]
+   // GlobalEmaAngle30 = GetEmaAngleDegrees(30);
+   // if(MathAbs(GlobalEmaAngle30) <= FLIPBasketSupportMinEmaAngle)
+   //   {
+   //    Print("FLIPBasketSupport order skipped: MathAbs(GlobalEmaAngle30)=", DoubleToString(MathAbs(GlobalEmaAngle30), 2),
+   //          " <= ", DoubleToString(FLIPBasketSupportMinEmaAngle, 2), " (Angle=", DoubleToString(GlobalEmaAngle30, 2), ")");
+   //    return -1;
+   //   }
+
+   // 0. EMA Distance Gate: Only open FLIPBasketSupport order when EMAdistance gap from live price > 50
+   int targetOrderType = (flipDirection == 1) ? OP_BUY : OP_SELL;
+   double currentEmaDist = GetDistanceToEMAPrice(targetOrderType, true);
+   if(currentEmaDist <= FLIPBasketSupportMinEmaDistance)
+     {
+      Print("FLIPBasketSupport order skipped: EMAdistance gap from live price = ", DoubleToString(currentEmaDist, 2),
+            " <= ", DoubleToString(FLIPBasketSupportMinEmaDistance, 2), " (Requires gap > ", DoubleToString(FLIPBasketSupportMinEmaDistance, 2), ")");
+      return -1;
+     }
+
 // 1. SAFEST METHOD: Close any already open FLIPBasketSupport order before creating new one
    CloseFLIPBasketSupportOrders(-1);
 
@@ -7494,6 +7595,372 @@ int CreateFLIPBasketSupportOrder(int flipDirection)
         }
 
    return ticket;
+  }
+
+//+------------------------------------------------------------------+
+//| ManageFLIPBasketSupportTrailingStopLoss: Dedicated step-trailing |
+//| StopLoss engine for FLIPBasketSupport orders.                    |
+//| Ratchets StopLoss forward on every 100 raw BTC step move in      |
+//| positive profit (FLIPBasketSupportTakeProfitDistanceStopLossStep)|
+//| Step 1 (+100 move): Ratchet SL to Breakeven (openPrice)          |
+//| Step 2 (+200 move): Ratchet SL to openPrice + 100                |
+//| Step 3 (+300 move): Ratchet SL to openPrice + 200                |
+//| Step N (+N*100 move): Ratchet SL to openPrice + (N-1)*100        |
+//| Respects broker MODE_STOPLEVEL / GetRequiredStopDistance().      |
+//+------------------------------------------------------------------+
+void ManageFLIPBasketSupportTrailingStopLoss()
+  {
+   if(!EAStartupComplete)
+      return;
+   if(FLIPBasketSupportTakeProfitDistanceStopLossStep <= 0.0)
+      return;
+
+   double stepSize = FLIPBasketSupportTakeProfitDistanceStopLossStep;
+
+   RefreshRates();
+   double stopLevel = MarketInfo(Symbol(), MODE_STOPLEVEL) * Point;
+   double spreadBuf = (Ask - Bid) * 1.5;
+   double reqDistance = GetRequiredStopDistance();
+   double minSafeDist = MathMax(reqDistance, MathMax(stopLevel, spreadBuf));
+   if(minSafeDist < Point * 10.0)
+      minSafeDist = Point * 10.0;
+
+   for(int i = OrdersTotal() - 1; i >= 0; i--)
+     {
+      if(!OrderSelect(i, SELECT_BY_POS, MODE_TRADES))
+         continue;
+      if(OrderSymbol() != Symbol() || OrderMagicNumber() != MagicNumber)
+         continue;
+      if(!IsFLIPBasketSupportOrder(OrderTicket(), OrderComment()))
+         continue;
+
+      int ticket       = OrderTicket();
+      int oType        = OrderType();
+      double openPrice = OrderOpenPrice();
+      double curSL     = OrderStopLoss();
+      double curTP     = OrderTakeProfit();
+
+      if(oType == OP_BUY)
+        {
+         double favorableMove = Bid - openPrice;
+         if(favorableMove < stepSize)
+            continue; // Not yet reached 1st step (+100)
+
+         int steps = (int)MathFloor(favorableMove / stepSize);
+         if(steps < 1)
+            continue;
+
+         // Step 1 (+100): openPrice + 0*stepSize = openPrice (Breakeven)
+         // Step 2 (+200): openPrice + 1*stepSize (+100 locked)
+         // Step N (+N*100): openPrice + (steps - 1)*stepSize
+         double targetSL = NormalizeDouble(openPrice + ((steps - 1) * stepSize), Digits);
+
+         // Broker safety: SL cannot be closer to Bid than minSafeDist
+         if(targetSL > Bid - minSafeDist)
+            continue;
+
+         // Target SL must be at least breakeven
+         if(targetSL < openPrice)
+            targetSL = openPrice;
+
+         // Ratchet check: Only move SL forward (higher), never loosen
+         if(curSL == 0.0 || targetSL > curSL + (Point * 0.5))
+           {
+            ResetLastError();
+            bool modified = SafeOrderModify(ticket, openPrice, targetSL, curTP, 0, clrLimeGreen);
+            Print("FLIPBasketSupport Step-Trailing: BUY #", ticket,
+                  " Step=", steps, " (+", DoubleToString(favorableMove, 2), " pts)",
+                  " | Prev SL=", DoubleToString(curSL, Digits),
+                  " | New SL=", DoubleToString(targetSL, Digits),
+                  " | Success=", modified);
+           }
+        }
+      else
+         if(oType == OP_SELL)
+           {
+            double favorableMove = openPrice - Ask;
+            if(favorableMove < stepSize)
+               continue; // Not yet reached 1st step (+100)
+
+            int steps = (int)MathFloor(favorableMove / stepSize);
+            if(steps < 1)
+               continue;
+
+            // Step 1 (+100): openPrice - 0*stepSize = openPrice (Breakeven)
+            // Step 2 (+200): openPrice - 1*stepSize (-100 locked)
+            // Step N (+N*100): openPrice - (steps - 1)*stepSize
+            double targetSL = NormalizeDouble(openPrice - ((steps - 1) * stepSize), Digits);
+
+            // Broker safety: SL cannot be closer to Ask than minSafeDist
+            if(targetSL < Ask + minSafeDist)
+               continue;
+
+            // Target SL must be at least breakeven
+            if(targetSL > openPrice)
+               targetSL = openPrice;
+
+            // Ratchet check: Only move SL forward (lower), never loosen
+            if(curSL == 0.0 || targetSL < curSL - (Point * 0.5))
+              {
+               ResetLastError();
+               bool modified = SafeOrderModify(ticket, openPrice, targetSL, curTP, 0, clrTomato);
+               Print("FLIPBasketSupport Step-Trailing: SELL #", ticket,
+                     " Step=", steps, " (+", DoubleToString(favorableMove, 2), " pts)",
+                     " | Prev SL=", DoubleToString(curSL, Digits),
+                     " | New SL=", DoubleToString(targetSL, Digits),
+                     " | Success=", modified);
+              }
+           }
+     }
+  }
+
+//+------------------------------------------------------------------+
+//| ManageRecoveryOrderStepTrailingStopLoss: Step-trailing StopLoss  |
+//| for Recovery orders on every 100X raw gap profit jump.           |
+//| Step 1 (+100 move): Ratchet SL to openPrice (Breakeven)          |
+//| Step 2 (+200 move): Ratchet SL to openPrice + 100                |
+//| Step 3 (+300 move): Ratchet SL to openPrice + 200                |
+//| Step N (+N*100 move): Ratchet SL to openPrice + (N-1)*100        |
+//| Respects broker MODE_STOPLEVEL / GetRequiredStopDistance().      |
+//+------------------------------------------------------------------+
+void ManageRecoveryOrderStepTrailingStopLoss()
+  {
+   if(!EAStartupComplete)
+      return;
+   if(!EnableRecoveryOrders)
+      return;
+   if(RecoveryOrderStopLossStepRaw <= 0.0)
+      return;
+
+   double stepSize = RecoveryOrderStopLossStepRaw;
+
+   RefreshRates();
+   double stopLevel   = MarketInfo(Symbol(), MODE_STOPLEVEL) * Point;
+   double spreadBuf   = (Ask - Bid) * 1.5;
+   double reqDistance = GetRequiredStopDistance();
+   double minSafeDist = MathMax(reqDistance, MathMax(stopLevel, spreadBuf));
+   if(minSafeDist < Point * 10.0)
+      minSafeDist = Point * 10.0;
+
+   for(int i = OrdersTotal() - 1; i >= 0; i--)
+     {
+      if(!OrderSelect(i, SELECT_BY_POS, MODE_TRADES))
+         continue;
+      if(OrderSymbol() != Symbol() || OrderMagicNumber() != MagicNumber)
+         continue;
+
+      string comment = OrderComment();
+      if(StringFind(comment, "RECOVERY") < 0)
+         continue;
+
+      int ticket       = OrderTicket();
+      int oType        = OrderType();
+      double openPrice = OrderOpenPrice();
+      double curSL     = OrderStopLoss();
+      double curTP     = OrderTakeProfit();
+
+      if(oType == OP_BUY)
+        {
+         double favorableMove = Bid - openPrice;
+         if(favorableMove < stepSize)
+            continue; // Not yet reached 1st step (+100)
+
+         int steps = (int)MathFloor(favorableMove / stepSize);
+         if(steps < 1)
+            continue;
+
+         // Step 1 (+100): openPrice + 0*stepSize = openPrice (Breakeven)
+         // Step 2 (+200): openPrice + 1*stepSize (+100 locked)
+         // Step N (+N*100): openPrice + (steps - 1)*stepSize
+         double targetSL = NormalizeDouble(openPrice + ((steps - 1) * stepSize), Digits);
+
+         // Broker safety: SL cannot be closer to Bid than minSafeDist
+         if(targetSL > Bid - minSafeDist)
+            continue;
+
+         // Target SL must be at least breakeven
+         if(targetSL < openPrice)
+            targetSL = openPrice;
+
+         // Ratchet check: Only move SL forward (higher), never loosen
+         if(curSL == 0.0 || targetSL > curSL + (Point * 0.5))
+           {
+            ResetLastError();
+            bool modified = SafeOrderModify(ticket, openPrice, targetSL, curTP, 0, clrLimeGreen);
+            Print("Recovery Step-Trailing: BUY #", ticket,
+                  " (", comment, ")",
+                  " Step=", steps, " (+", DoubleToString(favorableMove, 2), " pts)",
+                  " | Prev SL=", DoubleToString(curSL, Digits),
+                  " | New SL=", DoubleToString(targetSL, Digits),
+                  " | Success=", modified);
+           }
+        }
+      else if(oType == OP_SELL)
+        {
+         double favorableMove = openPrice - Ask;
+         if(favorableMove < stepSize)
+            continue; // Not yet reached 1st step (+100)
+
+         int steps = (int)MathFloor(favorableMove / stepSize);
+         if(steps < 1)
+            continue;
+
+         // Step 1 (+100): openPrice - 0*stepSize = openPrice (Breakeven)
+         // Step 2 (+200): openPrice - 1*stepSize (-100 locked)
+         // Step N (+N*100): openPrice - (steps - 1)*stepSize
+         double targetSL = NormalizeDouble(openPrice - ((steps - 1) * stepSize), Digits);
+
+         // Broker safety: SL cannot be closer to Ask than minSafeDist
+         if(targetSL < Ask + minSafeDist)
+            continue;
+
+         // Target SL must be at least breakeven
+         if(targetSL > openPrice)
+            targetSL = openPrice;
+
+         // Ratchet check: Only move SL forward (lower), never loosen
+         if(curSL == 0.0 || targetSL < curSL - (Point * 0.5))
+           {
+            ResetLastError();
+            bool modified = SafeOrderModify(ticket, openPrice, targetSL, curTP, 0, clrTomato);
+            Print("Recovery Step-Trailing: SELL #", ticket,
+                  " (", comment, ")",
+                  " Step=", steps, " (+", DoubleToString(favorableMove, 2), " pts)",
+                  " | Prev SL=", DoubleToString(curSL, Digits),
+                  " | New SL=", DoubleToString(targetSL, Digits),
+                  " | Success=", modified);
+           }
+        }
+     }
+  }
+
+//+------------------------------------------------------------------+
+//| ManageAllOrdersStepTrailingStopLoss: Universal Step-trailing     |
+//| StopLoss for ALL open orders on every 100 raw gap profit move.   |
+//| Applies to all active positions (Parent, ReEntry, Recovery,      |
+//| FLIPBasketSupport, Candle orders, etc.)                          |
+//| Step 1 (+100 move): Ratchet SL to openPrice (Breakeven)          |
+//| Step 2 (+200 move): Ratchet SL to openPrice + 100                |
+//| Step 3 (+300 move): Ratchet SL to openPrice + 200                |
+//| Step N (+N*100 move): Ratchet SL to openPrice + (N-1)*100        |
+//| Respects broker MODE_STOPLEVEL / GetRequiredStopDistance().      |
+//+------------------------------------------------------------------+
+void ManageAllOrdersStepTrailingStopLoss()
+  {
+   if(!EAStartupComplete)
+      return;
+   if(!EnableAllOrdersStepTrailingStopLoss)
+      return;
+   if(AllOrdersStopLossStepRaw <= 0.0)
+      return;
+
+   RefreshRates();
+   double stopLevel   = MarketInfo(Symbol(), MODE_STOPLEVEL) * Point;
+   double spreadBuf   = (Ask - Bid) * 1.5;
+   double reqDistance = GetRequiredStopDistance();
+   double minSafeDist = MathMax(reqDistance, MathMax(stopLevel, spreadBuf));
+   if(minSafeDist < Point * 10.0)
+      minSafeDist = Point * 10.0;
+
+   for(int i = OrdersTotal() - 1; i >= 0; i--)
+     {
+      if(!OrderSelect(i, SELECT_BY_POS, MODE_TRADES))
+         continue;
+      if(OrderSymbol() != Symbol() || OrderMagicNumber() != MagicNumber)
+         continue;
+
+      int ticket       = OrderTicket();
+      int oType        = OrderType();
+      if(oType != OP_BUY && oType != OP_SELL)
+         continue;
+
+      double openPrice = OrderOpenPrice();
+      double curSL     = OrderStopLoss();
+      double curTP     = OrderTakeProfit();
+      string comment   = OrderComment();
+
+      double stepSize = AllOrdersStopLossStepRaw;
+      if(IsFLIPBasketSupportOrder(ticket, comment) && FLIPBasketSupportTakeProfitDistanceStopLossStep > 0.0)
+         stepSize = FLIPBasketSupportTakeProfitDistanceStopLossStep;
+      else if(StringFind(comment, "RECOVERY") >= 0 && RecoveryOrderStopLossStepRaw > 0.0)
+         stepSize = RecoveryOrderStopLossStepRaw;
+
+      if(stepSize <= 0.0)
+         continue;
+
+      if(oType == OP_BUY)
+        {
+         double favorableMove = Bid - openPrice;
+         if(favorableMove < stepSize)
+            continue; // Not yet reached 1st step (+100)
+
+         int steps = (int)MathFloor(favorableMove / stepSize);
+         if(steps < 1)
+            continue;
+
+         // Step 1 (+100): openPrice + 0*stepSize = openPrice (Breakeven)
+         // Step 2 (+200): openPrice + 1*stepSize (+100 locked)
+         // Step N (+N*100): openPrice + (steps - 1)*stepSize
+         double targetSL = NormalizeDouble(openPrice + ((steps - 1) * stepSize), Digits);
+
+         // Broker safety: SL cannot be closer to Bid than minSafeDist
+         if(targetSL > Bid - minSafeDist)
+            continue;
+
+         // Target SL must be at least breakeven
+         if(targetSL < openPrice)
+            targetSL = openPrice;
+
+         // Ratchet check: Only move SL forward (higher), never loosen
+         if(curSL == 0.0 || targetSL > curSL + (Point * 0.5))
+           {
+            ResetLastError();
+            bool modified = SafeOrderModify(ticket, openPrice, targetSL, curTP, 0, clrLimeGreen);
+            Print("All-Orders Step-Trailing: BUY #", ticket,
+                  " (", comment, ")",
+                  " Step=", steps, " (+", DoubleToString(favorableMove, 2), " pts)",
+                  " | Prev SL=", DoubleToString(curSL, Digits),
+                  " | New SL=", DoubleToString(targetSL, Digits),
+                  " | Success=", modified);
+           }
+        }
+      else if(oType == OP_SELL)
+        {
+         double favorableMove = openPrice - Ask;
+         if(favorableMove < stepSize)
+            continue; // Not yet reached 1st step (+100)
+
+         int steps = (int)MathFloor(favorableMove / stepSize);
+         if(steps < 1)
+            continue;
+
+         // Step 1 (+100): openPrice - 0*stepSize = openPrice (Breakeven)
+         // Step 2 (+200): openPrice - 1*stepSize (-100 locked)
+         // Step N (+N*100): openPrice - (steps - 1)*stepSize
+         double targetSL = NormalizeDouble(openPrice - ((steps - 1) * stepSize), Digits);
+
+         // Broker safety: SL cannot be closer to Ask than minSafeDist
+         if(targetSL < Ask + minSafeDist)
+            continue;
+
+         // Target SL must be at least breakeven
+         if(targetSL > openPrice)
+            targetSL = openPrice;
+
+         // Ratchet check: Only move SL forward (lower), never loosen
+         if(curSL == 0.0 || targetSL < curSL - (Point * 0.5))
+           {
+            ResetLastError();
+            bool modified = SafeOrderModify(ticket, openPrice, targetSL, curTP, 0, clrTomato);
+            Print("All-Orders Step-Trailing: SELL #", ticket,
+                  " (", comment, ")",
+                  " Step=", steps, " (+", DoubleToString(favorableMove, 2), " pts)",
+                  " | Prev SL=", DoubleToString(curSL, Digits),
+                  " | New SL=", DoubleToString(targetSL, Digits),
+                  " | Success=", modified);
+           }
+        }
+     }
   }
 
 //+------------------------------------------------------------------+
@@ -11453,96 +11920,102 @@ void UpdateDashboard(DailyProtectionState &state)
    string statusText="READY";
    color statusColor=clrLime;
 
-   if(TradeMonitoringLog!="")
+   if(OnlyAllowFLIPBasketSupportOrders)
      {
-      statusText="PAUSE - Waiting for Angle>2";
-      statusColor=clrYellow;
+      statusText="TEST: FLIP SUPPORT ONLY";
+      statusColor=clrMagenta;
      }
    else
-
-      if(!EnableTrading)
+      if(TradeMonitoringLog!="")
         {
-         statusText="TRADING DISABLED";
-         statusColor=clrTomato;
+         statusText="PAUSE - Waiting for Angle>2";
+         statusColor=clrYellow;
         }
       else
-         if(g_dailyEquityTradingBlocked)
+
+         if(!EnableTrading)
            {
-            statusText="DAY TRADING PAUSED";
+            statusText="TRADING DISABLED";
             statusColor=clrTomato;
            }
          else
-            if(TradingHaltedUntilNextFlip)
+            if(g_dailyEquityTradingBlocked)
               {
-               statusText="EMA LADDER HALT";
+               statusText="DAY TRADING PAUSED";
                statusColor=clrTomato;
               }
             else
-               if(ServerRecoveryPending)
+               if(TradingHaltedUntilNextFlip)
                  {
-                  statusText="SERVER RECOVERY";
-                  statusColor=clrGold;
+                  statusText="EMA LADDER HALT";
+                  statusColor=clrTomato;
                  }
                else
-                  if(!IsConnected())
+                  if(ServerRecoveryPending)
                     {
-                     statusText="NO CONNECTION";
-                     statusColor=clrTomato;
+                     statusText="SERVER RECOVERY";
+                     statusColor=clrGold;
                     }
                   else
-                     if(IsDailyTradingStopped(state))
+                     if(!IsConnected())
                        {
-                        statusText="TRADING STOPPED";
+                        statusText="NO CONNECTION";
                         statusColor=clrTomato;
                        }
                      else
-                        if(HasBasketNewOrderLossLimit())
+                        if(IsDailyTradingStopped(state))
                           {
-                           statusText="BASKET RISK LOCK";
-                           statusColor=clrOrangeRed;
+                           statusText="TRADING STOPPED";
+                           statusColor=clrTomato;
                           }
                         else
-                           if(!ContinueTradingAfterSL && LosingSLCount>=MaxConsecutiveLosingSL && MaxConsecutiveLosingSL>0)
+                           if(HasBasketNewOrderLossLimit())
                              {
-                              statusText="SL LOSS LIMIT";
-                              statusColor=clrTomato;
+                              statusText="BASKET RISK LOCK";
+                              statusColor=clrOrangeRed;
                              }
                            else
-                              if(ProtectedEquityWaitActive)
+                              if(!ContinueTradingAfterSL && LosingSLCount>=MaxConsecutiveLosingSL && MaxConsecutiveLosingSL>0)
                                 {
-                                 statusText="PROTECTED EQUITY WAIT";
-                                 statusColor=clrGold;
+                                 statusText="SL LOSS LIMIT";
+                                 statusColor=clrTomato;
                                 }
                               else
-                                 if(EquityResetReEntryPending)
+                                 if(ProtectedEquityWaitActive)
                                    {
-                                    statusText="RESET RE-ENTRY PENDING";
+                                    statusText="PROTECTED EQUITY WAIT";
                                     statusColor=clrGold;
                                    }
                                  else
-                                    if(totalOrders>=MaxOpenOrders)
+                                    if(EquityResetReEntryPending)
                                       {
-                                       statusText="MAX ORDERS";
-                                       statusColor=clrOrangeRed;
+                                       statusText="RESET RE-ENTRY PENDING";
+                                       statusColor=clrGold;
                                       }
                                     else
-                                       if(buyOrders>0 && sellOrders>0)
+                                       if(totalOrders>=MaxOpenOrders)
                                          {
-                                          statusText="HEDGE / MIXED";
-                                          statusColor=clrDeepSkyBlue;
+                                          statusText="MAX ORDERS";
+                                          statusColor=clrOrangeRed;
                                          }
                                        else
-                                          if(buyOrders>0)
+                                          if(buyOrders>0 && sellOrders>0)
                                             {
-                                             statusText="BUY ACTIVE";
+                                             statusText="HEDGE / MIXED";
                                              statusColor=clrDeepSkyBlue;
                                             }
                                           else
-                                             if(sellOrders>0)
+                                             if(buyOrders>0)
                                                {
-                                                statusText="SELL ACTIVE";
+                                                statusText="BUY ACTIVE";
                                                 statusColor=clrDeepSkyBlue;
                                                }
+                                             else
+                                                if(sellOrders>0)
+                                                  {
+                                                   statusText="SELL ACTIVE";
+                                                   statusColor=clrDeepSkyBlue;
+                                                  }
 
    double ladderProgress=0;
    if(DayProfitLadderNextTargetEquity>DayProfitLadderProtectionEquity)
@@ -11744,18 +12217,20 @@ void UpdateDashboard(DailyProtectionState &state)
      {
       possLotStr = StringConcatenate(DoubleToString(liveActiveLot, 2), " L [B:", DoubleToString(liveBuyLot, 2), " S:", DoubleToString(liveSellLot, 2), "]");
      }
-   else if(currentSSLDirection > 0)
-     {
-      possLotStr = StringConcatenate(DoubleToString(liveBuyLot, 2), " L [BUY] (Sell: ", DoubleToString(liveSellLot, 2), " L)");
-     }
-   else if(currentSSLDirection < 0)
-     {
-      possLotStr = StringConcatenate(DoubleToString(liveSellLot, 2), " L [SELL] (Buy: ", DoubleToString(liveBuyLot, 2), " L)");
-     }
    else
-     {
-      possLotStr = StringConcatenate("Buy ", DoubleToString(liveBuyLot, 2), " L / Sell ", DoubleToString(liveSellLot, 2), " L");
-     }
+      if(currentSSLDirection > 0)
+        {
+         possLotStr = StringConcatenate(DoubleToString(liveBuyLot, 2), " L [BUY] (Sell: ", DoubleToString(liveSellLot, 2), " L)");
+        }
+      else
+         if(currentSSLDirection < 0)
+           {
+            possLotStr = StringConcatenate(DoubleToString(liveSellLot, 2), " L [SELL] (Buy: ", DoubleToString(liveBuyLot, 2), " L)");
+           }
+         else
+           {
+            possLotStr = StringConcatenate("Buy ", DoubleToString(liveBuyLot, 2), " L / Sell ", DoubleToString(liveSellLot, 2), " L");
+           }
 
    color possLotColor = (liveActiveLot >= 0.03) ? clrLime : ((liveActiveLot == 0.02) ? clrDeepSkyBlue : clrGold);
 
