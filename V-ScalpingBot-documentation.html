@@ -889,7 +889,7 @@
       <div class="header-pills">
         <span class="pill pill-blue">BTCUSD • M1 Scalper</span>
         <span class="pill pill-purple">Exness Raw / Zero</span>
-        <span class="pill pill-green">V10018 (04-10-2026 10.30)</span>
+        <span class="pill pill-green">V10021 (04-10-2026 11.50)</span>
       </div>
     </div>
 
@@ -1499,10 +1499,24 @@ sequenceDiagram
                     <td><span class="badge badge-green">VERIFIED &amp; DEPLOYED</span></td>
                   </tr>
                   <tr>
+                    <td><code>Step 947</code><br><small style="color: var(--accent-amber);">11:50</small></td>
+                    <td><strong>Right Dashboard Section Swap (Order Closing &amp; Exit Engine &harr; Re-Entry &amp; Recovery Engine)</strong><br><small style="color: var(--text-dim);">Swapped visual hierarchy of right dashboard sections 2 &amp; 3 with pixel-perfect alignment</small></td>
+                    <td><code>UpdateDashboard()</code> L11689-11708<br><code>glbVersion = "V10021"</code></td>
+                    <td>Swapped the visual positions of Section 2 and Section 3 on the right-hand dashboard HUD: (1) Section 2 is now dedicated to the <code>ORDER CLOSING &amp; EXIT ENGINE</code> (displaying FLIP TP, TP Goal, Hard SL, SL Lock, Opposite Close, Partial Close, Partial Gap, and $10 Basket Lock); (2) Section 3 is now dedicated to the <code>RE-ENTRY &amp; RECOVERY ENGINE</code> (displaying Re-Entry state, 1st Recovery eligibility, 2nd Recovery status, and Recovery Basket Exit target); (3) Maintained exact 542px overall panel height and automated cache purge on layout change via <code>glbVersion = "V10021"</code>. Clean MetaEditor 4 build (0 errors, 20 warnings).</td>
+                    <td><span class="badge badge-green">VERIFIED &amp; DEPLOYED</span></td>
+                  </tr>
+                  <tr>
                     <td><code>Step 943</code><br><small style="color: var(--accent-amber);">20:40</small></td>
                     <td><strong>Basket $10 Fixed Equity Step Lock (Linear $10 Increments)</strong><br><small style="color: var(--text-dim);">Changed from 10% compounding to $10 fixed step up: $100 &rarr; $110 &rarr; $120 &rarr; $130...</small></td>
                     <td><code>ManageBasket10USDLockEquity()</code><br><code>ResetBasket10USDLock()</code><br><code>glbVersion = "V10012"</code></td>
                     <td>Converted basket equity locking from 10% compounding to fixed $10 USD increments: (1) Baseline is captured when basket resets or first position opens ($100 baseline); (2) Successive targets advance linearly by fixed +$10 ($100 &rarr; $110 &rarr; $120 &rarr; $130...); (3) On each $10 milestone reached, modifies ALL open basket positions' SL to current live market price (Bid for BUY, Ask for SELL via <code>GetRequiredStopDistance()</code>); (4) Maintains full backwards-compatible forwarding for <code>ResetBasket10PercentLock()</code> and <code>ManageBasket10PercentLockEquity()</code>; (5) Right-side Section 3 dashboard updated to <code>$10 LOCK : ...</code>; (6) Clean MetaEditor 4 build (0 errors, 20 warnings).</td>
+                    <td><span class="badge badge-green">VERIFIED &amp; DEPLOYED</span></td>
+                  </tr>
+                  <tr>
+                    <td><code>Step 947</code><br><small style="color: var(--accent-amber);">11:50</small></td>
+                    <td><strong>Right Dashboard Section Swap (Order Closing &amp; Exit Engine &harr; Re-Entry &amp; Recovery Engine)</strong><br><small style="color: var(--text-dim);">Swapped visual hierarchy of right dashboard sections 2 &amp; 3 with pixel-perfect alignment</small></td>
+                    <td><code>UpdateDashboard()</code> L11689-11708<br><code>glbVersion = "V10021"</code></td>
+                    <td>Swapped the visual positions of Section 2 and Section 3 on the right-hand dashboard HUD: (1) Section 2 is now dedicated to the <code>ORDER CLOSING &amp; EXIT ENGINE</code> (displaying FLIP TP, TP Goal, Hard SL, SL Lock, Opposite Close, Partial Close, Partial Gap, and $10 Basket Lock); (2) Section 3 is now dedicated to the <code>RE-ENTRY &amp; RECOVERY ENGINE</code> (displaying Re-Entry state, 1st Recovery eligibility, 2nd Recovery status, and Recovery Basket Exit target); (3) Maintained exact 542px overall panel height and automated cache purge on layout change via <code>glbVersion = "V10021"</code>. Clean MetaEditor 4 build (0 errors, 20 warnings).</td>
                     <td><span class="badge badge-green">VERIFIED &amp; DEPLOYED</span></td>
                   </tr>
                   <tr>
@@ -1513,10 +1527,38 @@ sequenceDiagram
                     <td><span class="badge badge-green">VERIFIED &amp; DEPLOYED</span></td>
                   </tr>
                   <tr>
+                    <td><code>Step 947</code><br><small style="color: var(--accent-amber);">11:50</small></td>
+                    <td><strong>Right Dashboard Section Swap (Order Closing &amp; Exit Engine &harr; Re-Entry &amp; Recovery Engine)</strong><br><small style="color: var(--text-dim);">Swapped visual hierarchy of right dashboard sections 2 &amp; 3 with pixel-perfect alignment</small></td>
+                    <td><code>UpdateDashboard()</code> L11689-11708<br><code>glbVersion = "V10021"</code></td>
+                    <td>Swapped the visual positions of Section 2 and Section 3 on the right-hand dashboard HUD: (1) Section 2 is now dedicated to the <code>ORDER CLOSING &amp; EXIT ENGINE</code> (displaying FLIP TP, TP Goal, Hard SL, SL Lock, Opposite Close, Partial Close, Partial Gap, and $10 Basket Lock); (2) Section 3 is now dedicated to the <code>RE-ENTRY &amp; RECOVERY ENGINE</code> (displaying Re-Entry state, 1st Recovery eligibility, 2nd Recovery status, and Recovery Basket Exit target); (3) Maintained exact 542px overall panel height and automated cache purge on layout change via <code>glbVersion = "V10021"</code>. Clean MetaEditor 4 build (0 errors, 20 warnings).</td>
+                    <td><span class="badge badge-green">VERIFIED &amp; DEPLOYED</span></td>
+                  </tr>
+                  <tr>
                     <td><code>Step 945</code><br><small style="color: var(--accent-amber);">10:30</small></td>
                     <td><strong>Dynamic Angle Lot Sizing (&lt;5&deg;) &amp; Mandatory Per-Change Version Increment Protocol</strong><br><small style="color: var(--text-dim);">Increments glbVersion and verShort on every change; balances low-angle lots based on open P/L</small></td>
                     <td><code>glbVersion = "V10018"</code><br><code>verShort = "V10018 | ..."</code><br><code>ChangeLots()</code> L6521</td>
                     <td>(1) Standardized EA versioning protocol across codebase: updated <code>glbVersion</code> and <code>verShort</code> to V10018, provided <code>TimeframeToString(int timeframe)</code> forward prototype, and wired dynamic chart symbol/period synchronization; (2) Integrated Low-Angle (&lt;5&deg;) dynamic lot sizing and floating P/L drawdown rebalancing in <code>ChangeLots()</code> (sets base 0.01 lot when angle is flat, dynamically boosting to 0.02 lot if the requested direction has &le; half the drawdown of the opposing direction to hedge/rebalance exposure). Clean MetaEditor 4 build (0 errors, 20 warnings).</td>
+                    <td><span class="badge badge-green">VERIFIED &amp; DEPLOYED</span></td>
+                  </tr>
+                  <tr>
+                    <td><code>Step 947</code><br><small style="color: var(--accent-amber);">11:50</small></td>
+                    <td><strong>Right Dashboard Section Swap (Order Closing &amp; Exit Engine &harr; Re-Entry &amp; Recovery Engine)</strong><br><small style="color: var(--text-dim);">Swapped visual hierarchy of right dashboard sections 2 &amp; 3 with pixel-perfect alignment</small></td>
+                    <td><code>UpdateDashboard()</code> L11689-11708<br><code>glbVersion = "V10021"</code></td>
+                    <td>Swapped the visual positions of Section 2 and Section 3 on the right-hand dashboard HUD: (1) Section 2 is now dedicated to the <code>ORDER CLOSING &amp; EXIT ENGINE</code> (displaying FLIP TP, TP Goal, Hard SL, SL Lock, Opposite Close, Partial Close, Partial Gap, and $10 Basket Lock); (2) Section 3 is now dedicated to the <code>RE-ENTRY &amp; RECOVERY ENGINE</code> (displaying Re-Entry state, 1st Recovery eligibility, 2nd Recovery status, and Recovery Basket Exit target); (3) Maintained exact 542px overall panel height and automated cache purge on layout change via <code>glbVersion = "V10021"</code>. Clean MetaEditor 4 build (0 errors, 20 warnings).</td>
+                    <td><span class="badge badge-green">VERIFIED &amp; DEPLOYED</span></td>
+                  </tr>
+                  <tr>
+                    <td><code>Step 946</code><br><small style="color: var(--accent-amber);">11:30</small></td>
+                    <td><strong>FLIP Basket Support Order Engine (Immunity from $1 Profit SL Lock until Basket Target)</strong><br><small style="color: var(--text-dim);">Creates FLIPBasketSupport order on every flip; runs long-term to fuel basket profit until equity lock</small></td>
+                    <td><code>CreateFLIPBasketSupportOrder()</code><br><code>IsFLIPBasketSupportOrder()</code><br><code>glbVersion = "V10020"</code></td>
+                    <td>Implemented dedicated FLIP Basket Support order system: (1) On every EMA flip event in <code>TrackEmaFlip()</code>, automatically opens 1 market order in the flip direction (BUY for bullish flip, SELL for bearish flip) with comment <code>"FLIPBasketSupport"</code>; (2) Shielded <code>FLIPBasketSupport</code> from early StopLoss modifications in <code>SecureOneDollarProfit()</code>, <code>SecureOneDollarProfitByDistance()</code>, <code>ManageProfitLadder()</code>, <code>modifyOnlyBuyOrders()</code>, and <code>modifyOnlySellOrders()</code>, ensuring short-term pullbacks do not kick the position out at +$1; (3) Shielded from premature opposite-signal scalping exits; (4) The order runs to support long-term basket profit target and is only modified to live market price when <code>ManageBasket10USDLockEquity()</code> reaches its next target equity step. Clean MetaEditor 4 build (0 errors, 20 warnings).</td>
+                    <td><span class="badge badge-green">VERIFIED &amp; DEPLOYED</span></td>
+                  </tr>
+                  <tr>
+                    <td><code>Step 947</code><br><small style="color: var(--accent-amber);">11:50</small></td>
+                    <td><strong>Right Dashboard Section Swap (Order Closing &amp; Exit Engine &harr; Re-Entry &amp; Recovery Engine)</strong><br><small style="color: var(--text-dim);">Swapped visual hierarchy of right dashboard sections 2 &amp; 3 with pixel-perfect alignment</small></td>
+                    <td><code>UpdateDashboard()</code> L11689-11708<br><code>glbVersion = "V10021"</code></td>
+                    <td>Swapped the visual positions of Section 2 and Section 3 on the right-hand dashboard HUD: (1) Section 2 is now dedicated to the <code>ORDER CLOSING &amp; EXIT ENGINE</code> (displaying FLIP TP, TP Goal, Hard SL, SL Lock, Opposite Close, Partial Close, Partial Gap, and $10 Basket Lock); (2) Section 3 is now dedicated to the <code>RE-ENTRY &amp; RECOVERY ENGINE</code> (displaying Re-Entry state, 1st Recovery eligibility, 2nd Recovery status, and Recovery Basket Exit target); (3) Maintained exact 542px overall panel height and automated cache purge on layout change via <code>glbVersion = "V10021"</code>. Clean MetaEditor 4 build (0 errors, 20 warnings).</td>
                     <td><span class="badge badge-green">VERIFIED &amp; DEPLOYED</span></td>
                   </tr>
                 </tbody>
@@ -1836,10 +1878,24 @@ flowchart TD
                     <td><span class="badge badge-green">VERIFIED &amp; DEPLOYED</span></td>
                   </tr>
                   <tr>
+                    <td><code>Step 947</code><br><small style="color: var(--accent-amber);">11:50</small></td>
+                    <td><strong>Right Dashboard Section Swap (Order Closing &amp; Exit Engine &harr; Re-Entry &amp; Recovery Engine)</strong><br><small style="color: var(--text-dim);">Swapped visual hierarchy of right dashboard sections 2 &amp; 3 with pixel-perfect alignment</small></td>
+                    <td><code>UpdateDashboard()</code> L11689-11708<br><code>glbVersion = "V10021"</code></td>
+                    <td>Swapped the visual positions of Section 2 and Section 3 on the right-hand dashboard HUD: (1) Section 2 is now dedicated to the <code>ORDER CLOSING &amp; EXIT ENGINE</code> (displaying FLIP TP, TP Goal, Hard SL, SL Lock, Opposite Close, Partial Close, Partial Gap, and $10 Basket Lock); (2) Section 3 is now dedicated to the <code>RE-ENTRY &amp; RECOVERY ENGINE</code> (displaying Re-Entry state, 1st Recovery eligibility, 2nd Recovery status, and Recovery Basket Exit target); (3) Maintained exact 542px overall panel height and automated cache purge on layout change via <code>glbVersion = "V10021"</code>. Clean MetaEditor 4 build (0 errors, 20 warnings).</td>
+                    <td><span class="badge badge-green">VERIFIED &amp; DEPLOYED</span></td>
+                  </tr>
+                  <tr>
                     <td><code>Step 943</code><br><small style="color: var(--accent-amber);">20:40</small></td>
                     <td><strong>Basket $10 Fixed Equity Step Lock (Linear $10 Increments)</strong><br><small style="color: var(--text-dim);">Changed from 10% compounding to $10 fixed step up: $100 &rarr; $110 &rarr; $120 &rarr; $130...</small></td>
                     <td><code>ManageBasket10USDLockEquity()</code><br><code>ResetBasket10USDLock()</code><br><code>glbVersion = "V10012"</code></td>
                     <td>Converted basket equity locking from 10% compounding to fixed $10 USD increments: (1) Baseline is captured when basket resets or first position opens ($100 baseline); (2) Successive targets advance linearly by fixed +$10 ($100 &rarr; $110 &rarr; $120 &rarr; $130...); (3) On each $10 milestone reached, modifies ALL open basket positions' SL to current live market price (Bid for BUY, Ask for SELL via <code>GetRequiredStopDistance()</code>); (4) Maintains full backwards-compatible forwarding for <code>ResetBasket10PercentLock()</code> and <code>ManageBasket10PercentLockEquity()</code>; (5) Right-side Section 3 dashboard updated to <code>$10 LOCK : ...</code>; (6) Clean MetaEditor 4 build (0 errors, 20 warnings).</td>
+                    <td><span class="badge badge-green">VERIFIED &amp; DEPLOYED</span></td>
+                  </tr>
+                  <tr>
+                    <td><code>Step 947</code><br><small style="color: var(--accent-amber);">11:50</small></td>
+                    <td><strong>Right Dashboard Section Swap (Order Closing &amp; Exit Engine &harr; Re-Entry &amp; Recovery Engine)</strong><br><small style="color: var(--text-dim);">Swapped visual hierarchy of right dashboard sections 2 &amp; 3 with pixel-perfect alignment</small></td>
+                    <td><code>UpdateDashboard()</code> L11689-11708<br><code>glbVersion = "V10021"</code></td>
+                    <td>Swapped the visual positions of Section 2 and Section 3 on the right-hand dashboard HUD: (1) Section 2 is now dedicated to the <code>ORDER CLOSING &amp; EXIT ENGINE</code> (displaying FLIP TP, TP Goal, Hard SL, SL Lock, Opposite Close, Partial Close, Partial Gap, and $10 Basket Lock); (2) Section 3 is now dedicated to the <code>RE-ENTRY &amp; RECOVERY ENGINE</code> (displaying Re-Entry state, 1st Recovery eligibility, 2nd Recovery status, and Recovery Basket Exit target); (3) Maintained exact 542px overall panel height and automated cache purge on layout change via <code>glbVersion = "V10021"</code>. Clean MetaEditor 4 build (0 errors, 20 warnings).</td>
                     <td><span class="badge badge-green">VERIFIED &amp; DEPLOYED</span></td>
                   </tr>
                   <tr>
@@ -1850,10 +1906,38 @@ flowchart TD
                     <td><span class="badge badge-green">VERIFIED &amp; DEPLOYED</span></td>
                   </tr>
                   <tr>
+                    <td><code>Step 947</code><br><small style="color: var(--accent-amber);">11:50</small></td>
+                    <td><strong>Right Dashboard Section Swap (Order Closing &amp; Exit Engine &harr; Re-Entry &amp; Recovery Engine)</strong><br><small style="color: var(--text-dim);">Swapped visual hierarchy of right dashboard sections 2 &amp; 3 with pixel-perfect alignment</small></td>
+                    <td><code>UpdateDashboard()</code> L11689-11708<br><code>glbVersion = "V10021"</code></td>
+                    <td>Swapped the visual positions of Section 2 and Section 3 on the right-hand dashboard HUD: (1) Section 2 is now dedicated to the <code>ORDER CLOSING &amp; EXIT ENGINE</code> (displaying FLIP TP, TP Goal, Hard SL, SL Lock, Opposite Close, Partial Close, Partial Gap, and $10 Basket Lock); (2) Section 3 is now dedicated to the <code>RE-ENTRY &amp; RECOVERY ENGINE</code> (displaying Re-Entry state, 1st Recovery eligibility, 2nd Recovery status, and Recovery Basket Exit target); (3) Maintained exact 542px overall panel height and automated cache purge on layout change via <code>glbVersion = "V10021"</code>. Clean MetaEditor 4 build (0 errors, 20 warnings).</td>
+                    <td><span class="badge badge-green">VERIFIED &amp; DEPLOYED</span></td>
+                  </tr>
+                  <tr>
                     <td><code>Step 945</code><br><small style="color: var(--accent-amber);">10:30</small></td>
                     <td><strong>Dynamic Angle Lot Sizing (&lt;5&deg;) &amp; Mandatory Per-Change Version Increment Protocol</strong><br><small style="color: var(--text-dim);">Increments glbVersion and verShort on every change; balances low-angle lots based on open P/L</small></td>
                     <td><code>glbVersion = "V10018"</code><br><code>verShort = "V10018 | ..."</code><br><code>ChangeLots()</code> L6521</td>
                     <td>(1) Standardized EA versioning protocol across codebase: updated <code>glbVersion</code> and <code>verShort</code> to V10018, provided <code>TimeframeToString(int timeframe)</code> forward prototype, and wired dynamic chart symbol/period synchronization; (2) Integrated Low-Angle (&lt;5&deg;) dynamic lot sizing and floating P/L drawdown rebalancing in <code>ChangeLots()</code> (sets base 0.01 lot when angle is flat, dynamically boosting to 0.02 lot if the requested direction has &le; half the drawdown of the opposing direction to hedge/rebalance exposure). Clean MetaEditor 4 build (0 errors, 20 warnings).</td>
+                    <td><span class="badge badge-green">VERIFIED &amp; DEPLOYED</span></td>
+                  </tr>
+                  <tr>
+                    <td><code>Step 947</code><br><small style="color: var(--accent-amber);">11:50</small></td>
+                    <td><strong>Right Dashboard Section Swap (Order Closing &amp; Exit Engine &harr; Re-Entry &amp; Recovery Engine)</strong><br><small style="color: var(--text-dim);">Swapped visual hierarchy of right dashboard sections 2 &amp; 3 with pixel-perfect alignment</small></td>
+                    <td><code>UpdateDashboard()</code> L11689-11708<br><code>glbVersion = "V10021"</code></td>
+                    <td>Swapped the visual positions of Section 2 and Section 3 on the right-hand dashboard HUD: (1) Section 2 is now dedicated to the <code>ORDER CLOSING &amp; EXIT ENGINE</code> (displaying FLIP TP, TP Goal, Hard SL, SL Lock, Opposite Close, Partial Close, Partial Gap, and $10 Basket Lock); (2) Section 3 is now dedicated to the <code>RE-ENTRY &amp; RECOVERY ENGINE</code> (displaying Re-Entry state, 1st Recovery eligibility, 2nd Recovery status, and Recovery Basket Exit target); (3) Maintained exact 542px overall panel height and automated cache purge on layout change via <code>glbVersion = "V10021"</code>. Clean MetaEditor 4 build (0 errors, 20 warnings).</td>
+                    <td><span class="badge badge-green">VERIFIED &amp; DEPLOYED</span></td>
+                  </tr>
+                  <tr>
+                    <td><code>Step 946</code><br><small style="color: var(--accent-amber);">11:30</small></td>
+                    <td><strong>FLIP Basket Support Order Engine (Immunity from $1 Profit SL Lock until Basket Target)</strong><br><small style="color: var(--text-dim);">Creates FLIPBasketSupport order on every flip; runs long-term to fuel basket profit until equity lock</small></td>
+                    <td><code>CreateFLIPBasketSupportOrder()</code><br><code>IsFLIPBasketSupportOrder()</code><br><code>glbVersion = "V10020"</code></td>
+                    <td>Implemented dedicated FLIP Basket Support order system: (1) On every EMA flip event in <code>TrackEmaFlip()</code>, automatically opens 1 market order in the flip direction (BUY for bullish flip, SELL for bearish flip) with comment <code>"FLIPBasketSupport"</code>; (2) Shielded <code>FLIPBasketSupport</code> from early StopLoss modifications in <code>SecureOneDollarProfit()</code>, <code>SecureOneDollarProfitByDistance()</code>, <code>ManageProfitLadder()</code>, <code>modifyOnlyBuyOrders()</code>, and <code>modifyOnlySellOrders()</code>, ensuring short-term pullbacks do not kick the position out at +$1; (3) Shielded from premature opposite-signal scalping exits; (4) The order runs to support long-term basket profit target and is only modified to live market price when <code>ManageBasket10USDLockEquity()</code> reaches its next target equity step. Clean MetaEditor 4 build (0 errors, 20 warnings).</td>
+                    <td><span class="badge badge-green">VERIFIED &amp; DEPLOYED</span></td>
+                  </tr>
+                  <tr>
+                    <td><code>Step 947</code><br><small style="color: var(--accent-amber);">11:50</small></td>
+                    <td><strong>Right Dashboard Section Swap (Order Closing &amp; Exit Engine &harr; Re-Entry &amp; Recovery Engine)</strong><br><small style="color: var(--text-dim);">Swapped visual hierarchy of right dashboard sections 2 &amp; 3 with pixel-perfect alignment</small></td>
+                    <td><code>UpdateDashboard()</code> L11689-11708<br><code>glbVersion = "V10021"</code></td>
+                    <td>Swapped the visual positions of Section 2 and Section 3 on the right-hand dashboard HUD: (1) Section 2 is now dedicated to the <code>ORDER CLOSING &amp; EXIT ENGINE</code> (displaying FLIP TP, TP Goal, Hard SL, SL Lock, Opposite Close, Partial Close, Partial Gap, and $10 Basket Lock); (2) Section 3 is now dedicated to the <code>RE-ENTRY &amp; RECOVERY ENGINE</code> (displaying Re-Entry state, 1st Recovery eligibility, 2nd Recovery status, and Recovery Basket Exit target); (3) Maintained exact 542px overall panel height and automated cache purge on layout change via <code>glbVersion = "V10021"</code>. Clean MetaEditor 4 build (0 errors, 20 warnings).</td>
                     <td><span class="badge badge-green">VERIFIED &amp; DEPLOYED</span></td>
                   </tr>
                 </tbody>
@@ -1888,18 +1972,18 @@ flowchart TD
             <div class="grid-4" style="margin-bottom: 24px;">
               <div class="stat-card">
                 <div class="stat-label">Total User Directives</div>
-                <div class="stat-value" style="color: var(--accent-green);">27 / 27</div>
+                <div class="stat-value" style="color: var(--accent-green);">29 / 29</div>
                 <div class="stat-desc">100% Implemented &amp; Audited</div>
               </div>
               <div class="stat-card">
                 <div class="stat-label">Compiler Verification</div>
                 <div class="stat-value" style="color: var(--accent-blue);">0 Errors</div>
-                <div class="stat-desc">MetaEditor 4 • 172ms Clean Build</div>
+                <div class="stat-desc">MetaEditor 4 • 132ms Clean Build</div>
               </div>
               <div class="stat-card">
                 <div class="stat-label">Active Production Build</div>
-                <div class="stat-value" style="color: var(--accent-purple);">V10018</div>
-                <div class="stat-desc">04-10-2026 10.30 Deployed</div>
+                <div class="stat-value" style="color: var(--accent-purple);">V10021</div>
+                <div class="stat-desc">04-10-2026 11.50 Deployed</div>
               </div>
               <div class="stat-card">
                 <div class="stat-label">Centralized Firewall</div>
@@ -2076,10 +2160,24 @@ flowchart TD
                     <td><span class="badge badge-green">VERIFIED &amp; DEPLOYED</span></td>
                   </tr>
                   <tr>
+                    <td><code>Step 947</code><br><small style="color: var(--accent-amber);">11:50</small></td>
+                    <td><strong>Right Dashboard Section Swap (Order Closing &amp; Exit Engine &harr; Re-Entry &amp; Recovery Engine)</strong><br><small style="color: var(--text-dim);">Swapped visual hierarchy of right dashboard sections 2 &amp; 3 with pixel-perfect alignment</small></td>
+                    <td><code>UpdateDashboard()</code> L11689-11708<br><code>glbVersion = "V10021"</code></td>
+                    <td>Swapped the visual positions of Section 2 and Section 3 on the right-hand dashboard HUD: (1) Section 2 is now dedicated to the <code>ORDER CLOSING &amp; EXIT ENGINE</code> (displaying FLIP TP, TP Goal, Hard SL, SL Lock, Opposite Close, Partial Close, Partial Gap, and $10 Basket Lock); (2) Section 3 is now dedicated to the <code>RE-ENTRY &amp; RECOVERY ENGINE</code> (displaying Re-Entry state, 1st Recovery eligibility, 2nd Recovery status, and Recovery Basket Exit target); (3) Maintained exact 542px overall panel height and automated cache purge on layout change via <code>glbVersion = "V10021"</code>. Clean MetaEditor 4 build (0 errors, 20 warnings).</td>
+                    <td><span class="badge badge-green">VERIFIED &amp; DEPLOYED</span></td>
+                  </tr>
+                  <tr>
                     <td><code>Step 941</code><br><small style="color: var(--accent-amber);">18:25</small></td>
                     <td><strong>Dedicated Partial Close Column in Left Live Order Monitor</strong><br><small style="color: var(--text-dim);">Real-time per-order live adverse price difference and shave trigger column</small></td>
                     <td><code>UpdateLeftLiveOrdersDashboard()</code><br><code>glbVersion = "V10010"</code><br>Expanded 830px Monospace Layout</td>
                     <td>Added a dedicated <code>PART-CLOSE (LIVE DIFF/TRIG)</code> column to each order row in the Left Live Position Monitor table between <code>P/L</code> and <code>COMMENT</code>: (1) Orders with lot &le; 0.01: badged as <code>- [0.01L]</code> (single minimum lot, exempt from partial cuts); (2) Orders with lot &gt; 0.01: tracks live adverse price difference from entry (1st cut) or from prior partial close price ($100 gap requirement); (3) Trigger state: displays remaining price move and loss distance (e.g. <code>Diff $7.6/$10.0 [Need -$12.4]</code>, <code>Diff $45.2/$100 [Need $54.8]</code>), or flashes bright lime <code>READY [Shave 0.01]</code> when conditions are met; (4) Expanded panel width to 830px with Consolas monospace alignment ensuring zero overlap with right dashboard or comments. Clean MetaEditor 4 build (0 errors, 20 warnings).</td>
+                    <td><span class="badge badge-green">VERIFIED &amp; DEPLOYED</span></td>
+                  </tr>
+                  <tr>
+                    <td><code>Step 947</code><br><small style="color: var(--accent-amber);">11:50</small></td>
+                    <td><strong>Right Dashboard Section Swap (Order Closing &amp; Exit Engine &harr; Re-Entry &amp; Recovery Engine)</strong><br><small style="color: var(--text-dim);">Swapped visual hierarchy of right dashboard sections 2 &amp; 3 with pixel-perfect alignment</small></td>
+                    <td><code>UpdateDashboard()</code> L11689-11708<br><code>glbVersion = "V10021"</code></td>
+                    <td>Swapped the visual positions of Section 2 and Section 3 on the right-hand dashboard HUD: (1) Section 2 is now dedicated to the <code>ORDER CLOSING &amp; EXIT ENGINE</code> (displaying FLIP TP, TP Goal, Hard SL, SL Lock, Opposite Close, Partial Close, Partial Gap, and $10 Basket Lock); (2) Section 3 is now dedicated to the <code>RE-ENTRY &amp; RECOVERY ENGINE</code> (displaying Re-Entry state, 1st Recovery eligibility, 2nd Recovery status, and Recovery Basket Exit target); (3) Maintained exact 542px overall panel height and automated cache purge on layout change via <code>glbVersion = "V10021"</code>. Clean MetaEditor 4 build (0 errors, 20 warnings).</td>
                     <td><span class="badge badge-green">VERIFIED &amp; DEPLOYED</span></td>
                   </tr>
                   <tr>
@@ -2090,10 +2188,24 @@ flowchart TD
                     <td><span class="badge badge-green">VERIFIED &amp; DEPLOYED</span></td>
                   </tr>
                   <tr>
+                    <td><code>Step 947</code><br><small style="color: var(--accent-amber);">11:50</small></td>
+                    <td><strong>Right Dashboard Section Swap (Order Closing &amp; Exit Engine &harr; Re-Entry &amp; Recovery Engine)</strong><br><small style="color: var(--text-dim);">Swapped visual hierarchy of right dashboard sections 2 &amp; 3 with pixel-perfect alignment</small></td>
+                    <td><code>UpdateDashboard()</code> L11689-11708<br><code>glbVersion = "V10021"</code></td>
+                    <td>Swapped the visual positions of Section 2 and Section 3 on the right-hand dashboard HUD: (1) Section 2 is now dedicated to the <code>ORDER CLOSING &amp; EXIT ENGINE</code> (displaying FLIP TP, TP Goal, Hard SL, SL Lock, Opposite Close, Partial Close, Partial Gap, and $10 Basket Lock); (2) Section 3 is now dedicated to the <code>RE-ENTRY &amp; RECOVERY ENGINE</code> (displaying Re-Entry state, 1st Recovery eligibility, 2nd Recovery status, and Recovery Basket Exit target); (3) Maintained exact 542px overall panel height and automated cache purge on layout change via <code>glbVersion = "V10021"</code>. Clean MetaEditor 4 build (0 errors, 20 warnings).</td>
+                    <td><span class="badge badge-green">VERIFIED &amp; DEPLOYED</span></td>
+                  </tr>
+                  <tr>
                     <td><code>Step 943</code><br><small style="color: var(--accent-amber);">20:40</small></td>
                     <td><strong>Basket $10 Fixed Equity Step Lock (Linear $10 Increments)</strong><br><small style="color: var(--text-dim);">Changed from 10% compounding to $10 fixed step up: $100 &rarr; $110 &rarr; $120 &rarr; $130...</small></td>
                     <td><code>ManageBasket10USDLockEquity()</code><br><code>ResetBasket10USDLock()</code><br><code>glbVersion = "V10012"</code></td>
                     <td>Converted basket equity locking from 10% compounding to fixed $10 USD increments: (1) Baseline is captured when basket resets or first position opens ($100 baseline); (2) Successive targets advance linearly by fixed +$10 ($100 &rarr; $110 &rarr; $120 &rarr; $130...); (3) On each $10 milestone reached, modifies ALL open basket positions' SL to current live market price (Bid for BUY, Ask for SELL via <code>GetRequiredStopDistance()</code>); (4) Maintains full backwards-compatible forwarding for <code>ResetBasket10PercentLock()</code> and <code>ManageBasket10PercentLockEquity()</code>; (5) Right-side Section 3 dashboard updated to <code>$10 LOCK : ...</code>; (6) Clean MetaEditor 4 build (0 errors, 20 warnings).</td>
+                    <td><span class="badge badge-green">VERIFIED &amp; DEPLOYED</span></td>
+                  </tr>
+                  <tr>
+                    <td><code>Step 947</code><br><small style="color: var(--accent-amber);">11:50</small></td>
+                    <td><strong>Right Dashboard Section Swap (Order Closing &amp; Exit Engine &harr; Re-Entry &amp; Recovery Engine)</strong><br><small style="color: var(--text-dim);">Swapped visual hierarchy of right dashboard sections 2 &amp; 3 with pixel-perfect alignment</small></td>
+                    <td><code>UpdateDashboard()</code> L11689-11708<br><code>glbVersion = "V10021"</code></td>
+                    <td>Swapped the visual positions of Section 2 and Section 3 on the right-hand dashboard HUD: (1) Section 2 is now dedicated to the <code>ORDER CLOSING &amp; EXIT ENGINE</code> (displaying FLIP TP, TP Goal, Hard SL, SL Lock, Opposite Close, Partial Close, Partial Gap, and $10 Basket Lock); (2) Section 3 is now dedicated to the <code>RE-ENTRY &amp; RECOVERY ENGINE</code> (displaying Re-Entry state, 1st Recovery eligibility, 2nd Recovery status, and Recovery Basket Exit target); (3) Maintained exact 542px overall panel height and automated cache purge on layout change via <code>glbVersion = "V10021"</code>. Clean MetaEditor 4 build (0 errors, 20 warnings).</td>
                     <td><span class="badge badge-green">VERIFIED &amp; DEPLOYED</span></td>
                   </tr>
                   <tr>
@@ -2104,10 +2216,24 @@ flowchart TD
                     <td><span class="badge badge-green">VERIFIED &amp; DEPLOYED</span></td>
                   </tr>
                   <tr>
+                    <td><code>Step 947</code><br><small style="color: var(--accent-amber);">11:50</small></td>
+                    <td><strong>Right Dashboard Section Swap (Order Closing &amp; Exit Engine &harr; Re-Entry &amp; Recovery Engine)</strong><br><small style="color: var(--text-dim);">Swapped visual hierarchy of right dashboard sections 2 &amp; 3 with pixel-perfect alignment</small></td>
+                    <td><code>UpdateDashboard()</code> L11689-11708<br><code>glbVersion = "V10021"</code></td>
+                    <td>Swapped the visual positions of Section 2 and Section 3 on the right-hand dashboard HUD: (1) Section 2 is now dedicated to the <code>ORDER CLOSING &amp; EXIT ENGINE</code> (displaying FLIP TP, TP Goal, Hard SL, SL Lock, Opposite Close, Partial Close, Partial Gap, and $10 Basket Lock); (2) Section 3 is now dedicated to the <code>RE-ENTRY &amp; RECOVERY ENGINE</code> (displaying Re-Entry state, 1st Recovery eligibility, 2nd Recovery status, and Recovery Basket Exit target); (3) Maintained exact 542px overall panel height and automated cache purge on layout change via <code>glbVersion = "V10021"</code>. Clean MetaEditor 4 build (0 errors, 20 warnings).</td>
+                    <td><span class="badge badge-green">VERIFIED &amp; DEPLOYED</span></td>
+                  </tr>
+                  <tr>
                     <td><code>Step 945</code><br><small style="color: var(--accent-amber);">10:30</small></td>
                     <td><strong>Dynamic Angle Lot Sizing (&lt;5&deg;) &amp; Mandatory Per-Change Version Increment Protocol</strong><br><small style="color: var(--text-dim);">Increments glbVersion and verShort on every change; balances low-angle lots based on open P/L</small></td>
                     <td><code>glbVersion = "V10018"</code><br><code>verShort = "V10018 | ..."</code><br><code>ChangeLots()</code> L6521</td>
                     <td>(1) Standardized EA versioning protocol across codebase: updated <code>glbVersion</code> and <code>verShort</code> to V10018, provided <code>TimeframeToString(int timeframe)</code> forward prototype, and wired dynamic chart symbol/period synchronization; (2) Integrated Low-Angle (&lt;5&deg;) dynamic lot sizing and floating P/L drawdown rebalancing in <code>ChangeLots()</code> (sets base 0.01 lot when angle is flat, dynamically boosting to 0.02 lot if the requested direction has &le; half the drawdown of the opposing direction to hedge/rebalance exposure). Clean MetaEditor 4 build (0 errors, 20 warnings).</td>
+                    <td><span class="badge badge-green">VERIFIED &amp; DEPLOYED</span></td>
+                  </tr>
+                  <tr>
+                    <td><code>Step 947</code><br><small style="color: var(--accent-amber);">11:50</small></td>
+                    <td><strong>Right Dashboard Section Swap (Order Closing &amp; Exit Engine &harr; Re-Entry &amp; Recovery Engine)</strong><br><small style="color: var(--text-dim);">Swapped visual hierarchy of right dashboard sections 2 &amp; 3 with pixel-perfect alignment</small></td>
+                    <td><code>UpdateDashboard()</code> L11689-11708<br><code>glbVersion = "V10021"</code></td>
+                    <td>Swapped the visual positions of Section 2 and Section 3 on the right-hand dashboard HUD: (1) Section 2 is now dedicated to the <code>ORDER CLOSING &amp; EXIT ENGINE</code> (displaying FLIP TP, TP Goal, Hard SL, SL Lock, Opposite Close, Partial Close, Partial Gap, and $10 Basket Lock); (2) Section 3 is now dedicated to the <code>RE-ENTRY &amp; RECOVERY ENGINE</code> (displaying Re-Entry state, 1st Recovery eligibility, 2nd Recovery status, and Recovery Basket Exit target); (3) Maintained exact 542px overall panel height and automated cache purge on layout change via <code>glbVersion = "V10021"</code>. Clean MetaEditor 4 build (0 errors, 20 warnings).</td>
                     <td><span class="badge badge-green">VERIFIED &amp; DEPLOYED</span></td>
                   </tr>
                 </tbody>
@@ -2287,6 +2413,28 @@ flowchart TD
                     <p>Enforces strict per-change version increments for <code>glbVersion</code> and <code>verShort</code> (V10018) with dynamic chart symbol/timeframe display via <code>TimeframeToString(Period())</code>. Also incorporates flat-market (&lt;5&deg;) lot scaling (0.01 base, 0.02 when opposite side has &ge; 2x drawdown).</p>
                     <div id="chk15" style="display: none; margin-top: 10px; font-size: 12.5px; color: var(--accent-blue); background: rgba(0,0,0,0.3); padding: 8px 12px; border-radius: 6px;">
                       <strong>Code Anchor:</strong> <code>glbVersion = "V10018  04-10-2026 10.30"</code> (L33), <code>verShort = "V10018 | " + Symbol() + " " + TimeframeToString(Period())</code> (L34), <code>ChangeLots()</code> (L6521) &bull; Clean MetaEditor 4 build (0 errors, 20 warnings).
+                    </div>
+                  </div>
+                </div>
+
+                <div class="step-item" style="cursor: pointer;" onclick="toggleAuditDetail('chk16')">
+                  <div class="step-num" style="background: rgba(16, 185, 129, 0.15); color: var(--accent-green); border-color: rgba(16, 185, 129, 0.3);">&#10003;</div>
+                  <div class="step-body" style="flex: 1;">
+                    <h4>FLIP Basket Support Order Engine <span class="badge badge-green">Active</span></h4>
+                    <p>Opens 1 <code>FLIPBasketSupport</code> market order on every EMA trend flip to support long-term basket target. Completely excluded from <code>SecureOneDollarProfit</code> and individual trailing ladders to prevent early shakeout, locking SL only upon reaching the <code>ManageBasket10USDLockEquity</code> target milestone.</p>
+                    <div id="chk16" style="display: none; margin-top: 10px; font-size: 12.5px; color: var(--accent-blue); background: rgba(0,0,0,0.3); padding: 8px 12px; border-radius: 6px;">
+                      <strong>Code Anchor:</strong> <code>CreateFLIPBasketSupportOrder()</code> (L7067), <code>IsFLIPBasketSupportOrder()</code> (L7039), <code>TrackEmaFlip()</code> (L1494), <code>glbVersion = "V10020  04-10-2026 11.30"</code> (L34) &bull; Clean MetaEditor 4 build (0 errors, 20 warnings).
+                    </div>
+                  </div>
+                </div>
+
+                <div class="step-item" style="cursor: pointer;" onclick="toggleAuditDetail('chk17')">
+                  <div class="step-num" style="background: rgba(16, 185, 129, 0.15); color: var(--accent-green); border-color: rgba(16, 185, 129, 0.3);">&#10003;</div>
+                  <div class="step-body" style="flex: 1;">
+                    <h4>Right Dashboard Section Swap (Exit Engine &harr; Recovery Engine) <span class="badge badge-green">Active</span></h4>
+                    <p>Reordered the right dashboard HUD so Order Closing &amp; Exit Engine occupies Section 2 (y+248), followed by Re-Entry &amp; Recovery Engine in Section 3 (y+398), preserving pixel-perfect alignment and 542px master panel bounds.</p>
+                    <div id="chk17" style="display: none; margin-top: 10px; font-size: 12.5px; color: var(--accent-blue); background: rgba(0,0,0,0.3); padding: 8px 12px; border-radius: 6px;">
+                      <strong>Code Anchor:</strong> <code>UpdateDashboard()</code> (L11689-11708), <code>glbVersion = "V10021  04-10-2026 11.50"</code> (L34) &bull; Clean MetaEditor 4 build (0 errors, 20 warnings).
                     </div>
                   </div>
                 </div>

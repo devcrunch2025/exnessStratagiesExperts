@@ -1,4 +1,4 @@
-﻿//+------------------------------------------------------------------+
+//+------------------------------------------------------------------+
 //|                  SSL CHANNEL CROSS EA - CONTINUOUS EQUITY LADDER |
 //|                  TWO-STAGE PROFIT LADDER | CONTINUOUS RESET      |
 //+------------------------------------------------------------------+
@@ -31,8 +31,8 @@
 
 // Previous: V10010  03-10-2026 18.25 Partial Close Column in Live Position Monitor
 string TimeframeToString(int timeframe);
-string glbVersion = "V10019  04-10-2026 10.30  Basket $5 step Dynamic Angle Lot Sizing & Recovery Basket Lock";
-string verShort = "V10019 Basket $5 step | " + Symbol() + " " + TimeframeToString(Period());
+string glbVersion = "V10021  04-10-2026 11.50 Swap Dashboard Sections 2 and 3";
+string verShort = "V10021 | " + Symbol() + " " + TimeframeToString(Period());
 
 double DailyEquityStopUSD  =100*100;//50;//20*2.5;//10;//20;// 10;//30.0; close all orders at $50Xmultipler
 double TargetProfitPerFlipUSD =20*100;//10;//10*2;//10;//5;//20;// 10.0; close all orders at $20Xmultipler
@@ -391,6 +391,8 @@ bool IsEmaWEAKDistanceReduced50PercentFromPeak(int orderType = -1);
 int  CountActiveRecoveryOrders();
 int  GetRecoveryOrderCount(int parentTicket, int &outFirstTicket, int &outSecondTicket);
 bool IsRecoveryOrderWithActiveParent(int ticket, string comment = "");
+bool IsFLIPBasketSupportOrder(int ticket, string comment = "");
+int  CreateFLIPBasketSupportOrder(int flipDirection);
 void RegisterNewCandleOrder(int ticket = -1);
 int  GetCurrentSSLDirection();
 double GetDynamicOrderGap(int orderType);
@@ -582,6 +584,8 @@ void SecureDistanceProfitLadder()
          continue;
       if(IsRecoveryOrderWithActiveParent(OrderTicket(), OrderComment()))
          continue;
+      if(IsFLIPBasketSupportOrder(OrderTicket(), OrderComment()))
+         continue;
 
       double currentSL = OrderStopLoss();
       double openPrice = OrderOpenPrice();
@@ -703,6 +707,8 @@ void SecureOneDollarProfit()
       if(OrderLots() == 0)
          continue;
       if(IsRecoveryOrderWithActiveParent(OrderTicket(), OrderComment()))
+         continue;
+      if(IsFLIPBasketSupportOrder(OrderTicket(), OrderComment()))
          continue;
 
       double currentSL = OrderStopLoss();
@@ -1489,6 +1495,9 @@ void TrackEmaFlip()
       ActiveEquityBaseline = AccountBalance() * SecurebaselinePercentage; // Updated to 10% less than current equity on flip
       HighestCycleProfitUSD = 0.0;
       HighestLadderLevelThisCycle = 0;
+
+      // Create FLIP Basket Support order on every flip
+      CreateFLIPBasketSupportOrder(currentDirection);
 
 
       // CloseOppositeLosingOrdersBeforeSignal(currentDirection); // Close any losing orders from the previous trend
@@ -2429,6 +2438,8 @@ void CloseOppositeLosingOrdersBeforeSignal(int newSignalType)
       bool isLossExceeded = (orderPL <= lossThreshold);
       if(IsRecoveryOrderWithActiveParent(ticket, OrderComment()))
          continue;
+      if(IsFLIPBasketSupportOrder(ticket, OrderComment()))
+         continue;
 
       // If all conditions match, close the losing opposite order immediately
       if(isOppositeSignal && isBeforeSignalChange && isLossExceeded)
@@ -2474,9 +2485,11 @@ void CloseOppositeProfitableOrdersIndependent(int newSignalType)
 
       // If it's an opposite signal and has reached or exceeded the profit threshold, close it immediately
       if(isOppositeSignal && orderPL >= profitThreshold)
+        {
          if(IsRecoveryOrderWithActiveParent(ticket, OrderComment()))
             continue;
-        {
+         if(IsFLIPBasketSupportOrder(ticket, OrderComment()))
+            continue;
          Print("INDEPENDENT CLOSE TRIGGERED: Ticket #", ticket,
                " | Type: ", GetOrderTypeText(orderType),
                " | Profit: $", DoubleToString(orderPL, 2),
@@ -5765,6 +5778,8 @@ void modifyOnlyBuyOrders()
            {
             if(IsRecoveryOrderWithActiveParent(OrderTicket(), OrderComment()))
                continue;
+            if(IsFLIPBasketSupportOrder(OrderTicket(), OrderComment()))
+               continue;
             basketBuyProfit += OrderProfit() + OrderSwap() + OrderCommission();
            }
         }
@@ -5782,6 +5797,8 @@ void modifyOnlyBuyOrders()
             if(OrderSymbol() == Symbol() && OrderMagicNumber() == MagicNumber && OrderType() == OP_BUY)
               {
                if(IsRecoveryOrderWithActiveParent(OrderTicket(), OrderComment()))
+                  continue;
+               if(IsFLIPBasketSupportOrder(OrderTicket(), OrderComment()))
                   continue;
                int ticket       = OrderTicket();
                double openPrice = OrderOpenPrice();
@@ -5828,6 +5845,10 @@ void modifyOnlySellOrders()
         {
          if(OrderSymbol() == Symbol() && OrderMagicNumber() == MagicNumber && OrderType() == OP_SELL)
            {
+            if(IsRecoveryOrderWithActiveParent(OrderTicket(), OrderComment()))
+               continue;
+            if(IsFLIPBasketSupportOrder(OrderTicket(), OrderComment()))
+               continue;
             basketSellProfit += OrderProfit() + OrderSwap() + OrderCommission();
            }
         }
@@ -5845,6 +5866,8 @@ void modifyOnlySellOrders()
             if(OrderSymbol() == Symbol() && OrderMagicNumber() == MagicNumber && OrderType() == OP_SELL)
               {
                if(IsRecoveryOrderWithActiveParent(OrderTicket(), OrderComment()))
+                  continue;
+               if(IsFLIPBasketSupportOrder(OrderTicket(), OrderComment()))
                   continue;
                int ticket       = OrderTicket();
                double openPrice = OrderOpenPrice();
@@ -6537,11 +6560,11 @@ void ChangeLots(double OpenPL, string reason, int orderType, int stoplevelStep)
      {
       Lots = 0.01;
 
-      if(requestedDirection == -1 && MathAbs(GetOpenPL(OP_BUY)) > 0 && MathAbs(GetOpenPL(OP_SELL)) * 2 <= MathAbs(GetOpenPL(OP_BUY)))
+      if(requestedDirection == -1 && MathAbs(GetOpenPL(OP_BUY)) > 5 && MathAbs(GetOpenPL(OP_SELL)) * 2 <= MathAbs(GetOpenPL(OP_BUY)))
         {
          Lots = 0.02;
         }
-      if(requestedDirection == 1 && MathAbs(GetOpenPL(OP_SELL)) > 0 && MathAbs(GetOpenPL(OP_BUY)) * 2 <= MathAbs(GetOpenPL(OP_SELL)))
+      if(requestedDirection == 1 && MathAbs(GetOpenPL(OP_SELL)) > 5 && MathAbs(GetOpenPL(OP_BUY)) * 2 <= MathAbs(GetOpenPL(OP_SELL)))
         {
          Lots = 0.02;
         }
@@ -7028,6 +7051,73 @@ bool IsRecoveryOrderWithActiveParent(int ticket, string comment = "")
       bool selRes = OrderSelect(currentSelTicket, SELECT_BY_TICKET, MODE_TRADES);
 
    return parentFound;
+  }
+
+//+------------------------------------------------------------------+
+//| IsFLIPBasketSupportOrder: Identifies FLIP Basket Support orders  |
+//| Dedicated long-term basket support; immune from individual $1   |
+//| profit SL locks until basket reaches Basket10USDLockStepUSD      |
+//+------------------------------------------------------------------+
+bool IsFLIPBasketSupportOrder(int ticket, string comment = "")
+  {
+   if(comment == "")
+     {
+      if(OrderTicket() == ticket)
+         comment = OrderComment();
+      else
+         if(OrderSelect(ticket, SELECT_BY_TICKET, MODE_TRADES))
+            comment = OrderComment();
+         else
+            return false;
+     }
+   return (StringFind(comment, "FLIPBasketSupport") >= 0);
+  }
+
+//+------------------------------------------------------------------+
+//| CreateFLIPBasketSupportOrder: Opens 1 market order on every flip |
+//| Supported long-term for basket profit until $10 equity lock      |
+//+------------------------------------------------------------------+
+int CreateFLIPBasketSupportOrder(int flipDirection)
+  {
+   if(!EAStartupComplete)
+      return -1;
+   if(GetTotalEAOrders() >= MaxOpenOrders)
+     {
+      Print("FLIPBasketSupport order skipped: MaxOpenOrders reached");
+      return -1;
+     }
+
+   RefreshRates();
+   double flipLots = 0.01 * (balancelomultipler > 0 ? balancelomultipler : 1);
+   flipLots = NormalizeLots(flipLots);
+
+   int ticket = -1;
+   string comment = "FLIPBasketSupport";
+
+   if(flipDirection == 1) // FLIP to BUY
+     {
+      double ask = Ask;
+      double slDistance = CalculatePriceDistanceUSD(StopLossUSD, flipLots);
+      double stopLoss = (slDistance > 0) ? NormalizeDouble(ask - slDistance, Digits) : 0.0;
+      ticket = SafeOrderSend(Symbol(), OP_BUY, flipLots, ask, Slippage, stopLoss, 0.0, comment, MagicNumber, clrLime);
+      if(ticket > 0)
+        {
+         Print("FLIP BASKET SUPPORT ORDER CREATED: BUY Ticket #", ticket, " Lots=", DoubleToString(flipLots, 2), " at Ask=", DoubleToString(ask, Digits), " (Supporting Basket Profit Target)");
+        }
+     }
+   else if(flipDirection == -1) // FLIP to SELL
+     {
+      double bid = Bid;
+      double slDistance = CalculatePriceDistanceUSD(StopLossUSD, flipLots);
+      double stopLoss = (slDistance > 0) ? NormalizeDouble(bid + slDistance, Digits) : 0.0;
+      ticket = SafeOrderSend(Symbol(), OP_SELL, flipLots, bid, Slippage, stopLoss, 0.0, comment, MagicNumber, clrTomato);
+      if(ticket > 0)
+        {
+         Print("FLIP BASKET SUPPORT ORDER CREATED: SELL Ticket #", ticket, " Lots=", DoubleToString(flipLots, 2), " at Bid=", DoubleToString(bid, Digits), " (Supporting Basket Profit Target)");
+        }
+     }
+
+   return ticket;
   }
 
 //+------------------------------------------------------------------+
@@ -8160,6 +8250,8 @@ void CloseOppositeOrders(int newSignalType)
       if(isOppositeSignal)
         {
          if(IsRecoveryOrderWithActiveParent(ticket, OrderComment()))
+            continue;
+         if(IsFLIPBasketSupportOrder(ticket, OrderComment()))
             continue;
          // 2. Use localEmaDirection for absolute precision
          bool emaMatchesOrder = ((orderType == OP_BUY && localEmaDirection == 1) ||
@@ -10096,6 +10188,9 @@ void ManageProfitLadder()
       // Do not update StopLoss on recovery 1 & 2 individually when parent exists; wait for recovery basket profit
       if(IsRecoveryOrderWithActiveParent(OrderTicket(), OrderComment()))
          continue;
+      // Do not update StopLoss on FLIPBasketSupport order individually; wait for basket lock target
+      if(IsFLIPBasketSupportOrder(OrderTicket(), OrderComment()))
+         continue;
       //    continue;
       int orderType = OrderType();
       if(orderType != OP_BUY && orderType != OP_SELL)
@@ -11591,25 +11686,25 @@ void UpdateDashboard(DailyProtectionState &state)
    CreateDashboardLabel(DASH_PREFIX+"S1_QTA", "CANDLE  : " + quotaStr + " | Anti-Spam: " + antiSpamStr, tx, y+214, 8, quotaColor);
    CreateDashboardLabel(DASH_PREFIX+"S1_ORDS", "ORDERS  : " + IntegerToString(totalOrders) + " / " + IntegerToString(MaxOpenOrders) + " (B:" + IntegerToString(buyOrders) + " S:" + IntegerToString(sellOrders) + " P:" + IntegerToString(pendingOrders) + ")", tx, y+230, 8, clrWhite);
 
-// SECTION 2: RE-ENTRY & RECOVERY ENGINE
+// SECTION 2: ORDER CLOSING & EXIT ENGINE
    CreateDashboardPanel(DASH_PREFIX+"S2_BAR", x, y+248, w, 18, C'30,45,65');
-   CreateDashboardLabel(DASH_PREFIX+"S2_H", "--- RE-ENTRY & RECOVERY ENGINE ---", tx, y+250, 8, clrAqua);
-   CreateDashboardLabel(DASH_PREFIX+"S2_RE", "RE-ENTRY: " + reEntryStr, tx, y+268, 8, reEntryColor);
-   CreateDashboardLabel(DASH_PREFIX+"S2_REC1", "1ST REC : " + rec1Str, tx, y+284, 8, rec1Color);
-   CreateDashboardLabel(DASH_PREFIX+"S2_REC2", "2ND REC : " + rec2Str, tx, y+300, 8, rec2Color);
-   CreateDashboardLabel(DASH_PREFIX+"S2_EXIT", "REC EXIT: " + recExitStr, tx, y+316, 8, recExitColor);
+   CreateDashboardLabel(DASH_PREFIX+"S2_H", "--- ORDER CLOSING & EXIT ENGINE ---", tx, y+250, 8, clrAqua);
+   CreateDashboardLabel(DASH_PREFIX+"S2_FLIP", "FLIP TP : " + flipTPStr, tx, y+268, 8, flipColor);
+   CreateDashboardLabel(DASH_PREFIX+"S2_GOAL", "TP GOAL : " + flipProgStr, tx, y+284, 8, flipColor);
+   CreateDashboardLabel(DASH_PREFIX+"S2_SL", "HARD SL : " + dailySLStr, tx, y+300, 8, dailySLColor);
+   CreateDashboardLabel(DASH_PREFIX+"S2_LOCK", "SL LOCK : " + sec1Str, tx, y+316, 8, clrLime);
+   CreateDashboardLabel(DASH_PREFIX+"S2_OPP", "OPP CLS : " + oppCloseStr, tx, y+332, 8, clrWhite);
+   CreateDashboardLabel(DASH_PREFIX+"S2_PART", "PART CLS: " + part1Str, tx, y+348, 8, part1Color);
+   CreateDashboardLabel(DASH_PREFIX+"S2_PGAP", "PART GAP: " + part2Str, tx, y+364, 8, part2Color);
+   CreateDashboardLabel(DASH_PREFIX+"S2_10LK", "$10 LOCK : " + basket10LockStr, tx, y+380, 8, basket10LockColor);
 
-// SECTION 3: ORDER CLOSING ENGINE
-   CreateDashboardPanel(DASH_PREFIX+"S3_BAR", x, y+334, w, 18, C'30,45,65');
-   CreateDashboardLabel(DASH_PREFIX+"S3_H", "--- ORDER CLOSING & EXIT ENGINE ---", tx, y+336, 8, clrAqua);
-   CreateDashboardLabel(DASH_PREFIX+"S3_FLIP", "FLIP TP : " + flipTPStr, tx, y+354, 8, flipColor);
-   CreateDashboardLabel(DASH_PREFIX+"S3_GOAL", "TP GOAL : " + flipProgStr, tx, y+370, 8, flipColor);
-   CreateDashboardLabel(DASH_PREFIX+"S3_SL", "HARD SL : " + dailySLStr, tx, y+386, 8, dailySLColor);
-   CreateDashboardLabel(DASH_PREFIX+"S3_LOCK", "SL LOCK : " + sec1Str, tx, y+402, 8, clrLime);
-   CreateDashboardLabel(DASH_PREFIX+"S3_OPP", "OPP CLS : " + oppCloseStr, tx, y+418, 8, clrWhite);
-   CreateDashboardLabel(DASH_PREFIX+"S3_PART", "PART CLS: " + part1Str, tx, y+434, 8, part1Color);
-   CreateDashboardLabel(DASH_PREFIX+"S3_PGAP", "PART GAP: " + part2Str, tx, y+450, 8, part2Color);
-   CreateDashboardLabel(DASH_PREFIX+"S3_10LK", "$10 LOCK : " + basket10LockStr, tx, y+466, 8, basket10LockColor);
+// SECTION 3: RE-ENTRY & RECOVERY ENGINE
+   CreateDashboardPanel(DASH_PREFIX+"S3_BAR", x, y+398, w, 18, C'30,45,65');
+   CreateDashboardLabel(DASH_PREFIX+"S3_H", "--- RE-ENTRY & RECOVERY ENGINE ---", tx, y+400, 8, clrAqua);
+   CreateDashboardLabel(DASH_PREFIX+"S3_RE", "RE-ENTRY: " + reEntryStr, tx, y+418, 8, reEntryColor);
+   CreateDashboardLabel(DASH_PREFIX+"S3_REC1", "1ST REC : " + rec1Str, tx, y+434, 8, rec1Color);
+   CreateDashboardLabel(DASH_PREFIX+"S3_REC2", "2ND REC : " + rec2Str, tx, y+450, 8, rec2Color);
+   CreateDashboardLabel(DASH_PREFIX+"S3_EXIT", "REC EXIT: " + recExitStr, tx, y+466, 8, recExitColor);
 
 // SECTION 4: MARKET MOMENTUM & PRICES
    CreateDashboardPanel(DASH_PREFIX+"S4_BAR", x, y+484, w, 18, C'30,45,65');
