@@ -31,8 +31,8 @@
 
 // Previous: V10010  03-10-2026 18.25 Partial Close Column in Live Position Monitor
 string TimeframeToString(int timeframe);
-string glbVersion = "V10021  04-10-2026 11.50 Swap Dashboard Sections 2 and 3";
-string verShort = "V10021 | " + Symbol() + " " + TimeframeToString(Period());
+string glbVersion = "V10024  04-10-2026 14.25 Close Prior Order Before New FLIP Support (Max 1 Active Total)";
+string verShort = "V10024 | " + Symbol() + " " + TimeframeToString(Period());
 
 double DailyEquityStopUSD  =100*100;//50;//20*2.5;//10;//20;// 10;//30.0; close all orders at $50Xmultipler
 double TargetProfitPerFlipUSD =20*100;//10;//10*2;//10;//5;//20;// 10.0; close all orders at $20Xmultipler
@@ -151,7 +151,7 @@ int    ServerToDubaiOffsetHours   = 4;
 
 // ===== SPREAD & RISK SETTINGS =====
 double MaxAllowedSpreadUSD = 35.0;
-int AccountMultiplierLOT = 500;
+int AccountMultiplierLOT = 500*2;
 double OriginalStopLossUSD = 20;//6;//4;
 
 
@@ -278,6 +278,8 @@ double Recovery2ndOrderMinDistanceRaw =1000;// 2000.0; // Minimum raw price gap 
 int    MaxRecoveryOrdersPerParent = 2; // Maximum recovery orders allowed per parent trade (1st + 2nd)
 bool UseBalanceMultiplierForRecoveryTarget = false; // Scaled by balance multiplier if true; default false ($1.00 fixed cash target)
 bool EnableRecoveryProfitTrailing = false; // Always close parent + recovery 1 + recovery 2 together on recovery basket profit!
+double RecoveryTakeProfitDistanceRaw =1000;// 500.0; // Take profit distance ( raw BTC price distance) for Recovery orders
+double FLIPBasketSupportTakeProfitDistanceRaw =1000;// 500.0; // Take profit distance ( raw BTC price distance) for FLIPBasketSupport orders
 
 
 double DayProfitLadder1Amount = 5;
@@ -392,6 +394,8 @@ int  CountActiveRecoveryOrders();
 int  GetRecoveryOrderCount(int parentTicket, int &outFirstTicket, int &outSecondTicket);
 bool IsRecoveryOrderWithActiveParent(int ticket, string comment = "");
 bool IsFLIPBasketSupportOrder(int ticket, string comment = "");
+bool HasOpenFLIPBasketSupportOrder(int targetType = -1);
+void CloseFLIPBasketSupportOrders(int targetType = -1);
 int  CreateFLIPBasketSupportOrder(int flipDirection);
 void RegisterNewCandleOrder(int ticket = -1);
 int  GetCurrentSSLDirection();
@@ -1496,6 +1500,9 @@ void TrackEmaFlip()
       HighestCycleProfitUSD = 0.0;
       HighestLadderLevelThisCycle = 0;
 
+      // Close previous FLIPBasketSupport orders immediately on flip change
+      CloseFLIPBasketSupportOrders();
+
       // Create FLIP Basket Support order on every flip
       CreateFLIPBasketSupportOrder(currentDirection);
 
@@ -1546,6 +1553,17 @@ void TrackEmaFlip()
             }
          }*/
      }
+
+// Safety enforcement: If price changes flip direction, ensure any opposite FLIPBasketSupport order is closed
+   if(currentDirection == 1 && HasOpenFLIPBasketSupportOrder(OP_SELL))
+     {
+      CloseFLIPBasketSupportOrders(OP_SELL);
+     }
+   else
+      if(currentDirection == -1 && HasOpenFLIPBasketSupportOrder(OP_BUY))
+        {
+         CloseFLIPBasketSupportOrders(OP_BUY);
+        }
 
    LastTrackedEmaDirection = currentDirection;
   }
@@ -6871,7 +6889,14 @@ void CheckRecoveryOrders()
 
       int recoveryTicket = -1;
       double slDistance = CalculatePriceDistanceUSD(StopLossUSD * recoveryLots * 100, recoveryLots);
-      double tpDistance = 0.0; // Do not set individual TP - always wait for combined recovery basket profit
+
+      // Take profit changed from 200 to 500 raw price distance ( BTC) on order creation
+      double tpDist = RecoveryTakeProfitDistanceRaw;
+      double calcTPDist = CalculatePriceDistanceUSD(5.00 * (recoveryLots / 0.01), recoveryLots);
+      if(calcTPDist > 0.0)
+         tpDist = calcTPDist;
+      if(tpDist <= 0.0)
+         tpDist = 500.0;
 
       double recoverySL = 0.0;
       double recoveryTP = 0.0;
@@ -6880,13 +6905,13 @@ void CheckRecoveryOrders()
       if(parentType == OP_BUY)
         {
          recoverySL = (slDistance > 0) ? NormalizeDouble(Ask - slDistance, Digits) : 0;
-         recoveryTP = (tpDistance > 0) ? NormalizeDouble(Ask + tpDistance, Digits) : 0;
+         recoveryTP = NormalizeDouble(Ask + tpDist, Digits);
          recoveryTicket = SafeOrderSend(Symbol(), OP_BUY, recoveryLots, Ask, Slippage, recoverySL, recoveryTP, recComment, MagicNumber, clrAqua);
         }
       else
         {
          recoverySL = (slDistance > 0) ? NormalizeDouble(Bid + slDistance, Digits) : 0;
-         recoveryTP = (tpDistance > 0) ? NormalizeDouble(Bid - tpDistance, Digits) : 0;
+         recoveryTP = NormalizeDouble(Bid - tpDist, Digits);
          recoveryTicket = SafeOrderSend(Symbol(), OP_SELL, recoveryLots, Bid, Slippage, recoverySL, recoveryTP, recComment, MagicNumber, clrOrange);
         }
 
@@ -7074,8 +7099,79 @@ bool IsFLIPBasketSupportOrder(int ticket, string comment = "")
   }
 
 //+------------------------------------------------------------------+
+//| HasOpenFLIPBasketSupportOrder: Returns true if an active         |
+//| FLIPBasketSupport order exists.                                  |
+//| targetType: OP_BUY, OP_SELL, or -1 (checks ANY open support order)|
+//+------------------------------------------------------------------+
+bool HasOpenFLIPBasketSupportOrder(int targetType = -1)
+  {
+   for(int i = OrdersTotal() - 1; i >= 0; i--)
+     {
+      if(!OrderSelect(i, SELECT_BY_POS, MODE_TRADES))
+         continue;
+      if(OrderSymbol() != Symbol() || OrderMagicNumber() != MagicNumber)
+         continue;
+      if(targetType >= 0 && OrderType() != targetType)
+         continue;
+      if(IsFLIPBasketSupportOrder(OrderTicket(), OrderComment()))
+         return true;
+     }
+   return false;
+  }
+
+//+------------------------------------------------------------------+
+//| CloseFLIPBasketSupportOrders: Closes active FLIPBasketSupport    |
+//| orders on flip change or before opening a new support order.     |
+//| targetType: OP_BUY, OP_SELL, or -1 (all)                         |
+//+------------------------------------------------------------------+
+void CloseFLIPBasketSupportOrders(int targetType = -1)
+  {
+   for(int i = OrdersTotal() - 1; i >= 0; i--)
+     {
+      if(!OrderSelect(i, SELECT_BY_POS, MODE_TRADES))
+         continue;
+      if(OrderSymbol() != Symbol() || OrderMagicNumber() != MagicNumber)
+         continue;
+      if(!IsFLIPBasketSupportOrder(OrderTicket(), OrderComment()))
+         continue;
+      if(targetType >= 0 && OrderType() != targetType)
+         continue;
+
+      int ticket = OrderTicket();
+      double lots = OrderLots();
+      int oType = OrderType();
+
+      bool closed = false;
+      for(int attempt = 0; attempt < 3; attempt++)
+        {
+         RefreshRates();
+         double closePrice = (oType == OP_BUY) ? Bid : Ask;
+         closePrice = NormalizeDouble(closePrice, Digits);
+         ResetLastError();
+         closed = OrderClose(ticket, lots, closePrice, Slippage, (oType == OP_BUY ? clrRed : clrBlue));
+         if(closed)
+           {
+            Print("FLIPBasketSupport Ticket #", ticket, " (", (oType == OP_BUY ? "BUY" : "SELL"), ") closed successfully at ", DoubleToString(closePrice, Digits));
+            InvalidateTotalEAOrdersCache();
+            break;
+           }
+         Sleep(100);
+        }
+
+      if(!closed)
+        {
+         Print("Direct OrderClose failed for FLIPBasketSupport #", ticket, ", trying SafeOrderCloseMarket...");
+         SafeOrderCloseMarket(ticket, lots, Slippage, (oType == OP_BUY ? clrRed : clrBlue));
+        }
+     }
+  }
+
+//+------------------------------------------------------------------+
 //| CreateFLIPBasketSupportOrder: Opens 1 market order on every flip |
 //| Supported long-term for basket profit until $10 equity lock      |
+//| SAFEST METHOD: Closes already open support order before creating |
+//| new one; strictly maximum 1 active support order in total!       |
+//| Take profit set to 500 raw BTC price distance                    |
 //+------------------------------------------------------------------+
 int CreateFLIPBasketSupportOrder(int flipDirection)
   {
@@ -7087,6 +7183,16 @@ int CreateFLIPBasketSupportOrder(int flipDirection)
       return -1;
      }
 
+// 1. SAFEST METHOD: Close any already open FLIPBasketSupport order before creating new one
+   CloseFLIPBasketSupportOrders(-1);
+
+// 2. Strict concurrency gate: Any how, only ONE FLIPBasketSupport order can be active in total!
+   if(HasOpenFLIPBasketSupportOrder(-1))
+     {
+      Print("FLIPBasketSupport order skipped: An active FLIPBasketSupport order is still open. Strictly max 1 active allowed in total.");
+      return -1;
+     }
+
    RefreshRates();
    double flipLots = 0.01 * (balancelomultipler > 0 ? balancelomultipler : 1);
    flipLots = NormalizeLots(flipLots);
@@ -7094,28 +7200,39 @@ int CreateFLIPBasketSupportOrder(int flipDirection)
    int ticket = -1;
    string comment = "FLIPBasketSupport";
 
+// Take profit set to 500 raw BTC price distance ($500 BTC)
+   double tpDist = FLIPBasketSupportTakeProfitDistanceRaw;
+   double calcTPDist = CalculatePriceDistanceUSD(5.00 * (flipLots / 0.01), flipLots);
+   if(calcTPDist > 0.0)
+      tpDist = calcTPDist;
+   if(tpDist <= 0.0)
+      tpDist = 500.0;
+
    if(flipDirection == 1) // FLIP to BUY
      {
       double ask = Ask;
       double slDistance = CalculatePriceDistanceUSD(StopLossUSD, flipLots);
       double stopLoss = (slDistance > 0) ? NormalizeDouble(ask - slDistance, Digits) : 0.0;
-      ticket = SafeOrderSend(Symbol(), OP_BUY, flipLots, ask, Slippage, stopLoss, 0.0, comment, MagicNumber, clrLime);
+      double takeProfit = NormalizeDouble(ask + tpDist, Digits);
+      ticket = SafeOrderSend(Symbol(), OP_BUY, flipLots, ask, Slippage, stopLoss, takeProfit, comment, MagicNumber, clrLime);
       if(ticket > 0)
         {
-         Print("FLIP BASKET SUPPORT ORDER CREATED: BUY Ticket #", ticket, " Lots=", DoubleToString(flipLots, 2), " at Ask=", DoubleToString(ask, Digits), " (Supporting Basket Profit Target)");
+         Print("FLIP BASKET SUPPORT ORDER CREATED: BUY Ticket #", ticket, " Lots=", DoubleToString(flipLots, 2), " at Ask=", DoubleToString(ask, Digits), " TP=", DoubleToString(takeProfit, Digits), " (500 TP distance)");
         }
      }
-   else if(flipDirection == -1) // FLIP to SELL
-     {
-      double bid = Bid;
-      double slDistance = CalculatePriceDistanceUSD(StopLossUSD, flipLots);
-      double stopLoss = (slDistance > 0) ? NormalizeDouble(bid + slDistance, Digits) : 0.0;
-      ticket = SafeOrderSend(Symbol(), OP_SELL, flipLots, bid, Slippage, stopLoss, 0.0, comment, MagicNumber, clrTomato);
-      if(ticket > 0)
+   else
+      if(flipDirection == -1) // FLIP to SELL
         {
-         Print("FLIP BASKET SUPPORT ORDER CREATED: SELL Ticket #", ticket, " Lots=", DoubleToString(flipLots, 2), " at Bid=", DoubleToString(bid, Digits), " (Supporting Basket Profit Target)");
+         double bid = Bid;
+         double slDistance = CalculatePriceDistanceUSD(StopLossUSD, flipLots);
+         double stopLoss = (slDistance > 0) ? NormalizeDouble(bid + slDistance, Digits) : 0.0;
+         double takeProfit = NormalizeDouble(bid - tpDist, Digits);
+         ticket = SafeOrderSend(Symbol(), OP_SELL, flipLots, bid, Slippage, stopLoss, takeProfit, comment, MagicNumber, clrTomato);
+         if(ticket > 0)
+           {
+            Print("FLIP BASKET SUPPORT ORDER CREATED: SELL Ticket #", ticket, " Lots=", DoubleToString(flipLots, 2), " at Bid=", DoubleToString(bid, Digits), " TP=", DoubleToString(takeProfit, Digits), " (500 TP distance)");
+           }
         }
-     }
 
    return ticket;
   }

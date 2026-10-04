@@ -889,7 +889,7 @@
       <div class="header-pills">
         <span class="pill pill-blue">BTCUSD • M1 Scalper</span>
         <span class="pill pill-purple">Exness Raw / Zero</span>
-        <span class="pill pill-green">V10021 (04-10-2026 11.50)</span>
+        <span class="pill pill-green">V10024 (04-10-2026 14.25)</span>
       </div>
     </div>
 
@@ -1499,6 +1499,27 @@ sequenceDiagram
                     <td><span class="badge badge-green">VERIFIED &amp; DEPLOYED</span></td>
                   </tr>
                   <tr>
+                    <td><code>Step 948</code><br><small style="color: var(--accent-amber);">12:45</small></td>
+                    <td><strong>Limit FLIP Basket Support to 1 Order Per Side (Max 1 BUY / 1 SELL Gate)</strong><br><small style="color: var(--text-dim);">Strictly enforces max 1 BUY and max 1 SELL FLIPBasketSupport position; skips if already open</small></td>
+                    <td><code>HasOpenFLIPBasketSupportOrder()</code><br><code>CreateFLIPBasketSupportOrder()</code> L7080<br><code>glbVersion = "V10022"</code></td>
+                    <td>Enforced strict single-order limit per side for <code>FLIPBasketSupport</code>: (1) Implemented <code>HasOpenFLIPBasketSupportOrder(int targetType)</code> to audit active market orders; (2) In <code>CreateFLIPBasketSupportOrder()</code>, if an active BUY (or SELL) <code>FLIPBasketSupport</code> order is already open, new flip triggers in that direction are immediately rejected/bypassed; (3) Prevents multiple redundant support orders during tight EMA oscillation around the 200 EMA line, guaranteeing exactly 1 BUY and 1 SELL runner for basket target fueling. Clean MetaEditor 4 build (0 errors, 20 warnings).</td>
+                    <td><span class="badge badge-green">VERIFIED &amp; DEPLOYED</span></td>
+                  </tr>
+                  <tr>
+                    <td><code>Step 949</code><br><small style="color: var(--accent-amber);">14:15</small></td>
+                    <td><strong>FLIP Support Flip-Close Engine &amp; 500 TP on Support &amp; Recovery Orders</strong><br><small style="color: var(--text-dim);">Closes FLIPBasketSupport orders on flip change; sets 500 raw TP on both support and recovery orders</small></td>
+                    <td><code>CloseFLIPBasketSupportOrders()</code><br><code>CreateFLIPBasketSupportOrder()</code> L7160<br><code>CheckRecoveryOrders()</code> L6870<br><code>glbVersion = "V10023"</code></td>
+                    <td>(1) Implemented <code>CloseFLIPBasketSupportOrders(targetType)</code> to immediately close previous <code>FLIPBasketSupport</code> orders upon EMA flip change, supplemented with active opposite-side safety sweeps in <code>TrackEmaFlip()</code>; (2) Increased Take Profit on <code>FLIPBasketSupport</code> order creation from 200 to 500 raw BTC price distance ( gap); (3) Upgraded all recovery orders in <code>CheckRecoveryOrders()</code> to set Take Profit at 500 raw BTC price distance ( gap) upon creation, while preserving combined recovery basket profit exit mechanics. Clean MetaEditor 4 build (0 errors, 20 warnings).</td>
+                    <td><span class="badge badge-green">VERIFIED &amp; DEPLOYED</span></td>
+                  </tr>
+                  <tr>
+                    <td><code>Step 950</code><br><small style="color: var(--accent-amber);">14:25</small></td>
+                    <td><strong>Pre-Creation Close &amp; Global Single Active FLIPBasketSupport Gate</strong><br><small style="color: var(--text-dim);">Unconditionally closes already open support order before new creation; strictly max 1 active order total</small></td>
+                    <td><code>CreateFLIPBasketSupportOrder()</code> L7165<br><code>CloseFLIPBasketSupportOrders(-1)</code> L7124<br><code>HasOpenFLIPBasketSupportOrder(-1)</code> L7105<br><code>glbVersion = "V10024"</code></td>
+                    <td>Enforced the safest execution model for <code>FLIPBasketSupport</code>: (1) Inside <code>CreateFLIPBasketSupportOrder()</code>, unconditionally calls <code>CloseFLIPBasketSupportOrders(-1)</code> with 3-attempt retry to close any already open support orders before creating a new one; (2) Enforced global single active support order gate via <code>HasOpenFLIPBasketSupportOrder(-1)</code> which aborts new creation if any support order is still active, guaranteeing strictly at most 1 <code>FLIPBasketSupport</code> runner active across the entire account at any moment. Clean MetaEditor 4 build (0 errors, 20 warnings).</td>
+                    <td><span class="badge badge-green">VERIFIED &amp; DEPLOYED</span></td>
+                  </tr>
+                  <tr>
                     <td><code>Step 947</code><br><small style="color: var(--accent-amber);">11:50</small></td>
                     <td><strong>Right Dashboard Section Swap (Order Closing &amp; Exit Engine &harr; Re-Entry &amp; Recovery Engine)</strong><br><small style="color: var(--text-dim);">Swapped visual hierarchy of right dashboard sections 2 &amp; 3 with pixel-perfect alignment</small></td>
                     <td><code>UpdateDashboard()</code> L11689-11708<br><code>glbVersion = "V10021"</code></td>
@@ -1510,6 +1531,27 @@ sequenceDiagram
                     <td><strong>Basket $10 Fixed Equity Step Lock (Linear $10 Increments)</strong><br><small style="color: var(--text-dim);">Changed from 10% compounding to $10 fixed step up: $100 &rarr; $110 &rarr; $120 &rarr; $130...</small></td>
                     <td><code>ManageBasket10USDLockEquity()</code><br><code>ResetBasket10USDLock()</code><br><code>glbVersion = "V10012"</code></td>
                     <td>Converted basket equity locking from 10% compounding to fixed $10 USD increments: (1) Baseline is captured when basket resets or first position opens ($100 baseline); (2) Successive targets advance linearly by fixed +$10 ($100 &rarr; $110 &rarr; $120 &rarr; $130...); (3) On each $10 milestone reached, modifies ALL open basket positions' SL to current live market price (Bid for BUY, Ask for SELL via <code>GetRequiredStopDistance()</code>); (4) Maintains full backwards-compatible forwarding for <code>ResetBasket10PercentLock()</code> and <code>ManageBasket10PercentLockEquity()</code>; (5) Right-side Section 3 dashboard updated to <code>$10 LOCK : ...</code>; (6) Clean MetaEditor 4 build (0 errors, 20 warnings).</td>
+                    <td><span class="badge badge-green">VERIFIED &amp; DEPLOYED</span></td>
+                  </tr>
+                  <tr>
+                    <td><code>Step 948</code><br><small style="color: var(--accent-amber);">12:45</small></td>
+                    <td><strong>Limit FLIP Basket Support to 1 Order Per Side (Max 1 BUY / 1 SELL Gate)</strong><br><small style="color: var(--text-dim);">Strictly enforces max 1 BUY and max 1 SELL FLIPBasketSupport position; skips if already open</small></td>
+                    <td><code>HasOpenFLIPBasketSupportOrder()</code><br><code>CreateFLIPBasketSupportOrder()</code> L7080<br><code>glbVersion = "V10022"</code></td>
+                    <td>Enforced strict single-order limit per side for <code>FLIPBasketSupport</code>: (1) Implemented <code>HasOpenFLIPBasketSupportOrder(int targetType)</code> to audit active market orders; (2) In <code>CreateFLIPBasketSupportOrder()</code>, if an active BUY (or SELL) <code>FLIPBasketSupport</code> order is already open, new flip triggers in that direction are immediately rejected/bypassed; (3) Prevents multiple redundant support orders during tight EMA oscillation around the 200 EMA line, guaranteeing exactly 1 BUY and 1 SELL runner for basket target fueling. Clean MetaEditor 4 build (0 errors, 20 warnings).</td>
+                    <td><span class="badge badge-green">VERIFIED &amp; DEPLOYED</span></td>
+                  </tr>
+                  <tr>
+                    <td><code>Step 949</code><br><small style="color: var(--accent-amber);">14:15</small></td>
+                    <td><strong>FLIP Support Flip-Close Engine &amp; 500 TP on Support &amp; Recovery Orders</strong><br><small style="color: var(--text-dim);">Closes FLIPBasketSupport orders on flip change; sets 500 raw TP on both support and recovery orders</small></td>
+                    <td><code>CloseFLIPBasketSupportOrders()</code><br><code>CreateFLIPBasketSupportOrder()</code> L7160<br><code>CheckRecoveryOrders()</code> L6870<br><code>glbVersion = "V10023"</code></td>
+                    <td>(1) Implemented <code>CloseFLIPBasketSupportOrders(targetType)</code> to immediately close previous <code>FLIPBasketSupport</code> orders upon EMA flip change, supplemented with active opposite-side safety sweeps in <code>TrackEmaFlip()</code>; (2) Increased Take Profit on <code>FLIPBasketSupport</code> order creation from 200 to 500 raw BTC price distance ( gap); (3) Upgraded all recovery orders in <code>CheckRecoveryOrders()</code> to set Take Profit at 500 raw BTC price distance ( gap) upon creation, while preserving combined recovery basket profit exit mechanics. Clean MetaEditor 4 build (0 errors, 20 warnings).</td>
+                    <td><span class="badge badge-green">VERIFIED &amp; DEPLOYED</span></td>
+                  </tr>
+                  <tr>
+                    <td><code>Step 950</code><br><small style="color: var(--accent-amber);">14:25</small></td>
+                    <td><strong>Pre-Creation Close &amp; Global Single Active FLIPBasketSupport Gate</strong><br><small style="color: var(--text-dim);">Unconditionally closes already open support order before new creation; strictly max 1 active order total</small></td>
+                    <td><code>CreateFLIPBasketSupportOrder()</code> L7165<br><code>CloseFLIPBasketSupportOrders(-1)</code> L7124<br><code>HasOpenFLIPBasketSupportOrder(-1)</code> L7105<br><code>glbVersion = "V10024"</code></td>
+                    <td>Enforced the safest execution model for <code>FLIPBasketSupport</code>: (1) Inside <code>CreateFLIPBasketSupportOrder()</code>, unconditionally calls <code>CloseFLIPBasketSupportOrders(-1)</code> with 3-attempt retry to close any already open support orders before creating a new one; (2) Enforced global single active support order gate via <code>HasOpenFLIPBasketSupportOrder(-1)</code> which aborts new creation if any support order is still active, guaranteeing strictly at most 1 <code>FLIPBasketSupport</code> runner active across the entire account at any moment. Clean MetaEditor 4 build (0 errors, 20 warnings).</td>
                     <td><span class="badge badge-green">VERIFIED &amp; DEPLOYED</span></td>
                   </tr>
                   <tr>
@@ -1527,6 +1569,27 @@ sequenceDiagram
                     <td><span class="badge badge-green">VERIFIED &amp; DEPLOYED</span></td>
                   </tr>
                   <tr>
+                    <td><code>Step 948</code><br><small style="color: var(--accent-amber);">12:45</small></td>
+                    <td><strong>Limit FLIP Basket Support to 1 Order Per Side (Max 1 BUY / 1 SELL Gate)</strong><br><small style="color: var(--text-dim);">Strictly enforces max 1 BUY and max 1 SELL FLIPBasketSupport position; skips if already open</small></td>
+                    <td><code>HasOpenFLIPBasketSupportOrder()</code><br><code>CreateFLIPBasketSupportOrder()</code> L7080<br><code>glbVersion = "V10022"</code></td>
+                    <td>Enforced strict single-order limit per side for <code>FLIPBasketSupport</code>: (1) Implemented <code>HasOpenFLIPBasketSupportOrder(int targetType)</code> to audit active market orders; (2) In <code>CreateFLIPBasketSupportOrder()</code>, if an active BUY (or SELL) <code>FLIPBasketSupport</code> order is already open, new flip triggers in that direction are immediately rejected/bypassed; (3) Prevents multiple redundant support orders during tight EMA oscillation around the 200 EMA line, guaranteeing exactly 1 BUY and 1 SELL runner for basket target fueling. Clean MetaEditor 4 build (0 errors, 20 warnings).</td>
+                    <td><span class="badge badge-green">VERIFIED &amp; DEPLOYED</span></td>
+                  </tr>
+                  <tr>
+                    <td><code>Step 949</code><br><small style="color: var(--accent-amber);">14:15</small></td>
+                    <td><strong>FLIP Support Flip-Close Engine &amp; 500 TP on Support &amp; Recovery Orders</strong><br><small style="color: var(--text-dim);">Closes FLIPBasketSupport orders on flip change; sets 500 raw TP on both support and recovery orders</small></td>
+                    <td><code>CloseFLIPBasketSupportOrders()</code><br><code>CreateFLIPBasketSupportOrder()</code> L7160<br><code>CheckRecoveryOrders()</code> L6870<br><code>glbVersion = "V10023"</code></td>
+                    <td>(1) Implemented <code>CloseFLIPBasketSupportOrders(targetType)</code> to immediately close previous <code>FLIPBasketSupport</code> orders upon EMA flip change, supplemented with active opposite-side safety sweeps in <code>TrackEmaFlip()</code>; (2) Increased Take Profit on <code>FLIPBasketSupport</code> order creation from 200 to 500 raw BTC price distance ( gap); (3) Upgraded all recovery orders in <code>CheckRecoveryOrders()</code> to set Take Profit at 500 raw BTC price distance ( gap) upon creation, while preserving combined recovery basket profit exit mechanics. Clean MetaEditor 4 build (0 errors, 20 warnings).</td>
+                    <td><span class="badge badge-green">VERIFIED &amp; DEPLOYED</span></td>
+                  </tr>
+                  <tr>
+                    <td><code>Step 950</code><br><small style="color: var(--accent-amber);">14:25</small></td>
+                    <td><strong>Pre-Creation Close &amp; Global Single Active FLIPBasketSupport Gate</strong><br><small style="color: var(--text-dim);">Unconditionally closes already open support order before new creation; strictly max 1 active order total</small></td>
+                    <td><code>CreateFLIPBasketSupportOrder()</code> L7165<br><code>CloseFLIPBasketSupportOrders(-1)</code> L7124<br><code>HasOpenFLIPBasketSupportOrder(-1)</code> L7105<br><code>glbVersion = "V10024"</code></td>
+                    <td>Enforced the safest execution model for <code>FLIPBasketSupport</code>: (1) Inside <code>CreateFLIPBasketSupportOrder()</code>, unconditionally calls <code>CloseFLIPBasketSupportOrders(-1)</code> with 3-attempt retry to close any already open support orders before creating a new one; (2) Enforced global single active support order gate via <code>HasOpenFLIPBasketSupportOrder(-1)</code> which aborts new creation if any support order is still active, guaranteeing strictly at most 1 <code>FLIPBasketSupport</code> runner active across the entire account at any moment. Clean MetaEditor 4 build (0 errors, 20 warnings).</td>
+                    <td><span class="badge badge-green">VERIFIED &amp; DEPLOYED</span></td>
+                  </tr>
+                  <tr>
                     <td><code>Step 947</code><br><small style="color: var(--accent-amber);">11:50</small></td>
                     <td><strong>Right Dashboard Section Swap (Order Closing &amp; Exit Engine &harr; Re-Entry &amp; Recovery Engine)</strong><br><small style="color: var(--text-dim);">Swapped visual hierarchy of right dashboard sections 2 &amp; 3 with pixel-perfect alignment</small></td>
                     <td><code>UpdateDashboard()</code> L11689-11708<br><code>glbVersion = "V10021"</code></td>
@@ -1541,6 +1604,27 @@ sequenceDiagram
                     <td><span class="badge badge-green">VERIFIED &amp; DEPLOYED</span></td>
                   </tr>
                   <tr>
+                    <td><code>Step 948</code><br><small style="color: var(--accent-amber);">12:45</small></td>
+                    <td><strong>Limit FLIP Basket Support to 1 Order Per Side (Max 1 BUY / 1 SELL Gate)</strong><br><small style="color: var(--text-dim);">Strictly enforces max 1 BUY and max 1 SELL FLIPBasketSupport position; skips if already open</small></td>
+                    <td><code>HasOpenFLIPBasketSupportOrder()</code><br><code>CreateFLIPBasketSupportOrder()</code> L7080<br><code>glbVersion = "V10022"</code></td>
+                    <td>Enforced strict single-order limit per side for <code>FLIPBasketSupport</code>: (1) Implemented <code>HasOpenFLIPBasketSupportOrder(int targetType)</code> to audit active market orders; (2) In <code>CreateFLIPBasketSupportOrder()</code>, if an active BUY (or SELL) <code>FLIPBasketSupport</code> order is already open, new flip triggers in that direction are immediately rejected/bypassed; (3) Prevents multiple redundant support orders during tight EMA oscillation around the 200 EMA line, guaranteeing exactly 1 BUY and 1 SELL runner for basket target fueling. Clean MetaEditor 4 build (0 errors, 20 warnings).</td>
+                    <td><span class="badge badge-green">VERIFIED &amp; DEPLOYED</span></td>
+                  </tr>
+                  <tr>
+                    <td><code>Step 949</code><br><small style="color: var(--accent-amber);">14:15</small></td>
+                    <td><strong>FLIP Support Flip-Close Engine &amp; 500 TP on Support &amp; Recovery Orders</strong><br><small style="color: var(--text-dim);">Closes FLIPBasketSupport orders on flip change; sets 500 raw TP on both support and recovery orders</small></td>
+                    <td><code>CloseFLIPBasketSupportOrders()</code><br><code>CreateFLIPBasketSupportOrder()</code> L7160<br><code>CheckRecoveryOrders()</code> L6870<br><code>glbVersion = "V10023"</code></td>
+                    <td>(1) Implemented <code>CloseFLIPBasketSupportOrders(targetType)</code> to immediately close previous <code>FLIPBasketSupport</code> orders upon EMA flip change, supplemented with active opposite-side safety sweeps in <code>TrackEmaFlip()</code>; (2) Increased Take Profit on <code>FLIPBasketSupport</code> order creation from 200 to 500 raw BTC price distance ( gap); (3) Upgraded all recovery orders in <code>CheckRecoveryOrders()</code> to set Take Profit at 500 raw BTC price distance ( gap) upon creation, while preserving combined recovery basket profit exit mechanics. Clean MetaEditor 4 build (0 errors, 20 warnings).</td>
+                    <td><span class="badge badge-green">VERIFIED &amp; DEPLOYED</span></td>
+                  </tr>
+                  <tr>
+                    <td><code>Step 950</code><br><small style="color: var(--accent-amber);">14:25</small></td>
+                    <td><strong>Pre-Creation Close &amp; Global Single Active FLIPBasketSupport Gate</strong><br><small style="color: var(--text-dim);">Unconditionally closes already open support order before new creation; strictly max 1 active order total</small></td>
+                    <td><code>CreateFLIPBasketSupportOrder()</code> L7165<br><code>CloseFLIPBasketSupportOrders(-1)</code> L7124<br><code>HasOpenFLIPBasketSupportOrder(-1)</code> L7105<br><code>glbVersion = "V10024"</code></td>
+                    <td>Enforced the safest execution model for <code>FLIPBasketSupport</code>: (1) Inside <code>CreateFLIPBasketSupportOrder()</code>, unconditionally calls <code>CloseFLIPBasketSupportOrders(-1)</code> with 3-attempt retry to close any already open support orders before creating a new one; (2) Enforced global single active support order gate via <code>HasOpenFLIPBasketSupportOrder(-1)</code> which aborts new creation if any support order is still active, guaranteeing strictly at most 1 <code>FLIPBasketSupport</code> runner active across the entire account at any moment. Clean MetaEditor 4 build (0 errors, 20 warnings).</td>
+                    <td><span class="badge badge-green">VERIFIED &amp; DEPLOYED</span></td>
+                  </tr>
+                  <tr>
                     <td><code>Step 947</code><br><small style="color: var(--accent-amber);">11:50</small></td>
                     <td><strong>Right Dashboard Section Swap (Order Closing &amp; Exit Engine &harr; Re-Entry &amp; Recovery Engine)</strong><br><small style="color: var(--text-dim);">Swapped visual hierarchy of right dashboard sections 2 &amp; 3 with pixel-perfect alignment</small></td>
                     <td><code>UpdateDashboard()</code> L11689-11708<br><code>glbVersion = "V10021"</code></td>
@@ -1552,6 +1636,27 @@ sequenceDiagram
                     <td><strong>FLIP Basket Support Order Engine (Immunity from $1 Profit SL Lock until Basket Target)</strong><br><small style="color: var(--text-dim);">Creates FLIPBasketSupport order on every flip; runs long-term to fuel basket profit until equity lock</small></td>
                     <td><code>CreateFLIPBasketSupportOrder()</code><br><code>IsFLIPBasketSupportOrder()</code><br><code>glbVersion = "V10020"</code></td>
                     <td>Implemented dedicated FLIP Basket Support order system: (1) On every EMA flip event in <code>TrackEmaFlip()</code>, automatically opens 1 market order in the flip direction (BUY for bullish flip, SELL for bearish flip) with comment <code>"FLIPBasketSupport"</code>; (2) Shielded <code>FLIPBasketSupport</code> from early StopLoss modifications in <code>SecureOneDollarProfit()</code>, <code>SecureOneDollarProfitByDistance()</code>, <code>ManageProfitLadder()</code>, <code>modifyOnlyBuyOrders()</code>, and <code>modifyOnlySellOrders()</code>, ensuring short-term pullbacks do not kick the position out at +$1; (3) Shielded from premature opposite-signal scalping exits; (4) The order runs to support long-term basket profit target and is only modified to live market price when <code>ManageBasket10USDLockEquity()</code> reaches its next target equity step. Clean MetaEditor 4 build (0 errors, 20 warnings).</td>
+                    <td><span class="badge badge-green">VERIFIED &amp; DEPLOYED</span></td>
+                  </tr>
+                  <tr>
+                    <td><code>Step 948</code><br><small style="color: var(--accent-amber);">12:45</small></td>
+                    <td><strong>Limit FLIP Basket Support to 1 Order Per Side (Max 1 BUY / 1 SELL Gate)</strong><br><small style="color: var(--text-dim);">Strictly enforces max 1 BUY and max 1 SELL FLIPBasketSupport position; skips if already open</small></td>
+                    <td><code>HasOpenFLIPBasketSupportOrder()</code><br><code>CreateFLIPBasketSupportOrder()</code> L7080<br><code>glbVersion = "V10022"</code></td>
+                    <td>Enforced strict single-order limit per side for <code>FLIPBasketSupport</code>: (1) Implemented <code>HasOpenFLIPBasketSupportOrder(int targetType)</code> to audit active market orders; (2) In <code>CreateFLIPBasketSupportOrder()</code>, if an active BUY (or SELL) <code>FLIPBasketSupport</code> order is already open, new flip triggers in that direction are immediately rejected/bypassed; (3) Prevents multiple redundant support orders during tight EMA oscillation around the 200 EMA line, guaranteeing exactly 1 BUY and 1 SELL runner for basket target fueling. Clean MetaEditor 4 build (0 errors, 20 warnings).</td>
+                    <td><span class="badge badge-green">VERIFIED &amp; DEPLOYED</span></td>
+                  </tr>
+                  <tr>
+                    <td><code>Step 949</code><br><small style="color: var(--accent-amber);">14:15</small></td>
+                    <td><strong>FLIP Support Flip-Close Engine &amp; 500 TP on Support &amp; Recovery Orders</strong><br><small style="color: var(--text-dim);">Closes FLIPBasketSupport orders on flip change; sets 500 raw TP on both support and recovery orders</small></td>
+                    <td><code>CloseFLIPBasketSupportOrders()</code><br><code>CreateFLIPBasketSupportOrder()</code> L7160<br><code>CheckRecoveryOrders()</code> L6870<br><code>glbVersion = "V10023"</code></td>
+                    <td>(1) Implemented <code>CloseFLIPBasketSupportOrders(targetType)</code> to immediately close previous <code>FLIPBasketSupport</code> orders upon EMA flip change, supplemented with active opposite-side safety sweeps in <code>TrackEmaFlip()</code>; (2) Increased Take Profit on <code>FLIPBasketSupport</code> order creation from 200 to 500 raw BTC price distance ( gap); (3) Upgraded all recovery orders in <code>CheckRecoveryOrders()</code> to set Take Profit at 500 raw BTC price distance ( gap) upon creation, while preserving combined recovery basket profit exit mechanics. Clean MetaEditor 4 build (0 errors, 20 warnings).</td>
+                    <td><span class="badge badge-green">VERIFIED &amp; DEPLOYED</span></td>
+                  </tr>
+                  <tr>
+                    <td><code>Step 950</code><br><small style="color: var(--accent-amber);">14:25</small></td>
+                    <td><strong>Pre-Creation Close &amp; Global Single Active FLIPBasketSupport Gate</strong><br><small style="color: var(--text-dim);">Unconditionally closes already open support order before new creation; strictly max 1 active order total</small></td>
+                    <td><code>CreateFLIPBasketSupportOrder()</code> L7165<br><code>CloseFLIPBasketSupportOrders(-1)</code> L7124<br><code>HasOpenFLIPBasketSupportOrder(-1)</code> L7105<br><code>glbVersion = "V10024"</code></td>
+                    <td>Enforced the safest execution model for <code>FLIPBasketSupport</code>: (1) Inside <code>CreateFLIPBasketSupportOrder()</code>, unconditionally calls <code>CloseFLIPBasketSupportOrders(-1)</code> with 3-attempt retry to close any already open support orders before creating a new one; (2) Enforced global single active support order gate via <code>HasOpenFLIPBasketSupportOrder(-1)</code> which aborts new creation if any support order is still active, guaranteeing strictly at most 1 <code>FLIPBasketSupport</code> runner active across the entire account at any moment. Clean MetaEditor 4 build (0 errors, 20 warnings).</td>
                     <td><span class="badge badge-green">VERIFIED &amp; DEPLOYED</span></td>
                   </tr>
                   <tr>
@@ -1878,6 +1983,27 @@ flowchart TD
                     <td><span class="badge badge-green">VERIFIED &amp; DEPLOYED</span></td>
                   </tr>
                   <tr>
+                    <td><code>Step 948</code><br><small style="color: var(--accent-amber);">12:45</small></td>
+                    <td><strong>Limit FLIP Basket Support to 1 Order Per Side (Max 1 BUY / 1 SELL Gate)</strong><br><small style="color: var(--text-dim);">Strictly enforces max 1 BUY and max 1 SELL FLIPBasketSupport position; skips if already open</small></td>
+                    <td><code>HasOpenFLIPBasketSupportOrder()</code><br><code>CreateFLIPBasketSupportOrder()</code> L7080<br><code>glbVersion = "V10022"</code></td>
+                    <td>Enforced strict single-order limit per side for <code>FLIPBasketSupport</code>: (1) Implemented <code>HasOpenFLIPBasketSupportOrder(int targetType)</code> to audit active market orders; (2) In <code>CreateFLIPBasketSupportOrder()</code>, if an active BUY (or SELL) <code>FLIPBasketSupport</code> order is already open, new flip triggers in that direction are immediately rejected/bypassed; (3) Prevents multiple redundant support orders during tight EMA oscillation around the 200 EMA line, guaranteeing exactly 1 BUY and 1 SELL runner for basket target fueling. Clean MetaEditor 4 build (0 errors, 20 warnings).</td>
+                    <td><span class="badge badge-green">VERIFIED &amp; DEPLOYED</span></td>
+                  </tr>
+                  <tr>
+                    <td><code>Step 949</code><br><small style="color: var(--accent-amber);">14:15</small></td>
+                    <td><strong>FLIP Support Flip-Close Engine &amp; 500 TP on Support &amp; Recovery Orders</strong><br><small style="color: var(--text-dim);">Closes FLIPBasketSupport orders on flip change; sets 500 raw TP on both support and recovery orders</small></td>
+                    <td><code>CloseFLIPBasketSupportOrders()</code><br><code>CreateFLIPBasketSupportOrder()</code> L7160<br><code>CheckRecoveryOrders()</code> L6870<br><code>glbVersion = "V10023"</code></td>
+                    <td>(1) Implemented <code>CloseFLIPBasketSupportOrders(targetType)</code> to immediately close previous <code>FLIPBasketSupport</code> orders upon EMA flip change, supplemented with active opposite-side safety sweeps in <code>TrackEmaFlip()</code>; (2) Increased Take Profit on <code>FLIPBasketSupport</code> order creation from 200 to 500 raw BTC price distance ( gap); (3) Upgraded all recovery orders in <code>CheckRecoveryOrders()</code> to set Take Profit at 500 raw BTC price distance ( gap) upon creation, while preserving combined recovery basket profit exit mechanics. Clean MetaEditor 4 build (0 errors, 20 warnings).</td>
+                    <td><span class="badge badge-green">VERIFIED &amp; DEPLOYED</span></td>
+                  </tr>
+                  <tr>
+                    <td><code>Step 950</code><br><small style="color: var(--accent-amber);">14:25</small></td>
+                    <td><strong>Pre-Creation Close &amp; Global Single Active FLIPBasketSupport Gate</strong><br><small style="color: var(--text-dim);">Unconditionally closes already open support order before new creation; strictly max 1 active order total</small></td>
+                    <td><code>CreateFLIPBasketSupportOrder()</code> L7165<br><code>CloseFLIPBasketSupportOrders(-1)</code> L7124<br><code>HasOpenFLIPBasketSupportOrder(-1)</code> L7105<br><code>glbVersion = "V10024"</code></td>
+                    <td>Enforced the safest execution model for <code>FLIPBasketSupport</code>: (1) Inside <code>CreateFLIPBasketSupportOrder()</code>, unconditionally calls <code>CloseFLIPBasketSupportOrders(-1)</code> with 3-attempt retry to close any already open support orders before creating a new one; (2) Enforced global single active support order gate via <code>HasOpenFLIPBasketSupportOrder(-1)</code> which aborts new creation if any support order is still active, guaranteeing strictly at most 1 <code>FLIPBasketSupport</code> runner active across the entire account at any moment. Clean MetaEditor 4 build (0 errors, 20 warnings).</td>
+                    <td><span class="badge badge-green">VERIFIED &amp; DEPLOYED</span></td>
+                  </tr>
+                  <tr>
                     <td><code>Step 947</code><br><small style="color: var(--accent-amber);">11:50</small></td>
                     <td><strong>Right Dashboard Section Swap (Order Closing &amp; Exit Engine &harr; Re-Entry &amp; Recovery Engine)</strong><br><small style="color: var(--text-dim);">Swapped visual hierarchy of right dashboard sections 2 &amp; 3 with pixel-perfect alignment</small></td>
                     <td><code>UpdateDashboard()</code> L11689-11708<br><code>glbVersion = "V10021"</code></td>
@@ -1889,6 +2015,27 @@ flowchart TD
                     <td><strong>Basket $10 Fixed Equity Step Lock (Linear $10 Increments)</strong><br><small style="color: var(--text-dim);">Changed from 10% compounding to $10 fixed step up: $100 &rarr; $110 &rarr; $120 &rarr; $130...</small></td>
                     <td><code>ManageBasket10USDLockEquity()</code><br><code>ResetBasket10USDLock()</code><br><code>glbVersion = "V10012"</code></td>
                     <td>Converted basket equity locking from 10% compounding to fixed $10 USD increments: (1) Baseline is captured when basket resets or first position opens ($100 baseline); (2) Successive targets advance linearly by fixed +$10 ($100 &rarr; $110 &rarr; $120 &rarr; $130...); (3) On each $10 milestone reached, modifies ALL open basket positions' SL to current live market price (Bid for BUY, Ask for SELL via <code>GetRequiredStopDistance()</code>); (4) Maintains full backwards-compatible forwarding for <code>ResetBasket10PercentLock()</code> and <code>ManageBasket10PercentLockEquity()</code>; (5) Right-side Section 3 dashboard updated to <code>$10 LOCK : ...</code>; (6) Clean MetaEditor 4 build (0 errors, 20 warnings).</td>
+                    <td><span class="badge badge-green">VERIFIED &amp; DEPLOYED</span></td>
+                  </tr>
+                  <tr>
+                    <td><code>Step 948</code><br><small style="color: var(--accent-amber);">12:45</small></td>
+                    <td><strong>Limit FLIP Basket Support to 1 Order Per Side (Max 1 BUY / 1 SELL Gate)</strong><br><small style="color: var(--text-dim);">Strictly enforces max 1 BUY and max 1 SELL FLIPBasketSupport position; skips if already open</small></td>
+                    <td><code>HasOpenFLIPBasketSupportOrder()</code><br><code>CreateFLIPBasketSupportOrder()</code> L7080<br><code>glbVersion = "V10022"</code></td>
+                    <td>Enforced strict single-order limit per side for <code>FLIPBasketSupport</code>: (1) Implemented <code>HasOpenFLIPBasketSupportOrder(int targetType)</code> to audit active market orders; (2) In <code>CreateFLIPBasketSupportOrder()</code>, if an active BUY (or SELL) <code>FLIPBasketSupport</code> order is already open, new flip triggers in that direction are immediately rejected/bypassed; (3) Prevents multiple redundant support orders during tight EMA oscillation around the 200 EMA line, guaranteeing exactly 1 BUY and 1 SELL runner for basket target fueling. Clean MetaEditor 4 build (0 errors, 20 warnings).</td>
+                    <td><span class="badge badge-green">VERIFIED &amp; DEPLOYED</span></td>
+                  </tr>
+                  <tr>
+                    <td><code>Step 949</code><br><small style="color: var(--accent-amber);">14:15</small></td>
+                    <td><strong>FLIP Support Flip-Close Engine &amp; 500 TP on Support &amp; Recovery Orders</strong><br><small style="color: var(--text-dim);">Closes FLIPBasketSupport orders on flip change; sets 500 raw TP on both support and recovery orders</small></td>
+                    <td><code>CloseFLIPBasketSupportOrders()</code><br><code>CreateFLIPBasketSupportOrder()</code> L7160<br><code>CheckRecoveryOrders()</code> L6870<br><code>glbVersion = "V10023"</code></td>
+                    <td>(1) Implemented <code>CloseFLIPBasketSupportOrders(targetType)</code> to immediately close previous <code>FLIPBasketSupport</code> orders upon EMA flip change, supplemented with active opposite-side safety sweeps in <code>TrackEmaFlip()</code>; (2) Increased Take Profit on <code>FLIPBasketSupport</code> order creation from 200 to 500 raw BTC price distance ( gap); (3) Upgraded all recovery orders in <code>CheckRecoveryOrders()</code> to set Take Profit at 500 raw BTC price distance ( gap) upon creation, while preserving combined recovery basket profit exit mechanics. Clean MetaEditor 4 build (0 errors, 20 warnings).</td>
+                    <td><span class="badge badge-green">VERIFIED &amp; DEPLOYED</span></td>
+                  </tr>
+                  <tr>
+                    <td><code>Step 950</code><br><small style="color: var(--accent-amber);">14:25</small></td>
+                    <td><strong>Pre-Creation Close &amp; Global Single Active FLIPBasketSupport Gate</strong><br><small style="color: var(--text-dim);">Unconditionally closes already open support order before new creation; strictly max 1 active order total</small></td>
+                    <td><code>CreateFLIPBasketSupportOrder()</code> L7165<br><code>CloseFLIPBasketSupportOrders(-1)</code> L7124<br><code>HasOpenFLIPBasketSupportOrder(-1)</code> L7105<br><code>glbVersion = "V10024"</code></td>
+                    <td>Enforced the safest execution model for <code>FLIPBasketSupport</code>: (1) Inside <code>CreateFLIPBasketSupportOrder()</code>, unconditionally calls <code>CloseFLIPBasketSupportOrders(-1)</code> with 3-attempt retry to close any already open support orders before creating a new one; (2) Enforced global single active support order gate via <code>HasOpenFLIPBasketSupportOrder(-1)</code> which aborts new creation if any support order is still active, guaranteeing strictly at most 1 <code>FLIPBasketSupport</code> runner active across the entire account at any moment. Clean MetaEditor 4 build (0 errors, 20 warnings).</td>
                     <td><span class="badge badge-green">VERIFIED &amp; DEPLOYED</span></td>
                   </tr>
                   <tr>
@@ -1906,6 +2053,27 @@ flowchart TD
                     <td><span class="badge badge-green">VERIFIED &amp; DEPLOYED</span></td>
                   </tr>
                   <tr>
+                    <td><code>Step 948</code><br><small style="color: var(--accent-amber);">12:45</small></td>
+                    <td><strong>Limit FLIP Basket Support to 1 Order Per Side (Max 1 BUY / 1 SELL Gate)</strong><br><small style="color: var(--text-dim);">Strictly enforces max 1 BUY and max 1 SELL FLIPBasketSupport position; skips if already open</small></td>
+                    <td><code>HasOpenFLIPBasketSupportOrder()</code><br><code>CreateFLIPBasketSupportOrder()</code> L7080<br><code>glbVersion = "V10022"</code></td>
+                    <td>Enforced strict single-order limit per side for <code>FLIPBasketSupport</code>: (1) Implemented <code>HasOpenFLIPBasketSupportOrder(int targetType)</code> to audit active market orders; (2) In <code>CreateFLIPBasketSupportOrder()</code>, if an active BUY (or SELL) <code>FLIPBasketSupport</code> order is already open, new flip triggers in that direction are immediately rejected/bypassed; (3) Prevents multiple redundant support orders during tight EMA oscillation around the 200 EMA line, guaranteeing exactly 1 BUY and 1 SELL runner for basket target fueling. Clean MetaEditor 4 build (0 errors, 20 warnings).</td>
+                    <td><span class="badge badge-green">VERIFIED &amp; DEPLOYED</span></td>
+                  </tr>
+                  <tr>
+                    <td><code>Step 949</code><br><small style="color: var(--accent-amber);">14:15</small></td>
+                    <td><strong>FLIP Support Flip-Close Engine &amp; 500 TP on Support &amp; Recovery Orders</strong><br><small style="color: var(--text-dim);">Closes FLIPBasketSupport orders on flip change; sets 500 raw TP on both support and recovery orders</small></td>
+                    <td><code>CloseFLIPBasketSupportOrders()</code><br><code>CreateFLIPBasketSupportOrder()</code> L7160<br><code>CheckRecoveryOrders()</code> L6870<br><code>glbVersion = "V10023"</code></td>
+                    <td>(1) Implemented <code>CloseFLIPBasketSupportOrders(targetType)</code> to immediately close previous <code>FLIPBasketSupport</code> orders upon EMA flip change, supplemented with active opposite-side safety sweeps in <code>TrackEmaFlip()</code>; (2) Increased Take Profit on <code>FLIPBasketSupport</code> order creation from 200 to 500 raw BTC price distance ( gap); (3) Upgraded all recovery orders in <code>CheckRecoveryOrders()</code> to set Take Profit at 500 raw BTC price distance ( gap) upon creation, while preserving combined recovery basket profit exit mechanics. Clean MetaEditor 4 build (0 errors, 20 warnings).</td>
+                    <td><span class="badge badge-green">VERIFIED &amp; DEPLOYED</span></td>
+                  </tr>
+                  <tr>
+                    <td><code>Step 950</code><br><small style="color: var(--accent-amber);">14:25</small></td>
+                    <td><strong>Pre-Creation Close &amp; Global Single Active FLIPBasketSupport Gate</strong><br><small style="color: var(--text-dim);">Unconditionally closes already open support order before new creation; strictly max 1 active order total</small></td>
+                    <td><code>CreateFLIPBasketSupportOrder()</code> L7165<br><code>CloseFLIPBasketSupportOrders(-1)</code> L7124<br><code>HasOpenFLIPBasketSupportOrder(-1)</code> L7105<br><code>glbVersion = "V10024"</code></td>
+                    <td>Enforced the safest execution model for <code>FLIPBasketSupport</code>: (1) Inside <code>CreateFLIPBasketSupportOrder()</code>, unconditionally calls <code>CloseFLIPBasketSupportOrders(-1)</code> with 3-attempt retry to close any already open support orders before creating a new one; (2) Enforced global single active support order gate via <code>HasOpenFLIPBasketSupportOrder(-1)</code> which aborts new creation if any support order is still active, guaranteeing strictly at most 1 <code>FLIPBasketSupport</code> runner active across the entire account at any moment. Clean MetaEditor 4 build (0 errors, 20 warnings).</td>
+                    <td><span class="badge badge-green">VERIFIED &amp; DEPLOYED</span></td>
+                  </tr>
+                  <tr>
                     <td><code>Step 947</code><br><small style="color: var(--accent-amber);">11:50</small></td>
                     <td><strong>Right Dashboard Section Swap (Order Closing &amp; Exit Engine &harr; Re-Entry &amp; Recovery Engine)</strong><br><small style="color: var(--text-dim);">Swapped visual hierarchy of right dashboard sections 2 &amp; 3 with pixel-perfect alignment</small></td>
                     <td><code>UpdateDashboard()</code> L11689-11708<br><code>glbVersion = "V10021"</code></td>
@@ -1920,6 +2088,27 @@ flowchart TD
                     <td><span class="badge badge-green">VERIFIED &amp; DEPLOYED</span></td>
                   </tr>
                   <tr>
+                    <td><code>Step 948</code><br><small style="color: var(--accent-amber);">12:45</small></td>
+                    <td><strong>Limit FLIP Basket Support to 1 Order Per Side (Max 1 BUY / 1 SELL Gate)</strong><br><small style="color: var(--text-dim);">Strictly enforces max 1 BUY and max 1 SELL FLIPBasketSupport position; skips if already open</small></td>
+                    <td><code>HasOpenFLIPBasketSupportOrder()</code><br><code>CreateFLIPBasketSupportOrder()</code> L7080<br><code>glbVersion = "V10022"</code></td>
+                    <td>Enforced strict single-order limit per side for <code>FLIPBasketSupport</code>: (1) Implemented <code>HasOpenFLIPBasketSupportOrder(int targetType)</code> to audit active market orders; (2) In <code>CreateFLIPBasketSupportOrder()</code>, if an active BUY (or SELL) <code>FLIPBasketSupport</code> order is already open, new flip triggers in that direction are immediately rejected/bypassed; (3) Prevents multiple redundant support orders during tight EMA oscillation around the 200 EMA line, guaranteeing exactly 1 BUY and 1 SELL runner for basket target fueling. Clean MetaEditor 4 build (0 errors, 20 warnings).</td>
+                    <td><span class="badge badge-green">VERIFIED &amp; DEPLOYED</span></td>
+                  </tr>
+                  <tr>
+                    <td><code>Step 949</code><br><small style="color: var(--accent-amber);">14:15</small></td>
+                    <td><strong>FLIP Support Flip-Close Engine &amp; 500 TP on Support &amp; Recovery Orders</strong><br><small style="color: var(--text-dim);">Closes FLIPBasketSupport orders on flip change; sets 500 raw TP on both support and recovery orders</small></td>
+                    <td><code>CloseFLIPBasketSupportOrders()</code><br><code>CreateFLIPBasketSupportOrder()</code> L7160<br><code>CheckRecoveryOrders()</code> L6870<br><code>glbVersion = "V10023"</code></td>
+                    <td>(1) Implemented <code>CloseFLIPBasketSupportOrders(targetType)</code> to immediately close previous <code>FLIPBasketSupport</code> orders upon EMA flip change, supplemented with active opposite-side safety sweeps in <code>TrackEmaFlip()</code>; (2) Increased Take Profit on <code>FLIPBasketSupport</code> order creation from 200 to 500 raw BTC price distance ( gap); (3) Upgraded all recovery orders in <code>CheckRecoveryOrders()</code> to set Take Profit at 500 raw BTC price distance ( gap) upon creation, while preserving combined recovery basket profit exit mechanics. Clean MetaEditor 4 build (0 errors, 20 warnings).</td>
+                    <td><span class="badge badge-green">VERIFIED &amp; DEPLOYED</span></td>
+                  </tr>
+                  <tr>
+                    <td><code>Step 950</code><br><small style="color: var(--accent-amber);">14:25</small></td>
+                    <td><strong>Pre-Creation Close &amp; Global Single Active FLIPBasketSupport Gate</strong><br><small style="color: var(--text-dim);">Unconditionally closes already open support order before new creation; strictly max 1 active order total</small></td>
+                    <td><code>CreateFLIPBasketSupportOrder()</code> L7165<br><code>CloseFLIPBasketSupportOrders(-1)</code> L7124<br><code>HasOpenFLIPBasketSupportOrder(-1)</code> L7105<br><code>glbVersion = "V10024"</code></td>
+                    <td>Enforced the safest execution model for <code>FLIPBasketSupport</code>: (1) Inside <code>CreateFLIPBasketSupportOrder()</code>, unconditionally calls <code>CloseFLIPBasketSupportOrders(-1)</code> with 3-attempt retry to close any already open support orders before creating a new one; (2) Enforced global single active support order gate via <code>HasOpenFLIPBasketSupportOrder(-1)</code> which aborts new creation if any support order is still active, guaranteeing strictly at most 1 <code>FLIPBasketSupport</code> runner active across the entire account at any moment. Clean MetaEditor 4 build (0 errors, 20 warnings).</td>
+                    <td><span class="badge badge-green">VERIFIED &amp; DEPLOYED</span></td>
+                  </tr>
+                  <tr>
                     <td><code>Step 947</code><br><small style="color: var(--accent-amber);">11:50</small></td>
                     <td><strong>Right Dashboard Section Swap (Order Closing &amp; Exit Engine &harr; Re-Entry &amp; Recovery Engine)</strong><br><small style="color: var(--text-dim);">Swapped visual hierarchy of right dashboard sections 2 &amp; 3 with pixel-perfect alignment</small></td>
                     <td><code>UpdateDashboard()</code> L11689-11708<br><code>glbVersion = "V10021"</code></td>
@@ -1931,6 +2120,27 @@ flowchart TD
                     <td><strong>FLIP Basket Support Order Engine (Immunity from $1 Profit SL Lock until Basket Target)</strong><br><small style="color: var(--text-dim);">Creates FLIPBasketSupport order on every flip; runs long-term to fuel basket profit until equity lock</small></td>
                     <td><code>CreateFLIPBasketSupportOrder()</code><br><code>IsFLIPBasketSupportOrder()</code><br><code>glbVersion = "V10020"</code></td>
                     <td>Implemented dedicated FLIP Basket Support order system: (1) On every EMA flip event in <code>TrackEmaFlip()</code>, automatically opens 1 market order in the flip direction (BUY for bullish flip, SELL for bearish flip) with comment <code>"FLIPBasketSupport"</code>; (2) Shielded <code>FLIPBasketSupport</code> from early StopLoss modifications in <code>SecureOneDollarProfit()</code>, <code>SecureOneDollarProfitByDistance()</code>, <code>ManageProfitLadder()</code>, <code>modifyOnlyBuyOrders()</code>, and <code>modifyOnlySellOrders()</code>, ensuring short-term pullbacks do not kick the position out at +$1; (3) Shielded from premature opposite-signal scalping exits; (4) The order runs to support long-term basket profit target and is only modified to live market price when <code>ManageBasket10USDLockEquity()</code> reaches its next target equity step. Clean MetaEditor 4 build (0 errors, 20 warnings).</td>
+                    <td><span class="badge badge-green">VERIFIED &amp; DEPLOYED</span></td>
+                  </tr>
+                  <tr>
+                    <td><code>Step 948</code><br><small style="color: var(--accent-amber);">12:45</small></td>
+                    <td><strong>Limit FLIP Basket Support to 1 Order Per Side (Max 1 BUY / 1 SELL Gate)</strong><br><small style="color: var(--text-dim);">Strictly enforces max 1 BUY and max 1 SELL FLIPBasketSupport position; skips if already open</small></td>
+                    <td><code>HasOpenFLIPBasketSupportOrder()</code><br><code>CreateFLIPBasketSupportOrder()</code> L7080<br><code>glbVersion = "V10022"</code></td>
+                    <td>Enforced strict single-order limit per side for <code>FLIPBasketSupport</code>: (1) Implemented <code>HasOpenFLIPBasketSupportOrder(int targetType)</code> to audit active market orders; (2) In <code>CreateFLIPBasketSupportOrder()</code>, if an active BUY (or SELL) <code>FLIPBasketSupport</code> order is already open, new flip triggers in that direction are immediately rejected/bypassed; (3) Prevents multiple redundant support orders during tight EMA oscillation around the 200 EMA line, guaranteeing exactly 1 BUY and 1 SELL runner for basket target fueling. Clean MetaEditor 4 build (0 errors, 20 warnings).</td>
+                    <td><span class="badge badge-green">VERIFIED &amp; DEPLOYED</span></td>
+                  </tr>
+                  <tr>
+                    <td><code>Step 949</code><br><small style="color: var(--accent-amber);">14:15</small></td>
+                    <td><strong>FLIP Support Flip-Close Engine &amp; 500 TP on Support &amp; Recovery Orders</strong><br><small style="color: var(--text-dim);">Closes FLIPBasketSupport orders on flip change; sets 500 raw TP on both support and recovery orders</small></td>
+                    <td><code>CloseFLIPBasketSupportOrders()</code><br><code>CreateFLIPBasketSupportOrder()</code> L7160<br><code>CheckRecoveryOrders()</code> L6870<br><code>glbVersion = "V10023"</code></td>
+                    <td>(1) Implemented <code>CloseFLIPBasketSupportOrders(targetType)</code> to immediately close previous <code>FLIPBasketSupport</code> orders upon EMA flip change, supplemented with active opposite-side safety sweeps in <code>TrackEmaFlip()</code>; (2) Increased Take Profit on <code>FLIPBasketSupport</code> order creation from 200 to 500 raw BTC price distance ( gap); (3) Upgraded all recovery orders in <code>CheckRecoveryOrders()</code> to set Take Profit at 500 raw BTC price distance ( gap) upon creation, while preserving combined recovery basket profit exit mechanics. Clean MetaEditor 4 build (0 errors, 20 warnings).</td>
+                    <td><span class="badge badge-green">VERIFIED &amp; DEPLOYED</span></td>
+                  </tr>
+                  <tr>
+                    <td><code>Step 950</code><br><small style="color: var(--accent-amber);">14:25</small></td>
+                    <td><strong>Pre-Creation Close &amp; Global Single Active FLIPBasketSupport Gate</strong><br><small style="color: var(--text-dim);">Unconditionally closes already open support order before new creation; strictly max 1 active order total</small></td>
+                    <td><code>CreateFLIPBasketSupportOrder()</code> L7165<br><code>CloseFLIPBasketSupportOrders(-1)</code> L7124<br><code>HasOpenFLIPBasketSupportOrder(-1)</code> L7105<br><code>glbVersion = "V10024"</code></td>
+                    <td>Enforced the safest execution model for <code>FLIPBasketSupport</code>: (1) Inside <code>CreateFLIPBasketSupportOrder()</code>, unconditionally calls <code>CloseFLIPBasketSupportOrders(-1)</code> with 3-attempt retry to close any already open support orders before creating a new one; (2) Enforced global single active support order gate via <code>HasOpenFLIPBasketSupportOrder(-1)</code> which aborts new creation if any support order is still active, guaranteeing strictly at most 1 <code>FLIPBasketSupport</code> runner active across the entire account at any moment. Clean MetaEditor 4 build (0 errors, 20 warnings).</td>
                     <td><span class="badge badge-green">VERIFIED &amp; DEPLOYED</span></td>
                   </tr>
                   <tr>
@@ -1972,7 +2182,7 @@ flowchart TD
             <div class="grid-4" style="margin-bottom: 24px;">
               <div class="stat-card">
                 <div class="stat-label">Total User Directives</div>
-                <div class="stat-value" style="color: var(--accent-green);">29 / 29</div>
+                <div class="stat-value" style="color: var(--accent-green);">32 / 32</div>
                 <div class="stat-desc">100% Implemented &amp; Audited</div>
               </div>
               <div class="stat-card">
@@ -1982,8 +2192,8 @@ flowchart TD
               </div>
               <div class="stat-card">
                 <div class="stat-label">Active Production Build</div>
-                <div class="stat-value" style="color: var(--accent-purple);">V10021</div>
-                <div class="stat-desc">04-10-2026 11.50 Deployed</div>
+                <div class="stat-value" style="color: var(--accent-purple);">V10024</div>
+                <div class="stat-desc">04-10-2026 14.25 Deployed</div>
               </div>
               <div class="stat-card">
                 <div class="stat-label">Centralized Firewall</div>
@@ -2160,6 +2370,27 @@ flowchart TD
                     <td><span class="badge badge-green">VERIFIED &amp; DEPLOYED</span></td>
                   </tr>
                   <tr>
+                    <td><code>Step 948</code><br><small style="color: var(--accent-amber);">12:45</small></td>
+                    <td><strong>Limit FLIP Basket Support to 1 Order Per Side (Max 1 BUY / 1 SELL Gate)</strong><br><small style="color: var(--text-dim);">Strictly enforces max 1 BUY and max 1 SELL FLIPBasketSupport position; skips if already open</small></td>
+                    <td><code>HasOpenFLIPBasketSupportOrder()</code><br><code>CreateFLIPBasketSupportOrder()</code> L7080<br><code>glbVersion = "V10022"</code></td>
+                    <td>Enforced strict single-order limit per side for <code>FLIPBasketSupport</code>: (1) Implemented <code>HasOpenFLIPBasketSupportOrder(int targetType)</code> to audit active market orders; (2) In <code>CreateFLIPBasketSupportOrder()</code>, if an active BUY (or SELL) <code>FLIPBasketSupport</code> order is already open, new flip triggers in that direction are immediately rejected/bypassed; (3) Prevents multiple redundant support orders during tight EMA oscillation around the 200 EMA line, guaranteeing exactly 1 BUY and 1 SELL runner for basket target fueling. Clean MetaEditor 4 build (0 errors, 20 warnings).</td>
+                    <td><span class="badge badge-green">VERIFIED &amp; DEPLOYED</span></td>
+                  </tr>
+                  <tr>
+                    <td><code>Step 949</code><br><small style="color: var(--accent-amber);">14:15</small></td>
+                    <td><strong>FLIP Support Flip-Close Engine &amp; 500 TP on Support &amp; Recovery Orders</strong><br><small style="color: var(--text-dim);">Closes FLIPBasketSupport orders on flip change; sets 500 raw TP on both support and recovery orders</small></td>
+                    <td><code>CloseFLIPBasketSupportOrders()</code><br><code>CreateFLIPBasketSupportOrder()</code> L7160<br><code>CheckRecoveryOrders()</code> L6870<br><code>glbVersion = "V10023"</code></td>
+                    <td>(1) Implemented <code>CloseFLIPBasketSupportOrders(targetType)</code> to immediately close previous <code>FLIPBasketSupport</code> orders upon EMA flip change, supplemented with active opposite-side safety sweeps in <code>TrackEmaFlip()</code>; (2) Increased Take Profit on <code>FLIPBasketSupport</code> order creation from 200 to 500 raw BTC price distance ( gap); (3) Upgraded all recovery orders in <code>CheckRecoveryOrders()</code> to set Take Profit at 500 raw BTC price distance ( gap) upon creation, while preserving combined recovery basket profit exit mechanics. Clean MetaEditor 4 build (0 errors, 20 warnings).</td>
+                    <td><span class="badge badge-green">VERIFIED &amp; DEPLOYED</span></td>
+                  </tr>
+                  <tr>
+                    <td><code>Step 950</code><br><small style="color: var(--accent-amber);">14:25</small></td>
+                    <td><strong>Pre-Creation Close &amp; Global Single Active FLIPBasketSupport Gate</strong><br><small style="color: var(--text-dim);">Unconditionally closes already open support order before new creation; strictly max 1 active order total</small></td>
+                    <td><code>CreateFLIPBasketSupportOrder()</code> L7165<br><code>CloseFLIPBasketSupportOrders(-1)</code> L7124<br><code>HasOpenFLIPBasketSupportOrder(-1)</code> L7105<br><code>glbVersion = "V10024"</code></td>
+                    <td>Enforced the safest execution model for <code>FLIPBasketSupport</code>: (1) Inside <code>CreateFLIPBasketSupportOrder()</code>, unconditionally calls <code>CloseFLIPBasketSupportOrders(-1)</code> with 3-attempt retry to close any already open support orders before creating a new one; (2) Enforced global single active support order gate via <code>HasOpenFLIPBasketSupportOrder(-1)</code> which aborts new creation if any support order is still active, guaranteeing strictly at most 1 <code>FLIPBasketSupport</code> runner active across the entire account at any moment. Clean MetaEditor 4 build (0 errors, 20 warnings).</td>
+                    <td><span class="badge badge-green">VERIFIED &amp; DEPLOYED</span></td>
+                  </tr>
+                  <tr>
                     <td><code>Step 947</code><br><small style="color: var(--accent-amber);">11:50</small></td>
                     <td><strong>Right Dashboard Section Swap (Order Closing &amp; Exit Engine &harr; Re-Entry &amp; Recovery Engine)</strong><br><small style="color: var(--text-dim);">Swapped visual hierarchy of right dashboard sections 2 &amp; 3 with pixel-perfect alignment</small></td>
                     <td><code>UpdateDashboard()</code> L11689-11708<br><code>glbVersion = "V10021"</code></td>
@@ -2171,6 +2402,27 @@ flowchart TD
                     <td><strong>Dedicated Partial Close Column in Left Live Order Monitor</strong><br><small style="color: var(--text-dim);">Real-time per-order live adverse price difference and shave trigger column</small></td>
                     <td><code>UpdateLeftLiveOrdersDashboard()</code><br><code>glbVersion = "V10010"</code><br>Expanded 830px Monospace Layout</td>
                     <td>Added a dedicated <code>PART-CLOSE (LIVE DIFF/TRIG)</code> column to each order row in the Left Live Position Monitor table between <code>P/L</code> and <code>COMMENT</code>: (1) Orders with lot &le; 0.01: badged as <code>- [0.01L]</code> (single minimum lot, exempt from partial cuts); (2) Orders with lot &gt; 0.01: tracks live adverse price difference from entry (1st cut) or from prior partial close price ($100 gap requirement); (3) Trigger state: displays remaining price move and loss distance (e.g. <code>Diff $7.6/$10.0 [Need -$12.4]</code>, <code>Diff $45.2/$100 [Need $54.8]</code>), or flashes bright lime <code>READY [Shave 0.01]</code> when conditions are met; (4) Expanded panel width to 830px with Consolas monospace alignment ensuring zero overlap with right dashboard or comments. Clean MetaEditor 4 build (0 errors, 20 warnings).</td>
+                    <td><span class="badge badge-green">VERIFIED &amp; DEPLOYED</span></td>
+                  </tr>
+                  <tr>
+                    <td><code>Step 948</code><br><small style="color: var(--accent-amber);">12:45</small></td>
+                    <td><strong>Limit FLIP Basket Support to 1 Order Per Side (Max 1 BUY / 1 SELL Gate)</strong><br><small style="color: var(--text-dim);">Strictly enforces max 1 BUY and max 1 SELL FLIPBasketSupport position; skips if already open</small></td>
+                    <td><code>HasOpenFLIPBasketSupportOrder()</code><br><code>CreateFLIPBasketSupportOrder()</code> L7080<br><code>glbVersion = "V10022"</code></td>
+                    <td>Enforced strict single-order limit per side for <code>FLIPBasketSupport</code>: (1) Implemented <code>HasOpenFLIPBasketSupportOrder(int targetType)</code> to audit active market orders; (2) In <code>CreateFLIPBasketSupportOrder()</code>, if an active BUY (or SELL) <code>FLIPBasketSupport</code> order is already open, new flip triggers in that direction are immediately rejected/bypassed; (3) Prevents multiple redundant support orders during tight EMA oscillation around the 200 EMA line, guaranteeing exactly 1 BUY and 1 SELL runner for basket target fueling. Clean MetaEditor 4 build (0 errors, 20 warnings).</td>
+                    <td><span class="badge badge-green">VERIFIED &amp; DEPLOYED</span></td>
+                  </tr>
+                  <tr>
+                    <td><code>Step 949</code><br><small style="color: var(--accent-amber);">14:15</small></td>
+                    <td><strong>FLIP Support Flip-Close Engine &amp; 500 TP on Support &amp; Recovery Orders</strong><br><small style="color: var(--text-dim);">Closes FLIPBasketSupport orders on flip change; sets 500 raw TP on both support and recovery orders</small></td>
+                    <td><code>CloseFLIPBasketSupportOrders()</code><br><code>CreateFLIPBasketSupportOrder()</code> L7160<br><code>CheckRecoveryOrders()</code> L6870<br><code>glbVersion = "V10023"</code></td>
+                    <td>(1) Implemented <code>CloseFLIPBasketSupportOrders(targetType)</code> to immediately close previous <code>FLIPBasketSupport</code> orders upon EMA flip change, supplemented with active opposite-side safety sweeps in <code>TrackEmaFlip()</code>; (2) Increased Take Profit on <code>FLIPBasketSupport</code> order creation from 200 to 500 raw BTC price distance ( gap); (3) Upgraded all recovery orders in <code>CheckRecoveryOrders()</code> to set Take Profit at 500 raw BTC price distance ( gap) upon creation, while preserving combined recovery basket profit exit mechanics. Clean MetaEditor 4 build (0 errors, 20 warnings).</td>
+                    <td><span class="badge badge-green">VERIFIED &amp; DEPLOYED</span></td>
+                  </tr>
+                  <tr>
+                    <td><code>Step 950</code><br><small style="color: var(--accent-amber);">14:25</small></td>
+                    <td><strong>Pre-Creation Close &amp; Global Single Active FLIPBasketSupport Gate</strong><br><small style="color: var(--text-dim);">Unconditionally closes already open support order before new creation; strictly max 1 active order total</small></td>
+                    <td><code>CreateFLIPBasketSupportOrder()</code> L7165<br><code>CloseFLIPBasketSupportOrders(-1)</code> L7124<br><code>HasOpenFLIPBasketSupportOrder(-1)</code> L7105<br><code>glbVersion = "V10024"</code></td>
+                    <td>Enforced the safest execution model for <code>FLIPBasketSupport</code>: (1) Inside <code>CreateFLIPBasketSupportOrder()</code>, unconditionally calls <code>CloseFLIPBasketSupportOrders(-1)</code> with 3-attempt retry to close any already open support orders before creating a new one; (2) Enforced global single active support order gate via <code>HasOpenFLIPBasketSupportOrder(-1)</code> which aborts new creation if any support order is still active, guaranteeing strictly at most 1 <code>FLIPBasketSupport</code> runner active across the entire account at any moment. Clean MetaEditor 4 build (0 errors, 20 warnings).</td>
                     <td><span class="badge badge-green">VERIFIED &amp; DEPLOYED</span></td>
                   </tr>
                   <tr>
@@ -2188,6 +2440,27 @@ flowchart TD
                     <td><span class="badge badge-green">VERIFIED &amp; DEPLOYED</span></td>
                   </tr>
                   <tr>
+                    <td><code>Step 948</code><br><small style="color: var(--accent-amber);">12:45</small></td>
+                    <td><strong>Limit FLIP Basket Support to 1 Order Per Side (Max 1 BUY / 1 SELL Gate)</strong><br><small style="color: var(--text-dim);">Strictly enforces max 1 BUY and max 1 SELL FLIPBasketSupport position; skips if already open</small></td>
+                    <td><code>HasOpenFLIPBasketSupportOrder()</code><br><code>CreateFLIPBasketSupportOrder()</code> L7080<br><code>glbVersion = "V10022"</code></td>
+                    <td>Enforced strict single-order limit per side for <code>FLIPBasketSupport</code>: (1) Implemented <code>HasOpenFLIPBasketSupportOrder(int targetType)</code> to audit active market orders; (2) In <code>CreateFLIPBasketSupportOrder()</code>, if an active BUY (or SELL) <code>FLIPBasketSupport</code> order is already open, new flip triggers in that direction are immediately rejected/bypassed; (3) Prevents multiple redundant support orders during tight EMA oscillation around the 200 EMA line, guaranteeing exactly 1 BUY and 1 SELL runner for basket target fueling. Clean MetaEditor 4 build (0 errors, 20 warnings).</td>
+                    <td><span class="badge badge-green">VERIFIED &amp; DEPLOYED</span></td>
+                  </tr>
+                  <tr>
+                    <td><code>Step 949</code><br><small style="color: var(--accent-amber);">14:15</small></td>
+                    <td><strong>FLIP Support Flip-Close Engine &amp; 500 TP on Support &amp; Recovery Orders</strong><br><small style="color: var(--text-dim);">Closes FLIPBasketSupport orders on flip change; sets 500 raw TP on both support and recovery orders</small></td>
+                    <td><code>CloseFLIPBasketSupportOrders()</code><br><code>CreateFLIPBasketSupportOrder()</code> L7160<br><code>CheckRecoveryOrders()</code> L6870<br><code>glbVersion = "V10023"</code></td>
+                    <td>(1) Implemented <code>CloseFLIPBasketSupportOrders(targetType)</code> to immediately close previous <code>FLIPBasketSupport</code> orders upon EMA flip change, supplemented with active opposite-side safety sweeps in <code>TrackEmaFlip()</code>; (2) Increased Take Profit on <code>FLIPBasketSupport</code> order creation from 200 to 500 raw BTC price distance ( gap); (3) Upgraded all recovery orders in <code>CheckRecoveryOrders()</code> to set Take Profit at 500 raw BTC price distance ( gap) upon creation, while preserving combined recovery basket profit exit mechanics. Clean MetaEditor 4 build (0 errors, 20 warnings).</td>
+                    <td><span class="badge badge-green">VERIFIED &amp; DEPLOYED</span></td>
+                  </tr>
+                  <tr>
+                    <td><code>Step 950</code><br><small style="color: var(--accent-amber);">14:25</small></td>
+                    <td><strong>Pre-Creation Close &amp; Global Single Active FLIPBasketSupport Gate</strong><br><small style="color: var(--text-dim);">Unconditionally closes already open support order before new creation; strictly max 1 active order total</small></td>
+                    <td><code>CreateFLIPBasketSupportOrder()</code> L7165<br><code>CloseFLIPBasketSupportOrders(-1)</code> L7124<br><code>HasOpenFLIPBasketSupportOrder(-1)</code> L7105<br><code>glbVersion = "V10024"</code></td>
+                    <td>Enforced the safest execution model for <code>FLIPBasketSupport</code>: (1) Inside <code>CreateFLIPBasketSupportOrder()</code>, unconditionally calls <code>CloseFLIPBasketSupportOrders(-1)</code> with 3-attempt retry to close any already open support orders before creating a new one; (2) Enforced global single active support order gate via <code>HasOpenFLIPBasketSupportOrder(-1)</code> which aborts new creation if any support order is still active, guaranteeing strictly at most 1 <code>FLIPBasketSupport</code> runner active across the entire account at any moment. Clean MetaEditor 4 build (0 errors, 20 warnings).</td>
+                    <td><span class="badge badge-green">VERIFIED &amp; DEPLOYED</span></td>
+                  </tr>
+                  <tr>
                     <td><code>Step 947</code><br><small style="color: var(--accent-amber);">11:50</small></td>
                     <td><strong>Right Dashboard Section Swap (Order Closing &amp; Exit Engine &harr; Re-Entry &amp; Recovery Engine)</strong><br><small style="color: var(--text-dim);">Swapped visual hierarchy of right dashboard sections 2 &amp; 3 with pixel-perfect alignment</small></td>
                     <td><code>UpdateDashboard()</code> L11689-11708<br><code>glbVersion = "V10021"</code></td>
@@ -2199,6 +2472,27 @@ flowchart TD
                     <td><strong>Basket $10 Fixed Equity Step Lock (Linear $10 Increments)</strong><br><small style="color: var(--text-dim);">Changed from 10% compounding to $10 fixed step up: $100 &rarr; $110 &rarr; $120 &rarr; $130...</small></td>
                     <td><code>ManageBasket10USDLockEquity()</code><br><code>ResetBasket10USDLock()</code><br><code>glbVersion = "V10012"</code></td>
                     <td>Converted basket equity locking from 10% compounding to fixed $10 USD increments: (1) Baseline is captured when basket resets or first position opens ($100 baseline); (2) Successive targets advance linearly by fixed +$10 ($100 &rarr; $110 &rarr; $120 &rarr; $130...); (3) On each $10 milestone reached, modifies ALL open basket positions' SL to current live market price (Bid for BUY, Ask for SELL via <code>GetRequiredStopDistance()</code>); (4) Maintains full backwards-compatible forwarding for <code>ResetBasket10PercentLock()</code> and <code>ManageBasket10PercentLockEquity()</code>; (5) Right-side Section 3 dashboard updated to <code>$10 LOCK : ...</code>; (6) Clean MetaEditor 4 build (0 errors, 20 warnings).</td>
+                    <td><span class="badge badge-green">VERIFIED &amp; DEPLOYED</span></td>
+                  </tr>
+                  <tr>
+                    <td><code>Step 948</code><br><small style="color: var(--accent-amber);">12:45</small></td>
+                    <td><strong>Limit FLIP Basket Support to 1 Order Per Side (Max 1 BUY / 1 SELL Gate)</strong><br><small style="color: var(--text-dim);">Strictly enforces max 1 BUY and max 1 SELL FLIPBasketSupport position; skips if already open</small></td>
+                    <td><code>HasOpenFLIPBasketSupportOrder()</code><br><code>CreateFLIPBasketSupportOrder()</code> L7080<br><code>glbVersion = "V10022"</code></td>
+                    <td>Enforced strict single-order limit per side for <code>FLIPBasketSupport</code>: (1) Implemented <code>HasOpenFLIPBasketSupportOrder(int targetType)</code> to audit active market orders; (2) In <code>CreateFLIPBasketSupportOrder()</code>, if an active BUY (or SELL) <code>FLIPBasketSupport</code> order is already open, new flip triggers in that direction are immediately rejected/bypassed; (3) Prevents multiple redundant support orders during tight EMA oscillation around the 200 EMA line, guaranteeing exactly 1 BUY and 1 SELL runner for basket target fueling. Clean MetaEditor 4 build (0 errors, 20 warnings).</td>
+                    <td><span class="badge badge-green">VERIFIED &amp; DEPLOYED</span></td>
+                  </tr>
+                  <tr>
+                    <td><code>Step 949</code><br><small style="color: var(--accent-amber);">14:15</small></td>
+                    <td><strong>FLIP Support Flip-Close Engine &amp; 500 TP on Support &amp; Recovery Orders</strong><br><small style="color: var(--text-dim);">Closes FLIPBasketSupport orders on flip change; sets 500 raw TP on both support and recovery orders</small></td>
+                    <td><code>CloseFLIPBasketSupportOrders()</code><br><code>CreateFLIPBasketSupportOrder()</code> L7160<br><code>CheckRecoveryOrders()</code> L6870<br><code>glbVersion = "V10023"</code></td>
+                    <td>(1) Implemented <code>CloseFLIPBasketSupportOrders(targetType)</code> to immediately close previous <code>FLIPBasketSupport</code> orders upon EMA flip change, supplemented with active opposite-side safety sweeps in <code>TrackEmaFlip()</code>; (2) Increased Take Profit on <code>FLIPBasketSupport</code> order creation from 200 to 500 raw BTC price distance ( gap); (3) Upgraded all recovery orders in <code>CheckRecoveryOrders()</code> to set Take Profit at 500 raw BTC price distance ( gap) upon creation, while preserving combined recovery basket profit exit mechanics. Clean MetaEditor 4 build (0 errors, 20 warnings).</td>
+                    <td><span class="badge badge-green">VERIFIED &amp; DEPLOYED</span></td>
+                  </tr>
+                  <tr>
+                    <td><code>Step 950</code><br><small style="color: var(--accent-amber);">14:25</small></td>
+                    <td><strong>Pre-Creation Close &amp; Global Single Active FLIPBasketSupport Gate</strong><br><small style="color: var(--text-dim);">Unconditionally closes already open support order before new creation; strictly max 1 active order total</small></td>
+                    <td><code>CreateFLIPBasketSupportOrder()</code> L7165<br><code>CloseFLIPBasketSupportOrders(-1)</code> L7124<br><code>HasOpenFLIPBasketSupportOrder(-1)</code> L7105<br><code>glbVersion = "V10024"</code></td>
+                    <td>Enforced the safest execution model for <code>FLIPBasketSupport</code>: (1) Inside <code>CreateFLIPBasketSupportOrder()</code>, unconditionally calls <code>CloseFLIPBasketSupportOrders(-1)</code> with 3-attempt retry to close any already open support orders before creating a new one; (2) Enforced global single active support order gate via <code>HasOpenFLIPBasketSupportOrder(-1)</code> which aborts new creation if any support order is still active, guaranteeing strictly at most 1 <code>FLIPBasketSupport</code> runner active across the entire account at any moment. Clean MetaEditor 4 build (0 errors, 20 warnings).</td>
                     <td><span class="badge badge-green">VERIFIED &amp; DEPLOYED</span></td>
                   </tr>
                   <tr>
@@ -2216,6 +2510,27 @@ flowchart TD
                     <td><span class="badge badge-green">VERIFIED &amp; DEPLOYED</span></td>
                   </tr>
                   <tr>
+                    <td><code>Step 948</code><br><small style="color: var(--accent-amber);">12:45</small></td>
+                    <td><strong>Limit FLIP Basket Support to 1 Order Per Side (Max 1 BUY / 1 SELL Gate)</strong><br><small style="color: var(--text-dim);">Strictly enforces max 1 BUY and max 1 SELL FLIPBasketSupport position; skips if already open</small></td>
+                    <td><code>HasOpenFLIPBasketSupportOrder()</code><br><code>CreateFLIPBasketSupportOrder()</code> L7080<br><code>glbVersion = "V10022"</code></td>
+                    <td>Enforced strict single-order limit per side for <code>FLIPBasketSupport</code>: (1) Implemented <code>HasOpenFLIPBasketSupportOrder(int targetType)</code> to audit active market orders; (2) In <code>CreateFLIPBasketSupportOrder()</code>, if an active BUY (or SELL) <code>FLIPBasketSupport</code> order is already open, new flip triggers in that direction are immediately rejected/bypassed; (3) Prevents multiple redundant support orders during tight EMA oscillation around the 200 EMA line, guaranteeing exactly 1 BUY and 1 SELL runner for basket target fueling. Clean MetaEditor 4 build (0 errors, 20 warnings).</td>
+                    <td><span class="badge badge-green">VERIFIED &amp; DEPLOYED</span></td>
+                  </tr>
+                  <tr>
+                    <td><code>Step 949</code><br><small style="color: var(--accent-amber);">14:15</small></td>
+                    <td><strong>FLIP Support Flip-Close Engine &amp; 500 TP on Support &amp; Recovery Orders</strong><br><small style="color: var(--text-dim);">Closes FLIPBasketSupport orders on flip change; sets 500 raw TP on both support and recovery orders</small></td>
+                    <td><code>CloseFLIPBasketSupportOrders()</code><br><code>CreateFLIPBasketSupportOrder()</code> L7160<br><code>CheckRecoveryOrders()</code> L6870<br><code>glbVersion = "V10023"</code></td>
+                    <td>(1) Implemented <code>CloseFLIPBasketSupportOrders(targetType)</code> to immediately close previous <code>FLIPBasketSupport</code> orders upon EMA flip change, supplemented with active opposite-side safety sweeps in <code>TrackEmaFlip()</code>; (2) Increased Take Profit on <code>FLIPBasketSupport</code> order creation from 200 to 500 raw BTC price distance ( gap); (3) Upgraded all recovery orders in <code>CheckRecoveryOrders()</code> to set Take Profit at 500 raw BTC price distance ( gap) upon creation, while preserving combined recovery basket profit exit mechanics. Clean MetaEditor 4 build (0 errors, 20 warnings).</td>
+                    <td><span class="badge badge-green">VERIFIED &amp; DEPLOYED</span></td>
+                  </tr>
+                  <tr>
+                    <td><code>Step 950</code><br><small style="color: var(--accent-amber);">14:25</small></td>
+                    <td><strong>Pre-Creation Close &amp; Global Single Active FLIPBasketSupport Gate</strong><br><small style="color: var(--text-dim);">Unconditionally closes already open support order before new creation; strictly max 1 active order total</small></td>
+                    <td><code>CreateFLIPBasketSupportOrder()</code> L7165<br><code>CloseFLIPBasketSupportOrders(-1)</code> L7124<br><code>HasOpenFLIPBasketSupportOrder(-1)</code> L7105<br><code>glbVersion = "V10024"</code></td>
+                    <td>Enforced the safest execution model for <code>FLIPBasketSupport</code>: (1) Inside <code>CreateFLIPBasketSupportOrder()</code>, unconditionally calls <code>CloseFLIPBasketSupportOrders(-1)</code> with 3-attempt retry to close any already open support orders before creating a new one; (2) Enforced global single active support order gate via <code>HasOpenFLIPBasketSupportOrder(-1)</code> which aborts new creation if any support order is still active, guaranteeing strictly at most 1 <code>FLIPBasketSupport</code> runner active across the entire account at any moment. Clean MetaEditor 4 build (0 errors, 20 warnings).</td>
+                    <td><span class="badge badge-green">VERIFIED &amp; DEPLOYED</span></td>
+                  </tr>
+                  <tr>
                     <td><code>Step 947</code><br><small style="color: var(--accent-amber);">11:50</small></td>
                     <td><strong>Right Dashboard Section Swap (Order Closing &amp; Exit Engine &harr; Re-Entry &amp; Recovery Engine)</strong><br><small style="color: var(--text-dim);">Swapped visual hierarchy of right dashboard sections 2 &amp; 3 with pixel-perfect alignment</small></td>
                     <td><code>UpdateDashboard()</code> L11689-11708<br><code>glbVersion = "V10021"</code></td>
@@ -2227,6 +2542,27 @@ flowchart TD
                     <td><strong>Dynamic Angle Lot Sizing (&lt;5&deg;) &amp; Mandatory Per-Change Version Increment Protocol</strong><br><small style="color: var(--text-dim);">Increments glbVersion and verShort on every change; balances low-angle lots based on open P/L</small></td>
                     <td><code>glbVersion = "V10018"</code><br><code>verShort = "V10018 | ..."</code><br><code>ChangeLots()</code> L6521</td>
                     <td>(1) Standardized EA versioning protocol across codebase: updated <code>glbVersion</code> and <code>verShort</code> to V10018, provided <code>TimeframeToString(int timeframe)</code> forward prototype, and wired dynamic chart symbol/period synchronization; (2) Integrated Low-Angle (&lt;5&deg;) dynamic lot sizing and floating P/L drawdown rebalancing in <code>ChangeLots()</code> (sets base 0.01 lot when angle is flat, dynamically boosting to 0.02 lot if the requested direction has &le; half the drawdown of the opposing direction to hedge/rebalance exposure). Clean MetaEditor 4 build (0 errors, 20 warnings).</td>
+                    <td><span class="badge badge-green">VERIFIED &amp; DEPLOYED</span></td>
+                  </tr>
+                  <tr>
+                    <td><code>Step 948</code><br><small style="color: var(--accent-amber);">12:45</small></td>
+                    <td><strong>Limit FLIP Basket Support to 1 Order Per Side (Max 1 BUY / 1 SELL Gate)</strong><br><small style="color: var(--text-dim);">Strictly enforces max 1 BUY and max 1 SELL FLIPBasketSupport position; skips if already open</small></td>
+                    <td><code>HasOpenFLIPBasketSupportOrder()</code><br><code>CreateFLIPBasketSupportOrder()</code> L7080<br><code>glbVersion = "V10022"</code></td>
+                    <td>Enforced strict single-order limit per side for <code>FLIPBasketSupport</code>: (1) Implemented <code>HasOpenFLIPBasketSupportOrder(int targetType)</code> to audit active market orders; (2) In <code>CreateFLIPBasketSupportOrder()</code>, if an active BUY (or SELL) <code>FLIPBasketSupport</code> order is already open, new flip triggers in that direction are immediately rejected/bypassed; (3) Prevents multiple redundant support orders during tight EMA oscillation around the 200 EMA line, guaranteeing exactly 1 BUY and 1 SELL runner for basket target fueling. Clean MetaEditor 4 build (0 errors, 20 warnings).</td>
+                    <td><span class="badge badge-green">VERIFIED &amp; DEPLOYED</span></td>
+                  </tr>
+                  <tr>
+                    <td><code>Step 949</code><br><small style="color: var(--accent-amber);">14:15</small></td>
+                    <td><strong>FLIP Support Flip-Close Engine &amp; 500 TP on Support &amp; Recovery Orders</strong><br><small style="color: var(--text-dim);">Closes FLIPBasketSupport orders on flip change; sets 500 raw TP on both support and recovery orders</small></td>
+                    <td><code>CloseFLIPBasketSupportOrders()</code><br><code>CreateFLIPBasketSupportOrder()</code> L7160<br><code>CheckRecoveryOrders()</code> L6870<br><code>glbVersion = "V10023"</code></td>
+                    <td>(1) Implemented <code>CloseFLIPBasketSupportOrders(targetType)</code> to immediately close previous <code>FLIPBasketSupport</code> orders upon EMA flip change, supplemented with active opposite-side safety sweeps in <code>TrackEmaFlip()</code>; (2) Increased Take Profit on <code>FLIPBasketSupport</code> order creation from 200 to 500 raw BTC price distance ( gap); (3) Upgraded all recovery orders in <code>CheckRecoveryOrders()</code> to set Take Profit at 500 raw BTC price distance ( gap) upon creation, while preserving combined recovery basket profit exit mechanics. Clean MetaEditor 4 build (0 errors, 20 warnings).</td>
+                    <td><span class="badge badge-green">VERIFIED &amp; DEPLOYED</span></td>
+                  </tr>
+                  <tr>
+                    <td><code>Step 950</code><br><small style="color: var(--accent-amber);">14:25</small></td>
+                    <td><strong>Pre-Creation Close &amp; Global Single Active FLIPBasketSupport Gate</strong><br><small style="color: var(--text-dim);">Unconditionally closes already open support order before new creation; strictly max 1 active order total</small></td>
+                    <td><code>CreateFLIPBasketSupportOrder()</code> L7165<br><code>CloseFLIPBasketSupportOrders(-1)</code> L7124<br><code>HasOpenFLIPBasketSupportOrder(-1)</code> L7105<br><code>glbVersion = "V10024"</code></td>
+                    <td>Enforced the safest execution model for <code>FLIPBasketSupport</code>: (1) Inside <code>CreateFLIPBasketSupportOrder()</code>, unconditionally calls <code>CloseFLIPBasketSupportOrders(-1)</code> with 3-attempt retry to close any already open support orders before creating a new one; (2) Enforced global single active support order gate via <code>HasOpenFLIPBasketSupportOrder(-1)</code> which aborts new creation if any support order is still active, guaranteeing strictly at most 1 <code>FLIPBasketSupport</code> runner active across the entire account at any moment. Clean MetaEditor 4 build (0 errors, 20 warnings).</td>
                     <td><span class="badge badge-green">VERIFIED &amp; DEPLOYED</span></td>
                   </tr>
                   <tr>
@@ -2435,6 +2771,39 @@ flowchart TD
                     <p>Reordered the right dashboard HUD so Order Closing &amp; Exit Engine occupies Section 2 (y+248), followed by Re-Entry &amp; Recovery Engine in Section 3 (y+398), preserving pixel-perfect alignment and 542px master panel bounds.</p>
                     <div id="chk17" style="display: none; margin-top: 10px; font-size: 12.5px; color: var(--accent-blue); background: rgba(0,0,0,0.3); padding: 8px 12px; border-radius: 6px;">
                       <strong>Code Anchor:</strong> <code>UpdateDashboard()</code> (L11689-11708), <code>glbVersion = "V10021  04-10-2026 11.50"</code> (L34) &bull; Clean MetaEditor 4 build (0 errors, 20 warnings).
+                    </div>
+                  </div>
+                </div>
+
+                <div class="step-item" style="cursor: pointer;" onclick="toggleAuditDetail('chk18')">
+                  <div class="step-num" style="background: rgba(16, 185, 129, 0.15); color: var(--accent-green); border-color: rgba(16, 185, 129, 0.3);">&#10003;</div>
+                  <div class="step-body" style="flex: 1;">
+                    <h4>FLIP Basket Support 1-Order Per Side Limit Gate <span class="badge badge-green">Active</span></h4>
+                    <p>Enforced strict concurrency limit of maximum 1 BUY and 1 SELL <code>FLIPBasketSupport</code> order. Scans active trades via <code>HasOpenFLIPBasketSupportOrder(targetType)</code>; immediately skips and logs if a support order in that direction already exists, preventing rapid duplicate entries during choppy EMA oscillation.</p>
+                    <div id="chk18" style="display: none; margin-top: 10px; font-size: 12.5px; color: var(--accent-blue); background: rgba(0,0,0,0.3); padding: 8px 12px; border-radius: 6px;">
+                      <strong>Code Anchor:</strong> <code>HasOpenFLIPBasketSupportOrder()</code> (L7082), <code>CreateFLIPBasketSupportOrder()</code> (L7102-7112), <code>glbVersion = "V10022  04-10-2026 12.45 Limit FLIPBasketSupport to 1 Order Per Side"</code> (L34) &bull; Clean MetaEditor 4 build (0 errors, 20 warnings).
+                    </div>
+                  </div>
+                </div>
+
+                <div class="step-item" style="cursor: pointer;" onclick="toggleAuditDetail('chk19')">
+                  <div class="step-num" style="background: rgba(16, 185, 129, 0.15); color: var(--accent-green); border-color: rgba(16, 185, 129, 0.3);">&#10003;</div>
+                  <div class="step-body" style="flex: 1;">
+                    <h4>FLIP Support Flip-Close &amp; 500 Take Profit Engine <span class="badge badge-green">Active</span></h4>
+                    <p>Closes open <code>FLIPBasketSupport</code> orders immediately upon EMA flip change via <code>CloseFLIPBasketSupportOrders()</code> and sets 500 raw price distance ($500 BTC gap) take profit on both <code>FLIPBasketSupport</code> and all recovery orders upon creation.</p>
+                    <div id="chk19" style="display: none; margin-top: 10px; font-size: 12.5px; color: var(--accent-blue); background: rgba(0,0,0,0.3); padding: 8px 12px; border-radius: 6px;">
+                      <strong>Code Anchor:</strong> <code>CloseFLIPBasketSupportOrders()</code> (L7128), <code>CreateFLIPBasketSupportOrder()</code> (L7165), <code>CheckRecoveryOrders()</code> (L6870), <code>glbVersion = "V10023  04-10-2026 14.15"</code> (L34) &bull; Clean MetaEditor 4 build (0 errors, 20 warnings).
+                    </div>
+                  </div>
+                </div>
+
+                <div class="step-item" style="cursor: pointer;" onclick="toggleAuditDetail('chk20')">
+                  <div class="step-num" style="background: rgba(16, 185, 129, 0.15); color: var(--accent-green); border-color: rgba(16, 185, 129, 0.3);">&#10003;</div>
+                  <div class="step-body" style="flex: 1;">
+                    <h4>Pre-Creation Close &amp; Single Active FLIP Support Order Gate <span class="badge badge-green">Active</span></h4>
+                    <p>Safest execution architecture: Before creating a new <code>FLIPBasketSupport</code> order, <code>CreateFLIPBasketSupportOrder()</code> explicitly closes any already open support order and checks <code>HasOpenFLIPBasketSupportOrder(-1)</code>, guaranteeing strictly at most 1 active support order in total across the entire account.</p>
+                    <div id="chk20" style="display: none; margin-top: 10px; font-size: 12.5px; color: var(--accent-blue); background: rgba(0,0,0,0.3); padding: 8px 12px; border-radius: 6px;">
+                      <strong>Code Anchor:</strong> <code>CreateFLIPBasketSupportOrder()</code> (L7165), <code>CloseFLIPBasketSupportOrders(-1)</code> (L7124), <code>HasOpenFLIPBasketSupportOrder(-1)</code> (L7105), <code>glbVersion = "V10024  04-10-2026 14.25 Close Prior Order Before New FLIP Support (Max 1 Active Total)"</code> (L34) &bull; Clean MetaEditor 4 build (0 errors, 20 warnings).
                     </div>
                   </div>
                 </div>
