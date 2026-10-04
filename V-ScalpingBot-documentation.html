@@ -1,4 +1,4 @@
-﻿<!DOCTYPE html>
+<!DOCTYPE html>
 <html lang="en">
 <head>
   <meta charset="UTF-8">
@@ -889,7 +889,7 @@
       <div class="header-pills">
         <span class="pill pill-blue">BTCUSD • M1 Scalper</span>
         <span class="pill pill-purple">Exness Raw / Zero</span>
-        <span class="pill pill-green">V10024 (04-10-2026 14.25)</span>
+        <span class="pill pill-green">V10028 (04-10-2026 16.45)</span>
       </div>
     </div>
 
@@ -1520,6 +1520,13 @@ sequenceDiagram
                     <td><span class="badge badge-green">VERIFIED &amp; DEPLOYED</span></td>
                   </tr>
                   <tr>
+                    <td><code>Step 951</code><br><small style="color: var(--accent-amber);">15:15</small></td>
+                    <td><strong>Skip MinimumSameOrderGapRawMatched &amp; Raw Distance Filters for FLIPBasketSupport</strong><br><small style="color: var(--text-dim);">Exempts FLIPBasketSupport orders from MinimumSameOrderGapRawMatched and all proximate raw distance checks</small></td>
+                    <td><code>SafeOrderSend()</code> Gate 0/1/3/6<br><code>HasMinimumSameOrderGap()</code> L2975<br><code>HasMinimumSSLAndReEntryGap()</code> L3007<br><code>glbVersion = "V10025"</code></td>
+                    <td>Fully exempted <code>FLIPBasketSupport</code> orders from raw distance order gap filters: (1) In <code>SafeOrderSend()</code>, classified <code>isFlipBasketSupport</code> in Gate 0 and bypassed Gate 6A (<code>HasMinimumSSLAndReEntryGap</code>), Gate 1 SL cooldown, Gate 3 candle quota, and EMA/SSL sync filters; (2) In <code>HasMinimumSameOrderGap()</code>, excluded <code>FLIPBasketSupport</code> orders from the distance evaluation loop so neither existing nor new support orders trigger false proximity blocks; (3) In <code>HasMinimumSSLAndReEntryGap()</code>, bypassed <code>FLIPBasketSupport</code> order tickets; (4) Guarantees the flip runner executes reliably without interference from proximate scalping orders. Clean MetaEditor 4 build (0 errors, 20 warnings).</td>
+                    <td><span class="badge badge-green">VERIFIED &amp; DEPLOYED</span></td>
+                  </tr>
+                  <tr>
                     <td><code>Step 947</code><br><small style="color: var(--accent-amber);">11:50</small></td>
                     <td><strong>Right Dashboard Section Swap (Order Closing &amp; Exit Engine &harr; Re-Entry &amp; Recovery Engine)</strong><br><small style="color: var(--text-dim);">Swapped visual hierarchy of right dashboard sections 2 &amp; 3 with pixel-perfect alignment</small></td>
                     <td><code>UpdateDashboard()</code> L11689-11708<br><code>glbVersion = "V10021"</code></td>
@@ -1552,6 +1559,13 @@ sequenceDiagram
                     <td><strong>Pre-Creation Close &amp; Global Single Active FLIPBasketSupport Gate</strong><br><small style="color: var(--text-dim);">Unconditionally closes already open support order before new creation; strictly max 1 active order total</small></td>
                     <td><code>CreateFLIPBasketSupportOrder()</code> L7165<br><code>CloseFLIPBasketSupportOrders(-1)</code> L7124<br><code>HasOpenFLIPBasketSupportOrder(-1)</code> L7105<br><code>glbVersion = "V10024"</code></td>
                     <td>Enforced the safest execution model for <code>FLIPBasketSupport</code>: (1) Inside <code>CreateFLIPBasketSupportOrder()</code>, unconditionally calls <code>CloseFLIPBasketSupportOrders(-1)</code> with 3-attempt retry to close any already open support orders before creating a new one; (2) Enforced global single active support order gate via <code>HasOpenFLIPBasketSupportOrder(-1)</code> which aborts new creation if any support order is still active, guaranteeing strictly at most 1 <code>FLIPBasketSupport</code> runner active across the entire account at any moment. Clean MetaEditor 4 build (0 errors, 20 warnings).</td>
+                    <td><span class="badge badge-green">VERIFIED &amp; DEPLOYED</span></td>
+                  </tr>
+                  <tr>
+                    <td><code>Step 951</code><br><small style="color: var(--accent-amber);">15:15</small></td>
+                    <td><strong>Skip MinimumSameOrderGapRawMatched &amp; Raw Distance Filters for FLIPBasketSupport</strong><br><small style="color: var(--text-dim);">Exempts FLIPBasketSupport orders from MinimumSameOrderGapRawMatched and all proximate raw distance checks</small></td>
+                    <td><code>SafeOrderSend()</code> Gate 0/1/3/6<br><code>HasMinimumSameOrderGap()</code> L2975<br><code>HasMinimumSSLAndReEntryGap()</code> L3007<br><code>glbVersion = "V10025"</code></td>
+                    <td>Fully exempted <code>FLIPBasketSupport</code> orders from raw distance order gap filters: (1) In <code>SafeOrderSend()</code>, classified <code>isFlipBasketSupport</code> in Gate 0 and bypassed Gate 6A (<code>HasMinimumSSLAndReEntryGap</code>), Gate 1 SL cooldown, Gate 3 candle quota, and EMA/SSL sync filters; (2) In <code>HasMinimumSameOrderGap()</code>, excluded <code>FLIPBasketSupport</code> orders from the distance evaluation loop so neither existing nor new support orders trigger false proximity blocks; (3) In <code>HasMinimumSSLAndReEntryGap()</code>, bypassed <code>FLIPBasketSupport</code> order tickets; (4) Guarantees the flip runner executes reliably without interference from proximate scalping orders. Clean MetaEditor 4 build (0 errors, 20 warnings).</td>
                     <td><span class="badge badge-green">VERIFIED &amp; DEPLOYED</span></td>
                   </tr>
                   <tr>
@@ -1590,6 +1604,13 @@ sequenceDiagram
                     <td><span class="badge badge-green">VERIFIED &amp; DEPLOYED</span></td>
                   </tr>
                   <tr>
+                    <td><code>Step 951</code><br><small style="color: var(--accent-amber);">15:15</small></td>
+                    <td><strong>Skip MinimumSameOrderGapRawMatched &amp; Raw Distance Filters for FLIPBasketSupport</strong><br><small style="color: var(--text-dim);">Exempts FLIPBasketSupport orders from MinimumSameOrderGapRawMatched and all proximate raw distance checks</small></td>
+                    <td><code>SafeOrderSend()</code> Gate 0/1/3/6<br><code>HasMinimumSameOrderGap()</code> L2975<br><code>HasMinimumSSLAndReEntryGap()</code> L3007<br><code>glbVersion = "V10025"</code></td>
+                    <td>Fully exempted <code>FLIPBasketSupport</code> orders from raw distance order gap filters: (1) In <code>SafeOrderSend()</code>, classified <code>isFlipBasketSupport</code> in Gate 0 and bypassed Gate 6A (<code>HasMinimumSSLAndReEntryGap</code>), Gate 1 SL cooldown, Gate 3 candle quota, and EMA/SSL sync filters; (2) In <code>HasMinimumSameOrderGap()</code>, excluded <code>FLIPBasketSupport</code> orders from the distance evaluation loop so neither existing nor new support orders trigger false proximity blocks; (3) In <code>HasMinimumSSLAndReEntryGap()</code>, bypassed <code>FLIPBasketSupport</code> order tickets; (4) Guarantees the flip runner executes reliably without interference from proximate scalping orders. Clean MetaEditor 4 build (0 errors, 20 warnings).</td>
+                    <td><span class="badge badge-green">VERIFIED &amp; DEPLOYED</span></td>
+                  </tr>
+                  <tr>
                     <td><code>Step 947</code><br><small style="color: var(--accent-amber);">11:50</small></td>
                     <td><strong>Right Dashboard Section Swap (Order Closing &amp; Exit Engine &harr; Re-Entry &amp; Recovery Engine)</strong><br><small style="color: var(--text-dim);">Swapped visual hierarchy of right dashboard sections 2 &amp; 3 with pixel-perfect alignment</small></td>
                     <td><code>UpdateDashboard()</code> L11689-11708<br><code>glbVersion = "V10021"</code></td>
@@ -1625,6 +1646,13 @@ sequenceDiagram
                     <td><span class="badge badge-green">VERIFIED &amp; DEPLOYED</span></td>
                   </tr>
                   <tr>
+                    <td><code>Step 951</code><br><small style="color: var(--accent-amber);">15:15</small></td>
+                    <td><strong>Skip MinimumSameOrderGapRawMatched &amp; Raw Distance Filters for FLIPBasketSupport</strong><br><small style="color: var(--text-dim);">Exempts FLIPBasketSupport orders from MinimumSameOrderGapRawMatched and all proximate raw distance checks</small></td>
+                    <td><code>SafeOrderSend()</code> Gate 0/1/3/6<br><code>HasMinimumSameOrderGap()</code> L2975<br><code>HasMinimumSSLAndReEntryGap()</code> L3007<br><code>glbVersion = "V10025"</code></td>
+                    <td>Fully exempted <code>FLIPBasketSupport</code> orders from raw distance order gap filters: (1) In <code>SafeOrderSend()</code>, classified <code>isFlipBasketSupport</code> in Gate 0 and bypassed Gate 6A (<code>HasMinimumSSLAndReEntryGap</code>), Gate 1 SL cooldown, Gate 3 candle quota, and EMA/SSL sync filters; (2) In <code>HasMinimumSameOrderGap()</code>, excluded <code>FLIPBasketSupport</code> orders from the distance evaluation loop so neither existing nor new support orders trigger false proximity blocks; (3) In <code>HasMinimumSSLAndReEntryGap()</code>, bypassed <code>FLIPBasketSupport</code> order tickets; (4) Guarantees the flip runner executes reliably without interference from proximate scalping orders. Clean MetaEditor 4 build (0 errors, 20 warnings).</td>
+                    <td><span class="badge badge-green">VERIFIED &amp; DEPLOYED</span></td>
+                  </tr>
+                  <tr>
                     <td><code>Step 947</code><br><small style="color: var(--accent-amber);">11:50</small></td>
                     <td><strong>Right Dashboard Section Swap (Order Closing &amp; Exit Engine &harr; Re-Entry &amp; Recovery Engine)</strong><br><small style="color: var(--text-dim);">Swapped visual hierarchy of right dashboard sections 2 &amp; 3 with pixel-perfect alignment</small></td>
                     <td><code>UpdateDashboard()</code> L11689-11708<br><code>glbVersion = "V10021"</code></td>
@@ -1657,6 +1685,13 @@ sequenceDiagram
                     <td><strong>Pre-Creation Close &amp; Global Single Active FLIPBasketSupport Gate</strong><br><small style="color: var(--text-dim);">Unconditionally closes already open support order before new creation; strictly max 1 active order total</small></td>
                     <td><code>CreateFLIPBasketSupportOrder()</code> L7165<br><code>CloseFLIPBasketSupportOrders(-1)</code> L7124<br><code>HasOpenFLIPBasketSupportOrder(-1)</code> L7105<br><code>glbVersion = "V10024"</code></td>
                     <td>Enforced the safest execution model for <code>FLIPBasketSupport</code>: (1) Inside <code>CreateFLIPBasketSupportOrder()</code>, unconditionally calls <code>CloseFLIPBasketSupportOrders(-1)</code> with 3-attempt retry to close any already open support orders before creating a new one; (2) Enforced global single active support order gate via <code>HasOpenFLIPBasketSupportOrder(-1)</code> which aborts new creation if any support order is still active, guaranteeing strictly at most 1 <code>FLIPBasketSupport</code> runner active across the entire account at any moment. Clean MetaEditor 4 build (0 errors, 20 warnings).</td>
+                    <td><span class="badge badge-green">VERIFIED &amp; DEPLOYED</span></td>
+                  </tr>
+                  <tr>
+                    <td><code>Step 951</code><br><small style="color: var(--accent-amber);">15:15</small></td>
+                    <td><strong>Skip MinimumSameOrderGapRawMatched &amp; Raw Distance Filters for FLIPBasketSupport</strong><br><small style="color: var(--text-dim);">Exempts FLIPBasketSupport orders from MinimumSameOrderGapRawMatched and all proximate raw distance checks</small></td>
+                    <td><code>SafeOrderSend()</code> Gate 0/1/3/6<br><code>HasMinimumSameOrderGap()</code> L2975<br><code>HasMinimumSSLAndReEntryGap()</code> L3007<br><code>glbVersion = "V10025"</code></td>
+                    <td>Fully exempted <code>FLIPBasketSupport</code> orders from raw distance order gap filters: (1) In <code>SafeOrderSend()</code>, classified <code>isFlipBasketSupport</code> in Gate 0 and bypassed Gate 6A (<code>HasMinimumSSLAndReEntryGap</code>), Gate 1 SL cooldown, Gate 3 candle quota, and EMA/SSL sync filters; (2) In <code>HasMinimumSameOrderGap()</code>, excluded <code>FLIPBasketSupport</code> orders from the distance evaluation loop so neither existing nor new support orders trigger false proximity blocks; (3) In <code>HasMinimumSSLAndReEntryGap()</code>, bypassed <code>FLIPBasketSupport</code> order tickets; (4) Guarantees the flip runner executes reliably without interference from proximate scalping orders. Clean MetaEditor 4 build (0 errors, 20 warnings).</td>
                     <td><span class="badge badge-green">VERIFIED &amp; DEPLOYED</span></td>
                   </tr>
                   <tr>
@@ -2004,6 +2039,13 @@ flowchart TD
                     <td><span class="badge badge-green">VERIFIED &amp; DEPLOYED</span></td>
                   </tr>
                   <tr>
+                    <td><code>Step 951</code><br><small style="color: var(--accent-amber);">15:15</small></td>
+                    <td><strong>Skip MinimumSameOrderGapRawMatched &amp; Raw Distance Filters for FLIPBasketSupport</strong><br><small style="color: var(--text-dim);">Exempts FLIPBasketSupport orders from MinimumSameOrderGapRawMatched and all proximate raw distance checks</small></td>
+                    <td><code>SafeOrderSend()</code> Gate 0/1/3/6<br><code>HasMinimumSameOrderGap()</code> L2975<br><code>HasMinimumSSLAndReEntryGap()</code> L3007<br><code>glbVersion = "V10025"</code></td>
+                    <td>Fully exempted <code>FLIPBasketSupport</code> orders from raw distance order gap filters: (1) In <code>SafeOrderSend()</code>, classified <code>isFlipBasketSupport</code> in Gate 0 and bypassed Gate 6A (<code>HasMinimumSSLAndReEntryGap</code>), Gate 1 SL cooldown, Gate 3 candle quota, and EMA/SSL sync filters; (2) In <code>HasMinimumSameOrderGap()</code>, excluded <code>FLIPBasketSupport</code> orders from the distance evaluation loop so neither existing nor new support orders trigger false proximity blocks; (3) In <code>HasMinimumSSLAndReEntryGap()</code>, bypassed <code>FLIPBasketSupport</code> order tickets; (4) Guarantees the flip runner executes reliably without interference from proximate scalping orders. Clean MetaEditor 4 build (0 errors, 20 warnings).</td>
+                    <td><span class="badge badge-green">VERIFIED &amp; DEPLOYED</span></td>
+                  </tr>
+                  <tr>
                     <td><code>Step 947</code><br><small style="color: var(--accent-amber);">11:50</small></td>
                     <td><strong>Right Dashboard Section Swap (Order Closing &amp; Exit Engine &harr; Re-Entry &amp; Recovery Engine)</strong><br><small style="color: var(--text-dim);">Swapped visual hierarchy of right dashboard sections 2 &amp; 3 with pixel-perfect alignment</small></td>
                     <td><code>UpdateDashboard()</code> L11689-11708<br><code>glbVersion = "V10021"</code></td>
@@ -2036,6 +2078,13 @@ flowchart TD
                     <td><strong>Pre-Creation Close &amp; Global Single Active FLIPBasketSupport Gate</strong><br><small style="color: var(--text-dim);">Unconditionally closes already open support order before new creation; strictly max 1 active order total</small></td>
                     <td><code>CreateFLIPBasketSupportOrder()</code> L7165<br><code>CloseFLIPBasketSupportOrders(-1)</code> L7124<br><code>HasOpenFLIPBasketSupportOrder(-1)</code> L7105<br><code>glbVersion = "V10024"</code></td>
                     <td>Enforced the safest execution model for <code>FLIPBasketSupport</code>: (1) Inside <code>CreateFLIPBasketSupportOrder()</code>, unconditionally calls <code>CloseFLIPBasketSupportOrders(-1)</code> with 3-attempt retry to close any already open support orders before creating a new one; (2) Enforced global single active support order gate via <code>HasOpenFLIPBasketSupportOrder(-1)</code> which aborts new creation if any support order is still active, guaranteeing strictly at most 1 <code>FLIPBasketSupport</code> runner active across the entire account at any moment. Clean MetaEditor 4 build (0 errors, 20 warnings).</td>
+                    <td><span class="badge badge-green">VERIFIED &amp; DEPLOYED</span></td>
+                  </tr>
+                  <tr>
+                    <td><code>Step 951</code><br><small style="color: var(--accent-amber);">15:15</small></td>
+                    <td><strong>Skip MinimumSameOrderGapRawMatched &amp; Raw Distance Filters for FLIPBasketSupport</strong><br><small style="color: var(--text-dim);">Exempts FLIPBasketSupport orders from MinimumSameOrderGapRawMatched and all proximate raw distance checks</small></td>
+                    <td><code>SafeOrderSend()</code> Gate 0/1/3/6<br><code>HasMinimumSameOrderGap()</code> L2975<br><code>HasMinimumSSLAndReEntryGap()</code> L3007<br><code>glbVersion = "V10025"</code></td>
+                    <td>Fully exempted <code>FLIPBasketSupport</code> orders from raw distance order gap filters: (1) In <code>SafeOrderSend()</code>, classified <code>isFlipBasketSupport</code> in Gate 0 and bypassed Gate 6A (<code>HasMinimumSSLAndReEntryGap</code>), Gate 1 SL cooldown, Gate 3 candle quota, and EMA/SSL sync filters; (2) In <code>HasMinimumSameOrderGap()</code>, excluded <code>FLIPBasketSupport</code> orders from the distance evaluation loop so neither existing nor new support orders trigger false proximity blocks; (3) In <code>HasMinimumSSLAndReEntryGap()</code>, bypassed <code>FLIPBasketSupport</code> order tickets; (4) Guarantees the flip runner executes reliably without interference from proximate scalping orders. Clean MetaEditor 4 build (0 errors, 20 warnings).</td>
                     <td><span class="badge badge-green">VERIFIED &amp; DEPLOYED</span></td>
                   </tr>
                   <tr>
@@ -2074,6 +2123,13 @@ flowchart TD
                     <td><span class="badge badge-green">VERIFIED &amp; DEPLOYED</span></td>
                   </tr>
                   <tr>
+                    <td><code>Step 951</code><br><small style="color: var(--accent-amber);">15:15</small></td>
+                    <td><strong>Skip MinimumSameOrderGapRawMatched &amp; Raw Distance Filters for FLIPBasketSupport</strong><br><small style="color: var(--text-dim);">Exempts FLIPBasketSupport orders from MinimumSameOrderGapRawMatched and all proximate raw distance checks</small></td>
+                    <td><code>SafeOrderSend()</code> Gate 0/1/3/6<br><code>HasMinimumSameOrderGap()</code> L2975<br><code>HasMinimumSSLAndReEntryGap()</code> L3007<br><code>glbVersion = "V10025"</code></td>
+                    <td>Fully exempted <code>FLIPBasketSupport</code> orders from raw distance order gap filters: (1) In <code>SafeOrderSend()</code>, classified <code>isFlipBasketSupport</code> in Gate 0 and bypassed Gate 6A (<code>HasMinimumSSLAndReEntryGap</code>), Gate 1 SL cooldown, Gate 3 candle quota, and EMA/SSL sync filters; (2) In <code>HasMinimumSameOrderGap()</code>, excluded <code>FLIPBasketSupport</code> orders from the distance evaluation loop so neither existing nor new support orders trigger false proximity blocks; (3) In <code>HasMinimumSSLAndReEntryGap()</code>, bypassed <code>FLIPBasketSupport</code> order tickets; (4) Guarantees the flip runner executes reliably without interference from proximate scalping orders. Clean MetaEditor 4 build (0 errors, 20 warnings).</td>
+                    <td><span class="badge badge-green">VERIFIED &amp; DEPLOYED</span></td>
+                  </tr>
+                  <tr>
                     <td><code>Step 947</code><br><small style="color: var(--accent-amber);">11:50</small></td>
                     <td><strong>Right Dashboard Section Swap (Order Closing &amp; Exit Engine &harr; Re-Entry &amp; Recovery Engine)</strong><br><small style="color: var(--text-dim);">Swapped visual hierarchy of right dashboard sections 2 &amp; 3 with pixel-perfect alignment</small></td>
                     <td><code>UpdateDashboard()</code> L11689-11708<br><code>glbVersion = "V10021"</code></td>
@@ -2109,6 +2165,13 @@ flowchart TD
                     <td><span class="badge badge-green">VERIFIED &amp; DEPLOYED</span></td>
                   </tr>
                   <tr>
+                    <td><code>Step 951</code><br><small style="color: var(--accent-amber);">15:15</small></td>
+                    <td><strong>Skip MinimumSameOrderGapRawMatched &amp; Raw Distance Filters for FLIPBasketSupport</strong><br><small style="color: var(--text-dim);">Exempts FLIPBasketSupport orders from MinimumSameOrderGapRawMatched and all proximate raw distance checks</small></td>
+                    <td><code>SafeOrderSend()</code> Gate 0/1/3/6<br><code>HasMinimumSameOrderGap()</code> L2975<br><code>HasMinimumSSLAndReEntryGap()</code> L3007<br><code>glbVersion = "V10025"</code></td>
+                    <td>Fully exempted <code>FLIPBasketSupport</code> orders from raw distance order gap filters: (1) In <code>SafeOrderSend()</code>, classified <code>isFlipBasketSupport</code> in Gate 0 and bypassed Gate 6A (<code>HasMinimumSSLAndReEntryGap</code>), Gate 1 SL cooldown, Gate 3 candle quota, and EMA/SSL sync filters; (2) In <code>HasMinimumSameOrderGap()</code>, excluded <code>FLIPBasketSupport</code> orders from the distance evaluation loop so neither existing nor new support orders trigger false proximity blocks; (3) In <code>HasMinimumSSLAndReEntryGap()</code>, bypassed <code>FLIPBasketSupport</code> order tickets; (4) Guarantees the flip runner executes reliably without interference from proximate scalping orders. Clean MetaEditor 4 build (0 errors, 20 warnings).</td>
+                    <td><span class="badge badge-green">VERIFIED &amp; DEPLOYED</span></td>
+                  </tr>
+                  <tr>
                     <td><code>Step 947</code><br><small style="color: var(--accent-amber);">11:50</small></td>
                     <td><strong>Right Dashboard Section Swap (Order Closing &amp; Exit Engine &harr; Re-Entry &amp; Recovery Engine)</strong><br><small style="color: var(--text-dim);">Swapped visual hierarchy of right dashboard sections 2 &amp; 3 with pixel-perfect alignment</small></td>
                     <td><code>UpdateDashboard()</code> L11689-11708<br><code>glbVersion = "V10021"</code></td>
@@ -2141,6 +2204,13 @@ flowchart TD
                     <td><strong>Pre-Creation Close &amp; Global Single Active FLIPBasketSupport Gate</strong><br><small style="color: var(--text-dim);">Unconditionally closes already open support order before new creation; strictly max 1 active order total</small></td>
                     <td><code>CreateFLIPBasketSupportOrder()</code> L7165<br><code>CloseFLIPBasketSupportOrders(-1)</code> L7124<br><code>HasOpenFLIPBasketSupportOrder(-1)</code> L7105<br><code>glbVersion = "V10024"</code></td>
                     <td>Enforced the safest execution model for <code>FLIPBasketSupport</code>: (1) Inside <code>CreateFLIPBasketSupportOrder()</code>, unconditionally calls <code>CloseFLIPBasketSupportOrders(-1)</code> with 3-attempt retry to close any already open support orders before creating a new one; (2) Enforced global single active support order gate via <code>HasOpenFLIPBasketSupportOrder(-1)</code> which aborts new creation if any support order is still active, guaranteeing strictly at most 1 <code>FLIPBasketSupport</code> runner active across the entire account at any moment. Clean MetaEditor 4 build (0 errors, 20 warnings).</td>
+                    <td><span class="badge badge-green">VERIFIED &amp; DEPLOYED</span></td>
+                  </tr>
+                  <tr>
+                    <td><code>Step 951</code><br><small style="color: var(--accent-amber);">15:15</small></td>
+                    <td><strong>Skip MinimumSameOrderGapRawMatched &amp; Raw Distance Filters for FLIPBasketSupport</strong><br><small style="color: var(--text-dim);">Exempts FLIPBasketSupport orders from MinimumSameOrderGapRawMatched and all proximate raw distance checks</small></td>
+                    <td><code>SafeOrderSend()</code> Gate 0/1/3/6<br><code>HasMinimumSameOrderGap()</code> L2975<br><code>HasMinimumSSLAndReEntryGap()</code> L3007<br><code>glbVersion = "V10025"</code></td>
+                    <td>Fully exempted <code>FLIPBasketSupport</code> orders from raw distance order gap filters: (1) In <code>SafeOrderSend()</code>, classified <code>isFlipBasketSupport</code> in Gate 0 and bypassed Gate 6A (<code>HasMinimumSSLAndReEntryGap</code>), Gate 1 SL cooldown, Gate 3 candle quota, and EMA/SSL sync filters; (2) In <code>HasMinimumSameOrderGap()</code>, excluded <code>FLIPBasketSupport</code> orders from the distance evaluation loop so neither existing nor new support orders trigger false proximity blocks; (3) In <code>HasMinimumSSLAndReEntryGap()</code>, bypassed <code>FLIPBasketSupport</code> order tickets; (4) Guarantees the flip runner executes reliably without interference from proximate scalping orders. Clean MetaEditor 4 build (0 errors, 20 warnings).</td>
                     <td><span class="badge badge-green">VERIFIED &amp; DEPLOYED</span></td>
                   </tr>
                   <tr>
@@ -2182,7 +2252,7 @@ flowchart TD
             <div class="grid-4" style="margin-bottom: 24px;">
               <div class="stat-card">
                 <div class="stat-label">Total User Directives</div>
-                <div class="stat-value" style="color: var(--accent-green);">32 / 32</div>
+                <div class="stat-value" style="color: var(--accent-green);">36 / 36</div>
                 <div class="stat-desc">100% Implemented &amp; Audited</div>
               </div>
               <div class="stat-card">
@@ -2192,8 +2262,8 @@ flowchart TD
               </div>
               <div class="stat-card">
                 <div class="stat-label">Active Production Build</div>
-                <div class="stat-value" style="color: var(--accent-purple);">V10024</div>
-                <div class="stat-desc">04-10-2026 14.25 Deployed</div>
+                <div class="stat-value" style="color: var(--accent-purple);">V10028</div>
+                <div class="stat-desc">04-10-2026 16.45 Deployed</div>
               </div>
               <div class="stat-card">
                 <div class="stat-label">Centralized Firewall</div>
@@ -2391,6 +2461,13 @@ flowchart TD
                     <td><span class="badge badge-green">VERIFIED &amp; DEPLOYED</span></td>
                   </tr>
                   <tr>
+                    <td><code>Step 951</code><br><small style="color: var(--accent-amber);">15:15</small></td>
+                    <td><strong>Skip MinimumSameOrderGapRawMatched &amp; Raw Distance Filters for FLIPBasketSupport</strong><br><small style="color: var(--text-dim);">Exempts FLIPBasketSupport orders from MinimumSameOrderGapRawMatched and all proximate raw distance checks</small></td>
+                    <td><code>SafeOrderSend()</code> Gate 0/1/3/6<br><code>HasMinimumSameOrderGap()</code> L2975<br><code>HasMinimumSSLAndReEntryGap()</code> L3007<br><code>glbVersion = "V10025"</code></td>
+                    <td>Fully exempted <code>FLIPBasketSupport</code> orders from raw distance order gap filters: (1) In <code>SafeOrderSend()</code>, classified <code>isFlipBasketSupport</code> in Gate 0 and bypassed Gate 6A (<code>HasMinimumSSLAndReEntryGap</code>), Gate 1 SL cooldown, Gate 3 candle quota, and EMA/SSL sync filters; (2) In <code>HasMinimumSameOrderGap()</code>, excluded <code>FLIPBasketSupport</code> orders from the distance evaluation loop so neither existing nor new support orders trigger false proximity blocks; (3) In <code>HasMinimumSSLAndReEntryGap()</code>, bypassed <code>FLIPBasketSupport</code> order tickets; (4) Guarantees the flip runner executes reliably without interference from proximate scalping orders. Clean MetaEditor 4 build (0 errors, 20 warnings).</td>
+                    <td><span class="badge badge-green">VERIFIED &amp; DEPLOYED</span></td>
+                  </tr>
+                  <tr>
                     <td><code>Step 947</code><br><small style="color: var(--accent-amber);">11:50</small></td>
                     <td><strong>Right Dashboard Section Swap (Order Closing &amp; Exit Engine &harr; Re-Entry &amp; Recovery Engine)</strong><br><small style="color: var(--text-dim);">Swapped visual hierarchy of right dashboard sections 2 &amp; 3 with pixel-perfect alignment</small></td>
                     <td><code>UpdateDashboard()</code> L11689-11708<br><code>glbVersion = "V10021"</code></td>
@@ -2423,6 +2500,13 @@ flowchart TD
                     <td><strong>Pre-Creation Close &amp; Global Single Active FLIPBasketSupport Gate</strong><br><small style="color: var(--text-dim);">Unconditionally closes already open support order before new creation; strictly max 1 active order total</small></td>
                     <td><code>CreateFLIPBasketSupportOrder()</code> L7165<br><code>CloseFLIPBasketSupportOrders(-1)</code> L7124<br><code>HasOpenFLIPBasketSupportOrder(-1)</code> L7105<br><code>glbVersion = "V10024"</code></td>
                     <td>Enforced the safest execution model for <code>FLIPBasketSupport</code>: (1) Inside <code>CreateFLIPBasketSupportOrder()</code>, unconditionally calls <code>CloseFLIPBasketSupportOrders(-1)</code> with 3-attempt retry to close any already open support orders before creating a new one; (2) Enforced global single active support order gate via <code>HasOpenFLIPBasketSupportOrder(-1)</code> which aborts new creation if any support order is still active, guaranteeing strictly at most 1 <code>FLIPBasketSupport</code> runner active across the entire account at any moment. Clean MetaEditor 4 build (0 errors, 20 warnings).</td>
+                    <td><span class="badge badge-green">VERIFIED &amp; DEPLOYED</span></td>
+                  </tr>
+                  <tr>
+                    <td><code>Step 951</code><br><small style="color: var(--accent-amber);">15:15</small></td>
+                    <td><strong>Skip MinimumSameOrderGapRawMatched &amp; Raw Distance Filters for FLIPBasketSupport</strong><br><small style="color: var(--text-dim);">Exempts FLIPBasketSupport orders from MinimumSameOrderGapRawMatched and all proximate raw distance checks</small></td>
+                    <td><code>SafeOrderSend()</code> Gate 0/1/3/6<br><code>HasMinimumSameOrderGap()</code> L2975<br><code>HasMinimumSSLAndReEntryGap()</code> L3007<br><code>glbVersion = "V10025"</code></td>
+                    <td>Fully exempted <code>FLIPBasketSupport</code> orders from raw distance order gap filters: (1) In <code>SafeOrderSend()</code>, classified <code>isFlipBasketSupport</code> in Gate 0 and bypassed Gate 6A (<code>HasMinimumSSLAndReEntryGap</code>), Gate 1 SL cooldown, Gate 3 candle quota, and EMA/SSL sync filters; (2) In <code>HasMinimumSameOrderGap()</code>, excluded <code>FLIPBasketSupport</code> orders from the distance evaluation loop so neither existing nor new support orders trigger false proximity blocks; (3) In <code>HasMinimumSSLAndReEntryGap()</code>, bypassed <code>FLIPBasketSupport</code> order tickets; (4) Guarantees the flip runner executes reliably without interference from proximate scalping orders. Clean MetaEditor 4 build (0 errors, 20 warnings).</td>
                     <td><span class="badge badge-green">VERIFIED &amp; DEPLOYED</span></td>
                   </tr>
                   <tr>
@@ -2461,6 +2545,13 @@ flowchart TD
                     <td><span class="badge badge-green">VERIFIED &amp; DEPLOYED</span></td>
                   </tr>
                   <tr>
+                    <td><code>Step 951</code><br><small style="color: var(--accent-amber);">15:15</small></td>
+                    <td><strong>Skip MinimumSameOrderGapRawMatched &amp; Raw Distance Filters for FLIPBasketSupport</strong><br><small style="color: var(--text-dim);">Exempts FLIPBasketSupport orders from MinimumSameOrderGapRawMatched and all proximate raw distance checks</small></td>
+                    <td><code>SafeOrderSend()</code> Gate 0/1/3/6<br><code>HasMinimumSameOrderGap()</code> L2975<br><code>HasMinimumSSLAndReEntryGap()</code> L3007<br><code>glbVersion = "V10025"</code></td>
+                    <td>Fully exempted <code>FLIPBasketSupport</code> orders from raw distance order gap filters: (1) In <code>SafeOrderSend()</code>, classified <code>isFlipBasketSupport</code> in Gate 0 and bypassed Gate 6A (<code>HasMinimumSSLAndReEntryGap</code>), Gate 1 SL cooldown, Gate 3 candle quota, and EMA/SSL sync filters; (2) In <code>HasMinimumSameOrderGap()</code>, excluded <code>FLIPBasketSupport</code> orders from the distance evaluation loop so neither existing nor new support orders trigger false proximity blocks; (3) In <code>HasMinimumSSLAndReEntryGap()</code>, bypassed <code>FLIPBasketSupport</code> order tickets; (4) Guarantees the flip runner executes reliably without interference from proximate scalping orders. Clean MetaEditor 4 build (0 errors, 20 warnings).</td>
+                    <td><span class="badge badge-green">VERIFIED &amp; DEPLOYED</span></td>
+                  </tr>
+                  <tr>
                     <td><code>Step 947</code><br><small style="color: var(--accent-amber);">11:50</small></td>
                     <td><strong>Right Dashboard Section Swap (Order Closing &amp; Exit Engine &harr; Re-Entry &amp; Recovery Engine)</strong><br><small style="color: var(--text-dim);">Swapped visual hierarchy of right dashboard sections 2 &amp; 3 with pixel-perfect alignment</small></td>
                     <td><code>UpdateDashboard()</code> L11689-11708<br><code>glbVersion = "V10021"</code></td>
@@ -2493,6 +2584,13 @@ flowchart TD
                     <td><strong>Pre-Creation Close &amp; Global Single Active FLIPBasketSupport Gate</strong><br><small style="color: var(--text-dim);">Unconditionally closes already open support order before new creation; strictly max 1 active order total</small></td>
                     <td><code>CreateFLIPBasketSupportOrder()</code> L7165<br><code>CloseFLIPBasketSupportOrders(-1)</code> L7124<br><code>HasOpenFLIPBasketSupportOrder(-1)</code> L7105<br><code>glbVersion = "V10024"</code></td>
                     <td>Enforced the safest execution model for <code>FLIPBasketSupport</code>: (1) Inside <code>CreateFLIPBasketSupportOrder()</code>, unconditionally calls <code>CloseFLIPBasketSupportOrders(-1)</code> with 3-attempt retry to close any already open support orders before creating a new one; (2) Enforced global single active support order gate via <code>HasOpenFLIPBasketSupportOrder(-1)</code> which aborts new creation if any support order is still active, guaranteeing strictly at most 1 <code>FLIPBasketSupport</code> runner active across the entire account at any moment. Clean MetaEditor 4 build (0 errors, 20 warnings).</td>
+                    <td><span class="badge badge-green">VERIFIED &amp; DEPLOYED</span></td>
+                  </tr>
+                  <tr>
+                    <td><code>Step 951</code><br><small style="color: var(--accent-amber);">15:15</small></td>
+                    <td><strong>Skip MinimumSameOrderGapRawMatched &amp; Raw Distance Filters for FLIPBasketSupport</strong><br><small style="color: var(--text-dim);">Exempts FLIPBasketSupport orders from MinimumSameOrderGapRawMatched and all proximate raw distance checks</small></td>
+                    <td><code>SafeOrderSend()</code> Gate 0/1/3/6<br><code>HasMinimumSameOrderGap()</code> L2975<br><code>HasMinimumSSLAndReEntryGap()</code> L3007<br><code>glbVersion = "V10025"</code></td>
+                    <td>Fully exempted <code>FLIPBasketSupport</code> orders from raw distance order gap filters: (1) In <code>SafeOrderSend()</code>, classified <code>isFlipBasketSupport</code> in Gate 0 and bypassed Gate 6A (<code>HasMinimumSSLAndReEntryGap</code>), Gate 1 SL cooldown, Gate 3 candle quota, and EMA/SSL sync filters; (2) In <code>HasMinimumSameOrderGap()</code>, excluded <code>FLIPBasketSupport</code> orders from the distance evaluation loop so neither existing nor new support orders trigger false proximity blocks; (3) In <code>HasMinimumSSLAndReEntryGap()</code>, bypassed <code>FLIPBasketSupport</code> order tickets; (4) Guarantees the flip runner executes reliably without interference from proximate scalping orders. Clean MetaEditor 4 build (0 errors, 20 warnings).</td>
                     <td><span class="badge badge-green">VERIFIED &amp; DEPLOYED</span></td>
                   </tr>
                   <tr>
@@ -2531,6 +2629,13 @@ flowchart TD
                     <td><span class="badge badge-green">VERIFIED &amp; DEPLOYED</span></td>
                   </tr>
                   <tr>
+                    <td><code>Step 951</code><br><small style="color: var(--accent-amber);">15:15</small></td>
+                    <td><strong>Skip MinimumSameOrderGapRawMatched &amp; Raw Distance Filters for FLIPBasketSupport</strong><br><small style="color: var(--text-dim);">Exempts FLIPBasketSupport orders from MinimumSameOrderGapRawMatched and all proximate raw distance checks</small></td>
+                    <td><code>SafeOrderSend()</code> Gate 0/1/3/6<br><code>HasMinimumSameOrderGap()</code> L2975<br><code>HasMinimumSSLAndReEntryGap()</code> L3007<br><code>glbVersion = "V10025"</code></td>
+                    <td>Fully exempted <code>FLIPBasketSupport</code> orders from raw distance order gap filters: (1) In <code>SafeOrderSend()</code>, classified <code>isFlipBasketSupport</code> in Gate 0 and bypassed Gate 6A (<code>HasMinimumSSLAndReEntryGap</code>), Gate 1 SL cooldown, Gate 3 candle quota, and EMA/SSL sync filters; (2) In <code>HasMinimumSameOrderGap()</code>, excluded <code>FLIPBasketSupport</code> orders from the distance evaluation loop so neither existing nor new support orders trigger false proximity blocks; (3) In <code>HasMinimumSSLAndReEntryGap()</code>, bypassed <code>FLIPBasketSupport</code> order tickets; (4) Guarantees the flip runner executes reliably without interference from proximate scalping orders. Clean MetaEditor 4 build (0 errors, 20 warnings).</td>
+                    <td><span class="badge badge-green">VERIFIED &amp; DEPLOYED</span></td>
+                  </tr>
+                  <tr>
                     <td><code>Step 947</code><br><small style="color: var(--accent-amber);">11:50</small></td>
                     <td><strong>Right Dashboard Section Swap (Order Closing &amp; Exit Engine &harr; Re-Entry &amp; Recovery Engine)</strong><br><small style="color: var(--text-dim);">Swapped visual hierarchy of right dashboard sections 2 &amp; 3 with pixel-perfect alignment</small></td>
                     <td><code>UpdateDashboard()</code> L11689-11708<br><code>glbVersion = "V10021"</code></td>
@@ -2563,6 +2668,33 @@ flowchart TD
                     <td><strong>Pre-Creation Close &amp; Global Single Active FLIPBasketSupport Gate</strong><br><small style="color: var(--text-dim);">Unconditionally closes already open support order before new creation; strictly max 1 active order total</small></td>
                     <td><code>CreateFLIPBasketSupportOrder()</code> L7165<br><code>CloseFLIPBasketSupportOrders(-1)</code> L7124<br><code>HasOpenFLIPBasketSupportOrder(-1)</code> L7105<br><code>glbVersion = "V10024"</code></td>
                     <td>Enforced the safest execution model for <code>FLIPBasketSupport</code>: (1) Inside <code>CreateFLIPBasketSupportOrder()</code>, unconditionally calls <code>CloseFLIPBasketSupportOrders(-1)</code> with 3-attempt retry to close any already open support orders before creating a new one; (2) Enforced global single active support order gate via <code>HasOpenFLIPBasketSupportOrder(-1)</code> which aborts new creation if any support order is still active, guaranteeing strictly at most 1 <code>FLIPBasketSupport</code> runner active across the entire account at any moment. Clean MetaEditor 4 build (0 errors, 20 warnings).</td>
+                    <td><span class="badge badge-green">VERIFIED &amp; DEPLOYED</span></td>
+                  <tr>
+                    <td><code>Step 954</code><br><small style="color: var(--accent-amber);">16:45</small></td>
+                    <td><strong>Dual-Mode Recovery Qualification Engine (Same-Strong or Opp-Weak)</strong><br><small style="color: var(--text-dim);">Opens recovery orders when trend matches parent and is strong, or opposes parent and is weak; blocks same-weak and opp-strong</small></td>
+                    <td><code>CheckRecoveryOrders()</code> L7078<br><code>SafeOrderSend()</code> Gate 5B L4807<br><code>UpdateDashboard()</code> L11728<br><code>glbVersion = "V10028"</code></td>
+                    <td>Implemented 4-quadrant qualification engine for recovery orders: (1) Allows recovery order creation when trend is in the same direction as parent and strong (<code>EMADirection == parentType && !isWeak</code> with adverse gap from parent); (2) Allows recovery order creation when trend is in the opposite direction and weak (<code>EMADirection != parentType && isWeak</code> with adverse gap from parent); (3) Strictly blocks recovery when same direction is weak (exhaustion) or opposite direction is strong (counter-trend momentum), even if price gap is met; (4) Preserves mandatory adverse price gap from parent ($100 &times; parent lots for 1st recovery, $2,000 raw for 2nd); (5) Synchronized live HUD to display real-time dual-mode status (<code>ELIGIBLE (BUY: Same-Strong)</code>, <code>ELIGIBLE (BUY: Opp-Weak)</code>, etc.). Clean MetaEditor 4 build (0 errors, 20 warnings).</td>
+                    <td><span class="badge badge-green">VERIFIED &amp; DEPLOYED</span></td>
+                  </tr>
+                  <tr>
+                    <td><code>Step 953</code><br><small style="color: var(--accent-amber);">15:45</small></td>
+                    <td><strong>Pair Profit &gt; $1 Live StopLoss Modifier Engine</strong><br><small style="color: var(--text-dim);">Live scan of all 2-order combinations; when combined profit &gt; $1, modifies both orders with SL to lock profit (excludes recovery &amp; FLIP support orders)</small></td>
+                    <td><code>ModifyPairProfitWithStopLoss()</code> L808<br><code>EnablePairProfitSLModify</code> L44<br><code>PairCombinationProfitThresholdUSD = 1.0</code> L45<br><code>glbVersion = "V10027"</code></td>
+                    <td>Implemented live 2-order combination profit guardian: (1) In <code>ModifyPairProfitWithStopLoss()</code>, scans all open positions on every tick, strictly excluding recovery orders (<code>RECOVERY_</code>) and FLIP basket support orders (<code>FLIPBasketSupport</code>); (2) Evaluates all 2-order pairs; whenever any combination's combined profit exceeds $1.00 USD, marks both orders for stoploss protection; (3) Calculates safe broker SL (<code>curBid - minDistance</code> for BUY, <code>curAsk + minDistance</code> for SELL) and updates both orders via <code>SafeOrderModify()</code> without moving SL backward; (4) Integrated into main <code>OnTick()</code> cycle next to basket equity management. Clean MetaEditor 4 build (0 errors, 20 warnings).</td>
+                    <td><span class="badge badge-green">VERIFIED &amp; DEPLOYED</span></td>
+                  </tr>
+                  <tr>
+                    <td><code>Step 952</code><br><small style="color: var(--accent-amber);">15:30</small></td>
+                    <td><strong>Ignore Raw Gap Conditions for Recovery Orders</strong><br><small style="color: var(--text-dim);">Exempts recovery orders from raw distance gap blocking rules (HasMinimumRecoveryOrderGap, HasMinimumSameOrderGap, HasMinimumSSLAndReEntryGap)</small></td>
+                    <td><code>IgnoreRecoveryRawGapCondition = true</code> L277<br><code>HasMinimumRecoveryOrderGap()</code> L3040<br><code>SafeOrderSend()</code> Gate 5A L4601<br><code>CheckRecoveryOrders()</code> L6872<br><code>glbVersion = "V10026"</code></td>
+                    <td>Introduced global configuration parameter <code>bool IgnoreRecoveryRawGapCondition = true;</code> to eliminate raw distance gap blocking for recovery orders: (1) In <code>HasMinimumRecoveryOrderGap()</code>, immediately returns true when active; (2) In <code>SafeOrderSend()</code> Gate 5A, bypasses recovery $50 raw gap check; (3) In <code>CheckRecoveryOrders()</code>, skips raw gap evaluation so recovery orders can trigger whenever drawdown and directional weakness criteria are fulfilled; (4) In <code>HasMinimumSameOrderGap()</code> and <code>HasMinimumSSLAndReEntryGap()</code>, excludes recovery orders from proximity detection loops. Clean MetaEditor 4 build (0 errors, 20 warnings).</td>
+                    <td><span class="badge badge-green">VERIFIED &amp; DEPLOYED</span></td>
+                  </tr>
+                  <tr>
+                    <td><code>Step 951</code><br><small style="color: var(--accent-amber);">15:15</small></td>
+                    <td><strong>Skip MinimumSameOrderGapRawMatched &amp; Raw Distance Filters for FLIPBasketSupport</strong><br><small style="color: var(--text-dim);">Exempts FLIPBasketSupport orders from MinimumSameOrderGapRawMatched and all proximate raw distance checks</small></td>
+                    <td><code>SafeOrderSend()</code> Gate 0/1/3/6<br><code>HasMinimumSameOrderGap()</code> L2975<br><code>HasMinimumSSLAndReEntryGap()</code> L3007<br><code>glbVersion = "V10025"</code></td>
+                    <td>Fully exempted <code>FLIPBasketSupport</code> orders from raw distance order gap filters: (1) In <code>SafeOrderSend()</code>, classified <code>isFlipBasketSupport</code> in Gate 0 and bypassed Gate 6A (<code>HasMinimumSSLAndReEntryGap</code>), Gate 1 SL cooldown, Gate 3 candle quota, and EMA/SSL sync filters; (2) In <code>HasMinimumSameOrderGap()</code>, excluded <code>FLIPBasketSupport</code> orders from the distance evaluation loop so neither existing nor new support orders trigger false proximity blocks; (3) In <code>HasMinimumSSLAndReEntryGap()</code>, bypassed <code>FLIPBasketSupport</code> order tickets; (4) Guarantees the flip runner executes reliably without interference from proximate scalping orders. Clean MetaEditor 4 build (0 errors, 20 warnings).</td>
                     <td><span class="badge badge-green">VERIFIED &amp; DEPLOYED</span></td>
                   </tr>
                   <tr>
@@ -2804,6 +2936,50 @@ flowchart TD
                     <p>Safest execution architecture: Before creating a new <code>FLIPBasketSupport</code> order, <code>CreateFLIPBasketSupportOrder()</code> explicitly closes any already open support order and checks <code>HasOpenFLIPBasketSupportOrder(-1)</code>, guaranteeing strictly at most 1 active support order in total across the entire account.</p>
                     <div id="chk20" style="display: none; margin-top: 10px; font-size: 12.5px; color: var(--accent-blue); background: rgba(0,0,0,0.3); padding: 8px 12px; border-radius: 6px;">
                       <strong>Code Anchor:</strong> <code>CreateFLIPBasketSupportOrder()</code> (L7165), <code>CloseFLIPBasketSupportOrders(-1)</code> (L7124), <code>HasOpenFLIPBasketSupportOrder(-1)</code> (L7105), <code>glbVersion = "V10024  04-10-2026 14.25 Close Prior Order Before New FLIP Support (Max 1 Active Total)"</code> (L34) &bull; Clean MetaEditor 4 build (0 errors, 20 warnings).
+                    </div>
+                  </div>
+                </div>
+
+                <div class="step-item" style="cursor: pointer;" onclick="toggleAuditDetail('chk21')">
+                  <div class="step-num" style="background: rgba(16, 185, 129, 0.15); color: var(--accent-green); border-color: rgba(16, 185, 129, 0.3);">&#10003;</div>
+                  <div class="step-body" style="flex: 1;">
+                    <h4>MinimumSameOrderGapRawMatched &amp; Raw Gap Bypass for FLIP Support <span class="badge badge-green">Active</span></h4>
+                    <p>Completely bypasses <code>MinimumSameOrderGapRawMatched</code>, <code>HasMinimumSameOrderGap()</code>, and <code>HasMinimumSSLAndReEntryGap()</code> for <code>FLIPBasketSupport</code> orders, preventing proximate order collisions from blocking the macro trend runner.</p>
+                    <div id="chk21" style="display: none; margin-top: 10px; font-size: 12.5px; color: var(--accent-blue); background: rgba(0,0,0,0.3); padding: 8px 12px; border-radius: 6px;">
+                      <strong>Code Anchor:</strong> <code>SafeOrderSend()</code> Gate 0/6 (L4417, L4675), <code>HasMinimumSameOrderGap()</code> (L2975), <code>HasMinimumSSLAndReEntryGap()</code> (L3007), <code>glbVersion = "V10025  04-10-2026 15.15"</code> (L34) &bull; Clean MetaEditor 4 build (0 errors, 20 warnings).
+                    </div>
+                  </div>
+                </div>
+
+                <div class="step-item" style="cursor: pointer;" onclick="toggleAuditDetail('chk22')">
+                  <div class="step-num" style="background: rgba(16, 185, 129, 0.15); color: var(--accent-green); border-color: rgba(16, 185, 129, 0.3);">&#10003;</div>
+                  <div class="step-body" style="flex: 1;">
+                    <h4>Ignore Raw Gap Conditions for Recovery Orders <span class="badge badge-green">Active</span></h4>
+                    <p>Exempts recovery orders from raw price distance gap constraints (<code>HasMinimumRecoveryOrderGap</code>, <code>MinGapBetweenRecoveryOrdersRaw = 50.0</code>, <code>HasMinimumSameOrderGap</code>, <code>HasMinimumSSLAndReEntryGap</code>) via <code>IgnoreRecoveryRawGapCondition = true</code>, ensuring critical defensive positions are never blocked by proximate spacing.</p>
+                    <div id="chk22" style="display: none; margin-top: 10px; font-size: 12.5px; color: var(--accent-blue); background: rgba(0,0,0,0.3); padding: 8px 12px; border-radius: 6px;">
+                      <strong>Code Anchor:</strong> <code>IgnoreRecoveryRawGapCondition = true</code> (L277), <code>HasMinimumRecoveryOrderGap()</code> (L3040), <code>SafeOrderSend()</code> Gate 5A (L4601), <code>CheckRecoveryOrders()</code> (L6872), <code>glbVersion = "V10026  04-10-2026 15.30"</code> (L34) &bull; Clean MetaEditor 4 build (0 errors, 20 warnings).
+                    </div>
+                  </div>
+                </div>
+
+                <div class="step-item" style="cursor: pointer;" onclick="toggleAuditDetail('chk23')">
+                  <div class="step-num" style="background: rgba(16, 185, 129, 0.15); color: var(--accent-green); border-color: rgba(16, 185, 129, 0.3);">&#10003;</div>
+                  <div class="step-body" style="flex: 1;">
+                    <h4>Pair Profit &gt; $1 Live StopLoss Modifier Engine <span class="badge badge-green">Active</span></h4>
+                    <p>Live on-tick scan of all 2-order combinations: whenever any pair's combined net profit exceeds $1.00 USD (strictly excluding recovery and FLIPBasketSupport orders), tightens both orders' stoploss to live price minus broker stop distance, locking profits and capping adverse drawdown.</p>
+                    <div id="chk23" style="display: none; margin-top: 10px; font-size: 12.5px; color: var(--accent-blue); background: rgba(0,0,0,0.3); padding: 8px 12px; border-radius: 6px;">
+                      <strong>Code Anchor:</strong> <code>ModifyPairProfitWithStopLoss()</code> (L808), <code>EnablePairProfitSLModify = true</code> (L44), <code>PairCombinationProfitThresholdUSD = 1.0</code> (L45), <code>glbVersion = "V10027  04-10-2026 15.45"</code> (L34) &bull; Clean MetaEditor 4 build (0 errors, 20 warnings).
+                    </div>
+                  </div>
+                </div>
+
+                <div class="step-item" style="cursor: pointer;" onclick="toggleAuditDetail('chk24')">
+                  <div class="step-num" style="background: rgba(16, 185, 129, 0.15); color: var(--accent-green); border-color: rgba(16, 185, 129, 0.3);">&#10003;</div>
+                  <div class="step-body" style="flex: 1;">
+                    <h4>Dual-Mode Recovery Qualification Engine (Same-Strong or Opp-Weak) <span class="badge badge-green">Active</span></h4>
+                    <p>Allows recovery orders in two distinct market conditions with parent adverse gap: (1) Same direction as parent and Strong (trend momentum alignment); or (2) Opposite direction to parent and Weak (exhaustion reversal alignment). Strictly blocks recovery when same direction is Weak or opposite direction is Strong.</p>
+                    <div id="chk24" style="display: none; margin-top: 10px; font-size: 12.5px; color: var(--accent-blue); background: rgba(0,0,0,0.3); padding: 8px 12px; border-radius: 6px;">
+                      <strong>Code Anchor:</strong> <code>CheckRecoveryOrders()</code> (L7078), <code>SafeOrderSend()</code> Gate 5B (L4807), <code>UpdateDashboard()</code> (L11728), <code>glbVersion = "V10028  04-10-2026 16.45"</code> (L34) &bull; Clean MetaEditor 4 build (0 errors, 20 warnings).
                     </div>
                   </div>
                 </div>

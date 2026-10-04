@@ -31,8 +31,8 @@
 
 // Previous: V10010  03-10-2026 18.25 Partial Close Column in Live Position Monitor
 string TimeframeToString(int timeframe);
-string glbVersion = "V10024  04-10-2026 14.25 Close Prior Order Before New FLIP Support (Max 1 Active Total)";
-string verShort = "V10024 | " + Symbol() + " " + TimeframeToString(Period());
+string glbVersion = "V10028  04-10-2026 16.45 Dual-Mode Recovery (Same-Strong or Opp-Weak)";
+string verShort = "V10028 | " + Symbol() + " " + TimeframeToString(Period());
 
 double DailyEquityStopUSD  =100*100;//50;//20*2.5;//10;//20;// 10;//30.0; close all orders at $50Xmultipler
 double TargetProfitPerFlipUSD =20*100;//10;//10*2;//10;//5;//20;// 10.0; close all orders at $20Xmultipler
@@ -42,6 +42,13 @@ double TargetProfitPerFlipUSD =20*100;//10;//10*2;//10;//5;//20;// 10.0; close a
 
 //Chance 1
 double SecureOneDollarProfitPerOrder=1.0*1; //1X set modify order at profit $1(any lot)
+
+//Chance 1B: Pair Profit 2-Order Combination Live SL Modifier (> $1 profit)
+bool   EnablePairProfitSLModify = true;               // Modify orders with SL when any 2-order combination profit > $1
+double PairCombinationProfitThresholdUSD = 1.0;       // Threshold profit in USD for 2-order combination
+double PairCombinationSLDistanceRaw = 0.0;            // Distance from live price in raw points (0.0 = auto broker stop level)
+bool   PairCombinationUseBalanceMultiplier = false;   // If true, scale threshold by balance multiplier (default false: fixed $1.00 USD)
+void   ModifyPairProfitWithStopLoss();
 
 //chance 2
 int partialClose01in05IndividualPercentage=20*1;//10;//2*2;//per lot 0.01//if 0.05 close 0.01 at total profit of 20% means close 0.01 lot
@@ -271,9 +278,10 @@ double RecoveryTriggerLossUSD =1;//2;//1;//0.50;// 2;
 double RecoveryLotMultiplier =2;//1;// 2;
 int MaxRecoveryOrders =100;// 5; // Maximum active recovery orders allowed
 double RecoveryMaxLots = 0.05; // Maximum lot cap for recovery order (even 2X lot cannot exceed 0.05)
-double RecoveryBasketProfitUSD = 1;
+double RecoveryBasketProfitUSD = 0.50;//1;
 double RecoveryMinDistanceRaw =200;//50*2;//500;//1000;//2000;//2000;//2000;//1000;//1000;//100;//20;// 200.0;
 double MinGapBetweenRecoveryOrdersRaw = 50.0; // Minimum raw price gap ($50) between two recovery orders
+bool IgnoreRecoveryRawGapCondition = true; // Ignore raw gap condition for recovery orders
 double Recovery2ndOrderMinDistanceRaw =1000;// 2000.0; // Minimum raw price gap ($2000) from 1st recovery order for 2nd recovery order
 int    MaxRecoveryOrdersPerParent = 2; // Maximum recovery orders allowed per parent trade (1st + 2nd)
 bool UseBalanceMultiplierForRecoveryTarget = false; // Scaled by balance multiplier if true; default false ($1.00 fixed cash target)
@@ -787,6 +795,193 @@ void SecureOneDollarProfit()
             Print("FAILED to secure X", DoubleToString(ladderLevel, 0), " SL",
                   " | Ticket=", OrderTicket(),
                   " | Error=", GetLastError());
+           }
+        }
+     }
+  }
+//+------------------------------------------------------------------+
+//| ModifyPairProfitWithStopLoss                                     |
+//| Checks all combinations of 2 open orders (excluding recovery     |
+//| orders and FLIPBasketSupport orders). If any 2-order combination |
+//| has combined profit > $1.00 (PairCombinationProfitThresholdUSD), |
+//| modifies both orders with stop loss to protect/lock the profit.  |
+//+------------------------------------------------------------------+
+void ModifyPairProfitWithStopLoss()
+  {
+   if(!EnablePairProfitSLModify)
+      return;
+
+   // 1. Scan and collect all eligible market orders
+   #define MAX_PAIR_SCAN_ORDERS 100
+   int    candTickets[MAX_PAIR_SCAN_ORDERS];
+   int    candTypes[MAX_PAIR_SCAN_ORDERS];
+   double candLots[MAX_PAIR_SCAN_ORDERS];
+   double candOpenPrices[MAX_PAIR_SCAN_ORDERS];
+   double candStopLosses[MAX_PAIR_SCAN_ORDERS];
+   double candTakeProfits[MAX_PAIR_SCAN_ORDERS];
+   double candProfits[MAX_PAIR_SCAN_ORDERS];
+   bool   qualifyForSL[MAX_PAIR_SCAN_ORDERS];
+   ArrayInitialize(candTickets, 0);
+   ArrayInitialize(candTypes, 0);
+   ArrayInitialize(candLots, 0.0);
+   ArrayInitialize(candOpenPrices, 0.0);
+   ArrayInitialize(candStopLosses, 0.0);
+   ArrayInitialize(candTakeProfits, 0.0);
+   ArrayInitialize(candProfits, 0.0);
+   ArrayInitialize(qualifyForSL, false);
+   int    candCount = 0;
+
+   double targetThreshold = PairCombinationProfitThresholdUSD;
+   if(PairCombinationUseBalanceMultiplier && balancelomultipler > 1)
+      targetThreshold = PairCombinationProfitThresholdUSD * balancelomultipler;
+
+   for(int i = OrdersTotal() - 1; i >= 0 && candCount < MAX_PAIR_SCAN_ORDERS; i--)
+     {
+      if(!OrderSelect(i, SELECT_BY_POS, MODE_TRADES))
+         continue;
+
+      if(OrderSymbol() != Symbol() || OrderMagicNumber() != MagicNumber)
+         continue;
+
+      int oType = OrderType();
+      if(oType != OP_BUY && oType != OP_SELL)
+         continue;
+
+      string cmt = OrderComment();
+      int tkt    = OrderTicket();
+
+      // Exclude recovery orders
+      if(StringFind(cmt, "RECOVERY_") == 0 || IsRecoveryOrderWithActiveParent(tkt, cmt))
+         continue;
+
+      // Exclude FLIPBasketSupport orders
+      if(IsFLIPBasketSupportOrder(tkt, cmt) || StringFind(cmt, "FLIPBasketSupport") >= 0 || StringFind(cmt, "FLIP_Basket") >= 0)
+         continue;
+
+      candTickets[candCount]    = tkt;
+      candTypes[candCount]      = oType;
+      candLots[candCount]       = OrderLots();
+      candOpenPrices[candCount] = OrderOpenPrice();
+      candStopLosses[candCount] = OrderStopLoss();
+      candTakeProfits[candCount]= OrderTakeProfit();
+      candProfits[candCount]    = OrderProfit() + OrderSwap() + OrderCommission();
+      qualifyForSL[candCount]   = false;
+      candCount++;
+     }
+
+   if(candCount < 2)
+      return; // Need at least 2 orders to form a combination
+
+   // 2. Evaluate all 2-order combinations (i, j)
+   int qualifyingPairsCount = 0;
+   for(int i = 0; i < candCount - 1; i++)
+     {
+      for(int j = i + 1; j < candCount; j++)
+        {
+         double pairProfit = candProfits[i] + candProfits[j];
+         if(pairProfit > targetThreshold)
+           {
+            qualifyForSL[i] = true;
+            qualifyForSL[j] = true;
+            qualifyingPairsCount++;
+            Print("PAIR PROFIT > $", DoubleToString(targetThreshold, 2), " HIT: Pair [Ticket #", candTickets[i],
+                  " ($", DoubleToString(candProfits[i], 2), ") + Ticket #", candTickets[j],
+                  " ($", DoubleToString(candProfits[j], 2), ")] = Total $", DoubleToString(pairProfit, 2),
+                  " | Qualifying both orders for StopLoss modification.");
+           }
+        }
+     }
+
+   if(qualifyingPairsCount == 0)
+      return;
+
+   // 3. Modify qualifying orders with live StopLoss to lock profit
+   RefreshRates();
+   double minDistance = GetRequiredStopDistance();
+   if(minDistance < Point * 10)
+      minDistance = Point * 10;
+
+   double rawGap = (PairCombinationSLDistanceRaw > 0.0) ? (PairCombinationSLDistanceRaw * Point) : minDistance;
+   if(rawGap < minDistance)
+      rawGap = minDistance;
+
+   double curBid = MarketInfo(Symbol(), MODE_BID);
+   double curAsk = MarketInfo(Symbol(), MODE_ASK);
+
+   for(int k = 0; k < candCount; k++)
+     {
+      if(!qualifyForSL[k])
+         continue;
+
+      int    tkt   = candTickets[k];
+      int    oType = candTypes[k];
+      double oOpen = candOpenPrices[k];
+      double curSL = candStopLosses[k];
+      double curTP = candTakeProfits[k];
+
+      RefreshRates();
+      curBid = MarketInfo(Symbol(), MODE_BID);
+      curAsk = MarketInfo(Symbol(), MODE_ASK);
+
+      double proposedSL = 0.0;
+      bool   shouldModify = false;
+
+      if(oType == OP_BUY)
+        {
+         proposedSL = NormalizeDouble(curBid - rawGap, Digits);
+         if((curBid - proposedSL) < minDistance)
+            proposedSL = NormalizeDouble(curBid - minDistance, Digits);
+
+         // Ensure SL is strictly valid below Bid
+         if(proposedSL >= curBid)
+            continue;
+
+         // For BUY: never move SL backward; only move forward (higher)
+         if(curSL > 0.0 && proposedSL <= curSL)
+            continue;
+
+         // Avoid micro modifications below minimum modify gap
+         if(curSL > 0.0 && (proposedSL - curSL) < MinimumSLModifyGapRaw * Point)
+            continue;
+
+         shouldModify = true;
+        }
+      else if(oType == OP_SELL)
+        {
+         proposedSL = NormalizeDouble(curAsk + rawGap, Digits);
+         if((proposedSL - curAsk) < minDistance)
+            proposedSL = NormalizeDouble(curAsk + minDistance, Digits);
+
+         // Ensure SL is strictly valid above Ask
+         if(proposedSL <= curAsk)
+            continue;
+
+         // For SELL: never move SL backward; only move forward (lower)
+         if(curSL > 0.0 && proposedSL >= curSL)
+            continue;
+
+         // Avoid micro modifications below minimum modify gap
+         if(curSL > 0.0 && (curSL - proposedSL) < MinimumSLModifyGapRaw * Point)
+            continue;
+
+         shouldModify = true;
+        }
+
+      if(shouldModify && proposedSL > 0.0)
+        {
+         ResetLastError();
+         bool modified = SafeOrderModify(tkt, oOpen, proposedSL, curTP, 0, (oType == OP_BUY ? clrLimeGreen : clrTomato));
+         if(modified)
+           {
+            Print("PAIR PROFIT SL MODIFIED | Ticket #", tkt,
+                  " | Type=", (oType == OP_BUY ? "BUY" : "SELL"),
+                  " | P/L=$", DoubleToString(candProfits[k], 2),
+                  " | Old SL=", DoubleToString(curSL, Digits),
+                  " | New SL=", DoubleToString(proposedSL, Digits));
+           }
+         else
+           {
+            Print("PAIR PROFIT SL MODIFY FAILED | Ticket #", tkt, " | Error=", GetLastError());
            }
         }
      }
@@ -1975,6 +2170,7 @@ void OnTick()
 
    ManageOverallBasketProfit();//modify basket orders at $1 profit
    ManageBasket10USDLockEquity(); // Lock basket profit with live SL on $10 fixed equity steps
+   ModifyPairProfitWithStopLoss(); // Live SL modifier when any 2-order combination profit > $1
 
    ManageDayProfitLadder();
 
@@ -2972,6 +3168,10 @@ bool HasMinimumSameOrderGap(int orderType, double minimumGapRaw)
          continue;
       if(OrderSymbol() != Symbol() || OrderMagicNumber() != MagicNumber || OrderType() != orderType)
          continue;
+      if(IsFLIPBasketSupportOrder(OrderTicket(), OrderComment()))
+         continue;
+      if(IgnoreRecoveryRawGapCondition && StringFind(OrderComment(), "RECOVERY_") == 0)
+         continue;
       if(MathAbs(currentPrice - OrderOpenPrice()) < minimumGapRaw)
          return false;
      }
@@ -3002,11 +3202,15 @@ bool HasMinimumSSLAndReEntryGap(int direction, double targetPrice, double minGap
          continue; // Only check orders in the same direction (Buy vs Buy, Sell vs Sell)
 
       string comment = OrderComment();
+      if(IsFLIPBasketSupportOrder(OrderTicket(), comment))
+         continue;
+      if(IgnoreRecoveryRawGapCondition && StringFind(comment, "RECOVERY_") == 0)
+         continue;
       bool isTargetOrder = (StringFind(comment, "SSL") >= 0 ||
                             StringFind(comment, "ReEntry") >= 0 ||
                             StringFind(comment, "reentry") >= 0 ||
                             StringFind(comment, "CircleOrder") >= 0 ||
-                            StringFind(comment, "RECOVERY_") == 0);
+                            (!IgnoreRecoveryRawGapCondition && StringFind(comment, "RECOVERY_") == 0));
 
       if(!isTargetOrder)
          continue;
@@ -3031,6 +3235,8 @@ bool HasMinimumSSLAndReEntryGap(int direction, double targetPrice, double minGap
 //+------------------------------------------------------------------+
 bool HasMinimumRecoveryOrderGap(int orderType, double currentPrice, double minGapRaw = 50.0)
   {
+   if(IgnoreRecoveryRawGapCondition)
+      return true;
    for(int i = OrdersTotal() - 1; i >= 0; i--)
      {
       if(!OrderSelect(i, SELECT_BY_POS, MODE_TRADES))
@@ -4412,9 +4618,10 @@ int SafeOrderSend(string symbol,int orderType,double lots,double price,int slipp
 // =========================================================================
 // GATE 0: ORDER CLASSIFICATION & DIRECTION
 // =========================================================================
-   bool isRecoveryOrder = (StringFind(comment, "RECOVERY_") == 0);
-   bool isReEntryOrder  = (StringFind(comment, "ReEntry") >= 0 || StringFind(comment, "SSL Profit ReEntry") >= 0);
-   bool isMarketOrder   = (orderType == OP_BUY || orderType == OP_SELL);
+   bool isRecoveryOrder     = (StringFind(comment, "RECOVERY_") == 0);
+   bool isReEntryOrder      = (StringFind(comment, "ReEntry") >= 0 || StringFind(comment, "SSL Profit ReEntry") >= 0);
+   bool isFlipBasketSupport = IsFLIPBasketSupportOrder(-1, comment);
+   bool isMarketOrder       = (orderType == OP_BUY || orderType == OP_SELL);
    bool isPendingOrder  = (orderType == OP_BUYSTOP || orderType == OP_SELLSTOP || orderType == OP_BUYLIMIT || orderType == OP_SELLLIMIT);
    int  direction       = (orderType == OP_BUY || orderType == OP_BUYSTOP || orderType == OP_BUYLIMIT) ? OP_BUY : OP_SELL;
 
@@ -4479,7 +4686,7 @@ int SafeOrderSend(string symbol,int orderType,double lots,double price,int slipp
      }
 
 // Directional SL cooldown protection (skip for recovery orders)
-   if(!isRecoveryOrder && IsDirectionBlockedAfterSL(direction))
+   if(!isRecoveryOrder && !isFlipBasketSupport && IsDirectionBlockedAfterSL(direction))
      {
       Print("SAFEORDERSEND BLOCKED [SL Protection]: Direction ", GetOrderTypeText(direction), " is temporarily blocked after losing SL.");
       return -1;
@@ -4505,7 +4712,7 @@ int SafeOrderSend(string symbol,int orderType,double lots,double price,int slipp
 // =========================================================================
 // GATE 3: CANDLE ORDER QUOTA & FREQUENCY GUARD (MAX 5 ORDERS & 5S INTERVAL)
 // =========================================================================
-   if(isMarketOrder)
+   if(isMarketOrder && !isFlipBasketSupport)
      {
       if(!IsOneCandleOrderAllowed())
         {
@@ -4515,7 +4722,7 @@ int SafeOrderSend(string symbol,int orderType,double lots,double price,int slipp
      }
 
 
-   if(EMADirection!=GlobalSSLDirection  && StopLossUSD<10)
+   if(!isFlipBasketSupport && EMADirection!=GlobalSSLDirection  && StopLossUSD<10)
       return -1;
 
 // =========================================================================
@@ -4588,39 +4795,46 @@ int SafeOrderSend(string symbol,int orderType,double lots,double price,int slipp
 
       // 5A. Minimum $50 Raw Price Gap between Recovery Orders
       double executionPrice = (direction == OP_BUY) ? Ask : Bid;
-      if(!HasMinimumRecoveryOrderGap(direction, executionPrice, MinGapBetweenRecoveryOrdersRaw))
+      if(!IgnoreRecoveryRawGapCondition)
         {
-         Print("SAFEORDERSEND BLOCKED [Recovery $50 Gap]: Another recovery order exists within $", DoubleToString(MinGapBetweenRecoveryOrdersRaw, 2), " raw gap.");
-         return -1;
-        }
-
-      // 5B. Directional Alignment: Create recovery orders ONLY when opposite direction is weak!
-      // BUY Recovery: requires SSLSignal BUY (liveSSL > 0), opposite direction SELL (EMADirection == -1), and opposite SELL is weak (isOppositeWeak == true)
-      // SELL Recovery: requires SSLSignal SELL (liveSSL < 0), opposite direction BUY (EMADirection == 1), and opposite BUY is weak (isOppositeWeak == true)
-      int liveSSL = GetCurrentSSLDirection();
-      if(liveSSL == 0)
-         liveSSL = GlobalSSLDirection;
-      bool isOppositeWeak = IsEmaWEAKDistanceReduced50PercentFromPeak();
-
-      if(direction == OP_BUY)
-        {
-         if(!(liveSSL > 0 && EMADirection == -1 && isOppositeWeak))
+         if(!HasMinimumRecoveryOrderGap(direction, executionPrice, MinGapBetweenRecoveryOrdersRaw))
            {
-            Print("SAFEORDERSEND BLOCKED [Recovery Opposite Weak]: BUY recovery rejected. Requires SSL BUY (liveSSL=", liveSSL,
-                  "), opposite EMA SELL (EMADirection=", EMADirection, " == -1), and opposite SELL is weak (isOppositeWeak=", isOppositeWeak, ").");
+            Print("SAFEORDERSEND BLOCKED [Recovery $50 Gap]: Another recovery order exists within $", DoubleToString(MinGapBetweenRecoveryOrdersRaw, 2), " raw gap.");
             return -1;
            }
         }
-      else
-         if(direction == OP_SELL)
-           {
-            if(!(liveSSL < 0 && EMADirection == 1 && isOppositeWeak))
-              {
-               Print("SAFEORDERSEND BLOCKED [Recovery Opposite Weak]: SELL recovery rejected. Requires SSL SELL (liveSSL=", liveSSL,
-                     "), opposite EMA BUY (EMADirection=", EMADirection, " == 1), and opposite BUY is weak (isOppositeWeak=", isOppositeWeak, ").");
-               return -1;
-              }
-           }
+
+      // 5B. Directional Alignment & Strength: Dual-Mode Recovery Gate
+      // Case 1: Same order type strong with gap from parent
+      // Case 2: Opposite order type weak with gap from parent
+      // BLOCKED: Same order type weak OR Opposite order type strong
+      bool isWeak = IsEmaWEAKDistanceReduced50PercentFromPeak();
+      bool isStrong = !isWeak;
+      bool allowRecovery = false;
+
+      if(direction == OP_BUY)
+        {
+         if(EMADirection == 1 && isStrong)
+            allowRecovery = true;
+         else if(EMADirection == -1 && isWeak)
+            allowRecovery = true;
+        }
+      else if(direction == OP_SELL)
+        {
+         if(EMADirection == -1 && isStrong)
+            allowRecovery = true;
+         else if(EMADirection == 1 && isWeak)
+            allowRecovery = true;
+        }
+
+      if(!allowRecovery)
+        {
+         Print("SAFEORDERSEND BLOCKED [Recovery Mode]: ", (direction == OP_BUY ? "BUY" : "SELL"),
+               " recovery rejected. Requires Same-Strong (EMA=", (direction == OP_BUY ? "+1" : "-1"),
+               " Strong) OR Opp-Weak (EMA=", (direction == OP_BUY ? "-1" : "+1"),
+               " Weak). Current EMA=", EMADirection, ", Weak=", isWeak);
+         return -1;
+        }
 
       // 5C. Second Recovery Order: Minimum $2000 Raw Price Gap from 1st Recovery Order
       if(StringFind(comment, "_2") >= 0)
@@ -4666,7 +4880,7 @@ int SafeOrderSend(string symbol,int orderType,double lots,double price,int slipp
                            ((orderType == OP_SELL || orderType == OP_SELLSTOP || orderType == OP_SELLLIMIT) && GlobalVShapeSell) ||
                            StoredSignalOverride;
 
-   if(!isVShapeOverride && !isRecoveryOrder && !isReEntryOrder)
+   if(!isVShapeOverride && !isRecoveryOrder && !isReEntryOrder && !isFlipBasketSupport)
      {
       // 6A. Check minimum $50 raw gap between SSL order and existing ReEntry / SSL orders
       double sslExecPrice = (orderType == OP_BUY) ? Ask : ((orderType == OP_SELL) ? Bid : price);
@@ -6855,25 +7069,34 @@ void CheckRecoveryOrders()
            }
 
       // Minimum $50 raw gap between two recovery orders
-      if(!HasMinimumRecoveryOrderGap(parentType, newExecutionPrice, MinGapBetweenRecoveryOrdersRaw))
+      if(!IgnoreRecoveryRawGapCondition && !HasMinimumRecoveryOrderGap(parentType, newExecutionPrice, MinGapBetweenRecoveryOrdersRaw))
         {
          Print("SKIPPING RECOVERY: Another recovery order exists within $", DoubleToString(MinGapBetweenRecoveryOrdersRaw, 2), " raw gap.");
          continue;
         }
 
-      // Direction confirmation: Create recovery orders ONLY when opposite direction is weak!
-      // BUY Recovery: SSLSignal is BUY (liveSSL > 0), opposite EMADirection is SELL (-1), and opposite SELL is weak (isWeak == true)
-      // SELL Recovery: SSLSignal is SELL (liveSSL < 0), opposite EMADirection is BUY (1), and opposite BUY is weak (isWeak == true)
-      int liveSSL = GetCurrentSSLDirection();
-      if(liveSSL == 0)
-         liveSSL = GlobalSSLDirection;
+      // Direction confirmation: Dual-Mode Recovery (Same-Strong or Opp-Weak)
+      // Case 1: Same order type strong with gap from parent
+      // Case 2: Opposite order type weak with gap from parent
+      // BLOCKED: Same order type weak OR Opposite order type strong
       bool isWeak = IsEmaWEAKDistanceReduced50PercentFromPeak();
+      bool isStrong = !isWeak;
 
       bool createRecovery = false;
-      if(parentType == OP_BUY && liveSSL > 0 && EMADirection == -1 && isWeak)
-         createRecovery = true;
-      if(parentType == OP_SELL && liveSSL < 0 && EMADirection == 1 && isWeak)
-         createRecovery = true;
+      if(parentType == OP_BUY)
+        {
+         if(EMADirection == 1 && isStrong)       // Same order type strong with gap
+            createRecovery = true;
+         else if(EMADirection == -1 && isWeak)   // Opposite order type weak with gap
+            createRecovery = true;
+        }
+      else if(parentType == OP_SELL)
+        {
+         if(EMADirection == -1 && isStrong)      // Same order type strong with gap
+            createRecovery = true;
+         else if(EMADirection == 1 && isWeak)    // Opposite order type weak with gap
+            createRecovery = true;
+        }
 
       if(!createRecovery)
          continue;
@@ -11503,24 +11726,31 @@ void UpdateDashboard(DailyProtectionState &state)
      }
    else
      {
-      bool canRecBuy = (currentSSLDirection > 0 && EMADirection == -1 && isWeak50);
-      bool canRecSell = (currentSSLDirection < 0 && EMADirection == 1 && isWeak50);
-      if(canRecBuy)
+      bool isStrong50 = !isWeak50;
+      bool canRecBuy  = (EMADirection == 1 && isStrong50) || (EMADirection == -1 && isWeak50);
+      bool canRecSell = (EMADirection == -1 && isStrong50) || (EMADirection == 1 && isWeak50);
+      if(canRecBuy && !canRecSell)
         {
-         rec1Str = "ELIGIBLE (BUY Rec: SSL+ EMA- Wk)";
+         rec1Str = (EMADirection == 1) ? "ELIGIBLE (BUY: Same-Strong)" : "ELIGIBLE (BUY: Opp-Weak)";
          rec1Color = clrLime;
         }
       else
-         if(canRecSell)
+         if(canRecSell && !canRecBuy)
            {
-            rec1Str = "ELIGIBLE (SELL Rec: SSL- EMA+ Wk)";
+            rec1Str = (EMADirection == -1) ? "ELIGIBLE (SELL: Same-Strong)" : "ELIGIBLE (SELL: Opp-Weak)";
             rec1Color = clrLime;
            }
          else
-           {
-            rec1Str = "WAITING (Need Opp-Weak Trend)";
-            rec1Color = clrGold;
-           }
+            if(canRecBuy && canRecSell)
+              {
+               rec1Str = "ELIGIBLE (BUY/SELL)";
+               rec1Color = clrLime;
+              }
+            else
+              {
+               rec1Str = "WAITING (Need Same-Str or Opp-Wk)";
+               rec1Color = clrGold;
+              }
 
       if(recCount1st > 0)
         {
