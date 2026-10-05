@@ -1,4 +1,4 @@
-//+------------------------------------------------------------------+
+﻿//+------------------------------------------------------------------+
 //|                  SSL CHANNEL CROSS EA - CONTINUOUS EQUITY LADDER |
 //|                  TWO-STAGE PROFIT LADDER | CONTINUOUS RESET      |
 //+------------------------------------------------------------------+
@@ -31,8 +31,8 @@
 
 // Previous: V10010  03-10-2026 18.25 Partial Close Column in Live Position Monitor
 string TimeframeToString(int timeframe);
-string glbVersion = "V10036  04-10-2026 23.40 FLIP Basket Step Trailing SL (-100 at Step 1, +100 at Step 2)";
-string verShort = "V10036 | " + Symbol() + " " + TimeframeToString(Period());
+string glbVersion = "V10036  $500 to $600 04-10-2026 23.40 FLIP Basket Step Trailing SL (-100 at Step 1, +100 at Step 2)";
+string verShort = "V10036 | $500 to $600 " + Symbol() + " " + TimeframeToString(Period());
 
 extern bool OnlyAllowFLIPBasketSupportOrders =false;// true; // TEST ISOLATION: When true, blocks ALL orders in SafeOrderSend except FLIPBasketSupport
 
