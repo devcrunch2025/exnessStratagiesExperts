@@ -1,4 +1,4 @@
-﻿<!DOCTYPE html>
+<!DOCTYPE html>
 <html lang="en">
 <head>
   <meta charset="UTF-8">
@@ -889,7 +889,7 @@
       <div class="header-pills">
         <span class="pill pill-blue">BTCUSD • M1 Scalper</span>
         <span class="pill pill-purple">Exness Raw / Zero</span>
-        <span class="pill pill-green">V10036 (04-10-2026 23.40)</span>
+        <span class="pill pill-green">V10038 (05-10-2026 10.15)</span>
       </div>
     </div>
 
@@ -2252,18 +2252,18 @@ flowchart TD
             <div class="grid-4" style="margin-bottom: 24px;">
               <div class="stat-card">
                 <div class="stat-label">Total User Directives</div>
-                <div class="stat-value" style="color: var(--accent-green);">44 / 44</div>
+                <div class="stat-value" style="color: var(--accent-green);">46 / 46</div>
                 <div class="stat-desc">100% Implemented &amp; Audited</div>
               </div>
               <div class="stat-card">
                 <div class="stat-label">Compiler Verification</div>
                 <div class="stat-value" style="color: var(--accent-blue);">0 Errors</div>
-                <div class="stat-desc">MetaEditor 4 • 118ms Clean Build</div>
+                <div class="stat-desc">MetaEditor 4 • 134ms Clean Build</div>
               </div>
               <div class="stat-card">
                 <div class="stat-label">Active Production Build</div>
-                <div class="stat-value" style="color: var(--accent-purple);">V10036</div>
-                <div class="stat-desc">04-10-2026 23.40 Deployed</div>
+                <div class="stat-value" style="color: var(--accent-purple);">V10038</div>
+                <div class="stat-desc">05-10-2026 10.15 Deployed</div>
               </div>
               <div class="stat-card">
                 <div class="stat-label">Centralized Firewall</div>
@@ -3125,6 +3125,28 @@ flowchart TD
                     <p>Refined step-trailing StopLoss engine for FLIPBasketSupport orders: at Step 1 (+100 raw move in profit), ratchets StopLoss to -$100 raw distance from open; at Step 2 (+200 move), ratchets to $200-$100=+$100 from open; at Step 3 (+300 move), ratchets to $300-$100=+$200 from open.</p>
                     <div id="chk32" style="display: none; margin-top: 10px; font-size: 12.5px; color: var(--accent-blue); background: rgba(0,0,0,0.3); padding: 8px 12px; border-radius: 6px;">
                       <strong>Code Anchor:</strong> <code>ManageFLIPBasketSupportTrailingStopLoss()</code> (L7618), <code>ManageAllOrdersStepTrailingStopLoss()</code> (L7860), <code>glbVersion = "V10036  04-10-2026 23.40"</code> (L34) &bull; Clean MetaEditor 4 build (0 errors, 20 warnings).
+                    </div>
+                  </div>
+                </div>
+
+                <div class="step-item" style="cursor: pointer;" onclick="toggleAuditDetail('chk33')">
+                  <div class="step-num" style="background: rgba(16, 185, 129, 0.15); color: var(--accent-green); border-color: rgba(16, 185, 129, 0.3);">&#10003;</div>
+                  <div class="step-body" style="flex: 1;">
+                    <h4>Dedicated 100-Step Trailing &amp; Confirmed Bar EMA Flip Filtering <span class="badge badge-green">Active</span></h4>
+                    <p>Deactivated 20-point micro-modifiers (<code>EnablePairProfitSLModify = false</code>, <code>EnableBasketBuySell20PtSLModify = false</code>, <code>EnableSecureOneDollarProfit = false</code>) to allow positions breathing room to reach Step 2 (+$1.00) and Step 3 (+$2.00) without being choked off at +$0.10. Upgraded <code>TrackEmaFlip()</code> and <code>OnInit()</code> to evaluate confirmed bar close (<code>Close[1]</code> vs <code>iMA shift 1</code>), eliminating intra-candle false flips and protecting 0.05 lot FLIP basket support orders from churn closures.</p>
+                    <div id="chk33" style="display: none; margin-top: 10px; font-size: 12.5px; color: var(--accent-blue); background: rgba(0,0,0,0.3); padding: 8px 12px; border-radius: 6px;">
+                      <strong>Code Anchor:</strong> <code>EnablePairProfitSLModify = false</code> (L49), <code>EnableBasketBuySell20PtSLModify = false</code> (L54), <code>TrackEmaFlip()</code> (L1695), <code>OnInit()</code> (L1944), <code>glbVersion = "V10037  05-10-2026 09.50"</code> (L34) &bull; Clean MetaEditor 4 build (0 errors, 20 warnings).
+                    </div>
+                  </div>
+                </div>
+
+                <div class="step-item" style="cursor: pointer;" onclick="toggleAuditDetail('chk34')">
+                  <div class="step-num" style="background: rgba(16, 185, 129, 0.15); color: var(--accent-green); border-color: rgba(16, 185, 129, 0.3);">&#10003;</div>
+                  <div class="step-body" style="flex: 1;">
+                    <h4>$10 Lock Replenish + $5 Lock Buy/Sell + 0.06 FLIP Lot + Flip Protections <span class="badge badge-green">Active</span></h4>
+                    <p>Implemented all 5 user requirements: (1) After $10 equity lock hits target, checks every tick if FLIPBasketSupport order exited and <code>MathAbs(GlobalEmaAngle30) &lt; 5</code>, creating a new support order in the same direction. (2) <code>ManageFiveDollarLock()</code> locks individual BUY and SELL orders at $5 profit and locks BuyBasket / SellBasket at $5 profit with StopLoss. (3) Upgraded FLIPBasketSupport lot size from 0.05 to 0.06 (<code>FLIPBasketSupportLot = 0.06</code>). (4) <code>FlipIndividualOrderProtect()</code> modifies any individual order in profit &gt; $0.20 with StopLoss upon EMA flip. (5) <code>FlipBasketProtect()</code> modifies all basket orders with StopLoss if either Buy or Sell basket profit &gt; $0.50 upon EMA flip.</p>
+                    <div id="chk34" style="display: none; margin-top: 10px; font-size: 12.5px; color: var(--accent-blue); background: rgba(0,0,0,0.3); padding: 8px 12px; border-radius: 6px;">
+                      <strong>Code Anchor:</strong> <code>ManageFiveDollarLock()</code> (L2442), <code>FlipIndividualOrderProtect()</code> (L2582), <code>FlipBasketProtect()</code> (L2642), <code>ManageBasket10USDLockEquity()</code> (L2685), <code>CreateFLIPBasketSupportOrder()</code> (L7745), <code>glbVersion = "V10038  05-10-2026 10.15"</code> (L34) &bull; Clean MetaEditor 4 build (0 errors, 20 warnings).
                     </div>
                   </div>
                 </div>

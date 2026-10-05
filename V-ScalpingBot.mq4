@@ -1,4 +1,4 @@
-﻿//+------------------------------------------------------------------+
+//+------------------------------------------------------------------+
 //|                  SSL CHANNEL CROSS EA - CONTINUOUS EQUITY LADDER |
 //|                  TWO-STAGE PROFIT LADDER | CONTINUOUS RESET      |
 //+------------------------------------------------------------------+
@@ -31,8 +31,8 @@
 
 // Previous: V10010  03-10-2026 18.25 Partial Close Column in Live Position Monitor
 string TimeframeToString(int timeframe);
-string glbVersion = "V10036  $500 to $600 04-10-2026 23.40 FLIP Basket Step Trailing SL (-100 at Step 1, +100 at Step 2)";
-string verShort = "V10036 | $500 to $600 " + Symbol() + " " + TimeframeToString(Period());
+string glbVersion = "V10038  05-10-2026 10.15 $10 Lock FLIP Replenish + $5 Lock Buy/Sell + 0.06 FLIP Lot + Flip Individual/Basket Protect";
+string verShort = "V10038 | " + Symbol() + " " + TimeframeToString(Period());
 
 extern bool OnlyAllowFLIPBasketSupportOrders =false;// true; // TEST ISOLATION: When true, blocks ALL orders in SafeOrderSend except FLIPBasketSupport
 
@@ -42,15 +42,27 @@ double TargetProfitPerFlipUSD =20*100;//10;//10*2;//10;//5;//20;// 10.0; close a
 
 
 
-//Chance 1
-double SecureOneDollarProfitPerOrder=1.0*1; //1X set modify order at profit $1(any lot)
+//Chance 1: 1X Profit Lock (Disabled to give 100-step trailing ladder exclusive authority)
+bool   EnableSecureOneDollarProfit = false;          // Set false to let 100-step trailing ladder handle profit without 1X override
+double SecureOneDollarProfitPerOrder=1.0*1;          // 1X set modify order at profit $1(any lot)
 
 //Chance 1B: Pair Profit 2-Order Combination Live SL Modifier (> $1 profit)
-bool   EnablePairProfitSLModify = true;               // Modify orders with SL when any 2-order combination profit > $1
+bool   EnablePairProfitSLModify = false;             // Disabled: avoid 20pt choke so 100-step trailing ladder has full authority
 double PairCombinationProfitThresholdUSD = 1.0;       // Threshold profit in USD for 2-order combination
 double PairCombinationSLDistanceRaw = 0.0;            // Distance from live price in raw points (0.0 = auto broker stop level)
 bool   PairCombinationUseBalanceMultiplier = false;   // If true, scale threshold by balance multiplier (default false: fixed $1.00 USD)
 void   ModifyPairProfitWithStopLoss();
+
+//Chance 1C: Basket Buy/Sell 20-Point Micro-Modifier (Disabled to allow positions to reach Step 2/3)
+bool   EnableBasketBuySell20PtSLModify = false;       // Disabled: prevents 20pt choke in modifyOnlyBuyOrders/modifyOnlySellOrders
+
+//Chance 1D: $5 LOCK Individual BUY & SELL Orders + BuyBasket / SellBasket Lock with StopLoss (V10038)
+extern bool   EnableFiveDollarLock = true;                 // Enable $5 Individual & Basket Lock with StopLoss
+extern double FiveDollarIndividualLockProfitUSD = 5.0;     // Individual order lock threshold ($5.00)
+extern double FiveDollarBasketLockProfitUSD = 5.0;         // Buy/Sell Basket lock threshold ($5.00)
+
+//Chance 1E: FLIP Basket Support Lot Size (V10038: Updated from 0.05 to 0.06)
+extern double FLIPBasketSupportLot = 0.06;                 // FLIP Basket Support order lot size (0.06)
 
 //chance 2
 int partialClose01in05IndividualPercentage=20*1;//10;//2*2;//per lot 0.01//if 0.05 close 0.01 at total profit of 20% means close 0.01 lot
@@ -90,6 +102,7 @@ double g_basket10USDBaselineEquity         = 0.0;   // Baseline equity when bask
 double g_basket10USDNextTargetEquity       = 0.0;   // Next target equity ($10 step up)
 int    g_basket10USDStepCount              = 0;     // Number of $10 steps triggered in current basket
 datetime g_basket10USDLastModifyTime       = 0;     // Timestamp of last $10 lock modification
+bool   g_basket10USDTargetHitActive        = false; // Set true when $10 target reached; enables every-tick check for FLIPBasketSupport replenishment
 
 
 double StopLossUSD =40;//5;//10;//40;//30;//10;//6;//10;//6;//5;//10;//2;// 10;
@@ -413,7 +426,10 @@ bool IsRecoveryOrderWithActiveParent(int ticket, string comment = "");
 bool IsFLIPBasketSupportOrder(int ticket, string comment = "");
 bool HasOpenFLIPBasketSupportOrder(int targetType = -1);
 void CloseFLIPBasketSupportOrders(int targetType = -1);
-int  CreateFLIPBasketSupportOrder(int flipDirection);
+int  CreateFLIPBasketSupportOrder(int flipDirection, bool ignoreEmaDistanceGate = false);
+void ManageFiveDollarLock();
+void FlipIndividualOrderProtect();
+void FlipBasketProtect();
 void ManageFLIPBasketSupportTrailingStopLoss();
 void ManageRecoveryOrderStepTrailingStopLoss();
 void ManageAllOrdersStepTrailingStopLoss();
@@ -699,6 +715,9 @@ void SecureDistanceProfitLadder()
 //+------------------------------------------------------------------+
 void SecureOneDollarProfit()
   {
+   if(!EnableSecureOneDollarProfit)
+      return;
+
 // The base 1X target amount in your account currency
    double baseProfitTarget = SecureOneDollarProfitPerOrder * balancelomultipler;
 
@@ -1687,15 +1706,16 @@ void DrawLadderHaltCircle(datetime time, double price)
 //+------------------------------------------------------------------+
 void TrackEmaFlip()
   {
-   double ema = iMA(Symbol(), Period(), InpEMA200Period, InpEMAPriceShift, MODE_EMA, PRICE_CLOSE, 0);
+   // Use confirmed closed bar (Close[1] vs iMA shift 1) to eliminate intra-candle false flips
+   double ema = iMA(Symbol(), Period(), InpEMA200Period, InpEMAPriceShift, MODE_EMA, PRICE_CLOSE, 1);
    if(ema <= 0)
       return;
 
    int currentDirection = 0;
-   if(Close[0] > ema)
+   if(Close[1] > ema)
       currentDirection = 1;
    else
-      if(Close[0] < ema)
+      if(Close[1] < ema)
          currentDirection = -1;
 
 // Check if the EMA direction has changed
@@ -1709,6 +1729,10 @@ void TrackEmaFlip()
       ActiveEquityBaseline = AccountBalance() * SecurebaselinePercentage; // Updated to 10% less than current equity on flip
       HighestCycleProfitUSD = 0.0;
       HighestLadderLevelThisCycle = 0;
+
+      // V10038 Requirements 4 & 5: When EMA flip occurs, protect profitable individual orders & baskets
+      FlipIndividualOrderProtect(); // If any individual order in profit > $0.20, modify with SL
+      FlipBasketProtect();          // If BUY or SELL basket in profit > $0.50, modify all basket orders with SL
 
       // Close previous FLIPBasketSupport orders immediately on flip change
       CloseFLIPBasketSupportOrders();
@@ -1933,13 +1957,13 @@ int OnInit()
       if(initOrderType == OP_BUYSTOP || initOrderType == OP_SELLSTOP || initOrderType == OP_BUYLIMIT || initOrderType == OP_SELLLIMIT)
          OrderDelete(OrderTicket(), clrNONE);
      }
-   double ema = iMA(Symbol(), Period(), InpEMA200Period, InpEMAPriceShift, MODE_EMA, PRICE_CLOSE, 0);
+   double ema = iMA(Symbol(), Period(), InpEMA200Period, InpEMAPriceShift, MODE_EMA, PRICE_CLOSE, 1);
    if(ema > 0)
      {
-      if(Close[0] > ema)
+      if(Close[1] > ema)
          LastTrackedEmaDirection = 1;
       else
-         if(Close[0] < ema)
+         if(Close[1] < ema)
             LastTrackedEmaDirection = -1;
      }
    HasEmaFlippedSinceLoad = false;
@@ -2228,6 +2252,7 @@ void OnTick()
 
    ManageOverallBasketProfit();//modify basket orders at $1 profit
    ManageBasket10USDLockEquity(); // Lock basket profit with live SL on $10 fixed equity steps
+   ManageFiveDollarLock(); // V10038: $5 LOCK Individual BUY & SELL orders + BuyBasket / SellBasket Lock with StopLoss
    ModifyPairProfitWithStopLoss(); // Live SL modifier when any 2-order combination profit > $1
    ManageFLIPBasketSupportTrailingStopLoss(); // Dedicated step-trailing StopLoss on every 100 step move in positive profit
    ManageRecoveryOrderStepTrailingStopLoss(); // Dedicated 100X raw gap step-trailing StopLoss on every profit jump for recovery orders
@@ -2238,9 +2263,9 @@ void OnTick()
    if(enable5PercentClose)
       Manage5PercentLadderReset();
 
-   if(GetTotalSellOrders()>1)
+   if(EnableBasketBuySell20PtSLModify && GetTotalSellOrders()>1)
       modifyOnlySellOrders();
-   if(GetTotalBuyOrders()>1)
+   if(EnableBasketBuySell20PtSLModify && GetTotalBuyOrders()>1)
       modifyOnlyBuyOrders();
 
    CheckForNewDay();
@@ -2411,6 +2436,315 @@ void CheckMomentumExhaustionExits()
      }
   }
 //+------------------------------------------------------------------+
+//| ManageFiveDollarLock (V10038 Requirement 2)                      |
+//| $5 LOCK: Locks individual BUY & SELL orders with StopLoss at $5  |
+//| profit, and locks BuyBasket & SellBasket with StopLoss at $5     |
+//| combined profit.                                                 |
+//+------------------------------------------------------------------+
+void ManageFiveDollarLock()
+  {
+   if(!EAStartupComplete)
+      return;
+   if(!EnableFiveDollarLock)
+      return;
+
+   RefreshRates();
+   double minDistance = GetRequiredStopDistance();
+   if(minDistance <= 0.0)
+      minDistance = Point * 10;
+   if(minDistance < Point * 10)
+      minDistance = Point * 10;
+
+   double mult = (balancelomultipler > 0 ? balancelomultipler : 1);
+   double indTargetUSD    = FiveDollarIndividualLockProfitUSD * mult;
+   double basketTargetUSD = FiveDollarBasketLockProfitUSD * mult;
+
+   double buyBasketProfit  = 0.0;
+   double sellBasketProfit = 0.0;
+   int    buyCount         = 0;
+   int    sellCount        = 0;
+
+   // 1. Scan all orders: accumulate basket profits and check individual $5 profit lock
+   for(int i = OrdersTotal() - 1; i >= 0; i--)
+     {
+      if(!OrderSelect(i, SELECT_BY_POS, MODE_TRADES))
+         continue;
+      if(OrderSymbol() != Symbol() || OrderMagicNumber() != MagicNumber)
+         continue;
+
+      int oType = OrderType();
+      if(oType != OP_BUY && oType != OP_SELL)
+         continue;
+
+      int ticket       = OrderTicket();
+      double openPrice = OrderOpenPrice();
+      double curSL     = OrderStopLoss();
+      double curTP     = OrderTakeProfit();
+      double orderPL   = OrderProfit() + OrderSwap() + OrderCommission();
+
+      if(oType == OP_BUY)
+        {
+         buyBasketProfit += orderPL;
+         buyCount++;
+
+         // Individual BUY order lock at $5
+         if(orderPL >= indTargetUSD)
+           {
+            double proposedSL = NormalizeDouble(Bid - minDistance, Digits);
+            if(curSL == 0.0 || proposedSL > curSL + (Point * 0.5))
+              {
+               ResetLastError();
+               bool ok = SafeOrderModify(ticket, openPrice, proposedSL, curTP, 0, clrLimeGreen);
+               Print("$5 INDIVIDUAL BUY LOCK: Ticket #", ticket,
+                     " Profit=$", DoubleToString(orderPL, 2), " >= $", DoubleToString(indTargetUSD, 2),
+                     " | SL locked to ", DoubleToString(proposedSL, Digits), " | Success=", ok);
+              }
+           }
+        }
+      else if(oType == OP_SELL)
+        {
+         sellBasketProfit += orderPL;
+         sellCount++;
+
+         // Individual SELL order lock at $5
+         if(orderPL >= indTargetUSD)
+           {
+            double proposedSL = NormalizeDouble(Ask + minDistance, Digits);
+            if(curSL == 0.0 || proposedSL < curSL - (Point * 0.5))
+              {
+               ResetLastError();
+               bool ok = SafeOrderModify(ticket, openPrice, proposedSL, curTP, 0, clrTomato);
+               Print("$5 INDIVIDUAL SELL LOCK: Ticket #", ticket,
+                     " Profit=$", DoubleToString(orderPL, 2), " >= $", DoubleToString(indTargetUSD, 2),
+                     " | SL locked to ", DoubleToString(proposedSL, Digits), " | Success=", ok);
+              }
+           }
+        }
+     }
+
+   // 2. BuyBasket Lock at $5: If total Buy basket profit >= $5, modify all Buy orders with SL
+   if(buyBasketProfit >= basketTargetUSD && buyCount > 0)
+     {
+      RefreshRates();
+      for(int i = OrdersTotal() - 1; i >= 0; i--)
+        {
+         if(!OrderSelect(i, SELECT_BY_POS, MODE_TRADES))
+            continue;
+         if(OrderSymbol() != Symbol() || OrderMagicNumber() != MagicNumber)
+            continue;
+         if(OrderType() != OP_BUY)
+            continue;
+
+         int ticket       = OrderTicket();
+         double openPrice = OrderOpenPrice();
+         double curSL     = OrderStopLoss();
+         double curTP     = OrderTakeProfit();
+         double proposedSL = NormalizeDouble(Bid - minDistance, Digits);
+
+         if(curSL == 0.0 || proposedSL > curSL + (Point * 0.5))
+           {
+            ResetLastError();
+            bool ok = SafeOrderModify(ticket, openPrice, proposedSL, curTP, 0, clrLimeGreen);
+            Print("$5 BUY BASKET LOCK: Order #", ticket,
+                  " (Basket Profit=$", DoubleToString(buyBasketProfit, 2), ") -> SL locked to ", DoubleToString(proposedSL, Digits), " | Success=", ok);
+           }
+        }
+     }
+
+   // 3. SellBasket Lock at $5: If total Sell basket profit >= $5, modify all Sell orders with SL
+   if(sellBasketProfit >= basketTargetUSD && sellCount > 0)
+     {
+      RefreshRates();
+      for(int i = OrdersTotal() - 1; i >= 0; i--)
+        {
+         if(!OrderSelect(i, SELECT_BY_POS, MODE_TRADES))
+            continue;
+         if(OrderSymbol() != Symbol() || OrderMagicNumber() != MagicNumber)
+            continue;
+         if(OrderType() != OP_SELL)
+            continue;
+
+         int ticket       = OrderTicket();
+         double openPrice = OrderOpenPrice();
+         double curSL     = OrderStopLoss();
+         double curTP     = OrderTakeProfit();
+         double proposedSL = NormalizeDouble(Ask + minDistance, Digits);
+
+         if(curSL == 0.0 || proposedSL < curSL - (Point * 0.5))
+           {
+            ResetLastError();
+            bool ok = SafeOrderModify(ticket, openPrice, proposedSL, curTP, 0, clrTomato);
+            Print("$5 SELL BASKET LOCK: Order #", ticket,
+                  " (Basket Profit=$", DoubleToString(sellBasketProfit, 2), ") -> SL locked to ", DoubleToString(proposedSL, Digits), " | Success=", ok);
+           }
+        }
+     }
+  }
+
+//+------------------------------------------------------------------+
+//| FlipIndividualOrderProtect (V10038 Requirement 4)                |
+//| When EMA flip occurs, if any individual order is in profit       |
+//| above $0.20, modifies the order with StopLoss to lock profit.    |
+//+------------------------------------------------------------------+
+void FlipIndividualOrderProtect()
+  {
+   RefreshRates();
+   double minDistance = GetRequiredStopDistance();
+   if(minDistance <= 0.0)
+      minDistance = Point * 10;
+   if(minDistance < Point * 10)
+      minDistance = Point * 10;
+
+   double thresholdUSD = 0.20;
+
+   for(int i = OrdersTotal() - 1; i >= 0; i--)
+     {
+      if(!OrderSelect(i, SELECT_BY_POS, MODE_TRADES))
+         continue;
+      if(OrderSymbol() != Symbol() || OrderMagicNumber() != MagicNumber)
+         continue;
+
+      int oType = OrderType();
+      if(oType != OP_BUY && oType != OP_SELL)
+         continue;
+
+      double orderPL = OrderProfit() + OrderSwap() + OrderCommission();
+      if(orderPL <= thresholdUSD)
+         continue;
+
+      int ticket       = OrderTicket();
+      double openPrice = OrderOpenPrice();
+      double curSL     = OrderStopLoss();
+      double curTP     = OrderTakeProfit();
+
+      if(oType == OP_BUY)
+        {
+         double proposedSL = NormalizeDouble(Bid - minDistance, Digits);
+         if(curSL == 0.0 || proposedSL > curSL + (Point * 0.5))
+           {
+            ResetLastError();
+            bool ok = SafeOrderModify(ticket, openPrice, proposedSL, curTP, 0, clrLimeGreen);
+            Print("FLIP INDIVIDUAL ORDER PROTECT: BUY #", ticket,
+                  " Profit=$", DoubleToString(orderPL, 2), " > $0.20 | SL set to ", DoubleToString(proposedSL, Digits), " | Success=", ok);
+           }
+        }
+      else if(oType == OP_SELL)
+        {
+         double proposedSL = NormalizeDouble(Ask + minDistance, Digits);
+         if(curSL == 0.0 || proposedSL < curSL - (Point * 0.5))
+           {
+            ResetLastError();
+            bool ok = SafeOrderModify(ticket, openPrice, proposedSL, curTP, 0, clrTomato);
+            Print("FLIP INDIVIDUAL ORDER PROTECT: SELL #", ticket,
+                  " Profit=$", DoubleToString(orderPL, 2), " > $0.20 | SL set to ", DoubleToString(proposedSL, Digits), " | Success=", ok);
+           }
+        }
+     }
+  }
+
+//+------------------------------------------------------------------+
+//| FlipBasketProtect (V10038 Requirement 5)                         |
+//| When EMA flip occurs, if any basket (BUY or SELL) is in profit   |
+//| above $0.50, modifies all basket orders with StopLoss to lock.   |
+//+------------------------------------------------------------------+
+void FlipBasketProtect()
+  {
+   RefreshRates();
+   double minDistance = GetRequiredStopDistance();
+   if(minDistance <= 0.0)
+      minDistance = Point * 10;
+   if(minDistance < Point * 10)
+      minDistance = Point * 10;
+
+   double buyBasketProfit  = 0.0;
+   double sellBasketProfit = 0.0;
+   int    buyCount         = 0;
+   int    sellCount        = 0;
+
+   // 1. Calculate Buy & Sell Basket Profits
+   for(int i = OrdersTotal() - 1; i >= 0; i--)
+     {
+      if(!OrderSelect(i, SELECT_BY_POS, MODE_TRADES))
+         continue;
+      if(OrderSymbol() != Symbol() || OrderMagicNumber() != MagicNumber)
+         continue;
+
+      int oType = OrderType();
+      double pl = OrderProfit() + OrderSwap() + OrderCommission();
+      if(oType == OP_BUY)
+        {
+         buyBasketProfit += pl;
+         buyCount++;
+        }
+      else if(oType == OP_SELL)
+        {
+         sellBasketProfit += pl;
+         sellCount++;
+        }
+     }
+
+   double thresholdUSD = 0.50;
+
+   // 2. Protect BUY Basket if profit > $0.50
+   if(buyBasketProfit > thresholdUSD && buyCount > 0)
+     {
+      Print("FLIP BASKET PROTECT: BUY Basket Profit=$", DoubleToString(buyBasketProfit, 2),
+            " > $0.50 at EMA flip. Modifying all BUY orders with SL...");
+      for(int i = OrdersTotal() - 1; i >= 0; i--)
+        {
+         if(!OrderSelect(i, SELECT_BY_POS, MODE_TRADES))
+            continue;
+         if(OrderSymbol() != Symbol() || OrderMagicNumber() != MagicNumber)
+            continue;
+         if(OrderType() != OP_BUY)
+            continue;
+
+         int ticket       = OrderTicket();
+         double openPrice = OrderOpenPrice();
+         double curSL     = OrderStopLoss();
+         double curTP     = OrderTakeProfit();
+         double proposedSL = NormalizeDouble(Bid - minDistance, Digits);
+
+         if(curSL == 0.0 || proposedSL > curSL + (Point * 0.5))
+           {
+            ResetLastError();
+            bool ok = SafeOrderModify(ticket, openPrice, proposedSL, curTP, 0, clrLimeGreen);
+            Print("FLIP BASKET PROTECT: BUY #", ticket, " SL locked to ", DoubleToString(proposedSL, Digits), " | Success=", ok);
+           }
+        }
+     }
+
+   // 3. Protect SELL Basket if profit > $0.50
+   if(sellBasketProfit > thresholdUSD && sellCount > 0)
+     {
+      Print("FLIP BASKET PROTECT: SELL Basket Profit=$", DoubleToString(sellBasketProfit, 2),
+            " > $0.50 at EMA flip. Modifying all SELL orders with SL...");
+      for(int i = OrdersTotal() - 1; i >= 0; i--)
+        {
+         if(!OrderSelect(i, SELECT_BY_POS, MODE_TRADES))
+            continue;
+         if(OrderSymbol() != Symbol() || OrderMagicNumber() != MagicNumber)
+            continue;
+         if(OrderType() != OP_SELL)
+            continue;
+
+         int ticket       = OrderTicket();
+         double openPrice = OrderOpenPrice();
+         double curSL     = OrderStopLoss();
+         double curTP     = OrderTakeProfit();
+         double proposedSL = NormalizeDouble(Ask + minDistance, Digits);
+
+         if(curSL == 0.0 || proposedSL < curSL - (Point * 0.5))
+           {
+            ResetLastError();
+            bool ok = SafeOrderModify(ticket, openPrice, proposedSL, curTP, 0, clrTomato);
+            Print("FLIP BASKET PROTECT: SELL #", ticket, " SL locked to ", DoubleToString(proposedSL, Digits), " | Success=", ok);
+           }
+        }
+     }
+  }
+
+//+------------------------------------------------------------------+
 //| Manage Overall Basket Profit (Requires Both Buy and Sell Orders) |
 //+------------------------------------------------------------------+
 void ManageOverallBasketProfit()
@@ -2475,6 +2809,7 @@ void ResetBasket10USDLock(double resetEquity = 0.0)
    g_basket10USDBaselineEquity = resetEquity;
    g_basket10USDNextTargetEquity = g_basket10USDBaselineEquity + Basket10USDLockStepUSD;
    g_basket10USDStepCount = 0;
+   g_basket10USDTargetHitActive = false;
    Print("BASKET $10 EQUITY LOCK RESET | Baseline Equity=$", DoubleToString(g_basket10USDBaselineEquity, 2),
          " | Next $10 Target=$", DoubleToString(g_basket10USDNextTargetEquity, 2));
   }
@@ -2516,6 +2851,7 @@ void ManageBasket10USDLockEquity()
       g_basket10USDBaselineEquity = 0.0;
       g_basket10USDNextTargetEquity = 0.0;
       g_basket10USDStepCount = 0;
+      g_basket10USDTargetHitActive = false;
       return;
      }
 
@@ -2606,6 +2942,7 @@ void ManageBasket10USDLockEquity()
       // Advance baseline and calculate next $10 target:
       // e.g. $100 -> $110 -> next target is $110 + $10 = $120 -> next $120 + $10 = $130
       g_basket10USDStepCount++;
+      g_basket10USDTargetHitActive = true;
       g_basket10USDLastModifyTime = TimeCurrent();
       g_basket10USDBaselineEquity = g_basket10USDNextTargetEquity;
       g_basket10USDNextTargetEquity = g_basket10USDBaselineEquity + Basket10USDLockStepUSD;
@@ -2620,6 +2957,38 @@ void ManageBasket10USDLockEquity()
 
       Print("BASKET $10 NEXT TARGET SET: Next Equity Target=$", DoubleToString(g_basket10USDNextTargetEquity, 2),
             " (Step #", g_basket10USDStepCount + 1, ")");
+     }
+
+   // 4. Requirement 1: After hitting the target, keep checking every tick:
+   // If FLIPBasketSupport order is not active/exited and MathAbs(GlobalEmaAngle30) < 5,
+   // create new FLIPBasketSupport order in the same direction!
+   if(g_basket10USDTargetHitActive && g_basket10USDStepCount > 0)
+     {
+      if(!HasOpenFLIPBasketSupportOrder(-1))
+        {
+         GlobalEmaAngle30 = GetEmaAngleDegrees(30);
+         if(MathAbs(GlobalEmaAngle30) < 5.0)
+           {
+            int dir = LastTrackedEmaDirection;
+            if(dir == 0)
+              {
+               double ema200 = iMA(Symbol(), Period(), InpEMA200Period, InpEMAPriceShift, MODE_EMA, PRICE_CLOSE, 1);
+               dir = (Close[1] > ema200) ? 1 : -1;
+              }
+            if(dir != 0)
+              {
+               Print("BASKET $10 LOCK: Target was hit (Step #", g_basket10USDStepCount,
+                     "), FLIPBasketSupport order not active, MathAbs(GlobalEmaAngle30)=",
+                     DoubleToString(MathAbs(GlobalEmaAngle30), 2), " < 5. Creating new FLIPBasketSupport order in same direction (",
+                     (dir == 1 ? "BUY" : "SELL"), ")...");
+               int tkt = CreateFLIPBasketSupportOrder(dir, true);
+               if(tkt > 0)
+                 {
+                  Print("BASKET $10 LOCK: New FLIPBasketSupport order #", tkt, " created successfully in same direction.");
+                 }
+              }
+           }
+        }
      }
   }
 
@@ -6075,6 +6444,9 @@ void CheckEquityBalanceProfitTarget()
 //+------------------------------------------------------------------+
 void modifyOnlyBuyOrders()
   {
+   if(!EnableBasketBuySell20PtSLModify)
+      return;
+
    double basketBuyProfit = 0.0;
 
 // 1. Calculate Total Buy Basket Profit
@@ -6144,6 +6516,9 @@ void modifyOnlyBuyOrders()
 //+------------------------------------------------------------------+
 void modifyOnlySellOrders()
   {
+   if(!EnableBasketBuySell20PtSLModify)
+      return;
+
    double basketSellProfit = 0.0;
 
 // 1. Calculate Total Sell Basket Profit
@@ -7521,7 +7896,7 @@ void CloseFLIPBasketSupportOrders(int targetType = -1)
 //| new one; strictly maximum 1 active support order in total!       |
 //| Take profit set to 500 raw BTC price distance                    |
 //+------------------------------------------------------------------+
-int CreateFLIPBasketSupportOrder(int flipDirection)
+int CreateFLIPBasketSupportOrder(int flipDirection, bool ignoreEmaDistanceGate = false)
   {
    if(!EAStartupComplete)
       return -1;
@@ -7540,14 +7915,17 @@ int CreateFLIPBasketSupportOrder(int flipDirection)
 //    return -1;
 //   }
 
-// 0. EMA Distance Gate: Only open FLIPBasketSupport order when EMAdistance gap from live price > 50
-   int targetOrderType = (flipDirection == 1) ? OP_BUY : OP_SELL;
-   double currentEmaDist = GetDistanceToEMAPrice(targetOrderType, true);
-   if(currentEmaDist <= FLIPBasketSupportMinEmaDistance)
+// 0. EMA Distance Gate: Only open FLIPBasketSupport order when EMAdistance gap from live price > 50 (unless bypassed e.g. on $10 lock replenishment)
+   if(!ignoreEmaDistanceGate)
      {
-      Print("FLIPBasketSupport order skipped: EMAdistance gap from live price = ", DoubleToString(currentEmaDist, 2),
-            " <= ", DoubleToString(FLIPBasketSupportMinEmaDistance, 2), " (Requires gap > ", DoubleToString(FLIPBasketSupportMinEmaDistance, 2), ")");
-      return -1;
+      int targetOrderType = (flipDirection == 1) ? OP_BUY : OP_SELL;
+      double currentEmaDist = GetDistanceToEMAPrice(targetOrderType, true);
+      if(currentEmaDist <= FLIPBasketSupportMinEmaDistance)
+        {
+         Print("FLIPBasketSupport order skipped: EMAdistance gap from live price = ", DoubleToString(currentEmaDist, 2),
+               " <= ", DoubleToString(FLIPBasketSupportMinEmaDistance, 2), " (Requires gap > ", DoubleToString(FLIPBasketSupportMinEmaDistance, 2), ")");
+         return -1;
+        }
      }
 
 // 1. SAFEST METHOD: Close any already open FLIPBasketSupport order before creating new one
@@ -7561,7 +7939,7 @@ int CreateFLIPBasketSupportOrder(int flipDirection)
      }
 
    RefreshRates();
-   double flipLots = 0.01*5 * (balancelomultipler > 0 ? balancelomultipler : 1);
+   double flipLots = FLIPBasketSupportLot * (balancelomultipler > 0 ? balancelomultipler : 1);
    flipLots = NormalizeLots(flipLots);
 
    int ticket = -1;
@@ -12341,7 +12719,7 @@ void UpdateDashboard(DailyProtectionState &state)
    string dailySLStr = StringConcatenate("Stop: -$", DoubleToString(dailyStopUSD, 2), " | Buffer: $", DoubleToString(remStopBuffer, 2));
    color dailySLColor = (remStopBuffer > dailyStopUSD * 0.5) ? clrLime : (remStopBuffer > 0 ? clrGold : clrTomato);
 
-   string sec1Str = StringConcatenate("ACTIVE ($", DoubleToString(SecureOneDollarProfitPerOrder, 2), " Lock) | Secured: ", IntegerToString(securedOrdersCount), " / ", IntegerToString(buyOrders + sellOrders));
+   string sec1Str = EnableSecureOneDollarProfit ? StringConcatenate("ACTIVE ($", DoubleToString(SecureOneDollarProfitPerOrder, 2), " Lock) | Secured: ", IntegerToString(securedOrdersCount), " / ", IntegerToString(buyOrders + sellOrders)) : "DISABLED (100-Step Trailing Active)";
    string oppCloseStr = CloseOppositeOrdersOnSignal ? StringConcatenate("ACTIVE (Close <= $", DoubleToString(closeOppositeLossThreshold, 2), " Loss on Signal Flip)") : "DISABLED";
 
 // 6B. PARTIAL LOSS CLOSE & LIVE PRICE DIFFERENCE MONITOR
