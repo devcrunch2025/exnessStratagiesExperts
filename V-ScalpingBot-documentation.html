@@ -889,7 +889,7 @@
       <div class="header-pills">
         <span class="pill pill-blue">BTCUSD • M1 Scalper</span>
         <span class="pill pill-purple">Exness Raw / Zero</span>
-        <span class="pill pill-green">V10038 (05-10-2026 10.15)</span>
+        <span class="pill pill-green">V10046 (06-10-2026 23.15)</span>
       </div>
     </div>
 
@@ -2252,7 +2252,7 @@ flowchart TD
             <div class="grid-4" style="margin-bottom: 24px;">
               <div class="stat-card">
                 <div class="stat-label">Total User Directives</div>
-                <div class="stat-value" style="color: var(--accent-green);">46 / 46</div>
+                <div class="stat-value" style="color: var(--accent-green);">47 / 47</div>
                 <div class="stat-desc">100% Implemented &amp; Audited</div>
               </div>
               <div class="stat-card">
@@ -2262,8 +2262,8 @@ flowchart TD
               </div>
               <div class="stat-card">
                 <div class="stat-label">Active Production Build</div>
-                <div class="stat-value" style="color: var(--accent-purple);">V10038</div>
-                <div class="stat-desc">05-10-2026 10.15 Deployed</div>
+                <div class="stat-value" style="color: var(--accent-purple);">V10046</div>
+                <div class="stat-desc">06-10-2026 23.15 Deployed</div>
               </div>
               <div class="stat-card">
                 <div class="stat-label">Centralized Firewall</div>
@@ -3146,7 +3146,95 @@ flowchart TD
                     <h4>$10 Lock Replenish + $5 Lock Buy/Sell + 0.06 FLIP Lot + Flip Protections <span class="badge badge-green">Active</span></h4>
                     <p>Implemented all 5 user requirements: (1) After $10 equity lock hits target, checks every tick if FLIPBasketSupport order exited and <code>MathAbs(GlobalEmaAngle30) &lt; 5</code>, creating a new support order in the same direction. (2) <code>ManageFiveDollarLock()</code> locks individual BUY and SELL orders at $5 profit and locks BuyBasket / SellBasket at $5 profit with StopLoss. (3) Upgraded FLIPBasketSupport lot size from 0.05 to 0.06 (<code>FLIPBasketSupportLot = 0.06</code>). (4) <code>FlipIndividualOrderProtect()</code> modifies any individual order in profit &gt; $0.20 with StopLoss upon EMA flip. (5) <code>FlipBasketProtect()</code> modifies all basket orders with StopLoss if either Buy or Sell basket profit &gt; $0.50 upon EMA flip.</p>
                     <div id="chk34" style="display: none; margin-top: 10px; font-size: 12.5px; color: var(--accent-blue); background: rgba(0,0,0,0.3); padding: 8px 12px; border-radius: 6px;">
-                      <strong>Code Anchor:</strong> <code>ManageFiveDollarLock()</code> (L2442), <code>FlipIndividualOrderProtect()</code> (L2582), <code>FlipBasketProtect()</code> (L2642), <code>ManageBasket10USDLockEquity()</code> (L2685), <code>CreateFLIPBasketSupportOrder()</code> (L7745), <code>glbVersion = "V10038  05-10-2026 10.15"</code> (L34) &bull; Clean MetaEditor 4 build (0 errors, 20 warnings).
+                      <strong>Code Anchor:</strong> <code>ManageFiveDollarLock()</code> (L2442), <code>FlipIndividualOrderProtect()</code> (L2582), <code>FlipBasketProtect()</code> (L2642), <code>ManageBasket10USDLockEquity()</code> (L2685), <code>CreateFLIPBasketSupportOrder()</code> (L7745), <code>glbVersion = "V10038"</code> (L34) &bull; Clean MetaEditor 4 build (0 errors, 20 warnings).
+                    </div>
+                  </div>
+                </div>
+
+                <div class="step-item" style="cursor: pointer;" onclick="toggleAuditDetail('chk35')">
+                  <div class="step-num" style="background: rgba(16, 185, 129, 0.15); color: var(--accent-green); border-color: rgba(16, 185, 129, 0.3);">&#10003;</div>
+                  <div class="step-body" style="flex: 1;">
+                    <h4>Basket Profit Dynamic Logging ($5 / $10 Variable Reason &bull; Non-Orphan Close) <span class="badge badge-green">Active</span></h4>
+                    <p>Trading logic preserved 100% intact. Dynamically updated journal logging and reason documentation across <code>ManageBasket10USDLockEquity()</code>, <code>ResetBasket10USDLock()</code>, and <code>ManageFiveDollarLock()</code> to reference the live variable (<code>Basket10USDLockStepUSD = </code> or <code></code>). Clarified journal logs when modifying orders' SL to live price that the order is closed/locked with basket profit as part of the overall basket target (not an orphan close).</p>
+                    <div id="chk35" style="display: none; margin-top: 10px; font-size: 12.5px; color: var(--accent-blue); background: rgba(0,0,0,0.3); padding: 8px 12px; border-radius: 6px;">
+                      <strong>Code Anchor:</strong> <code>ManageBasket10USDLockEquity()</code> (L2885, L2938), <code>ResetBasket10USDLock()</code> (L2813), <code>ManageFiveDollarLock()</code> (L2498, L2518, L2548, L2578), <code>glbVersion = "V10039"</code> (L34) &bull; Clean MetaEditor 4 build (0 errors, 20 warnings).
+                    </div>
+                  </div>
+                </div>
+
+                <div class="step-item" style="cursor: pointer;" onclick="toggleAuditDetail('chk36')">
+                  <div class="step-num" style="background: rgba(16, 185, 129, 0.15); color: var(--accent-green); border-color: rgba(16, 185, 129, 0.3);">&#10003;</div>
+                  <div class="step-body" style="flex: 1;">
+                    <h4>FLIPBasketSupport Minimum 5-Minute Gap from Recent Closed Order <span class="badge badge-green">Active</span></h4>
+                    <p>Enforced mandatory 5-minute cooldown (300 seconds) condition for <code>FLIPBasketSupport</code> order creation: (1) <code>GetLastClosedFLIPBasketSupportCloseTime()</code> audits both live tracked ticket and recent closed orders in account history. (2) In <code>CreateFLIPBasketSupportOrder()</code>, if less than 300s elapsed since the last support order closed, creation is blocked with throttled journal logging. (3) In <code>ManageBasket10USDLockEquity()</code>, replenishment evaluates the 5-minute cooldown before triggering creation, preventing rapid consecutive order entries after SL or target exits.</p>
+                    <div id="chk36" style="display: none; margin-top: 10px; font-size: 12.5px; color: var(--accent-blue); background: rgba(0,0,0,0.3); padding: 8px 12px; border-radius: 6px;">
+                      <strong>Code Anchor:</strong> <code>FLIPBasketSupportMinCloseGapSeconds = 300</code> (L311), <code>GetLastClosedFLIPBasketSupportCloseTime()</code> (L8012), <code>CreateFLIPBasketSupportOrder()</code> (L8124), <code>ManageBasket10USDLockEquity()</code> (L2972), <code>glbVersion = "V10040  05-10-2026 11.00"</code> (L34) &bull; Clean MetaEditor 4 build (0 errors, 20 warnings).
+                    </div>
+                  </div>
+                </div>
+
+                <div class="step-item" style="cursor: pointer;" onclick="toggleAuditDetail('chk37')">
+                  <div class="step-num" style="background: rgba(16, 185, 129, 0.15); color: var(--accent-green); border-color: rgba(16, 185, 129, 0.3);">&#10003;</div>
+                  <div class="step-body" style="flex: 1;">
+                    <h4>FLIPBasketSupport Recreated Order Gates (Opposite Loss > $5 &bull; EMA Angle > 5) <span class="badge badge-green">Active</span></h4>
+                    <p>Enforced conditions for recreating <code>FLIPBasketSupport</code> orders (2nd order onwards after the first one closed in the cycle): (1) <strong>1st Order Behavior:</strong> Opens normally on trend flip when EMA distance > 50. (2) <strong>2nd Order Onwards (Recreation Gates):</strong> Strictly requires <em>BOTH</em> <code>MathAbs(GlobalEmaAngle30) > 5.0</code> (momentum confirmation) AND opposite order type in loss > $5.00 (evaluated by <code>HasOppositeOrderTypeLossOver5()</code>: total opposite net P/L &lt; -$5.00 or any single opposite order loss &gt; $5.00). Orders are blocked with throttled logs if either condition is unmet. Seamlessly integrated with 5-minute cooldown (300s) and cycle tracking via <code>g_flipBasketSupportCreatedInCycle</code>.</p>
+                    <div id="chk37" style="display: none; margin-top: 10px; font-size: 12.5px; color: var(--accent-blue); background: rgba(0,0,0,0.3); padding: 8px 12px; border-radius: 6px;">
+                      <strong>Code Anchor:</strong> <code>FLIPBasketSupportRecreateMinAngle = 5.0</code> (L312), <code>FLIPBasketSupportRecreateOppositeMinLossUSD = 5.0</code> (L313), <code>g_flipBasketSupportCreatedInCycle</code> (L314, L1751, L8200), <code>HasOppositeOrderTypeLossOver5()</code> (L8016), <code>CreateFLIPBasketSupportOrder()</code> (L8096), <code>ManageBasket10USDLockEquity()</code> (L2999), <code>glbVersion = "V10041  05-10-2026 12.10"</code> (L34) &bull; Clean MetaEditor 4 build (0 errors, 20 warnings).
+                    </div>
+                  </div>
+                </div>
+
+                <div class="step-item" style="cursor: pointer;" onclick="toggleAuditDetail('chk38')">
+                  <div class="step-num" style="background: rgba(16, 185, 129, 0.15); color: var(--accent-green); border-color: rgba(16, 185, 129, 0.3);">&#10003;</div>
+                  <div class="step-body" style="flex: 1;">
+                    <h4>Weak EMA Profit Order Protect (&gt; $0.20 with SL Only &bull; Pre-Flip Elimination) <span class="badge badge-green">Active</span></h4>
+                    <p>Completely prevents opposite order exposure after EMA flip by eliminating open positions while in profit before or near the flip: (1) <strong>Trigger Gate:</strong> Activated when <code>IsEmaWEAKDistanceReduced50PercentFromPeak()</code> detects weakness (unlocked dead-code to evaluate both $100 pullback from high/low and 50%+ reduction in price distance from EMA peak). (2) <strong>Profit Threshold:</strong> Inspects all open orders with floating profit &gt; $0.20 (<code>WeakEmaProfitOrderProtectThresholdUSD = 0.20</code>). (3) <strong>SL-Only Modification:</strong> Strictly modifies orders with StopLoss price set tightly to live price (<code>Bid - minDistance</code> for BUY, <code>Ask + minDistance</code> for SELL), forcing market closure via StopLoss event without direct OrderClose calls.</p>
+                    <div id="chk38" style="display: none; margin-top: 10px; font-size: 12.5px; color: var(--accent-blue); background: rgba(0,0,0,0.3); padding: 8px 12px; border-radius: 6px;">
+                      <strong>Code Anchor:</strong> <code>EnableWeakEmaProfitOrderProtect = true</code> (L67), <code>WeakEmaProfitOrderProtectThresholdUSD = 0.20</code> (L68), <code>ManageWeakEmaProfitOrderProtect()</code> (L446, L2272, L2772), <code>IsEmaWEAKDistanceReduced50PercentFromPeak()</code> (L13385), <code>glbVersion = "V10042  05-10-2026 12.45"</code> (L34) &bull; Clean MetaEditor 4 build (0 errors, 20 warnings).
+                    </div>
+                  </div>
+                </div>
+
+                <div class="step-item" style="cursor: pointer;" onclick="toggleAuditDetail('chk39')">
+                  <div class="step-num" style="background: rgba(16, 185, 129, 0.15); color: var(--accent-green); border-color: rgba(16, 185, 129, 0.3);">&#10003;</div>
+                  <div class="step-body" style="flex: 1;">
+                    <h4>FLIPBasketSupport Weak Trend Gate (Block On IsEmaWEAKDistanceReduced50PercentFromPeak) <span class="badge badge-green">Active</span></h4>
+                    <p>Enforced mandatory check blocking <code>FLIPBasketSupport</code> order creation when <code>IsEmaWEAKDistanceReduced50PercentFromPeak()</code> evaluates as weak: (1) <strong>Universal Creation Gate (0C):</strong> Built directly into <code>CreateFLIPBasketSupportOrder()</code> to evaluate both target order type and global trend weakness, returning -1 with 30s throttled journal logging when weak. (2) <strong>Replenishment Guard:</strong> Evaluated in <code>ManageBasket10USDLockEquity()</code> before triggering replenishment attempts. (3) <strong>Input Control:</strong> Governed by <code>FLIPBasketSupportBlockOnWeakEma = true</code>, completely preventing opening support orders into exhausting or reversing trends before/near an EMA flip.</p>
+                    <div id="chk39" style="display: none; margin-top: 10px; font-size: 12.5px; color: var(--accent-blue); background: rgba(0,0,0,0.3); padding: 8px 12px; border-radius: 6px;">
+                      <strong>Code Anchor:</strong> <code>FLIPBasketSupportBlockOnWeakEma = true</code> (L318), <code>CreateFLIPBasketSupportOrder()</code> Gate 0C (L8230), <code>ManageBasket10USDLockEquity()</code> (L3109), <code>glbVersion = "V10043  05-10-2026 13.00"</code> (L34) &bull; Clean MetaEditor 4 build (0 errors, 20 warnings).
+                    </div>
+                  </div>
+                </div>
+
+                <div class="step-item" style="cursor: pointer;" onclick="toggleAuditDetail('chk40')">
+                  <div class="step-num" style="background: rgba(16, 185, 129, 0.15); color: var(--accent-green); border-color: rgba(16, 185, 129, 0.3);">&#10003;</div>
+                  <div class="step-body" style="flex: 1;">
+                    <h4>Recovery Orders Minimum Raw Price Gap $500 From Parent Order <span class="badge badge-green">Active</span></h4>
+                    <p>Enforced fixed raw price gap of at least $500 (<code>RecoveryMinDistanceRaw = 500.0</code>) between recovery orders and their parent order on BTCUSD: (1) <strong>Raw Distance Enforcement:</strong> Replaced lot-scaled distance scaling (<code>* 100 * parentLots</code>) with exact raw adverse price gap measurement (<code>adverseDistanceFromParent &gt;= RecoveryMinDistanceRaw</code>), ensuring 0.05 or larger parent trades are never required to endure massive $2500 drawdowns before recovery triggers. (2) <strong>Universal Parent Protection:</strong> Applied across all recovery orders (both 1st and 2nd recovery orders must be at least $500 raw gap from parent, with 2nd additionally requiring raw gap from 1st). (3) <strong>Configuration:</strong> Exposed parameter as <code>extern double RecoveryMinDistanceRaw = 500.0</code>.</p>
+                    <div id="chk40" style="display: none; margin-top: 10px; font-size: 12.5px; color: var(--accent-blue); background: rgba(0,0,0,0.3); padding: 8px 12px; border-radius: 6px;">
+                      <strong>Code Anchor:</strong> <code>extern double RecoveryMinDistanceRaw = 500.0</code> (L301), <code>CheckRecoveryOrders()</code> (L7678), <code>glbVersion = "V10044  05-10-2026 16.10"</code> (L34) &bull; Clean MetaEditor 4 build (0 errors, 20 warnings).
+                    </div>
+                  </div>
+                </div>
+
+                <div class="step-item" style="cursor: pointer;" onclick="toggleAuditDetail('chk41')">
+                  <div class="step-num" style="background: rgba(16, 185, 129, 0.15); color: var(--accent-green); border-color: rgba(16, 185, 129, 0.3);">&#10003;</div>
+                  <div class="step-body" style="flex: 1;">
+                    <h4>Recovery Orders Gap Unification ($500 Raw Gap from 1st Rec &amp; Same Type) <span class="badge badge-green">Active</span></h4>
+                    <p>Enforced strict unified $500 raw BTC price gap rule across all recovery orders: (1) <strong>2nd Recovery Order from 1st Recovery Order:</strong> Set <code>Recovery2ndOrderMinDistanceRaw = 500.0</code>, ensuring the second recovery order maintains at least a $500 raw adverse price gap from the first recovery order. (2) <strong>Same-Type Inter-Recovery Order Gap:</strong> Configured <code>MinGapBetweenRecoveryOrdersRaw = 500.0</code> and strictly enabled enforcement by setting <code>IgnoreRecoveryRawGapCondition = false</code>. (3) <strong>Execution Protection:</strong> <code>HasMinimumRecoveryOrderGap()</code> actively audits all active recovery orders of the same direction (BUY with BUY, SELL with SELL) in both <code>CheckRecoveryOrders()</code> and <code>SafeOrderSend()</code> Gate 5A, blocking creation if any existing recovery order is within $500 raw price gap.</p>
+                    <div id="chk41" style="display: none; margin-top: 10px; font-size: 12.5px; color: var(--accent-blue); background: rgba(0,0,0,0.3); padding: 8px 12px; border-radius: 6px;">
+                      <strong>Code Anchor:</strong> <code>MinGapBetweenRecoveryOrdersRaw = 500.0</code> (L302), <code>IgnoreRecoveryRawGapCondition = false</code> (L303), <code>Recovery2ndOrderMinDistanceRaw = 500.0</code> (L304), <code>HasMinimumRecoveryOrderGap()</code> (L431, L3804, L5377, L7706), <code>glbVersion = "V10045  05-10-2026 16.45"</code> (L34) &bull; Clean MetaEditor 4 build (0 errors, 20 warnings).
+                    </div>
+                  </div>
+                </div>
+
+                <div class="step-item" style="cursor: pointer;" onclick="toggleAuditDetail('chk42')">
+                  <div class="step-num" style="background: rgba(16, 185, 129, 0.15); color: var(--accent-green); border-color: rgba(16, 185, 129, 0.3);">&#10003;</div>
+                  <div class="step-body" style="flex: 1;">
+                    <h4>BUY/SELL Recovery Strict $500 Gap Parity &amp; Basket Exit Immunity <span class="badge badge-green">Active</span></h4>
+                    <p>Resolved root cause of apparent $100 BUY recovery gaps: (1) <strong>Immunity from Single-Order Profit Locks:</strong> Granted absolute immunity to recovery orders with active parents inside <code>ManageWeakEmaProfitOrderProtect()</code>, <code>ManageFiveDollarLock()</code>, and <code>FlipIndividualOrderProtect()</code>. Recovery orders are strictly forbidden from having their SL trailed to live price or closing prematurely for micro-profits ($0.20 or $5) while their parent order remains open, preventing rapid-churn re-entry. (2) <strong>Two-Tier Inter-Order Gap Audit:</strong> Upgraded <code>HasMinimumRecoveryOrderGap()</code> to evaluate both active recovery orders in <code>MODE_TRADES</code> and recently closed recovery orders in <code>MODE_HISTORY</code> within 300 seconds, strictly enforcing $\ge \$500$ raw gap. (3) <strong>Programmatic Input Clamping:</strong> Enforced in <code>OnInit()</code> that <code>MinGapBetweenRecoveryOrdersRaw</code>, <code>RecoveryMinDistanceRaw</code>, and <code>Recovery2ndOrderMinDistanceRaw</code> cannot fall below $500 raw points, eliminating MT4 chart template caching discrepancies between BUY and SELL.</p>
+                    <div id="chk42" style="display: none; margin-top: 10px; font-size: 12.5px; color: var(--accent-blue); background: rgba(0,0,0,0.3); padding: 8px 12px; border-radius: 6px;">
+                      <strong>Code Anchor:</strong> <code>ManageWeakEmaProfitOrderProtect()</code> (L2844), <code>ManageFiveDollarLock()</code> (L2507, L2574, L2608), <code>FlipIndividualOrderProtect()</code> (L2656), <code>HasMinimumRecoveryOrderGap()</code> (L3844), <code>OnInit()</code> (L1967), <code>glbVersion = "V10046  06-10-2026 23.15"</code> (L34) &bull; Clean MetaEditor 4 build (0 errors, 20 warnings).
                     </div>
                   </div>
                 </div>
