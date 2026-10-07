@@ -8067,7 +8067,7 @@ bool HasOpenFLIPBasketSupportOrder(int targetType = -1)
       count++;
          //return true;
      }
-if(count<2) return false;
+if(count<1) return false;
 
 return true;
 
