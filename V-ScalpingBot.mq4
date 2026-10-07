@@ -31,8 +31,8 @@
 
 // Previous: V10010  03-10-2026 18.25 Partial Close Column in Live Position Monitor
 string TimeframeToString(int timeframe);
-string glbVersion = "V10052  07-10-2026 15.35 FLIPBasketSupport Pending Stop Orders With Raw Gap (OP_BUYSTOP/OP_SELLSTOP)";
-string verShort = "V10052 | " + Symbol() + " " + TimeframeToString(Period());
+string glbVersion = "V10053  07-10-2026 22.35 Weak Count after flip Pending Stop Orders With Raw Gap (OP_BUYSTOP/OP_SELLSTOP)";
+string verShort = "V10053 | " + Symbol() + " " + TimeframeToString(Period());
 
 bool OnlyAllowFLIPBasketSupportOrders =false;// true; // TEST ISOLATION: When true, blocks ALL orders in SafeOrderSend except FLIPBasketSupport
 
@@ -1757,6 +1757,7 @@ void TrackEmaFlip()
       // Reset support order creation flag for this flip cycle
       FLIPBasketSupportOpenedThisCycle = false;
       g_flipBasketSupportCreatedInCycle = 0;
+      g_weakStateCountPerEmaFlip = 0;  // Reset weak-state counter on each EMA direction flip
 
       // [COMMENTED OUT EMA ANGLE GATE per user instruction: replaced with EMAdistance gap from live price > 50]
       // GlobalEmaAngle30 = GetEmaAngleDegrees(30);
@@ -2173,6 +2174,7 @@ bool HasEmaFlippedSinceLoad = false;
 datetime EmaFlipTime = 0;
 int LastTrackedEmaDirection = 0;
 bool FLIPBasketSupportOpenedThisCycle = false;
+int g_weakStateCountPerEmaFlip = 0;   // Counts times strong=" Weak" is set per EMA direction cycle
 
 // --- PENDING BOUNCE VARIABLES ---
 datetime PendingVShapeBuyTime = 0;
@@ -5020,6 +5022,16 @@ bool IsOrderAllowedByTrendAndGap(int orderType)
 
    return true;
   }
+//+------------------------------------------------------------------+
+//| GetWeakStateCountPerEmaFlip                                      |
+//| Returns how many times strong=" Weak" was set since the last     |
+//| EMA direction change. Resets to 0 on every EMA flip.            |
+//+------------------------------------------------------------------+
+int GetWeakStateCountPerEmaFlip()
+  {
+   return g_weakStateCountPerEmaFlip;
+  }
+
 //+------------------------------------------------------------------+
 //|                                                                  |
 //+------------------------------------------------------------------+
@@ -8400,6 +8412,19 @@ int CreateFLIPBasketSupportOrder(int flipDirection, bool ignoreEmaDistanceGate =
            }
          return -1;
         }
+     }
+
+// 0D. Weak State Count Gate: Block FLIPBasketSupport if strong=" Weak" was detected more than once this EMA cycle
+   if(GetWeakStateCountPerEmaFlip() > 1)
+     {
+      static datetime lastWeakCountPrintTime = 0;
+      if(TimeCurrent() - lastWeakCountPrintTime >= 30)
+        {
+         lastWeakCountPrintTime = TimeCurrent();
+         Print("FLIPBasketSupport order blocked [Gate 0D]: Weak state detected ",
+               GetWeakStateCountPerEmaFlip(), " times this EMA cycle (> 1). Trend is exhausted.");
+        }
+      return -1;
      }
 
 // 0. EMA Distance Gate: Only open FLIPBasketSupport order when EMAdistance gap from live price > 50 (unless bypassed e.g. on $10 lock replenishment)
@@ -13043,9 +13068,10 @@ void UpdateDashboard(DailyProtectionState &state)
       if(GetCachedPatternDirection()==-1)
          strong=strong+" - ";
 
-   if(IsEmaWEAKDistanceReduced50PercentFromPeak())
+   if(IsEmaWEAKDistanceReduced50PercentFromPeak()) {
       strong=" Weak";
-   else
+      g_weakStateCountPerEmaFlip++;  // Count each tick Weak state is active this EMA cycle
+   } else
       strong= " STRONG";
 
 // 1. ANGLE AND HALVING RULE
@@ -13471,7 +13497,7 @@ void UpdateDashboard(DailyProtectionState &state)
 // SECTION 1: ORDER CREATION ENGINE
    CreateDashboardPanel(DASH_PREFIX+"S1_BAR", x, y+98, w, 18, C'30,45,65');
    CreateDashboardLabel(DASH_PREFIX+"S1_H", "--- ORDER CREATION ENGINE ---", tx, y+100, 8, clrAqua);
-   CreateDashboardLabel(DASH_PREFIX+"S1_SSL", "SSL-30  : " + sslDirection + " (" + strong + ") | EMA: " + emaState, tx, y+118, 8, sslColor);
+   CreateDashboardLabel(DASH_PREFIX+"S1_SSL", "SSL-30  : " + sslDirection + " (" + strong +" ( "+ GetWeakStateCountPerEmaFlip() +")) | EMA: " + emaState, tx, y+118, 8, sslColor);
    CreateDashboardLabel(DASH_PREFIX+"S1_ANG", "EMA-30  : " + angleStr, tx, y+134, 8, angleColor);
    CreateDashboardLabel(DASH_PREFIX+"S1_WEAK", "PULLBACK: " + weakStr, tx, y+150, 8, weakColor);
    CreateDashboardLabel(DASH_PREFIX+"S1_BGAP", "BUY GAP : " + buyGapStr, tx, y+166, 8, buyGapColor);
@@ -13586,7 +13612,9 @@ bool IsEmaWEAKDistanceReduced50PercentFromPeak(int orderType = -1)
    if(EmaFlipTime == 0)
       return false;
 
+if(GetWeakStateCountPerEmaFlip()>1)
 
+      return true;//weak
 
 
    if(!emaflipstrongorweak())// if weak then return true , if strong double check again
