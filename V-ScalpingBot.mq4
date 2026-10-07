@@ -7165,173 +7165,6 @@ void ChangeLots(double OpenPL, string reason, int orderType, int stoplevelStep)
    bool isSSLProfitReEntry = (reason == "SSL Profit ReEntry Buy Stop" || reason == "SSL Profit ReEntry Sell Stop");
    int requestedDirection = (orderType == OP_BUY || orderType == OP_BUYSTOP || orderType == OP_BUYLIMIT) ? 1 : -1;
 
-//if(requestedDirection==-1)
-//MaxRecoveryLot=0.03;
-
-
-// if(profitAfterFlip > 20)
-//   {
-//    MaxRecoveryLot = 0.01;
-//   }
-// else
-//    if(profitAfterFlip > 10)
-//      {
-//       MaxRecoveryLot = 0.03;
-//      }
-   /*
-      if(isSSLSignal)
-        {
-         Lots = GetMarketMomentLot(orderType);
-         if(GlobalSSLDirection == EMADirection || GlobalBUYSELLdashboardScore==4)
-            Lots=0.02;
-         else
-            Lots=0.01;
-         if(GlobalSSLDirection == EMADirection)
-            Lots=0.02;
-
-         double emaAngle = GlobalEmaAngle30;
-         double emaDistance = GetDistanceToEMAPrice(orderType, true);
-         if(orderType == OP_BUY)
-           {
-            if(emaAngle < 1.0)
-               Lots = 0.01;
-            else
-               if(emaDistance < 100.0 && emaAngle < 1.0)
-                  Lots = 0.01;
-           }
-         else
-            if(orderType == OP_SELL)
-              {
-               if(emaAngle > -1.0)
-                  Lots = 0.01;
-               else
-                  if(emaDistance < 100.0 && emaAngle > -1.0)
-                     Lots = 0.01;
-              }
-
-         double buyPL  = GlobalBuyPL;
-         double sellPL = GlobalSellPL;
-         double currentAngle = GlobalEmaAngle30;
-
-         if(orderType == OP_BUY && EMADirection == 1 && sellPL <= -10.0)
-           {
-            if(sellPL <= -10.0 && currentAngle > 1.0)
-               Lots = 0.10;
-            else
-               if(sellPL <= -5.0 && currentAngle > 1.0)
-                  Lots = 0.05;
-               else
-                  Lots = 0.03;
-           }
-         else
-            if(orderType == OP_SELL && EMADirection == -1 && buyPL <= -10.0)
-              {
-               if(buyPL <= -20.0 && currentAngle < -3.0)
-                  Lots = 0.10;
-               else
-                  if(buyPL <= -10.0 && currentAngle < -3.0)
-                     Lots = 0.05;
-                  else
-                     Lots = 0.03;
-              }
-        }
-      else
-         if(isSSLProfitReEntry && MathAbs(  GlobalEmaAngle30)>3)
-           {
-            Lots = 0.03;
-            if(GlobalSSLDirection == EMADirection)
-              {
-               Lots = CalculateDecreaseLots(reEntryCounter, 0.04, 0.01);
-               if(CheckFastProfitableRecentOrders())
-                  Lots = 0.02;
-              }
-            else
-              {
-               Lots = CalculateIncreaseLots(reEntryCounter, 0.01, 0.04);
-               if(CheckFastProfitableRecentOrders() && Lots<0.03)
-                  Lots = 0.02;
-              }
-           }
-
-      if(orderType == OP_BUY && GlobalVShapeBuy)
-         Lots = 0.02;
-      else
-         if(orderType == OP_SELL && GlobalVShapeSell)
-            Lots = 0.02;
-
-      if(IsHeavyLotOrderNearBy(orderType, Lots, 300) && Lots>=0.03)
-         Lots = 0.01;
-
-      double currentEmaAngle = GlobalEmaAngle30;
-      // if(InpEnableEmaAngleFilter)
-      //   {
-      //    if((orderType == OP_BUY && currentEmaAngle <= InpMinEmaAngleDegrees) ||
-      //       (orderType == OP_SELL && currentEmaAngle >= -InpMinEmaAngleDegrees))
-      //      {
-      //       Lots = 0.01;
-      //      }
-      //   }
-
-      if(MathAbs(InpEnableEmaAngleFilter)<3)
-      {
-         Lots = 0.01;
-
-      }
-
-      if(IsExtremePriceOrder(orderType, Lots,0.02))
-        {
-         Lots = 0.01;
-         Print("LOT CAP APPLIED: New order is the extreme (Highest Buy / Lowest Sell). Lot reduced to 0.02");
-        }
-
-        */
-
-
-   /*
-
-   if (angleAbs > 9)
-   {
-      // Define behavior for very steep angles (e.g., cap at a specific lot or keep minimum)
-      Lots = 0.01;
-   }
-   else if (angleAbs > 3)
-   {
-      // Scale lots based on angle magnitude between 3 and 9
-      Lots = 0.01 * MathRound(angleAbs);
-   }
-   else
-   {
-      // Default fallback for angles <= 3
-      Lots = 0.01;
-   }
-   */
-
-   /*
-   double angleAbs = MathAbs(GlobalEmaAngle30);
-   Lots = 0.01; // Default fallback
-
-   if(orderType == OP_BUY && GlobalEmaAngle30 > 1.0)
-     {
-      Lots = 0.01 * (5 - MathRound(angleAbs));
-     }
-   else
-      if(orderType == OP_SELL && GlobalEmaAngle30 < -1.0)
-        {
-         Lots = 0.01 * (5 - MathRound(angleAbs));
-        }
-
-   // CRITICAL SAFETY CATCH: Prevent 0 or negative lots during extreme trends
-   if(Lots < 0.01)
-     {
-      Lots = 0.01;
-     }
-   if(IsStrongMomentum(orderType) && Lots<0.04)
-     {
-      Lots = 0.04;
-
-     }
-
-     */
 
 //---------------------------------FINAL ----------------------------
 
@@ -7350,36 +7183,6 @@ void ChangeLots(double OpenPL, string reason, int orderType, int stoplevelStep)
 // Lots=0.05;//
 // Print("Closed Orders Since EMA Flip: ", closedCount, " | Cycle Step: ", cycleStep, " | Calculated Lots: ", Lots);
 
-// if((GlobalEmaAngle30 > -3.0 && GlobalEmaAngle30 < 3.0))
-//   {
-//    Lots = 0.01;
-
-//   }
-
-// if(GlobalSSLDirection != EMADirection)
-//   {
-//    Lots = 0.01;
-
-
-//   }
-
-// if(MathAbs(GlobalEmaAngle30)<2)
-//   {
-//    Lots = 0.01;
-//   }
-
-//   if(GetH1Direction() != EMADirection)
-//   {
-//    Lots = 0.01;
-
-
-//   }
-// if(GetOpenPL(OP_SELL)<0 && intOrdertype == -1)
-//   {
-//    Lots = 0.01;
-
-
-//   }
    if(GlobalSSLDirection != EMADirection)
      {
       Lots = 0.01;
@@ -7402,7 +7205,7 @@ void ChangeLots(double OpenPL, string reason, int orderType, int stoplevelStep)
      }
    if(IsEmaWEAKDistanceReduced50PercentFromPeak(orderType) &&  GlobalSSLDirection != EMADirection)//weak
      {
-      Lots = 0.01;
+      Lots = 0.02;
 
      }
    if(IsEmaWEAKDistanceReduced50PercentFromPeak(orderType) &&  GlobalSSLDirection == EMADirection)//weak
@@ -7418,66 +7221,6 @@ void ChangeLots(double OpenPL, string reason, int orderType, int stoplevelStep)
 //    Lots = 0.01;
 
 
-
-// ===== NEW RULE: CAPP LOTS TO 0.02 IF EQUITY PROFIT > $10 AFTER FLIP =====
-// double realizedProfitAfterFlip = 0.0;
-// if(EmaFlipTime > 0)
-//   {
-//    for(int h = OrdersHistoryTotal() - 1; h >= 0; h--)
-//      {
-//       if(OrderSelect(h, SELECT_BY_POS, MODE_HISTORY))
-//         {
-//          if(OrderSymbol() == Symbol() && OrderMagicNumber() == MagicNumber)
-//            {
-//             if(OrderCloseTime() >= EmaFlipTime)
-//                realizedProfitAfterFlip += (OrderProfit() + OrderSwap() + OrderCommission());
-//            }
-//         }
-//      }
-//   }
-// double equityProfitAfterFlip = realizedProfitAfterFlip + GetEAFloatingPL();
-
-// if(equityProfitAfterFlip > 10.0 && Lots >= 0.02)
-//   {
-//    Lots = 0.01;
-//   }
-
-// if(GetCurrentM30Direction() != EMADirection && Lots >= 0.03)
-//   {
-//    Lots = 0.01;
-//   }
-
-// --- PREVIOUS 2 M1 CANDLES BODY HEIGHT FILTER (Each > 100 raw price difference) ---
-// if(MathAbs(Open[1] - Close[1]) > 100.0 && MathAbs(Open[2] - Close[2]) > 100.0)
-//   {
-//    Lots = 0.01;
-//   }
-
-// if(HasAnyLargeCandle(Symbol(), PERIOD_M1, 30, 300.0, false))
-//    Lots = 0.01;
-// if(GlobalEmaAngle30<2 &&  GlobalEmaAngle30 > -2)
-//      Lots = 0.01;
-
-
-
-// if( && GlobalEmaAngle30<2 && orderType==1)
-
-// if(IsAbsolutePriceDifferenceExceeded(5,200))
-// {
-// Lots = 0.01;
-
-// }
-
-// Lots=0.05;//
-
-
-// Lots=Lots*2;
-
-// if(Lots==0.02)
-//   {
-//    Lots = 0.04;
-
-//   }
 
 
    if(IsHeavyLotOrderNearBy(orderType, Lots, 200) && Lots>=0.02)
@@ -13068,10 +12811,12 @@ void UpdateDashboard(DailyProtectionState &state)
       if(GetCachedPatternDirection()==-1)
          strong=strong+" - ";
 
-   if(IsEmaWEAKDistanceReduced50PercentFromPeak()) {
+   if(IsEmaWEAKDistanceReduced50PercentFromPeak())
+     {
       strong=" Weak";
       g_weakStateCountPerEmaFlip++;  // Count each tick Weak state is active this EMA cycle
-   } else
+     }
+   else
       strong= " STRONG";
 
 // 1. ANGLE AND HALVING RULE
@@ -13612,7 +13357,7 @@ bool IsEmaWEAKDistanceReduced50PercentFromPeak(int orderType = -1)
    if(EmaFlipTime == 0)
       return false;
 
-if(GetWeakStateCountPerEmaFlip()>1)
+   if(GetWeakStateCountPerEmaFlip()>1)
 
       return true;//weak
 
