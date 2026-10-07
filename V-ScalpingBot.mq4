@@ -1,4 +1,4 @@
-//+------------------------------------------------------------------+
+﻿//+------------------------------------------------------------------+
 //|                  SSL CHANNEL CROSS EA - CONTINUOUS EQUITY LADDER |
 //|                  TWO-STAGE PROFIT LADDER | CONTINUOUS RESET      |
 //+------------------------------------------------------------------+
@@ -31,10 +31,10 @@
 
 // Previous: V10010  03-10-2026 18.25 Partial Close Column in Live Position Monitor
 string TimeframeToString(int timeframe);
-string glbVersion = "V10047  07-10-2026 10.35 Commented FLIPBasketSupport Gates 3, 4, 4A, 4B (5m Gap, Recreated Angle & Opp Loss)";
-string verShort = "V10047 | " + Symbol() + " " + TimeframeToString(Period());
+string glbVersion = "V10050  07-10-2026 11.25 FLIPBasketSupport Min 15m After EMA Flip Gate (TimeCurrent() - EmaFlipTime >= 900s)";
+string verShort = "V10050 | " + Symbol() + " " + TimeframeToString(Period());
 
-extern bool OnlyAllowFLIPBasketSupportOrders =false;// true; // TEST ISOLATION: When true, blocks ALL orders in SafeOrderSend except FLIPBasketSupport
+bool OnlyAllowFLIPBasketSupportOrders =false;// true; // TEST ISOLATION: When true, blocks ALL orders in SafeOrderSend except FLIPBasketSupport
 
 double DailyEquityStopUSD  =100*100;//50;//20*2.5;//10;//20;// 10;//30.0; close all orders at $50Xmultipler
 double TargetProfitPerFlipUSD =20*100;//10;//10*2;//10;//5;//20;// 10.0; close all orders at $20Xmultipler
@@ -57,16 +57,16 @@ void   ModifyPairProfitWithStopLoss();
 bool   EnableBasketBuySell20PtSLModify = false;       // Disabled: prevents 20pt choke in modifyOnlyBuyOrders/modifyOnlySellOrders
 
 //Chance 1D: $5 LOCK Individual BUY & SELL Orders + BuyBasket / SellBasket Lock with StopLoss (V10038)
-extern bool   EnableFiveDollarLock = true;                 // Enable $5 Individual & Basket Lock with StopLoss
-extern double FiveDollarIndividualLockProfitUSD = 5.0;     // Individual order lock threshold ($5.00)
-extern double FiveDollarBasketLockProfitUSD = 5.0;         // Buy/Sell Basket lock threshold ($5.00)
+bool   EnableFiveDollarLock = true;                 // Enable $5 Individual & Basket Lock with StopLoss
+double FiveDollarIndividualLockProfitUSD = 5.0;     // Individual order lock threshold ($5.00)
+double FiveDollarBasketLockProfitUSD = 5.0;         // Buy/Sell Basket lock threshold ($5.00)
 
 //Chance 1E: FLIP Basket Support Lot Size (V10038: Updated from 0.05 to 0.06)
-extern double FLIPBasketSupportLot = 0.06;                 // FLIP Basket Support order lot size (0.06)
+double FLIPBasketSupportLot = 0.06;                 // FLIP Basket Support order lot size (0.06)
 
 //Chance 1F: Weak EMA Profit Order Protect (> $0.20 with SL only)
-extern bool   EnableWeakEmaProfitOrderProtect = true;     // Close/protect orders in profit > $0.20 with SL when EMA distance is weak from peak
-extern double WeakEmaProfitOrderProtectThresholdUSD = 0.20; // Profit threshold (>$0.20) to lock with SL when EMA is weak from peak
+bool   EnableWeakEmaProfitOrderProtect = true;     // Close/protect orders in profit > $0.20 with SL when EMA distance is weak from peak
+double WeakEmaProfitOrderProtectThresholdUSD = 0.20; // Profit threshold (>$0.20) to lock with SL when EMA is weak from peak
 
 //chance 2
 int partialClose01in05IndividualPercentage=20*1;//10;//2*2;//per lot 0.01//if 0.05 close 0.01 at total profit of 20% means close 0.01 lot
@@ -108,8 +108,8 @@ int    g_basket10USDStepCount              = 0;     // Number of $10 steps trigg
 datetime g_basket10USDLastModifyTime       = 0;     // Timestamp of last $10 lock modification
 bool   g_basket10USDTargetHitActive        = false; // Set true when $10 target reached; enables every-tick check for FLIPBasketSupport replenishment
 
-
-double StopLossUSD =40;//5;//10;//40;//30;//10;//6;//10;//6;//5;//10;//2;// 10;
+//StopLossUSD per lot 0.01
+double StopLossUSD =10;//40;//5;//10;//40;//30;//10;//6;//10;//6;//5;//10;//2;// 10;
 
 
 int      g_dayNumber = -1;
@@ -298,29 +298,30 @@ double RecoveryLotMultiplier =2;//1;// 2;
 int MaxRecoveryOrders =100;// 5; // Maximum active recovery orders allowed
 double RecoveryMaxLots = 0.05; // Maximum lot cap for recovery order (even 2X lot cannot exceed 0.05)
 double RecoveryBasketProfitUSD = 0.50;//1;
-extern double RecoveryMinDistanceRaw = 500.0; // Minimum raw price gap ($500) from parent order for recovery orders
-extern double MinGapBetweenRecoveryOrdersRaw = 500.0; // Minimum raw price gap ($500) between recovery orders of same type
-extern bool   IgnoreRecoveryRawGapCondition = false;  // Strictly enforce raw gap condition between recovery orders
-extern double Recovery2ndOrderMinDistanceRaw = 500.0; // Minimum raw price gap ($500) from 1st recovery order for 2nd recovery order
+double RecoveryMinDistanceRaw = 500.0; // Minimum raw price gap ($500) from parent order for recovery orders
+double MinGapBetweenRecoveryOrdersRaw = 500.0; // Minimum raw price gap ($500) between recovery orders of same type
+bool   IgnoreRecoveryRawGapCondition = false;  // Strictly enforce raw gap condition between recovery orders
+double Recovery2ndOrderMinDistanceRaw = 500.0; // Minimum raw price gap ($500) from 1st recovery order for 2nd recovery order
 int    MaxRecoveryOrdersPerParent = 2; // Maximum recovery orders allowed per parent trade (1st + 2nd)
 bool UseBalanceMultiplierForRecoveryTarget = false; // Scaled by balance multiplier if true; default false ($1.00 fixed cash target)
 bool EnableRecoveryProfitTrailing = false; // Always close parent + recovery 1 + recovery 2 together on recovery basket profit!
 double RecoveryTakeProfitDistanceRaw =1000;// 500.0; // Take profit distance ( raw BTC price distance) for Recovery orders
-extern double RecoveryOrderStopLossStepRaw = 100.0; // Positive profit jump raw gap step size ($100 raw BTC price) to ratchet Recovery order StopLoss
+double RecoveryOrderStopLossStepRaw = 100.0; // Positive profit jump raw gap step size ($100 raw BTC price) to ratchet Recovery order StopLoss
 double RecoveryTakeProfitDistanceStopLossStep = 100.0; // 100X raw gap stoploss step on every profit jump
 double FLIPBasketSupportTakeProfitDistanceRaw =2000;//100*2;// 500.0; // Take profit distance ( raw BTC price distance) for FLIPBasketSupport orders
-extern double FLIPBasketSupportTakeProfitDistanceStopLossStep = 100.0; // Positive profit move step size (raw BTC price) to ratchet FLIPBasketSupport StopLoss
-// extern double FLIPBasketSupportMinEmaAngle = 1.0; // [COMMENTED OUT per user instruction: EMA Angle Gate replaced by EMAdistance gap > 50]
-extern double FLIPBasketSupportMinEmaDistance = 50.0; // Minimum raw price gap from live price to EMA ($50) required to open FLIPBasketSupport order
-extern int    FLIPBasketSupportMinCloseGapSeconds = 300; // Minimum 5-minute gap (300s) from recent closed FLIPBasketSupport order
-extern double FLIPBasketSupportRecreateMinAngle = 5.0;            // Minimum MathAbs(GlobalEmaAngle30) (> 5.0) required for recreated support order (2nd onwards)
-extern double FLIPBasketSupportRecreateOppositeMinLossUSD = 5.0;  // Minimum loss (>$5.00) on opposite order type required for recreated support order (2nd onwards)
-extern bool   FLIPBasketSupportBlockOnWeakEma = true;            // Block FLIPBasketSupport order creation when IsEmaWEAKDistanceReduced50PercentFromPeak is weak
-int           g_flipBasketSupportCreatedInCycle = 0;             // Number of FLIPBasketSupport orders created in current flip cycle
+double FLIPBasketSupportTakeProfitDistanceStopLossStep = 100.0; // Positive profit move step size (raw BTC price) to ratchet FLIPBasketSupport StopLoss
+// double FLIPBasketSupportMinEmaAngle = 1.0; // [COMMENTED OUT per user instruction: EMA Angle Gate replaced by EMAdistance gap > 50]
+double FLIPBasketSupportMinEmaDistance =100;// 50.0; // Minimum raw price gap from live price to EMA ($50) required to open FLIPBasketSupport order
+int    FLIPBasketSupportMinCloseGapSeconds = 300; // Minimum 5-minute gap (300s) from recent closed FLIPBasketSupport order
+double FLIPBasketSupportRecreateMinAngle = 5.0;            // Minimum MathAbs(GlobalEmaAngle30) (> 5.0) required for recreated support order (2nd onwards)
+double FLIPBasketSupportRecreateOppositeMinLossUSD = 5.0;  // Minimum loss (>$5.00) on opposite order type required for recreated support order (2nd onwards)
+bool   FLIPBasketSupportBlockOnWeakEma = true;            // Block FLIPBasketSupport order creation when IsEmaWEAKDistanceReduced50PercentFromPeak is weak
+int    FLIPBasketSupportMinFlipElapsedSeconds = 900;      // Minimum 15 minutes (60*15 = 900s) elapsed after EMA flip time (TimeCurrent() - EmaFlipTime >= 900)
+int    g_flipBasketSupportCreatedInCycle = 0;             // Number of FLIPBasketSupport orders created in current flip cycle
 datetime      LastClosedFLIPBasketSupportTime = 0;      // Timestamp of most recently closed FLIPBasketSupport order
 int           g_lastActiveFLIPBasketSupportTicket = -1; // Ticket of currently active FLIPBasketSupport order
-extern bool   EnableAllOrdersStepTrailingStopLoss = true; // Enable 100-step raw gap StopLoss order modify when moving in profit direction for every order
-extern double AllOrdersStopLossStepRaw = 100.0; // Positive profit move raw gap step size ($100 raw BTC price) to ratchet StopLoss for ALL orders
+bool   EnableAllOrdersStepTrailingStopLoss = true; // Enable 100-step raw gap StopLoss order modify when moving in profit direction for every order
+double AllOrdersStopLossStepRaw = 100.0; // Positive profit move raw gap step size ($100 raw BTC price) to ratchet StopLoss for ALL orders
 double AllOrdersTakeProfitDistanceStopLossStep = 100.0; // 100-step raw gap stoploss step on every profit move for all orders
 
 double DayProfitLadder1Amount = 5;
@@ -1834,9 +1835,8 @@ void TrackEmaFlip()
          CloseFLIPBasketSupportOrders(OP_BUY);
         }
 
-// If FLIPBasketSupport order was deferred at flip because EMAdistance gap <= 50,
-// check if EMAdistance gap from live price has now expanded > 50 to open the support order for this flip cycle
-   if(!FLIPBasketSupportOpenedThisCycle && currentDirection != 0 && !HasOpenFLIPBasketSupportOrder(-1))
+// Check if FLIPBasketSupport order can be created (requires no active support order, EMA distance gap > MinEmaDistance, and >= 15m after flip)
+   if(currentDirection != 0 && !HasOpenFLIPBasketSupportOrder(-1))
      {
       // [COMMENTED OUT EMA ANGLE GATE per user instruction: replaced with EMAdistance gap from live price > 50]
       // GlobalEmaAngle30 = GetEmaAngleDegrees(30);
@@ -1960,7 +1960,7 @@ int OnInit()
 
    EquityResetReEntryPending=false;
 
-   partialLossMultipler=  StopLossUSD/2;
+   partialLossMultipler= StopLossUSD/2;
 
 
    EmaFlipTime = TimeCurrent();
@@ -8053,6 +8053,8 @@ bool IsFLIPBasketSupportOrder(int ticket, string comment = "")
 //+------------------------------------------------------------------+
 bool HasOpenFLIPBasketSupportOrder(int targetType = -1)
   {
+
+    int count=0;
    for(int i = OrdersTotal() - 1; i >= 0; i--)
      {
       if(!OrderSelect(i, SELECT_BY_POS, MODE_TRADES))
@@ -8062,8 +8064,13 @@ bool HasOpenFLIPBasketSupportOrder(int targetType = -1)
       if(targetType >= 0 && OrderType() != targetType)
          continue;
       if(IsFLIPBasketSupportOrder(OrderTicket(), OrderComment()))
-         return true;
+      count++;
+         //return true;
      }
+if(count<2) return false;
+
+return true;
+
    return false;
   }
 
@@ -8163,6 +8170,9 @@ datetime GetLastClosedFLIPBasketSupportCloseTime()
 //+------------------------------------------------------------------+
 void CloseFLIPBasketSupportOrders(int targetType = -1)
   {
+
+
+   return  ;
    for(int i = OrdersTotal() - 1; i >= 0; i--)
      {
       if(!OrderSelect(i, SELECT_BY_POS, MODE_TRADES))
@@ -8264,6 +8274,29 @@ int CreateFLIPBasketSupportOrder(int flipDirection, bool ignoreEmaDistanceGate =
    if(GetTotalEAOrders() >= MaxOpenOrders)
      {
       Print("FLIPBasketSupport order skipped: MaxOpenOrders reached");
+      return -1;
+     }
+
+// Gate: Order blocked if elapsed time since EmaFlipTime is less than 15 minutes (minimum 15 min after flip time)
+   if(EmaFlipTime == 0 || (TimeCurrent() - EmaFlipTime) < FLIPBasketSupportMinFlipElapsedSeconds)
+     {
+      static datetime lastFlipElapsedLogTime = 0;
+      if(TimeCurrent() - lastFlipElapsedLogTime >= 30) // Throttle journal logs to once per 30 seconds
+        {
+         lastFlipElapsedLogTime = TimeCurrent();
+         if(EmaFlipTime == 0)
+           {
+            Print("FLIPBasketSupport order blocked: No EMA flip recorded yet (EmaFlipTime == 0). Requires minimum 15 min after flip time.");
+           }
+         else
+           {
+            int elapsedSec = (int)(TimeCurrent() - EmaFlipTime);
+            int remainingSec = FLIPBasketSupportMinFlipElapsedSeconds - elapsedSec;
+            Print("FLIPBasketSupport order blocked: Elapsed time since EMA flip < 15 min (TimeCurrent() - EmaFlipTime > 60*15 required). Elapsed=",
+                  elapsedSec, "s (", (elapsedSec / 60), "m ", (elapsedSec % 60), "s), Required >= ", FLIPBasketSupportMinFlipElapsedSeconds,
+                  "s (15 min). Remaining=", remainingSec, "s (", (remainingSec / 60), "m ", (remainingSec % 60), "s).");
+           }
+        }
       return -1;
      }
 
@@ -8381,7 +8414,7 @@ int CreateFLIPBasketSupportOrder(int flipDirection, bool ignoreEmaDistanceGate =
    if(flipDirection == 1) // FLIP to BUY
      {
       double ask = Ask;
-      double slDistance = CalculatePriceDistanceUSD(StopLossUSD, flipLots);
+      double slDistance = CalculatePriceDistanceUSD(StopLossUSD*flipLots*100, flipLots);
       double stopLoss = (slDistance > 0) ? NormalizeDouble(ask - slDistance, Digits) : 0.0;
       double takeProfit = NormalizeDouble(ask + tpDist, Digits);
       ticket = SafeOrderSend(Symbol(), OP_BUY, flipLots, ask, Slippage, stopLoss, takeProfit, comment, MagicNumber, clrLime);
@@ -8395,7 +8428,7 @@ int CreateFLIPBasketSupportOrder(int flipDirection, bool ignoreEmaDistanceGate =
       if(flipDirection == -1) // FLIP to SELL
         {
          double bid = Bid;
-         double slDistance = CalculatePriceDistanceUSD(StopLossUSD, flipLots);
+         double slDistance = CalculatePriceDistanceUSD(StopLossUSD*flipLots*100, flipLots);
          double stopLoss = (slDistance > 0) ? NormalizeDouble(bid + slDistance, Digits) : 0.0;
          double takeProfit = NormalizeDouble(bid - tpDist, Digits);
          ticket = SafeOrderSend(Symbol(), OP_SELL, flipLots, bid, Slippage, stopLoss, takeProfit, comment, MagicNumber, clrTomato);

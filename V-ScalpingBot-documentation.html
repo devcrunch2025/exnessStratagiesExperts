@@ -889,7 +889,7 @@
       <div class="header-pills">
         <span class="pill pill-blue">BTCUSD • M1 Scalper</span>
         <span class="pill pill-purple">Exness Raw / Zero</span>
-        <span class="pill pill-green">V10047 (07-10-2026 10.35)</span>
+        <span class="pill pill-green">V10048 (07-10-2026 11.25)</span>
       </div>
     </div>
 
@@ -2262,8 +2262,8 @@ flowchart TD
               </div>
               <div class="stat-card">
                 <div class="stat-label">Active Production Build</div>
-                <div class="stat-value" style="color: var(--accent-purple);">V10047</div>
-                <div class="stat-desc">07-10-2026 10.35 Deployed</div>
+                <div class="stat-value" style="color: var(--accent-purple);">V10048</div>
+                <div class="stat-desc">07-10-2026 11.25 Deployed</div>
               </div>
               <div class="stat-card">
                 <div class="stat-label">Centralized Firewall</div>
@@ -3246,6 +3246,17 @@ flowchart TD
                     <p>Commented out restrictive filters for <code>FLIPBasketSupport</code> creation per user instruction: (1) <strong>Gate 3 (5-Minute Cool-Off):</strong> Commented out <code>FLIPBasketSupportMinCloseGapSeconds = 300s</code> check in both <code>CreateFLIPBasketSupportOrder()</code> and <code>ManageBasket10USDLockEquity()</code>, allowing immediate creation/re-creation without waiting 5 minutes after a support order closes. (2) <strong>Gate 4 (Recreated Order Dual Gates):</strong> Commented out <code>isRecreatedOrder</code> checks. (3) <strong>Gate 4A (EMA Angle > 5.0°):</strong> Deactivated minimum EMA angle check (<code>MathAbs(GlobalEmaAngle30) &gt; 5.0</code>), allowing support creation regardless of slope angle. (4) <strong>Gate 4B (Opposite Order Loss > $5.00):</strong> Deactivated requirement for opposite orders to be underwater by &gt; $5.00 (<code>HasOppositeOrderTypeLossOver5()</code>).</p>
                     <div id="chk43" style="display: none; margin-top: 10px; font-size: 12.5px; color: var(--accent-blue); background: rgba(0,0,0,0.3); padding: 8px 12px; border-radius: 6px;">
                       <strong>Code Anchor:</strong> <code>CreateFLIPBasketSupportOrder()</code> (L8266-L8318), <code>ManageBasket10USDLockEquity()</code> (L3127-L3142), <code>glbVersion = "V10047  07-10-2026 10.35"</code> (L34) &bull; Clean MetaEditor 4 build (0 errors, 20 warnings).
+                    </div>
+                  </div>
+                </div>
+
+                <div class="step-item" style="cursor: pointer;" onclick="toggleAuditDetail('chk44')">
+                  <div class="step-num" style="background: rgba(16, 185, 129, 0.15); color: var(--accent-green); border-color: rgba(16, 185, 129, 0.3);">&#10003;</div>
+                  <div class="step-body" style="flex: 1;">
+                    <h4>FLIPBasketSupport Minimum 15-Minute Flip Elapsed Gate (TimeCurrent() - EmaFlipTime &gt;= 900s) <span class="badge badge-green">Active</span></h4>
+                    <p>Enforced mandatory 15-minute stabilization window following any EMA Flip before <code>FLIPBasketSupport</code> orders can be created: (1) <strong>15-Minute Gate:</strong> Blocked <code>CreateFLIPBasketSupportOrder()</code> if <code>TimeCurrent() - EmaFlipTime &lt; 60 * 15</code> (900 seconds), ensuring support trades only enter mature, sustained trend continuations rather than early flip whipsaws. (2) <strong>Continuous Recreation Support:</strong> Updated <code>HandleEmaFlip()</code> deferred engine to allow support creation whenever no support order is open (<code>!HasOpenFLIPBasketSupportOrder(-1)</code>) once the 15-minute maturity threshold has elapsed.</p>
+                    <div id="chk44" style="display: none; margin-top: 10px; font-size: 12.5px; color: var(--accent-blue); background: rgba(0,0,0,0.3); padding: 8px 12px; border-radius: 6px;">
+                      <strong>Code Anchor:</strong> <code>FLIPBasketSupportMinFlipElapsedSeconds = 900</code> (L319), <code>CreateFLIPBasketSupportOrder()</code> (L8281-L8302), <code>HandleEmaFlip()</code> (L1838-L1840), <code>glbVersion = "V10048  07-10-2026 11.25"</code> (L34) &bull; Clean MetaEditor 4 build (0 errors, 20 warnings).
                     </div>
                   </div>
                 </div>
