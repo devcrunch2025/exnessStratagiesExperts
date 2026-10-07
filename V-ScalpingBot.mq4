@@ -1,4 +1,4 @@
-//+------------------------------------------------------------------+
+﻿//+------------------------------------------------------------------+
 //|                  SSL CHANNEL CROSS EA - CONTINUOUS EQUITY LADDER |
 //|                  TWO-STAGE PROFIT LADDER | CONTINUOUS RESET      |
 //+------------------------------------------------------------------+
@@ -31,8 +31,8 @@
 
 // Previous: V10010  03-10-2026 18.25 Partial Close Column in Live Position Monitor
 string TimeframeToString(int timeframe);
-string glbVersion = "V10051  07-10-2026 15.35 FLIPBasketSupport Pending Stop Orders With Raw Gap (OP_BUYSTOP/OP_SELLSTOP)";
-string verShort = "V10051 | " + Symbol() + " " + TimeframeToString(Period());
+string glbVersion = "V10052  07-10-2026 15.35 FLIPBasketSupport Pending Stop Orders With Raw Gap (OP_BUYSTOP/OP_SELLSTOP)";
+string verShort = "V10052 | " + Symbol() + " " + TimeframeToString(Period());
 
 bool OnlyAllowFLIPBasketSupportOrders =false;// true; // TEST ISOLATION: When true, blocks ALL orders in SafeOrderSend except FLIPBasketSupport
 
@@ -2417,10 +2417,17 @@ void OnTick()
         }
       PendingVShapeSellTime = 0;
      }
+if(GlobalSSLDirection!=GlobalSSLDirectionPrevious || EMADirection!=EMADirectionPrevious)
+{
+  DeleteAllPendingEAOrders();
+}
 
-
-
+GlobalSSLDirectionPrevious=GlobalSSLDirection;
+EMADirectionPrevious=EMADirection;
   }
+
+  int GlobalSSLDirectionPrevious=0;
+  int EMADirectionPrevious=0;
 //+------------------------------------------------------------------+
 //|                                                                  |
 //+------------------------------------------------------------------+
@@ -2588,6 +2595,8 @@ void ManageFiveDollarLock()
                    " | Reason: Order locked as part of $", DoubleToString(basketTargetUSD, 2), " Buy Basket profit (not an orphan close).");
            }
         }
+
+        DeleteAllPendingEAOrders();
      }
 
    // 3. SellBasket Lock at $5: If total Sell basket profit >= $5, modify all Sell orders with SL
@@ -2622,6 +2631,8 @@ void ManageFiveDollarLock()
                    " | Reason: Order locked as part of $", DoubleToString(basketTargetUSD, 2), " Sell Basket profit (not an orphan close).");
            }
         }
+
+        DeleteAllPendingEAOrders();
      }
   }
 
@@ -3098,7 +3109,7 @@ void ManageBasket10USDLockEquity()
 
       Print("BASKET ", basketStepStr, " LOCK COMPLETE: Modified=", modifiedCount, " orders, Failed=", failedCount);
       Print("==================================================================");
-
+DeleteAllPendingEAOrders();
       // Advance baseline and calculate next $10 target:
       // e.g. $100 -> $110 -> next target is $110 + $10 = $120 -> next $120 + $10 = $130
       g_basket10USDStepCount++;
