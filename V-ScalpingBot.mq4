@@ -294,14 +294,14 @@ double   PostOrderSLTPVerifyLots[MAX_POST_ORDER_SLTP_VERIFY];
 
 bool EnableRecoveryOrders =true;// true;
 double RecoveryTriggerLossUSD =1;//2;//1;//0.50;// 2;
-double RecoveryLotMultiplier =2;//1;// 2;
+double RecoveryLotMultiplier =4;//2;//1;// 2;
 int MaxRecoveryOrders =100;// 5; // Maximum active recovery orders allowed
 double RecoveryMaxLots = 0.05; // Maximum lot cap for recovery order (even 2X lot cannot exceed 0.05)
 double RecoveryBasketProfitUSD = 0.50;//1;
 double RecoveryMinDistanceRaw = 500.0; // Minimum raw price gap ($500) from parent order for recovery orders
 double MinGapBetweenRecoveryOrdersRaw = 500.0; // Minimum raw price gap ($500) between recovery orders of same type
 bool   IgnoreRecoveryRawGapCondition = false;  // Strictly enforce raw gap condition between recovery orders
-double Recovery2ndOrderMinDistanceRaw = 500.0; // Minimum raw price gap ($500) from 1st recovery order for 2nd recovery order
+double Recovery2ndOrderMinDistanceRaw = 1000.0; // Minimum raw price gap ($500) from 1st recovery order for 2nd recovery order
 int    MaxRecoveryOrdersPerParent = 2; // Maximum recovery orders allowed per parent trade (1st + 2nd)
 bool UseBalanceMultiplierForRecoveryTarget = false; // Scaled by balance multiplier if true; default false ($1.00 fixed cash target)
 bool EnableRecoveryProfitTrailing = false; // Always close parent + recovery 1 + recovery 2 together on recovery basket profit!
@@ -3476,6 +3476,8 @@ void OnTickCore()
       return;
      }
 
+
+ if(TimeCurrent() - EmaFlipTime > 60*15)
    CheckRecoveryOrders();
    if(TradeOperationFailedThisTick)
      {
@@ -7739,6 +7741,9 @@ void CheckRecoveryOrders()
       if(StringFind(comment, "RECOVERY_") == 0)
          continue; // Recovery orders cannot be parents
 
+
+
+
       bool validParent = false;
       if(StringFind(comment, "SSL Long") >= 0 || StringFind(comment, "SSL Short") >= 0 || StringFind(comment, "ReEntry") >= 0)
          validParent = true;
@@ -7838,8 +7843,8 @@ void CheckRecoveryOrders()
       double slDistance = CalculatePriceDistanceUSD(StopLossUSD * recoveryLots * 100, recoveryLots);
 
       // Take profit changed from 200 to 500 raw price distance ( BTC) on order creation
-      double tpDist = RecoveryTakeProfitDistanceRaw;
-      double calcTPDist = CalculatePriceDistanceUSD(5.00 * (recoveryLots / 0.01), recoveryLots);
+      double tpDist = RecoveryTakeProfitDistanceRaw*recoveryLots*100;
+      double calcTPDist = CalculatePriceDistanceUSD(tpDist, recoveryLots);
       if(calcTPDist > 0.0)
          tpDist = calcTPDist;
       if(tpDist <= 0.0)
