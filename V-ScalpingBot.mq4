@@ -1,4 +1,4 @@
-﻿//+------------------------------------------------------------------+
+//+------------------------------------------------------------------+
 //|                  SSL CHANNEL CROSS EA - CONTINUOUS EQUITY LADDER |
 //|                  TWO-STAGE PROFIT LADDER | CONTINUOUS RESET      |
 //+------------------------------------------------------------------+
@@ -31,8 +31,8 @@
 
 // Previous: V10010  03-10-2026 18.25 Partial Close Column in Live Position Monitor
 string TimeframeToString(int timeframe);
-string glbVersion = "V10046  06-10-2026 23.15 Recovery Orders Strict $500 Gap & Basket Immunity (BUY/SELL Parity)";
-string verShort = "V10046 | " + Symbol() + " " + TimeframeToString(Period());
+string glbVersion = "V10047  07-10-2026 10.35 Commented FLIPBasketSupport Gates 3, 4, 4A, 4B (5m Gap, Recreated Angle & Opp Loss)";
+string verShort = "V10047 | " + Symbol() + " " + TimeframeToString(Period());
 
 extern bool OnlyAllowFLIPBasketSupportOrders =false;// true; // TEST ISOLATION: When true, blocks ALL orders in SafeOrderSend except FLIPBasketSupport
 
@@ -3126,15 +3126,19 @@ void ManageBasket10USDLockEquity()
      {
       if(!HasOpenFLIPBasketSupportOrder(-1))
         {
+         /* [COMMENTED OUT per user instruction: Gate 3 - 5-minute gap]
          datetime lastCloseTime = GetLastClosedFLIPBasketSupportCloseTime();
          if(lastCloseTime > 0 && (TimeCurrent() - lastCloseTime) < FLIPBasketSupportMinCloseGapSeconds)
            {
             // Minimum 5-minute gap not yet reached, wait quietly without tick log spam
            }
          else
+         */
            {
+            /* [COMMENTED OUT per user instruction: Gate 4A - EMA angle > 5.0]
             GlobalEmaAngle30 = GetEmaAngleDegrees(30);
             if(MathAbs(GlobalEmaAngle30) > FLIPBasketSupportRecreateMinAngle)
+            */
               {
                int dir = LastTrackedEmaDirection;
                if(dir == 0)
@@ -8263,7 +8267,8 @@ int CreateFLIPBasketSupportOrder(int flipDirection, bool ignoreEmaDistanceGate =
       return -1;
      }
 
-// 0A. Minimum 5-minute gap (300 seconds) condition from recent closed FLIPBasketSupport order
+// 0A. Minimum 5-minute gap (300 seconds) condition from recent closed FLIPBasketSupport order [COMMENTED OUT per user instruction: Gate 3]
+/*
    datetime lastCloseTime = GetLastClosedFLIPBasketSupportCloseTime();
    if(lastCloseTime > 0)
      {
@@ -8282,9 +8287,11 @@ int CreateFLIPBasketSupportOrder(int flipDirection, bool ignoreEmaDistanceGate =
          return -1;
         }
      }
+*/
 
-// 0B. Recreated Order Condition (2nd order onwards after first closed in cycle):
+// 0B. Recreated Order Condition (2nd order onwards after first closed in cycle): [COMMENTED OUT per user instruction: Gate 4, 4A, 4B]
 // Requires BOTH: opposite order type in loss > $5.00 AND MathAbs(GlobalEmaAngle30) > 5.0
+/*
    bool isRecreatedOrder = (g_flipBasketSupportCreatedInCycle >= 1 || (lastCloseTime >= EmaFlipTime && EmaFlipTime > 0));
    if(isRecreatedOrder)
      {
@@ -8315,6 +8322,7 @@ int CreateFLIPBasketSupportOrder(int flipDirection, bool ignoreEmaDistanceGate =
          return -1;
         }
      }
+*/
 
 // 0C. Weak Trend Gate: Do not create FLIPBasketSupport order when IsEmaWEAKDistanceReduced50PercentFromPeak is weak
    if(FLIPBasketSupportBlockOnWeakEma)

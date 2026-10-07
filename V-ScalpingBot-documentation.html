@@ -889,7 +889,7 @@
       <div class="header-pills">
         <span class="pill pill-blue">BTCUSD • M1 Scalper</span>
         <span class="pill pill-purple">Exness Raw / Zero</span>
-        <span class="pill pill-green">V10046 (06-10-2026 23.15)</span>
+        <span class="pill pill-green">V10047 (07-10-2026 10.35)</span>
       </div>
     </div>
 
@@ -2262,8 +2262,8 @@ flowchart TD
               </div>
               <div class="stat-card">
                 <div class="stat-label">Active Production Build</div>
-                <div class="stat-value" style="color: var(--accent-purple);">V10046</div>
-                <div class="stat-desc">06-10-2026 23.15 Deployed</div>
+                <div class="stat-value" style="color: var(--accent-purple);">V10047</div>
+                <div class="stat-desc">07-10-2026 10.35 Deployed</div>
               </div>
               <div class="stat-card">
                 <div class="stat-label">Centralized Firewall</div>
@@ -3235,6 +3235,17 @@ flowchart TD
                     <p>Resolved root cause of apparent $100 BUY recovery gaps: (1) <strong>Immunity from Single-Order Profit Locks:</strong> Granted absolute immunity to recovery orders with active parents inside <code>ManageWeakEmaProfitOrderProtect()</code>, <code>ManageFiveDollarLock()</code>, and <code>FlipIndividualOrderProtect()</code>. Recovery orders are strictly forbidden from having their SL trailed to live price or closing prematurely for micro-profits ($0.20 or $5) while their parent order remains open, preventing rapid-churn re-entry. (2) <strong>Two-Tier Inter-Order Gap Audit:</strong> Upgraded <code>HasMinimumRecoveryOrderGap()</code> to evaluate both active recovery orders in <code>MODE_TRADES</code> and recently closed recovery orders in <code>MODE_HISTORY</code> within 300 seconds, strictly enforcing $\ge \$500$ raw gap. (3) <strong>Programmatic Input Clamping:</strong> Enforced in <code>OnInit()</code> that <code>MinGapBetweenRecoveryOrdersRaw</code>, <code>RecoveryMinDistanceRaw</code>, and <code>Recovery2ndOrderMinDistanceRaw</code> cannot fall below $500 raw points, eliminating MT4 chart template caching discrepancies between BUY and SELL.</p>
                     <div id="chk42" style="display: none; margin-top: 10px; font-size: 12.5px; color: var(--accent-blue); background: rgba(0,0,0,0.3); padding: 8px 12px; border-radius: 6px;">
                       <strong>Code Anchor:</strong> <code>ManageWeakEmaProfitOrderProtect()</code> (L2844), <code>ManageFiveDollarLock()</code> (L2507, L2574, L2608), <code>FlipIndividualOrderProtect()</code> (L2656), <code>HasMinimumRecoveryOrderGap()</code> (L3844), <code>OnInit()</code> (L1967), <code>glbVersion = "V10046  06-10-2026 23.15"</code> (L34) &bull; Clean MetaEditor 4 build (0 errors, 20 warnings).
+                    </div>
+                  </div>
+                </div>
+
+                <div class="step-item" style="cursor: pointer;" onclick="toggleAuditDetail('chk43')">
+                  <div class="step-num" style="background: rgba(16, 185, 129, 0.15); color: var(--accent-green); border-color: rgba(16, 185, 129, 0.3);">&#10003;</div>
+                  <div class="step-body" style="flex: 1;">
+                    <h4>Deactivated FLIPBasketSupport Gates 3, 4, 4A, &amp; 4B (Unrestricted Cycle &amp; Replenishment Creation) <span class="badge badge-green">Active</span></h4>
+                    <p>Commented out restrictive filters for <code>FLIPBasketSupport</code> creation per user instruction: (1) <strong>Gate 3 (5-Minute Cool-Off):</strong> Commented out <code>FLIPBasketSupportMinCloseGapSeconds = 300s</code> check in both <code>CreateFLIPBasketSupportOrder()</code> and <code>ManageBasket10USDLockEquity()</code>, allowing immediate creation/re-creation without waiting 5 minutes after a support order closes. (2) <strong>Gate 4 (Recreated Order Dual Gates):</strong> Commented out <code>isRecreatedOrder</code> checks. (3) <strong>Gate 4A (EMA Angle > 5.0°):</strong> Deactivated minimum EMA angle check (<code>MathAbs(GlobalEmaAngle30) &gt; 5.0</code>), allowing support creation regardless of slope angle. (4) <strong>Gate 4B (Opposite Order Loss > $5.00):</strong> Deactivated requirement for opposite orders to be underwater by &gt; $5.00 (<code>HasOppositeOrderTypeLossOver5()</code>).</p>
+                    <div id="chk43" style="display: none; margin-top: 10px; font-size: 12.5px; color: var(--accent-blue); background: rgba(0,0,0,0.3); padding: 8px 12px; border-radius: 6px;">
+                      <strong>Code Anchor:</strong> <code>CreateFLIPBasketSupportOrder()</code> (L8266-L8318), <code>ManageBasket10USDLockEquity()</code> (L3127-L3142), <code>glbVersion = "V10047  07-10-2026 10.35"</code> (L34) &bull; Clean MetaEditor 4 build (0 errors, 20 warnings).
                     </div>
                   </div>
                 </div>
