@@ -5029,6 +5029,8 @@ bool IsOrderAllowedByTrendAndGap(int orderType)
 //+------------------------------------------------------------------+
 int GetWeakStateCountPerEmaFlip()
   {
+
+   return 0;
    return g_weakStateCountPerEmaFlip;
   }
 
@@ -7229,7 +7231,7 @@ void ChangeLots(double OpenPL, string reason, int orderType, int stoplevelStep)
    double buyLots  = GetTotalLots(OP_BUY);
    double sellLots = GetTotalLots(OP_SELL);
 
-
+/*
 
    if(requestedDirection==1 && GetOpenPL(OP_BUY)<=-5)
      {
@@ -7242,17 +7244,18 @@ void ChangeLots(double OpenPL, string reason, int orderType, int stoplevelStep)
       Lots = 0.01;
 
      }
+     */
 
-   if(requestedDirection==-1)
+   /*if(requestedDirection==-1)
 
      {
       Lots = 0.01;
 
-     }
+     }*/
 
    if(MathAbs(GlobalEmaAngle30) < 5)
      {
-      Lots = 0.01;
+     // Lots = 0.02;
 
       if(requestedDirection == -1 && MathAbs(GetOpenPL(OP_BUY)) > 5 && MathAbs(GetOpenPL(OP_SELL)) * 2 <= MathAbs(GetOpenPL(OP_BUY)))
         {
@@ -7263,16 +7266,17 @@ void ChangeLots(double OpenPL, string reason, int orderType, int stoplevelStep)
          Lots = 0.02;
         }
 
+
      }
-   if(requestedDirection == 1 && (GetOpenPL(OP_BUY)) <-1)
+  /* if(requestedDirection == 1 && (GetOpenPL(OP_BUY)) <-1)
      {
-      Lots = 0.01;
+      /Lots = 0.01;
      }
    if(requestedDirection == -1 && (GetOpenPL(OP_SELL)) <-1)
      {
       Lots = 0.01;
      }
-
+*/
 
 // Safety catch
 
@@ -13357,9 +13361,9 @@ bool IsEmaWEAKDistanceReduced50PercentFromPeak(int orderType = -1)
    if(EmaFlipTime == 0)
       return false;
 
-   if(GetWeakStateCountPerEmaFlip()>1)
+   //if(GetWeakStateCountPerEmaFlip()>1)
 
-      return true;//weak
+     // return true;//weak
 
 
    if(!emaflipstrongorweak())// if weak then return true , if strong double check again
