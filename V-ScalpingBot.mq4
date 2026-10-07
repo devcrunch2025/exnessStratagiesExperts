@@ -1,4 +1,4 @@
-﻿//+------------------------------------------------------------------+
+//+------------------------------------------------------------------+
 //|                  SSL CHANNEL CROSS EA - CONTINUOUS EQUITY LADDER |
 //|                  TWO-STAGE PROFIT LADDER | CONTINUOUS RESET      |
 //+------------------------------------------------------------------+
@@ -31,8 +31,8 @@
 
 // Previous: V10010  03-10-2026 18.25 Partial Close Column in Live Position Monitor
 string TimeframeToString(int timeframe);
-string glbVersion = "V10050  07-10-2026 11.25 FLIPBasketSupport Min 15m After EMA Flip Gate (TimeCurrent() - EmaFlipTime >= 900s)";
-string verShort = "V10050 | " + Symbol() + " " + TimeframeToString(Period());
+string glbVersion = "V10051  07-10-2026 15.35 FLIPBasketSupport Pending Stop Orders With Raw Gap (OP_BUYSTOP/OP_SELLSTOP)";
+string verShort = "V10051 | " + Symbol() + " " + TimeframeToString(Period());
 
 bool OnlyAllowFLIPBasketSupportOrders =false;// true; // TEST ISOLATION: When true, blocks ALL orders in SafeOrderSend except FLIPBasketSupport
 
@@ -272,7 +272,7 @@ bool EnableProfitLadder2 = true;
 double Ladder1ProfitUSD =1;// 0.50;
 double Ladder1StopMaxPriceUSD =1.10;// 0.70;//2;
 double Ladder2ProfitUSD = 0.15;
-double DefaultOrderProfitUSD = 2.00;
+double DefaultOrderProfitUSD =10;// 2.00;
 
 
 // ===== ONE-TIME POST-ORDER SL/TP VERIFICATION =====
@@ -308,6 +308,7 @@ bool EnableRecoveryProfitTrailing = false; // Always close parent + recovery 1 +
 double RecoveryTakeProfitDistanceRaw =1000;// 500.0; // Take profit distance ( raw BTC price distance) for Recovery orders
 double RecoveryOrderStopLossStepRaw = 100.0; // Positive profit jump raw gap step size ($100 raw BTC price) to ratchet Recovery order StopLoss
 double RecoveryTakeProfitDistanceStopLossStep = 100.0; // 100X raw gap stoploss step on every profit jump
+double FLIPBasketSupportPendingGapRaw = 20.0; // Raw gap (BTC price points) for FLIPBasketSupport pending stop order placement (like ProfitReEntryGapRaw)
 double FLIPBasketSupportTakeProfitDistanceRaw =2000;//100*2;// 500.0; // Take profit distance ( raw BTC price distance) for FLIPBasketSupport orders
 double FLIPBasketSupportTakeProfitDistanceStopLossStep = 100.0; // Positive profit move step size (raw BTC price) to ratchet FLIPBasketSupport StopLoss
 // double FLIPBasketSupportMinEmaAngle = 1.0; // [COMMENTED OUT per user instruction: EMA Angle Gate replaced by EMAdistance gap > 50]
@@ -5615,6 +5616,7 @@ int SafeOrderSend(string symbol,int orderType,double lots,double price,int slipp
 
    ResetLastError();
    uint tradeStartMs=GetTickCount();
+   
    int ticket=OrderSend(symbol,orderType,lots,sendPrice,slippage,safeSL,takeProfit,comment,magic,0,arrowColor);
    LogTradeTiming("OrderSend",tradeStartMs);
 
@@ -8408,7 +8410,14 @@ int CreateFLIPBasketSupportOrder(int flipDirection, bool ignoreEmaDistanceGate =
    int ticket = -1;
    string comment = "FLIPBasketSupport";
 
-// Take profit set to 500 raw BTC price distance ($500 BTC)
+// Raw gap for pending stop order placement (like ProfitReEntryGapRaw)
+   double pendingGap = (FLIPBasketSupportPendingGapRaw > 0.0) ? FLIPBasketSupportPendingGapRaw : ProfitReEntryGapRaw;
+   if(pendingGap <= 0.0)
+      pendingGap = 20.0;
+
+   double minimumGap = GetRequiredStopDistance();
+
+// Take profit set to raw BTC price distance
    double tpDist = FLIPBasketSupportTakeProfitDistanceRaw;
    double calcTPDist = CalculatePriceDistanceUSD(5.00 * (flipLots / 0.01), flipLots);
    if(calcTPDist > 0.0)
@@ -8416,31 +8425,47 @@ int CreateFLIPBasketSupportOrder(int flipDirection, bool ignoreEmaDistanceGate =
    if(tpDist <= 0.0)
       tpDist = 500.0;
 
-   if(flipDirection == 1) // FLIP to BUY
+   if(flipDirection == 1) // FLIP to BUY -> Pending BUY STOP
      {
-      double ask = Ask;
+      int pendingType = OP_BUYSTOP;
+      double entryPrice = Ask + pendingGap;
+      if(entryPrice < Ask + minimumGap)
+         entryPrice = Ask + minimumGap;
+      entryPrice = NormalizeDouble(entryPrice, Digits);
+
       double slDistance = CalculatePriceDistanceUSD(StopLossUSD*flipLots*100, flipLots);
-      double stopLoss = (slDistance > 0) ? NormalizeDouble(ask - slDistance, Digits) : 0.0;
-      double takeProfit = NormalizeDouble(ask + tpDist, Digits);
-      ticket = SafeOrderSend(Symbol(), OP_BUY, flipLots, ask, Slippage, stopLoss, takeProfit, comment, MagicNumber, clrLime);
+      double stopLoss = (slDistance > 0) ? NormalizeDouble(entryPrice - slDistance, Digits) : 0.0;
+      double takeProfit = (tpDist > 0) ? NormalizeDouble(entryPrice + tpDist, Digits) : 0.0;
+
+      ticket = SafeOrderSend(Symbol(), pendingType, flipLots, entryPrice, Slippage, stopLoss, takeProfit, comment, MagicNumber, clrLime);
       if(ticket > 0)
         {
          g_lastActiveFLIPBasketSupportTicket = ticket;
-         Print("FLIP BASKET SUPPORT ORDER CREATED: BUY Ticket #", ticket, " Lots=", DoubleToString(flipLots, 2), " at Ask=", DoubleToString(ask, Digits), " TP=", DoubleToString(takeProfit, Digits), " (500 TP distance)");
+         Print("FLIP BASKET SUPPORT PENDING ORDER CREATED: BUY STOP Ticket #", ticket, " Lots=", DoubleToString(flipLots, 2),
+               " Entry=", DoubleToString(entryPrice, Digits), " (Ask+", DoubleToString(pendingGap, 2), ")",
+               " SL=", DoubleToString(stopLoss, Digits), " TP=", DoubleToString(takeProfit, Digits), " (TPdist=", DoubleToString(tpDist, 2), ")");
         }
      }
    else
-      if(flipDirection == -1) // FLIP to SELL
+      if(flipDirection == -1) // FLIP to SELL -> Pending SELL STOP
         {
-         double bid = Bid;
+         int pendingType = OP_SELLSTOP;
+         double entryPrice = Bid - pendingGap;
+         if(entryPrice > Bid - minimumGap)
+            entryPrice = Bid - minimumGap;
+         entryPrice = NormalizeDouble(entryPrice, Digits);
+
          double slDistance = CalculatePriceDistanceUSD(StopLossUSD*flipLots*100, flipLots);
-         double stopLoss = (slDistance > 0) ? NormalizeDouble(bid + slDistance, Digits) : 0.0;
-         double takeProfit = NormalizeDouble(bid - tpDist, Digits);
-         ticket = SafeOrderSend(Symbol(), OP_SELL, flipLots, bid, Slippage, stopLoss, takeProfit, comment, MagicNumber, clrTomato);
+         double stopLoss = (slDistance > 0) ? NormalizeDouble(entryPrice + slDistance, Digits) : 0.0;
+         double takeProfit = (tpDist > 0) ? NormalizeDouble(entryPrice - tpDist, Digits) : 0.0;
+
+         ticket = SafeOrderSend(Symbol(), pendingType, flipLots, entryPrice, Slippage, stopLoss, takeProfit, comment, MagicNumber, clrTomato);
          if(ticket > 0)
            {
             g_lastActiveFLIPBasketSupportTicket = ticket;
-            Print("FLIP BASKET SUPPORT ORDER CREATED: SELL Ticket #", ticket, " Lots=", DoubleToString(flipLots, 2), " at Bid=", DoubleToString(bid, Digits), " TP=", DoubleToString(takeProfit, Digits), " (500 TP distance)");
+            Print("FLIP BASKET SUPPORT PENDING ORDER CREATED: SELL STOP Ticket #", ticket, " Lots=", DoubleToString(flipLots, 2),
+                  " Entry=", DoubleToString(entryPrice, Digits), " (Bid-", DoubleToString(pendingGap, 2), ")",
+                  " SL=", DoubleToString(stopLoss, Digits), " TP=", DoubleToString(takeProfit, Digits), " (TPdist=", DoubleToString(tpDist, 2), ")");
            }
         }
 

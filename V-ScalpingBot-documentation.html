@@ -889,7 +889,7 @@
       <div class="header-pills">
         <span class="pill pill-blue">BTCUSD • M1 Scalper</span>
         <span class="pill pill-purple">Exness Raw / Zero</span>
-        <span class="pill pill-green">V10048 (07-10-2026 11.25)</span>
+        <span class="pill pill-green">V10051 (07-10-2026 15.35)</span>
       </div>
     </div>
 
@@ -2252,18 +2252,18 @@ flowchart TD
             <div class="grid-4" style="margin-bottom: 24px;">
               <div class="stat-card">
                 <div class="stat-label">Total User Directives</div>
-                <div class="stat-value" style="color: var(--accent-green);">47 / 47</div>
+                <div class="stat-value" style="color: var(--accent-green);">48 / 48</div>
                 <div class="stat-desc">100% Implemented &amp; Audited</div>
               </div>
               <div class="stat-card">
                 <div class="stat-label">Compiler Verification</div>
                 <div class="stat-value" style="color: var(--accent-blue);">0 Errors</div>
-                <div class="stat-desc">MetaEditor 4 • 134ms Clean Build</div>
+                <div class="stat-desc">MetaEditor 4 • 178ms Clean Build</div>
               </div>
               <div class="stat-card">
                 <div class="stat-label">Active Production Build</div>
-                <div class="stat-value" style="color: var(--accent-purple);">V10048</div>
-                <div class="stat-desc">07-10-2026 11.25 Deployed</div>
+                <div class="stat-value" style="color: var(--accent-purple);">V10051</div>
+                <div class="stat-desc">07-10-2026 15.35 Deployed</div>
               </div>
               <div class="stat-card">
                 <div class="stat-label">Centralized Firewall</div>
@@ -3268,6 +3268,17 @@ flowchart TD
                     <p>Documented user architectural refinement to <code>HasOpenFLIPBasketSupportOrder()</code>: (1) <strong>Full Pool Counting:</strong> Instead of immediate early exit, the loop iterates through all active orders, filters by symbol, magic number, and direction, and increments <code>count++</code> for every verified <code>IsFLIPBasketSupportOrder()</code> match. (2) <strong>Strict Boolean Result:</strong> Evaluates <code>if(count &lt; 1) return false; return true;</code> to confirm active presence of FLIPBasketSupport orders with zero ambiguity across the entire trading context.</p>
                     <div id="chk45" style="display: none; margin-top: 10px; font-size: 12.5px; color: var(--accent-blue); background: rgba(0,0,0,0.3); padding: 8px 12px; border-radius: 6px;">
                       <strong>Code Anchor:</strong> <code>HasOpenFLIPBasketSupportOrder()</code> (L8054-L8075) &bull; Clean MetaEditor 4 build (0 errors, 20 warnings).
+                    </div>
+                  </div>
+                </div>
+
+                <div class="step-item" style="cursor: pointer;" onclick="toggleAuditDetail('chk46')">
+                  <div class="step-num" style="background: rgba(16, 185, 129, 0.15); color: var(--accent-green); border-color: rgba(16, 185, 129, 0.3);">&#10003;</div>
+                  <div class="step-body" style="flex: 1;">
+                    <h4>FLIPBasketSupport Pending Stop Orders with Raw Gap (OP_BUYSTOP / OP_SELLSTOP) <span class="badge badge-green">Active</span></h4>
+                    <p>Converted <code>CreateFLIPBasketSupportOrder()</code> from instant market orders (<code>OP_BUY</code> / <code>OP_SELL</code>) to pending stop orders (<code>OP_BUYSTOP</code> / <code>OP_SELLSTOP</code>) using the raw price gap architecture patterned after <code>ProfitReEntryGapRaw</code>: (1) <strong>Raw Gap Calculation:</strong> Added parameter <code>FLIPBasketSupportPendingGapRaw = 20.0</code> (falling back to <code>ProfitReEntryGapRaw</code> if unset). (2) <strong>Entry Price Placement:</strong> For BUY flip, places <code>OP_BUYSTOP</code> at <code>Ask + pendingGap</code> (clamped to <code>Ask + minimumGap</code>). For SELL flip, places <code>OP_SELLSTOP</code> at <code>Bid - pendingGap</code> (clamped to <code>Bid - minimumGap</code>). (3) <strong>Relative SL / TP:</strong> StopLoss and TakeProfit are calculated relative to the pending <code>entryPrice</code> (<code>entryPrice &minus; slDistance</code> for BUY, <code>entryPrice + slDistance</code> for SELL), guaranteeing exact risk specification upon fill.</p>
+                    <div id="chk46" style="display: none; margin-top: 10px; font-size: 12.5px; color: var(--accent-blue); background: rgba(0,0,0,0.3); padding: 8px 12px; border-radius: 6px;">
+                      <strong>Code Anchor:</strong> <code>FLIPBasketSupportPendingGapRaw = 20.0</code> (L311), <code>CreateFLIPBasketSupportOrder()</code> (L8413-L8465), <code>glbVersion = "V10051  07-10-2026 15.35"</code> (L34) &bull; Clean MetaEditor 4 build (0 errors, 20 warnings).
                     </div>
                   </div>
                 </div>
