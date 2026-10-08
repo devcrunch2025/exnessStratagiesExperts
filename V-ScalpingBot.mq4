@@ -1,4 +1,4 @@
-﻿//+------------------------------------------------------------------+
+//+------------------------------------------------------------------+
 //|                  SSL CHANNEL CROSS EA - CONTINUOUS EQUITY LADDER |
 //|                  TWO-STAGE PROFIT LADDER | CONTINUOUS RESET      |
 //+------------------------------------------------------------------+
@@ -8827,10 +8827,10 @@ void ManageRecoveryBasket()
               {
                // Immediate combined close
                if(parentFound)
-                  SafeOrderClose(currentParentTicket, parentLots, parentType, Slippage, (parentType == OP_BUY ? clrRed : clrBlue));
+                  SafeOrderCloseMarket(currentParentTicket, parentLots, Slippage, (parentType == OP_BUY ? clrRed : clrBlue));
                for(int r = 0; r < recCount; r++)
                  {
-                  SafeOrderClose(recTickets[r], recLots[r], recTypes[r], Slippage, (recTypes[r] == OP_BUY ? clrRed : clrBlue));
+                  SafeOrderCloseMarket(recTickets[r], recLots[r], Slippage, (recTypes[r] == OP_BUY ? clrRed : clrBlue));
                  }
                pairClosed = true;
                break;
