@@ -306,7 +306,7 @@ int    MaxRecoveryOrdersPerParent = 2; // Maximum recovery orders allowed per pa
 bool UseBalanceMultiplierForRecoveryTarget = false; // Scaled by balance multiplier if true; default false ($1.00 fixed cash target)
 bool EnableRecoveryProfitTrailing = false; // Always close parent + recovery 1 + recovery 2 together on recovery basket profit!
 double RecoveryTakeProfitDistanceRaw =50;//10;// 500.0; // Take profit distance ( raw BTC price distance) for Recovery orders
-double RecoveryOrderStopLossStepRaw = 100.0; // Positive profit jump raw gap step size ($100 raw BTC price) to ratchet Recovery order StopLoss
+double RecoveryOrderStopLossStepRaw =200;// 100.0; // Positive profit jump raw gap step size ($100 raw BTC price) to ratchet Recovery order StopLoss
 double RecoveryTakeProfitDistanceStopLossStep = 100.0*5; // 100X raw gap stoploss step on every profit jump
 double FLIPBasketSupportPendingGapRaw = 20.0; // Raw gap (BTC price points) for FLIPBasketSupport pending stop order placement (like ProfitReEntryGapRaw)
 double FLIPBasketSupportTakeProfitDistanceRaw =2000;//100*2;// 500.0; // Take profit distance ( raw BTC price distance) for FLIPBasketSupport orders
@@ -8217,7 +8217,7 @@ int CreateFLIPBasketSupportOrder(int flipDirection, bool ignoreEmaDistanceGate =
 
 // Take profit set to raw BTC price distance
    double tpDist = FLIPBasketSupportTakeProfitDistanceRaw;
-   double calcTPDist = CalculatePriceDistanceUSD(5.00 * (flipLots / 0.01), flipLots);
+   double calcTPDist = CalculatePriceDistanceUSD(5.00*10 * (flipLots / 0.01), flipLots);
    if(calcTPDist > 0.0)
       tpDist = calcTPDist;
    if(tpDist <= 0.0)
