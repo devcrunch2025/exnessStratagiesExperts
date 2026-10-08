@@ -7182,6 +7182,10 @@ void ChangeLots(double OpenPL, string reason, int orderType, int stoplevelStep)
 // if(Lots==0.01)
    Lots=MaxRecoveryLot;
 
+
+   if(isSSLProfitReEntry)
+   Lots=0.01;
+
 // Lots=0.05;//
 // Print("Closed Orders Since EMA Flip: ", closedCount, " | Cycle Step: ", cycleStep, " | Calculated Lots: ", Lots);
 
