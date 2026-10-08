@@ -1,4 +1,4 @@
-//+------------------------------------------------------------------+
+﻿//+------------------------------------------------------------------+
 //|                  SSL CHANNEL CROSS EA - CONTINUOUS EQUITY LADDER |
 //|                  TWO-STAGE PROFIT LADDER | CONTINUOUS RESET      |
 //+------------------------------------------------------------------+
@@ -31,8 +31,8 @@
 
 // Previous: V10010  03-10-2026 18.25 Partial Close Column in Live Position Monitor
 string TimeframeToString(int timeframe);
-string glbVersion = "V10061  08-10-2026 22.35 Weak Count after flip Pending Stop Orders With Raw Gap (OP_BUYSTOP/OP_SELLSTOP)";
-string verShort = "V10061 | " + Symbol() + " " + TimeframeToString(Period());
+string glbVersion = "V10062  08-10-2026 23.35 Weak Count after flip Pending Stop Orders With Raw Gap (OP_BUYSTOP/OP_SELLSTOP)";
+string verShort = "V10062 | " + Symbol() + " " + TimeframeToString(Period());
 
 bool OnlyAllowFLIPBasketSupportOrders =false;// true; // TEST ISOLATION: When true, blocks ALL orders in SafeOrderSend except FLIPBasketSupport
 
@@ -8148,11 +8148,17 @@ int CreateFLIPBasketSupportOrder(int flipDirection, bool ignoreEmaDistanceGate =
            }
         }
    */
+      int targetOrderType = (flipDirection == 1) ? OP_BUY : OP_SELL;
+
+if(GetOpenPL(targetOrderType)>=0)
+{
+         return -1;
+
+}
 
 // 0C. Weak Trend Gate: Do not create FLIPBasketSupport order when IsEmaWEAKDistanceReduced50PercentFromPeak is weak
    if(FLIPBasketSupportBlockOnWeakEma)
      {
-      int targetOrderType = (flipDirection == 1) ? OP_BUY : OP_SELL;
       if(IsEmaWEAKDistanceReduced50PercentFromPeak(targetOrderType) || IsEmaWEAKDistanceReduced50PercentFromPeak(-1))
         {
          static datetime lastWeakSupportPrintTime = 0;
@@ -8189,6 +8195,93 @@ int CreateFLIPBasketSupportOrder(int flipDirection, bool ignoreEmaDistanceGate =
                " <= ", DoubleToString(FLIPBasketSupportMinEmaDistance, 2), " (Requires gap > ", DoubleToString(FLIPBasketSupportMinEmaDistance, 2), ")");
          return -1;
         }
+     }
+
+// 0E. Order Position Gate: FlipBasketSupport must not be on top / extreme of the orders.
+//     - In BUY EMA: At least one open BUY order must already exist ABOVE the proposed entry price (openPrice > proposedEntry).
+//     - In SELL EMA: At least one open SELL order must already exist BELOW the proposed entry price (openPrice < proposedEntry).
+   RefreshRates();
+   double testPendingGap = (FLIPBasketSupportPendingGapRaw > 0.0) ? FLIPBasketSupportPendingGapRaw : ProfitReEntryGapRaw;
+   if(testPendingGap <= 0.0)
+      testPendingGap = 20.0;
+   double testMinGap = GetRequiredStopDistance();
+   double proposedEntryPrice = 0.0;
+
+   if(flipDirection == 1) // BUY
+     {
+      proposedEntryPrice = Ask + testPendingGap;
+      if(proposedEntryPrice < Ask + testMinGap)
+         proposedEntryPrice = Ask + testMinGap;
+     }
+   else if(flipDirection == -1) // SELL
+     {
+      proposedEntryPrice = Bid - testPendingGap;
+      if(proposedEntryPrice > Bid - testMinGap)
+         proposedEntryPrice = Bid - testMinGap;
+     }
+   proposedEntryPrice = NormalizeDouble(proposedEntryPrice, Digits);
+
+   bool hasQualifyingOpenOrder = false;
+   int openSameDirCount = 0;
+   double extremeOpenPrice = (flipDirection == 1) ? -1.0 : 999999999.0;
+
+   for(int posIdx = OrdersTotal() - 1; posIdx >= 0; posIdx--)
+     {
+      if(!OrderSelect(posIdx, SELECT_BY_POS, MODE_TRADES))
+         continue;
+      if(OrderSymbol() != Symbol() || OrderMagicNumber() != MagicNumber)
+         continue;
+      if(IsFLIPBasketSupportOrder(OrderTicket(), OrderComment()))
+         continue;
+
+      int curType = OrderType();
+      if(flipDirection == 1) // BUY EMA: Look for BUY orders above proposed entry
+        {
+         if(curType != OP_BUY && curType != OP_BUYSTOP && curType != OP_BUYLIMIT)
+            continue;
+         openSameDirCount++;
+         double oPrice = OrderOpenPrice();
+         if(oPrice > extremeOpenPrice)
+            extremeOpenPrice = oPrice;
+         if(oPrice > proposedEntryPrice)
+            hasQualifyingOpenOrder = true;
+        }
+      else if(flipDirection == -1) // SELL EMA: Look for SELL orders below proposed entry
+        {
+         if(curType != OP_SELL && curType != OP_SELLSTOP && curType != OP_SELLLIMIT)
+            continue;
+         openSameDirCount++;
+         double oPrice = OrderOpenPrice();
+         if(oPrice < extremeOpenPrice)
+            extremeOpenPrice = oPrice;
+         if(oPrice < proposedEntryPrice)
+            hasQualifyingOpenOrder = true;
+        }
+     }
+
+   if(!hasQualifyingOpenOrder)
+     {
+      static datetime lastOrderPosPrintTime = 0;
+      if(TimeCurrent() - lastOrderPosPrintTime >= 30)
+        {
+         lastOrderPosPrintTime = TimeCurrent();
+         if(openSameDirCount == 0)
+           {
+            Print("FLIPBasketSupport order blocked [Gate 0E]: No existing open ",
+                  (flipDirection == 1 ? "BUY" : "SELL"), " orders found. FlipBasketSupport requires at least one existing order ",
+                  (flipDirection == 1 ? "above" : "below"), " it.");
+           }
+         else
+           {
+            Print("FLIPBasketSupport order blocked [Gate 0E]: Proposed ",
+                  (flipDirection == 1 ? "BUY" : "SELL"), " entry (", DoubleToString(proposedEntryPrice, Digits),
+                  ") would be ", (flipDirection == 1 ? "ON TOP of" : "AT BOTTOM of"), " all open ",
+                  (flipDirection == 1 ? "BUY" : "SELL"), " orders (Extreme open price=",
+                  DoubleToString(extremeOpenPrice, Digits), "). Must have at least one order ",
+                  (flipDirection == 1 ? "above" : "below"), " it.");
+           }
+        }
+      return -1;
      }
 
 // 1. SAFEST METHOD: Close any already open FLIPBasketSupport order before creating new one
