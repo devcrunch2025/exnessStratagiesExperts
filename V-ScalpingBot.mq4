@@ -1,4 +1,4 @@
-//+------------------------------------------------------------------+
+﻿//+------------------------------------------------------------------+
 //|                  SSL CHANNEL CROSS EA - CONTINUOUS EQUITY LADDER |
 //|                  TWO-STAGE PROFIT LADDER | CONTINUOUS RESET      |
 //+------------------------------------------------------------------+
@@ -8166,7 +8166,7 @@ int CreateFLIPBasketSupportOrder(int flipDirection, bool ignoreEmaDistanceGate =
 
 if(GetOpenPL(targetOrderType)>=0)
 {
-         return -1;
+   //      return -1;
 
 }
 
@@ -8197,7 +8197,7 @@ if(GetOpenPL(targetOrderType)>=0)
         }
       return -1;
      }
-
+/*
 // 0. EMA Distance Gate: Only open FLIPBasketSupport order when EMAdistance gap from live price > 50 (unless bypassed e.g. on $10 lock replenishment)
    if(!ignoreEmaDistanceGate)
      {
@@ -8210,6 +8210,8 @@ if(GetOpenPL(targetOrderType)>=0)
          return -1;
         }
      }
+
+     */
 
 // 0E. Order Position Gate: FlipBasketSupport must not be on top / extreme of the orders.
 //     - In BUY EMA: At least one open BUY order must already exist ABOVE the proposed entry price (openPrice > proposedEntry).
