@@ -109,7 +109,7 @@ datetime g_basket10USDLastModifyTime       = 0;     // Timestamp of last $10 loc
 bool   g_basket10USDTargetHitActive        = false; // Set true when $10 target reached; enables every-tick check for FLIPBasketSupport replenishment
 
 //StopLossUSD per lot 0.01
-double StopLossUSD =20;//10;//40;//5;//10;//40;//30;//10;//6;//10;//6;//5;//10;//2;// 10;
+double StopLossUSD =40;//10;//40;//5;//10;//40;//30;//10;//6;//10;//6;//5;//10;//2;// 10;
 
 
 int      g_dayNumber = -1;
