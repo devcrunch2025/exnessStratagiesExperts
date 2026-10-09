@@ -31,8 +31,8 @@
 
 // Previous: V10010  03-10-2026 18.25 Partial Close Column in Live Position Monitor
 string TimeframeToString(int timeframe);
-string glbVersion = "V10062  08-10-2026 23.35 Weak Count after flip Pending Stop Orders With Raw Gap (OP_BUYSTOP/OP_SELLSTOP)";
-string verShort = "V10062 | " + Symbol() + " " + TimeframeToString(Period());
+string glbVersion = "V10063  08-10-2026 23.35 Weak Count after flip Pending Stop Orders With Raw Gap (OP_BUYSTOP/OP_SELLSTOP)";
+string verShort = "V10063 | " + Symbol() + " " + TimeframeToString(Period());
 
 bool OnlyAllowFLIPBasketSupportOrders =false;// true; // TEST ISOLATION: When true, blocks ALL orders in SafeOrderSend except FLIPBasketSupport
 
@@ -3737,7 +3737,7 @@ void CheckMissedSignalMemory(DailyProtectionState &dailyState)
 datetime EmaAngleExtremeStartTime = 0;
 
 //+------------------------------------------------------------------+
-//| Close Opposite Orders on Extreme EMA Angle (> 5° for 30 Mins)    |
+//| Close Opposite Orders on Extreme EMA Angle (> 5Â° for 30 Mins)    |
 //+------------------------------------------------------------------+
 void ManageEmaAngleOppositeClose()
   {
@@ -3765,7 +3765,7 @@ void ManageEmaAngleOppositeClose()
                // If EMA angle > 5 continuously for 30m, close all SELL orders
                if(emaAngle > 5.0 && orderType == OP_SELL)
                  {
-                  Print("EMA ANGLE TRIGGER (> 5° for 30m): Closing SELL order. Angle: ", DoubleToString(emaAngle, 2));
+                  Print("EMA ANGLE TRIGGER (> 5Â° for 30m): Closing SELL order. Angle: ", DoubleToString(emaAngle, 2));
                   SafeOrderClose(OrderTicket(), OrderLots(), OP_SELL, Slippage, clrRed);
                  }
 
@@ -3773,7 +3773,7 @@ void ManageEmaAngleOppositeClose()
                else
                   if(emaAngle < -5.0 && orderType == OP_BUY)
                     {
-                     Print("EMA ANGLE TRIGGER (< -5° for 30m): Closing BUY order. Angle: ", DoubleToString(emaAngle, 2));
+                     Print("EMA ANGLE TRIGGER (< -5Â° for 30m): Closing BUY order. Angle: ", DoubleToString(emaAngle, 2));
                      SafeOrderClose(OrderTicket(), OrderLots(), OP_BUY, Slippage, clrRed);
                     }
               }
@@ -6870,10 +6870,10 @@ void ModifyOpenOrdersToSecureProfit()
       double orderProfit = OrderProfit() + OrderSwap() + OrderCommission();
 
       //==============================================================
-      // LOSS ORDER → WIDEN SL BY $50 GAP (1-Min Cooldown)
+      // LOSS ORDER â†’ WIDEN SL BY $50 GAP (1-Min Cooldown)
       //==============================================================
       //==============================================================
-      // LOSS ORDER → WIDEN SL BY $50 GAP FROM CURRENT TICK PRICE
+      // LOSS ORDER â†’ WIDEN SL BY $50 GAP FROM CURRENT TICK PRICE
       //==============================================================
       if(orderProfit < 0.0)
         {
@@ -6935,7 +6935,7 @@ void ModifyOpenOrdersToSecureProfit()
         }
 
       //==============================================================
-      // PROFIT ORDER → MODIFY SL
+      // PROFIT ORDER â†’ MODIFY SL
       //==============================================================
       if(orderProfit > 0.0)
         {
@@ -11280,17 +11280,76 @@ double GetTicketLastClosePrice(int ticket)
    return 0.0; // Returns 0 if this ticket has never partially closed yet
   }
 //+------------------------------------------------------------------+
+//| GetPartialLossTriggerUSD                                         |
+//| Calculates the loss trigger in USD based on lot size and         |
+//| StopLossUSD value.                                               |
+//| Base triggers (at StopLossUSD = 10):                             |
+//|  0.05 lot => -$5.00                                              |
+//|  0.04 lot => -$8.00                                              |
+//|  0.03 lot => -$9.00                                              |
+//|  0.02 lot => -$8.00                                              |
+//| Scaled dynamically: BaseTrigger * (StopLossUSD / 10.0)           |
+//| Example: StopLossUSD = 20 doubles the triggers (-$10, -$16, ...) |
+//|          StopLossUSD = 30 3x (-$15, -$24, -$27, -$24)            |
+//|          StopLossUSD = 40 4x (-$20, -$32, -$36, -$32)            |
+//+------------------------------------------------------------------+
+double GetPartialLossTriggerUSD(double orderLots)
+  {
+   if(orderLots <= 0.01 + 0.000001)
+      return 0.0;
+
+   double slRatio = (StopLossUSD > 0.0) ? (StopLossUSD / 10.0) : 1.0;
+   double baseTrigger = 0.0;
+   double mult = (balancelomultipler > 1) ? (double)balancelomultipler : 1.0;
+
+   if(MathAbs(orderLots - 0.05) < 0.000001 || (balancelomultipler > 1 && MathAbs(orderLots - (0.05 * mult)) < 0.000001))
+      baseTrigger = 5.00 * (orderLots > 0.05 + 0.000001 ? mult : 1.0);
+   else if(MathAbs(orderLots - 0.04) < 0.000001 || (balancelomultipler > 1 && MathAbs(orderLots - (0.04 * mult)) < 0.000001))
+      baseTrigger = 8.00 * (orderLots > 0.04 + 0.000001 ? mult : 1.0);
+   else if(MathAbs(orderLots - 0.03) < 0.000001 || (balancelomultipler > 1 && MathAbs(orderLots - (0.03 * mult)) < 0.000001))
+      baseTrigger = 9.00 * (orderLots > 0.03 + 0.000001 ? mult : 1.0);
+   else if(MathAbs(orderLots - 0.02) < 0.000001 || (balancelomultipler > 1 && MathAbs(orderLots - (0.02 * mult)) < 0.000001))
+      baseTrigger = 8.00 * (orderLots > 0.02 + 0.000001 ? mult : 1.0);
+   else if(orderLots > 0.05)
+      baseTrigger = orderLots * 100.0;
+   else
+     {
+      int lotUnits = (int)MathRound(orderLots / (0.01 * (balancelomultipler > 0 ? mult : 1.0)));
+      double baseFactor = 10.0 - (double)lotUnits;
+      if(baseFactor < 2.0)
+         baseFactor = 2.0;
+      baseTrigger = baseFactor;
+     }
+
+   return -(baseTrigger * slRatio);
+  }
+
+//+------------------------------------------------------------------+
+//| GetPartialLossRequiredGap                                        |
+//| Raw price units that price must move against position between   |
+//| successive partial loss closes. Scaled with StopLossUSD.         |
+//+------------------------------------------------------------------+
+double GetPartialLossRequiredGap()
+  {
+   double slRatio = (StopLossUSD > 0.0) ? (StopLossUSD / 10.0) : 1.0;
+   double reqGap = 100.0 * slRatio;
+   if(reqGap < 50.0)
+      reqGap = 50.0;
+   return reqGap;
+  }
+
+//+------------------------------------------------------------------+
 //| Partial Loss Close                                               |
-//|                                                                   |
+//|                                                                  |
+//| Base triggers (at StopLossUSD = 10):                             |
 //| Lot Size   Loss Trigger   Partial Close                          |
-//| 0.05       <= -$5.00      0.01                                  |
-//| 0.04       <= -$8.00      0.01                                  |
-//| 0.03       <= -$9.00      0.01                                  |
-//| 0.02       <= -$8.00      0.01                                  |
-//|                                                                   |
-//| After the first partial loss close, the SAME parent order must   |
-//| move another 100 raw price units against the position before     |
-//| another partial loss close is allowed.                           |
+//| 0.05       <= -$5.00      0.01                                   |
+//| 0.04       <= -$8.00      0.01                                   |
+//| 0.03       <= -$9.00      0.01                                   |
+//| 0.02       <= -$8.00      0.01                                   |
+//|                                                                  |
+//| Scaled dynamically with StopLossUSD (StopLossUSD / 10.0).        |
+//| Partial close lot size is strictly 0.01 (never more than 0.01).  |
 //+------------------------------------------------------------------+
 void ManagePartialClosesLoss()
   {
@@ -11311,44 +11370,16 @@ void ManagePartialClosesLoss()
       double orderLots     = OrderLots();
       int    currentTicket = OrderTicket();
 
-      double lossTrigger = 0.0;
-      double lotsToClose = 0.01*balancelomultipler;
+      // No partial-loss rule for orders with lots <= 0.01
+      if(orderLots <= 0.01 + 0.000001)
+         continue;
 
-      if(MathAbs(orderLots - (0.05*balancelomultipler)) < 0.000001 || MathAbs(orderLots - 0.05) < 0.000001)
-        {
-         lossTrigger = -(5.00*balancelomultipler*partialLossMultipler);// 50/5=10(partialLossMultipler==10)
-        }
-      else
-         if(MathAbs(orderLots - (0.04*balancelomultipler)) < 0.000001 || MathAbs(orderLots - 0.04) < 0.000001)
-           {
-            lossTrigger = -(6*balancelomultipler*(partialLossMultipler));// 48/4=12
-           }
-         else
-            if(MathAbs(orderLots - (0.03*balancelomultipler)) < 0.000001 || MathAbs(orderLots - 0.03) < 0.000001)
-              {
-               lossTrigger = -(7*balancelomultipler*partialLossMultipler);// 45/3=15
-              }
-            else
-               if(MathAbs(orderLots - (0.02*balancelomultipler)) < 0.000001 || MathAbs(orderLots - 0.02) < 0.000001)
-                 {
-                  lossTrigger = -(8*balancelomultipler*partialLossMultipler);// 40/2=20
-                 }
-               else
-                  if(orderLots > 0.01 + 0.000001)
-                    {
-                     // General rule for all other lot sizes > 0.01 (including recovery orders)
-                     int lotUnits = (int)MathRound(orderLots / (0.01 * (balancelomultipler > 0 ? balancelomultipler : 1)));
-                     double baseFactor = 10.0 - (double)lotUnits;
-                     if(baseFactor < 2.0)
-                        baseFactor = 2.0;
-                     lossTrigger = -(baseFactor * balancelomultipler * partialLossMultipler);
-                    }
-                  else
-                    {
-                     // No partial-loss rule for orders with lots <= 0.01
-                     continue;
-                    }
+      double lossTrigger = GetPartialLossTriggerUSD(orderLots);
+      if(lossTrigger == 0.0)
+         continue;
 
+      // Strictly close 0.01 lot (never more than 0.01 lot)
+      double lotsToClose = 0.01;
 
       // Must leave at least 0.01 lot after partial close
       double minLot = MarketInfo(Symbol(), MODE_MINLOT);
@@ -11365,6 +11396,9 @@ void ManagePartialClosesLoss()
 
       if(lotsToClose < minLot)
          lotsToClose = minLot;
+
+      if(lotsToClose > 0.01)
+         lotsToClose = 0.01;
 
       if(orderLots - lotsToClose < minLot)
          continue;
@@ -11400,8 +11434,9 @@ void ManagePartialClosesLoss()
       RefreshRates();
 
       // -------------------------------------------------------------
-      // $100 raw price gap between partial loss closes
+      // Raw price gap between partial loss closes (scaled by StopLossUSD)
       // -------------------------------------------------------------
+      double requiredPriceGap = GetPartialLossRequiredGap();
       bool priceGapReached = false;
 
       if(lastClosedPrice <= 0.0)
@@ -11413,15 +11448,15 @@ void ManagePartialClosesLoss()
         {
          if(orderType == OP_BUY)
            {
-            // BUY must move $100 lower
-            if((lastClosedPrice - Bid) >= 100.0)
+            // BUY must move requiredPriceGap lower
+            if((lastClosedPrice - Bid) >= requiredPriceGap)
                priceGapReached = true;
            }
          else
             if(orderType == OP_SELL)
               {
-               // SELL must move $100 higher
-               if((Ask - lastClosedPrice) >= 100.0)
+               // SELL must move requiredPriceGap higher
+               if((Ask - lastClosedPrice) >= requiredPriceGap)
                   priceGapReached = true;
               }
         }
@@ -11463,10 +11498,11 @@ void ManagePartialClosesLoss()
             " | Parent=", baseTicket,
             " | Lots=", DoubleToString(lotsToClose, 2),
             " | CurrentLots=", DoubleToString(orderLots, 2),
+            " | StopLossUSD=", DoubleToString(StopLossUSD, 1),
             " | LossTrigger=$", DoubleToString(MathAbs(lossTrigger), 2),
             " | CurrentPL=$", DoubleToString(currentProfit, 2),
             " | ClosePrice=", DoubleToString(closePrice, Digits),
-            " | NextGap=$100"
+            " | NextGap=$", DoubleToString(requiredPriceGap, 1)
          );
 
          // Important:
@@ -13142,26 +13178,7 @@ void UpdateDashboard(DailyProtectionState &state)
       int curTkt = OrderTicket();
       double curPL = OrderProfit() + OrderSwap() + OrderCommission();
 
-      double lTrig = 0.0;
-      if(MathAbs(pLots - (0.05 * balancelomultipler)) < 0.000001 || MathAbs(pLots - 0.05) < 0.000001)
-         lTrig = -(5.00 * balancelomultipler * partialLossMultipler);
-      else
-         if(MathAbs(pLots - (0.04 * balancelomultipler)) < 0.000001 || MathAbs(pLots - 0.04) < 0.000001)
-            lTrig = -(6.00 * balancelomultipler * partialLossMultipler);
-         else
-            if(MathAbs(pLots - (0.03 * balancelomultipler)) < 0.000001 || MathAbs(pLots - 0.03) < 0.000001)
-               lTrig = -(7.00 * balancelomultipler * partialLossMultipler);
-            else
-               if(MathAbs(pLots - (0.02 * balancelomultipler)) < 0.000001 || MathAbs(pLots - 0.02) < 0.000001)
-                  lTrig = -(8.00 * balancelomultipler * partialLossMultipler);
-               else
-                 {
-                  int lotU = (int)MathRound(pLots / (0.01 * (balancelomultipler > 0 ? balancelomultipler : 1)));
-                  double baseF = 10.0 - (double)lotU;
-                  if(baseF < 2.0)
-                     baseF = 2.0;
-                  lTrig = -(baseF * balancelomultipler * partialLossMultipler);
-                 }
+      double lTrig = GetPartialLossTriggerUSD(pLots);
 
       int bTicket = GetOriginalTicket(curTkt, OrderComment());
       if(bTicket <= 0)
@@ -13174,13 +13191,13 @@ void UpdateDashboard(DailyProtectionState &state)
 
       if(priorCls > 0.0)
         {
-         reqDiff = 100.0;
+         reqDiff = GetPartialLossRequiredGap();
          if(pType == OP_BUY)
             liveDiff = priorCls - curBid;
          else
             liveDiff = curAsk - priorCls;
 
-         if(liveDiff >= 100.0)
+         if(liveDiff >= reqDiff)
             gapMet = true;
         }
       else
@@ -13738,26 +13755,7 @@ void UpdateLeftLiveOrdersDashboard()
         {
          if(lots > 0.01 + 0.000001)
            {
-            double lossTrigger = 0.0;
-            if(MathAbs(lots - (0.05 * balancelomultipler)) < 0.000001 || MathAbs(lots - 0.05) < 0.000001)
-               lossTrigger = -(5.00 * balancelomultipler * partialLossMultipler);
-            else
-               if(MathAbs(lots - (0.04 * balancelomultipler)) < 0.000001 || MathAbs(lots - 0.04) < 0.000001)
-                  lossTrigger = -(6.00 * balancelomultipler * partialLossMultipler);
-               else
-                  if(MathAbs(lots - (0.03 * balancelomultipler)) < 0.000001 || MathAbs(lots - 0.03) < 0.000001)
-                     lossTrigger = -(7.00 * balancelomultipler * partialLossMultipler);
-                  else
-                     if(MathAbs(lots - (0.02 * balancelomultipler)) < 0.000001 || MathAbs(lots - 0.02) < 0.000001)
-                        lossTrigger = -(8.00 * balancelomultipler * partialLossMultipler);
-                     else
-                       {
-                        int lotUnits = (int)MathRound(lots / (0.01 * (balancelomultipler > 0 ? balancelomultipler : 1)));
-                        double baseFactor = 10.0 - (double)lotUnits;
-                        if(baseFactor < 2.0)
-                           baseFactor = 2.0;
-                        lossTrigger = -(baseFactor * balancelomultipler * partialLossMultipler);
-                       }
+            double lossTrigger = GetPartialLossTriggerUSD(lots);
 
             int baseTicket = GetOriginalTicket(OrderTicket(), comment);
             if(baseTicket <= 0)
@@ -13771,13 +13769,13 @@ void UpdateLeftLiveOrdersDashboard()
 
             if(priorCls > 0.0)
               {
-               reqDiff = 100.0;
+               reqDiff = GetPartialLossRequiredGap();
                if(type == OP_BUY)
                   liveDiff = priorCls - Bid;
                else
                   liveDiff = Ask - priorCls;
 
-               if(liveDiff >= 100.0)
+               if(liveDiff >= reqDiff)
                   gapMet = true;
               }
             else
