@@ -3041,7 +3041,7 @@ void ManageBasket10USDLockEquity()
 // 2. Initialize baseline when first order opens
    if(g_basket10USDBaselineEquity <= 0.0)
      {
-      g_basket10USDBaselineEquity = curEquity;
+      g_basket10USDBaselineEquity =AccountBalance();// curEquity;
       g_basket10USDNextTargetEquity = g_basket10USDBaselineEquity + Basket10USDLockStepUSD;
       g_basket10USDStepCount = 0;
       return;
