@@ -1,4 +1,4 @@
-//+------------------------------------------------------------------+
+﻿//+------------------------------------------------------------------+
 //|                  SSL CHANNEL CROSS EA - CONTINUOUS EQUITY LADDER |
 //|                  TWO-STAGE PROFIT LADDER | CONTINUOUS RESET      |
 //+------------------------------------------------------------------+
@@ -6,6 +6,7 @@
 
 //$100 to $170
 //https://github.com/devcrunch2025/exnessStratagiesExperts/commit/32fb1ba20d474fc8d4adb38d2558999b2ac82c56
+
 
 //$100 to $170
 
@@ -31,7 +32,7 @@
 
 // Previous: V10010  03-10-2026 18.25 Partial Close Column in Live Position Monitor
 string TimeframeToString(int timeframe);
-string glbVersion = "V10064  08-10-2026 23.35 Weak Count after flip Pending Stop Orders With Raw Gap (OP_BUYSTOP/OP_SELLSTOP)";
+string glbVersion = "V10064  09-10-2026 15.35 Weak Count after flip Pending Stop Orders With Raw Gap (OP_BUYSTOP/OP_SELLSTOP)";
 string verShort = "V10064 | " + Symbol() + " " + TimeframeToString(Period());
 
 bool OnlyAllowFLIPBasketSupportOrders =false;// true; // TEST ISOLATION: When true, blocks ALL orders in SafeOrderSend except FLIPBasketSupport
