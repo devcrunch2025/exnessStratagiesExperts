@@ -1,4 +1,4 @@
-﻿//+------------------------------------------------------------------+
+//+------------------------------------------------------------------+
 //|                  SSL CHANNEL CROSS EA - CONTINUOUS EQUITY LADDER |
 //|                  TWO-STAGE PROFIT LADDER | CONTINUOUS RESET      |
 //+------------------------------------------------------------------+
@@ -2669,7 +2669,7 @@ void FlipIndividualOrderProtect()
 
       int ticket       = OrderTicket();
       string comment   = OrderComment();
-      if(StringFind(comment, "RECOVERY_") == 0 || IsRecoveryOrderWithActiveParent(ticket, comment))
+      if(StringFind(comment, "RECOVERY_") == 0 || IsRecoveryOrderWithActiveParent(ticket, comment) || HasRecoveryOrder(ticket))
          continue;
 
       double orderPL = OrderProfit() + OrderSwap() + OrderCommission();
@@ -2766,8 +2766,12 @@ void FlipBasketProtect()
 
          int ticket       = OrderTicket();
          string comment   = OrderComment();
-         if(StringFind(comment, "RECOVERY_") == 0 || IsRecoveryOrderWithActiveParent(ticket, comment))
+         if(StringFind(comment, "RECOVERY_") == 0 || IsRecoveryOrderWithActiveParent(ticket, comment) || HasRecoveryOrder(ticket))
             continue;
+
+         double orderPL = OrderProfit() + OrderSwap() + OrderCommission();
+         if(orderPL <= 0.0)
+            continue; // Never modify StopLoss on losing orders into immediate stopout!
 
          double openPrice = OrderOpenPrice();
          double curSL     = OrderStopLoss();
@@ -2799,8 +2803,12 @@ void FlipBasketProtect()
 
          int ticket       = OrderTicket();
          string comment   = OrderComment();
-         if(StringFind(comment, "RECOVERY_") == 0 || IsRecoveryOrderWithActiveParent(ticket, comment))
+         if(StringFind(comment, "RECOVERY_") == 0 || IsRecoveryOrderWithActiveParent(ticket, comment) || HasRecoveryOrder(ticket))
             continue;
+
+         double orderPL = OrderProfit() + OrderSwap() + OrderCommission();
+         if(orderPL <= 0.0)
+            continue; // Never modify StopLoss on losing orders into immediate stopout!
 
          double openPrice = OrderOpenPrice();
          double curSL     = OrderStopLoss();
@@ -6732,9 +6740,12 @@ void modifyOnlyBuyOrders()
            {
             if(OrderSymbol() == Symbol() && OrderMagicNumber() == MagicNumber && OrderType() == OP_BUY)
               {
-               if(IsRecoveryOrderWithActiveParent(OrderTicket(), OrderComment()))
+               if(IsRecoveryOrderWithActiveParent(OrderTicket(), OrderComment()) || HasRecoveryOrder(OrderTicket()))
                   continue;
                if(IsFLIPBasketSupportOrder(OrderTicket(), OrderComment()))
+                  continue;
+               double orderPL = OrderProfit() + OrderSwap() + OrderCommission();
+               if(orderPL <= 0.0)
                   continue;
                int ticket       = OrderTicket();
                double openPrice = OrderOpenPrice();
@@ -7719,6 +7730,7 @@ int GetRecoveryOrderCount(int parentTicket, int &outFirstTicket, int &outSecondT
    outSecondTicket = -1;
    int count = 0;
    int currentSelectedTicket = OrderTicket();
+   int origParentTicket = GetOriginalTicket(parentTicket, "");
 
    for(int i = OrdersTotal() - 1; i >= 0; i--)
      {
@@ -7734,7 +7746,7 @@ int GetRecoveryOrderCount(int parentTicket, int &outFirstTicket, int &outSecondT
          continue;
 
       int par = (int)StringToInteger(StringSubstr(comment, 9));
-      if(par == parentTicket)
+      if(par == parentTicket || (origParentTicket > 0 && par == origParentTicket))
         {
          count++;
          if(StringFind(comment, "_2") >= 0)
@@ -7796,14 +7808,15 @@ bool IsRecoveryOrderWithActiveParent(int ticket, string comment = "")
          continue;
       if(OrderSymbol() != Symbol() || OrderMagicNumber() != MagicNumber)
          continue;
-      if(OrderTicket() == parentTicket)
+      int t = OrderType();
+      if(t != OP_BUY && t != OP_SELL)
+         continue;
+      int tkt = OrderTicket();
+      int origTkt = GetOriginalTicket(tkt, OrderComment());
+      if(tkt == parentTicket || (origTkt > 0 && origTkt == parentTicket))
         {
-         int t = OrderType();
-         if(t == OP_BUY || t == OP_SELL)
-           {
-            parentFound = true;
-            break;
-           }
+         parentFound = true;
+         break;
         }
      }
 
@@ -8884,9 +8897,12 @@ void ManageRecoveryBasket()
            {
             if(!OrderSelect(j, SELECT_BY_POS, MODE_TRADES))
                continue;
-            if(OrderTicket() == currentParentTicket)
+            int tkt = OrderTicket();
+            int origTkt = GetOriginalTicket(tkt, OrderComment());
+            if(tkt == currentParentTicket || (origTkt > 0 && origTkt == currentParentTicket))
               {
                parentFound = true;
+               currentParentTicket = tkt;
                parentLots = OrderLots();
                parentType = OrderType();
                parentProfit = OrderProfit() + OrderSwap() + OrderCommission();
