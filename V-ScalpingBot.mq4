@@ -32,8 +32,8 @@
 
 // Previous: V10010  03-10-2026 18.25 Partial Close Column in Live Position Monitor
 string TimeframeToString(int timeframe);
-string glbVersion = "V10066  09-10-2026 15.35 Weak Count after flip Pending Stop Orders With Raw Gap (OP_BUYSTOP/OP_SELLSTOP)";
-string verShort = "V10066 | " + Symbol() + " " + TimeframeToString(Period());
+string glbVersion = "V10067  09-10-2026 23.35 Weak Count after flip Pending Stop Orders With Raw Gap (OP_BUYSTOP/OP_SELLSTOP)";
+string verShort = "V10067 | " + Symbol() + " " + TimeframeToString(Period());
 
 bool OnlyAllowFLIPBasketSupportOrders =false;// true; // TEST ISOLATION: When true, blocks ALL orders in SafeOrderSend except FLIPBasketSupport
 
@@ -7536,9 +7536,15 @@ void CheckRecoveryOrders()
 
 
 
-      bool validParent = false;
-      if(StringFind(comment, "SSL Long") >= 0 || StringFind(comment, "SSL Short") >= 0 || StringFind(comment, "ReEntry") >= 0)
-         validParent = true;
+      bool validParent = true;
+     // if(StringFind(comment, "SSL Long") >= 0 || StringFind(comment, "SSL Short") >= 0 || StringFind(comment, "from #") >= 0 || StringFind(comment, "ReEntry") >= 0)
+       //  validParent = true;
+
+
+if(StringFind(comment, "RECOVERY_") >= 0 )
+validParent = false;
+
+
       if(!validParent)
          continue;
 
@@ -12559,7 +12565,7 @@ void DrawMomentumMarkers()
             ObjectSetInteger(0, objName, OBJPROP_ARROWCODE, 233); // Wingdings Up Arrow
             ObjectSetInteger(0, objName, OBJPROP_COLOR, clrLime);
             ObjectSetInteger(0, objName, OBJPROP_WIDTH, 2);
-            if(EMADirection == 1)// && !IsEmaWEAKDistanceReduced50PercentFromPeak(1))
+            if(EMADirection == 1 ||  IsEmaWEAKDistanceReduced50PercentFromPeak(1))
               {
 
                GlobalSSLDirection=1;
@@ -12586,7 +12592,7 @@ void DrawMomentumMarkers()
                ObjectSetInteger(0, objName, OBJPROP_COLOR, clrRed);
                ObjectSetInteger(0, objName, OBJPROP_WIDTH, 2);
                GlobalSSLDirection=-1;
-               if(EMADirection == -1)// && !IsEmaWEAKDistanceReduced50PercentFromPeak(-1))
+               if(EMADirection == -1 || IsEmaWEAKDistanceReduced50PercentFromPeak(-1))
                  {
                   // Print("MOM Sell open");
                   OpenSell();
