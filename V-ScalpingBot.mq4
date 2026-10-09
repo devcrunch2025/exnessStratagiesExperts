@@ -1,4 +1,4 @@
-//+------------------------------------------------------------------+
+﻿//+------------------------------------------------------------------+
 //|                  SSL CHANNEL CROSS EA - CONTINUOUS EQUITY LADDER |
 //|                  TWO-STAGE PROFIT LADDER | CONTINUOUS RESET      |
 //+------------------------------------------------------------------+
@@ -32,8 +32,8 @@
 
 // Previous: V10010  03-10-2026 18.25 Partial Close Column in Live Position Monitor
 string TimeframeToString(int timeframe);
-string glbVersion = "V10065  09-10-2026 15.35 Weak Count after flip Pending Stop Orders With Raw Gap (OP_BUYSTOP/OP_SELLSTOP)";
-string verShort = "V10065 | " + Symbol() + " " + TimeframeToString(Period());
+string glbVersion = "V10066  09-10-2026 15.35 Weak Count after flip Pending Stop Orders With Raw Gap (OP_BUYSTOP/OP_SELLSTOP)";
+string verShort = "V10066 | " + Symbol() + " " + TimeframeToString(Period());
 
 bool OnlyAllowFLIPBasketSupportOrders =false;// true; // TEST ISOLATION: When true, blocks ALL orders in SafeOrderSend except FLIPBasketSupport
 
@@ -1759,8 +1759,6 @@ void TrackEmaFlip()
       FLIPBasketSupportOpenedThisCycle = false;
       g_flipBasketSupportCreatedInCycle = 0;
       g_weakStateCountPerEmaFlip = 0;  // Reset weak-state counter on each EMA direction flip
-      g_lastGlobalPartialLossClosePrice = 0.0;
-      g_lastGlobalPartialLossCloseType = -1;
 
       // [COMMENTED OUT EMA ANGLE GATE per user instruction: replaced with EMAdistance gap from live price > 50]
       // GlobalEmaAngle30 = GetEmaAngleDegrees(30);
@@ -11301,14 +11299,26 @@ int      g_lastGlobalPartialLossCloseTicket    = -1;
 // Helper to find the original parent ticket across partial closes
 int GetOriginalTicket(int ticket, string comment)
   {
-// MT4 formats partial closes as "from #12345"
-   int pos = StringFind(comment, "from #");
-   if(pos >= 0)
+   int current = ticket;
+   string curComment = comment;
+   while(true)
      {
-      string parentStr = StringSubstr(comment, pos + 6);
-      return (int)StringToInteger(parentStr);
+      int pos = StringFind(curComment, "from #");
+      if(pos < 0)
+         break;
+      string parentStr = StringSubstr(curComment, pos + 6);
+      int parentTicket = (int)StringToInteger(parentStr);
+      if(parentTicket <= 0 || parentTicket == current)
+         break;
+      current = parentTicket;
+      if(OrderSelect(current, SELECT_BY_TICKET, MODE_HISTORY))
+         curComment = OrderComment();
+      else if(OrderSelect(current, SELECT_BY_TICKET, MODE_TRADES))
+         curComment = OrderComment();
+      else
+         break;
      }
-   return ticket;
+   return current;
   }
 // Helper function to update or add a ticket's last closed price
 void UpdateTicketClosePrice(int ticket, double closePrice)
@@ -11496,8 +11506,9 @@ void ManagePartialClosesLoss()
       if(baseTicket <= 0)
          baseTicket = currentTicket;
 
-      double lastClosedPrice =
-         GetTicketLastClosePrice(baseTicket);
+      double lastClosedPrice = GetTicketLastClosePrice(baseTicket);
+      if(lastClosedPrice <= 0.0 && currentTicket != baseTicket)
+         lastClosedPrice = GetTicketLastClosePrice(currentTicket);
 
       RefreshRates();
 
@@ -11578,10 +11589,9 @@ void ManagePartialClosesLoss()
       if(success)
         {
          // Record this parent's latest partial-loss close price.
-         UpdateTicketClosePrice(
-            baseTicket,
-            closePrice
-         );
+         UpdateTicketClosePrice(baseTicket, closePrice);
+         if(currentTicket != baseTicket)
+            UpdateTicketClosePrice(currentTicket, closePrice);
 
          // Record global last partial-loss close details
          g_lastGlobalPartialLossClosePrice  = closePrice;
