@@ -1,4 +1,4 @@
-﻿//+------------------------------------------------------------------+
+//+------------------------------------------------------------------+
 //|                  SSL CHANNEL CROSS EA - CONTINUOUS EQUITY LADDER |
 //|                  TWO-STAGE PROFIT LADDER | CONTINUOUS RESET      |
 //+------------------------------------------------------------------+
@@ -31,8 +31,8 @@
 
 // Previous: V10010  03-10-2026 18.25 Partial Close Column in Live Position Monitor
 string TimeframeToString(int timeframe);
-string glbVersion = "V10063  08-10-2026 23.35 Weak Count after flip Pending Stop Orders With Raw Gap (OP_BUYSTOP/OP_SELLSTOP)";
-string verShort = "V10063 | " + Symbol() + " " + TimeframeToString(Period());
+string glbVersion = "V10064  08-10-2026 23.35 Weak Count after flip Pending Stop Orders With Raw Gap (OP_BUYSTOP/OP_SELLSTOP)";
+string verShort = "V10064 | " + Symbol() + " " + TimeframeToString(Period());
 
 bool OnlyAllowFLIPBasketSupportOrders =false;// true; // TEST ISOLATION: When true, blocks ALL orders in SafeOrderSend except FLIPBasketSupport
 
@@ -8284,6 +8284,65 @@ if(GetOpenPL(targetOrderType)>=0)
       return -1;
      }
 
+// 0F. 0.05 Lot Minimum Gap Gate:
+// Maintain minimum $100 raw price gap between FLIPBasketSupportOrder and any open 0.05 lot order (same EMA direction)
+   int tooClose005Ticket = -1;
+   double tooClose005Price = 0.0;
+   double tooClose005Gap = 0.0;
+
+   for(int cIdx = OrdersTotal() - 1; cIdx >= 0; cIdx--)
+     {
+      if(!OrderSelect(cIdx, SELECT_BY_POS, MODE_TRADES))
+         continue;
+      if(OrderSymbol() != Symbol() || OrderMagicNumber() != MagicNumber)
+         continue;
+      if(IsFLIPBasketSupportOrder(OrderTicket(), OrderComment()))
+         continue;
+
+      int curType = OrderType();
+      if(flipDirection == 1) // BUY EMA
+        {
+         if(curType != OP_BUY && curType != OP_BUYSTOP && curType != OP_BUYLIMIT)
+            continue;
+        }
+      else if(flipDirection == -1) // SELL EMA
+        {
+         if(curType != OP_SELL && curType != OP_SELLSTOP && curType != OP_SELLLIMIT)
+            continue;
+        }
+      else
+         continue;
+
+      double oLots = OrderLots();
+      bool is005Lot = (MathAbs(oLots - 0.05) < 0.000001 || (balancelomultipler > 1 && MathAbs(oLots - (0.05 * balancelomultipler)) < 0.000001));
+      if(!is005Lot)
+         continue;
+
+      double oOpen = OrderOpenPrice();
+      double dist = MathAbs(proposedEntryPrice - oOpen);
+      if(dist < 100.0)
+        {
+         tooClose005Ticket = OrderTicket();
+         tooClose005Price = oOpen;
+         tooClose005Gap = dist;
+         break;
+        }
+     }
+
+   if(tooClose005Ticket > 0)
+     {
+      static datetime last005GapPrintTime = 0;
+      if(TimeCurrent() - last005GapPrintTime >= 30)
+        {
+         last005GapPrintTime = TimeCurrent();
+         Print("FLIPBasketSupport order blocked [Gate 0F]: Too close to open 0.05 lot order #", tooClose005Ticket,
+               " at ", DoubleToString(tooClose005Price, Digits),
+               " | Proposed Entry=", DoubleToString(proposedEntryPrice, Digits),
+               " | Gap=$", DoubleToString(tooClose005Gap, 2), " < Required Min $100.00.");
+        }
+      return -1;
+     }
+
 // 1. SAFEST METHOD: Close any already open FLIPBasketSupport order before creating new one
    CloseFLIPBasketSupportOrders(-1);
 
@@ -8310,11 +8369,11 @@ if(GetOpenPL(targetOrderType)>=0)
 
 // Take profit set to raw BTC price distance
    double tpDist = FLIPBasketSupportTakeProfitDistanceRaw;
-   double calcTPDist = CalculatePriceDistanceUSD(5.00*10 * (flipLots / 0.01), flipLots);
+   double calcTPDist = CalculatePriceDistanceUSD( 10 * (flipLots / 0.01), flipLots);
    if(calcTPDist > 0.0)
       tpDist = calcTPDist;
    if(tpDist <= 0.0)
-      tpDist = 500.0;
+      tpDist = 100.0;
 
    if(flipDirection == 1) // FLIP to BUY -> Pending BUY STOP
      {
