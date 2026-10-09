@@ -1,4 +1,4 @@
-﻿//+------------------------------------------------------------------+
+//+------------------------------------------------------------------+
 //|                  SSL CHANNEL CROSS EA - CONTINUOUS EQUITY LADDER |
 //|                  TWO-STAGE PROFIT LADDER | CONTINUOUS RESET      |
 //+------------------------------------------------------------------+
@@ -32,8 +32,8 @@
 
 // Previous: V10010  03-10-2026 18.25 Partial Close Column in Live Position Monitor
 string TimeframeToString(int timeframe);
-string glbVersion = "V10064  09-10-2026 15.35 Weak Count after flip Pending Stop Orders With Raw Gap (OP_BUYSTOP/OP_SELLSTOP)";
-string verShort = "V10064 | " + Symbol() + " " + TimeframeToString(Period());
+string glbVersion = "V10065  09-10-2026 15.35 Weak Count after flip Pending Stop Orders With Raw Gap (OP_BUYSTOP/OP_SELLSTOP)";
+string verShort = "V10065 | " + Symbol() + " " + TimeframeToString(Period());
 
 bool OnlyAllowFLIPBasketSupportOrders =false;// true; // TEST ISOLATION: When true, blocks ALL orders in SafeOrderSend except FLIPBasketSupport
 
@@ -1759,6 +1759,8 @@ void TrackEmaFlip()
       FLIPBasketSupportOpenedThisCycle = false;
       g_flipBasketSupportCreatedInCycle = 0;
       g_weakStateCountPerEmaFlip = 0;  // Reset weak-state counter on each EMA direction flip
+      g_lastGlobalPartialLossClosePrice = 0.0;
+      g_lastGlobalPartialLossCloseType = -1;
 
       // [COMMENTED OUT EMA ANGLE GATE per user instruction: replaced with EMAdistance gap from live price > 50]
       // GlobalEmaAngle30 = GetEmaAngleDegrees(30);
@@ -11290,6 +11292,12 @@ void ManageEquityStepLoss()
 // Global arrays to track individual ticket states independently for loss cuts
 //int      g_trackedTickets[];
 //double   g_lastClosedPrices[];
+
+// Global tracking for ManagePartialClosesLoss: minimum $100 raw price gap between ANY two partial loss close orders
+double   g_lastGlobalPartialLossClosePrice     = 0.0;
+int      g_lastGlobalPartialLossCloseType      = -1;
+datetime g_lastGlobalPartialLossCloseTime      = 0;
+int      g_lastGlobalPartialLossCloseTicket    = -1;
 // Helper to find the original parent ticket across partial closes
 int GetOriginalTicket(int ticket, string comment)
   {
@@ -11494,35 +11502,58 @@ void ManagePartialClosesLoss()
       RefreshRates();
 
       // -------------------------------------------------------------
-      // Raw price gap between partial loss closes (scaled by StopLossUSD)
+      // Minimum $100 raw price gap between ANY two partial loss close orders
+      // (Do not close 2 orders continuously without minimum $100 gap)
       // -------------------------------------------------------------
-      double requiredPriceGap = GetPartialLossRequiredGap();
-      bool priceGapReached = false;
+      double requiredPriceGap = MathMax(100.0, GetPartialLossRequiredGap());
 
-      if(lastClosedPrice <= 0.0)
-        {
-         // First partial loss close for this parent order
-         priceGapReached = true;
-        }
-      else
+      // 1. GLOBAL CHECK: Ensure minimum $100 raw gap from previous partial close order
+      if(g_lastGlobalPartialLossClosePrice > 0.0)
         {
          if(orderType == OP_BUY)
            {
-            // BUY must move requiredPriceGap lower
-            if((lastClosedPrice - Bid) >= requiredPriceGap)
-               priceGapReached = true;
-           }
-         else
-            if(orderType == OP_SELL)
+            // For BUY, price must have dropped at least requiredPriceGap lower than previous partial close
+            if(g_lastGlobalPartialLossCloseType == OP_BUY)
               {
-               // SELL must move requiredPriceGap higher
-               if((Ask - lastClosedPrice) >= requiredPriceGap)
-                  priceGapReached = true;
+               if((g_lastGlobalPartialLossClosePrice - Bid) < requiredPriceGap)
+                  continue;
               }
+            else
+              {
+               if(MathAbs(Bid - g_lastGlobalPartialLossClosePrice) < requiredPriceGap)
+                  continue;
+              }
+           }
+         else if(orderType == OP_SELL)
+           {
+            // For SELL, price must have risen at least requiredPriceGap higher than previous partial close
+            if(g_lastGlobalPartialLossCloseType == OP_SELL)
+              {
+               if((Ask - g_lastGlobalPartialLossClosePrice) < requiredPriceGap)
+                  continue;
+              }
+            else
+              {
+               if(MathAbs(Ask - g_lastGlobalPartialLossClosePrice) < requiredPriceGap)
+                  continue;
+              }
+           }
         }
 
-      if(!priceGapReached)
-         continue;
+      // 2. PARENT-TICKET CHECK: If the same parent order already partially closed before
+      if(lastClosedPrice > 0.0)
+        {
+         if(orderType == OP_BUY)
+           {
+            if((lastClosedPrice - Bid) < requiredPriceGap)
+               continue;
+           }
+         else if(orderType == OP_SELL)
+           {
+            if((Ask - lastClosedPrice) < requiredPriceGap)
+               continue;
+           }
+        }
 
       // -------------------------------------------------------------
       // Execute partial loss close
@@ -11551,6 +11582,12 @@ void ManagePartialClosesLoss()
             baseTicket,
             closePrice
          );
+
+         // Record global last partial-loss close details
+         g_lastGlobalPartialLossClosePrice  = closePrice;
+         g_lastGlobalPartialLossCloseType   = orderType;
+         g_lastGlobalPartialLossCloseTime   = TimeCurrent();
+         g_lastGlobalPartialLossCloseTicket = currentTicket;
 
          Print(
             "PARTIAL LOSS CLOSE SUCCESS"
