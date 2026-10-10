@@ -889,7 +889,7 @@
       <div class="header-pills">
         <span class="pill pill-blue">BTCUSD • M1 Scalper</span>
         <span class="pill pill-purple">Exness Raw / Zero</span>
-        <span class="pill pill-green">V10068 (10-10-2026 11.00)</span>
+        <span class="pill pill-green">V10070 (10-10-2026 12.30)</span>
       </div>
     </div>
 
@@ -1425,6 +1425,14 @@ sequenceDiagram
             </div>
 
             
+            <!-- V10069 Independent Catch Method Alert -->
+            <div class="alert-box alert-info" style="margin-bottom: 20px;">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"></circle><line x1="12" y1="16" x2="12" y2="12"></line><line x1="12" y1="8" x2="12.01" y2="8"></line></svg>
+              <div>
+                <strong>V10069 Independent Catch Safety Engine (Try-Catch Pattern):</strong> Serves as the master safety barrier executed at the conclusion of every tick cycle. If any open position reaches <code>P/L &ge; $5.00</code> without a locked profit StopLoss, <code>CatchExceptionalProfitableOrders()</code> audits all trading subsystems to determine whether the position is legitimately held (e.g. active recovery basket offsetting parent drawdown) or stalled (e.g. combined target hit but unclosed, orphan recovery order, or scalp trade skipped by conditions). If no legitimate holding reason is found, it immediately modifies the order with a profit StopLoss, while streaming the live diagnostic status directly into the Left Position Monitor dashboard.
+              </div>
+            </div>
+
             <!-- V10068 Ticket Continuity Alert -->
             <div class="alert-box alert-success" style="margin-bottom: 20px;">
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="20 6 9 17 4 12"></polyline></svg>
@@ -1530,6 +1538,20 @@ sequenceDiagram
                   </tr>
                   <tr>
                     <tr>
+                    <td><code>Step 988</code><br><small style="color: var(--accent-amber);">12:30</small></td>
+                    <td><strong>Unclosed Diagnostic Reason Strict Filter (Order P/L &ge; $5.00 Threshold)</strong><br><small style="color: var(--text-dim);">Strictly limits unclosed reason display in Left Position Monitor to orders with floating profit &ge; $5.00</small></td>
+                    <td><code>GetOrderUnclosedDiagnosticReason()</code><br><code>UpdateLeftLiveOrdersDashboard()</code><br><code>glbVersion = "V10070"</code></td>
+                    <td>Refined unclosed diagnostic telemetry: Added strict threshold filter (<code>if(pl &lt; ExceptionalCatchProfitUSD) return "";</code>) at the entry of <code>GetOrderUnclosedDiagnosticReason()</code>. Orders below $5.00 floating profit (including normal small-profit trades and positions in drawdown) strictly display their standard MT4 order comment, ensuring the Unclosed Reason column activates exclusively for exceptional positions with profit &ge; $5.00 that warrant safety auditing. Clean MetaEditor 4 build (0 errors, 23 warnings).</td>
+                    <td><span class="badge badge-green">VERIFIED &amp; DEPLOYED</span></td>
+                  </tr>
+                  <tr>
+                    <td><code>Step 987</code><br><small style="color: var(--accent-amber);">12:00</small></td>
+                    <td><strong>Independent Catch Method for Exceptional &gt;$5 Profit Orders &amp; Live Unclosed Diagnostic Monitor</strong><br><small style="color: var(--text-dim);">Final tick-cycle try-catch barrier: protects unguarded &gt;$5 profit orders and displays exact unclosed reason in Left Dashboard</small></td>
+                    <td><code>CatchExceptionalProfitableOrders()</code><br><code>GetOrderUnclosedDiagnosticReason()</code><br><code>UpdateLeftLiveOrdersDashboard()</code><br><code>glbVersion = "V10069"</code></td>
+                    <td>Engineered independent safety barrier at the end of <code>OnTick()</code>: (1) Audits all open market positions with floating P/L &ge; $5.00; (2) Verifies whether StopLoss is already securing profit; (3) Evaluates entire EA state: validates legitimate recovery basket drawdown offsets vs emergency basket closures for missed targets, identifies orphan recovery trades, checks FLIP basket support hedging; (4) If no valid holding reason is found, immediately modifies order with a profit StopLoss (locked above entry) to prevent profit evaporation; (5) Enriches Left Position Monitor with dynamic diagnostic status column (<code>"UNCLOSED REASON (&gt; $5) / COMMENT"</code>), rendering real-time basket P/L ratios, emergency close statuses, and profit protection states. Clean MetaEditor 4 build (0 errors, 23 warnings).</td>
+                    <td><span class="badge badge-green">VERIFIED &amp; DEPLOYED</span></td>
+                  </tr>
+                  <tr>
                     <td><code>Step 986</code><br><small style="color: var(--accent-amber);">11:00</small></td>
                     <td><strong>Recovery Basket Parent-Child Ticket Tracking Fix Across Partial Closes</strong><br><small style="color: var(--text-dim);">Resolves rootParentTicket vs activeParentTicket so recovery baskets exit cleanly after MT4 order splits</small></td>
                     <td><code>ManageRecoveryBasket()</code> L8892-L9040<br><code>UpdateDashboard()</code> L12848<br><code>UpdateLeftLiveOrdersDashboard()</code> L13718-L13863<br><code>glbVersion = "V10068"</code></td>
@@ -2321,7 +2343,7 @@ flowchart TD
               </div>
               <div class="stat-card">
                 <div class="stat-label">Active Production Build</div>
-                <div class="stat-value" style="color: var(--accent-purple);">V10068</div>
+                <div class="stat-value" style="color: var(--accent-purple);">V10070</div>
                 <div class="stat-desc">10-10-2026 11.00 Deployed</div>
               </div>
               <div class="stat-card">
@@ -3419,7 +3441,7 @@ flowchart TD
                   </div>
                 </div>
 
-                <div class="step-item" style="cursor: pointer;" onclick="toggleAuditDetail('chk54')">
+                                <div class="step-item" style="cursor: pointer;" onclick="toggleAuditDetail('chk54')">
                   <div class="step-num" style="background: rgba(16, 185, 129, 0.15); color: var(--accent-green); border-color: rgba(16, 185, 129, 0.3);">&#10003;</div>
                   <div class="step-body" style="flex: 1;">
                     <h4>Recovery Basket Parent-Child Ticket Tracking Fix Across Partial Closes <span class="badge badge-green">Active</span></h4>
@@ -3429,7 +3451,14 @@ flowchart TD
                     </div>
                   </div>
                 </div>
-                      <strong>Code Anchor:</strong> <code>FLIPBasketSupportPendingGapRaw = 20.0</code> (L311), <code>CreateFLIPBasketSupportOrder()</code> (L8413-L8465), <code>glbVersion = "V10068  10-10-2026 11.00"</code> (L34) &bull; Clean MetaEditor 4 build (0 errors, 20 warnings).
+
+                <div class="step-item" style="cursor: pointer;" onclick="toggleAuditDetail('chk55')">
+                  <div class="step-num" style="background: rgba(16, 185, 129, 0.15); color: var(--accent-green); border-color: rgba(16, 185, 129, 0.3);">&#10003;</div>
+                  <div class="step-body" style="flex: 1;">
+                    <h4>Independent Catch Method &amp; Unclosed Reason Diagnostic Monitor <span class="badge badge-green">Active</span></h4>
+                    <p>Acts as master safety guard at tick completion (Try-Catch pattern). Catches any open order with P/L &ge; $5.00 that is not closed or protected by profit SL. Strictly displays Unclosed Reason in Left Dashboard only when order floating profit is &ge; $5.00; orders below $5.00 display clean standard comment. Analyzes all holding conditions (Recovery Basket drawdown offset, FLIP support hedging, orphan positions). If unclosed without legitimate reason, modifies order with profit StopLoss immediately. Displays dynamic unclosed reason in Live Position Monitor.</p>
+                    <div id="chk55" style="display: none; margin-top: 10px; font-size: 12.5px; color: var(--accent-blue); background: rgba(0,0,0,0.3); padding: 8px 12px; border-radius: 6px;">
+                      <strong>Code Anchor:</strong> <code>CatchExceptionalProfitableOrders()</code>, <code>GetOrderUnclosedDiagnosticReason()</code>, <code>UpdateLeftLiveOrdersDashboard()</code> &bull; <code>glbVersion = "V10069"</code> &bull; Clean build (0 errors).
                     </div>
                   </div>
                 </div>

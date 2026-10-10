@@ -32,8 +32,8 @@
 
 // Previous: V10010  03-10-2026 18.25 Partial Close Column in Live Position Monitor
 string TimeframeToString(int timeframe);
-string glbVersion = "V10069  10-10-2026 11.00 Recovery Basket Parent-Child Ticket Tracking Fix Across Partial Closes";
-string verShort = "V10069 | " + Symbol() + " " + TimeframeToString(Period());
+string glbVersion = "V10070  10-10-2026 12.30 Unclosed Reason Strictly Filtered to Orders with Profit > $5";
+string verShort = "V10070 | " + Symbol() + " " + TimeframeToString(Period());
 
 bool OnlyAllowFLIPBasketSupportOrders =false;// true; // TEST ISOLATION: When true, blocks ALL orders in SafeOrderSend except FLIPBasketSupport
 
@@ -68,6 +68,10 @@ double FLIPBasketSupportLot = 0.06;                 // FLIP Basket Support order
 //Chance 1F: Weak EMA Profit Order Protect (> $0.20 with SL only)
 bool   EnableWeakEmaProfitOrderProtect = true;     // Close/protect orders in profit > $0.20 with SL when EMA distance is weak from peak
 double WeakEmaProfitOrderProtectThresholdUSD = 0.20; // Profit threshold (>$0.20) to lock with SL when EMA is weak from peak
+
+//Chance 1G: Independent Catch Method for Exceptional Orders (> $5 Profit)
+bool   EnableExceptionalCatchMethod = true;   // Independent Catch Method (Try-Catch Guard for >$5 Profit Orders)
+double ExceptionalCatchProfitUSD    = 5.0;    // Profit threshold to verify and protect with profit StopLoss ($5.00)
 
 //chance 2
 int partialClose01in05IndividualPercentage=20*1;//10;//2*2;//per lot 0.01//if 0.05 close 0.01 at total profit of 20% means close 0.01 lot
@@ -451,6 +455,9 @@ void ManageWeakEmaProfitOrderProtect();
 void ManageFLIPBasketSupportTrailingStopLoss();
 void ManageRecoveryOrderStepTrailingStopLoss();
 void ManageAllOrdersStepTrailingStopLoss();
+void CatchExceptionalProfitableOrders();
+string GetOrderUnclosedDiagnosticReason(int ticket, double pl);
+double GetOrderLockedProfitUSD(int ticket);
 void RegisterNewCandleOrder(int ticket = -1);
 int  GetCurrentSSLDirection();
 double GetDynamicOrderGap(int orderType);
@@ -2427,6 +2434,9 @@ void OnTick()
 
    GlobalSSLDirectionPrevious=GlobalSSLDirection;
    EMADirectionPrevious=EMADirection;
+
+   // Final Independent "Catch" Method: Exceptional >$5 Profit Order Safety Guard
+   CatchExceptionalProfitableOrders();
   }
 
 int GlobalSSLDirectionPrevious=0;
@@ -13705,6 +13715,375 @@ void DeleteLeftLiveOrdersDashboardObjects()
 //+------------------------------------------------------------------+
 //|                                                                  |
 //+------------------------------------------------------------------+
+//+------------------------------------------------------------------+
+//| GetOrderLockedProfitUSD: Calculates net USD profit locked by SL  |
+//+------------------------------------------------------------------+
+double GetOrderLockedProfitUSD(int ticket)
+  {
+   if(!OrderSelect(ticket, SELECT_BY_TICKET, MODE_TRADES))
+      return 0.0;
+   int oType = OrderType();
+   double sl = OrderStopLoss();
+   double openPrice = OrderOpenPrice();
+   double lots = OrderLots();
+   if(sl <= 0.0 || lots <= 0.0)
+      return 0.0;
+
+   double tickValue = MarketInfo(Symbol(), MODE_TICKVALUE);
+   double tickSize  = MarketInfo(Symbol(), MODE_TICKSIZE);
+   if(tickValue <= 0.0 || tickSize <= 0.0)
+      return 0.0;
+
+   double lockedPoints = 0.0;
+   if(oType == OP_BUY && sl > openPrice)
+      lockedPoints = (sl - openPrice);
+   else if(oType == OP_SELL && sl < openPrice)
+      lockedPoints = (openPrice - sl);
+   else
+      return 0.0;
+
+   double lockedUSD = (lockedPoints / tickSize) * (lots * tickValue) + OrderSwap() + OrderCommission();
+   return lockedUSD;
+  }
+
+//+------------------------------------------------------------------+
+//| GetOrderUnclosedDiagnosticReason: Verifies why an order is open   |
+//| even when profit > $5, evaluating recovery baskets, FLIP support,|
+//| trailing stop status, and orphan position states.                |
+//+------------------------------------------------------------------+
+string GetOrderUnclosedDiagnosticReason(int ticket, double pl)
+  {
+   // STRICT FILTER: Display unclosed reason ONLY when order profit is more than $5.00
+   double minProfitThreshold = (ExceptionalCatchProfitUSD > 0.0 ? ExceptionalCatchProfitUSD : 5.0);
+   if(pl < minProfitThreshold)
+      return "";
+
+   if(!OrderSelect(ticket, SELECT_BY_TICKET, MODE_TRADES))
+      return "";
+
+   int oType = OrderType();
+   if(oType != OP_BUY && oType != OP_SELL)
+      return "";
+
+   double openPrice = OrderOpenPrice();
+   double curSL     = OrderStopLoss();
+   string comment   = OrderComment();
+
+   bool slInProfit = false;
+   if(oType == OP_BUY && curSL > openPrice + Point)
+      slInProfit = true;
+   else if(oType == OP_SELL && curSL > 0.0 && curSL < openPrice - Point)
+      slInProfit = true;
+
+   // 1. Recovery Order Check
+   bool isRecovery = (StringFind(comment, "RECOVERY_") == 0);
+   if(isRecovery)
+     {
+      int rootParent = (int)StringToInteger(StringSubstr(comment, 9));
+      if(rootParent > 0)
+        {
+         bool parentOpen = false;
+         double parentPL = 0.0;
+         int parentActiveTicket = -1;
+
+         for(int k = OrdersTotal() - 1; k >= 0; k--)
+           {
+            if(!OrderSelect(k, SELECT_BY_POS, MODE_TRADES))
+               continue;
+            if(OrderSymbol() != Symbol() || OrderMagicNumber() != MagicNumber)
+               continue;
+            int pt = OrderType();
+            if(pt != OP_BUY && pt != OP_SELL)
+               continue;
+            int ptkt = OrderTicket();
+            int orig = GetOriginalTicket(ptkt, OrderComment());
+            if(ptkt == rootParent || (orig > 0 && orig == rootParent))
+              {
+               parentOpen = true;
+               parentActiveTicket = ptkt;
+               parentPL = OrderProfit() + OrderSwap() + OrderCommission();
+               break;
+              }
+           }
+
+         if(!OrderSelect(ticket, SELECT_BY_TICKET, MODE_TRADES))
+            return "";
+
+         if(parentOpen)
+           {
+            double basketNet = pl + parentPL;
+            double recTarget = (RecoveryBasketProfitUSD > 0.0 ? RecoveryBasketProfitUSD : 1.0);
+            if(basketNet >= recTarget)
+               return StringFormat("ERR: Basket Net +$%0.2f>=Tgt (Not Clsd!)", basketNet);
+            else
+               return StringFormat("RecBasket Net $%0.2f<$%0.1f (Par #%d: $%0.1f)", basketNet, recTarget, parentActiveTicket, parentPL);
+           }
+         else
+           {
+            if(slInProfit)
+               return "Orphan Rec: Parent Clsd (SL Locked)";
+            else
+               return "Orphan Rec: Parent Clsd (Need Profit SL)";
+           }
+        }
+     }
+
+   // 2. Parent Order with active Recovery Orders Check
+   int firstRec = -1, secondRec = -1;
+   int recOrders = GetRecoveryOrderCount(ticket, firstRec, secondRec);
+   if(recOrders > 0)
+     {
+      double bPL = pl;
+      if(firstRec > 0 && OrderSelect(firstRec, SELECT_BY_TICKET, MODE_TRADES))
+         bPL += OrderProfit() + OrderSwap() + OrderCommission();
+      if(secondRec > 0 && OrderSelect(secondRec, SELECT_BY_TICKET, MODE_TRADES))
+         bPL += OrderProfit() + OrderSwap() + OrderCommission();
+      if(!OrderSelect(ticket, SELECT_BY_TICKET, MODE_TRADES))
+         return "";
+
+      double recTarget = (RecoveryBasketProfitUSD > 0.0 ? RecoveryBasketProfitUSD : 1.0);
+      if(bPL >= recTarget)
+         return StringFormat("ERR: Par Basket +$%0.2f>=Tgt (Not Clsd!)", bPL);
+      else
+         return StringFormat("Parent: In Basket (Net $%0.2f<$%0.1f)", bPL, recTarget);
+     }
+
+   // 3. FLIP Basket Support Order Check
+   if(IsFLIPBasketSupportOrder(ticket, comment))
+     {
+      double oppPL = 0.0, oppMaxLoss = 0.0;
+      bool oppLoss = HasOppositeOrderTypeLossOver5(oType == OP_BUY ? 1 : -1, oppPL, oppMaxLoss);
+      if(oppLoss)
+        {
+         if(slInProfit)
+            return StringFormat("FLIP Supp: Opp Loss -$%0.1f (SL Locked)", MathAbs(oppPL));
+         else
+            return StringFormat("FLIP Supp: Opp Loss -$%0.1f (Wait $10 Tgt)", MathAbs(oppPL));
+        }
+      else
+        {
+         if(slInProfit)
+            return "FLIP Supp: No Opp Loss (SL Locked)";
+         else
+            return "FLIP Supp: No Opp Loss (Need Profit SL)";
+        }
+     }
+
+   // 4. Standard / Scalping Order Check for Profit >= $5.00
+   if(pl >= ExceptionalCatchProfitUSD)
+     {
+      if(slInProfit)
+        {
+         double locked = GetOrderLockedProfitUSD(ticket);
+         return StringFormat("Profit >$5: SL Protected (+$%0.2f)", locked);
+        }
+      else
+        {
+         return "Profit >$5: Unprotected (Catch Active)";
+        }
+     }
+
+   return "";
+  }
+
+//+------------------------------------------------------------------+
+//| CatchExceptionalProfitableOrders: Independent Catch Method       |
+//| Operates as the master safety barrier at tick completion.        |
+//| Catches any order with P/L >= $5.00 that is not closed or        |
+//| protected. Verifies all EA holding conditions (recovery baskets, |
+//| FLIP support, etc.). If no legitimate holding reason is verified,|
+//| modifies the order with a profit StopLoss immediately.           |
+//+------------------------------------------------------------------+
+void CatchExceptionalProfitableOrders()
+  {
+   if(!EnableExceptionalCatchMethod)
+      return;
+
+   RefreshRates();
+   double minDistance = GetRequiredStopDistance();
+   if(minDistance <= 0.0)
+      minDistance = Point * 10;
+   if(minDistance < Point * 10)
+      minDistance = Point * 10;
+
+   double targetThreshold = ExceptionalCatchProfitUSD;
+   if(targetThreshold <= 0.0)
+      targetThreshold = 5.0;
+
+   for(int i = OrdersTotal() - 1; i >= 0; i--)
+     {
+      if(!OrderSelect(i, SELECT_BY_POS, MODE_TRADES))
+         continue;
+      if(OrderSymbol() != Symbol() || OrderMagicNumber() != MagicNumber)
+         continue;
+
+      int oType = OrderType();
+      if(oType != OP_BUY && oType != OP_SELL)
+         continue;
+
+      double pl = OrderProfit() + OrderSwap() + OrderCommission();
+      if(pl < targetThreshold)
+         continue; // Only process orders with exceptional profit >= $5.00
+
+      int ticket       = OrderTicket();
+      double openPrice = OrderOpenPrice();
+      double curSL     = OrderStopLoss();
+      double curTP     = OrderTakeProfit();
+      double lots      = OrderLots();
+      string comment   = OrderComment();
+
+      // Check if order already has StopLoss in profit
+      bool slInProfit = false;
+      if(oType == OP_BUY && curSL > openPrice + Point)
+         slInProfit = true;
+      else if(oType == OP_SELL && curSL > 0.0 && curSL < openPrice - Point)
+         slInProfit = true;
+
+      // 1. Recovery Order Verification
+      bool isRecovery = (StringFind(comment, "RECOVERY_") == 0);
+      if(isRecovery)
+        {
+         int rootParent = (int)StringToInteger(StringSubstr(comment, 9));
+         if(rootParent > 0)
+           {
+            bool parentOpen = false;
+            double parentPL = 0.0;
+            int parentActiveTicket = -1;
+
+            for(int k = OrdersTotal() - 1; k >= 0; k--)
+              {
+               if(!OrderSelect(k, SELECT_BY_POS, MODE_TRADES))
+                  continue;
+               if(OrderSymbol() != Symbol() || OrderMagicNumber() != MagicNumber)
+                  continue;
+               int pt = OrderType();
+               if(pt != OP_BUY && pt != OP_SELL)
+                  continue;
+               int ptkt = OrderTicket();
+               int orig = GetOriginalTicket(ptkt, OrderComment());
+               if(ptkt == rootParent || (orig > 0 && orig == rootParent))
+                 {
+                  parentOpen = true;
+                  parentActiveTicket = ptkt;
+                  parentPL = OrderProfit() + OrderSwap() + OrderCommission();
+                  break;
+                 }
+              }
+
+            if(!OrderSelect(i, SELECT_BY_POS, MODE_TRADES))
+               continue;
+
+            if(parentOpen)
+              {
+               double basketNet = pl + parentPL;
+               double recTarget = (RecoveryBasketProfitUSD > 0.0 ? RecoveryBasketProfitUSD : 1.0);
+               if(basketNet >= recTarget)
+                 {
+                  Print("[CATCH HANDLER] RECOVERY BASKET MISSED CLOSE DETECTED: Rec #", ticket,
+                        " (+$", DoubleToString(pl, 2), ") + Parent #", parentActiveTicket,
+                        " ($", DoubleToString(parentPL, 2), ") Net=+$", DoubleToString(basketNet, 2),
+                        " >= Target $", DoubleToString(recTarget, 2), ". Executing forced market exit!");
+                  if(OrderSelect(parentActiveTicket, SELECT_BY_TICKET, MODE_TRADES))
+                     SafeOrderCloseMarket(parentActiveTicket, OrderLots(), Slippage, clrGold);
+                  SafeOrderCloseMarket(ticket, lots, Slippage, clrGold);
+                  continue;
+                 }
+               else
+                 {
+                  // Legitimate holding: Waiting for recovery basket to break even/reach profit target
+                  continue;
+                 }
+              }
+            // If parent is not open, this is an orphan recovery trade! Fall through to protect with profit SL!
+           }
+        }
+
+      // 2. Parent Order Verification (with recovery orders attached)
+      int firstRec = -1, secondRec = -1;
+      int recOrders = GetRecoveryOrderCount(ticket, firstRec, secondRec);
+      if(recOrders > 0)
+        {
+         double bPL = pl;
+         if(firstRec > 0 && OrderSelect(firstRec, SELECT_BY_TICKET, MODE_TRADES))
+            bPL += OrderProfit() + OrderSwap() + OrderCommission();
+         if(secondRec > 0 && OrderSelect(secondRec, SELECT_BY_TICKET, MODE_TRADES))
+            bPL += OrderProfit() + OrderSwap() + OrderCommission();
+         if(!OrderSelect(i, SELECT_BY_POS, MODE_TRADES))
+            continue;
+
+         double recTarget = (RecoveryBasketProfitUSD > 0.0 ? RecoveryBasketProfitUSD : 1.0);
+         if(bPL >= recTarget)
+           {
+            Print("[CATCH HANDLER] PARENT BASKET MISSED CLOSE DETECTED: Parent #", ticket,
+                  " Basket Net=+$", DoubleToString(bPL, 2), " >= Target $", DoubleToString(recTarget, 2), ". Executing forced market exit!");
+            SafeOrderCloseMarket(ticket, lots, Slippage, clrGold);
+            if(firstRec > 0 && OrderSelect(firstRec, SELECT_BY_TICKET, MODE_TRADES))
+               SafeOrderCloseMarket(firstRec, OrderLots(), Slippage, clrGold);
+            if(secondRec > 0 && OrderSelect(secondRec, SELECT_BY_TICKET, MODE_TRADES))
+               SafeOrderCloseMarket(secondRec, OrderLots(), Slippage, clrGold);
+            continue;
+           }
+         else
+           {
+            // Valid reason: basket still in recovery
+            continue;
+           }
+        }
+
+      // If order already has a profit StopLoss locked, no further modification needed
+      if(slInProfit)
+         continue;
+
+      // 3. NO PROPER REASON FOUND TO LEAVE UNPROTECTED -> MODIFY WITH PROFIT STOPLOSS!
+      RefreshRates();
+      double proposedSL = 0.0;
+      bool canModify = false;
+
+      if(oType == OP_BUY)
+        {
+         proposedSL = NormalizeDouble(Bid - minDistance, Digits);
+         if(proposedSL > openPrice + Point)
+           {
+            if(curSL == 0.0 || proposedSL > curSL + (Point * 0.5))
+               canModify = true;
+           }
+         else
+           {
+            proposedSL = NormalizeDouble(openPrice + (2 * Point), Digits);
+            if(Bid - proposedSL >= minDistance && (curSL == 0.0 || proposedSL > curSL + (Point * 0.5)))
+               canModify = true;
+           }
+        }
+      else if(oType == OP_SELL)
+        {
+         proposedSL = NormalizeDouble(Ask + minDistance, Digits);
+         if(proposedSL < openPrice - Point)
+           {
+            if(curSL == 0.0 || proposedSL < curSL - (Point * 0.5))
+               canModify = true;
+           }
+         else
+           {
+            proposedSL = NormalizeDouble(openPrice - (2 * Point), Digits);
+            if(proposedSL - Ask >= minDistance && (curSL == 0.0 || proposedSL < curSL - (Point * 0.5)))
+               canModify = true;
+           }
+        }
+
+      if(canModify && proposedSL > 0.0)
+        {
+         ResetLastError();
+         bool modOk = SafeOrderModify(ticket, openPrice, proposedSL, curTP, 0, (oType == OP_BUY ? clrLimeGreen : clrTomato));
+         Print("[CATCH HANDLER] Exceptional Order #", ticket, " (", comment, ") Profit=$", DoubleToString(pl, 2),
+               " > $", DoubleToString(targetThreshold, 2), " with no profit SL! Reason: No valid holding condition found. Action: Modified SL to ",
+               DoubleToString(proposedSL, Digits), " | Success=", modOk);
+        }
+     }
+  }
+
+//+------------------------------------------------------------------+
+//|                                                                  |
+//+------------------------------------------------------------------+
 void UpdateLeftLiveOrdersDashboard()
   {
    int total=0,buyCount=0,sellCount=0,pendingCount=0;
@@ -13754,7 +14133,7 @@ void UpdateLeftLiveOrdersDashboard()
          openCount++;
         }
      }
-   int x=LeftDashboardX, y=LeftDashboardY, tx=x+12, width=LeftDashboardWidth+500, panelHeight=rows*20+132;
+   int x=LeftDashboardX, y=LeftDashboardY, tx=x+12, width=LeftDashboardWidth+600, panelHeight=rows*20+132;
    color pnlColor=clrWhite;
    if(netPL>0)
       pnlColor=clrLime;
@@ -13778,7 +14157,7 @@ void UpdateLeftLiveOrdersDashboard()
    CreateLeftLiveLabel(LEFT_LIVE_PREFIX+"TOTALS", "BUY LOT "+DoubleToString(buyLots,2)+"   SELL LOT "+DoubleToString(sellLots,2)+"   NET P/L "+(netPL>=0?"+":"")+DoubleToString(netPL,2), tx, y+62, 9, pnlColor);
    CreateLeftLiveLabel(LEFT_LIVE_PREFIX+"HEAD", "TYPE       LOT   #ORDER ID     SL     TP              P/L", tx, y+88, 8, clrSilver);
    CreateLeftLiveLabel(LEFT_LIVE_PREFIX+"HEAD_PART", "PART-CLOSE (LIVE DIFF/TRIG)", tx+410, y+88, 8, clrSilver);
-   CreateLeftLiveLabel(LEFT_LIVE_PREFIX+"HEAD_COMMENT", "COMMENT", tx+655, y+88, 8, clrSilver);
+   CreateLeftLiveLabel(LEFT_LIVE_PREFIX+"HEAD_COMMENT", "UNCLOSED REASON (> $5) / COMMENT", tx+655, y+88, 8, clrSilver);
 
    for(int r=0; r<24; r++)
      {
@@ -14009,10 +14388,24 @@ void UpdateLeftLiveOrdersDashboard()
          partCloseCellColor = clrDarkGray;
         }
 
-      string verifiedStatus = comment;
+      string diagReason = GetOrderUnclosedDiagnosticReason(OrderTicket(), pl);
+      string verifiedStatus = (diagReason != "") ? diagReason : comment;
       color verifiedColor = clrSilver;
-      if(isRecovery)
+      if(diagReason != "")
+        {
+         if(StringFind(diagReason, "RecBasket Net") >= 0)
+            verifiedColor = clrAqua;
+         else if(StringFind(diagReason, "ERR:") >= 0)
+            verifiedColor = clrGold;
+         else if(StringFind(diagReason, "SL Protected") >= 0 || StringFind(diagReason, "Locked") >= 0)
+            verifiedColor = clrLime;
+         else
+            verifiedColor = clrDeepSkyBlue;
+        }
+      else if(isRecovery)
+        {
          verifiedColor = clrAqua;
+        }
 
       string orderIdText = "#" + IntegerToString(OrderTicket());
       string rowText = StringFormat("%-7s %5.2f %11s %6s %6s %16s", typeText, lots, orderIdText, slDiffText, tpDiffText, plText);
