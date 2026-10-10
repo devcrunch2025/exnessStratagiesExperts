@@ -32,7 +32,7 @@
 
 // Previous: V10010  03-10-2026 18.25 Partial Close Column in Live Position Monitor
 string TimeframeToString(int timeframe);
-string glbVersion = "V10067  09-10-2026 23.35 Weak Count after flip Pending Stop Orders With Raw Gap (OP_BUYSTOP/OP_SELLSTOP)";
+string glbVersion = "V10067 FINAL  $500 to $650 09-10-2026 23.35 Weak Count after flip Pending Stop Orders With Raw Gap (OP_BUYSTOP/OP_SELLSTOP)";
 string verShort = "V10067 | " + Symbol() + " " + TimeframeToString(Period());
 
 bool OnlyAllowFLIPBasketSupportOrders =false;// true; // TEST ISOLATION: When true, blocks ALL orders in SafeOrderSend except FLIPBasketSupport
