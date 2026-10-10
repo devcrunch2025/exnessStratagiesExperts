@@ -30,10 +30,10 @@
 
 //https://github.com/devcrunch2025/exnessStratagiesExperts/commit/f2b01e8fb84e16294381ff54065e07b98df282ec
 
-// Previous: V10010  03-10-2026 18.25 Partial Close Column in Live Position Monitor
+// Previous: V10011  03-10-2026 18.25 Partial Close Column in Live Position Monitor
 string TimeframeToString(int timeframe);
-string glbVersion = "V10070 FINAL   10-10-2026 12.30 $500 to $700 Aug 1st to 6th";
-string verShort = "V10070 | " + Symbol() + " " + TimeframeToString(Period());
+string glbVersion = "V10071 RECOVERY max 0.10 FINAL   10-10-2026 12.30 $500 to $700 Aug 1st to 6th";
+string verShort = "V10071 | " + Symbol() + " " + TimeframeToString(Period());
 
 bool OnlyAllowFLIPBasketSupportOrders =false;// true; // TEST ISOLATION: When true, blocks ALL orders in SafeOrderSend except FLIPBasketSupport
 
@@ -301,7 +301,7 @@ bool EnableRecoveryOrders =true;// true;
 double RecoveryTriggerLossUSD =1;//2;//1;//0.50;// 2;
 double RecoveryLotMultiplier =4;//2;//1;// 2;
 int MaxRecoveryOrders =100;// 5; // Maximum active recovery orders allowed
-double RecoveryMaxLots = 0.05; // Maximum lot cap for recovery order (even 2X lot cannot exceed 0.05)
+double RecoveryMaxLots = 0.10; // Maximum lot cap for recovery order (even 2X lot cannot exceed 0.05)
 double RecoveryBasketProfitUSD = 0.50;//1;
 double RecoveryMinDistanceRaw = 500.0; // Minimum raw price gap ($500) from parent order for recovery orders
 double MinGapBetweenRecoveryOrdersRaw = 500.0; // Minimum raw price gap ($500) between recovery orders of same type
