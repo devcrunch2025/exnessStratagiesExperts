@@ -32,8 +32,8 @@
 
 // Previous: V10010  03-10-2026 18.25 Partial Close Column in Live Position Monitor
 string TimeframeToString(int timeframe);
-string glbVersion = "V10067 FINAL  $500 to $650 09-10-2026 23.35 Weak Count after flip Pending Stop Orders With Raw Gap (OP_BUYSTOP/OP_SELLSTOP)";
-string verShort = "V10067 | " + Symbol() + " " + TimeframeToString(Period());
+string glbVersion = "V10069  10-10-2026 11.00 Recovery Basket Parent-Child Ticket Tracking Fix Across Partial Closes";
+string verShort = "V10069 | " + Symbol() + " " + TimeframeToString(Period());
 
 bool OnlyAllowFLIPBasketSupportOrders =false;// true; // TEST ISOLATION: When true, blocks ALL orders in SafeOrderSend except FLIPBasketSupport
 
@@ -8851,7 +8851,7 @@ void ManageRecoveryBasket()
       pairClosed = false;
       safetyCounter++;
 
-      // Step 1: Collect unique parent tickets from open recovery orders
+      // Step 1: Collect unique root parent tickets from open recovery orders
       int uniqueParents[100];
       ArrayInitialize(uniqueParents, 0);
       int uniqueCount = 0;
@@ -8863,6 +8863,16 @@ void ManageRecoveryBasket()
          if(OrderSymbol() != Symbol() || OrderMagicNumber() != MagicNumber)
             continue;
          string comment = OrderComment();
+         if(StringFind(comment, "from #") >= 0)
+           {
+            int origRec = GetOriginalTicket(OrderTicket(), comment);
+            if(origRec > 0 && origRec != OrderTicket())
+              {
+               if(OrderSelect(origRec, SELECT_BY_TICKET, MODE_HISTORY) || OrderSelect(origRec, SELECT_BY_TICKET, MODE_TRADES))
+                  comment = OrderComment();
+               OrderSelect(i, SELECT_BY_POS, MODE_TRADES);
+              }
+           }
          if(StringFind(comment, "RECOVERY_") != 0)
             continue;
          int pTicket = (int)StringToInteger(StringSubstr(comment, 9));
@@ -8891,7 +8901,8 @@ void ManageRecoveryBasket()
       // Step 2: Evaluate and manage each parent basket
       for(int p = 0; p < uniqueCount; p++)
         {
-         int currentParentTicket = uniqueParents[p];
+         int rootParentTicket   = uniqueParents[p]; // Original parent ticket as recorded in RECOVERY_ comment
+         int activeParentTicket = rootParentTicket; // Current active parent ticket in terminal (updated if parent had partial closes)
 
          // Find parent order if still open
          bool parentFound = false;
@@ -8905,12 +8916,14 @@ void ManageRecoveryBasket()
            {
             if(!OrderSelect(j, SELECT_BY_POS, MODE_TRADES))
                continue;
+            if(OrderSymbol() != Symbol() || OrderMagicNumber() != MagicNumber)
+               continue;
             int tkt = OrderTicket();
             int origTkt = GetOriginalTicket(tkt, OrderComment());
-            if(tkt == currentParentTicket || (origTkt > 0 && origTkt == currentParentTicket))
+            if(tkt == rootParentTicket || (origTkt > 0 && origTkt == rootParentTicket))
               {
                parentFound = true;
-               currentParentTicket = tkt;
+               activeParentTicket = tkt; // Store live active ticket for market closure & modification
                parentLots = OrderLots();
                parentType = OrderType();
                parentProfit = OrderProfit() + OrderSwap() + OrderCommission();
@@ -8943,10 +8956,20 @@ void ManageRecoveryBasket()
             if(OrderSymbol() != Symbol() || OrderMagicNumber() != MagicNumber)
                continue;
             string c = OrderComment();
+            if(StringFind(c, "from #") >= 0)
+              {
+               int origRec = GetOriginalTicket(OrderTicket(), c);
+               if(origRec > 0 && origRec != OrderTicket())
+                 {
+                  if(OrderSelect(origRec, SELECT_BY_TICKET, MODE_HISTORY) || OrderSelect(origRec, SELECT_BY_TICKET, MODE_TRADES))
+                     c = OrderComment();
+                  OrderSelect(k, SELECT_BY_POS, MODE_TRADES);
+                 }
+              }
             if(StringFind(c, "RECOVERY_") != 0)
                continue;
             int par = (int)StringToInteger(StringSubstr(c, 9));
-            if(par == currentParentTicket)
+            if(par == rootParentTicket || par == activeParentTicket)
               {
                if(recCount < 10)
                  {
@@ -8975,8 +8998,8 @@ void ManageRecoveryBasket()
             lastBasketLogTime = TimeCurrent();
             if(parentFound)
               {
-               Print("RECOVERY BASKET MONITOR: Parent #", currentParentTicket,
-                     " (Lots=", DoubleToString(parentLots, 2), ", P/L=$", DoubleToString(parentProfit, 2),
+               Print("RECOVERY BASKET MONITOR: Parent #", activeParentTicket, " (Root #", rootParentTicket,
+                     ", Lots=", DoubleToString(parentLots, 2), ", P/L=$", DoubleToString(parentProfit, 2),
                      ") + ", recCount, " Recovery Order(s) (P/L=$", DoubleToString(totalRecProfit, 2),
                      ") => Net Basket=$", DoubleToString(totalBasketProfit, 2),
                      " | Target=$", DoubleToString(targetProfitUSD, 2),
@@ -8984,7 +9007,7 @@ void ManageRecoveryBasket()
               }
             else
               {
-               Print("ORPHAN RECOVERY MONITOR: Parent #", currentParentTicket,
+               Print("ORPHAN RECOVERY MONITOR: Parent #", rootParentTicket,
                      " closed | ", recCount, " Recovery Order(s) (P/L=$", DoubleToString(totalRecProfit, 2),
                      ") => Net Orphan=$", DoubleToString(totalBasketProfit, 2),
                      " | Target=$", DoubleToString(targetProfitUSD, 2),
@@ -9004,7 +9027,7 @@ void ManageRecoveryBasket()
               {
                // Immediate combined close
                if(parentFound)
-                  SafeOrderCloseMarket(currentParentTicket, parentLots, Slippage, (parentType == OP_BUY ? clrRed : clrBlue));
+                  SafeOrderCloseMarket(activeParentTicket, parentLots, Slippage, (parentType == OP_BUY ? clrRed : clrBlue));
                for(int r = 0; r < recCount; r++)
                  {
                   SafeOrderCloseMarket(recTickets[r], recLots[r], Slippage, (recTypes[r] == OP_BUY ? clrRed : clrBlue));
@@ -9063,7 +9086,7 @@ void ManageRecoveryBasket()
                  }
 
                // 2. Ratchet parent order SL to protect profit / reduce loss
-               if(parentFound && OrderSelect(currentParentTicket, SELECT_BY_TICKET, MODE_TRADES))
+               if(parentFound && OrderSelect(activeParentTicket, SELECT_BY_TICKET, MODE_TRADES))
                  {
                   double parTargetSL = 0.0;
                   bool canModPar = false;
@@ -9107,8 +9130,8 @@ void ManageRecoveryBasket()
 
                   if(canModPar)
                     {
-                     bool modP = SafeOrderModify(currentParentTicket, parentOpen, parTargetSL, OrderTakeProfit(), 0, (parentType == OP_BUY ? clrLimeGreen : clrTomato));
-                     Print("RECOVERY BASKET - MODIFIED PARENT SL: Ticket #", currentParentTicket,
+                     bool modP = SafeOrderModify(activeParentTicket, parentOpen, parTargetSL, OrderTakeProfit(), 0, (parentType == OP_BUY ? clrLimeGreen : clrTomato));
+                     Print("RECOVERY BASKET - MODIFIED PARENT SL: Ticket #", activeParentTicket,
                            " | New SL=", DoubleToString(parTargetSL, Digits),
                            " | ModSuccess=", modP);
                      if(modP)
@@ -12824,7 +12847,9 @@ void UpdateDashboard(DailyProtectionState &state)
         {
          if(!OrderSelect(i, SELECT_BY_POS, MODE_TRADES))
             continue;
-         if(OrderTicket() == pTicket)
+         int tkt = OrderTicket();
+         int origTkt = GetOriginalTicket(tkt, OrderComment());
+         if(tkt == pTicket || (origTkt > 0 && origTkt == pTicket))
            {
             recParentProfit[u] += (OrderProfit() + OrderSwap() + OrderCommission());
             break;
@@ -13691,6 +13716,7 @@ void UpdateLeftLiveOrdersDashboard()
       rows=24;
 
    int openTickets[500];
+   int openOrigTickets[500];
    double openPLs[500];
    int openCount=0;
 
@@ -13723,6 +13749,7 @@ void UpdateLeftLiveOrdersDashboard()
       if(openCount < 500)
         {
          openTickets[openCount] = OrderTicket();
+         openOrigTickets[openCount] = GetOriginalTicket(OrderTicket(), OrderComment());
          openPLs[openCount] = (type==OP_BUY || type==OP_SELL) ? (OrderProfit()+OrderSwap()+OrderCommission()) : 0.0;
          openCount++;
         }
@@ -13836,7 +13863,7 @@ void UpdateLeftLiveOrdersDashboard()
             // 1. Check cached open trades
             for(int k=0; k<openCount; k++)
               {
-               if(openTickets[k] == parentTicket)
+               if(openTickets[k] == parentTicket || (openOrigTickets[k] > 0 && openOrigTickets[k] == parentTicket))
                  {
                   parentPL = openPLs[k];
                   parentFound = true;
