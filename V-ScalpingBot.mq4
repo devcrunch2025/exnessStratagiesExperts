@@ -32,7 +32,7 @@
 
 // Previous: V10010  03-10-2026 18.25 Partial Close Column in Live Position Monitor
 string TimeframeToString(int timeframe);
-string glbVersion = "V10070  10-10-2026 12.30 Unclosed Reason Strictly Filtered to Orders with Profit > $5";
+string glbVersion = "V10070 FINAL   10-10-2026 12.30 $500 to $700 Aug 1st to 6th";
 string verShort = "V10070 | " + Symbol() + " " + TimeframeToString(Period());
 
 bool OnlyAllowFLIPBasketSupportOrders =false;// true; // TEST ISOLATION: When true, blocks ALL orders in SafeOrderSend except FLIPBasketSupport
