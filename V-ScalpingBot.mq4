@@ -130,14 +130,15 @@ datetime g_basket10USDLastModifyTime       = 0;     // Timestamp of last lock mo
 bool   g_basket10USDTargetHitActive        = false; // Set true when target reached; enables every-tick check for FLIPBasketSupport replenishment
 
 //StopLossUSD per lot 0.01
-double StopLossUSD =10;//40////10;//40;//10;//40;//5;//10;//40;//30;//10;//6;//10;//6;//5;//10;//2;// 10;
+double StopLossUSD =20;//40////10;//40;//10;//40;//5;//10;//40;//30;//10;//6;//10;//6;//5;//10;//2;// 10;
 
 /*Order Lot Size	Adverse Price Distance	Full Stop Loss Dollar Loss	What Happens
-0.01 lot	$4,000 points	− $40.00 −$40.00	Entire 0.01 lot closed (100% loss)
-0.02 lot	$4,000 points	− $80.00 −$80.00	Entire 0.02 lot closed (100% loss)
-0.03 lot	$4,000 points	− $120.00−$120.00	Entire 0.03 lot closed (100% loss)
-0.04 lot	$4,000 points	− $160.00−$160.00	Entire 0.04 lot closed (100% loss)
-0.05 lot	$4,000 points	− $200.00−$200.00	Entire 0.05 lot closed (100% loss)*/
+Stage	Open Lots	Floating P/L Trigger	BTC Move from Open	Action Executed	Realized Loss	Remaining Order
+1st Shave	0.05	-$5.00	$100 drop	Shave 0.01	-$1.00	0.04 lot (floating -$4.00)
+2nd Shave	0.04	-$8.00	$200 drop	Shave 0.01	-$2.00	0.03 lot (floating -$6.00)
+3rd Shave	0.03	-$9.00	$300 drop	Shave 0.01	-$3.00	0.02 lot (floating -$6.00)
+4th Shave	0.02	-$8.00	$400 drop	Shave 0.01	-$4.00	0.01 lot (Protected)
+Final	0.01	—	—	Protected	—	0.01 lot remains open*/
 int      g_dayNumber = -1;
 double   g_dayOpeningBalance = 0.0;
 bool     g_dailyEquityTradingBlocked = false;
@@ -324,8 +325,8 @@ double RecoveryLotMultiplier =4;//2;//1;// 2;
 int MaxRecoveryOrders =100;// 5; // Maximum active recovery orders allowed
 double RecoveryMaxLots =0.05;//0.10;//0.05;// 0.10; // Maximum lot cap for recovery order (even 2X lot cannot exceed 0.05)
 double RecoveryBasketProfitUSD = 0.50;//1;
-double RecoveryMinDistanceRaw =1000;// 500.0; // Minimum raw price gap ($500) from parent order for recovery orders
-double MinGapBetweenRecoveryOrdersRaw =1000;// 500.0; // Minimum raw price gap ($500) between recovery orders of same type
+double RecoveryMinDistanceRaw =500;// 500.0; // Minimum raw price gap ($500) from parent order for recovery orders
+double MinGapBetweenRecoveryOrdersRaw =500;// 500.0; // Minimum raw price gap ($500) between recovery orders of same type
 bool   IgnoreRecoveryRawGapCondition = false;  // Strictly enforce raw gap condition between recovery orders
 double Recovery2ndOrderMinDistanceRaw = 1000.0; // Minimum raw price gap ($500) from 1st recovery order for 2nd recovery order
 int    MaxRecoveryOrdersPerParent = 2; // Maximum recovery orders allowed per parent trade (1st + 2nd)
