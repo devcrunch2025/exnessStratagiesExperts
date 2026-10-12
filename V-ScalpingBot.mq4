@@ -32,8 +32,8 @@
 
 // Previous: V10011  03-10-2026 18.25 Partial Close Column in Live Position Monitor
 string TimeframeToString(int timeframe);
-string glbVersion = "V10071 RECOVERY max 0.10 FINAL   10-10-2026 12.30 $500 to $700 Aug 1st to 6th";
-string verShort = "V10071 | " + Symbol() + " " + TimeframeToString(Period());
+string glbVersion = "V10072 12-10-2026 increase the orders - gap reduced ";
+string verShort = "V10072 | " + Symbol() + " " + TimeframeToString(Period());
 
 bool OnlyAllowFLIPBasketSupportOrders =false;// true; // TEST ISOLATION: When true, blocks ALL orders in SafeOrderSend except FLIPBasketSupport
 
@@ -247,11 +247,11 @@ double closeOppositeLossThreshold =0.01;
 bool DeleteOppositePendingOnSignal = true;
 bool EnableProfitReEntryStop = true;
 double MinimumClosedProfitUSD = -9;
-double ProfitReEntryGapRaw =20;// 50.0; // Raw gap ($50) for ReEntry stop placement
-double MinimumSameOrderGapRawReEntry = 20;//50.0;//10;//20;// 50;
-double MinGapBetweenSSLAndReEntryRaw =  20;//50.0; // Minimum $50 raw gap between SSL Short/Long and ReEntry orders
-double MinimumSameOrderGapRawMatched =  20;//50.0;//30;//10;//20;//50;//20;// 50;
-double MinimumSameOrderGapRawUnmatched =  20;//50.0;//10;//10;//20;// 100;
+double ProfitReEntryGapRaw =10;//20;// 50.0; // Raw gap ($50) for ReEntry stop placement
+double MinimumSameOrderGapRawReEntry = 10;//20;//50.0;//10;//20;// 50;
+double MinGapBetweenSSLAndReEntryRaw =10;//  20;//50.0; // Minimum $50 raw gap between SSL Short/Long and ReEntry orders
+double MinimumSameOrderGapRawMatched =10;//  20;//50.0;//30;//10;//20;//50;//20;// 50;
+double MinimumSameOrderGapRawUnmatched =10;//  20;//50.0;//10;//10;//20;// 100;
 
 bool EnableReEntryNOnMatchingSignal=true;
 
@@ -301,7 +301,7 @@ bool EnableRecoveryOrders =true;// true;
 double RecoveryTriggerLossUSD =1;//2;//1;//0.50;// 2;
 double RecoveryLotMultiplier =4;//2;//1;// 2;
 int MaxRecoveryOrders =100;// 5; // Maximum active recovery orders allowed
-double RecoveryMaxLots =0.10;//0.05;// 0.10; // Maximum lot cap for recovery order (even 2X lot cannot exceed 0.05)
+double RecoveryMaxLots =0.05;//0.10;//0.05;// 0.10; // Maximum lot cap for recovery order (even 2X lot cannot exceed 0.05)
 double RecoveryBasketProfitUSD = 0.50;//1;
 double RecoveryMinDistanceRaw = 500.0; // Minimum raw price gap ($500) from parent order for recovery orders
 double MinGapBetweenRecoveryOrdersRaw = 500.0; // Minimum raw price gap ($500) between recovery orders of same type
@@ -890,6 +890,12 @@ void ModifyPairProfitWithStopLoss()
    int    candCount = 0;
 
    double targetThreshold = PairCombinationProfitThresholdUSD;
+
+if(IsEmaWEAKDistanceReduced50PercentFromPeak())
+{
+   targetThreshold=targetThreshold/2;
+}
+
    if(PairCombinationUseBalanceMultiplier && balancelomultipler > 1)
       targetThreshold = PairCombinationProfitThresholdUSD * balancelomultipler;
 
@@ -7251,7 +7257,7 @@ void ChangeLots(double OpenPL, string reason, int orderType, int stoplevelStep)
 
      }
 
-   if(IsHeavyLotOrderNearBy(orderType, Lots, 200) && Lots>=0.02)
+   if(IsHeavyLotOrderNearBy(orderType, Lots, 100) && Lots>=0.02)
       Lots = 0.02;
 
    double buyLots  = GetTotalLots(OP_BUY);
