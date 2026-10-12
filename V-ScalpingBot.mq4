@@ -73,7 +73,7 @@ double FLIPBasketSupportLot = 0.06;                 // FLIP Basket Support order
 
 //Chance 1F: Weak EMA Profit Order Protect (> $0.20 with SL only)
 bool   EnableWeakEmaProfitOrderProtect = true;     // Close/protect orders in profit > $0.20 with SL when EMA distance is weak from peak
-double WeakEmaProfitOrderProtectThresholdUSD = 0.20; // Profit threshold (>$0.20) to lock with SL when EMA is weak from peak
+double WeakEmaProfitOrderProtectThresholdUSD = 0.10; // Profit threshold (>$0.20) to lock with SL when EMA is weak from peak
 
 //Chance 1G: Independent Catch Method for Exceptional Orders (> $5 Profit)
 bool   EnableExceptionalCatchMethod = true;   // Independent Catch Method (Try-Catch Guard for >$5 Profit Orders)
@@ -316,8 +316,8 @@ double RecoveryLotMultiplier =4;//2;//1;// 2;
 int MaxRecoveryOrders =100;// 5; // Maximum active recovery orders allowed
 double RecoveryMaxLots =0.05;//0.10;//0.05;// 0.10; // Maximum lot cap for recovery order (even 2X lot cannot exceed 0.05)
 double RecoveryBasketProfitUSD = 0.50;//1;
-double RecoveryMinDistanceRaw = 500.0; // Minimum raw price gap ($500) from parent order for recovery orders
-double MinGapBetweenRecoveryOrdersRaw = 500.0; // Minimum raw price gap ($500) between recovery orders of same type
+double RecoveryMinDistanceRaw =1000;// 500.0; // Minimum raw price gap ($500) from parent order for recovery orders
+double MinGapBetweenRecoveryOrdersRaw =1000;// 500.0; // Minimum raw price gap ($500) between recovery orders of same type
 bool   IgnoreRecoveryRawGapCondition = false;  // Strictly enforce raw gap condition between recovery orders
 double Recovery2ndOrderMinDistanceRaw = 1000.0; // Minimum raw price gap ($500) from 1st recovery order for 2nd recovery order
 int    MaxRecoveryOrdersPerParent = 2; // Maximum recovery orders allowed per parent trade (1st + 2nd)
@@ -7290,12 +7290,7 @@ void ChangeLots(double OpenPL, string reason, int orderType, int stoplevelStep)
 // Print("Closed Orders Since EMA Flip: ", closedCount, " | Cycle Step: ", cycleStep, " | Calculated Lots: ", Lots);
 
   
- if(GlobalSSLDirection != EMADirection)
-     {
-      Lots = 0.02;
 
-
-     }
 
 
 // if((GlobalEmaAngle30>10 || GlobalEmaAngle30<-10) &&  GlobalSSLDirection != EMADirection)
@@ -7384,6 +7379,27 @@ void ChangeLots(double OpenPL, string reason, int orderType, int stoplevelStep)
       Lots = 0.01;
      }
 */
+
+ if(GlobalSSLDirection != EMADirection)
+     {
+      Lots = 0.01;
+
+
+     }
+     
+      if(GlobalSSLDirection != EMADirection && !IsEmaWEAKDistanceReduced50PercentFromPeak())
+     {
+      Lots = 0.01;
+
+
+     }
+     
+      if(GlobalSSLDirection != EMADirection && IsEmaWEAKDistanceReduced50PercentFromPeak())
+     {
+      Lots = 0.04;
+
+
+     }
 
 // Safety catch
 
@@ -12224,7 +12240,7 @@ void ManageProfitLadder()
 
       if((MathAbs(existingPriceDistance) == 100 && orderLots==0.01) || (GlobalSSLDirection != EMADirection))
         {
-         ladder1Profit = 0.20*orderLots*100; // Or scale dynamically: (slDistance / 100.0) * 0.10
+         ladder1Profit = WeakEmaProfitOrderProtectThresholdUSD*orderLots*100; // Or scale dynamically: (slDistance / 100.0) * 0.10
         }
 
       ladder1Profit=ladder1Profit*balancelomultipler;
