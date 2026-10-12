@@ -1,4 +1,4 @@
-﻿//+------------------------------------------------------------------+
+//+------------------------------------------------------------------+
 //|                  SSL CHANNEL CROSS EA - CONTINUOUS EQUITY LADDER |
 //|                  TWO-STAGE PROFIT LADDER | CONTINUOUS RESET      |
 //+------------------------------------------------------------------+
@@ -32,8 +32,8 @@
 
 // Previous: V10011  03-10-2026 18.25 Partial Close Column in Live Position Monitor
 string TimeframeToString(int timeframe);
-string glbVersion = "V10072 12-10-2026 increase the orders - gap reduced ";
-string verShort = "V10072 | " + Symbol() + " " + TimeframeToString(Period());
+string glbVersion = "V10075 12-10-2026 Dynamic Basket Equity Step Loss Scaler";
+string verShort = "V10075 | " + Symbol() + " " + TimeframeToString(Period());
 
 bool OnlyAllowFLIPBasketSupportOrders =false;// true; // TEST ISOLATION: When true, blocks ALL orders in SafeOrderSend except FLIPBasketSupport
 
@@ -53,6 +53,12 @@ double PairCombinationProfitThresholdUSD = 1.0;       // Threshold profit in USD
 double PairCombinationSLDistanceRaw = 0.0;            // Distance from live price in raw points (0.0 = auto broker stop level)
 bool   PairCombinationUseBalanceMultiplier = false;   // If true, scale threshold by balance multiplier (default false: fixed $1.00 USD)
 void   ModifyPairProfitWithStopLoss();
+int    GetOriginalTicket(int ticket, string comment);
+string GetRootOrderComment(int ticket, string comment = "");
+bool   IsAnyRecoveryOrder(int ticket, string comment = "");
+int    GetRecoveryOrderParentTicket(int ticket, string comment = "");
+void   MonitorEquityLossStopLossProtection();
+double UpdateDynamicBasket10USDLockStep(double netPL);
 
 //Chance 1C: Basket Buy/Sell 20-Point Micro-Modifier (Disabled to allow positions to reach Step 2/3)
 bool   EnableBasketBuySell20PtSLModify = false;       // Disabled: prevents 20pt choke in modifyOnlyBuyOrders/modifyOnlySellOrders
@@ -72,6 +78,10 @@ double WeakEmaProfitOrderProtectThresholdUSD = 0.20; // Profit threshold (>$0.20
 //Chance 1G: Independent Catch Method for Exceptional Orders (> $5 Profit)
 bool   EnableExceptionalCatchMethod = true;   // Independent Catch Method (Try-Catch Guard for >$5 Profit Orders)
 double ExceptionalCatchProfitUSD    = 5.0;    // Profit threshold to verify and protect with profit StopLoss ($5.00)
+
+//Chance 1H: Equity Loss Live StopLoss Protection (AccountBalance - AccountEquity > $100 * multiplier)
+bool   EnableEquityLossLiveSLProtect   = true;  // Emergency live SL protect on all open orders when equity loss > $100 * multiplier
+double EquityLossSLThresholdUSD        = 100.0; // Base threshold in USD (scaled by balance multiplier)
 
 //chance 2
 int partialClose01in05IndividualPercentage=20*1;//10;//2*2;//per lot 0.01//if 0.05 close 0.01 at total profit of 20% means close 0.01 lot
@@ -104,14 +114,17 @@ double   g_stepSize            =1000;// 50.0; // The step increment ($50)
 //chance 6 - basket//IMPORTANT TO CLOSE ONE SIDE OPEN ORDERS as soon as possible
 double basketBUYorSELLProfitModifyUSD=1*1*1; //if all combined basket BUY OR SELL Only basket is profit >0 then modify stoploss
 
-//chance 7: Basket 10% Fixed Equity Step Lock (Compounding 10% Steps)
-bool   EnableBasket10USDLock        = true;  // Enable Basket $10 Fixed Equity Step Lock
-double Basket10USDLockStepUSD       = 5;//10.0;  // $10 Fixed Equity Step Up (e.g. 100 -> 110 -> 120 -> 130)
+//chance 7: Basket 10% Fixed Equity Step Lock (Compounding Steps with Dynamic Loss Scaler)
+bool   EnableBasket10USDLock               = true;  // Enable Basket Fixed Equity Step Lock
+double BaseBasket10USDLockStepUSD          = 5.0;   // Base Basket Equity Step ($5.00 default)
+double Basket10USDLockStepUSD              = 5.0;   // Dynamic Basket Equity Step (reduced -$1 per $10 net loss: $10 loss -> 4, $20 loss -> 3, $30 loss -> 2...)
+double Basket10USDLossStepIntervalUSD      = 10.0;  // Net loss interval to reduce step by $1 ($10.00)
+double Basket10USDLockMinStepUSD           = 1.0;   // Minimum step floor ($1.00)
 double g_basket10USDBaselineEquity         = 0.0;   // Baseline equity when basket reset / entered
 double g_basket10USDNextTargetEquity       = 0.0;   // Next target equity ($10 step up)
-int    g_basket10USDStepCount              = 0;     // Number of $10 steps triggered in current basket
-datetime g_basket10USDLastModifyTime       = 0;     // Timestamp of last $10 lock modification
-bool   g_basket10USDTargetHitActive        = false; // Set true when $10 target reached; enables every-tick check for FLIPBasketSupport replenishment
+int    g_basket10USDStepCount              = 0;     // Number of steps triggered in current basket
+datetime g_basket10USDLastModifyTime       = 0;     // Timestamp of last lock modification
+bool   g_basket10USDTargetHitActive        = false; // Set true when target reached; enables every-tick check for FLIPBasketSupport replenishment
 
 //StopLossUSD per lot 0.01
 double StopLossUSD =40;//10;//40;//5;//10;//40;//30;//10;//6;//10;//6;//5;//10;//2;// 10;
@@ -456,6 +469,7 @@ void ManageFLIPBasketSupportTrailingStopLoss();
 void ManageRecoveryOrderStepTrailingStopLoss();
 void ManageAllOrdersStepTrailingStopLoss();
 void CatchExceptionalProfitableOrders();
+void MonitorEquityLossStopLossProtection();
 string GetOrderUnclosedDiagnosticReason(int ticket, double pl);
 double GetOrderLockedProfitUSD(int ticket);
 void RegisterNewCandleOrder(int ticket = -1);
@@ -2290,6 +2304,7 @@ void OnTick()
 
    SecureOneDollarProfit();
    CheckEquitySurplusReset();
+   MonitorEquityLossStopLossProtection(); // V10074: Equity Loss Live StopLoss Protection (Loss > $100 * multiplier)
 
    ManageOverallBasketProfit();//modify basket orders at $1 profit
    ManageBasket10USDLockEquity(); // Lock basket profit with live SL on $10 fixed equity steps
@@ -2443,6 +2458,7 @@ void OnTick()
 
    // Final Independent "Catch" Method: Exceptional >$5 Profit Order Safety Guard
    CatchExceptionalProfitableOrders();
+   MonitorEquityLossStopLossProtection();
   }
 
 int GlobalSSLDirectionPrevious=0;
@@ -2532,7 +2548,7 @@ void ManageFiveDollarLock()
       string comment   = OrderComment();
 
       // Immunity: Recovery orders must NOT be locked or closed individually while parent is active!
-      if(StringFind(comment, "RECOVERY_") == 0 || IsRecoveryOrderWithActiveParent(ticket, comment))
+      if(IsAnyRecoveryOrder(ticket, comment) || IsRecoveryOrderWithActiveParent(ticket, comment))
          continue;
 
       double openPrice = OrderOpenPrice();
@@ -2598,7 +2614,7 @@ void ManageFiveDollarLock()
 
          int ticket       = OrderTicket();
          string comment   = OrderComment();
-         if(StringFind(comment, "RECOVERY_") == 0 || IsRecoveryOrderWithActiveParent(ticket, comment))
+         if(IsAnyRecoveryOrder(ticket, comment) || IsRecoveryOrderWithActiveParent(ticket, comment))
             continue;
 
          double openPrice = OrderOpenPrice();
@@ -2634,7 +2650,7 @@ void ManageFiveDollarLock()
 
          int ticket       = OrderTicket();
          string comment   = OrderComment();
-         if(StringFind(comment, "RECOVERY_") == 0 || IsRecoveryOrderWithActiveParent(ticket, comment))
+         if(IsAnyRecoveryOrder(ticket, comment) || IsRecoveryOrderWithActiveParent(ticket, comment))
             continue;
 
          double openPrice = OrderOpenPrice();
@@ -2685,7 +2701,7 @@ void FlipIndividualOrderProtect()
 
       int ticket       = OrderTicket();
       string comment   = OrderComment();
-      if(StringFind(comment, "RECOVERY_") == 0 || IsRecoveryOrderWithActiveParent(ticket, comment) || HasRecoveryOrder(ticket))
+      if(IsAnyRecoveryOrder(ticket, comment) || IsRecoveryOrderWithActiveParent(ticket, comment) || HasRecoveryOrder(ticket))
          continue;
 
       double orderPL = OrderProfit() + OrderSwap() + OrderCommission();
@@ -2782,7 +2798,7 @@ void FlipBasketProtect()
 
          int ticket       = OrderTicket();
          string comment   = OrderComment();
-         if(StringFind(comment, "RECOVERY_") == 0 || IsRecoveryOrderWithActiveParent(ticket, comment) || HasRecoveryOrder(ticket))
+         if(IsAnyRecoveryOrder(ticket, comment) || IsRecoveryOrderWithActiveParent(ticket, comment) || HasRecoveryOrder(ticket))
             continue;
 
          double orderPL = OrderProfit() + OrderSwap() + OrderCommission();
@@ -2819,7 +2835,7 @@ void FlipBasketProtect()
 
          int ticket       = OrderTicket();
          string comment   = OrderComment();
-         if(StringFind(comment, "RECOVERY_") == 0 || IsRecoveryOrderWithActiveParent(ticket, comment) || HasRecoveryOrder(ticket))
+         if(IsAnyRecoveryOrder(ticket, comment) || IsRecoveryOrderWithActiveParent(ticket, comment) || HasRecoveryOrder(ticket))
             continue;
 
          double orderPL = OrderProfit() + OrderSwap() + OrderCommission();
@@ -2883,7 +2899,7 @@ void ManageWeakEmaProfitOrderProtect()
       int ticket       = OrderTicket();
       string comment   = OrderComment();
       // Immunity: Recovery orders must NOT be locked or closed individually while parent is active!
-      if(StringFind(comment, "RECOVERY_") == 0 || IsRecoveryOrderWithActiveParent(ticket, comment))
+      if(IsAnyRecoveryOrder(ticket, comment) || IsRecoveryOrderWithActiveParent(ticket, comment))
          continue;
 
       double orderPL = OrderProfit() + OrderSwap() + OrderCommission();
@@ -2996,6 +3012,47 @@ void ManageOverallBasketProfit()
      }
   }
 //+------------------------------------------------------------------+
+//| UpdateDynamicBasket10USDLockStep: Dynamic Loss Scaler            |
+//| Base step: Basket10USDLockStepUSD = 5.0                          |
+//| When net loss is above $10: Basket10USDLockStepUSD = 5 - 1 = 4   |
+//| When net loss is above $20: Basket10USDLockStepUSD = 5 - 2 = 3   |
+//| When net loss is above $30: Basket10USDLockStepUSD = 5 - 3 = 2   |
+//| Continues -$1 on every $10 loss step (floored at minimum $1.00)  |
+//+------------------------------------------------------------------+
+double UpdateDynamicBasket10USDLockStep(double netPL)
+  {
+   double baseStep = BaseBasket10USDLockStepUSD;
+   if(baseStep <= 0.0)
+      baseStep = 5.0;
+
+   // If net P/L is positive or break-even, maintain base step $5
+   if(netPL >= -0.0001)
+     {
+      Basket10USDLockStepUSD = baseStep;
+      return Basket10USDLockStepUSD;
+     }
+
+   double lossMagnitude = MathAbs(netPL);
+   double interval = (Basket10USDLossStepIntervalUSD > 0.0) ? Basket10USDLossStepIntervalUSD : 10.0;
+   double minStep  = (Basket10USDLockMinStepUSD > 0.0) ? Basket10USDLockMinStepUSD : 1.0;
+
+   if(lossMagnitude >= interval)
+     {
+      int lossSteps = (int)MathFloor(lossMagnitude / interval);
+      double dynamicStep = baseStep - (double)lossSteps;
+      if(dynamicStep < minStep)
+         dynamicStep = minStep; // Floor at $1.00 so step remains positive and functional
+      Basket10USDLockStepUSD = dynamicStep;
+     }
+   else
+     {
+      Basket10USDLockStepUSD = baseStep;
+     }
+
+   return Basket10USDLockStepUSD;
+  }
+
+//+------------------------------------------------------------------+
 //| Reset Basket $10 Equity Lock State                              |
 //+------------------------------------------------------------------+
 void ResetBasket10USDLock(double resetEquity = 0.0)
@@ -3031,6 +3088,7 @@ void ManageBasket10USDLockEquity()
       return;
 
    int totalOpenEAOrders = 0;
+   double basketNetPL = 0.0;
    for(int i = OrdersTotal() - 1; i >= 0; i--)
      {
       if(!OrderSelect(i, SELECT_BY_POS, MODE_TRADES))
@@ -3039,7 +3097,10 @@ void ManageBasket10USDLockEquity()
          continue;
       int t = OrderType();
       if(t == OP_BUY || t == OP_SELL)
+        {
          totalOpenEAOrders++;
+         basketNetPL += OrderProfit() + OrderSwap() + OrderCommission();
+        }
      }
 
 // 1. If no open orders, reset state so next basket starts fresh
@@ -3049,8 +3110,13 @@ void ManageBasket10USDLockEquity()
       g_basket10USDNextTargetEquity = 0.0;
       g_basket10USDStepCount = 0;
       g_basket10USDTargetHitActive = false;
+      Basket10USDLockStepUSD = BaseBasket10USDLockStepUSD;
       return;
      }
+
+   // 1B. Dynamic Loss Scaler: Adjust Basket10USDLockStepUSD based on net P/L loss
+   // Base = $5. Loss >= $10 -> $4 (5-1). Loss >= $20 -> $3 (5-2). Loss >= $30 -> $2 (5-3)...
+   UpdateDynamicBasket10USDLockStep(basketNetPL);
 
    double curEquity = AccountEquity();
 
@@ -3061,6 +3127,12 @@ void ManageBasket10USDLockEquity()
       g_basket10USDNextTargetEquity = g_basket10USDBaselineEquity + Basket10USDLockStepUSD;
       g_basket10USDStepCount = 0;
       return;
+     }
+
+   // Recalculate target with dynamic step when at step 0 so tighter step applies immediately during drawdown
+   if(g_basket10USDStepCount == 0)
+     {
+      g_basket10USDNextTargetEquity = g_basket10USDBaselineEquity + Basket10USDLockStepUSD;
      }
 
 // 3. Check if current equity reached or exceeded the $10 target
@@ -3825,7 +3897,7 @@ bool HasMinimumSameOrderGap(int orderType, double minimumGapRaw)
          continue;
       if(IsFLIPBasketSupportOrder(OrderTicket(), OrderComment()))
          continue;
-      if(IgnoreRecoveryRawGapCondition && StringFind(OrderComment(), "RECOVERY_") == 0)
+      if(IgnoreRecoveryRawGapCondition && IsAnyRecoveryOrder(OrderTicket(), OrderComment()))
          continue;
       if(MathAbs(currentPrice - OrderOpenPrice()) < minimumGapRaw)
          return false;
@@ -3859,13 +3931,13 @@ bool HasMinimumSSLAndReEntryGap(int direction, double targetPrice, double minGap
       string comment = OrderComment();
       if(IsFLIPBasketSupportOrder(OrderTicket(), comment))
          continue;
-      if(IgnoreRecoveryRawGapCondition && StringFind(comment, "RECOVERY_") == 0)
+      if(IgnoreRecoveryRawGapCondition && IsAnyRecoveryOrder(OrderTicket(), comment))
          continue;
       bool isTargetOrder = (StringFind(comment, "SSL") >= 0 ||
                             StringFind(comment, "ReEntry") >= 0 ||
                             StringFind(comment, "reentry") >= 0 ||
                             StringFind(comment, "CircleOrder") >= 0 ||
-                            (!IgnoreRecoveryRawGapCondition && StringFind(comment, "RECOVERY_") == 0));
+                            (!IgnoreRecoveryRawGapCondition && IsAnyRecoveryOrder(OrderTicket(), comment)));
 
       if(!isTargetOrder)
          continue;
@@ -3909,7 +3981,7 @@ bool HasMinimumRecoveryOrderGap(int orderType, double currentPrice, double minGa
       if(OrderType() != orderType)
          continue;
       string comment = OrderComment();
-      if(StringFind(comment, "RECOVERY_") == 0)
+      if(IsAnyRecoveryOrder(OrderTicket(), comment))
         {
          double gap = MathAbs(currentPrice - OrderOpenPrice());
          if(gap < minGapRaw)
@@ -3938,7 +4010,7 @@ bool HasMinimumRecoveryOrderGap(int orderType, double currentPrice, double minGa
          continue;
 
       string hComment = OrderComment();
-      if(StringFind(hComment, "RECOVERY_") == 0)
+      if(IsAnyRecoveryOrder(OrderTicket(), hComment))
         {
          double histGap = MathAbs(currentPrice - OrderOpenPrice());
          if(histGap < minGapRaw)
@@ -7764,14 +7836,15 @@ int GetRecoveryOrderCount(int parentTicket, int &outFirstTicket, int &outSecondT
       if(type != OP_BUY && type != OP_SELL)
          continue;
       string comment = OrderComment();
-      if(StringFind(comment, "RECOVERY_") != 0)
+      if(!IsAnyRecoveryOrder(OrderTicket(), comment))
          continue;
 
-      int par = (int)StringToInteger(StringSubstr(comment, 9));
+      string rootComment = GetRootOrderComment(OrderTicket(), comment);
+      int par = GetRecoveryOrderParentTicket(OrderTicket(), rootComment);
       if(par == parentTicket || (origParentTicket > 0 && par == origParentTicket))
         {
          count++;
-         if(StringFind(comment, "_2") >= 0)
+         if(StringFind(rootComment, "_2") >= 0)
             outSecondTicket = OrderTicket();
          else
             outFirstTicket = OrderTicket();
@@ -7803,21 +7876,11 @@ bool HasRecoveryOrder(int ParentTicket)
 //+------------------------------------------------------------------+
 bool IsRecoveryOrderWithActiveParent(int ticket, string comment = "")
   {
-   if(comment == "")
-     {
-      if(OrderTicket() == ticket)
-         comment = OrderComment();
-      else
-         if(OrderSelect(ticket, SELECT_BY_TICKET, MODE_TRADES))
-            comment = OrderComment();
-         else
-            return false;
-     }
-
-   if(StringFind(comment, "RECOVERY_") != 0)
+   if(!IsAnyRecoveryOrder(ticket, comment))
       return false;
 
-   int parentTicket = (int)StringToInteger(StringSubstr(comment, 9));
+   string rootComment = GetRootOrderComment(ticket, comment);
+   int parentTicket = GetRecoveryOrderParentTicket(ticket, rootComment);
    if(parentTicket <= 0)
       return false;
 
@@ -8620,7 +8683,7 @@ void ManageRecoveryOrderStepTrailingStopLoss()
          continue;
 
       string comment = OrderComment();
-      if(StringFind(comment, "RECOVERY") < 0)
+      if(!IsAnyRecoveryOrder(OrderTicket(), comment))
          continue;
 
       int ticket       = OrderTicket();
@@ -8756,7 +8819,7 @@ void ManageAllOrdersStepTrailingStopLoss()
       if(IsFLIPBasketSupportOrder(ticket, comment) && FLIPBasketSupportTakeProfitDistanceStopLossStep > 0.0)
          stepSize = FLIPBasketSupportTakeProfitDistanceStopLossStep;
       else
-         if(StringFind(comment, "RECOVERY") >= 0 && RecoveryOrderStopLossStepRaw > 0.0)
+         if(IsAnyRecoveryOrder(ticket, comment) && RecoveryOrderStopLossStepRaw > 0.0)
             stepSize = RecoveryOrderStopLossStepRaw;
 
       if(stepSize <= 0.0)
@@ -8879,19 +8942,10 @@ void ManageRecoveryBasket()
          if(OrderSymbol() != Symbol() || OrderMagicNumber() != MagicNumber)
             continue;
          string comment = OrderComment();
-         if(StringFind(comment, "from #") >= 0)
-           {
-            int origRec = GetOriginalTicket(OrderTicket(), comment);
-            if(origRec > 0 && origRec != OrderTicket())
-              {
-               if(OrderSelect(origRec, SELECT_BY_TICKET, MODE_HISTORY) || OrderSelect(origRec, SELECT_BY_TICKET, MODE_TRADES))
-                  comment = OrderComment();
-               OrderSelect(i, SELECT_BY_POS, MODE_TRADES);
-              }
-           }
-         if(StringFind(comment, "RECOVERY_") != 0)
+         if(!IsAnyRecoveryOrder(OrderTicket(), comment))
             continue;
-         int pTicket = (int)StringToInteger(StringSubstr(comment, 9));
+         string rootComment = GetRootOrderComment(OrderTicket(), comment);
+         int pTicket = GetRecoveryOrderParentTicket(OrderTicket(), rootComment);
          if(pTicket <= 0)
             continue;
 
@@ -8972,19 +9026,10 @@ void ManageRecoveryBasket()
             if(OrderSymbol() != Symbol() || OrderMagicNumber() != MagicNumber)
                continue;
             string c = OrderComment();
-            if(StringFind(c, "from #") >= 0)
-              {
-               int origRec = GetOriginalTicket(OrderTicket(), c);
-               if(origRec > 0 && origRec != OrderTicket())
-                 {
-                  if(OrderSelect(origRec, SELECT_BY_TICKET, MODE_HISTORY) || OrderSelect(origRec, SELECT_BY_TICKET, MODE_TRADES))
-                     c = OrderComment();
-                  OrderSelect(k, SELECT_BY_POS, MODE_TRADES);
-                 }
-              }
-            if(StringFind(c, "RECOVERY_") != 0)
+            if(!IsAnyRecoveryOrder(OrderTicket(), c))
                continue;
-            int par = (int)StringToInteger(StringSubstr(c, 9));
+            string rootComment = GetRootOrderComment(OrderTicket(), c);
+            int par = GetRecoveryOrderParentTicket(OrderTicket(), rootComment);
             if(par == rootParentTicket || par == activeParentTicket)
               {
                if(recCount < 10)
@@ -11317,6 +11362,8 @@ void ManageEquityStepLoss()
             continue;
 
          double lots = OrderLots();
+         if(IsAnyRecoveryOrder(OrderTicket(), OrderComment()))
+            continue;
          // Ensure the order has enough volume to shave 0.01 while leaving at least 0.01 behind
          if(lots >= 0.02 && lots > largestLotSize)
            {
@@ -11359,13 +11406,17 @@ double   g_lastGlobalPartialLossClosePrice     = 0.0;
 int      g_lastGlobalPartialLossCloseType      = -1;
 datetime g_lastGlobalPartialLossCloseTime      = 0;
 int      g_lastGlobalPartialLossCloseTicket    = -1;
+
 // Helper to find the original parent ticket across partial closes
 int GetOriginalTicket(int ticket, string comment)
   {
    int current = ticket;
    string curComment = comment;
-   while(true)
+   int currentSelectedTicket = OrderTicket();
+   int loops = 0;
+   while(loops < 25)
      {
+      loops++;
       int pos = StringFind(curComment, "from #");
       if(pos < 0)
          break;
@@ -11381,7 +11432,114 @@ int GetOriginalTicket(int ticket, string comment)
       else
          break;
      }
+   if(currentSelectedTicket > 0 && OrderTicket() != currentSelectedTicket)
+      OrderSelect(currentSelectedTicket, SELECT_BY_TICKET, MODE_TRADES);
    return current;
+  }
+
+//+------------------------------------------------------------------+
+//| GetRootOrderComment: Resolves root comment across partial closes |
+//| so recovery orders never lose their RECOVERY_<parent> identity   |
+//+------------------------------------------------------------------+
+string GetRootOrderComment(int ticket, string comment = "")
+  {
+   string curComment = comment;
+   if(curComment == "")
+     {
+      if(OrderTicket() == ticket)
+         curComment = OrderComment();
+      else if(OrderSelect(ticket, SELECT_BY_TICKET, MODE_TRADES))
+         curComment = OrderComment();
+      else if(OrderSelect(ticket, SELECT_BY_TICKET, MODE_HISTORY))
+         curComment = OrderComment();
+     }
+
+   if(StringFind(curComment, "from #") < 0)
+      return curComment;
+
+   int current = ticket;
+   int currentSelectedTicket = OrderTicket();
+   int loops = 0;
+
+   while(loops < 25)
+     {
+      loops++;
+      int pos = StringFind(curComment, "from #");
+      if(pos < 0)
+         break;
+
+      string parentStr = StringSubstr(curComment, pos + 6);
+      int parentTicket = (int)StringToInteger(parentStr);
+      if(parentTicket <= 0 || parentTicket == current)
+         break;
+
+      current = parentTicket;
+      bool found = false;
+      if(OrderSelect(current, SELECT_BY_TICKET, MODE_HISTORY))
+        {
+         curComment = OrderComment();
+         found = true;
+        }
+      else if(OrderSelect(current, SELECT_BY_TICKET, MODE_TRADES))
+        {
+         curComment = OrderComment();
+         found = true;
+        }
+
+      if(!found)
+         break;
+     }
+
+   if(currentSelectedTicket > 0 && OrderTicket() != currentSelectedTicket)
+      OrderSelect(currentSelectedTicket, SELECT_BY_TICKET, MODE_TRADES);
+
+   return curComment;
+  }
+
+//+------------------------------------------------------------------+
+//| IsAnyRecoveryOrder: Returns true if order is a recovery order    |
+//| even if MT4 partial close changed comment to "from #xxxxx"       |
+//+------------------------------------------------------------------+
+bool IsAnyRecoveryOrder(int ticket, string comment = "")
+  {
+   string curComment = comment;
+   if(curComment == "")
+     {
+      if(OrderTicket() == ticket)
+         curComment = OrderComment();
+      else if(OrderSelect(ticket, SELECT_BY_TICKET, MODE_TRADES))
+         curComment = OrderComment();
+      else if(OrderSelect(ticket, SELECT_BY_TICKET, MODE_HISTORY))
+         curComment = OrderComment();
+     }
+
+   if(StringFind(curComment, "RECOVERY_") >= 0)
+      return true;
+
+   if(StringFind(curComment, "from #") >= 0)
+     {
+      string rootCmt = GetRootOrderComment(ticket, curComment);
+      if(StringFind(rootCmt, "RECOVERY_") >= 0)
+         return true;
+     }
+
+   return false;
+  }
+
+//+------------------------------------------------------------------+
+//| GetRecoveryOrderParentTicket: Extracts parent ticket from root   |
+//| comment across partial close chains.                             |
+//+------------------------------------------------------------------+
+int GetRecoveryOrderParentTicket(int ticket, string comment = "")
+  {
+   string rootCmt = GetRootOrderComment(ticket, comment);
+   int pos = StringFind(rootCmt, "RECOVERY_");
+   if(pos >= 0)
+     {
+      string numPart = StringSubstr(rootCmt, pos + 9);
+      return (int)StringToInteger(numPart);
+     }
+   return 0;
   }
 // Helper function to update or add a ticket's last closed price
 void UpdateTicketClosePrice(int ticket, double closePrice)
@@ -11510,6 +11668,11 @@ void ManagePartialClosesLoss()
 
       double orderLots     = OrderLots();
       int    currentTicket = OrderTicket();
+
+      // STRICT RECOVERY IMMUNITY: Recovery orders must NEVER be partially closed in loss!
+      // Preserves 100% of recovery lot size and prevents MT4 comment from changing to "from #xxxxx"
+      if(IsAnyRecoveryOrder(currentTicket, OrderComment()))
+         continue;
 
       // No partial-loss rule for orders with lots <= 0.01
       if(orderLots <= 0.01 + 0.000001)
@@ -11807,7 +11970,7 @@ void ManagePartialCloses()
          continue;
 
 
-      if(StringFind(OrderComment(), "RECOVERY_") == 0)
+      if(IsAnyRecoveryOrder(OrderTicket(), OrderComment()))
          continue;
 
       double orderLots = OrderLots();
@@ -13782,10 +13945,11 @@ string GetOrderUnclosedDiagnosticReason(int ticket, double pl)
       slInProfit = true;
 
    // 1. Recovery Order Check
-   bool isRecovery = (StringFind(comment, "RECOVERY_") == 0);
+   bool isRecovery = IsAnyRecoveryOrder(ticket, comment);
    if(isRecovery)
      {
-      int rootParent = (int)StringToInteger(StringSubstr(comment, 9));
+      string rootComment = GetRootOrderComment(ticket, comment);
+      int rootParent = GetRecoveryOrderParentTicket(ticket, rootComment);
       if(rootParent > 0)
         {
          bool parentOpen = false;
@@ -13946,10 +14110,11 @@ void CatchExceptionalProfitableOrders()
          slInProfit = true;
 
       // 1. Recovery Order Verification
-      bool isRecovery = (StringFind(comment, "RECOVERY_") == 0);
+      bool isRecovery = IsAnyRecoveryOrder(ticket, comment);
       if(isRecovery)
         {
-         int rootParent = (int)StringToInteger(StringSubstr(comment, 9));
+         string rootComment = GetRootOrderComment(ticket, comment);
+         int rootParent = GetRecoveryOrderParentTicket(ticket, rootComment);
          if(rootParent > 0)
            {
             bool parentOpen = false;
@@ -14084,6 +14249,121 @@ void CatchExceptionalProfitableOrders()
                " > $", DoubleToString(targetThreshold, 2), " with no profit SL! Reason: No valid holding condition found. Action: Modified SL to ",
                DoubleToString(proposedSL, Digits), " | Success=", modOk);
         }
+     }
+  }
+
+//+------------------------------------------------------------------+
+//| MonitorEquityLossStopLossProtection: Equity Loss Protection      |
+//| Monitors account equity vs balance. When floating loss           |
+//| (AccountBalance() - AccountEquity()) exceeds $100.00 scaled by   |
+//| balance multiplier (balancelomultipler), modifies ALL open       |
+//| market positions (BUY & SELL) with StopLoss at current live      |
+//| price respecting broker minimum stop level to cap further loss.  |
+//+------------------------------------------------------------------+
+void MonitorEquityLossStopLossProtection()
+  {
+   if(!EAStartupComplete)
+      return;
+   if(!EnableEquityLossLiveSLProtect)
+      return;
+
+   // 1. Calculate live equity loss (AccountBalance - AccountEquity)
+   double balance = AccountBalance();
+   double equity  = AccountEquity();
+   double equityLossUSD = balance - equity;
+
+   // Only active when account is in floating loss
+   if(equityLossUSD <= 0.0)
+      return;
+
+   // 2. Compute dynamic loss threshold scaled by balance multiplier
+   int mult = (balancelomultipler > 0) ? balancelomultipler : 1;
+   double lossThresholdUSD = EquityLossSLThresholdUSD * mult;
+
+   // 3. Check if loss amount exceeds $100 * multiplier
+   if(equityLossUSD <= lossThresholdUSD)
+      return;
+
+   // 4. Emergency protection triggered: modify ALL open orders with SL at current live price
+   RefreshRates();
+   double minDistance = GetRequiredStopDistance();
+   if(minDistance <= 0.0)
+      minDistance = Point * 10;
+   if(minDistance < Point * 10)
+      minDistance = Point * 10;
+
+   int modifiedCount = 0;
+   int scannedCount  = 0;
+
+   for(int i = OrdersTotal() - 1; i >= 0; i--)
+     {
+      if(!OrderSelect(i, SELECT_BY_POS, MODE_TRADES))
+         continue;
+      if(OrderSymbol() != Symbol() || OrderMagicNumber() != MagicNumber)
+         continue;
+
+      int oType = OrderType();
+      if(oType != OP_BUY && oType != OP_SELL)
+         continue;
+
+      scannedCount++;
+      int ticket        = OrderTicket();
+      double openPrice  = OrderOpenPrice();
+      double curSL      = OrderStopLoss();
+      double curTP      = OrderTakeProfit();
+      double proposedSL = 0.0;
+      bool needsModify  = false;
+
+      if(oType == OP_BUY)
+        {
+         proposedSL = NormalizeDouble(Bid - minDistance, Digits);
+         // If no SL exists, or proposed SL moves SL tighter/closer to live price
+         if(curSL == 0.0 || proposedSL > curSL + (Point * 0.5))
+            needsModify = true;
+        }
+      else if(oType == OP_SELL)
+        {
+         proposedSL = NormalizeDouble(Ask + minDistance, Digits);
+         // If no SL exists, or proposed SL moves SL tighter/closer to live price
+         if(curSL == 0.0 || proposedSL < curSL - (Point * 0.5))
+            needsModify = true;
+        }
+
+      if(needsModify && proposedSL > 0.0)
+        {
+         ResetLastError();
+         bool ok = SafeOrderModify(ticket, openPrice, proposedSL, curTP, 0, (oType == OP_BUY ? clrRed : clrDarkOrange));
+         if(!ok)
+           {
+            // Direct fallback in case SafeOrderModify was throttled by per-tick counter
+            ResetLastError();
+            ok = OrderModify(ticket, openPrice, proposedSL, curTP, 0, (oType == OP_BUY ? clrRed : clrDarkOrange));
+           }
+
+         if(ok)
+           {
+            modifiedCount++;
+            Print("EQUITY LOSS SL PROTECTION: Ticket #", ticket,
+                  " (", (oType == OP_BUY ? "BUY" : "SELL"), ")",
+                  " | Account Loss=$", DoubleToString(equityLossUSD, 2), " > Threshold=$", DoubleToString(lossThresholdUSD, 2),
+                  " (Base=$", DoubleToString(EquityLossSLThresholdUSD, 2), " x Multiplier=", mult, ")",
+                  " | Set SL to Live Price: ", DoubleToString(proposedSL, Digits),
+                  " (Bid=", DoubleToString(Bid, Digits), ", Ask=", DoubleToString(Ask, Digits), ")");
+           }
+         else
+           {
+            Print("EQUITY LOSS SL PROTECTION ERROR: Ticket #", ticket,
+                  " | Error=", GetLastError(),
+                  " | Proposed SL=", DoubleToString(proposedSL, Digits));
+           }
+        }
+     }
+
+   if(modifiedCount > 0)
+     {
+      Print("EQUITY LOSS SL MONITOR: Emergency StopLoss set on ", modifiedCount,
+            " / ", scannedCount, " open orders at current live price (Loss=$",
+            DoubleToString(equityLossUSD, 2), " > $", DoubleToString(lossThresholdUSD, 2), ")");
      }
   }
 
@@ -14226,14 +14506,12 @@ void UpdateLeftLiveOrdersDashboard()
          tpDiffText=DoubleToString(tpDiffPoints,0);
 
       string comment = OrderComment();
-      bool isRecovery = false;
+      string rootComment = GetRootOrderComment(OrderTicket(), comment);
+      bool isRecovery = IsAnyRecoveryOrder(OrderTicket(), comment);
       int parentTicket = 0;
-      int recPos = StringFind(comment, "RECOVERY_");
-      if(recPos >= 0)
+      if(isRecovery)
         {
-         isRecovery = true;
-         string numPart = StringSubstr(comment, recPos + 9);
-         parentTicket = (int)StringToInteger(numPart);
+         parentTicket = GetRecoveryOrderParentTicket(OrderTicket(), rootComment);
         }
 
       string plText="-";
@@ -14294,7 +14572,12 @@ void UpdateLeftLiveOrdersDashboard()
       string partCloseCellText = "-";
       color partCloseCellColor = clrDimGray;
 
-      if(type == OP_BUY || type == OP_SELL)
+      if(isRecovery)
+        {
+         partCloseCellText = "- [Rec Immune]";
+         partCloseCellColor = clrAqua;
+        }
+      else if(type == OP_BUY || type == OP_SELL)
         {
          if(lots > 0.01 + 0.000001)
            {
@@ -14395,7 +14678,8 @@ void UpdateLeftLiveOrdersDashboard()
         }
 
       string diagReason = GetOrderUnclosedDiagnosticReason(OrderTicket(), pl);
-      string verifiedStatus = (diagReason != "") ? diagReason : comment;
+      string displayComment = (isRecovery && StringFind(comment, "from #") >= 0) ? rootComment : comment;
+      string verifiedStatus = (diagReason != "") ? diagReason : displayComment;
       color verifiedColor = clrSilver;
       if(diagReason != "")
         {

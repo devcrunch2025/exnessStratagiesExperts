@@ -889,7 +889,7 @@
       <div class="header-pills">
         <span class="pill pill-blue">BTCUSD • M1 Scalper</span>
         <span class="pill pill-purple">Exness Raw / Zero</span>
-        <span class="pill pill-green">V10070 (10-10-2026 12.30)</span>
+        <span class="pill pill-green">V10075 (12-10-2026 10.05)</span>
       </div>
     </div>
 
@@ -1425,6 +1425,30 @@ sequenceDiagram
             </div>
 
             
+            <!-- V10075 Dynamic Basket Equity Step Loss Scaler Alert -->
+            <div class="alert-box alert-success" style="margin-bottom: 20px;">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="20 6 9 17 4 12"></polyline></svg>
+              <div>
+                <strong>V10075 Dynamic Basket Equity Step Loss Scaler:</strong> Adaptive equity lock step scaling: base step <code>Basket10USDLockStepUSD = 5.0</code> automatically shrinks as floating drawdown deepens to lock in profits faster on price rebounds. At net loss &ge; $10: step reduces to <code>$4.00 (5 - 1)</code>; at net loss &ge; $20: step reduces to <code>$3.00 (5 - 2)</code>; at net loss &ge; $30: step reduces to <code>$2.00 (5 - 3)</code>; and continues -$1 on every subsequent $10 loss step (safely floored at $1.00 minimum). Updates live target equity and displays live status in on-chart dashboard.
+              </div>
+            </div>
+
+            <!-- V10074 Equity Loss Live StopLoss Protection Alert -->
+            <div class="alert-box alert-success" style="margin-bottom: 20px;">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="20 6 9 17 4 12"></polyline></svg>
+              <div>
+                <strong>V10074 Equity Loss Live StopLoss Protection Engine:</strong> Autonomous account equity watchdog: monitors live floating loss (<code>AccountBalance() - AccountEquity()</code>). When floating loss breaches <code>&gt; $100.00 &times; balancelomultipler</code>, <code>MonitorEquityLossStopLossProtection()</code> immediately intervenes across <strong>ALL open market positions</strong> (BUY &amp; SELL), modifying each order's StopLoss to current live market price (respecting broker <code>MODE_STOPLEVEL</code>). Prevents adverse catastrophic runaway drawdowns while preserving positions at the current price boundary.
+              </div>
+            </div>
+
+            <!-- V10073 Recovery Order Partial Loss Immunity Alert -->
+            <div class="alert-box alert-success" style="margin-bottom: 20px;">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="20 6 9 17 4 12"></polyline></svg>
+              <div>
+                <strong>V10073 Recovery Order Partial Loss Immunity &amp; Comment Preservation:</strong> Eliminates recovery power depletion and comment overwriting by MT4 server splits: (1) Total immunity in <code>ManagePartialClosesLoss()</code>, <code>ManagePartialCloses()</code>, and <code>ManageEquityStepLoss()</code> guarantees recovery orders retain 100% volume (0.05 lot is never shaved to 0.04/0.03); (2) Backward-recursive root comment resolution (<code>GetRootOrderComment()</code>, <code>IsAnyRecoveryOrder()</code>, <code>GetRecoveryOrderParentTicket()</code>) follows MT4 server <code>from #xxxxx</code> ticket chains up to 25 hops; (3) Guarantees recovery orders maintain their full recovery power and display their original <code>RECOVERY_&lt;parent&gt;</code> identity with <code>"- [Rec Immune]"</code> in the Left Dashboard.
+              </div>
+            </div>
+
             <!-- V10069 Independent Catch Method Alert -->
             <div class="alert-box alert-info" style="margin-bottom: 20px;">
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"></circle><line x1="12" y1="16" x2="12" y2="12"></line><line x1="12" y1="8" x2="12.01" y2="8"></line></svg>
@@ -1537,7 +1561,27 @@ sequenceDiagram
                     <td><span class="badge badge-green">VERIFIED &amp; DEPLOYED</span></td>
                   </tr>
                   <tr>
-                    <tr>
+                    <td><code>Step 991</code><br><small style="color: var(--accent-amber);">10:05</small></td>
+                    <td><strong>Dynamic Basket Equity Step Loss Scaler (-$1 per $10 Net Loss Step)</strong><br><small style="color: var(--text-dim);">Shrinks Basket10USDLockStepUSD dynamically from $5 down to $4, $3, $2, $1 as basket drawdown increases</small></td>
+                    <td><code>UpdateDynamicBasket10USDLockStep()</code> L3019<br><code>ManageBasket10USDLockEquity()</code> L3085<br><code>Basket10USDLockStepUSD</code> L120<br><code>glbVersion = "V10075"</code></td>
+                    <td>Implemented dynamic equity lock step shrinkage: (1) Defines base step <code>Basket10USDLockStepUSD = 5.0</code>; (2) When net P/L loss &ge; $10: reduces step to <code>$4.00 (5 - 1)</code>; (3) When net P/L loss &ge; $20: reduces step to <code>$3.00 (5 - 2)</code>; (4) When net P/L loss &ge; $30: reduces step to <code>$2.00 (5 - 3)</code>; (5) Continues -$1 reduction on every $10 loss increment, safely clamped at minimum $1.00; (6) Dynamically recalculates <code>g_basket10USDNextTargetEquity</code> so drawdown positions lock with StopLoss faster upon market rebound; (7) Live step reflected dynamically in on-chart dashboard. Clean MetaEditor 4 build (0 errors, 23 warnings).</td>
+                    <td><span class="badge badge-green">VERIFIED &amp; DEPLOYED</span></td>
+                  </tr>
+                  <tr>
+                    <td><code>Step 990</code><br><small style="color: var(--accent-amber);">09:45</small></td>
+                    <td><strong>Equity Loss Live StopLoss Protection Engine ($100 &times; Multiplier Trigger)</strong><br><small style="color: var(--text-dim);">Monitors live equity loss and modifies ALL open positions with StopLoss at current live market price</small></td>
+                    <td><code>MonitorEquityLossStopLossProtection()</code> L14199<br><code>EnableEquityLossLiveSLProtect</code> L81<br><code>EquityLossSLThresholdUSD</code> L82<br><code>glbVersion = "V10074"</code></td>
+                    <td>Implemented autonomous account equity safety guard: (1) Computes floating loss (<code>AccountBalance() - AccountEquity()</code>); (2) Evaluates dynamic trigger threshold: <code>$100.00 &times; balancelomultipler</code>; (3) When loss breaches threshold, iterates through all open market positions (BUY &amp; SELL) and modifies each order's StopLoss directly to current live price (<code>Bid - minDistance</code> for BUY, <code>Ask + minDistance</code> for SELL, respecting broker <code>MODE_STOPLEVEL</code>); (4) Features direct <code>OrderModify</code> fallback to ensure complete execution even if tick throttling limits are active. Clean MetaEditor 4 build (0 errors, 23 warnings).</td>
+                    <td><span class="badge badge-green">VERIFIED &amp; DEPLOYED</span></td>
+                  </tr>
+                  <tr>
+                    <td><code>Step 989</code><br><small style="color: var(--accent-amber);">09:30</small></td>
+                    <td><strong>Recovery Order Partial Loss Immunity &amp; Root Comment Preservation</strong><br><small style="color: var(--text-dim);">Immunizes recovery orders from partial loss trimming and recursively resolves root comments across MT4 ticket splits</small></td>
+                    <td><code>GetRootOrderComment()</code> L57<br><code>IsAnyRecoveryOrder()</code> L58<br><code>GetRecoveryOrderParentTicket()</code> L59<br><code>ManagePartialClosesLoss()</code> L11604<br><code>UpdateLeftLiveOrdersDashboard()</code> L13745<br><code>glbVersion = "V10073"</code></td>
+                    <td>Eliminates loss of recovery power and comment destruction caused by MT4 partial loss closes: (1) Added strict bypass (<code>IsAnyRecoveryOrder</code>) in <code>ManagePartialClosesLoss()</code>, <code>ManagePartialCloses()</code>, and <code>ManageEquityStepLoss()</code> to ensure recovery orders never have their volume shaved from 0.05 lot down to 0.04/0.03; (2) Implemented backward-recursive root comment tracer (<code>GetRootOrderComment()</code>) that traverses MT4 <code>from #xxxxx</code> order history chains up to 25 hops to discover the original <code>RECOVERY_&lt;parent&gt;</code> identifier; (3) Restored recovery basket pairing across all tracking routines (<code>GetRecoveryOrderCount</code>, <code>IsRecoveryOrderWithActiveParent</code>, <code>ManageRecoveryBasket</code>, <code>$5 Lock</code>, step trailing); (4) Upgraded Left Position Monitor to render original recovery identity in aqua and display <code>"- [Rec Immune]"</code> in the partial close column. Clean MetaEditor 4 build (0 errors, 20 warnings).</td>
+                    <td><span class="badge badge-green">VERIFIED &amp; DEPLOYED</span></td>
+                  </tr>
+                  <tr>
                     <td><code>Step 988</code><br><small style="color: var(--accent-amber);">12:30</small></td>
                     <td><strong>Unclosed Diagnostic Reason Strict Filter (Order P/L &ge; $5.00 Threshold)</strong><br><small style="color: var(--text-dim);">Strictly limits unclosed reason display in Left Position Monitor to orders with floating profit &ge; $5.00</small></td>
                     <td><code>GetOrderUnclosedDiagnosticReason()</code><br><code>UpdateLeftLiveOrdersDashboard()</code><br><code>glbVersion = "V10070"</code></td>
@@ -2333,7 +2377,7 @@ flowchart TD
             <div class="grid-4" style="margin-bottom: 24px;">
               <div class="stat-card">
                 <div class="stat-label">Total User Directives</div>
-                <div class="stat-value" style="color: var(--accent-green);">61 / 61</div>
+                <div class="stat-value" style="color: var(--accent-green);">64 / 64</div>
                 <div class="stat-desc">100% Implemented &amp; Audited</div>
               </div>
               <div class="stat-card">
@@ -2343,8 +2387,8 @@ flowchart TD
               </div>
               <div class="stat-card">
                 <div class="stat-label">Active Production Build</div>
-                <div class="stat-value" style="color: var(--accent-purple);">V10070</div>
-                <div class="stat-desc">10-10-2026 11.00 Deployed</div>
+                <div class="stat-value" style="color: var(--accent-purple);">V10075</div>
+                <div class="stat-desc">12-10-2026 10.05 Deployed</div>
               </div>
               <div class="stat-card">
                 <div class="stat-label">Centralized Firewall</div>
@@ -3459,6 +3503,39 @@ flowchart TD
                     <p>Acts as master safety guard at tick completion (Try-Catch pattern). Catches any open order with P/L &ge; $5.00 that is not closed or protected by profit SL. Strictly displays Unclosed Reason in Left Dashboard only when order floating profit is &ge; $5.00; orders below $5.00 display clean standard comment. Analyzes all holding conditions (Recovery Basket drawdown offset, FLIP support hedging, orphan positions). If unclosed without legitimate reason, modifies order with profit StopLoss immediately. Displays dynamic unclosed reason in Live Position Monitor.</p>
                     <div id="chk55" style="display: none; margin-top: 10px; font-size: 12.5px; color: var(--accent-blue); background: rgba(0,0,0,0.3); padding: 8px 12px; border-radius: 6px;">
                       <strong>Code Anchor:</strong> <code>CatchExceptionalProfitableOrders()</code>, <code>GetOrderUnclosedDiagnosticReason()</code>, <code>UpdateLeftLiveOrdersDashboard()</code> &bull; <code>glbVersion = "V10069"</code> &bull; Clean build (0 errors).
+                    </div>
+                  </div>
+                </div>
+
+                <div class="step-item" style="cursor: pointer;" onclick="toggleAuditDetail('chk56')">
+                  <div class="step-num" style="background: rgba(16, 185, 129, 0.15); color: var(--accent-green); border-color: rgba(16, 185, 129, 0.3);">&#10003;</div>
+                  <div class="step-body" style="flex: 1;">
+                    <h4>Recovery Order Partial Loss Immunity &amp; Root Comment Preservation <span class="badge badge-green">Active</span></h4>
+                    <p>Guarantees 100% volume retention and identity preservation for recovery trades: (1) Total immunity in <code>ManagePartialClosesLoss()</code>, <code>ManagePartialCloses()</code>, and <code>ManageEquityStepLoss()</code> preventing lot shrinkage from 0.05 &rarr; 0.04; (2) Backward-recursive root comment resolution (<code>GetRootOrderComment()</code>, <code>IsAnyRecoveryOrder()</code>, <code>GetRecoveryOrderParentTicket()</code>) following MT4 server <code>from #xxxxx</code> ticket chains up to 25 hops; (3) Left Live Orders Dashboard rendering displays true root recovery identity <code>RECOVERY_&lt;parent&gt;</code> in aqua and indicates <code>"- [Rec Immune]"</code> in partial close status.</p>
+                    <div id="chk56" style="display: none; margin-top: 10px; font-size: 12.5px; color: var(--accent-blue); background: rgba(0,0,0,0.3); padding: 8px 12px; border-radius: 6px;">
+                      <strong>Code Anchor:</strong> <code>GetRootOrderComment()</code>, <code>IsAnyRecoveryOrder()</code>, <code>GetRecoveryOrderParentTicket()</code>, <code>ManagePartialClosesLoss()</code>, <code>UpdateLeftLiveOrdersDashboard()</code> &bull; <code>glbVersion = "V10073"</code> &bull; Clean build (0 errors).
+                    </div>
+                  </div>
+                </div>
+
+                <div class="step-item" style="cursor: pointer;" onclick="toggleAuditDetail('chk57')">
+                  <div class="step-num" style="background: rgba(16, 185, 129, 0.15); color: var(--accent-green); border-color: rgba(16, 185, 129, 0.3);">&#10003;</div>
+                  <div class="step-body" style="flex: 1;">
+                    <h4>Equity Loss Live StopLoss Protection Engine ($100 &times; Multiplier Trigger) <span class="badge badge-green">Active</span></h4>
+                    <p>Monitors account floating loss (<code>AccountBalance() - AccountEquity()</code>) against dynamic threshold <code>$100.00 &times; balancelomultipler</code>. When floating drawdown breaches threshold, autonomously modifies ALL open market positions (BUY &amp; SELL) with StopLoss directly at current live market price (respecting broker <code>MODE_STOPLEVEL</code>), halting loss bleeding and preventing catastrophic equity drawdowns.</p>
+                    <div id="chk57" style="display: none; margin-top: 10px; font-size: 12.5px; color: var(--accent-blue); background: rgba(0,0,0,0.3); padding: 8px 12px; border-radius: 6px;">
+                      <strong>Code Anchor:</strong> <code>MonitorEquityLossStopLossProtection()</code> (L14199), <code>EnableEquityLossLiveSLProtect</code>, <code>EquityLossSLThresholdUSD</code> &bull; <code>glbVersion = "V10074"</code> &bull; Clean build (0 errors).
+                    </div>
+                  </div>
+                </div>
+
+                <div class="step-item" style="cursor: pointer;" onclick="toggleAuditDetail('chk58')">
+                  <div class="step-num" style="background: rgba(16, 185, 129, 0.15); color: var(--accent-green); border-color: rgba(16, 185, 129, 0.3);">&#10003;</div>
+                  <div class="step-body" style="flex: 1;">
+                    <h4>Dynamic Basket Equity Step Loss Scaler (-$1 per $10 Net Loss Step) <span class="badge badge-green">Active</span></h4>
+                    <p>Dynamically scales <code>Basket10USDLockStepUSD = 5.0</code> based on net basket drawdown: at loss &ge; $10 reduces step to <code>$4.00 (5 - 1)</code>; at loss &ge; $20 reduces step to <code>$3.00 (5 - 2)</code>; at loss &ge; $30 reduces step to <code>$2.00 (5 - 3)</code>; continuing -$1 per $10 loss increment (floored at $1.00 minimum). Recalculates <code>g_basket10USDNextTargetEquity</code> dynamically to lock positions faster when rebounding from adverse drawdowns, and renders live status in on-chart dashboard.</p>
+                    <div id="chk58" style="display: none; margin-top: 10px; font-size: 12.5px; color: var(--accent-blue); background: rgba(0,0,0,0.3); padding: 8px 12px; border-radius: 6px;">
+                      <strong>Code Anchor:</strong> <code>UpdateDynamicBasket10USDLockStep()</code> (L3019), <code>ManageBasket10USDLockEquity()</code> (L3085), <code>Basket10USDLockStepUSD</code> (L120) &bull; <code>glbVersion = "V10075"</code> &bull; Clean build (0 errors).
                     </div>
                   </div>
                 </div>
