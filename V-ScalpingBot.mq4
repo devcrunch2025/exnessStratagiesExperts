@@ -7290,7 +7290,12 @@ void ChangeLots(double OpenPL, string reason, int orderType, int stoplevelStep)
 // Print("Closed Orders Since EMA Flip: ", closedCount, " | Cycle Step: ", cycleStep, " | Calculated Lots: ", Lots);
 
   
+ if(GlobalSSLDirection != EMADirection)
+     {
+      Lots = 0.02;
 
+
+     }
 
 
 // if((GlobalEmaAngle30>10 || GlobalEmaAngle30<-10) &&  GlobalSSLDirection != EMADirection)
@@ -7322,12 +7327,7 @@ void ChangeLots(double OpenPL, string reason, int orderType, int stoplevelStep)
 //    Lots = 0.01;
 
 
- if(GlobalSSLDirection != EMADirection)
-     {
-      Lots = 0.02;
 
-
-     }
 
    if(IsHeavyLotOrderNearBy(orderType, Lots, 100) && Lots>=0.02)
       Lots = 0.02;
@@ -7357,6 +7357,7 @@ void ChangeLots(double OpenPL, string reason, int orderType, int stoplevelStep)
 
      }*/
 
+/*
    if(MathAbs(GlobalEmaAngle30) < 5)
      {
      // Lots = 0.02;
@@ -7372,6 +7373,8 @@ void ChangeLots(double OpenPL, string reason, int orderType, int stoplevelStep)
 
 
      }
+     
+     */
   /* if(requestedDirection == 1 && (GetOpenPL(OP_BUY)) <-1)
      {
       /Lots = 0.01;
