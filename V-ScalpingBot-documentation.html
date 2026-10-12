@@ -889,7 +889,7 @@
       <div class="header-pills">
         <span class="pill pill-blue">BTCUSD • M1 Scalper</span>
         <span class="pill pill-purple">Exness Raw / Zero</span>
-        <span class="pill pill-green">V10075 (12-10-2026 10.05)</span>
+        <span class="pill pill-green">V10076 (12-10-2026 23.15)</span>
       </div>
     </div>
 
@@ -1425,6 +1425,16 @@ sequenceDiagram
             </div>
 
             
+            <!-- V10076 Recovery Order Partial Loss Integration & Prefix Preservation Alert -->
+            <div class="alert-box alert-success" style="margin-bottom: 20px;">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="20 6 9 17 4 12"></polyline></svg>
+              <div>
+                <strong>V10076 Recovery Order Partial Loss Integration &amp; Prefix Preservation:</strong>
+                (1) Excluded the strict recovery immunity filter from <code>ManagePartialClosesLoss()</code> so that recovery orders (initially 0.05 lot) can participate in progressive 0.01 lot partial loss closes when they cross their adverse loss threshold (e.g. -$20.00 at <code>StopLossUSD = 40.0</code>) and satisfy the minimum $100 price gap condition;
+                (2) Implemented an internal ticket-comment registry (<code>g_orderCommentRegistry</code>), automatic child ticket detection, and effective comment resolution (<code>GetEffectiveOrderComment()</code>, <code>RegisterPreservedOrderComment()</code>) so that when 0.01 is closed from 0.05, the MT4-spawned child ticket (0.04 lot, with broker comment <code>from #xxxxx</code>) inherits and permanently retains its original <code>RECOVERY_&lt;parent&gt;</code> prefix across all recovery basket management, trailing ladders, diagnostics, and on-chart dashboards.
+              </div>
+            </div>
+
             <!-- V10075 Dynamic Basket Equity Step Loss Scaler Alert -->
             <div class="alert-box alert-success" style="margin-bottom: 20px;">
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="20 6 9 17 4 12"></polyline></svg>
@@ -1558,6 +1568,13 @@ sequenceDiagram
                     <td><strong>Pre-Creation Close &amp; Global Single Active FLIPBasketSupport Gate</strong><br><small style="color: var(--text-dim);">Unconditionally closes already open support order before new creation; strictly max 1 active order total</small></td>
                     <td><code>CreateFLIPBasketSupportOrder()</code> L7165<br><code>CloseFLIPBasketSupportOrders(-1)</code> L7124<br><code>HasOpenFLIPBasketSupportOrder(-1)</code> L7105<br><code>glbVersion = "V10024"</code></td>
                     <td>Enforced the safest execution model for <code>FLIPBasketSupport</code>: (1) Inside <code>CreateFLIPBasketSupportOrder()</code>, unconditionally calls <code>CloseFLIPBasketSupportOrders(-1)</code> with 3-attempt retry to close any already open support orders before creating a new one; (2) Enforced global single active support order gate via <code>HasOpenFLIPBasketSupportOrder(-1)</code> which aborts new creation if any support order is still active, guaranteeing strictly at most 1 <code>FLIPBasketSupport</code> runner active across the entire account at any moment. Clean MetaEditor 4 build (0 errors, 20 warnings).</td>
+                    <td><span class="badge badge-green">VERIFIED &amp; DEPLOYED</span></td>
+                  </tr>
+                  <tr>
+                    <td><code>Step 992</code><br><small style="color: var(--accent-amber);">23:15</small></td>
+                    <td><strong>Recovery Order Partial Loss Integration &amp; Prefix Preservation Registry</strong><br><small style="color: var(--text-dim);">Allows recovery orders to shave 0.01 in loss; automatically preserves RECOVERY_ prefix across child split tickets</small></td>
+                    <td><code>ManagePartialClosesLoss()</code> L11775<br><code>GetEffectiveOrderComment()</code> L11550<br><code>RegisterPreservedOrderComment()</code> L11530<br><code>g_orderCommentRegistry</code> L11525<br><code>glbVersion = "V10076"</code></td>
+                    <td>(1) Removed recovery order immunity from <code>ManagePartialClosesLoss()</code>: recovery orders (0.05 lot) now participate in progressive 0.01 lot partial loss trimming when adverse trigger reached (e.g. -$20.00 at StopLossUSD = 40) respecting the $100 price gap; (2) Overcomes MT4 broker comment overwrite: MT4 automatically sets server comment to <code>"from #&lt;oldTicket&gt;"</code> upon partial close; implemented <code>g_orderCommentRegistry</code>, <code>RegisterPreservedOrderComment()</code>, and <code>GetEffectiveOrderComment()</code> to seamlessly map newly spawned child tickets (0.04, 0.03, etc.) back to their original <code>RECOVERY_XXXXX</code> prefix; (3) Preserved recovery prefix identity across recovery basket tracking (<code>ManageRecoveryBasket</code>), active count (<code>CountActiveRecoveryOrders</code>), parent eligibility (<code>CheckRecoveryOrders</code>), step trailing, diagnostics, and Left Position Monitor dashboard. Clean MetaEditor 4 build (0 errors, 23 warnings).</td>
                     <td><span class="badge badge-green">VERIFIED &amp; DEPLOYED</span></td>
                   </tr>
                   <tr>
@@ -2377,7 +2394,7 @@ flowchart TD
             <div class="grid-4" style="margin-bottom: 24px;">
               <div class="stat-card">
                 <div class="stat-label">Total User Directives</div>
-                <div class="stat-value" style="color: var(--accent-green);">64 / 64</div>
+                <div class="stat-value" style="color: var(--accent-green);">65 / 65</div>
                 <div class="stat-desc">100% Implemented &amp; Audited</div>
               </div>
               <div class="stat-card">
@@ -2387,7 +2404,7 @@ flowchart TD
               </div>
               <div class="stat-card">
                 <div class="stat-label">Active Production Build</div>
-                <div class="stat-value" style="color: var(--accent-purple);">V10075</div>
+                <div class="stat-value" style="color: var(--accent-purple);">V10076</div>
                 <div class="stat-desc">12-10-2026 10.05 Deployed</div>
               </div>
               <div class="stat-card">
@@ -3536,6 +3553,17 @@ flowchart TD
                     <p>Dynamically scales <code>Basket10USDLockStepUSD = 5.0</code> based on net basket drawdown: at loss &ge; $10 reduces step to <code>$4.00 (5 - 1)</code>; at loss &ge; $20 reduces step to <code>$3.00 (5 - 2)</code>; at loss &ge; $30 reduces step to <code>$2.00 (5 - 3)</code>; continuing -$1 per $10 loss increment (floored at $1.00 minimum). Recalculates <code>g_basket10USDNextTargetEquity</code> dynamically to lock positions faster when rebounding from adverse drawdowns, and renders live status in on-chart dashboard.</p>
                     <div id="chk58" style="display: none; margin-top: 10px; font-size: 12.5px; color: var(--accent-blue); background: rgba(0,0,0,0.3); padding: 8px 12px; border-radius: 6px;">
                       <strong>Code Anchor:</strong> <code>UpdateDynamicBasket10USDLockStep()</code> (L3019), <code>ManageBasket10USDLockEquity()</code> (L3085), <code>Basket10USDLockStepUSD</code> (L120) &bull; <code>glbVersion = "V10075"</code> &bull; Clean build (0 errors).
+                    </div>
+                  </div>
+                </div>
+
+                <div class="step-item" style="cursor: pointer;" onclick="toggleAuditDetail('chk59')">
+                  <div class="step-num" style="background: rgba(16, 185, 129, 0.15); color: var(--accent-green); border-color: rgba(16, 185, 129, 0.3);">&#10003;</div>
+                  <div class="step-body" style="flex: 1;">
+                    <h4>Recovery Order Partial Loss Integration &amp; Prefix Preservation Registry <span class="badge badge-green">Active</span></h4>
+                    <p>Allows recovery orders (0.05 lot) to execute progressive 0.01 lot loss shaving under <code>ManagePartialClosesLoss()</code> upon reaching adverse loss thresholds with a $100 price gap. Prevents loss of recovery identity caused by MT4 server comment rewriting (<code>from #xxxxx</code>) by linking spawned child tickets (0.04, 0.03, etc.) to their original <code>RECOVERY_XXXXX</code> prefix via an in-memory mapping registry and multi-tier resolution system.</p>
+                    <div id="chk59" style="display: none; margin-top: 10px; font-size: 12.5px; color: var(--accent-blue); background: rgba(0,0,0,0.3); padding: 8px 12px; border-radius: 6px;">
+                      <strong>Code Anchor:</strong> <code>ManagePartialClosesLoss()</code> (L11775), <code>GetEffectiveOrderComment()</code> (L11550), <code>RegisterPreservedOrderComment()</code> (L11530) &bull; <code>glbVersion = "V10076"</code> &bull; Clean build (0 errors).
                     </div>
                   </div>
                 </div>
