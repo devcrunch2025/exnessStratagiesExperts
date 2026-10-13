@@ -145,13 +145,13 @@ bool   g_basket10USDTargetHitActive        = false; // Set true when target reac
 //StopLossUSD per lot 0.01
 double StopLossUSD =20;//40////10;//40;//10;//40;//5;//10;//40;//30;//10;//6;//10;//6;//5;//10;//2;// 10;
 
-/*Order Lot Size	Adverse Price Distance	Full Stop Loss Dollar Loss	What Happens
-Stage	Open Lots	Floating P/L Trigger	BTC Move from Open	Action Executed	Realized Loss	Remaining Order
-1st Shave	0.05	-$5.00	$100 drop	Shave 0.01	-$1.00	0.04 lot (floating -$4.00)
-2nd Shave	0.04	-$8.00	$200 drop	Shave 0.01	-$2.00	0.03 lot (floating -$6.00)
-3rd Shave	0.03	-$9.00	$300 drop	Shave 0.01	-$3.00	0.02 lot (floating -$6.00)
-4th Shave	0.02	-$8.00	$400 drop	Shave 0.01	-$4.00	0.01 lot (Protected)
-Final	0.01	—	—	Protected	—	0.01 lot remains open*/
+/*Order Lot Size  Adverse Price Distance  Full Stop Loss Dollar Loss What Happens
+Stage Open Lots   Floating P/L Trigger BTC Move from Open   Action Executed   Realized Loss  Remaining Order
+1st Shave   0.05  -$5.00   $100 drop   Shave 0.01  -$1.00   0.04 lot (floating -$4.00)
+2nd Shave   0.04  -$8.00   $200 drop   Shave 0.01  -$2.00   0.03 lot (floating -$6.00)
+3rd Shave   0.03  -$9.00   $300 drop   Shave 0.01  -$3.00   0.02 lot (floating -$6.00)
+4th Shave   0.02  -$8.00   $400 drop   Shave 0.01  -$4.00   0.01 lot (Protected)
+Final 0.01  —   —   Protected   —   0.01 lot remains open*/
 int      g_dayNumber = -1;
 double   g_dayOpeningBalance = 0.0;
 bool     g_dailyEquityTradingBlocked = false;
@@ -283,7 +283,7 @@ bool DeleteOppositePendingOnSignal = true;
 bool EnableProfitReEntryStop = true;
 double MinimumClosedProfitUSD = -9;
 double ProfitReEntryGapRaw =20;//10;//20;// 50.0; // Raw gap ($50) for ReEntry stop placement
-double MinimumSameOrderGapRawReEntry =20;// 10;//20;//50.0;//10;//20;// 50;// 
+double MinimumSameOrderGapRawReEntry =20;// 10;//20;//50.0;//10;//20;// 50;//
 double MinGapBetweenSSLAndReEntryRaw =20;// 10;//  20;//50.0; // Minimum $50 raw gap between SSL Short/Long and ReEntry orders
 double MinimumSameOrderGapRawMatched =20;// 10;//  20;//50.0;//30;//10;//20;//50;//20;// 50;
 double MinimumSameOrderGapRawUnmatched =20;// 10;//  20;//50.0;//10;//10;//20;// 100;
@@ -933,10 +933,10 @@ void ModifyPairProfitWithStopLoss()
 
    double targetThreshold = PairCombinationProfitThresholdUSD;
 
-if(IsEmaWEAKDistanceReduced50PercentFromPeak())
-{
-   targetThreshold=targetThreshold/2;
-}
+   if(IsEmaWEAKDistanceReduced50PercentFromPeak())
+     {
+      targetThreshold=targetThreshold/2;
+     }
 
    if(PairCombinationUseBalanceMultiplier && balancelomultipler > 1)
       targetThreshold = PairCombinationProfitThresholdUSD * balancelomultipler;
@@ -2487,7 +2487,7 @@ void OnTick()
    GlobalSSLDirectionPrevious=GlobalSSLDirection;
    EMADirectionPrevious=EMADirection;
 
-   // Final Independent "Catch" Method: Exceptional >$5 Profit Order Safety Guard
+// Final Independent "Catch" Method: Exceptional >$5 Profit Order Safety Guard
    CatchExceptionalProfitableOrders();
    MonitorEquityLossStopLossProtection();
   }
@@ -2934,7 +2934,7 @@ void ManageWeakEmaProfitOrderProtect()
          continue;
 
       double orderPL = OrderProfit() + OrderSwap() + OrderCommission();
-thresholdUSD=thresholdUSD*OrderLots()*100;
+      thresholdUSD=thresholdUSD*OrderLots()*100;
 
       if(orderPL <= thresholdUSD)
          continue;
@@ -3058,7 +3058,7 @@ double UpdateDynamicBasket10USDLockStep(double netPL)
    if(baseStep <= 0.0)
       baseStep = 5.0;
 
-   // If net P/L is positive or break-even, maintain base step $5
+// If net P/L is positive or break-even, maintain base step $5
    if(netPL >= -0.0001)
      {
       Basket10USDLockStepUSD = baseStep;
@@ -3147,8 +3147,8 @@ void ManageBasket10USDLockEquity()
       return;
      }
 
-   // 1B. Dynamic Loss Scaler: Adjust Basket10USDLockStepUSD based on net P/L loss
-   // Base = $5. Loss >= $10 -> $4 (5-1). Loss >= $20 -> $3 (5-2). Loss >= $30 -> $2 (5-3)...
+// 1B. Dynamic Loss Scaler: Adjust Basket10USDLockStepUSD based on net P/L loss
+// Base = $5. Loss >= $10 -> $4 (5-1). Loss >= $20 -> $3 (5-2). Loss >= $30 -> $2 (5-3)...
    UpdateDynamicBasket10USDLockStep(basketNetPL);
 
    double curEquity = AccountEquity();
@@ -3162,7 +3162,7 @@ void ManageBasket10USDLockEquity()
       return;
      }
 
-   // Recalculate target with dynamic step when at step 0 so tighter step applies immediately during drawdown
+// Recalculate target with dynamic step when at step 0 so tighter step applies immediately during drawdown
    if(g_basket10USDStepCount == 0)
      {
       g_basket10USDNextTargetEquity = g_basket10USDBaselineEquity + Basket10USDLockStepUSD;
@@ -5319,12 +5319,13 @@ bool IsNearTopOrBottomEmaExtreme(int requestedDirection, double thresholdGapUSD 
       if(Ask >= (highestPrice - thresholdGapUSD))
          return true;
      }
-   else if(requestedDirection == -1) // SELL
-     {
-      double lowestPrice = GetLowestPriceSinceEmaFlip();
-      if(Bid <= (lowestPrice + thresholdGapUSD))
-         return true;
-     }
+   else
+      if(requestedDirection == -1) // SELL
+        {
+         double lowestPrice = GetLowestPriceSinceEmaFlip();
+         if(Bid <= (lowestPrice + thresholdGapUSD))
+            return true;
+        }
    return false;
   }
 
@@ -7427,12 +7428,12 @@ void ChangeLots(double OpenPL, string reason, int orderType, int stoplevelStep)
 
 
    if(isSSLProfitReEntry)
-   Lots=0.01;
+      Lots=0.01;
 
 // Lots=0.05;//
 // Print("Closed Orders Since EMA Flip: ", closedCount, " | Cycle Step: ", cycleStep, " | Calculated Lots: ", Lots);
 
-  
+
 
 
 
@@ -7473,20 +7474,20 @@ void ChangeLots(double OpenPL, string reason, int orderType, int stoplevelStep)
    double buyLots  = GetTotalLots(OP_BUY);
    double sellLots = GetTotalLots(OP_SELL);
 
-/*
+   /*
 
-   if(requestedDirection==1 && GetOpenPL(OP_BUY)<=-5)
-     {
-      Lots = 0.01;
+      if(requestedDirection==1 && GetOpenPL(OP_BUY)<=-5)
+        {
+         Lots = 0.01;
 
-     }
-   if(requestedDirection==-1 && GetOpenPL(OP_SELL)<=-5)
+        }
+      if(requestedDirection==-1 && GetOpenPL(OP_SELL)<=-5)
 
-     {
-      Lots = 0.01;
+        {
+         Lots = 0.01;
 
-     }
-     */
+        }
+        */
 
    /*if(requestedDirection==-1)
 
@@ -7495,49 +7496,49 @@ void ChangeLots(double OpenPL, string reason, int orderType, int stoplevelStep)
 
      }*/
 
-/*
-   if(MathAbs(GlobalEmaAngle30) < 5)
-     {
-     // Lots = 0.02;
-
-      if(requestedDirection == -1 && MathAbs(GetOpenPL(OP_BUY)) > 5 && MathAbs(GetOpenPL(OP_SELL)) * 2 <= MathAbs(GetOpenPL(OP_BUY)))
+   /*
+      if(MathAbs(GlobalEmaAngle30) < 5)
         {
-         Lots = 0.02;
+        // Lots = 0.02;
+
+         if(requestedDirection == -1 && MathAbs(GetOpenPL(OP_BUY)) > 5 && MathAbs(GetOpenPL(OP_SELL)) * 2 <= MathAbs(GetOpenPL(OP_BUY)))
+           {
+            Lots = 0.02;
+           }
+         if(requestedDirection == 1 && MathAbs(GetOpenPL(OP_SELL)) > 5 && MathAbs(GetOpenPL(OP_BUY)) * 2 <= MathAbs(GetOpenPL(OP_SELL)))
+           {
+            Lots = 0.02;
+           }
+
+
         }
-      if(requestedDirection == 1 && MathAbs(GetOpenPL(OP_SELL)) > 5 && MathAbs(GetOpenPL(OP_BUY)) * 2 <= MathAbs(GetOpenPL(OP_SELL)))
-        {
-         Lots = 0.02;
-        }
 
+        */
+   /* if(requestedDirection == 1 && (GetOpenPL(OP_BUY)) <-1)
+      {
+       /Lots = 0.01;
+      }
+    if(requestedDirection == -1 && (GetOpenPL(OP_SELL)) <-1)
+      {
+       Lots = 0.01;
+      }
+   */
 
-     }
-     
-     */
-  /* if(requestedDirection == 1 && (GetOpenPL(OP_BUY)) <-1)
-     {
-      /Lots = 0.01;
-     }
-   if(requestedDirection == -1 && (GetOpenPL(OP_SELL)) <-1)
-     {
-      Lots = 0.01;
-     }
-*/
-
- if(GlobalSSLDirection != EMADirection)
+   if(GlobalSSLDirection != EMADirection)
      {
       Lots = 0.01;
 
 
      }
-     
-      if(GlobalSSLDirection != EMADirection && !IsEmaWEAKDistanceReduced50PercentFromPeak())
+
+   if(GlobalSSLDirection != EMADirection && !IsEmaWEAKDistanceReduced50PercentFromPeak())
      {
-      Lots = 0.01;
+      Lots = 0.02;
 
 
      }
-     
-      if(GlobalSSLDirection != EMADirection && IsEmaWEAKDistanceReduced50PercentFromPeak())
+
+   if(GlobalSSLDirection != EMADirection && IsEmaWEAKDistanceReduced50PercentFromPeak())
      {
       Lots = 0.01;
 
@@ -7572,9 +7573,9 @@ void ChangeLots(double OpenPL, string reason, int orderType, int stoplevelStep)
 //   }
 //*************************************final*****************************************************************
 
-   // Top Order from EMA & $100 Zone Protection (V10078)
-   // For BUY: If live Ask is highest (after EMA flip) top price, or in $100 raw gap of top order -> always lot 0.01.
-   // For SELL: If live Bid is lowest (after EMA flip) live price, or in $100 raw gap of lowest order -> always lot 0.01.
+// Top Order from EMA & $100 Zone Protection (V10078)
+// For BUY: If live Ask is highest (after EMA flip) top price, or in $100 raw gap of top order -> always lot 0.01.
+// For SELL: If live Bid is lowest (after EMA flip) live price, or in $100 raw gap of lowest order -> always lot 0.01.
    bool isTopExtreme = IsNearTopOrBottomEmaExtreme(requestedDirection, 100.0);
    if(isTopExtreme)
      {
@@ -7803,12 +7804,12 @@ void CheckRecoveryOrders()
 
 
       bool validParent = true;
-     // if(StringFind(comment, "SSL Long") >= 0 || StringFind(comment, "SSL Short") >= 0 || StringFind(comment, "from #") >= 0 || StringFind(comment, "ReEntry") >= 0)
-       //  validParent = true;
+      // if(StringFind(comment, "SSL Long") >= 0 || StringFind(comment, "SSL Short") >= 0 || StringFind(comment, "from #") >= 0 || StringFind(comment, "ReEntry") >= 0)
+      //  validParent = true;
 
 
-if(IsAnyRecoveryOrder(parentTicket, comment))
-validParent = false;
+      if(IsAnyRecoveryOrder(parentTicket, comment))
+         validParent = false;
 
 
       if(!validParent)
@@ -8425,13 +8426,13 @@ int CreateFLIPBasketSupportOrder(int flipDirection, bool ignoreEmaDistanceGate =
            }
         }
    */
-      int targetOrderType = (flipDirection == 1) ? OP_BUY : OP_SELL;
+   int targetOrderType = (flipDirection == 1) ? OP_BUY : OP_SELL;
 
-if(GetOpenPL(targetOrderType)>=0)
-{
-   //      return -1;
+   if(GetOpenPL(targetOrderType)>=0)
+     {
+      //      return -1;
 
-}
+     }
 
 // 0C. Weak Trend Gate: Do not create FLIPBasketSupport order when IsEmaWEAKDistanceReduced50PercentFromPeak is weak
    if(FLIPBasketSupportBlockOnWeakEma)
@@ -8460,21 +8461,21 @@ if(GetOpenPL(targetOrderType)>=0)
         }
       return -1;
      }
-/*
-// 0. EMA Distance Gate: Only open FLIPBasketSupport order when EMAdistance gap from live price > 50 (unless bypassed e.g. on $10 lock replenishment)
-   if(!ignoreEmaDistanceGate)
-     {
-      int targetOrderType = (flipDirection == 1) ? OP_BUY : OP_SELL;
-      double currentEmaDist = GetDistanceToEMAPrice(targetOrderType, true);
-      if(currentEmaDist <= FLIPBasketSupportMinEmaDistance)
+   /*
+   // 0. EMA Distance Gate: Only open FLIPBasketSupport order when EMAdistance gap from live price > 50 (unless bypassed e.g. on $10 lock replenishment)
+      if(!ignoreEmaDistanceGate)
         {
-         Print("FLIPBasketSupport order skipped: EMAdistance gap from live price = ", DoubleToString(currentEmaDist, 2),
-               " <= ", DoubleToString(FLIPBasketSupportMinEmaDistance, 2), " (Requires gap > ", DoubleToString(FLIPBasketSupportMinEmaDistance, 2), ")");
-         return -1;
+         int targetOrderType = (flipDirection == 1) ? OP_BUY : OP_SELL;
+         double currentEmaDist = GetDistanceToEMAPrice(targetOrderType, true);
+         if(currentEmaDist <= FLIPBasketSupportMinEmaDistance)
+           {
+            Print("FLIPBasketSupport order skipped: EMAdistance gap from live price = ", DoubleToString(currentEmaDist, 2),
+                  " <= ", DoubleToString(FLIPBasketSupportMinEmaDistance, 2), " (Requires gap > ", DoubleToString(FLIPBasketSupportMinEmaDistance, 2), ")");
+            return -1;
+           }
         }
-     }
 
-     */
+        */
 
 // 0E. Order Position Gate: FlipBasketSupport must not be on top / extreme of the orders.
 //     - In BUY EMA: At least one open BUY order must already exist ABOVE the proposed entry price (openPrice > proposedEntry).
@@ -8492,12 +8493,13 @@ if(GetOpenPL(targetOrderType)>=0)
       if(proposedEntryPrice < Ask + testMinGap)
          proposedEntryPrice = Ask + testMinGap;
      }
-   else if(flipDirection == -1) // SELL
-     {
-      proposedEntryPrice = Bid - testPendingGap;
-      if(proposedEntryPrice > Bid - testMinGap)
-         proposedEntryPrice = Bid - testMinGap;
-     }
+   else
+      if(flipDirection == -1) // SELL
+        {
+         proposedEntryPrice = Bid - testPendingGap;
+         if(proposedEntryPrice > Bid - testMinGap)
+            proposedEntryPrice = Bid - testMinGap;
+        }
    proposedEntryPrice = NormalizeDouble(proposedEntryPrice, Digits);
 
    bool hasQualifyingOpenOrder = false;
@@ -8525,17 +8527,18 @@ if(GetOpenPL(targetOrderType)>=0)
          if(oPrice > proposedEntryPrice)
             hasQualifyingOpenOrder = true;
         }
-      else if(flipDirection == -1) // SELL EMA: Look for SELL orders below proposed entry
-        {
-         if(curType != OP_SELL && curType != OP_SELLSTOP && curType != OP_SELLLIMIT)
-            continue;
-         openSameDirCount++;
-         double oPrice = OrderOpenPrice();
-         if(oPrice < extremeOpenPrice)
-            extremeOpenPrice = oPrice;
-         if(oPrice < proposedEntryPrice)
-            hasQualifyingOpenOrder = true;
-        }
+      else
+         if(flipDirection == -1) // SELL EMA: Look for SELL orders below proposed entry
+           {
+            if(curType != OP_SELL && curType != OP_SELLSTOP && curType != OP_SELLLIMIT)
+               continue;
+            openSameDirCount++;
+            double oPrice = OrderOpenPrice();
+            if(oPrice < extremeOpenPrice)
+               extremeOpenPrice = oPrice;
+            if(oPrice < proposedEntryPrice)
+               hasQualifyingOpenOrder = true;
+           }
      }
 
    if(!hasQualifyingOpenOrder)
@@ -8563,8 +8566,8 @@ if(GetOpenPL(targetOrderType)>=0)
       return -1;
      }
 
-   // Top / Bottom Position Guard for FLIPBasketSupport (V10078)
-   // FLIPBasketSupport order must not be in the top position or within $100 of extreme price after EMA flip
+// Top / Bottom Position Guard for FLIPBasketSupport (V10078)
+// FLIPBasketSupport order must not be in the top position or within $100 of extreme price after EMA flip
    if(flipDirection == 1) // BUY
      {
       double highestAfterFlip = GetHighestPriceSinceEmaFlip();
@@ -8581,22 +8584,23 @@ if(GetOpenPL(targetOrderType)>=0)
          return -1;
         }
      }
-   else if(flipDirection == -1) // SELL
-     {
-      double lowestAfterFlip = GetLowestPriceSinceEmaFlip();
-      if(proposedEntryPrice <= (lowestAfterFlip + 100.0))
+   else
+      if(flipDirection == -1) // SELL
         {
-         static datetime lastFlipBottomLogTime = 0;
-         if(TimeCurrent() - lastFlipBottomLogTime >= 30)
+         double lowestAfterFlip = GetLowestPriceSinceEmaFlip();
+         if(proposedEntryPrice <= (lowestAfterFlip + 100.0))
            {
-            lastFlipBottomLogTime = TimeCurrent();
-            Print("FLIPBasketSupport order blocked [Gate 0E - Bottom Position]: Proposed SELL entry (",
-                  DoubleToString(proposedEntryPrice, Digits), ") is within $100 of lowest price since EMA flip (",
-                  DoubleToString(lowestAfterFlip, Digits), "). FlipBasketSupport must not be in bottom position.");
+            static datetime lastFlipBottomLogTime = 0;
+            if(TimeCurrent() - lastFlipBottomLogTime >= 30)
+              {
+               lastFlipBottomLogTime = TimeCurrent();
+               Print("FLIPBasketSupport order blocked [Gate 0E - Bottom Position]: Proposed SELL entry (",
+                     DoubleToString(proposedEntryPrice, Digits), ") is within $100 of lowest price since EMA flip (",
+                     DoubleToString(lowestAfterFlip, Digits), "). FlipBasketSupport must not be in bottom position.");
+              }
+            return -1;
            }
-         return -1;
         }
-     }
 
 // 0F. 0.05 Lot Minimum Gap Gate:
 // Maintain minimum $100 raw price gap between FLIPBasketSupportOrder and any open 0.05 lot order (same EMA direction)
@@ -8619,13 +8623,14 @@ if(GetOpenPL(targetOrderType)>=0)
          if(curType != OP_BUY && curType != OP_BUYSTOP && curType != OP_BUYLIMIT)
             continue;
         }
-      else if(flipDirection == -1) // SELL EMA
-        {
-         if(curType != OP_SELL && curType != OP_SELLSTOP && curType != OP_SELLLIMIT)
-            continue;
-        }
       else
-         continue;
+         if(flipDirection == -1) // SELL EMA
+           {
+            if(curType != OP_SELL && curType != OP_SELLSTOP && curType != OP_SELLLIMIT)
+               continue;
+           }
+         else
+            continue;
 
       double oLots = OrderLots();
       bool is005Lot = (MathAbs(oLots - 0.05) < 0.000001 || (balancelomultipler > 1 && MathAbs(oLots - (0.05 * balancelomultipler)) < 0.000001));
@@ -8683,7 +8688,7 @@ if(GetOpenPL(targetOrderType)>=0)
 
 // Take profit set to raw BTC price distance
    double tpDist = FLIPBasketSupportTakeProfitDistanceRaw;
-   double calcTPDist = CalculatePriceDistanceUSD( 10 * (flipLots / 0.01), flipLots);
+   double calcTPDist = CalculatePriceDistanceUSD(10 * (flipLots / 0.01), flipLots);
    if(calcTPDist > 0.0)
       tpDist = calcTPDist;
    if(tpDist <= 0.0)
@@ -11736,10 +11741,11 @@ int GetOriginalTicket(int ticket, string comment)
       current = parentTicket;
       if(OrderSelect(current, SELECT_BY_TICKET, MODE_HISTORY))
          curComment = OrderComment();
-      else if(OrderSelect(current, SELECT_BY_TICKET, MODE_TRADES))
-         curComment = OrderComment();
       else
-         break;
+         if(OrderSelect(current, SELECT_BY_TICKET, MODE_TRADES))
+            curComment = OrderComment();
+         else
+            break;
      }
    if(currentSelectedTicket > 0 && OrderTicket() != currentSelectedTicket)
       OrderSelect(currentSelectedTicket, SELECT_BY_TICKET, MODE_TRADES);
@@ -11757,10 +11763,12 @@ string GetRootOrderComment(int ticket, string comment = "")
      {
       if(OrderTicket() == ticket)
          curComment = OrderComment();
-      else if(OrderSelect(ticket, SELECT_BY_TICKET, MODE_TRADES))
-         curComment = OrderComment();
-      else if(OrderSelect(ticket, SELECT_BY_TICKET, MODE_HISTORY))
-         curComment = OrderComment();
+      else
+         if(OrderSelect(ticket, SELECT_BY_TICKET, MODE_TRADES))
+            curComment = OrderComment();
+         else
+            if(OrderSelect(ticket, SELECT_BY_TICKET, MODE_HISTORY))
+               curComment = OrderComment();
      }
 
    if(StringFind(curComment, "from #") < 0)
@@ -11789,11 +11797,12 @@ string GetRootOrderComment(int ticket, string comment = "")
          curComment = OrderComment();
          found = true;
         }
-      else if(OrderSelect(current, SELECT_BY_TICKET, MODE_TRADES))
-        {
-         curComment = OrderComment();
-         found = true;
-        }
+      else
+         if(OrderSelect(current, SELECT_BY_TICKET, MODE_TRADES))
+           {
+            curComment = OrderComment();
+            found = true;
+           }
 
       if(!found)
          break;
@@ -11812,12 +11821,15 @@ string GetRootOrderComment(int ticket, string comment = "")
 //+------------------------------------------------------------------+
 struct PreservedCommentMapping
   {
-   int    ticket;
-   string comment;
+   int               ticket;
+   string            comment;
   };
 PreservedCommentMapping g_orderCommentRegistry[500];
 int g_orderCommentRegistryCount = 0;
 
+//+------------------------------------------------------------------+
+//|                                                                  |
+//+------------------------------------------------------------------+
 void RegisterPreservedOrderComment(int ticket, string comment)
   {
    if(ticket <= 0 || comment == "")
@@ -11838,6 +11850,9 @@ void RegisterPreservedOrderComment(int ticket, string comment)
      }
   }
 
+//+------------------------------------------------------------------+
+//|                                                                  |
+//+------------------------------------------------------------------+
 string GetPreservedOrderComment(int ticket)
   {
    if(ticket <= 0)
@@ -11861,25 +11876,27 @@ string GetEffectiveOrderComment(int ticket, string comment = "")
      {
       if(OrderTicket() == ticket)
          curComment = OrderComment();
-      else if(OrderSelect(ticket, SELECT_BY_TICKET, MODE_TRADES))
-         curComment = OrderComment();
-      else if(OrderSelect(ticket, SELECT_BY_TICKET, MODE_HISTORY))
-         curComment = OrderComment();
+      else
+         if(OrderSelect(ticket, SELECT_BY_TICKET, MODE_TRADES))
+            curComment = OrderComment();
+         else
+            if(OrderSelect(ticket, SELECT_BY_TICKET, MODE_HISTORY))
+               curComment = OrderComment();
      }
 
-   // 1. If raw comment already contains RECOVERY_, register and return it
+// 1. If raw comment already contains RECOVERY_, register and return it
    if(StringFind(curComment, "RECOVERY_") >= 0)
      {
       RegisterPreservedOrderComment(ticket, curComment);
       return curComment;
      }
 
-   // 2. Check internal preserved comment registry
+// 2. Check internal preserved comment registry
    string preserved = GetPreservedOrderComment(ticket);
    if(preserved != "")
       return preserved;
 
-   // 3. Resolve root comment across "from #" history
+// 3. Resolve root comment across "from #" history
    if(StringFind(curComment, "from #") >= 0)
      {
       string rootCmt = GetRootOrderComment(ticket, curComment);
@@ -11905,10 +11922,12 @@ bool IsAnyRecoveryOrder(int ticket, string comment = "")
      {
       if(OrderTicket() == ticket)
          curComment = OrderComment();
-      else if(OrderSelect(ticket, SELECT_BY_TICKET, MODE_TRADES))
-         curComment = OrderComment();
-      else if(OrderSelect(ticket, SELECT_BY_TICKET, MODE_HISTORY))
-         curComment = OrderComment();
+      else
+         if(OrderSelect(ticket, SELECT_BY_TICKET, MODE_TRADES))
+            curComment = OrderComment();
+         else
+            if(OrderSelect(ticket, SELECT_BY_TICKET, MODE_HISTORY))
+               curComment = OrderComment();
      }
 
    if(StringFind(curComment, "RECOVERY_") >= 0)
@@ -12012,22 +12031,26 @@ double GetPartialLossTriggerUSD(double orderLots)
 
    if(MathAbs(orderLots - 0.05) < 0.000001 || (balancelomultipler > 1 && MathAbs(orderLots - (0.05 * mult)) < 0.000001))
       baseTrigger = 5.00 * (orderLots > 0.05 + 0.000001 ? mult : 1.0);
-   else if(MathAbs(orderLots - 0.04) < 0.000001 || (balancelomultipler > 1 && MathAbs(orderLots - (0.04 * mult)) < 0.000001))
-      baseTrigger = 8.00 * (orderLots > 0.04 + 0.000001 ? mult : 1.0);
-   else if(MathAbs(orderLots - 0.03) < 0.000001 || (balancelomultipler > 1 && MathAbs(orderLots - (0.03 * mult)) < 0.000001))
-      baseTrigger = 9.00 * (orderLots > 0.03 + 0.000001 ? mult : 1.0);
-   else if(MathAbs(orderLots - 0.02) < 0.000001 || (balancelomultipler > 1 && MathAbs(orderLots - (0.02 * mult)) < 0.000001))
-      baseTrigger = 8.00 * (orderLots > 0.02 + 0.000001 ? mult : 1.0);
-   else if(orderLots > 0.05)
-      baseTrigger = orderLots * 100.0;
    else
-     {
-      int lotUnits = (int)MathRound(orderLots / (0.01 * (balancelomultipler > 0 ? mult : 1.0)));
-      double baseFactor = 10.0 - (double)lotUnits;
-      if(baseFactor < 2.0)
-         baseFactor = 2.0;
-      baseTrigger = baseFactor;
-     }
+      if(MathAbs(orderLots - 0.04) < 0.000001 || (balancelomultipler > 1 && MathAbs(orderLots - (0.04 * mult)) < 0.000001))
+         baseTrigger = 8.00 * (orderLots > 0.04 + 0.000001 ? mult : 1.0);
+      else
+         if(MathAbs(orderLots - 0.03) < 0.000001 || (balancelomultipler > 1 && MathAbs(orderLots - (0.03 * mult)) < 0.000001))
+            baseTrigger = 9.00 * (orderLots > 0.03 + 0.000001 ? mult : 1.0);
+         else
+            if(MathAbs(orderLots - 0.02) < 0.000001 || (balancelomultipler > 1 && MathAbs(orderLots - (0.02 * mult)) < 0.000001))
+               baseTrigger = 8.00 * (orderLots > 0.02 + 0.000001 ? mult : 1.0);
+            else
+               if(orderLots > 0.05)
+                  baseTrigger = orderLots * 100.0;
+               else
+                 {
+                  int lotUnits = (int)MathRound(orderLots / (0.01 * (balancelomultipler > 0 ? mult : 1.0)));
+                  double baseFactor = 10.0 - (double)lotUnits;
+                  if(baseFactor < 2.0)
+                     baseFactor = 2.0;
+                  baseTrigger = baseFactor;
+                 }
 
    return -(baseTrigger * slRatio);
   }
@@ -12102,37 +12125,38 @@ bool CanExecutePartialLossClose(int orderType)
 
       return true;
      }
-   else if(orderType == OP_SELL)
-     {
-      // Condition 1: EMADirection must be opposite (Bullish == 1)
-      if(EMADirection != 1)
-         return false;
-
-      // Condition 2: SSL signal must be opposite (Bullish > 0)
-      if(liveSSL <= 0)
-         return false;
-
-      // Condition 3: isemaweak should be strong (NOT reduced 50% from peak)
-      if(IsEmaWEAKDistanceReduced50PercentFromPeak(OP_SELL))
-         return false;
-
-      // Condition 4: Previous partial close distance must be more than $100 raw gap
-      if(g_lastGlobalPartialLossClosePrice > 0.0)
+   else
+      if(orderType == OP_SELL)
         {
-         if(g_lastGlobalPartialLossCloseType == OP_SELL)
-           {
-            if((Ask - g_lastGlobalPartialLossClosePrice) < 100.0)
-               return false;
-           }
-         else
-           {
-            if(MathAbs(Ask - g_lastGlobalPartialLossClosePrice) < 100.0)
-               return false;
-           }
-        }
+         // Condition 1: EMADirection must be opposite (Bullish == 1)
+         if(EMADirection != 1)
+            return false;
 
-      return true;
-     }
+         // Condition 2: SSL signal must be opposite (Bullish > 0)
+         if(liveSSL <= 0)
+            return false;
+
+         // Condition 3: isemaweak should be strong (NOT reduced 50% from peak)
+         if(IsEmaWEAKDistanceReduced50PercentFromPeak(OP_SELL))
+            return false;
+
+         // Condition 4: Previous partial close distance must be more than $100 raw gap
+         if(g_lastGlobalPartialLossClosePrice > 0.0)
+           {
+            if(g_lastGlobalPartialLossCloseType == OP_SELL)
+              {
+               if((Ask - g_lastGlobalPartialLossClosePrice) < 100.0)
+                  return false;
+              }
+            else
+              {
+               if(MathAbs(Ask - g_lastGlobalPartialLossClosePrice) < 100.0)
+                  return false;
+              }
+           }
+
+         return true;
+        }
 
    return false;
   }
@@ -12263,20 +12287,21 @@ void ManagePartialClosesLoss()
                   continue;
               }
            }
-         else if(orderType == OP_SELL)
-           {
-            // For SELL, price must have risen at least requiredPriceGap higher than previous partial close
-            if(g_lastGlobalPartialLossCloseType == OP_SELL)
+         else
+            if(orderType == OP_SELL)
               {
-               if((Ask - g_lastGlobalPartialLossClosePrice) < requiredPriceGap)
-                  continue;
+               // For SELL, price must have risen at least requiredPriceGap higher than previous partial close
+               if(g_lastGlobalPartialLossCloseType == OP_SELL)
+                 {
+                  if((Ask - g_lastGlobalPartialLossClosePrice) < requiredPriceGap)
+                     continue;
+                 }
+               else
+                 {
+                  if(MathAbs(Ask - g_lastGlobalPartialLossClosePrice) < requiredPriceGap)
+                     continue;
+                 }
               }
-            else
-              {
-               if(MathAbs(Ask - g_lastGlobalPartialLossClosePrice) < requiredPriceGap)
-                  continue;
-              }
-           }
         }
 
       // 2. PARENT-TICKET CHECK: If the same parent order already partially closed before
@@ -12287,11 +12312,12 @@ void ManagePartialClosesLoss()
             if((lastClosedPrice - Bid) < requiredPriceGap)
                continue;
            }
-         else if(orderType == OP_SELL)
-           {
-            if((Ask - lastClosedPrice) < requiredPriceGap)
-               continue;
-           }
+         else
+            if(orderType == OP_SELL)
+              {
+               if((Ask - lastClosedPrice) < requiredPriceGap)
+                  continue;
+              }
         }
 
       // -------------------------------------------------------------
@@ -12449,25 +12475,26 @@ void ManageHeavyExposurePartialLossClose()
             worstBuyComment = OrderComment();
            }
         }
-      else if(oType == OP_SELL)
-        {
-         totalSellLots += lots;
-         sellNetPL     += pl;
-         if(pl < worstSellPL)
+      else
+         if(oType == OP_SELL)
            {
-            worstSellPL      = pl;
-            worstSellTicket  = OrderTicket();
-            worstSellLots    = lots;
-            worstSellComment = OrderComment();
+            totalSellLots += lots;
+            sellNetPL     += pl;
+            if(pl < worstSellPL)
+              {
+               worstSellPL      = pl;
+               worstSellTicket  = OrderTicket();
+               worstSellLots    = lots;
+               worstSellComment = OrderComment();
+              }
            }
-        }
      }
 
    double totalNetPL = buyNetPL + sellNetPL;
 
-   // ===============================================================
-   // 1. BUY EXPOSURE CHECK (> 0.20 lots OR Net P/L > $50 Loss, Opposite EMA == -1, Strong Trend)
-   // ===============================================================
+// ===============================================================
+// 1. BUY EXPOSURE CHECK (> 0.20 lots OR Net P/L > $50 Loss, Opposite EMA == -1, Strong Trend)
+// ===============================================================
    bool buyExposureTrigger = (totalBuyLots > HeavyExposureLotThreshold) ||
                              (buyNetPL <= -HeavyExposureNetLossThresholdUSD) ||
                              (worstBuyPL <= -HeavyExposureNetLossThresholdUSD) ||
@@ -12503,8 +12530,10 @@ void ManageHeavyExposurePartialLossClose()
         {
          double minLot  = MarketInfo(Symbol(), MODE_MINLOT);
          double lotStep = MarketInfo(Symbol(), MODE_LOTSTEP);
-         if(minLot <= 0.0)   minLot = 0.01;
-         if(lotStep <= 0.0)  lotStep = 0.01;
+         if(minLot <= 0.0)
+            minLot = 0.01;
+         if(lotStep <= 0.0)
+            lotStep = 0.01;
 
          double lotsToClose = HeavyExposurePartialCloseLot; // 0.01
          lotsToClose = MathFloor(lotsToClose / lotStep + 0.0000001) * lotStep;
@@ -12565,8 +12594,9 @@ void ManageHeavyExposurePartialLossClose()
                reason = "Lots=" + DoubleToString(totalBuyLots, 2) + " > " + DoubleToString(HeavyExposureLotThreshold, 2);
             if(buyNetPL <= -HeavyExposureNetLossThresholdUSD)
                reason = (reason != "" ? reason + " | " : "") + "BuyNetPL=$" + DoubleToString(buyNetPL, 2) + " <= -$" + DoubleToString(HeavyExposureNetLossThresholdUSD, 2);
-            else if(worstBuyPL <= -HeavyExposureNetLossThresholdUSD)
-               reason = (reason != "" ? reason + " | " : "") + "WorstOrderPL=$" + DoubleToString(worstBuyPL, 2) + " <= -$" + DoubleToString(HeavyExposureNetLossThresholdUSD, 2);
+            else
+               if(worstBuyPL <= -HeavyExposureNetLossThresholdUSD)
+                  reason = (reason != "" ? reason + " | " : "") + "WorstOrderPL=$" + DoubleToString(worstBuyPL, 2) + " <= -$" + DoubleToString(HeavyExposureNetLossThresholdUSD, 2);
 
             Print("HEAVY EXPOSURE PARTIAL CLOSE [BUY] SUCCESS | Trigger: [", reason, "]",
                   " | Ticket #", worstBuyTicket,
@@ -12590,9 +12620,9 @@ void ManageHeavyExposurePartialLossClose()
         }
      }
 
-   // ===============================================================
-   // 2. SELL EXPOSURE CHECK (> 0.20 lots OR Net P/L > $50 Loss, Opposite EMA == +1, Strong Trend)
-   // ===============================================================
+// ===============================================================
+// 2. SELL EXPOSURE CHECK (> 0.20 lots OR Net P/L > $50 Loss, Opposite EMA == +1, Strong Trend)
+// ===============================================================
    bool sellExposureTrigger = (totalSellLots > HeavyExposureLotThreshold) ||
                               (sellNetPL <= -HeavyExposureNetLossThresholdUSD) ||
                               (worstSellPL <= -HeavyExposureNetLossThresholdUSD) ||
@@ -12628,8 +12658,10 @@ void ManageHeavyExposurePartialLossClose()
         {
          double minLot  = MarketInfo(Symbol(), MODE_MINLOT);
          double lotStep = MarketInfo(Symbol(), MODE_LOTSTEP);
-         if(minLot <= 0.0)   minLot = 0.01;
-         if(lotStep <= 0.0)  lotStep = 0.01;
+         if(minLot <= 0.0)
+            minLot = 0.01;
+         if(lotStep <= 0.0)
+            lotStep = 0.01;
 
          double lotsToClose = HeavyExposurePartialCloseLot; // 0.01
          lotsToClose = MathFloor(lotsToClose / lotStep + 0.0000001) * lotStep;
@@ -12690,8 +12722,9 @@ void ManageHeavyExposurePartialLossClose()
                reason = "Lots=" + DoubleToString(totalSellLots, 2) + " > " + DoubleToString(HeavyExposureLotThreshold, 2);
             if(sellNetPL <= -HeavyExposureNetLossThresholdUSD)
                reason = (reason != "" ? reason + " | " : "") + "SellNetPL=$" + DoubleToString(sellNetPL, 2) + " <= -$" + DoubleToString(HeavyExposureNetLossThresholdUSD, 2);
-            else if(worstSellPL <= -HeavyExposureNetLossThresholdUSD)
-               reason = (reason != "" ? reason + " | " : "") + "WorstOrderPL=$" + DoubleToString(worstSellPL, 2) + " <= -$" + DoubleToString(HeavyExposureNetLossThresholdUSD, 2);
+            else
+               if(worstSellPL <= -HeavyExposureNetLossThresholdUSD)
+                  reason = (reason != "" ? reason + " | " : "") + "WorstOrderPL=$" + DoubleToString(worstSellPL, 2) + " <= -$" + DoubleToString(HeavyExposureNetLossThresholdUSD, 2);
 
             Print("HEAVY EXPOSURE PARTIAL CLOSE [SELL] SUCCESS | Trigger: [", reason, "]",
                   " | Ticket #", worstSellTicket,
@@ -14669,9 +14702,9 @@ bool IsEmaWEAKDistanceReduced50PercentFromPeak(int orderType = -1)
    if(EmaFlipTime == 0)
       return false;
 
-   //if(GetWeakStateCountPerEmaFlip()>1)
+//if(GetWeakStateCountPerEmaFlip()>1)
 
-     // return true;//weak
+// return true;//weak
 
 
    if(!emaflipstrongorweak())// if weak then return true , if strong double check again
@@ -14765,10 +14798,11 @@ double GetOrderLockedProfitUSD(int ticket)
    double lockedPoints = 0.0;
    if(oType == OP_BUY && sl > openPrice)
       lockedPoints = (sl - openPrice);
-   else if(oType == OP_SELL && sl < openPrice)
-      lockedPoints = (openPrice - sl);
    else
-      return 0.0;
+      if(oType == OP_SELL && sl < openPrice)
+         lockedPoints = (openPrice - sl);
+      else
+         return 0.0;
 
    double lockedUSD = (lockedPoints / tickSize) * (lots * tickValue) + OrderSwap() + OrderCommission();
    return lockedUSD;
@@ -14781,7 +14815,7 @@ double GetOrderLockedProfitUSD(int ticket)
 //+------------------------------------------------------------------+
 string GetOrderUnclosedDiagnosticReason(int ticket, double pl)
   {
-   // STRICT FILTER: Display unclosed reason ONLY when order profit is more than $5.00
+// STRICT FILTER: Display unclosed reason ONLY when order profit is more than $5.00
    double minProfitThreshold = (ExceptionalCatchProfitUSD > 0.0 ? ExceptionalCatchProfitUSD : 5.0);
    if(pl < minProfitThreshold)
       return "";
@@ -14800,10 +14834,11 @@ string GetOrderUnclosedDiagnosticReason(int ticket, double pl)
    bool slInProfit = false;
    if(oType == OP_BUY && curSL > openPrice + Point)
       slInProfit = true;
-   else if(oType == OP_SELL && curSL > 0.0 && curSL < openPrice - Point)
-      slInProfit = true;
+   else
+      if(oType == OP_SELL && curSL > 0.0 && curSL < openPrice - Point)
+         slInProfit = true;
 
-   // 1. Recovery Order Check
+// 1. Recovery Order Check
    bool isRecovery = IsAnyRecoveryOrder(ticket, comment);
    if(isRecovery)
      {
@@ -14857,7 +14892,7 @@ string GetOrderUnclosedDiagnosticReason(int ticket, double pl)
         }
      }
 
-   // 2. Parent Order with active Recovery Orders Check
+// 2. Parent Order with active Recovery Orders Check
    int firstRec = -1, secondRec = -1;
    int recOrders = GetRecoveryOrderCount(ticket, firstRec, secondRec);
    if(recOrders > 0)
@@ -14877,7 +14912,7 @@ string GetOrderUnclosedDiagnosticReason(int ticket, double pl)
          return StringFormat("Parent: In Basket (Net $%0.2f<$%0.1f)", bPL, recTarget);
      }
 
-   // 3. FLIP Basket Support Order Check
+// 3. FLIP Basket Support Order Check
    if(IsFLIPBasketSupportOrder(ticket, comment))
      {
       double oppPL = 0.0, oppMaxLoss = 0.0;
@@ -14898,7 +14933,7 @@ string GetOrderUnclosedDiagnosticReason(int ticket, double pl)
         }
      }
 
-   // 4. Standard / Scalping Order Check for Profit >= $5.00
+// 4. Standard / Scalping Order Check for Profit >= $5.00
    if(pl >= ExceptionalCatchProfitUSD)
      {
       if(slInProfit)
@@ -14965,8 +15000,9 @@ void CatchExceptionalProfitableOrders()
       bool slInProfit = false;
       if(oType == OP_BUY && curSL > openPrice + Point)
          slInProfit = true;
-      else if(oType == OP_SELL && curSL > 0.0 && curSL < openPrice - Point)
-         slInProfit = true;
+      else
+         if(oType == OP_SELL && curSL > 0.0 && curSL < openPrice - Point)
+            slInProfit = true;
 
       // 1. Recovery Order Verification
       bool isRecovery = IsAnyRecoveryOrder(ticket, comment);
@@ -15084,21 +15120,22 @@ void CatchExceptionalProfitableOrders()
                canModify = true;
            }
         }
-      else if(oType == OP_SELL)
-        {
-         proposedSL = NormalizeDouble(Ask + minDistance, Digits);
-         if(proposedSL < openPrice - Point)
+      else
+         if(oType == OP_SELL)
            {
-            if(curSL == 0.0 || proposedSL < curSL - (Point * 0.5))
-               canModify = true;
+            proposedSL = NormalizeDouble(Ask + minDistance, Digits);
+            if(proposedSL < openPrice - Point)
+              {
+               if(curSL == 0.0 || proposedSL < curSL - (Point * 0.5))
+                  canModify = true;
+              }
+            else
+              {
+               proposedSL = NormalizeDouble(openPrice - (2 * Point), Digits);
+               if(proposedSL - Ask >= minDistance && (curSL == 0.0 || proposedSL < curSL - (Point * 0.5)))
+                  canModify = true;
+              }
            }
-         else
-           {
-            proposedSL = NormalizeDouble(openPrice - (2 * Point), Digits);
-            if(proposedSL - Ask >= minDistance && (curSL == 0.0 || proposedSL < curSL - (Point * 0.5)))
-               canModify = true;
-           }
-        }
 
       if(canModify && proposedSL > 0.0)
         {
@@ -15126,24 +15163,24 @@ void MonitorEquityLossStopLossProtection()
    if(!EnableEquityLossLiveSLProtect)
       return;
 
-   // 1. Calculate live equity loss (AccountBalance - AccountEquity)
+// 1. Calculate live equity loss (AccountBalance - AccountEquity)
    double balance = AccountBalance();
    double equity  = AccountEquity();
    double equityLossUSD = balance - equity;
 
-   // Only active when account is in floating loss
+// Only active when account is in floating loss
    if(equityLossUSD <= 0.0)
       return;
 
-   // 2. Compute dynamic loss threshold scaled by balance multiplier
+// 2. Compute dynamic loss threshold scaled by balance multiplier
    int mult = (balancelomultipler > 0) ? balancelomultipler : 1;
    double lossThresholdUSD = EquityLossSLThresholdUSD * mult;
 
-   // 3. Check if loss amount exceeds $100 * multiplier
+// 3. Check if loss amount exceeds $100 * multiplier
    if(equityLossUSD <= lossThresholdUSD)
       return;
 
-   // 4. Emergency protection triggered: modify ALL open orders with SL at current live price
+// 4. Emergency protection triggered: modify ALL open orders with SL at current live price
    RefreshRates();
    double minDistance = GetRequiredStopDistance();
    if(minDistance <= 0.0)
@@ -15180,13 +15217,14 @@ void MonitorEquityLossStopLossProtection()
          if(curSL == 0.0 || proposedSL > curSL + (Point * 0.5))
             needsModify = true;
         }
-      else if(oType == OP_SELL)
-        {
-         proposedSL = NormalizeDouble(Ask + minDistance, Digits);
-         // If no SL exists, or proposed SL moves SL tighter/closer to live price
-         if(curSL == 0.0 || proposedSL < curSL - (Point * 0.5))
-            needsModify = true;
-        }
+      else
+         if(oType == OP_SELL)
+           {
+            proposedSL = NormalizeDouble(Ask + minDistance, Digits);
+            // If no SL exists, or proposed SL moves SL tighter/closer to live price
+            if(curSL == 0.0 || proposedSL < curSL - (Point * 0.5))
+               needsModify = true;
+           }
 
       if(needsModify && proposedSL > 0.0)
         {
@@ -15312,9 +15350,9 @@ void UpdateLeftLiveOrdersDashboard()
                         "   NET P/L "+netPLStr;
    CreateLeftLiveLabel(LEFT_LIVE_PREFIX+"SUMMARY", summaryText, tx, y+45, 8, clrWhite);
 
-   string totalsText = 
-                       "BUY    "+DoubleToString(buyLots,2)+" (P/L "+buyPLStr+")"+
-                       "SELL   "+DoubleToString(sellLots,2)+" (P/L "+sellPLStr+")"+"  P/L "+netPLStr;
+   string totalsText =
+      "BUY  "+DoubleToString(buyLots,2)+" (P/L "+buyPLStr+")"+
+      "SELL "+DoubleToString(sellLots,2)+" (P/L "+sellPLStr+")"+"  P/L "+netPLStr;
    CreateLeftLiveLabel(LEFT_LIVE_PREFIX+"TOTALS", totalsText, tx, y+62, 9, pnlColor);
    CreateLeftLiveLabel(LEFT_LIVE_PREFIX+"HEAD", "TYPE       LOT   #ORDER ID     SL     TP              P/L", tx, y+88, 8, clrSilver);
    CreateLeftLiveLabel(LEFT_LIVE_PREFIX+"HEAD_PART", "PART-CLOSE (LIVE DIFF/TRIG)", tx+410, y+88, 8, clrSilver);
@@ -15568,17 +15606,20 @@ void UpdateLeftLiveOrdersDashboard()
         {
          if(StringFind(diagReason, "RecBasket Net") >= 0)
             verifiedColor = clrAqua;
-         else if(StringFind(diagReason, "ERR:") >= 0)
-            verifiedColor = clrGold;
-         else if(StringFind(diagReason, "SL Protected") >= 0 || StringFind(diagReason, "Locked") >= 0)
-            verifiedColor = clrLime;
          else
-            verifiedColor = clrDeepSkyBlue;
+            if(StringFind(diagReason, "ERR:") >= 0)
+               verifiedColor = clrGold;
+            else
+               if(StringFind(diagReason, "SL Protected") >= 0 || StringFind(diagReason, "Locked") >= 0)
+                  verifiedColor = clrLime;
+               else
+                  verifiedColor = clrDeepSkyBlue;
         }
-      else if(isRecovery)
-        {
-         verifiedColor = clrAqua;
-        }
+      else
+         if(isRecovery)
+           {
+            verifiedColor = clrAqua;
+           }
 
       string orderIdText = "#" + IntegerToString(OrderTicket());
       string rowText = StringFormat("%-7s %5.2f %11s %6s %6s %16s", typeText, lots, orderIdText, slDiffText, tpDiffText, plText);

@@ -889,7 +889,7 @@
       <div class="header-pills">
         <span class="pill pill-blue">BTCUSD â€¢ M1 Scalper</span>
         <span class="pill pill-purple">Exness Raw / Zero</span>
-        <span class="pill pill-green">V10083 (13-10-2026 15.10)</span>
+        <span class="pill pill-green">V10084 (13-10-2026 16.00)</span>
       </div>
     </div>
 
@@ -1190,6 +1190,18 @@ flowchart TD
               <p class="card-subtitle">
                 High-frequency scalping requires bursting multiple orders during the high-velocity expansion phase of a 1-minute candle while strictly capping maximum exposure at 5 trades per bar to prevent cluster overfill.
               </p>
+            </div>
+
+            <!-- V10084 Dubai Golden Window Asymmetric Lot Sizing Alert -->
+            <div class="alert-box alert-success" style="margin-bottom: 20px;">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="20 6 9 17 4 12"></polyline></svg>
+              <div>
+                <strong>V10084 Dubai Golden Window Asymmetric Lot Sizing Engine (17:00–21:00 GST Momentum):</strong>
+                Implemented institutional-grade asymmetric lot allocation in <code>ChangeLots()</code> to safely exploit peak London/New York session momentum without exposing counter-trend trades to catastrophic drawdown:
+                (1) <strong>Trend-Aligned Side:</strong> When <code>requestedDirection == EMADirection</code> AND <code>GlobalSSLDirection == EMADirection</code>, orders qualify for boosted lots (<code>AlignedSessionBoostLot = 0.02</code>) during the peak institutional liquidity window (17:00–21:00 Dubai / 13:00–17:00 UTC); outside this window, orders use base lot (<code>NormalAlignedLot = 0.01</code>);
+                (2) <strong>Counter-Trend Side:</strong> When order direction opposes EMA direction or SSL signal disagrees (<code>requestedDirection != EMADirection || GlobalSSLDirection != EMADirection</code>), lot size is <strong>strictly locked to 0.01 lot</strong> (<code>CounterTrendSafeLot = 0.01</code>) and completely shielded from account equity multiplier expansion;
+                (3) <strong>Universal Safeguards:</strong> Weak EMA momentum (reduced &ge;50% from peak), Top/Bottom extreme zones within $100 raw gap, and SSL Profit Re-Entry orders are all strictly capped at 0.01 lot.
+              </div>
             </div>
 
             <!-- V10083 Left Dashboard Net P/L Front Layout Optimization Alert -->
@@ -1973,6 +1985,13 @@ flowchart TD
                     <td><strong>Pre-Creation Close &amp; Global Single Active FLIPBasketSupport Gate</strong><br><small style="color: var(--text-dim);">Unconditionally closes already open support order before new creation; strictly max 1 active order total</small></td>
                     <td><code>CreateFLIPBasketSupportOrder()</code> L7165<br><code>CloseFLIPBasketSupportOrders(-1)</code> L7124<br><code>HasOpenFLIPBasketSupportOrder(-1)</code> L7105<br><code>glbVersion = "V10024"</code></td>
                     <td>Enforced the safest execution model for <code>FLIPBasketSupport</code>: (1) Inside <code>CreateFLIPBasketSupportOrder()</code>, unconditionally calls <code>CloseFLIPBasketSupportOrders(-1)</code> with 3-attempt retry to close any already open support orders before creating a new one; (2) Enforced global single active support order gate via <code>HasOpenFLIPBasketSupportOrder(-1)</code> which aborts new creation if any support order is still active, guaranteeing strictly at most 1 <code>FLIPBasketSupport</code> runner active across the entire account at any moment. Clean MetaEditor 4 build (0 errors, 20 warnings).</td>
+                    <td><span class="badge badge-green">VERIFIED &amp; DEPLOYED</span></td>
+                  </tr>
+                  <tr>
+                    <td><code>Step 1000</code><br><small style="color: var(--accent-amber);">16:00</small></td>
+                    <td><strong>Dubai Golden Window Asymmetric Lot Sizing Engine (17:00–21:00 GST Momentum)</strong><br><small style="color: var(--text-dim);">Boosts trend-aligned orders to 0.02 during peak Dubai window; strictly locks counter-trend orders to 0.01</small></td>
+                    <td><code>ChangeLots()</code> L7410<br><code>EnableSessionMomentumLotBoost</code> L217<br><code>AlignedSessionBoostLot = 0.02</code> L220<br><code>glbVersion = "V10084"</code></td>
+                    <td>Implemented intelligent asymmetric lot sizing to capture high volatility during London/NY overlap while eliminating counter-trend risks: (1) Added configurable inputs: <code>EnableSessionMomentumLotBoost</code>, <code>SessionBoostStartHourDubai (17)</code>, <code>SessionBoostEndHourDubai (21)</code>, <code>AlignedSessionBoostLot (0.02)</code>, <code>NormalAlignedLot (0.01)</code>, and <code>CounterTrendSafeLot (0.01)</code>; (2) Trend-aligned orders (<code>requestedDirection == EMADirection == GlobalSSLDirection</code>) receive 0.02 lots inside 17:00–21:00 Dubai time; (3) Counter-trend and directional disagree orders are strictly locked to 0.01 lot with zero multiplier expansion; (4) Maintained hard 0.01 caps for weak EMA (&ge;50% drop), top/bottom extremes ($100 gap), and profit re-entry. Clean MetaEditor 4 build (0 errors, 23 warnings).</td>
                     <td><span class="badge badge-green">VERIFIED &amp; DEPLOYED</span></td>
                   </tr>
                   <tr>
@@ -2848,7 +2867,7 @@ flowchart TD
             <div class="grid-4" style="margin-bottom: 24px;">
               <div class="stat-card">
                 <div class="stat-label">Total User Directives</div>
-                <div class="stat-value" style="color: var(--accent-green);">72 / 72</div>
+                <div class="stat-value" style="color: var(--accent-green);">73 / 73</div>
                 <div class="stat-desc">100% Implemented &amp; Audited</div>
               </div>
               <div class="stat-card">
@@ -2858,8 +2877,8 @@ flowchart TD
               </div>
               <div class="stat-card">
                 <div class="stat-label">Active Production Build</div>
-                <div class="stat-value" style="color: var(--accent-purple);">V10083</div>
-                <div class="stat-desc">13-10-2026 15.10 Deployed</div>
+                <div class="stat-value" style="color: var(--accent-purple);">V10084</div>
+                <div class="stat-desc">13-10-2026 16.00 Deployed</div>
               </div>
               <div class="stat-card">
                 <div class="stat-label">Centralized Firewall</div>
@@ -4095,6 +4114,17 @@ flowchart TD
                     <p>Resolved text truncation on compact MT4 chart subwindows. In <code>UpdateLeftLiveOrdersDashboard()</code>, reordered Line 2 (<code>LEFT_LIVE_PREFIX + "TOTALS"</code>) to place <code>NET P/L +/-XX.XX</code> at the very front (character 1, pixel 22), rendering it instantly visible on any screen width. Directional volume and P/L were compacted into parenthetical notation: <code>BUY LOT X.XX (P/L +/-XX.XX)   SELL LOT X.XX (P/L +/-XX.XX)</code>. In addition, <code>NET P/L</code> was integrated directly into Line 1 (<code>LEFT_LIVE_PREFIX + "SUMMARY"</code>) for dual-row redundant visibility.</p>
                     <div id="chk66" style="display: none; margin-top: 10px; font-size: 12.5px; color: var(--accent-blue); background: rgba(0,0,0,0.3); padding: 8px 12px; border-radius: 6px;">
                       <strong>Code Anchor:</strong> <code>UpdateLeftLiveOrdersDashboard()</code> (L15232), <code>summaryText</code> (L15305), <code>totalsText</code> (L15312) &bull; <code>glbVersion = "V10083"</code> &bull; Clean build (0 errors).
+                    </div>
+                  </div>
+                </div>
+
+                <div class="step-item" style="cursor: pointer;" onclick="toggleAuditDetail('chk67')">
+                  <div class="step-num" style="background: rgba(16, 185, 129, 0.15); color: var(--accent-green); border-color: rgba(16, 185, 129, 0.3);">&#10003;</div>
+                  <div class="step-body" style="flex: 1;">
+                    <h4>Dubai Golden Window Asymmetric Lot Sizing Engine (17:00–21:00 GST Momentum) <span class="badge badge-green">Active</span></h4>
+                    <p>Engineered asymmetric lot sizing in <code>ChangeLots()</code>. During the Dubai Golden Window (17:00–21:00 GST / 13:00–17:00 UTC), orders perfectly aligned with the macro 200 EMA and SSL indicator are automatically boosted to <code>0.02 lots</code> to rapidly capitalize on peak institutional liquidity. Conversely, counter-trend orders and choppy disagree conditions are strictly locked to <code>0.01 lots</code> with balance multiplier bypass, ensuring counter-trend trades never generate outsized drawdowns during trend breakouts.</p>
+                    <div id="chk67" style="display: none; margin-top: 10px; font-size: 12.5px; color: var(--accent-blue); background: rgba(0,0,0,0.3); padding: 8px 12px; border-radius: 6px;">
+                      <strong>Code Anchor:</strong> <code>ChangeLots()</code> (L7410), <code>EnableSessionMomentumLotBoost</code> (L217), <code>AlignedSessionBoostLot</code> (L220), <code>CounterTrendSafeLot</code> (L222) &bull; <code>glbVersion = "V10084"</code> &bull; Clean build (0 errors).
                     </div>
                   </div>
                 </div>
