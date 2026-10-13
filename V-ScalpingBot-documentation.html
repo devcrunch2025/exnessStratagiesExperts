@@ -887,9 +887,9 @@
       </a>
 
       <div class="header-pills">
-        <span class="pill pill-blue">BTCUSD • M1 Scalper</span>
+        <span class="pill pill-blue">BTCUSD â€¢ M1 Scalper</span>
         <span class="pill pill-purple">Exness Raw / Zero</span>
-        <span class="pill pill-green">V10081 (13-10-2026 12.15)</span>
+        <span class="pill pill-green">V10083 (13-10-2026 15.10)</span>
       </div>
     </div>
 
@@ -898,6 +898,7 @@
         <button class="quick-link-btn active" data-qtab="tab-overview" onclick="showTab('tab-overview')">Overview</button>
         <button class="quick-link-btn" data-qtab="tab-entry" onclick="showTab('tab-entry')">5-Order Engine</button>
         <button class="quick-link-btn" data-qtab="tab-trailing" onclick="showTab('tab-trailing')">Never-Close SL</button>
+        <button class="quick-link-btn" data-qtab="tab-modifications" onclick="showTab('tab-modifications')">Partial Close &amp; SL</button>
         <button class="quick-link-btn" data-qtab="tab-recovery" onclick="showTab('tab-recovery')">Recovery Basket</button>
         <button class="quick-link-btn" data-qtab="tab-simulator" onclick="showTab('tab-simulator')">Simulator Lab</button>
         <button class="quick-link-btn" data-qtab="tab-audit" onclick="showTab('tab-audit')">Change Audit</button>
@@ -946,6 +947,15 @@
                   <span>StopLoss Modify Engine</span>
                 </div>
                 <span class="nav-tag tag-cyan">NO-CLOSE</span>
+              </button>
+            </li>
+            <li>
+              <button class="nav-btn" data-tab="tab-modifications" data-cat="Order Management" data-title="Partial Close &amp; Order Modification Blueprint" onclick="showTab('tab-modifications', 'Order Management')">
+                <div class="nav-btn-content">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"></circle><polyline points="12 6 12 12 16 14"></polyline></svg>
+                  <span>Partial Close &amp; SL Engine</span>
+                </div>
+                <span class="nav-tag tag-amber">RULES</span>
               </button>
             </li>
           </ul>
@@ -1025,7 +1035,7 @@
         </div>
         <div class="footer-row">
           <span class="footer-label">Compile Status:</span>
-          <span class="footer-val" style="color: var(--accent-green);">0 Errors • 138ms</span>
+          <span class="footer-val" style="color: var(--accent-green);">0 Errors â€¢ 138ms</span>
         </div>
         <div class="footer-row">
           <span class="footer-label">Target Broker:</span>
@@ -1182,6 +1192,29 @@ flowchart TD
               </p>
             </div>
 
+            <!-- V10083 Left Dashboard Net P/L Front Layout Optimization Alert -->
+            <div class="alert-box alert-success" style="margin-bottom: 20px;">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="20 6 9 17 4 12"></polyline></svg>
+              <div>
+                <strong>V10083 Live Position Monitor: Guaranteed Net P/L Front Visibility &amp; Compact Directional Layout:</strong>
+                Optimized summary bar layout in <code>UpdateLeftLiveOrdersDashboard()</code> to eliminate right-edge window clipping on compact MT4 chart subwindows:
+                (1) <strong>Line 1 (SUMMARY):</strong> <code>ORDERS X/100   BUY X   SELL X   PEND X   NET P/L +/-XX.XX</code> &mdash; embeds total Net P/L directly in the header line;
+                (2) <strong>Line 2 (TOTALS):</strong> <code>NET P/L +/-XX.XX   BUY LOT X.XX (P/L +/-XX.XX)   SELL LOT X.XX (P/L +/-XX.XX)</code> &mdash; places <code>NET P/L</code> at the very beginning (character 1, pixel 22) so it can NEVER be clipped off or missing, followed immediately by directional volume and P/L breakdowns.
+              </div>
+            </div>
+
+            <!-- V10082 Left Dashboard Buy P/L and Sell P/L Monitor Display Alert -->
+            <div class="alert-box alert-success" style="margin-bottom: 20px;">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="20 6 9 17 4 12"></polyline></svg>
+              <div>
+                <strong>V10082 Live Position Monitor: Directional Buy P/L and Sell P/L Display:</strong>
+                Upgraded the Left Dashboard (Live Position Monitor) summary row (<code>LEFT_LIVE_PREFIX + "TOTALS"</code>) inside <code>UpdateLeftLiveOrdersDashboard()</code>:
+                (1) Automatically computes independent floating Net P/L for BUY orders (<code>buyPL</code>) and SELL orders (<code>sellPL</code>) including swaps and commissions;
+                (2) Formats the summary line to explicitly display: <code>BUY LOT 0.04   BUY P/L -5.20   SELL LOT 0.05   SELL P/L -22.19   NET P/L -27.39</code>;
+                (3) Color-coded dynamically with <code>pnlColor</code> (Green on positive, Tomato on negative, White on zero) giving the trader instant visibility into directional performance.
+              </div>
+            </div>
+
             <!-- V10081 Universal Mandatory Partial Loss Close Guard Alert -->
             <div class="alert-box alert-success" style="margin-bottom: 20px;">
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="20 6 9 17 4 12"></polyline></svg>
@@ -1237,7 +1270,7 @@ flowchart TD
                 <div class="step-num">2</div>
                 <div class="step-body">
                   <h4>200 EMA &amp; Angle Filter</h4>
-                  <p>Buys are strictly blocked if 200 EMA angle &lt; -3.0° or macro H1 direction is down. Sells blocked if angle &gt; +3.0° or macro H1 is bullish.</p>
+                  <p>Buys are strictly blocked if 200 EMA angle &lt; -3.0Â° or macro H1 direction is down. Sells blocked if angle &gt; +3.0Â° or macro H1 is bullish.</p>
                   <span class="step-rule">InpEnableCustomRules && passesUserRules(orderType)</span>
                 </div>
               </div>
@@ -1270,11 +1303,11 @@ flowchart TD
     S3 --> S5[Calculate Effective Orders]
     S4 --> S5
     S5 --> S6{Effective Orders >= 5?}
-    S6 -- Yes (>= 5) --> S7[🛑 Candle Quota Full: Lock Entry Until New Bar]
+    S6 -- Yes (>= 5) --> S7[ðŸ›‘ Candle Quota Full: Lock Entry Until New Bar]
     S6 -- No (< 5) --> S8{Orders in Bar > 0?}
     S8 -- No (1st Order) --> S11[Check $30 Price Gap from Nearest Order]
     S8 -- Yes (Subsequent) --> S9{Elapsed >= 5 Seconds?}
-    S9 -- No (< 5s) --> S10[⏳ Intra-Candle Delay Guard: Wait 5s Spacing]
+    S9 -- No (< 5s) --> S10[â³ Intra-Candle Delay Guard: Wait 5s Spacing]
     S9 -- Yes (>= 5s) --> S11
     S11 -- Gap Verified --> S12[Dispatch SafeOrderSend]
     S12 --> S13[RegisterNewCandleOrder: Slot + 1 & Timestamp Recorded]
@@ -1354,8 +1387,8 @@ flowchart TD
                   <ul style="font-size: 12px; color: var(--text-muted); margin-top: 6px; padding-left: 16px; line-height: 1.5;">
                     <li><strong>Gate 5A:</strong> Enforce &ge; $50 raw gap between any two recovery orders</li>
                     <li><strong>Gate 5B (Opposite Weak Trigger):</strong></li>
-                    <li>• SELL Recovery: SSL=SELL (-1), EMA=BUY (+1), opposite BUY is weak (50%+ pullback)</li>
-                    <li>• BUY Recovery: SSL=BUY (+1), EMA=SELL (-1), opposite SELL is weak (50%+ pullback)</li>
+                    <li>â€¢ SELL Recovery: SSL=SELL (-1), EMA=BUY (+1), opposite BUY is weak (50%+ pullback)</li>
+                    <li>â€¢ BUY Recovery: SSL=BUY (+1), EMA=SELL (-1), opposite SELL is weak (50%+ pullback)</li>
                     <li><strong>Gate 5C (Second Recovery Guard):</strong> Enforce &ge; $2000 raw gap from 1st recovery order</li>
                     <li>Cap active recovery orders at MaxRecoveryOrders &amp; max 2 per parent</li>
                   </ul>
@@ -1396,8 +1429,8 @@ flowchart TD
                   The engine computes the nearest broker-compliant distance:
                   <br><code>minSafeDistance = MathMax(stopLevel, (Ask - Bid) * 2.0)</code>.
                   <br><br>
-                  • <strong>BUY Position:</strong> SL is pulled to <code>Bid - minSafeDistance</code> (guaranteeing locked profit above open price).
-                  <br>• <strong>SELL Position:</strong> SL is pulled to <code>Ask + minSafeDistance</code> (guaranteeing locked profit below open price).
+                  â€¢ <strong>BUY Position:</strong> SL is pulled to <code>Bid - minSafeDistance</code> (guaranteeing locked profit above open price).
+                  <br>â€¢ <strong>SELL Position:</strong> SL is pulled to <code>Ask + minSafeDistance</code> (guaranteeing locked profit below open price).
                   <br><br>
                   <em>Result:</em> Order is safely protected without leaving money on the table; if price continues in favor, the trade remains open to run!
                 </p>
@@ -1411,8 +1444,8 @@ flowchart TD
                 <p style="font-size: 13px; color: var(--text-muted); line-height: 1.6;">
                   Rather than dumping the order at an unfavorable bid price, the engine sets a fixed $50 raw gap buffer:
                   <br><br>
-                  • <strong>BUY Position:</strong> <code>newSL = openPrice - 50.0</code>
-                  <br>• <strong>SELL Position:</strong> <code>newSL = openPrice + 50.0</code>
+                  â€¢ <strong>BUY Position:</strong> <code>newSL = openPrice - 50.0</code>
+                  <br>â€¢ <strong>SELL Position:</strong> <code>newSL = openPrice + 50.0</code>
                   <br><br>
                   <em>Result:</em> Caps further catastrophic drawdown while giving the Bitcoin price breathing room to mean-revert or trigger a paired recovery order.
                 </p>
@@ -1449,6 +1482,337 @@ sequenceDiagram
             </div>
           </div>
         </div>
+
+        <!-- ========================================================
+             TAB 3B: ORDER MODIFICATIONS & PARTIAL CLOSE ENGINE
+             ======================================================== -->
+        <div class="tab-content" id="tab-modifications">
+          <div class="card">
+            <div class="card-header">
+              <h2 class="card-title">
+                <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="var(--accent-amber)" stroke-width="2.2"><circle cx="12" cy="12" r="10"></circle><polyline points="12 6 12 12 16 14"></polyline></svg>
+                StopLoss Modification &amp; Partial Close Execution Engine
+              </h2>
+              <p class="card-subtitle">
+                Exhaustive operational blueprint detailing every condition, trigger threshold, and mathematical formula governing when orders are modified (StopLoss trailing / breakeven / locking) versus when orders are partially liquidated (0.01 lot shaving / profit trims).
+              </p>
+            </div>
+
+            <!-- Top Metric Grid -->
+            <div class="grid-4" style="margin-bottom: 24px;">
+              <div class="metric-card">
+                <div class="metric-label">SL Modify Scenarios</div>
+                <div class="metric-value" style="color: var(--accent-cyan);">9 Routines</div>
+                <div class="metric-sub">Ratchet, BE locks, baskets &amp; safety</div>
+              </div>
+              <div class="metric-card">
+                <div class="metric-label">Partial Close Paths</div>
+                <div class="metric-value" style="color: var(--accent-amber);">3 Triggers</div>
+                <div class="metric-sub">&gt;0.20 Lots, &gt;$50 Loss, Profit Trims</div>
+              </div>
+              <div class="metric-card">
+                <div class="metric-label">Universal Loss Guard</div>
+                <div class="metric-value" style="color: var(--accent-green);">4 Gates (V10081)</div>
+                <div class="metric-sub">Opposite EMA &amp; SSL, Strong, &gt;$100 Gap</div>
+              </div>
+              <div class="metric-card">
+                <div class="metric-label">Lot Shaving Quantum</div>
+                <div class="metric-value" style="color: var(--accent-purple);">0.01 Lot</div>
+                <div class="metric-sub">Controlled incremental reduction</div>
+              </div>
+            </div>
+
+            <!-- Core Architectural Decision Pipeline Mermaid -->
+            <div class="mermaid-container" style="margin-bottom: 24px;">
+              <div class="mermaid-title">DECISION ENGINE: WHEN DOES THE EA MODIFY SL vs. SHAVE 0.01 LOT?</div>
+              <div class="mermaid">
+flowchart TD
+    classDef checkNode fill:#1e1b4b,stroke:#a855f7,stroke-width:2px,color:#fff
+    classDef slNode fill:#064e3b,stroke:#10b981,stroke-width:2px,color:#fff
+    classDef pcNode fill:#78350f,stroke:#f59e0b,stroke-width:2px,color:#fff
+    classDef rejNode fill:#450a0a,stroke:#ef4444,stroke-width:2px,color:#fff
+
+    Start([Incoming Live Price Tick]) --> Assess{Order P/L State Evaluation}
+
+    %% PROFIT PATHWAY: SL MODIFICATIONS
+    Assess -- Floating Profit >= $1.00 --> P1{Profit Magnitude &amp; Structure}
+    P1 -- Profit >= $1.00 &amp; SL at Entry --> M1[SecureOneDollarProfit: Move SL to OpenPrice +/- 1 pt]:::slNode
+    P1 -- Profit >= $5.00 --> M2[ManageFiveDollarLock: Lock $5.00 Bank Profit Floor]:::slNode
+    P1 -- Step Trailing Run --> M3[ManageAllOrdersStepTrailingStopLoss: Ratchet SL in Profit]:::slNode
+    P1 -- Basket Profit Multiples --> M4[ManageBasket10USDLockEquity: Lock Dynamic $10 Increment]:::slNode
+    P1 -- EMA Flip Adverse --> M5[FlipBasketProtect: Pull Winning SL to Tight Breakeven]:::slNode
+    P1 -- Weak EMA Exhaustion --> M6[ManageWeakEmaProfitOrderProtect: Tighten SL to Lock Gains]:::slNode
+    P1 -- TakeProfit Milestone --> PC1[ManagePartialCloses: Shave 0.01/50% &amp; Move Remainder to BE]:::pcNode
+
+    %% LOSS PATHWAY: GATED PARTIAL CLOSES & SL BUFFERS
+    Assess -- Floating Loss or Heavy Exposure --> L1{Risk Trigger Evaluation}
+    L1 -- Directional Exposure > 0.20 Lots OR Net Loss > $50 --> G1{CanExecutePartialLossClose Universal Guard V10081}:::checkNode
+    L1 -- Individual Adverse Drawdown --> G2{CanExecutePartialLossClose Universal Guard V10081}:::checkNode
+    
+    G1 -- All 4 Conditions Passed --> PC2[ManageHeavyExposurePartialLossClose: Shave 0.01 Lot from Worst Loser]:::pcNode
+    G2 -- All 4 Conditions Passed --> PC3[ManagePartialClosesLoss: Shave 0.01 Lot &amp; Update $100 Anchor]:::pcNode
+    
+    G1 -- Condition Failed: Same SSL / Weak EMA / Gap < $100 --> R1[REJECT Loss Shave: Hold Position to Prevent Continuous Liquidation]:::rejNode
+    G2 -- Condition Failed: Same SSL / Weak EMA / Gap < $100 --> R1
+
+    L1 -- Recovery Basket Active --> M7[ManageRecoveryBasket: Trail Collective Basket SL]:::slNode
+    L1 -- FLIP Support Runner Active --> M8[ManageFLIPBasketSupportTrailingStopLoss: Trail Support SL]:::slNode
+              </div>
+            </div>
+
+            <!-- SECTION A: THE 9 STOPLOSS MODIFICATION SCENARIOS -->
+            <div class="card" style="background: rgba(255, 255, 255, 0.02); margin-bottom: 24px;">
+              <h3 style="font-size: 16px; color: var(--accent-cyan); margin-bottom: 12px; display: flex; align-items: center; gap: 8px;">
+                <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"></path></svg>
+                Part 1: The 9 Specific Situations Where An Order is Modified with StopLoss
+              </h3>
+              <p style="font-size: 13px; color: var(--text-muted); line-height: 1.6; margin-bottom: 16px;">
+                In high-frequency Bitcoin trading, market orders are NEVER closed prematurely with panic slippage. Instead, the EA modifies the order's StopLoss using <code>SafeOrderModify()</code> to protect capital, lock accrued gains, or secure basket break-even:
+              </p>
+
+              <div class="flow-steps">
+                <!-- Situation 1 -->
+                <div class="step-item">
+                  <div class="step-num" style="background: rgba(56, 189, 248, 0.15); color: var(--accent-blue); border-color: rgba(56, 189, 248, 0.3);">1</div>
+                  <div class="step-body">
+                    <h4>Initial Order Creation StopLoss Placement <span class="badge badge-blue">Creation</span></h4>
+                    <p><strong>When Triggered:</strong> Immediately upon opening any new BUY, SELL, or Pending Stop order via <code>SafeOrderSend()</code>.<br>
+                    <strong>Calculation:</strong> For BUY: <code>OrderOpenPrice() - StopLossUSD</code>. For SELL: <code>OrderOpenPrice() + StopLossUSD</code>. For pending orders (e.g. <code>OP_BUYSTOP</code> / <code>OP_SELLSTOP</code>), StopLoss is anchored relative to the pending trigger price.<br>
+                    <strong>Safety Buffer:</strong> Must be at least <code>MarketInfo(MODE_STOPLEVEL) * Point</code> away from current price, plus spread allowance.<br>
+                    <strong>Code Anchor:</strong> <code>SafeOrderSend()</code> (L5550) &bull; <code>StopLossUSD = 40.0</code>.</p>
+                  </div>
+                </div>
+
+                <!-- Situation 2 -->
+                <div class="step-item">
+                  <div class="step-num" style="background: rgba(16, 185, 129, 0.15); color: var(--accent-green); border-color: rgba(16, 185, 129, 0.3);">2</div>
+                  <div class="step-body">
+                    <h4>Universal Step Ratchet Trailing StopLoss <span class="badge badge-green">Never-Close SL</span></h4>
+                    <p><strong>When Triggered:</strong> On every price tick as an order moves deeper into profit, exceeding the ratchet step threshold.<br>
+                    <strong>Calculation:</strong> For BUY: <code>Bid - MathMax(15.0, Spread * 1.5)</code>. For SELL: <code>Ask + MathMax(15.0, Spread * 1.5)</code>. If newly calculated SL is higher than current SL (for BUY) or lower (for SELL), it is ratcheted forward.<br>
+                    <strong>Execution Philosophy:</strong> Never executes a market close! As price expands, SL is progressively trailed into profit, allowing the runner to catch large explosive wicks while guaranteeing profit lock on any pullback.<br>
+                    <strong>Code Anchor:</strong> <code>ManageAllOrdersStepTrailingStopLoss()</code> (L9069).</p>
+                  </div>
+                </div>
+
+                <!-- Situation 3 -->
+                <div class="step-item">
+                  <div class="step-num" style="background: rgba(168, 85, 247, 0.15); color: var(--accent-purple); border-color: rgba(168, 85, 247, 0.3);">3</div>
+                  <div class="step-body">
+                    <h4>Micro-Profit $1.00 Breakeven Lock <span class="badge badge-purple">Zero-Risk Lock</span></h4>
+                    <p><strong>When Triggered:</strong> The instant an individual order's floating net profit reaches $\ge +\$1.00$.<br>
+                    <strong>Calculation:</strong> For BUY: Moves SL to <code>OrderOpenPrice() + 1.0 Point</code>. For SELL: Moves SL to <code>OrderOpenPrice() - 1.0 Point</code>.<br>
+                    <strong>Purpose:</strong> Transforms winning scalps into completely risk-free positions immediately upon crossing $1.00 profit, eliminating sudden flash-reversal stopouts.<br>
+                    <strong>Code Anchor:</strong> <code>SecureOneDollarProfit()</code> (L884).</p>
+                  </div>
+                </div>
+
+                <!-- Situation 4 -->
+                <div class="step-item">
+                  <div class="step-num" style="background: rgba(245, 158, 11, 0.15); color: var(--accent-amber); border-color: rgba(245, 158, 11, 0.3);">4</div>
+                  <div class="step-body">
+                    <h4>$5.00 Scalp Profit Floor Lock <span class="badge badge-amber">Profit Floor</span></h4>
+                    <p><strong>When Triggered:</strong> When an individual order's floating profit reaches $\ge +\$5.00$.<br>
+                    <strong>Calculation:</strong> Modifies order SL to mathematically guarantee that at least \$5.00 of net bank profit is preserved if price reverses.<br>
+                    <strong>Purpose:</strong> Prevents strong intra-candle spikes from evaporating back down to break-even.<br>
+                    <strong>Code Anchor:</strong> <code>ManageFiveDollarLock()</code> (L2602).</p>
+                  </div>
+                </div>
+
+                <!-- Situation 5 -->
+                <div class="step-item">
+                  <div class="step-num" style="background: rgba(56, 189, 248, 0.15); color: var(--accent-blue); border-color: rgba(56, 189, 248, 0.3);">5</div>
+                  <div class="step-body">
+                    <h4>Dynamic Basket $10 USD Equity Lock <span class="badge badge-blue">Basket Lock</span></h4>
+                    <p><strong>When Triggered:</strong> When total cumulative basket profit advances across incremental \$10 milestones (\$10, \$20, \$30...).<br>
+                    <strong>Calculation:</strong> Ratchets the collective basket baseline SL forward. Incorporates <code>UpdateDynamicBasket10USDLockStep()</code> (V10075) which dynamically compresses the lock step from \$5 down to \$4, \$3, \$2, \$1 as basket drawdown escalates.<br>
+                    <strong>Code Anchor:</strong> <code>ManageBasket10USDLockEquity()</code> (L3219) &bull; <code>UpdateDynamicBasket10USDLockStep()</code> (L3019).</p>
+                  </div>
+                </div>
+
+                <!-- Situation 6 -->
+                <div class="step-item">
+                  <div class="step-num" style="background: rgba(16, 185, 129, 0.15); color: var(--accent-green); border-color: rgba(16, 185, 129, 0.3);">6</div>
+                  <div class="step-body">
+                    <h4>Recovery Basket Combined Breakeven &amp; Step Trailing SL <span class="badge badge-green">Recovery Trail</span></h4>
+                    <p><strong>When Triggered:</strong> When recovery orders (<code>RECOVERY_XXXXX</code>) are active and the combined net profit of parent orders plus recovery orders turns positive (e.g. +$5.00 or +$10.00).<br>
+                    <strong>Calculation:</strong> Modifies the StopLoss of both the parent positions and recovery runner to the weighted break-even price of the entire basket, and progressively trails upward.<br>
+                    <strong>Prefix Continuity:</strong> Fully tracks split tickets through <code>g_orderCommentRegistry</code> (V10076) so recovery status is never lost.<br>
+                    <strong>Code Anchor:</strong> <code>ManageRecoveryBasket()</code> (L9353) &bull; <code>ManageRecoveryOrderStepTrailingStopLoss()</code> (L8936).</p>
+                  </div>
+                </div>
+
+                <!-- Situation 7 -->
+                <div class="step-item">
+                  <div class="step-num" style="background: rgba(168, 85, 247, 0.15); color: var(--accent-purple); border-color: rgba(168, 85, 247, 0.3);">7</div>
+                  <div class="step-body">
+                    <h4>FLIPBasketSupport Runner Trailing SL <span class="badge badge-purple">Support Trail</span></h4>
+                    <p><strong>When Triggered:</strong> When a <code>FLIPBasketSupport</code> runner (0.06 lot) is active after an EMA flip and is trading in net profit.<br>
+                    <strong>Calculation:</strong> Trails the support runner's StopLoss at fixed point step increments below/above market price.<br>
+                    <strong>Safety Rule:</strong> Pre-creation close ensures strictly at most 1 active support runner across the account.<br>
+                    <strong>Code Anchor:</strong> <code>ManageFLIPBasketSupportTrailingStopLoss()</code> (L8815).</p>
+                  </div>
+                </div>
+
+                <!-- Situation 8 -->
+                <div class="step-item">
+                  <div class="step-num" style="background: rgba(245, 158, 11, 0.15); color: var(--accent-amber); border-color: rgba(245, 158, 11, 0.3);">8</div>
+                  <div class="step-body">
+                    <h4>EMA Trend Flip Defensive SL Pull <span class="badge badge-amber">Trend Flip</span></h4>
+                    <p><strong>When Triggered:</strong> When the 200 EMA reverses direction (e.g. Bullish &rarr; Bearish) while contrary profitable orders are still active.<br>
+                    <strong>Calculation:</strong> Immediately pulls the SL of all profitable trades tight to Breakeven or current high watermark.<br>
+                    <strong>Purpose:</strong> Guarantees that accrued gains are not surrendered when the underlying macro trend flips against existing trades.<br>
+                    <strong>Code Anchor:</strong> <code>FlipBasketProtect()</code> (L2847) &bull; <code>FlipIndividualOrderProtect()</code> (L2752).</p>
+                  </div>
+                </div>
+
+                <!-- Situation 9 -->
+                <div class="step-item">
+                  <div class="step-num" style="background: rgba(239, 68, 68, 0.15); color: var(--accent-red); border-color: rgba(239, 68, 68, 0.3);">9</div>
+                  <div class="step-body">
+                    <h4>Weak EMA Momentum Decay SL Tighten <span class="badge badge-red">Exhaustion Guard</span></h4>
+                    <p><strong>When Triggered:</strong> When <code>IsEmaWEAKDistanceReduced50PercentFromPeak()</code> evaluates TRUE (price has retracted >50% from cycle high distance to EMA).<br>
+                    <strong>Calculation:</strong> Winning orders have their SL pulled tightly behind current market price (live price minus minimal spread buffer).<br>
+                    <strong>Purpose:</strong> Prevents giveback when trend momentum has officially exhausted but has not yet triggered a full EMA cross.<br>
+                    <strong>Code Anchor:</strong> <code>ManageWeakEmaProfitOrderProtect()</code> (L2952).</p>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <!-- SECTION B: THE PARTIAL CLOSE SCENARIOS & UNIVERSAL GUARD -->
+            <div class="card" style="background: rgba(255, 255, 255, 0.02); margin-bottom: 24px;">
+              <h3 style="font-size: 16px; color: var(--accent-amber); margin-bottom: 12px; display: flex; align-items: center; gap: 8px;">
+                <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"></circle><line x1="12" y1="8" x2="12" y2="12"></line><line x1="12" y1="16" x2="12.01" y2="16"></line></svg>
+                Part 2: The Specific Situations Where An Order is Partially Closed (Shaving Lots)
+              </h3>
+              <p style="font-size: 13px; color: var(--text-muted); line-height: 1.6; margin-bottom: 16px;">
+                Partial closes shave <strong>0.01 lot</strong> from open orders to de-risk exposure or harvest profits without closing the entire position. Liquidating volume is subject to strict universal gating to prevent continuous losses:
+              </p>
+
+              <!-- Universal Guard Callout -->
+              <div class="alert-box alert-success" style="margin-bottom: 20px;">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="20 6 9 17 4 12"></polyline></svg>
+                <div>
+                  <strong>Universal Mandatory Partial Loss Guard: <code>CanExecutePartialLossClose(int orderType)</code> [V10081]</strong><br>
+                  Before ANY order in the EA is permitted to shave 0.01 lot at a loss, ALL 4 basic conditions MUST be simultaneously satisfied:
+                  <ul style="margin-top: 8px; margin-left: 18px; font-size: 13px; line-height: 1.6;">
+                    <li><strong>1. EMA Direction Opposite:</strong> For BUY: <code>EMADirection == -1</code> (Bearish). For SELL: <code>EMADirection == 1</code> (Bullish).</li>
+                    <li><strong>2. SSL Signal Opposite:</strong> For BUY: <code>liveSSL &lt; 0</code> (Bearish SSL). For SELL: <code>liveSSL &gt; 0</code> (Bullish SSL).</li>
+                    <li><strong>3. EMA Momentum Strong:</strong> <code>!IsEmaWEAKDistanceReduced50PercentFromPeak(orderType)</code>. Must be in a STRONG trend against us. If EMA is weak/exhausting, cutting lots is rejected because market is likely to bounce!</li>
+                    <li><strong>4. Minimum $100 Raw Price Gap:</strong> Live price must have worsened by at least \$100 raw distance from <code>g_lastGlobalPartialLossClosePrice</code>. This strictly prevents shaving 0.01 lot continuously at the same price level.</li>
+                  </ul>
+                </div>
+              </div>
+
+              <div class="grid-2">
+                <!-- Routine 1 -->
+                <div class="step-item" style="flex-direction: column;">
+                  <div style="display: flex; align-items: center; gap: 10px; margin-bottom: 8px;">
+                    <span class="badge badge-amber">LOSS SHAVE</span>
+                    <h4 style="margin: 0;">Heavy Exposure &amp; Net Loss Partial Close</h4>
+                  </div>
+                  <p style="font-size: 13px; color: var(--text-muted); line-height: 1.6;">
+                    <strong>Trigger Criteria (Dual Trigger):</strong><br>
+                    â€¢ <strong>Trigger A (Lot Exposure):</strong> Total directional exposure exceeds <strong>0.20 lots</strong> (<code>GetTotalLots(type) &gt; 0.20</code>).<br>
+                    â€¢ <strong>Trigger B (Net Loss):</strong> Directional basket Net P/L &le; <strong>-$50.00</strong> OR individual worst loser Net P/L &le; <strong>-$50.00</strong>.<br>
+                    <strong>Execution Gating:</strong> Evaluates <code>CanExecutePartialLossClose()</code>. If any of the 4 conditions fail, execution is aborted.<br>
+                    <strong>Action:</strong> Selects the single worst losing ticket (most negative Net P/L) and executes <code>OrderClose(ticket, 0.01, price, slippage, ...)</code>.<br>
+                    <strong>State Updates:</strong> Sets <code>g_lastGlobalPartialLossClosePrice</code> to current price and maps child ticket comments via <code>RegisterPreservedOrderComment()</code>.<br>
+                    <strong>Code Anchor:</strong> <code>ManageHeavyExposurePartialLossClose()</code> (L12310).
+                  </p>
+                </div>
+
+                <!-- Routine 2 -->
+                <div class="step-item" style="flex-direction: column;">
+                  <div style="display: flex; align-items: center; gap: 10px; margin-bottom: 8px;">
+                    <span class="badge badge-red">DRAWDOWN SHAVE</span>
+                    <h4 style="margin: 0;">Per-Ticket Adverse Drawdown Partial Loss Close</h4>
+                  </div>
+                  <p style="font-size: 13px; color: var(--text-muted); line-height: 1.6;">
+                    <strong>Trigger Criteria:</strong><br>
+                    â€¢ Evaluates individual tickets whose drawdown exceeds the adverse loss threshold (e.g. 50% of <code>StopLossUSD</code> = -$20.00 on a 0.05 lot order).<br>
+                    <strong>Execution Gating:</strong> Gated by <code>CanExecutePartialLossClose(orderType)</code>. If EMA is not opposite, SSL is not opposite, EMA is weak, or price gap &lt; $100, the shave is rejected.<br>
+                    <strong>Action:</strong> Shaves 0.01 lot from the ticket, reducing margin footprint and drawdown risk while allowing the remaining 0.04/0.03 lot position to recover.<br>
+                    <strong>Recovery Order Support:</strong> Recovery orders participate in this trimming, seamlessly retaining their <code>RECOVERY_</code> prefix across child tickets.<br>
+                    <strong>Code Anchor:</strong> <code>ManagePartialClosesLoss()</code> (L12165).
+                  </p>
+                </div>
+              </div>
+
+              <!-- Routine 3 & 4 -->
+              <div class="grid-2" style="margin-top: 16px;">
+                <div class="step-item" style="flex-direction: column;">
+                  <div style="display: flex; align-items: center; gap: 10px; margin-bottom: 8px;">
+                    <span class="badge badge-green">PROFIT SHAVE</span>
+                    <h4 style="margin: 0;">Milestone Profit-Taking Partial Closes</h4>
+                  </div>
+                  <p style="font-size: 13px; color: var(--text-muted); line-height: 1.6;">
+                    <strong>Trigger Criteria:</strong><br>
+                    â€¢ When an individual order's floating profit reaches predefined profit milestones (e.g., <code>TakeProfitPartialUSD</code> or point distance steps).<br>
+                    <strong>Action:</strong> Closes 50% of volume (or 0.01 lot minimum) to bank hard realized balance into the account.<br>
+                    <strong>Immediate SL Ratchet:</strong> Upon partial profit close, the remaining lot's StopLoss is immediately modified to <code>OrderOpenPrice() +/- Spread</code> (Breakeven + Buffer), creating a completely risk-free runner.<br>
+                    <strong>Code Anchor:</strong> <code>ManagePartialCloses()</code> (L12900).
+                  </p>
+                </div>
+
+                <div class="step-item" style="flex-direction: column;">
+                  <div style="display: flex; align-items: center; gap: 10px; margin-bottom: 8px;">
+                    <span class="badge badge-purple">TICKET ENGINE</span>
+                    <h4 style="margin: 0;">Broker Ticket Splitting &amp; Comment Preservation</h4>
+                  </div>
+                  <p style="font-size: 13px; color: var(--text-muted); line-height: 1.6;">
+                    <strong>MT4 Broker Behavior:</strong> When <code>OrderClose(1001, 0.01, ...)</code> executes on a 0.05 lot order, MT4 creates a new ticket <code>#1002</code> (0.04 lot) and changes the comment to <code>"from #1001"</code>.<br>
+                    <strong>The Problem:</strong> This wipes out critical prefixes like <code>RECOVERY_24680</code>, causing the EA to lose track of recovery baskets.<br>
+                    <strong>Our Solution:</strong> <code>g_orderCommentRegistry</code> and <code>RegisterPreservedOrderComment()</code> (V10076) intercept the child ticket, trace it back to its root parent, and guarantee 100% prefix preservation across infinite 0.01 partial cuts.<br>
+                    <strong>Code Anchor:</strong> <code>RegisterPreservedOrderComment()</code> (L11750).
+                  </p>
+                </div>
+              </div>
+            </div>
+
+            <!-- SECTION C: INTERACTIVE DECISION MATRIX EXPLORER -->
+            <div class="card" style="background: rgba(255, 255, 255, 0.02);">
+              <h3 style="font-size: 16px; color: var(--accent-green); margin-bottom: 12px; display: flex; align-items: center; gap: 8px;">
+                <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2"><polygon points="5 3 19 12 5 21 5 3"></polygon></svg>
+                Interactive Scenario Explorer: Test Any Trade Condition
+              </h3>
+              <p style="font-size: 13px; color: var(--text-muted); line-height: 1.6; margin-bottom: 16px;">
+                Select a live trading scenario to simulate the exact decision path executed by <code>V-ScalpingBot.ex4</code>:
+              </p>
+
+              <div class="grid-2" style="margin-bottom: 16px;">
+                <div>
+                  <label style="font-size: 12px; color: var(--text-dim); text-transform: uppercase; font-weight: 600; display: block; margin-bottom: 6px;">Select Trade Scenario</label>
+                  <select id="scenario-selector" onchange="evaluateScenario()" style="width: 100%; padding: 10px 14px; background: rgba(0,0,0,0.4); border: 1px solid var(--border); border-radius: 8px; color: #fff; font-size: 13.5px;">
+                    <option value="prof1">Order Profit reaches +$1.20 (Micro Profit)</option>
+                    <option value="prof5">Order Profit reaches +$6.50 ($5 Floor Milestone)</option>
+                    <option value="profStep">Order in continuous profit run (+35 pts)</option>
+                    <option value="profEmaFlip">BUY Order at +$8 profit, but 200 EMA flips Bearish</option>
+                    <option value="profWeakEma">BUY Order at +$12 profit, but EMA Distance reduces >50% (Weak EMA)</option>
+                    <option value="lossHeavyPass">BUY Basket 0.23 Lots, EMA Bearish, SSL Bearish, Strong Trend, $120 Gap</option>
+                    <option value="lossHeavyWeak">BUY Basket 0.23 Lots, EMA Bearish, SSL Bearish, but EMA is WEAK (Reduced 50%)</option>
+                    <option value="lossHeavySameSSL">BUY Basket 0.23 Lots, EMA Bearish, but live SSL is BULLISH</option>
+                    <option value="lossHeavySmallGap">BUY Basket 0.23 Lots, All Signals Opposite, but Raw Gap is only $45</option>
+                    <option value="loss50Dollar">Directional Basket Net Loss reaches -$55.00, All 4 Guard Conditions Pass</option>
+                  </select>
+                </div>
+                <div>
+                  <label style="font-size: 12px; color: var(--text-dim); text-transform: uppercase; font-weight: 600; display: block; margin-bottom: 6px;">Evaluated Execution Outcome</label>
+                  <div id="scenario-result-badge" style="padding: 10px 14px; border-radius: 8px; font-weight: 700; font-size: 14px; background: rgba(16, 185, 129, 0.15); color: var(--accent-green); border: 1px solid rgba(16, 185, 129, 0.3);">
+                    SECURE PROFIT: Move SL to OpenPrice + 1.0 Pt
+                  </div>
+                </div>
+              </div>
+
+              <div id="scenario-details" style="background: rgba(0,0,0,0.3); border: 1px solid var(--border); border-radius: 10px; padding: 16px; font-size: 13px; line-height: 1.6; color: var(--text-muted);">
+                <!-- Populated dynamically via JavaScript -->
+              </div>
+            </div>
+
+          </div>
+        </div>
+
 
         <!-- ========================================================
              TAB 4: RECOVERY ORDER & BASKET STRATEGY
@@ -1609,6 +1973,20 @@ sequenceDiagram
                     <td><strong>Pre-Creation Close &amp; Global Single Active FLIPBasketSupport Gate</strong><br><small style="color: var(--text-dim);">Unconditionally closes already open support order before new creation; strictly max 1 active order total</small></td>
                     <td><code>CreateFLIPBasketSupportOrder()</code> L7165<br><code>CloseFLIPBasketSupportOrders(-1)</code> L7124<br><code>HasOpenFLIPBasketSupportOrder(-1)</code> L7105<br><code>glbVersion = "V10024"</code></td>
                     <td>Enforced the safest execution model for <code>FLIPBasketSupport</code>: (1) Inside <code>CreateFLIPBasketSupportOrder()</code>, unconditionally calls <code>CloseFLIPBasketSupportOrders(-1)</code> with 3-attempt retry to close any already open support orders before creating a new one; (2) Enforced global single active support order gate via <code>HasOpenFLIPBasketSupportOrder(-1)</code> which aborts new creation if any support order is still active, guaranteeing strictly at most 1 <code>FLIPBasketSupport</code> runner active across the entire account at any moment. Clean MetaEditor 4 build (0 errors, 20 warnings).</td>
+                    <td><span class="badge badge-green">VERIFIED &amp; DEPLOYED</span></td>
+                  </tr>
+                  <tr>
+                    <td><code>Step 999</code><br><small style="color: var(--accent-amber);">15:10</small></td>
+                    <td><strong>Live Position Monitor: Guaranteed Net P/L Front Visibility &amp; Compact Layout</strong><br><small style="color: var(--text-dim);">Positions Net P/L at start of Line 2 and embeds in Line 1, eliminating right-edge clipping on narrow charts</small></td>
+                    <td><code>UpdateLeftLiveOrdersDashboard()</code> L15232<br><code>summaryText (Line 1)</code> L15305<br><code>totalsText (Line 2)</code> L15312<br><code>glbVersion = "V10083"</code></td>
+                    <td>Resolved right-edge dashboard text clipping on compact MT4 chart subwindows: (1) Reordered Line 2 (<code>LEFT_LIVE_PREFIX + "TOTALS"</code>) to place <code>NET P/L +/-XX.XX</code> at the very front (character 1, pixel 22), guaranteeing 100% full visibility regardless of chart width; (2) Compacted directional volume and P/L into parenthetical notation: <code>BUY LOT X.XX (P/L +/-XX.XX)   SELL LOT X.XX (P/L +/-XX.XX)</code>; (3) Added Net P/L to Line 1 (<code>LEFT_LIVE_PREFIX + "SUMMARY"</code>) for dual-row redundant visibility: <code>ORDERS X/100   BUY X   SELL X   PEND X   NET P/L +/-XX.XX</code>. Clean MetaEditor 4 build (0 errors, 23 warnings).</td>
+                    <td><span class="badge badge-green">VERIFIED &amp; DEPLOYED</span></td>
+                  </tr>
+                  <tr>
+                    <td><code>Step 998</code><br><small style="color: var(--accent-amber);">12:55</small></td>
+                    <td><strong>Live Position Monitor: Directional Buy P/L and Sell P/L Display</strong><br><small style="color: var(--text-dim);">Computes independent buyPL / sellPL and displays both on Left Dashboard totals row</small></td>
+                    <td><code>UpdateLeftLiveOrdersDashboard()</code> L15232<br><code>buyPL / sellPL</code> L15259<br><code>LEFT_LIVE_PREFIX+"TOTALS"</code> L15305<br><code>glbVersion = "V10082"</code></td>
+                    <td>Upgraded the Left Live Position Monitor summary bar in <code>UpdateLeftLiveOrdersDashboard()</code>: (1) Added independent tracking for <code>buyPL</code> and <code>sellPL</code> (including OrderProfit, OrderSwap, and OrderCommission) in the order iteration loop; (2) Updated the summary row label <code>LEFT_LIVE_PREFIX + "TOTALS"</code> to display: <code>BUY LOT X.XX   BUY P/L +/-X.XX   SELL LOT X.XX   SELL P/L +/-X.XX   NET P/L +/-X.XX</code>; (3) Dynamic color formatting applied via <code>pnlColor</code> (Green/Tomato/White); (4) Triggered automatic object redraw on version change via <code>lastLeftLayoutVer</code>. Clean MetaEditor 4 build (0 errors, 23 warnings).</td>
                     <td><span class="badge badge-green">VERIFIED &amp; DEPLOYED</span></td>
                   </tr>
                   <tr>
@@ -2470,18 +2848,18 @@ flowchart TD
             <div class="grid-4" style="margin-bottom: 24px;">
               <div class="stat-card">
                 <div class="stat-label">Total User Directives</div>
-                <div class="stat-value" style="color: var(--accent-green);">70 / 70</div>
+                <div class="stat-value" style="color: var(--accent-green);">72 / 72</div>
                 <div class="stat-desc">100% Implemented &amp; Audited</div>
               </div>
               <div class="stat-card">
                 <div class="stat-label">Compiler Verification</div>
                 <div class="stat-value" style="color: var(--accent-blue);">0 Errors</div>
-                <div class="stat-desc">MetaEditor 4 • 178ms Clean Build</div>
+                <div class="stat-desc">MetaEditor 4 â€¢ 178ms Clean Build</div>
               </div>
               <div class="stat-card">
                 <div class="stat-label">Active Production Build</div>
-                <div class="stat-value" style="color: var(--accent-purple);">V10081</div>
-                <div class="stat-desc">13-10-2026 12.15 Deployed</div>
+                <div class="stat-value" style="color: var(--accent-purple);">V10083</div>
+                <div class="stat-desc">13-10-2026 15.10 Deployed</div>
               </div>
               <div class="stat-card">
                 <div class="stat-label">Centralized Firewall</div>
@@ -2502,12 +2880,12 @@ flowchart TD
 
     UserReq["User Instruction History (Steps 0 - 939)"]:::startNode --> SOS["SafeOrderSend() Central Entry Firewall"]:::gateNode
 
-    SOS --> Gate1["Gate 1: System Circuit Breakers<br/>Equity/Profit Locks • Trading Hours"]:::gateNode
+    SOS --> Gate1["Gate 1: System Circuit Breakers<br/>Equity/Profit Locks â€¢ Trading Hours"]:::gateNode
     SOS --> Gate2["Gate 2: Physical Spread Filter<br/>Spread &le; MaxAllowedSpreadUSD"]:::gateNode
-    SOS --> Gate3["Gate 3: Candle Quota & Interval<br/>Max 5 Orders • &ge; 5s Spacing"]:::gateNode
-    SOS --> Gate4["Gate 4: Re-Entry Gateway<br/>Pullback 50% Block • Asymmetric SSL Block"]:::gateNode
-    SOS --> Gate5["Gate 5: Recovery Gateway<br/>1st & 2nd Rec ($2000 Gap) • Opposite Weak Guard"]:::gateNode
-    SOS --> Gate6["Gate 6: Standard Entry & Overrides<br/>PassesUserRules • PassesEMAFilter • V-Shape"]:::gateNode
+    SOS --> Gate3["Gate 3: Candle Quota & Interval<br/>Max 5 Orders â€¢ &ge; 5s Spacing"]:::gateNode
+    SOS --> Gate4["Gate 4: Re-Entry Gateway<br/>Pullback 50% Block â€¢ Asymmetric SSL Block"]:::gateNode
+    SOS --> Gate5["Gate 5: Recovery Gateway<br/>1st & 2nd Rec ($2000 Gap) â€¢ Opposite Weak Guard"]:::gateNode
+    SOS --> Gate6["Gate 6: Standard Entry & Overrides<br/>PassesUserRules â€¢ PassesEMAFilter â€¢ V-Shape"]:::gateNode
 
     Gate1 -- "Violation" --> Reject["REJECT ORDER (Return -1)"]:::blockNode
     Gate2 -- "Violation" --> Reject
@@ -2995,7 +3373,7 @@ flowchart TD
 
               <div style="display: flex; flex-direction: column; gap: 10px;">
                 <div class="step-item" style="cursor: pointer;" onclick="toggleAuditDetail('chk1')">
-                  <div class="step-num" style="background: rgba(16, 185, 129, 0.15); color: var(--accent-green); border-color: rgba(16, 185, 129, 0.3);">✓</div>
+                  <div class="step-num" style="background: rgba(16, 185, 129, 0.15); color: var(--accent-green); border-color: rgba(16, 185, 129, 0.3);">âœ“</div>
                   <div class="step-body" style="flex: 1;">
                     <h4>Candle Quota &amp; 5-Second Anti-Spam Gate <span class="badge badge-green">Active</span></h4>
                     <p>Enforces maximum 5 orders per candle bar and strictly blocks consecutive order attempts within 5000ms. Eliminates broker trade spam and off-quote penalties.</p>
@@ -3006,7 +3384,7 @@ flowchart TD
                 </div>
 
                 <div class="step-item" style="cursor: pointer;" onclick="toggleAuditDetail('chk2')">
-                  <div class="step-num" style="background: rgba(16, 185, 129, 0.15); color: var(--accent-green); border-color: rgba(16, 185, 129, 0.3);">✓</div>
+                  <div class="step-num" style="background: rgba(16, 185, 129, 0.15); color: var(--accent-green); border-color: rgba(16, 185, 129, 0.3);">âœ“</div>
                   <div class="step-body" style="flex: 1;">
                     <h4>Asymmetric SSL Directional Re-Entry Shield <span class="badge badge-green">Active</span></h4>
                     <p>When a trade closes in profit, opposite re-entries are blocked if SSL direction opposes the closed position (Sell ReEntry blocked if SSL is BUY; Buy ReEntry blocked if SSL is SELL).</p>
@@ -3017,7 +3395,7 @@ flowchart TD
                 </div>
 
                 <div class="step-item" style="cursor: pointer;" onclick="toggleAuditDetail('chk3')">
-                  <div class="step-num" style="background: rgba(16, 185, 129, 0.15); color: var(--accent-green); border-color: rgba(16, 185, 129, 0.3);">✓</div>
+                  <div class="step-num" style="background: rgba(16, 185, 129, 0.15); color: var(--accent-green); border-color: rgba(16, 185, 129, 0.3);">âœ“</div>
                   <div class="step-body" style="flex: 1;">
                     <h4>Recovery Order $50 Raw Gap &amp; 50% Weak EMA Retracement Guard <span class="badge badge-green">Active</span></h4>
                     <p>Enforces &ge; $50 raw BTC distance between open recovery orders. All re-entry stops and recovery triggers are aborted if EMA Weak Distance shrinks by &gt; 50% from cycle peak.</p>
@@ -3028,7 +3406,7 @@ flowchart TD
                 </div>
 
                 <div class="step-item" style="cursor: pointer;" onclick="toggleAuditDetail('chk4')">
-                  <div class="step-num" style="background: rgba(16, 185, 129, 0.15); color: var(--accent-green); border-color: rgba(16, 185, 129, 0.3);">✓</div>
+                  <div class="step-num" style="background: rgba(16, 185, 129, 0.15); color: var(--accent-green); border-color: rgba(16, 185, 129, 0.3);">âœ“</div>
                   <div class="step-body" style="flex: 1;">
                     <h4>Single-Door SafeOrderSend Master Firewall <span class="badge badge-green">Active</span></h4>
                     <p>Zero order creation occurs outside <code>SafeOrderSend()</code>. All market, limit, stop, re-entry, and recovery trades pass through the centralized 6-gate security filter.</p>
@@ -3039,7 +3417,7 @@ flowchart TD
                 </div>
 
                 <div class="step-item" style="cursor: pointer;" onclick="toggleAuditDetail('chk5')">
-                  <div class="step-num" style="background: rgba(16, 185, 129, 0.15); color: var(--accent-green); border-color: rgba(16, 185, 129, 0.3);">✓</div>
+                  <div class="step-num" style="background: rgba(16, 185, 129, 0.15); color: var(--accent-green); border-color: rgba(16, 185, 129, 0.3);">âœ“</div>
                   <div class="step-body" style="flex: 1;">
                     <h4>High-Frequency Latency &amp; Server-Call Optimization <span class="badge badge-green">Active</span></h4>
                     <p>Over 3,800 redundant indicator calculations per tick eliminated through bar-change throttling and per-tick sequence memoization. Sequential order scans replaced with O(1) tick caches.</p>
@@ -3050,7 +3428,7 @@ flowchart TD
                 </div>
 
                 <div class="step-item" style="cursor: pointer;" onclick="toggleAuditDetail('chk6')">
-                  <div class="step-num" style="background: rgba(16, 185, 129, 0.15); color: var(--accent-green); border-color: rgba(16, 185, 129, 0.3);">✓</div>
+                  <div class="step-num" style="background: rgba(16, 185, 129, 0.15); color: var(--accent-green); border-color: rgba(16, 185, 129, 0.3);">âœ“</div>
                   <div class="step-body" style="flex: 1;">
                     <h4>$50 Raw Gap Between SSL and ReEntry Orders (Buy &amp; Sell) <span class="badge badge-green">Active</span></h4>
                     <p>Guarantees at least $50 raw BTC spacing between SSL Short and Sell ReEntry, and between SSL Long and Buy ReEntry. Inspects BOTH active open positions and pending orders.</p>
@@ -3061,7 +3439,7 @@ flowchart TD
                 </div>
 
                 <div class="step-item" style="cursor: pointer;" onclick="toggleAuditDetail('chk7')">
-                  <div class="step-num" style="background: rgba(16, 185, 129, 0.15); color: var(--accent-green); border-color: rgba(16, 185, 129, 0.3);">✓</div>
+                  <div class="step-num" style="background: rgba(16, 185, 129, 0.15); color: var(--accent-green); border-color: rgba(16, 185, 129, 0.3);">âœ“</div>
                   <div class="step-body" style="flex: 1;">
                     <h4>Opposite Weak Trend Recovery Generator &amp; Gate 5B Shield <span class="badge badge-green">Active</span></h4>
                     <p>Enforces recovery order placement solely when the counter-trend loses momentum (&ge; 50% retracement from cycle peak) and local SSL aligns with the recovery trade. Strictly blocks recovery when prevailing trend and signal share the same weak direction.</p>
@@ -3072,7 +3450,7 @@ flowchart TD
                 </div>
 
                 <div class="step-item" style="cursor: pointer;" onclick="toggleAuditDetail('chk8')">
-                  <div class="step-num" style="background: rgba(16, 185, 129, 0.15); color: var(--accent-green); border-color: rgba(16, 185, 129, 0.3);">✓</div>
+                  <div class="step-num" style="background: rgba(16, 185, 129, 0.15); color: var(--accent-green); border-color: rgba(16, 185, 129, 0.3);">âœ“</div>
                   <div class="step-body" style="flex: 1;">
                     <h4>Second Recovery Order &amp; Unified 3-Way Basket Engine <span class="badge badge-green">Active</span></h4>
                     <p>Enforces a minimum $2000 raw price drop/rise from the 1st recovery order before dispatching a 2nd recovery order. Aggregates combined net profit of Parent + 1st Recovery + 2nd Recovery into a unified basket to exit or trail together.</p>
@@ -3083,7 +3461,7 @@ flowchart TD
                 </div>
 
                 <div class="step-item" style="cursor: pointer;" onclick="toggleAuditDetail('chk9')">
-                  <div class="step-num" style="background: rgba(16, 185, 129, 0.15); color: var(--accent-green); border-color: rgba(16, 185, 129, 0.3);">✓</div>
+                  <div class="step-num" style="background: rgba(16, 185, 129, 0.15); color: var(--accent-green); border-color: rgba(16, 185, 129, 0.3);">âœ“</div>
                   <div class="step-body" style="flex: 1;">
                     <h4>Low EMA Angle Order Gap Halving (|Angle| &lt; 3&deg;) <span class="badge badge-green">Active</span></h4>
                     <p>Reduces <code>MinimumSameOrderGapRawMatched</code> by 50% (from 50 to 25 raw points) when <code>MathAbs(GlobalEmaAngle30) &lt; 3.0</code>. Tightly clusters trend-aligned entries during low-slope sideways markets while expanding during strong momentum.</p>
@@ -3094,7 +3472,7 @@ flowchart TD
                 </div>
 
                 <div class="step-item" style="cursor: pointer;" onclick="toggleAuditDetail('chk10')">
-                  <div class="step-num" style="background: rgba(16, 185, 129, 0.15); color: var(--accent-green); border-color: rgba(16, 185, 129, 0.3);">✓</div>
+                  <div class="step-num" style="background: rgba(16, 185, 129, 0.15); color: var(--accent-green); border-color: rgba(16, 185, 129, 0.3);">âœ“</div>
                   <div class="step-body" style="flex: 1;">
                     <h4>Order Creation &amp; Closing Real-Time Observability Dashboard <span class="badge badge-green">Active</span></h4>
                     <p>Unified 525px right-side dashboard displaying all critical live gating factors: EMA 30 angle compression, 50% weak retracement state, live Buy/Sell order gaps with nearest distance, spread &amp; candle quota, recovery adverse gap tracking, flip basket TP progress, and daily hard equity stop loss buffer.</p>
@@ -3105,7 +3483,7 @@ flowchart TD
                 </div>
 
                 <div class="step-item" style="cursor: pointer;" onclick="toggleAuditDetail('chk11')">
-                  <div class="step-num" style="background: rgba(16, 185, 129, 0.15); color: var(--accent-green); border-color: rgba(16, 185, 129, 0.3);">✓</div>
+                  <div class="step-num" style="background: rgba(16, 185, 129, 0.15); color: var(--accent-green); border-color: rgba(16, 185, 129, 0.3);">âœ“</div>
                   <div class="step-body" style="flex: 1;">
                     <h4>Partial Loss Close Live Price Gap &amp; Shave Eligibility <span class="badge badge-green">Active</span></h4>
                     <p>Real-time Section 3 dashboard monitor identifying the nearest open order with lots &gt; 0.01 (regular and recovery orders). Tracks floating P/L against loss trigger thresholds (e.g. -$50 for 0.05, -$60 for 0.04, -$70 for 0.03, -$80 for 0.02) and measures live adverse price difference against the $100 raw gap requirement. Dynamically badges <code>[READY: SHAVE 0.01 NOW]</code> or remaining distance needed.</p>
@@ -3116,7 +3494,7 @@ flowchart TD
                 </div>
 
                 <div class="step-item" style="cursor: pointer;" onclick="toggleAuditDetail('chk12')">
-                  <div class="step-num" style="background: rgba(16, 185, 129, 0.15); color: var(--accent-green); border-color: rgba(16, 185, 129, 0.3);">✓</div>
+                  <div class="step-num" style="background: rgba(16, 185, 129, 0.15); color: var(--accent-green); border-color: rgba(16, 185, 129, 0.3);">âœ“</div>
                   <div class="step-body" style="flex: 1;">
                     <h4>Left Live Order Monitor: Dedicated Partial Close Column <span class="badge badge-green">Active</span></h4>
                     <p>Per-order real-time partial shave tracking column embedded into the Left Live Position Monitor table between <code>P/L</code> and <code>COMMENT</code>. For each position, dynamically displays live adverse price difference vs threshold, remaining loss needed, and triggers <code>READY [Shave 0.01]</code> when conditions are met.</p>
@@ -3461,7 +3839,7 @@ flowchart TD
                   <div class="step-num" style="background: rgba(16, 185, 129, 0.15); color: var(--accent-green); border-color: rgba(16, 185, 129, 0.3);">&#10003;</div>
                   <div class="step-body" style="flex: 1;">
                     <h4>Deactivated FLIPBasketSupport Gates 3, 4, 4A, &amp; 4B (Unrestricted Cycle &amp; Replenishment Creation) <span class="badge badge-green">Active</span></h4>
-                    <p>Commented out restrictive filters for <code>FLIPBasketSupport</code> creation per user instruction: (1) <strong>Gate 3 (5-Minute Cool-Off):</strong> Commented out <code>FLIPBasketSupportMinCloseGapSeconds = 300s</code> check in both <code>CreateFLIPBasketSupportOrder()</code> and <code>ManageBasket10USDLockEquity()</code>, allowing immediate creation/re-creation without waiting 5 minutes after a support order closes. (2) <strong>Gate 4 (Recreated Order Dual Gates):</strong> Commented out <code>isRecreatedOrder</code> checks. (3) <strong>Gate 4A (EMA Angle > 5.0°):</strong> Deactivated minimum EMA angle check (<code>MathAbs(GlobalEmaAngle30) &gt; 5.0</code>), allowing support creation regardless of slope angle. (4) <strong>Gate 4B (Opposite Order Loss > $5.00):</strong> Deactivated requirement for opposite orders to be underwater by &gt; $5.00 (<code>HasOppositeOrderTypeLossOver5()</code>).</p>
+                    <p>Commented out restrictive filters for <code>FLIPBasketSupport</code> creation per user instruction: (1) <strong>Gate 3 (5-Minute Cool-Off):</strong> Commented out <code>FLIPBasketSupportMinCloseGapSeconds = 300s</code> check in both <code>CreateFLIPBasketSupportOrder()</code> and <code>ManageBasket10USDLockEquity()</code>, allowing immediate creation/re-creation without waiting 5 minutes after a support order closes. (2) <strong>Gate 4 (Recreated Order Dual Gates):</strong> Commented out <code>isRecreatedOrder</code> checks. (3) <strong>Gate 4A (EMA Angle > 5.0Â°):</strong> Deactivated minimum EMA angle check (<code>MathAbs(GlobalEmaAngle30) &gt; 5.0</code>), allowing support creation regardless of slope angle. (4) <strong>Gate 4B (Opposite Order Loss > $5.00):</strong> Deactivated requirement for opposite orders to be underwater by &gt; $5.00 (<code>HasOppositeOrderTypeLossOver5()</code>).</p>
                     <div id="chk43" style="display: none; margin-top: 10px; font-size: 12.5px; color: var(--accent-blue); background: rgba(0,0,0,0.3); padding: 8px 12px; border-radius: 6px;">
                       <strong>Code Anchor:</strong> <code>CreateFLIPBasketSupportOrder()</code> (L8266-L8318), <code>ManageBasket10USDLockEquity()</code> (L3127-L3142), <code>glbVersion = "V10047  07-10-2026 10.35"</code> (L34) &bull; Clean MetaEditor 4 build (0 errors, 20 warnings).
                     </div>
@@ -3698,6 +4076,28 @@ flowchart TD
                     </div>
                   </div>
                 </div>
+
+                <div class="step-item" style="cursor: pointer;" onclick="toggleAuditDetail('chk65')">
+                  <div class="step-num" style="background: rgba(16, 185, 129, 0.15); color: var(--accent-green); border-color: rgba(16, 185, 129, 0.3);">&#10003;</div>
+                  <div class="step-body" style="flex: 1;">
+                    <h4>Live Position Monitor: Directional Buy P/L and Sell P/L Display <span class="badge badge-green">Active</span></h4>
+                    <p>Upgraded the Left Live Position Monitor summary bar in <code>UpdateLeftLiveOrdersDashboard()</code>. Tracks floating Net P/L independently for BUY orders (<code>buyPL</code>) and SELL orders (<code>sellPL</code>) including swaps and commissions, and presents both values directly on the <code>LEFT_LIVE_PREFIX + "TOTALS"</code> summary line: <code>BUY LOT X.XX   BUY P/L +/-X.XX   SELL LOT X.XX   SELL P/L +/-X.XX   NET P/L +/-X.XX</code>. Provides instant real-time directional feedback on chart without needing to calculate mentally from individual order tickets.</p>
+                    <div id="chk65" style="display: none; margin-top: 10px; font-size: 12.5px; color: var(--accent-blue); background: rgba(0,0,0,0.3); padding: 8px 12px; border-radius: 6px;">
+                      <strong>Code Anchor:</strong> <code>UpdateLeftLiveOrdersDashboard()</code> (L15232), <code>buyPL / sellPL</code> (L15259), <code>LEFT_LIVE_PREFIX+"TOTALS"</code> (L15305) &bull; <code>glbVersion = "V10082"</code> &bull; Clean build (0 errors).
+                    </div>
+                  </div>
+                </div>
+
+                <div class="step-item" style="cursor: pointer;" onclick="toggleAuditDetail('chk66')">
+                  <div class="step-num" style="background: rgba(16, 185, 129, 0.15); color: var(--accent-green); border-color: rgba(16, 185, 129, 0.3);">&#10003;</div>
+                  <div class="step-body" style="flex: 1;">
+                    <h4>Live Position Monitor: Guaranteed Net P/L Front Visibility &amp; Compact Layout <span class="badge badge-green">Active</span></h4>
+                    <p>Resolved text truncation on compact MT4 chart subwindows. In <code>UpdateLeftLiveOrdersDashboard()</code>, reordered Line 2 (<code>LEFT_LIVE_PREFIX + "TOTALS"</code>) to place <code>NET P/L +/-XX.XX</code> at the very front (character 1, pixel 22), rendering it instantly visible on any screen width. Directional volume and P/L were compacted into parenthetical notation: <code>BUY LOT X.XX (P/L +/-XX.XX)   SELL LOT X.XX (P/L +/-XX.XX)</code>. In addition, <code>NET P/L</code> was integrated directly into Line 1 (<code>LEFT_LIVE_PREFIX + "SUMMARY"</code>) for dual-row redundant visibility.</p>
+                    <div id="chk66" style="display: none; margin-top: 10px; font-size: 12.5px; color: var(--accent-blue); background: rgba(0,0,0,0.3); padding: 8px 12px; border-radius: 6px;">
+                      <strong>Code Anchor:</strong> <code>UpdateLeftLiveOrdersDashboard()</code> (L15232), <code>summaryText</code> (L15305), <code>totalsText</code> (L15312) &bull; <code>glbVersion = "V10083"</code> &bull; Clean build (0 errors).
+                    </div>
+                  </div>
+                </div>
               </div>
             </div>
 
@@ -3782,16 +4182,16 @@ flowchart TD
       if (simOrderCount > 0 && (now - lastOrderSimTime < 5000)) {
         const remaining = Math.ceil((5000 - (now - lastOrderSimTime)) / 1000);
         notice.style.display = 'inline-block';
-        notice.innerHTML = `<span class="badge badge-amber">⏳ Intra-Candle 5s Guard Active: Wait ${remaining}s before opening next order!</span>`;
+        notice.innerHTML = `<span class="badge badge-amber">â³ Intra-Candle 5s Guard Active: Wait ${remaining}s before opening next order!</span>`;
         if (delayTimer) clearInterval(delayTimer);
         delayTimer = setInterval(() => {
           const rem = Math.ceil((5000 - (Date.now() - lastOrderSimTime)) / 1000);
           if (rem <= 0) {
             clearInterval(delayTimer);
-            notice.innerHTML = `<span class="badge badge-green">✅ Ready: 5s delay elapsed. Next order permitted!</span>`;
+            notice.innerHTML = `<span class="badge badge-green">âœ… Ready: 5s delay elapsed. Next order permitted!</span>`;
             setTimeout(() => { notice.style.display = 'none'; }, 2000);
           } else {
-            notice.innerHTML = `<span class="badge badge-amber">⏳ Intra-Candle 5s Guard Active: Wait ${rem}s before opening next order!</span>`;
+            notice.innerHTML = `<span class="badge badge-amber">â³ Intra-Candle 5s Guard Active: Wait ${rem}s before opening next order!</span>`;
           }
         }, 300);
         return;
@@ -3876,8 +4276,92 @@ flowchart TD
       el.style.display = (el.style.display === 'none' || el.style.display === '') ? 'block' : 'none';
     }
 
+    // Interactive Scenario Explorer for StopLoss Modify vs Partial Close
+    function evaluateScenario() {
+      const selector = document.getElementById('scenario-selector');
+      if (!selector) return;
+      const val = selector.value;
+      const badge = document.getElementById('scenario-result-badge');
+      const details = document.getElementById('scenario-details');
+      if (!badge || !details) return;
+
+      switch(val) {
+        case 'prof1':
+          badge.style.background = 'rgba(16, 185, 129, 0.15)';
+          badge.style.color = 'var(--accent-green)';
+          badge.style.borderColor = 'rgba(16, 185, 129, 0.3)';
+          badge.innerHTML = 'SL MODIFIED: Micro-Profit $1.00 Breakeven Lock';
+          details.innerHTML = '<strong>Routine:</strong> <code>SecureOneDollarProfit()</code> (L884)<br><strong>Action:</strong> Order SL modified to <code>OrderOpenPrice() + 1.0</code> (BUY) or <code>OrderOpenPrice() - 1.0</code> (SELL).<br><strong>Rationale:</strong> Locks the trade completely risk-free the moment it clears $1.00 net profit. No market close is performed.';
+          break;
+        case 'prof5':
+          badge.style.background = 'rgba(16, 185, 129, 0.15)';
+          badge.style.color = 'var(--accent-green)';
+          badge.style.borderColor = 'rgba(16, 185, 129, 0.3)';
+          badge.innerHTML = 'SL MODIFIED: $5.00 Scalp Profit Floor Lock';
+          details.innerHTML = '<strong>Routine:</strong> <code>ManageFiveDollarLock()</code> (L2602)<br><strong>Action:</strong> Order SL modified to lock at least $5.00 in profit.<br><strong>Rationale:</strong> Prevents profitable scalping bursts from giving back gains during retracements.';
+          break;
+        case 'profStep':
+          badge.style.background = 'rgba(56, 189, 248, 0.15)';
+          badge.style.color = 'var(--accent-blue)';
+          badge.style.borderColor = 'rgba(56, 189, 248, 0.3)';
+          badge.innerHTML = 'SL MODIFIED: Step Ratchet Trailing (Never-Close)';
+          details.innerHTML = '<strong>Routine:</strong> <code>ManageAllOrdersStepTrailingStopLoss()</code> (L9069)<br><strong>Action:</strong> Order SL ratcheted to <code>Bid - MathMax(15.0, Spread * 1.5)</code>.<br><strong>Rationale:</strong> The Never-Close-Immediately core engine trails the runner continuously, locking profit step-by-step while allowing runner positions to catch multi-point wicks.';
+          break;
+        case 'profEmaFlip':
+          badge.style.background = 'rgba(245, 158, 11, 0.15)';
+          badge.style.color = 'var(--accent-amber)';
+          badge.style.borderColor = 'rgba(245, 158, 11, 0.3)';
+          badge.innerHTML = 'SL MODIFIED: Defensive Breakeven Lock on EMA Flip';
+          details.innerHTML = '<strong>Routine:</strong> <code>FlipBasketProtect()</code> (L2847)<br><strong>Action:</strong> Order SL pulled immediately tight to Breakeven / lock price.<br><strong>Rationale:</strong> 200 EMA direction has flipped contrary to the order. Winning orders have SLs defensively locked so macro trend change does not inflict a reversal loss.';
+          break;
+        case 'profWeakEma':
+          badge.style.background = 'rgba(239, 68, 68, 0.15)';
+          badge.style.color = 'var(--accent-red)';
+          badge.style.borderColor = 'rgba(239, 68, 68, 0.3)';
+          badge.innerHTML = 'SL MODIFIED: Tighten SL on Momentum Exhaustion';
+          details.innerHTML = '<strong>Routine:</strong> <code>ManageWeakEmaProfitOrderProtect()</code> (L2952)<br><strong>Action:</strong> Order SL pulled to tight buffer behind live price.<br><strong>Rationale:</strong> <code>IsEmaWEAKDistanceReduced50PercentFromPeak()</code> detected trend momentum has decayed by >50%. Locks accrued gains before the market reverses.';
+          break;
+        case 'lossHeavyPass':
+          badge.style.background = 'rgba(245, 158, 11, 0.15)';
+          badge.style.color = 'var(--accent-amber)';
+          badge.style.borderColor = 'rgba(245, 158, 11, 0.3)';
+          badge.innerHTML = 'PARTIAL CLOSE: 0.01 Lot Shaved from Worst Loser';
+          details.innerHTML = '<strong>Routine:</strong> <code>ManageHeavyExposurePartialLossClose()</code> (L12310)<br><strong>Guard Checks:</strong> <code>CanExecutePartialLossClose(OP_BUY)</code> = PASS (EMA Bearish: YES, SSL Bearish: YES, Strong Momentum: YES, Gap $120 >= $100: YES).<br><strong>Action:</strong> Exactly 0.01 lot is closed from the single worst losing ticket. Anchor price <code>g_lastGlobalPartialLossClosePrice</code> updated to Bid. Parent ticket comments preserved.';
+          break;
+        case 'lossHeavyWeak':
+          badge.style.background = 'rgba(239, 68, 68, 0.15)';
+          badge.style.color = 'var(--accent-red)';
+          badge.style.borderColor = 'rgba(239, 68, 68, 0.3)';
+          badge.innerHTML = 'REJECTED: Partial Close Blocked (EMA Momentum Weak)';
+          details.innerHTML = '<strong>Routine:</strong> <code>CanExecutePartialLossClose(OP_BUY)</code> (L12120) -> BLOCKED!<br><strong>Reason:</strong> <code>IsEmaWEAKDistanceReduced50PercentFromPeak(OP_BUY)</code> is TRUE. When EMA momentum is weak/exhausted, the market is likely to bounce! Cutting 0.01 lot at the bottom is strictly prohibited.';
+          break;
+        case 'lossHeavySameSSL':
+          badge.style.background = 'rgba(239, 68, 68, 0.15)';
+          badge.style.color = 'var(--accent-red)';
+          badge.style.borderColor = 'rgba(239, 68, 68, 0.3)';
+          badge.innerHTML = 'REJECTED: Partial Close Blocked (SSL is Not Opposite)';
+          details.innerHTML = '<strong>Routine:</strong> <code>CanExecutePartialLossClose(OP_BUY)</code> (L12120) -> BLOCKED!<br><strong>Reason:</strong> <code>liveSSL > 0</code> (SSL is still Bullish). Shaving BUY lots is strictly forbidden when SSL channel is in agreement with trade direction.';
+          break;
+        case 'lossHeavySmallGap':
+          badge.style.background = 'rgba(239, 68, 68, 0.15)';
+          badge.style.color = 'var(--accent-red)';
+          badge.style.borderColor = 'rgba(239, 68, 68, 0.3)';
+          badge.innerHTML = 'REJECTED: Partial Close Blocked (Raw Gap $45 < $100)';
+          details.innerHTML = '<strong>Routine:</strong> <code>CanExecutePartialLossClose(OP_BUY)</code> (L12120) -> BLOCKED!<br><strong>Reason:</strong> Raw distance from <code>g_lastGlobalPartialLossClosePrice</code> is $45, failing the mandatory $100 minimum raw price gap requirement. Strictly protects against continuous loss liquidation at the same price.';
+          break;
+        case 'loss50Dollar':
+          badge.style.background = 'rgba(245, 158, 11, 0.15)';
+          badge.style.color = 'var(--accent-amber)';
+          badge.style.borderColor = 'rgba(245, 158, 11, 0.3)';
+          badge.innerHTML = 'PARTIAL CLOSE: 0.01 Lot Shaved via Net Loss Trigger';
+          details.innerHTML = '<strong>Routine:</strong> <code>ManageHeavyExposurePartialLossClose()</code> (L12310)<br><strong>Trigger:</strong> Net P/L <= -$50.00 (Dual Trigger Scenario).<br><strong>Guard Checks:</strong> <code>CanExecutePartialLossClose()</code> = PASS.<br><strong>Action:</strong> Shaves 0.01 lot from the worst losing order, de-risking the account by one unit.';
+          break;
+      }
+    }
+
     window.addEventListener('DOMContentLoaded', () => {
       runLabSim();
+      evaluateScenario();
       // Render initial tab's diagrams
       if (window.mermaid) {
         mermaid.run({ nodes: document.querySelectorAll('#tab-overview .mermaid') });

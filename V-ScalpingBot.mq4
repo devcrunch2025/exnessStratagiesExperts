@@ -32,8 +32,8 @@
 
 // Previous: V10011  03-10-2026 18.25 Partial Close Column in Live Position Monitor
 string TimeframeToString(int timeframe);
-string glbVersion = "V10081 13-10-2026 Mandatory Partial Loss Close Guard (Opposite EMA & SSL, Strong Trend, >$100 Gap)";
-string verShort = "V10081 | " + Symbol() + " " + TimeframeToString(Period());
+string glbVersion = "V10083 13-10-2026 Left Dashboard Net P/L and Directional P/L Layout Optimization";
+string verShort = "V10083 | " + Symbol() + " " + TimeframeToString(Period());
 
 bool OnlyAllowFLIPBasketSupportOrders =false;// true; // TEST ISOLATION: When true, blocks ALL orders in SafeOrderSend except FLIPBasketSupport
 
@@ -88,7 +88,7 @@ double ExceptionalCatchProfitUSD    = 5.0;    // Profit threshold to verify and 
 
 //Chance 1H: Equity Loss Live StopLoss Protection (AccountBalance - AccountEquity > $100 * multiplier)
 bool   EnableEquityLossLiveSLProtect   = true;  // Emergency live SL protect on all open orders when equity loss > $100 * multiplier
-double EquityLossSLThresholdUSD        = 100.0*2; // Base threshold in USD (scaled by balance multiplier)
+double EquityLossSLThresholdUSD        = 100.0*1; // Base threshold in USD (scaled by balance multiplier)
 
 //Chance 1I: Heavy Exposure Partial Loss Close (>0.20 Lots OR >$50 Net Loss, Opposite EMA, Strong Trend, $100 Raw Gap)
 bool   EnableHeavyExposurePartialLossClose = true;    // Shave 0.01 lot from largest loser when total side lots > 0.20 or Net P/L loss > $50 in opposite strong trend
@@ -14548,7 +14548,7 @@ void UpdateDashboard(DailyProtectionState &state)
 
 // Status & Bal/Eq/P&L
    CreateDashboardLabel(DASH_PREFIX+"STATUS", "STATUS  : " + statusText, tx, y+44, 9, statusColor);
-   CreateDashboardLabel(DASH_PREFIX+"BALEQ", "BAL/EQ  : $" + DoubleToString(AccountBalance(), 2) + " / $" + DoubleToString(AccountEquity(), 2), tx, y+62, 9, clrWhite);
+   CreateDashboardLabel(DASH_PREFIX+"BALEQ", "BAL/EQ/TG  : $" + DoubleToString(AccountBalance(), 2) + " / $" + DoubleToString(AccountEquity(), 2)+" /  T $"+DoubleToString(g_basket10USDNextTargetEquity, 2), tx, y+62, 9, clrWhite);
    CreateDashboardLabel(DASH_PREFIX+"FLOAT", "FLOAT   : " + (netProfit >= 0 ? "+$" : "-$") + DoubleToString(MathAbs(netProfit), 2) + " | DAY: " + (dayPL >= 0 ? "+$" : "-$") + DoubleToString(MathAbs(dayPL), 2) + " (" + DoubleToString(dayPLPct, 1) + "%)", tx, y+80, 8, pnlColor);
 
 // SECTION 1: ORDER CREATION ENGINE
@@ -15232,7 +15232,7 @@ void MonitorEquityLossStopLossProtection()
 void UpdateLeftLiveOrdersDashboard()
   {
    int total=0,buyCount=0,sellCount=0,pendingCount=0;
-   double buyLots=0,sellLots=0,netPL=0;
+   double buyLots=0,sellLots=0,buyPL=0,sellPL=0,netPL=0;
    int rows=LeftDashboardMaxRows;
    if(rows<1)
       rows=1;
@@ -15254,21 +15254,24 @@ void UpdateLeftLiveOrdersDashboard()
       if(type!=OP_BUY && type!=OP_SELL && type!=OP_BUYSTOP && type!=OP_SELLSTOP && type!=OP_BUYLIMIT && type!=OP_SELLLIMIT)
          continue;
       total++;
+      double orderPL = (type==OP_BUY || type==OP_SELL) ? (OrderProfit()+OrderSwap()+OrderCommission()) : 0.0;
       if(type==OP_BUY)
         {
          buyCount++;
          buyLots+=OrderLots();
+         buyPL+=orderPL;
         }
       else
          if(type==OP_SELL)
            {
             sellCount++;
             sellLots+=OrderLots();
+            sellPL+=orderPL;
            }
          else
             pendingCount++;
       if(type==OP_BUY || type==OP_SELL)
-         netPL+=OrderProfit()+OrderSwap()+OrderCommission();
+         netPL+=orderPL;
 
       if(openCount < 500)
         {
@@ -15298,8 +15301,21 @@ void UpdateLeftLiveOrdersDashboard()
    CreateLeftLiveLabel(LEFT_LIVE_PREFIX+"TITLE", "LIVE POSITION MONITOR", tx, y+8, 11, clrWhite);
    CreateLeftLiveLabel(LEFT_LIVE_PREFIX+"SYMBOL", Symbol()+"  |  "+TimeframeToString(Period()), x+width-112, y+10, 8, clrLightGray);
    CreateLeftLivePanel(LEFT_LIVE_PREFIX+"SUMMARYBAR", x, y+38, width, 42, C'25,31,42');
-   CreateLeftLiveLabel(LEFT_LIVE_PREFIX+"SUMMARY", "ORDERS "+IntegerToString(total)+"/"+IntegerToString(MaxOpenOrders)+"   BUY "+IntegerToString(buyCount)+"   SELL "+IntegerToString(sellCount)+"   PEND "+IntegerToString(pendingCount), tx, y+45, 8, clrWhite);
-   CreateLeftLiveLabel(LEFT_LIVE_PREFIX+"TOTALS", "BUY LOT "+DoubleToString(buyLots,2)+"   SELL LOT "+DoubleToString(sellLots,2)+"   NET P/L "+(netPL>=0?"+":"")+DoubleToString(netPL,2), tx, y+62, 9, pnlColor);
+   string netPLStr  = (netPL>=0  ? "+" : "") + DoubleToString(netPL,2);
+   string buyPLStr  = (buyPL>=0  ? "+" : "") + DoubleToString(buyPL,2);
+   string sellPLStr = (sellPL>=0 ? "+" : "") + DoubleToString(sellPL,2);
+
+   string summaryText = "ORDERS "+IntegerToString(total)+"/"+IntegerToString(MaxOpenOrders)+
+                        "   BUY "+IntegerToString(buyCount)+
+                        "   SELL "+IntegerToString(sellCount)+
+                        "   PEND "+IntegerToString(pendingCount)+
+                        "   NET P/L "+netPLStr;
+   CreateLeftLiveLabel(LEFT_LIVE_PREFIX+"SUMMARY", summaryText, tx, y+45, 8, clrWhite);
+
+   string totalsText = 
+                       "BUY    "+DoubleToString(buyLots,2)+" (P/L "+buyPLStr+")"+
+                       "SELL   "+DoubleToString(sellLots,2)+" (P/L "+sellPLStr+")"+"  P/L "+netPLStr;
+   CreateLeftLiveLabel(LEFT_LIVE_PREFIX+"TOTALS", totalsText, tx, y+62, 9, pnlColor);
    CreateLeftLiveLabel(LEFT_LIVE_PREFIX+"HEAD", "TYPE       LOT   #ORDER ID     SL     TP              P/L", tx, y+88, 8, clrSilver);
    CreateLeftLiveLabel(LEFT_LIVE_PREFIX+"HEAD_PART", "PART-CLOSE (LIVE DIFF/TRIG)", tx+410, y+88, 8, clrSilver);
    CreateLeftLiveLabel(LEFT_LIVE_PREFIX+"HEAD_COMMENT", "UNCLOSED REASON (> $5) / COMMENT", tx+655, y+88, 8, clrSilver);
