@@ -32,7 +32,7 @@
 
 // Previous: V10011  03-10-2026 18.25 Partial Close Column in Live Position Monitor
 string TimeframeToString(int timeframe);
-string glbVersion = "V10083 13-10-2026 Left Dashboard Net P/L and Directional P/L Layout Optimization";
+string glbVersion = "V10083 13-10-2026 FINAL Slow moment - Heighest Order 0.01";
 string verShort = "V10083 | " + Symbol() + " " + TimeframeToString(Period());
 
 bool OnlyAllowFLIPBasketSupportOrders =false;// true; // TEST ISOLATION: When true, blocks ALL orders in SafeOrderSend except FLIPBasketSupport
