@@ -889,7 +889,7 @@
       <div class="header-pills">
         <span class="pill pill-blue">BTCUSD • M1 Scalper</span>
         <span class="pill pill-purple">Exness Raw / Zero</span>
-        <span class="pill pill-green">V10076 (12-10-2026 23.15)</span>
+        <span class="pill pill-green">V10081 (13-10-2026 12.15)</span>
       </div>
     </div>
 
@@ -1180,6 +1180,47 @@ flowchart TD
               <p class="card-subtitle">
                 High-frequency scalping requires bursting multiple orders during the high-velocity expansion phase of a 1-minute candle while strictly capping maximum exposure at 5 trades per bar to prevent cluster overfill.
               </p>
+            </div>
+
+            <!-- V10081 Universal Mandatory Partial Loss Close Guard Alert -->
+            <div class="alert-box alert-success" style="margin-bottom: 20px;">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="20 6 9 17 4 12"></polyline></svg>
+              <div>
+                <strong>V10081 Universal Mandatory Partial Loss Close Guard (Opposite EMA &amp; SSL, Strong Trend, &gt;$100 Gap):</strong>
+                Standardized centralized gating function <code>CanExecutePartialLossClose(int orderType)</code> governing all 0.01 lot partial loss liquidations across both <code>ManageHeavyExposurePartialLossClose()</code> and <code>ManagePartialClosesLoss()</code>:
+                (1) <strong>BUY partial close</strong> strictly requires <code>EMADirection == -1</code> (opposite bearish EMA), <code>liveSSL &lt; 0</code> (opposite bearish SSL signal, with fallback to <code>GlobalSSLDirection</code>), <code>!IsEmaWEAKDistanceReduced50PercentFromPeak(OP_BUY)</code> (EMA trend is STRONG, not weak), and <code>(lastClosePrice - Bid) &gt;= 100.0</code> (minimum $100 raw price gap);
+                (2) <strong>SELL partial close</strong> strictly requires <code>EMADirection == 1</code> (opposite bullish EMA), <code>liveSSL &gt; 0</code> (opposite bullish SSL signal), <code>!IsEmaWEAKDistanceReduced50PercentFromPeak(OP_SELL)</code> (EMA trend is STRONG, not weak), and <code>(Ask - lastClosePrice) &gt;= 100.0</code> (minimum $100 raw price gap);
+                (3) Any partial loss shave is strictly rejected if any of these four core conditions fail, completely eliminating continuous loss shaved lots.
+              </div>
+            </div>
+
+            <!-- V10080 Heavy Exposure & Net P/L Loss Partial Close Alert -->
+            <div class="alert-box alert-success" style="margin-bottom: 20px;">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="20 6 9 17 4 12"></polyline></svg>
+              <div>
+                <strong>V10080 Heavy Exposure &amp; Net P/L Loss Partial Close Routine (&gt;0.20 Lots OR &gt;$50 Net Loss, $100 Gap):</strong>
+                Upgraded risk-containment routine <code>ManageHeavyExposurePartialLossClose()</code> with a dual-trigger architecture: (1) Triggers when directional exposure exceeds <strong>0.20 lots</strong> (<code>GetTotalLots &gt; 0.20</code>) <strong>OR</strong> when directional/order Net P/L exceeds <strong>$50 loss</strong> (<code>buyNetPL &le; -$50.00</code> / <code>sellNetPL &le; -$50.00</code> / <code>worstPL &le; -$50.00</code> via <code>HeavyExposureNetLossThresholdUSD = 50.0</code>); (2) Requires opposite EMA direction (<code>EMADirection == -1</code> for BUYs, <code>+1</code> for SELLs) and <strong>STRONG</strong> trend momentum (<code>!IsEmaWEAKDistanceReduced50PercentFromPeak</code>); (3) Shaves <strong>0.01 lot</strong> from the single largest losing order, strictly gated by a <strong>minimum $100 raw price gap</strong> (<code>HeavyExposureMinRawGap = 100.0</code>) and synchronized globally with <code>g_lastGlobalPartialLossClosePrice</code> to eliminate continuous liquidation.
+              </div>
+            </div>
+
+            <!-- V10078 Top Order 0.01 Lot Guard & Flip Support Top Position Block Alert -->
+            <div class="alert-box alert-success" style="margin-bottom: 20px;">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="20 6 9 17 4 12"></polyline></svg>
+              <div>
+                <strong>V10078 Top Order 0.01 Lot Guard &amp; Flip Support Top Position Block:</strong>
+                (1) In <code>ChangeLots()</code>, BUY orders where live Ask is the highest price since the EMA flip (top price) or within a $100 raw gap of the highest order from EMA are strictly capped to <strong>0.01 lot</strong> (eliminating catastrophic 0.05 lot reversal losses at peak prices);
+                (2) SELL orders where live Bid is the lowest price since the EMA flip (bottom price) or within a $100 raw gap of the lowest order from EMA are strictly capped to <strong>0.01 lot</strong>;
+                (3) In <code>CreateFLIPBasketSupportOrder()</code> (Gate 0E), FLIPBasketSupport orders are strictly blocked from being placed in the top position or within a $100 raw gap of the extreme price after an EMA flip.
+              </div>
+            </div>
+
+            <!-- V10077 SSL Unmatched Direction Pending Orders Alert -->
+            <div class="alert-box alert-success" style="margin-bottom: 20px;">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="20 6 9 17 4 12"></polyline></svg>
+              <div>
+                <strong>V10077 SSL Orders Converted to Pending Orders on Unmatched Direction (Gap = 20):</strong>
+                When <code>EMADirection != GlobalSSLDirection</code> (counter-trend divergence), SSL signals are no longer executed as instant market orders. Instead, <code>OpenBuy()</code> places an <code>OP_BUYSTOP</code> pending order at <code>Ask + MinimumOppositeDirectionOrderGapRawUnmatched</code> (20.0 pts), and <code>OpenSell()</code> places an <code>OP_SELLSTOP</code> pending order at <code>Bid - MinimumOppositeDirectionOrderGapRawUnmatched</code> (20.0 pts), automatically respecting broker stop levels. StopLoss is computed relative to the pending entry price. Redundant pending orders are prevented via <code>HasPendingSSLOrder()</code>, and all pending orders are automatically purged by <code>DeleteAllPendingEAOrders()</code> upon any trend flip.
+              </div>
             </div>
 
             <div class="grid-2">
@@ -1568,6 +1609,41 @@ sequenceDiagram
                     <td><strong>Pre-Creation Close &amp; Global Single Active FLIPBasketSupport Gate</strong><br><small style="color: var(--text-dim);">Unconditionally closes already open support order before new creation; strictly max 1 active order total</small></td>
                     <td><code>CreateFLIPBasketSupportOrder()</code> L7165<br><code>CloseFLIPBasketSupportOrders(-1)</code> L7124<br><code>HasOpenFLIPBasketSupportOrder(-1)</code> L7105<br><code>glbVersion = "V10024"</code></td>
                     <td>Enforced the safest execution model for <code>FLIPBasketSupport</code>: (1) Inside <code>CreateFLIPBasketSupportOrder()</code>, unconditionally calls <code>CloseFLIPBasketSupportOrders(-1)</code> with 3-attempt retry to close any already open support orders before creating a new one; (2) Enforced global single active support order gate via <code>HasOpenFLIPBasketSupportOrder(-1)</code> which aborts new creation if any support order is still active, guaranteeing strictly at most 1 <code>FLIPBasketSupport</code> runner active across the entire account at any moment. Clean MetaEditor 4 build (0 errors, 20 warnings).</td>
+                    <td><span class="badge badge-green">VERIFIED &amp; DEPLOYED</span></td>
+                  </tr>
+                  <tr>
+                    <td><code>Step 997</code><br><small style="color: var(--accent-amber);">12:15</small></td>
+                    <td><strong>Universal Mandatory Partial Loss Close Guard (Opposite EMA &amp; SSL, Strong Trend, &gt;$100 Gap)</strong><br><small style="color: var(--text-dim);">Centralizes CanExecutePartialLossClose() checking opposite EMA &amp; SSL, strong EMA momentum, and &gt;$100 raw gap</small></td>
+                    <td><code>CanExecutePartialLossClose()</code> L12120<br><code>ManageHeavyExposurePartialLossClose()</code> L12310<br><code>ManagePartialClosesLoss()</code> L12165<br><code>GetCurrentSSLDirection()</code> L3890<br><code>glbVersion = "V10081"</code></td>
+                    <td>Enforced universal centralized safety rules for shaving 0.01 lot during adverse drawdowns via <code>CanExecutePartialLossClose(int orderType)</code>: (1) When closing BUY partial: strictly verifies <code>EMADirection == -1</code>, <code>liveSSL &lt; 0</code>, <code>!IsEmaWEAKDistanceReduced50PercentFromPeak(OP_BUY)</code> (STRONG trend), and <code>(lastClosePrice - Bid) &gt;= 100.0</code> raw gap; (2) When closing SELL partial: strictly verifies <code>EMADirection == 1</code>, <code>liveSSL &gt; 0</code>, <code>!IsEmaWEAKDistanceReduced50PercentFromPeak(OP_SELL)</code> (STRONG trend), and <code>(Ask - lastClosePrice) &gt;= 100.0</code> raw gap; (3) Integrated seamlessly into both <code>ManageHeavyExposurePartialLossClose()</code> and per-ticket order loop in <code>ManagePartialClosesLoss()</code>; (4) Fully synchronizes <code>g_lastGlobalPartialLossClosePrice</code> to eliminate continuous liquidation during whipsaws. Clean MetaEditor 4 build (0 errors, 23 warnings).</td>
+                    <td><span class="badge badge-green">VERIFIED &amp; DEPLOYED</span></td>
+                  </tr>
+                  <tr>
+                    <td><code>Step 996</code><br><small style="color: var(--accent-amber);">11:55</small></td>
+                    <td><strong>Dual-Trigger Heavy Exposure &amp; Net P/L Loss Shave (&gt;0.20 Lots OR &gt;$50 Net Loss)</strong><br><small style="color: var(--text-dim);">Adds dual trigger: shaves 0.01 lot when directional/order Net P/L exceeds $50 loss in addition to lot exposure &gt; 0.20</small></td>
+                    <td><code>ManageHeavyExposurePartialLossClose()</code> L12290<br><code>HeavyExposureNetLossThresholdUSD = 50.0</code> L95<br><code>buyNetPL / sellNetPL</code> L12313<br><code>glbVersion = "V10080"</code></td>
+                    <td>Upgraded <code>ManageHeavyExposurePartialLossClose()</code> to support dual risk triggers: (1) Triggers when directional exposure &gt; 0.20 lots <strong>OR</strong> when directional Net P/L or individual worst-loser Net P/L exceeds <code>$50 loss</code> (<code>buyNetPL &le; -$50.00</code> / <code>sellNetPL &le; -$50.00</code> / <code>worstPL &le; -$50.00</code> via <code>HeavyExposureNetLossThresholdUSD = 50.0</code>); (2) Preserves core guard conditions: opposite EMA direction (<code>EMADirection == -1</code> for BUYs, <code>+1</code> for SELLs) and strong EMA momentum (<code>!IsEmaWEAKDistanceReduced50PercentFromPeak</code>); (3) Shaves <code>0.01 lot</code> from the single largest losing order, enforcing mandatory <strong>minimum $100 raw price gap</strong> spacing between cuts; (4) Fully preserves child ticket comments across split order tickets via <code>RegisterPreservedOrderComment()</code>; (5) Evaluated on every tick in <code>OnTick()</code> and <code>ManagePartialCloses()</code>. Clean MetaEditor 4 build (0 errors, 23 warnings).</td>
+                    <td><span class="badge badge-green">VERIFIED &amp; DEPLOYED</span></td>
+                  </tr>
+                  <tr>
+                    <td><code>Step 995</code><br><small style="color: var(--accent-amber);">11:45</small></td>
+                    <td><strong>Heavy Exposure Partial Loss Close Routine (&gt;0.20 Lots, Opposite EMA, Strong Trend, $100 Gap)</strong><br><small style="color: var(--text-dim);">Shaves 0.01 lot from largest loser when BUY/SELL total lots &gt; 0.20 in opposite strong trend with $100 raw price gap</small></td>
+                    <td><code>ManageHeavyExposurePartialLossClose()</code> L12290<br><code>GetTotalLots()</code> L13330<br><code>IsEmaWEAKDistanceReduced50PercentFromPeak()</code> L14224<br><code>g_lastHeavyExposureBuyClosePrice</code> L95<br><code>g_lastHeavyExposureSellClosePrice</code> L96<br><code>glbVersion = "V10079"</code></td>
+                    <td>Created dedicated exposure containment routine <code>ManageHeavyExposurePartialLossClose()</code>: (1) Triggers when BUY total exposure &gt; 0.20 lots, <code>EMADirection == -1</code> (adverse trend), and EMA trend is STRONG (<code>!IsEmaWEAKDistanceReduced50PercentFromPeak(OP_BUY)</code>); or SELL total exposure &gt; 0.20 lots, <code>EMADirection == +1</code>, and EMA trend is STRONG (<code>!IsEmaWEAKDistanceReduced50PercentFromPeak(OP_SELL)</code>); (2) Identifies and shaves <code>0.01 lot</code> from the single worst losing order (most negative net P/L); (3) Enforces mandatory <strong>minimum $100 raw price gap</strong> between consecutive executions per direction and synchronizes globally with <code>g_lastGlobalPartialLossClosePrice</code> to strictly prevent continuous liquidation; (4) Fully preserves child split ticket comments via <code>RegisterPreservedOrderComment()</code>; (5) Evaluated on every tick in <code>OnTick()</code> and <code>ManagePartialCloses()</code>. Clean MetaEditor 4 build (0 errors, 23 warnings).</td>
+                    <td><span class="badge badge-green">VERIFIED &amp; DEPLOYED</span></td>
+                  </tr>
+                  <tr>
+                    <td><code>Step 994</code><br><small style="color: var(--accent-amber);">11:15</small></td>
+                    <td><strong>Top/Bottom Order 0.01 Lot Guard &amp; FlipBasketSupport Extreme Position Block</strong><br><small style="color: var(--text-dim);">Restricts BUY/SELL orders at peak or within $100 of top/bottom order to 0.01 lot; blocks FLIPBasketSupport at top position</small></td>
+                    <td><code>ChangeLots()</code> L7558<br><code>GetHighestPriceSinceEmaFlip()</code> L5230<br><code>GetLowestPriceSinceEmaFlip()</code> L5265<br><code>IsNearTopOrBottomEmaExtreme()</code> L5300<br><code>CreateFLIPBasketSupportOrder()</code> L8550<br><code>glbVersion = "V10078"</code></td>
+                    <td>Implemented high-risk reversal protection at market extremes: (1) In <code>ChangeLots()</code>, when placing a BUY order and live Ask is at the highest price since the EMA flip or within a $100 raw price gap of the highest order from EMA, lot size is strictly capped at <code>0.01 lot</code> (eliminates severe 0.05 lot drawdown on sharp market reversals from cycle highs); (2) When placing a SELL order and live Bid is at the lowest price since the EMA flip or within a $100 raw price gap of the lowest order from EMA, lot size is strictly capped at <code>0.01 lot</code>; (3) In <code>CreateFLIPBasketSupportOrder()</code> (Gate 0E), support orders are strictly prohibited if proposed entry is within a $100 raw gap of the extreme price reached since the EMA flip, ensuring 0.06 lot support runners are never trapped at top/bottom extremes. Clean MetaEditor 4 build (0 errors, 23 warnings).</td>
+                    <td><span class="badge badge-green">VERIFIED &amp; DEPLOYED</span></td>
+                  </tr>
+                  <tr>
+                    <td><code>Step 993</code><br><small style="color: var(--accent-amber);">10:45</small></td>
+                    <td><strong>SSL Unmatched Direction Pending Orders (MinimumOppositeDirectionOrderGapRawUnmatched = 20)</strong><br><small style="color: var(--text-dim);">Converts SSL Long/Short to OP_BUYSTOP / OP_SELLSTOP pending orders when EMADirection != GlobalSSLDirection</small></td>
+                    <td><code>OpenBuy()</code> L10713<br><code>OpenSell()</code> L10831<br><code>HasPendingSSLOrder()</code> L3975<br><code>SafeOrderSend()</code> L5554<br><code>glbVersion = "V10077"</code></td>
+                    <td>Implemented conditional pending order conversion for SSL entries when <code>EMADirection != GlobalSSLDirection</code> (counter-trend divergence): (1) <code>OpenBuy()</code> converts to <code>OP_BUYSTOP</code> at <code>Ask + MinimumOppositeDirectionOrderGapRawUnmatched</code> (20.0 pts), respecting broker stop distance; (2) <code>OpenSell()</code> converts to <code>OP_SELLSTOP</code> at <code>Bid - MinimumOppositeDirectionOrderGapRawUnmatched</code> (20.0 pts); (3) Automatically computes StopLoss relative to the pending entry price; (4) Prevents duplicate pending orders via <code>HasPendingSSLOrder()</code>; (5) Exempts pending orders in SafeOrderSend from the unmatched direction filter (<code>!isPendingOrder</code>); (6) Retains automatic order purge via <code>DeleteAllPendingEAOrders()</code> on EMA/SSL flip. Clean MetaEditor 4 build (0 errors, 23 warnings).</td>
                     <td><span class="badge badge-green">VERIFIED &amp; DEPLOYED</span></td>
                   </tr>
                   <tr>
@@ -2394,7 +2470,7 @@ flowchart TD
             <div class="grid-4" style="margin-bottom: 24px;">
               <div class="stat-card">
                 <div class="stat-label">Total User Directives</div>
-                <div class="stat-value" style="color: var(--accent-green);">65 / 65</div>
+                <div class="stat-value" style="color: var(--accent-green);">70 / 70</div>
                 <div class="stat-desc">100% Implemented &amp; Audited</div>
               </div>
               <div class="stat-card">
@@ -2404,8 +2480,8 @@ flowchart TD
               </div>
               <div class="stat-card">
                 <div class="stat-label">Active Production Build</div>
-                <div class="stat-value" style="color: var(--accent-purple);">V10076</div>
-                <div class="stat-desc">12-10-2026 10.05 Deployed</div>
+                <div class="stat-value" style="color: var(--accent-purple);">V10081</div>
+                <div class="stat-desc">13-10-2026 12.15 Deployed</div>
               </div>
               <div class="stat-card">
                 <div class="stat-label">Centralized Firewall</div>
@@ -3564,6 +3640,61 @@ flowchart TD
                     <p>Allows recovery orders (0.05 lot) to execute progressive 0.01 lot loss shaving under <code>ManagePartialClosesLoss()</code> upon reaching adverse loss thresholds with a $100 price gap. Prevents loss of recovery identity caused by MT4 server comment rewriting (<code>from #xxxxx</code>) by linking spawned child tickets (0.04, 0.03, etc.) to their original <code>RECOVERY_XXXXX</code> prefix via an in-memory mapping registry and multi-tier resolution system.</p>
                     <div id="chk59" style="display: none; margin-top: 10px; font-size: 12.5px; color: var(--accent-blue); background: rgba(0,0,0,0.3); padding: 8px 12px; border-radius: 6px;">
                       <strong>Code Anchor:</strong> <code>ManagePartialClosesLoss()</code> (L11775), <code>GetEffectiveOrderComment()</code> (L11550), <code>RegisterPreservedOrderComment()</code> (L11530) &bull; <code>glbVersion = "V10076"</code> &bull; Clean build (0 errors).
+                    </div>
+                  </div>
+                </div>
+
+                <div class="step-item" style="cursor: pointer;" onclick="toggleAuditDetail('chk60')">
+                  <div class="step-num" style="background: rgba(16, 185, 129, 0.15); color: var(--accent-green); border-color: rgba(16, 185, 129, 0.3);">&#10003;</div>
+                  <div class="step-body" style="flex: 1;">
+                    <h4>SSL Orders Converted to Pending Orders on Unmatched Direction (Gap = 20) <span class="badge badge-green">Active</span></h4>
+                    <p>Enforces <code>MinimumOppositeDirectionOrderGapRawUnmatched = 20.0</code> when <code>EMADirection != GlobalSSLDirection</code>. Instead of placing immediate market orders, converts <code>SSL Long</code> to an <code>OP_BUYSTOP</code> pending order at <code>Ask + MinimumOppositeDirectionOrderGapRawUnmatched</code> (respecting broker stop distance) and <code>SSL Short</code> to an <code>OP_SELLSTOP</code> pending order at <code>Bid - MinimumOppositeDirectionOrderGapRawUnmatched</code>. Automatically sets StopLoss calculated from the pending entry price and guards against duplicate pending orders via <code>HasPendingSSLOrder()</code>.</p>
+                    <div id="chk60" style="display: none; margin-top: 10px; font-size: 12.5px; color: var(--accent-blue); background: rgba(0,0,0,0.3); padding: 8px 12px; border-radius: 6px;">
+                      <strong>Code Anchor:</strong> <code>OpenBuy()</code> (L10713), <code>OpenSell()</code> (L10831), <code>HasPendingSSLOrder()</code> (L3975), <code>SafeOrderSend()</code> (L5554) &bull; <code>glbVersion = "V10077"</code> &bull; Clean build (0 errors).
+                    </div>
+                  </div>
+                </div>
+
+                <div class="step-item" style="cursor: pointer;" onclick="toggleAuditDetail('chk61')">
+                  <div class="step-num" style="background: rgba(16, 185, 129, 0.15); color: var(--accent-green); border-color: rgba(16, 185, 129, 0.3);">&#10003;</div>
+                  <div class="step-body" style="flex: 1;">
+                    <h4>Top/Bottom Order 0.01 Lot Guard &amp; FlipBasketSupport Extreme Position Block <span class="badge badge-green">Active</span></h4>
+                    <p>In <code>ChangeLots()</code>, BUY orders where live Ask is the highest price since the EMA flip (top price) or within a $100 raw gap of the highest order from EMA are strictly capped to <strong>0.01 lot</strong>, avoiding heavy 0.05 lot losses on sudden market reversals from cycle highs. Similarly, SELL orders where live Bid is the lowest price since the EMA flip (bottom price) or within a $100 raw gap of the lowest order from EMA are strictly capped to <strong>0.01 lot</strong>. In <code>CreateFLIPBasketSupportOrder()</code> (Gate 0E), FLIPBasketSupport orders are strictly prohibited from entering if proposed entry is within a $100 raw gap of extreme prices reached since the EMA flip.</p>
+                    <div id="chk61" style="display: none; margin-top: 10px; font-size: 12.5px; color: var(--accent-blue); background: rgba(0,0,0,0.3); padding: 8px 12px; border-radius: 6px;">
+                      <strong>Code Anchor:</strong> <code>ChangeLots()</code> (L7558), <code>GetHighestPriceSinceEmaFlip()</code> (L5230), <code>GetLowestPriceSinceEmaFlip()</code> (L5265), <code>CreateFLIPBasketSupportOrder()</code> (L8550) &bull; <code>glbVersion = "V10078"</code> &bull; Clean build (0 errors).
+                    </div>
+                  </div>
+                </div>
+
+                <div class="step-item" style="cursor: pointer;" onclick="toggleAuditDetail('chk62')">
+                  <div class="step-num" style="background: rgba(16, 185, 129, 0.15); color: var(--accent-green); border-color: rgba(16, 185, 129, 0.3);">&#10003;</div>
+                  <div class="step-body" style="flex: 1;">
+                    <h4>Heavy Exposure Partial Loss Close Routine (&gt;0.20 Lots, Opposite EMA, Strong Trend, $100 Gap) <span class="badge badge-green">Active</span></h4>
+                    <p>Dedicated exposure containment function <code>ManageHeavyExposurePartialLossClose()</code>. Triggers when directional exposure exceeds <strong>0.20 lots</strong> (<code>GetTotalLots &gt; 0.20</code>), the EMA direction is opposite to trade direction (<code>EMADirection == -1</code> for BUYs, <code>+1</code> for SELLs), and the EMA trend is <strong>STRONG</strong> (<code>!IsEmaWEAKDistanceReduced50PercentFromPeak</code>). Shaves <strong>0.01 lot</strong> from the single largest losing order, enforcing a mandatory <strong>minimum $100 raw price gap</strong> between executions per direction to strictly protect against continuous liquidation at the same price. Seamlessly preserves parent comments on split tickets via <code>RegisterPreservedOrderComment()</code>.</p>
+                    <div id="chk62" style="display: none; margin-top: 10px; font-size: 12.5px; color: var(--accent-blue); background: rgba(0,0,0,0.3); padding: 8px 12px; border-radius: 6px;">
+                      <strong>Code Anchor:</strong> <code>ManageHeavyExposurePartialLossClose()</code> (L12290), <code>GetTotalLots()</code> (L13330), <code>IsEmaWEAKDistanceReduced50PercentFromPeak()</code> (L14224), <code>HeavyExposureMinRawGap = 100.0</code> (L94) &bull; <code>glbVersion = "V10079"</code> &bull; Clean build (0 errors).
+                    </div>
+                  </div>
+                </div>
+
+                <div class="step-item" style="cursor: pointer;" onclick="toggleAuditDetail('chk63')">
+                  <div class="step-num" style="background: rgba(16, 185, 129, 0.15); color: var(--accent-green); border-color: rgba(16, 185, 129, 0.3);">&#10003;</div>
+                  <div class="step-body" style="flex: 1;">
+                    <h4>Dual-Trigger Heavy Exposure &amp; Net P/L Loss Shave (&gt;0.20 Lots OR &gt;$50 Net Loss) <span class="badge badge-green">Active</span></h4>
+                    <p>Extended <code>ManageHeavyExposurePartialLossClose()</code> to support dual triggering criteria. In addition to directional exposure exceeding <strong>0.20 lots</strong>, the routine now also triggers whenever the directional basket Net P/L or individual worst-loser Net P/L exceeds <strong>$50 loss</strong> (<code>buyNetPL &le; -$50.00</code> / <code>sellNetPL &le; -$50.00</code> / <code>worstPL &le; -$50.00</code> via <code>HeavyExposureNetLossThresholdUSD = 50.0</code>). In either trigger scenario, when the EMA direction is adverse and trend momentum is <strong>STRONG</strong> (<code>!IsEmaWEAKDistanceReduced50PercentFromPeak</code>), the bot shaves <strong>0.01 lot</strong> from the worst losing order, maintaining mandatory <strong>$100 raw price gap</strong> spacing between cuts and seamlessly preserving child ticket comments.</p>
+                    <div id="chk63" style="display: none; margin-top: 10px; font-size: 12.5px; color: var(--accent-blue); background: rgba(0,0,0,0.3); padding: 8px 12px; border-radius: 6px;">
+                      <strong>Code Anchor:</strong> <code>ManageHeavyExposurePartialLossClose()</code> (L12290), <code>HeavyExposureNetLossThresholdUSD = 50.0</code> (L95), <code>buyNetPL / sellNetPL</code> (L12313) &bull; <code>glbVersion = "V10080"</code> &bull; Clean build (0 errors).
+                    </div>
+                  </div>
+                </div>
+
+                <div class="step-item" style="cursor: pointer;" onclick="toggleAuditDetail('chk64')">
+                  <div class="step-num" style="background: rgba(16, 185, 129, 0.15); color: var(--accent-green); border-color: rgba(16, 185, 129, 0.3);">&#10003;</div>
+                  <div class="step-body" style="flex: 1;">
+                    <h4>Universal Mandatory Partial Loss Close Guard (Opposite EMA &amp; SSL, Strong Trend, &gt;$100 Gap) <span class="badge badge-green">Active</span></h4>
+                    <p>Enforced centralized mandatory preconditions before any 0.01 lot partial loss cut can execute across the entire EA (in both <code>ManageHeavyExposurePartialLossClose()</code> and <code>ManagePartialClosesLoss()</code>). For BUY partial cuts: <code>EMADirection</code> must be opposite (-1), <code>SSLsignal</code> must be opposite (&lt; 0), <code>IsEmaWEAKDistanceReduced50PercentFromPeak</code> must be strong (trend momentum not decaying), and previous partial close distance must exceed a <strong>$100 raw price gap</strong>. For SELL partial cuts: <code>EMADirection</code> must be opposite (+1), <code>SSLsignal</code> must be opposite (&gt; 0), EMA momentum must be strong, and previous partial close distance must exceed $100 raw gap. All criteria are enforced through <code>CanExecutePartialLossClose()</code>.</p>
+                    <div id="chk64" style="display: none; margin-top: 10px; font-size: 12.5px; color: var(--accent-blue); background: rgba(0,0,0,0.3); padding: 8px 12px; border-radius: 6px;">
+                      <strong>Code Anchor:</strong> <code>CanExecutePartialLossClose()</code> (L12120), <code>ManageHeavyExposurePartialLossClose()</code> (L12310), <code>ManagePartialClosesLoss()</code> (L12165) &bull; <code>glbVersion = "V10081"</code> &bull; Clean build (0 errors).
                     </div>
                   </div>
                 </div>

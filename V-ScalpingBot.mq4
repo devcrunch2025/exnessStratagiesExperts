@@ -32,8 +32,8 @@
 
 // Previous: V10011  03-10-2026 18.25 Partial Close Column in Live Position Monitor
 string TimeframeToString(int timeframe);
-string glbVersion = "V10076 12-10-2026 Recovery Order Partial Loss & Prefix Preservation";
-string verShort = "V10076 | " + Symbol() + " " + TimeframeToString(Period());
+string glbVersion = "V10081 13-10-2026 Mandatory Partial Loss Close Guard (Opposite EMA & SSL, Strong Trend, >$100 Gap)";
+string verShort = "V10081 | " + Symbol() + " " + TimeframeToString(Period());
 
 bool OnlyAllowFLIPBasketSupportOrders =false;// true; // TEST ISOLATION: When true, blocks ALL orders in SafeOrderSend except FLIPBasketSupport
 
@@ -45,7 +45,7 @@ double TargetProfitPerFlipUSD =20*100;//10;//10*2;//10;//5;//20;// 10.0; close a
 
 //Chance 1: 1X Profit Lock (Disabled to give 100-step trailing ladder exclusive authority)
 bool   EnableSecureOneDollarProfit = false;          // Set false to let 100-step trailing ladder handle profit without 1X override
-double SecureOneDollarProfitPerOrder=1.0*1;          // 1X set modify order at profit $1(any lot)
+double SecureOneDollarProfitPerOrder=1.0*2;          // 1X set modify order at profit $1(any lot)
 
 //Chance 1B: Pair Profit 2-Order Combination Live SL Modifier (> $1 profit)
 bool   EnablePairProfitSLModify =true;// false;             // Disabled: avoid 20pt choke so 100-step trailing ladder has full authority
@@ -62,6 +62,10 @@ bool   IsAnyRecoveryOrder(int ticket, string comment = "");
 int    GetRecoveryOrderParentTicket(int ticket, string comment = "");
 void   MonitorEquityLossStopLossProtection();
 double UpdateDynamicBasket10USDLockStep(double netPL);
+double GetTotalLots(int orderType);
+bool   IsEmaWEAKDistanceReduced50PercentFromPeak(int orderType = -1);
+void   ManageHeavyExposurePartialLossClose();
+bool   CanExecutePartialLossClose(int orderType);
 
 //Chance 1C: Basket Buy/Sell 20-Point Micro-Modifier (Disabled to allow positions to reach Step 2/3)
 bool   EnableBasketBuySell20PtSLModify = false;       // Disabled: prevents 20pt choke in modifyOnlyBuyOrders/modifyOnlySellOrders
@@ -84,7 +88,16 @@ double ExceptionalCatchProfitUSD    = 5.0;    // Profit threshold to verify and 
 
 //Chance 1H: Equity Loss Live StopLoss Protection (AccountBalance - AccountEquity > $100 * multiplier)
 bool   EnableEquityLossLiveSLProtect   = true;  // Emergency live SL protect on all open orders when equity loss > $100 * multiplier
-double EquityLossSLThresholdUSD        = 100.0; // Base threshold in USD (scaled by balance multiplier)
+double EquityLossSLThresholdUSD        = 100.0*2; // Base threshold in USD (scaled by balance multiplier)
+
+//Chance 1I: Heavy Exposure Partial Loss Close (>0.20 Lots OR >$50 Net Loss, Opposite EMA, Strong Trend, $100 Raw Gap)
+bool   EnableHeavyExposurePartialLossClose = true;    // Shave 0.01 lot from largest loser when total side lots > 0.20 or Net P/L loss > $50 in opposite strong trend
+double HeavyExposureLotThreshold           = 0.20;    // Exposure threshold in lots (0.20)
+double HeavyExposureNetLossThresholdUSD    = 50.0;    // Net P/L loss threshold in USD ($50.00) to trigger partial loss shave
+double HeavyExposurePartialCloseLot        = 0.01;    // Partial close shave size (0.01)
+double HeavyExposureMinRawGap              = 100.0;   // Minimum $100 raw price gap between partial loss close executions
+double g_lastHeavyExposureBuyClosePrice    = 0.0;     // Last price where heavy BUY exposure partial loss close executed
+double g_lastHeavyExposureSellClosePrice   = 0.0;     // Last price where heavy SELL exposure partial loss close executed
 
 //chance 2
 int partialClose01in05IndividualPercentage=20*1;//10;//2*2;//per lot 0.01//if 0.05 close 0.01 at total profit of 20% means close 0.01 lot
@@ -269,11 +282,13 @@ double closeOppositeLossThreshold =0.01;
 bool DeleteOppositePendingOnSignal = true;
 bool EnableProfitReEntryStop = true;
 double MinimumClosedProfitUSD = -9;
-double ProfitReEntryGapRaw =10;//20;// 50.0; // Raw gap ($50) for ReEntry stop placement
-double MinimumSameOrderGapRawReEntry = 10;//20;//50.0;//10;//20;// 50;
-double MinGapBetweenSSLAndReEntryRaw =10;//  20;//50.0; // Minimum $50 raw gap between SSL Short/Long and ReEntry orders
-double MinimumSameOrderGapRawMatched =10;//  20;//50.0;//30;//10;//20;//50;//20;// 50;
-double MinimumSameOrderGapRawUnmatched =10;//  20;//50.0;//10;//10;//20;// 100;
+double ProfitReEntryGapRaw =20;//10;//20;// 50.0; // Raw gap ($50) for ReEntry stop placement
+double MinimumSameOrderGapRawReEntry =20;// 10;//20;//50.0;//10;//20;// 50;// 
+double MinGapBetweenSSLAndReEntryRaw =20;// 10;//  20;//50.0; // Minimum $50 raw gap between SSL Short/Long and ReEntry orders
+double MinimumSameOrderGapRawMatched =20;// 10;//  20;//50.0;//30;//10;//20;//50;//20;// 50;
+double MinimumSameOrderGapRawUnmatched =20;// 10;//  20;//50.0;//10;//10;//20;// 100;
+double MinimumOppositeDirectionOrderGapRawUnmatched =20;// 10;//  20;//50.0;//10;//10;//20;// 100;
+
 
 bool EnableReEntryNOnMatchingSignal=true;
 
@@ -457,6 +472,7 @@ int ProtectedEquityWaitMinutes = 0;
 //|                                                                  |
 //+------------------------------------------------------------------+
 void DeleteOppositePendingReEntryOrders(int liveSSL);
+bool HasPendingSSLOrder(int pendingType);
 bool HasMinimumRecoveryOrderGap(int orderType, double currentPrice, double minGapRaw = 500.0);
 bool HasMinimumSSLAndReEntryGap(int direction, double targetPrice, double minGapRaw = 50.0, int excludeTicket = -1);
 bool IsEmaWEAKDistanceReduced50PercentFromPeak(int orderType = -1);
@@ -486,6 +502,9 @@ int  GetCurrentSSLDirection();
 double GetDynamicOrderGap(int orderType);
 double GetLiveCalculatedLot(int orderType);
 double GetDistanceToEMAPrice(int orderType = OP_BUY, bool absoluteValue = true);
+double GetHighestPriceSinceEmaFlip();
+double GetLowestPriceSinceEmaFlip();
+bool   IsNearTopOrBottomEmaExtreme(int requestedDirection, double thresholdGapUSD = 100.0);
 
 // --- GLOBAL TICK CACHE ---
 double GlobalEmaAngle30 = 0.0;
@@ -1795,6 +1814,8 @@ void TrackEmaFlip()
       FLIPBasketSupportOpenedThisCycle = false;
       g_flipBasketSupportCreatedInCycle = 0;
       g_weakStateCountPerEmaFlip = 0;  // Reset weak-state counter on each EMA direction flip
+      g_lastHeavyExposureBuyClosePrice = 0.0;  // Reset heavy exposure close tracking on EMA flip
+      g_lastHeavyExposureSellClosePrice = 0.0;
 
       // [COMMENTED OUT EMA ANGLE GATE per user instruction: replaced with EMAdistance gap from live price > 50]
       // GlobalEmaAngle30 = GetEmaAngleDegrees(30);
@@ -2314,6 +2335,7 @@ void OnTick()
    SecureOneDollarProfit();
    CheckEquitySurplusReset();
    MonitorEquityLossStopLossProtection(); // V10074: Equity Loss Live StopLoss Protection (Loss > $100 * multiplier)
+   ManageHeavyExposurePartialLossClose(); // V10079: Heavy Exposure Partial Loss Close (>0.20 Lots, Opposite EMA, Strong Trend, $100 Gap)
 
    ManageOverallBasketProfit();//modify basket orders at $1 profit
    ManageBasket10USDLockEquity(); // Lock basket profit with live SL on $10 fixed equity steps
@@ -2912,6 +2934,8 @@ void ManageWeakEmaProfitOrderProtect()
          continue;
 
       double orderPL = OrderProfit() + OrderSwap() + OrderCommission();
+thresholdUSD=thresholdUSD*OrderLots()*100;
+
       if(orderPL <= thresholdUSD)
          continue;
 
@@ -3964,6 +3988,28 @@ bool HasMinimumSSLAndReEntryGap(int direction, double targetPrice, double minGap
         }
      }
    return true;
+  }
+
+//+------------------------------------------------------------------+
+//| Check if an active pending SSL order of the given type exists    |
+//+------------------------------------------------------------------+
+bool HasPendingSSLOrder(int pendingType)
+  {
+   for(int i = OrdersTotal() - 1; i >= 0; i--)
+     {
+      if(!OrderSelect(i, SELECT_BY_POS, MODE_TRADES))
+         continue;
+      if(OrderSymbol() != Symbol() || OrderMagicNumber() != MagicNumber)
+         continue;
+      if(OrderType() != pendingType)
+         continue;
+      string cmt = OrderComment();
+      if(pendingType == OP_BUYSTOP && StringFind(cmt, "SSL Long") >= 0)
+         return true;
+      if(pendingType == OP_SELLSTOP && StringFind(cmt, "SSL Short") >= 0)
+         return true;
+     }
+   return false;
   }
 
 //+------------------------------------------------------------------+
@@ -5194,6 +5240,94 @@ bool emaflipstrongorweak()
 
    return false;
   }
+
+//+------------------------------------------------------------------+
+//| Get the highest price reached since the last EMA direction flip  |
+//+------------------------------------------------------------------+
+double GetHighestPriceSinceEmaFlip()
+  {
+   RefreshRates();
+   double highest = Ask;
+   int flipShift = (EmaFlipTime > 0) ? iBarShift(Symbol(), Period(), EmaFlipTime, false) : MathMin(Bars - 1, 100);
+   if(flipShift < 0 || flipShift >= Bars)
+      flipShift = MathMin(Bars - 1, 100);
+
+   for(int i = flipShift; i >= 0; i--)
+     {
+      if(High[i] > highest)
+         highest = High[i];
+     }
+   for(int i = OrdersTotal() - 1; i >= 0; i--)
+     {
+      if(!OrderSelect(i, SELECT_BY_POS, MODE_TRADES))
+         continue;
+      if(OrderSymbol() != Symbol() || OrderMagicNumber() != MagicNumber)
+         continue;
+      int oType = OrderType();
+      if(oType == OP_BUY || oType == OP_BUYSTOP || oType == OP_BUYLIMIT)
+        {
+         double oPrice = OrderOpenPrice();
+         if(oPrice > highest)
+            highest = oPrice;
+        }
+     }
+   return highest;
+  }
+
+//+------------------------------------------------------------------+
+//| Get the lowest price reached since the last EMA direction flip   |
+//+------------------------------------------------------------------+
+double GetLowestPriceSinceEmaFlip()
+  {
+   RefreshRates();
+   double lowest = Bid;
+   int flipShift = (EmaFlipTime > 0) ? iBarShift(Symbol(), Period(), EmaFlipTime, false) : MathMin(Bars - 1, 100);
+   if(flipShift < 0 || flipShift >= Bars)
+      flipShift = MathMin(Bars - 1, 100);
+
+   for(int i = flipShift; i >= 0; i--)
+     {
+      if(Low[i] < lowest)
+         lowest = Low[i];
+     }
+   for(int i = OrdersTotal() - 1; i >= 0; i--)
+     {
+      if(!OrderSelect(i, SELECT_BY_POS, MODE_TRADES))
+         continue;
+      if(OrderSymbol() != Symbol() || OrderMagicNumber() != MagicNumber)
+         continue;
+      int oType = OrderType();
+      if(oType == OP_SELL || oType == OP_SELLSTOP || oType == OP_SELLLIMIT)
+        {
+         double oPrice = OrderOpenPrice();
+         if(oPrice < lowest)
+            lowest = oPrice;
+        }
+     }
+   return lowest;
+  }
+
+//+------------------------------------------------------------------+
+//| Check if order is at top/bottom or within $100 gap of extreme    |
+//+------------------------------------------------------------------+
+bool IsNearTopOrBottomEmaExtreme(int requestedDirection, double thresholdGapUSD = 100.0)
+  {
+   RefreshRates();
+   if(requestedDirection == 1) // BUY
+     {
+      double highestPrice = GetHighestPriceSinceEmaFlip();
+      if(Ask >= (highestPrice - thresholdGapUSD))
+         return true;
+     }
+   else if(requestedDirection == -1) // SELL
+     {
+      double lowestPrice = GetLowestPriceSinceEmaFlip();
+      if(Bid <= (lowestPrice + thresholdGapUSD))
+         return true;
+     }
+   return false;
+  }
+
 //+------------------------------------------------------------------+
 //|                                                                  |
 //+------------------------------------------------------------------+
@@ -5524,7 +5658,7 @@ int SafeOrderSend(string symbol,int orderType,double lots,double price,int slipp
      }
 
 
-   if(!isFlipBasketSupport && EMADirection!=GlobalSSLDirection  && StopLossUSD<10)
+   if(!isFlipBasketSupport && !isPendingOrder && EMADirection!=GlobalSSLDirection  && StopLossUSD<10)
       return -1;
 
 // =========================================================================
@@ -7405,7 +7539,7 @@ void ChangeLots(double OpenPL, string reason, int orderType, int stoplevelStep)
      
       if(GlobalSSLDirection != EMADirection && IsEmaWEAKDistanceReduced50PercentFromPeak())
      {
-      Lots = 0.04;
+      Lots = 0.01;
 
 
      }
@@ -7438,6 +7572,17 @@ void ChangeLots(double OpenPL, string reason, int orderType, int stoplevelStep)
 //   }
 //*************************************final*****************************************************************
 
+   // Top Order from EMA & $100 Zone Protection (V10078)
+   // For BUY: If live Ask is highest (after EMA flip) top price, or in $100 raw gap of top order -> always lot 0.01.
+   // For SELL: If live Bid is lowest (after EMA flip) live price, or in $100 raw gap of lowest order -> always lot 0.01.
+   bool isTopExtreme = IsNearTopOrBottomEmaExtreme(requestedDirection, 100.0);
+   if(isTopExtreme)
+     {
+      Lots = 0.01;
+      Print("TOP/BOTTOM ZONE LOT PROTECTION: ", (requestedDirection == 1 ? "BUY" : "SELL"),
+            " order is at extreme price (after EMA flip) or within $100 raw gap of top/bottom order. Locking Lots = 0.01.");
+     }
+
    if(Lots < 0.01)
       Lots = 0.01;
 
@@ -7452,6 +7597,11 @@ void ChangeLots(double OpenPL, string reason, int orderType, int stoplevelStep)
    if(balancelomultipler < 1)
       balancelomultipler = 1;
    Lots = Lots * balancelomultipler;
+
+   if(isTopExtreme)
+     {
+      Lots = 0.01; // Strict 0.01 cap on top orders ("Top order from EMA should not be more than 0.01")
+     }
 
    Lots = NormalizeLots(Lots);
 
@@ -8411,6 +8561,41 @@ if(GetOpenPL(targetOrderType)>=0)
            }
         }
       return -1;
+     }
+
+   // Top / Bottom Position Guard for FLIPBasketSupport (V10078)
+   // FLIPBasketSupport order must not be in the top position or within $100 of extreme price after EMA flip
+   if(flipDirection == 1) // BUY
+     {
+      double highestAfterFlip = GetHighestPriceSinceEmaFlip();
+      if(proposedEntryPrice >= (highestAfterFlip - 100.0))
+        {
+         static datetime lastFlipTopLogTime = 0;
+         if(TimeCurrent() - lastFlipTopLogTime >= 30)
+           {
+            lastFlipTopLogTime = TimeCurrent();
+            Print("FLIPBasketSupport order blocked [Gate 0E - Top Position]: Proposed BUY entry (",
+                  DoubleToString(proposedEntryPrice, Digits), ") is within $100 of peak price since EMA flip (",
+                  DoubleToString(highestAfterFlip, Digits), "). FlipBasketSupport must not be in top position.");
+           }
+         return -1;
+        }
+     }
+   else if(flipDirection == -1) // SELL
+     {
+      double lowestAfterFlip = GetLowestPriceSinceEmaFlip();
+      if(proposedEntryPrice <= (lowestAfterFlip + 100.0))
+        {
+         static datetime lastFlipBottomLogTime = 0;
+         if(TimeCurrent() - lastFlipBottomLogTime >= 30)
+           {
+            lastFlipBottomLogTime = TimeCurrent();
+            Print("FLIPBasketSupport order blocked [Gate 0E - Bottom Position]: Proposed SELL entry (",
+                  DoubleToString(proposedEntryPrice, Digits), ") is within $100 of lowest price since EMA flip (",
+                  DoubleToString(lowestAfterFlip, Digits), "). FlipBasketSupport must not be in bottom position.");
+           }
+         return -1;
+        }
      }
 
 // 0F. 0.05 Lot Minimum Gap Gate:
@@ -10686,6 +10871,54 @@ void OpenBuy()
       return;
 
      }
+   if(EMADirection != GlobalSSLDirection)
+     {
+      if(HasPendingSSLOrder(OP_BUYSTOP))
+         return;
+
+      RefreshRates();
+      double minStopDist = GetRequiredStopDistance();
+      double gap = MathMax(MinimumOppositeDirectionOrderGapRawUnmatched, minStopDist);
+      double entryPrice = NormalizeDouble(Ask + gap, Digits);
+
+      if(!HasMinimumSSLAndReEntryGap(OP_BUY, entryPrice, MinGapBetweenSSLAndReEntryRaw))
+        {
+         Print("OpenBuy Pending Blocked: Minimum gap to existing ReEntry/SSL order not met (entryPrice=", DoubleToString(entryPrice, Digits), ")");
+         return;
+        }
+      if(!HasMinimumSameOrderGap(OP_BUY, GetDynamicOrderGap(OP_BUY)))
+        {
+         Print("OpenBuy Pending Blocked HasMinimumSameOrderGap ", DoubleToString(GetDynamicOrderGap(OP_BUY), 2));
+         return;
+        }
+
+      reEntryCounter = 0;
+      SaveReEntryCounter();
+      ChangeLots(GlobalSellPL, "SSL Long", OP_BUY, 0);
+      Lots = NormalizeLots(Lots);
+      if(Lots <= 0.0)
+         return;
+
+      RefreshRates();
+      entryPrice = NormalizeDouble(Ask + gap, Digits);
+      double slDistance = CalculatePriceDistanceUSD(StopLossUSD, Lots);
+      if(slDistance <= 0.0)
+        {
+         Print("OpenBuy Pending Blocked CalculatePriceDistanceUSD");
+         return;
+        }
+      double stopLoss = NormalizeDouble(entryPrice - slDistance, Digits);
+
+      int ticket = SafeOrderSend(Symbol(), OP_BUYSTOP, Lots, entryPrice, Slippage, stopLoss, 0, "SSL Long", MagicNumber, BuyColor);
+      if(ticket > 0)
+        {
+         RegisterNewCandleOrder();
+         Print("SSL UNMATCHED: Created OP_BUYSTOP pending order #", ticket, " at ", DoubleToString(entryPrice, Digits),
+               " | Gap=", DoubleToString(gap, Digits), " | SL=", DoubleToString(stopLoss, Digits),
+               " | EMA=", EMADirection, " != SSL=", GlobalSSLDirection);
+        }
+      return;
+     }
    if(!HasMinimumSSLAndReEntryGap(OP_BUY, Ask, MinGapBetweenSSLAndReEntryRaw))
      {
       Print("OpenBuy Blocked: Minimum $50 raw gap to existing ReEntry/SSL order not met (Ask=", DoubleToString(Ask, Digits), ")");
@@ -10755,6 +10988,54 @@ void OpenSell()
       Print("IsSafeToCreateMarketOrder ");
       return;
 
+     }
+   if(EMADirection != GlobalSSLDirection)
+     {
+      if(HasPendingSSLOrder(OP_SELLSTOP))
+         return;
+
+      RefreshRates();
+      double minStopDist = GetRequiredStopDistance();
+      double gap = MathMax(MinimumOppositeDirectionOrderGapRawUnmatched, minStopDist);
+      double entryPrice = NormalizeDouble(Bid - gap, Digits);
+
+      if(!HasMinimumSSLAndReEntryGap(OP_SELL, entryPrice, MinGapBetweenSSLAndReEntryRaw))
+        {
+         Print("OpenSell Pending Blocked: Minimum gap to existing ReEntry/SSL order not met (entryPrice=", DoubleToString(entryPrice, Digits), ")");
+         return;
+        }
+      if(!HasMinimumSameOrderGap(OP_SELL, GetDynamicOrderGap(OP_SELL)))
+        {
+         Print("OpenSell Pending Blocked HasMinimumSameOrderGap ", DoubleToString(GetDynamicOrderGap(OP_SELL), 2));
+         return;
+        }
+
+      reEntryCounter = 0;
+      SaveReEntryCounter();
+      ChangeLots(GlobalBuyPL, "SSL Short", OP_SELL, 0);
+      Lots = NormalizeLots(Lots);
+      if(Lots <= 0.0)
+         return;
+
+      RefreshRates();
+      entryPrice = NormalizeDouble(Bid - gap, Digits);
+      double slDistance = CalculatePriceDistanceUSD(StopLossUSD, Lots);
+      if(slDistance <= 0.0)
+        {
+         Print("OpenSell Pending Blocked CalculatePriceDistanceUSD ");
+         return;
+        }
+      double stopLoss = NormalizeDouble(entryPrice + slDistance, Digits);
+
+      int ticket = SafeOrderSend(Symbol(), OP_SELLSTOP, Lots, entryPrice, Slippage, stopLoss, 0, "SSL Short", MagicNumber, SellColor);
+      if(ticket > 0)
+        {
+         RegisterNewCandleOrder();
+         Print("SSL UNMATCHED: Created OP_SELLSTOP pending order #", ticket, " at ", DoubleToString(entryPrice, Digits),
+               " | Gap=", DoubleToString(gap, Digits), " | SL=", DoubleToString(stopLoss, Digits),
+               " | EMA=", EMADirection, " != SSL=", GlobalSSLDirection);
+        }
+      return;
      }
    if(!HasMinimumSSLAndReEntryGap(OP_SELL, Bid, MinGapBetweenSSLAndReEntryRaw))
      {
@@ -11767,6 +12048,96 @@ double GetPartialLossRequiredGap()
 
 //+------------------------------------------------------------------+
 //| Partial Loss Close                                               |
+//+------------------------------------------------------------------+
+//| CanExecutePartialLossClose                                       |
+//| V10081: Universal mandatory basic conditions before closing      |
+//| a partial loss order (losing 0.01 lot):                          |
+//| 1. For BUY partial close:                                        |
+//|    - EMADirection is opposite (EMADirection == -1)               |
+//|    - SSL signal is opposite (liveSSL < 0)                        |
+//|    - isemaweak should be strong (!IsEmaWEAKDistanceReduced50%)   |
+//|    - Previous partial close distance > $100 raw price gap        |
+//| 2. For SELL partial close:                                       |
+//|    - EMADirection is opposite (EMADirection == 1)                |
+//|    - SSL signal is opposite (liveSSL > 0)                        |
+//|    - isemaweak should be strong (!IsEmaWEAKDistanceReduced50%)   |
+//|    - Previous partial close distance > $100 raw price gap        |
+//+------------------------------------------------------------------+
+bool CanExecutePartialLossClose(int orderType)
+  {
+   int liveSSL = GetCurrentSSLDirection();
+   if(liveSSL == 0)
+      liveSSL = GlobalSSLDirection;
+
+   RefreshRates();
+
+   if(orderType == OP_BUY)
+     {
+      // Condition 1: EMADirection must be opposite (Bearish == -1)
+      if(EMADirection != -1)
+         return false;
+
+      // Condition 2: SSL signal must be opposite (Bearish < 0)
+      if(liveSSL >= 0)
+         return false;
+
+      // Condition 3: isemaweak should be strong (NOT reduced 50% from peak)
+      if(IsEmaWEAKDistanceReduced50PercentFromPeak(OP_BUY))
+         return false;
+
+      // Condition 4: Previous partial close distance must be more than $100 raw gap
+      if(g_lastGlobalPartialLossClosePrice > 0.0)
+        {
+         if(g_lastGlobalPartialLossCloseType == OP_BUY)
+           {
+            if((g_lastGlobalPartialLossClosePrice - Bid) < 100.0)
+               return false;
+           }
+         else
+           {
+            if(MathAbs(Bid - g_lastGlobalPartialLossClosePrice) < 100.0)
+               return false;
+           }
+        }
+
+      return true;
+     }
+   else if(orderType == OP_SELL)
+     {
+      // Condition 1: EMADirection must be opposite (Bullish == 1)
+      if(EMADirection != 1)
+         return false;
+
+      // Condition 2: SSL signal must be opposite (Bullish > 0)
+      if(liveSSL <= 0)
+         return false;
+
+      // Condition 3: isemaweak should be strong (NOT reduced 50% from peak)
+      if(IsEmaWEAKDistanceReduced50PercentFromPeak(OP_SELL))
+         return false;
+
+      // Condition 4: Previous partial close distance must be more than $100 raw gap
+      if(g_lastGlobalPartialLossClosePrice > 0.0)
+        {
+         if(g_lastGlobalPartialLossCloseType == OP_SELL)
+           {
+            if((Ask - g_lastGlobalPartialLossClosePrice) < 100.0)
+               return false;
+           }
+         else
+           {
+            if(MathAbs(Ask - g_lastGlobalPartialLossClosePrice) < 100.0)
+               return false;
+           }
+        }
+
+      return true;
+     }
+
+   return false;
+  }
+//+------------------------------------------------------------------+
+//| Partial Loss Close                                               |
 //|                                                                  |
 //| Base triggers (at StopLossUSD = 10):                             |
 //| Lot Size   Loss Trigger   Partial Close                          |
@@ -11792,6 +12163,14 @@ void ManagePartialClosesLoss()
       int orderType = OrderType();
 
       if(orderType != OP_BUY && orderType != OP_SELL)
+         continue;
+
+      // Mandatory basic conditions before losing lot 0.01 (V10081):
+      // 1. EMADirection is opposite
+      // 2. SSL signal is opposite
+      // 3. isemaweak should be strong
+      // 4. Previous partial close distance > $100 raw gap
+      if(!CanExecutePartialLossClose(orderType))
          continue;
 
       double orderLots     = OrderLots();
@@ -12009,6 +12388,334 @@ void ManagePartialClosesLoss()
      }
   }
 //+------------------------------------------------------------------+
+//| ManageHeavyExposurePartialLossClose                              |
+//| V10080: Exposure containment partial loss close routine.        |
+//| Triggers when:                                                   |
+//|   1. BUY exposure > 0.20 lots OR BUY Net P/L > $50 loss:         |
+//|      - EMADirection == -1 (Opposite direction, adverse trend)    |
+//|      - !IsEmaWEAKDistanceReduced50PercentFromPeak(OP_BUY)        |
+//|        (EMA trend is STRONG / active follow-through)             |
+//|      - Minimum $100 raw gap from previous partial close          |
+//|      - Shaves 0.01 lot from the largest loser                    |
+//|   2. SELL exposure > 0.20 lots OR SELL Net P/L > $50 loss:       |
+//|      - EMADirection == 1 (Opposite direction, adverse trend)     |
+//|      - !IsEmaWEAKDistanceReduced50PercentFromPeak(OP_SELL)       |
+//|        (EMA trend is STRONG / active follow-through)             |
+//|      - Minimum $100 raw gap from previous partial close          |
+//|      - Shaves 0.01 lot from the largest loser                    |
+//+------------------------------------------------------------------+
+void ManageHeavyExposurePartialLossClose()
+  {
+   if(!EnableHeavyExposurePartialLossClose)
+      return;
+
+   RefreshRates();
+
+   double totalBuyLots  = 0.0;
+   double totalSellLots = 0.0;
+   double buyNetPL      = 0.0;
+   double sellNetPL     = 0.0;
+
+   int    worstBuyTicket   = -1;
+   double worstBuyPL       = 0.0;
+   double worstBuyLots     = 0.0;
+   string worstBuyComment  = "";
+
+   int    worstSellTicket  = -1;
+   double worstSellPL      = 0.0;
+   double worstSellLots    = 0.0;
+   string worstSellComment = "";
+
+   for(int i = OrdersTotal() - 1; i >= 0; i--)
+     {
+      if(!OrderSelect(i, SELECT_BY_POS, MODE_TRADES))
+         continue;
+      if(OrderSymbol() != Symbol() || OrderMagicNumber() != MagicNumber)
+         continue;
+
+      int oType = OrderType();
+      double lots = OrderLots();
+      double pl   = OrderProfit() + OrderSwap() + OrderCommission();
+
+      if(oType == OP_BUY)
+        {
+         totalBuyLots += lots;
+         buyNetPL     += pl;
+         if(pl < worstBuyPL)
+           {
+            worstBuyPL      = pl;
+            worstBuyTicket  = OrderTicket();
+            worstBuyLots    = lots;
+            worstBuyComment = OrderComment();
+           }
+        }
+      else if(oType == OP_SELL)
+        {
+         totalSellLots += lots;
+         sellNetPL     += pl;
+         if(pl < worstSellPL)
+           {
+            worstSellPL      = pl;
+            worstSellTicket  = OrderTicket();
+            worstSellLots    = lots;
+            worstSellComment = OrderComment();
+           }
+        }
+     }
+
+   double totalNetPL = buyNetPL + sellNetPL;
+
+   // ===============================================================
+   // 1. BUY EXPOSURE CHECK (> 0.20 lots OR Net P/L > $50 Loss, Opposite EMA == -1, Strong Trend)
+   // ===============================================================
+   bool buyExposureTrigger = (totalBuyLots > HeavyExposureLotThreshold) ||
+                             (buyNetPL <= -HeavyExposureNetLossThresholdUSD) ||
+                             (worstBuyPL <= -HeavyExposureNetLossThresholdUSD) ||
+                             (totalNetPL <= -HeavyExposureNetLossThresholdUSD);
+
+   if(buyExposureTrigger && CanExecutePartialLossClose(OP_BUY))
+     {
+      bool buyGapSatisfied = true;
+
+      // Check gap against previous heavy exposure BUY close price
+      if(g_lastHeavyExposureBuyClosePrice > 0.0)
+        {
+         if((g_lastHeavyExposureBuyClosePrice - Bid) < HeavyExposureMinRawGap)
+            buyGapSatisfied = false;
+        }
+
+      // Check gap against global partial loss close price
+      if(buyGapSatisfied && g_lastGlobalPartialLossClosePrice > 0.0)
+        {
+         if(g_lastGlobalPartialLossCloseType == OP_BUY)
+           {
+            if((g_lastGlobalPartialLossClosePrice - Bid) < HeavyExposureMinRawGap)
+               buyGapSatisfied = false;
+           }
+         else
+           {
+            if(MathAbs(Bid - g_lastGlobalPartialLossClosePrice) < HeavyExposureMinRawGap)
+               buyGapSatisfied = false;
+           }
+        }
+
+      if(buyGapSatisfied && worstBuyTicket > 0 && worstBuyPL < 0.0)
+        {
+         double minLot  = MarketInfo(Symbol(), MODE_MINLOT);
+         double lotStep = MarketInfo(Symbol(), MODE_LOTSTEP);
+         if(minLot <= 0.0)   minLot = 0.01;
+         if(lotStep <= 0.0)  lotStep = 0.01;
+
+         double lotsToClose = HeavyExposurePartialCloseLot; // 0.01
+         lotsToClose = MathFloor(lotsToClose / lotStep + 0.0000001) * lotStep;
+         lotsToClose = NormalizeDouble(lotsToClose, 2);
+         if(lotsToClose < minLot)
+            lotsToClose = minLot;
+         if(lotsToClose > 0.01)
+            lotsToClose = 0.01;
+
+         if(worstBuyLots <= minLot + 0.0000001)
+            lotsToClose = worstBuyLots;
+
+         int baseTicket = GetOriginalTicket(worstBuyTicket, worstBuyComment);
+         if(baseTicket <= 0)
+            baseTicket = worstBuyTicket;
+
+         string effectiveComment = GetEffectiveOrderComment(worstBuyTicket, worstBuyComment);
+         bool   isRecoveryOrder  = IsAnyRecoveryOrder(worstBuyTicket, worstBuyComment);
+
+         RefreshRates();
+         double closePrice = Bid;
+         ResetLastError();
+
+         bool success = OrderClose(worstBuyTicket, lotsToClose, closePrice, Slippage, clrRed);
+         if(success)
+           {
+            g_lastHeavyExposureBuyClosePrice   = closePrice;
+            g_lastGlobalPartialLossClosePrice  = closePrice;
+            g_lastGlobalPartialLossCloseType   = OP_BUY;
+            g_lastGlobalPartialLossCloseTime   = TimeCurrent();
+            g_lastGlobalPartialLossCloseTicket = worstBuyTicket;
+
+            UpdateTicketClosePrice(baseTicket, closePrice);
+            if(worstBuyTicket != baseTicket)
+               UpdateTicketClosePrice(worstBuyTicket, closePrice);
+
+            int spawnedChildTicket = -1;
+            for(int s = OrdersTotal() - 1; s >= 0; s--)
+              {
+               if(!OrderSelect(s, SELECT_BY_POS, MODE_TRADES))
+                  continue;
+               if(OrderSymbol() != Symbol() || OrderMagicNumber() != MagicNumber)
+                  continue;
+               string sc = OrderComment();
+               if(StringFind(sc, "from #" + IntegerToString(worstBuyTicket)) >= 0)
+                 {
+                  spawnedChildTicket = OrderTicket();
+                  if(isRecoveryOrder || effectiveComment != "")
+                    {
+                     RegisterPreservedOrderComment(spawnedChildTicket, effectiveComment);
+                    }
+                  break;
+                 }
+              }
+
+            string reason = "";
+            if(totalBuyLots > HeavyExposureLotThreshold)
+               reason = "Lots=" + DoubleToString(totalBuyLots, 2) + " > " + DoubleToString(HeavyExposureLotThreshold, 2);
+            if(buyNetPL <= -HeavyExposureNetLossThresholdUSD)
+               reason = (reason != "" ? reason + " | " : "") + "BuyNetPL=$" + DoubleToString(buyNetPL, 2) + " <= -$" + DoubleToString(HeavyExposureNetLossThresholdUSD, 2);
+            else if(worstBuyPL <= -HeavyExposureNetLossThresholdUSD)
+               reason = (reason != "" ? reason + " | " : "") + "WorstOrderPL=$" + DoubleToString(worstBuyPL, 2) + " <= -$" + DoubleToString(HeavyExposureNetLossThresholdUSD, 2);
+
+            Print("HEAVY EXPOSURE PARTIAL CLOSE [BUY] SUCCESS | Trigger: [", reason, "]",
+                  " | Ticket #", worstBuyTicket,
+                  " | Parent=#", baseTicket,
+                  (spawnedChildTicket > 0 ? (" | SpawnedChild=#" + IntegerToString(spawnedChildTicket)) : ""),
+                  (isRecoveryOrder ? (" | PreservedPrefix='" + effectiveComment + "'") : ""),
+                  " | ClosedLots=", DoubleToString(lotsToClose, 2),
+                  " | RemainingLots=", DoubleToString(worstBuyLots - lotsToClose, 2),
+                  " | P/L=$", DoubleToString(worstBuyPL, 2),
+                  " | ClosePrice=", DoubleToString(closePrice, Digits),
+                  " | TotalBuyLots=", DoubleToString(totalBuyLots, 2),
+                  " | BuyNetPL=$", DoubleToString(buyNetPL, 2),
+                  " | EMADirection=-1 (Opposite) | SSL=-1 (Opposite) | Trend=Strong",
+                  " | NextMinGap=$", DoubleToString(HeavyExposureMinRawGap, 1));
+            return;
+           }
+         else
+           {
+            Print("HEAVY EXPOSURE PARTIAL CLOSE [BUY] FAILED | Ticket #", worstBuyTicket, " Error: ", GetLastError());
+           }
+        }
+     }
+
+   // ===============================================================
+   // 2. SELL EXPOSURE CHECK (> 0.20 lots OR Net P/L > $50 Loss, Opposite EMA == +1, Strong Trend)
+   // ===============================================================
+   bool sellExposureTrigger = (totalSellLots > HeavyExposureLotThreshold) ||
+                              (sellNetPL <= -HeavyExposureNetLossThresholdUSD) ||
+                              (worstSellPL <= -HeavyExposureNetLossThresholdUSD) ||
+                              (totalNetPL <= -HeavyExposureNetLossThresholdUSD);
+
+   if(sellExposureTrigger && CanExecutePartialLossClose(OP_SELL))
+     {
+      bool sellGapSatisfied = true;
+
+      // Check gap against previous heavy exposure SELL close price
+      if(g_lastHeavyExposureSellClosePrice > 0.0)
+        {
+         if((Ask - g_lastHeavyExposureSellClosePrice) < HeavyExposureMinRawGap)
+            sellGapSatisfied = false;
+        }
+
+      // Check gap against global partial loss close price
+      if(sellGapSatisfied && g_lastGlobalPartialLossClosePrice > 0.0)
+        {
+         if(g_lastGlobalPartialLossCloseType == OP_SELL)
+           {
+            if((Ask - g_lastGlobalPartialLossClosePrice) < HeavyExposureMinRawGap)
+               sellGapSatisfied = false;
+           }
+         else
+           {
+            if(MathAbs(Ask - g_lastGlobalPartialLossClosePrice) < HeavyExposureMinRawGap)
+               sellGapSatisfied = false;
+           }
+        }
+
+      if(sellGapSatisfied && worstSellTicket > 0 && worstSellPL < 0.0)
+        {
+         double minLot  = MarketInfo(Symbol(), MODE_MINLOT);
+         double lotStep = MarketInfo(Symbol(), MODE_LOTSTEP);
+         if(minLot <= 0.0)   minLot = 0.01;
+         if(lotStep <= 0.0)  lotStep = 0.01;
+
+         double lotsToClose = HeavyExposurePartialCloseLot; // 0.01
+         lotsToClose = MathFloor(lotsToClose / lotStep + 0.0000001) * lotStep;
+         lotsToClose = NormalizeDouble(lotsToClose, 2);
+         if(lotsToClose < minLot)
+            lotsToClose = minLot;
+         if(lotsToClose > 0.01)
+            lotsToClose = 0.01;
+
+         if(worstSellLots <= minLot + 0.0000001)
+            lotsToClose = worstSellLots;
+
+         int baseTicket = GetOriginalTicket(worstSellTicket, worstSellComment);
+         if(baseTicket <= 0)
+            baseTicket = worstSellTicket;
+
+         string effectiveComment = GetEffectiveOrderComment(worstSellTicket, worstSellComment);
+         bool   isRecoveryOrder  = IsAnyRecoveryOrder(worstSellTicket, worstSellComment);
+
+         RefreshRates();
+         double closePrice = Ask;
+         ResetLastError();
+
+         bool success = OrderClose(worstSellTicket, lotsToClose, closePrice, Slippage, clrBlue);
+         if(success)
+           {
+            g_lastHeavyExposureSellClosePrice  = closePrice;
+            g_lastGlobalPartialLossClosePrice  = closePrice;
+            g_lastGlobalPartialLossCloseType   = OP_SELL;
+            g_lastGlobalPartialLossCloseTime   = TimeCurrent();
+            g_lastGlobalPartialLossCloseTicket = worstSellTicket;
+
+            UpdateTicketClosePrice(baseTicket, closePrice);
+            if(worstSellTicket != baseTicket)
+               UpdateTicketClosePrice(worstSellTicket, closePrice);
+
+            int spawnedChildTicket = -1;
+            for(int s = OrdersTotal() - 1; s >= 0; s--)
+              {
+               if(!OrderSelect(s, SELECT_BY_POS, MODE_TRADES))
+                  continue;
+               if(OrderSymbol() != Symbol() || OrderMagicNumber() != MagicNumber)
+                  continue;
+               string sc = OrderComment();
+               if(StringFind(sc, "from #" + IntegerToString(worstSellTicket)) >= 0)
+                 {
+                  spawnedChildTicket = OrderTicket();
+                  if(isRecoveryOrder || effectiveComment != "")
+                    {
+                     RegisterPreservedOrderComment(spawnedChildTicket, effectiveComment);
+                    }
+                  break;
+                 }
+              }
+
+            string reason = "";
+            if(totalSellLots > HeavyExposureLotThreshold)
+               reason = "Lots=" + DoubleToString(totalSellLots, 2) + " > " + DoubleToString(HeavyExposureLotThreshold, 2);
+            if(sellNetPL <= -HeavyExposureNetLossThresholdUSD)
+               reason = (reason != "" ? reason + " | " : "") + "SellNetPL=$" + DoubleToString(sellNetPL, 2) + " <= -$" + DoubleToString(HeavyExposureNetLossThresholdUSD, 2);
+            else if(worstSellPL <= -HeavyExposureNetLossThresholdUSD)
+               reason = (reason != "" ? reason + " | " : "") + "WorstOrderPL=$" + DoubleToString(worstSellPL, 2) + " <= -$" + DoubleToString(HeavyExposureNetLossThresholdUSD, 2);
+
+            Print("HEAVY EXPOSURE PARTIAL CLOSE [SELL] SUCCESS | Trigger: [", reason, "]",
+                  " | Ticket #", worstSellTicket,
+                  " | Parent=#", baseTicket,
+                  (spawnedChildTicket > 0 ? (" | SpawnedChild=#" + IntegerToString(spawnedChildTicket)) : ""),
+                  (isRecoveryOrder ? (" | PreservedPrefix='" + effectiveComment + "'") : ""),
+                  " | ClosedLots=", DoubleToString(lotsToClose, 2),
+                  " | RemainingLots=", DoubleToString(worstSellLots - lotsToClose, 2),
+                  " | P/L=$", DoubleToString(worstSellPL, 2),
+                  " | ClosePrice=", DoubleToString(closePrice, Digits),
+                  " | TotalSellLots=", DoubleToString(totalSellLots, 2),
+                  " | SellNetPL=$", DoubleToString(sellNetPL, 2),
+                  " | EMADirection=+1 (Opposite) | SSL=+1 (Opposite) | Trend=Strong",
+                  " | NextMinGap=$", DoubleToString(HeavyExposureMinRawGap, 1));
+            return;
+           }
+         else
+           {
+            Print("HEAVY EXPOSURE PARTIAL CLOSE [SELL] FAILED | Ticket #", worstSellTicket, " Error: ", GetLastError());
+           }
+        }
+     }
+  }
+//+------------------------------------------------------------------+
 //|                                                                  |
 //+------------------------------------------------------------------+
 void ManagePartialClosesLossOld()
@@ -12106,6 +12813,7 @@ void ManagePartialCloses()
 
 
    ManagePartialClosesLoss();
+   ManageHeavyExposurePartialLossClose();
    for(int i = OrdersTotal() - 1; i >= 0; i--)
      {
       if(!OrderSelect(i, SELECT_BY_POS, MODE_TRADES))
