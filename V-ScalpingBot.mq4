@@ -32,7 +32,7 @@
 
 // Previous: V10011  03-10-2026 18.25 Partial Close Column in Live Position Monitor
 string TimeframeToString(int timeframe);
-string glbVersion = "V10083 13-10-2026 FINAL Slow moment - Heighest Order 0.01";
+string glbVersion = "V10083 13-10-2026 FINAL Slow moment - Reentry  0.01";
 string verShort = "V10083 | " + Symbol() + " " + TimeframeToString(Period());
 
 bool OnlyAllowFLIPBasketSupportOrders =false;// true; // TEST ISOLATION: When true, blocks ALL orders in SafeOrderSend except FLIPBasketSupport
@@ -143,7 +143,7 @@ datetime g_basket10USDLastModifyTime       = 0;     // Timestamp of last lock mo
 bool   g_basket10USDTargetHitActive        = false; // Set true when target reached; enables every-tick check for FLIPBasketSupport replenishment
 
 //StopLossUSD per lot 0.01
-double StopLossUSD =10;//20;//40////10;//40;//10;//40;//5;//10;//40;//30;//10;//6;//10;//6;//5;//10;//2;// 10;
+double StopLossUSD =20;//10;//20;//40////10;//40;//10;//40;//5;//10;//40;//30;//10;//6;//10;//6;//5;//10;//2;// 10;
 
 /*Order Lot Size  Adverse Price Distance  Full Stop Loss Dollar Loss What Happens
 Stage Open Lots   Floating P/L Trigger BTC Move from Open   Action Executed   Realized Loss  Remaining Order
@@ -7425,11 +7425,30 @@ void ChangeLots(double OpenPL, string reason, int orderType, int stoplevelStep)
 
 // if(Lots==0.01)
    Lots=MaxRecoveryLot;
-
+Lots=0.02;
 
    if(isSSLProfitReEntry)
       Lots=0.01;
 
+
+   if(GetTotalBuyOrders()==0 && isSSLProfitReEntry && requestedDirection==1)
+     {
+      Lots=0.01;//0.05 is loss 
+     }
+   if(GetTotalSellOrders()==0 && isSSLProfitReEntry && requestedDirection==-1)
+     {
+      Lots=0.01;//0.05 is loss 
+     }
+
+
+   if(GetTotalBuyOrders() >= 3 && requestedDirection==1)
+     {
+      Lots=0.05;
+     }
+   if(GetTotalSellOrders() >= 3 && requestedDirection==-1)
+     {
+      Lots=0.05;
+     }
 // Lots=0.05;//
 // Print("Closed Orders Since EMA Flip: ", closedCount, " | Cycle Step: ", cycleStep, " | Calculated Lots: ", Lots);
 
@@ -7579,7 +7598,7 @@ void ChangeLots(double OpenPL, string reason, int orderType, int stoplevelStep)
    bool isTopExtreme = IsNearTopOrBottomEmaExtreme(requestedDirection, 100.0);
    if(isTopExtreme)
      {
-     // Lots = 0.01;
+      // Lots = 0.02;
       Print("TOP/BOTTOM ZONE LOT PROTECTION: ", (requestedDirection == 1 ? "BUY" : "SELL"),
             " order is at extreme price (after EMA flip) or within $100 raw gap of top/bottom order. Locking Lots = 0.01.");
      }
@@ -7598,12 +7617,12 @@ void ChangeLots(double OpenPL, string reason, int orderType, int stoplevelStep)
    if(balancelomultipler < 1)
       balancelomultipler = 1;
    Lots = Lots * balancelomultipler;
-/*
-   if(isTopExtreme)
-     {
-     // Lots = 0.01; // Strict 0.01 cap on top orders ("Top order from EMA should not be more than 0.01")
-     }
-*/
+   /*
+      if(isTopExtreme)
+        {
+        // Lots = 0.01; // Strict 0.01 cap on top orders ("Top order from EMA should not be more than 0.01")
+        }
+   */
    Lots = NormalizeLots(Lots);
 
 
