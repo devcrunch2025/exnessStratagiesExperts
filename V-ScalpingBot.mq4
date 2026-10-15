@@ -3753,7 +3753,7 @@ void OnTickCore()
             // if(CloseOppositeOrdersOnSignal)
             // CloseOppositeProfitableOrdersOnSignal(OP_BUY);
 
-            // CloseOppositeProfitableOrdersIndependent(OP_BUY);
+             CloseOppositeProfitableOrdersIndependent(OP_BUY);
             // CloseOppositeOrders(OP_BUY);
 
             if(GetTotalEAOrders() < MaxOpenOrders)
@@ -3786,7 +3786,7 @@ void OnTickCore()
             if(EnableTrading && !IsDailyTradingStopped(dailyState))
               {
                // if(CloseOppositeOrdersOnSignal)
-               // CloseOppositeProfitableOrdersOnSignal(OP_SELL);
+                CloseOppositeProfitableOrdersOnSignal(OP_SELL);
                // CloseOppositeOrders(OP_SELL);
 
                // CloseOppositeProfitableOrdersIndependent(OP_SELL);
@@ -10208,7 +10208,7 @@ void CloseOppositeProfitableOrdersOnSignal(int newSignalType)
       double orderPL = OrderProfit() + OrderSwap() + OrderCommission();
 
       // Calculate profit threshold: $0.25 per 0.01 lot step
-      double profitThreshold = 0.25 * (lots / 0.01);
+      double profitThreshold = 0.10 * (lots / 0.01);
 
       // Check if the order is opposite to the incoming signal
       bool isOppositeSignal = ((newSignalType == OP_BUY && orderType == OP_SELL) ||
