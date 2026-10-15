@@ -3,6 +3,7 @@
 //|                  TWO-STAGE PROFIT LADDER | CONTINUOUS RESET      |
 //+------------------------------------------------------------------+
 #property strict
+#include <stdlib.mqh>
 
 //$100 to $170
 //https://github.com/devcrunch2025/exnessStratagiesExperts/commit/32fb1ba20d474fc8d4adb38d2558999b2ac82c56
@@ -30,21 +31,37 @@
 
 //https://github.com/devcrunch2025/exnessStratagiesExperts/commit/f2b01e8fb84e16294381ff54065e07b98df282ec
 
-// Previous: V10011  03-10-2026 18.25 Partial Close Column in Live Position Monitor
+// Previous: V10102 15-10-2026 Default TP $20 and StopLoss $2XLOT
 string TimeframeToString(int timeframe);
-string glbVersion = "V10085 15-10-2026 Pure EMA Single Order Mode";
-string verShort = "V10085 | " + Symbol() + " " + TimeframeToString(Period());
+string glbVersion = "V10103 15-10-2026 Raw Distance TP $2000 and SL $200 No Multiplier";
+string verShort = "V10103 | " + Symbol() + " " + TimeframeToString(Period());
 
 // ===== PURE EMA SINGLE ORDER MODE SETTINGS =====
-extern bool   InpPureEMASingleOrderMode   = true;  // Pure EMA Single Order Mode (Max 1 Order, Open when EMA==SSL, Close ONLY on EMAFlip)
-extern bool   InpEMAFlipOnCandleClose     = false; // EMA Flip Mode: false = Live Price Cross, true = Candle Close [1]
-extern bool   InpEnableStepwiseProfitLock = true;  // Stepwise Trailing Profit Lock ($2->$1, $3->$2, $4->$3)
-extern double InpStepwiseLockTriggerUSD   = 2.0;   // Initial Profit Trigger USD to lock SL ($2.00)
-extern double InpStepwiseLockGapUSD       = 1.0;   // Safe side profit lock gap ($1.00 backward)
-extern bool   InpOnlyOneOrderPerEmaFlip   = true;  // Strictly Only 1 Order Per EMA Flip Cycle
-extern bool   InpCloseAllOrdersOnFlip     = true;  // Close ALL open orders on EMA flip (true = all symbol orders)
+extern bool   InpPureEMASingleOrderMode        = true;   // Pure EMA Single Order Mode (Max 1 Order, Open when EMA==SSL, Close ONLY on EMAFlip)
+extern bool   InpEMAFlipOnCandleClose          = false;  // EMA Flip Mode: false = Live Price Cross, true = Candle Close [1]
+extern bool   InpUseBalanceMultiplier          = true;   // Apply Balance Multiplier to Lot Size and Profit Limits
+extern int    InpAccountMultiplierLOT          = 1000;   // Equity Divisor for Balance Multiplier (AccountEquity / divisor: e.g. $1000=1X, $2000=2X)
+extern double InpPureEmaFirstOrderLots         = 0.05;   // Base First order lot size on EMA Flip (0.05 lots * multiplier)
+extern double InpPureEmaSecondOrderLots        = 0.01;   // Base Second & subsequent order lot size after close (0.01 lots * multiplier)
+extern double InpProfitLockPerUnitLotUSD       = 1.0;    // Base Profit Lock USD per 0.01 lots ($1 * Lot size * 100)
+extern double InpPureEmaDefaultStopLossRawUSD  = 200.0;  // Default Stop Loss in raw price distance ($200 raw distance common for all lots, no multiplier)
+extern double InpPureEmaDefaultTakeProfitRawUSD= 2000.0; // Default Take Profit in raw price distance ($2000 raw distance common for all lots, no multiplier)
+extern bool   InpEnableStepwiseProfitLock      = true;   // Stepwise Trailing Profit Lock (0.05L: $5->$1, $10->$2, $15->$10, $20->$15 -> 75%)
+extern double InpStepwiseRatioStepLevel75      = 0.75;   // Profit lock ratio from Step 4 ($20 for 0.05L) onwards (0.75 = 75%)
+extern bool   InpOnlyOneOrderPerEmaFlip        = false;  // Strictly Only 1 Order Per EMA Flip Cycle (false = create new order after close above $50 gap)
+extern bool   InpAlwaysOneOrderActive          = true;   // Always keep 1 order active when price is above $50 raw gap from EMA
+extern bool   InpReopenAfterCloseAbove50Gap    = true;   // If order closed above $50 raw gap from EMA, create new order with $200 raw SL
+extern bool   InpAllowEmaDistanceEntry         = true;   // In "Waiting for EMA+SSL Match", open order if EMA distance >= $50
+extern double InpMinEmaRawDistanceUSD       = 10;//50.0;  // Mandatory Minimum raw price distance from EMA to create any order ($50.0)
+extern double InpEmaDistanceTriggerUSD      = 10;//50.0;  // Minimum distance ($50 raw gap) from EMA to open order when SSL unmatched
+extern bool   InpBlockNewOrdersOnEmaWeak    = true;  // Block creating new orders when EMA is WEAK (IsEmaWEAKDistanceReduced50PercentFromPeak)
+extern bool   InpCloseOnEmaWeakWithProfit   = true;  // Close open order when EMA is weak and order profit > $0.10 * multiplier
+extern double InpEmaWeakProfitCloseUSD       = 0.10;  // Base minimum profit in USD to trigger EMA weak close ($0.10 * multiplier)
+extern bool   InpCloseOrdersOnEmaFlip       = false; // Close open orders on EMA flip (false = DISABLED: Default SL / Trailing SL manages exit)
+extern bool   InpCloseAllOrdersOnFlip       = false; // Close ALL open orders on EMA flip (true = all symbol orders)
 
 // Pure EMA Single Order Runtime Monitor Variables
+string   g_pureEmaLastError        = "";    // Real-time last order send error for dashboard display
 int      g_pureEmaActiveTicket     = 0;
 int      g_pureEmaActiveType       = -1;
 double   g_pureEmaActiveLots       = 0.0;
@@ -52,6 +69,10 @@ double   g_pureEmaActiveOpenPrice  = 0.0;
 double   g_pureEmaActivePL         = 0.0;
 double   g_pureEmaActivePoints     = 0.0;
 datetime g_pureEmaActiveOpenTime   = 0;
+string   g_pureEmaActiveComment    = "";    // Order comment of active single order (Order 1, Order 2...)
+double   g_pureEmaActiveSL         = 0.0;    // Live stoploss level of active single order
+double   g_pureEmaActiveTP         = 0.0;    // Live takeprofit level of active single order
+double   g_pureEmaActiveLockedUSD  = 0.0;    // Amount of profit locked in USD ($1, $2, $3...)
 
 int      g_lastPureEmaClosedTicket = 0;
 int      g_lastPureEmaClosedType   = -1;
@@ -59,15 +80,31 @@ double   g_lastPureEmaClosedLots   = 0.0;
 double   g_lastPureEmaClosedPL     = 0.0;
 double   g_lastPureEmaClosedPoints = 0.0;
 datetime g_lastPureEmaClosedTime   = 0;
+string   g_lastPureEmaClosedComment= "";    // Order comment of last closed order
 int      g_totalPureEmaFlipTrades  = 0;
 double   g_totalPureEmaFlipNetPL   = 0.0;
 
 bool     g_orderOpenedInCurrentEmaFlip = false; // Tracks if an order was already opened in current EMA flip cycle
+int      g_pureEmaFlipOrderCount       = 0;     // Number of orders opened in current EMA flip cycle (0 = first order 0.05, >=1 = second/subsequent 0.01)
 
+#define MAX_FLIP_ORDERS_TRACKED 10
+double   g_flipOrderClosedPL[MAX_FLIP_ORDERS_TRACKED + 1];     // Profit per order number (Order 1, Order 2...) in current EMA flip
+int      g_flipOrderClosedCount[MAX_FLIP_ORDERS_TRACKED + 1];  // Count of trades per order number in current EMA flip
+
+//+------------------------------------------------------------------+
+//|                                                                  |
+//+------------------------------------------------------------------+
+void     UpdateBalanceMultiplier();
 void     ManagePureEMASingleOrder();
 void     TrackPureEmaFlip();
 void     ClosePureEmaOrderOnFlip(int newDirection);
+bool     ClosePureEmaActiveOrder(string reason);
+double   GetStepwiseLockForStepCount(int step, double unitUSD);
 void     ManagePureEmaStepTrailingStopLoss();
+void     ResetPureEmaFlipOrderStats();
+int      ParseOrderIndexFromComment(string cmt);
+string   GetPureEmaFlipOrderPLSummary();
+string   GetPureEmaFlipOrderPLSummaryShort();
 
 bool OnlyAllowFLIPBasketSupportOrders = false; // Blocks ALL orders in SafeOrderSend except FLIPBasketSupport
 
@@ -365,6 +402,9 @@ double   PostOrderSLTPVerifyExpectedOpen[MAX_POST_ORDER_SLTP_VERIFY];
 int      PostOrderSLTPVerifyType[MAX_POST_ORDER_SLTP_VERIFY];
 double   PostOrderSLTPVerifyLots[MAX_POST_ORDER_SLTP_VERIFY];
 
+//+------------------------------------------------------------------+
+//|                                                                  |
+//+------------------------------------------------------------------+
 bool EnableRecoveryOrders = false; // Disabled: single order mode (max 1 order)
 double RecoveryTriggerLossUSD = 1;
 double RecoveryLotMultiplier = 4;
@@ -507,6 +547,7 @@ bool HasPendingSSLOrder(int pendingType);
 bool HasMinimumRecoveryOrderGap(int orderType, double currentPrice, double minGapRaw = 500.0);
 bool HasMinimumSSLAndReEntryGap(int direction, double targetPrice, double minGapRaw = 50.0, int excludeTicket = -1);
 bool IsEmaWEAKDistanceReduced50PercentFromPeak(int orderType = -1);
+string GetEmaStrengthDashboardStatus(int orderType, color &outColor, string &outShortTag);
 int  CountActiveRecoveryOrders();
 int  GetRecoveryOrderCount(int parentTicket, int &outFirstTicket, int &outSecondTicket);
 bool IsRecoveryOrderWithActiveParent(int ticket, string comment = "");
@@ -1425,6 +1466,9 @@ bool PassesEMAFilter(int orderType)
       return false;
    RefreshRates();
    double price = (shift == 0) ? ((orderType == OP_BUY) ? Ask : Bid) : Close[shift];
+   double dist = (orderType == OP_BUY) ? (price - ema) : (ema - price);
+   if(InpMinEmaRawDistanceUSD > 0.0 && dist < InpMinEmaRawDistanceUSD)
+      return false;
    return (orderType == OP_BUY) ? (price > ema) : (price < ema);
   }
 
@@ -1834,8 +1878,12 @@ void TrackEmaFlip()
       HighestCycleProfitUSD = 0.0;
       HighestLadderLevelThisCycle = 0;
 
-      // Close ALL open orders immediately on EMA flip
-      ClosePureEmaOrderOnFlip(currentDirection);
+      // Close ALL open orders immediately on EMA flip (DISABLED: StopLoss/Trailing SL manages exit)
+      if(InpCloseOrdersOnEmaFlip)
+         ClosePureEmaOrderOnFlip(currentDirection);
+      g_orderOpenedInCurrentEmaFlip = false;
+      g_pureEmaFlipOrderCount = 0;
+      ResetPureEmaFlipOrderStats();
 
       // Close previous FLIPBasketSupport orders immediately on flip change
       CloseFLIPBasketSupportOrders();
@@ -2039,11 +2087,9 @@ void CloseOppositeOrdersOnEmaDistance()
 //+------------------------------------------------------------------+
 int OnInit()
   {
-   int lotMultiplierDiv = (AccountMultiplierLOT > 0) ? AccountMultiplierLOT : 500;
-   balancelomultipler = (int)(AccountEquity() / lotMultiplierDiv);
-
-   if(balancelomultipler<=0)
-      balancelomultipler=1;
+   int lotMultiplierDiv = (InpAccountMultiplierLOT > 0) ? InpAccountMultiplierLOT : ((AccountMultiplierLOT > 0) ? AccountMultiplierLOT : 500);
+   AccountMultiplierLOT = lotMultiplierDiv;
+   UpdateBalanceMultiplier();
 
    FlipLadderStepUSD=FlipLadderStepUSD*1* balancelomultipler ;//
    SecurebaselinePercentage = (100.0 - (StopLossUSD * 5.0)) / 100.0;//
@@ -2087,8 +2133,9 @@ int OnInit()
         {
          if(Bid > ema0)
             LastTrackedEmaDirection = 1;
-         else if(Bid < ema0)
-            LastTrackedEmaDirection = -1;
+         else
+            if(Bid < ema0)
+               LastTrackedEmaDirection = -1;
         }
      }
    EMADirection = LastTrackedEmaDirection;
@@ -2108,28 +2155,39 @@ int OnInit()
    g_lastPureEmaClosedTime = 0;
    g_totalPureEmaFlipTrades = 0;
    g_totalPureEmaFlipNetPL = 0.0;
-   g_orderOpenedInCurrentEmaFlip = false;
+   g_pureEmaActiveComment = "";
+   g_lastPureEmaClosedComment = "";
+   ResetPureEmaFlipOrderStats();
 
-   // Check if an order is already open or was opened during this flip cycle
+// Check if an order is already open or was opened during this flip cycle
    for(int oi = OrdersTotal() - 1; oi >= 0; oi--)
      {
-      if(!OrderSelect(oi, SELECT_BY_POS, MODE_TRADES)) continue;
+      if(!OrderSelect(oi, SELECT_BY_POS, MODE_TRADES))
+         continue;
       if(OrderSymbol() == Symbol() && OrderMagicNumber() == MagicNumber)
         {
          if(OrderType() == OP_BUY || OrderType() == OP_SELL)
            {
             g_orderOpenedInCurrentEmaFlip = true;
+            g_pureEmaActiveComment = OrderComment();
+            int ordIdx = ParseOrderIndexFromComment(g_pureEmaActiveComment);
+            if(ordIdx > g_pureEmaFlipOrderCount)
+               g_pureEmaFlipOrderCount = ordIdx;
+            else
+               if(g_pureEmaFlipOrderCount == 0)
+                  g_pureEmaFlipOrderCount = 1;
             break;
            }
         }
      }
-   if(!g_orderOpenedInCurrentEmaFlip && EmaFlipTime > 0)
+   if(EmaFlipTime > 0)
      {
       int histTotal = OrdersHistoryTotal();
       int histLimit = MathMin(histTotal, 50);
       for(int hi = histTotal - 1; hi >= histTotal - histLimit && hi >= 0; hi--)
         {
-         if(!OrderSelect(hi, SELECT_BY_POS, MODE_HISTORY)) continue;
+         if(!OrderSelect(hi, SELECT_BY_POS, MODE_HISTORY))
+            continue;
          if(OrderSymbol() == Symbol() && OrderMagicNumber() == MagicNumber)
            {
             if(OrderType() == OP_BUY || OrderType() == OP_SELL)
@@ -2137,7 +2195,16 @@ int OnInit()
                if(OrderOpenTime() >= EmaFlipTime)
                  {
                   g_orderOpenedInCurrentEmaFlip = true;
-                  break;
+                  string histCmt = OrderComment();
+                  int ordIdx = ParseOrderIndexFromComment(histCmt);
+                  if(ordIdx > g_pureEmaFlipOrderCount)
+                     g_pureEmaFlipOrderCount = ordIdx;
+                  double pl = OrderProfit() + OrderSwap() + OrderCommission();
+                  if(ordIdx >= 1 && ordIdx <= MAX_FLIP_ORDERS_TRACKED)
+                    {
+                     g_flipOrderClosedPL[ordIdx] += pl;
+                     g_flipOrderClosedCount[ordIdx]++;
+                    }
                  }
               }
            }
@@ -2180,6 +2247,10 @@ int OnInit()
    InitializeDayProfitLadder();
    LoadReEntryCounter();
    EquityResetReEntryPending=false;
+
+   Print("==================================================================");
+   Print(">>> V-EMASingleOrder INITIALIZED: ", glbVersion);
+   Print("==================================================================");
 
    return INIT_SUCCEEDED;
   }
@@ -2419,6 +2490,12 @@ bool IsDailyEquityStopReached()
 //+------------------------------------------------------------------+
 void ClosePureEmaOrderOnFlip(int newDirection)
   {
+   if(!InpCloseOrdersOnEmaFlip)
+     {
+      Print(">>> [EMA FLIP CLOSE DISABLED] Close orders on EMA flip is DISABLED per user request. Existing order will exit via Default SL or Trailing SL.");
+      return;
+     }
+
    Print("==================================================================");
    Print(">>> [EMA FLIP CLOSE ALL] Closing ALL open orders on EMA flip to ",
          (newDirection == 1 ? "BULLISH (+1)" : "BEARISH (-1)"), "...");
@@ -2472,15 +2549,24 @@ void ClosePureEmaOrderOnFlip(int newDirection)
                   g_lastPureEmaClosedPL     = pl;
                   g_lastPureEmaClosedPoints = pointsDiff;
                   g_lastPureEmaClosedTime   = TimeCurrent();
+                  g_lastPureEmaClosedComment = OrderComment();
                   g_totalPureEmaFlipTrades++;
                   g_totalPureEmaFlipNetPL  += pl;
 
+                  int closedOrdIdx = ParseOrderIndexFromComment(g_lastPureEmaClosedComment);
+                  if(closedOrdIdx >= 1 && closedOrdIdx <= MAX_FLIP_ORDERS_TRACKED)
+                    {
+                     g_flipOrderClosedPL[closedOrdIdx] += pl;
+                     g_flipOrderClosedCount[closedOrdIdx]++;
+                    }
+
                   Print(">>> [EMA FLIP CLOSE ALL SUCCESS] Ticket #", ticket,
-                        " (", (type == OP_BUY ? "BUY" : "SELL"), " ", DoubleToString(lots, 2), " lots)",
+                        " [", g_lastPureEmaClosedComment, "] (", (type == OP_BUY ? "BUY" : "SELL"), " ", DoubleToString(lots, 2), " lots)",
                         " CLOSED at ", DoubleToString(closePrice, Digits),
                         " | P/L: $", DoubleToString(pl, 2), " (", DoubleToString(pointsDiff, 1), " pts)",
                         " | Total Flip Trades: ", g_totalPureEmaFlipTrades,
-                        " | Cumulative Flip P/L: $", DoubleToString(g_totalPureEmaFlipNetPL, 2));
+                        " | Cumulative Flip P/L: $", DoubleToString(g_totalPureEmaFlipNetPL, 2),
+                        " | Cycle Breakdown: ", GetPureEmaFlipOrderPLSummary());
                   break;
                  }
                else
@@ -2496,16 +2582,17 @@ void ClosePureEmaOrderOnFlip(int newDirection)
                  }
               }
            }
-         else if(type == OP_BUYSTOP || type == OP_SELLSTOP || type == OP_BUYLIMIT || type == OP_SELLLIMIT)
-           {
-            ordersRemaining++;
-            ResetLastError();
-            bool deleted = OrderDelete(ticket, clrYellow);
-            if(deleted)
-               Print(">>> [EMA FLIP PENDING DELETED] Ticket #", ticket, " deleted successfully.");
-            else
-               Print(">>> [EMA FLIP PENDING DELETE FAILED] Ticket #", ticket, " Error: ", GetLastError());
-           }
+         else
+            if(type == OP_BUYSTOP || type == OP_SELLSTOP || type == OP_BUYLIMIT || type == OP_SELLLIMIT)
+              {
+               ordersRemaining++;
+               ResetLastError();
+               bool deleted = OrderDelete(ticket, clrYellow);
+               if(deleted)
+                  Print(">>> [EMA FLIP PENDING DELETED] Ticket #", ticket, " deleted successfully.");
+               else
+                  Print(">>> [EMA FLIP PENDING DELETE FAILED] Ticket #", ticket, " Error: ", GetLastError());
+              }
         }
 
       if(ordersRemaining == 0)
@@ -2514,7 +2601,7 @@ void ClosePureEmaOrderOnFlip(int newDirection)
       Sleep(100);
      }
 
-   // Reset pure active tracking
+// Reset pure active tracking
    g_pureEmaActiveTicket    = 0;
    g_pureEmaActiveType      = -1;
    g_pureEmaActiveLots      = 0.0;
@@ -2522,8 +2609,87 @@ void ClosePureEmaOrderOnFlip(int newDirection)
    g_pureEmaActivePL        = 0.0;
    g_pureEmaActivePoints    = 0.0;
    g_pureEmaActiveOpenTime  = 0;
+   g_pureEmaActiveComment   = "";
 
    InvalidateTotalEAOrdersCache();
+  }
+
+//+------------------------------------------------------------------+
+//| ResetPureEmaFlipOrderStats:                                      |
+//| Resets order count and profit statistics on EMA direction flip   |
+//+------------------------------------------------------------------+
+void ResetPureEmaFlipOrderStats()
+  {
+   g_pureEmaFlipOrderCount = 0;
+   g_orderOpenedInCurrentEmaFlip = false;
+   for(int i = 0; i <= MAX_FLIP_ORDERS_TRACKED; i++)
+     {
+      g_flipOrderClosedPL[i] = 0.0;
+      g_flipOrderClosedCount[i] = 0;
+     }
+  }
+
+//+------------------------------------------------------------------+
+//| ParseOrderIndexFromComment:                                      |
+//| Extracts numeric index from order comment like "Order 1", etc.   |
+//+------------------------------------------------------------------+
+int ParseOrderIndexFromComment(string cmt)
+  {
+   int pos = StringFind(cmt, "Order ");
+   if(pos >= 0)
+     {
+      int num = (int)StringToInteger(StringSubstr(cmt, pos + 6));
+      if(num >= 1 && num <= MAX_FLIP_ORDERS_TRACKED)
+         return num;
+     }
+   return 0;
+  }
+
+//+------------------------------------------------------------------+
+//| GetPureEmaFlipOrderPLSummary: Full flip cycle breakdown string    |
+//+------------------------------------------------------------------+
+string GetPureEmaFlipOrderPLSummary()
+  {
+   string res = "";
+   for(int i = 1; i <= MAX_FLIP_ORDERS_TRACKED; i++)
+     {
+      if(g_flipOrderClosedCount[i] > 0)
+        {
+         if(res != "")
+            res += " | ";
+         res += StringFormat("Order %d: %s$%.2f (%d)",
+                             i,
+                             (g_flipOrderClosedPL[i] >= 0.0 ? "+" : "-"),
+                             MathAbs(g_flipOrderClosedPL[i]),
+                             g_flipOrderClosedCount[i]);
+        }
+     }
+   if(res == "")
+      res = "No closed orders yet in this EMA flip cycle";
+   return res;
+  }
+
+//+------------------------------------------------------------------+
+//| GetPureEmaFlipOrderPLSummaryShort: Compact breakdown string      |
+//+------------------------------------------------------------------+
+string GetPureEmaFlipOrderPLSummaryShort()
+  {
+   string res = "";
+   for(int i = 1; i <= 3; i++)
+     {
+      if(g_flipOrderClosedCount[i] > 0)
+        {
+         if(res != "")
+            res += " ";
+         res += StringFormat("O%d:%s$%.1f",
+                             i,
+                             (g_flipOrderClosedPL[i] >= 0.0 ? "+" : "-"),
+                             MathAbs(g_flipOrderClosedPL[i]));
+        }
+     }
+   if(res == "")
+      res = "NONE";
+   return res;
   }
 
 //+------------------------------------------------------------------+
@@ -2543,8 +2709,9 @@ void TrackPureEmaFlip()
         {
          if(Close[1] > emaVal)
             currentDirection = 1;
-         else if(Close[1] < emaVal)
-            currentDirection = -1;
+         else
+            if(Close[1] < emaVal)
+               currentDirection = -1;
         }
      }
    else
@@ -2554,8 +2721,9 @@ void TrackPureEmaFlip()
         {
          if(Bid > emaVal)
             currentDirection = 1;
-         else if(Bid < emaVal)
-            currentDirection = -1;
+         else
+            if(Bid < emaVal)
+               currentDirection = -1;
         }
      }
 
@@ -2564,7 +2732,7 @@ void TrackPureEmaFlip()
 
    EMADirection = currentDirection;
 
-   // Startup baseline initialization
+// Startup baseline initialization
    if(LastTrackedEmaDirection == 0)
      {
       LastTrackedEmaDirection = currentDirection;
@@ -2572,7 +2740,7 @@ void TrackPureEmaFlip()
       return;
      }
 
-   // EMA Direction Flip Detected!
+// EMA Direction Flip Detected!
    if(currentDirection != LastTrackedEmaDirection)
      {
       HasEmaFlippedSinceLoad = true;
@@ -2582,22 +2750,71 @@ void TrackPureEmaFlip()
       Print(">>> PURE EMA FLIP TRIGGERED: Direction changed from ",
             (LastTrackedEmaDirection == 1 ? "BULLISH (+1)" : "BEARISH (-1)"),
             " to ", (currentDirection == 1 ? "BULLISH (+1)" : "BEARISH (-1)"),
-            " | Executing mandatory exit on open order...");
+            " | (Close order on EMA flip DISABLED: Default SL / Trailing SL active)");
       Print("==================================================================");
 
-      ClosePureEmaOrderOnFlip(currentDirection);
+      if(InpCloseOrdersOnEmaFlip)
+         ClosePureEmaOrderOnFlip(currentDirection);
       LastTrackedEmaDirection = currentDirection;
       g_orderOpenedInCurrentEmaFlip = false; // Reset cycle order count: 1 order allowed for new flip!
-      Print(">>> PURE EMA FLIP CYCLE RESET: New order permitted when EMA and SSL match.");
+      g_pureEmaFlipOrderCount = 0;           // Reset flip order count: 1st order on new EMA flip gets 0.05 lots!
+      ResetPureEmaFlipOrderStats();          // Reset order stats for new EMA cycle
+      Print(">>> PURE EMA FLIP CYCLE RESET: Order count reset to 0. 1st order comment will be 'Order 1' with lot: ", DoubleToString(InpPureEmaFirstOrderLots, 2));
      }
   }
 
 //+------------------------------------------------------------------+
+//| UpdateBalanceMultiplier:                                         |
+//| Calculates dynamic balance multiplier based on live equity:      |
+//| mult = (int)(AccountEquity() / InpAccountMultiplierLOT)          |
+//| Clamped to minimum 1.                                            |
+//+------------------------------------------------------------------+
+void UpdateBalanceMultiplier()
+  {
+   if(!InpUseBalanceMultiplier)
+     {
+      balancelomultipler = 1;
+      return;
+     }
+   int lotMultiplierDiv = (InpAccountMultiplierLOT > 0) ? InpAccountMultiplierLOT : ((AccountMultiplierLOT > 0) ? AccountMultiplierLOT : 500);
+   balancelomultipler = (int)(AccountEquity() / lotMultiplierDiv);
+   if(balancelomultipler <= 0)
+      balancelomultipler = 1;
+  }
+
+//+------------------------------------------------------------------+
+//| GetStepwiseLockForStepCount:                                     |
+//| Calculates profit amount in USD to lock based on step level:     |
+//| For 0.05 Lots (Unit = $5.00):                                    |
+//| Step 1: At +$5.00 profit  -> Locks +$1.00 (0.20 * Unit)          |
+//| Step 2: At +$10.00 profit -> Locks +$2.00 (0.40 * Unit)          |
+//| Step 3: At +$15.00 profit -> Locks +$10.00 (2.00 * Unit)         |
+//| Step 4: At +$20.00 profit -> Locks +$15.00 (75% of $20.00)       |
+//| Step >= 4: Continue lock profit step level 75% here onwards      |
+//+------------------------------------------------------------------+
+double GetStepwiseLockForStepCount(int step, double unitUSD)
+  {
+   if(step < 1)
+      return 0.0;
+   if(step == 1)
+      return 0.20 * unitUSD;  // e.g. $1.00 for 0.05L (Unit=$5.00), $0.20 for 0.01L
+   if(step == 2)
+      return 0.40 * unitUSD;  // e.g. $2.00 for 0.05L (Unit=$5.00), $0.40 for 0.01L
+   if(step == 3)
+      return 2.00 * unitUSD;  // e.g. $10.00 for 0.05L (Unit=$5.00), $2.00 for 0.01L
+// step >= 4: Continue lock profit step level 75% here onwards
+   return (step * unitUSD) * InpStepwiseRatioStepLevel75; // e.g. $15.00 at $20, $18.75 at $25, $22.50 at $30...
+  }
+
+//+------------------------------------------------------------------+
 //| ManagePureEmaStepTrailingStopLoss:                               |
-//| Stepwise trailing profit lock ($2->$1, $3->$2, $4->$3, etc.):    |
-//| Trailing stoploss $100 raw gap backward.                         |
-//| Example: Buy order open, P/L reaches $2 -> set SL at +$1.       |
-//| Continues stepwise: $3 P/L -> lock $2, $4 P/L -> lock $3.       |
+//| Stepwise trailing profit lock:                                   |
+//| For 0.05 Lots (Unit = $5.00):                                    |
+//| At +$5.00 profit  -> Locks +$1.00                                |
+//| At +$10.00 profit -> Locks +$2.00                                |
+//| At +$15.00 profit -> Locks +$10.00                               |
+//| At +$20.00 profit -> Locks +$15.00                               |
+//| At +$25.00+       -> Continue lock profit step level 75% onwards |
 //+------------------------------------------------------------------+
 void ManagePureEmaStepTrailingStopLoss()
   {
@@ -2616,22 +2833,26 @@ void ManagePureEmaStepTrailingStopLoss()
 
       int ticket       = OrderTicket();
       double lots      = OrderLots();
-      double openPrice = OrderOpenPrice();
-      double curSL     = OrderStopLoss();
-      double curTP     = OrderTakeProfit();
-      double orderPL   = OrderProfit() + OrderSwap() + OrderCommission();
+      double openPrice = NormalizeDouble(OrderOpenPrice(), Digits);
+      double curSL     = NormalizeDouble(OrderStopLoss(), Digits);
+      double curTP     = NormalizeDouble(OrderTakeProfit(), Digits);
+      double grossPL   = OrderProfit();
+      double netPL     = OrderProfit() + OrderSwap() + OrderCommission();
+      double orderPL   = MathMax(grossPL, netPL); // Trigger on either gross MT4 terminal PL or net PL
 
-      // Trigger condition: profit must be at least InpStepwiseLockTriggerUSD ($2.00)
-      if(orderPL < InpStepwiseLockTriggerUSD)
+      // Dynamic profit unit based on user rule: all orders profit lock is $1 * Lot size * 100
+      double unitUSD = InpProfitLockPerUnitLotUSD * lots * 100.0;
+      if(unitUSD <= 0.0)
+         unitUSD = 1.0;
+
+      // Minimum trigger is Step 1 (e.g. $5.00 for 0.05 lot, $1.00 for 0.01 lot)
+      if(orderPL < unitUSD)
          continue;
 
-      // Calculate target profit in USD to lock:
-      // At $2.00-$2.99 -> lock $1.00 ($2.00 - $1.00)
-      // At $3.00-$3.99 -> lock $2.00 ($3.00 - $1.00)
-      // At $4.00-$4.99 -> lock $3.00 ($4.00 - $1.00)
-      double lockProfitUSD = MathFloor(orderPL) - InpStepwiseLockGapUSD;
-      if(lockProfitUSD < InpStepwiseLockGapUSD)
-         lockProfitUSD = InpStepwiseLockGapUSD;
+      int stepCount = (int)MathFloor(orderPL / unitUSD);
+      double lockProfitUSD = GetStepwiseLockForStepCount(stepCount, unitUSD);
+      if(lockProfitUSD <= 0.0)
+         continue;
 
       double lockDistPrice = CalculatePriceDistanceUSD(lockProfitUSD, lots);
       if(lockDistPrice <= 0.0)
@@ -2647,57 +2868,343 @@ void ManagePureEmaStepTrailingStopLoss()
       if(oType == OP_BUY)
         {
          proposedSL = NormalizeDouble(openPrice + lockDistPrice, Digits);
-         // Must lock positive profit (above open) and respect broker stop level from current Bid
+         // Must lock positive profit (above open price) and maintain minimum broker stop distance from live Bid
          if(proposedSL > openPrice && (Bid - proposedSL) >= minStopDist)
            {
-            // Only ratchet SL upward (never loosen)
+            // Only ratchet SL upward (never loosen or move downward)
             if(curSL == 0.0 || proposedSL > curSL + (Point * 0.5))
                needsModify = true;
            }
         }
-      else if(oType == OP_SELL)
-        {
-         proposedSL = NormalizeDouble(openPrice - lockDistPrice, Digits);
-         // Must lock positive profit (below open) and respect broker stop level from current Ask
-         if(proposedSL < openPrice && (proposedSL - Ask) >= minStopDist)
+      else
+         if(oType == OP_SELL)
            {
-            // Only ratchet SL downward (never loosen)
-            if(curSL == 0.0 || proposedSL < curSL - (Point * 0.5))
-               needsModify = true;
+            proposedSL = NormalizeDouble(openPrice - lockDistPrice, Digits);
+            // Must lock positive profit (below open price) and maintain minimum broker stop distance from live Ask
+            if(proposedSL < openPrice && (proposedSL - Ask) >= minStopDist)
+              {
+               // Only ratchet SL downward (never loosen or move upward)
+               if(curSL == 0.0 || proposedSL < curSL - (Point * 0.5))
+                  needsModify = true;
+              }
            }
-        }
 
       if(needsModify && proposedSL > 0.0)
         {
-         ResetLastError();
-         bool ok = OrderModify(ticket, openPrice, proposedSL, curTP, 0, (oType == OP_BUY ? clrLime : clrAqua));
-         if(ok)
+         bool modified = false;
+         for(int attempt = 0; attempt < 3; attempt++)
            {
-            Print(">>> PURE EMA STEPWISE SL MODIFIED: Ticket #", ticket,
-                  " (", (oType == OP_BUY ? "BUY" : "SELL"), ")",
-                  " | P/L=$", DoubleToString(orderPL, 2),
-                  " | Locked Profit Target=$", DoubleToString(lockProfitUSD, 2),
-                  " | New SL=", DoubleToString(proposedSL, Digits),
-                  " (Previous SL=", DoubleToString(curSL, Digits),
-                  ", Open=", DoubleToString(openPrice, Digits), ")");
-           }
-         else
-           {
-            Print(">>> PURE EMA STEPWISE SL MODIFY FAILED: Ticket #", ticket,
-                  " | Error: ", GetLastError(),
-                  " | Proposed SL=", DoubleToString(proposedSL, Digits),
-                  " | Target Lock=$", DoubleToString(lockProfitUSD, 2));
+            RefreshRates();
+            double liveBid = Bid;
+            double liveAsk = Ask;
+
+            if(oType == OP_BUY && (liveBid - proposedSL) < minStopDist)
+               break; // Price moved too close to proposed SL
+            if(oType == OP_SELL && (proposedSL - liveAsk) < minStopDist)
+               break; // Price moved too close to proposed SL
+
+            ResetLastError();
+            modified = OrderModify(ticket, openPrice, proposedSL, curTP, 0, (oType == OP_BUY ? clrLime : clrAqua));
+            if(modified)
+              {
+               g_pureEmaActiveSL = proposedSL;
+               g_pureEmaActiveLockedUSD = lockProfitUSD;
+               Print("==================================================================");
+               Print(">>> [STEPWISE SL LOCKED] Ticket #", ticket,
+                     " (", (oType == OP_BUY ? "BUY" : "SELL"), ")",
+                     " | Step=", stepCount, " (Unit=$", DoubleToString(unitUSD, 2), ")",
+                     " | Current Profit=$", DoubleToString(orderPL, 2),
+                     " -> Modified StopLoss to Lock +$", DoubleToString(lockProfitUSD, 2), " Profit!",
+                     " | New SL=", DoubleToString(proposedSL, Digits),
+                     " (Previous SL=", DoubleToString(curSL, Digits),
+                     ", Open=", DoubleToString(openPrice, Digits), ")");
+               Print("==================================================================");
+               break;
+              }
+            else
+              {
+               int err = GetLastError();
+               Print(">>> [STEPWISE SL RETRY] Ticket #", ticket, " attempt ", (attempt + 1),
+                     " failed. Error: ", err, " (", ErrorDescription(err), ") | Proposed SL=", DoubleToString(proposedSL, Digits));
+               Sleep(50);
+              }
            }
         }
      }
   }
 
 //+------------------------------------------------------------------+
+//| SendPureEmaOrder:                                                |
+//| Dedicated, direct market order placement for Pure EMA Single     |
+//| Order Mode. Bypasses legacy multi-grid/recovery filters, uses    |
+//| clean OrderSend with SL=0, TP=0, and full diagnostic reporting.  |
+//+------------------------------------------------------------------+
+int SendPureEmaOrder(int orderType, double lots, string comment, string triggerReason, double emaDist)
+  {
+   RefreshRates();
+
+   if(!IsConnected())
+     {
+      g_pureEmaLastError = "NO CONNECTION TO BROKER";
+      Print(">>> [BLOCKED] PURE EMA OrderSend: Terminal not connected to trade server.");
+      return -1;
+     }
+
+   if(!IsTradeAllowed())
+     {
+      g_pureEmaLastError = "AUTOTRADING DISABLED (Enable in MT4)";
+      Print(">>> [BLOCKED] PURE EMA OrderSend: IsTradeAllowed() == false! Ensure MT4 'AutoTrading' button is ON and 'Allow live trading' is checked in EA properties.");
+      return -1;
+     }
+
+   if(!EnableTrading)
+     {
+      g_pureEmaLastError = "TRADING DISABLED (EnableTrading=false)";
+      Print(">>> [BLOCKED] PURE EMA OrderSend: EnableTrading input is false.");
+      return -1;
+     }
+
+   double currentSpreadUSD = Ask - Bid;
+   if(currentSpreadUSD > MaxAllowedSpreadUSD)
+     {
+      g_pureEmaLastError = StringFormat("SPREAD TOO HIGH ($%.2f > $%.2f)", currentSpreadUSD, MaxAllowedSpreadUSD);
+      Print(">>> [BLOCKED] PURE EMA OrderSend: Spread $", DoubleToString(currentSpreadUSD, 2), " exceeds max allowed $", DoubleToString(MaxAllowedSpreadUSD, 2));
+      return -1;
+     }
+
+   if(InpMinEmaRawDistanceUSD > 0.0 && emaDist < InpMinEmaRawDistanceUSD)
+     {
+      g_pureEmaLastError = StringFormat("EMA DIST TOO CLOSE ($%.1f < $%.0f)", MathMax(0.0, emaDist), InpMinEmaRawDistanceUSD);
+      Print(">>> [BLOCKED] PURE EMA OrderSend: Live EMA distance $", DoubleToString(emaDist, 2),
+            " is less than required $", DoubleToString(InpMinEmaRawDistanceUSD, 2), " raw price distance.");
+      return -1;
+     }
+
+   if(InpBlockNewOrdersOnEmaWeak && IsEmaWEAKDistanceReduced50PercentFromPeak(orderType))
+     {
+      g_pureEmaLastError = "BLOCKED: EMA IS WEAK (Retraced >50% Peak)";
+      Print(">>> [BLOCKED] PURE EMA OrderSend: IsEmaWEAKDistanceReduced50PercentFromPeak() is TRUE (Weak trend retraced >50% from peak). Order creation blocked.");
+      return -1;
+     }
+
+   lots = NormalizeLots(lots);
+   if(lots <= 0.0)
+     {
+      double minLot = MarketInfo(Symbol(), MODE_MINLOT);
+      lots = (minLot > 0.0) ? minLot : 0.01;
+     }
+
+   double sendPrice = (orderType == OP_BUY) ? Ask : Bid;
+   sendPrice = NormalizeDouble(sendPrice, Digits);
+   color  arrowColor = (orderType == OP_BUY) ? BuyColor : SellColor;
+
+// Calculate default StopLoss using $200 raw price distance (common for all lot sizes, no multiplier)
+   double slRawDistance = InpPureEmaDefaultStopLossRawUSD;
+   double minStopDist = MarketInfo(Symbol(), MODE_STOPLEVEL) * Point;
+   if(minStopDist < Point * 10)
+      minStopDist = Point * 10;
+   if(slRawDistance < minStopDist)
+      slRawDistance = minStopDist;
+
+   double stopLoss = 0.0;
+   if(InpPureEmaDefaultStopLossRawUSD > 0.0)
+     {
+      if(orderType == OP_BUY)
+         stopLoss = NormalizeDouble(sendPrice - slRawDistance, Digits);
+      else
+         if(orderType == OP_SELL)
+            stopLoss = NormalizeDouble(sendPrice + slRawDistance, Digits);
+     }
+
+// Calculate default TakeProfit using $2000 raw price distance (common for all lot sizes, no multiplier)
+   double tpRawDistance = InpPureEmaDefaultTakeProfitRawUSD;
+   if(tpRawDistance < minStopDist)
+      tpRawDistance = minStopDist;
+
+   double takeProfit = 0.0;
+   if(InpPureEmaDefaultTakeProfitRawUSD > 0.0)
+     {
+      if(orderType == OP_BUY)
+         takeProfit = NormalizeDouble(sendPrice + tpRawDistance, Digits);
+      else
+         if(orderType == OP_SELL)
+            takeProfit = NormalizeDouble(sendPrice - tpRawDistance, Digits);
+     }
+
+   double defaultStopLossUSD = slRawDistance * lots;
+   double defaultTakeProfitUSD = tpRawDistance * lots;
+
+   ResetLastError();
+   int ticket = OrderSend(Symbol(), orderType, lots, sendPrice, Slippage, stopLoss, takeProfit, comment, MagicNumber, 0, arrowColor);
+
+// Handle ECN brokers that reject market orders with pre-set SL/TP (error 130)
+   if(ticket <= 0)
+     {
+      int errCode = GetLastError();
+      if(errCode == 130 && (stopLoss > 0.0 || takeProfit > 0.0))
+        {
+         Print(">>> [RETRY] OrderSend rejected with Error 130 (Invalid Stops). Retrying with SL=0, TP=0 then modifying...");
+         ResetLastError();
+         ticket = OrderSend(Symbol(), orderType, lots, sendPrice, Slippage, 0, 0, comment, MagicNumber, 0, arrowColor);
+         if(ticket > 0)
+           {
+            RefreshRates();
+            OrderModify(ticket, sendPrice, stopLoss, takeProfit, 0, clrNONE);
+           }
+        }
+     }
+   else
+      if(ticket > 0 && (stopLoss > 0.0 || takeProfit > 0.0))
+        {
+         // If broker accepted market order but ignored stopLoss or takeProfit, apply modify immediately
+         if(OrderSelect(ticket, SELECT_BY_TICKET, MODE_TRADES))
+           {
+            if((stopLoss > 0.0 && OrderStopLoss() == 0.0) || (takeProfit > 0.0 && OrderTakeProfit() == 0.0))
+              {
+               RefreshRates();
+               OrderModify(ticket, OrderOpenPrice(), stopLoss, takeProfit, 0, clrNONE);
+              }
+           }
+        }
+
+   if(ticket > 0)
+     {
+      g_pureEmaLastError = "";
+      InvalidateTotalEAOrdersCache();
+      g_orderOpenedInCurrentEmaFlip = true;
+      g_pureEmaFlipOrderCount++;
+      g_pureEmaActiveComment = comment;
+      RegisterNewCandleOrder(ticket);
+      Print("==================================================================");
+      Print(">>> [SUCCESS] PURE EMA SINGLE ORDER OPENED: Ticket #", ticket,
+            " | Comment='", comment, "'",
+            " | Type=", (orderType == OP_BUY ? "BUY" : "SELL"),
+            " | Lots=", DoubleToString(lots, 2), " (Flip Order #", g_pureEmaFlipOrderCount, ")",
+            " | Price=", DoubleToString(sendPrice, Digits),
+            " | SL=", DoubleToString(stopLoss, Digits), " (-$", DoubleToString(defaultStopLossUSD, 2), " P/L)",
+            " | TP=", DoubleToString(takeProfit, Digits), " (+$", DoubleToString(defaultTakeProfitUSD, 2), " P/L)",
+            " | Trigger=", triggerReason,
+            " | EMA=", EMADirection, " SSL=", GlobalSSLDirection,
+            " | DistToEMA=$", DoubleToString(emaDist, 2));
+      Print("==================================================================");
+      return ticket;
+     }
+
+   int err = GetLastError();
+   g_pureEmaLastError = StringFormat("ORDER SEND FAILED (Err %d: %s)", err, ErrorDescription(err));
+   Print(">>> [ERROR] PURE EMA OrderSend FAILED: Ticket <= 0, Error code=", err,
+         " (", ErrorDescription(err), ") | Lots=", DoubleToString(lots, 2),
+         " | Price=", DoubleToString(sendPrice, Digits),
+         " | Type=", (orderType == OP_BUY ? "BUY" : "SELL"));
+   return -1;
+  }
+
+//+------------------------------------------------------------------+
+//| ClosePureEmaActiveOrder:                                         |
+//| Closes the active Pure EMA single order directly.                |
+//| Updates flip cycle P/L, closed trade count, and order tracking.  |
+//+------------------------------------------------------------------+
+bool ClosePureEmaActiveOrder(string reason)
+  {
+   if(g_pureEmaActiveTicket <= 0)
+      return false;
+
+   int ticket = g_pureEmaActiveTicket;
+   int type   = g_pureEmaActiveType;
+   double lots = g_pureEmaActiveLots;
+   double openPrice = g_pureEmaActiveOpenPrice;
+   double livePL    = g_pureEmaActivePL;
+   string cmt       = g_pureEmaActiveComment;
+
+   Print("==================================================================");
+   Print(">>> [CLOSE PURE EMA ORDER] Closing active order #", ticket,
+         " [", cmt, "] (", (type == OP_BUY ? "BUY" : "SELL"), " ", DoubleToString(lots, 2), " lots)",
+         " | Reason: ", reason, " | Live P/L: $", DoubleToString(livePL, 2));
+   Print("==================================================================");
+
+   bool closed = false;
+   for(int retry = 0; retry < 5; retry++)
+     {
+      RefreshRates();
+      double closePrice = (type == OP_BUY) ? Bid : Ask;
+      closePrice = NormalizeDouble(closePrice, Digits);
+
+      ResetLastError();
+      closed = OrderClose(ticket, lots, closePrice, Slippage, (type == OP_BUY ? clrRed : clrBlue));
+      if(closed)
+        {
+         double realPL = livePL;
+         double pointsDiff = (type == OP_BUY) ? (closePrice - openPrice) / Point : (openPrice - closePrice) / Point;
+
+         if(OrderSelect(ticket, SELECT_BY_TICKET, MODE_HISTORY))
+           {
+            realPL = OrderProfit() + OrderSwap() + OrderCommission();
+            closePrice = OrderClosePrice();
+            pointsDiff = (type == OP_BUY) ? (closePrice - openPrice) / Point : (openPrice - closePrice) / Point;
+            cmt = OrderComment();
+           }
+
+         g_lastPureEmaClosedTicket = ticket;
+         g_lastPureEmaClosedType   = type;
+         g_lastPureEmaClosedLots   = lots;
+         g_lastPureEmaClosedPL     = realPL;
+         g_lastPureEmaClosedPoints = pointsDiff;
+         g_lastPureEmaClosedTime   = TimeCurrent();
+         g_lastPureEmaClosedComment = cmt;
+         g_totalPureEmaFlipTrades++;
+         g_totalPureEmaFlipNetPL  += realPL;
+
+         int closedOrdIdx = ParseOrderIndexFromComment(cmt);
+         if(closedOrdIdx >= 1 && closedOrdIdx <= MAX_FLIP_ORDERS_TRACKED)
+           {
+            g_flipOrderClosedPL[closedOrdIdx] += realPL;
+            g_flipOrderClosedCount[closedOrdIdx]++;
+           }
+
+         Print(">>> [CLOSE PURE EMA ORDER SUCCESS] Ticket #", ticket,
+               " [", cmt, "] (", (type == OP_BUY ? "BUY" : "SELL"), " ", DoubleToString(lots, 2), " lots)",
+               " CLOSED at ", DoubleToString(closePrice, Digits),
+               " | Realized P/L: $", DoubleToString(realPL, 2), " (", DoubleToString(pointsDiff, 1), " pts)",
+               " | Total Flip Trades: ", g_totalPureEmaFlipTrades,
+               " | Cumulative Flip P/L: $", DoubleToString(g_totalPureEmaFlipNetPL, 2),
+               " | Cycle Breakdown: ", GetPureEmaFlipOrderPLSummary());
+
+         // Reset active order tracking
+         g_pureEmaActiveTicket    = 0;
+         g_pureEmaActiveType      = -1;
+         g_pureEmaActiveLots      = 0.0;
+         g_pureEmaActiveOpenPrice = 0.0;
+         g_pureEmaActivePL        = 0.0;
+         g_pureEmaActivePoints    = 0.0;
+         g_pureEmaActiveOpenTime  = 0;
+         g_pureEmaActiveComment   = "";
+         g_pureEmaActiveSL        = 0.0;
+         g_pureEmaActiveLockedUSD = 0.0;
+
+         InvalidateTotalEAOrdersCache();
+         return true;
+        }
+      else
+        {
+         int err = GetLastError();
+         Print(">>> [CLOSE PURE EMA ORDER RETRY] Ticket #", ticket, " attempt ", (retry + 1), " failed. Error: ", err);
+         if(!OrderSelect(ticket, SELECT_BY_TICKET, MODE_TRADES))
+           {
+            return true;
+           }
+         Sleep(100);
+        }
+     }
+   return false;
+  }
+
+//+------------------------------------------------------------------+
 //| ManagePureEMASingleOrder:                                        |
 //| Pure Single Order execution engine:                              |
 //| 1. Enforces MaxOpenOrders = 1                                    |
-//| 2. Enforces Only 1 order per EMA flip cycle                      |
+//| 2. Enforces Only 1 order per EMA flip cycle (or always 1 active) |
 //| 3. Opens market order when EMADirection == GlobalSSLDirection    |
+//|    OR when distance >= $50 from EMA in EMADirection              |
 //| 4. Trailing stepwise StopLoss ($2->$1, $3->$2, $4->$3)           |
 //| 5. Closes active order ONLY on EMAFlip                           |
 //| 6. Tracks real-time floating Profit & Loss for monitoring        |
@@ -2705,14 +3212,15 @@ void ManagePureEmaStepTrailingStopLoss()
 void ManagePureEMASingleOrder()
   {
    RefreshRates();
+   UpdateBalanceMultiplier();
 
-   // 1. Update Global SSL Direction
+// 1. Update Global SSL Direction
    GlobalSSLDirection = GetCurrentSSLDirection();
 
-   // 2. Track EMA Flip and handle exit if flipped
+// 2. Track EMA Flip and handle exit if flipped
    TrackPureEmaFlip();
 
-   // 3. Scan for active open order
+// 3. Scan for active open order (strictly belonging to this EA MagicNumber!)
    int eaOrderCount = 0;
    g_pureEmaActiveTicket = 0;
    g_pureEmaActiveType = -1;
@@ -2721,14 +3229,13 @@ void ManagePureEMASingleOrder()
    g_pureEmaActivePL = 0.0;
    g_pureEmaActivePoints = 0.0;
    g_pureEmaActiveOpenTime = 0;
+   g_pureEmaActiveTP = 0.0;
 
    for(int i = OrdersTotal() - 1; i >= 0; i--)
      {
       if(!OrderSelect(i, SELECT_BY_POS, MODE_TRADES))
          continue;
-      if(OrderSymbol() != Symbol())
-         continue;
-      if(!InpCloseAllOrdersOnFlip && OrderMagicNumber() != MagicNumber)
+      if(OrderSymbol() != Symbol() || OrderMagicNumber() != MagicNumber)
          continue;
 
       int oType = OrderType();
@@ -2741,22 +3248,94 @@ void ManagePureEMASingleOrder()
          g_pureEmaActiveOpenPrice = OrderOpenPrice();
          g_pureEmaActivePL        = OrderProfit() + OrderSwap() + OrderCommission();
          g_pureEmaActiveOpenTime  = OrderOpenTime();
+         g_pureEmaActiveComment   = OrderComment();
+         g_pureEmaActiveSL        = OrderStopLoss();
+         g_pureEmaActiveTP        = OrderTakeProfit();
+         if(g_pureEmaActiveSL > 0.0)
+           {
+            double slGap = (oType == OP_BUY) ? (g_pureEmaActiveSL - g_pureEmaActiveOpenPrice) : (g_pureEmaActiveOpenPrice - g_pureEmaActiveSL);
+            g_pureEmaActiveLockedUSD = (slGap > 0.0) ? (slGap * g_pureEmaActiveLots) : 0.0;
+           }
+         else
+           {
+            g_pureEmaActiveLockedUSD = 0.0;
+           }
          double curPrice          = (oType == OP_BUY) ? Bid : Ask;
-         g_pureEmaActivePoints    = (oType == OP_BUY) ? (curPrice - g_pureEmaActiveOpenPrice) / Point 
-                                                      : (g_pureEmaActiveOpenPrice - curPrice) / Point;
+         g_pureEmaActivePoints    = (oType == OP_BUY) ? (curPrice - g_pureEmaActiveOpenPrice) / Point
+                                    : (g_pureEmaActiveOpenPrice - curPrice) / Point;
         }
-      else if(oType == OP_BUYSTOP || oType == OP_SELLSTOP || oType == OP_BUYLIMIT || oType == OP_SELLLIMIT)
-        {
-         // Pure single order mode has NO pending orders - clean up stale pending orders
-         OrderDelete(OrderTicket(), clrYellow);
-        }
+      else
+         if(oType == OP_BUYSTOP || oType == OP_SELLSTOP || oType == OP_BUYLIMIT || oType == OP_SELLLIMIT)
+           {
+            // Pure single order mode has NO pending orders - clean up stale pending orders
+            OrderDelete(OrderTicket(), clrYellow);
+           }
      }
 
-   // 4. If an order is already active:
-   // Enforce single order rule: NO new order can be opened!
-   // If active order opposes current EMA direction, close ALL open orders immediately!
+   static int s_prevActiveTicket = 0;
+   if(eaOrderCount == 0 && s_prevActiveTicket > 0)
+     {
+      // The previously tracked order has closed!
+      if(OrderSelect(s_prevActiveTicket, SELECT_BY_TICKET, MODE_HISTORY))
+        {
+         if(s_prevActiveTicket != g_lastPureEmaClosedTicket)
+           {
+            g_lastPureEmaClosedTicket = OrderTicket();
+            g_lastPureEmaClosedType   = OrderType();
+            g_lastPureEmaClosedLots   = OrderLots();
+            g_lastPureEmaClosedPL     = OrderProfit() + OrderSwap() + OrderCommission();
+            g_lastPureEmaClosedPoints = (g_lastPureEmaClosedType == OP_BUY) ? (OrderClosePrice() - OrderOpenPrice()) / Point : (OrderOpenPrice() - OrderClosePrice()) / Point;
+            g_lastPureEmaClosedTime   = OrderCloseTime();
+            g_lastPureEmaClosedComment = OrderComment();
+            g_totalPureEmaFlipTrades++;
+            g_totalPureEmaFlipNetPL  += g_lastPureEmaClosedPL;
+
+            int closedOrdIdx = ParseOrderIndexFromComment(g_lastPureEmaClosedComment);
+            if(closedOrdIdx >= 1 && closedOrdIdx <= MAX_FLIP_ORDERS_TRACKED)
+              {
+               g_flipOrderClosedPL[closedOrdIdx] += g_lastPureEmaClosedPL;
+               g_flipOrderClosedCount[closedOrdIdx]++;
+              }
+
+            Print("==================================================================");
+            Print(">>> [ORDER CLOSED] Order #", g_lastPureEmaClosedTicket,
+                  " [", g_lastPureEmaClosedComment, "] (", (g_lastPureEmaClosedType == OP_BUY ? "BUY" : "SELL"), ") closed with P/L: $",
+                  DoubleToString(g_lastPureEmaClosedPL, 2), " @ ", DoubleToString(OrderClosePrice(), Digits));
+            Print(">>> Flip Cycle Order P/L Breakdown: ", GetPureEmaFlipOrderPLSummary());
+            Print(">>> Checking if price distance is above $50 raw gap from EMA to create new order with $1 SL...");
+            Print("==================================================================");
+           }
+        }
+      s_prevActiveTicket = 0;
+     }
+
+   if(eaOrderCount >= 1)
+      s_prevActiveTicket = g_pureEmaActiveTicket;
+
+// 4. If an order is already active:
+// Enforce single order rule: NO new order can be opened!
+// If active order opposes current EMA direction, close ALL open orders immediately!
    if(eaOrderCount >= 1)
      {
+      // Check EMA Weak with Profit exit rule (scaled by balance multiplier):
+      int mult = (InpUseBalanceMultiplier && balancelomultipler > 0) ? balancelomultipler : 1;
+      double effWeakProfitCloseUSD = InpEmaWeakProfitCloseUSD * mult;
+      if(InpCloseOnEmaWeakWithProfit && g_pureEmaActivePL > effWeakProfitCloseUSD && IsEmaWEAKDistanceReduced50PercentFromPeak(g_pureEmaActiveType))
+        {
+         Print("==================================================================");
+         Print(">>> [EMA WEAK PROFIT EXIT] Active order #", g_pureEmaActiveTicket,
+               " [", g_pureEmaActiveComment, "] (", (g_pureEmaActiveType == OP_BUY ? "BUY" : "SELL"), " ", DoubleToString(g_pureEmaActiveLots, 2), " lots)",
+               " has Profit $", DoubleToString(g_pureEmaActivePL, 2), " > $", DoubleToString(effWeakProfitCloseUSD, 2),
+               " (Base: $", DoubleToString(InpEmaWeakProfitCloseUSD, 2), " x Multiplier: ", mult,
+               ") and EMA is WEAK (IsEmaWEAKDistanceReduced50PercentFromPeak). Closing order immediately!");
+         Print("==================================================================");
+         ClosePureEmaActiveOrder(StringFormat("EMA is WEAK & Profit > $%.2f (x%d)", effWeakProfitCloseUSD, mult));
+         if(ShowSSLLines)
+            UpdateSSLChannelOnTick();
+         UpdateEMALineOnChart();
+         return;
+        }
+
       if(EMADirection != 0)
         {
          if((g_pureEmaActiveType == OP_BUY && EMADirection == -1) || (g_pureEmaActiveType == OP_SELL && EMADirection == 1))
@@ -2764,9 +3343,15 @@ void ManagePureEMASingleOrder()
             Print(">>> [EMA OPPOSITE DETECTED] Active order #", g_pureEmaActiveTicket,
                   " opposes EMA direction (", (EMADirection == 1 ? "BULLISH (+1)" : "BEARISH (-1)"),
                   "). Closing ALL open orders on EMA flip!");
-            ClosePureEmaOrderOnFlip(EMADirection);
-            g_orderOpenedInCurrentEmaFlip = false;
-            return;
+            if(InpCloseOrdersOnEmaFlip)
+              {
+               ClosePureEmaOrderOnFlip(EMADirection);
+               LastTrackedEmaDirection = EMADirection;
+               g_orderOpenedInCurrentEmaFlip = false;
+               g_pureEmaFlipOrderCount = 0;
+               ResetPureEmaFlipOrderStats();
+               return;
+              }
            }
         }
 
@@ -2779,9 +3364,10 @@ void ManagePureEMASingleOrder()
       return;
      }
 
-   // 5. If 0 orders are open:
-   // Enforce rule: "do not open new order until EMA flip. only one order per EMAflip ."
-   if(InpOnlyOneOrderPerEmaFlip && g_orderOpenedInCurrentEmaFlip)
+// 5. If 0 orders are open:
+// If InpOnlyOneOrderPerEmaFlip is enabled and InpAlwaysOneOrderActive is false,
+// only block if InpReopenAfterCloseAbove50Gap is false.
+   if(InpOnlyOneOrderPerEmaFlip && !InpAlwaysOneOrderActive && !InpReopenAfterCloseAbove50Gap && g_orderOpenedInCurrentEmaFlip)
      {
       if(ShowSSLLines)
          UpdateSSLChannelOnTick();
@@ -2789,60 +3375,133 @@ void ManagePureEMASingleOrder()
       return;
      }
 
-   // Check if trading is allowed
-   if(!EnableTrading || !IsConnected() || !IsTradeAllowed())
+// Check if trading is allowed
+   if(!IsConnected())
      {
+      g_pureEmaLastError = "NO CONNECTION TO BROKER";
       if(ShowSSLLines)
          UpdateSSLChannelOnTick();
       UpdateEMALineOnChart();
       return;
      }
 
-   // Spread check
+   if(!IsTradeAllowed())
+     {
+      g_pureEmaLastError = "AUTOTRADING DISABLED (Enable in MT4)";
+      if(ShowSSLLines)
+         UpdateSSLChannelOnTick();
+      UpdateEMALineOnChart();
+      return;
+     }
+
+   if(!EnableTrading)
+     {
+      g_pureEmaLastError = "TRADING DISABLED (EnableTrading=false)";
+      if(ShowSSLLines)
+         UpdateSSLChannelOnTick();
+      UpdateEMALineOnChart();
+      return;
+     }
+
+// Spread check
    double currentSpreadUSD = Ask - Bid;
    if(currentSpreadUSD > MaxAllowedSpreadUSD)
      {
+      g_pureEmaLastError = StringFormat("SPREAD TOO HIGH ($%.2f > $%.2f)", currentSpreadUSD, MaxAllowedSpreadUSD);
       if(ShowSSLLines)
          UpdateSSLChannelOnTick();
       UpdateEMALineOnChart();
       return;
      }
 
-   // 6. Simply Open order when EMAdirection and Globalssl direction is SAME
+// 6. Decide Order Opening:
+// Check live distance from EMA in EMADirection
+   double currentEma = iMA(Symbol(), Period(), InpEMA200Period, InpEMAPriceShift, MODE_EMA, PRICE_CLOSE, 0);
+   double emaDistance = 0.0;
+   if(currentEma > 0.0)
+     {
+      if(EMADirection == 1)
+         emaDistance = Bid - currentEma; // Raw price distance above EMA
+      else
+         if(EMADirection == -1)
+            emaDistance = currentEma - Ask; // Raw price distance below EMA
+     }
+
+// MANDATORY RULE: Do NOT create new orders if live price distance from EMA is less than $50 raw price distance.
+// Create orders ONLY when above $50 raw price distance from EMA!
+   if(emaDistance < InpMinEmaRawDistanceUSD)
+     {
+      g_pureEmaLastError = StringFormat("EMA DISTANCE $%.1f < $%.0f (WAITING FOR > $%.0f)", MathMax(0.0, emaDistance), InpMinEmaRawDistanceUSD, InpMinEmaRawDistanceUSD);
+      if(ShowSSLLines)
+         UpdateSSLChannelOnTick();
+      UpdateEMALineOnChart();
+      return;
+     }
+
+// MANDATORY RULE: Do NOT create new orders on EMA Weak (IsEmaWEAKDistanceReduced50PercentFromPeak)
+   int targetType = (EMADirection == 1) ? OP_BUY : ((EMADirection == -1) ? OP_SELL : -1);
+   if(InpBlockNewOrdersOnEmaWeak && IsEmaWEAKDistanceReduced50PercentFromPeak(targetType))
+     {
+      g_pureEmaLastError = "BLOCKED: EMA IS WEAK (Retraced >50% Peak)";
+      if(ShowSSLLines)
+         UpdateSSLChannelOnTick();
+      UpdateEMALineOnChart();
+      return;
+     }
+
+// Determine lot size: First order of flip cycle gets 0.05 lots, second/re-entry gets 0.01 lots (scaled by balance multiplier)
+   int mult = (InpUseBalanceMultiplier && balancelomultipler > 0) ? balancelomultipler : 1;
+   double baseLots = (g_pureEmaFlipOrderCount == 0) ? InpPureEmaFirstOrderLots : InpPureEmaSecondOrderLots;
+   double lotsToOpen = baseLots * mult;
+   lotsToOpen = NormalizeLots(lotsToOpen);
+   double plannedSLUSD = InpPureEmaDefaultStopLossRawUSD * lotsToOpen;
+   double plannedTPUSD = InpPureEmaDefaultTakeProfitRawUSD * lotsToOpen;
+   int orderNum = g_pureEmaFlipOrderCount + 1;
+   string ordOrderTag = StringFormat("Order %d (%.2fL [Base: %.2fL x %d])", orderNum, lotsToOpen, baseLots, mult);
+
+   bool shouldOpenOrder = false;
+   int  orderTypeToOpen  = -1;
+   string openTriggerDesc = "";
+
+   bool isReEntryAfterClose = (g_lastPureEmaClosedTicket > 0);
+
+// Condition A: EMA and SSL match in the same direction AND price is above $50 from EMA
    if(EMADirection != 0 && EMADirection == GlobalSSLDirection)
      {
-      Lots = NormalizeLots(Lots);
-      if(Lots <= 0.0)
-         Lots = 0.01;
+      shouldOpenOrder = true;
+      orderTypeToOpen = (EMADirection == 1) ? OP_BUY : OP_SELL;
+      if(isReEntryAfterClose)
+         openTriggerDesc = StringFormat("RE-ENTRY AFTER CLOSE (#%d): EMA+SSL MATCH (%s) | %s | EMA DIST $%.2f >= $%.0f | SL=-$%.2f | TP=+$%.2f",
+                                        g_lastPureEmaClosedTicket, (EMADirection == 1 ? "BUY" : "SELL"), ordOrderTag,
+                                        emaDistance, InpMinEmaRawDistanceUSD, plannedSLUSD, plannedTPUSD);
+      else
+         openTriggerDesc = StringFormat("NEW ENTRY: EMA+SSL MATCH (%s) | %s | EMA DIST $%.2f >= $%.0f | SL=-$%.2f | TP=+$%.2f",
+                                        (EMADirection == 1 ? "BUY" : "SELL"), ordOrderTag,
+                                        emaDistance, InpMinEmaRawDistanceUSD, plannedSLUSD, plannedTPUSD);
+     }
+// Condition B: "Waiting for EMA+SSL Match" situation (or Re-entry after close while trend continues):
+// Check distance >= $50 from EMADirection, then open order based on EMADirection
+   else
+      if(EMADirection != 0 && InpAllowEmaDistanceEntry)
+        {
+         shouldOpenOrder = true;
+         orderTypeToOpen = (EMADirection == 1) ? OP_BUY : OP_SELL;
+         if(isReEntryAfterClose)
+            openTriggerDesc = StringFormat("RE-ENTRY AFTER CLOSE (#%d): EMA GAP TRIGGERED ($%.2f >= $%.0f) [%s] | %s [SSL Unmatched: EMA=%d != SSL=%d] | SL=-$%.2f | TP=+$%.2f",
+                                           g_lastPureEmaClosedTicket, emaDistance, InpMinEmaRawDistanceUSD,
+                                           (EMADirection == 1 ? "BUY" : "SELL"), ordOrderTag,
+                                           EMADirection, GlobalSSLDirection, plannedSLUSD, plannedTPUSD);
+         else
+            openTriggerDesc = StringFormat("NEW ENTRY: EMA GAP TRIGGERED ($%.2f >= $%.0f) [%s] | %s [SSL Unmatched: EMA=%d != SSL=%d] | SL=-$%.2f | TP=+$%.2f",
+                                           emaDistance, InpMinEmaRawDistanceUSD,
+                                           (EMADirection == 1 ? "BUY" : "SELL"), ordOrderTag,
+                                           EMADirection, GlobalSSLDirection, plannedSLUSD, plannedTPUSD);
+        }
 
-      if(EMADirection == 1) // Bullish / Buy
-        {
-         int buyTicket = SafeOrderSend(Symbol(), OP_BUY, Lots, Ask, Slippage, 0, 0, "Pure EMA BUY", MagicNumber, BuyColor);
-         if(buyTicket > 0)
-           {
-            RegisterNewCandleOrder();
-            InvalidateTotalEAOrdersCache();
-            g_orderOpenedInCurrentEmaFlip = true; // Cycle locked until next EMA flip!
-            Print(">>> PURE EMA SINGLE ORDER OPENED [BUY]: Ticket #", buyTicket,
-                  " Lots=", DoubleToString(Lots, 2), " Ask=", DoubleToString(Ask, Digits),
-                  " | EMA=", EMADirection, " SSL=", GlobalSSLDirection,
-                  " | Cycle Locked: Only 1 order allowed per EMA flip!");
-           }
-        }
-      else if(EMADirection == -1) // Bearish / Sell
-        {
-         int sellTicket = SafeOrderSend(Symbol(), OP_SELL, Lots, Bid, Slippage, 0, 0, "Pure EMA SELL", MagicNumber, SellColor);
-         if(sellTicket > 0)
-           {
-            RegisterNewCandleOrder();
-            InvalidateTotalEAOrdersCache();
-            g_orderOpenedInCurrentEmaFlip = true; // Cycle locked until next EMA flip!
-            Print(">>> PURE EMA SINGLE ORDER OPENED [SELL]: Ticket #", sellTicket,
-                  " Lots=", DoubleToString(Lots, 2), " Bid=", DoubleToString(Bid, Digits),
-                  " | EMA=", EMADirection, " SSL=", GlobalSSLDirection,
-                  " | Cycle Locked: Only 1 order allowed per EMA flip!");
-           }
-        }
+   if(shouldOpenOrder && orderTypeToOpen != -1)
+     {
+      string ordComment = StringFormat("Order %d", orderNum);
+      SendPureEmaOrder(orderTypeToOpen, lotsToOpen, ordComment, openTriggerDesc, emaDistance);
      }
 
    if(ShowSSLLines)
@@ -2856,6 +3515,13 @@ void ManagePureEMASingleOrder()
 void OnTick()
   {
    CurrentTickSequence++;
+   CachedTotalEAOrders = -1;
+   CachedTotalEAOrdersTick = -1;
+   ResetTradeErrorRetryGuards();
+   TradeOperationFailedThisTick = false;
+   ResetTradeRequestBudget();
+   RefreshRates();
+   UpdateBalanceMultiplier();
 
    if(InpPureEMASingleOrderMode)
      {
@@ -4306,7 +4972,7 @@ void OnTickCore()
             // if(CloseOppositeOrdersOnSignal)
             // CloseOppositeProfitableOrdersOnSignal(OP_BUY);
 
-             CloseOppositeProfitableOrdersIndependent(OP_BUY);
+            CloseOppositeProfitableOrdersIndependent(OP_BUY);
             // CloseOppositeOrders(OP_BUY);
 
             if(GetTotalEAOrders() < MaxOpenOrders)
@@ -4339,7 +5005,7 @@ void OnTickCore()
             if(EnableTrading && !IsDailyTradingStopped(dailyState))
               {
                // if(CloseOppositeOrdersOnSignal)
-                CloseOppositeProfitableOrdersOnSignal(OP_SELL);
+               CloseOppositeProfitableOrdersOnSignal(OP_SELL);
                // CloseOppositeOrders(OP_SELL);
 
                // CloseOppositeProfitableOrdersIndependent(OP_SELL);
@@ -6110,7 +6776,7 @@ int SafeOrderSend(string symbol,int orderType,double lots,double price,int slipp
 // =========================================================================
 // TEST ISOLATION GATE: Only allow FLIPBasketSupport orders
 // =========================================================================
-   if(OnlyAllowFLIPBasketSupportOrders && !isFlipBasketSupport)
+   if(OnlyAllowFLIPBasketSupportOrders && !isFlipBasketSupport && !isPureEmaOrder)
      {
       Print("SAFEORDERSEND BLOCKED [FLIP Test Mode]: Only FLIPBasketSupport orders allowed. Blocked order: '", comment, "' (Type=", orderType, ", Lots=", lots, ")");
       return -1;
@@ -6158,7 +6824,7 @@ int SafeOrderSend(string symbol,int orderType,double lots,double price,int slipp
       return -1;
      }
 
-   if(!IsDayProfitLadderTradingAllowed())
+   if(!IsDayProfitLadderTradingAllowed() && !isPureEmaOrder)
      {
       Print("SAFEORDERSEND BLOCKED [Day Ladder]: Day Profit Ladder Trading not allowed.");
       return -1;
@@ -6177,7 +6843,7 @@ int SafeOrderSend(string symbol,int orderType,double lots,double price,int slipp
      }
 
 // Directional SL cooldown protection (skip for recovery orders)
-   if(!isRecoveryOrder && !isFlipBasketSupport && IsDirectionBlockedAfterSL(direction))
+   if(!isRecoveryOrder && !isFlipBasketSupport && !isPureEmaOrder && IsDirectionBlockedAfterSL(direction))
      {
       Print("SAFEORDERSEND BLOCKED [SL Protection]: Direction ", GetOrderTypeText(direction), " is temporarily blocked after losing SL.");
       return -1;
@@ -6203,7 +6869,7 @@ int SafeOrderSend(string symbol,int orderType,double lots,double price,int slipp
 // =========================================================================
 // GATE 3: CANDLE ORDER QUOTA & FREQUENCY GUARD (MAX 5 ORDERS & 5S INTERVAL)
 // =========================================================================
-   if(isMarketOrder && !isFlipBasketSupport)
+   if(isMarketOrder && !isFlipBasketSupport && !isPureEmaOrder)
      {
       if(!IsOneCandleOrderAllowed())
         {
@@ -6419,7 +7085,7 @@ int SafeOrderSend(string symbol,int orderType,double lots,double price,int slipp
          sendPrice=Bid;
    sendPrice=NormalizeDouble(sendPrice,Digits);
 
-   if(takeProfit<=0.0 && DefaultOrderProfitUSD>0.0)
+   if(!isPureEmaOrder && takeProfit<=0.0 && DefaultOrderProfitUSD>0.0)
      {
       double defaultTP=CalculateDefaultProfitTargetPrice(orderType,sendPrice,lots,DefaultOrderProfitUSD);
       if(defaultTP>0.0)
@@ -6435,7 +7101,7 @@ int SafeOrderSend(string symbol,int orderType,double lots,double price,int slipp
      }
 
    datetime requestTime=TimeCurrent();
-   if(!CanSendTradeRequest("OrderSend",comment))
+   if(!isPureEmaOrder && !CanSendTradeRequest("OrderSend",comment))
       return -1;
 
    ResetLastError();
@@ -7979,7 +8645,7 @@ void ChangeLots(double OpenPL, string reason, int orderType, int stoplevelStep)
 
 // if(Lots==0.01)
    Lots=MaxRecoveryLot;
-Lots=0.02;
+   Lots=0.02;
 
    if(isSSLProfitReEntry)
       Lots=0.01;
@@ -7987,11 +8653,11 @@ Lots=0.02;
 
    if(GetTotalBuyOrders()==0 && isSSLProfitReEntry && requestedDirection==1)
      {
-      Lots=0.01;//0.05 is loss 
+      Lots=0.01;//0.05 is loss
      }
    if(GetTotalSellOrders()==0 && isSSLProfitReEntry && requestedDirection==-1)
      {
-      Lots=0.01;//0.05 is loss 
+      Lots=0.01;//0.05 is loss
      }
 
 
@@ -15151,15 +15817,38 @@ void UpdateDashboard(DailyProtectionState &state)
 
       // Header Panel
       CreateDashboardPanel(DASH_PREFIX+"HEADER", x, y, w, 38, C'20,60,100');
-      verShort = "PURE EMA SINGLE ORDER | " + Symbol() + " " + TimeframeToString(Period());
+      verShort = StringSubstr(glbVersion, 0, 6) + " | " + Symbol() + " " + TimeframeToString(Period());
       CreateDashboardLabel(DASH_PREFIX+"TITLE", verShort, tx, y+6, 9, clrWhite);
-      string flipStatsStr = StringFormat("FLIP TRADES: %d  |  CUMULATIVE P/L: %s$%0.2f", g_totalPureEmaFlipTrades, (g_totalPureEmaFlipNetPL>=0?"+":"-"), MathAbs(g_totalPureEmaFlipNetPL));
-      CreateDashboardLabel(DASH_PREFIX+"WITHDRAW", flipStatsStr, tx, y+22, 9, (g_totalPureEmaFlipNetPL>=0?clrDeepSkyBlue:clrTomato));
+      CreateDashboardLabel(DASH_PREFIX+"WITHDRAW", "VER: " + glbVersion, tx, y+22, 8, clrAqua);
 
       // Status & Bal/Eq/P&L
       bool isAligned = (EMADirection != 0 && EMADirection == currentSSLDirection);
-      string alignDesc = isAligned ? ("ALIGNED (" + (EMADirection == 1 ? "BUY" : "SELL") + ") - MATCH!") : "MISMATCH (WAITING)";
-      color alignClr = isAligned ? clrLime : clrGold;
+      double currentLiveEma = iMA(Symbol(), Period(), InpEMA200Period, InpEMAPriceShift, MODE_EMA, PRICE_CLOSE, 0);
+      double emaLiveDistance = 0.0;
+      if(currentLiveEma > 0.0)
+        {
+         if(EMADirection == 1)
+            emaLiveDistance = Bid - currentLiveEma;
+         else
+            if(EMADirection == -1)
+               emaLiveDistance = currentLiveEma - Ask;
+        }
+
+      bool isDistTriggered = (InpAllowEmaDistanceEntry && emaLiveDistance >= InpMinEmaRawDistanceUSD);
+      string alignDesc = "";
+      if(emaLiveDistance < InpMinEmaRawDistanceUSD)
+        {
+         alignDesc = StringFormat("%s (BLOCKED: Dist $%.1f < $%.0f)",
+                                  isAligned ? "ALIGNED" : "MISMATCH",
+                                  MathMax(0.0, emaLiveDistance), InpMinEmaRawDistanceUSD);
+        }
+      else
+        {
+         alignDesc = StringFormat("%s (QUALIFIED: Dist $%.1f >= $%.0f)",
+                                  isAligned ? "ALIGNED (MATCH)" : "GAP TRIGGERED",
+                                  emaLiveDistance, InpMinEmaRawDistanceUSD);
+        }
+      color alignClr = (emaLiveDistance >= InpMinEmaRawDistanceUSD) ? clrLime : clrGold;
 
       string pureStatus = "WAITING FOR EMA+SSL MATCH";
       color pureStatusClr = clrGold;
@@ -15168,94 +15857,198 @@ void UpdateDashboard(DailyProtectionState &state)
          pureStatus = "ACTIVE IN POSITION";
          pureStatusClr = clrLime;
         }
-      else if(InpOnlyOneOrderPerEmaFlip && g_orderOpenedInCurrentEmaFlip)
-        {
-         pureStatus = "CYCLE LOCKED (WAITING NEXT FLIP)";
-         pureStatusClr = clrOrange;
-        }
-      else if(isAligned)
-        {
-         pureStatus = "READY TO ENTER (MATCH)";
-         pureStatusClr = clrLime;
-        }
+      else
+         if(!IsConnected())
+           {
+            pureStatus = "DISCONNECTED FROM SERVER";
+            pureStatusClr = clrRed;
+           }
+         else
+            if(!IsTradeAllowed())
+              {
+               pureStatus = "AUTOTRADING DISABLED (Enable in MT4)";
+               pureStatusClr = clrRed;
+              }
+            else
+               if(!EnableTrading)
+                 {
+                  pureStatus = "TRADING DISABLED (EnableTrading=false)";
+                  pureStatusClr = clrRed;
+                 }
+               else
+                  if(InpOnlyOneOrderPerEmaFlip && !InpAlwaysOneOrderActive && g_orderOpenedInCurrentEmaFlip)
+                    {
+                     pureStatus = "CYCLE LOCKED (WAITING NEXT FLIP)";
+                     pureStatusClr = clrOrange;
+                    }
+                  else
+                     if(emaLiveDistance < InpMinEmaRawDistanceUSD)
+                       {
+                        pureStatus = StringFormat("WAITING: EMA DIST $%.1f < $%.0f", MathMax(0.0, emaLiveDistance), InpMinEmaRawDistanceUSD);
+                        pureStatusClr = clrGold;
+                       }
+                     else
+                        if(isAligned)
+                          {
+                           pureStatus = StringFormat("READY TO ENTER (MATCH & DIST $%.1f)", emaLiveDistance);
+                           pureStatusClr = clrLime;
+                          }
+                        else
+                           if(isDistTriggered)
+                             {
+                              pureStatus = StringFormat("ENTRY READY (DIST $%.1f >= $%.0f)", emaLiveDistance, InpMinEmaRawDistanceUSD);
+                              pureStatusClr = clrLime;
+                             }
+                           else
+                              if(g_pureEmaLastError != "")
+                                {
+                                 pureStatus = g_pureEmaLastError;
+                                 pureStatusClr = clrTomato;
+                                }
+                              else
+                                 if(InpBlockNewOrdersOnEmaWeak && IsEmaWEAKDistanceReduced50PercentFromPeak())
+                                   {
+                                    pureStatus = "WAITING: EMA IS WEAK (>50% Retrace)";
+                                    pureStatusClr = clrTomato;
+                                   }
+                                 else
+                                   {
+                                    pureStatus = StringFormat("WAITING: DIST $%.1f/$%.0f", MathMax(0.0, emaLiveDistance), InpMinEmaRawDistanceUSD);
+                                    pureStatusClr = clrGold;
+                                   }
+      int curMult = (InpUseBalanceMultiplier && balancelomultipler > 0) ? balancelomultipler : 1;
       CreateDashboardLabel(DASH_PREFIX+"STATUS", "STATUS  : " + pureStatus, tx, y+44, 9, pureStatusClr);
-      CreateDashboardLabel(DASH_PREFIX+"BALEQ", "BAL/EQ  : $" + DoubleToString(AccountBalance(), 2) + " / $" + DoubleToString(AccountEquity(), 2), tx, y+62, 9, clrWhite);
+      CreateDashboardLabel(DASH_PREFIX+"BALEQ", StringFormat("BAL/EQ  : $%.2f / $%.2f (MULT: %dX)", AccountBalance(), AccountEquity(), curMult), tx, y+62, 9, clrWhite);
 
       double activeOrderPL = (g_pureEmaActiveTicket > 0) ? g_pureEmaActivePL : 0.0;
       color activePLClr = (activeOrderPL > 0) ? clrLime : (activeOrderPL < 0 ? clrTomato : clrWhite);
       CreateDashboardLabel(DASH_PREFIX+"FLOAT", "FLOAT   : " + (activeOrderPL >= 0 ? "+$" : "-$") + DoubleToString(MathAbs(activeOrderPL), 2) + " | DAY: " + (dayPL >= 0 ? "+$" : "-$") + DoubleToString(MathAbs(dayPL), 2) + " (" + DoubleToString(dayPLPct, 1) + "%)", tx, y+80, 8, activePLClr);
 
+      int emaEvalDir = (g_pureEmaActiveTicket > 0 && g_pureEmaActiveType != -1)
+                       ? g_pureEmaActiveType
+                       : (EMADirection == 1 ? OP_BUY : (EMADirection == -1 ? OP_SELL : -1));
+      color emaStrengthClr = clrLime;
+      string emaStrengthShort = "STRONG";
+      string emaStrengthDesc = GetEmaStrengthDashboardStatus(emaEvalDir, emaStrengthClr, emaStrengthShort);
+
       // SECTION 1: ORDER CREATION ENGINE
       CreateDashboardPanel(DASH_PREFIX+"S1_BAR", x, y+98, w, 18, C'30,45,65');
       CreateDashboardLabel(DASH_PREFIX+"S1_H", "--- PURE EMA ORDER ENGINE (MAX: 1) ---", tx, y+100, 8, clrAqua);
-      CreateDashboardLabel(DASH_PREFIX+"S1_SSL", "SSL-10  : " + sslDirection + " | EMA-200: " + emaState, tx, y+118, 8, sslColor);
+      CreateDashboardLabel(DASH_PREFIX+"S1_SSL", "SSL-10  : " + sslDirection + " | EMA-200: " + emaState + " [" + emaStrengthShort + "]", tx, y+118, 8, (emaStrengthShort == "WEAK" ? clrTomato : sslColor));
       CreateDashboardLabel(DASH_PREFIX+"S1_ANG", "MATCH   : " + alignDesc, tx, y+134, 8, alignClr);
 
       string ordInfo = "NONE (0 / 1) - READY TO ENTER";
       if(g_pureEmaActiveTicket > 0)
-         ordInfo = "#" + IntegerToString(g_pureEmaActiveTicket) + " " + (g_pureEmaActiveType == OP_BUY ? "BUY" : "SELL") + " " + DoubleToString(g_pureEmaActiveLots, 2) + "L @ " + DoubleToString(g_pureEmaActiveOpenPrice, Digits);
-      else if(InpOnlyOneOrderPerEmaFlip && g_orderOpenedInCurrentEmaFlip)
-         ordInfo = "0 / 1 - LOCKED UNTIL NEXT EMA FLIP";
+         ordInfo = "#" + IntegerToString(g_pureEmaActiveTicket) + (g_pureEmaActiveComment != "" ? (" [" + g_pureEmaActiveComment + "] ") : " ") + (g_pureEmaActiveType == OP_BUY ? "BUY" : "SELL") + " " + DoubleToString(g_pureEmaActiveLots, 2) + "L @ " + DoubleToString(g_pureEmaActiveOpenPrice, Digits);
+      else
+         if(InpOnlyOneOrderPerEmaFlip && !InpAlwaysOneOrderActive && g_orderOpenedInCurrentEmaFlip)
+            ordInfo = "0 / 1 - LOCKED UNTIL NEXT EMA FLIP";
+         else
+            if(emaLiveDistance < InpMinEmaRawDistanceUSD)
+               ordInfo = StringFormat("BLOCKED: DIST $%.1f < $%.0f FROM EMA", MathMax(0.0, emaLiveDistance), InpMinEmaRawDistanceUSD);
+            else
+               if(InpBlockNewOrdersOnEmaWeak && IsEmaWEAKDistanceReduced50PercentFromPeak())
+                  ordInfo = "BLOCKED: EMA IS WEAK (>50% Retrace)";
+               else
+                  ordInfo = (EMADirection == 1 ? "TARGET: BUY" : (EMADirection == -1 ? "TARGET: SELL" : "WAITING")) + StringFormat(" (Dist: $%.1f >= $%.0f)", emaLiveDistance, InpMinEmaRawDistanceUSD);
       CreateDashboardLabel(DASH_PREFIX+"S1_WEAK", "ORDER   : " + ordInfo, tx, y+150, 8, clrWhite);
 
       string plInfo = (g_pureEmaActiveTicket > 0)
-         ? ((g_pureEmaActivePL >= 0 ? "+$" : "-$") + DoubleToString(MathAbs(g_pureEmaActivePL), 2) + " (" + DoubleToString(g_pureEmaActivePoints, 1) + " pts)")
-         : "$0.00 (FLAT)";
+                      ? ((g_pureEmaActivePL >= 0 ? "+$" : "-$") + DoubleToString(MathAbs(g_pureEmaActivePL), 2) + " (" + DoubleToString(g_pureEmaActivePoints, 1) + " pts)")
+                      : "$0.00 (FLAT)";
       CreateDashboardLabel(DASH_PREFIX+"S1_BGAP", "LIVE P/L: " + plInfo, tx, y+166, 8, activePLClr);
-      CreateDashboardLabel(DASH_PREFIX+"S1_SGAP", "MAX ORDS: 1 (Single Order Rule Enforced)", tx, y+182, 8, clrWhite);
+      CreateDashboardLabel(DASH_PREFIX+"S1_SGAP", "EMA ST  : " + emaStrengthDesc, tx, y+182, 8, emaStrengthClr);
       CreateDashboardLabel(DASH_PREFIX+"S1_SPRD", "SPREAD  : " + spreadStr, tx, y+198, 8, spreadColor);
-      CreateDashboardLabel(DASH_PREFIX+"S1_QTA",  "ENTRIES : " + (isAligned ? "ACTIVE" : "WAITING FOR MATCH"), tx, y+214, 8, alignClr);
+
+      bool isEmaWeakNow = (InpBlockNewOrdersOnEmaWeak && IsEmaWEAKDistanceReduced50PercentFromPeak());
+      string entryDesc = (!IsTradeAllowed() ? "BLOCKED (AutoTrading OFF)" : (isEmaWeakNow ? "BLOCKED: EMA WEAK (>50% Retrace)" : ((emaLiveDistance >= InpMinEmaRawDistanceUSD) ? StringFormat("ACTIVE (DIST $%.1f >= $%.0f)", emaLiveDistance, InpMinEmaRawDistanceUSD) : StringFormat("BLOCKED (DIST $%.1f < $%.0f)", MathMax(0.0, emaLiveDistance), InpMinEmaRawDistanceUSD))));
+      color entryClr = (!IsTradeAllowed() || isEmaWeakNow ? clrTomato : ((emaLiveDistance >= InpMinEmaRawDistanceUSD) ? clrLime : clrGold));
+      CreateDashboardLabel(DASH_PREFIX+"S1_QTA",  "ENTRIES : " + entryDesc, tx, y+214, 8, entryClr);
       CreateDashboardLabel(DASH_PREFIX+"S1_ORDS", "ORDERS  : " + IntegerToString(totalOrders) + " / 1 (Max Allowed: 1)", tx, y+230, 8, clrWhite);
-      CreateDashboardLabel(DASH_PREFIX+"S1_LOT",  "LOT SIZE: " + DoubleToString(Lots, 2), tx, y+246, 8, clrWhite);
+      double nextBaseLot = (g_pureEmaFlipOrderCount == 0 ? InpPureEmaFirstOrderLots : InpPureEmaSecondOrderLots);
+      double nextLot = NormalizeLots(nextBaseLot * curMult);
+      double nextSLUSD = InpPureEmaDefaultStopLossRawUSD * nextLot;
+      double nextTPUSD = InpPureEmaDefaultTakeProfitRawUSD * nextLot;
+      string nextLotDesc = (g_pureEmaActiveTicket > 0)
+                           ? StringFormat("%.2fL (Active: %s) [Mult: %dX]", g_pureEmaActiveLots, (g_pureEmaActiveComment != "" ? g_pureEmaActiveComment : "Active"), curMult)
+                           : StringFormat("NEXT: Order %d (%.2fL) | SL: -$%.2f ($%.0f Raw) | TP: +$%.2f ($%.0f Raw)",
+                                          (g_pureEmaFlipOrderCount + 1), nextLot, nextSLUSD, InpPureEmaDefaultStopLossRawUSD, nextTPUSD, InpPureEmaDefaultTakeProfitRawUSD);
+      CreateDashboardLabel(DASH_PREFIX+"S1_LOT",  "LOT SIZE: " + nextLotDesc, tx, y+246, 8, clrWhite);
 
       // SECTION 2: ORDER CLOSING & EXIT ENGINE
       CreateDashboardPanel(DASH_PREFIX+"S2_BAR", x, y+264, w, 18, C'30,45,65');
       CreateDashboardLabel(DASH_PREFIX+"S2_H", "--- PURE EMA EXIT & STEPWISE SL ---", tx, y+266, 8, clrAqua);
-      CreateDashboardLabel(DASH_PREFIX+"S2_FLIP", "EXIT    : CLOSE ALL ON EMA FLIP", tx, y+284, 8, clrLime);
+      double effWeakProfitCloseUSD = InpEmaWeakProfitCloseUSD * curMult;
+      string flipExitDesc = "";
+      if(InpCloseOnEmaWeakWithProfit)
+         flipExitDesc = StringFormat("TP Raw $%.0f | WEAK > $%.2f | SL Raw $%.0f", InpPureEmaDefaultTakeProfitRawUSD, effWeakProfitCloseUSD, InpPureEmaDefaultStopLossRawUSD);
+      else
+         flipExitDesc = InpCloseOrdersOnEmaFlip ? "CLOSE ALL ON EMA FLIP" : "STOPLOSS ONLY (NO FLIP EXIT)";
+      color flipExitClr = InpCloseOnEmaWeakWithProfit ? clrLime : (InpCloseOrdersOnEmaFlip ? clrLime : clrAqua);
+      CreateDashboardLabel(DASH_PREFIX+"S2_FLIP", "EXIT    : " + flipExitDesc, tx, y+284, 8, flipExitClr);
 
-      string trailDesc = InpEnableStepwiseProfitLock ? "STEPWISE ($2->$1, $3->$2, $4->$3)" : "DISABLED";
+      double dispLots = (g_pureEmaActiveTicket > 0 ? g_pureEmaActiveLots : nextLot);
+      double dispUnitUSD = InpProfitLockPerUnitLotUSD * dispLots * 100.0;
+      string trailDesc = InpEnableStepwiseProfitLock ? StringFormat("75%% LADDER (Unit: $%.2f [%dX])", dispUnitUSD, curMult) : "DISABLED";
       CreateDashboardLabel(DASH_PREFIX+"S2_GOAL", "TRAIL SL: " + trailDesc, tx, y+300, 8, (InpEnableStepwiseProfitLock ? clrLime : clrSilver));
 
       string lastClsStr = (g_lastPureEmaClosedTicket > 0)
-         ? ("#" + IntegerToString(g_lastPureEmaClosedTicket) + " (" + (g_lastPureEmaClosedType == OP_BUY ? "BUY" : "SELL") + ") " + (g_lastPureEmaClosedPL >= 0 ? "+$" : "-$") + DoubleToString(MathAbs(g_lastPureEmaClosedPL), 2))
-         : "NONE YET";
+                          ? ("#" + IntegerToString(g_lastPureEmaClosedTicket) + (g_lastPureEmaClosedComment != "" ? (" [" + g_lastPureEmaClosedComment + "]") : "") + " (" + (g_lastPureEmaClosedType == OP_BUY ? "BUY" : "SELL") + ") " + (g_lastPureEmaClosedPL >= 0 ? "+$" : "-$") + DoubleToString(MathAbs(g_lastPureEmaClosedPL), 2))
+                          : "NONE YET";
       color lastClsClr = (g_lastPureEmaClosedTicket > 0) ? ((g_lastPureEmaClosedPL >= 0) ? clrLime : clrTomato) : clrSilver;
       CreateDashboardLabel(DASH_PREFIX+"S2_SL",   "LAST CLS: " + lastClsStr, tx, y+316, 8, lastClsClr);
       CreateDashboardLabel(DASH_PREFIX+"S2_LOCK", "TOTAL FLIP P/L: " + (g_totalPureEmaFlipNetPL >= 0 ? "+$" : "-$") + DoubleToString(MathAbs(g_totalPureEmaFlipNetPL), 2), tx, y+332, 8, (g_totalPureEmaFlipNetPL >= 0 ? clrLime : clrTomato));
-      CreateDashboardLabel(DASH_PREFIX+"S2_OPP",  "FLIP TRADES : " + IntegerToString(g_totalPureEmaFlipTrades), tx, y+348, 8, clrWhite);
+      CreateDashboardLabel(DASH_PREFIX+"S2_OPP",  "FLIP TRADES : " + IntegerToString(g_totalPureEmaFlipTrades) + " (" + GetPureEmaFlipOrderPLSummaryShort() + ")", tx, y+348, 8, clrWhite);
+
+      double activeLots = (g_pureEmaActiveTicket > 0) ? g_pureEmaActiveLots : nextLot;
+      double activeUnitUSD = InpProfitLockPerUnitLotUSD * activeLots * 100.0;
+      if(activeUnitUSD <= 0.0)
+         activeUnitUSD = 1.0;
 
       string stepStatus = "CYCLE: 1 ORDER PER FLIP";
       color stepClr = clrWhite;
       if(g_pureEmaActiveTicket > 0 && InpEnableStepwiseProfitLock)
         {
-         if(g_pureEmaActivePL >= InpStepwiseLockTriggerUSD)
+         int curStep = (int)MathFloor(g_pureEmaActivePL / activeUnitUSD);
+         if(curStep >= 1)
            {
-            double curLocked = MathFloor(g_pureEmaActivePL) - InpStepwiseLockGapUSD;
-            stepStatus = "SL PROTECTED: +$" + DoubleToString(curLocked, 2) + " LOCKED";
+            double curLocked = GetStepwiseLockForStepCount(curStep, activeUnitUSD);
+            int nextStep = curStep + 1;
+            double nextTrig = nextStep * activeUnitUSD;
+            double nextLock = GetStepwiseLockForStepCount(nextStep, activeUnitUSD);
+            string slPriceStr = (g_pureEmaActiveSL > 0.0) ? (" @ " + DoubleToString(g_pureEmaActiveSL, Digits)) : "";
+            stepStatus = StringFormat("SL LOCKED: +$%.2f PROFIT%s (Next: +$%.2f -> +$%.2f)", curLocked, slPriceStr, nextTrig, nextLock);
             stepClr = clrLime;
            }
          else
            {
-            stepStatus = "SL TRIGGER: P/L >= +$" + DoubleToString(InpStepwiseLockTriggerUSD, 2) + " (LOCK $1)";
+            double needed = activeUnitUSD - g_pureEmaActivePL;
+            double nextLock = GetStepwiseLockForStepCount(1, activeUnitUSD);
+            stepStatus = StringFormat("STEPWISE SL: +$%.2f/$%.2f (+$%.2f to lock $%.2f)", MathMax(0.0, g_pureEmaActivePL), activeUnitUSD, needed, nextLock);
             stepClr = clrAqua;
            }
         }
       CreateDashboardLabel(DASH_PREFIX+"S2_PART", "LOCK ST : " + stepStatus, tx, y+364, 8, stepClr);
-      CreateDashboardLabel(DASH_PREFIX+"S2_PGAP", "FLIP FLG: " + (g_orderOpenedInCurrentEmaFlip ? "ORDER OPENED (CYCLE LOCKED)" : "READY FOR ORDER"), tx, y+380, 8, (g_orderOpenedInCurrentEmaFlip ? clrGold : clrLime));
-      CreateDashboardLabel(DASH_PREFIX+"S2_10LK", "$10 LOCK: DISABLED", tx, y+396, 8, clrSilver);
+      string cycleStr = (g_pureEmaActiveTicket > 0) ? "IN POSITION (MAX: 1)" : (emaLiveDistance >= InpMinEmaRawDistanceUSD ? "RE-ENTRY READY (> $50 GAP)" : "WAITING DIST > $50");
+      color cycleClr = (g_pureEmaActiveTicket > 0) ? clrLime : (emaLiveDistance >= InpMinEmaRawDistanceUSD ? clrLime : clrGold);
+      CreateDashboardLabel(DASH_PREFIX+"S2_PGAP", "RE-ENTRY: " + cycleStr, tx, y+380, 8, cycleClr);
+      CreateDashboardLabel(DASH_PREFIX+"S2_10LK", "LOCK GAP: 75% STEP LEVEL", tx, y+396, 8, clrAqua);
 
       // SECTION 3: RE-ENTRY & RECOVERY ENGINE
       CreateDashboardPanel(DASH_PREFIX+"S3_BAR", x, y+414, w, 18, C'30,45,65');
       CreateDashboardLabel(DASH_PREFIX+"S3_H", "--- SYSTEM STATUS ---", tx, y+416, 8, clrAqua);
-      CreateDashboardLabel(DASH_PREFIX+"S3_RE",   "RECOVERY: DISABLED", tx, y+434, 8, clrSilver);
-      CreateDashboardLabel(DASH_PREFIX+"S3_REC1", "LADDERS : DISABLED", tx, y+450, 8, clrSilver);
-      CreateDashboardLabel(DASH_PREFIX+"S3_REC2", "MODE    : PURE EMA DIRECTION", tx, y+466, 8, clrLime);
-      CreateDashboardLabel(DASH_PREFIX+"S3_EXIT", "MAX COUNT: 1 ORDER", tx, y+482, 8, clrWhite);
+      double fLot = NormalizeLots(InpPureEmaFirstOrderLots * curMult);
+      double sLot = NormalizeLots(InpPureEmaSecondOrderLots * curMult);
+      string lotSummary = StringFormat("LOTS    : 1st=%.2fL, 2nd=%.2fL (Mult: %dX)", fLot, sLot, curMult);
+      CreateDashboardLabel(DASH_PREFIX+"S3_RE",   lotSummary, tx, y+434, 8, clrAqua);
+      CreateDashboardLabel(DASH_PREFIX+"S3_REC1", "EMA COND: " + emaStrengthShort + " (" + (emaStrengthShort == "WEAK" ? "BLOCKED" : "ELIGIBLE") + ")", tx, y+450, 8, emaStrengthClr);
+      CreateDashboardLabel(DASH_PREFIX+"S3_REC2", StringFormat("LOCK SL : 75%% LADDER (Unit $%.2f)", activeUnitUSD), tx, y+466, 8, clrLime);
+      CreateDashboardLabel(DASH_PREFIX+"S3_EXIT", "ORDER P/L: " + GetPureEmaFlipOrderPLSummaryShort(), tx, y+482, 8, (g_totalPureEmaFlipNetPL >= 0 ? clrLime : clrTomato));
 
       // SECTION 4: MARKET MOMENTUM & PRICES
       CreateDashboardPanel(DASH_PREFIX+"S4_BAR", x, y+500, w, 18, C'30,45,65');
       CreateDashboardLabel(DASH_PREFIX+"S4_H", "--- LIVE PRICES ---", tx, y+502, 8, clrAqua);
-      CreateDashboardLabel(DASH_PREFIX+"S4_SCORE", "EMA-200 : " + DoubleToString(ema, Digits), tx, y+520, 8, emaColor);
+      CreateDashboardLabel(DASH_PREFIX+"S4_SCORE", "EMA-200 : " + DoubleToString(ema, Digits) + " | " + emaStrengthShort, tx, y+520, 8, emaStrengthClr);
       CreateDashboardLabel(DASH_PREFIX+"S4_PRICE", "BID/ASK : " + DoubleToString(curBid, Digits) + " / " + DoubleToString(curAsk, Digits) + " (Sprd: " + DoubleToString(curSpread, 1) + ")", tx, y+536, 8, clrWhite);
 
       ChartRedraw(0);
@@ -15269,7 +16062,7 @@ void UpdateDashboard(DailyProtectionState &state)
    CreateDashboardPanel(DASH_PREFIX+"HEADER", x, y, w, 38, C'25,70,115');
    verShort = StringSubstr(glbVersion, 0, 6) + " | " + Symbol() + " " + TimeframeToString(Period());
    CreateDashboardLabel(DASH_PREFIX+"TITLE", verShort, tx, y+6, 9, clrWhite);
-   CreateDashboardLabel(DASH_PREFIX+"WITHDRAW", "Withdraw : 20 % from the Profit", tx, y+22, 9, clrDeepSkyBlue);
+   CreateDashboardLabel(DASH_PREFIX+"WITHDRAW", "VER: " + glbVersion, tx, y+22, 8, clrAqua);
 
 // Status & Bal/Eq/P&L
    CreateDashboardLabel(DASH_PREFIX+"STATUS", "STATUS  : " + statusText, tx, y+44, 9, statusColor);
@@ -15279,9 +16072,9 @@ void UpdateDashboard(DailyProtectionState &state)
 // SECTION 1: ORDER CREATION ENGINE
    CreateDashboardPanel(DASH_PREFIX+"S1_BAR", x, y+98, w, 18, C'30,45,65');
    CreateDashboardLabel(DASH_PREFIX+"S1_H", "--- ORDER CREATION ENGINE ---", tx, y+100, 8, clrAqua);
-   CreateDashboardLabel(DASH_PREFIX+"S1_SSL", "SSL-30  : " + sslDirection + " (" + strong +" ( "+ GetWeakStateCountPerEmaFlip() +")) | EMA: " + emaState, tx, y+118, 8, sslColor);
+   CreateDashboardLabel(DASH_PREFIX+"S1_SSL", "SSL-30  : " + sslDirection + " (" + strong +" ( "+ GetWeakStateCountPerEmaFlip() +")) | EMA: " + emaState + " [" + (isWeak50 ? "WEAK" : "STRONG") + "]", tx, y+118, 8, (isWeak50 ? clrTomato : sslColor));
    CreateDashboardLabel(DASH_PREFIX+"S1_ANG", "EMA-30  : " + angleStr, tx, y+134, 8, angleColor);
-   CreateDashboardLabel(DASH_PREFIX+"S1_WEAK", "PULLBACK: " + weakStr, tx, y+150, 8, weakColor);
+   CreateDashboardLabel(DASH_PREFIX+"S1_WEAK", "EMA ST  : " + weakStr, tx, y+150, 8, weakColor);
    CreateDashboardLabel(DASH_PREFIX+"S1_BGAP", "BUY GAP : " + buyGapStr, tx, y+166, 8, buyGapColor);
    CreateDashboardLabel(DASH_PREFIX+"S1_SGAP", "SELL GAP: " + sellGapStr, tx, y+182, 8, sellGapColor);
    CreateDashboardLabel(DASH_PREFIX+"S1_SPRD", "SPREAD  : " + spreadStr, tx, y+198, 8, spreadColor);
@@ -15312,7 +16105,7 @@ void UpdateDashboard(DailyProtectionState &state)
 // SECTION 4: MARKET MOMENTUM & PRICES
    CreateDashboardPanel(DASH_PREFIX+"S4_BAR", x, y+500, w, 18, C'30,45,65');
    CreateDashboardLabel(DASH_PREFIX+"S4_H", "--- MARKET MOMENTUM & BID/ASK ---", tx, y+502, 8, clrAqua);
-   CreateDashboardLabel(DASH_PREFIX+"S4_SCORE", "SCORE   : " + scoreText, tx, y+520, 8, scoreColor);
+   CreateDashboardLabel(DASH_PREFIX+"S4_SCORE", "EMA-200 : " + (isWeak50 ? "WEAK" : "STRONG") + " | " + scoreText, tx, y+520, 8, (isWeak50 ? clrTomato : scoreColor));
    CreateDashboardLabel(DASH_PREFIX+"S4_PRICE", "BID/ASK : " + DoubleToString(curBid, Digits) + " / " + DoubleToString(curAsk, Digits) + " (Sprd: " + DoubleToString(curSpread, 1) + ")", tx, y+536, 8, clrWhite);
 
    ChartRedraw(0);
@@ -15450,6 +16243,100 @@ bool IsEmaWEAKDistanceReduced50PercentFromPeak(int orderType = -1)
       return true;
 
    return false;
+  }
+//+------------------------------------------------------------------+
+//| Get detailed EMA Strength status string and color for Dashboard  |
+//+------------------------------------------------------------------+
+string GetEmaStrengthDashboardStatus(int orderType, color &outColor, string &outShortTag)
+  {
+   if(EmaFlipTime == 0)
+     {
+      outColor = clrSilver;
+      outShortTag = "N/A";
+      return "N/A (No Flip Time)";
+     }
+
+   RefreshRates();
+   int flipShift = iBarShift(Symbol(), Period(), EmaFlipTime, false);
+   if(flipShift < 0)
+      flipShift = Bars - 1;
+
+// 1. Check $100 price pullback from peak/trough
+   double threshold = 100.0;
+   bool flip100Weak = false;
+   double pullbackUSD = 0.0;
+   if(EMADirection == 1)
+     {
+      double highestPrice = -1.0;
+      for(int i = flipShift; i >= 0; i--)
+        {
+         if(High[i] > highestPrice)
+            highestPrice = High[i];
+        }
+      pullbackUSD = highestPrice - Bid;
+      if(pullbackUSD >= threshold)
+         flip100Weak = true;
+     }
+   else
+      if(EMADirection == -1)
+        {
+         double lowestPrice = 999999.0;
+         for(int i = flipShift; i >= 0; i--)
+           {
+            if(Low[i] < lowestPrice)
+               lowestPrice = Low[i];
+           }
+         pullbackUSD = Ask - lowestPrice;
+         if(pullbackUSD >= threshold)
+            flip100Weak = true;
+        }
+
+// 2. Check 50% peak EMA distance reduction
+   double maxDistance = 0.0;
+   for(int i = flipShift; i >= 1; i--)
+     {
+      double historicalEma = iMA(Symbol(), Period(), InpEMA200Period, InpEMAPriceShift, MODE_EMA, PRICE_CLOSE, i);
+      if(historicalEma <= 0.0)
+         continue;
+      double candleExtreme = (EMADirection == 1) ? High[i] : ((EMADirection == -1) ? Low[i] : Close[i]);
+      double dist = MathAbs(candleExtreme - historicalEma);
+      if(dist > maxDistance)
+         maxDistance = dist;
+     }
+
+   double currentEma = iMA(Symbol(), Period(), InpEMA200Period, InpEMAPriceShift, MODE_EMA, PRICE_CLOSE, 0);
+   double currentPrice = (orderType == OP_BUY) ? Ask : ((orderType == OP_SELL) ? Bid : ((EMADirection == 1) ? Bid : Ask));
+   double currentDistance = (currentEma > 0.0) ? MathAbs(currentPrice - currentEma) : 0.0;
+
+// Synchronize with core EA logic
+   bool isWeak = IsEmaWEAKDistanceReduced50PercentFromPeak(orderType);
+
+   if(isWeak)
+     {
+      outColor = clrTomato;
+      outShortTag = "WEAK";
+      if(flip100Weak)
+         return StringFormat("WEAK (Pullback $%.0f >= $100)", pullbackUSD);
+      else
+         if(maxDistance > Point * 10)
+            return StringFormat("WEAK ($%.1f <= 50%% Peak $%.1f)", currentDistance, maxDistance);
+         else
+            return "WEAK (>50% Drop from Peak)";
+     }
+   else
+     {
+      outColor = clrLime;
+      outShortTag = "STRONG";
+      if(maxDistance > Point * 10)
+        {
+         double pct = (maxDistance > 0.0) ? ((currentDistance / maxDistance) * 100.0) : 100.0;
+         return StringFormat("STRONG ($%.1f / Pk $%.1f [%.0f%%])", currentDistance, maxDistance, pct);
+        }
+      else
+        {
+         return StringFormat("STRONG (Dist $%.1f | Expanding)", currentDistance);
+        }
+     }
   }
 //+------------------------------------------------------------------+
 //|                                                                  |
@@ -16029,7 +16916,7 @@ void UpdateLeftLiveOrdersDashboard()
    CreateLeftLivePanel(LEFT_LIVE_PREFIX+"PANEL", x, y, width, panelHeight, C'12,16,22');
    CreateLeftLivePanel(LEFT_LIVE_PREFIX+"HEADER", x, y, width, 38, C'25,70,115');
    CreateLeftLiveLabel(LEFT_LIVE_PREFIX+"TITLE", "LIVE POSITION MONITOR", tx, y+8, 11, clrWhite);
-   CreateLeftLiveLabel(LEFT_LIVE_PREFIX+"SYMBOL", Symbol()+"  |  "+TimeframeToString(Period()), x+width-112, y+10, 8, clrLightGray);
+   CreateLeftLiveLabel(LEFT_LIVE_PREFIX+"SYMBOL", StringSubstr(glbVersion, 0, 6) + "  |  " + Symbol() + "  |  " + TimeframeToString(Period()), x+width-170, y+10, 8, clrLightGray);
    CreateLeftLivePanel(LEFT_LIVE_PREFIX+"SUMMARYBAR", x, y+38, width, 42, C'25,31,42');
    string netPLStr  = (netPL>=0  ? "+" : "") + DoubleToString(netPL,2);
    string buyPLStr  = (buyPL>=0  ? "+" : "") + DoubleToString(buyPL,2);
@@ -16287,7 +17174,7 @@ void UpdateLeftLiveOrdersDashboard()
          if(isRecovery)
             verifiedStatus = displayComment + " | " + diagReason;
          else
-            verifiedStatus = diagReason;
+            verifiedStatus = (displayComment != "" ? ("[" + displayComment + "] ") : "") + diagReason;
         }
       else
         {
