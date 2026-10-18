@@ -54,8 +54,11 @@ double EMAflipdistance(int orderType = -1);
 bool   HasMinimum005OrderGap(int orderDirection, double proposedPrice, double minGapRaw = 100.0);
 double CalculateOrderTypeLot(int orderClass, int orderType, double proposedPrice = 0.0);
 bool   IsOppositeOrderBlockedByEmaFlipDistance(int orderClass, int orderType);
-string glbVersion = "V10150 18-10-2026 Block Orders Type 1, 4, 5 When EMA Weak";
-string verShort = "V10150 | " + Symbol() + " " + TimeframeToString(Period());
+bool   IsRapidEmaOrPriceSpikeActive(int orderType, double thresholdUSD, int windowMinutes, double &outEmaDistChange, double &outPriceDiff);
+int    GetRecentClosedOrdersCountByClass(int orderClass, int orderType, int secondsWindow);
+int    GetRecentClosedRegularOrdersCount(int orderType, int secondsWindow);
+string glbVersion = "V10154 18-10-2026 All Orders 0.01L if EMAflipdistance < $200";
+string verShort = "V10154 | " + Symbol() + " " + TimeframeToString(Period());
 
 // ===== PURE EMA SINGLE ORDER MODE SETTINGS =====
 bool   InpPureEMASingleOrderMode        = true;   // Pure EMA Single Order Mode (Max 1 Order, Open when EMA==SSL, Close ONLY on EMAFlip)
@@ -109,15 +112,23 @@ double InpMOMMinADX                    = 25.0;    // Type 5: Minimum ADX main li
 double InpMOMOrderStopLossRawUSD       = 300.0;   // Type 5: MOM Stop Loss raw USD ($300 raw gap)
 double InpMOMOrderTakeProfitRawUSD     = 1000.0;  // Type 5: MOM Take Profit raw USD ($1000 raw gap)
 
-// ===== EMA FLIP DISTANCE RULES ($100 DISTANCE -> 0.05L / 0.01L & $200 OPPOSITE ORDER BLOCK) =====
-bool   InpUseEMAFlipDistanceLotRules       = true;    // Use EMAflipdistance > $100 rules (0.05 if matched, 0.01 if not)
-double InpEMAFlipDistanceThresholdUSD      = 100.0;   // EMA flip distance threshold ($100.0 raw gap)
-double InpEMAFlipMatchedLot                = 0.05;    // Lot size when EMADirection matches & distance > $100 (0.05)
-double InpEMAFlipDefaultLot                = 0.01;    // Lot size when unmatched or distance <= $100 (0.01)
+// ===== EMA FLIP DISTANCE RULES ($200 DISTANCE -> 0.05L / 0.01L & $200 OPPOSITE ORDER BLOCK) =====
+bool   InpUseEMAFlipDistanceLotRules       = true;    // Use EMAflipdistance >= $200 rules (0.05 if matched, 0.01 if not)
+double InpEMAFlipDistanceThresholdUSD      = 200.0;   // EMA flip distance threshold ($200.0 raw gap)
+double InpEMAFlipMatchedLot                = 0.05;    // Lot size when EMADirection matches & distance >= $200 (0.05)
+double InpEMAFlipDefaultLot                = 0.01;    // Lot size when unmatched or distance < $200 (0.01)
 bool   InpBlockOppositeOrdersAboveFlipGap  = true;    // Block opposite orders when EMAflipdistance > $200 (except EMA weak)
 double InpMaxOppositeOrderEmaFlipDistanceUSD = 300;//200.0; // Max flip distance for opposite orders ($200 raw gap)
 bool   InpRequire100GapBetween005Orders    = true;    // Min $100 raw gap between same-direction 0.05 lot orders (otherwise lot 0.01)
 double InpMinGapBetween005OrdersUSD         = 100.0;   // Min raw price gap between two BUY 0.05 or two SELL 0.05 orders ($100 raw)
+
+// Type 1 & Type 4: Rapid Spike Lot Reduction Settings (Disabled per user request)
+bool   InpEnableSpikeLotReduction          = false;   // Disabled per user request (was: progressive lot reduction on rapid spike)
+double InpSpikeThresholdUSD                = 200.0;   // Spike threshold: EMA distance change or price change >= $200
+int    InpSpikeWindowMinutes               = 5;       // Spike evaluation time window (5 minutes)
+double InpSpikeBaseLot                     = 0.05;    // Initial spike lot size (0.05)
+double InpSpikeLotStepReduction            = 0.01;    // Lot reduction step per subsequent order (0.01)
+double InpSpikeMinLotFloor                 = 0.01;    // Minimum lot floor during spike reduction (0.01)
 
 // ===== UNIVERSAL PROFIT PROTECTION & OPPOSITE SIGNAL SETTINGS =====
 bool   InpEnableUniversalTrailingSL    = true;    // Universal StopLoss profit trailing for ALL orders
@@ -468,7 +479,7 @@ bool   g_basket10USDTargetHitActive        = false; // Set true when target reac
 // Chance 7B: Basket Equity Step Lock ($5 Step compounding, Live Price -$50 SL protection)
 bool   InpEnableBasketEquityStepLock         = true;  // Enable Basket Equity Step Lock ($5 Step)
 double InpBasketProfitEquityStepUSD          = 5.0;   // Basket Equity Step Profit Trigger ($5.00)
-double InpBasketProfitLockSLDistanceRaw      = 50.0;  // Basket Lock StopLoss Distance from Live Price ($50.0 Raw)
+double InpBasketProfitLockSLDistanceRaw      = 25;//50.0;  // Basket Lock StopLoss Distance from Live Price ($50.0 Raw)
 int          g_basketEquityStepCount              = 0;     // Current step count triggered in current basket
 double       g_basketEquityNextTargetUSD          = 5.0;   // Next target surplus USD for step lock
 datetime     g_basketEquityLastModifyTime         = 0;     // Timestamp of last lock modification
@@ -3253,6 +3264,12 @@ int GetNextPureEmaOrderIndex(int targetType, double &outBaseLots)
       outBaseLots = 0.01;
      }
 
+   // USER RULE: "all order lots 0.01 if emaflidistance is less than $200"
+   if(EMAflipdistance(targetType) < InpEMAFlipDistanceThresholdUSD)
+     {
+      outBaseLots = InpEMAFlipDefaultLot;
+     }
+
    return nextOrderNum;
   }
 
@@ -5114,13 +5131,21 @@ bool IsOppositeSignalDetectedForOrder(int oClass, int oType, datetime openTime)
   {
    datetime checkTime = (openTime > 0) ? (openTime - Period() * 60) : 0;
 
-   // Type 2: EMA Weak order
+   // Type 2: EMA Weak order (Counter-trend order)
    if(oClass == ORDER_TYPE_EMA_WEAK)
      {
-      if(oType == OP_BUY && EMADirection == -1)
-         return true;
-      if(oType == OP_SELL && EMADirection == 1)
-         return true;
+      // Weak order is counter-trend (Bullish EMA weak -> SELL, Bearish EMA weak -> BUY).
+      // Opposite signal is strong momentum/signal resuming in original trend direction:
+      if(oType == OP_BUY)
+        {
+         if(IsStrongMomentum(OP_SELL, 0) || IsSellSignal(0))
+            return true;
+        }
+      else if(oType == OP_SELL)
+        {
+         if(IsStrongMomentum(OP_BUY, 0) || IsBuySignal(0))
+            return true;
+        }
      }
 
    // Type 3: Sweep order
@@ -5225,8 +5250,10 @@ double GetUniversalOrderProfitLockUSD(double orderPL, double lots, int orderClas
    //   }
 
    // 50% profit lock on opposite signal for Order Types 2, 3, 4, 5
+   // Requires minimum profit threshold ($0.50 for 0.01L, $2.50 for 0.05L) to prevent choking micro-profits ($0.02 - $0.04)
    double oppositeLockUSD = 0.0;
-   if(orderClass >= 2 && orderClass <= 5 && oppositeDetected && orderPL > 0.0)
+   double minOppositeLockPL = 0.50 * lotMult; // At least $0.50 for 0.01 lot, $2.50 for 0.05 lot
+   if(orderClass >= 2 && orderClass <= 5 && oppositeDetected && orderPL >= minOppositeLockPL)
      {
       oppositeLockUSD = orderPL * InpOppositeSignalLockRatio; // 0.50
      }
@@ -5327,6 +5354,11 @@ double CalculateOrderTypeLot(int orderClass, int orderType, double proposedPrice
       else if(orderClass == ORDER_TYPE_MOM)
          unconstrainedLot = InpMOMOrderLot;
 
+      // USER RULE: "all order lots 0.01 if emaflidistance is less than $200"
+      double fDist = EMAflipdistance(orderType);
+      if(fDist < InpEMAFlipDistanceThresholdUSD)
+         unconstrainedLot = InpEMAFlipDefaultLot;
+
       if(unconstrainedLot >= (InpEMAFlipMatchedLot - 0.001) && InpRequire100GapBetween005Orders)
         {
          if(!HasMinimum005OrderGap(orderType, proposedPrice, InpMinGapBetween005OrdersUSD))
@@ -5346,7 +5378,7 @@ double CalculateOrderTypeLot(int orderClass, int orderType, double proposedPrice
       directionMatches = true;
 
    double baseLot = InpEMAFlipDefaultLot; // default 0.01
-   if(directionMatches && flipDist > InpEMAFlipDistanceThresholdUSD)
+   if(directionMatches && flipDist >= InpEMAFlipDistanceThresholdUSD)
      {
       baseLot = InpEMAFlipMatchedLot; // 0.05
      }
@@ -5354,6 +5386,40 @@ double CalculateOrderTypeLot(int orderClass, int orderType, double proposedPrice
      {
       baseLot = InpEMAFlipDefaultLot; // 0.01
      }
+
+   // USER RULE: "all order lots 0.01 if emaflidistance is less than $200. sometimes ssl long and SSL short lots are 0.05 when emaflipdistance is less than $200. change to 0.01"
+   if(flipDist < InpEMAFlipDistanceThresholdUSD)
+     {
+      baseLot = InpEMAFlipDefaultLot; // strictly 0.01 if EMAflipdistance < $200
+     }
+
+   // [DISABLED / COMMENTED PER USER REQUEST: "disable or comment Progressive Spike Lot Reduction. I am loosing profit"]
+   /*
+   bool spikeActive = false;
+   double spikeEmaDistChange = 0.0;
+   double spikePriceDiff = 0.0;
+   int spikeOrdersPrior = 0;
+
+   if((orderClass == ORDER_TYPE_REGULAR || orderClass == ORDER_TYPE_SSL) && InpEnableSpikeLotReduction && baseLot >= (InpSpikeBaseLot - 0.001))
+     {
+      spikeActive = IsRapidEmaOrPriceSpikeActive(orderType, InpSpikeThresholdUSD, InpSpikeWindowMinutes, spikeEmaDistChange, spikePriceDiff);
+      if(spikeActive)
+        {
+         int openOrdersCount = GetOpenOrdersCountByClassAndDir(ORDER_TYPE_REGULAR, orderType) + GetOpenOrdersCountByClassAndDir(ORDER_TYPE_SSL, orderType);
+         int recentClosedCount = GetRecentClosedOrdersCountByClass(ORDER_TYPE_REGULAR, orderType, InpSpikeWindowMinutes * 60) + GetRecentClosedOrdersCountByClass(ORDER_TYPE_SSL, orderType, InpSpikeWindowMinutes * 60);
+         spikeOrdersPrior = openOrdersCount + recentClosedCount;
+
+         double reducedLot = InpSpikeBaseLot - (spikeOrdersPrior * InpSpikeLotStepReduction);
+         if(reducedLot < InpSpikeMinLotFloor)
+            reducedLot = InpSpikeMinLotFloor;
+
+         baseLot = reducedLot;
+
+         Print(StringFormat(">>> [TYPE %d SPIKE LOT REDUCTION] Spike Active! 5m EmaDistChange=$%.2f, PriceDiff=$%.2f (Thresh=$%.2f) | PriorOrders=%d (Open=%d, Closed=%d) -> Reduced BaseLot=%.2f",
+               orderClass, spikeEmaDistChange, spikePriceDiff, InpSpikeThresholdUSD, spikeOrdersPrior, openOrdersCount, recentClosedCount, baseLot));
+        }
+     }
+   */
 
    // USER RULE: "minimum gap between 2 BUY 0.05 lot is $100 and 2 SELL 0.05 LOT is $100 raw gap . otherwise simpley LOT is 0.01"
    bool downgradedBy005Gap = false;
@@ -5467,6 +5533,16 @@ int SendDirectOrder(int orderClass, int orderType, double lots, string comment, 
    double finalSendPrice = 0.0;
    double finalSL = 0.0;
    double finalTP = 0.0;
+
+   // STRICT USER RULE: All order lots 0.01 if EMAflipdistance is less than $200
+   double directFlipDist = EMAflipdistance(orderType);
+   if(directFlipDist < InpEMAFlipDistanceThresholdUSD && lots > InpEMAFlipDefaultLot)
+     {
+      int mult = (InpUseBalanceMultiplier && balancelomultipler > 0) ? balancelomultipler : 1;
+      lots = NormalizeLots(InpEMAFlipDefaultLot * mult);
+      Print(">>> [DIRECT ORDER SAFETY] Order lot capped to ", DoubleToString(lots, 2),
+            " because EMAflipdistance ($", DoubleToString(directFlipDist, 2), ") is < $", DoubleToString(InpEMAFlipDistanceThresholdUSD, 2));
+     }
 
    if(lots >= (InpEMAFlipMatchedLot - 0.001) && InpRequire100GapBetween005Orders)
      {
@@ -10375,6 +10451,115 @@ double GetOppositeOrderStructuralSL(int orderType, double sendPrice, double defa
   }
 
 //+------------------------------------------------------------------+
+//| GetRecentClosedOrdersCountByClass: Counts closed orders by class |
+//| opened within the given seconds window.                          |
+//+------------------------------------------------------------------+
+int GetRecentClosedOrdersCountByClass(int orderClass, int orderType, int secondsWindow)
+  {
+   if(secondsWindow <= 0)
+      return 0;
+
+   datetime cutoffTime = TimeCurrent() - secondsWindow;
+   int count = 0;
+   int histTotal = OrdersHistoryTotal();
+   int scanLimit = MathMin(histTotal, 100);
+
+   for(int i = histTotal - 1; i >= histTotal - scanLimit && i >= 0; i--)
+     {
+      if(!OrderSelect(i, SELECT_BY_POS, MODE_HISTORY))
+         continue;
+      if(OrderSymbol() != Symbol() || OrderMagicNumber() != MagicNumber)
+         continue;
+      if(orderType != -1 && OrderType() != orderType)
+         continue;
+      int oClass = GetOrderClassification(OrderComment(), OrderTicket());
+      if(orderClass != -1 && oClass != orderClass)
+         continue;
+      if(OrderOpenTime() >= cutoffTime)
+         count++;
+     }
+   return count;
+  }
+
+//+------------------------------------------------------------------+
+//| GetRecentClosedRegularOrdersCount: Counts closed Type 1 orders   |
+//| opened within the given seconds window.                          |
+//+------------------------------------------------------------------+
+int GetRecentClosedRegularOrdersCount(int orderType, int secondsWindow)
+  {
+   return GetRecentClosedOrdersCountByClass(ORDER_TYPE_REGULAR, orderType, secondsWindow);
+  }
+
+//+------------------------------------------------------------------+
+//| IsRapidEmaOrPriceSpikeActive:                                    |
+//| Detects whether EMA distance changed >= thresholdUSD in window   |
+//| minutes OR live price difference >= thresholdUSD in window.      |
+//| USER RULE: "when EMAdsitance is more than $200 changes in less    |
+//| than 5 minutes or Market Live price difference more than $200    |
+//| in 5 minutes"                                                    |
+//+------------------------------------------------------------------+
+bool IsRapidEmaOrPriceSpikeActive(int orderType, double thresholdUSD, int windowMinutes, double &outEmaDistChange, double &outPriceDiff)
+  {
+   outEmaDistChange = 0.0;
+   outPriceDiff     = 0.0;
+
+   if(thresholdUSD <= 0.0 || windowMinutes <= 0)
+      return false;
+
+   RefreshRates();
+
+   double livePrice = (orderType == OP_BUY) ? Ask : (orderType == OP_SELL ? Bid : ((Ask + Bid) * 0.5));
+   if(livePrice <= 0.0)
+      return false;
+
+   datetime windowStartTime = TimeCurrent() - (windowMinutes * 60);
+   int shiftWin = iBarShift(Symbol(), Period(), windowStartTime, false);
+   if(shiftWin < 0)
+      shiftWin = 0;
+   if(shiftWin >= Bars)
+      shiftWin = Bars - 1;
+   if(shiftWin == 0 && Bars > 1)
+      shiftWin = 1;
+
+   // 1. Calculate price difference across the window
+   double pastPrice = iClose(Symbol(), Period(), shiftWin);
+   if(pastPrice <= 0.0)
+      pastPrice = livePrice;
+
+   double directPriceDiff = MathAbs(livePrice - pastPrice);
+
+   int highBar = iHighest(Symbol(), Period(), MODE_HIGH, shiftWin + 1, 0);
+   int lowBar  = iLowest(Symbol(), Period(), MODE_LOW, shiftWin + 1, 0);
+   double barRangeDiff = 0.0;
+   if(highBar >= 0 && lowBar >= 0 && highBar < Bars && lowBar < Bars)
+      barRangeDiff = High[highBar] - Low[lowBar];
+
+   outPriceDiff = MathMax(directPriceDiff, barRangeDiff);
+
+   // 2. Calculate EMA distance change across the window
+   double curEma = iMA(Symbol(), Period(), InpEMA200Period, InpEMAPriceShift, MODE_EMA, PRICE_CLOSE, 0);
+   double curEmaDist = MathAbs(livePrice - curEma);
+
+   double pastEma = iMA(Symbol(), Period(), InpEMA200Period, InpEMAPriceShift, MODE_EMA, PRICE_CLOSE, shiftWin);
+   double pastEmaDist = MathAbs(pastPrice - pastEma);
+
+   outEmaDistChange = MathAbs(curEmaDist - pastEmaDist);
+
+   // Also include EMA flip distance comparison if available
+   double flipDist = EMAflipdistance(orderType);
+   if(flipDist > 0.0)
+     {
+      double flipDistChange = MathAbs(flipDist - pastEmaDist);
+      if(flipDistChange > outEmaDistChange)
+         outEmaDistChange = flipDistChange;
+     }
+
+   // Spike is active if either EMA distance change OR price difference >= threshold ($200)
+   bool isSpike = (outEmaDistChange >= thresholdUSD || outPriceDiff >= thresholdUSD);
+   return isSpike;
+  }
+
+//+------------------------------------------------------------------+
 //|                                                                  |
 //+------------------------------------------------------------------+
 bool emaflipstrongorweakOld()
@@ -10616,6 +10801,16 @@ int SafeOrderSend(string symbol,int orderType,double lots,double price,int slipp
      {
       Print("SAFEORDERSEND BLOCKED: Opposite to EMADirection and EMAflipdistance >= $200 raw gap. Comment: '", comment, "' (Class=", oClass, ", Type=", orderType, ")");
       return -1;
+     }
+
+   // STRICT USER RULE: All order lots 0.01 if EMAflipdistance is less than $200
+   double safeFlipDist = EMAflipdistance(orderType);
+   if(safeFlipDist < InpEMAFlipDistanceThresholdUSD && lots > InpEMAFlipDefaultLot)
+     {
+      int mult = (InpUseBalanceMultiplier && balancelomultipler > 0) ? balancelomultipler : 1;
+      lots = NormalizeLots(InpEMAFlipDefaultLot * mult);
+      Print("SAFEORDERSEND LOT CAPPED: EMAflipdistance ($", DoubleToString(safeFlipDist, 2),
+            ") < $", DoubleToString(InpEMAFlipDistanceThresholdUSD, 2), " -> lots capped to ", DoubleToString(lots, 2));
      }
 
    if(!EnableTrading)
@@ -12673,6 +12868,12 @@ void ChangeLots(double OpenPL, string reason, int orderType, int stoplevelStep)
    if(Lots < 0.01)
       Lots = 0.01;
 
+   // USER RULE: "all order lots 0.01 if emaflidistance is less than $200"
+   if(EMAflipdistance(orderType) < InpEMAFlipDistanceThresholdUSD)
+     {
+      Lots = InpEMAFlipDefaultLot;
+     }
+
    datetime dubaiTime = TimeCurrent() + (ServerToDubaiOffsetHours * 3600);
    int currentHour = TimeHour(dubaiTime);
 
@@ -12691,6 +12892,11 @@ void ChangeLots(double OpenPL, string reason, int orderType, int stoplevelStep)
         }
    */
    Lots = NormalizeLots(Lots);
+
+   if(EMAflipdistance(orderType) < InpEMAFlipDistanceThresholdUSD)
+     {
+      Lots = NormalizeLots(InpEMAFlipDefaultLot * balancelomultipler);
+     }
 
 
 
@@ -20730,7 +20936,7 @@ void UpdateDashboard(DailyProtectionState &state)
       bool sslGapOk = (sslTargetType != -1) ? HasMinimumTypeOrderGap(ORDER_TYPE_SSL, sslTargetType, sslExecPrice, InpSSLOrderMinRawGapUSD) : false;
       bool sslOppBlocked = (sslTargetType != -1) ? IsOppositeOrderBlockedByEmaFlipDistance(ORDER_TYPE_SSL, sslTargetType) : false;
       int openSslTargetCount = (sslTargetType == OP_BUY) ? sslBuyCount : ((sslTargetType == OP_SELL) ? sslSellCount : 0);
-      double nextSslLot = (sslTargetType != -1) ? CalculateOrderTypeLot(ORDER_TYPE_SSL, sslTargetType) : InpSSLOrderFirstLots;
+      double nextSslLot = (sslTargetType != -1) ? CalculateOrderTypeLot(ORDER_TYPE_SSL, sslTargetType) : InpEMAFlipDefaultLot;
 
       string g4Status = "";
       color  g4StatClr = clrWhite;
