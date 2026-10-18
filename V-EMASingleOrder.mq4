@@ -57,8 +57,9 @@ bool   IsOppositeOrderBlockedByEmaFlipDistance(int orderClass, int orderType);
 bool   IsRapidEmaOrPriceSpikeActive(int orderType, double thresholdUSD, int windowMinutes, double &outEmaDistChange, double &outPriceDiff);
 int    GetRecentClosedOrdersCountByClass(int orderClass, int orderType, int secondsWindow);
 int    GetRecentClosedRegularOrdersCount(int orderType, int secondsWindow);
-string glbVersion = "V10154 18-10-2026 All Orders 0.01L if EMAflipdistance < $200";
-string verShort = "V10154 | " + Symbol() + " " + TimeframeToString(Period());
+void   ManageEmaFlipDistancePartialLossClose();
+string glbVersion = "V10155 18-10-2026 Partial Close >0.01L in Loss if EMAFlipDist > $500";
+string verShort = "V10155 | " + Symbol() + " " + TimeframeToString(Period());
 
 // ===== PURE EMA SINGLE ORDER MODE SETTINGS =====
 bool   InpPureEMASingleOrderMode        = true;   // Pure EMA Single Order Mode (Max 1 Order, Open when EMA==SSL, Close ONLY on EMAFlip)
@@ -121,6 +122,13 @@ bool   InpBlockOppositeOrdersAboveFlipGap  = true;    // Block opposite orders w
 double InpMaxOppositeOrderEmaFlipDistanceUSD = 300;//200.0; // Max flip distance for opposite orders ($200 raw gap)
 bool   InpRequire100GapBetween005Orders    = true;    // Min $100 raw gap between same-direction 0.05 lot orders (otherwise lot 0.01)
 double InpMinGapBetween005OrdersUSD         = 100.0;   // Min raw price gap between two BUY 0.05 or two SELL 0.05 orders ($100 raw)
+
+// ===== EMA FLIP DISTANCE > $500 PARTIAL LOSS CLOSE SETTINGS =====
+bool   InpEnableEmaFlipDistPartialClose    = true;    // Enable Partial Close on EMAflipdistance > $500 when order in loss
+double InpEmaFlipDistPartialCloseUSD       = 500.0;   // Trigger EMA flip distance ($500.0 raw gap)
+double InpPartialCloseStepLot              = 0.01;    // Lot size to partially close per step (0.01)
+double InpPartialCloseMinRawGapUSD         = 50.0;    // Minimum raw price gap between partial closes of same order ($50.0)
+bool   InpPartialCloseDirectTo001          = false;   // false = Stepwise (0.01 per $50 gap), true = Immediately reduce to 0.01
 
 // Type 1 & Type 4: Rapid Spike Lot Reduction Settings (Disabled per user request)
 bool   InpEnableSpikeLotReduction          = false;   // Disabled per user request (was: progressive lot reduction on rapid spike)
@@ -5004,13 +5012,14 @@ bool HasMinimumSweepOrderGap(double proposedPrice, double minGapRaw = 100.0)
 //+------------------------------------------------------------------+
 int GetOrderClassification(string cmt, int ticket)
   {
-   if(ticket == g_weakOrderActiveTicket || StringFind(cmt, "Weak Order") >= 0)
+   string effCmt = (ticket > 0) ? GetEffectiveOrderComment(ticket, cmt) : cmt;
+   if((ticket > 0 && ticket == g_weakOrderActiveTicket) || StringFind(effCmt, "Weak Order") >= 0)
       return ORDER_TYPE_EMA_WEAK;
-   if(ticket == g_sweepOrderActiveTicket || StringFind(cmt, "Sweep Order") >= 0)
+   if((ticket > 0 && ticket == g_sweepOrderActiveTicket) || StringFind(effCmt, "Sweep Order") >= 0)
       return ORDER_TYPE_SWEEP;
-   if(StringFind(cmt, "SSL Long") >= 0 || StringFind(cmt, "SSL Short") >= 0)
+   if(StringFind(effCmt, "SSL Long") >= 0 || StringFind(effCmt, "SSL Short") >= 0)
       return ORDER_TYPE_SSL;
-   if(StringFind(cmt, "MOM Buy") >= 0 || StringFind(cmt, "MOM Sell") >= 0 || StringFind(cmt, "MOM Order") >= 0)
+   if(StringFind(effCmt, "MOM Buy") >= 0 || StringFind(effCmt, "MOM Sell") >= 0 || StringFind(effCmt, "MOM Order") >= 0)
       return ORDER_TYPE_MOM;
    return ORDER_TYPE_REGULAR;
   }
@@ -5621,6 +5630,10 @@ void ManageSslChannelOrders()
    if(!IsConnected() || !IsTradeAllowed() || !EnableTrading)
       return;
 
+   static datetime s_lastSslOrderTime = 0;
+   if(TimeCurrent() - s_lastSslOrderTime < 5)
+      return;
+
    double currentSpreadUSD = Ask - Bid;
    if(currentSpreadUSD > MaxAllowedSpreadUSD)
       return;
@@ -5658,7 +5671,9 @@ void ManageSslChannelOrders()
                                     (targetType == OP_BUY ? "SSL Long" : "SSL Short"), sslDir, openSslCount,
                                     (targetType == OP_BUY ? "BUY" : "SELL"), lotsToOpen);
 
-   SendDirectOrder(ORDER_TYPE_SSL, targetType, lotsToOpen, ordComment, trigReason);
+   int tkt = SendDirectOrder(ORDER_TYPE_SSL, targetType, lotsToOpen, ordComment, trigReason);
+   if(tkt > 0)
+      s_lastSslOrderTime = TimeCurrent();
   }
 
 //+------------------------------------------------------------------+
@@ -6579,6 +6594,9 @@ void ManagePureEMASingleOrder()
 
    // Universal Trailing StopLoss & 50% Opposite Signal Protection for ALL 5 ORDER TYPES
    ManageAllOrdersUniversalTrailingStopLoss();
+
+   // USER RULE: EMAflipdistance > 500 partial close orders > 0.01 LOT moving in loss
+   ManageEmaFlipDistancePartialLossClose();
 
    // Basket Equity $5 Step Lock (Live Price -$50 SL Protection on Equity > Balance by $5 Step)
    ManageBasketEquityStepLock();
@@ -18369,8 +18387,162 @@ void ManagePartialCloses()
 //   }
 
 //+------------------------------------------------------------------+
-//|                                                                  |
+//| ManageEmaFlipDistancePartialLossClose:                           |
+//| USER RULE: "EMAflipdistance >500 and then start partial close    |
+//| orders which are more than 0.01 LOT if order moving in loss"     |
 //+------------------------------------------------------------------+
+void ManageEmaFlipDistancePartialLossClose()
+  {
+   if(!InpEnableEmaFlipDistPartialClose)
+      return;
+   if(!IsConnected() || !IsTradeAllowed() || !EnableTrading)
+      return;
+
+   for(int i = OrdersTotal() - 1; i >= 0; i--)
+     {
+      if(!OrderSelect(i, SELECT_BY_POS, MODE_TRADES))
+         continue;
+      if(OrderSymbol() != Symbol() || OrderMagicNumber() != MagicNumber)
+         continue;
+
+      int orderType = OrderType();
+      if(orderType != OP_BUY && orderType != OP_SELL)
+         continue;
+
+      double orderLots = OrderLots();
+      // USER RULE: "orders which are more than 0.01 LOT"
+      if(orderLots <= 0.01 + 0.000001)
+         continue;
+
+      // USER RULE: "EMAflipdistance >500"
+      double flipDist = EMAflipdistance(orderType);
+      if(flipDist <= InpEmaFlipDistPartialCloseUSD)
+         continue;
+
+      // USER RULE: "if order moving in loss"
+      double orderPL = OrderProfit() + OrderSwap() + OrderCommission();
+      if(orderPL >= 0.0)
+         continue;
+
+      RefreshRates();
+      bool isMovingInLoss = false;
+      if(orderType == OP_BUY && Bid < OrderOpenPrice())
+         isMovingInLoss = true;
+      else if(orderType == OP_SELL && Ask > OrderOpenPrice())
+         isMovingInLoss = true;
+
+      if(!isMovingInLoss)
+         continue;
+
+      int currentTicket = OrderTicket();
+      int baseTicket = GetOriginalTicket(currentTicket, OrderComment());
+      if(baseTicket <= 0)
+         baseTicket = currentTicket;
+
+      double lastClosedPrice = GetTicketLastClosePrice(baseTicket);
+      if(lastClosedPrice <= 0.0 && currentTicket != baseTicket)
+         lastClosedPrice = GetTicketLastClosePrice(currentTicket);
+
+      // Check minimum raw gap between partial closes of the same order
+      bool gapSatisfied = false;
+      if(lastClosedPrice <= 0.0)
+        {
+         // First cut: MUST have moved adversely into loss from entry price by at least InpPartialCloseMinRawGapUSD ($50.0)
+         if(orderType == OP_BUY && (OrderOpenPrice() - Bid) >= InpPartialCloseMinRawGapUSD)
+            gapSatisfied = true;
+         else if(orderType == OP_SELL && (Ask - OrderOpenPrice()) >= InpPartialCloseMinRawGapUSD)
+            gapSatisfied = true;
+        }
+      else
+        {
+         // Subsequent cuts: MUST have moved further into loss from last cut price by at least InpPartialCloseMinRawGapUSD ($50.0)
+         if(orderType == OP_BUY && (lastClosedPrice - Bid) >= InpPartialCloseMinRawGapUSD)
+            gapSatisfied = true;
+         else if(orderType == OP_SELL && (Ask - lastClosedPrice) >= InpPartialCloseMinRawGapUSD)
+            gapSatisfied = true;
+        }
+
+      if(!gapSatisfied)
+         continue;
+
+      // Determine lot size to close:
+      double minLot = MarketInfo(Symbol(), MODE_MINLOT);
+      if(minLot <= 0.0) minLot = 0.01;
+      double lotStep = MarketInfo(Symbol(), MODE_LOTSTEP);
+      if(lotStep <= 0.0) lotStep = 0.01;
+
+      double lotsToClose = InpPartialCloseStepLot;
+      if(InpPartialCloseDirectTo001)
+        {
+         lotsToClose = orderLots - 0.01;
+        }
+      else
+        {
+         if(InpUseBalanceMultiplier && balancelomultipler > 1)
+            lotsToClose = InpPartialCloseStepLot * balancelomultipler;
+        }
+
+      // Ensure lotsToClose doesn't close the entire order; must leave at least minLot (0.01)
+      if(orderLots - lotsToClose < minLot)
+         lotsToClose = orderLots - minLot;
+
+      lotsToClose = MathFloor(lotsToClose / lotStep + 0.0000001) * lotStep;
+      lotsToClose = NormalizeDouble(lotsToClose, 2);
+
+      if(lotsToClose < minLot)
+         continue;
+
+      RefreshRates();
+      double execPrice = (orderType == OP_BUY) ? Bid : Ask;
+      string preComment = OrderComment();
+      string effComment = GetEffectiveOrderComment(currentTicket, preComment);
+      bool isRec = IsAnyRecoveryOrder(currentTicket, preComment);
+
+      ResetLastError();
+      bool closedOk = OrderClose(currentTicket, lotsToClose, execPrice, Slippage, (orderType == OP_BUY ? clrRed : clrBlue));
+      if(closedOk)
+        {
+         UpdateTicketClosePrice(baseTicket, execPrice);
+         if(currentTicket != baseTicket)
+            UpdateTicketClosePrice(currentTicket, execPrice);
+
+         g_lastGlobalPartialLossClosePrice  = execPrice;
+         g_lastGlobalPartialLossCloseType   = orderType;
+         g_lastGlobalPartialLossCloseTime   = TimeCurrent();
+         g_lastGlobalPartialLossCloseTicket = currentTicket;
+
+         // Identify spawned child order (if broker created new ticket with "from #<ticket>")
+         int spawnedChild = -1;
+         for(int s = OrdersTotal() - 1; s >= 0; s--)
+           {
+            if(!OrderSelect(s, SELECT_BY_POS, MODE_TRADES))
+               continue;
+            if(OrderSymbol() != Symbol() || OrderMagicNumber() != MagicNumber)
+               continue;
+            string sc = OrderComment();
+            if(StringFind(sc, "from #" + IntegerToString(currentTicket)) >= 0)
+              {
+               spawnedChild = OrderTicket();
+               UpdateTicketClosePrice(spawnedChild, execPrice);
+               if(isRec || effComment != "")
+                  RegisterPreservedOrderComment(spawnedChild, effComment);
+               break;
+              }
+           }
+
+         Print(StringFormat(">>> [EMA FLIP DIST PARTIAL LOSS CLOSE] Ticket #%d (Parent #%d%s) | FlipDist=$%.2f > $%.2f | Closed %.2fL @ %.2f | RemLots=%.2fL | Loss=$%.2f | Gap=$%.2f",
+               currentTicket, baseTicket, (spawnedChild > 0 ? StringFormat(" Child #%d", spawnedChild) : ""),
+               flipDist, InpEmaFlipDistPartialCloseUSD, lotsToClose, execPrice, (orderLots - lotsToClose), orderPL, InpPartialCloseMinRawGapUSD));
+
+         return; // Process at most 1 partial close per tick for broker execution safety
+        }
+      else
+        {
+         Print(StringFormat(">>> [EMA FLIP DIST PARTIAL LOSS CLOSE FAILED] Ticket #%d | Error %d", currentTicket, GetLastError()));
+        }
+     }
+  }
+
 //+------------------------------------------------------------------+
 //| Manage Profit Ladder & Partial Closes                            |
 //+------------------------------------------------------------------+
@@ -18474,7 +18646,7 @@ void ManageProfitLadder()
       double existingLockedProfit = 0.0;
       if(OrderStopLoss() > 0)
         {
-         double existingPriceDistance = 0.0;
+         existingPriceDistance = 0.0;
          if(orderType == OP_BUY)
             existingPriceDistance = OrderStopLoss() - OrderOpenPrice();
          if(orderType == OP_SELL)
@@ -20149,6 +20321,8 @@ void UpdateDashboard(DailyProtectionState &state)
    double bestPartReqDiff = 0.0;
    double bestPartPriorCls = 0.0;
    bool bestPartIsReady = false;
+   bool bestPartIsFlipDist = false;
+   double bestPartFlipDist = 0.0;
    double bestPartScore = -999999.0;
 
    for(int p = OrdersTotal() - 1; p >= 0; p--)
@@ -20208,11 +20382,42 @@ void UpdateDashboard(DailyProtectionState &state)
             gapMet = true;
         }
 
-      bool isReady = (curPL <= lTrig && gapMet);
+      bool isFlipDistEligible = false;
+      double flipDist = EMAflipdistance(pType);
+      if(InpEnableEmaFlipDistPartialClose && flipDist > InpEmaFlipDistPartialCloseUSD && curPL < 0.0)
+        {
+         bool isMovingInLoss = false;
+         if(pType == OP_BUY && curBid < OrderOpenPrice()) isMovingInLoss = true;
+         else if(pType == OP_SELL && curAsk > OrderOpenPrice()) isMovingInLoss = true;
+         if(isMovingInLoss)
+           {
+            isFlipDistEligible = true;
+            if(priorCls > 0.0)
+              {
+               double rawGap = (pType == OP_BUY) ? (priorCls - curBid) : (curAsk - priorCls);
+               if(rawGap >= InpPartialCloseMinRawGapUSD)
+                  gapMet = true;
+              }
+            else
+              {
+               double rawFromOpen = (pType == OP_BUY) ? (OrderOpenPrice() - curBid) : (curAsk - OrderOpenPrice());
+               if(rawFromOpen >= InpPartialCloseMinRawGapUSD)
+                  gapMet = true;
+              }
+           }
+        }
+
+      bool isReady = (curPL <= lTrig && gapMet) || (isFlipDistEligible && gapMet);
 
       double score = 0.0;
       if(isReady)
-         score = 1000.0 + MathAbs(curPL - lTrig);
+        {
+         score = 2000.0 + (isFlipDistEligible ? 1000.0 : 0.0) + MathAbs(curPL);
+        }
+      else if(isFlipDistEligible)
+        {
+         score = 500.0 + (flipDist / InpEmaFlipDistPartialCloseUSD) * 100.0;
+        }
       else
         {
          double plProg = (lTrig < 0.0 && curPL < 0.0) ? (curPL / lTrig) : 0.0;
@@ -20232,6 +20437,8 @@ void UpdateDashboard(DailyProtectionState &state)
          bestPartReqDiff = reqDiff;
          bestPartPriorCls = priorCls;
          bestPartIsReady = isReady;
+         bestPartIsFlipDist = isFlipDistEligible;
+         bestPartFlipDist = flipDist;
         }
      }
 
@@ -20250,36 +20457,56 @@ void UpdateDashboard(DailyProtectionState &state)
    else
      {
       string pTypeStr = (bestPartType == OP_BUY) ? "BUY" : "SELL";
-      part1Str = StringConcatenate("#", IntegerToString(bestPartTicket), " (", DoubleToString(bestPartLots, 2), "L ", pTypeStr, ") | P/L: ", (bestPartPL >= 0 ? "+$" : "-$"), DoubleToString(MathAbs(bestPartPL), 2), " / Trig -$ ", DoubleToString(MathAbs(bestPartLossTrig), 2));
-
-      if(bestPartIsReady)
+      if(bestPartIsFlipDist)
         {
-         part2Str = StringConcatenate("Diff $", DoubleToString(bestPartLiveDiff, 2), " / Req $", DoubleToString(bestPartReqDiff, 2), " [READY: SHAVE 0.01 NOW]");
-         part1Color = clrLime;
-         part2Color = clrLime;
-        }
-      else
-         if(bestPartPriorCls > 0.0)
+         part1Str = StringConcatenate("#", IntegerToString(bestPartTicket), " (", DoubleToString(bestPartLots, 2), "L ", pTypeStr, ") | P/L: -$", DoubleToString(MathAbs(bestPartPL), 2), " | FlipDist: $", DoubleToString(bestPartFlipDist, 1), " > $", DoubleToString(InpEmaFlipDistPartialCloseUSD, 0));
+
+         if(bestPartIsReady)
            {
-            double remGap = bestPartReqDiff - bestPartLiveDiff;
-            if(remGap < 0.0)
-               remGap = 0.0;
-            part2Str = StringConcatenate("Prior @", DoubleToString(bestPartPriorCls, 1), " | Diff $", DoubleToString(bestPartLiveDiff, 2), "/$100 [Need $", DoubleToString(remGap, 2), "]");
-            part1Color = (bestPartPL <= bestPartLossTrig) ? clrGold : clrTomato;
-            part2Color = (bestPartLiveDiff >= 100.0) ? clrLime : clrTomato;
+            part2Str = "[READY: SHAVE 0.01 NOW (FlipDist > $500 in Loss)]";
+            part1Color = clrLime;
+            part2Color = clrLime;
            }
          else
            {
-            double remMove = bestPartReqDiff - bestPartLiveDiff;
-            if(remMove < 0.0)
-               remMove = 0.0;
-            double remPL = bestPartPL - bestPartLossTrig;
-            if(remPL < 0.0)
-               remPL = 0.0;
-            part2Str = StringConcatenate("1st Cut | Live Diff $", DoubleToString(bestPartLiveDiff, 2), "/$", DoubleToString(bestPartReqDiff, 2), " [Need -$ ", DoubleToString(remPL, 2), " / $", DoubleToString(remMove, 2), " move]");
-            part1Color = (bestPartPL <= bestPartLossTrig) ? clrLime : clrTomato;
+            part2Str = StringConcatenate("Gap $", DoubleToString(bestPartLiveDiff, 1), "/$", DoubleToString(InpPartialCloseMinRawGapUSD, 0), " [Waiting for $", DoubleToString(InpPartialCloseMinRawGapUSD, 0), " raw gap move]");
+            part1Color = clrGold;
             part2Color = clrGold;
            }
+        }
+      else
+        {
+         part1Str = StringConcatenate("#", IntegerToString(bestPartTicket), " (", DoubleToString(bestPartLots, 2), "L ", pTypeStr, ") | P/L: ", (bestPartPL >= 0 ? "+$" : "-$"), DoubleToString(MathAbs(bestPartPL), 2), " / Trig -$ ", DoubleToString(MathAbs(bestPartLossTrig), 2));
+
+         if(bestPartIsReady)
+           {
+            part2Str = StringConcatenate("Diff $", DoubleToString(bestPartLiveDiff, 2), " / Req $", DoubleToString(bestPartReqDiff, 2), " [READY: SHAVE 0.01 NOW]");
+            part1Color = clrLime;
+            part2Color = clrLime;
+           }
+         else
+            if(bestPartPriorCls > 0.0)
+              {
+               double remGap = bestPartReqDiff - bestPartLiveDiff;
+               if(remGap < 0.0)
+                  remGap = 0.0;
+               part2Str = StringConcatenate("Prior @", DoubleToString(bestPartPriorCls, 1), " | Diff $", DoubleToString(bestPartLiveDiff, 2), "/$100 [Need $", DoubleToString(remGap, 2), "]");
+               part1Color = (bestPartPL <= bestPartLossTrig) ? clrGold : clrTomato;
+               part2Color = (bestPartLiveDiff >= 100.0) ? clrLime : clrTomato;
+              }
+            else
+              {
+               double remMove = bestPartReqDiff - bestPartLiveDiff;
+               if(remMove < 0.0)
+                  remMove = 0.0;
+               double remPL = bestPartPL - bestPartLossTrig;
+               if(remPL < 0.0)
+                  remPL = 0.0;
+               part2Str = StringConcatenate("1st Cut | Live Diff $", DoubleToString(bestPartLiveDiff, 2), "/$", DoubleToString(bestPartReqDiff, 2), " [Need -$ ", DoubleToString(remPL, 2), " / $", DoubleToString(remMove, 2), " move]");
+               part1Color = (bestPartPL <= bestPartLossTrig) ? clrLime : clrTomato;
+               part2Color = clrGold;
+              }
+        }
      }
 
    string basket10LockStr = "";
