@@ -28,7 +28,7 @@
 
 
 //string glbVersion = "V5008  29-09-2026 23.00 Aug 1st to Aug 5th $100 to $1000 equity $500 - Attached Image  balance ST-20 Partialclose, Close orders $1X close-   FlipLadderStepUSD 7 DailyEquityStopUSD 50%  TargetProfitPerFlipUSD 10%";
-string glbVersion = "VMULTI-1004 - Flip time and Flip Distance";
+string glbVersion = "VMULTI-1004 - OppsiteOrders- Flip time and Flip Distance";
 
 
 double DailyEquityStopUSD  =100;//50;//20*2.5;//10;//20;// 10;//30.0; close all orders at $50Xmultipler
@@ -4779,12 +4779,12 @@ int SafeOrderSend(string symbol,int orderType,double lots,double price,int slipp
       ignoreFlipTime = true;
 
 
-if(!IsEmaWEAKDistanceReduced50PercentFromPeak() && EMADirection!= requestedDirection)
-      return -1;
+//if(!IsEmaWEAKDistanceReduced50PercentFromPeak() && EMADirection!= requestedDirection)
+  //    return -1;
       
       
-   if(EMAflipdistance()>200 && !IsEmaWEAKDistanceReduced50PercentFromPeak() && EMADirection!= requestedDirection)
-      return -1;
+  // if(EMAflipdistance()>200 && !IsEmaWEAKDistanceReduced50PercentFromPeak() && EMADirection!= requestedDirection)
+    //  return -1;
 
 
 // Block trades if flip time is under 15 minutes and bypass criteria are NOT met
@@ -6760,7 +6760,7 @@ void ChangeLots(double OpenPL, string reason, int orderType, int stoplevelStep)
      {
       Lots = 0.05;
      }
-if(IsHeavyLotOrderNearBy(orderType, Lots, 200) && Lots>=0.02)
+if(IsHeavyLotOrderNearBy(orderType, Lots, 300) && Lots>=0.02)
       Lots = 0.02;
 
    /*
