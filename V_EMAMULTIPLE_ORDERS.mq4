@@ -172,6 +172,8 @@ bool     IsLsdSweepRedLinePresent();
 bool     IsLsdSweepGreenLineActive();
 bool     IsLsdSweepRedLineActive();
 void     ManageLsdSweepLineStopLossProtection();
+void     UpdateOrderCacheIfNeeded();
+void     InvalidateOrderCache();
 
 // ===== CUSTOM USER RULES SETTINGS =====
 bool   InpEnableCustomRules      = true;
@@ -423,6 +425,140 @@ double Global30MinDiffSell = 0.0;
 double Get5MinDifferenceBuy1 = 0.0;
 double Get5MinDifferenceSell1 = 0.0;
 
+// ==================================================================
+// CENTRALIZED ORDER CACHE (Optimizes order queries to single-pass O(1))
+// ==================================================================
+struct OrderCacheData
+  {
+   int               totalOrders;
+   int               buyOrders;
+   int               sellOrders;
+   int               buyPending;
+   int               sellPending;
+   double            buyLots;
+   double            sellLots;
+   double            buyPL;
+   double            sellPL;
+   double            totalPL;
+   double            minBuyPrice;
+   double            maxBuyPrice;
+   double            minSellPrice;
+   double            maxSellPrice;
+   datetime          oldestBuyTime;
+   datetime          newestBuyTime;
+   datetime          oldestSellTime;
+   datetime          newestSellTime;
+  };
+
+OrderCacheData g_orderCache;
+bool           g_orderCacheValid = false;
+int            g_orderCacheTick  = -1;
+
+//+------------------------------------------------------------------+
+//|                                                                  |
+//+------------------------------------------------------------------+
+void InvalidateOrderCache()
+  {
+   g_orderCacheValid = false;
+   CachedTotalEAOrdersTick = -1;
+   CachedTotalEAOrders = -1;
+  }
+
+//+------------------------------------------------------------------+
+//|                                                                  |
+//+------------------------------------------------------------------+
+void UpdateOrderCacheIfNeeded()
+  {
+   if(g_orderCacheValid && g_orderCacheTick == CurrentTickSequence && CurrentTickSequence > 0)
+      return;
+
+   g_orderCache.totalOrders    = 0;
+   g_orderCache.buyOrders      = 0;
+   g_orderCache.sellOrders     = 0;
+   g_orderCache.buyPending     = 0;
+   g_orderCache.sellPending    = 0;
+   g_orderCache.buyLots        = 0.0;
+   g_orderCache.sellLots       = 0.0;
+   g_orderCache.buyPL          = 0.0;
+   g_orderCache.sellPL         = 0.0;
+   g_orderCache.totalPL        = 0.0;
+   g_orderCache.minBuyPrice    = 0.0;
+   g_orderCache.maxBuyPrice    = 0.0;
+   g_orderCache.minSellPrice   = 0.0;
+   g_orderCache.maxSellPrice   = 0.0;
+   g_orderCache.oldestBuyTime  = 0;
+   g_orderCache.newestBuyTime  = 0;
+   g_orderCache.oldestSellTime = 0;
+   g_orderCache.newestSellTime = 0;
+
+   int total = OrdersTotal();
+   for(int i = total - 1; i >= 0; i--)
+     {
+      if(!OrderSelect(i, SELECT_BY_POS, MODE_TRADES))
+         continue;
+      if(OrderSymbol() != Symbol() || OrderMagicNumber() != MagicNumber)
+         continue;
+
+      int type          = OrderType();
+      double lots       = OrderLots();
+      double pl         = OrderProfit() + OrderSwap() + OrderCommission();
+      double openPrice  = OrderOpenPrice();
+      datetime openTime = OrderOpenTime();
+
+      g_orderCache.totalOrders++;
+      g_orderCache.totalPL += pl;
+
+      if(type == OP_BUY)
+        {
+         g_orderCache.buyOrders++;
+         g_orderCache.buyLots += lots;
+         g_orderCache.buyPL += pl;
+         if(g_orderCache.minBuyPrice == 0.0 || openPrice < g_orderCache.minBuyPrice)
+            g_orderCache.minBuyPrice = openPrice;
+         if(openPrice > g_orderCache.maxBuyPrice)
+            g_orderCache.maxBuyPrice = openPrice;
+         if(g_orderCache.oldestBuyTime == 0 || openTime < g_orderCache.oldestBuyTime)
+            g_orderCache.oldestBuyTime = openTime;
+         if(openTime > g_orderCache.newestBuyTime)
+            g_orderCache.newestBuyTime = openTime;
+        }
+      else
+         if(type == OP_SELL)
+           {
+            g_orderCache.sellOrders++;
+            g_orderCache.sellLots += lots;
+            g_orderCache.sellPL += pl;
+            if(g_orderCache.minSellPrice == 0.0 || openPrice < g_orderCache.minSellPrice)
+               g_orderCache.minSellPrice = openPrice;
+            if(openPrice > g_orderCache.maxSellPrice)
+               g_orderCache.maxSellPrice = openPrice;
+            if(g_orderCache.oldestSellTime == 0 || openTime < g_orderCache.oldestSellTime)
+               g_orderCache.oldestSellTime = openTime;
+            if(openTime > g_orderCache.newestSellTime)
+               g_orderCache.newestSellTime = openTime;
+           }
+         else
+            if(type == OP_BUYSTOP || type == OP_BUYLIMIT)
+              {
+               g_orderCache.buyPending++;
+              }
+            else
+               if(type == OP_SELLSTOP || type == OP_SELLLIMIT)
+                 {
+                  g_orderCache.sellPending++;
+                 }
+     }
+
+   g_orderCacheTick = CurrentTickSequence;
+   g_orderCacheValid = true;
+
+   GlobalBuyPL = g_orderCache.buyPL;
+   GlobalSellPL = g_orderCache.sellPL;
+   CachedTotalEAOrders = g_orderCache.totalOrders;
+   CachedTotalEAOrdersTick = CurrentTickSequence;
+  }
+
+
 // --- MISSED SIGNAL MEMORY VARIABLES ---
 int      MissedSignalType  = 0;    // 1 for Buy, -1 for Sell, 0 for None
 double   MissedSignalPrice = 0.0;
@@ -557,20 +693,19 @@ bool EnableSSLImmediateOrderCreation = true;
 //+------------------------------------------------------------------+
 int CountOrdersByType(int orderType)
   {
-   int count = 0;
-   for(int i = 0; i < OrdersTotal(); i++)
-     {
-      if(!OrderSelect(i, SELECT_BY_POS, MODE_TRADES))
-         continue;
-      if(OrderMagicNumber() != MagicNumber || OrderSymbol() != Symbol())
-         continue;
-      if(OrderType() == orderType)
-         count++;
-     }
-   return count;
+   UpdateOrderCacheIfNeeded();
+   if(orderType == OP_BUY)
+      return g_orderCache.buyOrders;
+   if(orderType == OP_SELL)
+      return g_orderCache.sellOrders;
+   if(orderType == OP_BUYSTOP || orderType == OP_BUYLIMIT)
+      return g_orderCache.buyPending;
+   if(orderType == OP_SELLSTOP || orderType == OP_SELLLIMIT)
+      return g_orderCache.sellPending;
+   return 0;
   }
-  
-  
+
+
 //+------------------------------------------------------------------+
 //| IsRecoveryOrderWithActiveParent: Returns true if the order is a  |
 //| recovery order (1st or 2nd) and its parent trade is still open.  |
@@ -614,8 +749,8 @@ bool IsRecoveryOrderWithActiveParent(int ticket, string comment = "")
    return parentFound;
   }
 
-  
-   
+
+
 //Chance 1B: Pair Profit 2-Order Combination Live SL Modifier (> $1 profit)
 bool   EnablePairProfitSLModify =true;// false;             // Disabled: avoid 20pt choke so 100-step trailing ladder has full authority
 double PairCombinationProfitThresholdUSD = 1.0;       // Threshold profit in USD for 2-order combination
@@ -699,7 +834,7 @@ void ModifyPairProfitWithStopLoss()
       if(IsAnyRecoveryOrder(tkt, cmt) || IsRecoveryOrderWithActiveParent(tkt, cmt))
          continue;
 
-      
+
 
       candTickets[candCount]    = tkt;
       candTypes[candCount]      = oType;
@@ -946,6 +1081,9 @@ void SecureDistanceProfitLadder()
 //+------------------------------------------------------------------+
 void SecureOneDollarProfit()
   {
+   if(GetTotalEAOrders() <= 0)
+      return;
+
 // The base 1X target amount in your account currency
    double baseProfitTarget = SecureOneDollarProfitPerOrder * balancelomultipler;
 
@@ -956,6 +1094,14 @@ void SecureOneDollarProfit()
 
    if(baseProfitTarget <= 0)
       return; // Prevent division by zero if inputs are 0
+
+   double tickValue = MarketInfo(Symbol(), MODE_TICKVALUE);
+   double tickSize  = MarketInfo(Symbol(), MODE_TICKSIZE);
+   double stopLevel = MarketInfo(Symbol(), MODE_STOPLEVEL) * Point;
+   if(tickValue == 0 || tickSize == 0)
+      return;
+
+   RefreshRates();
 
    for(int i = OrdersTotal() - 1; i >= 0; i--)
      {
@@ -969,14 +1115,8 @@ void SecureOneDollarProfit()
       if(type != OP_BUY && type != OP_SELL)
          continue;
 
-      double tickValue = MarketInfo(Symbol(), MODE_TICKVALUE);
-      double tickSize  = MarketInfo(Symbol(), MODE_TICKSIZE);
-      double stopLevel = MarketInfo(Symbol(), MODE_STOPLEVEL) * Point;
-
-      if(tickValue == 0 || tickSize == 0 || OrderLots() == 0)
+      if(OrderLots() == 0)
          continue;
-
-      RefreshRates();
 
       double currentSL = OrderStopLoss();
       double openPrice = OrderOpenPrice();
@@ -1461,31 +1601,36 @@ int GetClosedOrdersCountSinceEmaFlip()
    if(EmaFlipTime == 0)
       return 0;
 
+   static int      s_lastHistCountClose = -1;
+   static datetime s_lastFlipTimeClose  = 0;
+   static int      s_cachedClosedCount  = 0;
+
+   int currentHistTotal = OrdersHistoryTotal();
+   if(currentHistTotal == s_lastHistCountClose && EmaFlipTime == s_lastFlipTimeClose)
+      return s_cachedClosedCount;
+
    int closedCount = 0;
 
-// Loop through the account history backwards
-   for(int i = OrdersHistoryTotal() - 1; i >= 0; i--)
+// Loop through the account history backwards (chronological order)
+   for(int i = currentHistTotal - 1; i >= 0; i--)
      {
       if(OrderSelect(i, SELECT_BY_POS, MODE_HISTORY))
         {
-         // Match your EA's Symbol and Magic Number
+         if(OrderCloseTime() < EmaFlipTime)
+            break; // Past flip time, stop scanning!
+
          if(OrderSymbol() == Symbol() && OrderMagicNumber() == MagicNumber)
            {
             int type = OrderType();
-
-            // Only count actual market orders (ignore deleted pending orders)
             if(type == OP_BUY || type == OP_SELL)
-              {
-               // Check if the order closed AFTER the last recorded EMA flip
-               if(OrderCloseTime() >= EmaFlipTime)
-                 {
-                  closedCount++;
-                 }
-              }
+               closedCount++;
            }
         }
      }
 
+   s_lastHistCountClose = currentHistTotal;
+   s_lastFlipTimeClose  = EmaFlipTime;
+   s_cachedClosedCount  = closedCount;
    return closedCount;
   }
 
@@ -1517,22 +1662,34 @@ double GetProfitAfterLastEmaFlip()
    if(EmaFlipTime == 0)
       return 0.0;
 
+   static int      s_lastHistCount = -1;
+   static datetime s_lastFlipTime  = 0;
+   static double   s_cachedProfit  = 0.0;
+
+   int currentHistTotal = OrdersHistoryTotal();
+   if(currentHistTotal == s_lastHistCount && EmaFlipTime == s_lastFlipTime)
+      return s_cachedProfit;
+
    double realizedProfit = 0.0;
 
-
-// Sum up all closed orders since the last EMA flip
-   for(int i = OrdersHistoryTotal() - 1; i >= 0; i--)
+// Sum up all closed orders since the last EMA flip (chronological backwards)
+   for(int i = currentHistTotal - 1; i >= 0; i--)
      {
       if(OrderSelect(i, SELECT_BY_POS, MODE_HISTORY))
         {
+         if(OrderCloseTime() < EmaFlipTime)
+            break; // Past flip time, stop scanning!
+
          if(OrderSymbol() == Symbol() && OrderMagicNumber() == MagicNumber)
            {
-            if(OrderCloseTime() >= EmaFlipTime)
-               realizedProfit += (OrderProfit() + OrderSwap() + OrderCommission());
+            realizedProfit += (OrderProfit() + OrderSwap() + OrderCommission());
            }
         }
      }
 
+   s_lastHistCount = currentHistTotal;
+   s_lastFlipTime  = EmaFlipTime;
+   s_cachedProfit  = realizedProfit;
    return realizedProfit;
   }
 //+------------------------------------------------------------------+
@@ -1884,6 +2041,8 @@ void CloseOppositeOrdersOnEmaDistance()
       return;
    if(!HasEmaFlippedSinceLoad)
       return;
+   if(GetTotalEAOrders() <= 0)
+      return;
    double ema = iMA(Symbol(), Period(), InpEMA200Period, InpEMAPriceShift, MODE_EMA, PRICE_CLOSE, 0);
    if(ema <= 0)
       return;
@@ -2036,18 +2195,8 @@ int StartupProtectionTicks = 0;
 //+------------------------------------------------------------------+
 double GetEAFloatingPL()
   {
-   double floatingPL = 0.0;
-   for(int i=OrdersTotal()-1; i>=0; i--)
-     {
-      if(!OrderSelect(i, SELECT_BY_POS, MODE_TRADES))
-         continue;
-      if(OrderSymbol()!=Symbol() || OrderMagicNumber()!=MagicNumber)
-         continue;
-      int type = OrderType();
-      if(type==OP_BUY || type==OP_SELL)
-         floatingPL += OrderProfit() + OrderSwap() + OrderCommission();
-     }
-   return floatingPL;
+   UpdateOrderCacheIfNeeded();
+   return g_orderCache.buyPL + g_orderCache.sellPL;
   }
 
 //+------------------------------------------------------------------+
@@ -2167,6 +2316,9 @@ bool IsDailyEquityStopReached()
 //+------------------------------------------------------------------+
 void OnTick()
   {
+   CurrentTickSequence++;
+   InvalidateOrderCache();
+
    profitAfterFlip = GetProfitAfterLastEmaFlip();
 
 
@@ -2372,54 +2524,28 @@ void CheckMomentumExhaustionExits()
 //+------------------------------------------------------------------+
 void ManageOverallBasketProfit()
   {
-   double totalBasketProfit = 0.0;
-   double totalLots = 0.0;
-   int buyOrdersCount = 0;
-   int sellOrdersCount = 0;
+   UpdateOrderCacheIfNeeded();
+   if(g_orderCache.buyOrders <= 0 || g_orderCache.sellOrders <= 0)
+      return;
 
-// 1. Calculate metrics and count buys/sells separately
-   for(int i = OrdersTotal() - 1; i >= 0; i--)
+   double totalLots = g_orderCache.buyLots + g_orderCache.sellLots;
+   double totalBasketProfit = g_orderCache.buyPL + g_orderCache.sellPL;
+
+// Dynamic profit target: Total Lots * 0.50 * 100 (Total Lots * 50.0)
+   double dynamicProfitTarget = totalLots*100 * (modifyBasketProfitOrdersLotXPercent/10);
+
+   if(totalBasketProfit > dynamicProfitTarget)
      {
-      if(!OrderSelect(i, SELECT_BY_POS, MODE_TRADES))
-         continue;
-      if(OrderSymbol() != Symbol() || OrderMagicNumber() != MagicNumber)
-         continue;
+      Print("HEDGED BASKET PROFIT TARGET HIT ($", DoubleToString(totalBasketProfit, 2),
+            " > Target: $", DoubleToString(dynamicProfitTarget, 2),
+            " for ", DoubleToString(totalLots, 2), " total lots). Closing all orders and continuing trading.");
 
-      int type = OrderType();
-      if(type == OP_BUY)
-        {
-         totalBasketProfit += (OrderProfit() + OrderSwap() + OrderCommission());
-         totalLots += OrderLots();
-         buyOrdersCount++;
-        }
-      else
-         if(type == OP_SELL)
-           {
-            totalBasketProfit += (OrderProfit() + OrderSwap() + OrderCommission());
-            totalLots += OrderLots();
-            sellOrdersCount++;
-           }
-     }
-
-// 2. Only proceed if BOTH buy and sell orders are present
-   if(buyOrdersCount > 0 && sellOrdersCount > 0)
-     {
-      // Dynamic profit target: Total Lots * 0.50 * 100 (Total Lots * 50.0)
-      double dynamicProfitTarget = totalLots*100 * (modifyBasketProfitOrdersLotXPercent/10);
-
-      if(totalBasketProfit > dynamicProfitTarget)
-        {
-         Print("HEDGED BASKET PROFIT TARGET HIT ($", DoubleToString(totalBasketProfit, 2),
-               " > Target: $", DoubleToString(dynamicProfitTarget, 2),
-               " for ", DoubleToString(totalLots, 2), " total lots). Closing all orders and continuing trading.");
-
-         // CloseAndDeleteAllEAOrdersOnTradingStop();
-         ModifyOpenOrdersToSecureProfit();
+      // CloseAndDeleteAllEAOrdersOnTradingStop();
+      ModifyOpenOrdersToSecureProfit();
 
 
-         TradingHaltedUntilNextFlip = false;
-         LadderHaltStartTime = 0;
-        }
+      TradingHaltedUntilNextFlip = false;
+      LadderHaltStartTime = 0;
      }
   }
 //+------------------------------------------------------------------+
@@ -2657,20 +2783,7 @@ void OnTickCore()
 
 
 
-// Single loop to sum all P&L (Replaces multiple GetOpenPL calls)
-   GlobalBuyPL = 0.0;
-   GlobalSellPL = 0.0;
-   for(int i = OrdersTotal() - 1; i >= 0; i--)
-     {
-      if(OrderSelect(i, SELECT_BY_POS, MODE_TRADES) && OrderSymbol() == Symbol() && OrderMagicNumber() == MagicNumber)
-        {
-         if(OrderType() == OP_BUY)
-            GlobalBuyPL += OrderProfit() + OrderSwap() + OrderCommission();
-         else
-            if(OrderType() == OP_SELL)
-               GlobalSellPL += OrderProfit() + OrderSwap() + OrderCommission();
-        }
-     }
+   UpdateOrderCacheIfNeeded();
 
    TradeResetThisTick = false;
 
@@ -3035,16 +3148,13 @@ double GetOpenPL(int OrderTypeFilter)
 //+------------------------------------------------------------------+
 double GetOppositeOrdersLots(int orderType)
   {
+   UpdateOrderCacheIfNeeded();
    double totalLots = 0.01;
-   int oppositeType = (orderType == OP_BUY) ? OP_SELL : OP_BUY;
-   for(int i = OrdersTotal()-1; i >= 0; i--)
-     {
-      if(!OrderSelect(i, SELECT_BY_POS, MODE_TRADES))
-         continue;
-      if(OrderSymbol() != Symbol() || OrderMagicNumber() != MagicNumber || OrderType() != oppositeType)
-         continue;
-      totalLots += OrderLots();
-     }
+   if(orderType == OP_BUY)
+      totalLots += g_orderCache.sellLots;
+   else
+      if(orderType == OP_SELL)
+         totalLots += g_orderCache.buyLots;
    return NormalizeLots(totalLots > 0.0 ? totalLots : OriginalLots);
   }
 
@@ -3352,10 +3462,16 @@ void CheckLatestClosedTradeProtection()
   {
    if(!EnableSLProtection)
       return;
+   static int lastHistoryCount = -1;
+   int curHistoryTotal = OrdersHistoryTotal();
+   if(curHistoryTotal == lastHistoryCount)
+      return;
+   lastHistoryCount = curHistoryTotal;
+
    datetime latest=0;
    int ticket=-1,type=-1;
    double profit=0.0;
-   for(int i=OrdersHistoryTotal()-1; i>=0; i--)
+   for(int i=curHistoryTotal-1; i>=0; i--)
      {
       if(!OrderSelect(i,SELECT_BY_POS,MODE_HISTORY))
          continue;
@@ -3369,6 +3485,7 @@ void CheckLatestClosedTradeProtection()
          ticket=OrderTicket();
          type=OrderType();
          profit=OrderProfit()+OrderSwap()+OrderCommission();
+         break;
         }
      }
    if(ticket<0)
@@ -4086,8 +4203,17 @@ bool IsOrderAllowedByTrendAndGap(int orderType)
 //+------------------------------------------------------------------+
 bool emaflipstrongorweak()
   {
+   static bool cachedVal = false;
+   static int  cachedTick = -1;
+   if(cachedTick == CurrentTickSequence && CurrentTickSequence > 0)
+      return cachedVal;
+
    if(EmaFlipTime == 0)
+     {
+      cachedVal = false;
+      cachedTick = CurrentTickSequence;
       return false;
+     }
 
    RefreshRates();
 
@@ -4110,9 +4236,9 @@ bool emaflipstrongorweak()
 
       double pullbackFromHigh = highestPrice - Bid;
       if(pullbackFromHigh >= threshold)
-         return false; // Weak (Price pulled back $100+ USD from the peak)
-
-      return true; // Strong
+         cachedVal = false; // Weak (Price pulled back $100+ USD from the peak)
+      else
+         cachedVal = true; // Strong
      }
 // Handle Sell Direction (EMAdirection == -1)
    else
@@ -4128,12 +4254,17 @@ bool emaflipstrongorweak()
          // Measures how many USD the Ask price has bounced UP from the lowest low
          double bounceFromLow = Ask - lowestPrice;
          if(bounceFromLow >= threshold)
-            return false; // Weak (Price bounced up $100+ USD from the low -> do not sell)
-
-         return true; // Strong (Price has not bounced by $100+ USD)
+            cachedVal = false; // Weak (Price bounced up $100+ USD from the low -> do not sell)
+         else
+            cachedVal = true; // Strong (Price has not bounced by $100+ USD)
+        }
+      else
+        {
+         cachedVal = false;
         }
 
-   return false;
+   cachedTick = CurrentTickSequence;
+   return cachedVal;
   }
 //+------------------------------------------------------------------+
 //|                                                                  |
@@ -4406,7 +4537,7 @@ int SafeOrderSend(string symbol,int orderType,double lots,double price,int slipp
 //   }
 
 
-int requestedDirection = (orderType == OP_BUY || orderType == OP_BUYSTOP || orderType == OP_BUYLIMIT) ? 1 : -1;
+   int requestedDirection = (orderType == OP_BUY || orderType == OP_BUYSTOP || orderType == OP_BUYLIMIT) ? 1 : -1;
 
 // Determine whether to bypass EmaFlipTime for either Buy or Sell
    bool ignoreFlipTime = false;
@@ -4427,11 +4558,11 @@ int requestedDirection = (orderType == OP_BUY || orderType == OP_BUYSTOP || orde
 
    if(MathAbs(Get30MinutePriceDifference())<100)
       ignoreFlipTime = true;
-      
-      
-      
-       if(EMAflipdistance()>200 && !IsEmaWEAKDistanceReduced50PercentFromPeak() && EMADirection!= requestedDirection)
-       return -1;
+
+
+
+   if(EMAflipdistance()>200 && !IsEmaWEAKDistanceReduced50PercentFromPeak() && EMADirection!= requestedDirection)
+      return -1;
 
 
 // Block trades if flip time is under 15 minutes and bypass criteria are NOT met
@@ -5639,19 +5770,8 @@ void CheckEquityBalanceProfitTarget()
 //+------------------------------------------------------------------+
 void modifyOnlyBuyOrders()
   {
-   double basketBuyProfit = 0.0;
-
-// 1. Calculate Total Buy Basket Profit
-   for(int i = OrdersTotal() - 1; i >= 0; i--)
-     {
-      if(OrderSelect(i, SELECT_BY_POS, MODE_TRADES))
-        {
-         if(OrderSymbol() == Symbol() && OrderMagicNumber() == MagicNumber && OrderType() == OP_BUY)
-           {
-            basketBuyProfit += OrderProfit() + OrderSwap() + OrderCommission();
-           }
-        }
-     }
+   UpdateOrderCacheIfNeeded();
+   double basketBuyProfit = g_orderCache.buyPL;
 
 // 2. If basket profit is > $1, modify all Buy orders
    if(basketBuyProfit > basketBUYorSELLProfitModifyUSD*balancelomultipler)
@@ -5700,19 +5820,8 @@ void modifyOnlyBuyOrders()
 //+------------------------------------------------------------------+
 void modifyOnlySellOrders()
   {
-   double basketSellProfit = 0.0;
-
-// 1. Calculate Total Sell Basket Profit
-   for(int i = OrdersTotal() - 1; i >= 0; i--)
-     {
-      if(OrderSelect(i, SELECT_BY_POS, MODE_TRADES))
-        {
-         if(OrderSymbol() == Symbol() && OrderMagicNumber() == MagicNumber && OrderType() == OP_SELL)
-           {
-            basketSellProfit += OrderProfit() + OrderSwap() + OrderCommission();
-           }
-        }
-     }
+   UpdateOrderCacheIfNeeded();
+   double basketSellProfit = g_orderCache.sellPL;
 
 // 2. If basket profit is > $1, modify all Sell orders
    if(basketSellProfit > basketBUYorSELLProfitModifyUSD*balancelomultipler)
@@ -6382,15 +6491,15 @@ void ChangeLots(double OpenPL, string reason, int orderType, int stoplevelStep)
 
    if(EMAflipdistance()<200)
       Lots = 0.01;
-      
-      
-      
-      
-      
-      
-      
-      
-      
+
+
+
+
+
+
+
+
+
 
    if(IsEmaWEAKDistanceReduced50PercentFromPeak(orderType) && GlobalSSLDirection == EMADirection)//weak
      {
@@ -6417,9 +6526,9 @@ void ChangeLots(double OpenPL, string reason, int orderType, int stoplevelStep)
 
    if(GlobalSweepSell &&   GlobalSSLDirection == 1)
       Lots = 0.01;
-      
-      
-        if(IsLsdSweepGreenLinePresent() && GlobalSSLDirection==1 && (GetLsdSweepEqlDistance(requestedDirection)<100 ||EMADirection==-1))
+
+
+   if(IsLsdSweepGreenLinePresent() && GlobalSSLDirection==1 && (GetLsdSweepEqlDistance(requestedDirection)<100 ||EMADirection==-1))
      {
       Lots = 0.05;
      }
@@ -6429,21 +6538,21 @@ void ChangeLots(double OpenPL, string reason, int orderType, int stoplevelStep)
      {
       Lots = 0.05;
      }
-      
-      
-      /*
-      
-       if(IsLsdSweepGreenLinePresent() && GlobalSSLDirection==1)
-     {
-      Lots = 0.05;
-     }
+
+
+   /*
+
+    if(IsLsdSweepGreenLinePresent() && GlobalSSLDirection==1)
+   {
+   Lots = 0.05;
+   }
 
 
    if(IsLsdSweepRedLinePresent() && GlobalSSLDirection==-1)
-     {
-      Lots = 0.05;
-     }
-      */
+   {
+   Lots = 0.05;
+   }
+   */
 
 
 
@@ -8079,15 +8188,8 @@ void CreateProfitReEntryStop(int closedOrderType, double closedPrice, DailyProte
 //+------------------------------------------------------------------+
 int GetTotalBuyOrders()
   {
-   int count = 0;
-   for(int i = OrdersTotal() - 1; i >= 0; i--)
-     {
-      if(!OrderSelect(i, SELECT_BY_POS, MODE_TRADES))
-         continue;
-      if(OrderSymbol() == Symbol() && OrderMagicNumber() == MagicNumber && OrderType() == OP_BUY)
-         count++;
-     }
-   return count;
+   UpdateOrderCacheIfNeeded();
+   return g_orderCache.buyOrders;
   }
 
 //+------------------------------------------------------------------+
@@ -8095,15 +8197,8 @@ int GetTotalBuyOrders()
 //+------------------------------------------------------------------+
 int GetTotalSellOrders()
   {
-   int count = 0;
-   for(int i = OrdersTotal() - 1; i >= 0; i--)
-     {
-      if(!OrderSelect(i, SELECT_BY_POS, MODE_TRADES))
-         continue;
-      if(OrderSymbol() == Symbol() && OrderMagicNumber() == MagicNumber && OrderType() == OP_SELL)
-         count++;
-     }
-   return count;
+   UpdateOrderCacheIfNeeded();
+   return g_orderCache.sellOrders;
   }
 
 //+------------------------------------------------------------------+
@@ -8111,25 +8206,11 @@ int GetTotalSellOrders()
 //+------------------------------------------------------------------+
 int GetTotalEAOrders()
   {
-   if(CachedTotalEAOrdersTick==CurrentTickSequence && CachedTotalEAOrders>=0)
-      return CachedTotalEAOrders;
-   int count = 0;
-   for(int i = OrdersTotal() - 1; i >= 0; i--)
-     {
-      if(!OrderSelect(i, SELECT_BY_POS, MODE_TRADES))
-         continue;
-      if(OrderSymbol() != Symbol() || OrderMagicNumber() != MagicNumber)
-         continue;
-      int type = OrderType();
-      if(type==OP_BUY || type==OP_SELL || type==OP_BUYSTOP || type==OP_SELLSTOP || type==OP_BUYLIMIT || type==OP_SELLLIMIT)
-         count++;
-     }
-   CachedTotalEAOrders=count;
-   CachedTotalEAOrdersTick=CurrentTickSequence;
-   return count;
+   UpdateOrderCacheIfNeeded();
+   return g_orderCache.totalOrders;
   }
 
-void InvalidateTotalEAOrdersCache() { CachedTotalEAOrders=-1; CachedTotalEAOrdersTick=-1; }
+void InvalidateTotalEAOrdersCache() { InvalidateOrderCache(); }
 
 //+------------------------------------------------------------------+
 //|                                                                  |
@@ -9454,8 +9535,16 @@ void ManagePartialCloses()
 //+------------------------------------------------------------------+
 void ManageProfitLadder()
   {
+   if(GetTotalEAOrders() <= 0)
+      return;
+
 // 1. Run partial close checks first (handles its own loop safely)
    ManagePartialCloses();
+
+   double tickValue = MarketInfo(Symbol(), MODE_TICKVALUE);
+   double tickSize  = MarketInfo(Symbol(), MODE_TICKSIZE);
+   if(tickValue <= 0 || tickSize <= 0)
+      return;
 
 // 2. Then proceed with the standard profit ladder / trailing SL loop
    for(int i = OrdersTotal() - 1; i >= 0; i--)
@@ -9535,11 +9624,6 @@ void ManageProfitLadder()
       if(lockedProfit <= 0)
          continue;
       lockedProfit = NormalizeDouble(lockedProfit, 2);
-
-      double tickValue = MarketInfo(Symbol(), MODE_TICKVALUE);
-      double tickSize = MarketInfo(Symbol(), MODE_TICKSIZE);
-      if(tickValue <= 0 || tickSize <= 0)
-         continue;
 
       double existingLockedProfit = 0.0;
       if(OrderStopLoss() > 0)
@@ -9707,16 +9791,31 @@ void CalculateSSL(int shift, double &sslUp, double &sslDown, int &hlv)
 //+------------------------------------------------------------------+
 int GetCurrentSSLDirection()
   {
+   static int cachedDir  = 0;
+   static int cachedTick = -1;
+   if(cachedTick == CurrentTickSequence && CurrentTickSequence > 0)
+      return cachedDir;
+
    if(Bars < SSLPeriod + 20)
+     {
+      cachedDir  = 0;
+      cachedTick = CurrentTickSequence;
       return 0;
+     }
+
    double up, down;
    int hlv;
    CalculateSSL(0, up, down, hlv);
    if(up > down)
-      return 1;
-   if(up < down)
-      return -1;
-   return 0;
+      cachedDir = 1;
+   else
+      if(up < down)
+         cachedDir = -1;
+      else
+         cachedDir = 0;
+
+   cachedTick = CurrentTickSequence;
+   return cachedDir;
   }
 
 //+------------------------------------------------------------------+
@@ -9965,6 +10064,11 @@ void CreateDashboardPanel(string name, int x, int y, int width, int height, colo
 //+------------------------------------------------------------------+
 void DrawMomentumMarkers()
   {
+   static datetime lastMomentumBar = 0;
+   if(lastMomentumBar == Time[0])
+      return;
+   lastMomentumBar = Time[0];
+
    int lookback = 500; // Number of historical bars to scan
    if(lookback > Bars - 1)
       lookback = Bars - 1;
@@ -10009,7 +10113,7 @@ void DrawMomentumMarkers()
                ObjectSetInteger(0, objName, OBJPROP_COLOR, clrRed);
                ObjectSetInteger(0, objName, OBJPROP_WIDTH, 2);
                GlobalSSLDirection=-1;
-              // if(EMADirection == -1)// && !IsEmaWEAKDistanceReduced50PercentFromPeak(-1))
+               // if(EMADirection == -1)// && !IsEmaWEAKDistanceReduced50PercentFromPeak(-1))
                  {
                   // Print("MOM Sell open");
                   OpenSell();
@@ -10129,16 +10233,12 @@ void CreateDashboardLabel(string name, string text, int x, int y, int fontSize, 
 //+------------------------------------------------------------------+
 double GetTotalLots(int orderType)
   {
-   double lots=0.0;
-   for(int i=OrdersTotal()-1; i>=0; i--)
-     {
-      if(!OrderSelect(i,SELECT_BY_POS,MODE_TRADES))
-         continue;
-      if(OrderSymbol()!=Symbol() || OrderMagicNumber()!=MagicNumber || OrderType()!=orderType)
-         continue;
-      lots+=OrderLots();
-     }
-   return lots;
+   UpdateOrderCacheIfNeeded();
+   if(orderType == OP_BUY)
+      return g_orderCache.buyLots;
+   if(orderType == OP_SELL)
+      return g_orderCache.sellLots;
+   return g_orderCache.buyLots + g_orderCache.sellLots;
   }
 
 //+------------------------------------------------------------------+
@@ -10146,33 +10246,12 @@ double GetTotalLots(int orderType)
 //+------------------------------------------------------------------+
 void UpdateDashboard(DailyProtectionState &state)
   {
-   int totalOrders=0,buyOrders=0,sellOrders=0,pendingOrders=0;
-   double floatingProfit=0,totalSwap=0,totalCommission=0;
-   for(int i=OrdersTotal()-1; i>=0; i--)
-     {
-      if(!OrderSelect(i,SELECT_BY_POS,MODE_TRADES))
-         continue;
-      if(OrderSymbol()!=Symbol() || OrderMagicNumber()!=MagicNumber)
-         continue;
-      int type=OrderType();
-      if(type!=OP_BUY && type!=OP_SELL && type!=OP_BUYSTOP && type!=OP_SELLSTOP && type!=OP_BUYLIMIT && type!=OP_SELLLIMIT)
-         continue;
-      totalOrders++;
-      if(type==OP_BUY || type==OP_SELL)
-        {
-         if(type==OP_BUY)
-            buyOrders++;
-         else
-            sellOrders++;
-         floatingProfit+=OrderProfit();
-         totalSwap+=OrderSwap();
-         totalCommission+=OrderCommission();
-        }
-      else
-         pendingOrders++;
-     }
-
-   double netProfit=floatingProfit+totalSwap+totalCommission;
+   UpdateOrderCacheIfNeeded();
+   int totalOrders   = g_orderCache.totalOrders;
+   int buyOrders     = g_orderCache.buyOrders;
+   int sellOrders    = g_orderCache.sellOrders;
+   int pendingOrders = g_orderCache.buyPending + g_orderCache.sellPending;
+   double netProfit  = g_orderCache.buyPL + g_orderCache.sellPL;
    color pnlColor=netProfit>0?clrLime:netProfit<0?clrTomato:clrWhite;
    int currentSSLDirection=GlobalSSLDirection;
    string sslDirection=currentSSLDirection>0?"BUY":currentSSLDirection<0?"SELL":"NONE";
@@ -11152,15 +11231,30 @@ double GetEmaFlipPrice()
 //+------------------------------------------------------------------+
 double EMAflipdistance(int orderType = -1)
   {
+   static double cachedDist = 0.0;
+   static int    cachedType = -999;
+   static int    cachedTick = -1;
+   if(cachedTick == CurrentTickSequence && cachedType == orderType && CurrentTickSequence > 0)
+      return cachedDist;
+
    RefreshRates();
    double flipPrice = GetEmaFlipPrice();
    if(flipPrice <= 0.0)
+     {
+      cachedDist = 0.0;
+      cachedType = orderType;
+      cachedTick = CurrentTickSequence;
       return 0.0;
+     }
 
    bool isBuy  = (orderType == OP_BUY  || orderType == OP_BUYSTOP  || orderType == OP_BUYLIMIT);
    bool isSell = (orderType == OP_SELL || orderType == OP_SELLSTOP || orderType == OP_SELLLIMIT);
    double livePrice = isBuy ? Ask : (isSell ? Bid : ((Ask + Bid) * 0.5));
    double rawDist = MathAbs(livePrice - flipPrice);
+
+   cachedDist = rawDist;
+   cachedType = orderType;
+   cachedTick = CurrentTickSequence;
    return rawDist;
   }
 
@@ -11171,9 +11265,19 @@ double EMAflipdistance(int orderType = -1)
 //+------------------------------------------------------------------+
 double GetLsdSweepEqlPrice()
   {
-   if(g_lastEqLowPrice > 0.0)
-      return g_lastEqLowPrice;
+   static double cachedVal = 0.0;
+   static int    cachedTick = -1;
+   if(cachedTick == CurrentTickSequence && CurrentTickSequence > 0)
+      return cachedVal;
 
+   if(g_lastEqLowPrice > 0.0)
+     {
+      cachedVal = g_lastEqLowPrice;
+      cachedTick = CurrentTickSequence;
+      return cachedVal;
+     }
+
+   cachedVal = 0.0;
    int total = ObjectsTotal(0, -1, -1);
    for(int i = total - 1; i >= 0; i--)
      {
@@ -11182,10 +11286,14 @@ double GetLsdSweepEqlPrice()
         {
          double p = ObjectGet(name, OBJPROP_PRICE1);
          if(p > 0.0)
-            return p;
+           {
+            cachedVal = p;
+            break;
+           }
         }
      }
-   return 0.0;
+   cachedTick = CurrentTickSequence;
+   return cachedVal;
   }
 
 //+------------------------------------------------------------------+
@@ -11195,9 +11303,19 @@ double GetLsdSweepEqlPrice()
 //+------------------------------------------------------------------+
 double GetLsdSweepEqhPrice()
   {
-   if(g_lastEqHighPrice > 0.0)
-      return g_lastEqHighPrice;
+   static double cachedVal = 0.0;
+   static int    cachedTick = -1;
+   if(cachedTick == CurrentTickSequence && CurrentTickSequence > 0)
+      return cachedVal;
 
+   if(g_lastEqHighPrice > 0.0)
+     {
+      cachedVal = g_lastEqHighPrice;
+      cachedTick = CurrentTickSequence;
+      return cachedVal;
+     }
+
+   cachedVal = 0.0;
    int total = ObjectsTotal(0, -1, -1);
    for(int i = total - 1; i >= 0; i--)
      {
@@ -11206,10 +11324,14 @@ double GetLsdSweepEqhPrice()
         {
          double p = ObjectGet(name, OBJPROP_PRICE1);
          if(p > 0.0)
-            return p;
+           {
+            cachedVal = p;
+            break;
+           }
         }
      }
-   return 0.0;
+   cachedTick = CurrentTickSequence;
+   return cachedVal;
   }
 
 //+------------------------------------------------------------------+
@@ -11240,6 +11362,9 @@ double LSD_SWEEP_EQL_distance(int orderType = -1)
    return LsdSweepEqlDistance(orderType);
   }
 
+//+------------------------------------------------------------------+
+//|                                                                  |
+//+------------------------------------------------------------------+
 double GetLsdSweepEqlDistance(int orderType = -1)
   {
    return LsdSweepEqlDistance(orderType);
@@ -11268,6 +11393,9 @@ double LsdSweepEqhDistance(int orderType = -1)
    return rawDist;
   }
 
+//+------------------------------------------------------------------+
+//|                                                                  |
+//+------------------------------------------------------------------+
 double LSD_SWEEP_EQH_distance(int orderType = -1)
   {
    return LsdSweepEqhDistance(orderType);
@@ -11420,14 +11548,27 @@ bool IsLsdSweepSellSignal()
 //+------------------------------------------------------------------+
 bool IsLsdSweepGreenLinePresent()
   {
+   static bool cachedVal = false;
+   static int  cachedTick = -1;
+   if(cachedTick == CurrentTickSequence && CurrentTickSequence > 0)
+      return cachedVal;
+
+   cachedVal = false;
    int total = ObjectsTotal(0, -1, -1);
    for(int i = total - 1; i >= 0; i--)
      {
       string name = ObjectName(0, i, -1, -1);
       if(StringFind(name, LSD_PREFIX + "EQL_", 0) == 0)
-         return true;
+        {
+         cachedVal = true;
+         break;
+        }
      }
-   return (g_lastEqLowPrice > 0.0);
+   if(!cachedVal)
+      cachedVal = (g_lastEqLowPrice > 0.0);
+
+   cachedTick = CurrentTickSequence;
+   return cachedVal;
   }
 
 //+------------------------------------------------------------------+
@@ -11435,14 +11576,27 @@ bool IsLsdSweepGreenLinePresent()
 //+------------------------------------------------------------------+
 bool IsLsdSweepRedLinePresent()
   {
+   static bool cachedVal = false;
+   static int  cachedTick = -1;
+   if(cachedTick == CurrentTickSequence && CurrentTickSequence > 0)
+      return cachedVal;
+
+   cachedVal = false;
    int total = ObjectsTotal(0, -1, -1);
    for(int i = total - 1; i >= 0; i--)
      {
       string name = ObjectName(0, i, -1, -1);
       if(StringFind(name, LSD_PREFIX + "EQH_", 0) == 0)
-         return true;
+        {
+         cachedVal = true;
+         break;
+        }
      }
-   return (g_lastEqHighPrice > 0.0);
+   if(!cachedVal)
+      cachedVal = (g_lastEqHighPrice > 0.0);
+
+   cachedTick = CurrentTickSequence;
+   return cachedVal;
   }
 
 //+------------------------------------------------------------------+
