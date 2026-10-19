@@ -899,6 +899,7 @@ void SecureOneDollarProfit()
         }
      }
   }
+  
 //+------------------------------------------------------------------+
 //| ModifyPairProfitWithStopLoss                                     |
 //| Checks all combinations of 2 open orders (excluding recovery     |

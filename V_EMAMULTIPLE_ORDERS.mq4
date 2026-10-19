@@ -28,7 +28,7 @@
 
 
 //string glbVersion = "V5008  29-09-2026 23.00 Aug 1st to Aug 5th $100 to $1000 equity $500 - Attached Image  balance ST-20 Partialclose, Close orders $1X close-   FlipLadderStepUSD 7 DailyEquityStopUSD 50%  TargetProfitPerFlipUSD 10%";
-string glbVersion = "VMULTI-1002 Sweep signal and EMAflipdistnace 0.01";
+string glbVersion = "VMULTI-1003 - Close any 2 profit orders";
 
 
 double DailyEquityStopUSD  =100;//50;//20*2.5;//10;//20;// 10;//30.0; close all orders at $50Xmultipler
@@ -281,8 +281,8 @@ double MinimumSLModifyGapRaw = 2.0;
 bool EnableProfitLadder1 = true;
 bool EnableProfitLadder2 = true;
 double Ladder1ProfitUSD =1;// 0.50;
-double Ladder1StopMaxPriceUSD =1.10;// 0.70;//2;
-double Ladder2ProfitUSD = 0.15;
+double Ladder1StopMaxPriceUSD =1.50;// 0.70;//2;
+double Ladder2ProfitUSD = 0.50;
 double DefaultOrderProfitUSD = 2.00;
 
 
@@ -305,10 +305,10 @@ double   PostOrderSLTPVerifyLots[MAX_POST_ORDER_SLTP_VERIFY];
 
 bool EnableRecoveryOrders =true;// true;
 double RecoveryTriggerLossUSD =1;//2;//1;//0.50;// 2;
-double RecoveryLotMultiplier = 1;
+double RecoveryLotMultiplier = 2;
 int MaxRecoveryOrders =10;// 5;//1;
 double RecoveryBasketProfitUSD = 1;
-double RecoveryMinDistanceRaw =300;//1000;//100;//20;// 200.0;
+double RecoveryMinDistanceRaw =1000;//1000;//100;//20;// 200.0;
 
 double DayProfitLadder1Amount = 5;
 
@@ -568,6 +568,267 @@ int CountOrdersByType(int orderType)
          count++;
      }
    return count;
+  }
+  
+  
+//+------------------------------------------------------------------+
+//| IsRecoveryOrderWithActiveParent: Returns true if the order is a  |
+//| recovery order (1st or 2nd) and its parent trade is still open.  |
+//| In this case, recovery orders must NEVER be closed or modified   |
+//| individually; they must strictly wait for recovery basket profit |
+//+------------------------------------------------------------------+
+bool IsRecoveryOrderWithActiveParent(int ticket, string comment = "")
+  {
+   if(!IsAnyRecoveryOrder(ticket, comment))
+      return false;
+
+   string rootComment = GetRootOrderComment(ticket, comment);
+   int parentTicket = GetRecoveryOrderParentTicket(ticket, rootComment);
+   if(parentTicket <= 0)
+      return false;
+
+   int currentSelTicket = OrderTicket();
+   bool parentFound = false;
+
+   for(int i = OrdersTotal() - 1; i >= 0; i--)
+     {
+      if(!OrderSelect(i, SELECT_BY_POS, MODE_TRADES))
+         continue;
+      if(OrderSymbol() != Symbol() || OrderMagicNumber() != MagicNumber)
+         continue;
+      int t = OrderType();
+      if(t != OP_BUY && t != OP_SELL)
+         continue;
+      int tkt = OrderTicket();
+      int origTkt = GetOriginalTicket(tkt, OrderComment());
+      if(tkt == parentTicket || (origTkt > 0 && origTkt == parentTicket))
+        {
+         parentFound = true;
+         break;
+        }
+     }
+
+   if(currentSelTicket > 0)
+      bool selRes = OrderSelect(currentSelTicket, SELECT_BY_TICKET, MODE_TRADES);
+
+   return parentFound;
+  }
+
+  
+   
+//Chance 1B: Pair Profit 2-Order Combination Live SL Modifier (> $1 profit)
+bool   EnablePairProfitSLModify =true;// false;             // Disabled: avoid 20pt choke so 100-step trailing ladder has full authority
+double PairCombinationProfitThresholdUSD = 1.0;       // Threshold profit in USD for 2-order combination
+double PairCombinationSLDistanceRaw = 0.0;            // Distance from live price in raw points (0.0 = auto broker stop level)
+bool   PairCombinationUseBalanceMultiplier = false;   // If true, scale threshold by balance multiplier (default false: fixed $1.00 USD)
+void   ModifyPairProfitWithStopLoss();
+int    GetOriginalTicket(int ticket, string comment);
+string GetRootOrderComment(int ticket, string comment = "");
+string GetEffectiveOrderComment(int ticket, string comment = "");
+void   RegisterPreservedOrderComment(int ticket, string comment);
+string GetPreservedOrderComment(int ticket);
+bool   IsAnyRecoveryOrder(int ticket, string comment = "");
+int    GetRecoveryOrderParentTicket(int ticket, string comment = "");
+void   MonitorEquityLossStopLossProtection();
+double UpdateDynamicBasket10USDLockStep(double netPL);
+double GetTotalLots(int orderType);
+bool   IsEmaWEAKDistanceReduced50PercentFromPeak(int orderType = -1);
+void   ManageHeavyExposurePartialLossClose();
+bool   CanExecutePartialLossClose(int orderType);
+
+bool IsRecoveryOrderWithActiveParent(int ticket, string comment = "");
+
+//+------------------------------------------------------------------+
+//| ModifyPairProfitWithStopLoss                                     |
+//| Checks all combinations of 2 open orders (excluding recovery     |
+//| orders and FLIPBasketSupport orders). If any 2-order combination |
+//| has combined profit > $1.00 (PairCombinationProfitThresholdUSD), |
+//| modifies both orders with stop loss to protect/lock the profit.  |
+//+------------------------------------------------------------------+
+void ModifyPairProfitWithStopLoss()
+  {
+   if(!EnablePairProfitSLModify)
+      return;
+
+// 1. Scan and collect all eligible market orders
+#define MAX_PAIR_SCAN_ORDERS 100
+   int    candTickets[MAX_PAIR_SCAN_ORDERS];
+   int    candTypes[MAX_PAIR_SCAN_ORDERS];
+   double candLots[MAX_PAIR_SCAN_ORDERS];
+   double candOpenPrices[MAX_PAIR_SCAN_ORDERS];
+   double candStopLosses[MAX_PAIR_SCAN_ORDERS];
+   double candTakeProfits[MAX_PAIR_SCAN_ORDERS];
+   double candProfits[MAX_PAIR_SCAN_ORDERS];
+   bool   qualifyForSL[MAX_PAIR_SCAN_ORDERS];
+   ArrayInitialize(candTickets, 0);
+   ArrayInitialize(candTypes, 0);
+   ArrayInitialize(candLots, 0.0);
+   ArrayInitialize(candOpenPrices, 0.0);
+   ArrayInitialize(candStopLosses, 0.0);
+   ArrayInitialize(candTakeProfits, 0.0);
+   ArrayInitialize(candProfits, 0.0);
+   ArrayInitialize(qualifyForSL, false);
+   int    candCount = 0;
+
+   double targetThreshold = PairCombinationProfitThresholdUSD;
+
+   if(IsEmaWEAKDistanceReduced50PercentFromPeak())
+     {
+      targetThreshold=targetThreshold/2;
+     }
+
+   if(PairCombinationUseBalanceMultiplier && balancelomultipler > 1)
+      targetThreshold = PairCombinationProfitThresholdUSD * balancelomultipler;
+
+   for(int i = OrdersTotal() - 1; i >= 0 && candCount < MAX_PAIR_SCAN_ORDERS; i--)
+     {
+      if(!OrderSelect(i, SELECT_BY_POS, MODE_TRADES))
+         continue;
+
+      if(OrderSymbol() != Symbol() || OrderMagicNumber() != MagicNumber)
+         continue;
+
+      int oType = OrderType();
+      if(oType != OP_BUY && oType != OP_SELL)
+         continue;
+
+      string cmt = OrderComment();
+      int tkt    = OrderTicket();
+
+      // Exclude recovery orders
+      if(IsAnyRecoveryOrder(tkt, cmt) || IsRecoveryOrderWithActiveParent(tkt, cmt))
+         continue;
+
+      
+
+      candTickets[candCount]    = tkt;
+      candTypes[candCount]      = oType;
+      candLots[candCount]       = OrderLots();
+      candOpenPrices[candCount] = OrderOpenPrice();
+      candStopLosses[candCount] = OrderStopLoss();
+      candTakeProfits[candCount]= OrderTakeProfit();
+      candProfits[candCount]    = OrderProfit() + OrderSwap() + OrderCommission();
+      qualifyForSL[candCount]   = false;
+      candCount++;
+     }
+
+   if(candCount < 2)
+      return; // Need at least 2 orders to form a combination
+
+// 2. Evaluate all 2-order combinations (i, j)
+   int qualifyingPairsCount = 0;
+   for(int i = 0; i < candCount - 1; i++)
+     {
+      for(int j = i + 1; j < candCount; j++)
+        {
+         double pairProfit = candProfits[i] + candProfits[j];
+         if(pairProfit > targetThreshold)
+           {
+            qualifyForSL[i] = true;
+            qualifyForSL[j] = true;
+            qualifyingPairsCount++;
+            Print("PAIR PROFIT > $", DoubleToString(targetThreshold, 2), " HIT: Pair [Ticket #", candTickets[i],
+                  " ($", DoubleToString(candProfits[i], 2), ") + Ticket #", candTickets[j],
+                  " ($", DoubleToString(candProfits[j], 2), ")] = Total $", DoubleToString(pairProfit, 2),
+                  " | Qualifying both orders for StopLoss modification.");
+           }
+        }
+     }
+
+   if(qualifyingPairsCount == 0)
+      return;
+
+// 3. Modify qualifying orders with live StopLoss to lock profit
+   RefreshRates();
+   double minDistance = GetRequiredStopDistance();
+   if(minDistance < Point * 10)
+      minDistance = Point * 10;
+
+   double rawGap = (PairCombinationSLDistanceRaw > 0.0) ? (PairCombinationSLDistanceRaw * Point) : minDistance;
+   if(rawGap < minDistance)
+      rawGap = minDistance;
+
+   double curBid = MarketInfo(Symbol(), MODE_BID);
+   double curAsk = MarketInfo(Symbol(), MODE_ASK);
+
+   for(int k = 0; k < candCount; k++)
+     {
+      if(!qualifyForSL[k])
+         continue;
+
+      int    tkt   = candTickets[k];
+      int    oType = candTypes[k];
+      double oOpen = candOpenPrices[k];
+      double curSL = candStopLosses[k];
+      double curTP = candTakeProfits[k];
+
+      RefreshRates();
+      curBid = MarketInfo(Symbol(), MODE_BID);
+      curAsk = MarketInfo(Symbol(), MODE_ASK);
+
+      double proposedSL = 0.0;
+      bool   shouldModify = false;
+
+      if(oType == OP_BUY)
+        {
+         proposedSL = NormalizeDouble(curBid - rawGap, Digits);
+         if((curBid - proposedSL) < minDistance)
+            proposedSL = NormalizeDouble(curBid - minDistance, Digits);
+
+         // Ensure SL is strictly valid below Bid
+         if(proposedSL >= curBid)
+            continue;
+
+         // For BUY: never move SL backward; only move forward (higher)
+         if(curSL > 0.0 && proposedSL <= curSL)
+            continue;
+
+         // Avoid micro modifications below minimum modify gap
+         if(curSL > 0.0 && (proposedSL - curSL) < MinimumSLModifyGapRaw * Point)
+            continue;
+
+         shouldModify = true;
+        }
+      else
+         if(oType == OP_SELL)
+           {
+            proposedSL = NormalizeDouble(curAsk + rawGap, Digits);
+            if((proposedSL - curAsk) < minDistance)
+               proposedSL = NormalizeDouble(curAsk + minDistance, Digits);
+
+            // Ensure SL is strictly valid above Ask
+            if(proposedSL <= curAsk)
+               continue;
+
+            // For SELL: never move SL backward; only move forward (lower)
+            if(curSL > 0.0 && proposedSL >= curSL)
+               continue;
+
+            // Avoid micro modifications below minimum modify gap
+            if(curSL > 0.0 && (curSL - proposedSL) < MinimumSLModifyGapRaw * Point)
+               continue;
+
+            shouldModify = true;
+           }
+
+      if(shouldModify && proposedSL > 0.0)
+        {
+         ResetLastError();
+         bool modified = SafeOrderModify(tkt, oOpen, proposedSL, curTP, 0, (oType == OP_BUY ? clrLimeGreen : clrTomato));
+         if(modified)
+           {
+            Print("PAIR PROFIT SL MODIFIED | Ticket #", tkt,
+                  " | Type=", (oType == OP_BUY ? "BUY" : "SELL"),
+                  " | P/L=$", DoubleToString(candProfits[k], 2),
+                  " | Old SL=", DoubleToString(curSL, Digits),
+                  " | New SL=", DoubleToString(proposedSL, Digits));
+           }
+         else
+           {
+            Print("PAIR PROFIT SL MODIFY FAILED | Ticket #", tkt, " | Error=", GetLastError());
+           }
+        }
+     }
   }
 //+------------------------------------------------------------------+
 //|                                                                  |
@@ -4111,6 +4372,9 @@ int SafeOrderSend(string symbol,int orderType,double lots,double price,int slipp
 
 
 
+
+
+
 // // Blokkeer Buys wanneer het verlies minder is dan $2 (P/L > -2.0) en de EMA-hoek kleiner is dan 2.0
 //    if(GetOpenPL(OP_BUY) > -safeOrdersendLossCondition*balancelomultipler && GlobalEmaAngle30 < 2 &&
 //       (orderType == OP_BUY || orderType == OP_BUYSTOP || orderType == OP_BUYLIMIT))
@@ -4141,6 +4405,9 @@ int SafeOrderSend(string symbol,int orderType,double lots,double price,int slipp
 //    TradeMonitoringLog="";
 //   }
 
+
+int requestedDirection = (orderType == OP_BUY || orderType == OP_BUYSTOP || orderType == OP_BUYLIMIT) ? 1 : -1;
+
 // Determine whether to bypass EmaFlipTime for either Buy or Sell
    bool ignoreFlipTime = false;
 
@@ -4160,6 +4427,11 @@ int SafeOrderSend(string symbol,int orderType,double lots,double price,int slipp
 
    if(MathAbs(Get30MinutePriceDifference())<100)
       ignoreFlipTime = true;
+      
+      
+      
+       if(EMAflipdistance()>200 && !IsEmaWEAKDistanceReduced50PercentFromPeak() && EMADirection!= requestedDirection)
+       return -1;
 
 
 // Block trades if flip time is under 15 minutes and bypass criteria are NOT met
@@ -9710,7 +9982,7 @@ void DrawMomentumMarkers()
             ObjectSetInteger(0, objName, OBJPROP_ARROWCODE, 233); // Wingdings Up Arrow
             ObjectSetInteger(0, objName, OBJPROP_COLOR, clrLime);
             ObjectSetInteger(0, objName, OBJPROP_WIDTH, 2);
-            if(EMADirection == 1)// && !IsEmaWEAKDistanceReduced50PercentFromPeak(1))
+            //if(EMADirection == 1)// && !IsEmaWEAKDistanceReduced50PercentFromPeak(1))
               {
 
                GlobalSSLDirection=1;
@@ -9737,7 +10009,7 @@ void DrawMomentumMarkers()
                ObjectSetInteger(0, objName, OBJPROP_COLOR, clrRed);
                ObjectSetInteger(0, objName, OBJPROP_WIDTH, 2);
                GlobalSSLDirection=-1;
-               if(EMADirection == -1)// && !IsEmaWEAKDistanceReduced50PercentFromPeak(-1))
+              // if(EMADirection == -1)// && !IsEmaWEAKDistanceReduced50PercentFromPeak(-1))
                  {
                   // Print("MOM Sell open");
                   OpenSell();
