@@ -28,7 +28,7 @@
 
 
 //string glbVersion = "V5008  29-09-2026 23.00 Aug 1st to Aug 5th $100 to $1000 equity $500 - Attached Image  balance ST-20 Partialclose, Close orders $1X close-   FlipLadderStepUSD 7 DailyEquityStopUSD 50%  TargetProfitPerFlipUSD 10%";
-string glbVersion = "VMULTI-1004 - OppsiteOrders- Flip time and Flip Distance";
+string glbVersion = "VMULTI-1005 - MOM Orders 0.04";
 
 
 double DailyEquityStopUSD  =100;//50;//20*2.5;//10;//20;// 10;//30.0; close all orders at $50Xmultipler
@@ -38,7 +38,7 @@ double TargetProfitPerFlipUSD =20;//10;//10*2;//10;//5;//20;// 10.0; close all o
 
 
 //Chance 1
-double SecureOneDollarProfitPerOrder=1.0*2; //1X set modify order at profit $1(any lot)
+double SecureOneDollarProfitPerOrder=1.0*1; //1X set modify order at profit $1(any lot)
 
 //chance 2
 int partialClose01in05IndividualPercentage=20;//10;//2*2;//per lot 0.01//if 0.05 close 0.01 at total profit of 20% means close 0.01 lot
@@ -6780,6 +6780,11 @@ if(IsHeavyLotOrderNearBy(orderType, Lots, 300) && Lots>=0.02)
  if(EMAflipdistance()<200 || TimeCurrent() - EmaFlipTime < 60 * 60)
       Lots = 0.01;
 
+
+
+if(isMOMOrder)
+
+  Lots = 0.04;
 // Safety catch
 
    if(Lots < 0.01)
@@ -10283,6 +10288,10 @@ void CreateDashboardPanel(string name, int x, int y, int width, int height, colo
    ObjectSetInteger(0, name, OBJPROP_SELECTABLE, false);
    ObjectSetInteger(0, name, OBJPROP_HIDDEN, true);
   }
+  
+  
+  bool isMOMOrder=false;
+  
 //+------------------------------------------------------------------+
 //| MISSING FUNCTIONS                                                |
 //+------------------------------------------------------------------+
@@ -10313,15 +10322,17 @@ void DrawMomentumMarkers()
             //if(EMADirection == 1)// && !IsEmaWEAKDistanceReduced50PercentFromPeak(1))
               {
 
-               GlobalSSLDirection=1;
-               // Print("MOM Buy open");
-               OpenBuy();
 
 
               }
            }
 
+isMOMOrder=true;
+               GlobalSSLDirection=1;
+               // Print("MOM Buy open");
+               OpenBuy();
 
+isMOMOrder=false;
 
 
 
@@ -10338,13 +10349,16 @@ void DrawMomentumMarkers()
                ObjectSetInteger(0, objName, OBJPROP_WIDTH, 2);
                GlobalSSLDirection=-1;
                // if(EMADirection == -1)// && !IsEmaWEAKDistanceReduced50PercentFromPeak(-1))
-                 {
+               
+              }
+  {
+                 
+                 isMOMOrder=true;
                   // Print("MOM Sell open");
                   OpenSell();
+                  isMOMOrder=false;
 
                  }
-              }
-
 
            }
      }
