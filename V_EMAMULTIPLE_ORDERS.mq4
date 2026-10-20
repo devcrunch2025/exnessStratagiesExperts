@@ -1,4 +1,4 @@
-//+------------------------------------------------------------------+
+﻿//+------------------------------------------------------------------+
 //|                  SSL CHANNEL CROSS EA - CONTINUOUS EQUITY LADDER |
 //|                  TWO-STAGE PROFIT LADDER | CONTINUOUS RESET      |
 //+------------------------------------------------------------------+
@@ -28,7 +28,7 @@
 
 
 //string glbVersion = "V5008  29-09-2026 23.00 Aug 1st to Aug 5th $100 to $1000 equity $500 - Attached Image  balance ST-20 Partialclose, Close orders $1X close-   FlipLadderStepUSD 7 DailyEquityStopUSD 50%  TargetProfitPerFlipUSD 10%";
-string glbVersion = "VMULTI-1005 - MOM Orders 0.04";
+string glbVersion = "VMULTI-1006 - MOM Orders 0.04";
 
 
 double DailyEquityStopUSD  =100;//50;//20*2.5;//10;//20;// 10;//30.0; close all orders at $50Xmultipler
@@ -193,6 +193,9 @@ double MaxAllowedSpreadUSD = 35.0;
 int AccountMultiplierLOT = 500;
 double OriginalStopLossUSD = 20;//6;//4;
 double StopLossUSD =20;//10;//6;//10;//6;//5;//10;//2;// 10;
+
+// ===== MOM ORDER FLAG (global - set before OpenBuy/OpenSell, cleared after) =====
+bool isMOMOrder = false; // Set to true only during MOM order placement
 
 
 
@@ -2590,7 +2593,7 @@ void OnTick()
 
 
 
-ModifyPairProfitWithStopLoss();
+   ModifyPairProfitWithStopLoss();
 
 
    if(Time[0] != LastVShapeCheckedTime)
@@ -4780,11 +4783,11 @@ int SafeOrderSend(string symbol,int orderType,double lots,double price,int slipp
 
 
 //if(!IsEmaWEAKDistanceReduced50PercentFromPeak() && EMADirection!= requestedDirection)
-  //    return -1;
-      
-      
-  // if(EMAflipdistance()>200 && !IsEmaWEAKDistanceReduced50PercentFromPeak() && EMADirection!= requestedDirection)
-    //  return -1;
+//    return -1;
+
+
+// if(EMAflipdistance()>200 && !IsEmaWEAKDistanceReduced50PercentFromPeak() && EMADirection!= requestedDirection)
+//  return -1;
 
 
 // Block trades if flip time is under 15 minutes and bypass criteria are NOT met
@@ -6360,8 +6363,8 @@ double GetDynamicOrderGap(int orderType)
 //   {
 //    multiplier=3;
 //   }
- if(GlobalSSLDirection == EMADirection)
-             return MinimumSameOrderGapRawMatched*3;
+   if(GlobalSSLDirection == EMADirection)
+      return MinimumSameOrderGapRawMatched*3;
 
 
 
@@ -6385,7 +6388,7 @@ double profitAfterFlip = 0;
 //+------------------------------------------------------------------+
 //|                                                                  |
 //+------------------------------------------------------------------+
-void ChangeLots(double OpenPL, string reason, int orderType, int stoplevelStep)
+void ChangeLots(double OpenPL, string reason, int orderType, int stoplevelStep,string MOMorder="")
   {
    double MaxRecoveryLot =0.05;//0.10;// 0.05;
    double oppositeLots = GetOppositeOrdersLots(orderType);
@@ -6711,10 +6714,10 @@ void ChangeLots(double OpenPL, string reason, int orderType, int stoplevelStep)
 
 
 
-   
 
 
-  
+
+
 
 
 
@@ -6745,14 +6748,14 @@ void ChangeLots(double OpenPL, string reason, int orderType, int stoplevelStep)
 
 //
 
-/*
+   /*
 
-   if(GlobalSweepBuy &&   GlobalSSLDirection == -1)
-      Lots = 0.01;
+      if(GlobalSweepBuy &&   GlobalSSLDirection == -1)
+         Lots = 0.01;
 
-   if(GlobalSweepSell &&   GlobalSSLDirection == 1)
-      Lots = 0.01;
-*/
+      if(GlobalSweepSell &&   GlobalSSLDirection == 1)
+         Lots = 0.01;
+   */
 
    if(IsLsdSweepGreenLinePresent() && GlobalSSLDirection==1 && (GetLsdSweepEqlDistance(requestedDirection)<100 ||EMADirection==-1))
      {
@@ -6767,7 +6770,7 @@ void ChangeLots(double OpenPL, string reason, int orderType, int stoplevelStep)
 
 
 
-if(!IsEmaWEAKDistanceReduced50PercentFromPeak(orderType) && GlobalSSLDirection != EMADirection)//weak
+   if(!IsEmaWEAKDistanceReduced50PercentFromPeak(orderType) && GlobalSSLDirection != EMADirection)//weak
      {
       Lots = 0.01;
 
@@ -6788,31 +6791,32 @@ if(!IsEmaWEAKDistanceReduced50PercentFromPeak(orderType) && GlobalSSLDirection !
    }
    */
 
- if(EMAflipdistance()<200 || TimeCurrent() - EmaFlipTime < 60 * 60)
+   if(EMAflipdistance()<200 || TimeCurrent() - EmaFlipTime < 60 * 60)
       Lots = 0.01;
 
 
 
-if(isMOMOrder)
+   if(isMOMOrder==true)
+     {
+      //  Lots = 0.03;
 
-  Lots = 0.04;
-  
-  
-  
-  
-  
-  
-  if(IsHeavyLotOrderNearBy(orderType, Lots, 300) && Lots>=0.02)
+     }
+   if(MOMorder=="MOM_BUY" && EMADirection==1)
+     {
+
+      Lots = 0.05;
+     }
+
+   
+
+   if(MOMorder=="MOM_SELL" && EMADirection==-1)
+     {
+
+      Lots = 0.04;
+     }
+   if(IsHeavyLotOrderNearBy(orderType, Lots, 300) && Lots>=0.02)
       Lots = 0.01;
-  
-  
-  
-  
-  
-  
-  
-  
-  //----------------------------------------------------------------------------------------
+//----------------------------------------------------------------------------------------
 // Safety catch
 
 
@@ -8473,7 +8477,7 @@ void InvalidateTotalEAOrdersCache() { InvalidateOrderCache(); }
 //+------------------------------------------------------------------+
 //|                                                                  |
 //+------------------------------------------------------------------+
-void OpenBuy()
+void OpenBuy(string MOMorder="")
   {
    if(InpEnableCustomRules && !PassesUserRules(OP_BUY))
      {
@@ -8495,7 +8499,7 @@ void OpenBuy()
      }
    reEntryCounter=0;
    SaveReEntryCounter();
-   ChangeLots(GlobalSellPL,"SSL Long",OP_BUY,0);
+   ChangeLots(GlobalSellPL,"SSL Long",OP_BUY,0,MOMorder);
    RefreshRates();
    double slDistance = CalculatePriceDistanceUSD(StopLossUSD, Lots);
    if(slDistance <= 0)
@@ -8540,7 +8544,7 @@ double NormalizeLots(double lots)
 //+------------------------------------------------------------------+
 //|                                                                  |
 //+------------------------------------------------------------------+
-void OpenSell()
+void OpenSell(string MOMorder="")
   {
    if(InpEnableCustomRules && !PassesUserRules(OP_SELL))
      {
@@ -8562,7 +8566,7 @@ void OpenSell()
      }
    reEntryCounter=0;
    SaveReEntryCounter();
-   ChangeLots(GlobalBuyPL,"SSL Short",OP_SELL,0);
+   ChangeLots(GlobalBuyPL,"SSL Short",OP_SELL,0,MOMorder);
    RefreshRates();
    double slDistance = CalculatePriceDistanceUSD(StopLossUSD, Lots);
    if(slDistance <= 0)
@@ -10317,10 +10321,10 @@ void CreateDashboardPanel(string name, int x, int y, int width, int height, colo
    ObjectSetInteger(0, name, OBJPROP_SELECTABLE, false);
    ObjectSetInteger(0, name, OBJPROP_HIDDEN, true);
   }
-  
-  
-  bool isMOMOrder=false;
-  
+
+
+// isMOMOrder is now a global variable (declared at top of file)
+
 //+------------------------------------------------------------------+
 //| MISSING FUNCTIONS                                                |
 //+------------------------------------------------------------------+
@@ -10356,12 +10360,12 @@ void DrawMomentumMarkers()
               }
            }
 
-isMOMOrder=true;
-               GlobalSSLDirection=1;
-               // Print("MOM Buy open");
-               OpenBuy();
+         isMOMOrder=true;
+         GlobalSSLDirection=1;
+         // Print("MOM Buy open");
+         OpenBuy("MOM_BUY");
 
-isMOMOrder=false;
+         isMOMOrder=false;
 
 
 
@@ -10378,16 +10382,16 @@ isMOMOrder=false;
                ObjectSetInteger(0, objName, OBJPROP_WIDTH, 2);
                GlobalSSLDirection=-1;
                // if(EMADirection == -1)// && !IsEmaWEAKDistanceReduced50PercentFromPeak(-1))
-               
-              }
-  {
-                 
-                 isMOMOrder=true;
-                  // Print("MOM Sell open");
-                  OpenSell();
-                  isMOMOrder=false;
 
-                 }
+              }
+              {
+
+               isMOMOrder=true;
+               // Print("MOM Sell open");
+               OpenSell("MOM_SELL");
+               isMOMOrder=false;
+
+              }
 
            }
      }
@@ -10844,16 +10848,18 @@ void UpdateDashboard(DailyProtectionState &state)
 // 3. EMA weak or strong
    bool isEmaWeak = IsEmaWEAKDistanceReduced50PercentFromPeak();
    string emaWeakStrongStr = isEmaWeak ? "WEAK (50% Retraced)" : "STRONG";
-   
-   
-   if(isMOMOrder)
-   emaWeakStrongStr=emaWeakStrongStr+" -  MOM Singal";
-   
-    if(!isMOMOrder)
-   emaWeakStrongStr=emaWeakStrongStr+" - NO MOM Singal";
-   
-   
-   
+
+
+// if(isMOMOrder==true)
+// emaWeakStrongStr=emaWeakStrongStr+" -  MOM Singal";
+
+// if(isMOMOrder==false)
+// emaWeakStrongStr=emaWeakStrongStr+" - NO MOM Singal";
+
+
+
+//emaWeakStrongStr=emaWeakStrongStr+" -  "+MOMorder;
+
    color  emaWeakStrongClr = isEmaWeak ? clrTomato : clrLime;
    CreateDashboardLabel(DASH_PREFIX+"EMA_STR", "EMA STRENGTH: " + emaWeakStrongStr, tx, y+196, 8, emaWeakStrongClr);
 
