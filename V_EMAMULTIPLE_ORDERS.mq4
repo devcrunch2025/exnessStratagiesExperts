@@ -38,7 +38,7 @@ double TargetProfitPerFlipUSD =20;//10;//10*2;//10;//5;//20;// 10.0; close all o
 
 
 //Chance 1
-double SecureOneDollarProfitPerOrder=1.0*1; //1X set modify order at profit $1(any lot)
+double SecureOneDollarProfitPerOrder=1.0*2; //1X set modify order at profit $1(any lot)
 
 //chance 2
 int partialClose01in05IndividualPercentage=20;//10;//2*2;//per lot 0.01//if 0.05 close 0.01 at total profit of 20% means close 0.01 lot
@@ -6360,6 +6360,10 @@ double GetDynamicOrderGap(int orderType)
 //   {
 //    multiplier=3;
 //   }
+ if(GlobalSSLDirection == EMADirection)
+             return MinimumSameOrderGapRawMatched*3;
+
+
 
 
    if((orderType == OP_BUY && currentSSL == 1) || (orderType == OP_SELL && currentSSL == -1))
@@ -6760,8 +6764,15 @@ void ChangeLots(double OpenPL, string reason, int orderType, int stoplevelStep)
      {
       Lots = 0.05;
      }
-if(IsHeavyLotOrderNearBy(orderType, Lots, 300) && Lots>=0.02)
-      Lots = 0.02;
+
+
+
+if(!IsEmaWEAKDistanceReduced50PercentFromPeak(orderType) && GlobalSSLDirection != EMADirection)//weak
+     {
+      Lots = 0.01;
+
+     }
+
 
    /*
 
@@ -6785,7 +6796,25 @@ if(IsHeavyLotOrderNearBy(orderType, Lots, 300) && Lots>=0.02)
 if(isMOMOrder)
 
   Lots = 0.04;
+  
+  
+  
+  
+  
+  
+  if(IsHeavyLotOrderNearBy(orderType, Lots, 300) && Lots>=0.02)
+      Lots = 0.01;
+  
+  
+  
+  
+  
+  
+  
+  
+  //----------------------------------------------------------------------------------------
 // Safety catch
+
 
    if(Lots < 0.01)
      {
@@ -10815,6 +10844,16 @@ void UpdateDashboard(DailyProtectionState &state)
 // 3. EMA weak or strong
    bool isEmaWeak = IsEmaWEAKDistanceReduced50PercentFromPeak();
    string emaWeakStrongStr = isEmaWeak ? "WEAK (50% Retraced)" : "STRONG";
+   
+   
+   if(isMOMOrder)
+   emaWeakStrongStr=emaWeakStrongStr+" -  MOM Singal";
+   
+    if(!isMOMOrder)
+   emaWeakStrongStr=emaWeakStrongStr+" - NO MOM Singal";
+   
+   
+   
    color  emaWeakStrongClr = isEmaWeak ? clrTomato : clrLime;
    CreateDashboardLabel(DASH_PREFIX+"EMA_STR", "EMA STRENGTH: " + emaWeakStrongStr, tx, y+196, 8, emaWeakStrongClr);
 
