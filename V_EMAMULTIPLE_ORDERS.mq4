@@ -28,7 +28,7 @@
 
 
 //string glbVersion = "V5008  29-09-2026 23.00 Aug 1st to Aug 5th $100 to $1000 equity $500 - Attached Image  balance ST-20 Partialclose, Close orders $1X close-   FlipLadderStepUSD 7 DailyEquityStopUSD 50%  TargetProfitPerFlipUSD 10%";
-string glbVersion = "VMULTI-1007 - MARKET MOMENT - MOM ORDER GOOD For DAY TRADING";
+string glbVersion = "VMULTI-1007 - MARKET MOMENT - CLOSE ORDERS $5";
 
 
 double DailyEquityStopUSD  =100;//50;//20*2.5;//10;//20;// 10;//30.0; close all orders at $50Xmultipler
@@ -54,7 +54,7 @@ double FlipLadderStepUSD =8;//0;//10;// 5;//10.0;//0 means nothing not work clos
 double modifyBasketProfitOrdersLotXPercent=50;//10.0;//20 % means 0.05 X 20 modify orders in basket $1 profit//work if basket is full profit mode
 
 //chance 5
-double CloseOrdersAtProfitFromOpeningBalanceEveryStep =5;//10;//25;// 5;// 5X step close orders every step
+double CloseOrdersAtProfitFromOpeningBalanceEveryStep =1;//0.4;//1;//3;//5;//10;//25;// 5;// 5X step close orders every step
 
 
 //chage 55
@@ -1428,10 +1428,28 @@ void Manage5PercentLadderReset()
 
    double currentEquity = AccountEquity();
 
+ 
+/*
    double targetEquity =
       Ladder5PercentBaseline *
       (1.0 + (CloseOrdersAtProfitFromOpeningBalanceEveryStep*balancelomultipler / 100.0));
 
+if(targetEquity<Ladder5PercentBaseline+(CloseOrdersAtProfitFromOpeningBalanceEveryStep*balancelomultipler))
+targetEquity=targetEquity+(CloseOrdersAtProfitFromOpeningBalanceEveryStep*balancelomultipler);
+
+*/
+
+double targetEquity =
+      Ladder5PercentBaseline *
+      (1.0 + (CloseOrdersAtProfitFromOpeningBalanceEveryStep *
+              balancelomultipler / 100.0));
+
+double minimumProfit = 5.0 * balancelomultipler;
+
+if (targetEquity < Ladder5PercentBaseline + minimumProfit)
+{
+    targetEquity = Ladder5PercentBaseline + minimumProfit;
+}
 // ---------------------------------------------------------
 // Dynamic target adjustment
 // If current equity falls more than $20 below the target,
@@ -2538,6 +2556,12 @@ bool IsDailyEquityStopReached()
 //+------------------------------------------------------------------+
 void OnTick()
   {
+  
+  
+  
+  if(AccountEquity()<=0)
+  return ;
+  
    CurrentTickSequence++;
    InvalidateOrderCache();
 
@@ -6091,7 +6115,7 @@ void modifyOnlySellOrders()
 //+------------------------------------------------------------------+
 //| Modify profitable orders and close losing orders                 |
 //+------------------------------------------------------------------+
-void ModifyOpenOrdersToSecureProfit()
+void ModifyOpenOrdersToSecureProfitNEW()
   {
 
    return ;
@@ -6269,13 +6293,16 @@ void ModifyOpenOrdersToSecureProfit()
 
 
    ForceDeleteAllPendingOrders();
+
+CloseAllOrders();
+   
   }
 
 
 //+------------------------------------------------------------------+
 // Modify open orders to secure profit and keep trading active
 //+------------------------------------------------------------------+
-void ModifyOpenOrdersToSecureProfitOld()
+void ModifyOpenOrdersToSecureProfit()
   {
    for(int i = OrdersTotal() - 1; i >= 0; i--)
      {
@@ -10972,11 +10999,14 @@ void UpdateDashboard(DailyProtectionState &state)
    color  ladStatusClr = TradingHaltedUntilNextFlip ? clrTomato : clrLime;
    CreateDashboardLabel(DASH_PREFIX+"LAD_STAT", "LADDER      : " + ladStatusStr + " (Step $" + DoubleToString(FlipLadderStepUSD*balancelomultipler, 0) + ")", tx, y+300, 8, ladStatusClr);
 
-   string cycleStr = StringFormat("CYCLE P/L   : $%.2f / Next: $%.2f", totalCycleProfit, emaNextTarget);
+   string cycleStr = StringFormat("CYCLE P/L   : $%.2f / Next: $%.2f" + " Target:"+DoubleToString(gbltargetEquity,2), totalCycleProfit, emaNextTarget);
    CreateDashboardLabel(DASH_PREFIX+"LAD_CYCLE", cycleStr, tx, y+316, 8, (totalCycleProfit >= 0 ? clrLime : clrTomato));
 
    string lockStr = StringFormat("LOCKED PROF : $%.2f | Low Eq: $%.0f", emaLockedPrf, LowestEquity);
    CreateDashboardLabel(DASH_PREFIX+"LAD_LOCK", lockStr, tx, y+332, 8, (emaLockedPrf > 0 ? clrGold : clrSilver));
+
+
+   
 
 // ==========================================================
 // SECTION 4: RISK & PROTECTION
