@@ -103,7 +103,7 @@ double   g_peakCycleProfit     = 0.0; // Tracks the highest profit reached in th
 
 // ===== 5% CONTINUOUS LADDER SETTINGS =====
 double Ladder5PercentBaseline = 0.0;
-bool enable5PercentClose = false; //5;//
+bool enable5PercentClose =true;// false; //5;//
 bool enableCircleOrders = true;
 
 
@@ -6801,7 +6801,7 @@ void ChangeLots(double OpenPL, string reason, int orderType, int stoplevelStep,s
       //  Lots = 0.03;
 
      }
-   if(MOMorder=="MOM_BUY" && (EMADirection==1 || IsEmaWEAKDistanceReduced50PercentFromPeak(orderType)))
+   if(MOMorder=="MOM_BUY" && (EMADirection==1 && !IsEmaWEAKDistanceReduced50PercentFromPeak(orderType)))
      {
 
       Lots = 0.04;
@@ -6809,7 +6809,23 @@ void ChangeLots(double OpenPL, string reason, int orderType, int stoplevelStep,s
 
    
 
-   if(MOMorder=="MOM_SELL" && (EMADirection==-1 || IsEmaWEAKDistanceReduced50PercentFromPeak(orderType)))
+   if(MOMorder=="MOM_SELL" && (EMADirection==-1 && !IsEmaWEAKDistanceReduced50PercentFromPeak(orderType)))
+     {
+
+      Lots = 0.04;
+     }
+     
+     //oppsite direction
+     
+     if(MOMorder=="MOM_BUY" && (EMADirection==-1 && IsEmaWEAKDistanceReduced50PercentFromPeak(orderType)))
+     {
+
+      Lots = 0.04;
+     }
+
+   
+
+   if(MOMorder=="MOM_SELL" && (EMADirection==1 && IsEmaWEAKDistanceReduced50PercentFromPeak(orderType)))
      {
 
       Lots = 0.04;
