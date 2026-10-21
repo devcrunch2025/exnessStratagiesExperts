@@ -28,7 +28,7 @@
 
 
 //string glbVersion = "V5008  29-09-2026 23.00 Aug 1st to Aug 5th $100 to $1000 equity $500 - Attached Image  balance ST-20 Partialclose, Close orders $1X close-   FlipLadderStepUSD 7 DailyEquityStopUSD 50%  TargetProfitPerFlipUSD 10%";
-string glbVersion = "VMULTI-1007 - $200 to $400 Aug 2nd to 4th  - CLOSE ORDERS $5";
+string glbVersion = "VMULTI-1008 - $200 to $400 Aug 2nd to 4th  - CLOSE ORDERS $5-NEW";
 
 
 double DailyEquityStopUSD  =100;//50;//20*2.5;//10;//20;// 10;//30.0; close all orders at $50Xmultipler
@@ -1429,7 +1429,7 @@ void Manage5PercentLadderReset()
    double currentEquity = AccountEquity();
 
  
-/*
+ 
    double targetEquity =
       Ladder5PercentBaseline *
       (1.0 + (CloseOrdersAtProfitFromOpeningBalanceEveryStep*balancelomultipler / 100.0));
@@ -1437,8 +1437,8 @@ void Manage5PercentLadderReset()
 if(targetEquity<Ladder5PercentBaseline+(CloseOrdersAtProfitFromOpeningBalanceEveryStep*balancelomultipler))
 targetEquity=targetEquity+(CloseOrdersAtProfitFromOpeningBalanceEveryStep*balancelomultipler);
 
-*/
-
+ 
+/*
 double targetEquity =
       Ladder5PercentBaseline *
       (1.0 + (CloseOrdersAtProfitFromOpeningBalanceEveryStep *
@@ -1449,7 +1449,7 @@ double minimumProfit = 5.0 * balancelomultipler;
 if (targetEquity < Ladder5PercentBaseline + minimumProfit)
 {
     targetEquity = Ladder5PercentBaseline + minimumProfit;
-}
+}*/
 // ---------------------------------------------------------
 // Dynamic target adjustment
 // If current equity falls more than $20 below the target,
@@ -6297,12 +6297,78 @@ void ModifyOpenOrdersToSecureProfitNEW()
 CloseAllOrders();
    
   }
+void ModifyOpenOrdersToSecureProfit()
+  {
+   RefreshRates();
+   
+   // Raw price trailing buffer for BTCUSD (e.g., $15-$25 gives room to ride spikes)
+   double trailingBufferUSD = 20.0; 
+   double lossRecoveryGapUSD = 50.0; // Room for losing orders to retrace
 
+   for(int i = OrdersTotal() - 1; i >= 0; i--)
+     {
+      if(!OrderSelect(i, SELECT_BY_POS, MODE_TRADES))
+         continue;
+      if(OrderSymbol() != Symbol() || OrderMagicNumber() != MagicNumber)
+         continue;
+
+      int ticket       = OrderTicket();
+      int type         = OrderType();
+      double openPrice = OrderOpenPrice();
+      double currentSL = OrderStopLoss();
+      double currentTP = OrderTakeProfit();
+      double netPL     = OrderProfit() + OrderSwap() + OrderCommission();
+
+      // ==============================================================
+      // 1. PROFITABLE ORDERS: Ride the spike & lock in strong profits
+      // ==============================================================
+      if(netPL > 0.0)
+        {
+         double newSL = 0.0;
+         if(type == OP_BUY)
+           {
+            newSL = Bid - trailingBufferUSD;
+            // Only move SL UP, and only once SL is above open price (guaranteeing profit)
+            if(newSL > openPrice && (currentSL == 0.0 || newSL > currentSL + Point))
+               SafeOrderModify(ticket, openPrice, NormalizeDouble(newSL, Digits), currentTP, 0, clrGreen);
+           }
+         else if(type == OP_SELL)
+           {
+            newSL = Ask + trailingBufferUSD;
+            // Only move SL DOWN, and only once SL is below open price
+            if(newSL < openPrice && (currentSL == 0.0 || newSL < currentSL - Point))
+               SafeOrderModify(ticket, openPrice, NormalizeDouble(newSL, Digits), currentTP, 0, clrRed);
+           }
+        }
+
+      // ==============================================================
+      // 2. LOSING ORDERS: Give them a chance to recover on retracement
+      // ==============================================================
+      else if(netPL < 0.0)
+        {
+         // Do NOT drag SL close to price! Keep the $50 safety gap so retracements can rescue the order
+         double newSL = 0.0;
+         if(type == OP_BUY)
+            newSL = Bid - lossRecoveryGapUSD;
+         else if(type == OP_SELL)
+            newSL = Ask + lossRecoveryGapUSD;
+
+         newSL = NormalizeDouble(newSL, Digits);
+
+         // Only adjust if distance is wider than $60, keeping a clean $50 breathing room
+         double distToSL = (type == OP_BUY) ? (Bid - currentSL) : (currentSL - Ask);
+         if(currentSL == 0.0 || distToSL > lossRecoveryGapUSD + 10.0)
+           {
+            SafeOrderModify(ticket, openPrice, newSL, currentTP, 0, clrOrange);
+           }
+        }
+     }
+  }
 
 //+------------------------------------------------------------------+
 // Modify open orders to secure profit and keep trading active
 //+------------------------------------------------------------------+
-void ModifyOpenOrdersToSecureProfit()
+void ModifyOpenOrdersToSecureProfitOLD()
   {
    for(int i = OrdersTotal() - 1; i >= 0; i--)
      {
