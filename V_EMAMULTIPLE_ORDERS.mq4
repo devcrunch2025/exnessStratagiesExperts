@@ -1428,28 +1428,28 @@ void Manage5PercentLadderReset()
 
    double currentEquity = AccountEquity();
 
- 
- 
+
+
    double targetEquity =
       Ladder5PercentBaseline *
       (1.0 + (CloseOrdersAtProfitFromOpeningBalanceEveryStep*balancelomultipler / 100.0));
 
-if(targetEquity<Ladder5PercentBaseline+(CloseOrdersAtProfitFromOpeningBalanceEveryStep*balancelomultipler))
-targetEquity=targetEquity+(CloseOrdersAtProfitFromOpeningBalanceEveryStep*balancelomultipler);
+   if(targetEquity<Ladder5PercentBaseline+(CloseOrdersAtProfitFromOpeningBalanceEveryStep*balancelomultipler))
+      targetEquity=targetEquity+(CloseOrdersAtProfitFromOpeningBalanceEveryStep*balancelomultipler);
 
- 
-/*
-double targetEquity =
-      Ladder5PercentBaseline *
-      (1.0 + (CloseOrdersAtProfitFromOpeningBalanceEveryStep *
-              balancelomultipler / 100.0));
 
-double minimumProfit = 5.0 * balancelomultipler;
+   /*
+   double targetEquity =
+         Ladder5PercentBaseline *
+         (1.0 + (CloseOrdersAtProfitFromOpeningBalanceEveryStep *
+                 balancelomultipler / 100.0));
 
-if (targetEquity < Ladder5PercentBaseline + minimumProfit)
-{
-    targetEquity = Ladder5PercentBaseline + minimumProfit;
-}*/
+   double minimumProfit = 5.0 * balancelomultipler;
+
+   if (targetEquity < Ladder5PercentBaseline + minimumProfit)
+   {
+       targetEquity = Ladder5PercentBaseline + minimumProfit;
+   }*/
 // ---------------------------------------------------------
 // Dynamic target adjustment
 // If current equity falls more than $20 below the target,
@@ -2556,12 +2556,12 @@ bool IsDailyEquityStopReached()
 //+------------------------------------------------------------------+
 void OnTick()
   {
-  
-  
-  
-  if(AccountEquity()<=0)
-  return ;
-  
+
+
+
+   if(AccountEquity()<=0)
+      return ;
+
    CurrentTickSequence++;
    InvalidateOrderCache();
 
@@ -6294,15 +6294,18 @@ void ModifyOpenOrdersToSecureProfitNEW()
 
    ForceDeleteAllPendingOrders();
 
-CloseAllOrders();
-   
+   CloseAllOrders();
+
   }
+//+------------------------------------------------------------------+
+//|                                                                  |
+//+------------------------------------------------------------------+
 void ModifyOpenOrdersToSecureProfit()
   {
    RefreshRates();
-   
-   // Raw price trailing buffer for BTCUSD (e.g., $15-$25 gives room to ride spikes)
-   double trailingBufferUSD = 20.0; 
+
+// Raw price trailing buffer for BTCUSD (e.g., $15-$25 gives room to ride spikes)
+   double trailingBufferUSD = 20.0;
    double lossRecoveryGapUSD = 50.0; // Room for losing orders to retrace
 
    for(int i = OrdersTotal() - 1; i >= 0; i--)
@@ -6332,36 +6335,43 @@ void ModifyOpenOrdersToSecureProfit()
             if(newSL > openPrice && (currentSL == 0.0 || newSL > currentSL + Point))
                SafeOrderModify(ticket, openPrice, NormalizeDouble(newSL, Digits), currentTP, 0, clrGreen);
            }
-         else if(type == OP_SELL)
-           {
-            newSL = Ask + trailingBufferUSD;
-            // Only move SL DOWN, and only once SL is below open price
-            if(newSL < openPrice && (currentSL == 0.0 || newSL < currentSL - Point))
-               SafeOrderModify(ticket, openPrice, NormalizeDouble(newSL, Digits), currentTP, 0, clrRed);
-           }
+         else
+            if(type == OP_SELL)
+              {
+               newSL = Ask + trailingBufferUSD;
+               // Only move SL DOWN, and only once SL is below open price
+               if(newSL < openPrice && (currentSL == 0.0 || newSL < currentSL - Point))
+                  SafeOrderModify(ticket, openPrice, NormalizeDouble(newSL, Digits), currentTP, 0, clrRed);
+              }
         }
 
       // ==============================================================
       // 2. LOSING ORDERS: Give them a chance to recover on retracement
       // ==============================================================
-      else if(netPL < 0.0)
-        {
-         // Do NOT drag SL close to price! Keep the $50 safety gap so retracements can rescue the order
-         double newSL = 0.0;
-         if(type == OP_BUY)
-            newSL = Bid - lossRecoveryGapUSD;
-         else if(type == OP_SELL)
-            newSL = Ask + lossRecoveryGapUSD;
-
-         newSL = NormalizeDouble(newSL, Digits);
-
-         // Only adjust if distance is wider than $60, keeping a clean $50 breathing room
-         double distToSL = (type == OP_BUY) ? (Bid - currentSL) : (currentSL - Ask);
-         if(currentSL == 0.0 || distToSL > lossRecoveryGapUSD + 10.0)
+      else
+         if(netPL < 0.0)
            {
-            SafeOrderModify(ticket, openPrice, newSL, currentTP, 0, clrOrange);
+           
+           
+           
+           
+            // Do NOT drag SL close to price! Keep the $50 safety gap so retracements can rescue the order
+            double newSL = 0.0;
+            if(type == OP_BUY)
+               newSL = Bid - lossRecoveryGapUSD;
+            else
+               if(type == OP_SELL)
+                  newSL = Ask + lossRecoveryGapUSD;
+
+            newSL = NormalizeDouble(newSL, Digits);
+
+            // Only adjust if distance is wider than $60, keeping a clean $50 breathing room
+            double distToSL = (type == OP_BUY) ? (Bid - currentSL) : (currentSL - Ask);
+            if(currentSL == 0.0 || distToSL > lossRecoveryGapUSD + 10.0)
+              {
+               SafeOrderModify(ticket, openPrice, newSL, currentTP, 0, clrOrange);
+              }
            }
-        }
      }
   }
 
@@ -6900,23 +6910,23 @@ void ChangeLots(double OpenPL, string reason, int orderType, int stoplevelStep,s
       Lots = 0.04;
      }
 
-   
+
 
    if(MOMorder=="MOM_SELL" && (EMADirection==-1 && !IsEmaWEAKDistanceReduced50PercentFromPeak(orderType)))
      {
 
       Lots = 0.04;
      }
-     
-     //oppsite direction
-     
-     if(MOMorder=="MOM_BUY" && (EMADirection==-1 && IsEmaWEAKDistanceReduced50PercentFromPeak(orderType)))
+
+//oppsite direction
+
+   if(MOMorder=="MOM_BUY" && (EMADirection==-1 && IsEmaWEAKDistanceReduced50PercentFromPeak(orderType)))
      {
 
       Lots = 0.04;
      }
 
-   
+
 
    if(MOMorder=="MOM_SELL" && (EMADirection==1 && IsEmaWEAKDistanceReduced50PercentFromPeak(orderType)))
      {
@@ -11072,7 +11082,7 @@ void UpdateDashboard(DailyProtectionState &state)
    CreateDashboardLabel(DASH_PREFIX+"LAD_LOCK", lockStr, tx, y+332, 8, (emaLockedPrf > 0 ? clrGold : clrSilver));
 
 
-   
+
 
 // ==========================================================
 // SECTION 4: RISK & PROTECTION
