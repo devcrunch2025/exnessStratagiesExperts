@@ -28,13 +28,13 @@
 
 
 //string glbVersion = "V5008  29-09-2026 23.00 Aug 1st to Aug 5th $100 to $1000 equity $500 - Attached Image  balance ST-20 Partialclose, Close orders $1X close-   FlipLadderStepUSD 7 DailyEquityStopUSD 50%  TargetProfitPerFlipUSD 10%";
-string glbVersion = "VMULTI-1010";
+string glbVersion = "VMULTI-1011";
 
 
 double DailyEquityStopUSD  =100;//50;//20*2.5;//10;//20;// 10;//30.0; close all orders at $50Xmultipler
 double TargetProfitPerFlipUSD =100;//20;//10;//10*2;//10;//5;//20;// 10.0; close all orders at $20Xmultipler
 
-double protectgapOnOrderclose=303;//
+double protectgapOnOrderclose=303;//11111111111111
 
 
 //Chance 1
@@ -256,6 +256,7 @@ int MaxOpenOrders = 100;
 
 bool CloseOppositeOrdersOnSignal =true;// false;
 double closeOppositeLossThreshold =0.01;
+bool DeletePendingOrdersOnSSLChange = true; // Close/Delete all pending orders when SSL signal changes
 bool DeleteOppositePendingOnSignal = true;
 bool EnableProfitReEntryStop = true;
 double MinimumClosedProfitUSD = -9;
@@ -411,6 +412,7 @@ bool TradeResetThisTick = false;
 bool TradeOperationFailedThisTick = false;
 bool LiveSSLInitialized = false;
 int LastLiveSSLDirection = 1;
+int LastTrackedSSLDirection = 0; // Tracks SSL direction to detect signal change
 datetime LastLiveSignalCandle = 1;
 bool EquityResetReEntryPending = true;
 bool ProtectedEquityWaitActive = true;
@@ -760,6 +762,9 @@ bool   EnablePairProfitSLModify =true;// false;             // Disabled: avoid 2
 double PairCombinationProfitThresholdUSD = 1.0;       // Threshold profit in USD for 2-order combination
 double PairCombinationSLDistanceRaw = 0.0;            // Distance from live price in raw points (0.0 = auto broker stop level)
 bool   PairCombinationUseBalanceMultiplier = false;   // If true, scale threshold by balance multiplier (default false: fixed $1.00 USD)
+bool   InpEnableCombinationProfitClose     = true;    // Close any order combination (or single order) when sum > $1 * multiplier
+double InpCombinationCloseProfitUSD        = 1.0;     // Base profit threshold in USD ($1.00)
+void   CloseProfitableOrderCombinations();
 void   ModifyPairProfitWithStopLoss();
 int    GetOriginalTicket(int ticket, string comment);
 string GetRootOrderComment(int ticket, string comment = "");
@@ -1188,6 +1193,237 @@ void ModifyPairProfitWithStopLoss()
         }
      }
   }
+//+------------------------------------------------------------------+
+//|                                                                  |
+//+------------------------------------------------------------------+
+//+------------------------------------------------------------------+
+//| Directly close a market order by ticket                          |
+//+------------------------------------------------------------------+
+bool CloseMarketOrderDirect(int ticket)
+  {
+   if(!OrderSelect(ticket, SELECT_BY_TICKET, MODE_TRADES))
+      return true; // Already closed
+
+   int type = OrderType();
+   if(type != OP_BUY && type != OP_SELL)
+      return false;
+
+   double lots = OrderLots();
+   RefreshRates();
+   double closePrice = (type == OP_BUY) ? Bid : Ask;
+   closePrice = NormalizeDouble(closePrice, Digits);
+   ResetLastError();
+
+   bool res = OrderClose(ticket, lots, closePrice, Slippage, (type == OP_BUY ? clrRed : clrBlue));
+   if(!res)
+     {
+      int err = GetLastError();
+      Print(">>> [COMBINATION CLOSE] Failed to close ticket #", ticket, " | Error: ", err);
+      return false;
+     }
+   return true;
+  }
+
+//+------------------------------------------------------------------+
+//| Close any combination of open orders when sum > $1 * multiplier  |
+//| Supports 1, 2, 3 orders or entire basket, Buy or Sell or mixed   |
+//+------------------------------------------------------------------+
+void CloseProfitableOrderCombinations()
+  {
+   if(!InpEnableCombinationProfitClose)
+      return;
+
+   double minProfitUSD = InpCombinationCloseProfitUSD * balancelomultipler;
+   if(minProfitUSD <= 0.0)
+      minProfitUSD = 1.0;
+
+   // 1. Collect all open market orders for current symbol & magic number
+   #define MAX_COMB_ORDERS 100
+   int    candTickets[MAX_COMB_ORDERS];
+   int    candTypes[MAX_COMB_ORDERS];
+   double candLots[MAX_COMB_ORDERS];
+   double candProfits[MAX_COMB_ORDERS];
+   bool   isClosed[MAX_COMB_ORDERS];
+   ArrayInitialize(candTickets, 0);
+   ArrayInitialize(candTypes, 0);
+   ArrayInitialize(candLots, 0.0);
+   ArrayInitialize(candProfits, 0.0);
+   ArrayInitialize(isClosed, false);
+   int    candCount = 0;
+
+   for(int i = OrdersTotal() - 1; i >= 0 && candCount < MAX_COMB_ORDERS; i--)
+     {
+      if(!OrderSelect(i, SELECT_BY_POS, MODE_TRADES))
+         continue;
+
+      if(OrderSymbol() != Symbol() || OrderMagicNumber() != MagicNumber)
+         continue;
+
+      int oType = OrderType();
+      if(oType != OP_BUY && oType != OP_SELL)
+         continue;
+
+      candTickets[candCount] = OrderTicket();
+      candTypes[candCount]   = oType;
+      candLots[candCount]    = OrderLots();
+      candProfits[candCount] = OrderProfit() + OrderSwap() + OrderCommission();
+      isClosed[candCount]    = false;
+      candCount++;
+     }
+
+   if(candCount <= 0)
+      return;
+
+   bool anyOrdersClosed = false;
+
+   // 2. TOTAL BASKET CHECK (if all open orders combined sum >= minProfitUSD and count >= 2)
+   if(candCount >= 2)
+     {
+      double totalBasketPL = 0.0;
+      for(int b = 0; b < candCount; b++)
+         totalBasketPL += candProfits[b];
+
+      if(totalBasketPL >= minProfitUSD)
+        {
+         Print(">>> [COMBINATION CLOSE - ALL ORDERS] Total Basket Profit = $", DoubleToString(totalBasketPL, 2),
+               " >= $", DoubleToString(minProfitUSD, 2), " | Closing ALL ", candCount, " open orders!");
+
+         for(int b = 0; b < candCount; b++)
+           {
+            if(CloseMarketOrderDirect(candTickets[b]))
+               isClosed[b] = true;
+           }
+         InvalidateTotalEAOrdersCache();
+         return;
+        }
+     }
+
+   // 3. PRIORITY PAIR CHECK (Win + Loss): Pair a winning order with a losing order if sum >= minProfitUSD
+   for(int i = 0; i < candCount - 1; i++)
+     {
+      if(isClosed[i]) continue;
+      for(int j = i + 1; j < candCount; j++)
+        {
+         if(isClosed[j]) continue;
+
+         // Check if at least one order is in loss (offsets losing order)
+         if(candProfits[i] < 0.0 || candProfits[j] < 0.0)
+           {
+            double pairSum = candProfits[i] + candProfits[j];
+            if(pairSum >= minProfitUSD)
+              {
+               Print(">>> [COMBINATION CLOSE - PAIR (WIN+LOSS)] Ticket #", candTickets[i],
+                     " (", (candTypes[i] == OP_BUY ? "BUY" : "SELL"), " $", DoubleToString(candProfits[i], 2), ") + Ticket #",
+                     candTickets[j], " (", (candTypes[j] == OP_BUY ? "BUY" : "SELL"), " $", DoubleToString(candProfits[j], 2),
+                     ") = Total $", DoubleToString(pairSum, 2), " >= $", DoubleToString(minProfitUSD, 2), " | Closing Pair!");
+
+               if(CloseMarketOrderDirect(candTickets[i])) isClosed[i] = true;
+               if(CloseMarketOrderDirect(candTickets[j])) isClosed[j] = true;
+               anyOrdersClosed = true;
+              }
+           }
+        }
+     }
+
+   // 4. PRIORITY TRIPLET CHECK (Win + Losses): Check combinations of 3 orders with at least one loss
+   int maxTripletSearch = MathMin(candCount, 30);
+   for(int i = 0; i < maxTripletSearch - 2; i++)
+     {
+      if(isClosed[i]) continue;
+      for(int j = i + 1; j < maxTripletSearch - 1; j++)
+        {
+         if(isClosed[j]) continue;
+         for(int k = j + 1; k < maxTripletSearch; k++)
+           {
+            if(isClosed[k]) continue;
+
+            if(candProfits[i] < 0.0 || candProfits[j] < 0.0 || candProfits[k] < 0.0)
+              {
+               double tripletSum = candProfits[i] + candProfits[j] + candProfits[k];
+               if(tripletSum >= minProfitUSD)
+                 {
+                  Print(">>> [COMBINATION CLOSE - TRIPLET (WITH LOSS)] Tickets [#", candTickets[i], ", #", candTickets[j], ", #", candTickets[k],
+                        "] = Total $", DoubleToString(tripletSum, 2), " >= $", DoubleToString(minProfitUSD, 2), " | Closing Triplet!");
+
+                  if(CloseMarketOrderDirect(candTickets[i])) isClosed[i] = true;
+                  if(CloseMarketOrderDirect(candTickets[j])) isClosed[j] = true;
+                  if(CloseMarketOrderDirect(candTickets[k])) isClosed[k] = true;
+                  anyOrdersClosed = true;
+                 }
+              }
+           }
+        }
+     }
+
+   // 5. ANY REMAINING PAIR CHECK (e.g. 2 Wins >= minProfitUSD)
+   for(int i = 0; i < candCount - 1; i++)
+     {
+      if(isClosed[i]) continue;
+      for(int j = i + 1; j < candCount; j++)
+        {
+         if(isClosed[j]) continue;
+
+         double pairSum = candProfits[i] + candProfits[j];
+         if(pairSum >= minProfitUSD)
+           {
+            Print(">>> [COMBINATION CLOSE - PAIR] Ticket #", candTickets[i],
+                  " (", (candTypes[i] == OP_BUY ? "BUY" : "SELL"), " $", DoubleToString(candProfits[i], 2), ") + Ticket #",
+                  candTickets[j], " (", (candTypes[j] == OP_BUY ? "BUY" : "SELL"), " $", DoubleToString(candProfits[j], 2),
+                  ") = Total $", DoubleToString(pairSum, 2), " >= $", DoubleToString(minProfitUSD, 2), " | Closing Pair!");
+
+            if(CloseMarketOrderDirect(candTickets[i])) isClosed[i] = true;
+            if(CloseMarketOrderDirect(candTickets[j])) isClosed[j] = true;
+            anyOrdersClosed = true;
+           }
+        }
+     }
+
+   // 6. ANY REMAINING TRIPLET CHECK (e.g. 3 Wins >= minProfitUSD)
+   for(int i = 0; i < maxTripletSearch - 2; i++)
+     {
+      if(isClosed[i]) continue;
+      for(int j = i + 1; j < maxTripletSearch - 1; j++)
+        {
+         if(isClosed[j]) continue;
+         for(int k = j + 1; k < maxTripletSearch; k++)
+           {
+            if(isClosed[k]) continue;
+
+            double tripletSum = candProfits[i] + candProfits[j] + candProfits[k];
+            if(tripletSum >= minProfitUSD)
+              {
+               Print(">>> [COMBINATION CLOSE - TRIPLET] Tickets [#", candTickets[i], ", #", candTickets[j], ", #", candTickets[k],
+                     "] = Total $", DoubleToString(tripletSum, 2), " >= $", DoubleToString(minProfitUSD, 2), " | Closing Triplet!");
+
+               if(CloseMarketOrderDirect(candTickets[i])) isClosed[i] = true;
+               if(CloseMarketOrderDirect(candTickets[j])) isClosed[j] = true;
+               if(CloseMarketOrderDirect(candTickets[k])) isClosed[k] = true;
+               anyOrdersClosed = true;
+              }
+           }
+        }
+     }
+
+   // 7. SINGLE ORDER CHECK (Any individual order with profit >= minProfitUSD)
+   for(int i = 0; i < candCount; i++)
+     {
+      if(isClosed[i]) continue;
+
+      if(candProfits[i] >= minProfitUSD)
+        {
+         Print(">>> [COMBINATION CLOSE - SINGLE ORDER] Ticket #", candTickets[i],
+               " (", (candTypes[i] == OP_BUY ? "BUY" : "SELL"), " ", DoubleToString(candLots[i], 2),
+               " lots) Profit = $", DoubleToString(candProfits[i], 2), " >= $", DoubleToString(minProfitUSD, 2), " | Closing Order!");
+
+         if(CloseMarketOrderDirect(candTickets[i])) isClosed[i] = true;
+         anyOrdersClosed = true;
+        }
+     }
+
+   if(anyOrdersClosed)
+      InvalidateTotalEAOrdersCache();
+  }
+
 //+------------------------------------------------------------------+
 //|                                                                  |
 //+------------------------------------------------------------------+
@@ -2376,6 +2612,10 @@ int OnInit()
    if(g_emaFlipPrice <= 0.0)
       g_emaFlipPrice = GetEmaFlipPrice();
 
+   LastTrackedSSLDirection = GetCurrentSSLDirection();
+   if(LastTrackedSSLDirection != 0)
+      LiveSSLInitialized = true;
+
    DrawHistoricalBouncebacks();
 
    OriginalLadder1ProfitUSD = Ladder1ProfitUSD;
@@ -2603,6 +2843,7 @@ void OnTick()
    SecureOneDollarProfit();
    CheckEquitySurplusReset();
 
+   CloseProfitableOrderCombinations(); // Close any order combination (or single order) when sum > $1 * multiplier
    ManageOverallBasketProfit();//modify basket orders at $1 profit
 
    ManageDayProfitLadder();
@@ -2746,6 +2987,59 @@ void OnTick()
 
 
   }
+//+------------------------------------------------------------------+
+//|                                                                  |
+//+------------------------------------------------------------------+
+//+------------------------------------------------------------------+
+//| Close / Delete all pending orders when SSL signal changes        |
+//+------------------------------------------------------------------+
+int CloseAllPendingOrdersOnSSLChange(int fromDirection, int toDirection)
+  {
+   int deletedCount = 0;
+   RefreshRates();
+
+   for(int i = OrdersTotal() - 1; i >= 0; i--)
+     {
+      if(!OrderSelect(i, SELECT_BY_POS, MODE_TRADES))
+         continue;
+
+      // Match current chart symbol and EA magic number
+      if(OrderSymbol() != Symbol() || OrderMagicNumber() != MagicNumber)
+         continue;
+
+      int type = OrderType();
+      if(type == OP_BUYSTOP || type == OP_SELLSTOP || type == OP_BUYLIMIT || type == OP_SELLLIMIT)
+        {
+         int ticket = OrderTicket();
+         string typeStr = (type == OP_BUYSTOP ? "BUY STOP" : (type == OP_SELLSTOP ? "SELL STOP" : (type == OP_BUYLIMIT ? "BUY LIMIT" : "SELL LIMIT")));
+         double lots = OrderLots();
+         double openPrice = OrderOpenPrice();
+
+         ResetLastError();
+         if(OrderDelete(ticket, clrYellow))
+           {
+            deletedCount++;
+            Print(">>> [SSL SIGNAL CHANGE] Deleted Pending Order #", ticket,
+                  " (", typeStr, " ", DoubleToString(lots, 2), " @ ", DoubleToString(openPrice, Digits), ")");
+           }
+         else
+           {
+            Print(">>> [SSL SIGNAL CHANGE] Failed to delete Pending Order #", ticket, " | Error: ", GetLastError());
+           }
+        }
+     }
+
+   if(deletedCount > 0)
+     {
+      InvalidateTotalEAOrdersCache();
+      string fromStr = (fromDirection == 1) ? "BUY (+1)" : (fromDirection == -1 ? "SELL (-1)" : "NONE (0)");
+      string toStr   = (toDirection == 1) ? "BUY (+1)" : (toDirection == -1 ? "SELL (-1)" : "NONE (0)");
+      Print(">>> [SSL SIGNAL CHANGE] Total Pending Orders Deleted: ", deletedCount, " (SSL changed from ", fromStr, " to ", toStr, ")");
+     }
+
+   return deletedCount;
+  }
+
 //+------------------------------------------------------------------+
 //|                                                                  |
 //+------------------------------------------------------------------+
@@ -3040,7 +3334,22 @@ void OnTickCore()
    GlobalEmaAngle30 = GetEmaAngleDegrees(30);
    GlobalEmaAngle200 = GetEmaAngleDegrees(200);
 
-   GlobalSSLDirection = GetCurrentSSLDirection();
+   int currentSSLDirection = GetCurrentSSLDirection();
+   if(LiveSSLInitialized && LastTrackedSSLDirection != 0 && currentSSLDirection != 0 && currentSSLDirection != LastTrackedSSLDirection)
+     {
+      if(DeletePendingOrdersOnSSLChange)
+        {
+         CloseAllPendingOrdersOnSSLChange(LastTrackedSSLDirection, currentSSLDirection);
+        }
+      LastTrackedSSLDirection = currentSSLDirection;
+     }
+   else if(!LiveSSLInitialized && currentSSLDirection != 0)
+     {
+      LiveSSLInitialized = true;
+      LastTrackedSSLDirection = currentSSLDirection;
+     }
+
+   GlobalSSLDirection = currentSSLDirection;
    Global30MinDiffBuy = Get30MinDifference(OP_BUY);
    Global30MinDiffSell = Get30MinDifference(OP_SELL);
 
@@ -4849,10 +5158,11 @@ int SafeOrderSend(string symbol,int orderType,double lots,double price,int slipp
 
    if(MathAbs(Get30MinutePriceDifference())<100)
       ignoreFlipTime = true;
+if( EMADirection!= requestedDirection)
+    return -1;
 
-
-//if(!IsEmaWEAKDistanceReduced50PercentFromPeak() && EMADirection!= requestedDirection)
-//    return -1;
+if(!IsEmaWEAKDistanceReduced50PercentFromPeak() && EMADirection!= requestedDirection)
+    return -1;
 
 
 // if(EMAflipdistance()>200 && !IsEmaWEAKDistanceReduced50PercentFromPeak() && EMADirection!= requestedDirection)
@@ -6917,13 +7227,13 @@ void ChangeLots(double OpenPL, string reason, int orderType, int stoplevelStep,s
 
    if(IsLsdSweepGreenLinePresent() && GlobalSSLDirection==1 && (GetLsdSweepEqlDistance(requestedDirection)<100 ||EMADirection==-1))
      {
-      Lots = 0.02;
+      Lots = 0.03;
      }
 
 
    if(IsLsdSweepRedLinePresent() && GlobalSSLDirection==-1 && (GetLsdSweepEqlDistance(requestedDirection)<100 ||EMADirection==1))
      {
-      Lots = 0.02;
+      Lots = 0.03;
      }
 
 
@@ -11088,7 +11398,7 @@ void UpdateDashboard(DailyProtectionState &state)
      {
       sslSignalStr = StringFormat("BUY / LONG (+1) | %+.2f deg", GlobalEmaAngle30);
       sslSignalClr = clrDeepSkyBlue;
-      DeleteOppositePendingOrders(OP_BUY);
+      // DeleteOppositePendingOrders(OP_BUY);
 
       
      }
@@ -11098,7 +11408,7 @@ void UpdateDashboard(DailyProtectionState &state)
          sslSignalStr = StringFormat("SELL / SHORT (-1) | %+.2f deg", GlobalEmaAngle30);
          sslSignalClr = clrTomato;
 
-      DeleteOppositePendingOrders(OP_SELL);
+      // DeleteOppositePendingOrders(OP_SELL);
        
 
         }
