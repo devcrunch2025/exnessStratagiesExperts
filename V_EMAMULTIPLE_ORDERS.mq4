@@ -34,7 +34,7 @@ string glbVersion = "VMULTI-1009 - 0.05 partial loss /2";
 double DailyEquityStopUSD  =100;//50;//20*2.5;//10;//20;// 10;//30.0; close all orders at $50Xmultipler
 double TargetProfitPerFlipUSD =100;//20;//10;//10*2;//10;//5;//20;// 10.0; close all orders at $20Xmultipler
 
-
+double protectgapOnOrderclose=303;//
 
 
 //Chance 1
@@ -43,7 +43,7 @@ double SecureOneDollarProfitPerOrder=1.0*2; //1X set modify order at profit $1(a
 //chance 2
 int partialClose01in05IndividualPercentage=20;//10;//2*2;//per lot 0.01//if 0.05 close 0.01 at total profit of 20% means close 0.01 lot
 //int partialLossMultipler=10; //10 values 0.05 means $50 close 0.01 partial lot
-int partialLossMultipler=5; //10 values 0.05 means $50 close 0.01 partial lot
+int partialLossMultipler=10;//5; //10 values 0.05 means $50 close 0.01 partial lot
 //50/5=10
 //48/4=12
 // 45/3=15
@@ -55,7 +55,7 @@ double FlipLadderStepUSD =8;//0;//10;// 5;//10.0;//0 means nothing not work clos
 double modifyBasketProfitOrdersLotXPercent=50;//10.0;//20 % means 0.05 X 20 modify orders in basket $1 profit//work if basket is full profit mode
 
 //chance 5
-double CloseOrdersAtProfitFromOpeningBalanceEveryStep =1;//0.4;//1;//3;//5;//10;//25;// 5;// 5X step close orders every step
+double CloseOrdersAtProfitFromOpeningBalanceEveryStep =2;//0.4;//1;//3;//5;//10;//25;// 5;// 5X step close orders every step
 
 
 //chage 55
@@ -259,11 +259,11 @@ double closeOppositeLossThreshold =0.01;
 bool DeleteOppositePendingOnSignal = true;
 bool EnableProfitReEntryStop = true;
 double MinimumClosedProfitUSD = -9;
-double ProfitReEntryGapRaw =30;//10;// 25;
-double MinimumSameOrderGapRawReEntry =30;//10;//20;// 50;
+double ProfitReEntryGapRaw =50;//30;//10;// 25;
+double MinimumSameOrderGapRawReEntry =50;//30;//10;//20;// 50;
 // double MinimumSameOrderGapRawSSLLongShort =50;// 50;
-double MinimumSameOrderGapRawMatched =30;//10;//20;//50;//20;// 50;
-double MinimumSameOrderGapRawUnmatched =10;//10;//20;// 100;
+double MinimumSameOrderGapRawMatched =50;//30;//10;//20;//50;//20;// 50;
+double MinimumSameOrderGapRawUnmatched =50;//10;//10;//20;// 100;
 
 bool EnableReEntryNOnMatchingSignal=true;
 
@@ -1194,7 +1194,7 @@ void ModifyPairProfitWithStopLoss()
 void SecureDistanceProfitLadder()
   {
 // The raw price gap increment (e.g., 50.0 represents a $50 price movement in BTC)
-   double distanceStep = 50.0;
+   double distanceStep = 104;//50.0*3;
 
    if(distanceStep <= 0)
       return;
@@ -1421,6 +1421,9 @@ void SecureOneDollarProfit()
 double gbltargetEquity=0;
 int gbltargetEquityCounter=0;
 
+//+------------------------------------------------------------------+
+//|                                                                  |
+//+------------------------------------------------------------------+
 void Manage5PercentLadderReset()
   {
    if(Ladder5PercentBaseline <= 0.0)
@@ -1439,6 +1442,10 @@ void Manage5PercentLadderReset()
 
    if(targetEquity<Ladder5PercentBaseline+(CloseOrdersAtProfitFromOpeningBalanceEveryStep*balancelomultipler))
       targetEquity=targetEquity+(CloseOrdersAtProfitFromOpeningBalanceEveryStep*balancelomultipler);
+      
+      
+      
+      targetEquity=Ladder5PercentBaseline+(CloseOrdersAtProfitFromOpeningBalanceEveryStep*balancelomultipler);
 
 
    /*
@@ -1498,7 +1505,7 @@ void Manage5PercentLadderReset()
 
       // Reset ladder baseline
       Ladder5PercentBaseline = AccountBalance();
-gbltargetEquityCounter++;
+      gbltargetEquityCounter++;
       InitializeDayProfitLadder();
      }
   }
@@ -1754,8 +1761,14 @@ void ProcessStartupSignal(DailyProtectionState &dailyState)
    int currentDirection = GlobalSSLDirection;
    bool buySignal  = (currentDirection > 0);
    bool sellSignal = (currentDirection < 0);
+
+
+
+
    if(buySignal)
      {
+
+
       DrawLiveSignal(0, true);
       if(EnableTrading && !IsDailyTradingStopped(dailyState) && GetTotalEAOrders() < MaxOpenOrders && PassesEMAFilter(OP_BUY))
          OpenBuy();
@@ -1763,6 +1776,8 @@ void ProcessStartupSignal(DailyProtectionState &dailyState)
      }
    if(sellSignal)
      {
+
+      
       DrawLiveSignal(0, false);
       if(EnableTrading && !IsDailyTradingStopped(dailyState) && GetTotalEAOrders() < MaxOpenOrders && PassesEMAFilter(OP_SELL))
          OpenSell();
@@ -2405,6 +2420,9 @@ bool OrderCreatedThisCandle = false;
 //+------------------------------------------------------------------+
 bool IsOneCandleOrderAllowed()
   {
+  
+  
+   return true;
    if(Time[0] != LastOrderCandleTime)
      {
       LastOrderCandleTime = Time[0];
@@ -3933,7 +3951,31 @@ void LogTradeOperationError(string operation,int ticket,string details,int err)
   {
    Print("TRADE OP FAILED: ", operation, " ticket: ", ticket, " err: ", err, " details: ", details);
   }
+//+------------------------------------------------------------------+
+//|                                                                  |
+//+------------------------------------------------------------------+
+double GetPriceDifference(int lookbackMinutes = 30)
+  {
+   RefreshRates();
 
+   double currentPrice = (Bid + Ask) / 2.0;
+
+   lookbackMinutes = (int)MathMax(1, lookbackMinutes);
+
+   datetime targetTime = TimeCurrent() - lookbackMinutes * 60;
+
+   int shift = iBarShift(Symbol(), PERIOD_M1, targetTime, false);
+
+   if(shift < 0)
+      return 0.0;
+
+   double oldPrice = iClose(Symbol(), PERIOD_M1, shift);
+
+   if(oldPrice <= 0.0)
+      return 0.0;
+
+   return currentPrice - oldPrice;
+  }
 //+------------------------------------------------------------------+
 //|                                                                  |
 //+------------------------------------------------------------------+
@@ -5174,7 +5216,7 @@ bool SafeOrderClose(int ticket, double lots, int orderType, int slippage, color 
 // ==========================================
    if(pl < 0.0)
      {
-      double lossGap = 50.0;
+      double lossGap =protectgapOnOrderclose;// 50.0*2;//100
       if(orderType == OP_BUY)
          newSL = openPrice - lossGap;
       else
@@ -6156,7 +6198,7 @@ void ModifyOpenOrdersToSecureProfitNEW()
       //==============================================================
       if(orderProfit < 0.0)
         {
-         double gapPrice = 50.0;
+         double gapPrice =105;// 50.0*5;//ordermodifywith50
          double currentSL = OrderStopLoss();
          double newSL = 0.0;
 
@@ -6309,7 +6351,7 @@ void ModifyOpenOrdersToSecureProfit()
 
 // Raw price trailing buffer for BTCUSD (e.g., $15-$25 gives room to ride spikes)
    double trailingBufferUSD = 20.0;
-   double lossRecoveryGapUSD = 50.0; // Room for losing orders to retrace
+   double lossRecoveryGapUSD =102;// 50.0*2;//100 // Room for losing orders to retrace
 
    for(int i = OrdersTotal() - 1; i >= 0; i--)
      {
@@ -6354,10 +6396,10 @@ void ModifyOpenOrdersToSecureProfit()
       else
          if(netPL < 0.0)
            {
-           
-           
-           
-           
+
+
+
+
             // Do NOT drag SL close to price! Keep the $50 safety gap so retracements can rescue the order
             double newSL = 0.0;
             if(type == OP_BUY)
@@ -6469,8 +6511,14 @@ double GetDynamicOrderGap(int orderType)
 //   {
 //    multiplier=3;
 //   }
+
+if(IsEmaWEAKDistanceReduced50PercentFromPeak())
+return MinimumSameOrderGapRawMatched*4;
+
    if(GlobalSSLDirection != EMADirection)
       return MinimumSameOrderGapRawMatched*3;
+      
+      
 
 
 
@@ -6500,6 +6548,10 @@ void ChangeLots(double OpenPL, string reason, int orderType, int stoplevelStep,s
    double oppositeLots = GetOppositeOrdersLots(orderType);
    bool isSSLSignal = (reason == "SSL Long" || reason == "SSL Short");
    bool isSSLProfitReEntry = (reason == "SSL Profit ReEntry Buy Stop" || reason == "SSL Profit ReEntry Sell Stop");
+
+
+
+
 
 // if(profitAfterFlip > 20)
 //   {
@@ -6677,7 +6729,7 @@ void ChangeLots(double OpenPL, string reason, int orderType, int stoplevelStep,s
 // Lots = 0.01 * (10 - cycleStep);
 
 // if(Lots==0.01)
-   Lots=MaxRecoveryLot;
+   Lots=0.01;//MaxRecoveryLot;
 
 // Lots=0.05;//
 // Print("Closed Orders Since EMA Flip: ", closedCount, " | Cycle Step: ", cycleStep, " | Calculated Lots: ", Lots);
@@ -6865,13 +6917,13 @@ void ChangeLots(double OpenPL, string reason, int orderType, int stoplevelStep,s
 
    if(IsLsdSweepGreenLinePresent() && GlobalSSLDirection==1 && (GetLsdSweepEqlDistance(requestedDirection)<100 ||EMADirection==-1))
      {
-      Lots = 0.05;
+      Lots = 0.02;
      }
 
 
    if(IsLsdSweepRedLinePresent() && GlobalSSLDirection==-1 && (GetLsdSweepEqlDistance(requestedDirection)<100 ||EMADirection==1))
      {
-      Lots = 0.05;
+      Lots = 0.02;
      }
 
 
@@ -6897,8 +6949,8 @@ void ChangeLots(double OpenPL, string reason, int orderType, int stoplevelStep,s
    }
    */
 
-   //if(EMAflipdistance()<200 || TimeCurrent() - EmaFlipTime < 60 * 60)
-     // Lots = 0.01;
+//if(EMAflipdistance()<200 || TimeCurrent() - EmaFlipTime < 60 * 60)
+// Lots = 0.01;
 
 
 
@@ -6910,7 +6962,7 @@ void ChangeLots(double OpenPL, string reason, int orderType, int stoplevelStep,s
    if(MOMorder=="MOM_BUY" && (EMADirection==1 && !IsEmaWEAKDistanceReduced50PercentFromPeak(orderType)))
      {
 
-      Lots = 0.04;
+      Lots = 0.02;
      }
 
 
@@ -6918,7 +6970,7 @@ void ChangeLots(double OpenPL, string reason, int orderType, int stoplevelStep,s
    if(MOMorder=="MOM_SELL" && (EMADirection==-1 && !IsEmaWEAKDistanceReduced50PercentFromPeak(orderType)))
      {
 
-      Lots = 0.04;
+      Lots = 0.02;
      }
 
 //oppsite direction
@@ -6926,7 +6978,7 @@ void ChangeLots(double OpenPL, string reason, int orderType, int stoplevelStep,s
    if(MOMorder=="MOM_BUY" && (EMADirection==-1 && IsEmaWEAKDistanceReduced50PercentFromPeak(orderType)))
      {
 
-      Lots = 0.04;
+      Lots = 0.02;
      }
 
 
@@ -6934,9 +6986,53 @@ void ChangeLots(double OpenPL, string reason, int orderType, int stoplevelStep,s
    if(MOMorder=="MOM_SELL" && (EMADirection==1 && IsEmaWEAKDistanceReduced50PercentFromPeak(orderType)))
      {
 
-      Lots = 0.04;
+      Lots = 0.02;
      }
-   if(IsHeavyLotOrderNearBy(orderType, Lots, 100) && Lots>=0.02)
+
+   if(IsEmaWEAKDistanceReduced50PercentFromPeak())
+     {
+
+
+
+      if(GlobalSSLDirection != EMADirection)
+         Lots = 0.04;
+
+      else
+         Lots = 0.01;
+
+     }
+
+
+   /*
+   if(MathAbs( GetPriceDifference(15)>200))
+   {
+
+   if(IsEmaWEAKDistanceReduced50PercentFromPeak)
+   {
+
+
+
+   if(GlobalSSLDirection != EMADirection)
+   Lots = 0.04;
+
+   else
+   Lots = 0.01;
+
+
+   }
+
+
+
+   }
+   */
+
+ 
+
+
+
+
+
+   if(IsHeavyLotOrderNearBy(orderType, Lots, 300) && Lots>=0.02)
       Lots = 0.01;
 //----------------------------------------------------------------------------------------
 // Safety catch
@@ -9971,12 +10067,12 @@ void ManageProfitLadder()
       double currentSLPoints = MathAbs(OrderOpenPrice() - OrderStopLoss());
       if(TimeCurrent() - OrderOpenTime() > 60*30)
         {
-         ladder1Profit = ladder1Profit / 2.0;
+        // ladder1Profit = ladder1Profit / 2.0;
         }
 
       if((MathAbs(existingPriceDistance) == 100 && orderLots==0.01) || (GlobalSSLDirection != EMADirection))
         {
-         ladder1Profit = 0.20*orderLots*100; // Or scale dynamically: (slDistance / 100.0) * 0.10
+         //ladder1Profit = 0.20*2*orderLots*100; // Or scale dynamically: (slDistance / 100.0) * 0.10
         }
 
       ladder1Profit=ladder1Profit*balancelomultipler;
@@ -10992,12 +11088,19 @@ void UpdateDashboard(DailyProtectionState &state)
      {
       sslSignalStr = StringFormat("BUY / LONG (+1) | %+.2f deg", GlobalEmaAngle30);
       sslSignalClr = clrDeepSkyBlue;
+      DeleteOppositePendingOrders(OP_BUY);
+
+      
      }
    else
       if(currentSSLDirection < 0)
         {
          sslSignalStr = StringFormat("SELL / SHORT (-1) | %+.2f deg", GlobalEmaAngle30);
          sslSignalClr = clrTomato;
+
+      DeleteOppositePendingOrders(OP_SELL);
+       
+
         }
    CreateDashboardLabel(DASH_PREFIX+"SSL", "SSL SIGNAL  : " + sslSignalStr, tx, y+212, 8, sslSignalClr);
 
