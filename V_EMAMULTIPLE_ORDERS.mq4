@@ -28,11 +28,11 @@
 
 
 //string glbVersion = "V5008  29-09-2026 23.00 Aug 1st to Aug 5th $100 to $1000 equity $500 - Attached Image  balance ST-20 Partialclose, Close orders $1X close-   FlipLadderStepUSD 7 DailyEquityStopUSD 50%  TargetProfitPerFlipUSD 10%";
-string glbVersion = "VMULTI-1008 - $200 to $400 Aug 2nd to 4th  - CLOSE ORDERS $5-NEW";
+string glbVersion = "VMULTI-1009 - 0.05 partial loss /2";
 
 
 double DailyEquityStopUSD  =100;//50;//20*2.5;//10;//20;// 10;//30.0; close all orders at $50Xmultipler
-double TargetProfitPerFlipUSD =20;//10;//10*2;//10;//5;//20;// 10.0; close all orders at $20Xmultipler
+double TargetProfitPerFlipUSD =100;//20;//10;//10*2;//10;//5;//20;// 10.0; close all orders at $20Xmultipler
 
 
 
@@ -42,7 +42,8 @@ double SecureOneDollarProfitPerOrder=1.0*2; //1X set modify order at profit $1(a
 
 //chance 2
 int partialClose01in05IndividualPercentage=20;//10;//2*2;//per lot 0.01//if 0.05 close 0.01 at total profit of 20% means close 0.01 lot
-int partialLossMultipler=10; //0.05 means $50 close 0.01 partial lot
+//int partialLossMultipler=10; //10 values 0.05 means $50 close 0.01 partial lot
+int partialLossMultipler=5; //10 values 0.05 means $50 close 0.01 partial lot
 //50/5=10
 //48/4=12
 // 45/3=15
@@ -996,7 +997,7 @@ string GetRootOrderComment(int ticket, string comment = "")
 
 
 //+------------------------------------------------------------------+
-//| ModifyPairProfitWithStopLoss                                     |
+//| ModifyPairProfitWithStopLoss      any2profitorders                               |
 //| Checks all combinations of 2 open orders (excluding recovery     |
 //| orders and FLIPBasketSupport orders). If any 2-order combination |
 //| has combined profit > $1.00 (PairCombinationProfitThresholdUSD), |
@@ -1137,11 +1138,11 @@ void ModifyPairProfitWithStopLoss()
             continue;
 
          // For BUY: never move SL backward; only move forward (higher)
-         if(curSL > 0.0 && proposedSL <= curSL)
+         if(curSL > -100.0 && proposedSL <= curSL)
             continue;
 
          // Avoid micro modifications below minimum modify gap
-         if(curSL > 0.0 && (proposedSL - curSL) < MinimumSLModifyGapRaw * Point)
+         if(curSL > -100.0 && (proposedSL - curSL) < MinimumSLModifyGapRaw * Point)
             continue;
 
          shouldModify = true;
@@ -1158,11 +1159,11 @@ void ModifyPairProfitWithStopLoss()
                continue;
 
             // For SELL: never move SL backward; only move forward (lower)
-            if(curSL > 0.0 && proposedSL >= curSL)
+            if(curSL > -100.0 && proposedSL >= curSL)
                continue;
 
             // Avoid micro modifications below minimum modify gap
-            if(curSL > 0.0 && (curSL - proposedSL) < MinimumSLModifyGapRaw * Point)
+            if(curSL > -100.0 && (curSL - proposedSL) < MinimumSLModifyGapRaw * Point)
                continue;
 
             shouldModify = true;
@@ -1418,6 +1419,8 @@ void SecureOneDollarProfit()
   }
 //2026.09.22 09:42:18.950   2026.08.02 09:29:21  SSLCHANEL-1 BTCUSDm,M1: 5% EQUITY LADDER TARGET ADJUSTED | Baseline=$124.88 | CurrentEquity=$103.89 | OldTarget=$131.12 | Difference=$27.23 | NewTarget=$108.89
 double gbltargetEquity=0;
+int gbltargetEquityCounter=0;
+
 void Manage5PercentLadderReset()
   {
    if(Ladder5PercentBaseline <= 0.0)
@@ -1495,7 +1498,7 @@ void Manage5PercentLadderReset()
 
       // Reset ladder baseline
       Ladder5PercentBaseline = AccountBalance();
-
+gbltargetEquityCounter++;
       InitializeDayProfitLadder();
      }
   }
@@ -6894,8 +6897,8 @@ void ChangeLots(double OpenPL, string reason, int orderType, int stoplevelStep,s
    }
    */
 
-   if(EMAflipdistance()<200 || TimeCurrent() - EmaFlipTime < 60 * 60)
-      Lots = 0.01;
+   //if(EMAflipdistance()<200 || TimeCurrent() - EmaFlipTime < 60 * 60)
+     // Lots = 0.01;
 
 
 
@@ -6933,7 +6936,7 @@ void ChangeLots(double OpenPL, string reason, int orderType, int stoplevelStep,s
 
       Lots = 0.04;
      }
-   if(IsHeavyLotOrderNearBy(orderType, Lots, 300) && Lots>=0.02)
+   if(IsHeavyLotOrderNearBy(orderType, Lots, 100) && Lots>=0.02)
       Lots = 0.01;
 //----------------------------------------------------------------------------------------
 // Safety catch
@@ -11075,7 +11078,7 @@ void UpdateDashboard(DailyProtectionState &state)
    color  ladStatusClr = TradingHaltedUntilNextFlip ? clrTomato : clrLime;
    CreateDashboardLabel(DASH_PREFIX+"LAD_STAT", "LADDER      : " + ladStatusStr + " (Step $" + DoubleToString(FlipLadderStepUSD*balancelomultipler, 0) + ")", tx, y+300, 8, ladStatusClr);
 
-   string cycleStr = StringFormat("CYCLE P/L   : $%.2f / Next: $%.2f" + " Target:"+DoubleToString(gbltargetEquity,2), totalCycleProfit, emaNextTarget);
+   string cycleStr = StringFormat("CYCLE P/L   : $%.2f / Next: $%.2f" + " Target ("+gbltargetEquityCounter+"):"+DoubleToString(gbltargetEquity,2), totalCycleProfit, emaNextTarget);
    CreateDashboardLabel(DASH_PREFIX+"LAD_CYCLE", cycleStr, tx, y+316, 8, (totalCycleProfit >= 0 ? clrLime : clrTomato));
 
    string lockStr = StringFormat("LOCKED PROF : $%.2f | Low Eq: $%.0f", emaLockedPrf, LowestEquity);
