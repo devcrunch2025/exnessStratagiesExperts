@@ -1237,8 +1237,8 @@ void CloseProfitableOrderCombinations()
    if(minProfitUSD <= 0.0)
       minProfitUSD = 1.0;
 
-   // 1. Collect all open market orders for current symbol & magic number
-   #define MAX_COMB_ORDERS 100
+// 1. Collect all open market orders for current symbol & magic number
+#define MAX_COMB_ORDERS 100
    int    candTickets[MAX_COMB_ORDERS];
    int    candTypes[MAX_COMB_ORDERS];
    double candLots[MAX_COMB_ORDERS];
@@ -1276,7 +1276,7 @@ void CloseProfitableOrderCombinations()
 
    bool anyOrdersClosed = false;
 
-   // 2. TOTAL BASKET CHECK (if all open orders combined sum >= minProfitUSD and count >= 2)
+// 2. TOTAL BASKET CHECK (if all open orders combined sum >= minProfitUSD and count >= 2)
    if(candCount >= 2)
      {
       double totalBasketPL = 0.0;
@@ -1298,13 +1298,15 @@ void CloseProfitableOrderCombinations()
         }
      }
 
-   // 3. PRIORITY PAIR CHECK (Win + Loss): Pair a winning order with a losing order if sum >= minProfitUSD
+// 3. PRIORITY PAIR CHECK (Win + Loss): Pair a winning order with a losing order if sum >= minProfitUSD
    for(int i = 0; i < candCount - 1; i++)
      {
-      if(isClosed[i]) continue;
+      if(isClosed[i])
+         continue;
       for(int j = i + 1; j < candCount; j++)
         {
-         if(isClosed[j]) continue;
+         if(isClosed[j])
+            continue;
 
          // Check if at least one order is in loss (offsets losing order)
          if(candProfits[i] < 0.0 || candProfits[j] < 0.0)
@@ -1317,25 +1319,30 @@ void CloseProfitableOrderCombinations()
                      candTickets[j], " (", (candTypes[j] == OP_BUY ? "BUY" : "SELL"), " $", DoubleToString(candProfits[j], 2),
                      ") = Total $", DoubleToString(pairSum, 2), " >= $", DoubleToString(minProfitUSD, 2), " | Closing Pair!");
 
-               if(CloseMarketOrderDirect(candTickets[i])) isClosed[i] = true;
-               if(CloseMarketOrderDirect(candTickets[j])) isClosed[j] = true;
+               if(CloseMarketOrderDirect(candTickets[i]))
+                  isClosed[i] = true;
+               if(CloseMarketOrderDirect(candTickets[j]))
+                  isClosed[j] = true;
                anyOrdersClosed = true;
               }
            }
         }
      }
 
-   // 4. PRIORITY TRIPLET CHECK (Win + Losses): Check combinations of 3 orders with at least one loss
+// 4. PRIORITY TRIPLET CHECK (Win + Losses): Check combinations of 3 orders with at least one loss
    int maxTripletSearch = MathMin(candCount, 30);
    for(int i = 0; i < maxTripletSearch - 2; i++)
      {
-      if(isClosed[i]) continue;
+      if(isClosed[i])
+         continue;
       for(int j = i + 1; j < maxTripletSearch - 1; j++)
         {
-         if(isClosed[j]) continue;
+         if(isClosed[j])
+            continue;
          for(int k = j + 1; k < maxTripletSearch; k++)
            {
-            if(isClosed[k]) continue;
+            if(isClosed[k])
+               continue;
 
             if(candProfits[i] < 0.0 || candProfits[j] < 0.0 || candProfits[k] < 0.0)
               {
@@ -1345,9 +1352,12 @@ void CloseProfitableOrderCombinations()
                   Print(">>> [COMBINATION CLOSE - TRIPLET (WITH LOSS)] Tickets [#", candTickets[i], ", #", candTickets[j], ", #", candTickets[k],
                         "] = Total $", DoubleToString(tripletSum, 2), " >= $", DoubleToString(minProfitUSD, 2), " | Closing Triplet!");
 
-                  if(CloseMarketOrderDirect(candTickets[i])) isClosed[i] = true;
-                  if(CloseMarketOrderDirect(candTickets[j])) isClosed[j] = true;
-                  if(CloseMarketOrderDirect(candTickets[k])) isClosed[k] = true;
+                  if(CloseMarketOrderDirect(candTickets[i]))
+                     isClosed[i] = true;
+                  if(CloseMarketOrderDirect(candTickets[j]))
+                     isClosed[j] = true;
+                  if(CloseMarketOrderDirect(candTickets[k]))
+                     isClosed[k] = true;
                   anyOrdersClosed = true;
                  }
               }
@@ -1355,13 +1365,15 @@ void CloseProfitableOrderCombinations()
         }
      }
 
-   // 5. ANY REMAINING PAIR CHECK (e.g. 2 Wins >= minProfitUSD)
+// 5. ANY REMAINING PAIR CHECK (e.g. 2 Wins >= minProfitUSD)
    for(int i = 0; i < candCount - 1; i++)
      {
-      if(isClosed[i]) continue;
+      if(isClosed[i])
+         continue;
       for(int j = i + 1; j < candCount; j++)
         {
-         if(isClosed[j]) continue;
+         if(isClosed[j])
+            continue;
 
          double pairSum = candProfits[i] + candProfits[j];
          if(pairSum >= minProfitUSD)
@@ -1371,23 +1383,28 @@ void CloseProfitableOrderCombinations()
                   candTickets[j], " (", (candTypes[j] == OP_BUY ? "BUY" : "SELL"), " $", DoubleToString(candProfits[j], 2),
                   ") = Total $", DoubleToString(pairSum, 2), " >= $", DoubleToString(minProfitUSD, 2), " | Closing Pair!");
 
-            if(CloseMarketOrderDirect(candTickets[i])) isClosed[i] = true;
-            if(CloseMarketOrderDirect(candTickets[j])) isClosed[j] = true;
+            if(CloseMarketOrderDirect(candTickets[i]))
+               isClosed[i] = true;
+            if(CloseMarketOrderDirect(candTickets[j]))
+               isClosed[j] = true;
             anyOrdersClosed = true;
            }
         }
      }
 
-   // 6. ANY REMAINING TRIPLET CHECK (e.g. 3 Wins >= minProfitUSD)
+// 6. ANY REMAINING TRIPLET CHECK (e.g. 3 Wins >= minProfitUSD)
    for(int i = 0; i < maxTripletSearch - 2; i++)
      {
-      if(isClosed[i]) continue;
+      if(isClosed[i])
+         continue;
       for(int j = i + 1; j < maxTripletSearch - 1; j++)
         {
-         if(isClosed[j]) continue;
+         if(isClosed[j])
+            continue;
          for(int k = j + 1; k < maxTripletSearch; k++)
            {
-            if(isClosed[k]) continue;
+            if(isClosed[k])
+               continue;
 
             double tripletSum = candProfits[i] + candProfits[j] + candProfits[k];
             if(tripletSum >= minProfitUSD)
@@ -1395,19 +1412,23 @@ void CloseProfitableOrderCombinations()
                Print(">>> [COMBINATION CLOSE - TRIPLET] Tickets [#", candTickets[i], ", #", candTickets[j], ", #", candTickets[k],
                      "] = Total $", DoubleToString(tripletSum, 2), " >= $", DoubleToString(minProfitUSD, 2), " | Closing Triplet!");
 
-               if(CloseMarketOrderDirect(candTickets[i])) isClosed[i] = true;
-               if(CloseMarketOrderDirect(candTickets[j])) isClosed[j] = true;
-               if(CloseMarketOrderDirect(candTickets[k])) isClosed[k] = true;
+               if(CloseMarketOrderDirect(candTickets[i]))
+                  isClosed[i] = true;
+               if(CloseMarketOrderDirect(candTickets[j]))
+                  isClosed[j] = true;
+               if(CloseMarketOrderDirect(candTickets[k]))
+                  isClosed[k] = true;
                anyOrdersClosed = true;
               }
            }
         }
      }
 
-   // 7. SINGLE ORDER CHECK (Any individual order with profit >= minProfitUSD)
+// 7. SINGLE ORDER CHECK (Any individual order with profit >= minProfitUSD)
    for(int i = 0; i < candCount; i++)
      {
-      if(isClosed[i]) continue;
+      if(isClosed[i])
+         continue;
 
       if(candProfits[i] >= minProfitUSD)
         {
@@ -1415,7 +1436,8 @@ void CloseProfitableOrderCombinations()
                " (", (candTypes[i] == OP_BUY ? "BUY" : "SELL"), " ", DoubleToString(candLots[i], 2),
                " lots) Profit = $", DoubleToString(candProfits[i], 2), " >= $", DoubleToString(minProfitUSD, 2), " | Closing Order!");
 
-         if(CloseMarketOrderDirect(candTickets[i])) isClosed[i] = true;
+         if(CloseMarketOrderDirect(candTickets[i]))
+            isClosed[i] = true;
          anyOrdersClosed = true;
         }
      }
@@ -1667,53 +1689,55 @@ void Manage5PercentLadderReset()
    double currentBalance = AccountBalance();
    double curEquity      = AccountEquity();
 
-   // 1. Initial setup of baseline if uninitialized
+// 1. Initial setup of baseline if uninitialized
    if(Ladder5PercentBaseline <= 0.0)
      {
       Ladder5PercentBaseline = currentBalance;
       gbltargetEquityCounter = 0;
      }
 
-   // 2. If no open market orders, keep baseline synchronized with current balance
+// 2. If no open market orders, keep baseline synchronized with current balance
    int marketOrders = GetTotalBuyOrders() + GetTotalSellOrders();
    if(marketOrders == 0)
      {
       Ladder5PercentBaseline = currentBalance;
       gbltargetEquityCounter = 0;
      }
-   // 3. Balance fall-down check: If an order hit negative loss SL and balance dropped below baseline
-   else if(Ladder5PercentBaseline - currentBalance >= 0.01)
-     {
-      Print(
-         "5% EQUITY LADDER RESET (BALANCE DROP) | OldBaseline=$", DoubleToString(Ladder5PercentBaseline, 2),
-         " | NewBalance=$", DoubleToString(currentBalance, 2),
-         " | DroppedBy=$", DoubleToString(Ladder5PercentBaseline - currentBalance, 2),
-         " | Resetting baseline and target."
-      );
-      Ladder5PercentBaseline = currentBalance;
-      gbltargetEquityCounter = 0;
-     }
-   // 4. Balance increase check: If orders closed in profit and balance increased above baseline
-   else if(currentBalance - Ladder5PercentBaseline >= 0.01)
-     {
-      Print(
-         "5% EQUITY LADDER BASELINE ADVANCED (PROFIT BANKED) | OldBaseline=$", DoubleToString(Ladder5PercentBaseline, 2),
-         " | NewBalance=$", DoubleToString(currentBalance, 2),
-         " | Gained=$", DoubleToString(currentBalance - Ladder5PercentBaseline, 2)
-      );
-      Ladder5PercentBaseline = currentBalance;
-      gbltargetEquityCounter = 0;
-     }
+// 3. Balance fall-down check: If an order hit negative loss SL and balance dropped below baseline
+   else
+      if(Ladder5PercentBaseline - currentBalance >= 0.01)
+        {
+         Print(
+            "5% EQUITY LADDER RESET (BALANCE DROP) | OldBaseline=$", DoubleToString(Ladder5PercentBaseline, 2),
+            " | NewBalance=$", DoubleToString(currentBalance, 2),
+            " | DroppedBy=$", DoubleToString(Ladder5PercentBaseline - currentBalance, 2),
+            " | Resetting baseline and target."
+         );
+         Ladder5PercentBaseline = currentBalance;
+         gbltargetEquityCounter = 0;
+        }
+      // 4. Balance increase check: If orders closed in profit and balance increased above baseline
+      else
+         if(currentBalance - Ladder5PercentBaseline >= 0.01)
+           {
+            Print(
+               "5% EQUITY LADDER BASELINE ADVANCED (PROFIT BANKED) | OldBaseline=$", DoubleToString(Ladder5PercentBaseline, 2),
+               " | NewBalance=$", DoubleToString(currentBalance, 2),
+               " | Gained=$", DoubleToString(currentBalance - Ladder5PercentBaseline, 2)
+            );
+            Ladder5PercentBaseline = currentBalance;
+            gbltargetEquityCounter = 0;
+           }
 
-   // 5. Calculate step amount based on multiplier
+// 5. Calculate step amount based on multiplier
    double stepVal = (CloseOrdersAtProfitFromOpeningBalanceEveryStep > 0.0) ? CloseOrdersAtProfitFromOpeningBalanceEveryStep : 2.0;
    double stepAmount = stepVal * (balancelomultipler > 0 ? balancelomultipler : 1);
 
-   // 6. Calculate target equity based on baseline + current ladder step
+// 6. Calculate target equity based on baseline + current ladder step
    double targetEquity = Ladder5PercentBaseline + (stepAmount * (gbltargetEquityCounter + 1));
    gbltargetEquity = targetEquity;
 
-   // 7. Check if target equity reached
+// 7. Check if target equity reached
    if(curEquity >= targetEquity)
      {
       Print(
@@ -2002,7 +2026,7 @@ void ProcessStartupSignal(DailyProtectionState &dailyState)
    if(sellSignal)
      {
 
-      
+
       DrawLiveSignal(0, false);
       if(EnableTrading && !IsDailyTradingStopped(dailyState) && GetTotalEAOrders() < MaxOpenOrders && PassesEMAFilter(OP_SELL))
          OpenSell();
@@ -2565,13 +2589,15 @@ void CloseOppositeOrdersOnEmaDistance()
 //+------------------------------------------------------------------+
 int OnInit()
   {
-double partialLossMultipler = 5;
-if(AccountBalance() > 1000)
-   partialLossMultipler = 20;
-else if(AccountBalance() > 500)
-   partialLossMultipler = 10;
-else if(AccountBalance() > 200)
-   partialLossMultipler = 5;
+   double partialLossMultipler = 5;
+   if(AccountBalance() >= 1000)
+      partialLossMultipler = 20;
+   else
+      if(AccountBalance() >= 500)
+         partialLossMultipler = 10;
+      else
+         if(AccountBalance() >= 200)
+            partialLossMultipler = 5;
 
 
 
@@ -2660,8 +2686,8 @@ bool OrderCreatedThisCandle = false;
 //+------------------------------------------------------------------+
 bool IsOneCandleOrderAllowed()
   {
-  
-  
+
+
    return true;
    if(Time[0] != LastOrderCandleTime)
      {
@@ -2843,7 +2869,7 @@ void OnTick()
    SecureOneDollarProfit();
    CheckEquitySurplusReset();
 
-   ///CloseProfitableOrderCombinations(); // Close any order combination (or single order) when sum > $1 * multiplier
+///CloseProfitableOrderCombinations(); // Close any order combination (or single order) when sum > $1 * multiplier
    ManageOverallBasketProfit();//modify basket orders at $1 profit
 
    ManageDayProfitLadder();
@@ -3343,11 +3369,12 @@ void OnTickCore()
         }
       LastTrackedSSLDirection = currentSSLDirection;
      }
-   else if(!LiveSSLInitialized && currentSSLDirection != 0)
-     {
-      LiveSSLInitialized = true;
-      LastTrackedSSLDirection = currentSSLDirection;
-     }
+   else
+      if(!LiveSSLInitialized && currentSSLDirection != 0)
+        {
+         LiveSSLInitialized = true;
+         LastTrackedSSLDirection = currentSSLDirection;
+        }
 
    GlobalSSLDirection = currentSSLDirection;
    Global30MinDiffBuy = Get30MinDifference(OP_BUY);
@@ -5160,24 +5187,25 @@ int SafeOrderSend(string symbol,int orderType,double lots,double price,int slipp
       ignoreFlipTime = true;
 
 
-if(EMADirection != requestedDirection)
-{
-    if(requestedDirection == -1 && GetOpenPL(OP_SELL) <= -20)
-    {
-        // Allow despite EMA direction mismatch
-    }
-    else if(requestedDirection == 1 && GetOpenPL(OP_BUY) <= -20)
-    {
-        // Allow despite EMA direction mismatch
-    }
-    else
-    {
-        return -1;
-    }
-}
+   if(EMADirection != requestedDirection)
+     {
+      if(requestedDirection == -1 && GetOpenPL(OP_SELL) <= -20)
+        {
+         // Allow despite EMA direction mismatch
+        }
+      else
+         if(requestedDirection == 1 && GetOpenPL(OP_BUY) <= -20)
+           {
+            // Allow despite EMA direction mismatch
+           }
+         else
+           {
+            return -1;
+           }
+     }
 
-if(!IsEmaWEAKDistanceReduced50PercentFromPeak() && EMADirection!= requestedDirection)
-    return -1;
+   if(!IsEmaWEAKDistanceReduced50PercentFromPeak() && EMADirection!= requestedDirection)
+      return -1;
 
 
 // if(EMAflipdistance()>200 && !IsEmaWEAKDistanceReduced50PercentFromPeak() && EMADirection!= requestedDirection)
@@ -6837,13 +6865,13 @@ double GetDynamicOrderGap(int orderType)
 //    multiplier=3;
 //   }
 
-if(IsEmaWEAKDistanceReduced50PercentFromPeak())
-return MinimumSameOrderGapRawMatched*4;
+   if(IsEmaWEAKDistanceReduced50PercentFromPeak())
+      return MinimumSameOrderGapRawMatched*4;
 
    if(GlobalSSLDirection != EMADirection)
       return MinimumSameOrderGapRawMatched*3;
-      
-      
+
+
 
 
 
@@ -7351,9 +7379,23 @@ void ChangeLots(double OpenPL, string reason, int orderType, int stoplevelStep,s
    }
    */
 
- 
-if(CountOrdersByType(orderType)<=2 && Lots==0.01)
-Lots = 0.02;
+
+   if(!IsEmaWEAKDistanceReduced50PercentFromPeak(orderType) && Lots==0.01 && EMADirection==1 &&  GetOpenPL(OP_BUY)<=-20)
+      Lots = 0.02;
+
+   if(!IsEmaWEAKDistanceReduced50PercentFromPeak(orderType) && Lots==0.01 && EMADirection==-1 &&  GetOpenPL(OP_SELL)<=-20)
+      Lots = 0.02;
+
+
+   if(CountOrdersByType(orderType)<=2 && Lots==0.01)
+      Lots = 0.02;
+      
+      
+        //if(IsEmaWEAKDistanceReduced50PercentFromPeak(orderType) &&   EMADirection==requestedDirection)
+      //Lots = 0.01;
+
+   //if(IsEmaWEAKDistanceReduced50PercentFromPeak(orderType)   && EMADirection==requestedDirection)
+     // Lots = 0.01;
 
 
 
@@ -10393,7 +10435,7 @@ void ManageProfitLadder()
       double currentSLPoints = MathAbs(OrderOpenPrice() - OrderStopLoss());
       if(TimeCurrent() - OrderOpenTime() > 60*30)
         {
-        // ladder1Profit = ladder1Profit / 2.0;
+         // ladder1Profit = ladder1Profit / 2.0;
         }
 
       if((MathAbs(existingPriceDistance) == 100 && orderLots==0.01) || (GlobalSSLDirection != EMADirection))
@@ -11416,7 +11458,7 @@ void UpdateDashboard(DailyProtectionState &state)
       sslSignalClr = clrDeepSkyBlue;
       // DeleteOppositePendingOrders(OP_BUY);
 
-      
+
      }
    else
       if(currentSSLDirection < 0)
@@ -11424,8 +11466,8 @@ void UpdateDashboard(DailyProtectionState &state)
          sslSignalStr = StringFormat("SELL / SHORT (-1) | %+.2f deg", GlobalEmaAngle30);
          sslSignalClr = clrTomato;
 
-      // DeleteOppositePendingOrders(OP_SELL);
-       
+         // DeleteOppositePendingOrders(OP_SELL);
+
 
         }
    CreateDashboardLabel(DASH_PREFIX+"SSL", "SSL SIGNAL  : " + sslSignalStr, tx, y+212, 8, sslSignalClr);
