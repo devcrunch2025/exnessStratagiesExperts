@@ -28,13 +28,13 @@
 
 
 //string glbVersion = "V5008  29-09-2026 23.00 Aug 1st to Aug 5th $100 to $1000 equity $500 - Attached Image  balance ST-20 Partialclose, Close orders $1X close-   FlipLadderStepUSD 7 DailyEquityStopUSD 50%  TargetProfitPerFlipUSD 10%";
-string glbVersion = "VMULTI-1012-NO OPPOSITE ORDERS ";
+string glbVersion = "VMULTI-1013-NO OPPOSITE ORDERS ";
 
 
 double DailyEquityStopUSD  =1000;//50;//20*2.5;//10;//20;// 10;//30.0; close all orders at $50Xmultipler
 double TargetProfitPerFlipUSD =1000;//20;//10;//10*2;//10;//5;//20;// 10.0; close all orders at $20Xmultipler
 
-double protectgapOnOrderclose=303;//11111111111111
+double protectgapOnOrderclose=101;//1000;//303;//11111111111111
 
 
 //Chance 1
@@ -43,7 +43,7 @@ double SecureOneDollarProfitPerOrder=1.0*2; //1X set modify order at profit $1(a
 //chance 2
 int partialClose01in05IndividualPercentage=20;//10;//2*2;//per lot 0.01//if 0.05 close 0.01 at total profit of 20% means close 0.01 lot
 //int partialLossMultipler=10; //10 values 0.05 means $50 close 0.01 partial lot
-int partialLossMultipler=10;//5; //10 values 0.05 means $50 close 0.01 partial lot
+int partialLossMultipler=5;//5; //10 values 0.05 means $50 close 0.01 partial lot
 //50/5=10
 //48/4=12
 // 45/3=15
@@ -1658,90 +1658,79 @@ double gbltargetEquity=0;
 int gbltargetEquityCounter=0;
 
 //+------------------------------------------------------------------+
-//|                                                                  |
+//| Manage 5% / Step Ladder Target and Baseline                      |
+//| Automatically resets target when account balance drops (e.g. SL) |
+//| and trails target forward as profits are secured.                |
 //+------------------------------------------------------------------+
 void Manage5PercentLadderReset()
   {
+   double currentBalance = AccountBalance();
+   double curEquity      = AccountEquity();
+
+   // 1. Initial setup of baseline if uninitialized
    if(Ladder5PercentBaseline <= 0.0)
      {
-      Ladder5PercentBaseline = AccountBalance();
-      return;
+      Ladder5PercentBaseline = currentBalance;
+      gbltargetEquityCounter = 0;
      }
 
-   double currentEquity = AccountEquity();
-
-
-
-   double targetEquity =
-      Ladder5PercentBaseline *
-      (1.0 + (CloseOrdersAtProfitFromOpeningBalanceEveryStep*balancelomultipler / 100.0));
-
-   if(targetEquity<Ladder5PercentBaseline+(CloseOrdersAtProfitFromOpeningBalanceEveryStep*balancelomultipler))
-      targetEquity=targetEquity+(CloseOrdersAtProfitFromOpeningBalanceEveryStep*balancelomultipler);
-      
-      
-      
-      targetEquity=Ladder5PercentBaseline+(CloseOrdersAtProfitFromOpeningBalanceEveryStep*balancelomultipler);
-
-
-   /*
-   double targetEquity =
-         Ladder5PercentBaseline *
-         (1.0 + (CloseOrdersAtProfitFromOpeningBalanceEveryStep *
-                 balancelomultipler / 100.0));
-
-   double minimumProfit = 5.0 * balancelomultipler;
-
-   if (targetEquity < Ladder5PercentBaseline + minimumProfit)
-   {
-       targetEquity = Ladder5PercentBaseline + minimumProfit;
-   }*/
-// ---------------------------------------------------------
-// Dynamic target adjustment
-// If current equity falls more than $20 below the target,
-// move the target to current equity + $5.
-// ---------------------------------------------------------
-   double targetDifference = targetEquity - currentEquity;
-
-   gbltargetEquity=targetEquity;
-
-// Print("targetDifference"+targetDifference+" "+CloseOrdersAtProfitFromOpeningBalanceEveryStep*4*balancelomultipler +" gbltargetEquity="+gbltargetEquity);
-
-// if(targetDifference > CloseOrdersAtProfitFromOpeningBalanceEveryStep*4*balancelomultipler )
-// {
-//    // targetEquity = currentEquity + 5.0;
-
-//     Ladder5PercentBaseline=currentEquity;//
-
-//    Print(
-//       "5% EQUITY LADDER TARGET ADJUSTED",
-//       " | Baseline=$", DoubleToString(Ladder5PercentBaseline, 2),
-//       " | CurrentEquity=$", DoubleToString(currentEquity, 2),
-//       " | OldTarget=$", DoubleToString(
-//             Ladder5PercentBaseline *
-//             (1.0 + (CloseOrdersAtProfitFromOpeningBalanceEveryStep / 100.0)), 2),
-//       " | Difference=$", DoubleToString(targetDifference, 2),
-//       " | NewTarget=$", DoubleToString(targetEquity, 2)
-//    );
-// }
-
-// ---------------------------------------------------------
-// Target reached
-// ---------------------------------------------------------
-   if(currentEquity >= targetEquity)
+   // 2. If no open market orders, keep baseline synchronized with current balance
+   int marketOrders = GetTotalBuyOrders() + GetTotalSellOrders();
+   if(marketOrders == 0)
+     {
+      Ladder5PercentBaseline = currentBalance;
+      gbltargetEquityCounter = 0;
+     }
+   // 3. Balance fall-down check: If an order hit negative loss SL and balance dropped below baseline
+   else if(Ladder5PercentBaseline - currentBalance >= 0.01)
      {
       Print(
-         "5% EQUITY LADDER TARGET REACHED",
-         " | Equity=$", DoubleToString(currentEquity, 2),
+         "5% EQUITY LADDER RESET (BALANCE DROP) | OldBaseline=$", DoubleToString(Ladder5PercentBaseline, 2),
+         " | NewBalance=$", DoubleToString(currentBalance, 2),
+         " | DroppedBy=$", DoubleToString(Ladder5PercentBaseline - currentBalance, 2),
+         " | Resetting baseline and target."
+      );
+      Ladder5PercentBaseline = currentBalance;
+      gbltargetEquityCounter = 0;
+     }
+   // 4. Balance increase check: If orders closed in profit and balance increased above baseline
+   else if(currentBalance - Ladder5PercentBaseline >= 0.01)
+     {
+      Print(
+         "5% EQUITY LADDER BASELINE ADVANCED (PROFIT BANKED) | OldBaseline=$", DoubleToString(Ladder5PercentBaseline, 2),
+         " | NewBalance=$", DoubleToString(currentBalance, 2),
+         " | Gained=$", DoubleToString(currentBalance - Ladder5PercentBaseline, 2)
+      );
+      Ladder5PercentBaseline = currentBalance;
+      gbltargetEquityCounter = 0;
+     }
+
+   // 5. Calculate step amount based on multiplier
+   double stepVal = (CloseOrdersAtProfitFromOpeningBalanceEveryStep > 0.0) ? CloseOrdersAtProfitFromOpeningBalanceEveryStep : 2.0;
+   double stepAmount = stepVal * (balancelomultipler > 0 ? balancelomultipler : 1);
+
+   // 6. Calculate target equity based on baseline + current ladder step
+   double targetEquity = Ladder5PercentBaseline + (stepAmount * (gbltargetEquityCounter + 1));
+   gbltargetEquity = targetEquity;
+
+   // 7. Check if target equity reached
+   if(curEquity >= targetEquity)
+     {
+      Print(
+         "5% EQUITY LADDER TARGET REACHED (Step ", (gbltargetEquityCounter + 1), ")",
+         " | Equity=$", DoubleToString(curEquity, 2),
          " | Target=$", DoubleToString(targetEquity, 2),
-         " | Closing/Protecting orders."
+         " | Baseline=$", DoubleToString(Ladder5PercentBaseline, 2),
+         " | Securing open orders profit."
       );
 
+      // Modify open orders to secure profit
       ModifyOpenOrdersToSecureProfit();
 
-      // Reset ladder baseline
-      Ladder5PercentBaseline = AccountBalance();
+      // Advance to next ladder step
       gbltargetEquityCounter++;
+      gbltargetEquity = Ladder5PercentBaseline + (stepAmount * (gbltargetEquityCounter + 1));
+
       InitializeDayProfitLadder();
      }
   }
@@ -2576,6 +2565,17 @@ void CloseOppositeOrdersOnEmaDistance()
 //+------------------------------------------------------------------+
 int OnInit()
   {
+double partialLossMultipler = 5;
+if(AccountBalance() > 1000)
+   partialLossMultipler = 20;
+else if(AccountBalance() > 500)
+   partialLossMultipler = 10;
+else if(AccountBalance() > 200)
+   partialLossMultipler = 5;
+
+
+
+
    int lotMultiplierDiv = (AccountMultiplierLOT > 0) ? AccountMultiplierLOT : 500;
    balancelomultipler = (int)(AccountEquity() / lotMultiplierDiv);
 
@@ -5158,8 +5158,23 @@ int SafeOrderSend(string symbol,int orderType,double lots,double price,int slipp
 
    if(MathAbs(Get30MinutePriceDifference())<100)
       ignoreFlipTime = true;
-if( EMADirection!= requestedDirection)
-    return -1;
+
+
+if(EMADirection != requestedDirection)
+{
+    if(requestedDirection == -1 && GetOpenPL(OP_SELL) <= -20)
+    {
+        // Allow despite EMA direction mismatch
+    }
+    else if(requestedDirection == 1 && GetOpenPL(OP_BUY) <= -20)
+    {
+        // Allow despite EMA direction mismatch
+    }
+    else
+    {
+        return -1;
+    }
+}
 
 if(!IsEmaWEAKDistanceReduced50PercentFromPeak() && EMADirection!= requestedDirection)
     return -1;
