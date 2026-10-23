@@ -28,11 +28,11 @@
 
 
 //string glbVersion = "V5008  29-09-2026 23.00 Aug 1st to Aug 5th $100 to $1000 equity $500 - Attached Image  balance ST-20 Partialclose, Close orders $1X close-   FlipLadderStepUSD 7 DailyEquityStopUSD 50%  TargetProfitPerFlipUSD 10%";
-string glbVersion = "VMULTI-1011";
+string glbVersion = "VMULTI-1012-NO OPPOSITE ORDERS ";
 
 
-double DailyEquityStopUSD  =100;//50;//20*2.5;//10;//20;// 10;//30.0; close all orders at $50Xmultipler
-double TargetProfitPerFlipUSD =100;//20;//10;//10*2;//10;//5;//20;// 10.0; close all orders at $20Xmultipler
+double DailyEquityStopUSD  =1000;//50;//20*2.5;//10;//20;// 10;//30.0; close all orders at $50Xmultipler
+double TargetProfitPerFlipUSD =1000;//20;//10;//10*2;//10;//5;//20;// 10.0; close all orders at $20Xmultipler
 
 double protectgapOnOrderclose=303;//11111111111111
 
@@ -2843,7 +2843,7 @@ void OnTick()
    SecureOneDollarProfit();
    CheckEquitySurplusReset();
 
-   CloseProfitableOrderCombinations(); // Close any order combination (or single order) when sum > $1 * multiplier
+   ///CloseProfitableOrderCombinations(); // Close any order combination (or single order) when sum > $1 * multiplier
    ManageOverallBasketProfit();//modify basket orders at $1 profit
 
    ManageDayProfitLadder();
@@ -7337,7 +7337,8 @@ void ChangeLots(double OpenPL, string reason, int orderType, int stoplevelStep,s
    */
 
  
-
+if(CountOrdersByType(orderType)<=2 && Lots==0.01)
+Lots = 0.02;
 
 
 
