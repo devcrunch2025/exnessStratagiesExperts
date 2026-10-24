@@ -28,7 +28,7 @@
 
 
 //string glbVersion = "V5008  29-09-2026 23.00 Aug 1st to Aug 5th $100 to $1000 equity $500 - Attached Image  balance ST-20 Partialclose, Close orders $1X close-   FlipLadderStepUSD 7 DailyEquityStopUSD 50%  TargetProfitPerFlipUSD 10%";
-string glbVersion = "VMULTI-1013-NO OPPOSITE ORDERS ";
+string glbVersion = "VMULTI-1014- BALANCE Multipler Optimised ";
 
 
 double DailyEquityStopUSD  =1000;//50;//20*2.5;//10;//20;// 10;//30.0; close all orders at $50Xmultipler
@@ -1041,7 +1041,7 @@ void ModifyPairProfitWithStopLoss()
      }
 
    if(PairCombinationUseBalanceMultiplier && balancelomultipler > 1)
-      targetThreshold = PairCombinationProfitThresholdUSD * balancelomultipler;
+      targetThreshold = targetThreshold * balancelomultipler;
 
    for(int i = OrdersTotal() - 1; i >= 0 && candCount < MAX_PAIR_SCAN_ORDERS; i--)
      {
@@ -2589,7 +2589,7 @@ void CloseOppositeOrdersOnEmaDistance()
 //+------------------------------------------------------------------+
 int OnInit()
   {
-   double partialLossMultipler = 5;
+   partialLossMultipler = 5;
    if(AccountBalance() >= 1000)
       partialLossMultipler = 20;
    else
@@ -2603,12 +2603,12 @@ int OnInit()
 
 
    int lotMultiplierDiv = (AccountMultiplierLOT > 0) ? AccountMultiplierLOT : 500;
-   balancelomultipler = (int)(AccountEquity() / lotMultiplierDiv);
+   balancelomultipler = (int)(AccountBalance() / lotMultiplierDiv);
 
    if(balancelomultipler<=0)
       balancelomultipler=1;
 
-   FlipLadderStepUSD=FlipLadderStepUSD*1* balancelomultipler ;//
+   // FlipLadderStepUSD remains base step; scaled dynamically in ladder routines
    SecurebaselinePercentage = (100.0 - (StopLossUSD * 5.0)) / 100.0;//
 
    EquityResetReEntryPending=false;
@@ -2861,7 +2861,7 @@ void OnTick()
 
    int lotMultiplierDiv = (AccountMultiplierLOT > 0) ? AccountMultiplierLOT : 500;
 
-   balancelomultipler = (int)(AccountEquity() / lotMultiplierDiv);
+   balancelomultipler = (int)(AccountBalance() / lotMultiplierDiv);
    if(balancelomultipler<=0)
       balancelomultipler=1;
 
@@ -6380,7 +6380,8 @@ bool IsHeavyLotOrderNearBy(int orderType, double checkLot, double gapRawThreshol
       if(isSellDirection && !existingIsSell)
          continue;
 
-      if(OrderLots() < (checkLot * 0.8))
+      double scaledCheckLot = checkLot * (balancelomultipler > 0 ? balancelomultipler : 1);
+      if(OrderLots() < (scaledCheckLot * 0.8))
          continue;
 
       double distance = MathAbs(currentPrice - OrderOpenPrice());
@@ -7443,7 +7444,7 @@ void ChangeLots(double OpenPL, string reason, int orderType, int stoplevelStep,s
       Lots = effectiveMaxLot;
 
    int lotMultiplierDiv = (AccountMultiplierLOT > 0) ? AccountMultiplierLOT : 500;
-   balancelomultipler = (int)(AccountEquity() / lotMultiplierDiv);
+   balancelomultipler = (int)(AccountBalance() / lotMultiplierDiv);
    if(balancelomultipler < 1)
       balancelomultipler = 1;
    Lots = Lots * balancelomultipler;
@@ -8999,7 +9000,7 @@ void CreateProfitReEntryStop(int closedOrderType, double closedPrice, DailyProte
    entryPrice = NormalizeDouble(entryPrice, Digits);
    ResetLastError();
    if(afterStopLoss)
-      Lots = NormalizeLots(0.01);
+      Lots = NormalizeLots(0.01 * (balancelomultipler > 0 ? balancelomultipler : 1));
    else
      {
       if(pendingType == OP_BUYSTOP)
@@ -9638,14 +9639,14 @@ bool GetTrackedTicketState(int ticket, datetime &outTime, double &outPrice)
 //       int currentTicket = OrderTicket();
 
 //       // Check if order size meets your threshold (0.02 lots or higher)
-//       if(orderLots >= 0.02)
+//       if(orderLots >= 0.02 * balancelomultipler)
 //         {
 //          // Calculate total net profit for this specific ticket (including swap/commission)
 //          double currentProfit = OrderProfit() + OrderSwap() + OrderCommission();
 //          double lotsToClose   = 0.01;
 
 //          // Ensure leaving a valid minimum lot size behind (at least 0.01 remaining)
-//          if(orderLots - lotsToClose >= 0.01)
+//          if(orderLots - lotsToClose >= 0.01 * balancelomultipler)
 //            {
 //             bool   triggerClose = false;
 //             string actionType   = "";
@@ -9915,17 +9916,17 @@ void ManagePartialClosesLoss()
          lossTrigger = -(5.00*balancelomultipler*partialLossMultipler);// 50/5=10
         }
       else
-         if(MathAbs(orderLots - 0.04) < 0.000001)
+         if(MathAbs(orderLots - (0.04*balancelomultipler)) < 0.000001)
            {
             lossTrigger = -(4.80*balancelomultipler*(partialLossMultipler));// 48/4=12
            }
          else
-            if(MathAbs(orderLots - 0.03) < 0.000001)
+            if(MathAbs(orderLots - (0.03*balancelomultipler)) < 0.000001)
               {
                lossTrigger = -(4.50*balancelomultipler*partialLossMultipler);// 45/3=15
               }
             else
-               if(MathAbs(orderLots - 0.02) < 0.000001)
+               if(MathAbs(orderLots - (0.02*balancelomultipler)) < 0.000001)
                  {
                   lossTrigger = -(4.00*balancelomultipler*partialLossMultipler);// 40/2=20
                  }
@@ -10096,14 +10097,14 @@ void ManagePartialClosesLossOld()
       int currentTicket = OrderTicket();
 
       // Check if order size meets your threshold (0.02 lots or higher to allow partial close)
-      if(orderLots >= 0.02)
+      if(orderLots >= 0.02 * balancelomultipler)
         {
          // Calculate total net profit for this specific ticket (including swap/commission)
          double currentProfit = OrderProfit() + OrderSwap() + OrderCommission();
          double lotsToClose   = 0.01*balancelomultipler;
 
          // Ensure leaving a valid minimum lot size behind (at least 0.01 remaining)
-         if(orderLots - lotsToClose >= 0.01)
+         if(orderLots - lotsToClose >= 0.01 * balancelomultipler)
            {
             bool   triggerClose = false;
             int    orderTypeInt = (orderType == OP_SELL) ? -1 : 1;
@@ -10192,7 +10193,7 @@ void ManagePartialCloses()
       double orderLots = OrderLots();
 
       // Check if order size meets your threshold (0.02 lots or higher)
-      if(orderLots >= 0.02)
+      if(orderLots >= 0.02 * balancelomultipler)
         {
          // Calculate total net profit for this specific ticket (including swap/commission)
          double currentProfit = OrderProfit() + OrderSwap() + OrderCommission();
@@ -10201,7 +10202,7 @@ void ManagePartialCloses()
          // g_lastClosedPrice=OrderOpenPrice();
 
          // Ensure leaving a valid minimum lot size behind (at least 0.01 remaining)
-         if(orderLots - lotsToClose >= 0.01)
+         if(orderLots - lotsToClose >= 0.01 * balancelomultipler)
            {
             bool   triggerClose = false;
             string actionType   = "";
@@ -10443,14 +10444,14 @@ void ManageProfitLadder()
          //ladder1Profit = 0.20*2*orderLots*100; // Or scale dynamically: (slDistance / 100.0) * 0.10
         }
 
-      ladder1Profit=ladder1Profit*balancelomultipler;
+      // ladder1Profit=ladder1Profit*balancelomultipler; // orderLots already scaled by balancelomultipler
 
       // -----------------------------------------------------------------------------
 
       double ladder2Profit = OriginalLadder2ProfitUSD * orderLots * 100.0;
       double ladder1StopMaxPrice = OriginalLadder1StopMaxPriceUSD * orderLots * 100.0;
 
-      ladder2Profit=ladder2Profit*balancelomultipler;
+      // ladder2Profit=ladder2Profit*balancelomultipler; // orderLots already scaled by balancelomultipler
 
       double lockedProfit = 0.0;
 
@@ -11363,7 +11364,7 @@ void UpdateDashboard(DailyProtectionState &state)
      }
 
    if(FlipLadderStepUSD <= 0)
-      FlipLadderStepUSD = 5 * balancelomultipler;
+      FlipLadderStepUSD = 5;
    int currEmaLvl = (int)MathFloor(HighestCycleProfitUSD / (FlipLadderStepUSD * balancelomultipler));
    double emaLockedPrf = (currEmaLvl >= 1) ? (currEmaLvl - FlipStepbackLevelCount) * (FlipLadderStepUSD * balancelomultipler) : 0.0;
    double emaNextTarget = (currEmaLvl + 1) * FlipLadderStepUSD * balancelomultipler;
