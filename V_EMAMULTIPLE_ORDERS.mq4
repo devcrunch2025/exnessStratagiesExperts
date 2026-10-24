@@ -1,4 +1,4 @@
-﻿//+------------------------------------------------------------------+
+//+------------------------------------------------------------------+
 //|                  SSL CHANNEL CROSS EA - CONTINUOUS EQUITY LADDER |
 //|                  TWO-STAGE PROFIT LADDER | CONTINUOUS RESET      |
 //+------------------------------------------------------------------+
@@ -28,7 +28,7 @@
 
 
 //string glbVersion = "V5008  29-09-2026 23.00 Aug 1st to Aug 5th $100 to $1000 equity $500 - Attached Image  balance ST-20 Partialclose, Close orders $1X close-   FlipLadderStepUSD 7 DailyEquityStopUSD 50%  TargetProfitPerFlipUSD 10%";
-string glbVersion = "VMULTI-1016- FlipBasketSupportOrder with Close Orders if SERVER error ";
+string glbVersion = "VMULTI-1018-Aug 29 to Sep 2nd $200 to $400 ";
 
 
 double DailyEquityStopUSD  =1000;//50;//20*2.5;//10;//20;// 10;//30.0; close all orders at $50Xmultipler
@@ -292,6 +292,7 @@ bool EnableProfitReEntryStop = true;
 double MinimumClosedProfitUSD = -9;
 double ProfitReEntryGapRaw =50;//30;//10;// 25;
 double MinimumSameOrderGapRawReEntry =50;//30;//10;//20;// 50;
+extern double SSLLongShortPendingGapRaw = 20.0; // Raw price gap ($20) for SSL Long / Short pending stop orders
 // double MinimumSameOrderGapRawSSLLongShort =50;// 50;
 double MinimumSameOrderGapRawMatched =100;//50;//30;//10;//20;//50;//20;// 50;//SSL long //SSL short
 double MinimumSameOrderGapRawUnmatched =50;//10;//10;//20;// 100;
@@ -2209,6 +2210,9 @@ void ModifyPairProfitWithStopLoss()
       int oType = OrderType();
       if(oType != OP_BUY && oType != OP_SELL)
          continue;
+      // EXCLUDE RECOVERY ORDERS: Recovery orders manage their own independent basket
+      if(IsAnyRecoveryOrder(OrderTicket(), OrderComment()))
+         continue;
 
       string cmt = OrderComment();
       int tkt    = OrderTicket();
@@ -2425,6 +2429,9 @@ void CloseProfitableOrderCombinations()
 
       int oType = OrderType();
       if(oType != OP_BUY && oType != OP_SELL)
+         continue;
+      // EXCLUDE RECOVERY ORDERS: Recovery orders manage their own independent basket
+      if(IsAnyRecoveryOrder(OrderTicket(), OrderComment()))
          continue;
 
       candTickets[candCount] = OrderTicket();
@@ -5007,12 +5014,17 @@ void ManageEmaAngleOppositeClose()
 bool HasMinimumSameOrderGap(int orderType, double minimumGapRaw)
   {
    RefreshRates();
-   double currentPrice = (orderType == OP_BUY) ? Ask : Bid;
+   bool isBuy = (orderType == OP_BUY || orderType == OP_BUYSTOP || orderType == OP_BUYLIMIT);
+   double currentPrice = isBuy ? Ask : Bid;
    for(int i = OrdersTotal() - 1; i >= 0; i--)
      {
       if(!OrderSelect(i, SELECT_BY_POS, MODE_TRADES))
          continue;
-      if(OrderSymbol() != Symbol() || OrderMagicNumber() != MagicNumber || OrderType() != orderType)
+      if(OrderSymbol() != Symbol() || OrderMagicNumber() != MagicNumber)
+         continue;
+      int t = OrderType();
+      bool matchDir = isBuy ? (t == OP_BUY || t == OP_BUYSTOP || t == OP_BUYLIMIT) : (t == OP_SELL || t == OP_SELLSTOP || t == OP_SELLLIMIT);
+      if(!matchDir)
          continue;
       if(MathAbs(currentPrice - OrderOpenPrice()) < minimumGapRaw)
          return false;
@@ -8017,6 +8029,9 @@ void CloseAllOpenBuyOrders(string reason = "")
          continue;
         }
 
+      // Protect recovery orders: never close recovery orders via regular basket close
+      if(IsAnyRecoveryOrder(tkt))
+         continue;
       SafeOrderClose(tkt, lts, OP_BUY, Slippage, clrRed);
      }
 
@@ -8085,6 +8100,9 @@ void CloseAllOpenSellOrders(string reason = "")
          continue;
         }
 
+      // Protect recovery orders: never close recovery orders via regular basket close
+      if(IsAnyRecoveryOrder(tkt))
+         continue;
       SafeOrderClose(tkt, lts, OP_SELL, Slippage, clrBlue);
      }
 
@@ -8133,6 +8151,9 @@ void CheckBasketProfitClose()
 
       int oType = OrderType();
       if(oType != OP_BUY && oType != OP_SELL)
+         continue;
+      // EXCLUDE RECOVERY ORDERS: Recovery orders manage their own independent basket
+      if(IsAnyRecoveryOrder(OrderTicket(), OrderComment()))
          continue;
 
       double pl = OrderProfit() + OrderSwap() + OrderCommission();
@@ -10800,19 +10821,24 @@ void OpenBuy(string MOMorder="")
    RefreshRates();
    double slDistance = (StopLossRawPriceGap > 0.0) ? StopLossRawPriceGap : 3000.0;
    double tpDistance = (TakeProfitRawPriceGap > 0.0) ? TakeProfitRawPriceGap : 500.0;
+   double pendingGap = (SSLLongShortPendingGapRaw > 0.0) ? SSLLongShortPendingGapRaw : 20.0;
+   double minStopDist = GetRequiredStopDistance();
+   double entryPrice = Ask + pendingGap;
+   if(entryPrice < Ask + minStopDist)
+      entryPrice = Ask + minStopDist;
+   entryPrice = NormalizeDouble(entryPrice, Digits);
 
+   double stopLoss = (slDistance > 0.0) ? NormalizeDouble(entryPrice - slDistance, Digits) : 0.0;
+   double takeProfit = (tpDistance > 0.0) ? NormalizeDouble(entryPrice + tpDistance, Digits) : 0.0;
 
-
-
-
-   double stopLoss = NormalizeDouble(Ask - slDistance, Digits);
-   double takeProfit = NormalizeDouble(Ask + tpDistance, Digits);
-// Print("SafeOrderSend");
-   int ticket = SafeOrderSend(Symbol(), OP_BUY, Lots, Ask, Slippage, stopLoss, takeProfit, "SSL Long", MagicNumber, BuyColor);
+   int ticket = SafeOrderSend(Symbol(), OP_BUYSTOP, Lots, entryPrice, Slippage, stopLoss, takeProfit, "SSL Long", MagicNumber, BuyColor);
    if(ticket > 0)
      {
       OrderCreatedThisCandle = true;
       LastOrderCandleTime = Time[0];
+      Print("SSL LONG PENDING ORDER CREATED: BUY STOP Ticket #", ticket, " Lots=", DoubleToString(Lots, 2),
+            " Entry=", DoubleToString(entryPrice, Digits), " (Ask+", DoubleToString(pendingGap, 2), ")",
+            " SL=", DoubleToString(stopLoss, Digits), " TP=", DoubleToString(takeProfit, Digits));
      }
   }
 
@@ -10868,18 +10894,24 @@ void OpenSell(string MOMorder="")
    RefreshRates();
    double slDistance = (StopLossRawPriceGap > 0.0) ? StopLossRawPriceGap : 3000.0;
    double tpDistance = (TakeProfitRawPriceGap > 0.0) ? TakeProfitRawPriceGap : 500.0;
+   double pendingGap = (SSLLongShortPendingGapRaw > 0.0) ? SSLLongShortPendingGapRaw : 20.0;
+   double minStopDist = GetRequiredStopDistance();
+   double entryPrice = Bid - pendingGap;
+   if(entryPrice > Bid - minStopDist)
+      entryPrice = Bid - minStopDist;
+   entryPrice = NormalizeDouble(entryPrice, Digits);
 
+   double stopLoss = (slDistance > 0.0) ? NormalizeDouble(entryPrice + slDistance, Digits) : 0.0;
+   double takeProfit = (tpDistance > 0.0) ? NormalizeDouble(entryPrice - tpDistance, Digits) : 0.0;
 
-
-
-
-   double stopLoss = NormalizeDouble(Bid + slDistance, Digits);
-   double takeProfit = NormalizeDouble(Bid - tpDistance, Digits);
-   int ticket = SafeOrderSend(Symbol(), OP_SELL, Lots, Bid, Slippage, stopLoss, takeProfit, "SSL Short", MagicNumber, SellColor);
+   int ticket = SafeOrderSend(Symbol(), OP_SELLSTOP, Lots, entryPrice, Slippage, stopLoss, takeProfit, "SSL Short", MagicNumber, SellColor);
    if(ticket > 0)
      {
       OrderCreatedThisCandle = true;
       LastOrderCandleTime = Time[0];
+      Print("SSL SHORT PENDING ORDER CREATED: SELL STOP Ticket #", ticket, " Lots=", DoubleToString(Lots, 2),
+            " Entry=", DoubleToString(entryPrice, Digits), " (Bid-", DoubleToString(pendingGap, 2), ")",
+            " SL=", DoubleToString(stopLoss, Digits), " TP=", DoubleToString(takeProfit, Digits));
      }
   }
 
