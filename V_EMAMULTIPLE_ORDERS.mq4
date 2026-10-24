@@ -28,7 +28,7 @@
 
 
 //string glbVersion = "V5008  29-09-2026 23.00 Aug 1st to Aug 5th $100 to $1000 equity $500 - Attached Image  balance ST-20 Partialclose, Close orders $1X close-   FlipLadderStepUSD 7 DailyEquityStopUSD 50%  TargetProfitPerFlipUSD 10%";
-string glbVersion = "VMULTI-1015- FlipBasketSupportOrder ";
+string glbVersion = "VMULTI-1016- FlipBasketSupportOrder with Close Orders if SERVER error ";
 
 
 double DailyEquityStopUSD  =1000;//50;//20*2.5;//10;//20;// 10;//30.0; close all orders at $50Xmultipler
