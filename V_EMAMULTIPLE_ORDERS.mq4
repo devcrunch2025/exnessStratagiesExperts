@@ -1,4 +1,4 @@
-﻿//+------------------------------------------------------------------+
+//+------------------------------------------------------------------+
 //|                  SSL CHANNEL CROSS EA - CONTINUOUS EQUITY LADDER |
 //|                  TWO-STAGE PROFIT LADDER | CONTINUOUS RESET      |
 //+------------------------------------------------------------------+
@@ -82,9 +82,12 @@ bool EnableBounceBackDetection = false;
 // =========================================================================
 // FLIP Basket Support Order Settings (Ported from V-ScalpingBot.mq4)
 // =========================================================================
+double FLIPBasketSupportStopLossRaw = 200.0; // Raw price gap ($200) for FLIPBasketSupport order StopLoss
+double FlipBaksetOrderStopLossRaw = 200.0;   // Alias matching FlipBakset naming
+double FlipBaksetOrderStopLossUSD = 200.0;   // Kept for backward compatibility
 bool   OnlyAllowFLIPBasketSupportOrders = false; // TEST ISOLATION: When true, blocks ALL orders in SafeOrderSend except FLIPBasketSupport
 double FLIPBasketSupportLot = 0.06;                 // FLIP Basket Support order lot size (0.06)
-double FLIPBasketSupportPendingGapRaw = 20.0;       // Raw gap (BTC price points) for FLIPBasketSupport pending stop order placement
+double FLIPBasketSupportPendingGapRaw = 50.0;       // Raw gap (BTC price points) for FLIPBasketSupport pending stop order placement
 double FLIPBasketSupportTakeProfitDistanceRaw = 2000;// Take profit distance (raw BTC price distance) for FLIPBasketSupport orders
 double FLIPBasketSupportTakeProfitDistanceStopLossStep = 100.0; // Positive profit move step size (raw BTC price) to ratchet FLIPBasketSupport StopLoss
 double FLIPBasketSupportMinEmaDistance = 100;       // Minimum raw price gap from live price to EMA ($100) required to open FLIPBasketSupport order
@@ -284,7 +287,7 @@ double MinimumClosedProfitUSD = -9;
 double ProfitReEntryGapRaw =50;//30;//10;// 25;
 double MinimumSameOrderGapRawReEntry =50;//30;//10;//20;// 50;
 // double MinimumSameOrderGapRawSSLLongShort =50;// 50;
-double MinimumSameOrderGapRawMatched =50;//30;//10;//20;//50;//20;// 50;
+double MinimumSameOrderGapRawMatched =100;//50;//30;//10;//20;//50;//20;// 50;//SSL long //SSL short
 double MinimumSameOrderGapRawUnmatched =50;//10;//10;//20;// 100;
 
 bool EnableReEntryNOnMatchingSignal=true;
@@ -1257,6 +1260,50 @@ bool HasOppositeOrderTypeLossOver5(int currentDirection, double &outOppositeTota
   }
 
 //+------------------------------------------------------------------+
+//| SendFLIPBasketSupportOrder: Dedicated direct order placement     |
+//| for FLIPBasketSupport orders. Bypasses regular order filters     |
+//| in SafeOrderSend (loss thresholds, counter-trend gates, etc.)    |
+//| while ensuring lot normalization and retry resilience on error.  |
+//+------------------------------------------------------------------+
+int SendFLIPBasketSupportOrder(int pendingType, double lots, double price, double stopLoss, double takeProfit, string comment, color arrowColor)
+  {
+   lots       = NormalizeLots(lots);
+   price      = NormalizeDouble(price, Digits);
+   stopLoss   = (stopLoss > 0.0) ? NormalizeDouble(stopLoss, Digits) : 0.0;
+   takeProfit = (takeProfit > 0.0) ? NormalizeDouble(takeProfit, Digits) : 0.0;
+
+   int ticket = -1;
+   int maxAttempts = 3;
+
+   for(int attempt = 0; attempt < maxAttempts; attempt++)
+     {
+      RefreshRates();
+      ResetLastError();
+
+      ticket = OrderSend(Symbol(), pendingType, lots, price, Slippage, stopLoss, takeProfit, comment, MagicNumber, 0, arrowColor);
+      if(ticket > 0)
+        {
+         InvalidateTotalEAOrdersCache();
+         return ticket;
+        }
+
+      int err = GetLastError();
+      Print("FLIPBasketSupport OrderSend attempt ", (attempt + 1), " failed. Err=", err);
+
+      // Retry on transient quote/busy errors
+      if(err == 136 || err == 138 || err == 135 || err == 137 || err == 146)
+        {
+         Sleep(100);
+         continue;
+        }
+
+      break;
+     }
+
+   return ticket;
+  }
+
+//+------------------------------------------------------------------+
 //| CreateFLIPBasketSupportOrder: Opens 1 market order on every flip |
 //| Supported long-term for basket profit until $10 equity lock      |
 //| SAFEST METHOD: Closes already open support order before creating |
@@ -1649,11 +1696,11 @@ int CreateFLIPBasketSupportOrder(int flipDirection, bool ignoreEmaDistanceGate =
          entryPrice = Ask + minimumGap;
       entryPrice = NormalizeDouble(entryPrice, Digits);
 
-      double slDistance = CalculatePriceDistanceUSD(StopLossUSD*flipLots*100, flipLots);
+      double slDistance = (FLIPBasketSupportStopLossRaw > 0.0) ? FLIPBasketSupportStopLossRaw : 200.0;
       double stopLoss = (slDistance > 0) ? NormalizeDouble(entryPrice - slDistance, Digits) : 0.0;
       double takeProfit = (tpDist > 0) ? NormalizeDouble(entryPrice + tpDist, Digits) : 0.0;
 
-      ticket = SafeOrderSend(Symbol(), pendingType, flipLots, entryPrice, Slippage, stopLoss, takeProfit, comment, MagicNumber, clrLime);
+      ticket = SendFLIPBasketSupportOrder(pendingType, flipLots, entryPrice, stopLoss, takeProfit, comment, clrLime);
       if(ticket > 0)
         {
          g_lastActiveFLIPBasketSupportTicket = ticket;
@@ -1671,11 +1718,11 @@ int CreateFLIPBasketSupportOrder(int flipDirection, bool ignoreEmaDistanceGate =
             entryPrice = Bid - minimumGap;
          entryPrice = NormalizeDouble(entryPrice, Digits);
 
-         double slDistance = CalculatePriceDistanceUSD(StopLossUSD*flipLots*100, flipLots);
+         double slDistance = (FLIPBasketSupportStopLossRaw > 0.0) ? FLIPBasketSupportStopLossRaw : 200.0;
          double stopLoss = (slDistance > 0) ? NormalizeDouble(entryPrice + slDistance, Digits) : 0.0;
          double takeProfit = (tpDist > 0) ? NormalizeDouble(entryPrice - tpDist, Digits) : 0.0;
 
-         ticket = SafeOrderSend(Symbol(), pendingType, flipLots, entryPrice, Slippage, stopLoss, takeProfit, comment, MagicNumber, clrTomato);
+         ticket = SendFLIPBasketSupportOrder(pendingType, flipLots, entryPrice, stopLoss, takeProfit, comment, clrTomato);
          if(ticket > 0)
            {
             g_lastActiveFLIPBasketSupportTicket = ticket;
@@ -1840,6 +1887,7 @@ bool     IsFLIPBasketSupportOrder(int ticket, string comment = "");
 bool     HasOpenFLIPBasketSupportOrder(int targetType = -1);
 void     CloseFLIPBasketSupportOrders(int targetType = -1);
 void     CheckAndCloseOrphanFLIPBasketSupportOrders();
+int      SendFLIPBasketSupportOrder(int pendingType, double lots, double price, double stopLoss, double takeProfit, string comment, color arrowColor);
 int      CreateFLIPBasketSupportOrder(int flipDirection, bool ignoreEmaDistanceGate = false);
 datetime GetLastClosedFLIPBasketSupportCloseTime();
 bool     HasOppositeOrderTypeLossOver5(int currentDirection, double &outOppositeTotalPL, double &outMaxSingleLoss);
@@ -8079,41 +8127,57 @@ void ModifyOpenOrdersToSecureProfitOLD()
 //+------------------------------------------------------------------+
 //|                                                                  |
 //+------------------------------------------------------------------+
+//| GetDynamicOrderGap: Calculates dynamic minimum price gap between |
+//| same-direction orders. Adapts intelligently based on:            |
+//| 1. Trend strength & EMA pullback (IsEmaWEAK)                     |
+//| 2. Directional consensus (SSL vs EMA agreement)                  |
+//| 3. Floating drawdown (widens grid spacing progressively on loss) |
+//| 4. Signal matching (matched vs unmatched fallback)              |
+//+------------------------------------------------------------------+
 double GetDynamicOrderGap(int orderType)
   {
-   int currentSSL = GlobalSSLDirection;
-   int patternDirection = GetCachedPatternDirection();
+   double baseGap = (MinimumSameOrderGapRawMatched > 0.0) ? MinimumSameOrderGapRawMatched : 50.0;
+   double unmatchedGap = (MinimumSameOrderGapRawUnmatched > 0.0) ? MinimumSameOrderGapRawUnmatched : 50.0;
+
+   int sslDir = GlobalSSLDirection;
+   int emaDir = EMADirection;
+
+   // 1. Evaluate indicators alignment and risk conditions
+   bool isWeak = IsEmaWEAKDistanceReduced50PercentFromPeak(orderType);
+   bool isConflicted = (sslDir != 0 && emaDir != 0 && sslDir != emaDir);
+
+   // 2. Base multiplier
    int multiplier = 1;
+
+   // 3. Risk-based multiplier expansion
+   if(isWeak)
+      multiplier = MathMax(multiplier, 2);
+   else if(isConflicted)
+      multiplier = MathMax(multiplier, 2);
+
+   // 4. Floating loss scaling: progressively widen gap on drawdown
    double pl = GetOpenPL(orderType);
+   if(pl < 0.0)
+     {
+      double lossStep = 3.0 * (balancelomultipler > 0 ? balancelomultipler : 1);
+      int lossMultiplier = 1 + (int)MathFloor(MathAbs(pl) / lossStep);
+      lossMultiplier = MathMin(lossMultiplier, 4); // Cap to safe maximum 4X
+      multiplier = MathMax(multiplier, lossMultiplier);
+     }
 
-// if(pl < 0)
-//   {
-//    multiplier = 1 + (int)MathFloor(MathAbs(pl) / 3.0);
-//   }
+   // 5. Check signal alignment (SSL or Chart Pattern)
+   bool sslMatches = ((orderType == OP_BUY && sslDir == 1) || (orderType == OP_SELL && sslDir == -1));
+   if(sslMatches)
+      return baseGap * multiplier;
 
-// if(IsEmaWEAKDistanceReduced50PercentFromPeak(orderType) && multiplier<3)
-//   {
-//    multiplier=3;
-//   }
+   // Lazy evaluation of pattern direction only if SSL is not matching
+   int patternDir = GetCachedPatternDirection();
+   bool patternMatches = ((orderType == OP_BUY && patternDir == 1) || (orderType == OP_SELL && patternDir == -1));
+   if(patternMatches)
+      return baseGap * multiplier;
 
-   if(IsEmaWEAKDistanceReduced50PercentFromPeak())
-      return MinimumSameOrderGapRawMatched*4;
-
-   if(GlobalSSLDirection != EMADirection)
-      return MinimumSameOrderGapRawMatched*3;
-
-
-
-
-
-
-   if((orderType == OP_BUY && currentSSL == 1) || (orderType == OP_SELL && currentSSL == -1))
-      return MinimumSameOrderGapRawMatched*multiplier;
-
-   if((orderType == OP_BUY && patternDirection == 1) || (orderType == OP_SELL && patternDirection == -1))
-      return MinimumSameOrderGapRawMatched*multiplier;
-
-   return MinimumSameOrderGapRawUnmatched;
+   // 6. Unmatched / Counter-trend fallback
+   return MathMax(unmatchedGap, baseGap * multiplier);
   }
 
 //+------------------------------------------------------------------+
@@ -10308,11 +10372,11 @@ void OpenBuy(string MOMorder="")
       return;
 
      }
-   if(!HasMinimumSameOrderGap(OP_BUY, GetDynamicOrderGap(OP_BUY)))
+   double buyGap = GetDynamicOrderGap(OP_BUY);
+   if(!HasMinimumSameOrderGap(OP_BUY, buyGap))
      {
-      Print("Order Blocked HasMinimumSameOrderGap "+GetDynamicOrderGap(OP_BUY));
+      Print("Order Blocked HasMinimumSameOrderGap: Required Gap=", DoubleToString(buyGap, 2));
       return;
-
      }
    reEntryCounter=0;
    SaveReEntryCounter();
@@ -10375,11 +10439,11 @@ void OpenSell(string MOMorder="")
       return;
 
      }
-   if(!HasMinimumSameOrderGap(OP_SELL, GetDynamicOrderGap(OP_SELL)))
+   double sellGap = GetDynamicOrderGap(OP_SELL);
+   if(!HasMinimumSameOrderGap(OP_SELL, sellGap))
      {
-      Print("Order Blocked HasMinimumSameOrderGap "+GetDynamicOrderGap(OP_BUY));
+      Print("Order Blocked HasMinimumSameOrderGap: Required Gap=", DoubleToString(sellGap, 2));
       return;
-
      }
    reEntryCounter=0;
    SaveReEntryCounter();
@@ -11158,7 +11222,7 @@ void ManagePartialClosesLoss()
             else
                if(MathAbs(orderLots - (0.02*balancelomultipler)) < 0.000001)
                  {
-                  lossTrigger = -(4.00*balancelomultipler*partialLossMultipler);// 40/2=20
+                  lossTrigger = -(4.00*balancelomultipler*partialLossMultipler);// 5*4=20 then minus 0.01 
                  }
                else
                  {
@@ -13071,7 +13135,7 @@ void UpdateLeftLiveOrdersDashboard()
                         "   PEND " + IntegerToString(pendingCount);
    CreateLeftLiveLabel(LEFT_LIVE_PREFIX+"SUMMARY", summaryText, tx, y+62, 8, clrWhite);
 
-   CreateLeftLiveLabel(LEFT_LIVE_PREFIX+"HEAD", "TYPE     LOT       OPEN       SL        TP        P/L     VERIFIED", tx, y+88, 8, clrSilver);
+   CreateLeftLiveLabel(LEFT_LIVE_PREFIX+"HEAD", "TYPE     LOT       OPEN       SL       GAP        P/L     VERIFIED", tx, y+88, 8, clrSilver);
 
    for(int r=0; r<24; r++)
      {
@@ -13113,7 +13177,6 @@ void UpdateLeftLiveOrdersDashboard()
       double lots=OrderLots();
       double open=OrderOpenPrice();
       double sl=OrderStopLoss();
-      double tp=OrderTakeProfit();
       double pl=0;
       if(type==OP_BUY || type==OP_SELL)
          pl=OrderProfit()+OrderSwap()+OrderCommission();
@@ -13121,16 +13184,58 @@ void UpdateLeftLiveOrdersDashboard()
       double slDiffPoints=0;
       if(sl>0)
          slDiffPoints=MathAbs(open-sl)/Point/100;
-      double tpDiffPoints=0;
-      if(tp>0)
-         tpDiffPoints=MathAbs(tp-open)/Point/100;
 
       string slDiffText="-";
-      string tpDiffText="-";
       if(sl>0)
          slDiffText=DoubleToString(slDiffPoints,0);
-      if(tp>0)
-         tpDiffText=DoubleToString(tpDiffPoints,0);
+
+      int currentTicket=OrderTicket();
+      datetime currentOpenTime=OrderOpenTime();
+      datetime bestPrevTime=0;
+      int bestPrevTicket=0;
+      double prevSameOrderPrice=-1.0;
+
+      for(int k=OrdersTotal()-1; k>=0; k--)
+        {
+         if(k==j)
+            continue;
+         if(!OrderSelect(k,SELECT_BY_POS,MODE_TRADES))
+            continue;
+         if(OrderSymbol()!=Symbol() || OrderMagicNumber()!=MagicNumber)
+            continue;
+         int prevType=OrderType();
+         bool sameDir=false;
+         if((type==OP_BUY || type==OP_BUYSTOP || type==OP_BUYLIMIT) &&
+            (prevType==OP_BUY || prevType==OP_BUYSTOP || prevType==OP_BUYLIMIT))
+            sameDir=true;
+         else if((type==OP_SELL || type==OP_SELLSTOP || type==OP_SELLLIMIT) &&
+                 (prevType==OP_SELL || prevType==OP_SELLSTOP || prevType==OP_SELLLIMIT))
+            sameDir=true;
+
+         if(!sameDir)
+            continue;
+
+         datetime ot=OrderOpenTime();
+         int tk=OrderTicket();
+         if(ot<currentOpenTime || (ot==currentOpenTime && tk<currentTicket))
+           {
+            if(bestPrevTime==0 || ot>bestPrevTime || (ot==bestPrevTime && tk>bestPrevTicket))
+              {
+               bestPrevTime=ot;
+               bestPrevTicket=tk;
+               prevSameOrderPrice=OrderOpenPrice();
+              }
+           }
+        }
+      if(!OrderSelect(j,SELECT_BY_POS,MODE_TRADES))
+         continue;
+
+      string gapText="-";
+      if(prevSameOrderPrice>0.0)
+        {
+         int gapDecimals=(Digits<=2) ? 1 : Digits;
+         gapText=DoubleToString(MathAbs(open-prevSameOrderPrice),gapDecimals);
+        }
 
       string plText="-";
       if(type==OP_BUY || type==OP_SELL)
@@ -13155,7 +13260,7 @@ void UpdateLeftLiveOrdersDashboard()
         }
 
       verifiedStatus=OrderComment();
-      string rowText=StringFormat("%-7s %5.2f %10s %10s %10s %8s", typeText, lots, DoubleToString(open,Digits), slDiffText, tpDiffText, plText);
+      string rowText=StringFormat("%-7s %5.2f %10s %10s %10s %8s", typeText, lots, DoubleToString(open,Digits), slDiffText, gapText, plText);
       color rowColor=clrWhite;
       if(type==OP_BUY)
          rowColor=clrDeepSkyBlue;
