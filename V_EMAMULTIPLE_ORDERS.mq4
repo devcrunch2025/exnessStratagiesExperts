@@ -6840,39 +6840,120 @@ bool SafeOrderModify(int ticket,double openPrice,double stopLoss,double takeProf
       return false;
 
    RefreshRates();
-   double requestedSL=stopLoss;
-   if(requestedSL>0.0)
+   double requestedSL = (stopLoss > 0.0) ? NormalizeDouble(stopLoss, Digits) : 0.0;
+   double requestedTP = (takeProfit > 0.0) ? NormalizeDouble(takeProfit, Digits) : 0.0;
+
+   if(requestedSL > 0.0)
      {
-      if(!PrepareStopLossForOrder(orderType,OrderOpenPrice(),requestedSL))
+      if(!PrepareStopLossForOrder(orderType, OrderOpenPrice(), requestedSL))
         {
          BlockTradeErrorUntilNextTick(key);
-         MarkServerError(130,"OrderModify/unsafe-SL");
+         MarkServerError(130, "OrderModify/unsafe-SL");
          return false;
         }
-      if(orderType==OP_BUY && OrderStopLoss()>0.0 && requestedSL<=OrderStopLoss())
+      if(orderType == OP_BUY && OrderStopLoss() > 0.0 && requestedSL <= OrderStopLoss())
         {
          BlockTradeErrorUntilNextTick(key);
          return false;
         }
-      if(orderType==OP_SELL && OrderStopLoss()>0.0 && requestedSL>=OrderStopLoss())
+      if(orderType == OP_SELL && OrderStopLoss() > 0.0 && requestedSL >= OrderStopLoss())
         {
          BlockTradeErrorUntilNextTick(key);
          return false;
         }
      }
-   bool sameSL=(requestedSL<=0.0 && OrderStopLoss()<=0.0) || (requestedSL>0.0 && MathAbs(OrderStopLoss()-requestedSL)<=MinimumSLModifyGapRaw*Point);
-   bool sameTP=(takeProfit<=0.0 && OrderTakeProfit()<=0.0) || (takeProfit>0.0 && MathAbs(OrderTakeProfit()-takeProfit)<=Point);
+   bool sameSL = (requestedSL <= 0.0 && OrderStopLoss() <= 0.0) || (requestedSL > 0.0 && MathAbs(OrderStopLoss() - requestedSL) <= MinimumSLModifyGapRaw * Point);
+   bool sameTP = (requestedTP <= 0.0 && OrderTakeProfit() <= 0.0) || (requestedTP > 0.0 && MathAbs(OrderTakeProfit() - requestedTP) <= Point);
    if(sameSL && sameTP)
       return true;
-   ResetLastError();
-   if(!CanSendTradeRequest("OrderModify","Ticket="+IntegerToString(ticket)))
+
+   bool modified = false;
+   int err = 0;
+   int maxAttempts = 3;
+
+   for(int attempt = 0; attempt < maxAttempts; attempt++)
+     {
+      ResetLastError();
+      if(!CanSendTradeRequest("OrderModify", "Ticket=" + IntegerToString(ticket)))
+         return false;
+
+      modified = OrderModify(ticket, openPrice, requestedSL, requestedTP, expiration, arrowColor);
+      if(modified)
+         return true;
+
+      err = GetLastError();
+
+      // Retry on transient broker quote errors (136 Off Quotes, 138 Requote, 135 Price Changed, 137 Broker Busy, 146 Context Busy)
+      if(err == 136 || err == 138 || err == 135 || err == 137 || err == 146)
+        {
+         Sleep(100);
+         RefreshRates();
+
+         // Re-validate and adapt SL distance if live price moved
+         if(requestedSL > 0.0)
+           {
+            if(!PrepareStopLossForOrder(orderType, OrderOpenPrice(), requestedSL))
+               break;
+           }
+         continue;
+        }
+
+      // Non-retryable error
+      break;
+     }
+
+   if(!modified)
+     {
+      Print("ORDER MODIFY FAILED with server error ", err, " on Ticket #", ticket,
+            " (Type=", GetOrderTypeText(orderType), "). Closing order immediately at market as requested...");
+
+      if(OrderSelect(ticket, SELECT_BY_TICKET, MODE_TRADES))
+        {
+         double curLots = OrderLots();
+         int curType = OrderType();
+
+         if(curType == OP_BUY || curType == OP_SELL)
+           {
+            for(int cAttempt = 0; cAttempt < 3; cAttempt++)
+              {
+               RefreshRates();
+               double closePrice = (curType == OP_BUY) ? Bid : Ask;
+               closePrice = NormalizeDouble(closePrice, Digits);
+               ResetLastError();
+               bool closed = OrderClose(ticket, curLots, closePrice, Slippage, (curType == OP_BUY ? clrRed : clrBlue));
+               if(closed)
+                 {
+                  Print("ORDER CLOSED SUCCESSFULLY on modify error fallback: Ticket #", ticket,
+                        " at ", DoubleToString(closePrice, Digits));
+                  InvalidateTotalEAOrdersCache();
+                  break;
+                 }
+               int closeErr = GetLastError();
+               Print("OrderClose fallback attempt ", (cAttempt + 1), " failed for Ticket #", ticket, " | Error=", closeErr);
+               Sleep(100);
+              }
+           }
+         else if(curType == OP_BUYSTOP || curType == OP_SELLSTOP || curType == OP_BUYLIMIT || curType == OP_SELLLIMIT)
+           {
+            ResetLastError();
+            bool deleted = OrderDelete(ticket, clrYellow);
+            if(deleted)
+              {
+               Print("PENDING ORDER DELETED on modify error fallback: Ticket #", ticket);
+               InvalidateTotalEAOrdersCache();
+              }
+           }
+        }
+      else
+        {
+         Print("Order #", ticket, " no longer open in MODE_TRADES (already closed).");
+        }
+
+      BlockTradeErrorUntilNextTick(key);
+      MarkServerError(err, "OrderModify");
       return false;
-   bool modified=OrderModify(ticket,openPrice,requestedSL,takeProfit,expiration,arrowColor);
-   if(modified)
-      return true;
-   int err=GetLastError();
-   BlockTradeErrorUntilNextTick(key);
-   MarkServerError(err,"OrderModify");
+     }
+
    return false;
   }
 
