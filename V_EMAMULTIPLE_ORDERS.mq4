@@ -219,7 +219,7 @@ int    ServerToDubaiOffsetHours   = 4;
 
 // ===== SPREAD & RISK SETTINGS =====
 double MaxAllowedSpreadUSD = 35.0;
-int AccountMultiplierLOT = 500;
+int AccountMultiplierLOT = 200;//500;
 double OriginalStopLossUSD = 20;//6;//4;
 double StopLossRawPriceGap =3000;// 2000.0;   // Raw price gap ($2000 BTC price points) for StopLoss
 double TakeProfitRawPriceGap = 500.0;  // Raw price gap ($500 BTC price points) for TakeProfit
