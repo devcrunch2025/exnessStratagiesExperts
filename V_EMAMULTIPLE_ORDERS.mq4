@@ -1,4 +1,4 @@
-//+------------------------------------------------------------------+
+﻿//+------------------------------------------------------------------+
 //|                  SSL CHANNEL CROSS EA - CONTINUOUS EQUITY LADDER |
 //|                  TWO-STAGE PROFIT LADDER | CONTINUOUS RESET      |
 //+------------------------------------------------------------------+
@@ -28,7 +28,7 @@
 
 
 //string glbVersion = "V5008  29-09-2026 23.00 Aug 1st to Aug 5th $100 to $1000 equity $500 - Attached Image  balance ST-20 Partialclose, Close orders $1X close-   FlipLadderStepUSD 7 DailyEquityStopUSD 50%  TargetProfitPerFlipUSD 10%";
-string glbVersion = "VMULTI-1018-Aug 29 to Sep 2nd $200 to $400 - SSL long Pending order";
+string glbVersion = "VMULTI-1020-GREEN line close orders issue filxed";
 
 
 double DailyEquityStopUSD  =1000;//50;//20*2.5;//10;//20;// 10;//30.0; close all orders at $50Xmultipler
@@ -169,7 +169,7 @@ bool   InpManageSweepTerminalGlobals   = true;   // Manage MT4 Terminal Global V
 bool   InpEnableLsdSweepLotAdjustment  = true;   // Enable LSD Sweep Lot Adjustment in ChangeLots
 double InpLsdSweepLotSize              = 0.05;   // LSD Sweep Lot Size (0.05)
 bool   InpLsdSweepMatchDirectionOnly   = true;   // Apply 0.05 only when Order aligns with Sweep Signal
-bool   InpEnableSweepLineSLProtection  = true;   // Enable LSD Sweep Line Order Protection
+bool   InpEnableSweepLineSLProtection  = false;  // LSD Sweep Line Order Protection (DISABLED: Sweep lines only create FlipBasketSupport, DO NOT modify/close orders)
 ENUM_SWEEP_LINE_ACTION InpSweepLineAction = SWEEP_LINE_CLOSE_ALL_OPPOSITE; // Sweep Line Action: Close All Opposite or Modify SL
 double InpSweepLineSLBufferPoints      = 20.0;   // Buffer Points from Current Price for SL
 bool   InpSweepLineTriggerOnSweepSignal= false;  // Only trigger line action when physical line is present on chart
@@ -200,7 +200,7 @@ bool     IsLsdSweepGreenLinePresent();
 bool     IsLsdSweepRedLinePresent();
 bool     IsLsdSweepGreenLineActive();
 bool     IsLsdSweepRedLineActive();
-void     ManageLsdSweepLineStopLossProtection();
+// void     ManageLsdSweepLineStopLossProtection();
 void     UpdateOrderCacheIfNeeded();
 void     InvalidateOrderCache();
 
@@ -4186,7 +4186,7 @@ void OnTick()
    CloseOppositeOrdersOnEmaDistance();
 
    UpdateLiquiditySweepDetectorOnChart();
-   ManageLsdSweepLineStopLossProtection();
+   // ManageLsdSweepLineStopLossProtection(); // DISABLED: LSD Sweep lines only create FlipBasketSupport, DO NOT modify/close orders
    CheckLsdSweepFlipBasketSupportOrder();
 
    OnTickCore();
@@ -11624,6 +11624,18 @@ double GetTicketLastClosePrice(int ticket)
 //| move another 100 raw price units against the position before     |
 //| another partial loss close is allowed.                           |
 //+------------------------------------------------------------------+
+//+------------------------------------------------------------------+
+//| Partial Loss Close                                               |
+//| User Rules:                                                      |
+//| 0.05 lot: close 0.01 lot when raw distance >= $300               |
+//| 0.04 lot: close 0.01 lot when raw distance >= $500               |
+//| 0.03 lot: close 0.01 lot when raw distance >= $800               |
+//| 0.02 lot: close 0.01 lot when loss < -$20 OR raw distance >= $1000|
+//|                                                                  |
+//| After a partial loss close, the SAME parent order must move       |
+//| another $100 raw price units against the position before another |
+//| partial loss close is allowed.                                   |
+//+------------------------------------------------------------------+
 void ManagePartialClosesLoss()
   {
    for(int i = OrdersTotal() - 1; i >= 0; i--)
@@ -11640,39 +11652,68 @@ void ManagePartialClosesLoss()
       if(orderType != OP_BUY && orderType != OP_SELL)
          continue;
 
+      // Exclude recovery orders from regular scalp partial loss cuts
+      if(IsAnyRecoveryOrder(OrderTicket(), OrderComment()))
+         continue;
+
       double orderLots     = OrderLots();
       int    currentTicket = OrderTicket();
+      double openPrice     = OrderOpenPrice();
 
-      // -------------------------------------------------------------
-      // Only these lot sizes are eligible for the requested mapping
-      // -------------------------------------------------------------
-      double lossTrigger = 0.0;
-      double lotsToClose = 0.01*balancelomultipler;
+      RefreshRates();
+      // Raw price distance moving against position (loss direction)
+      double rawLossDistance = (orderType == OP_BUY) ? (openPrice - Bid) : (Ask - openPrice);
 
-      if(MathAbs(orderLots - (0.05*balancelomultipler)) < 0.000001)
+      // Current order net P/L
+      double currentProfit = OrderProfit() + OrderSwap() + OrderCommission();
+
+      int baseMult = (balancelomultipler > 0 ? balancelomultipler : 1);
+      double lotsToClose = 0.01 * baseMult;
+
+      bool conditionMet = false;
+      string triggerReason = "";
+
+      if(MathAbs(orderLots - (0.05 * baseMult)) < 0.000001)
         {
-         lossTrigger = -(10*balancelomultipler*partialLossMultipler);//5*10=-$50 then minus 0.01 
+         if(rawLossDistance >= 300.0)
+           {
+            conditionMet = true;
+            triggerReason = StringFormat("0.05L Raw Dist $%.1f >= $300", rawLossDistance);
+           }
+        }
+      else if(MathAbs(orderLots - (0.04 * baseMult)) < 0.000001)
+        {
+         if(rawLossDistance >= 500.0)
+           {
+            conditionMet = true;
+            triggerReason = StringFormat("0.04L Raw Dist $%.1f >= $500", rawLossDistance);
+           }
+        }
+      else if(MathAbs(orderLots - (0.03 * baseMult)) < 0.000001)
+        {
+         if(rawLossDistance >= 800.0)
+           {
+            conditionMet = true;
+            triggerReason = StringFormat("0.03L Raw Dist $%.1f >= $800", rawLossDistance);
+           }
+        }
+      else if(MathAbs(orderLots - (0.02 * baseMult)) < 0.000001)
+        {
+         double dollarLossLimit = -20.0 * baseMult;
+         if(currentProfit < dollarLossLimit || rawLossDistance >= 1000.0)
+           {
+            conditionMet = true;
+            triggerReason = StringFormat("0.02L (P/L $%.2f < $%.2f OR Raw Dist $%.1f >= $1000)", currentProfit, dollarLossLimit, rawLossDistance);
+           }
         }
       else
-         if(MathAbs(orderLots - (0.04*balancelomultipler)) < 0.000001)
-           {
-            lossTrigger = -(10*balancelomultipler*(partialLossMultipler));// 5*5=-$50 then minus 0.01 
-           }
-         else
-            if(MathAbs(orderLots - (0.03*balancelomultipler)) < 0.000001)
-              {
-               lossTrigger = -(10*balancelomultipler*partialLossMultipler);// 5*10=-$50 then minus 0.01 
-              }
-            else
-               if(MathAbs(orderLots - (0.02*balancelomultipler)) < 0.000001)
-                 {
-                  lossTrigger = -(6*balancelomultipler*partialLossMultipler);// 5*6=-$30 then minus 0.01 
-                 }
-               else
-                 {
-                  // No partial-loss rule for other lot sizes
-                  continue;
-                 }
+        {
+         // No partial-loss rule for other lot sizes
+         continue;
+        }
+
+      if(!conditionMet)
+         continue;
 
       // Must leave at least 0.01 lot after partial close
       double minLot = MarketInfo(Symbol(), MODE_MINLOT);
@@ -11694,37 +11735,16 @@ void ManagePartialClosesLoss()
          continue;
 
       // -------------------------------------------------------------
-      // Current order net P/L
-      // -------------------------------------------------------------
-      double currentProfit =
-         OrderProfit() +
-         OrderSwap() +
-         OrderCommission();
-
-      // -------------------------------------------------------------
-      // First condition: loss threshold reached
-      // -------------------------------------------------------------
-      if(currentProfit > lossTrigger)
-         continue;
-
-      // -------------------------------------------------------------
       // Parent-ticket tracking
       // -------------------------------------------------------------
-      int baseTicket = GetOriginalTicket(
-                          currentTicket,
-                          OrderComment()
-                       );
-
+      int baseTicket = GetOriginalTicket(currentTicket, OrderComment());
       if(baseTicket <= 0)
          baseTicket = currentTicket;
 
-      double lastClosedPrice =
-         GetTicketLastClosePrice(baseTicket);
-
-      RefreshRates();
+      double lastClosedPrice = GetTicketLastClosePrice(baseTicket);
 
       // -------------------------------------------------------------
-      // $100 raw price gap between partial loss closes
+      // $100 raw price gap between partial loss closes for same parent
       // -------------------------------------------------------------
       bool priceGapReached = false;
 
@@ -11741,13 +11761,12 @@ void ManagePartialClosesLoss()
             if((lastClosedPrice - Bid) >= 100.0)
                priceGapReached = true;
            }
-         else
-            if(orderType == OP_SELL)
-              {
-               // SELL must move $100 higher
-               if((Ask - lastClosedPrice) >= 100.0)
-                  priceGapReached = true;
-              }
+         else if(orderType == OP_SELL)
+           {
+            // SELL must move $100 higher
+            if((Ask - lastClosedPrice) >= 100.0)
+               priceGapReached = true;
+           }
         }
 
       if(!priceGapReached)
@@ -11757,59 +11776,29 @@ void ManagePartialClosesLoss()
       // Execute partial loss close
       // -------------------------------------------------------------
       RefreshRates();
-
-      double closePrice =
-         (orderType == OP_BUY)
-         ? Bid
-         : Ask;
+      double closePrice = (orderType == OP_BUY) ? Bid : Ask;
 
       ResetLastError();
-
-      bool success = OrderClose(
-                        currentTicket,
-                        lotsToClose,
-                        closePrice,
-                        Slippage,
-                        (orderType == OP_BUY ? clrRed : clrBlue)
-                     );
+      bool success = OrderClose(currentTicket, lotsToClose, closePrice, Slippage, (orderType == OP_BUY ? clrRed : clrBlue));
 
       if(success)
         {
-         // Record this parent's latest partial-loss close price.
-         UpdateTicketClosePrice(
-            baseTicket,
-            closePrice
-         );
+         UpdateTicketClosePrice(baseTicket, closePrice);
 
-         Print(
-            "PARTIAL LOSS CLOSE SUCCESS"
-            " | Ticket=", currentTicket,
-            " | Parent=", baseTicket,
-            " | Lots=", DoubleToString(lotsToClose, 2),
-            " | CurrentLots=", DoubleToString(orderLots, 2),
-            " | LossTrigger=$", DoubleToString(MathAbs(lossTrigger), 2),
-            " | CurrentPL=$", DoubleToString(currentProfit, 2),
-            " | ClosePrice=", DoubleToString(closePrice, Digits),
-            " | NextGap=$100"
-         );
+         Print(">>> [PARTIAL LOSS CLOSE SUCCESS] Ticket #", currentTicket,
+               " (Parent #", baseTicket, ") Closed ", DoubleToString(lotsToClose, 2),
+               "L of ", DoubleToString(orderLots, 2), "L at ", DoubleToString(closePrice, Digits),
+               " | Trigger: ", triggerReason,
+               " | Current P/L: $", DoubleToString(currentProfit, 2),
+               " | Next Gap: $100");
 
-         // Important:
-         // Stop here so another loss-partial is NOT executed
-         // for another order during the same call/tick.
          return;
         }
 
       int errorCode = GetLastError();
+      Print(">>> [PARTIAL LOSS CLOSE FAILED] Ticket #", currentTicket,
+            " (Parent #", baseTicket, ") | Error=", errorCode);
 
-      Print(
-         "PARTIAL LOSS CLOSE FAILED"
-         " | Ticket=", currentTicket,
-         " | Parent=", baseTicket,
-         " | Lots=", DoubleToString(lotsToClose, 2),
-         " | Error=", errorCode
-      );
-
-      // Do not continue closing other orders after a failed trade
       return;
      }
   }
@@ -13094,11 +13083,11 @@ void UpdateDashboard(DailyProtectionState &state)
 
    string txLock="FLIP Step "+FlipLadderStepUSD*balancelomultipler+"% Day Stop $"+DailyEquityStopUSD*balancelomultipler+""+" Flip Stop $"+TargetProfitPerFlipUSD*balancelomultipler+"";
 
-   static bool s_dashSignalsRedesignReset = false;
-   if(!s_dashSignalsRedesignReset)
+   static bool s_dashRedesignV4Reset = false;
+   if(!s_dashRedesignV4Reset)
      {
       DeleteDashboardObjects();
-      s_dashSignalsRedesignReset = true;
+      s_dashRedesignV4Reset = true;
      }
 
    if(FlipLadderStepUSD <= 0)
@@ -13108,212 +13097,279 @@ void UpdateDashboard(DailyProtectionState &state)
    double emaNextTarget = (currEmaLvl + 1) * FlipLadderStepUSD * balancelomultipler;
    double totalCycleProfit = profitAfterFlip + GetEAFloatingPL();
 
-   w = MathMax(DashboardWidth, 345);
-   panelHeight = 445;
+   // Scan order status for regular baskets, pending orders, recovery orders, and support orders
+   int regBuyOrders = 0;
+   int regSellOrders = 0;
+   double regBuyLots = 0.0;
+   double regSellLots = 0.0;
+   double regBuyPL = 0.0;
+   double regSellPL = 0.0;
 
-// Base Background Panel
+   int pendingBuyCount = 0;
+   int pendingSellCount = 0;
+   double pendingBuyPrice = 0.0;
+   double pendingSellPrice = 0.0;
+
+   int recCount = 0;
+   int recTicket = 0;
+   int recType = -1;
+   double recLots = 0.0;
+   double recPL = 0.0;
+
+   int flipCount = 0;
+   int flipTicket = 0;
+   double flipLots = 0.0;
+   double flipPL = 0.0;
+
+   for(int ordIdx = OrdersTotal() - 1; ordIdx >= 0; ordIdx--)
+     {
+      if(!OrderSelect(ordIdx, SELECT_BY_POS, MODE_TRADES))
+         continue;
+      if(OrderSymbol() != Symbol() || OrderMagicNumber() != MagicNumber)
+         continue;
+
+      int oType = OrderType();
+      int tkt = OrderTicket();
+      string cmt = OrderComment();
+      double lts = OrderLots();
+      double pl = OrderProfit() + OrderSwap() + OrderCommission();
+      double oPrice = OrderOpenPrice();
+
+      if(oType == OP_BUY)
+        {
+         if(IsAnyRecoveryOrder(tkt, cmt))
+           {
+            recCount++;
+            recTicket = tkt;
+            recType = OP_BUY;
+            recLots += lts;
+            recPL += pl;
+           }
+         else if(IsFLIPBasketSupportOrder(tkt, cmt))
+           {
+            flipCount++;
+            flipTicket = tkt;
+            flipLots += lts;
+            flipPL += pl;
+            regBuyOrders++;
+            regBuyLots += lts;
+            regBuyPL += pl;
+           }
+         else
+           {
+            regBuyOrders++;
+            regBuyLots += lts;
+            regBuyPL += pl;
+           }
+        }
+      else if(oType == OP_SELL)
+        {
+         if(IsAnyRecoveryOrder(tkt, cmt))
+           {
+            recCount++;
+            recTicket = tkt;
+            recType = OP_SELL;
+            recLots += lts;
+            recPL += pl;
+           }
+         else if(IsFLIPBasketSupportOrder(tkt, cmt))
+           {
+            flipCount++;
+            flipTicket = tkt;
+            flipLots += lts;
+            flipPL += pl;
+            regSellOrders++;
+            regSellLots += lts;
+            regSellPL += pl;
+           }
+         else
+           {
+            regSellOrders++;
+            regSellLots += lts;
+            regSellPL += pl;
+           }
+        }
+      else if(oType == OP_BUYSTOP || oType == OP_BUYLIMIT)
+        {
+         pendingBuyCount++;
+         pendingBuyPrice = oPrice;
+        }
+      else if(oType == OP_SELLSTOP || oType == OP_SELLLIMIT)
+        {
+         pendingSellCount++;
+         pendingSellPrice = oPrice;
+        }
+     }
+
+   w = MathMax(DashboardWidth, 355);
+   panelHeight = 460;
+   x = DashboardRightGap;
+   y = DashboardTopGap;
+   tx = x + 12;
+
+   // Base Background Panel
    CreateDashboardPanel(DASH_PREFIX+"PANEL", x, y, w, panelHeight, C'14,18,24');
 
-// Header Bar
-   CreateDashboardPanel(DASH_PREFIX+"HEADER", x, y, w, 34, C'20,55,90');
-   string eaTitle =glbVersion;// "SSL MASTER | " + Symbol() + " " + TimeframeToString(Period());
+   // Header Bar
+   CreateDashboardPanel(DASH_PREFIX+"HEADER", x, y, w, 36, C'20,55,90');
+   string eaTitle = "SSL PRO SCALPER | " + Symbol() + " " + TimeframeToString(Period());
    CreateDashboardLabel(DASH_PREFIX+"TITLE", eaTitle, tx, y+4, 9, clrWhite);
-   string priceStatus = "BID: " + DoubleToString(Bid, Digits) + " | ASK: " + DoubleToString(Ask, Digits);
-   CreateDashboardLabel(DASH_PREFIX+"PRICE", priceStatus, tx, y+18, 8, clrLightGray);
+   string priceStatus = StringFormat("BID: %." + IntegerToString(Digits) + "f | ASK: %." + IntegerToString(Digits) + "f | SPR: %d pts", Bid, Ask, (int)MarketInfo(Symbol(), MODE_SPREAD));
+   CreateDashboardLabel(DASH_PREFIX+"PRICE", priceStatus, tx, y+19, 8, clrLightGray);
 
-// Status Line
-   CreateDashboardLabel(DASH_PREFIX+"STATUS", "EA STATUS   : " + statusText, tx, y+38, 9, statusColor);
+   // Status Line
+   CreateDashboardLabel(DASH_PREFIX+"STATUS", "EA STATUS   : " + statusText, tx, y+39, 9, statusColor);
 
-// ==========================================================
-// SECTION 1: ACCOUNT & POSITIONS
-// ==========================================================
-   CreateDashboardPanel(DASH_PREFIX+"SEC_ACC", x, y+56, w, 18, C'28,38,50');
-   CreateDashboardLabel(DASH_PREFIX+"ACC_H", "--- ACCOUNT & POSITIONS ---", tx, y+58, 8, clrAqua);
+   // ==========================================================
+   // SECTION 1: CAPITAL & EQUITY TARGETS
+   // ==========================================================
+   CreateDashboardPanel(DASH_PREFIX+"SEC_ACC", x, y+58, w, 18, C'28,38,50');
+   CreateDashboardLabel(DASH_PREFIX+"ACC_H", "--- CAPITAL & EQUITY TARGETS ---", tx, y+60, 8, clrAqua);
 
-   string balEqStr = StringFormat("BAL / EQ    : $%.2f / $%.2f (%dX)", AccountBalance(), AccountEquity(), balancelomultipler);
-   CreateDashboardLabel(DASH_PREFIX+"BALEQ", balEqStr, tx, y+76, 8, clrWhite);
+   string balEqStr = StringFormat("BALANCE / EQ: $%.2f / $%.2f (%dX)", AccountBalance(), AccountEquity(), balancelomultipler);
+   CreateDashboardLabel(DASH_PREFIX+"BALEQ", balEqStr, tx, y+78, 8, clrWhite);
 
-   string floatStr = StringFormat("FLOAT P/L   : %s$%.2f  (B:%d | S:%d)", (netProfit >= 0 ? "+" : "-"), MathAbs(netProfit), buyOrders, sellOrders);
-   CreateDashboardLabel(DASH_PREFIX+"FLOAT", floatStr, tx, y+92, 8, pnlColor);
+   string tgtEqStr = StringFormat("TARGET EQ   : $%.2f (Hits: %d) | Day: %s$%.2f (%s%.1f%%)", gbltargetEquity, gbltargetEquityCounter, (dayPL >= 0 ? "+" : "-"), MathAbs(dayPL), (dayPL >= 0 ? "+" : ""), dayPLPct);
+   color tgtClr = (gbltargetEquityCounter > 0 || dayPL >= 0) ? clrLime : clrTomato;
+   CreateDashboardLabel(DASH_PREFIX+"TGTEQ", tgtEqStr, tx, y+94, 8, tgtClr);
 
-   string dayPlStr = StringFormat("DAY P/L     : %s$%.2f (%s%.1f%%)", (dayPL >= 0 ? "+" : "-"), MathAbs(dayPL), (dayPL >= 0 ? "+" : ""), dayPLPct);
-   CreateDashboardLabel(DASH_PREFIX+"DAYPL", dayPlStr, tx, y+108, 8, (dayPL >= 0 ? clrLime : clrTomato));
+   string cycleStr = StringFormat("CYCLE / LOCK: %s$%.2f / Next: $%.2f | Lock: $%.2f", (totalCycleProfit >= 0 ? "+" : "-"), MathAbs(totalCycleProfit), emaNextTarget, emaLockedPrf);
+   CreateDashboardLabel(DASH_PREFIX+"LAD_CYCLE", cycleStr, tx, y+110, 8, (totalCycleProfit >= 0 ? clrLime : clrTomato));
 
-   double totLots = GetTotalLots(OP_BUY) + GetTotalLots(OP_SELL);
-   string ordLotsStr = StringFormat("ORDERS/LOTS : %d / %d (%.2fL) B:%.2f S:%.2f", totalOrders, MaxOpenOrders, totLots, GetTotalLots(OP_BUY), GetTotalLots(OP_SELL));
-   CreateDashboardLabel(DASH_PREFIX+"ORDERS", ordLotsStr, tx, y+124, 8, clrWhite);
+   // ==========================================================
+   // SECTION 2: BASKETS & FLOATING P/L ($1x TARGET)
+   // ==========================================================
+   CreateDashboardPanel(DASH_PREFIX+"SEC_BSK", x, y+130, w, 18, C'28,38,50');
+   CreateDashboardLabel(DASH_PREFIX+"BSK_H", "--- BASKETS & FLOATING P/L ($1x TARGET) ---", tx, y+132, 8, clrAqua);
 
-// ==========================================================
-// SECTION 2: TREND & SIGNALS (Requested Metrics)
-// ==========================================================
-   CreateDashboardPanel(DASH_PREFIX+"SEC_SIG", x, y+144, w, 18, C'28,38,50');
-   CreateDashboardLabel(DASH_PREFIX+"SIG_H", "--- TREND & SIGNALS ---", tx, y+146, 8, clrAqua);
+   double targetProfit = InpBasketProfitTargetUSD * (balancelomultipler > 0 ? balancelomultipler : 1);
 
-// 1. globalEMAdirection
+   string buyStatus = (regBuyPL >= targetProfit && regBuyOrders > 0) ? "[READY TO CLOSE]" : StringFormat("[Tgt: >$%.2f]", targetProfit);
+   color buyClr = (regBuyPL >= targetProfit && regBuyOrders > 0) ? clrLime : (regBuyPL > 0 ? clrDeepSkyBlue : (regBuyOrders > 0 ? clrTomato : clrSilver));
+   string buyBskStr = StringFormat("BUY BASKET  : (%d | %.2fL) %s$%.2f  %s", regBuyOrders, regBuyLots, (regBuyPL >= 0 ? "+" : "-"), MathAbs(regBuyPL), buyStatus);
+   CreateDashboardLabel(DASH_PREFIX+"BSK_BUY", buyBskStr, tx, y+150, 8, buyClr);
+
+   string sellStatus = (regSellPL >= targetProfit && regSellOrders > 0) ? "[READY TO CLOSE]" : StringFormat("[Tgt: >$%.2f]", targetProfit);
+   color sellClr = (regSellPL >= targetProfit && regSellOrders > 0) ? clrLime : (regSellPL > 0 ? clrDeepSkyBlue : (regSellOrders > 0 ? clrTomato : clrSilver));
+   string sellBskStr = StringFormat("SELL BASKET : (%d | %.2fL) %s$%.2f  %s", regSellOrders, regSellLots, (regSellPL >= 0 ? "+" : "-"), MathAbs(regSellPL), sellStatus);
+   CreateDashboardLabel(DASH_PREFIX+"BSK_SELL", sellBskStr, tx, y+166, 8, sellClr);
+
+   double netPL = regBuyPL + regSellPL;
+   double totLots = regBuyLots + regSellLots + recLots;
+   string netStr = StringFormat("NET FLOAT   : %s$%.2f | Orders: %d/%d (Lots: %.2fL)", (netPL >= 0 ? "+" : "-"), MathAbs(netPL), totalOrders, MaxOpenOrders, totLots);
+   CreateDashboardLabel(DASH_PREFIX+"FLOAT", netStr, tx, y+182, 8, (netPL >= 0 ? clrLime : clrTomato));
+
+   // ==========================================================
+   // SECTION 3: PENDING & SPECIAL ORDERS
+   // ==========================================================
+   CreateDashboardPanel(DASH_PREFIX+"SEC_SPC", x, y+202, w, 18, C'28,38,50');
+   CreateDashboardLabel(DASH_PREFIX+"SPC_H", "--- PENDING & SPECIAL ORDERS ---", tx, y+204, 8, clrAqua);
+
+   string pendStr = "NONE (Market Active)";
+   color pendClr = clrSilver;
+   if(pendingBuyCount > 0 && pendingSellCount > 0)
+     {
+      pendStr = StringFormat("BUY & SELL STOPS Active ($%.0f Gap)", SSLLongShortPendingGapRaw);
+      pendClr = clrGold;
+     }
+   else if(pendingBuyCount > 0)
+     {
+      pendStr = StringFormat("BUY STOP @ %." + IntegerToString(Digits) + "f ($%.0f Gap)", pendingBuyPrice, SSLLongShortPendingGapRaw);
+      pendClr = clrDeepSkyBlue;
+     }
+   else if(pendingSellCount > 0)
+     {
+      pendStr = StringFormat("SELL STOP @ %." + IntegerToString(Digits) + "f ($%.0f Gap)", pendingSellPrice, SSLLongShortPendingGapRaw);
+      pendClr = clrTomato;
+     }
+   CreateDashboardLabel(DASH_PREFIX+"PEND_SSL", "SSL PENDING : " + pendStr, tx, y+222, 8, pendClr);
+
+   string recStr = "NONE";
+   color recClr = clrSilver;
+   if(recCount > 0)
+     {
+      recStr = StringFormat("#%d (%s %.2fL) %s$%.2f [SL Gap $%.0f]", recTicket, (recType == OP_BUY ? "BUY" : "SELL"), recLots, (recPL >= 0 ? "+" : "-"), MathAbs(recPL), RecoveryStopLossDistanceRaw);
+      recClr = (recPL >= 0 ? clrLime : clrTomato);
+     }
+   CreateDashboardLabel(DASH_PREFIX+"REC_ORD", "RECOVERY    : " + recStr, tx, y+238, 8, recClr);
+
+   string flipStr = "NONE";
+   color flipClr = clrSilver;
+   if(flipCount > 0)
+     {
+      flipStr = StringFormat("#%d (%.2fL) %s$%.2f [Step Trail Active]", flipTicket, flipLots, (flipPL >= 0 ? "+" : "-"), MathAbs(flipPL));
+      flipClr = (flipPL >= 0 ? clrLime : clrGold);
+     }
+   CreateDashboardLabel(DASH_PREFIX+"FLIP_ORD", "FLIP SUPPORT: " + flipStr, tx, y+254, 8, flipClr);
+
+   // ==========================================================
+   // SECTION 4: TREND & SIGNALS
+   // ==========================================================
+   CreateDashboardPanel(DASH_PREFIX+"SEC_SIG", x, y+274, w, 18, C'28,38,50');
+   CreateDashboardLabel(DASH_PREFIX+"SIG_H", "--- TREND & SIGNALS ---", tx, y+276, 8, clrAqua);
+
    string globalEmaStr = "FLAT / NEUTRAL (0)";
-   color  globalEmaClr = clrGold;
+   color globalEmaClr = clrGold;
    if(EMADirection == 1)
      {
       globalEmaStr = "BULLISH / BUY (+1)";
       globalEmaClr = clrLime;
      }
-   else
-      if(EMADirection == -1)
-        {
-         globalEmaStr = "BEARISH / SELL (-1)";
-         globalEmaClr = clrTomato;
-        }
-   CreateDashboardLabel(DASH_PREFIX+"EMA_DIR", "GLOBAL EMA  : " + globalEmaStr, tx, y+164, 8, globalEmaClr);
-
-// 2. EMA Flip Gap & State
+   else if(EMADirection == -1)
+     {
+      globalEmaStr = "BEARISH / SELL (-1)";
+      globalEmaClr = clrTomato;
+     }
    double flipDist = EMAflipdistance();
-   string emaTrendStr = StringFormat("EMA-200 GAP : $%.1f | State: %s", flipDist, emaState);
-   CreateDashboardLabel(DASH_PREFIX+"EMA_GAP", emaTrendStr, tx, y+180, 8, emaColor);
+   string emaTrendStr = StringFormat("GLOBAL EMA  : %s | Gap: $%.1f", globalEmaStr, flipDist);
+   CreateDashboardLabel(DASH_PREFIX+"EMA_DIR", emaTrendStr, tx, y+294, 8, globalEmaClr);
 
-// 3. EMA weak or strong
    bool isEmaWeak = IsEmaWEAKDistanceReduced50PercentFromPeak();
    string emaWeakStrongStr = isEmaWeak ? "WEAK (50% Retraced)" : "STRONG";
+   color emaWeakStrongClr = isEmaWeak ? clrTomato : clrLime;
+   string emaStrText = StringFormat("EMA STRENGTH: %s | Angle: %+.1f deg", emaWeakStrongStr, GlobalEmaAngle30);
+   CreateDashboardLabel(DASH_PREFIX+"EMA_STR", emaStrText, tx, y+310, 8, emaWeakStrongClr);
 
-
-// if(isMOMOrder==true)
-// emaWeakStrongStr=emaWeakStrongStr+" -  MOM Singal";
-
-// if(isMOMOrder==false)
-// emaWeakStrongStr=emaWeakStrongStr+" - NO MOM Singal";
-
-
-
-//emaWeakStrongStr=emaWeakStrongStr+" -  "+MOMorder;
-
-   color  emaWeakStrongClr = isEmaWeak ? clrTomato : clrLime;
-   CreateDashboardLabel(DASH_PREFIX+"EMA_STR", "EMA STRENGTH: " + emaWeakStrongStr, tx, y+196, 8, emaWeakStrongClr);
-
-// 4. ssl signal
    string sslSignalStr = "NONE (0)";
-   color  sslSignalClr = clrSilver;
+   color sslSignalClr = clrSilver;
    if(currentSSLDirection > 0)
      {
-      sslSignalStr = StringFormat("BUY / LONG (+1) | %+.2f deg", GlobalEmaAngle30);
+      sslSignalStr = "BUY / LONG (+1)";
       sslSignalClr = clrDeepSkyBlue;
-      // DeleteOppositePendingOrders(OP_BUY);
-
-
      }
-   else
-      if(currentSSLDirection < 0)
-        {
-         sslSignalStr = StringFormat("SELL / SHORT (-1) | %+.2f deg", GlobalEmaAngle30);
-         sslSignalClr = clrTomato;
+   else if(currentSSLDirection < 0)
+     {
+      sslSignalStr = "SELL / SHORT (-1)";
+      sslSignalClr = clrTomato;
+     }
+   CreateDashboardLabel(DASH_PREFIX+"SSL", "SSL SIGNAL  : " + sslSignalStr, tx, y+326, 8, sslSignalClr);
 
-         // DeleteOppositePendingOrders(OP_SELL);
-
-
-        }
-   CreateDashboardLabel(DASH_PREFIX+"SSL", "SSL SIGNAL  : " + sslSignalStr, tx, y+212, 8, sslSignalClr);
-
-// 5. ACTIVE LINE (Option 2)
-   bool hasRedLine   = IsLsdSweepRedLinePresent();
+   bool hasRedLine = IsLsdSweepRedLinePresent();
    bool hasGreenLine = IsLsdSweepGreenLinePresent();
-   string activeLineStr = "NONE (Scanning)";
-   color  activeLineClr = clrSilver;
-   if(hasRedLine && hasGreenLine)
-     {
-      double rGap = LsdSweepEqhDistance();
-      double gGap = LsdSweepEqlDistance();
-      activeLineStr = StringFormat("BOTH (R-Gap: $%.1f | G-Gap: $%.1f)", rGap, gGap);
-      activeLineClr = clrGold;
-     }
-   else
-      if(hasRedLine)
-        {
-         double rGap = LsdSweepEqhDistance();
-         activeLineStr = StringFormat("RED LINE (Close BUY | Gap: $%.1f)", rGap);
-         activeLineClr = clrTomato;
-        }
-      else
-         if(hasGreenLine)
-           {
-            double gGap = LsdSweepEqlDistance();
-            activeLineStr = StringFormat("GREEN LINE (Close SELL | Gap: $%.1f)", gGap);
-            activeLineClr = clrLime;
-           }
-   CreateDashboardLabel(DASH_PREFIX+"ACT_LINE", "ACTIVE LINE : " + activeLineStr, tx, y+228, 8, activeLineClr);
+   string lsdSigName = (g_rememberedSweepSignal != "" ? g_rememberedSweepSignal : (g_lastSweepType != "" ? g_lastSweepType : "NONE"));
+   color lsdClr = (lsdSigName == "SSLS") ? clrLime : (lsdSigName == "BSLS" ? clrTomato : clrSilver);
+   string lineDesc = hasRedLine ? "RED (Close BUY)" : (hasGreenLine ? "GREEN (Close SELL)" : "Scanning");
+   string lsdSummary = StringFormat("LSD SWEEP   : %s | Line: %s", lsdSigName, lineDesc);
+   CreateDashboardLabel(DASH_PREFIX+"SWEEP_EVT", lsdSummary, tx, y+342, 8, lsdClr);
 
-// 6. SWEEP EVENT (Option 2)
-   string sweepEventStr = "NONE";
-   color  sweepEventClr = clrSilver;
-   if(g_rememberedSweepSignal == "SSLS" || (g_sweepSignalActiveInCurrentEmaFlip && g_sweepSignalTypeInCurrentEmaFlip == "SSLS"))
-     {
-      sweepEventStr = "SSLS (Bottom Swept -> Buy)";
-      sweepEventClr = clrLime;
-     }
-   else
-      if(g_rememberedSweepSignal == "BSLS" || (g_sweepSignalActiveInCurrentEmaFlip && g_sweepSignalTypeInCurrentEmaFlip == "BSLS"))
-        {
-         sweepEventStr = "BSLS (Top Swept -> Sell)";
-         sweepEventClr = clrTomato;
-        }
-      else
-         if(g_lastSweepType != "None" && g_lastSweepType != "")
-           {
-            sweepEventStr = g_lastSweepType + " (Last Detected)";
-            sweepEventClr = (g_lastSweepType == "SSLS") ? clrLime : clrTomato;
-           }
-   CreateDashboardLabel(DASH_PREFIX+"SWEEP_EVT", "SWEEP EVENT : " + sweepEventStr, tx, y+244, 8, sweepEventClr);
+   // ==========================================================
+   // SECTION 5: RISK & SYSTEM GUARDS
+   // ==========================================================
+   CreateDashboardPanel(DASH_PREFIX+"SEC_RSK", x, y+362, w, 18, C'28,38,50');
+   CreateDashboardLabel(DASH_PREFIX+"RSK_H", "--- RISK & SYSTEM GUARDS ---", tx, y+364, 8, clrAqua);
 
-// 7. LSD_SWEEP Lot Sizing
-   int lsdSig = GetLsdSweepSignal();
-   string lsdSigStr = "NONE (0.01L Default)";
-   color  lsdSigClr = clrSilver;
-   if(lsdSig == 1)
-     {
-      lsdSigStr = "BUY (Green) -> Lots " + DoubleToString(InpLsdSweepLotSize, 2);
-      lsdSigClr = clrLime;
-     }
-   else
-      if(lsdSig == -1)
-        {
-         lsdSigStr = "SELL (Red) -> Lots " + DoubleToString(InpLsdSweepLotSize, 2);
-         lsdSigClr = clrTomato;
-        }
-   CreateDashboardLabel(DASH_PREFIX+"LSD_SIG", "LSD LOT SIZ : " + lsdSigStr, tx, y+260, 8, lsdSigClr);
+   string slModStr = StringFormat("SL ANTI-SPAM: Min Mod Gap $%.2f Raw [ACTIVE]", MinimumSLModifyGapRaw);
+   CreateDashboardLabel(DASH_PREFIX+"SL_MOD", slModStr, tx, y+382, 8, clrAqua);
 
-// ==========================================================
-// SECTION 3: EQUITY LADDER & TARGETS
-// ==========================================================
-   CreateDashboardPanel(DASH_PREFIX+"SEC_LAD", x, y+280, w, 18, C'28,38,50');
-   CreateDashboardLabel(DASH_PREFIX+"LAD_H", "--- EQUITY LADDER & TARGETS ---", tx, y+282, 8, clrAqua);
+   string safeCloseStr = "SAFE CLOSE  : SL at Live Price + $50.00 Raw [ACTIVE]";
+   CreateDashboardLabel(DASH_PREFIX+"SAFE_CLOSE", safeCloseStr, tx, y+398, 8, clrAqua);
 
-   string ladStatusStr = TradingHaltedUntilNextFlip ? "HALTED (WAIT FLIP)" : "ACTIVE";
-   color  ladStatusClr = TradingHaltedUntilNextFlip ? clrTomato : clrLime;
-   CreateDashboardLabel(DASH_PREFIX+"LAD_STAT", "LADDER      : " + ladStatusStr + " (Step $" + DoubleToString(FlipLadderStepUSD*balancelomultipler, 0) + ")", tx, y+300, 8, ladStatusClr);
+   string dayRiskStr = StringFormat("DAY STOP/RSK: Stop $%.0f | Floor $%.2f | Room $%.2f [%s]", DailyEquityStopUSD * balancelomultipler, DayProfitLadderProtectionEquity, riskRemaining, (HasBasketNewOrderLossLimit() ? "LOCKED" : "OK"));
+   color dayRiskClr = HasBasketNewOrderLossLimit() ? clrTomato : clrLime;
+   CreateDashboardLabel(DASH_PREFIX+"DAY_STOP", dayRiskStr, tx, y+414, 8, dayRiskClr);
 
-   string cycleStr = StringFormat("CYCLE P/L   : $%.2f / Next: $%.2f" + " Target ("+gbltargetEquityCounter+"):"+DoubleToString(gbltargetEquity,2), totalCycleProfit, emaNextTarget);
-   CreateDashboardLabel(DASH_PREFIX+"LAD_CYCLE", cycleStr, tx, y+316, 8, (totalCycleProfit >= 0 ? clrLime : clrTomato));
-
-   string lockStr = StringFormat("LOCKED PROF : $%.2f | Low Eq: $%.0f", emaLockedPrf, LowestEquity);
-   CreateDashboardLabel(DASH_PREFIX+"LAD_LOCK", lockStr, tx, y+332, 8, (emaLockedPrf > 0 ? clrGold : clrSilver));
-
-
-
-
-// ==========================================================
-// SECTION 4: RISK & PROTECTION
-// ==========================================================
-   CreateDashboardPanel(DASH_PREFIX+"SEC_RSK", x, y+352, w, 18, C'28,38,50');
-   CreateDashboardLabel(DASH_PREFIX+"RSK_H", "--- RISK & PROTECTION ---", tx, y+354, 8, clrAqua);
-
-   string dayStopStr = StringFormat("DAY STOP    : $%.0f | Floor: $%.2f", DailyEquityStopUSD * balancelomultipler, DayProfitLadderProtectionEquity);
-   CreateDashboardLabel(DASH_PREFIX+"DAY_STOP", dayStopStr, tx, y+372, 8, clrTomato);
-
-   string basketStr = StringFormat("BASKET LOCK : $%.0f | Room: $%.2f [%s]", BasketNewOrderLossLimitUSD, riskRemaining, (HasBasketNewOrderLossLimit() ? "LOCKED" : "OK"));
-   CreateDashboardLabel(DASH_PREFIX+"BASKET", basketStr, tx, y+388, 8, (HasBasketNewOrderLossLimit() ? clrTomato : clrLime));
-
-   string slRiskStr = StringFormat("SL LOSSES   : %d | Cooldown: %s", LosingSLCount, (SLProtectionUntil > TimeCurrent() ? TimeToString(SLProtectionUntil, TIME_SECONDS) : "READY"));
-   CreateDashboardLabel(DASH_PREFIX+"SLRISK", slRiskStr, tx, y+404, 8, (LosingSLCount > 0 ? clrGold : clrLime));
-
-   string srvStr = StringFormat("SERVER      : %s", serverText);
-   CreateDashboardLabel(DASH_PREFIX+"SERVER", srvStr, tx, y+420, 8, serverColor);
+   string srvStr = StringFormat("SERVER/CONN : %s", serverText);
+   CreateDashboardLabel(DASH_PREFIX+"SERVER", srvStr, tx, y+430, 8, serverColor);
 
    ChartRedraw(0);
 
@@ -14311,6 +14367,7 @@ bool IsLsdSweepRedLineActive()
 //+------------------------------------------------------------------+
 void ManageLsdSweepLineStopLossProtection()
   {
+   return; // DISABLED: LSD Sweep lines only create new Order FlipBasketSupport, DO NOT modify or close existing orders
    if(!InpEnableSweepLineSLProtection)
       return;
 
