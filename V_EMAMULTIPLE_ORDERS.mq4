@@ -28,7 +28,7 @@
 
 
 //string glbVersion = "V5008  29-09-2026 23.00 Aug 1st to Aug 5th $100 to $1000 equity $500 - Attached Image  balance ST-20 Partialclose, Close orders $1X close-   FlipLadderStepUSD 7 DailyEquityStopUSD 50%  TargetProfitPerFlipUSD 10%";
-string glbVersion = "VMULTI-1021-EQH Orders";
+string glbVersion = "VMULTI-1022-Mixied EMAsafeorders 21 and 20V - EQH Orders";
 
 
 double DailyEquityStopUSD  =1000;//50;//20*2.5;//10;//20;// 10;//30.0; close all orders at $50Xmultipler
@@ -183,12 +183,13 @@ enum ENUM_LSD_SUPPORT_MODE
    LSD_MODE_BOTH             = 3  // Both Methods Active (Adaptive by Price Level)
   };
 
-input ENUM_LSD_SUPPORT_MODE InpLsdSupportMode           = LSD_MODE_BOTH; // LSD Support Order Mode (Method 1, Method 2, or Both)
-input double InpLsdSweepFlipBasketMaxGapRaw             = 100.0;         // Method 1: Max raw gap ($100) above EQH-R / below EQH-G
-input double InpLsdMethod2BounceGapRaw                  = 50.0;          // Method 2: Max raw gap ($50) below EQH-R / above EQH-G
-input double InpLsdBoosterMinLot                        = 0.02;          // Method 1: Booster min lot (0.02)
-input double InpLsdMethod2MinLotBase                    = 0.02;          // Method 2: Base min lot (0.02, scales with multiplier)
-input bool   InpLsdMethod2BuyUsesMultiplier             = false;         // Method 2: Apply multiplier to BUY lot (false=0.02 only, true=0.02Xmultiplier)
+ENUM_LSD_SUPPORT_MODE InpLsdSupportMode           = LSD_MODE_BOTH; // LSD Support Order Mode (Method 1, Method 2, or Both)
+double InpLsdSweepFlipBasketMaxGapRaw             = 100.0;         // Method 1: Max raw gap ($100) above EQH-R / below EQH-G
+double InpLsdMethod2BounceGapRaw                  = 50.0;          // Method 2: Max raw gap ($50) below EQH-R / above EQH-G
+double InpLsdBoosterMinLot                        = 0.02;          // Method 1: Booster min lot (0.02)
+double InpLsdMethod2MinLotBase                    = 0.02;          // Method 2: Base min lot (0.02, scales with multiplier)
+bool   InpLsdMethod2BuyUsesMultiplier             = false;         // Method 2: Apply multiplier to BUY lot (false=0.02 only, true=0.02Xmultiplier)
+bool   InpEnableV1020EmaTrendSupport              = true;          // Mix V1020: Enable EMA Trend-Following FLIP Support orders (Strategy 1)
 
 // Function Prototypes for Liquidity Sweep Detector
 void     UpdateLiquiditySweepDetectorOnChart();
@@ -317,7 +318,7 @@ bool EnableProfitReEntryStop = true;
 double MinimumClosedProfitUSD = -9;
 double ProfitReEntryGapRaw =50;//30;//10;// 25;
 double MinimumSameOrderGapRawReEntry =50;//30;//10;//20;// 50;
-extern double SSLLongShortPendingGapRaw = 20.0; // Raw price gap ($20) for SSL Long / Short pending stop orders
+double SSLLongShortPendingGapRaw = 20.0; // Raw price gap ($20) for SSL Long / Short pending stop orders
 // double MinimumSameOrderGapRawSSLLongShort =50;// 50;
 double MinimumSameOrderGapRawMatched =100;//50;//30;//10;//20;//50;//20;// 50;//SSL long //SSL short
 double MinimumSameOrderGapRawUnmatched =50;//10;//10;//20;// 100;
@@ -339,7 +340,7 @@ bool DeletePendingOrdersAfterLosingSL = false;
 bool RequireFreshSSLAfterLosingSL = false;
 bool ContinueTradingAfterSL = true;
 bool EnableFreezeLevelProtection = true;
-extern double MinimumSLModifyGapRaw = 25.0; // Minimum raw price gap (.0) required between SL modifications to prevent broker spam
+double MinimumSLModifyGapRaw = 25.0; // Minimum raw price gap (.0) required between SL modifications to prevent broker spam
 
 bool EnableProfitLadder1 = true;
 bool EnableProfitLadder2 = true;
@@ -3731,23 +3732,32 @@ void TrackEmaFlip()
       g_flipBasketSupportCreatedInCycle = 0;
       g_weakStateCountPerEmaFlip = 0;
 
-      // [DISABLED AS PER USER REQUEST: Old EMAflipsupportorder logic at flip change commented out]
-      /*
-      // Create FLIP Basket Support order on flip when EMAdistance gap from live price > MinEmaDistance
-      int oType = (currentDirection == 1) ? OP_BUY : OP_SELL;
-      double emaDist = GetDistanceToEMAPrice(oType, true);
-      if(emaDist > FLIPBasketSupportMinEmaDistance)
+      // MIX V1020 + V1021: Create FLIP Basket Support order on EMA flip when gap > MinEmaDistance (Strategy 1)
+      if(InpEnableV1020EmaTrendSupport)
         {
-         int flpTkt = CreateFLIPBasketSupportOrder(currentDirection);
-         if(flpTkt > 0)
-            FLIPBasketSupportOpenedThisCycle = true;
+         int targetSupportType = (currentDirection == 1) ? OP_BUY : OP_SELL;
+         if(!HasOpenFLIPBasketSupportOrder(targetSupportType))
+           {
+            int oType = (currentDirection == 1) ? OP_BUY : OP_SELL;
+            double emaDist = GetDistanceToEMAPrice(oType, true);
+            if(emaDist > FLIPBasketSupportMinEmaDistance)
+              {
+               int flpTkt = CreateFLIPBasketSupportOrder(currentDirection, false, false, "_EMA");
+               if(flpTkt > 0)
+                 {
+                  FLIPBasketSupportOpenedThisCycle = true;
+                  Print(">>> [MIX V1020 Strategy 1: EMA Trend] Order created at flip: Ticket #", flpTkt,
+                        " Direction=", (currentDirection == 1 ? "BUY" : "SELL"),
+                        " EmaDistance=", DoubleToString(emaDist, 2));
+                 }
+              }
+            else
+              {
+               Print("FLIPBasketSupport (MIX V1020 Strategy 1) deferred at flip: EMAdistance gap = ", DoubleToString(emaDist, 2),
+                     " <= ", DoubleToString(FLIPBasketSupportMinEmaDistance, 2), " (Waiting for gap > ", DoubleToString(FLIPBasketSupportMinEmaDistance, 2), ")");
+              }
+           }
         }
-      else
-        {
-         Print("FLIPBasketSupport deferred at flip: EMAdistance gap from live price = ", DoubleToString(emaDist, 2),
-               " <= ", DoubleToString(FLIPBasketSupportMinEmaDistance, 2), " (Waiting for EMAdistance gap > ", DoubleToString(FLIPBasketSupportMinEmaDistance, 2), ")");
-        }
-      */
 
 
       // CloseOppositeLosingOrdersBeforeSignal(currentDirection); // Close any losing orders from the previous trend
@@ -3816,25 +3826,26 @@ void TrackEmaFlip()
          CloseFLIPBasketSupportOrders(OP_BUY, false);
         }
 
-// [DISABLED AS PER USER REQUEST: Old EMAflipsupportorder logic deferred during cycle commented out]
-/*
-// Check if FLIPBasketSupport order can be created (requires no active support order, EMA distance gap > MinEmaDistance, and not already opened this cycle)
-   if(currentDirection != 0 && !FLIPBasketSupportOpenedThisCycle && !HasOpenFLIPBasketSupportOrder(-1))
+   // MIX V1020 + V1021: Deferred check during cycle when EMAdistance gap > MinEmaDistance (Strategy 1)
+   if(InpEnableV1020EmaTrendSupport && currentDirection != 0 && !FLIPBasketSupportOpenedThisCycle)
      {
-      int oType = (currentDirection == 1) ? OP_BUY : OP_SELL;
-      double emaDist = GetDistanceToEMAPrice(oType, true);
-      if(emaDist > FLIPBasketSupportMinEmaDistance)
+      int targetSupportType = (currentDirection == 1) ? OP_BUY : OP_SELL;
+      if(!HasOpenFLIPBasketSupportOrder(targetSupportType))
         {
-         int flpTkt = CreateFLIPBasketSupportOrder(currentDirection);
-         if(flpTkt > 0)
+         int oType = (currentDirection == 1) ? OP_BUY : OP_SELL;
+         double emaDist = GetDistanceToEMAPrice(oType, true);
+         if(emaDist > FLIPBasketSupportMinEmaDistance)
            {
-            FLIPBasketSupportOpenedThisCycle = true;
-            Print("FLIPBasketSupport order created on EMAdistance gap > ", DoubleToString(FLIPBasketSupportMinEmaDistance, 2),
-                  ": Ticket #", flpTkt, " EmaDistance=", DoubleToString(emaDist, 2), " for Direction=", currentDirection);
+            int flpTkt = CreateFLIPBasketSupportOrder(currentDirection, false, false, "_EMA");
+            if(flpTkt > 0)
+              {
+               FLIPBasketSupportOpenedThisCycle = true;
+               Print(">>> [MIX V1020 Strategy 1: EMA Trend] Order created during cycle on EMAdistance gap > ", DoubleToString(FLIPBasketSupportMinEmaDistance, 2),
+                     ": Ticket #", flpTkt, " EmaDistance=", DoubleToString(emaDist, 2), " Direction=", (currentDirection == 1 ? "BUY" : "SELL"));
+              }
            }
         }
      }
-*/
 
    LastTrackedEmaDirection = currentDirection;
   }
