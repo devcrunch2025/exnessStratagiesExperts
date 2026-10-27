@@ -1,4 +1,4 @@
-﻿//+------------------------------------------------------------------+
+//+------------------------------------------------------------------+
 //|                  SSL CHANNEL CROSS EA - CONTINUOUS EQUITY LADDER |
 //|                  TWO-STAGE PROFIT LADDER | CONTINUOUS RESET      |
 //+------------------------------------------------------------------+
@@ -28,7 +28,7 @@
 
 
 //string glbVersion = "V5008  29-09-2026 23.00 Aug 1st to Aug 5th $100 to $1000 equity $500 - Attached Image  balance ST-20 Partialclose, Close orders $1X close-   FlipLadderStepUSD 7 DailyEquityStopUSD 50%  TargetProfitPerFlipUSD 10%";
-string glbVersion = "VMULTI-1024 - Recovery Type 2 (LSD) + Type 3 (Weak EMA Reversal)";
+string glbVersion = "VMULTI-1026 - Type 3 Recovery Disabled (Type 2 LSD Active) + Dual-File Log Analysis";
 
 
 double DailyEquityStopUSD  =1000;//50;//20*2.5;//10;//20;// 10;//30.0; close all orders at $50Xmultipler
@@ -203,8 +203,14 @@ double InpLsdRecoveryTakeProfitRaw          = 500.0; // TakeProfit raw points ($
 int    InpLsdRecoveryMaxActiveOrders        = 1;     // Max simultaneous active Type 2 Recovery orders (default 1)
 
 // ===== WEAK EMA REVERSAL RECOVERY (TYPE 3) SETTINGS =====
-bool   InpEnableType3Recovery               = true;  // Enable Weak EMA Reversal Recovery (Type 3)
-int    InpType3MaxElapsedMinutes            = 30;    // Max elapsed minutes (< 30) after EMA flip time
+bool   InpEnableType3Recovery               = false; // Disabled by user request (Weak EMA Reversal Recovery)
+int    InpType3MaxElapsedMinutes            = 240;   // Max elapsed minutes after EMA flip (240 min = 4 hours, 0 = unlimited)
+bool   InpType3EnableDynamicTimeLadder      = true;  // Enable dynamic EMA distance step ladder based on elapsed hours
+double InpType3GapHour1                     = 100.0; // Step 1 - Hour 1 (<= 60 min): Min raw gap ($100) from live price to EMA
+double InpType3GapHour2                     = 200.0; // Step 2 - Hour 2 (60 - 120 min): Min raw gap ($200) from live price to EMA
+double InpType3GapHour3                     = 300.0; // Step 3 - Hour 3 (120 - 180 min): Min raw gap ($300) from live price to EMA
+double InpType3GapHour4                     = 500.0; // Step 4 - Hour 4 (180 - 240 min): Min raw gap ($500) from live price to EMA
+double InpType3GapHour5Plus                 = 700.0; // Step 5 - Hour 5+ (> 240 min): Min raw gap ($700) from live price to EMA
 double InpType3MinAdverseGap                = 200.0; // Min adverse distance ($200 raw) from parent entry (Mode 1 trigger)
 double InpType3MinEmaDistanceRaw            = 100.0; // Min raw distance ($100 raw gap) between live price and EMA
 double InpType3TriggerLossUSD               = 2.0;   // Min loss in USD (>$2.00) on parent order (Mode 1 trigger)
@@ -214,11 +220,21 @@ double InpType3StopLossRaw                  = 300.0; // StopLoss raw points ($30
 double InpType3TakeProfitRaw                = 500.0; // TakeProfit raw points ($500) for Type 3 Recovery order
 int    InpType3MaxActiveOrders              = 1;     // Max simultaneous active Type 3 Recovery orders (default 1)
 
+// ===== TESTER / LIVE ORDER LOGGER SETTINGS =====
+bool   InpEnableOrderLogger                 = true;                    // Enable detailed CSV & Log file order reporting
+string InpTesterLogFileName                 = "Tester_Order_Analysis.csv";  // Strategy Tester CSV log filename
+string InpTesterSummaryFileName             = "Tester_Summary_Analysis.txt";// Strategy Tester TXT summary filename
+string InpLiveLogFileName                   = "Live_Order_Analysis.csv";    // Live Trading CSV log filename
+string InpLiveSummaryFileName               = "Live_Summary_Analysis.txt";  // Live Trading TXT summary filename
+
+bool   InpLogToCommonFolder                 = true;                    // Also write to Common\Files folder (accessible outside tester)
+
 // Function Prototypes for Liquidity Sweep Detector
 void     UpdateLiquiditySweepDetectorOnChart();
 void     DeleteLiquiditySweepObjects();
 void     ManageSweepGlobalVariables(string signalType);
 void     ClearSweepGlobalVariables();
+
 datetime GetActualEmaFlipTime(int targetType = 0);
 double   GetEmaFlipPrice();
 double   EMAflipdistance(int orderType = -1);
@@ -252,6 +268,7 @@ bool     IsLsdSweepRedLineActive();
 // void     ManageLsdSweepLineStopLossProtection();
 void     UpdateOrderCacheIfNeeded();
 void     InvalidateOrderCache();
+
 
 // ===== CUSTOM USER RULES SETTINGS =====
 bool   InpEnableCustomRules      = true;
@@ -2021,7 +2038,25 @@ bool IsRecoveryOrderWithActiveParent(int ticket, string comment = """");
 void CheckLsdStructuralRecoveryOrders();
 int  CountActiveLsdRecoveryOrders();
 void CheckType3WeakEmaRecoveryOrders();
-int  CountActiveType3RecoveryOrders();
+int    CountActiveType3RecoveryOrders();
+double GetType3RequiredEmaDistance(int elapsedMinutes);
+
+// Tester / Live Order Logger Prototypes
+void   InitTesterOrderLogger();
+void   ProcessOrderLoggerTick();
+void   RecordOrderCloseReason(int ticket, string reason);
+string GetOrderCloseReason(int ticket);
+void   LogClosedOrderRecord(int ticket);
+void   GenerateTesterSummaryReport();
+string CategorizeOrderStrategy(int ticket, string comment);
+string DetermineOrderCloseReason(int ticket, string comment, double openPrice, double closePrice, double sl, double tp, double netProfit, string strategy);
+void   WriteReportLineToFile(string fileName, string lineText, bool appendMode);
+string SanitizeCsvField(string text);
+void   RecordBasketOutcome(int parentTicket, int recoveryTicket, double netProfit);
+bool   IsTicketRescuedInProfitableBasket(int ticket, double &outBasketNetProfit, int &outRecoveryTicket);
+string GetActiveLogFileName();
+string GetActiveSummaryFileName();
+string ExplainLossReasonWithinTick(int ticket, double netProfit, string exitReason, double openPrice, double closePrice, double sl, double tp, string strategy, string comment);
 
 //+------------------------------------------------------------------+
 //| Preserved Comment Mapping Registry for Partial Closes            |
@@ -3997,6 +4032,7 @@ int OnInit()
 
    EquityResetReEntryPending=false;
 
+
    EmaFlipTime = TimeCurrent();
 
    for(int initIndex = OrdersTotal() - 1; initIndex >= 0; initIndex--)
@@ -4061,6 +4097,7 @@ int OnInit()
    InitializeDayProfitLadder();
    LoadReEntryCounter();
    EquityResetReEntryPending=false;
+   InitTesterOrderLogger();
 
    return INIT_SUCCEEDED;
   }
@@ -4100,6 +4137,7 @@ void OnDeinit(const int reason)
    ClearEMALineObjects();
    DeleteLiquiditySweepObjects();
    ClearSweepGlobalVariables();
+   GenerateTesterSummaryReport();
   }
 
 int StartupProtectionTicks = 0;
@@ -4238,6 +4276,7 @@ void OnTick()
 
    CurrentTickSequence++;
    InvalidateOrderCache();
+
 
    profitAfterFlip = GetProfitAfterLastEmaFlip();
 
@@ -4404,7 +4443,7 @@ void OnTick()
       PendingVShapeSellTime = 0;
      }
 
-
+   ProcessOrderLoggerTick();
 
   }
 //+------------------------------------------------------------------+
@@ -8145,6 +8184,7 @@ void CloseAllOpenBuyOrders(string reason = "")
       // Protect recovery orders: never close recovery orders via regular basket close
       if(IsAnyRecoveryOrder(tkt))
          continue;
+      RecordOrderCloseReason(tkt, (reason != "" ? reason : "BASKET_PROFIT_CLOSE"));
       SafeOrderClose(tkt, lts, OP_BUY, Slippage, clrRed);
      }
 
@@ -8217,6 +8257,7 @@ void CloseAllOpenSellOrders(string reason = "")
       // Protect recovery orders: never close recovery orders via regular basket close
       if(IsAnyRecoveryOrder(tkt))
          continue;
+      RecordOrderCloseReason(tkt, (reason != "" ? reason : "BASKET_PROFIT_CLOSE"));
       SafeOrderClose(tkt, lts, OP_SELL, Slippage, clrBlue);
      }
 
@@ -9715,6 +9756,9 @@ void ManageRecoveryBasket()
 
       if(basketProfit >= targetProfit)
         {
+         RecordOrderCloseReason(recoveryTicket, "RECOVERY_BASKET_PROFIT");
+         RecordOrderCloseReason(parentTicket, "RECOVERY_BASKET_PARENT_SACRIFICE");
+         RecordBasketOutcome(parentTicket, recoveryTicket, basketProfit);
          SafeOrderClose(recoveryTicket, recoveryLots, recoveryType, Slippage, (recoveryType == OP_BUY ? clrRed : clrBlue));
          SafeOrderClose(parentTicket, parentLots, parentType, Slippage, (parentType == OP_BUY ? clrRed : clrBlue));
          Print(">>> [RECOVERY BASKET CLOSED] ", (StringFind(comment, "_LSD") >= 0 ? "Type 2 Structural" : ((StringFind(comment, "_TYPE3") >= 0) ? "Type 3 Weak EMA" : "Type 1")),
@@ -9955,6 +9999,29 @@ int CountActiveType3RecoveryOrders()
   }
 
 //+------------------------------------------------------------------+
+//+------------------------------------------------------------------+
+//| GetType3RequiredEmaDistance: Dynamic Time-Ladder for EMA gap     |
+//| Hour 1 (<=60m): $100, Hour 2 (<=120m): $200, Hour 3 (<=180m): $300|
+//| Hour 4 (<=240m): $500, Hour 5+ (>240m): $700+                    |
+//+------------------------------------------------------------------+
+double GetType3RequiredEmaDistance(int elapsedMinutes)
+  {
+   if(!InpType3EnableDynamicTimeLadder)
+      return (InpType3MinEmaDistanceRaw > 0.0 ? InpType3MinEmaDistanceRaw : 100.0);
+
+   if(elapsedMinutes <= 60)
+      return InpType3GapHour1;
+   else if(elapsedMinutes <= 120)
+      return InpType3GapHour2;
+   else if(elapsedMinutes <= 180)
+      return InpType3GapHour3;
+   else if(elapsedMinutes <= 240)
+      return InpType3GapHour4;
+   else
+      return InpType3GapHour5Plus;
+  }
+
+//+------------------------------------------------------------------+
 //| CheckType3WeakEmaRecoveryOrders: Weak EMA Reversal Recovery      |
 //| (Type 3 - Mode 1 Fade/Reversal). Opens counter-trend recovery    |
 //| order when EMA is WEAK within 30 min of EMA flip time, fading    |
@@ -9981,15 +10048,17 @@ void CheckType3WeakEmaRecoveryOrders()
       return;
 
    int elapsedSeconds = (int)(TimeCurrent() - flipTime);
-   int maxAllowedSeconds = (InpType3MaxElapsedMinutes > 0 ? InpType3MaxElapsedMinutes : 30) * 60;
-   if(elapsedSeconds < 0 || elapsedSeconds > maxAllowedSeconds)
+   int elapsedMinutes = elapsedSeconds / 60;
+   int maxAllowedMinutes = (InpType3MaxElapsedMinutes > 0 ? InpType3MaxElapsedMinutes : 240);
+   if(elapsedSeconds < 0 || (InpType3MaxElapsedMinutes > 0 && elapsedMinutes > maxAllowedMinutes))
       return;
 
    RefreshRates();
 
-   double minAdvGap  = (InpType3MinAdverseGap > 0.0)  ? InpType3MinAdverseGap  : 200.0;
-   double minLossUSD = (InpType3TriggerLossUSD > 0.0) ? InpType3TriggerLossUSD : 2.0;
-   double minEmaDist = (InpType3MinEmaDistanceRaw > 0.0) ? InpType3MinEmaDistanceRaw : 100.0;
+   double minAdvGap       = (InpType3MinAdverseGap > 0.0)      ? InpType3MinAdverseGap      : 200.0;
+   double minLossUSD      = (InpType3TriggerLossUSD > 0.0)     ? InpType3TriggerLossUSD     : 2.0;
+   double requiredEmaDist = GetType3RequiredEmaDistance(elapsedMinutes);
+   int    stepHour        = (elapsedMinutes / 60) + 1;
 
    for(int i = OrdersTotal() - 1; i >= 0; i--)
      {
@@ -10030,7 +10099,7 @@ void CheckType3WeakEmaRecoveryOrders()
 
          // Check Minimum EMAdistance ($100 raw gap between live price and EMA)
          double emaDist = GetDistanceToEMAPrice(OP_SELL, true);
-         if(emaDist < minEmaDist)
+         if(emaDist < requiredEmaDist)
             continue;
 
          bool lossTriggered = (currentProfitUSD <= -MathAbs(minLossUSD));
@@ -10056,10 +10125,10 @@ void CheckType3WeakEmaRecoveryOrders()
                Print(">>> [WEAK EMA RECOVERY (Type 3 Mode 1)] Created SELL Recovery #", recTicket,
                      " Lots=", DoubleToString(recLots, 2), " (Parent SELL #", parentTicket, " Open=", DoubleToString(parentOpen, Digits),
                      ") Bid=", DoubleToString(livePrice, Digits),
-                     " EmaDist=$", DoubleToString(emaDist, 2), " (>= $", DoubleToString(minEmaDist, 2), ")",
+                     " | Step (Hour ", stepHour, "): EmaDist=$", DoubleToString(emaDist, 2), " >= Req=$", DoubleToString(requiredEmaDist, 2),
                      " AdverseGap=$", DoubleToString(adverseDistance, 2),
                      " Loss=$", DoubleToString(currentProfitUSD, 2),
-                     " Elapsed=", elapsedSeconds / 60, "m/30m | TriggeredBy: ",
+                     " (Elapsed=", elapsedMinutes, "m/", InpType3MaxElapsedMinutes, "m) | TriggeredBy: ",
                      (lossTriggered && gapTriggered ? "Loss & Gap" : (lossTriggered ? "Loss" : "Gap")));
                break; // 1 order created per check cycle
               }
@@ -10077,7 +10146,7 @@ void CheckType3WeakEmaRecoveryOrders()
 
          // Check Minimum EMAdistance ($100 raw gap between live price and EMA)
          double emaDist = GetDistanceToEMAPrice(OP_BUY, true);
-         if(emaDist < minEmaDist)
+         if(emaDist < requiredEmaDist)
             continue;
 
          bool lossTriggered = (currentProfitUSD <= -MathAbs(minLossUSD));
@@ -10103,10 +10172,10 @@ void CheckType3WeakEmaRecoveryOrders()
                Print(">>> [WEAK EMA RECOVERY (Type 3 Mode 1)] Created BUY Recovery #", recTicket,
                      " Lots=", DoubleToString(recLots, 2), " (Parent BUY #", parentTicket, " Open=", DoubleToString(parentOpen, Digits),
                      ") Ask=", DoubleToString(livePrice, Digits),
-                     " EmaDist=$", DoubleToString(emaDist, 2), " (>= $", DoubleToString(minEmaDist, 2), ")",
+                     " | Step (Hour ", stepHour, "): EmaDist=$", DoubleToString(emaDist, 2), " >= Req=$", DoubleToString(requiredEmaDist, 2),
                      " AdverseGap=$", DoubleToString(adverseDistance, 2),
                      " Loss=$", DoubleToString(currentProfitUSD, 2),
-                     " Elapsed=", elapsedSeconds / 60, "m/30m | TriggeredBy: ",
+                     " (Elapsed=", elapsedMinutes, "m/", InpType3MaxElapsedMinutes, "m) | TriggeredBy: ",
                      (lossTriggered && gapTriggered ? "Loss & Gap" : (lossTriggered ? "Loss" : "Gap")));
                break; // 1 order created per check cycle
               }
@@ -10594,6 +10663,7 @@ void ManageDayProfitLadder()
       for(int dpl_i=0; dpl_i<MAX_DEFERRED_ORDERS; dpl_i++)
          DeferredActive[dpl_i]=false;
       EquityResetReEntryPending=false;
+
       ReEntryRetryPending=false;
      }
   }
@@ -15880,3 +15950,5 @@ void UpdateLiquiditySweepDetectorOnChart()
         }
   }
 //+------------------------------------------------------------------+
+
+#include "logger_engine.mqh"
