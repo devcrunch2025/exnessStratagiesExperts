@@ -1,4 +1,4 @@
-//+------------------------------------------------------------------+
+﻿//+------------------------------------------------------------------+
 //| TESTER & LIVE ORDER LOGGER ENGINE                                |
 //| High-Performance, Zero-Lag Trade Analysis Engine                |
 //| Generates independent Live & Testing logs with loss explanations |
@@ -394,7 +394,7 @@ void InitTesterOrderLogger()
    string csvFileName     = GetActiveLogFileName();
    string summaryFileName = GetActiveSummaryFileName();
 
-   string csvHeader = "Ticket,ParentTicket,Symbol,Type,Lots,OpenTime,OpenPrice,CloseTime,ClosePrice,DurationMin,NetProfitUSD,CumulativeAccountNetUSD,ClosingFunction,FunctionCumulativeNetUSD,Outcome,MethodName,ExitReason,LossReasonWithinTick,WasLossInBasketNetWin,StopLoss,TakeProfit,OpenEmaDist,CloseEmaDist,EmaDirClose,EmaFlipElapsedMin,OrderComment";
+   string csvHeader = "Ticket,ParentTicket,Symbol,Type,Lots,OpenTime,OpenPrice,CloseTime,ClosePrice,DurationMin,NetProfitUSD,CumulativeAccountNetUSD,ClosingFunction,FunctionCumulativeNetUSD,Outcome,MethodName,ExitReason,LossReasonWithinTick,WasLossInBasketNetWin,StopLoss,TakeProfit,OpenEmaDist,CloseEmaDist,EmaDirClose,EmaFlipElapsedMin,OrderComment,OscillationRangeUSD,OscillationRegime";
 
    // If testing, reset CSV and summary header
    if(IsTesting())
@@ -604,7 +604,11 @@ void LogClosedOrderRecord(int ticket)
      }
 
    // CSV Columns: Ticket,ParentTicket,Symbol,Type,Lots,OpenTime,OpenPrice,CloseTime,ClosePrice,DurationMin,NetProfitUSD,CumulativeAccountNetUSD,ClosingFunction,FunctionCumulativeNetUSD,Outcome,MethodName,ExitReason,LossReasonWithinTick,WasLossInBasketNetWin,StopLoss,TakeProfit,OpenEmaDist,CloseEmaDist,EmaDirClose,EmaFlipElapsedMin,OrderComment
-   string csvLine = StringFormat("%d,%d,%s,%s,%.2f,%s,%.2f,%s,%.2f,%.1f,%.2f,%.2f,%s,%.2f,%s,%s,%s,%s,%s,%.2f,%.2f,%.1f,%.1f,%d,%d,%s",
+      double rH = 0.0, rL = 0.0, rPos = 50.0;
+   double rWidth = GetCurrentOscillationRange(rH, rL, rPos);
+   string regimeStr = GetOscillationRegimeName(rWidth);
+
+   string csvLine = StringFormat("%d,%d,%s,%s,%.2f,%s,%.2f,%s,%.2f,%.1f,%.2f,%.2f,%s,%.2f,%s,%s,%s,%s,%s,%.2f,%.2f,%.1f,%.1f,%d,%d,%s,%.2f,%s",
                                  ticket, parentTicket, symbol, typeStr, lots,
                                  TimeToString(openTime, TIME_DATE|TIME_SECONDS), openPrice,
                                  TimeToString(closeTime, TIME_DATE|TIME_SECONDS), closePrice,
@@ -614,7 +618,7 @@ void LogClosedOrderRecord(int ticket)
                                  SanitizeCsvField(reason), SanitizeCsvField(lossExplanation),
                                  (wasRescuedInBasket ? "YES" : "NO"),
                                  sl, tp, openEmaDist, closeEmaDist, closeEmaDir, flipElapsedMin,
-                                 SanitizeCsvField(rawComment));
+                                 SanitizeCsvField(rawComment), rWidth, regimeStr);
 
    WriteReportLineToFile(GetActiveLogFileName(), csvLine, true);
 
@@ -768,6 +772,15 @@ void GenerateTesterSummaryReport()
                                          stratNames[s], stratTotal[s], stratWins[s], sWinRate, stratLosses[s],
                                          (stratNet[s] >= 0 ? "+" : "-"), MathAbs(stratNet[s])), true);
      }
+   WriteReportLineToFile(summaryFileName, subSep, true);
+
+      WriteReportLineToFile(summaryFileName, ">>> OSCILLATION ENGINE & BOUNDARY ASYMMETRY METRICS:", true);
+   double rCurH = 0.0, rCurL = 0.0, rCurPos = 50.0;
+   double curRange = GetCurrentOscillationRange(rCurH, rCurL, rCurPos);
+   string curRegime = GetOscillationRegimeName(curRange);
+   WriteReportLineToFile(summaryFileName, StringFormat("Final Oscillation Range : $%.2f USD [%s] (RelPos: %.1f%%)", curRange, curRegime, rCurPos), true);
+   WriteReportLineToFile(summaryFileName, StringFormat("Blocked Counter BUYs    : %d (Upper Ceiling / Bearish Breakout Gate)", g_oscillationBlockedBuys), true);
+   WriteReportLineToFile(summaryFileName, StringFormat("Blocked Counter SELLs   : %d (Lower Floor / Bullish Breakout Gate)", g_oscillationBlockedSells), true);
    WriteReportLineToFile(summaryFileName, subSep, true);
 
    WriteReportLineToFile(summaryFileName, ">>> WHY ORDERS LOST / EXITED (LOSS & EXIT TRIGGER ANALYSIS):", true);

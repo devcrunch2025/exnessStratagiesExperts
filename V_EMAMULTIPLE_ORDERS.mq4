@@ -28,7 +28,7 @@
 
 
 //string glbVersion = "V5008  29-09-2026 23.00 Aug 1st to Aug 5th $100 to $1000 equity $500 - Attached Image  balance ST-20 Partialclose, Close orders $1X close-   FlipLadderStepUSD 7 DailyEquityStopUSD 50%  TargetProfitPerFlipUSD 10%";
-string glbVersion = "VMULTI-1029 - Aging Reversal Gap Reduction (30m 50% Boost)";
+string glbVersion = "VMULTI-1031 - Dynamic 500-2000 Oscillation & Momentum Engine";
 
 
 double DailyEquityStopUSD  =1000;//50;//20*2.5;//10;//20;// 10;//30.0; close all orders at $50Xmultipler
@@ -249,6 +249,28 @@ bool   InpEnableAgingGapReduction          = true;  // Enable gap reduction for 
 int    InpAgingGapElapsedMinutes           = 30;    // Minutes since latest order to trigger reduction (30 min)
 double InpAgingGapReductionMultiplier      = 0.5;   // Gap reduction multiplier (0.5 = half base order gap)
 bool   InpAgingGapRequireTrendConfirmation = true;  // Only reduce gap when SSL/Price confirms momentum in trade direction
+
+// ===== 500 TO 2000 DYNAMIC OSCILLATION & MOMENTUM ENGINE =====
+bool   InpEnableOscillationEngine          = true;   // Enable Dynamic 500-2000 Oscillation & Momentum Engine
+int    InpOscillationLookbackBars          = 720;    // Rolling lookback bars for range detection (720 M1 = 12h)
+double InpOscillationTightThreshold        = 800.0;  // Upper bound for Tight Compression regime ()
+double InpOscillationStandardThreshold     = 1500.0; // Upper bound for Standard Oscillation regime (,500)
+double InpOscillationMacroThreshold        = 2200.0; // Upper bound for Macro Oscillation regime (,200)
+
+// Boundary Asymmetry Filter (The 35/65 Rule)
+bool   InpEnableBoundaryAsymmetryFilter    = true;   // Restrict BUYs at ceiling and SELLs at floor inside oscillation
+double InpBoundaryCeilingPercent           = 65.0;   // Above 65% of box: SELL bias only (block new BUYs)
+double InpBoundaryFloorPercent             = 35.0;   // Below 35% of box: BUY bias only (block new SELLs)
+
+// Adaptive Grid Gap Scaling (R / 8)
+bool   InpEnableAdaptiveGridGap            = true;   // Dynamically scale base order gap to range width (R / 8)
+double InpAdaptiveGridGapMin               = 40.0;   // Minimum adaptive order gap ( in tight ranges)
+double InpAdaptiveGridGapMax               = 200.0;  // Maximum adaptive order gap ( in wide ranges)
+
+// Dynamic Basket Profit Harvest
+double InpTightRangeTargetUSD              = 1.0;    // Basket profit target in tight compression (.00)
+double InpStandardRangeTargetUSD           = 2.0;    // Basket profit target in standard oscillation (.00)
+double InpMacroRangeTargetUSD              = 3.5;    // Basket profit target in macro oscillation (.50)
 
 // ===== TESTER / LIVE ORDER LOGGER SETTINGS =====
 bool   InpEnableOrderLogger                 = true;                    // Enable detailed CSV & Log file order reporting
@@ -2077,6 +2099,10 @@ void   RegisterParentRecoveryAttempt(int parentTicket);
 int    GetParentRecoveryAttemptCount(int parentTicket);
 bool   HasParentExhaustedRecoveryAttempts(int parentTicket);
 datetime GetNewestOpenOrderTime(int orderType);
+double GetCurrentOscillationRange(double &outHigh, double &outLow, double &outRelPos);
+string GetOscillationRegimeName(double rangeWidth);
+double GetDynamicBasketProfitTarget();
+bool   PassesOscillationBoundaryFilter(int orderType);
 
 // Tester / Live Order Logger Prototypes
 void   InitTesterOrderLogger();
@@ -3382,7 +3408,17 @@ bool PassesEMAFilter(int orderType)
       return false;
    RefreshRates();
    double price = (shift == 0) ? ((orderType == OP_BUY) ? Ask : Bid) : Close[shift];
-   return (orderType == OP_BUY) ? (price > ema) : (price < ema);
+      bool passesEma = (orderType == OP_BUY) ? (price > ema) : (price < ema);
+   if(!passesEma)
+      return false;
+
+   if(InpEnableOscillationEngine && InpEnableBoundaryAsymmetryFilter)
+     {
+      if(!PassesOscillationBoundaryFilter(orderType))
+         return false;
+     }
+
+   return true;
   }
 
 //+------------------------------------------------------------------+
@@ -8325,7 +8361,7 @@ void CheckBasketProfitClose()
    if(!EAStartupComplete)
       return;
 
-   double targetProfit = InpBasketProfitTargetUSD * (balancelomultipler > 0 ? balancelomultipler : 1);
+   double targetProfit = GetDynamicBasketProfitTarget() * (balancelomultipler > 0 ? balancelomultipler : 1);
 
    double buyPL = 0.0;
    double sellPL = 0.0;
@@ -8800,6 +8836,202 @@ void ModifyOpenOrdersToSecureProfitOLD()
 //|                                                                  |
 //+------------------------------------------------------------------+
 //+------------------------------------------------------------------+
+// Global tracking counters for oscillation boundary filter
+int g_oscillationBlockedBuys  = 0;
+int g_oscillationBlockedSells = 0;
+
+//+------------------------------------------------------------------+
+//| GetCurrentOscillationRange: Measures active range High, Low, & R |
+//+------------------------------------------------------------------+
+double GetCurrentOscillationRange(double &outHigh, double &outLow, double &outRelPos)
+  {
+   outHigh   = 0.0;
+   outLow    = 0.0;
+   outRelPos = 50.0;
+
+   int lookback = (InpOscillationLookbackBars > 0) ? InpOscillationLookbackBars : 720;
+   if(lookback >= Bars)
+      lookback = Bars - 1;
+   if(lookback < 10)
+      return 0.0;
+
+   int hIdx = iHighest(Symbol(), Period(), MODE_HIGH, lookback, 1);
+   int lIdx = iLowest(Symbol(), Period(), MODE_LOW, lookback, 1);
+   if(hIdx < 0 || lIdx < 0)
+      return 0.0;
+
+   double rHigh = High[hIdx];
+   double rLow  = Low[lIdx];
+
+   // Also incorporate confirmed LSD structural levels if active
+   double eqh = GetEQR_R_Price(true);
+   if(eqh <= 0.0) eqh = GetEQR_R_Price(false);
+   double eql = GetEQR_G_Price(true);
+   if(eql <= 0.0) eql = GetEQR_G_Price(false);
+
+   if(eqh > 0.0 && eqh > rHigh * 0.95 && eqh < rHigh * 1.05)
+      rHigh = MathMax(rHigh, eqh);
+   if(eql > 0.0 && eql > rLow * 0.95 && eql < rLow * 1.05)
+      rLow = MathMin(rLow, eql);
+
+   double rangeWidth = rHigh - rLow;
+   outHigh = rHigh;
+   outLow  = rLow;
+
+   RefreshRates();
+   double livePrice = (Bid + Ask) / 2.0;
+   if(rangeWidth > 0.0)
+     {
+      outRelPos = ((livePrice - rLow) / rangeWidth) * 100.0;
+     }
+
+   return rangeWidth;
+  }
+
+//+------------------------------------------------------------------+
+//| GetOscillationRegimeName: Classifies market oscillation regime   |
+//+------------------------------------------------------------------+
+string GetOscillationRegimeName(double rangeWidth)
+  {
+   if(rangeWidth <= 0.0)
+      return "UNKNOWN";
+   if(rangeWidth <= InpOscillationTightThreshold)
+      return "TIGHT_COMPRESSION";
+   if(rangeWidth <= InpOscillationStandardThreshold)
+      return "STANDARD_OSCILLATION";
+   if(rangeWidth <= InpOscillationMacroThreshold)
+      return "MACRO_OSCILLATION";
+   return "MOMENTUM_BREAKOUT";
+  }
+
+//+------------------------------------------------------------------+
+//| GetDynamicBasketProfitTarget: Returns dynamic target in USD     |
+//+------------------------------------------------------------------+
+double GetDynamicBasketProfitTarget()
+  {
+   if(!InpEnableOscillationEngine)
+      return InpBasketProfitTargetUSD;
+
+   double rH = 0.0, rL = 0.0, rPos = 50.0;
+   double rW = GetCurrentOscillationRange(rH, rL, rPos);
+   if(rW <= 0.0)
+      return InpBasketProfitTargetUSD;
+
+   if(rW <= InpOscillationTightThreshold)
+      return InpTightRangeTargetUSD;
+   else if(rW <= InpOscillationStandardThreshold)
+      return InpStandardRangeTargetUSD;
+   else
+      return InpMacroRangeTargetUSD;
+  }
+
+//+------------------------------------------------------------------+
+//| PassesOscillationBoundaryFilter: Boundary 35/65 Asymmetry Gate   |
+//+------------------------------------------------------------------+
+bool PassesOscillationBoundaryFilter(int orderType)
+  {
+   if(!InpEnableOscillationEngine || !InpEnableBoundaryAsymmetryFilter)
+      return true;
+
+   double rHigh = 0.0, rLow = 0.0, relPos = 50.0;
+   double rWidth = GetCurrentOscillationRange(rHigh, rLow, relPos);
+   if(rWidth <= 0.0)
+      return true;
+
+   RefreshRates();
+   double curBid = Bid;
+   double curAsk = Ask;
+
+   // Check if market is in confirmed MOMENTUM BREAKOUT mode
+   bool isBearishBreakout = (curBid < (rLow - 50.0 * Point) && EMADirection == -1 && GlobalSSLDirection == -1);
+   bool isBullishBreakout = (curAsk > (rHigh + 50.0 * Point) && EMADirection == 1 && GlobalSSLDirection == 1);
+
+   // ==========================================================
+   // BUY DIRECTION EVALUATION
+   // ==========================================================
+   if(orderType == OP_BUY || orderType == OP_BUYSTOP || orderType == OP_BUYLIMIT)
+     {
+      // If market is in confirmed downward runaway breakout, FREEZE all BUYs!
+      if(isBearishBreakout)
+        {
+         g_oscillationBlockedBuys++;
+         static datetime lastBrtLog = 0;
+         if(TimeCurrent() - lastBrtLog >= 60)
+           {
+            lastBrtLog = TimeCurrent();
+            Print(">>> [BREAKOUT PROTECTION] Blocked BUY during active Bearish Breakout! (Bid=",
+                  DoubleToString(curBid, Digits), " < RangeLow=", DoubleToString(rLow, Digits),
+                  ", Range=$", DoubleToString(rWidth, 2), ")");
+           }
+         return false;
+        }
+
+      // If price broke above ceiling with bullish momentum, breakout buy is permitted
+      if(isBullishBreakout)
+         return true;
+
+      // Inside oscillation: Block BUY if price is in Upper Ceiling Zone (>= 65%)
+      if(rWidth >= InpOscillationTightThreshold && relPos >= InpBoundaryCeilingPercent)
+        {
+         g_oscillationBlockedBuys++;
+         static datetime lastBuyCeilLog = 0;
+         if(TimeCurrent() - lastBuyCeilLog >= 60)
+           {
+            lastBuyCeilLog = TimeCurrent();
+            Print(">>> [OSCILLATION ASYMMETRY] Blocked BUY near Range Ceiling! (RelPos=",
+                  DoubleToString(relPos, 1), "% >= ", DoubleToString(InpBoundaryCeilingPercent, 0),
+                  "%, Range=$", DoubleToString(rWidth, 2),
+                  ", High=", DoubleToString(rHigh, Digits), ", Low=", DoubleToString(rLow, Digits), ")");
+           }
+         return false;
+        }
+     }
+
+   // ==========================================================
+   // SELL DIRECTION EVALUATION
+   // ==========================================================
+   else if(orderType == OP_SELL || orderType == OP_SELLSTOP || orderType == OP_SELLLIMIT)
+     {
+      // If market is in confirmed upward runaway breakout, FREEZE all SELLs!
+      if(isBullishBreakout)
+        {
+         g_oscillationBlockedSells++;
+         static datetime lastBrtLogS = 0;
+         if(TimeCurrent() - lastBrtLogS >= 60)
+           {
+            lastBrtLogS = TimeCurrent();
+            Print(">>> [BREAKOUT PROTECTION] Blocked SELL during active Bullish Breakout! (Ask=",
+                  DoubleToString(curAsk, Digits), " > RangeHigh=", DoubleToString(rHigh, Digits),
+                  ", Range=$", DoubleToString(rWidth, 2), ")");
+           }
+         return false;
+        }
+
+      // If price broke below floor with bearish momentum, breakout sell is permitted
+      if(isBearishBreakout)
+         return true;
+
+      // Inside oscillation: Block SELL if price is in Lower Floor Zone (<= 35%)
+      if(rWidth >= InpOscillationTightThreshold && relPos <= InpBoundaryFloorPercent)
+        {
+         g_oscillationBlockedSells++;
+         static datetime lastSellFloorLog = 0;
+         if(TimeCurrent() - lastSellFloorLog >= 60)
+           {
+            lastSellFloorLog = TimeCurrent();
+            Print(">>> [OSCILLATION ASYMMETRY] Blocked SELL near Range Floor! (RelPos=",
+                  DoubleToString(relPos, 1), "% <= ", DoubleToString(InpBoundaryFloorPercent, 0),
+                  "%, Range=$", DoubleToString(rWidth, 2),
+                  ", High=", DoubleToString(rHigh, Digits), ", Low=", DoubleToString(rLow, Digits), ")");
+           }
+         return false;
+        }
+     }
+
+   return true;
+  }
+
+//+------------------------------------------------------------------+
 //| GetNewestOpenOrderTime: Returns open time of latest order in dir |
 //+------------------------------------------------------------------+
 datetime GetNewestOpenOrderTime(int orderType)
@@ -8835,6 +9067,19 @@ double GetDynamicOrderGap(int orderType)
   {
    double baseGap = (MinimumSameOrderGapRawMatched > 0.0) ? MinimumSameOrderGapRawMatched : 50.0;
    double unmatchedGap = (MinimumSameOrderGapRawUnmatched > 0.0) ? MinimumSameOrderGapRawUnmatched : 50.0;
+
+   // Adaptive Grid Gap scaling to current oscillation width (R / 8)
+   if(InpEnableOscillationEngine && InpEnableAdaptiveGridGap)
+     {
+      double rH = 0.0, rL = 0.0, rPos = 50.0;
+      double rW = GetCurrentOscillationRange(rH, rL, rPos);
+      if(rW > 0.0)
+        {
+         double adaptGap = rW / 8.0;
+         adaptGap = MathMax(InpAdaptiveGridGapMin, MathMin(InpAdaptiveGridGapMax, adaptGap));
+         baseGap = adaptGap;
+        }
+     }
 
    int sslDir = GlobalSSLDirection;
    int emaDir = EMADirection;
@@ -8893,7 +9138,7 @@ double GetDynamicOrderGap(int orderType)
               {
                lastAgingLog = TimeCurrent();
                Print(">>> [AGING REVERSAL GAP REDUCTION] Direction=", (orderType == OP_BUY ? "BUY" : "SELL"),
-                     " | LatestOrderAge=", ((TimeCurrent() - latestTime) / 60), "m >= ", InpAgingGapElapsedMinutes, "m",
+                     " | LatestOrderAge=", (int)((TimeCurrent() - latestTime) / 60), "m >= ", InpAgingGapElapsedMinutes, "m",
                      " | Basket PL=$", DoubleToString(pl, 2),
                      " | Overriding Drawdown Gap $", DoubleToString(baseGap * multiplier, 2),
                      " -> Halved Gap $", DoubleToString(reducedGap, 2));
@@ -10588,7 +10833,7 @@ void CheckTrendShiftHedgeRecoveryOrders()
             continue;
 
          // Trend elapsed time: Must be flipped for at least minElapsed minutes (>= 15 min)
-         int elapsedSec = 999999;
+         int elapsedSec = 0;
          datetime flipTime = GetActualEmaFlipTime(-1);
          if(flipTime == 0 && EmaFlipTime > 0) flipTime = EmaFlipTime;
          if(flipTime > 0)
@@ -10640,7 +10885,7 @@ void CheckTrendShiftHedgeRecoveryOrders()
             continue;
 
          // Trend elapsed time: Must be flipped for at least minElapsed minutes (>= 15 min)
-         int elapsedSec = 999999;
+         int elapsedSec = 0;
          datetime flipTime = GetActualEmaFlipTime(1);
          if(flipTime == 0 && EmaFlipTime > 0) flipTime = EmaFlipTime;
          if(flipTime > 0)
@@ -14448,7 +14693,7 @@ void UpdateDashboard(DailyProtectionState &state)
    CreateDashboardPanel(DASH_PREFIX+"SEC_BSK", x, y+130, w, 18, C'28,38,50');
    CreateDashboardLabel(DASH_PREFIX+"BSK_H", "--- BASKETS & FLOATING P/L ($2x TARGET + TRAIL) ---", tx, y+132, 8, clrAqua);
 
-   double targetProfit = InpBasketProfitTargetUSD * (balancelomultipler > 0 ? balancelomultipler : 1);
+   double targetProfit = GetDynamicBasketProfitTarget() * (balancelomultipler > 0 ? balancelomultipler : 1);
 
    string buyStatus = (regBuyPL >= targetProfit && regBuyOrders > 0) ? "[READY TO CLOSE]" : StringFormat("[Tgt: >$%.2f]", targetProfit);
    color buyClr = (regBuyPL >= targetProfit && regBuyOrders > 0) ? clrLime : (regBuyPL > 0 ? clrDeepSkyBlue : (regBuyOrders > 0 ? clrTomato : clrSilver));
@@ -15080,16 +15325,16 @@ void ClearSweepGlobalVariables()
 datetime GetActualEmaFlipTime(int targetType = 0)
   {
    int dir = targetType;
-   if(dir == OP_BUY)
-      dir = 1;
-   else
-      if(dir == OP_SELL)
-         dir = -1;
-      else
-         if(dir == 0)
-            dir = EMADirection;
+   if(dir == 0)
+      dir = EMADirection;
    if(dir == 0)
       dir = LastTrackedEmaDirection;
+   if(dir == 0 && Bars > 0)
+     {
+      double curEma = iMA(Symbol(), Period(), InpEMA200Period, InpEMAPriceShift, MODE_EMA, PRICE_CLOSE, 0);
+      if(curEma > 0.0)
+         dir = (Close[0] >= curEma) ? 1 : -1;
+     }
 
    int lookback = MathMin(Bars - 2, 5000);
 
