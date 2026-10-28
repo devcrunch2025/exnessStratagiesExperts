@@ -33,6 +33,19 @@ int g_activeOrderLogCount = 0;
 int g_loggedHistoryTickets[3000];
 int g_loggedHistoryTicketsCount = 0;
 
+// Cumulative P/L Tracking per Function
+double g_cumAccountNetUSD           = 0.0;
+double g_cumFuncNet_StepTrailProfit = 0.0;
+double g_cumFuncNet_SellBasket      = 0.0;
+double g_cumFuncNet_BuyBasket       = 0.0;
+double g_cumFuncNet_Combination    = 0.0;
+double g_cumFuncNet_RecoveryBasket  = 0.0;
+double g_cumFuncNet_BreakevenSL     = 0.0;
+double g_cumFuncNet_StopLossHit     = 0.0;
+double g_cumFuncNet_LossCloseLogic  = 0.0;
+double g_cumFuncNet_RunnerProtect   = 0.0;
+double g_cumFuncNet_Other           = 0.0;
+
 //+------------------------------------------------------------------+
 //| GetActiveLogFileName: Dynamically selects Live vs Tester CSV     |
 //+------------------------------------------------------------------+
@@ -228,6 +241,8 @@ void MarkOrderAsLogged(int ticket)
 string CategorizeOrderStrategy(int ticket, string comment)
   {
    string effComment = GetRootOrderComment(ticket, comment);
+   if(StringFind(effComment, "_HEDGE") >= 0)
+      return "RECOVERY_HEDGE";
    if(StringFind(effComment, "_TYPE3") >= 0)
       return "RECOVERY_TYPE3";
    if(StringFind(effComment, "_LSD") >= 0)
@@ -242,7 +257,35 @@ string CategorizeOrderStrategy(int ticket, string comment)
       return "SSL_LONG";
    if(StringFind(effComment, "SSL Short") >= 0)
       return "SSL_SHORT";
+   if(StringFind(comment, "from #") >= 0 || StringFind(comment, "to #") >= 0)
+      return "PARTIAL_CLOSE_RUNNER";
    return "OTHER";
+  }
+
+//+------------------------------------------------------------------+
+//| GetClosingFunctionName: Identifies primary closing function      |
+//+------------------------------------------------------------------+
+string GetClosingFunctionName(string reason, string strategy)
+  {
+   if(reason == "STEP_TRAILING_SL_PROFIT")
+      return "STEP_TRAILING_PROFIT";
+   if(reason == "STEP_TRAILING_SL_BE")
+      return "BREAKEVEN_TRAILING_STOP";
+   if(StringFind(reason, "SELL Basket Profit Hit") >= 0 || StringFind(reason, "SELL Basket Micro-Trail Hit") >= 0)
+      return "SELL_BASKET_CLOSE";
+   if(StringFind(reason, "BUY Basket Profit Hit") >= 0 || StringFind(reason, "BUY Basket Micro-Trail Hit") >= 0)
+      return "BUY_BASKET_CLOSE";
+   if(StringFind(reason, "Total Net Profit Hit") >= 0)
+      return "COMBINATION_PROFIT_CLOSE";
+   if(StringFind(reason, "RECOVERY_BASKET") >= 0)
+      return "RECOVERY_BASKET_CLOSE";
+   if(reason == "STOP_LOSS_HIT" || StringFind(reason, "[sl]") >= 0)
+      return "STOP_LOSS_HIT";
+   if(reason == "LOSS_CLOSE_LOGIC")
+      return "LOSS_CLOSE_LOGIC";
+   if(strategy == "PARTIAL_CLOSE_RUNNER")
+      return "PARTIAL_CLOSE_RUNNER";
+   return "OTHER_LOGIC_CLOSE";
   }
 
 //+------------------------------------------------------------------+
@@ -336,10 +379,22 @@ void InitTesterOrderLogger()
    g_activeOrderLogCount       = 0;
    g_loggedHistoryTicketsCount = 0;
 
+   g_cumAccountNetUSD           = 0.0;
+   g_cumFuncNet_StepTrailProfit = 0.0;
+   g_cumFuncNet_SellBasket      = 0.0;
+   g_cumFuncNet_BuyBasket       = 0.0;
+   g_cumFuncNet_Combination    = 0.0;
+   g_cumFuncNet_RecoveryBasket  = 0.0;
+   g_cumFuncNet_BreakevenSL     = 0.0;
+   g_cumFuncNet_StopLossHit     = 0.0;
+   g_cumFuncNet_LossCloseLogic  = 0.0;
+   g_cumFuncNet_RunnerProtect   = 0.0;
+   g_cumFuncNet_Other           = 0.0;
+
    string csvFileName     = GetActiveLogFileName();
    string summaryFileName = GetActiveSummaryFileName();
 
-   string csvHeader = "Ticket,ParentTicket,Symbol,Type,Lots,OpenTime,OpenPrice,CloseTime,ClosePrice,DurationMin,NetProfitUSD,Outcome,MethodName,ExitReason,LossReasonWithinTick,WasLossInBasketNetWin,StopLoss,TakeProfit,OpenEmaDist,CloseEmaDist,EmaDirClose,EmaFlipElapsedMin,OrderComment";
+   string csvHeader = "Ticket,ParentTicket,Symbol,Type,Lots,OpenTime,OpenPrice,CloseTime,ClosePrice,DurationMin,NetProfitUSD,CumulativeAccountNetUSD,ClosingFunction,FunctionCumulativeNetUSD,Outcome,MethodName,ExitReason,LossReasonWithinTick,WasLossInBasketNetWin,StopLoss,TakeProfit,OpenEmaDist,CloseEmaDist,EmaDirClose,EmaFlipElapsedMin,OrderComment";
 
    // If testing, reset CSV and summary header
    if(IsTesting())
@@ -493,12 +548,69 @@ void LogClosedOrderRecord(int ticket)
    if(flipTime == 0) flipTime = GetActualEmaFlipTime(EMADirection);
    int flipElapsedMin = (flipTime > 0 && closeTime >= flipTime) ? (int)((closeTime - flipTime) / 60) : 0;
 
-   // CSV Columns: Ticket,ParentTicket,Symbol,Type,Lots,OpenTime,OpenPrice,CloseTime,ClosePrice,DurationMin,NetProfitUSD,Outcome,MethodName,ExitReason,LossReasonWithinTick,WasLossInBasketNetWin,StopLoss,TakeProfit,OpenEmaDist,CloseEmaDist,EmaDirClose,EmaFlipElapsedMin,OrderComment
-   string csvLine = StringFormat("%d,%d,%s,%s,%.2f,%s,%.2f,%s,%.2f,%.1f,%.2f,%s,%s,%s,%s,%s,%.2f,%.2f,%.1f,%.1f,%d,%d,%s",
+   string closingFunction = GetClosingFunctionName(reason, strategy);
+
+   g_cumAccountNetUSD += netProfit;
+   double funcCumNet = 0.0;
+   if(closingFunction == "STEP_TRAILING_PROFIT")
+     {
+      g_cumFuncNet_StepTrailProfit += netProfit;
+      funcCumNet = g_cumFuncNet_StepTrailProfit;
+     }
+   else if(closingFunction == "SELL_BASKET_CLOSE")
+     {
+      g_cumFuncNet_SellBasket += netProfit;
+      funcCumNet = g_cumFuncNet_SellBasket;
+     }
+   else if(closingFunction == "BUY_BASKET_CLOSE")
+     {
+      g_cumFuncNet_BuyBasket += netProfit;
+      funcCumNet = g_cumFuncNet_BuyBasket;
+     }
+   else if(closingFunction == "COMBINATION_PROFIT_CLOSE")
+     {
+      g_cumFuncNet_Combination += netProfit;
+      funcCumNet = g_cumFuncNet_Combination;
+     }
+   else if(closingFunction == "RECOVERY_BASKET_CLOSE")
+     {
+      g_cumFuncNet_RecoveryBasket += netProfit;
+      funcCumNet = g_cumFuncNet_RecoveryBasket;
+     }
+   else if(closingFunction == "BREAKEVEN_TRAILING_STOP")
+     {
+      g_cumFuncNet_BreakevenSL += netProfit;
+      funcCumNet = g_cumFuncNet_BreakevenSL;
+     }
+   else if(closingFunction == "STOP_LOSS_HIT")
+     {
+      g_cumFuncNet_StopLossHit += netProfit;
+      funcCumNet = g_cumFuncNet_StopLossHit;
+     }
+   else if(closingFunction == "LOSS_CLOSE_LOGIC")
+     {
+      g_cumFuncNet_LossCloseLogic += netProfit;
+      funcCumNet = g_cumFuncNet_LossCloseLogic;
+     }
+   else if(closingFunction == "PARTIAL_CLOSE_RUNNER")
+     {
+      g_cumFuncNet_RunnerProtect += netProfit;
+      funcCumNet = g_cumFuncNet_RunnerProtect;
+     }
+   else
+     {
+      g_cumFuncNet_Other += netProfit;
+      funcCumNet = g_cumFuncNet_Other;
+     }
+
+   // CSV Columns: Ticket,ParentTicket,Symbol,Type,Lots,OpenTime,OpenPrice,CloseTime,ClosePrice,DurationMin,NetProfitUSD,CumulativeAccountNetUSD,ClosingFunction,FunctionCumulativeNetUSD,Outcome,MethodName,ExitReason,LossReasonWithinTick,WasLossInBasketNetWin,StopLoss,TakeProfit,OpenEmaDist,CloseEmaDist,EmaDirClose,EmaFlipElapsedMin,OrderComment
+   string csvLine = StringFormat("%d,%d,%s,%s,%.2f,%s,%.2f,%s,%.2f,%.1f,%.2f,%.2f,%s,%.2f,%s,%s,%s,%s,%s,%.2f,%.2f,%.1f,%.1f,%d,%d,%s",
                                  ticket, parentTicket, symbol, typeStr, lots,
                                  TimeToString(openTime, TIME_DATE|TIME_SECONDS), openPrice,
                                  TimeToString(closeTime, TIME_DATE|TIME_SECONDS), closePrice,
-                                 durMin, netProfit, outcome, strategy,
+                                 durMin, netProfit, g_cumAccountNetUSD,
+                                 closingFunction, funcCumNet,
+                                 outcome, strategy,
                                  SanitizeCsvField(reason), SanitizeCsvField(lossExplanation),
                                  (wasRescuedInBasket ? "YES" : "NO"),
                                  sl, tp, openEmaDist, closeEmaDist, closeEmaDir, flipElapsedMin,
@@ -532,10 +644,10 @@ void GenerateTesterSummaryReport()
    double netTotal    = 0.0;
 
    // Strategy counters: [0]=SSL_MAIN, [1]=REENTRY, [2]=TYPE1, [3]=TYPE2_LSD, [4]=TYPE3_EMA, [5]=FLIP_SUPPORT, [6]=OTHER
-   int stratTotal[7];
-   int stratWins[7];
-   int stratLosses[7];
-   double stratNet[7];
+   int stratTotal[8];
+   int stratWins[8];
+   int stratLosses[8];
+   double stratNet[8];
    ArrayInitialize(stratTotal, 0);
    ArrayInitialize(stratWins, 0);
    ArrayInitialize(stratLosses, 0);
@@ -586,13 +698,14 @@ void GenerateTesterSummaryReport()
          beCount++;
 
       // Strat index
-      int sIdx = 6;
+      int sIdx = 7;
       if(strat == "SSL_LONG" || strat == "SSL_SHORT") sIdx = 0;
       else if(strat == "REENTRY")                     sIdx = 1;
       else if(strat == "RECOVERY_TYPE1")              sIdx = 2;
       else if(strat == "RECOVERY_TYPE2_LSD")          sIdx = 3;
       else if(strat == "RECOVERY_TYPE3")              sIdx = 4;
-      else if(strat == "FLIP_SUPPORT")                sIdx = 5;
+      else if(strat == "RECOVERY_HEDGE")              sIdx = 5;
+      else if(strat == "FLIP_SUPPORT")                sIdx = 6;
 
       stratTotal[sIdx]++;
       stratNet[sIdx] += profit;
@@ -639,14 +752,15 @@ void GenerateTesterSummaryReport()
    WriteReportLineToFile(summaryFileName, subSep, true);
 
    WriteReportLineToFile(summaryFileName, ">>> WHICH METHOD BOOKED PROFITS (METHOD PROFITABILITY ANALYSIS):", true);
-   string stratNames[7] = {"1. SSL Regular Orders      ",
+   string stratNames[8] = {"1. SSL Regular Orders      ",
                            "2. ReEntry Orders          ",
                            "3. Recovery Type 1 Classic ",
                            "4. Recovery Type 2 (LSD)   ",
                            "5. Recovery Type 3 (WeakEMA)",
-                           "6. FLIP Basket Support     ",
-                           "7. Other / Scalp           "};
-   for(int s = 0; s < 7; s++)
+                           "6. Recovery Hedge Rescue   ",
+                           "7. FLIP Basket Support     ",
+                           "8. Other / Scalp           "};
+   for(int s = 0; s < 8; s++)
      {
       double sWinRate = (stratTotal[s] > 0) ? ((double)stratWins[s] / stratTotal[s] * 100.0) : 0.0;
       WriteReportLineToFile(summaryFileName,
@@ -672,12 +786,23 @@ void GenerateTesterSummaryReport()
                                          (reasonNet[r] >= 0 ? "+" : "-"), MathAbs(reasonNet[r])), true);
      }
    WriteReportLineToFile(summaryFileName, sep, true);
+    WriteReportLineToFile(summaryFileName, subSep, true);
+    WriteReportLineToFile(summaryFileName, ">>> FUNCTION-WISE CLOSING & CUMULATIVE P/L BREAKDOWN:", true);
+    WriteReportLineToFile(summaryFileName, StringFormat("1. Individual Step-Trailing Profit : Net=%s$%.2f USD", (g_cumFuncNet_StepTrailProfit >= 0 ? "+" : "-"), MathAbs(g_cumFuncNet_StepTrailProfit)), true);
+    WriteReportLineToFile(summaryFileName, StringFormat("2. SELL Basket Profit Closes       : Net=%s$%.2f USD", (g_cumFuncNet_SellBasket >= 0 ? "+" : "-"), MathAbs(g_cumFuncNet_SellBasket)), true);
+    WriteReportLineToFile(summaryFileName, StringFormat("3. BUY Basket Profit Closes        : Net=%s$%.2f USD", (g_cumFuncNet_BuyBasket >= 0 ? "+" : "-"), MathAbs(g_cumFuncNet_BuyBasket)), true);
+    WriteReportLineToFile(summaryFileName, StringFormat("4. $1 / Combination Profit Closes  : Net=%s$%.2f USD", (g_cumFuncNet_Combination >= 0 ? "+" : "-"), MathAbs(g_cumFuncNet_Combination)), true);
+    WriteReportLineToFile(summaryFileName, StringFormat("5. Recovery Baskets (LSD & Hedge)  : Net=%s$%.2f USD", (g_cumFuncNet_RecoveryBasket >= 0 ? "+" : "-"), MathAbs(g_cumFuncNet_RecoveryBasket)), true);
+    WriteReportLineToFile(summaryFileName, StringFormat("6. Breakeven Step Trailing Stop    : Net=%s$%.2f USD (Protected Trades)", (g_cumFuncNet_BreakevenSL >= 0 ? "+" : "-"), MathAbs(g_cumFuncNet_BreakevenSL)), true);
+    WriteReportLineToFile(summaryFileName, StringFormat("7. Stop Loss Hits (Adverse Moves)  : Net=-$%.2f USD", MathAbs(g_cumFuncNet_StopLossHit)), true);
+    WriteReportLineToFile(summaryFileName, StringFormat("8. Loss Close Logic (Safety Stops) : Net=-$%.2f USD", MathAbs(g_cumFuncNet_LossCloseLogic)), true);
+    WriteReportLineToFile(summaryFileName, StringFormat("9. Partial Close Runners           : Net=%s$%.2f USD", (g_cumFuncNet_RunnerProtect >= 0 ? "+" : "-"), MathAbs(g_cumFuncNet_RunnerProtect)), true);
 
    Print(">>> =================== ORDER & LOSS PERFORMANCE SUMMARY ===================");
    Print(">>> Mode: ", (IsTesting() ? "STRATEGY TESTER" : "LIVE TRADING"), " | Trades: ", totalOrders,
          " | Effective WinRate: ", DoubleToString(winRate, 1), "% | Net Profit: $", DoubleToString(netTotal, 2),
          " | Profit Factor: ", DoubleToString(profitFactor, 2));
-   Print(">>> Recorders: T1=$", DoubleToString(stratNet[2], 2), " | T2(LSD)=$", DoubleToString(stratNet[3], 2), " | T3(WeakEMA)=$", DoubleToString(stratNet[4], 2));
+   Print(">>> Recorders: T1=$", DoubleToString(stratNet[2], 2), " | T2(LSD)=$", DoubleToString(stratNet[3], 2), " | T3(WeakEMA)=$", DoubleToString(stratNet[4], 2), " | Hedge=$", DoubleToString(stratNet[5], 2));
    Print(">>> Detailed CSV: ", GetActiveLogFileName(), " | Summary: ", GetActiveSummaryFileName());
    Print(">>> ========================================================================");
   }

@@ -1,4 +1,4 @@
-//+------------------------------------------------------------------+
+﻿//+------------------------------------------------------------------+
 //|                  SSL CHANNEL CROSS EA - CONTINUOUS EQUITY LADDER |
 //|                  TWO-STAGE PROFIT LADDER | CONTINUOUS RESET      |
 //+------------------------------------------------------------------+
@@ -28,7 +28,7 @@
 
 
 //string glbVersion = "V5008  29-09-2026 23.00 Aug 1st to Aug 5th $100 to $1000 equity $500 - Attached Image  balance ST-20 Partialclose, Close orders $1X close-   FlipLadderStepUSD 7 DailyEquityStopUSD 50%  TargetProfitPerFlipUSD 10%";
-string glbVersion = "VMULTI-1026 - Type 3 Recovery Disabled (Type 2 LSD Active) + Dual-File Log Analysis";
+string glbVersion = "VMULTI-1029 - Aging Reversal Gap Reduction (30m 50% Boost)";
 
 
 double DailyEquityStopUSD  =1000;//50;//20*2.5;//10;//20;// 10;//30.0; close all orders at $50Xmultipler
@@ -47,6 +47,12 @@ int partialLossMultipler=5;//5; //10 values 0.05 means $50 close 0.01 partial lo
 //50/5=10
 //48/4=12
 // 45/3=15
+
+// ===== PARTIAL CLOSE & RUNNER PROTECTION SETTINGS =====
+bool   InpEnablePartialProfitClose        = true;  // Bank partial profit on high-volume positions
+bool   InpEnableRunnerBreakevenProtection = true;  // Immediately lock remaining runner SL to Breakeven (+20 pts) on partial close
+double InpRunnerBreakevenBufferPoints     = 20.0;  // Breakeven profit buffer in points ($20 raw price gap)
+bool   InpEnablePartialLossCut            = false; // Disabled by default: prevents chopping underwater orders into multi-step double losses
 
 //chance 3
 double FlipLadderStepUSD =8;//0;//10;// 5;//10.0;//0 means nothing not work close all orders at $7Xmultipler
@@ -72,7 +78,10 @@ double   g_stepSize            =1000;// 50.0; // The step increment ($50)
 //chance 6 - basket//IMPORTANT TO CLOSE ONE SIDE OPEN ORDERS as soon as possible
 double basketBUYorSELLProfitModifyUSD=1*2; //if all combined basket BUY OR SELL Only basket is profit >0 then modify stoploss
 bool   InpEnableBasketProfitClose = true;        // Close open Buy/Sell/Total orders when basket profit target reached
-double InpBasketProfitTargetUSD   = 1.0;         // Base target profit (.00) multiplied by balancelomultipler
+double InpBasketProfitTargetUSD     = 2.0;         // Base target profit ($2.00 Golden Sweet Spot) multiplied by balancelomultipler
+bool   InpEnableBasketMicroTrailing = true;        // Enable basket micro-trailing to let profitable baskets ride past $2 into $3-$5
+double InpBasketTrailActivationUSD  = 2.0;         // Net profit in USD to activate basket trailing ($2.00 * multiplier)
+double InpBasketTrailStepUSD        = 0.50;        // Pullback distance in USD from peak profit to close ($0.50 * multiplier)
 
 
 int      g_dayNumber = -1;
@@ -197,7 +206,7 @@ double InpLsdRecoveryMinAdverseGap          = 100.0; // Min adverse distance ($1
 double InpLsdRecoveryTriggerLossUSD         = 1.0;   // Min loss in USD (>$1.00) on parent order to allow recovery
 double InpLsdRecoveryLevelToleranceRaw      = 50.0;  // Max raw distance ($50) from EQL/EQH line to trigger recovery
 double InpLsdRecoveryLotMultiplier          = 2.0;   // Recovery lot multiplier (2x parent lot)
-double InpLsdRecoveryBasketProfitUSD        = 1.0;   // Net profit target in USD ($1.00) to close parent + recovery basket
+double InpLsdRecoveryBasketProfitUSD        = 2.0;   // Net profit target in USD ($2.00) to close parent + recovery basket
 double InpLsdRecoveryStopLossRaw            = 300.0; // StopLoss raw points ($300) for Type 2 Recovery order
 double InpLsdRecoveryTakeProfitRaw          = 500.0; // TakeProfit raw points ($500) for Type 2 Recovery order
 int    InpLsdRecoveryMaxActiveOrders        = 1;     // Max simultaneous active Type 2 Recovery orders (default 1)
@@ -219,6 +228,27 @@ double InpType3BasketProfitUSD              = 1.0;   // Net profit target in USD
 double InpType3StopLossRaw                  = 300.0; // StopLoss raw points ($300) for Type 3 Recovery order
 double InpType3TakeProfitRaw                = 500.0; // TakeProfit raw points ($500) for Type 3 Recovery order
 int    InpType3MaxActiveOrders              = 1;     // Max simultaneous active Type 3 Recovery orders (default 1)
+
+// ===== RECOVERY ATTEMPT SHIELD SETTINGS =====
+bool   InpEnableRecoveryAttemptShield       = true;  // Enable Strict 1-Attempt Limit per Parent Order Lifetime
+int    InpRecoveryMaxAttemptsPerParent      = 1;     // Max recovery order attempts per parent (Strictly 1)
+
+// ===== TREND-SHIFT HEDGE RECOVERY SETTINGS =====
+bool   InpEnableHedgeRecovery               = true;  // Enable Trend-Shift Hedge Recovery (Model 2: Trend Rescue)
+double InpHedgeRecoveryMinLossUSD           = 2.0;   // Min loss in USD (>$2.00) on parent order to allow hedge recovery
+double InpHedgeRecoveryMinAdverseGap        = 150.0; // Min adverse distance ($150 raw) from parent entry
+int    InpHedgeRecoveryMinElapsedMin        = 15;    // Min elapsed minutes after trend flip confirming new trend
+double InpHedgeRecoveryLotMultiplier        = 2.0;   // Hedge recovery lot multiplier (2.0x parent lot)
+double InpHedgeRecoveryBasketProfitUSD      = 2.0;   // Net profit target in USD ($2.00) to close parent + hedge basket
+double InpHedgeRecoveryStopLossRaw          = 300.0; // StopLoss raw points ($300) for Hedge Recovery order
+double InpHedgeRecoveryTakeProfitRaw        = 500.0; // TakeProfit raw points ($500) for Hedge Recovery order
+int    InpHedgeRecoveryMaxActiveOrders      = 1;     // Max simultaneous active Hedge Recovery orders (default 1)
+
+// ===== AGING REVERSAL GAP REDUCTION SETTINGS =====
+bool   InpEnableAgingGapReduction          = true;  // Enable gap reduction for stagnant underwater baskets
+int    InpAgingGapElapsedMinutes           = 30;    // Minutes since latest order to trigger reduction (30 min)
+double InpAgingGapReductionMultiplier      = 0.5;   // Gap reduction multiplier (0.5 = half base order gap)
+bool   InpAgingGapRequireTrendConfirmation = true;  // Only reduce gap when SSL/Price confirms momentum in trade direction
 
 // ===== TESTER / LIVE ORDER LOGGER SETTINGS =====
 bool   InpEnableOrderLogger                 = true;                    // Enable detailed CSV & Log file order reporting
@@ -407,12 +437,12 @@ double   PostOrderSLTPVerifyExpectedOpen[MAX_POST_ORDER_SLTP_VERIFY];
 int      PostOrderSLTPVerifyType[MAX_POST_ORDER_SLTP_VERIFY];
 double   PostOrderSLTPVerifyLots[MAX_POST_ORDER_SLTP_VERIFY];
 
-bool EnableRecoveryOrders =true;// true;
+bool EnableRecoveryOrders = false; // Retired in favor of high-performing Type 2 (LSD Structural Recovery)
 double RecoveryTriggerLossUSD =1;//2;//1;//0.50;// 2;
 double RecoveryLotMultiplier = 2;
 int MaxRecoveryOrders =10;// 5;//1;
 double RecoveryBasketProfitUSD = 1;
-double RecoveryMinDistanceRaw =1000;//1000;//100;//20;// 200.0;
+double RecoveryMinDistanceRaw =500;//1000;//1000;//100;//20;// 200.0;
 double RecoveryStopLossDistanceRaw =300;// 200.0; // Raw price gap ($200) for Recovery order StopLoss
 double RecoveryStopLossRaw         =300;// 200.0; // Alias matching RecoveryStopLossDistanceRaw
 
@@ -2040,6 +2070,13 @@ int  CountActiveLsdRecoveryOrders();
 void CheckType3WeakEmaRecoveryOrders();
 int    CountActiveType3RecoveryOrders();
 double GetType3RequiredEmaDistance(int elapsedMinutes);
+void   CheckTrendShiftHedgeRecoveryOrders();
+int    CountActiveHedgeRecoveryOrders();
+void   InitParentRecoveryAttemptRegistry();
+void   RegisterParentRecoveryAttempt(int parentTicket);
+int    GetParentRecoveryAttemptCount(int parentTicket);
+bool   HasParentExhaustedRecoveryAttempts(int parentTicket);
+datetime GetNewestOpenOrderTime(int orderType);
 
 // Tester / Live Order Logger Prototypes
 void   InitTesterOrderLogger();
@@ -4098,6 +4135,7 @@ int OnInit()
    LoadReEntryCounter();
    EquityResetReEntryPending=false;
    InitTesterOrderLogger();
+   InitParentRecoveryAttemptRegistry();
 
    return INIT_SUCCEEDED;
   }
@@ -4869,6 +4907,7 @@ void OnTickCore()
    CheckRecoveryOrders();
    CheckLsdStructuralRecoveryOrders(); // EQL/EQH Structural Recovery (Type 2)
    CheckType3WeakEmaRecoveryOrders();   // Weak EMA Reversal Recovery (Type 3)
+   CheckTrendShiftHedgeRecoveryOrders(); // Trend-Shift Hedge Rescue (Model 2)
    if(TradeOperationFailedThisTick)
      {
       UpdateDashboardsThrottled(dailyState);
@@ -8337,40 +8376,85 @@ void CheckBasketProfitClose()
            }
      }
 
+   static double s_buyBasketPeakPL = 0.0;
+   static double s_sellBasketPeakPL = 0.0;
    int totalMarketOrders = buyMarketCount + sellMarketCount;
    double netPL = buyPL + sellPL;
+   int mult = (balancelomultipler > 0 ? balancelomultipler : 1);
 
-// 1. Overall Total Net Profit Target: If Net Profit across BUY + SELL >  * balancelomultipler -> Close ALL open orders
+   // 1. Overall Total Net Profit Target: If Net Profit across BUY + SELL > targetProfit -> Close ALL open orders
    if(totalMarketOrders > 0 && netPL > targetProfit)
      {
-      string netReason = StringFormat("Total Net Profit Hit: $%.2f > Target $%.2f (1.0 * %d)", netPL, targetProfit, balancelomultipler);
+      string netReason = StringFormat("Total Net Profit Hit: $%.2f > Target $%.2f (%.1f * %d)", netPL, targetProfit, InpBasketProfitTargetUSD, mult);
       Print(">>> [BASKET PROFIT CLOSE - ALL] ", netReason);
       CloseAllOpenBuyOrders(netReason);
       CloseAllOpenSellOrders(netReason);
+      s_buyBasketPeakPL = 0.0;
+      s_sellBasketPeakPL = 0.0;
       return;
      }
 
-// 2. Buy Basket Target: If Buy Basket Profit >  * balancelomultipler (and if Buy Flip Support order exists, it is in profit >= 0) -> Close ALL open BUY orders
-   if(buyMarketCount > 0 && buyPL > targetProfit)
+   // 2. Buy Basket Target & Micro-Trailing ( -  Sweet Spot)
+   if(buyMarketCount == 0 || buyPL <= 0.0)
+      s_buyBasketPeakPL = 0.0;
+
+   if(buyMarketCount > 0 && buyPL >= targetProfit)
      {
       bool buyFlipConditionMet = (buySupportCount == 0 || buySupportPL >= 0.0);
       if(buyFlipConditionMet)
         {
-         string buyReason = StringFormat("BUY Basket Profit Hit: $%.2f > Target $%.2f (1.0 * %d) | Buy Support PL=$%.2f", buyPL, targetProfit, balancelomultipler, buySupportPL);
-         Print(">>> [BASKET PROFIT CLOSE - BUY] ", buyReason);
-         CloseAllOpenBuyOrders(buyReason);
+         if(InpEnableBasketMicroTrailing)
+           {
+            s_buyBasketPeakPL = MathMax(s_buyBasketPeakPL, buyPL);
+            double trailFloor = s_buyBasketPeakPL - (InpBasketTrailStepUSD * mult);
+            if(buyPL <= trailFloor || buyPL >= 5.0 * mult)
+              {
+               string buyReason = StringFormat("BUY Basket Micro-Trail Hit: Peak=$%.2f, Closed=$%.2f >= Floor=$%.2f (Tgt $%.2f)",
+                                               s_buyBasketPeakPL, buyPL, trailFloor, targetProfit);
+               Print(">>> [BASKET PROFIT CLOSE - BUY] ", buyReason);
+               CloseAllOpenBuyOrders(buyReason);
+               s_buyBasketPeakPL = 0.0;
+              }
+           }
+         else
+           {
+            string buyReason = StringFormat("BUY Basket Profit Hit: $%.2f > Target $%.2f (%.1f * %d) | Buy Support PL=$%.2f",
+                                            buyPL, targetProfit, InpBasketProfitTargetUSD, mult, buySupportPL);
+            Print(">>> [BASKET PROFIT CLOSE - BUY] ", buyReason);
+            CloseAllOpenBuyOrders(buyReason);
+           }
         }
      }
 
-// 3. Sell Basket Target: If Sell Basket Profit >  * balancelomultipler (and if Sell Flip Support order exists, it is in profit >= 0) -> Close ALL open SELL orders
-   if(sellMarketCount > 0 && sellPL > targetProfit)
+   // 3. Sell Basket Target & Micro-Trailing ( -  Sweet Spot)
+   if(sellMarketCount == 0 || sellPL <= 0.0)
+      s_sellBasketPeakPL = 0.0;
+
+   if(sellMarketCount > 0 && sellPL >= targetProfit)
      {
       bool sellFlipConditionMet = (sellSupportCount == 0 || sellSupportPL >= 0.0);
       if(sellFlipConditionMet)
         {
-         string sellReason = StringFormat("SELL Basket Profit Hit: $%.2f > Target $%.2f (1.0 * %d) | Sell Support PL=$%.2f", sellPL, targetProfit, balancelomultipler, sellSupportPL);
-         Print(">>> [BASKET PROFIT CLOSE - SELL] ", sellReason);
-         CloseAllOpenSellOrders(sellReason);
+         if(InpEnableBasketMicroTrailing)
+           {
+            s_sellBasketPeakPL = MathMax(s_sellBasketPeakPL, sellPL);
+            double trailFloor = s_sellBasketPeakPL - (InpBasketTrailStepUSD * mult);
+            if(sellPL <= trailFloor || sellPL >= 5.0 * mult)
+              {
+               string sellReason = StringFormat("SELL Basket Micro-Trail Hit: Peak=$%.2f, Closed=$%.2f >= Floor=$%.2f (Tgt $%.2f)",
+                                                s_sellBasketPeakPL, sellPL, trailFloor, targetProfit);
+               Print(">>> [BASKET PROFIT CLOSE - SELL] ", sellReason);
+               CloseAllOpenSellOrders(sellReason);
+               s_sellBasketPeakPL = 0.0;
+              }
+           }
+         else
+           {
+            string sellReason = StringFormat("SELL Basket Profit Hit: $%.2f > Target $%.2f (%.1f * %d) | Sell Support PL=$%.2f",
+                                             sellPL, targetProfit, InpBasketProfitTargetUSD, mult, sellSupportPL);
+            Print(">>> [BASKET PROFIT CLOSE - SELL] ", sellReason);
+            CloseAllOpenSellOrders(sellReason);
+           }
         }
      }
   }
@@ -8715,6 +8799,31 @@ void ModifyOpenOrdersToSecureProfitOLD()
 //+------------------------------------------------------------------+
 //|                                                                  |
 //+------------------------------------------------------------------+
+//+------------------------------------------------------------------+
+//| GetNewestOpenOrderTime: Returns open time of latest order in dir |
+//+------------------------------------------------------------------+
+datetime GetNewestOpenOrderTime(int orderType)
+  {
+   int baseType = (orderType == OP_BUY || orderType == OP_BUYSTOP || orderType == OP_BUYLIMIT) ? OP_BUY : OP_SELL;
+   datetime newestTime = 0;
+   for(int i = OrdersTotal() - 1; i >= 0; i--)
+     {
+      if(!OrderSelect(i, SELECT_BY_POS, MODE_TRADES))
+         continue;
+      if(OrderSymbol() != Symbol() || OrderMagicNumber() != MagicNumber)
+         continue;
+      if(OrderType() != baseType)
+         continue;
+      string comment = OrderComment();
+      if(StringFind(comment, "RECOVERY_") >= 0)
+         continue; // Ignore recovery orders, track regular basket
+      if(OrderOpenTime() > newestTime)
+         newestTime = OrderOpenTime();
+     }
+   return newestTime;
+  }
+
+//+------------------------------------------------------------------+
 //| GetDynamicOrderGap: Calculates dynamic minimum price gap between |
 //| same-direction orders. Adapts intelligently based on:            |
 //| 1. Trend strength & EMA pullback (IsEmaWEAK)                     |
@@ -8750,8 +8859,48 @@ double GetDynamicOrderGap(int orderType)
      {
       double lossStep = 3.0 * (balancelomultipler > 0 ? balancelomultipler : 1);
       int lossMultiplier = 1 + (int)MathFloor(MathAbs(pl) / lossStep);
-      lossMultiplier = MathMin(lossMultiplier, 4); // Cap to safe maximum 4X
+            lossMultiplier = MathMin(lossMultiplier, 4); // Cap to safe maximum 4X
       multiplier = MathMax(multiplier, lossMultiplier);
+     }
+
+// 4B. Aging Reversal Gap Reduction: Stagnant basket (>=30 min) turning with momentum
+   if(InpEnableAgingGapReduction && pl < 0.0)
+     {
+      datetime latestTime = GetNewestOpenOrderTime(orderType);
+      int minElapsedSec = (InpAgingGapElapsedMinutes > 0 ? InpAgingGapElapsedMinutes : 30) * 60;
+      if(latestTime > 0 && (TimeCurrent() - latestTime) >= minElapsedSec)
+        {
+         bool trendConfirmed = true;
+         if(InpAgingGapRequireTrendConfirmation)
+           {
+            if(orderType == OP_BUY || orderType == OP_BUYSTOP || orderType == OP_BUYLIMIT)
+               trendConfirmed = (sslDir == 1 && (Close[0] >= Open[0] || Bid >= Close[1]));
+            else if(orderType == OP_SELL || orderType == OP_SELLSTOP || orderType == OP_SELLLIMIT)
+               trendConfirmed = (sslDir == -1 && (Close[0] <= Open[0] || Ask <= Close[1]));
+            else
+               trendConfirmed = false;
+           }
+
+         if(trendConfirmed)
+           {
+            double mult = (InpAgingGapReductionMultiplier > 0.0) ? InpAgingGapReductionMultiplier : 0.5;
+            double reducedGap = baseGap * mult;
+            if(reducedGap < 20.0)
+               reducedGap = 20.0; // Enforce safe minimum separation
+
+            static datetime lastAgingLog = 0;
+            if(TimeCurrent() - lastAgingLog >= 60)
+              {
+               lastAgingLog = TimeCurrent();
+               Print(">>> [AGING REVERSAL GAP REDUCTION] Direction=", (orderType == OP_BUY ? "BUY" : "SELL"),
+                     " | LatestOrderAge=", ((TimeCurrent() - latestTime) / 60), "m >= ", InpAgingGapElapsedMinutes, "m",
+                     " | Basket PL=$", DoubleToString(pl, 2),
+                     " | Overriding Drawdown Gap $", DoubleToString(baseGap * multiplier, 2),
+                     " -> Halved Gap $", DoubleToString(reducedGap, 2));
+              }
+            return reducedGap;
+           }
+        }
      }
 
 // 5. Check signal alignment (SSL or Chart Pattern)
@@ -9625,6 +9774,8 @@ void CheckRecoveryOrders()
          validParent = true;
       if(!validParent)
          continue;
+      if(InpEnableRecoveryAttemptShield && HasParentExhaustedRecoveryAttempts(parentTicket))
+         continue;
       if(HasRecoveryOrder(parentTicket))
          continue;
 
@@ -9688,6 +9839,7 @@ void CheckRecoveryOrders()
 
       if(recoveryTicket > 0)
         {
+         RegisterParentRecoveryAttempt(parentTicket);
          OrderCreatedThisCandle = true;
          LastOrderCandleTime    = Time[0];
         }
@@ -9700,13 +9852,8 @@ void CheckRecoveryOrders()
 //+------------------------------------------------------------------+
 void ManageRecoveryBasket()
   {
-   if(!EnableRecoveryOrders && !InpEnableLsdStructuralRecovery && !InpEnableType3Recovery)
+   if(!EnableRecoveryOrders && !InpEnableLsdStructuralRecovery && !InpEnableType3Recovery && !InpEnableHedgeRecovery)
       return;
-
-   if(!IsEmaWEAKDistanceReduced50PercentFromPeak() && GlobalSSLDirection != 1 && EMADirection)
-     {
-      return;
-     }
 
    for(int i = OrdersTotal() - 1; i >= 0; i--)
      {
@@ -9751,7 +9898,7 @@ void ManageRecoveryBasket()
          continue;
 
       double basketProfit = recoveryProfit + parentProfit;
-      double targetProfit = (StringFind(comment, "_LSD") >= 0) ? InpLsdRecoveryBasketProfitUSD : ((StringFind(comment, "_TYPE3") >= 0) ? InpType3BasketProfitUSD : RecoveryBasketProfitUSD);
+      double targetProfit = (StringFind(comment, "_HEDGE") >= 0) ? InpHedgeRecoveryBasketProfitUSD : ((StringFind(comment, "_LSD") >= 0) ? InpLsdRecoveryBasketProfitUSD : ((StringFind(comment, "_TYPE3") >= 0) ? InpType3BasketProfitUSD : RecoveryBasketProfitUSD));
       if(targetProfit <= 0.0) targetProfit = 1.0;
 
       if(basketProfit >= targetProfit)
@@ -9761,7 +9908,7 @@ void ManageRecoveryBasket()
          RecordBasketOutcome(parentTicket, recoveryTicket, basketProfit);
          SafeOrderClose(recoveryTicket, recoveryLots, recoveryType, Slippage, (recoveryType == OP_BUY ? clrRed : clrBlue));
          SafeOrderClose(parentTicket, parentLots, parentType, Slippage, (parentType == OP_BUY ? clrRed : clrBlue));
-         Print(">>> [RECOVERY BASKET CLOSED] ", (StringFind(comment, "_LSD") >= 0 ? "Type 2 Structural" : ((StringFind(comment, "_TYPE3") >= 0) ? "Type 3 Weak EMA" : "Type 1")),
+         Print(">>> [RECOVERY BASKET CLOSED] ", (StringFind(comment, "_HEDGE") >= 0 ? "Trend-Shift Hedge" : (StringFind(comment, "_LSD") >= 0 ? "Type 2 Structural" : ((StringFind(comment, "_TYPE3") >= 0) ? "Type 3 Weak EMA" : "Type 1"))),
                " Basket: Recovery #", recoveryTicket, " (+$", DoubleToString(recoveryProfit, 2),
                ") + Parent #", parentTicket, " ($", DoubleToString(parentProfit, 2),
                ") = Total Net $", DoubleToString(basketProfit, 2), " >= Target $", DoubleToString(targetProfit, 2));
@@ -9770,8 +9917,146 @@ void ManageRecoveryBasket()
      }
   }
 
+// ===== STRICT 1-ATTEMPT SHIELD REGISTRY =====
+struct ParentRecoveryTracker
+  {
+   int parentTicket;
+   int attempts;
+  };
+ParentRecoveryTracker g_parentRecoveryAttempts[500];
+int g_parentRecoveryAttemptCount = 0;
+
 //+------------------------------------------------------------------+
-//|                                                                  |
+//| RegisterParentRecoveryAttempt: Records an attempt for a parent   |
+//+------------------------------------------------------------------+
+void RegisterParentRecoveryAttempt(int parentTicket)
+  {
+   if(parentTicket <= 0) return;
+   for(int i = 0; i < g_parentRecoveryAttemptCount; i++)
+     {
+      if(g_parentRecoveryAttempts[i].parentTicket == parentTicket)
+        {
+         g_parentRecoveryAttempts[i].attempts++;
+         return;
+        }
+     }
+   if(g_parentRecoveryAttemptCount < 500)
+     {
+      g_parentRecoveryAttempts[g_parentRecoveryAttemptCount].parentTicket = parentTicket;
+      g_parentRecoveryAttempts[g_parentRecoveryAttemptCount].attempts = 1;
+      g_parentRecoveryAttemptCount++;
+     }
+  }
+
+//+------------------------------------------------------------------+
+//| GetParentRecoveryAttemptCount: Returns total attempts for parent |
+//+------------------------------------------------------------------+
+int GetParentRecoveryAttemptCount(int parentTicket)
+  {
+   if(parentTicket <= 0) return 0;
+   for(int i = 0; i < g_parentRecoveryAttemptCount; i++)
+     {
+      if(g_parentRecoveryAttempts[i].parentTicket == parentTicket)
+         return g_parentRecoveryAttempts[i].attempts;
+     }
+
+   // Fallback check against open and history orders
+   int count = 0;
+   string targetPrefix = "RECOVERY_" + IntegerToString(parentTicket);
+
+   // Check open trades
+   for(int o = OrdersTotal() - 1; o >= 0; o--)
+     {
+      if(OrderSelect(o, SELECT_BY_POS, MODE_TRADES))
+        {
+         if(OrderMagicNumber() == MagicNumber && OrderSymbol() == Symbol())
+           {
+            if(StringFind(OrderComment(), targetPrefix) == 0)
+               count++;
+           }
+        }
+     }
+
+   // Check closed history orders
+   for(int h = OrdersHistoryTotal() - 1; h >= 0; h--)
+     {
+      if(OrderSelect(h, SELECT_BY_POS, MODE_HISTORY))
+        {
+         if(OrderMagicNumber() == MagicNumber && OrderSymbol() == Symbol())
+           {
+            if(StringFind(OrderComment(), targetPrefix) == 0)
+               count++;
+           }
+        }
+     }
+
+   if(count > 0)
+     {
+      RegisterParentRecoveryAttempt(parentTicket);
+      for(int i = 0; i < g_parentRecoveryAttemptCount; i++)
+        {
+         if(g_parentRecoveryAttempts[i].parentTicket == parentTicket)
+           {
+            g_parentRecoveryAttempts[i].attempts = count;
+            break;
+           }
+        }
+     }
+   return count;
+  }
+
+//+------------------------------------------------------------------+
+//| HasParentExhaustedRecoveryAttempts: Checks if parent used limit  |
+//+------------------------------------------------------------------+
+bool HasParentExhaustedRecoveryAttempts(int parentTicket)
+  {
+   if(!InpEnableRecoveryAttemptShield)
+      return false;
+   int maxAllowed = (InpRecoveryMaxAttemptsPerParent > 0) ? InpRecoveryMaxAttemptsPerParent : 1;
+   return (GetParentRecoveryAttemptCount(parentTicket) >= maxAllowed);
+  }
+
+//+------------------------------------------------------------------+
+//| InitParentRecoveryAttemptRegistry: Populates registry at start   |
+//+------------------------------------------------------------------+
+void InitParentRecoveryAttemptRegistry()
+  {
+   g_parentRecoveryAttemptCount = 0;
+   int hTotal = OrdersHistoryTotal();
+   for(int h = 0; h < hTotal; h++)
+     {
+      if(!OrderSelect(h, SELECT_BY_POS, MODE_HISTORY))
+         continue;
+      if(OrderMagicNumber() != MagicNumber || OrderSymbol() != Symbol())
+         continue;
+      string cmt = OrderComment();
+      if(StringFind(cmt, "RECOVERY_") == 0)
+        {
+         int pTicket = GetRecoveryOrderParentTicket(OrderTicket(), cmt);
+         if(pTicket > 0)
+            RegisterParentRecoveryAttempt(pTicket);
+        }
+     }
+
+   int tTotal = OrdersTotal();
+   for(int t = 0; t < tTotal; t++)
+     {
+      if(!OrderSelect(t, SELECT_BY_POS, MODE_TRADES))
+         continue;
+      if(OrderMagicNumber() != MagicNumber || OrderSymbol() != Symbol())
+         continue;
+      string cmt = OrderComment();
+      if(StringFind(cmt, "RECOVERY_") == 0)
+        {
+         int pTicket = GetRecoveryOrderParentTicket(OrderTicket(), cmt);
+         if(pTicket > 0)
+            RegisterParentRecoveryAttempt(pTicket);
+        }
+     }
+  }
+
+//+------------------------------------------------------------------+
+//| HasRecoveryOrder: Checks if parent has an active recovery order  |
 //+------------------------------------------------------------------+
 bool HasRecoveryOrder(int ParentTicket)
   {
@@ -9815,6 +10100,25 @@ int CountActiveLsdRecoveryOrders()
          continue;
       string cmt = OrderComment();
       if(StringFind(cmt, "RECOVERY_") == 0 && StringFind(cmt, "_LSD") >= 0)
+         count++;
+     }
+   return count;
+  }
+
+//+------------------------------------------------------------------+
+//| CountActiveHedgeRecoveryOrders: Counts active Hedge Recoveries   |
+//+------------------------------------------------------------------+
+int CountActiveHedgeRecoveryOrders()
+  {
+   int count = 0;
+   for(int i = OrdersTotal() - 1; i >= 0; i--)
+     {
+      if(!OrderSelect(i, SELECT_BY_POS, MODE_TRADES))
+         continue;
+      if(OrderSymbol() != Symbol() || OrderMagicNumber() != MagicNumber)
+         continue;
+      string cmt = OrderComment();
+      if(StringFind(cmt, "RECOVERY_") == 0 && StringFind(cmt, "_HEDGE") >= 0)
          count++;
      }
    return count;
@@ -9882,6 +10186,9 @@ void CheckLsdStructuralRecoveryOrders()
       if(!validParent)
          continue;
 
+      if(InpEnableRecoveryAttemptShield && HasParentExhaustedRecoveryAttempts(parentTicket))
+         continue;
+
       if(HasRecoveryOrder(parentTicket))
          continue; // Parent already has an active recovery order (strictly max 1 per parent)
 
@@ -9923,6 +10230,9 @@ void CheckLsdStructuralRecoveryOrders()
                int recTicket = SafeOrderSend(Symbol(), OP_BUY, recLots, livePrice, Slippage, recSL, recTP, recComment, MagicNumber, clrAqua);
                if(recTicket > 0)
                  {
+                  RegisterParentRecoveryAttempt(parentTicket);
+                  OrderCreatedThisCandle = true;
+                  LastOrderCandleTime    = Time[0];
                   Print(">>> [EQL STRUCTURAL RECOVERY (Type 2)] Created BUY Recovery #", recTicket,
                         " Lots=", DoubleToString(recLots, 2), " at Support EQL=", DoubleToString(eqlPrice, Digits),
                         " (Ask=", DoubleToString(livePrice, Digits), ", DistToLine=$", DoubleToString(distToLine, 2),
@@ -9963,6 +10273,9 @@ void CheckLsdStructuralRecoveryOrders()
                int recTicket = SafeOrderSend(Symbol(), OP_SELL, recLots, livePrice, Slippage, recSL, recTP, recComment, MagicNumber, clrMagenta);
                if(recTicket > 0)
                  {
+                  RegisterParentRecoveryAttempt(parentTicket);
+                  OrderCreatedThisCandle = true;
+                  LastOrderCandleTime    = Time[0];
                   Print(">>> [EQH STRUCTURAL RECOVERY (Type 2)] Created SELL Recovery #", recTicket,
                         " Lots=", DoubleToString(recLots, 2), " at Resistance EQH=", DoubleToString(eqhPrice, Digits),
                         " (Bid=", DoubleToString(livePrice, Digits), ", DistToLine=$", DoubleToString(distToLine, 2),
@@ -10081,6 +10394,9 @@ void CheckType3WeakEmaRecoveryOrders()
       if(!validParent)
          continue;
 
+      if(InpEnableRecoveryAttemptShield && HasParentExhaustedRecoveryAttempts(parentTicket))
+         continue;
+
       if(HasRecoveryOrder(parentTicket))
          continue; // Parent already has an active recovery order (strictly max 1 per parent)
 
@@ -10122,6 +10438,9 @@ void CheckType3WeakEmaRecoveryOrders()
             int recTicket = SafeOrderSend(Symbol(), OP_SELL, recLots, livePrice, Slippage, recSL, recTP, recComment, MagicNumber, clrOrangeRed);
             if(recTicket > 0)
               {
+               RegisterParentRecoveryAttempt(parentTicket);
+               OrderCreatedThisCandle = true;
+               LastOrderCandleTime    = Time[0];
                Print(">>> [WEAK EMA RECOVERY (Type 3 Mode 1)] Created SELL Recovery #", recTicket,
                      " Lots=", DoubleToString(recLots, 2), " (Parent SELL #", parentTicket, " Open=", DoubleToString(parentOpen, Digits),
                      ") Bid=", DoubleToString(livePrice, Digits),
@@ -10169,6 +10488,9 @@ void CheckType3WeakEmaRecoveryOrders()
             int recTicket = SafeOrderSend(Symbol(), OP_BUY, recLots, livePrice, Slippage, recSL, recTP, recComment, MagicNumber, clrDodgerBlue);
             if(recTicket > 0)
               {
+               RegisterParentRecoveryAttempt(parentTicket);
+               OrderCreatedThisCandle = true;
+               LastOrderCandleTime    = Time[0];
                Print(">>> [WEAK EMA RECOVERY (Type 3 Mode 1)] Created BUY Recovery #", recTicket,
                      " Lots=", DoubleToString(recLots, 2), " (Parent BUY #", parentTicket, " Open=", DoubleToString(parentOpen, Digits),
                      ") Ask=", DoubleToString(livePrice, Digits),
@@ -10179,6 +10501,176 @@ void CheckType3WeakEmaRecoveryOrders()
                      (lossTriggered && gapTriggered ? "Loss & Gap" : (lossTriggered ? "Loss" : "Gap")));
                break; // 1 order created per check cycle
               }
+           }
+        }
+     }
+  }
+
+//+------------------------------------------------------------------+
+//| CheckTrendShiftHedgeRecoveryOrders: Trend-Shift Hedge Rescue     |
+//| (Model 2). For an underwater parent order when market trend has  |
+//| confirmed flipped against it (EMA and SSL in opposite direction  |
+//| for >= 15 min with price beyond EMA and >= $150 adverse move),   |
+//| opens a 2x Trend-Following Recovery Order in the new trend       |
+//| direction. As market runs with the new trend, the 2x recovery    |
+//| order gains to pay off parent loss, closing both at net profit.  |
+//+------------------------------------------------------------------+
+void CheckTrendShiftHedgeRecoveryOrders()
+  {
+   if(!InpEnableHedgeRecovery || GetTotalEAOrders() >= MaxOpenOrders || !IsOneCandleOrderAllowed())
+      return;
+
+   int maxActive = (InpHedgeRecoveryMaxActiveOrders > 0) ? InpHedgeRecoveryMaxActiveOrders : 1;
+   if(CountActiveHedgeRecoveryOrders() >= maxActive)
+      return;
+
+   RefreshRates();
+
+   double emaVal = iMA(Symbol(), Period(), InpEMA200Period, InpEMAPriceShift, MODE_EMA, PRICE_CLOSE, 0);
+   if(emaVal <= 0.0)
+      return;
+
+   double minAdvGap  = (InpHedgeRecoveryMinAdverseGap > 0.0)   ? InpHedgeRecoveryMinAdverseGap   : 150.0;
+   double minLossUSD = (InpHedgeRecoveryMinLossUSD > 0.0)      ? InpHedgeRecoveryMinLossUSD      : 2.0;
+   int    minElapsed = (InpHedgeRecoveryMinElapsedMin > 0)     ? InpHedgeRecoveryMinElapsedMin   : 15;
+
+   for(int i = OrdersTotal() - 1; i >= 0; i--)
+     {
+      if(!OrderSelect(i, SELECT_BY_POS, MODE_TRADES))
+         continue;
+      if(OrderMagicNumber() != MagicNumber || OrderSymbol() != Symbol())
+         continue;
+
+      int parentTicket = OrderTicket();
+      int parentType   = OrderType();
+      if(parentType != OP_BUY && parentType != OP_SELL)
+         continue;
+
+      string comment = OrderComment();
+      if(StringFind(comment, "RECOVERY_") >= 0 || IsFLIPBasketSupportOrder(parentTicket, comment))
+         continue;
+
+      // Only rescue regular trades (SSL Long, SSL Short, ReEntry)
+      bool validParent = (StringFind(comment, "SSL Long") >= 0 || StringFind(comment, "SSL Short") >= 0 || StringFind(comment, "ReEntry") >= 0);
+      if(!validParent)
+         continue;
+
+      // 1-ATTEMPT SHIELD: If parent already had a recovery attempt or currently has one, SKIP!
+      if(InpEnableRecoveryAttemptShield && HasParentExhaustedRecoveryAttempts(parentTicket))
+         continue;
+      if(HasRecoveryOrder(parentTicket))
+         continue;
+
+      double parentLots = OrderLots();
+      double currentProfitUSD = OrderProfit() + OrderSwap() + OrderCommission();
+
+      // Parent must be underwater by at least minLossUSD ($2.00)
+      if(currentProfitUSD > -MathAbs(minLossUSD))
+         continue;
+
+      double parentOpen = OrderOpenPrice();
+
+      // =====================================================================
+      // CASE 1: Parent is BUY in loss, but trend has flipped to confirmed SELL
+      // Strategy: Open 2x SELL Hedge in direction of new downtrend to rescue BUY
+      // =====================================================================
+      if(parentType == OP_BUY)
+        {
+         // Trend Confirmation: EMA and SSL flipped to SELL (-1), and price below EMA
+         if(EMADirection != -1 || GlobalSSLDirection != -1)
+            continue;
+         if(Bid >= emaVal)
+            continue;
+
+         // Adverse Distance: Dropped >= $150 from parent BUY open price
+         double adverseDistance = parentOpen - Bid;
+         if(adverseDistance < minAdvGap)
+            continue;
+
+         // Trend elapsed time: Must be flipped for at least minElapsed minutes (>= 15 min)
+         int elapsedSec = 999999;
+         datetime flipTime = GetActualEmaFlipTime(-1);
+         if(flipTime == 0 && EmaFlipTime > 0) flipTime = EmaFlipTime;
+         if(flipTime > 0)
+            elapsedSec = (int)(TimeCurrent() - flipTime);
+         if(elapsedSec < minElapsed * 60)
+            continue;
+
+         double mult = (InpHedgeRecoveryLotMultiplier > 0.0) ? InpHedgeRecoveryLotMultiplier : 2.0;
+         double recLots = NormalizeLots(parentLots * mult);
+         if(recLots <= 0.0) recLots = parentLots * 2.0;
+
+         double slDist = (InpHedgeRecoveryStopLossRaw > 0.0)   ? InpHedgeRecoveryStopLossRaw   : 300.0;
+         double tpDist = (InpHedgeRecoveryTakeProfitRaw > 0.0) ? InpHedgeRecoveryTakeProfitRaw : 500.0;
+
+         double recSL = NormalizeDouble(Bid + slDist, Digits);
+         double recTP = NormalizeDouble(Bid - tpDist, Digits);
+         string recComment = "RECOVERY_" + IntegerToString(parentTicket) + "_HEDGE";
+
+         int recTicket = SafeOrderSend(Symbol(), OP_SELL, recLots, Bid, Slippage, recSL, recTP, recComment, MagicNumber, clrCrimson);
+         if(recTicket > 0)
+           {
+            RegisterParentRecoveryAttempt(parentTicket);
+            OrderCreatedThisCandle = true;
+            LastOrderCandleTime    = Time[0];
+            Print(">>> [TREND-SHIFT HEDGE RESCUE] Opened 2x SELL Hedge #", recTicket,
+                  " Lots=", DoubleToString(recLots, 2), " at Bid=", DoubleToString(Bid, Digits),
+                  " to Rescue Parent BUY #", parentTicket, " (Open=", DoubleToString(parentOpen, Digits),
+                  ", Loss=$", DoubleToString(currentProfitUSD, 2), ", AdverseGap=$", DoubleToString(adverseDistance, 2),
+                  ", EmaVal=", DoubleToString(emaVal, Digits), ", FlipElapsed=", (elapsedSec / 60), "m)");
+            break; // Max 1 order created per check cycle
+           }
+        }
+
+      // =====================================================================
+      // CASE 2: Parent is SELL in loss, but trend has flipped to confirmed BUY
+      // Strategy: Open 2x BUY Hedge in direction of new uptrend to rescue SELL
+      // =====================================================================
+      else if(parentType == OP_SELL)
+        {
+         // Trend Confirmation: EMA and SSL flipped to BUY (+1), and price above EMA
+         if(EMADirection != 1 || GlobalSSLDirection != 1)
+            continue;
+         if(Ask <= emaVal)
+            continue;
+
+         // Adverse Distance: Risen >= $150 from parent SELL open price
+         double adverseDistance = Ask - parentOpen;
+         if(adverseDistance < minAdvGap)
+            continue;
+
+         // Trend elapsed time: Must be flipped for at least minElapsed minutes (>= 15 min)
+         int elapsedSec = 999999;
+         datetime flipTime = GetActualEmaFlipTime(1);
+         if(flipTime == 0 && EmaFlipTime > 0) flipTime = EmaFlipTime;
+         if(flipTime > 0)
+            elapsedSec = (int)(TimeCurrent() - flipTime);
+         if(elapsedSec < minElapsed * 60)
+            continue;
+
+         double mult = (InpHedgeRecoveryLotMultiplier > 0.0) ? InpHedgeRecoveryLotMultiplier : 2.0;
+         double recLots = NormalizeLots(parentLots * mult);
+         if(recLots <= 0.0) recLots = parentLots * 2.0;
+
+         double slDist = (InpHedgeRecoveryStopLossRaw > 0.0)   ? InpHedgeRecoveryStopLossRaw   : 300.0;
+         double tpDist = (InpHedgeRecoveryTakeProfitRaw > 0.0) ? InpHedgeRecoveryTakeProfitRaw : 500.0;
+
+         double recSL = NormalizeDouble(Ask - slDist, Digits);
+         double recTP = NormalizeDouble(Ask + tpDist, Digits);
+         string recComment = "RECOVERY_" + IntegerToString(parentTicket) + "_HEDGE";
+
+         int recTicket = SafeOrderSend(Symbol(), OP_BUY, recLots, Ask, Slippage, recSL, recTP, recComment, MagicNumber, clrDeepSkyBlue);
+         if(recTicket > 0)
+           {
+            RegisterParentRecoveryAttempt(parentTicket);
+            OrderCreatedThisCandle = true;
+            LastOrderCandleTime    = Time[0];
+            Print(">>> [TREND-SHIFT HEDGE RESCUE] Opened 2x BUY Hedge #", recTicket,
+                  " Lots=", DoubleToString(recLots, 2), " at Ask=", DoubleToString(Ask, Digits),
+                  " to Rescue Parent SELL #", parentTicket, " (Open=", DoubleToString(parentOpen, Digits),
+                  ", Loss=$", DoubleToString(currentProfitUSD, 2), ", AdverseGap=$", DoubleToString(adverseDistance, 2),
+                  ", EmaVal=", DoubleToString(emaVal, Digits), ", FlipElapsed=", (elapsedSec / 60), "m)");
+            break; // Max 1 order created per check cycle
            }
         }
      }
@@ -12590,49 +13082,45 @@ void ManagePartialClosesLossOld()
 //+------------------------------------------------------------------+
 void ManagePartialCloses()
   {
+   if(InpEnablePartialLossCut)
+      ManagePartialClosesLoss();
 
+   if(!InpEnablePartialProfitClose)
+      return;
 
-   ManagePartialClosesLoss();
    for(int i = OrdersTotal() - 1; i >= 0; i--)
      {
       if(!OrderSelect(i, SELECT_BY_POS, MODE_TRADES))
          continue;
 
-      // Ensure it matches current symbol
-      if(OrderSymbol() != Symbol())
+      // Ensure it matches current symbol and magic number
+      if(OrderSymbol() != Symbol() || OrderMagicNumber() != MagicNumber)
          continue;
 
       int orderType = OrderType();
       if(orderType != OP_BUY && orderType != OP_SELL)
          continue;
 
-
       if(StringFind(OrderComment(), "RECOVERY_") == 0)
          continue;
 
       double orderLots = OrderLots();
 
-      // Check if order size meets your threshold (0.02 lots or higher)
+      // Check if order size meets threshold (0.02 lots or higher)
       if(orderLots >= 0.02 * balancelomultipler)
         {
-         // Calculate total net profit for this specific ticket (including swap/commission)
          double currentProfit = OrderProfit() + OrderSwap() + OrderCommission();
-         double lotsToClose   = 0.01*balancelomultipler;
-
-         // g_lastClosedPrice=OrderOpenPrice();
+         double lotsToClose   = 0.01 * balancelomultipler;
 
          // Ensure leaving a valid minimum lot size behind (at least 0.01 remaining)
          if(orderLots - lotsToClose >= 0.01 * balancelomultipler)
            {
             bool   triggerClose = false;
             string actionType   = "";
-            int    orderTypeInt = (orderType == OP_SELL) ? -1 : 1;
-            int    minimum_Profit =orderLots*100*partialClose01in05IndividualPercentage;
+            int    minimum_Profit = (int)(orderLots * 100 * partialClose01in05IndividualPercentage);
 
             if(TimeCurrent() - OrderOpenTime() > 60 * 30)
-              {
-               minimum_Profit =minimum_Profit/2;// 1*balancelomultipler;
-              }
+               minimum_Profit = minimum_Profit / 2;
 
             // === CONDITION 1: PROFIT TARGET REACHED ===
             if(currentProfit >= minimum_Profit &&
@@ -12642,60 +13130,80 @@ void ManagePartialCloses()
                triggerClose = true;
                actionType   = "PROFIT";
               }
-            // // === CONDITION 2: SEQUENTIAL LOSS GAP CUT ($100 GAPS) ===
-            // else
-            //    if(currentProfit <= -(orderLots * 100.0))
-            //      {
-            //       bool priceGapReached = false;
-
-
-
-            //       if(g_lastClosedPrice == 0)
-            //         {
-            //          priceGapReached = true; // First partial loss close
-            //         }
-            //       else
-            //          if(orderTypeInt == 1 && (g_lastClosedPrice - Bid) >= 100.0) // OP_BUY
-            //            {
-            //             priceGapReached = true;
-            //            }
-            //          else
-            //             if(orderTypeInt == -1 && (Ask - g_lastClosedPrice) >= 100.0) // OP_SELL
-            //               {
-            //                priceGapReached = true;
-            //               }
-
-            //       if(priceGapReached)
-            //         {
-            //          triggerClose = true;
-            //          actionType   = "LOSS CUT";
-            //         }
-            //      }
 
             // === EXECUTE ORDER CLOSE ONCE IF TRIGGERED ===
             if(triggerClose)
               {
                RefreshRates();
                double closePrice = (orderType == OP_BUY) ? Bid : Ask;
+               int closedTicket = OrderTicket();
+               string origComment = OrderComment();
+               double openPrice = OrderOpenPrice();
 
                // Use higher slippage (20) to prevent Error 138 during fast market movement
-               bool success = OrderClose(OrderTicket(), lotsToClose, closePrice, 20, (actionType == "PROFIT" ? clrOrange : clrRed));
+               bool success = OrderClose(closedTicket, lotsToClose, closePrice, 20, (actionType == "PROFIT" ? clrOrange : clrRed));
 
                if(success)
                  {
-                  // if(actionType == "LOSS CUT")
-                    {
-                     g_lastLossCloseTime = TimeCurrent();
-                     g_lastClosedPrice   = closePrice; // Save reference price for the next $100 gap
-                    }
+                  g_lastLossCloseTime = TimeCurrent();
+                  g_lastClosedPrice   = closePrice;
 
-                  Print("Partial Close Success [", actionType, "]: Ticket #", OrderTicket(),
+                  Print("Partial Close Success [", actionType, "]: Ticket #", closedTicket,
                         " | Closed: ", lotsToClose, " lots | P/L: $", DoubleToString(currentProfit, 2),
                         " | Price: ", closePrice);
+
+                  // Automatically protect the remaining runner portion at Breakeven
+                  if(actionType == "PROFIT" && InpEnableRunnerBreakevenProtection)
+                    {
+                     for(int r = OrdersTotal() - 1; r >= 0; r--)
+                       {
+                        if(!OrderSelect(r, SELECT_BY_POS, MODE_TRADES))
+                           continue;
+                        if(OrderSymbol() != Symbol() || OrderMagicNumber() != MagicNumber)
+                           continue;
+
+                        int rTicket = OrderTicket();
+                        string rComment = OrderComment();
+
+                        if(rTicket == closedTicket || StringFind(rComment, "from #" + IntegerToString(closedTicket)) >= 0)
+                          {
+                           RegisterPreservedOrderComment(rTicket, origComment);
+
+                           double curSL = OrderStopLoss();
+                           double curTP = OrderTakeProfit();
+                           double beSL = 0.0;
+                           bool needModify = false;
+
+                           if(orderType == OP_BUY)
+                             {
+                              beSL = NormalizeDouble(openPrice + InpRunnerBreakevenBufferPoints * Point, Digits);
+                              if(curSL == 0.0 || beSL > curSL + Point)
+                                 needModify = true;
+                             }
+                           else if(orderType == OP_SELL)
+                             {
+                              beSL = NormalizeDouble(openPrice - InpRunnerBreakevenBufferPoints * Point, Digits);
+                              if(curSL == 0.0 || beSL < curSL - Point)
+                                 needModify = true;
+                             }
+
+                           if(needModify)
+                             {
+                              ResetLastError();
+                              bool modified = SafeOrderModify(rTicket, openPrice, beSL, curTP, 0, clrLime);
+                              Print(">>> [RUNNER PROTECTED] Partial close child #", rTicket,
+                                    " | Type=", (orderType == OP_BUY ? "BUY" : "SELL"),
+                                    " | SL moved to Breakeven @ ", DoubleToString(beSL, Digits),
+                                    " (Buffer: +$", InpRunnerBreakevenBufferPoints, " raw) | Success=", modified);
+                             }
+                           break;
+                          }
+                       }
+                    }
                  }
                else
                  {
-                  Print("Partial Close Failed for Ticket #", OrderTicket(), ". Error: ", GetLastError());
+                  Print("Partial Close Failed for Ticket #", closedTicket, ". Error: ", GetLastError());
                  }
               }
            }
@@ -13938,7 +14446,7 @@ void UpdateDashboard(DailyProtectionState &state)
 // SECTION 2: BASKETS & FLOATING P/L ($1x TARGET)
 // ==========================================================
    CreateDashboardPanel(DASH_PREFIX+"SEC_BSK", x, y+130, w, 18, C'28,38,50');
-   CreateDashboardLabel(DASH_PREFIX+"BSK_H", "--- BASKETS & FLOATING P/L ($1x TARGET) ---", tx, y+132, 8, clrAqua);
+   CreateDashboardLabel(DASH_PREFIX+"BSK_H", "--- BASKETS & FLOATING P/L ($2x TARGET + TRAIL) ---", tx, y+132, 8, clrAqua);
 
    double targetProfit = InpBasketProfitTargetUSD * (balancelomultipler > 0 ? balancelomultipler : 1);
 
@@ -13991,7 +14499,7 @@ void UpdateDashboard(DailyProtectionState &state)
       recStr = StringFormat("#%d (%s %.2fL) %s$%.2f [SL Gap $%.0f]", recTicket, (recType == OP_BUY ? "BUY" : "SELL"), recLots, (recPL >= 0 ? "+" : "-"), MathAbs(recPL), RecoveryStopLossDistanceRaw);
       recClr = (recPL >= 0 ? clrLime : clrTomato);
      }
-   CreateDashboardLabel(DASH_PREFIX+"REC_ORD", "RECOVERY    : " + recStr, tx, y+238, 8, recClr);
+   CreateDashboardLabel(DASH_PREFIX+"REC_ORD", "LSD RECOVERY: " + recStr, tx, y+238, 8, recClr);
 
    string flipStr = "NONE";
    color flipClr = clrSilver;
@@ -14063,7 +14571,7 @@ void UpdateDashboard(DailyProtectionState &state)
    string slModStr = StringFormat("SL ANTI-SPAM: Min Mod Gap $%.2f Raw [ACTIVE]", MinimumSLModifyGapRaw);
    CreateDashboardLabel(DASH_PREFIX+"SL_MOD", slModStr, tx, y+382, 8, clrAqua);
 
-   string safeCloseStr = "SAFE CLOSE  : SL at Live Price + $50.00 Raw [ACTIVE]";
+   string safeCloseStr = "RUNNER LOCK : BE +20pts on Partial Close [ACTIVE]";
    CreateDashboardLabel(DASH_PREFIX+"SAFE_CLOSE", safeCloseStr, tx, y+398, 8, clrAqua);
 
    string dayRiskStr = StringFormat("DAY STOP/RSK: Stop $%.0f | Floor $%.2f | Room $%.2f [%s]", DailyEquityStopUSD * balancelomultipler, DayProfitLadderProtectionEquity, riskRemaining, (HasBasketNewOrderLossLimit() ? "LOCKED" : "OK"));
