@@ -51,7 +51,7 @@ int partialLossMultipler=5;//5; //10 values 0.05 means $50 close 0.01 partial lo
 bool   InpEnablePartialProfitClose        = true;  // Bank partial profit on high-volume positions
 bool   InpEnableRunnerBreakevenProtection = true;  // Immediately lock remaining runner SL to Breakeven (+20 pts) on partial close
 double InpRunnerBreakevenBufferPoints     = 20.0;  // Breakeven profit buffer in points ($20 raw price gap)
-bool   InpEnablePartialLossCut            = false; // Disabled by default: prevents chopping underwater orders into multi-step double losses
+bool   InpEnablePartialLossCut            = true;//false; // Disabled by default: prevents chopping underwater orders into multi-step double losses
 
 //chance 3
 double FlipLadderStepUSD =8;//0;//10;// 5;//10.0;//0 means nothing not work close all orders at $7Xmultipler
@@ -206,7 +206,7 @@ double InpLsdRecoveryTriggerLossUSD         = 1.0;   // Min loss in USD (>$1.00)
 double InpLsdRecoveryLevelToleranceRaw      = 50.0;  // Max raw distance ($50) from EQL/EQH line to trigger recovery
 double InpLsdRecoveryLotMultiplier          = 2.0;   // Recovery lot multiplier (2x parent lot)
 double InpLsdRecoveryBasketProfitUSD        = 2.0;   // Net profit target in USD ($2.00) to close parent + recovery basket
-double InpLsdRecoveryStopLossRaw            = 300.0; // StopLoss raw points ($300) for Type 2 Recovery order
+double InpLsdRecoveryStopLossRaw            = 3000;//300.0; // StopLoss raw points ($300) for Type 2 Recovery order
 double InpLsdRecoveryTakeProfitRaw          = 500.0; // TakeProfit raw points ($500) for Type 2 Recovery order
 int    InpLsdRecoveryMaxActiveOrders        = 1;     // Max simultaneous active Type 2 Recovery orders (default 1)
 
@@ -224,7 +224,7 @@ double InpType3MinEmaDistanceRaw            = 100.0; // Min raw distance ($100 r
 double InpType3TriggerLossUSD               = 2.0;   // Min loss in USD (>$2.00) on parent order (Mode 1 trigger)
 double InpType3LotMultiplier                = 2.0;   // Recovery lot multiplier (2x parent lot)
 double InpType3BasketProfitUSD              = 1.0;   // Net profit target in USD ($1.00) to close parent + recovery basket
-double InpType3StopLossRaw                  = 300.0; // StopLoss raw points ($300) for Type 3 Recovery order
+double InpType3StopLossRaw                  = 3000;//300.0; // StopLoss raw points ($300) for Type 3 Recovery order
 double InpType3TakeProfitRaw                = 500.0; // TakeProfit raw points ($500) for Type 3 Recovery order
 int    InpType3MaxActiveOrders              = 1;     // Max simultaneous active Type 3 Recovery orders (default 1)
 
@@ -239,7 +239,7 @@ double InpHedgeRecoveryMinAdverseGap        = 150.0; // Min adverse distance ($1
 int    InpHedgeRecoveryMinElapsedMin        = 15;    // Min elapsed minutes after trend flip confirming new trend
 double InpHedgeRecoveryLotMultiplier        = 2.0;   // Hedge recovery lot multiplier (2.0x parent lot)
 double InpHedgeRecoveryBasketProfitUSD      = 2.0;   // Net profit target in USD ($2.00) to close parent + hedge basket
-double InpHedgeRecoveryStopLossRaw          = 300.0; // StopLoss raw points ($300) for Hedge Recovery order
+double InpHedgeRecoveryStopLossRaw          = 3000;//300.0; // StopLoss raw points ($300) for Hedge Recovery order
 double InpHedgeRecoveryTakeProfitRaw        = 500.0; // TakeProfit raw points ($500) for Hedge Recovery order
 int    InpHedgeRecoveryMaxActiveOrders      = 1;     // Max simultaneous active Hedge Recovery orders (default 1)
 
@@ -4088,7 +4088,7 @@ void CloseOppositeOrdersOnEmaDistance()
 //+------------------------------------------------------------------+
 int OnInit()
   {
-   partialLossMultipler = 5;
+       partialLossMultipler= 5;
    if(AccountBalance() >= 1000)
       partialLossMultipler = 20;
    else
@@ -13231,8 +13231,7 @@ void ManagePartialClosesLoss()
 
       bool conditionMet = false;
       string triggerReason = "";
-
-      if(MathAbs(orderLots - (0.05 * baseMult)) < 0.000001)
+        if(MathAbs(orderLots - (0.06 * baseMult)) < 0.000001)
         {
          if(rawLossDistance >= 300.0)
            {
@@ -13241,9 +13240,19 @@ void ManagePartialClosesLoss()
            }
         }
       else
+
+      if(MathAbs(orderLots - (0.05 * baseMult)) < 0.000001)
+        {
+         if(rawLossDistance >= 400.0)
+           {
+            conditionMet = true;
+            triggerReason = StringFormat("0.05L Raw Dist $%.1f >= $300", rawLossDistance);
+           }
+        }
+      else
          if(MathAbs(orderLots - (0.04 * baseMult)) < 0.000001)
            {
-            if(rawLossDistance >= 500.0)
+            if(rawLossDistance >= 600.0)
               {
                conditionMet = true;
                triggerReason = StringFormat("0.04L Raw Dist $%.1f >= $500", rawLossDistance);
@@ -13252,7 +13261,7 @@ void ManagePartialClosesLoss()
          else
             if(MathAbs(orderLots - (0.03 * baseMult)) < 0.000001)
               {
-               if(rawLossDistance >= 800.0)
+               if(rawLossDistance >= 900.0)
                  {
                   conditionMet = true;
                   triggerReason = StringFormat("0.03L Raw Dist $%.1f >= $800", rawLossDistance);
@@ -13262,7 +13271,7 @@ void ManagePartialClosesLoss()
                if(MathAbs(orderLots - (0.02 * baseMult)) < 0.000001)
                  {
                   double dollarLossLimit = -20.0 * baseMult;
-                  if(currentProfit < dollarLossLimit || rawLossDistance >= 1000.0)
+                  if(currentProfit < dollarLossLimit || rawLossDistance >= 1100.0)
                     {
                      conditionMet = true;
                      triggerReason = StringFormat("0.02L (P/L $%.2f < $%.2f OR Raw Dist $%.1f >= $1000)", currentProfit, dollarLossLimit, rawLossDistance);
