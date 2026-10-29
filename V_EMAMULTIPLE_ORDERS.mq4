@@ -27,7 +27,7 @@
 //https://github.com/devcrunch2025/exnessStratagiesExperts/commit/f4f1c1340be330cd32a75da3f3a9b4bd5f4e4cf3
 
 
-string glbVersion = "VMULTI-1035 - Partial Loss";
+string glbVersion = "VMULTI-1035 - Partial Loss with balance/2";
 
 
 double DailyEquityStopUSD  =1000;//50;//20*2.5;//10;//20;// 10;//30.0; close all orders at $50Xmultipler
@@ -191,6 +191,9 @@ enum ENUM_LSD_SUPPORT_MODE
    LSD_MODE_BOTH             = 3  // Both Methods Active (Adaptive by Price Level)
   };
 
+//+------------------------------------------------------------------+
+//|                                                                  |
+//+------------------------------------------------------------------+
 ENUM_LSD_SUPPORT_MODE InpLsdSupportMode           = LSD_MODE_BOTH; // LSD Support Order Mode (Method 1, Method 2, or Both)
 double InpLsdSweepFlipBasketMaxGapRaw             = 100.0;         // Method 1: Max raw gap ($100) above EQH-R / below EQH-G
 double InpLsdMethod2BounceGapRaw                  = 50.0;          // Method 2: Max raw gap ($50) below EQH-R / above EQH-G
@@ -286,6 +289,9 @@ void     DeleteLiquiditySweepObjects();
 void     ManageSweepGlobalVariables(string signalType);
 void     ClearSweepGlobalVariables();
 
+//+------------------------------------------------------------------+
+//|                                                                  |
+//+------------------------------------------------------------------+
 datetime GetActualEmaFlipTime(int targetType = 0);
 double   GetEmaFlipPrice();
 double   EMAflipdistance(int orderType = -1);
@@ -465,6 +471,9 @@ double   PostOrderSLTPVerifyExpectedOpen[MAX_POST_ORDER_SLTP_VERIFY];
 int      PostOrderSLTPVerifyType[MAX_POST_ORDER_SLTP_VERIFY];
 double   PostOrderSLTPVerifyLots[MAX_POST_ORDER_SLTP_VERIFY];
 
+//+------------------------------------------------------------------+
+//|                                                                  |
+//+------------------------------------------------------------------+
 bool EnableRecoveryOrders = false; // Retired in favor of high-performing Type 2 (LSD Structural Recovery)
 double RecoveryTriggerLossUSD =1;//2;//1;//0.50;// 2;
 double RecoveryLotMultiplier = 2;
@@ -1821,7 +1830,7 @@ int CreateFLIPBasketSupportOrder(int flipDirection, bool ignoreEmaDistanceGate =
 
    int targetOrderType = (flipDirection == 1) ? OP_BUY : OP_SELL;
 
-   // USER RULE: Separate maximum counts (BUY support order max is 1, SELL support order max is 1)
+// USER RULE: Separate maximum counts (BUY support order max is 1, SELL support order max is 1)
    if(HasOpenFLIPBasketSupportOrder(targetOrderType))
      {
       Print("FLIPBasketSupport order skipped: An active FLIPBasketSupport order in direction ", (targetOrderType == OP_BUY ? "BUY" : "SELL"), " is already open (Separate max is 1).");
@@ -1831,7 +1840,7 @@ int CreateFLIPBasketSupportOrder(int flipDirection, bool ignoreEmaDistanceGate =
    RefreshRates();
    double flipLots = FLIPBasketSupportLot * (balancelomultipler > 0 ? balancelomultipler : 1);
 
-   // Booster & Method 2 lot enforcement for FLIPBasketSupport
+// Booster & Method 2 lot enforcement for FLIPBasketSupport
    double boosterMinLot = (InpLsdBoosterMinLot > 0.0) ? InpLsdBoosterMinLot : 0.02;
    bool eqhR_active = (IsLsdSweepRedLinePresent() || GetEQR_R_Price(true) > 0.0);
    bool eqhG_active = (IsLsdSweepGreenLinePresent() || GetEQR_G_Price(true) > 0.0);
@@ -1850,20 +1859,21 @@ int CreateFLIPBasketSupportOrder(int flipDirection, bool ignoreEmaDistanceGate =
             flipLots = m2BuyMin;
         }
      }
-   else if(flipDirection == -1) // SELL support order
-     {
-      // Method 1 booster (EQH-G + EMA 1)
-      if(eqhG_active && EMADirection == 1 && flipLots < boosterMinLot)
-         flipLots = boosterMinLot;
-
-      // Method 2 booster (EQH-R + EMA ANY: min 0.02Xmultiplier)
-      if(eqhR_active && (InpLsdSupportMode == LSD_MODE_METHOD2_BOUNCE || InpLsdSupportMode == LSD_MODE_BOTH))
+   else
+      if(flipDirection == -1) // SELL support order
         {
-         double m2SellMin = InpLsdMethod2MinLotBase * (balancelomultipler > 0 ? balancelomultipler : 1);
-         if(flipLots < m2SellMin)
-            flipLots = m2SellMin;
+         // Method 1 booster (EQH-G + EMA 1)
+         if(eqhG_active && EMADirection == 1 && flipLots < boosterMinLot)
+            flipLots = boosterMinLot;
+
+         // Method 2 booster (EQH-R + EMA ANY: min 0.02Xmultiplier)
+         if(eqhR_active && (InpLsdSupportMode == LSD_MODE_METHOD2_BOUNCE || InpLsdSupportMode == LSD_MODE_BOTH))
+           {
+            double m2SellMin = InpLsdMethod2MinLotBase * (balancelomultipler > 0 ? balancelomultipler : 1);
+            if(flipLots < m2SellMin)
+               flipLots = m2SellMin;
+           }
         }
-     }
 
    flipLots = NormalizeLots(flipLots);
 
@@ -2093,6 +2103,9 @@ double   GetLowestPriceSinceEmaFlip();
 bool     SafeOrderCloseMarket(int ticket, double lots, int slippage, color arrowColor);
 void     DrawTargetEquityHitCircle(datetime time, double price, double targetVal, int step);
 
+//+------------------------------------------------------------------+
+//|                                                                  |
+//+------------------------------------------------------------------+
 bool IsRecoveryOrderWithActiveParent(int ticket, string comment = """");
 void CheckLsdStructuralRecoveryOrders();
 int  CountActiveLsdRecoveryOrders();
@@ -3415,7 +3428,7 @@ bool PassesEMAFilter(int orderType)
       return false;
    RefreshRates();
    double price = (shift == 0) ? ((orderType == OP_BUY) ? Ask : Bid) : Close[shift];
-      bool passesEma = (orderType == OP_BUY) ? (price > ema) : (price < ema);
+   bool passesEma = (orderType == OP_BUY) ? (price > ema) : (price < ema);
    if(!passesEma)
       return false;
 
@@ -3972,7 +3985,7 @@ void TrackEmaFlip()
          CloseFLIPBasketSupportOrders(OP_BUY, false);
         }
 
-   // MIX V1020 + V1021: Deferred check during cycle when EMAdistance gap > MinEmaDistance (Strategy 1)
+// MIX V1020 + V1021: Deferred check during cycle when EMAdistance gap > MinEmaDistance (Strategy 1)
    if(InpEnableV1020EmaTrendSupport && currentDirection != 0 && !FLIPBasketSupportOpenedThisCycle)
      {
       int targetSupportType = (currentDirection == 1) ? OP_BUY : OP_SELL;
@@ -4088,7 +4101,7 @@ void CloseOppositeOrdersOnEmaDistance()
 //+------------------------------------------------------------------+
 int OnInit()
   {
-       partialLossMultipler= 5;
+   partialLossMultipler= 5;
    if(AccountBalance() >= 1000)
       partialLossMultipler = 20;
    else
@@ -5254,13 +5267,15 @@ bool HasMinimumSameOrderGap(int orderType, double minimumGapRaw, double proposed
       if(isBuy)
         {
          double ep = Ask + pendingGap;
-         if(ep < Ask + minStopDist) ep = Ask + minStopDist;
+         if(ep < Ask + minStopDist)
+            ep = Ask + minStopDist;
          checkPrice = ep;
         }
       else
         {
          double ep = Bid - pendingGap;
-         if(ep > Bid - minStopDist) ep = Bid - minStopDist;
+         if(ep > Bid - minStopDist)
+            ep = Bid - minStopDist;
          checkPrice = ep;
         }
      }
@@ -5409,12 +5424,12 @@ bool IsSslOrderInLoss(int orderType, double lossThresholdUSD = 0.0)
 
    int dirType = (orderType == OP_BUY || orderType == OP_BUYSTOP || orderType == OP_BUYLIMIT) ? OP_BUY : OP_SELL;
 
-   // 1. Overall directional basket P/L check
+// 1. Overall directional basket P/L check
    double basketPL = GetOpenPL(dirType);
    if(basketPL < -lossThresholdUSD)
       return true;
 
-   // 2. Individual open market order check for symbol and magic
+// 2. Individual open market order check for symbol and magic
    for(int i = OrdersTotal() - 1; i >= 0; i--)
      {
       if(!OrderSelect(i, SELECT_BY_POS, MODE_TRADES))
@@ -5451,7 +5466,7 @@ void CancelPendingReEntryOnLoss(int checkDirection = 0)
    if(!InpCancelPendingReEntryOnLoss)
       return;
 
-   // checkDirection: 0 = both, 1 = Buy only, -1 = Sell only
+// checkDirection: 0 = both, 1 = Buy only, -1 = Sell only
    bool buyInLoss = (checkDirection == 0 || checkDirection == 1) && IsSslOrderInLoss(OP_BUY, InpReEntryMaxAllowedLossUSD);
    bool sellInLoss = (checkDirection == 0 || checkDirection == -1) && IsSslOrderInLoss(OP_SELL, InpReEntryMaxAllowedLossUSD);
 
@@ -5479,12 +5494,13 @@ void CancelPendingReEntryOnLoss(int checkDirection = 0)
                " because SSL Buy position is in loss (PL: $", DoubleToString(GetOpenPL(OP_BUY), 2), ")");
          SafeOrderDelete(OrderTicket(), clrYellow);
         }
-      else if(sellInLoss && (oType == OP_SELLSTOP || oType == OP_SELLLIMIT))
-        {
-         Print("REENTRY CANCELLED | Deleting pending Sell ReEntry Ticket #", OrderTicket(),
-               " because SSL Sell position is in loss (PL: $", DoubleToString(GetOpenPL(OP_SELL), 2), ")");
-         SafeOrderDelete(OrderTicket(), clrYellow);
-        }
+      else
+         if(sellInLoss && (oType == OP_SELLSTOP || oType == OP_SELLLIMIT))
+           {
+            Print("REENTRY CANCELLED | Deleting pending Sell ReEntry Ticket #", OrderTicket(),
+                  " because SSL Sell position is in loss (PL: $", DoubleToString(GetOpenPL(OP_SELL), 2), ")");
+            SafeOrderDelete(OrderTicket(), clrYellow);
+           }
      }
   }
 
@@ -8535,7 +8551,7 @@ void CheckBasketProfitClose()
    double netPL = buyPL + sellPL;
    int mult = (balancelomultipler > 0 ? balancelomultipler : 1);
 
-   // 1. Overall Total Net Profit Target: If Net Profit across BUY + SELL > targetProfit -> Close ALL open orders
+// 1. Overall Total Net Profit Target: If Net Profit across BUY + SELL > targetProfit -> Close ALL open orders
    if(totalMarketOrders > 0 && netPL > targetProfit)
      {
       string netReason = StringFormat("Total Net Profit Hit: $%.2f > Target $%.2f (%.1f * %d)", netPL, targetProfit, InpBasketProfitTargetUSD, mult);
@@ -8547,7 +8563,7 @@ void CheckBasketProfitClose()
       return;
      }
 
-   // 2. Buy Basket Target & Micro-Trailing ( -  Sweet Spot)
+// 2. Buy Basket Target & Micro-Trailing ( -  Sweet Spot)
    if(buyMarketCount == 0 || buyPL <= 0.0)
       s_buyBasketPeakPL = 0.0;
 
@@ -8579,7 +8595,7 @@ void CheckBasketProfitClose()
         }
      }
 
-   // 3. Sell Basket Target & Micro-Trailing ( -  Sweet Spot)
+// 3. Sell Basket Target & Micro-Trailing ( -  Sweet Spot)
    if(sellMarketCount == 0 || sellPL <= 0.0)
       s_sellBasketPeakPL = 0.0;
 
@@ -8980,11 +8996,13 @@ double GetCurrentOscillationRange(double &outHigh, double &outLow, double &outRe
    double rHigh = High[hIdx];
    double rLow  = Low[lIdx];
 
-   // Also incorporate confirmed LSD structural levels if active
+// Also incorporate confirmed LSD structural levels if active
    double eqh = GetEQR_R_Price(true);
-   if(eqh <= 0.0) eqh = GetEQR_R_Price(false);
+   if(eqh <= 0.0)
+      eqh = GetEQR_R_Price(false);
    double eql = GetEQR_G_Price(true);
-   if(eql <= 0.0) eql = GetEQR_G_Price(false);
+   if(eql <= 0.0)
+      eql = GetEQR_G_Price(false);
 
    if(eqh > 0.0 && eqh > rHigh * 0.95 && eqh < rHigh * 1.05)
       rHigh = MathMax(rHigh, eqh);
@@ -9036,10 +9054,11 @@ double GetDynamicBasketProfitTarget()
 
    if(rW <= InpOscillationTightThreshold)
       return InpTightRangeTargetUSD;
-   else if(rW <= InpOscillationStandardThreshold)
-      return InpStandardRangeTargetUSD;
    else
-      return InpMacroRangeTargetUSD;
+      if(rW <= InpOscillationStandardThreshold)
+         return InpStandardRangeTargetUSD;
+      else
+         return InpMacroRangeTargetUSD;
   }
 
 //+------------------------------------------------------------------+
@@ -9059,13 +9078,13 @@ bool PassesOscillationBoundaryFilter(int orderType)
    double curBid = Bid;
    double curAsk = Ask;
 
-   // Check if market is in confirmed MOMENTUM BREAKOUT mode
+// Check if market is in confirmed MOMENTUM BREAKOUT mode
    bool isBearishBreakout = (curBid < (rLow - 50.0 * Point) && EMADirection == -1 && GlobalSSLDirection == -1);
    bool isBullishBreakout = (curAsk > (rHigh + 50.0 * Point) && EMADirection == 1 && GlobalSSLDirection == 1);
 
-   // ==========================================================
-   // BUY DIRECTION EVALUATION
-   // ==========================================================
+// ==========================================================
+// BUY DIRECTION EVALUATION
+// ==========================================================
    if(orderType == OP_BUY || orderType == OP_BUYSTOP || orderType == OP_BUYLIMIT)
      {
       // If market is in confirmed downward runaway breakout, FREEZE all BUYs!
@@ -9104,46 +9123,47 @@ bool PassesOscillationBoundaryFilter(int orderType)
         }
      }
 
-   // ==========================================================
-   // SELL DIRECTION EVALUATION
-   // ==========================================================
-   else if(orderType == OP_SELL || orderType == OP_SELLSTOP || orderType == OP_SELLLIMIT)
-     {
-      // If market is in confirmed upward runaway breakout, FREEZE all SELLs!
-      if(isBullishBreakout)
+// ==========================================================
+// SELL DIRECTION EVALUATION
+// ==========================================================
+   else
+      if(orderType == OP_SELL || orderType == OP_SELLSTOP || orderType == OP_SELLLIMIT)
         {
-         g_oscillationBlockedSells++;
-         static datetime lastBrtLogS = 0;
-         if(TimeCurrent() - lastBrtLogS >= 60)
+         // If market is in confirmed upward runaway breakout, FREEZE all SELLs!
+         if(isBullishBreakout)
            {
-            lastBrtLogS = TimeCurrent();
-            Print(">>> [BREAKOUT PROTECTION] Blocked SELL during active Bullish Breakout! (Ask=",
-                  DoubleToString(curAsk, Digits), " > RangeHigh=", DoubleToString(rHigh, Digits),
-                  ", Range=$", DoubleToString(rWidth, 2), ")");
+            g_oscillationBlockedSells++;
+            static datetime lastBrtLogS = 0;
+            if(TimeCurrent() - lastBrtLogS >= 60)
+              {
+               lastBrtLogS = TimeCurrent();
+               Print(">>> [BREAKOUT PROTECTION] Blocked SELL during active Bullish Breakout! (Ask=",
+                     DoubleToString(curAsk, Digits), " > RangeHigh=", DoubleToString(rHigh, Digits),
+                     ", Range=$", DoubleToString(rWidth, 2), ")");
+              }
+            return false;
            }
-         return false;
-        }
 
-      // If price broke below floor with bearish momentum, breakout sell is permitted
-      if(isBearishBreakout)
-         return true;
+         // If price broke below floor with bearish momentum, breakout sell is permitted
+         if(isBearishBreakout)
+            return true;
 
-      // Inside oscillation: Block SELL if price is in Lower Floor Zone (<= 35%)
-      if(rWidth >= InpOscillationTightThreshold && relPos <= InpBoundaryFloorPercent)
-        {
-         g_oscillationBlockedSells++;
-         static datetime lastSellFloorLog = 0;
-         if(TimeCurrent() - lastSellFloorLog >= 60)
+         // Inside oscillation: Block SELL if price is in Lower Floor Zone (<= 35%)
+         if(rWidth >= InpOscillationTightThreshold && relPos <= InpBoundaryFloorPercent)
            {
-            lastSellFloorLog = TimeCurrent();
-            Print(">>> [OSCILLATION ASYMMETRY] Blocked SELL near Range Floor! (RelPos=",
-                  DoubleToString(relPos, 1), "% <= ", DoubleToString(InpBoundaryFloorPercent, 0),
-                  "%, Range=$", DoubleToString(rWidth, 2),
-                  ", High=", DoubleToString(rHigh, Digits), ", Low=", DoubleToString(rLow, Digits), ")");
+            g_oscillationBlockedSells++;
+            static datetime lastSellFloorLog = 0;
+            if(TimeCurrent() - lastSellFloorLog >= 60)
+              {
+               lastSellFloorLog = TimeCurrent();
+               Print(">>> [OSCILLATION ASYMMETRY] Blocked SELL near Range Floor! (RelPos=",
+                     DoubleToString(relPos, 1), "% <= ", DoubleToString(InpBoundaryFloorPercent, 0),
+                     "%, Range=$", DoubleToString(rWidth, 2),
+                     ", High=", DoubleToString(rHigh, Digits), ", Low=", DoubleToString(rLow, Digits), ")");
+              }
+            return false;
            }
-         return false;
         }
-     }
 
    return true;
   }
@@ -9185,7 +9205,7 @@ double GetDynamicOrderGap(int orderType)
    double baseGap = (MinimumSameOrderGapRawMatched > 0.0) ? MinimumSameOrderGapRawMatched : 50.0;
    double unmatchedGap = (MinimumSameOrderGapRawUnmatched > 0.0) ? MinimumSameOrderGapRawUnmatched : 50.0;
 
-   // Adaptive Grid Gap scaling to current oscillation width (R / 8)
+// Adaptive Grid Gap scaling to current oscillation width (R / 8)
    if(InpEnableOscillationEngine && InpEnableAdaptiveGridGap)
      {
       double rH = 0.0, rL = 0.0, rPos = 50.0;
@@ -9221,7 +9241,7 @@ double GetDynamicOrderGap(int orderType)
      {
       double lossStep = 3.0 * (balancelomultipler > 0 ? balancelomultipler : 1);
       int lossMultiplier = 1 + (int)MathFloor(MathAbs(pl) / lossStep);
-            lossMultiplier = MathMin(lossMultiplier, 4); // Cap to safe maximum 4X
+      lossMultiplier = MathMin(lossMultiplier, 4); // Cap to safe maximum 4X
       multiplier = MathMax(multiplier, lossMultiplier);
      }
 
@@ -9237,10 +9257,11 @@ double GetDynamicOrderGap(int orderType)
            {
             if(orderType == OP_BUY || orderType == OP_BUYSTOP || orderType == OP_BUYLIMIT)
                trendConfirmed = (sslDir == 1 && (Close[0] >= Open[0] || Bid >= Close[1]));
-            else if(orderType == OP_SELL || orderType == OP_SELLSTOP || orderType == OP_SELLLIMIT)
-               trendConfirmed = (sslDir == -1 && (Close[0] <= Open[0] || Ask <= Close[1]));
             else
-               trendConfirmed = false;
+               if(orderType == OP_SELL || orderType == OP_SELLSTOP || orderType == OP_SELLLIMIT)
+                  trendConfirmed = (sslDir == -1 && (Close[0] <= Open[0] || Ask <= Close[1]));
+               else
+                  trendConfirmed = false;
            }
 
          if(trendConfirmed)
@@ -9853,24 +9874,26 @@ void ChangeLots(double OpenPL, string reason, int orderType, int stoplevelStep,s
    if(eqhR_detected)
      {
       eqhPriceVal = GetEQR_R_Price(true);
-      if(eqhPriceVal <= 0.0) eqhPriceVal = GetEQR_R_Price(false);
+      if(eqhPriceVal <= 0.0)
+         eqhPriceVal = GetEQR_R_Price(false);
      }
 
    double eqlPriceVal = 0.0;
    if(eqhG_detected)
      {
       eqlPriceVal = GetEQR_G_Price(true);
-      if(eqlPriceVal <= 0.0) eqlPriceVal = GetEQR_G_Price(false);
+      if(eqlPriceVal <= 0.0)
+         eqlPriceVal = GetEQR_G_Price(false);
      }
 
    bool isSellOrder = (orderType == OP_SELL || orderType == OP_SELLSTOP || orderType == OP_SELLLIMIT);
    bool isBuyOrder  = (orderType == OP_BUY  || orderType == OP_BUYSTOP  || orderType == OP_BUYLIMIT);
 
-   // -----------------------------------------------------------------
-   // USER RULE (Method 2 - Bounce / Proximity):
-   // EQH-R detects & EMA direction is ANY: all SELL orders changelots method LOT are minimum 0.02Xmultiplier only.
-   // EQH-G detects & EMA direction is ANY: all BUY orders changelots method LOT are minimum 0.02 only.
-   // -----------------------------------------------------------------
+// -----------------------------------------------------------------
+// USER RULE (Method 2 - Bounce / Proximity):
+// EQH-R detects & EMA direction is ANY: all SELL orders changelots method LOT are minimum 0.02Xmultiplier only.
+// EQH-G detects & EMA direction is ANY: all BUY orders changelots method LOT are minimum 0.02 only.
+// -----------------------------------------------------------------
    if(runMethod2Lots)
      {
       bool applyM2_EQHR = (InpLsdSupportMode == LSD_MODE_METHOD2_BOUNCE) ||
@@ -9901,11 +9924,11 @@ void ChangeLots(double OpenPL, string reason, int orderType, int stoplevelStep,s
         }
      }
 
-   // -----------------------------------------------------------------
-   // USER RULE (Method 1 - Breakout / Sweep):
-   // EQH-R detects & EMA -1: SELL orders max 0.01, BUY orders min 0.02
-   // EQH-G detects & EMA +1: BUY orders max 0.01, SELL orders min 0.02
-   // -----------------------------------------------------------------
+// -----------------------------------------------------------------
+// USER RULE (Method 1 - Breakout / Sweep):
+// EQH-R detects & EMA -1: SELL orders max 0.01, BUY orders min 0.02
+// EQH-G detects & EMA +1: BUY orders max 0.01, SELL orders min 0.02
+// -----------------------------------------------------------------
    if(runMethod1Lots)
      {
       bool applyM1_EQHR = (InpLsdSupportMode == LSD_MODE_METHOD1_BREAKOUT) ||
@@ -9925,15 +9948,16 @@ void ChangeLots(double OpenPL, string reason, int orderType, int stoplevelStep,s
                Print(">>> [CHANGE_LOTS M1 CAPPED] EQH-R detected & EMA -1: SELL order lot capped to max 0.01 (Reason: ", reason, ")");
               }
            }
-         else if(isBuyOrder)
-           {
-            if(Lots < boosterMinLot)
+         else
+            if(isBuyOrder)
               {
-               Lots = boosterMinLot;
-               Print(">>> [CHANGE_LOTS M1 BOOSTER] EQH-R detected & EMA -1: BUY order lot boosted to MINIMUM ",
-                     DoubleToString(boosterMinLot, 2), " (Reason: ", reason, ")");
+               if(Lots < boosterMinLot)
+                 {
+                  Lots = boosterMinLot;
+                  Print(">>> [CHANGE_LOTS M1 BOOSTER] EQH-R detected & EMA -1: BUY order lot boosted to MINIMUM ",
+                        DoubleToString(boosterMinLot, 2), " (Reason: ", reason, ")");
+                 }
               }
-           }
         }
 
       if(eqhG_detected && EMADirection == 1 && applyM1_EQHG)
@@ -9946,15 +9970,16 @@ void ChangeLots(double OpenPL, string reason, int orderType, int stoplevelStep,s
                Print(">>> [CHANGE_LOTS M1 CAPPED] EQH-G detected & EMA 1: BUY order lot capped to max 0.01 (Reason: ", reason, ")");
               }
            }
-         else if(isSellOrder)
-           {
-            if(Lots < boosterMinLot)
+         else
+            if(isSellOrder)
               {
-               Lots = boosterMinLot;
-               Print(">>> [CHANGE_LOTS M1 BOOSTER] EQH-G detected & EMA 1: SELL order lot boosted to MINIMUM ",
-                     DoubleToString(boosterMinLot, 2), " (Reason: ", reason, ")");
+               if(Lots < boosterMinLot)
+                 {
+                  Lots = boosterMinLot;
+                  Print(">>> [CHANGE_LOTS M1 BOOSTER] EQH-G detected & EMA 1: SELL order lot boosted to MINIMUM ",
+                        DoubleToString(boosterMinLot, 2), " (Reason: ", reason, ")");
+                 }
               }
-           }
         }
      }
 
@@ -10261,7 +10286,8 @@ void ManageRecoveryBasket()
 
       double basketProfit = recoveryProfit + parentProfit;
       double targetProfit = (StringFind(comment, "_HEDGE") >= 0) ? InpHedgeRecoveryBasketProfitUSD : ((StringFind(comment, "_LSD") >= 0) ? InpLsdRecoveryBasketProfitUSD : ((StringFind(comment, "_TYPE3") >= 0) ? InpType3BasketProfitUSD : RecoveryBasketProfitUSD));
-      if(targetProfit <= 0.0) targetProfit = 1.0;
+      if(targetProfit <= 0.0)
+         targetProfit = 1.0;
 
       if(basketProfit >= targetProfit)
         {
@@ -10282,8 +10308,8 @@ void ManageRecoveryBasket()
 // ===== STRICT 1-ATTEMPT SHIELD REGISTRY =====
 struct ParentRecoveryTracker
   {
-   int parentTicket;
-   int attempts;
+   int               parentTicket;
+   int               attempts;
   };
 ParentRecoveryTracker g_parentRecoveryAttempts[500];
 int g_parentRecoveryAttemptCount = 0;
@@ -10293,7 +10319,8 @@ int g_parentRecoveryAttemptCount = 0;
 //+------------------------------------------------------------------+
 void RegisterParentRecoveryAttempt(int parentTicket)
   {
-   if(parentTicket <= 0) return;
+   if(parentTicket <= 0)
+      return;
    for(int i = 0; i < g_parentRecoveryAttemptCount; i++)
      {
       if(g_parentRecoveryAttempts[i].parentTicket == parentTicket)
@@ -10315,18 +10342,19 @@ void RegisterParentRecoveryAttempt(int parentTicket)
 //+------------------------------------------------------------------+
 int GetParentRecoveryAttemptCount(int parentTicket)
   {
-   if(parentTicket <= 0) return 0;
+   if(parentTicket <= 0)
+      return 0;
    for(int i = 0; i < g_parentRecoveryAttemptCount; i++)
      {
       if(g_parentRecoveryAttempts[i].parentTicket == parentTicket)
          return g_parentRecoveryAttempts[i].attempts;
      }
 
-   // Fallback check against open and history orders
+// Fallback check against open and history orders
    int count = 0;
    string targetPrefix = "RECOVERY_" + IntegerToString(parentTicket);
 
-   // Check open trades
+// Check open trades
    for(int o = OrdersTotal() - 1; o >= 0; o--)
      {
       if(OrderSelect(o, SELECT_BY_POS, MODE_TRADES))
@@ -10339,7 +10367,7 @@ int GetParentRecoveryAttemptCount(int parentTicket)
         }
      }
 
-   // Check closed history orders
+// Check closed history orders
    for(int h = OrdersHistoryTotal() - 1; h >= 0; h--)
      {
       if(OrderSelect(h, SELECT_BY_POS, MODE_HISTORY))
@@ -10513,14 +10541,16 @@ void CheckLsdStructuralRecoveryOrders()
    if(eqhRPresent)
      {
       eqhPrice = GetEQR_R_Price(true);
-      if(eqhPrice <= 0.0) eqhPrice = GetEQR_R_Price(false);
+      if(eqhPrice <= 0.0)
+         eqhPrice = GetEQR_R_Price(false);
      }
 
    double eqlPrice = 0.0;
    if(eqhGPresent)
      {
       eqlPrice = GetEQR_G_Price(true);
-      if(eqlPrice <= 0.0) eqlPrice = GetEQR_G_Price(false);
+      if(eqlPrice <= 0.0)
+         eqlPrice = GetEQR_G_Price(false);
      }
 
    double tolGap     = (InpLsdRecoveryLevelToleranceRaw > 0.0) ? InpLsdRecoveryLevelToleranceRaw : 50.0;
@@ -10580,7 +10610,8 @@ void CheckLsdStructuralRecoveryOrders()
               {
                double mult = (InpLsdRecoveryLotMultiplier > 0.0) ? InpLsdRecoveryLotMultiplier : 2.0;
                double recLots = NormalizeLots(parentLots * mult);
-               if(recLots <= 0.0) recLots = parentLots * 2.0;
+               if(recLots <= 0.0)
+                  recLots = parentLots * 2.0;
 
                double slDist = (InpLsdRecoveryStopLossRaw > 0.0) ? InpLsdRecoveryStopLossRaw : 300.0;
                double tpDist = (InpLsdRecoveryTakeProfitRaw > 0.0) ? InpLsdRecoveryTakeProfitRaw : 500.0;
@@ -10609,45 +10640,47 @@ void CheckLsdStructuralRecoveryOrders()
       // =================================================================
       // CASE 2: Underwater SELL parent + RED LINE (EQH Resistance) Detected
       // =================================================================
-      else if(parentType == OP_SELL && eqhRPresent && eqhPrice > 0.0)
-        {
-         double livePrice = Bid;
-         double adverseDistance = livePrice - parentOpen;
-
-         // Must have risen at least minAdvGap from parent entry
-         if(adverseDistance >= minAdvGap)
+      else
+         if(parentType == OP_SELL && eqhRPresent && eqhPrice > 0.0)
            {
-            // Price must be near the RED Line (within tolerance)
-            double distToLine = MathAbs(livePrice - eqhPrice);
-            if(distToLine <= tolGap)
+            double livePrice = Bid;
+            double adverseDistance = livePrice - parentOpen;
+
+            // Must have risen at least minAdvGap from parent entry
+            if(adverseDistance >= minAdvGap)
               {
-               double mult = (InpLsdRecoveryLotMultiplier > 0.0) ? InpLsdRecoveryLotMultiplier : 2.0;
-               double recLots = NormalizeLots(parentLots * mult);
-               if(recLots <= 0.0) recLots = parentLots * 2.0;
-
-               double slDist = (InpLsdRecoveryStopLossRaw > 0.0) ? InpLsdRecoveryStopLossRaw : 300.0;
-               double tpDist = (InpLsdRecoveryTakeProfitRaw > 0.0) ? InpLsdRecoveryTakeProfitRaw : 500.0;
-
-               double recSL = NormalizeDouble(livePrice + slDist, Digits);
-               double recTP = NormalizeDouble(livePrice - tpDist, Digits);
-               string recComment = "RECOVERY_" + IntegerToString(parentTicket) + "_LSD";
-
-               int recTicket = SafeOrderSend(Symbol(), OP_SELL, recLots, livePrice, Slippage, recSL, recTP, recComment, MagicNumber, clrMagenta);
-               if(recTicket > 0)
+               // Price must be near the RED Line (within tolerance)
+               double distToLine = MathAbs(livePrice - eqhPrice);
+               if(distToLine <= tolGap)
                  {
-                  RegisterParentRecoveryAttempt(parentTicket);
-                  OrderCreatedThisCandle = true;
-                  LastOrderCandleTime    = Time[0];
-                  Print(">>> [EQH STRUCTURAL RECOVERY (Type 2)] Created SELL Recovery #", recTicket,
-                        " Lots=", DoubleToString(recLots, 2), " at Resistance EQH=", DoubleToString(eqhPrice, Digits),
-                        " (Bid=", DoubleToString(livePrice, Digits), ", DistToLine=$", DoubleToString(distToLine, 2),
-                        ") for Parent SELL #", parentTicket, " Open=", DoubleToString(parentOpen, Digits),
-                        " AdverseGap=$", DoubleToString(adverseDistance, 2), " Loss=$", DoubleToString(currentProfitUSD, 2));
-                  break; // 1 order created per check cycle
+                  double mult = (InpLsdRecoveryLotMultiplier > 0.0) ? InpLsdRecoveryLotMultiplier : 2.0;
+                  double recLots = NormalizeLots(parentLots * mult);
+                  if(recLots <= 0.0)
+                     recLots = parentLots * 2.0;
+
+                  double slDist = (InpLsdRecoveryStopLossRaw > 0.0) ? InpLsdRecoveryStopLossRaw : 300.0;
+                  double tpDist = (InpLsdRecoveryTakeProfitRaw > 0.0) ? InpLsdRecoveryTakeProfitRaw : 500.0;
+
+                  double recSL = NormalizeDouble(livePrice + slDist, Digits);
+                  double recTP = NormalizeDouble(livePrice - tpDist, Digits);
+                  string recComment = "RECOVERY_" + IntegerToString(parentTicket) + "_LSD";
+
+                  int recTicket = SafeOrderSend(Symbol(), OP_SELL, recLots, livePrice, Slippage, recSL, recTP, recComment, MagicNumber, clrMagenta);
+                  if(recTicket > 0)
+                    {
+                     RegisterParentRecoveryAttempt(parentTicket);
+                     OrderCreatedThisCandle = true;
+                     LastOrderCandleTime    = Time[0];
+                     Print(">>> [EQH STRUCTURAL RECOVERY (Type 2)] Created SELL Recovery #", recTicket,
+                           " Lots=", DoubleToString(recLots, 2), " at Resistance EQH=", DoubleToString(eqhPrice, Digits),
+                           " (Bid=", DoubleToString(livePrice, Digits), ", DistToLine=$", DoubleToString(distToLine, 2),
+                           ") for Parent SELL #", parentTicket, " Open=", DoubleToString(parentOpen, Digits),
+                           " AdverseGap=$", DoubleToString(adverseDistance, 2), " Loss=$", DoubleToString(currentProfitUSD, 2));
+                     break; // 1 order created per check cycle
+                    }
                  }
               }
            }
-        }
      }
   }
 
@@ -10686,14 +10719,17 @@ double GetType3RequiredEmaDistance(int elapsedMinutes)
 
    if(elapsedMinutes <= 60)
       return InpType3GapHour1;
-   else if(elapsedMinutes <= 120)
-      return InpType3GapHour2;
-   else if(elapsedMinutes <= 180)
-      return InpType3GapHour3;
-   else if(elapsedMinutes <= 240)
-      return InpType3GapHour4;
    else
-      return InpType3GapHour5Plus;
+      if(elapsedMinutes <= 120)
+         return InpType3GapHour2;
+      else
+         if(elapsedMinutes <= 180)
+            return InpType3GapHour3;
+         else
+            if(elapsedMinutes <= 240)
+               return InpType3GapHour4;
+            else
+               return InpType3GapHour5Plus;
   }
 
 //+------------------------------------------------------------------+
@@ -10711,11 +10747,11 @@ void CheckType3WeakEmaRecoveryOrders()
    if(CountActiveType3RecoveryOrders() >= maxActive)
       return;
 
-   // 1. Check EMA Weakness (Momentum is weak / pulling back >= 50% from peak)
+// 1. Check EMA Weakness (Momentum is weak / pulling back >= 50% from peak)
    if(!IsEmaWEAKDistanceReduced50PercentFromPeak(-1))
       return;
 
-   // 2. Check EMA Flip Timing (< 30 minutes since EMA flip)
+// 2. Check EMA Flip Timing (< 30 minutes since EMA flip)
    datetime flipTime = EmaFlipTime;
    if(flipTime == 0)
       flipTime = GetActualEmaFlipTime(EMADirection);
@@ -10788,7 +10824,8 @@ void CheckType3WeakEmaRecoveryOrders()
            {
             double mult = (InpType3LotMultiplier > 0.0) ? InpType3LotMultiplier : 2.0;
             double recLots = NormalizeLots(parentLots * mult);
-            if(recLots <= 0.0) recLots = parentLots * 2.0;
+            if(recLots <= 0.0)
+               recLots = parentLots * 2.0;
 
             double slDist = (InpType3StopLossRaw > 0.0) ? InpType3StopLossRaw : 300.0;
             double tpDist = (InpType3TakeProfitRaw > 0.0) ? InpType3TakeProfitRaw : 500.0;
@@ -10820,51 +10857,53 @@ void CheckType3WeakEmaRecoveryOrders()
       // CASE 2: Parent BUY order in loss + EMADirection is SELL (-1) & WEAK
       // Mode 1 (Fade/Reversal): Open BUY recovery order at exhausted dip
       // =================================================================
-      else if(parentType == OP_BUY && EMADirection == -1)
-        {
-         double livePrice = Ask;
-         double adverseDistance = parentOpen - livePrice; // adverse move down against BUY
-
-         // Check Minimum EMAdistance ($100 raw gap between live price and EMA)
-         double emaDist = GetDistanceToEMAPrice(OP_BUY, true);
-         if(emaDist < requiredEmaDist)
-            continue;
-
-         bool lossTriggered = (currentProfitUSD <= -MathAbs(minLossUSD));
-         bool gapTriggered  = (adverseDistance >= minAdvGap);
-
-         // "loss is <-$2 or minimum raw distance from the open order is $200 (which ever is better)"
-         if(lossTriggered || gapTriggered)
+      else
+         if(parentType == OP_BUY && EMADirection == -1)
            {
-            double mult = (InpType3LotMultiplier > 0.0) ? InpType3LotMultiplier : 2.0;
-            double recLots = NormalizeLots(parentLots * mult);
-            if(recLots <= 0.0) recLots = parentLots * 2.0;
+            double livePrice = Ask;
+            double adverseDistance = parentOpen - livePrice; // adverse move down against BUY
 
-            double slDist = (InpType3StopLossRaw > 0.0) ? InpType3StopLossRaw : 300.0;
-            double tpDist = (InpType3TakeProfitRaw > 0.0) ? InpType3TakeProfitRaw : 500.0;
+            // Check Minimum EMAdistance ($100 raw gap between live price and EMA)
+            double emaDist = GetDistanceToEMAPrice(OP_BUY, true);
+            if(emaDist < requiredEmaDist)
+               continue;
 
-            double recSL = NormalizeDouble(livePrice - slDist, Digits);
-            double recTP = NormalizeDouble(livePrice + tpDist, Digits);
-            string recComment = "RECOVERY_" + IntegerToString(parentTicket) + "_TYPE3";
+            bool lossTriggered = (currentProfitUSD <= -MathAbs(minLossUSD));
+            bool gapTriggered  = (adverseDistance >= minAdvGap);
 
-            int recTicket = SafeOrderSend(Symbol(), OP_BUY, recLots, livePrice, Slippage, recSL, recTP, recComment, MagicNumber, clrDodgerBlue);
-            if(recTicket > 0)
+            // "loss is <-$2 or minimum raw distance from the open order is $200 (which ever is better)"
+            if(lossTriggered || gapTriggered)
               {
-               RegisterParentRecoveryAttempt(parentTicket);
-               OrderCreatedThisCandle = true;
-               LastOrderCandleTime    = Time[0];
-               Print(">>> [WEAK EMA RECOVERY (Type 3 Mode 1)] Created BUY Recovery #", recTicket,
-                     " Lots=", DoubleToString(recLots, 2), " (Parent BUY #", parentTicket, " Open=", DoubleToString(parentOpen, Digits),
-                     ") Ask=", DoubleToString(livePrice, Digits),
-                     " | Step (Hour ", stepHour, "): EmaDist=$", DoubleToString(emaDist, 2), " >= Req=$", DoubleToString(requiredEmaDist, 2),
-                     " AdverseGap=$", DoubleToString(adverseDistance, 2),
-                     " Loss=$", DoubleToString(currentProfitUSD, 2),
-                     " (Elapsed=", elapsedMinutes, "m/", InpType3MaxElapsedMinutes, "m) | TriggeredBy: ",
-                     (lossTriggered && gapTriggered ? "Loss & Gap" : (lossTriggered ? "Loss" : "Gap")));
-               break; // 1 order created per check cycle
+               double mult = (InpType3LotMultiplier > 0.0) ? InpType3LotMultiplier : 2.0;
+               double recLots = NormalizeLots(parentLots * mult);
+               if(recLots <= 0.0)
+                  recLots = parentLots * 2.0;
+
+               double slDist = (InpType3StopLossRaw > 0.0) ? InpType3StopLossRaw : 300.0;
+               double tpDist = (InpType3TakeProfitRaw > 0.0) ? InpType3TakeProfitRaw : 500.0;
+
+               double recSL = NormalizeDouble(livePrice - slDist, Digits);
+               double recTP = NormalizeDouble(livePrice + tpDist, Digits);
+               string recComment = "RECOVERY_" + IntegerToString(parentTicket) + "_TYPE3";
+
+               int recTicket = SafeOrderSend(Symbol(), OP_BUY, recLots, livePrice, Slippage, recSL, recTP, recComment, MagicNumber, clrDodgerBlue);
+               if(recTicket > 0)
+                 {
+                  RegisterParentRecoveryAttempt(parentTicket);
+                  OrderCreatedThisCandle = true;
+                  LastOrderCandleTime    = Time[0];
+                  Print(">>> [WEAK EMA RECOVERY (Type 3 Mode 1)] Created BUY Recovery #", recTicket,
+                        " Lots=", DoubleToString(recLots, 2), " (Parent BUY #", parentTicket, " Open=", DoubleToString(parentOpen, Digits),
+                        ") Ask=", DoubleToString(livePrice, Digits),
+                        " | Step (Hour ", stepHour, "): EmaDist=$", DoubleToString(emaDist, 2), " >= Req=$", DoubleToString(requiredEmaDist, 2),
+                        " AdverseGap=$", DoubleToString(adverseDistance, 2),
+                        " Loss=$", DoubleToString(currentProfitUSD, 2),
+                        " (Elapsed=", elapsedMinutes, "m/", InpType3MaxElapsedMinutes, "m) | TriggeredBy: ",
+                        (lossTriggered && gapTriggered ? "Loss & Gap" : (lossTriggered ? "Loss" : "Gap")));
+                  break; // 1 order created per check cycle
+                 }
               }
            }
-        }
      }
   }
 
@@ -10952,7 +10991,8 @@ void CheckTrendShiftHedgeRecoveryOrders()
          // Trend elapsed time: Must be flipped for at least minElapsed minutes (>= 15 min)
          int elapsedSec = 0;
          datetime flipTime = GetActualEmaFlipTime(-1);
-         if(flipTime == 0 && EmaFlipTime > 0) flipTime = EmaFlipTime;
+         if(flipTime == 0 && EmaFlipTime > 0)
+            flipTime = EmaFlipTime;
          if(flipTime > 0)
             elapsedSec = (int)(TimeCurrent() - flipTime);
          if(elapsedSec < minElapsed * 60)
@@ -10960,7 +11000,8 @@ void CheckTrendShiftHedgeRecoveryOrders()
 
          double mult = (InpHedgeRecoveryLotMultiplier > 0.0) ? InpHedgeRecoveryLotMultiplier : 2.0;
          double recLots = NormalizeLots(parentLots * mult);
-         if(recLots <= 0.0) recLots = parentLots * 2.0;
+         if(recLots <= 0.0)
+            recLots = parentLots * 2.0;
 
          double slDist = (InpHedgeRecoveryStopLossRaw > 0.0)   ? InpHedgeRecoveryStopLossRaw   : 300.0;
          double tpDist = (InpHedgeRecoveryTakeProfitRaw > 0.0) ? InpHedgeRecoveryTakeProfitRaw : 500.0;
@@ -10988,56 +11029,62 @@ void CheckTrendShiftHedgeRecoveryOrders()
       // CASE 2: Parent is SELL in loss, but trend has flipped to confirmed BUY
       // Strategy: Open 2x BUY Hedge in direction of new uptrend to rescue SELL
       // =====================================================================
-      else if(parentType == OP_SELL)
-        {
-         // Trend Confirmation: EMA and SSL flipped to BUY (+1), and price above EMA
-         if(EMADirection != 1 || GlobalSSLDirection != 1)
-            continue;
-         if(Ask <= emaVal)
-            continue;
-
-         // Adverse Distance: Risen >= $150 from parent SELL open price
-         double adverseDistance = Ask - parentOpen;
-         if(adverseDistance < minAdvGap)
-            continue;
-
-         // Trend elapsed time: Must be flipped for at least minElapsed minutes (>= 15 min)
-         int elapsedSec = 0;
-         datetime flipTime = GetActualEmaFlipTime(1);
-         if(flipTime == 0 && EmaFlipTime > 0) flipTime = EmaFlipTime;
-         if(flipTime > 0)
-            elapsedSec = (int)(TimeCurrent() - flipTime);
-         if(elapsedSec < minElapsed * 60)
-            continue;
-
-         double mult = (InpHedgeRecoveryLotMultiplier > 0.0) ? InpHedgeRecoveryLotMultiplier : 2.0;
-         double recLots = NormalizeLots(parentLots * mult);
-         if(recLots <= 0.0) recLots = parentLots * 2.0;
-
-         double slDist = (InpHedgeRecoveryStopLossRaw > 0.0)   ? InpHedgeRecoveryStopLossRaw   : 300.0;
-         double tpDist = (InpHedgeRecoveryTakeProfitRaw > 0.0) ? InpHedgeRecoveryTakeProfitRaw : 500.0;
-
-         double recSL = NormalizeDouble(Ask - slDist, Digits);
-         double recTP = NormalizeDouble(Ask + tpDist, Digits);
-         string recComment = "RECOVERY_" + IntegerToString(parentTicket) + "_HEDGE";
-
-         int recTicket = SafeOrderSend(Symbol(), OP_BUY, recLots, Ask, Slippage, recSL, recTP, recComment, MagicNumber, clrDeepSkyBlue);
-         if(recTicket > 0)
+      else
+         if(parentType == OP_SELL)
            {
-            RegisterParentRecoveryAttempt(parentTicket);
-            OrderCreatedThisCandle = true;
-            LastOrderCandleTime    = Time[0];
-            Print(">>> [TREND-SHIFT HEDGE RESCUE] Opened 2x BUY Hedge #", recTicket,
-                  " Lots=", DoubleToString(recLots, 2), " at Ask=", DoubleToString(Ask, Digits),
-                  " to Rescue Parent SELL #", parentTicket, " (Open=", DoubleToString(parentOpen, Digits),
-                  ", Loss=$", DoubleToString(currentProfitUSD, 2), ", AdverseGap=$", DoubleToString(adverseDistance, 2),
-                  ", EmaVal=", DoubleToString(emaVal, Digits), ", FlipElapsed=", (elapsedSec / 60), "m)");
-            break; // Max 1 order created per check cycle
+            // Trend Confirmation: EMA and SSL flipped to BUY (+1), and price above EMA
+            if(EMADirection != 1 || GlobalSSLDirection != 1)
+               continue;
+            if(Ask <= emaVal)
+               continue;
+
+            // Adverse Distance: Risen >= $150 from parent SELL open price
+            double adverseDistance = Ask - parentOpen;
+            if(adverseDistance < minAdvGap)
+               continue;
+
+            // Trend elapsed time: Must be flipped for at least minElapsed minutes (>= 15 min)
+            int elapsedSec = 0;
+            datetime flipTime = GetActualEmaFlipTime(1);
+            if(flipTime == 0 && EmaFlipTime > 0)
+               flipTime = EmaFlipTime;
+            if(flipTime > 0)
+               elapsedSec = (int)(TimeCurrent() - flipTime);
+            if(elapsedSec < minElapsed * 60)
+               continue;
+
+            double mult = (InpHedgeRecoveryLotMultiplier > 0.0) ? InpHedgeRecoveryLotMultiplier : 2.0;
+            double recLots = NormalizeLots(parentLots * mult);
+            if(recLots <= 0.0)
+               recLots = parentLots * 2.0;
+
+            double slDist = (InpHedgeRecoveryStopLossRaw > 0.0)   ? InpHedgeRecoveryStopLossRaw   : 300.0;
+            double tpDist = (InpHedgeRecoveryTakeProfitRaw > 0.0) ? InpHedgeRecoveryTakeProfitRaw : 500.0;
+
+            double recSL = NormalizeDouble(Ask - slDist, Digits);
+            double recTP = NormalizeDouble(Ask + tpDist, Digits);
+            string recComment = "RECOVERY_" + IntegerToString(parentTicket) + "_HEDGE";
+
+            int recTicket = SafeOrderSend(Symbol(), OP_BUY, recLots, Ask, Slippage, recSL, recTP, recComment, MagicNumber, clrDeepSkyBlue);
+            if(recTicket > 0)
+              {
+               RegisterParentRecoveryAttempt(parentTicket);
+               OrderCreatedThisCandle = true;
+               LastOrderCandleTime    = Time[0];
+               Print(">>> [TREND-SHIFT HEDGE RESCUE] Opened 2x BUY Hedge #", recTicket,
+                     " Lots=", DoubleToString(recLots, 2), " at Ask=", DoubleToString(Ask, Digits),
+                     " to Rescue Parent SELL #", parentTicket, " (Open=", DoubleToString(parentOpen, Digits),
+                     ", Loss=$", DoubleToString(currentProfitUSD, 2), ", AdverseGap=$", DoubleToString(adverseDistance, 2),
+                     ", EmaVal=", DoubleToString(emaVal, Digits), ", FlipElapsed=", (elapsedSec / 60), "m)");
+               break; // Max 1 order created per check cycle
+              }
            }
-        }
      }
   }
 
+//+------------------------------------------------------------------+
+//|                                                                  |
+//+------------------------------------------------------------------+
 string GetDayProfitLadderGVPrefix() { return "SSL_DPL_" + IntegerToString(AccountNumber()) + "_" + IntegerToString(MagicNumber) + "_" + Symbol() + "_"; }
 //+------------------------------------------------------------------+
 //|                                                                  |
@@ -12221,7 +12268,7 @@ void CreateProfitReEntryStop(int closedOrderType, double closedPrice, DailyProte
    if(TradingHaltedUntilNextFlip)
       return;
 
-   // Block ReEntry if active SSL order or directional basket is in loss
+// Block ReEntry if active SSL order or directional basket is in loss
    if(InpBlockReEntryOnSslLoss && IsSslOrderInLoss(closedOrderType, InpReEntryMaxAllowedLossUSD))
      {
       Print("REENTRY BLOCKED | CreateProfitReEntryStop: ", (closedOrderType == OP_BUY ? "BUY" : "SELL"),
@@ -12268,21 +12315,28 @@ void CreateProfitReEntryStop(int closedOrderType, double closedPrice, DailyProte
         {
          double m2SellMin = InpLsdMethod2MinLotBase * (balancelomultipler > 0 ? balancelomultipler : 1);
          double m2BuyMin  = InpLsdMethod2MinLotBase * (InpLsdMethod2BuyUsesMultiplier ? (balancelomultipler > 0 ? balancelomultipler : 1) : 1);
-         if(re_eqhR && pendingType == OP_SELLSTOP && Lots < m2SellMin) Lots = m2SellMin;
-         if(re_eqhG && pendingType == OP_BUYSTOP  && Lots < m2BuyMin)  Lots = m2BuyMin;
+         if(re_eqhR && pendingType == OP_SELLSTOP && Lots < m2SellMin)
+            Lots = m2SellMin;
+         if(re_eqhG && pendingType == OP_BUYSTOP  && Lots < m2BuyMin)
+            Lots = m2BuyMin;
         }
       if(InpLsdSupportMode == LSD_MODE_METHOD1_BREAKOUT)
         {
          if(re_eqhR && EMADirection == -1)
            {
-            if(pendingType == OP_SELLSTOP && Lots > 0.01) Lots = 0.01;
-            if(pendingType == OP_BUYSTOP && Lots < re_bLot) Lots = re_bLot;
+            if(pendingType == OP_SELLSTOP && Lots > 0.01)
+               Lots = 0.01;
+            if(pendingType == OP_BUYSTOP && Lots < re_bLot)
+               Lots = re_bLot;
            }
-         else if(re_eqhG && EMADirection == 1)
-           {
-            if(pendingType == OP_BUYSTOP && Lots > 0.01) Lots = 0.01;
-            if(pendingType == OP_SELLSTOP && Lots < re_bLot) Lots = re_bLot;
-           }
+         else
+            if(re_eqhG && EMADirection == 1)
+              {
+               if(pendingType == OP_BUYSTOP && Lots > 0.01)
+                  Lots = 0.01;
+               if(pendingType == OP_SELLSTOP && Lots < re_bLot)
+                  Lots = re_bLot;
+              }
         }
       Lots = NormalizeLots(Lots);
      }
@@ -13197,6 +13251,9 @@ double GetTicketLastClosePrice(int ticket)
 //+------------------------------------------------------------------+
 void ManagePartialClosesLoss()
   {
+
+
+
    for(int i = OrdersTotal() - 1; i >= 0; i--)
      {
       if(!OrderSelect(i, SELECT_BY_POS, MODE_TRADES))
@@ -13209,6 +13266,14 @@ void ManagePartialClosesLoss()
       int orderType = OrderType();
 
       if(orderType != OP_BUY && orderType != OP_SELL)
+         continue;
+
+
+      if(orderType == OP_BUY && GetOpenPL(OP_BUY)>-AccountBalance()/2)
+         continue;
+
+
+      if(orderType == OP_SELL && GetOpenPL(OP_SELL)>-AccountBalance()/2)
          continue;
 
       // Exclude recovery orders from regular scalp partial loss cuts
@@ -13231,7 +13296,7 @@ void ManagePartialClosesLoss()
 
       bool conditionMet = false;
       string triggerReason = "";
-        if(MathAbs(orderLots - (0.06 * baseMult)) < 0.000001)
+      if(MathAbs(orderLots - (0.06 * baseMult)) < 0.000001)
         {
          if(rawLossDistance >= 600.0)
            {
@@ -13241,47 +13306,47 @@ void ManagePartialClosesLoss()
         }
       else
 
-      if(MathAbs(orderLots - (0.05 * baseMult)) < 0.000001)
-        {
-         if(rawLossDistance >= 1000.0)
+         if(MathAbs(orderLots - (0.05 * baseMult)) < 0.000001)
            {
-            conditionMet = true;
-            triggerReason = StringFormat("0.05L Raw Dist $%.1f >= $300", rawLossDistance);
-           }
-        }
-      else
-         if(MathAbs(orderLots - (0.04 * baseMult)) < 0.000001)
-           {
-            if(rawLossDistance >= 1400.0)
+            if(rawLossDistance >= 1000.0)
               {
                conditionMet = true;
-               triggerReason = StringFormat("0.04L Raw Dist $%.1f >= $500", rawLossDistance);
+               triggerReason = StringFormat("0.05L Raw Dist $%.1f >= $300", rawLossDistance);
               }
            }
          else
-            if(MathAbs(orderLots - (0.03 * baseMult)) < 0.000001)
+            if(MathAbs(orderLots - (0.04 * baseMult)) < 0.000001)
               {
-               if(rawLossDistance >= 1800.0)
+               if(rawLossDistance >= 1400.0)
                  {
                   conditionMet = true;
-                  triggerReason = StringFormat("0.03L Raw Dist $%.1f >= $800", rawLossDistance);
+                  triggerReason = StringFormat("0.04L Raw Dist $%.1f >= $500", rawLossDistance);
                  }
               }
             else
-               if(MathAbs(orderLots - (0.02 * baseMult)) < 0.000001)
+               if(MathAbs(orderLots - (0.03 * baseMult)) < 0.000001)
                  {
-                  double dollarLossLimit = -20.0 * baseMult;
-                  if(currentProfit < dollarLossLimit || rawLossDistance >= 2200.0)
+                  if(rawLossDistance >= 1800.0)
                     {
                      conditionMet = true;
-                     triggerReason = StringFormat("0.02L (P/L $%.2f < $%.2f OR Raw Dist $%.1f >= $1000)", currentProfit, dollarLossLimit, rawLossDistance);
+                     triggerReason = StringFormat("0.03L Raw Dist $%.1f >= $800", rawLossDistance);
                     }
                  }
                else
-                 {
-                  // No partial-loss rule for other lot sizes
-                  continue;
-                 }
+                  if(MathAbs(orderLots - (0.02 * baseMult)) < 0.000001)
+                    {
+                     double dollarLossLimit = -20.0 * baseMult;
+                     if(currentProfit < dollarLossLimit || rawLossDistance >= 2200.0)
+                       {
+                        conditionMet = true;
+                        triggerReason = StringFormat("0.02L (P/L $%.2f < $%.2f OR Raw Dist $%.1f >= $1000)", currentProfit, dollarLossLimit, rawLossDistance);
+                       }
+                    }
+                  else
+                    {
+                     // No partial-loss rule for other lot sizes
+                     continue;
+                    }
 
       if(!conditionMet)
          continue;
@@ -13567,12 +13632,13 @@ void ManagePartialCloses()
                               if(curSL == 0.0 || beSL > curSL + Point)
                                  needModify = true;
                              }
-                           else if(orderType == OP_SELL)
-                             {
-                              beSL = NormalizeDouble(openPrice - InpRunnerBreakevenBufferPoints * Point, Digits);
-                              if(curSL == 0.0 || beSL < curSL - Point)
-                                 needModify = true;
-                             }
+                           else
+                              if(orderType == OP_SELL)
+                                {
+                                 beSL = NormalizeDouble(openPrice - InpRunnerBreakevenBufferPoints * Point, Digits);
+                                 if(curSL == 0.0 || beSL < curSL - Point)
+                                    needModify = true;
+                                }
 
                            if(needModify)
                              {
@@ -14821,7 +14887,7 @@ void UpdateDashboard(DailyProtectionState &state)
 
    string balEqStr = StringFormat("BALANCE / EQ: $%.2f / $%.2f (%dX)", AccountBalance(), AccountEquity(), balancelomultipler);
    CreateDashboardLabel(DASH_PREFIX+"BALEQ", balEqStr, tx, y+78, 8, clrWhite);
-   // --- LIVE WITHDRAWAL ADVISOR (Top of Dashboard after Balance) ---
+// --- LIVE WITHDRAWAL ADVISOR (Top of Dashboard after Balance) ---
    double curBal = AccountBalance();
    double curEq = AccountEquity();
    double effectiveCap = MathMin(curBal, curEq);
@@ -14842,26 +14908,30 @@ void UpdateDashboard(DailyProtectionState &state)
       wdNote = StringFormat("[Cushion < $%.0f]", safeWorkingBuffer);
       wdColor = clrSilver;
      }
-   else if(effectiveCap >= 450.0 && maxSafeWithdraw >= 200.0)
-     {
-      recWithdraw = 200.0;
-      wdNote = isFlatAccount ? "[RECOUP SEED: READY]" : "[RECOUP SEED: WAIT]";
-      wdColor = isFlatAccount ? clrLime : clrGold;
-     }
-   else if(effectiveCap >= 350.0)
-     {
-      recWithdraw = MathFloor(maxSafeWithdraw / 25.0) * 25.0;
-      if(recWithdraw < 25.0) recWithdraw = maxSafeWithdraw;
-      wdNote = isFlatAccount ? "[HARVEST: READY]" : "[HARVEST: WAIT]";
-      wdColor = isFlatAccount ? clrLime : clrGold;
-     }
    else
-     {
-      recWithdraw = MathFloor(maxSafeWithdraw / 10.0) * 10.0;
-      if(recWithdraw < 10.0) recWithdraw = maxSafeWithdraw;
-      wdNote = isFlatAccount ? "[SAFE W/D: READY]" : "[SAFE W/D: WAIT]";
-      wdColor = isFlatAccount ? clrLime : clrGold;
-     }
+      if(effectiveCap >= 450.0 && maxSafeWithdraw >= 200.0)
+        {
+         recWithdraw = 200.0;
+         wdNote = isFlatAccount ? "[RECOUP SEED: READY]" : "[RECOUP SEED: WAIT]";
+         wdColor = isFlatAccount ? clrLime : clrGold;
+        }
+      else
+         if(effectiveCap >= 350.0)
+           {
+            recWithdraw = MathFloor(maxSafeWithdraw / 25.0) * 25.0;
+            if(recWithdraw < 25.0)
+               recWithdraw = maxSafeWithdraw;
+            wdNote = isFlatAccount ? "[HARVEST: READY]" : "[HARVEST: WAIT]";
+            wdColor = isFlatAccount ? clrLime : clrGold;
+           }
+         else
+           {
+            recWithdraw = MathFloor(maxSafeWithdraw / 10.0) * 10.0;
+            if(recWithdraw < 10.0)
+               recWithdraw = maxSafeWithdraw;
+            wdNote = isFlatAccount ? "[SAFE W/D: READY]" : "[SAFE W/D: WAIT]";
+            wdColor = isFlatAccount ? clrLime : clrGold;
+           }
 
    string withdrawStr = "";
    if(recWithdraw > 0.0)
@@ -15800,7 +15870,7 @@ double GetEQR_G_Price(bool activeOnly = false)
    if(activeOnly)
       return 0.0;
 
-   // Fallback: search newest EQR-G / EQL line on chart
+// Fallback: search newest EQR-G / EQL line on chart
    datetime newestTime = 0;
    double newestPrice = 0.0;
    int total = ObjectsTotal(0, -1, -1);
@@ -15821,7 +15891,7 @@ double GetEQR_G_Price(bool activeOnly = false)
   }
 
 //+------------------------------------------------------------------+
-//| GetEQR_R_Price: Returns price of active or latest EQR-R Red line 
+//| GetEQR_R_Price: Returns price of active or latest EQR-R Red line
 //| (Equal High resistance level).                                   |
 //+------------------------------------------------------------------+
 double GetEQR_R_Price(bool activeOnly = false)
@@ -15832,7 +15902,7 @@ double GetEQR_R_Price(bool activeOnly = false)
    if(activeOnly)
       return 0.0;
 
-   // Fallback: search newest EQR-R / EQH line on chart
+// Fallback: search newest EQR-R / EQH line on chart
    datetime newestTime = 0;
    double newestPrice = 0.0;
    int total = ObjectsTotal(0, -1, -1);
@@ -15910,26 +15980,41 @@ double Distance_EQR_G_To_LivePrice(int orderType = -1, double defaultIfNone = 99
    return GetRawDistance_EQR_G_ToLivePrice(orderType, defaultIfNone);
   }
 
+//+------------------------------------------------------------------+
+//|                                                                  |
+//+------------------------------------------------------------------+
 double Distance_EQR_R_To_LivePrice(int orderType = -1, double defaultIfNone = 999999.0)
   {
    return GetRawDistance_EQR_R_ToLivePrice(orderType, defaultIfNone);
   }
 
+//+------------------------------------------------------------------+
+//|                                                                  |
+//+------------------------------------------------------------------+
 double EQR_G_To_LivePrice_Distance(int orderType = -1, double defaultIfNone = 999999.0)
   {
    return GetRawDistance_EQR_G_ToLivePrice(orderType, defaultIfNone);
   }
 
+//+------------------------------------------------------------------+
+//|                                                                  |
+//+------------------------------------------------------------------+
 double EQR_R_To_LivePrice_Distance(int orderType = -1, double defaultIfNone = 999999.0)
   {
    return GetRawDistance_EQR_R_ToLivePrice(orderType, defaultIfNone);
   }
 
+//+------------------------------------------------------------------+
+//|                                                                  |
+//+------------------------------------------------------------------+
 double GetRawDistance_EQH_G_ToLivePrice(int orderType = -1, double defaultIfNone = 999999.0)
   {
    return GetRawDistance_EQR_G_ToLivePrice(orderType, defaultIfNone);
   }
 
+//+------------------------------------------------------------------+
+//|                                                                  |
+//+------------------------------------------------------------------+
 double GetRawDistance_EQH_R_ToLivePrice(int orderType = -1, double defaultIfNone = 999999.0)
   {
    return GetRawDistance_EQR_R_ToLivePrice(orderType, defaultIfNone);
@@ -16384,19 +16469,21 @@ void CheckLsdSweepFlipBasketSupportOrder()
    if(eqhRPresent)
      {
       eqhPrice = GetEQR_R_Price(true);
-      if(eqhPrice <= 0.0) eqhPrice = GetEQR_R_Price(false);
+      if(eqhPrice <= 0.0)
+         eqhPrice = GetEQR_R_Price(false);
      }
 
    double eqlPrice = 0.0;
    if(eqhGPresent)
      {
       eqlPrice = GetEQR_G_Price(true);
-      if(eqlPrice <= 0.0) eqlPrice = GetEQR_G_Price(false);
+      if(eqlPrice <= 0.0)
+         eqlPrice = GetEQR_G_Price(false);
      }
 
-   // =================================================================
-   // 1. BUY SUPPORT ORDER EVALUATION (Max open BUY support count is 1)
-   // =================================================================
+// =================================================================
+// 1. BUY SUPPORT ORDER EVALUATION (Max open BUY support count is 1)
+// =================================================================
    if(!HasOpenFLIPBasketSupportOrder(OP_BUY))
      {
       // --- Method 1: EQH-R detects & EMA -1: Price > EQH-R (gap <= ) -> CREATE BUY ---
@@ -16440,9 +16527,9 @@ void CheckLsdSweepFlipBasketSupportOrder()
         }
      }
 
-   // =================================================================
-   // 2. SELL SUPPORT ORDER EVALUATION (Max open SELL support count is 1)
-   // =================================================================
+// =================================================================
+// 2. SELL SUPPORT ORDER EVALUATION (Max open SELL support count is 1)
+// =================================================================
    if(!HasOpenFLIPBasketSupportOrder(OP_SELL))
      {
       // --- Method 1: EQH-G detects & EMA +1: Price < EQH-G (gap <= ) -> CREATE SELL ---
@@ -16897,3 +16984,4 @@ void UpdateLiquiditySweepDetectorOnChart()
 
 #include "logger_engine.mqh"
 
+//+------------------------------------------------------------------+
