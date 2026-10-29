@@ -27,7 +27,7 @@
 //https://github.com/devcrunch2025/exnessStratagiesExperts/commit/f4f1c1340be330cd32a75da3f3a9b4bd5f4e4cf3
 
 
-string glbVersion = "VMULTI-1034 - Order Gap Proposed Entry Price Fix";
+string glbVersion = "VMULTI-1035 - Partial Loss";
 
 
 double DailyEquityStopUSD  =1000;//50;//20*2.5;//10;//20;// 10;//30.0; close all orders at $50Xmultipler
@@ -13233,7 +13233,7 @@ void ManagePartialClosesLoss()
       string triggerReason = "";
         if(MathAbs(orderLots - (0.06 * baseMult)) < 0.000001)
         {
-         if(rawLossDistance >= 300.0)
+         if(rawLossDistance >= 600.0)
            {
             conditionMet = true;
             triggerReason = StringFormat("0.05L Raw Dist $%.1f >= $300", rawLossDistance);
@@ -13243,7 +13243,7 @@ void ManagePartialClosesLoss()
 
       if(MathAbs(orderLots - (0.05 * baseMult)) < 0.000001)
         {
-         if(rawLossDistance >= 400.0)
+         if(rawLossDistance >= 1000.0)
            {
             conditionMet = true;
             triggerReason = StringFormat("0.05L Raw Dist $%.1f >= $300", rawLossDistance);
@@ -13252,7 +13252,7 @@ void ManagePartialClosesLoss()
       else
          if(MathAbs(orderLots - (0.04 * baseMult)) < 0.000001)
            {
-            if(rawLossDistance >= 600.0)
+            if(rawLossDistance >= 1400.0)
               {
                conditionMet = true;
                triggerReason = StringFormat("0.04L Raw Dist $%.1f >= $500", rawLossDistance);
@@ -13261,7 +13261,7 @@ void ManagePartialClosesLoss()
          else
             if(MathAbs(orderLots - (0.03 * baseMult)) < 0.000001)
               {
-               if(rawLossDistance >= 900.0)
+               if(rawLossDistance >= 1800.0)
                  {
                   conditionMet = true;
                   triggerReason = StringFormat("0.03L Raw Dist $%.1f >= $800", rawLossDistance);
@@ -13271,7 +13271,7 @@ void ManagePartialClosesLoss()
                if(MathAbs(orderLots - (0.02 * baseMult)) < 0.000001)
                  {
                   double dollarLossLimit = -20.0 * baseMult;
-                  if(currentProfit < dollarLossLimit || rawLossDistance >= 1100.0)
+                  if(currentProfit < dollarLossLimit || rawLossDistance >= 2200.0)
                     {
                      conditionMet = true;
                      triggerReason = StringFormat("0.02L (P/L $%.2f < $%.2f OR Raw Dist $%.1f >= $1000)", currentProfit, dollarLossLimit, rawLossDistance);
