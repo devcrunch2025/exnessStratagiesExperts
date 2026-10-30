@@ -27,7 +27,7 @@
 //https://github.com/devcrunch2025/exnessStratagiesExperts/commit/f4f1c1340be330cd32a75da3f3a9b4bd5f4e4cf3
 
 
-string glbVersion = "VMULTI-1036 - Partial Loss with balance/3";
+string glbVersion = "VMULTI-1038 - Partial Loss with AccountEquity/3 with BSLS SLS";
 
 
 double DailyEquityStopUSD  =1000;//50;//20*2.5;//10;//20;// 10;//30.0; close all orders at $50Xmultipler
@@ -160,7 +160,7 @@ bool EnableTrading = true;
 // ===== LIQUIDITY SWEEP DETECTOR PRO SETTINGS (SMC ANALYTICAL MARKERS) =====
 bool   InpShowLiquiditySweeps          = true;   // Show Liquidity Sweep Markers on Chart (BSL / SSL)
 int    InpSweepPivotLen                = 3;      // Pivot Strength (bars each side, min 1)
-int    InpLsdSweepMaxDisplayMinutes    = 15;     // LSD Sweep Line Display Duration (Up to 15 Minutes)
+int    InpLsdSweepMaxDisplayMinutes    = 0;      // LSD Line Max Display Minutes (0 = Real-Time from Pivot 1 until Swept/Mitigated)
 int    InpSweepExtendBars              = 15;     // Extend Liquidity Levels (bars forward on M1 = 15 min)
 double InpSweepToleranceATR            = 0.15;   // Equal High/Low ATR Tolerance (multiplier of ATR 14)
 bool   InpShowSweepLevels              = true;   // Show Liquidity Levels (EQH / EQL lines)
@@ -197,6 +197,13 @@ enum ENUM_LSD_SUPPORT_MODE
 ENUM_LSD_SUPPORT_MODE InpLsdSupportMode           = LSD_MODE_BOTH; // LSD Support Order Mode (Method 1, Method 2, or Both)
 double InpLsdSweepFlipBasketMaxGapRaw             = 100.0;         // Method 1: Max raw gap ($100) above EQH-R / below EQH-G
 double InpLsdMethod2BounceGapRaw                  = 50.0;          // Method 2: Max raw gap ($50) below EQH-R / above EQH-G
+double InpLsdMinEmaDistanceRaw                    = 200;//100.0;         // Safe-Side: Min raw price gap ($100) from Price to yellow EMA200
+bool   InpLsdRequireDirectionalRunway             = true;          // Safe-Side: Require $100 directional runway/impulse from EMA
+
+// ===== LSD SWEEP DYNAMIC GAP MULTIPLIER SETTINGS =====
+bool   InpLsdEnableSweepGapMultiplier             = true;          // Double adverse order gap on BSLS/SSLS detection
+double InpLsdAdverseSweepGapMultiplier            = 2.0;           // Gap multiplier for adverse direction (default 2.0 = double)
+int    InpLsdSweepGapDurationMinutes              = 60;            // Duration of 2X gap in minutes (default 60m, 0 = until EMA flip/new sweep)
 double InpLsdBoosterMinLot                        = 0.02;          // Method 1: Booster min lot (0.02)
 double InpLsdMethod2MinLotBase                    = 0.02;          // Method 2: Base min lot (0.02, scales with multiplier)
 bool   InpLsdMethod2BuyUsesMultiplier             = false;         // Method 2: Apply multiplier to BUY lot (false=0.02 only, true=0.02Xmultiplier)
@@ -314,6 +321,7 @@ double   EQR_R_To_LivePrice_Distance(int orderType = -1, double defaultIfNone = 
 double   GetRawDistance_EQH_G_ToLivePrice(int orderType = -1, double defaultIfNone = 999999.0);
 double   GetRawDistance_EQH_R_ToLivePrice(int orderType = -1, double defaultIfNone = 999999.0);
 int      GetLsdSweepSignal();
+int      GetActiveLsdSweepSignalForGap();
 int      GetLsdSweepChartSignal();
 bool     IsLsdSweepBuySignal();
 bool     IsLsdSweepSellSignal();
@@ -405,6 +413,7 @@ int    DeferredMagic[MAX_DEFERRED_ORDERS];
 color  DeferredColor[MAX_DEFERRED_ORDERS];
 datetime DeferredCreated[MAX_DEFERRED_ORDERS];
 
+double MinimumOpeningBalanceUSD = 500.0; // Minimum required account opening balance (.00)
 double Lots = 0.01;
 int MaxOpenOrders = 100;
 
@@ -527,7 +536,7 @@ int DashboardTopGap = 20;
 int DashboardWidth = 285;
 int DashboardHeight = 480;
 int DashboardFontSize = 9;
-double InpMinSafeWorkingCapital = 250.0; // Minimum account capital buffer to retain when calculating safe withdrawal
+double InpMinSafeWorkingCapital = 500.0; // Minimum account capital buffer to retain when calculating safe withdrawal (.00)
 bool ShowLeftLiveOrdersDashboard = true;
 int LeftDashboardX = 10;
 int LeftDashboardY = 20;
@@ -2936,31 +2945,54 @@ void SecureDistanceProfitLadder()
      }
   }
 //+------------------------------------------------------------------+
-//|                                                                  |
+//| GetLotBasedPriceGap: Dynamic price gap based on lot & multiplier  |
+//| Base Lot 0.01 ->  gap                                        |
+//| Base Lot 0.02 ->  gap                                         |
+//| Base Lot 0.03 ->  gap                                         |
+//| Base Lot 0.04 ->  gap                                         |
+//| Base Lot 0.05 and above ->  gap                               |
+//| Floor strictly at MinimumSLModifyGapRaw (.0)                  |
+//+------------------------------------------------------------------+
+double GetLotBasedPriceGap(double orderLots, int multiplier)
+  {
+   if(multiplier < 1)
+      multiplier = 1;
+
+   // 1. Normalize lot size back to Base Lot
+   double baseLot = NormalizeDouble(orderLots / (double)multiplier, 2);
+
+   // 2. Apply tiered gap schedule:
+   double gap = 50.0;
+
+   if(baseLot <= 0.015)
+      gap = 100.0;
+   else if(baseLot <= 0.025)
+      gap = 80.0;
+   else if(baseLot <= 0.035)
+      gap = 70.0;
+   else if(baseLot <= 0.045)
+      gap = 60.0;
+   else
+      gap = 50.0; // 0.05 and all higher lots
+
+   // 3. Absolute safety floor against broker MinimumSLModifyGapRaw ()
+   if(gap < MinimumSLModifyGapRaw)
+      gap = MinimumSLModifyGapRaw;
+
+   return gap;
+  }
+
+//+------------------------------------------------------------------+
+//| SecureOneDollarProfit: Lot & Multiplier-based Profit Ladder      |
 //+------------------------------------------------------------------+
 void SecureOneDollarProfit()
   {
    if(GetTotalEAOrders() <= 0)
       return;
 
-// The base 1X target amount in your account currency
-   double baseProfitTarget = SecureOneDollarProfitPerOrder * balancelomultipler;
-
-   if(IsEmaWEAKDistanceReduced50PercentFromPeak())
-     {
-      baseProfitTarget = baseProfitTarget / 2;
-     }
-
-   if(baseProfitTarget <= 0)
-      return; // Prevent division by zero if inputs are 0
-
    double stopLevel = GetRequiredStopDistance();
    if(stopLevel < 10.0)
       stopLevel = 10.0;
-
-
-
-
 
    RefreshRates();
 
@@ -2976,7 +3008,8 @@ void SecureOneDollarProfit()
       if(type != OP_BUY && type != OP_SELL)
          continue;
 
-      if(OrderLots() == 0)
+      double orderLots = OrderLots();
+      if(orderLots <= 0.0)
          continue;
 
       if(IsFLIPBasketSupportOrder(OrderTicket(), OrderComment()) || IsAnyRecoveryOrder(OrderTicket(), OrderComment()))
@@ -2984,76 +3017,73 @@ void SecureOneDollarProfit()
 
       double currentSL = OrderStopLoss();
       double openPrice = OrderOpenPrice();
-      double expenses  = OrderSwap() + OrderCommission();
+      int ticket       = OrderTicket();
+      double currentTP = OrderTakeProfit();
 
-      double maxLockableGross = 0.0;
+      // 1. Get dynamic price gap based on Lot & Multiplier
+      double stepPriceGap = GetLotBasedPriceGap(orderLots, balancelomultipler);
 
-      // 1. Calculate the maximum gross profit we could technically lock right now
-      if(type == OP_BUY)
+      // 2. Halve the gap if EMA momentum weakened by 50%
+      if(IsEmaWEAKDistanceReduced50PercentFromPeak())
         {
-         double maxSL = Bid - stopLevel;
-         maxLockableGross = (maxSL - openPrice) / 100.0;
+         stepPriceGap = MathMax(MinimumSLModifyGapRaw, stepPriceGap / 2.0);
         }
-      else
-         if(type == OP_SELL)
-           {
-            double maxSL = Ask + stopLevel;
-            maxLockableGross = (openPrice - maxSL) / 100.0;
-           }
 
-      // 2. Convert maximum lockable gross into net profit
-      double maxLockableNet = maxLockableGross + expenses;
-
-      // 3. Determine the ladder level strictly in 1X increments (X1, X2, X3...)
-      double rawMultiplier = maxLockableNet / baseProfitTarget;
-      double ladderLevel = MathFloor(rawMultiplier);
-
-      // If price hasn't moved far enough to even lock 1.0X, skip this order
-      if(ladderLevel < 1.0)
+      if(stepPriceGap <= 0.0)
          continue;
 
-      // 4. Calculate the precise SL price for this specific integer ladder level
-      double targetNetProfit = ladderLevel * baseProfitTarget;
-      double requiredGrossProfit = targetNetProfit - expenses;
-      double priceDistance = requiredGrossProfit * 100.0;
+      // 3. Calculate maximum distance price has traveled into profit beyond broker buffer
+      double maxLockableDistance = 0.0;
+      if(type == OP_BUY)
+         maxLockableDistance = (Bid - stopLevel) - openPrice;
+      else if(type == OP_SELL)
+         maxLockableDistance = openPrice - (Ask + stopLevel);
 
+      if(maxLockableDistance < stepPriceGap)
+         continue; // Price has not yet reached the required gap
+
+      // 4. Determine ladder step (1 = 1x gap, 2 = 2x gap, etc.)
+      int ladderLevel = (int)MathFloor(maxLockableDistance / stepPriceGap);
+      if(ladderLevel < 1)
+         continue;
+
+      double lockedDistance = ladderLevel * stepPriceGap;
       double newSL = 0.0;
       bool canModify = false;
 
       if(type == OP_BUY)
         {
-         newSL = NormalizeDouble(openPrice + priceDistance, Digits);
-         // Ensure we only move the SL forward
-         if(currentSL == 0.0 || newSL > currentSL + (Point / 2.0))
+         newSL = NormalizeDouble(openPrice + lockedDistance, Digits);
+         if(newSL > openPrice && (currentSL == 0.0 || newSL >= currentSL + MinimumSLModifyGapRaw))
             canModify = true;
         }
-      else
-         if(type == OP_SELL)
-           {
-            newSL = NormalizeDouble(openPrice - priceDistance, Digits);
-            // Ensure we only move the SL forward
-            if(currentSL == 0.0 || newSL < currentSL - (Point / 2.0))
-               canModify = true;
-           }
+      else if(type == OP_SELL)
+        {
+         newSL = NormalizeDouble(openPrice - lockedDistance, Digits);
+         if(newSL < openPrice && (currentSL == 0.0 || newSL <= currentSL - MinimumSLModifyGapRaw))
+            canModify = true;
+        }
 
-      // 5. Modify the order if the new ladder rung is reached
+      // 5. Modify order to lock profit at this ladder rung
       if(canModify)
         {
          ResetLastError();
-         bool modified =SafeOrderModify(OrderTicket(), openPrice, newSL, OrderTakeProfit(), 0, clrGreen);
+         bool modified = SafeOrderModify(ticket, openPrice, newSL, currentTP, 0, (type == OP_BUY ? clrGreen : clrTomato));
 
          if(modified)
            {
-            Print("Secured Ladder Profit: X", DoubleToString(ladderLevel, 0), " ($", DoubleToString(targetNetProfit, 2), ")",
-                  " | Ticket=", OrderTicket(),
-                  " | Type=", type == OP_BUY ? "BUY" : "SELL",
+            Print("Secured Lot-Based Ladder: ", ladderLevel, "X (Gap=$", DoubleToString(stepPriceGap, 2),
+                  " | Locked=+$", DoubleToString(lockedDistance, 2), " pts)",
+                  " | Ticket=", ticket,
+                  " | Lots=", DoubleToString(orderLots, 2),
+                  " | Type=", (type == OP_BUY ? "BUY" : "SELL"),
                   " | New SL=", DoubleToString(newSL, Digits));
            }
          else
            {
-            Print("FAILED to secure X", DoubleToString(ladderLevel, 0), " SL",
-                  " | Ticket=", OrderTicket(),
-                  " | Error=", GetLastError());
+            Print("FAILED to secure Lot-Based Ladder SL | Ticket=", ticket,
+                  " | Error=", GetLastError(),
+                  " | Attempted SL=", DoubleToString(newSL, Digits));
            }
         }
      }
@@ -4101,6 +4131,16 @@ void CloseOppositeOrdersOnEmaDistance()
 //+------------------------------------------------------------------+
 int OnInit()
   {
+   // Check minimum opening balance condition (.00)
+   if(AccountBalance() < MinimumOpeningBalanceUSD)
+     {
+      Print("INIT FAILED: Account Balance ($", DoubleToString(AccountBalance(), 2),
+            ") is below minimum required opening balance ($", DoubleToString(MinimumOpeningBalanceUSD, 2), ").");
+      Alert("EA Init Failed: Account Balance ($" + DoubleToString(AccountBalance(), 2) +
+            ") is below minimum $" + DoubleToString(MinimumOpeningBalanceUSD, 2) + " requirement!");
+      return INIT_FAILED;
+     }
+
    partialLossMultipler= 5;
    if(AccountBalance() >= 1000)
       partialLossMultipler = 20;
@@ -9200,6 +9240,39 @@ datetime GetNewestOpenOrderTime(int orderType)
 //| 3. Floating drawdown (widens grid spacing progressively on loss) |
 //| 4. Signal matching (matched vs unmatched fallback)              |
 //+------------------------------------------------------------------+
+//+------------------------------------------------------------------+
+//| GetActiveLsdSweepSignalForGap:                                   |
+//| Returns -1 (BSLS) or +1 (SSLS) if an LSD sweep signal is active  |
+//| and within InpLsdSweepGapDurationMinutes for dynamic order gaps. |
+//| Returns 0 if no sweep signal or expired.                         |
+//+------------------------------------------------------------------+
+int GetActiveLsdSweepSignalForGap()
+  {
+   if(!InpLsdEnableSweepGapMultiplier)
+      return 0;
+
+   int sig = GetLsdSweepSignal();
+   if(sig == 0)
+      return 0;
+
+   // Check duration if configured (> 0 min)
+   if(InpLsdSweepGapDurationMinutes > 0)
+     {
+      datetime sigTime = g_rememberedSweepBarTime;
+      if(sigTime == 0)
+         sigTime = g_lastSweepBarTime;
+
+      if(sigTime > 0)
+        {
+         int elapsedSec = (int)(TimeCurrent() - sigTime);
+         if(elapsedSec > InpLsdSweepGapDurationMinutes * 60)
+            return 0; // Expired past configured duration
+        }
+     }
+   return sig;
+  }
+
+//+------------------------------------------------------------------+
 double GetDynamicOrderGap(int orderType)
   {
    double baseGap = (MinimumSameOrderGapRawMatched > 0.0) ? MinimumSameOrderGapRawMatched : 50.0;
@@ -9286,19 +9359,46 @@ double GetDynamicOrderGap(int orderType)
         }
      }
 
+// 4C. LSD SWEEP GAP EXPANSION (BSLS doubles BUY gap, SSLS doubles SELL gap)
+   double sweepMult = 1.0;
+   int sweepSig = GetActiveLsdSweepSignalForGap();
+   if(sweepSig == -1 && (orderType == OP_BUY || orderType == OP_BUYSTOP || orderType == OP_BUYLIMIT))
+     {
+      sweepMult = (InpLsdAdverseSweepGapMultiplier > 0.0) ? InpLsdAdverseSweepGapMultiplier : 2.0;
+      static datetime lastBslsGapLog = 0;
+      if(TimeCurrent() - lastBslsGapLog >= 60)
+        {
+         lastBslsGapLog = TimeCurrent();
+         Print(">>> [LSD BSLS DUMP GUARD] BSLS active -> BUY order gap DOUBLED (", DoubleToString(sweepMult, 1),
+               "X) to protect against dump!");
+        }
+     }
+   else
+      if(sweepSig == 1 && (orderType == OP_SELL || orderType == OP_SELLSTOP || orderType == OP_SELLLIMIT))
+        {
+         sweepMult = (InpLsdAdverseSweepGapMultiplier > 0.0) ? InpLsdAdverseSweepGapMultiplier : 2.0;
+         static datetime lastSslsGapLog = 0;
+         if(TimeCurrent() - lastSslsGapLog >= 60)
+           {
+            lastSslsGapLog = TimeCurrent();
+            Print(">>> [LSD SSLS SQUEEZE GUARD] SSLS active -> SELL order gap DOUBLED (", DoubleToString(sweepMult, 1),
+                  "X) to protect against pump squeeze!");
+           }
+        }
+
 // 5. Check signal alignment (SSL or Chart Pattern)
    bool sslMatches = ((orderType == OP_BUY && sslDir == 1) || (orderType == OP_SELL && sslDir == -1));
    if(sslMatches)
-      return baseGap * multiplier;
+      return baseGap * multiplier * sweepMult;
 
 // Lazy evaluation of pattern direction only if SSL is not matching
    int patternDir = GetCachedPatternDirection();
    bool patternMatches = ((orderType == OP_BUY && patternDir == 1) || (orderType == OP_SELL && patternDir == -1));
    if(patternMatches)
-      return baseGap * multiplier;
+      return baseGap * multiplier * sweepMult;
 
 // 6. Unmatched / Counter-trend fallback
-   return MathMax(unmatchedGap, baseGap * multiplier);
+   return MathMax(unmatchedGap, baseGap * multiplier) * sweepMult;
   }
 
 //+------------------------------------------------------------------+
@@ -12302,7 +12402,17 @@ void CreateProfitReEntryStop(int closedOrderType, double closedPrice, DailyProte
    if(pendingType == OP_SELLSTOP && entryPrice > Bid - minimumGap)
       entryPrice = Bid - minimumGap;
    entryPrice = NormalizeDouble(entryPrice, Digits);
-   if(!HasMinimumSameOrderGap(closedOrderType, MinimumSameOrderGapRawReEntry, entryPrice))
+   double reEntryGap = MinimumSameOrderGapRawReEntry;
+   if(InpLsdEnableSweepGapMultiplier)
+     {
+      int sweepSig = GetActiveLsdSweepSignalForGap();
+      if(sweepSig == -1 && (closedOrderType == OP_BUY || closedOrderType == OP_BUYSTOP))
+         reEntryGap *= (InpLsdAdverseSweepGapMultiplier > 0.0 ? InpLsdAdverseSweepGapMultiplier : 2.0);
+      else
+         if(sweepSig == 1 && (closedOrderType == OP_SELL || closedOrderType == OP_SELLSTOP))
+            reEntryGap *= (InpLsdAdverseSweepGapMultiplier > 0.0 ? InpLsdAdverseSweepGapMultiplier : 2.0);
+     }
+   if(!HasMinimumSameOrderGap(closedOrderType, reEntryGap, entryPrice))
       return;
    ResetLastError();
    if(afterStopLoss)
@@ -13269,11 +13379,11 @@ void ManagePartialClosesLoss()
          continue;
 
 
-      if(orderType == OP_BUY && GetOpenPL(OP_BUY)>-AccountBalance()/3)
+      if(orderType == OP_BUY && GetOpenPL(OP_BUY)>-AccountEquity()/3)
          continue;
 
 
-      if(orderType == OP_SELL && GetOpenPL(OP_SELL)>-AccountBalance()/3)
+      if(orderType == OP_SELL && GetOpenPL(OP_SELL)>-AccountEquity()/3)
          continue;
 
       // Exclude recovery orders from regular scalp partial loss cuts
@@ -14891,10 +15001,11 @@ void UpdateDashboard(DailyProtectionState &state)
    double curBal = AccountBalance();
    double curEq = AccountEquity();
    double effectiveCap = MathMin(curBal, curEq);
-   double safeWorkingBuffer = InpMinSafeWorkingCapital;
+   double safeWorkingBuffer = MathMax(MinimumOpeningBalanceUSD, InpMinSafeWorkingCapital);
    if(safeWorkingBuffer <= 0.0)
-      safeWorkingBuffer = 250.0;
+      safeWorkingBuffer = 500.0;
 
+   // Withdrawal is strictly based on equity/balance ABOVE the  minimum buffer
    double maxSafeWithdraw = MathMax(0.0, effectiveCap - safeWorkingBuffer);
    double recWithdraw = 0.0;
    string wdNote = "";
@@ -14909,14 +15020,14 @@ void UpdateDashboard(DailyProtectionState &state)
       wdColor = clrSilver;
      }
    else
-      if(effectiveCap >= 450.0 && maxSafeWithdraw >= 200.0)
+      if(effectiveCap >= (safeWorkingBuffer * 2.0) && maxSafeWithdraw >= safeWorkingBuffer)
         {
-         recWithdraw = 200.0;
+         recWithdraw = safeWorkingBuffer;
          wdNote = isFlatAccount ? "[RECOUP SEED: READY]" : "[RECOUP SEED: WAIT]";
          wdColor = isFlatAccount ? clrLime : clrGold;
         }
       else
-         if(effectiveCap >= 350.0)
+         if(maxSafeWithdraw >= 50.0)
            {
             recWithdraw = MathFloor(maxSafeWithdraw / 25.0) * 25.0;
             if(recWithdraw < 25.0)
@@ -14926,10 +15037,8 @@ void UpdateDashboard(DailyProtectionState &state)
            }
          else
            {
-            recWithdraw = MathFloor(maxSafeWithdraw / 10.0) * 10.0;
-            if(recWithdraw < 10.0)
-               recWithdraw = maxSafeWithdraw;
-            wdNote = isFlatAccount ? "[SAFE W/D: READY]" : "[SAFE W/D: WAIT]";
+            recWithdraw = maxSafeWithdraw;
+            wdNote = isFlatAccount ? "[PROFIT W/D: READY]" : "[PROFIT W/D: WAIT]";
             wdColor = isFlatAccount ? clrLime : clrGold;
            }
 
@@ -15065,7 +15174,14 @@ void UpdateDashboard(DailyProtectionState &state)
    string lsdSigName = (g_rememberedSweepSignal != "" ? g_rememberedSweepSignal : (g_lastSweepType != "" ? g_lastSweepType : "NONE"));
    color lsdClr = (lsdSigName == "SSLS") ? clrLime : (lsdSigName == "BSLS" ? clrTomato : clrSilver);
    string lineDesc = hasRedLine ? "RED (EQH-R)" : (hasGreenLine ? "GREEN (EQH-G)" : "Scanning");
-   string lsdSummary = StringFormat("LSD SWEEP   : %s | Line: %s", lsdSigName, lineDesc);
+   int actSweep = GetActiveLsdSweepSignalForGap();
+   string gapAdvice = "Gaps: Normal (1X)";
+   if(actSweep == -1)
+      gapAdvice = "BUY Gap 2X (Dump Guard)";
+   else
+      if(actSweep == 1)
+         gapAdvice = "SELL Gap 2X (Pump Guard)";
+   string lsdSummary = StringFormat("LSD SWEEP   : %s | Line: %s | %s", lsdSigName, lineDesc, gapAdvice);
    CreateDashboardLabel(DASH_PREFIX+"SWEEP_EVT", lsdSummary, tx, y+358, 8, lsdClr);
 
 // ==========================================================
@@ -16459,8 +16575,10 @@ void CheckLsdSweepFlipBasketSupportOrder()
    bool runMethod1 = (InpLsdSupportMode == LSD_MODE_METHOD1_BREAKOUT || InpLsdSupportMode == LSD_MODE_BOTH);
    bool runMethod2 = (InpLsdSupportMode == LSD_MODE_METHOD2_BOUNCE   || InpLsdSupportMode == LSD_MODE_BOTH);
 
-   double m1MaxGap = (InpLsdSweepFlipBasketMaxGapRaw > 0.0) ? InpLsdSweepFlipBasketMaxGapRaw : 100.0;
-   double m2MaxGap = (InpLsdMethod2BounceGapRaw > 0.0)      ? InpLsdMethod2BounceGapRaw      : 50.0;
+   double m1MaxGap    = (InpLsdSweepFlipBasketMaxGapRaw > 0.0) ? InpLsdSweepFlipBasketMaxGapRaw : 100.0;
+   double m2MaxGap    = (InpLsdMethod2BounceGapRaw > 0.0)      ? InpLsdMethod2BounceGapRaw      : 50.0;
+   double minEmaDist  = (InpLsdMinEmaDistanceRaw > 0.0)        ? InpLsdMinEmaDistanceRaw        : 100.0;
+   double liveEma     = iMA(Symbol(), Period(), InpEMA200Period, InpEMAPriceShift, MODE_EMA, PRICE_CLOSE, 0);
 
    bool eqhRPresent = (IsLsdSweepRedLinePresent() || GetEQR_R_Price(true) > 0.0);
    bool eqhGPresent = (IsLsdSweepGreenLinePresent() || GetEQR_G_Price(true) > 0.0);
@@ -16491,17 +16609,29 @@ void CheckLsdSweepFlipBasketSupportOrder()
         {
          double livePrice = Ask;
          double rawGap = livePrice - eqhPrice;
+         double emaGap = (liveEma > 0.0) ? MathAbs(livePrice - liveEma) : 999.0;
+
          if(livePrice > eqhPrice && rawGap <= m1MaxGap)
            {
-            Print(">>> [LSD M1 BUY TRIGGER] EMA=-1, EQH-R detected at ", DoubleToString(eqhPrice, Digits),
-                  ", Ask=", DoubleToString(livePrice, Digits), " > EQH-R by ", DoubleToString(rawGap, 2),
-                  " (<= $", DoubleToString(m1MaxGap, 2), ") -> Creating BUY EMAflipsupportorder (M1 Breakout)...");
-
-            int tkt = CreateFLIPBasketSupportOrder(1, true, true, "_LSD_EQHR");
-            if(tkt > 0)
+            if(emaGap < minEmaDist)
               {
-               FLIPBasketSupportOpenedThisCycle = true;
-               Print(">>> [LSD M1 BUY TRIGGER] Successfully created BUY EMAflipsupportorder Ticket #", tkt);
+               Print(">>> [LSD M1 BUY BLOCKED] In EMA Chop Zone: Ask=", DoubleToString(livePrice, Digits),
+                     ", EMA200=", DoubleToString(liveEma, Digits), ", Gap=$", DoubleToString(emaGap, 2),
+                     " < Required Min $", DoubleToString(minEmaDist, 2));
+              }
+            else
+              {
+               Print(">>> [LSD M1 BUY TRIGGER] EMA=-1, EQH-R detected at ", DoubleToString(eqhPrice, Digits),
+                     ", Ask=", DoubleToString(livePrice, Digits), " > EQH-R by ", DoubleToString(rawGap, 2),
+                     " (<= $", DoubleToString(m1MaxGap, 2), ") | EMA Gap=$", DoubleToString(emaGap, 2),
+                     " -> Creating BUY EMAflipsupportorder (M1 Breakout)...");
+
+               int tkt = CreateFLIPBasketSupportOrder(1, true, true, "_LSD_EQHR");
+               if(tkt > 0)
+                 {
+                  FLIPBasketSupportOpenedThisCycle = true;
+                  Print(">>> [LSD M1 BUY TRIGGER] Successfully created BUY EMAflipsupportorder Ticket #", tkt);
+                 }
               }
            }
         }
@@ -16511,18 +16641,66 @@ void CheckLsdSweepFlipBasketSupportOrder()
         {
          double livePrice = Ask;
          double rawGap = livePrice - eqlPrice;
+         double emaGap = (liveEma > 0.0) ? MathAbs(livePrice - liveEma) : 999.0;
+
          if(livePrice > eqlPrice && rawGap <= m2MaxGap)
            {
-            Print(">>> [LSD M2 BUY TRIGGER] EMA ANY, EQH-G detected at ", DoubleToString(eqlPrice, Digits),
-                  ", Ask=", DoubleToString(livePrice, Digits), " > EQH-G by ", DoubleToString(rawGap, 2),
-                  " (<= $", DoubleToString(m2MaxGap, 2), ") -> Creating BUY EMAflipsupportorder (M2 Bounce)...");
-
-            int tkt = CreateFLIPBasketSupportOrder(1, true, true, "_LSD_EQHG_M2");
-            if(tkt > 0)
+            // SAFE-SIDE CHECK 1: Must NOT be inside the EMA Chop Zone (<  from EMA200)
+            if(emaGap < minEmaDist)
               {
-               FLIPBasketSupportOpenedThisCycle = true;
-               Print(">>> [LSD M2 BUY TRIGGER] Successfully created BUY EMAflipsupportorder Ticket #", tkt);
+               Print(">>> [LSD M2 BUY BLOCKED] In EMA Chop Zone: Ask=", DoubleToString(livePrice, Digits),
+                     ", EMA200=", DoubleToString(liveEma, Digits), ", Gap=$", DoubleToString(emaGap, 2),
+                     " < Required Min $", DoubleToString(minEmaDist, 2), ". Skipping buy order!");
               }
+            else
+               // SAFE-SIDE CHECK 2: Directional Runway / Momentum
+               if(InpLsdRequireDirectionalRunway && liveEma > 0.0 && livePrice < liveEma && (liveEma - livePrice) < minEmaDist)
+                 {
+                  Print(">>> [LSD M2 BUY BLOCKED] Insufficient bounce runway up to EMA: LivePrice=",
+                        DoubleToString(livePrice, Digits), ", EMA200=", DoubleToString(liveEma, Digits),
+                        ", Runway=$", DoubleToString(liveEma - livePrice, 2),
+                        " < Required Min $", DoubleToString(minEmaDist, 2));
+                 }
+               else
+                  if(InpLsdRequireDirectionalRunway && liveEma > 0.0 && livePrice > liveEma)
+                    {
+                     double highestSinceFlip = GetHighestPriceSinceEmaFlip();
+                     double upExpansion = highestSinceFlip - liveEma;
+                     if(upExpansion < minEmaDist)
+                       {
+                        Print(">>> [LSD M2 BUY BLOCKED] Insufficient previous upward impulse: HighestSinceFlip=",
+                              DoubleToString(highestSinceFlip, Digits), ", UpExpansion=$",
+                              DoubleToString(upExpansion, 2), " < Required Min $", DoubleToString(minEmaDist, 2));
+                       }
+                     else
+                       {
+                        Print(">>> [LSD M2 BUY TRIGGER] EMA ANY, EQH-G detected at ", DoubleToString(eqlPrice, Digits),
+                              ", Ask=", DoubleToString(livePrice, Digits), " > EQH-G by ", DoubleToString(rawGap, 2),
+                              " (<= $", DoubleToString(m2MaxGap, 2), ") | EMA Gap=$", DoubleToString(emaGap, 2),
+                              " -> Creating BUY EMAflipsupportorder (M2 Bounce)...");
+
+                        int tkt = CreateFLIPBasketSupportOrder(1, true, true, "_LSD_EQHG_M2");
+                        if(tkt > 0)
+                          {
+                           FLIPBasketSupportOpenedThisCycle = true;
+                           Print(">>> [LSD M2 BUY TRIGGER] Successfully created BUY EMAflipsupportorder Ticket #", tkt);
+                          }
+                       }
+                    }
+                  else
+                    {
+                     Print(">>> [LSD M2 BUY TRIGGER] EMA ANY, EQH-G detected at ", DoubleToString(eqlPrice, Digits),
+                           ", Ask=", DoubleToString(livePrice, Digits), " > EQH-G by ", DoubleToString(rawGap, 2),
+                           " (<= $", DoubleToString(m2MaxGap, 2), ") | Runway to EMA=$", DoubleToString(liveEma - livePrice, 2),
+                           " -> Creating BUY EMAflipsupportorder (M2 Bounce)...");
+
+                     int tkt = CreateFLIPBasketSupportOrder(1, true, true, "_LSD_EQHG_M2");
+                     if(tkt > 0)
+                       {
+                        FLIPBasketSupportOpenedThisCycle = true;
+                        Print(">>> [LSD M2 BUY TRIGGER] Successfully created BUY EMAflipsupportorder Ticket #", tkt);
+                       }
+                    }
            }
         }
      }
@@ -16537,17 +16715,29 @@ void CheckLsdSweepFlipBasketSupportOrder()
         {
          double livePrice = Bid;
          double rawGap = eqlPrice - livePrice;
+         double emaGap = (liveEma > 0.0) ? MathAbs(livePrice - liveEma) : 999.0;
+
          if(livePrice < eqlPrice && rawGap <= m1MaxGap)
            {
-            Print(">>> [LSD M1 SELL TRIGGER] EMA=1, EQH-G detected at ", DoubleToString(eqlPrice, Digits),
-                  ", Bid=", DoubleToString(livePrice, Digits), " < EQH-G by ", DoubleToString(rawGap, 2),
-                  " (<= $", DoubleToString(m1MaxGap, 2), ") -> Creating SELL EMAflipsupportorder (M1 Breakout)...");
-
-            int tkt = CreateFLIPBasketSupportOrder(-1, true, true, "_LSD_EQHG");
-            if(tkt > 0)
+            if(emaGap < minEmaDist)
               {
-               FLIPBasketSupportOpenedThisCycle = true;
-               Print(">>> [LSD M1 SELL TRIGGER] Successfully created SELL EMAflipsupportorder Ticket #", tkt);
+               Print(">>> [LSD M1 SELL BLOCKED] In EMA Chop Zone: Bid=", DoubleToString(livePrice, Digits),
+                     ", EMA200=", DoubleToString(liveEma, Digits), ", Gap=$", DoubleToString(emaGap, 2),
+                     " < Required Min $", DoubleToString(minEmaDist, 2));
+              }
+            else
+              {
+               Print(">>> [LSD M1 SELL TRIGGER] EMA=1, EQH-G detected at ", DoubleToString(eqlPrice, Digits),
+                     ", Bid=", DoubleToString(livePrice, Digits), " < EQH-G by ", DoubleToString(rawGap, 2),
+                     " (<= $", DoubleToString(m1MaxGap, 2), ") | EMA Gap=$", DoubleToString(emaGap, 2),
+                     " -> Creating SELL EMAflipsupportorder (M1 Breakout)...");
+
+               int tkt = CreateFLIPBasketSupportOrder(-1, true, true, "_LSD_EQHG");
+               if(tkt > 0)
+                 {
+                  FLIPBasketSupportOpenedThisCycle = true;
+                  Print(">>> [LSD M1 SELL TRIGGER] Successfully created SELL EMAflipsupportorder Ticket #", tkt);
+                 }
               }
            }
         }
@@ -16557,18 +16747,67 @@ void CheckLsdSweepFlipBasketSupportOrder()
         {
          double livePrice = Bid;
          double rawGap = eqhPrice - livePrice;
+         double emaGap = (liveEma > 0.0) ? MathAbs(livePrice - liveEma) : 999.0;
+
          if(livePrice < eqhPrice && rawGap <= m2MaxGap)
            {
-            Print(">>> [LSD M2 SELL TRIGGER] EMA ANY, EQH-R detected at ", DoubleToString(eqhPrice, Digits),
-                  ", Bid=", DoubleToString(livePrice, Digits), " < EQH-R by ", DoubleToString(rawGap, 2),
-                  " (<= $", DoubleToString(m2MaxGap, 2), ") -> Creating SELL EMAflipsupportorder (M2 Bounce)...");
-
-            int tkt = CreateFLIPBasketSupportOrder(-1, true, true, "_LSD_EQHR_M2");
-            if(tkt > 0)
+            // SAFE-SIDE CHECK 1: Must NOT be inside the EMA Chop Zone (<  from EMA200)
+            if(emaGap < minEmaDist)
               {
-               FLIPBasketSupportOpenedThisCycle = true;
-               Print(">>> [LSD M2 SELL TRIGGER] Successfully created SELL EMAflipsupportorder Ticket #", tkt);
+               Print(">>> [LSD M2 SELL BLOCKED] In EMA Chop Zone: Bid=", DoubleToString(livePrice, Digits),
+                     ", EMA200=", DoubleToString(liveEma, Digits), ", Gap=$", DoubleToString(emaGap, 2),
+                     " < Required Min $", DoubleToString(minEmaDist, 2), ". Skipping sell order!");
               }
+            else
+               // SAFE-SIDE CHECK 2: Directional Runway / Momentum
+               if(InpLsdRequireDirectionalRunway && liveEma > 0.0 && livePrice > liveEma && (livePrice - liveEma) < minEmaDist)
+                 {
+                  Print(">>> [LSD M2 SELL BLOCKED] Insufficient drop runway down to EMA: LivePrice=",
+                        DoubleToString(livePrice, Digits), ", EMA200=", DoubleToString(liveEma, Digits),
+                        ", Runway=$", DoubleToString(livePrice - liveEma, 2),
+                        " < Required Min $", DoubleToString(minEmaDist, 2));
+                 }
+               else
+                  if(InpLsdRequireDirectionalRunway && liveEma > 0.0 && livePrice < liveEma)
+                    {
+                     double lowestSinceFlip = GetLowestPriceSinceEmaFlip();
+                     double downExpansion = liveEma - lowestSinceFlip;
+                     if(downExpansion < minEmaDist)
+                       {
+                        Print(">>> [LSD M2 SELL BLOCKED] Insufficient previous downward impulse: LowestSinceFlip=",
+                              DoubleToString(lowestSinceFlip, Digits), ", DownExpansion=$",
+                              DoubleToString(downExpansion, 2), " < Required Min $", DoubleToString(minEmaDist, 2),
+                              ". (Market hasn't dropped  from EMA). Skipping sell order!");
+                       }
+                     else
+                       {
+                        Print(">>> [LSD M2 SELL TRIGGER] EMA ANY, EQH-R detected at ", DoubleToString(eqhPrice, Digits),
+                              ", Bid=", DoubleToString(livePrice, Digits), " < EQH-R by ", DoubleToString(rawGap, 2),
+                              " (<= $", DoubleToString(m2MaxGap, 2), ") | DownExpansion=$", DoubleToString(downExpansion, 2),
+                              " -> Creating SELL EMAflipsupportorder (M2 Bounce)...");
+
+                        int tkt = CreateFLIPBasketSupportOrder(-1, true, true, "_LSD_EQHR_M2");
+                        if(tkt > 0)
+                          {
+                           FLIPBasketSupportOpenedThisCycle = true;
+                           Print(">>> [LSD M2 SELL TRIGGER] Successfully created SELL EMAflipsupportorder Ticket #", tkt);
+                          }
+                       }
+                    }
+                  else
+                    {
+                     Print(">>> [LSD M2 SELL TRIGGER] EMA ANY, EQH-R detected at ", DoubleToString(eqhPrice, Digits),
+                           ", Bid=", DoubleToString(livePrice, Digits), " < EQH-R by ", DoubleToString(rawGap, 2),
+                           " (<= $", DoubleToString(m2MaxGap, 2), ") | Runway to EMA=$", DoubleToString(livePrice - liveEma, 2),
+                           " -> Creating SELL EMAflipsupportorder (M2 Bounce)...");
+
+                     int tkt = CreateFLIPBasketSupportOrder(-1, true, true, "_LSD_EQHR_M2");
+                     if(tkt > 0)
+                       {
+                        FLIPBasketSupportOpenedThisCycle = true;
+                        Print(">>> [LSD M2 SELL TRIGGER] Successfully created SELL EMAflipsupportorder Ticket #", tkt);
+                       }
+                    }
            }
         }
      }
@@ -16608,21 +16847,23 @@ void UpdateLiquiditySweepDetectorOnChart()
 
    DeleteLiquiditySweepObjects();
 
-   double eqHigh = 0.0;
-   datetime eqHighTime = 0;
-   datetime curHighEndTime = 0;
+   // Tracking for Equal Highs (Red Line - Resistance)
+   double lastPhPrice = 0.0;
+   datetime lastPhTime = 0;
    string curHighLineName = "";
    string curHighMarkerName = "";
    double activeEqHighPrice = 0.0;
+   datetime activeEqHighStart = 0;
 
-   double eqLow = 0.0;
-   datetime eqLowTime = 0;
-   datetime curLowEndTime = 0;
+   // Tracking for Equal Lows (Green Line - Support)
+   double lastPlPrice = 0.0;
+   datetime lastPlTime = 0;
    string curLowLineName = "";
    string curLowMarkerName = "";
    double activeEqLowPrice = 0.0;
+   datetime activeEqLowStart = 0;
 
-   int sweepDurationSec = (InpLsdSweepMaxDisplayMinutes > 0) ? (InpLsdSweepMaxDisplayMinutes * 60) : (Period() * 60 * InpSweepExtendBars);
+   int sweepDurationSec = (InpLsdSweepMaxDisplayMinutes > 0) ? (InpLsdSweepMaxDisplayMinutes * 60) : 0;
 
    bool sweepFoundInCurrentFlip = false;
    string sweepTypeInCurrentFlip = "None";
@@ -16636,38 +16877,181 @@ void UpdateLiquiditySweepDetectorOnChart()
 // Forward chronological iteration from oldest bar (limit) down to current bar (0)
    for(int i = limit; i >= 0; i--)
      {
-      // 0. Expiration: Stop extending line after 15m (line remains visible from start to end on chart)
-      if(curHighLineName != "" && curHighEndTime > 0 && Time[i] >= curHighEndTime)
+      double atr = iATR(Symbol(), Period(), 14, i);
+
+      // ================================================================
+      // A. Active High Line (EQH-R) Check: Sweep, Mitigation, or Timeout
+      // ================================================================
+      if(curHighLineName != "" && activeEqHighPrice > 0.0)
         {
-         if(!InpKeepHistoricalSweepLines)
+         bool bslSweep = (High[i] > activeEqHighPrice && Close[i] < activeEqHighPrice);
+         bool bslMitigated = (Close[i] >= activeEqHighPrice + atr * 0.15);
+         bool timeout = (sweepDurationSec > 0 && (Time[i] - activeEqHighStart) >= sweepDurationSec);
+
+         if(bslSweep)
            {
-            ObjectDelete(0, curHighLineName);
-            if(curHighMarkerName != "")
-               ObjectDelete(0, curHighMarkerName);
+            // FREEZE LINE AT EXACT SWEEP CANDLE
+            ObjectSet(curHighLineName, OBJPROP_TIME2, Time[i]);
+
+            if(InpShowLiquiditySweeps)
+              {
+               // Red down arrow marker above bar (Bearish SWEEP sell signal)
+               string arrName = LSD_PREFIX + "BSL_ARR_" + IntegerToString((int)Time[i]);
+               ObjectCreate(0, arrName, OBJ_ARROW, 0, Time[i], High[i] + atr * 0.25);
+               ObjectSetInteger(0, arrName, OBJPROP_ARROWCODE, 242);
+               ObjectSetInteger(0, arrName, OBJPROP_COLOR, InpBslSweepColor);
+               ObjectSetInteger(0, arrName, OBJPROP_WIDTH, 3);
+               ObjectSetInteger(0, arrName, OBJPROP_SELECTABLE, false);
+               ObjectSetInteger(0, arrName, OBJPROP_HIDDEN, true);
+
+               if(InpShowSweepLabels)
+                 {
+                  // Red badge text: BSLS
+                  string lblName = LSD_PREFIX + "BSL_LBL_" + IntegerToString((int)Time[i]);
+                  ObjectCreate(0, lblName, OBJ_TEXT, 0, Time[i], High[i] + atr * 0.45);
+                  ObjectSetString(0, lblName, OBJPROP_TEXT, "BSLS");
+                  ObjectSetString(0, lblName, OBJPROP_FONT, "Arial Bold");
+                  ObjectSetInteger(0, lblName, OBJPROP_FONTSIZE, 8);
+                  ObjectSetInteger(0, lblName, OBJPROP_COLOR, InpBslSweepColor);
+                  ObjectSetInteger(0, lblName, OBJPROP_SELECTABLE, false);
+                  ObjectSetInteger(0, lblName, OBJPROP_HIDDEN, true);
+                 }
+              }
+
+            g_lastSweepType = "BSLS";
+            g_lastSweepBarTime = Time[i];
+
+            if(flipTime > 0 && Time[i] >= flipTime)
+              {
+               sweepFoundInCurrentFlip = true;
+               sweepTypeInCurrentFlip   = "BSLS";
+               sweepTimeInCurrentFlip   = Time[i];
+              }
+
+            // Completed line is preserved on chart from Pivot 1 to Sweep Candle
+            if(!InpKeepHistoricalSweepLines)
+              {
+               ObjectDelete(0, curHighLineName);
+               if(curHighMarkerName != "")
+                  ObjectDelete(0, curHighMarkerName);
+              }
+
+            curHighLineName = "";
+            curHighMarkerName = "";
+            activeEqHighPrice = 0.0;
+            activeEqHighStart = 0;
            }
-         curHighLineName = "";
-         curHighMarkerName = "";
-         eqHigh = 0.0;
-         activeEqHighPrice = 0.0;
-         curHighEndTime = 0;
+         else
+            if(bslMitigated || timeout)
+              {
+               // Line broken by strong candle body or timed out: freeze at this candle
+               ObjectSet(curHighLineName, OBJPROP_TIME2, Time[i]);
+               if(!InpKeepHistoricalSweepLines)
+                 {
+                  ObjectDelete(0, curHighLineName);
+                  if(curHighMarkerName != "")
+                     ObjectDelete(0, curHighMarkerName);
+                 }
+               curHighLineName = "";
+               curHighMarkerName = "";
+               activeEqHighPrice = 0.0;
+               activeEqHighStart = 0;
+              }
+            else
+              {
+               // Still active: extend to current bar (or live future bar if i == 0)
+               ObjectSet(curHighLineName, OBJPROP_TIME2, (i == 0) ? (Time[0] + Period() * 60) : Time[i]);
+              }
         }
 
-      if(curLowLineName != "" && curLowEndTime > 0 && Time[i] >= curLowEndTime)
+      // ================================================================
+      // B. Active Low Line (EQH-G) Check: Sweep, Mitigation, or Timeout
+      // ================================================================
+      if(curLowLineName != "" && activeEqLowPrice > 0.0)
         {
-         if(!InpKeepHistoricalSweepLines)
+         bool sslSweep = (Low[i] < activeEqLowPrice && Close[i] > activeEqLowPrice);
+         bool sslMitigated = (Close[i] <= activeEqLowPrice - atr * 0.15);
+         bool timeout = (sweepDurationSec > 0 && (Time[i] - activeEqLowStart) >= sweepDurationSec);
+
+         if(sslSweep)
            {
-            ObjectDelete(0, curLowLineName);
-            if(curLowMarkerName != "")
-               ObjectDelete(0, curLowMarkerName);
+            // FREEZE LINE AT EXACT SWEEP CANDLE
+            ObjectSet(curLowLineName, OBJPROP_TIME2, Time[i]);
+
+            if(InpShowLiquiditySweeps)
+              {
+               // Lime up arrow marker below bar (Bullish SWEEP buy signal)
+               string arrName = LSD_PREFIX + "SSL_ARR_" + IntegerToString((int)Time[i]);
+               ObjectCreate(0, arrName, OBJ_ARROW, 0, Time[i], Low[i] - atr * 0.25);
+               ObjectSetInteger(0, arrName, OBJPROP_ARROWCODE, 241);
+               ObjectSetInteger(0, arrName, OBJPROP_COLOR, InpSslSweepColor);
+               ObjectSetInteger(0, arrName, OBJPROP_WIDTH, 3);
+               ObjectSetInteger(0, arrName, OBJPROP_SELECTABLE, false);
+               ObjectSetInteger(0, arrName, OBJPROP_HIDDEN, true);
+
+               if(InpShowSweepLabels)
+                 {
+                  // Lime badge text: SSLS
+                  string lblName = LSD_PREFIX + "SSL_LBL_" + IntegerToString((int)Time[i]);
+                  ObjectCreate(0, lblName, OBJ_TEXT, 0, Time[i], Low[i] - atr * 0.45);
+                  ObjectSetString(0, lblName, OBJPROP_TEXT, "SSLS");
+                  ObjectSetString(0, lblName, OBJPROP_FONT, "Arial Bold");
+                  ObjectSetInteger(0, lblName, OBJPROP_FONTSIZE, 8);
+                  ObjectSetInteger(0, lblName, OBJPROP_COLOR, InpSslSweepColor);
+                  ObjectSetInteger(0, lblName, OBJPROP_SELECTABLE, false);
+                  ObjectSetInteger(0, lblName, OBJPROP_HIDDEN, true);
+                 }
+              }
+
+            g_lastSweepType = "SSLS";
+            g_lastSweepBarTime = Time[i];
+
+            if(flipTime > 0 && Time[i] >= flipTime)
+              {
+               sweepFoundInCurrentFlip = true;
+               sweepTypeInCurrentFlip   = "SSLS";
+               sweepTimeInCurrentFlip   = Time[i];
+              }
+
+            // Completed line is preserved on chart from Pivot 1 to Sweep Candle
+            if(!InpKeepHistoricalSweepLines)
+              {
+               ObjectDelete(0, curLowLineName);
+               if(curLowMarkerName != "")
+                  ObjectDelete(0, curLowMarkerName);
+              }
+
+            curLowLineName = "";
+            curLowMarkerName = "";
+            activeEqLowPrice = 0.0;
+            activeEqLowStart = 0;
            }
-         curLowLineName = "";
-         curLowMarkerName = "";
-         eqLow = 0.0;
-         activeEqLowPrice = 0.0;
-         curLowEndTime = 0;
+         else
+            if(sslMitigated || timeout)
+              {
+               // Line broken by strong candle body or timed out: freeze at this candle
+               ObjectSet(curLowLineName, OBJPROP_TIME2, Time[i]);
+               if(!InpKeepHistoricalSweepLines)
+                 {
+                  ObjectDelete(0, curLowLineName);
+                  if(curLowMarkerName != "")
+                     ObjectDelete(0, curLowMarkerName);
+                 }
+               curLowLineName = "";
+               curLowMarkerName = "";
+               activeEqLowPrice = 0.0;
+               activeEqLowStart = 0;
+              }
+            else
+              {
+               // Still active: extend to current bar (or live future bar if i == 0)
+               ObjectSet(curLowLineName, OBJPROP_TIME2, (i == 0) ? (Time[0] + Period() * 60) : Time[i]);
+              }
         }
 
-      // 1. Pivot High Detection at bar (i + InpSweepPivotLen)
+      // ================================================================
+      // C. Pivot High Detection at bar (i + InpSweepPivotLen)
+      // ================================================================
       int phBar = i + InpSweepPivotLen;
       if(phBar < Bars - InpSweepPivotLen)
         {
@@ -16690,35 +17074,36 @@ void UpdateLiquiditySweepDetectorOnChart()
          if(isPh)
            {
             double ph = candidateH;
-            if(eqHigh > 0.0)
+            if(lastPhPrice > 0.0)
               {
-               double atr = iATR(Symbol(), Period(), 14, i);
-               if(MathAbs(ph - eqHigh) <= atr * InpSweepToleranceATR)
+               double phAtr = iATR(Symbol(), Period(), 14, phBar);
+               if(MathAbs(ph - lastPhPrice) <= phAtr * InpSweepToleranceATR)
                  {
+                  // MATCH CONFIRMED! Equal Highs (EQH-R)
+                  double confirmedEqHigh = (lastPhPrice + ph) * 0.5;
+
+                  // If an older unswept line was running, freeze it at this pivot
+                  if(curHighLineName != "")
+                     ObjectSet(curHighLineName, OBJPROP_TIME2, Time[phBar]);
+
                   if(InpShowSweepLevels)
                     {
-                     if(!InpKeepHistoricalSweepLines)
-                       {
-                        if(curHighLineName != "")
-                           ObjectDelete(0, curHighLineName);
-                        if(curHighMarkerName != "")
-                           ObjectDelete(0, curHighMarkerName);
-                       }
+                     curHighLineName = LSD_PREFIX + "EQH_" + IntegerToString((int)lastPhTime);
 
-                     curHighLineName = LSD_PREFIX + "EQH_" + IntegerToString((int)Time[phBar]);
-                     datetime endTime = Time[phBar] + sweepDurationSec;
-                     curHighEndTime = endTime;
-                     ObjectCreate(0, curHighLineName, OBJ_TREND, 0, Time[phBar], eqHigh, endTime, eqHigh);
+                     // REAL START TIME: Starts at Pivot 1 (lastPhTime) and extends across Pivot 2
+                     datetime initEndTime = (i == 0) ? (Time[0] + Period() * 60) : Time[i];
+                     ObjectCreate(0, curHighLineName, OBJ_TREND, 0, lastPhTime, confirmedEqHigh, initEndTime, confirmedEqHigh);
                      ObjectSetInteger(0, curHighLineName, OBJPROP_COLOR, InpBslSweepColor);
                      ObjectSetInteger(0, curHighLineName, OBJPROP_WIDTH, 2);
                      ObjectSetInteger(0, curHighLineName, OBJPROP_STYLE, STYLE_SOLID);
                      ObjectSetInteger(0, curHighLineName, OBJPROP_RAY_RIGHT, false);
                      ObjectSetInteger(0, curHighLineName, OBJPROP_SELECTABLE, false);
                      ObjectSetInteger(0, curHighLineName, OBJPROP_HIDDEN, true);
-                     // Marker text icon: EQH-R
+
+                     // Marker text icon: EQH-R placed at confirming Pivot 2 (phBar)
                      string eqhMarker = LSD_PREFIX + "EQH_M_" + IntegerToString((int)Time[phBar]);
                      curHighMarkerName = eqhMarker;
-                     ObjectCreate(0, eqhMarker, OBJ_TEXT, 0, Time[phBar], eqHigh + atr * 0.25);
+                     ObjectCreate(0, eqhMarker, OBJ_TEXT, 0, Time[phBar], confirmedEqHigh + phAtr * 0.25);
                      ObjectSetString(0, eqhMarker, OBJPROP_TEXT, "EQH-R");
                      ObjectSetString(0, eqhMarker, OBJPROP_FONT, "Arial Bold");
                      ObjectSetInteger(0, eqhMarker, OBJPROP_FONTSIZE, 9);
@@ -16726,20 +17111,18 @@ void UpdateLiquiditySweepDetectorOnChart()
                      ObjectSetInteger(0, eqhMarker, OBJPROP_SELECTABLE, false);
                      ObjectSetInteger(0, eqhMarker, OBJPROP_HIDDEN, true);
                     }
-                  activeEqHighPrice = eqHigh;
+                  activeEqHighPrice = confirmedEqHigh;
+                  activeEqHighStart = lastPhTime;
                  }
-               eqHigh = ph;
-               eqHighTime = Time[phBar];
               }
-            else
-              {
-               eqHigh = ph;
-               eqHighTime = Time[phBar];
-              }
+            lastPhPrice = ph;
+            lastPhTime = Time[phBar];
            }
         }
 
-      // 2. Pivot Low Detection at bar (i + InpSweepPivotLen)
+      // ================================================================
+      // D. Pivot Low Detection at bar (i + InpSweepPivotLen)
+      // ================================================================
       int plBar = i + InpSweepPivotLen;
       if(plBar < Bars - InpSweepPivotLen)
         {
@@ -16762,35 +17145,36 @@ void UpdateLiquiditySweepDetectorOnChart()
          if(isPl)
            {
             double pl = candidateL;
-            if(eqLow > 0.0)
+            if(lastPlPrice > 0.0)
               {
-               double atr = iATR(Symbol(), Period(), 14, i);
-               if(MathAbs(pl - eqLow) <= atr * InpSweepToleranceATR)
+               double plAtr = iATR(Symbol(), Period(), 14, plBar);
+               if(MathAbs(pl - lastPlPrice) <= plAtr * InpSweepToleranceATR)
                  {
+                  // MATCH CONFIRMED! Equal Lows (EQH-G)
+                  double confirmedEqLow = (lastPlPrice + pl) * 0.5;
+
+                  // If an older unswept line was running, freeze it at this pivot
+                  if(curLowLineName != "")
+                     ObjectSet(curLowLineName, OBJPROP_TIME2, Time[plBar]);
+
                   if(InpShowSweepLevels)
                     {
-                     if(!InpKeepHistoricalSweepLines)
-                       {
-                        if(curLowLineName != "")
-                           ObjectDelete(0, curLowLineName);
-                        if(curLowMarkerName != "")
-                           ObjectDelete(0, curLowMarkerName);
-                       }
+                     curLowLineName = LSD_PREFIX + "EQL_" + IntegerToString((int)lastPlTime);
 
-                     curLowLineName = LSD_PREFIX + "EQL_" + IntegerToString((int)Time[plBar]);
-                     datetime endTime = Time[plBar] + sweepDurationSec;
-                     curLowEndTime = endTime;
-                     ObjectCreate(0, curLowLineName, OBJ_TREND, 0, Time[plBar], eqLow, endTime, eqLow);
+                     // REAL START TIME: Starts at Pivot 1 (lastPlTime) and extends across Pivot 2
+                     datetime initEndTime = (i == 0) ? (Time[0] + Period() * 60) : Time[i];
+                     ObjectCreate(0, curLowLineName, OBJ_TREND, 0, lastPlTime, confirmedEqLow, initEndTime, confirmedEqLow);
                      ObjectSetInteger(0, curLowLineName, OBJPROP_COLOR, InpSslSweepColor);
                      ObjectSetInteger(0, curLowLineName, OBJPROP_WIDTH, 2);
                      ObjectSetInteger(0, curLowLineName, OBJPROP_STYLE, STYLE_SOLID);
                      ObjectSetInteger(0, curLowLineName, OBJPROP_RAY_RIGHT, false);
                      ObjectSetInteger(0, curLowLineName, OBJPROP_SELECTABLE, false);
                      ObjectSetInteger(0, curLowLineName, OBJPROP_HIDDEN, true);
-                     // Marker text icon: EQH-G
+
+                     // Marker text icon: EQH-G placed at confirming Pivot 2 (plBar)
                      string eqlMarker = LSD_PREFIX + "EQL_M_" + IntegerToString((int)Time[plBar]);
                      curLowMarkerName = eqlMarker;
-                     ObjectCreate(0, eqlMarker, OBJ_TEXT, 0, Time[plBar], eqLow - atr * 0.25);
+                     ObjectCreate(0, eqlMarker, OBJ_TEXT, 0, Time[plBar], confirmedEqLow - plAtr * 0.25);
                      ObjectSetString(0, eqlMarker, OBJPROP_TEXT, "EQH-G");
                      ObjectSetString(0, eqlMarker, OBJPROP_FONT, "Arial Bold");
                      ObjectSetInteger(0, eqlMarker, OBJPROP_FONTSIZE, 9);
@@ -16798,132 +17182,12 @@ void UpdateLiquiditySweepDetectorOnChart()
                      ObjectSetInteger(0, eqlMarker, OBJPROP_SELECTABLE, false);
                      ObjectSetInteger(0, eqlMarker, OBJPROP_HIDDEN, true);
                     }
-                  activeEqLowPrice = eqLow;
+                  activeEqLowPrice = confirmedEqLow;
+                  activeEqLowStart = lastPlTime;
                  }
-               eqLow = pl;
-               eqLowTime = Time[plBar];
               }
-            else
-              {
-               eqLow = pl;
-               eqLowTime = Time[plBar];
-              }
-           }
-        }
-
-      // 3. Sweep Detection on bar i
-      bool bslSweep = (eqHigh > 0.0 && High[i] > eqHigh && Close[i] < eqHigh);
-      bool sslSweep = (eqLow > 0.0 && Low[i] < eqLow && Close[i] > eqLow);
-
-      if(bslSweep)
-        {
-         double atr = iATR(Symbol(), Period(), 14, i);
-         if(InpShowLiquiditySweeps)
-           {
-            // Red down triangle marker above bar (Bearish SWEEP sell signal)
-            string arrName = LSD_PREFIX + "BSL_ARR_" + IntegerToString((int)Time[i]);
-            ObjectCreate(0, arrName, OBJ_ARROW, 0, Time[i], High[i] + atr * 0.25);
-            ObjectSetInteger(0, arrName, OBJPROP_ARROWCODE, 242);
-            ObjectSetInteger(0, arrName, OBJPROP_COLOR, InpBslSweepColor);
-            ObjectSetInteger(0, arrName, OBJPROP_WIDTH, 3);
-            ObjectSetInteger(0, arrName, OBJPROP_SELECTABLE, false);
-            ObjectSetInteger(0, arrName, OBJPROP_HIDDEN, true);
-
-            if(InpShowSweepLabels)
-              {
-               // Red badge text: BSLS
-               string lblName = LSD_PREFIX + "BSL_LBL_" + IntegerToString((int)Time[i]);
-               ObjectCreate(0, lblName, OBJ_TEXT, 0, Time[i], High[i] + atr * 0.45);
-               ObjectSetString(0, lblName, OBJPROP_TEXT, "BSLS");
-               ObjectSetString(0, lblName, OBJPROP_FONT, "Arial Bold");
-               ObjectSetInteger(0, lblName, OBJPROP_FONTSIZE, 8);
-               ObjectSetInteger(0, lblName, OBJPROP_COLOR, InpBslSweepColor);
-               ObjectSetInteger(0, lblName, OBJPROP_SELECTABLE, false);
-               ObjectSetInteger(0, lblName, OBJPROP_HIDDEN, true);
-              }
-           }
-
-         // Handle swept level line & marker: disappear upon sweep (unless keeping historical lines)
-         if(curHighLineName != "")
-           {
-            if(!InpKeepHistoricalSweepLines)
-              {
-               ObjectDelete(0, curHighLineName);
-               if(curHighMarkerName != "")
-                  ObjectDelete(0, curHighMarkerName);
-              }
-            else
-               ObjectSet(curHighLineName, OBJPROP_TIME2, Time[i]); // Keep solid line on chart up to sweep bar
-            curHighLineName = "";
-            curHighMarkerName = "";
-           }
-         eqHigh = 0.0;
-         activeEqHighPrice = 0.0;
-         curHighEndTime = 0;
-         g_lastSweepType = "BSLS";
-         g_lastSweepBarTime = Time[i];
-
-         if(flipTime > 0 && Time[i] >= flipTime)
-           {
-            sweepFoundInCurrentFlip = true;
-            sweepTypeInCurrentFlip   = "BSLS";
-            sweepTimeInCurrentFlip   = Time[i];
-           }
-        }
-
-      if(sslSweep)
-        {
-         double atr = iATR(Symbol(), Period(), 14, i);
-         if(InpShowLiquiditySweeps)
-           {
-            // Lime up triangle marker below bar (Bullish SWEEP buy signal)
-            string arrName = LSD_PREFIX + "SSL_ARR_" + IntegerToString((int)Time[i]);
-            ObjectCreate(0, arrName, OBJ_ARROW, 0, Time[i], Low[i] - atr * 0.25);
-            ObjectSetInteger(0, arrName, OBJPROP_ARROWCODE, 241);
-            ObjectSetInteger(0, arrName, OBJPROP_COLOR, InpSslSweepColor);
-            ObjectSetInteger(0, arrName, OBJPROP_WIDTH, 3);
-            ObjectSetInteger(0, arrName, OBJPROP_SELECTABLE, false);
-            ObjectSetInteger(0, arrName, OBJPROP_HIDDEN, true);
-
-            if(InpShowSweepLabels)
-              {
-               // Lime badge text: SSLS
-               string lblName = LSD_PREFIX + "SSL_LBL_" + IntegerToString((int)Time[i]);
-               ObjectCreate(0, lblName, OBJ_TEXT, 0, Time[i], Low[i] - atr * 0.45);
-               ObjectSetString(0, lblName, OBJPROP_TEXT, "SSLS");
-               ObjectSetString(0, lblName, OBJPROP_FONT, "Arial Bold");
-               ObjectSetInteger(0, lblName, OBJPROP_FONTSIZE, 8);
-               ObjectSetInteger(0, lblName, OBJPROP_COLOR, InpSslSweepColor);
-               ObjectSetInteger(0, lblName, OBJPROP_SELECTABLE, false);
-               ObjectSetInteger(0, lblName, OBJPROP_HIDDEN, true);
-              }
-           }
-
-         // Handle swept level line & marker: disappear upon sweep (unless keeping historical lines)
-         if(curLowLineName != "")
-           {
-            if(!InpKeepHistoricalSweepLines)
-              {
-               ObjectDelete(0, curLowLineName);
-               if(curLowMarkerName != "")
-                  ObjectDelete(0, curLowMarkerName);
-              }
-            else
-               ObjectSet(curLowLineName, OBJPROP_TIME2, Time[i]); // Keep solid line on chart up to sweep bar
-            curLowLineName = "";
-            curLowMarkerName = "";
-           }
-         eqLow = 0.0;
-         activeEqLowPrice = 0.0;
-         curLowEndTime = 0;
-         g_lastSweepType = "SSLS";
-         g_lastSweepBarTime = Time[i];
-
-         if(flipTime > 0 && Time[i] >= flipTime)
-           {
-            sweepFoundInCurrentFlip = true;
-            sweepTypeInCurrentFlip   = "SSLS";
-            sweepTimeInCurrentFlip   = Time[i];
+            lastPlPrice = pl;
+            lastPlTime = Time[plBar];
            }
         }
      }
