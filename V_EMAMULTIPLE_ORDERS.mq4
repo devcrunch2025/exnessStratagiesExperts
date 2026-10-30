@@ -27,7 +27,7 @@
 //https://github.com/devcrunch2025/exnessStratagiesExperts/commit/f4f1c1340be330cd32a75da3f3a9b4bd5f4e4cf3
 
 
-string glbVersion = "VMULTI-1035 - Partial Loss with balance/2";
+string glbVersion = "VMULTI-1036 - Partial Loss with balance/3";
 
 
 double DailyEquityStopUSD  =1000;//50;//20*2.5;//10;//20;// 10;//30.0; close all orders at $50Xmultipler
@@ -92,7 +92,7 @@ bool EnableBounceBackDetection = false;
 // =========================================================================
 // FLIP Basket Support Order Settings (Ported from V-ScalpingBot.mq4)
 // =========================================================================
-double FLIPBasketSupportStopLossRaw = 200.0; // Raw price gap ($200) for FLIPBasketSupport order StopLoss
+double FLIPBasketSupportStopLossRaw = 3000;//200.0; // Raw price gap ($200) for FLIPBasketSupport order StopLoss
 double FlipBaksetOrderStopLossRaw = 200.0;   // Alias matching FlipBakset naming
 double FlipBaksetOrderStopLossUSD = 200.0;   // Kept for backward compatibility
 bool   OnlyAllowFLIPBasketSupportOrders = false; // TEST ISOLATION: When true, blocks ALL orders in SafeOrderSend except FLIPBasketSupport
@@ -13269,11 +13269,11 @@ void ManagePartialClosesLoss()
          continue;
 
 
-      if(orderType == OP_BUY && GetOpenPL(OP_BUY)>-AccountBalance()/2)
+      if(orderType == OP_BUY && GetOpenPL(OP_BUY)>-AccountBalance()/3)
          continue;
 
 
-      if(orderType == OP_SELL && GetOpenPL(OP_SELL)>-AccountBalance()/2)
+      if(orderType == OP_SELL && GetOpenPL(OP_SELL)>-AccountBalance()/3)
          continue;
 
       // Exclude recovery orders from regular scalp partial loss cuts
@@ -13301,7 +13301,7 @@ void ManagePartialClosesLoss()
          if(rawLossDistance >= 600.0)
            {
             conditionMet = true;
-            triggerReason = StringFormat("0.05L Raw Dist $%.1f >= $300", rawLossDistance);
+            triggerReason = StringFormat("0.06L Raw Dist $%.1f >= $600", rawLossDistance);
            }
         }
       else
@@ -13311,7 +13311,7 @@ void ManagePartialClosesLoss()
             if(rawLossDistance >= 1000.0)
               {
                conditionMet = true;
-               triggerReason = StringFormat("0.05L Raw Dist $%.1f >= $300", rawLossDistance);
+               triggerReason = StringFormat("0.05L Raw Dist $%.1f >= $1000", rawLossDistance);
               }
            }
          else
@@ -13320,7 +13320,7 @@ void ManagePartialClosesLoss()
                if(rawLossDistance >= 1400.0)
                  {
                   conditionMet = true;
-                  triggerReason = StringFormat("0.04L Raw Dist $%.1f >= $500", rawLossDistance);
+                  triggerReason = StringFormat("0.04L Raw Dist $%.1f >= $1400", rawLossDistance);
                  }
               }
             else
@@ -13329,7 +13329,7 @@ void ManagePartialClosesLoss()
                   if(rawLossDistance >= 1800.0)
                     {
                      conditionMet = true;
-                     triggerReason = StringFormat("0.03L Raw Dist $%.1f >= $800", rawLossDistance);
+                     triggerReason = StringFormat("0.03L Raw Dist $%.1f >= $1800", rawLossDistance);
                     }
                  }
                else
@@ -13339,7 +13339,7 @@ void ManagePartialClosesLoss()
                      if(currentProfit < dollarLossLimit || rawLossDistance >= 2200.0)
                        {
                         conditionMet = true;
-                        triggerReason = StringFormat("0.02L (P/L $%.2f < $%.2f OR Raw Dist $%.1f >= $1000)", currentProfit, dollarLossLimit, rawLossDistance);
+                        triggerReason = StringFormat("0.02L (P/L $%.2f < $%.2f OR Raw Dist $%.1f >= $2200)", currentProfit, dollarLossLimit, rawLossDistance);
                        }
                     }
                   else
