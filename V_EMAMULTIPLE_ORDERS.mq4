@@ -27,7 +27,7 @@
 //https://github.com/devcrunch2025/exnessStratagiesExperts/commit/f4f1c1340be330cd32a75da3f3a9b4bd5f4e4cf3
 
 
-string glbVersion = "VMULTI-1038 - Partial Loss with AccountEquity/3 with BSLS SLS";
+string glbVersion = "VMULTI-1040 - Partial Loss with AccountEquity/3 EQUITY Loss Ladder - InpEnableEquityProfitLadder5";
 
 
 double DailyEquityStopUSD  =1000;//50;//20*2.5;//10;//20;// 10;//30.0; close all orders at $50Xmultipler
@@ -71,6 +71,12 @@ double closeAllOrdersLowestEquityIncreasePercentage =20;//100//50;// 50.0;
 
 //close all orders(buy and sell) every step $50 equity changed - not required
 double   g_stepSize            =1000;// 50.0; // The step increment ($50)
+
+// ===== EQUITY PROFIT LADDER $5 SETTINGS =====
+bool   InpEnableEquityProfitLadder5        = true;   // Enable Equity Profit Ladder $5 * multiplier
+double InpEquityProfitLadderStepUSD        = 5.0;    // Step size in USD ($5.00)
+bool   InpEquityLadderUseMultiplier        = true;   // Multiply step size by balancelomultipler ($5 * multiplier)
+double InpEquityLadderSLDistanceRaw        = 100.0;  // StopLoss gap from live price in raw points (-$100 gap)
 
 
 
@@ -2070,11 +2076,12 @@ void ManageFLIPBasketSupportTrailingStopLoss()
 
 
 
-//Chance 1B: Pair Profit 2-Order Combination Live SL Modifier (> $1 profit)
-bool   EnablePairProfitSLModify =true;// false;             // Disabled: avoid 20pt choke so 100-step trailing ladder has full authority
-double PairCombinationProfitThresholdUSD = 1.0;       // Threshold profit in USD for 2-order combination
-double PairCombinationSLDistanceRaw = 0.0;            // Distance from live price in raw points (0.0 = auto broker stop level)
-bool   PairCombinationUseBalanceMultiplier = false;   // If true, scale threshold by balance multiplier (default false: fixed $1.00 USD)
+//Chance 1B: Multi-Order Combination Profit Live SL Modifier (> $1 * multiplier profit)
+bool   EnablePairProfitSLModify             = true;   // Enable multi-order combination SL modification
+double PairCombinationProfitThresholdUSD = 1.0;       // Threshold profit in USD for combinations
+double PairCombinationSLDistanceRaw = 100.0;          // Distance from live price in raw points (-$100 gap)
+bool   PairCombinationUseBalanceMultiplier = true;   // Scale threshold by balance multiplier (> $1.00 * multiplier)
+bool   InpPairCombinationIncludeFlipBasket = false;  // Include FLIPBasketSupport orders in combinations (default false)
 bool   InpEnableCombinationProfitClose     = true;    // Close any order combination (or single order) when sum > $1 * multiplier
 double InpCombinationCloseProfitUSD        = 1.0;     // Base profit threshold in USD ($1.00)
 void   CheckBasketProfitClose();
@@ -2082,6 +2089,10 @@ void   CloseAllOpenBuyOrders(string reason = "");
 void   CloseAllOpenSellOrders(string reason = "");
 void   CloseProfitableOrderCombinations();
 void   ModifyPairProfitWithStopLoss();
+void   EquityProfitLadder5();
+void   ModifyAllOrdersWithEquityLadderSL(double slGapRaw);
+double CalcOrderLockedProfitUSD(int orderType, double openPrice, double slPrice, double lots);
+bool   CanModifyStopLossForHigherProfit(int ticket, double proposedSL, string callerName = "");
 int    GetOriginalTicket(int ticket, string comment);
 string GetRootOrderComment(int ticket, string comment = "");
 string GetEffectiveOrderComment(int ticket, string comment = "");
@@ -2374,11 +2385,11 @@ string GetRootOrderComment(int ticket, string comment = "")
 
 
 //+------------------------------------------------------------------+
-//| ModifyPairProfitWithStopLoss      any2profitorders                               |
-//| Checks all combinations of 2 open orders (excluding recovery     |
-//| orders and FLIPBasketSupport orders). If any 2-order combination |
-//| has combined profit > $1.00 (PairCombinationProfitThresholdUSD), |
-//| modifies both orders with stop loss to protect/lock the profit.  |
+//| ModifyPairProfitWithStopLoss                                     |
+//| Multi-Order Combination Profit Live SL Modifier:                 |
+//| Evaluates 2-order pairs, 3-order triplets, and basket orders     |
+//| (profit or loss). If combined profit >= $1.00 * multiplier,      |
+//| modifies all qualifying orders with -$100 raw gap StopLoss.      |
 //+------------------------------------------------------------------+
 void ModifyPairProfitWithStopLoss()
   {
@@ -2405,15 +2416,13 @@ void ModifyPairProfitWithStopLoss()
    ArrayInitialize(qualifyForSL, false);
    int    candCount = 0;
 
-   double targetThreshold = PairCombinationProfitThresholdUSD;
+   double mult = (balancelomultipler > 0) ? balancelomultipler : 1.0;
+   double targetThreshold = PairCombinationProfitThresholdUSD * (PairCombinationUseBalanceMultiplier ? mult : 1.0);
 
    if(IsEmaWEAKDistanceReduced50PercentFromPeak())
      {
-      targetThreshold=targetThreshold/2;
+      targetThreshold = targetThreshold / 2.0;
      }
-
-   if(PairCombinationUseBalanceMultiplier && balancelomultipler > 1)
-      targetThreshold = targetThreshold * balancelomultipler;
 
    for(int i = OrdersTotal() - 1; i >= 0 && candCount < MAX_PAIR_SCAN_ORDERS; i--)
      {
@@ -2426,20 +2435,20 @@ void ModifyPairProfitWithStopLoss()
       int oType = OrderType();
       if(oType != OP_BUY && oType != OP_SELL)
          continue;
-      // EXCLUDE RECOVERY ORDERS: Recovery orders manage their own independent basket
-      if(IsAnyRecoveryOrder(OrderTicket(), OrderComment()))
-         continue;
 
       string cmt = OrderComment();
       int tkt    = OrderTicket();
 
-      // Exclude recovery orders
+      // Exclude recovery orders: Recovery orders manage their own independent basket
       if(IsAnyRecoveryOrder(tkt, cmt) || IsRecoveryOrderWithActiveParent(tkt, cmt))
          continue;
 
-      // Exclude FLIPBasketSupport orders
-      if(IsFLIPBasketSupportOrder(tkt, cmt) || StringFind(cmt, "FLIPBasketSupport") >= 0)
-         continue;
+      // Exclude FLIPBasketSupport orders unless explicitly enabled
+      if(!InpPairCombinationIncludeFlipBasket)
+        {
+         if(IsFLIPBasketSupportOrder(tkt, cmt) || StringFind(cmt, "FLIPBasketSupport") >= 0)
+            continue;
+        }
 
       candTickets[candCount]    = tkt;
       candTypes[candCount]      = oType;
@@ -2455,37 +2464,77 @@ void ModifyPairProfitWithStopLoss()
    if(candCount < 2)
       return; // Need at least 2 orders to form a combination
 
-// 2. Evaluate all 2-order combinations (i, j)
-   int qualifyingPairsCount = 0;
+   int qualifyingCombinationsCount = 0;
+
+// 2A. Total Basket Check (All open orders combined)
+   double totalBasketPL = 0.0;
+   for(int b = 0; b < candCount; b++)
+      totalBasketPL += candProfits[b];
+
+   if(totalBasketPL >= targetThreshold)
+     {
+      for(int b = 0; b < candCount; b++)
+         qualifyForSL[b] = true;
+      qualifyingCombinationsCount++;
+      Print("COMBINATION BASKET PROFIT >= $", DoubleToString(targetThreshold, 2), " HIT: All ", candCount,
+            " orders = Total $", DoubleToString(totalBasketPL, 2),
+            " | Qualifying all orders for -$100 StopLoss modification.");
+     }
+
+// 2B. Evaluate all 2-order combinations (Pairs: i, j) - profit or loss
    for(int i = 0; i < candCount - 1; i++)
      {
       for(int j = i + 1; j < candCount; j++)
         {
          double pairProfit = candProfits[i] + candProfits[j];
-         if(pairProfit > targetThreshold)
+         if(pairProfit >= targetThreshold)
            {
             qualifyForSL[i] = true;
             qualifyForSL[j] = true;
-            qualifyingPairsCount++;
-            Print("PAIR PROFIT > $", DoubleToString(targetThreshold, 2), " HIT: Pair [Ticket #", candTickets[i],
+            qualifyingCombinationsCount++;
+            Print("COMBINATION PAIR PROFIT >= $", DoubleToString(targetThreshold, 2), " HIT: Pair [Ticket #", candTickets[i],
                   " ($", DoubleToString(candProfits[i], 2), ") + Ticket #", candTickets[j],
                   " ($", DoubleToString(candProfits[j], 2), ")] = Total $", DoubleToString(pairProfit, 2),
-                  " | Qualifying both orders for StopLoss modification.");
+                  " | Qualifying both orders for -$100 StopLoss modification.");
            }
         }
      }
 
-   if(qualifyingPairsCount == 0)
+// 2C. Evaluate all 3-order combinations (Triplets: i, j, k) - profit or loss
+   int maxTripletSearch = MathMin(candCount, 30);
+   for(int i = 0; i < maxTripletSearch - 2; i++)
+     {
+      for(int j = i + 1; j < maxTripletSearch - 1; j++)
+        {
+         for(int k = j + 1; k < maxTripletSearch; k++)
+           {
+            double tripletProfit = candProfits[i] + candProfits[j] + candProfits[k];
+            if(tripletProfit >= targetThreshold)
+              {
+               qualifyForSL[i] = true;
+               qualifyForSL[j] = true;
+               qualifyForSL[k] = true;
+               qualifyingCombinationsCount++;
+               Print("COMBINATION TRIPLET PROFIT >= $", DoubleToString(targetThreshold, 2), " HIT: Triplet [Ticket #", candTickets[i],
+                     " ($", DoubleToString(candProfits[i], 2), "), #", candTickets[j],
+                     " ($", DoubleToString(candProfits[j], 2), "), #", candTickets[k],
+                     " ($", DoubleToString(candProfits[k], 2), ")] = Total $", DoubleToString(tripletProfit, 2),
+                     " | Qualifying 3 orders for -$100 StopLoss modification.");
+              }
+           }
+        }
+     }
+
+   if(qualifyingCombinationsCount == 0)
       return;
 
-// 3. Modify qualifying orders with live StopLoss to lock profit
+// 3. Modify qualifying orders with -$100 raw gap StopLoss to protect profit/loss recovery
    RefreshRates();
    double minDistance = GetRequiredStopDistance();
    if(minDistance < 20.0)
       minDistance = 20.0;
 
-
-   double rawGap = (PairCombinationSLDistanceRaw > 0.0) ? PairCombinationSLDistanceRaw : 20.0;
+   double rawGap = (PairCombinationSLDistanceRaw > 0.0) ? PairCombinationSLDistanceRaw : 100.0;
    if(rawGap < minDistance)
       rawGap = minDistance;
 
@@ -2520,49 +2569,28 @@ void ModifyPairProfitWithStopLoss()
          if(proposedSL >= curBid)
             continue;
 
-         // Ensure SL only locks profit ABOVE open price (never prematurely tightens losing orders)
-         if(proposedSL <= oOpen)
-            continue;
-
-
-
-         // For BUY: never move SL backward; only move forward (higher)
-         if(curSL > -100.0 && proposedSL <= curSL)
-            continue;
-
-         // Avoid micro modifications below minimum modify gap
-         if(curSL > -100.0 && (proposedSL - curSL) < MinimumSLModifyGapRaw)
-            continue;
-
-         shouldModify = true;
-        }
-      else
-         if(oType == OP_SELL)
+         // For BUY: Set if no SL (0.0), or only move SL forward (higher) by at least MinimumSLModifyGapRaw
+         if(curSL == 0.0 || (proposedSL > curSL && (proposedSL - curSL) >= MinimumSLModifyGapRaw))
            {
-            proposedSL = NormalizeDouble(curAsk + rawGap, Digits);
-            if((proposedSL - curAsk) < minDistance)
-               proposedSL = NormalizeDouble(curAsk + minDistance, Digits);
-
-            // Ensure SL is strictly valid above Ask
-            if(proposedSL <= curAsk)
-               continue;
-
-            // Ensure SL only locks profit BELOW open price (never prematurely tightens losing orders)
-            if(proposedSL >= oOpen)
-               continue;
-
-
-
-            // For SELL: never move SL backward; only move forward (lower)
-            if(curSL > -100.0 && proposedSL >= curSL)
-               continue;
-
-            // Avoid micro modifications below minimum modify gap
-            if(curSL > -100.0 && (curSL - proposedSL) < MinimumSLModifyGapRaw)
-               continue;
-
             shouldModify = true;
            }
+        }
+      else if(oType == OP_SELL)
+        {
+         proposedSL = NormalizeDouble(curAsk + rawGap, Digits);
+         if((proposedSL - curAsk) < minDistance)
+            proposedSL = NormalizeDouble(curAsk + minDistance, Digits);
+
+         // Ensure SL is strictly valid above Ask
+         if(proposedSL <= curAsk)
+            continue;
+
+         // For SELL: Set if no SL (0.0), or only move SL forward (lower) by at least MinimumSLModifyGapRaw
+         if(curSL == 0.0 || (proposedSL < curSL && (curSL - proposedSL) >= MinimumSLModifyGapRaw))
+           {
+            shouldModify = true;
+           }
+        }
 
       if(shouldModify && proposedSL > 0.0)
         {
@@ -2570,15 +2598,16 @@ void ModifyPairProfitWithStopLoss()
          bool modified = SafeOrderModify(tkt, oOpen, proposedSL, curTP, 0, (oType == OP_BUY ? clrLimeGreen : clrTomato));
          if(modified)
            {
-            Print("PAIR PROFIT SL MODIFIED | Ticket #", tkt,
+            Print("COMBINATION PROFIT SL MODIFIED | Ticket #", tkt,
                   " | Type=", (oType == OP_BUY ? "BUY" : "SELL"),
                   " | P/L=$", DoubleToString(candProfits[k], 2),
                   " | Old SL=", DoubleToString(curSL, Digits),
-                  " | New SL=", DoubleToString(proposedSL, Digits));
+                  " | New SL=", DoubleToString(proposedSL, Digits),
+                  " (Gap=$", DoubleToString(rawGap, 1), ")");
            }
          else
            {
-            Print("PAIR PROFIT SL MODIFY FAILED | Ticket #", tkt, " | Error=", GetLastError());
+            Print("COMBINATION PROFIT SL MODIFY FAILED | Ticket #", tkt, " | Error=", GetLastError());
            }
         }
      }
@@ -4463,7 +4492,7 @@ void OnTick()
 
    CheckDynamicStepLadder();
 
-   MonitorLowestEquityRecovery();
+   EquityProfitLadder5();
    CloseOppositeOrdersOnEmaDistance();
 
    UpdateLiquiditySweepDetectorOnChart();
@@ -7427,6 +7456,103 @@ bool SafeOrderCloseOld(int ticket,double lots,int orderType,int slippage,color a
   }
 
 //+------------------------------------------------------------------+
+//| CalcOrderLockedProfitUSD                                         |
+//| Calculates the dollar profit locked by a given Stop Loss price   |
+//+------------------------------------------------------------------+
+double CalcOrderLockedProfitUSD(int orderType, double openPrice, double slPrice, double lots)
+  {
+   if(slPrice <= 0.0 || lots <= 0.0)
+      return 0.0;
+   double tickValue = MarketInfo(Symbol(), MODE_TICKVALUE);
+   double tickSize  = MarketInfo(Symbol(), MODE_TICKSIZE);
+   if(tickSize <= 0.0)
+      tickSize = Point;
+   if(tickValue <= 0.0)
+      tickValue = 1.0;
+
+   double pointsDiff = (orderType == OP_BUY) ? (slPrice - openPrice) : (openPrice - slPrice);
+   double profitUSD  = (pointsDiff / tickSize) * tickValue * lots;
+   return profitUSD;
+  }
+
+//+------------------------------------------------------------------+
+//| CanModifyStopLossForHigherProfit                                 |
+//| GLOBAL PROFIT-LOCKING GUARD:                                     |
+//| Ensures an order's StopLoss is NEVER modified with less profit.  |
+//| If an order currently locks +$5 profit, any function attempting  |
+//| to modify it with +$3 (or less) is BLOCKED.                      |
+//| Only modifications that lock HIGHER profit (or reduce loss) are  |
+//| permitted, preserving the highest secured profit at all times.   |
+//+------------------------------------------------------------------+
+bool CanModifyStopLossForHigherProfit(int ticket, double proposedSL, string callerName = "")
+  {
+   if(proposedSL <= 0.0)
+      return false;
+
+   if(!OrderSelect(ticket, SELECT_BY_TICKET, MODE_TRADES))
+      return false;
+
+   int    oType     = OrderType();
+   double oOpen     = OrderOpenPrice();
+   double curSL     = OrderStopLoss();
+   double oLots     = OrderLots();
+   double normPropSL= NormalizeDouble(proposedSL, Digits);
+
+   // 1. If order currently has NO Stop Loss, any valid SL is permitted
+   if(curSL <= 0.0)
+      return true;
+
+   curSL = NormalizeDouble(curSL, Digits);
+
+   // 2. Evaluate BUY order: Higher profit strictly requires proposedSL > currentSL
+   if(oType == OP_BUY)
+     {
+      if(normPropSL <= curSL)
+        {
+         double curLockedUSD  = CalcOrderLockedProfitUSD(oType, oOpen, curSL, oLots);
+         double propLockedUSD = CalcOrderLockedProfitUSD(oType, oOpen, normPropSL, oLots);
+
+         Print(">>> [LESS PROFIT BLOCKED] Ticket #", ticket, " (BUY ", DoubleToString(oLots, 2), "L)",
+               " | Current Locked SL=", DoubleToString(curSL, Digits), " ($", DoubleToString(curLockedUSD, 2), ")",
+               " | Proposed SL=", DoubleToString(normPropSL, Digits), " ($", DoubleToString(propLockedUSD, 2), ")",
+               (callerName != "" ? " | Caller=" + callerName : ""),
+               " | REJECTED: Keeping higher profit StopLoss!");
+         return false;
+        }
+
+      // Enforce anti-spam minimum modify gap
+      if((normPropSL - curSL) < MinimumSLModifyGapRaw)
+         return false;
+
+      return true;
+     }
+
+   // 3. Evaluate SELL order: Higher profit strictly requires proposedSL < currentSL
+   if(oType == OP_SELL)
+     {
+      if(normPropSL >= curSL)
+        {
+         double curLockedUSD  = CalcOrderLockedProfitUSD(oType, oOpen, curSL, oLots);
+         double propLockedUSD = CalcOrderLockedProfitUSD(oType, oOpen, normPropSL, oLots);
+
+         Print(">>> [LESS PROFIT BLOCKED] Ticket #", ticket, " (SELL ", DoubleToString(oLots, 2), "L)",
+               " | Current Locked SL=", DoubleToString(curSL, Digits), " ($", DoubleToString(curLockedUSD, 2), ")",
+               " | Proposed SL=", DoubleToString(normPropSL, Digits), " ($", DoubleToString(propLockedUSD, 2), ")",
+               (callerName != "" ? " | Caller=" + callerName : ""),
+               " | REJECTED: Keeping higher profit StopLoss!");
+         return false;
+        }
+
+      // Enforce anti-spam minimum modify gap
+      if((curSL - normPropSL) < MinimumSLModifyGapRaw)
+         return false;
+
+      return true;
+     }
+
+   return false;
+  }
+//+------------------------------------------------------------------+
 //|                                                                  |
 //+------------------------------------------------------------------+
 bool SafeOrderModify(int ticket,double openPrice,double stopLoss,double takeProfit,datetime expiration,color arrowColor)
@@ -7454,14 +7580,17 @@ bool SafeOrderModify(int ticket,double openPrice,double stopLoss,double takeProf
          MarkServerError(130, "OrderModify/unsafe-SL");
          return false;
         }
-      if(orderType == OP_BUY && OrderStopLoss() > 0.0 && requestedSL <= OrderStopLoss())
+      if(!CanModifyStopLossForHigherProfit(ticket, requestedSL, comment))
         {
-         BlockTradeErrorUntilNextTick(key);
          return false;
         }
-      if(orderType == OP_SELL && OrderStopLoss() > 0.0 && requestedSL >= OrderStopLoss())
+     }
+   else if(requestedSL <= 0.0 && OrderStopLoss() > 0.0)
+     {
+      double curLockedUSD = CalcOrderLockedProfitUSD(orderType, OrderOpenPrice(), OrderStopLoss(), OrderLots());
+      if(curLockedUSD > 0.0)
         {
-         BlockTradeErrorUntilNextTick(key);
+         Print(">>> [ZERO SL BLOCKED] Ticket #", ticket, " currently locks +$", DoubleToString(curLockedUSD, 2), " profit. Cannot remove SL!");
          return false;
         }
      }
@@ -12811,116 +12940,225 @@ void CheckDynamicStepLadder()
   }
 
 //+------------------------------------------------------------------+
-//| Dynamic Lowest Equity Recovery                                   |
-//|                                                                  |
-//| Logic:                                                           |
-//| 1. Store the lowest equity reached                               |
-//| 2. If equity falls further, update LowestEquity                  |
-//| 3. When equity recovers 20% from LowestEquity:                  |
-//|      - Call ModifyOpenOrdersToSecureProfit()                     |
-//|      - Set LowestEquity = current equity                         |
-//| 4. Continue monitoring indefinitely                              |
+//| EquityProfitLadder5                                              |
+//| Continuous Lowest Equity Tracking & $5 * Multiplier Step Ladder  |
+//| 1. Stores the lowest equity reached during active trading.       |
+//| 2. Every time equity moves UP by $5.00 * balancelomultipler:     |
+//|    - Modifies all open market orders with -$100 raw gap SL       |
+//|    - Ratchets the baseline to current equity                     |
+//|    - Draws visual circle marker on chart                         |
+//| 3. If equity falls to a new low, updates LowestEquity baseline.  |
+//| 4. When no orders are open, synchronizes state cleanly.          |
 //+------------------------------------------------------------------+
+double LowestEquity               = 0.0;
+bool   LowestEquityInitialized    = false;
+double g_equityLadderNextTarget   = 0.0;
+int    g_equityLadderStepCounter  = 0;
 
+void EquityProfitLadder5()
+  {
+   if(!InpEnableEquityProfitLadder5)
+      return;
 
-double LowestEquity = 0.0;
-bool   LowestEquityInitialized = false;
-double currentEquity=0;
+   // 1. Count active symbol & magic market orders (excluding recovery orders)
+   int openCount = 0;
+   for(int i = OrdersTotal() - 1; i >= 0; i--)
+     {
+      if(!OrderSelect(i, SELECT_BY_POS, MODE_TRADES))
+         continue;
+      if(OrderSymbol() != Symbol() || OrderMagicNumber() != MagicNumber)
+         continue;
+      if(IsAnyRecoveryOrder(OrderTicket(), OrderComment()))
+         continue;
 
+      int oType = OrderType();
+      if(oType == OP_BUY || oType == OP_SELL)
+         openCount++;
+     }
 
-//+------------------------------------------------------------------+
-//| Monitor Lowest Equity Recovery                                   |
-//+------------------------------------------------------------------+
+   // 2. If no open market orders, keep tracking synchronized with current balance/equity
+   if(openCount == 0)
+     {
+      LowestEquity              = AccountEquity();
+      g_equityLadderNextTarget  = 0.0;
+      g_equityLadderStepCounter = 0;
+      LowestEquityInitialized   = false;
+      return;
+     }
+
+   double curEquity = AccountEquity();
+   double mult = (InpEquityLadderUseMultiplier && balancelomultipler > 0) ? balancelomultipler : 1.0;
+   double stepUSD = InpEquityProfitLadderStepUSD * mult;
+   if(stepUSD <= 0.0)
+      stepUSD = 5.0;
+
+   // 3. First run / Initialization with open orders
+   if(!LowestEquityInitialized || LowestEquity <= 0.0)
+     {
+      LowestEquity              = curEquity;
+      g_equityLadderNextTarget  = curEquity + stepUSD;
+      g_equityLadderStepCounter = 0;
+      LowestEquityInitialized   = true;
+
+      Print("EQUITY PROFIT LADDER $5 INITIALIZED | Equity=$", DoubleToString(curEquity, 2),
+            " | LowestEquity=$", DoubleToString(LowestEquity, 2),
+            " | Step=$", DoubleToString(stepUSD, 2),
+            " | NextTarget=$", DoubleToString(g_equityLadderNextTarget, 2));
+      return;
+     }
+
+   // 4. Equity makes a new low (Drawdown tracking downwards)
+   if(curEquity < LowestEquity)
+     {
+      LowestEquity             = curEquity;
+      g_equityLadderNextTarget = curEquity + stepUSD; // Reset bounce target to $5 * multiplier above the new low
+      return;
+     }
+
+   // 5. Equity moved UP by step ($5 * multiplier) from the low
+   if(curEquity >= g_equityLadderNextTarget)
+     {
+      g_equityLadderStepCounter++;
+      double gainFromLow = curEquity - LowestEquity;
+
+      Print("==================================================================");
+      Print(">>> EQUITY PROFIT LADDER $5 STEP #", g_equityLadderStepCounter, " HIT!",
+            " | Equity=$", DoubleToString(curEquity, 2),
+            " >= Target=$", DoubleToString(g_equityLadderNextTarget, 2),
+            " | LowestEquity=$", DoubleToString(LowestEquity, 2),
+            " | Gain From Low=+$", DoubleToString(gainFromLow, 2),
+            " | Modifying ALL Open Orders with -$100 StopLoss gap.");
+      Print("==================================================================");
+
+      // Modify all eligible open orders with -$100 raw gap SL
+      ModifyAllOrdersWithEquityLadderSL(InpEquityLadderSLDistanceRaw);
+
+      // Draw chart circle marker
+      double iconOffset = MathMax(50 * Point, 25.0);
+      string arrowName = "EqLadder5_" + IntegerToString(TimeCurrent()) + "_" + IntegerToString(g_equityLadderStepCounter);
+      if(ObjectCreate(0, arrowName, OBJ_ARROW, 0, Time[0], (Close[0] > Open[0]) ? Low[0] - iconOffset : High[0] + iconOffset))
+        {
+         ObjectSetInteger(0, arrowName, OBJPROP_ARROWCODE, 159); // Wingdings 159 = filled circle
+         ObjectSetInteger(0, arrowName, OBJPROP_COLOR, clrAqua);
+         ObjectSetInteger(0, arrowName, OBJPROP_WIDTH, 2);
+        }
+
+      // Ratchet: Baseline becomes current equity, next target is current equity + stepUSD
+      LowestEquity             = curEquity;
+      g_equityLadderNextTarget = curEquity + stepUSD;
+
+      Print("EQUITY PROFIT LADDER RATCHETED | New Lowest Baseline=$", DoubleToString(LowestEquity, 2),
+            " | Next Step Target=$", DoubleToString(g_equityLadderNextTarget, 2));
+     }
+  }
+
 void MonitorLowestEquityRecovery()
   {
-   currentEquity = AccountEquity();
+   EquityProfitLadder5();
+  }
 
+//+------------------------------------------------------------------+
+//| ModifyAllOrdersWithEquityLadderSL                                |
+//| Modifies all open market orders with StopLoss at -$100 raw gap   |
+//| from live market price (Bid - 100 for BUY / Ask + 100 for SELL)  |
+//+------------------------------------------------------------------+
+void ModifyAllOrdersWithEquityLadderSL(double slGapRaw)
+  {
+   RefreshRates();
+   double minDistance = GetRequiredStopDistance();
+   if(minDistance < 20.0)
+      minDistance = 20.0;
 
-   if(currentEquity<g_dayOpeningBalance)
+   if(slGapRaw < minDistance)
+      slGapRaw = minDistance;
+
+   double curBid = MarketInfo(Symbol(), MODE_BID);
+   double curAsk = MarketInfo(Symbol(), MODE_ASK);
+
+   int modifiedCount = 0;
+
+   for(int i = OrdersTotal() - 1; i >= 0; i--)
      {
-      return;
-     }
+      if(!OrderSelect(i, SELECT_BY_POS, MODE_TRADES))
+         continue;
 
-//==============================================================
-// FIRST RUN
-//==============================================================
-   if(!LowestEquityInitialized)
-     {
-      LowestEquity = currentEquity;
-      LowestEquityInitialized = true;
+      if(OrderSymbol() != Symbol() || OrderMagicNumber() != MagicNumber)
+         continue;
 
-      Print("EQUITY MONITOR STARTED",
-            " | Current Equity = ",
-            DoubleToString(currentEquity, 2),
-            " | Lowest Equity = ",
-            DoubleToString(LowestEquity, 2));
+      // Exclude recovery orders: they have their own recovery logic
+      if(IsAnyRecoveryOrder(OrderTicket(), OrderComment()))
+         continue;
 
-      return;
-     }
+      // Exclude FLIPBasketSupport orders: they have dedicated step-trailing SL
+      if(IsFLIPBasketSupportOrder(OrderTicket(), OrderComment()))
+         continue;
 
+      int    tkt   = OrderTicket();
+      int    oType = OrderType();
+      double oOpen = OrderOpenPrice();
+      double curSL = OrderStopLoss();
+      double curTP = OrderTakeProfit();
+      double netPL = OrderProfit() + OrderSwap() + OrderCommission();
 
-//==============================================================
-// EQUITY MAKES A NEW LOW
-//==============================================================
-   if(currentEquity < LowestEquity)
-     {
-      LowestEquity = currentEquity;
+      RefreshRates();
+      curBid = MarketInfo(Symbol(), MODE_BID);
+      curAsk = MarketInfo(Symbol(), MODE_ASK);
 
-      Print("NEW LOWEST EQUITY",
-            " | Lowest Equity = ",
-            DoubleToString(LowestEquity, 2),
-            " | Current Equity = ",
-            DoubleToString(currentEquity, 2));
+      double proposedSL = 0.0;
+      bool   shouldModify = false;
 
-      return;
-     }
+      if(oType == OP_BUY)
+        {
+         proposedSL = NormalizeDouble(curBid - slGapRaw, Digits);
+         if((curBid - proposedSL) < minDistance)
+            proposedSL = NormalizeDouble(curBid - minDistance, Digits);
 
+         // Ensure SL is strictly valid below Bid
+         if(proposedSL >= curBid)
+            continue;
 
-//==============================================================
-// CALCULATE RECOVERY TARGET
-//
-// Example:
-// Lowest Equity = $50
-// Recovery = 20%
-// Target = $60
-//==============================================================
-   double recoveryTarget =
-      LowestEquity * (1.0 + closeAllOrdersLowestEquityIncreasePercentage / 100.0);
+         // For BUY: Set if no SL (0.0), or only move SL forward (higher) by at least MinimumSLModifyGapRaw ($25)
+         if(curSL == 0.0 || (proposedSL > curSL && (proposedSL - curSL) >= MinimumSLModifyGapRaw))
+           {
+            shouldModify = true;
+           }
+        }
+      else if(oType == OP_SELL)
+        {
+         proposedSL = NormalizeDouble(curAsk + slGapRaw, Digits);
+         if((proposedSL - curAsk) < minDistance)
+            proposedSL = NormalizeDouble(curAsk + minDistance, Digits);
 
+         // Ensure SL is strictly valid above Ask
+         if(proposedSL <= curAsk)
+            continue;
 
-//==============================================================
-// EQUITY RECOVERED 20%
-//==============================================================
-   if(currentEquity >= recoveryTarget)
-     {
-      Print("========================================");
-      Print("EQUITY RECOVERY TARGET REACHED");
-      Print("Lowest Equity   = ",
-            DoubleToString(LowestEquity, 2));
-      Print("Current Equity  = ",
-            DoubleToString(currentEquity, 2));
-      Print("Recovery Target = ",
-            DoubleToString(recoveryTarget, 2));
-      Print("Recovery %      = ",
-            DoubleToString(closeAllOrdersLowestEquityIncreasePercentage, 2), "%");
-      Print("Calling ModifyOpenOrdersToSecureProfit()");
-      Print("========================================");
+         // For SELL: Set if no SL (0.0), or only move SL forward (lower) by at least MinimumSLModifyGapRaw ($25)
+         if(curSL == 0.0 || (proposedSL < curSL && (curSL - proposedSL) >= MinimumSLModifyGapRaw))
+           {
+            shouldModify = true;
+           }
+        }
 
-
-      //==============================================================
-      // CALL YOUR EXISTING FUNCTION
-      //==============================================================
-      ModifyOpenOrdersToSecureProfit();
-
-
-      //==============================================================
-      // RESET LOWEST EQUITY TO CURRENT EQUITY
-      //==============================================================
-      LowestEquity = currentEquity;
-
-      Print("LOWEST EQUITY RESET",
-            " | New Lowest Equity = ",
-            DoubleToString(LowestEquity, 2));
+      if(shouldModify && proposedSL > 0.0)
+        {
+         ResetLastError();
+         bool modified = SafeOrderModify(tkt, oOpen, proposedSL, curTP, 0, (oType == OP_BUY ? clrLimeGreen : clrTomato));
+         if(modified)
+           {
+            modifiedCount++;
+            Print("EQUITY LADDER $5 SL MODIFIED | Ticket #", tkt,
+                  " | Type=", (oType == OP_BUY ? "BUY" : "SELL"),
+                  " | P/L=$", DoubleToString(netPL, 2),
+                  " | Old SL=", DoubleToString(curSL, Digits),
+                  " | New SL=", DoubleToString(proposedSL, Digits),
+                  " (Gap=$", DoubleToString(slGapRaw, 1), ")");
+           }
+         else
+           {
+            Print("EQUITY LADDER $5 SL MODIFY FAILED | Ticket #", tkt, " | Error=", GetLastError());
+           }
+        }
      }
   }
 // //+------------------------------------------------------------------+
@@ -15054,7 +15292,8 @@ void UpdateDashboard(DailyProtectionState &state)
    color tgtClr = (gbltargetEquityCounter > 0 || dayPL >= 0) ? clrLime : clrTomato;
    CreateDashboardLabel(DASH_PREFIX+"TGTEQ", tgtEqStr, tx, y+110, 8, tgtClr);
 
-   string cycleStr = StringFormat("CYCLE / LOCK: %s$%.2f / Next: $%.2f | Lock: $%.2f", (totalCycleProfit >= 0 ? "+" : "-"), MathAbs(totalCycleProfit), emaNextTarget, emaLockedPrf);
+   string eqLadderStatus = (LowestEquity > 0.0) ? StringFormat(" | Eq$5: Low $%.0f->Tgt $%.0f (#%d)", LowestEquity, g_equityLadderNextTarget, g_equityLadderStepCounter) : "";
+   string cycleStr = StringFormat("CYCLE / LOCK: %s$%.2f / Next: $%.2f | Lock: $%.2f%s", (totalCycleProfit >= 0 ? "+" : "-"), MathAbs(totalCycleProfit), emaNextTarget, emaLockedPrf, eqLadderStatus);
    CreateDashboardLabel(DASH_PREFIX+"LAD_CYCLE", cycleStr, tx, y+126, 8, (totalCycleProfit >= 0 ? clrLime : clrTomato));
 
 // ==========================================================
