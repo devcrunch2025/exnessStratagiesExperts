@@ -1,4 +1,4 @@
-﻿//+------------------------------------------------------------------+
+//+------------------------------------------------------------------+
 //|                  SSL CHANNEL CROSS EA - CONTINUOUS EQUITY LADDER |
 //|                  TWO-STAGE PROFIT LADDER | CONTINUOUS RESET      |
 //+------------------------------------------------------------------+
@@ -27,7 +27,7 @@
 //https://github.com/devcrunch2025/exnessStratagiesExperts/commit/f4f1c1340be330cd32a75da3f3a9b4bd5f4e4cf3
 
 
-string glbVersion = "VMULTI-1040 - Partial Loss with AccountEquity/3 EQUITY Loss Ladder - InpEnableEquityProfitLadder5";
+string glbVersion = "VMULTI-104Horizontal Line Orders";
 
 
 double DailyEquityStopUSD  =1000;//50;//20*2.5;//10;//20;// 10;//30.0; close all orders at $50Xmultipler
@@ -74,7 +74,7 @@ double   g_stepSize            =1000;// 50.0; // The step increment ($50)
 
 // ===== EQUITY PROFIT LADDER $5 SETTINGS =====
 bool   InpEnableEquityProfitLadder5        = true;   // Enable Equity Profit Ladder $5 * multiplier
-double InpEquityProfitLadderStepUSD        = 5.0;    // Step size in USD ($5.00)
+double InpEquityProfitLadderStepUSD        = 100;//5.0;    // Step size in USD ($5.00)
 bool   InpEquityLadderUseMultiplier        = true;   // Multiply step size by balancelomultipler ($5 * multiplier)
 double InpEquityLadderSLDistanceRaw        = 100.0;  // StopLoss gap from live price in raw points (-$100 gap)
 
@@ -213,7 +213,17 @@ int    InpLsdSweepGapDurationMinutes              = 60;            // Duration o
 double InpLsdBoosterMinLot                        = 0.02;          // Method 1: Booster min lot (0.02)
 double InpLsdMethod2MinLotBase                    = 0.02;          // Method 2: Base min lot (0.02, scales with multiplier)
 bool   InpLsdMethod2BuyUsesMultiplier             = false;         // Method 2: Apply multiplier to BUY lot (false=0.02 only, true=0.02Xmultiplier)
-bool   InpEnableV1020EmaTrendSupport              = true;          // Mix V1020: Enable EMA Trend-Following FLIP Support orders (Strategy 1)
+bool   InpEnableV1020EmaTrendSupport              = false;          // Mix V1020: Enable EMA Trend-Following FLIP Support orders (Strategy 1) - Default disabled
+
+// ===== NEW RED LINE BUY-CLOSE & REVERSE SELL SETTINGS =====
+bool   InpCloseBuyOnNewEqhRedLine                 = true;          // On new EQH-R red line: Close BUY orders (loss < $1*mult) & Open SSL Short
+double InpCloseBuyMaxLossUSD                      = 1.0;           // Max loss in USD ($1.00 * multiplier) to close BUY order
+double InpNewEqhSellOrderLotBase                  = 0.02;          // Base lot for immediate SSL Short (0.02 * multiplier)
+bool   InpCloseSellOnNewEqlGreenLine              = true;          // On new EQH-G green line: Close SELL orders (loss < $1*mult) & Open SSL Long
+double InpCloseSellMaxLossUSD                     = 1.0;           // Max loss in USD ($1.00 * multiplier) to close SELL order
+double InpNewEqlBuyOrderLotBase                   = 0.02;          // Base lot for immediate SSL Long (0.02 * multiplier)
+bool   InpEnableModifySLOnLineEnded               = true;          // When horizontal line ends: modify open horizontal order SL with $50 gap
+double InpHorizontalLineEndedSLGapRaw             = 50.0;          // StopLoss raw price gap ($50) when horizontal line ends
 
 // ===== EQL / EQH STRUCTURAL RECOVERY (TYPE 2) SETTINGS =====
 bool   InpEnableLsdStructuralRecovery       = true;  // Enable EQL/EQH Structural Recovery (Type 2)
@@ -2113,6 +2123,16 @@ void     CheckAndCloseOrphanFLIPBasketSupportOrders();
 int      SendFLIPBasketSupportOrder(int pendingType, double lots, double price, double stopLoss, double takeProfit, string comment, color arrowColor);
 int      CreateFLIPBasketSupportOrder(int flipDirection, bool ignoreEmaDistanceGate = false, bool ignoreAllGates = false, string commentSuffix = "");
 void     CheckLsdSweepFlipBasketSupportOrder();
+datetime GetLsdSweepActiveEqhLineStart();
+datetime GetLsdSweepActiveEqlLineStart();
+int      CountOrdersForLsdLine(string lineType, datetime lineStartTime, int &outPendingTicket);
+bool     HasOrderBeenCreatedForLsdLine(string lineType, datetime lineStartTime);
+void     CleanDuplicateLsdLinePendingOrders();
+void     CheckNewRedLineCloseBuyAndOpenSell();
+int      SendLsdRedLineSellOrder(double sellLot);
+void     CheckNewGreenLineCloseSellAndOpenBuy();
+int      SendLsdGreenLineBuyOrder(double buyLot);
+void     ManageHorizontalOrderEndedStopLoss();
 datetime GetLastClosedFLIPBasketSupportCloseTime();
 bool     HasOppositeOrderTypeLossOver5(int currentDirection, double &outOppositeTotalPL, double &outMaxSingleLoss);
 void     InitializeFLIPBasketSupportTracking();
@@ -4249,6 +4269,7 @@ int OnInit()
       DrawHistoricalSignals();
    UpdateEMALineOnChart();
    UpdateLiquiditySweepDetectorOnChart();
+   // (Red/Green line orders evaluated on tick)
    DailyProtectionStartTime = TimeCurrent();
    InitializeLastProcessedClosedOrder();
    LastProtectedLossTicket = LastProcessedClosedTicket;
@@ -4335,6 +4356,14 @@ double   g_lastEqHighPrice                   = 0.0;    // Active Equal High leve
 double   g_lastEqLowPrice                    = 0.0;    // Active Equal Low level
 datetime g_lastSweepBarTime                  = 0;      // Timestamp of last detected sweep
 bool     g_forceSweepRecalc                  = false;  // Immediate recalculation flag on EMA flip
+
+// Active Horizontal Line Timestamps & Order Limit Tracking (1 Order Per Line Limit)
+datetime g_lastEqHighLineStart               = 0;      // Start time of current active EQH-R line
+datetime g_lastEqLowLineStart                = 0;      // Start time of current active EQH-G line
+datetime g_lastOrderEqHighLineStart          = 0;      // Line start time for which EQH-R support order was created
+datetime g_lastOrderEqLowLineStart           = 0;      // Line start time for which EQH-G support order was created
+int      g_lastEqhSellOrderTicket            = -1;     // Ticket of SELL order created for active EQH-R line
+int      g_lastEqlBuyOrderTicket             = -1;     // Ticket of BUY order created for active EQH-G line
 
 // Remembered Liquidity Sweep Signal State (Persists across candles until EMA flip or signal change)
 string   g_rememberedSweepSignal             = "None"; // "BSLS", "SSLS", or "None"
@@ -4497,7 +4526,10 @@ void OnTick()
 
    UpdateLiquiditySweepDetectorOnChart();
 // ManageLsdSweepLineStopLossProtection(); // DISABLED: LSD Sweep lines only create FlipBasketSupport, DO NOT modify/close orders
+   CheckNewRedLineCloseBuyAndOpenSell();
+   CheckNewGreenLineCloseSellAndOpenBuy(); // USER RULE: On new EQH-G green line: close SELL if loss < $1*mult & open SSL Long 0.02*mult
    CheckLsdSweepFlipBasketSupportOrder();
+   ManageHorizontalOrderEndedStopLoss(); // USER RULE: When horizontal line ends, modify open horizontal order with $50 gap SL
 
    OnTickCore();
    OnTickPerformanceEnd(tickStartMs);
@@ -16390,6 +16422,8 @@ void DeleteLiquiditySweepObjects()
      }
    g_lastEqHighPrice = 0.0;
    g_lastEqLowPrice  = 0.0;
+   g_lastEqHighLineStart = 0;
+   g_lastEqLowLineStart  = 0;
   }
 
 //+------------------------------------------------------------------+
@@ -16764,6 +16798,548 @@ void ManageLsdSweepLineStopLossProtection()
 
 
 //+------------------------------------------------------------------+
+//+------------------------------------------------------------------+
+//| SendLsdRedLineSellOrder:                                         |
+//| Sends immediate market SELL order ("SSL Short") without any      |
+//| condition, with lot 0.02 * multiplier.                           |
+//+------------------------------------------------------------------+
+int SendLsdRedLineSellOrder(double sellLot)
+  {
+   RefreshRates();
+   double slDistance = (StopLossRawPriceGap > 0.0) ? StopLossRawPriceGap : 3000.0;
+   double tpDistance = (TakeProfitRawPriceGap > 0.0) ? TakeProfitRawPriceGap : 500.0;
+   double stopLoss   = (slDistance > 0.0) ? NormalizeDouble(Bid + slDistance, Digits) : 0.0;
+   double takeProfit = (tpDistance > 0.0) ? NormalizeDouble(Bid - tpDistance, Digits) : 0.0;
+
+   ResetLastError();
+   int ticket = OrderSend(Symbol(), OP_SELL, sellLot, Bid, Slippage, stopLoss, takeProfit, "SSL Short", MagicNumber, 0, SellColor);
+   if(ticket < 0)
+     {
+      int err = GetLastError();
+      // Error 130 (ERR_INVALID_STOPS) on ECN brokers: send with 0 SL/TP first
+      if(err == 130 || err == 4107)
+        {
+         ResetLastError();
+         ticket = OrderSend(Symbol(), OP_SELL, sellLot, Bid, Slippage, 0, 0, "SSL Short", MagicNumber, 0, SellColor);
+         if(ticket > 0 && (stopLoss > 0.0 || takeProfit > 0.0))
+           {
+            SafeOrderModify(ticket, OrderOpenPrice(), stopLoss, takeProfit, 0, SellColor);
+           }
+        }
+     }
+
+   if(ticket > 0)
+     {
+      InvalidateTotalEAOrdersCache();
+      OrderCreatedThisCandle = true;
+      LastOrderCandleTime    = Time[0];
+      Print(">>> [NEW RED LINE] Successfully opened immediate market SELL order Ticket #", ticket,
+            " 'SSL Short' Lots=", DoubleToString(sellLot, 2), " OpenPrice=", DoubleToString(Bid, Digits),
+            " SL=", DoubleToString(stopLoss, Digits), " TP=", DoubleToString(takeProfit, Digits));
+     }
+   else
+     {
+      Print(">>> [NEW RED LINE] OrderSend OP_SELL 'SSL Short' failed. Error=", GetLastError());
+     }
+   return ticket;
+  }
+
+//+------------------------------------------------------------------+
+//| CheckNewRedLineCloseBuyAndOpenSell:                              |
+//| USER RULE:                                                       |
+//| "BUY order is open , new red hotizontal line is started .        |
+//|  if any BUY order is open and loss is less than $1Xmultipler     |
+//|  close buy open orders . and create NEW sell order SSL Short     |
+//|  with LOT 0.02Xmultipler immiditaly without any condition"       |
+//+------------------------------------------------------------------+
+void CheckNewRedLineCloseBuyAndOpenSell()
+  {
+   if(!InpCloseBuyOnNewEqhRedLine)
+      return;
+   if(!EAStartupComplete)
+      return;
+
+   datetime curEqhStart = GetLsdSweepActiveEqhLineStart();
+   if(curEqhStart <= 0)
+      return;
+
+   // Check if this red horizontal line is NEW (not handled yet)
+   static datetime s_lastHandledRedLineStart = 0;
+   if(s_lastHandledRedLineStart == 0)
+     {
+      // First tick on startup: if this line started before current candle or already has orders,
+      // mark it as handled to avoid re-triggering old historical lines
+      if(curEqhStart < Time[0] || HasOrderBeenCreatedForLsdLine("EQHR", curEqhStart))
+        {
+         s_lastHandledRedLineStart = curEqhStart;
+         return;
+        }
+     }
+
+   if(curEqhStart == s_lastHandledRedLineStart)
+      return; // Already processed this red horizontal line!
+
+   // A NEW RED HORIZONTAL LINE HAS STARTED!
+   s_lastHandledRedLineStart = curEqhStart;
+
+   double mult = (balancelomultipler > 0) ? balancelomultipler : 1.0;
+   double maxLossUSD = (InpCloseBuyMaxLossUSD > 0.0) ? (InpCloseBuyMaxLossUSD * mult) : (1.0 * mult);
+
+   Print(">>> [NEW RED LINE DETECTED] EQH-R line started at ", TimeToStr(curEqhStart, TIME_DATE|TIME_MINUTES),
+         " | Checking open BUY orders (Loss threshold < $", DoubleToString(maxLossUSD, 2), ")...");
+
+   // Step 1: Scan all open BUY orders
+   int openBuyCount = 0;
+   int qualifyingBuyCount = 0;
+   double totalBuyPL = 0.0;
+   int buyTickets[];
+   double buyPLs[];
+   ArrayResize(buyTickets, 0);
+   ArrayResize(buyPLs, 0);
+
+   for(int i = OrdersTotal() - 1; i >= 0; i--)
+     {
+      if(!OrderSelect(i, SELECT_BY_POS, MODE_TRADES))
+         continue;
+      if(OrderSymbol() != Symbol() || OrderMagicNumber() != MagicNumber)
+         continue;
+      if(OrderType() != OP_BUY)
+         continue;
+
+      openBuyCount++;
+      double pl = OrderProfit() + OrderSwap() + OrderCommission();
+      totalBuyPL += pl;
+
+      int idx = ArraySize(buyTickets);
+      ArrayResize(buyTickets, idx + 1);
+      ArrayResize(buyPLs, idx + 1);
+      buyTickets[idx] = OrderTicket();
+      buyPLs[idx]     = pl;
+
+      // Loss is less than $1 * multiplier: pl >= -maxLossUSD
+      if(pl >= -maxLossUSD)
+        {
+         qualifyingBuyCount++;
+        }
+     }
+
+   bool shouldCreateSellOrder = false;
+
+   if(openBuyCount > 0)
+     {
+      // If any BUY order has loss < $1*mult, or total BUY basket loss < $1*mult
+      bool closeAll = (totalBuyPL >= -maxLossUSD);
+
+      for(int b = 0; b < ArraySize(buyTickets); b++)
+        {
+         int tkt = buyTickets[b];
+         double pl = buyPLs[b];
+
+         if(closeAll || pl >= -maxLossUSD)
+           {
+            if(OrderSelect(tkt, SELECT_BY_TICKET, MODE_TRADES))
+              {
+               Print(">>> [NEW RED LINE] Closing BUY Order #", tkt, " Lots=", DoubleToString(OrderLots(), 2),
+                     " P/L=$", DoubleToString(pl, 2), " (Loss < $", DoubleToString(maxLossUSD, 2), " limit)");
+               if(!SafeOrderCloseMarket(tkt, OrderLots(), Slippage, clrYellow))
+                 {
+                  bool closeRes = OrderClose(tkt, OrderLots(), Bid, Slippage, clrYellow);
+                 }
+              }
+           }
+         else
+           {
+            Print(">>> [NEW RED LINE] BUY Order #", tkt, " kept open: P/L=$", DoubleToString(pl, 2),
+                  " (Loss exceeds $", DoubleToString(maxLossUSD, 2), " limit)");
+           }
+        }
+
+      // Clean up any pending BUY orders (BUYSTOP / BUYLIMIT)
+      for(int p = OrdersTotal() - 1; p >= 0; p--)
+        {
+         if(!OrderSelect(p, SELECT_BY_POS, MODE_TRADES))
+            continue;
+         if(OrderSymbol() != Symbol() || OrderMagicNumber() != MagicNumber)
+            continue;
+         int pType = OrderType();
+         if(pType == OP_BUYSTOP || pType == OP_BUYLIMIT)
+           {
+            SafeOrderDelete(OrderTicket(), clrYellow);
+           }
+        }
+
+      shouldCreateSellOrder = true;
+     }
+   else
+     {
+      // No open BUY orders, but new red line started -> proceed to create SELL order
+      shouldCreateSellOrder = true;
+     }
+
+   // Step 2: "and create NEW sell order SSL Short with LOT 0.02Xmultipler immiditaly without any condition"
+   if(shouldCreateSellOrder)
+     {
+      double baseLot = (InpNewEqhSellOrderLotBase > 0.0) ? InpNewEqhSellOrderLotBase : 0.02;
+      double sellLot = NormalizeLots(baseLot * mult);
+
+      int tkt = SendLsdRedLineSellOrder(sellLot);
+      if(tkt > 0)
+        {
+         g_lastOrderEqHighLineStart = curEqhStart; // Enforce 1-order-per-line limit
+         g_lastEqhSellOrderTicket   = tkt;
+        }
+     }
+  }
+
+//+------------------------------------------------------------------+
+//+------------------------------------------------------------------+
+//| SendLsdGreenLineBuyOrder:                                        |
+//| Sends immediate market BUY order ("SSL Long") without any        |
+//| condition, with lot 0.02 * multiplier.                           |
+//+------------------------------------------------------------------+
+int SendLsdGreenLineBuyOrder(double buyLot)
+  {
+   RefreshRates();
+   double slDistance = (StopLossRawPriceGap > 0.0) ? StopLossRawPriceGap : 3000.0;
+   double tpDistance = (TakeProfitRawPriceGap > 0.0) ? TakeProfitRawPriceGap : 500.0;
+   double stopLoss   = (slDistance > 0.0) ? NormalizeDouble(Ask - slDistance, Digits) : 0.0;
+   double takeProfit = (tpDistance > 0.0) ? NormalizeDouble(Ask + tpDistance, Digits) : 0.0;
+
+   ResetLastError();
+   int ticket = OrderSend(Symbol(), OP_BUY, buyLot, Ask, Slippage, stopLoss, takeProfit, "SSL Long", MagicNumber, 0, BuyColor);
+   if(ticket < 0)
+     {
+      int err = GetLastError();
+      // Error 130 (ERR_INVALID_STOPS) on ECN brokers: send with 0 SL/TP first
+      if(err == 130 || err == 4107)
+        {
+         ResetLastError();
+         ticket = OrderSend(Symbol(), OP_BUY, buyLot, Ask, Slippage, 0, 0, "SSL Long", MagicNumber, 0, BuyColor);
+         if(ticket > 0 && (stopLoss > 0.0 || takeProfit > 0.0))
+           {
+            SafeOrderModify(ticket, OrderOpenPrice(), stopLoss, takeProfit, 0, BuyColor);
+           }
+        }
+     }
+
+   if(ticket > 0)
+     {
+      InvalidateTotalEAOrdersCache();
+      OrderCreatedThisCandle = true;
+      LastOrderCandleTime    = Time[0];
+      Print(">>> [NEW GREEN LINE] Successfully opened immediate market BUY order Ticket #", ticket,
+            " 'SSL Long' Lots=", DoubleToString(buyLot, 2), " OpenPrice=", DoubleToString(Ask, Digits),
+            " SL=", DoubleToString(stopLoss, Digits), " TP=", DoubleToString(takeProfit, Digits));
+     }
+   else
+     {
+      Print(">>> [NEW GREEN LINE] OrderSend OP_BUY 'SSL Long' failed. Error=", GetLastError());
+     }
+   return ticket;
+  }
+
+//+------------------------------------------------------------------+
+//| CheckNewGreenLineCloseSellAndOpenBuy:                            |
+//| USER RULE:                                                       |
+//| "SELL order is open , new green hotizontal line is started .      |
+//|  if any SELL order is open and loss is less than $1Xmultipler    |
+//|  close sell open orders . and create NEW buy order SSL Long      |
+//|  with LOT 0.02Xmultipler immiditaly without any condition"       |
+//+------------------------------------------------------------------+
+void CheckNewGreenLineCloseSellAndOpenBuy()
+  {
+   if(!InpCloseSellOnNewEqlGreenLine)
+      return;
+   if(!EAStartupComplete)
+      return;
+
+   datetime curEqlStart = GetLsdSweepActiveEqlLineStart();
+   if(curEqlStart <= 0)
+      return;
+
+   // Check if this green horizontal line is NEW (not handled yet)
+   static datetime s_lastHandledGreenLineStart = 0;
+   if(s_lastHandledGreenLineStart == 0)
+     {
+      // First tick on startup: if this line started before current candle or already has orders,
+      // mark it as handled to avoid re-triggering old historical lines
+      if(curEqlStart < Time[0] || HasOrderBeenCreatedForLsdLine("EQHG", curEqlStart))
+        {
+         s_lastHandledGreenLineStart = curEqlStart;
+         return;
+        }
+     }
+
+   if(curEqlStart == s_lastHandledGreenLineStart)
+      return; // Already processed this green horizontal line!
+
+   // A NEW GREEN HORIZONTAL LINE HAS STARTED!
+   s_lastHandledGreenLineStart = curEqlStart;
+
+   double mult = (balancelomultipler > 0) ? balancelomultipler : 1.0;
+   double maxLossUSD = (InpCloseSellMaxLossUSD > 0.0) ? (InpCloseSellMaxLossUSD * mult) : (1.0 * mult);
+
+   Print(">>> [NEW GREEN LINE DETECTED] EQH-G line started at ", TimeToStr(curEqlStart, TIME_DATE|TIME_MINUTES),
+         " | Checking open SELL orders (Loss threshold < $", DoubleToString(maxLossUSD, 2), ")...");
+
+   // Step 1: Scan all open SELL orders
+   int openSellCount = 0;
+   int qualifyingSellCount = 0;
+   double totalSellPL = 0.0;
+   int sellTickets[];
+   double sellPLs[];
+   ArrayResize(sellTickets, 0);
+   ArrayResize(sellPLs, 0);
+
+   for(int i = OrdersTotal() - 1; i >= 0; i--)
+     {
+      if(!OrderSelect(i, SELECT_BY_POS, MODE_TRADES))
+         continue;
+      if(OrderSymbol() != Symbol() || OrderMagicNumber() != MagicNumber)
+         continue;
+      if(OrderType() != OP_SELL)
+         continue;
+
+      openSellCount++;
+      double pl = OrderProfit() + OrderSwap() + OrderCommission();
+      totalSellPL += pl;
+
+      int idx = ArraySize(sellTickets);
+      ArrayResize(sellTickets, idx + 1);
+      ArrayResize(sellPLs, idx + 1);
+      sellTickets[idx] = OrderTicket();
+      sellPLs[idx]     = pl;
+
+      // Loss is less than $1 * multiplier: pl >= -maxLossUSD
+      if(pl >= -maxLossUSD)
+        {
+         qualifyingSellCount++;
+        }
+     }
+
+   bool shouldCreateBuyOrder = false;
+
+   if(openSellCount > 0)
+     {
+      // If any SELL order has loss < $1*mult, or total SELL basket loss < $1*mult
+      bool closeAll = (totalSellPL >= -maxLossUSD);
+
+      for(int s = 0; s < ArraySize(sellTickets); s++)
+        {
+         int tkt = sellTickets[s];
+         double pl = sellPLs[s];
+
+         if(closeAll || pl >= -maxLossUSD)
+           {
+            if(OrderSelect(tkt, SELECT_BY_TICKET, MODE_TRADES))
+              {
+               Print(">>> [NEW GREEN LINE] Closing SELL Order #", tkt, " Lots=", DoubleToString(OrderLots(), 2),
+                     " P/L=$", DoubleToString(pl, 2), " (Loss < $", DoubleToString(maxLossUSD, 2), " limit)");
+               if(!SafeOrderCloseMarket(tkt, OrderLots(), Slippage, clrYellow))
+                 {
+                  bool closeRes = OrderClose(tkt, OrderLots(), Ask, Slippage, clrYellow);
+                 }
+              }
+           }
+         else
+           {
+            Print(">>> [NEW GREEN LINE] SELL Order #", tkt, " kept open: P/L=$", DoubleToString(pl, 2),
+                  " (Loss exceeds $", DoubleToString(maxLossUSD, 2), " limit)");
+           }
+        }
+
+      // Clean up any pending SELL orders (SELLSTOP / SELLLIMIT)
+      for(int p = OrdersTotal() - 1; p >= 0; p--)
+        {
+         if(!OrderSelect(p, SELECT_BY_POS, MODE_TRADES))
+            continue;
+         if(OrderSymbol() != Symbol() || OrderMagicNumber() != MagicNumber)
+            continue;
+         int pType = OrderType();
+         if(pType == OP_SELLSTOP || pType == OP_SELLLIMIT)
+           {
+            SafeOrderDelete(OrderTicket(), clrYellow);
+           }
+        }
+
+      shouldCreateBuyOrder = true;
+     }
+   else
+     {
+      // No open SELL orders, but new green line started -> proceed to create BUY order
+      shouldCreateBuyOrder = true;
+     }
+
+   // Step 2: Create NEW buy order "SSL Long" with LOT 0.02 * multiplier immediately without any condition
+   if(shouldCreateBuyOrder)
+     {
+      double baseLot = (InpNewEqlBuyOrderLotBase > 0.0) ? InpNewEqlBuyOrderLotBase : 0.02;
+      double buyLot = NormalizeLots(baseLot * mult);
+
+      int tkt = SendLsdGreenLineBuyOrder(buyLot);
+      if(tkt > 0)
+        {
+         g_lastOrderEqLowLineStart = curEqlStart; // Enforce 1-order-per-line limit
+         g_lastEqlBuyOrderTicket   = tkt;
+        }
+     }
+  }
+
+//| ManageHorizontalOrderEndedStopLoss:                              |
+//| USER RULE:                                                       |
+//| "Hotizontal line is started , Horizontal LOT 0.02 order is open, |
+//|  but, horizontal line is ended but Horizontal LOT order is still |
+//|  open then modify Horizontal LOT order with stoploss $50 gap"    |
+//+------------------------------------------------------------------+
+void ManageHorizontalOrderEndedStopLoss()
+  {
+   if(!InpEnableModifySLOnLineEnded)
+      return;
+   if(!EAStartupComplete)
+      return;
+
+   double gap = (InpHorizontalLineEndedSLGapRaw > 0.0) ? InpHorizontalLineEndedSLGapRaw : 50.0;
+   double minStopDist = GetRequiredStopDistance();
+   if(gap < minStopDist)
+      gap = minStopDist;
+
+   // 1. Check if active EQH-R (Red line) is still active on chart
+   bool isEqhLineActive = false;
+   datetime activeEqhStart = GetLsdSweepActiveEqhLineStart();
+   if(activeEqhStart > 0 && activeEqhStart == g_lastOrderEqHighLineStart)
+     {
+      if(IsLsdSweepRedLinePresent() || GetEQR_R_Price(true) > 0.0)
+         isEqhLineActive = true;
+     }
+
+   // 2. Check if active EQH-G (Green line) is still active on chart
+   bool isEqlLineActive = false;
+   datetime activeEqlStart = GetLsdSweepActiveEqlLineStart();
+   if(activeEqlStart > 0 && activeEqlStart == g_lastOrderEqLowLineStart)
+     {
+      if(IsLsdSweepGreenLinePresent() || GetEQR_G_Price(true) > 0.0)
+         isEqlLineActive = true;
+     }
+
+   bool eqhLineEnded = (!isEqhLineActive && g_lastOrderEqHighLineStart > 0);
+   bool eqlLineEnded = (!isEqlLineActive && g_lastOrderEqLowLineStart > 0);
+
+   // If neither line has ended with an open order tracked, nothing to do
+   if(!eqhLineEnded && !eqlLineEnded)
+      return;
+
+   RefreshRates();
+
+   // 3. Scan open market orders in MODE_TRADES
+   for(int i = OrdersTotal() - 1; i >= 0; i--)
+     {
+      if(!OrderSelect(i, SELECT_BY_POS, MODE_TRADES))
+         continue;
+      if(OrderSymbol() != Symbol() || OrderMagicNumber() != MagicNumber)
+         continue;
+
+      int oType = OrderType();
+      if(oType != OP_BUY && oType != OP_SELL)
+         continue;
+
+      string comm = OrderComment();
+      int tkt = OrderTicket();
+      bool isOrderLineEnded = false;
+      string lineTypeStr = "";
+
+      // Check if order belongs to EQH-R line and EQH-R has ended
+      if(eqhLineEnded && oType == OP_SELL)
+        {
+         if(g_lastEqhSellOrderTicket > 0 && tkt == g_lastEqhSellOrderTicket)
+           {
+            isOrderLineEnded = true;
+            lineTypeStr = "EQH-R Sell Order #" + IntegerToString(tkt);
+           }
+         else if(StringFind(comm, "FLIPBasketSupport_LSD_EQHR") >= 0)
+           {
+            isOrderLineEnded = true;
+            lineTypeStr = "EQH-R Support";
+           }
+         else if(StringFind(comm, "SSL Short") >= 0 && MathAbs(OrderOpenTime() - g_lastOrderEqHighLineStart) <= 300)
+           {
+            isOrderLineEnded = true;
+            lineTypeStr = "SSL Short (EQH-R)";
+           }
+        }
+
+      // Check if order belongs to EQH-G line and EQH-G has ended
+      if(eqlLineEnded && oType == OP_BUY)
+        {
+         if(g_lastEqlBuyOrderTicket > 0 && tkt == g_lastEqlBuyOrderTicket)
+           {
+            isOrderLineEnded = true;
+            lineTypeStr = "EQH-G Buy Order #" + IntegerToString(tkt);
+           }
+         else if(StringFind(comm, "FLIPBasketSupport_LSD_EQHG") >= 0)
+           {
+            isOrderLineEnded = true;
+            lineTypeStr = "EQH-G Support";
+           }
+         else if(StringFind(comm, "SSL Long") >= 0 && MathAbs(OrderOpenTime() - g_lastOrderEqLowLineStart) <= 300)
+           {
+            isOrderLineEnded = true;
+            lineTypeStr = "SSL Long (EQH-G)";
+           }
+        }
+
+      if(!isOrderLineEnded)
+         continue;
+
+      double curSL = OrderStopLoss();
+      double newSL = 0.0;
+
+      if(oType == OP_BUY)
+        {
+         newSL = NormalizeDouble(Bid - gap, Digits);
+         if(newSL <= 0.0)
+            continue;
+
+         if(Bid - newSL < minStopDist)
+            newSL = NormalizeDouble(Bid - minStopDist, Digits);
+
+         if(curSL > 0.0)
+           {
+            // Never widen SL: newSL must be strictly higher than curSL
+            if(curSL >= newSL)
+               continue;
+            // Avoid modifying for tiny jitter under 5 points
+            if(MathAbs(newSL - curSL) < Point * 5)
+               continue;
+           }
+        }
+      else if(oType == OP_SELL)
+        {
+         newSL = NormalizeDouble(Ask + gap, Digits);
+         if(newSL <= 0.0)
+            continue;
+
+         if(newSL - Ask < minStopDist)
+            newSL = NormalizeDouble(Ask + minStopDist, Digits);
+
+         if(curSL > 0.0)
+           {
+            // Never widen SL: newSL must be strictly lower than curSL
+            if(curSL <= newSL)
+               continue;
+            // Avoid modifying for tiny jitter under 5 points
+            if(MathAbs(curSL - newSL) < Point * 5)
+               continue;
+           }
+        }
+
+      Print(">>> [HORIZONTAL LINE ENDED] ", lineTypeStr, " Order #", tkt, " Lots=", DoubleToString(OrderLots(), 2),
+            " is open but line has ended. Modifying SL to $", DoubleToString(gap, 2), " gap from market: NewSL=",
+            DoubleToString(newSL, Digits), " (OldSL=", DoubleToString(curSL, Digits), ")");
+
+      SafeOrderModify(tkt, OrderOpenPrice(), newSL, OrderTakeProfit(), 0, clrOrange);
+     }
+  }
+
 //| CheckLsdSweepFlipBasketSupportOrder:                             |
 //| USER RULE:                                                       |
 //| SEPARATE MAXIMUM COUNTS:                                         |
@@ -16803,12 +17379,256 @@ void ManageLsdSweepLineStopLossProtection()
 //| - EQH-G detected & EMA is ANY: Price > EQH-G (gap <= $50)        |
 //|   -> CREATE BUY EMAflipsupportorder                              |
 //+------------------------------------------------------------------+
+//+------------------------------------------------------------------+
+//| GetLsdSweepActiveEqhLineStart:                                   |
+//| Returns start time (Pivot 1) of currently active EQH-R red line. |
+//+------------------------------------------------------------------+
+datetime GetLsdSweepActiveEqhLineStart()
+  {
+   if(g_lastEqHighLineStart > 0)
+      return g_lastEqHighLineStart;
+
+   int total = ObjectsTotal(0, -1, -1);
+   for(int i = total - 1; i >= 0; i--)
+     {
+      string name = ObjectName(0, i, -1, -1);
+      if(StringFind(name, LSD_PREFIX + "EQH_", 0) == 0 && StringFind(name, "EQH_M_", 0) < 0)
+        {
+         datetime t2 = (datetime)ObjectGet(name, OBJPROP_TIME2);
+         if(TimeCurrent() <= t2)
+           {
+            datetime t1 = (datetime)ObjectGet(name, OBJPROP_TIME1);
+            if(t1 > 0)
+               return t1;
+           }
+        }
+     }
+
+   // Fallback: search newest EQH line on chart
+   datetime newestTime = 0;
+   for(int i = total - 1; i >= 0; i--)
+     {
+      string name = ObjectName(0, i, -1, -1);
+      if(StringFind(name, LSD_PREFIX + "EQH_", 0) == 0 && StringFind(name, "EQH_M_", 0) < 0)
+        {
+         datetime t1 = (datetime)ObjectGet(name, OBJPROP_TIME1);
+         if(t1 > newestTime)
+            newestTime = t1;
+        }
+     }
+   return newestTime;
+  }
+
+//+------------------------------------------------------------------+
+//| GetLsdSweepActiveEqlLineStart:                                   |
+//| Returns start time (Pivot 1) of currently active EQH-G green line.|
+//+------------------------------------------------------------------+
+datetime GetLsdSweepActiveEqlLineStart()
+  {
+   if(g_lastEqLowLineStart > 0)
+      return g_lastEqLowLineStart;
+
+   int total = ObjectsTotal(0, -1, -1);
+   for(int i = total - 1; i >= 0; i--)
+     {
+      string name = ObjectName(0, i, -1, -1);
+      if(StringFind(name, LSD_PREFIX + "EQL_", 0) == 0 && StringFind(name, "EQL_M_", 0) < 0)
+        {
+         datetime t2 = (datetime)ObjectGet(name, OBJPROP_TIME2);
+         if(TimeCurrent() <= t2)
+           {
+            datetime t1 = (datetime)ObjectGet(name, OBJPROP_TIME1);
+            if(t1 > 0)
+               return t1;
+           }
+        }
+     }
+
+   // Fallback: search newest EQL line on chart
+   datetime newestTime = 0;
+   for(int i = total - 1; i >= 0; i--)
+     {
+      string name = ObjectName(0, i, -1, -1);
+      if(StringFind(name, LSD_PREFIX + "EQL_", 0) == 0 && StringFind(name, "EQL_M_", 0) < 0)
+        {
+         datetime t1 = (datetime)ObjectGet(name, OBJPROP_TIME1);
+         if(t1 > newestTime)
+            newestTime = t1;
+        }
+     }
+   return newestTime;
+  }
+
+//+------------------------------------------------------------------+
+//| CountOrdersForLsdLine:                                           |
+//| Counts total orders (open trades + closed history) created for   |
+//| the specified horizontal line (identified by line start time).   |
+//+------------------------------------------------------------------+
+int CountOrdersForLsdLine(string lineType, datetime lineStartTime, int &outPendingTicket)
+  {
+   outPendingTicket = -1;
+   int count = 0;
+   string searchPattern = (lineType == "EQHR") ? "FLIPBasketSupport_LSD_EQHR" : "FLIPBasketSupport_LSD_EQHG";
+   string sslPattern    = (lineType == "EQHR") ? "SSL Short" : "SSL Long";
+   int targetTicket     = (lineType == "EQHR") ? g_lastEqhSellOrderTicket : g_lastEqlBuyOrderTicket;
+
+   // 1. Scan open positions & pending orders in MODE_TRADES
+   for(int i = OrdersTotal() - 1; i >= 0; i--)
+     {
+      if(!OrderSelect(i, SELECT_BY_POS, MODE_TRADES))
+         continue;
+      if(OrderSymbol() != Symbol() || OrderMagicNumber() != MagicNumber)
+         continue;
+
+      string comm = OrderComment();
+      bool isMatch = false;
+
+      if(targetTicket > 0 && OrderTicket() == targetTicket)
+         isMatch = true;
+      else if(StringFind(comm, searchPattern) >= 0)
+         isMatch = true;
+      else if(StringFind(comm, sslPattern) >= 0 && lineStartTime > 0 && MathAbs(OrderOpenTime() - lineStartTime) <= 300)
+         isMatch = true;
+
+      if(!isMatch)
+         continue;
+
+      // Allow 60 second buffer between line start time and order open time
+      if(lineStartTime > 0 && OrderOpenTime() >= (lineStartTime - 60))
+        {
+         count++;
+         int oType = OrderType();
+         if(oType == OP_BUYSTOP || oType == OP_SELLSTOP || oType == OP_BUYLIMIT || oType == OP_SELLLIMIT)
+           {
+            outPendingTicket = OrderTicket();
+           }
+        }
+     }
+
+   // 2. Scan trade history for closed orders in MODE_HISTORY
+   int histTotal = OrdersHistoryTotal();
+   for(int h = histTotal - 1; h >= 0; h--)
+     {
+      if(!OrderSelect(h, SELECT_BY_POS, MODE_HISTORY))
+         continue;
+      if(OrderSymbol() != Symbol() || OrderMagicNumber() != MagicNumber)
+         continue;
+
+      string comm = OrderComment();
+      bool isMatch = false;
+
+      if(targetTicket > 0 && OrderTicket() == targetTicket)
+         isMatch = true;
+      else if(StringFind(comm, searchPattern) >= 0)
+         isMatch = true;
+      else if(StringFind(comm, sslPattern) >= 0 && lineStartTime > 0 && MathAbs(OrderOpenTime() - lineStartTime) <= 300)
+         isMatch = true;
+
+      if(!isMatch)
+         continue;
+
+      if(lineStartTime > 0 && OrderOpenTime() >= (lineStartTime - 60))
+        {
+         count++;
+        }
+     }
+
+   // 3. In-memory check fallback
+   if(count == 0 && lineStartTime > 0)
+     {
+      if(lineType == "EQHR" && g_lastOrderEqHighLineStart == lineStartTime)
+         count = 1;
+      else if(lineType == "EQHG" && g_lastOrderEqLowLineStart == lineStartTime)
+         count = 1;
+     }
+
+   return count;
+  }
+
+//+------------------------------------------------------------------+
+//| HasOrderBeenCreatedForLsdLine:                                   |
+//| Returns true if 1 order has ALREADY been created for this line.  |
+//| USER RULE: "one horizontal line total limit one order only."     |
+//+------------------------------------------------------------------+
+bool HasOrderBeenCreatedForLsdLine(string lineType, datetime lineStartTime)
+  {
+   if(lineStartTime <= 0)
+      return false;
+
+   if(lineType == "EQHR" && g_lastOrderEqHighLineStart == lineStartTime)
+      return true;
+   if(lineType == "EQHG" && g_lastOrderEqLowLineStart == lineStartTime)
+      return true;
+
+   int dummyPending = -1;
+   int cnt = CountOrdersForLsdLine(lineType, lineStartTime, dummyPending);
+   return (cnt >= 1);
+  }
+
+//+------------------------------------------------------------------+
+//| CleanDuplicateLsdLinePendingOrders:                              |
+//| Deletes any duplicate pending orders placed on horizontal lines  |
+//| that have already spawned an order (enforcing 1 order max).      |
+//+------------------------------------------------------------------+
+void CleanDuplicateLsdLinePendingOrders()
+  {
+   // Check EQH-R
+   datetime eqhStart = GetLsdSweepActiveEqhLineStart();
+   if(eqhStart > 0)
+     {
+      for(int iter = 0; iter < 5; iter++)
+        {
+         int pendingTkt = -1;
+         int cnt = CountOrdersForLsdLine("EQHR", eqhStart, pendingTkt);
+         if(cnt <= 1 || pendingTkt <= 0)
+            break;
+
+         Print(">>> [LSD CLEANUP] Duplicate pending order #", pendingTkt,
+               " detected for EQH-R line (Start: ", TimeToStr(eqhStart, TIME_DATE|TIME_MINUTES),
+               ", Total orders for line: ", cnt, "). Deleting duplicate pending order!");
+         if(!SafeOrderDelete(pendingTkt, clrRed))
+            break;
+        }
+     }
+
+   // Check EQH-G
+   datetime eqlStart = GetLsdSweepActiveEqlLineStart();
+   if(eqlStart > 0)
+     {
+      for(int iter = 0; iter < 5; iter++)
+        {
+         int pendingTkt = -1;
+         int cnt = CountOrdersForLsdLine("EQHG", eqlStart, pendingTkt);
+         if(cnt <= 1 || pendingTkt <= 0)
+            break;
+
+         Print(">>> [LSD CLEANUP] Duplicate pending order #", pendingTkt,
+               " detected for EQH-G line (Start: ", TimeToStr(eqlStart, TIME_DATE|TIME_MINUTES),
+               ", Total orders for line: ", cnt, "). Deleting duplicate pending order!");
+         if(!SafeOrderDelete(pendingTkt, clrRed))
+            break;
+        }
+     }
+  }
+
+//+------------------------------------------------------------------+
+//| CheckLsdSweepFlipBasketSupportOrder:                             |
+//| USER RULE: "one horizontal line total limit one order only."     |
+//| Creates at most 1 order when horizontal line starts; never       |
+//| creates 2nd order when price moves back to distance threshold.   |
+//+------------------------------------------------------------------+
 void CheckLsdSweepFlipBasketSupportOrder()
   {
    if(!InpEnableLsdSweepFlipBasketSupport)
       return;
    if(!EAStartupComplete)
       return;
+
+   // 0. Auto-clean any duplicate pending orders exceeding 1 order limit
+   CleanDuplicateLsdLinePendingOrders();
+
+   datetime eqhStart = GetLsdSweepActiveEqhLineStart();
+   datetime eqlStart = GetLsdSweepActiveEqlLineStart();
 
    RefreshRates();
    bool runMethod1 = (InpLsdSupportMode == LSD_MODE_METHOD1_BREAKOUT || InpLsdSupportMode == LSD_MODE_BOTH);
@@ -16843,103 +17663,135 @@ void CheckLsdSweepFlipBasketSupportOrder()
 // =================================================================
    if(!HasOpenFLIPBasketSupportOrder(OP_BUY))
      {
-      // --- Method 1: EQH-R detects & EMA -1: Price > EQH-R (gap <= ) -> CREATE BUY ---
+      // --- Method 1: EQH-R detects & EMA -1: Price > EQH-R (gap <= $100) -> CREATE BUY ---
       if(runMethod1 && eqhRPresent && EMADirection == -1 && eqhPrice > 0.0)
         {
-         double livePrice = Ask;
-         double rawGap = livePrice - eqhPrice;
-         double emaGap = (liveEma > 0.0) ? MathAbs(livePrice - liveEma) : 999.0;
-
-         if(livePrice > eqhPrice && rawGap <= m1MaxGap)
+         if(HasOrderBeenCreatedForLsdLine("EQHR", eqhStart))
            {
-            if(emaGap < minEmaDist)
+            static datetime lastEqhrM1BuyLog = 0;
+            if(TimeCurrent() - lastEqhrM1BuyLog >= 60)
               {
-               Print(">>> [LSD M1 BUY BLOCKED] In EMA Chop Zone: Ask=", DoubleToString(livePrice, Digits),
-                     ", EMA200=", DoubleToString(liveEma, Digits), ", Gap=$", DoubleToString(emaGap, 2),
-                     " < Required Min $", DoubleToString(minEmaDist, 2));
+               lastEqhrM1BuyLog = TimeCurrent();
+               Print(">>> [LSD M1 BUY BLOCKED] EQH-R line (Start: ", TimeToStr(eqhStart, TIME_DATE|TIME_MINUTES),
+                     ") has ALREADY spawned an order. 1-order-per-line limit strictly enforced!");
               }
-            else
-              {
-               Print(">>> [LSD M1 BUY TRIGGER] EMA=-1, EQH-R detected at ", DoubleToString(eqhPrice, Digits),
-                     ", Ask=", DoubleToString(livePrice, Digits), " > EQH-R by ", DoubleToString(rawGap, 2),
-                     " (<= $", DoubleToString(m1MaxGap, 2), ") | EMA Gap=$", DoubleToString(emaGap, 2),
-                     " -> Creating BUY EMAflipsupportorder (M1 Breakout)...");
+           }
+         else
+           {
+            double livePrice = Ask;
+            double rawGap = livePrice - eqhPrice;
+            double emaGap = (liveEma > 0.0) ? MathAbs(livePrice - liveEma) : 999.0;
 
-               int tkt = CreateFLIPBasketSupportOrder(1, true, true, "_LSD_EQHR");
-               if(tkt > 0)
+            if(livePrice > eqhPrice && rawGap <= m1MaxGap)
+              {
+               if(emaGap < minEmaDist)
                  {
-                  FLIPBasketSupportOpenedThisCycle = true;
-                  Print(">>> [LSD M1 BUY TRIGGER] Successfully created BUY EMAflipsupportorder Ticket #", tkt);
+                  Print(">>> [LSD M1 BUY BLOCKED] In EMA Chop Zone: Ask=", DoubleToString(livePrice, Digits),
+                        ", EMA200=", DoubleToString(liveEma, Digits), ", Gap=$", DoubleToString(emaGap, 2),
+                        " < Required Min $", DoubleToString(minEmaDist, 2));
+                 }
+               else
+                 {
+                  Print(">>> [LSD M1 BUY TRIGGER] EMA=-1, EQH-R detected at ", DoubleToString(eqhPrice, Digits),
+                        ", Ask=", DoubleToString(livePrice, Digits), " > EQH-R by ", DoubleToString(rawGap, 2),
+                        " (<= $", DoubleToString(m1MaxGap, 2), ") | EMA Gap=$", DoubleToString(emaGap, 2),
+                        " -> Creating BUY EMAflipsupportorder (M1 Breakout)...");
+
+                  int tkt = CreateFLIPBasketSupportOrder(1, true, true, "_LSD_EQHR");
+                  if(tkt > 0)
+                    {
+                     FLIPBasketSupportOpenedThisCycle = true;
+                     g_lastOrderEqHighLineStart = eqhStart;
+                     Print(">>> [LSD M1 BUY TRIGGER] Successfully created BUY EMAflipsupportorder Ticket #", tkt,
+                           " for EQH-R line (Start: ", TimeToStr(eqhStart, TIME_DATE|TIME_MINUTES), "). Total line limit (1) enforced.");
+                    }
                  }
               }
            }
         }
 
-      // --- Method 2: EQH-G detects & EMA ANY: Price > EQH-G (gap <= ) -> CREATE BUY ---
+      // --- Method 2: EQH-G detects & EMA ANY: Price > EQH-G (gap <= $50) -> CREATE BUY ---
       if(!HasOpenFLIPBasketSupportOrder(OP_BUY) && runMethod2 && eqhGPresent && eqlPrice > 0.0)
         {
-         double livePrice = Ask;
-         double rawGap = livePrice - eqlPrice;
-         double emaGap = (liveEma > 0.0) ? MathAbs(livePrice - liveEma) : 999.0;
-
-         if(livePrice > eqlPrice && rawGap <= m2MaxGap)
+         if(HasOrderBeenCreatedForLsdLine("EQHG", eqlStart))
            {
-            // SAFE-SIDE CHECK 1: Must NOT be inside the EMA Chop Zone (<  from EMA200)
-            if(emaGap < minEmaDist)
+            static datetime lastEqhgM2BuyLog = 0;
+            if(TimeCurrent() - lastEqhgM2BuyLog >= 60)
               {
-               Print(">>> [LSD M2 BUY BLOCKED] In EMA Chop Zone: Ask=", DoubleToString(livePrice, Digits),
-                     ", EMA200=", DoubleToString(liveEma, Digits), ", Gap=$", DoubleToString(emaGap, 2),
-                     " < Required Min $", DoubleToString(minEmaDist, 2), ". Skipping buy order!");
+               lastEqhgM2BuyLog = TimeCurrent();
+               Print(">>> [LSD M2 BUY BLOCKED] EQH-G line (Start: ", TimeToStr(eqlStart, TIME_DATE|TIME_MINUTES),
+                     ") has ALREADY spawned an order. 1-order-per-line limit strictly enforced!");
               }
-            else
-               // SAFE-SIDE CHECK 2: Directional Runway / Momentum
-               if(InpLsdRequireDirectionalRunway && liveEma > 0.0 && livePrice < liveEma && (liveEma - livePrice) < minEmaDist)
+           }
+         else
+           {
+            double livePrice = Ask;
+            double rawGap = livePrice - eqlPrice;
+            double emaGap = (liveEma > 0.0) ? MathAbs(livePrice - liveEma) : 999.0;
+
+            if(livePrice > eqlPrice && rawGap <= m2MaxGap)
+              {
+               // SAFE-SIDE CHECK 1: Must NOT be inside the EMA Chop Zone (< minEmaDist from EMA200)
+               if(emaGap < minEmaDist)
                  {
-                  Print(">>> [LSD M2 BUY BLOCKED] Insufficient bounce runway up to EMA: LivePrice=",
-                        DoubleToString(livePrice, Digits), ", EMA200=", DoubleToString(liveEma, Digits),
-                        ", Runway=$", DoubleToString(liveEma - livePrice, 2),
-                        " < Required Min $", DoubleToString(minEmaDist, 2));
+                  Print(">>> [LSD M2 BUY BLOCKED] In EMA Chop Zone: Ask=", DoubleToString(livePrice, Digits),
+                        ", EMA200=", DoubleToString(liveEma, Digits), ", Gap=$", DoubleToString(emaGap, 2),
+                        " < Required Min $", DoubleToString(minEmaDist, 2), ". Skipping buy order!");
                  }
                else
-                  if(InpLsdRequireDirectionalRunway && liveEma > 0.0 && livePrice > liveEma)
+                  // SAFE-SIDE CHECK 2: Directional Runway / Momentum
+                  if(InpLsdRequireDirectionalRunway && liveEma > 0.0 && livePrice < liveEma && (liveEma - livePrice) < minEmaDist)
                     {
-                     double highestSinceFlip = GetHighestPriceSinceEmaFlip();
-                     double upExpansion = highestSinceFlip - liveEma;
-                     if(upExpansion < minEmaDist)
+                     Print(">>> [LSD M2 BUY BLOCKED] Insufficient bounce runway up to EMA: LivePrice=",
+                           DoubleToString(livePrice, Digits), ", EMA200=", DoubleToString(liveEma, Digits),
+                           ", Runway=$", DoubleToString(liveEma - livePrice, 2),
+                           " < Required Min $", DoubleToString(minEmaDist, 2));
+                    }
+                  else
+                     if(InpLsdRequireDirectionalRunway && liveEma > 0.0 && livePrice > liveEma)
                        {
-                        Print(">>> [LSD M2 BUY BLOCKED] Insufficient previous upward impulse: HighestSinceFlip=",
-                              DoubleToString(highestSinceFlip, Digits), ", UpExpansion=$",
-                              DoubleToString(upExpansion, 2), " < Required Min $", DoubleToString(minEmaDist, 2));
+                        double highestSinceFlip = GetHighestPriceSinceEmaFlip();
+                        double upExpansion = highestSinceFlip - liveEma;
+                        if(upExpansion < minEmaDist)
+                          {
+                           Print(">>> [LSD M2 BUY BLOCKED] Insufficient previous upward impulse: HighestSinceFlip=",
+                                 DoubleToString(highestSinceFlip, Digits), ", UpExpansion=$",
+                                 DoubleToString(upExpansion, 2), " < Required Min $", DoubleToString(minEmaDist, 2));
+                          }
+                        else
+                          {
+                           Print(">>> [LSD M2 BUY TRIGGER] EMA ANY, EQH-G detected at ", DoubleToString(eqlPrice, Digits),
+                                 ", Ask=", DoubleToString(livePrice, Digits), " > EQH-G by ", DoubleToString(rawGap, 2),
+                                 " (<= $", DoubleToString(m2MaxGap, 2), ") | EMA Gap=$", DoubleToString(emaGap, 2),
+                                 " -> Creating BUY EMAflipsupportorder (M2 Bounce)...");
+
+                           int tkt = CreateFLIPBasketSupportOrder(1, true, true, "_LSD_EQHG_M2");
+                           if(tkt > 0)
+                             {
+                              FLIPBasketSupportOpenedThisCycle = true;
+                              g_lastOrderEqLowLineStart = eqlStart;
+                              Print(">>> [LSD M2 BUY TRIGGER] Successfully created BUY EMAflipsupportorder Ticket #", tkt,
+                                    " for EQH-G line (Start: ", TimeToStr(eqlStart, TIME_DATE|TIME_MINUTES), "). Total line limit (1) enforced.");
+                             }
+                          }
                        }
                      else
                        {
                         Print(">>> [LSD M2 BUY TRIGGER] EMA ANY, EQH-G detected at ", DoubleToString(eqlPrice, Digits),
                               ", Ask=", DoubleToString(livePrice, Digits), " > EQH-G by ", DoubleToString(rawGap, 2),
-                              " (<= $", DoubleToString(m2MaxGap, 2), ") | EMA Gap=$", DoubleToString(emaGap, 2),
+                              " (<= $", DoubleToString(m2MaxGap, 2), ") | Runway to EMA=$", DoubleToString(liveEma - livePrice, 2),
                               " -> Creating BUY EMAflipsupportorder (M2 Bounce)...");
 
                         int tkt = CreateFLIPBasketSupportOrder(1, true, true, "_LSD_EQHG_M2");
                         if(tkt > 0)
                           {
                            FLIPBasketSupportOpenedThisCycle = true;
-                           Print(">>> [LSD M2 BUY TRIGGER] Successfully created BUY EMAflipsupportorder Ticket #", tkt);
+                           g_lastOrderEqLowLineStart = eqlStart;
+                           Print(">>> [LSD M2 BUY TRIGGER] Successfully created BUY EMAflipsupportorder Ticket #", tkt,
+                                 " for EQH-G line (Start: ", TimeToStr(eqlStart, TIME_DATE|TIME_MINUTES), "). Total line limit (1) enforced.");
                           }
                        }
-                    }
-                  else
-                    {
-                     Print(">>> [LSD M2 BUY TRIGGER] EMA ANY, EQH-G detected at ", DoubleToString(eqlPrice, Digits),
-                           ", Ask=", DoubleToString(livePrice, Digits), " > EQH-G by ", DoubleToString(rawGap, 2),
-                           " (<= $", DoubleToString(m2MaxGap, 2), ") | Runway to EMA=$", DoubleToString(liveEma - livePrice, 2),
-                           " -> Creating BUY EMAflipsupportorder (M2 Bounce)...");
-
-                     int tkt = CreateFLIPBasketSupportOrder(1, true, true, "_LSD_EQHG_M2");
-                     if(tkt > 0)
-                       {
-                        FLIPBasketSupportOpenedThisCycle = true;
-                        Print(">>> [LSD M2 BUY TRIGGER] Successfully created BUY EMAflipsupportorder Ticket #", tkt);
-                       }
-                    }
+              }
            }
         }
      }
@@ -16949,104 +17801,136 @@ void CheckLsdSweepFlipBasketSupportOrder()
 // =================================================================
    if(!HasOpenFLIPBasketSupportOrder(OP_SELL))
      {
-      // --- Method 1: EQH-G detects & EMA +1: Price < EQH-G (gap <= ) -> CREATE SELL ---
+      // --- Method 1: EQH-G detects & EMA +1: Price < EQH-G (gap <= $100) -> CREATE SELL ---
       if(runMethod1 && eqhGPresent && EMADirection == 1 && eqlPrice > 0.0)
         {
-         double livePrice = Bid;
-         double rawGap = eqlPrice - livePrice;
-         double emaGap = (liveEma > 0.0) ? MathAbs(livePrice - liveEma) : 999.0;
-
-         if(livePrice < eqlPrice && rawGap <= m1MaxGap)
+         if(HasOrderBeenCreatedForLsdLine("EQHG", eqlStart))
            {
-            if(emaGap < minEmaDist)
+            static datetime lastEqhgM1SellLog = 0;
+            if(TimeCurrent() - lastEqhgM1SellLog >= 60)
               {
-               Print(">>> [LSD M1 SELL BLOCKED] In EMA Chop Zone: Bid=", DoubleToString(livePrice, Digits),
-                     ", EMA200=", DoubleToString(liveEma, Digits), ", Gap=$", DoubleToString(emaGap, 2),
-                     " < Required Min $", DoubleToString(minEmaDist, 2));
+               lastEqhgM1SellLog = TimeCurrent();
+               Print(">>> [LSD M1 SELL BLOCKED] EQH-G line (Start: ", TimeToStr(eqlStart, TIME_DATE|TIME_MINUTES),
+                     ") has ALREADY spawned an order. 1-order-per-line limit strictly enforced!");
               }
-            else
-              {
-               Print(">>> [LSD M1 SELL TRIGGER] EMA=1, EQH-G detected at ", DoubleToString(eqlPrice, Digits),
-                     ", Bid=", DoubleToString(livePrice, Digits), " < EQH-G by ", DoubleToString(rawGap, 2),
-                     " (<= $", DoubleToString(m1MaxGap, 2), ") | EMA Gap=$", DoubleToString(emaGap, 2),
-                     " -> Creating SELL EMAflipsupportorder (M1 Breakout)...");
+           }
+         else
+           {
+            double livePrice = Bid;
+            double rawGap = eqlPrice - livePrice;
+            double emaGap = (liveEma > 0.0) ? MathAbs(livePrice - liveEma) : 999.0;
 
-               int tkt = CreateFLIPBasketSupportOrder(-1, true, true, "_LSD_EQHG");
-               if(tkt > 0)
+            if(livePrice < eqlPrice && rawGap <= m1MaxGap)
+              {
+               if(emaGap < minEmaDist)
                  {
-                  FLIPBasketSupportOpenedThisCycle = true;
-                  Print(">>> [LSD M1 SELL TRIGGER] Successfully created SELL EMAflipsupportorder Ticket #", tkt);
+                  Print(">>> [LSD M1 SELL BLOCKED] In EMA Chop Zone: Bid=", DoubleToString(livePrice, Digits),
+                        ", EMA200=", DoubleToString(liveEma, Digits), ", Gap=$", DoubleToString(emaGap, 2),
+                        " < Required Min $", DoubleToString(minEmaDist, 2));
+                 }
+               else
+                 {
+                  Print(">>> [LSD M1 SELL TRIGGER] EMA=1, EQH-G detected at ", DoubleToString(eqlPrice, Digits),
+                        ", Bid=", DoubleToString(livePrice, Digits), " < EQH-G by ", DoubleToString(rawGap, 2),
+                        " (<= $", DoubleToString(m1MaxGap, 2), ") | EMA Gap=$", DoubleToString(emaGap, 2),
+                        " -> Creating SELL EMAflipsupportorder (M1 Breakout)...");
+
+                  int tkt = CreateFLIPBasketSupportOrder(-1, true, true, "_LSD_EQHG");
+                  if(tkt > 0)
+                    {
+                     FLIPBasketSupportOpenedThisCycle = true;
+                     g_lastOrderEqLowLineStart = eqlStart;
+                     Print(">>> [LSD M1 SELL TRIGGER] Successfully created SELL EMAflipsupportorder Ticket #", tkt,
+                           " for EQH-G line (Start: ", TimeToStr(eqlStart, TIME_DATE|TIME_MINUTES), "). Total line limit (1) enforced.");
+                    }
                  }
               }
            }
         }
 
-      // --- Method 2: EQH-R detects & EMA ANY: Price < EQH-R (gap <= ) -> CREATE SELL ---
+      // --- Method 2: EQH-R detects & EMA ANY: Price < EQH-R (gap <= $50) -> CREATE SELL ---
       if(!HasOpenFLIPBasketSupportOrder(OP_SELL) && runMethod2 && eqhRPresent && eqhPrice > 0.0)
         {
-         double livePrice = Bid;
-         double rawGap = eqhPrice - livePrice;
-         double emaGap = (liveEma > 0.0) ? MathAbs(livePrice - liveEma) : 999.0;
-
-         if(livePrice < eqhPrice && rawGap <= m2MaxGap)
+         if(HasOrderBeenCreatedForLsdLine("EQHR", eqhStart))
            {
-            // SAFE-SIDE CHECK 1: Must NOT be inside the EMA Chop Zone (<  from EMA200)
-            if(emaGap < minEmaDist)
+            static datetime lastEqhrM2SellLog = 0;
+            if(TimeCurrent() - lastEqhrM2SellLog >= 60)
               {
-               Print(">>> [LSD M2 SELL BLOCKED] In EMA Chop Zone: Bid=", DoubleToString(livePrice, Digits),
-                     ", EMA200=", DoubleToString(liveEma, Digits), ", Gap=$", DoubleToString(emaGap, 2),
-                     " < Required Min $", DoubleToString(minEmaDist, 2), ". Skipping sell order!");
+               lastEqhrM2SellLog = TimeCurrent();
+               Print(">>> [LSD M2 SELL BLOCKED] EQH-R line (Start: ", TimeToStr(eqhStart, TIME_DATE|TIME_MINUTES),
+                     ") has ALREADY spawned an order. 1-order-per-line limit strictly enforced!");
               }
-            else
-               // SAFE-SIDE CHECK 2: Directional Runway / Momentum
-               if(InpLsdRequireDirectionalRunway && liveEma > 0.0 && livePrice > liveEma && (livePrice - liveEma) < minEmaDist)
+           }
+         else
+           {
+            double livePrice = Bid;
+            double rawGap = eqhPrice - livePrice;
+            double emaGap = (liveEma > 0.0) ? MathAbs(livePrice - liveEma) : 999.0;
+
+            if(livePrice < eqhPrice && rawGap <= m2MaxGap)
+              {
+               // SAFE-SIDE CHECK 1: Must NOT be inside the EMA Chop Zone (< minEmaDist from EMA200)
+               if(emaGap < minEmaDist)
                  {
-                  Print(">>> [LSD M2 SELL BLOCKED] Insufficient drop runway down to EMA: LivePrice=",
-                        DoubleToString(livePrice, Digits), ", EMA200=", DoubleToString(liveEma, Digits),
-                        ", Runway=$", DoubleToString(livePrice - liveEma, 2),
-                        " < Required Min $", DoubleToString(minEmaDist, 2));
+                  Print(">>> [LSD M2 SELL BLOCKED] In EMA Chop Zone: Bid=", DoubleToString(livePrice, Digits),
+                        ", EMA200=", DoubleToString(liveEma, Digits), ", Gap=$", DoubleToString(emaGap, 2),
+                        " < Required Min $", DoubleToString(minEmaDist, 2), ". Skipping sell order!");
                  }
                else
-                  if(InpLsdRequireDirectionalRunway && liveEma > 0.0 && livePrice < liveEma)
+                  // SAFE-SIDE CHECK 2: Directional Runway / Momentum
+                  if(InpLsdRequireDirectionalRunway && liveEma > 0.0 && livePrice > liveEma && (livePrice - liveEma) < minEmaDist)
                     {
-                     double lowestSinceFlip = GetLowestPriceSinceEmaFlip();
-                     double downExpansion = liveEma - lowestSinceFlip;
-                     if(downExpansion < minEmaDist)
+                     Print(">>> [LSD M2 SELL BLOCKED] Insufficient drop runway down to EMA: LivePrice=",
+                           DoubleToString(livePrice, Digits), ", EMA200=", DoubleToString(liveEma, Digits),
+                           ", Runway=$", DoubleToString(livePrice - liveEma, 2),
+                           " < Required Min $", DoubleToString(minEmaDist, 2));
+                    }
+                  else
+                     if(InpLsdRequireDirectionalRunway && liveEma > 0.0 && livePrice < liveEma)
                        {
-                        Print(">>> [LSD M2 SELL BLOCKED] Insufficient previous downward impulse: LowestSinceFlip=",
-                              DoubleToString(lowestSinceFlip, Digits), ", DownExpansion=$",
-                              DoubleToString(downExpansion, 2), " < Required Min $", DoubleToString(minEmaDist, 2),
-                              ". (Market hasn't dropped  from EMA). Skipping sell order!");
+                        double lowestSinceFlip = GetLowestPriceSinceEmaFlip();
+                        double downExpansion = liveEma - lowestSinceFlip;
+                        if(downExpansion < minEmaDist)
+                          {
+                           Print(">>> [LSD M2 SELL BLOCKED] Insufficient previous downward impulse: LowestSinceFlip=",
+                                 DoubleToString(lowestSinceFlip, Digits), ", DownExpansion=$",
+                                 DoubleToString(downExpansion, 2), " < Required Min $", DoubleToString(minEmaDist, 2),
+                                 ". (Market hasn't dropped from EMA). Skipping sell order!");
+                          }
+                        else
+                          {
+                           Print(">>> [LSD M2 SELL TRIGGER] EMA ANY, EQH-R detected at ", DoubleToString(eqhPrice, Digits),
+                                 ", Bid=", DoubleToString(livePrice, Digits), " < EQH-R by ", DoubleToString(rawGap, 2),
+                                 " (<= $", DoubleToString(m2MaxGap, 2), ") | DownExpansion=$", DoubleToString(downExpansion, 2),
+                                 " -> Creating SELL EMAflipsupportorder (M2 Bounce)...");
+
+                           int tkt = CreateFLIPBasketSupportOrder(-1, true, true, "_LSD_EQHR_M2");
+                           if(tkt > 0)
+                             {
+                              FLIPBasketSupportOpenedThisCycle = true;
+                              g_lastOrderEqHighLineStart = eqhStart;
+                              Print(">>> [LSD M2 SELL TRIGGER] Successfully created SELL EMAflipsupportorder Ticket #", tkt,
+                                    " for EQH-R line (Start: ", TimeToStr(eqhStart, TIME_DATE|TIME_MINUTES), "). Total line limit (1) enforced.");
+                             }
+                          }
                        }
                      else
                        {
                         Print(">>> [LSD M2 SELL TRIGGER] EMA ANY, EQH-R detected at ", DoubleToString(eqhPrice, Digits),
                               ", Bid=", DoubleToString(livePrice, Digits), " < EQH-R by ", DoubleToString(rawGap, 2),
-                              " (<= $", DoubleToString(m2MaxGap, 2), ") | DownExpansion=$", DoubleToString(downExpansion, 2),
+                              " (<= $", DoubleToString(m2MaxGap, 2), ") | Runway to EMA=$", DoubleToString(livePrice - liveEma, 2),
                               " -> Creating SELL EMAflipsupportorder (M2 Bounce)...");
 
                         int tkt = CreateFLIPBasketSupportOrder(-1, true, true, "_LSD_EQHR_M2");
                         if(tkt > 0)
                           {
                            FLIPBasketSupportOpenedThisCycle = true;
-                           Print(">>> [LSD M2 SELL TRIGGER] Successfully created SELL EMAflipsupportorder Ticket #", tkt);
+                           g_lastOrderEqHighLineStart = eqhStart;
+                           Print(">>> [LSD M2 SELL TRIGGER] Successfully created SELL EMAflipsupportorder Ticket #", tkt,
+                                 " for EQH-R line (Start: ", TimeToStr(eqhStart, TIME_DATE|TIME_MINUTES), "). Total line limit (1) enforced.");
                           }
                        }
-                    }
-                  else
-                    {
-                     Print(">>> [LSD M2 SELL TRIGGER] EMA ANY, EQH-R detected at ", DoubleToString(eqhPrice, Digits),
-                           ", Bid=", DoubleToString(livePrice, Digits), " < EQH-R by ", DoubleToString(rawGap, 2),
-                           " (<= $", DoubleToString(m2MaxGap, 2), ") | Runway to EMA=$", DoubleToString(livePrice - liveEma, 2),
-                           " -> Creating SELL EMAflipsupportorder (M2 Bounce)...");
-
-                     int tkt = CreateFLIPBasketSupportOrder(-1, true, true, "_LSD_EQHR_M2");
-                     if(tkt > 0)
-                       {
-                        FLIPBasketSupportOpenedThisCycle = true;
-                        Print(">>> [LSD M2 SELL TRIGGER] Successfully created SELL EMAflipsupportorder Ticket #", tkt);
-                       }
-                    }
+              }
            }
         }
      }
@@ -17433,6 +18317,8 @@ void UpdateLiquiditySweepDetectorOnChart()
 
    g_lastEqHighPrice = (curHighLineName != "") ? activeEqHighPrice : 0.0;
    g_lastEqLowPrice  = (curLowLineName != "") ? activeEqLowPrice : 0.0;
+   g_lastEqHighLineStart = (curHighLineName != "") ? activeEqHighStart : 0;
+   g_lastEqLowLineStart  = (curLowLineName != "") ? activeEqLowStart : 0;
 
 // USER RULE: Sweep updated signal is remembered until EMA flip or sweep signal change
    string activeFoundSweep = "None";
