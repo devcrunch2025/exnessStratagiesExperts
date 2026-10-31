@@ -27,7 +27,7 @@
 //https://github.com/devcrunch2025/exnessStratagiesExperts/commit/f4f1c1340be330cd32a75da3f3a9b4bd5f4e4cf3
 
 
-string glbVersion = "VMULTI-104Horizontal Line Orders";
+string glbVersion = "VMULTI-1052-Horizontal Line Orders - Close oppsoite orders above $200";
 
 
 double DailyEquityStopUSD  =1000;//50;//20*2.5;//10;//20;// 10;//30.0; close all orders at $50Xmultipler
@@ -189,7 +189,7 @@ bool   InpEnableSweepLineSLProtection  = false;  // LSD Sweep Line Order Protect
 ENUM_SWEEP_LINE_ACTION InpSweepLineAction = SWEEP_LINE_CLOSE_ALL_OPPOSITE; // Sweep Line Action: Close All Opposite or Modify SL
 double InpSweepLineSLBufferPoints      = 20.0;   // Buffer Points from Current Price for SL
 bool   InpSweepLineTriggerOnSweepSignal= false;  // Only trigger line action when physical line is present on chart
-bool   InpEnableLsdSweepFlipBasketSupport = true; // Enable FLIPBasketSupport creation on LSD Sweep Line proximity
+bool   InpEnableLsdSweepFlipBasketSupport = false; // Stage 2: Enable FLIPBasketSupport creation on LSD Sweep Line proximity (Default: false - Disabled)
 enum ENUM_LSD_SUPPORT_MODE
   {
    LSD_MODE_METHOD1_BREAKOUT = 1, // Method 1: Breakout/Sweep (Above EQH-R Buy, Below EQH-G Sell)
@@ -203,7 +203,7 @@ enum ENUM_LSD_SUPPORT_MODE
 ENUM_LSD_SUPPORT_MODE InpLsdSupportMode           = LSD_MODE_BOTH; // LSD Support Order Mode (Method 1, Method 2, or Both)
 double InpLsdSweepFlipBasketMaxGapRaw             = 100.0;         // Method 1: Max raw gap ($100) above EQH-R / below EQH-G
 double InpLsdMethod2BounceGapRaw                  = 50.0;          // Method 2: Max raw gap ($50) below EQH-R / above EQH-G
-double InpLsdMinEmaDistanceRaw                    = 200;//100.0;         // Safe-Side: Min raw price gap ($100) from Price to yellow EMA200
+double InpLsdMinEmaDistanceRaw                    = 0;//200;//100.0;         // Safe-Side: Min raw price gap ($100) from Price to yellow EMA200
 bool   InpLsdRequireDirectionalRunway             = true;          // Safe-Side: Require $100 directional runway/impulse from EMA
 
 // ===== LSD SWEEP DYNAMIC GAP MULTIPLIER SETTINGS =====
@@ -218,12 +218,24 @@ bool   InpEnableV1020EmaTrendSupport              = false;          // Mix V1020
 // ===== NEW RED LINE BUY-CLOSE & REVERSE SELL SETTINGS =====
 bool   InpCloseBuyOnNewEqhRedLine                 = true;          // On new EQH-R red line: Close BUY orders (loss < $1*mult) & Open SSL Short
 double InpCloseBuyMaxLossUSD                      = 1.0;           // Max loss in USD ($1.00 * multiplier) to close BUY order
-double InpNewEqhSellOrderLotBase                  = 0.02;          // Base lot for immediate SSL Short (0.02 * multiplier)
+double InpNewEqhSellOrderLotBase                  = 0.06;          // Base lot for immediate SSL Short (0.06 * multiplier)
 bool   InpCloseSellOnNewEqlGreenLine              = true;          // On new EQH-G green line: Close SELL orders (loss < $1*mult) & Open SSL Long
 double InpCloseSellMaxLossUSD                     = 1.0;           // Max loss in USD ($1.00 * multiplier) to close SELL order
-double InpNewEqlBuyOrderLotBase                   = 0.02;          // Base lot for immediate SSL Long (0.02 * multiplier)
+double InpNewEqlBuyOrderLotBase                   = 0.06;          // Base lot for immediate SSL Long (0.06 * multiplier)
 bool   InpEnableModifySLOnLineEnded               = true;          // When horizontal line ends: modify open horizontal order SL with $50 gap
 double InpHorizontalLineEndedSLGapRaw             = 50.0;          // StopLoss raw price gap ($50) when horizontal line ends
+double InpHorizontalLineMinEmaGapRaw             = 0.0;           // Min raw price gap ( = disabled) between horizontal line & EMA (Do not create orders if < min gap)
+int    InpHorizontalLineMaxDurationSeconds        = 300;           // Max allowed duration (300s = 5 min) since horizontal line initiated to create order (0 = no limit)
+bool   InpModifyOppositeOrderSLToLinePrice        = true;          // On new/active horizontal line: try to modify opposite order SL to Line price
+bool   InpModifyLinePriceSLOnlyFirstOrder         = true;          // Modify SL with Line Price ONLY for the FIRST (oldest) open order
+double InpLinePriceSLOffsetRaw                    = 50.0;          // Offset in USD ($50) added to Line Price for StopLoss modification (Line Price + 50)
+bool   InpEnableHorizontalLineRecovery            = true;          // When horizontal line starts: create recovery order for open losing order with smallest loss
+bool   InpOpenLineOrderIfRecoveryCreated          = false;         // If recovery order created, also open standard line order (default: false to enforce 1-order-per-line)
+bool   InpEnableLineEndedBreakoutSLModify         = true;          // When line ends & price moves > $100 past line: modify ALL open orders SL to LinePrice +/- $200
+double InpLineEndedBreakoutTriggerGapRaw          = 100.0;         // Price breakout distance ($100 raw) past ended line to trigger SL modification
+double InpLineEndedBreakoutSLOffsetRaw            = 200.0;         // StopLoss offset in USD ($200) from ended line price (Red: Line+200, Green: Line-200)
+bool   InpLineEndedBreakoutDeletePending          = true;          // When line-ended breakout triggers: delete pending orders
+bool   InpLineEndedBreakoutDeleteAllPending       = false;         // false = delete breakout side pending (SELL for Red, BUY for Green); true = delete ALL pending
 
 // ===== EQL / EQH STRUCTURAL RECOVERY (TYPE 2) SETTINGS =====
 bool   InpEnableLsdStructuralRecovery       = true;  // Enable EQL/EQH Structural Recovery (Type 2)
@@ -231,7 +243,7 @@ double InpLsdRecoveryMinAdverseGap          = 100.0; // Min adverse distance ($1
 double InpLsdRecoveryTriggerLossUSD         = 1.0;   // Min loss in USD (>$1.00) on parent order to allow recovery
 double InpLsdRecoveryLevelToleranceRaw      = 50.0;  // Max raw distance ($50) from EQL/EQH line to trigger recovery
 double InpLsdRecoveryLotMultiplier          = 2.0;   // Recovery lot multiplier (2x parent lot)
-double InpLsdRecoveryBasketProfitUSD        = 2.0;   // Net profit target in USD ($2.00) to close parent + recovery basket
+double InpLsdRecoveryBasketProfitUSD        = 0.50;  // Net profit target in USD (>$0.50) to close parent + recovery basket
 double InpLsdRecoveryStopLossRaw            = 3000;//300.0; // StopLoss raw points ($300) for Type 2 Recovery order
 double InpLsdRecoveryTakeProfitRaw          = 500.0; // TakeProfit raw points ($500) for Type 2 Recovery order
 int    InpLsdRecoveryMaxActiveOrders        = 1;     // Max simultaneous active Type 2 Recovery orders (default 1)
@@ -429,6 +441,9 @@ int    DeferredMagic[MAX_DEFERRED_ORDERS];
 color  DeferredColor[MAX_DEFERRED_ORDERS];
 datetime DeferredCreated[MAX_DEFERRED_ORDERS];
 
+//+------------------------------------------------------------------+
+//|                                                                  |
+//+------------------------------------------------------------------+
 double MinimumOpeningBalanceUSD = 500.0; // Minimum required account opening balance (.00)
 double Lots = 0.01;
 int MaxOpenOrders = 100;
@@ -2128,11 +2143,16 @@ datetime GetLsdSweepActiveEqlLineStart();
 int      CountOrdersForLsdLine(string lineType, datetime lineStartTime, int &outPendingTicket);
 bool     HasOrderBeenCreatedForLsdLine(string lineType, datetime lineStartTime);
 void     CleanDuplicateLsdLinePendingOrders();
+int      GetFirstOpenOrderTicket(int targetType);
+bool     TryModifyOrderStopLossToLinePrice(int ticket, double linePrice, string lineName);
+int      GetSmallestLossOrderTicket(int targetType);
+int      CreateHorizontalLineRecoveryOrder(int parentTicket, int orderType, double linePrice);
 void     CheckNewRedLineCloseBuyAndOpenSell();
-int      SendLsdRedLineSellOrder(double sellLot);
+int      SendLsdRedLineSellOrder(double sellLot, double linePrice = 0.0);
 void     CheckNewGreenLineCloseSellAndOpenBuy();
-int      SendLsdGreenLineBuyOrder(double buyLot);
+int      SendLsdGreenLineBuyOrder(double buyLot, double linePrice = 0.0);
 void     ManageHorizontalOrderEndedStopLoss();
+void     ManageHorizontalLineEndedBreakoutStopLoss();
 datetime GetLastClosedFLIPBasketSupportCloseTime();
 bool     HasOppositeOrderTypeLossOver5(int currentDirection, double &outOppositeTotalPL, double &outMaxSingleLoss);
 void     InitializeFLIPBasketSupportTracking();
@@ -2595,22 +2615,23 @@ void ModifyPairProfitWithStopLoss()
             shouldModify = true;
            }
         }
-      else if(oType == OP_SELL)
-        {
-         proposedSL = NormalizeDouble(curAsk + rawGap, Digits);
-         if((proposedSL - curAsk) < minDistance)
-            proposedSL = NormalizeDouble(curAsk + minDistance, Digits);
-
-         // Ensure SL is strictly valid above Ask
-         if(proposedSL <= curAsk)
-            continue;
-
-         // For SELL: Set if no SL (0.0), or only move SL forward (lower) by at least MinimumSLModifyGapRaw
-         if(curSL == 0.0 || (proposedSL < curSL && (curSL - proposedSL) >= MinimumSLModifyGapRaw))
+      else
+         if(oType == OP_SELL)
            {
-            shouldModify = true;
+            proposedSL = NormalizeDouble(curAsk + rawGap, Digits);
+            if((proposedSL - curAsk) < minDistance)
+               proposedSL = NormalizeDouble(curAsk + minDistance, Digits);
+
+            // Ensure SL is strictly valid above Ask
+            if(proposedSL <= curAsk)
+               continue;
+
+            // For SELL: Set if no SL (0.0), or only move SL forward (lower) by at least MinimumSLModifyGapRaw
+            if(curSL == 0.0 || (proposedSL < curSL && (curSL - proposedSL) >= MinimumSLModifyGapRaw))
+              {
+               shouldModify = true;
+              }
            }
-        }
 
       if(shouldModify && proposedSL > 0.0)
         {
@@ -3007,24 +3028,27 @@ double GetLotBasedPriceGap(double orderLots, int multiplier)
    if(multiplier < 1)
       multiplier = 1;
 
-   // 1. Normalize lot size back to Base Lot
+// 1. Normalize lot size back to Base Lot
    double baseLot = NormalizeDouble(orderLots / (double)multiplier, 2);
 
-   // 2. Apply tiered gap schedule:
+// 2. Apply tiered gap schedule:
    double gap = 50.0;
 
    if(baseLot <= 0.015)
       gap = 100.0;
-   else if(baseLot <= 0.025)
-      gap = 80.0;
-   else if(baseLot <= 0.035)
-      gap = 70.0;
-   else if(baseLot <= 0.045)
-      gap = 60.0;
    else
-      gap = 50.0; // 0.05 and all higher lots
+      if(baseLot <= 0.025)
+         gap = 80.0;
+      else
+         if(baseLot <= 0.035)
+            gap = 70.0;
+         else
+            if(baseLot <= 0.045)
+               gap = 60.0;
+            else
+               gap = 50.0; // 0.05 and all higher lots
 
-   // 3. Absolute safety floor against broker MinimumSLModifyGapRaw ()
+// 3. Absolute safety floor against broker MinimumSLModifyGapRaw ()
    if(gap < MinimumSLModifyGapRaw)
       gap = MinimumSLModifyGapRaw;
 
@@ -3085,8 +3109,9 @@ void SecureOneDollarProfit()
       double maxLockableDistance = 0.0;
       if(type == OP_BUY)
          maxLockableDistance = (Bid - stopLevel) - openPrice;
-      else if(type == OP_SELL)
-         maxLockableDistance = openPrice - (Ask + stopLevel);
+      else
+         if(type == OP_SELL)
+            maxLockableDistance = openPrice - (Ask + stopLevel);
 
       if(maxLockableDistance < stepPriceGap)
          continue; // Price has not yet reached the required gap
@@ -3106,12 +3131,13 @@ void SecureOneDollarProfit()
          if(newSL > openPrice && (currentSL == 0.0 || newSL >= currentSL + MinimumSLModifyGapRaw))
             canModify = true;
         }
-      else if(type == OP_SELL)
-        {
-         newSL = NormalizeDouble(openPrice - lockedDistance, Digits);
-         if(newSL < openPrice && (currentSL == 0.0 || newSL <= currentSL - MinimumSLModifyGapRaw))
-            canModify = true;
-        }
+      else
+         if(type == OP_SELL)
+           {
+            newSL = NormalizeDouble(openPrice - lockedDistance, Digits);
+            if(newSL < openPrice && (currentSL == 0.0 || newSL <= currentSL - MinimumSLModifyGapRaw))
+               canModify = true;
+           }
 
       // 5. Modify order to lock profit at this ladder rung
       if(canModify)
@@ -4180,7 +4206,7 @@ void CloseOppositeOrdersOnEmaDistance()
 //+------------------------------------------------------------------+
 int OnInit()
   {
-   // Check minimum opening balance condition (.00)
+// Check minimum opening balance condition (.00)
    if(AccountBalance() < MinimumOpeningBalanceUSD)
      {
       Print("INIT FAILED: Account Balance ($", DoubleToString(AccountBalance(), 2),
@@ -4269,7 +4295,7 @@ int OnInit()
       DrawHistoricalSignals();
    UpdateEMALineOnChart();
    UpdateLiquiditySweepDetectorOnChart();
-   // (Red/Green line orders evaluated on tick)
+// (Red/Green line orders evaluated on tick)
    DailyProtectionStartTime = TimeCurrent();
    InitializeLastProcessedClosedOrder();
    LastProtectedLossTicket = LastProcessedClosedTicket;
@@ -4364,6 +4390,14 @@ datetime g_lastOrderEqHighLineStart          = 0;      // Line start time for wh
 datetime g_lastOrderEqLowLineStart           = 0;      // Line start time for which EQH-G support order was created
 int      g_lastEqhSellOrderTicket            = -1;     // Ticket of SELL order created for active EQH-R line
 int      g_lastEqlBuyOrderTicket             = -1;     // Ticket of BUY order created for active EQH-G line
+
+// Ended Horizontal Line Tracking (Breakout SL modification: Red Line +$200, Green Line -$200)
+double   g_endedEqHighPrice                  = 0.0;    // Price of last ended EQH-R line
+datetime g_endedEqHighStart                  = 0;      // Start ID of last ended EQH-R line
+datetime g_endedEqHighTime                   = 0;      // Timestamp when EQH-R ended
+double   g_endedEqLowPrice                   = 0.0;    // Price of last ended EQH-G line
+datetime g_endedEqLowStart                   = 0;      // Start ID of last ended EQH-G line
+datetime g_endedEqLowTime                    = 0;      // Timestamp when EQH-G ended
 
 // Remembered Liquidity Sweep Signal State (Persists across candles until EMA flip or signal change)
 string   g_rememberedSweepSignal             = "None"; // "BSLS", "SSLS", or "None"
@@ -4528,8 +4562,10 @@ void OnTick()
 // ManageLsdSweepLineStopLossProtection(); // DISABLED: LSD Sweep lines only create FlipBasketSupport, DO NOT modify/close orders
    CheckNewRedLineCloseBuyAndOpenSell();
    CheckNewGreenLineCloseSellAndOpenBuy(); // USER RULE: On new EQH-G green line: close SELL if loss < $1*mult & open SSL Long 0.02*mult
-   CheckLsdSweepFlipBasketSupportOrder();
+   if(InpEnableLsdSweepFlipBasketSupport)
+      CheckLsdSweepFlipBasketSupportOrder(); // Stage 2: Line Active support order creation (Disabled)
    ManageHorizontalOrderEndedStopLoss(); // USER RULE: When horizontal line ends, modify open horizontal order with $50 gap SL
+   ManageHorizontalLineEndedBreakoutStopLoss(); // USER RULE: When horizontal line ends & price breaks past line by $100: modify ALL open orders SL to LinePrice +/- $200
 
    OnTickCore();
    OnTickPerformanceEnd(tickStartMs);
@@ -5546,6 +5582,8 @@ bool IsSslOrderInLoss(int orderType, double lossThresholdUSD = 0.0)
          string comm = OrderComment();
          if(StringFind(comm, "SSL Long", 0) >= 0 ||
             StringFind(comm, "SSL Short", 0) >= 0 ||
+            StringFind(comm, "EQH-R Short", 0) >= 0 ||
+            StringFind(comm, "EQH-G Long", 0) >= 0 ||
             StringFind(comm, "SSL Profit ReEntry", 0) >= 0 ||
             StringFind(comm, "ReEntry", 0) >= 0 ||
             StringFind(comm, "SSL", 0) >= 0)
@@ -6977,7 +7015,8 @@ int SafeOrderSend(string symbol,int orderType,double lots,double price,int slipp
             return -1;
            }
      }
-
+   if(EMADirection != requestedDirection && (GetDistanceToEMAPrice(requestedDirection == 1 ? OP_BUY : OP_SELL, true) < 500.0 || (TimeCurrent() - EmaFlipTime < 60*60))) // 1 hour
+      return -1;
    if(!IsEmaWEAKDistanceReduced50PercentFromPeak() && EMADirection!= requestedDirection)
       return -1;
 
@@ -7530,13 +7569,13 @@ bool CanModifyStopLossForHigherProfit(int ticket, double proposedSL, string call
    double oLots     = OrderLots();
    double normPropSL= NormalizeDouble(proposedSL, Digits);
 
-   // 1. If order currently has NO Stop Loss, any valid SL is permitted
+// 1. If order currently has NO Stop Loss, any valid SL is permitted
    if(curSL <= 0.0)
       return true;
 
    curSL = NormalizeDouble(curSL, Digits);
 
-   // 2. Evaluate BUY order: Higher profit strictly requires proposedSL > currentSL
+// 2. Evaluate BUY order: Higher profit strictly requires proposedSL > currentSL
    if(oType == OP_BUY)
      {
       if(normPropSL <= curSL)
@@ -7559,7 +7598,7 @@ bool CanModifyStopLossForHigherProfit(int ticket, double proposedSL, string call
       return true;
      }
 
-   // 3. Evaluate SELL order: Higher profit strictly requires proposedSL < currentSL
+// 3. Evaluate SELL order: Higher profit strictly requires proposedSL < currentSL
    if(oType == OP_SELL)
      {
       if(normPropSL >= curSL)
@@ -7617,15 +7656,16 @@ bool SafeOrderModify(int ticket,double openPrice,double stopLoss,double takeProf
          return false;
         }
      }
-   else if(requestedSL <= 0.0 && OrderStopLoss() > 0.0)
-     {
-      double curLockedUSD = CalcOrderLockedProfitUSD(orderType, OrderOpenPrice(), OrderStopLoss(), OrderLots());
-      if(curLockedUSD > 0.0)
+   else
+      if(requestedSL <= 0.0 && OrderStopLoss() > 0.0)
         {
-         Print(">>> [ZERO SL BLOCKED] Ticket #", ticket, " currently locks +$", DoubleToString(curLockedUSD, 2), " profit. Cannot remove SL!");
-         return false;
+         double curLockedUSD = CalcOrderLockedProfitUSD(orderType, OrderOpenPrice(), OrderStopLoss(), OrderLots());
+         if(curLockedUSD > 0.0)
+           {
+            Print(">>> [ZERO SL BLOCKED] Ticket #", ticket, " currently locks +$", DoubleToString(curLockedUSD, 2), " profit. Cannot remove SL!");
+            return false;
+           }
         }
-     }
    bool sameSL = (requestedSL <= 0.0 && OrderStopLoss() <= 0.0) || (requestedSL > 0.0 && MathAbs(OrderStopLoss() - requestedSL) < MinimumSLModifyGapRaw);
    bool sameTP = (requestedTP <= 0.0 && OrderTakeProfit() <= 0.0) || (requestedTP > 0.0 && MathAbs(OrderTakeProfit() - requestedTP) <= Point);
    if(sameSL && sameTP)
@@ -9416,7 +9456,7 @@ int GetActiveLsdSweepSignalForGap()
    if(sig == 0)
       return 0;
 
-   // Check duration if configured (> 0 min)
+// Check duration if configured (> 0 min)
    if(InpLsdSweepGapDurationMinutes > 0)
      {
       datetime sigTime = g_rememberedSweepBarTime;
@@ -9576,7 +9616,7 @@ void ChangeLots(double OpenPL, string reason, int orderType, int stoplevelStep,s
   {
    double MaxRecoveryLot =0.05;//0.10;// 0.05;
    double oppositeLots = GetOppositeOrdersLots(orderType);
-   bool isSSLSignal = (reason == "SSL Long" || reason == "SSL Short");
+   bool isSSLSignal = (reason == "SSL Long" || reason == "SSL Short" || reason == "EQH-R Short" || reason == "EQH-G Long");
    bool isSSLProfitReEntry = (reason == "SSL Profit ReEntry Buy Stop" || reason == "SSL Profit ReEntry Sell Stop");
 
 
@@ -9925,13 +9965,13 @@ void ChangeLots(double OpenPL, string reason, int orderType, int stoplevelStep,s
 
    if(IsLsdSweepGreenLinePresent() && GlobalSSLDirection==-1)
      {
-      Lots = 0.01;
+      //Lots = 0.01;
      }
 
 
    if(IsLsdSweepRedLinePresent() && GlobalSSLDirection==1)
      {
-      Lots = 0.01;
+      //Lots = 0.01;
      }
 
 //
@@ -10025,10 +10065,10 @@ void ChangeLots(double OpenPL, string reason, int orderType, int stoplevelStep,s
 
 
       if(GlobalSSLDirection != EMADirection)
-         Lots = 0.04;
+         Lots = 0.02;
 
-      else
-         Lots = 0.01;
+      //else
+      // Lots = 0.0;
 
      }
 
@@ -10057,6 +10097,13 @@ void ChangeLots(double OpenPL, string reason, int orderType, int stoplevelStep,s
    */
 
 
+   if(!IsEmaWEAKDistanceReduced50PercentFromPeak(OP_BUY) && Lots==0.01 && EMADirection==1 &&  GetOpenPL(OP_SELL)<=-5)
+      Lots = 0.02;
+
+   if(!IsEmaWEAKDistanceReduced50PercentFromPeak(OP_SELL) && Lots==0.01 && EMADirection==-1 &&  GetOpenPL(OP_BUY)<=-5)
+      Lots = 0.02;
+
+
    if(!IsEmaWEAKDistanceReduced50PercentFromPeak(orderType) && Lots==0.01 && EMADirection==1 &&  GetOpenPL(OP_BUY)<=-20)
       Lots = 0.02;
 
@@ -10064,7 +10111,7 @@ void ChangeLots(double OpenPL, string reason, int orderType, int stoplevelStep,s
       Lots = 0.02;
 
 
-   if(CountOrdersByType(orderType)<=2 && Lots==0.01)
+   if(CountOrdersByType((orderType == OP_BUY || orderType == OP_BUYSTOP || orderType == OP_BUYLIMIT) ? OP_SELL : OP_BUY)==0 && Lots==0.01)
       Lots = 0.02;
 
 
@@ -10418,7 +10465,7 @@ void CheckRecoveryOrders()
          continue;
 
       bool validParent = false;
-      if(StringFind(comment, "SSL Long") >= 0 || StringFind(comment, "SSL Short") >= 0 || StringFind(comment, "ReEntry") >= 0)
+      if(StringFind(comment, "SSL Long") >= 0 || StringFind(comment, "SSL Short") >= 0 || StringFind(comment, "ReEntry") >= 0 || StringFind(comment, "EQH-") >= 0)
          validParent = true;
       if(!validParent)
          continue;
@@ -10500,7 +10547,7 @@ void CheckRecoveryOrders()
 //+------------------------------------------------------------------+
 void ManageRecoveryBasket()
   {
-   if(!EnableRecoveryOrders && !InpEnableLsdStructuralRecovery && !InpEnableType3Recovery && !InpEnableHedgeRecovery)
+   if(!EnableRecoveryOrders && !InpEnableLsdStructuralRecovery && !InpEnableType3Recovery && !InpEnableHedgeRecovery && !InpEnableHorizontalLineRecovery)
       return;
 
    for(int i = OrdersTotal() - 1; i >= 0; i--)
@@ -10835,7 +10882,7 @@ void CheckLsdStructuralRecoveryOrders()
          continue;
 
       // Only rescue regular trades (SSL Long, SSL Short, ReEntry)
-      bool validParent = (StringFind(comment, "SSL Long") >= 0 || StringFind(comment, "SSL Short") >= 0 || StringFind(comment, "ReEntry") >= 0);
+      bool validParent = (StringFind(comment, "SSL Long") >= 0 || StringFind(comment, "SSL Short") >= 0 || StringFind(comment, "ReEntry") >= 0 || StringFind(comment, "EQH-") >= 0);
       if(!validParent)
          continue;
 
@@ -11049,7 +11096,7 @@ void CheckType3WeakEmaRecoveryOrders()
          continue;
 
       // Only rescue regular trades (SSL Long, SSL Short, ReEntry)
-      bool validParent = (StringFind(comment, "SSL Long") >= 0 || StringFind(comment, "SSL Short") >= 0 || StringFind(comment, "ReEntry") >= 0);
+      bool validParent = (StringFind(comment, "SSL Long") >= 0 || StringFind(comment, "SSL Short") >= 0 || StringFind(comment, "ReEntry") >= 0 || StringFind(comment, "EQH-") >= 0);
       if(!validParent)
          continue;
 
@@ -11213,7 +11260,7 @@ void CheckTrendShiftHedgeRecoveryOrders()
          continue;
 
       // Only rescue regular trades (SSL Long, SSL Short, ReEntry)
-      bool validParent = (StringFind(comment, "SSL Long") >= 0 || StringFind(comment, "SSL Short") >= 0 || StringFind(comment, "ReEntry") >= 0);
+      bool validParent = (StringFind(comment, "SSL Long") >= 0 || StringFind(comment, "SSL Short") >= 0 || StringFind(comment, "ReEntry") >= 0 || StringFind(comment, "EQH-") >= 0);
       if(!validParent)
          continue;
 
@@ -12987,12 +13034,15 @@ bool   LowestEquityInitialized    = false;
 double g_equityLadderNextTarget   = 0.0;
 int    g_equityLadderStepCounter  = 0;
 
+//+------------------------------------------------------------------+
+//|                                                                  |
+//+------------------------------------------------------------------+
 void EquityProfitLadder5()
   {
    if(!InpEnableEquityProfitLadder5)
       return;
 
-   // 1. Count active symbol & magic market orders (excluding recovery orders)
+// 1. Count active symbol & magic market orders (excluding recovery orders)
    int openCount = 0;
    for(int i = OrdersTotal() - 1; i >= 0; i--)
      {
@@ -13008,7 +13058,7 @@ void EquityProfitLadder5()
          openCount++;
      }
 
-   // 2. If no open market orders, keep tracking synchronized with current balance/equity
+// 2. If no open market orders, keep tracking synchronized with current balance/equity
    if(openCount == 0)
      {
       LowestEquity              = AccountEquity();
@@ -13024,7 +13074,7 @@ void EquityProfitLadder5()
    if(stepUSD <= 0.0)
       stepUSD = 5.0;
 
-   // 3. First run / Initialization with open orders
+// 3. First run / Initialization with open orders
    if(!LowestEquityInitialized || LowestEquity <= 0.0)
      {
       LowestEquity              = curEquity;
@@ -13039,7 +13089,7 @@ void EquityProfitLadder5()
       return;
      }
 
-   // 4. Equity makes a new low (Drawdown tracking downwards)
+// 4. Equity makes a new low (Drawdown tracking downwards)
    if(curEquity < LowestEquity)
      {
       LowestEquity             = curEquity;
@@ -13047,7 +13097,7 @@ void EquityProfitLadder5()
       return;
      }
 
-   // 5. Equity moved UP by step ($5 * multiplier) from the low
+// 5. Equity moved UP by step ($5 * multiplier) from the low
    if(curEquity >= g_equityLadderNextTarget)
      {
       g_equityLadderStepCounter++;
@@ -13084,6 +13134,9 @@ void EquityProfitLadder5()
      }
   }
 
+//+------------------------------------------------------------------+
+//|                                                                  |
+//+------------------------------------------------------------------+
 void MonitorLowestEquityRecovery()
   {
    EquityProfitLadder5();
@@ -13155,22 +13208,23 @@ void ModifyAllOrdersWithEquityLadderSL(double slGapRaw)
             shouldModify = true;
            }
         }
-      else if(oType == OP_SELL)
-        {
-         proposedSL = NormalizeDouble(curAsk + slGapRaw, Digits);
-         if((proposedSL - curAsk) < minDistance)
-            proposedSL = NormalizeDouble(curAsk + minDistance, Digits);
-
-         // Ensure SL is strictly valid above Ask
-         if(proposedSL <= curAsk)
-            continue;
-
-         // For SELL: Set if no SL (0.0), or only move SL forward (lower) by at least MinimumSLModifyGapRaw ($25)
-         if(curSL == 0.0 || (proposedSL < curSL && (curSL - proposedSL) >= MinimumSLModifyGapRaw))
+      else
+         if(oType == OP_SELL)
            {
-            shouldModify = true;
+            proposedSL = NormalizeDouble(curAsk + slGapRaw, Digits);
+            if((proposedSL - curAsk) < minDistance)
+               proposedSL = NormalizeDouble(curAsk + minDistance, Digits);
+
+            // Ensure SL is strictly valid above Ask
+            if(proposedSL <= curAsk)
+               continue;
+
+            // For SELL: Set if no SL (0.0), or only move SL forward (lower) by at least MinimumSLModifyGapRaw ($25)
+            if(curSL == 0.0 || (proposedSL < curSL && (curSL - proposedSL) >= MinimumSLModifyGapRaw))
+              {
+               shouldModify = true;
+              }
            }
-        }
 
       if(shouldModify && proposedSL > 0.0)
         {
@@ -15275,7 +15329,7 @@ void UpdateDashboard(DailyProtectionState &state)
    if(safeWorkingBuffer <= 0.0)
       safeWorkingBuffer = 500.0;
 
-   // Withdrawal is strictly based on equity/balance ABOVE the  minimum buffer
+// Withdrawal is strictly based on equity/balance ABOVE the  minimum buffer
    double maxSafeWithdraw = MathMax(0.0, effectiveCap - safeWorkingBuffer);
    double recWithdraw = 0.0;
    string wdNote = "";
@@ -16800,19 +16854,41 @@ void ManageLsdSweepLineStopLossProtection()
 //+------------------------------------------------------------------+
 //+------------------------------------------------------------------+
 //| SendLsdRedLineSellOrder:                                         |
-//| Sends immediate market SELL order ("SSL Short") without any      |
+//| Sends immediate market SELL order ("EQH-R Short") without any      |
 //| condition, with lot 0.02 * multiplier.                           |
 //+------------------------------------------------------------------+
-int SendLsdRedLineSellOrder(double sellLot)
+int SendLsdRedLineSellOrder(double sellLot, double linePrice = 0.0)
   {
    RefreshRates();
-   double slDistance = (StopLossRawPriceGap > 0.0) ? StopLossRawPriceGap : 3000.0;
-   double tpDistance = (TakeProfitRawPriceGap > 0.0) ? TakeProfitRawPriceGap : 500.0;
-   double stopLoss   = (slDistance > 0.0) ? NormalizeDouble(Bid + slDistance, Digits) : 0.0;
+   double slDistance  = (StopLossRawPriceGap > 0.0) ? StopLossRawPriceGap : 3000.0;
+   double tpDistance  = (TakeProfitRawPriceGap > 0.0) ? TakeProfitRawPriceGap : 500.0;
+   double minStopDist = GetRequiredStopDistance();
+   if(minStopDist < Point * 10)
+      minStopDist = Point * 10;
+
+   double stopLoss = 0.0;
+   double offset   = (InpLinePriceSLOffsetRaw != 0.0) ? InpLinePriceSLOffsetRaw : 50.0;
+
+// USER RULE: First order after horizontal line is started: SL = Line Price + 50
+   if(linePrice > 0.0)
+     {
+      double lineSL = NormalizeDouble(linePrice + offset, Digits);
+      if(lineSL > (Ask + minStopDist))
+         stopLoss = lineSL;
+      else
+         if(slDistance > 0.0)
+            stopLoss = NormalizeDouble(Bid + slDistance, Digits);
+     }
+   else
+      if(slDistance > 0.0)
+        {
+         stopLoss = NormalizeDouble(Bid + slDistance, Digits);
+        }
+
    double takeProfit = (tpDistance > 0.0) ? NormalizeDouble(Bid - tpDistance, Digits) : 0.0;
 
    ResetLastError();
-   int ticket = OrderSend(Symbol(), OP_SELL, sellLot, Bid, Slippage, stopLoss, takeProfit, "SSL Short", MagicNumber, 0, SellColor);
+   int ticket = OrderSend(Symbol(), OP_SELL, sellLot, Bid, Slippage, stopLoss, takeProfit, "EQH-R Short", MagicNumber, 0, SellColor);
    if(ticket < 0)
      {
       int err = GetLastError();
@@ -16820,7 +16896,7 @@ int SendLsdRedLineSellOrder(double sellLot)
       if(err == 130 || err == 4107)
         {
          ResetLastError();
-         ticket = OrderSend(Symbol(), OP_SELL, sellLot, Bid, Slippage, 0, 0, "SSL Short", MagicNumber, 0, SellColor);
+         ticket = OrderSend(Symbol(), OP_SELL, sellLot, Bid, Slippage, 0, 0, "EQH-R Short", MagicNumber, 0, SellColor);
          if(ticket > 0 && (stopLoss > 0.0 || takeProfit > 0.0))
            {
             SafeOrderModify(ticket, OrderOpenPrice(), stopLoss, takeProfit, 0, SellColor);
@@ -16834,16 +16910,144 @@ int SendLsdRedLineSellOrder(double sellLot)
       OrderCreatedThisCandle = true;
       LastOrderCandleTime    = Time[0];
       Print(">>> [NEW RED LINE] Successfully opened immediate market SELL order Ticket #", ticket,
-            " 'SSL Short' Lots=", DoubleToString(sellLot, 2), " OpenPrice=", DoubleToString(Bid, Digits),
-            " SL=", DoubleToString(stopLoss, Digits), " TP=", DoubleToString(takeProfit, Digits));
+            " 'EQH-R Short' Lots=", DoubleToString(sellLot, 2), " OpenPrice=", DoubleToString(Bid, Digits),
+            " SL=", DoubleToString(stopLoss, Digits), " (LinePrice=", DoubleToString(linePrice, Digits),
+            ", Line+50=", DoubleToString(linePrice + offset, Digits), ") TP=", DoubleToString(takeProfit, Digits));
      }
    else
      {
-      Print(">>> [NEW RED LINE] OrderSend OP_SELL 'SSL Short' failed. Error=", GetLastError());
+      Print(">>> [NEW RED LINE] OrderSend OP_SELL 'EQH-R Short' failed. Error=", GetLastError());
      }
    return ticket;
   }
 
+//+------------------------------------------------------------------+
+//| GetSmallestLossOrderTicket:                                      |
+//| USER RULE: "When horizantal line is started. create recovery     |
+//| order which is smallest loss amount. if RED line started create  |
+//| immidtate recovery order for lowest open sell order. same logic  |
+//| for GREEN horizontal line"                                       |
+//| Finds the open market order of targetType with the SMALLEST      |
+//| dollar loss amount (closest to $0 loss / breakeven).             |
+//| Respects recovery attempt shield and max 1 recovery per parent.  |
+//+------------------------------------------------------------------+
+int GetSmallestLossOrderTicket(int targetType)
+  {
+   int bestTicket = -1;
+   double smallestLoss = 999999999.0;
+
+   for(int i = OrdersTotal() - 1; i >= 0; i--)
+     {
+      if(!OrderSelect(i, SELECT_BY_POS, MODE_TRADES))
+         continue;
+      if(OrderMagicNumber() != MagicNumber || OrderSymbol() != Symbol())
+         continue;
+      if(OrderType() != targetType)
+         continue;
+
+      int tkt = OrderTicket();
+      string comm = OrderComment();
+
+      // Skip recovery orders and support orders
+      if(StringFind(comm, "RECOVERY_") >= 0 || IsFLIPBasketSupportOrder(tkt, comm))
+         continue;
+
+      // Parent must not already have an active recovery order
+      if(HasRecoveryOrder(tkt))
+         continue;
+
+      // Respect 1-attempt shield if enabled
+      if(InpEnableRecoveryAttemptShield && HasParentExhaustedRecoveryAttempts(tkt))
+         continue;
+
+      double pl = OrderProfit() + OrderSwap() + OrderCommission();
+      // Must be strictly in loss (pl < 0.0)
+      if(pl < 0.0)
+        {
+         double lossAmount = MathAbs(pl);
+         if(lossAmount < smallestLoss)
+           {
+            smallestLoss = lossAmount;
+            bestTicket   = tkt;
+           }
+        }
+     }
+
+   return bestTicket;
+  }
+
+//+------------------------------------------------------------------+
+//| CreateHorizontalLineRecoveryOrder:                               |
+//| Creates immediate recovery order for losing parent order at      |
+//| the newly started horizontal line price.                         |
+//| Lots = 2.0x parent lot (InpLsdRecoveryLotMultiplier).            |
+//| Managed by ManageRecoveryBasket() targeting +$2.00 net basket.   |
+//+------------------------------------------------------------------+
+int CreateHorizontalLineRecoveryOrder(int parentTicket, int orderType, double linePrice)
+  {
+   if(!OrderSelect(parentTicket, SELECT_BY_TICKET, MODE_TRADES))
+      return -1;
+
+   double parentLots = OrderLots();
+   double parentLoss = OrderProfit() + OrderSwap() + OrderCommission();
+   double mult = (InpLsdRecoveryLotMultiplier > 0.0) ? InpLsdRecoveryLotMultiplier : 2.0;
+   double recLots = NormalizeLots(parentLots * mult);
+   if(recLots <= 0.0)
+      recLots = parentLots * 2.0;
+
+   RefreshRates();
+   double livePrice = (orderType == OP_BUY) ? Ask : Bid;
+   double slDist = (InpLsdRecoveryStopLossRaw > 0.0) ? InpLsdRecoveryStopLossRaw : 3000.0;
+   double tpDist = (InpLsdRecoveryTakeProfitRaw > 0.0) ? InpLsdRecoveryTakeProfitRaw : 500.0;
+
+   double recSL = 0.0;
+   double recTP = 0.0;
+   color arrowColor = clrNONE;
+
+   if(orderType == OP_BUY)
+     {
+      recSL = (slDist > 0.0) ? NormalizeDouble(livePrice - slDist, Digits) : 0.0;
+      recTP = (tpDist > 0.0) ? NormalizeDouble(livePrice + tpDist, Digits) : 0.0;
+      arrowColor = clrAqua;
+     }
+   else // OP_SELL
+     {
+      recSL = (slDist > 0.0) ? NormalizeDouble(livePrice + slDist, Digits) : 0.0;
+      recTP = (tpDist > 0.0) ? NormalizeDouble(livePrice - tpDist, Digits) : 0.0;
+      arrowColor = clrMagenta;
+     }
+
+   string recComment = "RECOVERY_" + IntegerToString(parentTicket) + "_LSD";
+   ResetLastError();
+   int recTicket = OrderSend(Symbol(), orderType, recLots, livePrice, Slippage, recSL, recTP, recComment, MagicNumber, 0, arrowColor);
+   if(recTicket < 0 && GetLastError() == 130)
+     {
+      ResetLastError();
+      recTicket = OrderSend(Symbol(), orderType, recLots, livePrice, Slippage, 0, 0, recComment, MagicNumber, 0, arrowColor);
+      if(recTicket > 0 && (recSL > 0.0 || recTP > 0.0))
+         SafeOrderModify(recTicket, livePrice, recSL, recTP, 0, arrowColor);
+     }
+
+   if(recTicket > 0)
+     {
+      RegisterParentRecoveryAttempt(parentTicket);
+      OrderCreatedThisCandle = true;
+      LastOrderCandleTime    = Time[0];
+      Print(">>> [HORIZONTAL LINE RECOVERY] Created ", (orderType == OP_BUY ? "BUY" : "SELL"),
+            " Recovery Order #", recTicket, " Lots=", DoubleToString(recLots, 2),
+            " (2.0x of Parent #", parentTicket, " Lots=", DoubleToString(parentLots, 2),
+            ") at Market=", DoubleToString(livePrice, Digits),
+            " for Parent with SMALLEST Loss=$", DoubleToString(parentLoss, 2),
+            " | SL=", DoubleToString(recSL, Digits), " TP=", DoubleToString(recTP, Digits));
+     }
+   else
+     {
+      Print(">>> [HORIZONTAL LINE RECOVERY] Failed to create Recovery Order for Parent #", parentTicket,
+            " | Error=", GetLastError());
+     }
+
+   return recTicket;
+  }
 //+------------------------------------------------------------------+
 //| CheckNewRedLineCloseBuyAndOpenSell:                              |
 //| USER RULE:                                                       |
@@ -16851,6 +17055,182 @@ int SendLsdRedLineSellOrder(double sellLot)
 //|  if any BUY order is open and loss is less than $1Xmultipler     |
 //|  close buy open orders . and create NEW sell order SSL Short     |
 //|  with LOT 0.02Xmultipler immiditaly without any condition"       |
+//+------------------------------------------------------------------+
+//+------------------------------------------------------------------+
+//| GetFirstOpenOrderTicket: Returns ticket of FIRST (oldest) open   |
+//| order of the specified type (OP_BUY or OP_SELL).                 |
+//| USER RULE: "this is only for first order ."                      |
+//+------------------------------------------------------------------+
+int GetFirstOpenOrderTicket(int targetType)
+  {
+   int firstTicket = -1;
+   datetime earliestTime = 0;
+
+   for(int i = OrdersTotal() - 1; i >= 0; i--)
+     {
+      if(!OrderSelect(i, SELECT_BY_POS, MODE_TRADES))
+         continue;
+      if(OrderSymbol() != Symbol() || OrderMagicNumber() != MagicNumber)
+         continue;
+      if(OrderType() != targetType)
+         continue;
+
+      datetime oTime = OrderOpenTime();
+      if(earliestTime == 0 || oTime < earliestTime)
+        {
+         earliestTime = oTime;
+         firstTicket = OrderTicket();
+        }
+      else
+         if(oTime == earliestTime)
+           {
+            // Tie-breaker: lowest ticket number
+            if(firstTicket == -1 || OrderTicket() < firstTicket)
+              {
+               firstTicket = OrderTicket();
+              }
+           }
+     }
+   return firstTicket;
+  }
+
+//+------------------------------------------------------------------+
+//| TryModifyOrderStopLossToLinePrice:                               |
+//| USER RULE: "BUY order is open and RED horizontal line is started |
+//|  . try to modify BUY order stoploss with Line price.             |
+//|  same logic apply to GREEN line also"                            |
+//| USER UPDATE: "Modify Order Stop Loss with Line Price+50"         |
+//| USER UPDATE: "this is only for first order ."                    |
+//+------------------------------------------------------------------+
+bool TryModifyOrderStopLossToLinePrice(int ticket, double linePrice, string lineName)
+  {
+   if(linePrice <= 0.0)
+      return false;
+   if(!OrderSelect(ticket, SELECT_BY_TICKET, MODE_TRADES))
+      return false;
+
+   int oType        = OrderType();
+   double oOpen     = OrderOpenPrice();
+   double curSL     = OrderStopLoss();
+   double curTP     = OrderTakeProfit();
+   double minStopDist = GetRequiredStopDistance();
+   if(minStopDist < Point * 10)
+      minStopDist = Point * 10;
+
+// USER RULE: "this is only for first order ."
+   if(InpModifyLinePriceSLOnlyFirstOrder)
+     {
+      int firstTkt = GetFirstOpenOrderTicket(oType);
+      if(firstTkt > 0 && ticket != firstTkt)
+        {
+         Print(">>> [LINE SL MODIFY SKIPPED] Ticket #", ticket, " is NOT the first open ",
+               (oType == OP_BUY ? "BUY" : "SELL"), " order (First Order is #", firstTkt,
+               "). Rule: Line Price StopLoss modification applies ONLY to the first order!");
+         return false;
+        }
+     }
+
+   RefreshRates();
+   double targetSL = 0.0;
+   bool canModify = false;
+   double offset = (InpLinePriceSLOffsetRaw != 0.0) ? InpLinePriceSLOffsetRaw : 50.0;
+
+   if(oType == OP_BUY)
+     {
+      // USER RULE: "Modify Order Stop Loss with Line Price+50"
+      targetSL = NormalizeDouble(linePrice + offset, Digits);
+
+      if(targetSL >= (Bid - minStopDist))
+        {
+         // CRITICAL: Stop loss cannot be above or at market price for BUY order!
+         // DO NOT force to Bid - minStopDist (which chokes the order to death).
+         // Leave existing SL untouched!
+         Print(">>> [LINE SL MODIFY SKIPPED] First BUY Order #", ticket, " target (LinePrice+50=", DoubleToString(targetSL, Digits),
+               ") is >= Bid (", DoubleToString(Bid, Digits), "). Broker requires SL < Bid - StopLevel. Leaving SL untouched!");
+         return false;
+        }
+
+      if(targetSL > 0.0)
+        {
+         // Never widen SL: targetSL must be strictly higher than curSL (or curSL == 0)
+         if(curSL == 0.0 || targetSL > (curSL + Point * 5))
+           {
+            canModify = true;
+           }
+         else
+           {
+            Print(">>> [LINE SL MODIFY SKIPPED] First BUY Order #", ticket, " target SL ", DoubleToString(targetSL, Digits),
+                  " <= current SL ", DoubleToString(curSL, Digits), ". Keeping higher/tighter current SL!");
+            return false;
+           }
+        }
+     }
+   else
+      if(oType == OP_SELL)
+        {
+         // USER RULE: "same logic apply to GREEN line also"
+         // For SELL order: SL must be strictly above Ask + minStopDist.
+         targetSL = NormalizeDouble(linePrice + offset, Digits);
+
+         if(targetSL <= (Ask + minStopDist))
+           {
+            // CRITICAL: Stop loss cannot be below or at market price for SELL order!
+            // DO NOT force to Ask + minStopDist (which chokes the order to death).
+            // Leave existing SL untouched!
+            Print(">>> [LINE SL MODIFY SKIPPED] First SELL Order #", ticket, " target (LinePrice+50=", DoubleToString(targetSL, Digits),
+                  ") is <= Ask (", DoubleToString(Ask, Digits), "). Broker requires SL > Ask + StopLevel. Leaving SL untouched!");
+            return false;
+           }
+
+         if(targetSL > 0.0)
+           {
+            // Never widen SL: targetSL must be strictly lower than curSL (or curSL == 0)
+            if(curSL == 0.0 || targetSL < (curSL - Point * 5))
+              {
+               canModify = true;
+              }
+            else
+              {
+               Print(">>> [LINE SL MODIFY SKIPPED] First SELL Order #", ticket, " target SL ", DoubleToString(targetSL, Digits),
+                     " >= current SL ", DoubleToString(curSL, Digits), ". Keeping lower/tighter current SL!");
+               return false;
+              }
+           }
+        }
+
+   if(canModify)
+     {
+      Print(">>> [LINE SL MODIFY] Modifying FIRST ", (oType == OP_BUY ? "BUY" : "SELL"), " Order #", ticket,
+            " SL with ", lineName, " Price+50: NewSL=", DoubleToString(targetSL, Digits),
+            " (OldSL=", DoubleToString(curSL, Digits), ", LinePrice=", DoubleToString(linePrice, Digits),
+            ", Offset=+$", DoubleToString(offset, 2), ")");
+      bool res = SafeOrderModify(ticket, oOpen, targetSL, curTP, 0, (oType == OP_BUY ? clrGold : clrOrange));
+      return res;
+     }
+
+   return false;
+  }
+//+------------------------------------------------------------------+
+//| GetSmallestLossOrderTicket:                                      |
+//| USER RULE: "When horizantal line is started. create recovery     |
+//| order which is smallest loss amount. if RED line started create  |
+//| immidtate recovery order for lowest open sell order. same logic  |
+//| for GREEN horizontal line"                                       |
+//| Finds the open market order of targetType with the SMALLEST      |
+//| dollar loss amount (closest to $0 loss / breakeven).             |
+//| Respects recovery attempt shield and max 1 recovery per parent.  |
+//+------------------------------------------------------------------+
+//| CheckNewRedLineCloseBuyAndOpenSell:                              |
+//| USER RULE:                                                       |
+//| "BUY order is open , new red hotizontal line is started .        |
+//|  if any BUY order is open and loss is less than $1Xmultipler     |
+//|  close buy open orders . and create NEW sell order SSL Short     |
+//|  with LOT 0.02Xmultipler immiditaly without any condition"       |
+//| USER RULE: "Do not create any HOrizontal line orders when gap    |
+//|  between horizontal line and EMAdirection gap is <$200 gap"      |
+//| USER RULE: "BUY order is open and RED horizontal line is started |
+//|  . try to modify BUY order stoploss with Line price -> this is   |
+//|  only for first order ."                                         |
 //+------------------------------------------------------------------+
 void CheckNewRedLineCloseBuyAndOpenSell()
   {
@@ -16863,34 +17243,98 @@ void CheckNewRedLineCloseBuyAndOpenSell()
    if(curEqhStart <= 0)
       return;
 
-   // Check if this red horizontal line is NEW (not handled yet)
+// Check if this red horizontal line is NEW (not handled yet)
    static datetime s_lastHandledRedLineStart = 0;
-   if(s_lastHandledRedLineStart == 0)
+
+// If already handled this red horizontal line, exit immediately
+   if(curEqhStart == s_lastHandledRedLineStart)
+      return;
+
+// Check if an order was already created for this red line
+   if(HasOrderBeenCreatedForLsdLine("EQHR", curEqhStart))
      {
-      // First tick on startup: if this line started before current candle or already has orders,
-      // mark it as handled to avoid re-triggering old historical lines
-      if(curEqhStart < Time[0] || HasOrderBeenCreatedForLsdLine("EQHR", curEqhStart))
-        {
-         s_lastHandledRedLineStart = curEqhStart;
-         return;
-        }
+      s_lastHandledRedLineStart = curEqhStart;
+      return;
      }
 
-   if(curEqhStart == s_lastHandledRedLineStart)
-      return; // Already processed this red horizontal line!
+// USER RULE: "Horizontal orders should create within 5 min duration when the Line is initialed . do not create horizontal orders after 5 min"
+   int maxDurationSec = (InpHorizontalLineMaxDurationSeconds > 0) ? InpHorizontalLineMaxDurationSeconds : 300;
+   static datetime s_firstDetectedEqhLineStart = 0;
+   static datetime s_firstDetectedEqhTime = 0;
+   if(curEqhStart != s_firstDetectedEqhLineStart)
+     {
+      s_firstDetectedEqhLineStart = curEqhStart;
+      s_firstDetectedEqhTime      = TimeCurrent();
+     }
+   int elapsedSec = (int)(TimeCurrent() - s_firstDetectedEqhTime);
+   if(elapsedSec > maxDurationSec)
+     {
+      static datetime s_lastExpiredLogEqh = 0;
+      if(TimeCurrent() - s_lastExpiredLogEqh >= 30)
+        {
+         s_lastExpiredLogEqh = TimeCurrent();
+         Print(">>> [RED LINE ORDER BLOCKED] EQH-R line initiated at ", TimeToStr(s_firstDetectedEqhTime, TIME_DATE|TIME_MINUTES),
+               " is older than 5 min (Elapsed=", elapsedSec, "s > ", maxDurationSec,
+               "s). Rule: Do not create horizontal orders after 5 min!");
+        }
+      s_lastHandledRedLineStart = curEqhStart;
+      g_lastOrderEqHighLineStart = curEqhStart; // Mark line as handled so it never creates later
+      return;
+     }
 
-   // A NEW RED HORIZONTAL LINE HAS STARTED!
+// USER RULE: "Do not create any HOrizontal line orders when gap between horizontal line and EMAdirection gap is <$200 gap"
+   double liveEma = iMA(Symbol(), Period(), InpEMA200Period, InpEMAPriceShift, MODE_EMA, PRICE_CLOSE, 0);
+   double eqhPrice = GetEQR_R_Price(false);
+   if(eqhPrice <= 0.0)
+      eqhPrice = g_lastEqHighPrice;
+
+   double minEmaGap = InpHorizontalLineMinEmaGapRaw;
+   double lineEmaGap = (liveEma > 0.0 && eqhPrice > 0.0) ? MathAbs(eqhPrice - liveEma) : 999999.0;
+   double priceEmaGap = (liveEma > 0.0) ? MathAbs(Bid - liveEma) : 999999.0;
+
+   if(minEmaGap > 0.0 && (lineEmaGap < minEmaGap || priceEmaGap < minEmaGap))
+     {
+      static datetime s_lastBlockedLogEqh = 0;
+      if(TimeCurrent() - s_lastBlockedLogEqh >= 30)
+        {
+         s_lastBlockedLogEqh = TimeCurrent();
+         Print(">>> [RED LINE ORDER BLOCKED] Gap between EQH-R and EMA is < $", DoubleToString(minEmaGap, 2),
+               " (Line-EMA Gap=$", DoubleToString(lineEmaGap, 2), ", Price-EMA Gap=$", DoubleToString(priceEmaGap, 2),
+               ", EQH-R=", DoubleToString(eqhPrice, Digits), ", EMA200=", DoubleToString(liveEma, Digits),
+               "). Skipping horizontal line order creation!");
+        }
+      s_lastHandledRedLineStart = curEqhStart;
+      g_lastOrderEqHighLineStart = curEqhStart; // Mark line as handled to enforce 1-order limit
+      return;
+     }
+// A NEW RED HORIZONTAL LINE HAS STARTED AND QUALIFIES!
    s_lastHandledRedLineStart = curEqhStart;
 
    double mult = (balancelomultipler > 0) ? balancelomultipler : 1.0;
    double maxLossUSD = (InpCloseBuyMaxLossUSD > 0.0) ? (InpCloseBuyMaxLossUSD * mult) : (1.0 * mult);
 
    Print(">>> [NEW RED LINE DETECTED] EQH-R line started at ", TimeToStr(curEqhStart, TIME_DATE|TIME_MINUTES),
-         " | Checking open BUY orders (Loss threshold < $", DoubleToString(maxLossUSD, 2), ")...");
+         " | Price=", DoubleToString(eqhPrice, Digits), " | EMA200=", DoubleToString(liveEma, Digits),
+         " | Gap=$", DoubleToString(lineEmaGap, 2), " (>= $", DoubleToString(minEmaGap, 2), " OK) | Closing eligible BUY orders...");
 
-   // Step 1: Scan all open BUY orders
+// Step 1: Scan and delete ALL pending BUY orders immediately (BUYSTOP / BUYLIMIT)
+// UNCONDITIONAL: Must run regardless of whether open market BUY orders exist!
+   for(int p = OrdersTotal() - 1; p >= 0; p--)
+     {
+      if(!OrderSelect(p, SELECT_BY_POS, MODE_TRADES))
+         continue;
+      if(OrderSymbol() != Symbol() || OrderMagicNumber() != MagicNumber)
+         continue;
+      int pType = OrderType();
+      if(pType == OP_BUYSTOP || pType == OP_BUYLIMIT)
+        {
+         Print(">>> [NEW RED LINE] Deleting pending BUY order #", OrderTicket(), " Type=", pType, " Lots=", DoubleToString(OrderLots(), 2));
+         SafeOrderDelete(OrderTicket(), clrYellow);
+        }
+     }
+
+// Step 2: Scan all open market BUY orders
    int openBuyCount = 0;
-   int qualifyingBuyCount = 0;
    double totalBuyPL = 0.0;
    int buyTickets[];
    double buyPLs[];
@@ -16915,19 +17359,10 @@ void CheckNewRedLineCloseBuyAndOpenSell()
       ArrayResize(buyPLs, idx + 1);
       buyTickets[idx] = OrderTicket();
       buyPLs[idx]     = pl;
-
-      // Loss is less than $1 * multiplier: pl >= -maxLossUSD
-      if(pl >= -maxLossUSD)
-        {
-         qualifyingBuyCount++;
-        }
      }
-
-   bool shouldCreateSellOrder = false;
 
    if(openBuyCount > 0)
      {
-      // If any BUY order has loss < $1*mult, or total BUY basket loss < $1*mult
       bool closeAll = (totalBuyPL >= -maxLossUSD);
 
       for(int b = 0; b < ArraySize(buyTickets); b++)
@@ -16953,36 +17388,43 @@ void CheckNewRedLineCloseBuyAndOpenSell()
                   " (Loss exceeds $", DoubleToString(maxLossUSD, 2), " limit)");
            }
         }
+     }
 
-      // Clean up any pending BUY orders (BUYSTOP / BUYLIMIT)
-      for(int p = OrdersTotal() - 1; p >= 0; p--)
+// Step 2b: USER RULE: "BUY order is open and RED horizontal line is started . try to modify BUY order stoploss with Line price -> this is only for first order ."
+   if(InpModifyOppositeOrderSLToLinePrice && eqhPrice > 0.0)
+     {
+      int firstBuyTkt = GetFirstOpenOrderTicket(OP_BUY);
+      if(firstBuyTkt > 0)
         {
-         if(!OrderSelect(p, SELECT_BY_POS, MODE_TRADES))
-            continue;
-         if(OrderSymbol() != Symbol() || OrderMagicNumber() != MagicNumber)
-            continue;
-         int pType = OrderType();
-         if(pType == OP_BUYSTOP || pType == OP_BUYLIMIT)
+         TryModifyOrderStopLossToLinePrice(firstBuyTkt, eqhPrice, "EQH-R Red Line");
+        }
+     }
+
+// Step 2c: USER RULE: "When horizantal line is started. create recovery order which is smallest loss amount.
+// if RED line started create immidtate recovery order for lowest open sell order. same logic for GREEN horizontal line"
+   int recTicket = -1;
+   if(InpEnableHorizontalLineRecovery)
+     {
+      int parentSellTicket = GetSmallestLossOrderTicket(OP_SELL);
+      if(parentSellTicket > 0)
+        {
+         recTicket = CreateHorizontalLineRecoveryOrder(parentSellTicket, OP_SELL, eqhPrice);
+         if(recTicket > 0)
            {
-            SafeOrderDelete(OrderTicket(), clrYellow);
+            g_lastOrderEqHighLineStart = curEqhStart; // Enforce 1-order-per-line limit
+            g_lastEqhSellOrderTicket   = recTicket;
            }
         }
-
-      shouldCreateSellOrder = true;
-     }
-   else
-     {
-      // No open BUY orders, but new red line started -> proceed to create SELL order
-      shouldCreateSellOrder = true;
      }
 
-   // Step 2: "and create NEW sell order SSL Short with LOT 0.02Xmultipler immiditaly without any condition"
-   if(shouldCreateSellOrder)
+// Step 3: If no recovery order was created (or if InpOpenLineOrderIfRecoveryCreated is true):
+// Create NEW sell order "EQH-R Short" with LOT InpNewEqhSellOrderLotBase * multiplier
+   if(recTicket <= 0 || InpOpenLineOrderIfRecoveryCreated)
      {
-      double baseLot = (InpNewEqhSellOrderLotBase > 0.0) ? InpNewEqhSellOrderLotBase : 0.02;
+      double baseLot = (InpNewEqhSellOrderLotBase > 0.0) ? InpNewEqhSellOrderLotBase : 0.06;
       double sellLot = NormalizeLots(baseLot * mult);
 
-      int tkt = SendLsdRedLineSellOrder(sellLot);
+      int tkt = SendLsdRedLineSellOrder(sellLot, eqhPrice);
       if(tkt > 0)
         {
          g_lastOrderEqHighLineStart = curEqhStart; // Enforce 1-order-per-line limit
@@ -16994,19 +17436,41 @@ void CheckNewRedLineCloseBuyAndOpenSell()
 //+------------------------------------------------------------------+
 //+------------------------------------------------------------------+
 //| SendLsdGreenLineBuyOrder:                                        |
-//| Sends immediate market BUY order ("SSL Long") without any        |
+//| Sends immediate market BUY order ("EQH-G Long") without any        |
 //| condition, with lot 0.02 * multiplier.                           |
 //+------------------------------------------------------------------+
-int SendLsdGreenLineBuyOrder(double buyLot)
+int SendLsdGreenLineBuyOrder(double buyLot, double linePrice = 0.0)
   {
    RefreshRates();
-   double slDistance = (StopLossRawPriceGap > 0.0) ? StopLossRawPriceGap : 3000.0;
-   double tpDistance = (TakeProfitRawPriceGap > 0.0) ? TakeProfitRawPriceGap : 500.0;
-   double stopLoss   = (slDistance > 0.0) ? NormalizeDouble(Ask - slDistance, Digits) : 0.0;
+   double slDistance  = (StopLossRawPriceGap > 0.0) ? StopLossRawPriceGap : 3000.0;
+   double tpDistance  = (TakeProfitRawPriceGap > 0.0) ? TakeProfitRawPriceGap : 500.0;
+   double minStopDist = GetRequiredStopDistance();
+   if(minStopDist < Point * 10)
+      minStopDist = Point * 10;
+
+   double stopLoss = 0.0;
+   double offset   = (InpLinePriceSLOffsetRaw != 0.0) ? InpLinePriceSLOffsetRaw : 50.0;
+
+// USER RULE: First order after horizontal line is started: SL = Line Price - 50
+   if(linePrice > 0.0)
+     {
+      double lineSL = NormalizeDouble(linePrice - offset, Digits);
+      if(lineSL < (Bid - minStopDist))
+         stopLoss = lineSL;
+      else
+         if(slDistance > 0.0)
+            stopLoss = NormalizeDouble(Ask - slDistance, Digits);
+     }
+   else
+      if(slDistance > 0.0)
+        {
+         stopLoss = NormalizeDouble(Ask - slDistance, Digits);
+        }
+
    double takeProfit = (tpDistance > 0.0) ? NormalizeDouble(Ask + tpDistance, Digits) : 0.0;
 
    ResetLastError();
-   int ticket = OrderSend(Symbol(), OP_BUY, buyLot, Ask, Slippage, stopLoss, takeProfit, "SSL Long", MagicNumber, 0, BuyColor);
+   int ticket = OrderSend(Symbol(), OP_BUY, buyLot, Ask, Slippage, stopLoss, takeProfit, "EQH-G Long", MagicNumber, 0, BuyColor);
    if(ticket < 0)
      {
       int err = GetLastError();
@@ -17014,7 +17478,7 @@ int SendLsdGreenLineBuyOrder(double buyLot)
       if(err == 130 || err == 4107)
         {
          ResetLastError();
-         ticket = OrderSend(Symbol(), OP_BUY, buyLot, Ask, Slippage, 0, 0, "SSL Long", MagicNumber, 0, BuyColor);
+         ticket = OrderSend(Symbol(), OP_BUY, buyLot, Ask, Slippage, 0, 0, "EQH-G Long", MagicNumber, 0, BuyColor);
          if(ticket > 0 && (stopLoss > 0.0 || takeProfit > 0.0))
            {
             SafeOrderModify(ticket, OrderOpenPrice(), stopLoss, takeProfit, 0, BuyColor);
@@ -17028,12 +17492,13 @@ int SendLsdGreenLineBuyOrder(double buyLot)
       OrderCreatedThisCandle = true;
       LastOrderCandleTime    = Time[0];
       Print(">>> [NEW GREEN LINE] Successfully opened immediate market BUY order Ticket #", ticket,
-            " 'SSL Long' Lots=", DoubleToString(buyLot, 2), " OpenPrice=", DoubleToString(Ask, Digits),
-            " SL=", DoubleToString(stopLoss, Digits), " TP=", DoubleToString(takeProfit, Digits));
+            " 'EQH-G Long' Lots=", DoubleToString(buyLot, 2), " OpenPrice=", DoubleToString(Ask, Digits),
+            " SL=", DoubleToString(stopLoss, Digits), " (LinePrice=", DoubleToString(linePrice, Digits),
+            ", Line-50=", DoubleToString(linePrice - offset, Digits), ") TP=", DoubleToString(takeProfit, Digits));
      }
    else
      {
-      Print(">>> [NEW GREEN LINE] OrderSend OP_BUY 'SSL Long' failed. Error=", GetLastError());
+      Print(">>> [NEW GREEN LINE] OrderSend OP_BUY 'EQH-G Long' failed. Error=", GetLastError());
      }
    return ticket;
   }
@@ -17057,34 +17522,98 @@ void CheckNewGreenLineCloseSellAndOpenBuy()
    if(curEqlStart <= 0)
       return;
 
-   // Check if this green horizontal line is NEW (not handled yet)
+// Check if this green horizontal line is NEW (not handled yet)
    static datetime s_lastHandledGreenLineStart = 0;
-   if(s_lastHandledGreenLineStart == 0)
+
+// If already handled this green horizontal line, exit immediately
+   if(curEqlStart == s_lastHandledGreenLineStart)
+      return;
+
+// Check if an order was already created for this green line
+   if(HasOrderBeenCreatedForLsdLine("EQHG", curEqlStart))
      {
-      // First tick on startup: if this line started before current candle or already has orders,
-      // mark it as handled to avoid re-triggering old historical lines
-      if(curEqlStart < Time[0] || HasOrderBeenCreatedForLsdLine("EQHG", curEqlStart))
-        {
-         s_lastHandledGreenLineStart = curEqlStart;
-         return;
-        }
+      s_lastHandledGreenLineStart = curEqlStart;
+      return;
      }
 
-   if(curEqlStart == s_lastHandledGreenLineStart)
-      return; // Already processed this green horizontal line!
+// USER RULE: "Horizontal orders should create within 5 min duration when the Line is initialed . do not create horizontal orders after 5 min"
+   int maxDurationSec = (InpHorizontalLineMaxDurationSeconds > 0) ? InpHorizontalLineMaxDurationSeconds : 300;
+   static datetime s_firstDetectedEqlLineStart = 0;
+   static datetime s_firstDetectedEqlTime = 0;
+   if(curEqlStart != s_firstDetectedEqlLineStart)
+     {
+      s_firstDetectedEqlLineStart = curEqlStart;
+      s_firstDetectedEqlTime      = TimeCurrent();
+     }
+   int elapsedSec = (int)(TimeCurrent() - s_firstDetectedEqlTime);
+   if(elapsedSec > maxDurationSec)
+     {
+      static datetime s_lastExpiredLogEql = 0;
+      if(TimeCurrent() - s_lastExpiredLogEql >= 30)
+        {
+         s_lastExpiredLogEql = TimeCurrent();
+         Print(">>> [GREEN LINE ORDER BLOCKED] EQH-G line initiated at ", TimeToStr(s_firstDetectedEqlTime, TIME_DATE|TIME_MINUTES),
+               " is older than 5 min (Elapsed=", elapsedSec, "s > ", maxDurationSec,
+               "s). Rule: Do not create horizontal orders after 5 min!");
+        }
+      s_lastHandledGreenLineStart = curEqlStart;
+      g_lastOrderEqLowLineStart = curEqlStart; // Mark line as handled so it never creates later
+      return;
+     }
 
-   // A NEW GREEN HORIZONTAL LINE HAS STARTED!
+// USER RULE: "Do not create any HOrizontal line orders when gap between horizontal line and EMAdirection gap is <$200 gap"
+   double liveEma = iMA(Symbol(), Period(), InpEMA200Period, InpEMAPriceShift, MODE_EMA, PRICE_CLOSE, 0);
+   double eqlPrice = GetEQR_G_Price(false);
+   if(eqlPrice <= 0.0)
+      eqlPrice = g_lastEqLowPrice;
+
+   double minEmaGap = InpHorizontalLineMinEmaGapRaw;
+   double lineEmaGap = (liveEma > 0.0 && eqlPrice > 0.0) ? MathAbs(eqlPrice - liveEma) : 999999.0;
+   double priceEmaGap = (liveEma > 0.0) ? MathAbs(Ask - liveEma) : 999999.0;
+
+   if(minEmaGap > 0.0 && (lineEmaGap < minEmaGap || priceEmaGap < minEmaGap))
+     {
+      static datetime s_lastBlockedLogEql = 0;
+      if(TimeCurrent() - s_lastBlockedLogEql >= 30)
+        {
+         s_lastBlockedLogEql = TimeCurrent();
+         Print(">>> [GREEN LINE ORDER BLOCKED] Gap between EQH-G and EMA is < $", DoubleToString(minEmaGap, 2),
+               " (Line-EMA Gap=$", DoubleToString(lineEmaGap, 2), ", Price-EMA Gap=$", DoubleToString(priceEmaGap, 2),
+               ", EQH-G=", DoubleToString(eqlPrice, Digits), ", EMA200=", DoubleToString(liveEma, Digits),
+               "). Skipping horizontal line order creation!");
+        }
+      s_lastHandledGreenLineStart = curEqlStart;
+      g_lastOrderEqLowLineStart = curEqlStart; // Mark line as handled to enforce 1-order limit
+      return;
+     }
+// A NEW GREEN HORIZONTAL LINE HAS STARTED AND QUALIFIES!
    s_lastHandledGreenLineStart = curEqlStart;
 
    double mult = (balancelomultipler > 0) ? balancelomultipler : 1.0;
    double maxLossUSD = (InpCloseSellMaxLossUSD > 0.0) ? (InpCloseSellMaxLossUSD * mult) : (1.0 * mult);
 
    Print(">>> [NEW GREEN LINE DETECTED] EQH-G line started at ", TimeToStr(curEqlStart, TIME_DATE|TIME_MINUTES),
-         " | Checking open SELL orders (Loss threshold < $", DoubleToString(maxLossUSD, 2), ")...");
+         " | Price=", DoubleToString(eqlPrice, Digits), " | EMA200=", DoubleToString(liveEma, Digits),
+         " | Gap=$", DoubleToString(lineEmaGap, 2), " (>= $", DoubleToString(minEmaGap, 2), " OK) | Closing eligible SELL orders...");
 
-   // Step 1: Scan all open SELL orders
+// Step 1: Scan and delete ALL pending SELL orders immediately (SELLSTOP / SELLLIMIT)
+// UNCONDITIONAL: Must run regardless of whether open market SELL orders exist!
+   for(int p = OrdersTotal() - 1; p >= 0; p--)
+     {
+      if(!OrderSelect(p, SELECT_BY_POS, MODE_TRADES))
+         continue;
+      if(OrderSymbol() != Symbol() || OrderMagicNumber() != MagicNumber)
+         continue;
+      int pType = OrderType();
+      if(pType == OP_SELLSTOP || pType == OP_SELLLIMIT)
+        {
+         Print(">>> [NEW GREEN LINE] Deleting pending SELL order #", OrderTicket(), " Type=", pType, " Lots=", DoubleToString(OrderLots(), 2));
+         SafeOrderDelete(OrderTicket(), clrYellow);
+        }
+     }
+
+// Step 2: Scan all open market SELL orders
    int openSellCount = 0;
-   int qualifyingSellCount = 0;
    double totalSellPL = 0.0;
    int sellTickets[];
    double sellPLs[];
@@ -17109,19 +17638,10 @@ void CheckNewGreenLineCloseSellAndOpenBuy()
       ArrayResize(sellPLs, idx + 1);
       sellTickets[idx] = OrderTicket();
       sellPLs[idx]     = pl;
-
-      // Loss is less than $1 * multiplier: pl >= -maxLossUSD
-      if(pl >= -maxLossUSD)
-        {
-         qualifyingSellCount++;
-        }
      }
-
-   bool shouldCreateBuyOrder = false;
 
    if(openSellCount > 0)
      {
-      // If any SELL order has loss < $1*mult, or total SELL basket loss < $1*mult
       bool closeAll = (totalSellPL >= -maxLossUSD);
 
       for(int s = 0; s < ArraySize(sellTickets); s++)
@@ -17147,36 +17667,43 @@ void CheckNewGreenLineCloseSellAndOpenBuy()
                   " (Loss exceeds $", DoubleToString(maxLossUSD, 2), " limit)");
            }
         }
+     }
 
-      // Clean up any pending SELL orders (SELLSTOP / SELLLIMIT)
-      for(int p = OrdersTotal() - 1; p >= 0; p--)
+// Step 2b: USER RULE: "same logic apply to GREEN line also -> this is only for first order ."
+   if(InpModifyOppositeOrderSLToLinePrice && eqlPrice > 0.0)
+     {
+      int firstSellTkt = GetFirstOpenOrderTicket(OP_SELL);
+      if(firstSellTkt > 0)
         {
-         if(!OrderSelect(p, SELECT_BY_POS, MODE_TRADES))
-            continue;
-         if(OrderSymbol() != Symbol() || OrderMagicNumber() != MagicNumber)
-            continue;
-         int pType = OrderType();
-         if(pType == OP_SELLSTOP || pType == OP_SELLLIMIT)
+         TryModifyOrderStopLossToLinePrice(firstSellTkt, eqlPrice, "EQH-G Green Line");
+        }
+     }
+
+// Step 2c: USER RULE: "When horizantal line is started. create recovery order which is smallest loss amount.
+// if RED line started create immidtate recovery order for lowest open sell order. same logic for GREEN horizontal line"
+   int recTicket = -1;
+   if(InpEnableHorizontalLineRecovery)
+     {
+      int parentBuyTicket = GetSmallestLossOrderTicket(OP_BUY);
+      if(parentBuyTicket > 0)
+        {
+         recTicket = CreateHorizontalLineRecoveryOrder(parentBuyTicket, OP_BUY, eqlPrice);
+         if(recTicket > 0)
            {
-            SafeOrderDelete(OrderTicket(), clrYellow);
+            g_lastOrderEqLowLineStart = curEqlStart; // Enforce 1-order-per-line limit
+            g_lastEqlBuyOrderTicket   = recTicket;
            }
         }
-
-      shouldCreateBuyOrder = true;
-     }
-   else
-     {
-      // No open SELL orders, but new green line started -> proceed to create BUY order
-      shouldCreateBuyOrder = true;
      }
 
-   // Step 2: Create NEW buy order "SSL Long" with LOT 0.02 * multiplier immediately without any condition
-   if(shouldCreateBuyOrder)
+// Step 3: If no recovery order was created (or if InpOpenLineOrderIfRecoveryCreated is true):
+// Create NEW buy order "EQH-G Long" with LOT InpNewEqlBuyOrderLotBase * multiplier
+   if(recTicket <= 0 || InpOpenLineOrderIfRecoveryCreated)
      {
-      double baseLot = (InpNewEqlBuyOrderLotBase > 0.0) ? InpNewEqlBuyOrderLotBase : 0.02;
+      double baseLot = (InpNewEqlBuyOrderLotBase > 0.0) ? InpNewEqlBuyOrderLotBase : 0.06;
       double buyLot = NormalizeLots(baseLot * mult);
 
-      int tkt = SendLsdGreenLineBuyOrder(buyLot);
+      int tkt = SendLsdGreenLineBuyOrder(buyLot, eqlPrice);
       if(tkt > 0)
         {
          g_lastOrderEqLowLineStart = curEqlStart; // Enforce 1-order-per-line limit
@@ -17203,7 +17730,7 @@ void ManageHorizontalOrderEndedStopLoss()
    if(gap < minStopDist)
       gap = minStopDist;
 
-   // 1. Check if active EQH-R (Red line) is still active on chart
+// 1. Check if active EQH-R (Red line) is still active on chart
    bool isEqhLineActive = false;
    datetime activeEqhStart = GetLsdSweepActiveEqhLineStart();
    if(activeEqhStart > 0 && activeEqhStart == g_lastOrderEqHighLineStart)
@@ -17212,7 +17739,7 @@ void ManageHorizontalOrderEndedStopLoss()
          isEqhLineActive = true;
      }
 
-   // 2. Check if active EQH-G (Green line) is still active on chart
+// 2. Check if active EQH-G (Green line) is still active on chart
    bool isEqlLineActive = false;
    datetime activeEqlStart = GetLsdSweepActiveEqlLineStart();
    if(activeEqlStart > 0 && activeEqlStart == g_lastOrderEqLowLineStart)
@@ -17224,13 +17751,22 @@ void ManageHorizontalOrderEndedStopLoss()
    bool eqhLineEnded = (!isEqhLineActive && g_lastOrderEqHighLineStart > 0);
    bool eqlLineEnded = (!isEqlLineActive && g_lastOrderEqLowLineStart > 0);
 
-   // If neither line has ended with an open order tracked, nothing to do
+// One-time modification guard per ended line
+   static datetime s_lastEndedModifiedEqhLine = 0;
+   static datetime s_lastEndedModifiedEqlLine = 0;
+
+   if(eqhLineEnded && s_lastEndedModifiedEqhLine == g_lastOrderEqHighLineStart)
+      eqhLineEnded = false;
+   if(eqlLineEnded && s_lastEndedModifiedEqlLine == g_lastOrderEqLowLineStart)
+      eqlLineEnded = false;
+
+// If neither line has ended with an open order tracked, nothing to do
    if(!eqhLineEnded && !eqlLineEnded)
       return;
 
    RefreshRates();
 
-   // 3. Scan open market orders in MODE_TRADES
+// 3. Scan open market orders in MODE_TRADES
    for(int i = OrdersTotal() - 1; i >= 0; i--)
      {
       if(!OrderSelect(i, SELECT_BY_POS, MODE_TRADES))
@@ -17243,6 +17779,8 @@ void ManageHorizontalOrderEndedStopLoss()
          continue;
 
       string comm = OrderComment();
+      if(StringFind(comm, "RECOVERY_") >= 0)
+         continue; // Recovery orders managed exclusively by ManageRecoveryBasket
       int tkt = OrderTicket();
       bool isOrderLineEnded = false;
       string lineTypeStr = "";
@@ -17255,16 +17793,18 @@ void ManageHorizontalOrderEndedStopLoss()
             isOrderLineEnded = true;
             lineTypeStr = "EQH-R Sell Order #" + IntegerToString(tkt);
            }
-         else if(StringFind(comm, "FLIPBasketSupport_LSD_EQHR") >= 0)
-           {
-            isOrderLineEnded = true;
-            lineTypeStr = "EQH-R Support";
-           }
-         else if(StringFind(comm, "SSL Short") >= 0 && MathAbs(OrderOpenTime() - g_lastOrderEqHighLineStart) <= 300)
-           {
-            isOrderLineEnded = true;
-            lineTypeStr = "SSL Short (EQH-R)";
-           }
+         else
+            if(StringFind(comm, "FLIPBasketSupport_LSD_EQHR") >= 0)
+              {
+               isOrderLineEnded = true;
+               lineTypeStr = "EQH-R Support";
+              }
+            else
+               if(StringFind(comm, "EQH-R Short") >= 0 && MathAbs(OrderOpenTime() - g_lastOrderEqHighLineStart) <= 300)
+                 {
+                  isOrderLineEnded = true;
+                  lineTypeStr = "EQH-R Short";
+                 }
         }
 
       // Check if order belongs to EQH-G line and EQH-G has ended
@@ -17275,16 +17815,18 @@ void ManageHorizontalOrderEndedStopLoss()
             isOrderLineEnded = true;
             lineTypeStr = "EQH-G Buy Order #" + IntegerToString(tkt);
            }
-         else if(StringFind(comm, "FLIPBasketSupport_LSD_EQHG") >= 0)
-           {
-            isOrderLineEnded = true;
-            lineTypeStr = "EQH-G Support";
-           }
-         else if(StringFind(comm, "SSL Long") >= 0 && MathAbs(OrderOpenTime() - g_lastOrderEqLowLineStart) <= 300)
-           {
-            isOrderLineEnded = true;
-            lineTypeStr = "SSL Long (EQH-G)";
-           }
+         else
+            if(StringFind(comm, "FLIPBasketSupport_LSD_EQHG") >= 0)
+              {
+               isOrderLineEnded = true;
+               lineTypeStr = "EQH-G Support";
+              }
+            else
+               if((StringFind(comm, "EQH-G") >= 0 || StringFind(comm, "SSL Long") >= 0) && MathAbs(OrderOpenTime() - g_lastOrderEqLowLineStart) <= 300)
+                 {
+                  isOrderLineEnded = true;
+                  lineTypeStr = "EQH-G Long";
+                 }
         }
 
       if(!isOrderLineEnded)
@@ -17312,31 +17854,192 @@ void ManageHorizontalOrderEndedStopLoss()
                continue;
            }
         }
-      else if(oType == OP_SELL)
-        {
-         newSL = NormalizeDouble(Ask + gap, Digits);
-         if(newSL <= 0.0)
-            continue;
-
-         if(newSL - Ask < minStopDist)
-            newSL = NormalizeDouble(Ask + minStopDist, Digits);
-
-         if(curSL > 0.0)
+      else
+         if(oType == OP_SELL)
            {
-            // Never widen SL: newSL must be strictly lower than curSL
-            if(curSL <= newSL)
+            newSL = NormalizeDouble(Ask + gap, Digits);
+            if(newSL <= 0.0)
                continue;
-            // Avoid modifying for tiny jitter under 5 points
-            if(MathAbs(curSL - newSL) < Point * 5)
-               continue;
+
+            if(newSL - Ask < minStopDist)
+               newSL = NormalizeDouble(Ask + minStopDist, Digits);
+
+            if(curSL > 0.0)
+              {
+               // Never widen SL: newSL must be strictly lower than curSL
+               if(curSL <= newSL)
+                  continue;
+               // Avoid modifying for tiny jitter under 5 points
+               if(MathAbs(curSL - newSL) < Point * 5)
+                  continue;
+              }
            }
-        }
 
       Print(">>> [HORIZONTAL LINE ENDED] ", lineTypeStr, " Order #", tkt, " Lots=", DoubleToString(OrderLots(), 2),
             " is open but line has ended. Modifying SL to $", DoubleToString(gap, 2), " gap from market: NewSL=",
             DoubleToString(newSL, Digits), " (OldSL=", DoubleToString(curSL, Digits), ")");
 
-      SafeOrderModify(tkt, OrderOpenPrice(), newSL, OrderTakeProfit(), 0, clrOrange);
+      bool modOk = SafeOrderModify(tkt, OrderOpenPrice(), newSL, OrderTakeProfit(), 0, clrOrange);
+      if(modOk)
+        {
+         if(isOrderLineEnded && eqhLineEnded)
+            s_lastEndedModifiedEqhLine = g_lastOrderEqHighLineStart;
+         if(isOrderLineEnded && eqlLineEnded)
+            s_lastEndedModifiedEqlLine = g_lastOrderEqLowLineStart;
+        }
+     }
+  }
+
+//+------------------------------------------------------------------+
+//| ManageHorizontalLineEndedBreakoutStopLoss:                       |
+//| USER RULE:                                                       |
+//| "Red horizontal line started and endded but market price is      |
+//|  moving above $100 the redline even red line ended. then modify  |
+//|  all open sell orders with redline current price+$200 .          |
+//|  similary logic for green horizontal line also ."                |
+//+------------------------------------------------------------------+
+void ManageHorizontalLineEndedBreakoutStopLoss()
+  {
+   if(!InpEnableLineEndedBreakoutSLModify)
+      return;
+   if(!EAStartupComplete)
+      return;
+
+   RefreshRates();
+   double minStopDist = GetRequiredStopDistance();
+   double triggerGap  = (InpLineEndedBreakoutTriggerGapRaw > 0.0) ? InpLineEndedBreakoutTriggerGapRaw : 100.0;
+   double slOffset    = (InpLineEndedBreakoutSLOffsetRaw > 0.0)   ? InpLineEndedBreakoutSLOffsetRaw   : 200.0;
+
+// =========================================================================
+// 1. RED LINE (EQH-R) ENDED & PRICE MOVING ABOVE $100 -> MODIFY ALL SELLS & DELETE PENDING
+// =========================================================================
+   double redLinePrice = g_endedEqHighPrice;
+   if(redLinePrice <= 0.0 && GetEQR_R_Price(true) <= 0.0)
+      redLinePrice = GetEQR_R_Price(false);
+
+   if(redLinePrice > 0.0 && GetEQR_R_Price(true) <= 0.0)
+     {
+      double redBreakoutLevel = redLinePrice + triggerGap;
+      if(Ask >= redBreakoutLevel || Bid >= redBreakoutLevel)
+        {
+         // 1a. USER RULE: Delete pending orders on line-ended breakout
+         if(InpLineEndedBreakoutDeletePending)
+           {
+            for(int p = OrdersTotal() - 1; p >= 0; p--)
+              {
+               if(!OrderSelect(p, SELECT_BY_POS, MODE_TRADES))
+                  continue;
+               if(OrderSymbol() != Symbol() || OrderMagicNumber() != MagicNumber)
+                  continue;
+               int pType = OrderType();
+               bool isSellPending = (pType == OP_SELLSTOP || pType == OP_SELLLIMIT);
+               bool isAnyPending  = (pType == OP_BUYSTOP  || pType == OP_BUYLIMIT || isSellPending);
+               if(InpLineEndedBreakoutDeleteAllPending ? isAnyPending : isSellPending)
+                 {
+                  Print(">>> [RED LINE ENDED +$100 BREAKOUT] Deleting pending order #", OrderTicket(),
+                        " Type=", pType, " Lots=", DoubleToString(OrderLots(), 2),
+                        " Entry=", DoubleToString(OrderOpenPrice(), Digits),
+                        " (RedLine=", DoubleToString(redLinePrice, Digits),
+                        " Ask=", DoubleToString(Ask, Digits), ")");
+                  SafeOrderDelete(OrderTicket(), clrRed);
+                 }
+              }
+           }
+
+         // 1b. Modify SL for all open market SELL orders
+         double targetSL = NormalizeDouble(redLinePrice + slOffset, Digits);
+         if(targetSL < (Ask + minStopDist))
+            targetSL = NormalizeDouble(Ask + minStopDist, Digits);
+
+         for(int i = OrdersTotal() - 1; i >= 0; i--)
+           {
+            if(!OrderSelect(i, SELECT_BY_POS, MODE_TRADES))
+               continue;
+            if(OrderSymbol() != Symbol() || OrderMagicNumber() != MagicNumber)
+               continue;
+            if(OrderType() != OP_SELL)
+               continue;
+
+            double curSL = OrderStopLoss();
+            if(curSL > 0.0 && MathAbs(curSL - targetSL) <= Point * 5)
+               continue;
+
+            Print(">>> [RED LINE ENDED +$100 BREAKOUT] Red Line (Price=", DoubleToString(redLinePrice, Digits),
+                  ") ended & price (Ask=", DoubleToString(Ask, Digits),
+                  ") >= RedLine+$", DoubleToString(triggerGap, 2), " (", DoubleToString(redBreakoutLevel, Digits),
+                  "). Modifying ALL open SELL Order #", OrderTicket(), " SL to RedLine+$", DoubleToString(slOffset, 2),
+                  ": NewSL=", DoubleToString(targetSL, Digits), " (OldSL=", DoubleToString(curSL, Digits), ")");
+
+            SafeOrderModify(OrderTicket(), OrderOpenPrice(), targetSL, OrderTakeProfit(), 0, clrRed);
+           }
+        }
+     }
+
+// =========================================================================
+// 2. GREEN LINE (EQH-G) ENDED & PRICE MOVING BELOW $100 -> MODIFY ALL BUYS & DELETE PENDING
+// =========================================================================
+   double greenLinePrice = g_endedEqLowPrice;
+   if(greenLinePrice <= 0.0 && GetEQR_G_Price(true) <= 0.0)
+      greenLinePrice = GetEQR_G_Price(false);
+
+   if(greenLinePrice > 0.0 && GetEQR_G_Price(true) <= 0.0)
+     {
+      double greenBreakoutLevel = greenLinePrice - triggerGap;
+      if(Bid <= greenBreakoutLevel || Ask <= greenBreakoutLevel)
+        {
+         // 2a. USER RULE: Delete pending orders on line-ended breakout
+         if(InpLineEndedBreakoutDeletePending)
+           {
+            for(int p = OrdersTotal() - 1; p >= 0; p--)
+              {
+               if(!OrderSelect(p, SELECT_BY_POS, MODE_TRADES))
+                  continue;
+               if(OrderSymbol() != Symbol() || OrderMagicNumber() != MagicNumber)
+                  continue;
+               int pType = OrderType();
+               bool isBuyPending = (pType == OP_BUYSTOP || pType == OP_BUYLIMIT);
+               bool isAnyPending = (pType == OP_SELLSTOP || pType == OP_SELLLIMIT || isBuyPending);
+               if(InpLineEndedBreakoutDeleteAllPending ? isAnyPending : isBuyPending)
+                 {
+                  Print(">>> [GREEN LINE ENDED -$100 BREAKOUT] Deleting pending order #", OrderTicket(),
+                        " Type=", pType, " Lots=", DoubleToString(OrderLots(), 2),
+                        " Entry=", DoubleToString(OrderOpenPrice(), Digits),
+                        " (GreenLine=", DoubleToString(greenLinePrice, Digits),
+                        " Bid=", DoubleToString(Bid, Digits), ")");
+                  SafeOrderDelete(OrderTicket(), clrGreen);
+                 }
+              }
+           }
+
+         // 2b. Modify SL for all open market BUY orders
+         double targetSL = NormalizeDouble(greenLinePrice - slOffset, Digits);
+         if(targetSL > (Bid - minStopDist))
+            targetSL = NormalizeDouble(Bid - minStopDist, Digits);
+         if(targetSL > 0.0)
+           {
+            for(int i = OrdersTotal() - 1; i >= 0; i--)
+              {
+               if(!OrderSelect(i, SELECT_BY_POS, MODE_TRADES))
+                  continue;
+               if(OrderSymbol() != Symbol() || OrderMagicNumber() != MagicNumber)
+                  continue;
+               if(OrderType() != OP_BUY)
+                  continue;
+
+               double curSL = OrderStopLoss();
+               if(curSL > 0.0 && MathAbs(curSL - targetSL) <= Point * 5)
+                  continue;
+
+               Print(">>> [GREEN LINE ENDED -$100 BREAKOUT] Green Line (Price=", DoubleToString(greenLinePrice, Digits),
+                     ") ended & price (Bid=", DoubleToString(Bid, Digits),
+                     ") <= GreenLine-$", DoubleToString(triggerGap, 2), " (", DoubleToString(greenBreakoutLevel, Digits),
+                     "). Modifying ALL open BUY Order #", OrderTicket(), " SL to GreenLine-$", DoubleToString(slOffset, 2),
+                     ": NewSL=", DoubleToString(targetSL, Digits), " (OldSL=", DoubleToString(curSL, Digits), ")");
+
+               SafeOrderModify(OrderTicket(), OrderOpenPrice(), targetSL, OrderTakeProfit(), 0, clrGreen);
+              }
+           }
+        }
      }
   }
 
@@ -17404,7 +18107,7 @@ datetime GetLsdSweepActiveEqhLineStart()
         }
      }
 
-   // Fallback: search newest EQH line on chart
+// Fallback: search newest EQH line on chart
    datetime newestTime = 0;
    for(int i = total - 1; i >= 0; i--)
      {
@@ -17444,7 +18147,7 @@ datetime GetLsdSweepActiveEqlLineStart()
         }
      }
 
-   // Fallback: search newest EQL line on chart
+// Fallback: search newest EQL line on chart
    datetime newestTime = 0;
    for(int i = total - 1; i >= 0; i--)
      {
@@ -17469,10 +18172,11 @@ int CountOrdersForLsdLine(string lineType, datetime lineStartTime, int &outPendi
    outPendingTicket = -1;
    int count = 0;
    string searchPattern = (lineType == "EQHR") ? "FLIPBasketSupport_LSD_EQHR" : "FLIPBasketSupport_LSD_EQHG";
-   string sslPattern    = (lineType == "EQHR") ? "SSL Short" : "SSL Long";
+   string eqhPattern    = (lineType == "EQHR") ? "EQH-R" : "EQH-G";
+   string sslPattern    = (lineType == "EQHR") ? "EQH-R Short" : "EQH-G Long";
    int targetTicket     = (lineType == "EQHR") ? g_lastEqhSellOrderTicket : g_lastEqlBuyOrderTicket;
 
-   // 1. Scan open positions & pending orders in MODE_TRADES
+// 1. Scan open positions & pending orders in MODE_TRADES
    for(int i = OrdersTotal() - 1; i >= 0; i--)
      {
       if(!OrderSelect(i, SELECT_BY_POS, MODE_TRADES))
@@ -17485,10 +18189,12 @@ int CountOrdersForLsdLine(string lineType, datetime lineStartTime, int &outPendi
 
       if(targetTicket > 0 && OrderTicket() == targetTicket)
          isMatch = true;
-      else if(StringFind(comm, searchPattern) >= 0)
-         isMatch = true;
-      else if(StringFind(comm, sslPattern) >= 0 && lineStartTime > 0 && MathAbs(OrderOpenTime() - lineStartTime) <= 300)
-         isMatch = true;
+      else
+         if(StringFind(comm, searchPattern) >= 0)
+            isMatch = true;
+         else
+            if((StringFind(comm, eqhPattern) >= 0 || StringFind(comm, sslPattern) >= 0) && lineStartTime > 0 && MathAbs(OrderOpenTime() - lineStartTime) <= 300)
+               isMatch = true;
 
       if(!isMatch)
          continue;
@@ -17505,7 +18211,7 @@ int CountOrdersForLsdLine(string lineType, datetime lineStartTime, int &outPendi
         }
      }
 
-   // 2. Scan trade history for closed orders in MODE_HISTORY
+// 2. Scan trade history for closed orders in MODE_HISTORY
    int histTotal = OrdersHistoryTotal();
    for(int h = histTotal - 1; h >= 0; h--)
      {
@@ -17519,10 +18225,12 @@ int CountOrdersForLsdLine(string lineType, datetime lineStartTime, int &outPendi
 
       if(targetTicket > 0 && OrderTicket() == targetTicket)
          isMatch = true;
-      else if(StringFind(comm, searchPattern) >= 0)
-         isMatch = true;
-      else if(StringFind(comm, sslPattern) >= 0 && lineStartTime > 0 && MathAbs(OrderOpenTime() - lineStartTime) <= 300)
-         isMatch = true;
+      else
+         if(StringFind(comm, searchPattern) >= 0)
+            isMatch = true;
+         else
+            if((StringFind(comm, eqhPattern) >= 0 || StringFind(comm, sslPattern) >= 0) && lineStartTime > 0 && MathAbs(OrderOpenTime() - lineStartTime) <= 300)
+               isMatch = true;
 
       if(!isMatch)
          continue;
@@ -17533,13 +18241,14 @@ int CountOrdersForLsdLine(string lineType, datetime lineStartTime, int &outPendi
         }
      }
 
-   // 3. In-memory check fallback
+// 3. In-memory check fallback
    if(count == 0 && lineStartTime > 0)
      {
       if(lineType == "EQHR" && g_lastOrderEqHighLineStart == lineStartTime)
          count = 1;
-      else if(lineType == "EQHG" && g_lastOrderEqLowLineStart == lineStartTime)
-         count = 1;
+      else
+         if(lineType == "EQHG" && g_lastOrderEqLowLineStart == lineStartTime)
+            count = 1;
      }
 
    return count;
@@ -17572,7 +18281,7 @@ bool HasOrderBeenCreatedForLsdLine(string lineType, datetime lineStartTime)
 //+------------------------------------------------------------------+
 void CleanDuplicateLsdLinePendingOrders()
   {
-   // Check EQH-R
+// Check EQH-R
    datetime eqhStart = GetLsdSweepActiveEqhLineStart();
    if(eqhStart > 0)
      {
@@ -17591,7 +18300,7 @@ void CleanDuplicateLsdLinePendingOrders()
         }
      }
 
-   // Check EQH-G
+// Check EQH-G
    datetime eqlStart = GetLsdSweepActiveEqlLineStart();
    if(eqlStart > 0)
      {
@@ -17624,8 +18333,11 @@ void CheckLsdSweepFlipBasketSupportOrder()
    if(!EAStartupComplete)
       return;
 
-   // 0. Auto-clean any duplicate pending orders exceeding 1 order limit
+// 0. Auto-clean any duplicate pending orders exceeding 1 order limit
    CleanDuplicateLsdLinePendingOrders();
+
+// USER RULE: "Horizontal orders should create within 5 min duration when the Line is initialed . do not create horizontal orders after 5 min"
+   int maxDurationSec = (InpHorizontalLineMaxDurationSeconds > 0) ? InpHorizontalLineMaxDurationSeconds : 300;
 
    datetime eqhStart = GetLsdSweepActiveEqhLineStart();
    datetime eqlStart = GetLsdSweepActiveEqlLineStart();
@@ -17664,7 +18376,8 @@ void CheckLsdSweepFlipBasketSupportOrder()
    if(!HasOpenFLIPBasketSupportOrder(OP_BUY))
      {
       // --- Method 1: EQH-R detects & EMA -1: Price > EQH-R (gap <= $100) -> CREATE BUY ---
-      if(runMethod1 && eqhRPresent && EMADirection == -1 && eqhPrice > 0.0)
+      // USER RULE: 5-min line duration limit
+      if(runMethod1 && eqhRPresent && EMADirection == -1 && eqhPrice > 0.0 && eqhStart > 0 && (TimeCurrent() - eqhStart) <= maxDurationSec)
         {
          if(HasOrderBeenCreatedForLsdLine("EQHR", eqhStart))
            {
@@ -17711,7 +18424,8 @@ void CheckLsdSweepFlipBasketSupportOrder()
         }
 
       // --- Method 2: EQH-G detects & EMA ANY: Price > EQH-G (gap <= $50) -> CREATE BUY ---
-      if(!HasOpenFLIPBasketSupportOrder(OP_BUY) && runMethod2 && eqhGPresent && eqlPrice > 0.0)
+      // USER RULE: 5-min line duration limit
+      if(!HasOpenFLIPBasketSupportOrder(OP_BUY) && runMethod2 && eqhGPresent && eqlPrice > 0.0 && eqlStart > 0 && (TimeCurrent() - eqlStart) <= maxDurationSec)
         {
          if(HasOrderBeenCreatedForLsdLine("EQHG", eqlStart))
            {
@@ -17802,7 +18516,8 @@ void CheckLsdSweepFlipBasketSupportOrder()
    if(!HasOpenFLIPBasketSupportOrder(OP_SELL))
      {
       // --- Method 1: EQH-G detects & EMA +1: Price < EQH-G (gap <= $100) -> CREATE SELL ---
-      if(runMethod1 && eqhGPresent && EMADirection == 1 && eqlPrice > 0.0)
+      // USER RULE: 5-min line duration limit
+      if(runMethod1 && eqhGPresent && EMADirection == 1 && eqlPrice > 0.0 && eqlStart > 0 && (TimeCurrent() - eqlStart) <= maxDurationSec)
         {
          if(HasOrderBeenCreatedForLsdLine("EQHG", eqlStart))
            {
@@ -17849,7 +18564,8 @@ void CheckLsdSweepFlipBasketSupportOrder()
         }
 
       // --- Method 2: EQH-R detects & EMA ANY: Price < EQH-R (gap <= $50) -> CREATE SELL ---
-      if(!HasOpenFLIPBasketSupportOrder(OP_SELL) && runMethod2 && eqhRPresent && eqhPrice > 0.0)
+      // USER RULE: 5-min line duration limit
+      if(!HasOpenFLIPBasketSupportOrder(OP_SELL) && runMethod2 && eqhRPresent && eqhPrice > 0.0 && eqhStart > 0 && (TimeCurrent() - eqhStart) <= maxDurationSec)
         {
          if(HasOrderBeenCreatedForLsdLine("EQHR", eqhStart))
            {
@@ -17970,7 +18686,7 @@ void UpdateLiquiditySweepDetectorOnChart()
 
    DeleteLiquiditySweepObjects();
 
-   // Tracking for Equal Highs (Red Line - Resistance)
+// Tracking for Equal Highs (Red Line - Resistance)
    double lastPhPrice = 0.0;
    datetime lastPhTime = 0;
    string curHighLineName = "";
@@ -17978,7 +18694,7 @@ void UpdateLiquiditySweepDetectorOnChart()
    double activeEqHighPrice = 0.0;
    datetime activeEqHighStart = 0;
 
-   // Tracking for Equal Lows (Green Line - Support)
+// Tracking for Equal Lows (Green Line - Support)
    double lastPlPrice = 0.0;
    datetime lastPlTime = 0;
    string curLowLineName = "";
@@ -18319,6 +19035,58 @@ void UpdateLiquiditySweepDetectorOnChart()
    g_lastEqLowPrice  = (curLowLineName != "") ? activeEqLowPrice : 0.0;
    g_lastEqHighLineStart = (curHighLineName != "") ? activeEqHighStart : 0;
    g_lastEqLowLineStart  = (curLowLineName != "") ? activeEqLowStart : 0;
+
+// --- Track Active & Ended Horizontal Lines for Breakout SL Management ---
+   static double   s_prevActiveEqHighPrice = 0.0;
+   static datetime s_prevActiveEqHighStart = 0;
+   static double   s_prevActiveEqLowPrice  = 0.0;
+   static datetime s_prevActiveEqLowStart  = 0;
+
+// 1. Red Line (EQH-R)
+   if(curHighLineName != "" && activeEqHighPrice > 0.0)
+     {
+      s_prevActiveEqHighPrice = activeEqHighPrice;
+      s_prevActiveEqHighStart = activeEqHighStart;
+      g_endedEqHighPrice      = 0.0;
+      g_endedEqHighStart      = 0;
+     }
+   else
+     {
+      if(s_prevActiveEqHighStart > 0 && s_prevActiveEqHighPrice > 0.0)
+        {
+         g_endedEqHighPrice = s_prevActiveEqHighPrice;
+         g_endedEqHighStart = s_prevActiveEqHighStart;
+         g_endedEqHighTime  = TimeCurrent();
+         Print(">>> [RED LINE ENDED] EQH-R line (Start: ", TimeToStr(g_endedEqHighStart, TIME_DATE|TIME_MINUTES),
+               ", Price=", DoubleToString(g_endedEqHighPrice, Digits),
+               ") ended. Monitoring for breakout > $", DoubleToString(g_endedEqHighPrice + InpLineEndedBreakoutTriggerGapRaw, 2));
+         s_prevActiveEqHighPrice = 0.0;
+         s_prevActiveEqHighStart = 0;
+        }
+     }
+
+// 2. Green Line (EQH-G)
+   if(curLowLineName != "" && activeEqLowPrice > 0.0)
+     {
+      s_prevActiveEqLowPrice = activeEqLowPrice;
+      s_prevActiveEqLowStart = activeEqLowStart;
+      g_endedEqLowPrice      = 0.0;
+      g_endedEqLowStart      = 0;
+     }
+   else
+     {
+      if(s_prevActiveEqLowStart > 0 && s_prevActiveEqLowPrice > 0.0)
+        {
+         g_endedEqLowPrice = s_prevActiveEqLowPrice;
+         g_endedEqLowStart = s_prevActiveEqLowStart;
+         g_endedEqLowTime  = TimeCurrent();
+         Print(">>> [GREEN LINE ENDED] EQH-G line (Start: ", TimeToStr(g_endedEqLowStart, TIME_DATE|TIME_MINUTES),
+               ", Price=", DoubleToString(g_endedEqLowPrice, Digits),
+               ") ended. Monitoring for breakout < $", DoubleToString(g_endedEqLowPrice - InpLineEndedBreakoutTriggerGapRaw, 2));
+         s_prevActiveEqLowPrice = 0.0;
+         s_prevActiveEqLowStart = 0;
+        }
+     }
 
 // USER RULE: Sweep updated signal is remembered until EMA flip or sweep signal change
    string activeFoundSweep = "None";
