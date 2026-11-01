@@ -27,7 +27,7 @@
 //https://github.com/devcrunch2025/exnessStratagiesExperts/commit/f4f1c1340be330cd32a75da3f3a9b4bd5f4e4cf3
 
 
-string glbVersion = "VMULTI-1061- Stoploss reduced to $100 and ordergap is $50";
+string glbVersion = "VMULTI-1062- Display EMA Highest Distance on Dashboard";
 
 
 double DailyEquityStopUSD  =1000;//50;//20*2.5;//10;//20;// 10;//30.0; close all orders at $50Xmultipler
@@ -16112,7 +16112,7 @@ void UpdateDashboard(DailyProtectionState &state)
      }
 
    w = MathMax(DashboardWidth, 355);
-   panelHeight = 478;
+   panelHeight = 496;
    x = DashboardRightGap;
    y = DashboardTopGap;
    tx = x + 12;
@@ -16290,11 +16290,29 @@ void UpdateDashboard(DailyProtectionState &state)
    string emaTrendStr = StringFormat("GLOBAL EMA  : %s | Gap: $%.1f", globalEmaStr, flipDist);
    CreateDashboardLabel(DASH_PREFIX+"EMA_DIR", emaTrendStr, tx, y+310, 8, globalEmaClr);
 
+   double highestEmaDist = 0.0;
+   if(EMADirection == 1)
+      highestEmaDist = GetHighestEmaDistanceSinceEmaFlip();
+   else if(EMADirection == -1)
+      highestEmaDist = GetLowestEmaDistanceSinceEmaFlip();
+   else
+      highestEmaDist = MathMax(GetHighestEmaDistanceSinceEmaFlip(), GetLowestEmaDistanceSinceEmaFlip());
+
+   double liveEmaVal = iMA(Symbol(), Period(), InpEMA200Period, InpEMAPriceShift, MODE_EMA, PRICE_CLOSE, 0);
+   double liveEmaDist = (liveEmaVal > 0.0) ? MathAbs(Bid - liveEmaVal) : 0.0;
+
+   double mult4X = (InpEmaFlipWideBreathingMultiplier > 0.0) ? InpEmaFlipWideBreathingMultiplier : 4.0;
+   double extraSafe = (InpEmaFlipWideBreathingSafeExtraRaw > 0.0) ? InpEmaFlipWideBreathingSafeExtraRaw : 100.0;
+   double buffer4X = MathMax(200.0, (highestEmaDist * mult4X) + extraSafe);
+
+   string emaPeakStr = StringFormat("EMA HIGHEST : Peak: $%.1f | Live: $%.1f | 4X: $%.0f", highestEmaDist, liveEmaDist, buffer4X);
+   CreateDashboardLabel(DASH_PREFIX+"EMA_PEAK", emaPeakStr, tx, y+326, 8, clrGold);
+
    bool isEmaWeak = IsEmaWEAKDistanceReduced50PercentFromPeak();
    string emaWeakStrongStr = isEmaWeak ? "WEAK (50% Retraced)" : "STRONG";
    color emaWeakStrongClr = isEmaWeak ? clrTomato : clrLime;
    string emaStrText = StringFormat("EMA STRENGTH: %s | Angle: %+.1f deg", emaWeakStrongStr, GlobalEmaAngle30);
-   CreateDashboardLabel(DASH_PREFIX+"EMA_STR", emaStrText, tx, y+326, 8, emaWeakStrongClr);
+   CreateDashboardLabel(DASH_PREFIX+"EMA_STR", emaStrText, tx, y+342, 8, emaWeakStrongClr);
 
    string sslSignalStr = "NONE (0)";
    color sslSignalClr = clrSilver;
@@ -16309,7 +16327,7 @@ void UpdateDashboard(DailyProtectionState &state)
          sslSignalStr = "SELL / SHORT (-1)";
          sslSignalClr = clrTomato;
         }
-   CreateDashboardLabel(DASH_PREFIX+"SSL", "SSL SIGNAL  : " + sslSignalStr, tx, y+342, 8, sslSignalClr);
+   CreateDashboardLabel(DASH_PREFIX+"SSL", "SSL SIGNAL  : " + sslSignalStr, tx, y+358, 8, sslSignalClr);
 
    bool hasRedLine = IsLsdSweepRedLinePresent();
    bool hasGreenLine = IsLsdSweepGreenLinePresent();
@@ -16324,26 +16342,26 @@ void UpdateDashboard(DailyProtectionState &state)
       if(actSweep == 1)
          gapAdvice = "SELL Gap 2X (Pump Guard)";
    string lsdSummary = StringFormat("LSD SWEEP   : %s | Line: %s | %s", lsdSigName, lineDesc, gapAdvice);
-   CreateDashboardLabel(DASH_PREFIX+"SWEEP_EVT", lsdSummary, tx, y+358, 8, lsdClr);
+   CreateDashboardLabel(DASH_PREFIX+"SWEEP_EVT", lsdSummary, tx, y+374, 8, lsdClr);
 
 // ==========================================================
 // SECTION 5: RISK & SYSTEM GUARDS
 // ==========================================================
-   CreateDashboardPanel(DASH_PREFIX+"SEC_RSK", x, y+378, w, 18, C'28,38,50');
-   CreateDashboardLabel(DASH_PREFIX+"RSK_H", "--- RISK & SYSTEM GUARDS ---", tx, y+380, 8, clrAqua);
+   CreateDashboardPanel(DASH_PREFIX+"SEC_RSK", x, y+394, w, 18, C'28,38,50');
+   CreateDashboardLabel(DASH_PREFIX+"RSK_H", "--- RISK & SYSTEM GUARDS ---", tx, y+396, 8, clrAqua);
 
    string slModStr = StringFormat("SL ANTI-SPAM: Min Mod Gap $%.2f Raw [ACTIVE]", MinimumSLModifyGapRaw);
-   CreateDashboardLabel(DASH_PREFIX+"SL_MOD", slModStr, tx, y+398, 8, clrAqua);
+   CreateDashboardLabel(DASH_PREFIX+"SL_MOD", slModStr, tx, y+414, 8, clrAqua);
 
    string safeCloseStr = "RUNNER LOCK : BE +20pts on Partial Close [ACTIVE]";
-   CreateDashboardLabel(DASH_PREFIX+"SAFE_CLOSE", safeCloseStr, tx, y+414, 8, clrAqua);
+   CreateDashboardLabel(DASH_PREFIX+"SAFE_CLOSE", safeCloseStr, tx, y+430, 8, clrAqua);
 
    string dayRiskStr = StringFormat("DAY STOP/RSK: Stop $%.0f | Floor $%.2f | Room $%.2f [%s]", DailyEquityStopUSD * balancelomultipler, DayProfitLadderProtectionEquity, riskRemaining, (HasBasketNewOrderLossLimit() ? "LOCKED" : "OK"));
    color dayRiskClr = HasBasketNewOrderLossLimit() ? clrTomato : clrLime;
-   CreateDashboardLabel(DASH_PREFIX+"DAY_STOP", dayRiskStr, tx, y+430, 8, dayRiskClr);
+   CreateDashboardLabel(DASH_PREFIX+"DAY_STOP", dayRiskStr, tx, y+446, 8, dayRiskClr);
 
    string srvStr = StringFormat("SERVER/CONN : %s", serverText);
-   CreateDashboardLabel(DASH_PREFIX+"SERVER", srvStr, tx, y+446, 8, serverColor);
+   CreateDashboardLabel(DASH_PREFIX+"SERVER", srvStr, tx, y+462, 8, serverColor);
 
    ChartRedraw(0);
 
