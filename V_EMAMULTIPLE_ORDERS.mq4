@@ -27,7 +27,7 @@
 //https://github.com/devcrunch2025/exnessStratagiesExperts/commit/f4f1c1340be330cd32a75da3f3a9b4bd5f4e4cf3
 
 
-string glbVersion = "VMULTI-1054 - 0.06 changed $50 to $100 breathing";
+string glbVersion = "VMULTI-1061- Stoploss reduced to $100 and ordergap is $50";
 
 
 double DailyEquityStopUSD  =1000;//50;//20*2.5;//10;//20;// 10;//30.0; close all orders at $50Xmultipler
@@ -61,6 +61,9 @@ double modifyBasketProfitOrdersLotXPercent=50;//10.0;//20 % means 0.05 X 20 modi
 
 //chance 5
 double CloseOrdersAtProfitFromOpeningBalanceEveryStep =2;//0.4;//1;//3;//5;//10;//25;// 5;// 5X step close orders every step
+double InpTargetEquityProfitTrailingGapUSD = 102.0; // Target Equity hit: Trailing SL gap for winning orders (Bid-102, Ask+102)
+double InpTargetEquityLossTighteningGapUSD = 20.0;  // Target Equity hit: Tight SL gap for losing orders (Bid-20, Ask+20)
+bool   InpPauseEquityProfitHitOnSingleWinningOrder = true; // Pause Equity Profit hit if only 1 order is open and moving in positive profit direction
 
 
 //chage 55
@@ -239,8 +242,12 @@ bool   InpLineEndedBreakoutDeleteAllPending       = false;         // false = de
 
 // ===== EMA FLIP WIDE SL BREATHING PROTECTION =====
 bool   InpEnableEmaFlipWideBreathingSL     = true;   // On EMA flip, modify losing orders with wide breathing SL
-double InpEmaFlipWideBreathingSafeExtraRaw = 100.0;  // Extra safe distance in USD ($100 raw) added to 2X distance
+double InpEmaFlipWideBreathingMultiplier   = 4.0;    // Multiplier for EMA distance buffer (4X buffer)
+double InpEmaFlipWideBreathingSafeExtraRaw = 100.0;  // Extra safe distance in USD ($100 raw) added to buffer
+bool   InpEnableEmaFlipHalfDistPartialCut  = true;   // Close 50% of LOT if LOT > 0.01 when moved 2X EMA distance (half buffer) towards loss
 bool   InpKeepWideLossCushionSL            = true;   // If order SL loss is -$10, keep -$10 and do not tighten to -$5 on small EMA changes
+bool   InpLimitSLToEmaHighestDistance      = true;   // Cap BUY SL >= EMA - HighestDistance, SELL SL <= EMA + HighestDistance
+bool   InpApplyBreathingToHorizontalOrders = false;  // Keep existing horizontal SL logic; do not modify horizontal line orders on EMA flip
 
 // ===== EQL / EQH STRUCTURAL RECOVERY (TYPE 2) SETTINGS =====
 bool   InpEnableLsdStructuralRecovery       = true;  // Enable EQL/EQH Structural Recovery (Type 2)
@@ -465,7 +472,7 @@ double ProfitReEntryGapRaw =50;//30;//10;// 25;
 double MinimumSameOrderGapRawReEntry =50;//30;//10;//20;// 50;
 double SSLLongShortPendingGapRaw = 20.0; // Raw price gap ($20) for SSL Long / Short pending stop orders
 // double MinimumSameOrderGapRawSSLLongShort =50;// 50;
-double MinimumSameOrderGapRawMatched =100;//50;//30;//10;//20;//50;//20;// 50;//SSL long //SSL short
+double MinimumSameOrderGapRawMatched =50;//100;//50;//30;//10;//20;//50;//20;// 50;//SSL long //SSL short
 double MinimumSameOrderGapRawUnmatched =50;//10;//10;//20;// 100;
 
 bool EnableReEntryNOnMatchingSignal=true;
@@ -1028,6 +1035,8 @@ int GetWeakStateCountPerEmaFlip()
    return g_weakStateCountPerEmaFlip;
   }
 
+bool     IsHorizontalLineOrder(int ticket, string comment = "");
+
 //+------------------------------------------------------------------+
 //| Get the highest price reached since the last EMA direction flip  |
 //+------------------------------------------------------------------+
@@ -1143,6 +1152,53 @@ double GetLowestEmaDistanceSinceEmaFlip()
   }
 
 //+------------------------------------------------------------------+
+//| CapStopLossByEmaDistance: Caps BUY SL >= EMA - HighestDist,      |
+//| and SELL SL <= EMA + HighestDist to prevent extreme SL placement |
+//+------------------------------------------------------------------+
+double CapStopLossByEmaDistance(int orderType, double proposedSL)
+  {
+   if(!InpLimitSLToEmaHighestDistance)
+      return proposedSL;
+   if(proposedSL <= 0.0)
+      return proposedSL;
+
+   double liveEma = iMA(Symbol(), Period(), InpEMA200Period, InpEMAPriceShift, MODE_EMA, PRICE_CLOSE, 0);
+   if(liveEma <= 0.0)
+      return proposedSL;
+
+   if(orderType == OP_BUY)
+     {
+      double highestEmaDist = GetHighestEmaDistanceSinceEmaFlip();
+      if(highestEmaDist <= 0.0)
+         highestEmaDist = 200.0;
+      double floorSL = NormalizeDouble(liveEma - highestEmaDist, Digits);
+      if(proposedSL < floorSL)
+        {
+         Print(">>> [EMA DIST SL CAP] BUY Proposed SL=", DoubleToString(proposedSL, Digits),
+               " capped to Floor (EMA-HighestDist)=", DoubleToString(floorSL, Digits),
+               " | EMA=", DoubleToString(liveEma, Digits), ", Dist=", DoubleToString(highestEmaDist, 2));
+         proposedSL = floorSL;
+        }
+     }
+   else if(orderType == OP_SELL)
+     {
+      double maxDist = MathMax(GetLowestEmaDistanceSinceEmaFlip(), GetHighestEmaDistanceSinceEmaFlip());
+      if(maxDist <= 0.0)
+         maxDist = 200.0;
+      double ceilingSL = NormalizeDouble(liveEma + maxDist, Digits);
+      if(proposedSL > ceilingSL)
+        {
+         Print(">>> [EMA DIST SL CAP] SELL Proposed SL=", DoubleToString(proposedSL, Digits),
+               " capped to Ceiling (EMA+Dist)=", DoubleToString(ceilingSL, Digits),
+               " | EMA=", DoubleToString(liveEma, Digits), ", Dist=", DoubleToString(maxDist, 2));
+         proposedSL = ceilingSL;
+        }
+     }
+
+   return proposedSL;
+  }
+
+//+------------------------------------------------------------------+
 //| ApplyEmaFlipWideBreathingProtection:                             |
 //| USER RULE: "If BUY order is in loss and EMADirection changed     |
 //|  from 1 to -1, get the highest top EMAdistance before flip       |
@@ -1150,6 +1206,160 @@ double GetLowestEmaDistanceSinceEmaFlip()
 //|  200X2+100 (safedistance) or (Peak - LivePrice) + 100.           |
 //|  Same for SELL orders also when flipping from -1 to 1."          |
 //+------------------------------------------------------------------+
+//+------------------------------------------------------------------+
+//| EMA Flip Half-Distance 50% Partial Loss Cut Tracking             |
+//+------------------------------------------------------------------+
+double g_emaFlipHalfDistanceCutGap          = 0.0;
+double g_emaFlipHalfDistanceReferencePrice  = 0.0;
+int    g_emaFlipHalfDistanceDirection       = 0;
+int    g_emaFlipCutTickets[];
+
+bool HasTicketBeenEmaFlipCut(int ticket, string comment = "")
+  {
+   int orig = GetOriginalTicket(ticket, comment);
+   int size = ArraySize(g_emaFlipCutTickets);
+   for(int i = 0; i < size; i++)
+     {
+      if(g_emaFlipCutTickets[i] == ticket || g_emaFlipCutTickets[i] == orig)
+         return true;
+     }
+   return false;
+  }
+
+void RegisterEmaFlipCutTicket(int ticket)
+  {
+   int size = ArraySize(g_emaFlipCutTickets);
+   ArrayResize(g_emaFlipCutTickets, size + 1);
+   g_emaFlipCutTickets[size] = ticket;
+  }
+
+void ResetEmaFlipCutTickets()
+  {
+   ArrayResize(g_emaFlipCutTickets, 0);
+   g_emaFlipHalfDistanceCutGap = 0.0;
+   g_emaFlipHalfDistanceReferencePrice = 0.0;
+   g_emaFlipHalfDistanceDirection = 0;
+  }
+
+void CheckEmaFlipHalfDistancePartialLossCut()
+  {
+   if(!InpEnableEmaFlipHalfDistPartialCut)
+      return;
+   if(g_emaFlipHalfDistanceCutGap <= 0.0 || g_emaFlipHalfDistanceDirection == 0 || g_emaFlipHalfDistanceReferencePrice <= 0.0)
+      return;
+
+   RefreshRates();
+
+   // Case 1: Direction is -1 (Bearish flip): check losing BUY orders
+   if(g_emaFlipHalfDistanceDirection == -1)
+     {
+      double adverseMove = g_emaFlipHalfDistanceReferencePrice - Bid;
+      if(adverseMove >= g_emaFlipHalfDistanceCutGap)
+        {
+         for(int i = OrdersTotal() - 1; i >= 0; i--)
+           {
+            if(!OrderSelect(i, SELECT_BY_POS, MODE_TRADES))
+               continue;
+            if(OrderSymbol() != Symbol() || OrderMagicNumber() != MagicNumber)
+               continue;
+            if(OrderType() != OP_BUY)
+               continue;
+
+            int tkt = OrderTicket();
+            string comm = OrderComment();
+            if(HasTicketBeenEmaFlipCut(tkt, comm))
+               continue;
+
+            double oLots = OrderLots();
+            if(oLots <= 0.01)
+               continue; // User rule: only if LOT > 0.01
+
+            double pl = OrderProfit() + OrderSwap() + OrderCommission();
+            if(pl >= 0.0)
+               continue; // Only for losing orders
+
+            double lotStep = MarketInfo(Symbol(), MODE_LOTSTEP);
+            if(lotStep <= 0.0) lotStep = 0.01;
+            double halfLots = NormalizeDouble(MathFloor((oLots * 0.5) / lotStep) * lotStep, 2);
+            if(halfLots < lotStep)
+               halfLots = lotStep;
+            if(oLots - halfLots < lotStep)
+               continue;
+
+            ResetLastError();
+            bool closed = SafeOrderCloseMarket(tkt, halfLots, 20, clrOrangeRed);
+            if(closed)
+              {
+               RegisterEmaFlipCutTicket(tkt);
+               Print(">>> [EMA FLIP 50% PARTIAL LOSS CUT] BUY Order #", tkt, " (", DoubleToString(oLots, 2),
+                     "L) cut 50% (closed ", DoubleToString(halfLots, 2), "L at Bid=", DoubleToString(Bid, Digits),
+                     ") | Adverse Move=$", DoubleToString(adverseMove, 2),
+                     " >= Half-Distance (2X EMA)=$", DoubleToString(g_emaFlipHalfDistanceCutGap, 2),
+                     " | Loss=$", DoubleToString(pl, 2));
+              }
+            else
+              {
+               Print(">>> [EMA FLIP 50% PARTIAL CUT FAILED] Ticket #", tkt, " Err=", GetLastError());
+              }
+           }
+        }
+     }
+   // Case 2: Direction is +1 (Bullish flip): check losing SELL orders
+   else if(g_emaFlipHalfDistanceDirection == 1)
+     {
+      double adverseMove = Ask - g_emaFlipHalfDistanceReferencePrice;
+      if(adverseMove >= g_emaFlipHalfDistanceCutGap)
+        {
+         for(int i = OrdersTotal() - 1; i >= 0; i--)
+           {
+            if(!OrderSelect(i, SELECT_BY_POS, MODE_TRADES))
+               continue;
+            if(OrderSymbol() != Symbol() || OrderMagicNumber() != MagicNumber)
+               continue;
+            if(OrderType() != OP_SELL)
+               continue;
+
+            int tkt = OrderTicket();
+            string comm = OrderComment();
+            if(HasTicketBeenEmaFlipCut(tkt, comm))
+               continue;
+
+            double oLots = OrderLots();
+            if(oLots <= 0.01)
+               continue; // User rule: only if LOT > 0.01
+
+            double pl = OrderProfit() + OrderSwap() + OrderCommission();
+            if(pl >= 0.0)
+               continue; // Only for losing orders
+
+            double lotStep = MarketInfo(Symbol(), MODE_LOTSTEP);
+            if(lotStep <= 0.0) lotStep = 0.01;
+            double halfLots = NormalizeDouble(MathFloor((oLots * 0.5) / lotStep) * lotStep, 2);
+            if(halfLots < lotStep)
+               halfLots = lotStep;
+            if(oLots - halfLots < lotStep)
+               continue;
+
+            ResetLastError();
+            bool closed = SafeOrderCloseMarket(tkt, halfLots, 20, clrOrangeRed);
+            if(closed)
+              {
+               RegisterEmaFlipCutTicket(tkt);
+               Print(">>> [EMA FLIP 50% PARTIAL LOSS CUT] SELL Order #", tkt, " (", DoubleToString(oLots, 2),
+                     "L) cut 50% (closed ", DoubleToString(halfLots, 2), "L at Ask=", DoubleToString(Ask, Digits),
+                     ") | Adverse Move=$", DoubleToString(adverseMove, 2),
+                     " >= Half-Distance (2X EMA)=$", DoubleToString(g_emaFlipHalfDistanceCutGap, 2),
+                     " | Loss=$", DoubleToString(pl, 2));
+              }
+            else
+              {
+               Print(">>> [EMA FLIP 50% PARTIAL CUT FAILED] Ticket #", tkt, " Err=", GetLastError());
+              }
+           }
+        }
+     }
+  }
+
 void ApplyEmaFlipWideBreathingProtection(int prevDirection, int newDirection)
   {
    RefreshRates();
@@ -1164,13 +1374,21 @@ void ApplyEmaFlipWideBreathingProtection(int prevDirection, int newDirection)
       double peakPrice = GetHighestPriceSinceEmaFlip();
       double highestEmaDist = GetHighestEmaDistanceSinceEmaFlip();
       double livePrice = Bid;
+      double liveEma = iMA(Symbol(), Period(), InpEMA200Period, InpEMAPriceShift, MODE_EMA, PRICE_CLOSE, 0);
 
       double dropFromPeak = MathMax(0.0, peakPrice - livePrice);
-      double buffer = MathMax((highestEmaDist * 2.0) + extraSafe, dropFromPeak + extraSafe);
+      double mult = (InpEmaFlipWideBreathingMultiplier > 0.0) ? InpEmaFlipWideBreathingMultiplier : 4.0;
+      double buffer = MathMax((highestEmaDist * mult) + extraSafe, dropFromPeak + extraSafe);
       if(buffer < 200.0)
          buffer = 200.0;
 
+      // Arm half-distance 50% partial loss cut tracker (2X EMA Distance)
+      g_emaFlipHalfDistanceCutGap = MathMax(100.0, highestEmaDist * 2.0);
+      g_emaFlipHalfDistanceReferencePrice = livePrice;
+      g_emaFlipHalfDistanceDirection = -1;
+
       double targetSL = NormalizeDouble(livePrice - buffer, Digits);
+
       if(livePrice - targetSL < minStopDist)
          targetSL = NormalizeDouble(livePrice - minStopDist - Point * 10, Digits);
 
@@ -1183,21 +1401,30 @@ void ApplyEmaFlipWideBreathingProtection(int prevDirection, int newDirection)
          if(OrderType() != OP_BUY)
             continue;
 
+         int tkt = OrderTicket();
+         string comm = OrderComment();
+         if(!InpApplyBreathingToHorizontalOrders && IsHorizontalLineOrder(tkt, comm))
+           {
+            Print(">>> [EMA FLIP WIDE SL SKIPPED] BUY Order #", tkt, " is a horizontal line order. Keeping existing SL logic.");
+            continue;
+           }
+
          // Target only BUY orders that are currently in loss
          double pl = OrderProfit() + OrderSwap() + OrderCommission();
          if(pl < 0.0)
            {
-            int tkt = OrderTicket();
             double openPrice = OrderOpenPrice();
             double curSL = OrderStopLoss();
             double curTP = OrderTakeProfit();
 
             if(curSL > 0.0)
               {
+               bool isInitialEmergencySL = (MathAbs(openPrice - curSL) >= 1000.0);
                double curLossAtSL    = CalcOrderLockedProfitUSD(OP_BUY, openPrice, curSL, OrderLots());
                double targetLossAtSL = CalcOrderLockedProfitUSD(OP_BUY, openPrice, targetSL, OrderLots());
                // USER RULE: If current SL is -$10, next is -$5, keep -$10! Do not tighten to -$5 on small EMA changes!
-               if(InpKeepWideLossCushionSL && curLossAtSL < 0.0 && targetLossAtSL > curLossAtSL)
+               // Only apply if the order ALREADY has a breathing SL, NOT when still on the initial emergency 3000-pt SL!
+               if(!isInitialEmergencySL && InpKeepWideLossCushionSL && curLossAtSL < 0.0 && targetLossAtSL > curLossAtSL)
                  {
                   Print(">>> [EMA FLIP WIDE SL SKIPPED] BUY Order #", tkt,
                         " already has wider loss cushion SL=", DoubleToString(curSL, Digits),
@@ -1237,13 +1464,21 @@ void ApplyEmaFlipWideBreathingProtection(int prevDirection, int newDirection)
       double lowestPrice = GetLowestPriceSinceEmaFlip();
       double lowestEmaDist = GetLowestEmaDistanceSinceEmaFlip();
       double livePrice = Ask;
+      double liveEma = iMA(Symbol(), Period(), InpEMA200Period, InpEMAPriceShift, MODE_EMA, PRICE_CLOSE, 0);
 
       double riseFromBottom = MathMax(0.0, livePrice - lowestPrice);
-      double buffer = MathMax((lowestEmaDist * 2.0) + extraSafe, riseFromBottom + extraSafe);
+      double mult = (InpEmaFlipWideBreathingMultiplier > 0.0) ? InpEmaFlipWideBreathingMultiplier : 4.0;
+      double buffer = MathMax((lowestEmaDist * mult) + extraSafe, riseFromBottom + extraSafe);
       if(buffer < 200.0)
          buffer = 200.0;
 
+      // Arm half-distance 50% partial loss cut tracker (2X EMA Distance)
+      g_emaFlipHalfDistanceCutGap = MathMax(100.0, lowestEmaDist * 2.0);
+      g_emaFlipHalfDistanceReferencePrice = livePrice;
+      g_emaFlipHalfDistanceDirection = 1;
+
       double targetSL = NormalizeDouble(livePrice + buffer, Digits);
+
       if(targetSL - livePrice < minStopDist)
          targetSL = NormalizeDouble(livePrice + minStopDist + Point * 10, Digits);
 
@@ -1256,21 +1491,30 @@ void ApplyEmaFlipWideBreathingProtection(int prevDirection, int newDirection)
          if(OrderType() != OP_SELL)
             continue;
 
+         int tkt = OrderTicket();
+         string comm = OrderComment();
+         if(!InpApplyBreathingToHorizontalOrders && IsHorizontalLineOrder(tkt, comm))
+           {
+            Print(">>> [EMA FLIP WIDE SL SKIPPED] SELL Order #", tkt, " is a horizontal line order. Keeping existing SL logic.");
+            continue;
+           }
+
          // Target only SELL orders that are currently in loss
          double pl = OrderProfit() + OrderSwap() + OrderCommission();
          if(pl < 0.0)
            {
-            int tkt = OrderTicket();
             double openPrice = OrderOpenPrice();
             double curSL = OrderStopLoss();
             double curTP = OrderTakeProfit();
 
             if(curSL > 0.0)
               {
+               bool isInitialEmergencySL = (MathAbs(openPrice - curSL) >= 1000.0);
                double curLossAtSL    = CalcOrderLockedProfitUSD(OP_SELL, openPrice, curSL, OrderLots());
                double targetLossAtSL = CalcOrderLockedProfitUSD(OP_SELL, openPrice, targetSL, OrderLots());
                // USER RULE: If current SL is -$10, next is -$5, keep -$10! Do not tighten to -$5 on small EMA changes!
-               if(InpKeepWideLossCushionSL && curLossAtSL < 0.0 && targetLossAtSL > curLossAtSL)
+               // Only apply if the order ALREADY has a breathing SL, NOT when still on the initial emergency 3000-pt SL!
+               if(!isInitialEmergencySL && InpKeepWideLossCushionSL && curLossAtSL < 0.0 && targetLossAtSL > curLossAtSL)
                  {
                   Print(">>> [EMA FLIP WIDE SL SKIPPED] SELL Order #", tkt,
                         " already has wider loss cushion SL=", DoubleToString(curSL, Digits),
@@ -2381,7 +2625,10 @@ double   GetHighestPriceSinceEmaFlip();
 double   GetLowestPriceSinceEmaFlip();
 double   GetHighestEmaDistanceSinceEmaFlip();
 double   GetLowestEmaDistanceSinceEmaFlip();
+double   CalculateProportionalLadderSL(int orderType, double openPrice, double orderLots);
 void     ApplyEmaFlipWideBreathingProtection(int prevDirection, int newDirection);
+void     CheckEmaFlipHalfDistancePartialLossCut();
+void     ResetEmaFlipCutTickets();
 bool     SafeOrderCloseMarket(int ticket, double lots, int slippage, color arrowColor);
 void     DrawTargetEquityHitCircle(datetime time, double price, double targetVal, int step);
 
@@ -3278,6 +3525,77 @@ double GetLotBasedPriceGap(double orderLots, int multiplier)
   }
 
 //+------------------------------------------------------------------+
+//| CalculateProportionalLadderSL:                                   |
+//| MAIN COMMON METHOD for Proportional Profit Ladder across ALL     |
+//| methods and lot tiers:                                           |
+//| Base Lot 0.01 -> Gap $100                                        |
+//| Base Lot 0.02 -> Gap $80                                         |
+//| Base Lot 0.03 -> Gap $70                                         |
+//| Base Lot 0.04 -> Gap $60                                         |
+//| Base Lot 0.05+-> Gap $50                                         |
+//|                                                                  |
+//| Level 1: protects 0 loss (SL = openPrice / Breakeven)            |
+//| Level 2: locks +1x stepPriceGap                                  |
+//| Level 3: locks +2x stepPriceGap                                  |
+//| Level N: locks +(N - 1) * stepPriceGap                           |
+//+------------------------------------------------------------------+
+double CalculateProportionalLadderSL(int orderType, double openPrice, double orderLots)
+  {
+   if(orderLots <= 0.0 || openPrice <= 0.0)
+      return 0.0;
+
+   RefreshRates();
+   double stopLevel = GetRequiredStopDistance();
+   if(stopLevel < 10.0)
+      stopLevel = 10.0;
+
+   // 1. Get dynamic step gap based on lot & multiplier
+   double stepPriceGap = GetLotBasedPriceGap(orderLots, balancelomultipler);
+
+   // 2. Halve the gap if EMA momentum weakened by 50%
+   if(IsEmaWEAKDistanceReduced50PercentFromPeak())
+     {
+      stepPriceGap = MathMax(MinimumSLModifyGapRaw, stepPriceGap / 2.0);
+     }
+
+   if(stepPriceGap <= 0.0)
+      return 0.0;
+
+   // 3. Calculate maximum distance price has traveled into profit beyond broker buffer
+   double maxLockableDistance = 0.0;
+   if(orderType == OP_BUY)
+      maxLockableDistance = (Bid - stopLevel) - openPrice;
+   else if(orderType == OP_SELL)
+      maxLockableDistance = openPrice - (Ask + stopLevel);
+
+   // If price has not reached Level 1 (1x stepPriceGap), no ladder SL yet
+   if(maxLockableDistance < stepPriceGap)
+      return 0.0;
+
+   // 4. Determine ladder step (1 = 1x gap, 2 = 2x gap, etc.)
+   int ladderLevel = (int)MathFloor(maxLockableDistance / stepPriceGap);
+   if(ladderLevel < 1)
+      return 0.0;
+
+   // USER RULE: Proportional Schedule for ALL lot tiers:
+   // Level 1: protects 0 loss (SL = openPrice / Breakeven)
+   // Level 2: locks +1x stepPriceGap
+   // Level 3: locks +2x stepPriceGap
+   // Level N: locks +(N - 1) * stepPriceGap
+   double lockedDistance = (ladderLevel - 1) * stepPriceGap;
+   double ladderSL = 0.0;
+
+   if(orderType == OP_BUY)
+      ladderSL = NormalizeDouble(openPrice + lockedDistance, Digits);
+   else if(orderType == OP_SELL)
+      ladderSL = NormalizeDouble(openPrice - lockedDistance, Digits);
+
+   return ladderSL;
+  }
+
+
+
+//+------------------------------------------------------------------+
 //| SecureOneDollarProfit: Lot & Multiplier-based Profit Ladder      |
 //+------------------------------------------------------------------+
 void SecureOneDollarProfit()
@@ -3343,21 +3661,26 @@ void SecureOneDollarProfit()
       if(ladderLevel < 1)
          continue;
 
-      double lockedDistance = ladderLevel * stepPriceGap;
+      // USER RULE: Proportional Schedule for ALL lot tiers:
+      // Level 1: protects 0 loss (SL = openPrice / Breakeven)
+      // Level 2: locks +1x stepPriceGap
+      // Level 3: locks +2x stepPriceGap
+      // Level N: locks +(N - 1) * stepPriceGap
+      double lockedDistance = (ladderLevel - 1) * stepPriceGap;
       double newSL = 0.0;
       bool canModify = false;
 
       if(type == OP_BUY)
         {
          newSL = NormalizeDouble(openPrice + lockedDistance, Digits);
-         if(newSL > openPrice && (currentSL == 0.0 || newSL >= currentSL + MinimumSLModifyGapRaw))
+         if(newSL >= openPrice && (currentSL == 0.0 || newSL >= currentSL + MinimumSLModifyGapRaw))
             canModify = true;
         }
       else
          if(type == OP_SELL)
            {
             newSL = NormalizeDouble(openPrice - lockedDistance, Digits);
-            if(newSL < openPrice && (currentSL == 0.0 || newSL <= currentSL - MinimumSLModifyGapRaw))
+            if(newSL <= openPrice && (currentSL == 0.0 || newSL <= currentSL - MinimumSLModifyGapRaw))
                canModify = true;
            }
 
@@ -3497,6 +3820,49 @@ void Manage5PercentLadderReset()
 // 7. Check if target equity reached
    if(curEquity >= targetEquity)
      {
+      // USER RULE: If only ONE order is open and moving in positive profit direction,
+      // PAUSE the equity profit hit process! Let the single-order profit ladder manage it.
+      if(InpPauseEquityProfitHitOnSingleWinningOrder)
+        {
+         int mktCount = 0;
+         int posCount = 0;
+         int singleTkt = 0;
+         double singlePL = 0.0;
+         for(int i = OrdersTotal() - 1; i >= 0; i--)
+           {
+            if(!OrderSelect(i, SELECT_BY_POS, MODE_TRADES))
+               continue;
+            if(OrderSymbol() != Symbol() || OrderMagicNumber() != MagicNumber)
+               continue;
+            if(IsAnyRecoveryOrder(OrderTicket(), OrderComment()))
+               continue;
+            int oType = OrderType();
+            if(oType == OP_BUY || oType == OP_SELL)
+              {
+               mktCount++;
+               double pl = OrderProfit() + OrderSwap() + OrderCommission();
+               if(pl > 0.0)
+                 {
+                  posCount++;
+                  singleTkt = OrderTicket();
+                  singlePL = pl;
+                 }
+              }
+           }
+         if(mktCount == 1 && posCount == 1)
+           {
+            static datetime lastLogTime = 0;
+            if(TimeCurrent() - lastLogTime >= 10)
+              {
+               lastLogTime = TimeCurrent();
+               Print(">>> [TARGET EQUITY HIT PAUSED] Only 1 order open (#", singleTkt,
+                     ") moving in profit direction (+$", DoubleToString(singlePL, 2),
+                     "). Pausing target equity hit process to let single-order ladder run!");
+              }
+            return;
+           }
+        }
+
       Print(
          "5% EQUITY LADDER TARGET REACHED (Step ", (gbltargetEquityCounter + 1), ")",
          " | Equity=$", DoubleToString(curEquity, 2),
@@ -4190,6 +4556,7 @@ void TrackEmaFlip()
    if(LastTrackedEmaDirection != 0 && currentDirection != 0 && currentDirection != LastTrackedEmaDirection)
      {
       HasEmaFlippedSinceLoad = true;
+      ResetEmaFlipCutTickets();
       if(InpEnableEmaFlipWideBreathingSL)
         {
          ApplyEmaFlipWideBreathingProtection(LastTrackedEmaDirection, currentDirection);
@@ -4776,6 +5143,7 @@ void OnTick()
 
 
    SecureOneDollarProfit();
+   CheckEmaFlipHalfDistancePartialLossCut();
    CheckEquitySurplusReset();
 
    if(InpEnableBasketProfitClose)
@@ -7272,7 +7640,7 @@ int SafeOrderSend(string symbol,int orderType,double lots,double price,int slipp
             return -1;
            }
      }
-   if(EMADirection != requestedDirection && (GetDistanceToEMAPrice(requestedDirection == 1 ? OP_BUY : OP_SELL, true) < 500.0 || (TimeCurrent() - EmaFlipTime < 60*60))) // 1 hour
+   if(EMADirection != requestedDirection && ((TimeCurrent() - EmaFlipTime > 60*30 && GetDistanceToEMAPrice(requestedDirection == 1 ? OP_BUY : OP_SELL, true) < 500.0) || (TimeCurrent() - EmaFlipTime > 60*60))) // 1 hour
       return -1;
    if(!IsEmaWEAKDistanceReduced50PercentFromPeak() && EMADirection!= requestedDirection)
       return -1;
@@ -7662,23 +8030,37 @@ bool SafeOrderClose(int ticket, double lots, int orderType, int slippage, color 
       minSafeDistance = 10.0 * Point;
 
 // ==================================================================
-// Modify order with stoploss with liveprice and $rawpricegap $50
+// Modify order with Proportional Profit Ladder across ALL Lot Tiers
 // ==================================================================
-   double rawPriceGap50 = 50.0;
+   double ladderSL = CalculateProportionalLadderSL(orderType, openPrice, lots);
+   if(ladderSL > 0.0)
+     {
+      newSL = ladderSL;
+     }
+   else
+     {
+      // If before Level 1 step, protect 0 Loss (Breakeven) if currently in profit
+      if((orderType == OP_BUY && Bid > openPrice) || (orderType == OP_SELL && Ask < openPrice))
+        {
+         newSL = openPrice;
+        }
+      else
+        {
+         double rawPriceGap = GetLotBasedPriceGap(lots, balancelomultipler);
+         newSL = (orderType == OP_BUY) ? (Bid - rawPriceGap) : (Ask + rawPriceGap);
+        }
+     }
+
    if(orderType == OP_BUY)
      {
-      newSL = Bid - rawPriceGap50;
       if(Bid - newSL < minSafeDistance)
          newSL = Bid - minSafeDistance;
       newSL = NormalizeDouble(newSL, Digits);
 
-      // If current SL is already set:
       if(currentSL > 0.0)
         {
-         // If current SL is already tighter than newSL, keep existing tighter SL
          if(currentSL >= newSL)
             return true;
-         // Avoid micro-modifications below MinimumSLModifyGapRaw ($25)
          if(newSL - currentSL < MinimumSLModifyGapRaw)
             return true;
         }
@@ -7686,18 +8068,14 @@ bool SafeOrderClose(int ticket, double lots, int orderType, int slippage, color 
    else
       if(orderType == OP_SELL)
         {
-         newSL = Ask + rawPriceGap50;
          if(newSL - Ask < minSafeDistance)
             newSL = Ask + minSafeDistance;
          newSL = NormalizeDouble(newSL, Digits);
 
-         // If current SL is already set:
          if(currentSL > 0.0)
            {
-            // If current SL is already tighter than newSL, keep existing tighter SL
             if(currentSL <= newSL)
                return true;
-            // Avoid micro-modifications below MinimumSLModifyGapRaw ($25)
             if(currentSL - newSL < MinimumSLModifyGapRaw)
                return true;
            }
@@ -7851,16 +8229,20 @@ bool CanModifyStopLossForHigherProfit(int ticket, double proposedSL, string call
       // USER RULE: If order SL loss is -$10, next is -$5, keep -$10. Do not tighten to -$5 on small EMA changes!
       if(InpKeepWideLossCushionSL)
         {
-         double curLockedUSD  = CalcOrderLockedProfitUSD(oType, oOpen, curSL, oLots);
-         double propLockedUSD = CalcOrderLockedProfitUSD(oType, oOpen, normPropSL, oLots);
-         if(curLockedUSD < 0.0 && propLockedUSD <= 0.0 && propLockedUSD > curLockedUSD)
+         bool isInitialEmergencySL = (MathAbs(oOpen - curSL) >= 1000.0);
+         if(!isInitialEmergencySL)
            {
-            Print(">>> [WIDE LOSS CUSHION PRESERVED] Ticket #", ticket, " (BUY ", DoubleToString(oLots, 2), "L)",
-                  " | Current SL Loss=$", DoubleToString(curLockedUSD, 2), " (SL=", DoubleToString(curSL, Digits), ")",
-                  " | Proposed Tighter SL Loss=$", DoubleToString(propLockedUSD, 2), " (SL=", DoubleToString(normPropSL, Digits), ")",
-                  (callerName != "" ? " | Caller=" + callerName : ""),
-                  " | BLOCKED: Preserving -$10 loss cushion, do NOT tighten to -$5 on small EMA changes!");
-            return false;
+            double curLockedUSD  = CalcOrderLockedProfitUSD(oType, oOpen, curSL, oLots);
+            double propLockedUSD = CalcOrderLockedProfitUSD(oType, oOpen, normPropSL, oLots);
+            if(curLockedUSD < 0.0 && propLockedUSD < 0.0 && propLockedUSD > curLockedUSD)
+              {
+               Print(">>> [WIDE LOSS CUSHION PRESERVED] Ticket #", ticket, " (BUY ", DoubleToString(oLots, 2), "L)",
+                     " | Current SL Loss=$", DoubleToString(curLockedUSD, 2), " (SL=", DoubleToString(curSL, Digits), ")",
+                     " | Proposed Tighter SL Loss=$", DoubleToString(propLockedUSD, 2), " (SL=", DoubleToString(normPropSL, Digits), ")",
+                     (callerName != "" ? " | Caller=" + callerName : ""),
+                     " | BLOCKED: Preserving -$10 loss cushion, do NOT tighten to -$5 on small EMA changes!");
+               return false;
+              }
            }
         }
 
@@ -7890,16 +8272,20 @@ bool CanModifyStopLossForHigherProfit(int ticket, double proposedSL, string call
       // USER RULE: If order SL loss is -$10, next is -$5, keep -$10. Do not tighten to -$5 on small EMA changes!
       if(InpKeepWideLossCushionSL)
         {
-         double curLockedUSD  = CalcOrderLockedProfitUSD(oType, oOpen, curSL, oLots);
-         double propLockedUSD = CalcOrderLockedProfitUSD(oType, oOpen, normPropSL, oLots);
-         if(curLockedUSD < 0.0 && propLockedUSD <= 0.0 && propLockedUSD > curLockedUSD)
+         bool isInitialEmergencySL = (MathAbs(oOpen - curSL) >= 1000.0);
+         if(!isInitialEmergencySL)
            {
-            Print(">>> [WIDE LOSS CUSHION PRESERVED] Ticket #", ticket, " (SELL ", DoubleToString(oLots, 2), "L)",
-                  " | Current SL Loss=$", DoubleToString(curLockedUSD, 2), " (SL=", DoubleToString(curSL, Digits), ")",
-                  " | Proposed Tighter SL Loss=$", DoubleToString(propLockedUSD, 2), " (SL=", DoubleToString(normPropSL, Digits), ")",
-                  (callerName != "" ? " | Caller=" + callerName : ""),
-                  " | BLOCKED: Preserving -$10 loss cushion, do NOT tighten to -$5 on small EMA changes!");
-            return false;
+            double curLockedUSD  = CalcOrderLockedProfitUSD(oType, oOpen, curSL, oLots);
+            double propLockedUSD = CalcOrderLockedProfitUSD(oType, oOpen, normPropSL, oLots);
+            if(curLockedUSD < 0.0 && propLockedUSD < 0.0 && propLockedUSD > curLockedUSD)
+              {
+               Print(">>> [WIDE LOSS CUSHION PRESERVED] Ticket #", ticket, " (SELL ", DoubleToString(oLots, 2), "L)",
+                     " | Current SL Loss=$", DoubleToString(curLockedUSD, 2), " (SL=", DoubleToString(curSL, Digits), ")",
+                     " | Proposed Tighter SL Loss=$", DoubleToString(propLockedUSD, 2), " (SL=", DoubleToString(normPropSL, Digits), ")",
+                     (callerName != "" ? " | Caller=" + callerName : ""),
+                     " | BLOCKED: Preserving -$10 loss cushion, do NOT tighten to -$5 on small EMA changes!");
+               return false;
+              }
            }
         }
 
@@ -7934,6 +8320,61 @@ bool SafeOrderModify(int ticket,double openPrice,double stopLoss,double takeProf
 
    if(requestedSL > 0.0)
      {
+      // Proportional Profit Ladder Universal Alignment:
+      // If an order is in profit and any method is modifying its SL above openPrice (BUY) or below openPrice (SELL),
+      // ensure the SL aligns with the Proportional Profit Ladder schedule instead of choking the trade directly off live price!
+      double oOpen = OrderOpenPrice();
+      double oLots = OrderLots();
+      double curNetPL = OrderProfit() + OrderSwap() + OrderCommission();
+      bool isSecuringProfit = (orderType == OP_BUY && requestedSL >= oOpen) || (orderType == OP_SELL && requestedSL <= oOpen);
+
+      if(curNetPL > 0.0 && isSecuringProfit && !IsAnyRecoveryOrder(ticket, comment) && !IsFLIPBasketSupportOrder(ticket, comment))
+        {
+         double propLadderSL = CalculateProportionalLadderSL(orderType, oOpen, oLots);
+         if(propLadderSL > 0.0)
+           {
+            // If caller proposes an SL tighter than the ladder rung (e.g. Bid - 20),
+            // align it with propLadderSL so the trade retains its full 1-gap breathing cushion!
+            if(orderType == OP_BUY && requestedSL > propLadderSL)
+              {
+               Print(">>> [COMMON LADDER ENFORCED] BUY #", ticket, " (", DoubleToString(oLots, 2),
+                     "L): Proposed SL=", DoubleToString(requestedSL, Digits),
+                     " aligned to Proportional Ladder SL=", DoubleToString(propLadderSL, Digits),
+                     " (Locks +$", DoubleToString(propLadderSL - oOpen, 2), " pts with breathing cushion)");
+               requestedSL = propLadderSL;
+              }
+            else if(orderType == OP_SELL && requestedSL < propLadderSL)
+              {
+               Print(">>> [COMMON LADDER ENFORCED] SELL #", ticket, " (", DoubleToString(oLots, 2),
+                     "L): Proposed SL=", DoubleToString(requestedSL, Digits),
+                     " aligned to Proportional Ladder SL=", DoubleToString(propLadderSL, Digits),
+                     " (Locks +$", DoubleToString(oOpen - propLadderSL, 2), " pts with breathing cushion)");
+               requestedSL = propLadderSL;
+              }
+           }
+         else
+           {
+            // Order has not reached Level 1 gap yet (favorable move < stepPriceGap)
+            // Clamp to Breakeven so liveprice modifications do not prematurely choke the trade before Level 1!
+            if(orderType == OP_BUY && requestedSL > oOpen)
+              {
+               Print(">>> [COMMON LADDER ENFORCED] BUY #", ticket, " (", DoubleToString(oLots, 2),
+                     "L): Proposed SL=", DoubleToString(requestedSL, Digits),
+                     " clamped to Breakeven=", DoubleToString(oOpen, Digits),
+                     " (Price has not reached Level 1 step gap yet)");
+               requestedSL = oOpen;
+              }
+            else if(orderType == OP_SELL && requestedSL < oOpen)
+              {
+               Print(">>> [COMMON LADDER ENFORCED] SELL #", ticket, " (", DoubleToString(oLots, 2),
+                     "L): Proposed SL=", DoubleToString(requestedSL, Digits),
+                     " clamped to Breakeven=", DoubleToString(oOpen, Digits),
+                     " (Price has not reached Level 1 step gap yet)");
+               requestedSL = oOpen;
+              }
+           }
+        }
+
       if(!PrepareStopLossForOrder(orderType, OrderOpenPrice(), requestedSL))
         {
          BlockTradeErrorUntilNextTick(key);
@@ -9350,9 +9791,53 @@ void ModifyOpenOrdersToSecureProfit()
   {
    RefreshRates();
 
-// Raw price trailing buffer for BTCUSD (e.g., $15-$25 gives room to ride spikes)
-   double trailingBufferUSD = 20.0;
-   double lossRecoveryGapUSD =102;// 50.0*2;//100 // Room for losing orders to retrace
+   // USER RULE: If only ONE order is open and moving in positive profit direction,
+   // PAUSE the equity profit hit process! Let the single-order profit ladder manage it.
+   if(InpPauseEquityProfitHitOnSingleWinningOrder)
+     {
+      int mktCount = 0;
+      int posCount = 0;
+      int singleTkt = 0;
+      double singlePL = 0.0;
+      for(int i = OrdersTotal() - 1; i >= 0; i--)
+        {
+         if(!OrderSelect(i, SELECT_BY_POS, MODE_TRADES))
+            continue;
+         if(OrderSymbol() != Symbol() || OrderMagicNumber() != MagicNumber)
+            continue;
+         if(IsAnyRecoveryOrder(OrderTicket(), OrderComment()))
+            continue;
+         int oType = OrderType();
+         if(oType == OP_BUY || oType == OP_SELL)
+           {
+            mktCount++;
+            double pl = OrderProfit() + OrderSwap() + OrderCommission();
+            if(pl > 0.0)
+              {
+               posCount++;
+               singleTkt = OrderTicket();
+               singlePL = pl;
+              }
+           }
+        }
+      if(mktCount == 1 && posCount == 1)
+        {
+         Print(">>> [MODIFY TO SECURE PROFIT PAUSED] Only 1 order open (#", singleTkt,
+               ") moving in profit direction (+$", DoubleToString(singlePL, 2),
+               "). Skipping target equity SL modification to let single-order ladder run!");
+         return;
+        }
+     }
+
+   // USER RULE:
+   // A. For Profitable Orders (netPL > 0): Bid - $102, Ask + $102
+   // B. For Losing Orders (netPL < 0):     Bid - $20,  Ask + $20
+   double trailingBufferUSD  = (InpTargetEquityProfitTrailingGapUSD > 0.0) ? InpTargetEquityProfitTrailingGapUSD : 102.0;
+   double lossRecoveryGapUSD = (InpTargetEquityLossTighteningGapUSD > 0.0) ? InpTargetEquityLossTighteningGapUSD : 20.0;
+
+   double minStopDist = MarketInfo(Symbol(), MODE_STOPLEVEL) * Point;
+   if(minStopDist < 10.0 * Point)
+      minStopDist = 10.0 * Point;
 
    for(int i = OrdersTotal() - 1; i >= 0; i--)
      {
@@ -9371,51 +9856,56 @@ void ModifyOpenOrdersToSecureProfit()
       double netPL     = OrderProfit() + OrderSwap() + OrderCommission();
 
       // ==============================================================
-      // 1. PROFITABLE ORDERS: Ride the spike & lock in strong profits
+      // 1. PROFITABLE ORDERS: Use Common Proportional Profit Ladder
       // ==============================================================
       if(netPL > 0.0)
         {
+         double ladderSL = CalculateProportionalLadderSL(type, openPrice, OrderLots());
          double newSL = 0.0;
+         if(ladderSL > 0.0)
+            newSL = ladderSL;
+         else
+            newSL = openPrice; // Level 1 / Breakeven
+
          if(type == OP_BUY)
            {
-            newSL = Bid - trailingBufferUSD;
-            // Only move SL UP, and only once SL is above open price (guaranteeing profit)
-            if(newSL > openPrice && (currentSL == 0.0 || newSL >= currentSL + MinimumSLModifyGapRaw))
+            if(newSL >= openPrice && (currentSL == 0.0 || newSL >= currentSL + MinimumSLModifyGapRaw))
                SafeOrderModify(ticket, openPrice, NormalizeDouble(newSL, Digits), currentTP, 0, clrGreen);
            }
          else
             if(type == OP_SELL)
               {
-               newSL = Ask + trailingBufferUSD;
-               // Only move SL DOWN, and only once SL is below open price
-               if(newSL < openPrice && (currentSL == 0.0 || newSL <= currentSL - MinimumSLModifyGapRaw))
+               if(newSL <= openPrice && (currentSL == 0.0 || newSL <= currentSL - MinimumSLModifyGapRaw))
                   SafeOrderModify(ticket, openPrice, NormalizeDouble(newSL, Digits), currentTP, 0, clrRed);
               }
         }
 
       // ==============================================================
-      // 2. LOSING ORDERS: Give them a chance to recover on retracement
+      // 2. LOSING ORDERS: Tighten SL to $20 from market
       // ==============================================================
       else
          if(netPL < 0.0)
            {
-
-
-
-
-            // Do NOT drag SL close to price! Keep the $50 safety gap so retracements can rescue the order
             double newSL = 0.0;
             if(type == OP_BUY)
+              {
                newSL = Bid - lossRecoveryGapUSD;
+               if(Bid - newSL < minStopDist)
+                  newSL = Bid - minStopDist;
+              }
             else
                if(type == OP_SELL)
+                 {
                   newSL = Ask + lossRecoveryGapUSD;
+                  if(newSL - Ask < minStopDist)
+                     newSL = Ask + minStopDist;
+                 }
 
             newSL = NormalizeDouble(newSL, Digits);
 
-            // Only adjust if distance is wider than $60, keeping a clean $50 breathing room
+            // Tighten losing order SL if current SL is wider than $20 (+5 anti-spam margin)
             double distToSL = (type == OP_BUY) ? (Bid - currentSL) : (currentSL - Ask);
-            if(currentSL == 0.0 || distToSL > lossRecoveryGapUSD + 10.0)
+            if(currentSL == 0.0 || distToSL > lossRecoveryGapUSD + 5.0)
               {
                SafeOrderModify(ticket, openPrice, newSL, currentTP, 0, clrOrange);
               }
@@ -13403,6 +13893,30 @@ void EquityProfitLadder5()
 // 5. Equity moved UP by step ($5 * multiplier) from the low
    if(curEquity >= g_equityLadderNextTarget)
      {
+      if(InpPauseEquityProfitHitOnSingleWinningOrder)
+        {
+         int mktCount = 0;
+         int posCount = 0;
+         for(int i = OrdersTotal() - 1; i >= 0; i--)
+           {
+            if(!OrderSelect(i, SELECT_BY_POS, MODE_TRADES))
+               continue;
+            if(OrderSymbol() != Symbol() || OrderMagicNumber() != MagicNumber)
+               continue;
+            if(IsAnyRecoveryOrder(OrderTicket(), OrderComment()))
+               continue;
+            int oType = OrderType();
+            if(oType == OP_BUY || oType == OP_SELL)
+              {
+               mktCount++;
+               if((OrderProfit() + OrderSwap() + OrderCommission()) > 0.0)
+                  posCount++;
+              }
+           }
+         if(mktCount == 1 && posCount == 1)
+            return; // Pause Equity Profit Ladder $5 when only 1 order open and profitable
+        }
+
       g_equityLadderStepCounter++;
       double gainFromLow = curEquity - LowestEquity;
 
@@ -18258,29 +18772,39 @@ void ManageHorizontalLineEndedBreakoutStopLoss()
 
          // 1b. Modify SL for all open market SELL orders
          double targetSL = NormalizeDouble(redLinePrice + slOffset, Digits);
-         if(targetSL < (Ask + minStopDist))
-            targetSL = NormalizeDouble(Ask + minStopDist, Digits);
-
-         for(int i = OrdersTotal() - 1; i >= 0; i--)
+         if(InpLimitSLToEmaHighestDistance)
            {
-            if(!OrderSelect(i, SELECT_BY_POS, MODE_TRADES))
-               continue;
-            if(OrderSymbol() != Symbol() || OrderMagicNumber() != MagicNumber)
-               continue;
-            if(OrderType() != OP_SELL)
-               continue;
+            targetSL = CapStopLossByEmaDistance(OP_SELL, targetSL);
+           }
 
-            double curSL = OrderStopLoss();
-            if(curSL > 0.0 && MathAbs(curSL - targetSL) <= Point * 5)
-               continue;
+         // Anti-chasing: If targetSL is already below Ask + minStopDist, price has breached it; do NOT chase Ask higher!
+         if(targetSL >= (Ask + minStopDist))
+           {
+            for(int i = OrdersTotal() - 1; i >= 0; i--)
+              {
+               if(!OrderSelect(i, SELECT_BY_POS, MODE_TRADES))
+                  continue;
+               if(OrderSymbol() != Symbol() || OrderMagicNumber() != MagicNumber)
+                  continue;
+               if(OrderType() != OP_SELL)
+                  continue;
 
-            Print(">>> [RED LINE ENDED +$100 BREAKOUT] Red Line (Price=", DoubleToString(redLinePrice, Digits),
-                  ") ended & price (Ask=", DoubleToString(Ask, Digits),
-                  ") >= RedLine+$", DoubleToString(triggerGap, 2), " (", DoubleToString(redBreakoutLevel, Digits),
-                  "). Modifying ALL open SELL Order #", OrderTicket(), " SL to RedLine+$", DoubleToString(slOffset, 2),
-                  ": NewSL=", DoubleToString(targetSL, Digits), " (OldSL=", DoubleToString(curSL, Digits), ")");
+               double curSL = OrderStopLoss();
+               // NEVER widen an existing StopLoss: for SELL, targetSL must be strictly lower (tighter) than curSL
+               if(curSL > 0.0 && targetSL >= curSL)
+                  continue;
 
-            SafeOrderModify(OrderTicket(), OrderOpenPrice(), targetSL, OrderTakeProfit(), 0, clrRed);
+               if(curSL > 0.0 && MathAbs(curSL - targetSL) <= Point * 5)
+                  continue;
+
+               Print(">>> [RED LINE ENDED +$100 BREAKOUT] Red Line (Price=", DoubleToString(redLinePrice, Digits),
+                     ") ended & price (Ask=", DoubleToString(Ask, Digits),
+                     ") >= RedLine+$", DoubleToString(triggerGap, 2), " (", DoubleToString(redBreakoutLevel, Digits),
+                     "). Modifying open SELL Order #", OrderTicket(), " SL to ", DoubleToString(targetSL, Digits),
+                     " (OldSL=", DoubleToString(curSL, Digits), ")");
+
+               SafeOrderModify(OrderTicket(), OrderOpenPrice(), targetSL, OrderTakeProfit(), 0, clrRed);
+              }
            }
         }
      }
@@ -18323,9 +18847,13 @@ void ManageHorizontalLineEndedBreakoutStopLoss()
 
          // 2b. Modify SL for all open market BUY orders
          double targetSL = NormalizeDouble(greenLinePrice - slOffset, Digits);
-         if(targetSL > (Bid - minStopDist))
-            targetSL = NormalizeDouble(Bid - minStopDist, Digits);
-         if(targetSL > 0.0)
+         if(InpLimitSLToEmaHighestDistance)
+           {
+            targetSL = CapStopLossByEmaDistance(OP_BUY, targetSL);
+           }
+
+         // Anti-chasing: If targetSL is already above Bid - minStopDist, price has breached it; do NOT chase Bid lower!
+         if(targetSL > 0.0 && targetSL <= (Bid - minStopDist))
            {
             for(int i = OrdersTotal() - 1; i >= 0; i--)
               {
@@ -18337,14 +18865,18 @@ void ManageHorizontalLineEndedBreakoutStopLoss()
                   continue;
 
                double curSL = OrderStopLoss();
+               // NEVER widen an existing StopLoss: for BUY, targetSL must be strictly higher (tighter) than curSL
+               if(curSL > 0.0 && targetSL <= curSL)
+                  continue;
+
                if(curSL > 0.0 && MathAbs(curSL - targetSL) <= Point * 5)
                   continue;
 
                Print(">>> [GREEN LINE ENDED -$100 BREAKOUT] Green Line (Price=", DoubleToString(greenLinePrice, Digits),
                      ") ended & price (Bid=", DoubleToString(Bid, Digits),
                      ") <= GreenLine-$", DoubleToString(triggerGap, 2), " (", DoubleToString(greenBreakoutLevel, Digits),
-                     "). Modifying ALL open BUY Order #", OrderTicket(), " SL to GreenLine-$", DoubleToString(slOffset, 2),
-                     ": NewSL=", DoubleToString(targetSL, Digits), " (OldSL=", DoubleToString(curSL, Digits), ")");
+                     "). Modifying open BUY Order #", OrderTicket(), " SL to ", DoubleToString(targetSL, Digits),
+                     " (OldSL=", DoubleToString(curSL, Digits), ")");
 
                SafeOrderModify(OrderTicket(), OrderOpenPrice(), targetSL, OrderTakeProfit(), 0, clrGreen);
               }
