@@ -27,7 +27,7 @@
 //https://github.com/devcrunch2025/exnessStratagiesExperts/commit/f4f1c1340be330cd32a75da3f3a9b4bd5f4e4cf3
 
 
-string glbVersion = "VMULTI-1053-WIRKING - GOOD - Horizontal Line Orders - Close oppsoite orders above $200";
+string glbVersion = "VMULTI-1054 - 0.06 changed $50 to $100 breathing";
 
 
 double DailyEquityStopUSD  =1000;//50;//20*2.5;//10;//20;// 10;//30.0; close all orders at $50Xmultipler
@@ -218,17 +218,17 @@ bool   InpEnableV1020EmaTrendSupport              = false;          // Mix V1020
 // ===== NEW RED LINE BUY-CLOSE & REVERSE SELL SETTINGS =====
 bool   InpCloseBuyOnNewEqhRedLine                 = true;          // On new EQH-R red line: Close BUY orders (loss < $1*mult) & Open SSL Short
 double InpCloseBuyMaxLossUSD                      = 1.0;           // Max loss in USD ($1.00 * multiplier) to close BUY order
-double InpNewEqhSellOrderLotBase                  = 0.06;          // Base lot for immediate SSL Short (0.06 * multiplier)
+double InpNewEqhSellOrderLotBase                  =0.06;// 0.03;//0.06;          // Base lot for immediate SSL Short (0.06 * multiplier)
 bool   InpCloseSellOnNewEqlGreenLine              = true;          // On new EQH-G green line: Close SELL orders (loss < $1*mult) & Open SSL Long
 double InpCloseSellMaxLossUSD                     = 1.0;           // Max loss in USD ($1.00 * multiplier) to close SELL order
-double InpNewEqlBuyOrderLotBase                   = 0.06;          // Base lot for immediate SSL Long (0.06 * multiplier)
+double InpNewEqlBuyOrderLotBase                   = 0.06;//0.03;//0.06;          // Base lot for immediate SSL Long (0.06 * multiplier)
 bool   InpEnableModifySLOnLineEnded               = true;          // When horizontal line ends: modify open horizontal order SL with $50 gap
 double InpHorizontalLineEndedSLGapRaw             = 50.0;          // StopLoss raw price gap ($50) when horizontal line ends
 double InpHorizontalLineMinEmaGapRaw             = 0.0;           // Min raw price gap ( = disabled) between horizontal line & EMA (Do not create orders if < min gap)
 int    InpHorizontalLineMaxDurationSeconds        = 300;           // Max allowed duration (300s = 5 min) since horizontal line initiated to create order (0 = no limit)
 bool   InpModifyOppositeOrderSLToLinePrice        = true;          // On new/active horizontal line: try to modify opposite order SL to Line price
 bool   InpModifyLinePriceSLOnlyFirstOrder         = true;          // Modify SL with Line Price ONLY for the FIRST (oldest) open order
-double InpLinePriceSLOffsetRaw                    = 50.0;          // Offset in USD ($50) added to Line Price for StopLoss modification (Line Price + 50)
+double InpLinePriceSLOffsetRaw                    = 100;//50.0;          // Offset in USD ($50) added to Line Price for StopLoss modification (Line Price + 50)
 bool   InpEnableHorizontalLineRecovery            = true;          // When horizontal line starts: create recovery order for open losing order with smallest loss
 bool   InpOpenLineOrderIfRecoveryCreated          = false;         // If recovery order created, also open standard line order (default: false to enforce 1-order-per-line)
 bool   InpEnableLineEndedBreakoutSLModify         = true;          // When line ends & price moves > $100 past line: modify ALL open orders SL to LinePrice +/- $200
