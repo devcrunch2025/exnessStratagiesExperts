@@ -30,6 +30,7 @@
 string glbVersion = "VMULTI-1066- all stoploss changed to 1000";
 
 
+
 double DailyEquityStopUSD  =1000;//50;//20*2.5;//10;//20;// 10;//30.0; close all orders at $50Xmultipler
 double TargetProfitPerFlipUSD =1000;//20;//10;//10*2;//10;//5;//20;// 10.0; close all orders at $20Xmultipler
 
