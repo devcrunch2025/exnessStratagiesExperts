@@ -27,7 +27,7 @@
 //https://github.com/devcrunch2025/exnessStratagiesExperts/commit/f4f1c1340be330cd32a75da3f3a9b4bd5f4e4cf3
 
 
-string glbVersion = "VMULTI-1065- EMA Flip Breathing SL Buffer Min $1000";
+string glbVersion = "VMULTI-1066- Fix Line Breakout Pending Order Loop";
 
 
 double DailyEquityStopUSD  =1000;//50;//20*2.5;//10;//20;// 10;//30.0; close all orders at $50Xmultipler
@@ -244,7 +244,7 @@ bool   InpLineEndedBreakoutDeleteAllPending       = false;         // false = de
 bool   InpEnableEmaFlipWideBreathingSL     = true;   // On EMA flip, modify losing orders with wide breathing SL
 double InpEmaFlipWideBreathingMultiplier   = 4.0;    // Multiplier for EMA distance buffer (4X buffer)
 double InpEmaFlipWideBreathingSafeExtraRaw = 100.0;  // Extra safe distance in USD ($100 raw) added to buffer
-double InpEmaFlipWideBreathingMinFloorRaw  = 1000.0; // Minimum Stop Loss breathing buffer in USD ($1000 raw) on EMA flip
+double InpEmaFlipWideBreathingMinFloorRaw  = 2000;//1000.0; // Minimum Stop Loss breathing buffer in USD ($1000 raw) on EMA flip
 bool   InpEnableEmaFlipHalfDistPartialCut  = true;   // Close 50% of LOT if LOT > 0.01 when moved 2X EMA distance (half buffer) towards loss
 bool   InpKeepWideLossCushionSL            = true;   // If order SL loss is -$10, keep -$10 and do not tighten to -$5 on small EMA changes
 bool   InpLimitSLToEmaHighestDistance      = true;   // Cap BUY SL >= EMA - HighestDistance, SELL SL <= EMA + HighestDistance
@@ -4757,6 +4757,14 @@ void TrackEmaFlip()
       ActiveEquityBaseline = AccountBalance() * SecurebaselinePercentage; // Updated to 10% less than current equity on flip
       HighestCycleProfitUSD = 0.0;
       HighestLadderLevelThisCycle = 0;
+
+      // Reset Ended Horizontal Line Tracking on EMA flip
+      g_endedEqHighPrice                  = 0.0;
+      g_endedEqHighStart                  = 0;
+      g_endedEqHighTime                   = 0;
+      g_endedEqLowPrice                   = 0.0;
+      g_endedEqLowStart                   = 0;
+      g_endedEqLowTime                    = 0;
 
       // Reset Sweep state on EMA flip
       g_forceSweepRecalc                  = true;
@@ -18955,20 +18963,26 @@ void ManageHorizontalLineEndedBreakoutStopLoss()
    double triggerGap  = (InpLineEndedBreakoutTriggerGapRaw > 0.0) ? InpLineEndedBreakoutTriggerGapRaw : 100.0;
    double slOffset    = (InpLineEndedBreakoutSLOffsetRaw > 0.0)   ? InpLineEndedBreakoutSLOffsetRaw   : 200.0;
 
-// =========================================================================
-// 1. RED LINE (EQH-R) ENDED & PRICE MOVING ABOVE $100 -> MODIFY ALL SELLS & DELETE PENDING
-// =========================================================================
-   double redLinePrice = g_endedEqHighPrice;
-   if(redLinePrice <= 0.0 && GetEQR_R_Price(true) <= 0.0)
-      redLinePrice = GetEQR_R_Price(false);
+   // One-time breakout handling guard per ended line (prevents infinite delete loop on every tick)
+   static datetime s_lastHandledRedBreakoutStart   = 0;
+   static datetime s_lastHandledGreenBreakoutStart = 0;
 
-   if(redLinePrice > 0.0 && GetEQR_R_Price(true) <= 0.0)
+// =========================================================================
+// 1. RED LINE (EQH-R) ENDED & PRICE MOVING ABOVE $100 -> MODIFY ALL SELLS & DELETE PENDING (ONCE)
+// =========================================================================
+   // Must be a recently ended active EQH-R line, NOT arbitrary stale chart history
+   double   redLinePrice = g_endedEqHighPrice;
+   datetime redLineStart = g_endedEqHighStart;
+   datetime redLineTime  = g_endedEqHighTime;
+
+   // Only valid if line actually ended in current session and within 30 minutes
+   if(redLinePrice > 0.0 && redLineStart > 0 && redLineTime > 0 && (TimeCurrent() - redLineTime) <= 1800 && GetEQR_R_Price(true) <= 0.0)
      {
       double redBreakoutLevel = redLinePrice + triggerGap;
       if(Ask >= redBreakoutLevel || Bid >= redBreakoutLevel)
         {
-         // 1a. USER RULE: Delete pending orders on line-ended breakout
-         if(InpLineEndedBreakoutDeletePending)
+         // 1a. USER RULE: Delete pending orders on line-ended breakout (ONCE per ended line)
+         if(InpLineEndedBreakoutDeletePending && s_lastHandledRedBreakoutStart != redLineStart)
            {
             for(int p = OrdersTotal() - 1; p >= 0; p--)
               {
@@ -19034,23 +19048,31 @@ void ManageHorizontalLineEndedBreakoutStopLoss()
                SafeOrderModify(OrderTicket(), OrderOpenPrice(), targetSL, OrderTakeProfit(), 0, clrRed);
               }
            }
+
+         // Mark this ended line's breakout as completely handled and clear tracking
+         s_lastHandledRedBreakoutStart = redLineStart;
+         g_endedEqHighPrice            = 0.0;
+         g_endedEqHighStart            = 0;
+         g_endedEqHighTime             = 0;
         }
      }
 
 // =========================================================================
-// 2. GREEN LINE (EQH-G) ENDED & PRICE MOVING BELOW $100 -> MODIFY ALL BUYS & DELETE PENDING
+// 2. GREEN LINE (EQH-G) ENDED & PRICE MOVING BELOW $100 -> MODIFY ALL BUYS & DELETE PENDING (ONCE)
 // =========================================================================
-   double greenLinePrice = g_endedEqLowPrice;
-   if(greenLinePrice <= 0.0 && GetEQR_G_Price(true) <= 0.0)
-      greenLinePrice = GetEQR_G_Price(false);
+   // Must be a recently ended active EQH-G line, NOT arbitrary stale chart history
+   double   greenLinePrice = g_endedEqLowPrice;
+   datetime greenLineStart = g_endedEqLowStart;
+   datetime greenLineTime  = g_endedEqLowTime;
 
-   if(greenLinePrice > 0.0 && GetEQR_G_Price(true) <= 0.0)
+   // Only valid if line actually ended in current session and within 30 minutes
+   if(greenLinePrice > 0.0 && greenLineStart > 0 && greenLineTime > 0 && (TimeCurrent() - greenLineTime) <= 1800 && GetEQR_G_Price(true) <= 0.0)
      {
       double greenBreakoutLevel = greenLinePrice - triggerGap;
       if(Bid <= greenBreakoutLevel || Ask <= greenBreakoutLevel)
         {
-         // 2a. USER RULE: Delete pending orders on line-ended breakout
-         if(InpLineEndedBreakoutDeletePending)
+         // 2a. USER RULE: Delete pending orders on line-ended breakout (ONCE per ended line)
+         if(InpLineEndedBreakoutDeletePending && s_lastHandledGreenBreakoutStart != greenLineStart)
            {
             for(int p = OrdersTotal() - 1; p >= 0; p--)
               {
@@ -19116,6 +19138,12 @@ void ManageHorizontalLineEndedBreakoutStopLoss()
                SafeOrderModify(OrderTicket(), OrderOpenPrice(), targetSL, OrderTakeProfit(), 0, clrGreen);
               }
            }
+
+         // Mark this ended line's breakout as completely handled and clear tracking
+         s_lastHandledGreenBreakoutStart = greenLineStart;
+         g_endedEqLowPrice               = 0.0;
+         g_endedEqLowStart               = 0;
+         g_endedEqLowTime                = 0;
         }
      }
   }
