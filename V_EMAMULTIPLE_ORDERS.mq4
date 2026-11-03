@@ -1,4 +1,4 @@
-﻿//+------------------------------------------------------------------+
+//+------------------------------------------------------------------+
 //|                  SSL CHANNEL CROSS EA - CONTINUOUS EQUITY LADDER |
 //|                  TWO-STAGE PROFIT LADDER | CONTINUOUS RESET      |
 //+------------------------------------------------------------------+
@@ -27,7 +27,7 @@
 //https://github.com/devcrunch2025/exnessStratagiesExperts/commit/f4f1c1340be330cd32a75da3f3a9b4bd5f4e4cf3
 
 
-string glbVersion = "VMULTI-1066- all stoploss changed to 1000";
+string glbVersion = "VMULTI-1067- Cap 0.01 Loss and Prevent SL Widening Creep";
 
 
 
@@ -250,6 +250,11 @@ bool   InpEnableEmaFlipHalfDistPartialCut  = true;   // Close 50% of LOT if LOT 
 bool   InpKeepWideLossCushionSL            = true;   // If order SL loss is -$10, keep -$10 and do not tighten to -$5 on small EMA changes
 bool   InpLimitSLToEmaHighestDistance      = true;   // Cap BUY SL >= EMA - HighestDistance, SELL SL <= EMA + HighestDistance
 bool   InpApplyBreathingToHorizontalOrders = false;  // Keep existing horizontal SL logic; do not modify horizontal line orders on EMA flip
+bool   InpNeverWidenEmaFlipStopLoss        = true;   // Strict risk rule: Never allow targetSL to widen existing Stop Loss on EMA flip
+
+// ===== 0.01 LOT RUNNER LOSS CAP & PROFITABILITY OPTIMIZATION =====
+bool   InpEnableMaxLossCap001Lots          = true;   // Close 0.01 lot order if floating loss reaches max dollar threshold
+double InpMaxLoss001LotsUSD                = 10.0;   // Maximum allowed dollar loss ($10.00 * multiplier) on 0.01 lot orders
 
 // ===== EQL / EQH STRUCTURAL RECOVERY (TYPE 2) SETTINGS =====
 bool   InpEnableLsdStructuralRecovery       = true;  // Enable EQL/EQH Structural Recovery (Type 2)
@@ -1379,6 +1384,27 @@ void ResetEmaFlipBreathingTickets()
    ArrayResize(g_emaFlipBreathingTickets, 0);
   }
 
+void PruneEmaFlipBreathingTickets()
+  {
+   int sz = ArraySize(g_emaFlipBreathingTickets);
+   if(sz == 0) return;
+   int kept = 0;
+   for(int i = 0; i < sz; i++)
+     {
+      int tkt = g_emaFlipBreathingTickets[i];
+      if(OrderSelect(tkt, SELECT_BY_TICKET, MODE_TRADES))
+        {
+         if(OrderCloseTime() == 0)
+           {
+            g_emaFlipBreathingTickets[kept] = tkt;
+            kept++;
+           }
+        }
+     }
+   if(kept < sz)
+      ArrayResize(g_emaFlipBreathingTickets, kept);
+  }
+
 bool HasTicketBeenEmaFlipCut(int ticket, string comment = "")
   {
    int orig = GetOriginalTicket(ticket, comment);
@@ -1436,6 +1462,8 @@ void CheckEmaFlipHalfDistancePartialLossCut()
 
       int tkt = OrderTicket();
       string comm = OrderComment();
+      if(!InpApplyBreathingToHorizontalOrders && IsHorizontalLineOrder(tkt, comm))
+         continue;
       if(HasTicketBeenEmaFlipCut(tkt, comm))
          continue;
 
@@ -1502,8 +1530,61 @@ void CheckEmaFlipHalfDistancePartialLossCut()
      }
   }
 
+//+------------------------------------------------------------------+
+//| CheckMaxLossCap001Lots: Closes 0.01 lot orders if floating loss  |
+//| breaches InpMaxLoss001LotsUSD threshold to prevent runaway losses|
+//+------------------------------------------------------------------+
+void CheckMaxLossCap001Lots()
+  {
+   if(!InpEnableMaxLossCap001Lots)
+      return;
+
+   double maxLossUSD = InpMaxLoss001LotsUSD * balancelomultipler;
+   if(maxLossUSD <= 0.0)
+      return;
+
+   RefreshRates();
+
+   for(int i = OrdersTotal() - 1; i >= 0; i--)
+     {
+      if(!OrderSelect(i, SELECT_BY_POS, MODE_TRADES))
+         continue;
+      if(OrderSymbol() != Symbol() || OrderMagicNumber() != MagicNumber)
+         continue;
+
+      int oType = OrderType();
+      if(oType != OP_BUY && oType != OP_SELL)
+         continue;
+
+      double oLots = OrderLots();
+      // Specifically target 0.01 lot orders (and small runner leftovers <= 0.015 * multiplier)
+      if(oLots > 0.015 * balancelomultipler)
+         continue;
+
+      double pl = OrderProfit() + OrderSwap() + OrderCommission();
+      if(pl <= -maxLossUSD)
+        {
+         int tkt = OrderTicket();
+         ResetLastError();
+         bool closed = SafeOrderCloseMarket(tkt, oLots, Slippage, clrRed);
+         if(closed)
+           {
+            Print(">>> [0.01 MAX LOSS CAP HIT] Ticket #", tkt, " (", (oType == OP_BUY ? "BUY " : "SELL "),
+                  DoubleToString(oLots, 2), "L) reached max loss cap: Loss=$", DoubleToString(pl, 2),
+                  " <= -$", DoubleToString(maxLossUSD, 2), ". Order closed to protect capital!");
+            InvalidateTotalEAOrdersCache();
+           }
+         else
+           {
+            Print(">>> [0.01 MAX LOSS CAP CLOSE FAILED] Ticket #", tkt, " Err=", GetLastError());
+           }
+        }
+     }
+  }
+
 void ApplyEmaFlipWideBreathingProtection(int prevDirection, int newDirection)
   {
+   PruneEmaFlipBreathingTickets();
    RefreshRates();
    double minStopDist = MarketInfo(Symbol(), MODE_STOPLEVEL) * Point;
    if(minStopDist < 10.0 * Point)
@@ -1551,6 +1632,14 @@ void ApplyEmaFlipWideBreathingProtection(int prevDirection, int newDirection)
          double pl = OrderProfit() + OrderSwap() + OrderCommission();
          if(pl < 0.0)
            {
+            // If already received breathing protection on a previous flip, do not widen SL again
+            if(IsEmaFlipBreathingOrder(tkt))
+              {
+               Print(">>> [EMA FLIP WIDE SL SKIPPED] BUY Order #", tkt,
+                     " already received EMA breathing protection. Preserving current SL cushion.");
+               continue;
+              }
+
             double openPrice = OrderOpenPrice();
             double curSL = OrderStopLoss();
             double curTP = OrderTakeProfit();
@@ -1560,9 +1649,19 @@ void ApplyEmaFlipWideBreathingProtection(int prevDirection, int newDirection)
             if(livePrice - targetSL < minStopDist)
                targetSL = NormalizeDouble(livePrice - minStopDist - Point * 10, Digits);
 
+            // STRICT RISK RULE: Never widen existing Stop Loss downward into a bigger loss!
+            if(curSL > 0.0 && InpNeverWidenEmaFlipStopLoss && targetSL <= curSL)
+              {
+               Print(">>> [EMA FLIP WIDE SL SKIPPED] BUY Order #", tkt,
+                     " Proposed targetSL=", DoubleToString(targetSL, Digits),
+                     " <= Current SL=", DoubleToString(curSL, Digits),
+                     ". Rule: NEVER widen Stop Loss downward!");
+               continue;
+              }
+
             if(curSL > 0.0)
               {
-               bool isInitialEmergencySL = (MathAbs(openPrice - curSL) >= 1000.0);
+               bool isInitialEmergencySL = (MathAbs(openPrice - curSL) >= 3000.0);
                double curLossAtSL    = CalcOrderLockedProfitUSD(OP_BUY, openPrice, curSL, OrderLots());
                double targetLossAtSL = CalcOrderLockedProfitUSD(OP_BUY, openPrice, targetSL, OrderLots());
                if(!isInitialEmergencySL && InpKeepWideLossCushionSL && curLossAtSL < 0.0 && targetLossAtSL > curLossAtSL)
@@ -1641,6 +1740,14 @@ void ApplyEmaFlipWideBreathingProtection(int prevDirection, int newDirection)
          double pl = OrderProfit() + OrderSwap() + OrderCommission();
          if(pl < 0.0)
            {
+            // If already received breathing protection on a previous flip, do not widen SL again
+            if(IsEmaFlipBreathingOrder(tkt))
+              {
+               Print(">>> [EMA FLIP WIDE SL SKIPPED] SELL Order #", tkt,
+                     " already received EMA breathing protection. Preserving current SL cushion.");
+               continue;
+              }
+
             double openPrice = OrderOpenPrice();
             double curSL = OrderStopLoss();
             double curTP = OrderTakeProfit();
@@ -1650,9 +1757,19 @@ void ApplyEmaFlipWideBreathingProtection(int prevDirection, int newDirection)
             if(targetSL - livePrice < minStopDist)
                targetSL = NormalizeDouble(livePrice + minStopDist + Point * 10, Digits);
 
+            // STRICT RISK RULE: Never widen existing Stop Loss upward into a bigger loss!
+            if(curSL > 0.0 && InpNeverWidenEmaFlipStopLoss && targetSL >= curSL)
+              {
+               Print(">>> [EMA FLIP WIDE SL SKIPPED] SELL Order #", tkt,
+                     " Proposed targetSL=", DoubleToString(targetSL, Digits),
+                     " >= Current SL=", DoubleToString(curSL, Digits),
+                     ". Rule: NEVER widen Stop Loss upward!");
+               continue;
+              }
+
             if(curSL > 0.0)
               {
-               bool isInitialEmergencySL = (MathAbs(openPrice - curSL) >= 1000.0);
+               bool isInitialEmergencySL = (MathAbs(openPrice - curSL) >= 3000.0);
                double curLossAtSL    = CalcOrderLockedProfitUSD(OP_SELL, openPrice, curSL, OrderLots());
                double targetLossAtSL = CalcOrderLockedProfitUSD(OP_SELL, openPrice, targetSL, OrderLots());
                if(!isInitialEmergencySL && InpKeepWideLossCushionSL && curLossAtSL < 0.0 && targetLossAtSL > curLossAtSL)
@@ -2770,6 +2887,8 @@ double   GetLowestEmaDistanceSinceEmaFlip();
 double   CalculateProportionalLadderSL(int orderType, double openPrice, double orderLots);
 void     ApplyEmaFlipWideBreathingProtection(int prevDirection, int newDirection);
 void     CheckEmaFlipHalfDistancePartialLossCut();
+void     CheckMaxLossCap001Lots();
+void     PruneEmaFlipBreathingTickets();
 void     ResetEmaFlipCutTickets();
 bool     SafeOrderCloseMarket(int ticket, double lots, int slippage, color arrowColor);
 void     DrawTargetEquityHitCircle(datetime time, double price, double targetVal, int step);
@@ -5342,6 +5461,7 @@ void OnTick()
 
    SecureOneDollarProfit();
    CheckEmaFlipHalfDistancePartialLossCut();
+   CheckMaxLossCap001Lots();
    CheckEquitySurplusReset();
 
    if(InpEnableBasketProfitClose)
