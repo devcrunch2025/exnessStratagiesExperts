@@ -27,7 +27,22 @@
 //https://github.com/devcrunch2025/exnessStratagiesExperts/commit/f4f1c1340be330cd32a75da3f3a9b4bd5f4e4cf3
 
 
-string glbVersion = "VMULTI-1067- Cap 0.01 Loss and Prevent SL Widening Creep";
+/*
+Summary Overview Table
+Function	What it Tracks	Step Size (1X, 2X, 3X...)	Action on Step Hit	Primary Variable & Value
+Manage5PercentLadderReset	Equity above baseline	$50.00	Modifies SL (locks winners, tightens losers)	CloseOrdersAtProfitFromOpeningBalanceEveryStep = 50.0
+EquityProfitLadder5	Equity above cycle low	$100.00	Modifies ALL open orders SL to -$100 gap	InpEquityProfitLadderStepUSD = 100
+ManageFlipProfitLadder	Continuous profit since flip	$10.00	Halts & modifies SL if baseline breached	FlipLadderStepUSD = 10
+ManageProfitLadder	Single order profit	$5.00 / $20.00	Ratchets individual order SL forward	OriginalLadder1ProfitUSD = 0.05
+ManageFLIPBasketSupport	Favorable price move	+100 pts	Ratchets SL: BE, +100, +200, +300...	FLIPBasketSupport...Step = 100.0
+CheckBasketProfitClose	Total open basket profit	
+1.00
+1.00\times$ mult	Closes ALL open orders	InpBasketProfitTargetUSD = 1.0
+
+*/
+
+
+string glbVersion = "VMULTI-1070- Universal One-Way SL Ratchet for All Orders";
 
 
 
@@ -38,7 +53,7 @@ double protectgapOnOrderclose=31;//30;//101;//1000;//303;//11111111111111
 
 
 //Chance 1
-double SecureOneDollarProfitPerOrder=1.0*1; //1X set modify order at profit $1(any lot)
+double SecureOneDollarProfitPerOrder=1.0*10; //1X set modify order at profit $1(any lot)
 
 //chance 2
 int partialClose01in05IndividualPercentage=20;//10;//2*2;//per lot 0.01//if 0.05 close 0.01 at total profit of 20% means close 0.01 lot
@@ -55,13 +70,13 @@ double InpRunnerBreakevenBufferPoints     = 20.0;  // Breakeven profit buffer in
 bool   InpEnablePartialLossCut            = true;//false; // Disabled by default: prevents chopping underwater orders into multi-step double losses
 
 //chance 3
-double FlipLadderStepUSD =8;//0;//10;// 5;//10.0;//0 means nothing not work close all orders at $7Xmultipler
+double FlipLadderStepUSD =10*10;//8;//0;//10;// 5;//10.0;//0 means nothing not work close all orders at $7Xmultipler
 
 //chance 4
 double modifyBasketProfitOrdersLotXPercent=50;//10.0;//20 % means 0.05 X 20 modify orders in basket $1 profit//work if basket is full profit mode
 
 //chance 5
-double CloseOrdersAtProfitFromOpeningBalanceEveryStep =2;//0.4;//1;//3;//5;//10;//25;// 5;// 5X step close orders every step
+double CloseOrdersAtProfitFromOpeningBalanceEveryStep =5*10;//2;//0.4;//1;//3;//5;//10;//25;// 5;// 5X step close orders every step
 double InpTargetEquityProfitTrailingGapUSD = 102.0; // Target Equity hit: Trailing SL gap for winning orders (Bid-102, Ask+102)
 double InpTargetEquityLossTighteningGapUSD = 20.0;  // Target Equity hit: Tight SL gap for losing orders (Bid-20, Ask+20)
 bool   InpPauseEquityProfitHitOnSingleWinningOrder = true; // Pause Equity Profit hit if only 1 order is open and moving in positive profit direction
@@ -69,7 +84,7 @@ bool   InpPauseEquityProfitHitOnSingleWinningOrder = true; // Pause Equity Profi
 
 //chage 55
 // double closeAllOrdersLowestEquityIncreasePercentage=20;
-double closeAllOrdersLowestEquityIncreasePercentage =20;//100//50;// 50.0;
+double closeAllOrdersLowestEquityIncreasePercentage =20*10;//100//50;// 50.0;
 // equity is going down and increased equity more than 50% even in loss then close all orders
 //$100 $50 to $75 close all orders - close one side orders if any
 
@@ -85,11 +100,11 @@ double InpEquityLadderSLDistanceRaw        = 100.0;  // StopLoss gap from live p
 
 
 //chance 6 - basket//IMPORTANT TO CLOSE ONE SIDE OPEN ORDERS as soon as possible
-double basketBUYorSELLProfitModifyUSD=1*2; //if all combined basket BUY OR SELL Only basket is profit >0 then modify stoploss
+double basketBUYorSELLProfitModifyUSD=1*10; //if all combined basket BUY OR SELL Only basket is profit >0 then modify stoploss
 bool   InpEnableBasketProfitClose = true;        // Close open Buy/Sell/Total orders when basket profit target reached
-double InpBasketProfitTargetUSD     = 2.0;         // Base target profit ($2.00 Golden Sweet Spot) multiplied by balancelomultipler
+double InpBasketProfitTargetUSD     = 2.0*10;         // Base target profit ($2.00 Golden Sweet Spot) multiplied by balancelomultipler
 bool   InpEnableBasketMicroTrailing = true;        // Enable basket micro-trailing to let profitable baskets ride past $2 into $3-$5
-double InpBasketTrailActivationUSD  = 2.0;         // Net profit in USD to activate basket trailing ($2.00 * multiplier)
+double InpBasketTrailActivationUSD  = 2.0*10;         // Net profit in USD to activate basket trailing ($2.00 * multiplier)
 double InpBasketTrailStepUSD        = 0.50;        // Pullback distance in USD from peak profit to close ($0.50 * multiplier)
 
 
@@ -247,7 +262,7 @@ double InpEmaFlipWideBreathingMultiplier   = 4.0;    // Multiplier for EMA dista
 double InpEmaFlipWideBreathingSafeExtraRaw = 100.0;  // Extra safe distance in USD ($100 raw) added to buffer
 double InpEmaFlipWideBreathingMinFloorRaw  = 2000;//1000.0; // Minimum Stop Loss breathing buffer in USD ($1000 raw) on EMA flip
 bool   InpEnableEmaFlipHalfDistPartialCut  = true;   // Close 50% of LOT if LOT > 0.01 when moved 2X EMA distance (half buffer) towards loss
-bool   InpKeepWideLossCushionSL            = true;   // If order SL loss is -$10, keep -$10 and do not tighten to -$5 on small EMA changes
+bool   InpKeepWideLossCushionSL            = false;  // Universal Ratchet Rule: Always allow tightening SL towards profit/breakeven, strictly block widening loss
 bool   InpLimitSLToEmaHighestDistance      = true;   // Cap BUY SL >= EMA - HighestDistance, SELL SL <= EMA + HighestDistance
 bool   InpApplyBreathingToHorizontalOrders = false;  // Keep existing horizontal SL logic; do not modify horizontal line orders on EMA flip
 bool   InpNeverWidenEmaFlipStopLoss        = true;   // Strict risk rule: Never allow targetSL to widen existing Stop Loss on EMA flip
@@ -506,11 +521,11 @@ bool ContinueTradingAfterSL = true;
 bool EnableFreezeLevelProtection = true;
 double MinimumSLModifyGapRaw = 25.0; // Minimum raw price gap (.0) required between SL modifications to prevent broker spam
 
-bool EnableProfitLadder1 = true;
-bool EnableProfitLadder2 = true;
+bool EnableProfitLadder1 = false;
+bool EnableProfitLadder2 = false;
 double Ladder1ProfitUSD =1*1;// 0.50;
-double Ladder1StopMaxPriceUSD =1.50;// 0.70;//2;
-double Ladder2ProfitUSD = 0.50;
+double Ladder1StopMaxPriceUSD =2;//1.50;// 0.70;//2;
+double Ladder2ProfitUSD = 2;//0.50;
 double DefaultOrderProfitUSD =5;// 2.00;
 
 
@@ -1432,6 +1447,67 @@ void ResetEmaFlipCutTickets()
    g_emaFlipHalfDistanceDirection = 0;
   }
 
+//+------------------------------------------------------------------+
+//| Equity Hit Target Secured Orders Tracking                         |
+//| USER RULE: "equity hit target is modified 2 orders. next time    |
+//|  horizontal line or emaflip changed or soemthing is happend.     |
+//|  then, do not modify these orders with high stoploss values.     |
+//|  means, profit stoploss valu ok. , loss stoploss is not ok."     |
+//+------------------------------------------------------------------+
+int  g_equityHitSecuredTickets[];
+bool InpProtectEquityHitOrdersFromLossSL = true; // Protect orders secured by equity target hit from receiving loss StopLoss
+
+void RegisterEquityHitSecuredOrder(int ticket)
+  {
+   int sz = ArraySize(g_equityHitSecuredTickets);
+   for(int i = 0; i < sz; i++)
+     {
+      if(g_equityHitSecuredTickets[i] == ticket)
+         return;
+     }
+   ArrayResize(g_equityHitSecuredTickets, sz + 1);
+   g_equityHitSecuredTickets[sz] = ticket;
+  }
+
+bool IsEquityHitSecuredOrder(int ticket)
+  {
+   if(!InpProtectEquityHitOrdersFromLossSL)
+      return false;
+   int sz = ArraySize(g_equityHitSecuredTickets);
+   for(int i = 0; i < sz; i++)
+     {
+      if(g_equityHitSecuredTickets[i] == ticket)
+         return true;
+     }
+   return false;
+  }
+
+void PruneEquityHitSecuredTickets()
+  {
+   int sz = ArraySize(g_equityHitSecuredTickets);
+   if(sz == 0) return;
+   int kept = 0;
+   for(int i = 0; i < sz; i++)
+     {
+      int tkt = g_equityHitSecuredTickets[i];
+      if(OrderSelect(tkt, SELECT_BY_TICKET, MODE_TRADES))
+        {
+         if(OrderCloseTime() == 0)
+           {
+            g_equityHitSecuredTickets[kept] = tkt;
+            kept++;
+           }
+        }
+     }
+   if(kept < sz)
+      ArrayResize(g_equityHitSecuredTickets, kept);
+  }
+
+void ResetEquityHitSecuredTickets()
+  {
+   ArrayResize(g_equityHitSecuredTickets, 0);
+  }
+
 void CheckEmaFlipHalfDistancePartialLossCut()
   {
    if(!InpEnableEmaFlipHalfDistPartialCut)
@@ -1622,6 +1698,12 @@ void ApplyEmaFlipWideBreathingProtection(int prevDirection, int newDirection)
 
          int tkt = OrderTicket();
          string comm = OrderComment();
+         if(IsEquityHitSecuredOrder(tkt))
+           {
+            Print(">>> [EMA FLIP WIDE SL SKIPPED] BUY Order #", tkt,
+                  " was secured by Equity Target Hit. Preserving secured StopLoss against wide loss SL!");
+            continue;
+           }
          if(!InpApplyBreathingToHorizontalOrders && IsHorizontalLineOrder(tkt, comm))
            {
             Print(">>> [EMA FLIP WIDE SL SKIPPED] BUY Order #", tkt, " is a horizontal line order. Keeping existing SL logic.");
@@ -1679,7 +1761,7 @@ void ApplyEmaFlipWideBreathingProtection(int prevDirection, int newDirection)
             if(MathAbs(curSL - targetSL) >= Point * 10)
               {
                ResetLastError();
-               bool res = OrderModify(tkt, openPrice, targetSL, curTP, 0, clrRed);
+               bool res = SafeOrderModify(tkt, openPrice, targetSL, curTP, 0, clrRed, "EmaFlipBreathing");
                if(res)
                  {
                   RegisterEmaFlipBreathingTicket(tkt);
@@ -1693,7 +1775,7 @@ void ApplyEmaFlipWideBreathingProtection(int prevDirection, int newDirection)
                  }
                else
                  {
-                  Print(">>> [EMA FLIP WIDE SL FAILED] Ticket #", tkt, " Err=", GetLastError());
+                  Print(">>> [EMA FLIP WIDE SL SKIPPED/FAILED] Ticket #", tkt, " Err=", GetLastError());
                  }
               }
            }
@@ -1730,6 +1812,12 @@ void ApplyEmaFlipWideBreathingProtection(int prevDirection, int newDirection)
 
          int tkt = OrderTicket();
          string comm = OrderComment();
+         if(IsEquityHitSecuredOrder(tkt))
+           {
+            Print(">>> [EMA FLIP WIDE SL SKIPPED] SELL Order #", tkt,
+                  " was secured by Equity Target Hit. Preserving secured StopLoss against wide loss SL!");
+            continue;
+           }
          if(!InpApplyBreathingToHorizontalOrders && IsHorizontalLineOrder(tkt, comm))
            {
             Print(">>> [EMA FLIP WIDE SL SKIPPED] SELL Order #", tkt, " is a horizontal line order. Keeping existing SL logic.");
@@ -1787,7 +1875,7 @@ void ApplyEmaFlipWideBreathingProtection(int prevDirection, int newDirection)
             if(MathAbs(curSL - targetSL) >= Point * 10)
               {
                ResetLastError();
-               bool res = OrderModify(tkt, openPrice, targetSL, curTP, 0, clrBlue);
+               bool res = SafeOrderModify(tkt, openPrice, targetSL, curTP, 0, clrBlue, "EmaFlipBreathing");
                if(res)
                  {
                   RegisterEmaFlipBreathingTicket(tkt);
@@ -1801,7 +1889,7 @@ void ApplyEmaFlipWideBreathingProtection(int prevDirection, int newDirection)
                  }
                else
                  {
-                  Print(">>> [EMA FLIP WIDE SL FAILED] Ticket #", tkt, " Err=", GetLastError());
+                  Print(">>> [EMA FLIP WIDE SL SKIPPED/FAILED] Ticket #", tkt, " Err=", GetLastError());
                  }
               }
            }
@@ -2890,6 +2978,10 @@ void     CheckEmaFlipHalfDistancePartialLossCut();
 void     CheckMaxLossCap001Lots();
 void     PruneEmaFlipBreathingTickets();
 void     ResetEmaFlipCutTickets();
+void     RegisterEquityHitSecuredOrder(int ticket);
+bool     IsEquityHitSecuredOrder(int ticket);
+void     PruneEquityHitSecuredTickets();
+void     ResetEquityHitSecuredTickets();
 bool     SafeOrderCloseMarket(int ticket, double lots, int slippage, color arrowColor);
 void     DrawTargetEquityHitCircle(datetime time, double price, double targetVal, int step);
 
@@ -5463,6 +5555,7 @@ void OnTick()
    CheckEmaFlipHalfDistancePartialLossCut();
    CheckMaxLossCap001Lots();
    CheckEquitySurplusReset();
+   PruneEquityHitSecuredTickets();
 
    if(InpEnableBasketProfitClose)
       CheckBasketProfitClose();
@@ -8522,46 +8615,56 @@ bool CanModifyStopLossForHigherProfit(int ticket, double proposedSL, string call
    double oLots     = OrderLots();
    double normPropSL= NormalizeDouble(proposedSL, Digits);
 
+// USER RULE: Orders secured by Equity Target Hit:
+// "profit stoploss value ok. loss stoploss is not ok."
+// If an order was secured by Equity Target Hit:
+// - Permitted: Stop Loss that locks in PROFIT (normPropSL >= oOpen for BUY, normPropSL <= oOpen for SELL)
+// - REJECTED: Stop Loss in LOSS (normPropSL < oOpen for BUY, normPropSL > oOpen for SELL)
+   if(IsEquityHitSecuredOrder(ticket) && callerName != "EquityTargetHit_LossTighten")
+     {
+      bool isLossSL = (oType == OP_BUY && normPropSL < oOpen) || (oType == OP_SELL && normPropSL > oOpen);
+      if(isLossSL)
+        {
+         Print(">>> [EQUITY HIT ORDER PROTECTED] Ticket #", ticket, " (", (oType == OP_BUY ? "BUY " : "SELL "),
+               DoubleToString(oLots, 2), "L) was secured by Equity Target Hit.",
+               " | Proposed SL=", DoubleToString(normPropSL, Digits),
+               " is a LOSS Stop Loss (Open=", DoubleToString(oOpen, Digits), ")",
+               (callerName != "" ? " | Caller=" + callerName : ""),
+               " | REJECTED: Rule: Only profit stoploss value is permitted, loss stoploss is NOT OK!");
+         return false;
+        }
+     }
+
 // 1. If order currently has NO Stop Loss, any valid SL is permitted
    if(curSL <= 0.0)
       return true;
 
    curSL = NormalizeDouble(curSL, Digits);
 
-// 2. Evaluate BUY order: Higher profit strictly requires proposedSL > currentSL
+// =========================================================================
+// UNIVERSAL ONE-WAY STOPLOSS RATCHET (STRICT ANTI-LOSS-WIDENING GUARANTEE)
+// USER RULE: "apply to all orders. Example, when any order is modified with one
+//  stoploss value. example BUY order is modified with stoploss values with -$100
+//  or -$50 or something (sl is 71000). next time if any method is trying to
+//  modify with more than loss current like SL is below 71000 (do not allow this).
+//  allow above 71000. same logic can apply for SELL orders also"
+// =========================================================================
+
+// 2. Evaluate BUY order: Must be strictly GREATER than curSL (above current SL)
    if(oType == OP_BUY)
      {
+      // STRICT RULE: If proposed SL is below or equal to current SL, DO NOT ALLOW THIS!
       if(normPropSL <= curSL)
         {
          double curLockedUSD  = CalcOrderLockedProfitUSD(oType, oOpen, curSL, oLots);
          double propLockedUSD = CalcOrderLockedProfitUSD(oType, oOpen, normPropSL, oLots);
 
-         Print(">>> [LESS PROFIT BLOCKED] Ticket #", ticket, " (BUY ", DoubleToString(oLots, 2), "L)",
-               " | Current Locked SL=", DoubleToString(curSL, Digits), " ($", DoubleToString(curLockedUSD, 2), ")",
-               " | Proposed SL=", DoubleToString(normPropSL, Digits), " ($", DoubleToString(propLockedUSD, 2), ")",
+         Print(">>> [WIDER LOSS / LESS PROFIT BLOCKED] Ticket #", ticket, " (BUY ", DoubleToString(oLots, 2), "L)",
+               " | Current SL=", DoubleToString(curSL, Digits), " ($", DoubleToString(curLockedUSD, 2), ")",
+               " | Proposed Worse SL=", DoubleToString(normPropSL, Digits), " ($", DoubleToString(propLockedUSD, 2), ")",
                (callerName != "" ? " | Caller=" + callerName : ""),
-               " | REJECTED: Keeping higher profit StopLoss!");
+               " | REJECTED: Rule: Never modify with more loss than current SL! Only above current SL allowed.");
          return false;
-        }
-
-      // USER RULE: If order SL loss is -$10, next is -$5, keep -$10. Do not tighten to -$5 on small EMA changes!
-      if(InpKeepWideLossCushionSL)
-        {
-         bool isInitialEmergencySL = (MathAbs(oOpen - curSL) >= 1000.0);
-         if(!isInitialEmergencySL)
-           {
-            double curLockedUSD  = CalcOrderLockedProfitUSD(oType, oOpen, curSL, oLots);
-            double propLockedUSD = CalcOrderLockedProfitUSD(oType, oOpen, normPropSL, oLots);
-            if(curLockedUSD < 0.0 && propLockedUSD < 0.0 && propLockedUSD > curLockedUSD)
-              {
-               Print(">>> [WIDE LOSS CUSHION PRESERVED] Ticket #", ticket, " (BUY ", DoubleToString(oLots, 2), "L)",
-                     " | Current SL Loss=$", DoubleToString(curLockedUSD, 2), " (SL=", DoubleToString(curSL, Digits), ")",
-                     " | Proposed Tighter SL Loss=$", DoubleToString(propLockedUSD, 2), " (SL=", DoubleToString(normPropSL, Digits), ")",
-                     (callerName != "" ? " | Caller=" + callerName : ""),
-                     " | BLOCKED: Preserving -$10 loss cushion, do NOT tighten to -$5 on small EMA changes!");
-               return false;
-              }
-           }
         }
 
       // Enforce anti-spam minimum modify gap
@@ -8571,40 +8674,21 @@ bool CanModifyStopLossForHigherProfit(int ticket, double proposedSL, string call
       return true;
      }
 
-// 3. Evaluate SELL order: Higher profit strictly requires proposedSL < currentSL
+// 3. Evaluate SELL order: Must be strictly LESS than curSL (below current SL)
    if(oType == OP_SELL)
      {
+      // STRICT RULE: If proposed SL is above or equal to current SL, DO NOT ALLOW THIS!
       if(normPropSL >= curSL)
         {
          double curLockedUSD  = CalcOrderLockedProfitUSD(oType, oOpen, curSL, oLots);
          double propLockedUSD = CalcOrderLockedProfitUSD(oType, oOpen, normPropSL, oLots);
 
-         Print(">>> [LESS PROFIT BLOCKED] Ticket #", ticket, " (SELL ", DoubleToString(oLots, 2), "L)",
-               " | Current Locked SL=", DoubleToString(curSL, Digits), " ($", DoubleToString(curLockedUSD, 2), ")",
-               " | Proposed SL=", DoubleToString(normPropSL, Digits), " ($", DoubleToString(propLockedUSD, 2), ")",
+         Print(">>> [WIDER LOSS / LESS PROFIT BLOCKED] Ticket #", ticket, " (SELL ", DoubleToString(oLots, 2), "L)",
+               " | Current SL=", DoubleToString(curSL, Digits), " ($", DoubleToString(curLockedUSD, 2), ")",
+               " | Proposed Worse SL=", DoubleToString(normPropSL, Digits), " ($", DoubleToString(propLockedUSD, 2), ")",
                (callerName != "" ? " | Caller=" + callerName : ""),
-               " | REJECTED: Keeping higher profit StopLoss!");
+               " | REJECTED: Rule: Never modify with more loss than current SL! Only below current SL allowed.");
          return false;
-        }
-
-      // USER RULE: If order SL loss is -$10, next is -$5, keep -$10. Do not tighten to -$5 on small EMA changes!
-      if(InpKeepWideLossCushionSL)
-        {
-         bool isInitialEmergencySL = (MathAbs(oOpen - curSL) >= 1000.0);
-         if(!isInitialEmergencySL)
-           {
-            double curLockedUSD  = CalcOrderLockedProfitUSD(oType, oOpen, curSL, oLots);
-            double propLockedUSD = CalcOrderLockedProfitUSD(oType, oOpen, normPropSL, oLots);
-            if(curLockedUSD < 0.0 && propLockedUSD < 0.0 && propLockedUSD > curLockedUSD)
-              {
-               Print(">>> [WIDE LOSS CUSHION PRESERVED] Ticket #", ticket, " (SELL ", DoubleToString(oLots, 2), "L)",
-                     " | Current SL Loss=$", DoubleToString(curLockedUSD, 2), " (SL=", DoubleToString(curSL, Digits), ")",
-                     " | Proposed Tighter SL Loss=$", DoubleToString(propLockedUSD, 2), " (SL=", DoubleToString(normPropSL, Digits), ")",
-                     (callerName != "" ? " | Caller=" + callerName : ""),
-                     " | BLOCKED: Preserving -$10 loss cushion, do NOT tighten to -$5 on small EMA changes!");
-               return false;
-              }
-           }
         }
 
       // Enforce anti-spam minimum modify gap
@@ -8619,7 +8703,7 @@ bool CanModifyStopLossForHigherProfit(int ticket, double proposedSL, string call
 //+------------------------------------------------------------------+
 //|                                                                  |
 //+------------------------------------------------------------------+
-bool SafeOrderModify(int ticket,double openPrice,double stopLoss,double takeProfit,datetime expiration,color arrowColor)
+bool SafeOrderModify(int ticket,double openPrice,double stopLoss,double takeProfit,datetime expiration,color arrowColor,string callerName = "")
   {
    if(TradeOperationFailedThisTick)
       return false;
@@ -8699,7 +8783,7 @@ bool SafeOrderModify(int ticket,double openPrice,double stopLoss,double takeProf
          MarkServerError(130, "OrderModify/unsafe-SL");
          return false;
         }
-      if(!CanModifyStopLossForHigherProfit(ticket, requestedSL, comment))
+      if(!CanModifyStopLossForHigherProfit(ticket, requestedSL, (callerName != "" ? callerName : comment)))
         {
          return false;
         }
@@ -10196,6 +10280,8 @@ void ModifyOpenOrdersToSecureProfit()
                if(newSL <= openPrice && (currentSL == 0.0 || newSL <= currentSL - MinimumSLModifyGapRaw))
                   SafeOrderModify(ticket, openPrice, NormalizeDouble(newSL, Digits), currentTP, 0, clrRed);
               }
+         // Register winning order as secured by Equity Target Hit
+         RegisterEquityHitSecuredOrder(ticket);
         }
 
       // ==============================================================
@@ -10225,8 +10311,10 @@ void ModifyOpenOrdersToSecureProfit()
             double distToSL = (type == OP_BUY) ? (Bid - currentSL) : (currentSL - Ask);
             if(currentSL == 0.0 || distToSL > lossRecoveryGapUSD + 5.0)
               {
-               SafeOrderModify(ticket, openPrice, newSL, currentTP, 0, clrOrange);
+               SafeOrderModify(ticket, openPrice, newSL, currentTP, 0, clrOrange, "EquityTargetHit_LossTighten");
               }
+            // Register losing order as secured/tightened by Equity Target Hit
+            RegisterEquityHitSecuredOrder(ticket);
            }
      }
   }
@@ -17939,12 +18027,7 @@ void ManageLsdSweepLineStopLossProtection()
                if(currentSL == 0.0 || (sellTargetSL < currentSL && MathAbs(currentSL - sellTargetSL) >= MinimumSLModifyGapRaw))
                  {
                   ResetLastError();
-                  bool modified = SafeOrderModify(ticket, openPrice, sellTargetSL, currentTP, 0, clrLime);
-                  if(!modified)
-                    {
-                     ResetLastError();
-                     modified = OrderModify(ticket, openPrice, sellTargetSL, currentTP, 0, clrLime);
-                    }
+                  bool modified = SafeOrderModify(ticket, openPrice, sellTargetSL, currentTP, 0, clrLime, "LsdSweepLineSL");
 
                   if(modified)
                     {
@@ -17990,12 +18073,7 @@ void ManageLsdSweepLineStopLossProtection()
                if(currentSL == 0.0 || (buyTargetSL > currentSL && MathAbs(currentSL - buyTargetSL) >= MinimumSLModifyGapRaw))
                  {
                   ResetLastError();
-                  bool modified = SafeOrderModify(ticket, openPrice, buyTargetSL, currentTP, 0, clrTomato);
-                  if(!modified)
-                    {
-                     ResetLastError();
-                     modified = OrderModify(ticket, openPrice, buyTargetSL, currentTP, 0, clrTomato);
-                    }
+                  bool modified = SafeOrderModify(ticket, openPrice, buyTargetSL, currentTP, 0, clrTomato, "LsdSweepLineSL");
 
                   if(modified)
                     {
@@ -18290,6 +18368,23 @@ bool TryModifyOrderStopLossToLinePrice(int ticket, double linePrice, string line
    double minStopDist = GetRequiredStopDistance();
    if(minStopDist < Point * 10)
       minStopDist = Point * 10;
+
+// USER RULE: If order was secured by Equity Target Hit, reject any loss stoploss
+   if(IsEquityHitSecuredOrder(ticket))
+     {
+      double oOpenPrice = OrderOpenPrice();
+      double testSL = (oType == OP_BUY) ? NormalizeDouble(linePrice + ((InpLinePriceSLOffsetRaw != 0.0) ? InpLinePriceSLOffsetRaw : 50.0), Digits)
+                                        : NormalizeDouble(linePrice + ((InpLinePriceSLOffsetRaw != 0.0) ? InpLinePriceSLOffsetRaw : 50.0), Digits);
+      bool isLoss = (oType == OP_BUY && testSL < oOpenPrice) || (oType == OP_SELL && testSL > oOpenPrice);
+      if(isLoss)
+        {
+         Print(">>> [LINE SL MODIFY SKIPPED] Order #", ticket, " was secured by Equity Target Hit.",
+               " Proposed Line SL=", DoubleToString(testSL, Digits),
+               " is a LOSS Stop Loss (Open=", DoubleToString(oOpenPrice, Digits),
+               "). REJECTED: Only profit stoploss is permitted!");
+         return false;
+        }
+     }
 
 // USER RULE: "this is only for first order ."
    if(InpModifyLinePriceSLOnlyFirstOrder)
@@ -19006,6 +19101,21 @@ void ManageHorizontalOrderEndedStopLoss()
       if(!isOrderLineEnded)
          continue;
 
+      if(IsEquityHitSecuredOrder(tkt))
+        {
+         double oOpenPrice = OrderOpenPrice();
+         double testSL = (oType == OP_BUY) ? NormalizeDouble(Bid - gap, Digits) : NormalizeDouble(Ask + gap, Digits);
+         bool isLoss = (oType == OP_BUY && testSL < oOpenPrice) || (oType == OP_SELL && testSL > oOpenPrice);
+         if(isLoss)
+           {
+            Print(">>> [HORIZONTAL LINE ENDED SKIPPED] Order #", tkt, " was secured by Equity Target Hit.",
+                  " Proposed Ended SL=", DoubleToString(testSL, Digits),
+                  " is a LOSS Stop Loss (Open=", DoubleToString(oOpenPrice, Digits),
+                  "). Preserving secured StopLoss!");
+            continue;
+           }
+        }
+
       double curSL = OrderStopLoss();
       double newSL = 0.0;
 
@@ -19145,8 +19255,8 @@ void ManageHorizontalLineEndedBreakoutStopLoss()
                if(OrderType() != OP_SELL)
                   continue;
 
-               // USER RULE: Do NOT overwrite wide breathing Stop Loss of orders guarded by EMA flip!
-               if(EMADirection == 1 || IsEmaFlipBreathingOrder(OrderTicket()))
+               // USER RULE: Do NOT overwrite wide breathing Stop Loss of orders guarded by EMA flip or Equity Target Hit!
+               if(EMADirection == 1 || IsEmaFlipBreathingOrder(OrderTicket()) || IsEquityHitSecuredOrder(OrderTicket()))
                  {
                   Print(">>> [RED LINE BREAKOUT SKIPPED] SELL #", OrderTicket(), " is guarded by EMA Flip Breathing SL.");
                   continue;
@@ -19235,8 +19345,8 @@ void ManageHorizontalLineEndedBreakoutStopLoss()
                if(OrderType() != OP_BUY)
                   continue;
 
-               // USER RULE: Do NOT overwrite wide breathing Stop Loss of orders guarded by EMA flip!
-               if(EMADirection == -1 || IsEmaFlipBreathingOrder(OrderTicket()))
+               // USER RULE: Do NOT overwrite wide breathing Stop Loss of orders guarded by EMA flip or Equity Target Hit!
+               if(EMADirection == -1 || IsEmaFlipBreathingOrder(OrderTicket()) || IsEquityHitSecuredOrder(OrderTicket()))
                  {
                   Print(">>> [GREEN LINE BREAKOUT SKIPPED] BUY #", OrderTicket(), " is guarded by EMA Flip Breathing SL.");
                   continue;
