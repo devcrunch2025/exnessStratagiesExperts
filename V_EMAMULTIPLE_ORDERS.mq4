@@ -42,7 +42,7 @@ CheckBasketProfitClose	Total open basket profit
 */
 
 
-string glbVersion = "VMULTI-1070- Universal One-Way SL Ratchet for All Orders";
+string glbVersion = "VMULTI-1072- Level 3 Onwards $100 Trailing Distance Under Strong EMA";
 
 
 
@@ -92,7 +92,7 @@ double closeAllOrdersLowestEquityIncreasePercentage =20*10;//100//50;// 50.0;
 double   g_stepSize            =1000;// 50.0; // The step increment ($50)
 
 // ===== EQUITY PROFIT LADDER $5 SETTINGS =====
-bool   InpEnableEquityProfitLadder5        = true;   // Enable Equity Profit Ladder $5 * multiplier
+bool   InpEnableEquityProfitLadder5        = false;  // DISABLED: Consolidated into master Manage5PercentLadderReset ($50 step)
 double InpEquityProfitLadderStepUSD        = 100;//5.0;    // Step size in USD ($5.00)
 bool   InpEquityLadderUseMultiplier        = true;   // Multiply step size by balancelomultipler ($5 * multiplier)
 double InpEquityLadderSLDistanceRaw        = 100.0;  // StopLoss gap from live price in raw points (-$100 gap)
@@ -2910,8 +2910,13 @@ void ManageFLIPBasketSupportTrailingStopLoss()
 
 
 
+// STREAMLINING CONTROL FLAGS:
+bool   InpEnableEquityBalanceProfitTarget   = false;  // DISABLED: Prevents premature 25-cent clamp; Manage5PercentLadderReset handles equity targets
+bool   InpEnableDynamicStepLadder           = false;  // DISABLED: Consolidated into master Manage5PercentLadderReset
+bool   InpEnableModifyOnlyBuySellBasket     = false;  // DISABLED: Prevents premature Bid-20 tightening that overrides SecureOneDollarProfit
+
 //Chance 1B: Multi-Order Combination Profit Live SL Modifier (> $1 * multiplier profit)
-bool   EnablePairProfitSLModify             = true;   // Enable multi-order combination SL modification
+bool   EnablePairProfitSLModify             = false;  // DISABLED: Eliminates 145,000+ redundant combination pair calculations
 double PairCombinationProfitThresholdUSD = 1.0;       // Threshold profit in USD for combinations
 double PairCombinationSLDistanceRaw = 100.0;          // Distance from live price in raw points (-$100 gap)
 bool   PairCombinationUseBalanceMultiplier = true;   // Scale threshold by balance multiplier (> $1.00 * multiplier)
@@ -3890,9 +3895,12 @@ double GetLotBasedPriceGap(double orderLots, int multiplier)
 //| Base Lot 0.05+-> Gap $50                                         |
 //|                                                                  |
 //| Level 1: protects 0 loss (SL = openPrice / Breakeven)            |
-//| Level 2: locks +1x stepPriceGap                                  |
-//| Level 3: locks +2x stepPriceGap                                  |
-//| Level N: locks +(N - 1) * stepPriceGap                           |
+//| Level 2: locks +1x stepPriceGap ($50 behind market)              |
+//| Level 3+:                                                        |
+//|   - Under STRONG EMA: locks +(ladderLevel - 2) * stepPriceGap    |
+//|     (Expands cushion to $100.00 behind market / 2x step gap)     |
+//|   - Under WEAK EMA: locks +(ladderLevel - 1) * stepPriceGap      |
+//|     (Retains tighter $50.00 behind market / 1x step gap)         |
 //+------------------------------------------------------------------+
 double CalculateProportionalLadderSL(int orderType, double openPrice, double orderLots)
   {
@@ -3910,7 +3918,7 @@ double CalculateProportionalLadderSL(int orderType, double openPrice, double ord
    // 2. Halve the gap if EMA momentum weakened by 50%
    if(IsEmaWEAKDistanceReduced50PercentFromPeak())
      {
-      stepPriceGap = MathMax(MinimumSLModifyGapRaw, stepPriceGap / 2.0);
+      //stepPriceGap = MathMax(MinimumSLModifyGapRaw, stepPriceGap / 2.0);
      }
 
    if(stepPriceGap <= 0.0)
@@ -3932,12 +3940,34 @@ double CalculateProportionalLadderSL(int orderType, double openPrice, double ord
    if(ladderLevel < 1)
       return 0.0;
 
-   // USER RULE: Proportional Schedule for ALL lot tiers:
-   // Level 1: protects 0 loss (SL = openPrice / Breakeven)
-   // Level 2: locks +1x stepPriceGap
-   // Level 3: locks +2x stepPriceGap
-   // Level N: locks +(N - 1) * stepPriceGap
-   double lockedDistance = (ladderLevel - 1) * stepPriceGap;
+   // USER RULE (VMULTI-1072):
+   // Level 1: protects 0 loss (SL = openPrice / Breakeven, $50 behind market)
+   // Level 2: locks +1x stepPriceGap (+$50 profit, $50 behind market)
+   // Level 3 onwards:
+   //   - Under STRONG EMA: locks +(ladderLevel - 2) * stepPriceGap ($100.00 behind market / 2x step gap)
+   //   - Under WEAK EMA: locks +(ladderLevel - 1) * stepPriceGap ($50.00 behind market / 1x step gap)
+   double lockedDistance = 0.0;
+   if(ladderLevel == 1)
+     {
+      lockedDistance = 0.0;
+     }
+   else if(ladderLevel == 2)
+     {
+      lockedDistance = 1.0 * stepPriceGap;
+     }
+   else // ladderLevel >= 3
+     {
+      if(!IsEmaWEAKDistanceReduced50PercentFromPeak())
+        {
+         // Under STRONG EMA: Level 3 onwards change $50.00 behind market to $100.00 behind market
+         lockedDistance = (ladderLevel - 2) * stepPriceGap;
+        }
+      else
+        {
+         // Under WEAK EMA: Retain standard 1x stepPriceGap cushion behind market
+         lockedDistance = (ladderLevel - 1) * stepPriceGap;
+        }
+     }
    double ladderSL = 0.0;
 
    if(orderType == OP_BUY)
@@ -3994,7 +4024,7 @@ void SecureOneDollarProfit()
       // 2. Halve the gap if EMA momentum weakened by 50%
       if(IsEmaWEAKDistanceReduced50PercentFromPeak())
         {
-         stepPriceGap = MathMax(MinimumSLModifyGapRaw, stepPriceGap / 2.0);
+         //stepPriceGap = MathMax(MinimumSLModifyGapRaw, stepPriceGap / 2.0);
         }
 
       if(stepPriceGap <= 0.0)
@@ -4016,12 +4046,34 @@ void SecureOneDollarProfit()
       if(ladderLevel < 1)
          continue;
 
-      // USER RULE: Proportional Schedule for ALL lot tiers:
-      // Level 1: protects 0 loss (SL = openPrice / Breakeven)
-      // Level 2: locks +1x stepPriceGap
-      // Level 3: locks +2x stepPriceGap
-      // Level N: locks +(N - 1) * stepPriceGap
-      double lockedDistance = (ladderLevel - 1) * stepPriceGap;
+      // USER RULE (VMULTI-1072):
+      // Level 1: protects 0 loss (SL = openPrice / Breakeven, $50 behind market)
+      // Level 2: locks +1x stepPriceGap (+$50 profit, $50 behind market)
+      // Level 3 onwards:
+      //   - Under STRONG EMA: locks +(ladderLevel - 2) * stepPriceGap ($100.00 behind market / 2x step gap)
+      //   - Under WEAK EMA: locks +(ladderLevel - 1) * stepPriceGap ($50.00 behind market / 1x step gap)
+      double lockedDistance = 0.0;
+      if(ladderLevel == 1)
+        {
+         lockedDistance = 0.0;
+        }
+      else if(ladderLevel == 2)
+        {
+         lockedDistance = 1.0 * stepPriceGap;
+        }
+      else // ladderLevel >= 3
+        {
+         if(!IsEmaWEAKDistanceReduced50PercentFromPeak())
+           {
+            // Under STRONG EMA: Level 3 onwards change $50.00 behind market to $100.00 behind market
+            lockedDistance = (ladderLevel - 2) * stepPriceGap;
+           }
+         else
+           {
+            // Under WEAK EMA: Retain standard 1x stepPriceGap cushion behind market
+            lockedDistance = (ladderLevel - 1) * stepPriceGap;
+           }
+        }
       double newSL = 0.0;
       bool canModify = false;
 
@@ -5573,10 +5625,14 @@ void OnTick()
    if(enable5PercentClose)
       Manage5PercentLadderReset();
 
-   if(GetTotalSellOrders()>1)
-      modifyOnlySellOrders();
-   if(GetTotalBuyOrders()>1)
-      modifyOnlyBuyOrders();
+   // modifyOnlySellOrders & modifyOnlyBuyOrders DISABLED: Preserves SecureOneDollarProfit proportional ladder breathing room
+   if(InpEnableModifyOnlyBuySellBasket)
+     {
+      if(GetTotalSellOrders()>1)
+         modifyOnlySellOrders();
+      if(GetTotalBuyOrders()>1)
+         modifyOnlyBuyOrders();
+     }
    CheckAndCloseOrphanFLIPBasketSupportOrders();
 
    CheckForNewDay();
@@ -5587,12 +5643,11 @@ void OnTick()
    UpdateDubaiTradingPauseDashboard();
    uint tickStartMs=GetTickCount();
 
-   CheckEquityBalanceProfitTarget();
-
-   CheckDynamicStepLadder();
-
-   EquityProfitLadder5();
-   CloseOppositeOrdersOnEmaDistance();
+   // STREAMLINED EXITS: Disabled conflicting secondary ladders to let Manage5PercentLadderReset & SecureOneDollarProfit lead
+   // CheckEquityBalanceProfitTarget(); // DISABLED: Prevents premature 25-cent clamp
+   // CheckDynamicStepLadder();          // DISABLED: Consolidated into master Manage5PercentLadderReset
+   // EquityProfitLadder5();             // DISABLED: Consolidated into master Manage5PercentLadderReset
+   // CloseOppositeOrdersOnEmaDistance();// DISABLED: Preserves breathing cushion during EMA trend shifts
 
    UpdateLiquiditySweepDetectorOnChart();
 // ManageLsdSweepLineStopLossProtection(); // DISABLED: LSD Sweep lines only create FlipBasketSupport, DO NOT modify/close orders
@@ -5606,9 +5661,7 @@ void OnTick()
    OnTickCore();
    OnTickPerformanceEnd(tickStartMs);
 
-
-
-   ModifyPairProfitWithStopLoss();
+   // ModifyPairProfitWithStopLoss(); // DISABLED: Eliminates 145,000+ redundant combination pair calculations
 
 
    if(Time[0] != LastVShapeCheckedTime)
@@ -9560,6 +9613,9 @@ bool IsHeavyLotOrderNearBy(int orderType, double checkLot, double gapRawThreshol
 //+------------------------------------------------------------------+
 void CheckEquityBalanceProfitTarget()
   {
+   if(!InpEnableEquityBalanceProfitTarget)
+      return; // DISABLED: Manage5PercentLadderReset handles equity targets cleanly
+
    double accountBalance = AccountBalance();
    double accountEquity  = AccountEquity();
    double targetProfit   = accountBalance + (Ladder1ProfitUSD * 5);
@@ -9579,6 +9635,9 @@ void CheckEquityBalanceProfitTarget()
 //+------------------------------------------------------------------+
 void modifyOnlyBuyOrders()
   {
+   if(!InpEnableModifyOnlyBuySellBasket)
+      return; // DISABLED: Preserves SecureOneDollarProfit proportional ladder breathing room
+
    UpdateOrderCacheIfNeeded();
    double basketBuyProfit = g_orderCache.buyPL;
 
@@ -9644,6 +9703,9 @@ void modifyOnlyBuyOrders()
 //+------------------------------------------------------------------+
 void modifyOnlySellOrders()
   {
+   if(!InpEnableModifyOnlyBuySellBasket)
+      return; // DISABLED: Preserves SecureOneDollarProfit proportional ladder breathing room
+
    UpdateOrderCacheIfNeeded();
    double basketSellProfit = g_orderCache.sellPL;
 
@@ -14137,6 +14199,9 @@ void CloseAllOrders()
 //+------------------------------------------------------------------+
 void CheckDynamicStepLadder()
   {
+   if(!InpEnableDynamicStepLadder)
+      return; // DISABLED: Consolidated into master Manage5PercentLadderReset
+
    double currentOpenProfit = 0.0;
    int openOrdersCount = 0;
 
