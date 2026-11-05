@@ -1,4 +1,4 @@
-﻿//+------------------------------------------------------------------+
+//+------------------------------------------------------------------+
 //|                  SSL CHANNEL CROSS EA - CONTINUOUS EQUITY LADDER |
 //|                  TWO-STAGE PROFIT LADDER | CONTINUOUS RESET      |
 //+------------------------------------------------------------------+
@@ -42,7 +42,7 @@ CheckBasketProfitClose	Total open basket profit
 */
 
 
-string glbVersion = "VMULTI-1072- FINAL - $500 to $700";
+string glbVersion = "VMULTI-1080- 0.06 Order with 2000 SL";
 
 
 
@@ -79,7 +79,7 @@ double modifyBasketProfitOrdersLotXPercent=50;//10.0;//20 % means 0.05 X 20 modi
 double CloseOrdersAtProfitFromOpeningBalanceEveryStep =5*10;//2;//0.4;//1;//3;//5;//10;//25;// 5;// 5X step close orders every step
 double InpTargetEquityProfitTrailingGapUSD = 102.0; // Target Equity hit: Trailing SL gap for winning orders (Bid-102, Ask+102)
 double InpTargetEquityLossTighteningGapUSD = 20.0;  // Target Equity hit: Tight SL gap for losing orders (Bid-20, Ask+20)
-bool   InpPauseEquityProfitHitOnSingleWinningOrder = true; // Pause Equity Profit hit if only 1 order is open and moving in positive profit direction
+bool   InpPauseEquityProfitHitOnSingleWinningOrder = true; // ENABLED: Pause Equity Profit hit if only 1 order is open and moving in positive profit direction
 
 
 //chage 55
@@ -242,17 +242,18 @@ bool   InpCloseSellOnNewEqlGreenLine              = true;          // On new EQH
 double InpCloseSellMaxLossUSD                     = 1.0;           // Max loss in USD ($1.00 * multiplier) to close SELL order
 double InpNewEqlBuyOrderLotBase                   = 0.06;//0.03;//0.06;          // Base lot for immediate SSL Long (0.06 * multiplier)
 bool   InpEnableModifySLOnLineEnded               = true;          // When horizontal line ends: modify open horizontal order SL with $50 gap
-double InpHorizontalLineEndedSLGapRaw             =1000;//200;// 50.0;          // StopLoss raw price gap ($50) when horizontal line ends
+double InpHorizontalLineEndedSLGapRaw             =3000;//2000;//1000;//200;// 50.0;          // StopLoss raw price gap ($50) when horizontal line ends
 double InpHorizontalLineMinEmaGapRaw             = 0.0;           // Min raw price gap ( = disabled) between horizontal line & EMA (Do not create orders if < min gap)
+double InpEqhOrderMinPriceGapRaw                  = 200;//100;//300.0;         // Minimum raw price gap ($300) between EQH/EQL orders of same type
 int    InpHorizontalLineMaxDurationSeconds        = 300;           // Max allowed duration (300s = 5 min) since horizontal line initiated to create order (0 = no limit)
 bool   InpModifyOppositeOrderSLToLinePrice        = true;          // On new/active horizontal line: try to modify opposite order SL to Line price
 bool   InpModifyLinePriceSLOnlyFirstOrder         = true;          // Modify SL with Line Price ONLY for the FIRST (oldest) open order
-double InpLinePriceSLOffsetRaw                    = 1000;//200;//100;//50.0;          // Offset in USD ($50) added to Line Price for StopLoss modification (Line Price + 50)
+double InpLinePriceSLOffsetRaw                    = 3000;//2000;//1000;//200;//100;//50.0;          // Offset in USD ($50) added to Line Price for StopLoss modification (Line Price + 50)
 bool   InpEnableHorizontalLineRecovery            = true;          // When horizontal line starts: create recovery order for open losing order with smallest loss
 bool   InpOpenLineOrderIfRecoveryCreated          = false;         // If recovery order created, also open standard line order (default: false to enforce 1-order-per-line)
 bool   InpEnableLineEndedBreakoutSLModify         = true;          // When line ends & price moves > $100 past line: modify ALL open orders SL to LinePrice +/- $200
 double InpLineEndedBreakoutTriggerGapRaw          = 500;//100.0;         // Price breakout distance ($100 raw) past ended line to trigger SL modification
-double InpLineEndedBreakoutSLOffsetRaw            = 1000;//200.0;         // StopLoss offset in USD ($200) from ended line price (Red: Line+200, Green: Line-200)
+double InpLineEndedBreakoutSLOffsetRaw            = 3000;//2000;//1000;//200.0;         // StopLoss offset in USD ($200) from ended line price (Red: Line+200, Green: Line-200)
 bool   InpLineEndedBreakoutDeletePending          = true;          // When line-ended breakout triggers: delete pending orders
 bool   InpLineEndedBreakoutDeleteAllPending       = false;         // false = delete breakout side pending (SELL for Red, BUY for Green); true = delete ALL pending
 
@@ -264,7 +265,7 @@ double InpEmaFlipWideBreathingMinFloorRaw  = 2000;//1000.0; // Minimum Stop Loss
 bool   InpEnableEmaFlipHalfDistPartialCut  = true;   // Close 50% of LOT if LOT > 0.01 when moved 2X EMA distance (half buffer) towards loss
 bool   InpKeepWideLossCushionSL            = false;  // Universal Ratchet Rule: Always allow tightening SL towards profit/breakeven, strictly block widening loss
 bool   InpLimitSLToEmaHighestDistance      = true;   // Cap BUY SL >= EMA - HighestDistance, SELL SL <= EMA + HighestDistance
-bool   InpApplyBreathingToHorizontalOrders = false;  // Keep existing horizontal SL logic; do not modify horizontal line orders on EMA flip
+bool   InpApplyBreathingToHorizontalOrders = true;//false;  // Keep existing horizontal SL logic; do not modify horizontal line orders on EMA flip
 bool   InpNeverWidenEmaFlipStopLoss        = true;   // Strict risk rule: Never allow targetSL to widen existing Stop Loss on EMA flip
 
 // ===== 0.01 LOT RUNNER LOSS CAP & PROFITABILITY OPTIMIZATION =====
@@ -1058,6 +1059,7 @@ int GetWeakStateCountPerEmaFlip()
   }
 
 bool     IsHorizontalLineOrder(int ticket, string comment = "");
+bool     HasNearbyOpenHorizontalLineOrder(int orderType, double checkPrice, double minGapRaw, int &outClosestTicket, double &outClosestDist, double &outClosestPrice);
 
 //+------------------------------------------------------------------+
 //| Get the highest price reached since the last EMA direction flip  |
@@ -2960,6 +2962,7 @@ void     CleanDuplicateLsdLinePendingOrders();
 int      GetFirstOpenOrderTicket(int targetType);
 bool     TryModifyOrderStopLossToLinePrice(int ticket, double linePrice, string lineName);
 bool     IsHorizontalLineOrder(int ticket, string comment = "");
+bool     HasNearbyOpenHorizontalLineOrder(int orderType, double checkPrice, double minGapRaw, int &outClosestTicket, double &outClosestDist, double &outClosestPrice);
 int      GetSmallestLossOrderTicket(int targetType);
 int      CreateHorizontalLineRecoveryOrder(int parentTicket, int orderType, double linePrice);
 void     CheckNewRedLineCloseBuyAndOpenSell();
@@ -5498,9 +5501,54 @@ bool IsHorizontalLineOrder(int ticket, string comment = "")
         }
      }
 
-   if(StringFind(curComment, "EQH") >= 0 || StringFind(curComment, "EQL") >= 0)
+   if(StringFind(curComment, "EQH") >= 0 || StringFind(curComment, "EQL") >= 0 || StringFind(curComment, "_LSD") >= 0)
       return true;
 
+   return false;
+  }
+
+//+------------------------------------------------------------------+
+//| HasNearbyOpenHorizontalLineOrder:                                |
+//| Checks whether any open EQH/EQL order of the same type           |
+//| (OP_BUY or OP_SELL) has an open price within minGapRaw from      |
+//| checkPrice. Returns true if too close, blocking new order.       |
+//+------------------------------------------------------------------+
+bool HasNearbyOpenHorizontalLineOrder(int orderType, double checkPrice, double minGapRaw, int &outClosestTicket, double &outClosestDist, double &outClosestPrice)
+  {
+   outClosestTicket = -1;
+   outClosestDist   = 999999.0;
+   outClosestPrice  = 0.0;
+   if(minGapRaw <= 0.0 || checkPrice <= 0.0)
+      return false;
+
+   for(int i = OrdersTotal() - 1; i >= 0; i--)
+     {
+      if(!OrderSelect(i, SELECT_BY_POS, MODE_TRADES))
+         continue;
+      if(OrderSymbol() != Symbol() || OrderMagicNumber() != MagicNumber)
+         continue;
+      if(OrderType() != orderType)
+         continue;
+
+      int tkt = OrderTicket();
+      string comm = OrderComment();
+      if(!IsHorizontalLineOrder(tkt, comm))
+         continue;
+
+      double openP = OrderOpenPrice();
+      double dist  = MathAbs(openP - checkPrice);
+      if(dist < outClosestDist)
+        {
+         outClosestDist   = dist;
+         outClosestTicket = tkt;
+         outClosestPrice  = openP;
+        }
+
+      if(dist < minGapRaw)
+        {
+         return true; // Found existing horizontal order within min gap!
+        }
+     }
    return false;
   }
 
@@ -18170,6 +18218,19 @@ void ManageLsdSweepLineStopLossProtection()
 int SendLsdRedLineSellOrder(double sellLot, double linePrice = 0.0)
   {
    RefreshRates();
+
+   // USER RULE: "Very less gap between EQH-R 0.06 orders... add minimum gap between EQH orders (same order type) $300 raw price gap."
+   int closestTkt = -1;
+   double closestDist = 0.0;
+   double closestPrice = 0.0;
+   if(InpEqhOrderMinPriceGapRaw > 0.0 && HasNearbyOpenHorizontalLineOrder(OP_SELL, Bid, InpEqhOrderMinPriceGapRaw, closestTkt, closestDist, closestPrice))
+     {
+      Print(">>> [EQH-R SELL BLOCKED] Cannot open EQH-R SELL order: Existing open EQH SELL Order #", closestTkt,
+            " at ", DoubleToString(closestPrice, Digits), " is within $", DoubleToString(closestDist, 2),
+            " (< $", DoubleToString(InpEqhOrderMinPriceGapRaw, 2), " min raw price gap, Live Bid=", DoubleToString(Bid, Digits), ")");
+      return -1;
+     }
+
    double slDistance  = (StopLossRawPriceGap > 0.0) ? StopLossRawPriceGap : 3000.0;
    double tpDistance  = (TakeProfitRawPriceGap > 0.0) ? TakeProfitRawPriceGap : 500.0;
    double minStopDist = GetRequiredStopDistance();
@@ -18314,6 +18375,19 @@ int CreateHorizontalLineRecoveryOrder(int parentTicket, int orderType, double li
 
    RefreshRates();
    double livePrice = (orderType == OP_BUY) ? Ask : Bid;
+
+   // USER RULE: Enforce minimum raw price gap between EQH orders of same type
+   int closestRecTkt = -1;
+   double closestRecDist = 0.0;
+   double closestRecPrice = 0.0;
+   if(InpEqhOrderMinPriceGapRaw > 0.0 && HasNearbyOpenHorizontalLineOrder(orderType, livePrice, InpEqhOrderMinPriceGapRaw, closestRecTkt, closestRecDist, closestRecPrice))
+     {
+      Print(">>> [HORIZONTAL RECOVERY BLOCKED] Existing open EQH Order #", closestRecTkt, " at ", DoubleToString(closestRecPrice, Digits),
+            " is within $", DoubleToString(closestRecDist, 2), " (< $", DoubleToString(InpEqhOrderMinPriceGapRaw, 2),
+            " min raw price gap). Skipping recovery order creation!");
+      return -1;
+     }
+
    double slDist = (InpLsdRecoveryStopLossRaw > 0.0) ? InpLsdRecoveryStopLossRaw : 3000.0;
    double tpDist = (InpLsdRecoveryTakeProfitRaw > 0.0) ? InpLsdRecoveryTakeProfitRaw : 500.0;
 
@@ -18734,6 +18808,24 @@ void CheckNewRedLineCloseBuyAndOpenSell()
         }
      }
 
+// Step 2b-2: USER RULE: "Very less gap between EQH-R 0.06 orders... add minimum gap between EQH orders (same order type) $300 raw price gap."
+   int closestSellTkt = -1;
+   double closestSellDist = 0.0;
+   double closestSellPrice = 0.0;
+   if(InpEqhOrderMinPriceGapRaw > 0.0 && HasNearbyOpenHorizontalLineOrder(OP_SELL, Bid, InpEqhOrderMinPriceGapRaw, closestSellTkt, closestSellDist, closestSellPrice))
+     {
+      static datetime s_lastBlockedGapLogEqh = 0;
+      if(TimeCurrent() - s_lastBlockedGapLogEqh >= 30)
+        {
+         s_lastBlockedGapLogEqh = TimeCurrent();
+         Print(">>> [EQH-R SELL BLOCKED] Existing open EQH SELL Order #", closestSellTkt, " at ", DoubleToString(closestSellPrice, Digits),
+               " is within $", DoubleToString(closestSellDist, 2), " (< $", DoubleToString(InpEqhOrderMinPriceGapRaw, 2),
+               " min raw price gap, Live Bid=", DoubleToString(Bid, Digits), "). Skipping horizontal SELL order creation!");
+        }
+      g_lastOrderEqHighLineStart = curEqhStart; // Enforce 1-order-per-line limit
+      return;
+     }
+
 // Step 2c: USER RULE: "When horizantal line is started. create recovery order which is smallest loss amount.
 // if RED line started create immidtate recovery order for lowest open sell order. same logic for GREEN horizontal line"
    int recTicket = -1;
@@ -18776,6 +18868,19 @@ void CheckNewRedLineCloseBuyAndOpenSell()
 int SendLsdGreenLineBuyOrder(double buyLot, double linePrice = 0.0)
   {
    RefreshRates();
+
+   // USER RULE: "Very less gap between EQH-R 0.06 orders... add minimum gap between EQH orders (same order type) $300 raw price gap."
+   int closestTkt = -1;
+   double closestDist = 0.0;
+   double closestPrice = 0.0;
+   if(InpEqhOrderMinPriceGapRaw > 0.0 && HasNearbyOpenHorizontalLineOrder(OP_BUY, Ask, InpEqhOrderMinPriceGapRaw, closestTkt, closestDist, closestPrice))
+     {
+      Print(">>> [EQH-G BUY BLOCKED] Cannot open EQH-G BUY order: Existing open EQH BUY Order #", closestTkt,
+            " at ", DoubleToString(closestPrice, Digits), " is within $", DoubleToString(closestDist, 2),
+            " (< $", DoubleToString(InpEqhOrderMinPriceGapRaw, 2), " min raw price gap, Live Ask=", DoubleToString(Ask, Digits), ")");
+      return -1;
+     }
+
    double slDistance  = (StopLossRawPriceGap > 0.0) ? StopLossRawPriceGap : 3000.0;
    double tpDistance  = (TakeProfitRawPriceGap > 0.0) ? TakeProfitRawPriceGap : 500.0;
    double minStopDist = GetRequiredStopDistance();
@@ -19011,6 +19116,24 @@ void CheckNewGreenLineCloseSellAndOpenBuy()
         {
          TryModifyOrderStopLossToLinePrice(firstSellTkt, eqlPrice, "EQH-G Green Line");
         }
+     }
+
+// Step 2b-2: USER RULE: "Very less gap between EQH-R 0.06 orders... add minimum gap between EQH orders (same order type) $300 raw price gap."
+   int closestBuyTkt = -1;
+   double closestBuyDist = 0.0;
+   double closestBuyPrice = 0.0;
+   if(InpEqhOrderMinPriceGapRaw > 0.0 && HasNearbyOpenHorizontalLineOrder(OP_BUY, Ask, InpEqhOrderMinPriceGapRaw, closestBuyTkt, closestBuyDist, closestBuyPrice))
+     {
+      static datetime s_lastBlockedGapLogEql = 0;
+      if(TimeCurrent() - s_lastBlockedGapLogEql >= 30)
+        {
+         s_lastBlockedGapLogEql = TimeCurrent();
+         Print(">>> [EQH-G BUY BLOCKED] Existing open EQH BUY Order #", closestBuyTkt, " at ", DoubleToString(closestBuyPrice, Digits),
+               " is within $", DoubleToString(closestBuyDist, 2), " (< $", DoubleToString(InpEqhOrderMinPriceGapRaw, 2),
+               " min raw price gap, Live Ask=", DoubleToString(Ask, Digits), "). Skipping horizontal BUY order creation!");
+        }
+      g_lastOrderEqLowLineStart = curEqlStart; // Enforce 1-order-per-line limit
+      return;
      }
 
 // Step 2c: USER RULE: "When horizantal line is started. create recovery order which is smallest loss amount.
