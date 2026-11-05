@@ -42,7 +42,7 @@ CheckBasketProfitClose	Total open basket profit
 */
 
 
-string glbVersion = "VMULTI-1080- 0.06 Order with 2000 SL";
+string glbVersion = "VMULTI-1082- Chart Icon for Mature Trend 50% Lot Cut";
 
 
 
@@ -271,6 +271,14 @@ bool   InpNeverWidenEmaFlipStopLoss        = true;   // Strict risk rule: Never 
 // ===== 0.01 LOT RUNNER LOSS CAP & PROFITABILITY OPTIMIZATION =====
 bool   InpEnableMaxLossCap001Lots          = true;   // Close 0.01 lot order if floating loss reaches max dollar threshold
 double InpMaxLoss001LotsUSD                = 10.0;   // Maximum allowed dollar loss ($10.00 * multiplier) on 0.01 lot orders
+
+// ===== MATURE TREND ADVERSE MOMENTUM 50% LOT CUT =====
+bool   InpEnableMatureTrendMomentumHalfCut = true;   // Cut 50% lots on losing side during mature adverse momentum
+double InpMatureTrendMinLossUSD            = 25.0;   // Floating loss threshold ($50.00 * multiplier)
+double InpMatureTrendMinAngle              = 10.0;   // Minimum EMA30 angle magnitude (10 deg)
+int    InpMatureTrendMinFlipMins           = 60;     // Minimum duration since last EMA flip (60 minutes)
+bool   InpMatureTrendAngleOnlyAdverse      = true;   // true = only cut when angle is AGAINST the losing basket
+bool   InpShowMatureTrendHalfCutIcon       = true;   // Show icon and text label on chart when 50% lots are cut
 
 // ===== EQL / EQH STRUCTURAL RECOVERY (TYPE 2) SETTINGS =====
 bool   InpEnableLsdStructuralRecovery       = true;  // Enable EQL/EQH Structural Recovery (Type 2)
@@ -1608,6 +1616,191 @@ void CheckEmaFlipHalfDistancePartialLossCut()
      }
   }
 
+
+//+------------------------------------------------------------------+
+//| ExecuteMatureTrendHalfCut:                                       |
+//| Closes 50% lots for all orders of targetType:                    |
+//| 0.06 -> 0.03, 0.04 -> 0.02, 0.03 -> 0.02, 0.02 -> 0.01, 0.01 keep|
+//+------------------------------------------------------------------+
+void ExecuteMatureTrendHalfCut(int targetType)
+  {
+   RefreshRates();
+   int cutCount = 0;
+   double totalCutLots = 0.0;
+
+   for(int i = OrdersTotal() - 1; i >= 0; i--)
+     {
+      if(!OrderSelect(i, SELECT_BY_POS, MODE_TRADES))
+         continue;
+      if(OrderSymbol() != Symbol() || OrderMagicNumber() != MagicNumber)
+         continue;
+      if(OrderType() != targetType)
+         continue;
+
+      int tkt = OrderTicket();
+      double oLots = OrderLots();
+      if(oLots <= 0.01 + 0.0001)
+         continue; // Keep 0.01 as it is
+
+      double closeLots = 0.0;
+      if(MathAbs(oLots - 0.06) < 0.005)
+         closeLots = 0.03; // 0.06 -> 0.03
+      else if(MathAbs(oLots - 0.04) < 0.005)
+         closeLots = 0.02; // 0.04 -> 0.02
+      else if(MathAbs(oLots - 0.03) < 0.005)
+         closeLots = 0.01; // 0.03 -> 0.02 (user: 0.03 will be 0.02)
+      else if(MathAbs(oLots - 0.02) < 0.005)
+         closeLots = 0.01; // 0.02 -> 0.01
+      else
+        {
+         // Fallback for custom lots: ceil 50% for remaining
+         double remaining = NormalizeDouble(MathMax(0.01, MathCeil(oLots * 50.0) / 100.0), 2);
+         closeLots = NormalizeDouble(oLots - remaining, 2);
+        }
+
+      if(closeLots < 0.01)
+         continue;
+
+      ResetLastError();
+      bool closed = SafeOrderCloseMarket(tkt, closeLots, Slippage, clrOrangeRed);
+      if(closed)
+        {
+         cutCount++;
+         totalCutLots += closeLots;
+         Print(">>> [MATURE TREND 50% LOT CUT] Order #", tkt, " (", DoubleToString(oLots, 2),
+               "L) cut by ", DoubleToString(closeLots, 2), "L -> Remaining: ",
+               DoubleToString(oLots - closeLots, 2), "L. Reason: Mature adverse trend > 60m with Angle=",
+               DoubleToString(GlobalEmaAngle30, 1), " deg & Loss > $50");
+        }
+      else
+        {
+         Print(">>> [MATURE TREND 50% LOT CUT FAILED] Order #", tkt, " Err=", GetLastError());
+        }
+     }
+
+   if(cutCount > 0)
+     {
+      InvalidateTotalEAOrdersCache();
+      Print(">>> [MATURE TREND 50% LOT CUT SUMMARY] Direction=", (targetType == OP_BUY ? "BUY" : "SELL"),
+            " | Orders Cut=", cutCount, " | Total Lots Closed=", DoubleToString(totalCutLots, 2),
+            " | Angle=", DoubleToString(GlobalEmaAngle30, 1), " deg");
+
+      if(InpShowMatureTrendHalfCutIcon)
+        {
+         double currentPL = (targetType == OP_BUY) ? GetOpenPL(OP_BUY) : GetOpenPL(OP_SELL);
+         DrawMatureTrendHalfCutIcon(Time[0], targetType, currentPL, GlobalEmaAngle30, cutCount, totalCutLots);
+        }
+     }
+  }
+
+//+------------------------------------------------------------------+
+//| DrawMatureTrendHalfCutIcon:                                      |
+//| Draws a marker icon and text tag on the chart at the moment      |
+//| 50% lots are cut during mature adverse momentum.                 |
+//+------------------------------------------------------------------+
+void DrawMatureTrendHalfCutIcon(datetime time, int targetType, double basketPL, double angle, int ordersCut, double lotsClosed)
+  {
+   RefreshRates();
+   double iconOffset = MathMax(50 * Point, 25.0);
+   double price = (targetType == OP_BUY) ? (High[0] + iconOffset) : (Low[0] - iconOffset);
+   color  cutColor = (targetType == OP_BUY) ? clrOrangeRed : clrGold;
+   int    arrowCode = 251; // Wingdings 251: Bold X mark
+   string typeStr = (targetType == OP_BUY) ? "BUY" : "SELL";
+
+   string objName = PREFIX + "MATURE_CUT_" + IntegerToString((int)time) + "_" + typeStr;
+
+   if(ObjectFind(0, objName) < 0)
+     {
+      // 1. Prominent Wingdings Marker (Arrow Code 251 = Cut / X Mark, Width 5)
+      ObjectCreate(0, objName, OBJ_ARROW, 0, time, price);
+      ObjectSetInteger(0, objName, OBJPROP_ARROWCODE, arrowCode);
+      ObjectSetInteger(0, objName, OBJPROP_COLOR, cutColor);
+      ObjectSetInteger(0, objName, OBJPROP_WIDTH, 5);
+      ObjectSetInteger(0, objName, OBJPROP_BACK, false);
+      ObjectSetInteger(0, objName, OBJPROP_SELECTABLE, false);
+      ObjectSetInteger(0, objName, OBJPROP_HIDDEN, false);
+      ObjectSetString(0, objName, OBJPROP_TOOLTIP, StringFormat("Mature Trend 50%% Lot Cut | %s Basket | P/L: $%.2f | Angle: %+.1f deg | Orders Cut: %d (%.2fL) | Time: %s",
+                     typeStr, basketPL, angle, ordersCut, lotsClosed, TimeToString(time, TIME_DATE|TIME_SECONDS)));
+
+      // 2. Clear Descriptive Text Tag
+      string lblName = objName + "_TXT";
+      if(ObjectFind(0, lblName) < 0)
+        {
+         double textOffset = MathMax(30 * Point, 15.0);
+         double lblPrice = (targetType == OP_BUY) ? (price + textOffset) : (price - textOffset);
+         ObjectCreate(0, lblName, OBJ_TEXT, 0, time, lblPrice);
+         ObjectSetString(0, lblName, OBJPROP_TEXT, StringFormat("50%% CUT [%s] ($%.1f | %+.1f deg)", typeStr, basketPL, angle));
+         ObjectSetString(0, lblName, OBJPROP_FONT, "Arial Bold");
+         ObjectSetInteger(0, lblName, OBJPROP_FONTSIZE, 8);
+         ObjectSetInteger(0, lblName, OBJPROP_COLOR, cutColor);
+         ObjectSetInteger(0, lblName, OBJPROP_BACK, false);
+         ObjectSetInteger(0, lblName, OBJPROP_SELECTABLE, false);
+         ObjectSetInteger(0, lblName, OBJPROP_HIDDEN, false);
+        }
+
+      ChartRedraw(0);
+     }
+  }
+
+//+------------------------------------------------------------------+
+//| CheckMatureTrendMomentumHalfCut:                                 |
+//| USER RULE: "loss is more than $50 and GlobalEmaAngle30 is more   |
+//| than 10 and EMAfliptime is more than 60 min -> close all orders  |
+//| 50% of their lots (0.06->0.03, 0.04->0.02, 0.03->0.02, 0.02->0.01|
+//| keep 0.01 as is)"                                                |
+//+------------------------------------------------------------------+
+datetime g_lastMatureTrendHalfCutBuyFlipTime  = 0;
+datetime g_lastMatureTrendHalfCutSellFlipTime = 0;
+
+void CheckMatureTrendMomentumHalfCut()
+  {
+   if(!InpEnableMatureTrendMomentumHalfCut)
+      return;
+   if(!EAStartupComplete)
+      return;
+
+   // 1. Duration check: Must be at least 60 min (3600 sec) since last EMA flip
+   if(EmaFlipTime <= 0)
+      return;
+   int flipElapsedSec = (int)(TimeCurrent() - EmaFlipTime);
+   int minRequiredSec = (InpMatureTrendMinFlipMins > 0) ? (InpMatureTrendMinFlipMins * 60) : 3600;
+   if(flipElapsedSec < minRequiredSec)
+      return;
+
+   double mult = (balancelomultipler > 0) ? balancelomultipler : 1.0;
+   double minLossUSD = (InpMatureTrendMinLossUSD > 0.0) ? (InpMatureTrendMinLossUSD * mult) : (50.0 * mult);
+   double angleThreshold = (InpMatureTrendMinAngle > 0.0) ? InpMatureTrendMinAngle : 10.0;
+
+   // 2. Check BUY Basket
+   if(g_lastMatureTrendHalfCutBuyFlipTime != EmaFlipTime)
+     {
+      double buyPL = GetOpenPL(OP_BUY);
+      bool angleMatchBuy = InpMatureTrendAngleOnlyAdverse ? (GlobalEmaAngle30 < -angleThreshold) : (MathAbs(GlobalEmaAngle30) > angleThreshold);
+      if(buyPL <= -minLossUSD && angleMatchBuy)
+        {
+         Print(">>> [MATURE TREND 50% LOT CUT TRIGGER] BUY Basket P/L=$", DoubleToString(buyPL, 2),
+               " <= -$", DoubleToString(minLossUSD, 2), " | Angle=", DoubleToString(GlobalEmaAngle30, 1),
+               " deg | Flip Elapsed=", (flipElapsedSec / 60), " mins (>= ", (minRequiredSec / 60), " mins). Executing BUY 50% lot cut...");
+         ExecuteMatureTrendHalfCut(OP_BUY);
+         g_lastMatureTrendHalfCutBuyFlipTime = EmaFlipTime; // Lock for this flip cycle
+        }
+     }
+
+   // 3. Check SELL Basket
+   if(g_lastMatureTrendHalfCutSellFlipTime != EmaFlipTime)
+     {
+      double sellPL = GetOpenPL(OP_SELL);
+      bool angleMatchSell = InpMatureTrendAngleOnlyAdverse ? (GlobalEmaAngle30 > angleThreshold) : (MathAbs(GlobalEmaAngle30) > angleThreshold);
+      if(sellPL <= -minLossUSD && angleMatchSell)
+        {
+         Print(">>> [MATURE TREND 50% LOT CUT TRIGGER] SELL Basket P/L=$", DoubleToString(sellPL, 2),
+               " <= -$", DoubleToString(minLossUSD, 2), " | Angle=", DoubleToString(GlobalEmaAngle30, 1),
+               " deg | Flip Elapsed=", (flipElapsedSec / 60), " mins (>= ", (minRequiredSec / 60), " mins). Executing SELL 50% lot cut...");
+         ExecuteMatureTrendHalfCut(OP_SELL);
+         g_lastMatureTrendHalfCutSellFlipTime = EmaFlipTime; // Lock for this flip cycle
+        }
+     }
+  }
 //+------------------------------------------------------------------+
 //| CheckMaxLossCap001Lots: Closes 0.01 lot orders if floating loss  |
 //| breaches InpMaxLoss001LotsUSD threshold to prevent runaway losses|
@@ -2983,6 +3176,9 @@ double   GetLowestEmaDistanceSinceEmaFlip();
 double   CalculateProportionalLadderSL(int orderType, double openPrice, double orderLots);
 void     ApplyEmaFlipWideBreathingProtection(int prevDirection, int newDirection);
 void     CheckEmaFlipHalfDistancePartialLossCut();
+void     CheckMatureTrendMomentumHalfCut();
+void     ExecuteMatureTrendHalfCut(int targetType);
+void     DrawMatureTrendHalfCutIcon(datetime time, int targetType, double basketPL, double angle, int ordersCut, double lotsClosed);
 void     CheckMaxLossCap001Lots();
 void     PruneEmaFlipBreathingTickets();
 void     ResetEmaFlipCutTickets();
@@ -5653,6 +5849,7 @@ void OnTick()
 
    SecureOneDollarProfit();
    CheckEmaFlipHalfDistancePartialLossCut();
+   CheckMatureTrendMomentumHalfCut();
    CheckMaxLossCap001Lots();
    CheckEquitySurplusReset();
    PruneEquityHitSecuredTickets();
