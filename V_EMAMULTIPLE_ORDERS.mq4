@@ -42,7 +42,7 @@ CheckBasketProfitClose  Total open basket profit
 */
 
 
-string glbVersion = "VMULTI-1084- Oct 4th Loss to Profit";
+string glbVersion = "VMULTI-1086- Regular 3000 SL on 0.01 Orders";
 
 
 
@@ -245,10 +245,12 @@ bool   InpEnableModifySLOnLineEnded               = true;          // When horiz
 double InpHorizontalLineEndedSLGapRaw             =3000;//2000;//1000;//200;// 50.0;          // StopLoss raw price gap ($50) when horizontal line ends
 double InpHorizontalLineMinEmaGapRaw             = 0.0;           // Min raw price gap ( = disabled) between horizontal line & EMA (Do not create orders if < min gap)
 bool   InpEnableHorizontalLineEmaDirectionFilter = true;          // Enable directional EMA distance check for horizontal orders
-double InpEqhRedEmaDistAgainstTrendRaw           = 300.0;         // Min distance from EMA when RED line & EMADirection is Bullish (+1)
+double InpEqhRedEmaDistAgainstTrendRaw           = 100;//200;//300.0;         // Min distance from EMA when RED line & EMADirection is Bullish (+1)
 double InpEqhRedEmaDistWithTrendRaw              = 100.0;         // Min distance from EMA when RED line & EMADirection is Bearish (-1)
-double InpEqhGreenEmaDistAgainstTrendRaw         = 300.0;         // Min distance from EMA when GREEN line & EMADirection is Bearish (-1)
+double InpEqhGreenEmaDistAgainstTrendRaw         = 200;//300.0;         // Min distance from EMA when GREEN line & EMADirection is Bearish (-1)
 double InpEqhGreenEmaDistWithTrendRaw            = 100.0;         // Min distance from EMA when GREEN line & EMADirection is Bullish (+1)
+bool   InpRedOrderRequireEmaBullish               = true;          // Gate 9: RED order allowed ONLY when EMADirection is 1 (Bullish)
+bool   InpGreenOrderRequireEmaBearish             = true;          // Gate 9: GREEN order allowed ONLY when EMADirection is -1 (Bearish)
 double InpEqhOrderMinPriceGapRaw                  = 200;//100;//300.0;         // Minimum raw price gap ($300) between EQH/EQL orders of same type
 int    InpHorizontalLineMaxDurationSeconds        = 300;           // Max allowed duration (300s = 5 min) since horizontal line initiated to create order (0 = no limit)
 bool   InpModifyOppositeOrderSLToLinePrice        = true;          // On new/active horizontal line: try to modify opposite order SL to Line price
@@ -274,8 +276,8 @@ bool   InpApplyBreathingToHorizontalOrders = true;//false;  // Keep existing hor
 bool   InpNeverWidenEmaFlipStopLoss        = true;   // Strict risk rule: Never allow targetSL to widen existing Stop Loss on EMA flip
 
 // ===== 0.01 LOT RUNNER LOSS CAP & PROFITABILITY OPTIMIZATION =====
-bool   InpEnableMaxLossCap001Lots          = true;   // Close 0.01 lot order if floating loss reaches max dollar threshold
-double InpMaxLoss001LotsUSD                = 10.0;   // Maximum allowed dollar loss ($10.00 * multiplier) on 0.01 lot orders
+bool   InpEnableMaxLossCap001Lots          = false;  // Disabled per user instruction: 0.01 orders close with regular stoploss ()
+double InpMaxLoss001LotsUSD                = 30;//10.0;   // Maximum allowed dollar loss ($10.00 * multiplier) on 0.01 lot orders
 
 // ===== MATURE TREND ADVERSE MOMENTUM 50% LOT CUT =====
 bool   InpEnableMatureTrendMomentumHalfCut = true;   // Cut 50% lots on losing side during mature adverse momentum
@@ -18499,6 +18501,12 @@ int SendLsdRedLineSellOrder(double sellLot, double linePrice = 0.0)
   {
    RefreshRates();
 
+   if(InpRedOrderRequireEmaBullish && EMADirection != 1)
+     {
+      Print(">>> [EQH-R SELL BLOCKED - GATE 9] Cannot open EQH-R SELL order: EMADirection is ", EMADirection, " != 1 (Bullish)");
+      return -1;
+     }
+
 // USER RULE: "Very less gap between EQH-R 0.06 orders... add minimum gap between EQH orders (same order type) $300 raw price gap."
    int closestTkt = -1;
    double closestDist = 0.0;
@@ -18654,6 +18662,16 @@ int CreateHorizontalLineRecoveryOrder(int parentTicket, int orderType, double li
       recLots = parentLots * 2.0;
 
    RefreshRates();
+   if(orderType == OP_SELL && InpRedOrderRequireEmaBullish && EMADirection != 1)
+     {
+      Print(">>> [HORIZONTAL RECOVERY BLOCKED - GATE 9] Red SELL Recovery blocked: EMADirection is ", EMADirection, " != 1 (Bullish)");
+      return -1;
+     }
+   if(orderType == OP_BUY && InpGreenOrderRequireEmaBearish && EMADirection != -1)
+     {
+      Print(">>> [HORIZONTAL RECOVERY BLOCKED - GATE 9] Green BUY Recovery blocked: EMADirection is ", EMADirection, " != -1 (Bearish)");
+      return -1;
+     }
    double livePrice = (orderType == OP_BUY) ? Ask : Bid;
 
 // USER RULE: Enforce minimum raw price gap between EQH orders of same type
@@ -19019,6 +19037,22 @@ void CheckNewRedLineCloseBuyAndOpenSell()
          return;
         }
      }
+
+// GATE 9: USER RULE: "Red Order allow only when EMAdirection is 1"
+   if(InpRedOrderRequireEmaBullish && EMADirection != 1)
+     {
+      static datetime s_lastBlockedEmaDirRed = 0;
+      if(TimeCurrent() - s_lastBlockedEmaDirRed >= 30)
+        {
+         s_lastBlockedEmaDirRed = TimeCurrent();
+         Print(">>> [RED LINE ORDER BLOCKED - GATE 9] Red horizontal order allowed ONLY when EMADirection is 1 (Bullish). Current EMADirection=",
+               EMADirection, " (", (EMADirection == -1 ? "BEARISH" : "FLAT"), "). Skipping horizontal line order creation!");
+        }
+      s_lastHandledRedLineStart = curEqhStart;
+      g_lastOrderEqHighLineStart = curEqhStart; // Mark line as handled to enforce 1-order limit
+      return;
+     }
+
 // A NEW RED HORIZONTAL LINE HAS STARTED AND QUALIFIES!
    s_lastHandledRedLineStart = curEqhStart;
 
@@ -19172,6 +19206,12 @@ void CheckNewRedLineCloseBuyAndOpenSell()
 int SendLsdGreenLineBuyOrder(double buyLot, double linePrice = 0.0)
   {
    RefreshRates();
+
+   if(InpGreenOrderRequireEmaBearish && EMADirection != -1)
+     {
+      Print(">>> [EQH-G BUY BLOCKED - GATE 9] Cannot open EQH-G BUY order: EMADirection is ", EMADirection, " != -1 (Bearish)");
+      return -1;
+     }
 
 // USER RULE: "Very less gap between EQH-R 0.06 orders... add minimum gap between EQH orders (same order type) $300 raw price gap."
    int closestTkt = -1;
@@ -19353,6 +19393,22 @@ void CheckNewGreenLineCloseSellAndOpenBuy()
          return;
         }
      }
+
+// GATE 9: USER RULE: "GREEN ORDER allow only when EMAdirection is -1"
+   if(InpGreenOrderRequireEmaBearish && EMADirection != -1)
+     {
+      static datetime s_lastBlockedEmaDirGreen = 0;
+      if(TimeCurrent() - s_lastBlockedEmaDirGreen >= 30)
+        {
+         s_lastBlockedEmaDirGreen = TimeCurrent();
+         Print(">>> [GREEN LINE ORDER BLOCKED - GATE 9] Green horizontal order allowed ONLY when EMADirection is -1 (Bearish). Current EMADirection=",
+               EMADirection, " (", (EMADirection == 1 ? "BULLISH" : "FLAT"), "). Skipping horizontal line order creation!");
+        }
+      s_lastHandledGreenLineStart = curEqlStart;
+      g_lastOrderEqLowLineStart = curEqlStart; // Mark line as handled to enforce 1-order limit
+      return;
+     }
+
 // A NEW GREEN HORIZONTAL LINE HAS STARTED AND QUALIFIES!
    s_lastHandledGreenLineStart = curEqlStart;
 
