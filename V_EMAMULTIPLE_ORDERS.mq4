@@ -42,7 +42,7 @@ CheckBasketProfitClose  Total open basket profit
 */
 
 
-string glbVersion = "VMULTI-1086- Regular 3000 SL on 0.01 Orders";
+string glbVersion = "VMULTI-1087- Basket Profit Closes Loss Orders Only";
 
 
 
@@ -106,6 +106,7 @@ double InpBasketProfitTargetUSD     = 2.0*10;         // Base target profit ($2.
 bool   InpEnableBasketMicroTrailing = true;        // Enable basket micro-trailing to let profitable baskets ride past $2 into $3-$5
 double InpBasketTrailActivationUSD  = 2.0*10;         // Net profit in USD to activate basket trailing ($2.00 * multiplier)
 double InpBasketTrailStepUSD        = 0.50;        // Pullback distance in USD from peak profit to close ($0.50 * multiplier)
+bool   InpBasketProfitCloseLossOnly = true;        // Basket Profit Target: Only close losing orders, keep winning orders for existing exit logic (TP/Ladder)
 
 
 int      g_dayNumber = -1;
@@ -245,10 +246,11 @@ bool   InpEnableModifySLOnLineEnded               = true;          // When horiz
 double InpHorizontalLineEndedSLGapRaw             =3000;//2000;//1000;//200;// 50.0;          // StopLoss raw price gap ($50) when horizontal line ends
 double InpHorizontalLineMinEmaGapRaw             = 0.0;           // Min raw price gap ( = disabled) between horizontal line & EMA (Do not create orders if < min gap)
 bool   InpEnableHorizontalLineEmaDirectionFilter = true;          // Enable directional EMA distance check for horizontal orders
-double InpEqhRedEmaDistAgainstTrendRaw           = 100;//200;//300.0;         // Min distance from EMA when RED line & EMADirection is Bullish (+1)
-double InpEqhRedEmaDistWithTrendRaw              = 100.0;         // Min distance from EMA when RED line & EMADirection is Bearish (-1)
-double InpEqhGreenEmaDistAgainstTrendRaw         = 200;//300.0;         // Min distance from EMA when GREEN line & EMADirection is Bearish (-1)
-double InpEqhGreenEmaDistWithTrendRaw            = 100.0;         // Min distance from EMA when GREEN line & EMADirection is Bullish (+1)
+//Horizontalorder conditions ------------------
+double InpEqhRedEmaDistAgainstTrendRaw           = 50;//100;//200;//300.0;         // Min distance from EMA when RED line & EMADirection is Bullish (+1)
+double InpEqhRedEmaDistWithTrendRaw              = 50;//100.0;         // Min distance from EMA when RED line & EMADirection is Bearish (-1)
+double InpEqhGreenEmaDistAgainstTrendRaw         = 50;//200;//300.0;         // Min distance from EMA when GREEN line & EMADirection is Bearish (-1)
+double InpEqhGreenEmaDistWithTrendRaw            =50;// 100.0;         // Min distance from EMA when GREEN line & EMADirection is Bullish (+1)
 bool   InpRedOrderRequireEmaBullish               = true;          // Gate 9: RED order allowed ONLY when EMADirection is 1 (Bullish)
 bool   InpGreenOrderRequireEmaBearish             = true;          // Gate 9: GREEN order allowed ONLY when EMADirection is -1 (Bearish)
 double InpEqhOrderMinPriceGapRaw                  = 200;//100;//300.0;         // Minimum raw price gap ($300) between EQH/EQL orders of same type
@@ -10098,7 +10100,7 @@ void CloseAllOpenBuyOrders(string reason = "")
    static datetime lastBuyCloseLog = 0;
    if(TimeCurrent() - lastBuyCloseLog >= 5)
      {
-      Print(">>> [BASKET CLOSE] Securing/Closing ALL open BUY orders (Reason: ", reason, ")...");
+      Print(">>> [BASKET CLOSE] Securing/Closing open BUY orders (Reason: ", reason, ", LossOnly=", InpBasketProfitCloseLossOnly, ")...");
       lastBuyCloseLog = TimeCurrent();
      }
    int buyTickets[100];
@@ -10140,22 +10142,54 @@ void CloseAllOpenBuyOrders(string reason = "")
       int tkt = buyTickets[m];
       double lts = buyLotsArr[m];
 
-      if(ServerRecoveryPending || !IsConnected())
-        {
-         SafeOrderCloseMarket(tkt, lts, Slippage, clrRed);
+      if(!OrderSelect(tkt, SELECT_BY_TICKET, MODE_TRADES))
          continue;
-        }
 
       // Protect recovery orders: never close recovery orders via regular basket close
       if(IsAnyRecoveryOrder(tkt))
          continue;
-      RecordOrderCloseReason(tkt, (reason != "" ? reason : "BASKET_PROFIT_CLOSE"));
-      SafeOrderClose(tkt, lts, OP_BUY, Slippage, clrRed);
+
+      double orderPL = OrderProfit() + OrderSwap() + OrderCommission();
+
+      if(InpBasketProfitCloseLossOnly)
+        {
+         // USER DIRECTIVE: Basket profit target only closes loss orders.
+         // Keep profit orders open so they exit via their existing logic (TP, ladder, trailing).
+         if(orderPL >= 0.0)
+           {
+            static datetime lastKeepLogBuy = 0;
+            if(TimeCurrent() - lastKeepLogBuy >= 5)
+              {
+               Print(">>> [BASKET PROFIT CLOSE] Keeping PROFIT BUY #", tkt, " open (PL=$", DoubleToString(orderPL, 2), ") for existing exit logic");
+               lastKeepLogBuy = TimeCurrent();
+              }
+            continue;
+           }
+
+         // Only close LOSS orders: close directly at market
+         RecordOrderCloseReason(tkt, (reason != "" ? reason : "BASKET_PROFIT_CLOSE_LOSS_ONLY"));
+         Print(">>> [BASKET PROFIT CLOSE] Closing LOSS BUY #", tkt, " at market (PL=$", DoubleToString(orderPL, 2), ")");
+         SafeOrderCloseMarket(tkt, lts, Slippage, clrRed);
+        }
+      else
+        {
+         if(ServerRecoveryPending || !IsConnected())
+           {
+            SafeOrderCloseMarket(tkt, lts, Slippage, clrRed);
+            continue;
+           }
+
+         RecordOrderCloseReason(tkt, (reason != "" ? reason : "BASKET_PROFIT_CLOSE"));
+         SafeOrderClose(tkt, lts, OP_BUY, Slippage, clrRed);
+        }
      }
 
-   for(int p = 0; p < pendingCount; p++)
+   if(!InpBasketProfitCloseLossOnly)
      {
-      SafeOrderDelete(pendingTickets[p], clrYellow);
+      for(int p = 0; p < pendingCount; p++)
+        {
+         SafeOrderDelete(pendingTickets[p], clrYellow);
+        }
      }
 
    InvalidateTotalEAOrdersCache();
@@ -10163,7 +10197,7 @@ void CloseAllOpenBuyOrders(string reason = "")
   }
 
 //+------------------------------------------------------------------+
-//| CloseAllOpenSellOrders: Closes all open SELL market orders and    |
+//| CloseAllOpenSellOrders: Closes open SELL market orders and        |
 //| deletes any pending SELL stop/limit orders.                      |
 //+------------------------------------------------------------------+
 void CloseAllOpenSellOrders(string reason = "")
@@ -10171,7 +10205,7 @@ void CloseAllOpenSellOrders(string reason = "")
    static datetime lastSellCloseLog = 0;
    if(TimeCurrent() - lastSellCloseLog >= 5)
      {
-      Print(">>> [BASKET CLOSE] Securing/Closing ALL open SELL orders (Reason: ", reason, ")...");
+      Print(">>> [BASKET CLOSE] Securing/Closing open SELL orders (Reason: ", reason, ", LossOnly=", InpBasketProfitCloseLossOnly, ")...");
       lastSellCloseLog = TimeCurrent();
      }
    int sellTickets[100];
@@ -10213,22 +10247,54 @@ void CloseAllOpenSellOrders(string reason = "")
       int tkt = sellTickets[m];
       double lts = sellLotsArr[m];
 
-      if(ServerRecoveryPending || !IsConnected())
-        {
-         SafeOrderCloseMarket(tkt, lts, Slippage, clrBlue);
+      if(!OrderSelect(tkt, SELECT_BY_TICKET, MODE_TRADES))
          continue;
-        }
 
       // Protect recovery orders: never close recovery orders via regular basket close
       if(IsAnyRecoveryOrder(tkt))
          continue;
-      RecordOrderCloseReason(tkt, (reason != "" ? reason : "BASKET_PROFIT_CLOSE"));
-      SafeOrderClose(tkt, lts, OP_SELL, Slippage, clrBlue);
+
+      double orderPL = OrderProfit() + OrderSwap() + OrderCommission();
+
+      if(InpBasketProfitCloseLossOnly)
+        {
+         // USER DIRECTIVE: Basket profit target only closes loss orders.
+         // Keep profit orders open so they exit via their existing logic (TP, ladder, trailing).
+         if(orderPL >= 0.0)
+           {
+            static datetime lastKeepLogSell = 0;
+            if(TimeCurrent() - lastKeepLogSell >= 5)
+              {
+               Print(">>> [BASKET PROFIT CLOSE] Keeping PROFIT SELL #", tkt, " open (PL=$", DoubleToString(orderPL, 2), ") for existing exit logic");
+               lastKeepLogSell = TimeCurrent();
+              }
+            continue;
+           }
+
+         // Only close LOSS orders: close directly at market
+         RecordOrderCloseReason(tkt, (reason != "" ? reason : "BASKET_PROFIT_CLOSE_LOSS_ONLY"));
+         Print(">>> [BASKET PROFIT CLOSE] Closing LOSS SELL #", tkt, " at market (PL=$", DoubleToString(orderPL, 2), ")");
+         SafeOrderCloseMarket(tkt, lts, Slippage, clrBlue);
+        }
+      else
+        {
+         if(ServerRecoveryPending || !IsConnected())
+           {
+            SafeOrderCloseMarket(tkt, lts, Slippage, clrBlue);
+            continue;
+           }
+
+         RecordOrderCloseReason(tkt, (reason != "" ? reason : "BASKET_PROFIT_CLOSE"));
+         SafeOrderClose(tkt, lts, OP_SELL, Slippage, clrBlue);
+        }
      }
 
-   for(int p = 0; p < pendingCount; p++)
+   if(!InpBasketProfitCloseLossOnly)
      {
-      SafeOrderDelete(pendingTickets[p], clrYellow);
+      for(int p = 0; p < pendingCount; p++)
+        {
+         SafeOrderDelete(pendingTickets[p], clrYellow);
+        }
      }
 
    InvalidateTotalEAOrdersCache();
@@ -10237,12 +10303,12 @@ void CloseAllOpenSellOrders(string reason = "")
 
 //+------------------------------------------------------------------+
 //| CheckBasketProfitClose:                                          |
-//| 1. If Buy basket total profit >  * multiplier (and Flip order  |
-//|    is in profit >= 0 if present) -> Close all open BUY orders    |
-//| 2. If Sell basket total profit >  * multiplier (and Flip order |
-//|    is in profit >= 0 if present) -> Close all open SELL orders   |
-//| 3. If Total Net profit (BUY + SELL) >  * multiplier ->         |
-//|    Close ALL open orders (BUY and SELL)                          |
+//| 1. If Buy basket total profit > targetProfit                      |
+//|    -> Close LOSS BUY orders (keep PROFIT BUY orders for TP/Ladder)|
+//| 2. If Sell basket total profit > targetProfit                     |
+//|    -> Close LOSS SELL orders (keep PROFIT SELL orders for TP)     |
+//| 3. If Total Net profit (BUY + SELL) > targetProfit                |
+//|    -> Close LOSS orders (keep PROFIT orders for TP/Ladder)        |
 //+------------------------------------------------------------------+
 void CheckBasketProfitClose()
   {
@@ -10257,6 +10323,8 @@ void CheckBasketProfitClose()
    double sellPL = 0.0;
    int buyMarketCount = 0;
    int sellMarketCount = 0;
+   int buyLossCount = 0;
+   int sellLossCount = 0;
    int buySupportCount = 0;
    int sellSupportCount = 0;
    double buySupportPL = 0.0;
@@ -10283,6 +10351,8 @@ void CheckBasketProfitClose()
         {
          buyMarketCount++;
          buyPL += pl;
+         if(pl < 0.0)
+            buyLossCount++;
          if(isSupport)
            {
             buySupportCount++;
@@ -10294,6 +10364,8 @@ void CheckBasketProfitClose()
            {
             sellMarketCount++;
             sellPL += pl;
+            if(pl < 0.0)
+               sellLossCount++;
             if(isSupport)
               {
                sellSupportCount++;
@@ -10305,22 +10377,30 @@ void CheckBasketProfitClose()
    static double s_buyBasketPeakPL = 0.0;
    static double s_sellBasketPeakPL = 0.0;
    int totalMarketOrders = buyMarketCount + sellMarketCount;
+   int totalLossOrders = buyLossCount + sellLossCount;
    double netPL = buyPL + sellPL;
    int mult = (balancelomultipler > 0 ? balancelomultipler : 1);
 
-// 1. Overall Total Net Profit Target: If Net Profit across BUY + SELL > targetProfit -> Close ALL open orders
+// 1. Overall Total Net Profit Target: If Net Profit across BUY + SELL > targetProfit -> Close LOSS orders (or ALL if legacy)
    if(totalMarketOrders > 0 && netPL > targetProfit)
      {
-      string netReason = StringFormat("Total Net Profit Hit: $%.2f > Target $%.2f (%.1f * %d)", netPL, targetProfit, InpBasketProfitTargetUSD, mult);
-      Print(">>> [BASKET PROFIT CLOSE - ALL] ", netReason);
-      CloseAllOpenBuyOrders(netReason);
-      CloseAllOpenSellOrders(netReason);
-      s_buyBasketPeakPL = 0.0;
-      s_sellBasketPeakPL = 0.0;
-      return;
+      if(InpBasketProfitCloseLossOnly && totalLossOrders == 0)
+        {
+         // All open orders are in profit! Keep them open for existing exit logic (TP/Ladder).
+        }
+      else
+        {
+         string netReason = StringFormat("Total Net Profit Hit: $%.2f > Target $%.2f (%.1f * %d)", netPL, targetProfit, InpBasketProfitTargetUSD, mult);
+         Print(">>> [BASKET PROFIT CLOSE - ALL] ", netReason, (InpBasketProfitCloseLossOnly ? " [Closing LOSS Orders Only]" : " [Closing ALL Orders]"));
+         CloseAllOpenBuyOrders(netReason);
+         CloseAllOpenSellOrders(netReason);
+         s_buyBasketPeakPL = 0.0;
+         s_sellBasketPeakPL = 0.0;
+         return;
+        }
      }
 
-// 2. Buy Basket Target & Micro-Trailing ( -  Sweet Spot)
+// 2. Buy Basket Target & Micro-Trailing ($2 - $5 Sweet Spot)
    if(buyMarketCount == 0 || buyPL <= 0.0)
       s_buyBasketPeakPL = 0.0;
 
@@ -10329,30 +10409,37 @@ void CheckBasketProfitClose()
       bool buyFlipConditionMet = (buySupportCount == 0 || buySupportPL >= 0.0);
       if(buyFlipConditionMet)
         {
-         if(InpEnableBasketMicroTrailing)
+         if(InpBasketProfitCloseLossOnly && buyLossCount == 0)
            {
-            s_buyBasketPeakPL = MathMax(s_buyBasketPeakPL, buyPL);
-            double trailFloor = s_buyBasketPeakPL - (InpBasketTrailStepUSD * mult);
-            if(buyPL <= trailFloor || buyPL >= 5.0 * mult)
-              {
-               string buyReason = StringFormat("BUY Basket Micro-Trail Hit: Peak=$%.2f, Closed=$%.2f >= Floor=$%.2f (Tgt $%.2f)",
-                                               s_buyBasketPeakPL, buyPL, trailFloor, targetProfit);
-               Print(">>> [BASKET PROFIT CLOSE - BUY] ", buyReason);
-               CloseAllOpenBuyOrders(buyReason);
-               s_buyBasketPeakPL = 0.0;
-              }
+            // All BUY orders are in profit! Keep them open for existing exit logic (TP/Ladder).
            }
          else
            {
-            string buyReason = StringFormat("BUY Basket Profit Hit: $%.2f > Target $%.2f (%.1f * %d) | Buy Support PL=$%.2f",
-                                            buyPL, targetProfit, InpBasketProfitTargetUSD, mult, buySupportPL);
-            Print(">>> [BASKET PROFIT CLOSE - BUY] ", buyReason);
-            CloseAllOpenBuyOrders(buyReason);
+            if(InpEnableBasketMicroTrailing)
+              {
+               s_buyBasketPeakPL = MathMax(s_buyBasketPeakPL, buyPL);
+               double trailFloor = s_buyBasketPeakPL - (InpBasketTrailStepUSD * mult);
+               if(buyPL <= trailFloor || buyPL >= 5.0 * mult)
+                 {
+                  string buyReason = StringFormat("BUY Basket Micro-Trail Hit: Peak=$%.2f, Closed=$%.2f >= Floor=$%.2f (Tgt $%.2f)",
+                                                  s_buyBasketPeakPL, buyPL, trailFloor, targetProfit);
+                  Print(">>> [BASKET PROFIT CLOSE - BUY] ", buyReason, (InpBasketProfitCloseLossOnly ? " [Closing LOSS Orders Only]" : ""));
+                  CloseAllOpenBuyOrders(buyReason);
+                  s_buyBasketPeakPL = 0.0;
+                 }
+              }
+            else
+              {
+               string buyReason = StringFormat("BUY Basket Profit Hit: $%.2f > Target $%.2f (%.1f * %d) | Buy Support PL=$%.2f",
+                                               buyPL, targetProfit, InpBasketProfitTargetUSD, mult, buySupportPL);
+               Print(">>> [BASKET PROFIT CLOSE - BUY] ", buyReason, (InpBasketProfitCloseLossOnly ? " [Closing LOSS Orders Only]" : ""));
+               CloseAllOpenBuyOrders(buyReason);
+              }
            }
         }
      }
 
-// 3. Sell Basket Target & Micro-Trailing ( -  Sweet Spot)
+// 3. Sell Basket Target & Micro-Trailing ($2 - $5 Sweet Spot)
    if(sellMarketCount == 0 || sellPL <= 0.0)
       s_sellBasketPeakPL = 0.0;
 
@@ -10361,25 +10448,32 @@ void CheckBasketProfitClose()
       bool sellFlipConditionMet = (sellSupportCount == 0 || sellSupportPL >= 0.0);
       if(sellFlipConditionMet)
         {
-         if(InpEnableBasketMicroTrailing)
+         if(InpBasketProfitCloseLossOnly && sellLossCount == 0)
            {
-            s_sellBasketPeakPL = MathMax(s_sellBasketPeakPL, sellPL);
-            double trailFloor = s_sellBasketPeakPL - (InpBasketTrailStepUSD * mult);
-            if(sellPL <= trailFloor || sellPL >= 5.0 * mult)
-              {
-               string sellReason = StringFormat("SELL Basket Micro-Trail Hit: Peak=$%.2f, Closed=$%.2f >= Floor=$%.2f (Tgt $%.2f)",
-                                                s_sellBasketPeakPL, sellPL, trailFloor, targetProfit);
-               Print(">>> [BASKET PROFIT CLOSE - SELL] ", sellReason);
-               CloseAllOpenSellOrders(sellReason);
-               s_sellBasketPeakPL = 0.0;
-              }
+            // All SELL orders are in profit! Keep them open for existing exit logic (TP/Ladder).
            }
          else
            {
-            string sellReason = StringFormat("SELL Basket Profit Hit: $%.2f > Target $%.2f (%.1f * %d) | Sell Support PL=$%.2f",
-                                             sellPL, targetProfit, InpBasketProfitTargetUSD, mult, sellSupportPL);
-            Print(">>> [BASKET PROFIT CLOSE - SELL] ", sellReason);
-            CloseAllOpenSellOrders(sellReason);
+            if(InpEnableBasketMicroTrailing)
+              {
+               s_sellBasketPeakPL = MathMax(s_sellBasketPeakPL, sellPL);
+               double trailFloor = s_sellBasketPeakPL - (InpBasketTrailStepUSD * mult);
+               if(sellPL <= trailFloor || sellPL >= 5.0 * mult)
+                 {
+                  string sellReason = StringFormat("SELL Basket Micro-Trail Hit: Peak=$%.2f, Closed=$%.2f >= Floor=$%.2f (Tgt $%.2f)",
+                                                  s_sellBasketPeakPL, sellPL, trailFloor, targetProfit);
+                  Print(">>> [BASKET PROFIT CLOSE - SELL] ", sellReason, (InpBasketProfitCloseLossOnly ? " [Closing LOSS Orders Only]" : ""));
+                  CloseAllOpenSellOrders(sellReason);
+                  s_sellBasketPeakPL = 0.0;
+                 }
+              }
+            else
+              {
+               string sellReason = StringFormat("SELL Basket Profit Hit: $%.2f > Target $%.2f (%.1f * %d) | Sell Support PL=$%.2f",
+                                               sellPL, targetProfit, InpBasketProfitTargetUSD, mult, sellSupportPL);
+               Print(">>> [BASKET PROFIT CLOSE - SELL] ", sellReason, (InpBasketProfitCloseLossOnly ? " [Closing LOSS Orders Only]" : ""));
+               CloseAllOpenSellOrders(sellReason);
+              }
            }
         }
      }
