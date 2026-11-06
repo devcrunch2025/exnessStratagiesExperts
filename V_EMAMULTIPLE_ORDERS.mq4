@@ -42,7 +42,7 @@ CheckBasketProfitClose	Total open basket profit
 */
 
 
-string glbVersion = "VMULTI-1072- FINAL - $500 to $700 (Angle Double Lot Sizing)";
+string glbVersion = "VMULTI-1075- Option A Opposite Trend Flip Cut";
 
 
 
@@ -267,8 +267,21 @@ bool   InpLimitSLToEmaHighestDistance      = true;   // Cap BUY SL >= EMA - High
 bool   InpApplyBreathingToHorizontalOrders = false;  // Keep existing horizontal SL logic; do not modify horizontal line orders on EMA flip
 bool   InpNeverWidenEmaFlipStopLoss        = true;   // Strict risk rule: Never allow targetSL to widen existing Stop Loss on EMA flip
 
+// ===== STRATEGY 2: BASKET-FUNDED HEDGED CLOSE (ZERO BALANCE DAMAGE) =====
+extern bool   InpEnableZeroBalanceDamageClose      = true;   // Strategy 2: Never close loss in isolation; all loss cuts must be funded by winning trades
+extern double InpZeroDamageMinNetProfitUSD         = 0.50;   // Minimum net profit in USD (>= +$0.50 * mult) when closing hedged win+loss combo
+extern bool   InpEnableHedgedPartialLotPruning     = true;   // Allow winning orders to fund partial lot cuts of larger losing orders (e.g. fund 0.02 of 0.04)
+extern bool   InpHedgedClosePrioritizeWorstLoss     = true;   // Prioritize extinguishing the largest floating loss first
+extern bool   InpBlockUnhedgedStandaloneLossCuts   = true;   // Strictly block unhedged standalone cuts (CheckEmaFlipHalfDistancePartialLossCut, CheckMaxLossCap001Lots)
+
+// ===== OPTION A: OPPOSITE-TREND FLIP CUT (PRE-FLIP TRAPPED ORDER PROTECTION) =====
+extern bool   InpEnableOppositeTrendFlipCut        = false;//true;   // Option A: Tighten SL / Cut pre-flip trapped orders when opposite trend confirms
+extern double InpOppositeFlipMaxLossUSD            = 10.0;   // Maximum allowed dollar loss ($10 * multiplier) on pre-flip opposite orders
+extern double InpOppositeFlipBufferPoints          = 50.0;   // Buffer in points from opposite entry / reversal swing level
+extern bool   InpOppositeFlipImmediateCutIfBreached = true;   // If price has already breached the tight SL, close immediately to prevent loss expansion
+
 // ===== 0.01 LOT RUNNER LOSS CAP & PROFITABILITY OPTIMIZATION =====
-bool   InpEnableMaxLossCap001Lots          = true;   // Close 0.01 lot order if floating loss reaches max dollar threshold
+bool   InpEnableMaxLossCap001Lots          = false;  // Disabled by Strategy 2 (Prevents unhedged standalone loss cuts)
 double InpMaxLoss001LotsUSD                = 10.0;   // Maximum allowed dollar loss ($10.00 * multiplier) on 0.01 lot orders
 
 // ===== EQL / EQH STRUCTURAL RECOVERY (TYPE 2) SETTINGS =====
@@ -1383,6 +1396,23 @@ void RegisterEmaFlipBreathingTicket(int ticket)
    g_emaFlipBreathingTickets[sz] = ticket;
   }
 
+void DeregisterEmaFlipBreathingTicket(int ticket)
+  {
+   int sz = ArraySize(g_emaFlipBreathingTickets);
+   if(sz == 0) return;
+   int kept = 0;
+   for(int i = 0; i < sz; i++)
+     {
+      if(g_emaFlipBreathingTickets[i] != ticket)
+        {
+         g_emaFlipBreathingTickets[kept] = g_emaFlipBreathingTickets[i];
+         kept++;
+        }
+     }
+   if(kept < sz)
+      ArrayResize(g_emaFlipBreathingTickets, kept);
+  }
+
 bool IsEmaFlipBreathingOrder(int ticket)
   {
    int sz = ArraySize(g_emaFlipBreathingTickets);
@@ -1513,6 +1543,10 @@ void CheckEmaFlipHalfDistancePartialLossCut()
    if(!InpEnableEmaFlipHalfDistPartialCut)
       return;
 
+   // STRATEGY 2: Zero Balance Damage blocks unhedged standalone loss cuts
+   if(InpEnableZeroBalanceDamageClose && InpBlockUnhedgedStandaloneLossCuts)
+      return;
+
    // Only active if an EMA flip occurred and we have a stored previous 4X buffer or active breathing orders
    if(g_prevEma4XBuffer <= 0.0 && ArraySize(g_emaFlipBreathingTickets) == 0 && g_emaFlipHalfDistanceCutGap <= 0.0)
       return;
@@ -1613,6 +1647,10 @@ void CheckEmaFlipHalfDistancePartialLossCut()
 void CheckMaxLossCap001Lots()
   {
    if(!InpEnableMaxLossCap001Lots)
+      return;
+
+   // STRATEGY 2: Zero Balance Damage blocks unhedged standalone loss cuts
+   if(InpEnableZeroBalanceDamageClose && InpBlockUnhedgedStandaloneLossCuts)
       return;
 
    double maxLossUSD = InpMaxLoss001LotsUSD * balancelomultipler;
@@ -1722,11 +1760,24 @@ void ApplyEmaFlipWideBreathingProtection(int prevDirection, int newDirection)
                continue;
               }
 
+            if(InpEnableOppositeTrendFlipCut)
+              {
+               int bMult = (balancelomultipler > 0) ? balancelomultipler : 1;
+               double maxFlipLoss = InpOppositeFlipMaxLossUSD * bMult;
+               double ptVal = MarketInfo(Symbol(), MODE_TICKVALUE);
+               if(ptVal <= 0.0) ptVal = 1.0;
+               double maxAllowedBuf = maxFlipLoss / (OrderLots() * ptVal);
+               if(maxAllowedBuf > 0.0 && buffer > maxAllowedBuf)
+                 {
+                  buffer = maxAllowedBuf;
+                 }
+              }
+
             double openPrice = OrderOpenPrice();
             double curSL = OrderStopLoss();
             double curTP = OrderTakeProfit();
 
-            // Set targetSL with full buffer from openPrice and livePrice (ensuring at least $2318+ breathing room)
+            // Set targetSL with buffer capped by Option A risk limit
             double targetSL = NormalizeDouble(MathMin(openPrice - buffer, livePrice - buffer), Digits);
             if(livePrice - targetSL < minStopDist)
                targetSL = NormalizeDouble(livePrice - minStopDist - Point * 10, Digits);
@@ -1836,11 +1887,24 @@ void ApplyEmaFlipWideBreathingProtection(int prevDirection, int newDirection)
                continue;
               }
 
+            if(InpEnableOppositeTrendFlipCut)
+              {
+               int bMult = (balancelomultipler > 0) ? balancelomultipler : 1;
+               double maxFlipLoss = InpOppositeFlipMaxLossUSD * bMult;
+               double ptVal = MarketInfo(Symbol(), MODE_TICKVALUE);
+               if(ptVal <= 0.0) ptVal = 1.0;
+               double maxAllowedBuf = maxFlipLoss / (OrderLots() * ptVal);
+               if(maxAllowedBuf > 0.0 && buffer > maxAllowedBuf)
+                 {
+                  buffer = maxAllowedBuf;
+                 }
+              }
+
             double openPrice = OrderOpenPrice();
             double curSL = OrderStopLoss();
             double curTP = OrderTakeProfit();
 
-            // Set targetSL with full buffer from openPrice and livePrice (ensuring at least $2318+ breathing room)
+            // Set targetSL with buffer capped by Option A risk limit
             double targetSL = NormalizeDouble(MathMax(openPrice + buffer, livePrice + buffer), Digits);
             if(targetSL - livePrice < minStopDist)
                targetSL = NormalizeDouble(livePrice + minStopDist + Point * 10, Digits);
@@ -2926,6 +2990,7 @@ double InpCombinationCloseProfitUSD        = 1.0;     // Base profit threshold i
 void   CheckBasketProfitClose();
 void   CloseAllOpenBuyOrders(string reason = "");
 void   CloseAllOpenSellOrders(string reason = "");
+void   ExecuteBasketFundedHedgedClose();
 void   CloseProfitableOrderCombinations();
 void   ModifyPairProfitWithStopLoss();
 void   EquityProfitLadder5();
@@ -2982,6 +3047,9 @@ void     ApplyEmaFlipWideBreathingProtection(int prevDirection, int newDirection
 void     CheckEmaFlipHalfDistancePartialLossCut();
 void     CheckMaxLossCap001Lots();
 void     PruneEmaFlipBreathingTickets();
+void     DeregisterEmaFlipBreathingTicket(int ticket);
+void     ManageOppositeTrendFlipTightenSL();
+double   GetOppositeConfirmedEntry(int preFlipType);
 void     ResetEmaFlipCutTickets();
 void     RegisterEquityHitSecuredOrder(int ticket);
 bool     IsEquityHitSecuredOrder(int ticket);
@@ -3508,11 +3576,423 @@ bool CloseMarketOrderDirect(int ticket)
   }
 
 //+------------------------------------------------------------------+
+//| STRATEGY 2: BASKET-FUNDED HEDGED CLOSE (ZERO BALANCE DAMAGE)    |
+//| Closes losing orders strictly funded by simultaneously closed   |
+//| winning orders so net balance damage is ALWAYS ZERO (Net >= +$0.50)|
+//+------------------------------------------------------------------+
+void ExecuteBasketFundedHedgedClose()
+  {
+   if(!InpEnableZeroBalanceDamageClose)
+      return;
+   if(!EAStartupComplete)
+      return;
+
+   int mult = (balancelomultipler > 0) ? balancelomultipler : 1;
+   double minNetProfit = InpZeroDamageMinNetProfitUSD * mult;
+   if(minNetProfit <= 0.0)
+      minNetProfit = 0.50;
+
+   // 1. Collect all open market orders for current Symbol and MagicNumber
+   #define MAX_HEDGE_ORDERS 100
+   int    candTickets[MAX_HEDGE_ORDERS];
+   int    candTypes[MAX_HEDGE_ORDERS];
+   double candLots[MAX_HEDGE_ORDERS];
+   double candProfits[MAX_HEDGE_ORDERS];
+   bool   isClosed[MAX_HEDGE_ORDERS];
+   int    candCount = 0;
+
+   double totalBasketPL = 0.0;
+   int lossCount = 0;
+   int winCount = 0;
+
+   for(int i = OrdersTotal() - 1; i >= 0 && candCount < MAX_HEDGE_ORDERS; i--)
+     {
+      if(!OrderSelect(i, SELECT_BY_POS, MODE_TRADES))
+         continue;
+      if(OrderSymbol() != Symbol() || OrderMagicNumber() != MagicNumber)
+         continue;
+
+      int oType = OrderType();
+      if(oType != OP_BUY && oType != OP_SELL)
+         continue;
+      if(IsAnyRecoveryOrder(OrderTicket(), OrderComment()))
+         continue;
+
+      candTickets[candCount] = OrderTicket();
+      candTypes[candCount]   = oType;
+      candLots[candCount]    = OrderLots();
+      double pl = OrderProfit() + OrderSwap() + OrderCommission();
+      candProfits[candCount] = pl;
+      isClosed[candCount]    = false;
+
+      totalBasketPL += pl;
+      if(pl < 0.0)
+         lossCount++;
+      else if(pl > 0.0)
+         winCount++;
+
+      candCount++;
+     }
+
+   if(candCount <= 0)
+      return;
+
+   // If there are NO losing orders, let profits run via normal ladders / trailing
+   if(lossCount == 0)
+      return;
+
+   // If there are NO winning orders, losses cannot be funded yet
+   if(winCount == 0)
+      return;
+
+   bool anyClosed = false;
+
+   // -------------------------------------------------------------------------
+   // STAGE 1: TOTAL BASKET PROFIT HIT (Wins + Losses combined >= Target)
+   // -------------------------------------------------------------------------
+   double basketTargetUSD = InpBasketProfitTargetUSD * mult;
+   if(basketTargetUSD <= 0.0) basketTargetUSD = 1.0;
+
+   if(candCount >= 2 && totalBasketPL >= basketTargetUSD)
+     {
+      PrintFormat(">>> [ZERO DAMAGE BASKET CLOSE - ALL] Total Basket PL = $%.2f >= Target $%.2f | Closing ALL %d orders together!",
+                  totalBasketPL, basketTargetUSD, candCount);
+      for(int b = 0; b < candCount; b++)
+        {
+         if(candProfits[b] >= 0.0)
+           {
+            if(SafeOrderCloseMarket(candTickets[b], candLots[b], Slippage, (candTypes[b] == OP_BUY ? clrRed : clrBlue)))
+               isClosed[b] = true;
+           }
+        }
+      for(int b = 0; b < candCount; b++)
+        {
+         if(!isClosed[b])
+           {
+            if(SafeOrderCloseMarket(candTickets[b], candLots[b], Slippage, (candTypes[b] == OP_BUY ? clrRed : clrBlue)))
+               isClosed[b] = true;
+           }
+        }
+      InvalidateTotalEAOrdersCache();
+      return;
+     }
+
+   // -------------------------------------------------------------------------
+   // Separate win and loss indices for optimized matching
+   // -------------------------------------------------------------------------
+   int lossIdxs[MAX_HEDGE_ORDERS];
+   int lossIdxCount = 0;
+   int winIdxs[MAX_HEDGE_ORDERS];
+   int winIdxCount = 0;
+
+   for(int i = 0; i < candCount; i++)
+     {
+      if(candProfits[i] < 0.0)
+         lossIdxs[lossIdxCount++] = i;
+      else if(candProfits[i] > 0.0)
+         winIdxs[winIdxCount++] = i;
+     }
+
+   // Sort lossIdxs by most negative profit first (e.g. -$20 before -$2)
+   if(InpHedgedClosePrioritizeWorstLoss && lossIdxCount > 1)
+     {
+      for(int a = 0; a < lossIdxCount - 1; a++)
+        {
+         for(int b = a + 1; b < lossIdxCount; b++)
+           {
+            if(candProfits[lossIdxs[b]] < candProfits[lossIdxs[a]])
+              {
+               int temp = lossIdxs[a];
+               lossIdxs[a] = lossIdxs[b];
+               lossIdxs[b] = temp;
+              }
+           }
+        }
+     }
+
+   // Sort winIdxs by largest profit first (e.g. +$12 before +$1)
+   if(winIdxCount > 1)
+     {
+      for(int a = 0; a < winIdxCount - 1; a++)
+        {
+         for(int b = a + 1; b < winIdxCount; b++)
+           {
+            if(candProfits[winIdxs[b]] > candProfits[winIdxs[a]])
+              {
+               int temp = winIdxs[a];
+               winIdxs[a] = winIdxs[b];
+               winIdxs[b] = temp;
+              }
+           }
+        }
+     }
+
+   // -------------------------------------------------------------------------
+   // STAGE 2: 1-WIN + 1-LOSS HEDGED PAIR MATCHING (Zero Balance Damage)
+   // -------------------------------------------------------------------------
+   for(int li = 0; li < lossIdxCount; li++)
+     {
+      int lIdx = lossIdxs[li];
+      if(isClosed[lIdx])
+         continue;
+
+      for(int wi = 0; wi < winIdxCount; wi++)
+        {
+         int wIdx = winIdxs[wi];
+         if(isClosed[wIdx])
+            continue;
+
+         double pairNet = candProfits[wIdx] + candProfits[lIdx];
+         if(pairNet >= minNetProfit)
+           {
+            PrintFormat(">>> [ZERO DAMAGE HEDGED PAIR CLOSE] Win #%d (+$%.2f) + Loss #%d (-$%.2f) = Net +$%.2f >= $%.2f | Closing simultaneously!",
+                        candTickets[wIdx], candProfits[wIdx],
+                        candTickets[lIdx], MathAbs(candProfits[lIdx]),
+                        pairNet, minNetProfit);
+
+            // Close WIN order first to secure credit
+            bool winClosed = SafeOrderCloseMarket(candTickets[wIdx], candLots[wIdx], Slippage, (candTypes[wIdx] == OP_BUY ? clrRed : clrBlue));
+            if(winClosed)
+              {
+               isClosed[wIdx] = true;
+               bool lossClosed = SafeOrderCloseMarket(candTickets[lIdx], candLots[lIdx], Slippage, (candTypes[lIdx] == OP_BUY ? clrRed : clrBlue));
+               if(lossClosed)
+                  isClosed[lIdx] = true;
+               else
+                 {
+                  for(int attempt = 0; attempt < 3; attempt++)
+                    {
+                     Sleep(100);
+                     RefreshRates();
+                     if(SafeOrderCloseMarket(candTickets[lIdx], candLots[lIdx], Slippage, (candTypes[lIdx] == OP_BUY ? clrRed : clrBlue)))
+                       {
+                        isClosed[lIdx] = true;
+                        break;
+                       }
+                    }
+                 }
+               anyClosed = true;
+               break; // Move to next loss order
+              }
+           }
+        }
+     }
+
+   // -------------------------------------------------------------------------
+   // STAGE 3: MULTI-WIN (2 or 3 Wins) + 1-LOSS COMBINATION (Zero Balance Damage)
+   // -------------------------------------------------------------------------
+   for(int li = 0; li < lossIdxCount; li++)
+     {
+      int lIdx = lossIdxs[li];
+      if(isClosed[lIdx])
+         continue;
+
+      bool comboClosed = false;
+
+      // 2 Wins + 1 Loss
+      for(int w1 = 0; w1 < winIdxCount - 1 && !comboClosed; w1++)
+        {
+         int idx1 = winIdxs[w1];
+         if(isClosed[idx1]) continue;
+
+         for(int w2 = w1 + 1; w2 < winIdxCount && !comboClosed; w2++)
+           {
+            int idx2 = winIdxs[w2];
+            if(isClosed[idx2]) continue;
+
+            double comboNet = candProfits[idx1] + candProfits[idx2] + candProfits[lIdx];
+            if(comboNet >= minNetProfit)
+              {
+               PrintFormat(">>> [ZERO DAMAGE HEDGED 2-WIN COMBO] Wins [#%d (+$%.2f), #%d (+$%.2f)] + Loss #%d (-$%.2f) = Net +$%.2f >= $%.2f | Closing Combo!",
+                           candTickets[idx1], candProfits[idx1],
+                           candTickets[idx2], candProfits[idx2],
+                           candTickets[lIdx], MathAbs(candProfits[lIdx]),
+                           comboNet, minNetProfit);
+
+               if(SafeOrderCloseMarket(candTickets[idx1], candLots[idx1], Slippage, (candTypes[idx1] == OP_BUY ? clrRed : clrBlue)))
+                  isClosed[idx1] = true;
+               if(SafeOrderCloseMarket(candTickets[idx2], candLots[idx2], Slippage, (candTypes[idx2] == OP_BUY ? clrRed : clrBlue)))
+                  isClosed[idx2] = true;
+               if(SafeOrderCloseMarket(candTickets[lIdx], candLots[lIdx], Slippage, (candTypes[lIdx] == OP_BUY ? clrRed : clrBlue)))
+                  isClosed[lIdx] = true;
+
+               anyClosed = true;
+               comboClosed = true;
+               break;
+              }
+           }
+        }
+
+      // 3 Wins + 1 Loss
+      if(!comboClosed && winIdxCount >= 3)
+        {
+         for(int w1 = 0; w1 < winIdxCount - 2 && !comboClosed; w1++)
+           {
+            int idx1 = winIdxs[w1];
+            if(isClosed[idx1]) continue;
+            for(int w2 = w1 + 1; w2 < winIdxCount - 1 && !comboClosed; w2++)
+              {
+               int idx2 = winIdxs[w2];
+               if(isClosed[idx2]) continue;
+               for(int w3 = w2 + 1; w3 < winIdxCount && !comboClosed; w3++)
+                 {
+                  int idx3 = winIdxs[w3];
+                  if(isClosed[idx3]) continue;
+
+                  double comboNet3 = candProfits[idx1] + candProfits[idx2] + candProfits[idx3] + candProfits[lIdx];
+                  if(comboNet3 >= minNetProfit)
+                    {
+                     PrintFormat(">>> [ZERO DAMAGE HEDGED 3-WIN COMBO] Wins [#%d, #%d, #%d] + Loss #%d (-$%.2f) = Net +$%.2f | Closing Combo!",
+                                 candTickets[idx1], candTickets[idx2], candTickets[idx3],
+                                 candTickets[lIdx], MathAbs(candProfits[lIdx]),
+                                 comboNet3);
+
+                     if(SafeOrderCloseMarket(candTickets[idx1], candLots[idx1], Slippage, (candTypes[idx1] == OP_BUY ? clrRed : clrBlue)))
+                        isClosed[idx1] = true;
+                     if(SafeOrderCloseMarket(candTickets[idx2], candLots[idx2], Slippage, (candTypes[idx2] == OP_BUY ? clrRed : clrBlue)))
+                        isClosed[idx2] = true;
+                     if(SafeOrderCloseMarket(candTickets[idx3], candLots[idx3], Slippage, (candTypes[idx3] == OP_BUY ? clrRed : clrBlue)))
+                        isClosed[idx3] = true;
+                     if(SafeOrderCloseMarket(candTickets[lIdx], candLots[lIdx], Slippage, (candTypes[lIdx] == OP_BUY ? clrRed : clrBlue)))
+                        isClosed[lIdx] = true;
+
+                     anyClosed = true;
+                     comboClosed = true;
+                     break;
+                    }
+                 }
+              }
+           }
+        }
+     }
+
+   // -------------------------------------------------------------------------
+   // STAGE 4: PARTIAL LOT HEDGED CLOSE (Smart Lot Pruning)
+   // If loss order is large (e.g. 0.04L -$20) and full close not covered,
+   // fund a 50% partial cut or 0.01L step cut with a winning order = Net >= +$0.50!
+   // -------------------------------------------------------------------------
+   if(InpEnableHedgedPartialLotPruning)
+     {
+      double lotStep = MarketInfo(Symbol(), MODE_LOTSTEP);
+      if(lotStep <= 0.0) lotStep = 0.01;
+
+      for(int li = 0; li < lossIdxCount; li++)
+        {
+         int lIdx = lossIdxs[li];
+         if(isClosed[lIdx])
+            continue;
+
+         double oLots = candLots[lIdx];
+         if(oLots <= lotStep)
+            continue;
+
+         for(int wi = 0; wi < winIdxCount; wi++)
+           {
+            int wIdx = winIdxs[wi];
+            if(isClosed[wIdx])
+               continue;
+
+            // Try 50% cut first
+            double testCut = NormalizeDouble(MathFloor((oLots * 0.5) / lotStep) * lotStep, 2);
+            if(testCut < lotStep) testCut = lotStep;
+            double testLoss = (candProfits[lIdx] / oLots) * testCut;
+            double testNet = candProfits[wIdx] + testLoss;
+
+            // If 50% cut is too large for this win, try 0.01 lot step cut
+            if(testNet < minNetProfit && oLots > lotStep * 2)
+              {
+               testCut = lotStep;
+               testLoss = (candProfits[lIdx] / oLots) * testCut;
+               testNet = candProfits[wIdx] + testLoss;
+              }
+
+            if(testNet >= minNetProfit && testCut >= lotStep && (oLots - testCut) >= 0.0)
+              {
+               PrintFormat(">>> [ZERO DAMAGE PARTIAL HEDGED CLOSE] Win #%d (+$%.2f) funds cut of Loss #%d (Cut %.2fL of %.2fL, -$%.2f) = Net +$%.2f >= $%.2f | Executing Cut!",
+                           candTickets[wIdx], candProfits[wIdx],
+                           candTickets[lIdx], testCut, oLots, MathAbs(testLoss),
+                           testNet, minNetProfit);
+
+               if(SafeOrderCloseMarket(candTickets[wIdx], candLots[wIdx], Slippage, (candTypes[wIdx] == OP_BUY ? clrRed : clrBlue)))
+                  isClosed[wIdx] = true;
+
+               if(SafeOrderCloseMarket(candTickets[lIdx], testCut, Slippage, (candTypes[lIdx] == OP_BUY ? clrRed : clrBlue)))
+                 {
+                  candLots[lIdx] = NormalizeDouble(oLots - testCut, 2);
+                  candProfits[lIdx] = candProfits[lIdx] - testLoss;
+                  if(candLots[lIdx] < lotStep)
+                     isClosed[lIdx] = true;
+                 }
+
+               anyClosed = true;
+               break;
+              }
+           }
+        }
+     }
+
+   // -------------------------------------------------------------------------
+   // STAGE 5: 1-WIN + MULTI-LOSS COMBINATION (1 Big Win absorbs 2 Small Losses)
+   // -------------------------------------------------------------------------
+   if(lossIdxCount >= 2)
+     {
+      for(int wi = 0; wi < winIdxCount; wi++)
+        {
+         int wIdx = winIdxs[wi];
+         if(isClosed[wIdx]) continue;
+
+         bool winAbsorbed = false;
+
+         for(int l1 = 0; l1 < lossIdxCount - 1 && !winAbsorbed; l1++)
+           {
+            int idxL1 = lossIdxs[l1];
+            if(isClosed[idxL1]) continue;
+
+            for(int l2 = l1 + 1; l2 < lossIdxCount && !winAbsorbed; l2++)
+              {
+               int idxL2 = lossIdxs[l2];
+               if(isClosed[idxL2]) continue;
+
+               double multiLossNet = candProfits[wIdx] + candProfits[idxL1] + candProfits[idxL2];
+               if(multiLossNet >= minNetProfit)
+                 {
+                  PrintFormat(">>> [ZERO DAMAGE 1-WIN MULTI-LOSS CLOSE] Win #%d (+$%.2f) absorbs Losses [#%d (-$%.2f), #%d (-$%.2f)] = Net +$%.2f >= $%.2f | Closing Combo!",
+                              candTickets[wIdx], candProfits[wIdx],
+                              candTickets[idxL1], MathAbs(candProfits[idxL1]),
+                              candTickets[idxL2], MathAbs(candProfits[idxL2]),
+                              multiLossNet, minNetProfit);
+
+                  if(SafeOrderCloseMarket(candTickets[wIdx], candLots[wIdx], Slippage, (candTypes[wIdx] == OP_BUY ? clrRed : clrBlue)))
+                     isClosed[wIdx] = true;
+                  if(SafeOrderCloseMarket(candTickets[idxL1], candLots[idxL1], Slippage, (candTypes[idxL1] == OP_BUY ? clrRed : clrBlue)))
+                     isClosed[idxL1] = true;
+                  if(SafeOrderCloseMarket(candTickets[idxL2], candLots[idxL2], Slippage, (candTypes[idxL2] == OP_BUY ? clrRed : clrBlue)))
+                     isClosed[idxL2] = true;
+
+                  anyClosed = true;
+                  winAbsorbed = true;
+                  break;
+                 }
+              }
+           }
+        }
+     }
+
+   if(anyClosed)
+      InvalidateTotalEAOrdersCache();
+  }
+
+//+------------------------------------------------------------------+
 //| Close any combination of open orders when sum > $1 * multiplier  |
 //| Supports 1, 2, 3 orders or entire basket, Buy or Sell or mixed   |
 //+------------------------------------------------------------------+
 void CloseProfitableOrderCombinations()
   {
+   if(InpEnableZeroBalanceDamageClose)
+     {
+      ExecuteBasketFundedHedgedClose();
+      return;
+     }
    if(!InpEnableCombinationProfitClose)
       return;
 
@@ -5577,6 +6057,203 @@ bool IsDailyEquityStopReached()
 //+------------------------------------------------------------------+
 //|                                                                  |
 //+------------------------------------------------------------------+
+
+//+------------------------------------------------------------------+
+//| Helper to find reference entry price of confirmed opposite orders|
+//+------------------------------------------------------------------+
+double GetOppositeConfirmedEntry(int preFlipType)
+  {
+   double refPrice = 0.0;
+   for(int i = OrdersTotal() - 1; i >= 0; i--)
+     {
+      if(!OrderSelect(i, SELECT_BY_POS, MODE_TRADES))
+         continue;
+      if(OrderSymbol() != Symbol() || OrderMagicNumber() != MagicNumber)
+         continue;
+
+      int oType = OrderType();
+      if(preFlipType == OP_BUY)
+        {
+         if(oType == OP_SELL || oType == OP_SELLSTOP || oType == OP_SELLLIMIT)
+           {
+            double p = OrderOpenPrice();
+            if(refPrice == 0.0 || p > refPrice)
+               refPrice = p; // Highest SELL entry
+           }
+        }
+      else if(preFlipType == OP_SELL)
+        {
+         if(oType == OP_BUY || oType == OP_BUYSTOP || oType == OP_BUYLIMIT)
+           {
+            double p = OrderOpenPrice();
+            if(refPrice == 0.0 || p < refPrice)
+               refPrice = p; // Lowest BUY entry
+           }
+        }
+     }
+   return refPrice;
+  }
+
+//+------------------------------------------------------------------+
+//| OPTION A: Opposite-Trend Flip Cut (Tighten Pre-Flip Trapped Orders) |
+//+------------------------------------------------------------------+
+void ManageOppositeTrendFlipTightenSL()
+  {
+   if(!InpEnableOppositeTrendFlipCut)
+      return;
+   if(GetTotalEAOrders() <= 0)
+      return;
+
+   RefreshRates();
+   double minStopDist = MarketInfo(Symbol(), MODE_STOPLEVEL) * Point;
+   if(minStopDist < 10.0 * Point) minStopDist = 10.0 * Point;
+
+   int mult = (balancelomultipler > 0) ? balancelomultipler : 1;
+   double maxLossUSD = InpOppositeFlipMaxLossUSD * mult;
+   if(maxLossUSD <= 0.0) maxLossUSD = 10.0;
+
+   double pointVal = MarketInfo(Symbol(), MODE_TICKVALUE);
+   if(pointVal <= 0.0) pointVal = 1.0;
+
+   int totalSells = GetTotalSellOrders();
+   int totalBuys  = GetTotalBuyOrders();
+
+   for(int i = OrdersTotal() - 1; i >= 0; i--)
+     {
+      if(!OrderSelect(i, SELECT_BY_POS, MODE_TRADES))
+         continue;
+      if(OrderSymbol() != Symbol() || OrderMagicNumber() != MagicNumber)
+         continue;
+
+      int oType = OrderType();
+      if(oType != OP_BUY && oType != OP_SELL)
+         continue;
+
+      int tkt = OrderTicket();
+      string comm = OrderComment();
+      if(IsAnyRecoveryOrder(tkt, comm))
+         continue;
+      if(IsEquityHitSecuredOrder(tkt))
+         continue;
+
+      double pl = OrderProfit() + OrderSwap() + OrderCommission();
+      if(pl >= 0.0)
+         continue; // Only applies to orders currently in loss
+
+      datetime openTime = OrderOpenTime();
+      double oOpen  = OrderOpenPrice();
+      double curSL  = OrderStopLoss();
+      double curTP  = OrderTakeProfit();
+      double oLots  = OrderLots();
+
+      // Check if this order is opposite to confirmed trend
+      bool isPreFlipOpposite = false;
+      if(oType == OP_BUY && EMADirection == -1 && (openTime <= EmaFlipTime || totalSells > 0))
+         isPreFlipOpposite = true;
+      else if(oType == OP_SELL && EMADirection == 1 && (openTime <= EmaFlipTime || totalBuys > 0))
+         isPreFlipOpposite = true;
+
+      if(!isPreFlipOpposite)
+         continue;
+
+      double maxAllowedPoints = maxLossUSD / (oLots * pointVal);
+      if(maxAllowedPoints < 100.0) maxAllowedPoints = 100.0;
+
+      if(oType == OP_BUY)
+        {
+         // For BUY: SL is below open price
+         double slByMaxLoss = NormalizeDouble(oOpen - maxAllowedPoints, Digits);
+
+         // Find opposite SELL reference level (highest confirmed SELL entry)
+         double oppSellRef = GetOppositeConfirmedEntry(OP_BUY);
+         double slByOpposite = (oppSellRef > 0.0) ? NormalizeDouble(oppSellRef - InpOppositeFlipBufferPoints * Point, Digits) : slByMaxLoss;
+
+         // Tighter of the two, capped at slByMaxLoss
+         double proposedSL = (slByOpposite > slByMaxLoss) ? slByOpposite : slByMaxLoss;
+
+         // If current SL is already tighter than proposedSL (or in profit), keep current SL
+         if(curSL > 0.0 && curSL >= proposedSL)
+            continue;
+
+         // Check if price has already breached proposedSL downward
+         if(Bid <= proposedSL)
+           {
+            if(InpOppositeFlipImmediateCutIfBreached)
+              {
+               PrintFormat(">>> [OPPOSITE TREND FLIP CUT] Closing pre-flip BUY #%d (%.2fL @ %.2f, P/L=$-%.2f). Market Bid=%.2f <= Cutoff %.2f. Capital protected!",
+                           tkt, oLots, oOpen, MathAbs(pl), Bid, proposedSL);
+               SafeOrderCloseMarket(tkt, oLots, Slippage, clrRed);
+               DeregisterEmaFlipBreathingTicket(tkt);
+               continue;
+              }
+            else
+              {
+               proposedSL = NormalizeDouble(Bid - minStopDist - Point * 10, Digits);
+              }
+           }
+
+         if(proposedSL > 0.0 && proposedSL < (Bid - minStopDist))
+           {
+            if(curSL == 0.0 || proposedSL > curSL + Point * 5)
+              {
+               PrintFormat(">>> [OPPOSITE TREND FLIP TIGHTEN SL] Tightening pre-flip BUY #%d SL: %.2f -> %.2f (MaxLoss=$%.2f, Current P/L=$-%.2f, Bid=%.2f)",
+                           tkt, curSL, proposedSL, maxLossUSD, MathAbs(pl), Bid);
+               if(SafeOrderModify(tkt, oOpen, proposedSL, curTP, 0, clrRed))
+                 {
+                  DeregisterEmaFlipBreathingTicket(tkt);
+                 }
+              }
+           }
+        }
+      else if(oType == OP_SELL)
+        {
+         // For SELL: SL is above open price
+         double slByMaxLoss = NormalizeDouble(oOpen + maxAllowedPoints, Digits);
+
+         // Find opposite BUY reference level (lowest confirmed BUY entry)
+         double oppBuyRef = GetOppositeConfirmedEntry(OP_SELL);
+         double slByOpposite = (oppBuyRef > 0.0) ? NormalizeDouble(oppBuyRef + InpOppositeFlipBufferPoints * Point, Digits) : slByMaxLoss;
+
+         // Tighter of the two, capped at slByMaxLoss
+         double proposedSL = (slByOpposite < slByMaxLoss) ? slByOpposite : slByMaxLoss;
+
+         // If current SL is already tighter than proposedSL (or in profit), keep current SL
+         if(curSL > 0.0 && curSL <= proposedSL)
+            continue;
+
+         // Check if price has already breached proposedSL upward
+         if(Ask >= proposedSL)
+           {
+            if(InpOppositeFlipImmediateCutIfBreached)
+              {
+               PrintFormat(">>> [OPPOSITE TREND FLIP CUT] Closing pre-flip SELL #%d (%.2fL @ %.2f, P/L=$-%.2f). Market Ask=%.2f >= Cutoff %.2f. Capital protected!",
+                           tkt, oLots, oOpen, MathAbs(pl), Ask, proposedSL);
+               SafeOrderCloseMarket(tkt, oLots, Slippage, clrBlue);
+               DeregisterEmaFlipBreathingTicket(tkt);
+               continue;
+              }
+            else
+              {
+               proposedSL = NormalizeDouble(Ask + minStopDist + Point * 10, Digits);
+              }
+           }
+
+         if(proposedSL > 0.0 && proposedSL > (Ask + minStopDist))
+           {
+            if(curSL == 0.0 || proposedSL < curSL - Point * 5)
+              {
+               PrintFormat(">>> [OPPOSITE TREND FLIP TIGHTEN SL] Tightening pre-flip SELL #%d SL: %.2f -> %.2f (MaxLoss=$%.2f, Current P/L=$-%.2f, Ask=%.2f)",
+                           tkt, curSL, proposedSL, maxLossUSD, MathAbs(pl), Ask);
+               if(SafeOrderModify(tkt, oOpen, proposedSL, curTP, 0, clrBlue))
+                 {
+                  DeregisterEmaFlipBreathingTicket(tkt);
+                 }
+              }
+           }
+        }
+     }
+  }
+
 void OnTick()
   {
 
@@ -5609,13 +6286,20 @@ void OnTick()
    CheckEquitySurplusReset();
    PruneEquityHitSecuredTickets();
 
+   // OPTION A: Opposite-Trend Flip Cut (Tighten Pre-Flip Trapped Orders)
+   ManageOppositeTrendFlipTightenSL();
+
+   // STRATEGY 2: Basket-Funded Hedged Close (Zero Balance Damage)
+   // Extinguish open losses using open profits before any single-side basket close
+   ExecuteBasketFundedHedgedClose();
+
    if(InpEnableBasketProfitClose)
       CheckBasketProfitClose();
 
    if(InpCancelPendingReEntryOnLoss)
       CancelPendingReEntryOnLoss(0);
 
-///CloseProfitableOrderCombinations(); // Close any order combination (or single order) when sum > $1 * multiplier
+   CloseProfitableOrderCombinations(); // Strategy 2: Hedged Close
    CheckAndCloseOrphanFLIPBasketSupportOrders(); // Ensure FLIPBasketSupport is never orphan/single without regular basket orders
    ManageOverallBasketProfit();//modify basket orders at $1 profit
    ManageFLIPBasketSupportTrailingStopLoss(); // Dedicated step-trailing StopLoss on every 100 step move in positive profit
@@ -10004,28 +10688,47 @@ void CheckBasketProfitClose()
 
    if(buyMarketCount > 0 && buyPL >= targetProfit)
      {
-      bool buyFlipConditionMet = (buySupportCount == 0 || buySupportPL >= 0.0);
-      if(buyFlipConditionMet)
+      // Strategy 2 Zero Balance Damage: If opposite SELL side has losses, verify net profit before closing
+      if(InpEnableZeroBalanceDamageClose && sellMarketCount > 0 && sellPL < 0.0)
         {
-         if(InpEnableBasketMicroTrailing)
+         if(buyPL + sellPL >= targetProfit)
            {
-            s_buyBasketPeakPL = MathMax(s_buyBasketPeakPL, buyPL);
-            double trailFloor = s_buyBasketPeakPL - (InpBasketTrailStepUSD * mult);
-            if(buyPL <= trailFloor || buyPL >= 5.0 * mult)
+            string comboReason = StringFormat("BUY Basket ($%.2f) funds SELL Losses ($%.2f) = Net $%.2f >= Target $%.2f | Closing BOTH sides!",
+                                              buyPL, sellPL, buyPL + sellPL, targetProfit);
+            Print(">>> [BASKET PROFIT CLOSE - HEDGED BOTH] ", comboReason);
+            CloseAllOpenBuyOrders(comboReason);
+            CloseAllOpenSellOrders(comboReason);
+            s_buyBasketPeakPL = 0.0;
+            s_sellBasketPeakPL = 0.0;
+            return;
+           }
+         // Otherwise hold BUY basket so it continues growing to fund the SELL loss
+        }
+      else
+        {
+         bool buyFlipConditionMet = (buySupportCount == 0 || buySupportPL >= 0.0);
+         if(buyFlipConditionMet)
+           {
+            if(InpEnableBasketMicroTrailing)
               {
-               string buyReason = StringFormat("BUY Basket Micro-Trail Hit: Peak=$%.2f, Closed=$%.2f >= Floor=$%.2f (Tgt $%.2f)",
-                                               s_buyBasketPeakPL, buyPL, trailFloor, targetProfit);
+               s_buyBasketPeakPL = MathMax(s_buyBasketPeakPL, buyPL);
+               double trailFloor = s_buyBasketPeakPL - (InpBasketTrailStepUSD * mult);
+               if(buyPL <= trailFloor || buyPL >= 5.0 * mult)
+                 {
+                  string buyReason = StringFormat("BUY Basket Micro-Trail Hit: Peak=$%.2f, Closed=$%.2f >= Floor=$%.2f (Tgt $%.2f)",
+                                                  s_buyBasketPeakPL, buyPL, trailFloor, targetProfit);
+                  Print(">>> [BASKET PROFIT CLOSE - BUY] ", buyReason);
+                  CloseAllOpenBuyOrders(buyReason);
+                  s_buyBasketPeakPL = 0.0;
+                 }
+              }
+            else
+              {
+               string buyReason = StringFormat("BUY Basket Profit Hit: $%.2f > Target $%.2f (%.1f * %d) | Buy Support PL=$%.2f",
+                                               buyPL, targetProfit, InpBasketProfitTargetUSD, mult, buySupportPL);
                Print(">>> [BASKET PROFIT CLOSE - BUY] ", buyReason);
                CloseAllOpenBuyOrders(buyReason);
-               s_buyBasketPeakPL = 0.0;
               }
-           }
-         else
-           {
-            string buyReason = StringFormat("BUY Basket Profit Hit: $%.2f > Target $%.2f (%.1f * %d) | Buy Support PL=$%.2f",
-                                            buyPL, targetProfit, InpBasketProfitTargetUSD, mult, buySupportPL);
-            Print(">>> [BASKET PROFIT CLOSE - BUY] ", buyReason);
-            CloseAllOpenBuyOrders(buyReason);
            }
         }
      }
@@ -10036,28 +10739,47 @@ void CheckBasketProfitClose()
 
    if(sellMarketCount > 0 && sellPL >= targetProfit)
      {
-      bool sellFlipConditionMet = (sellSupportCount == 0 || sellSupportPL >= 0.0);
-      if(sellFlipConditionMet)
+      // Strategy 2 Zero Balance Damage: If opposite BUY side has losses, verify net profit before closing
+      if(InpEnableZeroBalanceDamageClose && buyMarketCount > 0 && buyPL < 0.0)
         {
-         if(InpEnableBasketMicroTrailing)
+         if(sellPL + buyPL >= targetProfit)
            {
-            s_sellBasketPeakPL = MathMax(s_sellBasketPeakPL, sellPL);
-            double trailFloor = s_sellBasketPeakPL - (InpBasketTrailStepUSD * mult);
-            if(sellPL <= trailFloor || sellPL >= 5.0 * mult)
+            string comboReason = StringFormat("SELL Basket ($%.2f) funds BUY Losses ($%.2f) = Net $%.2f >= Target $%.2f | Closing BOTH sides!",
+                                              sellPL, buyPL, sellPL + buyPL, targetProfit);
+            Print(">>> [BASKET PROFIT CLOSE - HEDGED BOTH] ", comboReason);
+            CloseAllOpenSellOrders(comboReason);
+            CloseAllOpenBuyOrders(comboReason);
+            s_sellBasketPeakPL = 0.0;
+            s_sellBasketPeakPL = 0.0;
+            return;
+           }
+         // Otherwise hold SELL basket so it continues growing to fund the BUY loss
+        }
+      else
+        {
+         bool sellFlipConditionMet = (sellSupportCount == 0 || sellSupportPL >= 0.0);
+         if(sellFlipConditionMet)
+           {
+            if(InpEnableBasketMicroTrailing)
               {
-               string sellReason = StringFormat("SELL Basket Micro-Trail Hit: Peak=$%.2f, Closed=$%.2f >= Floor=$%.2f (Tgt $%.2f)",
-                                                s_sellBasketPeakPL, sellPL, trailFloor, targetProfit);
+               s_sellBasketPeakPL = MathMax(s_sellBasketPeakPL, sellPL);
+               double trailFloor = s_sellBasketPeakPL - (InpBasketTrailStepUSD * mult);
+               if(sellPL <= trailFloor || sellPL >= 5.0 * mult)
+                 {
+                  string sellReason = StringFormat("SELL Basket Micro-Trail Hit: Peak=$%.2f, Closed=$%.2f >= Floor=$%.2f (Tgt $%.2f)",
+                                                   s_sellBasketPeakPL, sellPL, trailFloor, targetProfit);
+                  Print(">>> [BASKET PROFIT CLOSE - SELL] ", sellReason);
+                  CloseAllOpenSellOrders(sellReason);
+                  s_sellBasketPeakPL = 0.0;
+                 }
+              }
+            else
+              {
+               string sellReason = StringFormat("SELL Basket Profit Hit: $%.2f > Target $%.2f (%.1f * %d) | Sell Support PL=$%.2f",
+                                                sellPL, targetProfit, InpBasketProfitTargetUSD, mult, sellSupportPL);
                Print(">>> [BASKET PROFIT CLOSE - SELL] ", sellReason);
                CloseAllOpenSellOrders(sellReason);
-               s_sellBasketPeakPL = 0.0;
               }
-           }
-         else
-           {
-            string sellReason = StringFormat("SELL Basket Profit Hit: $%.2f > Target $%.2f (%.1f * %d) | Sell Support PL=$%.2f",
-                                             sellPL, targetProfit, InpBasketProfitTargetUSD, mult, sellSupportPL);
-            Print(">>> [BASKET PROFIT CLOSE - SELL] ", sellReason);
-            CloseAllOpenSellOrders(sellReason);
            }
         }
      }
@@ -11368,9 +12090,23 @@ void ChangeLots(double OpenPL, string reason, int orderType, int stoplevelStep,s
 //if(IsEmaWEAKDistanceReduced50PercentFromPeak(orderType)   && EMADirection==requestedDirection)
 // Lots = 0.01;
 
-   // Angle Double Lot Sizing: Automatically doubles order size (0.01 -> 0.02, 0.02 -> 0.04) when strong momentum exists
-   if(MathAbs(GlobalEmaAngle30) > 3 && !IsEmaWEAKDistanceReduced50PercentFromPeak(orderType))
+   // DIRECTIONAL LOT SIZING:
+   // 1. With-Trend (in EMA direction): Double lots (0.01 -> 0.02, 0.02 -> 0.04) when strong momentum exists (Angle > 3) to bank +$10 to +$20 wins fast
+   // 2. Counter-Trend (opposite to EMA): Keep base lot size (0.01 - 0.02); strictly block doubling to 0.04 on counter-trend orders
+   int orderDir = (orderType == OP_BUY || orderType == OP_BUYSTOP || orderType == OP_BUYLIMIT) ? 1 : -1;
+   bool isWithTrend = (orderDir == EMADirection);
+
+   if(isWithTrend && MathAbs(GlobalEmaAngle30) > 3 && !IsEmaWEAKDistanceReduced50PercentFromPeak(orderType))
+     {
       Lots = Lots * 2;
+     }
+   else if(!isWithTrend)
+     {
+      // Cap counter-trend orders to base lots (max 0.02 * balancelomultipler) to prevent heavy counter-trend drawdowns
+      double maxCounterTrendLot = 0.02 * (balancelomultipler > 0 ? balancelomultipler : 1);
+      if(Lots > maxCounterTrendLot)
+         Lots = maxCounterTrendLot;
+     }
 
 //----------------------------------------------------------------------------------------
 // Safety catch
@@ -14980,6 +15716,9 @@ double GetTicketLastClosePrice(int ticket)
 //+------------------------------------------------------------------+
 void ManagePartialClosesLoss()
   {
+   // STRATEGY 2: Zero Balance Damage blocks unhedged standalone loss cuts
+   if(InpEnableZeroBalanceDamageClose && InpBlockUnhedgedStandaloneLossCuts)
+      return;
 
 
 
@@ -19334,6 +20073,17 @@ void ManageHorizontalLineEndedBreakoutStopLoss()
                   continue;
                  }
 
+               // STRATEGY 2 PROTECTION: In Option A, allow tightening closer than 2000 points to cap pre-flip losses
+               double slDistance = MathAbs(targetSL - OrderOpenPrice());
+               if(!InpEnableOppositeTrendFlipCut && targetSL > OrderOpenPrice() && slDistance < InpEmaFlipWideBreathingMinFloorRaw)
+                 {
+                  Print(">>> [RED LINE BREAKOUT SKIPPED] SELL #", OrderTicket(),
+                        " proposed SL distance ($", DoubleToString(slDistance, 1),
+                        ") is tighter than min floor ($", DoubleToString(InpEmaFlipWideBreathingMinFloorRaw, 1),
+                        "). Keeping wide cushion!");
+                  continue;
+                 }
+
                double curSL = OrderStopLoss();
                // NEVER widen an existing StopLoss: for SELL, targetSL must be strictly lower (tighter) than curSL
                if(curSL > 0.0 && targetSL >= curSL)
@@ -19421,6 +20171,17 @@ void ManageHorizontalLineEndedBreakoutStopLoss()
                if(EMADirection == -1 || IsEmaFlipBreathingOrder(OrderTicket()) || IsEquityHitSecuredOrder(OrderTicket()))
                  {
                   Print(">>> [GREEN LINE BREAKOUT SKIPPED] BUY #", OrderTicket(), " is guarded by EMA Flip Breathing SL.");
+                  continue;
+                 }
+
+               // STRATEGY 2 PROTECTION: In Option A, allow tightening closer than 2000 points to cap pre-flip losses
+               double slDistance = MathAbs(OrderOpenPrice() - targetSL);
+               if(!InpEnableOppositeTrendFlipCut && targetSL < OrderOpenPrice() && slDistance < InpEmaFlipWideBreathingMinFloorRaw)
+                 {
+                  Print(">>> [GREEN LINE BREAKOUT SKIPPED] BUY #", OrderTicket(),
+                        " proposed SL distance ($", DoubleToString(slDistance, 1),
+                        ") is tighter than min floor ($", DoubleToString(InpEmaFlipWideBreathingMinFloorRaw, 1),
+                        "). Keeping wide cushion!");
                   continue;
                  }
 
