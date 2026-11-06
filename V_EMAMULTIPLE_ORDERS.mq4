@@ -42,7 +42,7 @@ CheckBasketProfitClose	Total open basket profit
 */
 
 
-string glbVersion = "VMULTI-1072- FINAL - $500 to $700";
+string glbVersion = "VMULTI-1072- FINAL - $500 to $700 (Angle Double Lot Sizing)";
 
 
 
@@ -11368,11 +11368,14 @@ void ChangeLots(double OpenPL, string reason, int orderType, int stoplevelStep,s
 //if(IsEmaWEAKDistanceReduced50PercentFromPeak(orderType)   && EMADirection==requestedDirection)
 // Lots = 0.01;
 
+   // Angle Double Lot Sizing: Automatically doubles order size (0.01 -> 0.02, 0.02 -> 0.04) when strong momentum exists
+   if(MathAbs(GlobalEmaAngle30) > 3 && !IsEmaWEAKDistanceReduced50PercentFromPeak(orderType))
+      Lots = Lots * 2;
 
-
-
+//----------------------------------------------------------------------------------------
+// Safety catch
    if(IsHeavyLotOrderNearBy(orderType, Lots, 300) && Lots>=0.02)
-      Lots = 0.01;
+      Lots = 0.02;
 //----------------------------------------------------------------------------------------
 // Safety catch
 
@@ -11402,6 +11405,10 @@ void ChangeLots(double OpenPL, string reason, int orderType, int stoplevelStep,s
 
 //   }
 //*************************************final*****************************************************************
+
+
+ if(Lots > MaxRecoveryLot)
+      Lots=MaxRecoveryLot;
 
    if(Lots < 0.01)
       Lots = 0.01;
