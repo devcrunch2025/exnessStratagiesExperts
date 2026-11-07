@@ -42,7 +42,7 @@ CheckBasketProfitClose  Total open basket profit
 */
 
 
-string glbVersion = "VMULTI-1082- Left Dashboard SL Column Displays Pts(LockedProfit)";
+string glbVersion = "VMULTI-1083- Method 6 $5 Threshold Hit Chart Icon";
 
 
 
@@ -2966,32 +2966,37 @@ bool   InpEnableDynamicStepLadder           = false;  // DISABLED: Consolidated 
 
 // ===== 5 MULTI-ORDER COMBINATION & BASKET METHODS ($1*MULT PROFIT & $150 SL GAP) =====
 // Method 2 & 3: Buy-Only & Sell-Only Basket Modifiers
-bool   InpEnableModifyOnlyBuySellBasket     = true;   // Method 2 & 3: Enable Buy-Only and Sell-Only basket trailing SL
+bool   InpEnableModifyOnlyBuySellBasket     = false;//true;   // Method 2 & 3: Enable Buy-Only and Sell-Only basket trailing SL
 double InpModifyOnlyBuySellSLGapUSD         = 100.0;  // Method 2 & 3: StopLoss gap in USD points ($150) for Buy/Sell basket
 
 // Method 1: Multi-Order Combination Profit Live SL Modifier
-bool   EnablePairProfitSLModify             = true;   // Method 1: Enable Multi-Order Combination Profit Live SL Modifier
+bool   EnablePairProfitSLModify             =false;// true;   // Method 1: Enable Multi-Order Combination Profit Live SL Modifier
 double PairCombinationProfitThresholdUSD    = 5;//1.0;    // Method 1: Base profit threshold in USD ($1.00)
 double PairCombinationSLDistanceRaw         = 100.0;  // Method 1: StopLoss gap in USD points ($150)
 bool   PairCombinationUseBalanceMultiplier  = true;   // Method 1: Scale threshold by balance multiplier (> $1.00 * multiplier)
 bool   InpPairCombinationIncludeFlipBasket  = false;  // Method 1: Include FLIPBasketSupport orders in combinations
 
 // Method 4: Combination Profit Handler (Modify SL with $150 gap or Close)
-bool   InpEnableCombinationProfitClose      = true;   // Method 4: Enable multi-order combination profit handler
+bool   InpEnableCombinationProfitClose      = false;//true;   // Method 4: Enable multi-order combination profit handler
 double InpCombinationCloseProfitUSD         = 5;//1.0;    // Method 4: Profit threshold in USD ($1.00 * multiplier)
 bool   InpCombinationModifySLWithGap        = true;   // Method 4: Modify SL with $150 gap (true) or close directly (false)
 double InpCombinationSLGapUSD               = 100.0;  // Method 4: StopLoss gap in USD points ($150)
 
 // Method 5: Overall Hedged Basket Profit Modifier
-bool   InpEnableOverallBasketProfitModify   = true;   // Method 5: Enable overall hedged basket profit SL modifier
+bool   InpEnableOverallBasketProfitModify   =false;// true;   // Method 5: Enable overall hedged basket profit SL modifier
 double InpOverallBasketProfitTargetUSD      = 5;//1.0;    // Method 5: Overall hedged basket profit target in USD ($1.00 * multiplier)
 double InpOverallBasketSLGapUSD             = 100.0;  // Method 5: Overall hedged basket StopLoss gap in USD points ($150)
 
 // Method 6: Multi-Order Combinations (> 2 orders, Profit or Loss mix) > $5 Profit SL Modifier
 bool   InpEnableMethod6CombinationSLModify  = true;   // Method 6: Check combinations of >2 orders (profit/loss mix) > $5 profit
 double InpMethod6ProfitThresholdUSD         = 5.0;    // Method 6: Base profit threshold in USD ($5.00 * multiplier)
-double InpMethod6SLDistanceUSD              = 100.0;  // Method 6: StopLoss gap in USD points ($150)
-int    InpMethod6MinOrderCount              = 2;      // Method 6: Minimum number of orders in combination (default 3: > 2 orders)
+double InpMethod6SLDistanceUSD              = 150.0;  // Method 6: StopLoss gap in USD points ($150)
+int    InpMethod6MinOrderCount              = 2;      // Method 6: Minimum number of orders in combination (default 2 or 3)
+bool   InpDrawMethod6HitIcon                = true;   // Method 6: Draw chart icon when combination profit threshold is hit
+color  InpMethod6HitIconColor               = clrGold;// Method 6: Chart icon & text color
+int    InpMethod6HitFontSize                = 10;     // Method 6: Chart icon text font size
+int    InpMethod6HitIconCode                = 159;    // Method 6: Chart icon Wingdings code (159=circle dot, 171=star, 251=check)
+void   DrawMethod6HitIcon(int orderCount, double comboProfit, datetime hitTime = 0, double hitPrice = 0.0);
 
 // Visual Chart Icons for Multi-Order Closes (+2, +3, +4...) from the 6 Methods
 bool   InpDrawMultiOrderClosedIcons         = true;   // Draw +2, +3 icons when closed with any of the 6 methods
@@ -3495,6 +3500,72 @@ void DrawMultiOrderClosedIcon(int orderCount, datetime closeTime, double closePr
          " | Profit: $", DoubleToString(netProfit, 2), " | ", methodLabel);
   }
 
+//+------------------------------------------------------------------+
+//| DrawMethod6HitIcon                                               |
+//| Draws chart icon and text label when Method 6 combination hits:  |
+//| InpEnableMethod6CombinationSLModify + InpMethod6ProfitThresholdUSD|
+//+------------------------------------------------------------------+
+void DrawMethod6HitIcon(int orderCount, double comboProfit, datetime hitTime = 0, double hitPrice = 0.0)
+  {
+   if(!InpDrawMethod6HitIcon)
+      return;
+
+   if(hitTime <= 0)
+      hitTime = TimeCurrent();
+
+   datetime barTime = (Time[0] > 0 ? Time[0] : hitTime);
+   string baseName = PREFIX + "M6_HIT_" + IntegerToString((int)barTime);
+
+   // Prevent duplicate icon on the same bar
+   if(ObjectFind(0, baseName) >= 0 || ObjectFind(0, baseName + "_TXT") >= 0)
+      return;
+
+   double atr = iATR(Symbol(), Period(), 14, 1);
+   if(atr <= 0.0)
+      atr = 30 * Point;
+   if(atr <= 0.0)
+      atr = 1.0;
+
+   double markerPrice = High[0] + (atr * 0.25);
+   double labelPrice  = markerPrice + (atr * 0.35);
+
+   color iconColor = InpMethod6HitIconColor;
+   int   iconCode  = (InpMethod6HitIconCode > 0 ? InpMethod6HitIconCode : 159);
+   int   fontSize  = (InpMethod6HitFontSize > 0 ? InpMethod6HitFontSize : 10);
+
+   string txtName = baseName + "_TXT";
+   string labelText = StringFormat("M6 +%d ($%.2f)", orderCount, comboProfit);
+   string tooltip   = StringFormat("Method 6 Combination Hit (>2 Orders >$5) | Orders: +%d | Profit: +$%.2f (Threshold: $%.2f) | SL Gap: $%.1f | Time: %s",
+                                   orderCount, comboProfit, InpMethod6ProfitThresholdUSD, InpMethod6SLDistanceUSD,
+                                   TimeToString(hitTime, TIME_DATE|TIME_MINUTES|TIME_SECONDS));
+
+   // 1. Solid Marker Icon
+   ObjectCreate(0, baseName, OBJ_ARROW, 0, barTime, markerPrice);
+   ObjectSetInteger(0, baseName, OBJPROP_ARROWCODE, iconCode); // Wingdings 159 (circle dot) or customized
+   ObjectSetInteger(0, baseName, OBJPROP_COLOR, iconColor);
+   ObjectSetInteger(0, baseName, OBJPROP_WIDTH, 4);
+   ObjectSetInteger(0, baseName, OBJPROP_BACK, false);
+   ObjectSetInteger(0, baseName, OBJPROP_SELECTABLE, false);
+   ObjectSetInteger(0, baseName, OBJPROP_HIDDEN, false);
+   ObjectSetString(0, baseName, OBJPROP_TOOLTIP, tooltip);
+
+   // 2. Bold Text Label ("M6 +3 ($5.40)")
+   ObjectCreate(0, txtName, OBJ_TEXT, 0, barTime, labelPrice);
+   ObjectSetString(0, txtName, OBJPROP_TEXT, labelText);
+   ObjectSetString(0, txtName, OBJPROP_FONT, "Arial Black");
+   ObjectSetInteger(0, txtName, OBJPROP_FONTSIZE, fontSize);
+   ObjectSetInteger(0, txtName, OBJPROP_COLOR, iconColor);
+   ObjectSetInteger(0, txtName, OBJPROP_BACK, false);
+   ObjectSetInteger(0, txtName, OBJPROP_SELECTABLE, false);
+   ObjectSetInteger(0, txtName, OBJPROP_HIDDEN, false);
+   ObjectSetString(0, txtName, OBJPROP_TOOLTIP, tooltip);
+
+   ChartRedraw(0);
+
+   Print(">>> [M6 CHART ICON] Placed Method 6 Hit icon '", labelText, "' on chart at bar ",
+         TimeToString(barTime, TIME_DATE|TIME_MINUTES), " | Profit: $", DoubleToString(comboProfit, 2));
+  }
+
 void CheckAndDrawMultiOrderClosedIcons()
   {
    if(!InpDrawMultiOrderClosedIcons)
@@ -3874,7 +3945,7 @@ void ModifyMethod6MultiOrderCombinationsOver5USD()
 
    int mult = (balancelomultipler > 0) ? balancelomultipler : 1;
    double threshold = (InpMethod6ProfitThresholdUSD > 0.0 ? InpMethod6ProfitThresholdUSD : 5.0) * mult;
-   int minOrders = (InpMethod6MinOrderCount >= 3) ? InpMethod6MinOrderCount : 3; // "more than 2 orders"
+   int minOrders = (InpMethod6MinOrderCount >= 2) ? InpMethod6MinOrderCount : 2;
 
    for(int i = OrdersTotal() - 1; i >= 0 && candCount < MAX_M6_ORDERS; i--)
      {
@@ -3911,9 +3982,11 @@ void ModifyMethod6MultiOrderCombinationsOver5USD()
      }
 
    if(candCount < minOrders)
-      return; // Must have more than 2 orders (at least 3)
+      return;
 
-   int qualifyingCombinationsCount = 0;
+   int    qualifyingCombinationsCount = 0;
+   double bestComboProfit = 0.0;
+   int    bestComboOrders = 0;
 
    // 1. Total Basket Check (All open orders combined >= minOrders)
    double totalBasketPL = 0.0;
@@ -3928,9 +4001,40 @@ void ModifyMethod6MultiOrderCombinationsOver5USD()
          candComboSize[b] = candCount;
         }
       qualifyingCombinationsCount++;
+      if(totalBasketPL > bestComboProfit)
+        {
+         bestComboProfit = totalBasketPL;
+         bestComboOrders = candCount;
+        }
      }
 
-   // 2. All 3-Order Combinations (Triplets: i, j, k) - Profit or Loss mix
+   // 2. All 2-Order Combinations (if minOrders <= 2)
+   if(minOrders <= 2)
+     {
+      int searchLimit2 = MathMin(candCount, 30);
+      for(int i = 0; i < searchLimit2 - 1; i++)
+        {
+         for(int j = i + 1; j < searchLimit2; j++)
+           {
+            double sum2 = candProfits[i] + candProfits[j];
+            if(sum2 > threshold)
+              {
+               qualifyForSL[i] = true;
+               qualifyForSL[j] = true;
+               if(candComboSize[i] == 0) candComboSize[i] = 2;
+               if(candComboSize[j] == 0) candComboSize[j] = 2;
+               if(sum2 > bestComboProfit)
+                 {
+                  bestComboProfit = sum2;
+                  bestComboOrders = 2;
+                 }
+               qualifyingCombinationsCount++;
+              }
+           }
+        }
+     }
+
+   // 3. All 3-Order Combinations (Triplets: i, j, k) - Profit or Loss mix
    int searchLimit3 = MathMin(candCount, 20);
    for(int i = 0; i < searchLimit3 - 2; i++)
      {
@@ -3945,15 +4049,20 @@ void ModifyMethod6MultiOrderCombinationsOver5USD()
                qualifyForSL[j] = true;
                qualifyForSL[k] = true;
                if(candComboSize[i] == 0) candComboSize[i] = 3;
-                if(candComboSize[j] == 0) candComboSize[j] = 3;
-                if(candComboSize[k] == 0) candComboSize[k] = 3;
-                qualifyingCombinationsCount++;
+               if(candComboSize[j] == 0) candComboSize[j] = 3;
+               if(candComboSize[k] == 0) candComboSize[k] = 3;
+               if(sum3 > bestComboProfit)
+                 {
+                  bestComboProfit = sum3;
+                  bestComboOrders = 3;
+                 }
+               qualifyingCombinationsCount++;
               }
            }
         }
      }
 
-   // 3. All 4-Order Combinations (Quartets: i, j, k, m) - Profit or Loss mix
+   // 4. All 4-Order Combinations (Quartets: i, j, k, m) - Profit or Loss mix
    int searchLimit4 = MathMin(candCount, 12);
    for(int i = 0; i < searchLimit4 - 3; i++)
      {
@@ -3971,10 +4080,15 @@ void ModifyMethod6MultiOrderCombinationsOver5USD()
                   qualifyForSL[k] = true;
                   qualifyForSL[m] = true;
                   if(candComboSize[i] == 0) candComboSize[i] = 4;
-                   if(candComboSize[j] == 0) candComboSize[j] = 4;
-                   if(candComboSize[k] == 0) candComboSize[k] = 4;
-                   if(candComboSize[m] == 0) candComboSize[m] = 4;
-                   qualifyingCombinationsCount++;
+                  if(candComboSize[j] == 0) candComboSize[j] = 4;
+                  if(candComboSize[k] == 0) candComboSize[k] = 4;
+                  if(candComboSize[m] == 0) candComboSize[m] = 4;
+                  if(sum4 > bestComboProfit)
+                    {
+                     bestComboProfit = sum4;
+                     bestComboOrders = 4;
+                    }
+                  qualifyingCombinationsCount++;
                  }
               }
            }
@@ -3984,7 +4098,23 @@ void ModifyMethod6MultiOrderCombinationsOver5USD()
    if(qualifyingCombinationsCount == 0)
       return;
 
-   // 4. Modify qualifying orders with $150 USD gap StopLoss
+   if(bestComboOrders == 0)
+     {
+      int qCount = 0;
+      double qPL = 0.0;
+      for(int q = 0; q < candCount; q++)
+        {
+         if(qualifyForSL[q])
+           {
+            qCount++;
+            qPL += candProfits[q];
+           }
+        }
+      bestComboOrders = (qCount > 0 ? qCount : 3);
+      bestComboProfit = (qPL > 0 ? qPL : threshold);
+     }
+
+   // 5. Modify qualifying orders with $150 USD gap StopLoss
    RefreshRates();
    double minDistance = GetRequiredStopDistance();
    if(minDistance < 20.0)
@@ -3996,6 +4126,7 @@ void ModifyMethod6MultiOrderCombinationsOver5USD()
 
    double curBid = MarketInfo(Symbol(), MODE_BID);
    double curAsk = MarketInfo(Symbol(), MODE_ASK);
+   int modifiedSuccessCount = 0;
 
    for(int k = 0; k < candCount; k++)
      {
@@ -4036,9 +4167,6 @@ void ModifyMethod6MultiOrderCombinationsOver5USD()
          if((proposedSL - curAsk) < minDistance)
             proposedSL = NormalizeDouble(curAsk + minDistance, Digits);
 
-         if(proposedSL <= curAsk)
-            continue;
-
          // For SELL: Set if no SL (0.0), or only move SL forward (lower) by at least MinimumSLModifyGapRaw
          if(curSL == 0.0 || (proposedSL < curSL && (curSL - proposedSL) >= MinimumSLModifyGapRaw))
            {
@@ -4052,6 +4180,7 @@ void ModifyMethod6MultiOrderCombinationsOver5USD()
          bool modified = SafeOrderModify(tkt, oOpen, proposedSL, curTP, 0, (oType == OP_BUY ? clrLimeGreen : clrTomato), "Method 6");
          if(modified)
            {
+            modifiedSuccessCount++;
             RecordMethodModification(tkt, 6, (candComboSize[k] > 0 ? candComboSize[k] : 3), candProfits[k]);
             Print("METHOD 6 COMBINATION (>2 ORDERS >$5) SL MODIFIED | Ticket #", tkt,
                   " | Type=", (oType == OP_BUY ? "BUY" : "SELL"),
@@ -4060,6 +4189,12 @@ void ModifyMethod6MultiOrderCombinationsOver5USD()
                   " (Gap=$", DoubleToString(rawGap, 1), ")");
            }
         }
+     }
+
+   // 6. When Method 6 Profit Threshold Hits -> Draw Icon On Chart
+   if(qualifyingCombinationsCount > 0)
+     {
+      DrawMethod6HitIcon(bestComboOrders, bestComboProfit, TimeCurrent(), (curBid > 0 ? curBid : Bid));
      }
   }
 
