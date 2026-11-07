@@ -3005,7 +3005,7 @@ void   DrawMethod6HitIcon(int orderCount, double comboProfit, datetime hitTime =
 // - BUY  & (EMADirection == -1 || EMA Weak) -> tighten StopLoss to Live Price (Bid - minStopDist)
 // - SELL & EMADirection == -1 & EMA Strong -> use standard gap with existing logic
 // - SELL & (EMADirection ==  1 || EMA Weak) -> tighten StopLoss to Live Price (Ask + minStopDist)
-bool   InpEnableEmaTrendAwareSL            = true;  // Trend-Aware SL: Strong aligned uses gap; Counter/Weak EMA tightens to Live Price
+bool   InpEnableEmaTrendAwareSL            = false;//true;  // Trend-Aware SL: Strong aligned uses gap; Counter/Weak EMA tightens to Live Price
 double InpEmaTrendAwareLivePriceGapUSD     = 0.0;   // Live Price SL Buffer USD (0 = closest broker minStopDist, or custom buffer)
 double GetTrendAwareStopLoss(int orderType, double standardGapUSD, double curSL = 0.0, string callerName = "");
 
