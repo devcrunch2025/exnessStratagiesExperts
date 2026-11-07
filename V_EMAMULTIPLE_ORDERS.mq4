@@ -42,7 +42,7 @@ CheckBasketProfitClose  Total open basket profit
 */
 
 
-string glbVersion = "VMULTI-1083- Method 6 $5 Threshold Hit Chart Icon";
+string glbVersion = "VMULTI-1084- Method 6 Live Order Refresh & SL Diagnostics";
 
 
 
@@ -4133,11 +4133,16 @@ void ModifyMethod6MultiOrderCombinationsOver5USD()
       if(!qualifyForSL[k])
          continue;
 
-      int    tkt   = candTickets[k];
-      int    oType = candTypes[k];
-      double oOpen = candOpenPrices[k];
-      double curSL = candStopLosses[k];
-      double curTP = candTakeProfits[k];
+      int tkt = candTickets[k];
+      if(!OrderSelect(tkt, SELECT_BY_TICKET, MODE_TRADES))
+         continue;
+
+      int    oType = OrderType();
+      double oOpen = OrderOpenPrice();
+      double curSL = OrderStopLoss();
+      double curTP = OrderTakeProfit();
+      double oLots = OrderLots();
+      double curPL = OrderProfit() + OrderSwap() + OrderCommission();
 
       RefreshRates();
       curBid = MarketInfo(Symbol(), MODE_BID);
@@ -4181,12 +4186,35 @@ void ModifyMethod6MultiOrderCombinationsOver5USD()
          if(modified)
            {
             modifiedSuccessCount++;
-            RecordMethodModification(tkt, 6, (candComboSize[k] > 0 ? candComboSize[k] : 3), candProfits[k]);
-            Print("METHOD 6 COMBINATION (>2 ORDERS >$5) SL MODIFIED | Ticket #", tkt,
+            RecordMethodModification(tkt, 6, (candComboSize[k] > 0 ? candComboSize[k] : 3), curPL);
+            Print("METHOD 6 COMBINATION (>=2 ORDERS >$5) SL MODIFIED | Ticket #", tkt,
                   " | Type=", (oType == OP_BUY ? "BUY" : "SELL"),
-                  " | P/L=$", DoubleToString(candProfits[k], 2),
+                  " | P/L=$", DoubleToString(curPL, 2),
                   " | New SL=", DoubleToString(proposedSL, Digits),
                   " (Gap=$", DoubleToString(rawGap, 1), ")");
+           }
+        }
+      else
+        {
+         // Diagnostic reason logging when an order in the combination is not modified
+         if(oType == OP_BUY && curSL > 0.0 && proposedSL <= curSL)
+           {
+            Print(">>> [METHOD 6 ORDER NOT MODIFIED] Ticket #", tkt, " (BUY ", DoubleToString(oLots, 2), "L)",
+                  " | Current SL=", DoubleToString(curSL, Digits),
+                  " is ALREADY higher/better than Method 6 SL=", DoubleToString(proposedSL, Digits),
+                  " | Reason: Preserving existing tighter SL / breakeven / profit lock!");
+           }
+         else if(oType == OP_SELL && curSL > 0.0 && proposedSL >= curSL)
+           {
+            Print(">>> [METHOD 6 ORDER NOT MODIFIED] Ticket #", tkt, " (SELL ", DoubleToString(oLots, 2), "L)",
+                  " | Current SL=", DoubleToString(curSL, Digits),
+                  " is ALREADY lower/better than Method 6 SL=", DoubleToString(proposedSL, Digits),
+                  " | Reason: Preserving existing tighter SL / breakeven / profit lock!");
+           }
+         else if(curSL > 0.0 && MathAbs(curSL - proposedSL) < MinimumSLModifyGapRaw)
+           {
+            Print(">>> [METHOD 6 ORDER NOT MODIFIED] Ticket #", tkt,
+                  " | Already at target SL (Gap < MinimumSLModifyGapRaw).");
            }
         }
      }
