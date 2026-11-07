@@ -42,7 +42,7 @@ CheckBasketProfitClose  Total open basket profit
 */
 
 
-string glbVersion = "VMULTI-1080- Universal $150 Backward Profit-Locking SL Audit";
+string glbVersion = "VMULTI-1082- Left Dashboard SL Column Displays Pts(LockedProfit)";
 
 
 
@@ -2966,37 +2966,37 @@ bool   InpEnableDynamicStepLadder           = false;  // DISABLED: Consolidated 
 
 // ===== 5 MULTI-ORDER COMBINATION & BASKET METHODS ($1*MULT PROFIT & $150 SL GAP) =====
 // Method 2 & 3: Buy-Only & Sell-Only Basket Modifiers
-extern bool   InpEnableModifyOnlyBuySellBasket     = true;   // Method 2 & 3: Enable Buy-Only and Sell-Only basket trailing SL
-extern double InpModifyOnlyBuySellSLGapUSD         = 200.0;  // Method 2 & 3: StopLoss gap in USD points ($150) for Buy/Sell basket
+bool   InpEnableModifyOnlyBuySellBasket     = true;   // Method 2 & 3: Enable Buy-Only and Sell-Only basket trailing SL
+double InpModifyOnlyBuySellSLGapUSD         = 100.0;  // Method 2 & 3: StopLoss gap in USD points ($150) for Buy/Sell basket
 
 // Method 1: Multi-Order Combination Profit Live SL Modifier
-extern bool   EnablePairProfitSLModify             = true;   // Method 1: Enable Multi-Order Combination Profit Live SL Modifier
-extern double PairCombinationProfitThresholdUSD    = 5;//1.0;    // Method 1: Base profit threshold in USD ($1.00)
-extern double PairCombinationSLDistanceRaw         = 200.0;  // Method 1: StopLoss gap in USD points ($150)
-extern bool   PairCombinationUseBalanceMultiplier  = true;   // Method 1: Scale threshold by balance multiplier (> $1.00 * multiplier)
-extern bool   InpPairCombinationIncludeFlipBasket  = false;  // Method 1: Include FLIPBasketSupport orders in combinations
+bool   EnablePairProfitSLModify             = true;   // Method 1: Enable Multi-Order Combination Profit Live SL Modifier
+double PairCombinationProfitThresholdUSD    = 5;//1.0;    // Method 1: Base profit threshold in USD ($1.00)
+double PairCombinationSLDistanceRaw         = 100.0;  // Method 1: StopLoss gap in USD points ($150)
+bool   PairCombinationUseBalanceMultiplier  = true;   // Method 1: Scale threshold by balance multiplier (> $1.00 * multiplier)
+bool   InpPairCombinationIncludeFlipBasket  = false;  // Method 1: Include FLIPBasketSupport orders in combinations
 
 // Method 4: Combination Profit Handler (Modify SL with $150 gap or Close)
-extern bool   InpEnableCombinationProfitClose      = true;   // Method 4: Enable multi-order combination profit handler
-extern double InpCombinationCloseProfitUSD         = 5;//1.0;    // Method 4: Profit threshold in USD ($1.00 * multiplier)
-extern bool   InpCombinationModifySLWithGap        = true;   // Method 4: Modify SL with $150 gap (true) or close directly (false)
-extern double InpCombinationSLGapUSD               = 200.0;  // Method 4: StopLoss gap in USD points ($150)
+bool   InpEnableCombinationProfitClose      = true;   // Method 4: Enable multi-order combination profit handler
+double InpCombinationCloseProfitUSD         = 5;//1.0;    // Method 4: Profit threshold in USD ($1.00 * multiplier)
+bool   InpCombinationModifySLWithGap        = true;   // Method 4: Modify SL with $150 gap (true) or close directly (false)
+double InpCombinationSLGapUSD               = 100.0;  // Method 4: StopLoss gap in USD points ($150)
 
 // Method 5: Overall Hedged Basket Profit Modifier
-extern bool   InpEnableOverallBasketProfitModify   = true;   // Method 5: Enable overall hedged basket profit SL modifier
-extern double InpOverallBasketProfitTargetUSD      = 5;//1.0;    // Method 5: Overall hedged basket profit target in USD ($1.00 * multiplier)
-extern double InpOverallBasketSLGapUSD             = 200.0;  // Method 5: Overall hedged basket StopLoss gap in USD points ($150)
+bool   InpEnableOverallBasketProfitModify   = true;   // Method 5: Enable overall hedged basket profit SL modifier
+double InpOverallBasketProfitTargetUSD      = 5;//1.0;    // Method 5: Overall hedged basket profit target in USD ($1.00 * multiplier)
+double InpOverallBasketSLGapUSD             = 100.0;  // Method 5: Overall hedged basket StopLoss gap in USD points ($150)
 
 // Method 6: Multi-Order Combinations (> 2 orders, Profit or Loss mix) > $5 Profit SL Modifier
-extern bool   InpEnableMethod6CombinationSLModify  = true;   // Method 6: Check combinations of >2 orders (profit/loss mix) > $5 profit
-extern double InpMethod6ProfitThresholdUSD         = 5.0;    // Method 6: Base profit threshold in USD ($5.00 * multiplier)
-extern double InpMethod6SLDistanceUSD              = 200.0;  // Method 6: StopLoss gap in USD points ($150)
-extern int    InpMethod6MinOrderCount              = 2;      // Method 6: Minimum number of orders in combination (default 3: > 2 orders)
+bool   InpEnableMethod6CombinationSLModify  = true;   // Method 6: Check combinations of >2 orders (profit/loss mix) > $5 profit
+double InpMethod6ProfitThresholdUSD         = 5.0;    // Method 6: Base profit threshold in USD ($5.00 * multiplier)
+double InpMethod6SLDistanceUSD              = 100.0;  // Method 6: StopLoss gap in USD points ($150)
+int    InpMethod6MinOrderCount              = 2;      // Method 6: Minimum number of orders in combination (default 3: > 2 orders)
 
 // Visual Chart Icons for Multi-Order Closes (+2, +3, +4...) from the 6 Methods
-extern bool   InpDrawMultiOrderClosedIcons         = true;   // Draw +2, +3 icons when closed with any of the 6 methods
-extern color  InpMultiOrderClosedIconColor         = clrAqua;// Color for +2, +3 closed combination text
-extern int    InpMultiOrderClosedFontSize          = 10;     // Font size for +2, +3 closed combination text
+bool   InpDrawMultiOrderClosedIcons         = true;   // Draw +2, +3 icons when closed with any of the 6 methods
+color  InpMultiOrderClosedIconColor         = clrAqua;// Color for +2, +3 closed combination text
+int    InpMultiOrderClosedFontSize          = 10;     // Font size for +2, +3 closed combination text
 void   DrawMultiOrderClosedIcon(int orderCount, datetime closeTime, double closePrice, double netProfit, string methodName = "", int primaryTicket = 0);
 void   RecordMethodModification(int ticket, int methodId, int comboSize, double targetProfit);
 int    GetMethodForTicket(int ticket, int &comboSize);
@@ -17890,7 +17890,7 @@ void UpdateLeftLiveOrdersDashboard()
                         "   PEND " + IntegerToString(pendingCount);
    CreateLeftLiveLabel(LEFT_LIVE_PREFIX+"SUMMARY", summaryText, tx, y+62, 8, clrWhite);
 
-   CreateLeftLiveLabel(LEFT_LIVE_PREFIX+"HEAD", "TYPE     LOT       OPEN       SL       GAP        P/L     VERIFIED", tx, y+88, 8, clrSilver);
+   CreateLeftLiveLabel(LEFT_LIVE_PREFIX+"HEAD", "TYPE     LOT       OPEN            SL     GAP      P/L     VERIFIED", tx, y+88, 8, clrSilver);
 
    for(int r=0; r<24; r++)
      {
@@ -17936,13 +17936,22 @@ void UpdateLeftLiveOrdersDashboard()
       if(type==OP_BUY || type==OP_SELL)
          pl=OrderProfit()+OrderSwap()+OrderCommission();
 
-      double slDiffPoints=0;
-      if(sl>0)
-         slDiffPoints=MathAbs(open-sl)/Point/100;
+      // SL Column: Displays Previous Display(New Display) -> e.g. 2028(-) or 150(+1.50)
+      double slDiffPoints = 0;
+      if(sl > 0)
+         slDiffPoints = MathAbs(open - sl) / Point / 100;
 
-      string slDiffText="-";
-      if(sl>0)
-         slDiffText=DoubleToString(slDiffPoints,0);
+      double slLockedUSD = 0.0;
+      if(sl > 0.0 && (type == OP_BUY || type == OP_SELL))
+         slLockedUSD = CalcOrderLockedProfitUSD(type, open, sl, lots);
+
+      string slProfitStr = "-";
+      if(slLockedUSD >= 0.005)
+         slProfitStr = "+" + DoubleToString(slLockedUSD, 2);
+
+      string slDiffText = "-";
+      if(sl > 0)
+         slDiffText = DoubleToString(slDiffPoints, 0) + "(" + slProfitStr + ")";
 
       int currentTicket=OrderTicket();
       datetime currentOpenTime=OrderOpenTime();
@@ -18016,7 +18025,7 @@ void UpdateLeftLiveOrdersDashboard()
         }
 
       verifiedStatus=OrderComment();
-      string rowText=StringFormat("%-7s %5.2f %10s %10s %10s %8s", typeText, lots, DoubleToString(open,Digits), slDiffText, gapText, plText);
+      string rowText=StringFormat("%-7s %5.2f %10s %13s %7s %8s", typeText, lots, DoubleToString(open,Digits), slDiffText, gapText, plText);
       color rowColor=clrWhite;
       if(type==OP_BUY)
          rowColor=clrDeepSkyBlue;
