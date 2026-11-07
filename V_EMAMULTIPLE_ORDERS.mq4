@@ -42,7 +42,7 @@ CheckBasketProfitClose  Total open basket profit
 */
 
 
-string glbVersion = "VMULTI-1086- Trend-Aware StopLoss (Live Price on Weak/Counter EMA)";
+string glbVersion = "VMULTI-1086- Final -MULTI Orders $>5 close orders";
 
 
 
