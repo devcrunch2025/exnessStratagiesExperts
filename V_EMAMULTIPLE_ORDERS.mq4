@@ -42,7 +42,7 @@ CheckBasketProfitClose  Total open basket profit
 */
 
 
-string glbVersion = "VMULTI-1072- Target Hit Closes Losing Orders & Keeps Profit Ladder";
+string glbVersion = "VMULTI-1080- Universal $150 Backward Profit-Locking SL Audit";
 
 
 
@@ -53,7 +53,7 @@ double protectgapOnOrderclose=31;//30;//101;//1000;//303;//11111111111111
 
 
 //Chance 1
-double SecureOneDollarProfitPerOrder=1.0*10; //1X set modify order at profit $1(any lot)
+double SecureOneDollarProfitPerOrder=5;//1.0*10; //1X set modify order at profit $1(any lot)
 
 //chance 2
 int partialClose01in05IndividualPercentage=20;//10;//2*2;//per lot 0.01//if 0.05 close 0.01 at total profit of 20% means close 0.01 lot
@@ -76,7 +76,7 @@ double FlipLadderStepUSD =10*10;//8;//0;//10;// 5;//10.0;//0 means nothing not w
 double modifyBasketProfitOrdersLotXPercent=50;//10.0;//20 % means 0.05 X 20 modify orders in basket $1 profit//work if basket is full profit mode
 
 //chance 5
-double CloseOrdersAtProfitFromOpeningBalanceEveryStep =5*10;//2;//0.4;//1;//3;//5;//10;//25;// 5;// 5X step close orders every step
+double CloseOrdersAtProfitFromOpeningBalanceEveryStep =5;//*10;//2;//0.4;//1;//3;//5;//10;//25;// 5;// 5X step close orders every step
 double InpTargetEquityProfitTrailingGapUSD = 102.0; // Target Equity hit: Trailing SL gap for winning orders (Bid-102, Ask+102)
 double InpTargetEquityLossTighteningGapUSD = 20.0;  // Target Equity hit: Tight SL gap for losing orders (Bid-20, Ask+20)
 bool   InpPauseEquityProfitHitOnSingleWinningOrder = true; // Pause Equity Profit hit if only 1 order is open and moving in positive profit direction
@@ -101,12 +101,12 @@ double InpEquityLadderSLDistanceRaw        = 100.0;  // StopLoss gap from live p
 
 
 //chance 6 - basket//IMPORTANT TO CLOSE ONE SIDE OPEN ORDERS as soon as possible
-double basketBUYorSELLProfitModifyUSD=1*10; //if all combined basket BUY OR SELL Only basket is profit >0 then modify stoploss
+double basketBUYorSELLProfitModifyUSD=1;//1*10; //if all combined basket BUY OR SELL Only basket is profit >0 then modify stoploss
 bool   InpEnableBasketProfitClose = true;        // Close open Buy/Sell/Total orders when basket profit target reached
-double InpBasketProfitTargetUSD     = 2.0*10;         // Base target profit ($2.00 Golden Sweet Spot) multiplied by balancelomultipler
+double InpBasketProfitTargetUSD     =1;//5;// 2.0*10;         // Base target profit ($2.00 Golden Sweet Spot) multiplied by balancelomultipler
 bool   InpEnableBasketMicroTrailing = true;        // Enable basket micro-trailing to let profitable baskets ride past $2 into $3-$5
-double InpBasketTrailActivationUSD  = 2.0*10;         // Net profit in USD to activate basket trailing ($2.00 * multiplier)
-double InpBasketTrailStepUSD        = 0.50;        // Pullback distance in USD from peak profit to close ($0.50 * multiplier)
+double InpBasketTrailActivationUSD  = 1;//5;//2.0*10;         // Net profit in USD to activate basket trailing ($2.00 * multiplier)
+double InpBasketTrailStepUSD        = 1;//0.50;        // Pullback distance in USD from peak profit to close ($0.50 * multiplier)
 
 
 int      g_dayNumber = -1;
@@ -2963,17 +2963,47 @@ void ManageFLIPBasketSupportTrailingStopLoss()
 // STREAMLINING CONTROL FLAGS:
 bool   InpEnableEquityBalanceProfitTarget   = false;  // DISABLED: Prevents premature 25-cent clamp; Manage5PercentLadderReset handles equity targets
 bool   InpEnableDynamicStepLadder           = false;  // DISABLED: Consolidated into master Manage5PercentLadderReset
-bool   InpEnableModifyOnlyBuySellBasket     = false;  // DISABLED: Prevents premature Bid-20 tightening that overrides SecureOneDollarProfit
 
-//Chance 1B: Multi-Order Combination Profit Live SL Modifier (> $1 * multiplier profit)
-bool   EnablePairProfitSLModify             = false;  // DISABLED: Eliminates 145,000+ redundant combination pair calculations
-double PairCombinationProfitThresholdUSD = 1.0;       // Threshold profit in USD for combinations
-double PairCombinationSLDistanceRaw = 100.0;          // Distance from live price in raw points (-$100 gap)
-bool   PairCombinationUseBalanceMultiplier = true;   // Scale threshold by balance multiplier (> $1.00 * multiplier)
-bool   InpPairCombinationIncludeFlipBasket = false;  // Include FLIPBasketSupport orders in combinations (default false)
-bool   InpEnableCombinationProfitClose     = true;    // Close any order combination (or single order) when sum > $1 * multiplier
-double InpCombinationCloseProfitUSD        = 1.0;     // Base profit threshold in USD ($1.00)
+// ===== 5 MULTI-ORDER COMBINATION & BASKET METHODS ($1*MULT PROFIT & $150 SL GAP) =====
+// Method 2 & 3: Buy-Only & Sell-Only Basket Modifiers
+extern bool   InpEnableModifyOnlyBuySellBasket     = true;   // Method 2 & 3: Enable Buy-Only and Sell-Only basket trailing SL
+extern double InpModifyOnlyBuySellSLGapUSD         = 200.0;  // Method 2 & 3: StopLoss gap in USD points ($150) for Buy/Sell basket
+
+// Method 1: Multi-Order Combination Profit Live SL Modifier
+extern bool   EnablePairProfitSLModify             = true;   // Method 1: Enable Multi-Order Combination Profit Live SL Modifier
+extern double PairCombinationProfitThresholdUSD    = 5;//1.0;    // Method 1: Base profit threshold in USD ($1.00)
+extern double PairCombinationSLDistanceRaw         = 200.0;  // Method 1: StopLoss gap in USD points ($150)
+extern bool   PairCombinationUseBalanceMultiplier  = true;   // Method 1: Scale threshold by balance multiplier (> $1.00 * multiplier)
+extern bool   InpPairCombinationIncludeFlipBasket  = false;  // Method 1: Include FLIPBasketSupport orders in combinations
+
+// Method 4: Combination Profit Handler (Modify SL with $150 gap or Close)
+extern bool   InpEnableCombinationProfitClose      = true;   // Method 4: Enable multi-order combination profit handler
+extern double InpCombinationCloseProfitUSD         = 5;//1.0;    // Method 4: Profit threshold in USD ($1.00 * multiplier)
+extern bool   InpCombinationModifySLWithGap        = true;   // Method 4: Modify SL with $150 gap (true) or close directly (false)
+extern double InpCombinationSLGapUSD               = 200.0;  // Method 4: StopLoss gap in USD points ($150)
+
+// Method 5: Overall Hedged Basket Profit Modifier
+extern bool   InpEnableOverallBasketProfitModify   = true;   // Method 5: Enable overall hedged basket profit SL modifier
+extern double InpOverallBasketProfitTargetUSD      = 5;//1.0;    // Method 5: Overall hedged basket profit target in USD ($1.00 * multiplier)
+extern double InpOverallBasketSLGapUSD             = 200.0;  // Method 5: Overall hedged basket StopLoss gap in USD points ($150)
+
+// Method 6: Multi-Order Combinations (> 2 orders, Profit or Loss mix) > $5 Profit SL Modifier
+extern bool   InpEnableMethod6CombinationSLModify  = true;   // Method 6: Check combinations of >2 orders (profit/loss mix) > $5 profit
+extern double InpMethod6ProfitThresholdUSD         = 5.0;    // Method 6: Base profit threshold in USD ($5.00 * multiplier)
+extern double InpMethod6SLDistanceUSD              = 200.0;  // Method 6: StopLoss gap in USD points ($150)
+extern int    InpMethod6MinOrderCount              = 2;      // Method 6: Minimum number of orders in combination (default 3: > 2 orders)
+
+// Visual Chart Icons for Multi-Order Closes (+2, +3, +4...) from the 6 Methods
+extern bool   InpDrawMultiOrderClosedIcons         = true;   // Draw +2, +3 icons when closed with any of the 6 methods
+extern color  InpMultiOrderClosedIconColor         = clrAqua;// Color for +2, +3 closed combination text
+extern int    InpMultiOrderClosedFontSize          = 10;     // Font size for +2, +3 closed combination text
+void   DrawMultiOrderClosedIcon(int orderCount, datetime closeTime, double closePrice, double netProfit, string methodName = "", int primaryTicket = 0);
+void   RecordMethodModification(int ticket, int methodId, int comboSize, double targetProfit);
+int    GetMethodForTicket(int ticket, int &comboSize);
+string GetMethodDescription(int methodId, int orderCount);
+void   CheckAndDrawMultiOrderClosedIcons();
 void   CheckBasketProfitClose();
+void   ModifyMethod6MultiOrderCombinationsOver5USD();
 void   CloseAllOpenBuyOrders(string reason = "");
 void   CloseAllOpenSellOrders(string reason = "");
 void   CloseProfitableOrderCombinations();
@@ -3304,6 +3334,272 @@ string GetRootOrderComment(int ticket, string comment = "")
 
 
 //+------------------------------------------------------------------+
+//| VISUAL CHART ICONS FOR MULTI-ORDER CLOSES (+2, +3, +4...)        |
+//| Displays "+2", "+3", "+4" icons on charts when orders are closed |
+//| by any of the 6 multi-order / basket methods.                    |
+//+------------------------------------------------------------------+
+#define MAX_TRACKED_METHOD_ORDERS 500
+
+struct SMethodModifiedTracker
+  {
+   int      ticket;
+   int      methodId;     // 1: Pair Profit, 2: Buy Basket, 3: Sell Basket, 4: Combo Profit, 5: Overall Basket, 6: Method 6 (>2 Orders >$5)
+   int      comboSize;    // 2, 3, 4, etc.
+   datetime modifyTime;
+   double   targetProfit;
+  };
+
+SMethodModifiedTracker g_methodTrackers[MAX_TRACKED_METHOD_ORDERS];
+int                    g_methodTrackerCount = 0;
+
+void RecordMethodModification(int ticket, int methodId, int comboSize, double targetProfit)
+  {
+   if(ticket <= 0)
+      return;
+   for(int i = 0; i < g_methodTrackerCount; i++)
+     {
+      if(g_methodTrackers[i].ticket == ticket)
+        {
+         g_methodTrackers[i].methodId = methodId;
+         g_methodTrackers[i].comboSize = comboSize;
+         g_methodTrackers[i].modifyTime = TimeCurrent();
+         g_methodTrackers[i].targetProfit = targetProfit;
+         return;
+        }
+     }
+   if(g_methodTrackerCount < MAX_TRACKED_METHOD_ORDERS)
+     {
+      g_methodTrackers[g_methodTrackerCount].ticket = ticket;
+      g_methodTrackers[g_methodTrackerCount].methodId = methodId;
+      g_methodTrackers[g_methodTrackerCount].comboSize = comboSize;
+      g_methodTrackers[g_methodTrackerCount].modifyTime = TimeCurrent();
+      g_methodTrackers[g_methodTrackerCount].targetProfit = targetProfit;
+      g_methodTrackerCount++;
+     }
+  }
+
+int GetMethodForTicket(int ticket, int &comboSize)
+  {
+   for(int i = 0; i < g_methodTrackerCount; i++)
+     {
+      if(g_methodTrackers[i].ticket == ticket)
+        {
+         comboSize = g_methodTrackers[i].comboSize;
+         return g_methodTrackers[i].methodId;
+        }
+     }
+   comboSize = 0;
+   return 0;
+  }
+
+string GetMethodDescription(int methodId, int orderCount)
+  {
+   switch(methodId)
+     {
+      case 1:
+         return "Method 1: Pair Profit SL";
+      case 2:
+         return "Method 2: Buy Basket SL";
+      case 3:
+         return "Method 3: Sell Basket SL";
+      case 4:
+         return "Method 4: Combo Profit Close";
+      case 5:
+         return "Method 5: Basket Profit SL";
+      case 6:
+         return "Method 6: Multi-Order >$5 SL";
+      default:
+         return StringFormat("Multi-Order Combo Close (+%d)", orderCount);
+     }
+  }
+
+void DrawMultiOrderClosedIcon(int orderCount, datetime closeTime, double closePrice, double netProfit, string methodName = "", int primaryTicket = 0)
+  {
+   if(!InpDrawMultiOrderClosedIcons)
+      return;
+
+   if(orderCount < 2)
+      return; // Only display for multi-order closes (+2, +3, +4, etc.)
+
+   if(closeTime <= 0)
+      closeTime = TimeCurrent();
+
+   if(closePrice <= 0.0)
+      closePrice = Bid;
+
+   string baseName = PREFIX + "COMBO_CLOSE_" + IntegerToString((int)closeTime);
+   if(primaryTicket > 0)
+      baseName = baseName + "_" + IntegerToString(primaryTicket);
+   else
+      baseName = baseName + "_C" + IntegerToString(orderCount);
+
+   // Prevent duplicate drawing
+   if(ObjectFind(0, baseName) >= 0 || ObjectFind(0, baseName + "_TXT") >= 0)
+      return;
+
+   // Also verify if another combo icon was drawn at the exact same time
+   string timeWildcard = PREFIX + "COMBO_CLOSE_" + IntegerToString((int)closeTime);
+   for(int k = ObjectsTotal() - 1; k >= 0; k--)
+     {
+      string oName = ObjectName(k);
+      if(StringFind(oName, timeWildcard) == 0 && StringFind(oName, "_TXT") < 0)
+         return;
+     }
+
+   double atr = iATR(Symbol(), Period(), 14, 1);
+   if(atr <= 0.0)
+      atr = 30 * Point;
+   if(atr <= 0.0)
+      atr = 1.0;
+
+   color dotColor = (netProfit >= 0.0) ? clrLimeGreen : clrCrimson;
+   color txtColor = (netProfit >= 0.0) ? InpMultiOrderClosedIconColor : clrTomato;
+
+   string methodLabel = (methodName != "" ? methodName : StringFormat("Method Combo (+%d)", orderCount));
+   string tooltip = StringFormat("%s | +%d Orders Closed | Net Profit: %s$%.2f | Price: %.2f | Time: %s",
+                                 methodLabel,
+                                 orderCount,
+                                 (netProfit >= 0.0 ? "+" : ""),
+                                 netProfit,
+                                 closePrice,
+                                 TimeToString(closeTime, TIME_DATE|TIME_MINUTES|TIME_SECONDS));
+
+   // 1. Solid Circle Marker at close price
+   ObjectCreate(0, baseName, OBJ_ARROW, 0, closeTime, closePrice);
+   ObjectSetInteger(0, baseName, OBJPROP_ARROWCODE, 159); // Wingdings 159: Solid round circle dot
+   ObjectSetInteger(0, baseName, OBJPROP_COLOR, dotColor);
+   ObjectSetInteger(0, baseName, OBJPROP_WIDTH, 4);       // Visible width
+   ObjectSetInteger(0, baseName, OBJPROP_BACK, false);
+   ObjectSetInteger(0, baseName, OBJPROP_SELECTABLE, false);
+   ObjectSetInteger(0, baseName, OBJPROP_HIDDEN, false);
+   ObjectSetString(0, baseName, OBJPROP_TOOLTIP, tooltip);
+
+   // 2. Bold Text Label ("+2", "+3", etc.) placed above the dot
+   string txtName = baseName + "_TXT";
+   double lblPrice = closePrice + (atr * 0.35);
+
+   ObjectCreate(0, txtName, OBJ_TEXT, 0, closeTime, lblPrice);
+   ObjectSetString(0, txtName, OBJPROP_TEXT, "+" + IntegerToString(orderCount));
+   ObjectSetString(0, txtName, OBJPROP_FONT, "Arial Black");
+   ObjectSetInteger(0, txtName, OBJPROP_FONTSIZE, (InpMultiOrderClosedFontSize > 0 ? InpMultiOrderClosedFontSize : 10));
+   ObjectSetInteger(0, txtName, OBJPROP_COLOR, txtColor);
+   ObjectSetInteger(0, txtName, OBJPROP_BACK, false);
+   ObjectSetInteger(0, txtName, OBJPROP_SELECTABLE, false);
+   ObjectSetInteger(0, txtName, OBJPROP_HIDDEN, false);
+   ObjectSetString(0, txtName, OBJPROP_TOOLTIP, tooltip);
+
+   ChartRedraw(0);
+
+   Print(">>> [CHART ICON +", orderCount, "] Placed icon '+", orderCount, "' on chart at ",
+         TimeToString(closeTime, TIME_DATE|TIME_MINUTES|TIME_SECONDS), " price ", DoubleToString(closePrice, Digits),
+         " | Profit: $", DoubleToString(netProfit, 2), " | ", methodLabel);
+  }
+
+void CheckAndDrawMultiOrderClosedIcons()
+  {
+   if(!InpDrawMultiOrderClosedIcons)
+      return;
+
+   int histTotal = OrdersHistoryTotal();
+   if(histTotal <= 0)
+      return;
+
+   static int s_lastCheckedHistTotal = 0;
+   // If no new orders closed in history, skip
+   if(histTotal == s_lastCheckedHistTotal)
+      return;
+
+   #define MAX_HIST_SCAN 200
+   int scanCount = MathMin(histTotal, MAX_HIST_SCAN);
+
+   struct SClosedOrderInfo
+     {
+      int      ticket;
+      datetime closeTime;
+      double   closePrice;
+      double   profit;
+      int      methodId;
+     };
+
+   SClosedOrderInfo closedList[MAX_HIST_SCAN];
+   int cCount = 0;
+
+   for(int i = histTotal - 1; i >= histTotal - scanCount && i >= 0 && cCount < MAX_HIST_SCAN; i--)
+     {
+      if(!OrderSelect(i, SELECT_BY_POS, MODE_HISTORY))
+         continue;
+
+      if(OrderSymbol() != Symbol() || OrderMagicNumber() != MagicNumber)
+         continue;
+
+      int oType = OrderType();
+      if(oType != OP_BUY && oType != OP_SELL)
+         continue;
+
+      datetime cTime = OrderCloseTime();
+      if(cTime <= 0)
+         continue;
+
+      int tkt = OrderTicket();
+      int dummyCombo = 0;
+      int mId = GetMethodForTicket(tkt, dummyCombo);
+
+      closedList[cCount].ticket     = tkt;
+      closedList[cCount].closeTime  = cTime;
+      closedList[cCount].closePrice = OrderClosePrice();
+      closedList[cCount].profit     = OrderProfit() + OrderSwap() + OrderCommission();
+      closedList[cCount].methodId   = mId;
+      cCount++;
+     }
+
+   s_lastCheckedHistTotal = histTotal;
+
+   if(cCount < 2)
+      return;
+
+   // Group orders that closed together within 2 seconds
+   bool processed[MAX_HIST_SCAN];
+   ArrayInitialize(processed, false);
+
+   for(int i = 0; i < cCount; i++)
+     {
+      if(processed[i])
+         continue;
+
+      int groupCount = 1;
+      double groupProfit = closedList[i].profit;
+      double sumPrice = closedList[i].closePrice;
+      int detectedMethod = closedList[i].methodId;
+      datetime grpTime = closedList[i].closeTime;
+
+      for(int j = i + 1; j < cCount; j++)
+        {
+         if(processed[j])
+            continue;
+
+         if(MathAbs((int)(closedList[j].closeTime - grpTime)) <= 2)
+           {
+            groupCount++;
+            groupProfit += closedList[j].profit;
+            sumPrice += closedList[j].closePrice;
+            if(detectedMethod == 0 && closedList[j].methodId > 0)
+               detectedMethod = closedList[j].methodId;
+            processed[j] = true;
+           }
+        }
+
+      processed[i] = true;
+
+      if(groupCount >= 2)
+        {
+         double avgClosePrice = sumPrice / (double)groupCount;
+         string mDesc = GetMethodDescription(detectedMethod, groupCount);
+         DrawMultiOrderClosedIcon(groupCount, grpTime, avgClosePrice, groupProfit, mDesc, closedList[i].ticket);
+        }
+     }
+  }
+
+//+------------------------------------------------------------------+
 //| ModifyPairProfitWithStopLoss                                     |
 //| Multi-Order Combination Profit Live SL Modifier:                 |
 //| Evaluates 2-order pairs, 3-order triplets, and basket orders     |
@@ -3325,6 +3621,7 @@ void ModifyPairProfitWithStopLoss()
    double candTakeProfits[MAX_PAIR_SCAN_ORDERS];
    double candProfits[MAX_PAIR_SCAN_ORDERS];
    bool   qualifyForSL[MAX_PAIR_SCAN_ORDERS];
+   int    candComboSize[MAX_PAIR_SCAN_ORDERS];
    ArrayInitialize(candTickets, 0);
    ArrayInitialize(candTypes, 0);
    ArrayInitialize(candLots, 0.0);
@@ -3333,6 +3630,7 @@ void ModifyPairProfitWithStopLoss()
    ArrayInitialize(candTakeProfits, 0.0);
    ArrayInitialize(candProfits, 0.0);
    ArrayInitialize(qualifyForSL, false);
+   ArrayInitialize(candComboSize, 0);
    int    candCount = 0;
 
    double mult = (balancelomultipler > 0) ? balancelomultipler : 1.0;
@@ -3393,7 +3691,10 @@ void ModifyPairProfitWithStopLoss()
    if(totalBasketPL >= targetThreshold)
      {
       for(int b = 0; b < candCount; b++)
+        {
          qualifyForSL[b] = true;
+         candComboSize[b] = candCount;
+        }
       qualifyingCombinationsCount++;
       Print("COMBINATION BASKET PROFIT >= $", DoubleToString(targetThreshold, 2), " HIT: All ", candCount,
             " orders = Total $", DoubleToString(totalBasketPL, 2),
@@ -3410,6 +3711,8 @@ void ModifyPairProfitWithStopLoss()
            {
             qualifyForSL[i] = true;
             qualifyForSL[j] = true;
+            if(candComboSize[i] == 0) candComboSize[i] = 2;
+            if(candComboSize[j] == 0) candComboSize[j] = 2;
             qualifyingCombinationsCount++;
             Print("COMBINATION PAIR PROFIT >= $", DoubleToString(targetThreshold, 2), " HIT: Pair [Ticket #", candTickets[i],
                   " ($", DoubleToString(candProfits[i], 2), ") + Ticket #", candTickets[j],
@@ -3420,7 +3723,7 @@ void ModifyPairProfitWithStopLoss()
      }
 
 // 2C. Evaluate all 3-order combinations (Triplets: i, j, k) - profit or loss
-   int maxTripletSearch = MathMin(candCount, 30);
+   int maxTripletSearch = MathMin(candCount, 15);
    for(int i = 0; i < maxTripletSearch - 2; i++)
      {
       for(int j = i + 1; j < maxTripletSearch - 1; j++)
@@ -3433,6 +3736,9 @@ void ModifyPairProfitWithStopLoss()
                qualifyForSL[i] = true;
                qualifyForSL[j] = true;
                qualifyForSL[k] = true;
+               if(candComboSize[i] == 0) candComboSize[i] = 3;
+               if(candComboSize[j] == 0) candComboSize[j] = 3;
+               if(candComboSize[k] == 0) candComboSize[k] = 3;
                qualifyingCombinationsCount++;
                Print("COMBINATION TRIPLET PROFIT >= $", DoubleToString(targetThreshold, 2), " HIT: Triplet [Ticket #", candTickets[i],
                      " ($", DoubleToString(candProfits[i], 2), "), #", candTickets[j],
@@ -3515,9 +3821,10 @@ void ModifyPairProfitWithStopLoss()
       if(shouldModify && proposedSL > 0.0)
         {
          ResetLastError();
-         bool modified = SafeOrderModify(tkt, oOpen, proposedSL, curTP, 0, (oType == OP_BUY ? clrLimeGreen : clrTomato));
+         bool modified = SafeOrderModify(tkt, oOpen, proposedSL, curTP, 0, (oType == OP_BUY ? clrLimeGreen : clrTomato), "Method 1");
          if(modified)
            {
+            RecordMethodModification(tkt, 1, (candComboSize[k] > 0 ? candComboSize[k] : 2), candProfits[k]);
             Print("COMBINATION PROFIT SL MODIFIED | Ticket #", tkt,
                   " | Type=", (oType == OP_BUY ? "BUY" : "SELL"),
                   " | P/L=$", DoubleToString(candProfits[k], 2),
@@ -3532,6 +3839,230 @@ void ModifyPairProfitWithStopLoss()
         }
      }
   }
+
+//+------------------------------------------------------------------+
+//| METHOD 6: Multi-Order Combination (> 2 Orders) SL Modifier       |
+//| Checks combinations of more than 2 orders (3, 4, or basket)      |
+//| where combined profit (mix of profit or loss) > $5 * multiplier. |
+//| Modifies all participating orders with $150 StopLoss USD gap.    |
+//+------------------------------------------------------------------+
+void ModifyMethod6MultiOrderCombinationsOver5USD()
+  {
+   if(!InpEnableMethod6CombinationSLModify)
+      return;
+
+#define MAX_M6_ORDERS 100
+   int    candTickets[MAX_M6_ORDERS];
+   int    candTypes[MAX_M6_ORDERS];
+   double candLots[MAX_M6_ORDERS];
+   double candOpenPrices[MAX_M6_ORDERS];
+   double candStopLosses[MAX_M6_ORDERS];
+   double candTakeProfits[MAX_M6_ORDERS];
+   double candProfits[MAX_M6_ORDERS];
+   bool   qualifyForSL[MAX_M6_ORDERS];
+   int    candComboSize[MAX_M6_ORDERS];
+   ArrayInitialize(candTickets, 0);
+   ArrayInitialize(candTypes, 0);
+   ArrayInitialize(candLots, 0.0);
+   ArrayInitialize(candOpenPrices, 0.0);
+   ArrayInitialize(candStopLosses, 0.0);
+   ArrayInitialize(candTakeProfits, 0.0);
+   ArrayInitialize(candProfits, 0.0);
+   ArrayInitialize(qualifyForSL, false);
+   ArrayInitialize(candComboSize, 0);
+   int candCount = 0;
+
+   int mult = (balancelomultipler > 0) ? balancelomultipler : 1;
+   double threshold = (InpMethod6ProfitThresholdUSD > 0.0 ? InpMethod6ProfitThresholdUSD : 5.0) * mult;
+   int minOrders = (InpMethod6MinOrderCount >= 3) ? InpMethod6MinOrderCount : 3; // "more than 2 orders"
+
+   for(int i = OrdersTotal() - 1; i >= 0 && candCount < MAX_M6_ORDERS; i--)
+     {
+      if(!OrderSelect(i, SELECT_BY_POS, MODE_TRADES))
+         continue;
+
+      if(OrderSymbol() != Symbol() || OrderMagicNumber() != MagicNumber)
+         continue;
+
+      int oType = OrderType();
+      if(oType != OP_BUY && oType != OP_SELL)
+         continue;
+
+      string cmt = OrderComment();
+      int tkt    = OrderTicket();
+
+      // Exclude recovery orders
+      if(IsAnyRecoveryOrder(tkt, cmt) || IsRecoveryOrderWithActiveParent(tkt, cmt))
+         continue;
+
+      // Exclude FLIPBasketSupport orders
+      if(IsFLIPBasketSupportOrder(tkt, cmt) || StringFind(cmt, "FLIPBasketSupport") >= 0)
+         continue;
+
+      candTickets[candCount]    = tkt;
+      candTypes[candCount]      = oType;
+      candLots[candCount]       = OrderLots();
+      candOpenPrices[candCount] = OrderOpenPrice();
+      candStopLosses[candCount] = OrderStopLoss();
+      candTakeProfits[candCount]= OrderTakeProfit();
+      candProfits[candCount]    = OrderProfit() + OrderSwap() + OrderCommission();
+      qualifyForSL[candCount]   = false;
+      candCount++;
+     }
+
+   if(candCount < minOrders)
+      return; // Must have more than 2 orders (at least 3)
+
+   int qualifyingCombinationsCount = 0;
+
+   // 1. Total Basket Check (All open orders combined >= minOrders)
+   double totalBasketPL = 0.0;
+   for(int b = 0; b < candCount; b++)
+      totalBasketPL += candProfits[b];
+
+   if(candCount >= minOrders && totalBasketPL > threshold)
+     {
+      for(int b = 0; b < candCount; b++)
+        {
+         qualifyForSL[b] = true;
+         candComboSize[b] = candCount;
+        }
+      qualifyingCombinationsCount++;
+     }
+
+   // 2. All 3-Order Combinations (Triplets: i, j, k) - Profit or Loss mix
+   int searchLimit3 = MathMin(candCount, 20);
+   for(int i = 0; i < searchLimit3 - 2; i++)
+     {
+      for(int j = i + 1; j < searchLimit3 - 1; j++)
+        {
+         for(int k = j + 1; k < searchLimit3; k++)
+           {
+            double sum3 = candProfits[i] + candProfits[j] + candProfits[k];
+            if(sum3 > threshold)
+              {
+               qualifyForSL[i] = true;
+               qualifyForSL[j] = true;
+               qualifyForSL[k] = true;
+               if(candComboSize[i] == 0) candComboSize[i] = 3;
+                if(candComboSize[j] == 0) candComboSize[j] = 3;
+                if(candComboSize[k] == 0) candComboSize[k] = 3;
+                qualifyingCombinationsCount++;
+              }
+           }
+        }
+     }
+
+   // 3. All 4-Order Combinations (Quartets: i, j, k, m) - Profit or Loss mix
+   int searchLimit4 = MathMin(candCount, 12);
+   for(int i = 0; i < searchLimit4 - 3; i++)
+     {
+      for(int j = i + 1; j < searchLimit4 - 2; j++)
+        {
+         for(int k = j + 1; k < searchLimit4 - 1; k++)
+           {
+            for(int m = k + 1; m < searchLimit4; m++)
+              {
+               double sum4 = candProfits[i] + candProfits[j] + candProfits[k] + candProfits[m];
+               if(sum4 > threshold)
+                 {
+                  qualifyForSL[i] = true;
+                  qualifyForSL[j] = true;
+                  qualifyForSL[k] = true;
+                  qualifyForSL[m] = true;
+                  if(candComboSize[i] == 0) candComboSize[i] = 4;
+                   if(candComboSize[j] == 0) candComboSize[j] = 4;
+                   if(candComboSize[k] == 0) candComboSize[k] = 4;
+                   if(candComboSize[m] == 0) candComboSize[m] = 4;
+                   qualifyingCombinationsCount++;
+                 }
+              }
+           }
+        }
+     }
+
+   if(qualifyingCombinationsCount == 0)
+      return;
+
+   // 4. Modify qualifying orders with $150 USD gap StopLoss
+   RefreshRates();
+   double minDistance = GetRequiredStopDistance();
+   if(minDistance < 20.0)
+      minDistance = 20.0;
+
+   double rawGap = (InpMethod6SLDistanceUSD > 0.0) ? InpMethod6SLDistanceUSD : 150.0;
+   if(rawGap < minDistance)
+      rawGap = minDistance;
+
+   double curBid = MarketInfo(Symbol(), MODE_BID);
+   double curAsk = MarketInfo(Symbol(), MODE_ASK);
+
+   for(int k = 0; k < candCount; k++)
+     {
+      if(!qualifyForSL[k])
+         continue;
+
+      int    tkt   = candTickets[k];
+      int    oType = candTypes[k];
+      double oOpen = candOpenPrices[k];
+      double curSL = candStopLosses[k];
+      double curTP = candTakeProfits[k];
+
+      RefreshRates();
+      curBid = MarketInfo(Symbol(), MODE_BID);
+      curAsk = MarketInfo(Symbol(), MODE_ASK);
+
+      double proposedSL = 0.0;
+      bool   shouldModify = false;
+
+      if(oType == OP_BUY)
+        {
+         proposedSL = NormalizeDouble(curBid - rawGap, Digits);
+         if((curBid - proposedSL) < minDistance)
+            proposedSL = NormalizeDouble(curBid - minDistance, Digits);
+
+         if(proposedSL >= curBid)
+            continue;
+
+         // For BUY: Set if no SL (0.0), or only move SL forward (higher) by at least MinimumSLModifyGapRaw
+         if(curSL == 0.0 || (proposedSL > curSL && (proposedSL - curSL) >= MinimumSLModifyGapRaw))
+           {
+            shouldModify = true;
+           }
+        }
+      else if(oType == OP_SELL)
+        {
+         proposedSL = NormalizeDouble(curAsk + rawGap, Digits);
+         if((proposedSL - curAsk) < minDistance)
+            proposedSL = NormalizeDouble(curAsk + minDistance, Digits);
+
+         if(proposedSL <= curAsk)
+            continue;
+
+         // For SELL: Set if no SL (0.0), or only move SL forward (lower) by at least MinimumSLModifyGapRaw
+         if(curSL == 0.0 || (proposedSL < curSL && (curSL - proposedSL) >= MinimumSLModifyGapRaw))
+           {
+            shouldModify = true;
+           }
+        }
+
+      if(shouldModify && proposedSL > 0.0)
+        {
+         ResetLastError();
+         bool modified = SafeOrderModify(tkt, oOpen, proposedSL, curTP, 0, (oType == OP_BUY ? clrLimeGreen : clrTomato), "Method 6");
+         if(modified)
+           {
+            RecordMethodModification(tkt, 6, (candComboSize[k] > 0 ? candComboSize[k] : 3), candProfits[k]);
+            Print("METHOD 6 COMBINATION (>2 ORDERS >$5) SL MODIFIED | Ticket #", tkt,
+                  " | Type=", (oType == OP_BUY ? "BUY" : "SELL"),
+                  " | P/L=$", DoubleToString(candProfits[k], 2),
+                  " | New SL=", DoubleToString(proposedSL, Digits),
+                  " (Gap=$", DoubleToString(rawGap, 1), ")");
+           }
+        }
+     }
+  }
+
 //+------------------------------------------------------------------+
 //|                                                                  |
 //+------------------------------------------------------------------+
@@ -3561,6 +4092,44 @@ bool CloseMarketOrderDirect(int ticket)
 //| Close any combination of open orders when sum > $1 * multiplier  |
 //| Supports 1, 2, 3 orders or entire basket, Buy or Sell or mixed   |
 //+------------------------------------------------------------------+
+
+//+------------------------------------------------------------------+
+//| Helper to modify StopLoss with $150 gap or close combination order|
+//+------------------------------------------------------------------+
+bool ModifyOrCloseCombinationOrder(int ticket)
+  {
+   if(!InpCombinationModifySLWithGap)
+      return CloseMarketOrderDirect(ticket);
+
+   if(!OrderSelect(ticket, SELECT_BY_TICKET, MODE_TRADES))
+      return false;
+
+   int oType = OrderType();
+   double oOpen = OrderOpenPrice();
+   double curSL = OrderStopLoss();
+   double curTP = OrderTakeProfit();
+   RefreshRates();
+   double minStopDist = GetRequiredStopDistance();
+   double gap = (InpCombinationSLGapUSD > 0.0) ? InpCombinationSLGapUSD : 150.0;
+   double proposedSL = 0.0;
+
+   if(oType == OP_BUY)
+     {
+      proposedSL = NormalizeDouble(Bid - gap, Digits);
+      if(Bid - proposedSL < minStopDist) proposedSL = NormalizeDouble(Bid - minStopDist, Digits);
+      if(curSL == 0.0 || (proposedSL > curSL && (proposedSL - curSL) >= MinimumSLModifyGapRaw))
+         return SafeOrderModify(ticket, oOpen, proposedSL, curTP, 0, clrLimeGreen, "Method 4");
+     }
+   else if(oType == OP_SELL)
+     {
+      proposedSL = NormalizeDouble(Ask + gap, Digits);
+      if(proposedSL - Ask < minStopDist) proposedSL = NormalizeDouble(Ask + minStopDist, Digits);
+      if(curSL == 0.0 || (proposedSL < curSL && (curSL - proposedSL) >= MinimumSLModifyGapRaw))
+         return SafeOrderModify(ticket, oOpen, proposedSL, curTP, 0, clrTomato, "Method 4");
+     }
+   return true;
+  }
+
 void CloseProfitableOrderCombinations()
   {
    if(!InpEnableCombinationProfitClose)
@@ -3626,9 +4195,14 @@ void CloseProfitableOrderCombinations()
 
          for(int b = 0; b < candCount; b++)
            {
-            if(CloseMarketOrderDirect(candTickets[b]))
+            if(ModifyOrCloseCombinationOrder(candTickets[b]))
+              {
                isClosed[b] = true;
+               RecordMethodModification(candTickets[b], 4, candCount, totalBasketPL);
+              }
            }
+         if(!InpCombinationModifySLWithGap)
+            DrawMultiOrderClosedIcon(candCount, TimeCurrent(), (candTypes[0] == OP_BUY ? Bid : Ask), totalBasketPL, "Method 4: Basket Combo Close", candTickets[0]);
          InvalidateTotalEAOrdersCache();
          return;
         }
@@ -3655,10 +4229,18 @@ void CloseProfitableOrderCombinations()
                      candTickets[j], " (", (candTypes[j] == OP_BUY ? "BUY" : "SELL"), " $", DoubleToString(candProfits[j], 2),
                      ") = Total $", DoubleToString(pairSum, 2), " >= $", DoubleToString(minProfitUSD, 2), " | Closing Pair!");
 
-               if(CloseMarketOrderDirect(candTickets[i]))
+               if(ModifyOrCloseCombinationOrder(candTickets[i]))
+                 {
                   isClosed[i] = true;
-               if(CloseMarketOrderDirect(candTickets[j]))
+                  RecordMethodModification(candTickets[i], 4, 2, pairSum);
+                 }
+               if(ModifyOrCloseCombinationOrder(candTickets[j]))
+                 {
                   isClosed[j] = true;
+                  RecordMethodModification(candTickets[j], 4, 2, pairSum);
+                 }
+               if(!InpCombinationModifySLWithGap)
+                  DrawMultiOrderClosedIcon(2, TimeCurrent(), (candTypes[i] == OP_BUY ? Bid : Ask), pairSum, "Method 4: Pair Combo Close", candTickets[i]);
                anyOrdersClosed = true;
               }
            }
@@ -3688,13 +4270,24 @@ void CloseProfitableOrderCombinations()
                   Print(">>> [COMBINATION CLOSE - TRIPLET (WITH LOSS)] Tickets [#", candTickets[i], ", #", candTickets[j], ", #", candTickets[k],
                         "] = Total $", DoubleToString(tripletSum, 2), " >= $", DoubleToString(minProfitUSD, 2), " | Closing Triplet!");
 
-                  if(CloseMarketOrderDirect(candTickets[i]))
-                     isClosed[i] = true;
-                  if(CloseMarketOrderDirect(candTickets[j]))
-                     isClosed[j] = true;
-                  if(CloseMarketOrderDirect(candTickets[k]))
-                     isClosed[k] = true;
-                  anyOrdersClosed = true;
+                  if(ModifyOrCloseCombinationOrder(candTickets[i]))
+                     {
+                      isClosed[i] = true;
+                      RecordMethodModification(candTickets[i], 4, 3, tripletSum);
+                     }
+                   if(ModifyOrCloseCombinationOrder(candTickets[j]))
+                     {
+                      isClosed[j] = true;
+                      RecordMethodModification(candTickets[j], 4, 3, tripletSum);
+                     }
+                   if(ModifyOrCloseCombinationOrder(candTickets[k]))
+                     {
+                      isClosed[k] = true;
+                      RecordMethodModification(candTickets[k], 4, 3, tripletSum);
+                     }
+                   if(!InpCombinationModifySLWithGap)
+                      DrawMultiOrderClosedIcon(3, TimeCurrent(), (candTypes[i] == OP_BUY ? Bid : Ask), tripletSum, "Method 4: Triplet Combo Close", candTickets[i]);
+                   anyOrdersClosed = true;
                  }
               }
            }
@@ -3719,10 +4312,18 @@ void CloseProfitableOrderCombinations()
                   candTickets[j], " (", (candTypes[j] == OP_BUY ? "BUY" : "SELL"), " $", DoubleToString(candProfits[j], 2),
                   ") = Total $", DoubleToString(pairSum, 2), " >= $", DoubleToString(minProfitUSD, 2), " | Closing Pair!");
 
-            if(CloseMarketOrderDirect(candTickets[i]))
+            if(ModifyOrCloseCombinationOrder(candTickets[i]))
+              {
                isClosed[i] = true;
-            if(CloseMarketOrderDirect(candTickets[j]))
+               RecordMethodModification(candTickets[i], 4, 2, pairSum);
+              }
+            if(ModifyOrCloseCombinationOrder(candTickets[j]))
+              {
                isClosed[j] = true;
+               RecordMethodModification(candTickets[j], 4, 2, pairSum);
+              }
+            if(!InpCombinationModifySLWithGap)
+               DrawMultiOrderClosedIcon(2, TimeCurrent(), (candTypes[i] == OP_BUY ? Bid : Ask), pairSum, "Method 4: Pair Combo Close", candTickets[i]);
             anyOrdersClosed = true;
            }
         }
@@ -3748,12 +4349,23 @@ void CloseProfitableOrderCombinations()
                Print(">>> [COMBINATION CLOSE - TRIPLET] Tickets [#", candTickets[i], ", #", candTickets[j], ", #", candTickets[k],
                      "] = Total $", DoubleToString(tripletSum, 2), " >= $", DoubleToString(minProfitUSD, 2), " | Closing Triplet!");
 
-               if(CloseMarketOrderDirect(candTickets[i]))
+               if(ModifyOrCloseCombinationOrder(candTickets[i]))
+                 {
                   isClosed[i] = true;
-               if(CloseMarketOrderDirect(candTickets[j]))
+                  RecordMethodModification(candTickets[i], 4, 3, tripletSum);
+                 }
+               if(ModifyOrCloseCombinationOrder(candTickets[j]))
+                 {
                   isClosed[j] = true;
-               if(CloseMarketOrderDirect(candTickets[k]))
+                  RecordMethodModification(candTickets[j], 4, 3, tripletSum);
+                 }
+               if(ModifyOrCloseCombinationOrder(candTickets[k]))
+                 {
                   isClosed[k] = true;
+                  RecordMethodModification(candTickets[k], 4, 3, tripletSum);
+                 }
+               if(!InpCombinationModifySLWithGap)
+                  DrawMultiOrderClosedIcon(3, TimeCurrent(), (candTypes[i] == OP_BUY ? Bid : Ask), tripletSum, "Method 4: Triplet Combo Close", candTickets[i]);
                anyOrdersClosed = true;
               }
            }
@@ -3772,7 +4384,7 @@ void CloseProfitableOrderCombinations()
                " (", (candTypes[i] == OP_BUY ? "BUY" : "SELL"), " ", DoubleToString(candLots[i], 2),
                " lots) Profit = $", DoubleToString(candProfits[i], 2), " >= $", DoubleToString(minProfitUSD, 2), " | Closing Order!");
 
-         if(CloseMarketOrderDirect(candTickets[i]))
+         if(ModifyOrCloseCombinationOrder(candTickets[i]))
             isClosed[i] = true;
          anyOrdersClosed = true;
         }
@@ -5417,6 +6029,7 @@ int OnInit()
    EquityResetReEntryPending=false;
    InitTesterOrderLogger();
    InitParentRecoveryAttemptRegistry();
+   CheckAndDrawMultiOrderClosedIcons(); // Scan history on load and display past multi-order closed icons (+2, +3...)
 
    return INIT_SUCCEEDED;
   }
@@ -5672,7 +6285,7 @@ void OnTick()
    if(InpCancelPendingReEntryOnLoss)
       CancelPendingReEntryOnLoss(0);
 
-///CloseProfitableOrderCombinations(); // Close any order combination (or single order) when sum > $1 * multiplier
+CloseProfitableOrderCombinations(); // Method 4: Combination profit handler (> $1*mult, $150 SL gap)
    CheckAndCloseOrphanFLIPBasketSupportOrders(); // Ensure FLIPBasketSupport is never orphan/single without regular basket orders
    ManageOverallBasketProfit();//modify basket orders at $1 profit
    ManageFLIPBasketSupportTrailingStopLoss(); // Dedicated step-trailing StopLoss on every 100 step move in positive profit
@@ -5718,7 +6331,9 @@ void OnTick()
    OnTickCore();
    OnTickPerformanceEnd(tickStartMs);
 
-// ModifyPairProfitWithStopLoss(); // DISABLED: Eliminates 145,000+ redundant combination pair calculations
+ModifyPairProfitWithStopLoss(); // Method 1: Multi-order pair/triplet SL modifier (> $1*mult, $150 SL gap)
+   ModifyMethod6MultiOrderCombinationsOver5USD(); // Method 6: Multi-order combinations (> 2 orders, profit/loss mix) > $5 SL modifier ($150 SL gap)
+   CheckAndDrawMultiOrderClosedIcons(); // Multi-order closed icons (+2, +3, +4...) for all 6 methods
 
 
    if(Time[0] != LastVShapeCheckedTime)
@@ -5924,28 +6539,65 @@ void CheckMomentumExhaustionExits()
 //+------------------------------------------------------------------+
 void ManageOverallBasketProfit()
   {
-   UpdateOrderCacheIfNeeded();
-   if(g_orderCache.buyOrders <= 0 || g_orderCache.sellOrders <= 0)
+   if(!InpEnableOverallBasketProfitModify)
       return;
 
-   double totalLots = g_orderCache.buyLots + g_orderCache.sellLots;
+   UpdateOrderCacheIfNeeded();
+   if(g_orderCache.buyOrders <= 0 && g_orderCache.sellOrders <= 0)
+      return;
+
    double totalBasketProfit = g_orderCache.buyPL + g_orderCache.sellPL;
+   double targetProfit = (InpOverallBasketProfitTargetUSD > 0.0 ? InpOverallBasketProfitTargetUSD : 1.0) * balancelomultipler;
 
-// Dynamic profit target: Total Lots * 0.50 * 100 (Total Lots * 50.0)
-   double dynamicProfitTarget = totalLots*100 * (modifyBasketProfitOrdersLotXPercent/10);
-
-   if(totalBasketProfit > dynamicProfitTarget)
+   if(totalBasketProfit > targetProfit)
      {
-      Print("HEDGED BASKET PROFIT TARGET HIT ($", DoubleToString(totalBasketProfit, 2),
-            " > Target: $", DoubleToString(dynamicProfitTarget, 2),
-            " for ", DoubleToString(totalLots, 2), " total lots). Closing all orders and continuing trading.");
+      RefreshRates();
+      double minStopDist = GetRequiredStopDistance();
+      double gap = (InpOverallBasketSLGapUSD > 0.0) ? InpOverallBasketSLGapUSD : 150.0;
 
-      // CloseAndDeleteAllEAOrdersOnTradingStop();
-      ModifyOpenOrdersToSecureProfit();
+      for(int i = OrdersTotal() - 1; i >= 0; i--)
+        {
+         if(!OrderSelect(i, SELECT_BY_POS, MODE_TRADES))
+            continue;
+         if(OrderSymbol() != Symbol() || OrderMagicNumber() != MagicNumber)
+            continue;
+         if(IsFLIPBasketSupportOrder(OrderTicket(), OrderComment()) || IsAnyRecoveryOrder(OrderTicket(), OrderComment()))
+            continue;
 
+         int tkt = OrderTicket();
+         int oType = OrderType();
+         double oOpen = OrderOpenPrice();
+         double curSL = OrderStopLoss();
+         double curTP = OrderTakeProfit();
 
-      TradingHaltedUntilNextFlip = false;
-      LadderHaltStartTime = 0;
+         double proposedSL = 0.0;
+         if(oType == OP_BUY)
+           {
+            proposedSL = NormalizeDouble(Bid - gap, Digits);
+            if(Bid - proposedSL < minStopDist) proposedSL = NormalizeDouble(Bid - minStopDist, Digits);
+            if(curSL == 0.0 || (proposedSL > curSL && (proposedSL - curSL) >= MinimumSLModifyGapRaw))
+              {
+               if(SafeOrderModify(tkt, oOpen, proposedSL, curTP, 0, clrLimeGreen, "Method 5"))
+                 {
+                  int totalBasketOrders = g_orderCache.buyOrders + g_orderCache.sellOrders;
+                  RecordMethodModification(tkt, 5, totalBasketOrders, totalBasketProfit);
+                 }
+              }
+           }
+         else if(oType == OP_SELL)
+           {
+            proposedSL = NormalizeDouble(Ask + gap, Digits);
+            if(proposedSL - Ask < minStopDist) proposedSL = NormalizeDouble(Ask + minStopDist, Digits);
+            if(curSL == 0.0 || (proposedSL < curSL && (curSL - proposedSL) >= MinimumSLModifyGapRaw))
+              {
+               if(SafeOrderModify(tkt, oOpen, proposedSL, curTP, 0, clrTomato, "Method 5"))
+                 {
+                  int totalBasketOrders = g_orderCache.buyOrders + g_orderCache.sellOrders;
+                  RecordMethodModification(tkt, 5, totalBasketOrders, totalBasketProfit);
+                 }
+              }
+           }
+        }
      }
   }
 //+------------------------------------------------------------------+
@@ -8730,7 +9382,7 @@ bool CanModifyStopLossForHigherProfit(int ticket, double proposedSL, string call
 // If an order was secured by Equity Target Hit:
 // - Permitted: Stop Loss that locks in PROFIT (normPropSL >= oOpen for BUY, normPropSL <= oOpen for SELL)
 // - REJECTED: Stop Loss in LOSS (normPropSL < oOpen for BUY, normPropSL > oOpen for SELL)
-   if(IsEquityHitSecuredOrder(ticket) && callerName != "EquityTargetHit_LossTighten")
+   if(IsEquityHitSecuredOrder(ticket) && callerName != "EquityTargetHit_LossTighten" && StringFind(callerName, "Method") < 0)
      {
       bool isLossSL = (oType == OP_BUY && normPropSL < oOpen) || (oType == OP_SELL && normPropSL > oOpen);
       if(isLossSL)
@@ -8839,8 +9491,9 @@ bool SafeOrderModify(int ticket,double openPrice,double stopLoss,double takeProf
       double oLots = OrderLots();
       double curNetPL = OrderProfit() + OrderSwap() + OrderCommission();
       bool isSecuringProfit = (orderType == OP_BUY && requestedSL >= oOpen) || (orderType == OP_SELL && requestedSL <= oOpen);
+      bool isMethodCaller = (StringFind(callerName, "Method") >= 0);
 
-      if(curNetPL > 0.0 && isSecuringProfit && !IsAnyRecoveryOrder(ticket, comment) && !IsFLIPBasketSupportOrder(ticket, comment))
+      if(!isMethodCaller && curNetPL > 0.0 && isSecuringProfit && !IsAnyRecoveryOrder(ticket, comment) && !IsFLIPBasketSupportOrder(ticket, comment))
         {
          double propLadderSL = CalculateProportionalLadderSL(orderType, oOpen, oLots);
          if(propLadderSL > 0.0)
@@ -9718,11 +10371,11 @@ void modifyOnlyBuyOrders()
                double currentSL = OrderStopLoss();
                double currentTP = OrderTakeProfit();
 
-               // Set SL based on current price (Bid)
+               // Set SL based on current price (Bid) with $150 USD gap
                double minStopDist = GetRequiredStopDistance();
-               double trailingBuffer = 20.0; // Raw BTC price buffer ($20.0), matching ModifyOpenOrdersToSecureProfit
+               double trailingBuffer = (InpModifyOnlyBuySellSLGapUSD > 0.0) ? InpModifyOnlyBuySellSLGapUSD : 150.0;
 
-               // Set SL based on current price (Bid) minus safe trailing buffer
+               // Set SL based on current price (Bid) minus safe trailing buffer ($150 gap)
                double newSL = Bid - trailingBuffer;
                newSL = NormalizeDouble(newSL, Digits);
 
@@ -9731,18 +10384,14 @@ void modifyOnlyBuyOrders()
                   newSL = NormalizeDouble(Bid - minStopDist, Digits);
 
                // CRITICAL: Only move SL UP to lock in profit, and ONLY once SL is above open price (guaranteeing profit)
-               if(newSL > openPrice && (currentSL == 0.0 || newSL >= currentSL + MinimumSLModifyGapRaw))
+               if(newSL < Bid && (currentSL == 0.0 || (newSL > currentSL && (newSL - currentSL) >= MinimumSLModifyGapRaw)))
                  {
-
-
-
-
-
                   ResetLastError();
-                  bool modified =SafeOrderModify(ticket, openPrice, newSL, currentTP, 0, clrGreen);
+                  bool modified =SafeOrderModify(ticket, openPrice, newSL, currentTP, 0, clrGreen, "Method 2");
 
                   if(modified)
                     {
+                     RecordMethodModification(ticket, 2, g_orderCache.buyOrders, basketBuyProfit);
                      Print("BUY BASKET > $1 | Ticket=", ticket, " | New SL=", DoubleToString(newSL, Digits));
                     }
                   else
@@ -9786,11 +10435,11 @@ void modifyOnlySellOrders()
                double currentSL = OrderStopLoss();
                double currentTP = OrderTakeProfit();
 
-               // Set SL based on current price (Ask)
+               // Set SL based on current price (Ask) with $150 USD gap
                double minStopDist = GetRequiredStopDistance();
-               double trailingBuffer = 20.0; // Raw BTC price buffer ($20.0), matching ModifyOpenOrdersToSecureProfit
+               double trailingBuffer = (InpModifyOnlyBuySellSLGapUSD > 0.0) ? InpModifyOnlyBuySellSLGapUSD : 150.0;
 
-               // Set SL based on current price (Ask) plus safe trailing buffer
+               // Set SL based on current price (Ask) plus safe trailing buffer ($150 gap)
                double newSL = Ask + trailingBuffer;
                newSL = NormalizeDouble(newSL, Digits);
 
@@ -9799,18 +10448,14 @@ void modifyOnlySellOrders()
                   newSL = NormalizeDouble(Ask + minStopDist, Digits);
 
                // CRITICAL: Only move SL DOWN to lock in profit, and ONLY once SL is below open price (guaranteeing profit)
-               if(newSL < openPrice && (currentSL == 0.0 || newSL <= currentSL - MinimumSLModifyGapRaw))
+               if(newSL > Ask && (currentSL == 0.0 || (newSL < currentSL && (currentSL - newSL) >= MinimumSLModifyGapRaw)))
                  {
-
-
-
-
-
                   ResetLastError();
-                  bool modified =SafeOrderModify(ticket, openPrice, newSL, currentTP, 0, clrRed);
+                  bool modified =SafeOrderModify(ticket, openPrice, newSL, currentTP, 0, clrRed, "Method 3");
 
                   if(modified)
                     {
+                     RecordMethodModification(ticket, 3, g_orderCache.sellOrders, basketSellProfit);
                      Print("SELL BASKET > $1 | Ticket=", ticket, " | New SL=", DoubleToString(newSL, Digits));
                     }
                   else
