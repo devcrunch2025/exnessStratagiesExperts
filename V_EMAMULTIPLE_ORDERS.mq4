@@ -42,7 +42,7 @@ CheckBasketProfitClose  Total open basket profit
 */
 
 
-string glbVersion = "VMULTI-1087- Universal One-Way Ratchet (Keep Higher Locked Profit)";
+string glbVersion = "VMULTI-1088- 90% SL Adverse 50% Lot Cut & Double SL Cushion";
 
 
 
@@ -272,6 +272,12 @@ bool   InpNeverWidenEmaFlipStopLoss        = true;   // Strict risk rule: Never 
 // ===== 0.01 LOT RUNNER LOSS CAP & PROFITABILITY OPTIMIZATION =====
 bool   InpEnableMaxLossCap001Lots          = true;   // Close 0.01 lot order if floating loss reaches max dollar threshold
 double InpMaxLoss001LotsUSD                = 10.0;   // Maximum allowed dollar loss ($10.00 * multiplier) on 0.01 lot orders
+
+// ===== 90% STOPLOSS ADVERSE DISTANCE 50% LOT CUT & DOUBLE SL CUSHION =====
+bool   InpEnable90PctSLAdverseCutDoubleSL   = true;   // When adverse move reaches 90% of StopLoss (>1000 pts): close 50% LOT and double SL
+double Inp90PctSLMinStopLossDistanceUSD     = 1000.0; // Minimum StopLoss distance in USD ($1000) to qualify for 90% partial cut
+double Inp90PctSLAdversePercent             = 0.90;   // Adverse distance percentage towards SL to trigger (90% = 0.90)
+double Inp90PctSLNewDistanceMultiplier      = 2.0;    // New StopLoss distance multiplier for remaining LOT (2.0 = double existing)
 
 // ===== EQL / EQH STRUCTURAL RECOVERY (TYPE 2) SETTINGS =====
 bool   InpEnableLsdStructuralRecovery       = true;  // Enable EQL/EQH Structural Recovery (Type 2)
@@ -1706,6 +1712,194 @@ void CheckMaxLossCap001Lots()
   }
 
 //+------------------------------------------------------------------+
+//| 90% StopLoss Adverse Distance 50% LOT Cut & Double SL Cushion    |
+//| User Rule:                                                       |
+//| - If order StopLoss distance from OpenPrice is > 1000 pts (USD)  |
+//| - When adverse price move reaches 90% of that StopLoss distance  |
+//|   (e.g. SL distance 1500, adverse move reaches 1350):            |
+//|   1. Close 50% of LOT (e.g. 0.06 -> 0.03L)                       |
+//|   2. Modify remaining LOT StopLoss to DOUBLE distance (3000 pts) |
+//+------------------------------------------------------------------+
+#define MAX_90PCT_CUT_ORDERS 500
+int      g_orders90PctCutTickets[MAX_90PCT_CUT_ORDERS];
+int      g_orders90PctCutCount = 0;
+
+bool HasOrderReceived90PctCut(int ticket, string comment = "")
+  {
+   for(int i = 0; i < g_orders90PctCutCount; i++)
+     {
+      if(g_orders90PctCutTickets[i] == ticket)
+         return true;
+     }
+
+   int parentTkt = GetOriginalTicket(ticket, comment);
+   if(parentTkt > 0 && parentTkt != ticket)
+     {
+      for(int i = 0; i < g_orders90PctCutCount; i++)
+        {
+         if(g_orders90PctCutTickets[i] == parentTkt)
+            return true;
+        }
+     }
+   return false;
+  }
+
+void RegisterOrder90PctCut(int ticket)
+  {
+   if(ticket <= 0)
+      return;
+   for(int i = 0; i < g_orders90PctCutCount; i++)
+     {
+      if(g_orders90PctCutTickets[i] == ticket)
+         return;
+     }
+   if(g_orders90PctCutCount < MAX_90PCT_CUT_ORDERS)
+     {
+      g_orders90PctCutTickets[g_orders90PctCutCount++] = ticket;
+     }
+  }
+
+void Check90PctSLAdversePartialCutAndDoubleSL()
+  {
+   if(!InpEnable90PctSLAdverseCutDoubleSL)
+      return;
+
+   if(OrdersTotal() <= 0)
+      return;
+
+   RefreshRates();
+   double curBid = MarketInfo(Symbol(), MODE_BID);
+   double curAsk = MarketInfo(Symbol(), MODE_ASK);
+   double lotStep = MarketInfo(Symbol(), MODE_LOTSTEP);
+   if(lotStep <= 0.0)
+      lotStep = 0.01;
+
+   for(int i = OrdersTotal() - 1; i >= 0; i--)
+     {
+      if(!OrderSelect(i, SELECT_BY_POS, MODE_TRADES))
+         continue;
+      if(OrderSymbol() != Symbol() || OrderMagicNumber() != MagicNumber)
+         continue;
+
+      int oType = OrderType();
+      if(oType != OP_BUY && oType != OP_SELL)
+         continue;
+
+      int tkt = OrderTicket();
+      string comm = OrderComment();
+
+      if(HasOrderReceived90PctCut(tkt, comm))
+         continue;
+
+      double oLots = OrderLots();
+      if(oLots <= lotStep)
+         continue; // Only orders with Lots > 0.01 can be halved (e.g. 0.02, 0.03, 0.04, 0.06)
+
+      double openPrice = OrderOpenPrice();
+      double curSL     = OrderStopLoss();
+      if(curSL <= 0.0)
+         continue; // Must have an active StopLoss
+
+      // Calculate StopLoss distance in USD / price points from entry
+      double slDist = 0.0;
+      double adverseDist = 0.0;
+
+      if(oType == OP_BUY)
+        {
+         slDist = openPrice - curSL;
+         adverseDist = openPrice - curBid;
+        }
+      else if(oType == OP_SELL)
+        {
+         slDist = curSL - openPrice;
+         adverseDist = curAsk - openPrice;
+        }
+
+      // 1. Condition: StopLoss distance is above 1000 points
+      if(slDist < Inp90PctSLMinStopLossDistanceUSD)
+         continue;
+
+      // 2. Condition: Adverse distance reached 90% of StopLoss distance (e.g. 1350 of 1500)
+      double thresholdDist = slDist * Inp90PctSLAdversePercent;
+      if(adverseDist < thresholdDist)
+         continue;
+
+      // Calculate 50% lots to close
+      double halfLots = NormalizeDouble(MathFloor((oLots * 0.5) / lotStep) * lotStep, 2);
+      if(halfLots < lotStep)
+         halfLots = lotStep;
+      if((oLots - halfLots) < lotStep)
+         continue;
+
+      // Calculate new doubled StopLoss distance from OpenPrice (e.g. 1500 * 2 = 3000)
+      double doubledSLDist = slDist * Inp90PctSLNewDistanceMultiplier;
+      double newSL = 0.0;
+      if(oType == OP_BUY)
+         newSL = NormalizeDouble(openPrice - doubledSLDist, Digits);
+      else if(oType == OP_SELL)
+         newSL = NormalizeDouble(openPrice + doubledSLDist, Digits);
+
+      Print(">>> [90% SL ADVERSE TRIGGER] Order #", tkt, " (", (oType == OP_BUY ? "BUY " : "SELL "),
+            DoubleToString(oLots, 2), "L | Open=", DoubleToString(openPrice, Digits),
+            " | SL=", DoubleToString(curSL, Digits), " | SL Dist=$", DoubleToString(slDist, 2),
+            "): Adverse Move=$", DoubleToString(adverseDist, 2), " >= 90% ($", DoubleToString(thresholdDist, 2),
+            "). Closing 50% LOT (", DoubleToString(halfLots, 2), "L) and Doubling SL to $",
+            DoubleToString(doubledSLDist, 2), " (New SL=", DoubleToString(newSL, Digits), ")...");
+
+      // Register ticket immediately to prevent duplicate triggers
+      RegisterOrder90PctCut(tkt);
+
+      // Execute 50% partial close
+      ResetLastError();
+      bool closed = SafeOrderCloseMarket(tkt, halfLots, Slippage, clrOrangeRed);
+      if(!closed)
+        {
+         Print(">>> [90% SL ADVERSE FAILED] Could not close 50% LOT for #", tkt, " Err=", GetLastError());
+         continue;
+        }
+
+      Print(">>> [90% SL ADVERSE CLOSED 50%] Order #", tkt, " closed ", DoubleToString(halfLots, 2), "L successfully.");
+
+      // Find remaining runner order and double its StopLoss
+      RefreshRates();
+      int remainingTicket = -1;
+      for(int r = OrdersTotal() - 1; r >= 0; r--)
+        {
+         if(!OrderSelect(r, SELECT_BY_POS, MODE_TRADES))
+            continue;
+         if(OrderSymbol() != Symbol() || OrderMagicNumber() != MagicNumber)
+            continue;
+
+         int rTkt = OrderTicket();
+         string rComm = OrderComment();
+         if(rTkt == tkt || StringFind(rComm, "from #" + IntegerToString(tkt)) >= 0)
+           {
+            remainingTicket = rTkt;
+            RegisterOrder90PctCut(rTkt); // Also register child ticket
+            break;
+           }
+        }
+
+      if(remainingTicket > 0)
+        {
+         ResetLastError();
+         bool modified = SafeOrderModify(remainingTicket, openPrice, newSL, OrderTakeProfit(), 0, clrOrange, "Emergency90PercentSLCutDoubleSL");
+         if(modified)
+           {
+            Print(">>> [90% SL ADVERSE SL DOUBLED] Remaining Order #", remainingTicket, " (",
+                  DoubleToString(OrderLots(), 2), "L): SL successfully doubled to ",
+                  DoubleToString(newSL, Digits), " (Distance: $", DoubleToString(doubledSLDist, 2), ")");
+           }
+         else
+           {
+            Print(">>> [90% SL ADVERSE SL MODIFY FAILED] Remaining Order #", remainingTicket,
+                  " Err=", GetLastError(), " Attempted SL=", DoubleToString(newSL, Digits));
+           }
+        }
+     }
+  }
+
+//+------------------------------------------------------------------+
 //|                                                                  |
 //+------------------------------------------------------------------+
 void ApplyEmaFlipWideBreathingProtection(int prevDirection, int newDirection)
@@ -3039,6 +3233,9 @@ void   MonitorEquityLossStopLossProtection();
 double UpdateDynamicBasket10USDLockStep(double netPL);
 double GetTotalLots(int orderType);
 bool   IsEmaWEAKDistanceReduced50PercentFromPeak(int orderType = -1);
+void   Check90PctSLAdversePartialCutAndDoubleSL();
+bool   HasOrderReceived90PctCut(int ticket, string comment = "");
+void   RegisterOrder90PctCut(int ticket);
 void   ManageHeavyExposurePartialLossClose();
 bool   CanExecutePartialLossClose(int orderType);
 bool     IsFLIPBasketSupportOrder(int ticket, string comment = "");
@@ -6434,6 +6631,7 @@ void OnTick()
    SecureOneDollarProfit();
    CheckEmaFlipHalfDistancePartialLossCut();
    CheckMaxLossCap001Lots();
+   Check90PctSLAdversePartialCutAndDoubleSL();
    CheckEquitySurplusReset();
    PruneEquityHitSecuredTickets();
 
@@ -9557,6 +9755,11 @@ bool CanModifyStopLossForHigherProfit(int ticket, double proposedSL, string call
 
    curSL = NormalizeDouble(curSL, Digits);
 
+   // EXCEPTION: Emergency 90% SL Adverse Cut & Double SL
+   // User Rule: When 50% LOT is closed at 90% SL distance, remaining LOT gets doubled SL distance.
+   if(callerName == "Emergency90PercentSLCutDoubleSL")
+      return true;
+
 // =========================================================================
 // UNIVERSAL ONE-WAY STOPLOSS RATCHET (STRICT ANTI-LOSS-WIDENING GUARANTEE)
 // USER RULE: "apply to all orders. Example, when any order is modified with one
@@ -9746,7 +9949,7 @@ bool SafeOrderModify(int ticket,double openPrice,double stopLoss,double takeProf
       double oLots = OrderLots();
       double curNetPL = OrderProfit() + OrderSwap() + OrderCommission();
       bool isSecuringProfit = (orderType == OP_BUY && requestedSL >= oOpen) || (orderType == OP_SELL && requestedSL <= oOpen);
-      bool isMethodCaller = (StringFind(callerName, "Method") >= 0);
+      bool isMethodCaller = (StringFind(callerName, "Method") >= 0 || callerName == "Emergency90PercentSLCutDoubleSL");
 
       if(!isMethodCaller && curNetPL > 0.0 && isSecuringProfit && !IsAnyRecoveryOrder(ticket, comment) && !IsFLIPBasketSupportOrder(ticket, comment))
         {
@@ -9800,7 +10003,7 @@ bool SafeOrderModify(int ticket,double openPrice,double stopLoss,double takeProf
       // Universal Trend-Aware StopLoss Enforcement:
       // Rule: When InpEnableEmaTrendAwareSL is true, if BUY & (EMADirection==-1 || EMA Weak)
       //       or SELL & (EMADirection==1 || EMA Weak), tighten SL directly to Live Price to prevent extra loss.
-      if(InpEnableEmaTrendAwareSL)
+      if(InpEnableEmaTrendAwareSL && callerName != "Emergency90PercentSLCutDoubleSL")
         {
          bool isEmaWeak = IsEmaWEAKDistanceReduced50PercentFromPeak(orderType);
          double minStopDist = GetRequiredStopDistance();
