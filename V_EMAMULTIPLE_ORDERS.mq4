@@ -42,7 +42,7 @@ CheckBasketProfitClose  Total open basket profit
 */
 
 
-string glbVersion = "VMULTI-1095- Double SL Gap on Steep EMA Angle when Raw Profit Gap > $300";
+string glbVersion = "VMULTI-1096- Double SL Gap on Steep EMA Angle > 3 when Raw Profit Gap > $500";
 
 
 
@@ -3205,10 +3205,10 @@ void   DrawMethod6HitIcon(int orderCount, double comboProfit, datetime hitTime =
 bool   InpEnableEmaTrendAwareSL            = false;//true;  // Trend-Aware SL: Strong aligned uses gap; Counter/Weak EMA tightens to Live Price
 double InpEmaTrendAwareLivePriceGapUSD     = 0.0;   // Live Price SL Buffer USD (0 = closest broker minStopDist, or custom buffer)
 
-// USER RULE (VMULTI-1095): Double StopLoss gap (e.g. $150 -> $300) when MathAbs(EMAangle) > 3.0 and raw profit gap > $300.0
-bool   InpEnableDoubleSlGapOnSteepAngle    = true;  // Double SL gap (e.g. $150 -> $300) when MathAbs(EMAangle) > 3.0 & raw profit gap > $300
-double InpDoubleSlGapAngle                 = 4;//3.0;   // Minimum EMA angle (degrees) to double the SL gap (MathAbs(EMAangle) > 3.0)
-double InpDoubleSlMinProfitGapRaw          = 300.0; // Minimum raw price gap ($300.0) in profit direction (openprice - liveprice)
+// USER RULE (VMULTI-1096): Double StopLoss gap (e.g. $150 -> $300) when MathAbs(EMAangle) > 3.0 and raw profit gap > $500.0 in profitable direction
+bool   InpEnableDoubleSlGapOnSteepAngle    = true;  // Double SL gap (e.g. $150 -> $300) when MathAbs(EMAangle) > 3.0 & raw profit gap > $500
+double InpDoubleSlGapAngle                 = 3.0;   // Minimum EMA angle (degrees) to double the SL gap (MathAbs(EMAangle) > 3.0)
+double InpDoubleSlMinProfitGapRaw          = 500.0; // Minimum raw price gap ($500.0) in profit direction (openprice - liveprice)
 double InpDoubleSlGapMultiplier            = 2.0;   // Gap multiplier (default 2.0 = double gap $150 to $300)
 
 double GetTrendAwareStopLoss(int orderType, double standardGapUSD, double curSL = 0.0, string callerName = "", double orderProfit = 0.0, double openPrice = 0.0);
@@ -4086,6 +4086,16 @@ void ModifyPairProfitWithStopLoss()
       double rawProfitGap = (oType == OP_BUY) ? (curBid - oOpen) : (oOpen - curAsk);
       bool isSteepAngle = (InpEnableDoubleSlGapOnSteepAngle && MathAbs(GlobalEmaAngle30) > InpDoubleSlGapAngle);
       bool isProfitGapReached = (rawProfitGap > InpDoubleSlMinProfitGapRaw);
+
+      // Clamp proposedSL to openPrice if profit gap reached (USER RULE: never modify with loss amount)
+      if(isProfitGapReached)
+        {
+         if(oType == OP_BUY && proposedSL < oOpen)
+            proposedSL = oOpen;
+         else if(oType == OP_SELL && proposedSL > oOpen)
+            proposedSL = oOpen;
+        }
+
       bool allowBreathingWidening = (isSteepAngle && isProfitGapReached && (oType == OP_BUY ? proposedSL >= oOpen : proposedSL <= oOpen));
 
       if(oType == OP_BUY)
@@ -4381,6 +4391,16 @@ void ModifyMethod6MultiOrderCombinationsOver5USD()
       double rawProfitGap = (oType == OP_BUY) ? (curBid - oOpen) : (oOpen - curAsk);
       bool isSteepAngle = (InpEnableDoubleSlGapOnSteepAngle && MathAbs(GlobalEmaAngle30) > InpDoubleSlGapAngle);
       bool isProfitGapReached = (rawProfitGap > InpDoubleSlMinProfitGapRaw);
+
+      // Clamp proposedSL to openPrice if profit gap reached (USER RULE: never modify with loss amount)
+      if(isProfitGapReached)
+        {
+         if(oType == OP_BUY && proposedSL < oOpen)
+            proposedSL = oOpen;
+         else if(oType == OP_SELL && proposedSL > oOpen)
+            proposedSL = oOpen;
+        }
+
       bool allowBreathingWidening = (isSteepAngle && isProfitGapReached && (oType == OP_BUY ? proposedSL >= oOpen : proposedSL <= oOpen));
 
       if(oType == OP_BUY)
@@ -4509,6 +4529,16 @@ bool ModifyOrCloseCombinationOrder(int ticket)
    double rawProfitGap = (oType == OP_BUY) ? (Bid - oOpen) : (oOpen - Ask);
    bool isSteepAngle = (InpEnableDoubleSlGapOnSteepAngle && MathAbs(GlobalEmaAngle30) > InpDoubleSlGapAngle);
    bool isProfitGapReached = (rawProfitGap > InpDoubleSlMinProfitGapRaw);
+
+   // Clamp proposedSL to openPrice if profit gap reached (USER RULE: never modify with loss amount)
+   if(isProfitGapReached)
+     {
+      if(oType == OP_BUY && proposedSL < oOpen)
+         proposedSL = oOpen;
+      else if(oType == OP_SELL && proposedSL > oOpen)
+         proposedSL = oOpen;
+     }
+
    bool allowBreathingWidening = (isSteepAngle && isProfitGapReached && (oType == OP_BUY ? proposedSL >= oOpen : proposedSL <= oOpen));
 
    if(oType == OP_BUY)
@@ -6973,6 +7003,16 @@ void ManageOverallBasketProfit()
          double rawProfitGap = (oType == OP_BUY) ? (Bid - oOpen) : (oOpen - Ask);
          bool isSteepAngle = (InpEnableDoubleSlGapOnSteepAngle && MathAbs(GlobalEmaAngle30) > InpDoubleSlGapAngle);
          bool isProfitGapReached = (rawProfitGap > InpDoubleSlMinProfitGapRaw);
+
+         // Clamp proposedSL to openPrice if profit gap reached (USER RULE: never modify with loss amount)
+         if(isProfitGapReached)
+           {
+            if(oType == OP_BUY && proposedSL < oOpen)
+               proposedSL = oOpen;
+            else if(oType == OP_SELL && proposedSL > oOpen)
+               proposedSL = oOpen;
+           }
+
          bool allowBreathingWidening = (isSteepAngle && isProfitGapReached && (oType == OP_BUY ? proposedSL >= oOpen : proposedSL <= oOpen));
 
          if(oType == OP_BUY)
@@ -9810,6 +9850,40 @@ bool CanModifyStopLossForHigherProfit(int ticket, double proposedSL, string call
    if(callerName == "Emergency90PercentSLCutDoubleSL")
       return true;
 
+   // EXCEPTION: Double StopLoss Gap on Steep EMA Angle in Profitable Direction
+   // User Rule (VMULTI-1096): "Double SL gap will happend when EMA angle is >3 and openorderprice -liveprice >500 (adjust for order type BUY and SELL)
+   // in profitable direction only. never modify order with loss amount (Example BUY order not less than openorderprice)"
+   if(InpEnableDoubleSlGapOnSteepAngle)
+     {
+      double curEmaAng = GlobalEmaAngle30;
+      if(curEmaAng == 0.0)
+         curEmaAng = GetEmaAngleDegrees(30);
+
+      RefreshRates();
+      double liveBid = MarketInfo(Symbol(), MODE_BID);
+      double liveAsk = MarketInfo(Symbol(), MODE_ASK);
+      double rawProfitGap = (oType == OP_BUY) ? (liveBid - oOpen) : (oOpen - liveAsk);
+      bool isSteepAngle = (MathAbs(curEmaAng) > InpDoubleSlGapAngle);
+      bool isProfitGapReached = (rawProfitGap > InpDoubleSlMinProfitGapRaw);
+      bool isNeverLossProtected = (oType == OP_BUY ? normPropSL >= oOpen : normPropSL <= oOpen);
+
+      if(isSteepAngle && isProfitGapReached && isNeverLossProtected)
+        {
+         if(MathAbs(normPropSL - curSL) >= MinimumSLModifyGapRaw)
+           {
+            Print(">>> [DOUBLE SL GAP BREATHING ALLOWED] Ticket #", ticket, " (", (oType == OP_BUY ? "BUY" : "SELL"),
+                  " ", DoubleToString(oLots, 2), "L) | Current SL=", DoubleToString(curSL, Digits),
+                  " | Doubled Breathing SL=", DoubleToString(normPropSL, Digits),
+                  " | Open=", DoubleToString(oOpen, Digits),
+                  " | Raw Profit Gap=$", DoubleToString(rawProfitGap, 2), " > $", DoubleToString(InpDoubleSlMinProfitGapRaw, 2),
+                  " | MathAbs(EMAangle)=", DoubleToString(MathAbs(curEmaAng), 2), " > ", DoubleToString(InpDoubleSlGapAngle, 1),
+                  " deg (Caller=", callerName, ")");
+            return true;
+           }
+         return false;
+        }
+     }
+
 // =========================================================================
 // UNIVERSAL ONE-WAY STOPLOSS RATCHET (STRICT ANTI-LOSS-WIDENING GUARANTEE)
 // USER RULE: "apply to all orders. Example, when any order is modified with one
@@ -9927,8 +10001,8 @@ double GetTrendAwareStopLoss(int orderType, double standardGapUSD, double curSL 
          double sl = NormalizeDouble(curBid - gap, Digits);
          if((curBid - sl) < minStopDist)
             sl = NormalizeDouble(curBid - minStopDist, Digits);
-         if(openPrice > 0.0 && sl < openPrice && isProfitGapReached)
-            sl = openPrice; // Ensure profit-locking order maintains at least Breakeven
+         if(openPrice > 0.0 && sl < openPrice && (isProfitGapReached || rawProfitGap > 0.0 || orderProfit > 0.0))
+            sl = openPrice; // USER RULE: Never modify order with loss amount (BUY order not less than openPrice)
          return sl;
         }
       else if(orderType == OP_SELL)
@@ -9936,8 +10010,8 @@ double GetTrendAwareStopLoss(int orderType, double standardGapUSD, double curSL 
          double sl = NormalizeDouble(curAsk + gap, Digits);
          if((sl - curAsk) < minStopDist)
             sl = NormalizeDouble(curAsk + minStopDist, Digits);
-         if(openPrice > 0.0 && sl > openPrice && isProfitGapReached)
-            sl = openPrice; // Ensure profit-locking order maintains at least Breakeven
+         if(openPrice > 0.0 && sl > openPrice && (isProfitGapReached || rawProfitGap > 0.0 || orderProfit > 0.0))
+            sl = openPrice; // USER RULE: Never modify order with loss amount (SELL order not greater than openPrice)
          return sl;
         }
       return 0.0;
@@ -10085,7 +10159,7 @@ bool SafeOrderModify(int ticket,double openPrice,double stopLoss,double takeProf
                  {
                   double wideSL = NormalizeDouble(Bid - doubledLiveGap, Digits);
                   if(wideSL < oOpen)
-                     wideSL = oOpen; // Maintain at least Breakeven
+                     wideSL = oOpen; // Maintain at least Breakeven - USER RULE: never modify order with loss amount
                   if(wideSL < requestedSL)
                     {
                      Print(">>> [DOUBLE SL GAP IN SAFEMODIFY] BUY #", ticket, " Raw Profit Gap=$", DoubleToString(rawProfitGap, 2),
@@ -10099,7 +10173,7 @@ bool SafeOrderModify(int ticket,double openPrice,double stopLoss,double takeProf
                  {
                   double wideSL = NormalizeDouble(Ask + doubledLiveGap, Digits);
                   if(wideSL > oOpen)
-                     wideSL = oOpen; // Maintain at least Breakeven
+                     wideSL = oOpen; // Maintain at least Breakeven - USER RULE: never modify order with loss amount
                   if(wideSL > requestedSL)
                     {
                      Print(">>> [DOUBLE SL GAP IN SAFEMODIFY] SELL #", ticket, " Raw Profit Gap=$", DoubleToString(rawProfitGap, 2),
@@ -10110,6 +10184,23 @@ bool SafeOrderModify(int ticket,double openPrice,double stopLoss,double takeProf
                     }
                  }
               }
+           }
+        }
+
+      // USER RULE (VMULTI-1096): "never modify order with loss amount (Example BUY order not less than openorderprice)"
+      if(isSteepAngle && isProfitGapReached)
+        {
+         if(orderType == OP_BUY && requestedSL < oOpen)
+           {
+            Print(">>> [LOSS MODIFICATION PREVENTED] BUY #", ticket, " requestedSL=", DoubleToString(requestedSL, Digits),
+                  " clamped to openPrice=", DoubleToString(oOpen, Digits), " (Rule: Never modify order with loss amount)");
+            requestedSL = oOpen;
+           }
+         else if(orderType == OP_SELL && requestedSL > oOpen)
+           {
+            Print(">>> [LOSS MODIFICATION PREVENTED] SELL #", ticket, " requestedSL=", DoubleToString(requestedSL, Digits),
+                  " clamped to openPrice=", DoubleToString(oOpen, Digits), " (Rule: Never modify order with loss amount)");
+            requestedSL = oOpen;
            }
         }
 
@@ -11047,6 +11138,11 @@ void modifyOnlyBuyOrders()
                double rawProfitGap = Bid - openPrice;
                bool isSteepAngle = (InpEnableDoubleSlGapOnSteepAngle && MathAbs(GlobalEmaAngle30) > InpDoubleSlGapAngle);
                bool isProfitGapReached = (rawProfitGap > InpDoubleSlMinProfitGapRaw);
+
+               // Clamp newSL to openPrice if profit gap reached (USER RULE: never modify with loss amount)
+               if(isProfitGapReached && newSL < openPrice)
+                  newSL = openPrice;
+
                bool allowBreathingWidening = (isSteepAngle && isProfitGapReached && newSL >= openPrice);
 
                // CRITICAL: Only move SL UP to lock in profit, and ONLY once SL is above open price (guaranteeing profit)
@@ -11109,6 +11205,11 @@ void modifyOnlySellOrders()
                double rawProfitGap = openPrice - Ask;
                bool isSteepAngle = (InpEnableDoubleSlGapOnSteepAngle && MathAbs(GlobalEmaAngle30) > InpDoubleSlGapAngle);
                bool isProfitGapReached = (rawProfitGap > InpDoubleSlMinProfitGapRaw);
+
+               // Clamp newSL to openPrice if profit gap reached (USER RULE: never modify with loss amount)
+               if(isProfitGapReached && newSL > openPrice)
+                  newSL = openPrice;
+
                bool allowBreathingWidening = (isSteepAngle && isProfitGapReached && newSL <= openPrice);
 
                // CRITICAL: Only move SL DOWN to lock in profit, and ONLY once SL is below open price (guaranteeing profit)
