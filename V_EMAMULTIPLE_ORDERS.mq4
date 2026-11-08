@@ -242,7 +242,7 @@ double InpNewEqhSellOrderLotBase                  =0.06;// 0.03;//0.06;         
 bool   InpCloseSellOnNewEqlGreenLine              = true;          // On new EQH-G green line: Close SELL orders (loss < $1*mult) & Open SSL Long
 double InpCloseSellMaxLossUSD                     = 1.0;           // Max loss in USD ($1.00 * multiplier) to close SELL order
 double InpNewEqlBuyOrderLotBase                   = 0.06;//0.03;//0.06;          // Base lot for immediate SSL Long (0.06 * multiplier)
-double InpHorizontalOrderSameTypeMinGapUSD        = 200.0;               // Minimum price gap in USD ($200) between 2 horizontal EQH orders of same type
+double InpHorizontalOrderSameTypeMinGapUSD        =100;// 200.0;               // Minimum price gap in USD ($200) between 2 horizontal EQH orders of same type
 bool   InpEnableModifySLOnLineEnded               = true;          // When horizontal line ends: modify open horizontal order SL with $50 gap
 double InpHorizontalLineEndedSLGapRaw             =2000;//1000;//200;// 50.0;          // StopLoss raw price gap ($50) when horizontal line ends
 double InpHorizontalLineMinEmaGapRaw             = 0.0;           // Min raw price gap ( = disabled) between horizontal line & EMA (Do not create orders if < min gap)
