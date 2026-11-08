@@ -42,7 +42,7 @@ CheckBasketProfitClose  Total open basket profit
 */
 
 
-string glbVersion = "VMULTI-1090- 90% SL Adverse Double SL First then Close 50% Lot";
+string glbVersion = "VMULTI-1094- Double StopLoss Gap when MathAbs(EMAangle) > 3 & Order Profit > $10";
 
 
 
@@ -242,10 +242,11 @@ double InpNewEqhSellOrderLotBase                  =0.06;// 0.03;//0.06;         
 bool   InpCloseSellOnNewEqlGreenLine              = true;          // On new EQH-G green line: Close SELL orders (loss < $1*mult) & Open SSL Long
 double InpCloseSellMaxLossUSD                     = 1.0;           // Max loss in USD ($1.00 * multiplier) to close SELL order
 double InpNewEqlBuyOrderLotBase                   = 0.06;//0.03;//0.06;          // Base lot for immediate SSL Long (0.06 * multiplier)
-double InpHorizontalOrderSameTypeMinGapUSD        = 100;//200.0;         // Minimum price gap in USD ($200) between 2 horizontal EQH orders of same type
+double InpHorizontalOrderSameTypeMinGapUSD        = 200.0;               // Minimum price gap in USD ($200) between 2 horizontal EQH orders of same type
 bool   InpEnableModifySLOnLineEnded               = true;          // When horizontal line ends: modify open horizontal order SL with $50 gap
 double InpHorizontalLineEndedSLGapRaw             =2000;//1000;//200;// 50.0;          // StopLoss raw price gap ($50) when horizontal line ends
 double InpHorizontalLineMinEmaGapRaw             = 0.0;           // Min raw price gap ( = disabled) between horizontal line & EMA (Do not create orders if < min gap)
+double InpHorizontalLineIgnoreEmaGapAngle        = 3.0;           // USER RULE: Ignore EMA Distance Runway filter if MathAbs(EMAangle) > 4.0
 int    InpHorizontalLineMaxDurationSeconds        = 300;           // Max allowed duration (300s = 5 min) since horizontal line initiated to create order (0 = no limit)
 bool   InpModifyOppositeOrderSLToLinePrice        = true;          // On new/active horizontal line: try to modify opposite order SL to Line price
 bool   InpModifyLinePriceSLOnlyFirstOrder         = true;          // Modify SL with Line Price ONLY for the FIRST (oldest) open order
@@ -498,11 +499,11 @@ bool DeletePendingOrdersOnSSLChange = true; // Close/Delete all pending orders w
 bool DeleteOppositePendingOnSignal = true;
 bool EnableProfitReEntryStop = true;
 double MinimumClosedProfitUSD = -9;
-double ProfitReEntryGapRaw =50;//30;//10;// 25;
+double ProfitReEntryGapRaw =30;//50;//30;//10;// 25;
 double MinimumSameOrderGapRawReEntry =50;//30;//10;//20;// 50;
 double SSLLongShortPendingGapRaw = 20.0; // Raw price gap ($20) for SSL Long / Short pending stop orders
 // double MinimumSameOrderGapRawSSLLongShort =50;// 50;
-double MinimumSameOrderGapRawMatched =50;//100;//50;//30;//10;//20;//50;//20;// 50;//SSL long //SSL short
+double MinimumSameOrderGapRawMatched =30;//50;//100;//50;//30;//10;//20;//50;//20;// 50;//SSL long //SSL short
 double MinimumSameOrderGapRawUnmatched =50;//10;//10;//20;// 100;
 
 bool EnableReEntryNOnMatchingSignal=true;
@@ -3203,7 +3204,14 @@ void   DrawMethod6HitIcon(int orderCount, double comboProfit, datetime hitTime =
 // - SELL & (EMADirection ==  1 || EMA Weak) -> tighten StopLoss to Live Price (Ask + minStopDist)
 bool   InpEnableEmaTrendAwareSL            = false;//true;  // Trend-Aware SL: Strong aligned uses gap; Counter/Weak EMA tightens to Live Price
 double InpEmaTrendAwareLivePriceGapUSD     = 0.0;   // Live Price SL Buffer USD (0 = closest broker minStopDist, or custom buffer)
-double GetTrendAwareStopLoss(int orderType, double standardGapUSD, double curSL = 0.0, string callerName = "");
+
+// USER RULE (VMULTI-1094): Double StopLoss gap (e.g. $150 -> $300) when MathAbs(EMAangle) > 3.0 and order profit > $10.0
+bool   InpEnableDoubleSlGapOnSteepAngle    = true;  // Double SL gap (e.g. $150 -> $300) when MathAbs(EMAangle) > 3.0 & order profit > $10
+double InpDoubleSlGapAngle                 = 3.0;   // Minimum EMA angle (degrees) to double the SL gap (MathAbs(EMAangle) > 3.0)
+double InpDoubleSlMinProfitUSD             = 10.0;  // Minimum order profit in USD ($10.0) to activate doubled SL gap
+double InpDoubleSlGapMultiplier            = 2.0;   // Gap multiplier (default 2.0 = double gap $150 to $300)
+
+double GetTrendAwareStopLoss(int orderType, double standardGapUSD, double curSL = 0.0, string callerName = "", double orderProfit = 0.0, double openPrice = 0.0);
 
 // Visual Chart Icons for Multi-Order Closes (+2, +3, +4...) from the 6 Methods
 bool   InpDrawMultiOrderClosedIcons         = true;   // Draw +2, +3 icons when closed with any of the 6 methods
@@ -4071,8 +4079,13 @@ void ModifyPairProfitWithStopLoss()
       curBid = MarketInfo(Symbol(), MODE_BID);
       curAsk = MarketInfo(Symbol(), MODE_ASK);
 
-      double proposedSL = GetTrendAwareStopLoss(oType, rawGap, curSL, "Method 1");
+      double curPL = candProfits[k];
+      double proposedSL = GetTrendAwareStopLoss(oType, rawGap, curSL, "Method 1", curPL, oOpen);
       bool   shouldModify = false;
+
+      bool isSteepAngle = (InpEnableDoubleSlGapOnSteepAngle && MathAbs(GlobalEmaAngle30) > InpDoubleSlGapAngle);
+      bool isProfitAbove10 = (curPL > InpDoubleSlMinProfitUSD);
+      bool allowBreathingWidening = (isSteepAngle && isProfitAbove10 && (oType == OP_BUY ? proposedSL >= oOpen : proposedSL <= oOpen));
 
       if(oType == OP_BUY)
         {
@@ -4080,8 +4093,9 @@ void ModifyPairProfitWithStopLoss()
          if(proposedSL >= curBid)
             continue;
 
-         // For BUY: Set if no SL (0.0), or only move SL forward (higher) by at least MinimumSLModifyGapRaw
-         if(curSL == 0.0 || (proposedSL > curSL && (proposedSL - curSL) >= MinimumSLModifyGapRaw))
+         // For BUY: Set if no SL (0.0), or move SL forward (higher), or widen gap to $300 breathing room while locking profit
+         if(curSL == 0.0 || (proposedSL > curSL && (proposedSL - curSL) >= MinimumSLModifyGapRaw) ||
+            (allowBreathingWidening && MathAbs(proposedSL - curSL) >= MinimumSLModifyGapRaw))
            {
             shouldModify = true;
            }
@@ -4093,8 +4107,9 @@ void ModifyPairProfitWithStopLoss()
             if(proposedSL <= curAsk)
                continue;
 
-            // For SELL: Set if no SL (0.0), or only move SL forward (lower) by at least MinimumSLModifyGapRaw
-            if(curSL == 0.0 || (proposedSL < curSL && (curSL - proposedSL) >= MinimumSLModifyGapRaw))
+            // For SELL: Set if no SL (0.0), or move SL forward (lower), or widen gap to $300 breathing room while locking profit
+            if(curSL == 0.0 || (proposedSL < curSL && (curSL - proposedSL) >= MinimumSLModifyGapRaw) ||
+               (allowBreathingWidening && MathAbs(proposedSL - curSL) >= MinimumSLModifyGapRaw))
               {
                shouldModify = true;
               }
@@ -4359,16 +4374,21 @@ void ModifyMethod6MultiOrderCombinationsOver5USD()
       curBid = MarketInfo(Symbol(), MODE_BID);
       curAsk = MarketInfo(Symbol(), MODE_ASK);
 
-      double proposedSL = GetTrendAwareStopLoss(oType, rawGap, curSL, "Method 6");
+      double proposedSL = GetTrendAwareStopLoss(oType, rawGap, curSL, "Method 6", curPL, oOpen);
       bool   shouldModify = false;
+
+      bool isSteepAngle = (InpEnableDoubleSlGapOnSteepAngle && MathAbs(GlobalEmaAngle30) > InpDoubleSlGapAngle);
+      bool isProfitAbove10 = (curPL > InpDoubleSlMinProfitUSD);
+      bool allowBreathingWidening = (isSteepAngle && isProfitAbove10 && (oType == OP_BUY ? proposedSL >= oOpen : proposedSL <= oOpen));
 
       if(oType == OP_BUY)
         {
          if(proposedSL >= curBid)
             continue;
 
-         // For BUY: Set if no SL (0.0), or only move SL forward (higher) by at least MinimumSLModifyGapRaw
-         if(curSL == 0.0 || (proposedSL > curSL && (proposedSL - curSL) >= MinimumSLModifyGapRaw))
+         // For BUY: Set if no SL (0.0), or move SL forward (higher), or widen gap to $300 breathing room while locking profit
+         if(curSL == 0.0 || (proposedSL > curSL && (proposedSL - curSL) >= MinimumSLModifyGapRaw) ||
+            (allowBreathingWidening && MathAbs(proposedSL - curSL) >= MinimumSLModifyGapRaw))
            {
             shouldModify = true;
            }
@@ -4378,8 +4398,9 @@ void ModifyMethod6MultiOrderCombinationsOver5USD()
          if(proposedSL <= curAsk)
             continue;
 
-         // For SELL: Set if no SL (0.0), or only move SL forward (lower) by at least MinimumSLModifyGapRaw
-         if(curSL == 0.0 || (proposedSL < curSL && (curSL - proposedSL) >= MinimumSLModifyGapRaw))
+         // For SELL: Set if no SL (0.0), or move SL forward (lower), or widen gap to $300 breathing room while locking profit
+         if(curSL == 0.0 || (proposedSL < curSL && (curSL - proposedSL) >= MinimumSLModifyGapRaw) ||
+            (allowBreathingWidening && MathAbs(proposedSL - curSL) >= MinimumSLModifyGapRaw))
            {
             shouldModify = true;
            }
@@ -4479,17 +4500,24 @@ bool ModifyOrCloseCombinationOrder(int ticket)
    double curTP = OrderTakeProfit();
    RefreshRates();
    double minStopDist = GetRequiredStopDistance();
+   double curPL = OrderProfit() + OrderSwap() + OrderCommission();
    double gap = (InpCombinationSLGapUSD > 0.0) ? InpCombinationSLGapUSD : 150.0;
-   double proposedSL = GetTrendAwareStopLoss(oType, gap, curSL, "Method 4");
+   double proposedSL = GetTrendAwareStopLoss(oType, gap, curSL, "Method 4", curPL, oOpen);
+
+   bool isSteepAngle = (InpEnableDoubleSlGapOnSteepAngle && MathAbs(GlobalEmaAngle30) > InpDoubleSlGapAngle);
+   bool isProfitAbove10 = (curPL > InpDoubleSlMinProfitUSD);
+   bool allowBreathingWidening = (isSteepAngle && isProfitAbove10 && (oType == OP_BUY ? proposedSL >= oOpen : proposedSL <= oOpen));
 
    if(oType == OP_BUY)
      {
-      if(proposedSL < Bid && (curSL == 0.0 || (proposedSL > curSL && (proposedSL - curSL) >= MinimumSLModifyGapRaw)))
+      if(proposedSL < Bid && (curSL == 0.0 || (proposedSL > curSL && (proposedSL - curSL) >= MinimumSLModifyGapRaw) ||
+         (allowBreathingWidening && MathAbs(proposedSL - curSL) >= MinimumSLModifyGapRaw)))
          return SafeOrderModify(ticket, oOpen, proposedSL, curTP, 0, clrLimeGreen, "Method 4");
      }
    else if(oType == OP_SELL)
      {
-      if(proposedSL > Ask && (curSL == 0.0 || (proposedSL < curSL && (curSL - proposedSL) >= MinimumSLModifyGapRaw)))
+      if(proposedSL > Ask && (curSL == 0.0 || (proposedSL < curSL && (curSL - proposedSL) >= MinimumSLModifyGapRaw) ||
+         (allowBreathingWidening && MathAbs(proposedSL - curSL) >= MinimumSLModifyGapRaw)))
          return SafeOrderModify(ticket, oOpen, proposedSL, curTP, 0, clrTomato, "Method 4");
      }
    return true;
@@ -6936,10 +6964,17 @@ void ManageOverallBasketProfit()
          double curSL = OrderStopLoss();
          double curTP = OrderTakeProfit();
 
-         double proposedSL = GetTrendAwareStopLoss(oType, gap, curSL, "Method 5");
+         double curPL = OrderProfit() + OrderSwap() + OrderCommission();
+         double proposedSL = GetTrendAwareStopLoss(oType, gap, curSL, "Method 5", curPL, oOpen);
+
+         bool isSteepAngle = (InpEnableDoubleSlGapOnSteepAngle && MathAbs(GlobalEmaAngle30) > InpDoubleSlGapAngle);
+         bool isProfitAbove10 = (curPL > InpDoubleSlMinProfitUSD);
+         bool allowBreathingWidening = (isSteepAngle && isProfitAbove10 && (oType == OP_BUY ? proposedSL >= oOpen : proposedSL <= oOpen));
+
          if(oType == OP_BUY)
            {
-            if(proposedSL < Bid && (curSL == 0.0 || (proposedSL > curSL && (proposedSL - curSL) >= MinimumSLModifyGapRaw)))
+            if(proposedSL < Bid && (curSL == 0.0 || (proposedSL > curSL && (proposedSL - curSL) >= MinimumSLModifyGapRaw) ||
+               (allowBreathingWidening && MathAbs(proposedSL - curSL) >= MinimumSLModifyGapRaw)))
               {
                if(SafeOrderModify(tkt, oOpen, proposedSL, curTP, 0, clrLimeGreen, "Method 5"))
                  {
@@ -6950,7 +6985,8 @@ void ManageOverallBasketProfit()
            }
          else if(oType == OP_SELL)
            {
-            if(proposedSL > Ask && (curSL == 0.0 || (proposedSL < curSL && (curSL - proposedSL) >= MinimumSLModifyGapRaw)))
+            if(proposedSL > Ask && (curSL == 0.0 || (proposedSL < curSL && (curSL - proposedSL) >= MinimumSLModifyGapRaw) ||
+               (allowBreathingWidening && MathAbs(proposedSL - curSL) >= MinimumSLModifyGapRaw)))
               {
                if(SafeOrderModify(tkt, oOpen, proposedSL, curTP, 0, clrTomato, "Method 5"))
                  {
@@ -9837,7 +9873,7 @@ bool CanModifyStopLossForHigherProfit(int ticket, double proposedSL, string call
 //| - SELL + EMADirection==-1 + STRONG EMA -> curAsk + standardGapUSD|
 //| - SELL + (EMADirection== 1 || WEAK EMA) -> curAsk + minStopDist  |
 //+------------------------------------------------------------------+
-double GetTrendAwareStopLoss(int orderType, double standardGapUSD, double curSL = 0.0, string callerName = "")
+double GetTrendAwareStopLoss(int orderType, double standardGapUSD, double curSL = 0.0, string callerName = "", double orderProfit = 0.0, double openPrice = 0.0)
   {
    RefreshRates();
    double curBid = MarketInfo(Symbol(), MODE_BID);
@@ -9850,6 +9886,26 @@ double GetTrendAwareStopLoss(int orderType, double standardGapUSD, double curSL 
    if(gap < minStopDist)
       gap = minStopDist;
 
+   // USER RULE (VMULTI-1094): Double StopLoss gap (e.g. $150 -> $300) when MathAbs(EMAangle) > 3.0 and order profit > $10.0
+   double curAngle = GlobalEmaAngle30;
+   if(curAngle == 0.0)
+      curAngle = GetEmaAngleDegrees(30);
+
+   bool isSteepAngle = (InpEnableDoubleSlGapOnSteepAngle && MathAbs(curAngle) > InpDoubleSlGapAngle);
+   bool isProfitAbove10 = (orderProfit > InpDoubleSlMinProfitUSD);
+
+   if(isSteepAngle && isProfitAbove10)
+     {
+      double oldGap = gap;
+      gap = gap * InpDoubleSlGapMultiplier;
+      Print(">>> [DOUBLE SL GAP] MathAbs(EMAangle)=", DoubleToString(MathAbs(curAngle), 2),
+            " > ", DoubleToString(InpDoubleSlGapAngle, 1),
+            " deg & Profit=$", DoubleToString(orderProfit, 2),
+            " > $", DoubleToString(InpDoubleSlMinProfitUSD, 2),
+            " | Doubled SL gap from $", DoubleToString(oldGap, 2),
+            " to $", DoubleToString(gap, 2), " (", callerName, ")");
+     }
+
    if(!InpEnableEmaTrendAwareSL)
      {
       // If trend-aware SL is disabled, preserve standard gap logic
@@ -9858,6 +9914,8 @@ double GetTrendAwareStopLoss(int orderType, double standardGapUSD, double curSL 
          double sl = NormalizeDouble(curBid - gap, Digits);
          if((curBid - sl) < minStopDist)
             sl = NormalizeDouble(curBid - minStopDist, Digits);
+         if(openPrice > 0.0 && sl < openPrice && isProfitAbove10)
+            sl = openPrice; // Ensure profit-locking order maintains at least Breakeven
          return sl;
         }
       else if(orderType == OP_SELL)
@@ -9865,6 +9923,8 @@ double GetTrendAwareStopLoss(int orderType, double standardGapUSD, double curSL 
          double sl = NormalizeDouble(curAsk + gap, Digits);
          if((sl - curAsk) < minStopDist)
             sl = NormalizeDouble(curAsk + minStopDist, Digits);
+         if(openPrice > 0.0 && sl > openPrice && isProfitAbove10)
+            sl = openPrice; // Ensure profit-locking order maintains at least Breakeven
          return sl;
         }
       return 0.0;
@@ -9896,9 +9956,24 @@ double GetTrendAwareStopLoss(int orderType, double standardGapUSD, double curSL 
            }
         }
 
-      // Universal One-Way Ratchet: If targetSL is worse than or equal to existing curSL, preserve curSL
-      if(curSL > 0.0 && targetSL <= curSL)
-         targetSL = curSL;
+      // Ensure profit-locking order maintains at least Breakeven
+      if(openPrice > 0.0 && targetSL < openPrice && isProfitAbove10)
+         targetSL = openPrice;
+
+      // Universal Ratchet: When steep angle & profit > $10, allow widening to doubled gap as long as it still locks profit (>= openPrice)
+      if(curSL > 0.0)
+        {
+         if(isSteepAngle && isProfitAbove10)
+           {
+            if(openPrice > 0.0 && targetSL < openPrice)
+               targetSL = openPrice;
+           }
+         else
+           {
+            if(targetSL <= curSL)
+               targetSL = curSL;
+           }
+        }
      }
    else if(orderType == OP_SELL)
      {
@@ -9922,9 +9997,24 @@ double GetTrendAwareStopLoss(int orderType, double standardGapUSD, double curSL 
            }
         }
 
-      // Universal One-Way Ratchet: If targetSL is worse than or equal to existing curSL, preserve curSL
-      if(curSL > 0.0 && targetSL >= curSL)
-         targetSL = curSL;
+      // Ensure profit-locking order maintains at least Breakeven
+      if(openPrice > 0.0 && targetSL > openPrice && isProfitAbove10)
+         targetSL = openPrice;
+
+      // Universal Ratchet: When steep angle & profit > $10, allow widening to doubled gap as long as it still locks profit (<= openPrice)
+      if(curSL > 0.0)
+        {
+         if(isSteepAngle && isProfitAbove10)
+           {
+            if(openPrice > 0.0 && targetSL > openPrice)
+               targetSL = openPrice;
+           }
+         else
+           {
+            if(targetSL >= curSL)
+               targetSL = curSL;
+           }
+        }
      }
 
    return targetSL;
@@ -9960,6 +10050,51 @@ bool SafeOrderModify(int ticket,double openPrice,double stopLoss,double takeProf
       double curNetPL = OrderProfit() + OrderSwap() + OrderCommission();
       bool isSecuringProfit = (orderType == OP_BUY && requestedSL >= oOpen) || (orderType == OP_SELL && requestedSL <= oOpen);
       bool isMethodCaller = (StringFind(callerName, "Method") >= 0 || callerName == "Emergency90PercentSLCutDoubleSL");
+
+      // USER RULE (VMULTI-1094): Double StopLoss gap (e.g. $150 -> $300) when MathAbs(EMAangle) > 3.0 and order profit > $10.0
+      double curEmaAng = GlobalEmaAngle30;
+      if(curEmaAng == 0.0)
+         curEmaAng = GetEmaAngleDegrees(30);
+
+      if(!isMethodCaller && isSecuringProfit && InpEnableDoubleSlGapOnSteepAngle && MathAbs(curEmaAng) > InpDoubleSlGapAngle && curNetPL > InpDoubleSlMinProfitUSD)
+        {
+         double liveGap = (orderType == OP_BUY) ? (Bid - requestedSL) : (requestedSL - Ask);
+         if(liveGap > 0.0)
+           {
+            double doubledLiveGap = liveGap * InpDoubleSlGapMultiplier;
+            if(doubledLiveGap > liveGap)
+              {
+               if(orderType == OP_BUY)
+                 {
+                  double wideSL = NormalizeDouble(Bid - doubledLiveGap, Digits);
+                  if(wideSL < oOpen)
+                     wideSL = oOpen; // Maintain at least Breakeven
+                  if(wideSL < requestedSL)
+                    {
+                     Print(">>> [DOUBLE SL GAP IN SAFEMODIFY] BUY #", ticket, " P/L=$", DoubleToString(curNetPL, 2),
+                           " | Doubled gap from $", DoubleToString(liveGap, 2), " to $", DoubleToString(doubledLiveGap, 2),
+                           " | SL adjusted from ", DoubleToString(requestedSL, Digits), " to ", DoubleToString(wideSL, Digits),
+                           " (MathAbs(EMAangle)=", DoubleToString(MathAbs(curEmaAng), 2), " > ", DoubleToString(InpDoubleSlGapAngle, 1), " deg)");
+                     requestedSL = wideSL;
+                    }
+                 }
+               else if(orderType == OP_SELL)
+                 {
+                  double wideSL = NormalizeDouble(Ask + doubledLiveGap, Digits);
+                  if(wideSL > oOpen)
+                     wideSL = oOpen; // Maintain at least Breakeven
+                  if(wideSL > requestedSL)
+                    {
+                     Print(">>> [DOUBLE SL GAP IN SAFEMODIFY] SELL #", ticket, " P/L=$", DoubleToString(curNetPL, 2),
+                           " | Doubled gap from $", DoubleToString(liveGap, 2), " to $", DoubleToString(doubledLiveGap, 2),
+                           " | SL adjusted from ", DoubleToString(requestedSL, Digits), " to ", DoubleToString(wideSL, Digits),
+                           " (MathAbs(EMAangle)=", DoubleToString(MathAbs(curEmaAng), 2), " > ", DoubleToString(InpDoubleSlGapAngle, 1), " deg)");
+                     requestedSL = wideSL;
+                    }
+                 }
+              }
+           }
+        }
 
       if(!isMethodCaller && curNetPL > 0.0 && isSecuringProfit && !IsAnyRecoveryOrder(ticket, comment) && !IsFLIPBasketSupportOrder(ticket, comment))
         {
@@ -10888,11 +11023,17 @@ void modifyOnlyBuyOrders()
                double currentSL = OrderStopLoss();
                double currentTP = OrderTakeProfit();
 
+               double curPL = OrderProfit() + OrderSwap() + OrderCommission();
                double trailingBuffer = (InpModifyOnlyBuySellSLGapUSD > 0.0) ? InpModifyOnlyBuySellSLGapUSD : 150.0;
-               double newSL = GetTrendAwareStopLoss(OP_BUY, trailingBuffer, currentSL, "Method 2");
+               double newSL = GetTrendAwareStopLoss(OP_BUY, trailingBuffer, currentSL, "Method 2", curPL, openPrice);
+
+               bool isSteepAngle = (InpEnableDoubleSlGapOnSteepAngle && MathAbs(GlobalEmaAngle30) > InpDoubleSlGapAngle);
+               bool isProfitAbove10 = (curPL > InpDoubleSlMinProfitUSD);
+               bool allowBreathingWidening = (isSteepAngle && isProfitAbove10 && newSL >= openPrice);
 
                // CRITICAL: Only move SL UP to lock in profit, and ONLY once SL is above open price (guaranteeing profit)
-               if(newSL < Bid && (currentSL == 0.0 || (newSL > currentSL && (newSL - currentSL) >= MinimumSLModifyGapRaw)))
+               if(newSL < Bid && (currentSL == 0.0 || (newSL > currentSL && (newSL - currentSL) >= MinimumSLModifyGapRaw) ||
+                  (allowBreathingWidening && MathAbs(newSL - currentSL) >= MinimumSLModifyGapRaw)))
                  {
                   ResetLastError();
                   bool modified =SafeOrderModify(ticket, openPrice, newSL, currentTP, 0, clrGreen, "Method 2");
@@ -10943,11 +11084,17 @@ void modifyOnlySellOrders()
                double currentSL = OrderStopLoss();
                double currentTP = OrderTakeProfit();
 
+               double curPL = OrderProfit() + OrderSwap() + OrderCommission();
                double trailingBuffer = (InpModifyOnlyBuySellSLGapUSD > 0.0) ? InpModifyOnlyBuySellSLGapUSD : 150.0;
-               double newSL = GetTrendAwareStopLoss(OP_SELL, trailingBuffer, currentSL, "Method 3");
+               double newSL = GetTrendAwareStopLoss(OP_SELL, trailingBuffer, currentSL, "Method 3", curPL, openPrice);
+
+               bool isSteepAngle = (InpEnableDoubleSlGapOnSteepAngle && MathAbs(GlobalEmaAngle30) > InpDoubleSlGapAngle);
+               bool isProfitAbove10 = (curPL > InpDoubleSlMinProfitUSD);
+               bool allowBreathingWidening = (isSteepAngle && isProfitAbove10 && newSL <= openPrice);
 
                // CRITICAL: Only move SL DOWN to lock in profit, and ONLY once SL is below open price (guaranteeing profit)
-               if(newSL > Ask && (currentSL == 0.0 || (newSL < currentSL && (currentSL - newSL) >= MinimumSLModifyGapRaw)))
+               if(newSL > Ask && (currentSL == 0.0 || (newSL < currentSL && (currentSL - newSL) >= MinimumSLModifyGapRaw) ||
+                  (allowBreathingWidening && MathAbs(newSL - currentSL) >= MinimumSLModifyGapRaw)))
                  {
                   ResetLastError();
                   bool modified =SafeOrderModify(ticket, openPrice, newSL, currentTP, 0, clrRed, "Method 3");
@@ -12303,7 +12450,7 @@ void ChangeLots(double OpenPL, string reason, int orderType, int stoplevelStep,s
 // Lots = 0.01 * (10 - cycleStep);
 
 // if(Lots==0.01)
-   Lots=0.01;//MaxRecoveryLot;
+   Lots=0.04;//MaxRecoveryLot;
 
 // Lots=0.05;//
 // Print("Closed Orders Since EMA Flip: ", closedCount, " | Cycle Step: ", cycleStep, " | Calculated Lots: ", Lots);
@@ -12627,24 +12774,35 @@ void ChangeLots(double OpenPL, string reason, int orderType, int stoplevelStep,s
 
 // Angle Double Lot Sizing: Automatically doubles order size (0.01 -> 0.02, 0.02 -> 0.04) when strong momentum exists
    if(MathAbs(GlobalEmaAngle30) > 3 && !IsEmaWEAKDistanceReduced50PercentFromPeak(orderType))
-      Lots = Lots * 2;
+      Lots = Lots * 3;
 
    else
 
-      if(EMADirection==1 &&  GetOpenPL(OP_SELL)<=-20)
-         Lots = Lots * 2;
+      if(EMADirection==1 &&  GetOpenPL(OP_SELL)<=-30)
+         Lots = Lots * 3;
 
       else
-         if(EMADirection==-1 &&  GetOpenPL(OP_BUY)<=-20)
-            Lots = Lots * 2;
+         if(EMADirection==-1 &&  GetOpenPL(OP_BUY)<=-30)
+            Lots = Lots * 3;
 
 
+if(!IsEmaWEAKDistanceReduced50PercentFromPeak(orderType))
+{
+    if(EMADirection==1 &&  GetOpenPL(OP_BUY)<=-20)
+    {
+Lots = Lots * 3;
+    }
+     if(EMADirection==-1 &&  GetOpenPL(OP_SELL)<=-20)
+    {
+Lots = Lots * 3;
+    }
+}
 
 
 //----------------------------------------------------------------------------------------
 // Safety catch
-   if(IsHeavyLotOrderNearBy(orderType, Lots, 300) && Lots>=0.02)
-      Lots = 0.02;
+  // if(IsHeavyLotOrderNearBy(orderType, Lots, 200) && Lots>=0.02)
+    //  Lots = 0.02;
 //----------------------------------------------------------------------------------------
 // Safety catch
 
@@ -19458,8 +19616,8 @@ void ManageLsdSweepLineStopLossProtection()
 //+------------------------------------------------------------------+
 bool HasMinimumHorizontalOrderGap(int orderType, double proposedPrice, double minGapUSD)
   {
-   if(minGapUSD <= 0.0)
-      return true;
+   // USER RULE: Enforce strict minimum $200 price gap between 2 horizontal EQH orders of same type
+   double effectiveGap = (minGapUSD >= 200.0) ? minGapUSD : 200.0;
 
    string targetPattern = (orderType == OP_BUY) ? "EQH-G" : "EQH-R";
 
@@ -19486,13 +19644,13 @@ bool HasMinimumHorizontalOrderGap(int orderType, double proposedPrice, double mi
       double existingOpen = OrderOpenPrice();
       double dist = MathAbs(proposedPrice - existingOpen);
 
-      if(dist < minGapUSD)
+      if(dist < effectiveGap)
         {
          Print(">>> [HORIZONTAL ORDER GAP BLOCKED] Proposed ", (orderType == OP_BUY ? "EQH-G Long" : "EQH-R Short"),
                " at ", DoubleToString(proposedPrice, Digits),
                " is within $", DoubleToString(dist, 2), " of open Ticket #", OrderTicket(),
                " (Open=", DoubleToString(existingOpen, Digits),
-               ", Gap=$", DoubleToString(dist, 2), " < Minimum $", DoubleToString(minGapUSD, 2), "). Order creation BLOCKED!");
+               ", Gap=$", DoubleToString(dist, 2), " < Minimum $", DoubleToString(effectiveGap, 2), "). Order creation BLOCKED!");
          return false;
         }
      }
@@ -19968,18 +20126,29 @@ void CheckNewRedLineCloseBuyAndOpenSell()
 
    if(minEmaGap > 0.0 && (lineEmaGap < minEmaGap || priceEmaGap < minEmaGap))
      {
-      static datetime s_lastBlockedLogEqh = 0;
-      if(TimeCurrent() - s_lastBlockedLogEqh >= 30)
+      double curAngle = (GlobalEmaAngle30 != 0.0) ? GlobalEmaAngle30 : GetEmaAngleDegrees(30);
+      if(MathAbs(curAngle) > InpHorizontalLineIgnoreEmaGapAngle)
         {
-         s_lastBlockedLogEqh = TimeCurrent();
-         Print(">>> [RED LINE ORDER BLOCKED] Gap between EQH-R and EMA is < $", DoubleToString(minEmaGap, 2),
-               " (Line-EMA Gap=$", DoubleToString(lineEmaGap, 2), ", Price-EMA Gap=$", DoubleToString(priceEmaGap, 2),
-               ", EQH-R=", DoubleToString(eqhPrice, Digits), ", EMA200=", DoubleToString(liveEma, Digits),
-               "). Skipping horizontal line order creation!");
+         Print(">>> [RED LINE EMA GAP IGNORED] Gap to EMA is < $", DoubleToString(minEmaGap, 2),
+               " but MathAbs(EMAangle)=", DoubleToString(MathAbs(curAngle), 2), " > ",
+               DoubleToString(InpHorizontalLineIgnoreEmaGapAngle, 1),
+               " deg (USER RULE: Ignore EMA distance filter if MathAbs(EMAangle) > 4). Filter bypassed!");
         }
-      s_lastHandledRedLineStart = curEqhStart;
-      g_lastOrderEqHighLineStart = curEqhStart; // Mark line as handled to enforce 1-order limit
-      return;
+      else
+        {
+         static datetime s_lastBlockedLogEqh = 0;
+         if(TimeCurrent() - s_lastBlockedLogEqh >= 30)
+           {
+            s_lastBlockedLogEqh = TimeCurrent();
+            Print(">>> [RED LINE ORDER BLOCKED] Gap between EQH-R and EMA is < $", DoubleToString(minEmaGap, 2),
+                  " (Line-EMA Gap=$", DoubleToString(lineEmaGap, 2), ", Price-EMA Gap=$", DoubleToString(priceEmaGap, 2),
+                  ", EQH-R=", DoubleToString(eqhPrice, Digits), ", EMA200=", DoubleToString(liveEma, Digits),
+                  ", MathAbs(EMAangle)=", DoubleToString(MathAbs(curAngle), 2), " <= 4.0). Skipping horizontal line order creation!");
+           }
+         s_lastHandledRedLineStart = curEqhStart;
+         g_lastOrderEqHighLineStart = curEqhStart; // Mark line as handled to enforce 1-order limit
+         return;
+        }
      }
 // A NEW RED HORIZONTAL LINE HAS STARTED AND QUALIFIES!
    s_lastHandledRedLineStart = curEqhStart;
@@ -20256,18 +20425,29 @@ void CheckNewGreenLineCloseSellAndOpenBuy()
 
    if(minEmaGap > 0.0 && (lineEmaGap < minEmaGap || priceEmaGap < minEmaGap))
      {
-      static datetime s_lastBlockedLogEql = 0;
-      if(TimeCurrent() - s_lastBlockedLogEql >= 30)
+      double curAngle = (GlobalEmaAngle30 != 0.0) ? GlobalEmaAngle30 : GetEmaAngleDegrees(30);
+      if(MathAbs(curAngle) > InpHorizontalLineIgnoreEmaGapAngle)
         {
-         s_lastBlockedLogEql = TimeCurrent();
-         Print(">>> [GREEN LINE ORDER BLOCKED] Gap between EQH-G and EMA is < $", DoubleToString(minEmaGap, 2),
-               " (Line-EMA Gap=$", DoubleToString(lineEmaGap, 2), ", Price-EMA Gap=$", DoubleToString(priceEmaGap, 2),
-               ", EQH-G=", DoubleToString(eqlPrice, Digits), ", EMA200=", DoubleToString(liveEma, Digits),
-               "). Skipping horizontal line order creation!");
+         Print(">>> [GREEN LINE EMA GAP IGNORED] Gap to EMA is < $", DoubleToString(minEmaGap, 2),
+               " but MathAbs(EMAangle)=", DoubleToString(MathAbs(curAngle), 2), " > ",
+               DoubleToString(InpHorizontalLineIgnoreEmaGapAngle, 1),
+               " deg (USER RULE: Ignore EMA distance filter if MathAbs(EMAangle) > 4). Filter bypassed!");
         }
-      s_lastHandledGreenLineStart = curEqlStart;
-      g_lastOrderEqLowLineStart = curEqlStart; // Mark line as handled to enforce 1-order limit
-      return;
+      else
+        {
+         static datetime s_lastBlockedLogEql = 0;
+         if(TimeCurrent() - s_lastBlockedLogEql >= 30)
+           {
+            s_lastBlockedLogEql = TimeCurrent();
+            Print(">>> [GREEN LINE ORDER BLOCKED] Gap between EQH-G and EMA is < $", DoubleToString(minEmaGap, 2),
+                  " (Line-EMA Gap=$", DoubleToString(lineEmaGap, 2), ", Price-EMA Gap=$", DoubleToString(priceEmaGap, 2),
+                  ", EQH-G=", DoubleToString(eqlPrice, Digits), ", EMA200=", DoubleToString(liveEma, Digits),
+                  ", MathAbs(EMAangle)=", DoubleToString(MathAbs(curAngle), 2), " <= 4.0). Skipping horizontal line order creation!");
+           }
+         s_lastHandledGreenLineStart = curEqlStart;
+         g_lastOrderEqLowLineStart = curEqlStart; // Mark line as handled to enforce 1-order limit
+         return;
+        }
      }
 // A NEW GREEN HORIZONTAL LINE HAS STARTED AND QUALIFIES!
    s_lastHandledGreenLineStart = curEqlStart;
@@ -21154,7 +21334,12 @@ void CheckLsdSweepFlipBasketSupportOrder()
 
             if(livePrice > eqhPrice && rawGap <= m1MaxGap)
               {
-               if(emaGap < minEmaDist)
+               if(!HasMinimumHorizontalOrderGap(OP_BUY, Ask, InpHorizontalOrderSameTypeMinGapUSD))
+                 {
+                  // Blocked by horizontal order minimum gap ($200)
+                 }
+               else
+               if(MathAbs(GlobalEmaAngle30) <= InpHorizontalLineIgnoreEmaGapAngle && emaGap < minEmaDist)
                  {
                   Print(">>> [LSD M1 BUY BLOCKED] In EMA Chop Zone: Ask=", DoubleToString(livePrice, Digits),
                         ", EMA200=", DoubleToString(liveEma, Digits), ", Gap=$", DoubleToString(emaGap, 2),
@@ -21202,8 +21387,13 @@ void CheckLsdSweepFlipBasketSupportOrder()
 
             if(livePrice > eqlPrice && rawGap <= m2MaxGap)
               {
+               if(!HasMinimumHorizontalOrderGap(OP_BUY, Ask, InpHorizontalOrderSameTypeMinGapUSD))
+                 {
+                  // Blocked by horizontal order minimum gap ($200)
+                 }
+               else
                // SAFE-SIDE CHECK 1: Must NOT be inside the EMA Chop Zone (< minEmaDist from EMA200)
-               if(emaGap < minEmaDist)
+               if(MathAbs(GlobalEmaAngle30) <= InpHorizontalLineIgnoreEmaGapAngle && emaGap < minEmaDist)
                  {
                   Print(">>> [LSD M2 BUY BLOCKED] In EMA Chop Zone: Ask=", DoubleToString(livePrice, Digits),
                         ", EMA200=", DoubleToString(liveEma, Digits), ", Gap=$", DoubleToString(emaGap, 2),
@@ -21211,7 +21401,7 @@ void CheckLsdSweepFlipBasketSupportOrder()
                  }
                else
                   // SAFE-SIDE CHECK 2: Directional Runway / Momentum
-                  if(InpLsdRequireDirectionalRunway && liveEma > 0.0 && livePrice < liveEma && (liveEma - livePrice) < minEmaDist)
+                  if(InpLsdRequireDirectionalRunway && MathAbs(GlobalEmaAngle30) <= InpHorizontalLineIgnoreEmaGapAngle && liveEma > 0.0 && livePrice < liveEma && (liveEma - livePrice) < minEmaDist)
                     {
                      Print(">>> [LSD M2 BUY BLOCKED] Insufficient bounce runway up to EMA: LivePrice=",
                            DoubleToString(livePrice, Digits), ", EMA200=", DoubleToString(liveEma, Digits),
@@ -21294,7 +21484,12 @@ void CheckLsdSweepFlipBasketSupportOrder()
 
             if(livePrice < eqlPrice && rawGap <= m1MaxGap)
               {
-               if(emaGap < minEmaDist)
+               if(!HasMinimumHorizontalOrderGap(OP_SELL, Bid, InpHorizontalOrderSameTypeMinGapUSD))
+                 {
+                  // Blocked by horizontal order minimum gap ($200)
+                 }
+               else
+               if(MathAbs(GlobalEmaAngle30) <= InpHorizontalLineIgnoreEmaGapAngle && emaGap < minEmaDist)
                  {
                   Print(">>> [LSD M1 SELL BLOCKED] In EMA Chop Zone: Bid=", DoubleToString(livePrice, Digits),
                         ", EMA200=", DoubleToString(liveEma, Digits), ", Gap=$", DoubleToString(emaGap, 2),
@@ -21342,8 +21537,13 @@ void CheckLsdSweepFlipBasketSupportOrder()
 
             if(livePrice < eqhPrice && rawGap <= m2MaxGap)
               {
+               if(!HasMinimumHorizontalOrderGap(OP_SELL, Bid, InpHorizontalOrderSameTypeMinGapUSD))
+                 {
+                  // Blocked by horizontal order minimum gap ($200)
+                 }
+               else
                // SAFE-SIDE CHECK 1: Must NOT be inside the EMA Chop Zone (< minEmaDist from EMA200)
-               if(emaGap < minEmaDist)
+               if(MathAbs(GlobalEmaAngle30) <= InpHorizontalLineIgnoreEmaGapAngle && emaGap < minEmaDist)
                  {
                   Print(">>> [LSD M2 SELL BLOCKED] In EMA Chop Zone: Bid=", DoubleToString(livePrice, Digits),
                         ", EMA200=", DoubleToString(liveEma, Digits), ", Gap=$", DoubleToString(emaGap, 2),
@@ -21351,7 +21551,7 @@ void CheckLsdSweepFlipBasketSupportOrder()
                  }
                else
                   // SAFE-SIDE CHECK 2: Directional Runway / Momentum
-                  if(InpLsdRequireDirectionalRunway && liveEma > 0.0 && livePrice > liveEma && (livePrice - liveEma) < minEmaDist)
+                  if(InpLsdRequireDirectionalRunway && MathAbs(GlobalEmaAngle30) <= InpHorizontalLineIgnoreEmaGapAngle && liveEma > 0.0 && livePrice > liveEma && (livePrice - liveEma) < minEmaDist)
                     {
                      Print(">>> [LSD M2 SELL BLOCKED] Insufficient drop runway down to EMA: LivePrice=",
                            DoubleToString(livePrice, Digits), ", EMA200=", DoubleToString(liveEma, Digits),
