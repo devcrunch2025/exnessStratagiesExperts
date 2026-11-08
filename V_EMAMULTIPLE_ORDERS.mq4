@@ -1,4 +1,4 @@
-﻿//+------------------------------------------------------------------+
+//+------------------------------------------------------------------+
 //|                  SSL CHANNEL CROSS EA - CONTINUOUS EQUITY LADDER |
 //|                  TWO-STAGE PROFIT LADDER | CONTINUOUS RESET      |
 //+------------------------------------------------------------------+
@@ -42,7 +42,7 @@ CheckBasketProfitClose  Total open basket profit
 */
 
 
-string glbVersion = "VMULTI-1088- 90% SL Adverse 50% Lot Cut & Double SL Cushion";
+string glbVersion = "VMULTI-1090- 90% SL Adverse Double SL First then Close 50% Lot";
 
 
 
@@ -1849,7 +1849,23 @@ void Check90PctSLAdversePartialCutAndDoubleSL()
       // Register ticket immediately to prevent duplicate triggers
       RegisterOrder90PctCut(tkt);
 
-      // Execute 50% partial close
+      // ACTION 1 (Previously Action 2): Double StopLoss FIRST on existing order for immediate breathing room
+      ResetLastError();
+      bool modified = SafeOrderModify(tkt, openPrice, newSL, OrderTakeProfit(), 0, clrOrange, "Emergency90PercentSLCutDoubleSL");
+      if(modified)
+        {
+         Print(">>> [90% SL ADVERSE SL DOUBLED FIRST] Order #", tkt, " (", DoubleToString(oLots, 2),
+               "L): SL successfully doubled to ", DoubleToString(newSL, Digits),
+               " (Distance: $", DoubleToString(doubledSLDist, 2), ") before closing 50% LOT.");
+        }
+      else
+        {
+         Print(">>> [90% SL ADVERSE SL MODIFY FAILED] Order #", tkt, " Err=", GetLastError(),
+               " Attempted SL=", DoubleToString(newSL, Digits));
+        }
+
+      // ACTION 2 (Previously Action 1): Now close 50% LOT at market
+      RefreshRates();
       ResetLastError();
       bool closed = SafeOrderCloseMarket(tkt, halfLots, Slippage, clrOrangeRed);
       if(!closed)
@@ -1858,11 +1874,11 @@ void Check90PctSLAdversePartialCutAndDoubleSL()
          continue;
         }
 
-      Print(">>> [90% SL ADVERSE CLOSED 50%] Order #", tkt, " closed ", DoubleToString(halfLots, 2), "L successfully.");
+      Print(">>> [90% SL ADVERSE CLOSED 50%] Order #", tkt, " closed ", DoubleToString(halfLots, 2),
+            "L successfully. Remaining runner inherits doubled SL.");
 
-      // Find remaining runner order and double its StopLoss
+      // Register and verify remaining runner order (or child split ticket)
       RefreshRates();
-      int remainingTicket = -1;
       for(int r = OrdersTotal() - 1; r >= 0; r--)
         {
          if(!OrderSelect(r, SELECT_BY_POS, MODE_TRADES))
@@ -1874,26 +1890,12 @@ void Check90PctSLAdversePartialCutAndDoubleSL()
          string rComm = OrderComment();
          if(rTkt == tkt || StringFind(rComm, "from #" + IntegerToString(tkt)) >= 0)
            {
-            remainingTicket = rTkt;
             RegisterOrder90PctCut(rTkt); // Also register child ticket
+            if(MathAbs(OrderStopLoss() - newSL) > Point)
+              {
+               SafeOrderModify(rTkt, OrderOpenPrice(), newSL, OrderTakeProfit(), 0, clrOrange, "Emergency90PercentSLCutDoubleSL");
+              }
             break;
-           }
-        }
-
-      if(remainingTicket > 0)
-        {
-         ResetLastError();
-         bool modified = SafeOrderModify(remainingTicket, openPrice, newSL, OrderTakeProfit(), 0, clrOrange, "Emergency90PercentSLCutDoubleSL");
-         if(modified)
-           {
-            Print(">>> [90% SL ADVERSE SL DOUBLED] Remaining Order #", remainingTicket, " (",
-                  DoubleToString(OrderLots(), 2), "L): SL successfully doubled to ",
-                  DoubleToString(newSL, Digits), " (Distance: $", DoubleToString(doubledSLDist, 2), ")");
-           }
-         else
-           {
-            Print(">>> [90% SL ADVERSE SL MODIFY FAILED] Remaining Order #", remainingTicket,
-                  " Err=", GetLastError(), " Attempted SL=", DoubleToString(newSL, Digits));
            }
         }
      }
@@ -3210,7 +3212,7 @@ int    InpMultiOrderClosedFontSize          = 10;     // Font size for +2, +3 cl
 void   DrawMultiOrderClosedIcon(int orderCount, datetime closeTime, double closePrice, double netProfit, string methodName = "", int primaryTicket = 0);
 void   RecordMethodModification(int ticket, int methodId, int comboSize, double targetProfit);
 int    GetMethodForTicket(int ticket, int &comboSize);
-string GetMethodDescription(int methodId, int orderCount);
+string GetMethodDescription(int methodId, int orderCount, double netProfit = 0.0);
 void   CheckAndDrawMultiOrderClosedIcons();
 void   CheckBasketProfitClose();
 void   ModifyMethod6MultiOrderCombinationsOver5USD();
@@ -3606,7 +3608,7 @@ int GetMethodForTicket(int ticket, int &comboSize)
    return 0;
   }
 
-string GetMethodDescription(int methodId, int orderCount)
+string GetMethodDescription(int methodId, int orderCount, double netProfit = 0.0)
   {
    switch(methodId)
      {
@@ -3623,7 +3625,10 @@ string GetMethodDescription(int methodId, int orderCount)
       case 6:
          return "Method 6: Multi-Order >$5 SL";
       default:
-         return StringFormat("Multi-Order Combo Close (+%d)", orderCount);
+         if(netProfit < 0.0)
+            return StringFormat("Multi-Order Loss / Risk Cut (+%d)", orderCount);
+         else
+            return StringFormat("Multi-Order Profit Close (+%d)", orderCount);
      }
   }
 
@@ -3669,12 +3674,17 @@ void DrawMultiOrderClosedIcon(int orderCount, datetime closeTime, double closePr
    color dotColor = (netProfit >= 0.0) ? clrLimeGreen : clrCrimson;
    color txtColor = (netProfit >= 0.0) ? InpMultiOrderClosedIconColor : clrTomato;
 
-   string methodLabel = (methodName != "" ? methodName : StringFormat("Method Combo (+%d)", orderCount));
-   string tooltip = StringFormat("%s | +%d Orders Closed | Net Profit: %s$%.2f | Price: %.2f | Time: %s",
+   string defaultLabel = (netProfit < 0.0 ? StringFormat("Multi-Order Loss / Risk Cut (+%d)", orderCount)
+                                          : StringFormat("Multi-Order Profit Close (+%d)", orderCount));
+   string methodLabel = (methodName != "" ? methodName : defaultLabel);
+
+   string plFormatted = (netProfit >= 0.0) ? StringFormat("Net Profit: +$%.2f", netProfit)
+                                           : StringFormat("Net Loss: -$%.2f", MathAbs(netProfit));
+
+   string tooltip = StringFormat("%s | +%d Orders Closed | %s | Price: %.2f | Time: %s",
                                  methodLabel,
                                  orderCount,
-                                 (netProfit >= 0.0 ? "+" : ""),
-                                 netProfit,
+                                 plFormatted,
                                  closePrice,
                                  TimeToString(closeTime, TIME_DATE|TIME_MINUTES|TIME_SECONDS));
 
@@ -3706,7 +3716,7 @@ void DrawMultiOrderClosedIcon(int orderCount, datetime closeTime, double closePr
 
    Print(">>> [CHART ICON +", orderCount, "] Placed icon '+", orderCount, "' on chart at ",
          TimeToString(closeTime, TIME_DATE|TIME_MINUTES|TIME_SECONDS), " price ", DoubleToString(closePrice, Digits),
-         " | Profit: $", DoubleToString(netProfit, 2), " | ", methodLabel);
+         " | ", plFormatted, " | ", methodLabel);
   }
 
 //+------------------------------------------------------------------+
@@ -3873,7 +3883,7 @@ void CheckAndDrawMultiOrderClosedIcons()
       if(groupCount >= 2)
         {
          double avgClosePrice = sumPrice / (double)groupCount;
-         string mDesc = GetMethodDescription(detectedMethod, groupCount);
+         string mDesc = GetMethodDescription(detectedMethod, groupCount, groupProfit);
          DrawMultiOrderClosedIcon(groupCount, grpTime, avgClosePrice, groupProfit, mDesc, closedList[i].ticket);
         }
      }
