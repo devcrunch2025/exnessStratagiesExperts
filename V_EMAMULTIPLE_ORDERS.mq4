@@ -3208,7 +3208,7 @@ double InpEmaTrendAwareLivePriceGapUSD     = 0.0;   // Live Price SL Buffer USD 
 // USER RULE (VMULTI-1096): Double StopLoss gap (e.g. $150 -> $300) when MathAbs(EMAangle) > 3.0 and raw profit gap > $500.0 in profitable direction
 bool   InpEnableDoubleSlGapOnSteepAngle    = true;  // Double SL gap (e.g. $150 -> $300) when MathAbs(EMAangle) > 3.0 & raw profit gap > $500
 double InpDoubleSlGapAngle                 = 3.0;   // Minimum EMA angle (degrees) to double the SL gap (MathAbs(EMAangle) > 3.0)
-double InpDoubleSlMinProfitGapRaw          = 500.0; // Minimum raw price gap ($500.0) in profit direction (openprice - liveprice)
+double InpDoubleSlMinProfitGapRaw          = 350;//500.0; // Minimum raw price gap ($500.0) in profit direction (openprice - liveprice)
 double InpDoubleSlGapMultiplier            = 2.0;   // Gap multiplier (default 2.0 = double gap $150 to $300)
 
 double GetTrendAwareStopLoss(int orderType, double standardGapUSD, double curSL = 0.0, string callerName = "", double orderProfit = 0.0, double openPrice = 0.0);
