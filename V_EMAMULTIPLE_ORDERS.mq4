@@ -9255,8 +9255,19 @@ int SafeOrderSend(string symbol,int orderType,double lots,double price,int slipp
             return -1;
            }
      }
-   if(EMADirection != requestedDirection && ((TimeCurrent() - EmaFlipTime > 60*30 && GetDistanceToEMAPrice(requestedDirection == 1 ? OP_BUY : OP_SELL, true) < 500.0) || (TimeCurrent() - EmaFlipTime > 60*60))) // 1 hour
-      return -1;
+
+
+if(EMADirection != requestedDirection &&
+   (
+      (TimeCurrent() - EmaFlipTime < 60 * 30 &&
+       GetDistanceToEMAPrice(requestedDirection == 1 ? OP_BUY : OP_SELL, true) <= 500.0)
+      ||
+      (TimeCurrent() - EmaFlipTime > 60 * 60)
+   )
+   
+   )
+   return -1;
+
    if(!IsEmaWEAKDistanceReduced50PercentFromPeak() && EMADirection!= requestedDirection)
       return -1;
 
