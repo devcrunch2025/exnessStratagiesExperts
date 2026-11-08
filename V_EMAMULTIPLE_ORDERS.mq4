@@ -42,7 +42,7 @@ CheckBasketProfitClose  Total open basket profit
 */
 
 
-string glbVersion = "VMULTI-1086- Final -MULTI Orders $>5 close orders";
+string glbVersion = "VMULTI-1087- Universal One-Way Ratchet (Keep Higher Locked Profit)";
 
 
 
@@ -9674,11 +9674,18 @@ double GetTrendAwareStopLoss(int orderType, double standardGapUSD, double curSL 
         {
          // Condition 2: BUY and (EMADirection == -1 or EMA weak) -> live price to avoid extra loss
          targetSL = NormalizeDouble(curBid - liveBuffer, Digits);
-         Print(">>> [TREND-AWARE SL] BUY", (callerName != "" ? " (" + callerName + ")" : ""),
-               ": EMA Dir=", EMADirection, ", Weak=", isEmaWeak,
-               " -> Setting SL to Live Price (Bid - ", DoubleToString(liveBuffer, Digits), ") = ",
-               DoubleToString(targetSL, Digits), " (Standard gap $", DoubleToString(gap, 2), " skipped to prevent loss)");
+         if(curSL <= 0.0 || targetSL > curSL)
+           {
+            Print(">>> [TREND-AWARE SL] BUY", (callerName != "" ? " (" + callerName + ")" : ""),
+                  ": EMA Dir=", EMADirection, ", Weak=", isEmaWeak,
+                  " -> Setting SL to Live Price (Bid - ", DoubleToString(liveBuffer, Digits), ") = ",
+                  DoubleToString(targetSL, Digits), " (Standard gap $", DoubleToString(gap, 2), " skipped to prevent loss)");
+           }
         }
+
+      // Universal One-Way Ratchet: If targetSL is worse than or equal to existing curSL, preserve curSL
+      if(curSL > 0.0 && targetSL <= curSL)
+         targetSL = curSL;
      }
    else if(orderType == OP_SELL)
      {
@@ -9693,11 +9700,18 @@ double GetTrendAwareStopLoss(int orderType, double standardGapUSD, double curSL 
         {
          // Condition 2: SELL and (EMADirection == 1 or EMA weak) -> live price to avoid extra loss
          targetSL = NormalizeDouble(curAsk + liveBuffer, Digits);
-         Print(">>> [TREND-AWARE SL] SELL", (callerName != "" ? " (" + callerName + ")" : ""),
-               ": EMA Dir=", EMADirection, ", Weak=", isEmaWeak,
-               " -> Setting SL to Live Price (Ask + ", DoubleToString(liveBuffer, Digits), ") = ",
-               DoubleToString(targetSL, Digits), " (Standard gap $", DoubleToString(gap, 2), " skipped to prevent loss)");
+         if(curSL <= 0.0 || targetSL < curSL)
+           {
+            Print(">>> [TREND-AWARE SL] SELL", (callerName != "" ? " (" + callerName + ")" : ""),
+                  ": EMA Dir=", EMADirection, ", Weak=", isEmaWeak,
+                  " -> Setting SL to Live Price (Ask + ", DoubleToString(liveBuffer, Digits), ") = ",
+                  DoubleToString(targetSL, Digits), " (Standard gap $", DoubleToString(gap, 2), " skipped to prevent loss)");
+           }
         }
+
+      // Universal One-Way Ratchet: If targetSL is worse than or equal to existing curSL, preserve curSL
+      if(curSL > 0.0 && targetSL >= curSL)
+         targetSL = curSL;
      }
 
    return targetSL;
@@ -9794,12 +9808,15 @@ bool SafeOrderModify(int ticket,double openPrice,double stopLoss,double takeProf
             minStopDist = 20.0;
          double liveBuffer = (InpEmaTrendAwareLivePriceGapUSD > minStopDist) ? InpEmaTrendAwareLivePriceGapUSD : minStopDist;
 
+         double existingSL = OrderStopLoss();
+
          if(orderType == OP_BUY)
            {
             if(EMADirection == -1 || isEmaWeak)
               {
                double livePriceSL = NormalizeDouble(Bid - liveBuffer, Digits);
-               if(livePriceSL > requestedSL)
+               // Strict One-Way Ratchet: Tighten only if higher than requestedSL AND higher than existing SL (never downgrade profit!)
+               if(livePriceSL > requestedSL && (existingSL <= 0.0 || livePriceSL > existingSL))
                  {
                   Print(">>> [TREND-AWARE SL ENFORCED] SafeOrderModify BUY #", ticket,
                         (callerName != "" ? " (" + callerName + ")" : ""),
@@ -9815,7 +9832,8 @@ bool SafeOrderModify(int ticket,double openPrice,double stopLoss,double takeProf
             if(EMADirection == 1 || isEmaWeak)
               {
                double livePriceSL = NormalizeDouble(Ask + liveBuffer, Digits);
-               if(livePriceSL < requestedSL || requestedSL == 0.0)
+               // Strict One-Way Ratchet: Tighten only if lower than requestedSL AND lower than existing SL (never downgrade profit!)
+               if((livePriceSL < requestedSL || requestedSL == 0.0) && (existingSL <= 0.0 || livePriceSL < existingSL))
                  {
                   Print(">>> [TREND-AWARE SL ENFORCED] SafeOrderModify SELL #", ticket,
                         (callerName != "" ? " (" + callerName + ")" : ""),
