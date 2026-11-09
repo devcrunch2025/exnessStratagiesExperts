@@ -3323,6 +3323,9 @@ void   RecordOrderCloseReason(int ticket, string reason);
 string GetOrderCloseReason(int ticket);
 void   LogClosedOrderRecord(int ticket);
 void   GenerateTesterSummaryReport();
+int    RecordMethodActionCluster(int pMethodId, int &pTickets[], double &pPLs[], int pCount, double pExpectedProfit, string pActionDetails);
+void   ProcessMethodAnalyticsTracker();
+void   PrintMethodAnalyticsSummaryReport();
 string CategorizeOrderStrategy(int ticket, string comment);
 string DetermineOrderCloseReason(int ticket, string comment, double openPrice, double closePrice, double sl, double tp, double netProfit, string strategy);
 void   WriteReportLineToFile(string fileName, string lineText, bool appendMode);
@@ -3794,6 +3797,226 @@ void DrawMethod6HitIcon(int orderCount, double comboProfit, datetime hitTime = 0
          TimeToString(barTime, TIME_DATE|TIME_MINUTES), " | Profit: $", DoubleToString(comboProfit, 2));
   }
 
+//+------------------------------------------------------------------+
+//| METHOD-WISE ANALYTICS & LOGGING ENGINE                           |
+//| Tracks trigger time, expected profit, participating orders, and  |
+//| actual released profit when orders close.                        |
+//| Generates structured log lines and an OnDeinit summary report.   |
+//+------------------------------------------------------------------+
+#define MAX_METHOD_ACTION_CLUSTERS 1000
+
+struct SMethodActionCluster
+  {
+   int      cClusterId;
+   int      cMethodId;          // 1: Method 1, 2: Method 2, 3: Method 3, 4: Method 4, 5: Method 5, 6: Method 6
+   string   cMethodName;
+   datetime cTriggerTime;
+   int      cOrderCount;
+   int      cTickets[10];
+   double   cTriggerPL[10];
+   double   cExpectedProfit;
+   double   cReleasedProfit;
+   int      cClosedCount;
+   bool     cIsFullyClosed;
+   datetime cLastCloseTime;
+  };
+
+SMethodActionCluster g_methodClusters[MAX_METHOD_ACTION_CLUSTERS];
+int                  g_methodClusterCount = 0;
+
+int RecordMethodActionCluster(int pMethodId, int &pTickets[], double &pPLs[], int pCount, double pExpectedProfit, string pActionDetails)
+  {
+   if(pCount <= 0)
+      return -1;
+      
+   int cId = g_methodClusterCount;
+   if(cId >= MAX_METHOD_ACTION_CLUSTERS)
+      return -1;
+      
+   g_methodClusters[cId].cClusterId      = cId + 1;
+   g_methodClusters[cId].cMethodId       = pMethodId;
+   g_methodClusters[cId].cMethodName     = GetMethodDescription(pMethodId, pCount, pExpectedProfit);
+   g_methodClusters[cId].cTriggerTime    = TimeCurrent();
+   g_methodClusters[cId].cOrderCount     = pCount;
+   g_methodClusters[cId].cExpectedProfit = pExpectedProfit;
+   g_methodClusters[cId].cReleasedProfit = 0.0;
+   g_methodClusters[cId].cClosedCount    = 0;
+   g_methodClusters[cId].cIsFullyClosed  = false;
+   g_methodClusters[cId].cLastCloseTime  = 0;
+   
+   string ordersStr = "";
+   for(int k = 0; k < pCount && k < 10; k++)
+     {
+      g_methodClusters[cId].cTickets[k]   = pTickets[k];
+      g_methodClusters[cId].cTriggerPL[k] = pPLs[k];
+      
+      // Also link to individual order tracker
+      RecordMethodModification(pTickets[k], pMethodId, pCount, pExpectedProfit);
+      
+      if(k > 0) ordersStr = ordersStr + ", ";
+      ordersStr = ordersStr + StringFormat("#%d ($%.2f)", pTickets[k], pPLs[k]);
+     }
+     
+   g_methodClusterCount++;
+   
+   // Structured Analytics Trigger Log
+   Print(StringFormat(">>> [METHOD_TRIGGER] Cluster #%d | %s | Time: %s | Orders: [%s] | Expected Profit: $%.2f | Action: %s",
+                      cId + 1,
+                      g_methodClusters[cId].cMethodName,
+                      TimeToString(TimeCurrent(), TIME_DATE|TIME_MINUTES|TIME_SECONDS),
+                      ordersStr,
+                      pExpectedProfit,
+                      pActionDetails));
+                      
+   return (cId + 1);
+  }
+
+void ProcessMethodAnalyticsTracker()
+  {
+   if(g_methodClusterCount <= 0)
+      return;
+      
+   for(int c = 0; c < g_methodClusterCount; c++)
+     {
+      if(g_methodClusters[c].cIsFullyClosed)
+         continue;
+         
+      int closedInCluster = 0;
+      double currentReleasedPL = 0.0;
+      string closedDetails = "";
+      datetime latestCloseTime = 0;
+      
+      for(int k = 0; k < g_methodClusters[c].cOrderCount && k < 10; k++)
+        {
+         int tkt = g_methodClusters[c].cTickets[k];
+         if(tkt <= 0)
+            continue;
+            
+         if(OrderSelect(tkt, SELECT_BY_TICKET, MODE_HISTORY))
+           {
+            closedInCluster++;
+            double p = OrderProfit() + OrderSwap() + OrderCommission();
+            currentReleasedPL += p;
+            datetime ct = OrderCloseTime();
+            if(ct > latestCloseTime) latestCloseTime = ct;
+            
+            if(closedDetails != "") closedDetails = closedDetails + ", ";
+            closedDetails = closedDetails + StringFormat("#%d: $%.2f", tkt, p);
+           }
+        }
+        
+      // If newly closed orders detected
+      if(closedInCluster > g_methodClusters[c].cClosedCount)
+        {
+         g_methodClusters[c].cClosedCount = closedInCluster;
+         g_methodClusters[c].cReleasedProfit = currentReleasedPL;
+         g_methodClusters[c].cLastCloseTime = latestCloseTime;
+         
+         if(closedInCluster >= g_methodClusters[c].cOrderCount)
+           {
+            g_methodClusters[c].cIsFullyClosed = true;
+            
+            double expP = g_methodClusters[c].cExpectedProfit;
+            double relP = currentReleasedPL;
+            double diff = relP - expP;
+            double retention = (expP > 0.0) ? (relP / expP * 100.0) : 0.0;
+            string statusStr = (relP >= expP - 0.20) ? "TARGET ACHIEVED" : (relP > 0.0 ? "REDUCED PROFIT" : "LOSS GIVEN BACK");
+            
+            Print(StringFormat(">>> [METHOD_RELEASED] Cluster #%d | %s | Closed Time: %s | Orders: [%s] | Expected: $%.2f | Released: $%.2f | Diff: $%.2f (Retention: %.1f%%) | Status: %s | Balance: $%.2f",
+                               g_methodClusters[c].cClusterId,
+                               g_methodClusters[c].cMethodName,
+                               TimeToString(latestCloseTime, TIME_DATE|TIME_MINUTES|TIME_SECONDS),
+                               closedDetails,
+                               expP,
+                               relP,
+                               diff,
+                               retention,
+                               statusStr,
+                               AccountBalance()));
+           }
+        }
+     }
+  }
+
+void PrintMethodAnalyticsSummaryReport()
+  {
+   ProcessMethodAnalyticsTracker();
+   
+   string sep = "========================================================================================";
+   string subSep = "----------------------------------------------------------------------------------------";
+   
+   Print(sep);
+   Print("                      METHOD-WISE ANALYTICS PERFORMANCE SUMMARY");
+   Print(sep);
+   Print(StringFormat("%-30s | %-8s | %-8s | %-12s | %-12s | %-12s | %-10s",
+                      "Method Name", "Triggers", "Closed", "Expected ($)", "Released ($)", "Giveback ($)", "Retention %"));
+   Print(subSep);
+   
+   double grandExpected = 0.0;
+   double grandReleased = 0.0;
+   int grandTriggers = 0;
+   int grandClosed = 0;
+   
+   string fileReport = sep + "\r\n                      METHOD-WISE ANALYTICS PERFORMANCE SUMMARY\r\n" + sep + "\r\n";
+   fileReport = fileReport + StringFormat("%-30s | %-8s | %-8s | %-12s | %-12s | %-12s | %-10s\r\n",
+                                          "Method Name", "Triggers", "Closed", "Expected ($)", "Released ($)", "Giveback ($)", "Retention %") + subSep + "\r\n";
+   
+   for(int m = 1; m <= 6; m++)
+     {
+      int trigCount = 0;
+      int closedCount = 0;
+      double mExpected = 0.0;
+      double mReleased = 0.0;
+      string mName = GetMethodDescription(m, 2, 0.0);
+      
+      for(int c = 0; c < g_methodClusterCount; c++)
+        {
+         if(g_methodClusters[c].cMethodId == m)
+           {
+            trigCount++;
+            mExpected += g_methodClusters[c].cExpectedProfit;
+            if(g_methodClusters[c].cClosedCount > 0)
+              {
+               closedCount++;
+               mReleased += g_methodClusters[c].cReleasedProfit;
+              }
+           }
+        }
+        
+      if(trigCount > 0)
+        {
+         double diff = mReleased - mExpected;
+         double ret = (mExpected > 0.0) ? (mReleased / mExpected * 100.0) : 0.0;
+         string line = StringFormat("%-30s | %-8d | %-8d | %12.2f | %12.2f | %12.2f | %9.1f%%",
+                                    mName, trigCount, closedCount, mExpected, mReleased, diff, ret);
+         Print(line);
+         fileReport = fileReport + line + "\r\n";
+                            
+         grandExpected += mExpected;
+         grandReleased += mReleased;
+         grandTriggers += trigCount;
+         grandClosed += closedCount;
+        }
+     }
+     
+   Print(subSep);
+   double grandDiff = grandReleased - grandExpected;
+   double grandRet = (grandExpected > 0.0) ? (grandReleased / grandExpected * 100.0) : 0.0;
+   string totalLine = StringFormat("%-30s | %-8d | %-8d | %12.2f | %12.2f | %12.2f | %9.1f%%",
+                                   "TOTAL ACROSS ALL METHODS", grandTriggers, grandClosed, grandExpected, grandReleased, grandDiff, grandRet);
+   Print(totalLine);
+   Print(sep);
+   fileReport = fileReport + subSep + "\r\n" + totalLine + "\r\n" + sep + "\r\n";
+   
+   int hFile = FileOpen("Method_Analytics_Summary.txt", FILE_WRITE|FILE_TXT);
+   if(hFile != INVALID_HANDLE)
+     {
+      FileWriteString(hFile, fileReport);
+      FileClose(hFile);
+     }
+  }
+
+
 void CheckAndDrawMultiOrderClosedIcons()
   {
    if(!InpDrawMultiOrderClosedIcons)
@@ -4160,7 +4383,16 @@ void ExecuteMethod6CombinationAction(int &comboIndices[], int comboCount, double
                                      double &candOpenPrices[], double &candTakeProfits[],
                                      double &candProfits[], bool &isProcessed[])
   {
-   Print(">>> [METHOD 6 TRIGGERED] Combination of ", comboCount, " orders hit Profit = $", DoubleToString(comboSum, 2),
+      int m6Tkts[10];
+   double m6Pls[10];
+   for(int m6i = 0; m6i < comboCount && m6i < 10; m6i++)
+     {
+      m6Tkts[m6i] = candTickets[comboIndices[m6i]];
+      m6Pls[m6i]  = candProfits[comboIndices[m6i]];
+     }
+   RecordMethodActionCluster(6, m6Tkts, m6Pls, comboCount, comboSum, "1) Close losing orders at market, 2) Modify winning orders with SL at current price");
+
+Print(">>> [METHOD 6 TRIGGERED] Combination of ", comboCount, " orders hit Profit = $", DoubleToString(comboSum, 2),
          " >= Threshold. Executing Action: 1) Close losing orders at market, 2) Modify profit orders with SL at current price.");
 
    // 1. FIRST: Close losing orders at market
@@ -4630,7 +4862,11 @@ void CloseProfitableOrderCombinations()
 
       if(totalBasketPL >= minProfitUSD)
         {
-         Print(">>> [COMBINATION CLOSE - ALL ORDERS] Total Basket Profit = $", DoubleToString(totalBasketPL, 2),
+                  int m4bTkts[10]; double m4bPls[10];
+         for(int m4bi = 0; m4bi < candCount && m4bi < 10; m4bi++) { m4bTkts[m4bi] = candTickets[m4bi]; m4bPls[m4bi] = candProfits[m4bi]; }
+         RecordMethodActionCluster(4, m4bTkts, m4bPls, candCount, totalBasketPL, "Method 4: Basket Combo Close at market");
+
+Print(">>> [COMBINATION CLOSE - ALL ORDERS] Total Basket Profit = $", DoubleToString(totalBasketPL, 2),
                " >= $", DoubleToString(minProfitUSD, 2), " | Closing ALL ", candCount, " open orders!");
 
          for(int b = 0; b < candCount; b++)
@@ -4664,7 +4900,12 @@ void CloseProfitableOrderCombinations()
             double pairSum = candProfits[i] + candProfits[j];
             if(pairSum >= minProfitUSD)
               {
-               Print(">>> [COMBINATION CLOSE - PAIR (WIN+LOSS)] Ticket #", candTickets[i],
+                              int m4pTkts[2]; double m4pPls[2];
+               m4pTkts[0] = candTickets[i]; m4pPls[0] = candProfits[i];
+               m4pTkts[1] = candTickets[j]; m4pPls[1] = candProfits[j];
+               RecordMethodActionCluster(4, m4pTkts, m4pPls, 2, pairSum, "Method 4: Pair Combo Close at market");
+
+Print(">>> [COMBINATION CLOSE - PAIR (WIN+LOSS)] Ticket #", candTickets[i],
                      " (", (candTypes[i] == OP_BUY ? "BUY" : "SELL"), " $", DoubleToString(candProfits[i], 2), ") + Ticket #",
                      candTickets[j], " (", (candTypes[j] == OP_BUY ? "BUY" : "SELL"), " $", DoubleToString(candProfits[j], 2),
                      ") = Total $", DoubleToString(pairSum, 2), " >= $", DoubleToString(minProfitUSD, 2), " | Closing Pair!");
@@ -4711,7 +4952,13 @@ void CloseProfitableOrderCombinations()
                double tripletSum = candProfits[i] + candProfits[j] + candProfits[k];
                if(tripletSum >= minProfitUSD)
                  {
-                  Print(">>> [COMBINATION CLOSE - TRIPLET (WITH LOSS)] Tickets [#", candTickets[i], ", #", candTickets[j], ", #", candTickets[k],
+                                    int m4tTkts[3]; double m4tPls[3];
+                  m4tTkts[0] = candTickets[i]; m4tPls[0] = candProfits[i];
+                  m4tTkts[1] = candTickets[j]; m4tPls[1] = candProfits[j];
+                  m4tTkts[2] = candTickets[k]; m4tPls[2] = candProfits[k];
+                  RecordMethodActionCluster(4, m4tTkts, m4tPls, 3, tripletSum, "Method 4: Triplet Combo Close at market");
+
+Print(">>> [COMBINATION CLOSE - TRIPLET (WITH LOSS)] Tickets [#", candTickets[i], ", #", candTickets[j], ", #", candTickets[k],
                         "] = Total $", DoubleToString(tripletSum, 2), " >= $", DoubleToString(minProfitUSD, 2), " | Closing Triplet!");
 
                   int tIdx[3];
@@ -6541,6 +6788,7 @@ void OnDeinit(const int reason)
    DeleteLiquiditySweepObjects();
    ClearSweepGlobalVariables();
    GenerateTesterSummaryReport();
+   PrintMethodAnalyticsSummaryReport();
   }
 
 int StartupProtectionTicks = 0;
@@ -6806,6 +7054,7 @@ CloseProfitableOrderCombinations(); // Method 4: Combination profit handler (> $
 ModifyPairProfitWithStopLoss(); // Method 1: Multi-order pair/triplet SL modifier (> $1*mult, $150 SL gap)
    ModifyMethod6MultiOrderCombinationsOver5USD(); // Method 6: Multi-order combinations (> 2 orders, profit/loss mix) > $5 SL modifier ($150 SL gap)
    CheckAndDrawMultiOrderClosedIcons(); // Multi-order closed icons (+2, +3, +4...) for all 6 methods
+   ProcessMethodAnalyticsTracker(); // Track released profit for all methods
 
 
    if(Time[0] != LastVShapeCheckedTime)
