@@ -42,8 +42,6 @@ CheckBasketProfitClose  Total open basket profit
 */
 
 
-
-
 string glbVersion = "VMULTI-1106- EquityProfitLadder5 Minimum 6 Hours Gap Between Step Hits";
 
 
