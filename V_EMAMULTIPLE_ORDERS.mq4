@@ -433,7 +433,7 @@ int    ServerToDubaiOffsetHours   = 4;
 
 // ===== SPREAD & RISK SETTINGS =====
 double MaxAllowedSpreadUSD = 35.0;
-int AccountMultiplierLOT = 400;//200;//500;
+int AccountMultiplierLOT = 400;//400;//200;//500;
 double OriginalStopLossUSD = 20;//6;//4;
 double StopLossRawPriceGap =3000;// 2000.0;   // Raw price gap ($2000 BTC price points) for StopLoss
 double TakeProfitRawPriceGap = 500.0;  // Raw price gap ($500 BTC price points) for TakeProfit
@@ -3465,7 +3465,7 @@ double InpOverallBasketSLGapUSD             = 100.0;  // Method 5: Overall hedge
 // Method 6: Multi-Order Combinations (> 2 orders, Profit or Loss mix) > $20 Profit SL Modifier
 bool   InpEnableMethod6CombinationSLModify  = true;   // Method 6: Check combinations of >2 orders (profit/loss mix) > $20 profit
 double InpMethod6ProfitThresholdUSD         = 10;//20.0;   // Method 6: Base profit threshold in USD ($20.00 * multiplier)
-double InpMethod6SLDistanceUSD              = 150.0;  // Method 6: StopLoss gap in USD points ($150)
+double InpMethod6SLDistanceUSD              = 100.0;  // Method 6: StopLoss gap in USD points ($150)
 int    InpMethod6MinOrderCount              = 2;      // Method 6: Minimum number of orders in combination (default 2 or 3)
 bool   InpDrawMethod6HitIcon                = true;   // Method 6: Draw chart icon when combination profit threshold is hit
 color  InpMethod6HitIconColor               = clrGold;// Method 6: Chart icon & text color
