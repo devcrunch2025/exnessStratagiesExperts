@@ -42,7 +42,7 @@ CheckBasketProfitClose  Total open basket profit
 */
 
 
-string glbVersion = "VMULTI-1106- EquityProfitLadder5 Minimum 6 Hours Gap Between Step Hits";
+string glbVersion = "VMULTI-1107- Streamlined Essential Right Dashboard";
 
 
 
@@ -19189,17 +19189,24 @@ void UpdateDashboard(DailyProtectionState &state)
      }
 
    w = MathMax(DashboardWidth, 355);
-   panelHeight = 514;
+   panelHeight = 348;
    x = DashboardRightGap;
    y = DashboardTopGap;
    tx = x + 12;
+
+   static bool s_dashRedesignV7Reset = false;
+   if(!s_dashRedesignV7Reset)
+     {
+      DeleteDashboardObjects();
+      s_dashRedesignV7Reset = true;
+     }
 
 // Base Background Panel
    CreateDashboardPanel(DASH_PREFIX+"PANEL", x, y, w, panelHeight, C'14,18,24');
 
 // Header Bar
    CreateDashboardPanel(DASH_PREFIX+"HEADER", x, y, w, 36, C'20,55,90');
-   string eaTitle =glbVersion;// "SSL PRO SCALPER | " + Symbol() + " " + TimeframeToString(Period());
+   string eaTitle = StringFormat("%s | %s %s", "VMULTI-1107", Symbol(), TimeframeToString(Period()));
    CreateDashboardLabel(DASH_PREFIX+"TITLE", eaTitle, tx, y+4, 9, clrWhite);
    string priceStatus = StringFormat("BID: %." + IntegerToString(Digits) + "f | ASK: %." + IntegerToString(Digits) + "f | SPR: %d pts", Bid, Ask, (int)MarketInfo(Symbol(), MODE_SPREAD));
    CreateDashboardLabel(DASH_PREFIX+"PRICE", priceStatus, tx, y+19, 8, clrLightGray);
@@ -19215,7 +19222,8 @@ void UpdateDashboard(DailyProtectionState &state)
 
    string balEqStr = StringFormat("BALANCE / EQ: $%.2f / $%.2f (%dX)", AccountBalance(), AccountEquity(), balancelomultipler);
    CreateDashboardLabel(DASH_PREFIX+"BALEQ", balEqStr, tx, y+78, 8, clrWhite);
-// --- LIVE WITHDRAWAL ADVISOR (Top of Dashboard after Balance) ---
+
+// Live Withdrawal Advisor
    double curBal = AccountBalance();
    double curEq = AccountEquity();
    double effectiveCap = MathMin(curBal, curEq);
@@ -19223,7 +19231,6 @@ void UpdateDashboard(DailyProtectionState &state)
    if(safeWorkingBuffer <= 0.0)
       safeWorkingBuffer = 500.0;
 
-// Withdrawal is strictly based on equity/balance ABOVE the  minimum buffer
    double maxSafeWithdraw = MathMax(0.0, effectiveCap - safeWorkingBuffer);
    double recWithdraw = 0.0;
    string wdNote = "";
@@ -19237,28 +19244,26 @@ void UpdateDashboard(DailyProtectionState &state)
       wdNote = StringFormat("[Cushion < $%.0f]", safeWorkingBuffer);
       wdColor = clrSilver;
      }
+   else if(effectiveCap >= (safeWorkingBuffer * 2.0) && maxSafeWithdraw >= safeWorkingBuffer)
+     {
+      recWithdraw = safeWorkingBuffer;
+      wdNote = isFlatAccount ? "[RECOUP SEED: READY]" : "[RECOUP SEED: WAIT]";
+      wdColor = isFlatAccount ? clrLime : clrGold;
+     }
+   else if(maxSafeWithdraw >= 50.0)
+     {
+      recWithdraw = MathFloor(maxSafeWithdraw / 25.0) * 25.0;
+      if(recWithdraw < 25.0)
+         recWithdraw = maxSafeWithdraw;
+      wdNote = isFlatAccount ? "[HARVEST: READY]" : "[HARVEST: WAIT]";
+      wdColor = isFlatAccount ? clrLime : clrGold;
+     }
    else
-      if(effectiveCap >= (safeWorkingBuffer * 2.0) && maxSafeWithdraw >= safeWorkingBuffer)
-        {
-         recWithdraw = safeWorkingBuffer;
-         wdNote = isFlatAccount ? "[RECOUP SEED: READY]" : "[RECOUP SEED: WAIT]";
-         wdColor = isFlatAccount ? clrLime : clrGold;
-        }
-      else
-         if(maxSafeWithdraw >= 50.0)
-           {
-            recWithdraw = MathFloor(maxSafeWithdraw / 25.0) * 25.0;
-            if(recWithdraw < 25.0)
-               recWithdraw = maxSafeWithdraw;
-            wdNote = isFlatAccount ? "[HARVEST: READY]" : "[HARVEST: WAIT]";
-            wdColor = isFlatAccount ? clrLime : clrGold;
-           }
-         else
-           {
-            recWithdraw = maxSafeWithdraw;
-            wdNote = isFlatAccount ? "[PROFIT W/D: READY]" : "[PROFIT W/D: WAIT]";
-            wdColor = isFlatAccount ? clrLime : clrGold;
-           }
+     {
+      recWithdraw = maxSafeWithdraw;
+      wdNote = isFlatAccount ? "[PROFIT W/D: READY]" : "[PROFIT W/D: WAIT]";
+      wdColor = isFlatAccount ? clrLime : clrGold;
+     }
 
    string withdrawStr = "";
    if(recWithdraw > 0.0)
@@ -19290,7 +19295,7 @@ void UpdateDashboard(DailyProtectionState &state)
    CreateDashboardLabel(DASH_PREFIX+"LAD_CYCLE", cycleStr, tx, y+126, 8, (totalCycleProfit >= 0 ? clrLime : clrTomato));
 
 // ==========================================================
-// SECTION 2: BASKETS & FLOATING P/L ($1x TARGET)
+// SECTION 2: BASKETS & FLOATING P/L
 // ==========================================================
    CreateDashboardPanel(DASH_PREFIX+"SEC_BSK", x, y+146, w, 18, C'28,38,50');
    CreateDashboardLabel(DASH_PREFIX+"BSK_H", "--- BASKETS & FLOATING P/L ($2x TARGET + TRAIL) ---", tx, y+148, 8, clrAqua);
@@ -19313,73 +19318,21 @@ void UpdateDashboard(DailyProtectionState &state)
    CreateDashboardLabel(DASH_PREFIX+"FLOAT", netStr, tx, y+198, 8, (netPL >= 0 ? clrLime : clrTomato));
 
 // ==========================================================
-// SECTION 3: PENDING & SPECIAL ORDERS
+// SECTION 3: TREND & SIGNALS (Merged & High-Density)
 // ==========================================================
-   CreateDashboardPanel(DASH_PREFIX+"SEC_SPC", x, y+218, w, 18, C'28,38,50');
-   CreateDashboardLabel(DASH_PREFIX+"SPC_H", "--- PENDING & SPECIAL ORDERS ---", tx, y+220, 8, clrAqua);
+   CreateDashboardPanel(DASH_PREFIX+"SEC_SIG", x, y+218, w, 18, C'28,38,50');
+   CreateDashboardLabel(DASH_PREFIX+"SIG_H", "--- TREND & SIGNALS ---", tx, y+220, 8, clrAqua);
 
-   string pendStr = "NONE (Market Active)";
-   color pendClr = clrSilver;
-   if(pendingBuyCount > 0 && pendingSellCount > 0)
-     {
-      pendStr = StringFormat("BUY & SELL STOPS Active ($%.0f Gap)", SSLLongShortPendingGapRaw);
-      pendClr = clrGold;
-     }
-   else
-      if(pendingBuyCount > 0)
-        {
-         pendStr = StringFormat("BUY STOP @ %." + IntegerToString(Digits) + "f ($%.0f Gap)", pendingBuyPrice, SSLLongShortPendingGapRaw);
-         pendClr = clrDeepSkyBlue;
-        }
-      else
-         if(pendingSellCount > 0)
-           {
-            pendStr = StringFormat("SELL STOP @ %." + IntegerToString(Digits) + "f ($%.0f Gap)", pendingSellPrice, SSLLongShortPendingGapRaw);
-            pendClr = clrTomato;
-           }
-   CreateDashboardLabel(DASH_PREFIX+"PEND_SSL", "SSL PENDING : " + pendStr, tx, y+238, 8, pendClr);
+   // 1. Trend & SSL Direction + Strength + Angle
+   string emaShortDir = (EMADirection == 1) ? "BULL (+1)" : (EMADirection == -1 ? "BEAR (-1)" : "FLAT (0)");
+   bool isEmaWeak = IsEmaWEAKDistanceReduced50PercentFromPeak();
+   string emaStrength = isEmaWeak ? "WEAK" : "STRONG";
+   string sslShortDir = (currentSSLDirection > 0) ? "BUY (+1)" : (currentSSLDirection < 0 ? "SELL (-1)" : "NONE");
+   color trendColor = (EMADirection == 1) ? clrLime : (EMADirection == -1 ? clrTomato : clrGold);
+   string trendStr = StringFormat("TREND & SSL : EMA: %s [%s, %+.1f deg] | SSL: %s", emaShortDir, emaStrength, GlobalEmaAngle30, sslShortDir);
+   CreateDashboardLabel(DASH_PREFIX+"TREND", trendStr, tx, y+238, 8, trendColor);
 
-   string recStr = "NONE";
-   color recClr = clrSilver;
-   if(recCount > 0)
-     {
-      recStr = StringFormat("#%d (%s %.2fL) %s$%.2f [SL Gap $%.0f]", recTicket, (recType == OP_BUY ? "BUY" : "SELL"), recLots, (recPL >= 0 ? "+" : "-"), MathAbs(recPL), RecoveryStopLossDistanceRaw);
-      recClr = (recPL >= 0 ? clrLime : clrTomato);
-     }
-   CreateDashboardLabel(DASH_PREFIX+"REC_ORD", "LSD RECOVERY: " + recStr, tx, y+254, 8, recClr);
-
-   string flipStr = "NONE";
-   color flipClr = clrSilver;
-   if(flipCount > 0)
-     {
-      flipStr = StringFormat("#%d (%.2fL) %s$%.2f [Step Trail Active]", flipTicket, flipLots, (flipPL >= 0 ? "+" : "-"), MathAbs(flipPL));
-      flipClr = (flipPL >= 0 ? clrLime : clrGold);
-     }
-   CreateDashboardLabel(DASH_PREFIX+"FLIP_ORD", "FLIP SUPPORT: " + flipStr, tx, y+270, 8, flipClr);
-
-// ==========================================================
-// SECTION 4: TREND & SIGNALS
-// ==========================================================
-   CreateDashboardPanel(DASH_PREFIX+"SEC_SIG", x, y+290, w, 18, C'28,38,50');
-   CreateDashboardLabel(DASH_PREFIX+"SIG_H", "--- TREND & SIGNALS ---", tx, y+292, 8, clrAqua);
-
-   string globalEmaStr = "FLAT / NEUTRAL (0)";
-   color globalEmaClr = clrGold;
-   if(EMADirection == 1)
-     {
-      globalEmaStr = "BULLISH / BUY (+1)";
-      globalEmaClr = clrLime;
-     }
-   else
-      if(EMADirection == -1)
-        {
-         globalEmaStr = "BEARISH / SELL (-1)";
-         globalEmaClr = clrTomato;
-        }
-   double flipDist = EMAflipdistance();
-   string emaTrendStr = StringFormat("GLOBAL EMA  : %s | Gap: $%.1f", globalEmaStr, flipDist);
-   CreateDashboardLabel(DASH_PREFIX+"EMA_DIR", emaTrendStr, tx, y+310, 8, globalEmaClr);
-
+   // 2. EMA Distances: Live, Current Peak, Previous Peak
    if(g_prevEmaHighestDistance <= 0.0)
      {
       InitializePreviousEmaCycleValues();
@@ -19388,11 +19341,10 @@ void UpdateDashboard(DailyProtectionState &state)
    double currHighestDist = 0.0;
    if(EMADirection == 1)
       currHighestDist = GetHighestEmaDistanceSinceEmaFlip();
+   else if(EMADirection == -1)
+      currHighestDist = GetLowestEmaDistanceSinceEmaFlip();
    else
-      if(EMADirection == -1)
-         currHighestDist = GetLowestEmaDistanceSinceEmaFlip();
-      else
-         currHighestDist = MathMax(GetHighestEmaDistanceSinceEmaFlip(), GetLowestEmaDistanceSinceEmaFlip());
+      currHighestDist = MathMax(GetHighestEmaDistanceSinceEmaFlip(), GetLowestEmaDistanceSinceEmaFlip());
 
    double liveEmaVal = iMA(Symbol(), Period(), InpEMA200Period, InpEMAPriceShift, MODE_EMA, PRICE_CLOSE, 0);
    double liveEmaDist = (liveEmaVal > 0.0) ? MathAbs(Bid - liveEmaVal) : 0.0;
@@ -19406,67 +19358,69 @@ void UpdateDashboard(DailyProtectionState &state)
    g_currentEma4XBuffer        = currBuffer4X;
    g_currentEmaPeakPrice       = (EMADirection == 1 ? GetHighestPriceSinceEmaFlip() : GetLowestPriceSinceEmaFlip());
 
-   string prevDirStr = (g_prevEmaDirection == 1 ? "BUY" : (g_prevEmaDirection == -1 ? "SELL" : "PREV"));
-   string emaPrevPeakStr = StringFormat("EMA PREV PK : Peak: $%.1f | 4X Buf: $%.0f [%s]", g_prevEmaHighestDistance, g_prevEma4XBuffer, prevDirStr);
-   CreateDashboardLabel(DASH_PREFIX+"EMA_PREV_PEAK", emaPrevPeakStr, tx, y+326, 8, clrGold);
+   string emaDistStr = StringFormat("EMA DISTANCE: Live: $%.1f | Peak: $%.1f | Prev: $%.1f", liveEmaDist, currHighestDist, g_prevEmaHighestDistance);
+   CreateDashboardLabel(DASH_PREFIX+"EMA_DIST", emaDistStr, tx, y+254, 8, clrWhite);
 
-   string emaCurrPeakStr = StringFormat("EMA CURR PK : Peak: $%.1f | Live: $%.1f | 4X: $%.0f", currHighestDist, liveEmaDist, currBuffer4X);
-   CreateDashboardLabel(DASH_PREFIX+"EMA_CURR_PEAK", emaCurrPeakStr, tx, y+342, 8, clrWhite);
-
-   bool isEmaWeak = IsEmaWEAKDistanceReduced50PercentFromPeak();
-   string emaWeakStrongStr = isEmaWeak ? "WEAK (50% Retraced)" : "STRONG";
-   color emaWeakStrongClr = isEmaWeak ? clrTomato : clrLime;
-   string emaStrText = StringFormat("EMA STRENGTH: %s | Angle: %+.1f deg", emaWeakStrongStr, GlobalEmaAngle30);
-   CreateDashboardLabel(DASH_PREFIX+"EMA_STR", emaStrText, tx, y+358, 8, emaWeakStrongClr);
-
-   string sslSignalStr = "NONE (0)";
-   color sslSignalClr = clrSilver;
-   if(currentSSLDirection > 0)
-     {
-      sslSignalStr = "BUY / LONG (+1)";
-      sslSignalClr = clrDeepSkyBlue;
-     }
-   else
-      if(currentSSLDirection < 0)
-        {
-         sslSignalStr = "SELL / SHORT (-1)";
-         sslSignalClr = clrTomato;
-        }
-   CreateDashboardLabel(DASH_PREFIX+"SSL", "SSL SIGNAL  : " + sslSignalStr, tx, y+374, 8, sslSignalClr);
-
+   // 3. LSD Sweep Summary
    bool hasRedLine = IsLsdSweepRedLinePresent();
    bool hasGreenLine = IsLsdSweepGreenLinePresent();
    string lsdSigName = (g_rememberedSweepSignal != "" ? g_rememberedSweepSignal : (g_lastSweepType != "" ? g_lastSweepType : "NONE"));
    color lsdClr = (lsdSigName == "SSLS") ? clrLime : (lsdSigName == "BSLS" ? clrTomato : clrSilver);
    string lineDesc = hasRedLine ? "RED (EQH-R)" : (hasGreenLine ? "GREEN (EQH-G)" : "Scanning");
    int actSweep = GetActiveLsdSweepSignalForGap();
-   string gapAdvice = "Gaps: Normal (1X)";
+   string gapAdvice = "1X";
    if(actSweep == -1)
-      gapAdvice = "BUY Gap 2X (Dump Guard)";
-   else
-      if(actSweep == 1)
-         gapAdvice = "SELL Gap 2X (Pump Guard)";
+      gapAdvice = "BUY 2X Guard";
+   else if(actSweep == 1)
+      gapAdvice = "SELL 2X Guard";
    string lsdSummary = StringFormat("LSD SWEEP   : %s | Line: %s | %s", lsdSigName, lineDesc, gapAdvice);
-   CreateDashboardLabel(DASH_PREFIX+"SWEEP_EVT", lsdSummary, tx, y+390, 8, lsdClr);
+   CreateDashboardLabel(DASH_PREFIX+"SWEEP", lsdSummary, tx, y+270, 8, lsdClr);
 
 // ==========================================================
-// SECTION 5: RISK & SYSTEM GUARDS
+// SECTION 4: SPECIAL ORDERS & RISK (Dynamic & Clean)
 // ==========================================================
-   CreateDashboardPanel(DASH_PREFIX+"SEC_RSK", x, y+410, w, 18, C'28,38,50');
-   CreateDashboardLabel(DASH_PREFIX+"RSK_H", "--- RISK & SYSTEM GUARDS ---", tx, y+412, 8, clrAqua);
+   CreateDashboardPanel(DASH_PREFIX+"SEC_RSK", x, y+290, w, 18, C'28,38,50');
+   CreateDashboardLabel(DASH_PREFIX+"RSK_H", "--- SPECIAL ORDERS & RISK ---", tx, y+292, 8, clrAqua);
 
-   string slModStr = StringFormat("SL ANTI-SPAM: Min Mod Gap $%.2f Raw [ACTIVE]", MinimumSLModifyGapRaw);
-   CreateDashboardLabel(DASH_PREFIX+"SL_MOD", slModStr, tx, y+430, 8, clrAqua);
+   // Dynamic Special Orders: Pending / Recovery / Flip Support
+   string spcSummary = "";
+   color spcColor = clrSilver;
+   if(recCount > 0)
+     {
+      spcSummary = StringFormat("RECOVERY #%d (%s %.2fL) %s$%.2f", recTicket, (recType == OP_BUY ? "BUY" : "SELL"), recLots, (recPL >= 0 ? "+" : "-"), MathAbs(recPL));
+      spcColor = (recPL >= 0 ? clrLime : clrTomato);
+     }
+   else if(flipCount > 0)
+     {
+      spcSummary = StringFormat("FLIP SUPPORT #%d (%.2fL) %s$%.2f", flipTicket, flipLots, (flipPL >= 0 ? "+" : "-"), MathAbs(flipPL));
+      spcColor = (flipPL >= 0 ? clrLime : clrGold);
+     }
+   else if(pendingBuyCount > 0 && pendingSellCount > 0)
+     {
+      spcSummary = StringFormat("BUY & SELL STOPS Active ($%.0f Gap)", SSLLongShortPendingGapRaw);
+      spcColor = clrGold;
+     }
+   else if(pendingBuyCount > 0)
+     {
+      spcSummary = StringFormat("BUY STOP @ %." + IntegerToString(Digits) + "f ($%.0f Gap)", pendingBuyPrice, SSLLongShortPendingGapRaw);
+      spcColor = clrDeepSkyBlue;
+     }
+   else if(pendingSellCount > 0)
+     {
+      spcSummary = StringFormat("SELL STOP @ %." + IntegerToString(Digits) + "f ($%.0f Gap)", pendingSellPrice, SSLLongShortPendingGapRaw);
+      spcColor = clrTomato;
+     }
+   else
+     {
+      spcSummary = "NONE (Market Active)";
+      spcColor = clrSilver;
+     }
+   CreateDashboardLabel(DASH_PREFIX+"SPECIAL_ORD", "SPECIAL ORDS: " + spcSummary, tx, y+310, 8, spcColor);
 
-   string safeCloseStr = "RUNNER LOCK : BE +20pts on Partial Close [ACTIVE]";
-   CreateDashboardLabel(DASH_PREFIX+"SAFE_CLOSE", safeCloseStr, tx, y+446, 8, clrAqua);
-
-   string dayRiskStr = StringFormat("DAY STOP/RSK: Stop $%.0f | Floor $%.2f | Room $%.2f [%s]", DailyEquityStopUSD * balancelomultipler, DayProfitLadderProtectionEquity, riskRemaining, (HasBasketNewOrderLossLimit() ? "LOCKED" : "OK"));
+   // Day Risk Line
+   string dayRiskStr = StringFormat("DAY RISK    : Stop $%.0f | Floor $%.2f | Room $%.2f [%s]", DailyEquityStopUSD * balancelomultipler, DayProfitLadderProtectionEquity, riskRemaining, (HasBasketNewOrderLossLimit() ? "LOCKED" : "OK"));
    color dayRiskClr = HasBasketNewOrderLossLimit() ? clrTomato : clrLime;
-   CreateDashboardLabel(DASH_PREFIX+"DAY_STOP", dayRiskStr, tx, y+462, 8, dayRiskClr);
-
-   string srvStr = StringFormat("SERVER/CONN : %s", serverText);
-   CreateDashboardLabel(DASH_PREFIX+"SERVER", srvStr, tx, y+478, 8, serverColor);
+   CreateDashboardLabel(DASH_PREFIX+"DAY_RISK", dayRiskStr, tx, y+326, 8, dayRiskClr);
 
    ChartRedraw(0);
 
