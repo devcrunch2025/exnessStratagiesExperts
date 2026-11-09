@@ -43,7 +43,7 @@ CheckBasketProfitClose  Total open basket profit
 
 
 
-string glbVersion = "VMULTI-1103- Enabled EquityProfitLadder5 Lowest Equity Recovery Ladder";
+string glbVersion = "VMULTI-1104- Special Chart Icons on EquityProfitLadder5 Every Step Hit";
 
 
 
@@ -98,6 +98,11 @@ bool   InpEnableEquityProfitLadder5        = true;   // Enabled: Lowest Equity R
 double InpEquityProfitLadderStepUSD        = 10;//20;//50;//100;//5.0;    // Step size in USD ($5.00)
 bool   InpEquityLadderUseMultiplier        = true;   // Multiply step size by balancelomultipler ($5 * multiplier)
 double InpEquityLadderSLDistanceRaw        = 100.0;  // StopLoss gap from live price in raw points (-$100 gap)
+bool   InpDrawEquityLadder5Icon            = true;   // Draw special chart icon when EquityProfitLadder5 step is hit
+color  InpEquityLadder5IconColor           = clrAqua;// Chart icon & text color for EquityProfitLadder5
+int    InpEquityLadder5IconCode            = 159;    // Chart icon Wingdings code (159=circle dot, 171=star, 251=checkmark, 221=arrow)
+int    InpEquityLadder5FontSize            = 10;     // Chart icon text font size
+void   DrawEquityProfitLadder5HitIcon(int step, double curEquity, double lowestEquity, double targetVal, datetime hitTime = 0, double hitPrice = 0.0);
 
 
 
@@ -16702,6 +16707,93 @@ double g_equityLadderNextTarget   = 0.0;
 int    g_equityLadderStepCounter  = 0;
 
 //+------------------------------------------------------------------+
+//| DrawEquityProfitLadder5HitIcon:                                  |
+//| Draws vibrant Aqua marker & text label on chart when an          |
+//| EquityProfitLadder5 step is hit.                                 |
+//+------------------------------------------------------------------+
+void DrawEquityProfitLadder5HitIcon(int step, double curEquity, double lowestEquity, double targetVal, datetime hitTime = 0, double hitPrice = 0.0)
+  {
+   if(!InpDrawEquityLadder5Icon)
+      return;
+
+   if(hitTime <= 0)
+      hitTime = TimeCurrent();
+
+   datetime barTime = (Time[0] > 0 ? Time[0] : hitTime);
+   string baseName = PREFIX + "EQL5_STEP_" + IntegerToString(step) + "_" + IntegerToString((int)barTime);
+
+   // Prevent duplicate icon on same bar for the same step
+   if(ObjectFind(0, baseName) >= 0 || ObjectFind(0, baseName + "_TXT") >= 0)
+      return;
+
+   double atr = iATR(Symbol(), Period(), 14, 1);
+   if(atr <= 0.0)
+      atr = 30 * Point;
+   if(atr <= 0.0)
+      atr = 1.0;
+
+   double markerPrice = 0.0;
+   double labelPrice  = 0.0;
+
+   if(hitPrice > 0.0)
+     {
+      if(hitPrice == Low[0])
+        {
+         markerPrice = Low[0] - (atr * 0.25);
+         labelPrice  = markerPrice - (atr * 0.35);
+        }
+      else
+        {
+         markerPrice = High[0] + (atr * 0.25);
+         labelPrice  = markerPrice + (atr * 0.35);
+        }
+     }
+   else
+     {
+      markerPrice = Low[0] - (atr * 0.25);
+      labelPrice  = markerPrice - (atr * 0.35);
+     }
+
+   color iconColor = InpEquityLadder5IconColor;
+   int   iconCode  = (InpEquityLadder5IconCode > 0 ? InpEquityLadder5IconCode : 159);
+   int   fontSize  = (InpEquityLadder5FontSize > 0 ? InpEquityLadder5FontSize : 10);
+
+   string txtName = baseName + "_TXT";
+   double gainFromLow = curEquity - lowestEquity;
+   string labelText = StringFormat("EQL #%d (+$%.0f)", step, gainFromLow);
+   string tooltip   = StringFormat("Equity Profit Ladder Step #%d HIT | Current Equity: $%.2f | Low Baseline: $%.2f | Gain from Low: +$%.2f | Target: $%.2f | All Open Orders SL Tightened (-$100 gap) | Time: %s",
+                                   step, curEquity, lowestEquity, gainFromLow, targetVal,
+                                   TimeToString(hitTime, TIME_DATE|TIME_MINUTES|TIME_SECONDS));
+
+   // 1. Solid Marker Icon (Wingdings 159 dot, 171 star, 251 check, etc.)
+   ObjectCreate(0, baseName, OBJ_ARROW, 0, barTime, markerPrice);
+   ObjectSetInteger(0, baseName, OBJPROP_ARROWCODE, iconCode);
+   ObjectSetInteger(0, baseName, OBJPROP_COLOR, iconColor);
+   ObjectSetInteger(0, baseName, OBJPROP_WIDTH, 4);
+   ObjectSetInteger(0, baseName, OBJPROP_BACK, false);
+   ObjectSetInteger(0, baseName, OBJPROP_SELECTABLE, false);
+   ObjectSetInteger(0, baseName, OBJPROP_HIDDEN, false);
+   ObjectSetString(0, baseName, OBJPROP_TOOLTIP, tooltip);
+
+   // 2. Bold Text Label
+   ObjectCreate(0, txtName, OBJ_TEXT, 0, barTime, labelPrice);
+   ObjectSetString(0, txtName, OBJPROP_TEXT, labelText);
+   ObjectSetString(0, txtName, OBJPROP_FONT, "Arial Black");
+   ObjectSetInteger(0, txtName, OBJPROP_FONTSIZE, fontSize);
+   ObjectSetInteger(0, txtName, OBJPROP_COLOR, iconColor);
+   ObjectSetInteger(0, txtName, OBJPROP_BACK, false);
+   ObjectSetInteger(0, txtName, OBJPROP_SELECTABLE, false);
+   ObjectSetInteger(0, txtName, OBJPROP_HIDDEN, false);
+   ObjectSetString(0, txtName, OBJPROP_TOOLTIP, tooltip);
+
+   ChartRedraw(0);
+
+   Print(">>> [EQUITY PROFIT LADDER 5 CHART ICON] Placed '", labelText, "' on chart at bar ",
+         TimeToString(barTime, TIME_DATE|TIME_MINUTES), " | Equity: $", DoubleToString(curEquity, 2),
+         " | Gain from Low: +$", DoubleToString(gainFromLow, 2));
+  }
+
+//+------------------------------------------------------------------+
 //|                                                                  |
 //+------------------------------------------------------------------+
 void EquityProfitLadder5()
@@ -16806,15 +16898,8 @@ void EquityProfitLadder5()
       // Modify all eligible open orders with -$100 raw gap SL
       ModifyAllOrdersWithEquityLadderSL(InpEquityLadderSLDistanceRaw);
 
-      // Draw chart circle marker
-      double iconOffset = MathMax(50 * Point, 25.0);
-      string arrowName = "EqLadder5_" + IntegerToString(TimeCurrent()) + "_" + IntegerToString(g_equityLadderStepCounter);
-      if(ObjectCreate(0, arrowName, OBJ_ARROW, 0, Time[0], (Close[0] > Open[0]) ? Low[0] - iconOffset : High[0] + iconOffset))
-        {
-         ObjectSetInteger(0, arrowName, OBJPROP_ARROWCODE, 159); // Wingdings 159 = filled circle
-         ObjectSetInteger(0, arrowName, OBJPROP_COLOR, clrAqua);
-         ObjectSetInteger(0, arrowName, OBJPROP_WIDTH, 2);
-        }
+      // Draw dedicated chart icon and text label for EquityProfitLadder5 step hit
+      DrawEquityProfitLadder5HitIcon(g_equityLadderStepCounter, curEquity, LowestEquity, g_equityLadderNextTarget, TimeCurrent(), ((Close[0] > Open[0]) ? Low[0] : High[0]));
 
       // Ratchet: Baseline becomes current equity, next target is current equity + stepUSD
       LowestEquity             = curEquity;
