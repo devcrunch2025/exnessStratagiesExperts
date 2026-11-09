@@ -42,6 +42,7 @@ CheckBasketProfitClose  Total open basket profit
 */
 
 
+
 string glbVersion = "VMULTI-1099- Repeat Drawdown Relief SL on Every Peak DD Hit Success";
 
 
