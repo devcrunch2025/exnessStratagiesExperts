@@ -1,4 +1,4 @@
-//+------------------------------------------------------------------+
+﻿//+------------------------------------------------------------------+
 //|                  SSL CHANNEL CROSS EA - CONTINUOUS EQUITY LADDER |
 //|                  TWO-STAGE PROFIT LADDER | CONTINUOUS RESET      |
 //+------------------------------------------------------------------+
@@ -42,7 +42,7 @@ CheckBasketProfitClose  Total open basket profit
 */
 
 
-string glbVersion = "VMULTI-1096- Double SL Gap on Steep EMA Angle > 3 when Raw Profit Gap > $500";
+string glbVersion = "VMULTI-1096- method 6 $20";
 
 
 
