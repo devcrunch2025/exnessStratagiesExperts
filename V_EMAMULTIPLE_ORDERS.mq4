@@ -43,7 +43,7 @@ CheckBasketProfitClose  Total open basket profit
 
 
 
-string glbVersion = "VMULTI-1102- Phase 1 Drawdown Relief On-Screen Alert & Mobile Push Notification";
+string glbVersion = "VMULTI-1103- Enabled EquityProfitLadder5 Lowest Equity Recovery Ladder";
 
 
 
@@ -94,8 +94,8 @@ double closeAllOrdersLowestEquityIncreasePercentage =20*10;//100//50;// 50.0;
 double   g_stepSize            =1000;// 50.0; // The step increment ($50)
 
 // ===== EQUITY PROFIT LADDER $5 SETTINGS =====
-bool   InpEnableEquityProfitLadder5        = false;  // DISABLED: Consolidated into master Manage5PercentLadderReset ($50 step)
-double InpEquityProfitLadderStepUSD        = 100;//5.0;    // Step size in USD ($5.00)
+bool   InpEnableEquityProfitLadder5        = true;   // Enabled: Lowest Equity Recovery Profit Ladder ($10 * multiplier step)
+double InpEquityProfitLadderStepUSD        = 10;//20;//50;//100;//5.0;    // Step size in USD ($5.00)
 bool   InpEquityLadderUseMultiplier        = true;   // Multiply step size by balancelomultipler ($5 * multiplier)
 double InpEquityLadderSLDistanceRaw        = 100.0;  // StopLoss gap from live price in raw points (-$100 gap)
 
@@ -7594,7 +7594,7 @@ void OnTick()
 // STREAMLINED EXITS: Disabled conflicting secondary ladders to let Manage5PercentLadderReset & SecureOneDollarProfit lead
 // CheckEquityBalanceProfitTarget(); // DISABLED: Prevents premature 25-cent clamp
 // CheckDynamicStepLadder();          // DISABLED: Consolidated into master Manage5PercentLadderReset
-// EquityProfitLadder5();             // DISABLED: Consolidated into master Manage5PercentLadderReset
+   EquityProfitLadder5();             // Enabled: Lowest Equity Recovery Ladder (-$100 SL gap on step hit)
 // CloseOppositeOrdersOnEmaDistance();// DISABLED: Preserves breathing cushion during EMA trend shifts
 
    UpdateLiquiditySweepDetectorOnChart();
