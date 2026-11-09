@@ -43,6 +43,7 @@ CheckBasketProfitClose  Total open basket profit
 
 
 
+
 string glbVersion = "VMULTI-1104- Special Chart Icons on EquityProfitLadder5 Every Step Hit";
 
 
