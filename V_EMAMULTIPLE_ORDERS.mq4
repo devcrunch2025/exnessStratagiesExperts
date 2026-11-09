@@ -42,7 +42,7 @@ CheckBasketProfitClose  Total open basket profit
 */
 
 
-string glbVersion = "VMULTI-1110- EquityProfitLadder5 Require Strong EMA and Angle > 6";
+string glbVersion = "VMULTI-1111- EquityProfitLadder5 Min 2h Price Diff 2000 Raw";
 
 
 
@@ -94,12 +94,13 @@ double   g_stepSize            =1000;// 50.0; // The step increment ($50)
 
 // ===== EQUITY PROFIT LADDER $5 SETTINGS =====
 bool   InpEnableEquityProfitLadder5        = true;   // Enabled: Lowest Equity Recovery Profit Ladder ($10 * multiplier step)
-double InpEquityProfitLadderStepUSD        = 20;//10;//20;//50;//100;//5.0;    // Step size in USD ($5.00)
+double InpEquityProfitLadderStepUSD        = 10;//10;//20;//50;//100;//5.0;    // Step size in USD ($5.00)
 bool   InpEquityLadderUseMultiplier        = true;   // Multiply step size by balancelomultipler ($5 * multiplier)
-double InpEquityLadderSLDistanceRaw        = 50;//100.0;  // StopLoss gap from live price in raw points (-$100 gap)
+double InpEquityLadderSLDistanceRaw        = 200;//50;//100.0;  // StopLoss gap from live price in raw points (-$100 gap)
 double InpEquityLadderMinGapHours          = 6.0;    // Minimum time gap in hours between EquityProfitLadder5 step hits
 double InpEquityLadderMinEmaAngle          = 6.0;    // Minimum MathAbs(EMAangle) required to trigger step hit (> 6.0 degrees)
 bool   InpEquityLadderRequireStrongEma     = true;   // Require EMA to be STRONG (!IsEmaWEAK) to trigger step hit
+double InpEquityLadderMinPriceDiff2Hours    = 2000.0; // Minimum price difference in raw USD from last 2 hours (> $2000)
 bool   InpDrawEquityLadder5Icon            = true;   // Draw special chart icon when EquityProfitLadder5 step is hit
 color  InpEquityLadder5IconColor           = clrAqua;// Chart icon & text color for EquityProfitLadder5
 int    InpEquityLadder5IconCode            = 159;    // Chart icon Wingdings code (159=circle dot, 171=star, 251=checkmark, 221=arrow)
@@ -16897,6 +16898,43 @@ void DrawEquityProfitLadder5HitIcon(int step, double curEquity, double lowestEqu
   }
 
 //+------------------------------------------------------------------+
+//| Calculate raw price difference from 2 hours ago                  |
+//+------------------------------------------------------------------+
+double GetEquityLadder2HourPriceDiff()
+  {
+   RefreshRates();
+   double currentPrice = (Bid + Ask) / 2.0;
+   datetime targetTime = TimeCurrent() - 120 * 60; // 120 minutes = 2 hours
+
+   int shift = -1;
+   if(iBars(Symbol(), PERIOD_M1) > 0)
+      shift = iBarShift(Symbol(), PERIOD_M1, targetTime, false);
+
+   double oldPrice = 0.0;
+   if(shift >= 0)
+      oldPrice = iClose(Symbol(), PERIOD_M1, shift);
+
+   if(oldPrice <= 0.0)
+     {
+      int pShift = iBarShift(Symbol(), Period(), targetTime, false);
+      if(pShift >= 0)
+         oldPrice = iClose(Symbol(), Period(), pShift);
+     }
+
+   if(oldPrice <= 0.0)
+     {
+      int h1Shift = iBarShift(Symbol(), PERIOD_H1, targetTime, false);
+      if(h1Shift >= 0)
+         oldPrice = iClose(Symbol(), PERIOD_H1, h1Shift);
+     }
+
+   if(oldPrice <= 0.0)
+      return 0.0;
+
+   return MathAbs(currentPrice - oldPrice);
+  }
+
+//+------------------------------------------------------------------+
 //|                                                                  |
 //+------------------------------------------------------------------+
 void EquityProfitLadder5()
@@ -16991,6 +17029,18 @@ void EquityProfitLadder5()
          return;
         }
 
+      // Check 2-hour price difference condition (> $2000 raw price)
+      double priceDiff2h = 0.0;
+      if(InpEquityLadderMinPriceDiff2Hours > 0.0)
+        {
+         priceDiff2h = GetEquityLadder2HourPriceDiff();
+         if(priceDiff2h <= InpEquityLadderMinPriceDiff2Hours)
+           {
+            // Price difference in last 2 hours is <= $2000; wait for large price movement
+            return;
+           }
+        }
+
       if(InpPauseEquityProfitHitOnSingleWinningOrder)
         {
          int mktCount = 0;
@@ -17028,6 +17078,7 @@ void EquityProfitLadder5()
             " | Time=", TimeToString(g_lastEquityLadderHitTime, TIME_DATE|TIME_SECONDS),
             " | EMA Angle=", DoubleToString(curEmaAng, 2), " deg (MathAbs > ", DoubleToString(InpEquityLadderMinEmaAngle, 1), ")",
             " | EMA Strength=STRONG",
+            " | 2H Price Diff=$", DoubleToString(priceDiff2h, 2), " (> $", DoubleToString(InpEquityLadderMinPriceDiff2Hours, 0), ")",
             " | Modifying ALL Open Orders with -$", DoubleToString(InpEquityLadderSLDistanceRaw, 0), " StopLoss gap.");
       Print("==================================================================");
 
@@ -19225,7 +19276,7 @@ void UpdateDashboard(DailyProtectionState &state)
 
 // Header Bar
    CreateDashboardPanel(DASH_PREFIX+"HEADER", x, y, w, 36, C'20,55,90');
-   string eaTitle = StringFormat("%s | %s %s", "VMULTI-1110", Symbol(), TimeframeToString(Period()));
+   string eaTitle = StringFormat("%s | %s %s", "VMULTI-1111", Symbol(), TimeframeToString(Period()));
    CreateDashboardLabel(DASH_PREFIX+"TITLE", eaTitle, tx, y+4, 9, clrWhite);
    string priceStatus = StringFormat("BID: %." + IntegerToString(Digits) + "f | ASK: %." + IntegerToString(Digits) + "f | SPR: %d pts", Bid, Ask, (int)MarketInfo(Symbol(), MODE_SPREAD));
    CreateDashboardLabel(DASH_PREFIX+"PRICE", priceStatus, tx, y+19, 8, clrLightGray);
