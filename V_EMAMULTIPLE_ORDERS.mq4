@@ -3175,18 +3175,19 @@ bool   PairCombinationUseBalanceMultiplier  = true;   // Method 1: Scale thresho
 bool   InpPairCombinationIncludeFlipBasket  = false;  // Method 1: Include FLIPBasketSupport orders in combinations
 
 // Method 4: Combination Profit Handler (Modify SL with $150 gap or Close)
-bool   InpEnableCombinationProfitClose      = false;//true;   // Method 4: Enable multi-order combination profit handler
-double InpCombinationCloseProfitUSD         = 5;//1.0;    // Method 4: Profit threshold in USD ($1.00 * multiplier)
-bool   InpCombinationModifySLWithGap        = true;   // Method 4: Modify SL with $150 gap (true) or close directly (false)
+bool   InpEnableCombinationProfitClose      = true;   // Method 4: Enable multi-order combination profit handler (Option B: closes combinations > $5*mult at market)
+double InpCombinationCloseProfitUSD         = 5.0;    // Method 4: Profit threshold in USD ($5.00 * multiplier)
+bool   InpCombinationModifySLWithGap        = false;  // Method 4: Modify SL with $150 gap (true) or close directly at market (false)
 double InpCombinationSLGapUSD               = 100.0;  // Method 4: StopLoss gap in USD points ($150)
+bool   InpCombinationIncludeSingleOrders    = false;  // Method 4: Also close single orders at profit threshold (default false: combinations only)
 
 // Method 5: Overall Hedged Basket Profit Modifier
 bool   InpEnableOverallBasketProfitModify   =false;// true;   // Method 5: Enable overall hedged basket profit SL modifier
 double InpOverallBasketProfitTargetUSD      = 5;//1.0;    // Method 5: Overall hedged basket profit target in USD ($1.00 * multiplier)
 double InpOverallBasketSLGapUSD             = 100.0;  // Method 5: Overall hedged basket StopLoss gap in USD points ($150)
 
-// Method 6: Multi-Order Combinations (> 2 orders, Profit or Loss mix) > $5 Profit SL Modifier
-bool   InpEnableMethod6CombinationSLModify  = true;   // Method 6: Check combinations of >2 orders (profit/loss mix) > $5 profit
+// Method 6: Multi-Order Combinations (> 2 orders, Profit or Loss mix) > $5 Profit SL Modifier (Disabled in favor of Method 4)
+bool   InpEnableMethod6CombinationSLModify  = false;  // Method 6: Check combinations of >2 orders (profit/loss mix) > $5 profit (disabled to prevent SL tightening on underwater orders)
 double InpMethod6ProfitThresholdUSD         = 5.0;    // Method 6: Base profit threshold in USD ($5.00 * multiplier)
 double InpMethod6SLDistanceUSD              = 150.0;  // Method 6: StopLoss gap in USD points ($150)
 int    InpMethod6MinOrderCount              = 2;      // Method 6: Minimum number of orders in combination (default 2 or 3)
@@ -4492,12 +4493,8 @@ bool CloseMarketOrderDirect(int ticket)
 
    double lots = OrderLots();
 
-   if(ServerRecoveryPending || !IsConnected())
-     {
-      return SafeOrderCloseMarket(ticket, lots, Slippage, (type == OP_BUY ? clrRed : clrBlue));
-     }
-
-   return SafeOrderClose(ticket, lots, type, Slippage, (type == OP_BUY ? clrRed : clrBlue));
+   // Direct market close to bank net combination profit
+   return SafeOrderCloseMarket(ticket, lots, Slippage, (type == OP_BUY ? clrRed : clrBlue));
   }
 
 //+------------------------------------------------------------------+
@@ -4561,9 +4558,8 @@ void CloseProfitableOrderCombinations()
    if(!InpEnableCombinationProfitClose)
       return;
 
-   double minProfitUSD = InpCombinationCloseProfitUSD * balancelomultipler;
-   if(minProfitUSD <= 0.0)
-      minProfitUSD = 1.0;
+   int mult = (balancelomultipler > 0) ? balancelomultipler : 1;
+   double minProfitUSD = (InpCombinationCloseProfitUSD > 0.0 ? InpCombinationCloseProfitUSD : 5.0) * mult;
 
 // 1. Collect all open market orders for current symbol & magic number
 #define MAX_COMB_ORDERS 100
@@ -4590,11 +4586,22 @@ void CloseProfitableOrderCombinations()
       int oType = OrderType();
       if(oType != OP_BUY && oType != OP_SELL)
          continue;
+
+      string cmt = OrderComment();
+      int tkt    = OrderTicket();
+
       // EXCLUDE RECOVERY ORDERS: Recovery orders manage their own independent basket
-      if(IsAnyRecoveryOrder(OrderTicket(), OrderComment()))
+      if(IsAnyRecoveryOrder(tkt, cmt) || IsRecoveryOrderWithActiveParent(tkt, cmt))
          continue;
 
-      candTickets[candCount] = OrderTicket();
+      // Exclude FLIPBasketSupport orders unless explicitly enabled
+      if(!InpPairCombinationIncludeFlipBasket)
+        {
+         if(IsFLIPBasketSupportOrder(tkt, cmt) || StringFind(cmt, "FLIPBasketSupport") >= 0)
+            continue;
+        }
+
+      candTickets[candCount] = tkt;
       candTypes[candCount]   = oType;
       candLots[candCount]    = OrderLots();
       candProfits[candCount] = OrderProfit() + OrderSwap() + OrderCommission();
@@ -4655,19 +4662,23 @@ void CloseProfitableOrderCombinations()
                      candTickets[j], " (", (candTypes[j] == OP_BUY ? "BUY" : "SELL"), " $", DoubleToString(candProfits[j], 2),
                      ") = Total $", DoubleToString(pairSum, 2), " >= $", DoubleToString(minProfitUSD, 2), " | Closing Pair!");
 
-               if(ModifyOrCloseCombinationOrder(candTickets[i]))
+               int firstIdx  = (candProfits[i] >= candProfits[j]) ? i : j;
+               int secondIdx = (firstIdx == i) ? j : i;
+
+               if(ModifyOrCloseCombinationOrder(candTickets[firstIdx]))
                  {
-                  isClosed[i] = true;
-                  RecordMethodModification(candTickets[i], 4, 2, pairSum);
+                  isClosed[firstIdx] = true;
+                  RecordMethodModification(candTickets[firstIdx], 4, 2, pairSum);
                  }
-               if(ModifyOrCloseCombinationOrder(candTickets[j]))
+               if(ModifyOrCloseCombinationOrder(candTickets[secondIdx]))
                  {
-                  isClosed[j] = true;
-                  RecordMethodModification(candTickets[j], 4, 2, pairSum);
+                  isClosed[secondIdx] = true;
+                  RecordMethodModification(candTickets[secondIdx], 4, 2, pairSum);
                  }
                if(!InpCombinationModifySLWithGap)
                   DrawMultiOrderClosedIcon(2, TimeCurrent(), (candTypes[i] == OP_BUY ? Bid : Ask), pairSum, "Method 4: Pair Combo Close", candTickets[i]);
                anyOrdersClosed = true;
+               break; // ticket i is consumed, break inner loop
               }
            }
         }
@@ -4696,27 +4707,38 @@ void CloseProfitableOrderCombinations()
                   Print(">>> [COMBINATION CLOSE - TRIPLET (WITH LOSS)] Tickets [#", candTickets[i], ", #", candTickets[j], ", #", candTickets[k],
                         "] = Total $", DoubleToString(tripletSum, 2), " >= $", DoubleToString(minProfitUSD, 2), " | Closing Triplet!");
 
-                  if(ModifyOrCloseCombinationOrder(candTickets[i]))
-                     {
-                      isClosed[i] = true;
-                      RecordMethodModification(candTickets[i], 4, 3, tripletSum);
-                     }
-                   if(ModifyOrCloseCombinationOrder(candTickets[j]))
-                     {
-                      isClosed[j] = true;
-                      RecordMethodModification(candTickets[j], 4, 3, tripletSum);
-                     }
-                   if(ModifyOrCloseCombinationOrder(candTickets[k]))
-                     {
-                      isClosed[k] = true;
-                      RecordMethodModification(candTickets[k], 4, 3, tripletSum);
-                     }
-                   if(!InpCombinationModifySLWithGap)
-                      DrawMultiOrderClosedIcon(3, TimeCurrent(), (candTypes[i] == OP_BUY ? Bid : Ask), tripletSum, "Method 4: Triplet Combo Close", candTickets[i]);
-                   anyOrdersClosed = true;
+                  int tIdx[3];
+                  tIdx[0] = i; tIdx[1] = j; tIdx[2] = k;
+                  for(int x = 0; x < 2; x++)
+                    {
+                     for(int y = x + 1; y < 3; y++)
+                       {
+                        if(candProfits[tIdx[x]] < candProfits[tIdx[y]])
+                          {
+                           int tmp = tIdx[x];
+                           tIdx[x] = tIdx[y];
+                           tIdx[y] = tmp;
+                          }
+                       }
+                    }
+
+                  for(int t = 0; t < 3; t++)
+                    {
+                     if(ModifyOrCloseCombinationOrder(candTickets[tIdx[t]]))
+                       {
+                        isClosed[tIdx[t]] = true;
+                        RecordMethodModification(candTickets[tIdx[t]], 4, 3, tripletSum);
+                       }
+                    }
+                  if(!InpCombinationModifySLWithGap)
+                     DrawMultiOrderClosedIcon(3, TimeCurrent(), (candTypes[i] == OP_BUY ? Bid : Ask), tripletSum, "Method 4: Triplet Combo Close", candTickets[i]);
+                  anyOrdersClosed = true;
+                  break; // break k loop
                  }
               }
            }
+         if(isClosed[i])
+            break; // ticket i is consumed, break j loop
         }
      }
 
@@ -4738,19 +4760,23 @@ void CloseProfitableOrderCombinations()
                   candTickets[j], " (", (candTypes[j] == OP_BUY ? "BUY" : "SELL"), " $", DoubleToString(candProfits[j], 2),
                   ") = Total $", DoubleToString(pairSum, 2), " >= $", DoubleToString(minProfitUSD, 2), " | Closing Pair!");
 
-            if(ModifyOrCloseCombinationOrder(candTickets[i]))
+            int firstIdx  = (candProfits[i] >= candProfits[j]) ? i : j;
+            int secondIdx = (firstIdx == i) ? j : i;
+
+            if(ModifyOrCloseCombinationOrder(candTickets[firstIdx]))
               {
-               isClosed[i] = true;
-               RecordMethodModification(candTickets[i], 4, 2, pairSum);
+               isClosed[firstIdx] = true;
+               RecordMethodModification(candTickets[firstIdx], 4, 2, pairSum);
               }
-            if(ModifyOrCloseCombinationOrder(candTickets[j]))
+            if(ModifyOrCloseCombinationOrder(candTickets[secondIdx]))
               {
-               isClosed[j] = true;
-               RecordMethodModification(candTickets[j], 4, 2, pairSum);
+               isClosed[secondIdx] = true;
+               RecordMethodModification(candTickets[secondIdx], 4, 2, pairSum);
               }
             if(!InpCombinationModifySLWithGap)
                DrawMultiOrderClosedIcon(2, TimeCurrent(), (candTypes[i] == OP_BUY ? Bid : Ask), pairSum, "Method 4: Pair Combo Close", candTickets[i]);
             anyOrdersClosed = true;
+            break; // ticket i is consumed, break j loop
            }
         }
      }
@@ -4775,44 +4801,58 @@ void CloseProfitableOrderCombinations()
                Print(">>> [COMBINATION CLOSE - TRIPLET] Tickets [#", candTickets[i], ", #", candTickets[j], ", #", candTickets[k],
                      "] = Total $", DoubleToString(tripletSum, 2), " >= $", DoubleToString(minProfitUSD, 2), " | Closing Triplet!");
 
-               if(ModifyOrCloseCombinationOrder(candTickets[i]))
+               int tIdx[3];
+               tIdx[0] = i; tIdx[1] = j; tIdx[2] = k;
+               for(int x = 0; x < 2; x++)
                  {
-                  isClosed[i] = true;
-                  RecordMethodModification(candTickets[i], 4, 3, tripletSum);
+                  for(int y = x + 1; y < 3; y++)
+                    {
+                     if(candProfits[tIdx[x]] < candProfits[tIdx[y]])
+                       {
+                        int tmp = tIdx[x];
+                        tIdx[x] = tIdx[y];
+                        tIdx[y] = tmp;
+                       }
+                    }
                  }
-               if(ModifyOrCloseCombinationOrder(candTickets[j]))
+
+               for(int t = 0; t < 3; t++)
                  {
-                  isClosed[j] = true;
-                  RecordMethodModification(candTickets[j], 4, 3, tripletSum);
-                 }
-               if(ModifyOrCloseCombinationOrder(candTickets[k]))
-                 {
-                  isClosed[k] = true;
-                  RecordMethodModification(candTickets[k], 4, 3, tripletSum);
+                  if(ModifyOrCloseCombinationOrder(candTickets[tIdx[t]]))
+                    {
+                     isClosed[tIdx[t]] = true;
+                     RecordMethodModification(candTickets[tIdx[t]], 4, 3, tripletSum);
+                    }
                  }
                if(!InpCombinationModifySLWithGap)
                   DrawMultiOrderClosedIcon(3, TimeCurrent(), (candTypes[i] == OP_BUY ? Bid : Ask), tripletSum, "Method 4: Triplet Combo Close", candTickets[i]);
                anyOrdersClosed = true;
+               break; // break k loop
               }
            }
+         if(isClosed[i])
+            break; // ticket i is consumed, break j loop
         }
      }
 
-// 7. SINGLE ORDER CHECK (Any individual order with profit >= minProfitUSD)
-   for(int i = 0; i < candCount; i++)
+// 7. SINGLE ORDER CHECK (Any individual order with profit >= minProfitUSD, disabled by default to preserve ladder/TP)
+   if(InpCombinationIncludeSingleOrders)
      {
-      if(isClosed[i])
-         continue;
-
-      if(candProfits[i] >= minProfitUSD)
+      for(int i = 0; i < candCount; i++)
         {
-         Print(">>> [COMBINATION CLOSE - SINGLE ORDER] Ticket #", candTickets[i],
-               " (", (candTypes[i] == OP_BUY ? "BUY" : "SELL"), " ", DoubleToString(candLots[i], 2),
-               " lots) Profit = $", DoubleToString(candProfits[i], 2), " >= $", DoubleToString(minProfitUSD, 2), " | Closing Order!");
+         if(isClosed[i])
+            continue;
 
-         if(ModifyOrCloseCombinationOrder(candTickets[i]))
-            isClosed[i] = true;
-         anyOrdersClosed = true;
+         if(candProfits[i] >= minProfitUSD)
+           {
+            Print(">>> [COMBINATION CLOSE - SINGLE ORDER] Ticket #", candTickets[i],
+                  " (", (candTypes[i] == OP_BUY ? "BUY" : "SELL"), " ", DoubleToString(candLots[i], 2),
+                  " lots) Profit = $", DoubleToString(candProfits[i], 2), " >= $", DoubleToString(minProfitUSD, 2), " | Closing Order!");
+
+            if(ModifyOrCloseCombinationOrder(candTickets[i]))
+               isClosed[i] = true;
+            anyOrdersClosed = true;
+           }
         }
      }
 
@@ -4820,8 +4860,6 @@ void CloseProfitableOrderCombinations()
       InvalidateTotalEAOrdersCache();
   }
 
-//+------------------------------------------------------------------+
-//|                                                                  |
 //+------------------------------------------------------------------+
 void SecureDistanceProfitLadder()
   {
