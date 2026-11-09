@@ -42,7 +42,7 @@ CheckBasketProfitClose  Total open basket profit
 */
 
 
-string glbVersion = "VMULTI-1109- EquityProfitLadder5 Min 6h Gap and MathAbs(EMAangle) > 6";
+string glbVersion = "VMULTI-1110- EquityProfitLadder5 Require Strong EMA and Angle > 6";
 
 
 
@@ -99,6 +99,7 @@ bool   InpEquityLadderUseMultiplier        = true;   // Multiply step size by ba
 double InpEquityLadderSLDistanceRaw        = 50;//100.0;  // StopLoss gap from live price in raw points (-$100 gap)
 double InpEquityLadderMinGapHours          = 6.0;    // Minimum time gap in hours between EquityProfitLadder5 step hits
 double InpEquityLadderMinEmaAngle          = 6.0;    // Minimum MathAbs(EMAangle) required to trigger step hit (> 6.0 degrees)
+bool   InpEquityLadderRequireStrongEma     = true;   // Require EMA to be STRONG (!IsEmaWEAK) to trigger step hit
 bool   InpDrawEquityLadder5Icon            = true;   // Draw special chart icon when EquityProfitLadder5 step is hit
 color  InpEquityLadder5IconColor           = clrAqua;// Chart icon & text color for EquityProfitLadder5
 int    InpEquityLadder5IconCode            = 159;    // Chart icon Wingdings code (159=circle dot, 171=star, 251=checkmark, 221=arrow)
@@ -16983,6 +16984,13 @@ void EquityProfitLadder5()
          return;
         }
 
+      // Check EMA strength condition (EMA should be STRONG, not weak / pulling back from peak)
+      if(InpEquityLadderRequireStrongEma && IsEmaWEAKDistanceReduced50PercentFromPeak())
+        {
+         // EMA is WEAK (pulling back >= 50% or $100 from peak); wait for strong trend
+         return;
+        }
+
       if(InpPauseEquityProfitHitOnSingleWinningOrder)
         {
          int mktCount = 0;
@@ -17019,6 +17027,7 @@ void EquityProfitLadder5()
             " | Gain From Low=+$", DoubleToString(gainFromLow, 2),
             " | Time=", TimeToString(g_lastEquityLadderHitTime, TIME_DATE|TIME_SECONDS),
             " | EMA Angle=", DoubleToString(curEmaAng, 2), " deg (MathAbs > ", DoubleToString(InpEquityLadderMinEmaAngle, 1), ")",
+            " | EMA Strength=STRONG",
             " | Modifying ALL Open Orders with -$", DoubleToString(InpEquityLadderSLDistanceRaw, 0), " StopLoss gap.");
       Print("==================================================================");
 
@@ -19216,7 +19225,7 @@ void UpdateDashboard(DailyProtectionState &state)
 
 // Header Bar
    CreateDashboardPanel(DASH_PREFIX+"HEADER", x, y, w, 36, C'20,55,90');
-   string eaTitle = StringFormat("%s | %s %s", "VMULTI-1109", Symbol(), TimeframeToString(Period()));
+   string eaTitle = StringFormat("%s | %s %s", "VMULTI-1110", Symbol(), TimeframeToString(Period()));
    CreateDashboardLabel(DASH_PREFIX+"TITLE", eaTitle, tx, y+4, 9, clrWhite);
    string priceStatus = StringFormat("BID: %." + IntegerToString(Digits) + "f | ASK: %." + IntegerToString(Digits) + "f | SPR: %d pts", Bid, Ask, (int)MarketInfo(Symbol(), MODE_SPREAD));
    CreateDashboardLabel(DASH_PREFIX+"PRICE", priceStatus, tx, y+19, 8, clrLightGray);
