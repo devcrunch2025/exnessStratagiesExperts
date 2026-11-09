@@ -3186,9 +3186,9 @@ bool   InpEnableOverallBasketProfitModify   =false;// true;   // Method 5: Enabl
 double InpOverallBasketProfitTargetUSD      = 5;//1.0;    // Method 5: Overall hedged basket profit target in USD ($1.00 * multiplier)
 double InpOverallBasketSLGapUSD             = 100.0;  // Method 5: Overall hedged basket StopLoss gap in USD points ($150)
 
-// Method 6: Multi-Order Combinations (> 2 orders, Profit or Loss mix) > $5 Profit SL Modifier (Disabled in favor of Method 4)
-bool   InpEnableMethod6CombinationSLModify  = false;  // Method 6: Check combinations of >2 orders (profit/loss mix) > $5 profit (disabled to prevent SL tightening on underwater orders)
-double InpMethod6ProfitThresholdUSD         = 5.0;    // Method 6: Base profit threshold in USD ($5.00 * multiplier)
+// Method 6: Multi-Order Combinations (> 2 orders, Profit or Loss mix) > $20 Profit SL Modifier
+bool   InpEnableMethod6CombinationSLModify  = true;   // Method 6: Check combinations of >2 orders (profit/loss mix) > $20 profit
+double InpMethod6ProfitThresholdUSD         = 20.0;   // Method 6: Base profit threshold in USD ($20.00 * multiplier)
 double InpMethod6SLDistanceUSD              = 150.0;  // Method 6: StopLoss gap in USD points ($150)
 int    InpMethod6MinOrderCount              = 2;      // Method 6: Minimum number of orders in combination (default 2 or 3)
 bool   InpDrawMethod6HitIcon                = true;   // Method 6: Draw chart icon when combination profit threshold is hit
@@ -3632,7 +3632,7 @@ string GetMethodDescription(int methodId, int orderCount, double netProfit = 0.0
       case 5:
          return "Method 5: Basket Profit SL";
       case 6:
-         return "Method 6: Multi-Order >$5 SL";
+         return "Method 6: Multi-Order >$20 SL";
       default:
          if(netProfit < 0.0)
             return StringFormat("Multi-Order Loss / Risk Cut (+%d)", orderCount);
@@ -4105,9 +4105,8 @@ void ModifyPairProfitWithStopLoss()
          if(proposedSL >= curBid)
             continue;
 
-         // For BUY: Set if no SL (0.0), or move SL forward (higher), or widen gap to $300 breathing room while locking profit
-         if(curSL == 0.0 || (proposedSL > curSL && (proposedSL - curSL) >= MinimumSLModifyGapRaw) ||
-            (allowBreathingWidening && MathAbs(proposedSL - curSL) >= MinimumSLModifyGapRaw))
+         // For BUY: Set if no SL (0.0), or move SL strictly forward (higher)
+         if(curSL == 0.0 || (proposedSL > curSL && (proposedSL - curSL) >= MinimumSLModifyGapRaw))
            {
             shouldModify = true;
            }
@@ -4119,9 +4118,8 @@ void ModifyPairProfitWithStopLoss()
             if(proposedSL <= curAsk)
                continue;
 
-            // For SELL: Set if no SL (0.0), or move SL forward (lower), or widen gap to $300 breathing room while locking profit
-            if(curSL == 0.0 || (proposedSL < curSL && (curSL - proposedSL) >= MinimumSLModifyGapRaw) ||
-               (allowBreathingWidening && MathAbs(proposedSL - curSL) >= MinimumSLModifyGapRaw))
+            // For SELL: Set if no SL (0.0), or move SL strictly forward (lower)
+            if(curSL == 0.0 || (proposedSL < curSL && (curSL - proposedSL) >= MinimumSLModifyGapRaw))
               {
                shouldModify = true;
               }
@@ -4152,7 +4150,7 @@ void ModifyPairProfitWithStopLoss()
 //+------------------------------------------------------------------+
 //| METHOD 6: Multi-Order Combination (> 2 Orders) SL Modifier       |
 //| Checks combinations of more than 2 orders (3, 4, or basket)      |
-//| where combined profit (mix of profit or loss) > $5 * multiplier. |
+//| where combined profit (mix of profit or loss) > $20 * multiplier.|
 //| Modifies all participating orders with $150 StopLoss USD gap.    |
 //+------------------------------------------------------------------+
 void ModifyMethod6MultiOrderCombinationsOver5USD()
@@ -4182,7 +4180,7 @@ void ModifyMethod6MultiOrderCombinationsOver5USD()
    int candCount = 0;
 
    int mult = (balancelomultipler > 0) ? balancelomultipler : 1;
-   double threshold = (InpMethod6ProfitThresholdUSD > 0.0 ? InpMethod6ProfitThresholdUSD : 5.0) * mult;
+   double threshold = (InpMethod6ProfitThresholdUSD > 0.0 ? InpMethod6ProfitThresholdUSD : 20.0) * mult;
    int minOrders = (InpMethod6MinOrderCount >= 2) ? InpMethod6MinOrderCount : 2;
 
    for(int i = OrdersTotal() - 1; i >= 0 && candCount < MAX_M6_ORDERS; i--)
@@ -4402,16 +4400,14 @@ void ModifyMethod6MultiOrderCombinationsOver5USD()
             proposedSL = oOpen;
         }
 
-      bool allowBreathingWidening = (isSteepAngle && isProfitGapReached && (oType == OP_BUY ? proposedSL >= oOpen : proposedSL <= oOpen));
-
+      // Common Gate Barrier: Method 6 can ONLY move StopLoss strictly forward (higher for BUY, lower for SELL)
+      // StopLoss can NEVER go backwards to less profit or more loss!
       if(oType == OP_BUY)
         {
          if(proposedSL >= curBid)
             continue;
 
-         // For BUY: Set if no SL (0.0), or move SL forward (higher), or widen gap to $300 breathing room while locking profit
-         if(curSL == 0.0 || (proposedSL > curSL && (proposedSL - curSL) >= MinimumSLModifyGapRaw) ||
-            (allowBreathingWidening && MathAbs(proposedSL - curSL) >= MinimumSLModifyGapRaw))
+         if(curSL == 0.0 || (proposedSL > curSL && (proposedSL - curSL) >= MinimumSLModifyGapRaw))
            {
             shouldModify = true;
            }
@@ -4421,9 +4417,7 @@ void ModifyMethod6MultiOrderCombinationsOver5USD()
          if(proposedSL <= curAsk)
             continue;
 
-         // For SELL: Set if no SL (0.0), or move SL forward (lower), or widen gap to $300 breathing room while locking profit
-         if(curSL == 0.0 || (proposedSL < curSL && (curSL - proposedSL) >= MinimumSLModifyGapRaw) ||
-            (allowBreathingWidening && MathAbs(proposedSL - curSL) >= MinimumSLModifyGapRaw))
+         if(curSL == 0.0 || (proposedSL < curSL && (curSL - proposedSL) >= MinimumSLModifyGapRaw))
            {
             shouldModify = true;
            }
@@ -9870,9 +9864,6 @@ bool CanModifyStopLossForHigherProfit(int ticket, double proposedSL, string call
 
 // USER RULE: Orders secured by Equity Target Hit:
 // "profit stoploss value ok. loss stoploss is not ok."
-// If an order was secured by Equity Target Hit:
-// - Permitted: Stop Loss that locks in PROFIT (normPropSL >= oOpen for BUY, normPropSL <= oOpen for SELL)
-// - REJECTED: Stop Loss in LOSS (normPropSL < oOpen for BUY, normPropSL > oOpen for SELL)
    if(IsEquityHitSecuredOrder(ticket) && callerName != "EquityTargetHit_LossTighten" && StringFind(callerName, "Method") < 0)
      {
       bool isLossSL = (oType == OP_BUY && normPropSL < oOpen) || (oType == OP_SELL && normPropSL > oOpen);
@@ -9888,58 +9879,25 @@ bool CanModifyStopLossForHigherProfit(int ticket, double proposedSL, string call
         }
      }
 
-// 1. If order currently has NO Stop Loss, any valid SL is permitted
+// 1. If order currently has NO Stop Loss (0.0), any valid initial SL is permitted
    if(curSL <= 0.0)
       return true;
 
    curSL = NormalizeDouble(curSL, Digits);
 
-   // EXCEPTION: Emergency 90% SL Adverse Cut & Double SL
-   // User Rule: When 50% LOT is closed at 90% SL distance, remaining LOT gets doubled SL distance.
+   // EXCEPTION: Emergency 90% SL Adverse Cut & Double SL (Only for emergency adverse halving)
    if(callerName == "Emergency90PercentSLCutDoubleSL")
       return true;
 
-   // EXCEPTION: Double StopLoss Gap on Steep EMA Angle in Profitable Direction
-   // User Rule (VMULTI-1096): "Double SL gap will happend when EMA angle is >3 and openorderprice -liveprice >500 (adjust for order type BUY and SELL)
-   // in profitable direction only. never modify order with loss amount (Example BUY order not less than openorderprice)"
-   if(InpEnableDoubleSlGapOnSteepAngle)
-     {
-      double curEmaAng = GlobalEmaAngle30;
-      if(curEmaAng == 0.0)
-         curEmaAng = GetEmaAngleDegrees(30);
-
-      RefreshRates();
-      double liveBid = MarketInfo(Symbol(), MODE_BID);
-      double liveAsk = MarketInfo(Symbol(), MODE_ASK);
-      double rawProfitGap = (oType == OP_BUY) ? (liveBid - oOpen) : (oOpen - liveAsk);
-      bool isSteepAngle = (MathAbs(curEmaAng) > InpDoubleSlGapAngle);
-      bool isProfitGapReached = (rawProfitGap > InpDoubleSlMinProfitGapRaw);
-      bool isNeverLossProtected = (oType == OP_BUY ? normPropSL >= oOpen : normPropSL <= oOpen);
-
-      if(isSteepAngle && isProfitGapReached && isNeverLossProtected)
-        {
-         if(MathAbs(normPropSL - curSL) >= MinimumSLModifyGapRaw)
-           {
-            Print(">>> [DOUBLE SL GAP BREATHING ALLOWED] Ticket #", ticket, " (", (oType == OP_BUY ? "BUY" : "SELL"),
-                  " ", DoubleToString(oLots, 2), "L) | Current SL=", DoubleToString(curSL, Digits),
-                  " | Doubled Breathing SL=", DoubleToString(normPropSL, Digits),
-                  " | Open=", DoubleToString(oOpen, Digits),
-                  " | Raw Profit Gap=$", DoubleToString(rawProfitGap, 2), " > $", DoubleToString(InpDoubleSlMinProfitGapRaw, 2),
-                  " | MathAbs(EMAangle)=", DoubleToString(MathAbs(curEmaAng), 2), " > ", DoubleToString(InpDoubleSlGapAngle, 1),
-                  " deg (Caller=", callerName, ")");
-            return true;
-           }
-         return false;
-        }
-     }
-
 // =========================================================================
-// UNIVERSAL ONE-WAY STOPLOSS RATCHET (STRICT ANTI-LOSS-WIDENING GUARANTEE)
-// USER RULE: "apply to all orders. Example, when any order is modified with one
-//  stoploss value. example BUY order is modified with stoploss values with -$100
-//  or -$50 or something (sl is 71000). next time if any method is trying to
-//  modify with more than loss current like SL is below 71000 (do not allow this).
-//  allow above 71000. same logic can apply for SELL orders also"
+// UNIVERSAL COMMON GATE BARRIER (APPLIES ACROSS ALL METHODS):
+// USER RULE: "modify order with stoploss should not go back to (loss price)
+// from the previous order stoploss modification. Applicable to all order
+// modify with stoploss prices. Adjust logic for order type (BUY or SELL).
+// Example: One method modified BUY order at $5 profit (floating profit is $10).
+// Then another method tries to modify with $4 profit.
+// BLOCK $4 order modification and continue. This is common gate barrier to all
+// methods which call modify order with stoploss."
 // =========================================================================
 
 // 2. Evaluate BUY order: Must be strictly GREATER than curSL (above current SL)
@@ -9951,11 +9909,11 @@ bool CanModifyStopLossForHigherProfit(int ticket, double proposedSL, string call
          double curLockedUSD  = CalcOrderLockedProfitUSD(oType, oOpen, curSL, oLots);
          double propLockedUSD = CalcOrderLockedProfitUSD(oType, oOpen, normPropSL, oLots);
 
-         Print(">>> [WIDER LOSS / LESS PROFIT BLOCKED] Ticket #", ticket, " (BUY ", DoubleToString(oLots, 2), "L)",
-               " | Current SL=", DoubleToString(curSL, Digits), " ($", DoubleToString(curLockedUSD, 2), ")",
-               " | Proposed Worse SL=", DoubleToString(normPropSL, Digits), " ($", DoubleToString(propLockedUSD, 2), ")",
+         Print(">>> [COMMON GATE BARRIER BLOCKED] Ticket #", ticket, " (BUY ", DoubleToString(oLots, 2), "L)",
+               " | Current SL=", DoubleToString(curSL, Digits), " (Locks $", DoubleToString(curLockedUSD, 2), ")",
+               " >= Proposed Worse SL=", DoubleToString(normPropSL, Digits), " (Locks $", DoubleToString(propLockedUSD, 2), ")",
                (callerName != "" ? " | Caller=" + callerName : ""),
-               " | REJECTED: Rule: Never modify with more loss than current SL! Only above current SL allowed.");
+               " | REJECTED: StopLoss cannot go backwards to less profit / worse price than previous modification!");
          return false;
         }
 
@@ -9975,11 +9933,11 @@ bool CanModifyStopLossForHigherProfit(int ticket, double proposedSL, string call
          double curLockedUSD  = CalcOrderLockedProfitUSD(oType, oOpen, curSL, oLots);
          double propLockedUSD = CalcOrderLockedProfitUSD(oType, oOpen, normPropSL, oLots);
 
-         Print(">>> [WIDER LOSS / LESS PROFIT BLOCKED] Ticket #", ticket, " (SELL ", DoubleToString(oLots, 2), "L)",
-               " | Current SL=", DoubleToString(curSL, Digits), " ($", DoubleToString(curLockedUSD, 2), ")",
-               " | Proposed Worse SL=", DoubleToString(normPropSL, Digits), " ($", DoubleToString(propLockedUSD, 2), ")",
+         Print(">>> [COMMON GATE BARRIER BLOCKED] Ticket #", ticket, " (SELL ", DoubleToString(oLots, 2), "L)",
+               " | Current SL=", DoubleToString(curSL, Digits), " (Locks $", DoubleToString(curLockedUSD, 2), ")",
+               " <= Proposed Worse SL=", DoubleToString(normPropSL, Digits), " (Locks $", DoubleToString(propLockedUSD, 2), ")",
                (callerName != "" ? " | Caller=" + callerName : ""),
-               " | REJECTED: Rule: Never modify with more loss than current SL! Only below current SL allowed.");
+               " | REJECTED: StopLoss cannot go backwards to less profit / worse price than previous modification!");
          return false;
         }
 
@@ -9992,13 +9950,6 @@ bool CanModifyStopLossForHigherProfit(int ticket, double proposedSL, string call
 
    return false;
   }
-//+------------------------------------------------------------------+
-//| GetTrendAwareStopLoss: Determines StopLoss based on EMA Trend     |
-//| User Rule:                                                       |
-//| - BUY  + EMADirection== 1 + STRONG EMA -> curBid - standardGapUSD|
-//| - BUY  + (EMADirection==-1 || WEAK EMA) -> curBid - minStopDist  |
-//| - SELL + EMADirection==-1 + STRONG EMA -> curAsk + standardGapUSD|
-//| - SELL + (EMADirection== 1 || WEAK EMA) -> curAsk + minStopDist  |
 //+------------------------------------------------------------------+
 double GetTrendAwareStopLoss(int orderType, double standardGapUSD, double curSL = 0.0, string callerName = "", double orderProfit = 0.0, double openPrice = 0.0)
   {
@@ -10052,6 +10003,8 @@ double GetTrendAwareStopLoss(int orderType, double standardGapUSD, double curSL 
             sl = NormalizeDouble(curBid - minStopDist, Digits);
          if(openPrice > 0.0 && sl < openPrice && (isProfitGapReached || rawProfitGap > 0.0 || orderProfit > 0.0))
             sl = openPrice; // USER RULE: Never modify order with loss amount (BUY order not less than openPrice)
+         if(curSL > 0.0 && sl <= curSL)
+            sl = curSL;
          return sl;
         }
       else if(orderType == OP_SELL)
@@ -10061,6 +10014,8 @@ double GetTrendAwareStopLoss(int orderType, double standardGapUSD, double curSL 
             sl = NormalizeDouble(curAsk + minStopDist, Digits);
          if(openPrice > 0.0 && sl > openPrice && (isProfitGapReached || rawProfitGap > 0.0 || orderProfit > 0.0))
             sl = openPrice; // USER RULE: Never modify order with loss amount (SELL order not greater than openPrice)
+         if(curSL > 0.0 && sl >= curSL)
+            sl = curSL;
          return sl;
         }
       return 0.0;
@@ -10096,20 +10051,9 @@ double GetTrendAwareStopLoss(int orderType, double standardGapUSD, double curSL 
       if(openPrice > 0.0 && targetSL < openPrice && isProfitGapReached)
          targetSL = openPrice;
 
-      // Universal Ratchet: When steep angle & profit > $10, allow widening to doubled gap as long as it still locks profit (>= openPrice)
-      if(curSL > 0.0)
-        {
-         if(isSteepAngle && isProfitGapReached)
-           {
-            if(openPrice > 0.0 && targetSL < openPrice)
-               targetSL = openPrice;
-           }
-         else
-           {
-            if(targetSL <= curSL)
-               targetSL = curSL;
-           }
-        }
+      // Universal Ratchet: StopLoss can never go backwards from existing curSL
+      if(curSL > 0.0 && targetSL <= curSL)
+         targetSL = curSL;
      }
    else if(orderType == OP_SELL)
      {
@@ -10137,20 +10081,9 @@ double GetTrendAwareStopLoss(int orderType, double standardGapUSD, double curSL 
       if(openPrice > 0.0 && targetSL > openPrice && isProfitGapReached)
          targetSL = openPrice;
 
-      // Universal Ratchet: When steep angle & profit > $10, allow widening to doubled gap as long as it still locks profit (<= openPrice)
-      if(curSL > 0.0)
-        {
-         if(isSteepAngle && isProfitGapReached)
-           {
-            if(openPrice > 0.0 && targetSL > openPrice)
-               targetSL = openPrice;
-           }
-         else
-           {
-            if(targetSL >= curSL)
-               targetSL = curSL;
-           }
-        }
+      // Universal Ratchet: StopLoss can never go backwards from existing curSL
+      if(curSL > 0.0 && targetSL >= curSL)
+         targetSL = curSL;
      }
 
    return targetSL;
@@ -10204,12 +10137,15 @@ bool SafeOrderModify(int ticket,double openPrice,double stopLoss,double takeProf
             double doubledLiveGap = liveGap * InpDoubleSlGapMultiplier;
             if(doubledLiveGap > liveGap)
               {
+               double existingSL = NormalizeDouble(OrderStopLoss(), Digits);
                if(orderType == OP_BUY)
                  {
                   double wideSL = NormalizeDouble(Bid - doubledLiveGap, Digits);
                   if(wideSL < oOpen)
                      wideSL = oOpen; // Maintain at least Breakeven - USER RULE: never modify order with loss amount
-                  if(wideSL < requestedSL)
+                  if(existingSL > 0.0 && wideSL <= existingSL)
+                     wideSL = existingSL; // Common Gate Barrier: never downgrade existing SL
+                  if(wideSL < requestedSL && (existingSL <= 0.0 || wideSL > existingSL))
                     {
                      Print(">>> [DOUBLE SL GAP IN SAFEMODIFY] BUY #", ticket, " Raw Profit Gap=$", DoubleToString(rawProfitGap, 2),
                            " | Doubled gap from $", DoubleToString(liveGap, 2), " to $", DoubleToString(doubledLiveGap, 2),
@@ -10223,7 +10159,9 @@ bool SafeOrderModify(int ticket,double openPrice,double stopLoss,double takeProf
                   double wideSL = NormalizeDouble(Ask + doubledLiveGap, Digits);
                   if(wideSL > oOpen)
                      wideSL = oOpen; // Maintain at least Breakeven - USER RULE: never modify order with loss amount
-                  if(wideSL > requestedSL)
+                  if(existingSL > 0.0 && wideSL >= existingSL)
+                     wideSL = existingSL; // Common Gate Barrier: never downgrade existing SL
+                  if(wideSL > requestedSL && (existingSL <= 0.0 || wideSL < existingSL))
                     {
                      Print(">>> [DOUBLE SL GAP IN SAFEMODIFY] SELL #", ticket, " Raw Profit Gap=$", DoubleToString(rawProfitGap, 2),
                            " | Doubled gap from $", DoubleToString(liveGap, 2), " to $", DoubleToString(doubledLiveGap, 2),
@@ -10256,11 +10194,13 @@ bool SafeOrderModify(int ticket,double openPrice,double stopLoss,double takeProf
       if(!isMethodCaller && curNetPL > 0.0 && isSecuringProfit && !IsAnyRecoveryOrder(ticket, comment) && !IsFLIPBasketSupportOrder(ticket, comment))
         {
          double propLadderSL = CalculateProportionalLadderSL(orderType, oOpen, oLots);
+         double curExistingSL = OrderStopLoss();
          if(propLadderSL > 0.0)
            {
             // If caller proposes an SL tighter than the ladder rung (e.g. Bid - 20),
             // align it with propLadderSL so the trade retains its full 1-gap breathing cushion!
-            if(orderType == OP_BUY && requestedSL > propLadderSL)
+            // Common Gate Barrier: never downgrade below existing StopLoss!
+            if(orderType == OP_BUY && requestedSL > propLadderSL && (curExistingSL <= 0.0 || propLadderSL > curExistingSL))
               {
                Print(">>> [COMMON LADDER ENFORCED] BUY #", ticket, " (", DoubleToString(oLots, 2),
                      "L): Proposed SL=", DoubleToString(requestedSL, Digits),
@@ -10269,7 +10209,7 @@ bool SafeOrderModify(int ticket,double openPrice,double stopLoss,double takeProf
                requestedSL = propLadderSL;
               }
             else
-               if(orderType == OP_SELL && requestedSL < propLadderSL)
+               if(orderType == OP_SELL && requestedSL < propLadderSL && (curExistingSL <= 0.0 || propLadderSL < curExistingSL))
                  {
                   Print(">>> [COMMON LADDER ENFORCED] SELL #", ticket, " (", DoubleToString(oLots, 2),
                         "L): Proposed SL=", DoubleToString(requestedSL, Digits),
@@ -10282,7 +10222,8 @@ bool SafeOrderModify(int ticket,double openPrice,double stopLoss,double takeProf
            {
             // Order has not reached Level 1 gap yet (favorable move < stepPriceGap)
             // Clamp to Breakeven so liveprice modifications do not prematurely choke the trade before Level 1!
-            if(orderType == OP_BUY && requestedSL > oOpen)
+            // Common Gate Barrier: never downgrade below existing StopLoss!
+            if(orderType == OP_BUY && requestedSL > oOpen && (curExistingSL <= 0.0 || oOpen > curExistingSL))
               {
                Print(">>> [COMMON LADDER ENFORCED] BUY #", ticket, " (", DoubleToString(oLots, 2),
                      "L): Proposed SL=", DoubleToString(requestedSL, Digits),
@@ -10291,7 +10232,7 @@ bool SafeOrderModify(int ticket,double openPrice,double stopLoss,double takeProf
                requestedSL = oOpen;
               }
             else
-               if(orderType == OP_SELL && requestedSL < oOpen)
+               if(orderType == OP_SELL && requestedSL < oOpen && (curExistingSL <= 0.0 || oOpen < curExistingSL))
                  {
                   Print(">>> [COMMON LADDER ENFORCED] SELL #", ticket, " (", DoubleToString(oLots, 2),
                         "L): Proposed SL=", DoubleToString(requestedSL, Digits),
