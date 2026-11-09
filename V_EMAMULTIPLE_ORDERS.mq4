@@ -94,10 +94,10 @@ double   g_stepSize            =1000;// 50.0; // The step increment ($50)
 
 // ===== EQUITY PROFIT LADDER $5 SETTINGS =====
 bool   InpEnableEquityProfitLadder5        = true;   // Enabled: Lowest Equity Recovery Profit Ladder ($10 * multiplier step)
-double InpEquityProfitLadderStepUSD        = 10;//10;//20;//50;//100;//5.0;    // Step size in USD ($5.00)
+double InpEquityProfitLadderStepUSD        = 20;//10;//20;//50;//100;//5.0;    // Step size in USD ($5.00)
 bool   InpEquityLadderUseMultiplier        = true;   // Multiply step size by balancelomultipler ($5 * multiplier)
-double InpEquityLadderSLDistanceRaw        = 200;//50;//100.0;  // StopLoss gap from live price in raw points (-$100 gap)
-double InpEquityLadderMinGapHours          = 6.0;    // Minimum time gap in hours between EquityProfitLadder5 step hits
+double InpEquityLadderSLDistanceRaw        = 100;//50;//100.0;  // StopLoss gap from live price in raw points (-$100 gap)
+double InpEquityLadderMinGapHours          =1;// 6.0;    // Minimum time gap in hours between EquityProfitLadder5 step hits
 double InpEquityLadderMinEmaAngle          = 6.0;    // Minimum MathAbs(EMAangle) required to trigger step hit (> 6.0 degrees)
 bool   InpEquityLadderRequireStrongEma     = true;   // Require EMA to be STRONG (!IsEmaWEAK) to trigger step hit
 double InpEquityLadderMinPriceDiff2Hours    = 2000.0; // Minimum price difference in raw USD from last 2 hours (> $2000)
