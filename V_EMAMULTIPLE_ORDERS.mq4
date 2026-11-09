@@ -42,7 +42,7 @@ CheckBasketProfitClose  Total open basket profit
 */
 
 
-string glbVersion = "VMULTI-1115- Relief SL Modifies Winners With 100 Gap";
+string glbVersion = "VMULTI-1116- 90Pct Adverse Cut Widen SL Plus 500 One Time Only";
 
 
 
@@ -283,11 +283,11 @@ bool   InpNeverWidenEmaFlipStopLoss        = true;   // Strict risk rule: Never 
 bool   InpEnableMaxLossCap001Lots          = true;   // Close 0.01 lot order if floating loss reaches max dollar threshold
 double InpMaxLoss001LotsUSD                = 10.0;   // Maximum allowed dollar loss ($10.00 * multiplier) on 0.01 lot orders
 
-// ===== 90% STOPLOSS ADVERSE DISTANCE 50% LOT CUT & DOUBLE SL CUSHION =====
-bool   InpEnable90PctSLAdverseCutDoubleSL   = true;   // When adverse move reaches 90% of StopLoss (>1000 pts): close 50% LOT and double SL
+// ===== 90% STOPLOSS ADVERSE DISTANCE 50% LOT CUT & +$500 SL CUSHION =====
+bool   InpEnable90PctSLAdverseCutDoubleSL   = true;   // When adverse move reaches 90% of StopLoss (>1000 pts): close 50% LOT and widen SL by $500
 double Inp90PctSLMinStopLossDistanceUSD     = 1000.0; // Minimum StopLoss distance in USD ($1000) to qualify for 90% partial cut
 double Inp90PctSLAdversePercent             = 0.90;   // Adverse distance percentage towards SL to trigger (90% = 0.90)
-double Inp90PctSLNewDistanceMultiplier      = 2.0;    // New StopLoss distance multiplier for remaining LOT (2.0 = double existing)
+double Inp90PctSLExpansionGapUSD            = 500.0;  // StopLoss expansion in raw USD ($500) instead of doubling (ONE TIME ONLY)
 
 // ===== EQL / EQH STRUCTURAL RECOVERY (TYPE 2) SETTINGS =====
 bool   InpEnableLsdStructuralRecovery       = true;  // Enable EQL/EQH Structural Recovery (Type 2)
@@ -1739,11 +1739,17 @@ int      g_orders90PctCutCount = 0;
 //+------------------------------------------------------------------+
 bool HasOrderReceived90PctCut(int ticket, string comment = "")
   {
+   if(ticket <= 0)
+      return false;
+
    for(int i = 0; i < g_orders90PctCutCount; i++)
      {
       if(g_orders90PctCutTickets[i] == ticket)
          return true;
      }
+
+   if(GlobalVariableCheck("EA_90PCT_CUT_" + IntegerToString(ticket)))
+      return true;
 
    int parentTkt = GetOriginalTicket(ticket, comment);
    if(parentTkt > 0 && parentTkt != ticket)
@@ -1753,6 +1759,8 @@ bool HasOrderReceived90PctCut(int ticket, string comment = "")
          if(g_orders90PctCutTickets[i] == parentTkt)
             return true;
         }
+      if(GlobalVariableCheck("EA_90PCT_CUT_" + IntegerToString(parentTkt)))
+         return true;
      }
    return false;
   }
@@ -1773,6 +1781,8 @@ void RegisterOrder90PctCut(int ticket)
      {
       g_orders90PctCutTickets[g_orders90PctCutCount++] = ticket;
      }
+   // Persist to terminal GlobalVariable so order is strictly modified ONE TIME ONLY
+   GlobalVariableSet("EA_90PCT_CUT_" + IntegerToString(ticket), 1.0);
   }
 
 //+------------------------------------------------------------------+
@@ -1851,33 +1861,35 @@ void Check90PctSLAdversePartialCutAndDoubleSL()
       if((oLots - halfLots) < lotStep)
          continue;
 
-      // Calculate new doubled StopLoss distance from OpenPrice (e.g. 1500 * 2 = 3000)
-      double doubledSLDist = slDist * Inp90PctSLNewDistanceMultiplier;
+      // Calculate new StopLoss with +$500 raw price expansion (ONE TIME ONLY per order, DO NOT DOUBLE)
+      double slExpansionUSD = (Inp90PctSLExpansionGapUSD > 0.0) ? Inp90PctSLExpansionGapUSD : 500.0;
+      double expandedSLDist = slDist + slExpansionUSD;
       double newSL = 0.0;
       if(oType == OP_BUY)
-         newSL = NormalizeDouble(openPrice - doubledSLDist, Digits);
+         newSL = NormalizeDouble(openPrice - expandedSLDist, Digits);
       else
          if(oType == OP_SELL)
-            newSL = NormalizeDouble(openPrice + doubledSLDist, Digits);
+            newSL = NormalizeDouble(openPrice + expandedSLDist, Digits);
 
       Print(">>> [90% SL ADVERSE TRIGGER] Order #", tkt, " (", (oType == OP_BUY ? "BUY " : "SELL "),
             DoubleToString(oLots, 2), "L | Open=", DoubleToString(openPrice, Digits),
             " | SL=", DoubleToString(curSL, Digits), " | SL Dist=$", DoubleToString(slDist, 2),
             "): Adverse Move=$", DoubleToString(adverseDist, 2), " >= 90% ($", DoubleToString(thresholdDist, 2),
-            "). Closing 50% LOT (", DoubleToString(halfLots, 2), "L) and Doubling SL to $",
-            DoubleToString(doubledSLDist, 2), " (New SL=", DoubleToString(newSL, Digits), ")...");
+            "). Closing 50% LOT (", DoubleToString(halfLots, 2), "L) and Expanding SL by +$",
+            DoubleToString(slExpansionUSD, 2), " to $", DoubleToString(expandedSLDist, 2),
+            " (New SL=", DoubleToString(newSL, Digits), ") [ONE TIME ONLY]...");
 
-      // Register ticket immediately to prevent duplicate triggers
+      // Register ticket immediately to prevent duplicate triggers (strictly 1 time per order)
       RegisterOrder90PctCut(tkt);
 
-      // ACTION 1 (Previously Action 2): Double StopLoss FIRST on existing order for immediate breathing room
+      // ACTION 1: Expand StopLoss by +$500 FIRST on existing order for immediate breathing room
       ResetLastError();
-      bool modified = SafeOrderModify(tkt, openPrice, newSL, OrderTakeProfit(), 0, clrOrange, "Emergency90PercentSLCutDoubleSL");
+      bool modified = SafeOrderModify(tkt, openPrice, newSL, OrderTakeProfit(), 0, clrOrange, "Emergency90PercentSLCutPlus500SL");
       if(modified)
         {
-         Print(">>> [90% SL ADVERSE SL DOUBLED FIRST] Order #", tkt, " (", DoubleToString(oLots, 2),
-               "L): SL successfully doubled to ", DoubleToString(newSL, Digits),
-               " (Distance: $", DoubleToString(doubledSLDist, 2), ") before closing 50% LOT.");
+         Print(">>> [90% SL ADVERSE SL EXPANDED +$500 FIRST] Order #", tkt, " (", DoubleToString(oLots, 2),
+               "L): SL successfully expanded by +$", DoubleToString(slExpansionUSD, 2), " to ", DoubleToString(newSL, Digits),
+               " (Total SL Distance: $", DoubleToString(expandedSLDist, 2), ") [ONE TIME ONLY] before closing 50% LOT.");
         }
       else
         {
@@ -1885,7 +1897,7 @@ void Check90PctSLAdversePartialCutAndDoubleSL()
                " Attempted SL=", DoubleToString(newSL, Digits));
         }
 
-      // ACTION 2 (Previously Action 1): Now close 50% LOT at market
+      // ACTION 2: Now close 50% LOT at market
       RefreshRates();
       ResetLastError();
       bool closed = SafeOrderCloseMarket(tkt, halfLots, Slippage, clrOrangeRed);
@@ -1896,7 +1908,7 @@ void Check90PctSLAdversePartialCutAndDoubleSL()
         }
 
       Print(">>> [90% SL ADVERSE CLOSED 50%] Order #", tkt, " closed ", DoubleToString(halfLots, 2),
-            "L successfully. Remaining runner inherits doubled SL.");
+            "L successfully. Remaining runner inherits +$500 expanded SL.");
 
       // Register and verify remaining runner order (or child split ticket)
       RefreshRates();
@@ -1914,7 +1926,7 @@ void Check90PctSLAdversePartialCutAndDoubleSL()
             RegisterOrder90PctCut(rTkt); // Also register child ticket
             if(MathAbs(OrderStopLoss() - newSL) > Point)
               {
-               SafeOrderModify(rTkt, OrderOpenPrice(), newSL, OrderTakeProfit(), 0, clrOrange, "Emergency90PercentSLCutDoubleSL");
+               SafeOrderModify(rTkt, OrderOpenPrice(), newSL, OrderTakeProfit(), 0, clrOrange, "Emergency90PercentSLCutPlus500SL");
               }
             break;
            }
@@ -19372,7 +19384,7 @@ void UpdateDashboard(DailyProtectionState &state)
 
 // Header Bar
    CreateDashboardPanel(DASH_PREFIX+"HEADER", x, y, w, 36, C'20,55,90');
-   string eaTitle = StringFormat("%s | %s %s", "VMULTI-1115", Symbol(), TimeframeToString(Period()));
+   string eaTitle = StringFormat("%s | %s %s", "VMULTI-1116", Symbol(), TimeframeToString(Period()));
    CreateDashboardLabel(DASH_PREFIX+"TITLE", eaTitle, tx, y+4, 9, clrWhite);
    string priceStatus = StringFormat("BID: %." + IntegerToString(Digits) + "f | ASK: %." + IntegerToString(Digits) + "f | SPR: %d pts", Bid, Ask, (int)MarketInfo(Symbol(), MODE_SPREAD));
    CreateDashboardLabel(DASH_PREFIX+"PRICE", priceStatus, tx, y+19, 8, clrLightGray);
