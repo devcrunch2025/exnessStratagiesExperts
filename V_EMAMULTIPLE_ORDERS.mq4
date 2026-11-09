@@ -42,7 +42,7 @@ CheckBasketProfitClose  Total open basket profit
 */
 
 
-string glbVersion = "VMULTI-1096- method 6 $20";
+string glbVersion = "VMULTI-1097 -Method 6";
 
 
 
@@ -3188,7 +3188,7 @@ double InpOverallBasketSLGapUSD             = 100.0;  // Method 5: Overall hedge
 
 // Method 6: Multi-Order Combinations (> 2 orders, Profit or Loss mix) > $20 Profit SL Modifier
 bool   InpEnableMethod6CombinationSLModify  = true;   // Method 6: Check combinations of >2 orders (profit/loss mix) > $20 profit
-double InpMethod6ProfitThresholdUSD         = 20.0;   // Method 6: Base profit threshold in USD ($20.00 * multiplier)
+double InpMethod6ProfitThresholdUSD         = 10;//20.0;   // Method 6: Base profit threshold in USD ($20.00 * multiplier)
 double InpMethod6SLDistanceUSD              = 150.0;  // Method 6: StopLoss gap in USD points ($150)
 int    InpMethod6MinOrderCount              = 2;      // Method 6: Minimum number of orders in combination (default 2 or 3)
 bool   InpDrawMethod6HitIcon                = true;   // Method 6: Draw chart icon when combination profit threshold is hit
