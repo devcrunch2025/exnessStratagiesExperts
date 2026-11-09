@@ -42,7 +42,7 @@ CheckBasketProfitClose  Total open basket profit
 */
 
 
-string glbVersion = "VMULTI-1107- Streamlined Essential Right Dashboard";
+string glbVersion = "VMULTI-1108- Strict 6 Hours Global Cooldown on EquityProfitLadder5";
 
 
 
@@ -16924,7 +16924,7 @@ void EquityProfitLadder5()
       LowestEquity              = AccountEquity();
       g_equityLadderNextTarget  = 0.0;
       g_equityLadderStepCounter = 0;
-      g_lastEquityLadderHitTime = 0;
+      // Note: g_lastEquityLadderHitTime is preserved so the 6-hour cooldown strictly applies globally across order cycles!
       LowestEquityInitialized   = false;
       return;
      }
@@ -16941,7 +16941,7 @@ void EquityProfitLadder5()
       LowestEquity              = curEquity;
       g_equityLadderNextTarget  = curEquity + stepUSD;
       g_equityLadderStepCounter = 0;
-      g_lastEquityLadderHitTime = 0;
+      // Note: g_lastEquityLadderHitTime is preserved so the 6-hour cooldown strictly applies globally across order cycles!
       LowestEquityInitialized   = true;
 
       Print("EQUITY PROFIT LADDER $5 INITIALIZED | Equity=$", DoubleToString(curEquity, 2),
@@ -19206,7 +19206,7 @@ void UpdateDashboard(DailyProtectionState &state)
 
 // Header Bar
    CreateDashboardPanel(DASH_PREFIX+"HEADER", x, y, w, 36, C'20,55,90');
-   string eaTitle = StringFormat("%s | %s %s", "VMULTI-1107", Symbol(), TimeframeToString(Period()));
+   string eaTitle = StringFormat("%s | %s %s", "VMULTI-1108", Symbol(), TimeframeToString(Period()));
    CreateDashboardLabel(DASH_PREFIX+"TITLE", eaTitle, tx, y+4, 9, clrWhite);
    string priceStatus = StringFormat("BID: %." + IntegerToString(Digits) + "f | ASK: %." + IntegerToString(Digits) + "f | SPR: %d pts", Bid, Ask, (int)MarketInfo(Symbol(), MODE_SPREAD));
    CreateDashboardLabel(DASH_PREFIX+"PRICE", priceStatus, tx, y+19, 8, clrLightGray);
