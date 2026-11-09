@@ -42,7 +42,7 @@ CheckBasketProfitClose  Total open basket profit
 */
 
 
-string glbVersion = "VMULTI-1113- Relief SL and EquityLadder Min 2h Price Diff 2000 and Angle 6";
+string glbVersion = "VMULTI-1114- Multiplier on M5 M6 and SecureOneDollarProfit";
 
 
 
@@ -6084,6 +6084,13 @@ void SecureOneDollarProfit()
       double openPrice = OrderOpenPrice();
       int ticket       = OrderTicket();
       double currentTP = OrderTakeProfit();
+      double curPL     = OrderProfit() + OrderSwap() + OrderCommission();
+
+      // Check minimum profit with multiplier ($1.00 * multiplier)
+      int mult = (balancelomultipler > 0) ? balancelomultipler : 1;
+      double minProfitUSD = 1.0 * mult;
+      if(curPL < minProfitUSD)
+         continue; // Order must reach at least $1.00 * multiplier before securing profit
 
       // 1. Get dynamic price gap based on Lot & Multiplier
       double stepPriceGap = GetLotBasedPriceGap(orderLots, balancelomultipler);
@@ -6172,6 +6179,7 @@ void SecureOneDollarProfit()
                   " | Ticket=", ticket,
                   " | Lots=", DoubleToString(orderLots, 2),
                   " | Type=", (type == OP_BUY ? "BUY" : "SELL"),
+                  " | P/L=$", DoubleToString(curPL, 2), " >= $", DoubleToString(minProfitUSD, 2),
                   " | New SL=", DoubleToString(newSL, Digits));
            }
          else
@@ -19308,7 +19316,7 @@ void UpdateDashboard(DailyProtectionState &state)
 
 // Header Bar
    CreateDashboardPanel(DASH_PREFIX+"HEADER", x, y, w, 36, C'20,55,90');
-   string eaTitle = StringFormat("%s | %s %s", "VMULTI-1113", Symbol(), TimeframeToString(Period()));
+   string eaTitle = StringFormat("%s | %s %s", "VMULTI-1114", Symbol(), TimeframeToString(Period()));
    CreateDashboardLabel(DASH_PREFIX+"TITLE", eaTitle, tx, y+4, 9, clrWhite);
    string priceStatus = StringFormat("BID: %." + IntegerToString(Digits) + "f | ASK: %." + IntegerToString(Digits) + "f | SPR: %d pts", Bid, Ask, (int)MarketInfo(Symbol(), MODE_SPREAD));
    CreateDashboardLabel(DASH_PREFIX+"PRICE", priceStatus, tx, y+19, 8, clrLightGray);
