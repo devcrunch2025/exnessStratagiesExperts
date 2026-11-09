@@ -43,7 +43,7 @@ CheckBasketProfitClose  Total open basket profit
 
 
 
-string glbVersion = "VMULTI-1116- 90Pct Adverse Cut Widen SL Plus 500 One Time Only";
+string glbVersion = "VMULTI-1117- Whitelist 90Pct SL Adverse Plus 500 in Common Gate Barrier";
 
 
 
@@ -10950,8 +10950,8 @@ bool CanModifyStopLossForHigherProfit(int ticket, double proposedSL, string call
 
    curSL = NormalizeDouble(curSL, Digits);
 
-// EXCEPTION: Emergency 90% SL Adverse Cut & Double SL (Only for emergency adverse halving)
-   if(callerName == "Emergency90PercentSLCutDoubleSL")
+// EXCEPTION: Emergency 90% SL Adverse Cut & SL Expansion (Only for emergency adverse halving)
+   if(callerName == "Emergency90PercentSLCutPlus500SL" || callerName == "Emergency90PercentSLCutDoubleSL")
       return true;
 
 // =========================================================================
@@ -11185,7 +11185,7 @@ bool SafeOrderModify(int ticket,double openPrice,double stopLoss,double takeProf
       double oOpen = OrderOpenPrice();
       double oLots = OrderLots();
       double curNetPL = OrderProfit() + OrderSwap() + OrderCommission();
-      bool isMethodCaller = (StringFind(callerName, "Method") >= 0 || callerName == "Emergency90PercentSLCutDoubleSL");
+      bool isMethodCaller = (StringFind(callerName, "Method") >= 0 || callerName == "Emergency90PercentSLCutPlus500SL" || callerName == "Emergency90PercentSLCutDoubleSL");
 
       // USER RULE (VMULTI-1095 & VMULTI-1105): EMA angle calculation & Breakeven Breathing Floor
       double curEmaAng = GlobalEmaAngle30;
@@ -11318,7 +11318,7 @@ bool SafeOrderModify(int ticket,double openPrice,double stopLoss,double takeProf
       // Universal Trend-Aware StopLoss Enforcement:
       // Rule: When InpEnableEmaTrendAwareSL is true, if BUY & (EMADirection==-1 || EMA Weak)
       //       or SELL & (EMADirection==1 || EMA Weak), tighten SL directly to Live Price to prevent extra loss.
-      if(InpEnableEmaTrendAwareSL && callerName != "Emergency90PercentSLCutDoubleSL")
+      if(InpEnableEmaTrendAwareSL && callerName != "Emergency90PercentSLCutPlus500SL" && callerName != "Emergency90PercentSLCutDoubleSL")
         {
          bool isEmaWeak = IsEmaWEAKDistanceReduced50PercentFromPeak(orderType);
          double minStopDist = GetRequiredStopDistance();
@@ -19385,7 +19385,7 @@ void UpdateDashboard(DailyProtectionState &state)
 
 // Header Bar
    CreateDashboardPanel(DASH_PREFIX+"HEADER", x, y, w, 36, C'20,55,90');
-   string eaTitle = StringFormat("%s | %s %s", "VMULTI-1116", Symbol(), TimeframeToString(Period()));
+   string eaTitle = StringFormat("%s | %s %s", "VMULTI-1117", Symbol(), TimeframeToString(Period()));
    CreateDashboardLabel(DASH_PREFIX+"TITLE", eaTitle, tx, y+4, 9, clrWhite);
    string priceStatus = StringFormat("BID: %." + IntegerToString(Digits) + "f | ASK: %." + IntegerToString(Digits) + "f | SPR: %d pts", Bid, Ask, (int)MarketInfo(Symbol(), MODE_SPREAD));
    CreateDashboardLabel(DASH_PREFIX+"PRICE", priceStatus, tx, y+19, 8, clrLightGray);
