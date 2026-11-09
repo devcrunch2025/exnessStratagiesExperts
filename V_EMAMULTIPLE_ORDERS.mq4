@@ -43,7 +43,7 @@ CheckBasketProfitClose  Total open basket profit
 
 
 
-string glbVersion = "VMULTI-1099- Repeat Drawdown Relief SL on Every Peak DD Hit Success";
+string glbVersion = "VMULTI-1102- Phase 1 Drawdown Relief On-Screen Alert & Mobile Push Notification";
 
 
 
@@ -81,7 +81,7 @@ double CloseOrdersAtProfitFromOpeningBalanceEveryStep =5;//*10;//2;//0.4;//1;//3
 double InpTargetEquityProfitTrailingGapUSD = 102.0; // Target Equity hit: Trailing SL gap for winning orders (Bid-102, Ask+102)
 double InpTargetEquityLossTighteningGapUSD = 20.0;  // Target Equity hit: Tight SL gap for losing orders (Bid-20, Ask+20)
 bool   InpPauseEquityProfitHitOnSingleWinningOrder = true; // Pause Equity Profit hit if only 1 order is open and moving in positive profit direction
-  bool   InpCloseLosingOrdersOnEquityTargetHit       = true; // When equity target hit: close losing orders immediately & keep profit ladder for winning orders
+bool   InpCloseLosingOrdersOnEquityTargetHit       = true; // When equity target hit: close losing orders immediately & keep profit ladder for winning orders
 
 
 //chage 55
@@ -1726,6 +1726,9 @@ void CheckMaxLossCap001Lots()
 int      g_orders90PctCutTickets[MAX_90PCT_CUT_ORDERS];
 int      g_orders90PctCutCount = 0;
 
+//+------------------------------------------------------------------+
+//|                                                                  |
+//+------------------------------------------------------------------+
 bool HasOrderReceived90PctCut(int ticket, string comment = "")
   {
    for(int i = 0; i < g_orders90PctCutCount; i++)
@@ -1746,6 +1749,9 @@ bool HasOrderReceived90PctCut(int ticket, string comment = "")
    return false;
   }
 
+//+------------------------------------------------------------------+
+//|                                                                  |
+//+------------------------------------------------------------------+
 void RegisterOrder90PctCut(int ticket)
   {
    if(ticket <= 0)
@@ -1761,6 +1767,9 @@ void RegisterOrder90PctCut(int ticket)
      }
   }
 
+//+------------------------------------------------------------------+
+//|                                                                  |
+//+------------------------------------------------------------------+
 void Check90PctSLAdversePartialCutAndDoubleSL()
   {
    if(!InpEnable90PctSLAdverseCutDoubleSL)
@@ -1811,11 +1820,12 @@ void Check90PctSLAdversePartialCutAndDoubleSL()
          slDist = openPrice - curSL;
          adverseDist = openPrice - curBid;
         }
-      else if(oType == OP_SELL)
-        {
-         slDist = curSL - openPrice;
-         adverseDist = curAsk - openPrice;
-        }
+      else
+         if(oType == OP_SELL)
+           {
+            slDist = curSL - openPrice;
+            adverseDist = curAsk - openPrice;
+           }
 
       // 1. Condition: StopLoss distance is above 1000 points
       if(slDist < Inp90PctSLMinStopLossDistanceUSD)
@@ -1838,8 +1848,9 @@ void Check90PctSLAdversePartialCutAndDoubleSL()
       double newSL = 0.0;
       if(oType == OP_BUY)
          newSL = NormalizeDouble(openPrice - doubledSLDist, Digits);
-      else if(oType == OP_SELL)
-         newSL = NormalizeDouble(openPrice + doubledSLDist, Digits);
+      else
+         if(oType == OP_SELL)
+            newSL = NormalizeDouble(openPrice + doubledSLDist, Digits);
 
       Print(">>> [90% SL ADVERSE TRIGGER] Order #", tkt, " (", (oType == OP_BUY ? "BUY " : "SELL "),
             DoubleToString(oLots, 2), "L | Open=", DoubleToString(openPrice, Digits),
@@ -1928,7 +1939,7 @@ void Check50PctDrawdownReliefTightenSL()
 
    double currentDrawdown = balance - equity;
 
-   // Auto-reset when equity >= balance (no floating drawdown)
+// Auto-reset when equity >= balance (no floating drawdown)
    if(currentDrawdown <= 0.0)
      {
       if(g_drawdownReliefArmed)
@@ -1940,7 +1951,7 @@ void Check50PctDrawdownReliefTightenSL()
       return;
      }
 
-   // Check open losing orders count for this symbol & magic number
+// Check open losing orders count for this symbol & magic number
    int losingCount = 0;
    double totalLosingPL = 0.0;
    for(int i = OrdersTotal() - 1; i >= 0; i--)
@@ -1961,7 +1972,7 @@ void Check50PctDrawdownReliefTightenSL()
         }
      }
 
-   // If no losing orders remain, reset tracker
+// If no losing orders remain, reset tracker
    if(losingCount == 0)
      {
       if(g_drawdownReliefArmed)
@@ -1977,7 +1988,7 @@ void Check50PctDrawdownReliefTightenSL()
    if(minPeakRequired <= 0.0)
       minPeakRequired = 100.0;
 
-   // Track highest drawdown reached during this cycle
+// Track highest drawdown reached during this cycle
    if(currentDrawdown > g_drawdownReliefPeakUSD)
      {
       g_drawdownReliefPeakUSD  = currentDrawdown;
@@ -1985,7 +1996,7 @@ void Check50PctDrawdownReliefTightenSL()
       g_drawdownReliefExecuted = false; // Reset executed flag if a new worse peak is made
      }
 
-   // Arm only when peak reaches or breaches minimum threshold ($100 * mult)
+// Arm only when peak reaches or breaches minimum threshold ($100 * mult)
    if(g_drawdownReliefPeakUSD >= minPeakRequired)
      {
       if(!g_drawdownReliefArmed)
@@ -2001,18 +2012,18 @@ void Check50PctDrawdownReliefTightenSL()
       return;
      }
 
-   // If already executed for this peak level, wait until a new worse peak occurs or cycle resets
+// If already executed for this peak level, wait until a new worse peak occurs or cycle resets
    if(g_drawdownReliefExecuted)
       return;
 
-   // Check if current drawdown has reduced by >= 50% from the peak
+// Check if current drawdown has reduced by >= 50% from the peak
    double reliefFraction = (InpDrawdownReliefPercent > 0.0 && InpDrawdownReliefPercent < 1.0) ? InpDrawdownReliefPercent : 0.50;
    double reliefTargetDrawdown = g_drawdownReliefPeakUSD * (1.0 - reliefFraction);
 
    if(currentDrawdown > reliefTargetDrawdown)
       return; // Has not reduced by 50% yet
 
-   // 50% RELIEF BOUNCE DETECTED! Tighten all losing orders to relief price level!
+// 50% RELIEF BOUNCE DETECTED! Tighten all losing orders to relief price level!
    RefreshRates();
    double curBid = MarketInfo(Symbol(), MODE_BID);
    double curAsk = MarketInfo(Symbol(), MODE_ASK);
@@ -2066,26 +2077,27 @@ void Check50PctDrawdownReliefTightenSL()
               }
            }
         }
-      else if(oType == OP_SELL)
-        {
-         targetSL = NormalizeDouble(curAsk + reliefGap, Digits);
-         if((targetSL - curAsk) < minStopDist)
-            targetSL = NormalizeDouble(curAsk + minStopDist, Digits);
-
-         // One-Way Tighten: Only modify if curSL is 0.0 OR targetSL is LOWER than curSL (reduces loss)
-         if(curSL <= 0.0 || (targetSL < curSL && (curSL - targetSL) >= MinimumSLModifyGapRaw))
+      else
+         if(oType == OP_SELL)
            {
-            ResetLastError();
-            bool ok = SafeOrderModify(tkt, oOpen, targetSL, curTP, 0, clrOrange, "DrawdownRelief50Pct");
-            if(ok)
+            targetSL = NormalizeDouble(curAsk + reliefGap, Digits);
+            if((targetSL - curAsk) < minStopDist)
+               targetSL = NormalizeDouble(curAsk + minStopDist, Digits);
+
+            // One-Way Tighten: Only modify if curSL is 0.0 OR targetSL is LOWER than curSL (reduces loss)
+            if(curSL <= 0.0 || (targetSL < curSL && (curSL - targetSL) >= MinimumSLModifyGapRaw))
               {
-               modifiedCount++;
-               RegisterDrawdownReliefTicket(tkt);
-               PrintFormat(">>> [50%% DRAWDOWN RELIEF SL TIGHTENED] SELL #%d (Lots=%.2f, Loss=$-%.2f) | Old SL=%.2f -> New Tight SL=%.2f (Relief Ask=%.2f + $%.2f) | Peak DD=$%.2f -> Current DD=$%.2f (Reduced by >50%%)",
-                           tkt, OrderLots(), MathAbs(pl), curSL, targetSL, curAsk, reliefGap, g_drawdownReliefPeakUSD, currentDrawdown);
+               ResetLastError();
+               bool ok = SafeOrderModify(tkt, oOpen, targetSL, curTP, 0, clrOrange, "DrawdownRelief50Pct");
+               if(ok)
+                 {
+                  modifiedCount++;
+                  RegisterDrawdownReliefTicket(tkt);
+                  PrintFormat(">>> [50%% DRAWDOWN RELIEF SL TIGHTENED] SELL #%d (Lots=%.2f, Loss=$-%.2f) | Old SL=%.2f -> New Tight SL=%.2f (Relief Ask=%.2f + $%.2f) | Peak DD=$%.2f -> Current DD=$%.2f (Reduced by >50%%)",
+                              tkt, OrderLots(), MathAbs(pl), curSL, targetSL, curAsk, reliefGap, g_drawdownReliefPeakUSD, currentDrawdown);
+                 }
               }
            }
-        }
      }
 
    if(modifiedCount > 0)
@@ -2095,6 +2107,7 @@ void Check50PctDrawdownReliefTightenSL()
       PrintFormat(">>> [50%% DRAWDOWN RELIEF SL APPLIED #%d] Successfully tightened SL on %d losing orders to relief price level (Cushion=$%.2f). Loss capped at 50%% retracement! Ready to repeat on next InpDrawdownReliefMinPeakUSD after hit success.",
                   g_drawdownReliefAppliedCount, modifiedCount, reliefGap);
       DrawDrawdownReliefIcon("APPLIED", modifiedCount, g_drawdownReliefPeakUSD, currentDrawdown, reliefGap, TimeCurrent(), (curBid > 0 ? curBid : 0.0), 0);
+      SendDrawdownReliefPhase1Alert(modifiedCount, g_drawdownReliefPeakUSD, currentDrawdown, reliefGap);
      }
   }
 
@@ -3436,6 +3449,12 @@ int    g_drawdownReliefHitSuccessCount     = 0;      // Total number of successf
 int    g_drawdownReliefAppliedCount        = 0;      // Total number of times relief SL tightening was executed
 void   ResetDrawdownReliefCycle(string reason = "");
 
+// USER RULE (VMULTI-1102): Phase 1 Display Popup Alert & Mobile Push Notification
+bool   InpDrawdownReliefAlertPopup         = true;   // Phase 1: Display on-screen Alert message when Phase 1 is hit
+bool   InpDrawdownReliefPushNotify         = true;   // Phase 1: Push mobile notification when Phase 1 is hit
+void   SendDrawdownReliefPhase1Alert(int orderCount, double peakDD, double currentDD, double reliefGap);
+string TimeframeToString(int timeframe);
+
 double GetTrendAwareStopLoss(int orderType, double standardGapUSD, double curSL = 0.0, string callerName = "", double orderProfit = 0.0, double openPrice = 0.0);
 
 // Visual Chart Icons for Multi-Order Closes (+2, +3, +4...) from the 6 Methods
@@ -3794,16 +3813,19 @@ string GetRootOrderComment(int ticket, string comment = "")
 
 struct SMethodModifiedTracker
   {
-   int      ticket;
-   int      methodId;     // 1: Pair Profit, 2: Buy Basket, 3: Sell Basket, 4: Combo Profit, 5: Overall Basket, 6: Method 6 (>2 Orders >$5)
-   int      comboSize;    // 2, 3, 4, etc.
-   datetime modifyTime;
-   double   targetProfit;
+   int               ticket;
+   int               methodId;     // 1: Pair Profit, 2: Buy Basket, 3: Sell Basket, 4: Combo Profit, 5: Overall Basket, 6: Method 6 (>2 Orders >$5)
+   int               comboSize;    // 2, 3, 4, etc.
+   datetime          modifyTime;
+   double            targetProfit;
   };
 
 SMethodModifiedTracker g_methodTrackers[MAX_TRACKED_METHOD_ORDERS];
 int                    g_methodTrackerCount = 0;
 
+//+------------------------------------------------------------------+
+//|                                                                  |
+//+------------------------------------------------------------------+
 void RecordMethodModification(int ticket, int methodId, int comboSize, double targetProfit)
   {
    if(ticket <= 0)
@@ -3830,6 +3852,9 @@ void RecordMethodModification(int ticket, int methodId, int comboSize, double ta
      }
   }
 
+//+------------------------------------------------------------------+
+//|                                                                  |
+//+------------------------------------------------------------------+
 int GetMethodForTicket(int ticket, int &comboSize)
   {
    for(int i = 0; i < g_methodTrackerCount; i++)
@@ -3844,6 +3869,9 @@ int GetMethodForTicket(int ticket, int &comboSize)
    return 0;
   }
 
+//+------------------------------------------------------------------+
+//|                                                                  |
+//+------------------------------------------------------------------+
 string GetMethodDescription(int methodId, int orderCount, double netProfit = 0.0)
   {
    switch(methodId)
@@ -3868,6 +3896,9 @@ string GetMethodDescription(int methodId, int orderCount, double netProfit = 0.0
      }
   }
 
+//+------------------------------------------------------------------+
+//|                                                                  |
+//+------------------------------------------------------------------+
 void DrawMultiOrderClosedIcon(int orderCount, datetime closeTime, double closePrice, double netProfit, string methodName = "", int primaryTicket = 0)
   {
    if(!InpDrawMultiOrderClosedIcons)
@@ -3888,11 +3919,11 @@ void DrawMultiOrderClosedIcon(int orderCount, datetime closeTime, double closePr
    else
       baseName = baseName + "_C" + IntegerToString(orderCount);
 
-   // Prevent duplicate drawing
+// Prevent duplicate drawing
    if(ObjectFind(0, baseName) >= 0 || ObjectFind(0, baseName + "_TXT") >= 0)
       return;
 
-   // Also verify if another combo icon was drawn at the exact same time
+// Also verify if another combo icon was drawn at the exact same time
    string timeWildcard = PREFIX + "COMBO_CLOSE_" + IntegerToString((int)closeTime);
    for(int k = ObjectsTotal() - 1; k >= 0; k--)
      {
@@ -3911,11 +3942,11 @@ void DrawMultiOrderClosedIcon(int orderCount, datetime closeTime, double closePr
    color txtColor = (netProfit >= 0.0) ? InpMultiOrderClosedIconColor : clrTomato;
 
    string defaultLabel = (netProfit < 0.0 ? StringFormat("Multi-Order Loss / Risk Cut (+%d)", orderCount)
-                                          : StringFormat("Multi-Order Profit Close (+%d)", orderCount));
+                          : StringFormat("Multi-Order Profit Close (+%d)", orderCount));
    string methodLabel = (methodName != "" ? methodName : defaultLabel);
 
    string plFormatted = (netProfit >= 0.0) ? StringFormat("Net Profit: +$%.2f", netProfit)
-                                           : StringFormat("Net Loss: -$%.2f", MathAbs(netProfit));
+                        : StringFormat("Net Loss: -$%.2f", MathAbs(netProfit));
 
    string tooltip = StringFormat("%s | +%d Orders Closed | %s | Price: %.2f | Time: %s",
                                  methodLabel,
@@ -3924,7 +3955,7 @@ void DrawMultiOrderClosedIcon(int orderCount, datetime closeTime, double closePr
                                  closePrice,
                                  TimeToString(closeTime, TIME_DATE|TIME_MINUTES|TIME_SECONDS));
 
-   // 1. Solid Circle Marker at close price
+// 1. Solid Circle Marker at close price
    ObjectCreate(0, baseName, OBJ_ARROW, 0, closeTime, closePrice);
    ObjectSetInteger(0, baseName, OBJPROP_ARROWCODE, 159); // Wingdings 159: Solid round circle dot
    ObjectSetInteger(0, baseName, OBJPROP_COLOR, dotColor);
@@ -3934,7 +3965,7 @@ void DrawMultiOrderClosedIcon(int orderCount, datetime closeTime, double closePr
    ObjectSetInteger(0, baseName, OBJPROP_HIDDEN, false);
    ObjectSetString(0, baseName, OBJPROP_TOOLTIP, tooltip);
 
-   // 2. Bold Text Label ("+2", "+3", etc.) placed above the dot
+// 2. Bold Text Label ("+2", "+3", etc.) placed above the dot
    string txtName = baseName + "_TXT";
    double lblPrice = closePrice + (atr * 0.35);
 
@@ -3971,7 +4002,7 @@ void DrawMethod6HitIcon(int orderCount, double comboProfit, datetime hitTime = 0
    datetime barTime = (Time[0] > 0 ? Time[0] : hitTime);
    string baseName = PREFIX + "M6_HIT_" + IntegerToString((int)barTime);
 
-   // Prevent duplicate icon on the same bar
+// Prevent duplicate icon on the same bar
    if(ObjectFind(0, baseName) >= 0 || ObjectFind(0, baseName + "_TXT") >= 0)
       return;
 
@@ -3994,7 +4025,7 @@ void DrawMethod6HitIcon(int orderCount, double comboProfit, datetime hitTime = 0
                                    orderCount, comboProfit, InpMethod6ProfitThresholdUSD, InpMethod6SLDistanceUSD,
                                    TimeToString(hitTime, TIME_DATE|TIME_MINUTES|TIME_SECONDS));
 
-   // 1. Solid Marker Icon
+// 1. Solid Marker Icon
    ObjectCreate(0, baseName, OBJ_ARROW, 0, barTime, markerPrice);
    ObjectSetInteger(0, baseName, OBJPROP_ARROWCODE, iconCode); // Wingdings 159 (circle dot) or customized
    ObjectSetInteger(0, baseName, OBJPROP_COLOR, iconColor);
@@ -4004,7 +4035,7 @@ void DrawMethod6HitIcon(int orderCount, double comboProfit, datetime hitTime = 0
    ObjectSetInteger(0, baseName, OBJPROP_HIDDEN, false);
    ObjectSetString(0, baseName, OBJPROP_TOOLTIP, tooltip);
 
-   // 2. Bold Text Label ("M6 +3 ($5.40)")
+// 2. Bold Text Label ("M6 +3 ($5.40)")
    ObjectCreate(0, txtName, OBJ_TEXT, 0, barTime, labelPrice);
    ObjectSetString(0, txtName, OBJPROP_TEXT, labelText);
    ObjectSetString(0, txtName, OBJPROP_FONT, "Arial Black");
@@ -4028,6 +4059,9 @@ void DrawMethod6HitIcon(int orderCount, double comboProfit, datetime hitTime = 0
 int    g_drawdownReliefTickets[MAX_DRAWDOWN_RELIEF_TICKETS];
 int    g_drawdownReliefTicketCount = 0;
 
+//+------------------------------------------------------------------+
+//|                                                                  |
+//+------------------------------------------------------------------+
 void RegisterDrawdownReliefTicket(int ticket)
   {
    if(ticket <= 0)
@@ -4044,6 +4078,9 @@ void RegisterDrawdownReliefTicket(int ticket)
      }
   }
 
+//+------------------------------------------------------------------+
+//|                                                                  |
+//+------------------------------------------------------------------+
 bool IsDrawdownReliefTicket(int ticket)
   {
    if(ticket <= 0)
@@ -4056,6 +4093,9 @@ bool IsDrawdownReliefTicket(int ticket)
    return false;
   }
 
+//+------------------------------------------------------------------+
+//|                                                                  |
+//+------------------------------------------------------------------+
 void UnregisterDrawdownReliefTicket(int ticket)
   {
    if(ticket <= 0)
@@ -4088,7 +4128,7 @@ void DrawDrawdownReliefIcon(string iconType, int orderCount, double peakDD, doub
    datetime barTime = hitTime;
    string baseName = PREFIX + "RLF_" + iconType + "_" + IntegerToString(primaryTicket) + "_" + IntegerToString((int)barTime);
 
-   // Prevent duplicate icon on the same bar for the same ticket
+// Prevent duplicate icon on the same bar for the same ticket
    if(ObjectFind(0, baseName) >= 0 || ObjectFind(0, baseName + "_TXT") >= 0)
       return;
 
@@ -4135,7 +4175,7 @@ void DrawDrawdownReliefIcon(string iconType, int orderCount, double peakDD, doub
                                TimeToString(hitTime, TIME_DATE|TIME_MINUTES|TIME_SECONDS));
      }
 
-   // 1. Solid Marker Icon (Wingdings 251 check, 171 star, 159 dot, or 238 shield)
+// 1. Solid Marker Icon (Wingdings 251 check, 171 star, 159 dot, or 238 shield)
    ObjectCreate(0, baseName, OBJ_ARROW, 0, barTime, markerPrice);
    ObjectSetInteger(0, baseName, OBJPROP_ARROWCODE, iconCode);
    ObjectSetInteger(0, baseName, OBJPROP_COLOR, iconColor);
@@ -4145,7 +4185,7 @@ void DrawDrawdownReliefIcon(string iconType, int orderCount, double peakDD, doub
    ObjectSetInteger(0, baseName, OBJPROP_HIDDEN, false);
    ObjectSetString(0, baseName, OBJPROP_TOOLTIP, tooltip);
 
-   // 2. Bold Text Label
+// 2. Bold Text Label
    ObjectCreate(0, txtName, OBJ_TEXT, 0, barTime, labelPrice);
    ObjectSetString(0, txtName, OBJPROP_TEXT, labelText);
    ObjectSetString(0, txtName, OBJPROP_FONT, "Arial Black");
@@ -4193,6 +4233,41 @@ void ResetDrawdownReliefCycle(string reason = "")
   }
 
 //+------------------------------------------------------------------+
+//| SendDrawdownReliefPhase1Alert:                                   |
+//| Sends on-screen popup alert and mobile push notification when    |
+//| Phase 1 is hit (50% relief bounce detected & SLs tightened).     |
+//+------------------------------------------------------------------+
+void SendDrawdownReliefPhase1Alert(int orderCount, double peakDD, double currentDD, double reliefGap)
+  {
+   if(!InpDrawdownReliefAlertPopup && !InpDrawdownReliefPushNotify)
+      return;
+
+   string tfStr = TimeframeToString(Period());
+   string alertMsg = StringFormat("[%s %s] Phase 1 Drawdown Relief Activated! Tightened SL on %d losing order(s). Peak DD: $%.2f -> Relief DD: $%.2f (Reduced >50%%). Cushion: $%.1f. Loss capped!",
+                                  Symbol(), tfStr, orderCount, peakDD, currentDD, reliefGap);
+
+   if(InpDrawdownReliefAlertPopup)
+     {
+      Alert(alertMsg);
+     }
+
+   if(InpDrawdownReliefPushNotify)
+     {
+      ResetLastError();
+      bool sent = SendNotification(alertMsg);
+      if(sent)
+        {
+         Print(">>> [PHASE 1 ALERT] Mobile push notification sent successfully: ", alertMsg);
+        }
+      else
+        {
+         int err = GetLastError();
+         Print(">>> [PHASE 1 ALERT] Mobile push notification status (Result=", sent, ", Error=", err, "). On-Screen Alert was displayed.");
+        }
+     }
+  }
+
+//+------------------------------------------------------------------+
 //| METHOD-WISE ANALYTICS & LOGGING ENGINE                           |
 //| Tracks trigger time, expected profit, participating orders, and  |
 //| actual released profit when orders close.                        |
@@ -4202,32 +4277,35 @@ void ResetDrawdownReliefCycle(string reason = "")
 
 struct SMethodActionCluster
   {
-   int      cClusterId;
-   int      cMethodId;          // 1: Method 1, 2: Method 2, 3: Method 3, 4: Method 4, 5: Method 5, 6: Method 6
-   string   cMethodName;
-   datetime cTriggerTime;
-   int      cOrderCount;
-   int      cTickets[10];
-   double   cTriggerPL[10];
-   double   cExpectedProfit;
-   double   cReleasedProfit;
-   int      cClosedCount;
-   bool     cIsFullyClosed;
-   datetime cLastCloseTime;
+   int               cClusterId;
+   int               cMethodId;          // 1: Method 1, 2: Method 2, 3: Method 3, 4: Method 4, 5: Method 5, 6: Method 6
+   string            cMethodName;
+   datetime          cTriggerTime;
+   int               cOrderCount;
+   int               cTickets[10];
+   double            cTriggerPL[10];
+   double            cExpectedProfit;
+   double            cReleasedProfit;
+   int               cClosedCount;
+   bool              cIsFullyClosed;
+   datetime          cLastCloseTime;
   };
 
 SMethodActionCluster g_methodClusters[MAX_METHOD_ACTION_CLUSTERS];
 int                  g_methodClusterCount = 0;
 
+//+------------------------------------------------------------------+
+//|                                                                  |
+//+------------------------------------------------------------------+
 int RecordMethodActionCluster(int pMethodId, int &pTickets[], double &pPLs[], int pCount, double pExpectedProfit, string pActionDetails)
   {
    if(pCount <= 0)
       return -1;
-      
+
    int cId = g_methodClusterCount;
    if(cId >= MAX_METHOD_ACTION_CLUSTERS)
       return -1;
-      
+
    g_methodClusters[cId].cClusterId      = cId + 1;
    g_methodClusters[cId].cMethodId       = pMethodId;
    g_methodClusters[cId].cMethodName     = GetMethodDescription(pMethodId, pCount, pExpectedProfit);
@@ -4238,23 +4316,24 @@ int RecordMethodActionCluster(int pMethodId, int &pTickets[], double &pPLs[], in
    g_methodClusters[cId].cClosedCount    = 0;
    g_methodClusters[cId].cIsFullyClosed  = false;
    g_methodClusters[cId].cLastCloseTime  = 0;
-   
+
    string ordersStr = "";
    for(int k = 0; k < pCount && k < 10; k++)
      {
       g_methodClusters[cId].cTickets[k]   = pTickets[k];
       g_methodClusters[cId].cTriggerPL[k] = pPLs[k];
-      
+
       // Also link to individual order tracker
       RecordMethodModification(pTickets[k], pMethodId, pCount, pExpectedProfit);
-      
-      if(k > 0) ordersStr = ordersStr + ", ";
+
+      if(k > 0)
+         ordersStr = ordersStr + ", ";
       ordersStr = ordersStr + StringFormat("#%d ($%.2f)", pTickets[k], pPLs[k]);
      }
-     
+
    g_methodClusterCount++;
-   
-   // Structured Analytics Trigger Log
+
+// Structured Analytics Trigger Log
    Print(StringFormat(">>> [METHOD_TRIGGER] Cluster #%d | %s | Time: %s | Orders: [%s] | Expected Profit: $%.2f | Action: %s",
                       cId + 1,
                       g_methodClusters[cId].cMethodName,
@@ -4262,61 +4341,66 @@ int RecordMethodActionCluster(int pMethodId, int &pTickets[], double &pPLs[], in
                       ordersStr,
                       pExpectedProfit,
                       pActionDetails));
-                      
+
    return (cId + 1);
   }
 
+//+------------------------------------------------------------------+
+//|                                                                  |
+//+------------------------------------------------------------------+
 void ProcessMethodAnalyticsTracker()
   {
    if(g_methodClusterCount <= 0)
       return;
-      
+
    for(int c = 0; c < g_methodClusterCount; c++)
      {
       if(g_methodClusters[c].cIsFullyClosed)
          continue;
-         
+
       int closedInCluster = 0;
       double currentReleasedPL = 0.0;
       string closedDetails = "";
       datetime latestCloseTime = 0;
-      
+
       for(int k = 0; k < g_methodClusters[c].cOrderCount && k < 10; k++)
         {
          int tkt = g_methodClusters[c].cTickets[k];
          if(tkt <= 0)
             continue;
-            
+
          if(OrderSelect(tkt, SELECT_BY_TICKET, MODE_HISTORY))
            {
             closedInCluster++;
             double p = OrderProfit() + OrderSwap() + OrderCommission();
             currentReleasedPL += p;
             datetime ct = OrderCloseTime();
-            if(ct > latestCloseTime) latestCloseTime = ct;
-            
-            if(closedDetails != "") closedDetails = closedDetails + ", ";
+            if(ct > latestCloseTime)
+               latestCloseTime = ct;
+
+            if(closedDetails != "")
+               closedDetails = closedDetails + ", ";
             closedDetails = closedDetails + StringFormat("#%d: $%.2f", tkt, p);
            }
         }
-        
+
       // If newly closed orders detected
       if(closedInCluster > g_methodClusters[c].cClosedCount)
         {
          g_methodClusters[c].cClosedCount = closedInCluster;
          g_methodClusters[c].cReleasedProfit = currentReleasedPL;
          g_methodClusters[c].cLastCloseTime = latestCloseTime;
-         
+
          if(closedInCluster >= g_methodClusters[c].cOrderCount)
            {
             g_methodClusters[c].cIsFullyClosed = true;
-            
+
             double expP = g_methodClusters[c].cExpectedProfit;
             double relP = currentReleasedPL;
             double diff = relP - expP;
             double retention = (expP > 0.0) ? (relP / expP * 100.0) : 0.0;
             string statusStr = (relP >= expP - 0.20) ? "TARGET ACHIEVED" : (relP > 0.0 ? "REDUCED PROFIT" : "LOSS GIVEN BACK");
-            
+
             Print(StringFormat(">>> [METHOD_RELEASED] Cluster #%d | %s | Closed Time: %s | Orders: [%s] | Expected: $%.2f | Released: $%.2f | Diff: $%.2f (Retention: %.1f%%) | Status: %s | Balance: $%.2f",
                                g_methodClusters[c].cClusterId,
                                g_methodClusters[c].cMethodName,
@@ -4333,29 +4417,32 @@ void ProcessMethodAnalyticsTracker()
      }
   }
 
+//+------------------------------------------------------------------+
+//|                                                                  |
+//+------------------------------------------------------------------+
 void PrintMethodAnalyticsSummaryReport()
   {
    ProcessMethodAnalyticsTracker();
-   
+
    string sep = "========================================================================================";
    string subSep = "----------------------------------------------------------------------------------------";
-   
+
    Print(sep);
    Print("                      METHOD-WISE ANALYTICS PERFORMANCE SUMMARY");
    Print(sep);
    Print(StringFormat("%-30s | %-8s | %-8s | %-12s | %-12s | %-12s | %-10s",
                       "Method Name", "Triggers", "Closed", "Expected ($)", "Released ($)", "Giveback ($)", "Retention %"));
    Print(subSep);
-   
+
    double grandExpected = 0.0;
    double grandReleased = 0.0;
    int grandTriggers = 0;
    int grandClosed = 0;
-   
+
    string fileReport = sep + "\r\n                      METHOD-WISE ANALYTICS PERFORMANCE SUMMARY\r\n" + sep + "\r\n";
    fileReport = fileReport + StringFormat("%-30s | %-8s | %-8s | %-12s | %-12s | %-12s | %-10s\r\n",
                                           "Method Name", "Triggers", "Closed", "Expected ($)", "Released ($)", "Giveback ($)", "Retention %") + subSep + "\r\n";
-   
+
    for(int m = 1; m <= 6; m++)
      {
       int trigCount = 0;
@@ -4363,7 +4450,7 @@ void PrintMethodAnalyticsSummaryReport()
       double mExpected = 0.0;
       double mReleased = 0.0;
       string mName = GetMethodDescription(m, 2, 0.0);
-      
+
       for(int c = 0; c < g_methodClusterCount; c++)
         {
          if(g_methodClusters[c].cMethodId == m)
@@ -4377,7 +4464,7 @@ void PrintMethodAnalyticsSummaryReport()
               }
            }
         }
-        
+
       if(trigCount > 0)
         {
          double diff = mReleased - mExpected;
@@ -4386,14 +4473,14 @@ void PrintMethodAnalyticsSummaryReport()
                                     mName, trigCount, closedCount, mExpected, mReleased, diff, ret);
          Print(line);
          fileReport = fileReport + line + "\r\n";
-                            
+
          grandExpected += mExpected;
          grandReleased += mReleased;
          grandTriggers += trigCount;
          grandClosed += closedCount;
         }
      }
-     
+
    Print(subSep);
    double grandDiff = grandReleased - grandExpected;
    double grandRet = (grandExpected > 0.0) ? (grandReleased / grandExpected * 100.0) : 0.0;
@@ -4402,7 +4489,7 @@ void PrintMethodAnalyticsSummaryReport()
    Print(totalLine);
    Print(sep);
    fileReport = fileReport + subSep + "\r\n" + totalLine + "\r\n" + sep + "\r\n";
-   
+
    int hFile = FileOpen("Method_Analytics_Summary.txt", FILE_WRITE|FILE_TXT);
    if(hFile != INVALID_HANDLE)
      {
@@ -4412,6 +4499,9 @@ void PrintMethodAnalyticsSummaryReport()
   }
 
 
+//+------------------------------------------------------------------+
+//|                                                                  |
+//+------------------------------------------------------------------+
 void CheckAndDrawMultiOrderClosedIcons()
   {
    if(!InpDrawMultiOrderClosedIcons && !InpDrawDrawdownReliefIcon)
@@ -4422,21 +4512,21 @@ void CheckAndDrawMultiOrderClosedIcons()
       return;
 
    static int s_lastCheckedHistTotal = 0;
-   // If no new orders closed in history, skip
+// If no new orders closed in history, skip
    if(histTotal == s_lastCheckedHistTotal)
       return;
 
-   #define MAX_HIST_SCAN 200
+#define MAX_HIST_SCAN 200
    int scanCount = MathMin(histTotal, MAX_HIST_SCAN);
    bool reliefHitSuccess = false;
 
    struct SClosedOrderInfo
      {
-      int      ticket;
-      datetime closeTime;
-      double   closePrice;
-      double   profit;
-      int      methodId;
+      int            ticket;
+      datetime       closeTime;
+      double         closePrice;
+      double         profit;
+      int            methodId;
      };
 
    SClosedOrderInfo closedList[MAX_HIST_SCAN];
@@ -4490,7 +4580,7 @@ void CheckAndDrawMultiOrderClosedIcons()
 
    s_lastCheckedHistTotal = histTotal;
 
-   // USER RULE (VMULTI-1099): Repeat Drawdown Relief process on every InpDrawdownReliefMinPeakUSD after hit success
+// USER RULE (VMULTI-1099): Repeat Drawdown Relief process on every InpDrawdownReliefMinPeakUSD after hit success
    if((reliefHitSuccess || g_drawdownReliefTicketCount == 0) && g_drawdownReliefExecuted)
      {
       if(InpDrawdownReliefRepeatOnHitSuccess)
@@ -4502,7 +4592,7 @@ void CheckAndDrawMultiOrderClosedIcons()
    if(cCount < 2)
       return;
 
-   // Group orders that closed together within 2 seconds
+// Group orders that closed together within 2 seconds
    bool processed[MAX_HIST_SCAN];
    ArrayInitialize(processed, false);
 
@@ -4656,8 +4746,10 @@ void ModifyPairProfitWithStopLoss()
            {
             qualifyForSL[i] = true;
             qualifyForSL[j] = true;
-            if(candComboSize[i] == 0) candComboSize[i] = 2;
-            if(candComboSize[j] == 0) candComboSize[j] = 2;
+            if(candComboSize[i] == 0)
+               candComboSize[i] = 2;
+            if(candComboSize[j] == 0)
+               candComboSize[j] = 2;
             qualifyingCombinationsCount++;
             Print("COMBINATION PAIR PROFIT >= $", DoubleToString(targetThreshold, 2), " HIT: Pair [Ticket #", candTickets[i],
                   " ($", DoubleToString(candProfits[i], 2), ") + Ticket #", candTickets[j],
@@ -4681,9 +4773,12 @@ void ModifyPairProfitWithStopLoss()
                qualifyForSL[i] = true;
                qualifyForSL[j] = true;
                qualifyForSL[k] = true;
-               if(candComboSize[i] == 0) candComboSize[i] = 3;
-               if(candComboSize[j] == 0) candComboSize[j] = 3;
-               if(candComboSize[k] == 0) candComboSize[k] = 3;
+               if(candComboSize[i] == 0)
+                  candComboSize[i] = 3;
+               if(candComboSize[j] == 0)
+                  candComboSize[j] = 3;
+               if(candComboSize[k] == 0)
+                  candComboSize[k] = 3;
                qualifyingCombinationsCount++;
                Print("COMBINATION TRIPLET PROFIT >= $", DoubleToString(targetThreshold, 2), " HIT: Triplet [Ticket #", candTickets[i],
                      " ($", DoubleToString(candProfits[i], 2), "), #", candTickets[j],
@@ -4739,8 +4834,9 @@ void ModifyPairProfitWithStopLoss()
         {
          if(oType == OP_BUY && proposedSL < oOpen)
             proposedSL = oOpen;
-         else if(oType == OP_SELL && proposedSL > oOpen)
-            proposedSL = oOpen;
+         else
+            if(oType == OP_SELL && proposedSL > oOpen)
+               proposedSL = oOpen;
         }
 
       bool allowBreathingWidening = (isSteepAngle && isProfitGapReached && (oType == OP_BUY ? proposedSL >= oOpen : proposedSL <= oOpen));
@@ -4806,7 +4902,7 @@ void ExecuteMethod6CombinationAction(int &comboIndices[], int comboCount, double
                                      double &candOpenPrices[], double &candTakeProfits[],
                                      double &candProfits[], bool &isProcessed[])
   {
-      int m6Tkts[10];
+   int m6Tkts[10];
    double m6Pls[10];
    for(int m6i = 0; m6i < comboCount && m6i < 10; m6i++)
      {
@@ -4815,10 +4911,10 @@ void ExecuteMethod6CombinationAction(int &comboIndices[], int comboCount, double
      }
    RecordMethodActionCluster(6, m6Tkts, m6Pls, comboCount, comboSum, "1) Close losing orders at market, 2) Modify winning orders with SL at current price");
 
-Print(">>> [METHOD 6 TRIGGERED] Combination of ", comboCount, " orders hit Profit = $", DoubleToString(comboSum, 2),
+   Print(">>> [METHOD 6 TRIGGERED] Combination of ", comboCount, " orders hit Profit = $", DoubleToString(comboSum, 2),
          " >= Threshold. Executing Action: 1) Close losing orders at market, 2) Modify profit orders with SL at current price.");
 
-   // 1. FIRST: Close losing orders at market
+// 1. FIRST: Close losing orders at market
    for(int c = 0; c < comboCount; c++)
      {
       int idx = comboIndices[c];
@@ -4839,7 +4935,7 @@ Print(">>> [METHOD 6 TRIGGERED] Combination of ", comboCount, " orders hit Profi
         }
      }
 
-   // 2. SECOND: Modify winning orders with StopLoss at Current Price
+// 2. SECOND: Modify winning orders with StopLoss at Current Price
    RefreshRates();
    double curBid = MarketInfo(Symbol(), MODE_BID);
    double curAsk = MarketInfo(Symbol(), MODE_ASK);
@@ -4864,13 +4960,14 @@ Print(">>> [METHOD 6 TRIGGERED] Combination of ", comboCount, " orders hit Profi
 
          // Current Price StopLoss (tightest broker-allowed stop)
          double targetSL = (oType == OP_BUY) ? NormalizeDouble(curBid - minStopDist, Digits)
-                                             : NormalizeDouble(curAsk + minStopDist, Digits);
+                           : NormalizeDouble(curAsk + minStopDist, Digits);
 
          // Ensure profit order maintains at least Breakeven
          if(oType == OP_BUY && targetSL < oOpen)
             targetSL = oOpen;
-         else if(oType == OP_SELL && targetSL > oOpen)
-            targetSL = oOpen;
+         else
+            if(oType == OP_SELL && targetSL > oOpen)
+               targetSL = oOpen;
 
          if(targetSL > 0.0)
            {
@@ -4889,7 +4986,7 @@ Print(">>> [METHOD 6 TRIGGERED] Combination of ", comboCount, " orders hit Profi
         }
      }
 
-   // Draw chart icon
+// Draw chart icon
    double iconPrice = (candTypes[comboIndices[0]] == OP_BUY ? MarketInfo(Symbol(), MODE_BID) : MarketInfo(Symbol(), MODE_ASK));
    DrawMethod6HitIcon(comboCount, comboSum, TimeCurrent(), iconPrice);
    InvalidateTotalEAOrdersCache();
@@ -4963,7 +5060,7 @@ void ModifyMethod6MultiOrderCombinationsOver5USD()
    if(candCount < minOrders)
       return;
 
-   // 1. PRIORITY PAIR CHECK (Win + Loss): Pair with at least one losing order if sum >= threshold
+// 1. PRIORITY PAIR CHECK (Win + Loss): Pair with at least one losing order if sum >= threshold
    if(minOrders <= 2)
      {
       int searchLimit2 = MathMin(candCount, 30);
@@ -4982,7 +5079,8 @@ void ModifyMethod6MultiOrderCombinationsOver5USD()
                if(sum2 >= threshold)
                  {
                   int combo[2];
-                  combo[0] = i; combo[1] = j;
+                  combo[0] = i;
+                  combo[1] = j;
                   ExecuteMethod6CombinationAction(combo, 2, sum2, candTickets, candTypes, candLots,
                                                   candOpenPrices, candTakeProfits, candProfits, isProcessed);
                   break;
@@ -4992,7 +5090,7 @@ void ModifyMethod6MultiOrderCombinationsOver5USD()
         }
      }
 
-   // 2. PRIORITY TRIPLET CHECK (Win + Losses): Check combinations of 3 orders with at least one loss
+// 2. PRIORITY TRIPLET CHECK (Win + Losses): Check combinations of 3 orders with at least one loss
    int searchLimit3 = MathMin(candCount, 20);
    for(int i = 0; i < searchLimit3 - 2; i++)
      {
@@ -5013,7 +5111,9 @@ void ModifyMethod6MultiOrderCombinationsOver5USD()
                if(sum3 >= threshold)
                  {
                   int combo[3];
-                  combo[0] = i; combo[1] = j; combo[2] = k;
+                  combo[0] = i;
+                  combo[1] = j;
+                  combo[2] = k;
                   ExecuteMethod6CombinationAction(combo, 3, sum3, candTickets, candTypes, candLots,
                                                   candOpenPrices, candTakeProfits, candProfits, isProcessed);
                   break;
@@ -5025,7 +5125,7 @@ void ModifyMethod6MultiOrderCombinationsOver5USD()
         }
      }
 
-   // 3. PRIORITY QUARTET CHECK (Win + Losses): Check combinations of 4 orders with at least one loss
+// 3. PRIORITY QUARTET CHECK (Win + Losses): Check combinations of 4 orders with at least one loss
    int searchLimit4 = MathMin(candCount, 12);
    for(int i = 0; i < searchLimit4 - 3; i++)
      {
@@ -5050,7 +5150,10 @@ void ModifyMethod6MultiOrderCombinationsOver5USD()
                   if(sum4 >= threshold)
                     {
                      int combo[4];
-                     combo[0] = i; combo[1] = j; combo[2] = k; combo[3] = m;
+                     combo[0] = i;
+                     combo[1] = j;
+                     combo[2] = k;
+                     combo[3] = m;
                      ExecuteMethod6CombinationAction(combo, 4, sum4, candTickets, candTypes, candLots,
                                                      candOpenPrices, candTakeProfits, candProfits, isProcessed);
                      break;
@@ -5065,7 +5168,7 @@ void ModifyMethod6MultiOrderCombinationsOver5USD()
         }
      }
 
-   // 4. ANY REMAINING PAIRS (e.g. 2 Wins >= threshold)
+// 4. ANY REMAINING PAIRS (e.g. 2 Wins >= threshold)
    if(minOrders <= 2)
      {
       int searchLimit2 = MathMin(candCount, 30);
@@ -5082,7 +5185,8 @@ void ModifyMethod6MultiOrderCombinationsOver5USD()
             if(sum2 >= threshold)
               {
                int combo[2];
-               combo[0] = i; combo[1] = j;
+               combo[0] = i;
+               combo[1] = j;
                ExecuteMethod6CombinationAction(combo, 2, sum2, candTickets, candTypes, candLots,
                                                candOpenPrices, candTakeProfits, candProfits, isProcessed);
                break;
@@ -5091,7 +5195,7 @@ void ModifyMethod6MultiOrderCombinationsOver5USD()
         }
      }
 
-   // 5. ANY REMAINING TRIPLETS (e.g. 3 Wins >= threshold)
+// 5. ANY REMAINING TRIPLETS (e.g. 3 Wins >= threshold)
    for(int i = 0; i < searchLimit3 - 2; i++)
      {
       if(isProcessed[i])
@@ -5109,7 +5213,9 @@ void ModifyMethod6MultiOrderCombinationsOver5USD()
             if(sum3 >= threshold)
               {
                int combo[3];
-               combo[0] = i; combo[1] = j; combo[2] = k;
+               combo[0] = i;
+               combo[1] = j;
+               combo[2] = k;
                ExecuteMethod6CombinationAction(combo, 3, sum3, candTickets, candTypes, candLots,
                                                candOpenPrices, candTakeProfits, candProfits, isProcessed);
                break;
@@ -5120,7 +5226,7 @@ void ModifyMethod6MultiOrderCombinationsOver5USD()
         }
      }
 
-   // 6. TOTAL BASKET CHECK (All remaining un-processed open orders)
+// 6. TOTAL BASKET CHECK (All remaining un-processed open orders)
    int remainingCount = 0;
    double totalBasketPL = 0.0;
    int basketIndices[MAX_M6_ORDERS];
@@ -5155,7 +5261,7 @@ bool CloseMarketOrderDirect(int ticket)
 
    double lots = OrderLots();
 
-   // Direct market close to bank net combination profit
+// Direct market close to bank net combination profit
    return SafeOrderCloseMarket(ticket, lots, Slippage, (type == OP_BUY ? clrRed : clrBlue));
   }
 
@@ -5189,13 +5295,14 @@ bool ModifyOrCloseCombinationOrder(int ticket)
    bool isSteepAngle = (InpEnableDoubleSlGapOnSteepAngle && MathAbs(GlobalEmaAngle30) > InpDoubleSlGapAngle);
    bool isProfitGapReached = (rawProfitGap > InpDoubleSlMinProfitGapRaw);
 
-   // Clamp proposedSL to openPrice if profit gap reached (USER RULE: never modify with loss amount)
+// Clamp proposedSL to openPrice if profit gap reached (USER RULE: never modify with loss amount)
    if(isProfitGapReached)
      {
       if(oType == OP_BUY && proposedSL < oOpen)
          proposedSL = oOpen;
-      else if(oType == OP_SELL && proposedSL > oOpen)
-         proposedSL = oOpen;
+      else
+         if(oType == OP_SELL && proposedSL > oOpen)
+            proposedSL = oOpen;
      }
 
    bool allowBreathingWidening = (isSteepAngle && isProfitGapReached && (oType == OP_BUY ? proposedSL >= oOpen : proposedSL <= oOpen));
@@ -5203,18 +5310,22 @@ bool ModifyOrCloseCombinationOrder(int ticket)
    if(oType == OP_BUY)
      {
       if(proposedSL < Bid && (curSL == 0.0 || (proposedSL > curSL && (proposedSL - curSL) >= MinimumSLModifyGapRaw) ||
-         (allowBreathingWidening && MathAbs(proposedSL - curSL) >= MinimumSLModifyGapRaw)))
+                              (allowBreathingWidening && MathAbs(proposedSL - curSL) >= MinimumSLModifyGapRaw)))
          return SafeOrderModify(ticket, oOpen, proposedSL, curTP, 0, clrLimeGreen, "Method 4");
      }
-   else if(oType == OP_SELL)
-     {
-      if(proposedSL > Ask && (curSL == 0.0 || (proposedSL < curSL && (curSL - proposedSL) >= MinimumSLModifyGapRaw) ||
-         (allowBreathingWidening && MathAbs(proposedSL - curSL) >= MinimumSLModifyGapRaw)))
-         return SafeOrderModify(ticket, oOpen, proposedSL, curTP, 0, clrTomato, "Method 4");
-     }
+   else
+      if(oType == OP_SELL)
+        {
+         if(proposedSL > Ask && (curSL == 0.0 || (proposedSL < curSL && (curSL - proposedSL) >= MinimumSLModifyGapRaw) ||
+                                 (allowBreathingWidening && MathAbs(proposedSL - curSL) >= MinimumSLModifyGapRaw)))
+            return SafeOrderModify(ticket, oOpen, proposedSL, curTP, 0, clrTomato, "Method 4");
+        }
    return true;
   }
 
+//+------------------------------------------------------------------+
+//|                                                                  |
+//+------------------------------------------------------------------+
 void CloseProfitableOrderCombinations()
   {
    if(!InpEnableCombinationProfitClose)
@@ -5285,11 +5396,16 @@ void CloseProfitableOrderCombinations()
 
       if(totalBasketPL >= minProfitUSD)
         {
-                  int m4bTkts[10]; double m4bPls[10];
-         for(int m4bi = 0; m4bi < candCount && m4bi < 10; m4bi++) { m4bTkts[m4bi] = candTickets[m4bi]; m4bPls[m4bi] = candProfits[m4bi]; }
+         int m4bTkts[10];
+         double m4bPls[10];
+         for(int m4bi = 0; m4bi < candCount && m4bi < 10; m4bi++)
+           {
+            m4bTkts[m4bi] = candTickets[m4bi];
+            m4bPls[m4bi] = candProfits[m4bi];
+           }
          RecordMethodActionCluster(4, m4bTkts, m4bPls, candCount, totalBasketPL, "Method 4: Basket Combo Close at market");
 
-Print(">>> [COMBINATION CLOSE - ALL ORDERS] Total Basket Profit = $", DoubleToString(totalBasketPL, 2),
+         Print(">>> [COMBINATION CLOSE - ALL ORDERS] Total Basket Profit = $", DoubleToString(totalBasketPL, 2),
                " >= $", DoubleToString(minProfitUSD, 2), " | Closing ALL ", candCount, " open orders!");
 
          for(int b = 0; b < candCount; b++)
@@ -5323,12 +5439,15 @@ Print(">>> [COMBINATION CLOSE - ALL ORDERS] Total Basket Profit = $", DoubleToSt
             double pairSum = candProfits[i] + candProfits[j];
             if(pairSum >= minProfitUSD)
               {
-                              int m4pTkts[2]; double m4pPls[2];
-               m4pTkts[0] = candTickets[i]; m4pPls[0] = candProfits[i];
-               m4pTkts[1] = candTickets[j]; m4pPls[1] = candProfits[j];
+               int m4pTkts[2];
+               double m4pPls[2];
+               m4pTkts[0] = candTickets[i];
+               m4pPls[0] = candProfits[i];
+               m4pTkts[1] = candTickets[j];
+               m4pPls[1] = candProfits[j];
                RecordMethodActionCluster(4, m4pTkts, m4pPls, 2, pairSum, "Method 4: Pair Combo Close at market");
 
-Print(">>> [COMBINATION CLOSE - PAIR (WIN+LOSS)] Ticket #", candTickets[i],
+               Print(">>> [COMBINATION CLOSE - PAIR (WIN+LOSS)] Ticket #", candTickets[i],
                      " (", (candTypes[i] == OP_BUY ? "BUY" : "SELL"), " $", DoubleToString(candProfits[i], 2), ") + Ticket #",
                      candTickets[j], " (", (candTypes[j] == OP_BUY ? "BUY" : "SELL"), " $", DoubleToString(candProfits[j], 2),
                      ") = Total $", DoubleToString(pairSum, 2), " >= $", DoubleToString(minProfitUSD, 2), " | Closing Pair!");
@@ -5375,17 +5494,23 @@ Print(">>> [COMBINATION CLOSE - PAIR (WIN+LOSS)] Ticket #", candTickets[i],
                double tripletSum = candProfits[i] + candProfits[j] + candProfits[k];
                if(tripletSum >= minProfitUSD)
                  {
-                                    int m4tTkts[3]; double m4tPls[3];
-                  m4tTkts[0] = candTickets[i]; m4tPls[0] = candProfits[i];
-                  m4tTkts[1] = candTickets[j]; m4tPls[1] = candProfits[j];
-                  m4tTkts[2] = candTickets[k]; m4tPls[2] = candProfits[k];
+                  int m4tTkts[3];
+                  double m4tPls[3];
+                  m4tTkts[0] = candTickets[i];
+                  m4tPls[0] = candProfits[i];
+                  m4tTkts[1] = candTickets[j];
+                  m4tPls[1] = candProfits[j];
+                  m4tTkts[2] = candTickets[k];
+                  m4tPls[2] = candProfits[k];
                   RecordMethodActionCluster(4, m4tTkts, m4tPls, 3, tripletSum, "Method 4: Triplet Combo Close at market");
 
-Print(">>> [COMBINATION CLOSE - TRIPLET (WITH LOSS)] Tickets [#", candTickets[i], ", #", candTickets[j], ", #", candTickets[k],
+                  Print(">>> [COMBINATION CLOSE - TRIPLET (WITH LOSS)] Tickets [#", candTickets[i], ", #", candTickets[j], ", #", candTickets[k],
                         "] = Total $", DoubleToString(tripletSum, 2), " >= $", DoubleToString(minProfitUSD, 2), " | Closing Triplet!");
 
                   int tIdx[3];
-                  tIdx[0] = i; tIdx[1] = j; tIdx[2] = k;
+                  tIdx[0] = i;
+                  tIdx[1] = j;
+                  tIdx[2] = k;
                   for(int x = 0; x < 2; x++)
                     {
                      for(int y = x + 1; y < 3; y++)
@@ -5479,7 +5604,9 @@ Print(">>> [COMBINATION CLOSE - TRIPLET (WITH LOSS)] Tickets [#", candTickets[i]
                      "] = Total $", DoubleToString(tripletSum, 2), " >= $", DoubleToString(minProfitUSD, 2), " | Closing Triplet!");
 
                int tIdx[3];
-               tIdx[0] = i; tIdx[1] = j; tIdx[2] = k;
+               tIdx[0] = i;
+               tIdx[1] = j;
+               tIdx[2] = k;
                for(int x = 0; x < 2; x++)
                  {
                   for(int y = x + 1; y < 3; y++)
@@ -7436,7 +7563,7 @@ void OnTick()
    if(InpCancelPendingReEntryOnLoss)
       CancelPendingReEntryOnLoss(0);
 
-CloseProfitableOrderCombinations(); // Method 4: Combination profit handler (> $1*mult, $150 SL gap)
+   CloseProfitableOrderCombinations(); // Method 4: Combination profit handler (> $1*mult, $150 SL gap)
    CheckAndCloseOrphanFLIPBasketSupportOrders(); // Ensure FLIPBasketSupport is never orphan/single without regular basket orders
    ManageOverallBasketProfit();//modify basket orders at $1 profit
    ManageFLIPBasketSupportTrailingStopLoss(); // Dedicated step-trailing StopLoss on every 100 step move in positive profit
@@ -7482,7 +7609,7 @@ CloseProfitableOrderCombinations(); // Method 4: Combination profit handler (> $
    OnTickCore();
    OnTickPerformanceEnd(tickStartMs);
 
-ModifyPairProfitWithStopLoss(); // Method 1: Multi-order pair/triplet SL modifier (> $1*mult, $150 SL gap)
+   ModifyPairProfitWithStopLoss(); // Method 1: Multi-order pair/triplet SL modifier (> $1*mult, $150 SL gap)
    ModifyMethod6MultiOrderCombinationsOver5USD(); // Method 6: Multi-order combinations (> 2 orders, profit/loss mix) > $5 SL modifier ($150 SL gap)
    CheckAndDrawMultiOrderClosedIcons(); // Multi-order closed icons (+2, +3, +4...) for all 6 methods
    ProcessMethodAnalyticsTracker(); // Track released profit for all methods
@@ -7734,8 +7861,9 @@ void ManageOverallBasketProfit()
            {
             if(oType == OP_BUY && proposedSL < oOpen)
                proposedSL = oOpen;
-            else if(oType == OP_SELL && proposedSL > oOpen)
-               proposedSL = oOpen;
+            else
+               if(oType == OP_SELL && proposedSL > oOpen)
+                  proposedSL = oOpen;
            }
 
          bool allowBreathingWidening = (isSteepAngle && isProfitGapReached && (oType == OP_BUY ? proposedSL >= oOpen : proposedSL <= oOpen));
@@ -7743,7 +7871,7 @@ void ManageOverallBasketProfit()
          if(oType == OP_BUY)
            {
             if(proposedSL < Bid && (curSL == 0.0 || (proposedSL > curSL && (proposedSL - curSL) >= MinimumSLModifyGapRaw) ||
-               (allowBreathingWidening && MathAbs(proposedSL - curSL) >= MinimumSLModifyGapRaw)))
+                                    (allowBreathingWidening && MathAbs(proposedSL - curSL) >= MinimumSLModifyGapRaw)))
               {
                if(SafeOrderModify(tkt, oOpen, proposedSL, curTP, 0, clrLimeGreen, "Method 5"))
                  {
@@ -7752,18 +7880,19 @@ void ManageOverallBasketProfit()
                  }
               }
            }
-         else if(oType == OP_SELL)
-           {
-            if(proposedSL > Ask && (curSL == 0.0 || (proposedSL < curSL && (curSL - proposedSL) >= MinimumSLModifyGapRaw) ||
-               (allowBreathingWidening && MathAbs(proposedSL - curSL) >= MinimumSLModifyGapRaw)))
+         else
+            if(oType == OP_SELL)
               {
-               if(SafeOrderModify(tkt, oOpen, proposedSL, curTP, 0, clrTomato, "Method 5"))
+               if(proposedSL > Ask && (curSL == 0.0 || (proposedSL < curSL && (curSL - proposedSL) >= MinimumSLModifyGapRaw) ||
+                                       (allowBreathingWidening && MathAbs(proposedSL - curSL) >= MinimumSLModifyGapRaw)))
                  {
-                  int totalBasketOrders = g_orderCache.buyOrders + g_orderCache.sellOrders;
-                  RecordMethodModification(tkt, 5, totalBasketOrders, totalBasketProfit);
+                  if(SafeOrderModify(tkt, oOpen, proposedSL, curTP, 0, clrTomato, "Method 5"))
+                    {
+                     int totalBasketOrders = g_orderCache.buyOrders + g_orderCache.sellOrders;
+                     RecordMethodModification(tkt, 5, totalBasketOrders, totalBasketProfit);
+                    }
                  }
               }
-           }
         }
      }
   }
@@ -9963,38 +10092,69 @@ int SafeOrderSend(string symbol,int orderType,double lots,double price,int slipp
    if(MathAbs(Get30MinutePriceDifference())<100)
       ignoreFlipTime = true;
 
-
-   if(EMADirection != requestedDirection)
-     {
-      if(requestedDirection == -1 && GetOpenPL(OP_SELL) <= -20)
+   /*
+      if(EMADirection != requestedDirection && MathAbs(GlobalEmaAngle30)>2)
         {
-         // Allow despite EMA direction mismatch
-        }
-      else
-         if(requestedDirection == 1 && GetOpenPL(OP_BUY) <= -20)
+         if(requestedDirection == -1 && GetOpenPL(OP_SELL) <= -20)
            {
             // Allow despite EMA direction mismatch
            }
          else
-           {
+            if(requestedDirection == 1 && GetOpenPL(OP_BUY) <= -20)
+              {
+               // Allow despite EMA direction mismatch
+              }
+            else
+              {
+               return -1;
+              }
+        }
+
+
+   if(EMADirection != requestedDirection && MathAbs(GlobalEmaAngle30)>2 &&
+      (
+         (TimeCurrent() - EmaFlipTime < 60 * 30 &&
+          GetDistanceToEMAPrice(requestedDirection == 1 ? OP_BUY : OP_SELL, true) <= 500.0)
+         ||
+         (TimeCurrent() - EmaFlipTime > 60 * 60)
+      )
+
+      )
+      return -1;
+
+
+      */
+
+   if(!IsEmaWEAKDistanceReduced50PercentFromPeak() && EMADirection != requestedDirection)
+      return -1;
+
+   if(EMADirection != requestedDirection &&  IsEmaWEAKDistanceReduced50PercentFromPeak())
+     {
+
+
+      if(TimeCurrent() - EmaFlipTime < 60 * 30 &&
+         GetDistanceToEMAPrice(requestedDirection == 1 ? OP_BUY : OP_SELL, true)> 200.0)
+        {
+
+        }
+
+
+      else
+         if(MathAbs(GlobalEmaAngle30)>3)
+
             return -1;
-           }
+
+         else
+
+            return -1;
+
+
+
      }
 
 
-if(EMADirection != requestedDirection &&
-   (
-      (TimeCurrent() - EmaFlipTime < 60 * 30 &&
-       GetDistanceToEMAPrice(requestedDirection == 1 ? OP_BUY : OP_SELL, true) <= 500.0)
-      ||
-      (TimeCurrent() - EmaFlipTime > 60 * 60)
-   )
-   
-   )
-   return -1;
 
-   if(!IsEmaWEAKDistanceReduced50PercentFromPeak() && EMADirection!= requestedDirection)
-      return -1;
+
 
 
 // if(EMAflipdistance()>200 && !IsEmaWEAKDistanceReduced50PercentFromPeak() && EMADirection!= requestedDirection)
@@ -10578,7 +10738,7 @@ bool CanModifyStopLossForHigherProfit(int ticket, double proposedSL, string call
 
    curSL = NormalizeDouble(curSL, Digits);
 
-   // EXCEPTION: Emergency 90% SL Adverse Cut & Double SL (Only for emergency adverse halving)
+// EXCEPTION: Emergency 90% SL Adverse Cut & Double SL (Only for emergency adverse halving)
    if(callerName == "Emergency90PercentSLCutDoubleSL")
       return true;
 
@@ -10657,7 +10817,7 @@ double GetTrendAwareStopLoss(int orderType, double standardGapUSD, double curSL 
    if(gap < minStopDist)
       gap = minStopDist;
 
-   // USER RULE (VMULTI-1095): Double StopLoss gap (e.g. $150 -> $300) when MathAbs(EMAangle) > 3.0 and raw profit gap > $300.0
+// USER RULE (VMULTI-1095): Double StopLoss gap (e.g. $150 -> $300) when MathAbs(EMAangle) > 3.0 and raw profit gap > $300.0
    double curAngle = GlobalEmaAngle30;
    if(curAngle == 0.0)
       curAngle = GetEmaAngleDegrees(30);
@@ -10667,8 +10827,9 @@ double GetTrendAwareStopLoss(int orderType, double standardGapUSD, double curSL 
      {
       if(orderType == OP_BUY)
          rawProfitGap = curBid - openPrice;
-      else if(orderType == OP_SELL)
-         rawProfitGap = openPrice - curAsk;
+      else
+         if(orderType == OP_SELL)
+            rawProfitGap = openPrice - curAsk;
      }
 
    bool isSteepAngle = (InpEnableDoubleSlGapOnSteepAngle && MathAbs(curAngle) > InpDoubleSlGapAngle);
@@ -10700,17 +10861,18 @@ double GetTrendAwareStopLoss(int orderType, double standardGapUSD, double curSL 
             sl = curSL;
          return sl;
         }
-      else if(orderType == OP_SELL)
-        {
-         double sl = NormalizeDouble(curAsk + gap, Digits);
-         if((sl - curAsk) < minStopDist)
-            sl = NormalizeDouble(curAsk + minStopDist, Digits);
-         if(openPrice > 0.0 && sl > openPrice && (isProfitGapReached || rawProfitGap > 0.0 || orderProfit > 0.0))
-            sl = openPrice; // USER RULE: Never modify order with loss amount (SELL order not greater than openPrice)
-         if(curSL > 0.0 && sl >= curSL)
-            sl = curSL;
-         return sl;
-        }
+      else
+         if(orderType == OP_SELL)
+           {
+            double sl = NormalizeDouble(curAsk + gap, Digits);
+            if((sl - curAsk) < minStopDist)
+               sl = NormalizeDouble(curAsk + minStopDist, Digits);
+            if(openPrice > 0.0 && sl > openPrice && (isProfitGapReached || rawProfitGap > 0.0 || orderProfit > 0.0))
+               sl = openPrice; // USER RULE: Never modify order with loss amount (SELL order not greater than openPrice)
+            if(curSL > 0.0 && sl >= curSL)
+               sl = curSL;
+            return sl;
+           }
       return 0.0;
      }
 
@@ -10748,36 +10910,37 @@ double GetTrendAwareStopLoss(int orderType, double standardGapUSD, double curSL 
       if(curSL > 0.0 && targetSL <= curSL)
          targetSL = curSL;
      }
-   else if(orderType == OP_SELL)
-     {
-      // Condition 1: SELL and EMADirection == -1 and EMA strong -> standard gap logic
-      if(EMADirection == -1 && !isEmaWeak)
+   else
+      if(orderType == OP_SELL)
         {
-         targetSL = NormalizeDouble(curAsk + gap, Digits);
-         if((targetSL - curAsk) < minStopDist)
-            targetSL = NormalizeDouble(curAsk + minStopDist, Digits);
-        }
-      else
-        {
-         // Condition 2: SELL and (EMADirection == 1 or EMA weak) -> live price to avoid extra loss
-         targetSL = NormalizeDouble(curAsk + liveBuffer, Digits);
-         if(curSL <= 0.0 || targetSL < curSL)
+         // Condition 1: SELL and EMADirection == -1 and EMA strong -> standard gap logic
+         if(EMADirection == -1 && !isEmaWeak)
            {
-            Print(">>> [TREND-AWARE SL] SELL", (callerName != "" ? " (" + callerName + ")" : ""),
-                  ": EMA Dir=", EMADirection, ", Weak=", isEmaWeak,
-                  " -> Setting SL to Live Price (Ask + ", DoubleToString(liveBuffer, Digits), ") = ",
-                  DoubleToString(targetSL, Digits), " (Standard gap $", DoubleToString(gap, 2), " skipped to prevent loss)");
+            targetSL = NormalizeDouble(curAsk + gap, Digits);
+            if((targetSL - curAsk) < minStopDist)
+               targetSL = NormalizeDouble(curAsk + minStopDist, Digits);
            }
+         else
+           {
+            // Condition 2: SELL and (EMADirection == 1 or EMA weak) -> live price to avoid extra loss
+            targetSL = NormalizeDouble(curAsk + liveBuffer, Digits);
+            if(curSL <= 0.0 || targetSL < curSL)
+              {
+               Print(">>> [TREND-AWARE SL] SELL", (callerName != "" ? " (" + callerName + ")" : ""),
+                     ": EMA Dir=", EMADirection, ", Weak=", isEmaWeak,
+                     " -> Setting SL to Live Price (Ask + ", DoubleToString(liveBuffer, Digits), ") = ",
+                     DoubleToString(targetSL, Digits), " (Standard gap $", DoubleToString(gap, 2), " skipped to prevent loss)");
+              }
+           }
+
+         // Ensure profit-locking order maintains at least Breakeven
+         if(openPrice > 0.0 && targetSL > openPrice && isProfitGapReached)
+            targetSL = openPrice;
+
+         // Universal Ratchet: StopLoss can never go backwards from existing curSL
+         if(curSL > 0.0 && targetSL >= curSL)
+            targetSL = curSL;
         }
-
-      // Ensure profit-locking order maintains at least Breakeven
-      if(openPrice > 0.0 && targetSL > openPrice && isProfitGapReached)
-         targetSL = openPrice;
-
-      // Universal Ratchet: StopLoss can never go backwards from existing curSL
-      if(curSL > 0.0 && targetSL >= curSL)
-         targetSL = curSL;
-     }
 
    return targetSL;
   }
@@ -10847,22 +11010,23 @@ bool SafeOrderModify(int ticket,double openPrice,double stopLoss,double takeProf
                      requestedSL = wideSL;
                     }
                  }
-               else if(orderType == OP_SELL)
-                 {
-                  double wideSL = NormalizeDouble(Ask + doubledLiveGap, Digits);
-                  if(wideSL > oOpen)
-                     wideSL = oOpen; // Maintain at least Breakeven - USER RULE: never modify order with loss amount
-                  if(existingSL > 0.0 && wideSL >= existingSL)
-                     wideSL = existingSL; // Common Gate Barrier: never downgrade existing SL
-                  if(wideSL > requestedSL && (existingSL <= 0.0 || wideSL < existingSL))
+               else
+                  if(orderType == OP_SELL)
                     {
-                     Print(">>> [DOUBLE SL GAP IN SAFEMODIFY] SELL #", ticket, " Raw Profit Gap=$", DoubleToString(rawProfitGap, 2),
-                           " | Doubled gap from $", DoubleToString(liveGap, 2), " to $", DoubleToString(doubledLiveGap, 2),
-                           " | SL adjusted from ", DoubleToString(requestedSL, Digits), " to ", DoubleToString(wideSL, Digits),
-                           " (MathAbs(EMAangle)=", DoubleToString(MathAbs(curEmaAng), 2), " > ", DoubleToString(InpDoubleSlGapAngle, 1), " deg)");
-                     requestedSL = wideSL;
+                     double wideSL = NormalizeDouble(Ask + doubledLiveGap, Digits);
+                     if(wideSL > oOpen)
+                        wideSL = oOpen; // Maintain at least Breakeven - USER RULE: never modify order with loss amount
+                     if(existingSL > 0.0 && wideSL >= existingSL)
+                        wideSL = existingSL; // Common Gate Barrier: never downgrade existing SL
+                     if(wideSL > requestedSL && (existingSL <= 0.0 || wideSL < existingSL))
+                       {
+                        Print(">>> [DOUBLE SL GAP IN SAFEMODIFY] SELL #", ticket, " Raw Profit Gap=$", DoubleToString(rawProfitGap, 2),
+                              " | Doubled gap from $", DoubleToString(liveGap, 2), " to $", DoubleToString(doubledLiveGap, 2),
+                              " | SL adjusted from ", DoubleToString(requestedSL, Digits), " to ", DoubleToString(wideSL, Digits),
+                              " (MathAbs(EMAangle)=", DoubleToString(MathAbs(curEmaAng), 2), " > ", DoubleToString(InpDoubleSlGapAngle, 1), " deg)");
+                        requestedSL = wideSL;
+                       }
                     }
-                 }
               }
            }
         }
@@ -10876,12 +11040,13 @@ bool SafeOrderModify(int ticket,double openPrice,double stopLoss,double takeProf
                   " clamped to openPrice=", DoubleToString(oOpen, Digits), " (Rule: Never modify order with loss amount)");
             requestedSL = oOpen;
            }
-         else if(orderType == OP_SELL && requestedSL > oOpen)
-           {
-            Print(">>> [LOSS MODIFICATION PREVENTED] SELL #", ticket, " requestedSL=", DoubleToString(requestedSL, Digits),
-                  " clamped to openPrice=", DoubleToString(oOpen, Digits), " (Rule: Never modify order with loss amount)");
-            requestedSL = oOpen;
-           }
+         else
+            if(orderType == OP_SELL && requestedSL > oOpen)
+              {
+               Print(">>> [LOSS MODIFICATION PREVENTED] SELL #", ticket, " requestedSL=", DoubleToString(requestedSL, Digits),
+                     " clamped to openPrice=", DoubleToString(oOpen, Digits), " (Rule: Never modify order with loss amount)");
+               requestedSL = oOpen;
+              }
         }
 
       if(!isMethodCaller && curNetPL > 0.0 && isSecuringProfit && !IsAnyRecoveryOrder(ticket, comment) && !IsFLIPBasketSupportOrder(ticket, comment))
@@ -10966,23 +11131,24 @@ bool SafeOrderModify(int ticket,double openPrice,double stopLoss,double takeProf
                  }
               }
            }
-         else if(orderType == OP_SELL)
-           {
-            if(EMADirection == 1 || isEmaWeak)
+         else
+            if(orderType == OP_SELL)
               {
-               double livePriceSL = NormalizeDouble(Ask + liveBuffer, Digits);
-               // Strict One-Way Ratchet: Tighten only if lower than requestedSL AND lower than existing SL (never downgrade profit!)
-               if((livePriceSL < requestedSL || requestedSL == 0.0) && (existingSL <= 0.0 || livePriceSL < existingSL))
+               if(EMADirection == 1 || isEmaWeak)
                  {
-                  Print(">>> [TREND-AWARE SL ENFORCED] SafeOrderModify SELL #", ticket,
-                        (callerName != "" ? " (" + callerName + ")" : ""),
-                        ": Counter/Weak EMA (EMADir=", EMADirection, ", Weak=", isEmaWeak,
-                        ") - Tightened SL from ", DoubleToString(requestedSL, Digits),
-                        " to Live Price SL=", DoubleToString(livePriceSL, Digits), " to avoid extra loss");
-                  requestedSL = livePriceSL;
+                  double livePriceSL = NormalizeDouble(Ask + liveBuffer, Digits);
+                  // Strict One-Way Ratchet: Tighten only if lower than requestedSL AND lower than existing SL (never downgrade profit!)
+                  if((livePriceSL < requestedSL || requestedSL == 0.0) && (existingSL <= 0.0 || livePriceSL < existingSL))
+                    {
+                     Print(">>> [TREND-AWARE SL ENFORCED] SafeOrderModify SELL #", ticket,
+                           (callerName != "" ? " (" + callerName + ")" : ""),
+                           ": Counter/Weak EMA (EMADir=", EMADirection, ", Weak=", isEmaWeak,
+                           ") - Tightened SL from ", DoubleToString(requestedSL, Digits),
+                           " to Live Price SL=", DoubleToString(livePriceSL, Digits), " to avoid extra loss");
+                     requestedSL = livePriceSL;
+                    }
                  }
               }
-           }
         }
 
       if(!PrepareStopLossForOrder(orderType, OrderOpenPrice(), requestedSL))
@@ -11830,7 +11996,7 @@ void modifyOnlyBuyOrders()
 
                // CRITICAL: Only move SL UP to lock in profit, and ONLY once SL is above open price (guaranteeing profit)
                if(newSL < Bid && (currentSL == 0.0 || (newSL > currentSL && (newSL - currentSL) >= MinimumSLModifyGapRaw) ||
-                  (allowBreathingWidening && MathAbs(newSL - currentSL) >= MinimumSLModifyGapRaw)))
+                                  (allowBreathingWidening && MathAbs(newSL - currentSL) >= MinimumSLModifyGapRaw)))
                  {
                   ResetLastError();
                   bool modified =SafeOrderModify(ticket, openPrice, newSL, currentTP, 0, clrGreen, "Method 2");
@@ -11897,7 +12063,7 @@ void modifyOnlySellOrders()
 
                // CRITICAL: Only move SL DOWN to lock in profit, and ONLY once SL is below open price (guaranteeing profit)
                if(newSL > Ask && (currentSL == 0.0 || (newSL < currentSL && (currentSL - newSL) >= MinimumSLModifyGapRaw) ||
-                  (allowBreathingWidening && MathAbs(newSL - currentSL) >= MinimumSLModifyGapRaw)))
+                                  (allowBreathingWidening && MathAbs(newSL - currentSL) >= MinimumSLModifyGapRaw)))
                  {
                   ResetLastError();
                   bool modified =SafeOrderModify(ticket, openPrice, newSL, currentTP, 0, clrRed, "Method 3");
@@ -12557,9 +12723,9 @@ void ModifyOpenOrdersToSecureProfit()
            }
      }
 
-   // ==============================================================
-   // CLOSE ALL QUEUED LOSING ORDERS ON EQUITY TARGET HIT
-   // ==============================================================
+// ==============================================================
+// CLOSE ALL QUEUED LOSING ORDERS ON EQUITY TARGET HIT
+// ==============================================================
    if(InpCloseLosingOrdersOnEquityTargetHit && ArraySize(losingTickets) > 0)
      {
       for(int k = 0; k < ArraySize(losingTickets); k++)
@@ -13589,23 +13755,23 @@ void ChangeLots(double OpenPL, string reason, int orderType, int stoplevelStep,s
             Lots = Lots * 3;
 
 
-if(!IsEmaWEAKDistanceReduced50PercentFromPeak(orderType))
-{
-    if(EMADirection==1 &&  GetOpenPL(OP_BUY)<=-20)
-    {
-Lots = Lots * 3;
-    }
-     if(EMADirection==-1 &&  GetOpenPL(OP_SELL)<=-20)
-    {
-Lots = Lots * 3;
-    }
-}
+   if(!IsEmaWEAKDistanceReduced50PercentFromPeak(orderType))
+     {
+      if(EMADirection==1 &&  GetOpenPL(OP_BUY)<=-20)
+        {
+         Lots = Lots * 3;
+        }
+      if(EMADirection==-1 &&  GetOpenPL(OP_SELL)<=-20)
+        {
+         Lots = Lots * 3;
+        }
+     }
 
 
 //----------------------------------------------------------------------------------------
 // Safety catch
-  // if(IsHeavyLotOrderNearBy(orderType, Lots, 200) && Lots>=0.02)
-    //  Lots = 0.02;
+// if(IsHeavyLotOrderNearBy(orderType, Lots, 200) && Lots>=0.02)
+//  Lots = 0.02;
 //----------------------------------------------------------------------------------------
 // Safety catch
 
@@ -20419,7 +20585,7 @@ void ManageLsdSweepLineStopLossProtection()
 //+------------------------------------------------------------------+
 bool HasMinimumHorizontalOrderGap(int orderType, double proposedPrice, double minGapUSD)
   {
-   // USER RULE: Enforce strict minimum $200 price gap between 2 horizontal EQH orders of same type
+// USER RULE: Enforce strict minimum $200 price gap between 2 horizontal EQH orders of same type
    double effectiveGap = (minGapUSD >= 200.0) ? minGapUSD : 200.0;
 
    string targetPattern = (orderType == OP_BUY) ? "EQH-G" : "EQH-R";
@@ -22142,28 +22308,28 @@ void CheckLsdSweepFlipBasketSupportOrder()
                   // Blocked by horizontal order minimum gap ($200)
                  }
                else
-               if(MathAbs(GlobalEmaAngle30) <= InpHorizontalLineIgnoreEmaGapAngle && emaGap < minEmaDist)
-                 {
-                  Print(">>> [LSD M1 BUY BLOCKED] In EMA Chop Zone: Ask=", DoubleToString(livePrice, Digits),
-                        ", EMA200=", DoubleToString(liveEma, Digits), ", Gap=$", DoubleToString(emaGap, 2),
-                        " < Required Min $", DoubleToString(minEmaDist, 2));
-                 }
-               else
-                 {
-                  Print(">>> [LSD M1 BUY TRIGGER] EMA=-1, EQH-R detected at ", DoubleToString(eqhPrice, Digits),
-                        ", Ask=", DoubleToString(livePrice, Digits), " > EQH-R by ", DoubleToString(rawGap, 2),
-                        " (<= $", DoubleToString(m1MaxGap, 2), ") | EMA Gap=$", DoubleToString(emaGap, 2),
-                        " -> Creating BUY EMAflipsupportorder (M1 Breakout)...");
-
-                  int tkt = CreateFLIPBasketSupportOrder(1, true, true, "_LSD_EQHR");
-                  if(tkt > 0)
+                  if(MathAbs(GlobalEmaAngle30) <= InpHorizontalLineIgnoreEmaGapAngle && emaGap < minEmaDist)
                     {
-                     FLIPBasketSupportOpenedThisCycle = true;
-                     g_lastOrderEqHighLineStart = eqhStart;
-                     Print(">>> [LSD M1 BUY TRIGGER] Successfully created BUY EMAflipsupportorder Ticket #", tkt,
-                           " for EQH-R line (Start: ", TimeToStr(eqhStart, TIME_DATE|TIME_MINUTES), "). Total line limit (1) enforced.");
+                     Print(">>> [LSD M1 BUY BLOCKED] In EMA Chop Zone: Ask=", DoubleToString(livePrice, Digits),
+                           ", EMA200=", DoubleToString(liveEma, Digits), ", Gap=$", DoubleToString(emaGap, 2),
+                           " < Required Min $", DoubleToString(minEmaDist, 2));
                     }
-                 }
+                  else
+                    {
+                     Print(">>> [LSD M1 BUY TRIGGER] EMA=-1, EQH-R detected at ", DoubleToString(eqhPrice, Digits),
+                           ", Ask=", DoubleToString(livePrice, Digits), " > EQH-R by ", DoubleToString(rawGap, 2),
+                           " (<= $", DoubleToString(m1MaxGap, 2), ") | EMA Gap=$", DoubleToString(emaGap, 2),
+                           " -> Creating BUY EMAflipsupportorder (M1 Breakout)...");
+
+                     int tkt = CreateFLIPBasketSupportOrder(1, true, true, "_LSD_EQHR");
+                     if(tkt > 0)
+                       {
+                        FLIPBasketSupportOpenedThisCycle = true;
+                        g_lastOrderEqHighLineStart = eqhStart;
+                        Print(">>> [LSD M1 BUY TRIGGER] Successfully created BUY EMAflipsupportorder Ticket #", tkt,
+                              " for EQH-R line (Start: ", TimeToStr(eqhStart, TIME_DATE|TIME_MINUTES), "). Total line limit (1) enforced.");
+                       }
+                    }
               }
            }
         }
@@ -22195,38 +22361,55 @@ void CheckLsdSweepFlipBasketSupportOrder()
                   // Blocked by horizontal order minimum gap ($200)
                  }
                else
-               // SAFE-SIDE CHECK 1: Must NOT be inside the EMA Chop Zone (< minEmaDist from EMA200)
-               if(MathAbs(GlobalEmaAngle30) <= InpHorizontalLineIgnoreEmaGapAngle && emaGap < minEmaDist)
-                 {
-                  Print(">>> [LSD M2 BUY BLOCKED] In EMA Chop Zone: Ask=", DoubleToString(livePrice, Digits),
-                        ", EMA200=", DoubleToString(liveEma, Digits), ", Gap=$", DoubleToString(emaGap, 2),
-                        " < Required Min $", DoubleToString(minEmaDist, 2), ". Skipping buy order!");
-                 }
-               else
-                  // SAFE-SIDE CHECK 2: Directional Runway / Momentum
-                  if(InpLsdRequireDirectionalRunway && MathAbs(GlobalEmaAngle30) <= InpHorizontalLineIgnoreEmaGapAngle && liveEma > 0.0 && livePrice < liveEma && (liveEma - livePrice) < minEmaDist)
+                  // SAFE-SIDE CHECK 1: Must NOT be inside the EMA Chop Zone (< minEmaDist from EMA200)
+                  if(MathAbs(GlobalEmaAngle30) <= InpHorizontalLineIgnoreEmaGapAngle && emaGap < minEmaDist)
                     {
-                     Print(">>> [LSD M2 BUY BLOCKED] Insufficient bounce runway up to EMA: LivePrice=",
-                           DoubleToString(livePrice, Digits), ", EMA200=", DoubleToString(liveEma, Digits),
-                           ", Runway=$", DoubleToString(liveEma - livePrice, 2),
-                           " < Required Min $", DoubleToString(minEmaDist, 2));
+                     Print(">>> [LSD M2 BUY BLOCKED] In EMA Chop Zone: Ask=", DoubleToString(livePrice, Digits),
+                           ", EMA200=", DoubleToString(liveEma, Digits), ", Gap=$", DoubleToString(emaGap, 2),
+                           " < Required Min $", DoubleToString(minEmaDist, 2), ". Skipping buy order!");
                     }
                   else
-                     if(InpLsdRequireDirectionalRunway && liveEma > 0.0 && livePrice > liveEma)
+                     // SAFE-SIDE CHECK 2: Directional Runway / Momentum
+                     if(InpLsdRequireDirectionalRunway && MathAbs(GlobalEmaAngle30) <= InpHorizontalLineIgnoreEmaGapAngle && liveEma > 0.0 && livePrice < liveEma && (liveEma - livePrice) < minEmaDist)
                        {
-                        double highestSinceFlip = GetHighestPriceSinceEmaFlip();
-                        double upExpansion = highestSinceFlip - liveEma;
-                        if(upExpansion < minEmaDist)
+                        Print(">>> [LSD M2 BUY BLOCKED] Insufficient bounce runway up to EMA: LivePrice=",
+                              DoubleToString(livePrice, Digits), ", EMA200=", DoubleToString(liveEma, Digits),
+                              ", Runway=$", DoubleToString(liveEma - livePrice, 2),
+                              " < Required Min $", DoubleToString(minEmaDist, 2));
+                       }
+                     else
+                        if(InpLsdRequireDirectionalRunway && liveEma > 0.0 && livePrice > liveEma)
                           {
-                           Print(">>> [LSD M2 BUY BLOCKED] Insufficient previous upward impulse: HighestSinceFlip=",
-                                 DoubleToString(highestSinceFlip, Digits), ", UpExpansion=$",
-                                 DoubleToString(upExpansion, 2), " < Required Min $", DoubleToString(minEmaDist, 2));
+                           double highestSinceFlip = GetHighestPriceSinceEmaFlip();
+                           double upExpansion = highestSinceFlip - liveEma;
+                           if(upExpansion < minEmaDist)
+                             {
+                              Print(">>> [LSD M2 BUY BLOCKED] Insufficient previous upward impulse: HighestSinceFlip=",
+                                    DoubleToString(highestSinceFlip, Digits), ", UpExpansion=$",
+                                    DoubleToString(upExpansion, 2), " < Required Min $", DoubleToString(minEmaDist, 2));
+                             }
+                           else
+                             {
+                              Print(">>> [LSD M2 BUY TRIGGER] EMA ANY, EQH-G detected at ", DoubleToString(eqlPrice, Digits),
+                                    ", Ask=", DoubleToString(livePrice, Digits), " > EQH-G by ", DoubleToString(rawGap, 2),
+                                    " (<= $", DoubleToString(m2MaxGap, 2), ") | EMA Gap=$", DoubleToString(emaGap, 2),
+                                    " -> Creating BUY EMAflipsupportorder (M2 Bounce)...");
+
+                              int tkt = CreateFLIPBasketSupportOrder(1, true, true, "_LSD_EQHG_M2");
+                              if(tkt > 0)
+                                {
+                                 FLIPBasketSupportOpenedThisCycle = true;
+                                 g_lastOrderEqLowLineStart = eqlStart;
+                                 Print(">>> [LSD M2 BUY TRIGGER] Successfully created BUY EMAflipsupportorder Ticket #", tkt,
+                                       " for EQH-G line (Start: ", TimeToStr(eqlStart, TIME_DATE|TIME_MINUTES), "). Total line limit (1) enforced.");
+                                }
+                             }
                           }
                         else
                           {
                            Print(">>> [LSD M2 BUY TRIGGER] EMA ANY, EQH-G detected at ", DoubleToString(eqlPrice, Digits),
                                  ", Ask=", DoubleToString(livePrice, Digits), " > EQH-G by ", DoubleToString(rawGap, 2),
-                                 " (<= $", DoubleToString(m2MaxGap, 2), ") | EMA Gap=$", DoubleToString(emaGap, 2),
+                                 " (<= $", DoubleToString(m2MaxGap, 2), ") | Runway to EMA=$", DoubleToString(liveEma - livePrice, 2),
                                  " -> Creating BUY EMAflipsupportorder (M2 Bounce)...");
 
                            int tkt = CreateFLIPBasketSupportOrder(1, true, true, "_LSD_EQHG_M2");
@@ -22238,23 +22421,6 @@ void CheckLsdSweepFlipBasketSupportOrder()
                                     " for EQH-G line (Start: ", TimeToStr(eqlStart, TIME_DATE|TIME_MINUTES), "). Total line limit (1) enforced.");
                              }
                           }
-                       }
-                     else
-                       {
-                        Print(">>> [LSD M2 BUY TRIGGER] EMA ANY, EQH-G detected at ", DoubleToString(eqlPrice, Digits),
-                              ", Ask=", DoubleToString(livePrice, Digits), " > EQH-G by ", DoubleToString(rawGap, 2),
-                              " (<= $", DoubleToString(m2MaxGap, 2), ") | Runway to EMA=$", DoubleToString(liveEma - livePrice, 2),
-                              " -> Creating BUY EMAflipsupportorder (M2 Bounce)...");
-
-                        int tkt = CreateFLIPBasketSupportOrder(1, true, true, "_LSD_EQHG_M2");
-                        if(tkt > 0)
-                          {
-                           FLIPBasketSupportOpenedThisCycle = true;
-                           g_lastOrderEqLowLineStart = eqlStart;
-                           Print(">>> [LSD M2 BUY TRIGGER] Successfully created BUY EMAflipsupportorder Ticket #", tkt,
-                                 " for EQH-G line (Start: ", TimeToStr(eqlStart, TIME_DATE|TIME_MINUTES), "). Total line limit (1) enforced.");
-                          }
-                       }
               }
            }
         }
@@ -22292,28 +22458,28 @@ void CheckLsdSweepFlipBasketSupportOrder()
                   // Blocked by horizontal order minimum gap ($200)
                  }
                else
-               if(MathAbs(GlobalEmaAngle30) <= InpHorizontalLineIgnoreEmaGapAngle && emaGap < minEmaDist)
-                 {
-                  Print(">>> [LSD M1 SELL BLOCKED] In EMA Chop Zone: Bid=", DoubleToString(livePrice, Digits),
-                        ", EMA200=", DoubleToString(liveEma, Digits), ", Gap=$", DoubleToString(emaGap, 2),
-                        " < Required Min $", DoubleToString(minEmaDist, 2));
-                 }
-               else
-                 {
-                  Print(">>> [LSD M1 SELL TRIGGER] EMA=1, EQH-G detected at ", DoubleToString(eqlPrice, Digits),
-                        ", Bid=", DoubleToString(livePrice, Digits), " < EQH-G by ", DoubleToString(rawGap, 2),
-                        " (<= $", DoubleToString(m1MaxGap, 2), ") | EMA Gap=$", DoubleToString(emaGap, 2),
-                        " -> Creating SELL EMAflipsupportorder (M1 Breakout)...");
-
-                  int tkt = CreateFLIPBasketSupportOrder(-1, true, true, "_LSD_EQHG");
-                  if(tkt > 0)
+                  if(MathAbs(GlobalEmaAngle30) <= InpHorizontalLineIgnoreEmaGapAngle && emaGap < minEmaDist)
                     {
-                     FLIPBasketSupportOpenedThisCycle = true;
-                     g_lastOrderEqLowLineStart = eqlStart;
-                     Print(">>> [LSD M1 SELL TRIGGER] Successfully created SELL EMAflipsupportorder Ticket #", tkt,
-                           " for EQH-G line (Start: ", TimeToStr(eqlStart, TIME_DATE|TIME_MINUTES), "). Total line limit (1) enforced.");
+                     Print(">>> [LSD M1 SELL BLOCKED] In EMA Chop Zone: Bid=", DoubleToString(livePrice, Digits),
+                           ", EMA200=", DoubleToString(liveEma, Digits), ", Gap=$", DoubleToString(emaGap, 2),
+                           " < Required Min $", DoubleToString(minEmaDist, 2));
                     }
-                 }
+                  else
+                    {
+                     Print(">>> [LSD M1 SELL TRIGGER] EMA=1, EQH-G detected at ", DoubleToString(eqlPrice, Digits),
+                           ", Bid=", DoubleToString(livePrice, Digits), " < EQH-G by ", DoubleToString(rawGap, 2),
+                           " (<= $", DoubleToString(m1MaxGap, 2), ") | EMA Gap=$", DoubleToString(emaGap, 2),
+                           " -> Creating SELL EMAflipsupportorder (M1 Breakout)...");
+
+                     int tkt = CreateFLIPBasketSupportOrder(-1, true, true, "_LSD_EQHG");
+                     if(tkt > 0)
+                       {
+                        FLIPBasketSupportOpenedThisCycle = true;
+                        g_lastOrderEqLowLineStart = eqlStart;
+                        Print(">>> [LSD M1 SELL TRIGGER] Successfully created SELL EMAflipsupportorder Ticket #", tkt,
+                              " for EQH-G line (Start: ", TimeToStr(eqlStart, TIME_DATE|TIME_MINUTES), "). Total line limit (1) enforced.");
+                       }
+                    }
               }
            }
         }
@@ -22345,39 +22511,56 @@ void CheckLsdSweepFlipBasketSupportOrder()
                   // Blocked by horizontal order minimum gap ($200)
                  }
                else
-               // SAFE-SIDE CHECK 1: Must NOT be inside the EMA Chop Zone (< minEmaDist from EMA200)
-               if(MathAbs(GlobalEmaAngle30) <= InpHorizontalLineIgnoreEmaGapAngle && emaGap < minEmaDist)
-                 {
-                  Print(">>> [LSD M2 SELL BLOCKED] In EMA Chop Zone: Bid=", DoubleToString(livePrice, Digits),
-                        ", EMA200=", DoubleToString(liveEma, Digits), ", Gap=$", DoubleToString(emaGap, 2),
-                        " < Required Min $", DoubleToString(minEmaDist, 2), ". Skipping sell order!");
-                 }
-               else
-                  // SAFE-SIDE CHECK 2: Directional Runway / Momentum
-                  if(InpLsdRequireDirectionalRunway && MathAbs(GlobalEmaAngle30) <= InpHorizontalLineIgnoreEmaGapAngle && liveEma > 0.0 && livePrice > liveEma && (livePrice - liveEma) < minEmaDist)
+                  // SAFE-SIDE CHECK 1: Must NOT be inside the EMA Chop Zone (< minEmaDist from EMA200)
+                  if(MathAbs(GlobalEmaAngle30) <= InpHorizontalLineIgnoreEmaGapAngle && emaGap < minEmaDist)
                     {
-                     Print(">>> [LSD M2 SELL BLOCKED] Insufficient drop runway down to EMA: LivePrice=",
-                           DoubleToString(livePrice, Digits), ", EMA200=", DoubleToString(liveEma, Digits),
-                           ", Runway=$", DoubleToString(livePrice - liveEma, 2),
-                           " < Required Min $", DoubleToString(minEmaDist, 2));
+                     Print(">>> [LSD M2 SELL BLOCKED] In EMA Chop Zone: Bid=", DoubleToString(livePrice, Digits),
+                           ", EMA200=", DoubleToString(liveEma, Digits), ", Gap=$", DoubleToString(emaGap, 2),
+                           " < Required Min $", DoubleToString(minEmaDist, 2), ". Skipping sell order!");
                     }
                   else
-                     if(InpLsdRequireDirectionalRunway && liveEma > 0.0 && livePrice < liveEma)
+                     // SAFE-SIDE CHECK 2: Directional Runway / Momentum
+                     if(InpLsdRequireDirectionalRunway && MathAbs(GlobalEmaAngle30) <= InpHorizontalLineIgnoreEmaGapAngle && liveEma > 0.0 && livePrice > liveEma && (livePrice - liveEma) < minEmaDist)
                        {
-                        double lowestSinceFlip = GetLowestPriceSinceEmaFlip();
-                        double downExpansion = liveEma - lowestSinceFlip;
-                        if(downExpansion < minEmaDist)
+                        Print(">>> [LSD M2 SELL BLOCKED] Insufficient drop runway down to EMA: LivePrice=",
+                              DoubleToString(livePrice, Digits), ", EMA200=", DoubleToString(liveEma, Digits),
+                              ", Runway=$", DoubleToString(livePrice - liveEma, 2),
+                              " < Required Min $", DoubleToString(minEmaDist, 2));
+                       }
+                     else
+                        if(InpLsdRequireDirectionalRunway && liveEma > 0.0 && livePrice < liveEma)
                           {
-                           Print(">>> [LSD M2 SELL BLOCKED] Insufficient previous downward impulse: LowestSinceFlip=",
-                                 DoubleToString(lowestSinceFlip, Digits), ", DownExpansion=$",
-                                 DoubleToString(downExpansion, 2), " < Required Min $", DoubleToString(minEmaDist, 2),
-                                 ". (Market hasn't dropped from EMA). Skipping sell order!");
+                           double lowestSinceFlip = GetLowestPriceSinceEmaFlip();
+                           double downExpansion = liveEma - lowestSinceFlip;
+                           if(downExpansion < minEmaDist)
+                             {
+                              Print(">>> [LSD M2 SELL BLOCKED] Insufficient previous downward impulse: LowestSinceFlip=",
+                                    DoubleToString(lowestSinceFlip, Digits), ", DownExpansion=$",
+                                    DoubleToString(downExpansion, 2), " < Required Min $", DoubleToString(minEmaDist, 2),
+                                    ". (Market hasn't dropped from EMA). Skipping sell order!");
+                             }
+                           else
+                             {
+                              Print(">>> [LSD M2 SELL TRIGGER] EMA ANY, EQH-R detected at ", DoubleToString(eqhPrice, Digits),
+                                    ", Bid=", DoubleToString(livePrice, Digits), " < EQH-R by ", DoubleToString(rawGap, 2),
+                                    " (<= $", DoubleToString(m2MaxGap, 2), ") | DownExpansion=$", DoubleToString(downExpansion, 2),
+                                    " -> Creating SELL EMAflipsupportorder (M2 Bounce)...");
+
+                              int tkt = CreateFLIPBasketSupportOrder(-1, true, true, "_LSD_EQHR_M2");
+                              if(tkt > 0)
+                                {
+                                 FLIPBasketSupportOpenedThisCycle = true;
+                                 g_lastOrderEqHighLineStart = eqhStart;
+                                 Print(">>> [LSD M2 SELL TRIGGER] Successfully created SELL EMAflipsupportorder Ticket #", tkt,
+                                       " for EQH-R line (Start: ", TimeToStr(eqhStart, TIME_DATE|TIME_MINUTES), "). Total line limit (1) enforced.");
+                                }
+                             }
                           }
                         else
                           {
                            Print(">>> [LSD M2 SELL TRIGGER] EMA ANY, EQH-R detected at ", DoubleToString(eqhPrice, Digits),
                                  ", Bid=", DoubleToString(livePrice, Digits), " < EQH-R by ", DoubleToString(rawGap, 2),
-                                 " (<= $", DoubleToString(m2MaxGap, 2), ") | DownExpansion=$", DoubleToString(downExpansion, 2),
+                                 " (<= $", DoubleToString(m2MaxGap, 2), ") | Runway to EMA=$", DoubleToString(livePrice - liveEma, 2),
                                  " -> Creating SELL EMAflipsupportorder (M2 Bounce)...");
 
                            int tkt = CreateFLIPBasketSupportOrder(-1, true, true, "_LSD_EQHR_M2");
@@ -22389,23 +22572,6 @@ void CheckLsdSweepFlipBasketSupportOrder()
                                     " for EQH-R line (Start: ", TimeToStr(eqhStart, TIME_DATE|TIME_MINUTES), "). Total line limit (1) enforced.");
                              }
                           }
-                       }
-                     else
-                       {
-                        Print(">>> [LSD M2 SELL TRIGGER] EMA ANY, EQH-R detected at ", DoubleToString(eqhPrice, Digits),
-                              ", Bid=", DoubleToString(livePrice, Digits), " < EQH-R by ", DoubleToString(rawGap, 2),
-                              " (<= $", DoubleToString(m2MaxGap, 2), ") | Runway to EMA=$", DoubleToString(livePrice - liveEma, 2),
-                              " -> Creating SELL EMAflipsupportorder (M2 Bounce)...");
-
-                        int tkt = CreateFLIPBasketSupportOrder(-1, true, true, "_LSD_EQHR_M2");
-                        if(tkt > 0)
-                          {
-                           FLIPBasketSupportOpenedThisCycle = true;
-                           g_lastOrderEqHighLineStart = eqhStart;
-                           Print(">>> [LSD M2 SELL TRIGGER] Successfully created SELL EMAflipsupportorder Ticket #", tkt,
-                                 " for EQH-R line (Start: ", TimeToStr(eqhStart, TIME_DATE|TIME_MINUTES), "). Total line limit (1) enforced.");
-                          }
-                       }
               }
            }
         }
